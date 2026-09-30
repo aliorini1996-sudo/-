@@ -32,7 +32,7 @@ test('الحارس: applyStep3 لا يرمي GlNotFoundError للفئة ويعي
 test('الحارس: رد /setup/commit يحمل step3 (ومعه skippedCategoryLinks)', () => {
   const a = SRC.indexOf("router.post('/setup/commit'");
   const c = SRC.slice(a, SRC.indexOf('// ═══ POST /setup/backfill ═══'));
-  assert.match(c, /const step3Report = await applyStep3\(tx, tenantId, draft\)/);
+  assert.match(c, /const step3Report = await applyStep3\(tx, tenantId, draft, \{ manual: clean \}\)/);
   assert.match(c, /step3: step3Report,\n\s+\.\.\.\(rebasedImportEntries/);
 });
 

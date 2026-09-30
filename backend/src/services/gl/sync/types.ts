@@ -356,7 +356,7 @@ export interface PosterRunResult {
   lanes?: { live: number; import: number };
 }
 
-export type TenantTickSkip = 'LEASE_HELD' | 'IN_PROCESS' | 'NOT_ACTIVATED' | 'SUITE_DISABLED';
+export type TenantTickSkip = 'MANUAL_LEDGER' | 'LEASE_HELD' | 'IN_PROCESS' | 'NOT_ACTIVATED' | 'SUITE_DISABLED';
 
 export interface TenantTickResult {
   tenantId: string;

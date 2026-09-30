@@ -275,7 +275,9 @@ export function CommitResultPanel({ result, decimals }: { result: SetupCommitRes
     <div className="space-y-4">
       <Notice tone="ok">
         <p className="font-semibold">{tr('تم تفعيل الدفاتر')}</p>
-        <p>{tr('الأرقام أدناه نهائية كما التُزمت في معاملة التفعيل، والترحيل الآلي للمستندات بعد تاريخ البدء يعمل الآن في الخلفية')}</p>
+        <p>{result.status.setupMethod === 'CLEAN'
+          ? tr('دفاتر يدوية مستقلة: منفصلة تماما عن المبيعات والمخزون والتحصيل، لا يُرحَّل إليها شيء آليا، وكل قيد فيها يُدخله المحاسب')
+          : tr('الأرقام أدناه نهائية كما التُزمت في معاملة التفعيل، والترحيل الآلي للمستندات بعد تاريخ البدء يعمل الآن في الخلفية')}</p>
       </Notice>
       {result.move.id ? (
         <p className="text-sm">

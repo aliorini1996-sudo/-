@@ -95,12 +95,12 @@ router.put('/', requireAdmin, requireAdminPermission('canManageCompanySettings')
             auditOwnerImpersonationWrite(res, { tenantId: tid, actorAdminId: req.user.id, action: 'company.seller-fields', fields: z.changed });
           }
           const actor = await prisma.admin.findUnique({ where: { id: req.user!.id }, select: { role: true, tenantId: true, isActive: true, scopeEnabled: true } });
-          if (actor?.role !== 'ADMIN' || actor.tenantId !== tid || actor.isActive !== true) {
+          if ((actor?.role !== 'ADMIN' && req.user?.impersonated !== true) || actor?.tenantId !== tid || actor?.isActive !== true) {
             res.status(403).json({ success: false, code: 'SELLER_FIELDS_ADMIN_ONLY', message: ZATCA_ROUTE_CODES.SELLER_FIELDS_ADMIN_ONLY, fields: z.changed });
             return;
           }
           // مدير مقيّد النطاق: بوابة /api/zatca تردّه SCOPED_ADMIN (ومنها PUT /seller) — فلا يغيّر الحقول نفسها من هنا
-          if (actor.scopeEnabled === true) {
+          if (actor.scopeEnabled === true && req.user?.impersonated !== true) {
             res.status(403).json({ success: false, code: 'SELLER_FIELDS_SCOPED', message: ZATCA_ROUTE_CODES.SELLER_FIELDS_SCOPED, fields: z.changed });
             return;
           }

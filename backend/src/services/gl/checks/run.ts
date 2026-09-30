@@ -216,6 +216,9 @@ export async function loadImportAfterCutover(
   return { accountId: account.id, accountCode: account.code, cutoverDate: s.cutoverDate, ...r };
 }
 
+/** فحوص المطابقة مع التشغيل والمزامنة — لا تنطبق على الدفاتر اليدوية المستقلة (CLEAN) */
+export const MANUAL_LEDGER_SKIPPED_CHECKS: readonly CheckKey[] = ['C3', 'C4', 'C4b', 'C5', 'C8', 'C14', 'C15'];
+
 /**
  * يشغّل الفحوصات (كلها أو `only`). شركة غير مفعّلة ⇒ تقرير بلا نتائج (overall GREEN) — الفحوص تفترض activatedAt.
  */
@@ -228,6 +231,10 @@ export async function runChecks(store: CheckStore, tenantId: string, opts: RunCh
   if (!s || !s.activatedAt) {
     return { tenantId, ranAt: now.toISOString(), durationMs: Date.now() - started, overall: 'GREEN', results };
   }
+  // الدفاتر اليدوية المستقلة (CLEAN): فحوص المطابقة مع التشغيل (C3 ذمم، C4/C4b عهدة، C5 أمانات، C8 أحداث الترحيل، C14 ربط ERP،
+  // C15 المزامنة) لا تنطبق — لا يدخل الدفاتر شيءٌ من التشغيل. تبقى فحوص الدفاتر الداخلية (التوازن، الأرصدة، المعلّقة،
+  // المسودات، الضرائب، التسلسل).
+  if (s.setupMethod === 'CLEAN') for (const k of MANUAL_LEDGER_SKIPPED_CHECKS) want.delete(k);
   const needAccounts = ['C3', 'C4', 'C4b', 'C5'].some((k) => want.has(k as CheckKey));
   const accounts = needAccounts ? await store.controlAccounts(tenantId) : [];
   const pending = ['C3', 'C4', 'C5'].some((k) => want.has(k as CheckKey))

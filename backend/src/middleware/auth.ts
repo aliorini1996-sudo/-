@@ -104,6 +104,15 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
   }
 }
 
+/**
+ * جلسة مالك المنصة داخل شركة (توكن انتحال من POST /api/tenants/:id/impersonate — لا يصدره إلا SUPER_ADMIN): كل صلاحية مفتوحة
+ * ولا نطاق يقيّدها، أياً كانت صلاحيات حساب المدير الذي وُقّع به التوكن. أمر المالك (٢٩ سبتمبر ٢٠٢٦): «اجعل لي كمالك صلاحية تعديل كل شيء بلا استثناء».
+ * كل حارس صلاحية أو نطاق يسأل هذه الدالة أولاً؛ وأفعال الجلسة تبقى موسومة «الدعم الفني» في التدقيق.
+ */
+export function isOwnerSession(req: { user?: { impersonated?: boolean } | null }): boolean {
+  return req.user?.impersonated === true;
+}
+
 /** دور لوحة الشركة. حياة الحساب (حذف/تعطيل) تُفحص في `authenticate` قبله. */
 export function requireAdmin(req: AuthRequest, res: Response, next: NextFunction) {
   if (!req.user || !COMPANY_ROLES.includes(req.user.role)) {
@@ -121,6 +130,8 @@ export function requireAdminPermission(permission: AdminPermission) {
         res.status(403).json({ success: false, message: 'غير مسموح' });
         return;
       }
+      // جلسة مالك المنصة: كل صلاحية مفتوحة (حياة الحساب فحصها authenticate قبله)
+      if (isOwnerSession(req)) { next(); return; }
       // نجلب السجلّ كاملاً بدل select بمفتاح ديناميكي: المفتاح الديناميكي
       // يجعل نوع النتيجة اتّحاداً يشمل حقول العلاقات (adminScopes…) فيفشل
       // فحص الأنواع. السجلّ صغير وبمفتاح أساسي، فالكلفة مهملة والقراءة أوضح.
@@ -232,6 +243,8 @@ export function requireLedgerPermission(key: LedgerKey) {
         res.status(403).json({ success: false, code: 'LEDGER_PERMISSION_DENIED', message: 'لا تملك صلاحية الوصول لهذا القسم' });
         return;
       }
+      // جلسة مالك المنصة: كل صلاحيات الدفاتر ولا نطاق
+      if (isOwnerSession(req)) { next(); return; }
       const admin = await prisma.admin.findUnique({
         where: { id: req.user.id },
         select: {

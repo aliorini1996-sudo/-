@@ -40,12 +40,16 @@ export async function userCustody(db: CustodyDb, tid: string, userId: string): P
  * كاملاً كلٌّ منهما، فتُسجَّل توريداتٌ تتجاوز ما في يد الرجل وتصير عهدته سالبة.
  * ولا صفّ «عهدة» في القاعدة يُقفل بـ`FOR UPDATE` — فالرصيد مجموعُ صفوفٍ في
  * جدولين — فالقفل الاستشاريّ هو وسيلة التسلسل الوحيدة هنا.
+ *
+ * `$executeRaw` لا `$queryRaw`: الدالة تُرجع `void`، و`$queryRaw` يحاول قراءة العمود فيفشل
+ * («Failed to deserialize column of type 'void'») — فكان كل استلام عهدة وكل حذف استلام مندوب في
+ * عهدة مستخدم يسقط بخطأ خادم (بلاغ المالك، ٢٩ سبتمبر ٢٠٢٦). كأقفال الدفاتر والاستيراد تماماً.
  */
 export async function lockCustody(
-  tx: { $queryRaw: (q: TemplateStringsArray, ...v: unknown[]) => Promise<unknown> },
+  tx: { $executeRaw: (q: TemplateStringsArray, ...v: unknown[]) => Promise<unknown> },
   tid: string, userId: string,
 ): Promise<void> {
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`custody:${tid}:${userId}`}))`;
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`custody:${tid}:${userId}`}::text))`;
 }
 
 /**

@@ -130,14 +130,21 @@ function sendImportError(err: unknown, res: Response, next: NextFunction): void 
  * (services/statementRange.ts). شركة بلا إعدادات دفاتر ⇒ null في الطرفين: منتصف ليل UTC كتابةً وقراءةً،
  * فلا تظهر حركة 1 فبراير في كشف يناير.
  */
+/**
+ * الدفاتر اليدوية المستقلة (CLEAN — أمر المالك: «مفصولة بشكل كامل عن المبيعات والمخزون وكل شيء»): الاستيراد يعمل كأن الدفاتر
+ * غير موجودة — لا حجب ولا ربط ولا قفل حالة. `activatedAt` المعتبر هنا فارغ لها.
+ */
+const coupledActivatedAt = (s: { activatedAt?: Date | null; setupMethod?: string | null } | null | undefined): Date | null =>
+  s?.activatedAt && s.setupMethod !== 'CLEAN' ? s.activatedAt : null;
+
 async function importLedgerContext(tid: string): Promise<{ activated: boolean; timezone: string | null; decimals: number }> {
-  const s = await prisma.glSettings.findUnique({ where: { tenantId: tid }, select: { activatedAt: true, timezone: true, setupDraft: true, currencyDecimals: true } });
+  const s = await prisma.glSettings.findUnique({ where: { tenantId: tid }, select: { activatedAt: true, timezone: true, setupDraft: true, currencyDecimals: true, setupMethod: true } });
   let decimals = s?.currencyDecimals;
   if (typeof decimals !== 'number' || !Number.isInteger(decimals) || decimals < 0 || decimals > 3) {
     const company = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { currency: true } });
     decimals = currencyDecimalsOf(company?.currency);
   }
-  return { activated: !!s?.activatedAt, timezone: explicitTimezone(s), decimals };
+  return { activated: !!coupledActivatedAt(s), timezone: explicitTimezone(s), decimals };
 }
 
 const IMPORT_ENTRIES_LOCK_PREFIX = 'import-entries:';
@@ -158,8 +165,8 @@ async function reserveEntryBatch(
       await tx.$executeRaw`SET LOCAL lock_timeout = '5s'`;
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${IMPORT_ENTRIES_LOCK_PREFIX + tid}::text))`;
       // التواريخ حُسبت بحالة الدفاتر ومنطقتها قبل القفل: فُعّلت أو تغيّرت منطقتها بينهما (البند 25) ⇒ 409 IMPORT_LEDGER_STATE_CHANGED قبل أي حجز
-      const gs = await tx.glSettings.findUnique({ where: { tenantId: tid }, select: { activatedAt: true, timezone: true, setupDraft: true } });
-      assertImportLedgerStateUnchanged({ activatedAt: gs?.activatedAt, expectActivated, timezone: explicitTimezone(gs), expectTimezone });
+      const gs = await tx.glSettings.findUnique({ where: { tenantId: tid }, select: { activatedAt: true, timezone: true, setupDraft: true, setupMethod: true } });
+      assertImportLedgerStateUnchanged({ activatedAt: coupledActivatedAt(gs), expectActivated, timezone: explicitTimezone(gs), expectTimezone });
       const now = new Date();
       const dup = await tx.importBatch.findFirst({
         where: { tenantId: tid, kind, reverted: false, contentHash }, orderBy: { createdAt: 'desc' },
@@ -998,10 +1005,10 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
       return;
     }
     const settingsOf = (db: Prisma.TransactionClient | typeof prisma) =>
-      db.glSettings.findUnique({ where: { tenantId: tid }, select: { activatedAt: true, timezone: true, setupDraft: true } });
+      db.glSettings.findUnique({ where: { tenantId: tid }, select: { activatedAt: true, timezone: true, setupDraft: true, setupMethod: true } });
     const guard = (s: Awaited<ReturnType<typeof settingsOf>>, now: Date) =>
       assertOpeningStockAllowed({
-        activatedAt: s?.activatedAt, setupDraft: s?.setupDraft, timezone: importTimezone(s), now, acknowledgeCutoverChange: body.acknowledgeCutoverChange === true,
+        activatedAt: coupledActivatedAt(s), setupDraft: s?.setupDraft, timezone: importTimezone(s), now, acknowledgeCutoverChange: body.acknowledgeCutoverChange === true,
       });
     // فحص سريع قبل القراءة الكبيرة، ويُعاد تحت القفل. ومنه توقيت الشركة: تاريخ الدفعة السابقة يُعرض به (بلا قراءة تحت القفل)
     const preSettings = await settingsOf(prisma);
@@ -1416,13 +1423,13 @@ router.post('/batches/:id/revert', async (req: AuthRequest, res: Response, next:
     } else if (batch.kind === OPENING_STOCK_KIND) {
       // البند 9: قبل التفعيل وحده (بعده 409 OPENING_STOCK_REVERT_LEDGER_ACTIVE)، تحت قفل gl-post فلا يتقاطع مع الاعتماد؛
       // والحركة تُحذف ببنودها ما لم تُستهلك أصنافها بعدها (تحميل سيارات أو فواتير أو تسوية بالنقص) ⇒ blocked
-      assertOpeningStockRevertAllowed((await prisma.glSettings.findUnique({ where: { tenantId: tid }, select: { activatedAt: true } }))?.activatedAt);
+      assertOpeningStockRevertAllowed(coupledActivatedAt(await prisma.glSettings.findUnique({ where: { tenantId: tid }, select: { activatedAt: true, setupMethod: true } })));
       for (const eid of ids) {
         try {
           const out = await prisma.$transaction(async tx => {
             await tx.$executeRaw`SET LOCAL lock_timeout = '5s'`;
             await acquirePostLock(tx, tid);
-            assertOpeningStockRevertAllowed((await tx.glSettings.findUnique({ where: { tenantId: tid }, select: { activatedAt: true } }))?.activatedAt);
+            assertOpeningStockRevertAllowed(coupledActivatedAt(await tx.glSettings.findUnique({ where: { tenantId: tid }, select: { activatedAt: true, setupMethod: true } })));
             const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM warehouse_entries WHERE id = ${eid} AND "tenantId" = ${tid} FOR UPDATE`;
             if (locked.length === 0) return { status: 'gone' as const };
             const entry = await tx.warehouseEntry.findUniqueOrThrow({ where: { id: eid }, select: { createdAt: true, items: { select: { productId: true } } } });

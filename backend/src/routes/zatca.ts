@@ -931,9 +931,13 @@ export function createZatcaRouter(deps: ZatcaRouteDeps): ZatcaRouter {
       const admin = await deps.loadAdmin(r);
       if (!admin || admin.isActive !== true) { sendRouteError(res, 403, 'PERMISSION_DENIED'); return; }
       if (admin.tenantId !== r.user!.tenantId) { sendRouteError(res, 403, 'FORBIDDEN'); return; }
-      if (admin.role !== ZATCA_ROLE) { sendRouteError(res, 403, 'COMPANY_ADMIN_ONLY'); return; }
-      if (admin.canManageCompanySettings === false) { sendRouteError(res, 403, 'PERMISSION_DENIED'); return; }
-      if (await deps.isScopeRestricted(r)) { sendRouteError(res, 403, 'SCOPED_ADMIN'); return; }
+      // جلسة مالك المنصة: كل صلاحية بلا استثناء (أمر المالك ٢٩ سبتمبر ٢٠٢٦) — لا يقيّدها دور حساب التوكن ولا صلاحياته ولا نطاقه؛
+      // وتبقى حرّاس الميزة والدولة والبيئة وعزل الشركة، وكل كتابة منها بسطر تدقيق
+      const ownerSession = r.user?.impersonated === true;
+      if (admin.role !== ZATCA_ROLE && !ownerSession) { sendRouteError(res, 403, 'COMPANY_ADMIN_ONLY'); return; }
+      // جلسة مالك المنصة: صلاحية الإعدادات مفتوحة (الدور ADMIN والنطاق مفتوح لها أصلاً)
+      if (admin.canManageCompanySettings === false && !ownerSession) { sendRouteError(res, 403, 'PERMISSION_DENIED'); return; }
+      if (!ownerSession && await deps.isScopeRestricted(r)) { sendRouteError(res, 403, 'SCOPED_ADMIN'); return; }
       const tenantId = r.user!.tenantId as string;
       const tenantFlag = (await deps.loadTenantFlag(tenantId)) === true;
       const settings = await deps.store.loadSellerSettings(tenantId);

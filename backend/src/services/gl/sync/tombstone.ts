@@ -23,8 +23,8 @@ import type { DesiredEvent } from './types';
 /** أدنى شكل للعميل (PrismaClient وPrisma.TransactionClient والمزيّف) */
 export interface TombstoneSettingsDb {
   glSettings: {
-    findUnique(args: { where: { tenantId: string }; select: { activatedAt: true; currencyDecimals: true } }):
-      Promise<{ activatedAt: Date | null; currencyDecimals: number } | null>;
+    findUnique(args: { where: { tenantId: string }; select: { activatedAt: true; currencyDecimals: true; setupMethod: true } }):
+      Promise<{ activatedAt: Date | null; currencyDecimals: number; setupMethod?: string | null } | null>;
   };
 }
 
@@ -35,8 +35,10 @@ export interface TombstoneSettings {
 
 /** null ⇒ الميزة لم تُفعَّل يوماً لهذه الشركة: لا شيء يُكتب */
 export async function ledgerTombstoneSettings(db: TombstoneSettingsDb, tenantId: string): Promise<TombstoneSettings | null> {
-  const s = await db.glSettings.findUnique({ where: { tenantId }, select: { activatedAt: true, currencyDecimals: true } });
+  const s = await db.glSettings.findUnique({ where: { tenantId }, select: { activatedAt: true, currencyDecimals: true, setupMethod: true } });
   if (!s || !s.activatedAt) return null;
+  // الدفاتر اليدوية المستقلة (CLEAN): حذف استلام أو التراجع عن استيراد في التشغيل لا يكتب حدثاً في الدفاتر
+  if (s.setupMethod === 'CLEAN') return null;
   return { activatedAt: s.activatedAt, currencyDecimals: s.currencyDecimals };
 }
 
@@ -134,7 +136,7 @@ type Counter = { count(args: CountArgs): Promise<number> };
 
 /** أدنى شكل للمعاملة (Prisma.TransactionClient يستوفيه) */
 export interface RepDeletableDb {
-  glSettings: { findUnique(args: { where: { tenantId: string }; select: { activatedAt: true } }): Promise<{ activatedAt: Date | null } | null> };
+  glSettings: { findUnique(args: { where: { tenantId: string }; select: { activatedAt: true; setupMethod: true } }): Promise<{ activatedAt: Date | null; setupMethod?: string | null } | null> };
   repSettlement: Counter;
   invoice: Counter;
   receipt: Counter;
@@ -172,19 +174,24 @@ export function hasFinancialFootprint(f: RepFootprint): boolean {
  * إلى المندوب (سند/فاتورة مرفوعة) حتى نهاية المعاملة، فلا يتسلل بين الفحص والحذف. لا تُكتب أحداث دفاتر في المسار.
  */
 export async function assertRepDeletable(db: RepDeletableDb, tenantId: string, salesRepId: string): Promise<void> {
-  const s = await db.glSettings.findUnique({ where: { tenantId }, select: { activatedAt: true } });
+  const s = await db.glSettings.findUnique({ where: { tenantId }, select: { activatedAt: true, setupMethod: true } });
   if (!s || !s.activatedAt) return;
+  // الدفاتر اليدوية المستقلة (CLEAN): بصمة التشغيل (سندات، فواتير، استلامات، تحميل) لا تهمّ الدفاتر — تحجب الحذفَ سطورُ قيود
+  // تحمل المندوب شريكاً وحدها (سلامة المرجع)
+  const manual = s.setupMethod === 'CLEAN';
   // قفل صف المندوب قبل أي عدّ: العدّ وحده بـREAD COMMITTED لا يمنع سنداً يلتزم بين الفحص والحذف (onDelete: SetNull
   // كان سيفرّغ مندوبه بصمت ويُخرج عهدته من P7/C4). الفحص الفعلي للتزامن خطوة يدوية على قاعدة حقيقية.
   if (db.$queryRaw) await db.$queryRaw`SELECT id FROM sales_reps WHERE id = ${salesRepId} AND "tenantId" = ${tenantId} FOR UPDATE`;
   const where = { tenantId, salesRepId };
-  const footprint: RepFootprint = {
-    settlements: await db.repSettlement.count({ where }),
-    invoices: await db.invoice.count({ where }),
-    receipts: await db.receipt.count({ where }),
-    vanLoads: await db.vanLoad.count({ where }),
-    moveLines: await db.glMoveLine.count({ where }),
-  };
+  const footprint: RepFootprint = manual
+    ? { settlements: 0, invoices: 0, receipts: 0, vanLoads: 0, moveLines: await db.glMoveLine.count({ where }) }
+    : {
+      settlements: await db.repSettlement.count({ where }),
+      invoices: await db.invoice.count({ where }),
+      receipts: await db.receipt.count({ where }),
+      vanLoads: await db.vanLoad.count({ where }),
+      moveLines: await db.glMoveLine.count({ where }),
+    };
   if (hasFinancialFootprint(footprint)) {
     throw new LedgerError('LEDGER_HISTORY_LOCKED', { salesRepId, footprint: { ...footprint } }, REP_HISTORY_LOCKED_MESSAGE);
   }

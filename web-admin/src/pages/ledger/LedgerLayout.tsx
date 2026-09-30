@@ -11,7 +11,8 @@ import { ledgerSetupApi, ledgerSetupKeys } from '../../api/ledgerSetup';
 import {
   computeSetupProgress, setupProgressPercent, setupStepLabel, setupWizardHref, type SetupProgress,
 } from '../../lib/ledger/setupProgress';
-import { ledgerMenus, visibleLedgerMenus, ledgerHref, LEDGER_BASE, type LedgerDialogKey } from './routes';
+import { ledgerMenus, manualLedgerMenus, visibleLedgerMenus, ledgerHref, LEDGER_BASE, type LedgerDialogKey } from './routes';
+import { useManualLedger } from '../../lib/ledger/manualLedger';
 
 /**
  * هيكل الدفاتر: شريط قوائم مرآة Odoo فوق كل صفحات `/app/ledger/**` (§8.2).
@@ -30,7 +31,11 @@ export default function LedgerLayout() {
   const [dialog, setDialog] = useState<LedgerDialogKey | null>(null);
   const barRef = useRef<HTMLDivElement>(null);
 
-  const menus = useMemo(() => visibleLedgerMenus(ledgerMenus(tr), k => canLedger(user, k)), [tr, user]);
+  const manual = useManualLedger();
+  const menus = useMemo(() => {
+    const all = visibleLedgerMenus(ledgerMenus(tr), k => canLedger(user, k));
+    return manual ? manualLedgerMenus(all) : all;
+  }, [tr, user, manual]);
 
   // تغيّر المسار أو النقر خارج الشريط يغلق القائمة
   useEffect(() => setOpenMenu(null), [location.pathname]);

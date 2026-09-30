@@ -31,6 +31,17 @@ export function postingParamsOf(filters: readonly string[]): PostingListParams {
  * السبب مكتوب هنا فوق القائمة — والالتقاط مقصودٌ تأجيله لا معطّل — ومعه عدّاد ما ينتظر.
  * عنوان «الدفاتر بانتظار الإعداد» وتقدّمه ورابطه في الشارة المشتركة فوق الشاشة (LedgerLayout) فلا يُكرَّر.
  */
+/** الدفاتر اليدوية المستقلة: الصفحة لا تنطبق (تُفتح برابط مباشر فقط، فالقائمة لا تعرضها) */
+export function ManualLedgerNotice() {
+  const tr = useTr();
+  return (
+    <div className="flex items-start gap-2 rounded-xl border border-[#E8E0D2] bg-[#FBF7F0] px-3 py-2 text-sm text-[#1F1A13]" role="status">
+      <Hourglass size={16} className="text-[#9A8F7E] shrink-0 mt-0.5" />
+      <p>{tr('الدفاتر يدوية مستقلة: لا تظهر هنا مستندات المبيعات ولا التحصيل ولا تُرحَّل إليها')}</p>
+    </div>
+  );
+}
+
 /**
  * قبل التفعيل (البداية النظيفة — ملاحظة الخبير المحاسبي): الدفاتر لم تبدأ فلا مستند فيها، ولا يدخلها لاحقاً ما سبق التفعيل.
  * `pending` باقٍ في التوقيع للتوافق ولا يُعرض (الخادم لا يعدّ مستندات التشغيل هنا).

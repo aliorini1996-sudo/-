@@ -23,7 +23,9 @@ import RepDailyReport from './RepDailyReport';
 import { useRepTracking } from './useRepTracking';
 import { useHeartbeat } from './useHeartbeat';
 import { underCutoverReview } from './outboxReview';
-import { companyRefreshDue } from './companyRefresh';
+import { COMPANY_REFRESH_TICK_MS, companyRefreshDue } from './companyRefresh';
+import { APP_UPDATE_CHECK_GAP_MS, APP_UPDATE_TRIED_KEY, fetchLatestBuildId, isNewerBuild, shouldAutoReload } from './appUpdate';
+import { BUILD_ID } from '../lib/buildId';
 import { zatcaCollectOn, zatcaRegimeOf } from '../lib/zatcaRegime';
 import { zatcaDocView, zatcaStatusChip } from '../lib/zatca/docStatus';
 import { isZatcaOutdatedClient, zatcaIssueOutcome, zatcaReloadForUpdate } from '../lib/zatca/issueOutcome';
@@ -3320,11 +3322,47 @@ export default function RepApp() {
     };
     document.addEventListener('visibilitychange', refresh);
     window.addEventListener('online', refresh);
+    // وأثناء بقاء التطبيق مفتوحاً أمام المندوب (ميزة يفعّلها المالك تظهر خلال دقائق بلا خروج وعودة)
+    const iv = window.setInterval(refresh, COMPANY_REFRESH_TICK_MS);
     return () => {
       document.removeEventListener('visibilitychange', refresh);
       window.removeEventListener('online', refresh);
+      window.clearInterval(iv);
     };
   }, [token]);
+
+  // تحديث التطبيق نفسه حين تُنشر نسخة أحدث (appUpdate.ts): التطبيق المفتوح أياماً في الخلفية يظلّ على شيفرته القديمة فلا يرى
+  // الميزات الجديدة (بلاغ «بصمة الحضور لا تظهر لبعض المناديب»). يُفحص عند الفتح وكل بضع دقائق وعند العودة إليه.
+  const [updateReady, setUpdateReady] = useState<string | null>(null);
+  useEffect(() => {
+    if (!token) return;
+    let last: number | null = null;
+    const check = () => {
+      if (!navigator.onLine || document.hidden || !companyRefreshDue(last, Date.now(), APP_UPDATE_CHECK_GAP_MS)) return;
+      last = Date.now();
+      void fetchLatestBuildId().then((remote) => { if (isNewerBuild(BUILD_ID, remote)) setUpdateReady(remote); });
+    };
+    check();
+    document.addEventListener('visibilitychange', check);
+    window.addEventListener('online', check);
+    const iv = window.setInterval(check, APP_UPDATE_CHECK_GAP_MS);
+    return () => {
+      document.removeEventListener('visibilitychange', check);
+      window.removeEventListener('online', check);
+      window.clearInterval(iv);
+    };
+  }, [token]);
+  // خاملٌ (الرئيسية بلا نموذج ولا مستند مفتوح) ⇒ إعادة تحميل تلقائية مرة لكل حزمة؛ وإلا شريط «تحديث الآن» فلا يضيع ما يكتبه.
+  // الصفّ الصادر في IndexedDB فلا يضيع مستند أوف‑لاين بإعادة التحميل.
+  useEffect(() => {
+    if (!updateReady) return;
+    let tried: string | null = null;
+    try { tried = sessionStorage.getItem(APP_UPDATE_TRIED_KEY); } catch { /* تخزين محجوب */ }
+    const idle = screen === 'home' && modal === null && docResult === null;
+    if (!shouldAutoReload(updateReady, idle, tried)) return;
+    try { sessionStorage.setItem(APP_UPDATE_TRIED_KEY, updateReady); } catch { /* تخزين محجوب */ }
+    window.location.reload();
+  }, [updateReady, screen, modal, docResult]);
 
   // جهاز مشترك: قاعدة IndexedDB مشتركة للأصل، فلا يرث المندوب الجديد بيانات سابقه
   // المخزّنة (عملاء/أصناف) — وإلا ظهرت له قائمة عملاء زميله عند أول تعذّر شبكة.
@@ -3501,6 +3539,12 @@ export default function RepApp() {
                 </div>
               </div>
 
+              {updateReady && (
+                <button type="button" onClick={() => window.location.reload()}
+                  className="shrink-0 w-full bg-[#E15A30] text-white text-[13px] font-semibold py-2 px-3 flex items-center justify-center gap-2">
+                  <RefreshCw size={14} /> {tr('يتوفّر تحديث للتطبيق')} · {tr('تحديث الآن')}
+                </button>
+              )}
               {/* Body */}
               <div className="flex-1 overflow-hidden">
                 {screen === 'home' && <RepHome key={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} menuOn={!!(company as { catalogEnabled?: boolean } | null)?.catalogEnabled} accountingOn={accountingOn} settingsReady={companyReady} dailyReportOn={dailyReportOn} attendanceOn={attendanceOn} aiRepOn={aiRepOn} />}

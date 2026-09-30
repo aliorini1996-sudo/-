@@ -269,36 +269,41 @@ test('productionZatcaDeps: توكن ADMIN وصفّ القاعدة MANAGER أو A
   assert.equal(golive.body.code, 'GO_LIVE_UNAVAILABLE');
 });
 
-test('productionZatcaDeps وجلسة دخول مالك المنصة: تعبر البوابة بصفّ الحساب الذي يمثّله توكنها (مقيّد ⇒ SCOPED_ADMIN، خُفِّض ⇒ COMPANY_ADMIN_ONLY، مدير ⇒ مسار التفعيل 409) — وسطر تدقيق console.warn واحد لكل كتابة بلا OTP، ولا شيء للقراءة', async () => {
+test('productionZatcaDeps وجلسة دخول مالك المنصة: كل صلاحية مفتوحة — تعبر البوابة ولو كان صفّ حساب توكنها مقيّداً أو مخفَّضاً أو بلا صلاحية الإعدادات (مسار التفعيل 409) — وسطر تدقيق console.warn واحد لكل كتابة بلا OTP، ولا شيء للقراءة', async () => {
   reset();
   auditLines.length = 0;
+  // أمر المالك ٢٩ سبتمبر ٢٠٢٦ «صلاحية تعديل كل شيء بلا استثناء» يحلّ محلّ قرار ١٧ سبتمبر
   const imp = token('admin-1', 'ADMIN', T1, true);
   const unitId = '00000000-0000-4000-8000-000000000001';
   db.admins.get('admin-1')!.scopeEnabled = true;
   const scoped = await send('POST', '/api/zatca/go-live', imp, {});
-  assert.equal(scoped.status, 403, scoped.text);
-  assert.equal(scoped.body.code, 'SCOPED_ADMIN');
+  assert.equal(scoped.status, 409, scoped.text);
+  assert.equal(scoped.body.code, 'GO_LIVE_UNAVAILABLE', 'صفّ مقيّد لا يقيّد جلسة المالك');
   db.admins.get('admin-1')!.scopeEnabled = false;
+  db.admins.get('admin-1')!.canManageCompanySettings = false;
   const golive = await send('POST', '/api/zatca/go-live', imp, {});
   assert.equal(golive.status, 409, golive.text);
-  assert.equal(golive.body.code, 'GO_LIVE_UNAVAILABLE', 'الانتحال يعبر كل البوابة كالمدير');
+  assert.equal(golive.body.code, 'GO_LIVE_UNAVAILABLE', 'صفّ بلا صلاحية الإعدادات لا يقيّد جلسة المالك');
   db.admins.get('admin-1')!.role = 'MANAGER';
   const demoted = await send('POST', `/api/zatca/units/${unitId}/onboard`, imp, { otp: '123456' });
-  assert.equal(demoted.status, 403, demoted.text);
-  assert.equal(demoted.body.code, 'COMPANY_ADMIN_ONLY');
+  assert.ok(demoted.body.code !== 'COMPANY_ADMIN_ONLY' && demoted.status !== 403, demoted.text);
+  // (قاعدة هذا الملف وهمية للبوابة وحدها — ما بعد البوابة ليس موضوعه؛ المهمّ أن البوابة لا تردّ)
   const read = await send('GET', '/api/zatca/overview', imp);
-  assert.equal(read.body.code, 'COMPANY_ADMIN_ONLY');
+  assert.ok(read.status !== 403 && read.body.code !== 'COMPANY_ADMIN_ONLY', read.text);
+  // ضبط: مدير الشركة نفسه بالصفّ نفسه (مخفَّض) يُردّ
+  assert.equal((await send('POST', '/api/zatca/go-live', token('admin-1', 'ADMIN'), {})).body.code, 'COMPANY_ADMIN_ONLY');
   const lines = await settledAudits(3);
   const base = { event: AUDIT_EVENT, tenantId: T1, actorAdminId: 'admin-1' };
   assert.deepEqual(lines, [
-    { ...base, action: 'go-live', status: 403 },
     { ...base, action: 'go-live', status: 409 },
-    { ...base, action: 'unit.onboard', unitId, status: 403 },
+    { ...base, action: 'go-live', status: 409 },
+    { ...base, action: 'unit.onboard', unitId, status: demoted.status },
   ]);
   assert.ok(!auditLines.join('\n').includes('123456'), 'OTP في سطر التدقيق');
   assert.deepEqual(db.writes, []);
   // مدير الشركة نفسه: لا سطر
   db.admins.get('admin-1')!.role = 'ADMIN';
+  db.admins.get('admin-1')!.canManageCompanySettings = true;
   assert.equal((await send('POST', '/api/zatca/go-live', token('admin-1', 'ADMIN'), {})).status, 409);
   await new Promise(res => setTimeout(res, 30));
   assert.equal(auditLines.length, 3, 'كتابة المدير نفسه سُجّلت كانتحال');
@@ -336,7 +341,7 @@ test('PUT /api/company بعلم المالك: المشرف والمحاسب (د�
   assert.equal(db.settings.get(T1)!.countryCode, 'SA');
 });
 
-test('PUT /api/company بعلم المالك: توكن ADMIN وصفّ القاعدة MANAGER ⇒ 403، وانتحال المالك يغيّر كحساب المدير الذي يمثّله (بسطر تدقيق بأسماء الحقول لا قيمها)، والمدير يغيّر بصيغ /api/zatca/seller (تطبيع وVAT سعودي)', async () => {
+test('PUT /api/company بعلم المالك: توكن ADMIN وصفّ القاعدة MANAGER ⇒ 403، وجلسة دخول المالك تغيّر أياً كان صفّ حسابها (بسطر تدقيق بأسماء الحقول لا قيمها)، والمدير يغيّر بصيغ /api/zatca/seller (تطبيع وVAT سعودي)', async () => {
   reset();
   auditLines.length = 0;
   db.admins.get('admin-2')!.role = 'MANAGER';
@@ -355,16 +360,17 @@ test('PUT /api/company بعلم المالك: توكن ADMIN وصفّ القاع
   assert.equal(db.settings.get(T1)!.taxNumber, '322222222222223', 'يُحفظ مطبَّعاً');
   // الانتحال بلا تغيير في هذه الحقول (شعار) يمرّ بلا سطر تدقيق
   assert.equal((await send('PUT', '/api/company', impTok, generalSave({ taxNumber: '322222222222223', logo: '' }))).status, 200);
-  // وانتحال حساب خُفِّض صفّه ⇒ الرفض نفسه للمدير المخفَّض
+  // وجلسة المالك بحساب خُفِّض صفّه تغيّر كذلك (أمر المالك ٢٩ سبتمبر ٢٠٢٦ «صلاحية تعديل كل شيء بلا استثناء» يحلّ محلّ قرار ١٧ سبتمبر)
   const impDemoted = await send('PUT', '/api/company', token('admin-2', 'ADMIN', T1, true), generalSave({ taxNumber: '311111111111113', commercialReg: '2020020202' }));
-  assert.equal(impDemoted.status, 403, impDemoted.text);
-  assert.equal(impDemoted.body.code, 'SELLER_FIELDS_ADMIN_ONLY');
+  assert.equal(impDemoted.status, 200, impDemoted.text);
+  assert.equal(db.settings.get(T1)!.taxNumber, '311111111111113');
+  assert.equal(db.settings.get(T1)!.commercialReg, '2020020202');
   const lines = await settledAudits(3);
   const base = { event: AUDIT_EVENT, tenantId: T1, action: 'company.seller-fields' };
   assert.deepEqual(lines, [
     { ...base, actorAdminId: 'admin-1', fields: ['taxNumber'], status: 400 },
     { ...base, actorAdminId: 'admin-1', fields: ['taxNumber'], status: 200 },
-    { ...base, actorAdminId: 'admin-2', fields: ['taxNumber', 'commercialReg'], status: 403 },
+    { ...base, actorAdminId: 'admin-2', fields: ['taxNumber', 'commercialReg'], status: 200 },
   ]);
   const joined = auditLines.join('\n');
   for (const value of ['12345', '322222222222223', '٣٢٢', '311111111111113', '2020020202', '1010010101', 'شركة']) assert.ok(!joined.includes(value), `قيمة «${value}» في سطر التدقيق`);
@@ -496,7 +502,7 @@ test('company-users: مشرف أو محاسب يملك إدارة المستخد
   assert.notEqual(db.admins.get('admin-2')!.passwordHash, 'h');
 });
 
-test('company-users بعلم المالك: المدير المقيّد (تردّه بوابة /api/zatca) — ولو بجلسة دخول المالك — لا ينشئ مديراً ولا يرقّي إليه ولا يخفّضه ولا يغيّر كلمة مروره، وجلسة دخول المالك بحساب مدير غير مقيّد تديرها كالمدير — وما دون ذلك يمرّ، وبلا العلم كما كان', async () => {
+test('company-users بعلم المالك: المدير المقيّد (تردّه بوابة /api/zatca) لا ينشئ مديراً ولا يرقّي إليه ولا يخفّضه ولا يغيّر كلمة مروره، وجلسة دخول المالك تديرها كالمدير ولو كان حسابها مقيّداً — وما دون ذلك يمرّ، وبلا العلم كما كان', async () => {
   const escalations: Array<[string, string, Row]> = [
     ['POST', '/api/company-users', newUser('ADMIN')],
     ['PUT', '/api/company-users/manager-1', { role: 'ADMIN' }],
@@ -506,8 +512,6 @@ test('company-users بعلم المالك: المدير المقيّد (تردّ
   ];
   const callers: Array<[string, () => string, string]> = [
     ['مدير مقيّد النطاق', () => { db.admins.get('admin-1')!.scopeEnabled = true; return token('admin-1', 'ADMIN'); }, 'ADMIN_ACCOUNT_SCOPED'],
-    // جلسة دخول المالك تعمل كحساب المدير الذي يمثّله توكنها (قرار المالك 17 سبتمبر 2026): مقيّد ⇒ الرفض نفسه
-    ['انتحال مدير مقيّد النطاق', () => { db.admins.get('admin-1')!.scopeEnabled = true; return token('admin-1', 'ADMIN', T1, true); }, 'ADMIN_ACCOUNT_SCOPED'],
   ];
   for (const [label, tokOf, code] of callers) {
     reset();
@@ -534,9 +538,10 @@ test('company-users بعلم المالك: المدير المقيّد (تردّ
     assert.equal((await send('PUT', '/api/company-users/admin-2', tok, { password: 'NewPassw0rd!!' })).status, 200, `${label} بلا العلم`);
   }
 
-  // مدير غير مقيّد — بتوكنه أو بجلسة دخول المالك بحسابه: لا يُقرأ علم الشركة أصلاً، وكل حسابات المدير كما كانت
-  for (const [label, adminTok] of [['المدير', token('admin-1', 'ADMIN')], ['انتحال المدير', token('admin-1', 'ADMIN', T1, true)]] as const) {
+  // مدير غير مقيّد بتوكنه، أو جلسة دخول المالك ولو بحساب مقيّد (أمر المالك ٢٩ سبتمبر ٢٠٢٦ «صلاحية تعديل كل شيء بلا استثناء» يحلّ محلّ قرار ١٧ سبتمبر): لا يُقرأ علم الشركة أصلاً، وكل حسابات المدير كما كانت
+  for (const [label, adminTok, scopedRow] of [['المدير', token('admin-1', 'ADMIN'), false], ['انتحال المدير', token('admin-1', 'ADMIN', T1, true), false], ['انتحال مدير مقيّد النطاق', token('admin-1', 'ADMIN', T1, true), true]] as const) {
     reset();
+    db.admins.get('admin-1')!.scopeEnabled = scopedRow;
     assert.equal((await send('POST', '/api/company-users', adminTok, newUser('ADMIN'))).status, 201, label);
     assert.equal((await send('PUT', '/api/company-users/manager-1', adminTok, { role: 'ADMIN' })).status, 200, label);
     assert.equal((await send('PUT', '/api/company-users/admin-2', adminTok, { password: 'NewPassw0rd!!' })).status, 200, label);
@@ -547,7 +552,7 @@ test('company-users بعلم المالك: المدير المقيّد (تردّ
   }
 });
 
-test('company-users/:id/scope بعلم المالك: مدير مقيّد لا يرفع تقييد نفسه عبر مشرف ينشئه أو يعيد تعيين كلمة مروره، ولا بجلسة دخول المالك بحسابه — فتبقى بوابة /api/zatca وحقول البائع مغلقة؛ وما ليس تقييد مدير وبلا العلم كما كان', async () => {
+test('company-users/:id/scope بعلم المالك: مدير مقيّد لا يرفع تقييد نفسه عبر مشرف ينشئه أو يعيد تعيين كلمة مروره — فتبقى بوابة /api/zatca وحقول البائع مغلقة؛ وجلسة دخول المالك ترفعه ولو بحسابه المقيّد؛ وما ليس تقييد مدير وبلا العلم كما كان', async () => {
   reset();
   db.admins.get('admin-1')!.scopeEnabled = true;
   const scopedTok = token('admin-1', 'ADMIN');
@@ -562,16 +567,14 @@ test('company-users/:id/scope بعلم المالك: مدير مقيّد لا ي
     assert.equal(lift.status, 403, `${id}: ${lift.text}`);
     assert.equal(lift.body.code, 'COMPANY_ADMIN_SCOPE_ONLY', id);
   }
-  // ولا يقيّد المشرف مديراً غير مقيّد، ولا يرفع المقيّد تقييد نفسه بجلسة دخول المالك (تعمل كحسابه المقيّد)
+  // ولا يقيّد المشرف مديراً غير مقيّد، ولا يرفع المقيّد تقييد نفسه
   const tighten = await send('PUT', '/api/company-users/admin-2/scope', token('manager-1', 'MANAGER'), { scopeEnabled: true });
   assert.equal(tighten.status, 403, tighten.text);
   assert.equal(tighten.body.code, 'COMPANY_ADMIN_SCOPE_ONLY');
-  // (مسار النطاق يردّ المستخدم المقيّد قبل حارس حسابات المدير — guardScopeAdmin — والجلسة تُردّ ردَّ حسابها نفسه)
-  for (const tok of [token('admin-1', 'ADMIN', T1, true), scopedTok]) {
-    const self = await send('PUT', '/api/company-users/admin-1/scope', tok, { scopeEnabled: false });
-    assert.equal(self.status, 403, self.text);
-    assert.match(self.body.message, /مقيد بنطاق/);
-  }
+  // (مسار النطاق يردّ المستخدم المقيّد قبل حارس حسابات المدير — guardScopeAdmin)
+  const self = await send('PUT', '/api/company-users/admin-1/scope', scopedTok, { scopeEnabled: false });
+  assert.equal(self.status, 403, self.text);
+  assert.match(self.body.message, /مقيد بنطاق/);
   assert.ok(!db.writes.some(w => w.op === 'admin.update' && 'scopeEnabled' in (w.data as Row)), JSON.stringify(db.writes));
   assert.equal(db.admins.get('admin-1')!.scopeEnabled, true);
   assert.equal(db.admins.get('admin-2')!.scopeEnabled, false);
@@ -594,11 +597,13 @@ test('company-users/:id/scope بعلم المالك: مدير مقيّد لا ي
   const byAdmin = await send('PUT', '/api/company-users/admin-1/scope', token('admin-2', 'ADMIN'), { scopeEnabled: false });
   assert.equal(byAdmin.status, 200, byAdmin.text);
   assert.equal(db.admins.get('admin-1')!.scopeEnabled, false);
-  // وجلسة دخول المالك بحساب المدير غير المقيّد ترفعه كالمدير (قرار المالك 17 سبتمبر 2026)
-  db.admins.get('admin-1')!.scopeEnabled = true;
-  const byImp = await send('PUT', '/api/company-users/admin-1/scope', token('admin-2', 'ADMIN', T1, true), { scopeEnabled: false });
-  assert.equal(byImp.status, 200, byImp.text);
-  assert.equal(db.admins.get('admin-1')!.scopeEnabled, false);
+  // وجلسة دخول المالك ترفعه — بحساب مدير آخر أو بحساب المدير المقيّد نفسه (أمر المالك ٢٩ سبتمبر ٢٠٢٦ «صلاحية تعديل كل شيء بلا استثناء» يحلّ محلّ قرار ١٧ سبتمبر)
+  for (const via of ['admin-2', 'admin-1']) {
+    db.admins.get('admin-1')!.scopeEnabled = true;
+    const byImp = await send('PUT', '/api/company-users/admin-1/scope', token(via, 'ADMIN', T1, true), { scopeEnabled: false });
+    assert.equal(byImp.status, 200, `${via}: ${byImp.text}`);
+    assert.equal(db.admins.get('admin-1')!.scopeEnabled, false, via);
+  }
   assert.equal((await send('POST', '/api/zatca/go-live', scopedTok, {})).body.code, 'GO_LIVE_UNAVAILABLE');
 
   // بلا علم المالك: المشرف يغيّر تقييد المدير كما كان
@@ -667,17 +672,33 @@ test('رسائل رفض حسابات المدير لا تذكر ما يُسمح 
   assert.equal(db.admins.get('admin-1')!.scopeEnabled, false);
 });
 
-test('DELETE /api/company-users/:id: الدور من القاعدة لا التوكن — توكن ADMIN وصفّ القاعدة MANAGER (يملك إدارة المستخدمين) ⇒ 403 بلا حذف، والمدير يحذف', async () => {
+/**
+ * حذف مستخدم الشركة: من يدير المستخدمين يحذف زميله، وحسابُ **المدير** لا
+ * يحذفه إلّا مدير.
+ *
+ * كان الحذف مقصوراً على مدير الشركة فيفشل حذفُ المشرف بـ403 (قرار المالك:
+ * يمضي). والحارس الآن `guardAdminAccountChange` نفسه الذي يحرس الإنشاء
+ * والترقية وكلمة المرور — فلا يرفع مشرفٌ نفسَه بحذف من فوقه، ولا يُحبَس عن
+ * عملٍ يملك أدواته. والدور يُقرأ من القاعدة لا من التوكن كما كان.
+ */
+test('DELETE /api/company-users/:id: المشرف يحذف زميله، وحساب المدير للمدير وحده (والدور من القاعدة لا التوكن)', async () => {
+  reset();
+  // المشرف يحذف المحاسب — زميلٌ لا مدير
+  const byManager = await send('DELETE', '/api/company-users/accountant-1', token('manager-1', 'MANAGER'));
+  assert.equal(byManager.status, 200, byManager.text);
+  assert.ok(!db.admins.has('accountant-1'));
+
+  // وحساب المدير يُرفض عليه: الدور من **القاعدة** — توكن ADMIN وصفّه MANAGER لا يمرّ
   reset();
   db.admins.get('admin-2')!.role = 'MANAGER';
-  const demoted = await send('DELETE', '/api/company-users/accountant-1', token('admin-2', 'ADMIN'));
+  const demoted = await send('DELETE', '/api/company-users/admin-1', token('admin-2', 'ADMIN'));
   assert.equal(demoted.status, 403, demoted.text);
-  assert.match(demoted.body.message, /للمدير الرئيسي فقط/);
-  assert.ok(db.admins.has('accountant-1'));
+  assert.ok(db.admins.has('admin-1'));
   assert.deepEqual(db.writes, []);
-  // الأدوار كما في التوكن والقاعدة: المشرف 403، والمدير يحذف
-  assert.equal((await send('DELETE', '/api/company-users/accountant-1', token('manager-1', 'MANAGER'))).status, 403);
-  const ok = await send('DELETE', '/api/company-users/accountant-1', token('admin-1', 'ADMIN'));
+
+  // والمدير يحذف من دونه (وحارس «آخر مدير نشط» يبقى فوق ذلك كلّه)
+  reset();
+  const ok = await send('DELETE', '/api/company-users/manager-1', token('admin-1', 'ADMIN'));
   assert.equal(ok.status, 200, ok.text);
-  assert.ok(!db.admins.has('accountant-1'));
+  assert.ok(!db.admins.has('manager-1'));
 });

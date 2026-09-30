@@ -4,6 +4,8 @@
  * الضيّق)، والنتيجة نفسها لكل الشركات — حداثة فقط.
  */
 export const COMPANY_REFRESH_MIN_GAP_MS = 5 * 60 * 1000;
+/** نبضة الفحص الدوري أثناء فتح التطبيق — companyRefreshDue يحرس ألا يتجاوز الجلب مرة كل 5 دقائق */
+export const COMPANY_REFRESH_TICK_MS = 60 * 1000;
 
 export function companyRefreshDue(lastFetchMs: number | null, nowMs: number, minGapMs: number = COMPANY_REFRESH_MIN_GAP_MS): boolean {
   return lastFetchMs === null || !Number.isFinite(lastFetchMs) || nowMs - lastFetchMs >= minGapMs;

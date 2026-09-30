@@ -11,7 +11,7 @@ import { ledgerErrorOf } from '../../../api/ledgerConfig';
 import { ledgerReviewApi, ledgerReviewKeys, type CustodyRepRow } from '../../../api/ledgerReview';
 import { ledgerErrorMessage } from '../../../lib/ledger/errors';
 import { ledgerHref } from '../routes';
-import { NotActivatedNotice } from './postingFilters';
+import { NotActivatedNotice, ManualLedgerNotice } from './postingFilters';
 
 /**
  * «العملاء ← عهدة المناديب» (M3، §5.5 custodyComponents، §5.9 C4/C4b، D3 الخيار ب، D9): لكل مندوب رصيد 111003 في الأستاذ
@@ -56,7 +56,7 @@ export default function CustodyPage() {
         {tr('رصيد الشاشة التشغيلية = عهدة الأستاذ + الإلكتروني غير المصفّى + مصروفات العهدة + العجز المفتوح + العجز المحمّل على المصروف. الفرق دلالي لا خطأ ترحيل')}
       </p>
 
-      {q.data && !q.data.activated && <NotActivatedNotice />}
+      {(q.data as { manualLedger?: boolean } | undefined)?.manualLedger ? <ManualLedgerNotice /> : q.data && !q.data.activated && <NotActivatedNotice />}
       {q.isError && <p className="text-sm text-[#C0392B]">{ledgerErrorMessage(tr, ledgerErrorOf(q.error))}</p>}
 
       {q.data?.activated && (

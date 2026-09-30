@@ -511,16 +511,32 @@ test('جلسة دخول مالك المنصة (قرار المالك 17 سبتم
   }
 });
 
-test('جلسة دخول مالك المنصة لا تتجاوز أي حارس آخر: مقيّد النطاق، صفّ خُفِّض أو نُزعت صلاحيته، علم المالك مطفأ، شركة غير سعودية، بيئة غير مسموحة، وحدة شركة أخرى — بالرموز نفسها للمدير، وكل محاولة مسجَّلة', async () => {
+test('جلسة دخول مالك المنصة تعبر حرّاس الدور والنطاق والصلاحية (مقيّد، صفّ خُفِّض أو نُزعت صلاحيته) ولا تتجاوز غيرها: علم المالك مطفأ، شركة غير سعودية، بيئة غير مسموحة، وحدة شركة أخرى — بالرموز نفسها للمدير، وكل محاولة مسجَّلة', async () => {
   const r = await rig();
   try {
     const imp: User = { ...ADMIN, impersonated: true };
     const foreign = await createSimUnit(r, ADMIN2);
+    // أمر المالك ٢٩ سبتمبر ٢٠٢٦ «صلاحية تعديل كل شيء بلا استثناء» يحلّ محلّ قرار ١٧ سبتمبر: الدور والنطاق والصلاحية لا تقيّد الجلسة — والمدير نفسه بالصفّ ذاته يُردّ
+    const passes: Array<[string, () => void, User, [string, string, unknown], string]> = [
+      ['مقيّد النطاق', () => {}, { ...imp, scopeEnabled: true }, ['PUT', '/seller', { legalName: 'مقيّد' }], 'SCOPED_ADMIN'],
+      ['صفّه مشرف', () => { r.admins.set(ADMIN.id, { isActive: true, role: 'MANAGER', tenantId: TENANT, canManageCompanySettings: true }); }, imp, ['PUT', '/seller', { legalName: 'مشرف' }], 'COMPANY_ADMIN_ONLY'],
+      ['نُزعت صلاحيته', () => { r.admins.set(ADMIN.id, { isActive: true, role: 'ADMIN', tenantId: TENANT, canManageCompanySettings: false }); }, imp, ['PUT', '/seller', { legalName: 'بلا صلاحية' }], 'PERMISSION_DENIED'],
+    ];
+    for (const [label, arrange, user, [m, url, body], ownCode] of passes) {
+      arrange();
+      const res = await call(r, m, url, { user, body });
+      assert.equal(res.status, 200, `${label}: ${res.text}`);
+      assert.equal(r.h.store.settings.get(TENANT)?.legalName, (body as { legalName: string }).legalName, label);
+      const own = await call(r, m, url, { user: { ...user, impersonated: undefined }, body: { legalName: 'المدير' } });
+      assert.equal(own.status, 403, `${label} (المدير): ${own.text}`);
+      assert.equal(own.body.code, ownCode, `${label} (المدير)`);
+    }
+    assert.equal(r.h.store.settings.get(TENANT)?.legalName, 'بلا صلاحية', 'المدير المردود كتب');
+    await settledAudits(r, passes.length);
+    r.audits.length = 0;
+    r.h.store.settings.get(TENANT)!.legalName = sellerSettings().legalName;
     const writes = r.h.store.received.length;
     const cases: Array<[string, () => void, User, [string, string, unknown], number, string]> = [
-      ['مقيّد النطاق', () => {}, { ...imp, scopeEnabled: true }, ['POST', '/units', { environment: 'simulation' }], 403, 'SCOPED_ADMIN'],
-      ['صفّه مشرف', () => { r.admins.set(ADMIN.id, { isActive: true, role: 'MANAGER', tenantId: TENANT, canManageCompanySettings: true }); }, imp, ['PUT', '/seller', { legalName: 'x' }], 403, 'COMPANY_ADMIN_ONLY'],
-      ['نُزعت صلاحيته', () => { r.admins.set(ADMIN.id, { isActive: true, role: 'ADMIN', tenantId: TENANT, canManageCompanySettings: false }); }, imp, ['POST', '/units', { environment: 'simulation' }], 403, 'PERMISSION_DENIED'],
       ['العلم مطفأ', () => { r.admins.delete(ADMIN.id); r.flags.set(TENANT, false); }, imp, ['POST', '/units', { environment: 'simulation' }], 403, 'ZATCA_PHASE2_NOT_ALLOWED'],
       ['غير سعودية', () => { r.flags.set(TENANT, true); r.h.store.settings.get(TENANT)!.countryCode = 'AE'; }, imp, ['PUT', '/seller', { legalName: 'x' }], 403, 'ZATCA_COUNTRY_NOT_SUPPORTED'],
       ['بيئة غير مسموحة', () => { r.h.store.settings.get(TENANT)!.countryCode = 'SA'; }, imp, ['POST', '/units', { environment: 'production' }], 403, 'ENV_NOT_ALLOWED'],
@@ -540,9 +556,9 @@ test('جلسة دخول مالك المنصة لا تتجاوز أي حارس آ
     assert.equal(r.h.store.settings.get(TENANT)?.legalName, sellerSettings().legalName);
     const lines = await settledAudits(r, cases.length);
     assert.deepEqual(lines.map(l => [l.action, l.status]), [
-      ['unit.create', 403], ['seller.update', 403], ['unit.create', 403], ['unit.create', 403], ['seller.update', 403], ['unit.create', 403], ['unit.retire', 404],
+      ['unit.create', 403], ['seller.update', 403], ['unit.create', 403], ['unit.retire', 404],
     ]);
-    assert.equal(lines[6].unitId, foreign.id);
+    assert.equal(lines[3].unitId, foreign.id);
     assert.ok(lines.every(l => l.tenantId === TENANT && l.actorAdminId === ADMIN.id));
     assertNothingLeaked(r);
   } finally {

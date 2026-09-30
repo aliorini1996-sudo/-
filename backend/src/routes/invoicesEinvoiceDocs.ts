@@ -387,7 +387,7 @@ router.get('/:id/einvoice/xml', requireAdmin, async (req: AuthRequest, res: Resp
  */
 router.post('/einvoice/submit-pause', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    if (req.user?.role !== 'ADMIN') { res.status(403).json({ success: false, message: 'غير مسموح' }); return; }
+    if (req.user?.role !== 'ADMIN' && req.user?.impersonated !== true) { res.status(403).json({ success: false, message: 'غير مسموح' }); return; }
     const tid = tenantId(req);
     const body = (req.body ?? {}) as { paused?: unknown };
     if (typeof body.paused !== 'boolean') { res.status(400).json({ success: false, message: 'paused مطلوب (true/false)' }); return; }

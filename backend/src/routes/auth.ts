@@ -97,6 +97,14 @@ export const LEDGER_PERMISSION_KEYS = new Set(['canViewLedger', 'canPostJournals
  * حقول الصلاحيات ونطاق المستخدم كما تصل الويب — مصدر واحد للدخول والانتحال والتسجيل،
  * فلا يُخفي الويب عنصراً يسمح به الخادم (§9.1: الانتحال يمرّ كصاحب الحساب).
  */
+/**
+ * صلاحيات جلسة مالك المنصة في الويب: كل مفتاح مفتوح ولا نطاق — فتظهر له كل أزرار الشركة وشاشاتها كما يسمح له الخادم
+ * (isOwnerSession). أمر المالك (٢٩ سبتمبر ٢٠٢٦): «اجعل لي كمالك صلاحية تعديل كل شيء بلا استثناء».
+ */
+export function ownerSessionPermissionFields() {
+  return { ...Object.fromEntries(Object.keys(adminPermissionSelect).map((key) => [key, true])), scopeEnabled: false };
+}
+
 export function adminPermissionFields(admin: Record<string, unknown>) {
   return {
     ...Object.fromEntries(Object.keys(adminPermissionSelect).map(key => [key, LEDGER_PERMISSION_KEYS.has(key) ? ((admin as any)[key] ?? false) : (admin as any)[key]])),
@@ -412,10 +420,7 @@ router.post('/refresh-fcm', authenticate, async (req: AuthRequest, res: Response
 
 router.post('/change-password', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    if ((req.user as { impersonated?: boolean })?.impersonated) {
-      res.status(403).json({ success: false, message: 'غير متاح أثناء تصفح شركة كمالك' });
-      return;
-    }
+    // جلسة مالك المنصة مسموحة (أمر المالك (٢٩ سبتمبر ٢٠٢٦): «اجعل لي كمالك صلاحية تعديل كل شيء بلا استثناء») — وتغيير كلمة المرور يبقى مشروطاً بالحالية كأي حساب
     const schema = z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(8, 'كلمة المرور الجديدة 8 أحرف على الأقل') });
     const { currentPassword, newPassword } = schema.parse(req.body);
     const role = req.user!.role;
@@ -465,7 +470,8 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response, next: Ne
         where: { id: req.user.id },
         select: { id: true, name: true, email: true, role: true, tenantId: true, emailVerified: true, scopeEnabled: true, ...adminPermissionSelect }
       });
-      res.json({ success: true, data: admin });
+      // جلسة مالك المنصة: كل الصلاحيات مفتوحة في الويب كما في الخادم
+      res.json({ success: true, data: admin && req.user.impersonated === true ? { ...admin, ...ownerSessionPermissionFields() } : admin });
     }
   } catch (err) { next(err); }
 });

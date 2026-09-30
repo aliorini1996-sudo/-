@@ -100,7 +100,7 @@ router.get('/mine', async (req: AuthRequest, res: Response, next: NextFunction) 
         where: { id: req.user!.id, tenantId: tid },
         select: { isActive: true, canManageTracking: true },
       });
-      if (!admin?.isActive || admin.canManageTracking === false) {
+      if (!admin?.isActive || (admin.canManageTracking === false && req.user?.impersonated !== true)) {
         res.status(403).json({ success: false, message: 'لا تملك صلاحية الوصول لهذا القسم' }); return;
       }
       if (!(await canAccessRep(req, tid, salesRepId))) {

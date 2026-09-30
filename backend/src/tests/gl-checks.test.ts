@@ -633,3 +633,11 @@ test('البداية النظيفة: المعلّق التشغيلي (C4b) = ا�
   assert.equal((await loadRepCustodyFacts(legacy, 't1', legacy.settings!, pending)).find((r) => r.salesRepId === 'rep1')!.opsOutstandingMilli, 7_000_000n);
   assert.deepEqual(seen.collections, [null]);
 });
+
+test('الدفاتر اليدوية: فحوص المطابقة مع التشغيل والمزامنة لا تنطبق (C3/C4/C4b/C5/C8/C14/C15)، وتبقى فحوص الدفاتر الداخلية', async () => {
+  const store = new FakeCheckStore();
+  store.settings = { ...store.settings!, setupMethod: 'CLEAN' };
+  const keys = (await runChecks(store, 't1')).results.map((r) => r.key);
+  for (const k of ['C3', 'C4', 'C4b', 'C5', 'C8', 'C14', 'C15']) assert.ok(!keys.includes(k as never), k);
+  for (const k of ['C1', 'C2', 'C10', 'C12']) assert.ok(keys.includes(k as never), k);
+});

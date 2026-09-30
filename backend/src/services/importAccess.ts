@@ -88,6 +88,10 @@ export function importAccessBody(d: Exclude<ImportAccessDecision, { ok: true }>)
 /** قراءة واحدة لصف المدير */
 export async function loadImportActor(req: AuthRequest): Promise<ImportActor | null> {
   if (!req.user?.id) return null;
+  // جلسة مالك المنصة: كل أنواع الاستيراد ولا نطاق
+  if (req.user.impersonated === true) {
+    return { scopeEnabled: false, perms: { canManageCustomers: true, canManageProducts: true, canManageVanStock: true } };
+  }
   const a = await prisma.admin.findUnique({
     where: { id: req.user.id },
     select: { scopeEnabled: true, canManageCustomers: true, canManageProducts: true, canManageVanStock: true },

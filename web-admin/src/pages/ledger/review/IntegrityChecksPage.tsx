@@ -1,3 +1,4 @@
+import { useManualLedger } from '../../../lib/ledger/manualLedger';
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -84,6 +85,8 @@ export default function IntegrityChecksPage() {
     onError: (err) => { setConfirmRebuild(false); toast.error(ledgerErrorMessage(tr, ledgerErrorOf(err))); },
   });
 
+  // الدفاتر اليدوية المستقلة: لا مزامنة مع التشغيل
+  const manual = useManualLedger();
   const sync = useMutation({
     mutationFn: async () => (await ledgerConfigApi.sync()).data,
     onSuccess: (r) => {
@@ -104,7 +107,7 @@ export default function IntegrityChecksPage() {
         {report && <Badge tone={checkStatusTone(report.overall)}>{statusLabels[report.overall]}</Badge>}
         {report && <span className="text-xs text-[#6E6557]">{tr('آخر تشغيل')}: <bdi>{formatDateTime(report.ranAt)}</bdi></span>}
         <div className="flex gap-2 ms-auto">
-          {activated && (
+          {activated && !manual && (
             <button type="button" className="btn-secondary !py-1.5 !px-3 text-sm inline-flex items-center gap-1 disabled:opacity-50" disabled={sync.isPending} onClick={() => sync.mutate()}>
               <RefreshCw size={14} className={sync.isPending ? 'animate-spin' : ''} />{tr('مزامنة الآن')}
             </button>
