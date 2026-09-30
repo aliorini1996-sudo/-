@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChevronRight, Crosshair, MapPin, Navigation, Sparkles, Star, Store, UserPlus, X, ThumbsUp, ThumbsDown, Lightbulb, ShoppingBag, MessageSquareQuote, Clock } from 'lucide-react';
+import { ChevronRight, Crosshair, MapPin, Navigation, Sparkles, Star, Store, UserPlus, X, ThumbsUp, ThumbsDown, Lightbulb, ShoppingBag, MessageSquareQuote, Clock, ClipboardPaste } from 'lucide-react';
 import repApi from './repApi';
 import { cacheGet, cacheSet, currentRepId, newClientRef, outboxAdd } from './offlineDb';
 import { isNetworkError } from './offlineSync';
@@ -40,6 +40,7 @@ interface Me {
   targetTypes: { code: string; label: string }[];
 }
 type StudyReq = { placeId?: string; here?: { lat: number; lng: number; accuracyM: number } };
+type StudyResult = { searchId: string; item: Item; profile: Profile; study: Study };
 
 const ME_KEY = 'ai-rep:me';
 const ADD_PIN_MAX_M = 75;
@@ -81,6 +82,7 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
   const [mapErr, setMapErr] = useState(false);
   const [mapAttempt, setMapAttempt] = useState(0);
   const [recenter, setRecenter] = useState(0);
+  const [pasteOpen, setPasteOpen] = useState(false);
   const searchIdRef = useRef(searchId);
   searchIdRef.current = searchId;
   const originRef = useRef(origin);
@@ -148,6 +150,34 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
     void locate();
   }, [locate, offline]);
 
+  const applyStudy = useCallback((d: StudyResult) => {
+    const item: Item = { ...d.item, profile: d.profile, study: d.study };
+    searchIdRef.current = d.searchId;
+    setSearchId(d.searchId);
+    // جلسة جديدة (إعادة تشغيل الخادم) لا تمسح المحلات المدروسة سابقاً
+    setItems(list => (list.some(x => x.placeId === item.placeId) ? list.map(x => (x.placeId === item.placeId ? { ...x, ...item } : x)) : [...list, item]));
+    setOpenId(item.placeId);
+  }, []);
+
+  // مراجعات نسخها المندوب من تطبيق خرائط Google بحسابه ولصقها هنا
+  const studyPasted = useCallback(async (b: { name: string; text: string; rating?: number; ratingCount?: number }) => {
+    if (busyRef.current) return;
+    const gps = originRef.current ?? await getGps().catch(() => null);
+    if (!gps) { setMsg(tr('فعّل الموقع لنعرف المحلات القريبة منك')); return; }
+    busyRef.current = true;
+    setBusy(true); setMsg('');
+    try {
+      const r = await repApi.post('/ai-rep/rep/study-text', {
+        ...b, gps: { lat: gps.lat, lng: gps.lng, accuracyM: gps.accuracy },
+        ...(searchIdRef.current && { searchId: searchIdRef.current }),
+      });
+      setPasteOpen(false);
+      applyStudy(r.data.data as StudyResult);
+    } catch (e) {
+      setMsg(errMsg(e) || (isNetworkError(e) ? tr('أنت دون اتصال — الدراسة تحتاج الإنترنت') : tr('تعذّرت دراسة المحل')));
+    } finally { busyRef.current = false; setBusy(false); }
+  }, [applyStudy, tr]);
+
   const study = useCallback(async (req: StudyReq) => {
     if (busyRef.current) return;
     busyRef.current = true;
@@ -159,17 +189,11 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
         ...(searchIdRef.current && { searchId: searchIdRef.current }),
         ...(o && { gps: { lat: o.lat, lng: o.lng } }),
       });
-      const d = r.data.data as { searchId: string; item: Item; profile: Profile; study: Study };
-      const item: Item = { ...d.item, profile: d.profile, study: d.study };
-      searchIdRef.current = d.searchId;
-      setSearchId(d.searchId);
-      // جلسة جديدة (إعادة تشغيل الخادم) لا تمسح المحلات المدروسة سابقاً
-      setItems(list => (list.some(x => x.placeId === item.placeId) ? list.map(x => (x.placeId === item.placeId ? { ...x, ...item } : x)) : [...list, item]));
-      setOpenId(item.placeId);
+      applyStudy(r.data.data as StudyResult);
     } catch (e) {
       setMsg(errMsg(e) || (isNetworkError(e) ? tr('أنت دون اتصال — الدراسة تحتاج الإنترنت') : tr('تعذّرت دراسة المحل')));
     } finally { busyRef.current = false; setBusy(false); }
-  }, [tr]);
+  }, [tr, applyStudy]);
 
   const onPoi = useCallback((p: { placeId: string }) => {
     const known = items.find(x => x.placeId === p.placeId && x.study);
@@ -240,11 +264,14 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
       </div>
 
       {/* تلميح/زرّ سفلي */}
-      {!open && (
+      {!open && !pasteOpen && (
         <div className="absolute bottom-4 inset-x-4 space-y-2">
           {msg && <p className="rounded-xl bg-white shadow-md p-2.5 text-sm text-center text-gray-700">{msg}</p>}
           {me && !me.placesConfigured && !offline ? (
-            <p className="rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs text-center p-2.5 shadow-md">{tr('دراسة المحل من خرائط Google تحتاج مفتاح Google للمنصّة — لم يُضبط بعد')}</p>
+            <button onClick={() => setPasteOpen(true)} disabled={busy}
+              className="w-full rounded-2xl bg-[#E15A30] disabled:opacity-60 text-white py-3.5 font-bold shadow-lg flex items-center justify-center gap-2">
+              <ClipboardPaste size={18} /> {busy ? tr('أدرس المحل من مراجعاته في خرائط Google…') : tr('ادرس محلاً بمراجعاته من خرائط Google')}
+            </button>
           ) : keyed ? (
             <p className="rounded-full bg-[#1F1A13]/90 text-white text-sm text-center py-2.5 px-4 shadow-md">
               {busy ? tr('أدرس المحل من مراجعاته في خرائط Google…') : tr('اضغط على أي محل في الخريطة لدراسته')}
@@ -258,11 +285,70 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
         </div>
       )}
 
+      {pasteOpen && !open && (
+        <PasteSheet busy={busy} msg={msg} origin={origin} onClose={() => setPasteOpen(false)} onSubmit={b => void studyPasted(b)} />
+      )}
+
       {open && (
         <ShopSheet item={open} canAddCustomer={canAddCustomer} onClose={() => setOpenId(null)}
           onAddCustomer={onAddCustomer} onOpenCustomer={onOpenCustomer}
           onOutcome={kind => onOutcome(open.placeId, kind)} />
       )}
+    </div>
+  );
+}
+
+/**
+ * «ادرس محلاً بمراجعاته»: المندوب يفتح المحل في تطبيق خرائط Google بحسابه، ينسخ مراجعاته (وتقييمه إن شاء)،
+ * ويلصقها هنا — بلا مفتاح Google. التقييم وعدد المقيّمين يُقرآن من النص إن لم يُدخلا.
+ */
+function PasteSheet({ busy, msg, origin, onClose, onSubmit }: {
+  busy: boolean; msg: string; origin: { lat: number; lng: number } | null;
+  onClose: () => void; onSubmit: (b: { name: string; text: string; rating?: number; ratingCount?: number }) => void;
+}) {
+  const tr = useAiRepTr();
+  const [name, setName] = useState('');
+  const [text, setText] = useState('');
+  const [rating, setRating] = useState('');
+  const [count, setCount] = useState('');
+  useBackClose(true, onClose);
+  const paste = async () => {
+    try { const t = await navigator.clipboard.readText(); if (t) setText(x => (x ? x + '\n\n' + t : t).slice(0, 8000)); } catch { /* المتصفح منع القراءة: يلصق المندوب بنفسه */ }
+  };
+  const mapsUrl = origin ? `https://www.google.com/maps/@${origin.lat.toFixed(5)},${origin.lng.toFixed(5)},18z` : 'https://www.google.com/maps';
+  const r = Number(rating.replace(',', '.'));
+  const n = Number(count.replace(/[^0-9]/g, ''));
+  return (
+    <div className="absolute inset-x-0 bottom-0 z-40 max-h-[88%] bg-white rounded-t-3xl shadow-2xl flex flex-col" dir="rtl">
+      <div className="p-4 pb-3 flex items-start gap-2 border-b border-gray-100 flex-shrink-0">
+        <div className="flex-1">
+          <p className="font-bold text-[#1F1A13] flex items-center gap-1.5"><ClipboardPaste size={17} className="text-[#E15A30]" /> {tr('ادرس محلاً بمراجعاته')}</p>
+          <p className="text-[11px] text-gray-500 mt-1 leading-5">{tr('افتح المحل في تطبيق خرائط Google بحسابك، ثم انسخ مراجعاته (وتقييمه إن شئت) والصقها هنا.')}</p>
+        </div>
+        <button onClick={onClose} className="p-2 text-gray-500"><X size={20} /></button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        <a href={mapsUrl} target="_blank" rel="noreferrer" className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#1F1A13] text-white py-2.5 text-sm font-bold"><Navigation size={15} /> {tr('افتح خرائط Google')}</a>
+        <input value={name} onChange={e => setName(e.target.value)} maxLength={120} placeholder={tr('اسم المحل')} className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm" />
+        <div className="grid grid-cols-2 gap-2">
+          <input value={rating} onChange={e => setRating(e.target.value)} inputMode="decimal" placeholder={tr('التقييم (مثل 4.3) — اختياري')} className="rounded-xl border border-gray-200 px-3 py-2.5 text-sm" />
+          <input value={count} onChange={e => setCount(e.target.value)} inputMode="numeric" placeholder={tr('عدد المقيّمين — اختياري')} className="rounded-xl border border-gray-200 px-3 py-2.5 text-sm" />
+        </div>
+        <div className="relative">
+          <textarea value={text} onChange={e => setText(e.target.value.slice(0, 8000))} rows={8} dir="auto"
+            placeholder={tr('الصق مراجعات العملاء هنا — مراجعة في كل فقرة')}
+            className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm leading-6" />
+          <button onClick={paste} className="absolute bottom-3 left-3 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-gray-600">{tr('الصق')}</button>
+        </div>
+        {msg && <p className="text-xs text-red-600">{msg}</p>}
+      </div>
+      <div className="flex-shrink-0 border-t border-gray-100 p-3">
+        <button disabled={busy || text.trim().length < 20}
+          onClick={() => onSubmit({ name: name.trim(), text, ...(r >= 1 && r <= 5 ? { rating: r } : {}), ...(n > 0 ? { ratingCount: n } : {}) })}
+          className="w-full rounded-xl bg-[#E15A30] disabled:opacity-50 text-white py-3 text-sm font-bold flex items-center justify-center gap-2">
+          <Sparkles size={16} /> {busy ? tr('أدرس المحل من مراجعاته في خرائط Google…') : tr('ادرس المراجعات')}
+        </button>
+      </div>
     </div>
   );
 }

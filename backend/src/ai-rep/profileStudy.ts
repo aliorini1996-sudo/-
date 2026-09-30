@@ -51,19 +51,65 @@ const THEMES: { key: string; label: string; re: RegExp }[] = [
   { key: 'HOURS', label: 'ساعات العمل', re: /24|٢٤|مفتوح|يفتح|يسكر|يقفل|متاخر|متأخر|طول الليل/ },
 ];
 
-/** محاور المراجعات: ما يُمدح (مراجعة ٤–٥ نجوم) وما يُشتكى منه (١–٢ نجوم). */
+const POSITIVE = /ممتاز|رائع|نظيف|محترم|انصح|أنصح|جميل|سريع|مرتب|متعاون|افضل|أفضل|كويس|زين|حلو/;
+const NEGATIVE = /سيء|سيئ|وسخ|غالي|ناقص|نواقص|لا انصح|لا أنصح|ما انصح|ما أنصح|تأخير|وقح|زحمه|زحمة|ما فيه|مافيه|خايس|خربان|منتهي/;
+
+/** قطبية مراجعة: من نجومها، وإلا من كلماتها (المراجعات الملصقة بلا نجوم). */
+function polarity(rating: number | null, t: string): 1 | -1 | 0 {
+  if (rating != null) return rating >= 4 ? 1 : rating <= 2 ? -1 : 0;
+  // المديح المنفيّ («ما أنصح»، «مو نظيف») ليس مديحاً
+  const unNegated = t.replace(/(?:لا|ما|مو|غير|ليس)\s+(?:\S+)/g, ' ');
+  const pos = POSITIVE.test(unNegated), neg = NEGATIVE.test(t);
+  return pos && !neg ? 1 : neg && !pos ? -1 : 0;
+}
+
+/** محاور المراجعات: ما يُمدح (مراجعة إيجابية) وما يُشتكى منه (سلبية). */
 export function reviewThemes(p: Pick<PlaceProfile, 'reviews'>): { praise: string[]; complaints: string[] } {
   const praise = new Set<string>(), complaints = new Set<string>();
   for (const r of p.reviews) {
     const t = normalizeDigits(r.text || '');
     if (!t) continue;
+    const pol = polarity(r.rating, t);
     for (const th of THEMES) {
       if (!th.re.test(t)) continue;
-      if ((r.rating ?? 3) >= 4) praise.add(th.label);
-      else if ((r.rating ?? 3) <= 2) complaints.add(th.label);
+      if (pol > 0) praise.add(th.label);
+      else if (pol < 0) complaints.add(th.label);
     }
   }
   return { praise: [...praise].slice(0, 4), complaints: [...complaints].slice(0, 4) };
+}
+
+// ───────────── مراجعات ملصقة من تطبيق خرائط Google (بحساب المندوب) ─────────────
+
+/**
+ * نصٌّ نسخه المندوب من خرائط Google بحسابه ← ملف محل للدراسة: التقييم وعدد المقيّمين إن ظهرا في النص (أو أدخلهما)،
+ * والمراجعات مقطّعةً بالأسطر الفارغة (أو بالأسطر الطويلة). لا اتصال بـGoogle ولا تخزين.
+ */
+export function profileFromPaste(i: { name?: string | null; text: string; rating?: number | null; ratingCount?: number | null; lat: number; lng: number }): PlaceProfile {
+  const raw = normalizeDigits(i.text || '').replace(/\r/g, '').slice(0, 8000);
+  let rating = i.rating ?? null;
+  let ratingCount = i.ratingCount ?? 0;
+  if (rating == null) {
+    const m = raw.match(/(?:^|[^\d.])([1-5][.,]\d)(?![\d])/);
+    if (m) rating = Number(m[1].replace(',', '.'));
+  }
+  if (!ratingCount) {
+    const m = raw.match(/\(\s*(\d{1,3}(?:[,٬]\d{3})*|\d+)\s*\)/);
+    if (m) ratingCount = Number(m[1].replace(/[,٬]/g, ''));
+  }
+  let chunks = raw.split(/\n\s*\n+/).map(s => s.trim()).filter(Boolean);
+  if (chunks.length < 2) chunks = raw.split('\n').map(s => s.trim()).filter(s => s.length >= 15);
+  const reviews = chunks
+    .filter(c => /[ء-يa-zA-Z]{3,}/.test(c))
+    .slice(0, 15)
+    .map(c => ({ rating: null, text: c.slice(0, 600), when: null, publishTime: null, author: null, authorUri: null }));
+  return {
+    placeId: '', name: (i.name || '').trim() || 'محل من خرائط Google', typeLabel: null, primaryType: null, types: [],
+    address: null, lat: i.lat, lng: i.lng, mapsUri: null,
+    rating: rating != null && rating >= 1 && rating <= 5 ? rating : null,
+    ratingCount: Number.isFinite(ratingCount) && ratingCount > 0 ? Math.floor(ratingCount) : 0,
+    openNow: null, hours: [], priceLevel: null, reviews, closed: false,
+  };
 }
 
 const ACTIVITY_AR: Record<Activity, string> = { HIGH: 'نشِط', MEDIUM: 'متوسط النشاط', LOW: 'هادئ', UNKNOWN: 'غير معروف' };
@@ -75,7 +121,9 @@ export function ruleStudy(p: PlaceProfile): ShopStudy {
   const rated = p.rating != null && p.ratingCount > 0;
   const summary = rated
     ? `${p.name}: تقييمه ${p.rating} من ${p.ratingCount} مقيّماً في خرائط Google${p.openNow === true ? '، ومفتوح الآن' : p.openNow === false ? '، ومغلق الآن' : ''}.`
-    : `${p.name}: لا تقييمات له في خرائط Google بعد — الدراسة تعتمد على زيارتك.`;
+    : p.reviews.length
+      ? `${p.name}: دراسة من ${p.reviews.length} مراجعة من خرائط Google.`
+      : `${p.name}: لا تقييمات له في خرائط Google بعد — الدراسة تعتمد على زيارتك.`;
   const opportunity: string[] = [];
   if (complaints.includes('توفّر الأصناف')) opportunity.push('العملاء يشتكون من نقص الأصناف — اعرض توريداً منتظماً يضمن توفّرها.');
   if (complaints.includes('الأسعار')) opportunity.push('العملاء حسّاسون للسعر — ابدأ بالأصناف الأوفر.');

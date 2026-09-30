@@ -31,7 +31,7 @@ import { aiRepSettingsSchema, repInScope, settingsView, AiRepSettingsView } from
 import { estimateOutlet, snapPoint, activeMonths, haversineKm, EstimateResult, MAX_PEERS } from '../ai-rep/estimate';
 import { loadEstimateData, invalidateEstimateData, TenantEstimateData } from '../ai-rep/estimateData';
 import { isGooglePlaceId, placeProfile, placesApiKey, searchNearby, NearbyPlace } from '../ai-rep/places';
-import { aiStudy, ruleStudy, type ShopStudy } from '../ai-rep/profileStudy';
+import { aiStudy, profileFromPaste, ruleStudy, type ShopStudy } from '../ai-rep/profileStudy';
 import { mergeNearby } from '../ai-rep/nearby';
 import { chatCompletion, llmConfig } from '../ai-rep/llm';
 import { isGoogleMapsUrl, resolveLocationUrl } from '../services/geoLink';
@@ -687,6 +687,68 @@ rep.post('/study', async (req: AuthRequest, res: Response, next: NextFunction) =
           name: p.name, typeLabel: p.typeLabel, address: p.address, mapsUri: p.mapsUri, rating: p.rating, ratingCount: p.ratingCount,
           openNow: p.openNow, hours: p.hours, reviews: p.reviews,
         },
+        study,
+      },
+    });
+  } catch (err) { next(err); }
+});
+
+// ───────────── دراسة مراجعات لصقها المندوب من تطبيق خرائط Google (بحسابه، بلا مفتاح Google) ─────────────
+// المندوب يفتح المحل في خرائط Google كأي مستخدم، ينسخ مراجعاته (وتقييمه إن شاء) ويلصقها هنا ⇒ الدراسة نفسها.
+// لا اتصال بـGoogle من الخادم؛ النص لا يُخزَّن. موقع المحل = موقع المندوب (عند الباب) لتسجيل النتيجة وإضافته عميلاً.
+const studyTextSchema = z.object({
+  searchId: z.string().uuid().optional(),
+  name: z.string().trim().max(120).optional(),
+  text: z.string().trim().min(20, 'الصق مراجعات المحل أولاً').max(8000),
+  rating: z.number().min(1).max(5).optional(),
+  ratingCount: z.number().int().min(0).max(10000000).optional(),
+  gps: z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180), accuracyM: z.number().min(0).max(100000).optional() }),
+});
+
+rep.post('/study-text', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const c = ctxOf(req);
+    const b = studyTextSchema.parse(req.body);
+    const p = profileFromPaste({ name: b.name, text: b.text, rating: b.rating ?? null, ratingCount: b.ratingCount ?? null, lat: b.gps.lat, lng: b.gps.lng });
+    if (!p.reviews.length && p.rating == null) { res.status(400).json({ success: false, code: 'NO_REVIEWS', message: 'لم أجد مراجعات في النص الملصق — انسخ نص المراجعات من خرائط Google' }); return; }
+    // معرّف ثابت للمحل من موقعه (~١١ م) — ليس معرّف Google
+    const placeId = `man:${b.gps.lat.toFixed(4)},${b.gps.lng.toFixed(4)}`;
+    const outletType = suggestOutletType(p.name) ?? c.settings.targetOutletTypes[0] ?? 'GROCERY';
+    const [merged] = await mergeOnly(req, c, { lat: p.lat, lng: p.lng }, 300, [outletType], [{
+      placeId, name: p.name, address: null, lat: p.lat, lng: p.lng, primaryType: null, types: googleTypesFor([outletType]),
+    }]);
+    let s = getSession(c.tid, c.repId, b.searchId);
+    if (!s || s.outlets.length >= 500) {
+      s = { searchId: randomUUID(), createdAt: Date.now(), origin: { lat: p.lat, lng: p.lng }, radiusM: c.settings.searchRadiusM, outlets: [] };
+      saveSession(c.tid, c.repId, s);
+    }
+    const existing = s.outlets.find(o => o.placeId === placeId);
+    const ref = existing?.ref ?? `P${s.outlets.length + 1}`;
+    const relation = merged?.relation ?? 'NEW';
+    const customerId = merged?.customerId ?? null;
+    if (!existing) s.outlets.push({ ref, placeId, outletType, lat: p.lat, lng: p.lng, distanceM: 0, relation, lastOutcome: merged?.lastOutcome ?? null, customerId });
+
+    let study: ShopStudy = ruleStudy(p);
+    const cfg = llmConfig();
+    if (cfg && c.settings.advisorEnabled && (await reserveUsage(c.tid, c.repId, 'chatTurns', c.settings.dailyChatTurnsPerRep))) {
+      const products = (await prisma.product.findMany({
+        where: { tenantId: c.tid, status: 'ACTIVE', deletedAt: null }, select: { name: true }, orderBy: { name: 'asc' }, take: 60,
+      })).map(x => x.name);
+      const ai = await aiStudy(p, { cfg, products, playbook: c.settings.playbook });
+      await addUsage(c.tid, c.repId, { tokensIn: ai.tokensIn, tokensOut: ai.tokensOut, ...(ai.study ? {} : { guardFallback: 1 }) });
+      if (ai.study) study = ai.study;
+      else console.warn('[ai-rep] دراسة المراجعات الملصقة بالعقل تعذّرت:', ai.code, 'tenant', c.tid);
+    }
+    res.json({
+      success: true,
+      data: {
+        searchId: s.searchId,
+        item: {
+          ref, placeId, name: p.name, address: null, lat: p.lat, lng: p.lng, outletType, outletTypeLabel: outletTypeLabel(outletType),
+          distanceM: 0, relation, customerId, lastOutcome: merged?.lastOutcome ?? null, lastOutcomeAt: merged?.lastOutcomeAt ?? null,
+          rejectedRecently: merged?.rejectedRecently ?? false,
+        },
+        profile: { name: p.name, typeLabel: null, address: null, mapsUri: null, rating: p.rating, ratingCount: p.ratingCount, openNow: null, hours: [], reviews: p.reviews },
         study,
       },
     });
