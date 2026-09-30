@@ -129,20 +129,3 @@ test('الدراسة بالعقل: نجاح، وإعادة عند مخرج مع�
   assert.deepEqual(formats, ['json_object', undefined]);
   formats = [];
 });
-
-test('مراجعات ملصقة من تطبيق خرائط Google: التقييم والعدد من النص، والتقطيع، والقطبية بلا نجوم', async () => {
-  const { profileFromPaste } = await import('../ai-rep/profileStudy');
-  const text = 'تموينات الريان\n٤٫٣ ★★★★☆ (١٢٨)\n\nمحل نظيف والتعامل ممتاز وكل شي متوفر\n\nالأسعار غالية وناقص أصناف كثيرة، ما أنصح\n\nok';
-  const p = profileFromPaste({ name: 'تموينات الريان', text, lat: 24.8, lng: 46.6 });
-  assert.equal(p.rating, 4.3);
-  assert.equal(p.ratingCount, 128);
-  assert.ok(p.reviews.length >= 2);
-  const t = reviewThemes(p);
-  assert.ok(t.praise.includes('النظافة') && t.praise.includes('توفّر الأصناف'));
-  assert.ok(t.complaints.includes('الأسعار'));
-  const s = ruleStudy(p);
-  assert.match(s.summary, /4\.3/);
-  // إدخال صريح يغلب النص، ونص بلا مراجعات
-  assert.equal(profileFromPaste({ text: 'مراجعة: خدمة ممتازة جداً وسريعة', rating: 3.9, lat: 1, lng: 1 }).rating, 3.9);
-  assert.equal(profileFromPaste({ text: '12345', lat: 1, lng: 1 }).reviews.length, 0);
-});

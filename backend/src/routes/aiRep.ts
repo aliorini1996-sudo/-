@@ -30,8 +30,10 @@ import { OUTLET_TYPES, OUTLET_TYPE_CODES, googleTypesFor, isOutletType, outletTy
 import { aiRepSettingsSchema, repInScope, settingsView, AiRepSettingsView } from '../ai-rep/settings';
 import { estimateOutlet, snapPoint, activeMonths, haversineKm, EstimateResult, MAX_PEERS } from '../ai-rep/estimate';
 import { loadEstimateData, invalidateEstimateData, TenantEstimateData } from '../ai-rep/estimateData';
-import { isGooglePlaceId, placeProfile, placesApiKey, searchNearby, NearbyPlace } from '../ai-rep/places';
-import { aiStudy, profileFromPaste, ruleStudy, type ShopStudy } from '../ai-rep/profileStudy';
+import { isGooglePlaceId, placeProfile, placesApiKey, searchNearby, NearbyPlace, type PlaceReview } from '../ai-rep/places';
+import { publicSearch } from '../ai-rep/publicMaps';
+import { aiGuide, ruleGuide, type ScanGuide, type ScanShop } from '../ai-rep/scanGuide';
+import { aiStudy, ruleStudy, type ShopStudy } from '../ai-rep/profileStudy';
 import { mergeNearby } from '../ai-rep/nearby';
 import { chatCompletion, llmConfig } from '../ai-rep/llm';
 import { isGoogleMapsUrl, resolveLocationUrl } from '../services/geoLink';
@@ -693,68 +695,103 @@ rep.post('/study', async (req: AuthRequest, res: Response, next: NextFunction) =
   } catch (err) { next(err); }
 });
 
-// ───────────── دراسة مراجعات لصقها المندوب من تطبيق خرائط Google (بحسابه، بلا مفتاح Google) ─────────────
-// المندوب يفتح المحل في خرائط Google كأي مستخدم، ينسخ مراجعاته (وتقييمه إن شاء) ويلصقها هنا ⇒ الدراسة نفسها.
-// لا اتصال بـGoogle من الخادم؛ النص لا يُخزَّن. موقع المحل = موقع المندوب (عند الباب) لتسجيل النتيجة وإضافته عميلاً.
-const studyTextSchema = z.object({
-  searchId: z.string().uuid().optional(),
-  name: z.string().trim().max(120).optional(),
-  text: z.string().trim().min(20, 'الصق مراجعات المحل أولاً').max(8000),
-  rating: z.number().min(1).max(5).optional(),
-  ratingCount: z.number().int().min(0).max(10000000).optional(),
-  gps: z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180), accuracyM: z.number().min(0).max(100000).optional() }),
+// ───────────── المسح: كل المحلات حول المندوب من خرائط Google + توجيه العقل (بلا عمل من المندوب) ─────────────
+// بمفتاح الأماكن: البحث الرسمي. بلا مفتاح: بحث خرائط Google العام (وضع تجربة، publicMaps.ts) — بلا مراجعات نصية.
+const scanSchema = z.object({
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+  accuracyM: z.number().min(0).max(100000).optional(),
 });
 
-rep.post('/study-text', async (req: AuthRequest, res: Response, next: NextFunction) => {
+rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const c = ctxOf(req);
-    const b = studyTextSchema.parse(req.body);
-    const p = profileFromPaste({ name: b.name, text: b.text, rating: b.rating ?? null, ratingCount: b.ratingCount ?? null, lat: b.gps.lat, lng: b.gps.lng });
-    if (!p.reviews.length && p.rating == null) { res.status(400).json({ success: false, code: 'NO_REVIEWS', message: 'لم أجد مراجعات في النص الملصق — انسخ نص المراجعات من خرائط Google' }); return; }
-    // معرّف ثابت للمحل من موقعه (~١١ م) — ليس معرّف Google
-    const placeId = `man:${b.gps.lat.toFixed(4)},${b.gps.lng.toFixed(4)}`;
-    const outletType = suggestOutletType(p.name) ?? c.settings.targetOutletTypes[0] ?? 'GROCERY';
-    const [merged] = await mergeOnly(req, c, { lat: p.lat, lng: p.lng }, 300, [outletType], [{
-      placeId, name: p.name, address: null, lat: p.lat, lng: p.lng, primaryType: null, types: googleTypesFor([outletType]),
-    }]);
-    let s = getSession(c.tid, c.repId, b.searchId);
-    if (!s || s.outlets.length >= 500) {
-      s = { searchId: randomUUID(), createdAt: Date.now(), origin: { lat: p.lat, lng: p.lng }, radiusM: c.settings.searchRadiusM, outlets: [] };
-      saveSession(c.tid, c.repId, s);
+    const b = scanSchema.parse(req.body);
+    if (!(await reserveUsage(c.tid, c.repId, 'searches', c.settings.dailySearchesPerRep))) {
+      res.status(429).json({ success: false, code: 'AI_REP_DAILY_LIMIT', message: `بلغت حدّ المسح اليومي (${c.settings.dailySearchesPerRep}) — نتائجك الحالية تبقى متاحة` });
+      return;
     }
-    const existing = s.outlets.find(o => o.placeId === placeId);
-    const ref = existing?.ref ?? `P${s.outlets.length + 1}`;
-    const relation = merged?.relation ?? 'NEW';
-    const customerId = merged?.customerId ?? null;
-    if (!existing) s.outlets.push({ ref, placeId, outletType, lat: p.lat, lng: p.lng, distanceM: 0, relation, lastOutcome: merged?.lastOutcome ?? null, customerId });
-
-    let study: ShopStudy = ruleStudy(p);
-    const cfg = llmConfig();
-    if (cfg && c.settings.advisorEnabled && (await reserveUsage(c.tid, c.repId, 'chatTurns', c.settings.dailyChatTurnsPerRep))) {
-      const products = (await prisma.product.findMany({
-        where: { tenantId: c.tid, status: 'ACTIVE', deletedAt: null }, select: { name: true }, orderBy: { name: 'asc' }, take: 60,
-      })).map(x => x.name);
-      const ai = await aiStudy(p, { cfg, products, playbook: c.settings.playbook });
-      await addUsage(c.tid, c.repId, { tokensIn: ai.tokensIn, tokensOut: ai.tokensOut, ...(ai.study ? {} : { guardFallback: 1 }) });
-      if (ai.study) study = ai.study;
-      else console.warn('[ai-rep] دراسة المراجعات الملصقة بالعقل تعذّرت:', ai.code, 'tenant', c.tid);
+    const origin = { lat: b.lat, lng: b.lng };
+    const radiusM = c.settings.searchRadiusM;
+    const types = c.settings.targetOutletTypes.slice(0, 3);
+    type Found = { placeId: string; name: string; rating: number | null; lat: number; lng: number; category: string | null; openNow: boolean | null; openText: string | null; address: string | null; type: string };
+    const found = new Map<string, Found>();
+    const key = placesApiKey();
+    let source: 'PLACES' | 'PUBLIC' = key ? 'PLACES' : 'PUBLIC';
+    if (key) {
+      const r = await searchNearby({ apiKey: key, lat: b.lat, lng: b.lng, radiusM, includedTypes: googleTypesFor(types), regionCode: c.countryCode });
+      if (r.ok) {
+        for (const p of r.places) {
+          const type = outletTypeFromGoogle(p.primaryType, p.types, types) ?? types[0];
+          found.set(p.placeId, { placeId: p.placeId, name: p.name, rating: null, lat: p.lat, lng: p.lng, category: outletTypeLabel(type), openNow: null, openText: null, address: p.address, type });
+        }
+      } else source = 'PUBLIC';
     }
-    res.json({
-      success: true,
-      data: {
-        searchId: s.searchId,
-        item: {
-          ref, placeId, name: p.name, address: null, lat: p.lat, lng: p.lng, outletType, outletTypeLabel: outletTypeLabel(outletType),
-          distanceM: 0, relation, customerId, lastOutcome: merged?.lastOutcome ?? null, lastOutcomeAt: merged?.lastOutcomeAt ?? null,
-          rejectedRecently: merged?.rejectedRecently ?? false,
-        },
-        profile: { name: p.name, typeLabel: null, address: null, mapsUri: null, rating: p.rating, ratingCount: p.ratingCount, openNow: null, hours: [], reviews: p.reviews },
-        study,
-      },
+    if (!found.size) {
+      source = 'PUBLIC';
+      const results = await Promise.all(types.map(t => publicSearch({ query: outletTypeLabel(t).split('/')[0].trim(), lat: b.lat, lng: b.lng, spanM: radiusM * 2.5 }).then(r => ({ t, r }))));
+      const failed = results.filter(x => !x.r.ok);
+      if (failed.length === results.length) {
+        await refundUsage(c.tid, c.repId, 'searches');
+        const f0 = failed[0].r as { message: string };
+        console.warn('[ai-rep] المسح العام تعذّر', failed.map(x => (x.r as { code: string }).code).join(','), 'tenant', c.tid);
+        res.status(502).json({ success: false, code: 'SCAN_FAILED', message: f0.message });
+        return;
+      }
+      for (const { t, r } of results) {
+        if (!r.ok) continue;
+        for (const p of r.places) {
+          if (found.has(p.placeId)) continue;
+          found.set(p.placeId, { placeId: p.placeId, name: p.name, rating: p.rating, lat: p.lat, lng: p.lng, category: p.categories[0] ?? null, openNow: p.openNow, openText: p.openText, address: p.address, type: t });
+        }
+      }
+    }
+    // داخل نطاق الشركة، الأقرب أولاً
+    const places = [...found.values()]
+      .map(p => ({ ...p, distanceM: Math.round(haversineKm(b.lat, b.lng, p.lat, p.lng) * 1000) }))
+      .filter(p => p.distanceM <= radiusM * 1.25)
+      .sort((a, z2) => a.distanceM - z2.distanceM)
+      .slice(0, 40);
+    const merged = await mergeOnly(req, c, origin, radiusM, types, places.map(p => ({
+      placeId: p.placeId, name: p.name, address: p.address, lat: p.lat, lng: p.lng, primaryType: null, types: googleTypesFor([p.type]),
+    })));
+    const byId = new Map(places.map(p => [p.placeId, p]));
+    const searchId = randomUUID();
+    const items = merged.map((m, i) => {
+      const p = byId.get(m.placeId)!;
+      const profile = {
+        name: p.name, typeLabel: p.category, address: p.address, mapsUri: `https://www.google.com/maps/place/?q=place_id:${p.placeId}`,
+        rating: p.rating, ratingCount: 0, openNow: p.openNow, hours: p.openText ? [p.openText] : [], reviews: [] as PlaceReview[],
+      };
+      return {
+        ref: `P${i + 1}`, placeId: m.placeId, name: p.name, address: p.address, lat: p.lat, lng: p.lng,
+        outletType: m.outletType, outletTypeLabel: outletTypeLabel(m.outletType), distanceM: m.distanceM,
+        relation: m.relation, customerId: m.customerId, lastOutcome: m.lastOutcome, lastOutcomeAt: m.lastOutcomeAt, rejectedRecently: m.rejectedRecently,
+        profile,
+        study: ruleStudy({ ...profile, placeId: p.placeId, primaryType: null, types: [], lat: p.lat, lng: p.lng, priceLevel: null, closed: false, typeLabel: p.category }),
+      };
     });
+    saveSession(c.tid, c.repId, {
+      searchId, createdAt: Date.now(), origin, radiusM,
+      outlets: items.map(it => ({ ref: it.ref, placeId: it.placeId, outletType: it.outletType, lat: it.lat, lng: it.lng, distanceM: it.distanceM, relation: it.relation, lastOutcome: it.lastOutcome, customerId: it.customerId })),
+    });
+    const shops: ScanShop[] = items.map(it => ({
+      ref: it.ref, name: it.name, category: it.profile.typeLabel, rating: it.profile.rating, openNow: it.profile.openNow,
+      distanceM: it.distanceM, lat: it.lat, lng: it.lng, relation: it.relation, rejectedRecently: it.rejectedRecently,
+    }));
+    let guide: ScanGuide = ruleGuide(shops, origin);
+    const cfg = llmConfig();
+    if (cfg && c.settings.advisorEnabled && shops.length && (await reserveUsage(c.tid, c.repId, 'chatTurns', c.settings.dailyChatTurnsPerRep))) {
+      const ai = await aiGuide(shops, { cfg, playbook: c.settings.playbook, origin });
+      await addUsage(c.tid, c.repId, { tokensIn: ai.tokensIn, tokensOut: ai.tokensOut, ...(ai.guide ? {} : { guardFallback: 1 }) });
+      if (ai.guide) guide = ai.guide;
+    }
+    console.info('[ai-rep] مسح', JSON.stringify({ tenant: c.tid, source, shops: items.length, guide: guide.source }));
+    res.json({ success: true, data: { searchId, source, items, guide } });
   } catch (err) { next(err); }
 });
 
+// ───────────── دراسة مراجعات لصقها المندوب من تطبيق خرائط Google (بحسابه، بلا مفتاح Google) ─────────────
 rep.post('/manual', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const c = ctxOf(req);

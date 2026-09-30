@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChevronRight, Crosshair, MapPin, Navigation, Sparkles, Star, Store, UserPlus, X, ThumbsUp, ThumbsDown, Lightbulb, ShoppingBag, MessageSquareQuote, Clock, ClipboardPaste } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronUp, MapPin, Navigation, RefreshCw, Sparkles, Star, Store, UserPlus, X, ThumbsUp, ThumbsDown, Lightbulb, ShoppingBag, MessageSquareQuote, Clock } from 'lucide-react';
 import repApi from './repApi';
 import { cacheGet, cacheSet, currentRepId, newClientRef, outboxAdd } from './offlineDb';
 import { isNetworkError } from './offlineSync';
@@ -11,12 +11,10 @@ import { loadAiSession, onConverted, saveAiSession, type AiAddPrefill } from './
 import { OBJECTIONS, OBJECTION_OUTCOMES, OUTCOMES, distKm, fmtDistance, navUrl } from './aiRepLogic';
 
 /**
- * المندوب الذكي — شاشة المندوب: **الصفحة كلها خريطة Google**، والضغط على أي محل يدرسه **من ملفه في خرائط Google**
- * (التقييم، عدد المقيّمين، ساعات العمل، ومراجعات العملاء النصية) — لا من مبيعات الشركة السابقة.
- *   - بمفتاح الخريطة: يضغط المندوب المحل على الخريطة. بلا مفتاح الخريطة: خريطة Google المضمّنة وزرّ
- *     «ادرس المحل الذي أنا عنده الآن» (أقرب محل في خرائط Google لموقعه).
- *   - الدراسة من العقل إن ضُبط (مدموغةً «بالذكاء الاصطناعي»)، وإلا ملخّص حتمي من المراجعات نفسها.
- * ملف Google يُعرض ولا يُخزَّن؛ يبقى في ذاكرة الشاشة لإعادة فتح المحل دون نداء جديد.
+ * المندوب الذكي — شاشة المندوب: **الصفحة كلها خريطة Google**، و**العقل يمسح كل المحلات حول المندوب تلقائياً** عند
+ * الفتح (من خرائط Google — بلا أي عمل من المندوب) فيوجّهه: بأي الفرص الجديدة يبدأ وبأي ترتيب ولماذا، وكل محل بدراسته
+ * (تقييمه ونوعه وحالة فتحه، وبمراجعاته النصية حين يُضبط مفتاح Google الرسمي). لا من مبيعات الشركة السابقة.
+ * بمفتاح الخريطة: الضغط على أي محل في الخريطة يدرسه بمراجعاته. نتائج Google تُعرض ولا تُخزَّن.
  */
 
 interface Item {
@@ -24,6 +22,8 @@ interface Item {
   distanceM: number; relation: 'NEW' | 'CUSTOMER' | 'POSSIBLE_CUSTOMER'; customerId: string | null;
   lastOutcome: string | null; lastOutcomeAt: string | null; rejectedRecently: boolean; closed?: boolean;
   profile?: Profile; study?: Study;
+  /** دُرس بمراجعاته النصية (المفتاح الرسمي) — لا من المسح العام */
+  withReviews?: boolean;
 }
 interface Review { rating: number | null; text: string; when: string | null; author: string | null; authorUri: string | null }
 interface Profile {
@@ -39,8 +39,7 @@ interface Me {
   placesConfigured: boolean; mapsKey?: string | null;
   targetTypes: { code: string; label: string }[];
 }
-type StudyReq = { placeId?: string; here?: { lat: number; lng: number; accuracyM: number } };
-type StudyResult = { searchId: string; item: Item; profile: Profile; study: Study };
+interface Guide { source: 'AI' | 'RULES'; summary: string; stops: { ref: string; why: string }[] }
 
 const ME_KEY = 'ai-rep:me';
 const ADD_PIN_MAX_M = 75;
@@ -72,17 +71,19 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
   const [offline, setOffline] = useState(false);
   const [meErr, setMeErr] = useState<string | null>(null);
   const [items, setItems] = useState<Item[]>((restored?.items as Item[] | null) ?? []);
+  const [guide, setGuide] = useState<Guide | null>((restored?.guide as Guide | null) ?? null);
   const [searchId, setSearchId] = useState<string | null>(restored?.searchId ?? null);
   const [origin, setOrigin] = useState<{ lat: number; lng: number; accuracy: number } | null>(restored?.origin ?? null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(true);
   const [msg, setMsg] = useState('');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [g, setG] = useState<any>(null);
   const [mapErr, setMapErr] = useState(false);
   const [mapAttempt, setMapAttempt] = useState(0);
   const [recenter, setRecenter] = useState(0);
-  const [pasteOpen, setPasteOpen] = useState(false);
   const searchIdRef = useRef(searchId);
   searchIdRef.current = searchId;
   const originRef = useRef(origin);
@@ -91,8 +92,8 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
 
   // حالة الشاشة في ذاكرة الجلسة (لا القرص): الرجوع أو «أضفه عميلاً» يفكّكان الشاشة، فتعود كما كانت
   useEffect(() => {
-    saveAiSession({ repId, searchId, items, origin, guide: null, routeIds: [], chat: [], askDraft: '', tab: 'near' });
-  }, [repId, searchId, items, origin]);
+    saveAiSession({ repId, searchId, items, origin, guide, routeIds: [], chat: [], askDraft: '', tab: 'near' });
+  }, [repId, searchId, items, origin, guide]);
 
   // عميل أُنشئ من محلٍّ مدروس ⇒ يصير «عميلاً حالياً» هنا
   useEffect(() => onConverted((placeId, customerId) => {
@@ -135,7 +136,6 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
     return () => { alive = false; };
   }, [me?.mapsKey, offline, mapAttempt]);
 
-  // موقع المندوب لتوسيط الخريطة (مرّة عند الفتح، وعند زرّ «موقعي»)
   const locate = useCallback(async () => {
     const gps = await getGps().catch(() => null);
     if (!gps) { setMsg(tr('فعّل الموقع لنعرف المحلات القريبة منك')); return null; }
@@ -143,67 +143,58 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
     setRecenter(n => n + 1);
     return gps;
   }, [tr]);
-  const located = useRef(false);
+
+  // المسح: العقل يفحص كل المحلات حول المندوب في خرائط Google ويوجّهه — بلا أي عمل من المندوب
+  const scan = useCallback(async (gps?: { lat: number; lng: number; accuracy: number } | null) => {
+    const at = gps ?? originRef.current ?? await locate();
+    if (!at || busyRef.current) return;
+    busyRef.current = true;
+    setScanning(true); setMsg(''); setOpenId(null);
+    try {
+      const r = await repApi.post('/ai-rep/rep/scan', { lat: at.lat, lng: at.lng, accuracyM: at.accuracy });
+      const d = r.data.data as { searchId: string; items: Item[]; guide: Guide };
+      searchIdRef.current = d.searchId;
+      setSearchId(d.searchId);
+      setItems(d.items);
+      setGuide(d.guide);
+      setPanelOpen(true);
+      if (!d.items.length) setMsg(tr('لم أجد محلات مستهدفة حولك في خرائط Google — تحرّك قليلاً ثم حدّث'));
+    } catch (e) {
+      setMsg(errMsg(e) || (isNetworkError(e) ? tr('أنت دون اتصال — الدراسة تحتاج الإنترنت') : tr('تعذّر مسح المحلات حولك')));
+    } finally { busyRef.current = false; setScanning(false); }
+  }, [locate, tr]);
+
+  // عند الفتح: الموقع ثم المسح تلقائياً (إن لم تكن نتائج محفوظة من هذه الجلسة)
+  const started = useRef(false);
   useEffect(() => {
-    if (located.current || offline) return;
-    located.current = true;
-    void locate();
-  }, [locate, offline]);
+    if (started.current || offline || !me) return;
+    started.current = true;
+    void (async () => {
+      const gps = await locate();
+      if (gps && !items.length) void scan(gps);
+    })();
+  }, [locate, scan, offline, me, items.length]);
 
-  const applyStudy = useCallback((d: StudyResult) => {
-    const item: Item = { ...d.item, profile: d.profile, study: d.study };
-    searchIdRef.current = d.searchId;
-    setSearchId(d.searchId);
-    // جلسة جديدة (إعادة تشغيل الخادم) لا تمسح المحلات المدروسة سابقاً
-    setItems(list => (list.some(x => x.placeId === item.placeId) ? list.map(x => (x.placeId === item.placeId ? { ...x, ...item } : x)) : [...list, item]));
-    setOpenId(item.placeId);
-  }, []);
-
-  // مراجعات نسخها المندوب من تطبيق خرائط Google بحسابه ولصقها هنا
-  const studyPasted = useCallback(async (b: { name: string; text: string; rating?: number; ratingCount?: number }) => {
-    if (busyRef.current) return;
-    const gps = originRef.current ?? await getGps().catch(() => null);
-    if (!gps) { setMsg(tr('فعّل الموقع لنعرف المحلات القريبة منك')); return; }
+  // ضغطة على محلٍّ من محلات Google في الخريطة التفاعلية (بمفتاح): دراسته بمراجعاته
+  const onPoi = useCallback(async (p: { placeId: string }) => {
+    const known = items.find(x => x.placeId === p.placeId && x.study && (x.withReviews || !me?.placesConfigured));
+    if (known) { setOpenId(known.placeId); return; }
+    if (busyRef.current || !me?.placesConfigured) return;
     busyRef.current = true;
     setBusy(true); setMsg('');
     try {
-      const r = await repApi.post('/ai-rep/rep/study-text', {
-        ...b, gps: { lat: gps.lat, lng: gps.lng, accuracyM: gps.accuracy },
-        ...(searchIdRef.current && { searchId: searchIdRef.current }),
-      });
-      setPasteOpen(false);
-      applyStudy(r.data.data as StudyResult);
-    } catch (e) {
-      setMsg(errMsg(e) || (isNetworkError(e) ? tr('أنت دون اتصال — الدراسة تحتاج الإنترنت') : tr('تعذّرت دراسة المحل')));
-    } finally { busyRef.current = false; setBusy(false); }
-  }, [applyStudy, tr]);
-
-  const study = useCallback(async (req: StudyReq) => {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    setBusy(true); setMsg(''); setOpenId(null);
-    try {
       const o = originRef.current;
-      const r = await repApi.post('/ai-rep/rep/study', {
-        ...req,
-        ...(searchIdRef.current && { searchId: searchIdRef.current }),
-        ...(o && { gps: { lat: o.lat, lng: o.lng } }),
-      });
-      applyStudy(r.data.data as StudyResult);
+      const r = await repApi.post('/ai-rep/rep/study', { placeId: p.placeId, ...(searchIdRef.current && { searchId: searchIdRef.current }), ...(o && { gps: { lat: o.lat, lng: o.lng } }) });
+      const d = r.data.data as { searchId: string; item: Item; profile: Profile; study: Study };
+      const item: Item = { ...d.item, profile: d.profile, study: d.study, withReviews: true };
+      searchIdRef.current = d.searchId;
+      setSearchId(d.searchId);
+      setItems(list => (list.some(x => x.placeId === item.placeId) ? list.map(x => (x.placeId === item.placeId ? { ...x, ...item } : x)) : [...list, item]));
+      setOpenId(item.placeId);
     } catch (e) {
       setMsg(errMsg(e) || (isNetworkError(e) ? tr('أنت دون اتصال — الدراسة تحتاج الإنترنت') : tr('تعذّرت دراسة المحل')));
     } finally { busyRef.current = false; setBusy(false); }
-  }, [tr, applyStudy]);
-
-  const onPoi = useCallback((p: { placeId: string }) => {
-    const known = items.find(x => x.placeId === p.placeId && x.study);
-    if (known) { setOpenId(known.placeId); return; } // لا نداء جديد لمحلٍّ دُرس في هذه الجلسة
-    void study({ placeId: p.placeId });
-  }, [items, study]);
-  const studyHere = async () => {
-    const gps = await locate();
-    if (gps) void study({ here: { lat: gps.lat, lng: gps.lng, accuracyM: gps.accuracy } });
-  };
+  }, [items, me?.placesConfigured, tr]);
 
   const onOutcome = (placeId: string, kind: string) => {
     setItems(list => list.map(x => (x.placeId === placeId
@@ -213,14 +204,18 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
   };
 
   const open = openId ? items.find(x => x.placeId === openId) ?? null : null;
+  const byRef = useMemo(() => new Map(items.map(i => [i.ref, i])), [items]);
   const mapItems = useMemo(() => items.filter(i => !i.closed).map(i => ({ placeId: i.placeId, lat: i.lat, lng: i.lng, relation: i.relation, rejectedRecently: i.rejectedRecently, name: i.name, closed: i.closed })), [items]);
+  const planIds = useMemo(() => (guide?.stops ?? []).map(s => byRef.get(s.ref)?.placeId).filter((x): x is string => !!x), [guide, byRef]);
   const keyed = !!me?.mapsKey && !offline;
-  const canStudy = !!me?.placesConfigured && !offline;
-  // بلا مفتاح الخريطة: خريطة Google المضمّنة حول المندوب بمحلات النوع المستهدف الأول
+  // بلا مفتاح الخريطة: خريطة Google المضمّنة — حول المندوب، أو على المحل المفتوح
+  const hl = (document.documentElement.lang || 'ar').slice(0, 2);
   const embedQuery = (me?.targetTypes[0]?.label ?? 'بقالة').split('/')[0].trim();
-  const embed = origin
-    ? `https://maps.google.com/maps?q=${encodeURIComponent(tr(embedQuery))}&ll=${origin.lat.toFixed(5)},${origin.lng.toFixed(5)}&z=16&hl=${(document.documentElement.lang || 'ar').slice(0, 2)}&output=embed`
-    : null;
+  const embed = open
+    ? `https://maps.google.com/maps?q=${encodeURIComponent(open.name)}&ll=${open.lat.toFixed(5)},${open.lng.toFixed(5)}&z=18&hl=${hl}&output=embed`
+    : origin
+      ? `https://maps.google.com/maps?q=${encodeURIComponent(tr(embedQuery))}&ll=${origin.lat.toFixed(5)},${origin.lng.toFixed(5)}&z=16&hl=${hl}&output=embed`
+      : null;
 
   if (meErr && !me) {
     return (
@@ -239,7 +234,7 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
       {/* الخريطة تملأ الصفحة */}
       <div className="absolute inset-0">
         {keyed ? (
-          g ? <RepAiMap full g={g} origin={origin} items={mapItems} plan={[]} fitKey={null} onSelect={id => setOpenId(id)} onPoi={onPoi} recenterKey={recenter} />
+          g ? <RepAiMap full g={g} origin={origin} items={mapItems} plan={planIds} fitKey={searchId} onSelect={id => setOpenId(id)} onPoi={p => void onPoi(p)} recenterKey={recenter} />
             : (
               <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-sm text-gray-500">
                 {mapErr
@@ -260,33 +255,21 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
         <div className="flex-1 flex justify-center">
           <span className="rounded-full bg-white/95 shadow-md px-4 py-2 text-sm font-bold text-[#1F1A13] flex items-center gap-1.5"><Sparkles size={15} className="text-[#E15A30]" /> {tr('المندوب الذكي')}</span>
         </div>
-        <button onClick={() => void locate()} title={tr('موقعي')} className="pointer-events-auto w-10 h-10 rounded-full bg-white shadow-md flex items-center justify-center text-[#1D4ED8]"><Crosshair size={18} /></button>
+        <button onClick={() => void scan(null)} disabled={scanning} title={tr('حدّث')} className="pointer-events-auto w-10 h-10 rounded-full bg-white shadow-md flex items-center justify-center text-[#1D4ED8] disabled:opacity-50"><RefreshCw size={18} className={scanning ? 'animate-spin' : ''} /></button>
       </div>
 
-      {/* تلميح/زرّ سفلي */}
-      {!open && !pasteOpen && (
-        <div className="absolute bottom-4 inset-x-4 space-y-2">
-          {msg && <p className="rounded-xl bg-white shadow-md p-2.5 text-sm text-center text-gray-700">{msg}</p>}
-          {me && !me.placesConfigured && !offline ? (
-            <button onClick={() => setPasteOpen(true)} disabled={busy}
-              className="w-full rounded-2xl bg-[#E15A30] disabled:opacity-60 text-white py-3.5 font-bold shadow-lg flex items-center justify-center gap-2">
-              <ClipboardPaste size={18} /> {busy ? tr('أدرس المحل من مراجعاته في خرائط Google…') : tr('ادرس محلاً بمراجعاته من خرائط Google')}
-            </button>
-          ) : keyed ? (
-            <p className="rounded-full bg-[#1F1A13]/90 text-white text-sm text-center py-2.5 px-4 shadow-md">
-              {busy ? tr('أدرس المحل من مراجعاته في خرائط Google…') : tr('اضغط على أي محل في الخريطة لدراسته')}
-            </p>
-          ) : (
-            <button onClick={studyHere} disabled={busy || !canStudy}
-              className="w-full rounded-2xl bg-[#E15A30] disabled:opacity-60 text-white py-3.5 font-bold shadow-lg flex items-center justify-center gap-2">
-              <Crosshair size={18} /> {busy ? tr('أدرس المحل من مراجعاته في خرائط Google…') : tr('ادرس المحل الذي أنا عنده الآن')}
-            </button>
+      {/* لوحة المحلات حول المندوب وتوجيه العقل */}
+      {!open && (
+        <div className="absolute bottom-0 inset-x-0 z-30" dir="rtl">
+          {msg && <p className="mx-4 mb-2 rounded-xl bg-white shadow-md p-2.5 text-sm text-center text-gray-700">{msg}</p>}
+          {scanning ? (
+            <p className="mx-4 mb-4 rounded-full bg-[#1F1A13]/90 text-white text-sm text-center py-2.5 px-4 shadow-md">{tr('العقل يمسح المحلات حولك في خرائط Google…')}</p>
+          ) : busy ? (
+            <p className="mx-4 mb-4 rounded-full bg-[#1F1A13]/90 text-white text-sm text-center py-2.5 px-4 shadow-md">{tr('أدرس المحل من مراجعاته في خرائط Google…')}</p>
+          ) : items.length > 0 && (
+            <NearbyPanel items={items} guide={guide} open={panelOpen} onToggle={() => setPanelOpen(v => !v)} onOpen={it => (me?.placesConfigured && !it.withReviews ? void onPoi({ placeId: it.placeId }) : setOpenId(it.placeId))} />
           )}
         </div>
-      )}
-
-      {pasteOpen && !open && (
-        <PasteSheet busy={busy} msg={msg} origin={origin} onClose={() => setPasteOpen(false)} onSubmit={b => void studyPasted(b)} />
       )}
 
       {open && (
@@ -298,57 +281,66 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
   );
 }
 
-/**
- * «ادرس محلاً بمراجعاته»: المندوب يفتح المحل في تطبيق خرائط Google بحسابه، ينسخ مراجعاته (وتقييمه إن شاء)،
- * ويلصقها هنا — بلا مفتاح Google. التقييم وعدد المقيّمين يُقرآن من النص إن لم يُدخلا.
- */
-function PasteSheet({ busy, msg, origin, onClose, onSubmit }: {
-  busy: boolean; msg: string; origin: { lat: number; lng: number } | null;
-  onClose: () => void; onSubmit: (b: { name: string; text: string; rating?: number; ratingCount?: number }) => void;
+/** المحلات حول المندوب: توجيه العقل (أولاً) ثم القائمة — لوحة سفلية قابلة للطيّ فوق الخريطة. */
+function NearbyPanel({ items, guide, open, onToggle, onOpen }: {
+  items: Item[]; guide: Guide | null; open: boolean; onToggle: () => void; onOpen: (it: Item) => void;
 }) {
   const tr = useAiRepTr();
-  const [name, setName] = useState('');
-  const [text, setText] = useState('');
-  const [rating, setRating] = useState('');
-  const [count, setCount] = useState('');
-  useBackClose(true, onClose);
-  const paste = async () => {
-    try { const t = await navigator.clipboard.readText(); if (t) setText(x => (x ? x + '\n\n' + t : t).slice(0, 8000)); } catch { /* المتصفح منع القراءة: يلصق المندوب بنفسه */ }
-  };
-  const mapsUrl = origin ? `https://www.google.com/maps/@${origin.lat.toFixed(5)},${origin.lng.toFixed(5)},18z` : 'https://www.google.com/maps';
-  const r = Number(rating.replace(',', '.'));
-  const n = Number(count.replace(/[^0-9]/g, ''));
+  const byRef = new Map(items.map(i => [i.ref, i]));
+  const newCount = items.filter(i => i.relation === 'NEW').length;
   return (
-    <div className="absolute inset-x-0 bottom-0 z-40 max-h-[88%] bg-white rounded-t-3xl shadow-2xl flex flex-col" dir="rtl">
-      <div className="p-4 pb-3 flex items-start gap-2 border-b border-gray-100 flex-shrink-0">
-        <div className="flex-1">
-          <p className="font-bold text-[#1F1A13] flex items-center gap-1.5"><ClipboardPaste size={17} className="text-[#E15A30]" /> {tr('ادرس محلاً بمراجعاته')}</p>
-          <p className="text-[11px] text-gray-500 mt-1 leading-5">{tr('افتح المحل في تطبيق خرائط Google بحسابك، ثم انسخ مراجعاته (وتقييمه إن شئت) والصقها هنا.')}</p>
+    <div className="bg-white rounded-t-3xl shadow-2xl">
+      <button onClick={onToggle} className="w-full px-4 pt-3 pb-2 flex items-center gap-2">
+        <span className="mx-auto absolute left-1/2 -translate-x-1/2 -mt-1.5 w-10 h-1 rounded-full bg-gray-200" />
+        <p className="flex-1 text-right font-bold text-[#1F1A13] text-sm">{tr('المحلات حولك')} ({items.length}) · {tr('فرص جديدة')} {newCount}</p>
+        {open ? <ChevronDown size={18} className="text-gray-400" /> : <ChevronUp size={18} className="text-gray-400" />}
+      </button>
+      {open && (
+        <div className="max-h-[48vh] overflow-y-auto px-4 pb-4 space-y-3">
+          {guide && (
+            <div className="rounded-2xl bg-[#FBEBE2] border border-[#F5DACE] p-3 space-y-2">
+              <p className="text-xs font-bold text-[#C94E28] flex items-center gap-1"><Sparkles size={13} /> {guide.source === 'AI' ? tr('توجيه المستشار الذكي') : tr('ابدأ بهذه المحلات')}</p>
+              <p className="text-sm text-[#1F1A13] leading-6">{guide.summary}</p>
+              <ol className="space-y-1.5">
+                {guide.stops.map((s, i) => {
+                  const it = byRef.get(s.ref);
+                  if (!it) return null;
+                  return (
+                    <li key={s.ref}>
+                      <button onClick={() => onOpen(it)} className="w-full text-right flex items-start gap-2">
+                        <span className="w-6 h-6 rounded-full bg-[#E15A30] text-white text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
+                        <span className="min-w-0">
+                          <span className="block text-sm font-semibold text-[#1F1A13] truncate">{it.name}</span>
+                          {s.why && <span className="block text-[11px] text-gray-600 leading-5">{s.why}</span>}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
+          )}
+          <div className="divide-y divide-gray-50">
+            {items.map(it => (
+              <button key={it.placeId} onClick={() => onOpen(it)} className="w-full text-right py-2.5 flex items-center gap-2">
+                <Store size={16} className="text-[#E15A30] shrink-0" />
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm font-semibold text-[#1F1A13] truncate">{it.name}</span>
+                  <span className="block text-[11px] text-gray-500">
+                    {it.profile?.rating != null && <>★ {it.profile.rating} · </>}
+                    {it.profile?.typeLabel || tr(it.outletTypeLabel)} · {fmtDistance(it.distanceM)}
+                    {it.profile?.openNow === false && <> · <span className="text-red-600">{tr('مغلق الآن')}</span></>}
+                  </span>
+                </span>
+                {it.relation === 'CUSTOMER' ? <span className="text-[10px] rounded-full px-2 py-0.5 bg-blue-50 text-blue-700 shrink-0">{tr('عميل حالي')}</span>
+                  : it.rejectedRecently ? <span className="text-[10px] rounded-full px-2 py-0.5 bg-gray-100 text-gray-500 shrink-0">{tr('زرته')}</span>
+                  : <span className="text-[10px] rounded-full px-2 py-0.5 bg-green-50 text-green-700 shrink-0">{tr('فرصة جديدة')}</span>}
+              </button>
+            ))}
+          </div>
+          <GoogleAttribution />
         </div>
-        <button onClick={onClose} className="p-2 text-gray-500"><X size={20} /></button>
-      </div>
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        <a href={mapsUrl} target="_blank" rel="noreferrer" className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#1F1A13] text-white py-2.5 text-sm font-bold"><Navigation size={15} /> {tr('افتح خرائط Google')}</a>
-        <input value={name} onChange={e => setName(e.target.value)} maxLength={120} placeholder={tr('اسم المحل')} className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm" />
-        <div className="grid grid-cols-2 gap-2">
-          <input value={rating} onChange={e => setRating(e.target.value)} inputMode="decimal" placeholder={tr('التقييم (مثل 4.3) — اختياري')} className="rounded-xl border border-gray-200 px-3 py-2.5 text-sm" />
-          <input value={count} onChange={e => setCount(e.target.value)} inputMode="numeric" placeholder={tr('عدد المقيّمين — اختياري')} className="rounded-xl border border-gray-200 px-3 py-2.5 text-sm" />
-        </div>
-        <div className="relative">
-          <textarea value={text} onChange={e => setText(e.target.value.slice(0, 8000))} rows={8} dir="auto"
-            placeholder={tr('الصق مراجعات العملاء هنا — مراجعة في كل فقرة')}
-            className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm leading-6" />
-          <button onClick={paste} className="absolute bottom-3 left-3 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-gray-600">{tr('الصق')}</button>
-        </div>
-        {msg && <p className="text-xs text-red-600">{msg}</p>}
-      </div>
-      <div className="flex-shrink-0 border-t border-gray-100 p-3">
-        <button disabled={busy || text.trim().length < 20}
-          onClick={() => onSubmit({ name: name.trim(), text, ...(r >= 1 && r <= 5 ? { rating: r } : {}), ...(n > 0 ? { ratingCount: n } : {}) })}
-          className="w-full rounded-xl bg-[#E15A30] disabled:opacity-50 text-white py-3 text-sm font-bold flex items-center justify-center gap-2">
-          <Sparkles size={16} /> {busy ? tr('أدرس المحل من مراجعاته في خرائط Google…') : tr('ادرس المراجعات')}
-        </button>
-      </div>
+      )}
     </div>
   );
 }
@@ -551,7 +543,7 @@ function ShopSheet({ item, canAddCustomer, onClose, onAddCustomer, onOpenCustome
                     </div>
                     {r.text && <p className="text-sm text-[#1F1A13] mt-1 leading-6 whitespace-pre-wrap">{r.text}</p>}
                   </div>
-                )) : <p className="text-xs text-gray-500">{tr('لا مراجعات نصية لهذا المحل في خرائط Google')}</p>}
+                )) : <p className="text-xs text-gray-500">{item.withReviews ? tr('لا مراجعات نصية لهذا المحل في خرائط Google') : tr('مراجعات العملاء النصية تظهر حين يُضبط مفتاح Google الرسمي — الدراسة الآن من تقييم المحل ونوعه وحالة فتحه')}</p>}
                 {p.hours.length > 0 && (
                   <details className="text-xs text-gray-600">
                     <summary className="cursor-pointer font-semibold">{tr('ساعات العمل')}</summary>
