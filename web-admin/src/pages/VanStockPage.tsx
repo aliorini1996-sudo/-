@@ -390,7 +390,7 @@ function AccuracyModal({ preselectRep, onClose }: { preselectRep: string; onClos
 
               {d.summary.measured > 0 && (
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {chip(tr('متوسط الخطأ'), d.summary.mae === null ? '—' : `${d.summary.mae} (${d.summary.maePct ?? '—'}٪`, 'bg-white border-[#E9E1D3]')}
+                  {chip(tr('متوسط الخطأ'), d.summary.mae === null ? '—' : `${d.summary.mae} (${d.summary.maePct ?? '—'}٪)`, 'bg-white border-[#E9E1D3]')}
                   {chip(tr('الانحياز'), d.summary.bias === null ? '—' : d.summary.bias > 0 ? `${tr('نقص')} ${d.summary.bias}` : d.summary.bias < 0 ? `${tr('زيادة')} ${Math.abs(d.summary.bias)}` : tr('متوازن'), 'bg-white border-[#E9E1D3]')}
                   {chip(tr('الالتزام بالاقتراح'), d.summary.adoptionRate === null ? '—' : `${d.summary.adoptionRate}٪`, 'bg-white border-[#E9E1D3]')}
                   {chip(`${tr('دقيق')} / ${tr('نقص')} / ${tr('زيادة')}`, `${d.summary.exact} / ${d.summary.under} / ${d.summary.over}`, 'bg-white border-[#E9E1D3]')}

@@ -154,7 +154,7 @@ export async function searchOSM(query: string, country?: string, city?: string, 
     if (!name) continue; // نتجاهل العناصر بلا اسم
     const lat = el.lat ?? el.center?.lat;
     const lng = el.lon ?? el.center?.lon;
-    const addr = [tg['addr:street'], tg['addr:city'], tg['addr:country']].filter(Boolean).join(' ');
+    const addr = [tg['addr:street'], tg['addr:city'], tg['addr:country']].filter(Boolean).join('، ');
     out.push({
       sourceId: `osm:${el.type}/${el.id}`,
       name,
@@ -404,7 +404,7 @@ export async function searchApollo(query: string, country?: string, city?: strin
       name: o.name,
       phone: o.primary_phone?.number || o.phone || o.sanitized_phone || undefined,
       website,
-      address: [o.street_address, o.city, o.state, o.country].filter(Boolean).join(' ') || undefined,
+      address: [o.street_address, o.city, o.state, o.country].filter(Boolean).join('، ') || undefined,
       city: o.city || city || undefined,
       country: o.country || country || undefined,
       category: o.industry || undefined,

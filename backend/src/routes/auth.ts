@@ -27,10 +27,10 @@ function verifyEmailHtml(name: string, url: string): string {
   return `<div dir="rtl" style="font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#FAF7F0;padding:24px">
     <div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E9E1D3;border-radius:16px;overflow:hidden">
       <div style="background:#1F1A13;padding:20px;color:#fff;font-size:18px;font-weight:700">FieldSales تأكيد البريد الإلكتروني</div>
-      <div style="padding:24px;color:#3a342b;font-size:15px;line-height:0">
+      <div style="padding:24px;color:#3a342b;font-size:15px;line-height:1.9">
         مرحبا ${name}<br>شكرا لتسجيلك في FieldSales لتأكيد بريدك الإلكتروني اضغط الزر التالي 
         <div style="text-align:center;margin:24px 0">
-          <a href="${url}" style="background #E15A30 color #fff text-decoration none font-weight 700 padding 13px 30px border-radius 12px display inline-block">تأكيد البريد الإلكتروني</a>
+          <a href="${url}" style="background:#E15A30;color:#fff;text-decoration:none;font-weight:700;padding:13px 30px;border-radius:12px;display:inline-block">تأكيد البريد الإلكتروني</a>
         </div>
         أو انسخ الرابط في متصفحك <br><span style="color:#6E6557;word-break:break-all">${url}</span><br><br>
         الرابط صالح لمدة يومين إن لم تكن أنت من سجل تجاهل هذه الرسالة 
@@ -351,7 +351,7 @@ router.post('/signup', signupLimiter, async (req: Request, res: Response, next: 
         ['مدة التجربة', `${TRIAL_DAYS} أيام`],
         ['تاريخ التسجيل', new Date().toISOString().slice(0, 10)],
         ['تنتهي التجربة', trialEndsAt.toISOString().slice(0, 10)],
-      ], 'سجل عميل جديد للتجربة المجانية عبر fieldsa net ينصح بالتواصل معه لتفعيل أفضل تجربة وتحويله لمشترك'),
+      ], 'سجل عميل جديد للتجربة المجانية عبر fieldsa.net ينصح بالتواصل معه لتفعيل أفضل تجربة وتحويله لمشترك'),
     });
     if (!mailSent) console.error('mail فشل إرسال إشعار عميل تجريبي جديد إلى info@fieldsa.net');
 

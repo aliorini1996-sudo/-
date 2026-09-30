@@ -158,16 +158,16 @@ function renderCalculatorSection(lang: Lang = 'ar'): string {
       </a>
       <div style="position:relative; color:#9A8F7E; font-size:13px; margin-top:16px;">${t.note}</div>
       <!-- الأداة الثانية مولد الفواتير أيقونة عائمة مميزة أصغر من أيقونة الحاسبة 80px مقابل 116px بتدرج أخضر -->
-      <div style="position:relative; margin-top:38px; padding-top:30px; border-top:1px solid rgba(0,240,.12);">
+      <div style="position:relative; margin-top:38px; padding-top:30px; border-top:1px solid rgba(250,247,240,.12);">
         <a href="/invoice-generator" class="fs-inv-link" style="display:inline-block; text-decoration:none;">
-          <span style="display:inline-flex; width:80px; height:80px; border-radius:24px; background:linear-gradient(145deg,#1E7A52,#155C3D); align-items:center; justify-content:center; animation:fsInvFloat 1s ease-in-out infinite, fsInvGlow 2s ease-in-out infinite;">
-            <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#FAF7F0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <span style="display:inline-flex; width:80px; height:80px; border-radius:24px; background:linear-gradient(145deg,#1E7A52,#155C3D); align-items:center; justify-content:center; animation:fsInvFloat 4.2s ease-in-out infinite, fsInvGlow 4.2s ease-in-out infinite;">
+            <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#FAF7F0" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
               <path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"></path>
               <path d="M9 7h6M9 11h6"></path>
-              <rect x="9" y="14" width="4" height="5" rx="6" stroke-width="7"></rect>
+              <rect x="9" y="14" width="3.2" height="3.2" rx="0.6" stroke-width="1.5"></rect>
             </svg>
           </span>
-          <span class="fs-inv-title" style="display:block; color:#FAF7F0; font-size:clamp(16px,8vw,19px); font-weight:800; margin-top:14px; transition:color .2s;">${t.tool2Title}</span>
+          <span class="fs-inv-title" style="display:block; color:#FAF7F0; font-size:clamp(16px,2.4vw,19px); font-weight:800; margin-top:14px; transition:color .2s;">${t.tool2Title}</span>
           <span style="display:block; color:#B7AD9D; font-size:clamp(13px,1.9vw,14.5px); margin-top:6px;">${t.cta2} ↗</span>
         </a>
       </div>
@@ -880,19 +880,19 @@ export default function LandingPage() {
       title: 'FieldSales فيلد سيلز | نظام مبيعات المناديب والتوزيع',
       // ≤155 حرفاً + الكلمة المفتاحية في المقدّمة — مطابق لوصف index.html (المصدر الذي يقرؤه الزاحف)
       description: 'نظام مبيعات المناديب والتوزيع فواتير ضريبية تحصيل مخزون السيارة وتتبع GPS للسعودية ومصر والخليج جرب مجانا 10 أيام',
-      keywords: 'نظام مبيعات ميدانية إدارة مناديب التوزيع نظام توزيع برنامج توزيع فواتير ضريبية ZATCA الفوترة الإلكترونية فاتورة ضريبية مبسطة تحصيل المدفوعات إدارة الذمم المدينة سندات قبض مخزون سيارة المندوب البيع المتنقل van sales تتبع المناديب GPS إدارة العملاء وحدود الائتمان كتالوج المنتجات والأسعار تكامل ERP نظام مبيعات للأسواق العربية نظام مبيعات مصر نظام توزيع المغرب برنامج مناديب الجزائر وتونس وليبيا نظام مبيعات السعودية فيلد سيلز',
+      keywords: 'نظام مبيعات ميدانية, إدارة مناديب التوزيع, نظام توزيع, برنامج توزيع, فواتير ضريبية, ZATCA, الفوترة الإلكترونية, فاتورة ضريبية مبسطة, تحصيل المدفوعات, إدارة الذمم المدينة, سندات قبض, مخزون سيارة المندوب, البيع المتنقل van sales, تتبع المناديب GPS, إدارة العملاء وحدود الائتمان, كتالوج المنتجات والأسعار, تكامل ERP, نظام مبيعات للأسواق العربية, نظام مبيعات مصر, نظام توزيع المغرب, برنامج مناديب الجزائر وتونس وليبيا, نظام مبيعات السعودية, فيلد سيلز',
       locale: 'ar' as const,
     },
     en: {
       title: 'FieldSales | Field Sales & Distribution Management System',
       description: 'FieldSales is a complete platform to manage field distribution reps ZATCA e-invoices collection van stock GPS tracking and reports Free 10-day trial',
-      keywords: 'field sales system sales rep management software distribution management software route accounting ZATCA e-invoicing tax invoice payment collection accounts receivable van sales van stock management GPS rep tracking customer management product catalog ERP integration',
+      keywords: 'field sales system, sales rep management software, distribution management software, route accounting, ZATCA e-invoicing, tax invoice, payment collection, accounts receivable, van sales, van stock management, GPS rep tracking, customer management, product catalog, ERP integration',
       locale: 'en' as const,
     },
     fr: {
       title: 'FieldSales | Système de gestion des ventes terrain et de la distribution',
       description: 'FieldSales est une plateforme complète pour gérer les commerciaux de distribution factures fiscales encaissement stock du véhicule suivi GPS et rapports Essai gratuit de 10 jours',
-      keywords: 'système de vente terrain logiciel de gestion des commerciaux logiciel de gestion de distribution facturation électronique facture fiscale encaissement gestion des créances stock du véhicule suivi GPS des commerciaux gestion des clients catalogue produits intégration ERP logiciel de distribution Maroc logiciel commercial Algérie Tunisie',
+      keywords: 'système de vente terrain, logiciel de gestion des commerciaux, logiciel de gestion de distribution, facturation électronique, facture fiscale, encaissement, gestion des créances, stock du véhicule, suivi GPS des commerciaux, gestion des clients, catalogue produits, intégration ERP, logiciel de distribution Maroc, logiciel commercial Algérie Tunisie',
       locale: 'fr' as const,
     },
     tr: {

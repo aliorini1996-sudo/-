@@ -184,7 +184,7 @@ export default function PricingPage() {
     description: lang === 'ar'
       ? `أسعار Field Sales معلنة ${arTiers} شاملة ضريبة القيمة المضافة لكل شركة لا لكل مستخدم بلا رسوم تأسيس وتجربة ١٠ أيام بلا بطاقة`
       : `${enTiers} VAT included, per company not per user. No setup fees. 10-day free trial, no credit card.`,
-    keywords: lang === 'ar' ? 'كم سعر برنامج مندوبين المبيعات سعر برنامج إدارة المناديب تسعير نظام التوزيع' : undefined,
+    keywords: lang === 'ar' ? 'كم سعر برنامج مندوبين المبيعات، سعر برنامج إدارة المناديب، تسعير نظام التوزيع' : undefined,
     canonical: seoUrls('/pricing', lang).canonical,
     alternates: seoUrls('/pricing', lang).alternates,
     locale: lang,

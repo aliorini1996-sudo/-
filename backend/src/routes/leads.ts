@@ -598,7 +598,7 @@ router.post('/search', async (req: AuthRequest, res: Response, next: NextFunctio
 
     const search = await prisma.leadSearch.create({
       data: {
-        provider: providers.join('+'), query: queries.join(' '), country: body.country, city: body.city,
+        provider: providers.join('+'), query: queries.join('، '), country: body.country, city: body.city,
         status: 'running', createdBy: req.user?.name,
       },
     });
@@ -687,7 +687,7 @@ router.post('/search', async (req: AuthRequest, res: Response, next: NextFunctio
         if (Object.keys(data).length) {
           await prisma.lead.update({ where: { id: c.id }, data });
           await prisma.leadActivity.create({
-            data: { leadId: c.id, type: 'NOTE', content: `إثراء تلقائي ${Object.keys(data).join(' ')}`, createdBy: req.user?.name },
+            data: { leadId: c.id, type: 'NOTE', content: `إثراء تلقائي ${Object.keys(data).join('، ')}`, createdBy: req.user?.name },
           });
         }
       }
@@ -997,7 +997,7 @@ router.post('/enrich', async (req: AuthRequest, res: Response, next: NextFunctio
       if (Object.keys(data).length) {
         await prisma.lead.update({ where: { id: l.id }, data });
         await prisma.leadActivity.create({
-          data: { leadId: l.id, type: 'NOTE', content: `إثراء ${Object.keys(data).join(' ')} من ${body.providers.join('+')}`, createdBy: req.user?.name },
+          data: { leadId: l.id, type: 'NOTE', content: `إثراء ${Object.keys(data).join('، ')} من ${body.providers.join('+')}`, createdBy: req.user?.name },
         });
       }
     }

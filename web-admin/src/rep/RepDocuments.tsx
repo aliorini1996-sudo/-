@@ -252,7 +252,7 @@ export interface WarehouseNoticeDoc {
 export type AnyDoc = InvoiceDoc | ReceiptDoc | StatementDoc | SettlementLogDoc | LoadNoticeDoc | WarehouseNoticeDoc;
 
 function fullAddress(c: { address?: string; district?: string; city?: string }): string {
-  return [c.address, c.district, c.city].filter(Boolean).join(' ');
+  return [c.address, c.district, c.city].filter(Boolean).join('، ');
 }
 
 const PAGE: React.CSSProperties = {
@@ -807,7 +807,7 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
                 {e.description}
                 {e.items && e.items.length > 0 && (
                   <div style={{ fontSize: 10, color: '#6b7280', marginTop: 3, lineHeight: 1.5 }}>
-                    <b style={{ color: '#4b5563' }}>{e.items.length} {tr('صنف')}:</b> {e.items.map(it => `${it.name} ×${it.qty}`).join(' ')}
+                    <b style={{ color: '#4b5563' }}>{e.items.length} {tr('صنف')}:</b> {e.items.map(it => `${it.name} ×${it.qty}`).join('، ')}
                   </div>
                 )}
               </td>

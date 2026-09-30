@@ -9,6 +9,7 @@ import { postReceiptEntries, reverseReceiptEntries, clean } from '../services/ac
 import { fillAllocationsFifo } from '../services/allocate';
 import { canAccessCustomer, redactCustomer } from '../services/customerScope';
 import { publishInvoicesChanged } from '../services/liveEvents';
+import { CancelRefused, claimReceiptCancel, restoreAllocations } from '../services/docCancel';
 // ZATCA المرحلة الثانية (Z5.4، F2 ونقد 13): لا تحصيل على فاتورة لم تصر نهائية عند الهيئة، والمتبقّي يُقرأ مقفلاً
 import { ALLOCATION_ALLOWED_WHERE, ALLOCATION_BLOCKED_MIRRORS } from '../compliance/zatca/status';
 import { ZatcaHttpError } from '../compliance/zatca/errors';
@@ -388,20 +389,10 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
     }
 
     const updated = await prisma.$transaction(async tx => {
-      const rcp = await tx.receipt.update({ where: { id: req.params.id }, data: { status: 'CANCELLED' } });
-
-      for (const item of receipt.invoiceItems) {
-        const inv = await tx.invoice.findUnique({ where: { id: item.invoiceId }, select: { paidAmt: true, remainingAmt: true } });
-        if (!inv) continue;
-        await tx.invoice.update({
-          where: { id: item.invoiceId },
-          data: {
-            paidAmt: clean(Number(inv.paidAmt) - Number(item.amount)),
-            remainingAmt: clean(Number(inv.remainingAmt) + Number(item.amount)),
-          },
-        });
-      }
-
+      // الفحص أعلاه على قراءةٍ سابقة للمعاملة: مقارنةٌ وتبديل على الحالة أولاً، وإلا أعاد طلبان متقاربان المبلغ مرّتين
+      if (!(await claimReceiptCancel(tx, tid, receipt.id))) throw new CancelRefused('السند ملغى مسبقا');
+      const rcp = await tx.receipt.findUniqueOrThrow({ where: { id: receipt.id } });
+      await restoreAllocations(tx, tid, receipt.invoiceItems);
       await reverseReceiptEntries(tx as never, tid, rcp.id, rcp.customerId, Number(rcp.amount));
       await tx.notification.create({
         data: {
@@ -419,7 +410,10 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
 
     publishInvoicesChanged(tid);
     res.json({ success: true, data: updated });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err instanceof CancelRefused) { res.status(400).json({ success: false, message: err.message }); return; }
+    next(err);
+  }
 });
 
 export default router;

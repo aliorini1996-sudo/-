@@ -127,7 +127,7 @@ export async function sendDailyReminder(): Promise<boolean> {
   const nearDeadline = statuses.filter(c => c.daysToDeadline !== null && c.daysToDeadline <= 7);
   const urgent = [...new Map([...overdue, ...nearDeadline].map(c => [c.id, c])).values()];
   if (!urgent.length) return false;
-  const html = `<div dir="rtl" style="font-family:Segoe UI,Tahoma,sans-serif;line-height:0;color:#1F2823">
+  const html = `<div dir="rtl" style="font-family:Segoe UI,Tahoma,sans-serif;line-height:1.9;color:#1F2823">
     <h2 style="color:#14614E">تذكير يومي بطاقات قرار تجاوزت مهلتها</h2>
     <p>${AR_NUM(urgent.length)} بطاقة تحتاج حسمك القاعدة نعم / لا / أجل <b>بتاريخ</b> لا تأجيل بلا تاريخ </p>
     ${cardsTableHtml(urgent)}
@@ -188,7 +188,7 @@ export async function sendWeeklyReport(): Promise<boolean> {
   const statuses = cardStatuses();
   const overdue = statuses.filter(c => c.overdue);
   const oldest = statuses[0];
-  const html = `<div dir="rtl" style="font-family:Segoe UI,Tahoma,sans-serif;line-height:0;color:#1F2823">
+  const html = `<div dir="rtl" style="font-family:Segoe UI,Tahoma,sans-serif;line-height:1.9;color:#1F2823">
     <h2 style="color:#14614E">التقرير الأسبوعي Field Sales</h2>
     <h3>الاشتراكات والإيراد من جدول الشركات </h3>
     <ul>
@@ -201,11 +201,11 @@ export async function sendWeeklyReport(): Promise<boolean> {
     ${growth}
     <h3>فجوة التنفيذ مؤشرات الخطة </h3>
     <ul>
-      <li>بطاقات مفتوحة <b>${AR_NUM(statuses.length)}</b> متأخرة عن مهلتها <b style="color${overdue.length ? '#9B3B2E' : '#14614E'}">${AR_NUM(overdue.length)}</b></li>
+      <li>بطاقات مفتوحة <b>${AR_NUM(statuses.length)}</b> متأخرة عن مهلتها <b style="color:${overdue.length ? '#9B3B2E' : '#14614E'}">${AR_NUM(overdue.length)}</b></li>
       <li>أقدم بطاقة ${oldest ? `«${oldest.title}» — ${AR_NUM(oldest.daysOpen)} يوما الهدف ≤ 7` : '—'}</li>
     </ul>
     ${statuses.length ? cardsTableHtml(statuses) : ''}
-    <p style="color:#5A665E;font-size:13px;margin-top:14px">تقرير آلي أسبوعي الاثنين 8 صباحا بتوقيت الرياض يغلق البند T1.4 2 لإرساله يدويا POST /api/tenants/ops/weekly-report من لوحة المالك </p>
+    <p style="color:#5A665E;font-size:13px;margin-top:14px">تقرير آلي أسبوعي الاثنين 8 صباحا بتوقيت الرياض يغلق البند T1.4.2 لإرساله يدويا POST /api/tenants/ops/weekly-report من لوحة المالك </p>
   </div>`;
   return sendMail({ subject: `📊 التقرير الأسبوعي Field Sales (${riyadhDateStr()})`, html });
 }

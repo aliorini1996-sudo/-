@@ -82,7 +82,7 @@ export default function VisitsPanel({ onClose }: { onClose: () => void }) {
           <div className="py-20 text-center px-6">
             <div className="w-14 h-14 bg-[#FBEBE2] rounded-2xl flex items-center justify-center mx-auto mb-4"><Globe2 size={28} className="text-[#E15A30]" /></div>
             <h3 className="font-bold text-[#1F1A13]">لا زيارات بعد</h3>
-            <p className="text-sm text-[#6E6557] mt-1 max-w-sm mx-auto">تبدأ الزيارات بالظهور فور دخول أول زائر للموقع بعد تفعيل التتبع جرب فتح fieldsa net في متصفح آخر</p>
+            <p className="text-sm text-[#6E6557] mt-1 max-w-sm mx-auto">تبدأ الزيارات بالظهور فور دخول أول زائر للموقع بعد تفعيل التتبع جرب فتح fieldsa.net في متصفح آخر</p>
           </div>
         ) : (
           <div className="p-5 space-y-5">
@@ -183,7 +183,7 @@ export default function VisitsPanel({ onClose }: { onClose: () => void }) {
                         </td>
                         <td className="py-2 text-[#1F1A13] font-mono text-[11px] truncate max-w-[120px]">{r.path}</td>
                         <td className="py-2 text-[#6E6557] truncate max-w-[110px]">{r.referrer}</td>
-                        <td className="px-4 py-2 text-[#1F1A13] whitespace-nowrap">{flag(r.countryCode)} {r.city ? `${r.city} ` : ''}{r.country || '—'}</td>
+                        <td className="px-4 py-2 text-[#1F1A13] whitespace-nowrap">{flag(r.countryCode)} {r.city ? `${r.city}، ` : ''}{r.country || '—'}</td>
                       </tr>
                       );
                     })}

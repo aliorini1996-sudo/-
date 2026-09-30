@@ -10,6 +10,7 @@ import {
 import WhatsAppBridgePanel from './WhatsAppBridgePanel';
 import toast from 'react-hot-toast';
 import { backdropClose } from '../lib/backdropClose';
+import { safeHttpUrl } from '../lib/safeUrl';
 
 const STAGES: LeadStage[] = ['NEW', 'CONTACTED', 'QUALIFIED', 'PROPOSAL', 'WON', 'LOST'];
 const STAGE_LABEL: Record<LeadStage, string> = {
@@ -475,7 +476,7 @@ function EmailModal({
   const [body, setBody] = useState(
     'مرحبا فريق {{name}} \n\n'
     + 'Field Sales منصة متكاملة لإدارة مبيعات المناديب الميدانيين والتوزيع فواتير ضريبية متوافقة مع ZATCA تحصيل وإدارة ذمم مخزون سيارة المندوب وتتبع المواقع بالGPS في لوحة واحدة سهلة \n\n'
-    + 'يسعدنا أن نعرض عليكم النظام في جولة قصيرة أو جربوه مجانا على fieldsa net \n\n'
+    + 'يسعدنا أن نعرض عليكم النظام في جولة قصيرة أو جربوه مجانا على fieldsa.net \n\n'
     + '— — —\n\n'
     + 'Hello {{name}} team,\n\n'
     + 'Field Sales is an all-in-one platform to run your field reps and distribution: ZATCA-compliant tax invoicing, collections & receivables, van inventory, and live GPS tracking — all in one simple dashboard.\n\n'
@@ -977,7 +978,7 @@ function AutoHuntModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
     leadApi.huntConfig().then((r) => {
       const c = r.data.data as HuntConfig;
       setCfg(c);
-      setCountriesText(c.countries.join(' '));
+      setCountriesText(c.countries.join('، '));
     });
   }, []);
 
@@ -990,7 +991,7 @@ function AutoHuntModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
     try {
       const res = await leadApi.huntRun();
       const d = res.data.data as { country: string; keywords: string[]; found: number; imported: number; enrichedEmail: number };
-      setLog((l) => [`${new Date().toLocaleTimeString()} · ${d.country}: +${d.imported} عميل (${d.keywords.join(' ')})`, ...l].slice(0, 25));
+      setLog((l) => [`${new Date().toLocaleTimeString()} · ${d.country}: +${d.imported} عميل (${d.keywords.join('، ')})`, ...l].slice(0, 25));
       qc.invalidateQueries({ queryKey: ['leads'] });
       qc.invalidateQueries({ queryKey: ['lead-stats'] });
       onDone();
@@ -1060,7 +1061,7 @@ function AutoHuntModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
             <button
               onClick={async () => {
                 const all = (await leadApi.arabCountries()).data.data as string[];
-                setCountriesText(all.join(' '));
+                setCountriesText(all.join('، '));
                 await save({ countries: all });
                 toast.success(`فعلت ${all.length} دولة عربية 🌍`);
               }}
@@ -1285,7 +1286,7 @@ function CommunityHuntModal({ onClose, onDone }: { onClose: () => void; onDone: 
   });
 
   useEffect(() => {
-    leadApi.communityConfig().then((r) => { const c = r.data.data as CommunityConfig; setCfg(c); setCountriesText(c.countries.join(' ')); });
+    leadApi.communityConfig().then((r) => { const c = r.data.data as CommunityConfig; setCfg(c); setCountriesText(c.countries.join('، ')); });
   }, []);
 
   const save = async (patch: Partial<CommunityConfig>) => {
@@ -1504,6 +1505,9 @@ function LeadDrawer({ id, onClose, onChanged }: { id: string; onClose: () => voi
   });
 
   if (!lead) return null;
+  // مصدرهما عام (OSM ونتائج البحث): http/https وحدهما رابطاً، وإلا نصّاً — javascript: هنا يسرق جلسة المالك
+  const websiteHref = safeHttpUrl(lead.website);
+  const mapsHref = safeHttpUrl(lead.mapsUrl);
 
   return (
     <div className="fixed inset-0 z-[60] flex justify-start" dir="rtl">
@@ -1521,11 +1525,15 @@ function LeadDrawer({ id, onClose, onChanged }: { id: string; onClose: () => voi
           {/* بيانات التواصل */}
           <div className="space-y-1.5 text-sm">
             {lead.phone && <a href={`tel:${lead.phone}`} className="flex items-center gap-2 text-gray-700"><Phone size={14} className="text-[#E15A30]" /> {lead.phone}</a>}
-            {lead.website && <a href={lead.website} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-blue-600 truncate"><Globe2 size={14} /> {lead.website}</a>}
+            {lead.website && (websiteHref
+              ? <a href={websiteHref} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-blue-600 truncate"><Globe2 size={14} /> {lead.website}</a>
+              : <div className="flex items-center gap-2 text-gray-600 truncate"><Globe2 size={14} className="text-gray-400" /> {lead.website}</div>)}
             {lead.address && <div className="flex items-center gap-2 text-gray-600"><MapPin size={14} className="text-gray-400" /> {lead.address}</div>}
-            {lead.mapsUrl && (lead.mapsUrl.includes('linkedin.com')
-              ? <a href={lead.mapsUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[#0A66C2]"><Globe2 size={14} /> الملف على LinkedIn</a>
-              : <a href={lead.mapsUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-green-700"><MapPin size={14} /> عرض على الخريطة</a>)}
+            {lead.mapsUrl && (!mapsHref
+              ? <div className="flex items-center gap-2 text-gray-600 truncate"><MapPin size={14} className="text-gray-400" /> {lead.mapsUrl}</div>
+              : mapsHref.includes('linkedin.com')
+                ? <a href={mapsHref} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[#0A66C2]"><Globe2 size={14} /> الملف على LinkedIn</a>
+                : <a href={mapsHref} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-green-700"><MapPin size={14} /> عرض على الخريطة</a>)}
             {lead.score != null && <div className="flex items-center gap-2"><Sparkles size={14} className="text-amber-500" /> ملاءمة {lead.score}/10 {lead.scoreNote && <span className="text-gray-400">— {lead.scoreNote}</span>}</div>}
           </div>
 

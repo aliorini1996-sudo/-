@@ -7,7 +7,7 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
     const fields = Object.keys(fieldErrors);
     res.status(400).json({
       success: false,
-      message: fields.length ? `بيانات غير صحيحة ${fields.join(' ')}` : 'بيانات غير صحيحة',
+      message: fields.length ? `بيانات غير صحيحة ${fields.join('، ')}` : 'بيانات غير صحيحة',
       errors: fieldErrors,
     });
     return;

@@ -193,19 +193,19 @@ const SEO = {
   ar: {
     title: 'برنامج فواتير مجاني بلا تسجيل مولد فاتورة ضريبية برمز QR | FieldSales',
     description: 'برنامج فواتير مجاني بالكامل وبلا تسجيل أنشئ فاتورة ضريبية احترافية برمز QR متوافق مع هيئة الزكاة والضريبة ZATCA وحملها PDF خلال ثوان ضريبية ومبسطة لكل الدول العربية',
-    keywords: 'برنامج فواتير مجاني برنامج فواتير مجاني بلا تسجيل نموذج فاتورة ضريبية نموذج فاتورة ضريبية جاهز للطباعة مولد فاتورة ضريبية فاتورة ضريبية pdf انشاء فاتورة الكترونية مجانا عمل فاتورة اون لاين فاتورة ضريبية مبسطة فاتورة برمز QR فاتورة ZATCA نموذج فاتورة جاهز فاتورة ضريبية السعودية فاتورة ضريبية مصر فاتورة ضريبية الإمارات نموذج فاتورة مبيعات فاتورة الكترونية',
+    keywords: 'برنامج فواتير مجاني, برنامج فواتير مجاني بلا تسجيل, نموذج فاتورة ضريبية, نموذج فاتورة ضريبية جاهز للطباعة, مولد فاتورة ضريبية, فاتورة ضريبية pdf, انشاء فاتورة الكترونية مجانا, عمل فاتورة اون لاين, فاتورة ضريبية مبسطة, فاتورة برمز QR, فاتورة ZATCA, نموذج فاتورة جاهز, فاتورة ضريبية السعودية, فاتورة ضريبية مصر, فاتورة ضريبية الإمارات, نموذج فاتورة مبيعات, فاتورة الكترونية',
     locale: 'ar' as const,
   },
   en: {
     title: 'Free Tax Invoice Generator with QR Code Ready Invoice Template | FieldSales',
     description: 'Create a professional tax invoice free with a ZATCA-compliant QR code and download it as PDF in seconds standard & simplified invoice templates no signup',
-    keywords: 'free invoice generator tax invoice template invoice maker online free ZATCA QR invoice e-invoice generator simplified tax invoice VAT invoice template invoice PDF generator Saudi tax invoice printable invoice template',
+    keywords: 'free invoice generator, tax invoice template, invoice maker online free, ZATCA QR invoice, e-invoice generator, simplified tax invoice, VAT invoice template, invoice PDF generator, Saudi tax invoice, printable invoice template',
     locale: 'en' as const,
   },
   fr: {
     title: 'Générateur gratuit de factures fiscales avec code QR | FieldSales',
     description: 'Créez gratuitement une facture fiscale professionnelle avec code QR conforme ZATCA et téléchargez-la en PDF en quelques secondes sans inscription',
-    keywords: 'générateur de factures gratuit modèle facture fiscale créer facture en ligne gratuit facture QR ZATCA facture électronique modèle facture TVA facture PDF gratuite',
+    keywords: 'générateur de factures gratuit, modèle facture fiscale, créer facture en ligne gratuit, facture QR ZATCA, facture électronique, modèle facture TVA, facture PDF gratuite',
     locale: 'fr' as const,
   },
 };
@@ -588,7 +588,7 @@ export default function InvoiceGeneratorPage() {
               <div style={{ marginTop: 30, paddingTop: 12, borderTop: '1px solid #F1EBDF', textAlign: 'center', fontSize: 11.5, color: '#9A8F7E' }}>
                 شكرا لتعاملكم معنا Thank you for your business
                 <div style={{ marginTop: 5, fontSize: 9.5, color: '#c3bcae' }}>
-                  أنشئت مجانا عبر منصة Field Sales fieldsa net/invoice-generator
+                  أنشئت مجانا عبر منصة Field Sales fieldsa.net/invoice-generator
                 </div>
               </div>
             </div>

@@ -34,7 +34,7 @@ async function downloadTemplate(t: TemplateSpec) {
   rows.push(['ملاحظات']);
   for (const n of t.notes) rows.push([n]);
   rows.push([]);
-  rows.push(['نموذج مجاني من Field Sales fieldsa net']);
+  rows.push(['نموذج مجاني من Field Sales fieldsa.net']);
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws['!cols'] = (t.widths || t.columns.map(() => 16)).map((w) => ({ wch: w }));

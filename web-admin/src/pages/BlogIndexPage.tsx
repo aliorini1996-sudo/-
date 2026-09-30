@@ -34,7 +34,7 @@ export default function BlogIndexPage() {
       'Des centaines de guides pratiques sur la vente terrain, la facturation électronique, l\'encaissement et la distribution — pour chaque pays arabe, par FieldSales.',
     ),
     keywords: tr(
-      'مدونة مبيعات ميدانية مقالات إدارة مناديب البيع المتنقل التحصيل التوزيع الفوترة الإلكترونية الدول العربية',
+      'مدونة مبيعات ميدانية, مقالات إدارة مناديب, البيع المتنقل, التحصيل, التوزيع, الفوترة الإلكترونية, الدول العربية',
       'field sales blog, distribution management articles, van sales, sales rep management, e-invoicing, Arab countries',
       'blog vente terrain, articles distribution, van sales, gestion commerciaux, facturation électronique, pays arabes',
     ),

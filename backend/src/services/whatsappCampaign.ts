@@ -109,7 +109,8 @@ export async function waSentToday(): Promise<number> {
       direction: 'OUT',
       createdAt: { gte: start },
       status: { not: 'QUEUED' },
-      NOT: { error: { contains: 'غير مسجل على واتساب' } },
+      // الكاتب (wa-bridge) يكتب «مسجّل» بالشدّة؛ نستبعد الصيغتين حتى لا يكسرها تنظيف نصي
+      NOT: [{ error: { contains: 'غير مسجّل على واتساب' } }, { error: { contains: 'غير مسجل على واتساب' } }],
     },
   });
 }

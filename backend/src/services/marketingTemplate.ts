@@ -51,7 +51,7 @@ export function countryAngle(lead: LeadLike): { ar: string; en: string } {
   if (cc && COUNTRY_ANGLES[cc]) return COUNTRY_ANGLES[cc];
   const byName: Record<string, string> = {
     'السعودية': 'SA', 'مصر': 'EG', 'الإمارات': 'AE', 'الكويت': 'KW', 'قطر': 'QA', 'البحرين': 'BH',
-    'عمان': 'OM', 'الأردن': 'JO', 'المغرب': 'MA', 'الجزائر': 'DZ', 'تونس': 'TN',
+    'عُمان': 'OM', 'عمان': 'OM', 'الأردن': 'JO', 'المغرب': 'MA', 'الجزائر': 'DZ', 'تونس': 'TN',
     'العراق': 'IQ', 'لبنان': 'LB', 'ليبيا': 'LY', 'فلسطين': 'PS', 'السودان': 'SD', 'اليمن': 'YE',
     'سوريا': 'SY', 'موريتانيا': 'MR',
   };
@@ -98,7 +98,7 @@ export function marketingHtml(bodyText: string, lead: LeadLike, tracking: Tracki
     ? `<img src="${API_BASE}/api/leads-cron/o/${tracking.leadId}.gif?t=${tracking.touch || 1}" width="1" height="1" alt="" style="display:block;border:0" />`
     : '';
   const unsub = tracking.leadId
-    ? `<a href="${API_BASE}/api/leads-cron/u/${tracking.leadId}" style="color #6E6557 text-decoration underline">إلغاء الاشتراك Unsubscribe</a>`
+    ? `<a href="${API_BASE}/api/leads-cron/u/${tracking.leadId}" style="color:#6E6557;text-decoration:underline">إلغاء الاشتراك Unsubscribe</a>`
     : 'رد بكلمة إلغاء reply unsubscribe';
   return `<div style="font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#F1EBDF;padding:24px 12px">
     <div style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 2px 10px rgba(31,26,19,0.08)">
@@ -112,9 +112,9 @@ export function marketingHtml(bodyText: string, lead: LeadLike, tracking: Tracki
         <tr>${feat('مخزون سيارة المندوب', 'Van inventory')}${feat('تتبع GPS', 'Live GPS tracking')}</tr>
       </table>
       <div style="padding:16px 24px 26px;text-align:center">
-        <a href="${cta}" style="display inline-block background #E15A30 color #ffffff text-decoration none padding 14px 38px border-radius 12px font-weight 700 font-size 16px">جرب Field Sales مجانا &nbsp; &nbsp; Start free</a>
+        <a href="${cta}" style="display:inline-block;background:#E15A30;color:#ffffff;text-decoration:none;padding:14px 38px;border-radius:12px;font-weight:700;font-size:16px">جرب Field Sales مجانا &nbsp; &nbsp; Start free</a>
       </div>
-      <div dir="auto" style="padding:14px 26px;color:#9A8F7E;font-size:12px;line-height:0;border-top:1px solid #F1EBDF;background:#FAF7F0">
+      <div dir="auto" style="padding:14px 26px;color:#9A8F7E;font-size:12px;line-height:1.7;border-top:1px solid #F1EBDF;background:#FAF7F0">
         رسالة أعمال من Field Sales ${unsub}<br>
         This is a B2B message from Field Sales · <a href="${SITE}" style="color:#6E6557;text-decoration:underline">fieldsa.net</a>
       </div>
@@ -131,7 +131,7 @@ export const DEFAULT_EMAIL_BODY = [
   '',
   'Field Sales منصة متكاملة لإدارة مبيعات المناديب الميدانيين والتوزيع فواتير ضريبية تحصيل وإدارة ذمم مخزون سيارة المندوب وتتبع المواقع بالGPS في لوحة واحدة سهلة',
   '',
-  'يسعدنا أن نعرض عليكم النظام في جولة قصيرة أو جربوه مجانا على fieldsa net',
+  'يسعدنا أن نعرض عليكم النظام في جولة قصيرة أو جربوه مجانا على fieldsa.net',
   '',
   '— — —',
   '',
@@ -152,7 +152,7 @@ export const DEFAULT_EMAIL_BODY_2 = [
   'أرسلنا لكم قبل أيام تعريفا بمنصة Field Sales وأحببنا أن نشارككم رقما واحدا',
   'الشركات التي تدير مناديبها بالورق أو الواتساب تفقد عادة 5-12% من إيراداتها بين فواتير ضائعة وتحصيل غير موثق ومخزون سيارة لا يجرد',
   '',
-  'احسبوا تسريبكم بأنفسكم خلال دقيقة حاسبة مجانية fieldsa net/calculator',
+  'احسبوا تسريبكم بأنفسكم خلال دقيقة حاسبة مجانية fieldsa.net/calculator',
   '',
   'Field Sales يغلق هذه الفجوات كلها من اليوم الأول والتجربة مجانية بلا بطاقة',
   '',
@@ -174,7 +174,7 @@ export const DEFAULT_EMAIL_BODY_3 = [
   '',
   'هذه آخر رسالة منا لا نحب الإزعاج إن لم يكن تنظيم مبيعات المناديب أولوية الآن فنتفهم ذلك تماما',
   '',
-  'إن أحببتم لاحقا حسابكم التجريبي المجاني يبقى متاحا في أي وقت على fieldsa net ويجهز خلال دقائق',
+  'إن أحببتم لاحقا حسابكم التجريبي المجاني يبقى متاحا في أي وقت على fieldsa.net ويجهز خلال دقائق',
   '',
   '— — —',
   '',

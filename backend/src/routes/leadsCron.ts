@@ -211,13 +211,13 @@ router.get('/u/:id', async (req: Request, res: Response) => {
       if (!dup) await prisma.leadActivity.create({ data: { leadId: id, type: 'UNSUB', content: 'ألغى الاشتراك من البريد التسويقي', createdBy: 'email-tracking' } });
     }
   } catch { /* نعرض التأكيد على أي حال */ }
-  res.set('Content-Type', 'text/html; charset=utf-8').send(`< doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>تم إلغاء الاشتراك Unsubscribed</title></head>
+  res.set('Content-Type', 'text/html; charset=utf-8').send(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>تم إلغاء الاشتراك · Unsubscribed</title></head>
   <body style="font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#F1EBDF;margin:0;padding:48px 16px;text-align:center">
-    <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:18px;padding:36px 28px;box-shadow:0 2px 10px rgba(1,2.08)">
+    <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:18px;padding:36px 28px;box-shadow:0 2px 10px rgba(31,26,19,0.08)">
       <div style="font-size:40px">✅</div>
       <h2 style="color:#1F1A13;margin:12px 0 6px">تم إلغاء اشتراكك</h2>
-      <p style="color:#6E6557;line-height:3;margin:0">لن تصلك رسائل تسويقية من Field Sales بعد الآن <br><span style="font-size:13px">You have been unsubscribed from Field Sales marketing emails </span></p>
-      <a href="0 style="display:inline-block;margin-top:20px;color:#E15A30;text-decoration:none;font-weight:700">fieldsa net</a>
+      <p style="color:#6E6557;line-height:1.9;margin:0">لن تصلك رسائل تسويقية من Field Sales بعد الآن <br><span style="font-size:13px">You have been unsubscribed from Field Sales marketing emails </span></p>
+      <a href="https://fieldsa.net" style="display:inline-block;margin-top:20px;color:#E15A30;text-decoration:none;font-weight:700">fieldsa.net</a>
     </div>
   </body></html>`);
 });
