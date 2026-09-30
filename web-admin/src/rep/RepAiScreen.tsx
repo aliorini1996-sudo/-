@@ -525,8 +525,9 @@ function NearbyPanel({ items, guide, searchesLeft, open, onToggle, onOpen }: {
             <div className="rounded-2xl bg-[#FBEBE2] border border-[#F5DACE] p-3 space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
                 <p className="text-xs font-bold text-[#C94E28] flex items-center gap-1"><Sparkles size={13} /> {guide.source === 'AI' ? tr('توجيه المستشار الذكي') : tr('ابدأ بهذه المحلات')}</p>
-                {/* key: تقييمٌ لمسحٍ سابق لا ينتقل إلى مسح جديد */}
-                {guide.turnId && <Feedback key={guide.turnId} turnId={guide.turnId} />}
+                {/* key: تقييمٌ لمسحٍ سابق لا ينتقل إلى مسح جديد. لا تقييم والعقل يراجع الخطة: دورة المسح نفسها تصير دورة العقل
+                    حين يصل (/scan/guide) فيُنسب إليه تقييمُ خطةٍ حتمية لم يكتبها */}
+                {guide.turnId && !guide.aiPending && <Feedback key={guide.turnId} turnId={guide.turnId} />}
               </div>
               {guide.learned && <p className="text-[10px] text-[#C94E28]">{tr('الترتيب متعلَّم من نتائج زيارات فريقك')}</p>}
               <p className="text-sm text-[#1F1A13] leading-6">{guideSummaryText(guide, lang, tr)}</p>
