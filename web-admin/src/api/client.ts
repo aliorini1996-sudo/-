@@ -243,6 +243,9 @@ export const aiRepApi = {
     api.post(`/ai-rep/admin/learning/lessons/${encodeURIComponent(id)}`, { action }),
   rollbackModel: (kind: 'POLICY' | 'CALIBRATION', version: number) => api.post(`/ai-rep/admin/learning/models/${kind}/rollback`, { version }),
   resetLearning: () => api.post('/ai-rep/admin/learning/reset', { confirm: true }),
+  // المحلات المخفية عن المسح («أُغلق نهائياً / لم أجده» مؤكَّداً) و«أعد إظهاره»
+  hiddenOutlets: () => api.get('/ai-rep/admin/hidden-outlets'),
+  unhideOutlet: (id: string) => api.post(`/ai-rep/admin/hidden-outlets/${encodeURIComponent(id)}/unhide`),
 };
 
 export const petroappApi = {

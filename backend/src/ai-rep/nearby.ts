@@ -9,7 +9,7 @@
  *     يمنعه الخادم عند الإنشاء برسالة محايدة لا تسمّي المندوب المالك.
  *   - الإخفاء بزمن لا إلى الأبد: «مغلق الآن» وبلاغ «لم أجده» الواحد يُخفيان المحل بقية اليوم فقط، و«لم أجده» المؤكَّد
  *     (بلاغان من مندوبين أو في يومين — status CLOSED) يُخفيه CLOSED_MEMORY_DAYS ثم يعود موسوماً «أُبلغ أنه مغلق» آخر
- *     القائمة. العميل (القائم أو المحتمل) لا يُخفى أبداً.
+ *     القائمة؛ والوسم نفسه بزمن (REJECT_MEMORY_DAYS) كالمرفوض. العميل (القائم أو المحتمل) لا يُخفى أبداً.
  *   - المرفوض خلال ٣٠ يوماً ينزل آخر القائمة موسوماً.
  * الترتيب: الجديد أولاً (الأقرب فالأبعد)، ثم العملاء القائمون، ثم المرفوض حديثاً والمُبلَّغ عن إغلاقه.
  */
@@ -72,6 +72,16 @@ export function hiddenByMemory(mem: OutletMemory | null, now: Date): boolean {
   if (!mem?.lastOutcome || !mem.lastOutcomeAt || !CLOSED_KINDS.has(mem.lastOutcome)) return false;
   if (mem.lastOutcome === 'NOT_FOUND' && mem.status === 'CLOSED') return mem.lastOutcomeAt.getTime() >= now.getTime() - CLOSED_MEMORY_DAYS * DAY_MS;
   return sameDay(mem.lastOutcomeAt, now);
+}
+
+/**
+ * وسم «أُبلغ أنه مغلق» بزمن كالمرفوض لا إلى الأبد: البلاغ الواحد REJECT_MEMORY_DAYS، والمؤكَّد REJECT_MEMORY_DAYS بعد
+ * انقضاء إخفائه — وإلا أخرج بلاغٌ خاطئ واحد المحلَّ من خطط الفريق كلها بلا رجعة (لا يُقترح فلا يزوره أحد فيصحّحه).
+ */
+export function reportedClosedByMemory(mem: OutletMemory | null, now: Date): boolean {
+  if (mem?.lastOutcome !== 'NOT_FOUND' || !mem.lastOutcomeAt) return false;
+  const days = (mem.status === 'CLOSED' ? CLOSED_MEMORY_DAYS : 0) + REJECT_MEMORY_DAYS;
+  return mem.lastOutcomeAt.getTime() >= now.getTime() - days * DAY_MS;
 }
 
 /** صندوق العملاء المرشّحين للمطابقة: حدود المحلات المدموجة نفسها + هامش (لا نصف قطر البحث — المسح يُبقي محلات أبعد منه). */
@@ -161,7 +171,7 @@ export function mergeNearby(places: NearbyPlace[], opts: {
       lastOutcome: mem?.lastOutcome ?? null,
       lastOutcomeAt: mem?.lastOutcomeAt ? mem.lastOutcomeAt.toISOString() : null,
       rejectedRecently,
-      reportedClosed: relation === 'NEW' && mem?.lastOutcome === 'NOT_FOUND',
+      reportedClosed: relation === 'NEW' && reportedClosedByMemory(mem, opts.now),
     });
   }
 

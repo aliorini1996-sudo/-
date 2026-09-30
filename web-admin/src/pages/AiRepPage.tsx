@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, MapPin, Save, Sparkles, Tags, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, EyeOff, MapPin, Save, Sparkles, Tags, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { aiRepApi, productApi, salesRepApi } from '../api/client';
 import { useAiRepTr } from '../i18n/aiRepPhrases';
@@ -12,7 +12,8 @@ import AiLearningPanel from './AiLearningPanel';
  *   1) جاهزية البيانات: التوقّع لكل محل يُبنى من عملاء الشركة المشابهين (النوع نفسه، بموقع، بمبيعات منتظمة).
  *   2) الإعدادات: أنواع المحلات المستهدفة، ونطاق البحث، والمنتجات ذات الأولوية، ومن يستخدم الميزة، وطريقة التعلّم.
  *   3) «ما تعلّمه العقل»: حلقة التعلّم الليلية بأرقامها قبل/بعد ودروسها ونسخها (AiLearningPanel).
- *   4) تصنيف العملاء: نوع كل منفذ — مقترحٌ من الاسم، والإدارة تؤكّده.
+ *   4) المحلات المخفية عن المسح («أُغلق نهائياً / لم أجده» مؤكَّداً): من أبلغ ومتى، و«أعد إظهاره».
+ *   5) تصنيف العملاء: نوع كل منفذ — مقترحٌ من الاسم، والإدارة تؤكّده.
  */
 
 type LearningMode = 'AUTO' | 'REVIEW' | 'OFF';
@@ -293,7 +294,82 @@ export default function AiRepPage() {
 
       <AiLearningPanel />
 
+      <HiddenOutletsSection />
+
       <ClassifySection outletTypes={data.outletTypes} onSaved={() => qc.invalidateQueries({ queryKey: ['ai-rep', 'settings'] })} />
+    </div>
+  );
+}
+
+interface HiddenOutlet {
+  id: string; outletTypeLabel: string; name: string | null; mapsUri: string | null;
+  reportedAt: string | null; hiddenUntil: string | null; reports: { repName: string | null; at: string }[];
+}
+
+/**
+ * المحلات المخفية عن مسح المناديب: أبلغ مندوبان (أو مندوب في يومين) أنها أُغلقت نهائياً أو لم يجدوها — تُخفى مدةً ثم
+ * تعود موسومة. القائمة بمن أبلغ ومتى، و«أعد إظهاره» لما أُخفي خطأً. اسم المحل من Google لا يُخزَّن ⇒ النوع ورابط الخريطة.
+ */
+function HiddenOutletsSection() {
+  const tr = useAiRepTr();
+  const qc = useQueryClient();
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ['ai-rep', 'hidden-outlets'],
+    queryFn: async () => (await aiRepApi.hiddenOutlets()).data.data as { memoryDays: number; items: HiddenOutlet[] },
+  });
+  const unhide = useMutation({
+    mutationFn: async (id: string) => (await aiRepApi.unhideOutlet(id)).data,
+    onSuccess: () => {
+      toast.success(tr('عاد المحل إلى مسح المناديب'));
+      qc.invalidateQueries({ queryKey: ['ai-rep', 'hidden-outlets'] });
+    },
+    onError: (e: { response?: { data?: { message?: string } } }) => toast.error(e.response?.data?.message || tr('تعذّر الحفظ')),
+  });
+  const day = (d: string | null) => (d ? new Date(d).toLocaleDateString(activeLocale()) : '—');
+  const loadErr = (error as { response?: { data?: { message?: string } } } | null)?.response?.data?.message;
+
+  return (
+    <div className="bg-white rounded-2xl border border-[#E9E1D3] p-5">
+      <p className="font-bold text-[#1F1A13] mb-1 flex items-center gap-2"><EyeOff size={18} className="text-[#E15A30]" /> {tr('محلات مخفية عن المسح')}</p>
+      <p className="text-xs text-[#6E6557] mb-3">{tr('محلٌّ أبلغ مندوبان (أو مندوب في يومين مختلفين) أنه أُغلق نهائياً أو لم يجده يُخفى عن مسح المناديب مدةً ثم يعود موسوماً — أعد إظهار ما أُخفي خطأً')}</p>
+      {isLoading ? (
+        <p className="py-4 text-center text-xs text-[#6E6557]">{tr('جاري التحميل')}</p>
+      ) : isError ? (
+        <p className="py-4 text-center text-xs text-red-600">{loadErr || tr('تعذّر تحميل المحلات المخفية')}</p>
+      ) : !data?.items.length ? (
+        <p className="py-4 text-center text-xs text-[#6E6557]">{tr('لا محلات مخفية الآن')}</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-right text-xs text-[#6E6557] border-b border-[#E9E1D3]">
+              <th className="py-2 font-medium">{tr('نوع المحل')}</th><th className="py-2 font-medium">{tr('من أبلغ')}</th>
+              <th className="py-2 font-medium">{tr('مخفي حتى')}</th><th className="py-2" />
+            </tr></thead>
+            <tbody>
+              {data.items.map(o => (
+                <tr key={o.id} className="border-b border-[#F4EEE3] align-top">
+                  <td className="py-2">
+                    <p className="font-medium">{o.name || tr(o.outletTypeLabel)}</p>
+                    {o.name && <p className="text-[11px] text-[#8A8178]">{tr(o.outletTypeLabel)}</p>}
+                    {o.mapsUri && <a href={o.mapsUri} target="_blank" rel="noreferrer" className="text-[11px] text-[#1D4ED8] underline">{tr('افتح في خرائط Google')}</a>}
+                  </td>
+                  <td className="py-2 text-xs text-[#44403a]">
+                    {o.reports.length
+                      ? o.reports.map((r, i) => <p key={i}>{r.repName || '—'} · {day(r.at)}</p>)
+                      : day(o.reportedAt)}
+                  </td>
+                  <td className="py-2 text-xs text-[#44403a]">{day(o.hiddenUntil)}</td>
+                  <td className="py-2 text-left">
+                    <button type="button" className="btn-secondary px-2.5 py-1 text-xs" disabled={unhide.isPending} onClick={() => unhide.mutate(o.id)}>
+                      {tr('أعد إظهاره')}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

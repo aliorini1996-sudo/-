@@ -7,7 +7,7 @@ import {
 } from '../ai-rep/estimate';
 import { googleTypesFor, outletTypeFromGoogle, suggestOutletType } from '../ai-rep/taxonomy';
 import { parsePlaces, searchNearby, PLACES_FIELD_MASK } from '../ai-rep/places';
-import { CLOSED_MEMORY_DAYS, customerBox, hiddenByMemory, mergeNearby, sameDay } from '../ai-rep/nearby';
+import { CLOSED_MEMORY_DAYS, REJECT_MEMORY_DAYS, customerBox, hiddenByMemory, mergeNearby, reportedClosedByMemory, sameDay } from '../ai-rep/nearby';
 import { aiRepSettingsSchema, repInScope, settingsView } from '../ai-rep/settings';
 
 const NOW = new Date('2026-09-20T09:00:00Z');
@@ -331,6 +331,13 @@ test('«لم أجده»: البلاغ الواحد بقية اليوم ثم مو
   const kept = merge([P('conf-recent', 70)], [mem('conf-recent', 'NOT_FOUND', 10 * D, 'CLOSED')], [], { keepHidden: true });
   assert.equal(kept.length, 1);
   assert.equal(kept[0].reportedClosed, true);
+  // الوسم بزمن لا إلى الأبد: البلاغ الواحد REJECT_MEMORY_DAYS، والمؤكَّد REJECT_MEMORY_DAYS بعد انقضاء إخفائه ⇒ فرصة عادية
+  const aged = merge([P('one-aged', 60), P('conf-aged', 70)], [
+    mem('one-aged', 'NOT_FOUND', (REJECT_MEMORY_DAYS + 1) * D), mem('conf-aged', 'NOT_FOUND', (CLOSED_MEMORY_DAYS + REJECT_MEMORY_DAYS + 1) * D, 'CLOSED'),
+  ]);
+  assert.deepEqual(aged.map(i => [i.placeId, i.reportedClosed, i.lastOutcome]), [['one-aged', false, 'NOT_FOUND'], ['conf-aged', false, 'NOT_FOUND']]);
+  assert.equal(reportedClosedByMemory(mem('x', 'NOT_FOUND', (REJECT_MEMORY_DAYS - 1) * D), NOW), true);
+  assert.equal(reportedClosedByMemory(mem('x', 'CLOSED', HOUR), NOW), false, '«مغلق الآن» لا يَسِم');
 });
 
 test('العميل لا يُخفى أبداً: القائم بمعرّف المكان والمحتمل بالقرب يبقيان ولو أُبلغ عن إغلاقهما', () => {

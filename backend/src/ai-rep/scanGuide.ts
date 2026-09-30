@@ -62,9 +62,9 @@ const ageMs = (s: ScanShop, now: Date): number => {
 export const visitedRecently = (s: ScanShop, now: Date): boolean =>
   !!s.lastOutcome && s.lastOutcome !== 'CLOSED' && ageMs(s, now) < OUTCOME_COOLDOWN_H * 3600_000;
 
-/** الفرص الجديدة: ليست عملاء، ولا مرفوضة مؤخراً، ولا مُبلَّغاً عن إغلاقها، ولا متابعة، ولا زيرت خلال التهدئة. */
+/** الفرص الجديدة: ليست عملاء، ولا مرفوضة مؤخراً، ولا مُبلَّغاً عن إغلاقها (الوسم بزمن)، ولا متابعة، ولا زيرت خلال التهدئة. */
 export const eligibleShops = (shops: ScanShop[], now = new Date()) => shops.filter(s => s.relation === 'NEW' && !s.rejectedRecently
-  && !s.reportedClosed && s.lastOutcome !== 'NOT_FOUND' && !(s.lastOutcome && FOLLOW_UP_KINDS[s.lastOutcome]) && !visitedRecently(s, now));
+  && !s.reportedClosed && !(s.lastOutcome && FOLLOW_UP_KINDS[s.lastOutcome]) && !visitedRecently(s, now));
 
 /** المتابعات المستحقّة: مهتم/عرض سعر/عُد لاحقاً مضت عليها فترة التهدئة. */
 export const followUpShops = (shops: ScanShop[], now = new Date()) => shops.filter(s => s.relation === 'NEW'
@@ -102,7 +102,7 @@ export function ruleGuide(shops: ScanShop[], origin: { lat: number; lng: number 
     kind: kindOf.get(s.ref) ?? 'NEW',
     why: [
       followUpText(s, now),
-      s.lastOutcome === 'CLOSED' ? 'وُجد مغلقاً في زيارة سابقة' : null,
+      s.lastOutcome === 'CLOSED' ? 'وُجد مغلقاً في زيارة سابقة' : s.lastOutcome === 'NOT_FOUND' ? 'أُبلغ سابقاً أنه لم يُعثر عليه' : null,
       s.rating != null ? `تقييمه ${s.rating} في خرائط Google` : 'بلا تقييم في خرائط Google',
       s.openNow === true ? 'مفتوح الآن' : s.openNow === false ? 'مغلق الآن' : null,
       `على بعد ${km(s.distanceM)} كم`,
@@ -149,10 +149,11 @@ export async function aiGuide(shops: ScanShop[], opts: {
   const statusOf = (s: ScanShop): string => {
     if (s.relation === 'CUSTOMER') return 'عميل حالي';
     if (s.relation === 'POSSIBLE_CUSTOMER') return 'ربما عميل حالي';
-    if (s.reportedClosed || s.lastOutcome === 'NOT_FOUND') return 'أُبلغ أنه أُغلق نهائياً';
+    if (s.reportedClosed) return 'أُبلغ أنه أُغلق نهائياً';
     if (s.rejectedRecently) return 'رفض مؤخراً';
     if (kindOf.get(s.ref) === 'FOLLOW_UP') return followUpText(s, now) ?? 'متابعة';
-    if (kindOf.get(s.ref) === 'NEW') return s.lastOutcome === 'CLOSED' ? 'فرصة جديدة (وُجد مغلقاً في زيارة سابقة)' : 'فرصة جديدة';
+    if (kindOf.get(s.ref) === 'NEW') return s.lastOutcome === 'CLOSED' ? 'فرصة جديدة (وُجد مغلقاً في زيارة سابقة)'
+      : s.lastOutcome === 'NOT_FOUND' ? 'فرصة جديدة (أُبلغ سابقاً أنه لم يُعثر عليه)' : 'فرصة جديدة';
     return 'زاره الفريق مؤخراً';
   };
   const list = shops.slice(0, 40).map(s => ({

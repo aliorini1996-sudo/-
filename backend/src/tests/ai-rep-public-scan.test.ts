@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parsePublicSearch, publicSearch, publicSearchUrl } from '../ai-rep/publicMaps';
-import { aiGuide, ruleGuide, shopScore, type ScanShop } from '../ai-rep/scanGuide';
+import { aiGuide, daysAgoAr, eligibleShops, followUpShops, ruleGuide, shopScore, visitedRecently, type ScanShop } from '../ai-rep/scanGuide';
 
 /** مدخل نتيجة بشكل ردّ Google: الحقول في مواضعها والباقي فارغ. */
 function entry(o: { name: string; placeId: string; lat: number; lng: number; rating?: number; cats?: string[]; address?: string; open?: string }) {
@@ -81,6 +81,60 @@ test('توجيه المسح الحتمي: الفرص الجديدة وحدها،
   assert.match(g.stops[0].why, /تقييمه 4/);
   assert.match(g.summary, /حولك 8 محلاً/);
   assert.equal(ruleGuide([shop('P1', { relation: 'CUSTOMER' })], { lat: 0, lng: 0 }).stops.length, 0);
+});
+
+const NOW = new Date('2026-09-20T09:00:00Z');
+const ago = (h: number) => new Date(NOW.getTime() - h * 3600000).toISOString();
+
+test('توجيه المسح وذاكرة الفريق: المزور خلال التهدئة لا يعود فرصة، والمهتم بعدها متابعة بسببه، و«ربما عميل» لا يُعدّ من عملائك', () => {
+  const shops = [
+    shop('P1', { lastOutcome: 'INTERESTED', lastOutcomeAt: ago(5), distanceM: 20 }), // زاره زميل اليوم وهو الأقرب
+    shop('P2', { lastOutcome: 'QUOTE', lastOutcomeAt: ago(4 * 24), distanceM: 400 }),
+    shop('P3', { lastOutcome: 'CLOSED', lastOutcomeAt: ago(30), distanceM: 300 }), // وُجد مغلقاً أمس ⇒ فرصة من جديد
+    shop('P4', { reportedClosed: true, lastOutcome: 'NOT_FOUND', lastOutcomeAt: ago(10 * 24), distanceM: 50 }),
+    shop('P5', { lastOutcome: 'NOT_INTERESTED', lastOutcomeAt: ago(5 * 24), rejectedRecently: true, distanceM: 60 }),
+    shop('P6', { relation: 'POSSIBLE_CUSTOMER', distanceM: 70 }),
+    shop('P7', { relation: 'CUSTOMER', distanceM: 80 }),
+    shop('P8', { distanceM: 500 }),
+    shop('P9', { lastOutcome: 'NOT_FOUND', lastOutcomeAt: ago(40 * 24), distanceM: 600 }), // انقضى وسمه ⇒ فرصة بتنبيه
+  ];
+  assert.deepEqual(eligibleShops(shops, NOW).map(s => s.ref), ['P3', 'P8', 'P9']);
+  assert.deepEqual(followUpShops(shops, NOW).map(s => s.ref), ['P2']);
+  assert.ok(visitedRecently(shops[0], NOW));
+  assert.ok(!visitedRecently(shops[2], NOW), '«مغلق الآن» لا يدخل التهدئة');
+  const g = ruleGuide(shops, { lat: 24.7, lng: 46.6 }, NOW);
+  assert.deepEqual(new Set(g.stops.map(s => s.ref)), new Set(['P2', 'P3', 'P8', 'P9']));
+  const byRef = new Map(g.stops.map(s => [s.ref, s]));
+  assert.equal(byRef.get('P2')!.kind, 'FOLLOW_UP');
+  assert.match(byRef.get('P2')!.why, /^متابعة: طلب عرض سعر قبل 4 أيام/);
+  assert.equal(byRef.get('P3')!.kind, 'NEW');
+  assert.match(byRef.get('P3')!.why, /وُجد مغلقاً في زيارة سابقة/);
+  assert.match(byRef.get('P9')!.why, /أُبلغ سابقاً أنه لم يُعثر عليه/);
+  assert.match(g.summary, /منها 3 فرصة جديدة و1 للمتابعة و1 من عملائك و1 ربما من عملائك/);
+  assert.equal(daysAgoAr(0.5), 'اليوم');
+  assert.equal(daysAgoAr(12), 'قبل 12 يوماً');
+  // لا فرص ولا متابعات ⇒ لا يدّعي «غير مزورة»
+  const none = ruleGuide([shops[0], shops[4]], { lat: 0, lng: 0 }, NOW);
+  assert.equal(none.stops.length, 0);
+  assert.match(none.summary, /ولا فرص جديدة ولا متابعات مستحقّة الآن/);
+});
+
+test('توجيه المسح بالعقل: المتابعة تُقبل بنوعها وأيامها، والمزور خلال التهدئة يُرفض', async () => {
+  const cfg = { provider: 'groq', apiKey: 'k', model: 'm', baseUrl: 'http://x' } as never;
+  const shops = [shop('P1', { lastOutcome: 'CALL_BACK', lastOutcomeAt: ago(6 * 24) }), shop('P2', { lastOutcome: 'INTERESTED', lastOutcomeAt: ago(2) }), shop('P3')];
+  let sent = '';
+  const r = await aiGuide(shops, {
+    cfg, playbook: null, origin: { lat: 24.7, lng: 46.6 }, now: NOW,
+    llm: (async (_c: unknown, req: { messages: { content: string }[] }) => {
+      sent = req.messages[1].content;
+      return { ok: true as const, content: JSON.stringify({ summary: 'ابدأ بالمتابعة', plan: [{ ref: 'P1', why: 'طلب العودة قبل 6 أيام' }, { ref: 'P2', why: 'مهتم' }, { ref: 'P3', why: 'قريب' }] }), usage: { promptTokens: 1, completionTokens: 1 } };
+    }) as never,
+  });
+  assert.ok(r.guide);
+  assert.deepEqual(r.guide.stops.map(s => [s.ref, s.kind]), [['P1', 'FOLLOW_UP'], ['P3', 'NEW']]);
+  assert.equal(r.guide.stops[0].why, 'طلب العودة قبل 6 أيام', 'أيام المتابعة في القائمة ⇒ رقم مسموح');
+  assert.match(sent, /"days_since_visit":6/);
+  assert.match(sent, /زاره الفريق مؤخراً/);
 });
 
 test('توجيه المسح بالعقل: مراجع الفرص وحدها، والأرقام المخترعة تُسقَط، والتعثّر ⇒ null', async () => {

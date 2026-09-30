@@ -8,7 +8,7 @@ import { useBackClose } from '../lib/useBackClose';
 import { loadGoogleMaps } from './googleMaps';
 import RepAiMap from './RepAiMap';
 import { loadAiSession, onConverted, saveAiSession, type AiAddPrefill } from './aiRepSession';
-import { OBJECTIONS, OBJECTION_OUTCOMES, OUTCOMES, distKm, fmtDistance, navUrl } from './aiRepLogic';
+import { CLOSED_OUTCOMES, OBJECTIONS, OBJECTION_OUTCOMES, OUTCOMES, distKm, fmtDistance, navUrl, shopBadge, type ShopBadgeTone } from './aiRepLogic';
 
 /**
  * المندوب الذكي — شاشة المندوب: **الصفحة كلها خريطة Google**، و**العقل يمسح كل المحلات حول المندوب تلقائياً** عند
@@ -21,6 +21,8 @@ interface Item {
   ref: string; placeId: string; name: string; address: string | null; lat: number; lng: number; outletType: string; outletTypeLabel: string;
   distanceM: number; relation: 'NEW' | 'CUSTOMER' | 'POSSIBLE_CUSTOMER'; customerId: string | null;
   lastOutcome: string | null; lastOutcomeAt: string | null; rejectedRecently: boolean; closed?: boolean;
+  /** أُبلغ أنه أُغلق نهائياً أو لم يُعثر عليه (من ذاكرة الشركة) — آخر القائمة وخارج الخطة */
+  reportedClosed?: boolean;
   profile?: Profile; study?: Study;
   /** دُرس بمراجعاته النصية (المفتاح الرسمي) — لا من المسح العام */
   withReviews?: boolean;
@@ -39,7 +41,13 @@ interface Me {
   placesConfigured: boolean; mapsKey?: string | null;
   targetTypes: { code: string; label: string }[];
 }
-interface Guide { source: 'AI' | 'RULES'; summary: string; stops: { ref: string; why: string }[] }
+/** kind: فرصة جديدة أو متابعة (مهتم/عرض سعر/عُد لاحقاً بعد التهدئة) — اختياري لجلسات محفوظة قبل إضافته */
+interface Guide { source: 'AI' | 'RULES'; summary: string; stops: { ref: string; why: string; kind?: 'NEW' | 'FOLLOW_UP' }[] }
+
+const BADGE_CLASS: Record<ShopBadgeTone, string> = {
+  customer: 'bg-blue-50 text-blue-700', possible: 'bg-sky-50 text-sky-700', followup: 'bg-amber-50 text-amber-700',
+  muted: 'bg-gray-100 text-gray-500', new: 'bg-green-50 text-green-700',
+};
 
 const ME_KEY = 'ai-rep:me';
 const ADD_PIN_MAX_M = 75;
@@ -88,6 +96,8 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
   searchIdRef.current = searchId;
   const originRef = useRef(origin);
   originRef.current = origin;
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
   const busyRef = useRef(false);
 
   // حالة الشاشة في ذاكرة الجلسة (لا القرص): الرجوع أو «أضفه عميلاً» يفكّكان الشاشة، فتعود كما كانت
@@ -95,10 +105,17 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
     saveAiSession({ repId, searchId, items, origin, guide, routeIds: [], chat: [], askDraft: '', tab: 'near' });
   }, [repId, searchId, items, origin, guide]);
 
+  // المحل الذي انتهت زيارته يخرج من خطة اليوم المعروضة (لا يبقى رقماً على الخريطة ولا «ابدأ به»)
+  const dropStop = useCallback((placeId: string) => {
+    const ref = itemsRef.current.find(x => x.placeId === placeId)?.ref;
+    if (ref) setGuide(gd => (gd && gd.stops.some(s => s.ref === ref) ? { ...gd, stops: gd.stops.filter(s => s.ref !== ref) } : gd));
+  }, []);
+
   // عميل أُنشئ من محلٍّ مدروس ⇒ يصير «عميلاً حالياً» هنا
   useEffect(() => onConverted((placeId, customerId) => {
+    dropStop(placeId);
     setItems(list => list.map(x => (x.placeId === placeId ? { ...x, relation: 'CUSTOMER', customerId, lastOutcome: 'CONVERTED' } : x)));
-  }), []);
+  }), [dropStop]);
 
   // الإعداد عند التركيب وعند عودة الاتصال
   const [meTick, setMeTick] = useState(0);
@@ -196,16 +213,19 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
     } finally { busyRef.current = false; setBusy(false); }
   }, [items, me?.placesConfigured, tr]);
 
+  // النتيجة تُطبَّق هنا فوراً كما يطبّقها الخادم: وسم آخر نتيجة، والمحل يخرج من الخطة، والمغلق يخرج من القائمة
   const onOutcome = (placeId: string, kind: string) => {
+    dropStop(placeId);
     setItems(list => list.map(x => (x.placeId === placeId
-      ? { ...x, lastOutcome: kind, lastOutcomeAt: new Date().toISOString(), rejectedRecently: kind === 'NOT_INTERESTED' || kind === 'EXCLUSIVE_SUPPLIER', closed: kind === 'CLOSED' || x.closed }
+      ? { ...x, lastOutcome: kind, lastOutcomeAt: new Date().toISOString(), rejectedRecently: kind === 'NOT_INTERESTED' || kind === 'EXCLUSIVE_SUPPLIER', closed: CLOSED_OUTCOMES.has(kind) || x.closed }
       : x)));
-    if (kind === 'CLOSED') setOpenId(null);
+    if (CLOSED_OUTCOMES.has(kind)) setOpenId(null);
   };
 
   const open = openId ? items.find(x => x.placeId === openId) ?? null : null;
   const byRef = useMemo(() => new Map(items.map(i => [i.ref, i])), [items]);
-  const mapItems = useMemo(() => items.filter(i => !i.closed).map(i => ({ placeId: i.placeId, lat: i.lat, lng: i.lng, relation: i.relation, rejectedRecently: i.rejectedRecently, name: i.name, closed: i.closed })), [items]);
+  // المُبلَّغ عن إغلاقه يُرسم بلون المرفوض (رمادي) — ظاهر لمن يريد التحقّق، خارج الخطة
+  const mapItems = useMemo(() => items.filter(i => !i.closed).map(i => ({ placeId: i.placeId, lat: i.lat, lng: i.lng, relation: i.relation, rejectedRecently: i.rejectedRecently || !!i.reportedClosed, name: i.name, closed: i.closed })), [items]);
   const planIds = useMemo(() => (guide?.stops ?? []).map(s => byRef.get(s.ref)?.placeId).filter((x): x is string => !!x), [guide, byRef]);
   const keyed = !!me?.mapsKey && !offline;
   // بلا مفتاح الخريطة: خريطة Google المضمّنة — حول المندوب، أو على المحل المفتوح
@@ -286,13 +306,17 @@ function NearbyPanel({ items, guide, open, onToggle, onOpen }: {
   items: Item[]; guide: Guide | null; open: boolean; onToggle: () => void; onOpen: (it: Item) => void;
 }) {
   const tr = useAiRepTr();
-  const byRef = new Map(items.map(i => [i.ref, i]));
-  const newCount = items.filter(i => i.relation === 'NEW').length;
+  // المغلق الذي سُجّل الآن يخرج من القائمة (والخادم يخفيه بقية اليوم)
+  const shown = items.filter(i => !i.closed);
+  const byRef = new Map(shown.map(i => [i.ref, i]));
+  const badges = new Map(shown.map(i => [i.placeId, shopBadge(i)]));
+  // «فرص جديدة» ما وسمه «فرصة جديدة» وحده — لا العملاء المحتملون ولا المزور ولا المرفوض
+  const newCount = shown.filter(i => badges.get(i.placeId)?.tone === 'new').length;
   return (
     <div className="bg-white rounded-t-3xl shadow-2xl">
       <button onClick={onToggle} className="w-full px-4 pt-3 pb-2 flex items-center gap-2">
         <span className="mx-auto absolute left-1/2 -translate-x-1/2 -mt-1.5 w-10 h-1 rounded-full bg-gray-200" />
-        <p className="flex-1 text-right font-bold text-[#1F1A13] text-sm">{tr('المحلات حولك')} ({items.length}) · {tr('فرص جديدة')} {newCount}</p>
+        <p className="flex-1 text-right font-bold text-[#1F1A13] text-sm">{tr('المحلات حولك')} ({shown.length}) · {tr('فرص جديدة')} {newCount}</p>
         {open ? <ChevronDown size={18} className="text-gray-400" /> : <ChevronUp size={18} className="text-gray-400" />}
       </button>
       {open && (
@@ -310,7 +334,10 @@ function NearbyPanel({ items, guide, open, onToggle, onOpen }: {
                       <button onClick={() => onOpen(it)} className="w-full text-right flex items-start gap-2">
                         <span className="w-6 h-6 rounded-full bg-[#E15A30] text-white text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
                         <span className="min-w-0">
-                          <span className="block text-sm font-semibold text-[#1F1A13] truncate">{it.name}</span>
+                          <span className="flex items-center gap-1.5 text-sm font-semibold text-[#1F1A13] min-w-0">
+                            <span className="truncate">{it.name}</span>
+                            {s.kind === 'FOLLOW_UP' && <span className="text-[10px] font-normal rounded-full px-2 py-0.5 bg-amber-50 text-amber-700 shrink-0">{tr('متابعة زيارة')}</span>}
+                          </span>
                           {s.why && <span className="block text-[11px] text-gray-600 leading-5">{s.why}</span>}
                         </span>
                       </button>
@@ -321,7 +348,7 @@ function NearbyPanel({ items, guide, open, onToggle, onOpen }: {
             </div>
           )}
           <div className="divide-y divide-gray-50">
-            {items.map(it => (
+            {shown.map(it => (
               <button key={it.placeId} onClick={() => onOpen(it)} className="w-full text-right py-2.5 flex items-center gap-2">
                 <Store size={16} className="text-[#E15A30] shrink-0" />
                 <span className="flex-1 min-w-0">
@@ -332,9 +359,11 @@ function NearbyPanel({ items, guide, open, onToggle, onOpen }: {
                     {it.profile?.openNow === false && <> · <span className="text-red-600">{tr('مغلق الآن')}</span></>}
                   </span>
                 </span>
-                {it.relation === 'CUSTOMER' ? <span className="text-[10px] rounded-full px-2 py-0.5 bg-blue-50 text-blue-700 shrink-0">{tr('عميل حالي')}</span>
-                  : it.rejectedRecently ? <span className="text-[10px] rounded-full px-2 py-0.5 bg-gray-100 text-gray-500 shrink-0">{tr('زرته')}</span>
-                  : <span className="text-[10px] rounded-full px-2 py-0.5 bg-green-50 text-green-700 shrink-0">{tr('فرصة جديدة')}</span>}
+                {(() => {
+                  // العميل، «ربما عميل»، المُبلَّغ عن إغلاقه، آخر نتيجة زيارة (أي مندوب)، وإلا «فرصة جديدة» — shopBadge
+                  const b = badges.get(it.placeId) ?? shopBadge(it);
+                  return <span className={`text-[10px] rounded-full px-2 py-0.5 shrink-0 ${BADGE_CLASS[b.tone]}`}>{tr(b.label)}</span>;
+                })()}
               </button>
             ))}
           </div>
@@ -395,12 +424,14 @@ function ShopSheet({ item, canAddCustomer, onClose, onAddCustomer, onOpenCustome
     setSaving(true); setOutcomeErr('');
     const gps = await getGps().catch(() => null);
     const clientRef = newClientRef();
-    // السبب زرٌّ اختياري يُرسل مع النتائج المؤهّلة وحدها؛ الجسم نفسه يدخل صفّ الإرسال دون اتصال
+    // السبب زرٌّ اختياري يُرسل مع النتائج المؤهّلة وحدها؛ الجسم نفسه يدخل صفّ الإرسال دون اتصال.
+    // موقع المحل وعلاقته كما رآهما المندوب: احتياط الخادم حين تنتهي جلسة البحث (رفعٌ مؤجَّل) — يقبل الموقع قرب GPS وحده
     const body = {
       clientRef, placeId: item.placeId, outletType: item.outletType, kind,
       ...(objection && OBJECTION_OUTCOMES.has(kind) ? { objection } : {}),
       ...(note.trim() && { note: note.trim() }),
       ...(gps && { lat: gps.lat, lng: gps.lng, accuracyM: gps.accuracy }), occurredAt: new Date().toISOString(),
+      placeLat: item.lat, placeLng: item.lng, relation: item.relation,
     };
     try {
       await repApi.post('/ai-rep/rep/outcomes', body);
@@ -451,6 +482,7 @@ function ShopSheet({ item, canAddCustomer, onClose, onAddCustomer, onOpenCustome
             {p?.openNow === false && <span className="text-red-600">{tr('مغلق الآن')}</span>}
             {item.relation === 'CUSTOMER' && <span className="text-blue-700">{tr('عميل حالي')}</span>}
             {item.relation === 'POSSIBLE_CUSTOMER' && <span className="text-blue-600">{tr('ربما عميل حالي')}</span>}
+            {item.reportedClosed && <span className="text-gray-500">{tr('أُبلغ أنه مغلق')}</span>}
           </p>
         </div>
         <button onClick={onClose} className="p-2 text-gray-500"><X size={20} /></button>

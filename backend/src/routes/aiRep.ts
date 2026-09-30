@@ -324,10 +324,14 @@ export function nextOutletStatus(current: string | null, kind: string, notFoundC
   return 'OPEN';
 }
 
-/** «لم أجده» مؤكَّد: بلاغان متتاليان (بلا نتيجة أخرى بينهما) من مندوبين مختلفين أو في يومين مختلفين، ضمن ذاكرة الإغلاق. */
-export function notFoundConfirmed(prev: { lastOutcome: string | null; lastOutcomeAt: Date | null; lastSalesRepId: string | null } | null, repId: string, at: Date): boolean {
+/**
+ * «لم أجده» مؤكَّد: بلاغان متتاليان (بلا نتيجة أخرى بينهما) من مندوبين مختلفين أو في يومين مختلفين، ضمن ذاكرة الإغلاق.
+ * والمؤكَّد قبلاً يبقى مؤكَّداً ببلاغ جديد ولو من المندوب نفسه في يومه — لا يُنزله تكرار البلاغ إلى «بلاغ واحد».
+ */
+export function notFoundConfirmed(prev: { status?: string | null; lastOutcome: string | null; lastOutcomeAt: Date | null; lastSalesRepId: string | null } | null, repId: string, at: Date): boolean {
   if (!prev || prev.lastOutcome !== 'NOT_FOUND' || !prev.lastOutcomeAt) return false;
   if (at.getTime() - prev.lastOutcomeAt.getTime() > CLOSED_MEMORY_DAYS * DAY_MS) return false;
+  if (prev.status === 'CLOSED') return true;
   return prev.lastSalesRepId !== repId || !sameDay(prev.lastOutcomeAt, at);
 }
 

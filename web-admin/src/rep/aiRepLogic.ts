@@ -102,10 +102,38 @@ export const OUTCOMES: { kind: string; label: string }[] = [
   { kind: 'QUOTE', label: 'طلب عرض سعر' },
   { kind: 'NOT_INTERESTED', label: 'غير مهتم' },
   { kind: 'EXCLUSIVE_SUPPLIER', label: 'عنده مورّد حصري' },
-  { kind: 'CLOSED', label: 'مغلق أو لم أجده' },
+  // «مغلق الآن» لحظيّ (يُخفى بقية اليوم ويغذّي نسبة الإغلاق لكل فترة)؛ «لم أجده» بلاغ إغلاق نهائي يتأكّد ببلاغ ثانٍ
+  { kind: 'CLOSED', label: 'مغلق الآن' },
+  { kind: 'NOT_FOUND', label: 'أُغلق نهائياً / لم أجده' },
 ];
 
 export const OUTCOME_LABEL: Record<string, string> = Object.fromEntries([...OUTCOMES, { kind: 'CONVERTED', label: 'أصبح عميلاً' }].map(o => [o.kind, o.label]));
+
+/** نتيجتا الإغلاق: تُخرجان المحل من القائمة والخطة في هذه الجلسة (الخادم يخفيه بقية اليوم). */
+export const CLOSED_OUTCOMES = new Set(['CLOSED', 'NOT_FOUND']);
+/** نتائج تستحقّ متابعة (نسخة الواجهة من FOLLOW_UP_KINDS في الخادم). */
+export const FOLLOW_UP_OUTCOMES = new Set(['INTERESTED', 'QUOTE', 'CALL_BACK']);
+
+export type ShopBadgeTone = 'customer' | 'possible' | 'followup' | 'muted' | 'new';
+
+/**
+ * وسم المحل في قائمة المسح (صرف): العميل ثم «ربما عميل» ثم المُبلَّغ عن إغلاقه ثم آخر نتيجة زيارة (أي مندوب)،
+ * وإلا «فرصة جديدة». «مغلق الآن» من يوم سابق لا يَسِم — المحل فرصة من جديد.
+ */
+export function shopBadge(it: {
+  relation: string; reportedClosed?: boolean; lastOutcome?: string | null; lastOutcomeAt?: string | null;
+}, now = new Date()): { label: string; tone: ShopBadgeTone } {
+  if (it.relation === 'CUSTOMER') return { label: 'عميل حالي', tone: 'customer' };
+  if (it.relation === 'POSSIBLE_CUSTOMER') return { label: 'ربما عميل حالي', tone: 'possible' };
+  if (it.reportedClosed) return { label: 'أُبلغ أنه مغلق', tone: 'muted' };
+  const k = it.lastOutcome;
+  if (k && k !== 'CONVERTED' && OUTCOME_LABEL[k]) {
+    const at = it.lastOutcomeAt ? new Date(it.lastOutcomeAt) : null;
+    const today = !!at && at.toDateString() === now.toDateString();
+    if (k !== 'CLOSED' || today) return { label: OUTCOME_LABEL[k], tone: FOLLOW_UP_OUTCOMES.has(k) ? 'followup' : 'muted' };
+  }
+  return { label: 'فرصة جديدة', tone: 'new' };
+}
 
 /** أنواع المنافذ (نسخة الواجهة من backend/src/ai-rep/taxonomy.ts — الخادم يتحقّق من الرموز). */
 export const OUTLET_TYPE_OPTIONS: { code: string; label: string }[] = [

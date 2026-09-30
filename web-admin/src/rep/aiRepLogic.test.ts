@@ -137,3 +137,25 @@ test('إجراءات الدرس لكل حالة (الخادم يرفض غيره�
   assert.deepEqual(lessonActions('RETIRED'), ['restore']);
   assert.deepEqual(lessonActions('REJECTED'), []);
 });
+
+// ───────────── وسم المحل في قائمة المسح ─────────────
+import { CLOSED_OUTCOMES, OUTCOME_LABEL, shopBadge } from './aiRepLogic';
+
+test('وسم المسح: العميل و«ربما عميل» والمُبلَّغ عن إغلاقه وآخر نتيجة للفريق، و«مغلق الآن» من أمس لا يَسِم', () => {
+  const now = new Date(2026, 8, 20, 12, 0, 0);
+  const at = (h: number) => new Date(now.getTime() - h * 3600000).toISOString();
+  const b = (o: Partial<Parameters<typeof shopBadge>[0]>) => shopBadge({ relation: 'NEW', ...o }, now);
+  assert.deepEqual(b({ relation: 'CUSTOMER', lastOutcome: 'CONVERTED' }), { label: 'عميل حالي', tone: 'customer' });
+  assert.deepEqual(b({ relation: 'POSSIBLE_CUSTOMER' }), { label: 'ربما عميل حالي', tone: 'possible' }, 'لا «فرصة جديدة» خضراء للعميل المحتمل');
+  assert.deepEqual(b({ reportedClosed: true, lastOutcome: 'NOT_FOUND', lastOutcomeAt: at(72) }), { label: 'أُبلغ أنه مغلق', tone: 'muted' });
+  assert.deepEqual(b({ lastOutcome: 'QUOTE', lastOutcomeAt: at(2) }), { label: 'طلب عرض سعر', tone: 'followup' }, 'زاره زميل ⇒ ليس فرصة جديدة');
+  assert.deepEqual(b({ lastOutcome: 'NOT_INTERESTED', lastOutcomeAt: at(24 * 5) }), { label: 'غير مهتم', tone: 'muted' });
+  assert.deepEqual(b({ lastOutcome: 'CLOSED', lastOutcomeAt: at(1) }), { label: 'مغلق الآن', tone: 'muted' });
+  assert.deepEqual(b({ lastOutcome: 'CLOSED', lastOutcomeAt: at(30) }), { label: 'فرصة جديدة', tone: 'new' }, 'وُجد مغلقاً أمس ⇒ فرصة من جديد');
+  assert.deepEqual(b({}), { label: 'فرصة جديدة', tone: 'new' });
+  assert.ok(CLOSED_OUTCOMES.has('CLOSED') && CLOSED_OUTCOMES.has('NOT_FOUND'));
+  assert.equal(OUTCOME_LABEL.NOT_FOUND, 'أُغلق نهائياً / لم أجده');
+  // تسميات الوسم تمرّ بـtr() متغيّرةً (لا يلتقطها فحص المفاتيح الحرفية) ⇒ ترجمتها هنا
+  const labels = ['عميل حالي', 'ربما عميل حالي', 'أُبلغ أنه مغلق', 'فرصة جديدة', ...Object.values(OUTCOME_LABEL)];
+  for (const lang of ['en', 'fr', 'tr', 'zh']) for (const l of labels) assert.notEqual(aiRepTranslate(lang, l), l, `بلا ترجمة ${lang}: ${l}`);
+});
