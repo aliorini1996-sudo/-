@@ -464,7 +464,8 @@ function LessonItem({ l, arrow, busy, onAction }: { l: LessonRow; arrow: string;
               <p className="font-semibold">{tr('السجلّ')}</p>
               {history.map((h, i) => (
                 <p key={i} className="text-[#6E6557]">
-                  {h.at ? formatDate(h.at) : '—'} · {statusText(h.from)} {arrow} {statusText(h.to)} · {h.by === 'SYSTEM' ? tr('النظام') : tr('الإدارة')}{reason(h.reason) ? ` · ${reason(h.reason)}` : ''}
+                  {/* جلسة المالك (الدعم الفني) تُسجَّل OWNER:<المعرّف> لا باسم مدير الشركة */}
+                  {h.at ? formatDate(h.at) : '—'} · {statusText(h.from)} {arrow} {statusText(h.to)} · {h.by === 'SYSTEM' ? tr('النظام') : String(h.by ?? '').startsWith('OWNER:') ? tr('مالك المنصة (الدعم الفني)') : tr('الإدارة')}{reason(h.reason) ? ` · ${reason(h.reason)}` : ''}
                 </p>
               ))}
             </div>

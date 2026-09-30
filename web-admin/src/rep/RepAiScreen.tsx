@@ -9,7 +9,7 @@ import { loadGoogleMaps } from './googleMaps';
 import RepAiMap from './RepAiMap';
 import { aiScanInFlight, loadAiSession, onConverted, saveAiSession, trackAiScan, type AiAddPrefill } from './aiRepSession';
 import {
-  CLOSED_OUTCOMES, COARSE_GPS_M, FEEDBACK_REASONS, GPS_ERROR_TEXT, OBJECTIONS, OBJECTION_OUTCOMES, OUTCOMES, distKm, fmtDistance, gpsErrorKind, mergeStudied, navUrl,
+  CLOSED_OUTCOMES, COARSE_GPS_M, FEEDBACK_REASONS, GPS_ERROR_TEXT, OBJECTIONS, OBJECTION_OUTCOMES, OUTCOMES, aiStopsAfterScan, distKm, fmtDistance, gpsErrorKind, mergeStudied, navUrl,
   needsRescan, refreshHoldMs, shopBadge, type ShopBadgeTone,
 } from './aiRepLogic';
 
@@ -19,6 +19,8 @@ import {
  * (تقييمه ونوعه وحالة فتحه، وبمراجعاته النصية حين يُضبط مفتاح Google الرسمي). لا من مبيعات الشركة السابقة.
  * بمفتاح الخريطة: الضغط على أي محل في الخريطة يدرسه بمراجعاته. نتائج Google تُعرض ولا تُخزَّن.
  * حلقة التعلّم: الترتيب قد يكون متعلَّماً من نتائج زيارات الفريق، وسطر «من تجربة فريقك» في التوجيه والدراسة، و👍/👎 عليهما.
+ * المسح يعود فوراً بالقائمة والخطة الحتمية، وتوجيه العقل (إن ضُبط) يصل بنداء ثانٍ /scan/guide فيحلّ محلّها؛ والمسح المتبقّي
+ * اليوم ظاهر، ونفاد تحليلات العقل يُقال (الخطة والدراسة حينها من القواعد).
  */
 
 interface Item {
@@ -50,6 +52,8 @@ interface Study {
 interface Me {
   placesConfigured: boolean; mapsKey?: string | null;
   targetTypes: { code: string; label: string }[];
+  /** المسح اليومي (يشمل التلقائي عند الفتح ودراسة ما خارج المسح) */
+  dailySearches?: { used: number; limit: number };
 }
 /**
  * kind: فرصة جديدة أو متابعة (مهتم/عرض سعر/عُد لاحقاً بعد التهدئة) — اختياري لجلسات محفوظة قبل إضافته.
@@ -58,6 +62,10 @@ interface Me {
 interface Guide {
   source: 'AI' | 'RULES'; summary: string; stops: { ref: string; why: string; kind?: 'NEW' | 'FOLLOW_UP' }[];
   turnId?: string | null; learned?: boolean; tip?: string | null;
+  /** توجيه العقل منتظَر لهذا المسح (/scan/guide) — يُحفظ مع الجلسة فتطلبه الشاشة المركّبة من جديد (بلا كلفة ثانية) */
+  aiPending?: boolean;
+  /** نفدت تحليلات العقل اليوم ⇒ بقيت الخطة الحتمية */
+  aiQuota?: boolean;
 }
 
 const BADGE_CLASS: Record<ShopBadgeTone, string> = {
@@ -75,7 +83,7 @@ const RELOCATE_AFTER_MS = 2 * 60_000;
 const JITTER_M = 20;
 
 type Fix = { lat: number; lng: number; accuracy: number };
-interface ScanData { searchId: string; items: Item[]; guide: Guide; partial?: boolean }
+interface ScanData { searchId: string; items: Item[]; guide: Guide; partial?: boolean; aiGuidePending?: boolean; searchesLeft?: number }
 interface ScanRun { at: Fix; d: ScanData }
 
 function readGps(maximumAge: number, timeout: number): Promise<Fix> {
@@ -100,6 +108,8 @@ async function getFix(): Promise<Fix> {
 }
 
 const errMsg = (e: unknown): string | undefined => (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+/** خطة المسح كما تُعرض وتُحفظ: الحتمية فوراً، ومعلَّمةً بانتظار توجيه العقل إن كان سيصل. */
+const scanGuide = (d: ScanData): Guide => ({ ...d.guide, aiPending: !!d.aiGuidePending });
 
 export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustomer, onOpenCustomer }: {
   repId: string;
@@ -126,6 +136,8 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
   const [locErr, setLocErr] = useState('');
   // دراسة المراجعات تعذّرت فانفتحت بطاقة المحل بدراسة المسح: سببها يظهر داخل البطاقة
   const [sheetNote, setSheetNote] = useState<{ placeId: string; text: string } | null>(null);
+  // المسح المتبقّي اليوم: من /me ثم من كل ردّ مسح أو دراسة
+  const [searchesLeft, setSearchesLeft] = useState<number | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [g, setG] = useState<any>(null);
   const [mapErr, setMapErr] = useState(false);
@@ -151,7 +163,7 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
   // حالة الشاشة في ذاكرة الجلسة (لا القرص): الرجوع أو «أضفه عميلاً» يفكّكان الشاشة، فتعود كما كانت
   useEffect(() => {
     const sm = scanMetaRef.current;
-    saveAiSession({ repId, searchId, items, origin, guide, routeIds: [], chat: [], askDraft: '', tab: 'near', scanOrigin: sm?.at ?? null, scannedAt: sm?.when ?? null });
+    saveAiSession({ repId, searchId, items, origin, guide, scanOrigin: sm?.at ?? null, scannedAt: sm?.when ?? null });
   }, [repId, searchId, items, origin, guide]);
 
   // المحل الذي انتهت زيارته يخرج من خطة اليوم المعروضة (لا يبقى رقماً على الخريطة ولا «ابدأ به»)
@@ -182,6 +194,7 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
         const d = r.data.data as Me;
         if (!alive) return;
         setMe(d); setOffline(false);
+        if (d.dailySearches) setSearchesLeft(Math.max(0, d.dailySearches.limit - d.dailySearches.used));
         void cacheSet(ME_KEY, d);
       } catch (e) {
         if (!alive) return;
@@ -222,7 +235,8 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
     searchIdRef.current = d.searchId;
     setSearchId(d.searchId);
     setItems(d.items);
-    setGuide(d.guide);
+    setGuide(scanGuide(d));
+    if (typeof d.searchesLeft === 'number') setSearchesLeft(d.searchesLeft);
     setPanelOpen(true);
     // بعض طلبات Google فشلت: القائمة قد تنقص (لا «لا محلات حولك»)
     if (d.partial) notes.push(tr('القائمة قد تكون ناقصة — بعض نتائج خرائط Google لم تصل، حدّث بعد قليل'));
@@ -263,12 +277,34 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
       // النتيجة تُحفظ في الجلسة ولو خرج المندوب من الشاشة أثناء المسح، والشاشة التي تُركَّب أثناءه تنتظره
       const run = trackAiScan(repId,
         repApi.post('/ai-rep/rep/scan', { lat: from.lat, lng: from.lng, accuracyM: from.accuracy }).then(r => ({ at: from, d: r.data.data as ScanData })),
-        ({ at: a, d }) => ({ searchId: d.searchId, items: d.items, guide: d.guide, origin: a, scanOrigin: a, scannedAt: Date.now() }));
+        ({ at: a, d }) => ({ searchId: d.searchId, items: d.items, guide: scanGuide(d), origin: a, scanOrigin: a, scannedAt: Date.now() }));
       applyScan(await run, notes);
     } catch (e) {
       scanFailed(e);
     } finally { busyRef.current = false; setScanning(false); }
   }, [applyScan, scanFailed, locate, repId, tr]);
+
+  // توجيه العقل المؤجَّل: يحلّ محلّ الخطة الحتمية حين يصل (مرّة لكل مسح؛ الشاشة المركّبة من جديد تطلبه ثانيةً والخادم
+  // يعيد النتيجة نفسها بلا حصة ولا نموذج). محطاتٌ انتهت زيارتها منذ المسح لا تعود، وتعذّره يُبقي الحتمية بصمت
+  const aiAsked = useRef<string | null>(null);
+  useEffect(() => {
+    if (!guide?.aiPending || !searchId || offline || aiAsked.current === searchId) return;
+    const sid = searchId;
+    aiAsked.current = sid;
+    let alive = true;
+    repApi.post('/ai-rep/rep/scan/guide', { searchId: sid })
+      .then(r => r.data.data as { guide: Guide | null; reason: string | null })
+      .catch(() => ({ guide: null, reason: null }))
+      .then(({ guide: ai, reason }) => {
+        if (!alive) return;
+        setGuide(gd => {
+          if (!gd?.aiPending || searchIdRef.current !== sid) return gd;
+          if (!ai) return { ...gd, aiPending: false, aiQuota: reason === 'AI_QUOTA' };
+          return { ...ai, stops: aiStopsAfterScan(ai.stops, itemsRef.current, scanMetaRef.current?.when ?? 0), aiPending: false };
+        });
+      });
+    return () => { alive = false; if (aiAsked.current === sid) aiAsked.current = null; };
+  }, [guide?.aiPending, searchId, offline]);
 
   // مسحٌ بدأ قبل تفكيك الشاشة ولم يصل بعد: ننتظره بدل مسحٍ ثانٍ
   const adoptScan = useCallback(async (pending: Promise<ScanRun>) => {
@@ -326,12 +362,15 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
     try {
       const o = originRef.current;
       const r = await repApi.post('/ai-rep/rep/study', { placeId: p.placeId, ...(searchIdRef.current && { searchId: searchIdRef.current }), ...(o && { gps: { lat: o.lat, lng: o.lng } }) });
-      const d = r.data.data as { searchId: string; turnId?: string; item: Item; profile: Profile; study: Study };
+      const d = r.data.data as { searchId: string; turnId?: string; item: Item; profile: Profile; study: Study; aiQuota?: boolean; searchesLeft?: number };
       const item: Item = { ...d.item, profile: d.profile, study: d.study, withReviews: true, studyTurnId: d.turnId ?? null };
       searchIdRef.current = d.searchId;
       setSearchId(d.searchId);
       // المحل في القائمة يحتفظ بمرجعه (خطة التوجيه تشير إليه)؛ جلسة خادمٍ انتهت تعيد P1 فلا يُؤخذ مرجعها
       setItems(list => mergeStudied(list, item));
+      if (typeof d.searchesLeft === 'number') setSearchesLeft(d.searchesLeft);
+      // نفدت تحليلات العقل اليوم: الدراسة من ملف المحل ومراجعاته بالقواعد — يُقال داخل البطاقة
+      if (d.aiQuota) setSheetNote({ placeId: item.placeId, text: tr('نفدت تحليلات العقل لهذا اليوم — الدراسة من ملف المحل بالقواعد') });
       setOpenId(item.placeId);
     } catch (e) {
       const text = errMsg(e) || (isNetworkError(e) ? tr('أنت دون اتصال — الدراسة تحتاج الإنترنت') : tr('تعذّرت دراسة المحل'));
@@ -428,7 +467,7 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
           ) : busy ? (
             <p className="mx-4 mb-4 rounded-full bg-[#1F1A13]/90 text-white text-sm text-center py-2.5 px-4 shadow-md">{tr('أدرس المحل من مراجعاته في خرائط Google…')}</p>
           ) : items.length > 0 && (
-            <NearbyPanel items={items} guide={guide} open={panelOpen} onToggle={() => setPanelOpen(v => !v)} onOpen={openItem} />
+            <NearbyPanel items={items} guide={guide} searchesLeft={searchesLeft} open={panelOpen} onToggle={() => setPanelOpen(v => !v)} onOpen={openItem} />
           )}
         </div>
       )}
@@ -445,8 +484,8 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
 }
 
 /** المحلات حول المندوب: توجيه العقل (أولاً) ثم القائمة — لوحة سفلية قابلة للطيّ فوق الخريطة. */
-function NearbyPanel({ items, guide, open, onToggle, onOpen }: {
-  items: Item[]; guide: Guide | null; open: boolean; onToggle: () => void; onOpen: (it: Item) => void;
+function NearbyPanel({ items, guide, searchesLeft, open, onToggle, onOpen }: {
+  items: Item[]; guide: Guide | null; searchesLeft: number | null; open: boolean; onToggle: () => void; onOpen: (it: Item) => void;
 }) {
   const tr = useAiRepTr();
   // المغلق الذي سُجّل الآن يخرج من القائمة (والخادم يخفيه بقية اليوم)
@@ -474,6 +513,8 @@ function NearbyPanel({ items, guide, open, onToggle, onOpen }: {
               {guide.learned && <p className="text-[10px] text-[#C94E28]">{tr('الترتيب متعلَّم من نتائج زيارات فريقك')}</p>}
               <p className="text-sm text-[#1F1A13] leading-6">{guide.summary}</p>
               {guide.tip && <TeamTip text={guide.tip} />}
+              {guide.aiPending && <p className="text-[11px] text-[#C94E28] animate-pulse">{tr('العقل يراجع الخطة…')}</p>}
+              {guide.aiQuota && <p className="text-[11px] text-gray-600">{tr('نفدت تحليلات العقل لهذا اليوم — الخطة من التقييم والفتح والمسافة')}</p>}
               <ol className="space-y-1.5">
                 {guide.stops.map((s, i) => {
                   const it = byRef.get(s.ref);
@@ -516,7 +557,10 @@ function NearbyPanel({ items, guide, open, onToggle, onOpen }: {
               </button>
             ))}
           </div>
-          <GoogleAttribution />
+          <div className="flex items-center justify-between gap-2">
+            {searchesLeft != null ? <p className="text-[11px] text-gray-500">{tr('المسح المتبقّي اليوم')}: {searchesLeft}</p> : <span />}
+            <GoogleAttribution />
+          </div>
         </div>
       )}
     </div>

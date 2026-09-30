@@ -2,7 +2,7 @@
  * المندوب الذكي — حالة الشاشة في ذاكرة الجلسة (لا على القرص).
  *
  * تطبيق المندوب يستبدل جسمه كلّه حين تُفتح «إضافة عميل» أو «ملف عميل» أو يُضغط زر الرجوع، فتُفكَّك شاشة المندوب
- * الذكي. بلا هذه الذاكرة كان يضيع كل شيء: الأسماء والتوجيه والمسار والمحادثة، ويلزم بحث جديد مدفوع.
+ * الذكي. بلا هذه الذاكرة كان يضيع كل شيء: قائمة المسح والتوجيه، ويلزم مسحٌ جديد يستهلك الحصة.
  * الأسماء من Google تبقى هنا في الذاكرة فقط أثناء الجلسة (لا تُكتب في IndexedDB)، وتُمحى بتبديل المندوب.
  * وحدة صغيرة تُحمَّل مع التطبيق (لا مع حزمة الشاشة الكسولة) كي يُعلِّم RepApp المحلّ «محوَّلاً» بعد إنشاء العميل.
  */
@@ -22,10 +22,6 @@ export interface AiRepSessionState {
   /** آخر موقع معروف للمندوب (يتجدّد مع كل تحديد) */
   origin: Fix | null;
   guide: unknown | null;
-  routeIds: string[];
-  chat: unknown[];
-  askDraft: string;
-  tab: 'near' | 'route' | 'ask';
   /** موضع آخر مسح ولحظته — منفصلان عن origin: العودة للشاشة تقرّر بهما إعادة المسح */
   scanOrigin?: Fix | null;
   scannedAt?: number | null;
@@ -49,7 +45,7 @@ export function clearAiSession(): void { state = null; inflight = null; gen += 1
 /** تحديث جزئي للجلسة من داخل طلب غير متزامن — تُطبَّق النتيجة ولو فُكّت الشاشة قبل وصولها. */
 export function patchAiSession(repId: string, patch: Partial<AiRepSessionState>): void {
   const base: AiRepSessionState = state && state.repId === repId ? state
-    : { repId, searchId: null, items: null, origin: null, guide: null, routeIds: [], chat: [], askDraft: '', tab: 'near' };
+    : { repId, searchId: null, items: null, origin: null, guide: null };
   state = { ...base, ...patch };
 }
 
@@ -88,7 +84,6 @@ export function markConverted(placeId: string, customerId: string | null): void 
       }),
       // الشاشة مفكّكة أثناء «إضافة عميل» فلا يصلها المستمع ⇒ المحطة تُسقط هنا أيضاً
       guide: ref && guide?.stops ? { ...guide, stops: guide.stops.filter(s => s.ref !== ref) } : state.guide,
-      routeIds: state.routeIds.filter(id => id !== placeId),
     };
   }
   listeners.forEach(fn => fn(placeId, customerId));

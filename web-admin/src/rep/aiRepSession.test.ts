@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { aiScanInFlight, clearAiSession, loadAiSession, markConverted, onConverted, saveAiSession, trackAiScan } from './aiRepSession';
 
 const at = { lat: 24.7, lng: 46.7, accuracy: 12 };
-const base = { repId: 'r1', searchId: 's0', origin: null, routeIds: [], chat: [], askDraft: '', tab: 'near' as const };
+const base = { repId: 'r1', searchId: 's0', origin: null };
 
 function deferred<T>() {
   let resolve!: (v: T) => void, reject!: (e: unknown) => void;

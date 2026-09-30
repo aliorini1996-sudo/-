@@ -681,15 +681,29 @@ export const FREE_STUDIES_PER_SCAN = 10;
 
 /**
  * منتجات دراسة المحل (أسماءً): ذات الأولوية الفعّالة أولاً بترتيب الإدارة، ثم الأكثر مبيعاً في ٩٠ يوماً، ثم بالاسم — حتى ٦٠.
- * priority = ذات الأولوية وحدها (حقلها في مدخل العقل).
+ * priority = ذات الأولوية وحدها (حقلها في مدخل العقل). تُحفظ ١٠ دقائق لكل شركة (تجميع الفواتير على قاعدة صغيرة).
  */
+const STUDY_PRODUCTS_TTL_MS = 10 * 60_000;
+const studyProductsCache = new Map<string, { at: number; v: { products: string[]; priority: string[] } }>();
+
 export async function studyProducts(tid: string, priorityIds: string[], max = 60): Promise<{ products: string[]; priority: string[] }> {
+  const key = `${tid}|${max}|${priorityIds.join(',')}`;
+  const hit = studyProductsCache.get(key);
+  if (hit && Date.now() - hit.at < STUDY_PRODUCTS_TTL_MS) return hit.v;
+  const v = await loadStudyProducts(tid, priorityIds, max);
+  if (studyProductsCache.size > 500) studyProductsCache.clear();
+  studyProductsCache.set(key, { at: Date.now(), v });
+  return v;
+}
+
+async function loadStudyProducts(tid: string, priorityIds: string[], max: number): Promise<{ products: string[]; priority: string[] }> {
   const live = { tenantId: tid, status: 'ACTIVE', deletedAt: null };
   const since = new Date(Date.now() - 90 * DAY_MS);
   const [pri, top] = await Promise.all([
     priorityIds.length ? prisma.product.findMany({ where: { ...live, id: { in: priorityIds } }, select: { id: true, name: true } }) : Promise.resolve([]),
+    // المبيعات وحدها (لا المرتجعات) كما في بيانات التوقّع
     prisma.invoiceItem.groupBy({
-      by: ['productId'], where: { productId: { not: null }, invoice: { tenantId: tid, status: 'CONFIRMED', invoiceDate: { gte: since } } },
+      by: ['productId'], where: { productId: { not: null }, invoice: { tenantId: tid, status: 'CONFIRMED', type: { in: ['CASH', 'CREDIT'] }, invoiceDate: { gte: since } } },
       _sum: { lineTotal: true }, orderBy: { _sum: { lineTotal: 'desc' } }, take: max * 2,
     }).catch(() => [] as { productId: string | null }[]),
   ]);
@@ -753,7 +767,8 @@ export function claimScanTurn(key: string, now = Date.now()): boolean {
  * دلو المنصّة، مهلة، مفتاح، تعذّر)، و«الاحتياط» (guardFallback) يُعدّ لما قصّه الحارس أو ردّه للحتمي وحده — لا لتعذّر النداء.
  */
 async function settleAi(c: RepCtx, day: string, ai: { source: 'AI' | 'ERROR'; guard: string; tokensIn: number; tokensOut: number }): Promise<void> {
-  if (!(ai.tokensIn + ai.tokensOut)) await refundUsage(c.tid, c.repId, 'chatTurns', 1, day);
+  // ERROR = لم يصل ردّ (والمبتور ثم المتعذّر مصدره AI برموزه) — لا بعدد الرموز: مضيفٌ لا يُبلغ الاستهلاك ردّه وصل
+  if (ai.source === 'ERROR') await refundUsage(c.tid, c.repId, 'chatTurns', 1, day);
   await addUsage(c.tid, c.repId, {
     tokensIn: ai.tokensIn, tokensOut: ai.tokensOut,
     guardFallback: ai.source === 'AI' && (ai.guard === 'TRIM' || ai.guard === 'TEMPLATE') ? 1 : 0,

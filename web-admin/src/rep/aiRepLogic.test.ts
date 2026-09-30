@@ -1,11 +1,10 @@
-// المندوب الذكي — منطق شاشة المندوب: ترتيب المسار، الأزمنة التقديرية، روابط الملاحة، والتنسيق.
+// المندوب الذكي — منطق شاشة المسح: رابط الملاحة والمسافة، والوسوم والنتائج وأسبابها، وإعادة المسح، وأحكام «ما تعلّمه العقل».
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { distKm, fmtDistance, fmtRange, multiStopUrl, navUrl, orderRoute, refreshHoldMs, routeLegs, OUTLET_TYPE_OPTIONS, OUTCOMES } from './aiRepLogic';
+import { fmtDistance, navUrl, refreshHoldMs, OUTLET_TYPE_OPTIONS, OUTCOMES } from './aiRepLogic';
 import { AI_REP_PHRASES, aiRepTranslate } from '../i18n/aiRepPhrases';
 
 const O = { lat: 24.7, lng: 46.7 };
-const at = (id: string, kmEast: number, kmNorth = 0) => ({ placeId: id, name: id, lat: O.lat + kmNorth / 111, lng: O.lng + kmEast / 101 });
 
 test('«حدّث» يتوقّف لحظات بعد مسحٍ فشل من جهة Google وحدها', () => {
   assert.equal(refreshHoldMs({ code: 'SCAN_FAILED', retryAfterS: 30 }), 30_000);
@@ -16,40 +15,16 @@ test('«حدّث» يتوقّف لحظات بعد مسحٍ فشل من جهة Go
   assert.equal(refreshHoldMs(undefined), 0);
 });
 
-test('ترتيب المسار: من الأقرب ولا تقاطع (2‑opt)، وحتمي', () => {
-  const stops = [at('c', 3), at('a', 1), at('b', 2)];
-  assert.deepEqual(orderRoute(O, stops).map(s => s.placeId), ['a', 'b', 'c']);
-  // مربّع: الترتيب الأمثل يدور حوله لا يقطعه قطرياً
-  const sq = [at('p1', 1, 0), at('p3', 1, 1), at('p2', 0, 1), at('p4', 2, 0.5)];
-  const r1 = orderRoute(O, sq).map(s => s.placeId), r2 = orderRoute(O, [...sq].reverse()).map(s => s.placeId);
-  const len = (ids: string[]) => { let d = 0, prev = O as { lat: number; lng: number }; for (const id of ids) { const s = sq.find(x => x.placeId === id)!; d += distKm(prev, s); prev = s; } return d; };
-  assert.ok(Math.abs(len(r1) - len(r2)) < 1e-9, 'الطول نفسه مهما كان ترتيب الإدخال');
-  assert.equal(orderRoute(O, []).length, 0);
-});
-
-test('الأزمنة التقديرية: تعرّج ١٫٣ وسرعة ٢٥ كم/س تراكمياً', () => {
-  const legs = routeLegs(O, [at('a', 5)]);
-  assert.ok(Math.abs(legs[0].legKm - 5 * 1.3) < 0.1);
-  assert.equal(legs[0].etaMin, Math.round((legs[0].cumKm / 25) * 60));
-});
-
-test('روابط الملاحة: معرّف المكان، وحدّ ٣ نقاط وسيطة للجوال', () => {
+test('رابط الملاحة: بمعرّف المكان ويبدأ الملاحة', () => {
   const u = new URL(navUrl({ lat: 24.7, lng: 46.7, placeId: 'ChIJ1' }));
   assert.equal(u.searchParams.get('destination_place_id'), 'ChIJ1');
   assert.equal(u.searchParams.get('dir_action'), 'navigate');
-  const m = new URL(multiStopUrl([at('a', 1), at('b', 2), at('c', 3), at('d', 4), at('e', 5)])!);
-  assert.equal(m.searchParams.get('destination_place_id'), 'd', 'الوجهة هي الرابعة');
-  assert.equal(m.searchParams.get('waypoints')!.split('|').length, 3);
-  assert.equal(m.searchParams.get('waypoint_place_ids'), 'a|b|c');
-  assert.equal(multiStopUrl([]), null);
 });
 
-test('التنسيق: المسافة والمدى', () => {
+test('التنسيق: المسافة', () => {
   assert.equal(fmtDistance(437), '440 م');
   assert.equal(fmtDistance(2350), '2.4 كم');
-  assert.equal(fmtRange({ low: 6, high: 12 }), '6–12');
-  assert.equal(fmtRange({ low: 5, high: 5 }), '5');
-  assert.equal(fmtRange(null), '—');
+  assert.equal(fmtDistance(Number.NaN), '—');
 });
 
 test('كل تسمية ثابتة (الأنواع والنتائج) لها ترجمة', () => {
@@ -59,12 +34,6 @@ test('كل تسمية ثابتة (الأنواع والنتائج) لها ترج
   }
   assert.equal(aiRepTranslate('ar', 'مهتم'), 'مهتم');
   for (const [k, v] of Object.entries(AI_REP_PHRASES)) assert.ok(v.en && v.fr && v.tr && v.zh, `ترجمة ناقصة: ${k}`);
-});
-
-import { renderRefs } from './aiRepLogic';
-
-test('عرض الأسماء مكان مراجع المستشار (الاسم لا يغادر الجهاز)', () => {
-  assert.equal(renderRefs('ابدأ بـ P1 ثم P2 وليس P10', [{ ref: 'P1', label: 'بقالة الخير' }, { ref: 'P2', label: 'صيدلية' }]), 'ابدأ بـ «بقالة الخير» ثم «صيدلية» وليس P10');
 });
 
 // ───────────── حلقة التعلّم ─────────────
@@ -206,4 +175,22 @@ test('دمج محلٍّ دُرس بمراجعاته: الموجود يحتفظ �
   assert.deepEqual(m2.map(x => x.ref), ['P1', 'P2', 'P3'], 'الجديد بمرجعٍ غير مأخوذ');
   assert.equal(new Set(mergeStudied(m2, { placeId: 'd', ref: 'P3', v: 2 }).map(x => x.ref)).size, 4);
   assert.deepEqual(mergeStudied(list, { placeId: 'c', ref: 'P3', v: 2 }).map(x => x.ref), ['P1', 'P2', 'P3'], 'مرجع الخادم إن لم يُؤخذ');
+});
+
+// ───────────── توجيه العقل المؤجَّل ─────────────
+import { aiStopsAfterScan } from './aiRepLogic';
+
+test('توجيه العقل بعد المسح: ما زاره المندوب أو حوّله أو أُغلق منذ المسح لا يعود للخطة — وزيارات الفريق قبل المسح لا تُسقط', () => {
+  const scannedAt = Date.parse('2026-09-30T09:00:00Z');
+  const stops = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'].map(ref => ({ ref, why: '' }));
+  const items = [
+    { ref: 'P1', relation: 'NEW', lastOutcomeAt: '2026-09-30T09:20:00Z' }, // سجّل نتيجته بعد المسح
+    { ref: 'P2', relation: 'NEW', lastOutcomeAt: '2026-09-27T10:00:00Z' }, // متابعة من زيارة سابقة
+    { ref: 'P3', relation: 'CUSTOMER' }, // أضافه عميلاً
+    { ref: 'P4', relation: 'NEW', pendingCustomer: true }, // أضافه دون اتصال
+    { ref: 'P5', relation: 'NEW', closed: true }, // «مغلق الآن»
+    { ref: 'P6', relation: 'NEW', lastOutcomeAt: null },
+  ];
+  assert.deepEqual(aiStopsAfterScan(stops, items, scannedAt).map(s => s.ref), ['P2', 'P6']);
+  assert.deepEqual(aiStopsAfterScan(stops, [], scannedAt).length, 6, 'محلٌّ غير معروف في القائمة لا يُسقط');
 });
