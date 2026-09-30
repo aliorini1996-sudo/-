@@ -1,11 +1,20 @@
 // المندوب الذكي — منطق شاشة المندوب: ترتيب المسار، الأزمنة التقديرية، روابط الملاحة، والتنسيق.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { distKm, fmtDistance, fmtRange, multiStopUrl, navUrl, orderRoute, routeLegs, OUTLET_TYPE_OPTIONS, OUTCOMES } from './aiRepLogic';
+import { distKm, fmtDistance, fmtRange, multiStopUrl, navUrl, orderRoute, refreshHoldMs, routeLegs, OUTLET_TYPE_OPTIONS, OUTCOMES } from './aiRepLogic';
 import { AI_REP_PHRASES, aiRepTranslate } from '../i18n/aiRepPhrases';
 
 const O = { lat: 24.7, lng: 46.7 };
 const at = (id: string, kmEast: number, kmNorth = 0) => ({ placeId: id, name: id, lat: O.lat + kmNorth / 111, lng: O.lng + kmEast / 101 });
+
+test('«حدّث» يتوقّف لحظات بعد مسحٍ فشل من جهة Google وحدها', () => {
+  assert.equal(refreshHoldMs({ code: 'SCAN_FAILED', retryAfterS: 30 }), 30_000);
+  assert.equal(refreshHoldMs({ code: 'SCAN_COOLDOWN', retryAfterS: 720 }), 30_000, 'القاطع الطويل: لحظات في الواجهة والخادم يرفض الباقي');
+  assert.equal(refreshHoldMs({ code: 'SOURCE_CHANGED' }), 8_000);
+  assert.equal(refreshHoldMs({ code: 'SCAN_COOLDOWN', retryAfterS: 1 }), 5_000);
+  assert.equal(refreshHoldMs({ code: 'AI_REP_DAILY_LIMIT' }), 0);
+  assert.equal(refreshHoldMs(undefined), 0);
+});
 
 test('ترتيب المسار: من الأقرب ولا تقاطع (2‑opt)، وحتمي', () => {
   const stops = [at('c', 3), at('a', 1), at('b', 2)];

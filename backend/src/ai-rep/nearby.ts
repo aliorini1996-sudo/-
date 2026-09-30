@@ -138,15 +138,16 @@ export function mergeNearby(places: NearbyPlace[], opts: {
     rows.push({ p, outletType, mem, relation, customer });
   }
 
-  // ٢) البقية بالقرب، واحداً لواحد: الأقرب أولاً (والنوع المطابق قبل العميل بلا نوع عند التساوي)
+  // ٢) البقية بالقرب، واحداً لواحد: الأقرب أولاً (والنوع المطابق قبل غيره عند التساوي). العميل بلا نوع أو بأيّ نوع
+  // مستهدف يُطابَق — نوع المحل من Google تقريبيّ (سوبرماركت تسمّيه Google بقالة)، فلا يظهر عميلٌ على بعد ١٥ م «فرصة جديدة»
   const pairs: { r: Row; c: CustomerPin; m: number; typed: boolean }[] = [];
   for (const r of rows) {
     if (r.relation !== 'NEW') continue;
     for (const c of pool) {
       if (c.lat == null || c.lng == null || claimed.has(c.id)) continue;
-      if (c.outletType && c.outletType !== r.outletType) continue;
+      if (c.outletType && c.outletType !== r.outletType && !opts.targetTypes.includes(c.outletType)) continue;
       const m = haversineKm(r.p.lat, r.p.lng, c.lat, c.lng) * 1000;
-      if (m <= MATCH_RADIUS_M) pairs.push({ r, c, m, typed: !!c.outletType });
+      if (m <= MATCH_RADIUS_M) pairs.push({ r, c, m, typed: c.outletType === r.outletType });
     }
   }
   pairs.sort((a, b) => a.m - b.m || Number(b.typed) - Number(a.typed));

@@ -8,7 +8,7 @@ import { useBackClose } from '../lib/useBackClose';
 import { loadGoogleMaps } from './googleMaps';
 import RepAiMap from './RepAiMap';
 import { loadAiSession, onConverted, saveAiSession, type AiAddPrefill } from './aiRepSession';
-import { CLOSED_OUTCOMES, OBJECTIONS, OBJECTION_OUTCOMES, OUTCOMES, distKm, fmtDistance, navUrl, shopBadge, type ShopBadgeTone } from './aiRepLogic';
+import { CLOSED_OUTCOMES, OBJECTIONS, OBJECTION_OUTCOMES, OUTCOMES, distKm, fmtDistance, navUrl, refreshHoldMs, shopBadge, type ShopBadgeTone } from './aiRepLogic';
 
 /**
  * المندوب الذكي — شاشة المندوب: **الصفحة كلها خريطة Google**، و**العقل يمسح كل المحلات حول المندوب تلقائياً** عند
@@ -99,6 +99,10 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
   const itemsRef = useRef(items);
   itemsRef.current = items;
   const busyRef = useRef(false);
+  // بعد مسحٍ فشل من جهة Google: «حدّث» يتوقّف لحظات (الخادم يُمهل المندوب أيضاً) — لا طرق متكرّر لخرائط محجوبة
+  const [refreshHold, setRefreshHold] = useState(false);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (holdTimer.current) clearTimeout(holdTimer.current); }, []);
 
   // حالة الشاشة في ذاكرة الجلسة (لا القرص): الرجوع أو «أضفه عميلاً» يفكّكان الشاشة، فتعود كما كانت
   useEffect(() => {
@@ -169,15 +173,23 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
     setScanning(true); setMsg(''); setOpenId(null);
     try {
       const r = await repApi.post('/ai-rep/rep/scan', { lat: at.lat, lng: at.lng, accuracyM: at.accuracy });
-      const d = r.data.data as { searchId: string; items: Item[]; guide: Guide };
+      const d = r.data.data as { searchId: string; items: Item[]; guide: Guide; partial?: boolean };
       searchIdRef.current = d.searchId;
       setSearchId(d.searchId);
       setItems(d.items);
       setGuide(d.guide);
       setPanelOpen(true);
-      if (!d.items.length) setMsg(tr('لم أجد محلات مستهدفة حولك في خرائط Google — تحرّك قليلاً ثم حدّث'));
+      // بعض طلبات Google فشلت: القائمة قد تنقص (لا «لا محلات حولك»)
+      if (d.partial) setMsg(tr('القائمة قد تكون ناقصة — بعض نتائج خرائط Google لم تصل، حدّث بعد قليل'));
+      else if (!d.items.length) setMsg(tr('لم أجد محلات مستهدفة حولك في خرائط Google — تحرّك قليلاً ثم حدّث'));
     } catch (e) {
       setMsg(errMsg(e) || (isNetworkError(e) ? tr('أنت دون اتصال — الدراسة تحتاج الإنترنت') : tr('تعذّر مسح المحلات حولك')));
+      const hold = refreshHoldMs((e as { response?: { data?: { code?: string; retryAfterS?: number } } })?.response?.data);
+      if (hold) {
+        setRefreshHold(true);
+        if (holdTimer.current) clearTimeout(holdTimer.current);
+        holdTimer.current = setTimeout(() => setRefreshHold(false), hold);
+      }
     } finally { busyRef.current = false; setScanning(false); }
   }, [locate, tr]);
 
@@ -275,7 +287,7 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
         <div className="flex-1 flex justify-center">
           <span className="rounded-full bg-white/95 shadow-md px-4 py-2 text-sm font-bold text-[#1F1A13] flex items-center gap-1.5"><Sparkles size={15} className="text-[#E15A30]" /> {tr('المندوب الذكي')}</span>
         </div>
-        <button onClick={() => void scan(null)} disabled={scanning} title={tr('حدّث')} className="pointer-events-auto w-10 h-10 rounded-full bg-white shadow-md flex items-center justify-center text-[#1D4ED8] disabled:opacity-50"><RefreshCw size={18} className={scanning ? 'animate-spin' : ''} /></button>
+        <button onClick={() => void scan(null)} disabled={scanning || refreshHold} title={tr('حدّث')} className="pointer-events-auto w-10 h-10 rounded-full bg-white shadow-md flex items-center justify-center text-[#1D4ED8] disabled:opacity-50"><RefreshCw size={18} className={scanning ? 'animate-spin' : ''} /></button>
       </div>
 
       {/* لوحة المحلات حول المندوب وتوجيه العقل */}
@@ -475,7 +487,7 @@ function ShopSheet({ item, canAddCustomer, onClose, onAddCustomer, onOpenCustome
         <div className="flex-1 min-w-0">
           <p className="font-bold text-[#1F1A13] flex items-center gap-1.5"><Store size={17} className="text-[#E15A30] shrink-0" /> <span className="truncate">{p?.name || item.name || tr(item.outletTypeLabel)}</span></p>
           <p className="text-[11px] text-gray-500 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-            {p?.rating != null && <><Stars value={p.rating} /><span>({p.ratingCount} {tr('مقيّماً')})</span></>}
+            {p?.rating != null && <><Stars value={p.rating} />{p.ratingCount > 0 && <span>({p.ratingCount} {tr('مقيّماً')})</span>}</>}
             <span>{p?.typeLabel || tr(item.outletTypeLabel)}</span>
             <span>{fmtDistance(item.distanceM)}</span>
             {p?.openNow === true && <span className="text-green-700">{tr('مفتوح الآن')}</span>}
@@ -527,8 +539,12 @@ function ShopSheet({ item, canAddCustomer, onClose, onAddCustomer, onOpenCustome
             {s ? (
               <div className="rounded-2xl bg-[#FBEBE2] border border-[#F5DACE] p-4 space-y-3">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-bold text-[#C94E28] flex items-center gap-1"><Sparkles size={13} /> {s.source === 'AI' ? tr('دراسة بالذكاء الاصطناعي من مراجعات Google') : tr('ملخّص من مراجعات Google')}</p>
-                  <span className="text-[11px] rounded-full bg-white/80 px-2 py-0.5 text-[#1F1A13] font-semibold">{tr(ACTIVITY_LABEL[s.activity])}</span>
+                  {/* بلا مراجعات نصية (المسح العام) لا تدّعي الدراسة أنها منها — ملف المحل وحده */}
+                  <p className="text-xs font-bold text-[#C94E28] flex items-center gap-1"><Sparkles size={13} /> {p?.reviews.length
+                    ? (s.source === 'AI' ? tr('دراسة بالذكاء الاصطناعي من مراجعات Google') : tr('ملخّص من مراجعات Google'))
+                    : (s.source === 'AI' ? tr('دراسة بالذكاء الاصطناعي من ملف المحل في خرائط Google') : tr('ملخّص من ملف المحل في خرائط Google'))}</p>
+                  {/* النشاط من عدد المقيّمين: مجهولٌ ⇒ لا وسم */}
+                  {s.activity !== 'UNKNOWN' && <span className="text-[11px] rounded-full bg-white/80 px-2 py-0.5 text-[#1F1A13] font-semibold">{tr(ACTIVITY_LABEL[s.activity])}</span>}
                 </div>
                 <p className="text-sm text-[#1F1A13] leading-6">{s.summary}</p>
                 {s.activityWhy && <p className="text-[11px] text-gray-600">{s.activityWhy}</p>}

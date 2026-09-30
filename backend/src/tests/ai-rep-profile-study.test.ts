@@ -69,11 +69,17 @@ test('الملخّص الحتمي: النشاط من عدد المقيّمين،
   assert.ok(t.complaints.includes('الأسعار') && t.complaints.includes('توفّر الأصناف'));
   const s = ruleStudy(p);
   assert.equal(s.source, 'RULES');
-  assert.match(s.summary, /4\.2/);
+  assert.match(s.summary, /تقييمه 4\.2 من 128 مقيّماً/);
   assert.ok(s.opportunity.some(o => o.includes('نقص الأصناف')));
+  assert.ok(s.visitTip, 'ساعات الأسبوع معروضة ⇒ نصيحة الوقت');
   const empty = ruleStudy(parsePlaceProfile({ ...RAW, rating: undefined, userRatingCount: 0, reviews: [] })!);
   assert.equal(empty.activity, 'UNKNOWN');
+  assert.equal(empty.activityWhy, '', 'عدد المقيّمين مجهول ⇒ لا سطر نشاط');
   assert.match(empty.summary, /لا تقييمات/);
+  // العدد والمعدود، وبلا ساعات أسبوع لا نصيحة «راجع ساعات العمل أدناه»
+  assert.match(ruleStudy({ ...p, ratingCount: 1 }).summary, /من مقيّم واحد في خرائط Google/);
+  assert.match(ruleStudy({ ...p, ratingCount: 7 }).summary, /من 7 مقيّمين/);
+  assert.equal(ruleStudy({ ...p, hours: [] }).visitTip, null);
 });
 
 test('مدخل العقل بلا أسماء المراجعين وروابطهم', () => {

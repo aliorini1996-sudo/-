@@ -33,7 +33,7 @@ import { aiRepSettingsSchema, repInScope, settingsView, AiRepSettingsView } from
 import { estimateOutlet, snapPoint, activeMonths, haversineKm, EstimateResult, MAX_PEERS } from '../ai-rep/estimate';
 import { loadEstimateData, invalidateEstimateData, TenantEstimateData } from '../ai-rep/estimateData';
 import { isGooglePlaceId, placeProfile, placesApiKey, searchNearby, NearbyPlace, type PlaceReview } from '../ai-rep/places';
-import { publicSearch } from '../ai-rep/publicMaps';
+import { noteRepScanFailed, publicScan, REP_RETRY_MS, repRetryLeftMs } from '../ai-rep/publicMaps';
 import { aiGuide, ruleGuide, type ScanGuide, type ScanShop } from '../ai-rep/scanGuide';
 import { aiStudy, ruleStudy, type ShopStudy } from '../ai-rep/profileStudy';
 import { CLOSED_KINDS, CLOSED_MEMORY_DAYS, customerBox, mergeNearby, sameDay } from '../ai-rep/nearby';
@@ -772,43 +772,60 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
   try {
     const c = ctxOf(req);
     const b = scanSchema.parse(req.body);
+    // مهلة بعد مسحٍ فاشل (قبل الحجز): «حدّث» المتكرّر أثناء حجب Google لا يطرقها من جديد
+    const repKey = `${c.tid}|${c.repId}`;
+    const wait = repRetryLeftMs(repKey);
+    if (wait) {
+      res.status(429).json({ success: false, code: 'SCAN_COOLDOWN', retryAfterS: Math.ceil(wait / 1000), message: 'تعذّر المسح قبل لحظات — انتظر نصف دقيقة ثم حدّث' });
+      return;
+    }
     if (!(await reserveUsage(c.tid, c.repId, 'searches', c.settings.dailySearchesPerRep))) {
       res.status(429).json({ success: false, code: 'AI_REP_DAILY_LIMIT', message: `بلغت حدّ المسح اليومي (${c.settings.dailySearchesPerRep}) — نتائجك الحالية تبقى متاحة` });
       return;
     }
     const origin = { lat: b.lat, lng: b.lng };
     const radiusM = c.settings.searchRadiusM;
-    const types = c.settings.targetOutletTypes.slice(0, 3);
-    type Found = { placeId: string; name: string; rating: number | null; lat: number; lng: number; category: string | null; openNow: boolean | null; openText: string | null; address: string | null; type: string };
+    // البحث بأول ثلاثة أنواع (حدّ الطلبات)، والتصنيف والدمج بكل ما تستهدفه الشركة
+    const targets = c.settings.targetOutletTypes;
+    const types = targets.slice(0, 3);
+    type Found = {
+      placeId: string; name: string; rating: number | null; ratingCount: number | null; lat: number; lng: number; category: string | null;
+      openNow: boolean | null; hours: string[]; address: string | null; type: string;
+    };
     const found = new Map<string, Found>();
     const key = placesApiKey();
     let source: 'PLACES' | 'PUBLIC' = key ? 'PLACES' : 'PUBLIC';
+    let partial = false;
     if (key) {
       const r = await searchNearby({ apiKey: key, lat: b.lat, lng: b.lng, radiusM, includedTypes: googleTypesFor(types), regionCode: c.countryCode });
       if (r.ok) {
         for (const p of r.places) {
           const type = outletTypeFromGoogle(p.primaryType, p.types, types) ?? types[0];
-          found.set(p.placeId, { placeId: p.placeId, name: p.name, rating: null, lat: p.lat, lng: p.lng, category: outletTypeLabel(type), openNow: null, openText: null, address: p.address, type });
+          found.set(p.placeId, { placeId: p.placeId, name: p.name, rating: null, ratingCount: null, lat: p.lat, lng: p.lng, category: outletTypeLabel(type), openNow: null, hours: [], address: p.address, type });
         }
       } else source = 'PUBLIC';
     }
     if (!found.size) {
       source = 'PUBLIC';
-      const results = await Promise.all(types.map(t => publicSearch({ query: outletTypeLabel(t).split('/')[0].trim(), lat: b.lat, lng: b.lng, spanM: radiusM * 2.5 }).then(r => ({ t, r }))));
-      const failed = results.filter(x => !x.r.ok);
-      if (failed.length === results.length) {
+      // نافذتان لكل نوع عبر الذاكرة المؤقتة والقاطع وحدّ التزامن، والنوع من تصنيف Google للمحل (publicMaps.ts)
+      const r = await publicScan({ types, targets, lat: b.lat, lng: b.lng, radiusM });
+      if (!r.ok) {
+        // صيغة مجهولة أو حجب أو قاطع: تُعاد الحصة ويُمهَل المندوب — لا «لا محلات حولك»
         await refundUsage(c.tid, c.repId, 'searches');
-        const f0 = failed[0].r as { message: string };
-        console.warn('[ai-rep] المسح العام تعذّر', failed.map(x => (x.r as { code: string }).code).join(','), 'tenant', c.tid);
-        res.status(502).json({ success: false, code: 'SCAN_FAILED', message: f0.message });
+        noteRepScanFailed(repKey);
+        console.warn('[ai-rep] المسح العام تعذّر', r.code, r.codes.join(','), 'tenant', c.tid);
+        res.status(r.code === 'SCAN_COOLDOWN' ? 503 : 502).json({ success: false, code: r.code, message: r.message, retryAfterS: r.retryAfterS ?? Math.ceil(REP_RETRY_MS / 1000) });
         return;
       }
-      for (const { t, r } of results) {
-        if (!r.ok) continue;
-        for (const p of r.places) {
-          if (found.has(p.placeId)) continue;
-          found.set(p.placeId, { placeId: p.placeId, name: p.name, rating: p.rating, lat: p.lat, lng: p.lng, category: p.categories[0] ?? null, openNow: p.openNow, openText: p.openText, address: p.address, type: t });
-        }
+      if (r.partial) {
+        partial = true;
+        console.warn('[ai-rep] المسح العام ناقص', r.codes.join(','), 'tenant', c.tid);
+      }
+      for (const p of r.places) {
+        found.set(p.placeId, {
+          placeId: p.placeId, name: p.name, rating: p.rating, ratingCount: p.ratingCount, lat: p.lat, lng: p.lng, category: p.categories[0] ?? null,
+          openNow: p.openNow, hours: p.hours, address: p.address, type: p.type,
+        });
       }
     }
     // داخل نطاق الشركة، الأقرب أولاً
@@ -817,16 +834,17 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
       .filter(p => p.distanceM <= radiusM * 1.25)
       .sort((a, z2) => a.distanceM - z2.distanceM)
       .slice(0, 40);
-    const merged = await mergeOnly(req, c, origin, types, places.map(p => ({
+    const merged = await mergeOnly(req, c, origin, targets, places.map(p => ({
       placeId: p.placeId, name: p.name, address: p.address, lat: p.lat, lng: p.lng, primaryType: null, types: googleTypesFor([p.type]),
     })));
     const byId = new Map(places.map(p => [p.placeId, p]));
     const searchId = randomUUID();
     const items = merged.map((m, i) => {
       const p = byId.get(m.placeId)!;
+      // عدد المقيّمين من البحث العام (0 = غير معروف: الواجهة لا تعرضه)، وساعات الأسبوع وحدها (لا سطر الحالة)
       const profile = {
         name: p.name, typeLabel: p.category, address: p.address, mapsUri: `https://www.google.com/maps/place/?q=place_id:${p.placeId}`,
-        rating: p.rating, ratingCount: 0, openNow: p.openNow, hours: p.openText ? [p.openText] : [], reviews: [] as PlaceReview[],
+        rating: p.rating, ratingCount: p.ratingCount ?? 0, openNow: p.openNow, hours: p.hours, reviews: [] as PlaceReview[],
       };
       return {
         ref: `P${i + 1}`, placeId: m.placeId, name: p.name, address: p.address, lat: p.lat, lng: p.lng,
@@ -843,7 +861,7 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
     });
     // ذاكرة الزيارات (آخر نتيجة ولحظتها) تصل التوجيه: ما زاره الفريق مؤخراً لا يعود «فرصة جديدة»، والمهتم يصير متابعة
     const shops: ScanShop[] = items.map(it => ({
-      ref: it.ref, name: it.name, category: it.profile.typeLabel, rating: it.profile.rating, openNow: it.profile.openNow,
+      ref: it.ref, name: it.name, category: it.profile.typeLabel, rating: it.profile.rating, ratingCount: byId.get(it.placeId)?.ratingCount ?? null, openNow: it.profile.openNow,
       distanceM: it.distanceM, lat: it.lat, lng: it.lng, relation: it.relation, rejectedRecently: it.rejectedRecently,
       lastOutcome: it.lastOutcome, lastOutcomeAt: it.lastOutcomeAt, reportedClosed: it.reportedClosed,
     }));
@@ -855,8 +873,8 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
       await addUsage(c.tid, c.repId, { tokensIn: ai.tokensIn, tokensOut: ai.tokensOut, ...(ai.guide ? {} : { guardFallback: 1 }) });
       if (ai.guide) guide = ai.guide;
     }
-    console.info('[ai-rep] مسح', JSON.stringify({ tenant: c.tid, source, shops: items.length, guide: guide.source }));
-    res.json({ success: true, data: { searchId, source, items, guide } });
+    console.info('[ai-rep] مسح', JSON.stringify({ tenant: c.tid, source, shops: items.length, guide: guide.source, partial }));
+    res.json({ success: true, data: { searchId, source, items, guide, partial } });
   } catch (err) { next(err); }
 });
 

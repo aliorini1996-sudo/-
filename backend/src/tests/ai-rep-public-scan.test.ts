@@ -3,49 +3,119 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parsePublicSearch, publicSearch, publicSearchUrl } from '../ai-rep/publicMaps';
-import { aiGuide, daysAgoAr, eligibleShops, followUpShops, ruleGuide, shopScore, visitedRecently, type ScanShop } from '../ai-rep/scanGuide';
+import {
+  BREAKER_OPEN_MS, REP_RETRY_MS, breakerLeftMs, noteRepScanFailed, openFlag, parsePublicSearch, publicScan, publicSearch, publicSearchUrl,
+  repRetryLeftMs, resetPublicSearchState, type PublicPlace, type PublicSearchResult,
+} from '../ai-rep/publicMaps';
+import {
+  CHANCE_AR, RATER_AR, SHOP_AR, aiGuide, countAr, daysAgoAr, distAr, eligibleShops, followUpShops, ruleGuide, shopScore, shrunkRating,
+  visitedRecently, type ScanShop,
+} from '../ai-rep/scanGuide';
+import { publicOutletType, searchTermsFor } from '../ai-rep/taxonomy';
+import { mergeNearby } from '../ai-rep/nearby';
 
-/** مدخل نتيجة بشكل ردّ Google: الحقول في مواضعها والباقي فارغ. */
-function entry(o: { name: string; placeId: string; lat: number; lng: number; rating?: number; cats?: string[]; address?: string; open?: string }) {
-  const x: unknown[] = new Array(210).fill(null);
-  x[4] = [null, null, null, null, null, null, null, o.rating ?? null];
+// ── مدخلات اصطناعية بشكل ردّ Google الحقيقي (المواضع مأخوذة من ردٍّ حقيقي لُقط مرةً للتطوير، بلا بياناته) ──
+
+/** يوم في جدول الأسبوع: [اسمه، رقمه، التاريخ، [[نصّ الساعات، [[من], [إلى]]]]، 0، 1]. */
+const day = (name: string, n: number, hours: string) => [name, n, [2026, 9, 30], [[hours, [[7], []]]], 0, n === 5 && hours === 'مغلق' ? 2 : 1];
+const WEEK_DAYS: [string, number][] = [['الأربعاء', 3], ['الخميس', 4], ['الجمعة', 5], ['السبت', 6], ['الأحد', 7], ['الاثنين', 1], ['الثلاثاء', 2]];
+/**
+ * جزء ساعات العمل x[203]: [0] جدول الأسبوع، و[1] حالة الآن: [اليوم، 0، رمزها (1 مفتوح، 2 يغلق قريباً، 5 مغلق)،
+ * null، [سطرها، نمط]، [سطرها، نمط]، null، [ساعة الإغلاق]، [«مفتوح/مغلق»، نمط]]، ثم 3، null، null، null، 6.
+ */
+function hoursBlock(o: { status: string; short?: string; code?: number; friday?: string; hours?: string }) {
+  const week = WEEK_DAYS.map(([d, n]) => day(d, n, d === 'الجمعة' && o.friday ? o.friday : o.hours ?? '٧:٠٠ص–١٢:٠٠ص'));
+  const style = [[0, 5, [null, [1, 2]]]];
+  return [week, [week[0], 0, o.code ?? 1, null, [o.status, style], [o.status, style], null, [24], o.short ? [o.short, style] : null], 3, null, null, null, 6];
+}
+
+/** مدخل نتيجة: x[4] [.., [رابط المراجعات، «عدد التعليقات»], .., التقييم [7]، العدد [8]]، x[9] الموقع، x[11] الاسم، x[13] التصنيف، x[78] المعرّف. */
+function entry(o: {
+  name: string; placeId: string; lat: number; lng: number; rating?: number; count?: number; cats?: string[]; address?: string;
+  hours?: unknown; x34?: unknown;
+}) {
+  const x: unknown[] = new Array(260).fill(null);
+  if (o.rating != null) x[4] = [null, null, null, ['https://search.google.com/local/reviews?placeid=x', `عدد التعليقات: ${o.count ?? 0}`, null, 'tok'], null, null, null, o.rating, o.count ?? null];
   x[9] = [null, null, o.lat, o.lng];
   x[10] = '0x0:0x1';
   x[11] = o.name;
   x[13] = o.cats ?? [];
+  x[34] = o.x34 ?? null;
   x[39] = o.address ?? null;
   x[78] = o.placeId;
-  x[203] = o.open ? [[null, [o.open]]] : null;
+  x[203] = o.hours ?? null;
   return [null, x];
 }
-const body = (list: unknown[]) => {
-  const d: unknown[] = new Array(70).fill(null);
+/** الردّ: [0][0] صدى الاستعلام، و[64] القائمة (null في منطقة خالية). */
+const body = (list: unknown[] | null, query: string | null = 'بقالة') => {
+  const d: unknown[] = new Array(72).fill(null);
+  d[0] = query == null ? null : [query, [[null, null, 'tok']], null, 1];
   d[64] = list;
-  return `)]}'\n${JSON.stringify({ c: 0, d: `)]}'\n${JSON.stringify(d)}` })}`;
+  return `)]}'\n${JSON.stringify(d)}`;
+};
+const places = (r: ReturnType<typeof parsePublicSearch>): PublicPlace[] => {
+  assert.ok(Array.isArray(r), `ليس قائمة: ${String(r)}`);
+  return r;
 };
 
-test('المسح العام: تحليل ردّ Google — الاسم والتقييم والموقع والنوع وحالة الفتح، وتجاوز الناقص', () => {
-  const r = parsePublicSearch(body([
-    entry({ name: 'تموينات الريان', placeId: 'ChIJaaa', lat: 24.71, lng: 46.67, rating: 4.2, cats: ['متجر بقالة'], address: 'حي الملز', open: 'مفتوح · يغلق عند الساعة ١١ م' }),
-    entry({ name: 'بقالة النور', placeId: 'ChIJbbb', lat: 24.72, lng: 46.68, open: 'مغلق · يفتح عند الساعة ٧ ص' }),
+test('المسح العام: تحليل ردّ Google — الاسم والتقييم وعدد المقيّمين والموقع والتصنيف وساعات الأسبوع، وتجاوز الناقص', () => {
+  const r = places(parsePublicSearch(body([
+    entry({ name: 'تموينات الريان', placeId: 'ChIJaaa', lat: 24.71, lng: 46.67, rating: 4.2, count: 165, cats: ['متجر بقالة'], address: 'حي الملز',
+      hours: hoursBlock({ status: 'مفتوح · يغلق عند الساعة ١٢ ص', short: 'مفتوح', friday: 'مغلق' }) }),
+    entry({ name: 'بقالة النور', placeId: 'ChIJbbb', lat: 24.72, lng: 46.68, hours: hoursBlock({ status: 'مغلق · يفتح يوم الخميس عند الساعة ٩:٣٠ ص', short: 'مغلق', code: 5 }) }),
     [null, 'ليس محلاً'],
     entry({ name: '', placeId: 'ChIJccc', lat: 1, lng: 1 }),
-  ]));
-  assert.ok(r);
+  ])));
   assert.equal(r.length, 2);
   assert.deepEqual(
-    { n: r[0].name, id: r[0].placeId, rt: r[0].rating, c: r[0].categories, a: r[0].address, o: r[0].openNow },
-    { n: 'تموينات الريان', id: 'ChIJaaa', rt: 4.2, c: ['متجر بقالة'], a: 'حي الملز', o: true },
+    { n: r[0].name, id: r[0].placeId, rt: r[0].rating, rc: r[0].ratingCount, c: r[0].categories, a: r[0].address, o: r[0].openNow, cl: r[0].closed },
+    { n: 'تموينات الريان', id: 'ChIJaaa', rt: 4.2, rc: 165, c: ['متجر بقالة'], a: 'حي الملز', o: true, cl: false },
   );
+  // عطلة الجمعة في جدول الأسبوع لا تَسِم المحل «مغلق الآن» — الحالة من خانتها
+  assert.equal(r[0].hours.length, 7);
+  assert.ok(r[0].hours.includes('الجمعة: مغلق'));
+  assert.equal(r[0].openText, 'مفتوح · يغلق عند الساعة ١٢ ص');
   assert.equal(r[1].openNow, false);
   assert.equal(r[1].rating, null);
-  // صفحة حجب/HTML ⇒ null، وردّ بلا نتائج ⇒ []
-  assert.equal(parsePublicSearch('<html>unusual traffic</html>'), null);
-  assert.deepEqual(parsePublicSearch(body([]).replace('[]', 'null')), []);
+  assert.equal(r[1].ratingCount, null);
+  // بلا ساعات ⇒ حالة مجهولة وساعات فارغة
+  const bare = places(parsePublicSearch(body([entry({ name: 'ب', placeId: 'ChIJddd', lat: 1, lng: 1 })])))[0];
+  assert.deepEqual([bare.openNow, bare.openText, bare.hours], [null, null, []]);
 });
 
-test('المسح العام: الرابط يحمل الاستعلام والموقع، والحجب يُبلَّغ لا يُتحايَل عليه', async () => {
+test('المسح العام: «سيغلق قريبًا» مفتوح و«سيفتح قريبًا» مغلق، والمغلق نهائياً/مؤقتاً يُعلَّم', () => {
+  assert.equal(openFlag('سيغلق قريبًا: · عند الساعة ٨:٥١ م · يفتح يوم الخميس'), true);
+  assert.equal(openFlag('يغلق قريبًا'), true);
+  assert.equal(openFlag('سيفتح قريبًا · ٧ ص'), false);
+  assert.equal(openFlag('مغلق · يفتح ٧ ص'), false);
+  assert.equal(openFlag('مفتوح على مدار الساعة'), true);
+  assert.equal(openFlag('نعمل على مدار 24 ساعة'), null);
+  const r = places(parsePublicSearch(body([
+    entry({ name: 'أ', placeId: 'ChIJa1', lat: 1, lng: 1, hours: hoursBlock({ status: 'سيغلق قريبًا: · عند الساعة ٨:٥١ م', code: 2 }) }),
+    entry({ name: 'ب', placeId: 'ChIJb1', lat: 1, lng: 1, hours: hoursBlock({ status: 'سيفتح قريبًا · عند الساعة ٧ ص', code: 3 }) }),
+    entry({ name: 'ج', placeId: 'ChIJc1', lat: 1, lng: 1, hours: hoursBlock({ status: 'مغلق نهائيًا', short: 'مغلق', code: 5 }) }),
+    entry({ name: 'د', placeId: 'ChIJd1', lat: 1, lng: 1, x34: [null, null, null, null, [null, null, null, null, 'مغلق مؤقتًا']] }),
+  ])));
+  assert.deepEqual(r.map(p => [p.openNow, p.closed]), [[true, false], [false, false], [false, true], [null, true]]);
+});
+
+test('المسح العام: المنطقة الخالية [] والصيغة المجهولة CHANGED والحجب null', () => {
+  // منطقة خالية فعلاً: صدى الاستعلام بلا قائمة
+  assert.deepEqual(parsePublicSearch(body(null)), []);
+  assert.deepEqual(parsePublicSearch(body([])), []);
+  // لا صدى ولا قائمة، أو قائمة لا يُقرأ منها محل ⇒ غيّرت Google صيغتها
+  assert.equal(parsePublicSearch(body(null, null)), 'CHANGED');
+  assert.equal(parsePublicSearch(body([[null, 'ليس محلاً'], [null, [1, 2, 3]]])), 'CHANGED');
+  assert.equal(parsePublicSearch('<html>unusual traffic</html>'), null);
+  // الغلاف القديم {c, d} ما زال يُقرأ
+  const wrapped = `)]}'\n${JSON.stringify({ c: 0, d: body([entry({ name: 'أ', placeId: 'ChIJw', lat: 1, lng: 1 })]) })}`;
+  assert.equal(places(parsePublicSearch(wrapped)).length, 1);
+});
+
+const okText = (list: unknown[] | null) => async () => ({ ok: true, status: 200, text: async () => body(list) });
+
+test('المسح العام: الرابط يحمل الاستعلام والموقع، والحجب والصيغة المجهولة يُبلَّغان لا يُتحايَل عليهما', async () => {
+  resetPublicSearchState();
   const u = publicSearchUrl('بقالة', 24.7, 46.6, 1000);
   assert.match(u, /^https:\/\/www\.google\.com\/search\?tbm=map/);
   assert.ok(decodeURIComponent(u).includes('!2d46.600000!3d24.700000'));
@@ -54,10 +124,147 @@ test('المسح العام: الرابط يحمل الاستعلام والمو
   assert.equal(!blocked.ok && blocked.code, 'BLOCKED');
   const captcha = await publicSearch({ query: 'بقالة', lat: 24.7, lng: 46.6, spanM: 1000, fetchImpl: async () => ({ ok: true, status: 200, text: async () => '<html>captcha</html>' }) });
   assert.equal(!captcha.ok && captcha.code, 'BLOCKED');
+  resetPublicSearchState();
+  const empty = await publicSearch({ query: 'مخبز', lat: 24.7, lng: 46.6, spanM: 1000, fetchImpl: okText(null) });
+  assert.ok(empty.ok && empty.places.length === 0, 'منطقة خالية ⇒ نجاح بلا محلات');
   const down = await publicSearch({ query: 'بقالة', lat: 24.7, lng: 46.6, spanM: 1000, fetchImpl: async () => { throw new Error('net'); } });
   assert.equal(!down.ok && down.code, 'UNAVAILABLE');
-  const ok = await publicSearch({ query: 'بقالة', lat: 24.7, lng: 46.6, spanM: 1000, fetchImpl: async () => ({ ok: true, status: 200, text: async () => body([entry({ name: 'أ', placeId: 'ChIJx', lat: 24.7, lng: 46.6 })]) }) });
+  const ok = await publicSearch({ query: 'بقالة', lat: 24.7, lng: 46.6, spanM: 1000, fetchImpl: okText([entry({ name: 'أ', placeId: 'ChIJx', lat: 24.7, lng: 46.6 })]) });
   assert.equal(ok.ok && ok.places.length, 1);
+  const bad = await publicSearch({ query: 'تموينات', lat: 24.7, lng: 46.6, spanM: 1000, fetchImpl: async () => ({ ok: true, status: 200, text: async () => body(null, null) }) });
+  assert.equal(!bad.ok && bad.code, 'SOURCE_CHANGED');
+});
+
+test('حماية المصدر: ذاكرة مؤقتة مشتركة بالموقع المقرَّب والنافذة، تنتهي بعد مدّتها', async () => {
+  resetPublicSearchState();
+  let calls = 0, t = 1_000_000;
+  const f = async () => { calls++; return { ok: true, status: 200, text: async () => body([entry({ name: 'أ', placeId: 'ChIJc', lat: 24.7, lng: 46.6 })]) }; };
+  const q = (lat: number, spanM = 5000) => publicSearch({ query: 'بقالة', lat, lng: 46.6, spanM, fetchImpl: f, now: () => t });
+  const a = await q(24.7001);
+  const b = await q(24.7004); // ~٤٠ م: المربّع نفسه (مندوب آخر أو شركة أخرى)
+  assert.equal(calls, 1);
+  assert.ok(a.ok && !a.cached && b.ok && b.cached && b.places.length === 1);
+  await q(24.7001, 1000); // نافذة أخرى ⇒ طلب
+  assert.equal(calls, 2);
+  await q(24.71); // ~١ كم ⇒ طلب
+  assert.equal(calls, 3);
+  t += 16 * 60_000; // انقضت المدّة
+  await q(24.7001);
+  assert.equal(calls, 4);
+});
+
+test('حماية المصدر: ثلاث رفضات خلال ٥ دقائق تفتح القاطع — لا طلبات حتى يُغلق، والذاكرة تبقى تخدم', async () => {
+  resetPublicSearchState();
+  let calls = 0;
+  const t = 5_000_000;
+  const blocked = async () => { calls++; return { ok: false, status: 429, text: async () => '' }; };
+  const at = (query: string, now: number, fetchImpl: Parameters<typeof publicSearch>[0]['fetchImpl'] = blocked) =>
+    publicSearch({ query, lat: 24.7, lng: 46.6, spanM: 5000, fetchImpl, now: () => now });
+  await at('تموينات', t, okText([entry({ name: 'أ', placeId: 'ChIJk', lat: 24.7, lng: 46.6 })]));
+  for (let i = 0; i < 3; i++) await at(`بقالة ${i}`, t + i);
+  assert.equal(calls, 3);
+  assert.ok(breakerLeftMs(t + 10) > 0);
+  const cool = await at('بقالة 9', t + 10);
+  assert.equal(calls, 3, 'القاطع مفتوح ⇒ لا طلب إلى Google');
+  assert.ok(!cool.ok && cool.code === 'COOLDOWN' && (cool.retryAfterS ?? 0) > 60);
+  const cached = await at('تموينات', t + 10);
+  assert.ok(cached.ok && cached.cached, 'الذاكرة المؤقتة تخدم والقاطع مفتوح');
+  const later = await at('بقالة 9', t + BREAKER_OPEN_MS + 20, okText([]));
+  assert.ok(later.ok, 'بعد مدّة القاطع تعود الطلبات');
+  // رفضات متباعدة لا تفتحه
+  resetPublicSearchState();
+  for (const dt of [0, 6 * 60_000, 12 * 60_000]) await at('مخبز', t + dt);
+  assert.equal(breakerLeftMs(t + 12 * 60_000), 0);
+});
+
+test('حماية المصدر: أربعة طلبات متزامنة على الأكثر', async () => {
+  resetPublicSearchState();
+  let live = 0, peak = 0;
+  const slow = async () => {
+    live++; peak = Math.max(peak, live);
+    await new Promise(r => setTimeout(r, 15));
+    live--;
+    return { ok: true, status: 200, text: async () => body([]) };
+  };
+  const rs = await Promise.all(Array.from({ length: 9 }, (_, i) => publicSearch({ query: `q${i}`, lat: 24.7, lng: 46.6, spanM: 5000, fetchImpl: slow })));
+  assert.equal(peak, 4);
+  assert.ok(rs.every(r => r.ok));
+});
+
+test('مهلة المندوب بعد مسحٍ فاشل: له وحده وتنقضي', () => {
+  resetPublicSearchState();
+  assert.equal(repRetryLeftMs('t|r', 1000), 0);
+  noteRepScanFailed('t|r', 1000);
+  assert.ok(repRetryLeftMs('t|r', 11_000) > 0);
+  assert.equal(repRetryLeftMs('t|r2', 11_000), 0);
+  assert.equal(repRetryLeftMs('t|r', 1000 + REP_RETRY_MS), 0);
+});
+
+const found = (...ps: Partial<PublicPlace>[]): PublicSearchResult => ({
+  ok: true,
+  places: ps.map((p, i) => ({
+    placeId: `ChIJ${i}`, featureId: null, name: 'محل', rating: null, ratingCount: null, lat: 24.7, lng: 46.6, categories: [], address: null,
+    openText: null, openNow: null, hours: [], closed: false, ...p,
+  })),
+});
+const fail = (code: 'BLOCKED' | 'UNAVAILABLE' | 'SOURCE_CHANGED' | 'COOLDOWN', retryAfterS?: number): PublicSearchResult => ({ ok: false, code, message: `m-${code}`, retryAfterS });
+
+test('المسح العام حول المندوب: نافذتان لكل نوع بصياغتين، بلا تكرار، والنوع من تصنيف Google، والمغلق نهائياً يُسقط', async () => {
+  const calls: { query: string; spanM: number }[] = [];
+  const r = await publicScan({
+    types: ['GROCERY', 'SUPERMARKET'], targets: ['GROCERY', 'MINIMARKET', 'SUPERMARKET'], lat: 24.7, lng: 46.6, radiusM: 2000,
+    search: async o => {
+      calls.push({ query: o.query, spanM: o.spanM });
+      if (o.query === 'بقالة') return found({ placeId: 'A', categories: ['سوبرماركت'] }, { placeId: 'B', categories: ['متجر بقالة'] }, { placeId: 'H', categories: ['هايبر ماركت'] }, { placeId: 'X', closed: true });
+      if (o.query === 'تموينات') return found({ placeId: 'B', categories: ['متجر بقالة'] }, { placeId: 'N', name: 'أسواق النخيل', categories: ['متجر'] });
+      return found();
+    },
+  });
+  assert.deepEqual(calls.map(c => c.query), ['بقالة', 'تموينات', 'سوبرماركت', 'أسواق']);
+  assert.deepEqual(calls.map(c => c.spanM), [5000, 1000, 5000, 1000]);
+  assert.ok(r.ok);
+  assert.equal(r.partial, false);
+  // السوبرماركت الذي وجده بحث «بقالة» سوبرماركت، والهايبر (لا تستهدفه الشركة) والمغلق نهائياً خارج القائمة
+  assert.deepEqual(r.places.map(p => [p.placeId, p.type]), [['A', 'SUPERMARKET'], ['B', 'GROCERY'], ['N', 'SUPERMARKET']]);
+});
+
+test('المسح العام حول المندوب: فشل بعضه ⇒ ناقص؛ فشله كله ⇒ خطأ بسببه (صيغة مجهولة، قاطع، حجب)', async () => {
+  const base = { types: ['GROCERY'], targets: ['GROCERY'], lat: 24.7, lng: 46.6, radiusM: 2000 };
+  const part = await publicScan({ ...base, search: async o => (o.query === 'بقالة' ? found({ placeId: 'A' }) : fail('BLOCKED')) });
+  assert.ok(part.ok && part.partial && part.places.length === 1);
+  const changed = await publicScan({ ...base, search: async () => fail('SOURCE_CHANGED') });
+  assert.ok(!changed.ok && changed.code === 'SOURCE_CHANGED');
+  const cool = await publicScan({ ...base, search: async () => fail('COOLDOWN', 600) });
+  assert.ok(!cool.ok && cool.code === 'SCAN_COOLDOWN' && cool.retryAfterS === 600);
+  assert.match(!cool.ok ? cool.message : '', /بعد 10 دقائق$/);
+  const mixed = await publicScan({ ...base, search: async o => fail(o.query === 'بقالة' ? 'BLOCKED' : 'SOURCE_CHANGED') });
+  assert.ok(!mixed.ok && mixed.code === 'SCAN_FAILED' && mixed.message === 'm-BLOCKED');
+});
+
+test('نوع محل البحث العام: تصنيف Google أولاً ثم الاسم ثم البحث، وتصنيفٌ لا تستهدفه الشركة يُسقط', () => {
+  const T = ['GROCERY', 'MINIMARKET', 'SUPERMARKET'];
+  assert.equal(publicOutletType({ categories: ['سوبرماركت'], name: 'تموينات الخير' }, 'GROCERY', T), 'SUPERMARKET');
+  assert.equal(publicOutletType({ categories: ['متجر بقالة'], name: 'أسواق الرهش' }, 'SUPERMARKET', T), 'GROCERY');
+  assert.equal(publicOutletType({ categories: ['هايبر ماركت'], name: 'كارفور' }, 'GROCERY', T), null);
+  assert.equal(publicOutletType({ categories: ['سوبرماركت'], name: 'س' }, 'GROCERY', ['GROCERY']), null);
+  // الاسم وحده لا يُسقط: «أسواق…» لشركة بقالات تبقى بنوع البحث
+  assert.equal(publicOutletType({ categories: ['متجر'], name: 'أسواق المريشد' }, 'GROCERY', ['GROCERY']), 'GROCERY');
+  assert.equal(publicOutletType({ categories: [], name: 'محل' }, 'MINIMARKET', T), 'MINIMARKET');
+  assert.deepEqual(searchTermsFor('WHOLESALE'), ['محل مواد غذائية بالجملة', 'جملة مواد غذائية']);
+  assert.equal(searchTermsFor('CAFE')[0], 'كوفي');
+});
+
+test('مطابقة العميل: عميل سوبرماركت على بعد ١٥ م من محلٍّ صنّفه البحث بقالة ⇒ «ربما عميل حالي» لا فرصة جديدة', () => {
+  const place = { placeId: 'P', name: 'تموينات', address: null, lat: 24.7, lng: 46.6, primaryType: null, types: ['grocery_store'] };
+  const run = (outletType: string | null, targetTypes = ['GROCERY', 'SUPERMARKET']) => mergeNearby([place], {
+    origin: { lat: 24.7, lng: 46.6 }, targetTypes, outlets: [], isolation: false, now: new Date(),
+    customers: [{ id: 'c1', lat: 24.7, lng: 46.6 + 15 / 101000, outletType, aiPlaceId: null, visible: true }],
+  })[0];
+  assert.equal(run('SUPERMARKET').relation, 'POSSIBLE_CUSTOMER');
+  assert.equal(run('SUPERMARKET').customerId, 'c1');
+  assert.equal(run(null).relation, 'POSSIBLE_CUSTOMER');
+  assert.equal(run('PHARMACY').relation, 'NEW', 'نوع لا تستهدفه الشركة لا يُطابَق');
+  assert.equal(run('SUPERMARKET', ['GROCERY']).relation, 'NEW');
 });
 
 const shop = (ref: string, o: Partial<ScanShop> = {}): ScanShop => ({
@@ -79,7 +286,7 @@ test('توجيه المسح الحتمي: الفرص الجديدة وحدها،
   assert.ok(!g.stops.some(s => s.ref === 'P1' || s.ref === 'P2'));
   assert.ok(!g.stops.some(s => s.ref === 'P8'));
   assert.match(g.stops[0].why, /تقييمه 4/);
-  assert.match(g.summary, /حولك 8 محلاً/);
+  assert.match(g.summary, /^حولك 8 محلات، منها 6 فرص جديدة وواحد من عملائك\. ابدأ بهذا الترتيب:$/);
   assert.equal(ruleGuide([shop('P1', { relation: 'CUSTOMER' })], { lat: 0, lng: 0 }).stops.length, 0);
 });
 
@@ -110,7 +317,7 @@ test('توجيه المسح وذاكرة الفريق: المزور خلال ا�
   assert.equal(byRef.get('P3')!.kind, 'NEW');
   assert.match(byRef.get('P3')!.why, /وُجد مغلقاً في زيارة سابقة/);
   assert.match(byRef.get('P9')!.why, /أُبلغ سابقاً أنه لم يُعثر عليه/);
-  assert.match(g.summary, /منها 3 فرصة جديدة و1 للمتابعة و1 من عملائك و1 ربما من عملائك/);
+  assert.match(g.summary, /^حولك 9 محلات، منها 3 فرص جديدة وواحد للمتابعة وواحد من عملائك وواحد ربما من عملائك\./);
   assert.equal(daysAgoAr(0.5), 'اليوم');
   assert.equal(daysAgoAr(12), 'قبل 12 يوماً');
   // لا فرص ولا متابعات ⇒ لا يدّعي «غير مزورة»
@@ -153,4 +360,50 @@ test('توجيه المسح بالعقل: مراجع الفرص وحدها، و�
   assert.equal(bad.guide, null);
   const fail = await aiGuide(shops, { cfg, playbook: null, origin: { lat: 0, lng: 0 }, llm: (async () => ({ ok: false, code: 'LLM_RATE_LIMIT' })) as never });
   assert.equal(fail.guide, null);
+});
+
+test('توجيه المسح: المغلق الآن لا يزاحم المفتوح ولا يتقدّمه، ويُذكر «زره لاحقاً»', () => {
+  const O = { lat: 24.7, lng: 46.6 };
+  const near = shop('P1', { openNow: false, rating: 4.5, distanceM: 100, lat: 24.7009, lng: 46.6 });
+  const far = shop('P2', { openNow: true, rating: 4.5, distanceM: 1000, lat: 24.709, lng: 46.6 });
+  assert.ok(shopScore(near) > shopScore(far), 'نقاط المغلق القريب أعلى — والخطة مع ذلك تبدأ بالمفتوح');
+  const g = ruleGuide([near, far], O);
+  assert.deepEqual(g.stops.map(s => s.ref), ['P2', 'P1']);
+  assert.match(g.stops[1].why, /مغلق الآن — زره لاحقاً/);
+  // خمسة مفتوحة تملأ الخطة ⇒ المغلق خارجها
+  const five = ['A', 'B', 'C', 'D', 'E'].map((r, i) => shop(r, { distanceM: 1500 + i * 10, lat: 24.7135 + i * 0.0001 }));
+  assert.ok(!ruleGuide([near, ...five], O).stops.some(s => s.ref === 'P1'));
+  // كلها مغلقة ⇒ الخطة تبقى بتنبيه
+  const allClosed = ruleGuide([near], O);
+  assert.deepEqual(allClosed.stops.map(s => s.ref), ['P1']);
+  assert.match(allClosed.summary, /كلها مغلقة الآن — زرها بهذا الترتيب حين تفتح:$/);
+});
+
+test('توجيه المسح بالعقل: المغلق الآن يُؤخَّر بعد المفتوح مهما رتّبه العقل', async () => {
+  const cfg = { provider: 'groq', apiKey: 'k', model: 'm', baseUrl: 'http://x' } as never;
+  const shops = [shop('P1', { openNow: false }), shop('P2'), shop('P3')];
+  const plan = { summary: 'ابدأ بالأقرب', plan: [{ ref: 'P1', why: 'قريب' }, { ref: 'P2', why: 'مفتوح' }, { ref: 'P3', why: 'مفتوح' }] };
+  const r = await aiGuide(shops, {
+    cfg, playbook: null, origin: { lat: 24.7, lng: 46.6 },
+    llm: (async () => ({ ok: true as const, content: JSON.stringify(plan), usage: { promptTokens: 1, completionTokens: 1 } })) as never,
+  });
+  assert.ok(r.guide);
+  assert.deepEqual(r.guide.stops.map(s => s.ref), ['P2', 'P3', 'P1']);
+});
+
+test('التقييم يُشدّ بعدد مقيّميه، والعدد والمعدود والمسافة بالعربية', () => {
+  assert.ok(shopScore(shop('P1', { rating: 5, ratingCount: 1 })) < shopScore(shop('P2', { rating: 4.6, ratingCount: 500 })));
+  assert.equal(shrunkRating(4.5, null), 4.5);
+  assert.equal(shopScore(shop('P1', { rating: 4.5 })), shopScore(shop('P1', { rating: 4.5, ratingCount: null })), 'بلا عدد ⇒ كما كان');
+  assert.deepEqual([1, 2, 3, 10, 11, 99, 100, 102, 103, 111].map(n => countAr(n, SHOP_AR)),
+    ['محل واحد', 'محلّان', '3 محلات', '10 محلات', '11 محلاً', '99 محلاً', '100 محل', '102 محل', '103 محلات', '111 محلاً']);
+  assert.deepEqual([1, 2, 5, 12].map(n => countAr(n, CHANCE_AR)), ['فرصة جديدة واحدة', 'فرصتان جديدتان', '5 فرص جديدة', '12 فرصة جديدة']);
+  assert.equal(countAr(1, RATER_AR), 'مقيّم واحد');
+  assert.deepEqual([40, 994, 1234, 12345].map(distAr), ['40 م', '990 م', '1.2 كم', '12 كم']);
+  const g = ruleGuide([shop('P1', { distanceM: 40, rating: 4.2, ratingCount: 3 })], { lat: 24.7, lng: 46.6 });
+  assert.match(g.stops[0].why, /تقييمه 4\.2 من 3 مقيّمين في خرائط Google/);
+  assert.match(g.stops[0].why, /على بعد 40 م$/, 'لا «على بعد 0 كم»');
+  assert.equal(g.summary, 'حولك محل واحد، منها فرصة جديدة واحدة. ابدأ بهذا الترتيب:');
+  assert.equal(ruleGuide([shop('P1'), shop('P2', { relation: 'CUSTOMER' })], { lat: 24.7, lng: 46.6 }).summary, 'حولك محلّان، منها فرصة جديدة واحدة وواحد من عملائك. ابدأ بهذا الترتيب:');
+  assert.equal(ruleGuide([], { lat: 0, lng: 0 }).summary, 'لا محلات مستهدفة حولك الآن — جرّب منطقة أخرى.');
 });

@@ -135,6 +135,15 @@ export function shopBadge(it: {
   return { label: 'فرصة جديدة', tone: 'new' };
 }
 
+/** رموز فشل المسح من جهة Google (حجب، صيغة مجهولة، قاطع، مهلة المندوب) — «حدّث» يتوقّف لحظات. */
+const SCAN_RETRY_CODES = new Set(['SCAN_FAILED', 'SCAN_COOLDOWN', 'SOURCE_CHANGED']);
+
+/** كم يتوقّف «حدّث» بعد مسحٍ فاشل (مللي ثانية، 0 = لا يتوقّف): ما يطلبه الخادم بين ٥ و٣٠ ثانية. */
+export function refreshHoldMs(err: { code?: string; retryAfterS?: number } | null | undefined): number {
+  if (!err?.code || !SCAN_RETRY_CODES.has(err.code)) return 0;
+  return Math.min(30, Math.max(5, err.retryAfterS ?? 8)) * 1000;
+}
+
 /** أنواع المنافذ (نسخة الواجهة من backend/src/ai-rep/taxonomy.ts — الخادم يتحقّق من الرموز). */
 export const OUTLET_TYPE_OPTIONS: { code: string; label: string }[] = [
   { code: 'GROCERY', label: 'بقالة / تموينات' },

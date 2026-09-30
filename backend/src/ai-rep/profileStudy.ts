@@ -13,6 +13,7 @@ import { chatCompletion, type LlmConfig, type LlmRequest, type LlmResult } from 
 import { numbersIn, normalizeDigits, unsupportedNumbers } from './advisor';
 import type { PlaceProfile } from './places';
 import { capabilityAllowed } from './learn/lessons';
+import { countAr, RATER_AR } from './scanGuide';
 
 export type Activity = 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
 
@@ -87,7 +88,7 @@ export function ruleStudy(p: PlaceProfile): ShopStudy {
   const { praise, complaints } = reviewThemes(p);
   const rated = p.rating != null;
   const summary = rated
-    ? `${p.name}: تقييمه ${p.rating}${p.ratingCount ? ` من ${p.ratingCount} مقيّماً` : ''} في خرائط Google${p.openNow === true ? '، ومفتوح الآن' : p.openNow === false ? '، ومغلق الآن' : ''}.`
+    ? `${p.name}: تقييمه ${p.rating}${p.ratingCount ? ` من ${countAr(p.ratingCount, RATER_AR)}` : ''} في خرائط Google${p.openNow === true ? '، ومفتوح الآن' : p.openNow === false ? '، ومغلق الآن' : ''}.`
     : p.reviews.length
       ? `${p.name}: دراسة من ${p.reviews.length} مراجعة من خرائط Google.`
       : `${p.name}: لا تقييمات له في خرائط Google بعد — الدراسة تعتمد على زيارتك.`;
@@ -100,9 +101,11 @@ export function ruleStudy(p: PlaceProfile): ShopStudy {
     source: 'RULES',
     summary,
     activity,
-    activityWhy: p.ratingCount ? `بحسب عدد المقيّمين (${p.ratingCount}) — كلما زاد دلّ على حركة أكبر.` : 'لا مراجعات تكفي للحكم.',
+    // عدد المقيّمين مجهول ⇒ لا حكم ولا سطر (الواجهة تُخفي «النشاط» UNKNOWN)
+    activityWhy: p.ratingCount ? `بحسب عدد المقيّمين (${p.ratingCount}) — كلما زاد دلّ على حركة أكبر.` : '',
     praise, complaints, opportunity: opportunity.slice(0, 3), offer: [],
     openingLine: null, objection: null, objectionReply: null,
+    // hours ساعات الأسبوع وحدها (لا سطر «مفتوح الآن») — فلا يُحال المندوب إلى ساعات غير معروضة
     visitTip: p.hours.length ? 'راجع ساعات العمل أدناه وتجنّب أوقات الذروة.' : null,
   };
 }
