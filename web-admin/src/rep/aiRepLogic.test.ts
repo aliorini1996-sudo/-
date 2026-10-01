@@ -335,6 +335,11 @@ test('الطلب المتوقع: سطر القائمة لأبرز صنفٍ بر�
   assert.equal(expectedRowText(expOf([prod({ qty: 0.5, low: 0.4, high: 0.7 })]), 'fr', trOf('fr'))?.text, 'Prévu : 0,5 كرتون بيض المراعي', 'الكسر بفاصلة الفرنسية');
   assert.equal(expectedRowText(expOf([prod({ qty: null, low: null, high: null, reason: 'NO_ANCHOR' })]), 'ar', trOf('ar')), null);
   assert.equal(expectedRowText(undefined, 'ar', trOf('ar')), null, 'جلسة محفوظة قبل الميزة');
+  // بلا إشارة تخصّ المحل (المسح بالمفتاح الرسمي بلا تقييمات): الرقم حجم الطلب المعتاد نفسه لكل المحلات ⇒ لا سطر
+  const bare = expOf([prod({})], { rating: null, ratingCount: null, trafficPct: null, reviewsRead: false, reviews: 0, mentions: [], talk: [] });
+  assert.equal(expectedRowText(bare, 'ar', trOf('ar')), null);
+  assert.ok(expectedRowText({ ...bare, basis: { ...bare.basis, rating: 4.1 } }, 'ar', trOf('ar')), 'التقييم وحده إشارة');
+  assert.ok(expectedRowText({ ...bare, basis: { ...bare.basis, reviewsRead: true } }, 'ar', trOf('ar')), 'المراجعات المقروءة إشارة');
 });
 
 test('الطلب المتوقع: الكمية والمدى بأرقام لغة المندوب، والمدى المتساوي لا يُعرض', () => {

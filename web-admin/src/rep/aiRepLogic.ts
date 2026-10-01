@@ -479,9 +479,14 @@ export function expectedRangeText(p: Pick<ExpectedProduct, 'low' | 'high'>, lang
   return p.low != null && p.high != null && p.low !== p.high ? `${fmtQty(p.low, lang)}–${fmtQty(p.high, lang)}` : null;
 }
 
-/** سطر قائمة المحلات: «متوقع: 12 كرتون بيض…» لأبرز صنفٍ برقم (المذكور في المراجعات أولاً بترتيب الخادم). */
+/**
+ * سطر قائمة المحلات: «متوقع: 12 كرتون بيض…» لأبرز صنفٍ برقم (المذكور في المراجعات أولاً بترتيب الخادم). محلٌّ بلا إشارة
+ * تخصّه (لا تقييم ولا عدد مقيّمين ولا مراجعات مقروءة — المسح بالمفتاح الرسمي) لا سطر له: رقمه حجم الطلب المعتاد نفسه
+ * لكل المحلات، فيبقى في بطاقته بأساسه (hasShopSignal في الخادم).
+ */
 export function expectedRowText(e: Expected | null | undefined, lang: string, tr: Tr): { text: string; mentioned: boolean } | null {
-  const p = e?.products.find(x => x.qty != null);
+  if (!e || (e.basis.ratingCount == null && e.basis.rating == null && !e.basis.reviewsRead)) return null;
+  const p = e.products.find(x => x.qty != null);
   if (!p) return null;
   return { text: fill(tr('متوقع: {what}'), { what: `${expectedQtyText(p, lang, tr)} ${p.name}` }), mentioned: p.mentioned };
 }

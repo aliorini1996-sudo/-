@@ -22,7 +22,7 @@ import {
  */
 
 type Mode = 'AUTO' | 'REVIEW' | 'OFF';
-type Kind = 'POLICY' | 'CALIBRATION';
+type Kind = 'POLICY' | 'CALIBRATION' | 'GSIG';
 type LessonAction = 'approve' | 'reject' | 'disable' | 'enable' | 'restore';
 interface ArmAgg { planned?: number; visited?: number; pos?: number; conv30?: number; closed?: number }
 /** مؤشّرات الليلة (§4.4) — كل حقل اختياري: شركة جديدة أو ليلة جزئية قد لا تحمل بعضها. */
@@ -293,12 +293,12 @@ export default function AiLearningPanel() {
       <div>
         <p className="font-semibold text-[#1F1A13] mb-2 flex items-center gap-2"><Layers size={16} className="text-[#E15A30]" /> {tr('نسخ النموذج')}</p>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {(['POLICY', 'CALIBRATION'] as const).map(kind => {
+          {(['POLICY', 'CALIBRATION', 'GSIG'] as const).map(kind => {
             const rows = models.filter(r => r.kind === kind).sort((a, b) => b.version - a.version);
             return (
               <div key={kind} className="rounded-xl border border-[#E9E1D3] p-3 space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-[#1F1A13]">{kind === 'POLICY' ? tr('ترتيب محلات المسح') : tr('دقّة الطلب التجريبي')}
+                  <p className="text-sm font-semibold text-[#1F1A13]">{kind === 'POLICY' ? tr('ترتيب محلات المسح') : kind === 'GSIG' ? tr('الطلب المتوقع من ملف المحل في Google') : tr('دقّة الطلب التجريبي')}
                     {kind === 'CALIBRATION' && <span className="block text-[11px] font-normal text-amber-700">{tr('لا يُعرض للمناديب في الشاشة الحالية')}</span>}</p>
                   {rows.some(r => r.status === 'ACTIVE') && (
                     <button type="button" disabled={busy} onClick={() => rollback.mutate({ kind, version: 0 })} className="btn-secondary px-2 py-1 text-xs">{tr('رجوع للافتراضي')}</button>

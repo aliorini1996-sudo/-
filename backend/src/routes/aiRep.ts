@@ -1380,7 +1380,7 @@ admin.post('/learning/models/:kind/rollback', requireAdminPermission('canManageC
   try {
     const tid = tenantId(req);
     if (await adminScopeEnabled(req)) { res.status(403).json(SCOPED_LEARNING); return; }
-    const kind = req.params.kind === 'POLICY' || req.params.kind === 'CALIBRATION' ? req.params.kind : null;
+    const kind = req.params.kind === 'POLICY' || req.params.kind === 'CALIBRATION' || req.params.kind === 'GSIG' ? req.params.kind : null;
     if (!kind) { res.status(400).json({ success: false, message: 'نوع غير معروف' }); return; }
     const { version } = rollbackSchema.parse(req.body);
     const r = await rollbackModel(tid, kind, version, actorOf(req), 'ADMIN');

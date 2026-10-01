@@ -114,6 +114,22 @@ test('ذكر الصنف: عدد المراجعات، والشكوى في الج�
   assert.equal(G.findMentions([eggs], [R('محل أبيض والبيضاء قريبة')]).size, 0, 'لا ذكر زائف');
 });
 
+test('ذكرٌ زائف يُرفض: «رز» داخل برز/فرز/كرز، و«روب» في كروب، و«سكر» فعل إغلاق، والبطاطس خضار لا شيبس، و«محل قديم» ليس شكوى', () => {
+  const rice = P('rice', 'رز الشعلان 5 كجم'), sugar = P('sugar', 'سكر الأسرة 2 كجم'), yog = P('yog', 'روب المراعي'), chips = P('chips', 'شيبس ليز');
+  const ids = (text: string) => [...G.findMentions([rice, sugar, yog, chips, eggs], [R(text, 4)]).keys()].sort();
+  for (const t of ['برز المحل بتنظيمه', 'فرز البضاعة ممتاز', 'عصير كرز لذيذ', 'كروب واتساب للطلبات', 'لقيته سكر بدري', 'المحل سكر قبل الوقت', 'البطاطس عندهم طازجة']) {
+    assert.deepEqual(ids(t), [], t);
+  }
+  assert.deepEqual(ids('الرز والسكر متوفرين'), ['rice', 'sugar'], 'الذكر الحقيقي يبقى');
+  assert.deepEqual(ids('السكر قليل عندهم عشان كذا'), ['sugar'], 'كلمات الدوام بالكلمة كاملةً: قليل ليست ليل وعشان ليست عشا');
+  assert.deepEqual(ids('بالرز البسمتي'), ['rice']);
+  assert.deepEqual(ids('وشيبس كثير'), ['chips']);
+  const m = G.findMentions([eggs], [R('المحل قديم والبيض طازج', 5)]).get('eggs')!;
+  assert.deepEqual([m.plain, m.complaint], [true, null], 'وصف المحل بالقِدم ليس شكوى من البيض');
+  assert.equal(G.findMentions([eggs], [R('البيض قديم', 2)]).get('eggs')!.complaint, 'QUALITY');
+  assert.deepEqual(G.productKeywords('عرض خاص ببسي'), ['ببسي']);
+});
+
 test('الاقتباس الآمن: بلا روابط ولا هواتف ولا محارف خفية، ومقصوص', () => {
   const q = G.safeQuote('‫راجعوا www.spam.com أو 0551234567 ' + 'البيض '.repeat(40));
   assert.doesNotMatch(q, /www|055|‫/);
@@ -133,6 +149,11 @@ test('R حديث المراجعات: زحمة وتنوّع حتى ١٫١، نق�
   const neg = G.reviewTalk([R('سيء', 1), R('وسخ', 1), R('تعامل سيئ', 2)]);
   assert.equal(neg.R, 0.8);
   assert.ok(neg.codes.includes('NEGATIVE'));
+  // «ما فيه مواقف» شكوى لا نقص أصناف؛ «ما فيه أغراض» و«البضاعة قليلة» نقص
+  assert.deepEqual(G.reviewTalk([R('ما فيه مواقف', 2)]), { codes: [], R: 1 });
+  assert.deepEqual(G.reviewTalk([R('ما فيه أغراض كثير', 2)]).codes, ['SHORTAGE']);
+  assert.deepEqual(G.reviewTalk([R('البضاعة قليلة', 2)]).codes, ['SHORTAGE']);
+  assert.deepEqual(G.reviewTalk([R('ما ناقصه شي كل شي متوفر', 5)]).codes, ['VARIETY'], 'المديح لا يُقرأ نقصاً');
 });
 
 test('T الحركة: √((n+5)/(m+5)) في [٠٫٥، ٢]، والمجهول ١', () => {
@@ -241,6 +262,17 @@ test('بلا مرساة (لم يُبع) ⇒ لا رقم وسببه، آخر ال
   assert.equal(e.confidence, 'LOW');
   assert.equal(e.basis.text, 'عدد المقيّمين غير معروف');
   assert.equal(G.topExpected(G.expectedFor(input({ anchors: new Map() }))), null, 'لا رقم ⇒ لا سطر');
+  // بلا إشارة تخصّ المحل الرقمُ حجمُ الطلب المعتاد نفسه لكل المحلات: يبقى في البطاقة ولا يصل العقل كرقم هذا المحل
+  assert.equal(G.hasShopSignal(e.basis), false);
+  assert.equal(G.topExpected(e), null);
+  assert.ok(G.topExpected(G.expectedFor(input({ rating: 4.1 }))), 'التقييم وحده إشارة');
+  assert.ok(G.topExpected(G.expectedFor(input({ reviews: [] }))), 'المراجعات المقروءة (ولو بلا نص) إشارة');
+});
+
+test('الثقة العالية بنصوص مراجعات مقروءة فعلاً: محلٌّ قُرئ ملفه بلا مراجعات نصية ثقته متوسطة', () => {
+  assert.equal(G.expectedFor(input({ ratingCount: 300, reviews: [] })).confidence, 'MEDIUM');
+  assert.equal(G.expectedFor(input({ ratingCount: 300, reviews: [R('', 5)] })).confidence, 'MEDIUM', 'نجوم بلا نص');
+  assert.equal(G.expectedFor(input({ ratingCount: 300, reviews: [R('محل مرتب', 5)] })).confidence, 'HIGH');
 });
 
 test('الترتيب بالقيمة حين تُعرض المبالغ، وحتى ٦ أصناف', () => {

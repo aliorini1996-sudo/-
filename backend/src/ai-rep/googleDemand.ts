@@ -127,20 +127,37 @@ export const tokensAr = (s: string): string[] => normalizeAr(s).split(' ').filte
 /** لواحق تُقبل بعد الكلمة (بيضه، بيضات، حليبها) — لا «ون/ين/ي» (زيت ⇏ زيتون، تمر ⇏ تمرين). */
 const SUFFIXES = ['', 'ه', 'ات', 'ها'];
 
-/** هل الكلمة صيغةٌ للمفتاح؟ مع حرف عطف/جرّ ملتصق (وبيض، بحليب). */
+/**
+ * هل الكلمة صيغةٌ للمفتاح؟ مع حرف عطف/جرّ ملتصق (وبيض، بحليب) — للمفتاح من ثلاثة أحرف فأكثر وحده، وبلا الكاف
+ * (رز ⇏ برز/فرز/كرز، روب ⇏ كروب).
+ */
 export function tokenMatches(token: string, kw: string): boolean {
   const cands = [token];
-  if (token.length > kw.length && 'وبفلك'.includes(token[0])) cands.push(stem(token.slice(1)));
+  if (kw.length >= 3 && token.length > kw.length && 'وبفل'.includes(token[0])) cands.push(stem(token.slice(1)));
   return cands.some(t => t.startsWith(kw) && SUFFIXES.includes(t.slice(kw.length)));
 }
 
-/** مرادفات الأصناف العامة (مطبَّعة) — الصنف الذي يحمل اسمه إحداها يُطابَق بها وحدها (لا بعلامته التجارية). */
+/** مرادفات الأصناف العامة (مطبَّعة) — الصنف الذي يحمل اسمه إحداها يُطابَق بها وحدها (لا بعلامته التجارية). «بطاطس» خضار لا شيبس. */
 const SYNONYMS: string[][] = [
   ['بيض'], ['حليب', 'لبن'], ['خبز', 'صامولي', 'توست', 'صمون'], ['ماء', 'مياه', 'مويه'], ['دجاج', 'فراخ', 'دواجن'],
   ['ارز', 'رز'], ['جبن'], ['زبادي', 'روب'], ['عصير', 'عصاير'], ['سكر'], ['زيت'], ['شاي'], ['قهوه'], ['طحين', 'دقيق'],
-  ['تمر', 'تمور'], ['مكرونه', 'معكرونه', 'باستا'], ['مناديل'], ['ايسكريم', 'بوظه'], ['شيبس', 'بطاطس'], ['بسكويت'],
+  ['تمر', 'تمور'], ['مكرونه', 'معكرونه', 'باستا'], ['مناديل'], ['ايسكريم', 'بوظه'], ['شيبس'], ['بسكويت'],
   ['شوكولاته', 'شوكولا', 'شكولاته'], ['منظف', 'منظفات'],
 ].map(g => g.map(w => normalizeAr(w)));
+
+/** كلمات الدوام والإغلاق (مطبَّعة بلا «ال») — بالكلمة كاملةً لا بجزئها (قليل ⇏ ليل، عشان ⇏ عشا). */
+const HOURS_WORDS = new Set([
+  'يفتح', 'فتح', 'يفتحون', 'فاتح', 'دوام', 'ساعه', 'بدري', 'مبكر', 'متاخر', 'وقت', 'ليل', 'صبح', 'صباح', 'ظهر', 'عصر', 'مغرب',
+  'عشا', 'عشاء', 'فجر', 'صلاه', 'قافل', 'مقفل', 'مسكر', 'يسكر', 'يسكرون', 'مغلق', 'اغلق', 'لقيته', 'لقيناه',
+].map(w => normalizeAr(w)));
+
+/**
+ * مفاتيح لها معنى آخر في سياقٍ معروف: «سكر» فعلُ إغلاقٍ في اللهجة («لقيته سكر بدري»، «المحل سكر») — جملةٌ عن الدوام
+ * والإغلاق لا تُحسب ذكراً للسكّر. toks كلمات الجملة بلا «ال».
+ */
+const AMBIGUOUS: Record<string, (toks: string[]) => boolean> = {
+  [normalizeAr('سكر')]: toks => toks.some((t, k) => HOURS_WORDS.has(t) || (t === 'سكر' && toks[k - 1] === 'محل')),
+};
 
 /** وحدات وأحجام وأوصاف لا تميّز الصنف (مطبَّعة) — تُسقط من كلماته المميِّزة. */
 const NOISE = new Set([
@@ -148,6 +165,7 @@ const NOISE = new Set([
   'عبوه', 'عبوات', 'باكيت', 'باكت', 'بكت', 'شد', 'ربطه', 'كيس', 'اكياس', 'قطعه', 'حزمه', 'درزن', 'دزن', 'صندوق', 'طبق',
   'كامل', 'دسم', 'قليل', 'خالي', 'طازج', 'طبيعي', 'كبير', 'صغير', 'وسط', 'عايلي', 'اقتصادي', 'حجم', 'نكهه', 'بنكهه', 'مع', 'بدون',
   'جديد', 'عرض', 'اصلي', 'ابيض', 'احمر', 'بني', 'اسمر', 'سعودي', 'محلي', 'مستورد', 'ممتاز', 'فاخر', 'نوع', 'صنف', 'منتج',
+  'خاص', 'هديه', 'مجاني', 'مجانا',
   'x', 'ml', 'l', 'g', 'kg', 'gm', 'pcs', 'pc', 'pack', 'ctn', 'box',
 ].map(w => normalizeAr(w)));
 
@@ -162,8 +180,14 @@ export function productKeywords(name: string): string[] {
   return [...new Set(toks.filter(t => t.length >= 3 && !/\d/.test(t) && !NOISE.has(t)))];
 }
 
-const QUALITY_RE = /(غير|مو|مش|ما هو|ماهو|مب) ?طازج|خربان|منتهي|فاسد|خايس|معفن|متعفن|قديم/;
+// «قديم» وصفٌ للمحل («محل قديم»، «من قديم») لا شكوى من الصنف
+const QUALITY_RE = /(غير|مو|مش|ما هو|ماهو|مب) ?طازج|خربان|منتهي|فاسد|خايس|معفن|متعفن|(?<!(محل|من) )قديم/;
 const SHORTAGE_RE = /(^| )ما ?فيه?( |$)|ناقص|نواقص|ينقص|نفد|نفذ|خلصان|(ما|مو|مش|غير) ?(يتوفر|متوفر|موجود)|ما ?لقيت|ما ?عندهم/;
+/**
+ * نقص الأصناف في حديث المحل عموماً: مراجعةٌ سلبية بعبارة نقصٍ عن البضاعة نفسها — لا موضوع «توفّر الأصناف» في
+ * profileStudy وحده («ما فيه مواقف» يطابقه لكنه ليس نقص أصناف).
+ */
+const TALK_SHORTAGE_RE = /ناقص|نواقص|ينقص|نفد|نفذ|خلصان|(ما|مو|مش|غير) ?(يتوفر|متوفر|موجود)|ما ?لقيت|ما ?عندهم|ما ?فيه? (شي|شيء|اغراض|بضاعه|اصناف|منتجات|حاجات)|(اصناف|بضاعه|منتجات|اغراض)[^ ]* (قليل|محدود)|(قليل|محدود)[^ ]* (الاصناف|البضاعه|المنتجات)/;
 const BUSY_RE = /زحمه|زحام|مزدحم|طابور|اقبال|دايم مليان|دايما مليان/;
 const CLOSING_RE = /(مغلق|مسكر|مقفل|سكر|قفل|اغلق|تسكر|يقفل) ?(نهايي|للابد|تماما)|للتقبيل|للايجار|ما ?عاد يفتح/;
 
@@ -190,7 +214,7 @@ export function findMentions(products: DemandProduct[], reviews: DemandReview[])
       const norm = normalizeAr(cl);
       const kind: ComplaintKind | null = QUALITY_RE.test(norm) ? 'QUALITY' : SHORTAGE_RE.test(norm) ? 'SHORTAGE' : null;
       for (const { id, kws } of keyed) {
-        if (!toks.some(t => kws.some(k => tokenMatches(t, k)))) continue;
+        if (!kws.some(k => toks.some(t => tokenMatches(t, k)) && !AMBIGUOUS[k]?.(toks))) continue;
         const m = out.get(id) ?? { reviews: 0, plain: false, complaint: null, quote: null };
         if (!seen.has(id)) { m.reviews++; seen.add(id); }
         if (kind) m.complaint ??= kind; else m.plain = true;
@@ -210,13 +234,14 @@ export function reviewTalk(reviews: DemandReview[]): { codes: TalkCode[]; R: num
   const texts = reviews.filter(r => (r.text ?? '').trim());
   if (!texts.length) return { codes: [], R: 1 };
   const norm = texts.map(r => normalizeAr(r.text));
-  const { praise, complaints } = reviewThemeCodes({ reviews: texts.map(r => ({ rating: r.rating, text: r.text, when: null, publishTime: null, author: null, authorUri: null })) });
-  const neg = texts.filter(r => reviewPolarity(r.rating, normalizeDigits(r.text)) < 0).length;
+  const { praise } = reviewThemeCodes({ reviews: texts.map(r => ({ rating: r.rating, text: r.text, when: null, publishTime: null, author: null, authorUri: null })) });
+  const isNeg = texts.map(r => reviewPolarity(r.rating, normalizeDigits(r.text)) < 0);
+  const neg = isNeg.filter(Boolean).length;
   const closing = norm.some(t => CLOSING_RE.test(t));
   const negative = texts.length >= 3 && neg / texts.length >= 0.6;
   const busy = norm.some(t => BUSY_RE.test(t));
   const variety = praise.includes('STOCK');
-  const shortage = complaints.includes('STOCK');
+  const shortage = norm.some((t, k) => isNeg[k] && TALK_SHORTAGE_RE.test(t));
   const codes: TalkCode[] = [
     ...(busy ? ['BUSY' as const] : []), ...(variety ? ['VARIETY' as const] : []), ...(shortage ? ['SHORTAGE' as const] : []),
     ...(negative ? ['NEGATIVE' as const] : []), ...(closing ? ['CLOSING' as const] : []),
@@ -363,7 +388,8 @@ export function expectedFor(i: ExpectInput): ExpectedShop {
     talk: talk.codes, source: i.source,
   };
   return {
-    v: 1, confidence: expectedConfidence(n, read), basis: { ...basis, text: basisTextAr(basis) }, products,
+    // الثقة العالية بنصوص مقروءة فعلاً — محلٌّ بلا مراجعات نصية لم يُقرأ منه شيء
+    v: 1, confidence: expectedConfidence(n, reviews.length > 0), basis: { ...basis, text: basisTextAr(basis) }, products,
     calVersion: C !== 1 ? i.cal?.version ?? null : null,
   };
 }
@@ -380,9 +406,18 @@ export function shownOf(e: ExpectedShop, outletType: string, at = Date.now()): S
   return products.length ? { at, outletType, confidence: e.confidence, calVersion: e.calVersion ?? null, factor: e.basis.cal, products } : null;
 }
 
-/** أبرز صنفٍ برقم (المذكور أولاً بترتيب العرض) — لسطر القائمة وتوجيه العقل. */
+/**
+ * هل في ملف المحل إشارةٌ تخصّه (تقييم أو عدد مقيّمين أو مراجعات مقروءة)؟ بدونها الرقم حجم الطلب المعتاد للصنف نفسه لكل
+ * المحلات (المسح بالمفتاح الرسمي بلا تقييمات) — يبقى في بطاقة المحل بأساسه، ولا يُعرض سطراً في القائمة ولا يصل العقل
+ * كأنه رقم هذا المحل.
+ */
+export const hasShopSignal = (b: Pick<ExpectedBasis, 'rating' | 'ratingCount' | 'reviewsRead'>): boolean =>
+  b.ratingCount != null || b.rating != null || b.reviewsRead;
+
+/** أبرز صنفٍ برقم (المذكور أولاً بترتيب العرض) لتوجيه العقل — null بلا إشارة تخصّ المحل (hasShopSignal). */
 export function topExpected(e: ExpectedShop | null | undefined): { product: string; unit: string; qty: number; mentioned: boolean } | null {
-  const p = e?.products.find(x => x.qty != null);
+  if (!e || !hasShopSignal(e.basis)) return null;
+  const p = e.products.find(x => x.qty != null);
   return p ? { product: cleanName(p.name, 40), unit: p.unit, qty: p.qty!, mentioned: p.mentioned } : null;
 }
 

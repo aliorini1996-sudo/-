@@ -575,9 +575,11 @@ function NearbyPanel({ items, guide, searchesLeft, open, onToggle, onOpen }: {
                   {(() => {
                     // الطلب المتوقع لأبرز صنف في السيارة (المذكور في المراجعات أولاً) — سطرٌ واحد
                     const x = expectedRowText(it.expected, lang, tr);
+                    // الاسم الطويل يُقصّ وعلامة «مذكور» تبقى ظاهرة على الجوال
                     return x && (
-                      <span className="block text-[11px] text-[#C94E28] truncate">
-                        {x.text}{x.mentioned && <> · <span className="text-green-700">{tr('مذكور في المراجعات')}</span></>}
+                      <span className="flex items-center gap-1 text-[11px] min-w-0">
+                        <span className="truncate text-[#C94E28]">{x.text}</span>
+                        {x.mentioned && <span className="shrink-0 text-green-700">· {tr('مذكور في المراجعات')}</span>}
                       </span>
                     );
                   })()}
