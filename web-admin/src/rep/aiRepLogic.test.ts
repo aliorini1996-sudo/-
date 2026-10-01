@@ -312,3 +312,57 @@ test('عبارات لغة المندوب: كل رمزٍ في جداول الوق
     for (const lang of ['en', 'fr', 'tr', 'zh'] as const) assert.equal(vars(v[lang]), want, `متغيّرات ${lang}: ${k}`);
   }
 });
+
+// ───────────── «الطلب المتوقع من ملف المحل في Google» ─────────────
+import {
+  CONFIDENCE_TEXT, EXPECTED_HINT_TEXT, EXPECTED_SOURCE_TEXT, EXPECTED_TALK_TEXT,
+  expectedBasisText, expectedQtyText, expectedRangeText, expectedRowText, fmtQty, type Expected, type ExpectedBasis,
+} from './aiRepLogic';
+
+const basisOf = (o: Partial<ExpectedBasis> = {}): ExpectedBasis => ({
+  rating: 4.2, ratingCount: 165, trafficPct: 80, typeMedianCount: 40, typeMedianKnown: true, reviewsRead: true, reviews: 3,
+  mentions: [{ name: 'بيض المراعي', reviews: 2 }], talk: ['BUSY'], source: 'VAN',
+  text: '165 مقيّماً (أكثر من 80٪ من محلات المنطقة) · تقييم 4.2 · يُذكر «بيض المراعي» في مراجعتين', ...o,
+});
+const expOf = (products: Expected['products'], b: Partial<ExpectedBasis> = {}): Expected => ({ confidence: 'HIGH', basis: basisOf(b), products });
+const prod = (o: Partial<Expected['products'][number]>): Expected['products'][number] =>
+  ({ productId: 'p', name: 'بيض المراعي', unit: 'كرتون', qty: 12, low: 8, high: 16, mentioned: false, ...o });
+
+test('الطلب المتوقع: سطر القائمة لأبرز صنفٍ برقم بلغة المندوب، والمذكور في المراجعات موسوم، وبلا رقم ⇒ لا سطر', () => {
+  const e = expOf([prod({ productId: 'x', qty: null, low: null, high: null, reason: 'NO_ANCHOR', mentioned: true }), prod({ mentioned: true })]);
+  assert.deepEqual(expectedRowText(e, 'ar', trOf('ar')), { text: 'متوقع: 12 كرتون بيض المراعي', mentioned: true });
+  assert.equal(expectedRowText(e, 'en', en)?.text, 'Expected: 12 كرتون بيض المراعي');
+  assert.equal(expectedRowText(expOf([prod({ qty: 0.5, low: 0.4, high: 0.7 })]), 'fr', trOf('fr'))?.text, 'Prévu : 0,5 كرتون بيض المراعي', 'الكسر بفاصلة الفرنسية');
+  assert.equal(expectedRowText(expOf([prod({ qty: null, low: null, high: null, reason: 'NO_ANCHOR' })]), 'ar', trOf('ar')), null);
+  assert.equal(expectedRowText(undefined, 'ar', trOf('ar')), null, 'جلسة محفوظة قبل الميزة');
+});
+
+test('الطلب المتوقع: الكمية والمدى بأرقام لغة المندوب، والمدى المتساوي لا يُعرض', () => {
+  assert.equal(fmtQty(12, 'ar'), '12');
+  assert.equal(fmtQty(1.5, 'tr'), '1,5');
+  assert.equal(expectedQtyText(prod({}), 'ar', trOf('ar')), '12 كرتون');
+  assert.equal(expectedQtyText(prod({ qty: null }), 'ar', trOf('ar')), '—');
+  assert.equal(expectedRangeText(prod({}), 'ar'), '8–16');
+  assert.equal(expectedRangeText(prod({ low: 1, high: 1 }), 'ar'), null);
+  assert.equal(expectedRangeText(prod({ low: null }), 'ar'), null);
+});
+
+test('الطلب المتوقع: سطر الأساس — العربية نصّ الخادم، وغيرها من وقائعه (المقيّمون ومكانهم في المنطقة، التقييم، الذكر، الحديث)', () => {
+  const b = basisOf();
+  assert.equal(expectedBasisText(b, 'ar', trOf('ar')), b.text);
+  assert.equal(expectedBasisText(b, 'en', en), '165 ratings (more than 80% of shops in the area) · rated 4.2 · “بيض المراعي” is mentioned in 2 reviews · Reviews mention crowds and high demand');
+  assert.equal(expectedBasisText(basisOf({ trafficPct: 30, mentions: [], talk: [] }), 'en', en), '165 ratings (area median 40) · rated 4.2');
+  assert.equal(expectedBasisText(basisOf({ ratingCount: null, rating: null, trafficPct: null, mentions: [], talk: [] }), 'fr', trOf('fr')), 'Nombre d’avis inconnu');
+  assert.equal(expectedBasisText(basisOf({ trafficPct: null, rating: 4.5, mentions: [{ name: 'حليب', reviews: 1 }], talk: ['UNKNOWN_CODE'] }), 'fr', trOf('fr')),
+    '165 avis · note 4,5 · « حليب » cité dans 1 avis', 'رمزٌ لا تعرفه الواجهة يُسقط');
+  for (const lang of ['en', 'fr', 'tr', 'zh']) assert.doesNotMatch(expectedBasisText(basisOf({ mentions: [] }), lang, trOf(lang)), /[؀-ۿ]/, `بلا عربية: ${lang}`);
+  assert.equal(expectedBasisText(null, 'en', en), '');
+});
+
+test('الطلب المتوقع: كل عبارات جداوله مترجمة باللغات الأربع، وجدول الحديث يطابق رموز الخادم', () => {
+  assert.deepEqual(Object.keys(EXPECTED_TALK_TEXT), ['BUSY', 'VARIETY', 'SHORTAGE', 'NEGATIVE', 'CLOSING']);
+  const all = [...Object.values(EXPECTED_TALK_TEXT), ...Object.values(EXPECTED_HINT_TEXT), ...Object.values(EXPECTED_SOURCE_TEXT), ...Object.values(CONFIDENCE_TEXT),
+    'متوقع: {what}', 'مذكور في المراجعات', 'الطلب المتوقع من ملف المحل في Google', 'حجم الطلب المعتاد للصنف من فواتيرك × مؤشر المحل',
+    'المراجعات النصية لم تُقرأ — تُقرأ حين يُضبط مفتاح Google الرسمي', 'المراجعات النصية لم تُقرأ الآن — أعد فتح المحل بعد قليل', 'لا رقم: لم يُبع هذا الصنف في فواتيرك مؤخراً'];
+  for (const lang of ['en', 'fr', 'tr', 'zh']) for (const t of all) assert.notEqual(aiRepTranslate(lang, t), t, `بلا ترجمة ${lang}: ${t}`);
+});

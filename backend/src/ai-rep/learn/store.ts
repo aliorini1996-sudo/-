@@ -5,8 +5,8 @@
  */
 import prisma from '../../config/database';
 import {
-  DEFAULT_POLICY, EMPTY_LEARNED,
-  type AiLessonLite, type CalParams, type FieldStats, type Learned, type LearningMode, type LessonKind, type LessonOrigin, type LessonStatus, type PolicyParams,
+  DEFAULT_POLICY, EMPTY_LEARNED, GSIG_F_MAX, GSIG_F_MIN,
+  type AiLessonLite, type CalParams, type FieldStats, type GsigParams, type Learned, type LearningMode, type LessonKind, type LessonOrigin, type LessonStatus, type PolicyParams,
 } from './types';
 
 const TTL_MS = 10 * 60 * 1000;
@@ -51,6 +51,17 @@ export function saneCalibration(p: unknown): CalParams | null {
   return { v: 1, trial: { tenant, byType }, customers: Number(o.customers) || 0, pairs: Number(o.pairs) || 0 };
 }
 
+/** معامل «الطلب المتوقع من ملف المحل» (gsig-1) سليم الشكل أو null. */
+export function saneGsig(p: unknown): GsigParams | null {
+  if (!p || typeof p !== 'object') return null;
+  const o = p as Record<string, unknown>;
+  const tenant = num(o.tenant, GSIG_F_MIN, GSIG_F_MAX);
+  if (tenant == null) return null;
+  const byType: Record<string, number> = {};
+  for (const [k, v] of Object.entries((o.byType ?? {}) as Record<string, unknown>)) { const n = num(v, GSIG_F_MIN, GSIG_F_MAX); if (n != null) byType[k] = n; }
+  return { v: 1, tenant, byType, customers: Number(o.customers) || 0, pairs: Number(o.pairs) || 0 };
+}
+
 const lessonN = (evidence: unknown): number => {
   const items = (evidence as { items?: { n?: number }[] } | null)?.items;
   return Array.isArray(items) ? Math.max(0, ...items.map(i => Number(i?.n) || 0)) : 0;
@@ -63,7 +74,7 @@ export async function getLearned(tid: string): Promise<Learned> {
   try {
     const [row, models, lessons, runs] = await Promise.all([
       prisma.aiRepSettings.findUnique({ where: { tenantId: tid }, select: { learningMode: true } }),
-      prisma.aiLearnedModel.findMany({ where: { tenantId: tid, status: 'ACTIVE' }, select: { kind: true, version: true, params: true }, orderBy: { version: 'desc' }, take: 4 }),
+      prisma.aiLearnedModel.findMany({ where: { tenantId: tid, status: 'ACTIVE' }, select: { kind: true, version: true, params: true }, orderBy: { version: 'desc' }, take: 6 }),
       prisma.aiLesson.findMany({
         where: { tenantId: tid, status: { in: ['ACTIVE', 'TRIAL'] } },
         select: { id: true, key: true, kind: true, origin: true, outletType: true, intent: true, textAr: true, status: true, evidence: true },
@@ -77,14 +88,17 @@ export async function getLearned(tid: string): Promise<Learned> {
     const mode: LearningMode = row?.learningMode === 'REVIEW' || row?.learningMode === 'OFF' ? row.learningMode : 'AUTO';
     const pol = models.find(m => m.kind === 'POLICY');
     const cal = models.find(m => m.kind === 'CALIBRATION');
+    const gs = models.find(m => m.kind === 'GSIG');
     const polParams = pol ? sanePolicy(pol.params) : null;
     const calParams = cal ? saneCalibration(cal.params) : null;
+    const gsParams = gs ? saneGsig(gs.params) : null;
     const fieldRaw = runs.find(r => r.field != null)?.field as unknown;
     const field = fieldRaw && typeof fieldRaw === 'object' && (fieldRaw as FieldStats).v === 1 ? fieldRaw as FieldStats : null;
     const value: Learned = {
       mode,
       policy: pol && polParams ? { version: pol.version, params: polParams } : null,
       calibration: cal && calParams ? { version: cal.version, params: calParams } : null,
+      gsig: gs && gsParams ? { version: gs.version, params: gsParams } : null,
       field,
       lessons: lessons.map(l => ({
         id: l.id, key: l.key, kind: l.kind as LessonKind, origin: l.origin as LessonOrigin, outletType: l.outletType, intent: l.intent,
@@ -169,7 +183,7 @@ export async function updateTurn(tid: string, repId: string, id: string, patch: 
 
 // ───────────── نسخ المعاملات ─────────────
 
-type ModelKind = 'POLICY' | 'CALIBRATION';
+type ModelKind = 'POLICY' | 'CALIBRATION' | 'GSIG';
 
 /** حفظ نسخة غير مرقّاة (مرفوضة ببوابتها) — للشفافية. */
 export async function storeRejectedModel(tid: string, kind: ModelKind, params: object, metrics: object, reason: string): Promise<number> {
@@ -214,7 +228,7 @@ export async function rollbackModel(tid: string, kind: ModelKind, toVersion: num
   return res ? { ok: true } : { ok: false, status: 404 };
 }
 
-const HOLD_DAYS = { SYSTEM: { POLICY: 28, CALIBRATION: 45 }, ADMIN: 60 } as const;
+const HOLD_DAYS = { SYSTEM: { POLICY: 28, CALIBRATION: 45, GSIG: 45 }, ADMIN: 60 } as const;
 
 /**
  * مهلة قبل أي ترقية آلية بعد رجوع: الرجوع الآلي ٢٨ يوماً (الترتيب) أو ٤٥ (المعايرة — تنتظر نضج لقطات جديدة)،
@@ -296,7 +310,7 @@ export async function pruneLearning(tid: string, now: Date): Promise<Record<stri
   out.runs = (await prisma.aiLearningRun.deleteMany({ where: { tenantId: tid, startedAt: { lt: new Date(now.getTime() - 400 * DAY) } } })).count;
   out.lessons = (await prisma.aiLesson.deleteMany({ where: { tenantId: tid, status: { in: ['REJECTED', 'RETIRED'] }, updatedAt: { lt: new Date(now.getTime() - 180 * DAY) } } })).count;
   out.models = 0;
-  for (const kind of ['POLICY', 'CALIBRATION']) {
+  for (const kind of ['POLICY', 'CALIBRATION', 'GSIG']) {
     const old = await prisma.aiLearnedModel.findMany({ where: { tenantId: tid, kind }, orderBy: { version: 'desc' }, skip: 10, select: { id: true, status: true } });
     const ids = old.filter(m => m.status !== 'ACTIVE').map(m => m.id);
     if (ids.length) out.models += (await prisma.aiLearnedModel.deleteMany({ where: { tenantId: tid, id: { in: ids }, NOT: { status: 'ACTIVE' } } })).count;

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChevronDown, ChevronRight, ChevronUp, MapPin, Navigation, RefreshCw, Sparkles, Star, Store, UserPlus, X, ThumbsUp, ThumbsDown, Lightbulb, ShoppingBag, MessageSquareQuote, Clock, Users } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronUp, MapPin, Navigation, RefreshCw, Sparkles, Star, Store, UserPlus, X, ThumbsUp, ThumbsDown, Lightbulb, ShoppingBag, MessageSquareQuote, Clock, Users, Package } from 'lucide-react';
 import repApi from './repApi';
 import { cacheGet, cacheSet, currentRepId, newClientRef, outboxAdd } from './offlineDb';
 import { isNetworkError } from './offlineSync';
@@ -10,15 +10,18 @@ import { loadGoogleMaps } from './googleMaps';
 import RepAiMap from './RepAiMap';
 import { aiScanInFlight, loadAiSession, onConverted, saveAiSession, trackAiScan, type AiAddPrefill } from './aiRepSession';
 import {
-  CLOSED_OUTCOMES, COARSE_GPS_M, FEEDBACK_REASONS, GPS_ERROR_TEXT, OBJECTIONS, OBJECTION_OUTCOMES, OUTCOMES, aiErrOf, aiErrorText, aiStopsAfterScan, distKm, fmtDistance,
+  CLOSED_OUTCOMES, COARSE_GPS_M, CONFIDENCE_TEXT, EXPECTED_HINT_TEXT, EXPECTED_SOURCE_TEXT, FEEDBACK_REASONS, GPS_ERROR_TEXT, OBJECTIONS, OBJECTION_OUTCOMES, OUTCOMES,
+  aiErrOf, aiErrorText, aiStopsAfterScan, distKm, expectedBasisText, expectedQtyText, expectedRangeText, expectedRowText, fmtDistance,
   gpsErrorKind, guideSummaryText, mergeStudied, navUrl, needsRescan, refreshHoldMs, shopBadge, shopTypeText, stopWhyText, studyTexts, teamTipText,
-  type AiErr, type GuideFacts, type ShopBadgeTone, type StopFacts, type StudyFacts,
+  type AiErr, type Expected, type GuideFacts, type ShopBadgeTone, type StopFacts, type StudyFacts,
 } from './aiRepLogic';
 
 /**
  * المندوب الذكي — شاشة المندوب: **الصفحة كلها خريطة Google**، و**العقل يمسح كل المحلات حول المندوب تلقائياً** عند
  * الفتح (من خرائط Google — بلا أي عمل من المندوب) فيوجّهه: بأي الفرص الجديدة يبدأ وبأي ترتيب ولماذا، وكل محل بدراسته
  * (تقييمه ونوعه وحالة فتحه، وبمراجعاته النصية حين يُضبط مفتاح Google الرسمي). لا من مبيعات الشركة السابقة.
+ * ولكل محل «الطلب المتوقع من ملف المحل في Google»: كم يطلب من كل صنف في سيارة المندوب (حجم الطلب المعتاد للصنف من
+ * فواتير الشركة × مؤشرات ملفه: عدد المقيّمين مقارنةً بمحلات المنطقة، والتقييم، وذكر الصنف في المراجعات) — سطرٌ في القائمة وقسمٌ في بطاقته.
  * بمفتاح الخريطة: الضغط على أي محل في الخريطة يدرسه بمراجعاته. نتائج Google تُعرض ولا تُخزَّن.
  * حلقة التعلّم: الترتيب قد يكون متعلَّماً من نتائج زيارات الفريق، وسطر «من تجربة فريقك» في التوجيه والدراسة، و👍/👎 عليهما.
  * المسح يعود فوراً بالقائمة والخطة الحتمية، وتوجيه العقل (إن ضُبط) يصل بنداء ثانٍ /scan/guide فيحلّ محلّها؛ والمسح المتبقّي
@@ -40,6 +43,8 @@ interface Item {
   pendingCustomer?: boolean;
   /** دورة دراسة المراجعات (حلقة التعلّم) — لتقييم المندوب 👍/👎 */
   studyTurnId?: string | null;
+  /** «الطلب المتوقع من ملف المحل في Google» لكل صنف في السيارة — من المسح، ثم بنصوص المراجعات حين يُدرس */
+  expected?: Expected;
 }
 interface Review { rating: number | null; text: string; when: string | null; author: string | null; authorUri: string | null }
 interface Profile {
@@ -567,6 +572,15 @@ function NearbyPanel({ items, guide, searchesLeft, open, onToggle, onOpen }: {
                     {shopTypeText(it, lang, tr)} · {fmtDistance(it.distanceM, lang)}
                     {it.profile?.openNow === false && <> · <span className="text-red-600">{tr('مغلق الآن')}</span></>}
                   </span>
+                  {(() => {
+                    // الطلب المتوقع لأبرز صنف في السيارة (المذكور في المراجعات أولاً) — سطرٌ واحد
+                    const x = expectedRowText(it.expected, lang, tr);
+                    return x && (
+                      <span className="block text-[11px] text-[#C94E28] truncate">
+                        {x.text}{x.mentioned && <> · <span className="text-green-700">{tr('مذكور في المراجعات')}</span></>}
+                      </span>
+                    );
+                  })()}
                 </span>
                 {(() => {
                   // العميل، «ربما عميل»، المُبلَّغ عن إغلاقه، آخر نتيجة زيارة (أي مندوب)، وإلا «فرصة جديدة» — shopBadge
@@ -650,6 +664,51 @@ function Bullets({ icon, title, items, tone }: { icon: ReactNode; title: string;
       <ul className="space-y-0.5">
         {items.map((x, i) => <li key={i} className="text-sm text-[#1F1A13] leading-6">• {x}</li>)}
       </ul>
+    </div>
+  );
+}
+
+/**
+ * «الطلب المتوقع من ملف المحل في Google»: لكل صنف في سيارة المندوب كمّيته ومداه، والمذكور في المراجعات بعلامته واقتباسه،
+ * والصنف بلا رقم بسببه — ثم سطر الأساس (عدد المقيّمين ومكانه بين محلات المنطقة، التقييم، ذكر الصنف) وأساس الحساب.
+ */
+function ExpectedOrder({ e, placesConfigured }: { e: Expected; placesConfigured: boolean }) {
+  const tr = useAiRepTr();
+  const lang = useLang(st => st.lang);
+  return (
+    <div className="rounded-2xl border border-[#F5DACE] p-4 space-y-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-bold text-[#C94E28] flex items-center gap-1"><Package size={13} /> {tr('الطلب المتوقع من ملف المحل في Google')}</p>
+        <span className="text-[10px] rounded-full bg-[#FBEBE2] px-2 py-0.5 text-[#C94E28] shrink-0">{tr(CONFIDENCE_TEXT[e.confidence])}</span>
+      </div>
+      <ul className="divide-y divide-gray-50">
+        {e.products.map(p => {
+          const range = expectedRangeText(p, lang);
+          return (
+            <li key={p.productId} className="py-2 space-y-0.5">
+              <div className="flex items-start justify-between gap-2">
+                <span className="text-sm text-[#1F1A13] min-w-0">
+                  {p.name}
+                  {p.mentioned && <span className="ms-1.5 inline-block text-[10px] rounded-full bg-green-50 text-green-700 px-2 py-0.5">{tr('مذكور في المراجعات')}</span>}
+                </span>
+                <span className="text-sm font-bold text-[#1F1A13] shrink-0 text-left" dir="auto">
+                  {expectedQtyText(p, lang, tr)}
+                  {range && <span className="block text-[10px] font-normal text-gray-500">{range}</span>}
+                </span>
+              </div>
+              {p.reason === 'NO_ANCHOR' && <p className="text-[11px] text-gray-500">{tr('لا رقم: لم يُبع هذا الصنف في فواتيرك مؤخراً')}</p>}
+              {p.quote && <p className="text-[11px] text-gray-600 flex items-start gap-1"><MessageSquareQuote size={11} className="mt-1 shrink-0" /> «{p.quote}»</p>}
+              {p.complaint && <p className="text-[11px] text-amber-700">{tr(EXPECTED_HINT_TEXT[p.complaint])}</p>}
+            </li>
+          );
+        })}
+      </ul>
+      <p className="text-[11px] text-gray-700 leading-5">{expectedBasisText(e.basis, lang, tr)}</p>
+      <p className="text-[10px] text-gray-500">{tr('حجم الطلب المعتاد للصنف من فواتيرك × مؤشر المحل')}</p>
+      {!e.basis.reviewsRead && <p className="text-[10px] text-gray-500">{placesConfigured
+        ? tr('المراجعات النصية لم تُقرأ الآن — أعد فتح المحل بعد قليل')
+        : tr('المراجعات النصية لم تُقرأ — تُقرأ حين يُضبط مفتاح Google الرسمي')}</p>}
+      {e.basis.source !== 'VAN' && <p className="text-[10px] text-amber-700">{tr(EXPECTED_SOURCE_TEXT[e.basis.source])}</p>}
     </div>
   );
 }
@@ -836,6 +895,8 @@ function ShopSheet({ item, placesConfigured, canAddCustomer, notice, onClose, on
             ) : (
               <p className="text-center text-sm text-gray-400 py-4">{tr('لا دراسة لهذا المحل بعد')}</p>
             )}
+
+            {item.expected && <ExpectedOrder e={item.expected} placesConfigured={placesConfigured} />}
 
             {/* مراجعات Google كما هي */}
             {p && (

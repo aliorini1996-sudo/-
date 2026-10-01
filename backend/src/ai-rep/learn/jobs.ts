@@ -2,7 +2,7 @@
  * حلقة التعلّم — الليلة (٢–٤ فجراً بتوقيت الرياض): لكل شركة مفعّلة ونشطة، بقفل ليلة واحدة (AiLearningRun):
  *   ١ الاحتفاظ ← ٢ إحصاء الميدان ← ٣ تسميات خطط المسح ← ٤ سياسة ترتيب المسح (ملاءمة/بوابة/ترقية/رجوع آلي)
  *   ← ٥ معايرة الطلب التجريبي (لقطات التحويل + ترك-واحد-خارجاً/بوابة/رجوع؛ توقّعٌ لا يُعرض للمندوب في الشاشة الحالية)
- *   ← ٦ الدروس (قوالب الإحصاء ومكتبة التصحيح وأحكام التجربة) ← ٧ المراجعة الذاتية بالعقل (Groq، ملخّص رقمي مجهول
+ *   ← ٥ب معامل «الطلب المتوقع من ملف المحل في Google» لكل نوع (لقطات gsig-1 وحدها/بوابة/رجوع) ← ٦ الدروس (قوالب الإحصاء ومكتبة التصحيح وأحكام التجربة) ← ٧ المراجعة الذاتية بالعقل (Groq، ملخّص رقمي مجهول
  *   الهوية، بميزانية، وتُتخطّى بلا ردود للعقل) ← ٨ المؤشرات.
  * كل خطوة مستقلة (خطؤها يُسجَّل ولا يوقف غيرها). الوضع OFF يشغّل ١ و٢ و٣ و٨ فقط (قياس بلا تغيير سلوك).
  * لا تنتقل خبرة شركة إلى أخرى: كل خطوة تأخذ tid وحده، والمراجعة الذاتية ترى ملخّص شركة واحدة.
@@ -23,7 +23,8 @@ import {
 } from './policy';
 import { buildDigest, loadSelfEval, runReflection } from './reflect';
 import { fnv1a32, pGreater, riyadhDay } from './stats';
-import { invalidateLearned, promotionHold, promoteModel, pruneLearning, rollbackModel, saneCalibration, sanePolicy } from './store';
+import { fitGsig, gsigGate, loadGsigPairs } from './gsig';
+import { invalidateLearned, promotionHold, promoteModel, pruneLearning, rollbackModel, saneCalibration, saneGsig, sanePolicy } from './store';
 import { SCAN_DEFAULT_POLICY, type FieldStats, type PolicyParams } from './types';
 
 const DAY = 86400000;
@@ -244,6 +245,30 @@ export async function runTenantLearning(tid: string, run: { id: string }, deps: 
     });
   }
 
+  // ٥ب معامل «الطلب المتوقع من ملف المحل في Google» لكل نوع محل — لقطات gsig-1 وحدها (قُيّمت في الخطوة ٥)
+  let gsigMetrics: Record<string, unknown> | null = null;
+  if (off) skip('gsig', 'MODE_OFF');
+  else {
+    await step('gsig', async () => {
+      const pairs = await loadGsigPairs(tid);
+      const active = await prisma.aiLearnedModel.findFirst({ where: { tenantId: tid, kind: 'GSIG', status: 'ACTIVE' }, select: { version: true, params: true } });
+      const current = active ? saneGsig(active.params) : null;
+      if (active) {
+        const rb = checkCalRollback(pairs, active.version, s.minPeers);
+        if (rb.rollback) { await rollbackModel(tid, 'GSIG', 0, 'SYSTEM', 'AUTO_REGRESSION'); gsigMetrics = { rolledBack: true, ...rb }; return; }
+      }
+      const fit = fitGsig(pairs, s.minPeers);
+      let gate: ReturnType<typeof gsigGate> | null = null;
+      if (fit.active) {
+        gate = gsigGate(pairs, s.minPeers, current);
+        const changed = JSON.stringify({ t: fit.params.tenant, b: fit.params.byType }) !== JSON.stringify({ t: current?.tenant, b: current?.byType });
+        const hold = await promotionHold(tid, 'GSIG', now);
+        if (gate.ok && changed && !hold) await promoteModel(tid, 'GSIG', fit.params, { gate: 'PASS', ...gate, pairs: pairs.length });
+      }
+      gsigMetrics = { customers: fit.customers, pairs: pairs.length, tenant: fit.params.tenant, ...(gate && { gate }) };
+    });
+  }
+
   // ٦ الدروس
   if (off) skip('lessons', 'MODE_OFF');
   else {
@@ -315,7 +340,7 @@ export async function runTenantLearning(tid: string, run: { id: string }, deps: 
 
   // ٨ المؤشرات (قبل/بعد) والاقتراحات والخط الأساس
   const metrics = await step('metrics', () => buildMetrics(tid, {
-    now, s, resetAt, field, planning, policyMetrics, trialMetrics, calCustomers, data, reflection,
+    now, s, resetAt, field, planning, policyMetrics, trialMetrics, gsigMetrics, calCustomers, data, reflection,
   }), { deterministic: false });
 
   await prisma.aiLearningRun.updateMany({
@@ -393,7 +418,7 @@ async function turnQuality(tid: string, from: Date, to: Date) {
 async function buildMetrics(tid: string, i: {
   now: Date; s: AiRepSettingsView; resetAt: Date | null; field: FieldStats | null;
   planning: { turns: PlanTurn[]; arms: ReturnType<typeof armAggregates> } | null;
-  policyMetrics: Record<string, unknown> | null; trialMetrics: Record<string, unknown> | null; calCustomers: number;
+  policyMetrics: Record<string, unknown> | null; trialMetrics: Record<string, unknown> | null; gsigMetrics?: Record<string, unknown> | null; calCustomers: number;
   data: Awaited<ReturnType<typeof loadEstimateData>>;
   reflection: { created: number; rejected: Record<string, number>; retired: number } | null;
 }): Promise<Record<string, unknown>> {
@@ -455,6 +480,7 @@ async function buildMetrics(tid: string, i: {
     adherence: arms?.adherence ?? null,
     wastedRate: arms?.wastedRate ?? null,
     trial: i.trialMetrics,
+    gsig: i.gsigMetrics ?? null,
     self: {
       turns7: q7.total, guardBad7: q7.bad, flagsPer100_7: q7.total ? Math.round((q7.flagged / q7.total) * 1000) / 10 : null,
       up28: q28.up, down28: q28.down,

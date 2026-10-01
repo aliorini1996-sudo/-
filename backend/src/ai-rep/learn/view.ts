@@ -10,7 +10,7 @@ import { outletTypeLabel } from '../taxonomy';
 import { OBJECTION_LABEL_AR } from './labels';
 import { loadLessonOnOff, statusReasonAr } from './lessons';
 import { describePolicy } from './policy';
-import { sanePolicy, saneCalibration } from './store';
+import { sanePolicy, saneCalibration, saneGsig } from './store';
 import { SCAN_DEFAULT_POLICY, type FieldStats, type ObjectionCode } from './types';
 
 const DAY = 86400000;
@@ -21,6 +21,14 @@ function calSummary(params: unknown): string {
   if (!c) return 'معايرة الطلب التجريبي';
   const types = Object.entries(c.trial.byType).map(([t, f]) => `${outletTypeLabel(t)} ×${arNum(f)}`);
   return `الطلب التجريبي ×${arNum(c.trial.tenant)}${types.length ? ` (${types.join('، ')})` : ''} — من ${arNum(c.customers, 0)} عميلاً`;
+}
+
+/** معامل «الطلب المتوقع من ملف المحل في Google» (gsig-1). */
+function gsigSummary(params: unknown): string {
+  const g = saneGsig(params);
+  if (!g) return 'الطلب المتوقع من ملف المحل';
+  const types = Object.entries(g.byType).map(([t, f]) => `${outletTypeLabel(t)} ×${arNum(f)}`);
+  return `الطلب المتوقع من ملف المحل ×${arNum(g.tenant)}${types.length ? ` (${types.join('، ')})` : ''} — من ${arNum(g.customers, 0)} عميلاً`;
 }
 
 /** كم دورة (مسح أو دراسة أو محادثة، بأي مصدر) عُرض فيها كل درس منذ since — «مطبَّق على المسح». */
@@ -62,7 +70,7 @@ export async function learningView(tid: string, s: { learningMode: string; holdo
       const next = sanePolicy(m.params);
       summaryAr = next ? describePolicy(prev ?? SCAN_DEFAULT_POLICY, next) : 'سياسة ترتيب';
     } else {
-      summaryAr = calSummary(m.params);
+      summaryAr = m.kind === 'GSIG' ? gsigSummary(m.params) : calSummary(m.params);
     }
     return {
       kind: m.kind, version: m.version, status: m.status, trainedAt: m.trainedAt.toISOString(),

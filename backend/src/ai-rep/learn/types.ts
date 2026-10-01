@@ -4,6 +4,7 @@
  * «التعلّم» هنا ذاكرة إحصائية لكل شركة على حدة فوق نموذج ثابت (Groq openai/gpt-oss-120b لا يُعاد تدريبه):
  *   - ترتيب محلات المسح (POLICY) يُعاير بنتائج زيارات مناديب الشركة لخطط المسح نفسها (ميزات Google: SCAN_FS).
  *   - الطلب التجريبي (CALIBRATION) يُعاير بأول طلبات العملاء الجدد الفعلية (توقّعٌ لا يُعرض للمندوب في الشاشة الحالية).
+ *   - الطلب المتوقع من ملف المحل في Google (GSIG) يُعاير لكل نوع محل بأول طلب حقيقي لما عُرض توقّعه ثم صار عميلاً.
  *   - إحصاء الميدان (FieldStats): الاعتراضات وأوقات الإغلاق والعودة، بعتبات تعرّض (عدد ومناديب وحصة أكبر مندوب).
  *   - دروس قصيرة بلا أرقام (AiLesson) تُختبر قبل اعتمادها، ومراجعة ذاتية بالعقل على ملخّص رقمي مجهول الهوية.
  */
@@ -83,6 +84,15 @@ export interface CalParams {
   pairs: number;
 }
 
+// ───────────── معايرة «الطلب المتوقع من ملف المحل في Google» (gsig-1) ─────────────
+
+/** وسم لقطاته ونسخة محرّكه — لا تختلط بلقطات المحلات المشابهة (ai-est-1). */
+export const GSIG_ENGINE = 'gsig-1';
+/** حدّا معامله المتعلَّم. */
+export const GSIG_F_MIN = 0.5, GSIG_F_MAX = 2;
+
+export interface GsigParams { v: 1; tenant: number; byType: Record<string, number>; customers: number; pairs: number }
+
 // ───────────── إحصاء الميدان ─────────────
 
 export interface FieldCell { n: number; reps: number; topRepShare: number; exposed: boolean }
@@ -130,8 +140,10 @@ export interface Learned {
   mode: LearningMode;
   policy: { version: number; params: PolicyParams } | null;
   calibration: { version: number; params: CalParams } | null;
+  /** معامل «الطلب المتوقع من ملف المحل» لكل نوع (gsig-1) — غيابه = بلا */
+  gsig?: { version: number; params: GsigParams } | null;
   field: FieldStats | null;
   lessons: AiLessonLite[];
 }
 
-export const EMPTY_LEARNED: Learned = Object.freeze({ mode: 'AUTO', policy: null, calibration: null, field: null, lessons: [] }) as Learned;
+export const EMPTY_LEARNED: Learned = Object.freeze({ mode: 'AUTO', policy: null, calibration: null, gsig: null, field: null, lessons: [] }) as Learned;

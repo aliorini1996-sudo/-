@@ -40,6 +40,8 @@ export interface ScanShop {
   lastOutcomeAt?: string | null;
   /** أُبلغ أنه أُغلق نهائياً أو لم يُعثر عليه */
   reportedClosed?: boolean;
+  /** أبرز صنفٍ في «الطلب المتوقع من ملف المحل في Google» (topExpected) — لمدخل العقل، ورقمه مسموح لحارسه */
+  expected?: { product: string; unit: string; qty: number; mentioned: boolean } | null;
 }
 
 export type StopKind = 'NEW' | 'FOLLOW_UP';
@@ -299,6 +301,7 @@ export const GUIDE_SYSTEM_AR = [
   // لا يُنسب الترتيب لنتائج الزيارات: في الذراع الضابطة وقبل أي ترقية هو التقييم والفتح والقرب وحدها
   'recommended_order ترتيبٌ مقترح محسوب مسبقاً لهذه المحلات — ابدأ منه ما لم يظهر في القائمة سببٌ واضح لغيره.',
   'counts أعداد المنطقة كلها (المحلات حوله، والفرص الجديدة، والمتابعات، وعملاء الشركة، ومن ربما هم عملاؤها) — للخلاصة.',
+  'expected (إن وُجد): الطلب المتوقع لأبرز صنف في سيارة المندوب لهذا المحل، محسوباً من ملفه في Google وحجم الطلب المعتاد للصنف (mentioned: ذُكر الصنف في المراجعات) — اذكره في السبب إن نفع برقمه نفسه.',
   'قواعد: لا تخترع أرقاماً (أي رقم تكتبه يجب أن يكون في القائمة أو counts)، ولا تَعِد بأسعار أو خصومات، ولا روابط ولا أرقام هواتف، واكتب بلهجة سعودية مهذّبة وباختصار. أشِر للمحل بمرجعه (مثل P3).',
   'أعد JSON فقط: {"summary":"خلاصة المنطقة في جملتين","plan":[{"ref":"P3","why":"السبب"}]}',
 ].join('\n');
@@ -351,6 +354,8 @@ export async function aiGuide(shops: ScanShop[], opts: {
     ref: x.s.ref, name: cleanName(x.s.name), type: cleanName(x.s.category, 30) || null, rating: x.s.rating, rating_count: x.s.ratingCount ?? null,
     open_now: x.s.openNow, distance_m: x.s.distanceM, status: statusOf(x),
     ...(x.kind === 'FOLLOW_UP' && { days_since_visit: Math.floor(ageMs(x.s, now) / DAY_MS) }),
+    // رقمه في المدخل ⇒ مسموح لحارس الأرقام (numbersIn(payload))
+    ...(x.s.expected && { expected: { ...x.s.expected, product: cleanName(x.s.expected.product) } }),
   }));
   const fresh = pool.filter(x => x.kind === 'NEW').length;
   const counts = {

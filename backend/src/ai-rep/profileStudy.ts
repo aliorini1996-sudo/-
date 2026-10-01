@@ -78,7 +78,7 @@ const POSITIVE = /ممتاز|رائع|نظيف|محترم|انصح|أنصح|جم
 const NEGATIVE = /سيء|سيئ|وسخ|غالي|ناقص|نواقص|لا انصح|لا أنصح|ما انصح|ما أنصح|تأخير|وقح|زحمه|زحمة|ما فيه|مافيه|خايس|خربان|منتهي/;
 
 /** قطبية مراجعة: من نجومها، وإلا من كلماتها (المراجعات الملصقة بلا نجوم). */
-function polarity(rating: number | null, t: string): 1 | -1 | 0 {
+export function reviewPolarity(rating: number | null, t: string): 1 | -1 | 0 {
   if (rating != null) return rating >= 4 ? 1 : rating <= 2 ? -1 : 0;
   // المديح المنفيّ («ما أنصح»، «مو نظيف») ليس مديحاً
   const unNegated = t.replace(/(?:لا|ما|مو|غير|ليس)\s+(?:\S+)/g, ' ');
@@ -92,7 +92,7 @@ export function reviewThemeCodes(p: Pick<PlaceProfile, 'reviews'>): { praise: Th
   for (const r of p.reviews) {
     const t = normalizeDigits(r.text || '');
     if (!t) continue;
-    const pol = polarity(r.rating, t);
+    const pol = reviewPolarity(r.rating, t);
     for (const th of THEMES) {
       if (!th.re.test(t)) continue;
       if (pol > 0) praise.add(th.key);
@@ -164,6 +164,7 @@ export const STUDY_SYSTEM_AR = [
   '٣) offer من قائمة منتجات الشركة المرفقة فقط (بأسمائها كما هي)، أو قائمة فارغة إن لم يتّضح ما يناسب. priority_products منتجات تريد الشركة ترويجها — قدّمها متى ناسبت المحل.',
   '٤) لا وعود بأسعار أو خصومات أو آجل أو هدايا إلا ما ورد في دليل البيع المرفق.',
   '٥) بلهجة سعودية مهذّبة وباختصار: كل عنصر جملة واحدة، بلا روابط ولا أرقام هواتف.',
+  '٦) expected_order (إن وُجد): الطلب المتوقع من أصناف سيارة المندوب لهذا المحل، محسوباً من ملفه في Google وحجم الطلب المعتاد للصنف — إن اقترحت كمية فمنه وحده برقمه أو مداه، وmentioned يعني أن الصنف ذُكر في المراجعات.',
   'أعد JSON فقط بهذا الشكل:',
   '{"summary":"جملتان عن المحل","activity":"HIGH|MEDIUM|LOW|UNKNOWN","activity_why":"لماذا","praise":["ما يمدحه العملاء"],"complaints":["ما يشتكون منه"],"opportunity":["فرصة المندوب"],"offer":["اسم منتج من القائمة"],"opening_line":"جملة افتتاحية","objection":"الاعتراض المتوقع","objection_reply":"كيف يرد","visit_tip":"أنسب وقت أو طريقة للزيارة من ساعات العمل"}',
   'الحدود: praise وcomplaints حتى ٤، وopportunity حتى ٣، وoffer حتى ٤.',
@@ -185,9 +186,10 @@ const studyShape = z.object({
 
 /**
  * مدخل العقل: الملف بلا أسماء المراجعين وروابطهم، والاسم مقصوص بلا محارف خفية، ونصوص المراجعات بلا بيانات شخصية
- * (هاتف أو بريد يزرعه مراجِع). المنتجات: ذات الأولوية أولاً (وفي حقلها)، ودليل البيع كاملاً (حتى ٤٠٠٠ حرف).
+ * (هاتف أو بريد يزرعه مراجِع). المنتجات: ذات الأولوية أولاً (وفي حقلها)، ودليل البيع كاملاً (حتى ٤٠٠٠ حرف)، والطلب
+ * المتوقع لأبرز أصناف سيارة المندوب (googleDemand — أرقامه مسموحة للحارس).
  */
-export function studyInput(p: PlaceProfile, products: string[], playbook: string | null, priority: string[] = []): string {
+export function studyInput(p: PlaceProfile, products: string[], playbook: string | null, priority: string[] = [], expected: StudyExpected[] = []): string {
   return JSON.stringify({
     shop: {
       name: cleanName(p.name), type: p.typeLabel, rating: p.rating, rating_count: p.ratingCount,
@@ -196,9 +198,13 @@ export function studyInput(p: PlaceProfile, products: string[], playbook: string
     },
     company_products: products.slice(0, 60),
     priority_products: priority.length ? priority.slice(0, 20) : null,
+    ...(expected.length > 0 && { expected_order: expected.slice(0, 3) }),
     sales_playbook: (playbook ?? '').slice(0, 4000) || null,
   });
 }
+
+/** صنفٌ من «الطلب المتوقع» في مدخل العقل (studyExpected في googleDemand). */
+export interface StudyExpected { product: string; unit: string; qty: number; low: number; high: number; mentioned: boolean }
 
 function parseJson(raw: string): unknown {
   const t = raw.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
@@ -217,7 +223,7 @@ export interface StudyDrops { numbers: number; promises: number; unsafe: number 
  * من الكتالوج وحده. الخلاصة المرفوضة تحلّ محلّها fallbackSummary (خلاصة القواعد) ويبقى الباقي. null = لا يصلح.
  */
 export function sanitizeStudy(raw: string, p: PlaceProfile, products: string[], playbook: string | null,
-  dropped: StudyDrops = { numbers: 0, promises: 0, unsafe: 0 }, fallbackSummary: string | null = null): ShopStudy | null {
+  dropped: StudyDrops = { numbers: 0, promises: 0, unsafe: 0 }, fallbackSummary: string | null = null, expected: StudyExpected[] = []): ShopStudy | null {
   const parsed = studyShape.safeParse(parseJson(raw));
   if (!parsed.success) return null;
   const d = parsed.data;
@@ -228,6 +234,8 @@ export function sanitizeStudy(raw: string, p: PlaceProfile, products: string[], 
   numbersIn(p.typeLabel ?? '', allowed);
   numbersIn(products, allowed);
   numbersIn(playbook ?? '', allowed);
+  // الطلب المتوقع المرسَل للعقل: كمياته ومداه أرقامٌ من مدخله
+  numbersIn(expected, allowed);
   // سبع خانات فأكثر من مراجعةٍ أو اسم ليست رقماً مسموحاً (هاتف مزروع)
   for (const n of allowed) if (Math.abs(n) >= 1_000_000) allowed.delete(n);
   const clean = (s: string | null | undefined, promise = false): string | null => {
@@ -287,14 +295,17 @@ export async function aiStudy(p: PlaceProfile, opts: {
   lessonsBlock?: string;
   /** لغة واجهة المندوب (العربية السعودية افتراضاً) */
   lang?: RepLang;
+  /** الطلب المتوقع لأبرز أصناف سيارة المندوب (studyExpected) */
+  expected?: StudyExpected[];
   llm?: (cfg: LlmConfig, req: LlmRequest) => Promise<LlmResult>;
 }): Promise<AiStudyResult> {
   const call = opts.llm ?? chatCompletion;
+  const expected = (opts.expected ?? []).slice(0, 3);
   const req: LlmRequest = {
     messages: [
       // لغة الإجابة ثم الدروس في آخر التعليمات (بعد الجزء الثابت)
       { role: 'system', content: STUDY_SYSTEM_AR + answerLangSection(opts.lang) + lessonsSection(opts.lessonsBlock ?? '') },
-      { role: 'user', content: `ملف المحل وقائمة منتجات الشركة ودليل البيع (بيانات):\n<<<\n${studyInput(p, opts.products, opts.playbook, opts.priority)}\n>>>` },
+      { role: 'user', content: `ملف المحل وقائمة منتجات الشركة ودليل البيع (بيانات):\n<<<\n${studyInput(p, opts.products, opts.playbook, opts.priority, expected)}\n>>>` },
     ],
     responseFormat: 'json_object', reasoningEffort: 'medium', maxTokens: 3000, temperature: 0.3, timeoutMs: AI_STUDY_TIMEOUT_MS,
   };
@@ -312,7 +323,7 @@ export async function aiStudy(p: PlaceProfile, opts: {
   }
   const dropped: StudyDrops = { numbers: 0, promises: 0, unsafe: 0 };
   const rules = ruleStudy(p);
-  const s = sanitizeStudy(r.content, p, opts.products, opts.playbook, dropped, rules.summary);
+  const s = sanitizeStudy(r.content, p, opts.products, opts.playbook, dropped, rules.summary, expected);
   if (!s) return { study: null, tokensIn, tokensOut, code: 'LLM_BAD_OUTPUT', source: 'AI', guard: 'TEMPLATE', badKinds: [], flags: [...truncated, 'BAD_OUTPUT'] };
   // خلاصة القواعد حلّت محلّ خلاصة العقل المرفوضة ⇒ وقائعها معها (بلغة المندوب في الواجهة)
   if (s.summary === rules.summary) s.facts = { summary: rules.facts?.summary };

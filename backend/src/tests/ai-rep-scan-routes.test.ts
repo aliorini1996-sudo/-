@@ -49,6 +49,18 @@ stub('services/customerScope', { customerScope: async () => scope, isolationEnab
 stub('services/adminScope', { adminScopeEnabled: async () => false });
 stub('ai-rep/estimateData', { loadEstimateData: async () => ({}), invalidateEstimateData: () => undefined, tenantTimezone: async () => 'Asia/Riyadh' });
 
+// ───────────── «الطلب المتوقع»: مرساة الأصناف وأصناف سيارة المندوب ─────────────
+type AnchorT = import('../ai-rep/googleDemand').Anchor;
+const demand = {
+  anchors: new Map<string, AnchorT>([['eggs', { qty: 10, price: 12, invoices: 30 }], ['water', { qty: 5, price: 20, invoices: 40 }]]),
+  products: [{ productId: 'eggs', name: 'بيض المراعي 30 حبة', unit: 'كرتون' }, { productId: 'water', name: 'مياه نوفا 330 مل', unit: 'كرتون' }],
+  failAnchors: false, failProducts: false, productCalls: 0,
+};
+stub('ai-rep/googleDemandData', {
+  loadAnchors: async () => { if (demand.failAnchors) throw new Error('db down'); return demand.anchors; },
+  loadDemandProducts: async () => { demand.productCalls++; if (demand.failProducts) throw new Error('stock down'); return { products: demand.products, source: 'VAN' }; },
+});
+
 // ───────────── الحصص: الحجز يعيد يومه، والردّ يُسجَّل بحقله ويومه ─────────────
 const DAY = '2026-09-30';
 const usage = {
@@ -91,9 +103,10 @@ const north = (m: number) => ({ lat: O.lat + m / 111195, lng: O.lng });
 const realPlaces = require('../ai-rep/places') as typeof import('../ai-rep/places');
 let placesKey: string | null = null;
 let nearby: () => Promise<unknown> = async () => ({ ok: true, places: [] });
+let profileReviews: import('../ai-rep/places').PlaceReview[] = [];
 const profileOf = (placeId: string) => ({
   placeId, name: `محل ${placeId.slice(-2)}`, typeLabel: 'بقالة', primaryType: 'grocery_store', types: ['grocery_store'], address: null,
-  ...north(100), mapsUri: null, rating: 4.2, ratingCount: 30, openNow: true, hours: [], priceLevel: null, reviews: [], closed: false,
+  ...north(100), mapsUri: null, rating: 4.2, ratingCount: 30, openNow: true, hours: [], priceLevel: null, reviews: profileReviews, closed: false,
 });
 let profileFail: { code: string; message: string } | null = null;
 stub('ai-rep/places', {
@@ -163,9 +176,10 @@ function reset() {
   db.customers = []; db.visible = new Set(); db.throwOnCustomers = false;
   isolation = false; scope = {};
   llmCfg = null; llmCalls = 0;
-  placesKey = null; nearby = async () => ({ ok: true, places: [] }); profileFail = null;
+  placesKey = null; nearby = async () => ({ ok: true, places: [] }); profileFail = null; profileReviews = [];
   publicResult = { ok: true, places: [], partial: false, codes: [] };
   publicCalls.length = 0;
+  demand.failAnchors = false; demand.failProducts = false; demand.productCalls = 0;
 }
 
 // ───────────── المسح ─────────────
@@ -400,5 +414,97 @@ test('أخطاء برموزها: حدّ المسح اليومي يحمل الح�
       await call('/study', { placeId: 'ChIJlang000001', lang: 'zh' }, 'rep-study-zh', { advisorEnabled: true }));
     assert.match(llmSystem, /لغة الإجابة: اكتب كل نصوص الرد بـالصينية المبسّطة/);
     assert.deepEqual([d.study.source, d.study.summary, d.study.teamTipKey], ['AI', '杂货店，营业中。', null]);
+  } finally { llmReply = prev; placesKey = null; }
+});
+
+// ───────────── «الطلب المتوقع من ملف المحل في Google» ─────────────
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const GD = require('../ai-rep/googleDemand') as typeof import('../ai-rep/googleDemand');
+type Exp = import('../ai-rep/googleDemand').ExpectedShop;
+
+test('الطلب المتوقع في المسح: لكل محل (والعميل أيضاً) من عدد مقيّميه مقارنةً بمحلات المسح وأصناف السيارة، وأبرز صنف يصل العقل برقمه', async () => {
+  reset();
+  llmCfg = { baseUrl: 'https://x', apiKey: 'k', model: 'm', extraBody: {}, timeoutMs: 1000, maxTokens: 100 };
+  publicResult = {
+    ok: true, partial: false, codes: [], places: [
+      { ...pub('ChIJbusy0000001', 100), ratingCount: 400 }, { ...pub('ChIJmid00000001', 200), ratingCount: 50 },
+      { ...pub('ChIJsmall000001', 300), ratingCount: 20 }, { ...pub('ChIJmine0000001', 400), ratingCount: 10 },
+      { ...pub('ChIJnone0000001', 500), ratingCount: null, rating: null },
+    ],
+  };
+  db.customers = [{ id: 'c1', ...north(400), outletType: 'GROCERY', aiPlaceId: 'ChIJmine0000001' }];
+  const r = await scan('rep-exp', { advisorEnabled: true });
+  assert.equal(r.err, null);
+  const d = dataOf<ScanData & { items: (ScanItem & { expected?: Exp })[] }>(r);
+  const by = new Map(d.items.map(i => [i.placeId, i]));
+  assert.ok(d.items.every(i => i.expected && i.expected.products.length === 2), 'لكل محل طلبه المتوقع');
+  assert.equal(by.get('ChIJmine0000001')!.relation, 'CUSTOMER');
+  const busy = by.get('ChIJbusy0000001')!.expected!;
+  // وسيط النوع من محلات المسح (٤ معروفة: 10، 20، 50، 400 ⇒ 35)، وT = √(405/40) محصوراً عند ٢
+  assert.deepEqual([busy.basis.typeMedianCount, busy.basis.typeMedianKnown, busy.basis.T, busy.basis.trafficPct], [35, true, 2, 70]);
+  assert.deepEqual(busy.products.map(p => [p.productId, p.qty]), [['eggs', 20], ['water', 10]]);
+  assert.equal('raw' in busy.products[0], false, 'الخام لا يصل الجهاز');
+  assert.match(busy.basis.text, /^400 مقيّم \(أكثر من 70٪ من محلات المنطقة\) · تقييم 4/);
+  const none = by.get('ChIJnone0000001')!.expected!;
+  assert.deepEqual([none.basis.ratingCount, none.basis.T, none.confidence, none.products[0].qty], [null, 1, 'LOW', 10], 'عدد مجهول ⇒ المرساة كما هي');
+  // أبرز صنف لكل مرشّح يصل توجيه العقل برقمه — ورقمه مسموح للحارس
+  llmReply = () => ({
+    ok: true, content: JSON.stringify({ summary: 'ابدأ بالأكبر', plan: [{ ref: 'P1', why: 'متوقع منه 20 كرتون بيض' }] }),
+    toolCalls: [], usage: { promptTokens: 5, completionTokens: 2, cachedTokens: 0 }, finishReason: 'stop',
+  });
+  try {
+    const g = dataOf<{ guide: { stops: { ref: string; why: string }[] } | null }>(await call('/scan/guide', { searchId: d.searchId }, 'rep-exp', { advisorEnabled: true }));
+    assert.match(llmSent, /"expected":\{"product":"بيض المراعي 30 حبة","unit":"كرتون","qty":20,"mentioned":false\}/);
+    assert.equal(g.guide?.stops[0].why, 'متوقع منه 20 كرتون بيض', 'الرقم من المدخل لا يُحذف');
+  } finally {
+    llmReply = () => ({
+      ok: true, content: JSON.stringify({ summary: 'ابدأ بالأقرب', plan: [{ ref: 'P1', why: 'الأقرب إليك' }] }),
+      toolCalls: [], usage: { promptTokens: 5, completionTokens: 2, cachedTokens: 0 }, finishReason: 'stop',
+    });
+  }
+});
+
+test('الطلب المتوقع لا يُسقط المسح: تعذّر المرساة أو مخزون السيارة ⇒ القائمة والخطة كما هي بلا طلب متوقع', async () => {
+  for (const fail of ['anchors', 'products'] as const) {
+    reset();
+    demand.failAnchors = fail === 'anchors';
+    demand.failProducts = fail === 'products';
+    publicResult = { ok: true, partial: false, codes: [], places: [pub('ChIJaa00000001', 100), pub('ChIJbb00000001', 300)] };
+    const r = await scan(`rep-exp-fail-${fail}`);
+    assert.equal(r.err, null, fail);
+    assert.equal(r.res.statusCode, 200);
+    const d = dataOf<ScanData & { items: (ScanItem & { expected?: Exp })[] }>(r);
+    assert.equal(d.items.length, 2);
+    assert.ok(d.items.every(i => !('expected' in i)), `${fail}: بلا طلب متوقع`);
+    assert.equal(d.guide.source, 'RULES');
+    assert.equal(usage.count('refund', 'searches'), 0, 'المسح نفسه نجح');
+  }
+});
+
+test('الدراسة بالمراجعات: الطلب المتوقع يُعاد بنصوصها (ذكر الصنف)، وأصناف المسح تُستعمل ثانيةً، ويصل مدخل العقل وأرقامه مسموحة', async () => {
+  reset();
+  placesKey = 'k';
+  llmCfg = { baseUrl: 'https://x', apiKey: 'k', model: 'm', extraBody: {}, timeoutMs: 1000, maxTokens: 100 };
+  nearby = async () => ({ ok: true, places: [{ placeId: 'ChIJkeyed000001', name: 'بقالة', address: null, ...north(100), primaryType: 'grocery_store', types: ['grocery_store'] }] });
+  const s = dataOf<ScanData & { items: (ScanItem & { expected?: Exp })[] }>(await scan('rep-exp-study', { advisorEnabled: true }));
+  assert.equal(s.items[0].expected?.basis.reviewsRead, false, 'المسح بلا مراجعات نصية');
+  assert.equal(demand.productCalls, 1);
+  profileReviews = [{ rating: 5, text: 'البيض عندهم طازج دايم', when: null, publishTime: null, author: 'أبو محمد', authorUri: null }];
+  const qty = Math.round(10 * GD.trafficFactor(30, GD.TYPE_PRIOR_COUNT) * GD.qualityFactor(4.2, 30) * 1.3);
+  const prev = llmReply;
+  llmReply = () => ({
+    ok: true, content: JSON.stringify({ summary: `يُذكر البيض في مراجعاته — توقّع ${qty} كرتون` }),
+    toolCalls: [], usage: { promptTokens: 5, completionTokens: 2, cachedTokens: 0 }, finishReason: 'stop',
+  });
+  try {
+    const d = dataOf<{ item: { expected?: Exp }; study: { source: string; summary: string } }>(
+      await call('/study', { placeId: 'ChIJkeyed000001', searchId: s.searchId }, 'rep-exp-study', { advisorEnabled: true }));
+    const e = d.item.expected!;
+    assert.equal(e.basis.reviewsRead, true);
+    assert.deepEqual([e.products[0].productId, e.products[0].mentioned, e.products[0].qty, e.products[0].quote], ['eggs', true, qty, 'البيض عندهم طازج دايم']);
+    assert.doesNotMatch(JSON.stringify(e), /أبو محمد/, 'لا أسماء مراجعين');
+    assert.equal(demand.productCalls, 1, 'أصناف المسح من جلسته');
+    assert.match(llmSent, new RegExp(`"expected_order":\\[\\{"product":"بيض المراعي 30 حبة","unit":"كرتون","qty":${qty},`));
+    assert.deepEqual([d.study.source, d.study.summary], ['AI', `يُذكر البيض في مراجعاته — توقّع ${qty} كرتون`], 'رقم الطلب المتوقع مسموح للحارس');
   } finally { llmReply = prev; placesKey = null; }
 });

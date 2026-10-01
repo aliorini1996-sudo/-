@@ -5,6 +5,7 @@
  *   - موقع المندوب: سبب تعذّره، وقرار إعادة المسح عند العودة للشاشة، ودمج محلٍّ دُرس بمراجعاته في القائمة.
  *   - حلقة التعلّم: أسباب 👎، وأحكام لوحة «ما تعلّمه العقل».
  *   - لغة المندوب: وقائع التوجيه والدراسة ودروس الفريق ورموز الأخطاء ← نصوص بلغته (tr من useAiRepTr يُمرَّر).
+ *   - «الطلب المتوقع من ملف المحل في Google»: سطر القائمة وأرقام الأصناف ومداها وسطر الأساس بلغة المندوب.
  */
 
 export interface Pt { lat: number; lng: number }
@@ -426,6 +427,83 @@ export function teamTipText(key: string | null | undefined, text: string | null 
     return o && tactic ? fill(tr('في «{type}» من أكثر الاعتراضات التي يواجهها مناديب شركتك: «{objection}» — {tactic}'), { type, objection: tr(o.label), tactic: tr(tactic) }) : fallback;
   }
   return fallback;
+}
+
+// ───────────── «الطلب المتوقع من ملف المحل في Google» (googleDemand.ts في الخادم) ─────────────
+// لكل صنف في سيارة المندوب: حجم الطلب المعتاد للصنف من فواتير الشركة × مؤشرات ملف المحل (عدد المقيّمين مقارنةً بمحلات
+// نوعه في المسح، والتقييم، وحديث المراجعات وذكر الصنف فيها حين تُقرأ). الأرقام والوحدات بلغة المندوب.
+
+/** صنفٌ في الطلب المتوقع (نسخة الواجهة من ExpectedProduct) — qty = null ⇒ لا رقم وسببه reason. */
+export interface ExpectedProduct {
+  productId: string; name: string; unit: string; qty: number | null; low: number | null; high: number | null;
+  mentioned: boolean; mentions?: number; complaint?: 'QUALITY' | 'SHORTAGE'; quote?: string; reason?: 'NO_ANCHOR';
+}
+/** وقائع سطر الأساس (نسخة الواجهة من ExpectedBasis) — text نصّه العربي. */
+export interface ExpectedBasis {
+  rating: number | null; ratingCount: number | null; trafficPct: number | null; typeMedianCount: number; typeMedianKnown: boolean;
+  reviewsRead: boolean; reviews: number; mentions: { name: string; reviews: number }[]; talk: string[];
+  source: 'VAN' | 'PRIORITY' | 'CATALOG'; text: string;
+}
+export interface Expected { confidence: 'HIGH' | 'MEDIUM' | 'LOW'; basis: ExpectedBasis; products: ExpectedProduct[] }
+
+/** حديث المراجعات عن المحل (نسخة الواجهة من TALK_AR). */
+export const EXPECTED_TALK_TEXT: Record<string, string> = {
+  BUSY: 'المراجعات تتحدّث عن زحمة وإقبال',
+  VARIETY: 'يُمدح بتنوّع أصنافه',
+  SHORTAGE: 'شكاوى من نقص الأصناف — فرصة توريد',
+  NEGATIVE: 'أغلب المراجعات سلبية',
+  CLOSING: 'في المراجعات حديث عن إغلاق المحل',
+};
+/** تلميح للمندوب حين يُذكر الصنف بشكوى وحدها. */
+export const EXPECTED_HINT_TEXT: Record<'QUALITY' | 'SHORTAGE', string> = {
+  QUALITY: 'يشتكون من جودته في المراجعات — اعرض بضاعة طازجة',
+  SHORTAGE: 'يشتكون من نقصه في المراجعات — اعرض توريداً منتظماً',
+};
+/** مصدر الأصناف حين لا مخزون في سيارة المندوب. */
+export const EXPECTED_SOURCE_TEXT: Record<'PRIORITY' | 'CATALOG', string> = {
+  PRIORITY: 'سيارتك فارغة — الأصناف ذات الأولوية',
+  CATALOG: 'سيارتك فارغة — أكثر أصنافك مبيعاً',
+};
+export const CONFIDENCE_TEXT: Record<Expected['confidence'], string> = { HIGH: 'ثقة عالية', MEDIUM: 'ثقة متوسطة', LOW: 'ثقة منخفضة' };
+
+/** كمية بلغة المندوب: الصحيح كما هو، والكسر بمنزلة واحدة (بالفاصلة العشرية في الفرنسية والتركية). */
+export const fmtQty = (q: number, lang: string): string => fmtNum(lang, q, 0, 1);
+
+/** «12 كرتون» — الوحدة كما في الكتالوج (مترجمةً إن عُرفت). */
+export function expectedQtyText(p: Pick<ExpectedProduct, 'qty' | 'unit'>, lang: string, tr: Tr): string {
+  return p.qty == null ? '—' : `${fmtQty(p.qty, lang)} ${tr(p.unit)}`.trim();
+}
+
+/** المدى «9–16» — null حين لا مدى (حدّاه متساويان أو غائبان). */
+export function expectedRangeText(p: Pick<ExpectedProduct, 'low' | 'high'>, lang: string): string | null {
+  return p.low != null && p.high != null && p.low !== p.high ? `${fmtQty(p.low, lang)}–${fmtQty(p.high, lang)}` : null;
+}
+
+/** سطر قائمة المحلات: «متوقع: 12 كرتون بيض…» لأبرز صنفٍ برقم (المذكور في المراجعات أولاً بترتيب الخادم). */
+export function expectedRowText(e: Expected | null | undefined, lang: string, tr: Tr): { text: string; mentioned: boolean } | null {
+  const p = e?.products.find(x => x.qty != null);
+  if (!p) return null;
+  return { text: fill(tr('متوقع: {what}'), { what: `${expectedQtyText(p, lang, tr)} ${p.name}` }), mentioned: p.mentioned };
+}
+
+/** سطر الأساس بلغة المندوب: العربية نصّ الخادم، وغيرها من وقائعه (عدد المقيّمين ومكانه بين محلات المنطقة، التقييم، الذكر، الحديث). */
+export function expectedBasisText(b: ExpectedBasis | null | undefined, lang: string, tr: Tr): string {
+  if (!b) return '';
+  if (lang === 'ar') return b.text;
+  const parts: string[] = [];
+  if (b.ratingCount != null) {
+    const c = fill(singular(lang, b.ratingCount) ? tr('{n} مقيّم') : tr('{n} مقيّمين'), { n: b.ratingCount });
+    const rel = b.trafficPct == null ? null
+      : b.trafficPct >= 50 ? fill(tr('أكثر من {pct}٪ من محلات المنطقة'), { pct: b.trafficPct }) : fill(tr('وسيط المنطقة {n}'), { n: b.typeMedianCount });
+    parts.push(rel ? `${c} (${rel})` : c);
+  } else parts.push(tr('عدد المقيّمين غير معروف'));
+  if (b.rating != null) parts.push(fill(tr('تقييم {rating}'), { rating: fmtNum(lang, b.rating, 0, 1) }));
+  for (const m of b.mentions) {
+    const reviews = fill(singular(lang, m.reviews) ? tr('{n} مراجعة') : tr('{n} مراجعات'), { n: m.reviews });
+    parts.push(fill(tr('يُذكر «{name}» في {reviews}'), { name: m.name, reviews }));
+  }
+  for (const c of b.talk) if (EXPECTED_TALK_TEXT[c]) parts.push(tr(EXPECTED_TALK_TEXT[c]));
+  return parts.join(' · ');
 }
 
 /** نوع المحل للعرض: العربية تصنيف Google كما جاء (أدقّ)، وغيرها تسمية نوعه عندنا مترجمةً (تصنيف البحث العام عربي). */

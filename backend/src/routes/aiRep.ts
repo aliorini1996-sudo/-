@@ -6,7 +6,8 @@
  * للمندوب (الشاشة الحالية):
  *   GET  /rep/me         ما تحتاجه الشاشة: مفتاح الأماكن مضبوط؟ مفتاح الخريطة (عرض فقط)، الأنواع المستهدفة، والمسح المتبقّي اليوم
  *   POST /rep/scan       المسح عند الفتح: كل المحلات حول المندوب (بمفتاح الأماكن، وإلا خرائط Google العامة) مدموجةً بسجلّ
- *                        الشركة، ودراسة حتمية لكل محل، وخطة حتمية فوراً — ويحفظ الخادم «جلسة البحث» بمراجع ثابتة P1…
+ *                        الشركة، ودراسة حتمية لكل محل، و«الطلب المتوقع من ملف المحل في Google» لكل صنف في سيارة المندوب
+ *                        (googleDemand.ts — لا من عملاء مشابهين)، وخطة حتمية فوراً — ويحفظ الخادم «جلسة البحث» بمراجع ثابتة P1…
  *   POST /rep/scan/guide توجيه العقل لذلك المسح من الجلسة (نداء ثانٍ تستبدل به الشاشة الخطة الحتمية حين يصل)
  *   POST /rep/study      دراسة محلٍّ بمراجعاته النصية (مفتاح الأماكن) — بالعقل إن ضُبط وإلا حتمية
  *   POST /rep/outcomes   نتيجة زيارة محلٍّ (منع التكرار بـclientRef؛ تُرفع من صفّ الإرسال دون اتصال)
@@ -59,7 +60,10 @@ import { riyadhDay } from '../ai-rep/learn/stats';
 import type { AiLessonLite, Intent, Learned } from '../ai-rep/learn/types';
 import type { LearnedCtx } from '../ai-rep/advisorTools';
 import { addUsage, refundUsage, reserveUsage, usageDay, usageToday } from '../ai-rep/usage';
-import { getSession, patchSessionOutlet, peekSession, saveSession, SessionOutlet, type PendingScanGuide } from '../ai-rep/session';
+import { getSession, noteShownExpected, patchSessionOutlet, peekSession, saveSession, SessionOutlet, type PendingScanGuide, type SessionDemand } from '../ai-rep/session';
+import { expectedFor, expectedView, shownOf, studyExpected, topExpected, typeBaselines, type Anchor, type DemandReview, type ExpectedShop, type TypeBaseline } from '../ai-rep/googleDemand';
+import { loadAnchors, loadDemandProducts } from '../ai-rep/googleDemandData';
+import { resolveGsigFactor } from '../ai-rep/learn/gsig';
 
 export { usageDay };
 
@@ -779,6 +783,44 @@ async function settleAi(c: RepCtx, day: string, ai: { source: 'AI' | 'ERROR'; gu
   });
 }
 
+// ───────────── «الطلب المتوقع من ملف المحل في Google» (googleDemand.ts) ─────────────
+// لكل محل ولكل صنف في سيارة المندوب: حجم الطلب المعتاد للصنف من فواتير الشركة × مؤشرات ملف المحل (عدد المقيّمين مقارنةً
+// بمحلات نوعه في المسح، والتقييم، وحديث المراجعات وذكر الصنف فيها حين تُقرأ) × معامل متعلَّم لنوع المحل. لا يمرّ بمحرّك
+// المحلات المشابهة (estimateAt). تعذّر أي جزء يُسقط الطلب المتوقع وحده — لا المسح ولا الدراسة.
+
+type DemandInputs = { anchors: Map<string, Anchor>; demand: SessionDemand };
+
+/** مرساة كل صنف (ذاكرة ١٠ دقائق) وأصناف المندوب (من جلسة المسح إن وُجدت، وإلا سيارته الآن) — التعذّر null. */
+async function demandInputs(c: RepCtx, sd?: SessionDemand | null): Promise<DemandInputs | null> {
+  try {
+    const anchors = await loadAnchors(c.tid);
+    if (sd) return { anchors, demand: sd };
+    const { products, source } = await loadDemandProducts(c.tid, c.repId, c.settings.priorityProductIds, anchors);
+    return { anchors, demand: { baselines: {}, products, source } };
+  } catch (e) {
+    console.warn('[ai-rep] الطلب المتوقع تعذّر تحميله:', (e as Error)?.message, 'tenant', c.tid);
+    return null;
+  }
+}
+
+/** الطلب المتوقع لمحلٍّ واحد — null بلا أصناف. */
+function expectedAt(c: RepCtx, d: DemandInputs | null, learned: Learned, o: {
+  outletType: string; rating: number | null; ratingCount: number | null; reviews?: DemandReview[] | null; base?: TypeBaseline;
+}): ExpectedShop | null {
+  if (!d || !d.demand.products.length) return null;
+  return expectedFor({
+    ...o, products: d.demand.products, anchors: d.anchors, source: d.demand.source, showMoney: c.showMoney,
+    cal: resolveGsigFactor(learned, o.outletType, c.settings.learningMode),
+  });
+}
+
+/** ما عُرض لمحلٍّ ليس عميلاً يُذكر (يوماً) — يُقارن بأول طلب حقيقي إن صار عميلاً (لقطة gsig-1). */
+function rememberShown(c: RepCtx, placeId: string, outletType: string, relation: string, e: ExpectedShop | null): void {
+  if (!e || relation === 'CUSTOMER') return;
+  const sh = shownOf(e, outletType);
+  if (sh) noteShownExpected(c.tid, placeId, sh);
+}
+
 rep.post('/study', async (req: AuthRequest, res: Response, next: NextFunction) => {
   // الوحدة المحجوزة (يومها) وهل صُرفت عند Google — استثناءٌ بعد الحجز يردّها ما لم تُصرف
   let charged: string | null = null;
@@ -844,6 +886,17 @@ rep.post('/study', async (req: AuthRequest, res: Response, next: NextFunction) =
       : { injected: [], heldOut: [] };
     const tip = lc.learnedOn ? statsHint(lc.learned.lessons, { types: [outletType], hb: lc.hb, prefer: 'STUDY' }) : null;
 
+    // الطلب المتوقع بنصوص المراجعات (المحل عموماً وذكر أصناف المندوب) — يحلّ في الواجهة محلّ طلب المسح
+    let expected: ExpectedShop | null = null;
+    try {
+      const dem = await demandInputs(c, scanSession?.demand);
+      expected = expectedAt(c, dem, lc.learned, {
+        outletType, rating: p.rating, ratingCount: p.ratingCount, reviews: p.reviews.map(r => ({ rating: r.rating, text: r.text })),
+        base: dem?.demand.baselines[outletType],
+      });
+      rememberShown(c, p.placeId, outletType, relation, expected);
+    } catch (e) { expected = null; console.warn('[ai-rep] الطلب المتوقع للدراسة تعذّر:', (e as Error)?.message, 'tenant', c.tid); }
+
     // الدراسة: بالعقل (بلغة المندوب) إن ضُبط وتوفّرت حصته، وإلا حتمية من الملف نفسه (ونفاد الحصة يُقال للمندوب)
     let study: ShopStudy = ruleStudy(p, tip?.textAr ?? null, tip?.key ?? null);
     let rec: TurnGuard = RULES_TURN;
@@ -854,7 +907,10 @@ rep.post('/study', async (req: AuthRequest, res: Response, next: NextFunction) =
       if (!aiDay) aiQuota = true;
       else {
         const { products, priority } = await studyProducts(c.tid, c.settings.priorityProductIds);
-        const ai = await aiStudy(p, { cfg, products, priority, playbook: c.settings.playbook, lessonsBlock: renderLessonsBlock(lessons.injected), lang: repLang(b.lang) });
+        const ai = await aiStudy(p, {
+          cfg, products, priority, playbook: c.settings.playbook, lessonsBlock: renderLessonsBlock(lessons.injected), lang: repLang(b.lang),
+          expected: studyExpected(expected),
+        });
         await settleAi(c, aiDay, ai);
         rec = { source: ai.source, guard: ai.guard, badKinds: ai.badKinds, flags: ai.flags, tokensIn: ai.tokensIn, tokensOut: ai.tokensOut };
         if (ai.study) study = { ...ai.study, teamTip: tip?.textAr ?? null, teamTipKey: tip?.key ?? null };
@@ -876,6 +932,7 @@ rep.post('/study', async (req: AuthRequest, res: Response, next: NextFunction) =
           ref, placeId: p.placeId, name: p.name, address: p.address, lat: p.lat, lng: p.lng, outletType, outletTypeLabel: outletTypeLabel(outletType),
           distanceM, relation, customerId, lastOutcome: merged?.lastOutcome ?? null, lastOutcomeAt: merged?.lastOutcomeAt ?? null,
           rejectedRecently: merged?.rejectedRecently ?? false, reportedClosed: merged?.reportedClosed ?? false,
+          ...(expected && { expected: expectedView(expected) }),
         },
         profile: {
           name: p.name, typeLabel: p.typeLabel, address: p.address, mapsUri: p.mapsUri, rating: p.rating, ratingCount: p.ratingCount,
@@ -995,8 +1052,23 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
     const byId = new Map(places.map(p => [p.placeId, p]));
     const searchId = randomUUID();
     // حلقة التعلّم: ذراع اليوم وسياسة الترتيب وفترة اليوم — وسطر «من تجربة فريقك» لكل نوع في الذراع المتعلّمة وحدها
+    // ومعهما مدخلات «الطلب المتوقع» (مرساة الأصناف وأصناف سيارة المندوب)
     const now = new Date();
-    const lc = await learningCtx(c, now);
+    const [lc, dem] = await Promise.all([learningCtx(c, now), merged.length ? demandInputs(c) : Promise.resolve(null)]);
+    // الطلب المتوقع لكل محل في تمريرة واحدة: وسيط مقيّمي كل نوع من محلات هذا المسح نفسه — تعذّره يُسقطه وحده لا المسح
+    let baselines = new Map<string, TypeBaseline>();
+    const expected = new Map<string, ExpectedShop>();
+    try {
+      baselines = typeBaselines(merged.map(m => ({ outletType: m.outletType, ratingCount: byId.get(m.placeId)?.ratingCount ?? null })));
+      for (const m of merged) {
+        const p = byId.get(m.placeId)!;
+        const e = expectedAt(c, dem, lc.learned, { outletType: m.outletType, rating: p.rating, ratingCount: p.ratingCount, base: baselines.get(m.outletType) });
+        if (e) expected.set(m.placeId, e);
+      }
+    } catch (e) {
+      expected.clear();
+      console.warn('[ai-rep] الطلب المتوقع تعذّر:', (e as Error)?.message, 'tenant', c.tid);
+    }
     const tips = new Map<string, AiLessonLite | null>();
     const studyTip = (t: string): AiLessonLite | null => {
       if (!tips.has(t)) tips.set(t, lc.learnedOn ? statsHint(lc.learned.lessons, { types: [t], hb: lc.hb, prefer: 'STUDY' }) : null);
@@ -1014,6 +1086,7 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
         outletType: m.outletType, outletTypeLabel: outletTypeLabel(m.outletType), distanceM: m.distanceM,
         relation: m.relation, customerId: m.customerId, lastOutcome: m.lastOutcome, lastOutcomeAt: m.lastOutcomeAt, rejectedRecently: m.rejectedRecently,
         reportedClosed: m.reportedClosed,
+        ...(expected.has(m.placeId) && { expected: expectedView(expected.get(m.placeId)!) }),
         profile,
         study: ruleStudy({ ...profile, placeId: p.placeId, primaryType: null, types: [], lat: p.lat, lng: p.lng, priceLevel: null, closed: false, typeLabel: p.category },
           studyTip(m.outletType)?.textAr ?? null, studyTip(m.outletType)?.key ?? null),
@@ -1025,7 +1098,9 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
       name: it.name, category: it.profile.typeLabel, rating: it.profile.rating, ratingCount: byId.get(it.placeId)?.ratingCount ?? null, openNow: it.profile.openNow,
       distanceM: it.distanceM, lat: it.lat, lng: it.lng, relation: it.relation, rejectedRecently: it.rejectedRecently,
       lastOutcome: it.lastOutcome, lastOutcomeAt: it.lastOutcomeAt, reportedClosed: it.reportedClosed,
+      expected: topExpected(expected.get(it.placeId)),
     }));
+    for (const it of items) rememberShown(c, it.placeId, it.outletType, it.relation, expected.get(it.placeId) ?? null);
     // الترتيب: السياسة المتعلَّمة في الذراع المتعلّمة إن رُقّيت نسخة، وإلا ترتيب ما قبل التعلّم — فالذراعان سواء حتى يثبت شيء
     const policy = policyFor(lc.learned, lc.arm);
     const score = policy.version > 0 ? learnedScorer(policy.params, lc.hb) : baselineScore;
@@ -1059,6 +1134,7 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
     saveSession(c.tid, c.repId, {
       searchId, createdAt: Date.now(), origin, radiusM, scan: true,
       outlets: items.map(it => ({ ref: it.ref, placeId: it.placeId, outletType: it.outletType, lat: it.lat, lng: it.lng, distanceM: it.distanceM, relation: it.relation, lastOutcome: it.lastOutcome, customerId: it.customerId })),
+      ...(dem && { demand: { ...dem.demand, baselines: Object.fromEntries(baselines) } }),
       ...(aiGuidePending && {
         aiGuide: {
           at: now, shops, recommended, score, rules: guide, learned: learnedFlag, turnId: shownTurn, lessons, tips: [tip, ...tips.values()],
@@ -1066,7 +1142,7 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
         },
       }),
     });
-    console.info('[ai-rep] مسح', JSON.stringify({ tenant: c.tid, source, shops: items.length, partial, arm: lc.arm, turn: recorded, ai: aiGuidePending }));
+    console.info('[ai-rep] مسح', JSON.stringify({ tenant: c.tid, source, shops: items.length, partial, arm: lc.arm, turn: recorded, ai: aiGuidePending, expected: expected.size }));
     res.json({
       success: true,
       data: { searchId, source, items, guide: { ...guide, turnId: shownTurn, learned: learnedFlag }, partial, turnId: shownTurn, aiGuidePending, searchesLeft: await searchesLeft(c) },

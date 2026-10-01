@@ -13,7 +13,7 @@
  */
 import { Prisma } from '@prisma/client';
 import prisma from '../../config/database';
-import { estimateOutlet } from '../estimate';
+import { ENGINE_VERSION, estimateOutlet } from '../estimate';
 import type { TenantEstimateData } from '../estimateData';
 import { outletTypeLabel } from '../taxonomy';
 import { betaMeanVar, clamp, fnv1a32, mulberry32, normalCdf, shrinkNormal, weightedMedian, weightedVar } from './stats';
@@ -133,9 +133,10 @@ export function snapshotPairs(rows: SnapRow[]): CalPair[] {
   return out;
 }
 
+/** لقطات محرّك المحلات المشابهة وحده (ai-est-1) — لقطات «الطلب المتوقع من ملف المحل» (gsig-1) لها معايرتها (gsig.ts). */
 export async function loadSnapshotPairs(tid: string): Promise<CalPair[]> {
   const rows = await prisma.aiEstimateSnapshot.findMany({
-    where: { tenantId: tid, evaluatedAt: { not: null }, customerId: { not: null } },
+    where: { tenantId: tid, engineVersion: ENGINE_VERSION, evaluatedAt: { not: null }, customerId: { not: null } },
     select: { customerId: true, outletType: true, payload: true, actual: true, calibrationVersion: true },
     orderBy: { createdAt: 'desc' },
     take: SNAPSHOT_TAKE,
