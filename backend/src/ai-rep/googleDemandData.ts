@@ -58,8 +58,20 @@ export async function loadAnchors(tid: string, now = new Date()): Promise<Map<st
 
 type StockOf = (tid: string, repId: string) => Promise<{ productId: string; remaining: number }[]>;
 
-/** مخزون سيارة المندوب الآن — مسار مخزون السيارة يُحمَّل عند الحاجة (موجّهه يحمل حرّاس المحاسبة). */
-const vanStockOf: StockOf = async (tid, repId) => (await import('../routes/vanStock')).computeStock(tid, repId);
+/** مخزون سيارة المندوب الآن — مسار مخزون السيارة يُحمَّل عند الحاجة (موجّهه يحمل حرّاس المحاسبة).
+ *  ذاكرة ٣ دقائق لكل مندوب: computeStock يمرّ على كل بنود فواتيره، والقاعدة هي العنق الضيّق — و«حدّث» المتكرّر لا يعيده. */
+const VAN_TTL_MS = 3 * 60 * 1000;
+const vanCache = new Map<string, { at: number; data: Promise<{ productId: string; remaining: number }[]> }>();
+const vanStockOf: StockOf = (tid, repId) => {
+  const k = `${tid}|${repId}`;
+  const hit = vanCache.get(k);
+  if (hit && Date.now() - hit.at < VAN_TTL_MS) return hit.data;
+  const data = import('../routes/vanStock').then(m => m.computeStock(tid, repId));
+  if (vanCache.size > 2000) vanCache.clear();
+  vanCache.set(k, { at: Date.now(), data });
+  data.catch(() => vanCache.delete(k));
+  return data;
+};
 
 /** أصناف «الطلب المتوقع» للمندوب: سيارته أولاً، وإلا ذات الأولوية، وإلا الأكثر فواتيراً — فعّالة غير مؤرشفة. */
 export async function loadDemandProducts(tid: string, repId: string, priorityIds: string[], anchors: Map<string, Anchor>,
