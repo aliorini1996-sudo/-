@@ -81,6 +81,17 @@ const db: Row = {
       return { count };
     },
     async deleteMany() { calls.push('vanLoad.deleteMany'); loads = []; return { count: 0 }; },
+    // سجلّ التحميلات (GET /van-stock/loads): العلاقة الفارغة تعود null كما تُعيدها Prisma
+    async findMany(a: Row) {
+      const { tenantId, salesRepId, ...rest } = a.where;
+      assert.deepEqual(rest, {}, 'قيدٌ لا يعرفه المزيّف');
+      return loads
+        .filter(l => l.tenantId === tenantId && (salesRepId === undefined || l.salesRepId === salesRepId))
+        .map(l => {
+          const r = reps.find(x => x.id === l.salesRepId);
+          return { ...l, items: loadItems.filter(i => i.vanLoadId === l.id), salesRep: r ? { id: r.id, name: r.name } : null };
+        });
+    },
   },
   vanLoadItem: {
     async deleteMany() { calls.push('vanLoadItem.deleteMany'); loadItems = []; return { count: 0 }; },
@@ -251,4 +262,27 @@ test('قرّاء التحميلات: المستودع والقيد الافتت�
   const h = vs.slice(vs.indexOf("router.get('/loads'"), vs.indexOf("router.get('/movements'"));
   assert.match(h, /salesRep: l\.salesRep \?\? \{ id: null, name: REP_GONE_NAME \}/, 'سجلّ التحميلات يُرجع salesRep: null');
   assert.match(vs, /const REP_GONE_NAME = 'مندوب محذوف'/);
+});
+
+test('سجلّ التحميلات (تشغيلاً لا نصاً): تحميل المندوب المحذوف يعود باسم «مندوب محذوف» لا salesRep: null', async () => {
+  seed();
+  await deleteRep('R1');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const vanRouter = (require('../routes/vanStock') as typeof import('../routes/vanStock')).default;
+  const layer = (vanRouter as unknown as { stack: Row[] }).stack
+    .find(l => l.route?.path === '/loads' && l.route.methods?.get);
+  assert.ok(layer, 'مسار GET /loads مفقود من vanStock');
+  const res: Row = { statusCode: 200, body: null };
+  res.status = (c: number) => { res.statusCode = c; return res; };
+  res.json = (b: Row) => { res.body = b; return res; };
+  let err: unknown;
+  await layer.route.stack[0].handle({ query: {}, user: { id: 'ADM', role: 'ADMIN', tenantId: T } }, res, (e?: unknown) => { err = e; });
+  if (err) throw err;
+  const rows = res.body?.data as Row[];
+  assert.equal(rows.length, loads.length, 'تحميلات المحذوفين خرجت من السجلّ');
+  for (const l of rows) assert.ok(l.salesRep && typeof l.salesRep.name === 'string', `salesRep فارغ في ${l.id}`);
+  const gone = rows.filter(l => l.salesRepId === null);
+  assert.equal(gone.length, 4, 'تحميلات R1 (٢) وR0 (٢) بلا مندوب');
+  for (const l of gone) assert.deepEqual(l.salesRep, { id: null, name: 'مندوب محذوف' });
+  assert.equal(rows.find(l => l.salesRepId === 'R2')!.salesRep.name, 'خالد', 'اسم المندوب الحيّ تغيّر');
 });

@@ -50,3 +50,8 @@ test('حوارا الحذف (اللوحة والجوال) يعرضان التح�
   const m = read('m', 'MSalesReps.tsx');
   assert.equal((m.match(/<RepVanStockNote repId=/g) || []).length, 2, 'ورقتا الجوال يجب أن تعرضا التحذير');
 });
+
+test('شركة النظام المحاسبي مطفأ لها لا ترى سطر المستودع في حوار الحذف', () => {
+  const note = fs.readFileSync(path.join(process.cwd(), 'src', 'components', 'RepVanStockNote.tsx'), 'utf8');
+  assert.match(note, /if \(ready && !on\) return null;/, 'سطر «رصيد المستودع لا يتغير» يظهر لشركة لا مستودع لها');
+});

@@ -12,7 +12,8 @@ import { REP_DELETE_VAN, fillVanLeft, vanLeftover } from '../lib/repDeleteVan';
  *
  * تحذيرٌ لا حجب — زرّ الحذف لا ينتظر هذا الطلب (قرار المالك: الحذف يمضي).
  * والطلب خلف حارسَي مسار /van-stock نفسيهما (النظام المحاسبي وصلاحية مخزون
- * السيارة): بدونهما يُعرض سطر السجلّ وحده بلا رقم، لا لافتة خطأ.
+ * السيارة): بلا صلاحية المخزون يُعرض سطر السجلّ وحده بلا رقم لا لافتة خطأ،
+ * وبلا النظام المحاسبي لا يُعرض شيء (لا مستودع أصلاً).
  */
 export default function RepVanStockNote({ repId, compact = false }: { repId: string; compact?: boolean }) {
   const tr = useTr();
@@ -27,6 +28,8 @@ export default function RepVanStockNote({ repId, compact = false }: { repId: str
     staleTime: 0, // رقمٌ يُقرأ قبل حذفٍ لا رجعة فيه — لا من ذاكرةٍ قديمة
   });
   const left = allowed ? q.data : undefined;
+  // شركةٌ النظامُ المحاسبي مطفأٌ لها: لا مخزون سيارات ولا مستودع — سطرٌ عنهما يُربك ولا يُخبر
+  if (ready && !on) return null;
   return (
     <div className={`mt-3 rounded-xl bg-[#FDF6E7] border border-[#F0E0BC] px-3 py-2 text-start leading-relaxed text-[#9A5B1E] ${compact ? 'text-[11.5px]' : 'text-xs'}`}>
       {allowed && q.isLoading && <p>{tr(REP_DELETE_VAN.checking)}</p>}
