@@ -39,6 +39,19 @@ interface WhItem { productId: string; qty: number; type: string; unitCost?: numb
 interface VanItem { productId: string; qty: number; type: string; salesRepId?: string | null; at?: Date | string | number }
 
 /**
+ * مفتاح «السيارة» لحركة تحميل: مندوبها، أو معرّفه المحفوظ بعد حذفه.
+ *
+ * حذف المندوب يُفرّغ `salesRepId` ولا يمحو الحركة (الحذف كان يمحوها فيقفز
+ * المستودع بكل ما حُمِّل وبيع). والكمّية لا تحتاج المفتاح أصلاً — LOAD وUNLOAD
+ * يُحسبان أيّاً كان مندوبهما — لكن **التقييم** يحتاجه: طبقات كل سيارة مكدّسٌ
+ * مستقلّ، ومندوبان محذوفان بلا مفتاح يقعان في مكدّسٍ واحد فيعود تنزيلُ أحدهما
+ * بكلفة حمولة الآخر وتتغيّر قيمة المستودع بمجرّد الحذف.
+ */
+export function vanKeyOf(l: { salesRepId: string | null; deletedSalesRepId?: string | null }): string | null {
+  return l.salesRepId ?? l.deletedSalesRepId ?? null;
+}
+
+/**
  * دالّة نقيّة (بلا قاعدة بيانات) — تُختبَر وحدها. تُظهر كل المنتجات المُمرَّرة.
  *
  * @param decimals خانات عملة الشركة لتقريب **قيمة الرصيد** لكل صنف. اختياريّ
@@ -152,14 +165,15 @@ export async function computeWarehouseStock(tid: string, decimals?: number): Pro
       select: { productId: true, qty: true, unitCost: true, entry: { select: { type: true, createdAt: true } } },
     }),
     prisma.vanLoadItem.findMany({
+      // تحميلات المناديب المحذوفين داخلة عمداً (salesRepId فارغ): خرجت من المستودع فعلاً
       where: { vanLoad: { tenantId: tid } },
-      select: { productId: true, qty: true, vanLoad: { select: { type: true, createdAt: true, salesRepId: true } } },
+      select: { productId: true, qty: true, vanLoad: { select: { type: true, createdAt: true, salesRepId: true, deletedSalesRepId: true } } },
     }),
   ]);
   return composeWarehouse(
     products,
     whItems.map((i) => ({ productId: i.productId, qty: i.qty, type: i.entry.type, unitCost: i.unitCost, at: i.entry.createdAt })),
-    vanItems.map((i) => ({ productId: i.productId, qty: i.qty, type: i.vanLoad.type, salesRepId: i.vanLoad.salesRepId, at: i.vanLoad.createdAt })),
+    vanItems.map((i) => ({ productId: i.productId, qty: i.qty, type: i.vanLoad.type, salesRepId: vanKeyOf(i.vanLoad), at: i.vanLoad.createdAt })),
     dec,
   );
 }

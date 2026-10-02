@@ -196,9 +196,11 @@ test('حذف المندوب: assertRepDeletable أول ما في معاملة ت
   // الاستدعاءات القائمة بترتيبها نفسه
   ordered(tx, [
     'tx.invoice.updateMany(', 'tx.receipt.updateMany(', 'tx.dailyReport.updateMany(', 'tx.dailyReportOwnerRep.deleteMany(',
-    'tx.notification.deleteMany(', 'tx.vanLoadItem.deleteMany(', 'tx.vanLoad.deleteMany(', 'tx.repLocation.deleteMany(',
+    'tx.notification.deleteMany(', 'tx.vanLoad.updateMany(', 'tx.repLocation.deleteMany(',
     'tx.repVisit.deleteMany(', 'tx.repSettlement.deleteMany(', 'tx.customerAssignment.deleteMany(', 'tx.salesRep.delete(',
   ], 'ترتيب الاستدعاءات القائمة');
+  // تحميلات السيارة حركات مخزون تُفرَّغ ولا تُمحى (حادثة ٢ أكتوبر ٢٠٢٦: المستودع قفز بما حُمّل وبيع)
+  assert.doesNotMatch(tx, /tx\.vanLoad(?:Item)?\.delete(?:Many)?\(/, 'حذف المندوب يمحو تحميلات سيارته فيقفز رصيد المستودع');
   // لا حذف قبل المعاملة
   assert.doesNotMatch(body.slice(0, body.indexOf('prisma.$transaction(')), /\b(?:prisma|tx)\.\w+\.(?:deleteMany|delete|updateMany)\(/);
   // لا أحداث عكس للاستلامات

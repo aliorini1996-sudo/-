@@ -16,6 +16,7 @@ import { useTr } from '../i18n/strings';
 import { useAuthStore } from '../store/authStore';
 import { compressImage } from '../rep/imageCompress';
 import { useBackClose } from '../lib/useBackClose';
+import RepVanStockNote from '../components/RepVanStockNote';
 import { MCard, MRow, MStat, MScreen, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import { can } from './perms';
 import { expectArray, expectObject } from './shape';
@@ -461,6 +462,7 @@ function RepDetail({ repId, company, accountingOn, onBack }: {
       {/* خارج `MScreen` عمداً: ورقةٌ فوق الشاشة كلّها، لا داخل الجسم الممرَّر */}
       {confirmDel && ledgerActive && (
         <MLedgerRepDelete
+          repId={rep.id}
           repName={rep.name}
           alreadyInactive={rep.isActive === false}
           deactivating={deactivate.isPending}
@@ -474,6 +476,7 @@ function RepDetail({ repId, company, accountingOn, onBack }: {
           danger
           title={tr('حذف المندوب')}
           message={`${tr('سيحذف المندوب')} «${rep.name}» ${tr('نهائيا تحفظ فواتيره وسنداته كسجل مالي دون نسبتها إليه وتحذف بياناته التشغيلية ولا يمكن التراجع')}`}
+          extra={<RepVanStockNote repId={rep.id} compact />}
           confirmLabel={tr('حذف نهائي')}
           loading={del.isPending}
           onConfirm={() => del.mutate()}
@@ -1164,8 +1167,8 @@ function MToggle({ label, hint, checked, onChange }: {
  * ورقة حذف المندوب حين الدفاتر مفعّلة (§8.1، §5.3): «تعطيل المندوب» إجراءٌ أساسي يحفظ عهدته وتاريخه،
  * والحذف النهائي ثانوي يرفضه الخادم بـ409 LEDGER_HISTORY_LOCKED برسالته إن كان له أثر مالي.
  */
-function MLedgerRepDelete({ repName, alreadyInactive, deactivating, deleting, onDeactivate, onDelete, onClose }: {
-  repName: string; alreadyInactive: boolean; deactivating: boolean; deleting: boolean;
+function MLedgerRepDelete({ repId, repName, alreadyInactive, deactivating, deleting, onDeactivate, onDelete, onClose }: {
+  repId: string; repName: string; alreadyInactive: boolean; deactivating: boolean; deleting: boolean;
   onDeactivate: () => void; onDelete: () => void; onClose: () => void;
 }) {
   const tr = useTr();
@@ -1188,6 +1191,7 @@ function MLedgerRepDelete({ repName, alreadyInactive, deactivating, deleting, on
             {alreadyInactive && <span className="block text-[12px] text-[#2F855A] mt-1">{tr('المندوب معطل بالفعل')}</span>}
           </span>
         </div>
+        <RepVanStockNote repId={repId} compact />
         <button onClick={onDeactivate} disabled={busy || alreadyInactive}
           className="w-full min-h-[48px] rounded-xl font-bold text-sm text-white flex items-center justify-center gap-2 bg-[#E15A30] disabled:bg-[#E89B7E]">
           {deactivating ? <Loader2 size={16} className="animate-spin" /> : <UserX size={16} />}
@@ -1213,9 +1217,9 @@ function MLedgerRepDelete({ repName, alreadyInactive, deactivating, deleting, on
  * تأكيدٌ صريح لفعلٍ لا رجعة فيه — ورقة سفلية لا نافذة وسط الشاشة (الإبهام في
  * الأسفل). تُسجّل نفسها في مكدّس الرجوع لأنها لا تُركَّب إلا وهي مفتوحة.
  */
-function MConfirm({ title, message, confirmLabel, loading, danger, onConfirm, onClose }: {
+function MConfirm({ title, message, confirmLabel, loading, danger, extra, onConfirm, onClose }: {
   title: string; message: string; confirmLabel: string;
-  loading?: boolean; danger?: boolean; onConfirm: () => void; onClose: () => void;
+  loading?: boolean; danger?: boolean; extra?: React.ReactNode; onConfirm: () => void; onClose: () => void;
 }) {
   const tr = useTr();
   useBackClose(true, onClose);
@@ -1234,6 +1238,7 @@ function MConfirm({ title, message, confirmLabel, loading, danger, onConfirm, on
             <span className="block text-[12px] text-[#6E6557] mt-1 leading-relaxed">{message}</span>
           </span>
         </div>
+        {extra}
         <div className="flex gap-2.5 pt-1">
           <button onClick={onClose} disabled={loading}
             className="flex-1 min-h-[48px] rounded-xl border border-[#E9E1D3] bg-white font-bold text-sm text-[#1F1A13]">

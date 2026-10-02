@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 import SalesRepModal from '../components/forms/SalesRepModal';
 import ResetPasswordModal from '../components/ResetPasswordModal';
 import ConfirmDialog from '../components/ConfirmDialog';
+import RepVanStockNote from '../components/RepVanStockNote';
 import { formatCurrency, formatDate, formatDayOnly, formatTime, formatNumber, statusLabels, paymentMethodLabels, getActiveCurrency } from '../utils/format';
 import { currencyDecimals } from '../i18n/countries';
 import { useTr } from '../i18n/strings';
@@ -297,7 +298,8 @@ export default function SalesRepsPage() {
         <ConfirmDialog
           danger
           title={tr('حذف المندوب')}
-          message={`${tr('سيتم حذف المندوب')} «${deleting.name}» ${tr('نهائيا ولا يمكن التراجع تحفظ فواتيره وسنداته كسجل مالي لكن دون نسبتها إليه وتحذف بياناته التشغيلية مخزون السيارة المواقع الزيارات')}`}
+          message={`${tr('سيتم حذف المندوب')} «${deleting.name}» ${tr('نهائيا ولا يمكن التراجع تحفظ فواتيره وسنداته كسجل مالي لكن دون نسبتها إليه وتحذف بياناته التشغيلية المواقع الزيارات')}`}
+          extra={<RepVanStockNote repId={deleting.id} />}
           confirmLabel={tr('حذف نهائي')}
           loading={deleteMutation.isPending}
           onConfirm={() => deleteMutation.mutate(deleting.id)}
@@ -348,6 +350,7 @@ function LedgerRepDeleteDialog({ rep, deactivating, deleting, onDeactivate, onDe
           {rep.isActive === false && (
             <p className="text-xs text-[#2F855A] mt-2">{tr('المندوب معطل بالفعل')}</p>
           )}
+          <RepVanStockNote repId={rep.id} />
         </div>
         <div className="flex flex-col gap-2 p-5 pt-0">
           <button onClick={onDeactivate} disabled={busy || rep.isActive === false}

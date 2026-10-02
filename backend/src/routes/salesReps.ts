@@ -221,8 +221,11 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
       // توجيه العقد لهذا المندوب تهيئةٌ لا سجلّ — يُحذف
       await tx.dailyReportOwnerRep.deleteMany({ where: { tenantId: tid, salesRepId: req.params.id } });
       await tx.notification.deleteMany({ where: { tenantId: tid, salesRepId: req.params.id } });
-      await tx.vanLoadItem.deleteMany({ where: { vanLoad: { salesRepId: req.params.id } } });
-      await tx.vanLoad.deleteMany({ where: { salesRepId: req.params.id } });
+      /* التحميل والتنزيل حركتا مخزون لا بيانات تشغيل: رصيد المستودع يُحسب من كل
+       * تحميلات الشركة، فمحوها (كما كان) يُعيد إليه كل ما حمّله المندوب وباعه —
+       * حادثة ٢ أكتوبر ٢٠٢٦. تبقى بمرجعٍ مفرَّغ، ومعرّفه في deletedSalesRepId كي
+       * تبقى «سيارته» مكدّساً مستقلاً في تقييم المستودع. والحذف يمضي دائماً (قرار المالك). */
+      await tx.vanLoad.updateMany({ where: { tenantId: tid, salesRepId: req.params.id }, data: { salesRepId: null, deletedSalesRepId: req.params.id } });
       await tx.repLocation.deleteMany({ where: { salesRepId: req.params.id } });
       await tx.repVisit.deleteMany({ where: { salesRepId: req.params.id } }); // صورها تُحذف تعاقبياً
       await tx.repSettlement.deleteMany({ where: { salesRepId: req.params.id } });

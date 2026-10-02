@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { useTr } from '../i18n/strings';
 import { backdropClose } from '../lib/backdropClose';
@@ -9,6 +10,8 @@ interface Props {
   cancelLabel?: string;
   danger?: boolean;
   loading?: boolean;
+  /** ما يُعرض تحت الرسالة (تحذيرٌ محسوب، كبضاعة سيارة المندوب قبل حذفه) */
+  extra?: ReactNode;
   onConfirm: () => void;
   onClose: () => void;
 }
@@ -16,7 +19,7 @@ interface Props {
 // نافذة تأكيد عامة (بديل احترافي لـ confirm/alert) — بهوية FieldSales
 export default function ConfirmDialog({
   title, message, confirmLabel, cancelLabel,
-  danger = false, loading = false, onConfirm, onClose,
+  danger = false, loading = false, extra, onConfirm, onClose,
 }: Props) {
   const tr = useTr();
   const t = title ?? tr('تأكيد');
@@ -31,6 +34,7 @@ export default function ConfirmDialog({
           </div>
           <h2 className="text-lg font-bold text-[#1F1A13]">{t}</h2>
           <p className="text-sm text-[#6E6557] mt-2 leading-relaxed">{message}</p>
+          {extra}
         </div>
         <div className="flex gap-3 p-5 pt-0">
           <button onClick={onConfirm} disabled={loading}

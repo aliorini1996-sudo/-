@@ -13,6 +13,9 @@ router.use(authenticate);
 router.use(requireAccounting); // عزل «النظام المحاسبي»
 router.use(requireAdminPermission('canManageVanStock'));
 
+/** مكان اسم مندوبٍ حُذف في سجلّ التحميلات — كتقارير الإقرار اليوميّ */
+const REP_GONE_NAME = 'مندوب محذوف';
+
 const loadSchema = z.object({
   salesRepId: z.string().optional(), // الأدمن يحدّده؛ المندوب يُستخدم معرّفه تلقائياً
   type: z.enum(['LOAD', 'UNLOAD', 'ADJUST']).default('LOAD'),
@@ -391,7 +394,9 @@ router.get('/loads', async (req: AuthRequest, res: Response, next: NextFunction)
         salesRep: { select: { id: true, name: true } },
       },
     });
-    res.json({ success: true, data: loads });
+    // تحميلات مندوبٍ محذوف تبقى (حركة مخزون) بلا مندوب — اسمٌ صريح لا null يكسر الواجهة.
+    // والمستخدم المقيَّد لا يراها أصلاً: قيد النطاق علاقةٌ بمندوب، والمفرَّغ لا يطابقها.
+    res.json({ success: true, data: loads.map(l => ({ ...l, salesRep: l.salesRep ?? { id: null, name: REP_GONE_NAME } })) });
   } catch (err) { next(err); }
 });
 

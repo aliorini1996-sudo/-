@@ -1214,8 +1214,16 @@ model VanLoad {
   id         String   @id @default(uuid())
   tenantId   String
   tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  salesRepId String
-  salesRep   SalesRep @relation(fields: [salesRepId], references: [id])
+  // اختياري + SetNull كالفاتورة والإقرار اليوميّ: التحميل **حركة مخزون**، ورصيد
+  // المستودع = الوارد + المُنزَّل − المُحمَّل على كل تحميلات الشركة. وكان حذف
+  // المندوب يمحو تحميلاته ليرضي المفتاح الإلزاميّ، فيقفز المستودع بكل ما حمّله
+  // وباعه (حادثة ٢ أكتوبر ٢٠٢٦: ثلاثة مناديب في دقائق). الآن يبقى الصفّ بلا مندوب.
+  salesRepId String?
+  salesRep   SalesRep? @relation(fields: [salesRepId], references: [id], onDelete: SetNull)
+  // معرّف المندوب بعد حذفه — يُكتب في معاملة الحذف حين يُفرَّغ salesRepId، بلا مفتاح
+  // أجنبيّ. هو مفتاح «سيارته» في تقييم المستودع (طبقات لكل سيارة، warehouseCost):
+  // بدونه تختلط حمولات مندوبَين محذوفَين في مكدّس واحد فتتغيّر قيمة المستودع بالحذف.
+  deletedSalesRepId String?
   type       String   @default("LOAD") // LOAD | UNLOAD | ADJUST
   note       String?
   createdBy  String? // "REP" | "ADMIN" — من سجّل الحركة

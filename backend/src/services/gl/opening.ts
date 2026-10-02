@@ -27,7 +27,7 @@ import {
 import { resolveTemplate } from './seed';
 import { isIncludedInOpening } from './sync/classify';
 import { LATE_COMMIT_WINDOW_MS } from './sync/types';
-import { composeWarehouse } from '../warehouseStock';
+import { composeWarehouse, vanKeyOf } from '../warehouseStock';
 import { IMPORT_BATCH_RUNNING, importBatchState } from '../importLedger';
 import {
   JOURNAL_CODE_BY_SYSTEM_KEY, LedgerError, createBuildContext,
@@ -976,11 +976,12 @@ export async function loadOpeningSources(db: GlDb, tenantId: string, cut: Openin
       }),
       db.vanLoadItem.findMany({
         where: { vanLoad: { tenantId, createdAt: createdWindow } },
-        select: { productId: true, qty: true, vanLoad: { select: { type: true, createdAt: true, salesRepId: true } } },
+        select: { productId: true, qty: true, vanLoad: { select: { type: true, createdAt: true, salesRepId: true, deletedSalesRepId: true } } },
       }),
     ]);
     warehouseItems = wh.map((i) => ({ productId: i.productId, qty: i.qty, type: i.entry.type, unitCost: i.unitCost, createdAt: i.entry.createdAt }));
-    vanItems = van.map((i) => ({ productId: i.productId, qty: i.qty, type: i.vanLoad.type, salesRepId: i.vanLoad.salesRepId, createdAt: i.vanLoad.createdAt }));
+    // مفتاح السيارة لا المندوب الحيّ وحده: تحميلات مندوبٍ محذوف تبقى مكدّسه المستقلّ (vanKeyOf)
+    vanItems = van.map((i) => ({ productId: i.productId, qty: i.qty, type: i.vanLoad.type, salesRepId: vanKeyOf(i.vanLoad), createdAt: i.vanLoad.createdAt }));
   }
 
   return { accountEntries, receipts, cashInvoices, settlements, settlementEntries, warehouseItems, vanItems, customerNames, salesRepNames };
