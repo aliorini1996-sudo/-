@@ -20,6 +20,8 @@ export const norm = (s) => String(s).replace(/[ً-ْٰـ]/g, '');
  * فتصير قاعدة النفي القديم حاجبة، واختبار claimsGuard.test.ts يقرأ العلم نفسه فلا يفشل
  * (كان التعليق يقول «احذف severity» والاختبار يثبّت 'warn' ⇒ الخطوة الموثّقة تُفشل web-ci).
  * بنود CMS التي تُحرَّر قبل القلب: docs/owner-actions.md §٨.
+ * قبل القلب: verify-claims يحجب النفي القديم الآتي من **نصوص المستودع** (الربط حيّ، فلا عذر له)،
+ * ويُبقي الآتي من **CMS** وحده تحذيراً (الإسناد: cmsCorpus/fromCms أدناه). بعد القلب: كله حاجب.
  */
 export const PHASE2_CMS_CLEANED = false;
 
@@ -145,9 +147,10 @@ export const RULES = [
   },
   {
     id: 'zatca-phase2-stale-denial',
-    // نفي قديم أو تموضع «المرحلة الأولى» يناقض الحقيقة الجديدة. **تحذير غير حاجب** حتى يُحرَّر CMS:
-    // prerender يجلب مقالات CMS إلى dist وفيها نفي قديم يحرّره المالك من لوحة CMS بعد التفعيل؛
-    // لو حُجب الآن لفشل كل بناء. بعد التحرير: PHASE2_CMS_CLEANED = true أعلاه (لا حذف severity يدوياً).
+    // نفي قديم أو تموضع «المرحلة الأولى» يناقض الحقيقة الجديدة. severity 'warn' حتى يُحرَّر CMS:
+    // prerender يجلب مقالات CMS إلى dist وفيها نفي قديم يحرّره المالك من لوحة CMS؛ لو حُجب كله الآن
+    // لفشل كل بناء. لذا verify-claims يرفع إلى حاجب كل مطابقة **لا** يجد نصّها في CMS (مصدرها المستودع)،
+    // ويُبقي مطابقات CMS تحذيراً. بعد التحرير: PHASE2_CMS_CLEANED = true أعلاه (لا حذف severity يدوياً).
     // تموضع «المرحلة الأولى» لا يُعدّ نفياً إن ذُكرت المرحلة الثانية في الجملة نفسها
     // («نصدر فاتورة المرحلة الأولى وندعم ربط المرحلة الثانية» صادقة).
     re: new RegExp([
@@ -159,6 +162,9 @@ export const RULES = [
       `(?<!${PHASE2}[^.؛\\n]{0,160})(?:${PHASE1_VERB}[^.؛\\n]{0,80}?|${PHASE1_NOUN}\\s*(?:ZATCA\\s*)?[(«]?\\s*)${PHASE1}(?![^.؛\\n]{0,160}${PHASE2})(?![^.؛\\n]{0,40}[؟?])`,
       'النطاق\\s*الذي\\s*(?:نعلنه|نغطيه|ندعمه)',
     ].join('|'), 'i'),
+    // مرشّح مسبق رخيص: كل بديل في النمط أعلاه يحوي واحدة من هذه — والنمط بنظرته الخلفية بطيء على
+    // النصوص الطويلة (١٧ ثانية على مقالات catalog كاملة)، فلا يُشغَّل على نصّ لا يحوي أياً منها.
+    pre: /مرحل|phase|aşama|阶段|نربط|نرتبط|مربوط|مرتبط|integrated|connected|linked|النطاق/i,
     ...(PHASE2_CMS_CLEANED ? {} : { severity: 'warn' }),
     why: 'نفي قديم للمرحلة الثانية (أو تموضع «المرحلة الأولى» وحدها) بعد تفعيل الربط — يناقض الحقيقة الجديدة',
   },
@@ -232,6 +238,7 @@ export function findViolation(rule, haystack) {
 /** كل المطابقات المُدانة (حتى limit) — لحصر بنود CMS كاملةً لا أول مطابقة في كل ملف */
 export function findViolations(rule, haystack, limit = Infinity) {
   const hay = norm(haystack);
+  if (rule.pre && !rule.pre.test(hay)) return [];
   const flags = rule.re.flags.includes('g') ? rule.re.flags : `${rule.re.flags}g`;
   const out = [];
   for (const m of hay.matchAll(new RegExp(rule.re.source, flags))) {
@@ -255,4 +262,39 @@ export function findViolations(rule, haystack, limit = Infinity) {
 /** معرّفات القواعد المُدانة في نصّ واحد (كل القواعد على النص نفسه) — للاختبار */
 export function checkText(text) {
   return RULES.filter((r) => findViolation(r, text)).map((r) => r.id);
+}
+
+/**
+ * إسناد مطابقة إلى CMS — لماذا: ربط المرحلة الثانية صار حيّاً، فالنفي القديم في **نصوص المستودع**
+ * خطأ لا عذر له ويُحجب الآن، أمّا الباقي في **مقالات CMS** فيحرّره المالك من اللوحة (owner-actions.md §٨)
+ * ويبقى تحذيراً حتى PHASE2_CMS_CLEANED. verify-claims يجلب CMS الحيّ ويسند كل مطابقة: إن وُجد نصّها
+ * حرفياً في CMS فمصدرها CMS، وإلا فالمستودع.
+ *
+ * المقارنة بعد norm وفكّ الكيانات وحذف الوسوم والمسافات ورموز Markdown الخفيفة: dist يفصل الوسوم
+ * بمسافات، وCMS قد يكتب **غامقاً** أو <strong>، فلا يُخطئ الإسناد بسبب الشكل.
+ * القيد المعروف: عبارة يكرّرها نصّ في المستودع حرفياً من CMS تُحسب على CMS — واختبار
+ * claimsGuard.test.ts يفحص مصادر المستودع مباشرةً فلا تفلت منه.
+ */
+const squash = (s) => norm(String(s))
+  .replace(/<[^>]+>/g, ' ')
+  .replace(/&nbsp;|&#160;/g, ' ').replace(/&quot;/g, '"').replace(/&#39;|&#x27;/g, "'")
+  .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+  .replace(/[\s*_#`]+/g, '');
+
+/** كل نصوص CMS في سلسلة واحدة مضغوطة (الفاصل U+0001 يمنع مطابقةً تعبر حقلين) */
+export function cmsCorpus(data) {
+  const parts = [];
+  const walk = (v) => {
+    if (typeof v === 'string') parts.push(squash(v));
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === 'object') Object.values(v).forEach(walk);
+  };
+  walk(data);
+  return parts.join('\u0001');
+}
+
+/** هل نصّ المطابقة موجود حرفياً في CMS؟ (corpus من cmsCorpus؛ بلا corpus لا إسناد ⇒ false) */
+export function fromCms(match, corpus) {
+  const m = squash(match);
+  return !!corpus && m.length > 0 && corpus.includes(m);
 }

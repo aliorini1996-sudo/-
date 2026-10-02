@@ -1,7 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { RULES, checkText, findViolation, norm, PHASE2_CMS_CLEANED } from '../../scripts/claims-rules.mjs';
+import { RULES, checkText, findViolation, findViolations, norm, PHASE2_CMS_CLEANED, cmsCorpus, fromCms } from '../../scripts/claims-rules.mjs';
+import { buildCatalog, getArticle, LANGS } from '../blog/seo/catalog.mjs';
+import { PROFILE_DEFAULTS } from './profileContent';
+import { TEMPLATES } from './templates';
 import { defaultContent } from '../landing/defaultContent';
 import { defaultContentEn } from '../landing/defaultContentEn';
 import { defaultContentFr } from '../landing/defaultContentFr';
@@ -272,4 +275,59 @@ test('النصوص المصيَّرة للزاحف في المصادر الخا�
   assert.ok(pre.length > 5000, 'لم تُقرأ قوالب prerender.mjs');
   const ids = checkText(stripTags(pre));
   assert.deepEqual(ids, [], `scripts/prerender.mjs: ${ids.join(',')}`);
+});
+
+/** قواعد الامتثال وحدها — قاعدة «الرأس» (dead-keyword-targeting) تخصّ العنوان والوصف لا حقول keywords */
+const COMPLIANCE_RULES = RULES.filter((r) => [APPROVED, DATED, STALE, 'eta-egypt-claim'].includes(r.id));
+
+test('مقالات catalog المولّدة بلغاتها الثلاث والبروفايل وبنك النماذج بلا ادّعاء امتثال محظور ولا نفي قديم', () => {
+  // أكثر من ٣٠٠ مقال تُصيَّر للزاحف وللزائر من المستودع مباشرة — نفيٌ قديم فيها خطأ مستودع لا بند CMS
+  const all: [string, string][] = [];
+  for (const e of buildCatalog()) {
+    for (const L of LANGS) {
+      const a = getArticle(e.slug, L);
+      if (a) collectStrings(a, `catalog.${e.slug}.${L}`, all);
+    }
+  }
+  const nCatalog = all.length;
+  collectStrings(PROFILE_DEFAULTS, 'PROFILE_DEFAULTS', all);
+  collectStrings(TEMPLATES, 'TEMPLATES', all);
+  assert.ok(nCatalog > 5000, `المجمِّع لم يقرأ مقالات catalog (${nCatalog} سلسلة) — الاختبار سينجح كاذباً`);
+  // السلاسل نفسها تتكرّر عبر الدول — يُفحص كل نصّ فريد مرّة (بأول مسار له) فلا يطول web-ci بلا فائدة
+  const unique = new Map<string, string>();
+  for (const [p, s] of all) if (!unique.has(s)) unique.set(s, p);
+  const offenders = [...unique].map(([s, p]) => [p, s] as const)
+    .map(([p, s]) => [p, COMPLIANCE_RULES.filter((r) => findViolation(r, stripTags(s))).map((r) => r.id)] as const)
+    .filter(([, ids]) => ids.length)
+    .map(([p, ids]) => `${p}: ${ids.join(',')}`);
+  assert.deepEqual(offenders, [], `نصوص مستودع يدينها الحارس:\n${offenders.join('\n')}`);
+  // سؤال «بلا إنترنت» السعودي يحمل قيد الاتصال للشركات المربوطة بالصيغة المعتمدة
+  assert.ok(all.some(([, s]) => /ربط المرحلة الثانية مع منصة فاتورة فتحتاج فيها الفاتورة الضريبية اتصالا/.test(s)), 'فُقد قيد الاتصال للشركات المربوطة من مقالات catalog');
+});
+
+test('إسناد النفي القديم: نصّ CMS يبقى تحذيراً ونصّ المستودع يُحجب (verify-claims)', () => {
+  const rule = RULES.find((r) => r.id === STALE)!;
+  // شكل CMS الحيّ: وسوم وتشكيل وMarkdown خفيف
+  const cms = {
+    blog: [{
+      slug: 'x',
+      title: 'فاتورة المرحلة الأولى من الميدان: دليل مناديب التوزيع',
+      contentHtml: '<p>أما <strong>المرحلة الثانية</strong> (الربط والتكامل) فغير مَبنيّة لدينا حتى الآن.</p>',
+      en: { contentHtml: 'On scope, plainly: we support **Phase 1** e-invoicing. Phase 2 integration is not built.' },
+    }],
+    split: { a: 'لا علاقة: المرحلة الثانية', b: 'غير مبنية' },
+  };
+  const corpus = cmsCorpus(cms);
+  // الشكل في dist: الوسوم مسافات، وعنوان الصفحة ملحق به
+  const page = 'فاتورة المرحلة الأولى من الميدان: دليل مناديب التوزيع | Field Sales . أما  المرحلة الثانية  (الربط والتكامل) فغير مبنية لدينا حتى الآن. On scope, plainly: we support Phase 1 e-invoicing. Phase 2 integration is not built.';
+  const found = findViolations(rule, page);
+  assert.ok(found.length >= 4, `لم تُكشف مطابقات CMS كلها (${found.length})`);
+  for (const v of found) assert.ok(fromCms(v.match, corpus), `مطابقة CMS أُسندت للمستودع: «${v.match}»`);
+  // نصّ مستودع مزروع في الصفحة نفسها يُسند للمستودع فيُحجب
+  const repo = findViolations(rule, `${page} . المرحلة الثانية قيد التطوير.`).filter((v) => !fromCms(v.match, corpus));
+  assert.equal(repo.length, 1, 'نفيٌ مزروع من المستودع لم يُفصل عن نفي CMS');
+  assert.match(repo[0].match, /قيد التطوير/);
+  // مطابقة تعبر حقلين في CMS ليست نصّ CMS، وبلا corpus لا إسناد
+  assert.equal(fromCms('المرحلة الثانية غير مبني', corpus), false);
+  assert.equal(fromCms(found[0].match, null), false);
 });

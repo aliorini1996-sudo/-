@@ -9,6 +9,8 @@ export interface ClaimRule {
   unlessBefore?: number;
   unlessAfter?: number;
   requireNear?: { re: RegExp; before: number; after: number };
+  /** مرشّح مسبق: لا يُشغَّل re على نصّ لا يطابقه (يجب أن يكون أوسع من re) */
+  pre?: RegExp;
   severity?: 'warn';
   scope?: 'head' | 'raw';
 }
@@ -26,3 +28,5 @@ export const RULES: ClaimRule[];
 export function findViolation(rule: ClaimRule, haystack: string): { index: number; match: string } | null;
 export function findViolations(rule: ClaimRule, haystack: string, limit?: number): { index: number; match: string }[];
 export function checkText(text: string): string[];
+export function cmsCorpus(data: unknown): string;
+export function fromCms(match: string, corpus: string | null): boolean;

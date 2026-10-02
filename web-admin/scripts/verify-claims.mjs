@@ -22,16 +22,19 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { RULES, findViolation } from './claims-rules.mjs';
+import { RULES, findViolation, findViolations, PHASE2_CMS_CLEANED, cmsCorpus, fromCms } from './claims-rules.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.resolve(__dirname, '../dist');
+const CMS_API = 'https://api.fieldsa.net/api/site-content';
+const STALE_ID = 'zatca-phase2-stale-denial';
 
-/** ملفات مستثناة بسبب موثّق (لا استثناء بلا سبب) */
-const ALLOW = [
-  // صفحة المطاعم: ادّعاء ZATCA م٢/ETA معلّق بقرار المالك (يُعالَج خارج هذا المسار)
-  { match: /[\\/]restaurant[\\/]/i, why: 'عمودية المطاعم — بقرار المالك' },
-];
+/**
+ * ملفات مستثناة بسبب موثّق (لا استثناء بلا سبب).
+ * ⚠️ رُفع استثناء /restaurant/: وحدة المطاعم أُزيلت من المنصة كاملةً (317260f) فلا صفحة تحته،
+ * وكان يُعفي كل القواعد — فأي صفحة تعود تحته كانت ستمرّ بادّعاء ETA مصر (stub غير مبني) أو اعتماد دون فحص.
+ */
+const ALLOW = [];
 
 // القواعد وأسبابها واستثناءاتها: scripts/claims-rules.mjs
 // ⚠️ الأنماط تُطبَّق على النصّ المرئي المستخرج لا على HTML الخام قدر الإمكان،
@@ -75,10 +78,32 @@ if (!fs.existsSync(DIST)) {
   process.exit(1);
 }
 
+// إسناد النفي القديم لمصدره (claims-rules.mjs: cmsCorpus/fromCms): نصوص CMS الحيّة تُجلب هنا كما جلبها
+// prerender وgen-llms قبل ثوانٍ. تعذّر الجلب ⇒ لا إسناد، فيبقى النفي كله تحذيراً في هذا البناء وحده
+// (ومصادر المستودع يحرسها claimsGuard.test.ts في web-ci على أي حال) — لا يُفشَل بناءٌ لعطل شبكة.
+let corpus = null;
+if (!PHASE2_CMS_CLEANED) {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 10000);
+    const r = await fetch(CMS_API, { signal: ctrl.signal });
+    clearTimeout(t);
+    const data = (await r.json())?.data;
+    if (data && typeof data === 'object') corpus = cmsCorpus(data);
+  } catch { /* لا إسناد — انظر أعلاه */ }
+}
+
 const files = collect(DIST);
-const hits = new Map(); // ruleId → [{file, sample}]
-const counts = new Map(); // ruleId → عدد الملفات
+const hits = new Map(); // `${level}:${ruleId}` → [{file, sample}]
+const counts = new Map(); // `${level}:${ruleId}` → عدد الملفات
 let skipped = 0;
+const record = (level, id, file, v) => {
+  const key = `${level}:${id}`;
+  if (!hits.has(key)) hits.set(key, []);
+  counts.set(key, (counts.get(key) || 0) + 1);
+  const list = hits.get(key);
+  if (list.length < 3) list.push({ file, sample: v.match.slice(0, 60) });
+};
 
 for (const f of files) {
   const rel = path.relative(DIST, f);
@@ -94,25 +119,41 @@ for (const f of files) {
 
   for (const rule of RULES) {
     const haystack = rule.scope === 'head' ? head : rule.scope === 'raw' ? raw : text;
+    if (rule.id === STALE_ID && rule.severity === 'warn') {
+      // قبل قلب العلم: مطابقة يوجد نصّها في CMS ⇒ تحذير (بند §٨ عند المالك)، وغيرها ⇒ حاجب (نصّ مستودع)
+      const all = findViolations(rule, haystack);
+      const repo = corpus ? all.find((v) => !fromCms(v.match, corpus)) : null;
+      const cms = all.find((v) => !corpus || fromCms(v.match, corpus));
+      if (repo) record('block', rule.id, rel, repo);
+      if (cms) record('warn', rule.id, rel, cms);
+      continue;
+    }
     // كل المطابقات تُفحص (لا الأولى وحدها) مع نافذة النفي/الموعد — انظر findViolation
     const v = findViolation(rule, haystack);
-    if (!v) continue;
-    if (!hits.has(rule.id)) hits.set(rule.id, []);
-    counts.set(rule.id, (counts.get(rule.id) || 0) + 1);
-    const list = hits.get(rule.id);
-    if (list.length < 3) list.push({ file: rel, sample: v.match.slice(0, 60) });
+    if (v) record(rule.severity === 'warn' ? 'warn' : 'block', rule.id, rel, v);
   }
 }
 
 console.log(`فحص الادّعاءات على ${files.length} ملف مُصيَّر (مستثنى: ${skipped}).`);
+if (!PHASE2_CMS_CLEANED) {
+  console.log(corpus
+    ? `  إسناد النفي القديم: CMS الحيّ مجلوب — نصوص المستودع حاجبة، ونصوص CMS تحذير حتى PHASE2_CMS_CLEANED.`
+    : `  ⚠ تعذّر جلب CMS: لا إسناد في هذا البناء — النفي القديم كله تحذير (مصادر المستودع يحرسها claimsGuard.test.ts).`);
+}
 
-const blocking = [...hits.keys()].filter((id) => RULES.find((r) => r.id === id).severity !== 'warn');
-const warnings = [...hits.keys()].filter((id) => RULES.find((r) => r.id === id).severity === 'warn');
+const keysOf = (level) => [...hits.keys()].filter((k) => k.startsWith(`${level}:`));
+const blocking = keysOf('block');
+const warnings = keysOf('warn');
+const label = (key) => {
+  const id = key.slice(key.indexOf(':') + 1);
+  const src = id === STALE_ID && !PHASE2_CMS_CLEANED ? (key.startsWith('warn:') ? (corpus ? ' (نصّ CMS)' : ' (بلا إسناد)') : ' (نصّ المستودع)') : '';
+  return { id, src, why: RULES.find((r) => r.id === id).why };
+};
 
-for (const id of warnings) {
-  const rule = RULES.find((r) => r.id === id);
-  console.warn(`\n  ⚠ تحذير غير حاجب [${id}] ${rule.why} — ${counts.get(id)} ملف`);
-  for (const h of hits.get(id)) console.warn(`      ${h.file} — «${h.sample}»`);
+for (const key of warnings) {
+  const { id, src, why } = label(key);
+  console.warn(`\n  ⚠ تحذير غير حاجب [${id}]${src} ${why} — ${counts.get(key)} ملف`);
+  for (const h of hits.get(key)) console.warn(`      ${h.file} — «${h.sample}»`);
 }
 
 if (!blocking.length) {
@@ -120,10 +161,10 @@ if (!blocking.length) {
   process.exit(0);
 }
 
-for (const id of blocking) {
-  const rule = RULES.find((r) => r.id === id);
-  console.error(`\n  ✗ [${id}] ${rule.why}`);
-  for (const h of hits.get(id)) console.error(`      ${h.file} — «${h.sample}»`);
+for (const key of blocking) {
+  const { id, src, why } = label(key);
+  console.error(`\n  ✗ [${id}]${src} ${why} — ${counts.get(key)} ملف`);
+  for (const h of hits.get(key)) console.error(`      ${h.file} — «${h.sample}»`);
 }
 console.error(`\n✗ فحص الادّعاءات فشل (${blocking.length} قاعدة).`);
 process.exit(1);
