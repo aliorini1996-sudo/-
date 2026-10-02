@@ -331,3 +331,19 @@ test('إسناد النفي القديم: نصّ CMS يبقى تحذيراً و�
   assert.equal(fromCms('المرحلة الثانية غير مبني', corpus), false);
   assert.equal(fromCms(found[0].match, null), false);
 });
+
+test('وعد إصدار الفاتورة بلا اتصال في صفحات القطاعات يحمل قيد الاتصال للشركات المربوطة', () => {
+  // صفحة القطاع تعلن «ندعم ربط المرحلة الثانية» في صندوق الإنصاف، فوعدٌ مطلق بإصدار الفاتورة دون اتصال
+  // في الصفحة نفسها يَعِد الشركة المربوطة بما لا تملكه (قرار المالك: فاتورتها الضريبية تحتاج اتصالاً).
+  // النسختان: src/content/sectors.ts (React) وscripts/sectors-data.mjs (prerender للزاحف).
+  const OFFLINE_ISSUE = /(?:يصدر|تصدر)[^.؟\n]{0,80}(?:دون اتصال|بلا اتصال|بلا إنترنت)/;
+  const raw = readFileSync(new URL('../../scripts/sectors-data.mjs', import.meta.url), 'utf8');
+  const strings = [
+    ...collectStrings(SECTORS, 'SECTORS').map(([, s]) => s),
+    ...[...raw.matchAll(/'([^'\n]*)'/g)].map((m) => m[1]),
+  ].map(norm);
+  const promises = strings.filter((s) => OFFLINE_ISSUE.test(s));
+  assert.ok(promises.length >= 6, `لم تُقرأ وعود الإصدار دون اتصال في النسختين (${promises.length})`);
+  const bare = promises.filter((s) => !/ربط المرحلة الثانية/.test(s));
+  assert.deepEqual(bare, [], 'وعد إصدار دون اتصال بلا قيد الشركات المربوطة');
+});
