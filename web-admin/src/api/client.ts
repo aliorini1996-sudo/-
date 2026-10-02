@@ -278,6 +278,8 @@ export const tenantApi = {
   list: () => api.get('/tenants'),
   get: (id: string) => api.get(`/tenants/${id}`),
   performance: (id: string) => api.get(`/tenants/${id}/performance`),
+  // ما مرّ عبر المنصة: عدد الفواتير وإجمالي المبيعات لكل عملة
+  platformTotals: () => api.get('/tenants/platform-totals'),
   create: (data: unknown) => api.post('/tenants', data),
   update: (id: string, data: unknown) => api.put(`/tenants/${id}`, data),
   resetAdmin: (id: string, data: { adminId?: string; newPassword: string }) => api.post(`/tenants/${id}/reset-admin`, data),

@@ -85,6 +85,48 @@ router.post('/ops/weekly-report', async (_req: AuthRequest, res: Response, next:
   try { const sent = await sendWeeklyReport(); res.json({ success: true, data: { sent } }); } catch (err) { next(err); }
 });
 
+/**
+ * ما مرّ عبر المنصة: عدد الفواتير المصدرة وإجمالي مبيعاتها (طلب المالك، ٢ أكتوبر ٢٠٢٦). التعريف تعريف نافذة أداء
+ * الشركة نفسه: فواتير مؤكَّدة غير مرتجعة. والمبيعات لكل عملة على حدة — شركاتٌ بالريال وأخرى بالدينار أو الدولار، وجمعها
+ * في رقم واحد كاذب. يُحفظ دقيقةً: تجميع على جدول الفواتير كله في قاعدة صغيرة.
+ */
+let platformTotalsCache: { at: number; data: unknown } | null = null;
+router.get('/platform-totals', async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (platformTotalsCache && Date.now() - platformTotalsCache.at < 60_000) {
+      res.json({ success: true, data: platformTotalsCache.data });
+      return;
+    }
+    const [byTenant, settings] = await Promise.all([
+      prisma.invoice.groupBy({
+        by: ['tenantId'],
+        where: { status: 'CONFIRMED', type: { not: 'RETURN' } },
+        _count: { _all: true },
+        _sum: { total: true },
+      }),
+      prisma.companySettings.findMany({ select: { tenantId: true, currency: true } }),
+    ]);
+    const currencyOf = new Map(settings.map(s => [s.tenantId, s.currency || 'SAR']));
+    const totals = new Map<string, { total: number; invoices: number }>();
+    let invoicesCount = 0;
+    for (const row of byTenant) {
+      const cur = currencyOf.get(row.tenantId) ?? 'SAR';
+      const t = totals.get(cur) ?? { total: 0, invoices: 0 };
+      t.total += Number(row._sum.total ?? 0);
+      t.invoices += row._count._all;
+      totals.set(cur, t);
+      invoicesCount += row._count._all;
+    }
+    const data = {
+      invoicesCount,
+      salesByCurrency: [...totals].map(([currency, t]) => ({ currency, total: Math.round(t.total * 1000) / 1000, invoices: t.invoices }))
+        .sort((a, b) => b.invoices - a.invoices),
+    };
+    platformTotalsCache = { at: Date.now(), data };
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+});
+
 // قائمة الشركات مع ملخص لكل واحدة
 router.get('/', async (_req: AuthRequest, res: Response, next: NextFunction) => {
   try {

@@ -2,7 +2,7 @@ import { useState, useMemo, lazy, Suspense } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { tenantApi } from '../api/client';
 import { Tenant } from '../types';
-import { formatDate, formatCurrency } from '../utils/format';
+import { formatDate, formatCurrency, formatNumber } from '../utils/format';
 import { useAuthStore } from '../store/authStore';
 import {
   Building2, Plus, LogOut, Power, Users, FileText,
@@ -57,6 +57,11 @@ export default function PlatformPage() {
   const { data: tenants, isLoading } = useQuery({
     queryKey: ['tenants'],
     queryFn: async () => { const res = await tenantApi.list(); return res.data.data as Tenant[]; },
+  });
+  const { data: totals, isError: totalsError } = useQuery({
+    queryKey: ['platform-totals'],
+    queryFn: async () => (await tenantApi.platformTotals()).data.data as PlatformTotals,
+    staleTime: 60_000,
   });
 
   const toggleMutation = useMutation({
@@ -163,10 +168,11 @@ export default function PlatformPage() {
       {/* المحتوى الرئيسي */}
       <main className="flex-1 overflow-y-auto">
       <div className="max-w-7xl mx-auto px-6 py-6">
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <StatBox icon={Building2} label={tr('إجمالي العملاء')} value={String(tenants?.length ?? 0)} color="bg-[#1F1A13]" />
           <StatBox icon={Truck} label={tr('شركات التوزيع')} value={String(tenants?.length ?? 0)} color="bg-[#E15A30]" />
           <StatBox icon={CheckCircle2} label={tr('اشتراكات نشطة')} value={String(activeCount)} color="bg-green-500" />
+          <PlatformTotalsBox totals={totals} failed={totalsError} />
         </div>
 
         <TenantColumn
@@ -718,6 +724,33 @@ function StatBox({ icon: Icon, label, value, color }: { icon: React.ElementType;
       <div>
         <p className="text-lg font-bold text-gray-800">{value}</p>
         <p className="text-xs text-gray-500">{label}</p>
+      </div>
+    </div>
+  );
+}
+
+interface PlatformTotals { invoicesCount: number; salesByCurrency: { currency: string; total: number; invoices: number }[] }
+
+// ما مرّ عبر المنصة: عدد الفواتير المصدرة، وإجمالي المبيعات لكل عملة (لا تُجمع عملتان في رقم واحد)
+function PlatformTotalsBox({ totals, failed }: { totals?: PlatformTotals; failed: boolean }) {
+  const tr = useTr();
+  const sales = totals?.salesByCurrency ?? [];
+  return (
+    <div className="bg-white rounded-2xl p-4 flex items-center gap-3 border border-gray-100">
+      <div className="w-11 h-11 bg-[#2563EB] rounded-xl flex items-center justify-center flex-shrink-0"><ReceiptText size={22} className="text-white" /></div>
+      <div className="min-w-0">
+        <p className="text-lg font-bold text-gray-800">{failed ? '—' : totals ? formatNumber(totals.invoicesCount) : '…'}</p>
+        <p className="text-xs text-gray-500">{tr('فاتورة صدرت عبر المنصة')}</p>
+        {failed ? <p className="text-xs text-red-500 mt-0.5">{tr('تعذر التحميل')}</p>
+          : sales.length > 0 && (
+            <div className="mt-1 space-y-0.5">
+              {sales.map(s => (
+                <p key={s.currency} className="text-xs font-semibold text-gray-700 truncate" title={tr('إجمالي المبيعات')}>
+                  {tr('المبيعات')} {formatCurrency(s.total, s.currency)}
+                </p>
+              ))}
+            </div>
+          )}
       </div>
     </div>
   );

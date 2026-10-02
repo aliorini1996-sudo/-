@@ -752,6 +752,8 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'تقرير': { en: 'report', fr: 'rapport', tr: 'rapor', zh: '报表' },
   'عدد الفواتير': { en: 'Invoice count', fr: 'Nombre de factures', tr: 'Fatura sayısı', zh: '发票数量' },
   'إجمالي المبيعات': { en: 'Total sales', fr: 'Total des ventes', tr: 'Toplam satış', zh: '销售总额' },
+  'فاتورة صدرت عبر المنصة': { en: 'invoices issued on the platform', fr: 'factures émises sur la plateforme', tr: 'platformda kesilen fatura', zh: '平台开具的发票' },
+  'تعذر التحميل': { en: 'Could not load', fr: 'Chargement impossible', tr: 'Yüklenemedi', zh: '无法加载' },
   'التحصيل': { en: 'Collection', fr: 'Encaissement', tr: 'Tahsilat', zh: '收款' },
   'نسبة التحصيل %': { en: 'Collection rate %', fr: 'Taux d encaissement %', tr: 'Tahsilat oranı %', zh: '收款率 %' },
   'نسبة التحصيل': { en: 'Collection rate', fr: 'Taux d encaissement', tr: 'Tahsilat oranı', zh: '收款率' },
