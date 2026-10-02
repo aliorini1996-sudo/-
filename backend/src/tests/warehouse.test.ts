@@ -450,3 +450,223 @@ test('البند 40: حارسٌ ثابت — لا مستدعيَ إنتاجيّ�
   const opening = read('services/gl/opening.ts');
   assert.match(opening, /vans\.map\(\(i\) => \(\{[^\n]*\}\)\),\n(?:\s*\/\/[^\n]*\n)*\s*dec,\n\s*\);/, 'composeWarehouse في opening.ts يأخذ dec');
 });
+
+// ═══ العيب الرابع: «الحفرة» — تحميلٌ قبل أوّل حركة مستودع ═══
+//
+// السحب المكشوف يترك الدلو المقيَّم سالباً. وكان الواردُ بعده يدخل دلوه دون أن
+// يسدّه: الجردُ كلّه خارج التقييم والشراءُ كلّه إلى المقيَّم، فيُقسم كلّ تحميلٍ
+// بعدها بنسبةٍ سالبة — «خارج التقييم» يفوق الرصيد، والمتوسّط «—»، والقيمة مجموعُ
+// كلّ شراءٍ مسعَّرٍ منذ الأزل. والعيبُ صامتٌ فيما سبق لأنّ كلّ سيناريو يبدأ بوارد.
+
+test('الحفرة: سحبٌ مكشوف ثمّ جردٌ بلا ثمن — خارج التقييم لا يفوق الرصيد', () => {
+  const v = valueStock([
+    { qty: -352, kind: 'VAN_OUT', vanId: 'a' },   // حُمّل قبل أن يُسجَّل أيّ وارد
+    { qty: 606, kind: 'OTHER' },                  // ثمّ جردٌ أوّل
+    { qty: -5, kind: 'VAN_OUT', vanId: 'a' },
+  ]);
+  assert.equal(v.costedQty, 0);
+  assert.equal(v.uncostedQty, 249, 'لا ٢٥٤ فوق رصيدٍ قدره ٢٤٩ — الجرد سدّ النقص أوّلاً');
+  assert.equal(v.stockValue, 0);
+});
+
+test('الحفرة: سحبٌ مكشوف ثمّ شراءٌ مسعَّر — يسدّها أوّلاً والمتوسّط سعر الشراء', () => {
+  const v = valueStock([
+    { qty: -10, kind: 'VAN_OUT', vanId: 'a' },
+    { qty: 20, kind: 'RECEIVE', unitCost: 121.7391 },
+  ]);
+  assert.equal(v.costedQty, 10);
+  assert.equal(v.avgCost, 121.7391, 'لا ٢٤٣٫٤٨: قيمة العشرين على العشرة الباقية');
+  assert.equal(v.stockValue, 1217.39);
+});
+
+test('الحفرة: بعد أن يسدّها الجرد ينقص التحميلُ القيمةَ — لا تتراكم المشتريات أبداً', () => {
+  const v = valueStock([
+    { qty: -352, kind: 'VAN_OUT', vanId: 'a' },
+    { qty: 606, kind: 'OTHER' },
+    { qty: 10, kind: 'RECEIVE', unitCost: 150 },
+    { qty: -132, kind: 'VAN_OUT', vanId: 'a' },   // من الدلوين بنسبتهما: ٥ مقيَّمة
+  ]);
+  assert.equal(v.avgCost, 150);
+  assert.equal(v.costedQty, 5);
+  assert.equal(v.stockValue, 750, 'لا ١٥٠٠: التحميل كان لا يُنقص القيمة شيئاً');
+  assert.equal(v.uncostedQty, 127);
+});
+
+test('الحفرة المسعَّرة تُعمَّق بسعرها، ويسدّها شراءٌ أغلى دون أن يتجاوز المتوسّطُ سعرَه', () => {
+  const v = valueStock([
+    { qty: 10, kind: 'RECEIVE', unitCost: 2 },
+    { qty: -25, kind: 'VAN_OUT', vanId: 'a' },    // حفرة ١٥ بسعر ٢
+    { qty: -5, kind: 'OTHER' },                   // تعمّقت ٥ بسعرها: −٢٠ بـ−٤٠
+    { qty: 30, kind: 'RECEIVE', unitCost: 3 },
+  ]);
+  assert.equal(v.costedQty, 10);
+  assert.equal(v.avgCost, 3, 'لا ٥: العشرة الباقية من شراء الثلاثة لا غير');
+  assert.equal(v.stockValue, 30);
+});
+
+test('مكشوفٌ بلا متوسّطٍ معروف يعود غير مقيَّم — لا يخفض متوسّط الرصيد المسعَّر', () => {
+  const v = valueStock([
+    { qty: -10, kind: 'VAN_OUT', vanId: 'a' },    // خرج قبل أيّ سعر
+    { qty: 20, kind: 'RECEIVE', unitCost: 10 },   // سدّ الحفرة وبقيت ١٠ بعشرة
+    { qty: 10, kind: 'VAN_IN', vanId: 'a' },      // وعادت الحمولة نفسها
+  ]);
+  assert.equal(v.avgCost, 10, 'لا ٥: عائدٌ بلا كلفة لا يُقيَّم بصفرٍ داخل المسعَّر');
+  assert.equal(v.costedQty, 10);
+  assert.equal(v.stockValue, 100);
+  assert.equal(v.uncostedQty, 10);
+});
+
+test('مكشوفٌ في صنفٍ مختلط الدلوين يعود ذهاباً وإياباً إلى ما كان عليه تماماً', () => {
+  // الحفرة يسدّها دلوها من العائد قبل الآخر. والسدّ بنسبة تركيب العائد كان يُحلّ
+  // ٢٠ غير مقيَّمةٍ محلّ ٢٠ مقيَّمة فتربح القيمة ٢٠٠ من رحلةٍ لم تُبَع فيها حبّة.
+  const before = [
+    { qty: 100, kind: 'RECEIVE' as const },
+    { qty: 100, kind: 'RECEIVE' as const, unitCost: 10 },
+  ];
+  const v = valueStock([
+    ...before,
+    { qty: -250, kind: 'VAN_OUT', vanId: 'a' },   // ٥٠ فوق الرصيد بمتوسّط ١٠
+    { qty: 250, kind: 'VAN_IN', vanId: 'a' },
+  ]);
+  assert.deepEqual(v, valueStock(before));
+  assert.equal(v.stockValue, 1000, 'لا ١٢٠٠');
+  assert.equal(v.uncostedQty, 100);
+});
+
+test('سدُّ الحفرة بالضبط لا يخلّف غباراً بمتوسّطٍ وهميّ يُقيَّد به التحميل التالي', () => {
+  // الصرف بنسبة الدلوين يترك الرصيد ١٫٠٠٠٠٠٠٠٠٠٠٠٠٠٠٠٠٢ لا واحداً، فالحفرة
+  // ٠٫٩٩٩٩٩٩٩٩٩٩٩٩٩٩٩٨ ويسدّها شراءُ حبّةٍ ويبقى منه ٢×١٠⁻¹⁶ بقيمة ٣×١٠⁻¹⁴:
+  // كانت الشاشة تقول «متوسّط ١٢٨» لصنفٍ فارغ، ثمّ يُقيَّد التحميل التالي بـ١٢٨ —
+  // سعرٌ لا يعرفه أيّ شراء (١٠ أو ١١٧٫٣٩).
+  const filled = [
+    { qty: 5, kind: 'RECEIVE' as const },
+    { qty: 2, kind: 'RECEIVE' as const, unitCost: 10 },
+    { qty: -6, kind: 'VAN_OUT' as const, vanId: 'a' },
+    { qty: -2, kind: 'VAN_OUT' as const, vanId: 'b' },   // حفرةٌ «واحدة» بمتوسّط ١٠
+    { qty: 1, kind: 'RECEIVE' as const, unitCost: 117.3913 },
+  ];
+  assert.deepEqual(valueStock(filled), { avgCost: 0, stockValue: 0, costedQty: 0, uncostedQty: 0 }, 'لا متوسّط ١٢٨');
+  const v = valueStock([...filled, { qty: -5, kind: 'VAN_OUT', vanId: 'b' }]);
+  assert.equal(v.costedQty, -5);
+  assert.equal(v.stockValue, -50, 'بمتوسّط آخر رصيدٍ قائم (١٠) لا −٦٤٠');
+});
+
+test('مكشوفٌ على مستودعٍ فارغ بمتوسّط آخر رصيد — الحمولة في سندٍ أو سندين سواء', () => {
+  // تحميلٌ قبل أن يُدخَل وارد الضحى، ثمّ يعود الباقي مساءً. والسندان كانا يُقيّدان
+  // المكشوف بصفر فتُشطب كلفة الشراء ويعود الباقي خارج التقييم: ٩٠ وخمسٌ بلا قيمة.
+  const tail = [
+    { qty: 20, kind: 'RECEIVE' as const, unitCost: 6 },
+    { qty: 5, kind: 'VAN_IN' as const, vanId: 'a' },
+  ];
+  const head = { qty: 10, kind: 'RECEIVE' as const, unitCost: 5 };
+  const one = valueStock([head, { qty: -15, kind: 'VAN_OUT', vanId: 'a' }, ...tail]);
+  const two = valueStock([head, { qty: -10, kind: 'VAN_OUT', vanId: 'a' }, { qty: -5, kind: 'VAN_OUT', vanId: 'a' }, ...tail]);
+  assert.deepEqual(two, one);
+  assert.equal(two.stockValue, 115, 'لا ٩٠');
+  assert.equal(two.uncostedQty, 0, 'لا خمسٌ خارج التقييم');
+  assert.equal(two.avgCost, 5.75);
+});
+
+test('مكشوفٌ على مستودعٍ آخرُ رصيده بلا سعر يبقى بلا قيمة — لا يُستعار متوسّطٌ أقدم', () => {
+  const v = valueStock([
+    { qty: 10, kind: 'RECEIVE', unitCost: 5 },
+    { qty: -10, kind: 'VAN_OUT', vanId: 'a' },
+    { qty: 3, kind: 'RECEIVE' },                  // آخر رصيدٍ قائم: ثلاثٌ بلا سعر
+    { qty: -3, kind: 'VAN_OUT', vanId: 'a' },
+    { qty: -5, kind: 'VAN_OUT', vanId: 'a' },
+  ]);
+  assert.equal(v.costedQty, -5);
+  assert.equal(v.stockValue, 0, 'لا −٢٥ بمتوسّط ما قبل الثلاث');
+});
+
+// ═══ الحفرة على تسلسلٍ طويل — شركةٌ حُمّلت سياراتها قبل أوّل وارد ═══
+//
+// تسلسلٌ مجهَّل مشتقّ من حالةٍ حقيقية (لا شركة ولا أسماء ولا تواريخ، والكمّيات والأسعار
+// محوَّلة) لثلاثة أصناف كما يرتّبها composeWarehouse. R وارد [@سعر]، A تسوية مستودع،
+// L/U تحميل/تنزيل السيارة a أو b. قبل الإصلاح كان الصنف الأول يُعرض بمتوسّط «—»
+// وقيمةٍ تساوي كلّ ما اشتُري مسعَّراً منذ البداية، و«خارج التقييم» فوق رصيده.
+const REAL: Record<string, string> = {
+  P1: `
+    La510 La20 Lb70 Lb30 Lb30 Lb20 Lb4 Lb20 A1212 R20 R10 Lb10 R20 Lb20 R12 R30 Lb10 R30 R8 Lb8 R20 R16
+    Lb16 A20 R10 Lb10 R20 R100 Lb10 La10 R100 Lb16 R16 Lb20 La32 La12 La2 Lb22 La20 La8 La34 R22@90 Lb22
+    R10@90 Lb10 La14 Lb30 R30@78.2609 La20 R20@73.0435 R40@72 La10 Lb30 A-16 R10@73.0435 La10
+    R60@73.0435 R10@70.4348 Lb30 La40 R100@70.4348 Lb30 Lb30 La8 La4 La4
+  `,
+  P2: `
+    La30 Lb20 Lb20 A150 R20 Lb2 R30 Lb30 R28 Lb10 R10 R40 Lb20 R20 R10 Lb10 Lb10 R20 R20 Lb20 R10 R10 R40
+    Lb10 R10 Lb10 R20 R4 Lb4 A16 R30 Lb30 R10 R100 A80 A-160 R28 R30@87 Lb30 A-28 Lb20 R20@87 R20@87
+    Lb20 Lb20 R20@75.6522 La10 R10@73.0435 La2 R100@70.4348 Lb14 La24 Lb30 R60@70.4348 La30 La24 Lb10
+    La4 La2 R60@70.4348 R20@67.8261 Lb24 La6 Lb10 La28 Lb16 R40@70.4348 Lb20 La20 R60@67.8261 La20
+    Lb40
+  `,
+  P3: `
+    La4 Lb20 Lb20 A66 R12 Lb2 R20 Lb20 R20 Lb20 R20 Lb20 R10 Lb10 R10 Lb10 A6 R2 Lb2 R30 Lb30 R80 R20
+    Lb40 R100 Lb36 Lb40 La8 La2 La2 Lb40 La4 Lb26 Lb20 Lb40 R40@73.0435 La10 R30@73.0435
+    R100@70.4348 Lb30 R50@70.4348 Lb30 R30@67.8261 A-2 Ub2 La22 Lb20 Lb14 La20 Lb18 R26@65.2174
+    Lb26 Ub2
+  `,
+};
+
+/** يحوّل التسلسل إلى مدخلات composeWarehouse بلحظاتٍ متتالية تحفظ ترتيبه */
+function realInputs() {
+  const products = Object.keys(REAL).map((code) => ({ id: code, name: code, code, unit: 'كرتون' }));
+  const wh: { productId: string; qty: number; type: string; unitCost?: number | null; at: number }[] = [];
+  const van: { productId: string; qty: number; type: string; salesRepId: string; at: number }[] = [];
+  const prices: Record<string, number[]> = {};
+  for (const [code, seq] of Object.entries(REAL)) {
+    prices[code] = [];
+    seq.trim().split(/\s+/).forEach((tok, k) => {
+      const at = k + 1;
+      const kind = tok[0];
+      const rest = tok.slice(1);
+      if (kind === 'R') {
+        const [q, c] = rest.split('@');
+        if (c) prices[code].push(Number(c));
+        wh.push({ productId: code, qty: Number(q), type: 'RECEIVE', unitCost: c ? Number(c) : null, at });
+      } else if (kind === 'A') {
+        wh.push({ productId: code, qty: Number(rest), type: 'ADJUST', at });
+      } else {
+        van.push({ productId: code, qty: Number(rest.slice(1)), type: kind === 'L' ? 'LOAD' : 'UNLOAD', salesRepId: rest[0], at });
+      }
+    });
+  }
+  return { products, wh, van, prices };
+}
+
+test('تسلسلٌ طويل قبل أوّل وارد: القيمة والمتوسّط وخارج التقييم بعد الإصلاح', () => {
+  const { products, wh, van } = realInputs();
+  const rows = composeWarehouse(products, wh, van, 2);
+  const p1 = byId(rows, 'P1');
+  assert.equal(p1.onHand, 674);
+  assert.equal(p1.stockValue, 17762.26, 'لا مجموع كلّ ما اشتُري مسعَّراً منذ البداية');
+  assert.equal(p1.avgCost, 73.7685, 'لا «—»');
+  assert.equal(p1.costedQty, 240.7839);
+  assert.equal(p1.uncostedQty, 433.2161, 'خارج التقييم دون الرصيد');
+
+  const p2 = byId(rows, 'P2');
+  assert.equal(p2.onHand, 308);
+  assert.equal(p2.avgCost, 71.4609);
+  assert.equal(p2.stockValue, 16177.69);
+  assert.equal(p2.costedQty, 226.3854);
+  assert.equal(p2.uncostedQty, 81.6146);
+
+  const p3 = byId(rows, 'P3');
+  assert.equal(p3.onHand, 68);
+  assert.equal(p3.stockValue, 4686.11);
+  assert.equal(p3.avgCost, 68.9133);
+  assert.equal(p3.costedQty, 68);
+  assert.equal(p3.uncostedQty, 0);
+
+  assert.equal(sumStockValue(rows), 38626.06);
+});
+
+test('تسلسلٌ طويل قبل أوّل وارد: كلّ رصيدٍ مقسومٌ على دلوين غير سالبين، والمتوسّط بين أسعار الشراء', () => {
+  const { products, wh, van, prices } = realInputs();
+  for (const r of composeWarehouse(products, wh, van, 2)) {
+    assert.ok(r.costedQty >= 0, `${r.code}: مقيَّمٌ سالب ${r.costedQty}`);
+    assert.ok(r.uncostedQty <= r.onHand, `${r.code}: خارج التقييم ${r.uncostedQty} فوق الرصيد ${r.onHand}`);
+    assert.ok(Math.abs(r.costedQty + r.uncostedQty - r.onHand) < 1e-3, `${r.code}: الدلوان لا يساويان الرصيد`);
+    assert.ok(r.avgCost >= Math.min(...prices[r.code]) && r.avgCost <= Math.max(...prices[r.code]),
+      `${r.code}: متوسّط ${r.avgCost} خارج أسعار الشراء`);
+  }
+});

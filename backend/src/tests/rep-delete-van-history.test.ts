@@ -26,7 +26,7 @@ let loadItems: Row[] = [];
 let calls: string[] = [];
 
 const products: Row[] = [
-  { id: 'P1', tenantId: T, name: 'مكسرات', code: 'A1', unit: 'كيس', status: 'ACTIVE' },
+  { id: 'P1', tenantId: T, name: 'منتج أ', code: 'A1', unit: 'كيس', status: 'ACTIVE' },
   { id: 'P2', tenantId: T, name: 'شاهي', code: 'A2', unit: 'علبة', status: 'ACTIVE' },
 ];
 // وارد بسعرين مختلفين كي يكون للتقييم معنى: طبقة كل سيارة تخرج بكلفة لحظتها

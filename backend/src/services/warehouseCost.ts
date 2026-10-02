@@ -128,6 +128,19 @@ export function hasAnyCost(items: { unitCost?: number | null }[]): boolean {
 //   هي ما نزل. وما يبيعه ب لن يعود، فتبقى طبقةُ أ الرخيصة في القاع أبداً وتبقى
 //   القيمة مضخَّمةً في كلّ إقفال. لذلك للطبقات **مكدّسٌ لكلّ سيارة** لا مكدّسٌ
 //   لكلّ صنف؛ والحركة التي لا سيارة لها تُجمع في مكدّسٍ مشترك واحد.
+//
+// ✗ **حفرةٌ تجاور دلواً موجباً**: تحميلٌ قبل أوّل حركة مستودع يُقيَّد مقيَّماً سالباً
+//   بصفر، ثمّ يدخل الجردُ اللاحق كلّه خارج التقييم والشراءُ كلّه إلى المقيَّم دون أن
+//   يسدّ أحدهما النقص. فيُقسم كلّ تحميلٍ بعدها بنسبةٍ سالبة: «خارج التقييم» يفوق
+//   الرصيد، والمتوسّط «—»، والقيمة مجموعُ كلّ شراءٍ مسعَّرٍ منذ الأزل لا يُنقصه تحميل
+//   (في حالةٍ حقيقية زادت القيمة نحو الربع). لذلك يسدّ كلُّ واردٍ الحفرةَ أوّلاً — `absorb`.
+//
+// ✗ **مكشوفٌ على مستودعٍ فارغ بلا قيمة**: تحميلُ ١٥ على عشرةٍ بخمسة يُقيَّد مكشوفُه
+//   بخمسة، لكنّ الحمولة نفسها في سندين (١٠ ثمّ ٥) كان مكشوفُها بصفر — فالمستودع
+//   فارغٌ لحظتها ولا «متوسّط لحظة». ثمّ يسدّ شراءُ الضحى الحفرةَ بقيمتها (صفر) فتُشطب
+//   كلفته، وتعود الخمسة مساءً **خارج التقييم**: ٩٠ وخمسٌ بلا قيمة بدل ١١٥. والنمط
+//   يوميّ: مستودعٌ ينفد ومندوبٌ يحمّل قبل أن يُدخَل الوارد. لذلك يُقيَّد المكشوف على
+//   مستودعٍ فارغ بمتوسّط **آخر رصيدٍ قائم** — صفرٌ إن لم يُعرف له سعرٌ قطّ.
 
 /** حركة مخزون واحدة، مرتّبةً زمنياً */
 export interface CostMove {
@@ -160,7 +173,14 @@ export interface Valuation {
   uncostedQty: number;  // الكمّية خارج التقييم — تُعلَن للمستخدم صراحةً
 }
 
-const avgOf = (s: CostState) => (s.costedQty > 0 ? s.costedValue / s.costedQty : 0);
+/** عتبةُ صفرٍ للكسور العائمة — أدقّ بمراتب من أصغر خانةٍ تُعرَض (١٠⁻⁴) */
+const EPS = 1e-9;
+
+/**
+ * متوسّط الدلو المقيَّم — وغبارُ كمّيةٍ دون العتبة لا متوسّطَ له: ٢×١٠⁻¹⁶ بقيمة
+ * ٣×١٠⁻¹⁴ «متوسّطها» ١٢٨ لا يعرفه أيّ شراء، ثمّ يُقيَّد به التحميل التالي.
+ */
+const avgOf = (s: CostState) => (s.costedQty > EPS ? s.costedValue / s.costedQty : 0);
 
 /**
  * طبقةٌ خرجت إلى سيارة ولم تعُد بعد، تحفظ كلفة خروجها لتعود بها.
@@ -173,18 +193,63 @@ interface VanLayer {
   uncostedQty: number;
 }
 
-/** عتبةُ صفرٍ للكسور العائمة — أدقّ بمراتب من أصغر خانةٍ تُعرَض (١٠⁻⁴) */
-const EPS = 1e-9;
+/**
+ * كلّ وارد — أيّاً كان نوعه — يسدّ «الحفرة» أوّلاً ثمّ يدخل دلويه.
+ *
+ * الحفرة دلوٌ مقيَّمٌ سالب خلّفه سحبٌ مكشوف (تحميلٌ قبل أن يُسجَّل وارده). تُسدّ
+ * بالقيمة التي قُيّدت بها هي (صفرٌ إن خرجت قبل أيّ سعر)، وفرقُ السعر بين ما خرج
+ * وما سدّه كلفةُ مبيعاتٍ لا مخزون. ويسدّها **دلوها** من الوارد قبل الآخر: حفرةٌ
+ * لها متوسّط يسدّها المقيَّم، وحفرةٌ بلا قيمة يسدّها غيرُ المقيَّم — فيعود المكشوف
+ * ذهاباً وإياباً إلى ما كان عليه تماماً ولو كان الصنف مختلط الدلوين (السدّ بنسبة
+ * التركيب كان يُحلّ غيرَ مقيَّمٍ محلّ مقيَّمٍ فتربح القيمة من رحلةٍ لم تُبَع فيها حبّة).
+ *
+ * بدون السدّ يقف دلوٌ مقيَّمٌ سالب بجانب دلوٍ غير مقيَّمٍ موجب: فيقسم الصرفُ بنسبةٍ
+ * سالبة (كسورٌ «خارج التقييم» تفوق الرصيد)، ويبقى المتوسّط صفراً فلا يُنقص أيُّ
+ * تحميلٍ القيمة، وتتراكم فيها كلُّ مشترياتٍ مسعَّرة إلى الأبد.
+ */
+function absorb(s: CostState, cq: number, cv: number, uq: number): void {
+  if (s.costedQty < -EPS) {
+    // يسدّ من كمّيةٍ واردة ما استطاع بقيمة الحفرة نفسها، ويُرجع ما سدّ
+    const fill = (q: number): number => {
+      const hole = -s.costedQty;
+      const f = Math.min(Math.max(q, 0), hole);
+      if (f >= hole - EPS) {
+        s.costedQty = 0;
+        s.costedValue = 0;
+      } else {
+        s.costedValue -= s.costedValue * (f / hole);
+        s.costedQty += f;
+      }
+      return f;
+    };
+    // وما بقي من الوارد بعد السدّ دون العتبة يُصفَّر: حفرةٌ ٠٫٩٩٩٩٩٩٩٩٩٩٩٩٩٩٩٨ يسدّها
+    // شراءُ حبّةٍ فيبقى منه ٢×١٠⁻¹⁶ بقيمة ٣×١٠⁻¹⁴ — رصيدٌ «فارغ» بمتوسّطٍ وهميّ
+    const fillCosted = () => {
+      const f = fill(cq);
+      if (cq - f <= EPS) { cq = 0; cv = 0; } else { cv -= cv * (f / cq); cq -= f; }
+    };
+    const fillUncosted = () => {
+      uq -= fill(uq);
+      if (uq <= EPS) uq = 0;
+    };
+    if (s.costedValue / s.costedQty > EPS) {
+      fillCosted();
+      if (s.costedQty < -EPS) fillUncosted();
+    } else {
+      fillUncosted();
+      if (s.costedQty < -EPS) fillCosted();
+    }
+  }
+  s.costedQty += cq;
+  s.costedValue += cv;
+  s.uncostedQty += uq;
+}
 
 /** يُدخل كمّيةً بلا ثمنٍ موثَّق: بمتوسّط اللحظة إن وُجد، وإلّا فخارج التقييم */
 function addAtAvg(s: CostState, qty: number): void {
   const avg = avgOf(s);
-  if (avg > 0) {
-    s.costedQty += qty;
-    s.costedValue += qty * avg;
-  } else {
-    s.uncostedQty += qty;
-  }
+  if (avg > 0) absorb(s, qty, qty * avg, 0);
+  else absorb(s, 0, 0, qty);
 }
 
 /**
@@ -202,6 +267,8 @@ function addAtAvg(s: CostState, qty: number): void {
  */
 export function valueStock(moves: CostMove[], decimals: number = DEFAULT_CURRENCY_DECIMALS): Valuation {
   const s: CostState = { costedQty: 0, costedValue: 0, uncostedQty: 0 };
+  // متوسّط آخر رصيدٍ قائم — يُقيَّد به المكشوف حين يفرغ المستودع
+  let lastAvg = 0;
   // ما على كلّ سيارةٍ الآن، بترتيب خروجه — يُستهلَك من آخره.
   // المفتاح معرّف السيارة؛ وحركةٌ بلا معرّف تقع في مكدّسٍ مشترك واحد.
   const stacks = new Map<string, VanLayer[]>();
@@ -219,14 +286,14 @@ export function valueStock(moves: CostMove[], decimals: number = DEFAULT_CURRENC
     if (m.qty > 0) {
       if (m.kind === 'RECEIVE' && priced) {
         // شراء بسعر: يدخل الدلو المعروف ويعيد ترجيح المتوسّط
-        s.costedQty += m.qty;
-        s.costedValue += m.qty * (m.unitCost as number);
+        absorb(s, m.qty, m.qty * (m.unitCost as number), 0);
       } else if (m.kind === 'RECEIVE') {
         // شراء بلا سعر: كمية في المستودع بلا قيمة موثَّقة — لا تُخمَّن
-        s.uncostedQty += m.qty;
+        absorb(s, 0, 0, m.qty);
       } else if (m.kind === 'VAN_IN') {
         // عائدٌ من سيارة: يرجع بالكلفة التي خرج بها، من آخر طبقةٍ حُمّلت
         let back = m.qty;
+        let cq = 0, cv = 0, uq = 0;
         const mine = stackOf(m.vanId);
         while (back > EPS && mine.length > 0) {
           const layer = mine[mine.length - 1];
@@ -238,13 +305,14 @@ export function valueStock(moves: CostMove[], decimals: number = DEFAULT_CURRENC
           const take = Math.min(back, avail);
           // الطبقة تُسحب بنسبة دلويها كما خرجت بها تماماً
           const fromCosted = take * (layer.costedQty / avail);
-          s.costedQty += fromCosted;
-          s.costedValue += fromCosted * layer.unitCost;
-          s.uncostedQty += take - fromCosted;
+          cq += fromCosted;
+          cv += fromCosted * layer.unitCost;
+          uq += take - fromCosted;
           layer.costedQty -= fromCosted;
           layer.uncostedQty -= take - fromCosted;
           back -= take;
         }
+        absorb(s, cq, cv, uq);
         // ما زاد عن كلّ ما حُمّل: بضاعةٌ كانت في السيارة قبل النظام — متوسّط اللحظة
         if (back > EPS) addAtAvg(s, back);
       } else {
@@ -257,17 +325,28 @@ export function valueStock(moves: CostMove[], decimals: number = DEFAULT_CURRENC
     // خروج: تحميلٌ لسيارة أو تسوية بالنقص — ينقص الدلوين بنسبتهما
     const out = -m.qty;
     const total = s.costedQty + s.uncostedQty;
-    // المتوسّط يُلتقط **قبل** الاستنزاف: الخارج يُقيَّم بمتوسّط لحظة خروجه
-    const avg = avgOf(s);
+    // المتوسّط يُلتقط **قبل** الاستنزاف: الخارج يُقيَّم بمتوسّط لحظة خروجه،
+    // وفي الحفرة متوسّطُ الحفرة نفسها فيبقى تعميقها بسعرها، وعلى مستودعٍ فارغ
+    // متوسّطُ آخر رصيدٍ قائم — فلا يتغيّر التقييم بشطر الحمولة الواحدة سندين
+    if (total > EPS) lastAvg = avgOf(s);
+    const avg = s.costedQty < -EPS ? s.costedValue / s.costedQty : total > EPS ? avgOf(s) : lastAvg;
 
     // ما يمكن سحبه من الموجود فعلاً، وما زاد عنه سحبٌ مكشوف
     const share = total > 0 ? Math.min(out, total) : 0;
     let fromCosted = 0;
     if (share > 0) {
+      // absorb يضمن ألّا تجاور الحفرةُ دلواً موجباً، فهنا الدلوان غير سالبين
       fromCosted = share * (s.costedQty / total);
-      s.costedQty -= fromCosted;
-      s.costedValue -= fromCosted * avg;
-      s.uncostedQty -= share - fromCosted;
+      if (share >= total - EPS) {
+        // استنزافٌ كامل يصفّر الدلوين معاً — لا بقايا كسورٍ تُحسب حفرةً أو رصيداً
+        s.costedQty = 0;
+        s.costedValue = 0;
+        s.uncostedQty = 0;
+      } else {
+        s.costedQty -= fromCosted;
+        s.costedValue -= fromCosted * avg;
+        s.uncostedQty -= share - fromCosted;
+      }
     }
 
     // السحب المكشوف (تحميلٌ يتجاوز الرصيد) يُقيَّد على الدلو المعروف بمتوسّطه،
@@ -281,11 +360,14 @@ export function valueStock(moves: CostMove[], decimals: number = DEFAULT_CURRENC
 
     // تحميل سيارة يحفظ طبقته بكلفة خروجها — والمكشوف منه يُحفَظ كذلك ليعود
     // بنفس ما خُصم به تماماً، فلا يخلّف الذهابُ والإيابُ فرقاً في القيمة.
+    // والمكشوف بلا متوسّطٍ معروف يُحفظ **غير مقيَّم**: لو عاد مقيَّماً بصفرٍ لخفّض
+    // متوسّط الرصيد المسعَّر بكمّيةٍ لا قيمة لها.
     if (m.kind === 'VAN_OUT') {
+      const deficitCosted = avg > 0 ? deficit : 0;
       stackOf(m.vanId).push({
-        costedQty: fromCosted + deficit,
+        costedQty: fromCosted + deficitCosted,
         unitCost: avg,
-        uncostedQty: share - fromCosted,
+        uncostedQty: share - fromCosted + (deficit - deficitCosted),
       });
     }
   }
