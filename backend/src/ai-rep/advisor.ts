@@ -117,9 +117,68 @@ const WORD_NUMBERS: [RegExp, string][] = [
   [/(^|[\s،,.:؛(])(?:[وبلف])?(كرتونين|كراتينين|حبتين|علبتين|كيسين|صندوقين|شدتين|شدّتين|درزنين|باكيتين|بكتين|قطعتين)(?=$|[\s،,.:؛)])/g, '$1 2 $2 '],
 ];
 
-/** نص الرد مهيّأً لفحص الأرقام: الأعداد بالكلمات أرقاماً، بلا مراجع المحلات (P3) ولا ترقيم أول السطر. */
+// أعداد بكلمات لغات الواجهة الأخرى (العقل يكتب بلغة المندوب) ← أرقام: حدّ الكلمة بالحروف كلها (لا «often» ولا «sixth»)،
+// والمركّب قبل أجزائه (dix-sept قبل dix). مستثنى عمداً كـ«واحد»: one/un/une/bir، وما يلتبس بكلمة شائعة: on (تركي ١٠
+// وإنجليزي «على»)، neuf (فرنسي «جديد»)، seize (إنجليزي «اغتنم»)، وyüz بلا عددٍ قبلها (تركي «وجه»: güler yüz).
+const latinWord = (w: string) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${w})(?![\\p{L}\\p{N}])`, 'giu');
+const LATIN_NUMBERS: [RegExp, number][] = ([
+  ['quatre-vingt-dix', 90], ['soixante-dix', 70], ['quatre-vingts?', 80], ['dix-sept', 17], ['dix-huit', 18], ['dix-neuf', 19],
+  ['two|deux|[iİ]ki', 2], ['three|trois|üç', 3], ['four|quatre|dört', 4], ['five|cinq|beş', 5], ['six|altı', 6],
+  ['seven|sept|yedi', 7], ['eight|huit|sekiz', 8], ['nine|dokuz', 9], ['ten|dix', 10], ['eleven|onze', 11],
+  ['twelve|douze|dozens?|douzaines?|düzine', 12], ['thirteen|treize', 13], ['fourteen|quatorze', 14], ['fifteen|quinze', 15],
+  ['sixteen', 16], ['seventeen', 17], ['eighteen', 18], ['nineteen', 19],
+  ['twenty|vingts?|yirmi', 20], ['thirty|trente|otuz', 30], ['forty|quarante|kırk', 40], ['fifty|cinquante|elli', 50],
+  ['sixty|soixante|altmış', 60], ['seventy|yetmiş', 70], ['eighty|seksen', 80], ['ninety|doksan', 90],
+] as [string, number][]).map(([w, n]) => [latinWord(w), n]);
+// «pour cent/per cent/percent» نسبةٌ لا مئة؛ والمئات والآلاف بعد عدد تضربه («9 hundred»، «dokuz yüz»، «deux mille»)
+const LATIN_PERCENT = latinWord('pour\\s*cent|per\\s*cent|percent');
+const LATIN_HUNDREDS = /(\d+(?:\.\d+)?)\s*-?\s*(?:hundreds?|cents?|yüz)(?![\p{L}\p{N}])/giu;
+const LATIN_THOUSANDS = /(\d+(?:\.\d+)?)\s*-?\s*(?:thousands?|mille|bin)(?![\p{L}\p{N}])/giu;
+const LATIN_HUNDRED = latinWord('hundreds?|cents?');
+const LATIN_THOUSAND = latinWord('thousands?|mille|bin');
+
+// الأعداد الصينية: تُقرأ قبل وحدة أو معدود («两箱»، «三家»، «八折») أو مركّبةً بمضاعف («九百»، «二十»، «一万») — لا
+// وحدها («五金» عدّة، «百货» سلع، «一些» بعض)، ولا «一» وحدها (كـ«واحد»)، ولا الترتيبي («第三»)، ولا «千万/万一/万万» (أبداً/لو).
+const ZH_DIGIT: Record<string, number> = { 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+const ZH_UNIT: Record<string, number> = { 十: 10, 百: 100, 千: 1000 };
+const ZH_SEQ = /(第)?([零〇一二两三四五六七八九十百千万]+)/g;
+const ZH_MEASURE = /^(?:个|家|间|箱|件|瓶|包|袋|盒|罐|桶|提|次|天|日|周|月|年|种|款|样|元|块|位|名|条|台|倍|成|折|米|公里|分钟|小时|%|％)/;
+const ZH_IDIOM = new Set(['千万', '万一', '万万']);
+
+function zhNumber(s: string): number {
+  let total = 0, section = 0, digit = 0;
+  for (const ch of s) {
+    if (ch in ZH_DIGIT) digit = ZH_DIGIT[ch];
+    else if (ch === '万') { total += (section + digit || 1) * 10000; section = 0; digit = 0; }
+    else { section += (digit || 1) * ZH_UNIT[ch]; digit = 0; }
+  }
+  return total + section + digit;
+}
+
+/** أعداد لغات الواجهة الأخرى بالكلمات ← أرقام (ليخضع كل عدد للحارس أياً كانت لغة الرد). */
+function foreignNumbers(t: string): string {
+  if (/[a-zçğıöşüéèêàâîôûœİ]/i.test(t)) {
+    t = t.replace(LATIN_PERCENT, ' % ');
+    for (const [re, n] of LATIN_NUMBERS) t = t.replace(re, ` ${n} `);
+    t = t.replace(LATIN_HUNDREDS, (_m, n) => ` ${Number(n) * 100} `).replace(LATIN_THOUSANDS, (_m, n) => ` ${Number(n) * 1000} `)
+      .replace(LATIN_HUNDRED, ' 100 ').replace(LATIN_THOUSAND, ' 1000 ');
+  }
+  if (/[零〇一二两三四五六七八九十百千万]/.test(t)) {
+    t = t.replace(/百分之/g, ' ')
+      .replace(/(\d+(?:\.\d+)?)\s*万/g, (_m, n) => ` ${Number(n) * 10000} `)
+      .replace(/(\d+(?:\.\d+)?)\s*千/g, (_m, n) => ` ${Number(n) * 1000} `)
+      .replace(ZH_SEQ, (m, ord: string | undefined, seq: string, at: number, all: string) => {
+        if (ord || seq === '一' || ZH_IDIOM.has(seq)) return m;
+        const measured = ZH_MEASURE.test(all.slice(at + m.length));
+        return measured || (seq.length > 1 && /[十百千万]/.test(seq)) ? ` ${zhNumber(seq)} ` : m;
+      });
+  }
+  return t;
+}
+
+/** نص الرد مهيّأً لفحص الأرقام: الأعداد بالكلمات أرقاماً (والإنجليزية والفرنسية والتركية والصينية)، بلا مراجع المحلات (P3) ولا ترقيم أول السطر. */
 export function numericView(s: string): string {
-  let t = normalizeDigits(s)
+  let t = foreignNumbers(normalizeDigits(s))
     // عبارات دارجة ليست أعداداً
     .replace(/(ألف|الف)\s+(مبروك|شكر|سلامة|سلامه|مرحبا|الحمد)/g, ' ')
     .replace(/(مية|مئة)\s+(ب|في)\s*(المية|المئة)/g, ' ')
@@ -185,9 +244,9 @@ export function unsupportedNumbers(text: string, allowed: Set<number>): number[]
   return [...new Set(bad)];
 }
 
-/** تقسيم إلى جمل — لا عند نقطة الكسر العشري (2.5). */
+/** تقسيم إلى جمل — لا عند نقطة الكسر العشري (2.5)، وبعلامات الصينية («。！？»). */
 function sentences(text: string): string[] {
-  return text.split(/(?<=[!؟?\n])\s*|(?<=\.)(?!\d)\s*/);
+  return text.split(/(?<=[!؟?\n。！？])\s*|(?<=\.)(?!\d)\s*/);
 }
 
 /** حذف الجمل التي تحوي رقماً غير مدعوم. */

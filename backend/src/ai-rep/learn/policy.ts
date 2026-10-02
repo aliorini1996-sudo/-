@@ -3,9 +3,10 @@
  * (أُسّ المسافة، وأوزان الثقة، ومضاعف قبول نوع المحل، وخطر الإغلاق في فترة اليوم) داخل منطقة ثقة ضيّقة كل ليلة.
  *
  * - التسمية: زيارات **المندوب نفسه** لمرشّحي دورته خلال ٧٢ ساعة (لا زيارات غيره — مقاومةً للتسميم). المحطّة المخطّطة
- *   غير المزورة تُحسب تخطّياً (u=0 بوزن ½)، والمغلق وحده «رحلة ضائعة» تُستبعد من الأزواج.
+ *   غير المزورة تُحسب تخطّياً (u=0 بوزن ½)، والمغلق (الآن أو نهائياً/لم أجده) وحده «رحلة ضائعة» تُستبعد من الأزواج.
  * - الهدف: التوافق الزوجي الموزون — هل رتّبت السياسة المحلَّ الذي تجاوب فوق الذي لم يتجاوب؟ بسقف ٣٥٪ لحصة أي مندوب.
  * - النقاط تُعاد من الميزات المخزّنة (AiTurn.candidates) بلا كيلومترات: km = منتصف شريحة المسافة.
+ * - الدورات: مسح المندوب (/scan) بميزات Google (SCAN_FS)؛ دورات /guide القديمة بميزات التوقّع لا تُسمّى (scanPlanTurns).
  * - لا ترقية إلا على الدورات المحجوبة (أحدث ٣٠٪) بفرق ≥ ٠٫٠٢ ومئين إقلاع عاشر > ٠ وبلا زيادة في المحلات المغلقة،
  *   وتراجع تلقائي إن ساء الترتيب بعد الترقية أو خسرت الذراع المتعلّمة أمام الضابطة حيّاً.
  * كل ما هنا صرف عدا loadPlanEvents (استعلام واحد مقيّد بالشركة على طرفي الربط).
@@ -16,7 +17,9 @@ import { PLAN_MAX_STOPS } from '../guide';
 import { outletTypeLabel } from '../taxonomy';
 import { BAND_MID_KM, hourBand } from './signals';
 import { bootstrapQuantile, clamp, hashPct, pGreater } from './stats';
-import { DEFAULT_POLICY, type Arm, type CandFeature, type ConfLevel, type FieldStats, type PolicyParams } from './types';
+import {
+  DEFAULT_POLICY, SCAN_CLOSED_NOW_W, SCAN_FOLLOW_UP_BOOST, SCAN_FS, type Arm, type CandFeature, type ConfLevel, type FieldStats, type PolicyParams,
+} from './types';
 
 const TZ = 'Asia/Riyadh';
 const LABEL_WINDOW_MS = 72 * 3600_000;
@@ -67,6 +70,22 @@ export async function loadPlanEvents(tid: string, since: Date, until?: Date): Pr
   }));
 }
 
+/**
+ * دورات التوجيه الصالحة للتسمية: مرشّحوها بمخطّط المسح (SCAN_FS) وحده — دورات /guide القديمة (قيمة التوقّع وثقته)
+ * معنى ميزاتها مختلف فلا تُخلط بها سياسةٌ تُطبَّق على المسح.
+ */
+export function scanPlanTurns(rows: Array<{
+  id: string; salesRepId: string; createdAt: Date; arm: string; policyVersion: number; hourBand: number | null; candidates: unknown;
+}>): PlanTurn[] {
+  return rows
+    .filter(r => Array.isArray(r.candidates) && r.candidates.length > 0
+      && (r.candidates as Array<Partial<CandFeature> | null>).every(f => f?.fs === SCAN_FS && typeof f.p === 'string'))
+    .map(r => ({
+      id: r.id, salesRepId: r.salesRepId, createdAt: r.createdAt, arm: r.arm, policyVersion: r.policyVersion, hb: r.hourBand,
+      candidates: r.candidates as CandFeature[],
+    }));
+}
+
 /** زيارة فعلية (ولو وُجد مغلقاً)، لا محطّة مخطّطة تُخطّيت. */
 const isVisit = (l: Label): boolean => l.wasted || l.w !== SKIP_W;
 
@@ -96,7 +115,8 @@ export function buildPlanLabels(turns: PlanTurn[], events: PlanEvent[]): Map<str
         continue;
       }
       const w = evs.some(e => e.atDoor === true) ? 1 : evs.every(e => e.atDoor == null) ? 0.7 : 0.4;
-      const real = evs.filter(e => e.kind !== 'CLOSED');
+      // «مغلق الآن» و«لم أجده» مشوارٌ ضائع كلاهما (لا تقييم)
+      const real = evs.filter(e => e.kind !== 'CLOSED' && e.kind !== 'NOT_FOUND');
       if (!real.length) { labels.push({ p: f.p, u: 0, w, wasted: true }); continue; }
       let u = Math.max(...real.map(e => U_BY_KIND[e.kind] ?? 0));
       const conv = evs.find(e => e.convertedAt)?.convertedAt?.getTime();
@@ -112,12 +132,21 @@ export function buildPlanLabels(turns: PlanTurn[], events: PlanEvent[]): Map<str
 
 /** نقاط مرشّح من ميزاته المخزّنة — مطابقة لـguide.scoreWith (V=v، km=منتصف الشريحة، الثقة، النوع). */
 export function scoreFeature(f: CandFeature, p: PolicyParams, hb: number): number {
+  return scoreAt(f, p, hb, BAND_MID_KM[f.b] ?? BAND_MID_KM[BAND_MID_KM.length - 1]);
+}
+
+/**
+ * النقاط بمسافة معلومة: الترتيب الحيّ بالمسافة الفعلية، والليلة بمنتصف الشريحة (المسافة لا تُخزَّن).
+ * ميزات المسح وحدها: المغلق الآن (o=0) ×٠٫٣٥ والمتابعة (lo=S) ×١٫٢٥ كما في shopScore — فبالسياسة الافتراضية للمسح = shopScore.
+ */
+export function scoreAt(f: Pick<CandFeature, 'v' | 'c' | 't' | 'lo' | 'o' | 'fs'>, p: PolicyParams, hb: number, km: number): number {
   const w = p.confW[f.c] ?? (f.c === 'NONE' ? 0.4 : 0.5);
   const tm = p.typeMult[f.t] ?? 1;
   const risk = p.useClosed && p.closedRisk?.[f.t] ? 1 - (p.closedRisk[f.t][hb] ?? 0) : 1;
-  const km = BAND_MID_KM[f.b] ?? BAND_MID_KM[BAND_MID_KM.length - 1];
+  const open = f.o === 0 ? SCAN_CLOSED_NOW_W : 1;
+  const follow = f.fs === SCAN_FS && f.lo === 'S' ? SCAN_FOLLOW_UP_BOOST : 1;
   const denom = p.alpha === 1 ? 0.3 + km : Math.pow(0.3 + km, p.alpha);
-  return (f.v * w * tm * risk) / denom;
+  return (f.v * w * tm * risk * open * follow) / denom;
 }
 
 const bandCache = new Map<number, number>();
@@ -395,9 +424,9 @@ export function checkPolicyRollback(i: { sincePromotion: PlanTurn[]; labels: Map
 }
 
 /** مقياس الأثر الأساسي للإدارة: توافق السياسة النشطة مقابل الافتراضية على الزيارات نفسها، بفاصل إقلاع ٩٠٪. */
-export function counterfactualLift(turns: PlanTurn[], labels: Map<string, Label[]>, active: PolicyParams, seed: number):
+export function counterfactualLift(turns: PlanTurn[], labels: Map<string, Label[]>, active: PolicyParams, seed: number, base: PolicyParams = DEFAULT_POLICY):
   { cDefault: number; cActive: number; dC: number; lo90: number; hi90: number; pairs: number; turns: number } {
-  const L = pairedLift(turns, labels, DEFAULT_POLICY, active);
+  const L = pairedLift(turns, labels, base, active);
   return { cDefault: L.cBase, cActive: L.cNext, dC: L.dC, lo90: L.q(0.05, seed), hi90: L.q(0.95, seed), pairs: L.pairs, turns: L.turns };
 }
 
@@ -408,8 +437,9 @@ const arNum = (x: number): string => String(Math.round(x * 100) / 100).replace(/
 const onOff = (b: boolean): string => (b ? 'مفعّلة' : 'موقوفة');
 const near = (a: number, b: number): boolean => Math.abs(a - b) <= 1e-9;
 
+// الثقة في مخطّط المسح من عدد مقيّمي المحل في Google
 const CONF_LABEL_AR: Record<ConfLevel, string> = {
-  HIGH: 'وزن الفرص عالية الثقة', MEDIUM: 'وزن الفرص متوسطة الثقة', LOW: 'وزن الفرص منخفضة الثقة', NONE: 'وزن الفرص بلا توقّع كافٍ',
+  HIGH: 'وزن المحلات كثيرة المقيّمين', MEDIUM: 'وزن المحلات متوسطة المقيّمين', LOW: 'وزن المحلات قليلة المقيّمين', NONE: 'وزن المحلات بلا تقييم معروف',
 };
 
 /** ملخّص عربي للإدارة بما تغيّر بين نسختين، مثل «وزن الفرص منخفضة الثقة ٠٫٥ ← ٠٫٤». */

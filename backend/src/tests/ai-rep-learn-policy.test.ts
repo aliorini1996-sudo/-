@@ -522,7 +522,7 @@ test('assignArm: حتمي لكل (شركة، مندوب، يوم)، ونحو ٢�
 test('describePolicy بالعربية وبأرقام عربية، و samePolicy', () => {
   const next = pol({ alpha: 1.2, confW: { HIGH: 1, MEDIUM: 0.8, LOW: 0.4, NONE: 0.4 }, typeMult: { GROCERY: 1.2 }, useClosed: true, closedRisk: { CAFE: [0.3, 0, 0, 0, 0] } });
   const s = P.describePolicy(DEFAULT_POLICY, next);
-  assert.ok(s.includes('وزن الفرص منخفضة الثقة ٠٫٥ ← ٠٫٤'), s);
+  assert.ok(s.includes('وزن المحلات قليلة المقيّمين ٠٫٥ ← ٠٫٤'), s);
   assert.ok(s.includes('١ ← ١٫٢'), s);
   assert.ok(s.includes('«بقالة / تموينات» ١ ← ١٫٢'), s);
   assert.ok(s.includes('مراعاة أوقات إغلاق المحلات: موقوفة ← مفعّلة'), s);

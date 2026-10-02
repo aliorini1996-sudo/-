@@ -187,9 +187,9 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       if (!allowedForRep || taken) data.aiPlaceId = null;
     }
     const { clientCreatedAt, locationUrl, ...rest } = data;
-    // رابط موقع مُرسَل ⇒ يُحلّ إلى إحداثيات (مباشر/مختصر/اسم مكان) — يُتجاهل عند الفشل
+    // رابط موقع مُرسَل ⇒ يُحلّ إلى إحداثيات (مباشر/مختصر/اسم مكان) — يُتجاهل عند الفشل؛ لا يجلب الخادم إلا روابط Google (SSRF)
     if (locationUrl) {
-      const geo = await resolveLocationUrl(locationUrl);
+      const geo = await resolveLocationUrl(locationUrl, { googleOnly: true });
       if (geo) { rest.lat = geo.lat; rest.lng = geo.lng; }
     }
     // idempotency على مستوى التطبيق (لا قيد فريد على clientRef في customers — انظر المخطّط).
@@ -252,9 +252,9 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     // فوترة ZATCA (Z5.1a): حقول المشتري للشركة الجامعة وحدها — فحص المتغيّر فقط، والمندوب لا يحوّل منشأة إلى فرد (نقد الخطة 21)
     const buyerGate = await applyBuyerGateToWrite(buyerDataDeps, req, tid, data as Record<string, unknown>, { customerId: req.params.id, replay: false });
     if (!buyerGate.ok) { res.status(buyerGate.status).json(buyerGate.body); return; }
-    // رابط موقع مُرسَل ⇒ يُحلّ إلى إحداثيات (مباشر/مختصر/اسم مكان) — يُتجاهل عند الفشل
+    // رابط موقع مُرسَل ⇒ يُحلّ إلى إحداثيات (مباشر/مختصر/اسم مكان) — يُتجاهل عند الفشل؛ لا يجلب الخادم إلا روابط Google (SSRF)
     if (locationUrl) {
-      const geo = await resolveLocationUrl(locationUrl);
+      const geo = await resolveLocationUrl(locationUrl, { googleOnly: true });
       if (geo) { data.lat = geo.lat; data.lng = geo.lng; }
     }
     const customer = await prisma.customer.update({

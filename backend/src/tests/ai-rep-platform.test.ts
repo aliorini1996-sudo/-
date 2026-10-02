@@ -45,25 +45,79 @@ test('حارس الروابط: خرائط Google وحدها', () => {
   }
 });
 
-test('تفاصيل محلٍّ ضُغط على الخريطة: النوع والموقع، والمغلق، والأخطاء بلا مفتاح', async () => {
-  const { placeDetails, isGooglePlaceId } = await import('../ai-rep/places');
+test('معرّف مكان Google: ما تُرسله ضغطة الخريطة وحده (لا مسارات ولا قصير)', async () => {
+  const { isGooglePlaceId } = await import('../ai-rep/places');
   assert.equal(isGooglePlaceId('ChIJN1t_tDeuEmsRUsoyG83frY4'), true);
   assert.equal(isGooglePlaceId('../../etc'), false);
   assert.equal(isGooglePlaceId('short'), false);
-  let url = '';
-  let headers: Record<string, string> = {};
-  const ok = (body: unknown, status = 200) => async (u: string, init: { headers: Record<string, string> }) => {
-    url = u; headers = init.headers;
-    return { ok: status < 400, status, json: async () => body };
-  };
-  const r = await placeDetails({ apiKey: 'k', placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4', fetchImpl: ok({ id: 'ChIJN1t_tDeuEmsRUsoyG83frY4', displayName: { text: 'تموينات النرجس' }, location: { latitude: 24.8, longitude: 46.6 }, primaryType: 'grocery_store', types: ['grocery_store', 'store'] }) });
-  assert.ok(r.ok);
-  if (r.ok) { assert.equal(r.place.name, 'تموينات النرجس'); assert.equal(r.place.primaryType, 'grocery_store'); assert.equal(r.closed, false); }
-  assert.match(url, /places\/ChIJN1t_tDeuEmsRUsoyG83frY4\?languageCode=ar$/);
-  assert.equal(headers['X-Goog-FieldMask'], 'id,displayName,location,primaryType,types,businessStatus');
-  const closed = await placeDetails({ apiKey: 'k', placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4', fetchImpl: ok({ id: 'x1234567890', location: { latitude: 1, longitude: 2 }, businessStatus: 'CLOSED_PERMANENTLY' }) });
-  assert.ok(closed.ok && closed.closed);
-  assert.deepEqual((await placeDetails({ apiKey: null, placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4' })).ok, false);
-  const quota = await placeDetails({ apiKey: 'k', placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4', fetchImpl: ok({}, 429) });
-  assert.ok(!quota.ok && quota.code === 'PLACES_QUOTA');
+});
+
+// ───────────── جلب الروابط من الخادم (SSRF) ─────────────
+
+test('العناوين الداخلية مرفوضة: loopback والشبكات الخاصة وlink-local (بيانات السحابة) وCGNAT وIPv6 المحلي والمُعيَّن', async () => {
+  const { isPublicIp } = await import('../services/geoLink');
+  for (const ip of ['127.0.0.1', '10.1.2.3', '172.16.0.1', '172.31.255.255', '192.168.1.1', '169.254.169.254', '100.64.0.1', '0.0.0.0', '224.0.0.1', '::1', '::', 'fe80::1', 'fd00::1', '::ffff:127.0.0.1', 'not-an-ip']) {
+    assert.equal(isPublicIp(ip), false, ip);
+  }
+  for (const ip of ['142.250.74.46', '8.8.8.8', '172.32.0.1', '2a00:1450:4001:82b::200e', '::ffff:8.8.8.8']) assert.equal(isPublicIp(ip), true, ip);
+});
+
+test('حلّ رابط موقع العميل: لا يجلب رابطاً خارج Google (googleOnly) ولا عنواناً داخلياً أبداً — والإحداثيات الصريحة بلا شبكة', async () => {
+  const { resolveLocationUrl } = await import('../services/geoLink');
+  const realFetch = globalThis.fetch;
+  const fetched: string[] = [];
+  globalThis.fetch = (async (u: string) => { fetched.push(String(u)); return new Response('', { status: 404 }); }) as typeof fetch;
+  try {
+    assert.equal(await resolveLocationUrl('http://internal-service:8080/admin', { googleOnly: true }), null);
+    assert.equal(await resolveLocationUrl('http://127.0.0.1:5432/', {}), null, 'حتى بلا googleOnly لا عنوان داخلي');
+    assert.equal(await resolveLocationUrl('http://169.254.169.254/latest/meta-data/', {}), null);
+    assert.equal(await resolveLocationUrl('http://[::1]/', {}), null);
+    assert.deepEqual(fetched, [], 'لا طلب شبكة لأيٍّ منها');
+    assert.deepEqual(await resolveLocationUrl('https://evil.example/?q=24.7136,46.6753', { googleOnly: true }), { lat: 24.7136, lng: 46.6753 }, 'الإحداثيات في الرابط تُقرأ بلا جلب');
+    // لصق «lat,lng» مباشرة (بالفاصلة العربية أيضاً) — أفسده تنظيف النصوص aa0c3be فلم يُقرأ
+    assert.deepEqual(await resolveLocationUrl('24.7136, 46.6753', { googleOnly: true }), { lat: 24.7136, lng: 46.6753 });
+    assert.deepEqual(await resolveLocationUrl('24.7136،46.6753'), { lat: 24.7136, lng: 46.6753 });
+    assert.deepEqual(fetched, []);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+// ───────────── دلو رموز العقل المشترك ─────────────
+
+test('دلو الرموز: يحجز فوراً وينتظر العجز، ويرفض بلا حجز ما لا يتّسع خلال مهلته، ويردّ فرق التقدير بعد النداء', async () => {
+  const { TokenBucket } = await import('../ai-rep/llm');
+  let t = 0;
+  const b = new TokenBucket(6000, () => t);
+  assert.equal(b.take(4000, 3000), 0, 'ممتلئ ⇒ بلا انتظار');
+  assert.equal(b.take(3000, 30_000), 10_000, 'عجز ١٠٠٠ بمعدّل ١٠٠ في الثانية ⇒ ١٠ ث');
+  assert.equal(b.take(500, 3000), null, 'لا يتّسع خلال ٣ ث ⇒ رفض');
+  b.settle(3000, 1000); // الفعلي أقلّ من التقدير ⇒ يعود الفرق
+  t += 60_000; // دقيقة ⇒ يمتلئ من جديد (لا يتجاوز سعته)
+  assert.equal(b.take(6000, 0), 0);
+  assert.equal(b.take(99_999, 0), null, 'التقدير فوق السعة يُحسب بالسعة');
+});
+
+test('حدّ الرموز في الدقيقة: Groq ٨٠٠٠ افتراضياً، وغيره بلا حدّ، والمتغيّر يغلب؛ والدلو المستنفد يردّ LLM_RATE_LIMIT محلياً بلا طلب', async () => {
+  const { chatCompletion: call, llmConfig: cfgOf, llmTpm, resetLlmBucket } = await import('../ai-rep/llm');
+  assert.equal(llmTpm('https://api.groq.com/openai/v1', {} as NodeJS.ProcessEnv), 8000);
+  assert.equal(llmTpm('https://api.example.com/v1', {} as NodeJS.ProcessEnv), 0);
+  assert.equal(llmTpm('https://api.groq.com/openai/v1', { AI_REP_LLM_TPM: '250000' } as NodeJS.ProcessEnv), 250000);
+  assert.equal(llmTpm('https://api.groq.com/openai/v1', { AI_REP_LLM_TPM: '0' } as NodeJS.ProcessEnv), 0, '0 يطفئه');
+  const prev = process.env.AI_REP_LLM_TPM;
+  process.env.AI_REP_LLM_TPM = '1000';
+  resetLlmBucket();
+  try {
+    const cfg = cfgOf({ GROQ_API_KEY: 'gsk_x' } as NodeJS.ProcessEnv)!;
+    let hits = 0;
+    const fake = async () => { hits++; return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: 'تمام' }, finish_reason: 'stop' }], usage: { prompt_tokens: 400, completion_tokens: 500 } }) }; };
+    const req = { messages: [{ role: 'user' as const, content: 'س' }], maxTokens: 500 };
+    assert.equal((await call(cfg, req, fake)).ok, true);
+    const r = await call(cfg, req, fake);
+    assert.ok(!r.ok && r.code === 'LLM_RATE_LIMIT', 'الاستهلاك الفعلي ٩٠٠ من ١٠٠٠ ⇒ النداء التالي لا يتّسع خلال ٣ ث');
+    assert.equal(hits, 1, 'لم يُرسل للمضيف');
+  } finally {
+    if (prev === undefined) delete process.env.AI_REP_LLM_TPM; else process.env.AI_REP_LLM_TPM = prev;
+    resetLlmBucket();
+  }
 });

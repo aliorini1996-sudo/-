@@ -1,18 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, MapPin, Save, Sparkles, Tags, XCircle } from 'lucide-react';
+import { CheckCircle2, EyeOff, Info, MapPin, Save, Sparkles, Tags, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { aiRepApi, productApi, salesRepApi } from '../api/client';
 import { useAiRepTr } from '../i18n/aiRepPhrases';
 import { activeLocale } from '../utils/format';
+import { useAuthStore } from '../store/authStore';
 import AiLearningPanel from './AiLearningPanel';
 
 /**
  * المندوب الذكي AI — صفحة إدارة الشركة:
+ *   0) ما يعمل الآن بحسب مفاتيح المنصّة: المسح التلقائي من خرائط Google العامة بلا مفتاح (التوجيه بالتقييم والفتح والمسافة)،
+ *      ودراسة المراجعات بمفتاح الأماكن، والعقل يكتب التوجيه والدراسة بمفتاحه.
  *   1) جاهزية البيانات: التوقّع لكل محل يُبنى من عملاء الشركة المشابهين (النوع نفسه، بموقع، بمبيعات منتظمة).
  *   2) الإعدادات: أنواع المحلات المستهدفة، ونطاق البحث، والمنتجات ذات الأولوية، ومن يستخدم الميزة، وطريقة التعلّم.
+ *      حقول الأرقام تُحفظ نصّاً أثناء الكتابة وتُضبط بحدودها عند الخروج منها.
  *   3) «ما تعلّمه العقل»: حلقة التعلّم الليلية بأرقامها قبل/بعد ودروسها ونسخها (AiLearningPanel).
- *   4) تصنيف العملاء: نوع كل منفذ — مقترحٌ من الاسم، والإدارة تؤكّده.
+ *   4) المحلات المخفية عن المسح («أُغلق نهائياً / لم أجده» مؤكَّداً): من أبلغ ومتى، و«أعد إظهاره».
+ *   5) تصنيف العملاء: نوع كل منفذ — مقترحٌ من الاسم، والإدارة تؤكّده (يميّز «ربما عميل حالي» في المسح؛ بصلاحية إدارة العملاء).
  */
 
 type LearningMode = 'AUTO' | 'REVIEW' | 'OFF';
@@ -33,10 +38,37 @@ interface ClassRow { id: string; name: string; businessName: string | null; dist
 
 const RADII = [500, 1000, 2000, 3000, 5000, 10000];
 
+type ApiErr = { response?: { data?: { message?: string } } } | null | undefined;
+const apiMessage = (e: unknown): string | undefined => (e as ApiErr)?.response?.data?.message;
+
+/**
+ * حقل رقم بحدّين: النصّ كما يُكتب (المسح ثم «20» لا يقفز إلى الحدّ الأدنى مع أول خانة)، والقيمة تُعتمد متى صحّت
+ * ضمن الحدّين، وتُضبط بهما عند الخروج من الحقل.
+ */
+function BoundedNumber({ value, min, max, onChange }: { value: number; min: number; max: number; onChange: (n: number) => void }) {
+  const [raw, setRaw] = useState(String(value));
+  useEffect(() => { setRaw(prev => (Number(prev) === value ? prev : String(value))); }, [value]);
+  return (
+    <input type="number" inputMode="numeric" min={min} max={max} className="input mt-1" value={raw}
+      onChange={e => {
+        setRaw(e.target.value);
+        const n = Number(e.target.value);
+        if (e.target.value.trim() !== '' && Number.isInteger(n) && n >= min && n <= max) onChange(n);
+      }}
+      onBlur={() => {
+        const n = Math.round(Number(raw));
+        const v = Number.isFinite(n) && raw.trim() !== '' ? Math.max(min, Math.min(max, n)) : value;
+        setRaw(String(v));
+        if (v !== value) onChange(v);
+      }} />
+  );
+}
+
 export default function AiRepPage() {
   const tr = useAiRepTr();
   const qc = useQueryClient();
-  const { data, isLoading, isError } = useQuery({
+  const canCustomers = useAuthStore(s => s.user?.canManageCustomers !== false || !!s.impersonating);
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ['ai-rep', 'settings'],
     queryFn: async () => (await aiRepApi.settings()).data.data as Overview,
   });
@@ -73,31 +105,36 @@ export default function AiRepPage() {
   }, [products, productFilter]);
 
   if (isLoading) return <div className="flex items-center justify-center h-64"><div className="w-8 h-8 border-4 border-[#E15A30] border-t-transparent rounded-full animate-spin" /></div>;
-  if (isError || !data) return <div className="card text-sm text-red-600">{tr('تعذّر تحميل إعدادات المندوب الذكي')}</div>;
+  if (isError || !data) return <div className="card text-sm text-red-600">{apiMessage(error) || tr('تعذّر تحميل إعدادات المندوب الذكي')}</div>;
 
   const r = data.readiness;
   const targeted = r.perType.filter(t => t.targeted);
+  const activeReps = (reps ?? []).filter(x => x.isActive !== false);
+  const activeIds = new Set(activeReps.map(x => x.id));
+  // «محدّدون» بلا مندوب نشط مختار: الزرّ يختفي عن الجميع بلا تفسير ⇒ لا يُحفظ (والخادم يرفضه)
+  const noRepSelected = !!form && form.repScope === 'SELECTED' && !!reps && !form.repIds.some(id => activeIds.has(id));
 
   return (
     <div className="space-y-5">
       <div className="page-header">
         <div>
           <h1 className="page-title flex items-center gap-2"><Sparkles className="text-[#E15A30]" size={22} /> {tr('المندوب الذكي')}</h1>
-          <p className="text-sm text-[#6E6557] mt-1">{tr('يضغط المندوب أي محل على خريطة Google داخل تطبيقه فيدرسه العقل من ملفه في خرائط Google: التقييم وعدد المقيّمين وساعات العمل ومراجعات العملاء — ما يمدحونه وما يشتكون منه، وفرصة المندوب، وما يعرضه من منتجاتكم، وكيف يفتح الحديث')}</p>
+          <p className="text-sm text-[#6E6557] mt-1">{tr('يفتح المندوب «المندوب الذكي» فتُمسح المحلات حوله تلقائياً من خرائط Google، ويعرف بأي الفرص الجديدة يبدأ ولماذا، ولكل محل دراسة من تقييمه وعدد مقيّميه وحالة فتحه — ثم يسجّل نتيجة زيارته أو يضيفه عميلاً')}</p>
         </div>
       </div>
 
-      {!data.placesConfigured ? (
-        <div className="flex items-start gap-2 rounded-xl border border-[#E9E1D3] bg-[#FAF7F0] p-3 text-sm text-[#44403a]">
-          <MapPin size={18} className="shrink-0 mt-0.5 text-[#E15A30]" />
-          <span>{tr('دراسة المحلات تحتاج مفتاح Google للمنصّة (الخرائط والأماكن) — لم يُضبط بعد. حين يُضبط: يضغط المندوب أي محل على الخريطة فيُدرس من مراجعاته في خرائط Google')}</span>
+      {/* ما يعمل الآن بحسب مفاتيح المنصّة — المسح بلا مفتاح حيّ، فلا يوحي غياب المفتاح بأن الميزة مطفأة */}
+      <div className="flex items-start gap-2 rounded-xl border border-[#E9E1D3] bg-[#FAF7F0] p-3 text-sm text-[#44403a]">
+        <MapPin size={18} className="shrink-0 mt-0.5 text-[#E15A30]" />
+        <div className="space-y-1">
+          <p>{data.placesConfigured
+            ? tr('مفتاح Google الرسمي مضبوط: المسح بالبحث الرسمي، وفتح أي محل يضيف دراسة من مراجعات عملائه النصية')
+            : tr('المسح يعمل الآن من خرائط Google العامة بلا مفتاح: المحلات حول المندوب، والتوجيه بالتقييم وحالة الفتح والمسافة — بلا مراجعات نصية. حين يُضبط مفتاح Google الرسمي يضيف فتحُ المحل دراسةً من مراجعات عملائه')}</p>
+          {!data.mapsConfigured && <p className="text-xs text-[#6E6557]">{tr('الخريطة التفاعلية تحتاج مفتاح عرض الخريطة — المندوب يرى الآن خريطة Google المضمّنة ويفتح المحلات من القائمة')}</p>}
+          {/* أساس «الطلب المتوقع» في شاشة المندوب: إشارات Google لا العملاء المشابهون (قرار المالك) */}
+          <p className="text-xs text-[#6E6557]">{tr('الطلب المتوقع لكل محل: حجم الطلب المعتاد للصنف من فواتيرك × مؤشرات ملفه في Google (عدد المقيّمين مقارنةً بمحلات المنطقة، والتقييم، وذكر الصنف في المراجعات حين تُقرأ) — لا من عملاء مشابهين')}</p>
         </div>
-      ) : !data.mapsConfigured && (
-        <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          <AlertTriangle size={18} className="shrink-0 mt-0.5" />
-          <span>{tr('مفتاح عرض الخريطة لم يُضبط بعد — المندوب يدرس المحل الذي هو عنده بزر «أنا عند المحل الآن»')}</span>
-        </div>
-      )}
+      </div>
 
       {/* جاهزية البيانات */}
       <div className="bg-white rounded-2xl border border-[#E9E1D3] p-5">
@@ -165,12 +202,12 @@ export default function AiRepPage() {
               </select>
             </label>
             <label className="block">
-              <span className="label">{tr('حدّ البحث اليومي لكل مندوب')}</span>
-              <input type="number" min={5} max={100} className="input mt-1" value={form.dailySearchesPerRep} onChange={e => set('dailySearchesPerRep', Math.max(5, Math.min(100, Number(e.target.value) || 5)))} />
+              <span className="label">{tr('مسح/دراسة المحلات يومياً لكل مندوب (يشمل المسح التلقائي عند الفتح)')}</span>
+              <BoundedNumber value={form.dailySearchesPerRep} min={5} max={100} onChange={n => set('dailySearchesPerRep', n)} />
             </label>
             <label className="block">
               <span className="label">{tr('أقل عدد محلات مشابهة لعرض رقم')}</span>
-              <input type="number" min={5} max={20} className="input mt-1" value={form.minPeers} onChange={e => set('minPeers', Math.max(5, Math.min(20, Number(e.target.value) || 5)))} />
+              <BoundedNumber value={form.minPeers} min={5} max={20} onChange={n => set('minPeers', n)} />
               <span className="text-[11px] text-[#8A8178]">{tr('لا ينزل عن ٥ حمايةً لخصوصية عملائك')}</span>
             </label>
             <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 self-end">
@@ -180,7 +217,7 @@ export default function AiRepPage() {
           </div>
 
           <div>
-            <p className="label">{tr('منتجات ذات أولوية (تظهر أولاً في التوقّع)')}</p>
+            <p className="label">{tr('منتجات ذات أولوية (تُقترح أولاً في دراسة المحل)')}</p>
             <input className="input mb-2" placeholder={tr('ابحث عن منتج')} value={productFilter} onChange={e => setProductFilter(e.target.value)} />
             <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto">
               {shownProducts.map(p => {
@@ -222,7 +259,7 @@ export default function AiRepPage() {
             </div>
             {form.repScope === 'SELECTED' && (
               <div className="flex flex-wrap gap-2">
-                {(reps ?? []).filter(x => x.isActive !== false).map(x => {
+                {activeReps.map(x => {
                   const on = form.repIds.includes(x.id);
                   return (
                     <button key={x.id} type="button" onClick={() => toggleIn('repIds', x.id)}
@@ -231,21 +268,34 @@ export default function AiRepPage() {
                     </button>
                   );
                 })}
+                {/* مختارٌ حُذف أو أُوقف: يظهر ليُزال — لا يبقى مختاراً خفياً (الخادم يُسقط المحذوف عند الحفظ أيضاً) */}
+                {reps && form.repIds.filter(id => !activeIds.has(id)).map(id => {
+                  const x = reps.find(r => r.id === id);
+                  return (
+                    <button key={id} type="button" onClick={() => toggleIn('repIds', id)} title={tr('أزله من القائمة')}
+                      className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs text-amber-800">
+                      {x ? `${x.name} (${tr('موقوف')})` : tr('مندوب محذوف')} ✕
+                    </button>
+                  );
+                })}
               </div>
             )}
+            {noRepSelected && <p className="text-xs text-red-600 mt-1">{tr('اختر مندوباً واحداً على الأقل — وإلا لن يظهر المندوب الذكي لأي مندوب')}</p>}
           </div>
 
           <div className="rounded-xl border border-[#E9E1D3] bg-[#FAF7F0] p-3 space-y-3">
             <p className="text-sm font-semibold text-[#1F1A13]">{tr('المستشار الذكي (العقل)')}</p>
-            <p className="text-xs text-[#6E6557]">{data.advisorConfigured ? tr('العقل مفعّل لدى مزوّد الخدمة: يفحص المحلات المجاورة ويعطي المندوب خطة وتوجيهاً ويجيب أسئلته — الأرقام دائماً من بيانات شركتك') : tr('العقل لم يُفعَّل بعد لدى مزوّد الخدمة — المندوب يحصل الآن على خطة حتمية من بيانات شركتك')}</p>
+            <p className="text-xs text-[#6E6557]">{data.advisorConfigured
+              ? tr('العقل مفعّل لدى مزوّد الخدمة: يكتب توجيه المسح (بأي المحلات يبدأ المندوب ولماذا) ودراسة المحل ملتزماً بدليل البيع — وحين يتعذّر أو تنفد تحليلاته اليومية يبقى التوجيه الحتمي')
+              : tr('العقل لم يُفعَّل بعد لدى مزوّد الخدمة — التوجيه الآن حتمي: بالتقييم وحالة الفتح والمسافة، والدراسة من ملف المحل')}</p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none">
                 <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={form.advisorEnabled} onChange={e => set('advisorEnabled', e.target.checked)} />
                 {tr('تفعيل المستشار الذكي لمناديب الشركة')}
               </label>
               <label className="block">
-                <span className="label">{tr('حدّ أسئلة المستشار اليومي لكل مندوب')}</span>
-                <input type="number" min={5} max={150} className="input mt-1" value={form.dailyChatTurnsPerRep} onChange={e => set('dailyChatTurnsPerRep', Math.max(5, Math.min(150, Number(e.target.value) || 5)))} />
+                <span className="label">{tr('تحليلات العقل يومياً لكل مندوب (توجيه المسح + دراسة المحل)')}</span>
+                <BoundedNumber value={form.dailyChatTurnsPerRep} min={5} max={150} onChange={n => set('dailyChatTurnsPerRep', n)} />
               </label>
             </div>
           </div>
@@ -261,7 +311,7 @@ export default function AiRepPage() {
                   <option value="OFF">{tr('متوقف')}</option>
                 </select>
                 <span className="text-[11px] text-[#8A8178]">
-                  {(form.learningMode ?? 'AUTO') === 'OFF' ? tr('متوقف: المستشار يعمل كما كان قبل التعلّم (الترتيب الافتراضي بلا دروس ولا معايرة)، وتُسجَّل نتائج الزيارات فقط')
+                  {(form.learningMode ?? 'AUTO') === 'OFF' ? tr('متوقف: المسح والدراسة بالترتيب الافتراضي بلا دروس، وتُسجَّل نتائج الزيارات فقط')
                     : form.learningMode === 'REVIEW' ? tr('بمراجعتي: دروس المراجعة الذاتية تنتظر اعتمادك قبل تجربتها')
                       : tr('تلقائي: يعتمد العقل ما يثبت بالأرقام، ودروس المراجعة الذاتية تبدأ تجربةً قبل اعتمادها')}
                 </span>
@@ -283,7 +333,7 @@ export default function AiRepPage() {
           </label>
 
           <div className="flex justify-end">
-            <button type="button" className="btn-primary inline-flex items-center gap-2" disabled={save.isPending || form.targetOutletTypes.length === 0}
+            <button type="button" className="btn-primary inline-flex items-center gap-2" disabled={save.isPending || form.targetOutletTypes.length === 0 || noRepSelected}
               onClick={() => save.mutate(form)}>
               <Save size={16} /> {save.isPending ? tr('جاري الحفظ') : tr('حفظ الإعدادات')}
             </button>
@@ -293,7 +343,89 @@ export default function AiRepPage() {
 
       <AiLearningPanel />
 
-      <ClassifySection outletTypes={data.outletTypes} onSaved={() => qc.invalidateQueries({ queryKey: ['ai-rep', 'settings'] })} />
+      <HiddenOutletsSection />
+
+      {canCustomers ? (
+        <ClassifySection outletTypes={data.outletTypes} onSaved={() => qc.invalidateQueries({ queryKey: ['ai-rep', 'settings'] })} />
+      ) : (
+        <div className="bg-white rounded-2xl border border-[#E9E1D3] p-5 text-sm text-[#6E6557] flex items-start gap-2">
+          <Info size={18} className="shrink-0 mt-0.5 text-[#E15A30]" />
+          <span><b className="text-[#1F1A13]">{tr('تصنيف أنواع العملاء')}</b> — {tr('تحتاج صلاحية إدارة العملاء')}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface HiddenOutlet {
+  id: string; outletTypeLabel: string; name: string | null; mapsUri: string | null;
+  reportedAt: string | null; hiddenUntil: string | null; reports: { repName: string | null; at: string }[];
+}
+
+/**
+ * المحلات المخفية عن مسح المناديب: أبلغ مندوبان (أو مندوب في يومين) أنها أُغلقت نهائياً أو لم يجدوها — تُخفى مدةً ثم
+ * تعود موسومة. القائمة بمن أبلغ ومتى، و«أعد إظهاره» لما أُخفي خطأً. اسم المحل من Google لا يُخزَّن ⇒ النوع ورابط الخريطة.
+ */
+function HiddenOutletsSection() {
+  const tr = useAiRepTr();
+  const qc = useQueryClient();
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ['ai-rep', 'hidden-outlets'],
+    queryFn: async () => (await aiRepApi.hiddenOutlets()).data.data as { memoryDays: number; items: HiddenOutlet[] },
+  });
+  const unhide = useMutation({
+    mutationFn: async (id: string) => (await aiRepApi.unhideOutlet(id)).data,
+    onSuccess: () => {
+      toast.success(tr('عاد المحل إلى مسح المناديب'));
+      qc.invalidateQueries({ queryKey: ['ai-rep', 'hidden-outlets'] });
+    },
+    onError: (e: { response?: { data?: { message?: string } } }) => toast.error(e.response?.data?.message || tr('تعذّر الحفظ')),
+  });
+  const day = (d: string | null) => (d ? new Date(d).toLocaleDateString(activeLocale()) : '—');
+  const loadErr = (error as { response?: { data?: { message?: string } } } | null)?.response?.data?.message;
+
+  return (
+    <div className="bg-white rounded-2xl border border-[#E9E1D3] p-5">
+      <p className="font-bold text-[#1F1A13] mb-1 flex items-center gap-2"><EyeOff size={18} className="text-[#E15A30]" /> {tr('محلات مخفية عن المسح')}</p>
+      <p className="text-xs text-[#6E6557] mb-3">{tr('محلٌّ أبلغ مندوبان (أو مندوب في يومين مختلفين) أنه أُغلق نهائياً أو لم يجده يُخفى عن مسح المناديب مدةً ثم يعود موسوماً — أعد إظهار ما أُخفي خطأً')}</p>
+      {isLoading ? (
+        <p className="py-4 text-center text-xs text-[#6E6557]">{tr('جاري التحميل')}</p>
+      ) : isError ? (
+        <p className="py-4 text-center text-xs text-red-600">{loadErr || tr('تعذّر تحميل المحلات المخفية')}</p>
+      ) : !data?.items.length ? (
+        <p className="py-4 text-center text-xs text-[#6E6557]">{tr('لا محلات مخفية الآن')}</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-right text-xs text-[#6E6557] border-b border-[#E9E1D3]">
+              <th className="py-2 font-medium">{tr('نوع المحل')}</th><th className="py-2 font-medium">{tr('من أبلغ')}</th>
+              <th className="py-2 font-medium">{tr('مخفي حتى')}</th><th className="py-2" />
+            </tr></thead>
+            <tbody>
+              {data.items.map(o => (
+                <tr key={o.id} className="border-b border-[#F4EEE3] align-top">
+                  <td className="py-2">
+                    <p className="font-medium">{o.name || tr(o.outletTypeLabel)}</p>
+                    {o.name && <p className="text-[11px] text-[#8A8178]">{tr(o.outletTypeLabel)}</p>}
+                    {o.mapsUri && <a href={o.mapsUri} target="_blank" rel="noreferrer" className="text-[11px] text-[#1D4ED8] underline">{tr('افتح في خرائط Google')}</a>}
+                  </td>
+                  <td className="py-2 text-xs text-[#44403a]">
+                    {o.reports.length
+                      ? o.reports.map((r, i) => <p key={i}>{r.repName || '—'} · {day(r.at)}</p>)
+                      : day(o.reportedAt)}
+                  </td>
+                  <td className="py-2 text-xs text-[#44403a]">{day(o.hiddenUntil)}</td>
+                  <td className="py-2 text-left">
+                    <button type="button" className="btn-secondary px-2.5 py-1 text-xs" disabled={unhide.isPending} onClick={() => unhide.mutate(o.id)}>
+                      {tr('أعد إظهاره')}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -305,7 +437,7 @@ function ClassifySection({ outletTypes, onSaved }: { outletTypes: { code: string
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [picks, setPicks] = useState<Record<string, string>>({});
-  const { data, isLoading, isError, refetch } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['ai-rep', 'classify', filter, search, page],
     queryFn: async () => {
       const res = await aiRepApi.classifyList({ filter, page, limit: 100, ...(search.trim() && { search: search.trim() }) });
@@ -328,7 +460,7 @@ function ClassifySection({ outletTypes, onSaved }: { outletTypes: { code: string
   return (
     <div className="bg-white rounded-2xl border border-[#E9E1D3] p-5">
       <p className="font-bold text-[#1F1A13] mb-1 flex items-center gap-2"><Tags size={18} className="text-[#E15A30]" /> {tr('تصنيف أنواع العملاء')}</p>
-      <p className="text-xs text-[#6E6557] mb-3">{tr('النوع المقترح مستنتج من اسم العميل — راجعه ثم احفظ. العميل بلا موقع على الخريطة لا يدخل في التوقّع')}</p>
+      <p className="text-xs text-[#6E6557] mb-3">{tr('النوع المقترح مستنتج من اسم العميل — راجعه ثم احفظ. يُستعمل لتمييز «ربما عميل حالي» على الخريطة')}</p>
       <div className="flex flex-wrap gap-2 mb-3">
         {(['unclassified', 'all'] as const).map(f => (
           <button key={f} type="button" onClick={() => { setFilter(f); setPage(1); setPicks({}); }}
@@ -341,7 +473,7 @@ function ClassifySection({ outletTypes, onSaved }: { outletTypes: { code: string
       {isLoading ? (
         <p className="py-4 text-center text-xs text-[#6E6557]">{tr('جاري التحميل')}</p>
       ) : isError ? (
-        <p className="py-4 text-center text-xs text-red-600">{tr('تعذّر تحميل قائمة العملاء')}</p>
+        <p className="py-4 text-center text-xs text-red-600">{apiMessage(error) || tr('تعذّر تحميل قائمة العملاء')}</p>
       ) : !data?.rows.length ? (
         <p className="py-4 text-center text-xs text-[#6E6557]">{filter === 'unclassified' ? tr('كل عملائك مصنّفون') : tr('لا نتائج')}</p>
       ) : (

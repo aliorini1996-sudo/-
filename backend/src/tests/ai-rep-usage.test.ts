@@ -60,11 +60,16 @@ test('الحجز الذرّي: ١٠٠ طلب متزامن بحدّ ٤٠ ⇒ ٤٠
 
 test('الحدّ صفر يرفض، والاسترداد لا ينزل تحت الصفر', async () => {
   rows = [];
-  assert.equal(await reserveUsage('t1', 'r1', 'searches', 0), false);
-  assert.equal(await reserveUsage('t1', 'r1', 'searches', 2), true);
-  await refundUsage('t1', 'r1', 'searches');
-  await refundUsage('t1', 'r1', 'searches');
+  assert.equal(await reserveUsage('t1', 'r1', 'searches', 0), null);
+  const day = await reserveUsage('t1', 'r1', 'searches', 2);
+  assert.match(day ?? '', /^\d{4}-\d{2}-\d{2}$/, 'الحجز يعيد يومه');
+  await refundUsage('t1', 'r1', 'searches', 1, day!);
+  await refundUsage('t1', 'r1', 'searches', 1, day!);
   assert.equal(rows[0].searches, 0);
+  // ردٌّ بيومٍ آخر (بعد منتصف الليل) لا يمسّ عدّاد يوم الحجز
+  await reserveUsage('t1', 'r1', 'searches', 2);
+  await refundUsage('t1', 'r1', 'searches', 1, '1999-01-01');
+  assert.equal(rows[0].searches, 1);
 });
 
 test('جلسة البحث: المعرّف يجب أن يطابق، وتنتهي، والتحديث لا يغيّر المراجع', () => {

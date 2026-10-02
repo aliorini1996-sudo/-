@@ -1,11 +1,11 @@
 import { useEffect, useRef } from 'react';
 
 /**
- * خريطة Google داخل شاشة المندوب الذكي: موقع المندوب، وكل المحلات المجاورة ملوّنة بحالتها
- * (فرصة جديدة / عميل / مرفوض)، وأرقام الخطة على محطّاتها بترتيب «مساري» نفسه، وخطّ المسار.
+ * خريطة Google التفاعلية لشاشة المندوب الذكي (بمفتاح عرض الخريطة): موقع المندوب، ومحلات المسح ملوّنة بحالتها
+ * (فرصة جديدة / عميل / ربما عميل / مرفوض)، وأرقام خطة التوجيه على محطّاتها بترتيبها، وخطّ يصلها.
  *
- * الخريطة تُنشأ مرّة واحدة (تحميلٌ مدفوع) وتبقى مركّبة بين التبويبات. العلامات تُعاد بنائها عند نتيجة بحث جديدة
- * فقط (fitKey)، أما تغيّر الخطة فيحدّث أيقوناتها وخطّها دون إعادة ضبط التكبير الذي أجراه المندوب.
+ * الخريطة تُنشأ مرّة واحدة (تحميلٌ مدفوع). العلامات تُعاد عند مسحٍ جديد (fitKey) أو تغيّر المحلات المعروضة، أما تغيّر
+ * الخطة فيحدّث أيقوناتها وخطّها دون إعادة ضبط التكبير الذي أجراه المندوب. الضغط على محلٍّ من محلات Google نفسها ⇒ onPoi.
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -15,13 +15,12 @@ export interface MapItem { placeId: string; lat: number; lng: number; relation: 
 
 const COLORS = { NEW: '#16A34A', CUSTOMER: '#2563EB', POSSIBLE_CUSTOMER: '#60A5FA', REJECTED: '#9CA3AF', PLAN: '#E15A30' };
 
-export default function RepAiMap({ g, origin, items, plan, fitKey, visible = true, onSelect, onPoi, full = false, recenterKey = 0 }: {
+export default function RepAiMap({ g, origin, items, plan, fitKey, onSelect, onPoi, full = false, recenterKey = 0 }: {
   g: G;
   origin: { lat: number; lng: number } | null;
   items: MapItem[];
-  plan: string[]; // placeIds بترتيب «مساري»
-  fitKey: string | null; // يتغيّر مع كل بحث جديد ⇒ إعادة ضبط الإطار
-  visible?: boolean;
+  plan: string[]; // placeIds بترتيب خطة التوجيه
+  fitKey: string | null; // يتغيّر مع كل مسح جديد ⇒ إعادة ضبط الإطار
   onSelect: (placeId: string) => void;
   /** ضغطة على محلٍّ من محلات Google نفسها (لا علاماتنا) ⇒ دراسته */
   onPoi?: (p: { placeId: string; lat: number; lng: number }) => void;
@@ -79,12 +78,12 @@ export default function RepAiMap({ g, origin, items, plan, fitKey, visible = tru
       });
       bounds.extend(origin);
     }
-    const shown = visible && (box.current?.offsetWidth ?? 0) > 0;
+    const shown = (box.current?.offsetWidth ?? 0) > 0;
     if (shown && fitKey && lastFit.current !== fitKey && items.length) { m.fitBounds(bounds, 40); lastFit.current = fitKey; }
     else if (!items.length && origin) m.setCenter(origin);
     styleMarkers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [g, itemsKey, fitKey, origin?.lat, origin?.lng, visible]);
+  }, [g, itemsKey, fitKey, origin?.lat, origin?.lng]);
 
   // الخطة: أيقونات مرقّمة وخطّ المسار — بلا إعادة ضبط للإطار
   const planKey = plan.join('|');

@@ -2,7 +2,12 @@
  * استخراج إحداثيات (lat,lng) من رابط موقع أو نصّ يلصقه المندوب.
  * يدعم روابط خرائط Google المباشرة (تحوي الإحداثيات) والمختصرة (تتبع التحويل)،
  * وكذلك لصق «lat,lng» مباشرة. يرجع null بأمان عند التعذّر (الميزة اختيارية).
+ *
+ * الجلب من الخادم محروس (SSRF): لا عنوان داخلي (loopback/خاص/link-local/بيانات السحابة) في أي تحويلة، وجسم الرد
+ * يُقرأ حتى ٢ م.ب ثم يُقطع، ومهلة كلية للتحويلات كلها — ومسارات المستخدمين تجلب روابط Google وحدها (googleOnly).
  */
+import { lookup } from 'dns/promises';
+import { isIP } from 'net';
 
 export interface LatLng { lat: number; lng: number }
 
@@ -74,8 +79,64 @@ async function geocodePlace(query: string): Promise<LatLng | null> {
  * الإحداثيات من الروابط أو جسم صفحة الخرائط. عند التعذّر (صفحة موافقة أوروبا مثلاً) يرمّز
  * اسم المكان جغرافياً عبر Geoapify. أفضل جهد، يرجع null عند الفشل.
  */
-// جلب مع مهلة نظيفة (AbortSignal.timeout جديد لكل طلب — بلا إعادة استخدام متحكّم)
+/** أقصى ما يُقرأ من جسم صفحة (صفحة مكانٍ في خرائط Google أقلّ من ذلك بكثير). */
+export const MAX_BODY_BYTES = 2_000_000;
+/** مهلة كلية لحلّ رابط واحد بكل تحويلاته. */
+export const RESOLVE_TOTAL_MS = 15_000;
+
+/** هل العنوان عامّ؟ لا loopback ولا شبكة خاصة ولا link-local (ومنه بيانات السحابة 169.254.169.254) ولا متعدّد البثّ. */
+export function isPublicIp(ip: string): boolean {
+  const v = isIP(ip);
+  if (v === 4) {
+    const [a, b] = ip.split('.').map(Number);
+    if (a === 0 || a === 10 || a === 127 || a >= 224) return false;
+    if (a === 169 && b === 254) return false;
+    if (a === 172 && b >= 16 && b <= 31) return false;
+    if (a === 192 && b === 168) return false;
+    if (a === 100 && b >= 64 && b <= 127) return false; // CGNAT
+    return true;
+  }
+  if (v === 6) {
+    const s = ip.toLowerCase();
+    const mapped = s.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    if (mapped) return isPublicIp(mapped[1]);
+    if (s === '::' || s === '::1') return false;
+    return !/^(fe[89ab]|fc|fd|ff)/.test(s);
+  }
+  return false;
+}
+
+/** المضيف يُحلّ إلى عناوين عامة وحدها (يُفحص قبل كل تحويلة). */
+async function publicHost(u: string): Promise<boolean> {
+  try {
+    const host = new URL(u).hostname.replace(/^\[|\]$/g, '');
+    if (isIP(host)) return isPublicIp(host);
+    const addrs = await lookup(host, { all: true });
+    return addrs.length > 0 && addrs.every(a => isPublicIp(a.address));
+  } catch { return false; }
+}
+
+/** جسم الرد حتى الحدّ ثم يُقطع (لا r.text() على جسمٍ يتدفّق بلا نهاية). */
+async function readCapped(r: Response, max = MAX_BODY_BYTES): Promise<string> {
+  const reader = r.body?.getReader();
+  if (!reader) return '';
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done || !value) break;
+      chunks.push(value);
+      size += value.byteLength;
+      if (size >= max) { await reader.cancel().catch(() => undefined); break; }
+    }
+  } catch { /* جسم مقطوع: ما وصل يكفي */ }
+  return Buffer.concat(chunks.map(c => Buffer.from(c))).subarray(0, max).toString('utf8');
+}
+
+// جلب مع مهلة نظيفة (AbortSignal.timeout جديد لكل طلب — بلا إعادة استخدام متحكّم)، ولمضيفٍ عامّ وحده
 async function fetchMaps(u: string, ms = 8000): Promise<Response | null> {
+  if (ms < 500 || !(await publicHost(u))) return null;
   try {
     return await fetch(u, {
       method: 'GET',
@@ -108,10 +169,12 @@ export async function resolveLocationUrl(input: string, opts: { googleOnly?: boo
 
   let cur = s;
   let placeName: string | null = null;
+  const deadline = Date.now() + RESOLVE_TOTAL_MS;
+  const left = () => Math.min(8000, deadline - Date.now());
   // روابط maps.app.goo.gl قد تمرّ بـ4 تحويلات قبل صفحة الخرائط — نسمح بعدد كافٍ
   for (let hop = 0; hop < 6; hop++) {
     if (opts.googleOnly && !isGoogleMapsUrl(cur)) break; // لا يتبع تحويلةً خارج Google
-    const r = await fetchMaps(cur);
+    const r = await fetchMaps(cur, left());
     if (!r) break;
 
     const fromUrl = parseCoords(cur);
@@ -132,13 +195,13 @@ export async function resolveLocationUrl(input: string, opts: { googleOnly?: boo
 
     // صفحة نهائية: صفحة المكان تُحمّل إحداثياتها عبر JS فلا تظهر في HTML؛ لكن رابط
     // المعاينة الداخلي /maps/preview/place يعيد بيانات المكان (وفيها نقطته الدقيقة) كنصّ
-    const body = await r.text().catch(() => '');
+    const body = await readCapped(r);
     let coords = coordsFromGoogleData(body);
     if (!coords) {
       const prevHref = (body.match(/\/maps\/preview\/place\?[^"']+/) || [])[0];
       if (prevHref) {
-        const pr = await fetchMaps('https://www.google.com' + prevHref.replace(/&amp;/g, '&'));
-        if (pr) coords = coordsFromGoogleData(await pr.text().catch(() => ''));
+        const pr = await fetchMaps('https://www.google.com' + prevHref.replace(/&amp;/g, '&'), left());
+        if (pr) coords = coordsFromGoogleData(await readCapped(pr));
       }
     }
     if (coords) return coords;

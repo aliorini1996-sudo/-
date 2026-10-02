@@ -58,7 +58,7 @@ export interface AdvisorCtx {
 const REL_AR: Record<string, string> = { NEW: 'فرصة جديدة (ليس عميلاً)', CUSTOMER: 'عميل حالي', POSSIBLE_CUSTOMER: 'ربما عميل حالي' };
 const OUTCOME_AR: Record<string, string> = {
   INTERESTED: 'مهتم', CALL_BACK: 'طلب العودة لاحقاً', QUOTE: 'طلب عرض سعر', NOT_INTERESTED: 'غير مهتم',
-  EXCLUSIVE_SUPPLIER: 'عنده مورّد حصري', CLOSED: 'مغلق', CONVERTED: 'أصبح عميلاً',
+  EXCLUSIVE_SUPPLIER: 'عنده مورّد حصري', CLOSED: 'مغلق', NOT_FOUND: 'أُغلق نهائياً أو لم يُعثر عليه', CONVERTED: 'أصبح عميلاً',
 };
 
 export function advisorSystemPrompt(ctx: Pick<AdvisorCtx, 'companyName' | 'playbook' | 'showMoney' | 'currency'>, extras?: { lessonsBlock?: string; learned?: boolean }): string {
@@ -358,8 +358,4 @@ export function baseAllowedNumbers(ctx: Pick<AdvisorCtx, 'playbook' | 'data'>, n
   numbersIn(ctx.playbook ?? '', acc);
   numbersIn(ctx.data.products.map(p => `${p.name} ${p.unit}`), acc);
   return acc;
-}
-
-export function isValidOutletCtx(o: OutletCtx): boolean {
-  return /^P\d{1,3}$/.test(o.ref) && isOutletType(o.outletType) && Number.isFinite(o.lat) && Number.isFinite(o.lng);
 }

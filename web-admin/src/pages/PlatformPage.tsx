@@ -910,7 +910,7 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
               <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={aiRepEnabled} onChange={e => setAiRepEnabled(e.target.checked)} />
               {tr('تفعيل المندوب الذكي AI لهذه الشركة')}
             </label>
-            <p className="text-xs text-gray-400 mt-1">{tr('محلات قريبة مقترحة للمندوب، وتوقّع مشتريات كل محل لكل منتج من مبيعات الشركة، ومسار زيارة — تظهر للشركة صفحة «المندوب الذكي» وللمندوب زرّه')}</p>
+            <p className="text-xs text-gray-400 mt-1">{tr('يمسح المحلات حول المندوب تلقائياً من خرائط Google ويوجّهه بأي الفرص الجديدة يبدأ ولماذا، ويدرس كل محل من تقييمه وحالة فتحه (ومراجعاته بمفتاح Google) — تظهر للشركة صفحة «المندوب الذكي» وللمندوب زرّه')}</p>
             <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2">
               <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={accountingEnabled} onChange={e => setAccountingEnabled(e.target.checked)} />
               {tr('تفعيل النظام المحاسبي لهذه الشركة')}

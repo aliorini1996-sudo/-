@@ -3,7 +3,10 @@
  *
  * حين يُنشأ عميل ومعه aiPlaceId (من شاشة المندوب الذكي):
  *   1) يُعلَّم المحل في سجلّ الشركة «محوَّلاً» ويُربط بالعميل.
- *   2) تُحفظ **لقطة التوقّع** كما عُرضت للمندوب — تُقارن لاحقاً بمشترياته الفعلية لقياس دقّة المحرّك.
+ *   2) تُحفظ **لقطة التوقّع** (محسوبةً الآن — لا يُعرض التوقّع للمندوب في الشاشة الحالية) — تُقارن لاحقاً بمشترياته
+ *      الفعلية لقياس دقّة المحرّك ومعايرة الطلب التجريبي.
+ *   3) و«الطلب المتوقع من ملف المحل في Google» **كما عُرض للمندوب** (من ذاكرة الخادم، يوماً) لقطةً موسومة gsig-1 —
+ *      تُقارن بأول طلب حقيقي فيتعلّم معامل كل نوع محل، ولا تختلط بلقطة المحلات المشابهة (ai-est-1).
  * أي فشل هنا لا يُسقط إنشاء العميل (المستدعي يلتقطه).
  */
 import prisma from '../config/database';
@@ -13,6 +16,8 @@ import { settingsView, AiRepSettingsView } from './settings';
 import { isOutletType, outletTypeLabel } from './taxonomy';
 import { getLearned } from './learn/store';
 import { resolveTuning } from './learn/calibration';
+import { gsigSnapshotData } from './learn/gsig';
+import { takeShownExpected } from './session';
 
 export async function linkConvertedCustomer(
   tid: string,
@@ -42,11 +47,19 @@ export async function linkConvertedCustomer(
     }).catch((e: { code?: string }) => { if (e?.code !== 'P2002') throw e; });
   }
 
+  // الطلب المتوقع كما عُرض (أصنافه ذات الرقم) — مستقلٌّ عن لقطة المحلات المشابهة، وتعذّره لا يمنعها
+  const shown = takeShownExpected(tid, customer.aiPlaceId);
+  if (shown?.products.length) {
+    await prisma.aiEstimateSnapshot.create({ data: gsigSnapshotData(tid, { outletId: outlet.id, customerId: customer.id }, shown) })
+      .catch((e: Error) => console.warn('[ai-rep] لقطة الطلب المتوقع تعذّرت:', e?.message, 'tenant', tid));
+  }
+
   if (!outletType || customer.lat == null || customer.lng == null) return;
   const row = await prisma.aiRepSettings.findUnique({ where: { tenantId: tid } });
   const settings = settingsView(row as Partial<AiRepSettingsView> | null);
   const data = await loadEstimateData(tid, { windowMonths: settings.estimateWindowMonths, priorityProductIds: settings.priorityProductIds });
-  // الطلب التجريبي كما عُرض (مُعايَر إن وُجدت معايرة) — واللقطة تحفظ الخام والمعروض معاً لقياس المعايرة لاحقاً
+  // الطلب التجريبي المحسوب (مُعايَر إن وُجدت معايرة؛ لا يُعرض للمندوب في الشاشة الحالية) — واللقطة تحفظ الخام والمُعايَر
+  // معاً لقياس المعايرة لاحقاً
   const tuning = resolveTuning(await getLearned(tid), outletType, settings.learningMode);
   const r = estimateOutlet({
     target: { lat: customer.lat, lng: customer.lng, outletType, excludeCustomerId: customer.id },

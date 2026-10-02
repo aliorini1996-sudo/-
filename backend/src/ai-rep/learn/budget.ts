@@ -6,7 +6,8 @@
  * والخصم بعده بالاستهلاك الفعلي.
  *   AI_LEARN_TENANT_TOKENS  سقف الشركة في الليلة (افتراضياً ١٥ ألفاً: نداء + إعادة)
  *   AI_LEARN_NIGHT_TOKENS   سقف الليلة لكل الشركات (افتراضياً ٦٠٠ ألف)
- *   AI_LEARN_TPM            حدّ الرموز في الدقيقة (افتراضياً ٥٠ ألفاً ≈ ٢٠٪ من حصة Groq)
+ *   AI_LEARN_TPM            تباعد النداءات بالرموز في الدقيقة (افتراضياً ٥٠ ألفاً) — والحدّ الفعلي لحصة المضيف في دلو
+ *                           العملية المشترك (AI_REP_LLM_TPM في llm.ts) الذي تنتظره الليلة حتى ٢٠ ث
  *   AI_LEARN_LLM=0          مفتاح إطفاء المراجعة بالعقل (الخطوات الحتمية تبقى)
  */
 import { chatCompletion, type LlmConfig, type LlmRequest, type LlmResult } from '../llm';
@@ -68,7 +69,7 @@ export async function budgetedCompletion(
   if (wait > 0) await (deps.sleep ?? sleepMs)(wait);
   b.lastCallAt = now();
 
-  const res = await llm(cfg, req);
+  const res = await llm(cfg, { ...req, queueMs: req.queueMs ?? MAX_PACE_MS });
   if (!res.ok && res.code === 'LLM_RATE_LIMIT') b.stopped = true;
   // الفعلي إن أبلغ عنه المضيف، وإلا التقدير؛ المهلة المنقضية قد تكون استُهلكت عندهم فتُحسب احتياطاً
   const spent = res.ok ? (res.usage.promptTokens + res.usage.completionTokens || est) : res.code === 'LLM_TIMEOUT' ? est : 0;

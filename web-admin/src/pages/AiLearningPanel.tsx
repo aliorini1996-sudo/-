@@ -17,10 +17,12 @@ import {
  * صادقة عمداً: العقل نموذج ثابت لا يُعاد تدريبه، و«التعلّم» ذاكرة إحصائية لهذه الشركة وحدها. لا يُكتب «تحسّن مؤكَّد»
  * إلا حين يستبعد مجال الثقة الصفر (الترتيب lo90 > 0، والنسب P ≥ 0.9)؛ بين 0.7 و0.9 «مؤشّر» فقط، وإلا «لا أثر مؤكَّد بعد».
  * شركة جديدة بلا ليالٍ: كل بطاقة «يحتاج مزيداً من البيانات» ولا شيء يسقط.
+ * ما يقيسه كلٌّ منها في الشاشة الحالية: الترتيب والأزواج والالتزام من دورات المسح، والحارس والرضا من توجيه المسح ودراسة
+ * المحل، والدرس «مطبَّق على المسح» إن عُرض في دورة خلال ٣٠ يوماً. الطلب التجريبي لا يُعرض للمناديب (موسومٌ بذلك).
  */
 
 type Mode = 'AUTO' | 'REVIEW' | 'OFF';
-type Kind = 'POLICY' | 'CALIBRATION';
+type Kind = 'POLICY' | 'CALIBRATION' | 'GSIG';
 type LessonAction = 'approve' | 'reject' | 'disable' | 'enable' | 'restore';
 interface ArmAgg { planned?: number; visited?: number; pos?: number; conv30?: number; closed?: number }
 /** مؤشّرات الليلة (§4.4) — كل حقل اختياري: شركة جديدة أو ليلة جزئية قد لا تحمل بعضها. */
@@ -48,6 +50,8 @@ interface LessonRow {
   evidence: { items?: EvidenceItem[]; windowDays?: number; computedAt?: string } | null;
   onOff: { on: number; off: number; qOn: number | null; qOff: number | null; up: number; down: number } | null;
   history: HistoryRow[] | null; createdAt: string;
+  /** دورات ٣٠ يوماً (مسح أو دراسة) عُرض فيها الدرس */
+  applied?: number;
 }
 interface LearningView {
   mode: Mode; holdoutPct: number; llmConfigured: boolean;
@@ -113,6 +117,7 @@ export default function AiLearningPanel() {
       case 'SKIPPED_RATE_LIMIT': return `${tr('تُخطّيت')} (${tr('حدّ Groq')})`;
       case 'SKIPPED_QUIET': return `${tr('تُخطّيت')} (${tr('لا جديد')})`;
       case 'SKIPPED_MODE': return `${tr('تُخطّيت')} (${tr('متوقف')})`;
+      case 'SKIPPED_NO_TURNS': return `${tr('تُخطّيت')} (${tr('لا ردود للعقل')})`;
       case 'FAILED': return tr('فشلت');
       default: return tr('لم تُشغَّل');
     }
@@ -122,7 +127,7 @@ export default function AiLearningPanel() {
   const header = (
     <div>
       <p className="font-bold text-[#1F1A13] mb-1 flex items-center gap-2"><Brain size={18} className="text-[#E15A30]" /> {tr('ما تعلّمه العقل')}</p>
-      <p className="text-xs text-[#6E6557] leading-5">{tr('العقل نموذج ثابت (Groq openai/gpt-oss-120b) لا يُعاد تدريبه؛ «التعلّم» هنا ذاكرة إحصائية لشركتك: ترتيب الفرص يُعاير بنتائج زياراتكم، والطلب التجريبي بأول طلبات عملائكم الجدد الفعلية، ودروس قصيرة بلا أرقام تُختبر قبل اعتمادها — داخل شركتك وحدها ولا تُشارك مع أي شركة أخرى')}</p>
+      <p className="text-xs text-[#6E6557] leading-5">{tr('العقل نموذج ثابت (Groq openai/gpt-oss-120b) لا يُعاد تدريبه؛ «التعلّم» هنا ذاكرة إحصائية لشركتك: ترتيب محلات المسح يُعاير بنتائج زياراتكم لخطط المسح، ودروس قصيرة بلا أرقام من نتائج الميدان تظهر للمناديب في التوجيه ودراسة المحل وتُختبر قبل اعتمادها — داخل شركتك وحدها ولا تُشارك مع أي شركة أخرى')}</p>
     </div>
   );
 
@@ -196,12 +201,12 @@ export default function AiLearningPanel() {
       </div>
       {!v.lastRun && <p className="text-xs text-[#6E6557]">{tr('لم يبدأ التعلّم بعد — يبدأ ليلاً بعد أول زيارات مسجّلة')}</p>}
       {v.mode === 'OFF' && (
-        <p className="text-xs rounded-xl border border-amber-200 bg-amber-50 text-amber-800 p-2.5">{tr('متوقف: المستشار يعمل كما كان قبل التعلّم (الترتيب الافتراضي بلا دروس ولا معايرة)، وتُسجَّل نتائج الزيارات فقط')}</p>
+        <p className="text-xs rounded-xl border border-amber-200 bg-amber-50 text-amber-800 p-2.5">{tr('متوقف: المسح والدراسة بالترتيب الافتراضي بلا دروس، وتُسجَّل نتائج الزيارات فقط')}</p>
       )}
 
       {/* البطاقات الأربع: قبل / بعد، n، وحكم لا يدّعي ما لم يثبت */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-        <MetricCard title={tr('ترتيب الفرص')} caption={tr('على نفس الزيارات')} arrow={arrow}
+        <MetricCard title={tr('ترتيب محلات المسح')} caption={tr('على نفس الزيارات')} arrow={arrow}
           beforeLabel={tr('الترتيب الافتراضي')} before={pct(num(pol?.cDefault))} afterLabel={tr('المتعلَّم')} after={pct(num(pol?.cActive))}
           verdict={polVerdict} n={num(pol?.pairs) ?? pairs}>
           {(L?.visited || B?.visited) ? (
@@ -214,11 +219,12 @@ export default function AiLearningPanel() {
           beforeLabel={tr('قبل')} before={times(num(trial?.typicalErrorRawX))} afterLabel={tr('بعد')} after={times(num(trial?.typicalErrorCalX))}
           verdict={trialVerdict} n={snapN || calCustomers}>
           <p className="text-[11px] text-[#6E6557]">{tr('عملاء فُحصوا')}: {formatNumber(calCustomers)}</p>
+          <p className="text-[11px] text-amber-700">{tr('لا يُعرض للمناديب في الشاشة الحالية')}</p>
         </MetricCard>
-        <MetricCard title={tr('ردود بلا تصحيح')} caption={tr('نسبة ردود العقل التي مرّت بحارس الأرقام دون تصحيح')} arrow={arrow}
+        <MetricCard title={tr('ردود بلا تصحيح')} caption={tr('نسبة توجيهات المسح ودراسات المحلات بالعقل التي مرّت بحارس الأرقام دون تصحيح')} arrow={arrow}
           beforeLabel={tr('قبل')} before={pct(badBase == null ? null : 1 - badBase)} afterLabel={tr('بعد')} after={pct(badNow == null ? null : 1 - badNow)}
           verdict={guardVerdict} n={turns7} />
-        <MetricCard title={tr('رضا المناديب')} caption={tr('نسبة «مفيد» من تقييمات المناديب')} arrow={arrow}
+        <MetricCard title={tr('رضا المناديب')} caption={tr('نسبة «مفيد» من تقييمات المناديب للتوجيه ودراسة المحل')} arrow={arrow}
           beforeLabel={tr('قبل')} before={pct(upBase)} afterLabel={tr('بعد')} after={pct(votes ? up / votes : null)}
           verdict={voteVerdict} n={votes}>
           {votes > 0 && <p className="text-[11px] text-[#6E6557] flex items-center gap-2"><ThumbsUp size={12} /> {up} <ThumbsDown size={12} /> {down}</p>}
@@ -287,12 +293,13 @@ export default function AiLearningPanel() {
       <div>
         <p className="font-semibold text-[#1F1A13] mb-2 flex items-center gap-2"><Layers size={16} className="text-[#E15A30]" /> {tr('نسخ النموذج')}</p>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {(['POLICY', 'CALIBRATION'] as const).map(kind => {
+          {(['POLICY', 'CALIBRATION', 'GSIG'] as const).map(kind => {
             const rows = models.filter(r => r.kind === kind).sort((a, b) => b.version - a.version);
             return (
               <div key={kind} className="rounded-xl border border-[#E9E1D3] p-3 space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-[#1F1A13]">{kind === 'POLICY' ? tr('ترتيب الفرص') : tr('دقّة الطلب التجريبي')}</p>
+                  <p className="text-sm font-semibold text-[#1F1A13]">{kind === 'POLICY' ? tr('ترتيب محلات المسح') : kind === 'GSIG' ? tr('الطلب المتوقع من ملف المحل في Google') : tr('دقّة الطلب التجريبي')}
+                    {kind === 'CALIBRATION' && <span className="block text-[11px] font-normal text-amber-700">{tr('لا يُعرض للمناديب في الشاشة الحالية')}</span>}</p>
                   {rows.some(r => r.status === 'ACTIVE') && (
                     <button type="button" disabled={busy} onClick={() => rollback.mutate({ kind, version: 0 })} className="btn-secondary px-2 py-1 text-xs">{tr('رجوع للافتراضي')}</button>
                   )}
@@ -427,6 +434,7 @@ function LessonItem({ l, arrow, busy, onAction }: { l: LessonRow; arrow: string;
         {typeLabel && <span className="rounded-full bg-[#FBEBE2] text-[#C94E28] px-2 py-0.5">{tr(typeLabel)}</span>}
         {LESSON_ORIGIN_LABEL[l.origin] && <span className="rounded-full bg-[#F4EEE3] text-[#44403a] px-2 py-0.5">{tr(LESSON_ORIGIN_LABEL[l.origin])}</span>}
         {st && <span className="rounded-full bg-[#F4EEE3] text-[#6E6557] px-2 py-0.5">{st}</span>}
+        {!!l.applied && <span className="rounded-full bg-green-50 text-green-700 px-2 py-0.5">{tr('مطبَّق على المسح')} ({formatNumber(l.applied)})</span>}
         <button type="button" onClick={() => setOpen(o => !o)} className="inline-flex items-center gap-0.5 text-[#C94E28] font-semibold">
           {tr('الدليل')} {open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
         </button>
@@ -456,7 +464,8 @@ function LessonItem({ l, arrow, busy, onAction }: { l: LessonRow; arrow: string;
               <p className="font-semibold">{tr('السجلّ')}</p>
               {history.map((h, i) => (
                 <p key={i} className="text-[#6E6557]">
-                  {h.at ? formatDate(h.at) : '—'} · {statusText(h.from)} {arrow} {statusText(h.to)} · {h.by === 'SYSTEM' ? tr('النظام') : tr('الإدارة')}{reason(h.reason) ? ` · ${reason(h.reason)}` : ''}
+                  {/* جلسة المالك (الدعم الفني) تُسجَّل OWNER:<المعرّف> لا باسم مدير الشركة */}
+                  {h.at ? formatDate(h.at) : '—'} · {statusText(h.from)} {arrow} {statusText(h.to)} · {h.by === 'SYSTEM' ? tr('النظام') : String(h.by ?? '').startsWith('OWNER:') ? tr('مالك المنصة (الدعم الفني)') : tr('الإدارة')}{reason(h.reason) ? ` · ${reason(h.reason)}` : ''}
                 </p>
               ))}
             </div>

@@ -118,8 +118,9 @@ test('كل مفتاح يُنادى في الكود موجود في القامو�
   const shareHave = new Set<string>();
   for (const m of read('src', 'lib', 'zatca', 'shareView.ts').matchAll(/^\s*'((?:[^'\\]|\\.)*)'\s*:\s*\{/gm)) shareHave.add(m[1]);
   // المندوب الذكي: صفحة الشركة (ولوحة «ما تعلّمه العقل» داخلها) وشاشة المندوب كسولة وعباراتها في i18n/aiRepPhrases.ts
-  // (عبر useAiRepTr) — تُحتسب لها وحدها
-  const aiRepFiles = new Set([path.join(srcDir, 'pages', 'AiRepPage.tsx'), path.join(srcDir, 'pages', 'AiLearningPanel.tsx'), path.join(srcDir, 'rep', 'RepAiScreen.tsx')]);
+  // (عبر useAiRepTr) — تُحتسب لها وحدها، ومعها منطق الشاشة الصرف (aiRepLogic.ts) الذي يركّب النصوص بـtr تمرّره الشاشة
+  const aiRepFiles = new Set([path.join(srcDir, 'pages', 'AiRepPage.tsx'), path.join(srcDir, 'pages', 'AiLearningPanel.tsx'),
+    path.join(srcDir, 'rep', 'RepAiScreen.tsx'), path.join(srcDir, 'rep', 'aiRepLogic.ts')]);
   for (const f of aiRepFiles) assert.ok(fs.existsSync(f), `ملف غير موجود: ${f}`);
   const aiRepHave = new Set<string>();
   for (const m of read('src', 'i18n', 'aiRepPhrases.ts').matchAll(/^\s*'((?:[^'\\]|\\.)*)'\s*:\s*\{/gm)) aiRepHave.add(m[1]);
@@ -134,4 +135,25 @@ test('كل مفتاح يُنادى في الكود موجود في القامو�
     }
   }
   assert.deepEqual([...missing], [], 'مفاتيح تُنادى ولا وجود لها في القاموس: ' + [...missing].slice(0, 20).join(' | '));
+});
+
+test('عبارات المندوب الذكي كلها حيّة — لا ترجمة لنصٍّ لم يعد في الكود', () => {
+  // درس المراجعة: ٨٩ عبارة بقيت بعد تحوّل الشاشة (المسار والمحادثة والتوقّع) تُترجَم ولا تُعرض. كل مفتاح يجب أن يظهر
+  // نصّاً مقتبَساً في ملفٍّ من الكود (tr('…') أو تسمية ثابتة تمرّ بـtr متغيّرةً)، إلا نصوصاً يرسلها الخادم وتُعرض بـtr
+  const SERVER_SENT = new Set([
+    // تلميحات «ما تعلّمه العقل» (backend/src/ai-rep/learn/field.ts ← AiLearningPanel: tr(h.textAr))
+    'مناديبك يواجهون طلب الآجل ودليل البيع لا يذكر سياستكم — أضفها ليجيب المستشار',
+    'مناديبك يُسألون عن الأسعار ودليل البيع لا يذكرها',
+  ]);
+  const phrasesFile = path.join(root, 'src', 'i18n', 'aiRepPhrases.ts');
+  const keys = [...read('src', 'i18n', 'aiRepPhrases.ts').matchAll(/^\s*'((?:[^'\\]|\\.)*)'\s*:\s*\{/gm)].map(m => m[1]);
+  assert.ok(keys.length > 100, `عدد العبارات ${keys.length} أقلّ من المتوقّع — هل قُصّ الملف؟`);
+  const walk = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap(e => {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) return e.name === 'node_modules' ? [] : walk(full);
+    return /\.tsx?$/.test(e.name) && !e.name.endsWith('.test.ts') && full !== phrasesFile ? [full] : [];
+  });
+  const corpus = walk(path.join(root, 'src')).map(f => fs.readFileSync(f, 'utf8')).join('\n');
+  const dead = keys.filter(k => !SERVER_SENT.has(k) && !corpus.includes(`'${k}'`) && !corpus.includes(`"${k.replace(/\\'/g, "'")}"`));
+  assert.deepEqual(dead, [], 'عبارات بلا استعمال في الكود (احذفها أو أضفها لقائمة نصوص الخادم): ' + dead.slice(0, 10).join(' | '));
 });

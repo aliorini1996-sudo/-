@@ -24,7 +24,7 @@ export interface PlanCandidate {
   outletType: string;
 }
 
-const REJECTED = new Set(['NOT_INTERESTED', 'EXCLUSIVE_SUPPLIER', 'CLOSED', 'CONVERTED']);
+const REJECTED = new Set(['NOT_INTERESTED', 'EXCLUSIVE_SUPPLIER', 'CLOSED', 'NOT_FOUND', 'CONVERTED']);
 export const PLAN_MAX_STOPS = 5;
 
 /** قيمة الفرصة V: الوسيط الشهري المتوقّع إن ظهر المال، وإلا متوسط انتشار أعلى الأصناف (مقياس نسبي). */

@@ -37,6 +37,7 @@ const navItems = [
   { to: '/app/ledger', icon: Landmark, label: 'nav.ledger' },
   { to: '/app/company-users', icon: UserCog, label: 'nav.companyUsers', permission: 'canManageCompanyUsers' },
   { to: '/app/erp', icon: DatabaseZap, label: 'nav.erp', permission: 'canManageCompanySettings' },
+  // لا يظهر للمستخدم المقيَّد النطاق (إلا في جلسة المالك): إعداداته وتعلّمه تحتاج صلاحية غير مقيدة والخادم يرفضها
   { to: '/app/ai-rep', icon: Sparkles, label: 'nav.aiRep', permission: 'canManageCompanySettings' },
   { to: '/app/petroapp', icon: Fuel, label: 'nav.petroapp', permission: 'canManageCompanySettings' },
   { to: '/app/hatif', icon: PhoneCall, label: 'nav.hatif', permission: 'canManageCompanySettings' },
@@ -101,7 +102,7 @@ export default function MainLayout() {
 
         {/* Nav */}
         <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-          {navItems.filter(item => (!item.permission || user?.[item.permission as keyof typeof user] !== false) && (item.to !== '/app/erp' || companyCfg?.erpEnabled !== false) && (item.to !== '/app/petroapp' || companyCfg?.petroappEnabled === true) && (item.to !== '/app/ai-rep' || companyCfg?.aiRepEnabled === true) && (item.to !== '/app/hatif' || companyCfg?.hatifEnabled === true) && (item.to !== '/app/paylink' || companyCfg?.paylinkEnabled === true) && (item.to !== '/app/warehouse' || companyCfg?.warehouseEnabled === true) && (item.to !== '/app/daily-reports' || companyCfg?.dailyReportEnabled === true) && (!ACCOUNTING_PAGES.includes(item.to) || companyCfg?.accountingEnabled !== false) && (item.to !== '/app/ledger' || (((companyCfg?.accountingSuiteEnabled === true && companyCfg?.accountingEnabled !== false) || companyCfg?.ledgerRetentionActive === true) && canLedger(user, 'canViewLedger')))).map(item => (
+          {navItems.filter(item => (!item.permission || user?.[item.permission as keyof typeof user] !== false) && (item.to !== '/app/erp' || companyCfg?.erpEnabled !== false) && (item.to !== '/app/petroapp' || companyCfg?.petroappEnabled === true) && (item.to !== '/app/ai-rep' || (companyCfg?.aiRepEnabled === true && (user?.scopeEnabled !== true || !!impersonating))) && (item.to !== '/app/hatif' || companyCfg?.hatifEnabled === true) && (item.to !== '/app/paylink' || companyCfg?.paylinkEnabled === true) && (item.to !== '/app/warehouse' || companyCfg?.warehouseEnabled === true) && (item.to !== '/app/daily-reports' || companyCfg?.dailyReportEnabled === true) && (!ACCOUNTING_PAGES.includes(item.to) || companyCfg?.accountingEnabled !== false) && (item.to !== '/app/ledger' || (((companyCfg?.accountingSuiteEnabled === true && companyCfg?.accountingEnabled !== false) || companyCfg?.ledgerRetentionActive === true) && canLedger(user, 'canViewLedger')))).map(item => (
             <NavLink
               key={item.to}
               to={item.to}
