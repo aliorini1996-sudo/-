@@ -663,7 +663,7 @@ const GRANTS = [
 ] as const;
 
 type Grant = typeof GRANTS[number];
-type PermKey = Grant | 'requireCustomerProximity';
+type PermKey = Grant | 'requireCustomerProximity' | 'requireLocationOn';
 type PermState = Record<PermKey, boolean>;
 
 /**
@@ -680,6 +680,7 @@ const PERM_DEFAULTS: PermState = {
   canAddCustomer: false, canEditCustomer: false, canViewStatement: true,
   showCollectionBalance: true,
   requireCustomerProximity: false,
+  requireLocationOn: false,
 };
 
 const PERM_LABELS: Record<PermKey, string> = {
@@ -701,6 +702,7 @@ const PERM_LABELS: Record<PermKey, string> = {
   canViewStatement: 'عرض كشف الحساب',
   showCollectionBalance: 'إظهار رصيد التحصيل المتراكم',
   requireCustomerProximity: 'البيع داخل نطاق العميل فقط',
+  requireLocationOn: 'اشتراط تفعيل الموقع',
 };
 
 const PERM_GROUPS: { title: string; keys: Grant[] }[] = [
@@ -821,6 +823,10 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
             checked={perms.requireCustomerProximity}
             onChange={v => set('requireCustomerProximity', v)}
             hint={tr('قيد لا صلاحية تفعيله يمنع فتح ملف العميل خارج خمسين مترا من موقعه والعميل بلا موقع يمنع تماما')} />
+          <MToggle label={tr(PERM_LABELS.requireLocationOn)}
+            checked={perms.requireLocationOn}
+            onChange={v => set('requireLocationOn', v)}
+            hint={tr('عند التفعيل لا يقبل التطبيق من المندوب اي اجراء ولا زيارة ولا فتح ملف عميل ولا بصمة حضور والموقع مطفأ في جواله')} />
         </Group>
 
         <p className="text-[11px] text-[#9A8F7E] px-1 leading-relaxed">

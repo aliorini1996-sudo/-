@@ -66,11 +66,12 @@ test('يُطبّع العمق عند الإقلاع البارد — استعا�
 test('تطبيق المندوب: الطبقات الأساسية موصولة', () => {
   const rep = read(path.join('rep', 'RepApp.tsx'));
   assert.match(rep, /import \{ useBackClose \}/, 'الخطّاف غير مستورد');
+  // طبقات التطبيق الأساسية مشروطة بـ!gateShown: تحت حاجز «اشتراط تفعيل الموقع» لا يغلق الرجوعُ ملفَّ العميل ولا يرفع الزيارة
   for (const [what, re] of [
-    ['الصفّ الصادر', /useBackClose\(showOutbox/],
-    ['عارض المستند', /useBackClose\(!!docResult, closeDocResult\)/],
-    ['ملفّ العميل', /useBackClose\(modal === 'customerDetail', closeCustomerDetail\)/],
-    ['نماذج الإنشاء والتعديل', /\|\| modal === 'createReceipt' \|\| modal === 'logVisit' \|\| modal === 'editCustomer',/],
+    ['الصفّ الصادر', /useBackClose\(!gateShown && showOutbox/],
+    ['عارض المستند', /useBackClose\(!gateShown && !!docResult, closeDocResult\)/],
+    ['ملفّ العميل', /useBackClose\(!gateShown && modal === 'customerDetail', closeCustomerDetail\)/],
+    ['نماذج الإنشاء والتعديل', /\|\| modal === 'createReceipt' \|\| modal === 'logVisit' \|\| modal === 'editCustomer'\),/],
     ['ماسح الباركود', /useBackClose\(showScanner/],
     ['سلّة الأصناف', /useBackClose\(!showScanner && showCart/],
     ['ورقة رابط الدفع', /useBackClose\(payLinkOpen/],

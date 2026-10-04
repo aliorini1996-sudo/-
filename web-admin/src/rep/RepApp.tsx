@@ -34,7 +34,8 @@ import { BUYER_BILLING_FIELDS, BuyerField } from '../lib/zatca/buyerData';
 import { BuyerFormValues, buyerBadge, buyerCreatePayload, buyerFormCheck, buyerFormValues, buyerUpdatePayload } from '../lib/zatca/buyerForm';
 import { RepBuyerBanner, RepBuyerDataForm, fetchIncompleteBuyers } from './RepBuyerData';
 import { Component, lazy, Suspense, type ReactNode } from 'react';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, MapPinOff } from 'lucide-react';
+import { useLocationGate } from './locationGate';
 import { clearAiSession, markConverted, type AiAddPrefill } from './aiRepSession';
 import { OUTLET_TYPE_OPTIONS } from './aiRepLogic';
 // المندوب الذكي كسول: لا تُحمَّل حزمته إلا لمن فُعّلت له الميزة وفتحها
@@ -64,6 +65,8 @@ type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'crea
 interface RepUser {
   /** «البيع داخل نطاق العميل» — تقييديّ: true يعني مقيَّد بـ٥٠ متراً حول موقع العميل */
   requireCustomerProximity?: boolean;
+  /** «اشتراط تفعيل الموقع» — تقييديّ: والموقع مطفأ يُحجب التطبيق كله (locationGate.ts) */
+  requireLocationOn?: boolean;
   id: string; name: string; phone?: string;
   canAddCustomer?: boolean;
   /** «تعديل بيانات العميل» — افتراضه في الخادم مُطفأ، فلا يظهر زرّ التعديل إلا بـtrue صريحة */
@@ -176,15 +179,22 @@ type AttendanceState =
   | { status: 'none'; last?: null };
 
 // موقع أفضل جهد: ثماني ثوانٍ ثم نمضي بلا موقع — البصمة أهمّ من الإحداثيات.
-function grabLocation(): Promise<{ lat: number; lng: number } | null> {
+function readLocation(opts: PositionOptions): Promise<{ lat: number; lng: number } | null> {
   return new Promise((resolve) => {
     if (!navigator.geolocation) { resolve(null); return; }
     navigator.geolocation.getCurrentPosition(
       (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
       () => resolve(null),
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 },
+      opts,
     );
   });
+}
+// المندوب المقيَّد بـ«اشتراط تفعيل الموقع» لا تمضي بصمته بلا موقع (يردّها الخادم): فإن فشلت قراءة الـGPS السريعة
+// داخل مبنى فمحاولةٌ ثانية بشبكة الموقع ومهلة أطول تقبل قراءةً عمرها دقيقتان.
+async function grabLocation(strict = false): Promise<{ lat: number; lng: number } | null> {
+  const fast = await readLocation({ enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 });
+  if (fast || !strict) return fast;
+  return readLocation({ enableHighAccuracy: false, timeout: 20_000, maximumAge: 120_000 });
 }
 
 const clockTime = (iso: string): string => {
@@ -199,7 +209,7 @@ function shiftDuration(fromIso: string, toIso: string, tr: (s: string) => string
   return `${h} ${tr('ساعة')} ${m} ${tr('دقيقة')}`;
 }
 
-function RepAttendance() {
+function RepAttendance({ locationRequired = false }: { locationRequired?: boolean }) {
   const tr = useTr();
   const [state, setState] = useState<AttendanceState | null>(null);
   const [busy, setBusy] = useState(false);
@@ -217,7 +227,9 @@ function RepAttendance() {
   const punch = async (kind: 'checkin' | 'checkout') => {
     setBusy(true); setErr('');
     try {
-      const loc = await grabLocation();
+      const loc = await grabLocation(locationRequired);
+      // المقيَّد بلا موقع: رسالةٌ تصف حاله (الموقع مفعّل والإشارة ضعيفة) بدل ردّ الخادم «فعّل الموقع»
+      if (!loc && locationRequired) { setErr(tr('تعذر تحديد موقعك اقترب من نافذة او مكان مفتوح ثم اعد المحاولة')); return; }
       const r = await repApi.post(`/tracking/attendance/${kind}`, loc ?? {});
       setState(r.data.data as AttendanceState);
     } catch (e) {
@@ -2991,6 +3003,30 @@ function OutboxPanel({ onClose, onSync, syncing }: { onClose: () => void; onSync
  * تُعرض بدل CustomerDetail لا داخله: تركيب المكوّن يُطلق جلب كشف الحساب،
  * فحارسٌ في الداخل يسرّب الكشف قبل أن يُغلق الباب.
  */
+/**
+ * حاجز «اشتراط تفعيل الموقع»: طبقةٌ فوق التطبيق كله (z-[60]) لا بديلٌ عنه — ما تحتها يبقى بحالته ولا يُلمس، فلا
+ * إجراء ولا زيارة ولا فتح عميل ولا بصمة حتى يُفعَّل الموقع.
+ */
+function LocationOffGate({ onRetry }: { onRetry: () => Promise<boolean> }) {
+  const tr = useTr();
+  const [busy, setBusy] = useState(false);
+  const retry = async () => { setBusy(true); try { await onRetry(); } finally { setBusy(false); } };
+  return (
+    <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center px-8 text-center gap-4 bg-[#FAF7F0]" role="alertdialog" aria-modal="true">
+      <div className="w-16 h-16 rounded-2xl bg-red-50 border border-red-200 flex items-center justify-center">
+        <MapPinOff size={28} className="text-red-600" />
+      </div>
+      <p className="font-bold text-[#1F1A13]">{tr('الموقع مطفأ')}</p>
+      <p className="text-sm text-[#6E6557] leading-relaxed">{tr('فعل الموقع في جوالك واسمح للتطبيق باستعماله ثم اضغط اعد المحاولة')}</p>
+      <p className="text-xs text-[#9A8F7E] leading-relaxed">{tr('لا يمكن تسجيل الحضور ولا الزيارة ولا فتح العملاء ولا اصدار المستندات والموقع مطفأ')}</p>
+      <button onClick={retry} disabled={busy}
+        className="mt-2 px-5 py-2.5 rounded-xl bg-[#E15A30] text-white font-semibold text-sm disabled:opacity-60">
+        {busy ? tr('جار تحديد موقعك') : tr('اعد المحاولة')}
+      </button>
+    </div>
+  );
+}
+
 function GeoGate({ verdict, customerName, busy, onRetry, onClose }: {
   verdict: GeoVerdict; customerName: string; busy: boolean; onRetry: () => void; onClose: () => void;
 }) {
@@ -3047,12 +3083,22 @@ export default function RepApp() {
   const [aiPrefill, setAiPrefill] = useState<AiAddPrefill | null>(null);
   // «البيع داخل نطاق العميل»: عَلَمٌ تقييديّ يُقرأ بـ=== true — غيابه يعني غير مقيَّد
   const proximityOn = user?.requireCustomerProximity === true;
+  // «اشتراط تفعيل الموقع»: تقييديّ يُقرأ بـ=== true — والموقع مطفأ تُغطّى الشاشة كلها بحاجز (لا تُستبدل، فلا يضيع ما
+  // يكتبه المندوب إن انطفأ الموقع لحظة)
+  const locationRequired = user?.requireLocationOn === true;
+  const { status: locationStatus, check: checkLocation } = useLocationGate(!!token && locationRequired);
   const [geoVerdict, setGeoVerdict] = useState<GeoVerdict | null>(null);
   const [geoBusy, setGeoBusy] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [docResult, setDocResult] = useState<InvoiceDoc | ReceiptDoc | StatementDoc | null>(null);
   // من أين فُتح المستند؟ لإعادة المندوب لشاشة العميل عند إغلاقه بدل قائمة الفواتير
   const [docBack, setDocBack] = useState<'customerDetail' | null>(null);
+  // فحص الموقع فوراً عند فتح أي إجراء أو شاشة غير الرئيسية أو مستند — لا ينتظر الدورة الدقيقة
+  useEffect(() => {
+    if (locationRequired && (modal !== null || docResult !== null || screen !== 'home')) void checkLocation();
+  }, [locationRequired, modal, docResult, screen, checkLocation]);
+  // تحت الحاجز لا يعمل زرّ الرجوع (أندرويد) ولا سحبة الحافة: كانا يغلقان ملف العميل ويرفعان الزيارة والموقع مطفأ
+  const gateShown = !!token && !!user && locationRequired && locationStatus === 'off';
 
   /**
    * يقيس موقع المندوب ويحكم على قربه من العميل.
@@ -3182,21 +3228,21 @@ export default function RepApp() {
   /* ═══ زرّ الرجوع (أندرويد) وسحبة الحافة (آيفون) ═══
    * مرتّبة من الطبقة الأعلى بصرياً إلى الأدنى — الأعلى يُغلق أولاً.
    * تُستدعى بلا شرط دائماً (قاعدة الخطّافات) والتحكّم بالوسيط الأول. */
-  useBackClose(showOutbox, () => setShowOutbox(false));
+  useBackClose(!gateShown && showOutbox, () => setShowOutbox(false));
   useBackClose(!!(!token || !user) && showLogin, () => setShowLogin(false));
-  useBackClose(!!docResult, closeDocResult);
-  useBackClose(modal === 'addCustomer', () => { setModal(null); setAiPrefill(null); });
+  useBackClose(!gateShown && !!docResult, closeDocResult);
+  useBackClose(!gateShown && modal === 'addCustomer', () => { setModal(null); setAiPrefill(null); });
   useBackClose(
-    modal === 'createInvoice' || modal === 'createReturn'
-    || modal === 'createReceipt' || modal === 'logVisit' || modal === 'editCustomer',
+    !gateShown && (modal === 'createInvoice' || modal === 'createReturn'
+    || modal === 'createReceipt' || modal === 'logVisit' || modal === 'editCustomer'),
     () => setModal('customerDetail'),
   );
   // فوترة ZATCA (Z5.1a): نموذج بيانات الفوترة الضيّق يعود لملف العميل
-  useBackClose(modal === 'buyerData', () => setModal('customerDetail'));
-  useBackClose(modal === 'customerDetail', closeCustomerDetail);
+  useBackClose(!gateShown && modal === 'buyerData', () => setModal('customerDetail'));
+  useBackClose(!gateShown && modal === 'customerDetail', closeCustomerDetail);
   // القاعدة: من أيّ تبويب غير الرئيسية يعود إليها أولاً، ومنها يخرج من التطبيق
   // (مبدأ أندرويد «عُد لوجهة البداية قبل الخروج» — ولا نحبس المستخدم بحيلة).
-  useBackClose(!!token && !!user && !modal && !docResult && screen !== 'home', () => setScreen('home'));
+  useBackClose(!gateShown && !!token && !!user && !modal && !docResult && screen !== 'home', () => setScreen('home'));
 
   // بدء توقيت زيارة عميل. إن كان مؤقّت آخر نشطاً (عميل مختلف) نُنهيه أولاً
   // فلا تضيع مدّته ولا تختلط بالجديدة.
@@ -3249,23 +3295,26 @@ export default function RepApp() {
     } finally { setSyncing(false); }
   };
 
+  /* صلاحيات المندوب وقيوده من الخادم — عند فتح التطبيق، ومع تجديد إعدادات الشركة الدوري، وعند «أعد المحاولة» في حاجز
+   * الموقع: قيدٌ يفعّله المالك أو يطفئه يصل التطبيق المفتوح خلال دقائق بلا خروج وعودة. ومن خرج في الأثناء لا يُعاد. */
+  const refreshUser = useCallback(async (): Promise<void> => {
+    try {
+      const { data } = await repApi.get('/auth/me', { background: true });
+      const fresh = data?.data;
+      if (!fresh?.id) return;
+      setUser(prev => {
+        if (!prev || prev.id !== fresh.id) return prev;
+        const merged = { ...prev, ...fresh } as RepUser;
+        localStorage.setItem('rep_user', JSON.stringify(merged));
+        return merged;
+      });
+    } catch { /* أوف‑لاين أو عطل عابر: تبقى الصلاحيات المخزَّنة */ }
+  }, []);
+
   useEffect(() => {
     if (!token) return;
-    let alive = true;
-    (async () => {
-      try {
-        const { data } = await repApi.get('/auth/me', { background: true });
-        const fresh = data?.data;
-        if (!alive || !fresh?.id) return;
-        setUser(prev => {
-          const merged = { ...(prev || {}), ...fresh } as RepUser;
-          localStorage.setItem('rep_user', JSON.stringify(merged));
-          return merged;
-        });
-      } catch { /* أوف‑لاين أو عطل عابر: تبقى الصلاحيات المخزَّنة */ }
-    })();
-    return () => { alive = false; };
-  }, [token]);
+    void refreshUser();
+  }, [token, refreshUser]);
 
   useEffect(() => {
     if (!token) return;
@@ -3315,6 +3364,7 @@ export default function RepApp() {
     const refresh = () => {
       if (!navigator.onLine || document.hidden || !companyRefreshDue(last, Date.now())) return;
       last = Date.now();
+      void refreshUser(); // وصلاحيات المندوب وقيوده معها
       repApi.get('/company', { background: true }).then(async ({ data }) => {
         const fresh = data?.data as Company | undefined;
         if (!fresh) return;
@@ -3333,7 +3383,7 @@ export default function RepApp() {
       window.removeEventListener('online', refresh);
       window.clearInterval(iv);
     };
-  }, [token]);
+  }, [token, refreshUser]);
 
   // تحديث التطبيق نفسه حين تُنشر نسخة أحدث (appUpdate.ts): التطبيق المفتوح أياماً في الخلفية يظلّ على شيفرته القديمة فلا يرى
   // الميزات الجديدة (بلاغ «بصمة الحضور لا تظهر لبعض المناديب»). يُفحص عند الفتح وكل بضع دقائق وعند العودة إليه.
@@ -3439,6 +3489,8 @@ export default function RepApp() {
         {framed && <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-32 h-6 bg-black rounded-b-2xl z-30" />}
         <div className={framed ? 'w-full h-full bg-white rounded-[36px] overflow-hidden relative flex flex-col' : 'w-full h-full bg-white overflow-hidden relative flex flex-col'}>
           {showOutbox && <OutboxPanel onClose={() => setShowOutbox(false)} onSync={syncNow} syncing={syncing} />}
+          {/* «أعد المحاولة» يجدّد القيد من الخادم أولاً: مالكٌ أطفأه لمندوبٍ عالق يرفع الحاجز بلا إغلاق التطبيق */}
+          {gateShown && <LocationOffGate onRetry={async () => { await refreshUser(); return checkLocation(); }} />}
           {!token || !user ? (
             showLogin ? (
               <RepLogin onLogin={login} onBack={() => setShowLogin(false)} />
@@ -3560,7 +3612,7 @@ export default function RepApp() {
                 {screen === 'vanstock' && <RepVanStock canLoad={user.canManageVanStock !== false} />}
                 {screen === 'fuel' && <RepFuel accountingOn={accountingOn} />}
                 {screen === 'worknum' && <RepWorkNumber />}
-                {screen === 'attendance' && <RepAttendance />}
+                {screen === 'attendance' && <RepAttendance locationRequired={locationRequired} />}
                 {screen === 'airep' && aiRepOn && (
                   <AiRepBoundary onBack={() => setScreen('home')}>
                     <Suspense fallback={<p className="text-center text-gray-400 py-10 text-sm">{tr('جاري التحميل')}</p>}>

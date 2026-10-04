@@ -462,7 +462,7 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response, next: Ne
           canCreateReceipt: true, canEditReceipt: true, canCancelReceipt: true,
           canManageVanStock: true,
           canAddCustomer: true, canEditCustomer: true, canViewStatement: true,
-          requireCustomerProximity: true }
+          requireCustomerProximity: true, requireLocationOn: true }
       });
       res.json({ success: true, data: { ...rep, role: 'SALES_REP' } });
     } else {

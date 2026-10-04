@@ -50,7 +50,10 @@ const repAttendance = {
 
 let featureOn = true;
 const tenant = { async findUnique() { return { attendanceEnabled: featureOn }; } };
-stub('config/database', { default: { repAttendance, tenant } });
+// «اشتراط تفعيل الموقع» على المندوب (مطفأ افتراضاً كما في المخطط)
+let locationRequired = false;
+const salesRep = { async findUnique() { return { requireLocationOn: locationRequired }; } };
+stub('config/database', { default: { repAttendance, tenant, salesRep } });
 stub('middleware/auth', {
   authenticate: (_req: unknown, _res: unknown, next: () => void) => next(),
   requireAdmin: (_req: unknown, _res: unknown, next: () => void) => next(),
@@ -150,4 +153,24 @@ test('الميزة مطفأة للشركة ⇒ 403 ATTENDANCE_DISABLED ولا ك
   assert.equal(res.body!.code, 'ATTENDANCE_DISABLED');
   assert.equal(rows.length, 0, 'لم تُفتح نوبة والميزة مطفأة');
   featureOn = true;
+});
+
+test('«اشتراط تفعيل الموقع»: بصمة بلا إحداثيات ⇒ 409 LOCATION_REQUIRED ولا كتابة، وبإحداثيات تمرّ', async () => {
+  rows = []; seq = 0; featureOn = true; locationRequired = true;
+  try {
+    for (const body of [{}, { lat: 24.7 }, { lng: 46.6 }]) {
+      const res = await call('post', '/attendance/checkin', { body });
+      assert.equal(res.statusCode, 409, JSON.stringify(body));
+      assert.equal(res.body!.code, 'LOCATION_REQUIRED');
+    }
+    assert.equal(rows.length, 0, 'فُتحت نوبة بلا موقع');
+    assert.equal(data(await call('post', '/attendance/checkin', { body: { lat: 24.7, lng: 46.6 } })).status, 'in');
+    // الضغط المكرّر بعد الحضور يعيد النوبة نفسها ولو بلا موقع — لا كتابة فيه
+    assert.equal((data(await call('post', '/attendance/checkin', {})) as { already?: boolean }).already, true);
+    const out = await call('post', '/attendance/checkout', {});
+    assert.equal(out.statusCode, 409);
+    assert.equal(out.body!.code, 'LOCATION_REQUIRED');
+    assert.equal(rows[0].checkOutAt, null, 'أُغلقت النوبة بلا موقع');
+    assert.equal(data(await call('post', '/attendance/checkout', { body: { lat: 24.7, lng: 46.6 } })).status, 'out');
+  } finally { locationRequired = false; }
 });

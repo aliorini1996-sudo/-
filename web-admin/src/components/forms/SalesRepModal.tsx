@@ -39,6 +39,7 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
       canAddCustomer: false,
       showCollectionBalance: true,
       requireCustomerProximity: false,
+      requireLocationOn: false,
       maxDiscountPct: 0,
     };
   const { register, handleSubmit, setValue, formState: { errors } } = useForm<FormData>({
@@ -180,6 +181,12 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
             </div>
             <p className="text-xs text-gray-400 mt-2 leading-relaxed">
               {tr('عند التفعيل لا يفتح المندوب ملف العميل الا وهو داخل خمسين مترا من موقعه المسجل، والعميل بلا موقع يمنع منعا باتا، ويقفل عليه تعديل موقع العميل')}
+            </p>
+            <div className="grid grid-cols-1 gap-3 mt-3">
+              <PermToggle label={tr('اشتراط تفعيل الموقع')} {...register('requireLocationOn')} />
+            </div>
+            <p className="text-xs text-gray-400 mt-2 leading-relaxed">
+              {tr('عند التفعيل لا يقبل التطبيق من المندوب اي اجراء ولا زيارة ولا فتح ملف عميل ولا بصمة حضور والموقع مطفأ في جواله')}
             </p>
           </div>
 

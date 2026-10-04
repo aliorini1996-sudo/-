@@ -263,6 +263,7 @@ export interface SalesRep {
   canViewStatement: boolean;
   showCollectionBalance?: boolean;
   requireCustomerProximity?: boolean; // «البيع داخل نطاق العميل» — تقييديّ: true يعني مقيَّد
+  requireLocationOn?: boolean; // «اشتراط تفعيل الموقع» — تقييديّ: والموقع مطفأ لا يعمل المندوب شيئاً
   createdAt: string;
 }
 
