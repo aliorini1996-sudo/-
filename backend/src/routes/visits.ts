@@ -6,6 +6,7 @@ import { scopedRecordWhere, canAccessRep, SHAPE_VISIT } from '../services/adminS
 import { AuthRequest } from '../types';
 import { canAccessCustomer } from '../services/customerScope';
 import { computeVisitDuration } from '../services/visitDuration';
+import { mergeVisits, countStopsByRep, asVisitLike } from '../services/workDay';
 
 /**
  * الزيارات الميدانية — يسجّلها المندوب عند العميل (ملاحظة + صور + موقع GPS)، وتراها
@@ -133,7 +134,7 @@ router.get('/', requireAdmin, async (req: AuthRequest, res: Response, next: Next
     const start = new Date(`${dateStr}T00:00:00.000Z`);
     const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
 
-    const visits = await prisma.repVisit.findMany({
+    const raw = await prisma.repVisit.findMany({
       where: { tenantId: tid, salesRepId, createdAt: { gte: start, lt: end }, ...(await scopedRecordWhere(req, SHAPE_VISIT)) },
       orderBy: { createdAt: 'desc' },
       include: {
@@ -142,6 +143,20 @@ router.get('/', requireAdmin, async (req: AuthRequest, res: Response, next: Next
       },
       take: 500,
     });
+    /* وقفةٌ لكلّ صفّ: المؤقّت وملاحظته (أو صورته) سجلّان، فكان المندوب يظهر
+     * عند العميل مرّتين ويتضاعف عدّاده. الصفّ يأخذ المؤقّت أساساً (معرّفه
+     * وطابعيه ومدّته — وبمعرّفه تُفتح النافذة فتجمع صور الشقيقين)، والملاحظاتِ
+     * مجموعةً، والصورَ معدودةً من الجميع. */
+    const visits = mergeVisits(raw.map(asVisitLike)).map(m => {
+      const head = m.sources[0];
+      const notes = [...new Set(m.sources.map(v => (v.note || '').trim()).filter(Boolean))];
+      return {
+        ...head,
+        note: notes.length ? notes.join('\n') : null,
+        lat: m.lat, lng: m.lng,
+        _count: { photos: m.sources.reduce((t, v) => t + v._count.photos, 0) },
+      };
+    }).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     res.json({ success: true, data: visits });
   } catch (err) { next(err); }
 });
@@ -154,14 +169,13 @@ router.get('/count-by-rep', requireAdmin, async (req: AuthRequest, res: Response
     const start = new Date(`${dateStr}T00:00:00.000Z`);
     const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
 
-    const rows = await prisma.repVisit.groupBy({
-      by: ['salesRepId'],
+    // الوقفات لا السجلّات — بالدمج نفسه الذي تعرضه القائمة، فيتطابق العدّاد ومحتواه
+    const rows = await prisma.repVisit.findMany({
       where: { tenantId: tid, createdAt: { gte: start, lt: end }, ...(await scopedRecordWhere(req, SHAPE_VISIT)) },
-      _count: { _all: true },
+      select: { salesRepId: true, customerId: true, createdAt: true, startedAt: true, durationSec: true, customer: { select: { name: true } } },
+      take: 20000,
     });
-    const counts: Record<string, number> = {};
-    for (const r of rows) counts[r.salesRepId] = r._count._all;
-    res.json({ success: true, data: counts });
+    res.json({ success: true, data: countStopsByRep(rows.map(asVisitLike)) });
   } catch (err) { next(err); }
 });
 
@@ -190,9 +204,11 @@ router.get('/mine/count', async (req: AuthRequest, res: Response, next: NextFunc
     const start = new Date(localMidnight - offsetMin * 60_000);
     const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
 
-    const [today, customers] = await Promise.all([
-      prisma.repVisit.count({
+    const [todayRows, customers] = await Promise.all([
+      // الوقفات لا السجلّات: زيارةٌ بمؤقّتٍ وصورة ليست زيارتين في عدّاد المندوب
+      prisma.repVisit.findMany({
         where: { tenantId: tid, salesRepId: req.user.id, createdAt: { gte: start, lt: end } },
+        select: { salesRepId: true, customerId: true, createdAt: true, startedAt: true, durationSec: true, customer: { select: { name: true } } },
       }),
       prisma.repVisit.findMany({
         where: { tenantId: tid, salesRepId: req.user.id, createdAt: { gte: start, lt: end } },
@@ -200,6 +216,7 @@ router.get('/mine/count', async (req: AuthRequest, res: Response, next: NextFunc
         distinct: ['customerId'],
       }),
     ]);
+    const today = mergeVisits(todayRows.map(asVisitLike)).length;
     res.json({ success: true, data: { today, customers: customers.length } });
   } catch (err) { next(err); }
 });
@@ -221,7 +238,38 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     if (req.user?.role === 'SALES_REP' && visit.salesRepId !== req.user.id) {
       res.status(404).json({ success: false, message: 'الزيارة غير موجودة' }); return;
     }
-    res.json({ success: true, data: visit });
+
+    /* الوقفة كاملة لا نصفها: القائمة تعرض الوقفة بمعرّف مؤقّتها، والصور
+     * والملاحظة في سجلّها الشقيق — فلولا هذا لفُتحت النافذة على «لا صور» وصورُ
+     * الزيارة محفوظة. والشقيقات: المندوب نفسه والعميل نفسه في يومٍ حول الزيارة،
+     * يدمجها `mergeVisits` نفسه فلا تُضمّ زيارةٌ ثانيةٌ لا تخصّها. */
+    const at = (visit.startedAt || visit.createdAt).getTime();
+    const DAY = 24 * 60 * 60 * 1000;
+    const siblings = await prisma.repVisit.findMany({
+      where: {
+        tenantId: tid, salesRepId: visit.salesRepId, customerId: visit.customerId,
+        createdAt: { gte: new Date(at - DAY), lt: new Date(at + DAY) },
+      },
+      include: { photos: { select: { id: true, data: true }, orderBy: { createdAt: 'asc' } } },
+    });
+    const stop = mergeVisits(siblings.map(v => ({ ...v, customerName: visit.customer?.name || '', at: v.startedAt || v.createdAt })))
+      .find(m => m.sources.some(v => v.id === visit.id));
+    if (!stop || stop.sources.length < 2) { res.json({ success: true, data: visit }); return; }
+
+    // المؤقّت أساسٌ (طابعاه ومدّته)، والملاحظاتُ والصورُ من الجميع
+    const head = stop.sources[0];
+    const notes = [...new Set(stop.sources.map(v => (v.note || '').trim()).filter(Boolean))];
+    res.json({
+      success: true,
+      data: {
+        ...visit,
+        id: head.id,
+        startedAt: head.startedAt, endedAt: head.endedAt, durationSec: head.durationSec, createdAt: head.createdAt,
+        note: notes.length ? notes.join('\n') : null,
+        lat: stop.lat, lng: stop.lng,
+        photos: stop.sources.flatMap(v => v.photos),
+      },
+    });
   } catch (err) { next(err); }
 });
 

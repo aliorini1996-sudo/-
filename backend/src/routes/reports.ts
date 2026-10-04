@@ -3,7 +3,7 @@ import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { scopedRecordWhere, scopedRepRecordWhere, adminCustomerFilter, adminRepFilter, SHAPE_INVOICE_RECEIPT, SHAPE_VISIT } from '../services/adminScope';
 import { AuthRequest } from '../types';
-import { composeWorkDays, attendanceByDay, overlayAttendance } from '../services/workDay';
+import { composeWorkDays, attendanceByDay, overlayAttendance, mergeVisitsByRep, asVisitLike } from '../services/workDay';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canViewReports'));
@@ -270,7 +270,7 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
     const fromDate = from ? new Date(from) : new Date(0);
     const toEnd = to ? new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) : new Date();
 
-    const [reps, sessions, visitCounts, visitRows] = await Promise.all([
+    const [reps, sessions, visitRows] = await Promise.all([
       prisma.salesRep.findMany({
         where: { tenantId: tid, isActive: true, ...(await adminRepFilter(req)) },
         select: {
@@ -290,17 +290,16 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
         where: { tenantId: tid, startedAt: { gte: fromDate, lt: toEnd }, ...(await scopedRepRecordWhere(req)) },
         select: { salesRepId: true, startedAt: true, lastBeatAt: true },
       }),
-      // عدد الزيارات لكل مندوب (دقيق)
-      prisma.repVisit.groupBy({
-        by: ['salesRepId'],
-        where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, ...(await scopedRecordWhere(req, SHAPE_VISIT)) },
-        _count: { _all: true },
-      }),
-      // زيارات لها إحداثيات — لبناء روابط المواقع
+      /* كلّ الزيارات — لا العدّ الخام (groupBy) ولا ذوات الإحداثيّات وحدها.
+       * العدّ يجري على **الوقفات** بعد الدمج: الزيارة المؤقّتة وملاحظتها سجلّان
+       * ووقفةٌ واحدة، فكان عدّ السجلّات يضاعف زيارات المندوب في تقرير أدائه. */
       prisma.repVisit.findMany({
-        where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, lat: { not: null }, lng: { not: null }, ...(await scopedRecordWhere(req, SHAPE_VISIT)) },
-        select: { salesRepId: true, createdAt: true, lat: true, lng: true, customer: { select: { name: true } } },
-        orderBy: { createdAt: 'asc' }, take: 5000,
+        where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, ...(await scopedRecordWhere(req, SHAPE_VISIT)) },
+        select: {
+          salesRepId: true, customerId: true, createdAt: true, startedAt: true, durationSec: true,
+          lat: true, lng: true, customer: { select: { name: true } },
+        },
+        orderBy: { createdAt: 'asc' }, take: 20000,
       }),
     ]);
 
@@ -309,16 +308,18 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
       minutesByRep.set(s.salesRepId, (minutesByRep.get(s.salesRepId) || 0) + Math.max(0, (s.lastBeatAt.getTime() - s.startedAt.getTime()) / 60000));
     }
     const countByRep = new Map<string, number>();
-    for (const c of visitCounts) countByRep.set(c.salesRepId, c._count._all);
     const visitsByRep = new Map<string, { customerName: string; createdAt: Date; lat: number; lng: number; mapsUrl: string }[]>();
-    for (const v of visitRows) {
-      const arr = visitsByRep.get(v.salesRepId) || [];
+    for (const m of mergeVisitsByRep(visitRows.map(asVisitLike))) {
+      const rep = m.sources[0].salesRepId;
+      countByRep.set(rep, (countByRep.get(rep) || 0) + 1);
+      if (m.lat == null || m.lng == null) continue;
+      const arr = visitsByRep.get(rep) || [];
       if (arr.length < 300) { // سقف معقول لروابط كل مندوب
         arr.push({
-          customerName: v.customer?.name || '', createdAt: v.createdAt, lat: v.lat!, lng: v.lng!,
-          mapsUrl: `https://www.google.com/maps?q=${v.lat},${v.lng}`,
+          customerName: m.customerName, createdAt: m.start, lat: m.lat, lng: m.lng,
+          mapsUrl: `https://www.google.com/maps?q=${m.lat},${m.lng}`,
         });
-        visitsByRep.set(v.salesRepId, arr);
+        visitsByRep.set(rep, arr);
       }
     }
 
@@ -358,22 +359,31 @@ router.get('/customer-visits', async (req: AuthRequest, res: Response, next: Nex
     const visits = await prisma.repVisit.findMany({
       where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, ...(await scopedRecordWhere(req, SHAPE_VISIT)) },
       select: {
-        id: true, customerId: true, createdAt: true, note: true, lat: true, lng: true, durationSec: true,
+        id: true, salesRepId: true, customerId: true, createdAt: true, startedAt: true,
+        note: true, lat: true, lng: true, durationSec: true,
         customer: { select: { name: true } },
         salesRep: { select: { name: true } },
       },
       orderBy: { createdAt: 'desc' }, take: 5000,
     });
-    const rows = visits.map(v => ({
-      id: v.id,
-      customerId: v.customerId,
-      customerName: v.customer?.name || '',
-      repName: v.salesRep?.name || '',
-      createdAt: v.createdAt,
-      durationSec: v.durationSec,
-      note: v.note || '',
-      mapsUrl: v.lat != null && v.lng != null ? `https://www.google.com/maps?q=${v.lat},${v.lng}` : '',
-    }));
+    /* وقفةٌ لكلّ صفّ: الزيارة المؤقّتة وملاحظتها (أو صورتها) سجلّان في القاعدة،
+     * فكان العميل يظهر مرّتين — مرّةً بمدّة ومرّةً «بلا توقيت» بملاحظة — ويتضاعف
+     * عدد زياراته. والصفّ المدموج يأخذ المدّة من المؤقّت، والملاحظة من سجلّها،
+     * والموقع من أيّهما حمله. */
+    const rows = mergeVisitsByRep(visits.map(asVisitLike)).map(m => {
+      const head = m.sources[0];
+      const notes = [...new Set(m.sources.map(v => (v.note || '').trim()).filter(Boolean))];
+      return {
+        id: head.id,
+        customerId: head.customerId,
+        customerName: m.customerName,
+        repName: head.salesRep?.name || '',
+        createdAt: m.start,
+        durationSec: m.durationSec,
+        note: notes.join(' · '),
+        mapsUrl: m.lat != null && m.lng != null ? `https://www.google.com/maps?q=${m.lat},${m.lng}` : '',
+      };
+    }).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     res.json({ success: true, data: { count: rows.length, visits: rows } });
   } catch (err) { next(err); }
 });

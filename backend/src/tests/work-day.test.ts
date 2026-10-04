@@ -7,7 +7,9 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { composeWorkDays, splitByLocalDay, dayKey, mergeVisits, MERGE_TOLERANCE_MS } from '../services/workDay';
+import { composeWorkDays, splitByLocalDay, dayKey, mergeVisits, mergeVisitsByRep, countStopsByRep, MERGE_TOLERANCE_MS } from '../services/workDay';
+import fs from 'fs';
+import path from 'path';
 
 const KSA = 180; // الرياض UTC+3
 const at = (iso: string) => new Date(iso);
@@ -312,4 +314,64 @@ test('overlayAttendance: يومٌ بلا بصمة يبقى على مقياسه �
   const [d] = overlayAttendance([base], new Map());
   assert.strictEqual(d.spanMinutes, 660);
   assert.strictEqual(d.firstActivity.toISOString(), '2026-09-17T09:00:00.000Z');
+});
+
+/* ───────── الدمج الموحّد لكل شاشات الزيارات ───────── */
+
+// الحالة من صورة المالك (٤ أكتوبر): مؤقّت ١س١٩د بدأ ٠٦:٠٧ م وانتهى ٠٧:٢٦ م،
+// وملاحظة «تسجيل نواقص» ٠٦:٣٧ م داخله — ظهرا صفّين، والصحيح صفٌّ واحد
+test('صورة المالك: ملاحظة داخل المؤقت تندمج وتحمل الوقفة مصدريها بالترتيب', () => {
+  const timer = { customerName: 'عالم التوفير', at: at('2026-10-03T15:07:00Z'), durationSec: 4740, id: 't' };
+  const note = { customerName: 'عالم التوفير', at: at('2026-10-03T15:37:00Z'), durationSec: null, id: 'n' };
+  const out = mergeVisits([note, timer]);
+  assert.equal(out.length, 1, 'وقفة واحدة لا صفّان');
+  assert.deepEqual(out[0].sources.map(v => v.id), ['t', 'n'], 'المؤقت أولاً ثم الملاحظة');
+  assert.equal(out[0].durationSec, 4740);
+});
+
+test('ملاحظة مندوب لا تُلصق بمؤقت زميل زار العميل نفسه في الوقت نفسه', () => {
+  const t = at('2026-10-03T09:00:00Z');
+  const out = mergeVisitsByRep([
+    { salesRepId: 'A', customerName: 'عميل', customerId: 'c1', at: t, durationSec: 1800 },
+    { salesRepId: 'B', customerName: 'عميل', customerId: 'c1', at: new Date(t.getTime() + 300000), durationSec: null },
+  ]);
+  assert.equal(out.length, 2, 'المندوب B زار وحده — لا يذوب في وقفة A');
+});
+
+test('عميلان بالاسم نفسه لا يندمجان حين يُمرَّر معرّف العميل', () => {
+  const t = at('2026-10-03T09:00:00Z');
+  const out = mergeVisits([
+    { customerName: 'بقالة النور', customerId: 'c1', at: t, durationSec: 1800 },
+    { customerName: 'بقالة النور', customerId: 'c2', at: new Date(t.getTime() + 60000), durationSec: null },
+  ]);
+  assert.equal(out.length, 2, 'فرعان مختلفان بالاسم نفسه');
+});
+
+test('عدّاد الوقفات: مؤقت وملاحظته زيارة واحدة لا اثنتان', () => {
+  const t = at('2026-10-03T09:00:00Z');
+  const counts = countStopsByRep([
+    { salesRepId: 'A', customerName: 'س', at: t, durationSec: 900 },
+    { salesRepId: 'A', customerName: 'س', at: new Date(t.getTime() + 120000), durationSec: null },
+    { salesRepId: 'A', customerName: 'ص', at: new Date(t.getTime() + 3600000), durationSec: 600 },
+    { salesRepId: 'B', customerName: 'س', at: t, durationSec: null },
+  ]);
+  assert.deepEqual(counts, { A: 2, B: 1 });
+});
+
+/**
+ * حارس نصّ: لا شاشة تعدّ سجلّات الزيارات خاماً.
+ *
+ * المؤقّت وملاحظته سجلّان ووقفةٌ واحدة؛ مسارٌ واحد يعدّ السجلّات بـ`groupBy`
+ * أو `count` يكفي ليُناقض رقمُه رقمَ أخته — وهو ما كان: الخريطة تقول سبعاً
+ * وتقرير ساعات العمل يقول أربعاً للمندوب نفسه في اليوم نفسه.
+ */
+test('حارس ثابت: مسارات الزيارات تعدّ الوقفات المدموجة لا السجلّات', () => {
+  const dir = path.join(process.cwd(), 'src', 'routes');
+  const offenders: string[] = [];
+  for (const f of ['reports.ts', 'visits.ts', 'tracking.ts']) {
+    const src = fs.readFileSync(path.join(dir, f), 'utf8');
+    if (/repVisit\.groupBy\(/.test(src)) offenders.push(`${f}: repVisit.groupBy`);
+    if (/repVisit\.count\(/.test(src)) offenders.push(`${f}: repVisit.count`);
+  }
+  assert.deepEqual(offenders, [], `عدٌّ خام للزيارات:\n${offenders.join('\n')}`);
 });

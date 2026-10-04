@@ -7,6 +7,7 @@ import { AuthRequest } from '../types';
 import { snapToRoads, routeThrough } from '../services/mapMatch';
 import { buildRouteShape } from '../services/routeShape';
 import { heartbeatClientState } from '../services/repHeartbeat';
+import { countStopsByRep, asVisitLike } from '../services/workDay';
 
 const router = Router();
 router.use(authenticate);
@@ -221,14 +222,14 @@ router.get('/live', requireAdmin, async (req: AuthRequest, res: Response, next: 
         select: { id: true, name: true, phone: true, isActive: true, lastLat: true, lastLng: true, lastSeenAt: true },
         orderBy: [{ lastSeenAt: { sort: 'desc', nulls: 'last' } }, { name: 'asc' }],
       }),
-      prisma.repVisit.groupBy({
-        by: ['salesRepId'],
+      // الوقفات لا السجلّات — عدّاد الخريطة يطابق قائمة زياراتها
+      prisma.repVisit.findMany({
         where: { tenantId: tid, createdAt: { gte: dayStart }, ...(await scopedRecordWhere(req, SHAPE_VISIT)) },
-        _count: { _all: true },
+        select: { salesRepId: true, customerId: true, createdAt: true, startedAt: true, durationSec: true, customer: { select: { name: true } } },
+        take: 20000,
       }),
     ]);
-    const visitsByRep: Record<string, number> = {};
-    for (const r of visitRows) visitsByRep[r.salesRepId] = r._count._all;
+    const visitsByRep = countStopsByRep(visitRows.map(asVisitLike));
 
     res.json({ success: true, data: reps.map(r => ({ ...r, visitsToday: visitsByRep[r.id] || 0 })) });
   } catch (err) { next(err); }

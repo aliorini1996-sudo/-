@@ -18,7 +18,15 @@
  */
 
 export interface Interval { start: Date; end: Date }
-export interface VisitLike { customerName: string; at: Date; durationSec: number | null; lat?: number | null; lng?: number | null }
+export interface VisitLike {
+  customerName: string;
+  at: Date;
+  durationSec: number | null;
+  lat?: number | null;
+  lng?: number | null;
+  /** معرّف العميل — أدقّ من الاسم في المطابقة (عميلان بالاسم نفسه) حين يُمرَّر */
+  customerId?: string | null;
+}
 
 /**
  * زيارةٌ واحدة كما يفهمها المشرف — لا كما تُخزَّن.
@@ -28,8 +36,12 @@ export interface VisitLike { customerName: string; at: Date; durationSec: number
  * (بلا توقيت). فكان التقرير يعرض كل عميلٍ مرّتين — مرّةً بمدّة ومرّةً «بلا
  * توقيت» — ويضاعف عدد الزيارات. وهما حدثان في النظام، لكنهما **وقفةٌ واحدة**
  * عند عميلٍ واحد، والمشرف يعدّ الوقفات لا السجلّات.
+ *
+ * وهذه الدالّة **المصدر الوحيد** لهذا الدمج: كلّ شاشةٍ تعرض الزيارات أو
+ * تعدّها تمرّ بها (ساعات العمل، زيارات العملاء، أداء المناديب، الخريطة
+ * وعدّاداتها). شاشةٌ واحدة تعدّ السجلّات خاماً تكفي ليُناقض رقمُها رقمَ أختها.
  */
-export interface MergedVisit {
+export interface MergedVisit<T extends VisitLike = VisitLike> {
   customerName: string;
   start: Date;
   /** نهاية الزيارة (بداية + مدّة) — null لزيارة بلا توقيت */
@@ -42,6 +54,8 @@ export interface MergedVisit {
   /** موقع الوقفة — من السجلّ المؤقّت، وإلّا من سجلّ الملاحظة الذي اندمج فيه */
   lat: number | null;
   lng: number | null;
+  /** السجلّات التي اندمجت فيها — المؤقّت أوّلاً ثمّ الملاحظات بترتيبها */
+  sources: T[];
 }
 
 /**
@@ -50,12 +64,18 @@ export interface MergedVisit {
  */
 export const MERGE_TOLERANCE_MS = 5 * 60 * 1000;
 
-/** يدمج سجلَّي الزيارة الواحدة (المؤقّت + الملاحظة) في وقفةٍ واحدة */
-export function mergeVisits(visits: VisitLike[]): MergedVisit[] {
+/** العميل نفسه؟ بالمعرّف حين يحمله الطرفان، وإلّا بالاسم (السلوك السابق) */
+function sameCustomer(a: VisitLike, b: VisitLike): boolean {
+  if (a.customerId && b.customerId) return a.customerId === b.customerId;
+  return a.customerName === b.customerName;
+}
+
+/** يدمج سجلَّي الزيارة الواحدة (المؤقّت + الملاحظة) في وقفةٍ واحدة — لمندوبٍ واحد */
+export function mergeVisits<T extends VisitLike>(visits: T[]): MergedVisit<T>[] {
   const sorted = [...visits].sort((a, b) => a.at.getTime() - b.at.getTime());
   const isTimed = (v: VisitLike) => !!v.durationSec && v.durationSec > 0;
 
-  const out: MergedVisit[] = sorted.filter(isTimed).map((v) => ({
+  const out: MergedVisit<T>[] = sorted.filter(isTimed).map((v) => ({
     customerName: v.customerName,
     start: v.at,
     end: new Date(v.at.getTime() + (v.durationSec as number) * 1000),
@@ -64,25 +84,70 @@ export function mergeVisits(visits: VisitLike[]): MergedVisit[] {
     parts: 1,
     lat: v.lat ?? null,
     lng: v.lng ?? null,
+    sources: [v],
   }));
 
   for (const u of sorted.filter((v) => !isTimed(v))) {
     const t = u.at.getTime();
     const host = out.find((h) =>
-      h.customerName === u.customerName &&
+      h.durationSec != null &&
+      sameCustomer(h.sources[0], u) &&
       t >= h.start.getTime() - MERGE_TOLERANCE_MS &&
       t <= (h.end ? h.end.getTime() : h.start.getTime()) + MERGE_TOLERANCE_MS);
     if (host) {
       host.hasNote = true;
       host.parts += 1;
+      host.sources.push(u);
       // سجلّ الملاحظة يحمل موقعاً أحياناً والمؤقّت لا — فلا يُهدَر الموقع الوحيد
       if (host.lat == null && u.lat != null) { host.lat = u.lat; host.lng = u.lng ?? null; }
     } else {
-      out.push({ customerName: u.customerName, start: u.at, end: null, durationSec: null, hasNote: true, parts: 1, lat: u.lat ?? null, lng: u.lng ?? null });
+      out.push({
+        customerName: u.customerName, start: u.at, end: null, durationSec: null,
+        hasNote: true, parts: 1, lat: u.lat ?? null, lng: u.lng ?? null, sources: [u],
+      });
     }
   }
   return out.sort((a, b) => a.start.getTime() - b.start.getTime());
 }
+
+/**
+ * الدمج لأكثر من مندوب: يجمّع حسب المندوب **قبل** الدمج — فلا تُلصَق ملاحظة
+ * مندوبٍ بمؤقّت زميلٍ زار العميل نفسه في الوقت نفسه.
+ */
+export function mergeVisitsByRep<T extends VisitLike & { salesRepId: string }>(rows: T[]): MergedVisit<T>[] {
+  const byRep = new Map<string, T[]>();
+  for (const r of rows) {
+    const arr = byRep.get(r.salesRepId);
+    if (arr) arr.push(r); else byRep.set(r.salesRepId, [r]);
+  }
+  return [...byRep.values()].flatMap((arr) => mergeVisits(arr));
+}
+
+/** عدد الوقفات (لا السجلّات) لكلّ مندوب */
+export function countStopsByRep<T extends VisitLike & { salesRepId: string }>(rows: T[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const m of mergeVisitsByRep(rows)) {
+    const rep = m.sources[0].salesRepId;
+    out[rep] = (out[rep] ?? 0) + 1;
+  }
+  return out;
+}
+
+/**
+ * سجلّ زيارةٍ خام كما تقرؤه المسارات — يُحوَّل إلى شكل الدمج. `at` بداية
+ * المؤقّت متى وُجدت (أدقّ)، وإلّا لحظة التسجيل.
+ */
+export function asVisitLike<R extends {
+  salesRepId: string; createdAt: Date; startedAt?: Date | null; durationSec: number | null;
+  lat?: number | null; lng?: number | null; customerId?: string | null; customer?: { name: string } | null;
+}>(r: R): R & VisitLike {
+  return {
+    ...r,
+    customerName: r.customer?.name || '',
+    at: r.startedAt || r.createdAt,
+  };
+}
+
 export interface PingRange { day: string; min: Date; max: Date }
 
 export interface WorkDay {
