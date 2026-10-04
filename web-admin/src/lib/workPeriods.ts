@@ -2,7 +2,10 @@
 // كل دخولٍ يُسجَّل وكل خروجٍ يُسجَّل: فترةٌ لكل حضور→انصراف ببصمة المندوب، والمندوب الذي يبصم ٩ص–١ظ ثم ٥م–٩م
 // يظهر **صفّاً واحداً** لليوم: «٩:٠٠ ص – ١:٠٠ م · ٥:٠٠ م – ٩:٠٠ م» واستراحةٌ «٤ س» (ما بين انصرافه وحضوره التالي).
 // لا كشفَ آلياً ولا عتبة زمنية: يومٌ بلا بصمة امتدادٌ واحد من أول أثرٍ إلى آخره (ACTIVITY) بلا استراحة.
+// وأين حضر وأين انصرف: كل وقتٍ في الخلية رابطٌ لموقع بصمته على الخريطة، وورقة «تفاصيل البصمات» صفٌّ لكل فترة.
 // الحساب كله في الخادم (backend/src/services/workDay.ts)؛ هنا العرض فقط.
+
+import { mergeRuns, type CellMerge } from './mergeRuns';
 
 type Tr = (ar: string) => string;
 
@@ -12,7 +15,26 @@ export interface WorkPeriodLike {
   end: string | null;
   /** PUNCH = حضور→انصراف مسجَّلان ببصمة المندوب، ACTIVITY = يومٌ بلا بصمة: امتدادٌ واحد من أول أثرٍ إلى آخره */
   source?: 'PUNCH' | 'ACTIVITY';
+  /** موقع بصمة الحضور (PUNCH) — null بلا التقاط، وغائبٌ من خادمٍ أقدم */
+  inLat?: number | null; inLng?: number | null;
+  /** موقع الانصراف الذي أنهى الفترة — null للمفتوحة أو بلا التقاط */
+  outLat?: number | null; outLng?: number | null;
 }
+
+/** رابط خرائط Google لموقع — null متى غاب أحد الإحداثيين أو فسد (لا رابطٌ يفتح المحيط) */
+export function mapsUrl(lat: number | null | undefined, lng: number | null | undefined): string | null {
+  if (lat == null || lng == null || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return `https://www.google.com/maps?q=${lat},${lng}`;
+}
+
+/** أين بصم الحضور */
+export const punchInUrl = (p: WorkPeriodLike): string | null => mapsUrl(p.inLat, p.inLng);
+/** أين بصم الانصراف — لا موقع لفترةٍ مفتوحة */
+export const punchOutUrl = (p: WorkPeriodLike): string | null => (p.end ? mapsUrl(p.outLat, p.outLng) : null);
+/** يومٌ فيه بصمةٌ واحدة على الأقل بموقعٍ معلوم */
+export const hasPunchLocation = (d: WorkDayLike): boolean =>
+  periodsOf(d).some(p => p.source === 'PUNCH' && !!(punchInUrl(p) || punchOutUrl(p)));
 
 export interface WorkDayLike {
   firstActivity: string; lastActivity: string; absent: boolean;
@@ -76,4 +98,33 @@ export function attendanceDayCells(d: WorkDayLike, fx: {
     [tr('عدد الزيارات')]: d.visitsCount,
     [tr('وقت داخل الزيارات')]: fx.visitDur(d.visitsSec) || '—',
   };
+}
+
+/**
+ * ورقة «تفاصيل البصمات»: صفٌّ لكل فترة حضور→انصراف بموقعَي بصمتيها (رابط خريطة يصير قابلاً للنقر في Excel).
+ * المندوب مرّةً لكل مندوب والتاريخ مرّةً لكل يوم (خلايا موحّدة) — لا تكرار في كل صفّ. أيام البصمة وحدها:
+ * يومٌ بلا بصمة لا حضور فيه ولا انصراف يُذكر. `withRep` لورقة كل المناديب؛ ورقة المندوب الواحد بلا عموده.
+ */
+export function punchDetailRows(
+  reps: ReadonlyArray<{ name: string; days: ReadonlyArray<WorkDayLike & { date: string }> }>,
+  withRep: boolean,
+  fx: { tr: Tr; clock: (iso: string) => string; minutes: (min: number) => string },
+): { rows: Record<string, unknown>[]; merges: CellMerge[] } {
+  const { tr } = fx;
+  const items = reps.flatMap((r, ri) => r.days.flatMap(d => periodsOf(d)
+    .filter(p => p.source === 'PUNCH')
+    .map(p => ({ rep: String(ri), day: `${ri}|${d.date}`, row: {
+      ...(withRep ? { [tr('المندوب')]: r.name } : {}),
+      [tr('التاريخ')]: d.date,
+      [tr('الحضور')]: fx.clock(p.start),
+      [tr('موقع الحضور')]: punchInUrl(p) ?? tr('بلا موقع'),
+      [tr('الانصراف')]: p.end ? fx.clock(p.end) : tr('بلا انصراف'),
+      [tr('موقع الانصراف')]: p.end ? punchOutUrl(p) ?? tr('بلا موقع') : '—',
+      // مدّة الفترة بتقريب الخادم نفسه — مجموعها يطابق «إجمالي وقت العمل» لليوم
+      [tr('المدة')]: p.end ? fx.minutes(Math.max(0, Math.round((Date.parse(p.end) - Date.parse(p.start)) / 60000))) : '—',
+    } as Record<string, unknown> }))));
+  return mergeRuns(items.map(x => x.row), [
+    ...(withRep ? [{ cols: [tr('المندوب')], keyOf: (i: number) => items[i].rep }] : []),
+    { cols: [tr('التاريخ')], keyOf: (i: number) => items[i].day },
+  ]);
 }

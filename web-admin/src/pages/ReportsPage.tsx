@@ -10,7 +10,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Download, TrendingUp, Users, UserCheck, MapPin, FileText, Search, X, Wallet, AlertTriangle } from 'lucide-react';
 import { shareOrDownloadExcel, num, ExcelSheet } from '../utils/excel';
 import { mergeRuns } from '../lib/mergeRuns';
-import { attendanceDayCells, breakOf, compactMinutes, periodsOf, type WorkPeriodLike } from '../lib/workPeriods';
+import { attendanceDayCells, breakOf, compactMinutes, periodsOf, punchDetailRows, punchInUrl, punchOutUrl, type WorkPeriodLike } from '../lib/workPeriods';
 import { elementsToPdfBlob, downloadPdf } from '../rep/pdf';
 import toast from 'react-hot-toast';
 import { useAccountingOn } from '../components/AccountingGate';
@@ -201,6 +201,14 @@ export default function ReportsPage() {
     : `${sec} ${tr('ث')}`;
   // منسّقات خلايا «الحضور اليومي» — ورقة كل المناديب وورقة المندوب الواحد من مصدرٍ واحد
   const dayCellFx = { tr, clock: fmtClock, minutes: fmtMin, visitDur: fmtVisitDur };
+  // وقت بصمةٍ في خلية الفترات: بموقعٍ معلوم رابطٌ بدبّوسٍ صغير يفتح مكانها على الخريطة (ولا يطوي صفّ اليوم)،
+  // وبلا موقع وقتٌ عاديّ كما كان
+  const punchTime = (iso: string, url: string | null, tone: string, label: string) => url
+    ? <a href={url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} title={label}
+        className={`inline-flex items-center gap-0.5 rounded px-2 py-0.5 text-xs font-bold tabular-nums hover:underline ${tone}`}>
+        <MapPin size={11} className="opacity-70" />{fmtClock(iso)}
+      </a>
+    : <span className={`inline-block rounded px-2 py-0.5 text-xs font-bold tabular-nums ${tone}`}>{fmtClock(iso)}</span>;
 
   const groupLabel = () => groupBy === 'rep' ? tr('المندوب') : groupBy === 'customer' ? tr('العميل')
     : groupBy === 'channel' ? tr('القناة') : groupBy === 'region' ? tr('المنطقة') : tr('الصنف');
@@ -372,6 +380,8 @@ export default function ReportsPage() {
         { cols: [tr('المندوب')], keyOf: i => visitItems[i].rep },
         { cols: [tr('التاريخ'), tr('إجمالي وقت العمل لليوم')], keyOf: i => `${visitItems[i].rep}|${visitItems[i].day}` },
       ]);
+      // أين حضر وأين انصرف: صفٌّ لكل فترة بموقعَي بصمتيها، المندوب والتاريخ موحّدان (أيام البصمة وحدها)
+      const punches = punchDetailRows(hoursRows, true, dayCellFx);
       sheets = [
         { name: tr('ملخص المناديب'), rows: hoursRows.map(r => ({
           [tr('المندوب')]: r.name,
@@ -384,6 +394,8 @@ export default function ReportsPage() {
           [tr('أول ظهور')]: fmtDateTime(r.firstSeen), [tr('آخر ظهور')]: fmtDateTime(r.lastSeen),
         })), colWidths: [22, 12, 12, 14, 12, 14, 12, 18, 18] },
         { name: tr('الحضور اليومي'), rows: daily.rows, merges: daily.merges, colWidths: [22, 12, 12, 12, 30, 10, 14, 14, 12, 16] },
+        ...(punches.rows.length ? [{ name: tr('تفاصيل البصمات'), rows: punches.rows, merges: punches.merges,
+          colWidths: [22, 12, 10, 42, 10, 42, 12], pdfLinkLabel: tr('فتح الخريطة') }] : []),
         { name: tr('تفاصيل الزيارات'), rows: visits.rows, merges: visits.merges, colWidths: [22, 12, 24, 34, 12, 12, 12, 12, 16] },
       ];
       fname = tr('ساعات العمل');
@@ -545,7 +557,11 @@ export default function ReportsPage() {
       for (let i = 0; i < Math.max(1, sh.rows.length); i += ROWS_PER_SLICE) {
         const slice = sh.rows.slice(i, i + ROWS_PER_SLICE);
         const cont = i > 0 ? ` (${tr('تابع')})` : '';
-        const td = (v: unknown, span = 1) => `<td${span > 1 ? ` rowspan="${span}"` : ''} style="border:1px solid #eee;padding:5px 8px;font-size:11px;text-align:right;word-break:break-word;vertical-align:middle">${esc(v)}</td>`;
+        // ورقةٌ تطلب نصّاً قصيراً لروابطها («فتح الخريطة»): الرابط الطويل يملأ الخلية أسطراً — والنصّ يبقى رابطاً قابلاً للنقر
+        const cell = (v: unknown) => sh.pdfLinkLabel && typeof v === 'string' && /^https?:\/\/\S+$/.test(v)
+          ? `<a href="${esc(v).replace(/"/g, '&quot;')}" style="color:#2E6FB0;text-decoration:underline">${esc(sh.pdfLinkLabel)}</a>`
+          : esc(v);
+        const td = (v: unknown, span = 1) => `<td${span > 1 ? ` rowspan="${span}"` : ''} style="border:1px solid #eee;padding:5px 8px;font-size:11px;text-align:right;word-break:break-word;vertical-align:middle">${cell(v)}</td>`;
         const tbody = slice.map((r, j) => {
           const at = i + j; // رقم الصفّ في الورقة كلها
           return `<tr>${cols.map(c => {
@@ -613,16 +629,24 @@ export default function ReportsPage() {
       return { name: tr('تفاصيل الزيارات'), colWidths: [12, 24, 34, 12, 12, 12, 12, 16], rows: m.rows, merges: m.merges };
     })(),
   ];
+  // ملف المندوب الواحد: «تفاصيل البصمات» بعد «الحضور اليومي» متى بصم في المدى (بلا عمود المندوب)
+  const repHoursSheetsAll = (r: WorkHoursRow): ExcelSheet[] => {
+    const [daily, visits] = repHoursSheets(r);
+    const p = punchDetailRows([r], false, dayCellFx);
+    return p.rows.length
+      ? [daily, { name: tr('تفاصيل البصمات'), rows: p.rows, merges: p.merges, colWidths: [12, 10, 42, 10, 42, 12], pdfLinkLabel: tr('فتح الخريطة') }, visits]
+      : [daily, visits];
+  };
   const exportRepPerf = async (r: PerfRow) => {
     const out = await shareOrDownloadExcel(repPerfSheets(r), `${tr('أداء')}-${safeName(r.name)}-${day()}`);
     toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
   };
   const exportRepPerfPdf = (r: PerfRow) => sheetsToPdf(repPerfSheets(r), `${tr('أداء')} - ${r.name}`);
   const exportRepHours = async (r: WorkHoursRow) => {
-    const out = await shareOrDownloadExcel(repHoursSheets(r), `${tr('ساعات العمل')}-${safeName(r.name)}-${day()}`);
+    const out = await shareOrDownloadExcel(repHoursSheetsAll(r), `${tr('ساعات العمل')}-${safeName(r.name)}-${day()}`);
     toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
   };
-  const exportRepHoursPdf = (r: WorkHoursRow) => sheetsToPdf(repHoursSheets(r), `${tr('ساعات العمل')} - ${r.name}`);
+  const exportRepHoursPdf = (r: WorkHoursRow) => sheetsToPdf(repHoursSheetsAll(r), `${tr('ساعات العمل')} - ${r.name}`);
   // تصدير مديونيات مندوب واحد (باسمه) — الورقة نفسها التي يراها على الشاشة
   const repRecvSheets = (r: RecvRow) => [{
     name: tr('مديونيات المندوب'), colWidths: [24, 20, 16, 14, 14, 16],
@@ -1323,7 +1347,7 @@ export default function ReportsPage() {
                               <>
                                 {/* فترات اليوم في خليةٍ واحدة — فترةٌ لكل حضور→انصراف مسجَّلين (الدوام المتقطّع: خرج وعاد)،
                                     صفٌّ واحد لليوم لا صفٌّ لكل فترة. يومٌ بلا بصمة امتدادٌ واحد من أول أثرٍ إلى آخره كما كان:
-                                    بدايةٌ خضراء ونهايةٌ حمراء */}
+                                    بدايةٌ خضراء ونهايةٌ حمراء. ووقتُ بصمةٍ بموقعٍ معلوم رابطٌ بدبّوسٍ يفتح مكانها على الخريطة */}
                                 <td>
                                   <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1">
                                     {periodsOf(d).map((p, i) => (
@@ -1331,10 +1355,10 @@ export default function ReportsPage() {
                                         {i > 0 && <span className="text-[#C9BFB0]">·</span>}
                                         <span className="inline-flex items-center gap-1"
                                           title={p.source === 'PUNCH' ? tr('من بصمة الحضور والانصراف') : tr('من أول أثر مرصود إلى آخره بلا بصمة')}>
-                                          <span className="inline-block rounded px-2 py-0.5 text-xs font-bold tabular-nums bg-[#E7F5EE] text-[#1E7A52]">{fmtClock(p.start)}</span>
+                                          {punchTime(p.start, punchInUrl(p), 'bg-[#E7F5EE] text-[#1E7A52]', tr('موقع الحضور'))}
                                           <span className="text-[#C9BFB0]">–</span>
                                           {p.end
-                                            ? <span className="inline-block rounded px-2 py-0.5 text-xs font-bold tabular-nums bg-[#FBEBE2] text-[#C0392B]">{fmtClock(p.end)}</span>
+                                            ? punchTime(p.end, punchOutUrl(p), 'bg-[#FBEBE2] text-[#C0392B]', tr('موقع الانصراف'))
                                             : <span className="text-xs text-gray-400">{tr('بلا انصراف')}</span>}
                                         </span>
                                       </Fragment>

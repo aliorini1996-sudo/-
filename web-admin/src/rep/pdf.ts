@@ -1,5 +1,6 @@
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import { linkAreas, type LinkBox } from '../lib/pdfLinks';
 
 // ينتظر تحميل كل الصور داخل العنصر (مثل رمز QR) قبل الالتقاط — كي لا تُلتقط فارغة
 async function waitForImages(el: HTMLElement, timeout = 4000): Promise<void> {
@@ -97,6 +98,12 @@ export async function elementsToPdfBlob(els: HTMLElement[]): Promise<Blob> {
     await new Promise((r) => setTimeout(r, 0));
     const w = el.offsetWidth || 780;
     const h = el.offsetHeight || el.scrollHeight || 1;
+    // مواضع الروابط قبل الالتقاط — الصورة تُسقطها، فتُعاد مناطقَ روابط فوقها
+    const base = el.getBoundingClientRect();
+    const boxes: LinkBox[] = Array.from(el.querySelectorAll('a[href]')).map((a) => {
+      const r = a.getBoundingClientRect();
+      return { url: (a as HTMLAnchorElement).href, x: r.left - base.left, y: r.top - base.top, w: r.width, h: r.height };
+    });
     const canvas = await html2canvas(el, {
       scale: safeScale(w, h), useCORS: true, backgroundColor: '#ffffff', logging: false,
     });
@@ -110,6 +117,7 @@ export async function elementsToPdfBlob(els: HTMLElement[]): Promise<Blob> {
     let position = 0;
     if (!first) pdf.addPage();
     first = false;
+    const firstPage = pdf.getNumberOfPages();
     pdf.addImage(imgData, 'JPEG', 0, position, imgW, imgH);
     heightLeft -= pageH;
     while (heightLeft > 0.5) {
@@ -118,6 +126,13 @@ export async function elementsToPdfBlob(els: HTMLElement[]): Promise<Blob> {
       pdf.addImage(imgData, 'JPEG', 0, position, imgW, imgH);
       heightLeft -= pageH;
     }
+    const lastPage = pdf.getNumberOfPages();
+    for (const l of linkAreas(boxes, w, pageW, pageH)) {
+      if (firstPage + l.page > lastPage) continue;
+      pdf.setPage(firstPage + l.page);
+      pdf.link(l.x, l.y, l.w, l.h, { url: l.url });
+    }
+    pdf.setPage(lastPage);
   }
   return pdf.output('blob');
 }

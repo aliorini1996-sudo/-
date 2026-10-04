@@ -12,7 +12,7 @@ import { useBackClose } from '../lib/useBackClose';
 import { MCard, MRow, MStat, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import { expectArray, expectObject } from './shape';
 import { useIsLive, livePoll } from './useLiveQuery';
-import { breakOf, compactMinutes, formatPeriods, periodsOf, type WorkPeriodLike } from '../lib/workPeriods';
+import { breakOf, compactMinutes, formatPeriods, hasPunchLocation, periodsOf, punchInUrl, punchOutUrl, type WorkPeriodLike } from '../lib/workPeriods';
 
 /**
  * شاشة التقارير التحليلية في تطبيق الإدارة على الجوال (سبعة تقارير).
@@ -983,7 +983,11 @@ function HoursDetail({ row, onClose }: { row: WorkHoursRow; onClose: () => void 
         <MCard>
           {/* Fragment لا div: فاصلُ MRow هو `last:border-0`، ولفُّ كل صفٍّ في
               عنصرٍ يجعله «الابن الأخير» في غلافه فتختفي الفواصل من القائمة كلّها */}
-          {row.days.map(d => (
+          {row.days.map(d => {
+            // يُفتح اليوم متى كان فيه ما يُعرض: زيارات، أو بصمةٌ بموقعٍ معلوم (أين حضر وأين انصرف)
+            const located = hasPunchLocation(d);
+            const expandable = d.visitsCount > 0 || located;
+            return (
             <Fragment key={d.date}>
               {/* صفٌّ واحد لليوم: فترةٌ لكل حضور→انصراف في سطرٍ واحد (بلا بصمة: امتدادٌ واحد كما كان)،
                   والاستراحة — ما بين انصرافٍ والحضور التالي — سطرٌ ثالث متى وُجدت فقط */}
@@ -995,19 +999,48 @@ function HoursDetail({ row, onClose }: { row: WorkHoursRow; onClose: () => void 
                 note={breakOf(d) > 0 ? `${tr('الاستراحة')} ${compactMinutes(breakOf(d), tr)}` : undefined}
                 trailing={d.absent
                   ? <span className="text-[11px] text-[#B3A996] flex-shrink-0">{tr('غياب')}</span>
-                  : <Amount value={fmtMin(d.spanMinutes, tr)} chevron={d.visitsCount > 0} />}
-                onClick={d.visitsCount > 0
+                  : <Amount value={fmtMin(d.spanMinutes, tr)} chevron={expandable} />}
+                onClick={expandable
                   ? () => setOpenDay(p => (p === d.date ? null : d.date))
                   : undefined} />
               {openDay === d.date && (
                 <div className="bg-[#FDFBF7] border-b border-[#F1EBDF] last:border-0 px-3.5 py-2 space-y-1.5">
+                  {/* الصفّ زرٌّ كاملٌ لا يحمل روابط داخله — فمواقع البصمات هنا: سطرٌ لكل فترة، ووقتها رابطٌ لمكانها */}
+                  {located && periodsOf(d).filter(p => p.source === 'PUNCH').map((p, i) => (
+                    <PunchLine key={`${d.date}-p${i}`} p={p} />
+                  ))}
                   {d.visits.map((v, i) => <VisitLine key={`${d.date}-${i}`} v={v} />)}
                 </div>
               )}
             </Fragment>
-          ))}
+            );
+          })}
         </MCard>
       </Pane>
+    </div>
+  );
+}
+
+/** فترة بصمةٍ واحدة: وقتا الحضور والانصراف، وكلٌّ بموقعٍ معلوم رابطٌ بدبّوسٍ يفتح مكانه على الخريطة */
+function PunchLine({ p }: { p: WorkPeriodLike }) {
+  const tr = useTr();
+  const time = (iso: string, url: string | null, tone: string, label: string) => url
+    ? <a href={url} target="_blank" rel="noopener noreferrer" aria-label={`${label} ${formatTime(iso)}`}
+        className={`inline-flex items-center gap-0.5 tabular-nums font-semibold underline decoration-dotted underline-offset-2 ${tone}`}>
+        <MapPin size={11} />{formatTime(iso)}
+      </a>
+    : <span className={`tabular-nums font-semibold ${tone}`}>{formatTime(iso)}</span>;
+  return (
+    <div className="flex items-center gap-2 text-[11px]">
+      <span className="flex-1 min-w-0 truncate text-[#6E6557]">{tr('الحضور')} ← {tr('الانصراف')}</span>
+      {time(p.start, punchInUrl(p), 'text-[#1E7A52]', tr('موقع الحضور'))}
+      <span className="text-[#C9BFB0]">←</span>
+      {p.end
+        ? time(p.end, punchOutUrl(p), 'text-[#C0392B]', tr('موقع الانصراف'))
+        : <span className="text-[#9A8F7E]">{tr('بلا انصراف')}</span>}
+      <span className="tabular-nums text-[#2E6FB0] font-semibold w-16 text-end">
+        {p.end ? compactMinutes(Math.max(0, Math.round((Date.parse(p.end) - Date.parse(p.start)) / 60000)), tr) : '—'}
+      </span>
     </div>
   );
 }

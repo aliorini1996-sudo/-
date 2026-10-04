@@ -8,6 +8,8 @@ export interface ExcelSheet {
   rows: Record<string, unknown>[];    // الصفوف ككائنات (المفاتيح = عناوين الأعمدة)
   colWidths?: number[];               // عرض الأعمدة (اختياري)
   merges?: CellMerge[];               // خلايا موحّدة رأسياً (المندوب/اليوم) بدل تكرارها في كل صفّ
+  /** في PDF وحده: خلية الرابط (http…) تُعرض بهذا النصّ القصير رابطاً قابلاً للنقر بدل الرابط الطويل — Excel يبقي الرابط */
+  pdfLinkLabel?: string;
 }
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';

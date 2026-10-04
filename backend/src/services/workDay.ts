@@ -168,6 +168,10 @@ export interface WorkPeriod {
   /** null = نوبةٌ مفتوحة بلا انصراف بعد (امتداد الأثر مغلقٌ دائماً) */
   end: Date | null;
   source: 'PUNCH' | 'ACTIVITY';
+  /** أين بصم حضوره (PUNCH وحدها) — null متى لم يُلتقط الموقع. الامتداد ACTIVITY بلا مواقع */
+  inLat?: number | null; inLng?: number | null;
+  /** أين بصم الانصراف الذي أنهى الفترة — null للمفتوحة أو بلا التقاط */
+  outLat?: number | null; outLng?: number | null;
 }
 
 export interface WorkDay {
@@ -222,7 +226,17 @@ export function splitByLocalDay(iv: Interval, tzOffsetMin: number): Array<{ day:
 // ═══ بصمة الحضور والانصراف: مقياس «يعلنه المندوب» يعلو مقياس الأثر الرقمي ═══
 // حين تُفعَّل الميزة ويبصم المندوب، تصير فترات اليوم نوباته المسجَّلة: كل حضورٍ يفتح فترة وكل انصرافٍ
 // يغلقها، وإجمالي وقت العمل = مجموع النوبات المغلقة. «نشاط التطبيق» (appMinutes) يبقى كما هو (نبضة الاتصال).
-export interface AttendanceShift { checkInAt: Date; checkOutAt: Date | null }
+export interface AttendanceShift {
+  checkInAt: Date; checkOutAt: Date | null;
+  /** إحداثيات البصمتين كما خُزّنت (null متى لم يُلتقط الموقع) */
+  checkInLat?: number | null; checkInLng?: number | null;
+  checkOutLat?: number | null; checkOutLng?: number | null;
+}
+
+/** إحداثيّان معاً أو لا شيء: نصفُ موقعٍ لا يُفتح على خريطة */
+const coordPair = (lat: number | null | undefined, lng: number | null | undefined): [number, number] | [null, null] =>
+  lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng) ? [lat, lng] : [null, null];
+
 export interface AttendanceDay {
   start: Date; end: Date | null; minutes: number;
   /** نوبةٌ لكل فترة (المتداخلة تتّحد)، والمفتوحة بنهاية null */
@@ -250,13 +264,20 @@ export function attendanceByDay(shifts: readonly AttendanceShift[], tzOffsetMin:
     const sorted = [...list].sort((a, b) => a.checkInAt.getTime() - b.checkInAt.getTime());
     // نوبتان مغلقتان متداخلتان (بيانات مكرّرة) تتّحدان فلا تُعدّ ساعاتهما مرّتين؛
     // والمفتوحة لا تُدمج — لا نهاية لها تُقارَن، فتبقى فترةً «بلا انصراف»
+    // ومكان كل بصمة يرافق فترتها: المتّحدة تأخذ موقع أول حضورٍ فيها وموقع الانصراف الذي أنهاها
     const periods: WorkPeriod[] = [];
     for (const s of sorted) {
       const cur = periods[periods.length - 1];
       if (cur && cur.end && s.checkOutAt && s.checkInAt <= cur.end) {
-        if (s.checkOutAt > cur.end) cur.end = s.checkOutAt;
+        if (s.checkOutAt > cur.end) {
+          cur.end = s.checkOutAt;
+          [cur.outLat, cur.outLng] = coordPair(s.checkOutLat, s.checkOutLng);
+        }
       } else {
-        periods.push({ start: s.checkInAt, end: s.checkOutAt, source: 'PUNCH' });
+        const [inLat, inLng] = coordPair(s.checkInLat, s.checkInLng);
+        // مفتوحةٌ بلا انصراف ⇒ بلا موقع انصراف ولو حمل السجلّ إحداثياتٍ عالقة
+        const [outLat, outLng] = s.checkOutAt ? coordPair(s.checkOutLat, s.checkOutLng) : [null, null];
+        periods.push({ start: s.checkInAt, end: s.checkOutAt, source: 'PUNCH', inLat, inLng, outLat, outLng });
       }
     }
     let end: Date | null = null;

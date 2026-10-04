@@ -451,6 +451,96 @@ test('نوبتان متداخلتان (بيانات مكرّرة) تتّحدان
   assert.strictEqual(inner.minutes, 360);
 });
 
+// ═══ أين حضر وأين انصرف: موقع كل بصمة يرافق فترتها (طلب المالك: «اجعله يظهر بالتقرير») ═══
+const RIYADH_A = { lat: 24.7136, lng: 46.6753 };   // حضور الصباح
+const RIYADH_B = { lat: 24.6877, lng: 46.7219 };   // انصراف الظهر
+const RIYADH_C = { lat: 24.7743, lng: 46.7386 };   // حضور المساء
+const RIYADH_D = { lat: 24.8000, lng: 46.6000 };
+const located = (i: string, o: string | null, inn: { lat: number; lng: number } | null, out: { lat: number; lng: number } | null) => ({
+  checkInAt: iso(`2026-10-04T${i}:00Z`), checkOutAt: o ? iso(`2026-10-04T${o}:00Z`) : null,
+  checkInLat: inn?.lat ?? null, checkInLng: inn?.lng ?? null,
+  checkOutLat: out?.lat ?? null, checkOutLng: out?.lng ?? null,
+});
+const locs = (p: { inLat?: number | null; inLng?: number | null; outLat?: number | null; outLng?: number | null }) =>
+  [p.inLat, p.inLng, p.outLat, p.outLng];
+
+test('مواقع البصمات: لكل فترةٍ موقع حضورها وموقع انصرافها، والغائب null', () => {
+  const att = attendanceByDay([
+    located('14:00', '18:00', RIYADH_C, null),          // انصرف والموقع مغلق
+    located('06:00', '10:00', RIYADH_A, RIYADH_B),
+  ], RIY).get('2026-10-04')!;
+  assert.deepStrictEqual(att.periods.map(locs), [
+    [RIYADH_A.lat, RIYADH_A.lng, RIYADH_B.lat, RIYADH_B.lng],
+    [RIYADH_C.lat, RIYADH_C.lng, null, null],
+  ], 'الموقع يتبع فترته بعد الترتيب');
+
+  // وتصل كما هي بعد التركيب فوق يوم الأثر
+  const [base] = composeWorkDays({
+    sessions: [], pingRanges: [{ day: '2026-10-04', min: at('2026-10-04T05:50:00Z'), max: at('2026-10-04T18:10:00Z') }],
+    visits: [], tzOffsetMin: RIY,
+  });
+  const [d] = overlayAttendance([base], new Map([['2026-10-04', att]]));
+  assert.deepStrictEqual(d.periods.map(locs)[0], [RIYADH_A.lat, RIYADH_A.lng, RIYADH_B.lat, RIYADH_B.lng]);
+  // يومٌ بلا بصمة: امتدادٌ بلا مفاتيح مواقع (لا مكان «حضور» لمن لم يبصم)
+  assert.ok(!('inLat' in base.periods[0]));
+});
+
+test('مواقع البصمات: النوبة المفتوحة بلا موقع انصراف — ولو حمل سجلّها إحداثياتٍ عالقة', () => {
+  const att = attendanceByDay([
+    located('06:00', '10:00', RIYADH_A, RIYADH_B),
+    { ...located('14:00', null, RIYADH_C, null), checkOutLat: 1, checkOutLng: 2 },
+  ], RIY).get('2026-10-04')!;
+  assert.deepStrictEqual(att.periods.map(locs), [
+    [RIYADH_A.lat, RIYADH_A.lng, RIYADH_B.lat, RIYADH_B.lng],
+    [RIYADH_C.lat, RIYADH_C.lng, null, null],
+  ]);
+  assert.strictEqual(att.periods[1].end, null);
+});
+
+test('مواقع البصمات: المتّحدة تأخذ موقع أول حضورٍ وموقع الانصراف الذي أنهاها', () => {
+  // ٩ص–١ظ ثم ١٢ظ–٢ظ متداخلتان ⇒ فترةٌ واحدة ٩ص–٢ظ: الحضور من الأولى، والانصراف من الثانية (هي التي أنهت)
+  const extended = attendanceByDay([
+    located('06:00', '10:00', RIYADH_A, RIYADH_B),
+    located('09:00', '11:00', RIYADH_C, RIYADH_D),
+  ], RIY).get('2026-10-04')!;
+  assert.strictEqual(extended.periods.length, 1);
+  assert.deepStrictEqual(locs(extended.periods[0]), [RIYADH_A.lat, RIYADH_A.lng, RIYADH_D.lat, RIYADH_D.lng]);
+
+  // نوبةٌ داخل أخرى لا تُنهي المتّحدة ⇒ يبقى انصراف الأولى وموقعه
+  const inner = attendanceByDay([
+    located('06:00', '12:00', RIYADH_A, RIYADH_B),
+    located('07:00', '08:00', RIYADH_C, RIYADH_D),
+  ], RIY).get('2026-10-04')!;
+  assert.deepStrictEqual(locs(inner.periods[0]), [RIYADH_A.lat, RIYADH_A.lng, RIYADH_B.lat, RIYADH_B.lng]);
+
+  // والمُنهية بلا موقع ⇒ انصرافٌ بلا موقع، لا موقعُ انصرافٍ سابقٍ لم يُنهِ الفترة
+  const lost = attendanceByDay([
+    located('06:00', '10:00', RIYADH_A, RIYADH_B),
+    located('09:00', '11:00', RIYADH_C, null),
+  ], RIY).get('2026-10-04')!;
+  assert.deepStrictEqual(locs(lost.periods[0]), [RIYADH_A.lat, RIYADH_A.lng, null, null]);
+});
+
+test('مواقع البصمات: نصفُ إحداثيٍّ لا يُعدّ موقعاً، وسجلّاتٌ بلا حقول المواقع تبقى صالحة', () => {
+  const att = attendanceByDay([
+    { ...located('06:00', '10:00', RIYADH_A, RIYADH_B), checkInLng: null, checkOutLat: Number.NaN },
+  ], RIY).get('2026-10-04')!;
+  assert.deepStrictEqual(locs(att.periods[0]), [null, null, null, null]);
+  const bare = attendanceByDay(punches(['06:00', '10:00']), RIY).get('2026-10-04')!;
+  assert.deepStrictEqual(locs(bare.periods[0]), [null, null, null, null]);
+});
+
+test('حارس: تقرير ساعات العمل يقرأ إحداثيات البصمتين — والعزل والنطاق كما هما', () => {
+  const src = fs.readFileSync(path.join(__dirname, '../routes/reports.ts'), 'utf8');
+  const from = src.indexOf('prisma.repAttendance.findMany');
+  const q = src.slice(from, src.indexOf('const byRep =', from));
+  for (const f of ['checkInLat', 'checkInLng', 'checkOutLat', 'checkOutLng']) {
+    assert.match(q, new RegExp(`\\b${f}: true`),`${f} لا يُقرأ — التقرير لا يعرف أين بصم المندوب`);
+  }
+  assert.match(q, /where: \{ tenantId: tid, checkInAt: \{ gte: fromDate, lt: toEnd \}, \.\.\.\(await scopedRepRecordWhere\(req\)\) \}/,
+    'بصمات التقرير خرجت عن عزل الشركة أو نطاق مستخدمها');
+});
+
 test('صمت الأثر داخل نوبةٍ لا يقسمها: الفترة من البصمة لا من GPS', () => {
   // GPS صمت أربع ساعات منتصف النوبة (هاتفٌ مقفل) — المندوب لم يبصم خروجاً، فالنوبة فترةٌ واحدة
   const [base] = composeWorkDays({
@@ -549,9 +639,11 @@ test('شكل الاستجابة: الفترات بتوقيت ISO والحقول 
     }
   }
   assert.deepStrictEqual(wire[0].periods, [{ start: '2026-10-04T06:00:00.000Z', end: '2026-10-04T10:00:00.000Z', source: 'ACTIVITY' }]);
+  // فترات البصمة تحمل مواقعها دائماً (null بلا التقاط) — والامتداد ACTIVITY بلا مفاتيح مواقع
+  const noLoc = { inLat: null, inLng: null, outLat: null, outLng: null };
   assert.deepStrictEqual(wire[1].periods, [
-    { start: '2026-10-05T06:00:00.000Z', end: '2026-10-05T10:00:00.000Z', source: 'PUNCH' },
-    { start: '2026-10-05T14:00:00.000Z', end: null, source: 'PUNCH' },
+    { start: '2026-10-05T06:00:00.000Z', end: '2026-10-05T10:00:00.000Z', source: 'PUNCH', ...noLoc },
+    { start: '2026-10-05T14:00:00.000Z', end: null, source: 'PUNCH', ...noLoc },
   ]);
   assert.strictEqual(wire[1].breakMinutes, 240);
 });

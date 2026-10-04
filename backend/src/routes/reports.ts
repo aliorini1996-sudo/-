@@ -521,10 +521,14 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
         FROM "rep_locations"
         WHERE "tenantId" = ${tid} AND "capturedAt" >= ${fromDate} AND "capturedAt" < ${toEnd}
         GROUP BY 1, 2`,
-      // بصمات الحضور: تُنسب ليومها المحلي ببصمة الحضور — نوبةٌ عبرت منتصف الليل تبقى ليوم بدايتها
+      // بصمات الحضور: تُنسب ليومها المحلي ببصمة الحضور — نوبةٌ عبرت منتصف الليل تبقى ليوم بدايتها.
+      // ومعها إحداثيات البصمتين: التقرير يُظهر أين حضر وأين انصرف (رابط خريطة لكل وقت)
       prisma.repAttendance.findMany({
         where: { tenantId: tid, checkInAt: { gte: fromDate, lt: toEnd }, ...(await scopedRepRecordWhere(req)) },
-        select: { salesRepId: true, checkInAt: true, checkOutAt: true },
+        select: {
+          salesRepId: true, checkInAt: true, checkOutAt: true,
+          checkInLat: true, checkInLng: true, checkOutLat: true, checkOutLng: true,
+        },
       }),
     ]);
 
