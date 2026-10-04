@@ -10,6 +10,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Download, TrendingUp, Users, UserCheck, MapPin, FileText, Search, X, Wallet, AlertTriangle } from 'lucide-react';
 import { shareOrDownloadExcel, num, ExcelSheet } from '../utils/excel';
 import { mergeRuns } from '../lib/mergeRuns';
+import { attendanceDayCells, breakOf, compactMinutes, periodsOf, type WorkPeriodLike } from '../lib/workPeriods';
 import { elementsToPdfBlob, downloadPdf } from '../rep/pdf';
 import toast from 'react-hot-toast';
 import { useAccountingOn } from '../components/AccountingGate';
@@ -20,9 +21,11 @@ type Tab = 'sales' | 'collections' | 'balances' | 'performance';
 interface WorkVisit { customerName: string; start: string; end: string | null; durationSec: number | null; hasNote: boolean; parts: number; lat?: number | null; lng?: number | null }
 interface WorkDayRow {
   date: string; firstActivity: string; lastActivity: string;
-  spanMinutes: number; appMinutes: number;
+  spanMinutes: number; appMinutes: number;   // spanMinutes = وقت العمل بلا الاستراحات
   visits: WorkVisit[]; visitsCount: number; visitsSec: number;
   absent: boolean;   // يومٌ في المدى بلا أيّ أثر
+  // الدوام المتقطّع: فترات اليوم ومجموع ما بينها — اختياريّان (خادمٌ أقدم أثناء انزلاق النشر لا يرسلهما)
+  periods?: WorkPeriodLike[]; breakMinutes?: number;
 }
 interface WorkHoursRow {
   id: string; name: string; totalMinutes: number; hours: number; minutes: number; sessions: number;
@@ -196,6 +199,8 @@ export default function ReportsPage() {
     : sec >= 3600 ? `${Math.floor(sec / 3600)} ${tr('س')} ${Math.floor((sec % 3600) / 60)} ${tr('د')}`
     : sec >= 60 ? `${Math.floor(sec / 60)} ${tr('د')} ${sec % 60} ${tr('ث')}`
     : `${sec} ${tr('ث')}`;
+  // منسّقات خلايا «الحضور اليومي» — ورقة كل المناديب وورقة المندوب الواحد من مصدرٍ واحد
+  const dayCellFx = { tr, clock: fmtClock, minutes: fmtMin, visitDur: fmtVisitDur };
 
   const groupLabel = () => groupBy === 'rep' ? tr('المندوب') : groupBy === 'customer' ? tr('العميل')
     : groupBy === 'channel' ? tr('القناة') : groupBy === 'region' ? tr('المنطقة') : tr('الصنف');
@@ -346,14 +351,10 @@ export default function ReportsPage() {
     let fname = tr('تقرير');
     if (tab === 'performance' && perfType === 'hours' && hoursRows?.length) {
       // المندوب مرّةً لكل مندوب، والتاريخ وإجمالي اليوم مرّةً لكل يوم — لا تكرار في كل صفّ
+      // صفٌّ واحد لكل مندوب×يوم: فترات الدوام المتقطّع في خليةٍ واحدة لا صفٌّ لكل فترة
       const dayItems = hoursRows.flatMap((r, ri) => r.days.map(d => ({ rep: String(ri), row: {
           [tr('المندوب')]: r.name, [tr('التاريخ')]: d.date,
-          [tr('بداية العمل')]: d.absent ? tr('لا نشاط') : fmtClock(d.firstActivity),
-          [tr('نهاية العمل')]: d.absent ? tr('لا نشاط') : fmtClock(d.lastActivity),
-          [tr('إجمالي وقت العمل')]: d.absent ? '—' : fmtMin(d.spanMinutes),
-          [tr('نشاط التطبيق')]: d.absent ? '—' : fmtMin(d.appMinutes),
-          [tr('عدد الزيارات')]: d.visitsCount,
-          [tr('وقت داخل الزيارات')]: fmtVisitDur(d.visitsSec) || '—',
+          ...attendanceDayCells(d, dayCellFx),
         } as Record<string, unknown> })));
       const daily = mergeRuns(dayItems.map(x => x.row), [{ cols: [tr('المندوب')], keyOf: i => dayItems[i].rep }]);
       // زيارةٌ واحدة لكل وقفة: بداية ونهاية صريحتان بدل صفَّين لعميلٍ واحد
@@ -382,7 +383,7 @@ export default function ReportsPage() {
           [tr('عدد الزيارات')]: r.visitsTotal,
           [tr('أول ظهور')]: fmtDateTime(r.firstSeen), [tr('آخر ظهور')]: fmtDateTime(r.lastSeen),
         })), colWidths: [22, 12, 12, 14, 12, 14, 12, 18, 18] },
-        { name: tr('الحضور اليومي'), rows: daily.rows, merges: daily.merges, colWidths: [22, 12, 12, 12, 14, 14, 12, 16] },
+        { name: tr('الحضور اليومي'), rows: daily.rows, merges: daily.merges, colWidths: [22, 12, 12, 12, 30, 10, 14, 14, 12, 16] },
         { name: tr('تفاصيل الزيارات'), rows: visits.rows, merges: visits.merges, colWidths: [22, 12, 24, 34, 12, 12, 12, 12, 16] },
       ];
       fname = tr('ساعات العمل');
@@ -596,16 +597,8 @@ export default function ReportsPage() {
     return sheets;
   };
   const repHoursSheets = (r: WorkHoursRow) => [
-    { name: tr('الحضور اليومي'), colWidths: [12, 12, 12, 14, 14, 12, 16],
-      rows: r.days.map(d => ({
-        [tr('التاريخ')]: d.date,
-        [tr('بداية العمل')]: d.absent ? tr('لا نشاط') : fmtClock(d.firstActivity),
-        [tr('نهاية العمل')]: d.absent ? tr('لا نشاط') : fmtClock(d.lastActivity),
-        [tr('إجمالي وقت العمل')]: d.absent ? '—' : fmtMin(d.spanMinutes),
-        [tr('نشاط التطبيق')]: d.absent ? '—' : fmtMin(d.appMinutes),
-        [tr('عدد الزيارات')]: d.visitsCount,
-        [tr('وقت داخل الزيارات')]: fmtVisitDur(d.visitsSec) || '—',
-      })) },
+    { name: tr('الحضور اليومي'), colWidths: [12, 12, 12, 30, 10, 14, 14, 12, 16],
+      rows: r.days.map(d => ({ [tr('التاريخ')]: d.date, ...attendanceDayCells(d, dayCellFx) })) },
     (() => {
       const items = r.days.flatMap(d => d.visits.map(v => ({ day: d.date, row: {
         [tr('التاريخ')]: d.date, [tr('اسم العميل')]: v.customerName,
@@ -1275,6 +1268,7 @@ export default function ReportsPage() {
             </div>
             <p className="text-[11px] text-[#9A8F7E] mt-2 leading-relaxed">
               {tr('إجمالي وقت العمل يقاس من أول نشاط مرصود في اليوم موقع أو فتح تطبيق أو زيارة إلى آخره أقرب مقياس متاح لخروج المندوب وعودته و نشاط التطبيق هو الوقت الذي كان فيه التطبيق مفتوحا ومتصلا فقط')}
+              {' '}{tr('ومع بصمة الحضور والانصراف يسجل كل دخول وكل خروج فترة عمل ويحسب الإجمالي من مجموع الفترات بلا ما بينها')}
             </p>
           </div>
 
@@ -1308,7 +1302,7 @@ export default function ReportsPage() {
                   <table className="table">
                     <thead>
                       <tr>
-                        <th>{tr('التاريخ')}</th><th>{tr('بداية العمل')}</th><th>{tr('نهاية العمل')}</th>
+                        <th>{tr('التاريخ')}</th><th>{tr('فترات العمل')}</th>
                         <th>{tr('إجمالي وقت العمل')}</th><th>{tr('نشاط التطبيق')}</th>
                         <th>{tr('عدد الزيارات')}</th><th>{tr('وقت داخل الزيارات')}</th>
                       </tr>
@@ -1324,11 +1318,32 @@ export default function ReportsPage() {
                               {d.visitsCount > 0 && <span className="ms-1 text-[#9A8F7E]">{openDay === `${r.id}|${d.date}` ? '▲' : '▾'}</span>}
                             </td>
                             {d.absent ? (
-                              <td colSpan={6} className="text-center text-xs">{tr('لا نشاط مسجل في هذا اليوم')}</td>
+                              <td colSpan={5} className="text-center text-xs">{tr('لا نشاط مسجل في هذا اليوم')}</td>
                             ) : (
                               <>
-                                <td><span className="inline-block rounded px-2 py-0.5 text-xs font-bold tabular-nums bg-[#E7F5EE] text-[#1E7A52]">{fmtClock(d.firstActivity)}</span></td>
-                                <td><span className="inline-block rounded px-2 py-0.5 text-xs font-bold tabular-nums bg-[#FBEBE2] text-[#C0392B]">{fmtClock(d.lastActivity)}</span></td>
+                                {/* فترات اليوم في خليةٍ واحدة — فترةٌ لكل حضور→انصراف مسجَّلين (الدوام المتقطّع: خرج وعاد)،
+                                    صفٌّ واحد لليوم لا صفٌّ لكل فترة. يومٌ بلا بصمة امتدادٌ واحد من أول أثرٍ إلى آخره كما كان:
+                                    بدايةٌ خضراء ونهايةٌ حمراء */}
+                                <td>
+                                  <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                                    {periodsOf(d).map((p, i) => (
+                                      <Fragment key={i}>
+                                        {i > 0 && <span className="text-[#C9BFB0]">·</span>}
+                                        <span className="inline-flex items-center gap-1"
+                                          title={p.source === 'PUNCH' ? tr('من بصمة الحضور والانصراف') : tr('من أول أثر مرصود إلى آخره بلا بصمة')}>
+                                          <span className="inline-block rounded px-2 py-0.5 text-xs font-bold tabular-nums bg-[#E7F5EE] text-[#1E7A52]">{fmtClock(p.start)}</span>
+                                          <span className="text-[#C9BFB0]">–</span>
+                                          {p.end
+                                            ? <span className="inline-block rounded px-2 py-0.5 text-xs font-bold tabular-nums bg-[#FBEBE2] text-[#C0392B]">{fmtClock(p.end)}</span>
+                                            : <span className="text-xs text-gray-400">{tr('بلا انصراف')}</span>}
+                                        </span>
+                                      </Fragment>
+                                    ))}
+                                    {breakOf(d) > 0 && (
+                                      <span className="text-[11px] text-[#9A8F7E] whitespace-nowrap">{tr('الاستراحة')} {compactMinutes(breakOf(d), tr)}</span>
+                                    )}
+                                  </span>
+                                </td>
                                 <td className="font-bold text-[#1F1A13] tabular-nums">{fmtMin(d.spanMinutes)}</td>
                                 <td className="text-gray-600 tabular-nums">{fmtMin(d.appMinutes)}</td>
                                 <td className="tabular-nums">{d.visitsCount}</td>
@@ -1338,7 +1353,7 @@ export default function ReportsPage() {
                           </tr>
                           {openDay === `${r.id}|${d.date}` && d.visits.length > 0 && (
                             <tr>
-                              <td colSpan={7} className="bg-[#FDFBF7] p-0">
+                              <td colSpan={6} className="bg-[#FDFBF7] p-0">
                                 <table className="table">
                                   <thead>
                                     <tr>

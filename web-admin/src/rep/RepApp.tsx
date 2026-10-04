@@ -33,11 +33,12 @@ import BuyerDataFields from '../components/BuyerDataFields';
 import { BUYER_BILLING_FIELDS, BuyerField } from '../lib/zatca/buyerData';
 import { BuyerFormValues, buyerBadge, buyerCreatePayload, buyerFormCheck, buyerFormValues, buyerUpdatePayload } from '../lib/zatca/buyerForm';
 import { RepBuyerBanner, RepBuyerDataForm, fetchIncompleteBuyers } from './RepBuyerData';
-import { Component, lazy, Suspense, type ReactNode } from 'react';
+import { Component, lazy, Suspense, useRef, type ReactNode } from 'react';
 import { Sparkles, MapPinOff } from 'lucide-react';
 import { useLocationGate } from './locationGate';
 import { clearAiSession, markConverted, type AiAddPrefill } from './aiRepSession';
 import { OUTLET_TYPE_OPTIONS } from './aiRepLogic';
+import { dayMinutes, nextPunch, shiftMinutes, shiftsOf, type AttendanceState } from './attendanceDay';
 // المندوب الذكي كسول: لا تُحمَّل حزمته إلا لمن فُعّلت له الميزة وفتحها
 const RepAiScreen = lazy(() => import('./RepAiScreen'));
 
@@ -173,10 +174,8 @@ interface WorkNumSummary {
 
 // بصمة الحضور والانصراف — يعلن المندوب بداية عمله ونهايته بضغطة، مع موقعه ووقته.
 // بديلٌ صريح عن حساب الساعات من نبضة الاتصال: هنا «اليوم كما يعلنه المندوب».
-type AttendanceState =
-  | { status: 'in'; shift: { checkInAt: string; checkInLat: number | null; checkInLng: number | null } }
-  | { status: 'out'; last: { checkInAt: string; checkOutAt: string } | null }
-  | { status: 'none'; last?: null };
+// والدوام المتقطّع: كل دخولٍ يُسجَّل وكل خروجٍ يُسجَّل — بعد الانصراف يبقى الحضور متاحاً لفترةٍ جديدة،
+// وبصمات اليوم كلها تُعرض قائمةً (المنطق الصرف في attendanceDay.ts).
 
 // موقع أفضل جهد: ثماني ثوانٍ ثم نمضي بلا موقع — البصمة أهمّ من الإحداثيات.
 function readLocation(opts: PositionOptions): Promise<{ lat: number; lng: number } | null> {
@@ -203,8 +202,7 @@ const clockTime = (iso: string): string => {
 /** يوم اللحظة إن لم تكن من اليوم («أمس» أو تاريخ) — فلا تُقرأ ساعةُ أمسِ وقتاً قادماً. */
 const dayOf = (iso: string): string => { try { return dayLabel(iso); } catch { return ''; } };
 
-function shiftDuration(fromIso: string, toIso: string, tr: (s: string) => string): string {
-  const mins = Math.max(0, Math.round((new Date(toIso).getTime() - new Date(fromIso).getTime()) / 60000));
+function fmtWorkMinutes(mins: number, tr: (s: string) => string): string {
   const h = Math.floor(mins / 60); const m = mins % 60;
   return `${h} ${tr('ساعة')} ${m} ${tr('دقيقة')}`;
 }
@@ -214,6 +212,7 @@ function RepAttendance({ locationRequired = false }: { locationRequired?: boolea
   const [state, setState] = useState<AttendanceState | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const inFlight = useRef(false);   // حارس الضغط المزدوج: يُقرأ فوراً لا بعد إعادة الرسم كـbusy
   const tzOffsetMin = -new Date().getTimezoneOffset();
 
   const load = useCallback(() => {
@@ -225,20 +224,32 @@ function RepAttendance({ locationRequired = false }: { locationRequired?: boolea
   useEffect(() => { load(); }, [load]);
 
   const punch = async (kind: 'checkin' | 'checkout') => {
+    // ضغطةٌ ثانية قبل أن يُرسم التعطيل تُهمل — والخادم بدوره يعيد النوبة المفتوحة ولا يفتح ثانية
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true); setErr('');
     try {
       const loc = await grabLocation(locationRequired);
       // المقيَّد بلا موقع: رسالةٌ تصف حاله (الموقع مفعّل والإشارة ضعيفة) بدل ردّ الخادم «فعّل الموقع»
       if (!loc && locationRequired) { setErr(tr('تعذر تحديد موقعك اقترب من نافذة او مكان مفتوح ثم اعد المحاولة')); return; }
-      const r = await repApi.post(`/tracking/attendance/${kind}`, loc ?? {});
+      // tzOffsetMin ليعيد الخادم بصمات اليوم كلها مع البصمة — القائمة تتحدّث بلا طلبٍ ثانٍ
+      const r = await repApi.post(`/tracking/attendance/${kind}`, loc ?? {}, { params: { tzOffsetMin } });
       setState(r.data.data as AttendanceState);
     } catch (e) {
-      const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      setErr(msg || tr('تعذّر التسجيل، حاول ثانية'));
-    } finally { setBusy(false); }
+      const resp = (e as { response?: { status?: number; data?: { message?: string; code?: string } } })?.response;
+      // 409 = الشاشة متأخّرة عن الخادم (انصرافٌ نجح وضاع ردّه في شبكة ضعيفة، أو من جهازٍ آخر):
+      // تُحدَّث الحالة فيظهر الخروج المسجَّل وزرّ الحضور، بدل «لم تسجّل حضوراً» وزرّ انصرافٍ يُرفض بلا نهاية.
+      // إلا رفض «اشتراط تفعيل الموقع» (409 أيضاً): رسالته تُعرض كما هي ولا تُبتلع بإعادة التحميل
+      if (resp?.status === 409 && resp.data?.code !== 'LOCATION_REQUIRED') load();
+      else setErr(resp?.data?.message || tr('تعذّر التسجيل، حاول ثانية'));
+    } finally { inFlight.current = false; setBusy(false); }
   };
 
-  const checkedIn = state?.status === 'in';
+  const shifts = state ? shiftsOf(state) : [];
+  const next = state ? nextPunch(state) : 'checkin';
+  // مجموع اليوم بنسبة التقرير: نوبةٌ بدأت أمس تُعرض في القائمة ولا تُضاف هنا (منتصف ليل الجهاز = tzOffsetMin)
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+  const total = dayMinutes(shifts, todayStart);
 
   return (
     <div className="p-4 space-y-4">
@@ -251,8 +262,8 @@ function RepAttendance({ locationRequired = false }: { locationRequired?: boolea
         <p className="text-sm text-[#8A8072] py-8 text-center">{tr('جارٍ التحميل…')}</p>
       ) : (
         <>
-          <div className={`rounded-2xl border p-5 text-center ${checkedIn ? 'bg-green-50 border-green-200' : 'bg-[#FBF7F0] border-[#EFE7D8]'}`}>
-            {checkedIn ? (
+          <div className={`rounded-2xl border p-5 text-center ${state.status === 'in' ? 'bg-green-50 border-green-200' : 'bg-[#FBF7F0] border-[#EFE7D8]'}`}>
+            {state.status === 'in' ? (
               <>
                 <p className="text-xs text-green-700 font-semibold mb-1">{tr('أنت في العمل الآن')}</p>
                 {dayOf(state.shift.checkInAt) && <p className="text-xs text-green-800 font-semibold">{tr('منذ')} {dayOf(state.shift.checkInAt)}</p>}
@@ -266,21 +277,53 @@ function RepAttendance({ locationRequired = false }: { locationRequired?: boolea
               </>
             ) : state.status === 'out' && state.last ? (
               <>
-                <p className="text-xs text-[#8A8072] font-semibold mb-2">{tr('انتهى عملك اليوم')}</p>
-                <div className="flex items-center justify-center gap-6 tabular-nums" dir="ltr">
-                  <div><p className="text-[10px] text-[#8A8072]">{tr('الحضور')}</p><p className="text-lg font-bold text-[#1F1A13]">{clockTime(state.last.checkInAt)}</p></div>
-                  <div><p className="text-[10px] text-[#8A8072]">{tr('الانصراف')}</p><p className="text-lg font-bold text-[#1F1A13]">{clockTime(state.last.checkOutAt)}</p></div>
-                </div>
-                <p className="text-xs text-[#8A8072] mt-2">{tr('مدّة العمل')}: {shiftDuration(state.last.checkInAt, state.last.checkOutAt, tr)}</p>
+                {/* خرج ولم ينتهِ يومه بالضرورة: الدوام المتقطّع يعود فيبصم فترةً جديدة */}
+                <p className="text-xs text-[#8A8072] font-semibold mb-1">{tr('خارج العمل الآن')}</p>
+                <p className="text-[10px] text-[#8A8072]">{tr('آخر انصراف')}</p>
+                <p className="text-2xl font-bold text-[#1F1A13] tabular-nums" dir="ltr">{clockTime(state.last.checkOutAt)}</p>
+                <p className="text-[11px] text-[#8A8072] mt-1">{tr('إن عدت إلى العمل سجّل حضوراً جديداً فتُحسب فترةً أخرى')}</p>
               </>
             ) : (
               <p className="text-sm text-[#8A8072] py-2">{tr('لم تسجّل حضورك اليوم بعد')}</p>
             )}
           </div>
 
+          {/* بصمات اليوم: كل حضورٍ وكل انصرافٍ سُجّل — ما سيراه المشرف فتراتٍ في تقرير الساعات */}
+          {shifts.length > 0 && (
+            <div className="rounded-2xl border border-[#EFE7D8] bg-white">
+              <p className="px-4 pt-3 pb-2 text-xs font-bold text-[#1F1A13]">{tr('بصمات اليوم')}</p>
+              <ul className="divide-y divide-[#F3EDE2]">
+                {shifts.map((sh, i) => (
+                  <li key={`${sh.checkInAt}-${i}`} className="px-4 py-2.5 flex items-center gap-3 text-sm">
+                    <span className="text-[11px] text-[#8A8072] w-12 flex-shrink-0">{tr('الفترة')} {i + 1}</span>
+                    <span className="flex-1 min-w-0 flex flex-wrap items-center gap-x-3 gap-y-0.5 tabular-nums">
+                      <span>
+                        <span className="text-[10px] text-[#8A8072]">{tr('الحضور')} </span>
+                        <span className="font-bold text-green-700" dir="ltr">{clockTime(sh.checkInAt)}</span>
+                        {dayOf(sh.checkInAt) && <span className="text-[10px] text-amber-700"> {dayOf(sh.checkInAt)}</span>}
+                      </span>
+                      <span>
+                        <span className="text-[10px] text-[#8A8072]">{tr('الانصراف')} </span>
+                        {sh.checkOutAt
+                          ? <span className="font-bold text-[#C0392B]" dir="ltr">{clockTime(sh.checkOutAt)}</span>
+                          : <span className="text-xs text-[#8A8072]">{tr('لم تنصرف بعد')}</span>}
+                      </span>
+                    </span>
+                    {sh.checkOutAt && <span className="text-[11px] text-[#8A8072] whitespace-nowrap">{fmtWorkMinutes(shiftMinutes(sh), tr)}</span>}
+                  </li>
+                ))}
+              </ul>
+              {total > 0 && (
+                <p className="px-4 py-2.5 border-t border-[#EFE7D8] text-xs text-[#1F1A13] flex justify-between">
+                  <span>{tr('مجموع فترات اليوم')}</span><span className="font-bold tabular-nums">{fmtWorkMinutes(total, tr)}</span>
+                </p>
+              )}
+            </div>
+          )}
+
           {err && <p className="text-xs text-[#C0392B] text-center">{err}</p>}
 
-          {checkedIn ? (
+          {next === 'checkout' ? (
             <button
               onClick={() => punch('checkout')} disabled={busy}
               className="w-full flex items-center justify-center gap-2 rounded-2xl bg-[#C0392B] text-white font-bold py-4 text-base disabled:opacity-50"
@@ -292,12 +335,12 @@ function RepAttendance({ locationRequired = false }: { locationRequired?: boolea
               onClick={() => punch('checkin')} disabled={busy}
               className="w-full flex items-center justify-center gap-2 rounded-2xl bg-green-600 text-white font-bold py-4 text-base disabled:opacity-50"
             >
-              <LogIn size={20} /> {busy ? tr('جارٍ التسجيل…') : tr('تسجيل الحضور')}
+              <LogIn size={20} /> {busy ? tr('جارٍ التسجيل…') : next === 'checkin-again' ? tr('بدء فترة عمل جديدة') : tr('تسجيل الحضور')}
             </button>
           )}
 
           <p className="text-[11px] text-[#8A8072] text-center leading-relaxed">
-            {tr('تُحسب ساعات عملك من حضورك وانصرافك المسجّلين هنا.')}
+            {tr('كل حضور وانصراف تسجله هنا يحسب فترة عمل، وما بين الانصراف والحضور التالي لا يحسب من ساعاتك.')}
           </p>
         </>
       )}

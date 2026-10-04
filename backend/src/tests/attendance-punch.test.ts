@@ -18,6 +18,7 @@ let seq = 0;
 
 const matches = (r: Shift, w: Record<string, unknown>): boolean =>
   Object.entries(w).every(([k, v]) => {
+    if (k === 'OR') return (v as Record<string, unknown>[]).some((sub) => matches(r, sub));
     if (v && typeof v === 'object' && 'gte' in (v as object)) return (r[k as keyof Shift] as Date | null) != null && (r[k as keyof Shift] as Date) >= (v as { gte: Date }).gte;
     return (r[k as keyof Shift] as unknown) === v;
   });
@@ -35,6 +36,11 @@ const repAttendance = {
     let list = rows.filter((r) => matches(r, args.where));
     if (args.orderBy) { const [k, dir] = Object.entries(args.orderBy)[0]; list = [...list].sort((a, b) => (dir === 'desc' ? sortDesc(a, b, k as keyof Shift) : -sortDesc(a, b, k as keyof Shift))); }
     return list[0] ? pick(list[0], args.select) : null;
+  },
+  async findMany(args: { where: Record<string, unknown>; orderBy?: Record<string, 'asc' | 'desc'>; take?: number; select?: Record<string, boolean> }) {
+    let list = rows.filter((r) => matches(r, args.where));
+    if (args.orderBy) { const [k, dir] = Object.entries(args.orderBy)[0]; list = [...list].sort((a, b) => (dir === 'desc' ? sortDesc(a, b, k as keyof Shift) : -sortDesc(a, b, k as keyof Shift))); }
+    return list.slice(0, args.take ?? list.length).map((r) => pick(r, args.select));
   },
   async create(args: { data: Partial<Shift>; select?: Record<string, boolean> }) {
     const r: Shift = { id: `s${++seq}`, checkInLat: null, checkInLng: null, checkOutAt: null, checkOutLat: null, checkOutLng: null, createdAt: new Date(), ...(args.data as Shift) };
@@ -173,4 +179,59 @@ test('«اشتراط تفعيل الموقع»: بصمة بلا إحداثيات
     assert.equal(rows[0].checkOutAt, null, 'أُغلقت النوبة بلا موقع');
     assert.equal(data(await call('post', '/attendance/checkout', { body: { lat: 24.7, lng: 46.6 } })).status, 'out');
   } finally { locationRequired = false; }
+});
+
+// ═══ الدوام المتقطّع: كل دخولٍ يُسجَّل وكل خروجٍ يُسجَّل ═══
+type Punch = { checkInAt: Date; checkOutAt: Date | null };
+const shiftsOf = (res: { body: Record<string, unknown> | null }) => data(res).shifts as Punch[];
+
+test('بعد الانصراف يُفتح حضورٌ جديد في اليوم نفسه — نوبةٌ ثانية لا إعادةٌ للأولى', async () => {
+  rows = []; seq = 0; featureOn = true;
+  await call('post', '/attendance/checkin', {});
+  await call('post', '/attendance/checkout', {});
+  const again = await call('post', '/attendance/checkin', {});
+  assert.equal(data(again).status, 'in');
+  assert.equal((data(again) as { already?: boolean }).already, undefined, 'ليس «حاضراً سلفاً» — فترةٌ جديدة');
+  assert.equal(rows.length, 2, 'نوبتان: الأولى مغلقة والثانية مفتوحة');
+  assert.ok(rows[0].checkOutAt instanceof Date);
+  assert.equal(rows[1].checkOutAt, null);
+});
+
+test('بصمات اليوم كلها تعود مع الحالة ومع كل بصمة: كل دخولٍ وكل خروج بترتيب وقوعها', async () => {
+  rows = []; seq = 0; featureOn = true;
+  const none = await call('get', '/attendance/today');
+  assert.deepEqual(shiftsOf(none), []);
+
+  const in1 = await call('post', '/attendance/checkin', {});
+  assert.equal(shiftsOf(in1).length, 1);
+  assert.equal(shiftsOf(in1)[0].checkOutAt, null);
+
+  const out1 = await call('post', '/attendance/checkout', {});
+  assert.equal(shiftsOf(out1).length, 1);
+  assert.ok(shiftsOf(out1)[0].checkOutAt instanceof Date, 'الخروج سُجّل في القائمة');
+
+  await call('post', '/attendance/checkin', {});
+  await call('post', '/attendance/checkout', {});
+  const today = await call('get', '/attendance/today');
+  assert.equal(data(today).status, 'out');
+  const list = shiftsOf(today);
+  assert.equal(list.length, 2, 'فترتان في اليوم');
+  assert.ok(list.every((s) => s.checkInAt instanceof Date && s.checkOutAt instanceof Date));
+  assert.ok(list[0].checkInAt <= list[1].checkInAt, 'مرتّبة من الأقدم');
+});
+
+test('قائمة اليوم: نوبةُ أمسٍ المغلقة خارجها، والمفتوحة من أمس داخلها (نسي الانصراف)', async () => {
+  rows = []; seq = 0; featureOn = true;
+  const day = 24 * 60 * 60 * 1000;
+  const y = (h: number) => new Date(Date.now() - day - h * 60 * 60 * 1000);
+  rows.push({ id: 'old', tenantId: 't1', salesRepId: 'rep1', checkInAt: y(6), checkInLat: null, checkInLng: null, checkOutAt: y(2), checkOutLat: null, checkOutLng: null, createdAt: y(6) });
+  assert.deepEqual(shiftsOf(await call('get', '/attendance/today')), [], 'نوبة أمس المغلقة ليست من اليوم');
+  rows.push({ id: 'open', tenantId: 't1', salesRepId: 'rep1', checkInAt: y(1), checkInLat: null, checkInLng: null, checkOutAt: null, checkOutLat: null, checkOutLng: null, createdAt: y(1) });
+  const res = await call('get', '/attendance/today');
+  assert.equal(data(res).status, 'in');
+  assert.equal(shiftsOf(res).length, 1);
+  assert.equal(shiftsOf(res)[0].checkOutAt, null);
+  // ومندوبٌ آخر لا تظهر بصماته
+  rows.push({ id: 'other', tenantId: 't1', salesRepId: 'rep2', checkInAt: new Date(), checkInLat: null, checkInLng: null, checkOutAt: null, checkOutLat: null, checkOutLng: null, createdAt: new Date() });
+  assert.equal(shiftsOf(await call('get', '/attendance/today')).length, 1);
 });

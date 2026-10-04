@@ -8,8 +8,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { composeWorkDays, splitByLocalDay, dayKey, mergeVisits, mergeVisitsByRep, countStopsByRep, MERGE_TOLERANCE_MS } from '../services/workDay';
-import fs from 'fs';
-import path from 'path';
 
 const KSA = 180; // الرياض UTC+3
 const at = (iso: string) => new Date(iso);
@@ -284,7 +282,8 @@ test('attendanceByDay: النوبة تُنسب ليوم بصمة الحضور ا
 test('overlayAttendance: يومٌ ببصمة يأخذ البداية/النهاية/الإجمالي منها، ويُرفع الغياب، ويبقى نشاط التطبيق', () => {
   const base: WorkDay = {
     date: '2026-09-25', firstActivity: iso('2026-09-25T04:00:00Z'), lastActivity: iso('2026-09-25T15:00:00Z'),
-    spanMinutes: 660, appMinutes: 42, visits: [], visitsCount: 3, visitsSec: 900, absent: false,
+    spanMinutes: 660, periods: [{ start: iso('2026-09-25T04:00:00Z'), end: iso('2026-09-25T15:00:00Z'), source: 'ACTIVITY' }], breakMinutes: 0,
+    appMinutes: 42, visits: [], visitsCount: 3, visitsSec: 900, absent: false,
   };
   const m = attendanceByDay([{ checkInAt: iso('2026-09-25T05:00:00Z'), checkOutAt: iso('2026-09-25T13:00:00Z') }], RIY);
   const [d] = overlayAttendance([base], m);
@@ -298,7 +297,7 @@ test('overlayAttendance: يومٌ ببصمة يأخذ البداية/النها�
 test('overlayAttendance: بصمةٌ في يومٍ كان غياباً ⇒ يصير حاضراً', () => {
   const absentDay: WorkDay = {
     date: '2026-09-25', firstActivity: iso('2026-09-25T00:00:00Z'), lastActivity: iso('2026-09-25T00:00:00Z'),
-    spanMinutes: 0, appMinutes: 0, visits: [], visitsCount: 0, visitsSec: 0, absent: true,
+    spanMinutes: 0, periods: [], breakMinutes: 0, appMinutes: 0, visits: [], visitsCount: 0, visitsSec: 0, absent: true,
   };
   const m = attendanceByDay([{ checkInAt: iso('2026-09-25T06:00:00Z'), checkOutAt: iso('2026-09-25T14:00:00Z') }], RIY);
   const [d] = overlayAttendance([absentDay], m);
@@ -309,7 +308,8 @@ test('overlayAttendance: بصمةٌ في يومٍ كان غياباً ⇒ يصي
 test('overlayAttendance: يومٌ بلا بصمة يبقى على مقياسه القديم (توافق ما قبل الميزة)', () => {
   const base: WorkDay = {
     date: '2026-09-17', firstActivity: iso('2026-09-17T09:00:00Z'), lastActivity: iso('2026-09-17T20:00:00Z'),
-    spanMinutes: 660, appMinutes: 40, visits: [], visitsCount: 11, visitsSec: 6000, absent: false,
+    spanMinutes: 660, periods: [{ start: iso('2026-09-17T09:00:00Z'), end: iso('2026-09-17T20:00:00Z'), source: 'ACTIVITY' }], breakMinutes: 0,
+    appMinutes: 40, visits: [], visitsCount: 11, visitsSec: 6000, absent: false,
   };
   const [d] = overlayAttendance([base], new Map());
   assert.strictEqual(d.spanMinutes, 660);
@@ -374,4 +374,200 @@ test('حارس ثابت: مسارات الزيارات تعدّ الوقفات �
     if (/repVisit\.count\(/.test(src)) offenders.push(`${f}: repVisit.count`);
   }
   assert.deepEqual(offenders, [], `عدٌّ خام للزيارات:\n${offenders.join('\n')}`);
+});
+
+// ═══ الدوام المتقطّع: كل دخولٍ يُسجَّل وكل خروجٍ يُسجَّل ═══
+// قرار المالك: «لا تحدد الفترات بزمن معين وإنما كل دخول يسجل وكل خروج يسجل». فترات اليوم من البصمات وحدها،
+// ويومٌ بلا بصمة يبقى امتداداً واحداً من أول أثر إلى آخره بأرقامه القديمة — لا عتبة صمتٍ تخترع استراحة.
+// التوقيتات بالرياض (+3): ٩ص = 06:00Z، ١ظ = 10:00Z، ٥م = 14:00Z، ٩م = 18:00Z.
+import fs from 'node:fs';
+import path from 'node:path';
+import * as workDayModule from '../services/workDay';
+
+const hhmm = (d: Date | null) => (d ? d.toISOString().slice(11, 16) : null);
+const punches = (...pairs: Array<[string, string | null]>) =>
+  pairs.map(([i, o]) => ({ checkInAt: iso(`2026-10-04T${i}:00Z`), checkOutAt: o ? iso(`2026-10-04T${o}:00Z`) : null }));
+
+test('دوام متقطّع: دخولان وخروجان ⇒ فترتان، الإجمالي ٨ ساعات والاستراحة ٤', () => {
+  const m = attendanceByDay(punches(['06:00', '10:00'], ['14:00', '18:00']), RIY);
+  const att = m.get('2026-10-04')!;
+  assert.deepStrictEqual(att.periods.map(p => [hhmm(p.start), hhmm(p.end), p.source]),
+    [['06:00', '10:00', 'PUNCH'], ['14:00', '18:00', 'PUNCH']]);
+  assert.strictEqual(att.minutes, 480);
+  assert.strictEqual(att.breakMinutes, 240);
+
+  // فوق يومٍ رأى أثره ١٢ ساعة متّصلة (GPS بقي يعمل في الاستراحة): البصمة تعلو
+  const [base] = composeWorkDays({
+    sessions: [], pingRanges: [{ day: '2026-10-04', min: at('2026-10-04T05:50:00Z'), max: at('2026-10-04T18:10:00Z') }],
+    visits: [], tzOffsetMin: RIY,
+  });
+  const [d] = overlayAttendance([base], m);
+  assert.strictEqual(d.spanMinutes, 480, 'إجمالي وقت العمل بلا الاستراحة');
+  assert.strictEqual(d.breakMinutes, 240);
+  assert.strictEqual(d.periods.length, 2);
+  assert.strictEqual(hhmm(d.firstActivity), '06:00');
+  assert.strictEqual(hhmm(d.lastActivity), '18:00');
+});
+
+test('ثلاث فترات: كل خروجٍ يُسجَّل ولو قصر — عشر دقائق استراحةٌ كما هي، لا عتبة تبتلعها', () => {
+  const att = attendanceByDay(punches(['06:00', '09:00'], ['09:10', '12:00'], ['14:00', '18:00']), RIY).get('2026-10-04')!;
+  assert.deepStrictEqual(att.periods.map(p => [hhmm(p.start), hhmm(p.end)]),
+    [['06:00', '09:00'], ['09:10', '12:00'], ['14:00', '18:00']]);
+  assert.strictEqual(att.minutes, 180 + 170 + 240);
+  assert.strictEqual(att.breakMinutes, 10 + 120);
+  assert.strictEqual(hhmm(att.start), '06:00');
+  assert.strictEqual(hhmm(att.end), '18:00');
+});
+
+test('البصمات تُرتَّب مهما وصلت', () => {
+  const att = attendanceByDay(punches(['14:00', '18:00'], ['06:00', '10:00']), RIY).get('2026-10-04')!;
+  assert.deepStrictEqual(att.periods.map(p => hhmm(p.start)), ['06:00', '14:00']);
+  assert.strictEqual(att.breakMinutes, 240);
+});
+
+test('نوبةٌ مفتوحة: فترةٌ بلا نهاية لا تُضاف دقائقها، والاستراحة قبلها تُحسب', () => {
+  const att = attendanceByDay(punches(['06:00', '10:00'], ['14:00', null]), RIY).get('2026-10-04')!;
+  assert.deepStrictEqual(att.periods.map(p => [hhmm(p.start), hhmm(p.end)]), [['06:00', '10:00'], ['14:00', null]]);
+  assert.strictEqual(att.minutes, 240, 'النوبة المفتوحة لا تُحسب حتى الانصراف');
+  assert.strictEqual(att.breakMinutes, 240, 'خرج ١ظ وعاد ٥م — الاستراحة معلومة ولو لم ينصرف بعد');
+  assert.strictEqual(hhmm(att.end), '10:00', 'آخر انصرافٍ معلوم كما كان');
+
+  const only = attendanceByDay(punches(['06:00', null]), RIY).get('2026-10-04')!;
+  assert.strictEqual(only.periods.length, 1);
+  assert.strictEqual(only.periods[0].end, null);
+  assert.strictEqual(only.minutes, 0);
+  assert.strictEqual(only.breakMinutes, 0);
+});
+
+test('نوبتان متداخلتان (بيانات مكرّرة) تتّحدان فلا تُعدّ ساعاتهما مرّتين', () => {
+  const att = attendanceByDay(punches(['06:00', '10:00'], ['09:00', '11:00']), RIY).get('2026-10-04')!;
+  assert.strictEqual(att.periods.length, 1);
+  assert.strictEqual(hhmm(att.periods[0].end), '11:00');
+  assert.strictEqual(att.minutes, 300, 'لا ٢٤٠ + ١٢٠');
+  assert.strictEqual(att.breakMinutes, 0);
+  // ونوبةٌ داخل أخرى لا تقصّرها
+  const inner = attendanceByDay(punches(['06:00', '12:00'], ['07:00', '08:00']), RIY).get('2026-10-04')!;
+  assert.deepStrictEqual(inner.periods.map(p => [hhmm(p.start), hhmm(p.end)]), [['06:00', '12:00']]);
+  assert.strictEqual(inner.minutes, 360);
+});
+
+test('صمت الأثر داخل نوبةٍ لا يقسمها: الفترة من البصمة لا من GPS', () => {
+  // GPS صمت أربع ساعات منتصف النوبة (هاتفٌ مقفل) — المندوب لم يبصم خروجاً، فالنوبة فترةٌ واحدة
+  const [base] = composeWorkDays({
+    sessions: [{ start: at('2026-10-04T06:00:00Z'), end: at('2026-10-04T08:00:00Z') }],
+    pingRanges: [{ day: '2026-10-04', min: at('2026-10-04T12:00:00Z'), max: at('2026-10-04T18:00:00Z') }],
+    visits: [], tzOffsetMin: RIY,
+  });
+  const [d] = overlayAttendance([base], attendanceByDay(punches(['06:00', '18:00']), RIY));
+  assert.deepStrictEqual(d.periods.map(p => [hhmm(p.start), hhmm(p.end), p.source]), [['06:00', '18:00', 'PUNCH']]);
+  assert.strictEqual(d.spanMinutes, 720);
+  assert.strictEqual(d.breakMinutes, 0);
+});
+
+test('يومٌ بلا بصمة = أرقام ما قبل الفترات حرفياً: امتدادٌ واحد ACTIVITY ولو صمت الأثر ساعات', () => {
+  // المقياس القديم: أصغر بداية وأكبر نهاية من كل المصادر، والامتداد بينهما — بلا تقسيمٍ ولا استراحة
+  const sessions = [
+    { start: at('2026-10-04T05:12:30Z'), end: at('2026-10-04T06:40:10Z') },
+    { start: at('2026-10-04T14:05:00Z'), end: at('2026-10-04T14:50:45Z') },
+  ];
+  const pings = [{ day: '2026-10-04', min: at('2026-10-04T05:00:00Z'), max: at('2026-10-04T17:20:00Z') }];
+  const visits = [
+    { customerName: 'أ', at: at('2026-10-04T10:00:00Z'), durationSec: 777 },
+    { customerName: 'ب', at: at('2026-10-04T17:25:00Z'), durationSec: 1234 },    // تمدّ آخر الأثر
+    { customerName: 'ب', at: at('2026-10-04T17:40:00Z'), durationSec: null },
+  ];
+  const [d] = composeWorkDays({ sessions, pingRanges: pings, visits, tzOffsetMin: KSA });
+  const first = at('2026-10-04T05:00:00Z');
+  const last = new Date(at('2026-10-04T17:25:00Z').getTime() + 1234 * 1000);
+  assert.strictEqual(d.firstActivity.toISOString(), first.toISOString());
+  assert.strictEqual(d.lastActivity.toISOString(), last.toISOString());
+  assert.strictEqual(d.spanMinutes, Math.round((last.getTime() - first.getTime()) / 60000));
+  assert.deepStrictEqual(d.periods, [{ start: first, end: last, source: 'ACTIVITY' }]);
+  assert.strictEqual(d.breakMinutes, 0);
+
+  // زيارتان بينهما سبع ساعات بلا أي أثر: يومٌ واحد ٧س١٠د كما كان — الصمت لا يُقرأ استراحة
+  const [gap] = composeWorkDays({
+    sessions: [], pingRanges: [], tzOffsetMin: KSA,
+    visits: [
+      { customerName: 'بقالة النور', at: at('2026-08-04T05:00:00Z'), durationSec: 900 },
+      { customerName: 'أسواق الخير', at: at('2026-08-04T12:00:00Z'), durationSec: 600 },
+    ],
+  });
+  assert.strictEqual(gap.periods.length, 1);
+  assert.strictEqual(gap.spanMinutes, 7 * 60 + 10);
+  assert.strictEqual(gap.breakMinutes, 0);
+
+  // وبلا بصمة يبقى كما هو بعد التركيب
+  const [same] = overlayAttendance([d], attendanceByDay([], RIY));
+  assert.strictEqual(same, d);
+});
+
+test('جلسةٌ تعبر منتصف الليل بلا بصمة: امتدادٌ لكل يوم بحصّته ولا استراحة', () => {
+  // 19:00Z → 23:00Z = ١٠م → ٢ص بالرياض
+  const days = composeWorkDays({
+    sessions: [{ start: at('2026-10-04T19:00:00Z'), end: at('2026-10-04T23:00:00Z') }],
+    pingRanges: [], visits: [], tzOffsetMin: KSA,
+  });
+  assert.deepStrictEqual(days.map(d => d.date), ['2026-10-04', '2026-10-05']);
+  for (const d of days) {
+    assert.strictEqual(d.periods.length, 1);
+    assert.strictEqual(d.periods[0].source, 'ACTIVITY');
+    assert.strictEqual(d.spanMinutes, 120);
+    assert.strictEqual(d.breakMinutes, 0);
+  }
+  assert.strictEqual(days[1].periods[0].start.toISOString(), '2026-10-04T21:00:00.000Z', 'يبدأ اليوم الثاني من منتصف ليله المحلي');
+});
+
+test('الأيام الغائبة بلا فترات ولا استراحة', () => {
+  const days = composeWorkDays({
+    sessions: [], pingRanges: [], visits: [],
+    tzOffsetMin: KSA, range: { from: '2026-10-01', to: '2026-10-03' },
+  });
+  assert.strictEqual(days.length, 3);
+  for (const d of days) {
+    assert.strictEqual(d.absent, true);
+    assert.deepStrictEqual(d.periods, []);
+    assert.strictEqual(d.breakMinutes, 0);
+    assert.strictEqual(d.spanMinutes, 0);
+  }
+});
+
+test('شكل الاستجابة: الفترات بتوقيت ISO والحقول القديمة باقية للعملاء الأقدم', () => {
+  const days = composeWorkDays({
+    sessions: [{ start: at('2026-10-04T06:00:00Z'), end: at('2026-10-04T10:00:00Z') }],
+    pingRanges: [], visits: [], tzOffsetMin: KSA, range: { from: '2026-10-04', to: '2026-10-05' },
+  });
+  const withPunch = overlayAttendance(days, attendanceByDay([
+    { checkInAt: iso('2026-10-05T06:00:00Z'), checkOutAt: iso('2026-10-05T10:00:00Z') },
+    { checkInAt: iso('2026-10-05T14:00:00Z'), checkOutAt: null },
+  ], KSA));
+  // ما يرسله res.json حرفياً
+  const wire = JSON.parse(JSON.stringify(withPunch)) as Array<Record<string, unknown>>;
+  for (const d of wire) {
+    for (const k of ['date', 'firstActivity', 'lastActivity', 'spanMinutes', 'appMinutes', 'visits', 'visitsCount', 'visitsSec', 'absent', 'periods', 'breakMinutes']) {
+      assert.ok(k in d, `الحقل ${k} غائب`);
+    }
+  }
+  assert.deepStrictEqual(wire[0].periods, [{ start: '2026-10-04T06:00:00.000Z', end: '2026-10-04T10:00:00.000Z', source: 'ACTIVITY' }]);
+  assert.deepStrictEqual(wire[1].periods, [
+    { start: '2026-10-05T06:00:00.000Z', end: '2026-10-05T10:00:00.000Z', source: 'PUNCH' },
+    { start: '2026-10-05T14:00:00.000Z', end: null, source: 'PUNCH' },
+  ]);
+  assert.strictEqual(wire[1].breakMinutes, 240);
+});
+
+test('حارس: لا عتبة زمنية تقسم اليوم، وGPS يُجمَّع في القاعدة لطرفي اليوم وحدهما وبلا make_interval', () => {
+  // قرار المالك: الفترات من البصمات لا من صمت الأثر — لا ثابت عتبةٍ ولا مُقسِّم أثرٍ يعود خلسة
+  const exported = Object.keys(workDayModule);
+  for (const k of ['BREAK_GAP_MIN', 'activityPeriods', 'PING_BUCKET_MIN']) {
+    assert.ok(!exported.includes(k), `${k} عاد: الفترات تُستنتج من الزمن بدل البصمة`);
+  }
+  const engine = fs.readFileSync(path.join(__dirname, '../services/workDay.ts'), 'utf8');
+  assert.doesNotMatch(engine, /BREAK_GAP|GAP_MS/, 'عتبة فراغٍ في المحرّك');
+
+  const src = fs.readFileSync(path.join(__dirname, '../routes/reports.ts'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const q = src.slice(src.indexOf('FROM "rep_locations"'), src.indexOf('prisma.repAttendance.findMany'));
+  assert.match(q, /GROUP BY 1, 2`/, 'GPS لكل (مندوب × يوم محلي) وحده — الدلاء لم يعد لها مستهلك');
+  assert.doesNotMatch(src, /make_interval/, 'make_interval مع bigint أسقط المسار على الإنتاج (42883)');
 });
