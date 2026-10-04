@@ -1,11 +1,13 @@
 // تصدير بيانات إلى ملف Excel (.xlsx) — تحميل ديناميكي لمكتبة xlsx لتقليل حجم الحزمة
 import { currencyDecimals } from '../i18n/countries';
 import { getActiveCurrency } from './format';
+import type { CellMerge } from '../lib/mergeRuns';
 
 export interface ExcelSheet {
   name: string;                       // اسم الورقة (حد 31 حرفاً)
   rows: Record<string, unknown>[];    // الصفوف ككائنات (المفاتيح = عناوين الأعمدة)
   colWidths?: number[];               // عرض الأعمدة (اختياري)
+  merges?: CellMerge[];               // خلايا موحّدة رأسياً (المندوب/اليوم) بدل تكرارها في كل صفّ
 }
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -16,6 +18,14 @@ async function buildBlob(sheets: ExcelSheet[]): Promise<Blob> {
   for (const s of sheets) {
     const ws = XLSX.utils.json_to_sheet(s.rows.length ? s.rows : [{ ' ': 'لا توجد بيانات' }]);
     if (s.colWidths) ws['!cols'] = s.colWidths.map(w => ({ wch: w }));
+    // الخلايا الموحّدة: صفّ العناوين أوّلاً ثم البيانات، فيُزاح الصفّ بواحد
+    if (s.merges?.length && s.rows.length) {
+      const cols = Object.keys(s.rows[0]);
+      ws['!merges'] = s.merges
+        .map(m => ({ c: cols.indexOf(m.col), m }))
+        .filter(x => x.c >= 0)
+        .map(({ c, m }) => ({ s: { r: m.from + 1, c }, e: { r: m.to + 1, c } }));
+    }
     // اتجاه الورقة من اليمين لليسار (مناسب للعربية)
     (ws as unknown as { '!views'?: unknown[] })['!views'] = [{ RTL: true }];
     // اجعل خلايا الروابط (http…) قابلة للنقر داخل Excel

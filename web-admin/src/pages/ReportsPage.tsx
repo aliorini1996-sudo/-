@@ -8,7 +8,8 @@ import { filterFlat, filterNested } from '../lib/reportSearch';
 import { groupCollectionsByRep, collectionTotals, CollReceiptLike, CollRepGroup } from '../lib/collectionsByRep';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Download, TrendingUp, Users, UserCheck, MapPin, FileText, Search, X, Wallet, AlertTriangle } from 'lucide-react';
-import { shareOrDownloadExcel, num } from '../utils/excel';
+import { shareOrDownloadExcel, num, ExcelSheet } from '../utils/excel';
+import { mergeRuns } from '../lib/mergeRuns';
 import { elementsToPdfBlob, downloadPdf } from '../rep/pdf';
 import toast from 'react-hot-toast';
 import { useAccountingOn } from '../components/AccountingGate';
@@ -340,10 +341,36 @@ export default function ReportsPage() {
   }, [recvRows]);
 
   // يبني أوراق بيانات التبويب النشط (مشتركة بين Excel وPDF)
-  const buildSheets = (): { sheets: { name: string; rows: Record<string, unknown>[]; colWidths?: number[] }[]; fname: string } | null => {
-    let sheets: { name: string; rows: Record<string, unknown>[]; colWidths?: number[] }[] | null = null;
+  const buildSheets = (): { sheets: ExcelSheet[]; fname: string } | null => {
+    let sheets: ExcelSheet[] | null = null;
     let fname = tr('تقرير');
     if (tab === 'performance' && perfType === 'hours' && hoursRows?.length) {
+      // المندوب مرّةً لكل مندوب، والتاريخ وإجمالي اليوم مرّةً لكل يوم — لا تكرار في كل صفّ
+      const dayItems = hoursRows.flatMap((r, ri) => r.days.map(d => ({ rep: String(ri), row: {
+          [tr('المندوب')]: r.name, [tr('التاريخ')]: d.date,
+          [tr('بداية العمل')]: d.absent ? tr('لا نشاط') : fmtClock(d.firstActivity),
+          [tr('نهاية العمل')]: d.absent ? tr('لا نشاط') : fmtClock(d.lastActivity),
+          [tr('إجمالي وقت العمل')]: d.absent ? '—' : fmtMin(d.spanMinutes),
+          [tr('نشاط التطبيق')]: d.absent ? '—' : fmtMin(d.appMinutes),
+          [tr('عدد الزيارات')]: d.visitsCount,
+          [tr('وقت داخل الزيارات')]: fmtVisitDur(d.visitsSec) || '—',
+        } as Record<string, unknown> })));
+      const daily = mergeRuns(dayItems.map(x => x.row), [{ cols: [tr('المندوب')], keyOf: i => dayItems[i].rep }]);
+      // زيارةٌ واحدة لكل وقفة: بداية ونهاية صريحتان بدل صفَّين لعميلٍ واحد
+      const visitItems = hoursRows.flatMap((r, ri) => r.days.flatMap(d => d.visits.map(v => ({ rep: String(ri), day: d.date, row: {
+          [tr('المندوب')]: r.name, [tr('التاريخ')]: d.date,
+          [tr('اسم العميل')]: v.customerName,
+          [tr('رابط الموقع')]: v.lat != null && v.lng != null ? `https://www.google.com/maps?q=${v.lat},${v.lng}` : '',
+          [tr('بداية الزيارة')]: fmtClock(v.start),
+          [tr('نهاية الزيارة')]: v.end ? fmtClock(v.end) : tr('بلا توقيت'),
+          [tr('مدة الزيارة')]: fmtVisitDur(v.durationSec) || tr('بلا توقيت'),
+          [tr('ملاحظة/صور')]: v.hasNote ? tr('نعم') : '',
+          [tr('إجمالي وقت العمل لليوم')]: fmtMin(d.spanMinutes),
+        } as Record<string, unknown> }))));
+      const visits = mergeRuns(visitItems.map(x => x.row), [
+        { cols: [tr('المندوب')], keyOf: i => visitItems[i].rep },
+        { cols: [tr('التاريخ'), tr('إجمالي وقت العمل لليوم')], keyOf: i => `${visitItems[i].rep}|${visitItems[i].day}` },
+      ]);
       sheets = [
         { name: tr('ملخص المناديب'), rows: hoursRows.map(r => ({
           [tr('المندوب')]: r.name,
@@ -355,26 +382,8 @@ export default function ReportsPage() {
           [tr('عدد الزيارات')]: r.visitsTotal,
           [tr('أول ظهور')]: fmtDateTime(r.firstSeen), [tr('آخر ظهور')]: fmtDateTime(r.lastSeen),
         })), colWidths: [22, 12, 12, 14, 12, 14, 12, 18, 18] },
-        { name: tr('الحضور اليومي'), rows: hoursRows.flatMap(r => r.days.map(d => ({
-          [tr('المندوب')]: r.name, [tr('التاريخ')]: d.date,
-          [tr('بداية العمل')]: d.absent ? tr('لا نشاط') : fmtClock(d.firstActivity),
-          [tr('نهاية العمل')]: d.absent ? tr('لا نشاط') : fmtClock(d.lastActivity),
-          [tr('إجمالي وقت العمل')]: d.absent ? '—' : fmtMin(d.spanMinutes),
-          [tr('نشاط التطبيق')]: d.absent ? '—' : fmtMin(d.appMinutes),
-          [tr('عدد الزيارات')]: d.visitsCount,
-          [tr('وقت داخل الزيارات')]: fmtVisitDur(d.visitsSec) || '—',
-        }))), colWidths: [22, 12, 12, 12, 14, 14, 12, 16] },
-        // زيارةٌ واحدة لكل وقفة: بداية ونهاية صريحتان بدل صفَّين لعميلٍ واحد
-        { name: tr('تفاصيل الزيارات'), rows: hoursRows.flatMap(r => r.days.flatMap(d => d.visits.map(v => ({
-          [tr('المندوب')]: r.name, [tr('التاريخ')]: d.date,
-          [tr('اسم العميل')]: v.customerName,
-          [tr('رابط الموقع')]: v.lat != null && v.lng != null ? `https://www.google.com/maps?q=${v.lat},${v.lng}` : '',
-          [tr('بداية الزيارة')]: fmtClock(v.start),
-          [tr('نهاية الزيارة')]: v.end ? fmtClock(v.end) : tr('بلا توقيت'),
-          [tr('مدة الزيارة')]: fmtVisitDur(v.durationSec) || tr('بلا توقيت'),
-          [tr('ملاحظة/صور')]: v.hasNote ? tr('نعم') : '',
-          [tr('إجمالي وقت العمل لليوم')]: fmtMin(d.spanMinutes),
-        })))), colWidths: [22, 12, 24, 34, 12, 12, 12, 12, 16] },
+        { name: tr('الحضور اليومي'), rows: daily.rows, merges: daily.merges, colWidths: [22, 12, 12, 12, 14, 14, 12, 16] },
+        { name: tr('تفاصيل الزيارات'), rows: visits.rows, merges: visits.merges, colWidths: [22, 12, 24, 34, 12, 12, 12, 12, 16] },
       ];
       fname = tr('ساعات العمل');
     } else if (tab === 'performance' && perfType === 'receivables' && recvRows?.some(r => r.customersCount > 0)) {
@@ -383,11 +392,15 @@ export default function ReportsPage() {
           [tr('المندوب')]: r.name, [tr('العملاء المسندون')]: r.customersCount,
           [tr('العملاء المدينون')]: r.debtorsCount, [tr('إجمالي المديونية')]: num(r.totalBalance),
         })), colWidths: [22, 16, 16, 18] },
-        { name: tr('تفاصيل المديونيات'), rows: recvRows.flatMap(r => r.customers.map(c => ({
-          [tr('المندوب')]: r.name, [tr('العميل')]: c.name, [tr('النشاط التجاري')]: c.businessName || '',
-          [tr('الجوال')]: c.phone, [tr('المدينة')]: c.city || '', [tr('الرصيد')]: num(c.balance),
-          [tr('آخر تحصيل')]: c.lastPaymentAt ? fmtDay(c.lastPaymentAt) : tr('لم يحصل قط'),
-        }))), colWidths: [22, 24, 20, 16, 14, 14, 16] },
+        (() => {
+          const items = recvRows.flatMap((r, ri) => r.customers.map(c => ({ rep: String(ri), row: {
+            [tr('المندوب')]: r.name, [tr('العميل')]: c.name, [tr('النشاط التجاري')]: c.businessName || '',
+            [tr('الجوال')]: c.phone, [tr('المدينة')]: c.city || '', [tr('الرصيد')]: num(c.balance),
+            [tr('آخر تحصيل')]: c.lastPaymentAt ? fmtDay(c.lastPaymentAt) : tr('لم يحصل قط'),
+          } as Record<string, unknown> })));
+          const m = mergeRuns(items.map(x => x.row), [{ cols: [tr('المندوب')], keyOf: i => items[i].rep }]);
+          return { name: tr('تفاصيل المديونيات'), rows: m.rows, merges: m.merges, colWidths: [22, 24, 20, 16, 14, 14, 16] };
+        })(),
       ];
       // ورقة «إجمالي المُسنَدين» — تُضاف دائماً (الميزة عامّة لكل الشركات)
       if (recvSummary) {
@@ -407,10 +420,11 @@ export default function ReportsPage() {
         [tr('روابط مواقع الزيارات')]: r.visits.map(v => v.mapsUrl).join('\n'),
       })), colWidths: [22, 12, 16, 14, 14, 16, 14, 12, 55] }];
       // ورقة مواقع الزيارات (روابط خرائط Google)
-      const locRows = perfRows.flatMap(r => r.visits.map(v => ({
+      const locItems = perfRows.flatMap((r, ri) => r.visits.map(v => ({ rep: String(ri), row: {
         [tr('المندوب')]: r.name, [tr('العميل')]: v.customerName, [tr('الوقت')]: fmtDateTime(v.createdAt), [tr('رابط الموقع')]: v.mapsUrl,
-      })));
-      if (locRows.length) sheets.push({ name: tr('مواقع الزيارات'), rows: locRows, colWidths: [22, 22, 18, 40] });
+      } as Record<string, unknown> })));
+      const loc = mergeRuns(locItems.map(x => x.row), [{ cols: [tr('المندوب')], keyOf: i => locItems[i].rep }]);
+      if (loc.rows.length) sheets.push({ name: tr('مواقع الزيارات'), rows: loc.rows, merges: loc.merges, colWidths: [22, 22, 18, 40] });
       fname = tr('أداء المناديب');
     } else if (tab === 'sales' && salesType === 'orders' && orderRows.length) {
       sheets = [{ name: tr('تقرير الطلبات'), rows: orderRows.map(o => ({
@@ -506,7 +520,7 @@ export default function ReportsPage() {
   // واحد كان يتجاوز حدّ الـcanvas فيخرج PDF صفحاتٍ بيضاء صامتة. نقسّم صفوف كل
   // ورقة إلى شرائح، عنصرٌ لكل شريحة، ويجمعها elementsToPdfBlob بمقياسٍ آمن.
   const ROWS_PER_SLICE = 300;
-  const sheetsToPdf = async (sheets: { name: string; rows: Record<string, unknown>[] }[], title: string) => {
+  const sheetsToPdf = async (sheets: ExcelSheet[], title: string) => {
     const esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const linksCol = tr('روابط مواقع الزيارات'); // عمود الروابط المجمّعة يُستبعد من PDF (يطول الصف)
     // المديونيات لحظية: لا نطبع نطاقاً ضُبط في تبويبٍ آخر على تقريرٍ لا يتأثر به
@@ -530,7 +544,17 @@ export default function ReportsPage() {
       for (let i = 0; i < Math.max(1, sh.rows.length); i += ROWS_PER_SLICE) {
         const slice = sh.rows.slice(i, i + ROWS_PER_SLICE);
         const cont = i > 0 ? ` (${tr('تابع')})` : '';
-        const tbody = slice.map(r => `<tr>${cols.map(c => `<td style="border:1px solid #eee;padding:5px 8px;font-size:11px;text-align:right;word-break:break-word">${esc(r[c])}</td>`).join('')}</tr>`).join('');
+        const td = (v: unknown, span = 1) => `<td${span > 1 ? ` rowspan="${span}"` : ''} style="border:1px solid #eee;padding:5px 8px;font-size:11px;text-align:right;word-break:break-word;vertical-align:middle">${esc(v)}</td>`;
+        const tbody = slice.map((r, j) => {
+          const at = i + j; // رقم الصفّ في الورقة كلها
+          return `<tr>${cols.map(c => {
+            const m = sh.merges?.find(x => x.col === c && at >= x.from && at <= x.to);
+            if (!m) return td(r[c]);
+            const top = Math.max(m.from, i);                       // أول صفّ للدمج داخل هذه الشريحة
+            if (at !== top) return '';                              // مغطّى بالخلية الموحّدة
+            return td(m.value, Math.min(m.to, i + ROWS_PER_SLICE - 1) - top + 1);
+          }).join('')}</tr>`;
+        }).join('');
         const inner = `<h3 style="font-size:13px;margin:16px 0 6px;color:#1F1A13">${esc(sh.name)}${cont}</h3><table style="width:100%;border-collapse:collapse;table-layout:fixed">${thead}${tbody}</table>`;
         els.push(wrap(inner, firstEl));
         firstEl = false;
@@ -582,8 +606,8 @@ export default function ReportsPage() {
         [tr('عدد الزيارات')]: d.visitsCount,
         [tr('وقت داخل الزيارات')]: fmtVisitDur(d.visitsSec) || '—',
       })) },
-    { name: tr('تفاصيل الزيارات'), colWidths: [12, 24, 34, 12, 12, 12, 12, 16],
-      rows: r.days.flatMap(d => d.visits.map(v => ({
+    (() => {
+      const items = r.days.flatMap(d => d.visits.map(v => ({ day: d.date, row: {
         [tr('التاريخ')]: d.date, [tr('اسم العميل')]: v.customerName,
         [tr('رابط الموقع')]: v.lat != null && v.lng != null ? `https://www.google.com/maps?q=${v.lat},${v.lng}` : '',
         [tr('بداية الزيارة')]: fmtClock(v.start),
@@ -591,7 +615,10 @@ export default function ReportsPage() {
         [tr('مدة الزيارة')]: fmtVisitDur(v.durationSec) || tr('بلا توقيت'),
         [tr('ملاحظة/صور')]: v.hasNote ? tr('نعم') : '',
         [tr('إجمالي وقت العمل لليوم')]: fmtMin(d.spanMinutes),
-      }))) },
+      } as Record<string, unknown> })));
+      const m = mergeRuns(items.map(x => x.row), [{ cols: [tr('التاريخ'), tr('إجمالي وقت العمل لليوم')], keyOf: i => items[i].day }]);
+      return { name: tr('تفاصيل الزيارات'), colWidths: [12, 24, 34, 12, 12, 12, 12, 16], rows: m.rows, merges: m.merges };
+    })(),
   ];
   const exportRepPerf = async (r: PerfRow) => {
     const out = await shareOrDownloadExcel(repPerfSheets(r), `${tr('أداء')}-${safeName(r.name)}-${day()}`);
