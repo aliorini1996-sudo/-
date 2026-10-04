@@ -90,8 +90,8 @@ export function attendanceDayCells(d: WorkDayLike, fx: {
   const end = dayEnd(d);
   return {
     [tr('بداية العمل')]: d.absent ? tr('لا نشاط') : fx.clock(d.firstActivity),
-    [tr('نهاية العمل')]: d.absent ? tr('لا نشاط') : end ? fx.clock(end) : tr('بلا انصراف'),
-    [tr('فترات العمل')]: d.absent ? '—' : formatPeriods(periodsOf(d), fx.clock, tr('بلا انصراف')),
+    [tr('نهاية العمل')]: d.absent ? tr('لا نشاط') : end ? fx.clock(end) : tr('لم ينصرف'),
+    [tr('فترات العمل')]: d.absent ? '—' : formatPeriods(periodsOf(d), fx.clock, tr('لم ينصرف')),
     [tr('الاستراحة')]: brk > 0 ? compactMinutes(brk, tr) : '—',
     [tr('إجمالي وقت العمل')]: d.absent ? '—' : fx.minutes(d.spanMinutes),
     [tr('نشاط التطبيق')]: d.absent ? '—' : fx.minutes(d.appMinutes),
@@ -118,7 +118,7 @@ export function punchDetailRows(
       [tr('التاريخ')]: d.date,
       [tr('الحضور')]: fx.clock(p.start),
       [tr('موقع الحضور')]: punchInUrl(p) ?? tr('بلا موقع'),
-      [tr('الانصراف')]: p.end ? fx.clock(p.end) : tr('بلا انصراف'),
+      [tr('الانصراف')]: p.end ? fx.clock(p.end) : tr('لم ينصرف'),
       [tr('موقع الانصراف')]: p.end ? punchOutUrl(p) ?? tr('بلا موقع') : '—',
       // مدّة الفترة بتقريب الخادم نفسه — مجموعها يطابق «إجمالي وقت العمل» لليوم
       [tr('المدة')]: p.end ? fx.minutes(Math.max(0, Math.round((Date.parse(p.end) - Date.parse(p.start)) / 60000))) : '—',

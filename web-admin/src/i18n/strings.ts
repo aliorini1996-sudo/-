@@ -729,7 +729,7 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   // الدوام المتقطّع: فترات اليوم والاستراحة بينها (صفٌّ واحد لليوم)
   'فترات العمل': { en: 'Work periods', fr: 'Périodes de travail', tr: 'Çalışma dönemleri', zh: '工作时段' },
   'الاستراحة': { en: 'Break', fr: 'Pause', tr: 'Mola', zh: '休息' },
-  'بلا انصراف': { en: 'No check-out', fr: 'Sans pointage de sortie', tr: 'Çıkış yok', zh: '未签退' },
+  'لم ينصرف': { en: 'Not checked out', fr: 'Sortie non pointée', tr: 'Çıkış yapmadı', zh: '未签退' },
   'من بصمة الحضور والانصراف': { en: 'From check-in and check-out punches', fr: 'Selon les pointages d’entrée et de sortie', tr: 'Giriş ve çıkış kayıtlarından', zh: '来自签到与签退记录' },
   // أين حضر وأين انصرف: رابط خريطة لكل بصمة، وورقة «تفاصيل البصمات» صفٌّ لكل فترة
   'موقع الحضور': { en: 'Check-in location', fr: 'Position d’entrée', tr: 'Giriş konumu', zh: '签到位置' },

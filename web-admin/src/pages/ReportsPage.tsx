@@ -1359,7 +1359,7 @@ export default function ReportsPage() {
                                           <span className="text-[#C9BFB0]">–</span>
                                           {p.end
                                             ? punchTime(p.end, punchOutUrl(p), 'bg-[#FBEBE2] text-[#C0392B]', tr('موقع الانصراف'))
-                                            : <span className="text-xs text-gray-400">{tr('بلا انصراف')}</span>}
+                                            : <span className="text-xs text-gray-400">{tr('لم ينصرف')}</span>}
                                         </span>
                                       </Fragment>
                                     ))}

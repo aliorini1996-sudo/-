@@ -20,8 +20,8 @@ const split: WorkDayLike = {
 };
 
 test('الفترات في سطرٍ واحد مفصولةً بنقطة، والمفتوحة بلا انصراف', () => {
-  assert.equal(formatPeriods(split.periods!, clock, 'بلا انصراف'), '06:00 – 10:00 · 14:00 – 18:00');
-  assert.equal(formatPeriods([{ start: '2026-10-04T14:00:00.000Z', end: null }], clock, 'بلا انصراف'), '14:00 – بلا انصراف');
+  assert.equal(formatPeriods(split.periods!, clock, 'لم ينصرف'), '06:00 – 10:00 · 14:00 – 18:00');
+  assert.equal(formatPeriods([{ start: '2026-10-04T14:00:00.000Z', end: null }], clock, 'لم ينصرف'), '14:00 – لم ينصرف');
   assert.equal(formatPeriods([], clock, '…'), '');
 });
 
@@ -44,7 +44,7 @@ test('نهاية اليوم غير معلومة متى كانت آخر فترة 
     periods: [split.periods![0], { start: '2026-10-04T14:00:00.000Z', end: null, source: 'PUNCH' }] };
   assert.equal(dayEnd(open), null);
   assert.equal(dayEnd(split), split.lastActivity);
-  assert.equal(attendanceDayCells(open, fx)['نهاية العمل'], 'بلا انصراف');
+  assert.equal(attendanceDayCells(open, fx)['نهاية العمل'], 'لم ينصرف');
 });
 
 test('ورقة «الحضور اليومي»: عمودا «فترات العمل» و«الاستراحة» بعد البداية والنهاية، والإجمالي بلا الاستراحة', () => {
@@ -82,7 +82,7 @@ test('حارس: الورقتان (كل المناديب والمندوب الو�
   // الجدول يعرض الفترات في خليةٍ واحدة (periodsOf داخل صفّ اليوم) لا صفّاً لكل فترة
   assert.match(src, /periodsOf\(d\)\.map\(\(p, i\) => \(\s*<Fragment key=\{i\}>/);
   const m = fs.readFileSync(path.join(process.cwd(), 'src', 'm', 'MReports.tsx'), 'utf8');
-  assert.match(m, /formatPeriods\(periodsOf\(d\), formatTime, tr\('بلا انصراف'\)\)/, 'الجوال لا يعرض فترات اليوم');
+  assert.match(m, /formatPeriods\(periodsOf\(d\), formatTime, tr\('لم ينصرف'\)\)/, 'الجوال لا يعرض فترات اليوم');
 });
 
 test('ثلاث بصمات حضور وانصراف ⇒ ثلاث فترات في خليةٍ واحدة، والاستراحة مجموع ما بينها كما أرسله الخادم', () => {

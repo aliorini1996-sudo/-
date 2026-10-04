@@ -995,7 +995,7 @@ function HoursDetail({ row, onClose }: { row: WorkHoursRow; onClose: () => void 
                 title={formatDayOnly(d.date)}
                 subtitle={d.absent
                   ? tr('لا نشاط مسجل في هذا اليوم')
-                  : `${formatPeriods(periodsOf(d), formatTime, tr('بلا انصراف'))} · ${formatNumber(d.visitsCount)} ${tr('زيارة')}`}
+                  : `${formatPeriods(periodsOf(d), formatTime, tr('لم ينصرف'))} · ${formatNumber(d.visitsCount)} ${tr('زيارة')}`}
                 note={breakOf(d) > 0 ? `${tr('الاستراحة')} ${compactMinutes(breakOf(d), tr)}` : undefined}
                 trailing={d.absent
                   ? <span className="text-[11px] text-[#B3A996] flex-shrink-0">{tr('غياب')}</span>
@@ -1038,7 +1038,7 @@ function PunchLine({ p, first }: { p: WorkPeriodLike; first: boolean }) {
       <span className="text-[#C9BFB0]">←</span>
       {p.end
         ? time(p.end, punchOutUrl(p), 'text-[#C0392B]', tr('موقع الانصراف'))
-        : <span className="text-[#9A8F7E]">{tr('بلا انصراف')}</span>}
+        : <span className="text-[#9A8F7E]">{tr('لم ينصرف')}</span>}
       <span className="tabular-nums text-[#2E6FB0] font-semibold w-16 text-end">
         {p.end ? compactMinutes(Math.max(0, Math.round((Date.parse(p.end) - Date.parse(p.start)) / 60000)), tr) : '—'}
       </span>
