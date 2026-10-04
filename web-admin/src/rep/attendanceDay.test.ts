@@ -62,7 +62,7 @@ test('خادمٌ أقدم بلا قائمة: البصمة المعروفة في 
 
 test('حارس الشاشة: لا «انتهى عملك اليوم»، والقائمة والزرّ الجديد حاضران، والضغط المزدوج محروس', () => {
   const src = fs.readFileSync(path.join(process.cwd(), 'src', 'rep', 'RepApp.tsx'), 'utf8');
-  const a = src.indexOf('function RepAttendance()');
+  const a = src.indexOf('function RepAttendance(');
   const screen = src.slice(a, src.indexOf('function RepWorkNumber()'));
   assert.ok(a > 0 && screen.length > 0);
   assert.doesNotMatch(screen, /انتهى عملك اليوم/, 'الانصراف ليس نهاية اليوم — الدوام المتقطّع يعود');
@@ -72,7 +72,8 @@ test('حارس الشاشة: لا «انتهى عملك اليوم»، والق�
   assert.match(screen, /disabled=\{busy\}/);
   assert.match(screen, /dayMinutes\(shifts, todayStart\)/, 'مجموع اليوم يضيف نوبة أمس');
   // انصرافٌ نجح وضاع ردّه ⇒ 409 عند الإعادة: تُحدَّث الحالة لا يعلق زرّ الانصراف
-  assert.match(screen, /if \(resp\?\.status === 409\) load\(\);/);
+  // …إلا رفض «اشتراط تفعيل الموقع» (409 أيضاً): رسالته تُعرض ولا تُبتلع بإعادة التحميل
+  assert.match(screen, /if \(resp\?\.status === 409 && resp\.data\?\.code !== 'LOCATION_REQUIRED'\) load\(\);/);
   // الخادم يعيد بصمات اليوم مع كل بصمة متى عرف يوم المندوب
   assert.match(screen, /repApi\.post\(`\/tracking\/attendance\/\$\{kind\}`, loc \?\? \{\}, \{ params: \{ tzOffsetMin \} \}\)/);
 });
