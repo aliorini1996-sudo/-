@@ -13,6 +13,11 @@
  * مقياسٍ متاح هو **من أول أثر رقمي في اليوم إلى آخره** — وهو ما يحسبه هذا
  * الملف، مع إبقاء «نشاط التطبيق» رقماً مستقلاً لا بديلاً.
  *
+ * والدوام المتقطّع (٩ص–١ظ ثم ٥م–٩م): فترات اليوم من **بصمات المندوب وحدها** — كل دخولٍ
+ * يُسجَّل وكل خروجٍ يُسجَّل (قرار المالك)، فلكل حضورٍ→انصرافٍ فترة، والاستراحة ما بين
+ * انصرافٍ والحضور التالي. لا عتبة زمنية تستنتج استراحةً من صمت الأثر: يومٌ بلا بصمة يبقى
+ * امتداداً واحداً من أول أثرٍ إلى آخره موسوماً ACTIVITY، بلا فتراتٍ ولا استراحةٍ مخترعة.
+ *
  * كل الدوال صرفة (بلا قاعدة بيانات) لتُختبر وحدها، والتوقيت المحلي يُمرَّر
  * إزاحةً بالدقائق شرقي UTC (الرياض = +180) لأن «اليوم» يوم المندوب لا يوم الخادم.
  */
@@ -83,13 +88,32 @@ export function mergeVisits(visits: VisitLike[]): MergedVisit[] {
   }
   return out.sort((a, b) => a.start.getTime() - b.start.getTime());
 }
+/** نشاط GPS مُجمَّعاً في القاعدة لكل (مندوب × يوم محلي): أول التقاطٍ وآخره */
 export interface PingRange { day: string; min: Date; max: Date }
+
+const roundMin = (ms: number) => Math.max(0, Math.round(ms / 60000));
+
+/**
+ * فترة عملٍ داخل اليوم.
+ *   • PUNCH: حضورٌ→انصرافٌ مسجَّلان ببصمة المندوب (المفتوحة نهايتها null).
+ *   • ACTIVITY: يومٌ بلا بصمة — امتدادٌ واحد من أول أثرٍ إلى آخره، لا تقسيم له.
+ */
+export interface WorkPeriod {
+  start: Date;
+  /** null = نوبةٌ مفتوحة بلا انصراف بعد (امتداد الأثر مغلقٌ دائماً) */
+  end: Date | null;
+  source: 'PUNCH' | 'ACTIVITY';
+}
 
 export interface WorkDay {
   date: string;               // YYYY-MM-DD بالتوقيت المحلي المُمرَّر
-  firstActivity: Date;        // أول أثر (موقع/جلسة/زيارة)
-  lastActivity: Date;         // آخر أثر
-  spanMinutes: number;        // يوم العمل الميداني = آخره − أوله
+  firstActivity: Date;        // أول حضور (يومٌ ببصمة) وإلّا أول أثر (موقع/جلسة/زيارة)
+  lastActivity: Date;         // آخر انصراف (يومٌ ببصمة) وإلّا آخر أثر
+  spanMinutes: number;        // ببصمة: مجموع النوبات المغلقة (بلا الاستراحات)؛ بلا بصمة: آخر أثر − أوله كما كان
+  /** فترات العمل مرتّبة — صفٌّ واحد لليوم يعرضها في خلية واحدة. بلا بصمة: امتدادٌ واحد ACTIVITY */
+  periods: WorkPeriod[];
+  /** ما بين انصرافٍ والحضور التالي (ببصمة فقط؛ ٠ ليومٍ بلا بصمة أو بنوبةٍ واحدة) */
+  breakMinutes: number;
   appMinutes: number;         // نشاط التطبيق داخل اليوم (جلسات مقصوصة على حدوده)
   visits: MergedVisit[];      // وقفاتٌ مدموجة مرتّبة زمنياً
   visitsCount: number;        // عدد **الوقفات** لا السجلّات
@@ -131,37 +155,75 @@ export function splitByLocalDay(iv: Interval, tzOffsetMin: number): Array<{ day:
 
 /** يجمع المصادر الثلاثة في قائمة أيام عمل مرتّبة تصاعدياً */
 // ═══ بصمة الحضور والانصراف: مقياس «يعلنه المندوب» يعلو مقياس الأثر الرقمي ═══
-// حين تُفعَّل الميزة ويبصم المندوب، تصير بداية اليوم = بصمة الحضور، ونهايته = بصمة الانصراف،
-// وإجمالي وقت العمل = الساعات بين البصمتين. «نشاط التطبيق» (appMinutes) يبقى كما هو (نبضة الاتصال).
+// حين تُفعَّل الميزة ويبصم المندوب، تصير فترات اليوم نوباته المسجَّلة: كل حضورٍ يفتح فترة وكل انصرافٍ
+// يغلقها، وإجمالي وقت العمل = مجموع النوبات المغلقة. «نشاط التطبيق» (appMinutes) يبقى كما هو (نبضة الاتصال).
 export interface AttendanceShift { checkInAt: Date; checkOutAt: Date | null }
-export interface AttendanceDay { start: Date; end: Date | null; minutes: number }
+export interface AttendanceDay {
+  start: Date; end: Date | null; minutes: number;
+  /** نوبةٌ لكل فترة (المتداخلة تتّحد)، والمفتوحة بنهاية null */
+  periods: WorkPeriod[];
+  /** الفراغ بين انصرافٍ وحضورٍ تالٍ في اليوم نفسه — استراحة المندوب المعلنة ببصمته */
+  breakMinutes: number;
+}
 
-/** تجميع بصمات المندوب على يومه المحلي: أول حضور، آخر انصراف، ومجموع دقائق النوبات المغلقة. */
+/**
+ * تجميع بصمات المندوب على يومه المحلي: فترةٌ لكل حضور→انصراف، أول حضور، آخر انصراف، ومجموع النوبات المغلقة.
+ * المندوب الذي ينصرف ظهراً ويعود مساءً يبصم نوبتين ⇒ فترتان، والإجمالي مجموعهما لا ما بين طرفيهما،
+ * وما بينهما استراحةٌ أعلنها ببصمته — مهما قصرت أو طالت (لا عتبة زمنية).
+ */
 export function attendanceByDay(shifts: readonly AttendanceShift[], tzOffsetMin: number): Map<string, AttendanceDay> {
-  const m = new Map<string, AttendanceDay>();
+  const byKey = new Map<string, AttendanceShift[]>();
   for (const s of shifts) {
     const key = dayKey(s.checkInAt, tzOffsetMin);
-    const cur = m.get(key) ?? { start: s.checkInAt, end: null as Date | null, minutes: 0 };
-    if (s.checkInAt < cur.start) cur.start = s.checkInAt;
-    if (s.checkOutAt) {
-      if (!cur.end || s.checkOutAt > cur.end) cur.end = s.checkOutAt;
-      // نوبةٌ مغلقة فقط تُحسب دقائقها؛ نوبةٌ مفتوحة تُظهر بداية بلا نهاية ولا تُضاف حتى الانصراف
-      cur.minutes += Math.max(0, Math.round((s.checkOutAt.getTime() - s.checkInAt.getTime()) / 60000));
+    const arr = byKey.get(key) ?? [];
+    arr.push(s);
+    byKey.set(key, arr);
+  }
+
+  const m = new Map<string, AttendanceDay>();
+  for (const [key, list] of byKey) {
+    const sorted = [...list].sort((a, b) => a.checkInAt.getTime() - b.checkInAt.getTime());
+    // نوبتان مغلقتان متداخلتان (بيانات مكرّرة) تتّحدان فلا تُعدّ ساعاتهما مرّتين؛
+    // والمفتوحة لا تُدمج — لا نهاية لها تُقارَن، فتبقى فترةً «بلا انصراف»
+    const periods: WorkPeriod[] = [];
+    for (const s of sorted) {
+      const cur = periods[periods.length - 1];
+      if (cur && cur.end && s.checkOutAt && s.checkInAt <= cur.end) {
+        if (s.checkOutAt > cur.end) cur.end = s.checkOutAt;
+      } else {
+        periods.push({ start: s.checkInAt, end: s.checkOutAt, source: 'PUNCH' });
+      }
     }
-    m.set(key, cur);
+    let end: Date | null = null;
+    let minutes = 0;
+    let breakMinutes = 0;
+    for (let i = 0; i < periods.length; i++) {
+      const pEnd = periods[i].end;
+      if (!pEnd) continue;
+      if (!end || pEnd > end) end = pEnd;
+      // نوبةٌ مغلقة فقط تُحسب دقائقها؛ نوبةٌ مفتوحة تُظهر بداية بلا نهاية ولا تُضاف حتى الانصراف
+      minutes += roundMin(pEnd.getTime() - periods[i].start.getTime());
+      // الاستراحة من انصرافٍ معلوم إلى الحضور التالي (ولو كانت النوبة التالية ما زالت مفتوحة)
+      const next = periods[i + 1];
+      if (next) breakMinutes += roundMin(next.start.getTime() - pEnd.getTime());
+    }
+    m.set(key, { start: periods[0].start, end, minutes, periods, breakMinutes });
   }
   return m;
 }
 
 /**
- * تركيب البصمة فوق أيام النشاط: يومٌ له بصمة تُؤخذ منه البداية والنهاية والإجمالي، ويُرفع عنه «غياب»
- * (فالمندوب أعلن حضوره). الأيام بلا بصمة تبقى على مقياس الأثر الرقمي كما كانت (توافق مع ما قبل الميزة).
+ * تركيب البصمة فوق أيام النشاط: يومٌ له بصمة تُؤخذ منه البداية والنهاية والإجمالي والفترات، ويُرفع عنه
+ * «غياب» (فالمندوب أعلن حضوره). الأيام بلا بصمة تبقى على مقياس الأثر الرقمي كما كانت (توافق مع ما قبل الميزة).
  */
 export function overlayAttendance(days: readonly WorkDay[], byDay: Map<string, AttendanceDay>): WorkDay[] {
   return days.map((d) => {
     const att = byDay.get(d.date);
     if (!att) return d;
-    return { ...d, firstActivity: att.start, lastActivity: att.end ?? att.start, spanMinutes: att.minutes, absent: false };
+    return {
+      ...d, firstActivity: att.start, lastActivity: att.end ?? att.start, spanMinutes: att.minutes,
+      periods: att.periods, breakMinutes: att.breakMinutes, absent: false,
+    };
   });
 }
 
@@ -214,6 +276,10 @@ export function composeWorkDays(input: {
       firstActivity: a.first,
       lastActivity: a.last,
       spanMinutes: Math.round((a.last.getTime() - a.first.getTime()) / 60000),
+      // بلا بصمة: امتدادٌ واحد موسومٌ بمصدره — لا يُقسَم بصمت الأثر ولا تُستنتج منه استراحة.
+      // البصمة (overlayAttendance) تستبدله بنوباتها حين يبصم المندوب
+      periods: [{ start: a.first, end: a.last, source: 'ACTIVITY' }],
+      breakMinutes: 0,
       appMinutes: Math.round(a.appMs / 60000),
       visits: merged,
       visitsCount: merged.length,
@@ -241,7 +307,7 @@ export function composeWorkDays(input: {
       const at = new Date(t);
       scoped.push({
         date: day, firstActivity: at, lastActivity: at,
-        spanMinutes: 0, appMinutes: 0, visits: [], visitsCount: 0, visitsSec: 0, absent: true,
+        spanMinutes: 0, periods: [], breakMinutes: 0, appMinutes: 0, visits: [], visitsCount: 0, visitsSec: 0, absent: true,
       });
     }
   }

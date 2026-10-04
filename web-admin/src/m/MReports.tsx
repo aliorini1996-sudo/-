@@ -12,6 +12,7 @@ import { useBackClose } from '../lib/useBackClose';
 import { MCard, MRow, MStat, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import { expectArray, expectObject } from './shape';
 import { useIsLive, livePoll } from './useLiveQuery';
+import { breakOf, compactMinutes, formatPeriods, periodsOf, type WorkPeriodLike } from '../lib/workPeriods';
 
 /**
  * شاشة التقارير التحليلية في تطبيق الإدارة على الجوال (سبعة تقارير).
@@ -71,9 +72,11 @@ interface WorkVisit {
 }
 interface WorkDayRow {
   date: string; firstActivity: string; lastActivity: string;
-  spanMinutes: number; appMinutes: number;
+  spanMinutes: number; appMinutes: number;   // spanMinutes = وقت العمل بلا الاستراحات
   visits: WorkVisit[]; visitsCount: number; visitsSec: number;
   absent: boolean;
+  // الدوام المتقطّع — اختياريّان: خادمٌ أقدم أثناء انزلاق النشر لا يرسلهما
+  periods?: WorkPeriodLike[]; breakMinutes?: number;
 }
 interface WorkHoursRow {
   id: string; name: string; totalMinutes: number; hours: number; minutes: number; sessions: number;
@@ -788,7 +791,8 @@ function HoursReport({ from, to, onOpen }: {
         </div>
 
         {/* المقياس يُشرح مرّةً هنا: «إجمالي وقت العمل» ليس وقت التطبيق مفتوحاً */}
-        <Hint>{tr('إجمالي وقت العمل يقاس من أول أثر مرصود في اليوم إلى آخره ونشاط التطبيق هو الوقت الذي كان فيه التطبيق مفتوحا ومتصلا فقط')}</Hint>
+        <Hint>{tr('إجمالي وقت العمل يقاس من أول أثر مرصود في اليوم إلى آخره ونشاط التطبيق هو الوقت الذي كان فيه التطبيق مفتوحا ومتصلا فقط')}
+          {' '}{tr('ومع بصمة الحضور والانصراف يسجل كل دخول وكل خروج فترة عمل ويحسب الإجمالي من مجموع الفترات بلا ما بينها')}</Hint>
 
         <MCard>
           {rows.slice(0, limit).map(r => (
@@ -981,11 +985,14 @@ function HoursDetail({ row, onClose }: { row: WorkHoursRow; onClose: () => void 
               عنصرٍ يجعله «الابن الأخير» في غلافه فتختفي الفواصل من القائمة كلّها */}
           {row.days.map(d => (
             <Fragment key={d.date}>
+              {/* صفٌّ واحد لليوم: فترةٌ لكل حضور→انصراف في سطرٍ واحد (بلا بصمة: امتدادٌ واحد كما كان)،
+                  والاستراحة — ما بين انصرافٍ والحضور التالي — سطرٌ ثالث متى وُجدت فقط */}
               <MRow
                 title={formatDayOnly(d.date)}
                 subtitle={d.absent
                   ? tr('لا نشاط مسجل في هذا اليوم')
-                  : `${formatTime(d.firstActivity)} ← ${formatTime(d.lastActivity)} · ${formatNumber(d.visitsCount)} ${tr('زيارة')}`}
+                  : `${formatPeriods(periodsOf(d), formatTime, tr('بلا انصراف'))} · ${formatNumber(d.visitsCount)} ${tr('زيارة')}`}
+                note={breakOf(d) > 0 ? `${tr('الاستراحة')} ${compactMinutes(breakOf(d), tr)}` : undefined}
                 trailing={d.absent
                   ? <span className="text-[11px] text-[#B3A996] flex-shrink-0">{tr('غياب')}</span>
                   : <Amount value={fmtMin(d.spanMinutes, tr)} chevron={d.visitsCount > 0} />}

@@ -109,6 +109,8 @@ router.post('/heartbeat', async (req: AuthRequest, res: Response, next: NextFunc
 // ═══ بصمة الحضور والانصراف ═══
 // المندوب يعلن بداية عمله ونهايته بضغطة، فتُحسب ساعاته من إعلانه لا من نبضة الاتصال.
 // نوبة واحدة مفتوحة (checkOutAt = null) في كل لحظة: الحضور يفتحها، والانصراف يغلقها.
+// وكل دخولٍ يُسجَّل وكل خروجٍ يُسجَّل: حضورٌ بعد انصرافٍ في اليوم نفسه نوبةٌ جديدة (الدوام المتقطّع).
+// لا عتبة زمنية ولا حدّ لعدد النوبات — التقرير يعرض فترةً لكل نوبة، وما بينها استراحة.
 
 const punchSchema = z.object({
   lat: z.number().min(-90).max(90).optional(),
@@ -150,24 +152,47 @@ async function openShift(tid: string, repId: string) {
   });
 }
 
-// حالة اليوم: النوبة المفتوحة إن وُجدت، وإلا آخر نوبة مغلقة اليوم — ليعرف التطبيق أيّ زرّ يعرض.
+/** بداية يوم المندوب المحلي (لحظة UTC) بإزاحته شرقي UTC بالدقائق — إزاحةٌ غائبة/فاسدة ⇒ يوم UTC */
+function repDayStart(tzOffsetMin: unknown): Date {
+  const n = Number(tzOffsetMin || 0);
+  const off = Number.isFinite(n) ? Math.max(-840, Math.min(840, n)) : 0;
+  const d = new Date(Date.now() + off * 60000);
+  d.setUTCHours(0, 0, 0, 0);
+  return new Date(d.getTime() - off * 60000);
+}
+
+/**
+ * بصمات اليوم كلها — كل دخولٍ وكل خروج — ليرى المندوب ما سُجّل له. الدوام المتقطّع نوباتٌ متتالية
+ * (حضور→انصراف ثم حضورٌ جديد)، والتقرير يعرض فترةً لكل نوبة؛ فالقائمة هنا هي ما سيراه المشرف.
+ * تشمل: ما بدأ اليوم، وما انتهى اليوم (نوبةٌ عبرت منتصف الليل)، والمفتوحة ولو من أمس (نسي الانصراف).
+ */
+async function dayShifts(tid: string, repId: string, since: Date) {
+  // الأحدث أولاً بسقفٍ (حارسٌ لا حدّ عمل)، ثم تُعرض بترتيب وقوعها
+  const rows = await prisma.repAttendance.findMany({
+    where: { tenantId: tid, salesRepId: repId, OR: [{ checkInAt: { gte: since } }, { checkOutAt: { gte: since } }, { checkOutAt: null }] },
+    orderBy: { checkInAt: 'desc' },
+    take: 50,
+    select: { checkInAt: true, checkOutAt: true },
+  });
+  return rows.reverse();
+}
+
+// حالة اليوم: النوبة المفتوحة إن وُجدت، وإلا آخر نوبة مغلقة اليوم — ليعرف التطبيق أيّ زرّ يعرض —
+// ومعها بصمات اليوم كلها (shifts). بعد الانصراف يبقى زرّ الحضور متاحاً لفترةٍ جديدة في اليوم نفسه.
 router.get('/attendance/today', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const ctx = await ensureRepAttendance(req, res); if (!ctx) return;
     const { tid, repId } = ctx;
-    const open = await openShift(tid, repId);
-    if (open) { res.json({ success: true, data: { status: 'in', shift: open } }); return; }
-    // آخر نوبة انتهت اليوم (يوم المندوب بإزاحته) — لعرض «انصرفت اليوم» بدل «سجّل الحضور» فوراً بعد الانصراف
-    const off = Number(req.query.tzOffsetMin || 0);
-    const dayStart = new Date(Date.now() + (Number.isFinite(off) ? off : 0) * 60000);
-    dayStart.setUTCHours(0, 0, 0, 0);
-    const since = new Date(dayStart.getTime() - (Number.isFinite(off) ? off : 0) * 60000);
+    const since = repDayStart(req.query.tzOffsetMin);
+    const [open, shifts] = await Promise.all([openShift(tid, repId), dayShifts(tid, repId, since)]);
+    if (open) { res.json({ success: true, data: { status: 'in', shift: open, shifts } }); return; }
+    // آخر نوبة انتهت اليوم (يوم المندوب بإزاحته) — لعرض «خرجت الساعة …» بدل «لم تسجّل حضورك» فوراً بعد الانصراف
     const last = await prisma.repAttendance.findFirst({
       where: { tenantId: tid, salesRepId: repId, checkOutAt: { gte: since } },
       orderBy: { checkOutAt: 'desc' },
       select: { checkInAt: true, checkOutAt: true },
     });
-    res.json({ success: true, data: { status: last ? 'out' : 'none', last } });
+    res.json({ success: true, data: { status: last ? 'out' : 'none', last, shifts } });
   } catch (err) { next(err); }
 });
 
@@ -177,15 +202,16 @@ router.post('/attendance/checkin', async (req: AuthRequest, res: Response, next:
     const ctx = await ensureRepAttendance(req, res); if (!ctx) return;
     const { tid, repId } = ctx;
     const { lat, lng } = punchSchema.parse(req.body ?? {});
+    const since = repDayStart(req.query.tzOffsetMin);
     // نوبةٌ مفتوحة تُعاد كما هي قبل حارس الموقع: الضغط المكرّر لا يكتب شيئاً فلا يُردّ
     const existing = await openShift(tid, repId);
-    if (existing) { res.json({ success: true, data: { status: 'in', shift: existing, already: true } }); return; }
+    if (existing) { res.json({ success: true, data: { status: 'in', shift: existing, already: true, shifts: await dayShifts(tid, repId, since) } }); return; }
     if (await refuseWithoutLocation(res, repId, lat, lng)) return;
     const shift = await prisma.repAttendance.create({
       data: { tenantId: tid, salesRepId: repId, checkInAt: new Date(), checkInLat: lat ?? null, checkInLng: lng ?? null },
       select: { id: true, checkInAt: true, checkInLat: true, checkInLng: true },
     });
-    res.json({ success: true, data: { status: 'in', shift } });
+    res.json({ success: true, data: { status: 'in', shift, shifts: await dayShifts(tid, repId, since) } });
   } catch (err) { next(err); }
 });
 
@@ -203,7 +229,7 @@ router.post('/attendance/checkout', async (req: AuthRequest, res: Response, next
       data: { checkOutAt: new Date(), checkOutLat: lat ?? null, checkOutLng: lng ?? null },
       select: { checkInAt: true, checkOutAt: true },
     });
-    res.json({ success: true, data: { status: 'out', last: shift } });
+    res.json({ success: true, data: { status: 'out', last: shift, shifts: await dayShifts(tid, repId, repDayStart(req.query.tzOffsetMin)) } });
   } catch (err) { next(err); }
 });
 
