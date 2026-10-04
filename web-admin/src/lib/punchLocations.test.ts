@@ -135,6 +135,20 @@ test('النصوص الجديدة مترجمة للغات الأربع، واس�
   for (const lang of ['en', 'fr', 'tr', 'zh'] as const) assert.ok(PHRASES['تفاصيل البصمات'][lang].length <= 31, `اسم الورقة بـ${lang} يُقصّ في Excel`);
 });
 
+test('حارس: أسماء أوراق التقارير صالحةٌ في Excel بكل لغة — حرفٌ من : \\ / ? * [ ] يُسقط التصدير كله', () => {
+  // SheetJS يرمي «Sheet name cannot contain…» فلا يخرج الملف — كاد «Check-in/out details» يُسقط تصدير ساعات العمل بالإنجليزية
+  const src = ['pages/ReportsPage.tsx', 'm/MReports.tsx']
+    .map(f => fs.readFileSync(path.join(process.cwd(), 'src', f), 'utf8')).join('\n');
+  const names = [...new Set([...src.matchAll(/name: tr\('([^']+)'\)/g)].map(m => m[1]))];
+  assert.ok(names.includes('تفاصيل البصمات'));
+  for (const ar of names) {
+    const all: Array<[string, string]> = [['ar', ar], ...(['en', 'fr', 'tr', 'zh'] as const).map(l => [l, PHRASES[ar]?.[l] ?? ar] as [string, string])];
+    for (const [lang, v] of all) {
+      assert.doesNotMatch(v, /[:\\/?*[\]]/, `اسم الورقة «${ar}» بـ${lang} = «${v}» يرفضه Excel`);
+    }
+  }
+});
+
 test('حارس: الجدول صفٌّ لليوم بأوقاتٍ روابط، والتصديران (الكل والمندوب) يحملان «تفاصيل البصمات» بروابط مختصرة في PDF', () => {
   const page = fs.readFileSync(path.join(process.cwd(), 'src', 'pages', 'ReportsPage.tsx'), 'utf8');
   // الأوقات في خلية الفترات روابط لمواقعها — داخل صفّ اليوم نفسه، والنقر لا يطوي الصفّ

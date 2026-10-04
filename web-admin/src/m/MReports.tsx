@@ -1007,7 +1007,7 @@ function HoursDetail({ row, onClose }: { row: WorkHoursRow; onClose: () => void 
                 <div className="bg-[#FDFBF7] border-b border-[#F1EBDF] last:border-0 px-3.5 py-2 space-y-1.5">
                   {/* الصفّ زرٌّ كاملٌ لا يحمل روابط داخله — فمواقع البصمات هنا: سطرٌ لكل فترة، ووقتها رابطٌ لمكانها */}
                   {located && periodsOf(d).filter(p => p.source === 'PUNCH').map((p, i) => (
-                    <PunchLine key={`${d.date}-p${i}`} p={p} />
+                    <PunchLine key={`${d.date}-p${i}`} p={p} first={i === 0} />
                   ))}
                   {d.visits.map((v, i) => <VisitLine key={`${d.date}-${i}`} v={v} />)}
                 </div>
@@ -1021,8 +1021,9 @@ function HoursDetail({ row, onClose }: { row: WorkHoursRow; onClose: () => void 
   );
 }
 
-/** فترة بصمةٍ واحدة: وقتا الحضور والانصراف، وكلٌّ بموقعٍ معلوم رابطٌ بدبّوسٍ يفتح مكانه على الخريطة */
-function PunchLine({ p }: { p: WorkPeriodLike }) {
+/** فترة بصمةٍ واحدة: وقتا الحضور والانصراف، وكلٌّ بموقعٍ معلوم رابطٌ بدبّوسٍ يفتح مكانه على الخريطة.
+ *  عنوان «الحضور ← الانصراف» في أول سطرٍ وحده — لا يتكرّر مع كل فترة */
+function PunchLine({ p, first }: { p: WorkPeriodLike; first: boolean }) {
   const tr = useTr();
   const time = (iso: string, url: string | null, tone: string, label: string) => url
     ? <a href={url} target="_blank" rel="noopener noreferrer" aria-label={`${label} ${formatTime(iso)}`}
@@ -1032,7 +1033,7 @@ function PunchLine({ p }: { p: WorkPeriodLike }) {
     : <span className={`tabular-nums font-semibold ${tone}`}>{formatTime(iso)}</span>;
   return (
     <div className="flex items-center gap-2 text-[11px]">
-      <span className="flex-1 min-w-0 truncate text-[#6E6557]">{tr('الحضور')} ← {tr('الانصراف')}</span>
+      <span className="flex-1 min-w-0 truncate text-[#6E6557]">{first ? `${tr('الحضور')} ← ${tr('الانصراف')}` : ''}</span>
       {time(p.start, punchInUrl(p), 'text-[#1E7A52]', tr('موقع الحضور'))}
       <span className="text-[#C9BFB0]">←</span>
       {p.end

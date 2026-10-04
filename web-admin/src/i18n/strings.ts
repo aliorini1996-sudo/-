@@ -735,7 +735,7 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'موقع الحضور': { en: 'Check-in location', fr: 'Position d’entrée', tr: 'Giriş konumu', zh: '签到位置' },
   'موقع الانصراف': { en: 'Check-out location', fr: 'Position de sortie', tr: 'Çıkış konumu', zh: '签退位置' },
   'فتح الخريطة': { en: 'Open map', fr: 'Ouvrir la carte', tr: 'Haritayı aç', zh: '打开地图' },
-  'تفاصيل البصمات': { en: 'Check-in/out details', fr: 'Détail des pointages', tr: 'Giriş-çıkış detayları', zh: '签到签退明细' },
+  'تفاصيل البصمات': { en: 'Check-in and out details', fr: 'Détail des pointages', tr: 'Giriş-çıkış detayları', zh: '签到签退明细' },
   'من أول أثر مرصود إلى آخره بلا بصمة': { en: 'From the first to the last tracked signal (no check-in punches)', fr: 'Du premier au dernier signal détecté (sans pointage)', tr: 'İlk kaydedilen izden sonuncusuna (giriş/çıkış kaydı yok)', zh: '从首个到最后一个记录（无签到签退）' },
   'ومع بصمة الحضور والانصراف يسجل كل دخول وكل خروج فترة عمل ويحسب الإجمالي من مجموع الفترات بلا ما بينها': { en: 'With check-in and check-out punches, every entry and every exit is recorded as a work period, and the total is the sum of the periods without the time between them', fr: 'Avec les pointages d’entrée et de sortie, chaque entrée et chaque sortie sont enregistrées comme une période de travail, et le total est la somme des périodes sans le temps entre elles', tr: 'Giriş ve çıkış kayıtlarıyla her giriş ve her çıkış bir çalışma dönemi olarak kaydedilir; toplam, aradaki süre hariç dönemlerin toplamıdır', zh: '使用签到签退时，每次签到和签退都记为一个工作时段，总时长为各时段之和，不含其间的时间' },
   'مجموع مدد الزيارات': { en: 'Total visit durations', fr: 'Durée totale des visites', tr: 'Ziyaret sürelerinin toplamı', zh: '拜访时长合计' },
