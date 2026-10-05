@@ -264,7 +264,7 @@ export default function SignupPage() {
 
             <label className="flex items-start gap-2 text-xs text-[#6E6557] cursor-pointer pt-1">
               <input type="checkbox" className="w-4 h-4 mt-0.5 accent-[#E15A30] shrink-0" checked={agree} onChange={e => setAgree(e.target.checked)} />
-              <span>{t('signup.agreePre')} <Link to="/terms" className="text-[#E15A30] hover:underline">{t('signup.terms')}</Link> {t('signup.and')}<Link to="/privacy" className="text-[#E15A30] hover:underline">{t('signup.privacy')}</Link>.</span>
+              <span>{t('signup.agreePre')} <Link to="/terms/" className="text-[#E15A30] hover:underline">{t('signup.terms')}</Link> {t('signup.and')}<Link to="/privacy/" className="text-[#E15A30] hover:underline">{t('signup.privacy')}</Link>.</span>
             </label>
 
             <button type="submit" disabled={loading}

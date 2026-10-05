@@ -9,6 +9,9 @@ import { waHref, refFromPath } from '../components/WhatsAppFab';
 import { trackWhatsApp } from '../lib/ads';
 import { FEATURES, featureBySlug } from '../content/features.mjs';
 
+// الشرطة الأخيرة: الصفحة المُصيَّرة تُخدم عند /x/ وحدها، والرابط بلا شرطة يعيد قوقعة الرئيسية
+const withSlash = (p: string) => (p.endsWith('/') ? p : `${p}/`);
+
 /**
  * صفحة ميزة مفردة — تجيب «كيف تفعلونها أنتم؟» لا «ما هذه الميزة؟».
  *
@@ -24,12 +27,14 @@ export default function FeaturePage() {
   const feature = slug ? featureBySlug(decodeURIComponent(slug)) : undefined;
 
   const arPath = feature ? `/مزايا/${feature.slug}` : '/مزايا';
-  const seo = seoUrls(arPath, lang);
+  // صفحات المزايا عربية فقط: canonical ذاتي بلا بدائل لغات غير موجودة (كانت تعلن /en/مزايا/… و/tr/…)
+  const seo = seoUrls(arPath, lang, ['ar']);
 
   useSeo({
-    title: feature ? `${feature.h1} | Field Sales` : 'مزايا المنصّة | Field Sales',
+    // العنوان والوصف بالصيغة نفسها في prerender.mjs — لا مصدر مزدوج بين المُصيَّر وما بعد الإقلاع
+    title: feature ? `${feature.title || feature.h1} | Field Sales` : 'مزايا المنصّة | Field Sales',
     description: feature
-      ? `${feature.pain} ${feature.name} في Field Sales — كيف تعمل فعلاً وما حدودها بصراحة.`
+      ? `${feature.pain} ${feature.name} في Field Sales: التفاصيل والحدود بصراحة.`
       : 'مزايا Field Sales للتوزيع الميداني: الفوترة بدون إنترنت، عهدة سيارة المندوب، الطباعة الحرارية، توثيق الزيارات.',
     canonical: seo.canonical,
     alternates: seo.alternates,
@@ -56,7 +61,7 @@ export default function FeaturePage() {
     <div dir={dir} className="min-h-screen bg-[#FAF7F0] text-[#1F1A13]">
       <header className="border-b border-[#E8E0D2] bg-white/70 backdrop-blur">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
-          <Link to={pathForLocale('/', lang)} className="flex items-center gap-2 text-sm text-[#6b6357] hover:text-[#1F1A13]">
+          <Link to={withSlash(pathForLocale('/', lang))} className="flex items-center gap-2 text-sm text-[#6b6357] hover:text-[#1F1A13]">
             <ArrowLeft size={16} className={dir === 'rtl' ? 'rotate-180' : ''} />
             <BrandIcon size={22} /><span>الرئيسية</span>
           </Link>
@@ -72,7 +77,7 @@ export default function FeaturePage() {
             <ul className="grid gap-3 sm:grid-cols-2 mt-6">
               {FEATURES.map((f) => (
                 <li key={f.id}>
-                  <Link to={`/مزايا/${f.slug}`} className="block bg-white border border-[#E8E0D2] rounded-xl p-4 hover:border-[#E15A30]">
+                  <Link to={`/مزايا/${f.slug}/`} className="block bg-white border border-[#E8E0D2] rounded-xl p-4 hover:border-[#E15A30]">
                     <span className="font-semibold block">{f.name}</span>
                     <span className="text-xs text-[#6b6357] block mt-1 leading-relaxed">{f.pain}</span>
                   </Link>
@@ -105,6 +110,30 @@ export default function FeaturePage() {
               </div>
             </section>
 
+            {feature.compare && (
+              <section className="mt-8 bg-white border border-[#E8E0D2] rounded-xl p-5 overflow-x-auto">
+                <table className="w-full text-xs text-start border-collapse">
+                  <caption className="font-semibold text-sm text-start mb-3">{feature.compare.caption}</caption>
+                  <thead>
+                    <tr>
+                      {feature.compare.head.map((h, i) => (
+                        <th key={i} scope="col" className="border-b border-[#E8E0D2] py-2 px-2 text-start font-semibold">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {feature.compare.rows.map((row) => (
+                      <tr key={row[0]}>
+                        {row.map((c, i) => (i === 0
+                          ? <th key={i} scope="row" className="border-b border-[#F0EADF] py-2 px-2 text-start font-medium">{c}</th>
+                          : <td key={i} className="border-b border-[#F0EADF] py-2 px-2 text-[#6b6357] leading-relaxed">{c}</td>))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
+            )}
+
             {/* الحدود — ظاهرة لا مخفيّة: هي ما يجعل الصفحة صادقة وتستحق الثقة */}
             <section className="mt-8 bg-white border border-[#E8E0D2] rounded-xl p-5">
               <h2 className="font-semibold text-sm flex items-center gap-1.5">
@@ -136,14 +165,14 @@ export default function FeaturePage() {
                 <ul className="mt-3 space-y-2 text-sm">
                   {feature.pairSlug && (
                     <li>
-                      <Link to={`/blog/${feature.pairSlug}`} className="text-[#E15A30] hover:underline">
+                      <Link to={`/blog/${feature.pairSlug}/`} className="text-[#E15A30] hover:underline">
                         دليل شامل: {feature.name}
                       </Link>
                     </li>
                   )}
                   {feature.templateSlug && (
                     <li>
-                      <Link to={`/نماذج/${feature.templateSlug}`} className="text-[#E15A30] hover:underline">
+                      <Link to={`/نماذج/${feature.templateSlug}/`} className="text-[#E15A30] hover:underline">
                         نموذج Excel جاهز — {feature.name}
                       </Link>
                     </li>
@@ -157,7 +186,7 @@ export default function FeaturePage() {
               <ul className="mt-3 grid gap-2 sm:grid-cols-3">
                 {FEATURES.filter((f) => f.id !== feature.id).map((f) => (
                   <li key={f.id}>
-                    <Link to={`/مزايا/${f.slug}`} className="block bg-white border border-[#E8E0D2] rounded-lg px-3 py-2 text-xs hover:border-[#E15A30]">
+                    <Link to={`/مزايا/${f.slug}/`} className="block bg-white border border-[#E8E0D2] rounded-lg px-3 py-2 text-xs hover:border-[#E15A30]">
                       {f.name}
                     </Link>
                   </li>
@@ -171,7 +200,7 @@ export default function FeaturePage() {
                  className="inline-flex items-center gap-2 bg-[#25D366] text-white rounded-lg px-4 py-2.5 text-sm">
                 <MessageCircle size={16} />تحدث معنا على واتساب
               </a>
-              <Link to={pathForLocale('/pricing', lang)} className="inline-flex items-center gap-2 border border-[#E8E0D2] bg-white rounded-lg px-4 py-2.5 text-sm">
+              <Link to={withSlash(pathForLocale('/pricing', lang))} className="inline-flex items-center gap-2 border border-[#E8E0D2] bg-white rounded-lg px-4 py-2.5 text-sm">
                 شاهد الأسعار
               </Link>
             </div>

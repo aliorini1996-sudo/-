@@ -4,7 +4,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { listArticles } from '../src/blog/seo/catalog.mjs';
+import { listArticles, buildCatalog, isIndexable } from '../src/blog/seo/catalog.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -37,7 +37,13 @@ if (!exists('public/llms-full.txt')) fail('لا يوجد public/llms-full.txt');
 else {
   const t = read('public/llms-full.txt');
   const links = (t.match(/\]\(https:\/\/fieldsa\.net/g) || []).length;
-  const expected = listArticles('ar').length * 3; // ثلاث لغات
+  // الفهرس يسرد المقالات القانونية القابلة للفهرسة بلغتها وحدها، كما في الخريطة (L1):
+  // الصفحات المدموجة تحت canonical دولة أخرى خارجه عمداً، فعدّها كلها يُفشل التدقيق كذباً.
+  const listedIn = (L) => {
+    const okSlugs = new Set(buildCatalog().filter((e) => e.isCanonical && isIndexable(e.cc, L)).map((e) => e.slug));
+    return listArticles(L).filter((a) => okSlugs.has(a.slug));
+  };
+  const expected = ['ar', 'en', 'fr'].reduce((n, L) => n + listedIn(L).length, 0);
   links >= expected ? ok(`يغطّي كل المقالات (${links} رابط ≥ ${expected})`) : fail(`ناقص: ${links} رابط والمتوقّع ≥ ${expected} — شغّل: npm run geo:llms`);
   // عيّنة اتساق مع الكتالوج (يكشف فهرساً قديماً بعد إضافة مقالات)
   //
@@ -45,7 +51,7 @@ else {
   // عبر `canon()` فيكتب `/en/blog/slug/)`، وكان هذا الفحص يبحث عن `slug)` بلا
   // شرطة — فسقط التدقيق أربع مرّات متتالية على مقالات **موجودة فعلاً**، وتعطّلت
   // معه مهمّة صيانة SEO اليومية كاملةً. الفشل الكاذب يُفقد الثقة بالتدقيق نفسه.
-  const sample = listArticles('en').slice(0, 3);
+  const sample = listedIn('en').slice(0, 3);
   const missing = sample.filter((a) => !t.includes(`/en/blog/${a.slug}/)`) && !t.includes(`/en/blog/${a.slug})`));
   missing.length === 0 ? ok('متسق مع الكتالوج (عيّنة)') : fail(`مقالات غائبة عن الفهرس: ${missing.map((a) => a.slug).join(', ')}`);
 }

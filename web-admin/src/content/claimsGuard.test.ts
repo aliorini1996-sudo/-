@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { RULES, checkText, findViolation, findViolations, norm, PHASE2_CMS_CLEANED, cmsCorpus, fromCms } from '../../scripts/claims-rules.mjs';
+import * as claimsRules from '../../scripts/claims-rules.mjs';
 import { buildCatalog, getArticle, LANGS } from '../blog/seo/catalog.mjs';
 import { PROFILE_DEFAULTS } from './profileContent';
 import { TEMPLATES } from './templates';
@@ -200,6 +201,74 @@ test('يكشف النفي القديم للمرحلة الثانية وتموض�
   }
 });
 
+test('يكشف صيغ تموضع «المرحلة الأولى» بلا فعل دعم — الحيّة في CMS (أكتوبر 2026)', () => {
+  for (const t of [
+    'ZATCA Phase-1 QR invoices from the rep phone — offline included.',
+    'offline invoicing with Phase-1 QR codes, Bluetooth thermal printing',
+    'بيع وفوترة أوف-لاين برمز QR (المرحلة الأولى)، طباعة حرارية',
+    'منظمة برمز QR (المرحلة الأولى) الأرشيف',
+    'وفاتورة مبسطة برمز QR من الميدان وفق المرحلة الأولى، وتسعيرا لا يعاد التفاوض عليه',
+    'فاتورة مبسطة برمز QR وفق متطلبات المرحلة الأولى (مرحلة الإصدار) من الفوترة الإلكترونية',
+    'What ships today is the complete Phase-1 van sales cycle above, live in production.',
+    'What you get today is a complete Phase-1 field invoicing and tracking cycle',
+    'What ships today — and has shipped invoices in production — is the complete Phase-1 field cycle described above.',
+    'ما نقدمه اليوم هو دورة المرحلة الأولى الميدانية الكاملة أعلاه، حية في الإنتاج.',
+  ]) assert.deepEqual(checkText(t), [STALE], `«${t}»`);
+  // الشرح التعليمي والسؤال والجملة التي تذكر المرحلة الثانية معها ليست تموضعاً
+  for (const t of [
+    'هل يظهر رمز QR وفق المرحلة الأولى (مرحلة الإصدار) على كل فاتورة؟',
+    'الفوترة الإلكترونية على مرحلتين: الإصدار (المرحلة الأولى) والربط (المرحلة الثانية).',
+    'نصدر فاتورة برمز QR وفق المرحلة الأولى وندعم ربط المرحلة الثانية مع منصة فاتورة',
+    'ZATCA e-invoicing has two phases: generation (Phase 1) and integration (Phase 2).',
+    'رمز QR متطلب أساسي في المرحلة الأولى من فوترة ZATCA.',
+  ]) assert.deepEqual(checkText(t), [], `«${t}»`);
+});
+
+/** fromCmsContext ليس في claims-rules.d.mts (الملف خارج نطاق هذا التعديل) — يُقرأ من الوحدة نفسها */
+type Violation = { index: number; match: string };
+const fromCmsContext = (claimsRules as unknown as {
+  fromCmsContext: (haystack: string, v: Violation, corpus: string | null, ctx?: number) => boolean;
+}).fromCmsContext;
+const NAMES = 'competitor-name-attributed';
+
+test('أسماء المنافسين المسنَدة: تُكشف بصيغها، وحاجبة للمستودع لا تحذيراً عاماً، والقاعدة الأصلية حاجبة كما هي', () => {
+  for (const t of ['قارن FieldSales مع Repzo', 'بدائل ريبزو لإدارة المناديب', 'وريبزو وغيرها', 'لريبزو', 'SalesBuzz', 'Sales Buzz', 'سيلز بز',
+    '<a href="/blog/repzo-alternative-field-reps/">']) {
+    assert.ok(checkText(t).includes(NAMES), `مرّ اسم منافس: «${t}»`);
+  }
+  for (const t of ['ريبزوت', 'سيلز بزنس', 'Repzoology', 'نظام إدارة مناديب أخفّ']) {
+    assert.ok(!checkText(t).includes(NAMES), `إنذار كاذب: «${t}»`);
+  }
+  const rule = RULES.find((r) => r.id === NAMES)!;
+  assert.equal(rule.severity, undefined, 'قاعدة الأسماء حاجبة لنصوص المستودع — التحذير لنصوص CMS يقرّره الإسناد لا severity');
+  assert.equal((rule as unknown as { cmsWarn?: boolean }).cmsWarn, true);
+  const original = RULES.find((r) => r.id === 'competitor-name')!;
+  assert.equal(original.severity, undefined, 'قاعدة الأسماء الأصلية يجب أن تبقى حاجبة');
+  assert.equal((original as unknown as { cmsWarn?: boolean }).cmsWarn, undefined, 'لا إسناد للأسماء الأصلية: حجبها مطلق كما كان');
+});
+
+test('إسناد اسم المنافس بسياقه: عنوان مقال CMS ورابطه ونصّه تحذير، وجملة المستودع حاجبة', () => {
+  const rule = RULES.find((r) => r.id === NAMES)!;
+  const corpus = cmsCorpus({ blog: [{
+    slug: 'repzo-alternative-field-reps',
+    title: 'بدائل ريبزو (Repzo) لإدارة المناديب: متى يناسبك نظام أخفّ؟',
+    contentHtml: '<p>يعرف كثيرون <strong>ريبزو</strong> كنظام شامل.</p>',
+  }] });
+  const page = '<html><head><title>بدائل ريبزو (Repzo) لإدارة المناديب: متى يناسبك نظام أخفّ؟ | مدوّنة FieldSales</title>'
+    + '<link rel="canonical" href="https://fieldsa.net/blog/repzo-alternative-field-reps/"/>'
+    + '<script type="application/ld+json">{"name":"بدائل ريبزو (Repzo) لإدارة المناديب: متى يناسبك نظام أخفّ؟"}</script></head>'
+    + '<body><p>يعرف كثيرون ريبزو كنظام شامل.</p><p>قارن FieldSales مع Repzo اليوم</p></body></html>';
+  const found = findViolations(rule, page);
+  assert.equal(found.length, 7, `عدد المطابقات (${found.length})`);
+  const repo = found.filter((v) => !fromCmsContext(page, v, corpus));
+  assert.equal(repo.length, 1, `أُسند للمستودع غير المزروع: ${repo.map((v) => v.match).join('،')}`);
+  assert.ok(norm(page).slice(0, repo[0].index).endsWith('قارن FieldSales مع '), 'المُسند للمستودع ليس الجملة المزروعة');
+  // الاسم وحده موجود في CMS ما دام المقال حيّاً — fromCms القديم كان سيُسند الجملة المزروعة إلى CMS
+  assert.ok(fromCms(repo[0].match, corpus));
+  // بلا corpus لا إسناد
+  assert.equal(fromCmsContext(page, found[0], null), false);
+});
+
 test('شدّة قاعدة النفي القديم يحكمها علم واحد (PHASE2_CMS_CLEANED)، وقاعدتا الاعتماد والموعد حاجبتان', () => {
   const byId = (id: string) => RULES.find((r) => r.id === id);
   // خطوة ما بعد تحرير CMS هي قلب العلم وحده — فلا يُفشل هذا الاختبار web-ci
@@ -277,10 +346,13 @@ test('النصوص المصيَّرة للزاحف في المصادر الخا�
   assert.deepEqual(ids, [], `scripts/prerender.mjs: ${ids.join(',')}`);
 });
 
-/** قواعد الامتثال وحدها — قاعدة «الرأس» (dead-keyword-targeting) تخصّ العنوان والوصف لا حقول keywords */
-const COMPLIANCE_RULES = RULES.filter((r) => [APPROVED, DATED, STALE, 'eta-egypt-claim'].includes(r.id));
+/**
+ * قواعد الامتثال وأسماء المنافسين — قاعدة «الرأس» (dead-keyword-targeting) تخصّ العنوان والوصف لا حقول keywords.
+ * أسماء المنافسين هنا بلا إسناد: الكتالوج والبروفايل والنماذج نصوص مستودع، فالاسم فيها حاجب دائماً.
+ */
+const COMPLIANCE_RULES = RULES.filter((r) => [APPROVED, DATED, STALE, 'eta-egypt-claim', 'competitor-name', NAMES].includes(r.id));
 
-test('مقالات catalog المولّدة بلغاتها الثلاث والبروفايل وبنك النماذج بلا ادّعاء امتثال محظور ولا نفي قديم', () => {
+test('مقالات catalog المولّدة بلغاتها الثلاث والبروفايل وبنك النماذج بلا ادّعاء امتثال محظور ولا نفي قديم ولا اسم منافس', () => {
   // أكثر من ٣٠٠ مقال تُصيَّر للزاحف وللزائر من المستودع مباشرة — نفيٌ قديم فيها خطأ مستودع لا بند CMS
   const all: [string, string][] = [];
   for (const e of buildCatalog()) {
@@ -301,8 +373,9 @@ test('مقالات catalog المولّدة بلغاتها الثلاث والب
     .filter(([, ids]) => ids.length)
     .map(([p, ids]) => `${p}: ${ids.join(',')}`);
   assert.deepEqual(offenders, [], `نصوص مستودع يدينها الحارس:\n${offenders.join('\n')}`);
-  // سؤال «بلا إنترنت» السعودي يحمل قيد الاتصال للشركات المربوطة بالصيغة المعتمدة
-  assert.ok(all.some(([, s]) => /ربط المرحلة الثانية مع منصة فاتورة فتحتاج فيها الفاتورة الضريبية اتصالا/.test(s)), 'فُقد قيد الاتصال للشركات المربوطة من مقالات catalog');
+  // سؤال «بلا إنترنت» السعودي يحمل قيد الاتصال للشركات المربوطة بالصيغة الدقيقة: «الفاتورة الضريبية» وحدها
+  // كانت توهم أن المبسّطة تصدر دون اتصال، وRepApp يمنع كل فاتورة وكل مرتجع دون اتصال حين phase === 2
+  assert.ok(all.some(([, s]) => /ربط المرحلة الثانية مع منصة فاتورة فتحتاج فيها الفواتير القياسية والمبسطة والمرتجعات اتصالا لحظة الإصدار/.test(s)), 'فُقد قيد الاتصال للشركات المربوطة من مقالات catalog');
 });
 
 test('إسناد النفي القديم: نصّ CMS يبقى تحذيراً ونصّ المستودع يُحجب (verify-claims)', () => {
@@ -346,4 +419,34 @@ test('وعد إصدار الفاتورة بلا اتصال في صفحات ال�
   assert.ok(promises.length >= 6, `لم تُقرأ وعود الإصدار دون اتصال في النسختين (${promises.length})`);
   const bare = promises.filter((s) => !/ربط المرحلة الثانية/.test(s));
   assert.deepEqual(bare, [], 'وعد إصدار دون اتصال بلا قيد الشركات المربوطة');
+});
+
+test('صفحات الكتالوج السعودية وأسواق المقاصّة اللحظية: لا وعد بإصدار الفاتورة أو ببيع لا يتوقف دون اتصال بلا قيده في الصفحة', () => {
+  // قسما offline وfeatures كانا قالباً واحداً لكل الدول، فوعدت الصفحة السعودية «يضمن ألا تتوقف المبيعات»
+  // و«it issues the invoice… with no connection at all» بجوار إعلان الربط نفسه، وRepApp.tsx يمنع إصدار الفاتورة
+  // والمرتجع دون اتصال حين zatcaPhase2، وفي أسواق eta/peppol/ttn. (التحقق المستقل لدفعة الظهور)
+  const UNCONDITIONAL = /يضمن ألا تتوقف المبيعات|garantit la continuit[ée] des ventes|turns a dead zone from a stopped sale/i;
+  const OFFLINE = /بلا إنترنت|بدون إنترنت|دون اتصال|بلا اتصال|offline|no connection|hors ligne|sans connexion/i;
+  const QUAL = /لحظة الإصدار|needs? a connection (?:at the moment of issue|at issue|to issue)|requires a live connection|exigent une connexion|exige (?:en revanche )?une connexion/i;
+  let saPages = 0;
+  const bad: string[] = [];
+  for (const e of buildCatalog()) {
+    const m = /-(sa|eg|ae|tn)$/.exec(e.slug);
+    if (!m) continue;
+    for (const L of LANGS) {
+      const a = getArticle(e.slug, L);
+      if (!a) continue;
+      const text = norm(stripTags(a.contentHtml));
+      if (m[1] === 'sa') saPages++;
+      if (UNCONDITIONAL.test(text)) bad.push(`${e.slug}.${L}: وعد مطلق «${text.match(UNCONDITIONAL)![0]}»`);
+      else if (OFFLINE.test(text) && !QUAL.test(text)) bad.push(`${e.slug}.${L}: «${text.match(OFFLINE)![0]}» بلا قيد الاتصال`);
+    }
+  }
+  assert.ok(saPages >= 30, `لم تُقرأ صفحات الكتالوج السعودية (${saPages})`);
+  assert.deepEqual(bad, [], 'وعد العمل دون اتصال بلا قيده في صفحة سعودية أو صفحة سوق مقاصّة لحظية');
+  // قسم offline في الصفحة السعودية يحمل القيد بصيغته المعتمدة كاملة، بلغاتها الثلاث
+  const sa = (L: 'ar' | 'en' | 'fr') => norm(stripTags(getArticle('van-sales-app-sa', L)!.contentHtml));
+  assert.match(sa('ar'), /وللشركات المفعل لها ربط المرحلة الثانية مع منصة فاتورة تحتاج الفواتير القياسية والمبسطة والمرتجعات اتصالا لحظة الإصدار/);
+  assert.match(sa('en'), /Phase 2 integration with ZATCA’s Fatoora platform enabled, invoices \(standard and simplified\) and returns need a connection at the moment of issue/);
+  assert.match(sa('fr'), /phase 2 avec la plateforme Fatoora est activée, factures \(standard et simplifiées\) et retours exigent une connexion à l’émission/);
 });

@@ -38,6 +38,12 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+// E2: المحتوى المُصيَّر ظاهر منذ أول رسم في صفحته وحدها (سكربت الرأس في index.html يضيف الفئة ssr).
+// createRoot يمسحه عند أول رسم، فيُحفظ نصّه هنا لتعرضه صفحة تنتظر بياناتها (BlogPostPage أثناء جلب CMS)
+// بدل شاشة تحميل فارغة بين المحتوى المُصيَّر ومحتوى React. لا hydrateRoot: الشجرتان مختلفتان.
+const ssrEl = document.documentElement.classList.contains('ssr') ? document.querySelector('#root > [data-ssr]') : null;
+if (ssrEl) (window as unknown as { __fsSsr?: { path: string; html: string } }).__fsSsr = { path: location.pathname, html: ssrEl.innerHTML };
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>

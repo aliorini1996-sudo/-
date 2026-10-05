@@ -31,28 +31,56 @@ export function pathForLocale(pathname: string, locale: Lang): string {
   return ar === '/' ? prefix : prefix + ar;
 }
 
-// روابط canonical + hreflang البديلة لصفحة ما (بناءً على مسارها العربي) — عربي/إنجليزي/فرنسي/تركي/صيني
-export function seoUrls(arPath: string, locale: Lang): {
+/**
+ * الصفحات التسويقية المُصيَّرة بثلاث لغات (ع/إ/فر) — مطابقة لـI18N_ROUTES في scripts/gen-sitemap.mjs
+ * وصفحات INFO في scripts/prerender.mjs. الرئيسية وحدها بخمس لغات (التركية والصينية لها رئيسية فقط).
+ */
+const TRILINGUAL_PATHS = new Set(['/about', '/contact', '/calculator', '/invoice-generator', '/pricing', '/terms', '/privacy', '/service-agreement', '/blog']);
+
+/**
+ * اللغات التي توجد بها الصفحة فعلاً (مُصيَّرة ومعلنة في الخريطة) — القيمة الافتراضية لـseoUrls.
+ *
+ * لماذا: كانت seoUrls تعلن بدائل ع/إ/فر/تر/صيني لكل صفحة، فصفحة ميزة عربية وحدها كانت تعلن
+ * /en/مزايا/… و/tr/… وهي غير موجودة (تخدم قوقعة الرئيسية). وبعد أن صار التصيير المسبق يسِم
+ * عنقوده بـdata-seo-alt يستبدله useSeo بما تعيده هذه الدالة — فيجب أن تطابق الخريطة حرفياً.
+ * المدوّنة تمرّر لغاتها صراحةً (حسب وجود النسخة)؛ وكل ما سوى ذلك عربي فقط.
+ */
+export function availableLangs(arPath: string): Lang[] {
+  const p = arPath.length > 1 && arPath.endsWith('/') ? arPath.slice(0, -1) : arPath;
+  if (p === '/' || p === '') return ['ar', 'en', 'fr', 'tr', 'zh'];
+  if (TRILINGUAL_PATHS.has(p)) return ['ar', 'en', 'fr'];
+  return ['ar'];
+}
+
+/**
+ * روابط canonical + hreflang البديلة لصفحة ما (بناءً على مسارها العربي).
+ *
+ * - langs: اللغات الموجودة فعلاً (الافتراضي availableLangs). البدائل تُعلن لها وحدها، ومعها x-default
+ *   إلى العربية. صفحة بلغة واحدة لا بدائل لها (قائمة فارغة) — كما في الخريطة وHTML المُصيَّر.
+ * - canonical: رابط لغة الصفحة نفسها دائماً (سلوك ثابت لا يتغيّر بتغيّر langs).
+ */
+export function seoUrls(arPath: string, locale: Lang, langs: readonly Lang[] = availableLangs(arPath)): {
   canonical: string;
   alternates: { hreflang: string; href: string }[];
 } {
   const suffix = arPath === '/' ? '' : arPath;
   const arUrl = SITE_ORIGIN + (arPath === '/' ? '/' : arPath);
-  const enUrl = SITE_ORIGIN + '/en' + suffix;
-  const frUrl = SITE_ORIGIN + '/fr' + suffix;
-  const trUrl = SITE_ORIGIN + '/tr' + suffix;
-  const zhUrl = SITE_ORIGIN + '/zh' + suffix;
-  const canonical = locale === 'en' ? enUrl : locale === 'fr' ? frUrl : locale === 'tr' ? trUrl : locale === 'zh' ? zhUrl : arUrl;
+  const urls: { lang: Lang; hreflang: string; href: string }[] = [
+    { lang: 'ar', hreflang: 'ar', href: arUrl },
+    { lang: 'en', hreflang: 'en', href: SITE_ORIGIN + '/en' + suffix },
+    { lang: 'fr', hreflang: 'fr', href: SITE_ORIGIN + '/fr' + suffix },
+    { lang: 'tr', hreflang: 'tr', href: SITE_ORIGIN + '/tr' + suffix },
+    // zh-Hans لا zh المجرَّدة: المحتوى بالمبسّطة تحديداً، وجوجل يدعم وسم النصّ
+    { lang: 'zh', hreflang: 'zh-Hans', href: SITE_ORIGIN + '/zh' + suffix },
+  ];
+  const canonical = (urls.find((u) => u.lang === locale) || urls[0]).href;
+  const present = urls.filter((u) => langs.includes(u.lang));
+  if (present.length < 2) return { canonical, alternates: [] };
   return {
     canonical,
     alternates: [
-      { hreflang: 'ar', href: arUrl },
-      { hreflang: 'en', href: enUrl },
-      { hreflang: 'fr', href: frUrl },
-      { hreflang: 'tr', href: trUrl },
-      // zh-Hans لا zh المجرَّدة: المحتوى بالمبسّطة تحديداً، وجوجل يدعم وسم النصّ
-      { hreflang: 'zh-Hans', href: zhUrl },
-      { hreflang: 'x-default', href: arUrl },
+      ...present.map(({ hreflang, href }) => ({ hreflang, href })),
+      { hreflang: 'x-default', href: langs.includes('ar') ? arUrl : present[0].href },
     ],
   };
 }

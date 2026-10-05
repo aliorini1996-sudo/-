@@ -3,14 +3,22 @@ import { Link } from 'react-router-dom';
 import { BrandIcon } from '../components/BrandLogo';
 import { ArrowLeft, Clock, Calendar } from 'lucide-react';
 import { useBlog } from '../blog/useBlog';
-import { postView } from '../blog/posts';
+import { postView, readMinutesOf } from '../blog/posts';
 import { listArticles, COUNTRIES } from '../blog/seo/catalog.mjs';
+// @ts-ignore -- لا ملف تعريف للوحدة بعد (consolidate.d.mts)؛ الأنواع مثبّتة بالتحويل أدناه
+import * as consolidateMod from '../blog/consolidate.mjs';
 import { useLang } from '../i18n/lang';
 import { seoUrls } from '../i18n/locale';
 import { useSeo } from '../lib/seo';
 import LanguageToggle from '../components/LanguageToggle';
 
 type Card = { slug: string; title: string; excerpt: string; date: string; readMinutes: number; img?: string };
+type Exists = (slug: string, L: string) => boolean;
+// الدمج (P3): المقال الرقيق المدموج يبقى حيّاً برابطه لكنه لا يُدرج في الفهرس — كما في الفهرس المُصيَّر
+const { existsWith, consolidatedTarget } = consolidateMod as {
+  existsWith: (manual: { slug: string; en?: { title?: string } }[]) => Exists;
+  consolidatedTarget: (slug: string, L: string, exists?: Exists) => string | null;
+};
 
 // فهرس المدوّنة — عربي /blog · إنجليزي /en/blog · فرنسي /fr/blog (يشمل المقالات المولَّدة لكل الدول العربية + hreflang)
 export default function BlogIndexPage() {
@@ -20,7 +28,8 @@ export default function BlogIndexPage() {
   const prefix = lang === 'ar' ? '' : `/${lang}`;
   const tr = (ar: string, en: string, fr: string) => (lang === 'ar' ? ar : lang === 'fr' ? fr : en); // tr → الإنجليزية (لا مدونة تركية بعد)
   const blogLang = (lang === 'tr' || lang === 'zh' ? 'en' : lang); // كتالوج المدونة ثلاثي اللغة فقط
-  const { canonical, alternates } = seoUrls('/blog', lang);
+  // الفهرس مُصيَّر بثلاث لغات فقط (لا مدوّنة تركية ولا صينية) — العنقود مطابق للخريطة
+  const { canonical, alternates } = seoUrls('/blog', lang, ['ar', 'en', 'fr']);
 
   useSeo({
     title: tr(
@@ -60,10 +69,15 @@ export default function BlogIndexPage() {
 
   const [shown, setShown] = useState(60);
   // المقالات المكتوبة يدوياً (عربي/إنجليزي فقط) + المقالات المولَّدة برمجياً (ثلاثية اللغة)
-  const handCards: Card[] = lang === 'fr' ? [] : posts.map((p) => {
-    const v = postView(p, lang === 'en' ? 'en' : 'ar');
-    return { slug: p.slug, title: v.title, excerpt: v.excerpt, date: p.date, readMinutes: p.readMinutes };
-  });
+  const handLang = lang === 'en' ? 'en' : 'ar';
+  const exists = existsWith(posts);
+  const handCards: Card[] = lang === 'fr' ? [] : posts
+    .filter((p) => !consolidatedTarget(p.slug, handLang, exists))
+    .map((p) => {
+      const v = postView(p, handLang);
+      // مدة القراءة من النص الفعلي لا من القيمة اليدوية (كانت مقالات المئة كلمة تعلن ٦ دقائق)
+      return { slug: p.slug, title: v.title, excerpt: v.excerpt, date: p.date, readMinutes: readMinutesOf(v.contentHtml) };
+    });
   const seoCards: Card[] = listArticles(blogLang).map((a) => ({ slug: a.slug, title: a.title, excerpt: a.excerpt, date: a.date, readMinutes: a.readMinutes, img: `/og/${a.slug}-${blogLang}.jpg` }));
   // كل المقالات مرتّبة بالأحدث؛ عرض تدريجي بزر «تحميل المزيد» حفاظاً على سرعة أوّل تحميل (الصور كسولة)
   const allCards: Card[] = [...handCards, ...seoCards].sort((a, b) => (b.date || '').localeCompare(a.date || ''));

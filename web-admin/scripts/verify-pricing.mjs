@@ -10,7 +10,13 @@
  *   2) غاب السعر الحيّ عن الصفحة الرئيسية المُصيَّرة.
  *   3) غاب رابط واتساب عن الصفحة الرئيسية المُصيَّرة.
  *
- * التشغيل: node scripts/verify-pricing.mjs   (بعد البناء)
+ * ويُحذّر دون إفشال (أكتوبر 2026 — مصدر النصّ غالباً مقالات CMS يحرّرها المالك):
+ *   6) صفحة تذكر أدنى سعر وأعلاه وتُسقط الأوسط («299 حتى 5 مناديب أو 599 حتى 20»): تصف عالم
+ *      الباقتين، والأسعار كلها حيّة فلا يكشفها فحص السعر الغريب.
+ *   7) عدد مناديب ضمن 80 حرفاً من سعر لا يوافق باقته («شركة بعشرة مناديب… 599 ريالاً»: العشرة
+ *      تكفيها 399). الباقة الموافقة لعدد N هي أرخص باقة يتّسع حدّها له (repsCap).
+ *
+ * التشغيل: node scripts/verify-pricing.mjs [--dist <مجلد>] [--verbose]   (بعد البناء)
  */
 import fs from 'fs';
 import path from 'path';
@@ -18,7 +24,10 @@ import { fileURLToPath } from 'url';
 import { loadPricing, waDigits, repsCap } from './pricing-source.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DIST = path.resolve(__dirname, '../dist');
+const argv = process.argv.slice(2);
+const distArg = argv.indexOf('--dist') >= 0 ? argv[argv.indexOf('--dist') + 1] : null;
+const DIST = path.resolve(distArg || path.join(__dirname, '../dist'));
+const VERBOSE = argv.includes('--verbose');
 
 /** كل ملفات HTML/txt المُصيَّرة (بحد معقول للسرعة) */
 function collect(dir, out = [], depth = 0) {
@@ -177,7 +186,133 @@ if (fs.existsSync(llmsPath)) {
   if (!bad) ok.push('اقتران السعر بحدّ المناديب في llms.txt مطابق للـCMS');
 }
 
+// 6 و7) تحذيرات بنية الباقات في النثر — غير حاجبة: أغلب النثر السعري في مقالات CMS يحرّرها المالك
+// من اللوحة، ولا يصحّ أن يُسقط نصٌّ قديم فيها نشرَ الموقع. تُطبع كل بناء حتى تُصحَّح.
+const warnCats = new Map(); // فئة → {title, pages:Set, items:[]}
+const warnOf = (key, title, page, item) => {
+  if (!warnCats.has(key)) warnCats.set(key, { title, pages: new Set(), items: [] });
+  const e = warnCats.get(key);
+  if (e.pages.has(page)) return; // مثال واحد لكل صفحة
+  e.pages.add(page);
+  if (VERBOSE || e.items.length < 8) e.items.push(`${page} — «${item}»`);
+};
+const plans = numericPlans
+  .map((p) => ({ price: String(Number(p.price)), cap: repsCap(p.limit) }))
+  .sort((a, b) => Number(a.price) - Number(b.price));
+const LOW = plans[0]?.price;
+const HIGH = plans[plans.length - 1]?.price;
+const MIDDLE = plans.slice(1, -1).map((p) => p.price);
+const capOf = new Map(plans.map((p) => [p.price, p.cap]));
+/** الباقة الموافقة لعدد N هي أرخص باقة يتّسع حدّها له: حدّ الباقة الأرخص منها < N ≤ حدّها */
+const fits = (n, price) => {
+  const cap = capOf.get(price);
+  if (!cap) return true; // حدّ غير مقروء ⇒ لا حكم
+  const prev = Math.max(0, ...plans.map((p) => p.cap || 0).filter((c) => c < cap));
+  return n > prev && n <= cap;
+};
+const AR_LETTER = '\\u0600-\\u06FF';
+const CURRENCY = /ر\.?\s?س|﷼|ريال|\bSAR\b/i;
+const NUM_WORDS = {
+  'واحد': 1, 'اثنين': 2, 'اثنان': 2, 'ثلاث': 3, 'ثلاثة': 3, 'ثلاثه': 3, 'أربع': 4, 'اربع': 4, 'أربعة': 4, 'اربعة': 4,
+  'خمس': 5, 'خمسة': 5, 'خمسه': 5, 'ست': 6, 'ستة': 6, 'سبع': 7, 'سبعة': 7, 'ثمان': 8, 'ثمانية': 8, 'تسع': 9, 'تسعة': 9,
+  'عشر': 10, 'عشرة': 10, 'عشره': 10, 'خمسة عشر': 15, 'خمس عشرة': 15, 'عشرين': 20, 'عشرون': 20,
+  'ثلاثين': 30, 'ثلاثون': 30, 'أربعين': 40, 'اربعين': 40, 'خمسين': 50, 'خمسون': 50,
+  five: 5, ten: 10, fifteen: 15, twenty: 20, thirty: 30, fifty: 50, cinq: 5, dix: 10, quinze: 15, vingt: 20, trente: 30,
+};
+const WORD_ALT = Object.keys(NUM_WORDS).sort((a, b) => b.length - a.length).map((w) => w.replace(/\s+/g, '\\s+')).join('|');
+const REPS_UNIT = '(?:منادي?ب|مندوب(?:ا|ين|ون)?|sales\\s*reps?\\b|reps?\\b|representatives\\b|commerciaux\\b|vendeurs\\b)';
+const REPS_RE = new RegExp(
+  `(?<![\\d.,])(\\d{1,3})\\s*${REPS_UNIT}|(?<![${AR_LETTER}a-z])[وبلفك]?(?:ال)?(${WORD_ALT})\\s+${REPS_UNIT}`, 'gi');
+const PRICE_NUM = plans.length ? new RegExp(`(?<![\\d.,])(${plans.map((p) => p.price).join('|')})(?![\\d])`, 'g') : null;
+/** حدّ جملة: نقطة يليها فراغ («ر.س» لا تُعدّ) أو سطر. وعلامة الاستفهام حدٌّ للفحص 6 لا للفحص 7:
+ * «كم تكلفة شركة بعشرة مناديب؟ تدفع 599 ريالاً» سؤال وجوابه، وهو بالضبط ما يُقتبس. */
+const SENTENCE_END = /[.!](?=\s)|\n/;
+const QUESTION_END = /[؟?](?=\s)/;
+const RANGE_GAP = /^\s*(?:ر\.?\s?س|ريالا?|SAR|﷼)?\s*(?:إلى|الى|حتى|to|à|–|—|-|\/)\s*(?:SAR|ر\.?\s?س)?\s*$/i;
+
+/** النصّ الذي يقرؤه الزائر والزاحف: الجسم بلا سكربت ولا أنماط + العنوان والأوصاف (بلا JSON-LD: بنيته يحرسها الفحص 5) */
+const proseOf = (raw, isHtml) => {
+  let t = raw;
+  if (isHtml) {
+    const metas = [...raw.matchAll(/<meta\b[^>]*\b(?:name|property)="(?:description|og:description|twitter:description)"[^>]*>/gi)]
+      .map((m) => (m[0].match(/\bcontent="([^"]*)"/i) || [])[1] || '').join(' . ');
+    const title = (raw.match(/<title>([\s\S]*?)<\/title>/i) || [])[1] || '';
+    t = `${title} . ${metas} . ` + raw.replace(/<script\b[\s\S]*?<\/script>/gi, ' ').replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<head\b[\s\S]*?<\/head>/i, ' ').replace(/<[^>]+>/g, ' ');
+  }
+  return t
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/[ً-ْٰـ]/g, '')               // تشكيل وتطويل
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660)) // أرقام هندية
+    .replace(/\s+/g, ' ');
+};
+const snippet = (t, a, b) => t.slice(Math.max(0, a - 40), Math.min(t.length, b + 40)).trim();
+
+if (plans.length >= 2 && PRICE_NUM) {
+  for (const f of files) {
+    const isHtml = /\.html$/i.test(f);
+    const relp = path.relative(DIST, f).split(path.sep).join('/');
+    let page = relp;
+    try { page = decodeURIComponent(relp); } catch { /* يبقى كما هو */ }
+    if (/%[0-9A-F]{2}/i.test(relp)) continue; // توأم مرمَّز لمجلد عربي — فُحص بنسخته العربية
+    const t = proseOf(fs.readFileSync(f, 'utf8'), isHtml);
+    // ذكر سعر حيّ = الرقم نفسه وعملة على بعد 25 حرفاً منه («299 و599 ريالاً» يُعدّ فيه الرقمان)
+    const mentions = [];
+    PRICE_NUM.lastIndex = 0;
+    for (const m of t.matchAll(PRICE_NUM)) {
+      const win = t.slice(Math.max(0, m.index - 25), m.index + m[0].length + 25);
+      if (CURRENCY.test(win)) mentions.push({ price: m[1], s: m.index, e: m.index + m[0].length });
+    }
+    if (!mentions.length) continue;
+
+    // (6) الأدنى والأعلى بلا الأوسط: زوج متقارب (أقل من 160 حرفاً) لا يتوسطه سعر أوسط ولا هو نطاق «من X إلى Y»
+    if (MIDDLE.length) {
+      const seen = new Set(mentions.map((m) => m.price));
+      let hit = null;
+      for (let i = 0; i < mentions.length && !hit; i++) {
+        for (let j = i + 1; j < mentions.length; j++) {
+          const a = mentions[i]; const b = mentions[j];
+          if (b.s - a.e > 160) break;
+          // الأدنى أولاً ثم الأعلى في الجملة نفسها: «…599 ر.س. أسعارنا: 299…» نهاية قائمة وبداية أخرى لا زوج
+          if (a.price !== LOW || b.price !== HIGH) continue;
+          const gap = t.slice(a.e, b.s);
+          if (SENTENCE_END.test(gap) || QUESTION_END.test(gap)) continue;
+          const between = mentions.slice(i + 1, j).some((m) => MIDDLE.includes(m.price));
+          if (between || RANGE_GAP.test(gap)) continue;
+          hit = snippet(t, a.s, b.e);
+          break;
+        }
+      }
+      if (!hit && seen.has(LOW) && seen.has(HIGH) && !MIDDLE.some((p) => seen.has(p))) {
+        const a = mentions.find((m) => m.price === LOW);
+        hit = snippet(t, a.s, a.e);
+      }
+      if (hit) {
+        warnOf('two-tier', `نصّ يذكر ${LOW} و${HIGH} ويُسقط ${MIDDLE.join(' و')} — يصف عالم الباقتين`, page, hit);
+      }
+    }
+
+    // (7) عدد مناديب قرب سعر لا يوافق باقته
+    REPS_RE.lastIndex = 0;
+    for (const m of t.matchAll(REPS_RE)) {
+      const n = m[1] ? Number(m[1]) : NUM_WORDS[(m[2] || '').toLowerCase().replace(/\s+/g, ' ')];
+      if (!n) continue;
+      const s = m.index; const e = m.index + m[0].length;
+      const near = mentions.filter((p) => (p.s >= e ? p.s - e : s - p.e) <= 80
+        && !SENTENCE_END.test(p.s >= e ? t.slice(e, p.s) : t.slice(p.e, s)));
+      if (!near.length || near.some((p) => fits(n, p.price))) continue;
+      warnOf('reps-mismatch', `عدد مناديب قرب سعر لا يوافق باقته (الباقة الصحيحة أرخص باقة يتّسع حدّها للعدد)`, page,
+        `${n} ↔ ${[...new Set(near.map((p) => p.price))].join('/')}: ${snippet(t, Math.min(s, ...near.map((p) => p.s)), Math.max(e, ...near.map((p) => p.e)))}`);
+      break; // مثال واحد لكل صفحة (warnOf يكتفي بالأول على أي حال)
+    }
+  }
+}
+
 for (const o of ok) console.log('  ✓ ' + o);
+for (const w of warnCats.values()) {
+  console.warn(`  ⚠ تحذير غير حاجب: ${w.title} — ${w.pages.size} صفحة`);
+  for (const it of w.items) console.warn(`      ${it}`);
+}
 for (const f of fail) console.error('  ✗ ' + f);
 
 if (fail.length) {

@@ -13,6 +13,8 @@ export interface ClaimRule {
   pre?: RegExp;
   severity?: 'warn';
   scope?: 'head' | 'raw';
+  /** حاجبة لنصوص المستودع وتحذير لنصوص CMS (يُسند verify-claims كل مطابقة بسياقها عبر fromCmsContext) */
+  cmsWarn?: boolean;
 }
 
 export const norm: (s: string) => string;
@@ -30,3 +32,4 @@ export function findViolations(rule: ClaimRule, haystack: string, limit?: number
 export function checkText(text: string): string[];
 export function cmsCorpus(data: unknown): string;
 export function fromCms(match: string, corpus: string | null): boolean;
+export function fromCmsContext(haystack: string, v: { index: number; match: string }, corpus: string | null, ctx?: number): boolean;

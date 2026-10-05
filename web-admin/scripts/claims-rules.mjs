@@ -6,6 +6,7 @@
  *  - unless + unlessBefore/unlessAfter: نفي صريح في نافذة حول المطابقة يُعفيها (الافتراضي ±220).
  *  - requireNear: لا تُعدّ المطابقة إصابة إلا إن وُجد نمط آخر قربها (مثل موعد أو رقم).
  *  - severity: 'warn' تحذير يُطبع ولا يُفشل البناء؛ غيابها = حاجبة.
+ *  - cmsWarn: حاجبة لنصوص المستودع وتحذير لنصوص CMS — verify-claims يسند كل مطابقة بسياقها (fromCmsContext).
  *  - scope: 'head' (العنوان والوصف وH1) · 'raw' (HTML الخام) · الافتراضي النصّ المرئي.
  *
  * ⚠️ كل نصّ يُطبَّع بـnorm (حذف التشكيل والتطويل) قبل الفحص، والأنماط مكتوبة بلا تشكيل:
@@ -98,6 +99,22 @@ const STALE_BEFORE = '(?:لا\\s*(?:ندعم|نربط|يدعم|تدعم|نوفر
 /** تموضع «المرحلة الأولى» منتجاً: «يُصدر فاتورة… وفق متطلبات المرحلة الأولى» · «supports phase one» · «فواتير ZATCA (مرحلة أولى)» */
 const PHASE1_VERB = '(?:نصدر|يصدر|تصدر|ندعم|يدعم|تدعم|نوفر|يوفر|توفر|نغطي|يغطي|supports?|issues?|covers?|émet|prend\\s*en\\s*charge|prenons\\s*en\\s*charge)';
 const PHASE1_NOUN = '(?:فاتور[ةه]|فواتير|فوترة|invoices?|invoicing|factures?|facturation)';
+/**
+ * صيغ تموضع «المرحلة الأولى» بلا فعل دعم قبلها — كلها حيّة في CMS (قِيس 4 أكتوبر 2026) وكانت تفلت:
+ *   «فاتورة مبسطة برمز QR وفق المرحلة الأولى» · «أوف-لاين برمز QR (المرحلة الأولى)» ·
+ *   «ZATCA Phase-1 QR invoices» · «What ships today is the complete Phase-1 van sales cycle» ·
+ *   «ما نقدمه اليوم هو دورة المرحلة الأولى الميدانية الكاملة».
+ * تُطبَّق عليها استثناءات بديل الفعل نفسها: لا إدانة إن ذُكرت المرحلة الثانية في الجملة، ولا على سؤال.
+ * والذكر التعليمي («رمز QR متطلب أساسي في المرحلة الأولى») لا يطابق أياً منها.
+ */
+const PHASE1_STALE_FORM = [
+  'Phase[\\s-]*(?:1|one)\\s*QR',
+  '\\(\\s*(?:(?:ال|لل)?مرحل[ةه]\\s*ال[أا]ول[ىي]|مرحل[ةه]\\s*[أا]ول[ىي]|Phase[\\s-]*(?:1|one))\\s*\\)',
+  'وفق\\s*(?:متطلبات\\s*)?(?:ال|لل)?مرحل[ةه]\\s*ال[أا]ول[ىي]',
+  'complete\\s+Phase[\\s-]*(?:1|one)\\b',
+  'What\\s+ships\\s+today[^.؛\\n]{0,60}?Phase[\\s-]*(?:1|one)\\b',
+  'دور[ةه]\\s*(?:ال)?مرحل[ةه]\\s*ال[أا]ول[ىي]',
+].join('|');
 
 export const RULES = [
   {
@@ -158,8 +175,9 @@ export const RULES = [
       `${STALE_BEFORE}[^.؛\\n]{0,40}${PHASE2}`,
       '(?:لا\\s*(?:نربط|نرتبط)|غير\\s*(?:مربوط|مربوطة|مرتبط|مرتبطة)|لسنا\\s*(?:مربوطين|مرتبطين))[^.؛\\n]{0,30}(?:منص[ةه]\\s*«?فاتور[ةه]|«فاتور[ةه]»|ZATCA|الهيئة)|not\\s*(?:yet\\s*)?(?:integrated|connected|linked)\\s*(?:to|with)\\s*(?:the\\s*)?(?:ZATCA|Fatoora)',
       `${PHASE1}[^.؛\\n]{0,45}(?:فقط|وحدها|(?<![\\w-])only\\b|uniquement)`,
-      // والسؤال ليس تموضعاً: «اسأل مورّدك: هل تُصدر وفق المرحلة الأولى؟» قائمة فحص للقارئ
-      `(?<!${PHASE2}[^.؛\\n]{0,160})(?:${PHASE1_VERB}[^.؛\\n]{0,80}?|${PHASE1_NOUN}\\s*(?:ZATCA\\s*)?[(«]?\\s*)${PHASE1}(?![^.؛\\n]{0,160}${PHASE2})(?![^.؛\\n]{0,40}[؟?])`,
+      // والسؤال ليس تموضعاً: «اسأل مورّدك: هل تُصدر وفق المرحلة الأولى؟» قائمة فحص للقارئ.
+      // والصيغ بلا فعل (PHASE1_STALE_FORM) تشارك البديل نظرتيه فلا يتكرّر ثمنهما على النصوص الطويلة.
+      `(?<!${PHASE2}[^.؛\\n]{0,160})(?:(?:${PHASE1_VERB}[^.؛\\n]{0,80}?|${PHASE1_NOUN}\\s*(?:ZATCA\\s*)?[(«]?\\s*)${PHASE1}|${PHASE1_STALE_FORM})(?![^.؛\\n]{0,160}${PHASE2})(?![^.؛\\n]{0,40}[؟?])`,
       'النطاق\\s*الذي\\s*(?:نعلنه|نغطيه|ندعمه)',
     ].join('|'), 'i'),
     // مرشّح مسبق رخيص: كل بديل في النمط أعلاه يحوي واحدة من هذه — والنمط بنظرته الخلفية بطيء على
@@ -222,6 +240,21 @@ export const RULES = [
     re: /\b(MEST\s*SE|mestsoft|Daftra|Qoyod|qoyod\.com|daftra\.com|Delta\s*Sales\s*App|deltasalesapp|PepUpSales|pepupsales)\b/i,
     scope: 'raw', // يشمل الروابط والوسوم لا النصّ المرئي وحده
     why: 'ذكر اسم منافس — قرار المالك: المقارنة بالنماذج لا بالأسماء',
+  },
+  {
+    id: 'competitor-name-attributed',
+    // أسماء منافسين في الميدان نفسه، من قائمة حارس بوت واتساب (backend/src/services/wa-agent/guard.ts)
+    // بلا Odoo: نظام ERP قد يُذكر في الموقع تكاملاً أو مصدر استيراد لا منافساً.
+    // منفصلة عن competitor-name لأن مصدرها يُسنَد: مقال CMS «repzo-alternative-field-reps» (رابطه وعنوانه
+    // ومتنه) ينتظر قرار المالك، فلو حُجب الآن لفشل كل بناء بسبب نصّ لا يملكه المستودع. لذلك:
+    //   - في نصوص المستودع (قوالب prerender والكتالوج وllms) حاجبة — verify-claims يسندها بسياقها (fromCmsContext).
+    //   - في نصوص CMS تحذير يُطبع في كل بناء حتى يقرّر المالك (إعادة صياغة بلا الاسم أو noindex ثم حذف).
+    // ومصادر المستودع يحرسها claimsGuard.test.ts مباشرةً بلا إسناد.
+    // العربية بلا \b (حدّ الكلمة في JS لاتيني فقط) وبسوابق الجر والعطف: «وريبزو» · «لريبزو».
+    re: new RegExp(`\\b(?:Repzo|repzo\\.com|Sales\\s*Buzz)\\b|(?<![${AR}])[وبلفك]?(?:ريبزو|سيلز\\s*بز)(?![${AR}])`, 'i'),
+    scope: 'raw', // الرابط (slug) والعنوان والوسوم لا النصّ المرئي وحده
+    cmsWarn: true,
+    why: 'ذكر اسم منافس — حاجب في نصوص المستودع، وتحذير في نصوص CMS حتى يقرّر المالك (قرار ٢٩ يوليو ٢٠٢٦: لا أسماء منافسين)',
   },
 ];
 
@@ -297,4 +330,41 @@ export function cmsCorpus(data) {
 export function fromCms(match, corpus) {
   const m = squash(match);
   return !!corpus && m.length > 0 && corpus.includes(m);
+}
+
+/**
+ * إسناد مطابقة **قصيرة** (اسم منافس: «Repzo» · «ريبزو») إلى CMS بسياقها لا بنصّها وحده.
+ *
+ * لماذا لا يكفي fromCms: الاسم نفسه موجود في CMS ما دام المقال حيّاً، فكل ذكرٍ له في المستودع
+ * كان سيُحسب على CMS فيصير تحذيراً — أي أن قاعدة «حاجبة للمستودع» لا تحجب شيئاً. هنا يُشترط أن
+ * يوجد في CMS الاسمُ **مع ما يلاصقه** من أحد جانبيه (ctx حرفاً بعد الضغط): «بدائل ريبزو (Repzo) لإدارة…»
+ * في عنوان المقال أو رابطه «repzo-alternative-…» يُسند إلى CMS، أمّا «قارن FieldSales مع Repzo»
+ * في قالبٍ من المستودع فلا يلاصقه في CMS شيء ⇒ مستودع ⇒ حاجب.
+ * جانبٌ واحد يكفي: dist يلصق نصّ CMS بنصّ المستودع (العنوان + « | مدوّنة FieldSales»، والقوائم).
+ * والمقارنة مرنة في علامات الاقتباس والفواصل والأقواس المعقوفة: كتل JSON-LD تُحذف منها في النصّ المرئي.
+ *
+ * haystack: النصّ نفسه الذي مُرِّر إلى findViolations (v.index على نسخته المطبَّعة)؛ بلا corpus ⇒ false.
+ */
+const LOOSE = /["'`,،{}[\]\\]/g;
+let looseCorpus = { src: null, out: '' };
+let normHay = { src: null, out: '' };
+export function fromCmsContext(haystack, v, corpus, ctx = 16) {
+  if (!corpus || !v || !v.match) return false;
+  if (looseCorpus.src !== corpus) looseCorpus = { src: corpus, out: corpus.replace(LOOSE, '') };
+  if (normHay.src !== haystack) normHay = { src: haystack, out: norm(haystack) };
+  const c = looseCorpus.out;
+  const hay = normHay.out;
+  const tight = (s) => squash(s).replace(LOOSE, '');
+  const m = tight(v.match);
+  if (!m || !c.includes(m)) return false;
+  // السياق من العقدة النصية نفسها فقط: يُقطع عند حدّ وسم أو سمة أو سطر، وإلا عبرت النافذة من
+  // فقرة CMS قصيرة إلى ما يجاورها في الصفحة («…كنظام شامل.</p><p>نص آخر») فبدت نصّ مستودع.
+  const end = v.index + v.match.length;
+  const before = hay.slice(Math.max(0, v.index - ctx * 6), v.index);
+  const after = hay.slice(end, end + ctx * 6);
+  const cut = Math.max(before.lastIndexOf('<'), before.lastIndexOf('>'), before.lastIndexOf('"'), before.lastIndexOf('\n'));
+  const stop = after.search(/[<>"\n]/);
+  const left = tight(before.slice(cut + 1)).slice(-ctx);
+  const right = tight(stop < 0 ? after : after.slice(0, stop)).slice(0, ctx);
+  return c.includes(left + m) || c.includes(m + right);
 }

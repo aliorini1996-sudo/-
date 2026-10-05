@@ -4,6 +4,7 @@
 
 export interface FeatureBlock { title: string; body: string }
 export interface FeatureFaq { q: string; a: string }
+export interface FeatureCompare { caption: string; head: string[]; rows: string[][] }
 
 export interface Feature {
   id: string;
@@ -11,6 +12,8 @@ export interface Feature {
   slug: string;
   /** اسم الميزة كما يسمّيها المشتري لا كما نسمّيها داخلياً */
   name: string;
+  /** عنوان الصفحة (<title>) حين يطول H1 — يُلحق به « | Field Sales» */
+  title?: string;
   /** H1 — العبارة الشرائية حرفياً */
   h1: string;
   /** سطر الألم: المشكلة قبل الحل، بلغة الميدان */
@@ -22,6 +25,8 @@ export interface Feature {
   /** ما لا تفعله هذه القدرة — إلزاميّ في كل ميزة */
   limits: string[];
   faq: FeatureFaq[];
+  /** جدول مقارنة ظاهر (اختياري) — الصف الأول عنوان كل صف */
+  compare?: FeatureCompare;
   /** ملفات الكود التي تُثبت كل ما سبق (للمراجعة لا للعرض) */
   proof: string[];
   /** المقال المقترن (زوج هبوط + مقال) */

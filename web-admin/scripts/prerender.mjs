@@ -6,38 +6,83 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { transformSync } from 'esbuild';
-import { buildCatalog, getArticle, listArticles, COUNTRIES, modifiedOf, isIndexable } from '../src/blog/seo/catalog.mjs';
+import { buildCatalog, getArticle, listArticles, COUNTRIES, isIndexable, canonicalSlug } from '../src/blog/seo/catalog.mjs';
 import { loadPricing, repsCap } from './pricing-source.mjs';
 import { SECTORS } from './sectors-data.mjs';
 import { FEATURES } from '../src/content/features.mjs';
 import { TEMPLATES } from './templates-data.mjs';
+import { existsWith, consolidatedTarget, consolidatedUrl, consolidationReport } from '../src/blog/consolidate.mjs';
+import { extractFaqDetailed, publishableFaq, faqPageNode, faqProblemWith, pricingFaq, pricingJsonLd } from '../src/blog/extractFaq.mjs';
+import {
+  relatedPlan, RELATED_TITLE, RELATED_CAP, blogTitle, sectorRelatedLinks, pricingTitle, pricingDescription, pricingSections, phase2LinkFor,
+  enPriceLine, frPriceLine, FREE_TOOLS, FREE_INDEX, freeToolMeta, freeToolJsonLd, aboutContent, REP_APP, REP_APP_STORES, repAppSections,
+  repAppJsonLd, PHASE2_FEATURE_HREF, PHASE2_ANCHOR,
+} from '../src/blog/clusters.mjs';
+import * as claimsRules from './claims-rules.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.resolve(__dirname, '../dist');
 const ORIGIN = 'https://fieldsa.net';
 const LANGS = ['ar', 'en', 'fr'];
 const CMS_API = 'https://api.fieldsa.net/api/site-content';
+/** مصنِّف أسئلة FAQPage بقواعد حارس الادّعاءات نفسها (نفي قديم للمرحلة الثانية، وعد «دون اتصال» غير مقيَّد) */
+const faqProblem = faqProblemWith(claimsRules);
+/** مرجع المنظّمة المعرَّفة في كتلة القالب (index.html) — كاتب المقالات وناشرها كيان واحد بمعرّف ثابت */
+const ORG_REF = { '@id': `${ORIGIN}/#organization` };
 
-// يحمّل المقالات اليدوية من src/blog/posts.ts (بلا استيرادات — يُحوَّل TS→ESM عبر esbuild ويُستورد)،
-// مع محاولة جلب مقالات الـCMS الحيّة أولاً (نفس ما يراه الزائر، كسلوك gen-sitemap) والعودة للافتراضية.
-async function loadManualPosts() {
-  const src = fs.readFileSync(path.resolve(__dirname, '../src/blog/posts.ts'), 'utf8');
+/**
+ * يجلب محتوى الـCMS بمحاولات متكرّرة حتى نحو 90 ثانية (تصحيح الناقد 16). الفشل الكلّي يُسقط البناء
+ * (exit 1) فيبقى نشر Render السابق حيّاً: كان التعثّر يُبتلع بصمت فتُخدَم ~108 مقالة قوقعةَ الرئيسية
+ * حتى النشر التالي. لا حدّ أدنى لعدد المقالات: ردّ صالح يكفي. مطابق لـfetchCms في gen-sitemap.mjs.
+ * SEO_ALLOW_OFFLINE=1 للتشغيل المحلي بلا شبكة فقط (مقالات المستودع وأسئلة الرئيسية الافتراضية).
+ */
+async function fetchCms() {
+  const DEADLINE = 90_000;
+  const started = Date.now();
+  let wait = 2000;
+  let attempt = 0;
+  let last = '';
+  for (;;) {
+    attempt++;
+    const left = DEADLINE - (Date.now() - started);
+    try {
+      const r = await fetch(CMS_API, { signal: AbortSignal.timeout(Math.max(5000, Math.min(20000, left))) });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = (await r.json())?.data;
+      if (!data || typeof data !== 'object') throw new Error('ردّ بلا data');
+      if (attempt > 1) console.log(`  نجح جلب CMS في المحاولة ${attempt}`);
+      return data;
+    } catch (e) {
+      last = e?.message || String(e);
+    }
+    if (Date.now() - started + wait >= DEADLINE) break;
+    console.log(`  تعذّر جلب CMS (محاولة ${attempt}: ${last}) — إعادة بعد ${wait / 1000} ث`);
+    await new Promise((res) => setTimeout(res, wait));
+    wait = Math.min(wait * 2, 30_000);
+  }
+  if (process.env.SEO_ALLOW_OFFLINE === '1') {
+    console.log(`  ⚠️ CMS غير متاح (${last}) — SEO_ALLOW_OFFLINE=1: محتوى المستودع وحده (تشغيل محلي فقط)`);
+    return null;
+  }
+  console.error(`✗ تعذّر جلب CMS بعد ${attempt} محاولات خلال ${Math.round((Date.now() - started) / 1000)} ث (${last}).`);
+  console.error('  أُوقف البناء عمداً: موقع بلا مقالات CMS أسوأ من إبقاء النشر السابق. للتشغيل المحلي بلا شبكة: SEO_ALLOW_OFFLINE=1');
+  process.exit(1);
+}
+
+/** يحوّل ملف TS بلا استيرادات إلى ESM عبر esbuild ويستورده (ملف مؤقت داخل dist يُحذف فوراً) */
+async function loadTs(rel, exportName) {
+  const src = fs.readFileSync(path.resolve(__dirname, `../src/${rel}`), 'utf8');
   const { code } = transformSync(src, { loader: 'ts', format: 'esm' });
-  const tmp = path.join(DIST, '_posts_tmp.mjs');
+  const tmp = path.join(DIST, `_${path.basename(rel).replace(/\W+/g, '_')}_tmp.mjs`);
   fs.writeFileSync(tmp, code);
-  const mod = await import(pathToFileURL(tmp).href);
-  fs.unlinkSync(tmp);
-
-  let cmsBlog = null;
   try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 8000);
-    const r = await fetch(CMS_API, { signal: ctrl.signal });
-    clearTimeout(t);
-    cmsBlog = (await r.json())?.data?.blog ?? null;
-    if (Array.isArray(cmsBlog) && cmsBlog.length) console.log(`  مقالات يدوية: CMS الحيّ (${cmsBlog.length})`);
-  } catch { /* الافتراضية من posts.ts */ }
+    const mod = await import(pathToFileURL(tmp).href);
+    return exportName ? mod[exportName] : mod;
+  } finally { fs.unlinkSync(tmp); }
+}
 
+// المقالات اليدوية: اتحاد CMS الحيّ ومقالات src/blog/posts.ts بالدالة نفسها التي يراها الزائر (effectivePosts)
+function manualPostsFrom(mod, cmsBlog) {
   return mod.effectivePosts(cmsBlog).map((p) => ({
     ...p,
     contentHtml: mod.normalizeContent(p.contentHtml),
@@ -48,22 +93,34 @@ async function loadManualPosts() {
 const esc = (s) => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+/**
+ * أسئلة الرئيسية العربية كما يرسمها React (LandingPage): mergeContent(defaultContent, CMS) يدمج
+ * المصفوفة **بالموضع وبطول الافتراضية** — كل حقل من CMS ما لم يكن فارغاً، وإلا الافتراضي.
+ * فالجسم المُصيَّر وFAQPage يأتيان من المصدر الذي يراه الزائر، لا من نسخة ثالثة في index.html.
+ */
+function homeFaqFrom(defaults, cms) {
+  const d = defaults?.faq || {};
+  const c = cms?.faq && typeof cms.faq === 'object' ? cms.faq : {};
+  const pick = (saved, base) => (saved == null || saved === '' ? base : saved);
+  const saved = Array.isArray(c.items) ? c.items : [];
+  // بلا افتراضية (تعذّر تحميلها) تُؤخذ عناصر CMS كما هي — أفضل من رئيسية بلا أسئلة
+  const base = Array.isArray(d.items) && d.items.length ? d.items : saved;
+  const items = base.map((it, i) => {
+    const s = saved[i] && typeof saved[i] === 'object' ? saved[i] : {};
+    return { q: pick(s.q, it && it.q), a: pick(s.a, it && it.a) };
+  });
+  return { title: pick(c.title, d.title) || 'أسئلة شائعة', items };
+}
+
 // سياسة الخصوصية للزاحف ومراجع الإعلانات — **من المصدر نفسه الذي يعرضه InfoPage للزائر** لا نسخة ثالثة:
 // defaultContent*.ts لكل لغة، **والعربية من الكود دائماً لا من CMS** (القاعدة ذاتها في InfoPage.tsx):
 // السياسة تصف سلوك الكود، ونصّ CMS القديم يَعِد بـ«لا أغراض إعلانية» — لو طال لعاد إلى HTML الزاحف.
 // لولا ذلك لقرأ الزاحف ملخّصاً عامّاً بينما يرى الزائر سياسة القياس الإعلاني الكاملة (فخّ المصدر المزدوج).
 async function loadPrivacyHtml() {
-  const loadTs = async (file, exportName) => {
-    const src = fs.readFileSync(path.resolve(__dirname, `../src/landing/${file}`), 'utf8');
-    const { code } = transformSync(src, { loader: 'ts', format: 'esm' });
-    const tmp = path.join(DIST, `_${exportName}_tmp.mjs`);
-    fs.writeFileSync(tmp, code);
-    try { return (await import(pathToFileURL(tmp).href))[exportName]; } finally { fs.unlinkSync(tmp); }
-  };
   const bodies = {
-    ar: (await loadTs('defaultContent.ts', 'defaultContent')).pages.privacy.body,
-    en: (await loadTs('defaultContentEn.ts', 'defaultContentEn')).pages.privacy.body,
-    fr: (await loadTs('defaultContentFr.ts', 'defaultContentFr')).pages.privacy.body,
+    ar: (await loadTs('landing/defaultContent.ts', 'defaultContent')).pages.privacy.body,
+    en: (await loadTs('landing/defaultContentEn.ts', 'defaultContentEn')).pages.privacy.body,
+    fr: (await loadTs('landing/defaultContentFr.ts', 'defaultContentFr')).pages.privacy.body,
   };
   // فقرة تبدأ برقم قسم ⇒ عنوانه h2، والأسطر الباقية فقرة واحدة بفواصل أسطر
   const toHtml = (body) => String(body).trim().split(/\n\s*\n/).map((block) => {
@@ -77,7 +134,12 @@ async function loadPrivacyHtml() {
 let template = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
 
 // يستبدل وسوم <head> الافتراضية بقيم الصفحة، ويحقن hreflang + JSON-LD + المحتوى
-function buildPage({ lang, title, description, keywords, canonical, image, ogType = 'website', hreflang = '', jsonLd = null, bodyHtml = '', robots = '' }) {
+/**
+ * templateLd: عُقد تُضاف إلى كتلة القالب نفسها لا إلى كتلة الصفحة (data-seo-page) — لما يجب أن يبقى بعد
+ * إقلاع React: LandingPage يستبدل كتلة الصفحة بكتلة Organization، فـFAQPage الرئيسية الإنجليزية الظاهرة
+ * أسئلتها كانت ستختفي من السكيما بعد الإقلاع لو وُضعت هناك (كالرئيسية العربية أدناه).
+ */
+function buildPage({ lang, title, description, keywords, canonical, image, ogType = 'website', hreflang = '', jsonLd = null, bodyHtml = '', robots = '', templateLd = [] }) {
   const dir = lang === 'ar' ? 'rtl' : 'ltr';
   const ogLocale = { en: 'en_US', fr: 'fr_FR', tr: 'tr_TR', zh: 'zh_CN' }[lang] || 'ar_SA';
   let h = template;
@@ -97,16 +159,21 @@ function buildPage({ lang, title, description, keywords, canonical, image, ogTyp
   h = h.replace(/(<meta name="twitter:title" content=")[\s\S]*?("\s*\/>)/, `$1${esc(title)}$2`);
   h = h.replace(/(<meta name="twitter:description" content=")[\s\S]*?("\s*\/>)/, `$1${esc(description)}$2`);
   h = h.replace(/(<meta name="twitter:image" content=")[^"]*("\s*\/>)/, `$1${image}$2`);
+  // التكبير مسموح في الصفحات التسويقية (E1): القالب يمنعه (maximum-scale=1 وuser-scalable=no) لأن
+  // dist/index.html قوقعة تطبيق المندوب و/m أيضاً، وحقولهما بخط ١٤ بكسل — رفع المنع هناك يجعل iOS
+  // يكبّر الشاشة عند لمس كل حقل. هذه الصفحات وحدها تُكتب هنا، فيُرفع المنع عنها دون مسّ القوقعة.
+  h = h.replace(/(<meta name="viewport" content=")[^"]*(")/, '$1width=device-width, initial-scale=1.0, viewport-fit=cover$2');
   // 🔴 منع «الكيان الفريد المكرَّر» (اكتُشف 5 أغسطس 2026 من Search Console):
-  // كل صفحة داخلية ترث ld+json قالبِ الرئيسية (Organization + SoftwareApplication + FAQPage)
-  // ثم تضيف كتلتها، فيتكرّر النوع نفسه مرّتين في الصفحة الواحدة:
+  // كل صفحة داخلية ترث ld+json قالبِ الرئيسية ثم تضيف كتلتها، فيتكرّر النوع نفسه مرّتين في الصفحة:
   //   · مقالات الكتالوج → FAQPage ×2   · صفحات /free → SoftwareApplication ×2
   // (تقرير «البيانات المنظّمة غير قابلة للتحليل»: 108 صفحة منذ مطلع يوليو).
   // ⚠️ الكتلتان **صالحتان JSON كلٌّ على حدة** — العطل دلاليّ لا نحويّ فلا يكشفه parse.
-  // العلاج جراحيّ: تُحذف من القالب **فقط الأنواع التي تُصدرها الصفحة نفسها**، فتحتفظ
-  // الصفحات التي لا تُصدر نوعاً بنسخة القالب (مثلاً /pricing يُبقي SoftwareApplication
-  // بسعره). والرئيسية العربية لا تمرّ بـbuildPage أصلاً فتبقى كاملة.
-  const ownTypes = new Set();
+  // تُحذف من القالب:
+  //   · الأنواع التي تُصدرها الصفحة نفسها (لا تكرار).
+  //   · FAQPage دائماً (P2): أسئلة الرئيسية لا تظهر في أي صفحة غيرها — كانت تُحقن في أكثر من مئتي
+  //     صفحة، منها إنجليزية بأسئلة عربية. الرئيسية العربية لا تمرّ بـbuildPage، وتُبنى أسئلتها من CMS.
+  //   · SoftwareApplication في الصفحات غير العربية (تصحيح الناقد 19): وصفه عربي وinLanguage ar.
+  const ownTypes = new Set(['FAQPage', ...(lang === 'ar' ? [] : ['SoftwareApplication'])]);
   if (jsonLd) {
     for (const n of (Array.isArray(jsonLd['@graph']) ? jsonLd['@graph'] : [jsonLd])) {
       const t = n && n['@type'];
@@ -114,20 +181,18 @@ function buildPage({ lang, title, description, keywords, canonical, image, ogTyp
       else if (Array.isArray(t)) t.forEach((x) => typeof x === 'string' && ownTypes.add(x));
     }
   }
-  if (ownTypes.size) {
-    h = h.replace(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/, (m, body) => {
-      try {
-        const j = JSON.parse(body);
-        if (Array.isArray(j['@graph'])) {
-          const g = j['@graph'].filter((n) => !(n && typeof n['@type'] === 'string' && ownTypes.has(n['@type'])));
-          if (g.length !== j['@graph'].length) {
-            return `<script type="application/ld+json">${JSON.stringify({ ...j, '@graph': g })}</script>`;
-          }
+  h = h.replace(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/, (m, body) => {
+    try {
+      const j = JSON.parse(body);
+      if (Array.isArray(j['@graph'])) {
+        const g = j['@graph'].filter((n) => !(n && typeof n['@type'] === 'string' && ownTypes.has(n['@type'])));
+        if (g.length !== j['@graph'].length || templateLd.length) {
+          return `<script type="application/ld+json">${JSON.stringify({ ...j, '@graph': [...g, ...templateLd] })}</script>`;
         }
-      } catch { /* قالب غير متوقّع — يُترك كما هو بدل كسره */ }
-      return m;
-    });
-  }
+      }
+    } catch { /* قالب غير متوقّع — يُترك كما هو بدل كسره */ }
+    return m;
+  });
   // `data-seo-page` يجعل كتلة الصفحة قابلة للتمييز عن كتلة القالب العامّة، فيستبدلها
   // useSeo عند إقلاع React بدل أن يضيف نسخة ثانية (وإلا تكرّر Article وBreadcrumbList
   // في الصفحة المُصيَّرة بعد التصيير — وهو ما لا يراه أي فحص للـHTML الثابت).
@@ -160,7 +225,19 @@ function buildPage({ lang, title, description, keywords, canonical, image, ogTyp
 let WA_LINK = '';
 export function setWaLink(v) { WA_LINK = v || ''; }
 
-function writeRoute(routePath, html) {
+/**
+ * مسار الصفحة على <html data-ssr-path> (E2 وتصحيح الناقد 1): سكربت الرأس في index.html يُظهر المحتوى
+ * المُصيَّر فوراً **فقط** إن طابق location.pathname هذا المسار. dist/index.html قوقعة كل مسار غير
+ * مُصيَّر (/m و/rep و/login و/c و/pay و/platform…) ومسارها «/»، فلا يظهر نصّ الرئيسية على التطبيق.
+ * القيمة بالشرطة الأخيرة وبالعربية الخام (السكربت يفكّ ترميز المسار قبل المقارنة).
+ */
+function withSsrPath(html, routePath) {
+  const p = `/${String(routePath).replace(/^\/+|\/+$/g, '')}/`.replace(/^\/\/$/, '/');
+  return html.replace(/<html\b([^>]*)>/i, (m, attrs) => `<html${attrs.replace(/\sdata-ssr-path="[^"]*"/i, '')} data-ssr-path="${esc(p)}">`);
+}
+
+function writeRoute(routePath, rawHtml) {
+  const html = withSsrPath(rawHtml, routePath);
   const dir = path.join(DIST, routePath);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'index.html'), html);
@@ -196,11 +273,13 @@ const canon = (url) => {
   return p.endsWith('/') ? origin + p + rest : origin + p + '/' + rest;
 };
 
-// عنقود hreflang للغات المُمرَّرة فقط — تُستثنى منه لغةٌ مقلَّمة (noindex) حتى لا يتناقض العنقود.
+// عنقود hreflang للغات المُمرَّرة فقط — تُستثنى منه لغةٌ مقلَّمة (noindex) أو مدموجة حتى لا يتناقض العنقود.
+// لغة واحدة ⇒ لا عنقود (كما في الخريطة وseoUrls). وكل وسم يحمل data-seo-alt: useSeo يحذف الموسوم
+// ويكتب بدائل seoUrls مكانه عند إقلاع React — بلا الوسم كان يُضيف عنقوداً ثانياً فوق هذا (P1).
 const HREFLANG_CODE = { zh: 'zh-Hans' }; // المحتوى بالمبسّطة تحديداً؛ بقيّة اللغات رمزها اسمها
-const hreflangFor = (blogPath, langs = LANGS) => langs
-  .map((L) => `\n    <link rel="alternate" hreflang="${HREFLANG_CODE[L] || L}" href="${canon(`${ORIGIN}${L === 'ar' ? '' : '/' + L}${blogPath}`)}"/>`)
-  .join('') + `\n    <link rel="alternate" hreflang="x-default" href="${canon(ORIGIN + blogPath)}"/>`;
+const hreflangFor = (blogPath, langs = LANGS) => (langs.length < 2 ? '' : langs
+  .map((L) => `\n    <link rel="alternate" hreflang="${HREFLANG_CODE[L] || L}" href="${canon(`${ORIGIN}${L === 'ar' ? '' : '/' + L}${blogPath}`)}" data-seo-alt="1"/>`)
+  .join('') + `\n    <link rel="alternate" hreflang="x-default" href="${canon(ORIGIN + blogPath)}" data-seo-alt="1"/>`);
 const trilingualHreflang = (blogPath) => hreflangFor(blogPath, LANGS);
 
 const tr = (L, ar, en, fr) => (L === 'ar' ? ar : L === 'en' ? en : fr);
@@ -210,7 +289,9 @@ function articleJsonLd(a, lang, canonical) {
   return {
     '@context': 'https://schema.org',
     '@graph': [
-      { '@type': 'Article', headline: a.title, description: a.description, inLanguage: lang, datePublished: a.date, dateModified: a.modified || a.date, image: a.image, author: { '@type': 'Organization', name: 'FieldSales' }, publisher: { '@type': 'Organization', name: 'FieldSales', logo: { '@type': 'ImageObject', url: `${ORIGIN}/icons/icon-512.png` } }, mainEntityOfPage: canonical },
+      // الكاتب والناشر مرجع إلى المنظّمة المعرَّفة في كتلة القالب بالصفحة نفسها (اسمها وشعارها هناك)،
+      // لا كائن Organization ثانٍ بلا معرّف يتصادم مع منتجات أخرى اسمها «Field Sales» (E1/P2).
+      { '@type': 'Article', headline: a.title, description: a.description, inLanguage: lang, datePublished: a.date, dateModified: a.modified || a.date, image: a.image, author: ORG_REF, publisher: ORG_REF, mainEntityOfPage: canonical },
       { '@type': 'BreadcrumbList', itemListElement: [
         { '@type': 'ListItem', position: 1, name: tr(lang, 'الرئيسية', 'Home', 'Accueil'), item: canon(`${ORIGIN}${prefix || ''}`) },
         { '@type': 'ListItem', position: 2, name: tr(lang, 'المدوّنة', 'Blog', 'Blog'), item: canon(`${ORIGIN}${prefix}/blog`) },
@@ -224,6 +305,8 @@ function articleJsonLd(a, lang, canonical) {
 }
 
 async function main() {
+  // محتوى CMS أولاً وبمحاولات متكرّرة: تعذّره الكلّي يوقف البناء قبل أن يُكتب شيء في dist
+  const cms = await fetchCms();
   // التسعير من مصدره الحيّ (CMS) لا من رقم مكتوب هنا — الأسعار تُحرَّر من لوحة المالك،
   // فأي رقم يدوي في هذا الملف ينزاح صامتاً عن الحقيقة ويصل جوجل ومحرّكات الذكاء وحده.
   const pricing = await loadPricing();
@@ -247,12 +330,18 @@ async function main() {
   if (!fs.existsSync(path.join(DIST, 'index.html'))) { console.error('لا يوجد dist/index.html — شغّل vite build أولاً'); process.exit(0); }
   let n = 0;
 
-  // المقالات اليدوية (posts.ts / CMS) — تُحمَّل مبكراً لتُستخدم في التصيير وفهرس المدوّنة
+  // المقالات اليدوية (posts.ts ∪ CMS) — تُحمَّل مبكراً لتُستخدم في التصيير وفهرس المدوّنة
   const catalogSlugs = new Set(buildCatalog().map((x) => x.slug));
-  const manual = (await loadManualPosts().catch((e) => {
-    console.log('⚠️  تعذّر تحميل المقالات اليدوية (غير مانع): ' + e.message);
-    return [];
-  })).filter((p) => !catalogSlugs.has(p.slug)); // المولَّدة لها تصييرها الأغنى — لا تُدهس
+  const postsMod = await loadTs('blog/posts.ts');
+  const manual = manualPostsFrom(postsMod, cms?.blog)
+    .filter((p) => !catalogSlugs.has(p.slug)); // المولَّدة لها تصييرها الأغنى — لا تُدهس
+  console.log(`  مقالات يدوية: ${manual.length} (اتحاد CMS ${Array.isArray(cms?.blog) ? cms.blog.length : 0} ومقالات المستودع)`);
+
+  // الدمج (P3): المقال الرقيق المكرَّر يبقى حيّاً بمحتواه، وcanonical فيه يشير إلى المقال الغني
+  const exists = existsWith(manual);
+  const consolidation = consolidationReport(exists, (slug, L) => manual.some((p) => p.slug === slug && (L === 'ar' || !!p.en)));
+  console.log(`  الدمج: ${consolidation.applied.length} نسخة مدموجة canonical إلى مقالها الغني`);
+  for (const s of consolidation.skipped) console.log(`  دمج متجاهَل: ${s.lang} ${s.slug} ← ${s.target} (${s.why})`);
 
   // 1) المقالات المولَّدة (~966) — محتوى كامل + وسوم + JSON-LD
   for (const { slug, cc, canonical: canonSlug, isCanonical } of buildCatalog()) {
@@ -262,14 +351,14 @@ async function main() {
       const prefix = L === 'ar' ? '' : `/${L}`;
       // الدمج: صفحة دولة غير ذات أولوية تُشير إلى صفحتها الجامعة لتجميع إشارات الترتيب
       const canonical = canon(`${ORIGIN}${prefix}/blog/${canonSlug}`);
-      const brand = tr(L, 'مدوّنة FieldSales', 'FieldSales Blog', 'Blog FieldSales');
       const body = `<main><article><h1>${esc(a.title)}</h1><img src="${a.imagePath}" alt="${esc(a.title)}" width="1200" height="630"/>${a.contentHtml}</article></main>`;
       // تقليم الفهرسة: الإنجليزية لأسواق بلا طلب إنجليزي تبقى حيّة للزائر لكن noindex،
       // وتُستثنى من عنقود hreflang (صفحة noindex داخل عنقود = إشارة متناقضة لجوجل).
       const indexable = isIndexable(cc, L);
       const langs = isIndexable(cc, 'en') ? LANGS : LANGS.filter((x) => x !== 'en');
       const html = buildPage({
-        lang: L, title: `${a.title} | ${brand}`, description: a.description, keywords: a.keywords,
+        // «| FieldSales» بدل «| مدوّنة FieldSales»، وتسقط إن جاوز العنوان بها 70 حرفاً (clusters.mjs، ومثله BlogPostPage)
+        lang: L, title: blogTitle(a.title), description: a.description, keywords: a.keywords,
         canonical, image: a.image, ogType: 'article',
         // hreflang يُصدَر للصفحة الأساسية فقط — عنقود على صفحة مدموجة/noindex إشارة متناقضة
         hreflang: indexable && isCanonical ? hreflangFor(`/blog/${slug}`, langs) : '',
@@ -283,29 +372,53 @@ async function main() {
 
   // 1ب) المقالات اليدوية (posts.ts / CMS) — عربية دائماً + إنجليزية للثنائية، بمحتوى كامل
   //     (كانت قوقعة SPA فارغة لزواحف AI وكاشطي التواصل رغم وجودها في sitemap)
-  const manualHreflang = (slug, bilingual) =>
-    `\n    <link rel="alternate" hreflang="ar" href="${canon(`${ORIGIN}/blog/${slug}`)}"/>` +
-    (bilingual ? `\n    <link rel="alternate" hreflang="en" href="${canon(`${ORIGIN}/en/blog/${slug}`)}"/>` : '') +
-    `\n    <link rel="alternate" hreflang="x-default" href="${canon(`${ORIGIN}/blog/${slug}`)}"/>`;
+  let faqPages = 0;
+  let faqDropped = 0;
+  // «اقرأ أيضاً» (P4): الخطة نفسها التي يحسبها BlogPostPage من الاتحاد نفسه — هبوط العنقود بمرساته الحرفية
+  // وميزته، وأخوان من العنقود. المدموجة والكتالوج بلا كتلة.
+  const related = { ar: relatedPlan(manual, exists, 'ar'), en: relatedPlan(manual, exists, 'en') };
+  {
+    const hits = new Map();
+    for (const plan of Object.values(related)) for (const links of plan.values()) for (const l of links) hits.set(l.href, (hits.get(l.href) || 0) + 1);
+    const top = [...hits].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([h, c]) => `${decodeURI(h)} ×${c}`).join('، ');
+    console.log(`  «اقرأ أيضاً»: ${related.ar.size} مقالاً عربياً و${related.en.size} إنجليزياً (سقف ${RELATED_CAP} لكل هدف) — الأكثر: ${top}`);
+  }
+  const relatedHtml = (slug, L) => {
+    const links = related[L === 'en' ? 'en' : 'ar'].get(slug) || [];
+    if (!links.length) return '';
+    return `<nav aria-label="${esc(RELATED_TITLE[L === 'en' ? 'en' : 'ar'])}"><h2>${esc(RELATED_TITLE[L === 'en' ? 'en' : 'ar'])}</h2><ul>`
+      + links.map((l) => `<li><a href="${l.href}">${esc(l.anchor)}</a></li>`).join('') + '</ul></nav>';
+  };
   for (const p of manual) {
-    for (const L of p.en ? ['ar', 'en'] : ['ar']) {
+    const langsOf = p.en ? ['ar', 'en'] : ['ar'];
+    // عنقود hreflang بين النسخ غير المدموجة وحدها (مطابق للخريطة)؛ لغة واحدة ⇒ لا عنقود
+    const live = langsOf.filter((L) => !consolidatedTarget(p.slug, L, exists));
+    // dateModified = تاريخ المقال نفسه (updatedAt/modified/date) — المصدر نفسه لـlastmod في الخريطة
+    const modified = postsMod.lastModifiedOf(p) || p.date;
+    for (const L of langsOf) {
       const v = L === 'en' ? p.en : p;
       const prefix = L === 'ar' ? '' : '/en';
-      const canonical = canon(`${ORIGIN}${prefix}/blog/${p.slug}`);
-      const brand = L === 'ar' ? 'مدوّنة FieldSales' : 'FieldSales Blog';
+      const target = consolidatedTarget(p.slug, L, exists);
+      // المدموج: canonical إلى الهدف بشرطة، وrobots يبقى index,follow، والمحتوى كما هو
+      const canonical = target ? consolidatedUrl(target, L) : canon(`${ORIGIN}${prefix}/blog/${p.slug}`);
       const image = `${ORIGIN}/og-image.png`;
-      const body = `<main><article><h1>${esc(v.title)}</h1>${v.contentHtml}</article></main>`;
+      const body = `<main><article><h1>${esc(v.title)}</h1>${v.contentHtml}</article>${relatedHtml(p.slug, L)}</main>`;
+      // الأسئلة الظاهرة في المقال ← FAQPage، بلا نفي قديم ولا وعد «دون اتصال» غير مقيَّد (extractFaq.mjs)
+      const faq = extractFaqDetailed(v.contentHtml, { problem: faqProblem });
+      if (faq.kept.length) faqPages++;
+      faqDropped += faq.dropped.length;
       const html = buildPage({
-        lang: L, title: `${v.title} | ${brand}`, description: v.description, keywords: v.keywords,
+        lang: L, title: blogTitle(v.title), description: v.description, keywords: v.keywords,
         canonical, image, ogType: 'article',
-        hreflang: manualHreflang(p.slug, !!p.en),
-        jsonLd: articleJsonLd({ title: v.title, description: v.description, date: p.date, modified: modifiedOf(p.date), image }, L, canonical),
+        hreflang: target ? '' : hreflangFor(`/blog/${p.slug}`, live),
+        jsonLd: articleJsonLd({ title: v.title, description: v.description, date: p.date, modified, image, faq: faq.kept }, L, canonical),
         bodyHtml: body,
       });
       writeRoute(`${prefix}/blog/${p.slug}`, html);
       n++;
     }
   }
+  console.log(`  FAQPage في ${faqPages} صفحة مقال يدوي (أُسقط ${faqDropped} زوجاً: نفي قديم أو وعد «دون اتصال» غير مقيَّد)`);
 
   // 2) فهارس المدوّنة (ع/إ/فر) — وسوم + قائمة روابط للمقالات (زحف داخلي)
   for (const L of LANGS) {
@@ -317,8 +430,9 @@ async function main() {
     const desc = tr(L, 'مئات المقالات والدلائل في إدارة المبيعات الميدانية والفوترة الإلكترونية والتوزيع لكل الدول العربية.',
       'Hundreds of guides on field sales, e-invoicing and distribution for every Arab country.',
       'Des centaines de guides sur la vente terrain, la facturation électronique et la distribution pour chaque pays arabe.');
+    // المدموجة (P3) لا تُربط من الفهرس — كالصفحات غير القانونية من الكتالوج أدناه
     const manualLinks = L === 'fr' ? [] : manual
-      .filter((p) => L === 'ar' || p.en)
+      .filter((p) => (L === 'ar' || p.en) && !consolidatedTarget(p.slug, L, exists))
       .map((p) => { const v = L === 'en' && p.en ? p.en : p; return `<li><a href="${prefix}/blog/${p.slug}/">${esc(v.title)}</a></li>`; });
     // كل مقال قانونيّ (يدخل الخريطة) يجب أن يُربَط من المحور مباشرةً — إزالة سقف 80 الذي كان
     // يترك 96 صفحة قانونية بلا رابط من الفهرس (يتيمة ⇒ تعلق في «اكتُشفت — لم تُفهرَس بعد»).
@@ -333,19 +447,43 @@ async function main() {
     n++;
   }
 
-  // 3) الرئيسيات المترجمة (إنجليزي/فرنسي/تركي/صيني) — وسوم + محتوى دلالي مختصر (زواحف AI لا تُشغّل JavaScript)
+  // 3) الرئيسيات المترجمة (إنجليزي/فرنسي/تركي/صيني) — وسوم + محتوى دلالي (زواحف AI لا تُشغّل JavaScript)
+  //
+  // الإنجليزية (P7): كانت 202 كلمة بلا أسعار ولا ربط ولا حدود العمل دون اتصال. الأسئلة من المصدر الذي
+  // يعرضه LandingPage على /en/ (defaultContentEn.faq) مصفّاةً بالقواعد نفسها، وFAQPage لها في كتلة القالب
+  // (templateLd) كي لا تختفي بعد الإقلاع. وسطر الأسعار من باقات CMS (enPriceLine).
+  // أدلّة السعودية من صفحات الكتالوج القانونية: مقالات CMS الإنجليزية (sales-rep-tracking-saudi وvan-sales-software-saudi
+  // وdms-saudi-arabia وorder-to-cash-cycle) ما زالت تقول «Phase 2 not built»، والصفحة نفسها تعلن الربط. تعود بعد تنظيف CMS.
+  const homeEnDefaults = await loadTs('landing/defaultContentEn.ts', 'defaultContentEn').catch((e) => {
+    console.log('⚠️  تعذّر تحميل محتوى الرئيسية الإنجليزية (غير مانع): ' + e.message);
+    return null;
+  });
+  const enFaq = publishableFaq(homeEnDefaults?.faq?.items || [], { problem: faqProblem });
+  for (const d of enFaq.dropped) console.log(`  ⚠️ سؤال في أسئلة الرئيسية الإنجليزية خارج FAQPage [${d.why}]: ${d.q}`);
+  const enFaqHtml = enFaq.kept.length
+    ? `<h2>${esc(homeEnDefaults?.faq?.title || 'Frequently asked questions')}</h2>\n` + enFaq.kept.map((f) => `<h3>${esc(f.q)}</h3><p>${esc(f.a)}</p>`).join('\n')
+    : '';
+  const enLine = enPriceLine(pricing.plans);
   const homeMeta = {
     en: {
       title: 'FieldSales | Field Sales & Distribution Management Software for Arab Markets',
       desc: 'Arabic-first field sales system for distributors across Saudi Arabia, Egypt and the Arab world: tax invoices, collection, van stock and rep tracking. Free 10-day trial.',
+      templateLd: enFaq.kept.length ? [faqPageNode(enFaq.kept)] : [],
       body: `<main><h1>FieldSales — field sales &amp; distribution management for Arab markets</h1>
-<p>FieldSales is a SaaS platform for distribution companies: sales reps issue structured tax invoices (ZATCA-compliant QR in Saudi Arabia), collect payments, and manage van stock from a mobile app, while managers get live dashboards, GPS tracking and reports. Available in Arabic, English and French across all 22 Arab countries.</p>
-<ul><li>Field tax invoicing with QR code and thermal printing</li><li>Collection, receivables and customer statements with credit limits</li><li>Van stock per rep with live variance detection</li><li>GPS rep tracking and route planning</li><li>Product catalog, price tiers and ERP integration</li></ul>
+<p>FieldSales is a cloud platform for distribution companies that sell through field reps. Reps issue invoices and receipts with a QR code from their phones, print them on a thermal printer, collect payments and manage their van stock, while managers see sales, collections, receivables and every rep’s route on one dashboard.</p>
+<p>It is built Arabic-first, with English and French interfaces, for distributors of food, beverages and consumer goods across the Arab world.</p>
+<ul><li>Field invoicing with QR code and thermal printing</li><li>Collection, receivables and customer statements with credit limits</li><li>Van stock per rep with live variance detection</li><li>GPS rep tracking and route planning</li><li>Product catalog, price tiers and ERP integration</li></ul>
+<h2>E-invoicing in Saudi Arabia</h2>
+<p>FieldSales supports Phase 2 integration with ZATCA’s Fatoora platform.</p>
+<p>For Saudi companies with the integration enabled, invoices (standard and simplified) and returns need a connection at the moment of issuance, while receipts and visit logging still work offline. <a href="/en/blog/einvoicing-compliance-sa/">E-invoicing and tax compliance in Saudi Arabia</a></p>
+<h2>Pricing</h2>
+<p>Priced per company, not per user${enLine ? `: ${esc(enLine)}` : ''}. No setup fees, and a free trial without a credit card. <a href="/en/pricing/">See pricing details</a></p>
+${enFaqHtml}
 <h2>Contact &amp; subscription requests</h2>
-<p>Official email: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Head office: Saudi Arabia · <a href="/en/subscribe-request">Submit a subscription request</a> or <a href="/signup">start the free trial</a> directly.</p>
-<p><a href="/signup">Start your free 10-day trial</a> — no credit card required. <a href="/en/blog">Read the blog</a> · <a href="/en/about">About</a> · <a href="/en/contact">Contact</a></p>
-<p>Guides for Saudi distribution: <a href="/en/blog/sales-rep-tracking-saudi/">Sales rep tracking app for Saudi Arabia</a> · <a href="/en/blog/van-sales-software-saudi/">Van sales software for Saudi Arabia</a> · <a href="/en/blog/dms-saudi-arabia/">Distributor management system (DMS) in Saudi Arabia</a> · <a href="/en/blog/zatca-invoicing-for-field-reps/">ZATCA e-invoicing for van sales reps</a></p>
-<p>By topic: <a href="/en/blog/order-to-cash-cycle/">order to cash cycle</a> · <a href="/en/blog/mobile-field-invoicing/">offline field sales app</a> · <a href="/en/blog/fmcg-distribution/">trade marketing and distribution</a> · <a href="/en/blog/wholesale-food-distributors/">dairy distribution</a> · <a href="/en/blog/van-sales-app/">van sales app</a> · <a href="/en/blog/collection-receivables/">collection and receivables</a></p></main>`,
+<p>Official email: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Head office: Riyadh, Saudi Arabia · <a href="/en/subscribe-request/">Submit a subscription request</a> or <a href="/signup">start the free trial</a> directly.</p>
+<p><a href="/signup">Start your free 10-day trial</a> — no credit card required. <a href="/en/blog">Read the blog</a> · <a href="/en/pricing/">Pricing</a> · <a href="/en/about">About</a> · <a href="/en/contact">Contact</a> · <a href="/en/terms/">Terms</a> · <a href="/en/privacy/">Privacy</a> · <a href="/en/service-agreement/">Service agreement</a></p>
+<p>Guides for Saudi distribution: <a href="/en/blog/sales-rep-management-sa/">Sales rep management in Saudi Arabia</a> · <a href="/en/blog/van-sales-app-sa/">Van sales app for Saudi Arabia</a> · <a href="/en/blog/distribution-management-system-sa/">Distributor management system (DMS) in Saudi Arabia</a> · <a href="/en/blog/field-sales-software-sa/">Field sales management software for Saudi Arabia</a> · <a href="/en/blog/collection-receivables-sa/">Collection and receivables in Saudi Arabia</a></p>
+<p>By topic: <a href="/en/blog/mobile-field-invoicing/">offline field sales app</a> · <a href="/en/blog/fmcg-distribution/">trade marketing and distribution</a> · <a href="/en/blog/wholesale-food-distributors/">dairy distribution</a> · <a href="/en/blog/van-sales-app/">van sales app</a> · <a href="/en/blog/collection-receivables/">collection and receivables</a></p></main>`,
     },
     fr: {
       title: 'FieldSales | Logiciel de gestion des ventes terrain et distribution',
@@ -354,8 +492,8 @@ async function main() {
 <p>FieldSales est une plateforme SaaS pour les entreprises de distribution : les commerciaux émettent des factures structurées à code QR, encaissent les paiements et gèrent le stock du véhicule depuis une application mobile, tandis que les gérants disposent de tableaux de bord en direct, du suivi GPS et de rapports. Disponible en arabe, anglais et français dans les 22 pays arabes.</p>
 <ul><li>Facturation terrain avec code QR et impression thermique</li><li>Encaissement, créances et relevés clients avec limites de crédit</li><li>Stock du véhicule par commercial avec détection des écarts</li><li>Suivi GPS et planification des tournées</li><li>Catalogue produits, grilles tarifaires et intégration ERP</li></ul>
 <h2>Contact et demandes d'abonnement</h2>
-<p>E-mail officiel : <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Siège social : Arabie saoudite · <a href="/fr/subscribe-request">Envoyez une demande d'abonnement</a> ou <a href="/signup">commencez l'essai gratuit</a>.</p>
-<p><a href="/signup">Essai gratuit de 10 jours</a> — sans carte bancaire. <a href="/fr/blog">Blog</a> · <a href="/fr/about">À propos</a> · <a href="/fr/contact">Contact</a></p>
+<p>E-mail officiel : <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Siège social : Arabie saoudite · <a href="/fr/subscribe-request/">Envoyez une demande d'abonnement</a> ou <a href="/signup">commencez l'essai gratuit</a>.</p>
+<p><a href="/signup">Essai gratuit de 10 jours</a> — sans carte bancaire. <a href="/fr/blog">Blog</a> · <a href="/fr/pricing/">Tarifs</a> · <a href="/fr/invoice-generator/">Générateur de factures gratuit</a> · <a href="/fr/about">À propos</a> · <a href="/fr/contact">Contact</a> · <a href="/fr/terms/">Conditions</a> · <a href="/fr/privacy/">Confidentialité</a> · <a href="/fr/service-agreement/">Accord de service</a></p>
 <p>Par thème : <a href="/fr/blog/collection-receivables/">recouvrement de créances</a> · <a href="/fr/blog/collection-receivables-eg/">recouvrement de créances en Égypte</a> · <a href="/fr/blog/van-sales-app/">application van sales</a> · <a href="/fr/blog/collection-receivables-sa/">recouvrement de créances en Arabie saoudite</a> · <a href="/fr/blog/distribution-management-system/">système de gestion de la distribution</a></p></main>`,
     },
     tr: {
@@ -365,8 +503,8 @@ async function main() {
 <p>FieldSales dağıtım şirketleri için bir SaaS platformudur: saha temsilcileri mobil uygulamadan QR kodlu yapılandırılmış vergi faturaları keser, tahsilat yapar ve araç stokunu yönetir; yöneticiler canlı panolar, GPS takibi ve raporlar alır. Arapça, İngilizce, Fransızca ve Türkçe olarak 22 Arap ülkesinde kullanılabilir.</p>
 <ul><li>QR kodlu saha faturalama ve termal yazdırma</li><li>Tahsilat, cari hesap ve kredi limitli müşteri ekstreleri</li><li>Temsilci başına araç stoku ve canlı fark tespiti</li><li>GPS temsilci takibi ve rota planlama</li><li>Ürün kataloğu, fiyat listeleri ve ERP entegrasyonu</li></ul>
 <h2>İletişim ve abonelik talepleri</h2>
-<p>Resmi e-posta: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Merkez: Suudi Arabistan · <a href="/tr/subscribe-request">Abonelik talebi gönderin</a> veya <a href="/signup">ücretsiz denemeyi başlatın</a>.</p>
-<p><a href="/signup">10 günlük ücretsiz deneme</a> — kredi kartı gerekmez. <a href="/en/blog">Blog (İngilizce)</a> · <a href="/tr/about">Hakkında</a> · <a href="/tr/contact">İletişim</a></p></main>`,
+<p>Resmi e-posta: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Merkez: Suudi Arabistan · <a href="/tr/subscribe-request/">Abonelik talebi gönderin</a> veya <a href="/signup">ücretsiz denemeyi başlatın</a>.</p>
+<p><a href="/signup">10 günlük ücretsiz deneme</a> — kredi kartı gerekmez. <a href="/en/blog">Blog (İngilizce)</a> · <a href="/en/about/">Hakkında (İngilizce)</a> · <a href="/en/contact/">İletişim (İngilizce)</a></p></main>`,
     },
     zh: {
       title: 'FieldSales | 外勤销售与分销管理软件',
@@ -375,15 +513,15 @@ async function main() {
 <p>FieldSales 是一套面向分销企业的 SaaS 平台：业务员通过手机应用开具带二维码的结构化增值税发票、完成收款并管理车载库存；管理者则获得实时看板、GPS 追踪与报表。支持阿拉伯语、英语、法语、土耳其语和中文，覆盖 22 个阿拉伯国家。</p>
 <ul><li>带二维码的外勤开票与热敏打印</li><li>收款、应收账款与带信用额度的客户对账单</li><li>按业务员划分的车载库存与实时差异检测</li><li>业务员 GPS 追踪与路线规划</li><li>产品目录、价格体系与 ERP 集成</li></ul>
 <h2>联系我们与订阅申请</h2>
-<p>官方邮箱：<a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · 总部：沙特阿拉伯 · <a href="/zh/subscribe-request">提交订阅申请</a>或直接<a href="/signup">开始免费试用</a>。</p>
-<p><a href="/signup">立即开始 10 天免费试用</a> — 无需信用卡。<a href="/en/blog">博客（英文）</a> · <a href="/zh/about">关于我们</a> · <a href="/zh/contact">联系我们</a></p></main>`,
+<p>官方邮箱：<a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · 总部：沙特阿拉伯 · <a href="/zh/subscribe-request/">提交订阅申请</a>或直接<a href="/signup">开始免费试用</a>。</p>
+<p><a href="/signup">立即开始 10 天免费试用</a> — 无需信用卡。<a href="/en/blog">博客（英文）</a> · <a href="/en/about/">关于我们（英文）</a> · <a href="/en/contact/">联系我们（英文）</a></p></main>`,
     },
   };
   // الرئيسية المترجمة: hreflang خماسي (ع/إ/فر/تر/صيني) — للتسويق فقط، والمدونة تبقى ثلاثية
   const marketingHreflang = hreflangFor('/', [...LANGS, 'tr', 'zh']);
   for (const L of ['en', 'fr', 'tr', 'zh']) {
     const canonical = canon(`${ORIGIN}/${L}`);
-    const html = buildPage({ lang: L, title: homeMeta[L].title, description: homeMeta[L].desc, canonical, image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: marketingHreflang, bodyHtml: homeMeta[L].body });
+    const html = buildPage({ lang: L, title: homeMeta[L].title, description: homeMeta[L].desc, canonical, image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: marketingHreflang, bodyHtml: homeMeta[L].body, templateLd: homeMeta[L].templateLd || [] });
     writeRoute(`/${L}`, html);
     n++;
   }
@@ -443,21 +581,15 @@ async function main() {
   //    وReact يستبدله بالنص الكامل عند التحميل. (الرئيسية العربية تبقى dist/index.html — هي fallback الـSPA)
   // صفحة التسعير — مُصيَّرة بأسعار الـCMS الحيّة وبسكيما Product+Offer+FAQPage.
   // بلا تصيير تفقد الصفحة سبب وجودها: استعلامات «كم سعر…» يجيبها الزاحف لا المتصفّح.
-  const priceFaq = (qa) => ({
-    '@context': 'https://schema.org',
-    '@graph': [
-      {
-        '@type': 'Product', name: 'Field Sales', alternateName: 'فيلد سيلز',
-        url: canon(`${ORIGIN}/pricing`),
-        offers: {
-          '@type': 'AggregateOffer', lowPrice: String(pricing.low), highPrice: String(pricing.high),
-          priceCurrency: 'SAR', offerCount: pricing.plans.length,
-          availability: 'https://schema.org/InStock',
-        },
-      },
-      { '@type': 'FAQPage', mainEntity: qa.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })) },
-    ],
-  });
+  // الأسئلة والسكيما من src/blog/extractFaq.mjs — المصدر نفسه الذي يعرضه PricingPage بعد الإقلاع،
+  // فلا تبقى في FAQPage أسئلة تختفي من الصفحة بعد تحميل React. Product بمعرّف واحد للغات الثلاث.
+  const pricingLd = (L) => pricingJsonLd(L, pricing.plans, canon(`${ORIGIN}${L === 'ar' ? '' : '/' + L}/pricing`));
+  const pricingFaqHtml = (L) => {
+    const faq = pricingFaq(L, pricing.plans);
+    if (!faq.length) return '';
+    return `<h2>${esc(tr(L, 'أسئلة عن التسعير', 'Pricing questions', 'Questions sur les tarifs'))}</h2>`
+      + faq.map((f) => `<h3>${esc(f.q)}</h3><p>${esc(f.a)}</p>`).join('');
+  };
 
   /**
    * جدول الباقات بلغة الصفحة.
@@ -490,71 +622,93 @@ async function main() {
       })
       .join('');
 
-  const PRICING_AR_FAQ = [
-    ['كم سعر برنامج مندوبين المبيعات؟', `${pricing.arSummary}. السعر لكل شركة لا لكل مستخدم، وما فوق ذلك يُحدَّد بالمحادثة.`],
-    ['هل السعر لكل مندوب أم لكل شركة؟', 'لكل شركة. إضافة مندوب جديد ضمن حدّ الباقة لا تزيد فاتورتك الشهرية.'],
-    ['هل هناك رسوم تأسيس أو إعداد؟', 'لا رسوم تأسيس ولا رسوم إعداد.'],
-    ['هل التجربة تحتاج بطاقة ائتمان؟', 'لا. التجربة عشرة أيام بلا بطاقة ائتمان.'],
-    ['هل يدعم النظام الفاتورة الإلكترونية؟', 'نعم. يُصدر فاتورة ضريبية برمز QR، وندعم ربط المرحلة الثانية مع منصة فاتورة التابعة لهيئة الزكاة والضريبة والجمارك. والهيئة لا تعتمد مزوّدي البرمجيات.'],
-  ];
-
   // النصّ الكامل لسياسة الخصوصية (انظر loadPrivacyHtml) — تعذّر التحميل ⇒ الملخّص القصير أدناه
   const privacyHtml = await loadPrivacyHtml().catch((e) => {
     console.log('⚠️  تعذّر تحميل نصّ سياسة الخصوصية (غير مانع): ' + e.message);
     return null;
   });
 
+  // أقسام مشتركة مع React (clusters.mjs): {h2, paras, items, sub:[{h3,p}], links, link} ⇒ HTML
+  const sectionsHtml = (sections) => (sections || []).map((s) => `<h2>${esc(s.h2)}</h2>`
+    + (s.paras || []).map((p) => `<p>${esc(p)}</p>`).join('')
+    + (s.items && s.items.length ? `<ul>${s.items.map((i) => `<li>${esc(i)}</li>`).join('')}</ul>` : '')
+    + (s.sub || []).map((x) => `<h3>${esc(x.h3)}</h3><p>${esc(x.p)}</p>`).join('')
+    + (s.links && s.links.length
+      ? `<p>${s.links.map((l) => `<a href="${esc(l.href)}"${/^https?:/.test(l.href) ? ' rel="noopener"' : ''}>${esc(l.label)}</a>`).join(' · ')}</p>`
+      : '')
+    + (s.link ? `<p><a href="${esc(s.link.href)}">${esc(s.link.label)}</a></p>` : '')).join('\n');
+
+  // حدّ أعلى باقة رقمية من CMS — كان «فوق ${high === 599 ? '٢٠' : high}»: لو تغيّر أعلى سعر لكُتب السعر عدداً للمناديب
+  const topCap = (() => {
+    const numeric = pricing.plans.filter((p) => /^\d+$/.test(String(p.price))).sort((a, b) => Number(a.price) - Number(b.price));
+    return numeric.length ? repsCap(numeric[numeric.length - 1].limit) : null;
+  })();
+  const phase2Html = (L) => { const l = phase2LinkFor(L); return `<p><a href="${l.href}">${esc(l.label)}</a></p>`; };
+
+  // عن المنصة (P7): الحقائق من كيان Organization والأسعار من CMS، والمصدر نفسه يعرضه InfoPage تحت نصّ الصفحة.
+  // سنة التأسيس أول الصفحة وجملة الربط في قسم بعيد عنها (تصحيح الناقد 8).
+  const about = {
+    ar: aboutContent('ar', { priceLine: pricing.arSummary }),
+    en: aboutContent('en', { priceLine: enLine }),
+    fr: aboutContent('fr', { priceLine: frPriceLine(pricing.plans) }),
+  };
+
   const INFO = {
     pricing: {
       ar: {
-        t: 'كم سعر برنامج مندوبين المبيعات؟ | Field Sales',
-        d: `أسعار Field Sales معلنة: ${pricing.arSummary} — لكل شركة لا لكل مستخدم، بلا رسوم تأسيس، وتجربة ١٠ أيام بلا بطاقة ائتمان.`,
-        j: priceFaq(PRICING_AR_FAQ),
+        t: pricingTitle('ar'),
+        // ١٥٠ حرفاً أو أقل بالأرقام الثلاثة من CMS — كان ٢٣٤ حرفاً يقصّه جوجل (مطابق لـPricingPage)
+        d: pricingDescription('ar', pricing.plans),
+        j: pricingLd('ar'),
         b: `<h1>أسعار Field Sales — معلنة وبلا رسوم خفية</h1>
 <p>السعر <strong>لكل شركة لا لكل مستخدم</strong>: إضافة مندوب ضمن حدّ باقتك لا تزيد فاتورتك الشهرية. بلا رسوم تأسيس، وبلا التزام سنوي، وتجربة عشرة أيام دون بطاقة ائتمان.</p>
 <table><caption>باقات Field Sales</caption><thead><tr><th>الباقة</th><th>السعر شهرياً</th><th>الحدّ</th></tr></thead><tbody>${planRowsFor('ar')}</tbody></table>
-<p>فوق ${pricing.high === 599 ? '٢٠' : pricing.high} مندوبًا نحدّد السعر بالمحادثة حسب حجمك — <a href="${waHref}" rel="noopener">تحدّث معنا على واتساب</a> أو <a href="/signup">ابدأ التجربة المجانية</a>.</p>
+<p>${topCap ? `فوق ${topCap} مندوباً نحدّد السعر بالمحادثة حسب حجمك` : 'للفرق الأكبر نحدّد السعر بالمحادثة حسب حجمك'} — <a href="${waHref}" rel="noopener">تحدّث معنا على واتساب</a> أو <a href="/signup">ابدأ التجربة المجانية</a>.</p>
+${sectionsHtml(pricingSections('ar', pricing.plans))}
 <h2>ما نملكه وما لا نملكه — بصراحة</h2>
 <p>ندعم الفاتورة الإلكترونية برمز QR، وندعم <strong>ربط المرحلة الثانية</strong> مع منصة فاتورة التابعة لهيئة الزكاة والضريبة والجمارك. والهيئة لا تعتمد ولا تصادق مزوّدي البرمجيات فلا ندّعي اعتماداً منها، وليست لدينا شهادات SOC2 أو ISO.</p>
-${PRICING_AR_FAQ.map(([q, a]) => `<h2>${esc(q)}</h2><p>${esc(a)}</p>`).join('')}`,
+${phase2Html('ar')}
+${pricingFaqHtml('ar')}`,
       },
       en: {
-        t: 'Field Sales pricing — published, no hidden fees',
-        d: `Published pricing: ${pricing.enSummary} per month, per company not per user. No setup fees, 10-day free trial without a credit card.`,
-        j: priceFaq([
-          ['How much does field sales software cost?', `${pricing.enSummary} per month, priced per company rather than per user.`],
-          ['Is it priced per rep or per company?', 'Per company. Adding a rep within your plan limit does not increase your monthly bill.'],
-          ['Are there setup fees?', 'No setup or onboarding fees.'],
-          ['Does the trial need a credit card?', 'No. The 10-day trial needs no credit card.'],
-        ]),
+        t: pricingTitle('en'),
+        d: pricingDescription('en', pricing.plans),
+        j: pricingLd('en'),
         b: `<h1>Field Sales pricing — published, with no hidden fees</h1>
 <p>Priced <strong>per company, not per user</strong>: ${pricing.enSummary} per month. No setup fees, no annual lock-in, and a 10-day trial without a credit card.</p>
 <table><caption>Field Sales plans</caption><thead><tr><th>Plan</th><th>Monthly</th><th>Limit</th></tr></thead><tbody>${planRowsFor('en')}</tbody></table>
-<p>Above 20 reps we price in conversation — <a href="${waHref}" rel="noopener">talk to us on WhatsApp</a> or <a href="/signup">start the free trial</a>.</p>
+<p>${topCap ? `Above ${topCap} reps we price in conversation` : 'For larger teams we price in conversation'} — <a href="${waHref}" rel="noopener">talk to us on WhatsApp</a> or <a href="/signup">start the free trial</a>.</p>
+${sectionsHtml(pricingSections('en', pricing.plans))}
 <h2>What we have and do not have — plainly</h2>
-<p>We support <strong>Phase 2 integration</strong> with ZATCA’s Fatoora platform. ZATCA does not certify software vendors, so we claim no approval. We hold no SOC2 or ISO certification.</p>`,
+<p>We support <strong>Phase 2 integration</strong> with ZATCA’s Fatoora platform. ZATCA does not certify software vendors, so we claim no approval. We hold no SOC2 or ISO certification.</p>
+${phase2Html('en')}
+${pricingFaqHtml('en')}`,
       },
       fr: {
-        t: 'Tarifs Field Sales — publiés, sans frais cachés',
-        d: `Tarifs publiés : ${pricing.enSummary} par mois, par entreprise et non par utilisateur. Sans frais de mise en service, essai 10 jours sans carte.`,
+        t: pricingTitle('fr'),
+        d: pricingDescription('fr', pricing.plans),
+        j: pricingLd('fr'),
         b: `<h1>Tarifs Field Sales — publiés, sans frais cachés</h1>
 <p>Facturation <strong>par entreprise, pas par utilisateur</strong> : ${pricing.enSummary} par mois. Sans frais de mise en service ni engagement annuel, avec un essai de 10 jours sans carte bancaire.</p>
 <table><caption>Offres Field Sales</caption><thead><tr><th>Offre</th><th>Par mois</th><th>Limite</th></tr></thead><tbody>${planRowsFor('fr')}</tbody></table>
-<p>Au-delà de 20 commerciaux, le prix se définit en conversation — <a href="${waHref}" rel="noopener">discutez avec nous</a>.</p>
+<p>${topCap ? `Au-delà de ${topCap} commerciaux, le prix se définit en conversation` : 'Pour les équipes plus grandes, le prix se définit en conversation'} — <a href="${waHref}" rel="noopener">discutez avec nous</a>.</p>
+${sectionsHtml(pricingSections('fr', pricing.plans))}
 <h2>Ce que nous avons et n’avons pas — clairement</h2>
-<p>Nous prenons en charge <strong>l’intégration phase 2</strong> avec la plateforme Fatoora de la ZATCA. La ZATCA ne certifie aucun éditeur ; nous ne revendiquons aucune homologation.</p>`,
+<p>Nous prenons en charge <strong>l’intégration phase 2</strong> avec la plateforme Fatoora de la ZATCA. La ZATCA ne certifie aucun éditeur ; nous ne revendiquons aucune homologation.</p>
+${phase2Html('fr')}
+${pricingFaqHtml('fr')}`,
       },
     },
     about: {
-      ar: { t: 'عن المنصّة | FieldSales', d: 'تعرّف على منصّة FieldSales لإدارة المبيعات الميدانية والتوزيع في الأسواق العربية.',
-        b: '<h1>عن منصّة FieldSales</h1><p>FieldSales منصّة سحابية عربية لإدارة المبيعات الميدانية والتوزيع: فواتير ضريبية منظّمة من الميدان، تحصيل وكشوف حساب، مخزون سيارة المندوب، تتبّع GPS، وتقارير لحظية — لشركات التوزيع في كل الدول العربية بواجهة عربية أصلية ودعم للإنجليزية والفرنسية. تواصل معنا: info@fieldsa.net</p>' },
-      en: { t: 'About | FieldSales', d: 'Learn about FieldSales, the field sales and distribution management platform for Arab markets.',
-        b: '<h1>About FieldSales</h1><p>FieldSales is an Arabic-first SaaS platform for field sales and distribution: structured tax invoices from the field, collection and statements, van stock, GPS tracking and live reports — serving distributors across all Arab countries in Arabic, English and French. Contact: info@fieldsa.net</p>' },
-      fr: { t: 'À propos | FieldSales', d: 'Découvrez FieldSales, la plateforme de gestion des ventes terrain et de la distribution pour les marchés arabes.',
-        b: '<h1>À propos de FieldSales</h1><p>FieldSales est une plateforme SaaS pour la vente terrain et la distribution : factures structurées, encaissement et relevés, stock du véhicule, suivi GPS et rapports en direct — au service des distributeurs de tous les pays arabes, en arabe, anglais et français. Contact : info@fieldsa.net</p>' },
+      ar: { t: about.ar.title, d: about.ar.description,
+        b: `<h1>عن منصّة FieldSales</h1><p>FieldSales منصّة سحابية عربية لإدارة المبيعات الميدانية والتوزيع: فواتير ضريبية منظّمة من الميدان، تحصيل وكشوف حساب، مخزون سيارة المندوب، تتبّع GPS، وتقارير لحظية — لشركات التوزيع في الدول العربية بواجهة عربية أصلية ودعم للإنجليزية والفرنسية.</p>\n${sectionsHtml(about.ar.sections)}` },
+      en: { t: about.en.title, d: about.en.description,
+        b: `<h1>About FieldSales</h1><p>FieldSales is an Arabic-first SaaS platform for field sales and distribution: structured tax invoices from the field, collection and statements, van stock, GPS tracking and live reports — serving distributors across the Arab world in Arabic, English and French.</p>\n${sectionsHtml(about.en.sections)}` },
+      fr: { t: about.fr.title, d: about.fr.description,
+        b: `<h1>À propos de FieldSales</h1><p>FieldSales est une plateforme SaaS pour la vente terrain et la distribution : factures structurées, encaissement et relevés, stock du véhicule, suivi GPS et rapports en direct — au service des distributeurs du monde arabe, en arabe, anglais et français.</p>\n${sectionsHtml(about.fr.sections)}` },
     },
     contact: {
-      ar: { t: 'تواصل معنا | FieldSales', d: 'تواصل مع فريق FieldSales للاستفسارات والمبيعات والدعم الفني.',
+      ar: { t: 'تواصل مع فيلد سيلز – نظام إدارة المناديب | FieldSales', d: 'تواصل مع فريق FieldSales للاستفسارات والمبيعات والدعم الفني.',
         b: '<h1>تواصل معنا</h1><p>للاستفسارات والمبيعات: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · للدعم الفني: <a href="mailto:help@fieldsa.net">help@fieldsa.net</a> · أو ابدأ <a href="/signup">تجربتك المجانية 10 أيام</a> مباشرةً.</p>' },
       en: { t: 'Contact | FieldSales', d: 'Contact the FieldSales team for sales, questions and technical support.',
         b: '<h1>Contact us</h1><p>Sales and questions: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Support: <a href="mailto:help@fieldsa.net">help@fieldsa.net</a> · or start your <a href="/signup">free 10-day trial</a> directly.</p>' },
@@ -608,7 +762,7 @@ ${PRICING_AR_FAQ.map(([q, a]) => `<h2>${esc(q)}</h2><p>${esc(a)}</p>`).join('')}
     + `<strong>${pricing.arSummary}</strong>`
     + (pricing.hasCustomTier ? `، وباقة ${esc(pricing.customTierName)} لعدد غير محدود من المناديب حسب الطلب` : '')
     + `. مع <strong>تجربة مجانية 10 أيام</strong> تبدأ خلال دقائق دون بطاقة ائتمان.</p>`
-    + `<p><a href="/signup">ابدأ تجربتك المجانية</a> أو <a href="${waHref}" rel="noopener">تحدّث معنا على واتساب</a> لتسعير أكثر من ${pricing.high === 599 ? '٢٠' : pricing.high} مندوبًا.</p>`;
+    + `<p><a href="/signup">ابدأ تجربتك المجانية</a> أو <a href="${waHref}" rel="noopener">تحدّث معنا على واتساب</a> ${topCap ? `لتسعير أكثر من ${topCap} مندوباً` : 'لتسعير الفرق الأكبر'}.</p>`;
 
   // 4.5) صفحات القطاعات السبعة — محتوى مكتوب لكل قطاع (لا استنساخ)
   for (const sec of SECTORS) {
@@ -616,6 +770,9 @@ ${PRICING_AR_FAQ.map(([q, a]) => `<h2>${esc(q)}</h2><p>${esc(a)}</p>`).join('')}
     const faqHtml = sec.faq.map((f) => `<h2>${esc(f.q)}</h2><p>${esc(f.a)}</p>`).join('');
     const featHtml = sec.features.map((f) => `<li><strong>${esc(f.title)}</strong> — ${esc(f.body)}</li>`).join('');
     const deepHtml = (sec.deep || []).map((d) => `<h2>${esc(d.title)}</h2><p>${esc(d.body)}</p>`).join('');
+    // روابط ذات صلة (P4): ميزتان تخدمان ألم القطاع، و«نظام إدارة المناديب»، وقطاعان قريبان (clusters.mjs)
+    const rel = sectorRelatedLinks(sec.slug);
+    const relHtml = rel.length ? `<h2>روابط ذات صلة</h2><ul>${rel.map((l) => `<li><a href="${l.href}">${esc(l.anchor)}</a></li>`).join('')}</ul>` : '';
     const body = `<main>
 <h1>برنامج إدارة مناديب التوزيع لشركات ${esc(sec.name)}</h1>
 <p>${esc(sec.pain)}</p>
@@ -625,6 +782,7 @@ ${deepHtml}
 ${faqHtml}
 <h2>ما نملكه وما لا نملكه — بصراحة</h2>
 <p>ندعم الفاتورة الإلكترونية برمز QR، وندعم ربط المرحلة الثانية مع منصة فاتورة التابعة لهيئة الزكاة والضريبة والجمارك. والهيئة لا تعتمد ولا تصادق مزوّدي البرمجيات فلا ندّعي اعتماداً منها.</p>
+${relHtml}
 <p><a href="/pricing">شاهد الأسعار</a> أو <a href="${waHref}" rel="noopener">تحدّث معنا على واتساب</a>.</p>
 </main>`;
     const jsonLd = {
@@ -641,7 +799,8 @@ ${faqHtml}
     writeRoute(`/قطاعات/${sec.slug}`, buildPage({
       lang: 'ar',
       title: `${sec.name} — برنامج إدارة مناديب التوزيع | Field Sales`,
-      description: `${sec.pain} يعمل دون إنترنت، ويدير مخزون سيارة المندوب والمرتجعات المصنّفة لشركات ${sec.name}.`,
+      // وعد «دون إنترنت» مقيَّد: التحصيل والزيارات تعمل دون اتصال دائماً، أما الفواتير فتحتاجه للمفعّل لهم الربط
+      description: `${sec.pain} يدير مخزون سيارة المندوب والمرتجعات المصنّفة لشركات ${sec.name}، والتحصيل والزيارات تعمل بلا إنترنت.`,
       canonical, image: `${ORIGIN}/og-image.png`, jsonLd, bodyHtml: body,
     }));
     n++;
@@ -659,30 +818,32 @@ ${faqHtml}
   // بادئة فتبتلع /rep-app، ولا هي في الخريطة، ولا مُصيَّرة فتُقدَّم قوقعة SPA بعنوان
   // الرئيسية — وهذا بالضبط ما يجعل جوجل يعدّها «نسخة طبق الأصل» من الرئيسية.
   // التطبيق منشور علناً على Google Play، فالصفحة تستحقّ الزحف.
+  //
+  // P7: كانت بين 135 و175 كلمة وتَعِد «البيع والتحصيل يستمران في المناطق المقطوعة» بينما RepApp.tsx يمنع
+  // الفاتورة (القياسية والمبسطة) والمرتجع دون اتصال للشركات المفعّل لها الربط. المحتوى الآن من clusters.mjs
+  // (REP_APP وrepAppSections المستمدّة من features.mjs) — المصدر نفسه الذي يعرضه RepAppPage.
   {
     const canonical = canon(`${ORIGIN}/rep-app`);
-    const feats = [
-      ['فواتير وسندات من الجوال', 'فاتورة ضريبية برمز QR وسند قبض تصدر وتطبع أمام العميل'],
-      ['يعمل بلا إنترنت', 'البيع والتحصيل يستمران في المناطق المقطوعة وترتفع البيانات تلقائياً عند عودة الشبكة'],
-      ['مسح الباركود بالكاميرا', 'أضف الأصناف بمسح سريع متتابع بلا جهاز إضافي'],
-      ['زيارات موثّقة بالموقع', 'سجّل الزيارة بصورة وملاحظة وإحداثيات فيظهر خط سيرك على خريطة الإدارة'],
-      ['طباعة حرارية', 'اطبع الفاتورة على طابعة بلوتوث حرارية مباشرة من الجهاز'],
-      ['مخزون سيارتك بين يديك', 'اعرف المتبقّي من كل صنف لحظياً ولا تبع ما ليس في السيارة'],
-    ];
     const body = `<main>
-<h1>تطبيق المندوب</h1>
-<p>فواتير وتحصيل ومخزون سيارة من جوال المندوب — يعمل حتى بلا إنترنت.</p>
-<h2>ماذا يفعل التطبيق</h2>
-<ul>${feats.map(([t, d]) => `<li><strong>${esc(t)}</strong> — ${esc(d)}</li>`).join('')}</ul>
+<h1>${esc(REP_APP.h1)}</h1>
+<p>${esc(REP_APP.intro)}</p>
+<p>${esc(REP_APP.offline)}</p>
 <h2>حمّل التطبيق</h2>
-<p><a href="https://play.google.com/store/apps/details?id=net.fieldsa.twa" rel="noopener">Google Play</a> · <a href="https://apps.apple.com/sa/app/id6797991968" rel="noopener">App Store</a></p>
+<p><a href="${REP_APP_STORES.play}" rel="noopener">Google Play</a> · <a href="${REP_APP_STORES.apple}" rel="noopener">App Store</a> · أو افتحه من متصفح الجوال بلا تنزيل.</p>
 <p>يعمل على أي هاتف ذكي، والطابعة الحرارية اختيارية. <a href="/signup">ابدأ تجربة مجانية ١٠ أيام</a> بلا بطاقة، أو <a href="/">تعرّف على المنصّة</a>.</p>
+<h2>ماذا يفعل المندوب من جواله</h2>
+<ul>${REP_APP.cards.map((c) => `<li><strong>${esc(c.title)}</strong> — ${esc(c.desc)}</li>`).join('')}</ul>
+${sectionsHtml(repAppSections())}
+<h2>أسئلة شائعة</h2>
+${REP_APP.faq.map((f) => `<h3>${esc(f.q)}</h3><p>${esc(f.a)}</p>`).join('\n')}
+<h2>بيانات الدخول من مدير الشركة</h2>
+<p>التطبيق للمناديب المسجّلين فقط: ينشئ مدير الشركة حساب المندوب من لوحة الإدارة ويسلّمه اسم المستخدم وكلمة المرور، ولا يوجد تسجيل ذاتي. <a href="/signup">شركتك ليست مشتركة بعد؟ ابدأ مجاناً</a></p>
 </main>`;
     writeRoute('/rep-app', buildPage({
       lang: 'ar',
-      title: 'تطبيق مندوب المبيعات — فواتير وتحصيل ومخزون سيارة من الجوال | Field Sales',
-      description: 'تطبيق المندوب من Field Sales: فاتورة ضريبية برمز QR وسند قبض وطباعة حرارية ومخزون السيارة وزيارات موثّقة بالموقع — ويعمل بلا إنترنت.',
-      canonical, image: `${ORIGIN}/og-image.png`, bodyHtml: body,
+      title: REP_APP.title,
+      description: REP_APP.description,
+      canonical, image: `${ORIGIN}/og-image.png`, jsonLd: repAppJsonLd(canonical), bodyHtml: body,
     }));
     n++;
   }
@@ -699,6 +860,11 @@ ${faqHtml}
       ft.pairSlug ? `<li><a href="/blog/${ft.pairSlug}/">دليل شامل ${esc(ft.name)}</a></li>` : '',
       ft.templateSlug ? `<li><a href="/نماذج/${ft.templateSlug}">نموذج Excel جاهز ${esc(ft.name)}</a></li>` : '',
     ].join('');
+    // جدول المقارنة (C1): ظاهر بنصّه — صفّه الأول عنوان الصف
+    const cmp = ft.compare;
+    const compareHtml = cmp
+      ? `<table><caption>${esc(cmp.caption)}</caption><thead><tr>${cmp.head.map((h) => `<th scope="col">${esc(h)}</th>`).join('')}</tr></thead><tbody>${cmp.rows.map((r) => `<tr>${r.map((c, i) => (i === 0 ? `<th scope="row">${esc(c)}</th>` : `<td>${esc(c)}</td>`)).join('')}</tr>`).join('')}</tbody></table>`
+      : '';
     const otherHtml = FEATURES.filter((o) => o.id !== ft.id)
       .map((o) => `<li><a href="/مزايا/${o.slug}/">${esc(o.name)}</a></li>`).join('');
     const body = `<main>
@@ -706,6 +872,7 @@ ${faqHtml}
 <p>${esc(ft.pain)}</p>
 <h2>المشهد الذي تعالجه</h2><p>${esc(ft.scene)}</p>
 <h2>كيف تعمل عندنا</h2>${howHtml}
+${compareHtml}
 <h2>ما لا تفعله هذه الميزة</h2><ul>${limHtml}</ul>
 ${faqHtml}
 ${alsoHtml ? `<h2>اقرأ أيضاً</h2><ul>${alsoHtml}</ul>` : ''}
@@ -725,8 +892,9 @@ ${alsoHtml ? `<h2>اقرأ أيضاً</h2><ul>${alsoHtml}</ul>` : ''}
     };
     writeRoute(`/مزايا/${ft.slug}`, buildPage({
       lang: 'ar',
-      title: `${ft.h1} | Field Sales`,
-      description: `${ft.pain} كيف تعمل ${ft.name} في Field Sales فعلاً وما حدودها بصراحة.`,
+      // العنوان والوصف بالصيغة نفسها في FeaturePage.tsx (لا مصدر مزدوج)؛ ft.title حين يطول H1
+      title: `${ft.title || ft.h1} | Field Sales`,
+      description: `${ft.pain} ${ft.name} في Field Sales: التفاصيل والحدود بصراحة.`,
       canonical, image: `${ORIGIN}/og-image.png`, jsonLd, bodyHtml: body,
     }));
     n++;
@@ -792,46 +960,80 @@ ${featLine}
 
   // 4.7) الأدوات المجانية — تُحسب في المتصفّح، والصفحة تُصيَّر ليراها الزاحف
   // العناوين بالاستعلام-أولاً (ترقية أغسطس 2026): «حاسبة عمولة المبيعات» هي الصيغة التي تربح
-  // بها حاسبات المنافسين في SERP — والوصف يحمل ذيل «مناديب التوزيع». مطابقة FreeToolsPage.tsx إلزامية.
-  const FREE_TOOLS = [
-    { id: 'commission', title: 'حاسبة عمولة المبيعات للمناديب', desc: 'شرائح عمولة بأرضية وسقف وخصم المرتجعات لمناديب التوزيع — بدل جداول Excel الهشّة.', feat: ['/blog/distribution-reps-commissions/', 'دليل عمولات مناديب التوزيع: النماذج والنِّسَب'] },
-    { id: 'van', title: 'تسوية عهدة سيارة المندوب', desc: 'طابق حمولة السيارة آخر اليوم واكشف العجز بالصنف وقيمته.', feat: ['/blog/rep-van-custody-management/', 'نظام عهدة بضاعة سيارة المندوب: الدورة كاملة'] },
-    { id: 'reps', title: 'حاسبة عدد مناديب المبيعات', desc: 'كم مندوباً تحتاج؟ حجّم فريقك الميداني قبل التوظيف أو الشراء، بحساسية ±٢٠٪.', feat: ['/blog/sales-reps-management-system/', 'نظام إدارة المناديب: الصلاحيات والمتابعة والفوترة'] },
-    { id: 'aging', title: 'حاسبة أعمار الديون وحدود الائتمان', desc: 'وزّع ذممك على شرائح ٣٠/٦٠/٩٠ يوماً واقترح حدّ ائتمان لكل عميل.', feat: ['/blog/field-collection-overdue-receivables/', 'تحصيل الذمم المتعثرة عبر المناديب: 7 خطوات'] },
-  ];
+  // بها حاسبات المنافسين في SERP — والوصف يحمل ذيل «مناديب التوزيع».
+  // P7: البيانات من مصدر واحد (clusters.mjs: FREE_TOOLS) يستورده FreeToolsPage أيضاً، ولكل أداة صيغة
+  // حسابها كما في src/free/engines.ts وثلاثة أسئلة ظاهرة (H3+P) تبني FAQPage — كانت بين 54 و57 كلمة.
   for (const t of FREE_TOOLS) {
     const canonical = canon(`${ORIGIN}/free/${t.id}`);
+    const meta = freeToolMeta(t);
     writeRoute(`/free/${t.id}`, buildPage({
       lang: 'ar',
-      title: `${t.title} — أداة مجانية | Field Sales`,
-      description: `${t.desc} تعمل في متصفّحك بلا تسجيل ولا إرسال بيانات.`,
+      title: meta.title,
+      description: meta.description,
       canonical, image: `${ORIGIN}/og-image.png`,
-      jsonLd: {
-        '@context': 'https://schema.org', '@type': 'SoftwareApplication',
-        name: t.title, description: t.desc,
-        applicationCategory: 'BusinessApplication', operatingSystem: 'Web',
-        inLanguage: 'ar', url: canonical,
-        offers: { '@type': 'Offer', price: '0', priceCurrency: 'SAR' },
-      },
+      jsonLd: freeToolJsonLd(t, canonical),
       bodyHtml: `<main><h1>${esc(t.title)}</h1><p>${esc(t.desc)}</p>
 <p>الأداة مجانية وتعمل في متصفّحك بالكامل: لا تسجيل، ولا يُرسل أي رقم تُدخله إلى خوادمنا.</p>
-${t.feat ? `<p>وللفهم الأعمق قبل الحساب: <a href="${t.feat[0]}">${t.feat[1]}</a>.</p>` : ''}
+<h2>طريقة الحساب</h2><p>${esc(t.formula)}</p>
+<h2>متى تستعملها</h2><p>${esc(t.use)}</p>
+<h2>ما لا تحسبه الأداة</h2><p>${esc(t.limits)}</p>
+<h2>أسئلة شائعة</h2>
+${t.faq.map((f) => `<h3>${esc(f.q)}</h3><p>${esc(f.a)}</p>`).join('\n')}
+${t.feat ? `<p>وللفهم الأعمق قبل الحساب: <a href="${t.feat[0]}">${esc(t.feat[1])}</a>.</p>` : ''}
+<p>أدوات أخرى: ${FREE_TOOLS.filter((o) => o.id !== t.id).map((o) => `<a href="/free/${o.id}/">${esc(o.title)}</a>`).join(' · ')}</p>
 <p><a href="/pricing">شاهد أسعار Field Sales</a> أو <a href="${waHref}" rel="noopener">تحدّث معنا على واتساب</a>.</p></main>`,
     }));
     n++;
   }
   writeRoute('/free', buildPage({
-    lang: 'ar', title: 'أدوات مجانية لشركات التوزيع | Field Sales',
-    description: 'أدوات حساب مجانية: عمولة المندوب المتدرّجة، تسوية عهدة السيارة، تحجيم الفريق الميداني، أعمار الدين وحدّ الائتمان — بلا تسجيل.',
+    lang: 'ar', title: FREE_INDEX.title,
+    description: FREE_INDEX.description,
     canonical: canon(`${ORIGIN}/free`), image: `${ORIGIN}/og-image.png`,
     jsonLd: { '@context': 'https://schema.org', '@type': 'ItemList', itemListElement: FREE_TOOLS.map((t, i) => ({ '@type': 'ListItem', position: i + 1, name: t.title, url: canon(`${ORIGIN}/free/${t.id}`) })) },
-    bodyHtml: `<main><h1>أدوات مجانية لشركات التوزيع</h1><p>تعمل في متصفّحك بالكامل بلا تسجيل ولا إرسال بيانات.</p><ul>${FREE_TOOLS.map((t) => `<li><a href="/free/${t.id}">${esc(t.title)}</a> — ${esc(t.desc)}</li>`).join('')}</ul></main>`,
+    bodyHtml: `<main><h1>${esc(FREE_INDEX.h1)}</h1><p>${esc(FREE_INDEX.intro)}</p><ul>${FREE_TOOLS.map((t) => `<li><a href="/free/${t.id}/">${esc(t.title)}</a> — ${esc(t.desc)}</li>`).join('')}</ul></main>`,
   }));
   n++;
 
   // 5) الصفحة الرئيسية العربية (الجذر dist/index.html) — تحقن محتوى دلالياً في #root الفارغ.
   //    هذه أهم صفحة، وكانت قوقعة SPA فارغة لغير مشغّلي JavaScript (زواحف AI وBing جزئياً).
-  //    React يستبدلها عند التحميل (createRoot يمسح ويعيد الرسم) — المحتوى للزواحف فقط.
+  //    React يستبدلها عند التحميل (createRoot يمسح ويعيد الرسم).
+  //    ⚠️ الملف نفسه قوقعة كل مسارات التطبيق (/rep و/m و/login و/c و/pay و/platform…): المحتوى المُصيَّر
+  //    هنا مخفيّ ([data-ssr]) إلا على «/» نفسها — <html data-ssr-path="/"> وسكربت الرأس في index.html يُظهره
+  //    حين يطابق المسار وحده (E2 وتصحيح الناقد 1). فمستخدم التطبيق يرى شاشة الإقلاع لا نصّاً تسويقياً.
+  //
+  //    الأسئلة الشائعة (P2): كان للرئيسية ثلاث نسخ مختلفة — JSON-LD في index.html، ونصّ مكتوب هنا،
+  //    وما يرسمه React من CMS. الآن نسخة واحدة: أسئلة CMS مدموجة بالافتراضية كما يدمجها React،
+  //    تُعرض هنا بـh3/p وتُبنى منها FAQPage. وما يُسقطه extractFaq.mjs (نفي قديم أو وعد «دون اتصال»
+  //    غير مقيَّد) يبقى في الصفحة كما يرسمه React لكنه لا يُضخَّم في البيانات المنظّمة ولا في نصّ الزاحف.
+  const homeDefaults = await loadTs('landing/defaultContent.ts', 'defaultContent').catch((e) => {
+    console.log('⚠️  تعذّر تحميل المحتوى الافتراضي للرئيسية (غير مانع): ' + e.message);
+    return null;
+  });
+  const homeFaqSrc = homeFaqFrom(homeDefaults, cms);
+  const homeFaq = publishableFaq(homeFaqSrc.items, { problem: faqProblem });
+  for (const d of homeFaq.dropped) console.log(`  ⚠️ سؤال في أسئلة الرئيسية (CMS) خارج FAQPage [${d.why}]: ${d.q} — يُصحَّح نصّه من لوحة المالك`);
+  const homeFaqHtml = homeFaq.kept.length
+    ? `<h2>${esc(homeFaqSrc.title)}</h2>\n` + homeFaq.kept.map((f) => `<h3>${esc(f.q)}</h3><p>${esc(f.a)}</p>`).join('\n')
+    : '';
+  // صفوف روابط الرئيسية (P4) — يصلها ما لم يصله رابط: القطاعات والنماذج وتطبيق المندوب والتركية والصينية.
+  // - أدلّة الدول: القانونية وحدها (canonicalSlug(s) === s) — كانت أول اثنتي عشرة دولة بلا تصفية، فذهبت
+  //   روابط الرئيسية إلى صفحات ‎-ma و‎-dz المدموجة في صفحتها الجامعة؛ وتلك الدول كلها وراء «بقية الدول العربية».
+  // - المراسي: صيغة «برنامج…» لروابط /مزايا/ وحدها، والمقالات بمراسٍ معلوماتية — كانت مرساة «برنامج فواتير
+  //   يعمل بدون إنترنت» واحدة لرابطين مختلفين.
+  // - التحصيل إلى collection-receivables-sa لا order-to-cash-cycle (تصحيح الناقد 13): ذلك المقال في CMS ما زال
+  //   ينفي الربط، فلا يُروَّج من أقوى صفحة حتى يُنظَّف (docs/owner-actions.md §٨).
+  // - جملة الربط (صفحات المنصّة) بعيدة عن «2026» في سطر الأدلّة المتخصّصة: آخر سطر في الصفحة عمداً.
+  const homeCountries = COUNTRIES
+    .filter((c) => { const s = `field-sales-software-${c.code.toLowerCase()}`; return canonicalSlug(s) === s && getArticle(s, 'ar'); })
+    .slice(0, 12);
+  const homeFeatures = FEATURES.filter((ft) => `/مزايا/${ft.slug}/` !== PHASE2_FEATURE_HREF);
+  const HOME_FEATURE_ANCHOR = {
+    'offline-invoicing': 'برنامج فواتير يعمل بدون إنترنت',
+    'van-stock': 'برنامج عهدة سيارة المندوب',
+    'thermal-printing': 'طباعة فاتورة من الجوال',
+    'visit-tracking': 'إثبات زيارة المندوب',
+    'rep-collection': 'برنامج تحصيل المناديب',
+  };
   const homeAr = `<main>
 <h1>FieldSales — نظام إدارة مناديب المبيعات والتوزيع الميداني للأسواق العربية</h1>
 <p><strong>FieldSales</strong> منصّة سحابية عربية متكاملة لشركات التوزيع والمبيعات الميدانية. يُصدر المندوب من هاتفه فاتورة ضريبية منظّمة برمز QR (متوافقة مع ZATCA في السعودية) وطباعة حرارية فورية، ويسجّل التحصيل، ويدير مخزون سيارته — بينما تحصل الإدارة على صورة حيّة كاملة: مبيعات اليوم، التحصيل والذمم، حدود ائتمان العملاء مع تنبيهات التجاوز، مخزون كل سيارة، ومواقع المناديب وخطوط سيرهم عبر GPS.</p>
@@ -839,6 +1041,7 @@ ${t.feat ? `<p>وللفهم الأعمق قبل الحساب: <a href="${t.feat[
 <h2>أبرز المزايا</h2>
 <ul>
 <li>فوترة ضريبية من الميدان برمز QR وطباعة حرارية 58مم</li>
+<li>ندعم ربط المرحلة الثانية مع منصة فاتورة في السعودية</li>
 <li>التحصيل وإدارة الذمم وكشوف الحساب مع حدود ائتمان وتنبيهات</li>
 <li>إدارة مخزون سيارة المندوب مع كشف الفروقات لحظياً</li>
 <li>تتبّع المناديب عبر GPS وتخطيط خطوط السير</li>
@@ -848,21 +1051,37 @@ ${t.feat ? `<p>وللفهم الأعمق قبل الحساب: <a href="${t.feat[
 </ul>
 <h2>الأسعار</h2>
 ${PRICING_HTML}
-<h2>أسئلة شائعة</h2>
-<p><strong>هل النظام يصدر فواتير ضريبية متوافقة؟</strong> نعم، يُصدر فاتورة ضريبية منظّمة برمز QR وطباعة حرارية، وندعم ربط المرحلة الثانية مع منصة فاتورة في السعودية، والنظام قابل للتكيّف مع متطلبات الدول العربية الأخرى.</p>
-<p><strong>هل يحتاج المندوب إلى جهاز خاص؟</strong> لا، يكفي هاتف ذكي وطابعة حرارية اختيارية للفوترة في الميدان.</p>
-<p><strong>هل توجد تجربة مجانية؟</strong> نعم، تجربة مجانية 10 أيام تبدأ خلال دقائق دون بطاقة ائتمان.</p>
+${homeFaqHtml}
 <h2>للتواصل وطلبات الاشتراك</h2>
-<p>البريد الرسمي: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · مقر الشركة: المملكة العربية السعودية · <a href="/subscribe-request">سجّل طلب اشتراك جديد</a> أو <a href="/signup">ابدأ التجربة المجانية</a> مباشرةً.</p>
+<p>البريد الرسمي: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · مقر الشركة: المملكة العربية السعودية · <a href="/subscribe-request/">سجّل طلب اشتراك جديد</a> أو <a href="/signup">ابدأ التجربة المجانية</a> مباشرةً.</p>
 <h2>روابط مفيدة</h2>
 <p><a href="/blog/">المدوّنة</a> · <a href="/calculator/">حاسبة تسريب الإيرادات</a> · <a href="/invoice-generator/">مولّد الفاتورة الضريبية المجاني</a> · <a href="/blog/distribution-terms-glossary/">قاموس مصطلحات التوزيع</a> · <a href="/blog/distribution-owners-questions/">أسئلة أصحاب شركات التوزيع</a> · <a href="/about/">عن المنصّة</a> · <a href="/contact/">تواصل معنا</a> · <a href="/en/">English</a> · <a href="/fr/">Français</a></p>
-<p>أدلّة الدول: ${COUNTRIES.slice(0, 12).map((c) => `<a href="/blog/field-sales-software-${c.code.toLowerCase()}/">${esc(c.ar)}</a>`).join(' · ')}</p>
+<p>الشروط والسياسات: <a href="/terms/">الشروط والأحكام</a> · <a href="/privacy/">سياسة الخصوصية</a> · <a href="/service-agreement/">اتفاقية الخدمة</a></p>
+<p>صفحات المنصّة: <a href="/pricing/">الأسعار</a> · <a href="/rep-app/">تطبيق المندوب</a> · <a href="/نماذج/">نماذج Excel مجانية</a> · <a href="/free/">أدوات مجانية</a> · <a href="${PHASE2_FEATURE_HREF}">${esc(PHASE2_ANCHOR)}</a> · <a href="/tr/">Türkçe</a> · <a href="/zh/">中文</a></p>
+<p>القطاعات: ${SECTORS.map((sec) => `<a href="/قطاعات/${sec.slug}/">${esc(sec.name)}</a>`).join(' · ')} · <a href="/قطاعات/">كل القطاعات</a></p>
+<p>أدلّة الدول: ${homeCountries.map((c) => `<a href="/blog/field-sales-software-${c.code.toLowerCase()}/">${esc(c.ar)}</a>`).join(' · ')} · <a href="/blog/field-sales-software/">بقية الدول العربية</a></p>
+<p>كيف تعمل مزايانا: ${homeFeatures.map((ft) => `<a href="/مزايا/${ft.slug}/">${esc(HOME_FEATURE_ANCHOR[ft.id] || ft.name)}</a>`).join(' · ')} · <a href="/مزايا/">كل المزايا</a></p>
+<p>دلائل عملية: <a href="/blog/offline-invoicing-for-reps/">كيف تعمل الفوترة بدون إنترنت ومتى تحتاج اتصالاً</a> · <a href="/blog/rep-van-custody-management/">دورة عهدة السيارة اليومية: تحميل وبيع ومطابقة</a> · <a href="/blog/thermal-printing-field-invoices/">الطباعة الحرارية: أي طابعة وأي مقاس</a> · <a href="/blog/prevent-fake-visits-gps-spoofing/">كيف تكشف الزيارة الوهمية</a> · <a href="/blog/rep-visit-tracking-gps/">متابعة زيارات المناديب بالموقع والصور</a> · <a href="/blog/collection-receivables-sa/">تحصيل الذمم والمديونيات في السعودية</a> · <a href="/blog/mobile-receipt-vouchers/">سند قبض من الجوال</a> · <a href="/blog/field-sales-returns-management/">مرتجعات المبيعات الميدانية</a> · <a href="/blog/barcode-scanning-invoices/">مسح الباركود بالكاميرا</a> · <a href="/blog/sales-reps-permissions/">صلاحيات مناديب المبيعات</a> · <a href="/blog/distribution-reps-commissions/">عمولات مناديب التوزيع</a></p>
 <p>أدلّة متخصّصة: <a href="/blog/distributor-network-management-software/">برنامج إدارة الموزعين</a> · <a href="/blog/cash-van-software-guide/">برنامج كاش فان</a> · <a href="/blog/sales-reps-management-system/">نظام إدارة المناديب</a> · <a href="/blog/distribution-companies-management-system/">نظام إدارة شركات التوزيع</a> · <a href="/blog/field-sales-system-for-companies/">نظام مبيعات ميدانية للشركات</a> · <a href="/blog/field-sales-software-om/">برنامج مناديب التوزيع سلطنة عمان</a> · <a href="/blog/field-sales-software-market-report-2026/">تقرير سوق برامج المناديب 2026</a></p>
-<p>كيف تعمل مزايانا: <a href="/مزايا/فوترة-بدون-إنترنت/">برنامج فواتير يعمل بدون إنترنت</a> · <a href="/مزايا/عهدة-سيارة-المندوب/">عهدة سيارة المندوب</a> · <a href="/مزايا/طباعة-فاتورة-من-الجوال/">طباعة فاتورة من الجوال</a> · <a href="/مزايا/إثبات-زيارة-المندوب/">إثبات زيارة المندوب</a> · <a href="/مزايا/">كل المزايا</a></p>
-<p>الميزات: <a href="/blog/order-to-cash-cycle/">دورة الطلب حتى التحصيل</a> · <a href="/blog/offline-invoicing-for-reps/">برنامج فواتير يعمل بدون إنترنت</a> · <a href="/blog/rep-van-custody-management/">عهدة سيارة المندوب</a> · <a href="/blog/thermal-printing-field-invoices/">طباعة الفواتير الحرارية من الجوال</a> · <a href="/blog/rep-visit-tracking-gps/">متابعة زيارات المناديب</a> · <a href="/blog/mobile-receipt-vouchers/">سند قبض من الجوال</a> · <a href="/blog/field-sales-returns-management/">مرتجعات المبيعات الميدانية</a> · <a href="/blog/barcode-scanning-invoices/">مسح الباركود بالكاميرا</a> · <a href="/blog/sales-reps-permissions/">صلاحيات مناديب المبيعات</a> · <a href="/blog/distribution-reps-commissions/">عمولات مناديب التوزيع</a></p>
 </main>`;
-  const rootHtml = template.replace(/<div id="root">\s*<\/div>/, `<div id="root"><div data-ssr>${homeAr}</div></div>`);
+  let rootHtml = template.replace(/<div id="root">\s*<\/div>/, `<div id="root"><div data-ssr>${homeAr}</div></div>`);
+  // FAQPage الرئيسية داخل كتلة القالب (لا كتلة data-seo-page): LandingPage يستبدل كتلة الصفحة
+  // بكتلة Organization عند الإقلاع، فلو وُضعت هناك لاختفت بعده بينما الأسئلة ظاهرة.
+  rootHtml = rootHtml.replace(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/, (m, body) => {
+    try {
+      const j = JSON.parse(body);
+      if (!Array.isArray(j['@graph'])) return m;
+      const g = j['@graph'].filter((x) => !(x && x['@type'] === 'FAQPage'));
+      if (homeFaq.kept.length) g.push(faqPageNode(homeFaq.kept));
+      return `<script type="application/ld+json">${JSON.stringify({ ...j, '@graph': g })}</script>`;
+    } catch { return m; }
+  });
+  // عنقود hreflang الرئيسية الخماسي — مطابق للخريطة، وموسوم data-seo-alt فيستبدله LandingPage لا يضاعفه.
+  // على مسارات التطبيق التي تخدمها القوقعة نفسها بلا أثر: canonical فيها «/» فلا يُعتدّ ببدائلها.
+  rootHtml = rootHtml.replace('</head>', `${marketingHreflang}\n  </head>`);
+  rootHtml = withSsrPath(rootHtml, '/');
   fs.writeFileSync(path.join(DIST, 'index.html'), rootHtml);
+  console.log(`  الرئيسية العربية: FAQPage بـ${homeFaq.kept.length} سؤالاً من CMS (أُسقط ${homeFaq.dropped.length})`);
   n++;
 
   // ── تطبيع الشرطة الأخيرة في الروابط الداخلية ───────────────────────────

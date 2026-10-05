@@ -41,7 +41,11 @@ export interface SeoCardMeta {
 export interface SeoCatalogEntry {
   slug: string;
   date: string;
+  modified: string;
   cc: string | null;
+  /** الرابط الأساسي: صفحة الدولة غير ذات الأولوية تُشير إلى صفحتها الجامعة */
+  canonical: string;
+  isCanonical: boolean;
   trilingual: boolean;
   fr: boolean;
 }
@@ -60,4 +64,5 @@ export function listArticles(lang: SeoLang): SeoListItem[];
 export function getArticle(slug: string, lang: SeoLang): SeoArticle | null;
 export function buildCatalog(): SeoCatalogEntry[];
 export function hasArticle(slug: string): boolean;
+export function canonicalSlug(slug: string): string;
 export function cardCatalog(): SeoCardMeta[];

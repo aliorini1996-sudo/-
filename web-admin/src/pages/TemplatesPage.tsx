@@ -10,6 +10,9 @@ import { waHref, refFromPath } from '../components/WhatsAppFab';
 import { trackWhatsApp } from '../lib/ads';
 import { TEMPLATES, templateBySlug, type TemplateSpec } from '../content/templates';
 
+/** الشرطة الأخيرة إلزامية في الروابط العامة: الصفحات مُصيَّرة مجلّدات (انظر canon في lib/seo.ts) */
+const slash = (p: string) => (p.endsWith('/') ? p : `${p}/`);
+
 /**
  * بنك النماذج — تنزيل مباشر **بلا بوابة بريد ولا تسجيل**.
  *
@@ -67,7 +70,7 @@ export default function TemplatesPage() {
     locale: lang,
   });
 
-  if (slug && !tpl) return <Navigate to="/نماذج" replace />;
+  if (slug && !tpl) return <Navigate to="/نماذج/" replace />;
 
   const handle = async (t: TemplateSpec) => {
     setBusy(t.slug);
@@ -78,7 +81,7 @@ export default function TemplatesPage() {
     <div dir={dir} className="min-h-screen bg-[#FAF7F0] text-[#1F1A13]">
       <header className="border-b border-[#E8E0D2] bg-white/70 backdrop-blur">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
-          <Link to={pathForLocale('/', lang)} className="flex items-center gap-2 text-sm text-[#6b6357]">
+          <Link to={slash(pathForLocale('/', lang))} className="flex items-center gap-2 text-sm text-[#6b6357]">
             <ArrowLeft size={16} className={dir === 'rtl' ? 'rotate-180' : ''} />
             <BrandIcon size={22} /><span>الرئيسية</span>
           </Link>
@@ -96,7 +99,7 @@ export default function TemplatesPage() {
             <ul className="grid gap-3 sm:grid-cols-2 mt-6">
               {TEMPLATES.map((t) => (
                 <li key={t.slug} className="bg-white border border-[#E8E0D2] rounded-xl p-4 flex flex-col">
-                  <Link to={`/نماذج/${t.slug}`} className="font-semibold hover:text-[#E15A30]">{t.title}</Link>
+                  <Link to={`/نماذج/${t.slug}/`} className="font-semibold hover:text-[#E15A30]">{t.title}</Link>
                   <p className="text-xs text-[#6b6357] mt-1.5 leading-relaxed flex-1">{t.purpose}</p>
                   <button
                     onClick={() => handle(t)} disabled={busy === t.slug}
@@ -155,11 +158,12 @@ export default function TemplatesPage() {
               <h2 className="font-semibold text-sm">حين يصير النموذج غير كاف</h2>
               <p className="text-xs text-[#6b6357] mt-2 leading-relaxed">
                 هذا النموذج يخدم شركة تدير عددا محدودا من الحركات يدويا إن كنت تصدر عشرات المستندات
-                يوميا من الميدان فField Sales يصدرها من جوال المندوب <strong>حتى بلا إنترنت</strong>
-                ويرحلها محاسبيا تلقائيا
+                يوميا من الميدان فField Sales يصدرها من جوال المندوب <strong>حتى بلا إنترنت</strong> ويحدّث
+                كشف حساب العميل تلقائيا وللشركات المفعّل لها ربط المرحلة الثانية مع منصة فاتورة تحتاج
+                الفواتير القياسية والمبسطة والمرتجعات اتصالا لحظة الإصدار
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
-                <Link to={pathForLocale('/pricing', lang)} className="text-sm border border-[#E8E0D2] rounded-lg px-3 py-2">شاهد الأسعار</Link>
+                <Link to={slash(pathForLocale('/pricing', lang))} className="text-sm border border-[#E8E0D2] rounded-lg px-3 py-2">شاهد الأسعار</Link>
                 <a href={waHref(arPath, { lang })} target="_blank" rel="noopener noreferrer"
                    onClick={() => trackWhatsApp(refFromPath(arPath))}
                    className="inline-flex items-center gap-2 bg-[#25D366] text-white rounded-lg px-3 py-2 text-sm">

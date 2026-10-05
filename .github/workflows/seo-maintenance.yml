@@ -2,12 +2,22 @@ name: SEO Maintenance
 
 # صيانة SEO + GEO ذاتية التشغيل:
 # - تعمل يومياً تلقائياً (GitHub) لتحديث خريطة الموقع وllms.txt بأي مقالات جديدة أُضيفت من لوحة السوبر أدمن
-# - تدقّق صحّة الـSEO والـGEO (الظهور في محركات الذكاء الاصطناعي) وتنبّه عند أي تراجع
-# - يمكن تشغيلها يدوياً، وتعمل أيضاً عند تغيّر المدوّنة
+# - تدقّق صحّة الـSEO والـGEO **قبل** الالتزام: ملف مولّد فيه خطأ لا يُدفع إلى master
+# - بعد اكتمال نشر Render: تُشعر IndexNow بالروابط المتغيّرة وحدها، ثم تفحص الخريطة الحية
+#   (فهرس Bing يغذّي ChatGPT Search وCopilot وDuckDuckGo — أربع واجهات من إشعار واحد)
+#
+# لماذا بهذا الترتيب (أكتوبر 2026): كانت تدفع ثم تدقّق، وتدفع بلا معالجة لتزامن الدفعات (ست نشرات
+# يوم 4 أكتوبر)، وترسل إلى IndexNow الخريطة كاملة (631 رابطاً لأجل تعديل مسافات) بروابط عربية غير
+# مرمَّزة وفور الدفع قبل أن يكتمل النشر — فيزحف Bing النسخة القديمة، والتحذيرات لا يراها أحد.
 on:
   schedule:
     - cron: '0 3 * * *'   # كل يوم 03:00 UTC (06:00 بتوقيت السعودية)
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      indexnow_all:
+        description: 'إرسال الخريطة كاملة إلى IndexNow (بعد تغيير شامل فقط — الافتراضي الروابط المتغيّرة وحدها)'
+        type: boolean
+        default: false
   push:
     branches: [master]
     paths:
@@ -15,18 +25,33 @@ on:
       - 'web-admin/scripts/gen-sitemap.mjs'
       - 'web-admin/scripts/gen-llms.mjs'
       - 'web-admin/scripts/geo-audit.mjs'
+      # التزامٌ يدوي بخريطة مولّدة محلياً: بلا هذا لا يرى التشغيل اليومي فرقاً عن HEAD فلا يُشعَر بتغييرها
+      - 'web-admin/public/sitemap.xml'
 
 permissions:
   contents: write
 
+# تشغيلان متزامنان يتسابقان على الدفع نفسه — واحد في كل مرة، والجاري لا يُلغى في منتصف الدفع
+concurrency:
+  group: seo-maintenance-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   seo:
+    name: توليد وتدقيق والتزام
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: web-admin
+        shell: bash
+    outputs:
+      urls: ${{ steps.changes.outputs.count }}
+      pushed: ${{ steps.commit.outputs.pushed }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50   # مرجع github.event.before للمقارنة، وقاعدة git pull --rebase
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -39,33 +64,138 @@ jobs:
       - name: تحديث llms.txt من المحتوى الحيّ
         run: node scripts/gen-llms.mjs
 
-      # يلتزم بالملفات المولّدة إن تغيّرت (مقال جديد مثلاً) — ما يطلق النشر المعتاد
-      # وعند تغيّر الخريطة أو نصّ المقالات يُشعر IndexNow فوراً
-      # (فهرس Bing يغذّي ChatGPT Search وCopilot وDuckDuckGo — أربع واجهات من إشعار واحد)
-      - name: التزام الملفات المولّدة عند تغيّرها
-        run: |
-          if ! git diff --quiet public/sitemap.xml public/llms.txt public/llms-full.txt; then
-            SITEMAP_CHANGED=$(git diff --quiet public/sitemap.xml && echo no || echo yes)
-            # تعديل نصّ مقال في الـCMS لا يغيّر الخريطة (التاريخ ثابت) لكنه يغيّر llms-full
-            # لأنه يحمل نصّ المقالات. فبدون هذا الشرط يمرّ تغيير المحتوى دون إشعار Bing.
-            CONTENT_CHANGED=$(git diff --quiet public/llms-full.txt && echo no || echo yes)
-            git config user.name "fieldsa-seo-bot"
-            git config user.email "seo-bot@users.noreply.github.com"
-            git add public/sitemap.xml public/llms.txt public/llms-full.txt
-            git commit -m "chore(seo): تحديث الخريطة وllms.txt تلقائياً [skip ci]"
-            git push
-            echo "✅ تم تحديث الملفات المولّدة."
-            if [ "$SITEMAP_CHANGED" = "yes" ] || [ "$CONTENT_CHANGED" = "yes" ]; then
-              node scripts/indexnow.mjs || echo "⚠️ فشل إشعار IndexNow (غير مانع)"
-            fi
-          else
-            echo "لا تغييرات في الملفات المولّدة."
-          fi
-
-      # تدقيق صحّة الـSEO — يُفشِل المهمّة عند وجود أخطاء فيصل تنبيه من GitHub
+      # التدقيق قبل الالتزام: فشلُه يوقف المهمة فلا يُدفع شيء ولا يُرسل إشعار، ويصل تنبيه GitHub.
+      # seo-audit يكتب خلاصته وتحذيراته في ملخص التشغيل بنفسه.
       - name: تدقيق الـSEO
         run: node scripts/seo-audit.mjs
 
-      # تدقيق صحّة الـGEO (الظهور في محركات الذكاء الاصطناعي)
       - name: تدقيق الـGEO
-        run: node scripts/geo-audit.mjs
+        run: |
+          rc=0
+          node scripts/geo-audit.mjs > "$RUNNER_TEMP/geo-audit.log" 2>&1 || rc=$?
+          cat "$RUNNER_TEMP/geo-audit.log"
+          {
+            echo "### تدقيق GEO"
+            echo
+            grep -E 'النتيجة|⚠️|❌' "$RUNNER_TEMP/geo-audit.log" | sed -E 's/^ +//; s/^/- /' || true
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+
+      # الروابط التي تُشعَر بها IndexNow لاحقاً: المضافة والمتغيّرة **والمحذوفة** من الخريطة مقارنةً بالنسخة
+      # الملتزمة السابقة، ومعها seo/changed-urls.txt إن وُجد (محتوى تغيّر وسطره في الخريطة كما هو).
+      # في دفعٍ يدوي المقارنة مع ما قبل الدفع، وإلا ضاع تغييرٌ يحمله HEAD نفسه.
+      - name: حصر الروابط المتغيّرة
+        id: changes
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          ALL: ${{ inputs.indexnow_all }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/seo"
+          OUT="$RUNNER_TEMP/seo/indexnow-urls.txt"
+          if [ "$ALL" = "true" ]; then
+            node scripts/indexnow.mjs --all --dry-run --write "$OUT"
+          else
+            BASE=HEAD
+            if [ "$EVENT" = "push" ] && [ -n "$BEFORE" ] && ! printf '%s' "$BEFORE" | grep -qE '^0+$'; then
+              if git cat-file -e "${BEFORE}^{commit}" 2>/dev/null || git fetch --quiet --depth=1 origin "$BEFORE"; then
+                BASE="$BEFORE"
+              fi
+            fi
+            node scripts/indexnow.mjs --since "$BASE" --dry-run --write "$OUT"
+          fi
+          # الخريطة كما ستُنشر — مرجع «اكتمال النشر» في المهمة اللاحقة
+          cp public/sitemap.xml "$RUNNER_TEMP/seo/sitemap.xml"
+          COUNT=$(grep -c . "$OUT" || true)
+          echo "count=${COUNT:-0}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### الروابط المتغيّرة"
+            echo
+            echo "${COUNT:-0} رابطاً للإشعار بعد النشر."
+            head -n 20 "$OUT" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{for(const u of s.split("\n").filter(Boolean)){let p=u;try{p=decodeURI(u)}catch{};console.log("- "+p)}})'
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: حفظ الروابط والخريطة للمهمة اللاحقة
+        uses: actions/upload-artifact@v4
+        with:
+          name: seo-indexnow
+          path: ${{ runner.temp }}/seo/
+          retention-days: 3
+
+      # يلتزم بالملفات المولّدة إن تغيّرت (مقال جديد مثلاً) — ما يطلق النشر المعتاد على Render.
+      # seo/lastmod.json وseo/changed-urls.txt يكتبهما gen-sitemap (بصمة المحتوى) ويُلتزمان معاً إن وُجدا.
+      - name: التزام الملفات المولّدة ودفعها
+        id: commit
+        run: |
+          FILES="public/sitemap.xml public/llms.txt public/llms-full.txt"
+          for f in seo/lastmod.json seo/changed-urls.txt; do
+            if [ -f "$f" ]; then FILES="$FILES $f"; fi
+          done
+          git add -- $FILES
+          if git diff --cached --quiet; then
+            echo "لا تغييرات في الملفات المولّدة."
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name "fieldsa-seo-bot"
+          git config user.email "seo-bot@users.noreply.github.com"
+          git commit -m "chore(seo): تحديث الخريطة وllms.txt تلقائياً [skip ci]"
+          # دفعٌ آخر قد يسبقنا: نعيد القاعدة ثم ندفع، بإعادة محاولة واحدة. عند تعارض في ملف مولّد
+          # تُقدَّم نسختنا (-X theirs في rebase = الالتزام المُعاد تطبيقه) — والتشغيل التالي يعيد التوليد على أي حال.
+          BRANCH="${GITHUB_REF_NAME:-master}"
+          pushed=false
+          for attempt in 1 2; do
+            if git pull --rebase -X theirs origin "$BRANCH" && git push origin "HEAD:$BRANCH"; then
+              pushed=true
+              break
+            fi
+            git rebase --abort 2>/dev/null || true
+            echo "⚠️ محاولة الدفع $attempt فشلت"
+            sleep 10
+          done
+          if [ "$pushed" != "true" ]; then
+            echo "::error::تعذّر دفع الملفات المولّدة بعد محاولتين"
+            exit 1
+          fi
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+          echo "✅ تم تحديث الملفات المولّدة: $(git rev-parse --short HEAD)"
+
+  after-deploy:
+    name: IndexNow والفحص الحيّ بعد النشر
+    needs: seo
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: web-admin
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: web-admin/scripts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: تنزيل الروابط المتغيّرة والخريطة
+        uses: actions/download-artifact@v4
+        with:
+          name: seo-indexnow
+          path: ${{ runner.temp }}/seo
+
+      # Render ينشر بعد الدفع ببضع دقائق: يُستطلع /sitemap.xml كل 30 ثانية حتى 10 دقائق إلى أن تظهر فيه
+      # الروابط المتغيّرة كما التُزمت (lastmod والبدائل) ويغيب المحذوف. انقضاء المهلة تحذير لا فشل.
+      - name: انتظار اكتمال نشر Render
+        if: needs.seo.outputs.urls != '0'
+        run: node scripts/live-sitemap-check.mjs --wait-for "$RUNNER_TEMP/seo/sitemap.xml" --urls "$RUNNER_TEMP/seo/indexnow-urls.txt" --max-wait 600 --interval 30
+
+      # الروابط المتغيّرة وحدها، مرمَّزة (new URL().href) — والخريطة كاملة فقط بـindexnow_all صراحةً
+      - name: إشعار IndexNow
+        if: needs.seo.outputs.urls != '0'
+        run: node scripts/indexnow.mjs --file "$RUNNER_TEMP/seo/indexnow-urls.txt" || echo "::warning::فشل إشعار IndexNow (غير مانع)"
+
+      # كل رابط في الخريطة الحية: 200 وcanonical ذاتي وليس قوقعة الرئيسية. خللٌ مؤكَّد يُفشل المهمة
+      # (ينبّه GitHub)، وتعذّر الشبكة العابر تحذير فقط.
+      - name: الفحص الحيّ للخريطة
+        run: node scripts/live-sitemap-check.mjs

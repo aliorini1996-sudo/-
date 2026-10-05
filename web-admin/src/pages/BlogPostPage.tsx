@@ -1,14 +1,58 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams, Navigate } from 'react-router-dom';
 import { BrandIcon } from '../components/BrandLogo';
 import { ArrowLeft, Clock, Calendar, Share2, Linkedin, Facebook, Twitter, MessageCircle, Link2, Check } from 'lucide-react';
-import { normalizeContent, postView } from '../blog/posts';
+import { normalizeContent, postView, readMinutesOf, lastModifiedOf } from '../blog/posts';
 import { useBlog } from '../blog/useBlog';
-import { getArticle } from '../blog/seo/catalog.mjs';
-import { useLang } from '../i18n/lang';
+import * as catalog from '../blog/seo/catalog.mjs';
+// @ts-ignore -- لا ملف تعريف للوحدة بعد (consolidate.d.mts)؛ الأنواع مثبّتة بالتحويل أدناه
+import * as consolidateMod from '../blog/consolidate.mjs';
+// @ts-ignore -- لا ملف تعريف للوحدة بعد (extractFaq.d.mts)؛ الأنواع مثبّتة بالتحويل أدناه
+import * as faqMod from '../blog/extractFaq.mjs';
+// @ts-ignore -- لا ملف تعريف للوحدة بعد (clusters.d.mts)؛ الأنواع مثبّتة بالتحويل أدناه
+import * as clustersMod from '../blog/clusters.mjs';
+import { useLang, type Lang } from '../i18n/lang';
 import { seoUrls } from '../i18n/locale';
 import { useSeo } from '../lib/seo';
 import LanguageToggle from '../components/LanguageToggle';
+
+type FaqItem = { q: string; a: string };
+type FaqProblem = (pair: FaqItem) => string | null;
+type Exists = (slug: string, L: string) => boolean;
+// catalog.d.mts لا يصرّح بعد بهذه الأعضاء (canonicalSlug/isIndexable وmodified) — موجودة في catalog.mjs
+const { getArticle, canonicalSlug, isIndexable } = catalog as unknown as {
+  getArticle: typeof catalog.getArticle;
+  canonicalSlug: (slug: string) => string;
+  isIndexable: (cc: string | null, L: string) => boolean;
+};
+// المصدر الواحد للدمج (P3) وللأسئلة الظاهرة (P2) — نفسه في prerender.mjs فلا يتغيّر canonical ولا FAQPage بعد الإقلاع
+const { existsWith, consolidatedTarget, consolidatedUrl } = consolidateMod as {
+  existsWith: (manual: { slug: string; en?: { title?: string } }[]) => Exists;
+  consolidatedTarget: (slug: string, L: string, exists?: Exists) => string | null;
+  consolidatedUrl: (target: string, L: string) => string;
+};
+const { extractFaq, faqProblemWith } = faqMod as {
+  extractFaq: (html: string, opts?: { problem?: FaqProblem }) => FaqItem[];
+  faqProblemWith: (rules: unknown) => FaqProblem;
+};
+type RelatedLink = { href: string; anchor: string };
+// «اقرأ أيضاً» ولاحقة العنوان من المصدر نفسه الذي يصيّره prerender.mjs (P4/P7) — فلا تتغيّر الروابط ولا العنوان بعد الإقلاع
+const { relatedFor, RELATED_TITLE, blogTitle } = clustersMod as {
+  relatedFor: (slug: string, L: 'ar' | 'en', posts: { slug: string; date?: string; title?: string; en?: { title?: string } }[], exists: Exists) => RelatedLink[];
+  RELATED_TITLE: { ar: string; en: string };
+  blogTitle: (title: string) => string;
+};
+
+/**
+ * المحتوى المُصيَّر لهذا المسار كما حفظه main.tsx قبل أن يمسحه createRoot (E2). يُعرض أثناء جلب مقالات
+ * CMS بدل شاشة تحميل فارغة، فلا يختفي المقال الذي يقرؤه الزائر ثم يعود. للمسار الذي صُيِّر له وحده.
+ */
+function ssrHoldHtml(): string {
+  const s = (window as unknown as { __fsSsr?: { path: string; html: string } }).__fsSsr;
+  return s && s.path === window.location.pathname ? s.html : '';
+}
+/** كاتب المقال وناشره: المنظّمة المعرَّفة في كتلة القالب (index.html) بمعرّف ثابت */
+const ORG_REF = { '@id': 'https://fieldsa.net/#organization' };
 
 // شريط مشاركة المقال على منصّات التواصل — يزيد الانتشار الاجتماعي والزيارات
 function ShareBar({ url, title, label }: { url: string; title: string; label: { share: string; copy: string } }) {
@@ -43,8 +87,20 @@ function ShareBar({ url, title, label }: { url: string; title: string; label: { 
 export default function BlogPostPage() {
   const { slug } = useParams();
   const lang = useLang((s) => s.lang); // ar | en | fr (مشتقّة من المسار)
-  const { getPost, isLoading } = useBlog();
+  const { getPost, isLoading, posts } = useBlog();
   const hand = getPost(slug || '');
+  // مصنِّف أسئلة المقال اليدوي (قواعد حارس الادّعاءات) يُحمَّل كسولاً: أنماطه بنظرة خلفية يرفضها Safari
+  // قبل 16.4، فلو دخل الحزمة الرئيسية لسقط الموقع كله هناك. إن تعذّر تحميله غابت FAQPage وحدها.
+  const [faqProblem, setFaqProblem] = useState<FaqProblem | null>(null);
+  const needsFaqRules = !!hand;
+  useEffect(() => {
+    if (!needsFaqRules || faqProblem) return;
+    let alive = true;
+    import('../../scripts/claims-rules.mjs')
+      .then((rules) => { if (alive) setFaqProblem(() => faqProblemWith(rules)); })
+      .catch(() => { /* متصفح لا يدعم الأنماط: بلا FAQPage للمقال اليدوي */ });
+    return () => { alive = false; };
+  }, [needsFaqRules, faqProblem]);
   const rtl = lang === 'ar';
   const prefix = lang === 'ar' ? '' : `/${lang}`;
   const tr = (ar: string, en: string, fr: string) => (lang === 'ar' ? ar : lang === 'en' ? en : fr);
@@ -57,20 +113,47 @@ export default function BlogPostPage() {
   const useHand = !!hand && lang !== 'fr' && !handUnavailableEn;
   const seo = useHand ? null : getArticle(slug || '', blogLang);
 
-  type View = { title: string; description: string; keywords: string; contentHtml: string; date: string; readMinutes: number };
+  type View = { title: string; description: string; keywords: string; contentHtml: string; date: string; modified: string; readMinutes: number };
   let view: View | null = null;
   if (useHand && hand) {
     const v = postView(hand, lang === 'en' ? 'en' : 'ar');
-    view = { title: v.title, description: v.description, keywords: v.keywords, contentHtml: v.contentHtml, date: hand.date, readMinutes: hand.readMinutes };
+    // مدة القراءة من النص لا من القيمة اليدوية، وتاريخ التعديل من المقال نفسه (كما في prerender والخريطة)
+    view = { title: v.title, description: v.description, keywords: v.keywords, contentHtml: v.contentHtml, date: hand.date, modified: lastModifiedOf(hand) || hand.date, readMinutes: readMinutesOf(v.contentHtml) };
   } else if (seo) {
-    view = { title: seo.title, description: seo.description, keywords: seo.keywords, contentHtml: seo.contentHtml, date: seo.date, readMinutes: seo.readMinutes };
+    const modified = (seo as typeof seo & { modified?: string }).modified || seo.date;
+    view = { title: seo.title, description: seo.description, keywords: seo.keywords, contentHtml: seo.contentHtml, date: seo.date, modified, readMinutes: seo.readMinutes };
   }
 
-  // روابط hreflang + canonical: المقالات المولَّدة ثلاثية اللغة؛ اليدوية ثنائية عند توفّر en
-  const isSeo = !!seo;
-  const { canonical, alternates } = isSeo || (hand && hand.en)
-    ? seoUrls(`/blog/${slug}`, lang)
-    : { canonical: `https://fieldsa.net${prefix}/blog/${slug}`, alternates: undefined as undefined | { hreflang: string; href: string }[] };
+  // canonical + hreflang مطابقان لما يُصيَّر (prerender.mjs) وللخريطة، فلا يغيّرهما الإقلاع:
+  // - مقال مولَّد: canonical إلى صفحته الجامعة إن كان مدموجاً، وعنقود ع/إ/فر (بلا إنجليزية مقلَّمة)
+  //   للصفحة الأساسية القابلة للفهرسة وحدها.
+  // - مقال يدوي: ع/إ حسب وجود النسخة، والنسخة المدموجة (P3) canonical إلى مقالها الغني بلا عنقود.
+  let canonical: string;
+  let alternates: { hreflang: string; href: string }[] = [];
+  const exists = existsWith(posts);
+  if (seo) {
+    const cSlug = canonicalSlug(slug || '');
+    const cc = seo.countryCode;
+    const langs: Lang[] = isIndexable(cc, 'en') ? ['ar', 'en', 'fr'] : ['ar', 'fr'];
+    const u = seoUrls(`/blog/${cSlug}`, lang, langs);
+    canonical = u.canonical;
+    if (cSlug === slug && isIndexable(cc, lang)) alternates = u.alternates;
+  } else {
+    const L = lang === 'en' ? 'en' : 'ar';
+    const target = hand ? consolidatedTarget(hand.slug, L, exists) : null;
+    if (target) {
+      canonical = consolidatedUrl(target, L);
+    } else {
+      const langs: Lang[] = (hand && hand.en ? (['ar', 'en'] as Lang[]) : (['ar'] as Lang[]))
+        .filter((x) => !(hand && consolidatedTarget(hand.slug, x, exists)));
+      const u = seoUrls(`/blog/${slug}`, lang, langs);
+      canonical = u.canonical;
+      alternates = u.alternates;
+    }
+  }
+
+  // الأسئلة الظاهرة: المولَّد من بياناته، واليدوي مستخرَج من نصّه بالدالة نفسها التي يستعملها prerender
+  const faq: FaqItem[] = seo ? seo.faq : view && faqProblem ? extractFaq(normalizeContent(view.contentHtml), { problem: faqProblem }) : [];
 
   const ogImage = seo ? seo.image : 'https://fieldsa.net/og-image.png';
   const homeUrl = `https://fieldsa.net${prefix || ''}`;
@@ -85,10 +168,10 @@ export default function BlogPostPage() {
         description: view.description,
         inLanguage: lang,
         datePublished: view.date,
-        dateModified: view.date,
+        dateModified: view.modified,
         image: ogImage,
-        author: { '@type': 'Organization', name: 'FieldSales' },
-        publisher: { '@type': 'Organization', name: 'FieldSales', logo: { '@type': 'ImageObject', url: 'https://fieldsa.net/icons/icon-512.png' } },
+        author: ORG_REF,
+        publisher: ORG_REF,
         mainEntityOfPage: canonical,
       },
       {
@@ -99,16 +182,21 @@ export default function BlogPostPage() {
           { '@type': 'ListItem', position: 3, name: view.title, item: canonical },
         ],
       },
-      ...(seo && seo.faq.length ? [{
+      ...(faq.length ? [{
         '@type': 'FAQPage',
-        mainEntity: seo.faq.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
+        mainEntity: faq.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
       }] : []),
       // HowTo حُذف عمداً (أغسطس 2026) — نتائجه الغنية ميّتة منذ سبتمبر 2023؛ متطابق مع حذفه في prerender.mjs (المصدر المزدوج).
     ],
   } : undefined;
 
+  // «اقرأ أيضاً» للمقال اليدوي وحده (المولَّد له روابطه في متنه): الخطة نفسها في prerender.mjs
+  const relLang: 'ar' | 'en' = lang === 'en' ? 'en' : 'ar';
+  const related: RelatedLink[] = useHand && hand ? relatedFor(hand.slug, relLang, posts, exists) : [];
+
   useSeo(view ? {
-    title: `${view.title} | ${tr('مدونة FieldSales', 'FieldSales Blog', 'Blog FieldSales')}`,
+    // «| FieldSales» وتسقط إن جاوز العنوان بها 70 حرفاً — مطابق لما يصيّره prerender.mjs
+    title: blogTitle(view.title),
     description: view.description,
     keywords: view.keywords,
     canonical,
@@ -123,6 +211,8 @@ export default function BlogPostPage() {
   if (handUnavailableEn) return <Navigate to={`/blog/${slug}`} replace />;
   // أثناء جلب محتوى الـCMS قد لا يكون المقال اليدوي جاهزاً بعد — لا نُعيد التوجيه قبل اكتمال التحميل
   if (!view && isLoading) {
+    const hold = ssrHoldHtml();
+    if (hold) return <div data-ssr-hold="" dir={rtl ? 'rtl' : 'ltr'} className="min-h-screen" dangerouslySetInnerHTML={{ __html: hold }} />;
     return <div className="min-h-screen flex items-center justify-center bg-[#FAF7F0] text-[#9A8F7E]">{tr('جار التحميل', 'Loading…', 'Chargement…')}</div>;
   }
   if (!view) return <Navigate to={`${prefix}/blog`} replace />;
@@ -208,6 +298,19 @@ export default function BlogPostPage() {
             </Link>
           </div>
         </article>
+
+        {related.length > 0 && (
+          <nav aria-label={RELATED_TITLE[relLang]} className="mt-10 bg-white rounded-2xl border border-[#E9E1D3] p-6">
+            <h2 className="text-lg font-bold">{RELATED_TITLE[relLang]}</h2>
+            <ul className="mt-3 space-y-2.5">
+              {related.map((l) => (
+                <li key={l.href}>
+                  <Link to={l.href} className="text-[15px] font-semibold text-[#C94E28] hover:text-[#E15A30] hover:underline">{l.anchor}</Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        )}
       </main>
 
       <footer className="border-t border-[#E9E1D3] py-6 text-center text-xs text-[#9A8F7E]">

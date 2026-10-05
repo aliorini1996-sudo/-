@@ -11,6 +11,24 @@ import { trackWhatsApp } from '../lib/ads';
 import { useQuery } from '@tanstack/react-query';
 import { siteContentApi } from '../api/client';
 import { PRICING_TEXT as T } from '../content/pricingText';
+// @ts-ignore -- لا ملف تعريف للوحدة بعد (extractFaq.d.mts)؛ الأنواع مثبّتة بالتحويل أدناه
+import * as faqMod from '../blog/extractFaq.mjs';
+// @ts-ignore -- لا ملف تعريف للوحدة بعد (clusters.d.mts)؛ الأنواع مثبّتة بالتحويل أدناه
+import * as clustersMod from '../blog/clusters.mjs';
+
+// أسئلة التسعير وسكيما Product+FAQPage من المصدر نفسه الذي يصيّره prerender.mjs للزاحف:
+// كانت الأسئلة في HTML المُصيَّر وFAQPage وحدهما، فتختفي من الصفحة بعد إقلاع React وتبقى في السكيما.
+const { pricingFaq, pricingJsonLd } = faqMod as {
+  pricingFaq: (lang: string, plans: Plan[]) => { q: string; a: string }[];
+  pricingJsonLd: (lang: string, plans: Plan[], canonical: string) => object;
+};
+// الوصف وأقسام «كم تدفع شركتك» و«لكل شركة» و«ما المشمول» ورابط الربط من المصدر نفسه الذي يصيّره prerender.mjs (P7)
+const { pricingTitle, pricingDescription, pricingSections, phase2LinkFor } = clustersMod as {
+  pricingTitle: (lang: string) => string;
+  pricingDescription: (lang: string, plans: Plan[]) => string;
+  pricingSections: (lang: string, plans: Plan[]) => { h2: string; paras?: string[]; items?: string[] }[];
+  phase2LinkFor: (lang: string) => { href: string; label: string };
+};
 
 /**
  * صفحة التسعير الشفّافة.
@@ -84,24 +102,20 @@ export default function PricingPage() {
   });
   const plans: Plan[] = cms?.pricing?.plans?.length ? cms.pricing.plans : FALLBACK_PLANS;
   const numeric = plans.filter((p) => /^\d+$/.test(String(p.price)));
-  const entry = numeric[0]?.price || '299';
-  const top = numeric[numeric.length - 1]?.price || '599';
-  const arTiers = numeric.map((p) => `${p.price} ر.س حتى ${repsCap(p.limit) ?? '؟'} مناديب`).join(' و');
-  const enTiers = numeric.length
-    ? `${numeric.map((p) => p.price).join(' / ')} SAR per month for up to ${numeric.map((p) => repsCap(p.limit) ?? '?').join(' / ')} reps.`
-    : `${entry}–${top} SAR per month.`;
+
+  const seo = seoUrls('/pricing', lang); // ع/إ/فر — مطابق للخريطة وللصفحات المُصيَّرة
+  const faq = pricingFaq(lang, plans);
 
   useSeo({
-    title: lang === 'ar' ? 'كم سعر برنامج مندوبين المبيعات | Field Sales' : t.title,
+    title: pricingTitle(lang), // مطابق للمُصيَّر (كان يختلف عنه بعلامة استفهام وشَرطة)
     // الوصف يُبنى من الباقات الحيّة لا من حدَّين مكتوبين: بقي «299 حتى ٥ و599 حتى ٢٠»
-    // منشوراً بعد إضافة الباقة الوسطى، فوصل جوجل بنيةُ باقتين لا وجود لها.
-    description: lang === 'ar'
-      ? `أسعار Field Sales معلنة ${arTiers} شاملة ضريبة القيمة المضافة لكل شركة لا لكل مستخدم بلا رسوم تأسيس وتجربة ١٠ أيام بلا بطاقة`
-      : `${enTiers} VAT included, per company not per user. No setup fees. 10-day free trial, no credit card.`,
+    // منشوراً بعد إضافة الباقة الوسطى، فوصل جوجل بنيةُ باقتين لا وجود لها. و١٥٠ حرفاً أو أقل (كان ٢٣٤).
+    description: pricingDescription(lang, plans),
     keywords: lang === 'ar' ? 'كم سعر برنامج مندوبين المبيعات، سعر برنامج إدارة المناديب، تسعير نظام التوزيع' : undefined,
-    canonical: seoUrls('/pricing', lang).canonical,
-    alternates: seoUrls('/pricing', lang).alternates,
+    canonical: seo.canonical,
+    alternates: seo.alternates,
     locale: lang,
+    jsonLd: pricingJsonLd(lang, plans, seo.canonical.endsWith('/') ? seo.canonical : `${seo.canonical}/`),
   });
 
   // حاسبة النموذجين — مدخلات المستخدم لا أرقام مورّدين
@@ -169,7 +183,7 @@ export default function PricingPage() {
                   {lang === 'ar'
                     ? p.limit
                     : repsCap(p.limit)
-                      ? `Up to ${repsCap(p.limit)} reps`
+                      ? (lang === 'fr' ? `Jusqu'à ${repsCap(p.limit)} commerciaux` : `Up to ${repsCap(p.limit)} reps`)
                       : p.limit}
                 </p>
                 {Array.isArray(p.features) && p.features.length > 0 && (
@@ -203,6 +217,19 @@ export default function PricingPage() {
             );
           })}
         </section>
+
+        {/* كم تدفع شركتك شهرياً، ولماذا السعر لكل شركة، وما المشمول — أرقامها من باقات CMS، شهرية فقط */}
+        {pricingSections(lang, plans).map((sec) => (
+          <section key={sec.h2} className="mt-8">
+            <h2 className="font-semibold">{sec.h2}</h2>
+            {(sec.paras || []).map((p) => <p key={p} className="text-sm text-[#6b6357] mt-2 leading-relaxed">{p}</p>)}
+            {sec.items && sec.items.length > 0 && (
+              <ul className="mt-2 space-y-1.5 text-sm text-[#4a443a] list-disc ps-5">
+                {sec.items.map((it) => <li key={it}>{it}</li>)}
+              </ul>
+            )}
+          </section>
+        ))}
 
         {/* حاسبة النموذجين */}
         <section className="mt-10 bg-white rounded-xl border border-[#E8E0D2] p-5">
@@ -260,7 +287,25 @@ export default function PricingPage() {
           <p className="text-xs text-[#6b6357] mt-2 leading-relaxed">
             {t.fairBody.replace(/\*\*/g, '')}
           </p>
+          <Link to={phase2LinkFor(lang).href} className="inline-block mt-2 text-xs font-semibold text-[#C94E28] hover:underline">
+            {phase2LinkFor(lang).label}
+          </Link>
         </section>
+
+        {/* أسئلة التسعير — ظاهرة لأن FAQPage في سكيما الصفحة لا تصحّ إلا لأسئلة يراها الزائر */}
+        {faq.length > 0 && (
+          <section className="mt-8">
+            <h2 className="font-semibold">{t.faqTitle}</h2>
+            <dl className="mt-3 space-y-3">
+              {faq.map((f) => (
+                <div key={f.q} className="bg-white border border-[#E8E0D2] rounded-xl p-4">
+                  <dt className="font-medium text-sm">{f.q}</dt>
+                  <dd className="text-xs text-[#6b6357] mt-1.5 leading-relaxed">{f.a}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        )}
 
         <div className="mt-8 flex flex-wrap gap-3">
           <a href={waHref(path, { lang })} target="_blank" rel="noopener noreferrer"

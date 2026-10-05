@@ -152,14 +152,14 @@ function renderCalculatorSection(lang: Lang = 'ar'): string {
       <div style="position:relative; font-family:'IBM Plex Sans',sans-serif; font-size:12.5px; letter-spacing:2.5px; text-transform:uppercase; color:#E15A30; font-weight:700;">${t.eyebrow}</div>
       <h2 style="position:relative; color:#FAF7F0; font-size:clamp(26px,4.6vw,42px); line-height:1.25; font-weight:800; letter-spacing:-0.8px; margin:14px auto 0; max-width:760px;">${t.h}</h2>
       <p style="position:relative; color:#B7AD9D; font-size:clamp(15px,2.2vw,17.5px); line-height:1.9; margin:16px auto 0; max-width:640px;">${t.p}</p>
-      <a href="/calculator" class="fs-calc-cta" style="position:relative; display:inline-flex; align-items:center; gap:10px; background:#E15A30; color:#fff; font-weight:800; font-size:clamp(16px,2.4vw,19px); padding:17px 42px; border-radius:16px; text-decoration:none; margin-top:30px; transition:background .2s, transform .2s;">
+      <a href="/calculator/" class="fs-calc-cta" style="position:relative; display:inline-flex; align-items:center; gap:10px; background:#E15A30; color:#fff; font-weight:800; font-size:clamp(16px,2.4vw,19px); padding:17px 42px; border-radius:16px; text-decoration:none; margin-top:30px; transition:background .2s, transform .2s;">
         ${t.cta}
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${arrow}</svg>
       </a>
       <div style="position:relative; color:#9A8F7E; font-size:13px; margin-top:16px;">${t.note}</div>
       <!-- الأداة الثانية مولد الفواتير أيقونة عائمة مميزة أصغر من أيقونة الحاسبة 80px مقابل 116px بتدرج أخضر -->
       <div style="position:relative; margin-top:38px; padding-top:30px; border-top:1px solid rgba(250,247,240,.12);">
-        <a href="/invoice-generator" class="fs-inv-link" style="display:inline-block; text-decoration:none;">
+        <a href="/invoice-generator/" class="fs-inv-link" style="display:inline-block; text-decoration:none;">
           <span style="display:inline-flex; width:80px; height:80px; border-radius:24px; background:linear-gradient(145deg,#1E7A52,#155C3D); align-items:center; justify-content:center; animation:fsInvFloat 4.2s ease-in-out infinite, fsInvGlow 4.2s ease-in-out infinite;">
             <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#FAF7F0" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
               <path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"></path>
@@ -589,7 +589,7 @@ function contactSection(contact: ContactInfo, lang: Lang): string {
   if (!cards) return '';
 
   // زر «اطلب اشتراكك الآن» → صفحة «تسجيل طلب اشتراك جديد» (يصل الطلب للإدارة بريدياً)
-  const requestUrl = lang === 'ar' ? '/subscribe-request' : `/${lang}/subscribe-request`;
+  const requestUrl = lang === 'ar' ? '/subscribe-request/' : `/${lang}/subscribe-request/`;
   return `<section id="contact-box" style="max-width:1200px; margin:0 auto; padding:6px 28px 60px;">
     <div style="background:#fff; border:1px solid #E9E1D3; border-radius:26px; padding:44px 40px; text-align:center;">
       <div style="font-family:'IBM Plex Sans',sans-serif; font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:#E15A30; font-weight:600;">CONTACT</div>
@@ -629,6 +629,8 @@ function featureLinksRow(lang: Lang): string {
     item('/مزايا/عهدة-سيارة-المندوب/', 'عهدة سيارة المندوب'),
     item('/مزايا/طباعة-فاتورة-من-الجوال/', 'طباعة فاتورة من الجوال'),
     item('/مزايا/إثبات-زيارة-المندوب/', 'إثبات زيارة المندوب'),
+    item('/مزايا/ربط-المرحلة-الثانية/', 'ربط المرحلة الثانية مع منصة فاتورة'),
+    item('/مزايا/تحصيل-المناديب/', 'تحصيل المناديب بسند قبض من الجوال'),
     item('/مزايا/', 'كل المزايا'),
   ].join('<span style="color:#C9BFAE"> · </span>');
   return `<section style="max-width:1100px; margin:0 auto; padding:22px 20px 34px; text-align:center; font-size:14px; color:#6b6357; line-height:2.1">
@@ -644,12 +646,25 @@ function localizeLinks(html: string, lang: Lang): string {
   const prefix = lang === 'en' ? '/en' : lang === 'tr' ? '/tr' : lang === 'zh' ? '/zh' : '/fr';
   let out = html;
   for (const p of LOCALIZED_PATHS) {
-    // href="/contact" → href="/en/contact"  (تطابق تام مع علامة الاقتباس لتفادي مطابقة /blog داخل /blog/slug)
+    // الرابط /contact يصير /en/contact بتطابق تام مع علامة الاقتباس (لتفادي مطابقة /blog داخل /blog/slug)
     // المدونة بلا نسخة تركية بعد — روابطها من /tr تقود للإنجليزية كي لا نعرض محتوى عربياً في سياق تركي
     const target = (lang === 'tr' || lang === 'zh') && p === '/blog' ? '/en' : prefix;
+    // الصيغتان معاً: القالب يكتب الرابط بلا شرطة، وروابط هذا الملف بشرطة أخيرة
     out = out.split(`href="${p}"`).join(`href="${target}${p}"`);
+    out = out.split(`href="${p}/"`).join(`href="${target}${p}/"`);
   }
   return out;
+}
+
+/**
+ * الشرطة الأخيرة لكل رابط داخلي في HTML الصفحة: `/blog` يصير `/blog/` و`/en` يصير `/en/`.
+ * الصفحات مُصيَّرة مجلّدات (dist/blog/index.html)، والرابط بلا شرطة يُخدَم قوقعة الرئيسية لمن لا
+ * يشغّل JavaScript، ولمن يشغّله قفزة تحويل من سكربت index.html. القالب (landingTemplate.ts) يكتب
+ * روابطه بلا شرطة، فتُطبَّع هنا مرة واحدة بعد التوطين. تُترك: المراسي والاستعلامات والملفات
+ * بامتداد (مسار فيه نقطة) والروابط الخارجية (لا تبدأ بشرطة واحدة).
+ */
+function slashInternalLinks(html: string): string {
+  return html.replace(/href="(\/(?!\/)[^"#?.]*[^"#?./])"/g, 'href="$1/"');
 }
 
 // ---- تبديل عملة عرض الأسعار (ريال ⇄ دولار) ----
@@ -912,8 +927,10 @@ export default function LandingPage() {
 
   // مبدّل اللغة المحقون في شريط التنقّل ينتقل بين / · /en · /fr (روابط منفصلة للفهرسة الدولية)
   useEffect(() => {
-    (window as unknown as { __fsSetLangRoute?: (l: Lang) => void }).__fsSetLangRoute = (l) =>
-      navigate(pathForLocale('/', l));
+    (window as unknown as { __fsSetLangRoute?: (l: Lang) => void }).__fsSetLangRoute = (l) => {
+      const p = pathForLocale('/', l); // «/en» يصير «/en/»: الرابط القانوني بشرطة أخيرة
+      navigate(p.endsWith('/') ? p : `${p}/`);
+    };
   }, [navigate]);
 
   // مبدّلا العملة والدورة — يضبطان الريال/الدولار والشهري/السنوي محليًا دون تغيير المسار (يُحفظ الاختيار)
@@ -1057,6 +1074,7 @@ export default function LandingPage() {
   // مربع «للتواصل وطلبات الاشتراك» — بياناته من CMS العربي (المصدر الواحد) وتُعرض بكل اللغات
   html = injectContactBox(html, (arContent.contact as ContactInfo) || {}, lang);
   html = localizeLinks(html, lang); // يبقي لغة الروابط ثابتة عند الانتقال للصفحات التالية
+  html = slashInternalLinks(html); // بعد التوطين: localizeLinks يطابق الرابط حرفياً
 
   // مبدّلا الدورة والعملة داخل قسم الأسعار + لاحقة السعر حسب الدورة والعملة (اللاحقة ثابتة في القالب)
   html = applyPriceSuffix(html, billing, currency);

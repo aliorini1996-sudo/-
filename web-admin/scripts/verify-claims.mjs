@@ -13,19 +13,24 @@
  *  - لا عملاء مرجعيون ولا SOC2/ISO ⇒ لا رقم ولا شهادة تُذكر.
  *  - تطبيق Play في الاختبار المغلق ويُرجع 404 ⇒ لا رابط متجر.
  *  - لا اشتراك ذاتي داخل المنتج ⇒ لا نداء «اشترك الآن».
+ *  - لا أسماء منافسين (قرار المالك): القائمة الأصلية حاجبة مطلقاً، وقائمة competitor-name-attributed حاجبة
+ *    في نصوص المستودع وتحذير في نصوص CMS (مقال repzo-alternative-field-reps ينتظر قرار المالك).
+ *  - كل تحذير مُسنَد إلى CMS يُطبع معه «المقالات المتأثرة» كاملةً: هي قائمة البنود التي تُحرَّر من لوحة CMS.
  *
  * القواعد نفسها في scripts/claims-rules.mjs ويختبرها src/content/claimsGuard.test.ts.
  *
- * التشغيل: node scripts/verify-claims.mjs   (بعد البناء)
+ * التشغيل: node scripts/verify-claims.mjs [--dist <مجلد>]   (بعد البناء)
  * التجاوز المؤقّت لملف مُراجَع: أضِف مساره إلى ALLOW أدناه بسبب مكتوب.
  */
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { RULES, findViolation, findViolations, PHASE2_CMS_CLEANED, cmsCorpus, fromCms } from './claims-rules.mjs';
+import { RULES, findViolation, findViolations, PHASE2_CMS_CLEANED, cmsCorpus, fromCms, fromCmsContext } from './claims-rules.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DIST = path.resolve(__dirname, '../dist');
+const argv = process.argv.slice(2);
+const distArg = argv.indexOf('--dist') >= 0 ? argv[argv.indexOf('--dist') + 1] : null;
+const DIST = path.resolve(distArg || path.join(__dirname, '../dist'));
 const CMS_API = 'https://api.fieldsa.net/api/site-content';
 const STALE_ID = 'zatca-phase2-stale-denial';
 
@@ -81,8 +86,10 @@ if (!fs.existsSync(DIST)) {
 // إسناد النفي القديم لمصدره (claims-rules.mjs: cmsCorpus/fromCms): نصوص CMS الحيّة تُجلب هنا كما جلبها
 // prerender وgen-llms قبل ثوانٍ. تعذّر الجلب ⇒ لا إسناد، فيبقى النفي كله تحذيراً في هذا البناء وحده
 // (ومصادر المستودع يحرسها claimsGuard.test.ts في web-ci على أي حال) — لا يُفشَل بناءٌ لعطل شبكة.
+// والقواعد ذات cmsWarn (أسماء المنافسين) تحتاج الإسناد نفسه ولو بعد قلب العلم.
+const ATTRIBUTED = RULES.filter((r) => r.cmsWarn);
 let corpus = null;
-if (!PHASE2_CMS_CLEANED) {
+if (!PHASE2_CMS_CLEANED || ATTRIBUTED.length) {
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 10000);
@@ -97,12 +104,18 @@ const files = collect(DIST);
 const hits = new Map(); // `${level}:${ruleId}` → [{file, sample}]
 const counts = new Map(); // `${level}:${ruleId}` → عدد الملفات
 let skipped = 0;
+const articles = new Map(); // `${level}:${ruleId}` → مقالات المدوّنة المتأثرة كلها (قائمة بنود CMS عند المالك)
 const record = (level, id, file, v) => {
   const key = `${level}:${id}`;
   if (!hits.has(key)) hits.set(key, []);
   counts.set(key, (counts.get(key) || 0) + 1);
   const list = hits.get(key);
   if (list.length < 3) list.push({ file, sample: v.match.slice(0, 60) });
+  const am = file.split(path.sep).join('/').match(/^(?:(en|fr)\/)?blog\/([^/]+)\/index\.html$/);
+  if (am) {
+    if (!articles.has(key)) articles.set(key, new Set());
+    articles.get(key).add(`${am[1] ? am[1] + '/' : ''}${am[2]}`);
+  }
 };
 
 for (const f of files) {
@@ -119,6 +132,16 @@ for (const f of files) {
 
   for (const rule of RULES) {
     const haystack = rule.scope === 'head' ? head : rule.scope === 'raw' ? raw : text;
+    if (rule.cmsWarn) {
+      // اسم قصير يوجد في CMS ما دام المقال حيّاً ⇒ الإسناد بالسياق الملاصق لا بالنصّ وحده (fromCmsContext).
+      // تعذّر جلب CMS ⇒ لا إسناد ⇒ تحذير في هذا البناء وحده (مصادر المستودع يحرسها claimsGuard.test.ts).
+      const all = findViolations(rule, haystack);
+      const repo = corpus ? all.find((v) => !fromCmsContext(haystack, v, corpus)) : null;
+      const cms = all.find((v) => !corpus || fromCmsContext(haystack, v, corpus));
+      if (repo) record('block', rule.id, rel, repo);
+      if (cms) record('warn', rule.id, rel, cms);
+      continue;
+    }
     if (rule.id === STALE_ID && rule.severity === 'warn') {
       // قبل قلب العلم: مطابقة يوجد نصّها في CMS ⇒ تحذير (بند §٨ عند المالك)، وغيرها ⇒ حاجب (نصّ مستودع)
       const all = findViolations(rule, haystack);
@@ -135,10 +158,11 @@ for (const f of files) {
 }
 
 console.log(`فحص الادّعاءات على ${files.length} ملف مُصيَّر (مستثنى: ${skipped}).`);
-if (!PHASE2_CMS_CLEANED) {
+if (!PHASE2_CMS_CLEANED || ATTRIBUTED.length) {
+  const what = [!PHASE2_CMS_CLEANED && 'النفي القديم', ATTRIBUTED.length && 'أسماء المنافسين'].filter(Boolean).join(' و');
   console.log(corpus
-    ? `  إسناد النفي القديم: CMS الحيّ مجلوب — نصوص المستودع حاجبة، ونصوص CMS تحذير حتى PHASE2_CMS_CLEANED.`
-    : `  ⚠ تعذّر جلب CMS: لا إسناد في هذا البناء — النفي القديم كله تحذير (مصادر المستودع يحرسها claimsGuard.test.ts).`);
+    ? `  إسناد ${what}: CMS الحيّ مجلوب — نصوص المستودع حاجبة، ونصوص CMS تحذير.`
+    : `  ⚠ تعذّر جلب CMS: لا إسناد في هذا البناء — ${what} كله تحذير (مصادر المستودع يحرسها claimsGuard.test.ts).`);
 }
 
 const keysOf = (level) => [...hits.keys()].filter((k) => k.startsWith(`${level}:`));
@@ -146,14 +170,22 @@ const blocking = keysOf('block');
 const warnings = keysOf('warn');
 const label = (key) => {
   const id = key.slice(key.indexOf(':') + 1);
-  const src = id === STALE_ID && !PHASE2_CMS_CLEANED ? (key.startsWith('warn:') ? (corpus ? ' (نصّ CMS)' : ' (بلا إسناد)') : ' (نصّ المستودع)') : '';
-  return { id, src, why: RULES.find((r) => r.id === id).why };
+  const rule = RULES.find((r) => r.id === id);
+  const attributed = !!rule.cmsWarn || (id === STALE_ID && !PHASE2_CMS_CLEANED);
+  const src = attributed ? (key.startsWith('warn:') ? (corpus ? ' (نصّ CMS)' : ' (بلا إسناد)') : ' (نصّ المستودع)') : '';
+  return { id, src, why: rule.why };
+};
+/** المقالات المتأثرة كلها لا الأمثلة الثلاثة — هي قائمة البنود التي يحرّرها المالك من لوحة CMS */
+const printArticles = (key, log) => {
+  const a = articles.get(key);
+  if (a && a.size) log(`      المقالات المتأثرة (${a.size}): ${[...a].sort().join('، ')}`);
 };
 
 for (const key of warnings) {
   const { id, src, why } = label(key);
   console.warn(`\n  ⚠ تحذير غير حاجب [${id}]${src} ${why} — ${counts.get(key)} ملف`);
   for (const h of hits.get(key)) console.warn(`      ${h.file} — «${h.sample}»`);
+  printArticles(key, console.warn);
 }
 
 if (!blocking.length) {
@@ -165,6 +197,7 @@ for (const key of blocking) {
   const { id, src, why } = label(key);
   console.error(`\n  ✗ [${id}]${src} ${why} — ${counts.get(key)} ملف`);
   for (const h of hits.get(key)) console.error(`      ${h.file} — «${h.sample}»`);
+  printArticles(key, console.error);
 }
 console.error(`\n✗ فحص الادّعاءات فشل (${blocking.length} قاعدة).`);
 process.exit(1);

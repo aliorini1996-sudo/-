@@ -8,6 +8,7 @@ import LanguageToggle from '../components/LanguageToggle';
 import { useLang, useDir } from '../i18n/lang';
 import { useSeo } from '../lib/seo';
 import { seoUrls, pathForLocale } from '../i18n/locale';
+import { useNoindex } from './NotFoundPage';
 
 // صفحة «تسجيل طلب اشتراك جديد» — تصل بيانات الشركة للإدارة بريدياً (زر «اطلب اشتراكك الآن» بالرئيسية)
 export default function SubscriptionRequestPage() {
@@ -16,7 +17,8 @@ export default function SubscriptionRequestPage() {
   // نصوص الصفحة ثلاثية اللغة (ذاتية الاحتواء كنمط صفحات المدوّنة)
   const tr = (ar: string, en: string, fr: string) => (lang === 'fr' ? fr : lang === 'ar' ? ar : en); // tr → الإنجليزية مؤقتاً
 
-  const home = pathForLocale('/', lang);
+  const homePath = pathForLocale('/', lang);
+  const home = homePath.endsWith('/') ? homePath : `${homePath}/`; // «/en» يصير «/en/»: الروابط العامة بشرطة أخيرة
   const seoUrl = seoUrls('/subscribe-request', lang);
   useSeo({
     title: tr('تسجيل طلب اشتراك جديد | FieldSales', 'New Subscription Request | FieldSales', 'Nouvelle demande d’abonnement | FieldSales'),
@@ -29,6 +31,9 @@ export default function SubscriptionRequestPage() {
     canonical: seoUrl.canonical, alternates: seoUrl.alternates,
     image: 'https://fieldsa.net/og-image.png', locale: lang,
   });
+  // نموذج طلب لا محتوى يُبحث عنه: noindex مع متابعة روابطه. يصله نحو ١٧ رابطاً داخلياً،
+  // فلا يُترك صفحةً مفهرسة تنافس الصفحات الحقيقية (تصحيح الناقد ٢١).
+  useNoindex('noindex, follow');
 
   const [form, setForm] = useState({ companyName: '', contactName: '', email: '', phone: '', country: '', city: '', repsCount: '', notes: '' });
   const [sending, setSending] = useState(false);
@@ -151,7 +156,7 @@ export default function SubscriptionRequestPage() {
               </button>
               <p className="text-[11px] text-[#9A8F7E] text-center leading-relaxed">
                 {tr('أو ابدأ فورا بنفسك عبر', 'Or start right away with the', 'Ou commencez immédiatement avec l’')}{' '}
-                <Link to="/signup" className="text-[#E15A30] font-semibold hover:underline">{tr('التجربة المجانية 10 أيام', 'free 10-day trial', 'essai gratuit de 10 jours')}</Link>
+                <Link to="/signup/" className="text-[#E15A30] font-semibold hover:underline">{tr('التجربة المجانية 10 أيام', 'free 10-day trial', 'essai gratuit de 10 jours')}</Link>
               </p>
             </form>
           )}

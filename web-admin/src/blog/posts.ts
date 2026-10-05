@@ -1,5 +1,5 @@
 // مقالات المدوّنة — محتوى ثابت محسّن لمحركات البحث (يُدرَج في sitemap ويُفهرَس مباشرةً).
-// لإضافة مقال: أضِف عنصراً هنا + أضِف رابطه في public/sitemap.xml.
+// لإضافة مقال: أضِف عنصراً هنا — يُنشر ولو لم يكن في CMS (effectivePosts)، والخريطة تولَّد آلياً.
 // الحقول الأساسية عربية؛ والمقالات ثنائية اللغة تضيف نسخة إنجليزية في الحقل en (تظهر على /en/blog).
 export interface BlogL10n {
   title: string;
@@ -11,7 +11,9 @@ export interface BlogL10n {
 export interface BlogPost extends BlogL10n {
   slug: string;
   date: string;            // YYYY-MM-DD
-  readMinutes: number;
+  readMinutes: number;     // قيمة يدوية قديمة — العرض يحسبها من النص (readMinutesOf)
+  modified?: string;       // YYYY-MM-DD — آخر تعديل جوهري للمقال إن عُرف (lastmod وdateModified)
+  updatedAt?: string;      // إن أضافه الخادم لمقالات CMS يُقدَّم على date (lastModifiedOf)
   en?: BlogL10n;           // النسخة الإنجليزية (اختيارية) — للمقالات ثنائية اللغة
 }
 
@@ -113,7 +115,7 @@ export const POSTS: BlogPost[] = [
     keywords: 'نموذج فاتورة ضريبية, نموذج فاتورة ضريبية جاهز للطباعة, كيف اعمل فاتورة ضريبية, انشاء فاتورة الكترونية مجانا, عمل فاتورة اون لاين, فاتورة ضريبية pdf, فاتورة ضريبية مبسطة, فاتورة برمز QR, برنامج فواتير مجاني, مولد فاتورة ضريبية, فاتورة ضريبية السعودية, فاتورة ضريبية مصر, فاتورة ZATCA, نموذج فاتورة مبيعات',
     excerpt: 'تحتاج فاتورة ضريبية احترافية الآن دون شراء برنامج إليك كيف تنشئ نموذج فاتورة ضريبية برمز QR مجانا خلال 30 ثانية وتحملها PDF',
     contentHtml: `
-      <p>سواء كنت تاجر جملة أو صاحب محل أو موزعا ستحتاج بين الحين والآخر إلى <strong>فاتورة ضريبية</strong> احترافية جاهزة للطباعة دون أن تشتري برنامج محاسبة كاملا في هذا الدليل تتعلم كيف تنشئ <strong>نموذج فاتورة ضريبية برمز QR</strong> متوافق مع متطلبات هيئة الزكاة والضريبة والجمارك ZATCA خلال ثوان مجانا وبلا تسجيل عبر <a href="/invoice-generator">مولد الفاتورة الضريبية المجاني</a> </p>
+      <p>سواء كنت تاجر جملة أو صاحب محل أو موزعا ستحتاج بين الحين والآخر إلى <strong>فاتورة ضريبية</strong> احترافية جاهزة للطباعة دون أن تشتري برنامج محاسبة كاملا في هذا الدليل تتعلم كيف تنشئ <strong>نموذج فاتورة ضريبية برمز QR</strong> متوافق مع متطلبات هيئة الزكاة والضريبة والجمارك ZATCA خلال ثوان مجانا وبلا تسجيل عبر <a href="/invoice-generator/">مولد الفاتورة الضريبية المجاني</a> </p>
 
       <h2>ما الذي يجب أن تحتويه الفاتورة الضريبية الصحيحة </h2>
       <ul>
@@ -126,11 +128,11 @@ export const POSTS: BlogPost[] = [
       </ul>
 
       <h2>الفرق بين الفاتورة الضريبية والفاتورة الضريبية المبسطة</h2>
-      <p><strong>الفاتورة الضريبية المبسطة</strong> تصدر للمستهلك الأفراد B2C ولا تتطلب الرقم الضريبي للمشتري أما <strong>الفاتورة الضريبية</strong> العادية فتصدر بين المنشآت B2B وتتضمن الرقم الضريبي للطرفين عند استخدام <a href="/invoice-generator">مولد الفواتير المجاني</a> يتحول نوع الفاتورة تلقائيا بمجرد إدخالك الرقم الضريبي للعميل من عدمه </p>
+      <p><strong>الفاتورة الضريبية المبسطة</strong> تصدر للمستهلك الأفراد B2C ولا تتطلب الرقم الضريبي للمشتري أما <strong>الفاتورة الضريبية</strong> العادية فتصدر بين المنشآت B2B وتتضمن الرقم الضريبي للطرفين عند استخدام <a href="/invoice-generator/">مولد الفواتير المجاني</a> يتحول نوع الفاتورة تلقائيا بمجرد إدخالك الرقم الضريبي للعميل من عدمه </p>
 
       <h2>كيف تنشئ الفاتورة مجانا خطوة بخطوة</h2>
       <ol>
-        <li>افتح <a href="/invoice-generator">مولد الفاتورة الضريبية المجاني</a> يعمل في المتصفح بلا تثبيت ولا تسجيل </li>
+        <li>افتح <a href="/invoice-generator/">مولد الفاتورة الضريبية المجاني</a> يعمل في المتصفح بلا تثبيت ولا تسجيل </li>
         <li>أدخل اسم شركتك ورقمك الضريبي وعنوانك تحفظ محليا فلا تعيد إدخالها في المرة القادمة </li>
         <li>أدخل اسم العميل ثم أضف بنود الفاتورة الوصف والكمية والسعر </li>
         <li>اختر دولتك فتضبط نسبة الضريبة والعملة تلقائيا السعودية 15% مصر 14% الإمارات 5% وغيرها من 22 دولة عربية </li>
@@ -138,7 +140,7 @@ export const POSTS: BlogPost[] = [
       </ol>
 
       <h2>هل هذه الأداة مجانية فعلا </h2>
-      <p>نعم <a href="/invoice-generator">مولد الفواتير</a> مجاني بالكامل وبلا حدود على عدد الفواتير ويعمل في متصفحك دون رفع بياناتك لأي خادم مثالي لمن يحتاج <strong>نموذج فاتورة ضريبية جاهز للطباعة</strong> بسرعة </p>
+      <p>نعم <a href="/invoice-generator/">مولد الفواتير</a> مجاني بالكامل وبلا حدود على عدد الفواتير ويعمل في متصفحك دون رفع بياناتك لأي خادم مثالي لمن يحتاج <strong>نموذج فاتورة ضريبية جاهز للطباعة</strong> بسرعة </p>
 
       <h2>من الفاتورة اليدوية إلى الإصدار التلقائي</h2>
       <p>إذا كنت تصدر عشرات الفواتير يوميا عبر مناديب ميدانيين فإنشاؤها يدويا لكل عميل يستهلك وقتا ويسرب إيرادات هنا يأتي دور <a href="/signup">منصة FieldSales</a> يصدر مندوبك الفاتورة الضريبية برمز QR تلقائيا من جواله في موقع العميل ويطبعها حراريا وتخصم الكمية من مخزون سيارته لحظيا <strong>جربها مجانا 10 أيام بلا بطاقة ائتمان </strong></p>
@@ -154,7 +156,7 @@ export const POSTS: BlogPost[] = [
       keywords: 'free invoice generator, tax invoice template, how to create a tax invoice, invoice maker online free, VAT invoice template, ZATCA QR invoice, printable invoice template, e-invoice generator, simplified tax invoice, invoice PDF generator',
       excerpt: 'Need a professional tax invoice right now without buying software? Here is how to create a QR-coded tax invoice template for free in 30 seconds and download it as PDF',
       contentHtml: `
-        <p>Whether you are a wholesaler, a shop owner or a distributor, you occasionally need a professional, printable <strong>tax invoice</strong> — without buying a full accounting suite. This guide shows you how to create a <strong>tax invoice template with a QR code</strong> compliant with ZATCA requirements in seconds, for free and with no signup, using the <a href="/en/invoice-generator">free tax invoice generator</a>.</p>
+        <p>Whether you are a wholesaler, a shop owner or a distributor, you occasionally need a professional, printable <strong>tax invoice</strong> — without buying a full accounting suite. This guide shows you how to create a <strong>tax invoice template with a QR code</strong> compliant with ZATCA requirements in seconds, for free and with no signup, using the <a href="/en/invoice-generator/">free tax invoice generator</a>.</p>
 
         <h2>What a valid tax invoice must contain</h2>
         <ul>
@@ -167,11 +169,11 @@ export const POSTS: BlogPost[] = [
         </ul>
 
         <h2>Standard vs simplified tax invoice</h2>
-        <p>A <strong>simplified tax invoice</strong> is issued to consumers (B2C) and does not require the buyer's VAT number A standard <strong>tax invoice</strong> is issued between businesses B2B and includes both parties' VAT numbers. In the <a href="/en/invoice-generator">free invoice generator</a>, the invoice type switches automatically the moment you add (or omit) the customer's VAT number.</p>
+        <p>A <strong>simplified tax invoice</strong> is issued to consumers (B2C) and does not require the buyer's VAT number A standard <strong>tax invoice</strong> is issued between businesses B2B and includes both parties' VAT numbers. In the <a href="/en/invoice-generator/">free invoice generator</a>, the invoice type switches automatically the moment you add (or omit) the customer's VAT number.</p>
 
         <h2>How to create the invoice for free, step by step</h2>
         <ol>
-          <li>Open the <a href="/en/invoice-generator">free tax invoice generator</a> — it runs in the browser, no install, no signup.</li>
+          <li>Open the <a href="/en/invoice-generator/">free tax invoice generator</a> — it runs in the browser, no install, no signup.</li>
           <li>Enter your company name, VAT number and address (saved locally so you don't retype next time).</li>
           <li>Enter the customer name, then add invoice line items (description, quantity, price).</li>
           <li>Pick your country and the VAT rate and currency are set automatically (Saudi Arabia 15%, Egypt 14%, UAE 5%, and all 22 Arab countries in total).</li>
@@ -179,7 +181,7 @@ export const POSTS: BlogPost[] = [
         </ol>
 
         <h2>Is the tool really free?</h2>
-        <p>Yes — the <a href="/en/invoice-generator">invoice generator</a> is completely free with no limit on the number of invoices, and it runs in your browser without uploading your data to any server. Ideal when you need a <strong>printable tax invoice template</strong> fast.</p>
+        <p>Yes — the <a href="/en/invoice-generator/">invoice generator</a> is completely free with no limit on the number of invoices, and it runs in your browser without uploading your data to any server. Ideal when you need a <strong>printable tax invoice template</strong> fast.</p>
 
         <h2>From manual invoices to automatic issuing</h2>
         <p>If you issue dozens of invoices a day through field reps, creating them manually for every customer wastes time and leaks revenue. That is where <a href="/signup">FieldSales</a> comes in: your rep issues the QR tax invoice automatically from their phone at the customer's location, prints it thermally, and the quantity is deducted from van stock in real time. <strong>Try it free for 10 days, no credit card.</strong></p>
@@ -200,7 +202,7 @@ export const POSTS: BlogPost[] = [
     keywords: 'خسائر شركات التوزيع, تسريب الإيرادات, هدر المبيعات, حساب خسائر الشركات, حاسبة خسائر, التحصيل الميداني, عجز مخزون السيارة, فروقات المخزون, إدارة مناديب المبيعات, هدر الإيرادات, تسريب الأرباح',
     excerpt: 'الإدارة الورقية تنزف شركتك يوميا دون أن ترى الرقم إليك مصادر تسريب الإيرادات الأربعة وكيف تحسب خسائرك السنوية بدقة ومجانا',
     contentHtml: `
-      <p>الخسارة الأخطر هي التي لا تراها شركات التوزيع التي تدير مناديبها بالورق أو الواتساب تسرب عادة <strong>3-6% من إيراداتها السنوية</strong> لا في صفقة كبيرة واحدة بل في تسريبات صغيرة يومية تتراكم لنفككها ونحسبها بدقة عبر <a href="/calculator">حاسبة تسريب الإيرادات المجانية</a> </p>
+      <p>الخسارة الأخطر هي التي لا تراها شركات التوزيع التي تدير مناديبها بالورق أو الواتساب تسرب عادة <strong>3-6% من إيراداتها السنوية</strong> لا في صفقة كبيرة واحدة بل في تسريبات صغيرة يومية تتراكم لنفككها ونحسبها بدقة عبر <a href="/calculator/">حاسبة تسريب الإيرادات المجانية</a> </p>
 
       <h2>مصادر تسريب الإيرادات الأربعة</h2>
       <h3>1) فواتير مفقودة وأخطاء تسعير</h3>
@@ -216,14 +218,14 @@ export const POSTS: BlogPost[] = [
       <p>ساعات تضيع يوميا في كتابة الطلبات ونقلها للإدارة بدل البيع الفعلي تكلفة فرصة حقيقية </p>
 
       <h2>كيف تحسب خسائرك السنوية بدقة </h2>
-      <p>لا تخمن أدخل عدد مناديبك ومتوسط فواتيرهم اليومية ونسبة البيع النقدي في <a href="/calculator">حاسبة تسريب الإيرادات</a> فتحصل خلال دقيقة على تقدير لخسارتك الشهرية والسنوية مفصلا على المصادر الأربعة أعلاه النسب تحفظية مبنية على متوسطات قطاع التوزيع والواقع غالبا أعلى </p>
+      <p>لا تخمن أدخل عدد مناديبك ومتوسط فواتيرهم اليومية ونسبة البيع النقدي في <a href="/calculator/">حاسبة تسريب الإيرادات</a> فتحصل خلال دقيقة على تقدير لخسارتك الشهرية والسنوية مفصلا على المصادر الأربعة أعلاه النسب تحفظية مبنية على متوسطات قطاع التوزيع والواقع غالبا أعلى </p>
 
       <h2>من قياس التسريب إلى إغلاقه</h2>
       <p>معرفة الرقم هي الخطوة الأولى إغلاق التسريب هو الهدف <a href="/signup">منصة FieldSales</a> تغلق المصادر الأربعة معا فواتير ضريبية دقيقة من الميدان سند قبض رقمي لكل تحصيل يحدث رصيد العميل لحظيا مخزون سيارة ينقص تلقائيا مع كل بيع ويكشف الفروقات وطلبات تصل الإدارة في ثانيتها <strong>جربها مجانا 10 أيام </strong></p>
 
       <h2>أسئلة شائعة</h2>
       <p><strong>كم تخسر الشركات فعلا بالإدارة الورقية </strong> عادة 3-6% من الإيرادات السنوية وقد ترتفع مع كبر الفريق </p>
-      <p><strong>هل الحاسبة مجانية </strong> نعم <a href="/calculator">حاسبة التسريب</a> مجانية بالكامل وتعمل بلا تسجيل ويمكنك مشاركة نتيجتك عبر واتساب </p>
+      <p><strong>هل الحاسبة مجانية </strong> نعم <a href="/calculator/">حاسبة التسريب</a> مجانية بالكامل وتعمل بلا تسجيل ويمكنك مشاركة نتيجتك عبر واتساب </p>
     `,
     en: {
       title: 'How Much Revenue Do Distribution Companies Lose Every Year?',
@@ -231,7 +233,7 @@ export const POSTS: BlogPost[] = [
       keywords: 'distribution company losses, revenue leakage, sales leakage, calculate business losses, field collection, van stock shrinkage, stock discrepancy, sales rep management, revenue leak calculator',
       excerpt: 'Paper-based management bleeds your company daily without showing you the number Here are the four sources of revenue leakage and how to calculate your annual losses accurately and for free',
       contentHtml: `
-        <p>The most dangerous loss is the one you can't see Distribution companies running reps on paper or WhatsApp typically leak <strong>3-6% of annual revenue</strong> not in one big deal but in small daily leaks that add up Let's break them down and measure them with the <a href="/en/calculator">free revenue leak calculator</a>.</p>
+        <p>The most dangerous loss is the one you can't see Distribution companies running reps on paper or WhatsApp typically leak <strong>3-6% of annual revenue</strong> not in one big deal but in small daily leaks that add up Let's break them down and measure them with the <a href="/en/calculator/">free revenue leak calculator</a>.</p>
 
         <h2>The four sources of revenue leakage</h2>
         <h3>1) Lost invoices and pricing errors</h3>
@@ -247,14 +249,14 @@ export const POSTS: BlogPost[] = [
         <p>Hours lost daily writing orders and relaying them to the office instead of actually selling — a real opportunity cost.</p>
 
         <h2>How to calculate your annual losses accurately</h2>
-        <p>Don't guess. Enter your number of reps, average daily invoices and cash-sale share into the <a href="/en/calculator">revenue leak calculator</a>, and within a minute you get an estimate of your monthly and yearly loss, broken down across the four sources above. The rates are conservative, based on distribution-industry averages — reality is usually higher.</p>
+        <p>Don't guess. Enter your number of reps, average daily invoices and cash-sale share into the <a href="/en/calculator/">revenue leak calculator</a>, and within a minute you get an estimate of your monthly and yearly loss, broken down across the four sources above. The rates are conservative, based on distribution-industry averages — reality is usually higher.</p>
 
         <h2>From measuring the leak to closing it</h2>
         <p>Knowing the number is the first step; closing the leak is the goal. <a href="/signup">FieldSales</a> closes all four sources together: accurate tax invoices from the field, a digital receipt for every collection that updates the customer balance live, van stock that auto-decrements with every sale and flags discrepancies, and orders that reach the office in seconds. <strong>Try it free for 10 days.</strong></p>
 
         <h2>FAQ</h2>
         <p><strong>How much do companies really lose with paper management?</strong> Typically 3-6% of annual revenue, rising as the team grows.</p>
-        <p><strong>Is the calculator free?</strong> Yes, the <a href="/en/calculator">leak calculator</a> is completely free, works with no signup, and you can share your result on WhatsApp.</p>
+        <p><strong>Is the calculator free?</strong> Yes, the <a href="/en/calculator/">leak calculator</a> is completely free, works with no signup, and you can share your result on WhatsApp.</p>
       `,
     },
   },
@@ -1630,7 +1632,7 @@ export const POSTS: BlogPost[] = [
   },
   {
     slug: "building-materials-distribution",
-    title: "توزiع مواد البناء إدارة الحجم الثقيل والائتمان",
+    title: "توزيع مواد البناء إدارة الحجم الثقيل والائتمان",
     description: "دليل توزيع مواد البناء إدارة الأصناف الثقيلة التسعير حسب المشروع الائتمان للمقاولين والتوصيل المجدول لكفاءة وتحصيل منضبط",
     date: "2026-04-19",
     readMinutes: 5,
@@ -1843,10 +1845,39 @@ export const emptyPost = (): BlogPost => ({
   readMinutes: 5, keywords: '', excerpt: '', contentHtml: '',
 });
 
-// قائمة المقالات الفعّالة: محتوى الـCMS إن وُجد، وإلا الافتراضي — مرتّبة بالأحدث
+/**
+ * قائمة المقالات الفعّالة: اتحاد مقالات الـCMS الصالحة ومقالات المستودع، مرتّبة بالأحدث.
+ *
+ * كانت قائمة CMS تُعاد كاملةً متى لم تكن فارغة، فأي مقال جديد يُكتب هنا في posts.ts لا يُنشر أبداً
+ * ما دام في CMS مقال واحد. الآن: نسخة CMS تتقدّم عند تطابق slug (المالك يحرّر من اللوحة)، وما ليس في
+ * CMS من المستودع يُضاف. ⚠️ حذف مقال من CMS لا يُخفيه إن بقي هنا — احذفه من الموضعين.
+ * يستعملها الزائر (useBlog) والتصيير المسبق وخريطة الموقع (gen-sitemap يحمّل هذا الملف نفسه).
+ */
 export function effectivePosts(cmsBlog: unknown): BlogPost[] {
-  const list = Array.isArray(cmsBlog) && cmsBlog.length
-    ? (cmsBlog as BlogPost[]).filter(p => p && p.slug && p.title)
-    : POSTS;
-  return [...list].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const cms = Array.isArray(cmsBlog) ? (cmsBlog as BlogPost[]).filter(p => p && p.slug && p.title) : [];
+  const bySlug = new Map<string, BlogPost>();
+  for (const p of cms) if (!bySlug.has(p.slug)) bySlug.set(p.slug, p);
+  for (const p of POSTS) if (!bySlug.has(p.slug)) bySlug.set(p.slug, p);
+  return [...bySlug.values()].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+}
+
+/**
+ * مدة القراءة من النص الفعلي (٢٠٠ كلمة في الدقيقة) لا من القيمة اليدوية: كانت مقالات من مئة كلمة
+ * تعلن «٦ دقائق قراءة».
+ */
+export function readMinutesOf(html?: string): number {
+  const words = String(html || '').replace(/<[^>]+>/g, ' ').split(/\s+/).filter(Boolean).length;
+  return Math.max(1, Math.round(words / 200));
+}
+
+/**
+ * تاريخ آخر تعديل المقال اليدوي: الأحدث بين updatedAt وmodified وdate (YYYY-MM-DD)، أو '' إن غابت كلها.
+ * مصدر واحد لـlastmod في الخريطة وdateModified في Article (prerender وBlogPostPage) — بلا «اليوم» تلقائياً.
+ */
+export function lastModifiedOf(p: { date?: string; modified?: string; updatedAt?: string }): string {
+  const days = [p.updatedAt, p.modified, p.date]
+    .filter((v): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v))
+    .map((v) => v.slice(0, 10))
+    .sort();
+  return days.length ? days[days.length - 1] : '';
 }

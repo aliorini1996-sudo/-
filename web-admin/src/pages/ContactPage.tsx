@@ -41,7 +41,7 @@ export default function ContactPage() {
   const seoUrl = seoUrls('/contact', lang);
   const contactSeo = {
     ar: {
-      title: 'تواصل معنا | FieldSales اطلب عرضا أو تجربة مجانية لنظام المبيعات الميدانية',
+      title: 'تواصل مع فيلد سيلز – نظام إدارة المناديب | FieldSales',
       description: 'تواصل مع فريق FieldSales لطلب عرض توضيحي أو تجربة مجانية لنظام إدارة مبيعات المناديب والتوزيع فواتير ZATCA تحصيل المدفوعات مخزون سيارة المندوب وتتبع المناديب',
       keywords: 'تواصل معنا, طلب عرض توضيحي, تجربة مجانية, دعم FieldSales, نظام مبيعات ميدانية, إدارة مناديب التوزيع',
       locale: 'ar' as const,

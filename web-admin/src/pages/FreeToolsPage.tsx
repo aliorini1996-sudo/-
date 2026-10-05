@@ -12,6 +12,8 @@ import {
   computeCommission, computeVanReconciliation, computeRepsNeeded, computeAging,
   type CommissionTier, type VanLine,
 } from '../free/engines';
+// @ts-ignore -- لا ملف تعريف للوحدة بعد (clusters.d.mts)؛ الأنواع مثبّتة بالتحويل أدناه
+import * as clustersMod from '../blog/clusters.mjs';
 
 /**
  * الأدوات المجانية — تُحسب **في المتصفّح بالكامل**.
@@ -23,17 +25,18 @@ import {
  * ولا رقم سوق مضمَّن: كل معامل يُدخله المستخدم فلا نُخفي افتراضاً داخل حساب.
  */
 
-// العناوين بالاستعلام-أولاً (ترقية أغسطس 2026) — مطابقة FREE_TOOLS في scripts/prerender.mjs إلزامية (المصدر المزدوج).
-const TOOLS = [
-  { id: 'commission', title: 'حاسبة عمولة المبيعات للمناديب', icon: Calculator,
-    desc: 'شرائح عمولة بأرضية وسقف وخصم المرتجعات لمناديب التوزيع بدل جداول Excel الهشة' },
-  { id: 'van', title: 'تسوية عهدة سيارة المندوب', icon: Truck,
-    desc: 'طابق حمولة السيارة آخر اليوم واكشف العجز بالصنف وقيمته' },
-  { id: 'reps', title: 'حاسبة عدد مناديب المبيعات', icon: Users,
-    desc: 'كم مندوبا تحتاج حجم فريقك الميداني قبل التوظيف أو الشراء بحساسية ±٢٠٪' },
-  { id: 'aging', title: 'حاسبة أعمار الديون وحدود الائتمان', icon: Wallet,
-    desc: 'وزع ذممك على شرائح ٣٠/٦٠/٩٠ يوما واقترح حد ائتمان لكل عميل' },
-] as const;
+// العناوين بالاستعلام-أولاً (ترقية أغسطس 2026). البيانات من مصدر واحد مع scripts/prerender.mjs (P7):
+// FREE_TOOLS في src/blog/clusters.mjs — العنوان والوصف وصيغة الحساب والأسئلة الظاهرة وFAQPage.
+type ToolFaq = { q: string; a: string };
+type FreeTool = { id: string; title: string; desc: string; feat?: [string, string]; formula: string; use: string; limits: string; faq: ToolFaq[] };
+const { FREE_TOOLS, FREE_INDEX, freeToolMeta, freeToolJsonLd } = clustersMod as {
+  FREE_TOOLS: FreeTool[];
+  FREE_INDEX: { title: string; description: string; h1: string; intro: string };
+  freeToolMeta: (t: FreeTool) => { title: string; description: string };
+  freeToolJsonLd: (t: FreeTool, canonical: string) => object;
+};
+const TOOL_ICON: Record<string, typeof Calculator> = { commission: Calculator, van: Truck, reps: Users, aging: Wallet };
+const TOOLS = FREE_TOOLS.map((t) => ({ ...t, icon: TOOL_ICON[t.id] || Calculator }));
 
 const nf = (n: number) => new Intl.NumberFormat('ar-SA', { maximumFractionDigits: 2 }).format(n);
 const Num = ({ label, value, set, min = 0, step = 1 }: { label: string; value: number; set: (n: number) => void; min?: number; step?: number }) => (
@@ -244,13 +247,16 @@ export default function FreeToolsPage() {
   const active = TOOLS.find((t) => t.id === tool);
   const arPath = active ? `/free/${active.id}` : '/free';
   const seo = seoUrls(arPath, lang);
+  const canonical = seo.canonical.endsWith('/') ? seo.canonical : `${seo.canonical}/`;
+  const meta = active ? freeToolMeta(active) : { title: FREE_INDEX.title, description: FREE_INDEX.description };
 
+  // العنوان والوصف وFAQPage مطابقة لما يصيّره prerender.mjs، فلا تتغيّر بعد الإقلاع
   useSeo({
-    title: active ? `${active.title} أداة مجانية | Field Sales` : 'أدوات مجانية لشركات التوزيع | Field Sales',
-    description: active ? `${active.desc} تعمل في متصفحك بلا تسجيل ولا إرسال بيانات` :
-      'أدوات حساب مجانية لشركات التوزيع عمولة المندوب المتدرجة تسوية عهدة السيارة تحجيم الفريق الميداني أعمار الدين وحد الائتمان بلا تسجيل',
-    canonical: seo.canonical,
+    title: meta.title,
+    description: meta.description,
+    canonical,
     locale: lang,
+    ...(active ? { jsonLd: freeToolJsonLd(active, canonical) } : {}),
   });
 
   if (tool && !active) return <Navigate to="/free" replace />;
@@ -270,14 +276,12 @@ export default function FreeToolsPage() {
       <main className="max-w-4xl mx-auto px-4 py-8">
         {!active ? (
           <>
-            <h1 className="text-2xl sm:text-3xl font-bold">أدوات مجانية لشركات التوزيع</h1>
-            <p className="text-[#6b6357] mt-2 max-w-2xl leading-relaxed">
-              تعمل في متصفحك بالكامل <strong>لا تسجيل ولا يرسل أي رقم تدخله إلى خوادمنا</strong>.
-            </p>
+            <h1 className="text-2xl sm:text-3xl font-bold">{FREE_INDEX.h1}</h1>
+            <p className="text-[#6b6357] mt-2 max-w-2xl leading-relaxed">{FREE_INDEX.intro}</p>
             <ul className="grid gap-3 sm:grid-cols-2 mt-6">
               {TOOLS.map((t) => (
                 <li key={t.id}>
-                  <Link to={`/free/${t.id}`} className="flex gap-3 bg-white border border-[#E8E0D2] rounded-xl p-4 hover:border-[#E15A30]">
+                  <Link to={`/free/${t.id}/`} className="flex gap-3 bg-white border border-[#E8E0D2] rounded-xl p-4 hover:border-[#E15A30]">
                     <t.icon size={20} className="text-[#E15A30] shrink-0 mt-0.5" />
                     <span>
                       <span className="font-semibold block">{t.title}</span>
@@ -304,13 +308,40 @@ export default function FreeToolsPage() {
               الحساب يجري في متصفحك ولا يرسل شيء لخوادمنا الأرقام التي تدخلها افتراضاتك أنت
             </p>
 
+            {/* صيغة الحساب ومتى تُستعمل وأسئلتها — النصّ نفسه المُصيَّر للزاحف وFAQPage */}
+            <section className="mt-6 bg-white border border-[#E8E0D2] rounded-xl p-5">
+              <h2 className="font-semibold text-sm">طريقة الحساب</h2>
+              <p className="text-sm text-[#3a342b] mt-2 leading-relaxed">{active.formula}</p>
+              <h2 className="font-semibold text-sm mt-4">متى تستعملها</h2>
+              <p className="text-sm text-[#6b6357] mt-2 leading-relaxed">{active.use}</p>
+              <h2 className="font-semibold text-sm mt-4">ما لا تحسبه الأداة</h2>
+              <p className="text-sm text-[#6b6357] mt-2 leading-relaxed">{active.limits}</p>
+            </section>
+
+            <section className="mt-6">
+              <h2 className="font-semibold">أسئلة شائعة</h2>
+              <div className="mt-3 space-y-3">
+                {active.faq.map((f) => (
+                  <div key={f.q} className="bg-white border border-[#E8E0D2] rounded-xl p-4">
+                    <h3 className="font-medium text-sm">{f.q}</h3>
+                    <p className="text-xs text-[#6b6357] mt-1.5 leading-relaxed">{f.a}</p>
+                  </div>
+                ))}
+              </div>
+              {active.feat && (
+                <p className="text-sm mt-4">
+                  وللفهم الأعمق قبل الحساب: <Link to={active.feat[0]} className="text-[#C94E28] font-semibold hover:underline">{active.feat[1]}</Link>
+                </p>
+              )}
+            </section>
+
             {/* الجسر يذكر ما تعجز عنه الأداة لا ما يتفوّق فيه المنتج */}
             <section className="mt-6 bg-white border border-[#E8E0D2] rounded-xl p-5">
               <h2 className="font-semibold text-sm">حين تصير الأداة غير كافية</h2>
               <p className="text-xs text-[#6b6357] mt-2 leading-relaxed">
-                هذه الأداة تحسب حالة واحدة الآن إن كنت تكرر هذا الحساب لكل مندوب كل يوم 
-                فField Sales يحسبه تلقائيا من بيانات فواتيرك ومخزون سياراتك ويعمل
-                <strong> حتى بلا إنترنت</strong> في الميدان
+                هذه الأداة تحسب حالة واحدة الآن. إن كنت تكرر هذا الحساب لكل مندوب كل يوم،
+                فField Sales يحسبه تلقائيا من بيانات فواتيرك ومخزون سياراتك. والتحصيل والزيارات
+                تعمل في الميدان <strong>حتى بلا إنترنت</strong>، أما الفواتير والمرتجعات فتحتاج اتصالا لحظة الإصدار للشركات المفعّل لها ربط المرحلة الثانية.
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Link to={pathForLocale('/pricing', lang)} className="text-sm border border-[#E8E0D2] rounded-lg px-3 py-2">شاهد الأسعار</Link>

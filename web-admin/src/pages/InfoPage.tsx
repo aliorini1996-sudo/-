@@ -15,6 +15,23 @@ import { useT } from '../i18n/strings';
 import { useSeo } from '../lib/seo';
 import { seoUrls, pathForLocale } from '../i18n/locale';
 import { optOut, optIn, isOptedOut, isExplicitOptOut } from '../lib/attribution';
+// @ts-ignore -- لا ملف تعريف للوحدة بعد (clusters.d.mts)؛ الأنواع مثبّتة بالتحويل أدناه
+import * as clustersMod from '../blog/clusters.mjs';
+// @ts-ignore -- لا ملف تعريف للوحدة بعد (extractFaq.d.mts)؛ الأنواع مثبّتة بالتحويل أدناه
+import * as faqMod from '../blog/extractFaq.mjs';
+
+type PricePlan = { name?: string; price?: string; limit?: string; features?: string[] };
+type AboutSection = { h2: string; paras?: string[]; items?: string[]; links?: { href: string; label: string }[] };
+/**
+ * كتل «عن المنصة» (P7): المدينة وسنة التأسيس والمؤسس وما تفعله المنصة والتسعير وجملة الربط وما لا ندّعيه
+ * والحسابات الرسمية — من clusters.mjs، المصدر نفسه الذي يصيّره prerender.mjs. والأسعار من CMS بالصيغة نفسها.
+ */
+const { aboutContent, enPriceLine, frPriceLine } = clustersMod as {
+  aboutContent: (lang: string, opts?: { priceLine?: string }) => null | { title: string; description: string; sections: AboutSection[] };
+  enPriceLine: (plans: PricePlan[]) => string;
+  frPriceLine: (plans: PricePlan[]) => string;
+};
+const { pricingSummaries } = faqMod as { pricingSummaries: (plans: PricePlan[]) => { ar: string; has: boolean } };
 
 type PageKey = 'about' | 'terms' | 'serviceAgreement' | 'privacy';
 type SeoText = { title: string; description: string; keywords: string };
@@ -201,8 +218,14 @@ export default function InfoPage({ pageKey }: { pageKey: PageKey }) {
     : lang === 'zh' ? defaultContentZh.pages[pageKey]
     : arPage;
 
+  // عن المنصة: العنوان والوصف والكتل من clusters.mjs (مطابقة للمُصيَّر)، والأسعار من باقات CMS نفسها
+  const plans = ((data as { pricing?: { plans?: PricePlan[] } } | null | undefined)?.pricing?.plans) || [];
+  const priceLine = lang === 'en' ? enPriceLine(plans) : lang === 'fr' ? frPriceLine(plans) : lang === 'ar' && pricingSummaries(plans).has ? pricingSummaries(plans).ar : '';
+  const about = pageKey === 'about' ? aboutContent(lang, { priceLine }) : null;
+
   const seo = PAGE_SEO[pageKey];
-  const m = lang === 'en' || lang === 'tr' || lang === 'zh' ? seo.en : lang === 'fr' ? seo.fr : seo.ar; // tr/zh: ميتا إنجليزية مؤقتاً
+  const base = lang === 'en' || lang === 'tr' || lang === 'zh' ? seo.en : lang === 'fr' ? seo.fr : seo.ar; // tr/zh: ميتا إنجليزية مؤقتاً
+  const m = about ? { ...base, title: about.title, description: about.description } : base;
   const home = pathForLocale('/', lang); // العودة للرئيسية بنفس اللغة الحالية
   const { canonical, alternates } = seoUrls(`/${seo.path}`, lang);
   useSeo({
@@ -239,6 +262,28 @@ export default function InfoPage({ pageKey }: { pageKey: PageKey }) {
         <div className="bg-white rounded-2xl border border-[#E9E1D3] p-7 lg:p-9 text-[#3a342b] leading-loose text-[16px] whitespace-pre-line">
           {page.body}
         </div>
+        {about && (
+          <div className="mt-6 bg-white rounded-2xl border border-[#E9E1D3] p-7 lg:p-9 text-[#3a342b] leading-relaxed text-[15.5px] space-y-6">
+            {about.sections.map((sec) => (
+              <section key={sec.h2}>
+                <h2 className="text-lg font-bold text-[#1F1A13]">{sec.h2}</h2>
+                {(sec.paras || []).map((p) => <p key={p} className="mt-2">{p}</p>)}
+                {sec.items && sec.items.length > 0 && (
+                  <ul className="mt-2 space-y-1 list-disc ps-5">
+                    {sec.items.map((it) => <li key={it}>{it}</li>)}
+                  </ul>
+                )}
+                {sec.links && sec.links.length > 0 && (
+                  <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                    {sec.links.map((l) => (/^https?:/.test(l.href)
+                      ? <a key={l.href} href={l.href} target="_blank" rel="noopener noreferrer" className="text-[#C94E28] font-semibold hover:underline">{l.label}</a>
+                      : <Link key={l.href} to={l.href} className="text-[#C94E28] font-semibold hover:underline">{l.label}</Link>))}
+                  </p>
+                )}
+              </section>
+            ))}
+          </div>
+        )}
         {pageKey === 'privacy' && <MeasurementControl lang={lang} />}
       </main>
 

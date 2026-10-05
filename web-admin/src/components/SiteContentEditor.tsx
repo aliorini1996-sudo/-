@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { siteContentApi } from '../api/client';
 import { defaultContent } from '../landing/defaultContent';
 import { POSTS, emptyPost, slugify, type BlogPost } from '../blog/posts';
-import { X, Save, Globe, Plus, Trash2, ChevronDown, Image as ImageIcon, RotateCcw, Eraser } from 'lucide-react';
+import { X, Save, Globe, Plus, Trash2, ChevronDown, Image as ImageIcon, RotateCcw, Eraser, ListChecks } from 'lucide-react';
 import { cleanContent } from '../lib/siteContentClean';
+import { applyCmsFixes, planCmsFixes, CMS_FIX_GROUP_LABEL, type CmsFixResult, type CmsFixStatus } from '../content/cmsFixes';
 import toast from 'react-hot-toast';
 
 const DEFAULT_HERO = '/hero-rep-phones.svg';
@@ -259,6 +260,83 @@ function HeroImageField({ draft, setDraft }: { draft: Draft; setDraft: React.Dis
   );
 }
 
+// ── تقرير «تصحيحات الظهور» (content/cmsFixes.ts) ─────────────────────────────
+const FIX_STATUS_LABEL: Record<CmsFixStatus, string> = {
+  applied: 'طُبّق',
+  already: 'مطبّق من قبل',
+  missing: 'لم يُعثر على النص الحالي',
+  ambiguous: 'النص مكرّر في الحقل فلم يُمسّ',
+  'no-field': 'الحقل غير موجود',
+  'price-mismatch': 'أسعاره لا تطابق الباقات الحالية فلم يُطبّق',
+};
+const FIX_FIELD_LABEL: Record<string, string> = {
+  title: 'العنوان', description: 'وصف Meta', excerpt: 'المقتطف', keywords: 'الكلمات المفتاحية', contentHtml: 'المحتوى',
+};
+/** مكان البند بلغة المالك: «/blog/x/ · المحتوى» بدل blog[slug=x].contentHtml */
+function fixWhere(path: string): string {
+  const m = path.match(/^blog\[slug=([^\]]+)\]\.(en\.)?(\w+)$/);
+  if (m) return `/${m[2] ? 'en/' : ''}blog/${m[1]}/ · ${FIX_FIELD_LABEL[m[3]] ?? m[3]}`;
+  if (path.startsWith('faq.')) return 'الرئيسية · الأسئلة الشائعة';
+  if (path.startsWith('features.')) return 'الرئيسية · المميزات';
+  return path;
+}
+
+function FixReport({ results, onClose }: { results: CmsFixResult[]; onClose: () => void }) {
+  const applied = results.filter(r => r.status === 'applied');
+  const already = results.filter(r => r.status === 'already');
+  const notFound = results.filter(r => r.status !== 'applied' && r.status !== 'already');
+  const row = (r: CmsFixResult) => (
+    <li key={r.fix.id} className="flex items-start justify-between gap-3 py-1.5 border-b border-[#F1EBDF] last:border-0">
+      <span className="min-w-0">
+        <span className="block text-[13px] text-[#1F1A13] truncate" dir="ltr">{fixWhere(r.fix.path)}</span>
+        <span className="block text-[11px] text-[#9A8F7E]">{CMS_FIX_GROUP_LABEL[r.fix.group]} · {r.fix.id}</span>
+      </span>
+      <span className="text-[11px] text-[#6E6557] whitespace-nowrap">{FIX_STATUS_LABEL[r.status]}</span>
+    </li>
+  );
+  return (
+    <div className="absolute inset-0 z-10 bg-white rounded-2xl flex flex-col" role="dialog" aria-label="تقرير تصحيحات الظهور">
+      <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
+        <div>
+          <h3 className="text-base font-bold text-[#1F1A13]">تقرير تصحيحات الظهور</h3>
+          <p className="text-xs text-[#6E6557] mt-0.5">
+            طُبّق {applied.length} · مطبّق من قبل {already.length} · لم يُطبّق {notFound.length}
+          </p>
+        </div>
+        <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500" aria-label="إغلاق"><X size={18} /></button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-5 space-y-5">
+        <div className="bg-[#FBEBE2] border border-[#F1D9CC] rounded-xl p-3 text-xs text-[#8A4B33] leading-relaxed">
+          التصحيحات طُبّقت على المسودة فقط ولم يُحفظ شيء. راجع المقالات ثم اضغط «حفظ المحتوى ونشره»، أو «إلغاء» للتراجع.
+          البند لا يُطبّق إلا إن وُجد نصه الحالي مرة واحدة بالضبط، فما حرّرته بنفسك لا يُمسّ.
+        </div>
+        {applied.length > 0 && (
+          <section>
+            <h4 className="text-sm font-bold text-[#1F1A13] mb-1">ما طُبّق ({applied.length})</h4>
+            <ul>{applied.map(row)}</ul>
+          </section>
+        )}
+        {notFound.length > 0 && (
+          <section>
+            <h4 className="text-sm font-bold text-[#1F1A13] mb-1">ما لم يُعثر عليه أو لم يُطبّق ({notFound.length})</h4>
+            <p className="text-[11px] text-[#9A8F7E] mb-1">غالباً حُرّر النص أو حُذف المقال — راجعه يدوياً إن كان ما زال ينفي المرحلة الثانية أو يُسقط باقة.</p>
+            <ul>{notFound.map(row)}</ul>
+          </section>
+        )}
+        {already.length > 0 && (
+          <section>
+            <h4 className="text-sm font-bold text-[#1F1A13] mb-1">مطبّق من قبل ({already.length})</h4>
+            <ul>{already.map(row)}</ul>
+          </section>
+        )}
+      </div>
+      <div className="p-5 border-t border-[#E9E1D3]">
+        <button onClick={onClose} className="btn-primary w-full justify-center py-2.5">حسناً</button>
+      </div>
+    </div>
+  );
+}
+
 // محرّر محتوى الصفحة التعريفية والصفحات التابعة (للمالك)
 export default function SiteContentEditor({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
@@ -293,6 +371,18 @@ export default function SiteContentEditor({ onClose }: { onClose: () => void }) 
     toast.success(`نُظّف ${changed} نصاً — راجعها ثم اضغط حفظ`);
   };
 
+  // «تصحيحات الظهور»: استبدالات حرفية مُعدّة سلفاً (نفي المرحلة الثانية، «المرحلة الأولى»، جمل السعر بلا 399،
+  // وعود دون اتصال بلا قيد، «يمنع» حدّ الائتمان) — تُطبَّق على المسوّدة وحدها، والحفظ بزرّ الحفظ نفسه.
+  const [fixReport, setFixReport] = useState<CmsFixResult[] | null>(null);
+  // عدّاد الزر: البنود التي تنطبق الآن على المسوّدة (تشغيل جافّ بلا نسخ، يتبع كل تعديل)
+  const pendingFixes = useMemo(() => (draft ? planCmsFixes(draft).filter(r => r.status === 'applied').length : 0), [draft]);
+  const applyFixes = () => {
+    if (!draft) return;
+    const { value, results, applied } = applyCmsFixes(draft);
+    if (applied) setDraft(value);
+    setFixReport(results);
+  };
+
   const save = useMutation({
     mutationFn: () => siteContentApi.update(draft),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['site-content'] }); toast.success('تم حفظ محتوى الصفحة'); onClose(); },
@@ -310,7 +400,8 @@ export default function SiteContentEditor({ onClose }: { onClose: () => void }) 
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col">
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col">
+        {fixReport && <FixReport results={fixReport} onClose={() => setFixReport(null)} />}
         <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-[#FBEBE2] rounded-xl flex items-center justify-center"><Globe size={20} className="text-[#E15A30]" /></div>
@@ -347,10 +438,15 @@ export default function SiteContentEditor({ onClose }: { onClose: () => void }) 
           </div>
         )}
 
-        <div className="flex gap-3 p-5 border-t border-[#E9E1D3]">
+        <div className="flex flex-wrap gap-3 p-5 border-t border-[#E9E1D3]">
           <button onClick={cleanAll} disabled={!draft} title="يزيل التشكيل وعلامات الترقيم من النصوص العادية ويترك الروابط والصور والكلمات المفتاحية كما هي"
             className="px-4 py-2.5 rounded-xl border border-[#E9E1D3] text-[#6E6557] hover:border-[#E8C9BC] hover:text-[#1F1A13] text-sm font-bold flex items-center gap-2 transition-colors">
             <Eraser size={15} /> تنظيف النصوص
+          </button>
+          <button onClick={applyFixes} disabled={!draft}
+            title="يستبدل نصوصاً قديمة محددة في المسودة فقط: نفي المرحلة الثانية، وصيغة المرحلة الأولى، وجمل السعر التي تسقط باقة 399، ووعود العمل دون اتصال بلا قيد الربط، ومنع حد الائتمان. ثم تراجع وتحفظ بنفسك"
+            className="px-4 py-2.5 rounded-xl border border-[#E8C9BC] bg-[#FBEBE2] text-[#C94E28] hover:bg-[#F7DCCD] text-sm font-bold flex items-center gap-2 transition-colors">
+            <ListChecks size={15} /> تطبيق تصحيحات الظهور ({pendingFixes})
           </button>
           <button onClick={() => save.mutate()} disabled={save.isPending || !draft} className="btn-primary flex-1 justify-center py-2.5">
             {save.isPending ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save size={16} />}

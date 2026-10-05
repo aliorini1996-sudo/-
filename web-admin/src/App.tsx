@@ -28,6 +28,7 @@ import SectorPage from './pages/SectorPage';
 import FeaturePage from './pages/FeaturePage';
 import TemplatesPage from './pages/TemplatesPage';
 import FreeToolsPage from './pages/FreeToolsPage';
+import NotFoundPage from './pages/NotFoundPage';
 // لوحات مصادَق عليها — تحميل كسول (لا تُحمَّل لزوّار الصفحات العامّة/المدوّنة)
 const MainLayout = lazy(() => import('./layouts/MainLayout'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
@@ -342,8 +343,13 @@ export default function App() {
           {/* الدفاتر: الهيكل (قوائم LedgerLayout) ثم صفوف LEDGER_ROUTES أبناءً — children بخاصية لا بوسوم متداخلة كي يبقى السطر ذاتي الإغلاق لحارس ledgerGate.test */}
           <Route path="ledger" element={<LedgerRoute perm="canViewLedger"><LedgerLayout /></LedgerRoute>} children={ledgerChildRoutes} />
           <Route path="notifications" element={<NotificationsPage />} />
+          {/* مسار لوحة مجهول (رابط قديم أو خطأ كتابة) يعود للوحة لا لصفحة 404 العامة */}
+          <Route path="*" element={<Navigate to="/app" replace />} />
         </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
+        {/* أي رابط آخر: صفحة 404 حقيقية (noindex وبلا canonical) — التحويل إلى «/» كان يُفهرس
+            عنوان الرئيسية على كل مسار مكسور. كل مسارات التطبيق أعلاه صريحة فلا يقع أحدها هنا؛
+            وبادئات وحدة المطاعم المُزالة (/pos · /kds · /app-r …) تحوّلها الصفحة نفسها إلى «/» كما كانت. */}
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
       </Suspense>
     </BrowserRouter>

@@ -1,9 +1,12 @@
-import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { siteContentApi } from '../api/client';
 import { BrandIcon } from '../components/BrandLogo';
-import { ArrowLeft, Globe, WifiOff, Receipt, MapPin, Printer, ScanLine } from 'lucide-react';
+import { ArrowLeft, Globe, WifiOff, Receipt, MapPin, Printer, ScanLine, type LucideIcon } from 'lucide-react';
+import { useSeo } from '../lib/seo';
+import { seoUrls } from '../i18n/locale';
+// @ts-ignore -- لا ملف تعريف للوحدة بعد (clusters.d.mts)؛ الأنواع مثبّتة بالتحويل أدناه
+import * as clustersMod from '../blog/clusters.mjs';
 
 /**
  * صفحة تنزيل تطبيق المندوب — fieldsa.net/rep-app
@@ -16,21 +19,34 @@ import { ArrowLeft, Globe, WifiOff, Receipt, MapPin, Printer, ScanLine } from 'l
  * — بلا نشر جديد. ورابط فارغ يعني «قريباً» فلا يُعرض للمستخدم رابط ميّت.
  */
 
+type Faq = { q: string; a: string };
+type Section = { h2: string; paras?: string[]; sub: { h3: string; p: string }[]; link: { href: string; label: string } };
+/**
+ * نصوص الصفحة من clusters.mjs — المصدر نفسه الذي يصيّره prerender.mjs للزاحف (P7). كانت هنا نسخة ثانية
+ * تَعِد «البيع والتحصيل يستمران في المناطق المقطوعة»، والتطبيق يمنع الفاتورة (القياسية والمبسطة) والمرتجع
+ * دون اتصال للشركات المفعّل لها ربط المرحلة الثانية (RepApp.tsx).
+ */
+const { REP_APP, REP_APP_STORES, repAppSections, repAppJsonLd } = clustersMod as {
+  REP_APP: {
+    title: string; description: string; h1: string; intro: string; offline: string;
+    cards: { key: string; title: string; desc: string }[]; faq: Faq[];
+  };
+  REP_APP_STORES: { play: string; apple: string };
+  repAppSections: () => Section[];
+  repAppJsonLd: (canonical: string) => object;
+};
+
 // روابط المتجرين الفعلية — هي المصدر حين لا يضبطها المالك من CMS.
 // (لا تكفي القيمة في defaultContent: تلك يدمجها قالب الهبوط وحده، وهذه الصفحة
 //  تقرأ استجابة CMS مباشرةً — فلزم أن تحمل بدائلها بنفسها.)
 // حقل مضبوط في CMS يعلو عليها؛ وحقل **مُفرَّغ عمداً** يعيد الشعار إلى وسم «قريباً».
-const FALLBACK_APPLE = 'https://apps.apple.com/sa/app/id6797991968';
-const FALLBACK_PLAY = 'https://play.google.com/store/apps/details?id=net.fieldsa.twa';
+const FALLBACK_APPLE = REP_APP_STORES.apple;
+const FALLBACK_PLAY = REP_APP_STORES.play;
 
-const FEATURES = [
-  { icon: Receipt, title: 'فواتير وسندات من الجوال', desc: 'فاتورة ضريبية برمز QR وسند قبض تصدر وتطبع أمام العميل' },
-  { icon: WifiOff, title: 'يعمل بلا إنترنت', desc: 'البيع والتحصيل يستمران في المناطق المقطوعة وترتفع البيانات تلقائيا عند عودة الشبكة' },
-  { icon: ScanLine, title: 'مسح الباركود بالكاميرا', desc: 'أضف الأصناف بمسح سريع متتابع بلا جهاز إضافي' },
-  { icon: MapPin, title: 'زيارات موثقة بالموقع', desc: 'سجل الزيارة بصورة وملاحظة وإحداثيات فيظهر خط سيرك على خريطة الإدارة' },
-  { icon: Printer, title: 'طباعة حرارية', desc: 'اطبع الفاتورة على طابعة بلوتوث حرارية مباشرة من الجهاز' },
-  { icon: Globe, title: 'مخزون سيارتك بين يديك', desc: 'اعرف المتبقي من كل صنف لحظيا ولا تبع ما ليس في السيارة' },
-];
+const CARD_ICON: Record<string, LucideIcon> = {
+  invoice: Receipt, offline: WifiOff, scan: ScanLine, visit: MapPin, print: Printer, stock: Globe,
+};
+const SECTIONS = repAppSections();
 
 /** شعار App Store — رسم داخليّ (الصفحة مكتفية بذاتها بلا أصول خارجية) */
 function AppleBadge({ muted }: { muted?: boolean }) {
@@ -92,7 +108,17 @@ export default function RepAppPage() {
     queryFn: async () => { const res = await siteContentApi.get(); return res.data.data as Record<string, unknown>; },
   });
 
-  useEffect(() => { document.title = 'تنزيل تطبيق المندوب Field Sales'; }, []);
+  // العنوان والوصف وFAQPage مطابقة للمُصيَّر — كان العنوان «تنزيل تطبيق المندوب Field Sales» بعد الإقلاع
+  const { canonical } = seoUrls('/rep-app', 'ar');
+  const canonicalSlash = canonical.endsWith('/') ? canonical : `${canonical}/`;
+  useSeo({
+    title: REP_APP.title,
+    description: REP_APP.description,
+    canonical: canonicalSlash,
+    locale: 'ar',
+    image: 'https://fieldsa.net/og-image.png',
+    jsonLd: repAppJsonLd(canonicalSlash),
+  });
 
   const repApp = (data?.repApp as Record<string, string> | undefined) || {};
   const appleUrl = (repApp.appStoreUrl ?? FALLBACK_APPLE).trim();
@@ -123,11 +149,9 @@ export default function RepAppPage() {
             height={104}
             className="mx-auto rounded-[24px] shadow-[0_14px_36px_rgba(31,26,19,.16)]"
           />
-          <h1 className="text-[30px] sm:text-[38px] font-extrabold mt-6 tracking-tight">تطبيق المندوب</h1>
-          <p className="text-[#6E6557] mt-3 max-w-xl mx-auto leading-relaxed">
-            فواتير وتحصيل ومخزون سيارة من جوال المندوب يعمل حتى بلا إنترنت 
-            وتصل بياناته للوحة الإدارة لحظة عودة الشبكة
-          </p>
+          <h1 className="text-[26px] sm:text-[34px] font-extrabold mt-6 tracking-tight leading-snug max-w-2xl mx-auto">{REP_APP.h1}</h1>
+          <p className="text-[#6E6557] mt-3 max-w-xl mx-auto leading-relaxed">{REP_APP.intro}</p>
+          <p className="text-[#6E6557] mt-2 max-w-xl mx-auto leading-relaxed text-[14px]">{REP_APP.offline}</p>
 
           {/* الشعاران */}
           <div className="flex flex-wrap items-center justify-center gap-3.5 mt-9">
@@ -154,13 +178,46 @@ export default function RepAppPage() {
         <section className="mt-16 sm:mt-20">
           <h2 className="text-[22px] font-bold text-center">ماذا يفعل المندوب من جواله</h2>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-8">
-            {FEATURES.map((f) => (
-              <div key={f.title} className="bg-white rounded-2xl border border-[#E9E1D3] p-5">
-                <div className="w-10 h-10 rounded-xl bg-[#FBEBE2] flex items-center justify-center mb-3.5">
-                  <f.icon size={18} className="text-[#E15A30]" />
+            {REP_APP.cards.map((f) => {
+              const Icon = CARD_ICON[f.key] || Receipt;
+              return (
+                <div key={f.key} className="bg-white rounded-2xl border border-[#E9E1D3] p-5">
+                  <div className="w-10 h-10 rounded-xl bg-[#FBEBE2] flex items-center justify-center mb-3.5">
+                    <Icon size={18} className="text-[#E15A30]" />
+                  </div>
+                  <h3 className="font-bold text-[15px] mb-1.5">{f.title}</h3>
+                  <p className="text-[13.5px] text-[#6E6557] leading-relaxed">{f.desc}</p>
                 </div>
-                <h3 className="font-bold text-[15px] mb-1.5">{f.title}</h3>
-                <p className="text-[13.5px] text-[#6E6557] leading-relaxed">{f.desc}</p>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* كيف يعمل كل جزء — من features.mjs (مكتوبة من الكود) عبر clusters.mjs */}
+        <section className="mt-14 space-y-8 max-w-3xl mx-auto">
+          {SECTIONS.map((s) => (
+            <div key={s.h2}>
+              <h2 className="text-[20px] font-bold">{s.h2}</h2>
+              {(s.paras || []).map((p) => <p key={p} className="text-[14.5px] text-[#3a342b] mt-2 leading-relaxed">{p}</p>)}
+              {s.sub.map((x) => (
+                <div key={x.h3} className="mt-3">
+                  <h3 className="font-semibold text-[15px]">{x.h3}</h3>
+                  <p className="text-[14px] text-[#6E6557] mt-1 leading-relaxed">{x.p}</p>
+                </div>
+              ))}
+              <Link to={s.link.href} className="inline-block mt-2 text-[14px] font-semibold text-[#C94E28] hover:underline">{s.link.label}</Link>
+            </div>
+          ))}
+        </section>
+
+        {/* أسئلة شائعة — ظاهرة لأن FAQPage في سكيما الصفحة لا تصحّ إلا لأسئلة يراها الزائر */}
+        <section className="mt-14 max-w-3xl mx-auto">
+          <h2 className="text-[20px] font-bold">أسئلة شائعة</h2>
+          <div className="mt-4 space-y-3">
+            {REP_APP.faq.map((f) => (
+              <div key={f.q} className="bg-white rounded-2xl border border-[#E9E1D3] p-5">
+                <h3 className="font-bold text-[15px]">{f.q}</h3>
+                <p className="text-[14px] text-[#6E6557] mt-1.5 leading-relaxed">{f.a}</p>
               </div>
             ))}
           </div>

@@ -8,6 +8,14 @@ import { seoUrls, pathForLocale } from '../i18n/locale';
 import { waHref, refFromPath } from '../components/WhatsAppFab';
 import { trackWhatsApp } from '../lib/ads';
 import { SECTORS, sectorBySlug, SECTOR_FAIRNESS_TITLE, SECTOR_FAIRNESS_NOTE } from '../content/sectors';
+// @ts-ignore -- لا ملف تعريف للوحدة بعد (clusters.d.mts)؛ النوع مثبّت بالتحويل أدناه
+import * as clustersMod from '../blog/clusters.mjs';
+
+// «روابط ذات صلة» (P4) من المصدر نفسه الذي يصيّره prerender.mjs — فتبقى الروابط بعد الإقلاع كما في المُصيَّر
+const { sectorRelatedLinks } = clustersMod as { sectorRelatedLinks: (slug: string) => { href: string; anchor: string }[] };
+
+// الشرطة الأخيرة: الصفحة المُصيَّرة تُخدم عند /x/ وحدها، والرابط بلا شرطة يعيد قوقعة الرئيسية
+const withSlash = (p: string) => (p.endsWith('/') ? p : `${p}/`);
 
 /**
  * صفحة قطاع — سبع صفحات بمحتوى مكتوب لكلٍّ منها لا مولّد.
@@ -24,12 +32,13 @@ export default function SectorPage() {
   const sector = slug ? sectorBySlug(decodeURIComponent(slug)) : undefined;
 
   const arPath = sector ? `/قطاعات/${sector.slug}` : '/قطاعات';
-  const seo = seoUrls(arPath, lang);
+  // صفحات القطاعات عربية فقط: canonical ذاتي بلا بدائل لغات غير موجودة
+  const seo = seoUrls(arPath, lang, ['ar']);
 
   useSeo({
     title: sector ? `${sector.name} برنامج إدارة مناديب التوزيع | Field Sales` : 'القطاعات | Field Sales',
     description: sector
-      ? `${sector.pain} Field Sales يعمل دون إنترنت ويدير مخزون سيارة المندوب والمرتجعات المصنفة لشركات ${sector.name}.`
+      ? `${sector.pain} يدير مخزون سيارة المندوب والمرتجعات المصنّفة لشركات ${sector.name}، والتحصيل والزيارات تعمل بلا إنترنت.`
       : 'القطاعات التي يخدمها Field Sales في التوزيع الميداني',
     canonical: seo.canonical,
     alternates: seo.alternates,
@@ -56,7 +65,7 @@ export default function SectorPage() {
     <div dir={dir} className="min-h-screen bg-[#FAF7F0] text-[#1F1A13]">
       <header className="border-b border-[#E8E0D2] bg-white/70 backdrop-blur">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
-          <Link to={pathForLocale('/', lang)} className="flex items-center gap-2 text-sm text-[#6b6357] hover:text-[#1F1A13]">
+          <Link to={withSlash(pathForLocale('/', lang))} className="flex items-center gap-2 text-sm text-[#6b6357] hover:text-[#1F1A13]">
             <ArrowLeft size={16} className={dir === 'rtl' ? 'rotate-180' : ''} />
             <BrandIcon size={22} /><span>الرئيسية</span>
           </Link>
@@ -72,7 +81,7 @@ export default function SectorPage() {
             <ul className="grid gap-3 sm:grid-cols-2 mt-6">
               {SECTORS.map((s) => (
                 <li key={s.id}>
-                  <Link to={`/قطاعات/${s.slug}`} className="block bg-white border border-[#E8E0D2] rounded-xl p-4 hover:border-[#E15A30]">
+                  <Link to={`/قطاعات/${s.slug}/`} className="block bg-white border border-[#E8E0D2] rounded-xl p-4 hover:border-[#E15A30]">
                     <span className="font-semibold block">{s.name}</span>
                     <span className="text-xs text-[#6b6357] block mt-1 leading-relaxed">{s.pain}</span>
                   </Link>
@@ -126,6 +135,22 @@ export default function SectorPage() {
               </dl>
             </section>
 
+            {(() => {
+              const rel = sectorRelatedLinks(sector.slug);
+              return rel.length > 0 && (
+                <section className="mt-8">
+                  <h2 className="font-semibold text-sm">روابط ذات صلة</h2>
+                  <ul className="mt-3 space-y-2 text-sm">
+                    {rel.map((l) => (
+                      <li key={l.href}>
+                        <Link to={l.href} className="text-[#E15A30] hover:underline">{l.anchor}</Link>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              );
+            })()}
+
             {/* صندوق الإنصاف — إلزامي حيثما لُمّح للامتثال */}
             <section className="mt-6 bg-white border border-[#E8E0D2] rounded-xl p-5">
               <h2 className="font-semibold text-sm">{SECTOR_FAIRNESS_TITLE}</h2>
@@ -140,7 +165,7 @@ export default function SectorPage() {
                  className="inline-flex items-center gap-2 bg-[#25D366] text-white rounded-lg px-4 py-2.5 text-sm">
                 <MessageCircle size={16} />تحدث معنا على واتساب
               </a>
-              <Link to={pathForLocale('/pricing', lang)} className="inline-flex items-center gap-2 border border-[#E8E0D2] bg-white rounded-lg px-4 py-2.5 text-sm">
+              <Link to={withSlash(pathForLocale('/pricing', lang))} className="inline-flex items-center gap-2 border border-[#E8E0D2] bg-white rounded-lg px-4 py-2.5 text-sm">
                 شاهد الأسعار
               </Link>
             </div>
