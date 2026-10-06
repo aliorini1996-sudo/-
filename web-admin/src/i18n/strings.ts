@@ -4086,6 +4086,19 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'المدى محسوب على تاريخ التسليم لا تاريخ الفاتورة والترتيب بالأقرب تسليما': { en: 'The range applies to the delivery date, not the invoice date, and rows are sorted by the nearest delivery', fr: 'La periode porte sur la date de livraison et non la date de facture, et le tri suit la livraison la plus proche', tr: 'Aralik fatura tarihine degil teslim tarihine uygulanir ve siralama en yakin teslime goredir', zh: '时间范围按交付日期而非开票日期计算，并按最近交付排序' },
   'مسدد': { en: 'Paid', fr: 'Regle', tr: 'Odendi', zh: '已结清' },
   'موقع الزيارة': { en: 'Visit location', fr: 'Position de la visite', tr: 'Ziyaret konumu', zh: '拜访位置' },
+  // ——— الزيارة للمقيَّد بـ«اشتراط تفعيل الموقع»: لا زيارة دون اتصال ولا بلا موقع، وأين سُجّلت على الخريطة ———
+  'لا تُسجَّل الزيارة دون اتصال بالإنترنت — اتصل ثم أعد المحاولة': { en: 'A visit can’t be recorded without an internet connection — connect, then try again', fr: 'Une visite ne peut pas être enregistrée sans connexion Internet — connectez-vous puis réessayez', tr: 'İnternet bağlantısı olmadan ziyaret kaydedilemez — bağlanın ve tekrar deneyin', zh: '没有网络连接无法记录拜访——请联网后重试' },
+  'موقع الزيارة محفوظ': { en: 'Visit location saved', fr: 'Position de la visite enregistrée', tr: 'Ziyaret konumu kaydedildi', zh: '拜访位置已保存' },
+  'الزيارة بانتظار الاتصال لتسجيلها': { en: 'Visit waiting for a connection to be recorded', fr: 'Visite en attente de connexion pour être enregistrée', tr: 'Ziyaret, kaydedilmek için bağlantı bekliyor', zh: '拜访正在等待网络连接以完成记录' },
+  'لم تسجل زيارة': { en: 'Visit not recorded:', fr: 'Visite non enregistrée :', tr: 'Ziyaret kaydedilmedi:', zh: '拜访未记录：' },
+  'لم تسجل الزيارة لتعذر تحديد موقعك': { en: 'The visit was not recorded because your location could not be determined', fr: 'La visite n’a pas été enregistrée car votre position n’a pas pu être déterminée', tr: 'Konumunuz belirlenemediği için ziyaret kaydedilmedi', zh: '无法确定您的位置，拜访未记录' },
+  'رفضها الخادم': { en: 'Rejected by the server', fr: 'Refusée par le serveur', tr: 'Sunucu tarafından reddedildi', zh: '被服务器拒绝' },
+  'لا تُقبل الزيارة بلا موقعك — فعّل الموقع وانتظر تحديده ثم سجّل الزيارة وأنت متصل بالإنترنت': { en: 'A visit is not accepted without your location — turn on location, wait for it to be found, then record the visit while online', fr: 'Une visite n’est pas acceptée sans votre position — activez la localisation, attendez qu’elle soit déterminée, puis enregistrez la visite en étant connecté', tr: 'Konumunuz olmadan ziyaret kabul edilmez — konumu açın, belirlenmesini bekleyin ve ziyareti çevrimiçiyken kaydedin', zh: '没有您的位置不接受拜访——请开启定位并等待定位完成，然后在联网状态下记录拜访' },
+  'لا تُقبل زيارةٌ سُجّلت دون اتصال بالإنترنت — سجّلها عند العميل وأنت متصل وموقعك مفعّل': { en: 'A visit recorded without an internet connection is not accepted — record it at the customer while online with location on', fr: 'Une visite enregistrée sans connexion Internet n’est pas acceptée — enregistrez-la chez le client en étant connecté avec la localisation activée', tr: 'İnternet bağlantısı olmadan kaydedilen ziyaret kabul edilmez — müşterinin yanında, çevrimiçi ve konum açıkken kaydedin', zh: '离线记录的拜访不被接受——请在客户处联网并开启定位后记录' },
+  'عرض على الخريطة': { en: 'Show on map', fr: 'Voir sur la carte', tr: 'Haritada göster', zh: '在地图上查看' },
+  'خرائط Google': { en: 'Google Maps', fr: 'Google Maps', tr: 'Google Haritalar', zh: '谷歌地图' },
+  'موقع تسجيل الزيارة': { en: 'Where the visit was recorded', fr: 'Lieu d’enregistrement de la visite', tr: 'Ziyaretin kaydedildiği konum', zh: '拜访记录位置' },
+  'سجلت الزيارة هنا': { en: 'Visit recorded here', fr: 'Visite enregistrée ici', tr: 'Ziyaret burada kaydedildi', zh: '拜访在此记录' },
 };
 
 export function useTr() {

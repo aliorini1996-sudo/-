@@ -457,11 +457,16 @@ function VisitScreen({ q, onBack }: {
               </div>
             )}
 
-            {q.data.lat != null && q.data.lng != null && (
+            {/* أين سُجّلت الزيارة — وغيابه يُقال صراحةً لا يُخفى */}
+            {q.data.lat != null && q.data.lng != null ? (
               <a href={`https://maps.google.com/?q=${q.data.lat},${q.data.lng}`} target="_blank" rel="noreferrer"
                 className="block text-center bg-white border border-[#E9E1D3] rounded-xl py-3 text-sm font-semibold text-[#E15A30] min-h-[48px]">
                 {tr('افتح موقع الزيارة في الخرائط')}
               </a>
+            ) : (
+              <p className="text-center bg-[#F6F1E8] border border-[#E9E1D3] rounded-xl py-3 text-sm text-[#9A8F7E]">
+                {tr('لا موقع مسجل لهذه الزيارة')}
+              </p>
             )}
             <div className="h-2" />
           </div>

@@ -11,6 +11,8 @@
  * دوالّ get/set/clear لتُستبدَل بمخزون وهميّ في الاختبار.
  */
 
+import { isGeoFix, type GeoFix } from './visitLocation';
+
 const KEY = 'rep_visit_timer';
 
 export interface VisitTimer {
@@ -21,12 +23,17 @@ export interface VisitTimer {
   customerClientRef?: string;
   /** لحظة ضغط أيقونة البدء — ISO */
   startedAt: string;
+  /** موقع المندوب عند العميل (إثبات الوصول) — أول قراءة بعد البدء، تُحفظ مع المؤقّت فتنجو من إعادة التحميل (visitLocation.ts) */
+  fix?: GeoFix;
 }
 
 export function getVisitTimer(): VisitTimer | null {
   try {
     const v = JSON.parse(localStorage.getItem(KEY) || 'null');
-    return v && typeof v.customerId === 'string' && typeof v.startedAt === 'string' ? (v as VisitTimer) : null;
+    if (!(v && typeof v.customerId === 'string' && typeof v.startedAt === 'string')) return null;
+    // موقعٌ تالف يُسقط وحده (لا تُرسل إحداثيات فاسدة) ويبقى المؤقّت
+    if (v.fix !== undefined && !isGeoFix(v.fix)) delete v.fix;
+    return v as VisitTimer;
   } catch {
     return null;
   }

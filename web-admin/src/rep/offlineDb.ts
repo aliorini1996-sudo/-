@@ -98,6 +98,7 @@ export interface OutboxDoc {
   clientCreatedAt: string;        // ISO
   localNumber?: string;           // رقم مؤقّت للعرض/الطباعة
   error?: string;                 // سبب الرفض إن وُجد
+  rejectCode?: string;            // رمز الرفض من الخادم — زيارةٌ لا تُقبل أبداً لا تُعرض لها «إعادة المحاولة» (visitLocation.ts)
   serverNumber?: string;          // الرقم النهائي بعد الرفع
   serverId?: string;
   // فوترة ZATCA (Z5.0، خامل حتى Z5.8): مستند دون اتصال من قبل التفعيل ينتظر مراجعة الإدارة — يبقى مصفوفاً (لا «مرفوض»)

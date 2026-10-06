@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, useMap } from 'react-leaflet';
@@ -8,7 +8,7 @@ import { trackingApi, visitsApi, customerApi } from '../api/client';
 import { useTr } from '../i18n/strings';
 import { repRouteApi } from '../api/client';
 import RepRoutesModal from './RepRoutesPage';
-import { MapPin, Navigation, Calendar, Radio, Power, ClipboardCheck, Camera, X, ChevronLeft, Store, Timer, Route as RouteIcon } from 'lucide-react';
+import { MapPin, MapPinOff, Navigation, Calendar, Radio, Power, ClipboardCheck, Camera, X, ChevronLeft, Store, Timer, Route as RouteIcon, ExternalLink } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { backdropClose } from '../lib/backdropClose';
 import { formatMoment } from '../utils/format';
@@ -57,14 +57,20 @@ function repIcon(online: boolean, label: string) {
   });
 }
 
-// علامة زيارة على الخريطة (دبّوس أخضر) — موضع تسجيل المندوب للزيارة
-function visitIcon(n: number) {
+// علامة زيارة على الخريطة (دبّوس أخضر) — موضع تسجيل المندوب للزيارة. والمركَّز عليها («عرض على الخريطة») أكبر بإطارٍ
+// مرجانيّ فتُعرف من بين الدبابيس
+function visitIcon(n: number, focused = false) {
+  const size = focused ? 34 : 24;
+  const ring = focused ? 'border:3px solid #E15A30;box-shadow:0 0 0 4px rgba(225,90,48,.25),0 2px 8px rgba(0,0,0,.35)' : 'border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3)';
   return L.divIcon({
     className: '',
-    html: `<div style="width:24px;height:24px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#5FBE92;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center"><span style="transform:rotate(45deg);color:#fff;font-size:11px;font-weight:700">${n}</span></div>`,
-    iconSize: [24, 24], iconAnchor: [12, 24], popupAnchor: [0, -22],
+    html: `<div style="width:${size}px;height:${size}px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#5FBE92;${ring};display:flex;align-items:center;justify-content:center"><span style="transform:rotate(45deg);color:#fff;font-size:${focused ? 13 : 11}px;font-weight:700">${n}</span></div>`,
+    iconSize: [size, size], iconAnchor: [size / 2, size], popupAnchor: [0, -(size - 2)],
   });
 }
+
+/** رابط Google للموقع الذي سُجّلت عنده الزيارة */
+const visitMapsUrl = (lat: number, lng: number) => `https://www.google.com/maps?q=${lat},${lng}`;
 
 // بصمة الحضور/الانصراف — دبّوس مميّز يوضّح من أين بدأ المندوب عمله بالضبط (لا مجرّد أوّل رصد GPS)
 function punchIcon(kind: 'in' | 'out') {
@@ -115,6 +121,15 @@ function planStopIcon(n: number, done: boolean) {
   });
 }
 
+// «عرض على الخريطة»: تطير الخريطة إلى موضع تسجيل الزيارة وتقترب حتى يُقرأ الشارع
+function FlyTo({ target }: { target: [number, number] | null }) {
+  const map = useMap();
+  useEffect(() => {
+    if (target) map.flyTo(target, 17, { duration: 0.8 });
+  }, [target, map]);
+  return null;
+}
+
 // يضبط حدود الخريطة لتشمل النقاط المعروضة
 function FitBounds({ points }: { points: [number, number][] }) {
   const map = useMap();
@@ -132,6 +147,14 @@ export default function TrackingPage() {
   const [selected, setSelected] = useState<string>('');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [openVisit, setOpenVisit] = useState<string | null>(null); // زيارة مفتوحة لعرض صورها
+  // زيارةٌ مركَّزٌ عليها في الخريطة («عرض على الخريطة») — موضع تسجيلها بالضبط
+  const [focusVisit, setFocusVisit] = useState<{ id: string; at: [number, number] } | null>(null);
+  const mapCardRef = useRef<HTMLDivElement | null>(null);
+  const showVisitOnMap = (id: string, lat: number, lng: number) => {
+    setOpenVisit(null);
+    setFocusVisit({ id, at: [lat, lng] });
+    mapCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
   const [zoomPhoto, setZoomPhoto] = useState<string | null>(null); // صورة مكبّرة (lightbox)
   const [mapType, setMapType] = useState<'roadmap' | 'satellite'>('roadmap'); // نوع خريطة Google
   const [showCustomers, setShowCustomers] = useState(false); // إظهار مواقع العملاء
@@ -260,6 +283,7 @@ export default function TrackingPage() {
   );
 
   const visitPins = useMemo(() => visits.filter(v => v.lat != null && v.lng != null), [visits]);
+  useEffect(() => { setFocusVisit(null); }, [selected, date]);
   // رقم الزيارة **زمنيّ**: ١ = أول زيارة في اليوم. القائمة تنزل من الخادم أحدثَ
   // أولاً، وكان الترقيم بموضع المصفوفة (i+1) فقرأ المشرف اليومَ معكوساً — آخرُ
   // عميل «١» وبدايةُ الدوام أكبرُ رقم (بلاغ المالك). خريطةٌ واحدة id→رقم
@@ -455,7 +479,17 @@ export default function TrackingPage() {
                               <Timer size={11} /> {fmtDur(v.durationSec)}
                             </span>
                           )}
-                          {v.lat != null && <span className="flex items-center gap-0.5"><MapPin size={10} /> {tr('موقع')}</span>}
+                          {/* أين سُجّلت الزيارة: نقرةٌ تطير بالخريطة إلى موضعها — وغيابه يُقال صراحةً */}
+                          {v.lat != null && v.lng != null ? (
+                            <span role="button" tabIndex={0} title={tr('عرض موقع الزيارة على الخريطة')}
+                              onClick={e => { e.stopPropagation(); showVisitOnMap(v.id, v.lat!, v.lng!); }}
+                              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); showVisitOnMap(v.id, v.lat!, v.lng!); } }}
+                              className="flex items-center gap-0.5 text-[#E15A30] font-semibold hover:underline cursor-pointer">
+                              <MapPin size={10} /> {tr('عرض على الخريطة')}
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-0.5 text-gray-400" title={tr('لا موقع مسجل لهذه الزيارة')}><MapPinOff size={10} /> {tr('بلا موقع')}</span>
+                          )}
                         </p>
                       </div>
                       {v._count.photos > 0 && (
@@ -473,7 +507,7 @@ export default function TrackingPage() {
           </div>
 
           {/* الخريطة */}
-          <div className="card p-0 overflow-hidden relative" style={{ height: 600 }}>
+          <div ref={mapCardRef} className="card p-0 overflow-hidden relative" style={{ height: 600 }}>
               {/* أدوات الخريطة: نوع الخريطة + طبقة مواقع العملاء */}
               <div className="absolute top-2 right-2 z-[1000] flex flex-col items-end gap-2">
                 <div className="flex rounded-lg overflow-hidden shadow-md text-xs font-semibold">
@@ -499,6 +533,7 @@ export default function TrackingPage() {
                   url={`https://{s}.google.com/vt/lyrs=${mapType === 'satellite' ? 'y' : 'm'}&x={x}&y={y}&z={z}`}
                   subdomains={['mt0', 'mt1', 'mt2', 'mt3']} maxZoom={20} />
                 <FitBounds points={focusPoints} />
+                <FlyTo target={focusVisit?.at ?? null} />
 
                 {/* علامات المواقع الحيّة (لمن لهم موقع فقط؛ تُخفى عند تحديد مندوب) */}
                 {!selected && reps.filter(r => r.lastLat != null && r.lastLng != null).map(r => (
@@ -568,7 +603,8 @@ export default function TrackingPage() {
 
                 {/* دبابيس الزيارات على الخريطة (للمندوب المحدّد) */}
                 {selected && visitPins.map(v => (
-                  <Marker key={v.id} position={[v.lat!, v.lng!]} icon={visitIcon(visitNo.get(v.id) ?? 0)}>
+                  <Marker key={v.id} position={[v.lat!, v.lng!]} icon={visitIcon(visitNo.get(v.id) ?? 0, focusVisit?.id === v.id)}
+                    zIndexOffset={focusVisit?.id === v.id ? 1000 : 0}>
                     <Popup>
                       <div style={{ direction: 'rtl', minWidth: 160 }}>
                         {/* الاسم يفتح تفاصيل الزيارة كما تفتحها «صورة» — وهو أوّل ما
@@ -583,7 +619,7 @@ export default function TrackingPage() {
                           }}>
                           {v.customer?.name || tr('زيارة')}
                         </button><br />
-                        <span style={{ color: '#6E6557', fontSize: 12 }}>{timeText(v.createdAt)}</span>
+                        <span style={{ color: '#6E6557', fontSize: 12 }}>{tr('سجلت الزيارة هنا')} · {timeText(v.createdAt)}</span>
                         {v.note ? <><br /><span style={{ fontSize: 12 }}>{v.note}</span></> : null}
                         {v._count.photos > 0 && (
                           <><br /><button onClick={() => setOpenVisit(v.id)} style={{ color: '#E15A30', fontSize: 12, fontWeight: 700 }}>
@@ -688,25 +724,36 @@ export default function TrackingPage() {
                       )}
                     </div>
                   )}
-                  {/* الملاحظة، ومعها زرّ موقع الزيارة.
-                      الموقع هو **حيث سُجّلت الزيارة** لا عنوان العميل المحفوظ —
-                      وهو ما يريد المشرف التحقّق منه. ويغيب حين كان الـGPS مغلقاً
-                      فلا يُعرض زرٌّ يفتح خريطة فارغة. */}
-                  <div className="flex items-center justify-between gap-3 mb-1">
-                    <p className="text-[11px] font-semibold text-[#9A8F7E]">{tr('ملاحظة الزيارة')}</p>
-                    {visitDetailQ.data?.lat != null && visitDetailQ.data?.lng != null ? (
-                      <a href={`https://www.google.com/maps?q=${visitDetailQ.data.lat},${visitDetailQ.data.lng}`}
-                        target="_blank" rel="noopener noreferrer" title={tr('عرض موقع الزيارة على الخريطة')}
-                        className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#E15A30] bg-[#FBEBE2] hover:bg-[#F7DCCC] rounded-lg px-2.5 py-1.5">
-                        <MapPin size={13} /> {tr('موقع الزيارة')}
-                      </a>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 text-[11px] text-gray-400 bg-[#F6F1E8] rounded-lg px-2.5 py-1.5"
-                        title={tr('لا موقع مسجل لهذه الزيارة')}>
-                        <MapPin size={13} /> {tr('بلا موقع')}
-                      </span>
-                    )}
-                  </div>
+                  {/* موقع الزيارة: **حيث سُجّلت** لا عنوان العميل المحفوظ — وهو ما يريد المشرف التحقّق منه. كتلةٌ ظاهرة بإحداثياتها
+                      وزرّين: الخريطة هنا (تطير إلى الدبّوس) وخرائط Google. وغيابه يُقال صراحةً لا يُخفى */}
+                  {visitDetailQ.data?.lat != null && visitDetailQ.data?.lng != null ? (
+                    <div className="mb-4 rounded-xl border border-[#5FBE92]/30 bg-[#E7F5EE] p-3 flex items-center justify-between gap-3 flex-wrap">
+                      <div className="flex items-center gap-2 text-[#1E7A52] min-w-0">
+                        <MapPin size={18} className="shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-[11px] text-[#6E6557]">{tr('موقع تسجيل الزيارة')}</p>
+                          <p className="text-xs font-semibold tabular-nums" dir="ltr">{visitDetailQ.data.lat.toFixed(5)}, {visitDetailQ.data.lng.toFixed(5)}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button type="button" onClick={() => showVisitOnMap(openVisit, visitDetailQ.data!.lat!, visitDetailQ.data!.lng!)}
+                          title={tr('عرض موقع الزيارة على الخريطة')}
+                          className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-white bg-[#E15A30] hover:bg-[#C94E28] rounded-lg px-2.5 py-1.5">
+                          <MapPin size={13} /> {tr('عرض على الخريطة')}
+                        </button>
+                        <a href={visitMapsUrl(visitDetailQ.data.lat, visitDetailQ.data.lng)}
+                          target="_blank" rel="noopener noreferrer" title={tr('عرض موقع الزيارة على الخريطة')}
+                          className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#E15A30] bg-white border border-[#F7DCCC] hover:bg-[#FBEBE2] rounded-lg px-2.5 py-1.5">
+                          <ExternalLink size={13} /> {tr('خرائط Google')}
+                        </a>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mb-4 rounded-xl border border-[#E9E1D3] bg-[#F6F1E8] p-3 flex items-center gap-2 text-[12px] text-gray-500">
+                      <MapPinOff size={16} className="shrink-0" /> {tr('لا موقع مسجل لهذه الزيارة')}
+                    </div>
+                  )}
+                  <p className="text-[11px] font-semibold text-[#9A8F7E] mb-1">{tr('ملاحظة الزيارة')}</p>
                   {visitDetailQ.data?.note
                     ? <p className="text-sm text-[#1F1A13] bg-[#FAF7F0] rounded-xl p-3 mb-4 whitespace-pre-wrap">{visitDetailQ.data.note}</p>
                     : <p className="text-sm text-gray-400 bg-[#FAF7F0] rounded-xl p-3 mb-4">{tr('لا توجد ملاحظة')}</p>}

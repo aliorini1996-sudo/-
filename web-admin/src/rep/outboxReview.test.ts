@@ -57,7 +57,7 @@ test('الخروج من المراجعة: المرفوض والمرفوع بلا
   const s = read('src', 'rep', 'offlineSync.ts');
   assert.ok(s.includes("import { CUTOVER_REVIEW_CODE, clearReview, reviewRecheckDue } from './outboxReview';"));
   assert.ok(s.includes("await outboxUpdate({ ...clearReview(doc), status: 'sent', serverNumber: server.number, serverId: server.id });"), 'المرفوع');
-  assert.ok(s.includes("await outboxUpdate({ ...clearReview(doc), status: 'rejected', error: msg || 'رفضه الخادم' });"), 'المرفوض');
+  assert.ok(s.includes("await outboxUpdate({ ...clearReview(doc), status: 'rejected', error: msg || 'رفضه الخادم', rejectCode: code || undefined });"), 'المرفوض');
   // كل انتقال إلى sent أو rejected أو queued (إعادة) يمرّ بـclearReview — ووسم المراجعة يُكتب في موضعه وحده
   const transitions = [...s.matchAll(/outboxUpdate\(\{ \.\.\.([^,]+),[^\n]*?status: '(sent|rejected|queued)'/g)];
   assert.equal(transitions.length, 3);
@@ -78,7 +78,7 @@ test('المزامنة: X-FS-Replay على كل رفع من الصفّ، وZATCA
   assert.doesNotMatch(block, /stopped = true|break;|status: 'rejected'|status: 'sent'/, 'لا توقّف ولا رفض ولا إعدام');
   // استثناءات إطفاء الميزات كما كانت (توقّف لا إعدام)
   assert.match(s, /if \(code === 'ACCOUNTING_NOT_ALLOWED'\) \{[\s\S]*?stopped = true;\s*break;/);
-  assert.ok(s.includes("await outboxUpdate({ ...clearReview(doc), status: 'queued', error: undefined }); notify();"), 'إعادة المحاولة تسأل الآن وبلا وسم المراجعة');
+  assert.ok(s.includes("await outboxUpdate({ ...clearReview(doc), status: 'queued', error: undefined, rejectCode: undefined }); notify();"), 'إعادة المحاولة تسأل الآن وبلا وسم المراجعة');
 });
 
 test('لوحة الصفّ: «قيد مراجعة الإدارة» للمنتظر قيد المراجعة، ولا «إزالة» لمستند قيد المراجعة', () => {

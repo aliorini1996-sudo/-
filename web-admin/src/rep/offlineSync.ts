@@ -86,9 +86,11 @@ export async function syncOutbox(): Promise<SyncResult> {
           continue;
         }
         if (status && status >= 400 && status < 500) {
-          // رفض أعمال (تجاوز ائتمان/سعر مرفوض/صنف معطّل...) — لا يُعاد، يراجعه المندوب (M6)
+          // رفض أعمال (تجاوز ائتمان/سعر مرفوض/صنف معطّل...) — لا يُعاد، يراجعه المندوب (M6). ومنه زيارة المقيَّد بـ«اشتراط
+          // تفعيل الموقع» بلا موقع أو من هذا الصفّ (LOCATION_REQUIRED / VISIT_NEEDS_CONNECTION): رفضٌ نهائيّ لا حلقة، يبقى
+          // ظاهراً بسببه ورمزه فلا تُعرض له «إعادة المحاولة» (isFinalVisitRejection) ولا يُعدَم بلا أثر
           const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-          await outboxUpdate({ ...clearReview(doc), status: 'rejected', error: msg || 'رفضه الخادم' });
+          await outboxUpdate({ ...clearReview(doc), status: 'rejected', error: msg || 'رفضه الخادم', rejectCode: code || undefined });
           rejected++;
         } else {
           // انقطاع أو خطأ خادم مؤقّت (5xx) — يبقى مصفوفاً، ونتوقّف (الشبكة غير مستقرّة)
@@ -129,7 +131,7 @@ export async function outboxDocs(): Promise<OutboxDoc[]> {
 // إعادة مستند مرفوض إلى الصفّ (بعد أن يعالج سببه — مثل رفع حدّ الائتمان من الأدمن)
 export async function requeue(clientRef: string): Promise<void> {
   const doc = (await outboxAll()).find((d) => d.clientRef === clientRef);
-  if (doc) { await outboxUpdate({ ...clearReview(doc), status: 'queued', error: undefined }); notify(); }
+  if (doc) { await outboxUpdate({ ...clearReview(doc), status: 'queued', error: undefined, rejectCode: undefined }); notify(); }
 }
 
 // إزالة مستند من الصفّ (المندوب يعالج الورقة يدوياً)

@@ -6,6 +6,8 @@ import { compressImage } from './imageCompress';
 import { previewInstallments, defaultFirstDue, MAX_INSTALLMENTS, type InstallmentPeriod } from '../lib/installments';
 import { useBackClose } from '../lib/useBackClose';
 import { getVisitTimer, setVisitTimer, clearVisitTimer, elapsedSec, fmtElapsed, type VisitTimer } from './visitTimer';
+import { toGeoFix, isGeoFix, attachFix, fixCoords, visitGate, planFinalize, visitFailure, isFinalVisitRejection, MIN_VISIT_SEC, type GeoFix } from './visitLocation';
+import { ownPendingVisits, putPendingVisit, removePendingVisit, retryPendingVisits, pendingRetryOutcome, postResultOf, type PendingVisit } from './visitPending';
 import DecimalInput from '../components/DecimalInput';
 import { startRenewLoop, clearRenewRejection } from './renew';
 import { tokenTenantId } from './jwt';
@@ -177,12 +179,13 @@ interface WorkNumSummary {
 // والدوام المتقطّع: كل دخولٍ يُسجَّل وكل خروجٍ يُسجَّل — بعد الانصراف يبقى الحضور متاحاً لفترةٍ جديدة،
 // وبصمات اليوم كلها تُعرض قائمةً (المنطق الصرف في attendanceDay.ts).
 
-// موقع أفضل جهد: ثماني ثوانٍ ثم نمضي بلا موقع — البصمة أهمّ من الإحداثيات.
-function readLocation(opts: PositionOptions): Promise<{ lat: number; lng: number } | null> {
+// موقع أفضل جهد: ثماني ثوانٍ ثم نمضي بلا موقع — البصمة أهمّ من الإحداثيات. والقراءة تحمل دقّتها ولحظتها لموقع الزيارة،
+// وقراءةٌ فاسدة (0،0) لا قراءة
+function readLocation(opts: PositionOptions): Promise<GeoFix | null> {
   return new Promise((resolve) => {
     if (!navigator.geolocation) { resolve(null); return; }
     navigator.geolocation.getCurrentPosition(
-      (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+      (p) => { const f = toGeoFix(p); resolve(isGeoFix(f) ? f : null); },
       () => resolve(null),
       opts,
     );
@@ -190,11 +193,29 @@ function readLocation(opts: PositionOptions): Promise<{ lat: number; lng: number
 }
 // المندوب المقيَّد بـ«اشتراط تفعيل الموقع» لا تمضي بصمته بلا موقع (يردّها الخادم): فإن فشلت قراءة الـGPS السريعة
 // داخل مبنى فمحاولةٌ ثانية بشبكة الموقع ومهلة أطول تقبل قراءةً عمرها دقيقتان.
-async function grabLocation(strict = false): Promise<{ lat: number; lng: number } | null> {
+async function grabLocation(strict = false): Promise<GeoFix | null> {
   const fast = await readLocation({ enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 });
   if (fast || !strict) return fast;
   return readLocation({ enableHighAccuracy: false, timeout: 20_000, maximumAge: 120_000 });
 }
+
+/**
+ * اتصالٌ فعليّ بالخادم لا علمُ المتصفّح وحده — navigator.onLine يقول «متصل» خلف شبكةٍ بلا إنترنت. أيّ ردٍّ من الخادم
+ * = متصل، ولا ردّ (انقطاع/مهلة) = غير متصل. لبدء زيارة المقيَّد بـ«اشتراط تفعيل الموقع».
+ */
+async function probeOnline(): Promise<boolean> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
+  try {
+    await repApi.get('/visits/mine/count', { params: { tz: -new Date().getTimezoneOffset() }, timeout: 10_000, background: true });
+    return true;
+  } catch (e) {
+    return !isNetworkError(e);
+  }
+}
+
+// رسالتا الزيارة للمقيَّد (بدء المؤقّت وحفظ الملاحظة)
+const VISIT_OFFLINE_MSG = 'لا تُسجَّل الزيارة دون اتصال بالإنترنت — اتصل ثم أعد المحاولة';
+const VISIT_NOFIX_MSG = 'تعذر تحديد موقعك اقترب من نافذة او مكان مفتوح ثم اعد المحاولة';
 
 const clockTime = (iso: string): string => {
   try { return new Date(iso).toLocaleTimeString(activeLocale(), { hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
@@ -1069,7 +1090,7 @@ function PayLinkSheet({ customer, onClose }: { customer: any; onClose: () => voi
   );
 }
 
-function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice, onReceipt, onReturn, onStatement, onOpenDoc, onLogVisit, visitActive, visitElapsedLabel, onStartVisit, paylinkOn, accountingOn = true, onEdit, zatcaCollect = false, onCompleteBuyer }: {
+function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice, onReceipt, onReturn, onStatement, onOpenDoc, onLogVisit, visitActive, visitElapsedLabel, onStartVisit, visitStart = null, visitFixed = false, paylinkOn, accountingOn = true, onEdit, zatcaCollect = false, onCompleteBuyer }: {
   customer: any; repName: string; company: Company | null;
   /** فوترة ZATCA (Z5.1a، D2): الشركة تجمع بيانات الفوترة؟ ⇒ لافتة النواقص و«أكمل البيانات» (نقطة الفوترة الضيّقة — Q3) */
   zatcaCollect?: boolean;
@@ -1087,6 +1108,10 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
   onLogVisit: () => void;
   /** مؤقّت الزيارة: نشط لهذا العميل؟ + العدّاد الحيّ + بدء التوقيت */
   visitActive: boolean; visitElapsedLabel: string; onStartVisit: () => void;
+  /** المقيَّد بـ«اشتراط تفعيل الموقع»: فحص البدء جارٍ، أو لماذا لم يبدأ (لا اتصال / لا قراءة) — «بدء الزيارة» يعيد المحاولة */
+  visitStart?: 'checking' | 'offline' | 'noFix' | null;
+  /** المؤقّت الجاري يحمل موقع الوصول */
+  visitFixed?: boolean;
 }) {
   const tr = useTr();
   const [entries, setEntries] = useState<any[]>([]);
@@ -1169,10 +1194,12 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
               {visitElapsedLabel}
             </span>
           ) : (
-            <button onClick={onStartVisit}
-              className="flex items-center gap-1.5 bg-[#5FBE92] rounded-full px-3 py-1.5 text-sm font-bold active:scale-95 transition"
+            <button onClick={onStartVisit} disabled={visitStart === 'checking'}
+              className="flex items-center gap-1.5 bg-[#5FBE92] disabled:opacity-70 rounded-full px-3 py-1.5 text-sm font-bold active:scale-95 transition"
               title={tr('ابدأ توقيت الزيارة')}>
-              <Timer size={15} /> {tr('بدء الزيارة')}
+              {visitStart === 'checking'
+                ? <><span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" /> {tr('جار تحديد موقعك')}</>
+                : <><Timer size={15} /> {tr('بدء الزيارة')}</>}
             </button>
           )
         )}
@@ -1181,7 +1208,16 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
       {/* شريط تذكير أسفل الرأس أثناء التوقيت — يوضّح أن الوقت يُحسب */}
       {visitActive && (
         <div className="bg-[#2E6FB0]/10 text-[#2E6FB0] text-[11px] px-4 py-1.5 flex items-center gap-1.5 border-b border-[#2E6FB0]/20">
-          <Square size={9} className="fill-current" /> {tr('يحسب وقت الزيارة الآن سيسجل تلقائيا عند خروجك')}
+          <Square size={9} className="fill-current" /> <span className="flex-1">{tr('يحسب وقت الزيارة الآن سيسجل تلقائيا عند خروجك')}</span>
+          {visitFixed && <span className="flex items-center gap-1 text-[#1E7A52] font-semibold shrink-0"><MapPin size={11} /> {tr('موقع الزيارة محفوظ')}</span>}
+        </div>
+      )}
+      {/* المقيَّد بـ«اشتراط تفعيل الموقع»: لم تبدأ الزيارة — لماذا، وإعادة المحاولة. بقية الملف تعمل كما هي */}
+      {!visitActive && !unassigned && (visitStart === 'offline' || visitStart === 'noFix') && (
+        <div className="bg-amber-50 text-amber-800 text-xs px-4 py-2.5 border-b border-amber-200 flex items-center gap-2 leading-relaxed">
+          <MapPinOff size={15} className="shrink-0" />
+          <span className="flex-1">{tr(visitStart === 'offline' ? VISIT_OFFLINE_MSG : VISIT_NOFIX_MSG)}</span>
+          <button onClick={onStartVisit} className="shrink-0 px-3 py-1.5 rounded-lg bg-[#E15A30] text-white font-semibold text-[11px]">{tr('اعد المحاولة')}</button>
         </div>
       )}
 
@@ -1332,25 +1368,37 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
 // ============ تسجيل زيارة ميدانية ============
 // المندوب عند العميل: ملاحظة نصية + صور (الرفوف/المنتجات) + إثبات موقع GPS. تعمل أوف‑لاين
 // (تُصفّ في الـOutbox وتُرفع عند الاتصال) وتظهر للإدارة/المشرف من خريطة تتبّع المندوب.
-function LogVisit({ customer, onClose, onDone }: { customer: any; onClose: () => void; onDone: (offline: boolean) => void }) {
+// والمقيَّد بـ«اشتراط تفعيل الموقع» (strict): لا حفظ إلا متصلاً وبقراءة، ولا صفّ دون اتصال (visitLocation.ts).
+function LogVisit({ customer, strict = false, onClose, onDone }: { customer: any; strict?: boolean; onClose: () => void; onDone: (offline: boolean) => void }) {
   const tr = useTr();
   const [note, setNote] = useState('');
   const [photos, setPhotos] = useState<string[]>([]); // data URLs مضغوطة
-  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [fix, setFix] = useState<GeoFix | null>(null);
   const [gps, setGps] = useState<'getting' | 'ok' | 'denied'>('getting');
+  const [online, setOnline] = useState(() => navigator.onLine);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [done, setDone] = useState<null | 'online' | 'offline'>(null);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
-  // التقاط موقع المندوب (إثبات الوصول) فور فتح النافذة
+  // التقاط موقع المندوب (إثبات الوصول) فور فتح النافذة — والمقيَّد بمحاولةٍ ثانية أقوى، وبـ«أعد المحاولة» إن تعذّر
+  const locate = useCallback(async () => {
+    setGps('getting');
+    const f = strict ? await grabLocation(true) : await readLocation({ enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 });
+    if (!mounted.current) return;
+    if (f) { setFix(f); setGps('ok'); } else setGps('denied');
+  }, [strict]);
+  useEffect(() => { void locate(); }, [locate]);
   useEffect(() => {
-    if (!navigator.geolocation) { setGps('denied'); return; }
-    navigator.geolocation.getCurrentPosition(
-      (p) => { setCoords({ lat: p.coords.latitude, lng: p.coords.longitude }); setGps('ok'); },
-      () => setGps('denied'),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
-    );
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
   }, []);
+  // المقيَّد: ما يمنع الحفظ الآن (لا اتصال أو لا قراءة) — والقراءة الجارية ليست منعاً بعد
+  const strictGate = visitGate(strict, online, gps === 'ok' && !!fix);
 
   const compress = compressImage;
 
@@ -1366,6 +1414,9 @@ function LogVisit({ customer, onClose, onDone }: { customer: any; onClose: () =>
 
   const save = async () => {
     if (!note.trim() && photos.length === 0) { setMsg(tr('أضف ملاحظة أو صورة على الأقل')); return; }
+    // المقيَّد: متصلٌ (لحظة الحفظ لا حالة الواجهة) وبقراءة، وإلا لا حفظ ولا صفّ
+    const gate = visitGate(strict, navigator.onLine, !!fix);
+    if (gate !== 'ok') { setMsg(tr(gate === 'offline' ? VISIT_OFFLINE_MSG : VISIT_NOFIX_MSG)); return; }
     setBusy(true); setMsg('');
     const clientRef = newClientRef();
     const clientCreatedAt = new Date().toISOString();
@@ -1374,7 +1425,7 @@ function LogVisit({ customer, onClose, onDone }: { customer: any; onClose: () =>
     const payload: Record<string, unknown> = {
       ...custRef,
       note: note.trim() || undefined,
-      lat: coords?.lat, lng: coords?.lng,
+      ...fixCoords(fix),
       photos: photos.length ? photos : undefined,
       clientRef, createdAt: clientCreatedAt,
     };
@@ -1382,9 +1433,14 @@ function LogVisit({ customer, onClose, onDone }: { customer: any; onClose: () =>
       await repApi.post('/visits', payload);
       setDone('online');
     } catch (err) {
-      if (isNetworkError(err)) {
+      const f = visitFailure('note', strict, isNetworkError(err));
+      if (f === 'outbox') {
         await outboxAdd({ clientRef, repId: currentRepId(), kind: 'visit', payload, status: 'queued', clientCreatedAt });
         setDone('offline');
+      } else if (f === 'needOnline') {
+        // المقيَّد انقطعت شبكته: لا صفّ — ما كتبه وصوره باقية في النموذج حتى يتصل
+        setMsg(tr(VISIT_OFFLINE_MSG));
+        setBusy(false);
       } else {
         setMsg((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر حفظ الزيارة'));
         setBusy(false);
@@ -1417,10 +1473,20 @@ function LogVisit({ customer, onClose, onDone }: { customer: any; onClose: () =>
         <p className="text-sm font-semibold text-gray-700">{customer.name}</p>
         {/* حالة الموقع — إثبات وصول المندوب */}
         <div className={`mt-2 inline-flex items-center gap-1.5 text-[11px] rounded-full px-2.5 py-1 ${
-          gps === 'ok' ? 'bg-green-50 text-green-600' : gps === 'getting' ? 'bg-amber-50 text-amber-600' : 'bg-gray-100 text-gray-500'}`}>
+          gps === 'ok' ? 'bg-green-50 text-green-600' : gps === 'getting' ? 'bg-amber-50 text-amber-600' : strict ? 'bg-red-50 text-red-600' : 'bg-gray-100 text-gray-500'}`}>
           <MapPin size={12} />
           {gps === 'ok' ? tr('تم تحديد موقعك') : gps === 'getting' ? tr('جار تحديد الموقع') : tr('الموقع غير متاح')}
         </div>
+        {/* المقيَّد بـ«اشتراط تفعيل الموقع»: لماذا لا تُحفظ الزيارة الآن، وإعادة المحاولة */}
+        {(strictGate === 'offline' || (strictGate === 'noFix' && gps !== 'getting')) && (
+          <div className="mt-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-3 text-xs leading-relaxed">
+            <p>{tr(strictGate === 'offline' ? VISIT_OFFLINE_MSG : VISIT_NOFIX_MSG)}</p>
+            {strictGate === 'noFix' && (
+              <button onClick={() => void locate()}
+                className="mt-2 px-4 py-1.5 rounded-lg bg-[#E15A30] text-white font-semibold text-xs">{tr('اعد المحاولة')}</button>
+            )}
+          </div>
+        )}
 
         {/* ملاحظة نصية */}
         <label className="block text-xs font-medium text-gray-500 mt-4 mb-1">{tr('ملاحظة الزيارة')}</label>
@@ -1453,7 +1519,7 @@ function LogVisit({ customer, onClose, onDone }: { customer: any; onClose: () =>
       </div>
 
       <div className="p-4 border-t border-gray-100 bg-white">
-        <button onClick={save} disabled={busy}
+        <button onClick={save} disabled={busy || strictGate !== 'ok'}
           className="w-full bg-[#5FBE92] disabled:bg-gray-300 text-white rounded-xl py-3.5 font-bold text-sm flex items-center justify-center gap-2">
           {busy ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> : <ClipboardCheck size={18} />}
           {tr('حفظ الزيارة')}
@@ -2998,7 +3064,10 @@ function OutboxPanel({ onClose, onSync, syncing }: { onClose: () => void; onSync
                   </div>
                   <p className="text-xs text-red-600 mt-1 leading-relaxed">{d.error || tr('رفضه الخادم')}</p>
                   <div className="flex gap-2 mt-2">
+                    {/* زيارةٌ لا تُقبل أبداً (بلا موقع أو دون اتصال للمقيَّد): إعادة المحاولة عبث — يبقى سببها ظاهراً حتى يزيلها */}
+                    {!isFinalVisitRejection(d) && (
                     <button onClick={() => requeue(d.clientRef)} className="flex-1 text-xs bg-[#1F1A13] text-white rounded-lg py-1.5">{tr('إعادة المحاولة')}</button>
+                    )}
                     {!underCutoverReview(d) && (
                     <button onClick={() => { if (confirm(tr('إزالة هذا المستند نهائيا من الصف'))) discard(d.clientRef); }} className="flex-1 text-xs border border-red-300 text-red-600 rounded-lg py-1.5">{tr('إزالة')}</button>
                     )}
@@ -3142,6 +3211,9 @@ export default function RepApp() {
   }, [locationRequired, modal, docResult, screen, checkLocation]);
   // تحت الحاجز لا يعمل زرّ الرجوع (أندرويد) ولا سحبة الحافة: كانا يغلقان ملف العميل ويرفعان الزيارة والموقع مطفأ
   const gateShown = !!token && !!user && locationRequired && locationStatus === 'off';
+  // القيد للزيارة يُقرأ من مرجعٍ لا من إغلاقٍ قديم: finalizeVisit تُنادى من مؤثّراتٍ لا تتجدّد مع القيد
+  const strictRef = useRef(locationRequired);
+  strictRef.current = locationRequired;
 
   /**
    * يقيس موقع المندوب ويحكم على قربه من العميل.
@@ -3220,24 +3292,57 @@ export default function RepApp() {
   const visitElapsed = visitTimer ? elapsedSec(visitTimer.startedAt) : 0;
   void tick; // العدّاد يُعاد رسمه عبر tick
 
-  // يُنهي المؤقّت ويرفع الزيارة (أوف‑لاين عبر الصفّ الصادر). صامت: المؤقّت
-  // للقياس لا لعمل حرج، فلا يزعج المندوب برسالة خطأ.
+  // زيارات المقيَّد «بانتظار الاتصال لتسجيلها» و«لم تُسجَّل» (visitPending.ts) — شريطٌ ظاهر في الشاشة الرئيسية
+  const [pendingVisits, setPendingVisits] = useState<PendingVisit[]>(() => ownPendingVisits(currentRepId()));
+  const refreshPendingVisits = useCallback(() => setPendingVisits(ownPendingVisits(currentRepId())), []);
+  // تُعاد حيّةً (لا من صفّ العمل دون اتصال) — وعميلٌ أُنشئ دون اتصال يُرفع قبل زيارته فيحلّه الخادم
+  const flushPendingVisits = useCallback(async () => {
+    const waiting = ownPendingVisits(currentRepId()).filter(v => v.status === 'waiting');
+    if (!waiting.length || !navigator.onLine) return;
+    if (waiting.some(v => v.payload.customerClientRef)) await syncOutbox();
+    // خلفيّ: محاولةٌ تلقائية لا تُخرج المندوب بـ401 عابر (تبقى «بانتظار الاتصال» وتُعاد)
+    await retryPendingVisits(async (p) => { await repApi.post('/visits', p, { background: true }); }, currentRepId());
+    refreshPendingVisits();
+  }, [refreshPendingVisits]);
+
+  /**
+   * يُنهي المؤقّت ويرفع الزيارة بموقع الوصول (قراءة البدء، وإن غابت فمحاولةٌ الآن). غير المقيَّد: انقطاعٌ ⇒ صفّ العمل دون
+   * اتصال، ورفضٌ يُتجاهل بصمت (المؤقّت للقياس). المقيَّد بـ«اشتراط تفعيل الموقع»: لا صفّ أبداً — انقطاعٌ ⇒ «بانتظار الاتصال»
+   * على الجهاز تُعاد حيّةً، وبلا قراءة أو برفضٍ ⇒ «لم تُسجَّل» بسببها (visitLocation.ts).
+   */
   const finalizeVisit = async (t: VisitTimer) => {
     clearVisitTimer();
     setVisitTimerState(null);
     const endedAt = new Date().toISOString();
     const clientDurationSec = elapsedSec(t.startedAt);
-    if (clientDurationSec < 2) return; // ضغطة خاطئة — لا زيارة مدّتها صفر
+    if (clientDurationSec < MIN_VISIT_SEC) return; // ضغطة خاطئة — لا زيارة مدّتها صفر
+    const strict = strictRef.current;
+    const fix = isGeoFix(t.fix) ? t.fix : await grabLocation(strict);
+    const plan = planFinalize(clientDurationSec, !!fix, strict);
     const clientRef = newClientRef();
     const custRef = t.offline ? { customerClientRef: t.customerClientRef } : { customerId: t.customerId };
-    const payload: Record<string, unknown> = { ...custRef, startedAt: t.startedAt, endedAt, clientDurationSec, clientRef, createdAt: endedAt };
+    const payload: Record<string, unknown> = { ...custRef, ...fixCoords(fix), startedAt: t.startedAt, endedAt, clientDurationSec, clientRef, createdAt: endedAt };
+    const held = { clientRef, repId: currentRepId(), customerName: t.customerName, payload, endedAt };
+    if (plan === 'drop') {
+      // المقيَّد بلا قراءة (مؤقّتٌ من نسخةٍ أقدم أو قيدٌ فُعّل أثناء الزيارة): لا تُرسل — الخادم يردّها — ويُقال لماذا
+      putPendingVisit({ ...held, status: 'failed', error: 'لم تسجل الزيارة لتعذر تحديد موقعك' });
+      refreshPendingVisits();
+      return;
+    }
     try {
       await repApi.post('/visits', payload);
     } catch (err) {
-      if (isNetworkError(err)) {
+      const f = visitFailure('timer', strict, isNetworkError(err));
+      if (f === 'outbox') {
         await outboxAdd({ clientRef, repId: currentRepId(), kind: 'visit', payload, status: 'queued', clientCreatedAt: endedAt });
+      } else if (f === 'held') {
+        // المقيَّد: ما ينتظر (انقطاع، خطأ خادم، جلسة، عميلٌ لم يُرفع) «بانتظار الاتصال» يُعاد حيّاً، والرفض «لم تُسجَّل» بسببه
+        const r = postResultOf(err);
+        putPendingVisit(pendingRetryOutcome(r) === 'keep' ? { ...held, status: 'waiting' }
+          : { ...held, status: 'failed', error: (!r.ok && r.message) || 'تعذر حفظ الزيارة' });
+        refreshPendingVisits();
       }
-      // خطأ غير شبكي (عزل عميل مثلاً) يُتجاهَل بصمت — لا نكسر تجربة المندوب
+      // ignore: خطأ غير شبكي لغير المقيَّد (عزل عميل مثلاً) يُتجاهَل بصمت — لا نكسر تجربة المندوب
     }
   };
 
@@ -3287,17 +3392,52 @@ export default function RepApp() {
   // (مبدأ أندرويد «عُد لوجهة البداية قبل الخروج» — ولا نحبس المستخدم بحيلة).
   useBackClose(!gateShown && !!token && !!user && !modal && !docResult && screen !== 'home', () => setScreen('home'));
 
+  // بدء زيارة المقيَّد: فحص (اتصال + قراءة) قبل المؤقّت، ونتيجته لملف ذلك العميل وحده
+  const [visitStart, setVisitStart] = useState<{ customerId: string; state: 'checking' | 'offline' | 'noFix' } | null>(null);
+  // ملف العميل المفتوح الآن (أو نافذةٌ فرعية فوقه) — فحصٌ انتهى بعد الخروج لا يبدأ مؤقّتاً لعميلٍ لم يعد أمامه
+  const openCustomerRef = useRef<string | null>(null);
+  openCustomerRef.current = modal !== null && selectedCustomer ? selectedCustomer.id : null;
+  useEffect(() => {
+    setVisitStart(v => (v && modal !== null && selectedCustomer?.id === v.customerId ? v : null));
+  }, [modal, selectedCustomer]);
+
   // بدء توقيت زيارة عميل. إن كان مؤقّت آخر نشطاً (عميل مختلف) نُنهيه أولاً
   // فلا تضيع مدّته ولا تختلط بالجديدة.
-  const startVisit = (c: { id: string; name: string; _offline?: boolean; clientRef?: string }) => {
-    if (visitTimer && visitTimer.customerId !== c.id) void finalizeVisit(visitTimer);
-    const t: VisitTimer = {
-      customerId: c.id, customerName: c.name,
-      offline: !!c._offline, customerClientRef: c.clientRef,
-      startedAt: new Date().toISOString(),
+  // موقع الوصول يُلتقط مع البدء ويُحفظ مع المؤقّت: المقيَّد لا يبدأ إلا متصلاً وبقراءة، وغيره يبدأ فوراً والقراءة تلحق.
+  const startVisit = async (c: { id: string; name: string; _offline?: boolean; clientRef?: string }) => {
+    const running = getVisitTimer();
+    if (running && running.customerId === c.id) return;
+    if (running) void finalizeVisit(running);
+    const begin = (fix: GeoFix | null): VisitTimer => {
+      const t: VisitTimer = {
+        customerId: c.id, customerName: c.name,
+        offline: !!c._offline, customerClientRef: c.clientRef,
+        startedAt: new Date().toISOString(),
+        ...(fix ? { fix } : {}),
+      };
+      setVisitTimer(t);
+      setVisitTimerState(t);
+      return t;
     };
-    setVisitTimer(t);
-    setVisitTimerState(t);
+    if (strictRef.current) {
+      if (visitStart?.customerId === c.id && visitStart.state === 'checking') return;
+      setVisitStart({ customerId: c.id, state: 'checking' });
+      // الفحصان معاً: الاتصال لا يطيل انتظار القراءة. ولا اتصال في المتصفّح ⇒ لا انتظار للـGPS أصلاً
+      const [online, fix] = navigator.onLine ? await Promise.all([probeOnline(), grabLocation(true)]) : [false, null];
+      if (openCustomerRef.current !== c.id || getVisitTimer()) { setVisitStart(null); return; }
+      const gate = visitGate(true, online, !!fix);
+      if (gate !== 'ok') { setVisitStart({ customerId: c.id, state: gate }); return; }
+      setVisitStart(null);
+      begin(fix);
+      return;
+    }
+    const t = begin(null);
+    void grabLocation(false).then((fix) => {
+      const next = attachFix(getVisitTimer(), t, fix);
+      if (!next) return;
+      setVisitTimer(next);
+      setVisitTimerState(cur => (cur && cur.customerId === next.customerId && cur.startedAt === next.startedAt ? next : cur));
+    });
   };
 
   // نجاة الأيتام: مؤقّت بقي من جلسة سابقة (أُغلق التطبيق دون خروج) وتجاوز
@@ -3315,6 +3455,23 @@ export default function RepApp() {
     if (!token) return;
     return startRenewLoop();
   }, [token]);
+
+  // زيارات المقيَّد بانتظار الاتصال: تُعاد عند الإقلاع وعودة الشبكة والعودة للتطبيق وكل ٣٠ث — حيّةً لا من الصفّ
+  useEffect(() => {
+    if (!token) return;
+    refreshPendingVisits();
+    void flushPendingVisits();
+    const onOnline = () => { void flushPendingVisits(); };
+    const onVisible = () => { if (!document.hidden) void flushPendingVisits(); };
+    window.addEventListener('online', onOnline);
+    document.addEventListener('visibilitychange', onVisible);
+    const iv = window.setInterval(() => { void flushPendingVisits(); }, 30_000);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.clearInterval(iv);
+    };
+  }, [token, flushPendingVisits, refreshPendingVisits]);
 
   // العمل دون اتصال: بدء المزامنة التلقائية + متابعة عدد المنتظرين (يُحدَّث بعد كل التقاط/رفع)
   useEffect(() => {
@@ -3558,7 +3715,9 @@ export default function RepApp() {
               onClose={() => { if (visitTimer && visitTimer.customerId === selectedCustomer.id) void finalizeVisit(visitTimer); setModal(null); }}
               visitActive={!!visitTimer && visitTimer.customerId === selectedCustomer.id}
               visitElapsedLabel={fmtElapsed(visitElapsed)}
-              onStartVisit={() => startVisit(selectedCustomer)}
+              onStartVisit={() => { void startVisit(selectedCustomer); }}
+              visitStart={visitStart && visitStart.customerId === selectedCustomer.id ? visitStart.state : null}
+              visitFixed={!!visitTimer && visitTimer.customerId === selectedCustomer.id && isGeoFix(visitTimer.fix)}
               onEdit={() => setModal('editCustomer')}
               zatcaCollect={zatcaCollect}
               onCompleteBuyer={() => setModal('buyerData')}
@@ -3576,7 +3735,7 @@ export default function RepApp() {
             <CreateReceipt customer={selectedCustomer} repName={user.name} company={company} perms={user} onClose={() => setModal('customerDetail')}
               onDone={(doc) => { setModal(null); setRefreshKey(k => k + 1); setDocResult(doc); }} />
           ) : modal === 'logVisit' && selectedCustomer ? (
-            <LogVisit customer={selectedCustomer} onClose={() => setModal('customerDetail')}
+            <LogVisit customer={selectedCustomer} strict={locationRequired} onClose={() => setModal('customerDetail')}
               onDone={(offline) => { setModal('customerDetail'); if (offline) setRefreshKey(k => k + 1); }} />
           ) : modal === 'editCustomer' && selectedCustomer ? (
             <EditCustomer customer={selectedCustomer} pinLocked={user.requireCustomerProximity === true} zatcaCollect={zatcaCollect}
@@ -3644,6 +3803,23 @@ export default function RepApp() {
                   <RefreshCw size={14} /> {tr('يتوفّر تحديث للتطبيق')} · {tr('تحديث الآن')}
                 </button>
               )}
+              {/* زيارات المقيَّد: بانتظار الاتصال (تُعاد تلقائياً) و«لم تُسجَّل» بسببها حتى يُخفيها — لا تسقط بلا أثر */}
+              {pendingVisits.some(v => v.status === 'waiting') && (
+                <div className="shrink-0 w-full bg-amber-50 text-amber-800 border-b border-amber-200 text-[12px] font-semibold py-2 px-3 flex items-center gap-2">
+                  <MapPin size={14} className="shrink-0" />
+                  <span className="flex-1">{tr('الزيارة بانتظار الاتصال لتسجيلها')} ({pendingVisits.filter(v => v.status === 'waiting').length})</span>
+                  <button type="button" onClick={() => { void flushPendingVisits(); }}
+                    className="shrink-0 px-2.5 py-1 rounded-lg bg-[#1F1A13] text-white text-[11px]">{tr('اعد المحاولة')}</button>
+                </div>
+              )}
+              {pendingVisits.filter(v => v.status === 'failed').map(v => (
+                <div key={v.clientRef} className="shrink-0 w-full bg-red-50 text-red-700 border-b border-red-200 text-[11px] py-2 px-3 flex items-start gap-2 leading-relaxed">
+                  <MapPinOff size={14} className="shrink-0 mt-0.5" />
+                  <span className="flex-1"><b>{tr('لم تسجل زيارة')} {v.customerName}</b> — {tr(v.error || 'تعذر حفظ الزيارة')}</span>
+                  <button type="button" aria-label={tr('إخفاء')} onClick={() => { removePendingVisit(v.clientRef); refreshPendingVisits(); }}
+                    className="shrink-0 text-red-400 hover:text-red-700"><X size={14} /></button>
+                </div>
+              ))}
               {/* Body */}
               <div className="flex-1 overflow-hidden">
                 {screen === 'home' && <RepHome key={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} menuOn={!!(company as { catalogEnabled?: boolean } | null)?.catalogEnabled} accountingOn={accountingOn} settingsReady={companyReady} dailyReportOn={dailyReportOn} attendanceOn={attendanceOn} aiRepOn={aiRepOn} />}

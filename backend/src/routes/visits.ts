@@ -20,8 +20,9 @@ const createVisitSchema = z.object({
   // العمل دون اتصال: بديل customerId حين يشير لعميل أُنشئ أوف‑لاين (يحلّه الخادم إلى id الحقيقي)
   customerClientRef: z.string().uuid().optional(),
   note: z.string().max(2000).optional(),
-  lat: z.number().min(-90).max(90).optional(),
-  lng: z.number().min(-180).max(180).optional(),
+  // null = لا موقع (كالغياب) — فيُردّ المقيَّد بـLOCATION_REQUIRED لا بخطأ تحقّقٍ مبهم
+  lat: z.number().min(-90).max(90).nullable().optional(),
+  lng: z.number().min(-180).max(180).nullable().optional(),
   // صور بصيغة data URL (مضغوطة على العميل) — حدّ معقول يحمي القاعدة
   photos: z.array(z.string().max(2_500_000)).max(8).optional(),
   clientRef: z.string().uuid().optional(), // idempotency للأوف‑لاين
@@ -34,6 +35,32 @@ const createVisitSchema = z.object({
 }).refine((d) => !!d.customerId || !!d.customerClientRef, {
   message: 'يجب تحديد العميل customerId أو customerClientRef',
 });
+
+/** إحداثيات حقيقية؟ — رقمان محدودان، و(0،0) قراءةٌ فاسدة من الجهاز لا مكان */
+export function hasVisitCoords(b: { lat?: number | null; lng?: number | null }): boolean {
+  const ok = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
+  return ok(b.lat) && ok(b.lng) && !(b.lat === 0 && b.lng === 0);
+}
+
+/**
+ * «اشتراط تفعيل الموقع» على الزيارة (أمر المالك، ٦ أكتوبر ٢٠٢٦): زيارة المندوب المقيَّد لا تُقبل أبداً بلا موقعٍ حقيقي،
+ * ولا مما سُجّل دون اتصال (إعادة رفعٍ من صفّ العمل دون اتصال — X-FS-Replay: 1). التطبيق يمنعهما، وهذا حارس الخادم
+ * لنسخةٍ قديمة أو طلبٍ مباشر — بلا استثناءٍ لإعادة الرفع، وقبل أي كتابة. يعيد true إن رُدّ الطلب.
+ */
+async function refuseVisitWithoutLocation(res: Response, tid: string, salesRepId: string,
+  body: { lat?: number | null; lng?: number | null }, replay: boolean): Promise<boolean> {
+  const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid }, select: { requireLocationOn: true } });
+  if (rep?.requireLocationOn !== true) return false;
+  if (!hasVisitCoords(body)) {
+    res.status(409).json({ success: false, code: 'LOCATION_REQUIRED', message: 'لا تُقبل الزيارة بلا موقعك — فعّل الموقع وانتظر تحديده ثم سجّل الزيارة وأنت متصل بالإنترنت' });
+    return true;
+  }
+  if (replay) {
+    res.status(409).json({ success: false, code: 'VISIT_NEEDS_CONNECTION', message: 'لا تُقبل زيارةٌ سُجّلت دون اتصال بالإنترنت — سجّلها عند العميل وأنت متصل وموقعك مفعّل' });
+    return true;
+  }
+  return false;
+}
 
 // المندوب يسجّل زيارة (مع صورها) — أو الإدارة نيابةً بتحديد المندوب
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -64,6 +91,9 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     if (!(await canAccessRep(req, tid, salesRepId))) {
       res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return;
     }
+    // المقيَّد بـ«اشتراط تفعيل الموقع»: لا زيارة بلا موقع ولا من صفّ العمل دون اتصال — قبل أي حلٍّ أو كتابة
+    const replay = String(req.headers['x-fs-replay'] || '') === '1';
+    if (await refuseVisitWithoutLocation(res, tid, salesRepId, body, replay)) return;
 
     // حلّ تبعية العميل: عميل أُنشئ أوف‑لاين (customerClientRef) يُحلّ إلى id الحقيقي
     let customerId = body.customerId;
@@ -71,7 +101,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       const ref = await prisma.customer.findFirst({
         where: { tenantId: tid, clientRef: body.customerClientRef }, select: { id: true },
       });
-      if (!ref) { res.status(400).json({ success: false, message: 'العميل المرجعي لم يرفع بعد أعد المزامنة' }); return; }
+      // CUSTOMER_REF_PENDING: ليس رفض أعمال — العميل في صفّ الجهاز لم يُرفع بعد (التطبيق ينتظر ولا يُسقط الزيارة)
+      if (!ref) { res.status(400).json({ success: false, code: 'CUSTOMER_REF_PENDING', message: 'العميل المرجعي لم يرفع بعد أعد المزامنة' }); return; }
       customerId = ref.id;
     }
     if (!customerId) { res.status(400).json({ success: false, message: 'يجب تحديد العميل' }); return; }
