@@ -3243,8 +3243,16 @@ export default function RepApp() {
   // تحت الحاجز لا يعمل زرّ الرجوع (أندرويد) ولا سحبة الحافة: كانا يغلقان ملف العميل ويرفعان الزيارة والموقع مطفأ
   const gateShown = !!token && !!user && locationRequired && !liveOk;
   // تحت الحاجز لا حقلَ مُركَّزاً: لوحة المفاتيح المفتوحة كانت تكتب في نموذجٍ مغطّى و«إدخال» يُرسله
+  // وما تحته خاملٌ (inert): لا تبلغه لوحة مفاتيح بـTab ولا قارئ شاشة (TalkBack يتنقّل خلف الطبقات المرئية) فيُغلق ملف عميلٍ
+  // ويُنهي زيارته أو يفتح نافذة — الطبقة تمنع اللمس وحده
+  const underGateRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (gateShown && document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    const el = underGateRef.current;
+    if (el) {
+      el.inert = gateShown;
+      if (gateShown) el.setAttribute('aria-hidden', 'true'); else el.removeAttribute('aria-hidden');
+    }
   }, [gateShown]);
   // القيد للزيارة يُقرأ من مرجعٍ لا من إغلاقٍ قديم: finalizeVisit تُنادى من مؤثّراتٍ لا تتجدّد مع القيد
   const strictRef = useRef(locationRequired);
@@ -3750,9 +3758,11 @@ export default function RepApp() {
         {/* notch — سطح المكتب فقط */}
         {framed && <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-32 h-6 bg-black rounded-b-2xl z-30" />}
         <div className={framed ? 'w-full h-full bg-white rounded-[36px] overflow-hidden relative flex flex-col' : 'w-full h-full bg-white overflow-hidden relative flex flex-col'}>
-          {showOutbox && <OutboxPanel onClose={() => setShowOutbox(false)} onSync={syncNow} syncing={syncing} />}
           {/* «أعد المحاولة» يجدّد القيد من الخادم أولاً: مالكٌ أطفأه لمندوبٍ عالق يرفع الحاجز بلا إغلاق التطبيق */}
           {gateShown && <LocationOffGate block={liveBlock ?? 'locating'} onRetry={async () => { await refreshUser(); return checkLocation(); }} />}
+          {/* كل ما تحت الحاجز في غلافٍ واحد (display: contents — لا يغيّر التخطيط) يصير خاملاً وهو ظاهر */}
+          <div ref={underGateRef} className="contents">
+          {showOutbox && <OutboxPanel onClose={() => setShowOutbox(false)} onSync={syncNow} syncing={syncing} />}
           {!token || !user ? (
             showLogin ? (
               <RepLogin onLogin={login} onBack={() => setShowLogin(false)} />
@@ -3921,6 +3931,7 @@ export default function RepApp() {
               </div>
             </>
           )}
+          </div>
         </div>
       </div>
     </div>

@@ -214,6 +214,24 @@ test('حزمةٌ لا تعلن liveloc (تطبيقٌ قديم أو Flutter): 426
   assert.equal((await guard('POST', '/invoices', { replay: true })).passed, true);
 });
 
+test('الزيارة من حزمةٍ قديمة 503 لا 426: زيارة مؤقّتها المحفوظة تبقى «بانتظار الاتصال» (4xx يسمها «لم تُسجَّل» نهائياً)', async () => {
+  reset();
+  locs.push(point());
+  for (const p of ['/visits', '/visits/', '/Visits']) {
+    const r = await guard('POST', p, { caps: 'zatca2' });
+    assert.equal(r.passed, false);
+    assert.equal(r.res.statusCode, 503, p);
+    assert.equal(r.res.body!.code, 'LOCATION_APP_UPDATE');
+    assert.equal(r.res.headers['retry-after'], '300');
+  }
+  // ما سواها حيّاً 426 كما كان (زرّ «حدّث التطبيق» في الحزمة القديمة)
+  assert.equal((await guard('POST', '/visits/v1/photos', { caps: 'zatca2' })).res.statusCode, 426);
+  assert.equal((await guard('PATCH', '/visits', { caps: 'zatca2' })).res.statusCode, 426);
+  assert.equal((await guard('POST', '/tracking/attendance/checkin', { caps: 'zatca2' })).res.statusCode, 426);
+  // والحديثة حيّاً تمرّ
+  assert.equal((await guard('POST', '/visits')).passed, true);
+});
+
 test('liveVerdict صرف: STALE لقديم الاستقبال/الالتقاط ولالتقاطٍ في المستقبل، وNaN يُرفض لا يُقبل', () => {
   const now = Date.now();
   const p = (o: Partial<Loc> = {}) => ({ lat: 24.7, lng: 46.6, accuracy: 30, capturedAt: new Date(now - 1000), createdAt: new Date(now - 500), ...o });

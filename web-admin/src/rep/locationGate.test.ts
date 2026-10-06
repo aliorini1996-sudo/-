@@ -31,6 +31,13 @@ test('حارس ثابت: الحاجز طبقة فوق التطبيق كله بح
   }
   // لا حقلَ مُركَّز تحت الحاجز (لوحة المفاتيح لا تكتب في نموذجٍ مغطّى ولا «إدخال» يُرسله)
   assert.match(app, /if \(gateShown && document\.activeElement instanceof HTMLElement\) document\.activeElement\.blur\(\);/);
+  // وما تحته خاملٌ (inert) وخفيٌّ عن قارئ الشاشة: لا Tab ولا TalkBack يبلغ زرّاً مغطّى — والغلاف يضمّ كل ما سوى الحاجز
+  assert.match(app, /el\.inert = gateShown;/);
+  assert.match(app, /if \(gateShown\) el\.setAttribute\('aria-hidden', 'true'\); else el\.removeAttribute\('aria-hidden'\);/);
+  const frame = app.slice(app.indexOf('{gateShown && <LocationOffGate'));
+  const wrap = frame.indexOf('<div ref={underGateRef} className="contents">');
+  assert.ok(wrap > 0, 'الغلاف الخامل بعد الحاجز مباشرة');
+  assert.ok(frame.indexOf('<OutboxPanel') > wrap && frame.indexOf('{!token || !user ? (') > wrap, 'الصندوق الصادر والتطبيق كله داخل الغلاف');
   // القيد يتجدّد مع إعدادات الشركة الدورية، وفوراً حين يردّ الخادم القفل
   assert.match(app, /void refreshUser\(\); \/\/ وصلاحيات المندوب وقيوده معها/);
   assert.match(app, /onLiveRefused\(\(\) => \{ void refreshUser\(\); \}\)/);

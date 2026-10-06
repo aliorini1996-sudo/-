@@ -21,6 +21,11 @@ export async function readLiveVerdict(tenantId: string, salesRepId: string, now 
   return liveVerdict(latest, now);
 }
 
+/** POST /visits (نسبةً إلى /api) — بتوحيد حالة الأحرف والشرطة الأخيرة كما يوجّهها Express */
+export function isVisitCreate(method: string, path: string): boolean {
+  return String(method || '').toUpperCase() === 'POST' && String(path || '').toLowerCase().replace(/\/+$/, '') === '/visits';
+}
+
 /**
  * «اشتراط تفعيل الموقع» — القفل الكامل على الخادم (أمر المالك، ٦ أكتوبر ٢٠٢٦): كل طلبٍ يغيّر بياناً من مندوبٍ مقيَّد
  * (requireLocationOn === true) يُردّ ما لم يكن ظاهراً على الخريطة الآن بموقعٍ دقيق. مركَّبٌ مرةً على /api قبل كل موجّه،
@@ -32,7 +37,8 @@ export async function readLiveVerdict(tenantId: string, salesRepId: string, now 
  *  2. توكنٌ غائب أو فاسد يمرّ إلى `authenticate` في موجّهه (401 هناك). وغير المندوب يمرّ.
  *  3. غير المقيَّد يمرّ — القيد يُقرأ بـ=== true بمعرّف المندوب وشركته.
  *  4. حزمةٌ لا تعلن `liveloc` (تطبيقٌ قديم مفتوح، أو تطبيق Flutter) لا تعرف القفل ⇒ «حدّث التطبيق»: 426 للطلب الحيّ،
- *     و503 لإعادة الرفع كي يبقى المستند في صفّ تلك الحزمة (تتوقّف عند 5xx ولا تُعدمه) حتى تتحدّث — لا يضيع مستند مال.
+ *     و503 لإعادة الرفع كي يبقى المستند في صفّ تلك الحزمة (تتوقّف عند 5xx ولا تُعدمه) حتى تتحدّث — لا يضيع مستند مال؛
+ *     وللزيارة كذلك فتبقى زيارة المؤقّت «بانتظار الاتصال» لا «لم تُسجَّل».
  *  5. لا نقطة حيّة دقيقة ⇒ 409 LOCATION_REQUIRED بسببه (reason). الحزمة الحديثة تُبقي المستند المصفوف ولا تُعدمه.
  */
 export async function requireRepLiveLocation(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -55,9 +61,11 @@ export async function requireRepLiveLocation(req: Request, res: Response, next: 
     if (rep?.requireLocationOn !== true) { next(); return; }
 
     if (!hasCap(req.headers[CAPS_HEADER], LIVE_CAP)) {
-      const replay = isReplay(req.headers[REPLAY_HEADER]);
-      if (replay) res.setHeader('Retry-After', '300');
-      res.status(replay ? 503 : 426).json({ success: false, code: LIVE_CLIENT_UPDATE_CODE, message: LIVE_CLIENT_UPDATE_MESSAGE });
+      // والزيارة من الحزمة القديمة 503 أيضاً: زيارة مؤقّتها المحفوظة «بانتظار الاتصال» تُوسم «لم تُسجَّل» نهائياً عند 4xx
+      // (pendingRetryOutcome فيها) وتبقى منتظرةً عند 5xx — فتُرفع بعد التحديث وهو حيّ، لا تضيع
+      const keep = isReplay(req.headers[REPLAY_HEADER]) || isVisitCreate(req.method, req.path);
+      if (keep) res.setHeader('Retry-After', '300');
+      res.status(keep ? 503 : 426).json({ success: false, code: LIVE_CLIENT_UPDATE_CODE, message: LIVE_CLIENT_UPDATE_MESSAGE });
       return;
     }
 
