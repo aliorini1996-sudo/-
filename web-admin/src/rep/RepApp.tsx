@@ -37,7 +37,8 @@ import { BuyerFormValues, buyerBadge, buyerCreatePayload, buyerFormCheck, buyerF
 import { RepBuyerBanner, RepBuyerDataForm, fetchIncompleteBuyers } from './RepBuyerData';
 import { Component, lazy, Suspense, useRef, type ReactNode } from 'react';
 import { Sparkles, MapPinOff } from 'lucide-react';
-import { useLocationGate } from './locationGate';
+import { useLocationGate, strictLiveFix } from './locationGate';
+import { attemptClientRef, liveSnapshot, onLiveRefused, resetLive, strictRepNow, LIVE_REFUSAL_MESSAGE, type LiveBlock } from './liveGate';
 import { clearAiSession, markConverted, type AiAddPrefill } from './aiRepSession';
 import { OUTLET_TYPE_OPTIONS } from './aiRepLogic';
 import { dayMinutes, nextPunch, shiftMinutes, shiftsOf, type AttendanceState } from './attendanceDay';
@@ -191,12 +192,11 @@ function readLocation(opts: PositionOptions): Promise<GeoFix | null> {
     );
   });
 }
-// المندوب المقيَّد بـ«اشتراط تفعيل الموقع» لا تمضي بصمته بلا موقع (يردّها الخادم): فإن فشلت قراءة الـGPS السريعة
-// داخل مبنى فمحاولةٌ ثانية بشبكة الموقع ومهلة أطول تقبل قراءةً عمرها دقيقتان.
+// موقع غير المقيَّد: أفضل جهد. والمقيَّد بـ«اشتراط تفعيل الموقع» لا يقرأ من هنا أبداً — قراءةٌ مخبّأة عمرها دقيقتان كانت تُثبت
+// «موقعاً» والموقع مطفأ؛ قراءته حيّةٌ طازجة دقيقة قبلها الخادم (strictLiveFix، locationGate.ts)
 async function grabLocation(strict = false): Promise<GeoFix | null> {
-  const fast = await readLocation({ enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 });
-  if (fast || !strict) return fast;
-  return readLocation({ enableHighAccuracy: false, timeout: 20_000, maximumAge: 120_000 });
+  if (strict) return strictLiveFix();
+  return readLocation({ enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 });
 }
 
 /**
@@ -1419,6 +1419,10 @@ function LogVisit({ customer, strict = false, onClose, onDone }: { customer: any
     const gate = visitGate(strict, navigator.onLine, !!fix);
     if (gate !== 'ok') { setMsg(tr(gate === 'offline' ? VISIT_OFFLINE_MSG : VISIT_NOFIX_MSG)); return; }
     setBusy(true); setMsg('');
+    // المقيَّد: موقع الزيارة قراءةٌ حيّة لحظة الحفظ لا لحظة فتح النافذة (كان يُطفئ الموقع ويكتب دقائق ثم يحفظ بالقديمة)
+    const at = strict ? await grabLocation(true) : fix;
+    if (!mounted.current) return;
+    if (strict && !at) { setMsg(tr(liveSnapshot().online && liveSnapshot().serverOk ? VISIT_NOFIX_MSG : VISIT_OFFLINE_MSG)); setBusy(false); return; }
     // مفتاحٌ واحد لكل محاولات النموذج: المقيَّد يعيد الحفظ بنفسه بعد انقطاع، فإن كان الأول قد بلغ الخادم أُعيدت المسجَّلة لا زيارةٌ ثانية
     const clientRef = clientRefRef.current;
     const clientCreatedAt = new Date().toISOString();
@@ -1427,7 +1431,7 @@ function LogVisit({ customer, strict = false, onClose, onDone }: { customer: any
     const payload: Record<string, unknown> = {
       ...custRef,
       note: note.trim() || undefined,
-      ...fixCoords(fix),
+      ...fixCoords(at),
       photos: photos.length ? photos : undefined,
       clientRef, createdAt: clientCreatedAt,
     };
@@ -1563,6 +1567,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const [showCart, setShowCart] = useState(false); // عرض الأصناف المختارة للمراجعة قبل الإصدار
   const [showScanner, setShowScanner] = useState(false); // ماسح الباركود
   const [loading, setLoading] = useState(false);
+  // مفتاح المحاولة: إعادة الضغط بالمحتوى نفسه تحمل clientRef نفسه (attemptClientRef) — لا مستند ثانٍ إن ضاع ردّ الأول
+  const attempt = useRef<{ key: string; ref: string } | null>(null);
   const [msg, setMsg] = useState('');
   /* ZATCA المرحلة الثانية (426): حزمةٌ بقيت مفتوحة من قبل النشر لا تفهم المستند المختوم فيردّها الخادم. رسالته تقول
    * «أغلق التطبيق وافتحه»، وهي في جوّال المندوب زرٌّ واحد: إلغاء تسجيل عامل الخدمة (هو من يقدّم الحزمة القديمة) ثم تحميل. */
@@ -1714,11 +1720,10 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       setMsg(tr('لا يمكن إصدار فاتورة ضريبية أو مرتجع دون اتصال المرحلة الثانية مفعلة')); return;
     }
     setLoading(true); setMsg('');
-    const clientRef = newClientRef();
     const clientCreatedAt = new Date().toISOString();
     // عميل أُنشئ أوف‑لاين (بلا id خادمي بعد) يُشار إليه بـ customerClientRef فيحلّه الخادم
     const custRef = customer._offline ? { customerClientRef: customer.clientRef } : { customerId: customer.id };
-    const payload = {
+    const body = {
       ...custRef, type: isReturn ? 'RETURN' : type, discountPct: 0,
       ...(isReturn && { returnReason }),
       // الاسعار شاملة كما اعلنت للعميل — المحرك (عميلا وخادما) يشتق الضريبة داخليا
@@ -1732,8 +1737,10 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         paymentPlan: 'INSTALLMENT' as const,
         installmentPlan: { count: insCount, firstDueDate: insFirst, period: insPeriod },
       }),
-      clientRef, clientCreatedAt, // idempotency + العمل دون اتصال
     };
+    attempt.current = attemptClientRef(attempt.current, body, newClientRef);
+    const clientRef = attempt.current.ref;
+    const payload = { ...body, clientRef, clientCreatedAt }; // idempotency + العمل دون اتصال
     // الطباعة من نتائج المحرك نفسها: سطر البند يساوي حصته من الاجمالي حتما
     const printItems = lines.map((l, i) => ({ name: l.name, unit: l.unit, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct, lineTotal: repCalc.items[i].lineTotal, taxAmt: repCalc.items[i].taxAmt }));
     try {
@@ -1788,6 +1795,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     } catch (err: any) {
       // انقطاع الشبكة ⇒ نلتقط الفاتورة في الصفّ الصادر ونطبع برقم مؤقّت (ترتفع عند الاتصال)
       if (isNetworkError(err)) {
+        // «اشتراط تفعيل الموقع»: المقيَّد لا يُصفّ له شيء دون اتصال (القفل الكامل) — يبقى النموذج ويعيد الإصدار متصلاً بالمفتاح نفسه
+        if (strictRepNow()) { setMsg(tr(LIVE_REFUSAL_MESSAGE.OFFLINE)); setLoading(false); return; }
         // انقطاع أثناء الإرسال في المرحلة الثانية: لا صفّ ولا ورقة — الخادم وحده يعرف هل خُتمت الفاتورة
         if (zatcaPhase2) {
           setMsg(tr('لا يمكن إصدار فاتورة ضريبية أو مرتجع دون اتصال المرحلة الثانية مفعلة')); setLoading(false); return;
@@ -2104,6 +2113,8 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
    * الاتصال بين الطلبين، وهو بالضبط ما يقع في الميدان. */
   const [photos, setPhotos] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  // مفتاح المحاولة: إعادة الضغط بالمحتوى نفسه تحمل clientRef نفسه (attemptClientRef) — لا مستند ثانٍ إن ضاع ردّ الأول
+  const attempt = useRef<{ key: string; ref: string } | null>(null);
   const [msg, setMsg] = useState('');
   // فواتير العميل المفتوحة + توزيع السند عليها (إلزاميّ عند الاتصال)
   const [openInv, setOpenInv] = useState<any[] | null>(null);
@@ -2192,13 +2203,15 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
       return;
     }
     setLoading(true); setMsg('');
-    const clientRef = newClientRef();
     const clientCreatedAt = new Date().toISOString();
     const custRef = customer._offline ? { customerClientRef: customer.clientRef } : { customerId: customer.id };
     const invoiceAllocations = Object.entries(alloc)
       .filter(([, v]) => v > 0.004)
       .map(([invoiceId, a]) => ({ invoiceId, amount: a }));
-    const payload = { ...custRef, amount: Number(amount), paymentMethod: method, notes: notes || undefined, clientRef, clientCreatedAt, ...(photos.length ? { photos } : {}), ...(invoiceAllocations.length ? { invoiceAllocations } : {}) };
+    const body = { ...custRef, amount: Number(amount), paymentMethod: method, notes: notes || undefined, ...(photos.length ? { photos } : {}), ...(invoiceAllocations.length ? { invoiceAllocations } : {}) };
+    attempt.current = attemptClientRef(attempt.current, body, newClientRef);
+    const clientRef = attempt.current.ref;
+    const payload = { ...body, clientRef, clientCreatedAt };
     /** التقاط السند في الصفّ وطباعته برقم مؤقّت — وفواتيره من توزيع المندوب إن وُجد */
     const queueOffline = async () => {
       const localNumber = 'محلي-' + clientRef.slice(0, 8).toUpperCase();
@@ -2212,6 +2225,8 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
         ...(localLinks.length && { invoices: localLinks }),
       });
     };
+    // «اشتراط تفعيل الموقع»: المقيَّد لا يُصفّ له شيء دون اتصال (القفل الكامل) — يبقى النموذج ويعيد الإصدار متصلاً
+    if (offlineOnly && strictRepNow()) { setMsg(tr(LIVE_REFUSAL_MESSAGE.OFFLINE)); setLoading(false); return; }
     if (offlineOnly) { await queueOffline(); return; }
     try {
       const res = await repApi.post('/receipts', payload);
@@ -2223,8 +2238,8 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
         invoices: receiptInvoicesFrom(rcp.invoiceItems),
       });
     } catch (err: any) {
-      // انقطاع الشبكة ⇒ التقاط السند في الصفّ وطباعته برقم مؤقّت
-      if (isNetworkError(err)) {
+      // انقطاع الشبكة ⇒ التقاط السند في الصفّ وطباعته برقم مؤقّت — إلا المقيَّد (القفل الكامل): يعيد الإصدار متصلاً بالمفتاح نفسه
+      if (isNetworkError(err) && !strictRepNow()) {
         await queueOffline();
       } else { setMsg(err?.response?.data?.message || tr('تعذر إصدار السند حاول مجددا')); setLoading(false); }
     }
@@ -2408,6 +2423,8 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
   const [buyerErrors, setBuyerErrors] = useState<Partial<Record<BuyerField, string>>>({});
   const buyerView = { ...buyer, taxNumber: form.taxNumber, commercialReg: form.commercialReg, businessName: form.businessName, city: form.city, district: form.district };
   const [loading, setLoading] = useState(false);
+  // مفتاح المحاولة: إعادة الضغط بالمحتوى نفسه تحمل clientRef نفسه (attemptClientRef) — لا مستند ثانٍ إن ضاع ردّ الأول
+  const attempt = useRef<{ key: string; ref: string } | null>(null);
   const [msg, setMsg] = useState('');
   // الموقع على الخريطة (اختياري): التقاط GPS مباشر أو لصق رابط خرائط Google
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(prefill?.lat != null && prefill?.lng != null ? { lat: prefill.lat, lng: prefill.lng } : null);
@@ -2439,9 +2456,8 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
       if (!check.ok) { setMsg(Object.values(check.errors)[0] || tr('صحح بيانات الفوترة الإلكترونية')); return; }
     }
     setLoading(true); setMsg('');
-    const clientRef = newClientRef();
     const clientCreatedAt = new Date().toISOString();
-    const payload = {
+    const body = {
       name: form.name.trim(),
       businessName: form.businessName.trim() || undefined,
       phone: form.phone.trim(),
@@ -2458,18 +2474,21 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
       // تعرض المال لا تكتبه، ويبقى للخادم افتراضُه هو
       creditLimit: accountingOn && form.creditLimit ? Number(form.creditLimit) : undefined,
       paymentDays: accountingOn && form.paymentDays ? Number(form.paymentDays) : undefined,
-      clientRef, clientCreatedAt,
       ...(outletType && { outletType }),
       ...(prefill?.aiPlaceId && { aiPlaceId: prefill.aiPlaceId }),
       ...(zatcaCollect ? buyerCreatePayload(buyer) : {}),
     };
+    attempt.current = attemptClientRef(attempt.current, body, newClientRef);
+    const clientRef = attempt.current.ref;
+    const payload = { ...body, clientRef, clientCreatedAt };
     try {
       const res = await repApi.post('/customers', payload);
       onCreated(res.data.data);
     } catch (err: any) {
       // انقطاع الشبكة ⇒ نلتقط العميل في الصفّ ونتابع بعميل محلي مؤقّت (يحمل clientRef).
       // فاتورته/سنده لاحقاً يشيران إليه بـ customerClientRef فيحلّه الخادم عند الرفع.
-      if (isNetworkError(err)) {
+      // إلا المقيَّد بـ«اشتراط تفعيل الموقع» (القفل الكامل): لا عميل دون اتصال — يعيد الإضافة متصلاً بالمفتاح نفسه
+      if (isNetworkError(err) && !strictRepNow()) {
         await outboxAdd({ clientRef, repId: currentRepId(), kind: 'customer', payload, status: 'queued', clientCreatedAt });
         onCreated({ ...payload, id: 'local-' + clientRef, clientRef, _offline: true, balance: 0, creditLimit: payload.creditLimit ?? 0, status: 'ACTIVE' });
       } else {
@@ -3118,21 +3137,31 @@ function OutboxPanel({ onClose, onSync, syncing }: { onClose: () => void; onSync
  * فحارسٌ في الداخل يسرّب الكشف قبل أن يُغلق الباب.
  */
 /**
- * حاجز «اشتراط تفعيل الموقع»: طبقةٌ فوق التطبيق كله (z-[60]) لا بديلٌ عنه — ما تحتها يبقى بحالته ولا يُلمس، فلا
- * إجراء ولا زيارة ولا فتح عميل ولا بصمة حتى يُفعَّل الموقع.
+ * حاجز «اشتراط تفعيل الموقع» — القفل الكامل: طبقةٌ فوق التطبيق كله (z-[1300]: فوق ماسح الباركود z-70 وعارض الصور z-1200 وقائمة
+ * اللغة z-90 — لا شيء يعلوه) لا بديلٌ عنه — ما تحتها يبقى بحالته ولا يُلمس، فلا
+ * إجراء ولا تنقّل ولا نافذة ولا مستند ولا زيارة ولا ملف عميل حتى يكون الموقع مفعّلاً ومحدَّداً بدقّة وهو متصل وظاهرٌ على الخريطة.
+ * يقول أيّ شرطٍ سقط بالضبط (liveGate.ts)، ويُعاد الفحص وحده كل ٣٠ث و«أعد المحاولة» للفور.
  */
-function LocationOffGate({ onRetry }: { onRetry: () => Promise<boolean> }) {
+const GATE_TEXT: Record<LiveBlock, { title: string; body: string }> = {
+  off: { title: 'الموقع مطفأ', body: 'فعل الموقع في جوالك واسمح للتطبيق باستعماله ثم اضغط اعد المحاولة' },
+  locating: { title: 'جارٍ تحديد موقعك بدقة…', body: 'انتظر حتى يحدد جوالك موقعك بدقة — اقترب من نافذة او مكان مفتوح وتأكد ان الموقع الدقيق مفعل للتطبيق' },
+  offline: { title: 'لا يوجد اتصال بالإنترنت', body: 'اتصل بالإنترنت ليصل موقعك إلى الخريطة ثم اضغط اعد المحاولة' },
+  notOnMap: { title: 'لم يظهر موقعك على الخريطة بعد', body: 'ننتظر وصول موقعك إلى الخادم ليظهر على الخريطة — اضغط اعد المحاولة' },
+};
+function LocationOffGate({ block, onRetry }: { block: LiveBlock; onRetry: () => Promise<boolean> }) {
   const tr = useTr();
   const [busy, setBusy] = useState(false);
   const retry = async () => { setBusy(true); try { await onRetry(); } finally { setBusy(false); } };
+  const text = GATE_TEXT[block];
+  const waiting = block === 'locating' || block === 'notOnMap';
   return (
-    <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center px-8 text-center gap-4 bg-[#FAF7F0]" role="alertdialog" aria-modal="true">
-      <div className="w-16 h-16 rounded-2xl bg-red-50 border border-red-200 flex items-center justify-center">
-        <MapPinOff size={28} className="text-red-600" />
+    <div className="absolute inset-0 z-[1300] flex flex-col items-center justify-center px-8 text-center gap-4 bg-[#FAF7F0]" role="alertdialog" aria-modal="true" data-block={block}>
+      <div className={`w-16 h-16 rounded-2xl flex items-center justify-center border ${waiting ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'}`}>
+        {waiting ? <MapPin size={28} className="text-amber-600 animate-pulse" /> : <MapPinOff size={28} className="text-red-600" />}
       </div>
-      <p className="font-bold text-[#1F1A13]">{tr('الموقع مطفأ')}</p>
-      <p className="text-sm text-[#6E6557] leading-relaxed">{tr('فعل الموقع في جوالك واسمح للتطبيق باستعماله ثم اضغط اعد المحاولة')}</p>
-      <p className="text-xs text-[#9A8F7E] leading-relaxed">{tr('لا يمكن تسجيل الحضور ولا الزيارة ولا فتح العملاء ولا اصدار المستندات والموقع مطفأ')}</p>
+      <p className="font-bold text-[#1F1A13]">{tr(text.title)}</p>
+      <p className="text-sm text-[#6E6557] leading-relaxed">{tr(text.body)}</p>
+      <p className="text-xs text-[#9A8F7E] leading-relaxed">{tr('لا يمكنك فعل اي شيء في التطبيق حتى يكون موقعك مفعلا ومحددا بدقة وانت متصل وظاهر على الخريطة')}</p>
       <button onClick={retry} disabled={busy}
         className="mt-2 px-5 py-2.5 rounded-xl bg-[#E15A30] text-white font-semibold text-sm disabled:opacity-60">
         {busy ? tr('جار تحديد موقعك') : tr('اعد المحاولة')}
@@ -3197,10 +3226,10 @@ export default function RepApp() {
   const [aiPrefill, setAiPrefill] = useState<AiAddPrefill | null>(null);
   // «البيع داخل نطاق العميل»: عَلَمٌ تقييديّ يُقرأ بـ=== true — غيابه يعني غير مقيَّد
   const proximityOn = user?.requireCustomerProximity === true;
-  // «اشتراط تفعيل الموقع»: تقييديّ يُقرأ بـ=== true — والموقع مطفأ تُغطّى الشاشة كلها بحاجز (لا تُستبدل، فلا يضيع ما
-  // يكتبه المندوب إن انطفأ الموقع لحظة)
+  // «اشتراط تفعيل الموقع»: تقييديّ يُقرأ بـ=== true — والقفل الكامل (liveGate.ts): ما لم يكن الموقع مفعّلاً ومحدَّداً بدقّة وهو
+  // متصل وظاهرٌ على الخريطة تُغطّى الشاشة كلها بحاجز (لا تُستبدل، فلا يضيع ما يكتبه المندوب إن انطفأ الموقع لحظة)
   const locationRequired = user?.requireLocationOn === true;
-  const { status: locationStatus, check: checkLocation } = useLocationGate(!!token && locationRequired);
+  const { ok: liveOk, block: liveBlock, check: checkLocation } = useLocationGate(!!token && locationRequired);
   const [geoVerdict, setGeoVerdict] = useState<GeoVerdict | null>(null);
   const [geoBusy, setGeoBusy] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -3212,7 +3241,11 @@ export default function RepApp() {
     if (locationRequired && (modal !== null || docResult !== null || screen !== 'home')) void checkLocation();
   }, [locationRequired, modal, docResult, screen, checkLocation]);
   // تحت الحاجز لا يعمل زرّ الرجوع (أندرويد) ولا سحبة الحافة: كانا يغلقان ملف العميل ويرفعان الزيارة والموقع مطفأ
-  const gateShown = !!token && !!user && locationRequired && locationStatus === 'off';
+  const gateShown = !!token && !!user && locationRequired && !liveOk;
+  // تحت الحاجز لا حقلَ مُركَّزاً: لوحة المفاتيح المفتوحة كانت تكتب في نموذجٍ مغطّى و«إدخال» يُرسله
+  useEffect(() => {
+    if (gateShown && document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  }, [gateShown]);
   // القيد للزيارة يُقرأ من مرجعٍ لا من إغلاقٍ قديم: finalizeVisit تُنادى من مؤثّراتٍ لا تتجدّد مع القيد
   const strictRef = useRef(locationRequired);
   strictRef.current = locationRequired;
@@ -3277,8 +3310,9 @@ export default function RepApp() {
   }, [selectedCustomer]);
 
 
-  // تتبّع GPS — يعمل فقط عند تسجيل الدخول وتفعيل الشركة للتتبّع وموافقة المندوب
-  const trackStatus = useRepTracking(!!token && !!user);
+  // تتبّع GPS — يعمل فقط عند تسجيل الدخول وتفعيل الشركة للتتبّع وموافقة المندوب. والمقيَّد بـ«اشتراط تفعيل الموقع» مُتتبَّعٌ
+  // دائماً ولو أُطفئ التتبّع للشركة: ظهوره على الخريطة شرطُ عمله (والخادم يخزّن نقاطه رغم الإيقاف)
+  const trackStatus = useRepTracking(!!token && !!user, locationRequired);
   useHeartbeat(!!token && !!user); // نبضة حضور لحساب ساعات العمل (مستقلّة عن GPS)
 
   // ───────── مؤقّت زيارة العميل ─────────
@@ -3540,6 +3574,8 @@ export default function RepApp() {
     if (!token) return;
     void refreshUser();
   }, [token, refreshUser]);
+  // الخادم ردّ إجراءً بقفل «اشتراط تفعيل الموقع»: قيدٌ فُعّل للتوّ يصل التطبيق فوراً فيظهر الحاجز (لا بعد دقائق)
+  useEffect(() => (token ? onLiveRefused(() => { void refreshUser(); }) : undefined), [token, refreshUser]);
 
   useEffect(() => {
     if (!token) return;
@@ -3668,6 +3704,7 @@ export default function RepApp() {
     if (t) await finalizeVisit(t);
     await refClear();
     clearAiSession();
+    resetLive(); // حكم الموقع لا يرثه من يدخل بعده
     localStorage.removeItem('rep_token'); localStorage.removeItem('rep_user');
     setToken(null); setUser(null);
   };
@@ -3715,7 +3752,7 @@ export default function RepApp() {
         <div className={framed ? 'w-full h-full bg-white rounded-[36px] overflow-hidden relative flex flex-col' : 'w-full h-full bg-white overflow-hidden relative flex flex-col'}>
           {showOutbox && <OutboxPanel onClose={() => setShowOutbox(false)} onSync={syncNow} syncing={syncing} />}
           {/* «أعد المحاولة» يجدّد القيد من الخادم أولاً: مالكٌ أطفأه لمندوبٍ عالق يرفع الحاجز بلا إغلاق التطبيق */}
-          {gateShown && <LocationOffGate onRetry={async () => { await refreshUser(); return checkLocation(); }} />}
+          {gateShown && <LocationOffGate block={liveBlock ?? 'locating'} onRetry={async () => { await refreshUser(); return checkLocation(); }} />}
           {!token || !user ? (
             showLogin ? (
               <RepLogin onLogin={login} onBack={() => setShowLogin(false)} />

@@ -46,11 +46,18 @@ export function hasVisitCoords(b: { lat?: number | null; lng?: number | null }):
  * «اشتراط تفعيل الموقع» على الزيارة (أمر المالك، ٦ أكتوبر ٢٠٢٦): زيارة المندوب المقيَّد لا تُقبل أبداً بلا موقعٍ حقيقي،
  * ولا مما سُجّل دون اتصال (إعادة رفعٍ من صفّ العمل دون اتصال — X-FS-Replay: 1). التطبيق يمنعهما، وهذا حارس الخادم
  * لنسخةٍ قديمة أو طلبٍ مباشر — بلا استثناءٍ لإعادة الرفع، وقبل أي كتابة. يعيد true إن رُدّ الطلب.
+ *
+ * والقفل الكامل (middleware/repLiveLocation.ts) يسبقه: المقيَّد لا يصل هنا إلا ظاهراً على الخريطة الآن بموقعٍ دقيق. فزيارته
+ * يسجّلها هو بتوكنه وحده — لا الإدارة نيابةً عنه بإحداثياتٍ تكتبها (byRep)، وإلا سُجّلت له زيارةٌ وهو ليس هناك.
  */
 async function refuseVisitWithoutLocation(res: Response, tid: string, salesRepId: string,
-  body: { lat?: number | null; lng?: number | null }, replay: boolean): Promise<boolean> {
+  body: { lat?: number | null; lng?: number | null }, replay: boolean, byRep: boolean): Promise<boolean> {
   const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid }, select: { requireLocationOn: true } });
   if (rep?.requireLocationOn !== true) return false;
+  if (!byRep) {
+    res.status(403).json({ success: false, code: 'VISIT_REP_ONLY', message: 'زيارة المندوب المقيد باشتراط تفعيل الموقع يسجلها هو من موقعه ولا تسجل نيابة عنه' });
+    return true;
+  }
   if (!hasVisitCoords(body)) {
     res.status(409).json({ success: false, code: 'LOCATION_REQUIRED', message: 'لا تُقبل الزيارة بلا موقعك — فعّل الموقع وانتظر تحديده ثم سجّل الزيارة وأنت متصل بالإنترنت' });
     return true;
@@ -93,7 +100,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     }
     // المقيَّد بـ«اشتراط تفعيل الموقع»: لا زيارة بلا موقع ولا من صفّ العمل دون اتصال — قبل أي حلٍّ أو كتابة
     const replay = String(req.headers['x-fs-replay'] || '') === '1';
-    if (await refuseVisitWithoutLocation(res, tid, salesRepId, body, replay)) return;
+    if (await refuseVisitWithoutLocation(res, tid, salesRepId, body, replay, req.user!.role === 'SALES_REP')) return;
 
     // حلّ تبعية العميل: عميل أُنشئ أوف‑لاين (customerClientRef) يُحلّ إلى id الحقيقي
     let customerId = body.customerId;

@@ -226,6 +226,8 @@ export default function MTracking() {
         <div className="absolute top-3 z-[500] rounded-xl bg-[#1F1A13]/90 text-white text-[11px] px-3 py-2 max-w-[62%]"
           style={{ insetInlineStart: '12px' }}>
           {tr('التتبع متوقف للشركة لا تسجل مواقع جديدة')}
+          {/* «اشتراط تفعيل الموقع»: موقع المقيَّد يُسجَّل رغم الإيقاف (شرطُ عمله) — لا يُفاجأ المدير */}
+          <span className="block mt-1 text-white/70">{tr('المندوب المقيد باشتراط تفعيل الموقع يرسل موقعه دائما ولو كان التتبع متوقفا فعل التتبع لتراه على الخريطة')}</span>
         </div>
       )}
 

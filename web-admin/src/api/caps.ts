@@ -13,7 +13,13 @@ export const FS_CAPS_HEADER = 'X-FS-Caps';
 /** فواتير المرحلة الثانية: الحزمة تفهم `einvoice` في الردّ، ولا تُصدر مستنداً ضريبياً دون اتصال (D1‑i). */
 export const CAP_ZATCA2 = 'zatca2';
 
-export const FS_CAPS: readonly string[] = Object.freeze([CAP_ZATCA2]);
+/**
+ * «اشتراط تفعيل الموقع» — القفل الكامل: الحزمة ترسل نقطة موقعٍ طازجة قبل كل إجراءٍ للمندوب المقيَّد ولا تصفّ مستنداته دون اتصال
+ * (rep/liveGate.ts). حزمةٌ لا تعلنها يردّ الخادم إجراءات المقيَّد منها «حدّث التطبيق» (426، و503 لإعادة الرفع فلا يُعدم المصفوف).
+ */
+export const CAP_LIVELOC = 'liveloc';
+
+export const FS_CAPS: readonly string[] = Object.freeze([CAP_ZATCA2, CAP_LIVELOC]);
 
 /** قيمة الترويسة كما تُرسَل. */
 export const FS_CAPS_VALUE = FS_CAPS.join(',');

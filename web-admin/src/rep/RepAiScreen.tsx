@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, ChevronUp, MapPin, Navigation, RefreshCw, Sp
 import repApi from './repApi';
 import { cacheGet, cacheSet, currentRepId, newClientRef, outboxAdd } from './offlineDb';
 import { isNetworkError } from './offlineSync';
+import { strictRepNow } from './liveGate';
 import { useAiRepTr } from '../i18n/aiRepPhrases';
 import { useLang } from '../i18n/lang';
 import { useBackClose } from '../lib/useBackClose';
@@ -762,7 +763,8 @@ function ShopSheet({ item, placesConfigured, canAddCustomer, notice, onClose, on
       setSaved(tr('سُجّلت النتيجة'));
     } catch (e) {
       const status = (e as { response?: { status?: number } })?.response?.status;
-      if (isNetworkError(e) || (status != null && status >= 500)) {
+      // المقيَّد بـ«اشتراط تفعيل الموقع» (القفل الكامل) لا يُصفّ له شيء: يبقى النموذج ويعيد التسجيل وهو حيّ على الخريطة
+      if (!strictRepNow() && (isNetworkError(e) || (status != null && status >= 500))) {
         // صفّ الإرسال الرسمي: يبقى بعد الخروج ويُرفع تلقائياً (الخادم يمنع التكرار بـclientRef)
         await outboxAdd({ clientRef, repId: currentRepId(), kind: 'aiOutcome', payload: body, status: 'queued', clientCreatedAt: body.occurredAt });
         setSaved(tr('حُفظت وسترسل عند عودة الاتصال'));

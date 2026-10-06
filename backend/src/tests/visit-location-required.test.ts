@@ -155,12 +155,19 @@ test('غير المقيَّد كما كان: بلا موقع يُقبل، ومن
   assert.equal(c.body!.code, 'CUSTOMER_REF_PENDING');
 });
 
-test('الإدارة نيابةً عن مندوبٍ مقيَّد: الحارس على المندوب لا على المستخدم', async () => {
+test('الإدارة نيابةً عن مندوبٍ مقيَّد: الحارس على المندوب لا على المستخدم — ولا تُسجَّل زيارته نيابةً عنه ولو بموقع', async () => {
   reset();
-  const res = await post({ customerId: 'c1', salesRepId: 'rep1' }, { user: { role: 'ADMIN', id: 'u1', tenantId: 't1' } });
+  const admin = { role: 'ADMIN', id: 'u1', tenantId: 't1' };
   // salesRepId من الجسم الخام (req.body) كما في المسار
-  assert.equal(res.statusCode, 409);
-  assert.equal(res.body!.code, 'LOCATION_REQUIRED');
+  for (const coords of [{}, { lat: 24.71, lng: 46.67 }]) {
+    const res = await post({ customerId: 'c1', salesRepId: 'rep1', ...coords }, { user: admin });
+    assert.equal(res.statusCode, 403, JSON.stringify(coords));
+    assert.equal(res.body!.code, 'VISIT_REP_ONLY');
+  }
+  assert.equal(visits.length, 0);
+  // وغير المقيَّد نيابةً عنه كما كان
+  const ok = await post({ customerId: 'c1', salesRepId: 'rep2' }, { user: admin });
+  assert.equal(ok.statusCode, 201);
 });
 
 test('hasVisitCoords: رقمان محدودان، و(0،0) فاسد', () => {
@@ -176,7 +183,7 @@ test('حارس ثابت: الحارس بعد تحديد المندوب ونطا�
   const src = require('fs').readFileSync(path.join(SRC, 'routes', 'visits.ts'), 'utf8') as string;
   const h = src.slice(src.indexOf("router.post('/'"), src.indexOf('\n});', src.indexOf("router.post('/'")));
   const scope = h.indexOf('canAccessRep(req, tid, salesRepId)');
-  const guard = h.indexOf('if (await refuseVisitWithoutLocation(res, tid, salesRepId, body, replay)) return;');
+  const guard = h.indexOf("if (await refuseVisitWithoutLocation(res, tid, salesRepId, body, replay, req.user!.role === 'SALES_REP')) return;");
   const resolve = h.indexOf('body.customerClientRef) {');
   const write = h.indexOf('prisma.repVisit.create(');
   assert.ok(scope > 0 && guard > scope && resolve > guard && write > resolve);

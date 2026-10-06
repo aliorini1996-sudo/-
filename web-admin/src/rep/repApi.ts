@@ -2,6 +2,11 @@ import axios from 'axios';
 import { FS_CAPS_HEADER, FS_CAPS_VALUE } from '../api/caps';
 import { refClear } from './offlineDb';
 import { renewToken } from './renew';
+import {
+  LIVE_FIX_TIMEOUT_MS, emitLiveRefused, isLiveExemptRequest, isLiveRefusal, isLocalLiveRefusal, liveFixOf, liveRefusalError,
+  noteServer, notePing, pingBody, pingVerdictOf, preflightLive, strictRepNow,
+  type FreshFixResult, type LiveFix, type PingResult, type PreflightResult,
+} from './liveGate';
 
 // نسمح للطلب بوسم نفسه «خلفياً» فلا يُخرج المندوب عند فشل 401 عابر.
 // انظر التعليق على المعترِض أدناه للسبب.
@@ -21,9 +26,59 @@ const repApi = axios.create({
   headers: { 'Content-Type': 'application/json', [FS_CAPS_HEADER]: FS_CAPS_VALUE },
 });
 
-repApi.interceptors.request.use(config => {
+/** ساعة الجهاز لحظة الإرسال (ms) — بها يصحّح الخادم لحظة قراءة الموقع إلى ساعته (القفل الكامل، liveGate.ts) */
+export const DEVICE_NOW_HEADER = 'X-FS-Device-Now';
+
+/** قراءةٌ طازجة الآن — لا مخبّأة (maximumAge: 0): قراءةٌ قبل إطفاء الموقع لا تُثبت شيئاً */
+export function freshLiveFix(): Promise<FreshFixResult> {
+  return new Promise((resolve) => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) { resolve({ error: 1 }); return; }
+    navigator.geolocation.getCurrentPosition(
+      (p) => resolve({ fix: liveFixOf(p) }),
+      (e) => resolve({ error: e.code === 1 ? 1 : e.code === 2 ? 2 : 3 }),
+      { enableHighAccuracy: true, maximumAge: 0, timeout: LIVE_FIX_TIMEOUT_MS },
+    );
+  });
+}
+
+/** نقطة الحاجز: POST /tracking/ping بقراءةٍ واحدة، وحكم الخادم «حيّ الآن» من ردّها */
+export async function sendLivePing(fix: LiveFix): Promise<PingResult> {
+  try {
+    // background: فشلها العابر بـ401 لا يُخرج المندوب
+    const res = await repApi.post('/tracking/ping', pingBody(fix), { background: true });
+    return pingVerdictOf(res.data);
+  } catch (err) {
+    const status = (err as { response?: { status?: number } })?.response?.status;
+    return status == null ? 'network' : { ok: false, reason: `HTTP_${status}` };
+  }
+}
+
+let ensuring: Promise<PreflightResult> | null = null;
+/**
+ * الفحص المسبق للمقيَّد (preflightLive): متصل وقراءةٌ طازجة دقيقة ونقطةٌ يقبلها الخادم حيّةً — طلباتٌ متزامنة تنتظر الفحص نفسه.
+ * يُنادى قبل كل طلبٍ يغيّر بياناً، وقبل بدء الزيارة والبصمة لأخذ القراءة الحيّة نفسها.
+ */
+export function ensureLive(): Promise<PreflightResult> {
+  if (ensuring) return ensuring;
+  ensuring = preflightLive({
+    now: () => Date.now(),
+    online: () => typeof navigator === 'undefined' || navigator.onLine !== false,
+    freshFix: freshLiveFix,
+    sendPing: sendLivePing,
+  }).finally(() => { ensuring = null; });
+  return ensuring;
+}
+
+repApi.interceptors.request.use(async config => {
   const token = localStorage.getItem('rep_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  config.headers[DEVICE_NOW_HEADER] = String(Date.now());
+  // «اشتراط تفعيل الموقع» — القفل الكامل: طلبٌ يغيّر بياناً من المقيَّد لا يُرسل إلا وهو حيّ على الخريطة الآن. يُرسل نقطةً طازجة
+  // قبله فيمرّ حارس الخادم يقيناً؛ وإن لم يكن حيّاً لا يُرسل أصلاً ويظهر الحاجز بسببه. نقطة الموقع نفسها مستثناة (لا حلقة)
+  if (token && strictRepNow() && !isLiveExemptRequest(config.method, config.url)) {
+    const r = await ensureLive();
+    if (!r.ok) throw liveRefusalError(r.reason, config);
+  }
   return config;
 });
 
@@ -43,9 +98,23 @@ repApi.interceptors.request.use(config => {
 //
 // (ويُستثنى طلب تسجيل الدخول نفسه ليُظهر رسالة الخطأ بدل إعادة التحميل.)
 repApi.interceptors.response.use(
-  r => r,
+  r => { noteServer(true); return r; },
   async err => {
+    // القفل الكامل: طلبٌ رُدّ قبل إرساله يمضي كما هو — لم يلمس الخادم فلا يقول شيئاً عن الاتصال
+    if (isLocalLiveRefusal(err)) return Promise.reject(err);
     const cfg = err.config as (typeof err.config & { _renewTried?: boolean }) | undefined;
+    // «متصل» = آخر ذهابٍ وإياب نجح: ردٌّ بأي حالة نجاح، ولا ردّ (انقطاع/مهلة) فشل
+    if (err.response) noteServer(true);
+    else if (!axios.isCancel(err)) {
+      noteServer(false);
+      // المقيَّد: انقطاعٌ في طلبٍ يغيّر بياناً لا يصير صفّاً دون اتصال في أي شاشة — يُردّ ردَّ القفل «لا اتصال» (يحمل response)
+      if (strictRepNow() && !isLiveExemptRequest(cfg?.method, cfg?.url)) return Promise.reject(liveRefusalError('OFFLINE', cfg));
+    }
+    // الخادم ردّ القفل: الحاجز يظهر بسببه حتى تُقبل نقطةٌ جديدة، والتطبيق يجدّد قيود المندوب (قيدٌ فُعّل للتوّ)
+    if (isLiveRefusal(err)) {
+      notePing({ at: Date.now(), ok: false, reason: err.response?.data?.reason });
+      emitLiveRefused();
+    }
     const isLogin = (cfg?.url as string | undefined)?.includes('/auth/login');
     const isRenew = (cfg?.url as string | undefined)?.includes('/auth/renew');
     const isBackground = cfg?.background === true;

@@ -331,6 +331,8 @@ export default function TrackingPage() {
           <div className="w-16 h-16 rounded-2xl bg-[#FBEBE2] flex items-center justify-center mx-auto mb-4"><Radio size={30} className="text-[#E15A30]" /></div>
           <h3 className="font-bold text-[#1F1A13] text-lg">{tr('التتبع متوقف حاليا')}</h3>
           <p className="text-[#6E6557] text-sm mt-2 max-w-md mx-auto">{tr('عند التفعيل يبدأ تطبيق المندوب بإرسال موقعه أثناء العمل بعد موافقته على إذن الموقع فتظهر المواقع وخطوط السير هنا')}</p>
+          {/* «اشتراط تفعيل الموقع»: موقع المقيَّد يُسجَّل رغم الإيقاف (شرطُ عمله) — لا يُفاجأ المدير */}
+          <p className="text-[#9A8F7E] text-xs mt-2 max-w-md mx-auto">{tr('المندوب المقيد باشتراط تفعيل الموقع يرسل موقعه دائما ولو كان التتبع متوقفا فعل التتبع لتراه على الخريطة')}</p>
           <button onClick={() => toggle.mutate(true)} disabled={toggle.isPending} className="btn-primary mx-auto mt-5"><Power size={16} /> {tr('تفعيل التتبع')}</button>
         </div>
       ) : (

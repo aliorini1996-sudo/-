@@ -5,7 +5,9 @@ export type TrackStatus = 'off' | 'requesting' | 'active' | 'denied' | 'unavaila
 
 // يتتبّع موقع المندوب عبر GPS (عند تفعيل الشركة للتتبّع) ويرسله دفعات للخادم.
 // قيود الويب: يعمل أثناء فتح التطبيق فقط (لا تتبّع خلفي موثوق في المتصفح).
-export function useRepTracking(active: boolean): TrackStatus {
+// forced: المندوب المقيَّد بـ«اشتراط تفعيل الموقع» — يُتتبَّع ولو أطفأت الشركة التتبّع (ظهوره على الخريطة شرطُ عمله، والخادم
+// يخزّن نقاطه رغم الإيقاف)، ولا يملك إيقافه ما دام مقيَّداً
+export function useRepTracking(active: boolean, forced = false): TrackStatus {
   const [status, setStatus] = useState<TrackStatus>('off');
   const buffer = useRef<{ lat: number; lng: number; accuracy?: number; speed?: number | null; capturedAt: string }[]>([]);
   const lastKept = useRef(0);
@@ -24,9 +26,11 @@ export function useRepTracking(active: boolean): TrackStatus {
     };
 
     const start = async () => {
-      // تتبّع فقط إن فعّلت الشركة الميزة
-      let enabled = false;
-      try { enabled = !!(await repApi.get('/tracking/settings', { background: true })).data.data.enabled; } catch { /* */ }
+      // تتبّع فقط إن فعّلت الشركة الميزة — أو كان المندوب مقيَّداً
+      let enabled = forced;
+      if (!enabled) {
+        try { enabled = !!(await repApi.get('/tracking/settings', { background: true })).data.data.enabled; } catch { /* */ }
+      }
       if (cancelled || !enabled) { setStatus('off'); return; }
       if (!('geolocation' in navigator)) { setStatus('unavailable'); return; }
 
@@ -66,7 +70,7 @@ export function useRepTracking(active: boolean): TrackStatus {
       document.removeEventListener('visibilitychange', onHide);
       flush();
     };
-  }, [active]);
+  }, [active, forced]);
 
   return status;
 }

@@ -12,6 +12,8 @@
  * localStorage كمؤقّت الزيارة (visitTimer.ts): ينجو من إعادة التحميل، والمنطق صرفٌ يُختبر بمخزونٍ وهميّ.
  */
 
+import { isLiveRefusal } from './liveGate';
+
 const KEY = 'rep_visits_awaiting_net';
 
 export interface PendingVisit {
@@ -102,8 +104,8 @@ export function orphanFate(v: PendingVisit, strict: boolean): 'outbox' | 'waitin
   return coord(v.payload.lat) && coord(v.payload.lng) && !(v.payload.lat === 0 && v.payload.lng === 0) ? 'waiting' : 'failed';
 }
 
-/** نتيجة محاولة رفعٍ حيّة: نجح، أو خطأ بحالته ورمزه (لا حالة = انقطاع) */
-export type PostResult = { ok: true } | { ok: false; status?: number; code?: string; message?: string };
+/** نتيجة محاولة رفعٍ حيّة: نجح، أو خطأ بحالته ورمزه (لا حالة = انقطاع)؛ live = ردّ قفل «اشتراط تفعيل الموقع» (ليس حيّاً الآن) */
+export type PostResult = { ok: true } | { ok: false; status?: number; code?: string; message?: string; live?: boolean };
 
 /**
  * done: سُجّلت فتُزال. keep: تبقى تنتظر — انقطاع، أو خطأ خادم مؤقّت، أو جلسة (401)، أو عميلها في صفّ الجهاز لم يُرفع
@@ -112,6 +114,8 @@ export type PostResult = { ok: true } | { ok: false; status?: number; code?: str
 export type RetryOutcome = 'done' | 'keep' | 'failed';
 export function pendingRetryOutcome(r: PostResult): RetryOutcome {
   if (r.ok) return 'done';
+  // القفل الكامل: «لست حيّاً على الخريطة الآن» ليس رفضاً للزيارة — تنتظر حتى يعود حيّاً فتُرفع (غير LOCATION_REQUIRED بلا موقع)
+  if (r.live) return 'keep';
   if (r.status == null || r.status >= 500 || r.status === 401 || r.status === 408 || r.status === 429) return 'keep';
   if (r.code === 'CUSTOMER_REF_PENDING') return 'keep';
   return 'failed';
@@ -120,7 +124,7 @@ export function pendingRetryOutcome(r: PostResult): RetryOutcome {
 /** من خطأ axios إلى PostResult */
 export function postResultOf(err: unknown): PostResult {
   const resp = (err as { response?: { status?: number; data?: { code?: string; message?: string } } })?.response;
-  return { ok: false, status: resp?.status, code: resp?.data?.code, message: resp?.data?.message };
+  return { ok: false, status: resp?.status, code: resp?.data?.code, message: resp?.data?.message, ...(isLiveRefusal(err) ? { live: true } : {}) };
 }
 
 let running = false;
@@ -148,8 +152,8 @@ export async function retryPendingVisits(post: (payload: Record<string, unknown>
         continue;
       }
       out.kept++;
-      // انقطاعٌ أو خطأ خادم: لا جدوى من البقية الآن
-      if (!r.ok && (r.status == null || r.status >= 500)) { out.kept += waiting.length - i - 1; break; }
+      // انقطاعٌ أو خطأ خادم أو ليس حيّاً على الخريطة: لا جدوى من البقية الآن
+      if (!r.ok && (r.status == null || r.status >= 500 || r.live)) { out.kept += waiting.length - i - 1; break; }
     }
   } finally {
     running = false;

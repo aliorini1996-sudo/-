@@ -1,85 +1,125 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  LIVE_KEEPALIVE_MS, LIVE_TICK_MS, PING_REUSE_MS, fixUsable, liveDecision, liveFixOf, liveSnapshot, noteFix, noteGeoError,
+  notePing, noteServer, resetLive, subscribeLive, updateLive, type LiveBlock, type LiveDecision,
+} from './liveGate';
+import { ensureLive, freshLiveFix, sendLivePing } from './repApi';
+import type { GeoFix } from './visitLocation';
 
 /**
- * «اشتراط تفعيل الموقع» (طلب المالك، ٤ أكتوبر ٢٠٢٦): والموقع مطفأ في جوال المندوب المقيَّد لا يقبل التطبيق منه
- * إجراءً ولا زيارةً ولا فتح ملف عميل ولا بصمة حضور. يحجب التطبيقُ شاشته كلها حتى يُفعَّل الموقع.
+ * حاجز «اشتراط تفعيل الموقع» — القفل الكامل (أمر المالك، ٦ أكتوبر ٢٠٢٦؛ الشروط والحكم في liveGate.ts): التطبيق كله محجوب عن
+ * المندوب المقيَّد ما لم يكن الموقع مفعّلاً ومحدَّداً بدقّة وهو متصل وظاهرٌ على الخريطة. «جارٍ الفحص» يحجب أيضاً، والمهلة
+ * تحجب، ولا قراءة مخبّأة: لحظة القراءة نفسها تُقاس.
  *
- * متى يكون «مطفأ»؟ رفض الإذن (1) وحده حكمٌ قاطع: آيفون وكروم يرسلان به إطفاء خدمة الموقع نفسها. أما «تعذّر الموقع»
- * (2) فيصل على آيفون والموقع مفعّل حين لا إشارة الآن (مستودع، قبو، بلا تغطية)، فلا يحجب إلا إذا تكرّر ثلاث مرات
- * متتالية بلا قراءة ناجحة بينها. وانتهاء المهلة (3) لا يحجب أبداً — حجبُ المندوب بإشارةٍ ضعيفة يوقف عمله ظلماً.
+ * يراقب الموقع بـwatchPosition، ويرسل نقطةً كل ٣٠ث وهو ظاهر (ويجدّد القراءة إن سكنت المراقبة على جهازٍ ثابت)، وعند العودة
+ * إلى التطبيق وعودة الاتصال وتغيّر الإذن، و`check()` لفحصٍ فوري (فتح شاشة/إجراء، «أعد المحاولة») يعيد هل يُسمح بالعمل.
  */
-export const LOCATION_RECHECK_MS = 60_000;
-export const UNAVAILABLE_STREAK_TO_BLOCK = 3;
+export function useLocationGate(enabled: boolean): { ok: boolean; block: LiveBlock | null; check: () => Promise<boolean> } {
+  // الحكم حالةٌ لا تتغيّر إلا بتغيّره — فلا يُعاد رسم التطبيق كله كل ٥ث بلا داعٍ
+  const [decision, setDecision] = useState<LiveDecision>({ ok: false, block: 'locating' });
+  const recompute = useCallback(() => {
+    const d = liveDecision(liveSnapshot(), Date.now());
+    setDecision((prev) => (prev.ok === d.ok && (prev as { block?: LiveBlock }).block === (d as { block?: LiveBlock }).block ? prev : d));
+  }, []);
+  const busy = useRef<Promise<void> | null>(null);
+  const watchRef = useRef<number | null>(null);
 
-export type LocationGateStatus = 'checking' | 'on' | 'off';
-export interface GateState { status: LocationGateStatus; unavailableStreak: number }
-/** نتيجة فحص: قراءة ناجحة، أو رمز GeolocationPositionError (1 رفض، 2 تعذّر، 3 مهلة) */
-export type GateOutcome = 'ok' | 1 | 2 | 3;
+  const startWatch = useCallback(() => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+    if (watchRef.current !== null) navigator.geolocation.clearWatch(watchRef.current);
+    // بلا مهلة: المهلة في المراقبة تُطلق خطأً كلما سكن جهازٌ ثابت؛ والنقطة الدورية تقيس القراءة بنفسها
+    watchRef.current = navigator.geolocation.watchPosition(
+      (p) => noteFix(liveFixOf(p)),
+      (e) => noteGeoError(e.code),
+      { enableHighAccuracy: true, maximumAge: 0 },
+    );
+  }, []);
 
-/** الحالة بعد فحص — صرفة. المحجوب لا يُفتح إلا بقراءةٍ ناجحة، والقائم لا يُحجب بمهلة ولا بتعذّرٍ عابر */
-export function reduceGate(s: GateState, outcome: GateOutcome): GateState {
-  if (outcome === 'ok') return { status: 'on', unavailableStreak: 0 };
-  if (outcome === 1) return { status: 'off', unavailableStreak: 0 };
-  const keep: LocationGateStatus = s.status === 'checking' ? 'on' : s.status;
-  if (outcome === 2) {
-    const streak = s.unavailableStreak + 1;
-    return { status: streak >= UNAVAILABLE_STREAK_TO_BLOCK ? 'off' : keep, unavailableStreak: streak };
-  }
-  return { status: keep, unavailableStreak: s.unavailableStreak };
-}
+  /** نقطة الحاجز: قراءةٌ ≤ ٣٠ث (وإلا طازجة الآن)، ثم نقطةٌ للخادم وحكمه — إلا إن قبل نقطةً قبل أقلّ من ١٥ث (force يتخطّاه) */
+  const keepAlive = useCallback(async (force: boolean): Promise<void> => {
+    updateLive({ online: typeof navigator === 'undefined' || navigator.onLine !== false, geoSupported: typeof navigator !== 'undefined' && !!navigator.geolocation });
+    const s = liveSnapshot();
+    if (!s.geoSupported) return;
+    // رفض الإذن أو تعذّر الموقع يُميت المراقبة على بعض الأجهزة: تُستأنف مع كل محاولة
+    if (s.geoError !== 0) startWatch();
+    let fix = s.fix;
+    if (!fixUsable(fix, Date.now(), LIVE_KEEPALIVE_MS)) {
+      const r = await freshLiveFix();
+      if ('error' in r) { noteGeoError(r.error); return; }
+      noteFix(r.fix);
+      fix = r.fix;
+    }
+    if (!fixUsable(fix, Date.now(), LIVE_KEEPALIVE_MS) || liveSnapshot().online === false) return;
+    const last = liveSnapshot().ping;
+    if (!force && last?.ok && Date.now() - last.at <= PING_REUSE_MS) return;
+    const r = await sendLivePing(fix);
+    if (r === 'network') { noteServer(false); return; }
+    noteServer(true);
+    notePing({ at: Date.now(), ok: r.ok, reason: r.reason, fixAt: fix.at });
+  }, [startWatch]);
 
-const read = (opts: PositionOptions): Promise<GateOutcome> => new Promise((resolve) => {
-  navigator.geolocation.getCurrentPosition(() => resolve('ok'), (e) => resolve(e.code === 1 || e.code === 2 ? e.code : 3), opts);
-});
+  const run = useCallback(async (force: boolean): Promise<boolean> => {
+    if (!enabled) return true;
+    if (!busy.current) busy.current = keepAlive(force).finally(() => { busy.current = null; });
+    await busy.current;
+    recompute();
+    return liveDecision(liveSnapshot(), Date.now()).ok;
+  }, [enabled, keepAlive, recompute]);
 
-/**
- * فحصٌ واحد: قراءة طازجة بدقّة منخفضة (المخبّأة قد تنجح والموقع مطفأ)، فإن تعذّرت أو انتهت مهلتها فمحاولةٌ ثانية
- * بالـGPS ومهلة أطول تقبل قراءةً عمرها دقيقتان — شبكة الموقع تفشل بلا اتصال والـGPS يعمل.
- */
-async function probe(): Promise<GateOutcome> {
-  const first = await read({ enableHighAccuracy: false, timeout: 15_000, maximumAge: 0 });
-  if (first === 'ok' || first === 1) return first;
-  return read({ enableHighAccuracy: true, timeout: 20_000, maximumAge: 120_000 });
-}
-
-/**
- * يفحص عند التفعيل، وعند العودة إلى التطبيق، وكل دقيقة وهو ظاهر، وحين يتغيّر الإذن — و`check()` لفحصٍ فوري قبل
- * إجراء، يعيد هل يُسمح بالعمل.
- */
-export function useLocationGate(enabled: boolean): { status: LocationGateStatus; check: () => Promise<boolean> } {
-  const initial: GateState = { status: enabled ? 'checking' : 'on', unavailableStreak: 0 };
-  const [state, setState] = useState<GateState>(initial);
-  const ref = useRef<GateState>(initial);
-  const apply = (next: GateState) => { ref.current = next; setState(next); };
-
-  const check = useCallback(async (): Promise<boolean> => {
-    if (!enabled) { apply({ status: 'on', unavailableStreak: 0 }); return true; }
-    if (typeof navigator === 'undefined' || !('geolocation' in navigator)) { apply({ status: 'off', unavailableStreak: 0 }); return false; }
-    const next = reduceGate(ref.current, await probe());
-    apply(next);
-    return next.status !== 'off';
-  }, [enabled]);
+  // فتح شاشة أو إجراء و«أعد المحاولة»: نقطةٌ جديدة ما لم يقبل الخادم واحدةً قبل أقلّ من ١٥ث (لا نقطة لكل نقرة)
+  const check = useCallback(() => run(false), [run]);
 
   useEffect(() => {
-    apply({ status: enabled ? 'checking' : 'on', unavailableStreak: 0 });
-    if (!enabled) return;
+    // مطفأ (خرج المندوب أو رُفع القيد): يعود الحكم «محجوباً» فلا يرث مقيَّدٌ يدخل بعده «حيّاً» من سابقه ولو لإطار
+    if (!enabled) { setDecision({ ok: false, block: 'locating' }); return; }
     let alive = true;
-    void check();
-    const onVisible = () => { if (!document.hidden) void check(); };
+    resetLive({ online: typeof navigator === 'undefined' || navigator.onLine !== false });
+    const unsubscribe = subscribeLive(recompute);
+    recompute();
+    startWatch();
+    void run(true);
+    const onVisible = () => { if (!document.hidden) void run(false); };
+    const onOnline = () => { updateLive({ online: true }); void run(true); };
+    const onOffline = () => updateLive({ online: false });
     document.addEventListener('visibilitychange', onVisible);
-    const iv = window.setInterval(() => { if (!document.hidden) void check(); }, LOCATION_RECHECK_MS);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    // القراءة تشيخ دون حدث: يُعاد الحكم كل ٥ث، والنقطة كل ٣٠ث وهو ظاهر
+    const tick = window.setInterval(recompute, LIVE_TICK_MS);
+    const keep = window.setInterval(() => { if (!document.hidden) void run(true); }, LIVE_KEEPALIVE_MS);
     let perm: PermissionStatus | null = null;
-    const onPermChange = () => { void check(); };
+    const onPermChange = () => { if (perm) updateLive({ permission: perm.state }); void run(true); };
     navigator.permissions?.query({ name: 'geolocation' as PermissionName })
-      .then((p) => { if (!alive) return; perm = p; p.addEventListener('change', onPermChange); })
-      .catch(() => { /* متصفحٌ بلا Permissions API: يكفي الفحص الدوري */ });
+      .then((p) => { if (!alive) return; perm = p; updateLive({ permission: p.state }); p.addEventListener('change', onPermChange); })
+      .catch(() => { /* متصفحٌ بلا Permissions API: تكفي المراقبة والنقطة الدورية */ });
     return () => {
       alive = false;
+      unsubscribe();
       document.removeEventListener('visibilitychange', onVisible);
-      window.clearInterval(iv);
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+      window.clearInterval(tick);
+      window.clearInterval(keep);
       perm?.removeEventListener('change', onPermChange);
+      if (watchRef.current !== null && typeof navigator !== 'undefined' && navigator.geolocation) navigator.geolocation.clearWatch(watchRef.current);
+      watchRef.current = null;
     };
-  }, [enabled, check]);
+  }, [enabled, run, startWatch, recompute]);
 
-  return { status: state.status, check };
+  if (!enabled) return { ok: true, block: null, check };
+  return { ok: decision.ok, block: decision.ok ? null : decision.block, check };
+}
+
+/**
+ * القراءة الحيّة للمقيَّد — بعد الفحص المسبق نفسه (طازجة ≤ ١٠ث، دقيقة، وقبلها الخادم حيّةً): لبدء الزيارة وحفظ الملاحظة
+ * والبصمة. null = ليس حيّاً الآن (والحاجز يظهر بسببه).
+ */
+export async function strictLiveFix(): Promise<GeoFix | null> {
+  const r = await ensureLive();
+  if (!r.ok) return null;
+  return {
+    lat: r.fix.lat, lng: r.fix.lng,
+    ...(r.fix.accuracy != null ? { accuracy: Math.round(r.fix.accuracy) } : {}),
+    at: new Date(r.fix.at).toISOString(),
+  };
 }

@@ -247,7 +247,9 @@ test('حارس ثابت: الملاحظة/الصور للمقيَّد — لا �
   assert.match(lv, /const gate = visitGate\(strict, navigator\.onLine, !!fix\);\s*if \(gate !== 'ok'\) \{ setMsg\(/);
   assert.match(lv, /const f = visitFailure\('note', strict, isNetworkError\(err\)\);\s*if \(f === 'outbox'\) \{/);
   assert.match(lv, /disabled=\{busy \|\| strictGate !== 'ok'\}/);
-  assert.match(lv, /\.\.\.fixCoords\(fix\),/);
+  // المقيَّد: موقع الملاحظة قراءةٌ حيّة لحظة الحفظ (القفل الكامل)، وغيره قراءة فتح النافذة كما كانت
+  assert.match(lv, /const at = strict \? await grabLocation\(true\) : fix;/);
+  assert.match(lv, /\.\.\.fixCoords\(at\),/);
   // مفتاحٌ واحد لكل محاولات النموذج: إعادة الحفظ بعد انقطاعٍ بلغ فيه الأولُ الخادمَ لا تكرّر الزيارة
   assert.match(lv, /const clientRefRef = useRef\(newClientRef\(\)\);/);
   assert.match(lv, /const clientRef = clientRefRef\.current;/);

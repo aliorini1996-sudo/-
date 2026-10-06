@@ -8,6 +8,8 @@ import { snapToRoads, routeThrough } from '../services/mapMatch';
 import { buildRouteShape } from '../services/routeShape';
 import { heartbeatClientState } from '../services/repHeartbeat';
 import { countStopsByRep, asVisitLike } from '../services/workDay';
+import { correctCapturedAt, DEVICE_NOW_HEADER } from '../services/liveLocation';
+import { readLiveVerdict } from '../middleware/repLiveLocation';
 
 const router = Router();
 router.use(authenticate);
@@ -52,17 +54,23 @@ router.post('/ping', async (req: AuthRequest, res: Response, next: NextFunction)
     // احترام إعدادات الخصوصية: لا نخزّن إن كان التتبّع موقوفاً أو المندوب مستثنى
     const [settings, rep] = await Promise.all([
       prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { trackingEnabled: true } }),
-      prisma.salesRep.findFirst({ where: { id: repId, tenantId: tid }, select: { canBeTracked: true } }),
+      prisma.salesRep.findFirst({ where: { id: repId, tenantId: tid }, select: { canBeTracked: true, requireLocationOn: true } }),
     ]);
-    if (!settings?.trackingEnabled || rep?.canBeTracked === false) {
+    // «اشتراط تفعيل الموقع» (القفل الكامل): موقع المقيَّد يُخزَّن دائماً — ظهوره على الخريطة شرطُ عمله، فلا يُسقطه إيقاف
+    // التتبّع للشركة ولا استثناؤه (لو أُسقط لما عمل أبداً). المدير فعّل القيد له صراحةً، والتلميح في إعداداته يقول ذلك.
+    const strict = rep?.requireLocationOn === true;
+    if (!strict && (!settings?.trackingEnabled || rep?.canBeTracked === false)) {
       res.json({ success: true, data: { stored: 0, disabled: true } });
       return;
     }
 
+    // المقيَّد: لحظة القراءة بساعة الخادم (ساعة الجهاز تنحرف) ولا مستقبل — عليها يُحكم «طازجة أم قديمة»
+    const serverNow = Date.now();
     const rows = points.map(p => ({
       tenantId: tid, salesRepId: repId, lat: p.lat, lng: p.lng,
       accuracy: p.accuracy ?? null, speed: p.speed ?? null,
-      capturedAt: p.capturedAt ? new Date(p.capturedAt) : new Date(),
+      capturedAt: strict ? correctCapturedAt(p.capturedAt, req.headers[DEVICE_NOW_HEADER], serverNow)
+        : p.capturedAt ? new Date(p.capturedAt) : new Date(),
     }));
     await prisma.repLocation.createMany({ data: rows });
 
@@ -75,6 +83,11 @@ router.post('/ping', async (req: AuthRequest, res: Response, next: NextFunction)
       data: { lastLat: latest.lat, lastLng: latest.lng, lastSeenAt: new Date() },
     });
 
+    // المقيَّد: حكم الخادم نفسه الذي يحرس كل إجراء (middleware/repLiveLocation.ts) في ردّ النقطة — به يرفع التطبيق حاجزه
+    if (strict) {
+      res.json({ success: true, data: { stored: rows.length, live: await readLiveVerdict(tid, repId) } });
+      return;
+    }
     res.json({ success: true, data: { stored: rows.length } });
   } catch (err) { next(err); }
 });

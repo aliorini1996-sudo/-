@@ -11,6 +11,10 @@
 import repApi from './repApi';
 import { outboxAll, outboxUpdate, outboxDelete, OutboxDoc, currentRepId } from './offlineDb';
 import { CUTOVER_REVIEW_CODE, clearReview, reviewRecheckDue } from './outboxReview';
+import { isLiveRefusal } from './liveGate';
+
+/** حزمةٌ قديمة بلا قدرة القفل (الخادم: 426/503) — لا تصل الحزمة الحديثة، ويُبقى المستند إن وصلها */
+export const LIVE_CLIENT_UPDATE_CODE = 'LOCATION_APP_UPDATE';
 
 let syncing = false;
 type Listener = () => void;
@@ -69,6 +73,13 @@ export async function syncOutbox(): Promise<SyncResult> {
           // ليس رفض أعمال: الميزة أُطفئت أو سلسلة الاعتماد ناقصة بعد كتابة التقرير
           // على الجهاز. يبقى التقرير مصفوفاً حتى يُصلح المالك التهيئة، ولا يُعدَم
           // ولا يُعاد إرساله أبداً في حلقةٍ لا تنتهي.
+          stopped = true;
+          break;
+        }
+        if (isLiveRefusal(err) || code === LIVE_CLIENT_UPDATE_CODE) {
+          // «اشتراط تفعيل الموقع» — القفل الكامل: المندوب المقيَّد ليس حيّاً على الخريطة الآن (أو لا اتصال). ليس رفض أعمال:
+          // مستندٌ صُفّ قبل القيد (أو بحزمةٍ أقدم) يبقى مصفوفاً ظاهراً في الصندوق — لا يُعدم ولا يُوسم مرفوضاً — ويُرفع حين يعود
+          // حيّاً. والزيارة منه يردّها الخادم بعدها VISIT_NEEDS_CONNECTION نهائياً كما كانت
           stopped = true;
           break;
         }

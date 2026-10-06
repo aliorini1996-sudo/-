@@ -826,7 +826,7 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
           <MToggle label={tr(PERM_LABELS.requireLocationOn)}
             checked={perms.requireLocationOn}
             onChange={v => set('requireLocationOn', v)}
-            hint={tr('عند التفعيل لا يقبل التطبيق من المندوب اي اجراء ولا زيارة ولا فتح ملف عميل ولا بصمة حضور والموقع مطفأ في جواله')} />
+            hint={tr('عند التفعيل لا يستطيع المندوب فعل اي شيء في التطبيق — لا اجراء ولا زيارة ولا ملف عميل ولا مستند ولا بصمة — الا والموقع مفعل في جواله ومحدد بدقة وهو متصل بالإنترنت وظاهر على الخريطة، ويرسل موقعه للخريطة ولو كان التتبع متوقفا للشركة')} />
         </Group>
 
         <p className="text-[11px] text-[#9A8F7E] px-1 leading-relaxed">
