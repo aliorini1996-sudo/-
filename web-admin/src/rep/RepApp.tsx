@@ -7,7 +7,7 @@ import { previewInstallments, defaultFirstDue, MAX_INSTALLMENTS, type Installmen
 import { useBackClose } from '../lib/useBackClose';
 import { getVisitTimer, setVisitTimer, clearVisitTimer, elapsedSec, fmtElapsed, type VisitTimer } from './visitTimer';
 import { toGeoFix, isGeoFix, attachFix, fixCoords, visitGate, planFinalize, visitFailure, isFinalVisitRejection, MIN_VISIT_SEC, type GeoFix } from './visitLocation';
-import { ownPendingVisits, putPendingVisit, removePendingVisit, retryPendingVisits, pendingRetryOutcome, postResultOf, type PendingVisit } from './visitPending';
+import { ownPendingVisits, putPendingVisit, removePendingVisit, retryPendingVisits, pendingRetryOutcome, postResultOf, beginEnding, endEnding, orphanEnding, orphanFate, type PendingVisit } from './visitPending';
 import DecimalInput from '../components/DecimalInput';
 import { startRenewLoop, clearRenewRejection } from './renew';
 import { tokenTenantId } from './jwt';
@@ -1381,6 +1381,7 @@ function LogVisit({ customer, strict = false, onClose, onDone }: { customer: any
   const [done, setDone] = useState<null | 'online' | 'offline'>(null);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const clientRefRef = useRef(newClientRef());
 
   // التقاط موقع المندوب (إثبات الوصول) فور فتح النافذة — والمقيَّد بمحاولةٍ ثانية أقوى، وبـ«أعد المحاولة» إن تعذّر
   const locate = useCallback(async () => {
@@ -1418,7 +1419,8 @@ function LogVisit({ customer, strict = false, onClose, onDone }: { customer: any
     const gate = visitGate(strict, navigator.onLine, !!fix);
     if (gate !== 'ok') { setMsg(tr(gate === 'offline' ? VISIT_OFFLINE_MSG : VISIT_NOFIX_MSG)); return; }
     setBusy(true); setMsg('');
-    const clientRef = newClientRef();
+    // مفتاحٌ واحد لكل محاولات النموذج: المقيَّد يعيد الحفظ بنفسه بعد انقطاع، فإن كان الأول قد بلغ الخادم أُعيدت المسجَّلة لا زيارةٌ ثانية
+    const clientRef = clientRefRef.current;
     const clientCreatedAt = new Date().toISOString();
     // عميل أُنشئ أوف‑لاين يُشار إليه بـ customerClientRef فيحلّه الخادم
     const custRef = customer._offline ? { customerClientRef: customer.clientRef } : { customerId: customer.id };
@@ -3297,6 +3299,20 @@ export default function RepApp() {
   const refreshPendingVisits = useCallback(() => setPendingVisits(ownPendingVisits(currentRepId())), []);
   // تُعاد حيّةً (لا من صفّ العمل دون اتصال) — وعميلٌ أُنشئ دون اتصال يُرفع قبل زيارته فيحلّه الخادم
   const flushPendingVisits = useCallback(async () => {
+    // يتامى «تُنهى الآن» (أُغلق التطبيق أثناء قراءة الانتهاء أو رفعها) تُحسم أولاً — ولو دون اتصال — فلا تضيع بلا أثر
+    const orphans = orphanEnding(currentRepId());
+    for (const v of orphans) {
+      const fate = orphanFate(v, strictRef.current);
+      if (fate === 'outbox') {
+        try {
+          await outboxAdd({ clientRef: v.clientRef, repId: v.repId ?? currentRepId(), kind: 'visit', payload: v.payload, status: 'queued', clientCreatedAt: v.endedAt });
+          removePendingVisit(v.clientRef);
+        } catch { /* يبقى يتيماً ويُعاد في المرّة التالية */ }
+      } else {
+        putPendingVisit(fate === 'waiting' ? { ...v, status: 'waiting' } : { ...v, status: 'failed', error: 'لم تسجل الزيارة لتعذر تحديد موقعك' });
+      }
+    }
+    if (orphans.length) refreshPendingVisits();
     const waiting = ownPendingVisits(currentRepId()).filter(v => v.status === 'waiting');
     if (!waiting.length || !navigator.onLine) return;
     if (waiting.some(v => v.payload.customerClientRef)) await syncOutbox();
@@ -3317,32 +3333,41 @@ export default function RepApp() {
     const clientDurationSec = elapsedSec(t.startedAt);
     if (clientDurationSec < MIN_VISIT_SEC) return; // ضغطة خاطئة — لا زيارة مدّتها صفر
     const strict = strictRef.current;
-    const fix = isGeoFix(t.fix) ? t.fix : await grabLocation(strict);
-    const plan = planFinalize(clientDurationSec, !!fix, strict);
     const clientRef = newClientRef();
+    const repId = currentRepId();
     const custRef = t.offline ? { customerClientRef: t.customerClientRef } : { customerId: t.customerId };
-    const payload: Record<string, unknown> = { ...custRef, ...fixCoords(fix), startedAt: t.startedAt, endedAt, clientDurationSec, clientRef, createdAt: endedAt };
-    const held = { clientRef, repId: currentRepId(), customerName: t.customerName, payload, endedAt };
-    if (plan === 'drop') {
-      // المقيَّد بلا قراءة (مؤقّتٌ من نسخةٍ أقدم أو قيدٌ فُعّل أثناء الزيارة): لا تُرسل — الخادم يردّها — ويُقال لماذا
-      putPendingVisit({ ...held, status: 'failed', error: 'لم تسجل الزيارة لتعذر تحديد موقعك' });
-      refreshPendingVisits();
-      return;
-    }
+    const base: Record<string, unknown> = { ...custRef, startedAt: t.startedAt, endedAt, clientDurationSec, clientRef, createdAt: endedAt };
+    // المؤقّت مُسح والقراءة قد تطول (٨ث، والمقيَّد حتى ٢٨ث): الزيارة محفوظةٌ على الجهاز «تُنهى الآن» حتى تستقرّ، فإغلاق
+    // التطبيق أثناءها لا يُضيعها — يتيمتها تُحسم عند الإقلاع (orphanEnding)
+    beginEnding({ clientRef, repId, customerName: t.customerName, payload: { ...base, ...fixCoords(t.fix) }, endedAt });
     try {
-      await repApi.post('/visits', payload);
-    } catch (err) {
-      const f = visitFailure('timer', strict, isNetworkError(err));
-      if (f === 'outbox') {
-        await outboxAdd({ clientRef, repId: currentRepId(), kind: 'visit', payload, status: 'queued', clientCreatedAt: endedAt });
-      } else if (f === 'held') {
-        // المقيَّد: ما ينتظر (انقطاع، خطأ خادم، جلسة، عميلٌ لم يُرفع) «بانتظار الاتصال» يُعاد حيّاً، والرفض «لم تُسجَّل» بسببه
-        const r = postResultOf(err);
-        putPendingVisit(pendingRetryOutcome(r) === 'keep' ? { ...held, status: 'waiting' }
-          : { ...held, status: 'failed', error: (!r.ok && r.message) || 'تعذر حفظ الزيارة' });
-        refreshPendingVisits();
+      const fix = isGeoFix(t.fix) ? t.fix : await grabLocation(strict);
+      const plan = planFinalize(clientDurationSec, !!fix, strict);
+      const payload: Record<string, unknown> = { ...base, ...fixCoords(fix) };
+      const held = { clientRef, repId, customerName: t.customerName, payload, endedAt };
+      if (plan === 'drop') {
+        // المقيَّد بلا قراءة (مؤقّتٌ من نسخةٍ أقدم أو قيدٌ فُعّل أثناء الزيارة): لا تُرسل — الخادم يردّها — ويُقال لماذا
+        putPendingVisit({ ...held, status: 'failed', error: 'لم تسجل الزيارة لتعذر تحديد موقعك' });
+        return;
       }
-      // ignore: خطأ غير شبكي لغير المقيَّد (عزل عميل مثلاً) يُتجاهَل بصمت — لا نكسر تجربة المندوب
+      if (fix && !isGeoFix(t.fix)) beginEnding(held); // قراءة الانتهاء تُحفظ قبل الرفع
+      try {
+        await repApi.post('/visits', payload);
+      } catch (err) {
+        const f = visitFailure('timer', strict, isNetworkError(err));
+        if (f === 'outbox') {
+          await outboxAdd({ clientRef, repId, kind: 'visit', payload, status: 'queued', clientCreatedAt: endedAt });
+        } else if (f === 'held') {
+          // المقيَّد: ما ينتظر (انقطاع، خطأ خادم، جلسة، عميلٌ لم يُرفع) «بانتظار الاتصال» يُعاد حيّاً، والرفض «لم تُسجَّل» بسببه
+          const r = postResultOf(err);
+          putPendingVisit(pendingRetryOutcome(r) === 'keep' ? { ...held, status: 'waiting' }
+            : { ...held, status: 'failed', error: (!r.ok && r.message) || 'تعذر حفظ الزيارة' });
+        }
+        // ignore: خطأ غير شبكي لغير المقيَّد (عزل عميل مثلاً) يُتجاهَل بصمت — لا نكسر تجربة المندوب
+      }
+    } finally {
+      endEnding(clientRef);
+      refreshPendingVisits();
     }
   };
 

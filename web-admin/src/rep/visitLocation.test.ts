@@ -25,6 +25,7 @@ const {
 const { getVisitTimer, setVisitTimer } = await import('./visitTimer');
 const {
   getPendingVisits, putPendingVisit, removePendingVisit, ownPendingVisits, pendingRetryOutcome, postResultOf, retryPendingVisits,
+  beginEnding, endEnding, orphanEnding, orphanFate,
 } = await import('./visitPending');
 const { PHRASES } = await import('../i18n/strings');
 
@@ -168,6 +169,42 @@ test('إعادة الرفع: حيّةً واحدةً واحدة — المسجَ
   assert.deepEqual(by['3'].payload, { customerId: 'c1', lat: 24.7, lng: 46.6, clientRef: '3' });
 });
 
+test('«تُنهى الآن»: زيارة المؤقّت محفوظةٌ حتى تستقرّ — لا تُعرض ولا تُعاد ولا تُعدّ يتيمةً ما دامت الصفحة تُنهيها', () => {
+  const rec = { clientRef: 'e1', repId: 'rep1', customerName: 'بقالة', endedAt: '2026-10-06T08:10:00.000Z', payload: { customerId: 'c1', clientRef: 'e1' } };
+  beginEnding(rec);
+  assert.equal(getPendingVisits()[0].status, 'ending', 'محفوظةٌ قبل القراءة');
+  assert.deepEqual(orphanEnding('rep1'), [], 'تُنهيها هذه الصفحة: ليست يتيمة');
+  beginEnding({ ...rec, payload: { ...rec.payload, lat: 24.7, lng: 46.6 } });
+  assert.equal(getPendingVisits().length, 1, 'إعادة الحفظ بإحداثياتها تستبدل لا تكرّر');
+  endEnding('e1');
+  assert.deepEqual(getPendingVisits(), [], 'استقرّت فأُزيل سجلّها');
+  // صارت حالةً أخرى بالمفتاح نفسه (بانتظار الاتصال / لم تُسجَّل): لا يمسحها الختام
+  beginEnding(rec);
+  putPendingVisit({ ...rec, status: 'waiting' });
+  endEnding('e1');
+  assert.equal(getPendingVisits()[0].status, 'waiting');
+});
+
+test('يتيمة «تُنهى الآن» (أُغلق التطبيق أثناء القراءة/الرفع): غير المقيَّد ⇒ الصفّ، والمقيَّد بموقع ⇒ بانتظار الاتصال، وبلا موقع ⇒ لم تُسجَّل', async () => {
+  const orphan = (clientRef: string, payload: Record<string, unknown>, repId = 'rep1') =>
+    ({ clientRef, repId, customerName: 'بقالة', endedAt: '2026-10-06T08:10:00.000Z', status: 'ending' as const, payload });
+  // من صفحةٍ سابقة: في المخزن وليست في ذاكرة هذه الصفحة
+  store.set('rep_visits_awaiting_net', JSON.stringify([
+    orphan('o1', { customerId: 'c1' }), orphan('o2', { customerId: 'c1', lat: 24.7, lng: 46.6 }), orphan('o3', { customerId: 'c1' }, 'rep2'),
+  ]));
+  assert.deepEqual(orphanEnding('rep1').map(v => v.clientRef), ['o1', 'o2'], 'زيارات صاحب الجلسة وحده');
+  const [o1, o2] = orphanEnding('rep1');
+  assert.equal(orphanFate(o1, false), 'outbox');
+  assert.equal(orphanFate(o2, false), 'outbox');
+  assert.equal(orphanFate(o2, true), 'waiting', 'بدأت متصلةً بقراءة: تُرفع حيّةً');
+  assert.equal(orphanFate(o1, true), 'failed', 'المقيَّد بلا موقع لا يُرسل');
+  assert.equal(orphanFate({ ...o2, payload: { lat: 0, lng: 0 } }, true), 'failed', '(0،0) ليست موقعاً');
+  // ويتيمةٌ لا تُعاد بإعادة الرفع (ليست waiting) حتى تُحسم
+  const sent: string[] = [];
+  await retryPendingVisits(async (p) => { sent.push(String(p.clientRef)); }, 'rep1');
+  assert.deepEqual(sent, []);
+});
+
 // ───────── حرّاس ثابتون على التنفيذ ─────────
 
 test('حارس ثابت: المقيَّد لا يبدأ مؤقّته إلا متصلاً فعلاً وبقراءة، وغيره يبدأ فوراً والقراءة تلحق', () => {
@@ -185,7 +222,11 @@ test('حارس ثابت: انتهاء المؤقّت يرسل موقع الوص�
   const app = read('rep', 'RepApp.tsx');
   const fin = app.slice(app.indexOf('const finalizeVisit = async ('), app.indexOf('const closeCustomerDetail'));
   assert.match(fin, /const fix = isGeoFix\(t\.fix\) \? t\.fix : await grabLocation\(strict\);/);
-  assert.match(fin, /\.\.\.fixCoords\(fix\), startedAt: t\.startedAt/);
+  assert.match(fin, /const payload: Record<string, unknown> = \{ \.\.\.base, \.\.\.fixCoords\(fix\) \};/);
+  assert.match(fin, /const base: Record<string, unknown> = \{ \.\.\.custRef, startedAt: t\.startedAt, endedAt, clientDurationSec, clientRef, createdAt: endedAt \};/);
+  // محفوظةٌ «تُنهى الآن» قبل أول انتظار، وتُحسم في finally — فلا يُضيعها إغلاق التطبيق أثناء القراءة
+  assert.ok(fin.indexOf('beginEnding({ clientRef, repId') < fin.indexOf('await grabLocation(strict)'), 'الحفظ قبل القراءة');
+  assert.match(fin, /\} finally \{\s*endEnding\(clientRef\);\s*refreshPendingVisits\(\);\s*\}\s*\};/);
   assert.match(fin, /if \(plan === 'drop'\) \{[\s\S]*?status: 'failed'[\s\S]*?return;\s*\}/);
   assert.match(fin, /const f = visitFailure\('timer', strict, isNetworkError\(err\)\);\s*if \(f === 'outbox'\) \{\s*await outboxAdd\(/);
   assert.match(fin, /else if \(f === 'held'\) \{[\s\S]*?const r = postResultOf\(err\);\s*putPendingVisit\(pendingRetryOutcome\(r\) === 'keep' \? \{ \.\.\.held, status: 'waiting' \}/);
@@ -193,6 +234,11 @@ test('حارس ثابت: انتهاء المؤقّت يرسل موقع الوص�
   // تُعاد حيّةً: بلا ترويسة إعادة الرفع (الخادم يردّها للمقيَّد)
   assert.match(app, /await retryPendingVisits\(async \(p\) => \{ await repApi\.post\('\/visits', p, \{ background: true \}\); \}, currentRepId\(\)\);/);
   assert.match(app, /\{tr\('الزيارة بانتظار الاتصال لتسجيلها'\)\}/);
+  // يتامى «تُنهى الآن» تُحسم عند الإقلاع وعودة الشبكة — ولو دون اتصال — قبل إعادة الرفع
+  const flush = app.slice(app.indexOf('const flushPendingVisits = useCallback('), app.indexOf('const finalizeVisit = async ('));
+  assert.ok(flush.indexOf('orphanEnding(currentRepId())') < flush.indexOf("!navigator.onLine) return;"), 'الحسم قبل شرط الاتصال');
+  assert.match(flush, /const fate = orphanFate\(v, strictRef\.current\);/);
+  assert.match(flush, /kind: 'visit', payload: v\.payload, status: 'queued'/);
 });
 
 test('حارس ثابت: الملاحظة/الصور للمقيَّد — لا حفظ بلا اتصال أو قراءة، ولا صفّ عند الانقطاع', () => {
@@ -202,6 +248,10 @@ test('حارس ثابت: الملاحظة/الصور للمقيَّد — لا �
   assert.match(lv, /const f = visitFailure\('note', strict, isNetworkError\(err\)\);\s*if \(f === 'outbox'\) \{/);
   assert.match(lv, /disabled=\{busy \|\| strictGate !== 'ok'\}/);
   assert.match(lv, /\.\.\.fixCoords\(fix\),/);
+  // مفتاحٌ واحد لكل محاولات النموذج: إعادة الحفظ بعد انقطاعٍ بلغ فيه الأولُ الخادمَ لا تكرّر الزيارة
+  assert.match(lv, /const clientRefRef = useRef\(newClientRef\(\)\);/);
+  assert.match(lv, /const clientRef = clientRefRef\.current;/);
+  assert.doesNotMatch(lv, /const clientRef = newClientRef\(\);/);
   assert.match(app, /<LogVisit customer=\{selectedCustomer\} strict=\{locationRequired\}/);
 });
 
