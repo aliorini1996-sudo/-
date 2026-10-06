@@ -1,7 +1,7 @@
 // «اشتراط تفعيل الموقع» — القفل الكامل على الخادم (أمر المالك، ٦ أكتوبر ٢٠٢٦): المندوب المقيَّد لا يغيّر بياناً إلا ظاهراً على
 // الخريطة الآن بموقعٍ دقيق. الحارس (middleware/repLiveLocation.ts) ونقطة الموقع (POST /tracking/ping) فوق Prisma مزيّف في
 // الذاكرة، بلا قاعدة. نثبت: النقطة الطازجة الدقيقة وحدها تفتح، والقديمة/الغائبة/غير الدقيقة تُردّ بسببها، والقراءة والمستثنى
-// يمرّان، وغير المقيَّد كما كان، وعزل الشركات، والحزمة القديمة «حدّث التطبيق» بلا إعدام مستندها المصفوف.
+// يمرّان، وغير المقيَّد كما كان، وعزل الشركات، والحزمة القديمة تُحكم بالموقع المباشر كالحديثة (لا «حدّث التطبيق» لأحد).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -138,7 +138,7 @@ test('لا نقطة / نقطة قديمة الاستقبال أو الالتقا
     assert.equal(passed, false, label);
     assert.equal(res.statusCode, 409, label);
     assert.equal(res.body!.code, 'LOCATION_REQUIRED', label);
-    assert.equal(res.body!.message, 'فعّل الموقع وانتظر تحديد موقعك ثم أعد المحاولة');
+    assert.equal(res.body!.message, 'فعّل الموقع المباشر وانتظر تحديد موقعك ثم أعد المحاولة');
     assert.equal(res.body!.reason, 'NO_FIX', label);
   }
 });
@@ -200,36 +200,30 @@ test('عزل الشركات: القيد ونقاط الموقع تُقرأ بم�
   assert.equal(locQueries, 0);
 });
 
-test('حزمةٌ لا تعلن liveloc (تطبيقٌ قديم أو Flutter): 426 للحيّ، و503 لإعادة الرفع فيبقى المستند مصفوفاً لا يُعدم', async () => {
+test('لا «حدّث التطبيق» لأحد (أمر المالك): حزمةٌ لا تعلن liveloc تُحكم بالموقع المباشر كالحديثة — حيّةً تمرّ وإلا 409', async () => {
   reset();
-  locs.push(point()); // ولو كان حيّاً — الحزمة القديمة لا ترسل نقطةً قبل الإجراء وتصفّ دون اتصال
-  const liveReq = await guard('POST', '/invoices', { caps: 'zatca2' });
-  assert.equal(liveReq.passed, false);
-  assert.equal(liveReq.res.statusCode, 426);
-  assert.equal(liveReq.res.body!.code, 'LOCATION_APP_UPDATE');
-  const replay = await guard('POST', '/invoices', { caps: null, replay: true });
-  assert.equal(replay.res.statusCode, 503, 'offlineSync القديم يتوقّف عند 5xx ويُبقي المستند');
-  assert.equal(replay.res.headers['retry-after'], '300');
-  // الحزمة الحديثة بإعادة الرفع وهو حيّ ⇒ يمرّ (مستندٌ مصفوفٌ من قبل القيد لا يضيع)
+  // غائبٌ عن الخريطة ⇒ 409 LOCATION_REQUIRED (لا 426 ولا 503) ورسالة الموقع المباشر — حيّاً كان الطلب أو إعادة رفع
+  for (const opts of [{ caps: 'zatca2' }, { caps: null }, { caps: null, replay: true }] as const) {
+    const r = await guard('POST', '/invoices', opts);
+    assert.equal(r.passed, false);
+    assert.equal(r.res.statusCode, 409);
+    assert.equal(r.res.body!.code, 'LOCATION_REQUIRED');
+    assert.doesNotMatch(String(r.res.body!.message), /حدّث التطبيق/);
+    assert.match(String(r.res.body!.message), /الموقع المباشر/);
+  }
+  // ظاهرٌ على الخريطة الآن ⇒ تمرّ النسخة القديمة كما تمرّ الحديثة
+  locs.push(point());
+  for (const p of ['/invoices', '/visits', '/tracking/attendance/checkin']) {
+    assert.equal((await guard('POST', p, { caps: 'zatca2' })).passed, true, p);
+    assert.equal((await guard('POST', p, { caps: null })).passed, true, p);
+  }
   assert.equal((await guard('POST', '/invoices', { replay: true })).passed, true);
 });
 
-test('الزيارة من حزمةٍ قديمة 503 لا 426: زيارة مؤقّتها المحفوظة تبقى «بانتظار الاتصال» (4xx يسمها «لم تُسجَّل» نهائياً)', async () => {
-  reset();
-  locs.push(point());
-  for (const p of ['/visits', '/visits/', '/Visits']) {
-    const r = await guard('POST', p, { caps: 'zatca2' });
-    assert.equal(r.passed, false);
-    assert.equal(r.res.statusCode, 503, p);
-    assert.equal(r.res.body!.code, 'LOCATION_APP_UPDATE');
-    assert.equal(r.res.headers['retry-after'], '300');
-  }
-  // ما سواها حيّاً 426 كما كان (زرّ «حدّث التطبيق» في الحزمة القديمة)
-  assert.equal((await guard('POST', '/visits/v1/photos', { caps: 'zatca2' })).res.statusCode, 426);
-  assert.equal((await guard('PATCH', '/visits', { caps: 'zatca2' })).res.statusCode, 426);
-  assert.equal((await guard('POST', '/tracking/attendance/checkin', { caps: 'zatca2' })).res.statusCode, 426);
-  // والحديثة حيّاً تمرّ
-  assert.equal((await guard('POST', '/visits')).passed, true);
+test('الخادم لا يحمل رسالة «حدّث التطبيق» للقيد أبداً', () => {
+  const src = fs.readFileSync(path.join(SRC, 'middleware', 'repLiveLocation.ts'), 'utf8')
+    + fs.readFileSync(path.join(SRC, 'services', 'liveLocation.ts'), 'utf8');
+  assert.doesNotMatch(src, /['"`]حدّث التطبيق|LOCATION_APP_UPDATE|status\(426\)|status\(keep \? 503/);
 });
 
 test('liveVerdict صرف: STALE لقديم الاستقبال/الالتقاط ولالتقاطٍ في المستقبل، وNaN يُرفض لا يُقبل', () => {

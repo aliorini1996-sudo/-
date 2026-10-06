@@ -15,6 +15,8 @@ const stub = (rel: string, exports: Record<string, unknown>): void => {
 type Visit = { id: string; tenantId: string; salesRepId: string; customerId: string; lat: number | null; lng: number | null; clientRef?: string; _count: { photos: number } };
 let visits: Visit[] = [];
 let repReads: { id?: unknown; tenantId?: unknown }[] = [];
+// آخر نقطةٍ للمندوب على الخريطة — null = غائب (الافتراض في الاختبارات القديمة)
+let livePoint: { lat: number; lng: number; accuracy: number; capturedAt: Date; createdAt: Date } | null = null;
 // المندوبون: rep1 مقيَّد في t1، rep2 غير مقيَّد
 const reps: Record<string, { tenantId: string; requireLocationOn: boolean }> = {
   rep1: { tenantId: 't1', requireLocationOn: true },
@@ -38,6 +40,9 @@ const prisma = {
       const r = reps[a.where.id];
       return r && r.tenantId === a.where.tenantId ? { requireLocationOn: r.requireLocationOn } : null;
     },
+  },
+  repLocation: {
+    async findFirst() { return livePoint; },
   },
   customer: {
     async findFirst(a: { where: { id?: string; tenantId: string; clientRef?: string } }) {
@@ -87,7 +92,7 @@ test('المقيَّد بلا موقع ⇒ 409 LOCATION_REQUIRED ولا كتاب
     const res = await post({ customerId: 'c1', note: 'زيارة', ...coords });
     assert.equal(res.statusCode, 409, JSON.stringify(coords));
     assert.equal(res.body!.code, 'LOCATION_REQUIRED');
-    assert.match(String(res.body!.message), /بلا موقعك/);
+    assert.match(String(res.body!.message), /الموقع المباشر/);
   }
   assert.equal(visits.length, 0, 'لا زيارة كُتبت');
 });
@@ -168,6 +173,24 @@ test('الإدارة نيابةً عن مندوبٍ مقيَّد: الحارس �
   // وغير المقيَّد نيابةً عنه كما كان
   const ok = await post({ customerId: 'c1', salesRepId: 'rep2' }, { user: admin });
   assert.equal(ok.statusCode, 201);
+});
+
+test('زيارة بلا إحداثيات من مقيَّدٍ ظاهرٍ على الخريطة الآن (مؤقّت نسخةٍ قديمة) ⇒ 201 بموقعه المباشر، وغائبٌ ⇒ 409', async () => {
+  visits = []; repReads = [];
+  livePoint = { lat: 26.4207, lng: 50.0888, accuracy: 15, capturedAt: new Date(Date.now() - 4000), createdAt: new Date(Date.now() - 2000) };
+  try {
+    const ok = await post({ customerId: 'c1', startedAt: new Date(Date.now() - 60000).toISOString(), endedAt: new Date().toISOString(), clientDurationSec: 60 });
+    assert.equal(ok.statusCode, 201);
+    assert.equal(visits.length, 1);
+    assert.equal(visits[0].lat, 26.4207);
+    assert.equal(visits[0].lng, 50.0888);
+    livePoint = { ...livePoint, capturedAt: new Date(Date.now() - 600000), createdAt: new Date(Date.now() - 600000) };
+    const stale = await post({ customerId: 'c1' });
+    assert.equal(stale.statusCode, 409);
+    assert.equal(stale.body!.code, 'LOCATION_REQUIRED');
+    assert.match(String(stale.body!.message), /الموقع المباشر/);
+    assert.equal(visits.length, 1, 'لا كتابة لغائبٍ عن الخريطة');
+  } finally { livePoint = null; }
 });
 
 test('hasVisitCoords: رقمان محدودان، و(0،0) فاسد', () => {

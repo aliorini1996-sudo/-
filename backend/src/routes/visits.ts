@@ -7,6 +7,7 @@ import { AuthRequest } from '../types';
 import { canAccessCustomer } from '../services/customerScope';
 import { computeVisitDuration } from '../services/visitDuration';
 import { mergeVisits, countStopsByRep, asVisitLike } from '../services/workDay';
+import { readLivePoint } from '../middleware/repLiveLocation';
 
 /**
  * الزيارات الميدانية — يسجّلها المندوب عند العميل (ملاحظة + صور + موقع GPS)، وتراها
@@ -59,8 +60,13 @@ async function refuseVisitWithoutLocation(res: Response, tid: string, salesRepId
     return true;
   }
   if (!hasVisitCoords(body)) {
-    res.status(409).json({ success: false, code: 'LOCATION_REQUIRED', message: 'لا تُقبل الزيارة بلا موقعك — فعّل الموقع وانتظر تحديده ثم سجّل الزيارة وأنت متصل بالإنترنت' });
-    return true;
+    // المندوب ظاهرٌ على الخريطة الآن (القفل سبق هنا) والطلب بلا إحداثيات — زيارة مؤقّت حزمةٍ قديمة: تُسجَّل بموقعه المباشر
+    const live = await readLivePoint(tid, salesRepId);
+    if (live.verdict.ok && live.lat != null && live.lng != null) { body.lat = live.lat; body.lng = live.lng; }
+    else {
+      res.status(409).json({ success: false, code: 'LOCATION_REQUIRED', message: 'فعّل الموقع المباشر وانتظر تحديد موقعك ثم سجّل الزيارة وأنت متصل بالإنترنت' });
+      return true;
+    }
   }
   if (replay) {
     res.status(409).json({ success: false, code: 'VISIT_NEEDS_CONNECTION', message: 'لا تُقبل زيارةٌ سُجّلت دون اتصال بالإنترنت — سجّلها عند العميل وأنت متصل وموقعك مفعّل' });

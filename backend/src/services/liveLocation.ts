@@ -27,9 +27,7 @@ export const REPLAY_HEADER = 'x-fs-replay';
 export const DEVICE_NOW_HEADER = 'x-fs-device-now';
 
 export const LIVE_REQUIRED_CODE = 'LOCATION_REQUIRED';
-export const LIVE_REQUIRED_MESSAGE = 'فعّل الموقع وانتظر تحديد موقعك ثم أعد المحاولة';
-export const LIVE_CLIENT_UPDATE_CODE = 'LOCATION_APP_UPDATE';
-export const LIVE_CLIENT_UPDATE_MESSAGE = 'حدّث التطبيق: أغلقه وافتحه من جديد — اشتراط تفعيل الموقع يحتاج النسخة الأحدث';
+export const LIVE_REQUIRED_MESSAGE = 'فعّل الموقع المباشر وانتظر تحديد موقعك ثم أعد المحاولة';
 
 export type LiveReason = 'NO_FIX' | 'STALE' | 'INACCURATE';
 export type LiveVerdict = { ok: true } | { ok: false; reason: LiveReason };
