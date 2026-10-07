@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, Flag, Hourglass, Info, Lock, RotateCcw, Send, Undo2, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Flag, Hourglass, Info, Lock, Plus, RotateCcw, Send, Undo2, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useTr } from '../../../i18n/strings';
 import { useLang } from '../../../i18n/lang';
@@ -393,6 +393,12 @@ export default function MoveForm() {
             <X size={14} />{tr('إلغاء المراجعة')}
           </button>
         )
+      )}
+      {/* فتح قيد جديد من داخل القيد (طلب المالك) — كزرّ «جديد» في قائمة القيود */}
+      {!isNew && canPost && (
+        <Link to={ledgerHref('entries/new')} className="btn-secondary !py-1.5 !px-3 text-sm inline-flex items-center gap-1" title={tr('قيد جديد')}>
+          <Plus size={14} />{tr('جديد')}
+        </Link>
       )}
     </>
   );

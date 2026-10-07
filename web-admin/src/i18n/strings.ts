@@ -2381,6 +2381,7 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'أرشفة هذا الحساب؟ لا يظهر في المنتقيات ويبقى في التقارير': { en: 'Archive this account? It no longer appears in pickers but stays in reports', fr: 'Archiver ce compte ? Il n’apparaît plus dans les sélecteurs mais reste dans les rapports', tr: 'Bu hesap arşivlensin mi? Seçicilerde görünmez ancak raporlarda kalır', zh: '归档此科目？它将不再出现在选择器中，但仍保留在报表中' },
   'استعادة': { en: 'Restore', fr: 'Restaurer', tr: 'Geri yükle', zh: '恢复' },
   'جديد': { en: 'New', fr: 'Nouveau', tr: 'Yeni', zh: '新建' },
+  'قيد جديد': { en: 'New entry', fr: 'Nouvelle écriture', tr: 'Yeni kayıt', zh: '新建分录' },
   'هذا الحساب مؤرشف': { en: 'This account is archived', fr: 'Ce compte est archivé', tr: 'Bu hesap arşivlenmiş', zh: '此科目已归档' },
   'الرمز': { en: 'Code', fr: 'Code', tr: 'Kod', zh: '代码' },
   'اسم الحساب': { en: 'Account Name', fr: 'Nom du compte', tr: 'Hesap Adı', zh: '科目名称' },
