@@ -1,9 +1,9 @@
 /**
- * «اشتراط تفعيل الموقع» — القفل الكامل في التطبيق (أمر المالك، ٦ أكتوبر ٢٠٢٦): المندوب المقيَّد لا يفعل شيئاً أبداً إلا وموقعه
- * مفعّل ومحدَّد بدقّة وهو متصل وظاهرٌ على الخريطة في مكانٍ بعينه.
+ * «اشتراط تفعيل الموقع» — قفل صفحة العميل (أمر المالك، ٧ أكتوبر ٢٠٢٦، بعد التراجع عن القفل الكامل): المندوب المقيَّد يدخل
+ * التطبيق ويستعمله، ولا يدخل صفحة أي عميل — ولا يعمل على عميل: فاتورة ومرتجع وسند وزيارة وتعديل وإضافة عميل ورابط دفع — إلا
+ * وموقعه مفعّل ومحدَّد بدقّة وهو متصل وظاهرٌ على الخريطة في مكانٍ بعينه.
  *
- * كان الحاجز يحجب على رفض الإذن وحده (وعلى «تعذّر» ثلاثاً متتالية)، ولا يحجب على انتهاء المهلة أبداً، ويقبل قراءةً مخبّأة
- * عمرها دقيقتان — فبقي المندوب يسجّل زيارةً والموقع مطفأ. الآن الشروط كلها معاً، وأيّها سقط حُجب التطبيق كله:
+ * الشروط كلها معاً، وأيّها سقط حُجبت صفحة العميل:
  *  1. الإذن ممنوح والموقع مفعّل                          ⇐ وإلا «الموقع مطفأ»
  *  2. متصل: navigator.onLine وآخر ذهابٍ وإياب مع الخادم نجح ⇐ وإلا «لا يوجد اتصال بالإنترنت»
  *  3. قراءةٌ حيّة من watchPosition عمرها ≤ W ودقّتها ≤ A  ⇐ وإلا «جارٍ تحديد موقعك بدقة…» (والمهلة تحجب الآن)
@@ -144,16 +144,39 @@ export function strictRepNow(): boolean {
   try { return JSON.parse(localStorage.getItem('rep_user') || 'null')?.requireLocationOn === true; } catch { return false; }
 }
 
-/** ما لا يحرسه القفل — = الخادم (LIVE_EXEMPT_POST): القراءة، والدخول والتجديد ورمز الإشعارات، ونقطة الموقع ونبضة الحضور */
-export const LIVE_EXEMPT_POST: readonly string[] = Object.freeze([
-  '/auth/login', '/auth/renew', '/auth/refresh-fcm', '/tracking/ping', '/tracking/heartbeat',
+/**
+ * ما يحرسه القيد — = الخادم (LIVE_GUARDED_PREFIXES): كل طلبٍ يغيّر بياناً على عميل — الفواتير والمرتجعات (/invoices)، والسندات
+ * (/receipts)، والزيارات (/visits)، والعملاء إضافةً وتعديلاً (/customers)، ورابط الدفع (/paylink/issue). وما سواه (البصمة،
+ * والتقرير اليومي، وتحميل السيارة، والمندوب الذكي، والإشعارات…) متاحٌ للمقيَّد بلا شرط. القراءة لا تُحرس.
+ */
+export const LIVE_GUARDED_PREFIXES: readonly string[] = Object.freeze([
+  '/invoices', '/receipts', '/visits', '/customers', '/paylink/issue',
 ]);
-export function isLiveExemptRequest(method: string | undefined, url: string | undefined): boolean {
+/** المسار نسبةً إلى /api بلا استعلام ولا أصل، بحروفٍ صغيرة وبلا شرطةٍ أخيرة */
+function apiPath(url: string | undefined): string {
+  return String(url || '').split(/[?#]/)[0].replace(/^https?:\/\/[^/]+/i, '').replace(/^\/api(?=\/)/, '').toLowerCase().replace(/\/+$/, '');
+}
+export function isLiveGuardedRequest(method: string | undefined, url: string | undefined): boolean {
   const m = String(method || 'get').toUpperCase();
-  if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return true;
-  if (m !== 'POST') return false;
-  const p = String(url || '').split(/[?#]/)[0].replace(/^https?:\/\/[^/]+/i, '').replace(/^\/api(?=\/)/, '').toLowerCase().replace(/\/+$/, '');
-  return LIVE_EXEMPT_POST.includes(p);
+  if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return false;
+  const p = apiPath(url);
+  return LIVE_GUARDED_PREFIXES.some((g) => p === g || p.startsWith(g + '/'));
+}
+/** أنواع الصفّ الصادر التي تعمل على عميل — لا تُصفّ للمقيَّد دون اتصال (التقرير اليومي ونتيجة المندوب الذكي تُصفّ) */
+export function isLiveGuardedKind(kind: string): boolean {
+  return kind === 'customer' || kind === 'invoice' || kind === 'receipt' || kind === 'visit';
+}
+
+/**
+ * نوافذ التطبيق التي هي «صفحة عميل» أو عملٌ عليه: الملف نفسه وكل نافذةٍ تتفرّع منه، وإضافة عميل. كل عضوٍ في نوع Modal في
+ * RepApp.tsx يجب أن يكون هنا أو يُستثنى صراحةً (الاختبار يقارن) — نافذةٌ جديدة لا تفلت من القيد سهواً.
+ */
+export const CUSTOMER_MODALS: readonly string[] = Object.freeze([
+  'customerDetail', 'createInvoice', 'createReturn', 'createReceipt', 'logVisit', 'editCustomer', 'buyerData', 'addCustomer',
+]);
+/** المندوب داخل صفحة عميل الآن؟ نافذةٌ من نوافذ العميل، أو مستندٌ/كشفٌ فُتح من صفحة العميل ويعود إليها */
+export function customerScopeOpen(s: { modal: string | null; docOpen: boolean; docBack: string | null }): boolean {
+  return (s.modal !== null && CUSTOMER_MODALS.includes(s.modal)) || (s.docOpen && s.docBack === 'customerDetail');
 }
 
 // ───────── الخطأ المصطنع: طلبٌ لا يُرسل ─────────

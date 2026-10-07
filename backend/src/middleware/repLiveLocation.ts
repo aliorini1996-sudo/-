@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import prisma from '../config/database';
 import { AuthPayload } from '../types';
 import {
-  LIVE_REQUIRED_CODE, LIVE_REQUIRED_MESSAGE, isLiveExempt, liveVerdict, liveWindow, type LiveVerdict,
+  LIVE_REQUIRED_CODE, LIVE_REQUIRED_MESSAGE, isLiveGuarded, liveVerdict, liveWindow, type LiveVerdict,
 } from '../services/liveLocation';
 
 /**
@@ -33,13 +33,13 @@ export function isVisitCreate(method: string, path: string): boolean {
 }
 
 /**
- * «اشتراط تفعيل الموقع» — القفل الكامل على الخادم (أمر المالك، ٦ أكتوبر ٢٠٢٦): كل طلبٍ يغيّر بياناً من مندوبٍ مقيَّد
- * (requireLocationOn === true) يُردّ ما لم يكن ظاهراً على الخريطة الآن بموقعٍ دقيق. مركَّبٌ مرةً على /api قبل كل موجّه،
- * فيغطّي كل مسارٍ قائم وكل مسارٍ يُضاف لاحقاً — الفواتير والمرتجعات والسندات والعملاء والزيارات والبصمة والمندوب الذكي
- * والتقرير اليومي وتحميل السيارة وغيرها — حيّاً كان الطلب أو إعادة رفعٍ من صفّ العمل دون اتصال.
+ * «اشتراط تفعيل الموقع» — قفل العمل على عميل على الخادم (أمر المالك، ٧ أكتوبر ٢٠٢٦ — بعد التراجع عن القفل الكامل): المقيَّد
+ * (requireLocationOn === true) يستعمل التطبيق، وكل طلبٍ يغيّر بياناً على عميل (LIVE_GUARDED_PREFIXES: الفواتير والمرتجعات
+ * والسندات والزيارات والعملاء ورابط الدفع) يُردّ منه ما لم يكن ظاهراً على الخريطة الآن بموقعٍ دقيق — حيّاً كان الطلب أو إعادة
+ * رفعٍ من صفّ العمل دون اتصال. مركَّبٌ مرةً على /api قبل كل موجّه.
  *
  * ترتيب الحكم:
- *  1. القراءة والمستثنى (الدخول/التجديد/رمز الإشعارات/نقطة الموقع/نبضة الحضور) تمرّ.
+ *  1. ما ليس عملاً على عميل (والقراءة كلها) يمرّ.
  *  2. توكنٌ غائب أو فاسد يمرّ إلى `authenticate` في موجّهه (401 هناك). وغير المندوب يمرّ.
  *  3. غير المقيَّد يمرّ — القيد يُقرأ بـ=== true بمعرّف المندوب وشركته.
  *  4. لا نقطة حيّة دقيقة ⇒ 409 LOCATION_REQUIRED بسببه (reason) — لكل نسخةٍ من التطبيق سواء: بأمر المالك لا رسالة
@@ -47,7 +47,7 @@ export function isVisitCreate(method: string, path: string): boolean {
  */
 export async function requireRepLiveLocation(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    if (isLiveExempt(req.method, req.path)) { next(); return; }
+    if (!isLiveGuarded(req.method, req.path)) { next(); return; }
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) { next(); return; }
     let payload: AuthPayload;

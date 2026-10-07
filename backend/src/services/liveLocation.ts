@@ -1,6 +1,7 @@
 /**
- * «اشتراط تفعيل الموقع» — القفل الكامل (أمر المالك، ٦ أكتوبر ٢٠٢٦): المندوب المقيَّد لا يفعل شيئاً أبداً إلا وموقعه مفعّل
- * ومحدَّد بدقّة وهو متصل وظاهرٌ على الخريطة في مكانٍ بعينه. الحكم صرفٌ هنا (بلا قاعدة ولا Express)، والحارس في
+ * «اشتراط تفعيل الموقع» — قفل العمل على عميل (أمر المالك، ٧ أكتوبر ٢٠٢٦ — بعد التراجع عن القفل الكامل): المندوب المقيَّد
+ * يستعمل التطبيق، ولا يدخل صفحة أي عميل ولا يغيّر بياناً على عميل (LIVE_GUARDED_PREFIXES أدناه) إلا وموقعه مفعّل ومحدَّد بدقّة
+ * وهو متصل وظاهرٌ على الخريطة في مكانٍ بعينه. وما سوى البادئات المحروسة مفتوحٌ افتراضاً. الحكم صرفٌ هنا (بلا قاعدة ولا Express)، والحارس في
  * middleware/repLiveLocation.ts.
  *
  * «ظاهر على الخريطة الآن» = أحدث نقطةٍ استقبلها الخادم منه (RepLocation) — وهي ما يرسم دبّوسه:
@@ -73,20 +74,21 @@ export function isReplay(header: unknown): boolean {
 }
 
 /**
- * ما لا يحرسه القفل: القراءة (GET/HEAD/OPTIONS)، والدخول وتجديد الجلسة ورمز الإشعارات (لولاها لخرج المندوب أو انقطعت
- * إشعاراته)، ونقطة الموقع نفسها ونبضة الحضور (بهما يظهر على الخريطة). المسار نسبةً إلى /api — مطابقةٌ تامّة بعد توحيد
- * حالة الأحرف والشرطة الأخيرة، فأيّ صيغةٍ أخرى تُحرس (الاتجاه الآمن).
+ * ما يحرسه القيد (أمر المالك، ٧ أكتوبر ٢٠٢٦ — بعد التراجع عن القفل الكامل): كل طلبٍ يغيّر بياناً على عميل — الفواتير
+ * والمرتجعات وإلغاؤها وإشعاراتها (/invoices)، والسندات وإلغاؤها (/receipts)، والزيارات (/visits)، والعملاء إضافةً وتعديلاً
+ * وبيانات الفوترة (/customers)، ورابط الدفع (/paylink/issue). وما سواه — البصمة والتقرير اليومي وتحميل السيارة والمندوب الذكي
+ * والإشعارات وتغيير كلمة المرور — متاحٌ للمقيَّد بلا شرط، والقراءة لا تُحرس. المسار نسبةً إلى /api بعد توحيد حالة الأحرف
+ * والشرطة الأخيرة؛ البادئة تحرس المسار نفسه وكل ما تحته (الاتجاه الآمن لما يُضاف تحتها لاحقاً). = التطبيق (rep/liveGate.ts).
  */
-export const LIVE_EXEMPT_POST: readonly string[] = Object.freeze([
-  '/auth/login', '/auth/renew', '/auth/refresh-fcm', '/tracking/ping', '/tracking/heartbeat',
+export const LIVE_GUARDED_PREFIXES: readonly string[] = Object.freeze([
+  '/invoices', '/receipts', '/visits', '/customers', '/paylink/issue',
 ]);
 
-export function isLiveExempt(method: string, path: string): boolean {
+export function isLiveGuarded(method: string, path: string): boolean {
   const m = String(method || '').toUpperCase();
-  if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return true;
-  if (m !== 'POST') return false;
+  if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return false;
   const p = String(path || '').toLowerCase().replace(/\/+$/, '');
-  return LIVE_EXEMPT_POST.includes(p);
+  return LIVE_GUARDED_PREFIXES.some((g) => p === g || p.startsWith(g + '/'));
 }
 
 /**

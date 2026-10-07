@@ -3,7 +3,6 @@ import { ClipboardCheck, Send, AlertCircle, CheckCircle2, Clock, RotateCcw } fro
 import repApi from './repApi';
 import { useTr } from '../i18n/strings';
 import { outboxAdd, currentRepId } from './offlineDb';
-import { strictRepNow } from './liveGate';
 import { formatDate } from '../utils/format';
 import { deviceDay } from './deviceDay';
 
@@ -133,8 +132,8 @@ export default function RepDailyReport({ onDone }: { onDone?: () => void }) {
     } catch (err) {
       const status = (err as { response?: { status?: number } })?.response?.status;
       const serverMsg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      // المقيَّد بـ«اشتراط تفعيل الموقع» (القفل الكامل) لا يُصفّ له شيء: يبقى التقرير ويعيد الرفع وهو متصل
-      if (!status && !strictRepNow()) {
+      // التقرير اليومي ليس عملاً على عميل: يُصفّ للمقيَّد بـ«اشتراط تفعيل الموقع» كغيره (القيد على صفحة العميل وحدها)
+      if (!status) {
         // انقطاع: يُحفظ في الصندوق الصادر ويرتفع وحده عند عودة الشبكة
         await outboxAdd({
           clientRef, repId: currentRepId(), kind: 'dailyReport',

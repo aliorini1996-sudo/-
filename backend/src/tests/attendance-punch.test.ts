@@ -161,23 +161,16 @@ test('الميزة مطفأة للشركة ⇒ 403 ATTENDANCE_DISABLED ولا ك
   featureOn = true;
 });
 
-test('«اشتراط تفعيل الموقع»: بصمة بلا إحداثيات ⇒ 409 LOCATION_REQUIRED ولا كتابة، وبإحداثيات تمرّ', async () => {
+test('«اشتراط تفعيل الموقع» لا يحرس البصمة (أمر المالك ٧ أكتوبر: القيد على صفحة العميل وحدها) — تُسجَّل بموقعها إن وُجد وبدونه', async () => {
   rows = []; seq = 0; featureOn = true; locationRequired = true;
   try {
-    for (const body of [{}, { lat: 24.7 }, { lng: 46.6 }]) {
-      const res = await call('post', '/attendance/checkin', { body });
-      assert.equal(res.statusCode, 409, JSON.stringify(body));
-      assert.equal(res.body!.code, 'LOCATION_REQUIRED');
-    }
-    assert.equal(rows.length, 0, 'فُتحت نوبة بلا موقع');
+    assert.equal(data(await call('post', '/attendance/checkin', {})).status, 'in', 'حضورٌ بلا موقع يُسجَّل');
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].checkInLat, null);
+    assert.equal(data(await call('post', '/attendance/checkout', {})).status, 'out', 'انصرافٌ بلا موقع يُسجَّل');
+    assert.ok(rows[0].checkOutAt instanceof Date);
     assert.equal(data(await call('post', '/attendance/checkin', { body: { lat: 24.7, lng: 46.6 } })).status, 'in');
-    // الضغط المكرّر بعد الحضور يعيد النوبة نفسها ولو بلا موقع — لا كتابة فيه
-    assert.equal((data(await call('post', '/attendance/checkin', {})) as { already?: boolean }).already, true);
-    const out = await call('post', '/attendance/checkout', {});
-    assert.equal(out.statusCode, 409);
-    assert.equal(out.body!.code, 'LOCATION_REQUIRED');
-    assert.equal(rows[0].checkOutAt, null, 'أُغلقت النوبة بلا موقع');
-    assert.equal(data(await call('post', '/attendance/checkout', { body: { lat: 24.7, lng: 46.6 } })).status, 'out');
+    assert.equal(rows[1].checkInLat, 24.7, 'والموقع يُسجَّل إن أرسله الجوال');
   } finally { locationRequired = false; }
 });
 

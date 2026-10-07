@@ -32,6 +32,8 @@ export interface PendingVisit {
    */
   status: 'waiting' | 'failed' | 'ending';
   error?: string;
+  /** سبب الانتظار إن لم يكن الاتصال: «اشتراط تفعيل الموقع» — المندوب ليس ظاهراً على الخريطة الآن (تُرفع حين يعود حيّاً) */
+  waitFor?: 'location';
 }
 
 const isPending = (v: unknown): v is PendingVisit => {
@@ -152,6 +154,9 @@ export async function retryPendingVisits(post: (payload: Record<string, unknown>
         continue;
       }
       out.kept++;
+      // سبب الانتظار يتبع آخر محاولة: الموقع (ليس حيّاً على الخريطة) أو الاتصال — يظهر للمندوب في الشريط
+      const why = !r.ok && r.live ? 'location' as const : undefined;
+      if (v.waitFor !== why) putPendingVisit(why ? { ...v, waitFor: why } : (({ waitFor: _w, ...rest }) => rest)(v));
       // انقطاعٌ أو خطأ خادم أو ليس حيّاً على الخريطة: لا جدوى من البقية الآن
       if (!r.ok && (r.status == null || r.status >= 500 || r.live)) { out.kept += waiting.length - i - 1; break; }
     }

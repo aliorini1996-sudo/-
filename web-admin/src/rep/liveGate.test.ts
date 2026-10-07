@@ -229,18 +229,35 @@ test('المقيَّد من rep_user بـ=== true فقط', () => {
   assert.equal(L.strictRepNow(), false);
 });
 
-test('المستثنى = الخادم: القراءة والدخول والتجديد ورمز الإشعارات ونقطة الموقع ونبضة الحضور — وما سواها يُحرس', () => {
-  for (const [m, u] of [['get', '/invoices'], [undefined, '/customers'], ['post', '/auth/login'], ['post', '/auth/renew'], ['post', '/auth/refresh-fcm'],
-    ['post', '/tracking/ping'], ['POST', '/tracking/ping?x=1'], ['post', '/api/tracking/heartbeat'], ['post', 'https://x.y/api/tracking/ping/']]) {
-    assert.equal(L.isLiveExemptRequest(m, u), true, `${m} ${u}`);
+test('المحروس = الخادم: العمل على عميل وحده (فاتورة/مرتجع/سند/زيارة/عميل/رابط دفع) — والبصمة والتقرير والمندوب الذكي وغيرها تمرّ', () => {
+  for (const [m, u] of [['post', '/invoices'], ['post', '/visits'], ['patch', '/invoices/1/cancel'], ['put', '/customers/1'], ['post', '/customers'],
+    ['patch', '/customers/c1/buyer-data'], ['post', '/receipts'], ['post', '/paylink/issue'], ['POST', '/api/invoices?x=1'],
+    ['post', 'https://x.y/api/visits/'], ['delete', '/customers/1']]) {
+    assert.equal(L.isLiveGuardedRequest(m, u), true, `${m} ${u}`);
   }
-  for (const [m, u] of [['post', '/invoices'], ['post', '/visits'], ['patch', '/invoices/1/cancel'], ['put', '/customers/1'], ['post', '/tracking/ping/x'],
-    ['patch', '/tracking/ping'], ['post', '/tracking/attendance/checkin'], ['post', '/auth/change-password'], ['delete', '/x']]) {
-    assert.equal(L.isLiveExemptRequest(m, u), false, `${m} ${u}`);
+  for (const [m, u] of [['get', '/invoices'], [undefined, '/customers'], ['get', '/customers/1/statement'], ['post', '/auth/login'],
+    ['post', '/tracking/ping'], ['post', '/tracking/attendance/checkin'], ['post', '/tracking/attendance/checkout'], ['post', '/auth/change-password'],
+    ['post', '/daily-reports'], ['post', '/van-stock/loads'], ['post', '/ai-rep/rep/outcomes'], ['patch', '/notifications/read-all'],
+    ['post', '/invoicesx'], ['post', '/paylink/public/t/refresh']]) {
+    assert.equal(L.isLiveGuardedRequest(m, u), false, `${m} ${u}`);
   }
+  for (const k of ['customer', 'invoice', 'receipt', 'visit']) assert.equal(L.isLiveGuardedKind(k), true, k);
+  for (const k of ['dailyReport', 'aiOutcome']) assert.equal(L.isLiveGuardedKind(k), false, k);
   const server = read('..', 'backend', 'src', 'services', 'liveLocation.ts');
-  const list = (src: string) => (src.match(/LIVE_EXEMPT_POST: readonly string\[\] = Object\.freeze\(\[([\s\S]*?)\]\)/)![1].match(/'[^']+'/g) || []).sort();
-  assert.deepEqual(list(read('src', 'rep', 'liveGate.ts')), list(server), 'قائمتا الاستثناء متطابقتان');
+  const list = (src: string) => (src.match(/LIVE_GUARDED_PREFIXES: readonly string\[\] = Object\.freeze\(\[([\s\S]*?)\]\)/)![1].match(/'[^']+'/g) || []);
+  assert.deepEqual(list(read('src', 'rep', 'liveGate.ts')), list(server), 'قائمتا المحروس متطابقتان');
+});
+
+test('صفحة العميل: كل نافذةٍ من نوافذ العميل ومستندٌ فُتح منها — لا قائمة ولا مستندٌ من القوائم ولا شاشةٌ أخرى', () => {
+  for (const modal of L.CUSTOMER_MODALS) assert.equal(L.customerScopeOpen({ modal, docOpen: false, docBack: null }), true, modal);
+  assert.equal(L.customerScopeOpen({ modal: null, docOpen: true, docBack: 'customerDetail' }), true, 'كشف/مستند من صفحة العميل');
+  assert.equal(L.customerScopeOpen({ modal: null, docOpen: true, docBack: null }), false, 'مستندٌ من قائمة الفواتير');
+  assert.equal(L.customerScopeOpen({ modal: null, docOpen: false, docBack: null }), false);
+  assert.equal(L.customerScopeOpen({ modal: null, docOpen: false, docBack: 'customerDetail' }), false);
+  // كل نافذةٍ في تطبيق المندوب نافذة عميل — نافذةٌ جديدة لا تفلت من القيد سهواً
+  const app = read('src', 'rep', 'RepApp.tsx');
+  const members = [...app.match(/^type Modal = null \| ([^;]+);/m)![1].matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
+  assert.deepEqual(members, [...L.CUSTOMER_MODALS].sort(), 'نوع Modal = نوافذ العميل');
 });
 
 test('الطلب المردود قبل إرساله يحمل response (فلا يعدّه isNetworkError انقطاعاً فيُصفّ) ويُعرف ردَّ قفل', () => {
@@ -278,21 +295,22 @@ test('مفتاح المحاولة: المحتوى نفسه ⇒ clientRef نفس�
 
 // ───────── حرّاس ثابتون على التوصيل ─────────
 
-test('حارس ثابت: عميل المندوب يفحص قبل كل طلبٍ يغيّر بياناً، ويحوّل انقطاع المقيَّد ردَّ قفل، ويُعلن liveloc', () => {
+test('حارس ثابت: عميل المندوب يفحص قبل كل طلبٍ على عميل، ويحوّل انقطاع المقيَّد فيه ردَّ قفل، ويُعلن liveloc', () => {
   const api = read('src', 'rep', 'repApi.ts');
   const req = api.slice(api.indexOf('repApi.interceptors.request.use('), api.indexOf('// عند انتهاء الجلسة (401)'));
   assert.match(req, /config\.headers\[DEVICE_NOW_HEADER\] = String\(Date\.now\(\)\);/);
-  assert.match(req, /if \(token && strictRepNow\(\) && !isLiveExemptRequest\(config\.method, config\.url\)\) \{\s*const r = await ensureLive\(\);\s*if \(!r\.ok\) throw liveRefusalError\(r\.reason, config\);/);
+  assert.match(req, /if \(token && strictRepNow\(\) && isLiveGuardedRequest\(config\.method, config\.url\)\) \{\s*const r = await ensureLive\(\);\s*if \(!r\.ok\) throw liveRefusalError\(r\.reason, config\);/);
   const res = api.slice(api.indexOf('repApi.interceptors.response.use('));
   assert.match(res, /if \(isLocalLiveRefusal\(err\)\) return Promise\.reject\(err\);/);
-  assert.match(res, /if \(strictRepNow\(\) && !isLiveExemptRequest\(cfg\?\.method, cfg\?\.url\)\) return Promise\.reject\(liveRefusalError\('OFFLINE', cfg\)\);/);
+  assert.match(res, /if \(strictRepNow\(\) && isLiveGuardedRequest\(cfg\?\.method, cfg\?\.url\)\) return Promise\.reject\(liveRefusalError\('OFFLINE', cfg\)\);/);
+  assert.doesNotMatch(api, /isLiveExemptRequest/);
   // النقطة نفسها طلبٌ مستثنى (لا حلقة) ولا يُخرج المندوب
   assert.match(api, /await repApi\.post\('\/tracking\/ping', pingBody\(fix\), \{ background: true \}\);/);
   assert.ok(FS_CAPS.includes(CAP_LIVELOC));
   assert.equal(CAP_LIVELOC, 'liveloc');
 });
 
-test('حارس ثابت: لا صفّ دون اتصال للمقيَّد — في كل شاشة، وآخر سدٍّ في outboxAdd، والمصفوف من قبل يبقى ظاهراً لا يُعدم', () => {
+test('حارس ثابت: لا صفّ دون اتصال لعمل المقيَّد على عميل — في كل شاشة، وآخر سدٍّ في outboxAdd، والمصفوف من قبل يبقى ظاهراً لا يُعدم', () => {
   const app = read('src', 'rep', 'RepApp.tsx');
   const inv = app.slice(app.indexOf('function CreateInvoice('), app.indexOf('function CreateReceipt('));
   assert.ok(inv.indexOf('if (strictRepNow()) { setMsg(tr(LIVE_REFUSAL_MESSAGE.OFFLINE)); setLoading(false); return; }') < inv.indexOf("kind: 'invoice', payload"));
@@ -304,14 +322,18 @@ test('حارس ثابت: لا صفّ دون اتصال للمقيَّد — في
   for (const f of [inv, rcp, cust]) {
     assert.match(f, /attempt\.current = attemptClientRef\(attempt\.current, body, newClientRef\);\s*const clientRef = attempt\.current\.ref;/);
   }
-  assert.match(read('src', 'rep', 'RepAiScreen.tsx'), /if \(!strictRepNow\(\) && \(isNetworkError\(e\) \|\| \(status != null && status >= 500\)\)\) \{/);
-  assert.match(read('src', 'rep', 'RepDailyReport.tsx'), /if \(!status && !strictRepNow\(\)\) \{/);
-  assert.match(read('src', 'rep', 'offlineDb.ts'), /export async function outboxAdd\(doc: OutboxDoc\): Promise<void> \{[\s\S]*?if \(strictRepNow\(\)\) throw liveRefusalError\('OFFLINE'\);/);
+  // نتيجة المندوب الذكي والتقرير اليومي ليسا عملاً على عميل: يُصفّان للمقيَّد كغيره (التراجع عن القفل الكامل)
+  assert.match(read('src', 'rep', 'RepAiScreen.tsx'), /if \(isNetworkError\(e\) \|\| \(status != null && status >= 500\)\) \{/);
+  assert.match(read('src', 'rep', 'RepDailyReport.tsx'), /if \(!status\) \{/);
+  for (const f of ['RepAiScreen.tsx', 'RepDailyReport.tsx']) assert.doesNotMatch(read('src', 'rep', f), /strictRepNow/, f);
+  assert.match(read('src', 'rep', 'offlineDb.ts'), /export async function outboxAdd\(doc: OutboxDoc\): Promise<void> \{[\s\S]*?if \(strictRepNow\(\) && isLiveGuardedKind\(doc\.kind\)\) throw liveRefusalError\('OFFLINE'\);/);
   // الصفّ: ردّ القفل يوقف المزامنة ويُبقي المستند مصفوفاً — قبل فرع رفض الأعمال (4xx) الذي يوسمه مرفوضاً
   const sync = read('src', 'rep', 'offlineSync.ts');
   const stop = sync.indexOf('if (isLiveRefusal(err) || code === LIVE_CLIENT_UPDATE_CODE) {');
   assert.ok(stop > 0 && stop < sync.indexOf('if (status && status >= 400 && status < 500) {'));
-  assert.match(sync.slice(stop, stop + 600), /stopped = true;\s*break;/);
+  assert.match(sync.slice(stop, stop + 700), /stopped = true;\s*liveBlocked = true;\s*continue;/);
+  // ردّ القفل يحبس ما على عميل وحده — ما ليس على عميل بعده يُرفع
+  assert.match(sync, /if \(liveBlocked && isLiveGuardedKind\(doc\.kind\)\) continue;/);
 });
 
 test('الترجمة: نصوص الحاجز والقفل بلغاتها الأربع', () => {
@@ -321,7 +343,8 @@ test('الترجمة: نصوص الحاجز والقفل بلغاتها الأر
   const keys = [
     ...gateTexts,
     ...Object.values(L.LIVE_REFUSAL_MESSAGE),
-    'لا يمكنك فعل اي شيء في التطبيق حتى يكون موقعك مفعلا ومحددا بدقة وانت متصل وظاهر على الخريطة',
+    'لا تدخل صفحة اي عميل حتى يكون موقعك مفعلا ومحددا بدقة وانت متصل وظاهر على الخريطة — وبقية التطبيق متاحة لك',
+    'رجوع',
     'المندوب المقيد باشتراط تفعيل الموقع يرسل موقعه دائما ولو كان التتبع متوقفا فعل التتبع لتراه على الخريطة',
   ];
   for (const k of keys) {
@@ -345,4 +368,21 @@ test('حاجز «الموقع مطفأ»: «أعد المحاولة» تطلب �
   assert.equal(L.deviceKind('Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)'), 'ios');
   assert.equal(L.deviceKind('Mozilla/5.0 (Linux; Android 14; SM-A546E) Chrome/129'), 'android');
   assert.equal(L.deviceKind('Mozilla/5.0 (Windows NT 10.0; Win64; x64)'), 'other');
+});
+
+test('الزيارة المنتظرة: ردّ قفل الموقع يَسِمها «بانتظار تفعيل موقعك»، والانقطاع بعده يعيدها «بانتظار الاتصال»', async () => {
+  const VP = await import('./visitPending');
+  store.clear();
+  localStorage.setItem('rep_user', JSON.stringify({ id: 'r1' }));
+  VP.putPendingVisit({ clientRef: 'v1', repId: 'r1', customerName: 'ع', payload: { customerId: 'c1' }, endedAt: new Date(NOW).toISOString(), status: 'waiting' });
+  const live = await VP.retryPendingVisits(async () => { throw L.liveRefusalError('OFF'); }, 'r1');
+  assert.deepEqual(live, { done: 0, kept: 1, failed: 0 });
+  assert.equal(VP.getPendingVisits()[0].waitFor, 'location');
+  const net = await VP.retryPendingVisits(async () => { throw new Error('Network Error'); }, 'r1');
+  assert.equal(net.kept, 1);
+  assert.equal(VP.getPendingVisits()[0].waitFor, undefined, 'السبب يتبع آخر محاولة');
+  assert.equal(VP.getPendingVisits()[0].status, 'waiting');
+  const ok = await VP.retryPendingVisits(async () => undefined, 'r1');
+  assert.equal(ok.done, 1);
+  assert.equal(VP.getPendingVisits().length, 0);
 });

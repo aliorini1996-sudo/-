@@ -56,7 +56,7 @@ router.post('/ping', async (req: AuthRequest, res: Response, next: NextFunction)
       prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { trackingEnabled: true } }),
       prisma.salesRep.findFirst({ where: { id: repId, tenantId: tid }, select: { canBeTracked: true, requireLocationOn: true } }),
     ]);
-    // «اشتراط تفعيل الموقع» (القفل الكامل): موقع المقيَّد يُخزَّن دائماً — ظهوره على الخريطة شرطُ عمله، فلا يُسقطه إيقاف
+    // «اشتراط تفعيل الموقع»: موقع المقيَّد يُخزَّن دائماً — ظهوره على الخريطة شرطُ عمله، فلا يُسقطه إيقاف
     // التتبّع للشركة ولا استثناؤه (لو أُسقط لما عمل أبداً). المدير فعّل القيد له صراحةً، والتلميح في إعداداته يقول ذلك.
     const strict = rep?.requireLocationOn === true;
     if (!strict && (!settings?.trackingEnabled || rep?.canBeTracked === false)) {
@@ -145,17 +145,8 @@ async function ensureRepAttendance(req: AuthRequest, res: Response): Promise<{ t
   return { tid, repId: req.user.id };
 }
 
-/**
- * «اشتراط تفعيل الموقع»: بصمةٌ بلا إحداثيات من مندوبٍ مقيَّد تُردّ — التطبيق يحجب الشاشة والموقع مطفأ، وهذا حارس
- * الخادم لنسخةٍ قديمة أو طلبٍ مباشر. يعيد true إن رُدّ الطلب.
- */
-async function refuseWithoutLocation(res: Response, repId: string, lat?: number, lng?: number): Promise<boolean> {
-  if (lat != null && lng != null) return false;
-  const rep = await prisma.salesRep.findUnique({ where: { id: repId }, select: { requireLocationOn: true } });
-  if (rep?.requireLocationOn !== true) return false;
-  res.status(409).json({ success: false, code: 'LOCATION_REQUIRED', message: 'فعّل الموقع في جوالك ثم أعد تسجيل البصمة' });
-  return true;
-}
+// «اشتراط تفعيل الموقع» لا يحرس البصمة (أمر المالك، ٧ أكتوبر ٢٠٢٦): القيد على صفحة العميل وحدها — موقع البصمة أفضل جهد
+// للجميع، يُسجَّل إن أرسله الجوال ولا تُردّ بغيابه.
 
 /** النوبة المفتوحة لهذا المندوب (بلا انصراف)، أو null. */
 async function openShift(tid: string, repId: string) {
@@ -217,10 +208,9 @@ router.post('/attendance/checkin', async (req: AuthRequest, res: Response, next:
     const { tid, repId } = ctx;
     const { lat, lng } = punchSchema.parse(req.body ?? {});
     const since = repDayStart(req.query.tzOffsetMin);
-    // نوبةٌ مفتوحة تُعاد كما هي قبل حارس الموقع: الضغط المكرّر لا يكتب شيئاً فلا يُردّ
+    // نوبةٌ مفتوحة تُعاد كما هي: الضغط المكرّر لا يكتب شيئاً
     const existing = await openShift(tid, repId);
     if (existing) { res.json({ success: true, data: { status: 'in', shift: existing, already: true, shifts: await dayShifts(tid, repId, since) } }); return; }
-    if (await refuseWithoutLocation(res, repId, lat, lng)) return;
     const shift = await prisma.repAttendance.create({
       data: { tenantId: tid, salesRepId: repId, checkInAt: new Date(), checkInLat: lat ?? null, checkInLng: lng ?? null },
       select: { id: true, checkInAt: true, checkInLat: true, checkInLng: true },
@@ -235,7 +225,6 @@ router.post('/attendance/checkout', async (req: AuthRequest, res: Response, next
     const ctx = await ensureRepAttendance(req, res); if (!ctx) return;
     const { tid, repId } = ctx;
     const { lat, lng } = punchSchema.parse(req.body ?? {});
-    if (await refuseWithoutLocation(res, repId, lat, lng)) return;
     const open = await openShift(tid, repId);
     if (!open) { res.status(409).json({ success: false, code: 'NO_OPEN_SHIFT', message: 'لم تسجّل حضوراً بعد' }); return; }
     const shift = await prisma.repAttendance.update({

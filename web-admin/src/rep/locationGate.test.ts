@@ -4,31 +4,45 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 /**
- * «اشتراط تفعيل الموقع» — القفل الكامل (أمر المالك، ٦ أكتوبر ٢٠٢٦): التطبيق كله محجوب عن المندوب المقيَّد ما لم يكن موقعه مفعّلاً
- * ومحدَّداً بدقّة وهو متصل وظاهرٌ على الخريطة. حرّاسٌ ثابتة على توصيل الحاجز في RepApp والإعدادات؛ والحكم الصرف في
+ * «اشتراط تفعيل الموقع» — قفل صفحة العميل (أمر المالك، ٧ أكتوبر ٢٠٢٦، بعد التراجع عن القفل الكامل): المندوب المقيَّد يدخل التطبيق
+ * ويستعمله، ولا يدخل صفحة أي عميل ما لم يكن موقعه مفعّلاً ومحدَّداً بدقّة وهو متصل وظاهرٌ على الخريطة. حرّاسٌ ثابتة على توصيل الحاجز في RepApp والإعدادات؛ والحكم الصرف في
  * liveGate.test.ts.
  */
 const read = (...p: string[]) => fs.readFileSync(path.resolve(process.cwd(), 'src', ...p), 'utf8').replace(/\r\n/g, '\n');
 
-test('حارس ثابت: الحاجز طبقة فوق التطبيق كله بحكم القفل الكامل، يُفحص فوراً عند أي إجراء أو شاشة، يعطّل الرجوع، ويجدّد القيد', () => {
+test('حارس ثابت: الحاجز على صفحة العميل وحدها، يُفحص فوراً عند دخولها، والرجوع تحته يخرج منها، ويجدّد القيد', () => {
   const app = read('rep', 'RepApp.tsx');
   assert.match(app, /const locationRequired = user\?\.requireLocationOn === true;/, 'القيد يُقرأ بـ=== true');
   assert.match(app, /const \{ ok: liveOk, block: liveBlock, check: checkLocation \} = useLocationGate\(!!token && locationRequired\);/);
-  assert.match(app, /if \(locationRequired && \(modal !== null \|\| docResult !== null \|\| screen !== 'home'\)\) void checkLocation\(\);/);
-  // يحجب ما لم يكن الحكم «حيّ» — لا «مطفأ» وحده: الفحص والمهلة والدقّة والاتصال والخريطة كلها تحجب
-  assert.match(app, /const gateShown = !!token && !!user && locationRequired && !liveOk;/);
+  assert.match(app, /const customerScope = customerScopeOpen\(\{ modal, docOpen: docResult !== null, docBack \}\);/);
+  assert.match(app, /if \(locationRequired && customerScope\) void checkLocation\(\);/);
+  // يحجب صفحة العميل ما لم يكن الحكم «حيّ» — وخارجها لا حاجز (بقية التطبيق متاحة)
+  assert.match(app, /const gateShown = !!token && !!user && locationRequired && customerScope && !liveOk;/);
   assert.doesNotMatch(app, /locationStatus === 'off'/);
-  assert.match(app, /\{gateShown && <LocationOffGate block=\{liveBlock \?\? 'locating'\} onRetry=\{async \(\) => \{ await refreshUser\(\); return checkLocation\(\); \}\} \/>\}/);
+  assert.match(app, /\{gateShown && <LocationOffGate block=\{liveBlock \?\? 'locating'\} onRetry=\{async \(\) => \{ await refreshUser\(\); return checkLocation\(\); \}\} onExit=\{exitCustomerScope\}\s*visitActive=/);
+  // «رجوع» وزرّ الجهاز تحته يخرجان من صفحة العميل كلها (الملف ونوافذه ومستنده) — والزيارة الجارية تُنهى ولا تضيع
+  assert.match(app, /useBackClose\(gateShown, \(\) => exitCustomerScope\(\)\);/);
+  const exit = app.slice(app.indexOf('const exitCustomerScope = useCallback('), app.indexOf('}, [closeCustomerDetail]);'));
+  assert.match(exit, /setDocResult\(null\);\s*setDocBack\(null\);\s*setAiPrefill\(null\);\s*closeCustomerDetail\(\);/);
+  const gateFn = app.slice(app.indexOf('function LocationOffGate('), app.indexOf('function GeoGate('));
+  assert.match(gateFn, /<button onClick=\{onExit\}[^>]*>\s*\{tr\('رجوع'\)\}/);
+  assert.match(gateFn, /tr\('لا تدخل صفحة اي عميل حتى يكون موقعك مفعلا ومحددا بدقة وانت متصل وظاهر على الخريطة — وبقية التطبيق متاحة لك'\)/);
   const gate = app.slice(app.indexOf('function LocationOffGate('), app.indexOf('function GeoGate('));
   assert.match(gate, /className="absolute inset-0 z-\[1300\]/, 'الحاجز يعلو كل طبقة (ماسح الباركود z-70، عارض الصور z-1200)');
   // ولا طبقة في تطبيق المندوب تعلوه
   for (const f of ['RepApp.tsx', 'RepDocuments.tsx', 'BarcodeScanner.tsx', 'RepAiScreen.tsx', 'RepRouteScreen.tsx', 'RepDailyReport.tsx']) {
     for (const m of read('rep', f).matchAll(/\bz-\[(\d+)\]/g)) assert.ok(Number(m[1]) <= 1300, `${f}: z-[${m[1]}] فوق الحاجز`);
   }
-  // زرّ الرجوع تحته لا يغلق ملف العميل ولا يرفع الزيارة
-  for (const m of ["useBackClose(!gateShown && modal === 'customerDetail', closeCustomerDetail);", 'useBackClose(!gateShown && !!docResult, closeDocResult);']) {
+  // طبقة الحاجز تُدفع فوق طبقات صفحة العميل — وهذه لا تُسحب تحته (يبقى ترتيبها مع أوراقها الداخلية بعد انقطاعٍ لحظي)
+  for (const m of ["useBackClose(modal === 'customerDetail', closeCustomerDetail);", 'useBackClose(!!docResult, closeDocResult);']) {
     assert.ok(app.includes(m), m);
   }
+  assert.doesNotMatch(app, /useBackClose\(!gateShown && (!!docResult|modal ===)/);
+  // زيارةٌ جارية تحت الحاجز: يُقال قبل الضغط إن «رجوع» ينهيها
+  assert.match(app, /visitActive=\{!!visitTimer && !!selectedCustomer && visitTimer\.customerId === selectedCustomer\.id\} \/>\}/);
+  assert.match(gateFn, /\{visitActive && <p[^>]*>\{tr\('رجوع ينهي زيارتك الجارية لهذا العميل الآن وتسجل حين يعود موقعك'\)\}/);
+  // والزيارة المنتظرة بسبب الموقع يقول شريطها ذلك لا «الاتصال»
+  assert.match(app, /v\.waitFor === 'location'\)\s*\? tr\('الزيارة بانتظار تفعيل موقعك لتسجيلها'\) : tr\('الزيارة بانتظار الاتصال لتسجيلها'\)/);
   // لا حقلَ مُركَّز تحت الحاجز (لوحة المفاتيح لا تكتب في نموذجٍ مغطّى ولا «إدخال» يُرسله)
   assert.match(app, /if \(gateShown && document\.activeElement instanceof HTMLElement\) document\.activeElement\.blur\(\);/);
   // وما تحته خاملٌ (inert) وخفيٌّ عن قارئ الشاشة: لا Tab ولا TalkBack يبلغ زرّاً مغطّى — والغلاف يضمّ كل ما سوى الحاجز
@@ -54,13 +68,15 @@ test('الحاجز يقول أيّ شرطٍ سقط بالضبط — الأربع
   assert.match(texts, /notOnMap: \{ title: 'لم يظهر موقعك على الخريطة بعد'/);
 });
 
-test('حارس ثابت: المقيَّد لا يقرأ موقعاً مخبّأً — بصمته وزيارته (بدءاً وملاحظةً) بالقراءة الحيّة نفسها التي قبلها الخادم', () => {
+test('حارس ثابت: المقيَّد لا يقرأ موقعاً مخبّأً في زيارته (بدءاً وملاحظةً) — والبصمة ليست صفحة عميل: موقعها أفضل جهد ولا تُردّ', () => {
   const app = read('rep', 'RepApp.tsx');
   const grab = app.slice(app.indexOf('async function grabLocation('), app.indexOf('\n}', app.indexOf('async function grabLocation(')));
   assert.match(grab, /if \(strict\) return strictLiveFix\(\);/);
   assert.doesNotMatch(grab, /maximumAge: 120_000/, 'قراءةٌ عمرها دقيقتان كانت تُثبت موقعاً والموقع مطفأ');
-  assert.match(app, /const loc = await grabLocation\(locationRequired\);\s*\/\/[^\n]*\n\s*if \(!loc && locationRequired\) \{ setErr\(/);
-  assert.match(app, /<RepAttendance locationRequired=\{locationRequired\} \/>/);
+  const att = app.slice(app.indexOf('function RepAttendance('), app.indexOf('function', app.indexOf('function RepAttendance(') + 10));
+  assert.match(att, /const loc = await grabLocation\(\);/);
+  assert.doesNotMatch(att, /locationRequired|strictLiveFix/, 'البصمة لا يشترط لها القيد موقعاً');
+  assert.match(app, /<RepAttendance \/>/);
   // الملاحظة: القراءة لحظة الحفظ لا لحظة فتح النافذة
   const lv = app.slice(app.indexOf('function LogVisit('), app.indexOf('function CreateInvoice('));
   assert.match(lv, /const at = strict \? await grabLocation\(true\) : fix;/);
@@ -90,7 +106,7 @@ test('حارس ثابت: المقيَّد مُتتبَّعٌ دائماً ولو
   assert.match(t, /\}, \[active, forced\]\);/);
 });
 
-test('حارس ثابت: القيد في نافذة المندوب بلوحة الإدارة وفي تطبيق الجوال، و«تحديد الكل» لا يمسّه — والتلميح يقول القفل الكامل', () => {
+test('حارس ثابت: القيد في نافذة المندوب بلوحة الإدارة وفي تطبيق الجوال، و«تحديد الكل» لا يمسّه — والتلميح يقول قفل صفحة العميل', () => {
   const modal = read('components', 'forms', 'SalesRepModal.tsx');
   assert.match(modal, /register\('requireLocationOn'\)/);
   assert.match(modal, /requireLocationOn: false,/, 'افتراض المندوب الجديد مطفأ');
@@ -100,7 +116,7 @@ test('حارس ثابت: القيد في نافذة المندوب بلوحة ا
   assert.match(m, /onChange=\{v => set\('requireLocationOn', v\)\}/);
   const grants = m.slice(m.indexOf('const GRANTS = ['), m.indexOf('] as const;', m.indexOf('const GRANTS = [')));
   assert.doesNotMatch(grants, /requireLocationOn/, 'قيدٌ يسلب لا يُقلب مع «تحديد الكل»');
-  const HINT = 'عند التفعيل لا يستطيع المندوب فعل اي شيء في التطبيق — لا اجراء ولا زيارة ولا ملف عميل ولا مستند ولا بصمة — الا والموقع مفعل في جواله ومحدد بدقة وهو متصل بالإنترنت وظاهر على الخريطة، ويرسل موقعه للخريطة ولو كان التتبع متوقفا للشركة';
+  const HINT = 'عند التفعيل لا يدخل المندوب صفحة اي عميل — ولا يصدر له فاتورة ولا سندا ولا يسجل زيارة ولا يضيف عميلا — الا والموقع مفعل في جواله ومحدد بدقة وهو متصل بالإنترنت وظاهر على الخريطة، وبقية التطبيق متاحة له، ويرسل موقعه للخريطة ولو كان التتبع متوقفا للشركة';
   assert.ok(modal.includes(`tr('${HINT}')`), 'تلميح لوحة الإدارة');
   assert.ok(m.includes(`tr('${HINT}')`), 'تلميح تطبيق الإدارة');
   assert.ok(read('i18n', 'strings.ts').includes(`'${HINT}': { en:`), 'التلميح مترجم');

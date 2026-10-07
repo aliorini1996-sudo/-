@@ -1,5 +1,5 @@
-// «اشتراط تفعيل الموقع» — القفل الكامل على الخادم (أمر المالك، ٦ أكتوبر ٢٠٢٦): المندوب المقيَّد لا يغيّر بياناً إلا ظاهراً على
-// الخريطة الآن بموقعٍ دقيق. الحارس (middleware/repLiveLocation.ts) ونقطة الموقع (POST /tracking/ping) فوق Prisma مزيّف في
+// «اشتراط تفعيل الموقع» — قفل العمل على عميل على الخادم (أمر المالك، ٧ أكتوبر ٢٠٢٦، بعد التراجع عن القفل الكامل): المندوب
+// المقيَّد يستعمل التطبيق، ولا يغيّر بياناً على عميل إلا ظاهراً على الخريطة الآن بموقعٍ دقيق. الحارس (middleware/repLiveLocation.ts) ونقطة الموقع (POST /tracking/ping) فوق Prisma مزيّف في
 // الذاكرة، بلا قاعدة. نثبت: النقطة الطازجة الدقيقة وحدها تفتح، والقديمة/الغائبة/غير الدقيقة تُردّ بسببها، والقراءة والمستثنى
 // يمرّان، وغير المقيَّد كما كان، وعزل الشركات، والحزمة القديمة تُحكم بالموقع المباشر كالحديثة (لا «حدّث التطبيق» لأحد).
 import { test } from 'node:test';
@@ -158,20 +158,44 @@ test('الدقّة: ١٠٠م تمرّ، و١٥٠م أو غائبة ⇒ INACCURAT
   assert.equal((await guard('POST', '/invoices')).res.body!.reason, 'INACCURATE');
 });
 
-test('القراءة والمستثنى يمرّان بلا قراءة قاعدة: GET والدخول والتجديد ورمز الإشعارات ونقطة الموقع ونبضة الحضور', async () => {
+test('التراجع عن القفل الكامل (أمر المالك): ما ليس عملاً على عميل يمرّ للمقيَّد بلا موقع ولا قراءة قاعدة — والقراءة كلها', async () => {
   reset();
-  for (const [m, p] of [['GET', '/invoices'], ['HEAD', '/customers'], ['OPTIONS', '/visits'], ['GET', '/auth/me'],
+  for (const [m, p] of [['GET', '/invoices'], ['HEAD', '/customers'], ['OPTIONS', '/visits'], ['GET', '/auth/me'], ['GET', '/customers/c1'],
+    ['GET', '/customers/c1/statement'],
     ['POST', '/auth/login'], ['POST', '/auth/renew'], ['POST', '/auth/refresh-fcm'], ['POST', '/tracking/ping'], ['POST', '/tracking/heartbeat'],
-    ['POST', '/Tracking/Ping/'], ['post', '/tracking/heartbeat']]) {
+    ['POST', '/tracking/attendance/checkin'], ['POST', '/tracking/attendance/checkout'], ['POST', '/auth/change-password'],
+    ['POST', '/van-stock/loads'], ['POST', '/daily-reports'], ['POST', '/ai-rep/rep/outcomes'], ['POST', '/ai-rep/rep/scan'],
+    ['PATCH', '/notifications/read-all'], ['PATCH', '/notifications/n1/read'],
+    // بادئةٌ تشبه مسار عميلٍ ولا تطابقه لا تُحرس (مطابقة البادئة على حدود المقطع)
+    ['POST', '/invoicesx'], ['POST', '/customers-import'], ['POST', '/paylink/public/tk/refresh']]) {
     const { passed } = await guard(m, p);
     assert.equal(passed, true, `${m} ${p}`);
   }
-  assert.equal(repReads.length, 0, 'لا قراءة للمندوب في المستثنى');
-  // ما يشبه المستثنى ولا يطابقه يُحرس (الاتجاه الآمن)
-  for (const [m, p] of [['POST', '/tracking/ping/x'], ['PATCH', '/tracking/ping'], ['POST', '/tracking/attendance/checkout'], ['DELETE', '/auth/login'], ['POST', '/auth/change-password']]) {
-    const { passed } = await guard(m, p);
+  assert.equal(repReads.length, 0, 'لا قراءة للمندوب فيما لا يُحرس');
+});
+
+test('العمل على عميل يُحرس كله: الفواتير والمرتجعات وإلغاؤها وإشعاراتها، والسندات، والزيارات، والعملاء، ورابط الدفع — بأيّ صيغة', async () => {
+  reset();
+  for (const [m, p] of [['POST', '/invoices'], ['PATCH', '/invoices/i1/cancel'], ['POST', '/invoices/i1/credit-note'],
+    ['POST', '/receipts'], ['PATCH', '/receipts/r1/cancel'], ['POST', '/visits'], ['POST', '/customers'], ['PUT', '/customers/c1'],
+    ['PATCH', '/customers/c1/buyer-data'], ['POST', '/paylink/issue'], ['POST', '/Invoices/'], ['post', '/VISITS'], ['DELETE', '/customers/c1']]) {
+    const { passed, res } = await guard(m, p);
     assert.equal(passed, false, `${m} ${p}`);
+    assert.equal(res.statusCode, 409, `${m} ${p}`);
+    assert.equal(res.body!.code, 'LOCATION_REQUIRED', `${m} ${p}`);
   }
+});
+
+test('قائمة المحروس = التطبيق حرفياً (rep/liveGate.ts)', () => {
+  const list = (src: string) => {
+    const m = src.match(/LIVE_GUARDED_PREFIXES: readonly string\[\] = Object\.freeze\(\[([^\]]*)\]\)/);
+    assert.ok(m, 'القائمة غائبة');
+    return [...m![1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
+  };
+  const server = fs.readFileSync(path.join(SRC, 'services', 'liveLocation.ts'), 'utf8');
+  const web = fs.readFileSync(path.join(SRC, '..', '..', 'web-admin', 'src', 'rep', 'liveGate.ts'), 'utf8');
+  assert.deepEqual(list(server), list(web));
+  assert.deepEqual([...live.LIVE_GUARDED_PREFIXES], ['/invoices', '/receipts', '/visits', '/customers', '/paylink/issue']);
 });
 
 test('غير المقيَّد والإدارة والتوكن الغائب/الفاسد: يمرّ كما كان (والمصادقة في الموجّه تحكم)', async () => {
@@ -328,4 +352,20 @@ test('حارس ثابت: الحارس مركَّب مرةً على /api بعد �
     const at = idx.indexOf(`, ${r})`);
     assert.ok(at > guardAt, `${r} قبل الحارس`);
   }
+});
+
+test('كل بادئةٍ تُركَّب بعد الحارس مصنَّفة: محروسة (عمل على عميل) أو مفتوحة بمراجعة — بادئةٌ جديدة تُفشل هذا حتى تُصنَّف', () => {
+  const idx = fs.readFileSync(path.join(SRC, 'index.ts'), 'utf8');
+  const after = idx.slice(idx.indexOf("app.use('/api', requireRepLiveLocation);"));
+  const mounted = [...new Set([...after.matchAll(/app\.use\('(\/api\/[^']+)'/g)].map((m) => m[1].slice(4)))].sort();
+  // ما يعمل على عميل — كل كتابةٍ فيه للمندوب محروسة بالبادئة (والمسارات الإدارية تحته لا يبلغها المندوب أصلاً)
+  const GUARDED = ['/customers', '/invoices', '/paylink', '/receipts', '/visits'];
+  // مفتوحٌ للمقيَّد بمراجعة (٧ أكتوبر ٢٠٢٦): ليس عملاً على عميل، أو إداريٌّ/عامٌّ لا يبلغه المندوب بكتابة
+  const OPEN = ['/affiliate', '/affiliate-admin', '/ai-rep', '/analytics', '/auth', '/company', '/company-users', '/contact', '/daily-reports',
+    '/dashboard', '/erp', '/finance', '/hunter', '/import', '/leads', '/leads-cron', '/ledger', '/live', '/notifications', '/payments',
+    '/petroapp', '/products', '/profile-deck', '/promo-videos', '/public', '/quotes', '/rep-routes', '/reports', '/sales-reps',
+    '/site-content', '/support', '/tenants', '/tracking', '/van-stock', '/wa-inbox', '/warehouse', '/work-numbers', '/zatca'];
+  const unclassified = mounted.filter((p) => !GUARDED.includes(p) && !OPEN.includes(p));
+  assert.deepEqual(unclassified, [], 'بادئةٌ جديدة: إن كانت تعمل على عميل أضفها إلى LIVE_GUARDED_PREFIXES (الخادم والتطبيق)، وإلا إلى OPEN هنا');
+  for (const g of GUARDED) assert.ok(live.LIVE_GUARDED_PREFIXES.some((x) => x === g || x.startsWith(g + '/')), g);
 });

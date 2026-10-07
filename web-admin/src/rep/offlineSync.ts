@@ -11,7 +11,7 @@
 import repApi from './repApi';
 import { outboxAll, outboxUpdate, outboxDelete, OutboxDoc, currentRepId } from './offlineDb';
 import { CUTOVER_REVIEW_CODE, clearReview, reviewRecheckDue } from './outboxReview';
-import { isLiveRefusal } from './liveGate';
+import { isLiveGuardedKind, isLiveRefusal } from './liveGate';
 
 /** حزمةٌ قديمة بلا قدرة القفل (الخادم: 426/503) — لا تصل الحزمة الحديثة، ويُبقى المستند إن وصلها */
 export const LIVE_CLIENT_UPDATE_CODE = 'LOCATION_APP_UPDATE';
@@ -58,7 +58,10 @@ export async function syncOutbox(): Promise<SyncResult> {
       .filter((d) => d.status === 'queued' && ownedByCurrentRep(d) && reviewRecheckDue(d, startedAt))
       .sort((a, b) => (rank(a.kind) - rank(b.kind)) || a.clientCreatedAt.localeCompare(b.clientCreatedAt));
 
+    // ردّ قفل صفحة العميل يوقف ما يعمل على عميل وحده — التقرير اليومي ونتيجة المندوب الذكي بعده تُرفع ولا تُحبس خلفه
+    let liveBlocked = false;
     for (const doc of queued) {
+      if (liveBlocked && isLiveGuardedKind(doc.kind)) continue;
       const endpoint = endpointOf(doc.kind);
       try {
         // X-FS-Replay: إعادة رفع من الصفّ (Z5.0) — تميّزها قاعدة التحويل عند تفعيل الفوترة (Z5.8) عن الإصدار المباشر
@@ -77,11 +80,12 @@ export async function syncOutbox(): Promise<SyncResult> {
           break;
         }
         if (isLiveRefusal(err) || code === LIVE_CLIENT_UPDATE_CODE) {
-          // «اشتراط تفعيل الموقع» — القفل الكامل: المندوب المقيَّد ليس حيّاً على الخريطة الآن (أو لا اتصال). ليس رفض أعمال:
+          // «اشتراط تفعيل الموقع» — قفل صفحة العميل: المندوب المقيَّد ليس حيّاً على الخريطة الآن (أو لا اتصال). ليس رفض أعمال:
           // مستندٌ صُفّ قبل القيد (أو بحزمةٍ أقدم) يبقى مصفوفاً ظاهراً في الصندوق — لا يُعدم ولا يُوسم مرفوضاً — ويُرفع حين يعود
-          // حيّاً. والزيارة منه يردّها الخادم بعدها VISIT_NEEDS_CONNECTION نهائياً كما كانت
+          // حيّاً. والزيارة منه يردّها الخادم بعدها VISIT_NEEDS_CONNECTION نهائياً كما كانت. وما ليس على عميل يُتابَع بعده
           stopped = true;
-          break;
+          liveBlocked = true;
+          continue;
         }
         if (code === 'ACCOUNTING_NOT_ALLOWED') {
           // ليس رفض أعمال بل إطفاء اشتراك حدث بعد إنشاء المستند على الجهاز.

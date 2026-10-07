@@ -3,7 +3,7 @@ import { FS_CAPS_HEADER, FS_CAPS_VALUE } from '../api/caps';
 import { refClear } from './offlineDb';
 import { renewToken } from './renew';
 import {
-  LIVE_FIX_TIMEOUT_MS, emitLiveRefused, isLiveExemptRequest, isLiveRefusal, isLocalLiveRefusal, liveFixOf, liveRefusalError,
+  LIVE_FIX_TIMEOUT_MS, emitLiveRefused, isLiveGuardedRequest, isLiveRefusal, isLocalLiveRefusal, liveFixOf, liveRefusalError,
   noteServer, notePing, pingBody, pingVerdictOf, preflightLive, strictRepNow,
   type FreshFixResult, type LiveFix, type PingResult, type PreflightResult,
 } from './liveGate';
@@ -73,9 +73,9 @@ repApi.interceptors.request.use(async config => {
   const token = localStorage.getItem('rep_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
   config.headers[DEVICE_NOW_HEADER] = String(Date.now());
-  // «اشتراط تفعيل الموقع» — القفل الكامل: طلبٌ يغيّر بياناً من المقيَّد لا يُرسل إلا وهو حيّ على الخريطة الآن. يُرسل نقطةً طازجة
-  // قبله فيمرّ حارس الخادم يقيناً؛ وإن لم يكن حيّاً لا يُرسل أصلاً ويظهر الحاجز بسببه. نقطة الموقع نفسها مستثناة (لا حلقة)
-  if (token && strictRepNow() && !isLiveExemptRequest(config.method, config.url)) {
+  // «اشتراط تفعيل الموقع» — قفل صفحة العميل: طلبٌ يغيّر بياناً على عميل (فاتورة/سند/زيارة/عميل/رابط دفع) من المقيَّد لا يُرسل إلا
+  // وهو حيّ على الخريطة الآن. يُرسل نقطةً طازجة قبله فيمرّ حارس الخادم يقيناً؛ وإن لم يكن حيّاً لا يُرسل أصلاً. وما سواه يمرّ
+  if (token && strictRepNow() && isLiveGuardedRequest(config.method, config.url)) {
     const r = await ensureLive();
     if (!r.ok) throw liveRefusalError(r.reason, config);
   }
@@ -100,15 +100,15 @@ repApi.interceptors.request.use(async config => {
 repApi.interceptors.response.use(
   r => { noteServer(true); return r; },
   async err => {
-    // القفل الكامل: طلبٌ رُدّ قبل إرساله يمضي كما هو — لم يلمس الخادم فلا يقول شيئاً عن الاتصال
+    // قفل صفحة العميل: طلبٌ رُدّ قبل إرساله يمضي كما هو — لم يلمس الخادم فلا يقول شيئاً عن الاتصال
     if (isLocalLiveRefusal(err)) return Promise.reject(err);
     const cfg = err.config as (typeof err.config & { _renewTried?: boolean }) | undefined;
     // «متصل» = آخر ذهابٍ وإياب نجح: ردٌّ بأي حالة نجاح، ولا ردّ (انقطاع/مهلة) فشل
     if (err.response) noteServer(true);
     else if (!axios.isCancel(err)) {
       noteServer(false);
-      // المقيَّد: انقطاعٌ في طلبٍ يغيّر بياناً لا يصير صفّاً دون اتصال في أي شاشة — يُردّ ردَّ القفل «لا اتصال» (يحمل response)
-      if (strictRepNow() && !isLiveExemptRequest(cfg?.method, cfg?.url)) return Promise.reject(liveRefusalError('OFFLINE', cfg));
+      // المقيَّد: انقطاعٌ في طلبٍ على عميل لا يصير صفّاً دون اتصال في أي شاشة — يُردّ ردَّ القفل «لا اتصال» (يحمل response)
+      if (strictRepNow() && isLiveGuardedRequest(cfg?.method, cfg?.url)) return Promise.reject(liveRefusalError('OFFLINE', cfg));
     }
     // الخادم ردّ القفل: الحاجز يظهر بسببه حتى تُقبل نقطةٌ جديدة، والتطبيق يجدّد قيود المندوب (قيدٌ فُعّل للتوّ)
     if (isLiveRefusal(err)) {

@@ -70,7 +70,7 @@ import { createZatcaRouter, zatcaErrorGuard } from './routes/zatca';
 import { productionZatcaDeps } from './routes/zatcaDeps';
 import { errorHandler } from './middleware/errorHandler';
 import { apiLimiter, bridgeLimiter } from './middleware/rateLimits';
-// «اشتراط تفعيل الموقع» — القفل الكامل: لا يغيّر المندوب المقيَّد بياناً إلا ظاهراً على الخريطة الآن بموقعٍ دقيق
+// «اشتراط تفعيل الموقع» — قفل العمل على عميل: لا يغيّر المندوب المقيَّد بياناً على عميل إلا ظاهراً على الخريطة الآن بموقعٍ دقيق
 import { requireRepLiveLocation } from './middleware/repLiveLocation';
 // ZATCA المرحلة الثانية (Z5.7): رمز رابط المشتري لا يُكتب في سطر morgan — يُقنَّع قبل التوجيه
 import { redactShareTokensInLogs } from './middleware/shareUrlPrivacy';
@@ -188,8 +188,11 @@ app.use('/api/wa-account', waAccountRouter);
 // حدّ عام واقٍ لكل واجهة API (حدود أدق على الدخول/التسجيل داخل كل مسار)
 app.use('/api', apiLimiter);
 
-// «اشتراط تفعيل الموقع» (أمر المالك، ٦ أكتوبر ٢٠٢٦): حارسٌ واحد قبل كل موجّه — كل طلبٍ يغيّر بياناً من مندوبٍ مقيَّد يُردّ
-// ما لم تصل منه نقطة موقعٍ دقيقة الآن (middleware/repLiveLocation.ts). القراءة والدخول ونقطة الموقع ونبضة الحضور مستثناة.
+// «اشتراط تفعيل الموقع» (أمر المالك، ٧ أكتوبر ٢٠٢٦ — بعد التراجع عن القفل الكامل): حارسٌ واحد قبل كل موجّه يردّ من المندوب
+// المقيَّد كل طلبٍ يغيّر بياناً على عميل — ما تحت LIVE_GUARDED_PREFIXES (services/liveLocation.ts): /invoices و/receipts و/visits
+// و/customers و/paylink/issue — ما لم تصل منه نقطة موقعٍ دقيقة الآن. وما سواها مفتوحٌ افتراضاً: مسارٌ جديد يعمل على عميل يُركَّب
+// تحت إحدى البادئات أو تُضاف بادئته هنا وفي rep/liveGate.ts معاً (اختبار التطابق يفرضه)، واختبار rep-live-location يفشل حتى
+// تُصنَّف كل بادئةٍ جديدة تُركَّب هنا.
 app.use('/api', requireRepLiveLocation);
 
 app.use('/api/auth', authRouter);

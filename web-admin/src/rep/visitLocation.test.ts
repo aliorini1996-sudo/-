@@ -229,11 +229,11 @@ test('حارس ثابت: انتهاء المؤقّت يرسل موقع الوص�
   assert.match(fin, /\} finally \{\s*endEnding\(clientRef\);\s*refreshPendingVisits\(\);\s*\}\s*\};/);
   assert.match(fin, /if \(plan === 'drop'\) \{[\s\S]*?status: 'failed'[\s\S]*?return;\s*\}/);
   assert.match(fin, /const f = visitFailure\('timer', strict, isNetworkError\(err\)\);\s*if \(f === 'outbox'\) \{\s*await outboxAdd\(/);
-  assert.match(fin, /else if \(f === 'held'\) \{[\s\S]*?const r = postResultOf\(err\);\s*putPendingVisit\(pendingRetryOutcome\(r\) === 'keep' \? \{ \.\.\.held, status: 'waiting' \}/);
+  assert.match(fin, /else if \(f === 'held'\) \{[\s\S]*?const r = postResultOf\(err\);\s*putPendingVisit\(pendingRetryOutcome\(r\) === 'keep' \? \{ \.\.\.held, status: 'waiting', \.\.\.\(!r\.ok && r\.live \? \{ waitFor: 'location' as const \} : \{\}\) \}/);
   assert.equal((fin.match(/outboxAdd\(/g) || []).length, 1, 'الصفّ من فرع outbox وحده');
   // تُعاد حيّةً: بلا ترويسة إعادة الرفع (الخادم يردّها للمقيَّد)
   assert.match(app, /await retryPendingVisits\(async \(p\) => \{ await repApi\.post\('\/visits', p, \{ background: true \}\); \}, currentRepId\(\)\);/);
-  assert.match(app, /\{tr\('الزيارة بانتظار الاتصال لتسجيلها'\)\}/);
+  assert.match(app, /: tr\('الزيارة بانتظار الاتصال لتسجيلها'\)\}/);
   // يتامى «تُنهى الآن» تُحسم عند الإقلاع وعودة الشبكة — ولو دون اتصال — قبل إعادة الرفع
   const flush = app.slice(app.indexOf('const flushPendingVisits = useCallback('), app.indexOf('const finalizeVisit = async ('));
   assert.ok(flush.indexOf('orphanEnding(currentRepId())') < flush.indexOf("!navigator.onLine) return;"), 'الحسم قبل شرط الاتصال');

@@ -48,7 +48,8 @@ export function hasVisitCoords(b: { lat?: number | null; lng?: number | null }):
  * ولا مما سُجّل دون اتصال (إعادة رفعٍ من صفّ العمل دون اتصال — X-FS-Replay: 1). التطبيق يمنعهما، وهذا حارس الخادم
  * لنسخةٍ قديمة أو طلبٍ مباشر — بلا استثناءٍ لإعادة الرفع، وقبل أي كتابة. يعيد true إن رُدّ الطلب.
  *
- * والقفل الكامل (middleware/repLiveLocation.ts) يسبقه: المقيَّد لا يصل هنا إلا ظاهراً على الخريطة الآن بموقعٍ دقيق. فزيارته
+ * وحارس العمل على عميل (middleware/repLiveLocation.ts — /visits من بادئاته) يسبقه: المقيَّد لا يصل هنا إلا ظاهراً على الخريطة الآن
+ * بموقعٍ دقيق. فزيارته
  * يسجّلها هو بتوكنه وحده — لا الإدارة نيابةً عنه بإحداثياتٍ تكتبها (byRep)، وإلا سُجّلت له زيارةٌ وهو ليس هناك.
  */
 async function refuseVisitWithoutLocation(res: Response, tid: string, salesRepId: string,

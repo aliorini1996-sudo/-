@@ -11,7 +11,7 @@
  * والمصدر النهائي للحقيقة يبقى الخادم عند الاتصال.
  */
 
-import { liveRefusalError, strictRepNow } from './liveGate';
+import { isLiveGuardedKind, liveRefusalError, strictRepNow } from './liveGate';
 
 const DB_NAME = 'fieldsa-rep';
 const DB_VERSION = 1;
@@ -109,9 +109,10 @@ export interface OutboxDoc {
 }
 
 export async function outboxAdd(doc: OutboxDoc): Promise<void> {
-  // «اشتراط تفعيل الموقع» — القفل الكامل: لا يُصفّ للمندوب المقيَّد شيءٌ دون اتصال أبداً (فاتورة، مرتجع، سند، عميل، زيارة،
-  // نتيجة، تقرير). الشاشات تمنعه قبلها، وهذا آخر سدّ: يرمي فلا يُطبع مستندٌ برقمٍ مؤقّت ولا يُقال «حُفظ وسيُرفع»
-  if (strictRepNow()) throw liveRefusalError('OFFLINE');
+  // «اشتراط تفعيل الموقع» — قفل صفحة العميل: لا يُصفّ للمندوب المقيَّد عملٌ على عميل دون اتصال أبداً (فاتورة، مرتجع، سند، عميل،
+  // زيارة). الشاشات تمنعه قبلها، وهذا آخر سدّ: يرمي فلا يُطبع مستندٌ برقمٍ مؤقّت ولا يُقال «حُفظ وسيُرفع». والتقرير اليومي
+  // ونتيجة المندوب الذكي ليسا عملاً على عميل فيُصفّان كغيره
+  if (strictRepNow() && isLiveGuardedKind(doc.kind)) throw liveRefusalError('OFFLINE');
   await tx(STORE_OUTBOX, 'readwrite', (s) => s.put(doc));
 }
 
