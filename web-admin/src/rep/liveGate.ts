@@ -80,9 +80,13 @@ export function fixUsable(fix: LiveFix | null | undefined, now: number, maxAge: 
 
 /** الحكم — صرف. الترتيب: ما يصلحه المندوب أولاً (الموقع، ثم الاتصال)، ثم انتظار القراءة، ثم ظهوره على الخريطة */
 export function liveDecision(s: LiveSnapshot, now: number): LiveDecision {
-  if (!s.geoSupported || s.permission === 'denied' || s.geoError === 1) return { ok: false, block: 'off' };
+  const hasFix = fixUsable(s.fix, now);
+  // حالة الإذن المخبّأة (Permissions API) قد تبقى «denied» بعد السماح (لا حدث change على بعض الأجهزة) فعلق مناديب مفعّلون
+  // للموقع على «الموقع مطفأ» — والقراءة الصالحة دليلٌ قاطع أن الموقع يعمل، فلا تحجب وحدها معها. أما خطأ الرمز ١ فالقراءة تمحوه،
+  // فوجوده يعني أنه جاء بعد آخر قراءة (أطفأه للتوّ) ⇒ مطفأ فوراً.
+  if (!s.geoSupported || s.geoError === 1 || (s.permission === 'denied' && !hasFix)) return { ok: false, block: 'off' };
   if (!s.online || !s.serverOk) return { ok: false, block: 'offline' };
-  if (s.geoError !== 0 || !fixUsable(s.fix, now)) return { ok: false, block: 'locating' };
+  if (s.geoError !== 0 || !hasFix) return { ok: false, block: 'locating' };
   if (!s.ping || !s.ping.ok || !(now - s.ping.at <= LIVE_WINDOW_MS)) return { ok: false, block: 'notOnMap' };
   return { ok: true };
 }
@@ -215,9 +219,11 @@ export type PreflightResult = { ok: true; fix: LiveFix } | { ok: false; reason: 
 export async function preflightLive(deps: PreflightDeps): Promise<PreflightResult> {
   if (!deps.online()) { updateLive({ online: false }); return { ok: false, reason: 'OFFLINE' }; }
   const s = liveSnapshot();
-  if (!s.geoSupported || s.permission === 'denied') return { ok: false, reason: 'OFF' };
+  if (!s.geoSupported) return { ok: false, reason: 'OFF' };
+  // حالة الإذن المخبّأة لا تكفي للرفض: قد تبقى «denied» والموقع يعمل — القراءة الفعلية هي الحكم
   let fix = s.fix;
-  if (!fixUsable(fix, deps.now(), PREFLIGHT_FIX_MAX_AGE_MS)) {
+  // خطأ الرمز ١ بعد آخر قراءة (أطفأ الموقع للتوّ؟) لا تُستعمل معه قراءة ما قبله: قراءةٌ طازجة هي الحكم
+  if (s.geoError === 1 || !fixUsable(fix, deps.now(), PREFLIGHT_FIX_MAX_AGE_MS)) {
     const r = await deps.freshFix();
     if ('error' in r) {
       noteGeoError(r.error);
@@ -276,4 +282,24 @@ export function liveFixOf(p: { coords: { latitude: number; longitude: number; ac
     accuracy: finite(p.coords.accuracy) ? p.coords.accuracy : null,
     at: finite(p.timestamp) ? p.timestamp : now,
   };
+}
+
+/**
+ * طلب الموقع **داخل نقرة المستخدم** (متزامناً، قبل أي await): بعض المتصفّحات لا تُظهر نافذة الإذن بعد رفضٍ أو تجاهلٍ سابق
+ * إلا بإيماءة مستخدم، و«أعد المحاولة» هي تلك الإيماءة. النتيجة تُسجَّل في المخزن (قراءةٌ تمحو الخطأ، أو رمز الخطأ).
+ */
+export function requestLocationInGesture(): void {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(
+    (p) => noteFix({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy ?? null, at: p.timestamp || Date.now() }),
+    (e) => noteGeoError(e.code),
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 20_000 },
+  );
+}
+
+/** نوع الجهاز لخطوات تفعيل الموقع — تطبيق المتجر على أندرويد يعمل داخل Chrome فإذنه إذن Chrome */
+export function deviceKind(ua: string = typeof navigator === 'undefined' ? '' : navigator.userAgent): 'ios' | 'android' | 'other' {
+  if (/iPhone|iPad|iPod/i.test(ua)) return 'ios';
+  if (/Android/i.test(ua)) return 'android';
+  return 'other';
 }

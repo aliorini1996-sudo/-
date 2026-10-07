@@ -53,10 +53,25 @@ test('كل الشروط قائمة ⇒ يعمل', () => {
   assert.deepEqual(L.liveDecision(LIVE(), NOW), { ok: true });
 });
 
-test('١) الإذن والموقع: بلا دعم، أو إذنٌ مرفوض، أو آخر نتيجة «رفض/مطفأ» ⇒ «الموقع مطفأ» — ولو كانت قراءةٌ حديثة', () => {
-  for (const s of [LIVE({ geoSupported: false }), LIVE({ permission: 'denied' }), LIVE({ geoError: 1 })]) {
+test('١) الإذن والموقع: بلا دعم، أو آخر نتيجة «رفض/مطفأ» (ولو بعد قراءةٍ حديثة)، أو إذنٌ مرفوض بلا قراءةٍ صالحة ⇒ «الموقع مطفأ»', () => {
+  for (const s of [
+    LIVE({ geoSupported: false }), LIVE({ geoError: 1 }), LIVE({ geoError: 1, fix: null }),
+    LIVE({ permission: 'denied', fix: null }), LIVE({ permission: 'denied', fix: FIX({ at: NOW - 600_000 }) }),
+    LIVE({ permission: 'denied', fix: FIX({ accuracy: 1500 }) }),
+  ]) {
     assert.deepEqual(L.liveDecision(s, NOW), { ok: false, block: 'off' });
   }
+});
+
+test('١ب) مناديب مفعّلون للموقع عالقون على «الموقع مطفأ»: القراءة الصالحة تعلو حالة الإذن المخبّأة «denied»', () => {
+  // Permissions API قد تبقى «denied» بعد السماح (لا حدث change على بعض الأجهزة) — والقراءة دليلٌ قاطع أن الموقع يعمل
+  assert.deepEqual(L.liveDecision(LIVE({ permission: 'denied' }), NOW), { ok: true });
+  // والقراءة تمحو خطأ الرمز ١ — فنجاحها بعده يفتح
+  L.resetLive({ geoSupported: true, online: true, serverOk: true, permission: 'denied', geoError: 1, ping: { at: NOW - 3_000, ok: true, fixAt: NOW - 4_000 } });
+  L.noteFix(FIX());
+  assert.deepEqual(L.liveDecision(L.liveSnapshot(), NOW), { ok: true });
+  // وتبقى بقية الشروط كما هي: غائبٌ عن الخريطة يُحجب
+  assert.deepEqual(L.liveDecision(LIVE({ permission: 'denied', ping: null }), NOW), { ok: false, block: 'notOnMap' });
 });
 
 test('٢) الاتصال: المتصفّح غير متصل، أو آخر ذهابٍ وإياب مع الخادم فشل ⇒ «لا يوجد اتصال بالإنترنت»', () => {
@@ -145,11 +160,23 @@ test('الفحص المسبق: قراءةٌ أقدم من ١٠ث (أطفأ ال�
   assert.equal(inacc.calls.ping.length, 0);
 });
 
-test('الفحص المسبق: إذنٌ مرفوض ⇒ OFF بلا محاولة', async () => {
-  L.updateLive({ permission: 'denied', fix: FIX() });
-  const { d, calls } = deps();
-  assert.deepEqual(await L.preflightLive(d), { ok: false, reason: 'OFF' });
-  assert.equal(calls.fresh + calls.ping.length, 0);
+test('الفحص المسبق: حالة الإذن المخبّأة «denied» لا ترفض وحدها — القراءة الفعلية هي الحكم', async () => {
+  L.updateLive({ permission: 'denied' });
+  const ok = deps();
+  assert.equal((await L.preflightLive(ok.d)).ok, true, 'الموقع يعمل فعلاً ⇒ يُقبل');
+  assert.equal(ok.calls.fresh, 1, 'طُلبت قراءةٌ فعلية');
+  L.resetLive({ geoSupported: true, online: true, permission: 'denied' });
+  const off = deps({ fresh: { error: 1 } });
+  assert.deepEqual(await L.preflightLive(off.d), { ok: false, reason: 'OFF' }, 'مرفوضٌ فعلاً ⇒ OFF');
+  assert.equal(off.calls.ping.length, 0);
+});
+
+test('الفحص المسبق: خطأ الرمز ١ بعد القراءة (أطفأه للتوّ) ⇒ قراءةٌ طازجة إلزامية ولو كانت السابقة حديثة', async () => {
+  L.updateLive({ fix: FIX({ at: NOW - 1_000 }), geoError: 1 });
+  const off = deps({ fresh: { error: 1 } });
+  assert.deepEqual(await L.preflightLive(off.d), { ok: false, reason: 'OFF' });
+  assert.equal(off.calls.fresh, 1);
+  assert.equal(off.calls.ping.length, 0, 'لا نقطة بقراءة ما قبل الإطفاء');
 });
 
 test('الفحص المسبق: نقطةٌ قبلها الخادم قبل < ١٥ث بقراءةٍ حديثة تكفي — لا نقطة لكل نقرة؛ وبعدها أو مرفوضةً تُرسل جديدة', async () => {
@@ -302,4 +329,20 @@ test('الترجمة: نصوص الحاجز والقفل بلغاتها الأر
     assert.ok(e, `بلا ترجمة: ${k}`);
     for (const lang of ['en', 'fr', 'tr', 'zh'] as const) assert.ok(e[lang] && e[lang].trim(), `${k} بلا ${lang}`);
   }
+});
+
+test('حاجز «الموقع مطفأ»: «أعد المحاولة» تطلب الموقع داخل النقرة قبل أي انتظار، وخطوات التفعيل بحسب الجهاز مترجمة', () => {
+  const app = read('src', 'rep', 'RepApp.tsx');
+  assert.match(app, /const retry = async \(\) => \{ requestLocationInGesture\(\); setBusy\(true\);/);
+  assert.match(app, /LOCATION_STEPS\[deviceKind\(\)\]/);
+  const steps = [...app.matchAll(/^  (?:ios|android|other): '([^']+)',$/gm)].map((m) => m[1]);
+  assert.equal(steps.length, 3);
+  for (const ar of steps) {
+    const p = (PHRASES as Record<string, Record<string, string>>)[ar];
+    assert.ok(p, ar);
+    for (const l of ['en', 'fr', 'tr', 'zh']) assert.ok(p[l], l + ': ' + ar);
+  }
+  assert.equal(L.deviceKind('Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)'), 'ios');
+  assert.equal(L.deviceKind('Mozilla/5.0 (Linux; Android 14; SM-A546E) Chrome/129'), 'android');
+  assert.equal(L.deviceKind('Mozilla/5.0 (Windows NT 10.0; Win64; x64)'), 'other');
 });

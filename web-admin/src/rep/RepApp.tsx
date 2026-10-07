@@ -38,7 +38,7 @@ import { RepBuyerBanner, RepBuyerDataForm, fetchIncompleteBuyers } from './RepBu
 import { Component, lazy, Suspense, useRef, type ReactNode } from 'react';
 import { Sparkles, MapPinOff } from 'lucide-react';
 import { useLocationGate, strictLiveFix } from './locationGate';
-import { attemptClientRef, liveSnapshot, onLiveRefused, resetLive, strictRepNow, LIVE_REFUSAL_MESSAGE, type LiveBlock } from './liveGate';
+import { attemptClientRef, deviceKind, liveSnapshot, onLiveRefused, requestLocationInGesture, resetLive, strictRepNow, LIVE_REFUSAL_MESSAGE, type LiveBlock } from './liveGate';
 import { clearAiSession, markConverted, type AiAddPrefill } from './aiRepSession';
 import { OUTLET_TYPE_OPTIONS } from './aiRepLogic';
 import { dayMinutes, nextPunch, shiftMinutes, shiftsOf, type AttendanceState } from './attendanceDay';
@@ -3148,10 +3148,18 @@ const GATE_TEXT: Record<LiveBlock, { title: string; body: string }> = {
   offline: { title: 'لا يوجد اتصال بالإنترنت', body: 'اتصل بالإنترنت ليصل موقعك إلى الخريطة ثم اضغط اعد المحاولة' },
   notOnMap: { title: 'لم يظهر موقعك على الخريطة بعد', body: 'ننتظر وصول موقعك إلى الخادم ليظهر على الخريطة — اضغط اعد المحاولة' },
 };
+/** خطوات تفعيل الموقع بحسب الجهاز — يظهر مع «الموقع مطفأ»: إذن الجهاز والمتصفّح كلاهما يلزم */
+const LOCATION_STEPS: Record<'ios' | 'android' | 'other', string> = {
+  ios: 'في الايفون: الاعدادات ← الخصوصية والامان ← خدمات الموقع (مفعلة) ← مواقع سفاري ← «اثناء استخدام التطبيق» وفعل «الموقع الدقيق»',
+  android: 'في الاندرويد: الاعدادات ← التطبيقات ← Chrome ← الاذونات ← الموقع ← «السماح اثناء الاستخدام» وفعل «استخدام الموقع الدقيق»، ثم في Chrome: الاعدادات ← اعدادات المواقع الالكترونية ← الموقع ← fieldsa.net ← سماح',
+  other: 'اسمح للمتصفح باستعمال الموقع من اعدادات الجهاز ثم من اعدادات الموقع الالكتروني fieldsa.net',
+};
 function LocationOffGate({ block, onRetry }: { block: LiveBlock; onRetry: () => Promise<boolean> }) {
   const tr = useTr();
   const [busy, setBusy] = useState(false);
-  const retry = async () => { setBusy(true); try { await onRetry(); } finally { setBusy(false); } };
+  // الطلب داخل النقرة أولاً (متزامناً): بعض المتصفّحات لا تُظهر نافذة الإذن إلا بإيماءة مستخدم
+  const retry = async () => { requestLocationInGesture(); setBusy(true); try { await onRetry(); } finally { setBusy(false); } };
+  const snapNow = liveSnapshot();
   const text = GATE_TEXT[block];
   const waiting = block === 'locating' || block === 'notOnMap';
   return (
@@ -3161,7 +3169,10 @@ function LocationOffGate({ block, onRetry }: { block: LiveBlock; onRetry: () => 
       </div>
       <p className="font-bold text-[#1F1A13]">{tr(text.title)}</p>
       <p className="text-sm text-[#6E6557] leading-relaxed">{tr(text.body)}</p>
+      {block === 'off' && <p className="text-xs text-[#6E6557] leading-relaxed bg-white border border-[#EFE7D6] rounded-xl p-3">{tr(LOCATION_STEPS[deviceKind()])}</p>}
       <p className="text-xs text-[#9A8F7E] leading-relaxed">{tr('لا يمكنك فعل اي شيء في التطبيق حتى يكون موقعك مفعلا ومحددا بدقة وانت متصل وظاهر على الخريطة')}</p>
+      {/* رمزٌ صغير للدعم الفني: حالة الإذن وآخر خطأ موقع */}
+      <p className="text-[10px] text-[#B7AD9C]" dir="ltr">P:{snapNow.permission} · G:{snapNow.geoError} · F:{snapNow.fix ? Math.round(snapNow.fix.accuracy ?? -1) : '-'}</p>
       <button onClick={retry} disabled={busy}
         className="mt-2 px-5 py-2.5 rounded-xl bg-[#E15A30] text-white font-semibold text-sm disabled:opacity-60">
         {busy ? tr('جار تحديد موقعك') : tr('اعد المحاولة')}
