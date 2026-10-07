@@ -179,7 +179,8 @@ test('حارس ثابت (G6 (هـ)): ledger-reset — confirmName من الخا�
   const tx = body.indexOf('$transaction(');
   assert.ok(name >= 0 && name < tx, 'confirmName يطابق tenant.name في الخادم قبل المعاملة');
   const lock = body.indexOf('acquirePostLock(');
-  const posted = body.indexOf("state: 'POSTED'");
+  // كل قيدٍ رُقّم يوماً — الإعادة إلى مسودة لا تتخطّى الحارس
+  const posted = body.indexOf("number: { not: null }");
   const firstCount = body.search(/\.count\(/);
   assert.ok(lock > tx && posted > lock, 'القفل ثم عدّ المرحَّل');
   assert.equal(body.lastIndexOf('.count(', posted), firstCount, 'عدّ القيود المرحّلة أول الفحوص');

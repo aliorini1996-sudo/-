@@ -235,7 +235,8 @@ function tickDb(opts: {
         queries.push(a);
         lte = a.where.autoPostOn.lte;
         assert.equal(a.where.state, 'DRAFT');
-        assert.equal(a.where.number, null);
+        // المسودة المُعادة من مرحّل (برقمها) تُرحَّل مجدولةً كغيرها — لا شرط number: null
+        assert.equal((a.where as Record<string, unknown>).number, undefined);
         const t = a.where.tenant;
         // يطبّق شرط الشركة كما تطبّقه Prisma: الميزة مفعّلة والدفاتر مفعّلة وactivatedAt غير فارغ
         const eligible = (tenantId: string) => {
@@ -377,9 +378,10 @@ test('I7: كل وصفة آلية (origin=AUTO بأي sourceType، أو بمفت�
   assert.equal(manualOwnership({ origin: 'MANUAL', sourceType: null, sourceId: null, moveSources: 0, lineControlKinds: [null] }), null);
 });
 
-test('نسخة «إعادة إلى مسودة» origin=MANUAL بلا مصدر، والمعالج يستدعي resetDraft بعد assertManualOwned', () => {
+test('«إعادة إلى مسودة» في مكانها: لا نسخة ولا عكس، والمعالج يستدعي resetDraft بعد assertManualOwned', () => {
   const reset = fnBody('services/gl/reverse.ts', 'resetDraft');
-  assert.match(reset, /origin: 'MANUAL', sourceType: null, sourceId: null, sourceKey: null, sourceEvent: null/);
+  assert.doesNotMatch(reset, /saveDraftMove\(|reverseMove\(|draftOfMoveId/);
+  assert.match(reset, /return \{ draft: \{ id: moveId, number: rec\.number \} \};/);
   assertOrder(routeBody('routes/ledger/moves.ts', 'post', '/moves/:id/reset-draft'), ['assertManualOwned(tx', 'resetDraft(tx'], 'reset-draft');
 });
 
@@ -874,10 +876,10 @@ test('M3: draftRowsFromMoveDraft يكتب generated=true على المولَّد
   assert.ok(plain.lines.every((l) => l.generated === false));
 });
 
-test('M3 حارس ثابت: الحفظ ونسخة «إعادة إلى مسودة» يمرّران علم التوليد، والقراءة تختار العمود', () => {
+test('M3 حارس ثابت: الحفظ يمرّر علم التوليد، و«إعادة إلى مسودة» في مكانها لا تمسّ السطور إلا posted، والقراءة تختار العمود', () => {
   assert.match(fnBody('routes/ledger/moves.ts', 'saveManualDraft'), /draftRowsFromMoveDraft\([\s\S]*?generatedLineIndexes: built\.generatedLineIndexes/);
-  assert.match(fnBody('services/gl/reverse.ts', 'resetDraft'), /generatedLineIndexes = rec\.lines\.flatMap\(\(l, i\) => \(l\.generated \? \[i\] : \[\]\)\)/);
-  assert.match(fnBody('services/gl/reverse.ts', 'resetDraft'), /draftRowsFromMoveDraft\([^)]*generatedLineIndexes/);
+  // السطور نفسها تبقى (ومعها عمود generated) — القلب posted=false وحده
+  assert.match(fnBody('services/gl/reverse.ts', 'resetDraft'), /tx\.glMoveLine\.updateMany\(\{ where: \{ tenantId, moveId, move: \{ state: 'DRAFT' \} \}, data: \{ posted: false \} \}\)/);
   assert.match(src('services/gl/resolve.ts'), /MOVE_LINE_ENGINE_SELECT = \{[\s\S]*?generated: true[\s\S]*?\} as const/);
   assert.match(fnBody('routes/ledger/moves.ts', 'generatedLineFlags'), /typeof l\.generated === 'boolean'/);
   assert.match(src('../prisma/schema.prisma'), /model GlMoveLine \{[\s\S]*?\n\s*generated\s+Boolean\s+@default\(false\)[\s\S]*?@@map\("gl_move_lines"\)/);

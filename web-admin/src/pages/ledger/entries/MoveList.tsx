@@ -34,11 +34,17 @@ type Tr = (ar: string) => string;
 /** نصوص الأخطاء في lib/ledger/errors.ts (مُعاد تصديرها لمن يستوردها من هنا). */
 export { ledgerErrorText, ledgerErrorMessage } from '../../../lib/ledger/errors';
 
-/** ملخص رفض جماعي: «السبب (العدد)» لكل رمز. */
+/** ملخص رفض جماعي: «السبب (العدد)» لكل رمزٍ وسببه (مسودةٌ أُعيدت من مرحّل لا تُحذف ⇒ سببها لا «ليس مسودة»). */
 function rejectionSummary(tr: Tr, rejected: readonly BulkRejection[]): string {
-  const counts = new Map<string, number>();
-  for (const r of rejected) counts.set(r.code, (counts.get(r.code) ?? 0) + 1);
-  return [...counts.entries()].map(([code, n]) => `${ledgerErrorText(tr, code)} (${n})`).join(' · ');
+  const counts = new Map<string, { code: string; reason: unknown; n: number }>();
+  for (const r of rejected) {
+    const reason = r.details?.reason;
+    const key = `${r.code}|${typeof reason === 'string' ? reason : ''}`;
+    const cur = counts.get(key) ?? { code: r.code, reason, n: 0 };
+    cur.n++;
+    counts.set(key, cur);
+  }
+  return [...counts.values()].map((c) => `${ledgerErrorText(tr, c.code, null, c.reason)} (${c.n})`).join(' · ');
 }
 
 // ═══ الفلاتر ═══

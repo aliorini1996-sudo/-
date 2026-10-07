@@ -349,6 +349,8 @@ export default function MoveForm() {
   const title = isNew ? tr('جديد') : move?.number ?? tr('مسودة');
   const journal = journals.find(j => j.id === form?.journalId);
   const reversible = !!move && move.state === 'POSTED' && !owned && !move.reversal && canPost;
+  // «إعادة إلى مسودة» في مكانها: لا لقيدٍ عكسيّ لغيره (يبقى أصله معكوساً به) ولا للمؤمَّن — كالخادم
+  const resettable = reversible && !move.reversedMove && !move.secured;
 
   const headerActions = (
     <>
@@ -369,9 +371,11 @@ export default function MoveForm() {
           <button type="button" className="btn-secondary !py-1.5 !px-3 text-sm inline-flex items-center gap-1" onClick={() => setDialog('reverse')}>
             <Undo2 size={14} />{tr('عكس')}
           </button>
-          <button type="button" className="btn-secondary !py-1.5 !px-3 text-sm inline-flex items-center gap-1" onClick={() => setDialog('reset')}>
-            <RotateCcw size={14} />{tr('إعادة إلى مسودة')}
-          </button>
+          {resettable && (
+            <button type="button" className="btn-secondary !py-1.5 !px-3 text-sm inline-flex items-center gap-1" onClick={() => setDialog('reset')}>
+              <RotateCcw size={14} />{tr('إعادة إلى مسودة')}
+            </button>
+          )}
         </>
       )}
       {!isNew && move && canPost && !move.secured && (
@@ -526,7 +530,7 @@ export default function MoveForm() {
         canSave={editable && !!form?.journalId && !!form?.date}
         onSave={editable ? () => save.mutate() : undefined}
         onDiscard={() => { if (isNew) navigate(ledgerHref('entries')); else if (move) { const f = formFromMove(move); setForm(f); setBaseline(snapshot(f)); setLineErrors({}); } }}
-        onDeleteDraft={!isNew && move?.state === 'DRAFT' && move.origin === 'MANUAL' && !owned ? removeDraft : undefined}
+        onDeleteDraft={!isNew && move?.state === 'DRAFT' && move.origin === 'MANUAL' && !move.number && !owned ? removeDraft : undefined}
         loading={(!isNew && moveQ.isFetching) || accountsQ.isFetching || save.isPending || post.isPending}
         banner={banner}
         source={source}
@@ -550,10 +554,12 @@ export default function MoveForm() {
             <div>
               <label className="label" htmlFor="move-date">{tr('التاريخ المحاسبي')}</label>
               <input id="move-date" type="date" dir="ltr" className="input" disabled={!editable} value={form.date} onChange={e => patch({ date: e.target.value })} />
+              {/* مسودةٌ أُعيدت من مرحّل تحتفظ برقمها: تاريخها داخل فترة رقمه ودفترها ثابت (الخادم يحرسه — NUMBER_GROUP_CHANGED) */}
+              {editable && !!move?.number && <p className="text-[11px] text-[#9A8F7E] mt-1">{tr('القيد يحتفظ برقمه: يبقى تاريخه داخل فترة رقمه')}</p>}
             </div>
             <div>
               <label className="label" htmlFor="move-journal">{tr('الدفتر')}</label>
-              {editable ? (
+              {editable && !move?.number ? (
                 <select id="move-journal" className="input" value={form.journalId} onChange={e => patch({ journalId: e.target.value })}>
                   {!form.journalId && <option value="">—</option>}
                   {journals.filter(j => j.isActive || j.id === form.journalId).map(j => (
@@ -653,7 +659,10 @@ function ImpTag({ tr }: { tr: Tr }) {
   return <span className="ms-1 px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 text-[10px]">{tr('بانتحال')}</span>;
 }
 
-/** معالج العكس (JE‑06) و«إعادة إلى مسودة» (JE‑07): السبب إلزامي (G5)، والتاريخ ≥ تاريخ الأصل، افتراضياً max(اليوم، الأصل). */
+/**
+ * معالج العكس (JE‑06) و«إعادة إلى مسودة» (JE‑07): السبب إلزامي (G5). العكس بتاريخ ≥ تاريخ الأصل، افتراضياً max(اليوم، الأصل).
+ * والإعادة في مكانها (أمر المالك، ٧ أكتوبر ٢٠٢٦): القيد نفسه يعود مسودة برقمه — لا قيد عكسي ولا نسخة ولا تاريخ — ويبقى النموذج عليه.
+ */
 function ReverseDialog({ mode, move, today, onClose, onDone }: {
   mode: 'reverse' | 'reset';
   move: GlMoveDetail;
@@ -671,8 +680,8 @@ function ReverseDialog({ mode, move, today, onClose, onDone }: {
         const r = (await ledgerMovesApi.moves.reverse(move.id, body)).data.data;
         return { msg: r.alreadyReversed ? tr('القيد معكوس مسبقا') : `${tr('تم عكس القيد')} ${r.reversal.number ?? ''}`, target: r.reversal.id };
       }
-      const r = (await ledgerMovesApi.moves.resetDraft(move.id, body)).data.data;
-      return { msg: tr('تم العكس وإنشاء نسخة مسودة'), target: r.draft.id };
+      await ledgerMovesApi.moves.resetDraft(move.id, { reason: body.reason });
+      return { msg: tr('أُعيد القيد إلى مسودة برقمه'), target: move.id };
     },
     onSuccess: (r) => { toast.success(r.msg); onDone(r.target); },
     onError: (err) => {
@@ -680,7 +689,7 @@ function ReverseDialog({ mode, move, today, onClose, onDone }: {
       toast.error(ledgerErrorMessage(tr, e), { duration: 6000 });
     },
   });
-  const valid = reason.trim().length > 0 && (!date || date >= move.date);
+  const valid = reason.trim().length > 0 && (mode === 'reset' || !date || date >= move.date);
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" {...backdropClose(onClose)}>
@@ -694,13 +703,15 @@ function ReverseDialog({ mode, move, today, onClose, onDone }: {
           <p className="text-sm text-[#6E6557]">
             {mode === 'reverse'
               ? tr('يُنشأ قيد عكسي مرحّل يلغي أثر هذا القيد، ويبقى الأصل في الدفاتر')
-              : tr('يُنشأ قيد عكسي مرحّل ونسخة مسودة من القيد للتصحيح وإعادة الترحيل')}
+              : tr('يعود القيد نفسه مسودة برقمه كما كان، ويخرج أثره من الأرصدة والتقارير حتى تعيد ترحيله — لا يُنشأ قيد عكسي ولا قيد جديد')}
           </p>
-          <div>
-            <label className="label" htmlFor="rev-date">{tr('تاريخ العكس')}</label>
-            <input id="rev-date" type="date" dir="ltr" className="input" min={move.date} value={date} onChange={e => setDate(e.target.value)} />
-            <p className="text-[11px] text-[#9A8F7E] mt-1">{tr('لا يسبق تاريخ القيد الأصلي، ويقع خارج الفترات المقفلة')}</p>
-          </div>
+          {mode === 'reverse' && (
+            <div>
+              <label className="label" htmlFor="rev-date">{tr('تاريخ العكس')}</label>
+              <input id="rev-date" type="date" dir="ltr" className="input" min={move.date} value={date} onChange={e => setDate(e.target.value)} />
+              <p className="text-[11px] text-[#9A8F7E] mt-1">{tr('لا يسبق تاريخ القيد الأصلي، ويقع خارج الفترات المقفلة')}</p>
+            </div>
+          )}
           <div>
             <label className="label" htmlFor="rev-reason">{tr('السبب')} *</label>
             <textarea id="rev-reason" className="input min-h-[4rem] text-sm" required value={reason} maxLength={500} onChange={e => setReason(e.target.value)} />

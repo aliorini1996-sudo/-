@@ -298,7 +298,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
     let postedMoves = 0;
     let lastPostedDate: Date | null = null;
     if (glSettings) {
-      const agg = await prisma.glMove.aggregate({ where: { tenantId: tid, state: 'POSTED' }, _count: { _all: true }, _max: { date: true } });
+      const agg = await prisma.glMove.aggregate({ where: { tenantId: tid, number: { not: null } }, _count: { _all: true }, _max: { date: true } });
       postedMoves = agg._count._all;
       lastPostedDate = agg._max.date ?? null;
     }
@@ -338,7 +338,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
           where: { tenantId: tid },
           select: { fiscalYearEndMonth: true, fiscalYearEndDay: true, timezone: true },
         });
-        const aggNow = gsNow ? await tx.glMove.aggregate({ where: { tenantId: tid, state: 'POSTED' }, _count: { _all: true }, _max: { date: true } }) : null;
+        const aggNow = gsNow ? await tx.glMove.aggregate({ where: { tenantId: tid, number: { not: null } }, _count: { _all: true }, _max: { date: true } }) : null;
         const again = tenantDeleteRetentionGuard({
           postedMoves: aggNow?._count._all ?? 0,
           lastPostedDate: aggNow?._max.date ?? null,
@@ -499,7 +499,8 @@ router.post('/:id/ledger-reset', async (req: AuthRequest, res: Response, next: N
     const result = await prisma.$transaction(async tx => {
       await acquirePostLock(tx, tid);
       const [postedMoves, securedMoves, settings, customerAdjustmentSources] = [
-        await tx.glMove.count({ where: { tenantId: tid, state: 'POSTED' } }),
+        // كل قيدٍ رُقّم يوماً (ومنه المسودة المُعادة برقمها) — الإعادة إلى مسودة لا تتخطّى الحارس
+        await tx.glMove.count({ where: { tenantId: tid, number: { not: null } } }),
         await tx.glMove.count({ where: { tenantId: tid, secureHash: { not: null } } }),
         await tx.glSettings.findUnique({ where: { tenantId: tid }, select: { hardLockDate: true, activatedAt: true } }),
         await tx.glMoveSource.count({ where: { tenantId: tid, sourceType: 'CUSTOMER_ADJUSTMENT' } }),

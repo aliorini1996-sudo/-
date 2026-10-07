@@ -12,13 +12,14 @@ import { appendAudit, type GlActor, type GlTx } from './audit';
 import { fromDbDate, isLocalDate, toDbDate } from './dates';
 import { effectiveLockDate, lockScopeOfDraft, type EffectiveLock } from './locks';
 import { toMilli, unitMilli, MAX_CURRENCY_DECIMALS } from './money';
-import { acquirePostLock } from './post';
+import { acquirePostLock, reusableSequenceNumber } from './post';
+import { sequenceGroup } from './sequence';
 import { manualOwnership, type MoveRecord } from './resolve';
 import { collectMoveIssues, resolveLineAccount, type ValidationIssue } from './validate';
 import {
   LedgerError, VAT_CONTROL_KINDS,
   type BuildContext, type JournalRef, type LineDraft, type LocalDate, type MappingKey, type Milli, type MoveDraft,
-  type TaxRef, type TaxRole,
+  type MoveType, type TaxRef, type TaxRole,
 } from './types';
 import type { Prisma } from '@prisma/client';
 
@@ -529,8 +530,9 @@ export interface SaveDraftOptions {
 /**
  * يحفظ مسودة يدوية داخل المعاملة tx تحت قفل الترحيل (فلا تتداخل مع ترحيلها):
  * - إنشاء: glMove.create بسطوره، وتدقيق MOVE_CREATE.
- * - تعديل: الرأس بـupdateMany بشرط state:'DRAFT' وnumber:null وorigin:'MANUAL' (وإلا LEDGER_MOVE_NOT_DRAFT)،
- *   والسطور تُحذف وتُعاد بشرط move {state:'DRAFT', number:null}، وتدقيق MOVE_UPDATE_DRAFT بلقطتي قبل وبعد.
+ * - تعديل: الرأس بـupdateMany بشرط state:'DRAFT' والرقم المقروء وorigin:'MANUAL' (وإلا LEDGER_MOVE_NOT_DRAFT)،
+ *   والسطور تُحذف وتُعاد بشرط move {state:'DRAFT', number: المقروء}، وتدقيق MOVE_UPDATE_DRAFT بلقطتي قبل وبعد.
+ *   المسودة بلا رقم، أو برقمها إن أُعيدت من مرحّل («إعادة إلى مسودة» في مكانها) — الرقم لا يتغيّر بالتعديل.
  * قيد مملوك لمصدر (I7) ⇒ LEDGER_SOURCE_OWNED_MOVE. غير موجود ⇒ LEDGER_MOVE_NOT_DRAFT{reason:'NOT_FOUND'}.
  */
 export async function saveDraftMove(tx: GlTx, opts: SaveDraftOptions): Promise<{ id: string; created: boolean }> {
@@ -565,8 +567,22 @@ export async function saveDraftMove(tx: GlTx, opts: SaveDraftOptions): Promise<{
     },
   });
   if (!before) throw new LedgerError('LEDGER_MOVE_NOT_DRAFT', { moveId, reason: 'NOT_FOUND' });
-  if (before.state !== 'DRAFT' || before.number !== null) {
+  if (before.state !== 'DRAFT') {
     throw new LedgerError('LEDGER_MOVE_NOT_DRAFT', { moveId, state: before.state, number: before.number });
+  }
+  // مسودةٌ أُعيدت من مرحّل تحمل رقمها: لا يتغيّر دفترها ولا ينتقل تاريخها خارج فترة ترقيمها، فيعود القيد برقمه كما كان ولا يبقى
+  // رقمه فجوةً في التسلسل (كأودو)
+  if (before.number !== null) {
+    const j = await tx.glJournal.findFirst({ where: { id: rows.move.journalId, tenantId }, select: { id: true, code: true, sequenceReset: true } });
+    const group = j && j.id === before.journalId
+      ? sequenceGroup({
+        journal: { ...j, sequenceReset: j.sequenceReset as JournalRef['sequenceReset'] },
+        moveType: rows.move.moveType as MoveType, date: fromDbDate(new Date(rows.move.date)),
+      })
+      : null;
+    if (!j || !group || reusableSequenceNumber(before.number, group, j.sequenceReset) === null) {
+      throw new LedgerError('LEDGER_MOVE_NOT_DRAFT', { moveId, reason: 'NUMBER_GROUP_CHANGED', number: before.number });
+    }
   }
   const owned = manualOwnership({
     origin: before.origin, sourceType: before.sourceType, sourceId: before.sourceId, salesRepId: before.salesRepId,
@@ -579,7 +595,7 @@ export async function saveDraftMove(tx: GlTx, opts: SaveDraftOptions): Promise<{
   const { tenantId: _t, ...header } = rows.move;
   void _t;
   const updated = await tx.glMove.updateMany({
-    where: { id: moveId, tenantId, state: 'DRAFT', number: null, origin: 'MANUAL' },
+    where: { id: moveId, tenantId, state: 'DRAFT', number: before.number, origin: 'MANUAL' },
     data: {
       journalId: header.journalId, date: header.date, originalDate: header.originalDate, ref: header.ref,
       narration: header.narration, currencyCode: header.currencyCode, currencyDecimals: header.currencyDecimals,
@@ -588,7 +604,7 @@ export async function saveDraftMove(tx: GlTx, opts: SaveDraftOptions): Promise<{
     },
   });
   if (updated.count !== 1) throw new LedgerError('LEDGER_MOVE_NOT_DRAFT', { moveId, reason: 'RACE' });
-  await tx.glMoveLine.deleteMany({ where: { tenantId, moveId, move: { state: 'DRAFT', number: null } } });
+  await tx.glMoveLine.deleteMany({ where: { tenantId, moveId, move: { state: 'DRAFT', number: before.number } } });
   await tx.glMoveLine.createMany({ data: rows.lines.map((l) => ({ ...l, tenantId, moveId })) });
 
   await appendAudit(tx, {

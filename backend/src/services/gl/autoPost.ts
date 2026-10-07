@@ -113,6 +113,8 @@ export interface AutoPostCandidate {
   id: string;
   tenantId: string;
   autoPostOn: Date | null;
+  /** null للمسودة، أو رقمها إن أُعيدت من مرحّل («إعادة إلى مسودة» في مكانها) — تُرحَّل برقمها */
+  number?: string | null;
 }
 
 export interface AutoPostTenantRow {
@@ -139,10 +141,10 @@ export interface AutoPostTickDb {
   glMove: {
     findMany(args: {
       where: {
-        state: 'DRAFT'; number: null; needsAttention: false; autoPostOn: { not: null; lte: Date };
+        state: 'DRAFT'; needsAttention: false; autoPostOn: { not: null; lte: Date };
         tenant: AutoPostEligibleTenantWhere;
       };
-      select: { id: true; tenantId: true; autoPostOn: true };
+      select: { id: true; tenantId: true; autoPostOn: true; number: true };
       orderBy: [{ autoPostOn: 'asc' }, { id: 'asc' }];
       take: number;
     }): Promise<AutoPostCandidate[]>;
@@ -171,7 +173,8 @@ const TRANSIENT_CODES = new Set(['LEDGER_MOVE_NOT_DRAFT', 'NOT_FOUND']);
 /**
  * دورة واحدة: المسودات التي حلّ autoPostOn لها (≤ اليوم بتوقيت الشركة) تُرحَّل كلٌّ في معاملته بالمنفّذ SYSTEM.
  * الشركة بلا activatedAt أو بميزة مطفأة تُتخطى كلها (§6.1، §5.7). الفشل غير العابر يوسم المسودة
- * needsAttention (بشرط state:'DRAFT' وnumber:null) مع تدقيق، فلا تُعاد محاولتها كل ساعة.
+ * needsAttention (بشرط state:'DRAFT' ورقمها المقروء) مع تدقيق، فلا تُعاد محاولتها كل ساعة. والمسودة المُعادة من مرحّل (برقمها)
+ * تُرحَّل كغيرها — برقمها نفسه (postDraftMove).
  */
 export async function runAutoPostTick(
   db: AutoPostTickDb,
@@ -184,10 +187,10 @@ export async function runAutoPostTick(
   // الأهلية داخل الاستعلام: مسودات شركة غير مفعّلة أو مطفأة لا تحتل الدفعة فتجمّد المجدول لغيرها (العزل §9.4)
   const candidates = await db.glMove.findMany({
     where: {
-      state: 'DRAFT', number: null, needsAttention: false, autoPostOn: { not: null, lte: horizon },
+      state: 'DRAFT', needsAttention: false, autoPostOn: { not: null, lte: horizon },
       tenant: AUTO_POST_ELIGIBLE_TENANT,
     },
-    select: { id: true, tenantId: true, autoPostOn: true },
+    select: { id: true, tenantId: true, autoPostOn: true, number: true },
     orderBy: [{ autoPostOn: 'asc' }, { id: 'asc' }],
     take: opts.limit ?? AUTO_POST_BATCH,
   });
@@ -233,7 +236,7 @@ export async function runAutoPostTick(
         }
         result.rejected.push({ ...r, tenantId });
         if (!TRANSIENT_CODES.has(r.code)) {
-          await flagAutoPostFailure(db, tenantId, c.id, r.code, now).catch((fe) => {
+          await flagAutoPostFailure(db, tenantId, c.id, c.number ?? null, r.code, now).catch((fe) => {
             console.error('ledger auto-post flag error:', (fe as Error)?.message);
           });
         }
@@ -243,11 +246,13 @@ export async function runAutoPostTick(
   return result;
 }
 
-/** يوسم المسودة التي فشل ترحيلها المجدول (مسودة بلا رقم فقط) مع تدقيق في المعاملة نفسها. */
-async function flagAutoPostFailure(db: Pick<AutoPostTickDb, '$transaction'>, tenantId: string, moveId: string, code: string, now: Date): Promise<void> {
+/** يوسم المسودة التي فشل ترحيلها المجدول (ما دامت مسودةً برقمها المقروء) مع تدقيق في المعاملة نفسها. */
+async function flagAutoPostFailure(
+  db: Pick<AutoPostTickDb, '$transaction'>, tenantId: string, moveId: string, number: string | null, code: string, now: Date,
+): Promise<void> {
   await db.$transaction(async (tx) => {
     const flagged = await tx.glMove.updateMany({
-      where: { id: moveId, tenantId, state: 'DRAFT', number: null },
+      where: { id: moveId, tenantId, state: 'DRAFT', number },
       data: { needsAttention: true, attentionReason: `${AUTO_POST_ATTENTION_PREFIX}${code}` },
     });
     if (flagged.count !== 1) return;

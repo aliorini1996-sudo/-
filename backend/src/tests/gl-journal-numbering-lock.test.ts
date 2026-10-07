@@ -66,9 +66,10 @@ function journalTx(opts: { journals: { id: string; tenantId: string; code: strin
       },
     },
     glMove: {
-      count: async ({ where }: { where: { tenantId: string; journalId: string; state: string } }) => {
+      count: async ({ where }: { where: { tenantId: string; journalId: string; number: unknown } }) => {
         calls.push('glMove.count');
-        assert.equal(where.state, 'POSTED');
+        // كل قيدٍ رُقّم يوماً (مرحّلاً أو مسودةً أُعيدت برقمها) يقفل الترقيم
+        assert.deepEqual(where.number, { not: null });
         return opts.posted[`${where.tenantId}|${where.journalId}`] ?? 0;
       },
     },

@@ -103,7 +103,10 @@ export function periodBalanceDeltas(lines: readonly BalanceLine[], date: LocalDa
   return [...byAccount.values()].sort((a, b) => (a.accountId < b.accountId ? -1 : a.accountId > b.accountId ? 1 : 0));
 }
 
-/** يضيف الفروق إلى gl_period_balances تزايدياً (لا طرح ولا كتابة فوق): INSERT … ON CONFLICT DO UPDATE. */
+/**
+ * يضيف الفروق إلى gl_period_balances تزايدياً (لا كتابة فوق): INSERT … ON CONFLICT DO UPDATE. والفروق سالبةٌ في «إعادة إلى
+ * مسودة» وحدها (reverse.ts resetDraft) — تُطرح بها ما أضافه الترحيل.
+ */
 export async function applyPeriodBalances(tx: GlTx, tenantId: string, deltas: readonly PeriodBalanceDelta[]): Promise<void> {
   for (const d of deltas) {
     await tx.$executeRaw`
@@ -176,8 +179,24 @@ function resolveJournal(draft: MoveDraft, context: LedgerContext, journalId?: st
   return j;
 }
 
-/** الخطوات 2–5 المشتركة بين قيد جديد وترحيل مسودة قائمة — بعد أخذ القفل. */
-async function preparePost(tx: GlTx, input: MoveDraft, opts: PostMoveOptions, journalId?: string): Promise<PreparedPost> {
+/**
+ * رقمٌ سابق يُعاد لقيدٍ أُعيد مسودة ثم يُرحَّل من جديد: يُعاد ما دام في مجموعة الترقيم نفسها (الدفتر والبادئة والفترة) — أي ما
+ * لم يتغيّر دفتره أو فترة ترقيمه — فيعود القيد كما كان. وإلا null فيأخذ رقماً جديداً من تسلسل مجموعته الجديدة.
+ */
+export function reusableSequenceNumber(number: string | null | undefined, group: SequenceGroup, reset: string): number | null {
+  if (!number) return null;
+  const m = /\/(\d+)$/.exec(number);
+  const n = m ? Number(m[1]) : NaN;
+  if (!Number.isSafeInteger(n) || n < 1) return null;
+  try {
+    return formatMoveNumber(group.prefix, group.periodKey, reset as Parameters<typeof formatMoveNumber>[2], n) === number ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+/** الخطوات 2–5 المشتركة بين قيد جديد وترحيل مسودة قائمة — بعد أخذ القفل. keepNumber: رقم مسودةٍ أُعيدت من مرحّل. */
+async function preparePost(tx: GlTx, input: MoveDraft, opts: PostMoveOptions, journalId?: string, keepNumber?: string | null): Promise<PreparedPost> {
   const { tenantId } = opts;
   // (2) إعادة القراءة بعد القفل
   const settingsRow = await tx.glSettings.findUnique({ where: { tenantId } });
@@ -205,7 +224,11 @@ async function preparePost(tx: GlTx, input: MoveDraft, opts: PostMoveOptions, jo
 
   // (5) الرقم داخل المعاملة
   const g = sequenceGroup({ journal, moveType: draft.moveType, date: draft.date, sequencePrefix: draft.sequencePrefix });
-  const n = await nextSequenceNumber(tx, tenantId, g);
+  // مسودةٌ أُعيدت من مرحّل تُرحَّل برقمها نفسه — وإن خرجت عن مجموعته (دفترٌ أُعيد ترقيمه مثلاً) تُرفض ولا تأخذ رقماً جديداً
+  // صامتاً يترك رقمها فجوة
+  const kept = keepNumber ? reusableSequenceNumber(keepNumber, g, journal.sequenceReset) : null;
+  if (keepNumber && kept === null) throw new LedgerError('LEDGER_MOVE_NOT_DRAFT', { reason: 'NUMBER_GROUP_CHANGED', number: keepNumber });
+  const n = kept ?? await nextSequenceNumber(tx, tenantId, g);
   const number = formatMoveNumber(g.prefix, g.periodKey, journal.sequenceReset, n);
 
   let totalMilli = 0n;
@@ -350,7 +373,8 @@ export interface PostDraftOptions extends Omit<PostMoveOptions, 'reversedMoveId'
 
 /**
  * يرحّل مسودة قائمة (POST /moves/:id/post، /moves/post-drafts، مجدول autoPostOn) داخل المعاملة tx.
- * يقرأ المسودة وسطورها **بعد** القفل، ويقلب الرأس بشرط state:'DRAFT' وnumber:null (سباق ⇒ LEDGER_MOVE_NOT_DRAFT)،
+ * يقرأ المسودة وسطورها **بعد** القفل، ويقلب الرأس بشرط state:'DRAFT' والرقم المقروء (سباق ⇒ LEDGER_MOVE_NOT_DRAFT)،
+ * ومسودةٌ أُعيدت من مرحّل (برقمها) تُرحَّل برقمها نفسه ما لم يتغيّر دفترها أو فترتها (reusableSequenceNumber)،
  * ويقلب posted على السطور وينسخ إليها date وjournalId فقط — لا مساس بالمبالغ أو الحسابات.
  * الأخطاء: GlNotFoundError، LEDGER_MOVE_NOT_DRAFT، LEDGER_SECURED_MOVE، وكل أخطاء postMove.
  * **لا فحص activatedAt** — المسار والمجدول يردّان LEDGER_NOT_SETUP قبل الاستدعاء (§6.1).
@@ -359,17 +383,17 @@ export async function postDraftMove(tx: GlTx, opts: PostDraftOptions): Promise<P
   const { tenantId, actor, moveId } = opts;
   await acquirePostLock(tx, tenantId);
   const rec = await requireMoveRecord(tx, tenantId, moveId);
-  if (rec.state !== 'DRAFT' || rec.number !== null || rec.postedAt !== null) {
+  if (rec.state !== 'DRAFT' || rec.postedAt !== null) {
     throw new LedgerError('LEDGER_MOVE_NOT_DRAFT', { moveId, state: rec.state, number: rec.number });
   }
   if (rec.secureSeq !== null || rec.secureHash !== null) throw new LedgerError('LEDGER_SECURED_MOVE', { moveId });
 
-  const p = await preparePost(tx, moveDraftFromRecord(rec), opts, rec.journalId);
+  const p = await preparePost(tx, moveDraftFromRecord(rec), opts, rec.journalId, rec.number);
   const now = opts.now ?? new Date();
   const d = p.draft;
 
   const flipped = await tx.glMove.updateMany({
-    where: { id: moveId, tenantId, state: 'DRAFT', number: null },
+    where: { id: moveId, tenantId, state: 'DRAFT', number: rec.number },
     data: {
       state: 'POSTED',
       number: p.number,
@@ -403,7 +427,7 @@ export async function postDraftMove(tx: GlTx, opts: PostDraftOptions): Promise<P
     entityType: 'MOVE',
     entityId: moveId,
     summary: opts.auditSummary ?? `ترحيل القيد ${p.number}`,
-    before: { id: moveId, state: 'DRAFT', number: null, date: fromDbDate(rec.date) },
+    before: { id: moveId, state: 'DRAFT', number: rec.number, date: fromDbDate(rec.date) },
     after: auditAfter(p, opts, moveId),
     at: now,
   });
@@ -457,7 +481,8 @@ export async function assertJournalNumberingEditable(
     if (!journal) throw new GlNotFoundError('GlJournal', journalId);
     const changes = (input.code != null && input.code !== journal.code) || (input.sequenceReset != null && input.sequenceReset !== journal.sequenceReset);
     if (changes) {
-      const posted = await tx.glMove.count({ where: { tenantId, journalId, state: 'POSTED' } });
+      // كل قيدٍ رُقّم يوماً — مرحّلاً أو مسودةً أُعيدت برقمها — يقفل ترقيم الدفتر
+      const posted = await tx.glMove.count({ where: { tenantId, journalId, number: { not: null } } });
       const violation = journalNumberingViolation(journal, input, posted);
       if (violation) throw violation;
     }

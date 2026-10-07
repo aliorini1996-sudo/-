@@ -451,7 +451,8 @@ export function createPrismaCheckStore(db: Db): CheckStore {
     },
 
     async postedMoveNumbers(tenantId) {
-      const rows = await d.glMove.findMany({ where: { tenantId, state: 'POSTED', number: { not: null } }, select: { journalId: true, number: true } });
+      // كل رقمٍ ممنوح — والمسودة المُعادة من مرحّل تحجز رقمها (لا يُعدّ فجوة)
+      const rows = await d.glMove.findMany({ where: { tenantId, number: { not: null } }, select: { journalId: true, number: true } });
       return rows.map((r) => ({ journalId: r.journalId, number: r.number as string }));
     },
 

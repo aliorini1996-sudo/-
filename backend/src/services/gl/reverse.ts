@@ -1,5 +1,6 @@
 /**
  * العكس و«إعادة إلى مسودة» وحذف المسودة (M2، DESIGN.md §2.4، §6.1، §2.1 I7، §9.5 G1/G5).
+ * «إعادة إلى مسودة» في مكانها منذ ٧ أكتوبر ٢٠٢٦ (أمر المالك): القيد نفسه يعود مسودة برقمه — لا قيد عكسي ولا نسخة.
  *
  * - assertManualOwned قبل reverseMove/resetDraft في المسارات اليدوية: قيد مملوك لمصدر ⇒ 409 LEDGER_SOURCE_OWNED_MOVE
  *   مع {sourceType, sourceId, ownerAction}.
@@ -11,14 +12,15 @@
 import type { Prisma } from '@prisma/client';
 import { appendAudit, type GlActor, type GlTx } from './audit';
 import { fromDbDate, todayLocal } from './dates';
-import { autoReversalDate, lockScopeOfDraft, manualReversalDate, type LockDates } from './locks';
-import { acquirePostLock, postMove, type PostedMove } from './post';
-import { draftRowsFromMoveDraft, moveAuditHeader, saveDraftMove } from './draft';
+import { assertManualDateOpen, autoReversalDate, lockScopeOfDraft, manualReversalDate, type LockDates } from './locks';
+import { acquirePostLock, applyPeriodBalances, periodBalanceDeltas, postMove, type PostedMove } from './post';
+import { moveAuditHeader } from './draft';
 import {
   GlNotFoundError, loadBuildContext, manualOwnership, moveDraftFromRecord, requireMoveRecord,
-  type MoveRecord, type MoveRecordForDraft, type SourceOwnership,
+  type LedgerContext, type MoveRecord, type MoveRecordForDraft, type SourceOwnership,
 } from './resolve';
 import { sequencePrefixFor } from './sequence';
+import { validateMove, validationModeOf } from './validate';
 import { LedgerError, type LocalDate, type MoveDraft, type SourceEvent } from './types';
 
 // ═══ G5: سبب العكس ═══
@@ -205,43 +207,80 @@ export interface ResetDraftOptions {
   tenantId: string;
   moveId: string;
   actor: GlActor;
-  /** إلزامي (G5) */
+  /** إلزامي (G5) — يُكتب في التدقيق */
   reason: string;
-  requestedDate?: LocalDate | null;
+  /** سياق محمَّل مسبقاً (الاختبارات)؛ وإلا يُحمَّل بعد القفل */
+  context?: LedgerContext;
   now?: Date;
 }
 
 export interface ResetDraftResult {
-  reversal: ReverseResult['reversal'];
-  draft: { id: string };
+  /** القيد نفسه وقد عاد مسودة برقمه */
+  draft: { id: string; number: string };
 }
 
 /**
- * «إعادة إلى مسودة» (§6.1) للقيود اليدوية وحدها: عكس يدوي ثم نسخة مسودة origin=MANUAL بـdraftOfMoveId = الأصل،
- * بتاريخ الأصل وسطوره كما هي. تدقيقان: MOVE_REVERSE للعكس وMOVE_RESET_DRAFT للنسخة.
- * الأخطاء: كأخطاء reverseMove بوضع MANUAL، وLEDGER_MOVE_NOT_DRAFT{reason:'ALREADY_REVERSED'} لقيد معكوس مسبقاً.
+ * «إعادة إلى مسودة» للقيود اليدوية وحدها — **في مكانها** (أمر المالك، ٧ أكتوبر ٢٠٢٦، كأودو): القيد المرحّل نفسه يعود مسودة
+ * برقمه كما كان؛ لا قيد عكسي ولا نسخة ولا رقم جديد. يخرج أثره من الدفاتر حتى يُعاد ترحيله: سطوره posted=false (التقارير
+ * والأستاذ تقرأ المرحّل وحده) وأرصدته الشهرية تُطرح (gl_period_balances بالسالب). وإعادة ترحيله تعطيه رقمه نفسه ما لم يتغيّر
+ * دفتره أو فترة ترقيمه (postDraftMove). ولا تُحذف مسودةٌ رُحّلت من قبل (deleteDraftMove يشترط number:null) فلا فجوة في الترقيم.
+ * ممنوعة على: قيدٍ معكوس (ALREADY_REVERSED)، وقيدٍ عكسيّ لغيره (IS_REVERSAL)، والمؤمَّن، وما في فترة مقفلة.
+ * تدقيق MOVE_RESET_DRAFT بلقطتي قبل وبعد. الأخطاء: LEDGER_REVERSAL_REASON_REQUIRED، LEDGER_SOURCE_OWNED_MOVE،
+ * LEDGER_MOVE_NOT_DRAFT{reason: NOT_POSTED|ALREADY_REVERSED|IS_REVERSAL|RACE}، LEDGER_SECURED_MOVE، LEDGER_PERIOD_LOCKED.
  */
 export async function resetDraft(tx: GlTx, opts: ResetDraftOptions): Promise<ResetDraftResult> {
   const reason = assertReversalReason(opts.reason);
   const { tenantId, moveId, actor } = opts;
   await acquirePostLock(tx, tenantId);
   const rec = await assertManualOwned(tx, tenantId, moveId);
+  if (rec.state !== 'POSTED' || rec.number === null) {
+    throw new LedgerError('LEDGER_MOVE_NOT_DRAFT', { reason: 'NOT_POSTED', moveId, state: rec.state });
+  }
   if (rec.reversal) throw new LedgerError('LEDGER_MOVE_NOT_DRAFT', { reason: 'ALREADY_REVERSED', moveId, reversalId: rec.reversal.id });
+  // قيدٌ عكسيّ يبقى مرحّلاً ما دام أصله معكوساً به — وإلا بقي الأصل «معكوساً» وأثره قائم
+  if (rec.reversedMoveId) throw new LedgerError('LEDGER_MOVE_NOT_DRAFT', { reason: 'IS_REVERSAL', moveId, reversedMoveId: rec.reversedMoveId });
+  if (rec.secureSeq !== null || rec.secureHash !== null) throw new LedgerError('LEDGER_SECURED_MOVE', { moveId });
 
-  const rev = await reverseMove(tx, { tenantId, moveId, actor, reason, mode: 'MANUAL', requestedDate: opts.requestedDate, now: opts.now });
+  // الفترة المقفلة لا يُسحب منها قيد — كالترحيل اليدوي فيها (تواريخ الإقفال مقروءة بعد القفل)
+  const context = opts.context ?? await loadBuildContext(tx, tenantId);
+  const settings = context.ctx.settings;
+  const locks: LockDates = {
+    salesLockDate: settings.salesLockDate, purchaseLockDate: settings.purchaseLockDate,
+    taxLockDate: settings.taxLockDate, hardLockDate: settings.hardLockDate,
+  };
+  const date = fromDbDate(rec.date);
+  const asDraft = moveDraftFromRecord(rec);
+  assertManualDateOpen(date, locks, lockScopeOfDraft(asDraft, context.ctx));
+  // يُعاد ترحيله كما هو؟ (حسابٌ أُرشف بعد ترحيله يرمي هنا) — وإلا خرج أثره من الدفاتر وعلق مسودةً لا تُحذف
+  validateMove(asDraft, context.ctx, { mode: validationModeOf(asDraft) });
 
-  const context = await loadBuildContext(tx, tenantId);
-  const copy: MoveDraft = { ...moveDraftFromRecord(rec), origin: 'MANUAL', sourceType: null, sourceId: null, sourceKey: null, sourceEvent: null };
-  // علم التوليد المخزَّن (M3) ينتقل إلى النسخة، فيبقى المولَّد مولَّداً عند إعادة حفظها
-  const generatedLineIndexes = rec.lines.flatMap((l, i) => (l.generated ? [i] : []));
-  const rows = draftRowsFromMoveDraft(copy, context.ctx, { tenantId, journalId: rec.journalId, actor, draftOfMoveId: rec.id, generatedLineIndexes });
-  const saved = await saveDraftMove(tx, {
-    tenantId, actor, rows,
-    auditAction: 'MOVE_RESET_DRAFT',
-    auditSummary: `إعادة القيد ${rec.number ?? ''} إلى مسودة: ${reason}`,
-    now: opts.now,
+  const now = opts.now ?? new Date();
+  const flipped = await tx.glMove.updateMany({
+    where: { id: moveId, tenantId, state: 'POSTED', number: rec.number, secureSeq: null, secureHash: null },
+    data: {
+      state: 'DRAFT', postedAt: null, postedBy: null, postedByImpersonated: false,
+      autoPostOn: null, reviewState: 'NONE', reviewedBy: null, reviewedAt: null,
+    },
   });
-  return { reversal: rev.reversal, draft: { id: saved.id } };
+  if (flipped.count !== 1) throw new LedgerError('LEDGER_MOVE_NOT_DRAFT', { moveId, reason: 'RACE' });
+  await tx.glMoveLine.updateMany({ where: { tenantId, moveId, move: { state: 'DRAFT' } }, data: { posted: false } });
+  // الأرصدة الشهرية: يُطرح ما أضافه الترحيل بالتاريخ والنوع نفسيهما (والعلامات مستبعدة كما استُبعدت)
+  await applyPeriodBalances(tx, tenantId, periodBalanceDeltas(
+    rec.lines.map((l) => ({ accountId: l.accountId, debitMilli: -l.debitMilli, creditMilli: -l.creditMilli, taxRole: l.taxRole })),
+    date, rec.moveType,
+  ));
+
+  await appendAudit(tx, {
+    tenantId, actor, action: 'MOVE_RESET_DRAFT', entityType: 'MOVE', entityId: moveId,
+    summary: `إعادة القيد ${rec.number} إلى مسودة: ${reason}`,
+    before: {
+      id: moveId, state: 'POSTED', number: rec.number, date, totalMilli: rec.totalMilli.toString(),
+      postedAt: rec.postedAt ? rec.postedAt.toISOString() : null, postedBy: rec.postedBy, reviewState: rec.reviewState,
+    },
+    after: { id: moveId, state: 'DRAFT', number: rec.number, reason },
+    at: now,
+  });
+  return { draft: { id: moveId, number: rec.number } };
 }
 
 // ═══ حذف المسودة (JE‑05b) ═══
@@ -282,6 +321,10 @@ async function deleteDraftRejection(
   tx: GlTx, opts: DeleteDraftOptions, rec: DeleteSnapshot | null,
 ): Promise<{ code: DeleteDraftRejectCode; details: Record<string, unknown> } | null> {
   if (!rec) return { code: 'NOT_FOUND', details: { moveId: opts.moveId } };
+  // مسودةٌ برقم = قيدٌ رُحّل ثم أُعيد مسودة: لا يُحذف فلا يبقى رقمه فجوةً في الترقيم — يُرحَّل من جديد أو يُعكس بعد ترحيله
+  if (rec.state === 'DRAFT' && rec.number !== null) {
+    return { code: 'LEDGER_MOVE_NOT_DRAFT', details: { moveId: rec.id, reason: 'POSTED_BEFORE', number: rec.number } };
+  }
   if (rec.state !== 'DRAFT' || rec.number !== null || rec.postedAt !== null || rec.secureSeq !== null) {
     return { code: 'LEDGER_MOVE_NOT_DRAFT', details: { moveId: rec.id, state: rec.state, number: rec.number } };
   }

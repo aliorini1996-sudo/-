@@ -15,6 +15,9 @@ type Tr = (ar: string) => string;
 export const ledgerMoveReasonLabels = (tr: Tr): Record<string, string> => ({
   NOT_POSTED: tr('القيد غير مرحّل فلا يُعكس'),
   ALREADY_REVERSED: tr('القيد معكوس مسبقا'),
+  IS_REVERSAL: tr('القيد عكسي لقيد آخر فلا يعاد إلى مسودة'),
+  POSTED_BEFORE: tr('رحل هذا القيد من قبل فلا يحذف، رحله من جديد او اعكسه'),
+  NUMBER_GROUP_CHANGED: tr('القيد يحتفظ برقمه فلا يتغير دفتره ولا ينتقل تاريخه خارج فترة رقمه'),
   NOT_FOUND: tr('السجل غير موجود'),
   RACE: tr('تغيّر القيد أثناء التنفيذ، أعد المحاولة'),
   INVALID_AMOUNT: tr('مبلغ غير صالح'),

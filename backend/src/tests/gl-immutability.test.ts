@@ -62,29 +62,45 @@ function assertOrder(body: string, needles: string[], label: string) {
 
 // ═══ حراس الخدمات ═══
 
-test('الخدمات: لا glMoveLine.update مفرداً ولا upsert، والتحديث الجماعي الوحيد يقلب posted/date/journalId بلا مبالغ', () => {
+test('الخدمات: لا glMoveLine.update مفرداً ولا upsert، والتحديث الجماعي يقلب posted (والترحيل date/journalId) بلا مبالغ', () => {
   for (const f of allGlFiles()) {
     const c = stripComments(fs.readFileSync(f, 'utf8'));
     assert.doesNotMatch(c, /glMoveLine\.(update|upsert)\s*\(/, `${f}: glMoveLine.update ممنوع`);
     const many = calls(c, /glMoveLine\.updateMany\s*\(/);
-    if (path.basename(f) !== 'post.ts') assert.equal(many.length, 0, `${f}: glMoveLine.updateMany خارج post.ts`);
+    const base = path.basename(f);
+    if (base !== 'post.ts' && base !== 'reverse.ts') assert.equal(many.length, 0, `${f}: glMoveLine.updateMany خارج post.ts وreverse.ts`);
     for (const call of many) {
       const data = /data:\s*\{([^}]*)\}/.exec(call)?.[1] ?? '';
       const keys = data.split(',').map((kv) => kv.split(':')[0].trim()).filter(Boolean).sort();
-      assert.deepEqual(keys, ['date', 'journalId', 'posted'], `post.ts: حقول قلب السطور ${keys.join(',')}`);
+      // الترحيل يقلب posted وينسخ التاريخ والدفتر؛ و«إعادة إلى مسودة» في مكانها تقلب posted=false وحده
+      if (base === 'post.ts') assert.deepEqual(keys, ['date', 'journalId', 'posted'], `post.ts: حقول قلب السطور ${keys.join(',')}`);
+      else assert.match(call, /data: \{ posted: false \}/, `reverse.ts: ${call}`);
     }
   }
 });
 
-test('الخدمات: كل glMove.update/updateMany مشروط بـstate: \'DRAFT\' وnumber: null (لا مساس بمرحَّل)', () => {
+test('الخدمات: كل glMove.update/updateMany مشروط بالمسودة ورقمها المقروء — إلا قلب «إعادة إلى مسودة» الوحيد (المرحّل برقمه غير المؤمَّن)', () => {
+  let resets = 0;
   for (const f of allGlFiles()) {
     const c = stripComments(fs.readFileSync(f, 'utf8'));
     assert.doesNotMatch(c, /glMove\.(update|upsert)\s*\(/, `${f}: glMove.update المفرد ممنوع — updateMany بشرط المسودة`);
     for (const call of calls(c, /glMove\.updateMany\s*\(/)) {
-      assert.match(call, /state:\s*'DRAFT'/, `${f}: ${call.slice(0, 80)}`);
-      assert.match(call, /number:\s*null/, `${f}: ${call.slice(0, 80)}`);
+      const where = /where:\s*\{([^}]*)\}/.exec(call)?.[1] ?? '';
+      if (/state:\s*'POSTED'/.test(where)) {
+        // «إعادة إلى مسودة» في مكانها (أمر المالك ٧ أكتوبر): بشرط الرقم المقروء وغير المؤمَّن، ولا يمسّ مبلغاً ولا حساباً ولا تاريخاً
+        assert.equal(path.basename(f), 'reverse.ts', `${f}: قلب مرحّل خارج resetDraft`);
+        assert.match(where, /number: rec\.number, secureSeq: null, secureHash: null/);
+        assert.match(call, /data: \{\s*state: 'DRAFT'/);
+        assert.doesNotMatch(call, /Milli|accountId|journalId|date:/);
+        resets++;
+        continue;
+      }
+      assert.match(where, /state:\s*'DRAFT'/, `${f}: ${call.slice(0, 80)}`);
+      // المسودة بلا رقم، أو برقمها المقروء بعد القفل (مسودةٌ أُعيدت من مرحّل)
+      assert.match(where, /\bnumber(:\s*(null|rec\.number|before\.number)\b|\s*[,}]|\s*$)/, `${f}: ${call.slice(0, 80)}`);
     }
   }
+  assert.equal(resets, 1);
 });
 
 test('الخدمات: كل glMove.delete*/glMoveLine.delete* يحمل state: \'DRAFT\' وnumber: null، وحذف المرفقات في حذف المسودة وحده', () => {
@@ -93,7 +109,9 @@ test('الخدمات: كل glMove.delete*/glMoveLine.delete* يحمل state: \'D
     const c = stripComments(fs.readFileSync(f, 'utf8'));
     for (const call of calls(c, /glMove(Line)?\.(delete|deleteMany)\s*\(/)) {
       assert.match(call, /state:\s*'DRAFT'/, `${f}: ${call}`);
-      assert.match(call, /number:\s*null/, `${f}: ${call}`);
+      // حذف القيد: مسودةٌ بلا رقم وحدها (ما رُحّل من قبل لا يُحذف)؛ وحذف سطور المسودة عند تعديلها برقمها المقروء
+      if (/glMove\.(delete|deleteMany)/.test(call)) assert.match(call, /number:\s*null/, `${f}: ${call}`);
+      else assert.match(call, /number:\s*(null|before\.number)/, `${f}: ${call}`);
     }
     const att = calls(c, /glAttachment(Blob)?\.(delete|deleteMany)\s*\(/);
     if (att.length) {
@@ -130,11 +148,15 @@ test('reverseMove وresetDraft: السبب أولاً (G5)، وassertManualOwned
   assertOrder(rev, ['assertReversalReason(opts.reason)', 'acquirePostLock(tx, tenantId)', "mode === 'MANUAL' ? await assertManualOwned(tx, tenantId, moveId)", 'postMove(tx, draft'], 'reverseMove');
   assert.match(rev, /reversedMoveId: rec\.id/);
   assert.match(rev, /reversalReason: reason/);
+  // «إعادة إلى مسودة» في مكانها (أمر المالك ٧ أكتوبر): لا عكس ولا نسخة — القيد نفسه يعود مسودة وتُطرح أرصدته
   const reset = fnBody(src, 'resetDraft');
-  assertOrder(reset, ['assertReversalReason(opts.reason)', 'assertManualOwned(tx, tenantId, moveId)', 'reverseMove(tx', 'saveDraftMove(tx'], 'resetDraft');
-  assert.match(reset, /origin: 'MANUAL'/);
-  assert.match(reset, /draftOfMoveId: rec\.id/);
-  assert.match(reset, /auditAction: 'MOVE_RESET_DRAFT'/);
+  assertOrder(reset, [
+    'assertReversalReason(opts.reason)', 'acquirePostLock(tx, tenantId)', 'assertManualOwned(tx, tenantId, moveId)',
+    "reason: 'NOT_POSTED'", "reason: 'ALREADY_REVERSED'", "reason: 'IS_REVERSAL'", "'LEDGER_SECURED_MOVE'",
+    'assertManualDateOpen(date, locks', 'tx.glMove.updateMany(', 'tx.glMoveLine.updateMany(', 'applyPeriodBalances(tx, tenantId', "action: 'MOVE_RESET_DRAFT'",
+  ], 'resetDraft');
+  assert.match(reset, /debitMilli: -l\.debitMilli, creditMilli: -l\.creditMilli/);
+  assert.doesNotMatch(reset, /reverseMove\(|saveDraftMove\(|postMove\(|draftOfMoveId/);
 });
 
 test('saveDraftMove: تعديل المسودة مشروط بالمسودة اليدوية، وحذف سطورها بشرط move {state: DRAFT, number: null}', () => {

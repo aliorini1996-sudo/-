@@ -527,7 +527,8 @@ const journalCreateSchema = z.object(journalFields);
 const journalUpdateSchema = z.object({ ...journalFields, isActive: z.boolean() }).partial();
 
 async function postedJournalIds(tenantId: string): Promise<Set<string>> {
-  const g = await prisma.glMove.groupBy({ by: ['journalId'], where: { tenantId, state: 'POSTED' } });
+  // رُقّم يوماً (مرحّلاً أو مسودةً أُعيدت برقمها) — = قفل الترقيم في post.ts
+  const g = await prisma.glMove.groupBy({ by: ['journalId'], where: { tenantId, number: { not: null } } });
   return new Set(g.map((x) => x.journalId));
 }
 
@@ -616,7 +617,7 @@ router.put('/journals/:id', CONFIGURE, ledgerHandler(async (req, res) => {
         before: d.before, after: d.after,
       });
     }
-    const posted = await tx.glMove.findFirst({ where: { tenantId, journalId: id, state: 'POSTED' }, select: { id: true } });
+    const posted = await tx.glMove.findFirst({ where: { tenantId, journalId: id, number: { not: null } }, select: { id: true } });
     return journalOut(updated, !!posted);
   }, TX_OPTS);
   res.json({ success: true, data: out });

@@ -321,9 +321,9 @@ export interface ReverseResult {
   original: { id: string; number: string | null };
   reversal: { id: string; number: string | null; date: LocalDate };
 }
+/** «إعادة إلى مسودة» في مكانها: القيد نفسه عاد مسودة برقمه — لا قيد عكسي ولا نسخة */
 export interface ResetDraftResult {
-  reversal: { id: string; number: string | null; date: LocalDate };
-  draft: { id: string };
+  draft: { id: string; number: string };
 }
 
 export interface GlMoveNote {
@@ -438,7 +438,7 @@ export const ledgerMovesApi = {
     review: (id: string, reviewState: ReviewState) => api.post<LedgerEnvelope<{ id: string; reviewState: ReviewState }>>(`${L}/moves/${id}/review`, { reviewState }),
     /** اليدوية وحدها (I7)؛ السبب إلزامي (G5) */
     reverse: (id: string, data: ReverseInput) => api.post<LedgerEnvelope<ReverseResult>>(`${L}/moves/${id}/reverse`, data),
-    resetDraft: (id: string, data: ReverseInput) => api.post<LedgerEnvelope<ResetDraftResult>>(`${L}/moves/${id}/reset-draft`, data),
+    resetDraft: (id: string, data: { reason: string }) => api.post<LedgerEnvelope<ResetDraftResult>>(`${L}/moves/${id}/reset-draft`, data),
     // الإجراءات الجماعية (§8.3) — بحد 100 معرّف
     postDrafts: (ids: string[]) => api.post<LedgerEnvelope<BulkPostResult>>(`${L}/moves/post-drafts`, { ids }),
     deleteDrafts: (ids: string[]) => api.post<LedgerEnvelope<BulkDeleteResult>>(`${L}/moves/delete-drafts`, { ids }),

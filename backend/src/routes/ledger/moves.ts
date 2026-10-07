@@ -828,21 +828,18 @@ router.post('/moves/:id/reverse', requireLedgerPermission('canPostJournals'), le
   });
 }));
 
+// «إعادة إلى مسودة» في مكانها (أمر المالك، ٧ أكتوبر ٢٠٢٦): القيد نفسه يعود مسودة برقمه — لا قيد عكسي ولا نسخة (reverse.ts)
 router.post('/moves/:id/reset-draft', requireLedgerPermission('canPostJournals'), ledgerHandler(async (req, res) => {
   const { tenantId } = locals(res);
   const reason = assertReversalReason(req.body?.reason);
-  const requestedDate = dateParam(req.body?.date, 'date') ?? null;
   await assertLedgerActivated(tenantId);
   const actor = actorOf(req, res);
   const moveId = String(req.params.id);
   const r = await prisma.$transaction(async (tx) => {
     await assertManualOwned(tx, tenantId, moveId);
-    return resetDraft(tx, { tenantId, moveId, actor, reason, requestedDate });
+    return resetDraft(tx, { tenantId, moveId, actor, reason });
   }, POST_TX_OPTIONS);
-  res.json({
-    success: true,
-    data: { reversal: { id: r.reversal.id, number: r.reversal.number, date: r.reversal.date }, draft: r.draft },
-  });
+  res.json({ success: true, data: { draft: r.draft } });
 }));
 
 // ═══ «إعادة الترحيل من المصدر» (M3، §6.1) ═══
