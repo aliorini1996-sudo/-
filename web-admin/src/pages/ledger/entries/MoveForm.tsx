@@ -456,11 +456,16 @@ export default function MoveForm() {
   const sourceType = move?.ownership?.sourceType ?? move?.sourceType ?? null;
   const sourceId = move?.ownership?.sourceId ?? move?.sourceId ?? null;
   const source = (owned || move?.origin === 'AUTO') && move ? {
-    label: `${sourceType ? sourceTypeLabels(tr)[sourceType] ?? sourceType : tr('مستند')}${sourceId ? ` ${sourceId.slice(0, 8)}` : ''} — ${tr('يُلغى من مستنده')}`,
+    // الإقفال اليومي: التاريخ كاملاً، ولا مستند يُلغى منه (قيدٌ آلي يُبنى من يومه كله)
+    label: sourceType === 'DAILY_CLOSE'
+      ? `${sourceTypeLabels(tr).DAILY_CLOSE} ${sourceId ?? ''} — ${tr('قيد آلي من إقفال اليوم')}`
+      : `${sourceType ? sourceTypeLabels(tr)[sourceType] ?? sourceType : tr('مستند')}${sourceId ? ` ${sourceId.slice(0, 8)}` : ''} — ${tr('يُلغى من مستنده')}`,
     href: sourceDocumentHref(sourceType, { customerId: move.customerId }) ?? undefined,
     origin: move.origin,
   } : null;
+  // قيود الإقفال اليومي (DAILY_CLOSE) لا تُعاد من مصدر — تُبنى من يومها كله لا من مستند
   const canRepost = !!move && move.origin === 'AUTO' && move.state === 'POSTED' && !move.reversal && !move.reversedMove && !move.secured
+    && move.sourceType !== 'DAILY_CLOSE'
     && canLedger(user, 'canConfigureLedger');
 
   const linesTab = form && (

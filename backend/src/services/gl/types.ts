@@ -482,7 +482,8 @@ export interface MoveDraft {
   customerId?: string | null;
   vendorId?: string | null;
   salesRepId?: string | null;
-  sourceType?: SourceType | null;
+  /** مصدر المستند (SOURCE_TYPES)، أو DAILY_CLOSE لقيود الإقفال اليومي (services/gl/dailyClose.ts) — لا يمرّ بالمُرحِّل */
+  sourceType?: SourceType | 'DAILY_CLOSE' | null;
   sourceId?: string | null;
   /** مفتاح GlMoveSource (INVOICE:<id>:POST …) */
   sourceKey?: string | null;

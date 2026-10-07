@@ -1017,7 +1017,8 @@ export function settlementRebuildInputs(
 
 /** قلب قيد مبني (عكس من الحمولة): الجانبان سطراً بسطر والوعاء سالباً */
 export function invertDraft(draft: MoveDraft, event: 'REVERSE', date: LocalDate): MoveDraft {
-  const key = draft.sourceType && draft.sourceId ? reverseKeyOf(draft.sourceType, draft.sourceId) : null;
+  // قيود الإقفال اليومي (DAILY_CLOSE) لا تمرّ بالمُرحِّل ولا تُعكس من حمولة
+  const key = draft.sourceType && draft.sourceType !== 'DAILY_CLOSE' && draft.sourceId ? reverseKeyOf(draft.sourceType, draft.sourceId) : null;
   return {
     ...draft,
     date,
