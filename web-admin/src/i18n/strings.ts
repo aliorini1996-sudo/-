@@ -374,6 +374,7 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'ر.س': { en: 'SAR', fr: 'SAR', tr: 'SAR', zh: 'SAR' },
   // إجراءات وعناصر عامة متكرّرة
   'حفظ': { en: 'Save', fr: 'Enregistrer', tr: 'Kaydet', zh: '保存' },
+  'المزيد': { en: 'More', fr: 'Plus', tr: 'Daha fazla', zh: '更多' },
   'حفظ التعديلات': { en: 'Save changes', fr: 'Enregistrer les modifications', tr: 'Değişiklikleri kaydet', zh: '保存修改' },
   'إلغاء': { en: 'Cancel', fr: 'Annuler', tr: 'İptal', zh: '取消' },
   'إغلاق': { en: 'Close', fr: 'Fermer', tr: 'Kapat', zh: '关闭' },

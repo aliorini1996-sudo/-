@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, FolderTree, ChevronDown, Upload, FileDown, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Plus, FolderTree, ChevronDown, Upload, FileDown, AlertTriangle, CheckCircle2, Check, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useTr } from '../../../i18n/strings';
 import { useLang } from '../../../i18n/lang';
@@ -11,13 +11,13 @@ import { exportExcel } from '../../../utils/excel';
 import { parseExcelFile } from '../../../lib/importData';
 import {
   ledgerConfigApi, ledgerKeys, ledgerErrorOf, isLedgerAccessError,
-  type AccountListParams, type AccountType, type GlAccount, type GlAccountTreeNode, type AccountImportResult,
+  type AccountListParams, type AccountType, type GlAccount, type GlAccountInput, type GlAccountTreeNode, type AccountImportResult,
 } from '../../../api/ledgerConfig';
 import { fetchListExport } from '../../../api/ledgerMoves';
 import { LedgerListView, initialLedgerListState, type LedgerColumn, type LedgerListState } from '../../../components/ledger/LedgerListView';
 import { LedgerAmount } from '../../../components/ledger/LedgerAmount';
 import { ledgerHref } from '../routes';
-import { ConfigModal, WriteButton, useConfigErrorText, useLedgerCan } from './parts/configUi';
+import { ConfigModal, WriteButton, hasArabicLetter, useConfigErrorText, useLedgerCan } from './parts/configUi';
 import { ACCOUNT_TYPE_KEYS, IMPORT_MAX_ROWS, parseImportRows, type ImportRowIssue, type ParsedImportRow } from './parts/accountImport';
 import { accountDescriptionText, treeNodeLabel, treeNodeName } from './parts/accountTree';
 
@@ -28,6 +28,8 @@ import { accountDescriptionText, treeNodeLabel, treeNodeName } from './parts/acc
  *
  * مراجعة الخبير (18 سبتمبر 2026): م‑5 الوصف عمود مستقل مقتطع بتلميح كامل وفي تصدير XLSX،
  * وم‑7 عقد شجرة البادئات تعرض الاسم مع الرمز في كل مستوى بارتداد إلى الرمز وحده حين لا اسم.
+ * «جديد» يضيف سطراً في الجدول نفسه (الرمز والاسم والنوع والتسوية) كأودو — لا انتقال لصفحة (طلب المالك، ٧ أكتوبر ٢٠٢٦)؛
+ * والنموذج الكامل (الوصف والعملة والعلامات) بالضغط على الحساب بعد حفظه.
  */
 
 const SERVER_FILTERS = new Set(['debit', 'credit', 'asset', 'liability', 'equity', 'income', 'expense', 'hasMoves', 'archived', 'custom']);
@@ -56,6 +58,7 @@ export default function AccountList() {
   const [prefix, setPrefix] = useState<string | null>(null);
   const [treeOpen, setTreeOpen] = useState(true);
   const [importOpen, setImportOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const params: AccountListParams = {
@@ -236,9 +239,17 @@ export default function AccountList() {
           recordPath={a => ledgerHref(`config/accounts/${a.id}`)}
           rowClassName={a => (a.isActive ? '' : 'opacity-70')}
           emptyText={tr('لا توجد حسابات')}
+          topRow={adding && canWrite ? (
+            <NewAccountRow
+              defaultType={(prefix && rows.find(r => r.code.startsWith(prefix))?.type) || 'expense'}
+              codePrefix={prefix}
+              onDone={() => { setAdding(false); invalidate(); }}
+              onCancel={() => setAdding(false)}
+              onMore={() => navigate(ledgerHref('config/accounts/new'))} />
+          ) : undefined}
           toolbar={
             <div className="flex items-center gap-1.5">
-              <WriteButton allowed={canWrite} onClick={() => navigate(ledgerHref('config/accounts/new'))} className="btn-primary !py-1.5 !px-3 text-sm inline-flex items-center gap-1"><Plus size={14} />{tr('جديد')}</WriteButton>
+              <WriteButton allowed={canWrite} onClick={() => setAdding(true)} className="btn-primary !py-1.5 !px-3 text-sm inline-flex items-center gap-1"><Plus size={14} />{tr('جديد')}</WriteButton>
               <WriteButton allowed={canWrite} onClick={() => setImportOpen(true)} className="btn-secondary !py-1.5 !px-3 text-sm inline-flex items-center gap-1"><Upload size={14} />{tr('استيراد')}</WriteButton>
               {!treeOpen && (
                 <button type="button" className="btn-secondary !py-1.5 !px-2 text-sm" onClick={() => setTreeOpen(true)} aria-label={tr('شجرة البادئات')} title={tr('شجرة البادئات')}><FolderTree size={15} /></button>
@@ -255,6 +266,77 @@ export default function AccountList() {
       </div>
       {importOpen && <AccountImportDialog onClose={() => setImportOpen(false)} onDone={invalidate} />}
     </div>
+  );
+}
+
+/**
+ * سطر حسابٍ جديد في الجدول نفسه (كأودو): الرمز والاسم والنوع والتسوية، و«إدخال» يحفظ و«Esc» يلغي. التحقق كنموذج الحساب
+ * (الرمز 4–10 أرقام، والاسم بحرفٍ عربي — G7)، والنوع الافتراضي نوعُ البادئة المختارة في الشجرة. الوصف والعملة والعلامات
+ * من النموذج الكامل («المزيد») أو بالضغط على الحساب بعد حفظه.
+ */
+function NewAccountRow({ defaultType, codePrefix, onDone, onCancel, onMore }: {
+  defaultType: AccountType; codePrefix: string | null; onDone: () => void; onCancel: () => void; onMore: () => void;
+}) {
+  const tr = useTr();
+  const errorText = useConfigErrorText();
+  const typeLabels = accountTypeLabels(tr);
+  const [code, setCode] = useState(codePrefix ?? '');
+  const [name, setName] = useState('');
+  const [type, setType] = useState<AccountType>(defaultType);
+  const [reconcile, setReconcile] = useState(false);
+
+  const issue = !/^\d{4,10}$/.test(code.trim()) ? tr('الرمز من 4 إلى 10 أرقام')
+    : !name.trim() ? tr('الاسم مطلوب')
+      : !hasArabicLetter(name) ? tr('الاسم يجب أن يحوي حرفاً عربياً والاسم بلغة أخرى مكانه الاسم الإنجليزي')
+        : null;
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const body: GlAccountInput = {
+        code: code.trim(), name: name.trim(), nameEn: null, description: null, type,
+        reconcile: type === 'asset_cash' ? false : reconcile, cashFlowTag: null, currencyCode: null,
+      };
+      return (await ledgerConfigApi.accounts.create(body)).data.data;
+    },
+    onSuccess: saved => { toast.success(`${tr('تم الحفظ')} · ${saved.code}`); onDone(); },
+    onError: e => toast.error(errorText(e)),
+  });
+  const submit = () => { if (!issue && !save.isPending) save.mutate(); };
+
+  return (
+    <form className="flex flex-wrap items-end gap-2" onSubmit={e => { e.preventDefault(); submit(); }}
+      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); onCancel(); } }}>
+      <label className="flex flex-col gap-0.5 w-28">
+        <span className="text-[11px] text-[#9A8F7E]">{tr('الرمز')}</span>
+        <input className="input !py-1.5 font-mono tabular-nums" dir="ltr" inputMode="numeric" maxLength={10} autoFocus
+          value={code} placeholder="611099" onChange={e => setCode(e.target.value.replace(/[^\d]/g, ''))} />
+      </label>
+      <label className="flex flex-col gap-0.5 flex-1 min-w-[12rem]">
+        <span className="text-[11px] text-[#9A8F7E]">{tr('اسم الحساب')}</span>
+        <input className="input !py-1.5" maxLength={200} value={name} onChange={e => setName(e.target.value)} />
+      </label>
+      <label className="flex flex-col gap-0.5 w-52">
+        <span className="text-[11px] text-[#9A8F7E]">{tr('النوع')}</span>
+        <select className="input !py-1.5" value={type} onChange={e => setType(e.target.value as AccountType)}>
+          {ACCOUNT_TYPE_KEYS.map(t => <option key={t} value={t}>{typeLabels[t]}</option>)}
+        </select>
+      </label>
+      {type !== 'asset_cash' && (
+        <label className="flex items-center gap-1.5 text-sm pb-2">
+          <input type="checkbox" checked={reconcile} onChange={e => setReconcile(e.target.checked)} />
+          {tr('التسوية')}
+        </label>
+      )}
+      <div className="flex items-center gap-1.5 pb-0.5">
+        <button type="submit" className="btn-primary !py-1.5 !px-3 text-sm inline-flex items-center gap-1 disabled:opacity-50"
+          disabled={!!issue || save.isPending} title={issue ?? undefined}>
+          <Check size={14} />{tr('حفظ')}
+        </button>
+        <button type="button" className="btn-secondary !py-1.5 !px-2 text-sm" onClick={onCancel} aria-label={tr('إلغاء')} title={tr('إلغاء')}><X size={14} /></button>
+        <button type="button" className="text-xs text-[#6E6557] underline px-1" onClick={onMore}>{tr('المزيد')}</button>
+      </div>
+      {issue && (code || name) && <p className="basis-full text-xs text-[#C0392B]">{issue}</p>}
+    </form>
   );
 }
 

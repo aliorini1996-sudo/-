@@ -94,6 +94,8 @@ interface Props<T extends { id: string }> {
   emptyText?: string;
   /** صف تذييل (إجماليات) */
   footer?: ReactNode;
+  /** صفٌّ أول في الجدول يمتدّ على أعمدته كلها — لإضافة سجلٍّ في القائمة نفسها (كسطر أودو الجديد) */
+  topRow?: ReactNode;
   rowClassName?: (row: T) => string;
 }
 
@@ -110,7 +112,7 @@ export function LedgerLoadingToast({ show }: { show: boolean }) {
 export function LedgerListView<T extends { id: string }>(props: Props<T>) {
   const {
     title, screen, columns, rows, total, loading, fetching, state, onStateChange, filters = [], groupBys = [],
-    bulkActions = [], gearActions = [], recordPath, onRowClick, views, view, onViewChange, toolbar, emptyText, footer, rowClassName,
+    bulkActions = [], gearActions = [], recordPath, onRowClick, views, view, onViewChange, toolbar, emptyText, footer, rowClassName, topRow,
   } = props;
   const tr = useTr();
   const dir = useDir();
@@ -389,6 +391,11 @@ export function LedgerListView<T extends { id: string }>(props: Props<T>) {
             </tr>
           </thead>
           <tbody>
+            {topRow && (
+              <tr className="bg-[#FFFBF5]">
+                <td colSpan={shownColumns.length + (selectable ? 1 : 0) + (optionalColumns.length ? 1 : 0)} className="!py-2">{topRow}</td>
+              </tr>
+            )}
             {!loading && rows.length === 0 && (
               <tr><td colSpan={shownColumns.length + (selectable ? 1 : 0) + (optionalColumns.length ? 1 : 0)} className="text-center text-[#9A8F7E] py-10">{emptyText ?? tr('لا توجد بيانات')}</td></tr>
             )}
