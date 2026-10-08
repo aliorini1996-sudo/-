@@ -16,7 +16,6 @@ import { startPetroappScheduler } from './services/petroapp';
 import { startPaylinkScheduler } from './services/paylink';
 import { startZatcaSweep } from './services/zatcaSubmit';
 import { startLedgerSyncScheduler, trackLedgerRequestLoad } from './services/gl/sync/scheduler';
-import { startLedgerDailyCloseScheduler } from './services/gl/dailyClose';
 
 import authRouter from './routes/auth';
 import customersRouter from './routes/customers';
@@ -376,7 +375,6 @@ server.listen(PORT, async () => {
   startPetroappScheduler();
   startPaylinkScheduler();
   startLedgerSyncScheduler(); // LEDGER_WORKER_ENABLED=0 للإطفاء
-  startLedgerDailyCloseScheduler(); // الإقفال اليومي للدفاتر اليدوية 11:55 م — LEDGER_DAILY_CLOSE=0 للإطفاء
   startZatcaSweep(); // ZATCA_SWEEP_ENABLED=false للإطفاء — خامل بلا مستندات مرحلة ثانية
 });
 

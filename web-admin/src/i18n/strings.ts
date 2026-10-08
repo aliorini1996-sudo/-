@@ -3035,8 +3035,6 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'تحميل سيارة': { en: 'Van load', fr: 'Chargement du véhicule', tr: 'Araç yüklemesi', zh: '车辆装货' },
   'إرجاع للمخزون': { en: 'Restock', fr: 'Remise en stock', tr: 'Stoğa iade', zh: '退回库存' },
   'تسوية ذمة عميل': { en: 'Customer balance adjustment', fr: 'Ajustement du solde client', tr: 'Müşteri bakiye düzeltmesi', zh: '客户余额调整' },
-  'إقفال يومي': { en: 'Daily close', fr: 'Clôture journalière', tr: 'Günlük kapanış', zh: '日结' },
-  'قيد آلي من إقفال اليوم': { en: 'Automatic entry from the daily close', fr: 'Écriture automatique de la clôture journalière', tr: 'Günlük kapanıştan otomatik kayıt', zh: '日结自动分录' },
   'تكلفة المبيعات': { en: 'Cost of sales', fr: 'Coût des ventes', tr: 'Satışların maliyeti', zh: '销售成本' },
   'عملة المستند تختلف عن عملة الدفاتر': { en: 'Document currency differs from the ledger currency', fr: 'La devise du document diffère de celle de la comptabilité', tr: 'Belge para birimi defter para biriminden farklı', zh: '单据币种与账簿币种不同' },
   'حساب مربوط غير موجود أو مؤرشف': { en: 'Mapped account is missing or archived', fr: 'Compte associé introuvable ou archivé', tr: 'Eşlenen hesap yok veya arşivlenmiş', zh: '映射科目不存在或已归档' },

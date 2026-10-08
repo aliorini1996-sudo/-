@@ -81,8 +81,6 @@ export const sourceTypeLabels = (tr: Tr): Record<string, string> => ({
   VAN_LOAD: tr('تحميل سيارة'),
   RESTOCK: tr('إرجاع للمخزون'),
   CUSTOMER_ADJUSTMENT: tr('تسوية ذمة عميل'),
-  // الإقفال اليومي للدفاتر اليدوية (services/gl/dailyClose.ts): المبيعات والتحصيل ومخزون المستودع في قيدٍ لكل يوم
-  DAILY_CLOSE: tr('إقفال يومي'),
 });
 
 export const sourceEventLabels = (tr: Tr): Record<string, string> => ({
