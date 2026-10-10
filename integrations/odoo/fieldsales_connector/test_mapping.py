@@ -36,6 +36,11 @@ class TestValidation(unittest.TestCase):
             validate_payload({'source': 'field-sales', 'resource': 'customers',
                               'count': 5, 'data': [{}, {}]})
 
+    def test_ping_لاختبار_الاتصال(self):
+        resource, data = validate_payload({'source': 'field-sales', 'resource': 'ping', 'count': 0, 'data': []})
+        self.assertEqual(resource, 'ping')
+        self.assertEqual(data, [])
+
     def test_يرفض_مورداً_غير_معروف(self):
         with self.assertRaises(PayloadError):
             validate_payload({'source': 'field-sales', 'resource': 'orders', 'data': []})
@@ -94,6 +99,11 @@ class TestProduct(unittest.TestCase):
         self.assertEqual(v['fs_tax_pct'], 15)
         self.assertEqual(v['barcode'], '628')
 
+    def test_المؤرشف_وغير_النشط_مؤرشفان(self):
+        self.assertFalse(map_product(dict(self.ROW, status='INACTIVE'))['active'])
+        self.assertFalse(map_product(dict(self.ROW, deletedAt='2026-09-01T00:00:00Z'))['active'])
+        self.assertTrue(map_product(self.ROW)['active'])
+
     def test_سعر_غير_رقمي_يصير_صفراً_لا_يُسقط_الصفّ(self):
         v = map_product(dict(self.ROW, basePrice='غير رقمي'))
         self.assertEqual(v['list_price'], 0.0)
@@ -101,7 +111,7 @@ class TestProduct(unittest.TestCase):
 
 class TestInvoice(unittest.TestCase):
     ROW = {
-        'id': 'inv-1', 'number': 'INV-1001', 'type': 'SALE',
+        'id': 'inv-1', 'number': 'INV-1001', 'type': 'CREDIT', 'status': 'CONFIRMED',
         'invoiceDate': '2026-07-29T10:15:00.000Z', 'dueDate': '2026-08-28T00:00:00.000Z',
         'total': 115.0, 'taxAmt': 15.0, 'paidAmt': 50.0, 'notes': 'تسليم صباحاً',
         'customerId': 'cus-1', 'customer': {'id': 'cus-1', 'code': 'C-001'},
@@ -130,6 +140,32 @@ class TestInvoice(unittest.TestCase):
     def test_يرفض_نوعاً_غير_معروف(self):
         with self.assertRaises(PayloadError):
             map_invoice(dict(self.ROW, type='TRANSFER'))
+
+    def test_أنواع_المنصة_الفعلية_نقدي_وآجل_فاتورة_بيع(self):
+        # Invoice.type في Prisma: CASH | CREDIT | RETURN — كان «SALE» وحده مقبولاً فرُفضت كل فواتير البيع
+        for t in ('CASH', 'CREDIT', 'cash', 'SALE'):
+            self.assertEqual(map_invoice(dict(self.ROW, type=t))['move_type'], 'out_invoice', t)
+        self.assertEqual(map_invoice(dict(self.ROW, type='RETURN'))['move_type'], 'out_refund')
+
+    def test_الإشعار_الدائن_إشعار_دائن_والمدين_فاتورة(self):
+        self.assertEqual(map_invoice(dict(self.ROW, type='RETURN', documentKind='CREDIT_NOTE'))['move_type'], 'out_refund')
+        self.assertEqual(map_invoice(dict(self.ROW, type='CREDIT', documentKind='DEBIT_NOTE'))['move_type'], 'out_invoice')
+
+    def test_الملغاة_تُعلَّم_للإلغاء(self):
+        v = map_invoice(dict(self.ROW, status='CANCELLED'))
+        self.assertTrue(v['fs_cancelled'])
+        self.assertEqual(v['fs_status'], 'CANCELLED')
+        self.assertFalse(map_invoice(self.ROW)['fs_cancelled'])
+
+    def test_التاريخ_المحلي_يعلو_اقتطاع_UTC(self):
+        # فاتورة 01:30 بالرياض يوم 30 = 22:30 UTC يوم 29 — اقتطاع UTC يُرجعها يوماً
+        v = map_invoice(dict(self.ROW, invoiceDate='2026-07-29T22:30:00.000Z', invoiceDateLocal='2026-07-30'))
+        self.assertEqual(v['invoice_date'], '2026-07-30')
+
+    def test_الإجمالي_والفوترة_الإلكترونية(self):
+        v = map_invoice(dict(self.ROW, einvoiceUuid='abc-123'))
+        self.assertEqual(v['fs_total'], 115.0)
+        self.assertIn('abc-123', v['narration'])
 
     def test_يرفض_فاتورة_بلا_بنود(self):
         with self.assertRaises(PayloadError):
@@ -168,6 +204,22 @@ class TestInvoiceLine(unittest.TestCase):
         self.assertEqual(line['name'], 'برجر')
         self.assertEqual(line['fs_product_id'], '')
 
+    def test_السعر_الشامل_يُرسَل_صافياً_والخصم_الكلّي_في_النسبة(self):
+        # تطبيق المندوب: ١١٫٥ شامل ١٥٪ = ١٠ صافٍ؛ ٣ قطع وخصم الفاتورة ١٠٪ ⇒ الصافي ٢٧
+        line = map_invoice_line({'qty': 3, 'unitPrice': 11.5, 'unitPriceNet': 10, 'netAmount': 27,
+                                 'discountPct': 0, 'discountAmt': 0, 'taxPct': 15, 'lineTotal': 31.05})
+        self.assertEqual(line['price_unit'], 10)
+        self.assertAlmostEqual(line['discount'], 10.0)
+        self.assertAlmostEqual(line['quantity'] * line['price_unit'] * (1 - line['discount'] / 100), 27.0)
+
+    def test_الصافي_بلا_خصم_نسبته_صفر(self):
+        line = map_invoice_line({'qty': 2, 'unitPrice': 50, 'unitPriceNet': 50, 'netAmount': 100})
+        self.assertAlmostEqual(line['discount'], 0.0)
+
+    def test_اسم_البند_المطبوع_يعلو_اسم_المنتج(self):
+        line = map_invoice_line({'qty': 1, 'unitPrice': 5, 'itemName': 'عصير ٢٠٠ مل', 'product': {'name': 'عصير'}})
+        self.assertEqual(line['name'], 'عصير ٢٠٠ مل')
+
     def test_بند_بلا_اسم_إطلاقاً_لا_ينهار(self):
         line = map_invoice_line({'qty': 1, 'unitPrice': 5})
         self.assertEqual(line['name'], 'بند')
@@ -192,6 +244,23 @@ class TestReceipt(unittest.TestCase):
             map_receipt(dict(self.ROW, amount=0))
         with self.assertRaises(PayloadError):
             map_receipt(dict(self.ROW, amount=-10))
+
+    def test_طرق_المنصة_الفعلية(self):
+        # Receipt.paymentMethod: CASH | BANK_TRANSFER | POS | CHEQUE
+        self.assertEqual(map_receipt(dict(self.ROW, paymentMethod='BANK_TRANSFER'))['payment_method'], 'تحويل بنكي')
+        self.assertEqual(map_receipt(dict(self.ROW, paymentMethod='POS'))['payment_method'], 'شبكة / نقاط بيع')
+        self.assertEqual(map_receipt(dict(self.ROW, paymentMethod='CASH'))['payment_method'], 'نقداً')
+
+    def test_حالة_السند_والملغى(self):
+        self.assertEqual(map_receipt(dict(self.ROW, status='ACTIVE'))['state'], 'ساري')
+        self.assertEqual(map_receipt(dict(self.ROW, status='CANCELLED'))['state'], 'ملغى')
+
+    def test_الفواتير_المقابلة(self):
+        v = map_receipt(dict(self.ROW, allocations=[{'invoiceId': 'inv-1', 'invoiceNumber': 'INV-1001', 'amount': 300}]))
+        self.assertEqual(v['fs_invoice_ids'], ['inv-1'])
+        self.assertIn('INV-1001', v['note'])
+        legacy = map_receipt(dict(self.ROW, invoiceItems=[{'invoiceId': 'inv-2', 'amount': 5, 'invoice': {'number': 'INV-2'}}]))
+        self.assertEqual(legacy['fs_invoice_ids'], ['inv-2'])
 
     def test_طريقة_غير_معروفة_تُمرَّر_كما_هي(self):
         v = map_receipt(dict(self.ROW, paymentMethod='STC_PAY'))

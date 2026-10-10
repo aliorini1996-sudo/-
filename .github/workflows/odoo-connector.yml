@@ -1,0 +1,81 @@
+# تكامل Odoo — اختبار حيّ على Odoo حقيقي: تُثبَّت وحدة fieldsales_connector على قاعدة جديدة، وتُدفع إليها حمولات
+# بنتها المنصة بدوالّها نفسها (backend/scripts/odoo-e2e-payloads.ts)، ثم يُتحقَّق داخل Odoo عبر XML-RPC أن العملاء
+# والمنتجات والفواتير والسندات انعكست بلا مشاكل (integrations/odoo/e2e/run_e2e.py).
+name: Odoo connector (live Odoo)
+
+on:
+  push:
+    paths:
+      - 'integrations/odoo/**'
+      - 'backend/src/services/erpPayload.ts'
+      - 'backend/src/lib/invoiceCalc.ts'
+      - 'backend/scripts/odoo-e2e-payloads.ts'
+      - '.github/workflows/odoo-connector.yml'
+  workflow_dispatch:
+
+jobs:
+  mapping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -B integrations/odoo/fieldsales_connector/test_mapping.py
+
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        odoo: ['17.0', '18.0']
+    # الوحدة مكتوبة لـ17؛ 18 يُختبر ليُعرف توافقه ولا يُفشل الفحص
+    continue-on-error: ${{ matrix.odoo != '17.0' }}
+    services:
+      db:
+        image: postgres:15
+        env:
+          POSTGRES_USER: odoo
+          POSTGRES_PASSWORD: odoo
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U odoo" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      ODOO_IMAGE: odoo:${{ matrix.odoo }}
+      ADDONS: ${{ github.workspace }}/integrations/odoo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Build payloads with the platform's own code
+        working-directory: backend
+        run: |
+          npm ci --ignore-scripts
+          npx tsx scripts/odoo-e2e-payloads.ts ../e2e-payloads
+      - name: Pull Odoo
+        run: docker pull "$ODOO_IMAGE"
+      - name: Install fieldsales_connector on a fresh database
+        run: |
+          docker run --rm --network host -e HOST=localhost -e PORT=5432 -e USER=odoo -e PASSWORD=odoo \
+            -v "$ADDONS":/mnt/extra-addons "$ODOO_IMAGE" \
+            odoo -d fs_e2e -i fieldsales_connector --without-demo=all --stop-after-init --log-level=warn
+      - name: Set the API key
+        run: |
+          printf "%s\n" "env['ir.config_parameter'].sudo().set_param('fieldsales_connector.api_key', 'e2e-test-key')" "env.cr.commit()" | \
+          docker run --rm -i --network host -e HOST=localhost -e PORT=5432 -e USER=odoo -e PASSWORD=odoo \
+            -v "$ADDONS":/mnt/extra-addons "$ODOO_IMAGE" odoo shell -d fs_e2e --no-http --log-level=warn
+      - name: Start Odoo
+        run: |
+          docker run -d --name odoo --network host -e HOST=localhost -e PORT=5432 -e USER=odoo -e PASSWORD=odoo \
+            -v "$ADDONS":/mnt/extra-addons "$ODOO_IMAGE" \
+            odoo -d fs_e2e --db-filter='^fs_e2e$' --http-port=8069 --log-level=warn
+      - name: Live sync and verification
+        run: python3 integrations/odoo/e2e/run_e2e.py e2e-payloads http://localhost:8069 fs_e2e
+      - name: Odoo log
+        if: always()
+        run: docker logs odoo 2>&1 | tail -150 || true

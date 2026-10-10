@@ -1,6 +1,6 @@
 {
     'name': 'Field Sales Connector',
-    'version': '17.0.1.0.0',
+    'version': '17.0.1.1.0',
     'summary': 'Receive customers, products, invoices and receipts from Field Sales '
                '(field sales & distribution platform for Arab markets).',
     'description': """
@@ -45,6 +45,7 @@ Setup
         'security/ir.model.access.csv',
         'views/receipt_views.xml',
         'views/log_views.xml',
+        'views/move_views.xml',
         'views/settings_views.xml',
     ],
     'installable': True,

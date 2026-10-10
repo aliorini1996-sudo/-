@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+  <!-- فواتير Field Sales: كل ما وصل منها، وإجماليه في Field Sales بجانب إجمالي Odoo، والفرق -->
+  <record id="view_fieldsales_move_tree" model="ir.ui.view">
+    <field name="name">account.move.fieldsales.tree</field>
+    <field name="model">account.move</field>
+    <field name="priority">90</field>
+    <field name="arch" type="xml">
+      <tree string="Field Sales invoices" create="false" decoration-danger="fs_total_diff != 0"
+            decoration-muted="state == 'cancel'">
+        <field name="ref" string="Field Sales number"/>
+        <field name="name"/>
+        <field name="partner_id"/>
+        <field name="invoice_date"/>
+        <field name="move_type"/>
+        <field name="state"/>
+        <field name="currency_id" column_invisible="1"/>
+        <field name="amount_total" sum="Total"/>
+        <field name="fs_total" sum="Field Sales total"/>
+        <field name="fs_total_diff" sum="Difference"/>
+        <field name="fs_status" optional="show"/>
+      </tree>
+    </field>
+  </record>
+
+  <record id="view_fieldsales_move_search" model="ir.ui.view">
+    <field name="name">account.move.fieldsales.search</field>
+    <field name="model">account.move</field>
+    <field name="priority">90</field>
+    <field name="arch" type="xml">
+      <search string="Field Sales invoices">
+        <field name="ref"/>
+        <field name="partner_id"/>
+        <filter name="fs_diff" string="Total differs from Field Sales" domain="[('fs_total_diff', '!=', 0)]"/>
+        <filter name="fs_draft" string="Draft" domain="[('state', '=', 'draft')]"/>
+        <filter name="fs_cancelled" string="Cancelled in Field Sales" domain="[('fs_status', '=', 'CANCELLED')]"/>
+      </search>
+    </field>
+  </record>
+
+  <record id="action_fieldsales_moves" model="ir.actions.act_window">
+    <field name="name">Field Sales invoices</field>
+    <field name="res_model">account.move</field>
+    <field name="view_mode">tree,form</field>
+    <field name="domain">[('fs_id', '!=', False)]</field>
+    <field name="context">{'create': False}</field>
+    <field name="view_ids" eval="[(5, 0, 0), (0, 0, {'view_mode': 'tree', 'view_id': ref('view_fieldsales_move_tree')})]"/>
+    <field name="search_view_id" ref="view_fieldsales_move_search"/>
+  </record>
+
+  <menuitem id="menu_fieldsales_moves"
+            name="Field Sales invoices"
+            parent="account.menu_finance_receivables"
+            action="action_fieldsales_moves"
+            sequence="89"/>
+
+</odoo>
