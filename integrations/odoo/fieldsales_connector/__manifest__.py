@@ -40,7 +40,7 @@ Setup
     'website': 'https://fieldsa.net',
     'license': 'LGPL-3',
     'category': 'Sales',
-    'depends': ['base', 'account', 'product'],
+    'depends': ['base', 'base_setup', 'account', 'product'],
     'data': [
         'security/ir.model.access.csv',
         'views/receipt_views.xml',
