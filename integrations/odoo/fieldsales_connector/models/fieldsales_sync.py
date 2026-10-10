@@ -3,6 +3,9 @@
 منطق التخطيط كلّه في mapping.py (بلا odoo، مختبَر). هنا القراءة والكتابة فقط،
 ومختبرةٌ على Odoo 17 حقيقي في .github/workflows/odoo-connector.yml (e2e/run_e2e.py).
 """
+import copy
+import hashlib
+import json
 import logging
 import secrets
 
@@ -58,8 +61,31 @@ class AccountMove(models.Model):
                                   help='Field Sales VAT minus the Odoo VAT. Zero when they match. A cent here usually '
                                        'means the company rounds tax per line; Field Sales (like ZATCA) rounds per rate.')
     fs_status = fields.Char(string='Field Sales status', copy=False)
+    # بصمة محتوى الفاتورة كما وصلت آخر مرة: إعادة إرسال فاتورةٍ مُرحَّلة بلا تغيير «بلا تغيير» لا خطأ
+    fs_hash = fields.Char(string='Field Sales content hash', copy=False)
 
     _sql_constraints = [_FS_ID_UNIQ]
+
+
+def _invoice_hash(vals):
+    """بصمة ما يُبنى منه القيد: النوع والعميل والتاريخ والإجمالي والضريبة والبنود.
+
+    بلا الحالة ولا الملاحظات: الحالة تتغيّر بالسداد، والملاحظات يُضاف إليها معرّف الفاتورة الإلكترونية بعد
+    إبلاغ الهيئة — وكلاهما لا يغيّر القيد، فلا يجوز أن يجعل فاتورةً مُرحَّلة «متغيّرة».
+    """
+    keys = ('move_type', 'ref', 'invoice_date', 'invoice_date_due', 'fs_customer_id', 'fs_total', 'fs_tax_amt', 'fs_lines')
+    raw = json.dumps({k: vals.get(k) for k in keys}, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(raw.encode('utf-8')).hexdigest()
+
+
+def _reversed_in_odoo(move):
+    """المحاسب عكس الفاتورة المُرحَّلة: سُوّيت بالعكس، أو لها إشعارٌ دائن مُرحَّل يعكسها."""
+    if getattr(move, 'payment_state', None) == 'reversed':
+        return True
+    reversals = getattr(move, 'reversal_move_ids', None)
+    if reversals is None:
+        reversals = getattr(move, 'reversal_move_id', move.browse())
+    return bool(reversals.filtered(lambda m: m.state == 'posted'))
 
 
 class FieldSalesReceipt(models.Model):
@@ -99,6 +125,7 @@ class FieldSalesSyncLog(models.Model):
     received = fields.Integer(string='Rows received')
     created_count = fields.Integer(string='Created')
     updated_count = fields.Integer(string='Updated')
+    unchanged_count = fields.Integer(string='Unchanged')
     error_count = fields.Integer(string='Errors')
     errors = fields.Text(string='Error details')
     exported_at = fields.Char(string='Exported at (source)')
@@ -132,8 +159,8 @@ class FieldSalesConnector(models.AbstractModel):
         """
         resource, data = validate_payload(payload)
         if resource == 'ping':
-            return {'ok': True, 'resource': 'ping', 'received': 0, 'created': 0, 'updated': 0, 'errors': 0,
-                    'error_details': []}
+            return {'ok': True, 'resource': 'ping', 'received': 0, 'created': 0, 'updated': 0, 'unchanged': 0,
+                    'errors': 0, 'error_details': []}
         mapped, errors = map_all(resource, data)
 
         handler = {
@@ -142,7 +169,9 @@ class FieldSalesConnector(models.AbstractModel):
             'invoices': self._apply_invoices,
             'receipts': self._apply_receipts,
         }[resource]
-        created, updated, apply_errors = handler(mapped)
+        result = handler(mapped)
+        created, updated, apply_errors = result[:3]
+        unchanged = result[3] if len(result) > 3 else 0
         errors = errors + apply_errors
 
         self.env['fieldsales.sync.log'].sudo().create({
@@ -150,13 +179,14 @@ class FieldSalesConnector(models.AbstractModel):
             'received': len(data),
             'created_count': created,
             'updated_count': updated,
+            'unchanged_count': unchanged,
             'error_count': len(errors),
             'errors': '\n'.join('%s: %s' % (e.get('id'), e.get('error')) for e in errors[:MAX_ERRORS]) or False,
             'exported_at': payload.get('exportedAt'),
         })
         return {
             'ok': True, 'resource': resource, 'received': len(data),
-            'created': created, 'updated': updated, 'errors': len(errors),
+            'created': created, 'updated': updated, 'unchanged': unchanged, 'errors': len(errors),
             # تفاصيل أول الأخطاء ليعرضها Field Sales لمستخدمه — لا عدّاداً صامتاً
             'error_details': [{'id': e.get('id'), 'error': e.get('error')} for e in errors[:MAX_ERRORS]],
         }
@@ -244,8 +274,10 @@ class FieldSalesConnector(models.AbstractModel):
     def _apply_invoices(self, mapped):
         """ينشئ الفواتير مسودّةً فقط، ويلغي مسودّة ما أُلغي في Field Sales.
 
-        الفاتورة المُرحَّلة (posted) لا تُحدَّث ولا تُلغى — تخطّيها مقصود: الكتابة فوق
-        قيد محاسبي مُرحَّل تغيير للدفاتر بلا أثر تدقيقي. وبعد كل إنشاء أو تحديث يُطابَق
+        الفاتورة المُرحَّلة (posted) لا تُحدَّث ولا تُلغى — الكتابة فوق قيد محاسبي مُرحَّل تغيير للدفاتر
+        بلا أثر تدقيقي. وإعادة إرسالها بلا تغيير (بصمة المحتوى نفسها) «بلا تغيير» لا خطأ: ترحيل المحاسب
+        للمسودّات هو المسار الطبيعي، ولو عُدّ خطأً لبقيت كل مزامنة «جزئية» إلى الأبد. الخطأ لفرقٍ حقيقي فقط:
+        تغيّرت في Field Sales بعد ترحيلها، أو أُلغيت هناك ولم تُعكس هنا. وبعد كل إنشاء أو تحديث يُطابَق
         الإجمالي بإجمالي Field Sales (`_match_total`).
         """
         Move = self.env['account.move'].sudo()
@@ -257,7 +289,7 @@ class FieldSalesConnector(models.AbstractModel):
             for vals in mapped if not vals.get('fs_cancelled')
             for line in vals.get('fs_lines', []) if line.get('fs_tax_included')
         })
-        created = updated = 0
+        created = updated = unchanged = 0
         errors = []
 
         for vals in mapped:
@@ -266,6 +298,7 @@ class FieldSalesConnector(models.AbstractModel):
                 with self.env.cr.savepoint():
                     move = Move.search([('fs_id', '=', fs_id)], limit=1)
                     fs_vals = {'fs_total': vals['fs_total'], 'fs_tax_amt': vals['fs_tax_amt'], 'fs_status': vals['fs_status']}
+                    content_hash = _invoice_hash(vals)
 
                     # ملغاة في Field Sales: لا تُنشأ، ومسودّتها تُلغى، والمرحّلة تُترك مع خطأ واضح
                     if vals.get('fs_cancelled'):
@@ -274,7 +307,11 @@ class FieldSalesConnector(models.AbstractModel):
                                 move.write(fs_vals)
                             continue
                         if move.state != 'draft':
-                            errors.append({'id': fs_id, 'error': 'أُلغيت في Field Sales وهي مُرحَّلة في Odoo — اعكسها بإشعار دائن'})
+                            if _reversed_in_odoo(move):
+                                move.write({'fs_status': vals['fs_status']})
+                                unchanged += 1
+                            else:
+                                errors.append({'id': fs_id, 'error': 'أُلغيت في Field Sales وهي مُرحَّلة في Odoo — اعكسها بإشعار دائن'})
                             continue
                         move.write(fs_vals)
                         move.button_cancel()
@@ -322,21 +359,27 @@ class FieldSalesConnector(models.AbstractModel):
                         if move.state == 'cancel':
                             move.button_draft()  # أُعيد تفعيلها في Field Sales
                         if move.state != 'draft':
-                            errors.append({'id': fs_id, 'error': 'الفاتورة مُرحَّلة في Odoo — لم تُحدَّث'})
+                            # بصمةٌ مخزّنة تُقارن بها؛ وفاتورةٌ وصلت قبل البصمة يُقارن إجماليها
+                            same = (move.fs_hash == content_hash) if move.fs_hash else                                 abs((move.fs_total or 0.0) - vals['fs_total']) < 0.005
+                            if same:
+                                move.write({'fs_status': vals['fs_status']})
+                                unchanged += 1
+                            else:
+                                errors.append({'id': fs_id, 'error': 'تغيّرت في Field Sales بعد ترحيلها في Odoo — لم تُحدَّث؛ أعدها مسودّة لتُحدَّث'})
                             continue
-                        move.write(dict(header, **fs_vals, invoice_line_ids=[(5, 0, 0)] + lines))
+                        move.write(dict(header, **fs_vals, fs_hash=content_hash, invoice_line_ids=[(5, 0, 0)] + lines))
                         updated += 1
                     else:
                         move = Move.create(dict(header, **fs_vals, move_type=vals['move_type'], fs_id=fs_id,
-                                                invoice_line_ids=lines))
+                                                fs_hash=content_hash, invoice_line_ids=lines))
                         created += 1
-                    self._match_total(move, vals['fs_total'], vals['fs_tax_amt'])
+                    self._match_total(move, vals['fs_total'], vals['fs_tax_amt'], len(vals.get('fs_lines') or []))
             except Exception as exc:  # noqa: BLE001
                 _logger.warning('Field Sales invoice failed for %s: %s', fs_id, exc)
                 errors.append({'id': fs_id, 'error': str(exc)[:200]})
-        return created, updated, errors
+        return created, updated, errors, unchanged
 
-    def _match_total(self, move, fs_total, fs_tax_amt):
+    def _match_total(self, move, fs_total, fs_tax_amt, n_lines=1):
         """يطابق إجمالي المسودّة بإجمالي Field Sales.
 
         Odoo يقرّب السعر والخصم إلى خانتين ويحسب الضريبة فوقهما، وField Sales يوزّع الضريبة
@@ -345,18 +388,48 @@ class FieldSalesConnector(models.AbstractModel):
         fs_total_diff (فرقٌ حقيقي: ضريبة بلا مقابل في Odoo مثلاً) ولا يُخفى.
         """
         currency = move.currency_id
-        diff = currency.round(fs_total - move.amount_total)
-        if diff and abs(diff) <= ROUNDING_TOLERANCE:
+        # الضريبة: المنصة (كالهيئة) تقرّب ضريبة كل نسبةٍ على مجموعها، وOdoo يقرّب كل بند (و17 يفعلها في الشامل حتى
+        # بـ«التقريب الإجمالي») — فيفرق نصف هللة لكل بند على الأكثر. فرقٌ في هذا الحدّ وبنسبةٍ واحدة تحمل ضريبة
+        # يُضبط على ضريبة المنصة بالآلية الرسمية (tax_totals، كتعديل المحاسب لها من الشاشة)؛ وما فوقه فرقٌ حقيقي يبقى ظاهراً
+        tax_delta = currency.round(fs_tax_amt - move.amount_tax)
+        fix_tax = bool(tax_delta) and abs(tax_delta) <= max(0.01, 0.005 * n_lines) and self._taxed_groups(move) == 1
+        # الصافي أولاً (سطر بلا ضريبة)، ثم الضريبة: إضافة سطرٍ بعد ضبط الضريبة تُعيد حسابها فتمحو الضبط
+        target_untaxed = fs_total - (fs_tax_amt if fix_tax else move.amount_tax)
+        net_diff = currency.round(target_untaxed - move.amount_untaxed)
+        if net_diff and abs(net_diff) <= ROUNDING_TOLERANCE:
             move.write({'invoice_line_ids': [(0, 0, {
                 'name': 'فرق تقريب Field Sales',
                 'quantity': 1.0,
-                'price_unit': diff,
+                'price_unit': net_diff,
                 'tax_ids': [(5, 0, 0)],
             })]})
-            diff = currency.round(fs_total - move.amount_total)
-        move.fs_total_diff = diff
+        if fix_tax:
+            self._set_tax(move, currency.round(fs_tax_amt - move.amount_tax))
+        move.fs_total_diff = currency.round(fs_total - move.amount_total)
         # والضريبة تُقارن وحدها: إجماليٌ مطابق قد يخفي هللةً انتقلت من الضريبة إلى الصافي
         move.fs_tax_diff = currency.round(fs_tax_amt - move.amount_tax)
+
+    @staticmethod
+    def _tax_group_amounts(totals):
+        """مبالغ مجموعات الضريبة في tax_totals — (المجموعة، مفتاح مبلغها). الشكل يختلف بين 17 و18."""
+        if 'groups_by_subtotal' in totals:  # Odoo 17
+            return [(g, 'tax_group_amount') for groups in totals['groups_by_subtotal'].values() for g in groups]
+        return [(g, 'tax_amount_currency') for sub in totals.get('subtotals', []) for g in sub.get('tax_groups', [])]
+
+    def _taxed_groups(self, move):
+        totals = move.tax_totals or {}
+        return len([1 for g, k in self._tax_group_amounts(totals) if not move.currency_id.is_zero(g.get(k) or 0.0)])
+
+    def _set_tax(self, move, delta):
+        """يضبط ضريبة المجموعة الوحيدة التي تحمل ضريبة بـdelta — بكتابة tax_totals كما يكتبها Odoo حين يعدّل
+        المحاسب مبلغ الضريبة من الشاشة (_inverse_tax_totals يعدّل سطر الضريبة ويوازن سطر الذمّة)."""
+        totals = copy.deepcopy(move.tax_totals)
+        taxed = [(g, k) for g, k in self._tax_group_amounts(totals) if not move.currency_id.is_zero(g.get(k) or 0.0)]
+        if len(taxed) != 1 or not delta:
+            return
+        group, key = taxed[0]
+        group[key] = move.currency_id.round(group[key] + delta)
+        move.tax_totals = totals
 
     def _tax_index(self):
         """خريطة (النسبة، شاملة؟) ⇒ ضريبة بيع في شركة الربط.

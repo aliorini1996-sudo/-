@@ -150,14 +150,11 @@ for fs_id, e in exp['invoices'].items():
     check(abs(m['amount_total'] - e['total']) < 0.005 and abs(m['fs_total_diff']) < 0.005,
           'الفاتورة %s: إجمالي Odoo %.2f = إجمالي المنصة %.2f' % (e['number'], m['amount_total'], e['total']),
           'ضريبة Odoo %.2f والمنصة %.2f' % (m['amount_tax'], e['tax']))
-    if fs_id in exp['roundingSensitive'] and rounding == 'round_per_line':
-        # تقريب Odoo الافتراضي لكل بند يزيدها هللة — المطلوب أن يظهر الفرق للمحاسب لا أن يُخفى
-        check(abs(m['fs_tax_diff'] - round(e['tax'] - m['amount_tax'], 2)) < 0.005 and abs(m['fs_tax_diff']) >= 0.005,
-              'الفاتورة %s: فرق الضريبة بالتقريب لكل بند ظاهر (Odoo %.2f، المنصة %.2f، الفرق %.2f)'
-              % (e['number'], m['amount_tax'], e['tax'], m['fs_tax_diff']), str(m))
-        continue
+    # INV-0008: تقريب Odoo لكل بند يعطيها ٠٫٦٠ والمنصة ٠٫٥٩ — تُضبط على ضريبة المنصة بالآلية الرسمية (tax_totals)
     check(abs(m['amount_tax'] - e['tax']) < 0.005 and abs(m['fs_tax_diff']) < 0.005,
-          'الفاتورة %s: الضريبة %.2f = %.2f حرفياً' % (e['number'], m['amount_tax'], e['tax']), 'fs_tax_diff=%s' % m['fs_tax_diff'])
+          'الفاتورة %s: الضريبة %.2f = %.2f حرفياً%s' % (e['number'], m['amount_tax'], e['tax'],
+                                                       ' (بتقريب Odoo لكل بند)' if fs_id in exp['roundingSensitive'] else ''),
+          'fs_tax_diff=%s' % m['fs_tax_diff'])
 included = sr('account.tax', [('name', 'ilike', 'Field Sales')], ['amount', 'type_tax_use'])
 check(len(included) == 1 and included[0]['amount'] == 15 and included[0]['type_tax_use'] == 'sale',
       'ضريبة ١٥٪ «شاملة في السعر» أُنشئت مرةً واحدة للفواتير الشاملة', str(included))
@@ -177,10 +174,13 @@ for fs_id, e in exp['receipts'].items():
         want = sorted(moves[i]['id'] for i in e['invoices'])
         check(bool(r) and sorted(r['invoice_ids']) == want, 'السند %s مرتبط بفواتيره' % fs_id, str(r and r['invoice_ids']))
 
-# فاتورة يرحّلها المحاسب في Odoo — يجب ألا تمسّها المزامنة بعدها
-models.execute_kw(DB, uid, 'admin', 'account.move', 'action_post', [[moves['i2']['id']]])
-posted_total = sr('account.move', [('id', '=', moves['i2']['id'])], ['amount_total', 'state'])[0]
-check(posted_total['state'] == 'posted', 'ترحيل الفاتورة INV-0002 في Odoo (محاسب)')
+# فواتير يرحّلها المحاسب في Odoo — يجب ألا تمسّها المزامنة بعدها
+posted_ids = [moves[f]['id'] for f in exp['postedInOdoo']]
+models.execute_kw(DB, uid, 'admin', 'account.move', 'action_post', [posted_ids])
+posted = {r['fs_id']: r for r in sr('account.move', [('id', 'in', posted_ids)], ['fs_id', 'amount_total', 'state'])}
+posted_total = posted['i2']
+check(all(r['state'] == 'posted' for r in posted.values()) and len(posted) == len(posted_ids),
+      'ترحيل %d فواتير في Odoo (محاسب)' % len(posted_ids), str(posted))
 
 # الإعداد الموصى به: «تقريب إجمالي» للضريبة (كالمنصة والهيئة) — وإعادة الإرسال تطابق الحساسة للتقريب حرفياً
 models.execute_kw(DB, uid, 'admin', 'res.company', 'write', [[company_id], {'tax_calculation_rounding_method': 'round_globally'}])
@@ -194,9 +194,13 @@ for resource in ('customers', 'products', 'invoices', 'receipts'):
     print('   %s ⇒ %s %s' % (resource, st, {k: body.get(k) for k in ('created', 'updated', 'errors')}))
 check(res2['customers'].get('created') == 0 and res2['customers'].get('updated') == 3, 'العملاء: لا تكرار (٣ حُدّثت)', str(res2['customers']))
 check(res2['products'].get('created') == 0 and res2['products'].get('updated') == 4, 'المنتجات: لا تكرار حتى المؤرشف (٤ حُدّثت)', str(res2['products']))
-inv_err = [e.get('id') for e in res2['invoices'].get('error_details') or []]
-check(res2['invoices'].get('created') == 0 and inv_err == ['i2'],
-      'الفواتير: لا تكرار، والمرحّلة في Odoo لم تُمسّ (خطأ ظاهر)', str(res2['invoices']))
+inv_err = {e.get('id'): e.get('error') for e in res2['invoices'].get('error_details') or []}
+check(res2['invoices'].get('created') == 0 and sorted(inv_err) == exp['round2Errors'],
+      'الفواتير: لا تكرار، والخطأ للفرق الحقيقي وحده (تغيّرت بعد ترحيلها، وأُلغيت ولم تُعكس)', str(res2['invoices']))
+check('تغيّرت' in (inv_err.get('i2') or '') and 'اعكسها' in (inv_err.get('i9') or ''),
+      'رسالتا الخطأ تقولان للمحاسب ماذا يفعل', str(inv_err))
+check(res2['invoices'].get('unchanged') == len(exp['round2Unchanged']),
+      'إعادة إرسال فاتورة مُرحَّلة لم تتغيّر: «بلا تغيير» لا خطأ', str(res2['invoices']))
 check(res2['receipts'].get('created') == 0, 'السندات: لا تكرار', str(res2['receipts']))
 
 moves2 = by_fs('account.move', ['state', 'amount_total', 'amount_tax', 'fs_total_diff', 'fs_tax_diff'])
@@ -216,8 +220,24 @@ check(len(by_fs('res.partner', ['id'])) == 3 and len(by_fs('product.template', [
 receipts2 = by_fs('fieldsales.receipt', ['state'])
 check(len(receipts2) == 3 and receipts2['r3']['state'] == 'ملغى', 'السند الملغى في المنصة: حالته «ملغى» ولا تكرار', str(receipts2.get('r3')))
 
+# ═══ الجولة الثالثة: المحاسب يعكس الفاتورة الملغاة بإشعار دائن ═══
+print('\n▶ الجولة الثالثة')
+ctx = {'context': {'active_model': 'account.move', 'active_ids': [moves['i9']['id']]}}
+wiz = models.execute_kw(DB, uid, 'admin', 'account.move.reversal', 'create', [{'reason': 'ملغاة في Field Sales'}], ctx)
+models.execute_kw(DB, uid, 'admin', 'account.move.reversal', 'reverse_moves', [[wiz]], ctx)
+refunds = sr('account.move', [('reversed_entry_id', '=', moves['i9']['id'])], ['state'])
+drafts = [r['id'] for r in refunds if r['state'] == 'draft']
+if drafts:
+    models.execute_kw(DB, uid, 'admin', 'account.move', 'action_post', [drafts])
+check(len(refunds) == 1, 'المحاسب عكس INV-0009 بإشعار دائن مُرحَّل', str(refunds))
+st, body = post(load('round3_invoices'))
+print('   invoices ⇒ %s %s' % (st, {k: body.get(k) for k in ('created', 'updated', 'unchanged', 'errors')}))
+i9 = sr('account.move', [('id', '=', moves['i9']['id'])], ['state', 'fs_status'])[0]
+check(body.get('errors') == 0 and body.get('unchanged') == 1 and i9['state'] == 'posted' and i9['fs_status'] == 'CANCELLED',
+      'بعد العكس: لا خطأ، والفاتورة الأصلية باقية مُرحَّلة وموسومة «ملغاة في المنصة»', str((body, i9)))
+
 logs = sr('fieldsales.sync.log', [], ['resource', 'received', 'error_count'])
-check(len(logs) >= 8, 'سجلّ المزامنة في Odoo يحفظ كل دفعة', str(len(logs)))
+check(len(logs) >= 9, 'سجلّ المزامنة في Odoo يحفظ كل دفعة', str(len(logs)))
 
 print('\n══ النتيجة: %d نجحت، %d فشلت — Odoo %s ══' % (passes, len(failures), version))
 for f in failures:

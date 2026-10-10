@@ -101,7 +101,13 @@ const I7 = invoice('i7', 'INV-0007', C1, 'CREDIT', [{ p: P1, qty: 2, unitPrice: 
 const I8 = invoice('i8', 'INV-0008', C2, 'CASH', [
   { p: P1, qty: 1, unitPrice: 1.5 }, { p: P2, qty: 1, unitPrice: 1.5 }, { p: P1, qty: 1, unitPrice: 1.5 },
 ], { inclusive: true });
-const invoices = [I1, I2, I3, I4, I5, I6, I7, I8];
+// يرحّلها المحاسب ثم تُلغى في المنصة — خطأ ظاهر حتى يعكسها في Odoo بإشعار دائن، ثم «بلا تغيير»
+const I9 = invoice('i9', 'INV-0009', C1, 'CREDIT', [{ p: P2, qty: 3, unitPrice: 1 }]);
+const invoices = [I1, I2, I3, I4, I5, I6, I7, I8, I9];
+// I2 تتغيّر في المنصة بعد أن رحّلها المحاسب في Odoo — لا تُكتب فوق المرحّلة، وخطأ ظاهر
+const I2changed = invoice('i2', 'INV-0002', C2, 'CASH', [
+  { p: P1, qty: 5, unitPrice: 11.5 }, { p: P2, qty: 10, unitPrice: 1 },
+], { inclusive: true, invoiceDate: '2026-10-07T22:30:00Z', einvoiceUuid: 'uuid-e2e-0002' });
 
 // ═══ السندات ═══
 const receipt = (id: string, number: string, c: { id: string; code: string; name: string }, amount: number, method: string,
@@ -128,7 +134,9 @@ write('round1_receipts', erpEnvelope('receipts', rec([R1, R2, R3, R4]), NOW));
 // الجولة الثانية: إعادة الإرسال نفسه (لا تكرار)، وإلغاء I6 وR3
 write('round2_customers', erpEnvelope('customers', customers.map((c) => customerPayloadRow(c)), NOW));
 write('round2_products', erpEnvelope('products', products.map((p) => productPayloadRow(p)), NOW));
-write('round2_invoices', erpEnvelope('invoices', inv([I1, I2, I3, I4, I5, { ...I6, status: 'CANCELLED' }, I7, I8]), NOW));
+write('round2_invoices', erpEnvelope('invoices', inv([I1, I2changed, I3, I4, I5, { ...I6, status: 'CANCELLED' }, I7, I8, { ...I9, status: 'CANCELLED' }]), NOW));
+// الجولة الثالثة: بعد أن عكس المحاسب I9 في Odoo
+write('round3_invoices', erpEnvelope('invoices', inv([{ ...I9, status: 'CANCELLED' }]), NOW));
 write('round2_receipts', erpEnvelope('receipts', rec([R1, R2, { ...R3, status: 'CANCELLED' }]), NOW));
 
 write('expected', {
@@ -139,6 +147,10 @@ write('expected', {
   }])),
   neverCreated: ['i7'],
   roundingSensitive: ['i8'],
+  // يرحّلها المحاسب في Odoo بعد الجولة الأولى
+  postedInOdoo: ['i2', 'i3', 'i9'],
+  round2Errors: ['i2', 'i9'],
+  round2Unchanged: ['i3'],
   i2LocalDate: '2026-10-08',
   receipts: {
     r1: { method: 'نقداً', invoices: ['i1'], customer: 'c1' }, r2: { method: 'تحويل بنكي', customer: 'c2' },

@@ -12,6 +12,7 @@
         <field name="received"/>
         <field name="created_count"/>
         <field name="updated_count"/>
+        <field name="unchanged_count" optional="show"/>
         <field name="error_count"/>
         <field name="exported_at" optional="hide"/>
       </tree>
@@ -33,6 +34,7 @@
             <group>
               <field name="created_count"/>
               <field name="updated_count"/>
+              <field name="unchanged_count"/>
               <field name="error_count"/>
             </group>
           </group>
