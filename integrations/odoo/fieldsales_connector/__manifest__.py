@@ -18,6 +18,10 @@ What it does
 * Creates **invoices** in ``account.move`` as **drafts only** — never posted.
 * Records **receipts** in a dedicated model for the accountant to review.
 * Logs every sync with per-row errors, so a single bad row never hides.
+* Keeps each invoice's total and VAT equal to Field Sales: tax-inclusive invoices
+  use a price-included copy of your sale tax (created once), and per-line
+  rounding cents are settled through Odoo's own tax-amount adjustment.
+* Shows any real difference (``fs_total_diff``, ``fs_tax_diff``) instead of hiding it.
 
 What it deliberately does NOT do
 --------------------------------

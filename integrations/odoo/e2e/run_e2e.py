@@ -223,7 +223,10 @@ check(len(receipts2) == 3 and receipts2['r3']['state'] == 'ملغى', 'السن�
 # ═══ الجولة الثالثة: المحاسب يعكس الفاتورة الملغاة بإشعار دائن ═══
 print('\n▶ الجولة الثالثة')
 ctx = {'context': {'active_model': 'account.move', 'active_ids': [moves['i9']['id']]}}
-wiz = models.execute_kw(DB, uid, 'admin', 'account.move.reversal', 'create', [{'reason': 'ملغاة في Field Sales'}], ctx)
+journal_id = sr('account.move', [('id', '=', moves['i9']['id'])], ['journal_id'])[0]['journal_id'][0]
+wiz = models.execute_kw(DB, uid, 'admin', 'account.move.reversal', 'create', [{
+    'reason': 'ملغاة في Field Sales', 'journal_id': journal_id, 'move_ids': [(6, 0, [moves['i9']['id']])],
+}], ctx)
 models.execute_kw(DB, uid, 'admin', 'account.move.reversal', 'reverse_moves', [[wiz]], ctx)
 refunds = sr('account.move', [('reversed_entry_id', '=', moves['i9']['id'])], ['state'])
 drafts = [r['id'] for r in refunds if r['state'] == 'draft']
