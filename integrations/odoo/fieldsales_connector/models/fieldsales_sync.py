@@ -54,6 +54,9 @@ class AccountMove(models.Model):
     fs_tax_amt = fields.Monetary(string='Field Sales tax', copy=False, currency_field='currency_id')
     fs_total_diff = fields.Monetary(string='Difference vs Field Sales', copy=False, currency_field='currency_id',
                                     help='Field Sales total minus the Odoo total. Zero when they match.')
+    fs_tax_diff = fields.Monetary(string='Tax difference vs Field Sales', copy=False, currency_field='currency_id',
+                                  help='Field Sales VAT minus the Odoo VAT. Zero when they match. A cent here usually '
+                                       'means the company rounds tax per line; Field Sales (like ZATCA) rounds per rate.')
     fs_status = fields.Char(string='Field Sales status', copy=False)
 
     _sql_constraints = [_FS_ID_UNIQ]
@@ -199,7 +202,7 @@ class FieldSalesConnector(models.AbstractModel):
 
         def tax(vals):
             pct = round(vals.get('fs_tax_pct') or 0.0, 4)
-            tax_id = taxes.get(pct)
+            tax_id = taxes.get((pct, False))
             if tax_id:
                 return {'taxes_id': [(6, 0, [tax_id])]}
             # منتجٌ معفى/صفري بلا ضريبة صفرية في Odoo: بلا ضريبة لا ضريبة الشركة الافتراضية (١٥٪)
@@ -249,6 +252,11 @@ class FieldSalesConnector(models.AbstractModel):
         partners = self._partner_index()
         products = self._product_index()
         taxes = self._tax_index()
+        self._ensure_included_taxes(taxes, {
+            round(line.get('fs_tax_pct') or 0.0, 4)
+            for vals in mapped if not vals.get('fs_cancelled')
+            for line in vals.get('fs_lines', []) if line.get('fs_tax_included')
+        })
         created = updated = 0
         errors = []
 
@@ -280,18 +288,26 @@ class FieldSalesConnector(models.AbstractModel):
 
                     lines = []
                     for line in vals.get('fs_lines', []):
+                        pct = round(line.get('fs_tax_pct') or 0.0, 4)
                         line_vals = {
                             'name': line['name'],
                             'quantity': line['quantity'],
                             'price_unit': line['price_unit'],
                             'discount': line['discount'],
                         }
+                        tax_id = taxes.get((pct, True)) if line.get('fs_tax_included') else None
+                        if line.get('fs_tax_included') and not tax_id:
+                            # لا ضريبة شاملة بهذه النسبة: البند بسعره الصافي وضريبته فوقه (قد تفرق هللة —
+                            # تظهر في fs_tax_diff)
+                            line_vals['price_unit'] = line['fs_net_price_unit']
+                            line_vals['discount'] = line['fs_net_discount']
+                        if not tax_id:
+                            tax_id = taxes.get((pct, False))
                         product_id = products.get(line.get('fs_product_id'))
                         if product_id:
                             line_vals['product_id'] = product_id
-                        tax_id = taxes.get(round(line.get('fs_tax_pct') or 0.0, 4))
                         # ضريبة بلا مقابل في Odoo: بلا ضريبة بدل اختيار ضريبة قريبة — والفرق
-                        # يظهر في fs_total_diff للمراجعة
+                        # يظهر في fs_total_diff وfs_tax_diff للمراجعة
                         line_vals['tax_ids'] = [(6, 0, [tax_id])] if tax_id else [(5, 0, 0)]
                         lines.append((0, 0, line_vals))
 
@@ -314,13 +330,13 @@ class FieldSalesConnector(models.AbstractModel):
                         move = Move.create(dict(header, **fs_vals, move_type=vals['move_type'], fs_id=fs_id,
                                                 invoice_line_ids=lines))
                         created += 1
-                    self._match_total(move, vals['fs_total'])
+                    self._match_total(move, vals['fs_total'], vals['fs_tax_amt'])
             except Exception as exc:  # noqa: BLE001
                 _logger.warning('Field Sales invoice failed for %s: %s', fs_id, exc)
                 errors.append({'id': fs_id, 'error': str(exc)[:200]})
         return created, updated, errors
 
-    def _match_total(self, move, fs_total):
+    def _match_total(self, move, fs_total, fs_tax_amt):
         """يطابق إجمالي المسودّة بإجمالي Field Sales.
 
         Odoo يقرّب السعر والخصم إلى خانتين ويحسب الضريبة فوقهما، وField Sales يوزّع الضريبة
@@ -339,12 +355,14 @@ class FieldSalesConnector(models.AbstractModel):
             })]})
             diff = currency.round(fs_total - move.amount_total)
         move.fs_total_diff = diff
+        # والضريبة تُقارن وحدها: إجماليٌ مطابق قد يخفي هللةً انتقلت من الضريبة إلى الصافي
+        move.fs_tax_diff = currency.round(fs_tax_amt - move.amount_tax)
 
     def _tax_index(self):
-        """خريطة نسبة ⇒ ضريبة بيع غير شاملة في شركة الربط.
+        """خريطة (النسبة، شاملة؟) ⇒ ضريبة بيع في شركة الربط.
 
         المطابقة بالنسبة لا بالاسم: الأسماء تختلف بين التنصيبات واللغات، أما ١٥٪ فهي ١٥٪ في
-        كل تنصيب. والشاملة تُستبعد: السعر المُرسَل صافٍ قبل الضريبة دائماً.
+        كل تنصيب. والشاملة في السعر مفتاحٌ مستقلّ: الفاتورة الشاملة تُربط بها، والصافية بغيرها.
         """
         taxes = self.env['account.tax'].sudo().search([
             ('type_tax_use', '=', 'sale'),
@@ -353,10 +371,34 @@ class FieldSalesConnector(models.AbstractModel):
         ], order='sequence, id')
         index = {}
         for tax in taxes:
-            if getattr(tax, 'price_include', False):
-                continue
-            index.setdefault(round(tax.amount, 4), tax.id)
+            # Odoo 17: price_include حقلٌ مخزَّن؛ Odoo 18: محسوبٌ من price_include_override وإعداد الشركة
+            index.setdefault((round(tax.amount, 4), bool(tax.price_include)), tax.id)
         return index
+
+    def _ensure_included_taxes(self, index, pcts):
+        """ضريبة «شاملة في السعر» لكل نسبة تحتاجها فاتورةٌ بأسعار شاملة.
+
+        تُنشأ مرةً واحدة نسخةً من ضريبة البيع الصافية بالنسبة نفسها (بحساباتها وتوزيعها ووسومها)، فيستخرج
+        Odoo الضريبة من المبلغ الشامل كما تحسبها المنصة والهيئة. وتُنشأ قبل حلقة الفواتير وفي نقطة حفظ
+        مستقلّة: لو أُنشئت داخل نقطة حفظ فاتورةٍ فشلت لتراجع إنشاؤها وبقي معرّفها في الخريطة لما بعدها.
+        """
+        Tax = self.env['account.tax'].sudo()
+        for pct in sorted(pcts):
+            if pct <= 0 or (pct, True) in index or (pct, False) not in index:
+                continue
+            base = Tax.browse(index[(pct, False)])
+            vals = {'name': '%s (Field Sales — شامل)' % base.name}
+            if 'price_include_override' in Tax._fields:
+                vals['price_include_override'] = 'tax_included'
+            else:
+                vals['price_include'] = True
+            try:
+                with self.env.cr.savepoint():
+                    index[(pct, True)] = base.copy(vals).id
+                    _logger.info('Field Sales: created a price-included %s%% sale tax', pct)
+            except Exception as exc:  # noqa: BLE001
+                # بلا ضريبة شاملة تُرسل البنود بصافيها — لا تتوقّف المزامنة
+                _logger.warning('Field Sales: could not create a price-included %s%% tax: %s', pct, exc)
 
 
 class ResConfigSettings(models.TransientModel):

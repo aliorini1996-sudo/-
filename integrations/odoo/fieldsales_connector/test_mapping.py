@@ -212,6 +212,33 @@ class TestInvoiceLine(unittest.TestCase):
         self.assertAlmostEqual(line['discount'], 10.0)
         self.assertAlmostEqual(line['quantity'] * line['price_unit'] * (1 - line['discount'] / 100), 27.0)
 
+    def test_الشامل_يُرسَل_شاملاً_بضريبة_شاملة_والصافي_احتياطاً(self):
+        # ١١٫٥ شامل × ٣ = ٣٤٫٥، وبعد خصم الفاتورة ١٠٪ = ٣١٫٠٥ شاملاً ⇒ Odoo يستخرج الضريبة منه كالمنصة
+        line = map_invoice_line({'qty': 3, 'unitPrice': 11.5, 'unitPriceNet': 10, 'netAmount': 27,
+                                 'taxPct': 15, 'lineTotal': 31.05}, inclusive=True)
+        self.assertTrue(line['fs_tax_included'])
+        self.assertEqual(line['price_unit'], 11.5)
+        self.assertAlmostEqual(line['discount'], 10.0)
+        self.assertAlmostEqual(line['quantity'] * line['price_unit'] * (1 - line['discount'] / 100), 31.05)
+        self.assertEqual(line['fs_net_price_unit'], 10)
+        self.assertAlmostEqual(line['fs_net_discount'], 10.0)
+
+    def test_الشامل_بضريبة_صفرية_يبقى_صافياً(self):
+        line = map_invoice_line({'qty': 2, 'unitPrice': 4.75, 'unitPriceNet': 4.75, 'netAmount': 9.5,
+                                 'taxPct': 0, 'lineTotal': 9.5}, inclusive=True)
+        self.assertFalse(line['fs_tax_included'])
+        self.assertEqual(line['price_unit'], 4.75)
+
+    def test_الفاتورة_الشاملة_تمرّر_الشمول_لبنودها(self):
+        row = {'id': 'i', 'number': 'INV-1', 'type': 'CASH', 'pricesIncludeTax': True, 'customerId': 'c',
+               'items': [{'qty': 10, 'unitPrice': 1, 'unitPriceNet': 0.8696, 'netAmount': 8.7, 'taxPct': 15, 'lineTotal': 10}]}
+        line = map_invoice(row)['fs_lines'][0]
+        self.assertTrue(line['fs_tax_included'])
+        self.assertEqual(line['price_unit'], 1)
+        self.assertAlmostEqual(line['discount'], 0.0)
+        row['pricesIncludeTax'] = False
+        self.assertFalse(map_invoice(row)['fs_lines'][0]['fs_tax_included'])
+
     def test_الصافي_بلا_خصم_نسبته_صفر(self):
         line = map_invoice_line({'qty': 2, 'unitPrice': 50, 'unitPriceNet': 50, 'netAmount': 100})
         self.assertAlmostEqual(line['discount'], 0.0)

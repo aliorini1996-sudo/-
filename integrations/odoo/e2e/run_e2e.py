@@ -110,8 +110,9 @@ for resource in ('customers', 'products', 'invoices', 'receipts'):
         print('     أخطاء:', body['error_details'])
 check(res['customers'].get('created') == 3 and res['customers'].get('errors') == 0, 'العملاء: ٣ أُنشئوا بلا أخطاء', str(res['customers']))
 check(res['products'].get('created') == 4 and res['products'].get('errors') == 0, 'المنتجات: ٤ أُنشئت بلا أخطاء', str(res['products']))
-check(res['invoices'].get('created') == 6 and res['invoices'].get('errors') == 0,
-      'الفواتير: ٦ أُنشئت (نقدية وآجلة ومرتجع) بلا أخطاء، والملغاة لم تُنشأ', str(res['invoices']))
+N_INV = len(exp['invoices'])
+check(res['invoices'].get('created') == N_INV and res['invoices'].get('errors') == 0,
+      'الفواتير: %d أُنشئت (نقدية وآجلة ومرتجع) بلا أخطاء، والملغاة لم تُنشأ' % N_INV, str(res['invoices']))
 rec_err_ids = [e.get('id') for e in res['receipts'].get('error_details') or []]
 check(res['receipts'].get('created') == 3 and res['receipts'].get('errors') == 1 and rec_err_ids == [exp['unsyncedReceipt']],
       'السندات: ٣ أُنشئت، وسند عميلٍ لم يُزامَن مرفوضٌ بخطأ ظاهر', str(res['receipts']))
@@ -134,8 +135,12 @@ for fs_id, e in exp['products'].items():
     check(bool(t) and t['active'] == e['active'] and tax_amounts == want,
           'المنتج %s: %s، ضريبته %s' % (fs_id, 'نشط' if e['active'] else 'مؤرشف', e['tax']), str((t, tax_amounts)))
 
-moves = by_fs('account.move', ['move_type', 'state', 'amount_total', 'amount_tax', 'fs_total', 'fs_total_diff',
-                               'invoice_date', 'partner_id', 'ref', 'narration'])
+MOVE_FIELDS = ['move_type', 'state', 'amount_total', 'amount_tax', 'fs_total', 'fs_total_diff', 'fs_tax_diff',
+               'invoice_date', 'partner_id', 'ref', 'narration']
+moves = by_fs('account.move', MOVE_FIELDS)
+company_id = sr('res.users', [('id', '=', uid)], ['company_id'])[0]['company_id'][0]
+rounding = sr('res.company', [('id', '=', company_id)], ['tax_calculation_rounding_method'])[0]['tax_calculation_rounding_method']
+print('   طريقة تقريب الضريبة في الشركة:', rounding)
 for fs_id, e in exp['invoices'].items():
     m = moves.get(fs_id)
     if not m:
@@ -145,7 +150,17 @@ for fs_id, e in exp['invoices'].items():
     check(abs(m['amount_total'] - e['total']) < 0.005 and abs(m['fs_total_diff']) < 0.005,
           'الفاتورة %s: إجمالي Odoo %.2f = إجمالي المنصة %.2f' % (e['number'], m['amount_total'], e['total']),
           'ضريبة Odoo %.2f والمنصة %.2f' % (m['amount_tax'], e['tax']))
-    check(abs(m['amount_tax'] - e['tax']) <= 0.011, 'الفاتورة %s: الضريبة %.2f ≈ %.2f' % (e['number'], m['amount_tax'], e['tax']))
+    if fs_id in exp['roundingSensitive'] and rounding == 'round_per_line':
+        # تقريب Odoo الافتراضي لكل بند يزيدها هللة — المطلوب أن يظهر الفرق للمحاسب لا أن يُخفى
+        check(abs(m['fs_tax_diff'] - round(e['tax'] - m['amount_tax'], 2)) < 0.005 and abs(m['fs_tax_diff']) >= 0.005,
+              'الفاتورة %s: فرق الضريبة بالتقريب لكل بند ظاهر (Odoo %.2f، المنصة %.2f، الفرق %.2f)'
+              % (e['number'], m['amount_tax'], e['tax'], m['fs_tax_diff']), str(m))
+        continue
+    check(abs(m['amount_tax'] - e['tax']) < 0.005 and abs(m['fs_tax_diff']) < 0.005,
+          'الفاتورة %s: الضريبة %.2f = %.2f حرفياً' % (e['number'], m['amount_tax'], e['tax']), 'fs_tax_diff=%s' % m['fs_tax_diff'])
+included = sr('account.tax', [('name', 'ilike', 'Field Sales')], ['amount', 'type_tax_use'])
+check(len(included) == 1 and included[0]['amount'] == 15 and included[0]['type_tax_use'] == 'sale',
+      'ضريبة ١٥٪ «شاملة في السعر» أُنشئت مرةً واحدة للفواتير الشاملة', str(included))
 for fs_id in exp['neverCreated']:
     check(fs_id not in moves, 'الفاتورة الملغاة قبل وصولها (%s) لم تُنشأ' % fs_id)
 check(moves.get('i2', {}).get('invoice_date') == exp['i2LocalDate'], 'تاريخ الفاتورة المحلي (بعد منتصف الليل بالرياض)',
@@ -167,6 +182,9 @@ models.execute_kw(DB, uid, 'admin', 'account.move', 'action_post', [[moves['i2']
 posted_total = sr('account.move', [('id', '=', moves['i2']['id'])], ['amount_total', 'state'])[0]
 check(posted_total['state'] == 'posted', 'ترحيل الفاتورة INV-0002 في Odoo (محاسب)')
 
+# الإعداد الموصى به: «تقريب إجمالي» للضريبة (كالمنصة والهيئة) — وإعادة الإرسال تطابق الحساسة للتقريب حرفياً
+models.execute_kw(DB, uid, 'admin', 'res.company', 'write', [[company_id], {'tax_calculation_rounding_method': 'round_globally'}])
+
 # ═══ الجولة الثانية: إعادة الإرسال + إلغاءات ═══
 print('\n▶ الجولة الثانية')
 res2 = {}
@@ -181,8 +199,14 @@ check(res2['invoices'].get('created') == 0 and inv_err == ['i2'],
       'الفواتير: لا تكرار، والمرحّلة في Odoo لم تُمسّ (خطأ ظاهر)', str(res2['invoices']))
 check(res2['receipts'].get('created') == 0, 'السندات: لا تكرار', str(res2['receipts']))
 
-moves2 = by_fs('account.move', ['state', 'amount_total', 'fs_total_diff'])
-check(len(moves2) == 6, 'عدد الفواتير ما زال ٦', str(len(moves2)))
+moves2 = by_fs('account.move', ['state', 'amount_total', 'amount_tax', 'fs_total_diff', 'fs_tax_diff'])
+check(len(moves2) == N_INV, 'عدد الفواتير ما زال %d' % N_INV, str(len(moves2)))
+for fs_id in exp['roundingSensitive']:
+    e, m = exp['invoices'][fs_id], moves2[fs_id]
+    check(abs(m['amount_tax'] - e['tax']) < 0.005 and abs(m['fs_tax_diff']) < 0.005
+          and abs(m['amount_total'] - e['total']) < 0.005,
+          'بالتقريب الإجمالي: الفاتورة %s ضريبتها %.2f = %.2f حرفياً' % (e['number'], m['amount_tax'], e['tax']), str(m))
+check(len(sr('account.tax', [('name', 'ilike', 'Field Sales')], ['id'])) == 1, 'الضريبة الشاملة لم تتكرّر في الجولة الثانية')
 check(moves2['i6']['state'] == 'cancel', 'الفاتورة الملغاة في المنصة أُلغيت مسودّتها في Odoo', moves2['i6']['state'])
 check(moves2['i2']['state'] == 'posted' and abs(moves2['i2']['amount_total'] - posted_total['amount_total']) < 0.005,
       'الفاتورة المرحّلة بقيت كما هي')

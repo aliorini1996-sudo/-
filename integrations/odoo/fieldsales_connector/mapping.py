@@ -171,7 +171,10 @@ def map_invoice(row):
         move_type = _MOVE_TYPE.get(_s(row.get('type'), 'CREDIT').upper())
     if not move_type:
         raise PayloadError('نوع فاتورة غير معروف: %s' % (row.get('type'),))
-    lines = [map_invoice_line(item) for item in (row.get('items') or [])]
+    # أسعار شاملة الضريبة (تطبيق المندوب): تُرسل بسعرها الشامل وضريبة «شاملة في السعر» فيستخرج Odoo
+    # الضريبة من المبلغ الشامل كما تحسبها المنصة والهيئة — الصافي المقرّب ثم الضريبة فوقه يزيدها هللة
+    inclusive = row.get('pricesIncludeTax') is True
+    lines = [map_invoice_line(item, inclusive) for item in (row.get('items') or [])]
     if not lines:
         raise PayloadError('فاتورة بلا بنود: %s' % (row.get('number') or row.get('id'),))
 
@@ -210,27 +213,46 @@ def map_invoice(row):
     }
 
 
-def map_invoice_line(item):
+def _discount_from(amount, qty, price):
+    """نسبة الخصم الفعلية التي تجعل qty × السعر × (1 − الخصم) = المبلغ — Odoo يقبل الخصم نسبةً فقط."""
+    gross = qty * price
+    if gross <= 0:
+        return 0.0
+    return max(0.0, min(100.0, (1.0 - amount / gross) * 100.0))
+
+
+def map_invoice_line(item, inclusive=False):
     """بند فاتورة ⇒ account.move.line.
 
-    السعر **صافٍ قبل الضريبة** دائماً: Odoo يحسب الضريبة فوق السعر. فواتير تطبيق
-    المندوب أسعارها شاملة، ولذلك يرسل Field Sales `unitPriceNet` (الصافي) و`netAmount`
-    (صافي البند بعد خصم البند وحصّته من خصم الفاتورة الكلّي). والخصم في Odoo نسبةٌ
-    فقط، فتُشتقّ النسبة الفعلية من الصافي: qty × السعر × (1 − الخصم) = الصافي.
+    فاتورةٌ بأسعار صافية: السعر صافٍ قبل الضريبة، وOdoo يحسب الضريبة فوقه.
+    فاتورةٌ بأسعار شاملة (تطبيق المندوب): السعر **شاملاً** و`fs_tax_included`، فيُربط البند بضريبة
+    «شاملة في السعر» ويستخرج Odoo الضريبة من الشامل كما تحسبها المنصة. والصافي يُحمَل معه
+    (`fs_net_price_unit`/`fs_net_discount`) احتياطاً إن تعذّرت الضريبة الشاملة.
+
+    الخصم في Odoo نسبةٌ فقط، فتُشتقّ النسبة الفعلية من مبلغ البند بعد خصم البند **وحصّته من خصم
+    الفاتورة الكلّي**: `lineTotal` في الشامل، و`netAmount` (= lineTotal − الضريبة) في الصافي.
     وحمولةٌ قديمة بلا الحقلين: السعر كما هو وخصم البند (نسبة أو مبلغ).
     """
     qty = _f(item.get('qty'))
+    tax_pct = _f(item.get('taxPct'))
     has_net = item.get('unitPriceNet') is not None
-    unit_price = _f(item.get('unitPriceNet')) if has_net else _f(item.get('unitPrice'))
-    gross = qty * unit_price
-    if item.get('netAmount') is not None and gross > 0:
-        discount_pct = (1.0 - _f(item.get('netAmount')) / gross) * 100.0
+    net_price = _f(item.get('unitPriceNet')) if has_net else _f(item.get('unitPrice'))
+    if item.get('netAmount') is not None:
+        net_discount = _discount_from(_f(item.get('netAmount')), qty, net_price)
     else:
-        discount_pct = _f(item.get('discountPct'))
+        net_discount = _f(item.get('discountPct'))
         discount_amt = _f(item.get('discountAmt'))
-        if discount_pct <= 0 and discount_amt > 0 and gross > 0:
-            discount_pct = discount_amt / gross * 100.0
-    discount_pct = max(0.0, min(100.0, discount_pct))
+        if net_discount <= 0 and discount_amt > 0 and qty * net_price > 0:
+            net_discount = discount_amt / (qty * net_price) * 100.0
+        net_discount = max(0.0, min(100.0, net_discount))
+
+    # الشامل يلزمه ضريبة غير صفرية والمبلغ الشامل بعد الخصومات؛ والصفري شامله = صافيه
+    included = bool(inclusive and tax_pct > 0 and item.get('lineTotal') is not None)
+    if included:
+        unit_price = _f(item.get('unitPrice'))
+        discount_pct = _discount_from(_f(item.get('lineTotal')), qty, unit_price)
+    else:
+        unit_price, discount_pct = net_price, net_discount
 
     product = item.get('product') or {}
     menu_item = item.get('menuItem') or {}
@@ -243,9 +265,12 @@ def map_invoice_line(item):
         'quantity': qty,
         'price_unit': unit_price,
         'discount': round(discount_pct, 4),
+        'fs_tax_included': included,
+        'fs_net_price_unit': net_price,
+        'fs_net_discount': round(net_discount, 4),
         'fs_product_id': _s(product.get('id')) or _s(item.get('productId')),
         'fs_product_code': _s(product.get('code')),
-        'fs_tax_pct': _f(item.get('taxPct')),
+        'fs_tax_pct': tax_pct,
         'fs_line_total': _f(item.get('lineTotal')),
     }
 

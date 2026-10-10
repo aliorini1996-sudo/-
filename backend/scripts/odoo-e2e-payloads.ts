@@ -96,7 +96,12 @@ const I5 = invoice('i5', 'INV-0005', C3, 'CREDIT', [{ p: P2, qty: 1, unitPrice: 
 const I6 = invoice('i6', 'INV-0006', C2, 'CREDIT', [{ p: P1, qty: 1, unitPrice: 10 }]);
 // ملغاة قبل أن تصل — لا تُنشأ أبداً
 const I7 = invoice('i7', 'INV-0007', C1, 'CREDIT', [{ p: P1, qty: 2, unitPrice: 10 }], { status: 'CANCELLED' });
-const invoices = [I1, I2, I3, I4, I5, I6, I7];
+// شاملة بثلاثة بنود ١٫٥: ضريبة كل بند ٠٫١٩٥٦ ⇒ تقريبها بنداً بنداً ٠٫٦٠، والمنصة (كالهيئة) تقرّب مجموع النسبة ٠٫٥٩.
+// بتقريب Odoo الافتراضي (لكل بند) يجب أن يظهر الفرق في fs_tax_diff لا أن يُخفى، وبـ«التقريب الإجمالي» يطابق حرفياً
+const I8 = invoice('i8', 'INV-0008', C2, 'CASH', [
+  { p: P1, qty: 1, unitPrice: 1.5 }, { p: P2, qty: 1, unitPrice: 1.5 }, { p: P1, qty: 1, unitPrice: 1.5 },
+], { inclusive: true });
+const invoices = [I1, I2, I3, I4, I5, I6, I7, I8];
 
 // ═══ السندات ═══
 const receipt = (id: string, number: string, c: { id: string; code: string; name: string }, amount: number, method: string,
@@ -123,7 +128,7 @@ write('round1_receipts', erpEnvelope('receipts', rec([R1, R2, R3, R4]), NOW));
 // الجولة الثانية: إعادة الإرسال نفسه (لا تكرار)، وإلغاء I6 وR3
 write('round2_customers', erpEnvelope('customers', customers.map((c) => customerPayloadRow(c)), NOW));
 write('round2_products', erpEnvelope('products', products.map((p) => productPayloadRow(p)), NOW));
-write('round2_invoices', erpEnvelope('invoices', inv([I1, I2, I3, I4, I5, { ...I6, status: 'CANCELLED' }, I7]), NOW));
+write('round2_invoices', erpEnvelope('invoices', inv([I1, I2, I3, I4, I5, { ...I6, status: 'CANCELLED' }, I7, I8]), NOW));
 write('round2_receipts', erpEnvelope('receipts', rec([R1, R2, { ...R3, status: 'CANCELLED' }]), NOW));
 
 write('expected', {
@@ -133,6 +138,7 @@ write('expected', {
     number: i.number, total: i.total, tax: i.taxAmt, moveType: i.type === 'RETURN' ? 'out_refund' : 'out_invoice',
   }])),
   neverCreated: ['i7'],
+  roundingSensitive: ['i8'],
   i2LocalDate: '2026-10-08',
   receipts: {
     r1: { method: 'نقداً', invoices: ['i1'], customer: 'c1' }, r2: { method: 'تحويل بنكي', customer: 'c2' },

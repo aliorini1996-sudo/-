@@ -7,7 +7,7 @@
     <field name="model">account.move</field>
     <field name="priority">90</field>
     <field name="arch" type="xml">
-      <tree string="Field Sales invoices" create="false" decoration-danger="fs_total_diff != 0"
+      <tree string="Field Sales invoices" create="false" decoration-danger="fs_total_diff != 0 or fs_tax_diff != 0"
             decoration-muted="state == 'cancel'">
         <field name="ref" string="Field Sales number"/>
         <field name="name"/>
@@ -19,6 +19,9 @@
         <field name="amount_total" sum="Total"/>
         <field name="fs_total" sum="Field Sales total"/>
         <field name="fs_total_diff" sum="Difference"/>
+        <field name="amount_tax" optional="show"/>
+        <field name="fs_tax_amt" optional="show"/>
+        <field name="fs_tax_diff" sum="Tax difference"/>
         <field name="fs_status" optional="show"/>
       </tree>
     </field>
@@ -32,7 +35,7 @@
       <search string="Field Sales invoices">
         <field name="ref"/>
         <field name="partner_id"/>
-        <filter name="fs_diff" string="Total differs from Field Sales" domain="[('fs_total_diff', '!=', 0)]"/>
+        <filter name="fs_diff" string="Differs from Field Sales" domain="['|', ('fs_total_diff', '!=', 0), ('fs_tax_diff', '!=', 0)]"/>
         <filter name="fs_draft" string="Draft" domain="[('state', '=', 'draft')]"/>
         <filter name="fs_cancelled" string="Cancelled in Field Sales" domain="[('fs_status', '=', 'CANCELLED')]"/>
       </search>
