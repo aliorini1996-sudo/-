@@ -30,8 +30,7 @@ jobs:
       fail-fast: false
       matrix:
         odoo: ['17.0', '18.0']
-    # الوحدة مكتوبة لـ17؛ 18 يُختبر ليُعرف توافقه ولا يُفشل الفحص
-    continue-on-error: ${{ matrix.odoo != '17.0' }}
+    # المصدر لـ17، و18 يُبنى منه بـport_addon.py ويُختبر بالفحوص نفسها
     services:
       db:
         image: postgres:15
@@ -59,6 +58,11 @@ jobs:
           npx tsx scripts/odoo-e2e-payloads.ts ../e2e-payloads
       - name: Pull Odoo
         run: docker pull "$ODOO_IMAGE"
+      - name: Port the addon to this Odoo version
+        if: matrix.odoo != '17.0'
+        run: |
+          python3 integrations/odoo/port_addon.py "${{ matrix.odoo }}" "$RUNNER_TEMP/addons"
+          echo "ADDONS=$RUNNER_TEMP/addons" >> "$GITHUB_ENV"
       - name: Install fieldsales_connector on a fresh database
         run: |
           docker run --rm --network host -e HOST=localhost -e PORT=5432 -e USER=odoo -e PASSWORD=odoo \
