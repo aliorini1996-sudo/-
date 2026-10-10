@@ -3,7 +3,9 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
-import { syncErpAll, syncErpResource, testErpConnection } from '../services/erp';
+import { isErpSyncRunning, startErpSync, testErpConnection } from '../services/erp';
+import { erpUrlProblem } from '../services/erpPayload';
+import { sealErpSecret } from '../services/erpSecrets';
 import { adminScopeEnabled } from '../services/adminScope';
 
 const router = Router();
@@ -75,7 +77,7 @@ function publicSettings(config: any) {
 router.get('/settings', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const config = await prisma.erpIntegration.findUnique({ where: { tenantId: tenantId(req) } });
-    res.json({ success: true, data: publicSettings(config) });
+    res.json({ success: true, data: config ? { ...publicSettings(config), syncRunning: isErpSyncRunning(tenantId(req)) } : null });
   } catch (err) { next(err); }
 });
 
@@ -99,9 +101,13 @@ router.put('/settings', async (req: AuthRequest, res: Response, next: NextFuncti
       syncReceipts: body.syncReceipts ?? true,
     };
 
-    if (body.apiKey?.trim()) data.apiKey = body.apiKey.trim();
-    if (body.bearerToken?.trim()) data.bearerToken = body.bearerToken.trim();
-    if (body.basicPassword?.trim()) data.basicPassword = body.basicPassword.trim();
+    // رابطٌ آمن قبل الحفظ (https، بلا بيانات دخول فيه، لا عنوان داخلي ظاهر) — والفحص الكامل بحلّ الاسم عند كل اتصال
+    const urlProblem = data.baseUrl ? erpUrlProblem(String(data.baseUrl)) : null;
+    if (urlProblem) { res.status(400).json({ success: false, message: urlProblem }); return; }
+    // المفاتيح مشفّرة في القاعدة (services/erpSecrets.ts)
+    if (body.apiKey?.trim()) data.apiKey = sealErpSecret(tid, body.apiKey.trim());
+    if (body.bearerToken?.trim()) data.bearerToken = sealErpSecret(tid, body.bearerToken.trim());
+    if (body.basicPassword?.trim()) data.basicPassword = sealErpSecret(tid, body.basicPassword.trim());
 
     const config = await prisma.erpIntegration.upsert({
       where: { tenantId: tid },
@@ -135,8 +141,13 @@ router.post('/sync', async (req: AuthRequest, res: Response, next: NextFunction)
   try {
     const tid = tenantId(req);
     const body = z.object({ resource: z.enum(['all', 'customers', 'products', 'invoices', 'receipts']).default('all') }).parse(req.body || {});
-    const result = body.resource === 'all' ? await syncErpAll(tid) : await syncErpResource(tid, body.resource);
-    res.json({ success: true, data: result });
+    const config = await prisma.erpIntegration.findUnique({ where: { tenantId: tid }, select: { enabled: true, baseUrl: true } });
+    if (!config?.enabled) { res.status(400).json({ success: false, message: 'تكامل ERP غير مفعل' }); return; }
+    if (!config.baseUrl) { res.status(400).json({ success: false, message: 'رابط ERP مطلوب' }); return; }
+    // في الخلفية: أول مزامنة قد تطول دقائق (كل السجلات على دفعات) — النتيجة في سجلّ المزامنة
+    const started = startErpSync(tid, body.resource === 'all' ? undefined : body.resource);
+    if (!started) { res.status(409).json({ success: false, code: 'ERP_SYNC_RUNNING', message: 'مزامنة جارية — انتظر انتهاءها' }); return; }
+    res.status(202).json({ success: true, data: { started: true, resource: body.resource } });
   } catch (err) { next(err); }
 });
 

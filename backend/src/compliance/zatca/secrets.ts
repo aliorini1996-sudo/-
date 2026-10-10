@@ -61,8 +61,9 @@ export class SecretsError extends Error {
  *   ccsid-secret     سرّ شهادة الامتثال
  *   pcsid-secret     سرّ شهادة الإنتاج
  */
-export type SecretPurpose = 'egs-key' | 'egs-key-pending' | 'ccsid-secret' | 'pcsid-secret';
-export const SECRET_PURPOSES: readonly SecretPurpose[] = Object.freeze(['egs-key', 'egs-key-pending', 'ccsid-secret', 'pcsid-secret'] as SecretPurpose[]);
+// erp-credential: مفاتيح تكامل ERP (services/erpSecrets.ts) — غرضٌ مستقلّ فلا يُفكّ سرٌّ بسياق غيره
+export type SecretPurpose = 'egs-key' | 'egs-key-pending' | 'ccsid-secret' | 'pcsid-secret' | 'erp-credential';
+export const SECRET_PURPOSES: readonly SecretPurpose[] = Object.freeze(['egs-key', 'egs-key-pending', 'ccsid-secret', 'pcsid-secret', 'erp-credential'] as SecretPurpose[]);
 
 export interface SecretContext {
   purpose: SecretPurpose;

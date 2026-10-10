@@ -131,6 +131,8 @@ export interface ErpChunkResult {
   httpStatus: number;
   created: number;
   updated: number;
+  /** وصلت كما هي (فاتورة مُرحَّلة في Odoo لم تتغيّر) — ليست خطأ */
+  unchanged: number;
   errors: number;
   errorDetails: { id: string | null; error: string }[];
   message: string;
@@ -143,7 +145,7 @@ const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0
  * (كانت المزامنة تُسجَّل «نجحت» ولو رفض Odoo صفوفاً)؛ و2xx بغير JSON (ERP عام) ⇒ نجاح بلا تفاصيل.
  */
 export function parseErpResponse(httpStatus: number, text: string): ErpChunkResult {
-  const base = { httpStatus, created: 0, updated: 0, errors: 0, errorDetails: [] as { id: string | null; error: string }[] };
+  const base = { httpStatus, created: 0, updated: 0, unchanged: 0, errors: 0, errorDetails: [] as { id: string | null; error: string }[] };
   if (httpStatus < 200 || httpStatus >= 300) {
     let detail = text;
     try { const j = JSON.parse(text); if (j && typeof j.error === 'string') detail = j.error; } catch { /* نصّ خام */ }
@@ -158,16 +160,16 @@ export function parseErpResponse(httpStatus: number, text: string): ErpChunkResu
     : [];
   return {
     ...base, ok: true,
-    created: num(body.created), updated: num(body.updated), errors: num(body.errors), errorDetails: details,
+    created: num(body.created), updated: num(body.updated), unchanged: num(body.unchanged), errors: num(body.errors), errorDetails: details,
     message: 'تمت المزامنة',
   };
 }
 
-export interface ErpRunTotals { sent: number; created: number; updated: number; errors: number; errorDetails: { id: string | null; error: string }[]; failed: string | null }
+export interface ErpRunTotals { sent: number; created: number; updated: number; unchanged?: number; errors: number; errorDetails: { id: string | null; error: string }[]; failed: string | null }
 
 /** حالة التشغيل ورسالته: فشل نقلٍ ⇒ FAILED؛ أخطاء صفوف ⇒ PARTIAL (لا يُقدَّم المؤشر)؛ وإلا SUCCESS */
 export function summarizeErpRun(t: ErpRunTotals): { status: 'SUCCESS' | 'PARTIAL' | 'FAILED'; message: string } {
-  const counts = `أُرسل ${t.sent}، أُنشئ ${t.created}، حُدّث ${t.updated}`;
+  const counts = `أُرسل ${t.sent}، أُنشئ ${t.created}، حُدّث ${t.updated}${t.unchanged ? `، بلا تغيير ${t.unchanged}` : ''}`;
   const firstErrors = t.errorDetails.slice(0, 5).map((e) => `${e.id ? e.id.slice(0, 8) : '—'}: ${e.error}`).join(' | ');
   if (t.failed) return { status: 'FAILED', message: `${t.failed}${t.sent ? ` (${counts} قبل الفشل)` : ''}`.slice(0, 1000) };
   if (t.errors > 0) return { status: 'PARTIAL', message: `${counts}، وتعذّر ${t.errors}: ${firstErrors}`.slice(0, 1000) };

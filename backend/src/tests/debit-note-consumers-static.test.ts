@@ -41,10 +41,12 @@ test('تقرير المبيعات: بندٌ بلا صنف يُجمَع تحت م
 });
 
 test('تصدير ERP: بنود الفاتورة تُقرأ بحقولها لا ببطاقة صنفها', () => {
-  const erp = read('services/erp.ts');
-  const invoices = between(erp, "if (resource === 'invoices')", 'return prisma.receipt.findMany', 'تصدير الفواتير');
+  // بناء الحمولة صار صرفاً في services/erpPayload.ts (يستعمله الاختبار الحيّ على Odoo)
+  const erp = read('services/erpPayload.ts');
+  const invoices = between(erp, 'export function invoicePayloadRow(', 'export interface ErpReceiptInput', 'تصدير الفواتير');
   assert.doesNotMatch(invoices, /it\.product\.[a-zA-Z]/, 'التصدير يقرأ بطاقة الصنف بلا حارس — بندُ إشعارٍ مدين يسقطه');
-  assert.match(invoices, /unitPriceNet: incl \? roundDecimal\(netFromInclusive\(it\.unitPrice, it\.taxPct\)/, 'حساب الصافي تغيّر');
+  assert.match(invoices, /product: it\.product \? productPayloadRow\(it\.product\) : null/, 'بندٌ بلا صنف (إشعار مدين) يُرسل بلا صنف');
+  assert.match(invoices, /unitPriceNet: incl \? roundHalfUp\(netFromInclusive\(it\.unitPrice, it\.taxPct\), 4\)/, 'حساب الصافي تغيّر');
 });
 
 test('حذف الصنف: العدّ لا يقع على بنود بلا صنف (لا يمنع حذفاً بسبب إشعار مدين)', () => {

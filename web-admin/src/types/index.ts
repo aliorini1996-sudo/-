@@ -160,13 +160,16 @@ export interface ErpIntegration {
   hasApiKey?: boolean;
   hasBearerToken?: boolean;
   hasBasicPassword?: boolean;
+  /** مزامنة تعمل الآن في الخلفية لهذه الشركة */
+  syncRunning?: boolean;
 }
 
 export interface ErpSyncLog {
   id: string;
   resource: string;
   direction: string;
-  status: 'SUCCESS' | 'FAILED';
+  /** PARTIAL: وصلت الدفعات وتعذّرت صفوف بعينها (تفاصيلها في الرسالة) */
+  status: 'SUCCESS' | 'PARTIAL' | 'FAILED';
   count: number;
   message?: string | null;
   startedAt: string;

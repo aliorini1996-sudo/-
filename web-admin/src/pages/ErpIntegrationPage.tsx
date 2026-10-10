@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Activity, CheckCircle2, DatabaseZap, Play, Save, ServerCog, XCircle } from 'lucide-react';
+import { Activity, AlertTriangle, CheckCircle2, DatabaseZap, Info, Loader2, Play, Save, ServerCog, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { erpApi } from '../api/client';
 import { ErpIntegration, ErpSyncLog } from '../types';
-import { formatDate } from '../utils/format';
+import { formatDateTime } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { useAccountingOn } from '../components/AccountingGate';
 
@@ -47,17 +47,24 @@ export default function ErpIntegrationPage() {
   const tr = useTr();
   const [form, setForm] = useState<FormState>(empty);
 
+  // المزامنة تعمل في الخلفية (أولها قد يطول دقائق): ما دامت جارية نسأل كل ٣ ثوانٍ، ونحدّث السجلّ حين تنتهي
   const { data: settings, isLoading } = useQuery({
     queryKey: ['erp-settings'],
     queryFn: async () => {
       const res = await erpApi.settings();
       return res.data.data as ErpIntegration | null;
     },
+    refetchInterval: q => (q.state.data?.syncRunning ? 3000 : false),
   });
+  const running = !!settings?.syncRunning;
 
+  // النموذج يُملأ من المحفوظ حين يتغيّر المحفوظ نفسه — لا حين تتغيّر حالة المزامنة في السؤال الدوري، وإلا مُسح ما
+  // يكتبه المستخدم أثناء المزامنة
+  const savedSig = settings ? JSON.stringify({ ...settings, syncRunning: null, lastSyncAt: null }) : '';
   useEffect(() => {
     if (settings) setForm({ ...empty, ...settings, apiKey: '', bearerToken: '', basicPassword: '' });
-  }, [settings]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedSig]);
 
   const { data: logs } = useQuery({
     queryKey: ['erp-logs'],
@@ -65,7 +72,13 @@ export default function ErpIntegrationPage() {
       const res = await erpApi.logs();
       return res.data.data as ErpSyncLog[];
     },
+    refetchInterval: running ? 3000 : false,
   });
+  const wasRunning = useRef(false);
+  useEffect(() => {
+    if (wasRunning.current && !running) qc.invalidateQueries({ queryKey: ['erp-logs'] });
+    wasRunning.current = running;
+  }, [running, qc]);
 
   const saveMutation = useMutation({
     mutationFn: () => erpApi.saveSettings(form),
@@ -91,14 +104,25 @@ export default function ErpIntegrationPage() {
   const syncMutation = useMutation({
     mutationFn: (resource: 'all' | 'customers' | 'products' | 'invoices' | 'receipts') => erpApi.sync(resource),
     onSuccess: () => {
-      toast.success(tr('تم تشغيل المزامنة'));
+      toast.success(tr('بدأت المزامنة في الخلفية — تابع النتيجة في سجل المزامنة'));
       qc.invalidateQueries({ queryKey: ['erp-logs'] });
       qc.invalidateQueries({ queryKey: ['erp-settings'] });
     },
-    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذرت المزامنة')),
+    onError: (err: unknown) => {
+      toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذرت المزامنة'));
+      qc.invalidateQueries({ queryKey: ['erp-settings'] });
+    },
   });
 
   const set = (key: keyof FormState, value: string | boolean) => setForm(f => ({ ...f, [key]: value }));
+  // Odoo: رابط واحد للموارد كلها (وحدة fieldsales_connector) ومصادقته مفتاح API — المسارات لا تُستعمل
+  const isOdoo = form.provider === 'ODOO';
+  const setProvider = (v: string) => setForm(f => ({ ...f, provider: v as FormState['provider'], authType: v === 'ODOO' && f.authType === 'NONE' ? 'API_KEY' : f.authType }));
+  // أزرار المزامنة تتبع المحفوظ لا النموذج: الخادم يزامن ما فُعّل في الإعداد المحفوظ وحده
+  const savedOn: Record<'customers' | 'products' | 'invoices' | 'receipts', boolean> = {
+    customers: !!settings?.syncCustomers, products: !!settings?.syncProducts,
+    invoices: !!settings?.syncInvoices, receipts: !!settings?.syncReceipts,
+  };
   // مسارات مزامنة الأصناف والفواتير والسندات محاسبية: تختفي مع المحاسبة
   // ويبقى مسار العملاء — والإعداد المحفوظ لا يُمسّ لأننا نخفي لا نُصفّر.
   const { on: accountingFlag, ready: accountingReady } = useAccountingOn();
@@ -136,7 +160,7 @@ export default function ErpIntegrationPage() {
               </label>
               <div>
                 <label className="label">{tr('النظام')}</label>
-                <select className="input" value={form.provider} onChange={e => set('provider', e.target.value)}>
+                <select className="input" value={form.provider} onChange={e => setProvider(e.target.value)}>
                   <option value="CUSTOM">{tr('عام / مخصص')}</option>
                   <option value="ODOO">Odoo</option>
                   <option value="SAP">SAP</option>
@@ -155,8 +179,26 @@ export default function ErpIntegrationPage() {
               </div>
               <div className="col-span-2">
                 <label className="label">{tr('رابط ERP الأساسي')}</label>
-                <input className="input" dir="ltr" placeholder="https://erp.example.com/api" value={form.baseUrl || ''} onChange={e => set('baseUrl', e.target.value)} />
+                <input className="input" dir="ltr" placeholder={isOdoo ? 'https://odoo.example.com/fieldsales/sync' : 'https://erp.example.com/api'} value={form.baseUrl || ''} onChange={e => set('baseUrl', e.target.value)} />
               </div>
+              {isOdoo && (
+                <div className="col-span-2 rounded-xl bg-[#EEF4FB] text-[#1F3B5C] text-xs leading-6 p-3 flex gap-2">
+                  <Info size={16} className="shrink-0 mt-1" />
+                  <div>
+                    <p>{tr('ثبّت وحدة fieldsales_connector في Odoo 17، ثم من إعدادات Odoo ولّد مفتاح API وانسخه هنا.')}</p>
+                    <p>{tr('الرابط هو نطاق Odoo متبوعاً بـ /fieldsales/sync، ونوع المصادقة API Key.')}</p>
+                  </div>
+                </div>
+              )}
+              {isOdoo && (
+                <div className="col-span-2 rounded-xl bg-[#FFF6E0] text-[#6B4A00] text-xs leading-6 p-3 flex gap-2">
+                  <AlertTriangle size={16} className="shrink-0 mt-1" />
+                  <div>
+                    <p>{tr('الفواتير تصل إلى Odoo مسودات لا تُرحَّل آلياً، وسندات القبض سجلات للمراجعة لا دفعات محاسبية.')}</p>
+                    <p>{tr('إن كانت فواتيرك تُبلَّغ لهيئة الزكاة من Field Sales وOdoo لديك مربوط بالهيئة أيضاً، فلا ترحّلها في Odoo: ترحيلها هناك يبلّغها مرة ثانية.')}</p>
+                  </div>
+                </div>
+              )}
               {form.authType === 'API_KEY' && (
                 <div className="col-span-2">
                   <label className="label">API Key {form.hasApiKey && <span className="text-xs text-green-600">{tr('محفوظ سابقا')}</span>}</label>
@@ -189,14 +231,14 @@ export default function ErpIntegrationPage() {
               <div className="w-11 h-11 rounded-xl bg-[#E4F1EA] text-[#1E7A52] flex items-center justify-center"><DatabaseZap size={20} /></div>
               <div>
                 <h2 className="font-bold text-[#1F1A13]">{tr('مسارات المزامنة')}</h2>
-                <p className="text-xs text-gray-500">{tr('يرسل النظام طلب POST يحتوي على البيانات إلى كل مسار')}</p>
+                <p className="text-xs text-gray-500">{isOdoo ? tr('Odoo يستقبل كل الموارد على رابط واحد — اختر ما يُزامَن') : tr('يرسل النظام طلب POST يحتوي على البيانات إلى كل مسار')}</p>
               </div>
             </div>
 
-            <EndpointRow label={tr('العملاء')} enabled={form.syncCustomers} endpoint={form.customersEndpoint || ''} onEnabled={v => set('syncCustomers', v)} onEndpoint={v => set('customersEndpoint', v)} />
-            {accountingOn && <EndpointRow label={tr('المنتجات')} enabled={form.syncProducts} endpoint={form.productsEndpoint || ''} onEnabled={v => set('syncProducts', v)} onEndpoint={v => set('productsEndpoint', v)} />}
-            {accountingOn && <EndpointRow label={tr('الفواتير')} enabled={form.syncInvoices} endpoint={form.invoicesEndpoint || ''} onEnabled={v => set('syncInvoices', v)} onEndpoint={v => set('invoicesEndpoint', v)} />}
-            {accountingOn && <EndpointRow label={tr('سندات القبض')} enabled={form.syncReceipts} endpoint={form.receiptsEndpoint || ''} onEnabled={v => set('syncReceipts', v)} onEndpoint={v => set('receiptsEndpoint', v)} />}
+            <EndpointRow label={tr('العملاء')} showEndpoint={!isOdoo} enabled={form.syncCustomers} endpoint={form.customersEndpoint || ''} onEnabled={v => set('syncCustomers', v)} onEndpoint={v => set('customersEndpoint', v)} />
+            {accountingOn && <EndpointRow label={tr('المنتجات')} showEndpoint={!isOdoo} enabled={form.syncProducts} endpoint={form.productsEndpoint || ''} onEnabled={v => set('syncProducts', v)} onEndpoint={v => set('productsEndpoint', v)} />}
+            {accountingOn && <EndpointRow label={tr('الفواتير')} showEndpoint={!isOdoo} enabled={form.syncInvoices} endpoint={form.invoicesEndpoint || ''} onEnabled={v => set('syncInvoices', v)} onEndpoint={v => set('invoicesEndpoint', v)} />}
+            {accountingOn && <EndpointRow label={tr('سندات القبض')} showEndpoint={!isOdoo} enabled={form.syncReceipts} endpoint={form.receiptsEndpoint || ''} onEnabled={v => set('syncReceipts', v)} onEndpoint={v => set('receiptsEndpoint', v)} />}
           </div>
         </div>
 
@@ -205,12 +247,13 @@ export default function ErpIntegrationPage() {
             <h2 className="font-bold text-[#1F1A13] mb-4">{tr('تشغيل مزامنة يدوية')}</h2>
             <div className="grid grid-cols-2 gap-3">
               {(['all', 'customers', 'products', 'invoices', 'receipts'] as const).map(r => (
-                <button key={r} disabled={busy} onClick={() => syncMutation.mutate(r)} className="btn-secondary justify-center py-2.5">
+                <button key={r} disabled={busy || running || (r !== 'all' && !savedOn[r])} onClick={() => syncMutation.mutate(r)} className="btn-secondary justify-center py-2.5">
                   <Play size={14} /> {tr(resourceLabels[r])}
                 </button>
               ))}
             </div>
-            {settings?.lastSyncAt && <p className="text-xs text-gray-500 mt-4">{tr('آخر مزامنة')}: {formatDate(settings.lastSyncAt)}</p>}
+            {running && <p className="text-xs text-[#E15A30] mt-4 flex items-center gap-1.5"><Loader2 size={14} className="animate-spin" />{tr('مزامنة جارية في الخلفية…')}</p>}
+            {settings?.lastSyncAt && <p className="text-xs text-gray-500 mt-4">{tr('آخر مزامنة')}: {formatDateTime(settings.lastSyncAt)}</p>}
           </div>
 
           <div className="card p-0 overflow-hidden">
@@ -220,13 +263,18 @@ export default function ErpIntegrationPage() {
             <div className="divide-y divide-gray-100 max-h-[520px] overflow-y-auto">
               {logs?.length ? logs.map(log => (
                 <div key={log.id} className="p-4 flex items-start gap-3">
-                  {log.status === 'SUCCESS' ? <CheckCircle2 size={18} className="text-green-600 mt-0.5" /> : <XCircle size={18} className="text-red-500 mt-0.5" />}
+                  {log.status === 'SUCCESS' ? <CheckCircle2 size={18} className="text-green-600 mt-0.5" />
+                    : log.status === 'PARTIAL' ? <AlertTriangle size={18} className="text-amber-500 mt-0.5" />
+                    : <XCircle size={18} className="text-red-500 mt-0.5" />}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-3">
-                      <p className="font-semibold text-sm text-[#1F1A13]">{tr(resourceLabels[log.resource] || log.resource)}</p>
-                      <span className="text-xs text-gray-400">{formatDate(log.startedAt)}</span>
+                      <p className="font-semibold text-sm text-[#1F1A13]">
+                        {tr(resourceLabels[log.resource] || log.resource)}
+                        {log.status === 'PARTIAL' && <span className="ms-2 text-[11px] font-normal text-amber-600">{tr('اكتملت جزئياً')}</span>}
+                      </p>
+                      <span className="text-xs text-gray-400" dir="ltr">{formatDateTime(log.startedAt)}</span>
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">{log.message || ''}</p>
+                    <p className="text-xs text-gray-500 mt-1 break-words">{log.message || ''}</p>
                     <p className="text-[11px] text-gray-400 mt-1">{tr('عدد السجلات')}: {log.count}</p>
                   </div>
                 </div>
@@ -239,8 +287,9 @@ export default function ErpIntegrationPage() {
   );
 }
 
-function EndpointRow({ label, enabled, endpoint, onEnabled, onEndpoint }: {
+function EndpointRow({ label, showEndpoint, enabled, endpoint, onEnabled, onEndpoint }: {
   label: string;
+  showEndpoint: boolean;
   enabled: boolean;
   endpoint: string;
   onEnabled: (v: boolean) => void;
@@ -252,7 +301,7 @@ function EndpointRow({ label, enabled, endpoint, onEnabled, onEndpoint }: {
         <input type="checkbox" checked={enabled} onChange={e => onEnabled(e.target.checked)} />
         {label}
       </label>
-      <input className="input" dir="ltr" disabled={!enabled} placeholder="/endpoint" value={endpoint} onChange={e => onEndpoint(e.target.value)} />
+      {showEndpoint && <input className="input" dir="ltr" disabled={!enabled} placeholder="/endpoint" value={endpoint} onChange={e => onEndpoint(e.target.value)} />}
     </div>
   );
 }
