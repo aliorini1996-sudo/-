@@ -4,6 +4,7 @@ import { formatCurrency, formatDate, formatDayOnly, formatTime, formatDateTime, 
 import { currencyDecimals } from '../i18n/countries';
 import { periodShape, statementFinalBalance, statementZone } from './statementFacts';
 import { adjustTotals, receiveTotalQty, uncostedCount, isCosted, noticeRef } from './warehouseNoticeFacts';
+import { stockRequestToLabel, stockRequestApproverLabel, stockRequestTotalQty, type StockRequestTo, type StockRequestLine } from '../lib/stockRequest';
 import { useTr } from '../i18n/strings';
 import { elementToPdfBlob, shareOrDownloadPdf } from './pdf';
 import { buildZatcaQr, zatcaTimestamp } from './zatca';
@@ -253,7 +254,26 @@ export interface WarehouseNoticeDoc {
   totalCost: number;
 }
 
-export type AnyDoc = InvoiceDoc | ReceiptDoc | StatementDoc | SettlementLogDoc | LoadNoticeDoc | WarehouseNoticeDoc;
+/**
+ * طلب مخزون (زيادة المستودع) يُرسَل لإدارة المشتريات أو الإنتاج — انظر `lib/stockRequest.ts`.
+ * ورقة طلبٍ لا حركة: لا قيمة فيها ولا تغيّر رصيداً، فلا يُحفظ لها سجلّ في الخادم.
+ */
+export interface StockRequestDoc {
+  kind: 'stockRequest';
+  company?: Company | null;
+  /** `SR-…` من لحظة الإصدار */
+  ref: string;
+  date: string;
+  to: StockRequestTo;
+  /** «مطلوب قبل» — يومٌ بصيغة YYYY-MM-DD، اختياري */
+  neededBy?: string;
+  note?: string;
+  /** مقدّم الطلب: المستخدم الذي أصدره */
+  by?: string;
+  items: StockRequestLine[];
+}
+
+export type AnyDoc = InvoiceDoc | ReceiptDoc | StatementDoc | SettlementLogDoc | LoadNoticeDoc | WarehouseNoticeDoc | StockRequestDoc;
 
 function fullAddress(c: { address?: string; district?: string; city?: string }): string {
   return [c.address, c.district, c.city].filter(Boolean).join('، ');
@@ -1151,6 +1171,99 @@ export const PrintableWarehouseNotice = forwardRef<HTMLDivElement, { doc: Wareho
 });
 PrintableWarehouseNotice.displayName = 'PrintableWarehouseNotice';
 
+/** طلب مخزون — الأصناف بكمّياتها المطلوبة ورصيدها الآن، وخانتا مقدّم الطلب واعتماد الجهة */
+export const PrintableStockRequest = forwardRef<HTMLDivElement, { doc: StockRequestDoc }>(({ doc }, ref) => {
+  const tr = useTr();
+  const brand = brandColor(doc.company);
+  const th: React.CSSProperties = { background: brand, color: '#fff', padding: '9px 6px', fontSize: 12, fontWeight: 600, textAlign: 'center' };
+  const td: React.CSSProperties = { padding: '7px 6px', fontSize: 11.5, textAlign: 'center', borderBottom: '1px solid #eef2f7' };
+  const totalQty = stockRequestTotalQty(doc.items);
+
+  return (
+    <div ref={ref} style={PAGE}>
+      <Header title={tr('طلب مخزون')} company={doc.company} />
+
+      {/* بيانات الطلب + الجهة وملخّصه */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, marginBottom: 16 }}>
+        <div style={{ flex: 1, background: '#f8fafc', borderRadius: 10, padding: 14 }}>
+          <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{tr('بيانات الطلب')}</div>
+          <InfoBox label={tr('رقم الطلب')} value={doc.ref} />
+          <InfoBox label={tr('التاريخ')} value={formatDate(doc.date)} />
+          <InfoBox label={tr('الوقت')} value={formatTime(doc.date)} />
+          {doc.by && <InfoBox label={tr('مقدم الطلب')} value={doc.by} />}
+        </div>
+        <div style={{ flex: 1, background: '#fff7ed', borderRadius: 10, padding: 14 }}>
+          <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{tr('ملخص الطلب')}</div>
+          <InfoBox label={tr('موجه إلى')} value={tr(stockRequestToLabel(doc.to))} />
+          {doc.neededBy && <InfoBox label={tr('مطلوب قبل')} value={formatDayOnly(doc.neededBy)} />}
+          <InfoBox label={tr('عدد الأصناف')} value={String(doc.items.length)} />
+          <InfoBox label={tr('إجمالي الكميات')} value={fmtNoticeQty(totalQty)} />
+        </div>
+      </div>
+
+      {doc.note && (
+        <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 13 }}>
+          <b>{tr('ملاحظة')}:</b> {doc.note}
+        </div>
+      )}
+
+      {/* جدول الأصناف */}
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12 }}>
+        <thead>
+          <tr>
+            <th style={{ ...th, borderRadius: '0 8px 0 0' }}>#</th>
+            <th style={{ ...th, textAlign: 'right' }}>{tr('الصنف')}</th>
+            <th style={th}>{tr('الوحدة')}</th>
+            <th style={th}>{tr('الرصيد الحالي')}</th>
+            <th style={{ ...th, borderRadius: '8px 0 0 0' }}>{tr('الكمية المطلوبة')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {doc.items.length === 0 ? (
+            <tr><td style={{ ...td, padding: 20, color: '#9ca3af' }} colSpan={5}>{tr('لا توجد أصناف')}</td></tr>
+          ) : doc.items.map((it, i) => (
+            <tr key={i}>
+              <td style={td}>{i + 1}</td>
+              <td style={{ ...td, textAlign: 'right' }}>
+                <div style={{ fontWeight: 600 }}>{it.name}</div>
+                {/* الكود سطرٌ ثانٍ — ويُترك حين يكون نسخةً من الاسم كما في بعض الكتالوجات */}
+                {it.code && it.code !== it.name && <div style={{ fontSize: 10, color: '#9ca3af' }}>{it.code}</div>}
+              </td>
+              <td style={{ ...td, color: '#6b7280' }}>{it.unit || '-'}</td>
+              {/* الرصيد السالب عجزٌ مسجَّل — يُطبع بإشارته لا مطلقاً */}
+              <td style={{ ...td, color: it.onHand < 0 ? '#dc2626' : it.onHand === 0 ? '#b45309' : '#6b7280' }} dir="ltr">
+                {it.onHand < 0 ? `−${fmtNoticeQty(Math.abs(it.onHand))}` : fmtNoticeQty(it.onHand)}
+              </td>
+              <td style={{ ...td, fontWeight: 700, fontSize: 13, color: brand }}>{fmtNoticeQty(it.qty)}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr style={{ background: '#f1f5f9', fontWeight: 700 }}>
+            <td style={{ ...td, borderTop: `2px solid ${brand}`, textAlign: 'right' }} colSpan={4}>{tr('إجمالي الكميات')}</td>
+            <td style={{ ...td, borderTop: `2px solid ${brand}`, color: brand }}>{fmtNoticeQty(totalQty)}</td>
+          </tr>
+        </tfoot>
+      </table>
+
+      {/* التوقيعان */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 40, marginTop: 24 }}>
+        <div style={{ flex: 1, textAlign: 'center', color: '#6b7280', fontSize: 12 }}>
+          <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: 8, marginTop: 44 }}>{tr('توقيع مقدم الطلب')}</div>
+        </div>
+        <div style={{ flex: 1, textAlign: 'center', color: '#6b7280', fontSize: 12 }}>
+          <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: 8, marginTop: 44 }}>{tr(stockRequestApproverLabel(doc.to))}</div>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 30, textAlign: 'center', color: '#9ca3af', fontSize: 12, borderTop: '1px solid #eef2f7', paddingTop: 12 }}>
+        {doc.company?.name || ''} — {tr('تاريخ الطلب')} {formatDateTime(doc.date)}
+      </div>
+    </div>
+  );
+});
+PrintableStockRequest.displayName = 'PrintableStockRequest';
+
 function Row({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', color: color || '#374151' }}>
@@ -1502,6 +1615,7 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
   const isReturnDoc = doc.kind === 'invoice' && doc.isReturn;
   const subjectName = (doc.kind === 'settlement' || doc.kind === 'loadNotice') ? doc.repName
     : doc.kind === 'warehouseNotice' ? (doc.supplier || tr('مخزون الشركة'))
+    : doc.kind === 'stockRequest' ? `${tr('موجه إلى')} ${tr(stockRequestToLabel(doc.to))}`
     : doc.customer.name;
   const warehouseLabel = doc.kind === 'warehouseNotice'
     ? (doc.entryType === 'RECEIVE' ? tr('إشعار وارد') : tr('إشعار تسوية'))
@@ -1514,14 +1628,18 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
     : doc.kind === 'settlement' ? `${doc.entries.length === 1 ? tr('سند استلام') : tr('سجل التحصيل')} — ${doc.repName}`
     : doc.kind === 'loadNotice' ? `${noticeLabel} — ${doc.repName}`
     : doc.kind === 'warehouseNotice' ? `${warehouseLabel} — ${doc.ref}`
+    : doc.kind === 'stockRequest' ? `${tr('طلب مخزون')} — ${doc.ref}`
     : `${tr('كشف حساب')} — ${doc.customer.name}`;
   const filename = (doc.kind === 'invoice' ? `${zDecision?.kind === 'deliveryNote' ? tr('سند تسليم') : isReturnDoc ? tr('مرتجع') : tr('فاتورة')}-${doc.number}`
     : doc.kind === 'receipt' ? `${tr('سند قبض')}-${doc.number}`
     : doc.kind === 'settlement' ? `${doc.entries.length === 1 ? tr('سند تحصيل') : tr('سجل تحصيل')}-${doc.repName}`
     : doc.kind === 'loadNotice' ? `${noticeLabel}-${doc.repName}`
     : doc.kind === 'warehouseNotice' ? `${warehouseLabel}-${doc.ref}`
+    : doc.kind === 'stockRequest' ? `${tr('طلب مخزون')}-${doc.ref}`
     : `${tr('كشف حساب')}-${doc.customer.name}`) + '.pdf';
-  const confirmText = isSettlement ? tr('سجل التحصيل جاهز') : (isLoadNotice || isWarehouseNotice) ? tr('الإشعار جاهز') : isStatement ? tr('كشف الحساب جاهز') : tr(zDecision ? zDecision.confirmText : 'تم الإصدار بنجاح');
+  const confirmText = isSettlement ? tr('سجل التحصيل جاهز') : (isLoadNotice || isWarehouseNotice) ? tr('الإشعار جاهز')
+    : doc.kind === 'stockRequest' ? tr('طلب المخزون جاهز')
+    : isStatement ? tr('كشف الحساب جاهز') : tr(zDecision ? zDecision.confirmText : 'تم الإصدار بنجاح');
 
   const renderDoc = (refProp?: React.Ref<HTMLDivElement>) => {
     if (doc.kind === 'invoice') return <PrintableInvoice ref={refProp} doc={doc} />;
@@ -1529,6 +1647,7 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
     if (doc.kind === 'settlement') return <PrintableSettlementLog ref={refProp} doc={doc} />;
     if (doc.kind === 'loadNotice') return <PrintableLoadNotice ref={refProp} doc={doc} />;
     if (doc.kind === 'warehouseNotice') return <PrintableWarehouseNotice ref={refProp} doc={doc} />;
+    if (doc.kind === 'stockRequest') return <PrintableStockRequest ref={refProp} doc={doc} />;
     return <PrintableStatement ref={refProp} doc={doc} />;
   };
 

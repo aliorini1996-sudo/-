@@ -4,11 +4,13 @@ import { warehouseApi, productApi, companyApi } from '../api/client';
 import { formatDate, formatCurrency } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import SearchableSelect from '../components/SearchableSelect';
-import { Warehouse, PackagePlus, X, Trash2, TrendingUp, TrendingDown, AlertTriangle, Calendar, ArrowRightLeft, Wallet, Info, FileDown } from 'lucide-react';
+import { Warehouse, PackagePlus, X, Trash2, TrendingUp, TrendingDown, AlertTriangle, Calendar, ArrowRightLeft, Wallet, Info, FileDown, ClipboardList } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
 import DocumentModal from '../components/DocumentModal';
+import StockRequestModal from '../components/StockRequestModal';
 import { warehouseNoticeDocFromEntry, Company } from '../rep/RepDocuments';
+import { useAuthStore } from '../store/authStore';
 
 interface WhRow {
   productId: string; name: string; code: string; unit: string;
@@ -32,6 +34,9 @@ const fmtQty = (n: number) => Number(n.toFixed(2)).toLocaleString('en-US');
 export default function CompanyWarehousePage() {
   const tr = useTr();
   const [showEntry, setShowEntry] = useState(false);
+  // نافذة «طلب مخزون» لإدارة المشتريات أو الإنتاج
+  const [showRequest, setShowRequest] = useState(false);
+  const me = useAuthStore(s => s.user);
   // الحركة المعروض إشعارها الآن
   const [noticeOf, setNoticeOf] = useState<WhEntry | null>(null);
   // إعدادات الشركة لترويسة الإشعار — المفتاح نفسه الذي تقرؤه القوقعة
@@ -71,7 +76,13 @@ export default function CompanyWarehousePage() {
           <h1 className="text-xl font-bold text-[#1F1A13] flex items-center gap-2"><Warehouse size={22} className="text-[#E15A30]" /> {tr('مخزون الشركة')}</h1>
           <p className="text-xs text-[#9A8F7E] mt-1">{tr('المستودع المركزي التحميل يخرج منه والتنزيل يعود إليه والوارد يزيده')}</p>
         </div>
-        <button onClick={() => setShowEntry(true)} className="btn-primary"><PackagePlus size={17} /> {tr('استلام / تسوية')}</button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={() => setShowRequest(true)} disabled={rows.length === 0}
+            title={tr('طلب مخزون')} className="btn-secondary disabled:opacity-50">
+            <ClipboardList size={17} className="text-[#E15A30]" /> {tr('طلب مخزون')}
+          </button>
+          <button onClick={() => setShowEntry(true)} className="btn-primary"><PackagePlus size={17} /> {tr('استلام / تسوية')}</button>
+        </div>
       </div>
 
       {/* قيمة المخزون بتكلفة الشراء — الغرض من تسجيل سعر الوحدة عند الاستلام */}
@@ -207,6 +218,11 @@ export default function CompanyWarehousePage() {
       </div>
 
       {showEntry && <WarehouseEntryModal onClose={() => setShowEntry(false)} />}
+
+      {showRequest && (
+        <StockRequestModal rows={rows} company={companyQ.data ?? null} by={me?.name}
+          onClose={() => setShowRequest(false)} />
+      )}
 
       {/* إشعار الحركة — يُبنى من الصفّ الذي في اليد بقيمه المحسوبة في الخادم */}
       {noticeOf && (
