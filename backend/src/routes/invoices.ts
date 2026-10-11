@@ -1,5 +1,7 @@
 ﻿import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { stampExpiryAfterIssue } from '../services/invoiceExpiry';
+import { shelfLifeOf } from '../services/shelfLife';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
 import { scopedRecordWhere, canAccessRep, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
@@ -376,9 +378,15 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const productIds = [...new Set(body.items.map(i => i.productId))];
     const products = await prisma.product.findMany({
       where: { id: { in: productIds }, tenantId: tid, status: 'ACTIVE' },
-      select: { id: true, name: true, basePrice: true, taxPct: true, damagedReturnToStock: true, priceTiers: { select: { price: true } } },
+      select: {
+        id: true, name: true, basePrice: true, taxPct: true, damagedReturnToStock: true, priceTiers: { select: { price: true } },
+        shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true,
+      },
     });
     if (products.length !== productIds.length) { res.status(400).json({ success: false, message: 'أحد الأصناف غير موجود أو غير نشط' }); return; }
+    // صلاحية الأصناف من تاريخ البيع (services/invoiceExpiry.ts): تُسجَّل بعد الإصدار لفاتورةٍ فيها صنفٌ فُعّلت صلاحيته
+    // وحدها — فالشركة التي لا تستعمل الصلاحية مسارُها واستعلاماتها كما كانت حرفياً
+    const tracksExpiry = products.some((p) => shelfLifeOf(p));
 
     if (req.user!.role === 'SALES_REP') {
       if (!rep.canCreateInvoice) { res.status(403).json({ success: false, message: 'لا تملك صلاحية إنشاء فاتورة' }); return; }
@@ -560,9 +568,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           clientRef: body.clientRef ?? null,
           clientCreatedAt: body.clientCreatedAt ?? null,
         }, productionPhase2Deps());
+        if (note && tracksExpiry) await stampExpiryAfterIssue(tid, note.status, note.body);
         if (note) { res.status(note.status).json(note.body); return; }
       } else {
         const phase2 = await issuePhase2Invoice(phase2Ctx, productionPhase2Deps());
+        if (phase2 && tracksExpiry) await stampExpiryAfterIssue(tid, phase2.status, phase2.body);
         if (phase2) { res.status(phase2.status).json(phase2.body); return; }
       }
     }
@@ -680,6 +690,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
     // فاتورة جديدة (ونقدية مدفوعة معها) تظهر في قوائم الشاشات المفتوحة لحظتها
     publishInvoicesChanged(tid);
+    // صلاحية الأصناف من تاريخ البيع، وللمرتجع: هل ما عاد منتهي الصلاحية (لا يُفشل الإصدار)
+    if (tracksExpiry) await stampExpiryAfterIssue(tid, 201, { data: invoice });
     res.status(201).json({ success: true, data: invoice });
   } catch (err) {
     // ZATCA (Z5.8، نقد 4.4): فُعّلت الشركة حيّاً أثناء تجهيز فاتورة المرحلة الأولى — تُرفض بدل التزام صفّ غير مختوم (لا فاتورة)
@@ -943,6 +955,7 @@ router.get('/:id/creditable', async (req: AuthRequest, res: Response, next: Next
       productionPhase2Deps(),
     );
     if (!r) { res.status(409).json({ success: false, message: NOTES_NOT_ENABLED }); return; }
+    await stampExpiryAfterIssue(tid, r.status, r.body);
     res.status(r.status).json(r.body);
   } catch (err) { next(err); }
 });
@@ -975,6 +988,7 @@ router.post('/:id/credit-note', async (req: AuthRequest, res: Response, next: Ne
       clientCreatedAt: body.clientCreatedAt ?? null,
     }, productionPhase2Deps());
     if (!r) { res.status(409).json({ success: false, message: NOTES_NOT_ENABLED }); return; }
+    await stampExpiryAfterIssue(tid, r.status, r.body);
     res.status(r.status).json(r.body);
   } catch (err) {
     if (await handleNoteClientRefRace(req, res, err)) return;
@@ -1015,6 +1029,7 @@ router.post('/:id/debit-note', async (req: AuthRequest, res: Response, next: Nex
       clientCreatedAt: body.clientCreatedAt ?? null,
     }, productionPhase2Deps());
     if (!r) { res.status(409).json({ success: false, message: NOTES_NOT_ENABLED }); return; }
+    await stampExpiryAfterIssue(tid, r.status, r.body);
     res.status(r.status).json(r.body);
   } catch (err) {
     if (await handleNoteClientRefRace(req, res, err)) return;

@@ -71,7 +71,7 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
 
   // الفئة الضريبية (Z5.1a) تُرسل للشركة الجامعة وحدها — غيرها لا تصله الحقول الثلاثة أصلاً (كان الخادم يُسقطها)
   const vatCategory = zatcaCollect ? watch('vatCategory') : null;
-  // صلاحية الصنف: المدة تُحسب من تاريخ التوريد، والمعاينة لما يُورَّد اليوم
+  // صلاحية الصنف: المدة تُحسب من تاريخ البيع، والمعاينة لما يُباع اليوم
   const lifeOn = !!watch('shelfLifeEnabled');
   const lifePreview = previewExpiry({ shelfLifeEnabled: lifeOn, shelfLifeValue: watch('shelfLifeValue'), shelfLifeUnit: watch('shelfLifeUnit') });
   const submit = (data: Partial<Product>) => {
@@ -170,12 +170,12 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
             <span className="text-[10px] text-gray-400 mr-auto">{tr('الأدمن يبقى يتحكم لكل مرتجع')}</span>
           </label>
 
-          {/* صلاحية الصنف — اختيارية: مدةٌ من تاريخ التوريد يُحسب منها تاريخ الانتهاء عند كل وارد في مخزون الشركة */}
+          {/* صلاحية الصنف — اختيارية: مدةٌ من تاريخ البيع، ومنها يُسجَّل عند المرتجع هل عاد الصنف منتهي الصلاحية */}
           <div className="rounded-xl border border-gray-200 p-3 space-y-3">
             <label className="flex items-center gap-2.5 cursor-pointer">
               <input type="checkbox" {...register('shelfLifeEnabled')} className="w-4 h-4 accent-[#E15A30]" />
               <span className="text-sm font-semibold text-gray-700">{tr('تفعيل تاريخ صلاحية الصنف')}</span>
-              <span className="text-[10px] text-gray-400 mr-auto">{tr('تحسب من تاريخ التوريد')}</span>
+              <span className="text-[10px] text-gray-400 mr-auto">{tr('تحسب من تاريخ البيع')}</span>
             </label>
             {lifeOn && (
               <div className="grid grid-cols-2 gap-4">
@@ -191,7 +191,7 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
                 </div>
                 {lifePreview && (
                   <p className="col-span-2 text-xs text-gray-500">
-                    {tr('ما يورد اليوم تنتهي صلاحيته في')} <b className="text-gray-700">{formatDayOnly(lifePreview)}</b>
+                    {tr('ما يباع اليوم تنتهي صلاحيته في')} <b className="text-gray-700">{formatDayOnly(lifePreview)}</b>
                   </p>
                 )}
               </div>

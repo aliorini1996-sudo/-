@@ -514,7 +514,7 @@ model Product {
   unitCode             String? // كود الوحدة حسب جدول المزوّد (ETA)
   status               String           @default("ACTIVE") // ACTIVE | INACTIVE
   damagedReturnToStock Boolean          @default(false) // سياسة الصنف: هل يعود مرتجعه التالف لمخزون السيارة؟ (يضبط افتراض المرتجع)
-  // صلاحية الصنف: مدةٌ من تاريخ التوريد (الوارد في مخزون الشركة) — اختيارية لكل صنف (services/shelfLife.ts)
+  // صلاحية الصنف: مدةٌ من **تاريخ البيع** — اختيارية لكل صنف (services/shelfLife.ts، services/invoiceExpiry.ts)
   shelfLifeEnabled     Boolean          @default(false)
   shelfLifeValue       Int?
   shelfLifeUnit        String? // DAY | MONTH | YEAR
@@ -797,6 +797,12 @@ model InvoiceItem {
   vatExemptionCode   String?
   vatExemptionReason String?
   creditedItemId     String? // في بنود الإشعار الدائن: InvoiceItem الأصلي
+
+  // صلاحية الصنف من تاريخ البيع (services/invoiceExpiry.ts) — تُسجَّل بعد الإصدار:
+  // بند البيع: تاريخ انتهاء ما بيع. بند المرتجع: انتهاء البيع الذي قيس عليه، وهل المرتجع بعده، وفاتورة ذلك البيع
+  expiresAt           DateTime? @db.Date
+  returnExpired       Boolean?
+  expirySaleInvoiceId String?
 
   @@index([menuItemId])
   // كان الجدول مفهرساً على `menuItemId` وحده، بينما **كل** قراءة
@@ -1295,8 +1301,8 @@ model WarehouseEntryItem {
   // ما يُدخله المستخدم شاملاً الضريبة يُردّ إلى صافيه في الخادم قبل الحفظ.
   // اختياريّ: الاستلام قد يُسجَّل قبل وصول فاتورة المورّد، ولا يُعطَّل لأجلها.
   unitCost  Float? // للوارد (RECEIVE) فقط
-  // تاريخ انتهاء الصلاحية — يُحسب عند الوارد من تاريخه بتوقيت الشركة وصلاحية الصنف حينها، ويُحفظ: تغيير
-  // صلاحية الصنف لاحقاً لا يعيد كتابة دفعاتٍ استُلمت. null لصنفٍ بلا صلاحية مفعّلة وللتسويات
+  // مهجور (١١ أكتوبر ٢٠٢٦): كانت الصلاحية تُحسب من تاريخ التوريد ثم صارت من تاريخ البيع (InvoiceItem.expiresAt)
+  // بأمر المالك. لا يُكتب ولا يُقرأ؛ باقٍ لأن إسقاط عمودٍ من جدولٍ حيّ في preDeploy يُفشل db push إن حمل قيماً
   expiresAt DateTime? @db.Date
 
   @@index([productId])

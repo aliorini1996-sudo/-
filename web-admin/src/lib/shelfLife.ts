@@ -1,6 +1,6 @@
 /**
  * معاينة صلاحية الصنف في اللوحة — نسخةٌ من قاعدة الخادم (backend/src/services/shelfLife.ts) حرفياً، والخادم هو
- * الذي يحسب التاريخ ويحفظه عند الوارد؛ هذه للعرض قبل الحفظ فقط. والاختبار يثبّت الحالات نفسها في الطرفين.
+ * الذي يحسب التاريخ ويسجّله عند البيع والمرتجع؛ هذه للعرض قبل الحفظ فقط. والاختبار يثبّت الحالات نفسها في الطرفين.
  */
 export type ShelfLifeUnit = 'DAY' | 'MONTH' | 'YEAR';
 
@@ -26,7 +26,7 @@ export function todayLocal(now = new Date()): string {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
-/** تاريخ الانتهاء لما يُورَّد اليوم، أو null لصنفٍ بلا صلاحية مكتملة */
+/** تاريخ الانتهاء لما يُباع اليوم، أو null لصنفٍ بلا صلاحية مكتملة */
 export function previewExpiry(
   p: { shelfLifeEnabled?: boolean | null; shelfLifeValue?: number | null; shelfLifeUnit?: string | null },
   today = todayLocal(),
@@ -35,11 +35,4 @@ export function previewExpiry(
   const unit = p.shelfLifeUnit as ShelfLifeUnit;
   if (!p.shelfLifeEnabled || !Number.isInteger(v) || v <= 0 || !(unit in SHELF_LIFE_UNIT_LABELS)) return null;
   return addShelfLife(today, v, unit);
-}
-
-/** أيامٌ باقية حتى تاريخ الانتهاء (سالبة إن انتهى) — من «اليوم» المحلي */
-export function daysUntil(expiry: string, today = todayLocal()): number {
-  const a = Date.UTC(+today.slice(0, 4), +today.slice(5, 7) - 1, +today.slice(8, 10));
-  const b = Date.UTC(+expiry.slice(0, 4), +expiry.slice(5, 7) - 1, +expiry.slice(8, 10));
-  return Math.round((b - a) / 86_400_000);
 }

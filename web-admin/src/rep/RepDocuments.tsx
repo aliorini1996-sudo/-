@@ -90,7 +90,11 @@ export interface InvoiceDoc {
   company?: Company | null;
   customer: DocCustomer;
   repName: string;
-  items: { name: string; unit?: string; qty: number; unitPrice: number; discountPct: number; taxPct: number; lineTotal: number }[];
+  items: {
+    name: string; unit?: string; qty: number; unitPrice: number; discountPct: number; taxPct: number; lineTotal: number;
+    // للمرتجع: صلاحية الصنف المقيسة على بيعه (services/invoiceExpiry.ts) — منتهٍ أم سارٍ وتاريخ الانتهاء
+    returnExpired?: boolean | null; expiresAt?: string | null;
+  }[];
   subtotal: number;   // صافٍ قبل الضريبة دائما
   discount: number;   // صافٍ قبل الضريبة دائما
   tax: number;
@@ -448,6 +452,14 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
               <td style={{ ...td, textAlign: 'right' }}>
                 <span style={{ fontWeight: 600 }}>{it.name}</span>
                 {it.unit && <span style={{ color: '#9ca3af', fontSize: 11 }}> ({it.unit})</span>}
+                {/* المرتجع: هل عاد الصنف بعد انتهاء صلاحيته (من تاريخ بيعه) — لا يظهر لصنفٍ بلا صلاحية أو بلا بيعٍ سابق */}
+                {doc.isReturn && it.returnExpired != null && it.expiresAt && (
+                  <div style={{ fontSize: 10.5, marginTop: 2, fontWeight: 600, color: it.returnExpired ? '#dc2626' : '#1E7A52' }}>
+                    {it.returnExpired
+                      ? `${tr('منتهي الصلاحية')} · ${formatDayOnly(it.expiresAt)}`
+                      : `${tr('ساري الصلاحية')} · ${tr('حتى')} ${formatDayOnly(it.expiresAt)}`}
+                  </div>
+                )}
               </td>
               <td style={td}>{it.qty}</td>
               <td style={td}>
@@ -1185,6 +1197,8 @@ export function invoiceDocFromDetail(inv: any, repName: string, company?: Compan
       discountPct: Number(it.discountPct),
       taxPct: Number(it.taxPct),
       lineTotal: Number(it.lineTotal),
+      returnExpired: it.returnExpired ?? null,
+      expiresAt: it.expiresAt ?? null,
     })),
     pricesIncludeTax: inv.pricesIncludeTax ?? undefined,
     subtotal: Number(inv.subtotal),

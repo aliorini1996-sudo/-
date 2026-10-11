@@ -9,8 +9,6 @@ import { authenticate, requireAdminPermission, tenantId } from '../middleware/au
 import { AuthRequest } from '../types';
 import { computeWarehouseStock, tenantCurrencyDecimals } from '../services/warehouseStock';
 import { netUnitCost, entryTotalCost, lineCost } from '../services/warehouseCost';
-import { expiryDateFor, shelfLifeOf } from '../services/shelfLife';
-import { companyTimeZone } from '../services/erpPayload';
 
 const router = Router();
 router.use(authenticate);
@@ -94,28 +92,15 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
     // نقرأ الضريبة مع التحقّق: الردّ من الشامل إلى الصافي يحتاج نسبة كل صنف
     const products = await prisma.product.findMany({
       where: { id: { in: productIds }, tenantId: tid },
-      select: { id: true, taxPct: true, shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true },
+      select: { id: true, taxPct: true },
     });
     if (products.length !== productIds.length) { res.status(400).json({ success: false, message: 'منتج غير صالح' }); return; }
     const taxOf = new Map(products.map((p) => [p.id, p.taxPct]));
-    const productOf = new Map(products.map((p) => [p.id, p]));
-
-    // تاريخ التوريد = لحظة تسجيل الوارد (createdAt نفسه)، ويومه بتوقيت الشركة — منه تُحسب صلاحية كل صنفٍ
-    // فُعّلت له وتُحفظ مع السطر. والتسوية جردٌ لا توريد: بلا صلاحية
-    const suppliedAt = new Date();
-    let timeZone: string | null = null;
-    if (data.type === 'RECEIVE' && products.some((p) => shelfLifeOf(p))) {
-      const [gl, company] = await Promise.all([
-        prisma.glSettings.findUnique({ where: { tenantId: tid }, select: { timezone: true } }),
-        prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { countryCode: true } }),
-      ]);
-      timeZone = companyTimeZone(gl?.timezone, company?.countryCode);
-    }
 
     const by = req.user as { name?: string } | undefined;
     const entry = await prisma.warehouseEntry.create({
       data: {
-        tenantId: tid, type: data.type, note: data.note, supplier: data.supplier, createdBy: by?.name, createdAt: suppliedAt,
+        tenantId: tid, type: data.type, note: data.note, supplier: data.supplier, createdBy: by?.name,
         items: {
           create: items.map((i) => ({
             productId: i.productId,
@@ -123,7 +108,6 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
             unitCost: i.unitCost == null
               ? null
               : netUnitCost(i.unitCost, taxOf.get(i.productId) ?? 0, data.costsIncludeTax),
-            expiresAt: timeZone ? expiryDateFor(productOf.get(i.productId)!, suppliedAt, timeZone) : null,
           })),
         },
       },

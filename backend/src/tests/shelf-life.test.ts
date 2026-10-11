@@ -1,10 +1,11 @@
-// صلاحية الصنف (services/shelfLife.ts) — تاريخ الانتهاء من تاريخ التوريد بالأيام أو الأشهر أو السنوات.
-// صرفٌ بلا قاعدة، ومعه حارسٌ نصّي على مساري الصنف والوارد.
+// صلاحية الصنف (services/shelfLife.ts، services/invoiceExpiry.ts) — تاريخ الانتهاء من تاريخ البيع بالأيام أو الأشهر
+// أو السنوات، وحالة المرتجع (منتهٍ أم لا). صرفٌ بلا قاعدة، ومعه حارسٌ نصّي على المسارات.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { addShelfLife, expiryDateFor, localDateIn, shelfLifeOf, shelfLifeProblem } from '../services/shelfLife';
+import { isExpiredOn } from '../services/invoiceExpiry';
 
 test('الأيام: تعبر الشهر والسنة', () => {
   assert.equal(addShelfLife('2026-10-11', 30, 'DAY'), '2026-11-10');
@@ -25,7 +26,7 @@ test('السنوات، و٢٩ فبراير + سنة = ٢٨ فبراير', () => 
   assert.equal(addShelfLife('2028-02-29', 4, 'YEAR'), '2032-02-29');
 });
 
-test('تاريخ التوريد بتوقيت الشركة لا UTC', () => {
+test('تاريخ البيع بتوقيت الشركة لا UTC', () => {
   // ١:٣٠ فجر ١٢ أكتوبر بالرياض = ٢٢:٣٠ يوم ١١ بتوقيت UTC
   const at = new Date('2026-10-11T22:30:00Z');
   assert.equal(localDateIn(at, 'Asia/Riyadh'), '2026-10-12');
@@ -52,13 +53,40 @@ test('التحقّق: المفعّلة تلزمها مدةٌ صحيحة ووحد
   assert.match(String(shelfLifeProblem({ shelfLifeEnabled: true, shelfLifeValue: 101, shelfLifeUnit: 'YEAR' })), /أطول من المعقول/);
 });
 
-test('حارس نصّي: الصنف يتحقّق من الصلاحية مدمجةً بالمحفوظ، والوارد وحده يحفظ تاريخ الانتهاء', () => {
+test('المرتجع: منتهٍ إن جاء بعد يوم الانتهاء، ويوم الانتهاء نفسه آخر يومٍ صالح', () => {
+  const exp = new Date('2026-10-20T00:00:00.000Z');
+  assert.equal(isExpiredOn('2026-10-19', exp), false);
+  assert.equal(isExpiredOn('2026-10-20', exp), false);
+  assert.equal(isExpiredOn('2026-10-21', exp), true);
+  assert.equal(isExpiredOn('2027-01-01', exp), true);
+});
+
+test('حارس نصّي: الصلاحية من تاريخ البيع — الصنف يتحقّق مدمجاً بالمحفوظ، والإصدار يسجّلها، والوارد لا يحسبها', () => {
   const read = (rel: string) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8').replace(/\r\n/g, '\n');
   const products = read('routes/products.ts');
   assert.equal(products.split('shelfLifeProblem(').length - 1, 2, 'الإنشاء والتعديل كلاهما يتحقّقان');
-  assert.match(products, /data\.shelfLifeEnabled \?\? exists\.shelfLifeEnabled/, 'التعديل يدمج مع المحفوظ');
+  assert.ok(products.includes('data.shelfLifeEnabled ?? exists.shelfLifeEnabled'), 'التعديل يدمج مع المحفوظ');
+
+  // كل مخارج الإصدار تسجّل الصلاحية: المرتجع المرتبط، والمرحلة الثانية، والمرحلة الأولى، والإشعارات
+  const inv = read('routes/invoices.ts');
+  for (const frag of [
+    'if (note && tracksExpiry) await stampExpiryAfterIssue(tid, note.status, note.body);',
+    'if (phase2 && tracksExpiry) await stampExpiryAfterIssue(tid, phase2.status, phase2.body);',
+    'if (tracksExpiry) await stampExpiryAfterIssue(tid, 201, { data: invoice });',
+    'await stampExpiryAfterIssue(tid, r.status, r.body);',
+  ]) assert.ok(inv.includes(frag), `مخرج إصدار بلا تسجيل الصلاحية: ${frag}`);
+  // لا استعلام إضافي لشركةٍ لا تستعمل الصلاحية: الشرط من استعلام الأصناف القائم نفسه
+  assert.ok(inv.includes('const tracksExpiry = products.some((p) => shelfLifeOf(p));'));
+
+  const svc = read('services/invoiceExpiry.ts');
+  const after = svc.slice(svc.indexOf('export async function stampExpiryAfterIssue'));
+  assert.match(after, /try \{\s*await stampInvoiceExpiry\(tenantId, id\);\s*\} catch/, 'التسجيل لا يُفشل الإصدار أبداً');
+  // المرتجع الحرّ يُقاس على آخر بيعٍ لهذا الصنف لهذا العميل قبله، غير ملغى ولا إشعار؛ والمرتبط على بند أصله
+  for (const frag of ['customerId: inv.customerId', 'type: { in: SALE_TYPES }', "status: { not: 'CANCELLED' }",
+    'invoiceDate: { lte: inv.invoiceDate }', "orderBy: [{ invoice: { invoiceDate: 'desc' } }", 'it.creditedItemId']) {
+    assert.ok(svc.includes(frag), `قياس المرتجع: ${frag}`);
+  }
+
   const wh = read('routes/warehouse.ts');
-  assert.match(wh, /data\.type === 'RECEIVE' && products\.some\(\(p\) => shelfLifeOf\(p\)\)/, 'التسوية لا تحمل صلاحية');
-  assert.match(wh, /createdAt: suppliedAt/, 'تاريخ التوريد هو لحظة الوارد نفسها');
-  assert.match(wh, /expiresAt: timeZone \? expiryDateFor\(/);
+  assert.ok(!/expiresAt|shelfLife/.test(wh), 'الوارد لا يحسب الصلاحية بعد أن صارت من تاريخ البيع');
 });

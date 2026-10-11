@@ -221,7 +221,7 @@ export interface Product {
   image?: string | null;
   status: 'ACTIVE' | 'INACTIVE';
   damagedReturnToStock?: boolean; // سياسة: هل يعود مرتجع الصنف التالف للمخزون؟
-  // صلاحية الصنف من تاريخ التوريد (الوارد في مخزون الشركة) — اختيارية
+  // صلاحية الصنف من تاريخ البيع — اختيارية (للمرتجع: هل عاد منتهي الصلاحية)
   shelfLifeEnabled?: boolean;
   shelfLifeValue?: number | null;
   shelfLifeUnit?: 'DAY' | 'MONTH' | 'YEAR' | null;
@@ -285,6 +285,10 @@ export interface InvoiceItem {
   taxPct: number;
   taxAmt: number;
   lineTotal: number;
+  // صلاحية الصنف من تاريخ البيع: لبند البيع تاريخ انتهاء ما بيع، ولبند المرتجع انتهاء البيع الذي قيس عليه
+  // و«هل عاد بعد انتهائه» (null = غير معروف: صنفٌ بلا صلاحية أو بلا بيعٍ سابق)
+  expiresAt?: string | null;
+  returnExpired?: boolean | null;
 }
 
 export interface Invoice {
