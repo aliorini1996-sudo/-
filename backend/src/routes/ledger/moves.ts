@@ -951,12 +951,16 @@ export type AttachmentMime = (typeof ATTACHMENT_MIME_TYPES)[number];
 
 const KB = 1024;
 const MB = 1024 * KB;
-/** سقوف حتى قرار D5 (§3.9). */
+/**
+ * سقوف حتى قرار D5 (§3.9). الشهري ٥٠ ميغابايت بأمر المالك (١١ أكتوبر ٢٠٢٦) — كان ٥ فيوقف شركةً ترفق مستنداتها
+ * في أيامٍ من الشهر، والكلّي ٥٠٠ معه (كان ٥٠ = الشهري الجديد، فيوقفها نهائياً في شهرها الأول). المرفقات في القاعدة
+ * نفسها (glAttachmentBlob): قرصها ٥ غيغابايت.
+ */
 export const ATTACHMENT_CAPS = {
   pdfBytes: 1 * MB,
   imageBytes: 400 * KB,
-  monthlyBytes: 5 * MB,
-  totalBytes: 50 * MB,
+  monthlyBytes: 50 * MB,
+  totalBytes: 500 * MB,
 } as const;
 
 /** نوع الملف من بايتاته الأولى: `%PDF-`، JPEG (FF D8 FF)، PNG (89 50 4E 47 0D 0A 1A 0A). */
