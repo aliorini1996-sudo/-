@@ -1381,6 +1381,7 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'ساري الصلاحية': { en: 'Within shelf life', fr: 'Encore valable', tr: 'Son kullanma süresi içinde', zh: '在保质期内' },
   // المرتجع من فاتورة بيع ومخزون «منتهي الصلاحية» في السيارة
   'مرتجع من فاتورة بيع': { en: 'Return from a sale invoice', fr: 'Retour depuis une facture de vente', tr: 'Satış faturasından iade', zh: '按销售发票退货' },
+  'كل الأصناف': { en: 'All items', fr: 'Tous les articles', tr: 'Tüm ürünler', zh: '全部商品' },
   'من فاتورة البيع': { en: 'From sale invoice', fr: 'De la facture de vente', tr: 'Satış faturasından', zh: '来自销售发票' },
   'إلغاء الربط': { en: 'Unlink', fr: 'Délier', tr: 'Bağlantıyı kaldır', zh: '取消关联' },
   'اختر فاتورة البيع': { en: 'Choose the sale invoice', fr: 'Choisissez la facture de vente', tr: 'Satış faturasını seçin', zh: '选择销售发票' },

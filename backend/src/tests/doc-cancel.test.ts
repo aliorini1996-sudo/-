@@ -11,10 +11,16 @@ import { CancelRefused, lockInvoiceForCancel, claimReceiptCancel, restoreAllocat
  */
 
 type Row = Record<string, unknown>;
-function fakeTx(opts: { rows?: Row[]; receiptItems?: number; notes?: number; claimCount?: number } = {}) {
+function fakeTx(opts: { rows?: Row[]; receiptItems?: number; notes?: number; claimCount?: number; linkedReturns?: number } = {}) {
   const log: { sql: string[]; updates: Row[]; updateMany: Row[] } = { sql: [], updates: [], updateMany: [] };
   const tx = {
-    $queryRaw: async (q: TemplateStringsArray, ..._v: unknown[]) => { log.sql.push(q.join('?')); return opts.rows ?? []; },
+    $queryRaw: async (q: TemplateStringsArray, ..._v: unknown[]) => {
+      const sql = q.join('?');
+      log.sql.push(sql);
+      // عدّ المرتجعات المرتبطة بالفاتورة (services/returnLinks.ts) — صفٌّ واحد بعدد
+      if (sql.includes('returnOfItemId')) return [{ n: opts.linkedReturns ?? 0 }];
+      return opts.rows ?? [];
+    },
     receiptInvoice: { count: async () => opts.receiptItems ?? 0 },
     invoice: {
       count: async () => opts.notes ?? 0,
@@ -32,8 +38,14 @@ const refuses = async (p: Promise<unknown>, re: RegExp) => {
 test('lockInvoiceForCancel: يقفل صفّ الفاتورة بشركتها FOR UPDATE ويمرّ على فاتورةٍ قابلةٍ للإلغاء', async () => {
   const { tx, log } = fakeTx({ rows: [{ status: 'CONFIRMED', type: 'CREDIT', paidAmt: 0 }] });
   await lockInvoiceForCancel(tx, 't1', 'inv-1');
-  assert.equal(log.sql.length, 1);
+  // القفل أولاً، ثم عدّ المرتجعات المرتبطة بها تحت القفل
+  assert.equal(log.sql.length, 2);
   assert.match(log.sql[0], /FROM invoices WHERE id = \? AND "tenantId" = \? FOR UPDATE/);
+  assert.match(log.sql[1], /JOIN invoice_items s ON s\.id = r\."returnOfItemId"/);
+});
+
+test('lockInvoiceForCancel: فاتورة بيعٍ عليها مرتجعٌ مرتبط لا تُلغى (ائتمانٌ مزدوج للعميل)', async () => {
+  await refuses(lockInvoiceForCancel(fakeTx({ rows: [{ status: 'CONFIRMED', type: 'CASH', paidAmt: 0 }], linkedReturns: 1 }).tx, 't1', 'i'), /مرتجعٌ مرتبط/);
 });
 
 test('lockInvoiceForCancel: كل فحصٍ يُعاد تحت القفل — ملغاة، أو محصَّلٌ منها، أو عليها سند، أو صدر عليها إشعار', async () => {

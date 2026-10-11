@@ -38,6 +38,7 @@ test('المرتجع من فاتورة بيع: يُرفض ما يتجاوز ال
   assert.match(String(p([{ productId: 'p1', saleItemId: 's1', qty: 1 }], {}, 'c2')), /لعميلٍ آخر/);
   assert.match(String(p([{ productId: 'p1', saleItemId: 's1', qty: 1 }], { type: 'RETURN' })), /ليست فاتورة بيع/);
   assert.match(String(p([{ productId: 'p1', saleItemId: 's1', qty: 1 }], { status: 'CANCELLED' })), /ليست فاتورة بيع/);
+  assert.match(String(p([{ productId: 'p1', saleItemId: 's1', qty: 1 }], { status: 'DRAFT' })), /ليست فاتورة بيع/, 'بيعٌ مؤكَّد وحده');
   assert.match(String(returnLinkProblem({ sale: null, customerId: 'c1', returnable, lines: [] })), /غير موجودة/);
 });
 
@@ -84,6 +85,14 @@ test('حارس نصّي: المندوب يُرجع أصناف الصلاحية �
   // مسارا القراءة قبل '/:id' (وإلا ابتلعهما)
   assert.ok(inv.indexOf("router.get('/returnable-sales'") < inv.indexOf("router.get('/:id',"));
 
+  // صلاحية المرتجع المرتبط تُكتب مع بنوده داخل المعاملة — لا بعدها (تعثّر التسجيل بعدها يُدخل المنتهي المتاحَ للبيع)
+  assert.ok(inv.includes("...(linkedExpiry?.get(saleLinkLines[idx]?.saleItemId ?? '') ?? {}),"), 'صلاحية المرتجع المرتبط في المعاملة');
+  // فاتورة بيعٍ عليها مرتجعٌ مرتبط لا تُلغى (ائتمانٌ مزدوج)
+  const cancel = read('services/docCancel.ts');
+  assert.ok(cancel.includes('JOIN invoice_items s ON s.id = r."returnOfItemId"') && cancel.includes("ri.status <> 'CANCELLED'"), 'إلغاء بيعٍ عليه مرتجعٌ مرتبط');
+  const exp = read('services/invoiceExpiry.ts');
+  assert.ok(exp.includes('localDateIn(inv.clientCreatedAt ?? inv.invoiceDate, tz)'), 'يوم المرتجع يوم إنشائه على الجهاز');
+
   const svc = read('services/returnLinks.ts');
   assert.match(svc, /FOR UPDATE/, 'قفل صفّ فاتورة البيع');
   assert.match(svc, /OR: \[\{ returnOfItemId: \{ in: saleItemIds \} \}, \{ creditedItemId: \{ in: saleItemIds \} \}\]/, 'المرتجَع يشمل الإشعارات الدائنة');
@@ -91,6 +100,8 @@ test('حارس نصّي: المندوب يُرجع أصناف الصلاحية �
 
   const van = read('routes/vanStock.ts');
   assert.match(van, /if \(isRep && \(data\.type !== 'LOAD'/, 'المندوب لا يزيل المنتهي (غير التحميل للإدارة وحدها)');
-  assert.match(van, /if \(data\.type === 'EXPIRED_OUT'\)/, 'الإزالة لا تتجاوز رصيد المنتهي');
+  assert.ok(van.includes('const assertExpiredAvailable = async () => {'), 'الإزالة لا تتجاوز رصيد المنتهي');
+  assert.ok(van.includes("SELECT pg_advisory_xact_lock(hashtext(${'van-expired:' + salesRepId}))"), 'قفل الإزالة لكل مندوب');
+  assert.ok(van.indexOf('await assertExpiredAvailable();') > van.indexOf('pg_advisory_xact_lock'), 'الفحص بعد القفل');
   assert.match(van, /returnExpired: true, invoice: \{ select:/, 'مخزون السيارة يقرأ حالة الصلاحية');
 });

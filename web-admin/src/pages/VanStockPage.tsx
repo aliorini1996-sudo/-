@@ -278,13 +278,14 @@ export default function VanStockPage() {
                         <td className="text-center px-2 py-2.5 text-[#6E6557]">{fmtQty(row.returned)}</td>
                         <td className={`text-center px-3 py-2.5 font-bold ${row.remaining < 0 ? 'text-red-600' : row.remaining === 0 ? 'text-[#9A8F7E]' : 'text-[#1E7A52]'}`}>{fmtQty(row.remaining)}</td>
                         <td className="text-center px-3 py-2.5">
-                          {(row.expired ?? 0) > 0 ? (
+                          {/* رصيدٌ سالب (إلغاء مرتجعٍ بعد إزالة بضاعته) يظهر ولا يُخفى */}
+                          {Math.abs(row.expired ?? 0) > 1e-9 ? (
                             <span className="inline-flex items-center gap-2">
                               <b className="text-red-600">{fmtQty(row.expired!)}</b>
-                              <button onClick={() => askRemoveExpired(row)} disabled={removeExpired.isPending}
+                              {(row.expired ?? 0) > 0 && <button onClick={() => askRemoveExpired(row)} disabled={removeExpired.isPending}
                                 className="text-[11px] font-semibold text-red-600 border border-red-200 rounded-md px-2 py-0.5 hover:bg-red-50 disabled:opacity-50">
                                 {tr('إزالة')}
-                              </button>
+                              </button>}
                             </span>
                           ) : <span className="text-[#9A8F7E]">—</span>}
                         </td>

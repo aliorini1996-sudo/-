@@ -1,7 +1,7 @@
 ﻿import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { ReturnLinkError, SALE_TYPES, assertReturnLinks, returnableOf, returnedBySaleItem } from '../services/returnLinks';
-import { isExpiredOn, stampExpiryAfterIssue, tenantTz } from '../services/invoiceExpiry';
+import { isExpiredOn, linkedReturnExpiry, stampExpiryAfterIssue, tenantTz } from '../services/invoiceExpiry';
 import { expiryDateFor, localDateIn, shelfLifeOf } from '../services/shelfLife';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
@@ -287,14 +287,18 @@ router.get('/returnable-sales', async (req: AuthRequest, res: Response, next: Ne
         ],
       },
       orderBy: [{ invoiceDate: 'desc' }, { createdAt: 'desc' }],
-      take: 60,
+      // صنفٌ صلاحيته أشهر يُرجَع من بيعٍ قديم: نافذةٌ واسعة، والتطبيق يبحث فيها بالرقم وبالصنف
+      take: 300,
       select: { id: true, number: true, invoiceDate: true, total: true, type: true, items: { select: { id: true, productId: true, qty: true } } },
     });
     const returned = await returnedBySaleItem(prisma, tid, sales.flatMap((x) => x.items.map((i) => i.id)));
     const data = sales.map((x) => {
-      const left = [...returnableOf(x.items, returned).values()].reduce((a, b) => a + b, 0);
-      return { id: x.id, number: x.number, invoiceDate: x.invoiceDate, total: x.total, type: x.type, itemsCount: x.items.length, returnableQty: left };
-    }).filter((x) => x.returnableQty > 1e-9).slice(0, 30);
+      const left = returnableOf(x.items, returned);
+      const qty = [...left.values()].reduce((a, b) => a + b, 0);
+      // أصناف الفاتورة التي بقي منها ما يُرجَع — للبحث بالصنف
+      const productIds = [...new Set(x.items.filter((i) => i.productId && (left.get(i.id) ?? 0) > 1e-9).map((i) => i.productId as string))];
+      return { id: x.id, number: x.number, invoiceDate: x.invoiceDate, total: x.total, type: x.type, itemsCount: x.items.length, returnableQty: qty, productIds };
+    }).filter((x) => x.returnableQty > 1e-9);
     res.json({ success: true, data });
   } catch (err) { next(err); }
 });
@@ -697,6 +701,12 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       return;
     }
 
+    // صلاحية بنود المرتجع المرتبط تُحسب الآن فتُكتب مع البنود في المعاملة (يوم المرتجع: إنشاؤه على الجهاز إن رُفع لاحقاً)
+    const linkedExpiry = saleForReturn && tracksExpiry
+      ? await linkedReturnExpiry(tid, saleLinkLines.map(l => l.saleItemId).filter((x): x is string => !!x),
+        body.clientCreatedAt ? new Date(body.clientCreatedAt) : (docDate ?? new Date()))
+      : null;
+
     // الرقم يُولَّد داخل إعادة المحاولة: عند تصادم P2002 (طلبان متزامنان بنفس الرقم) يُعاد التوليد والإنشاء
     const invoice = await withNumberRetry(async () => {
     // البادئة تُشتقّ من تاريخ الفاتورة (docDate) لا وقت الرفع — يحفظ تسلسل الفترة للمستندات الأوف-لاين
@@ -758,6 +768,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
               productId: i.productId,
               // مرتجعٌ من فاتورة بيع: بند البيع الذي يُرجَع منه (تحقّق منه assertReturnLinks أعلاه وداخل المعاملة)
               returnOfItemId: saleForReturn ? (saleLinkLines[idx]?.saleItemId ?? null) : null,
+              ...(linkedExpiry?.get(saleLinkLines[idx]?.saleItemId ?? '') ?? {}),
               qty: i.qty,
               unitPrice: i.unitPrice,
               discountPct: i.discountPct,

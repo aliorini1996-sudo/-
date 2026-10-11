@@ -1608,6 +1608,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   useEffect(() => {
     if (!Object.keys(custPrices).length) return;
     setLines(prev => prev.map(l => {
+      // بند فاتورة بيع (مرتجعٌ مرتبط): سعره سعر الاسترداد ثابتاً — لا يُستبدل بسعر العميل الحالي
+      if (l.saleItemId) return l;
       const cp = custPrices[l.productId];
       if (cp === undefined) return l;
       const fresh = roundDecimal(cp * (1 + Number(l.taxPct) / 100), currencyDecimals(getActiveCurrency()));
@@ -1873,7 +1875,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   return (
     <div className="h-full flex flex-col bg-gray-50">
       {pickSale && (
-        <SaleInvoicePicker customerId={customer.id} onPick={onPickSale} onClose={() => setPickSale(false)} />
+        <SaleInvoicePicker customerId={customer.id} products={products} onPick={onPickSale} onClose={() => setPickSale(false)} />
       )}
       {showScanner && (
         <BarcodeScanner

@@ -38,6 +38,16 @@ export async function lockInvoiceForCancel(tx: Tx, tenantId: string, invoiceId: 
   if (await tx.invoice.count({ where: { tenantId, originalInvoiceId: invoiceId, status: 'CONFIRMED' } }) > 0) {
     throw new CancelRefused('صدر على هذه الفاتورة إشعار دائن أو مدين — لا تُلغى؛ أصدر إشعاراً دائناً بما تبقّى منها', 'HAS_NOTES');
   }
+  // مرتجعٌ مرتبطٌ بها في المرحلة الأولى (services/returnLinks.ts): إلغاؤها يُبقي ائتمان المرتجع قائماً على بيعٍ لم يعد
+  // موجوداً — ائتمانٌ مزدوج للعميل. يُلغى المرتجع أولاً
+  const linkedReturns = await tx.$queryRaw<{ n: number }[]>`
+    SELECT COUNT(*)::int AS n FROM invoice_items r
+      JOIN invoices ri ON ri.id = r."invoiceId"
+      JOIN invoice_items s ON s.id = r."returnOfItemId"
+    WHERE s."invoiceId" = ${invoiceId} AND ri."tenantId" = ${tenantId} AND ri.status <> 'CANCELLED'`;
+  if (Number(linkedReturns[0]?.n ?? 0) > 0) {
+    throw new CancelRefused('على هذه الفاتورة مرتجعٌ مرتبط بها — ألغِ المرتجع أولاً');
+  }
 }
 
 /**

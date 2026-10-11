@@ -1,5 +1,6 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
@@ -184,25 +185,28 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     const items = data.items.filter(i => i.qty !== 0);
     if (!items.length) { res.status(400).json({ success: false, message: 'لا توجد كميات صالحة' }); return; }
 
-    // إزالة المنتهي صلاحيته: كمياتٌ موجبة لا تتجاوز رصيد «منتهي الصلاحية» لكل صنف في سيارة هذا المندوب
-    if (data.type === 'EXPIRED_OUT') {
-      if (items.some(i => i.qty < 0)) { res.status(400).json({ success: false, message: 'كمية الإزالة يجب أن تكون موجبة' }); return; }
+    // إزالة المنتهي صلاحيته: كمياتٌ موجبة لا تتجاوز رصيد «منتهي الصلاحية» لكل صنف في سيارة هذا المندوب — والفحص
+    // والإنشاء تحت قفلٍ استشاري للمندوب (أدناه) فلا تتجاوز إزالتان متزامنتان رصيده معاً
+    if (data.type === 'EXPIRED_OUT' && items.some(i => i.qty < 0)) {
+      res.status(400).json({ success: false, message: 'كمية الإزالة يجب أن تكون موجبة' }); return;
+    }
+    const assertExpiredAvailable = async () => {
       const expiredById = new Map((await computeStock(tid, salesRepId)).map(s => [s.productId, s.expired]));
       const want = new Map<string, number>();
       for (const i of items) want.set(i.productId, (want.get(i.productId) ?? 0) + i.qty);
       for (const [pid, q] of want) {
-        if (q > (expiredById.get(pid) ?? 0) + 1e-9) {
-          res.status(400).json({ success: false, message: `الكمية أكبر من المنتهي صلاحيته في السيارة (${Number((expiredById.get(pid) ?? 0).toFixed(3))})` });
-          return;
+        const have = expiredById.get(pid) ?? 0;
+        if (q > have + 1e-9) {
+          throw Object.assign(new Error(`الكمية أكبر من المنتهي صلاحيته في السيارة (${Number(Math.max(0, have).toFixed(3))})`), { status: 400 });
         }
       }
-    }
+    };
 
     const productIds = [...new Set(items.map(i => i.productId))];
     const valid = await prisma.product.count({ where: { id: { in: productIds }, tenantId: tid } });
     if (valid !== productIds.length) { res.status(400).json({ success: false, message: 'منتج غير صالح' }); return; }
 
-    const load = await prisma.vanLoad.create({
+    const createLoad = (db: Prisma.TransactionClient | typeof prisma) => db.vanLoad.create({
       data: {
         tenantId: tid, salesRepId, type: data.type, note: data.note,
         createdBy: isRep ? 'REP' : 'ADMIN',
@@ -210,6 +214,13 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
       },
       include: { items: { include: { product: { select: { id: true, name: true, unit: true } } } } },
     });
+    const load = data.type === 'EXPIRED_OUT'
+      ? await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'van-expired:' + salesRepId}))`;
+        await assertExpiredAvailable(); // يقرأ الملتزَم: الإزالة السابقة التزمت قبل أن يُفكّ قفلها
+        return createLoad(tx);
+      })
+      : await createLoad(prisma);
     res.status(201).json({ success: true, data: load });
   } catch (err) { next(err); }
 });

@@ -45,7 +45,7 @@ export async function stampInvoiceExpiry(tenantId: string, invoiceId: string): P
   const inv = await prisma.invoice.findFirst({
     where: { id: invoiceId, tenantId },
     select: {
-      id: true, type: true, documentKind: true, invoiceDate: true, customerId: true,
+      id: true, type: true, documentKind: true, invoiceDate: true, clientCreatedAt: true, customerId: true,
       items: { select: { id: true, productId: true, creditedItemId: true, returnOfItemId: true, product: { select: LIFE } } },
     },
   });
@@ -64,7 +64,8 @@ export async function stampInvoiceExpiry(tenantId: string, invoiceId: string): P
     return;
   }
 
-  const returnDay = localDateIn(inv.invoiceDate, tz);
+  // يوم المرتجع: لحظة إنشائه على الجهاز إن رُفع لاحقاً (دون اتصال) — لا يوم المزامنة
+  const returnDay = localDateIn(inv.clientCreatedAt ?? inv.invoiceDate, tz);
   const updates = [];
   for (const it of lines) {
     // البيع الذي يُقاس عليه: بند الأصل للمرتجع المرتبط (إشعار دائن أو مرتجعٌ من فاتورة بيع)، وإلا آخر بيعٍ لهذا الصنف
@@ -98,6 +99,30 @@ export async function stampInvoiceExpiry(tenantId: string, invoiceId: string): P
     }));
   }
   if (updates.length) await prisma.$transaction(updates);
+}
+
+/**
+ * صلاحية بنود مرتجعٍ مرتبط بفاتورة بيع (services/returnLinks.ts) — تُحسب **قبل** الإصدار فتُكتب مع بنوده داخل معاملته:
+ * لو سُجّلت بعدها وتعثّر التسجيل لدخل المنتهي المتاحَ للبيع في السيارة. خريطة بند البيع ⇒ ما يُكتب على بند المرتجع.
+ */
+export async function linkedReturnExpiry(
+  tenantId: string, saleItemIds: string[], returnAt: Date,
+): Promise<Map<string, { expiresAt: Date; returnExpired: boolean; expirySaleInvoiceId: string }>> {
+  const out = new Map<string, { expiresAt: Date; returnExpired: boolean; expirySaleInvoiceId: string }>();
+  if (!saleItemIds.length) return out;
+  const [rows, tz] = await Promise.all([
+    prisma.invoiceItem.findMany({
+      where: { id: { in: saleItemIds }, invoice: { tenantId } },
+      select: { id: true, invoiceId: true, expiresAt: true, invoice: { select: { invoiceDate: true } }, product: { select: LIFE } },
+    }),
+    tenantTz(tenantId),
+  ]);
+  const returnDay = localDateIn(returnAt, tz);
+  for (const r of rows) {
+    const expiresAt = r.expiresAt ?? (r.product ? expiryDateFor(r.product, r.invoice.invoiceDate, tz) : null);
+    if (expiresAt) out.set(r.id, { expiresAt, returnExpired: isExpiredOn(returnDay, expiresAt), expirySaleInvoiceId: r.invoiceId });
+  }
+  return out;
 }
 
 /**

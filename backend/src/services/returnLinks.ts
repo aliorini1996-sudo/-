@@ -67,7 +67,7 @@ export function returnLinkProblem(input: {
   const { sale, customerId, lines, returnable } = input;
   if (!sale) return 'فاتورة البيع غير موجودة';
   if (sale.customerId !== customerId) return 'فاتورة البيع لعميلٍ آخر';
-  if (!(SALE_TYPES as readonly string[]).includes(sale.type) || sale.status === 'CANCELLED'
+  if (!(SALE_TYPES as readonly string[]).includes(sale.type) || sale.status !== 'CONFIRMED'
     || sale.documentKind === 'CREDIT_NOTE' || sale.documentKind === 'DEBIT_NOTE') {
     return 'الفاتورة المختارة ليست فاتورة بيع قائمة';
   }
