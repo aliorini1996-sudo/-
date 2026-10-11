@@ -29,6 +29,8 @@ import { expectArray, expectObject } from './shape';
 interface StockRow {
   productId: string; name: string; code: string; unit: string;
   loaded: number; unloaded: number; adjusted: number; sold: number; returned: number; remaining: number;
+  /** «منتهي الصلاحية» في السيارة — لا يُباع ولا يدخل المتبقّي، وتزيله الإدارة من لوحة مخزون السيارات */
+  expired?: number;
 }
 
 interface ProductPick { id: string; name: string; code?: string; unit?: string }
@@ -68,6 +70,7 @@ const KIND_META: Record<string, { label: string; cls: string; sign: string }> = 
   RETURN: { label: 'مرتجع', cls: 'text-[#2B6CB0] bg-[#EBF2FA]', sign: '+' },
   UNLOAD: { label: 'تنزيل للمستودع', cls: 'text-[#B7791F] bg-[#FDF6E7]', sign: '−' },
   ADJUST: { label: 'تسوية', cls: 'text-[#6B46C1] bg-[#F3EEFB]', sign: '±' },
+  EXPIRED_OUT: { label: 'إزالة منتهي الصلاحية', cls: 'text-[#C0392B] bg-[#FDECEA]', sign: '−' },
 };
 
 /* إشعار الحركة في حزمة مستقلّة — يجرّ jspdf وhtml2canvas وqrcode معه */
@@ -291,7 +294,9 @@ export default function MRepLoad({ rep, company, onClose }: {
                     return (
                       <MRow key={s.productId}
                         title={s.name}
-                        subtitle={`${s.code} · ${s.unit}`}
+                        subtitle={(s.expired ?? 0) > 0
+                          ? `${s.code} · ${s.unit} · ${tr('منتهي الصلاحية')} ${fmtQty(s.expired!)}`
+                          : `${s.code} · ${s.unit}`}
                         // صفٌّ مضافٌ سلفاً لا يُنقر: نقرةٌ لا أثر لها تُقرأ عطلاً
                         onClick={picked ? undefined : () => addFromStock(s)}
                         trailing={(

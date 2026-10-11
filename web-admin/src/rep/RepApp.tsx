@@ -18,6 +18,7 @@ import AppIntro from '../components/AppIntro';
 import ForgotPasswordDialog from '../components/ForgotPasswordDialog';
 import SearchableSelect from '../components/SearchableSelect';
 import BarcodeScanner from './BarcodeScanner';
+import SaleInvoicePicker, { type ReturnableSale } from './SaleInvoicePicker';
 import LanguageToggle from '../components/LanguageToggle';
 import { useT, useTr } from '../i18n/strings';
 import RepRouteScreen, { fetchMyRoute, RouteToday } from './RepRouteScreen';
@@ -1563,6 +1564,11 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const [products, setProducts] = useState<any[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [lines, setLines] = useState<any[]>([]);
+  /* مرتجعٌ من فاتورة بيع (SaleInvoicePicker): الأصناف المفعّلة صلاحيتها تُرجَع من فاتورة بيعها وحدها — كامل أصنافها أو
+   * بعضها — فتُقاس صلاحيتها على بيعها، ويدخل المنتهي منها السيارة «منتهي الصلاحية» لا يُباع. بنود الفاتورة تحمل
+   * saleItemId وmaxQty (المتاح) وسعر الاسترداد ثابتاً وحالة الصلاحية اليوم. */
+  const [saleRef, setSaleRef] = useState<{ id: string; number: string } | null>(null);
+  const [pickSale, setPickSale] = useState(false);
   const [showCart, setShowCart] = useState(false); // عرض الأصناف المختارة للمراجعة قبل الإصدار
   const [showScanner, setShowScanner] = useState(false); // ماسح الباركود
   const [loading, setLoading] = useState(false);
@@ -1619,7 +1625,16 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const netPriceOf = (p: any) => custPrices[p.id] ?? Number(p.basePrice);
   const inclPrice = (p: any) => roundDecimal(netPriceOf(p) * (1 + Number(p.taxPct) / 100), currencyDecimals(getActiveCurrency())); // السعر شامل الضريبة
 
+  // المرتجع المرتبط بفاتورة: أصنافه من الفاتورة وحدها؛ والمرتجع الحرّ لا يقبل صنفاً مفعّلة صلاحيته
+  const returnBlock = (p: any): string | null => {
+    if (!isReturn) return null;
+    if (saleRef) return tr('المرتجع من فاتورة بيع أصنافه من الفاتورة المختارة وحدها');
+    if (p?.shelfLifeEnabled === true) return tr('هذا الصنف له تاريخ صلاحية اختر فاتورة البيع لإرجاعه');
+    return null;
+  };
   const addProduct = (p: any) => {
+    const blocked = returnBlock(p);
+    if (blocked) { setMsg(blocked); return; }
     // تحديث دالّي + نسخ غير مُفسِد — يضمن صحّة المسح السريع المتتابع للباركود
     setLines(prev => {
       const idx = prev.findIndex(l => l.productId === p.id);
@@ -1631,6 +1646,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   // مسح باركود مستمرّ → إيجاد الصنف بحقل barcode وإضافته؛ يُعيد نتيجة للعرض داخل الماسح (يبقى مفتوحاً)
   const onScan = (code: string): { ok: boolean; label: string } => {
     const p = products.find((x) => x.barcode && String(x.barcode) === code);
+    if (p && returnBlock(p)) return { ok: false, label: returnBlock(p)! };
     if (p) { addProduct(p); return { ok: true, label: p.name }; }
     return { ok: false, label: `${tr('لا يوجد صنف بهذا الباركود')}: ${code}` };
   };
@@ -1639,6 +1655,11 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const maxDisc = perms?.maxDiscountPct ?? 0;
   const upd = (i: number, f: string, v: number) => {
     const c = [...lines];
+    // بند فاتورة بيع: الكمية حتى المتاح منها، والسعر سعر الاسترداد ثابتاً
+    if (c[i].saleItemId) {
+      if (f !== 'qty') return;
+      v = Math.max(0, Math.min(v || 0, Number(c[i].maxQty)));
+    }
     if (f === 'discountPct') v = Math.max(0, Math.min(v || 0, maxDisc));        // حدّ الخصم المسموح
     if (f === 'unitPrice') {
       if (!perms?.canChangePrice) return;                                       // لا يملك تغيير السعر
@@ -1700,8 +1721,23 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     ? previewInstallments(total, insCount, insFirst, insPeriod, dec)
     : [];
 
+  // اختيار فاتورة البيع: بنودها المتاحة تملأ المرتجع (الكمية كاملة) ثم يُبقي المندوب ما يُرجَع منها
+  const onPickSale = (sale: ReturnableSale) => {
+    setSaleRef({ id: sale.id, number: sale.number });
+    setLines(sale.lines.filter(l => l.returnable > 0).map(l => ({
+      productId: l.productId, name: l.name, unit: l.unit,
+      image: products.find(x => x.id === l.productId)?.image || null,
+      qty: l.returnable, maxQty: l.returnable,
+      unitPrice: l.refundUnitPrice, refPrice: l.refundUnitPrice, discountPct: 0, taxPct: l.taxPct,
+      saleItemId: l.saleItemId, shelfLife: l.shelfLife, expiresAt: l.expiresAt, expiredToday: l.expiredToday,
+    })));
+    setPickSale(false); setMsg(''); setShowCart(true);
+  };
+  const clearSale = () => { setSaleRef(null); setLines([]); setShowCart(false); };
+
   const submit = async () => {
     if (lines.length === 0) { setMsg(tr('أضف صنفا')); return; }
+    if (saleRef && lines.some(l => !(Number(l.qty) > 0))) { setMsg(tr('احذف الصنف الذي لا يرجع بدل تصفير كميته')); return; }
     if (perms.canCreateInvoice === false) { setMsg(tr('لا تملك صلاحية إنشاء فاتورة')); return; }
     if (!isReturn && !canSellAnyType) { setMsg(tr('لا تملك صلاحية البيع النقدي أو الآجل')); return; }
     if (!isReturn && type === 'CREDIT' && !canSellOnCredit) { setMsg(tr('لا تملك صلاحية البيع الآجل')); return; }
@@ -1725,9 +1761,14 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     const body = {
       ...custRef, type: isReturn ? 'RETURN' : type, discountPct: 0,
       ...(isReturn && { returnReason }),
+      // مرتجعٌ من فاتورة بيع: الفاتورة وبند البيع لكل صنف — الخادم يتحقّق من المتاح ويقيس الصلاحية عليه
+      ...(isReturn && saleRef && { originalInvoiceId: saleRef.id }),
       // الاسعار شاملة كما اعلنت للعميل — المحرك (عميلا وخادما) يشتق الضريبة داخليا
       pricesIncludeTax: true,
-      items: lines.map(l => ({ productId: l.productId, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct })),
+      items: lines.map(l => ({
+        productId: l.productId, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct,
+        ...(isReturn && saleRef && l.saleItemId && { invoiceItemId: l.saleItemId }),
+      })),
       ...(deliveryDate && { deliveryDate }), // اختياري — لا يُرسل إن لم يُحدد
       // يُهمَلان في الخادم إن أُطفئت الميزة
       ...(signatureOn && signatures.recipient && { recipientSignature: signatures.recipient.png }),
@@ -1741,7 +1782,12 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     const clientRef = attempt.current.ref;
     const payload = { ...body, clientRef, clientCreatedAt }; // idempotency + العمل دون اتصال
     // الطباعة من نتائج المحرك نفسها: سطر البند يساوي حصته من الاجمالي حتما
-    const printItems = lines.map((l, i) => ({ name: l.name, unit: l.unit, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct, lineTotal: repCalc.items[i].lineTotal, taxAmt: repCalc.items[i].taxAmt }));
+    const printItems = lines.map((l, i) => ({
+      name: l.name, unit: l.unit, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct,
+      lineTotal: repCalc.items[i].lineTotal, taxAmt: repCalc.items[i].taxAmt,
+      // المرتجع من فاتورة بيع: حالة الصلاحية كما عرضها الخادم (والخادم يقرّرها ويسجّلها عند الإصدار)
+      ...(isReturn && l.shelfLife && l.expiresAt && { returnExpired: l.expiredToday ?? null, expiresAt: l.expiresAt }),
+    }));
     try {
       const res = await repApi.post('/invoices', payload);
       /* ZATCA المرحلة الثانية: الفاتورة القياسية تُصدَّق من الهيئة قبل تسليمها، فيردّ الخادم 202
@@ -1826,6 +1872,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
 
   return (
     <div className="h-full flex flex-col bg-gray-50">
+      {pickSale && (
+        <SaleInvoicePicker customerId={customer.id} onPick={onPickSale} onClose={() => setPickSale(false)} />
+      )}
       {showScanner && (
         <BarcodeScanner
           onDetect={onScan}
@@ -1862,6 +1911,20 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                 <div className="bg-amber-50 border border-amber-100 rounded-xl p-2 text-[11px] text-amber-800 text-center">
                   {tr('مرتجع مبيعات سيخفض رصيد العميل بقيمة المرتجع')}
                 </div>
+                {/* مرتجعٌ من فاتورة بيع — إلزامي للأصناف المفعّلة صلاحيتها */}
+                {saleRef ? (
+                  <div className="flex items-center gap-2 bg-white border border-amber-200 rounded-xl p-2 text-xs">
+                    <span className="flex-1 text-gray-700">{tr('من فاتورة البيع')} <b>{saleRef.number}</b></span>
+                    <button onClick={() => setPickSale(true)} className="text-amber-700 font-semibold">{tr('تغيير')}</button>
+                    <button onClick={clearSale} className="text-gray-400">{tr('إلغاء الربط')}</button>
+                  </div>
+                ) : (
+                  <button onClick={() => setPickSale(true)} disabled={!!customer._offline}
+                    className="w-full border border-amber-300 text-amber-700 bg-white rounded-xl py-2 text-xs font-semibold disabled:opacity-50">
+                    {tr('مرتجع من فاتورة بيع')}
+                  </button>
+                )}
+                {msg && <p className="text-red-500 text-[11px] text-center">{msg}</p>}
               </div>
             ) : (
               <div className="flex items-center gap-2 mb-2">
@@ -1953,9 +2016,19 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                   <span className="font-semibold text-sm flex-1">{l.name}</span>
                   <button onClick={() => setLines(lines.filter((_, j) => j !== i))} className="text-red-400"><Trash2 size={15} /></button>
                 </div>
+                {/* المرتجع من فاتورة بيع: المتاح منها وحالة صلاحية ما بيع اليوم */}
+                {l.saleItemId && (
+                  <div className="mb-2 text-[11px] space-y-0.5">
+                    <p className="text-gray-500">{tr('المتاح للإرجاع')}: {Number(Number(l.maxQty).toFixed(3))} {l.unit}</p>
+                    {l.shelfLife && l.expiresAt && (l.expiredToday
+                      ? <p className="font-semibold text-red-600">{tr('منتهي الصلاحية')} · {formatDayOnly(l.expiresAt)} — {tr('يدخل السيارة منتهيا ولا يباع')}</p>
+                      : <p className="font-semibold text-[#1E7A52]">{tr('ساري الصلاحية')} · {tr('حتى')} {formatDayOnly(l.expiresAt)}</p>)}
+                  </div>
+                )}
                 <div className="grid grid-cols-3 gap-2">
                   {[['الكمية', 'qty'], ['السعر شامل', 'unitPrice'], ['خصم%', 'discountPct']].map(([lbl, f]) => {
-                    const locked = (f === 'unitPrice' && !perms?.canChangePrice) || (f === 'discountPct' && maxDisc === 0);
+                    const locked = (f === 'unitPrice' && !perms?.canChangePrice) || (f === 'discountPct' && maxDisc === 0)
+                      || (!!l.saleItemId && f !== 'qty'); // بند فاتورة بيع: سعر الاسترداد ثابت
                     return (
                       <div key={f}>
                         <label className="text-[10px] text-gray-400 flex items-center gap-0.5">
@@ -1970,7 +2043,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                 </div>
                 <div className="flex justify-between items-center mt-2 text-xs">
                   <span className="text-gray-400">{tr('منها ضريبة')}: {formatCurrency(repCalc.items[i]?.taxAmt ?? 0)}</span>
-                  {perms?.canChangePrice ? (
+                  {perms?.canChangePrice && !l.saleItemId ? (
                     <span className="inline-flex items-center gap-1">
                       <DecimalInput min={0}
                         className="input !py-1 !px-2 text-sm font-bold text-[#E15A30] w-28 text-center"
@@ -2920,7 +2993,8 @@ function RepVanStock({ canLoad }: { canLoad: boolean }) {
   const tr = useTr();
   const [view, setView] = useState<'list' | 'load'>('list');
   useBackClose(view === 'load', () => setView('list'));
-  const [stock, setStock] = useState<{ productId: string; name: string; code: string; unit: string; loaded: number; sold: number; returned: number; remaining: number }[]>([]);
+  // expired: «منتهي الصلاحية» في السيارة — مرتجعٌ عاد بعد انتهاء صلاحيته، لا يُباع ولا يدخل المتبقّي حتى تزيله الإدارة
+  const [stock, setStock] = useState<{ productId: string; name: string; code: string; unit: string; loaded: number; sold: number; returned: number; remaining: number; expired?: number }[]>([]);
   const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState<{ id: string; name: string; unit: string; code: string }[]>([]);
   const [rows, setRows] = useState<{ productId: string; name: string; unit: string; qty: string }[]>([]);
@@ -3026,6 +3100,9 @@ function RepVanStock({ canLoad }: { canLoad: boolean }) {
               <div className="min-w-0">
                 <p className="font-semibold text-sm text-[#1F1A13] truncate">{s.name}</p>
                 <p className="text-[11px] text-gray-400">{tr('محمل')} {fmt(s.loaded)} · {tr('مباع')} {fmt(s.sold)} {s.unit}</p>
+                {(s.expired ?? 0) > 0 && (
+                  <p className="text-[11px] font-semibold text-red-600">{tr('منتهي الصلاحية')} {fmt(s.expired!)} {s.unit} — {tr('لا يباع حتى تزيله الإدارة')}</p>
+                )}
               </div>
               <div className="text-left shrink-0">
                 <p className={`text-lg font-bold ${s.remaining < 0 ? 'text-red-600' : s.remaining === 0 ? 'text-gray-400' : 'text-[#1E7A52]'}`}>{fmt(s.remaining)}</p>

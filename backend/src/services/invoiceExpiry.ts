@@ -5,7 +5,8 @@
  * - **بند البيع** (نقدي/آجل): `expiresAt` = يوم الفاتورة بتوقيت الشركة + صلاحية الصنف حينها — لقطةٌ لا تتغيّر
  *   إن عُدّلت صلاحية الصنف لاحقاً.
  * - **بند المرتجع**: يُقاس على بيعه —
- *     · المرتجع المرتبط بفاتورته (إشعار دائن، المرحلة الثانية): بندُ الأصل نفسه (`creditedItemId`).
+ *     · المرتجع المرتبط بفاتورته: بندُ الأصل نفسه — `creditedItemId` (إشعار دائن، المرحلة الثانية) أو `returnOfItemId`
+ *       (مرتجعٌ من فاتورة بيع في المرحلة الأولى، services/returnLinks.ts).
  *     · المرتجع الحرّ (المرحلة الأولى، بلا ربط): **آخر بيعٍ لهذا الصنف لهذا العميل** قبل المرتجع — المحلّ يبيع
  *       الأقدم أولاً فما يعود هو آخر ما وصله، وإن كان آخر بيعٍ منتهياً فكل ما قبله منتهٍ.
  *   ويُحفظ `expiresAt` (انتهاء ذلك البيع) و`returnExpired` (يوم المرتجع بعد يوم الانتهاء) و`expirySaleInvoiceId`
@@ -28,7 +29,8 @@ export function isExpiredOn(returnDay: string, expiresAt: Date): boolean {
   return returnDay > isoDay(expiresAt);
 }
 
-async function tenantTz(tenantId: string): Promise<string> {
+/** منطقة الشركة الزمنية — إعدادات الدفاتر ثم البلد */
+export async function tenantTz(tenantId: string): Promise<string> {
   const [gl, company] = await Promise.all([
     prisma.glSettings.findUnique({ where: { tenantId }, select: { timezone: true } }),
     prisma.companySettings.findUnique({ where: { tenantId }, select: { countryCode: true } }),
@@ -44,7 +46,7 @@ export async function stampInvoiceExpiry(tenantId: string, invoiceId: string): P
     where: { id: invoiceId, tenantId },
     select: {
       id: true, type: true, documentKind: true, invoiceDate: true, customerId: true,
-      items: { select: { id: true, productId: true, creditedItemId: true, product: { select: LIFE } } },
+      items: { select: { id: true, productId: true, creditedItemId: true, returnOfItemId: true, product: { select: LIFE } } },
     },
   });
   if (!inv) return;
@@ -65,10 +67,12 @@ export async function stampInvoiceExpiry(tenantId: string, invoiceId: string): P
   const returnDay = localDateIn(inv.invoiceDate, tz);
   const updates = [];
   for (const it of lines) {
-    // البيع الذي يُقاس عليه: بند الأصل للمرتجع المرتبط، وإلا آخر بيعٍ لهذا الصنف لهذا العميل قبل المرتجع
-    const sale = it.creditedItemId
+    // البيع الذي يُقاس عليه: بند الأصل للمرتجع المرتبط (إشعار دائن أو مرتجعٌ من فاتورة بيع)، وإلا آخر بيعٍ لهذا الصنف
+    // لهذا العميل قبل المرتجع
+    const linkedSaleItem = it.creditedItemId ?? it.returnOfItemId;
+    const sale = linkedSaleItem
       ? await prisma.invoiceItem.findFirst({
-        where: { id: it.creditedItemId, invoice: { tenantId } },
+        where: { id: linkedSaleItem, invoice: { tenantId } },
         select: { invoiceId: true, expiresAt: true, invoice: { select: { invoiceDate: true } } },
       })
       : await prisma.invoiceItem.findFirst({

@@ -62,6 +62,8 @@ interface RepSummary {
 interface StockRow {
   productId: string; name: string; code: string; unit: string;
   loaded: number; unloaded: number; adjusted: number; sold: number; returned: number; remaining: number;
+  /** «منتهي الصلاحية» في السيارة: مرتجعٌ عاد بعد انتهاء صلاحيته — لا يُباع ولا يدخل المتبقّي حتى تزيله الإدارة */
+  expired?: number;
 }
 interface Movement {
   kind: string; date: string; ref: string; by: string | null;
@@ -106,6 +108,28 @@ export default function VanStockPage() {
     onSuccess: (_d, v) => toast.success(v.val ? tr('سمح بالبيع بدون مخزون') : tr('منع البيع بدون مخزون')),
     onSettled: () => qc.invalidateQueries({ queryKey: ['van-summary'] }),
   });
+
+  /* إزالة المنتهي صلاحيته من سيارة المندوب (EXPIRED_OUT) — للإدارة بصلاحية إدارة مخزون السيارة (الخادم يحرسها ويمنع
+   * تجاوز رصيد المنتهي). الكمية الافتراضية كامل المنتهي، ويمكن إزالة بعضه. */
+  const removeExpired = useMutation({
+    mutationFn: (v: { productId: string; qty: number }) => vanStockApi.createLoad({
+      salesRepId: selected, type: 'EXPIRED_OUT', note: tr('إزالة منتهي الصلاحية'), items: [{ productId: v.productId, qty: v.qty }],
+    }),
+    onSuccess: () => {
+      toast.success(tr('أزيل المنتهي صلاحيته من السيارة'));
+      qc.invalidateQueries({ queryKey: ['van-current'] });
+      qc.invalidateQueries({ queryKey: ['van-movements'] });
+      qc.invalidateQueries({ queryKey: ['van-summary'] });
+    },
+    onError: (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الحفظ')),
+  });
+  const askRemoveExpired = (row: StockRow) => {
+    const raw = window.prompt(`${tr('كمية منتهي الصلاحية المراد إزالتها من السيارة')} — ${row.name}`, String(row.expired ?? 0));
+    if (raw == null) return;
+    const qty = Number(raw);
+    if (!(qty > 0) || qty > (row.expired ?? 0) + 1e-9) { toast.error(tr('الكمية غير صالحة')); return; }
+    removeExpired.mutate({ productId: row.productId, qty });
+  };
 
   const currentQ = useQuery({
     queryKey: ['van-current', selected],
@@ -239,6 +263,7 @@ export default function VanStockPage() {
                       <th className="text-center font-semibold px-2 py-2.5">{tr('مباع')}</th>
                       <th className="text-center font-semibold px-2 py-2.5">{tr('مرتجع')}</th>
                       <th className="text-center font-semibold px-3 py-2.5">{tr('المتبقي')}</th>
+                      <th className="text-center font-semibold px-3 py-2.5">{tr('منتهي الصلاحية')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -252,6 +277,17 @@ export default function VanStockPage() {
                         <td className="text-center px-2 py-2.5 text-[#C94E28]">{fmtQty(row.sold)}</td>
                         <td className="text-center px-2 py-2.5 text-[#6E6557]">{fmtQty(row.returned)}</td>
                         <td className={`text-center px-3 py-2.5 font-bold ${row.remaining < 0 ? 'text-red-600' : row.remaining === 0 ? 'text-[#9A8F7E]' : 'text-[#1E7A52]'}`}>{fmtQty(row.remaining)}</td>
+                        <td className="text-center px-3 py-2.5">
+                          {(row.expired ?? 0) > 0 ? (
+                            <span className="inline-flex items-center gap-2">
+                              <b className="text-red-600">{fmtQty(row.expired!)}</b>
+                              <button onClick={() => askRemoveExpired(row)} disabled={removeExpired.isPending}
+                                className="text-[11px] font-semibold text-red-600 border border-red-200 rounded-md px-2 py-0.5 hover:bg-red-50 disabled:opacity-50">
+                                {tr('إزالة')}
+                              </button>
+                            </span>
+                          ) : <span className="text-[#9A8F7E]">—</span>}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -289,6 +325,7 @@ const KIND_META: Record<string, { label: string; color: string; sign: string }> 
   LOAD: { label: 'تحميل', color: 'text-[#1E7A52] bg-green-50', sign: '+' },
   SALE: { label: 'بيع', color: 'text-[#C94E28] bg-[#FBEBE2]', sign: '−' },
   RETURN: { label: 'مرتجع', color: 'text-blue-600 bg-blue-50', sign: '+' },
+  EXPIRED_OUT: { label: 'إزالة منتهي الصلاحية', color: 'text-red-600 bg-red-50', sign: '−' },
   UNLOAD: { label: 'تنزيل للمستودع', color: 'text-amber-600 bg-amber-50', sign: '−' },
   ADJUST: { label: 'تسوية', color: 'text-purple-600 bg-purple-50', sign: '±' },
 };

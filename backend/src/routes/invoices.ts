@@ -1,13 +1,14 @@
 ﻿import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import { stampExpiryAfterIssue } from '../services/invoiceExpiry';
-import { shelfLifeOf } from '../services/shelfLife';
+import { ReturnLinkError, SALE_TYPES, assertReturnLinks, returnableOf, returnedBySaleItem } from '../services/returnLinks';
+import { isExpiredOn, stampExpiryAfterIssue, tenantTz } from '../services/invoiceExpiry';
+import { expiryDateFor, localDateIn, shelfLifeOf } from '../services/shelfLife';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
 import { scopedRecordWhere, canAccessRep, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { publishInvoicesChanged } from '../services/liveEvents';
-import { paginate, paginationMeta, generateInvoiceNumber, generateReturnNumber, withNumberRetry } from '../utils/helpers';
+import { paginate, paginationMeta, generateInvoiceNumber, generateReturnNumber, withNumberRetry, roundDecimal } from '../utils/helpers';
 import { getCountryTax, currencyDecimalsOf } from '../config/countries';
 import { computeInvoiceTotals } from '../lib/invoiceCalc';
 import { netFromInclusive } from '../lib/money';
@@ -263,6 +264,85 @@ router.get('/by-client-ref/:clientRef', async (req: AuthRequest, res: Response, 
     if (p2?.error) { res.status(p2.status).json(p2.error.body()); return; }
     if (p2) { res.json({ success: true, data: { ...invoice, einvoice: p2.einvoice } }); return; }
     res.json({ success: true, data: invoice });
+  } catch (err) { next(err); }
+});
+
+/**
+ * المرتجع من فاتورة بيع (services/returnLinks.ts) — فواتير البيع التي بقي فيها ما يُرجَع لعميل. للمندوب: عميلٌ يملك
+ * الوصول إليه ولو باعه مندوبٌ قبله (لا فواتيره هو وحده)؛ ولمستخدم الشركة نطاقه. أحدث ٣٠.
+ */
+router.get('/returnable-sales', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const customerId = typeof req.query.customerId === 'string' ? req.query.customerId : '';
+    if (!customerId) { res.status(400).json({ success: false, message: 'يجب تحديد العميل' }); return; }
+    const isRep = req.user?.role === 'SALES_REP';
+    if (isRep && !(await canAccessCustomer(req, tid, customerId))) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
+    const sales = await prisma.invoice.findMany({
+      where: {
+        tenantId: tid, customerId, type: { in: [...SALE_TYPES] }, status: 'CONFIRMED',
+        AND: [
+          { OR: [{ documentKind: null }, { documentKind: { notIn: ['CREDIT_NOTE', 'DEBIT_NOTE'] } }] },
+          isRep ? {} : await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT),
+        ],
+      },
+      orderBy: [{ invoiceDate: 'desc' }, { createdAt: 'desc' }],
+      take: 60,
+      select: { id: true, number: true, invoiceDate: true, total: true, type: true, items: { select: { id: true, productId: true, qty: true } } },
+    });
+    const returned = await returnedBySaleItem(prisma, tid, sales.flatMap((x) => x.items.map((i) => i.id)));
+    const data = sales.map((x) => {
+      const left = [...returnableOf(x.items, returned).values()].reduce((a, b) => a + b, 0);
+      return { id: x.id, number: x.number, invoiceDate: x.invoiceDate, total: x.total, type: x.type, itemsCount: x.items.length, returnableQty: left };
+    }).filter((x) => x.returnableQty > 1e-9).slice(0, 30);
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+});
+
+/**
+ * بنود فاتورة بيع للمرتجع منها: المبيع والمُرجَع والمتاح لكل بند، وسعر الاسترداد للوحدة (ما دفعه العميل فعلاً شاملاً
+ * الضريبة بعد خصومات البند والفاتورة = lineTotal ÷ الكمية)، وصلاحية ما بيع: تاريخ انتهائه وهل هو منتهٍ اليوم —
+ * فيرى المندوب «منتهي الصلاحية» قبل الحفظ، والخادم يقرّر عند الإصدار.
+ */
+router.get('/:id/returnable', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const isRep = req.user?.role === 'SALES_REP';
+    const sale = await prisma.invoice.findFirst({
+      where: { id: req.params.id, tenantId: tid, ...(isRep ? {} : await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) },
+      select: {
+        id: true, number: true, invoiceDate: true, customerId: true, type: true, status: true, documentKind: true,
+        items: {
+          select: {
+            id: true, productId: true, qty: true, lineTotal: true, taxPct: true, expiresAt: true,
+            product: { select: { id: true, name: true, code: true, unit: true, shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true } },
+          },
+        },
+      },
+    });
+    if (!sale || (isRep && !(await canAccessCustomer(req, tid, sale.customerId)))) {
+      res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return;
+    }
+    if (!(SALE_TYPES as readonly string[]).includes(sale.type) || sale.status !== 'CONFIRMED'
+      || sale.documentKind === 'CREDIT_NOTE' || sale.documentKind === 'DEBIT_NOTE') {
+      res.status(422).json({ success: false, message: 'الفاتورة المختارة ليست فاتورة بيع قائمة' }); return;
+    }
+    const [returned, tz] = await Promise.all([returnedBySaleItem(prisma, tid, sale.items.map((i) => i.id)), tenantTz(tid)]);
+    const left = returnableOf(sale.items, returned);
+    const today = localDateIn(new Date(), tz);
+    const lines = sale.items.filter((it) => it.productId && it.product).map((it) => {
+      const expiresAt = it.expiresAt ?? expiryDateFor(it.product!, sale.invoiceDate, tz);
+      return {
+        saleItemId: it.id, productId: it.productId, name: it.product!.name, code: it.product!.code, unit: it.product!.unit,
+        sold: Number(it.qty), returned: returned.get(it.id) ?? 0, returnable: left.get(it.id) ?? 0,
+        refundUnitPrice: Number(it.qty) > 0 ? roundDecimal(Number(it.lineTotal) / Number(it.qty), 4) : 0,
+        taxPct: Number(it.taxPct),
+        shelfLife: !!shelfLifeOf(it.product!),
+        expiresAt: expiresAt ? expiresAt.toISOString().slice(0, 10) : null,
+        expiredToday: expiresAt ? isExpiredOn(today, expiresAt) : null,
+      };
+    });
+    res.json({ success: true, data: { id: sale.id, number: sale.number, invoiceDate: sale.invoiceDate, customerId: sale.customerId, lines } });
   } catch (err) { next(err); }
 });
 
@@ -595,6 +675,28 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // (startedAt مضبوطٌ عند القراءة ⇒ ليست مرحلةً أولى أصلاً — ومنه إعادة رفعٍ قُبل انتقالياً مرحلةً أولى، فلا يمسّها هذا).
     const armRaceActive = (company?.zatcaGoLiveArmedAt ?? null) != null && (company?.zatcaPhase2StartedAt ?? null) == null;
 
+    // مرتجعٌ من فاتورة بيع (services/returnLinks.ts): للمندوب، الصنفُ المفعّلة صلاحيته يُرجَع من فاتورة بيعه وحدها — كامل
+    // أصنافها أو بعضها — فتُقاس صلاحيته على بيعه هو، ويدخل المنتهي منه مخزون السيارة «منتهي الصلاحية» لا يُباع. والمرتجع
+    // المرتبط يُتحقَّق منه هنا (رسالةٌ واضحة) ثم داخل المعاملة بعد قفل فاتورة البيع (لا يتجاوز مرتجعان متزامنان المتاح).
+    const saleForReturn = isReturn && body.originalInvoiceId ? body.originalInvoiceId : null;
+    const saleLinkLines = saleForReturn
+      ? body.items.map(i => ({ productId: i.productId, saleItemId: i.invoiceItemId ?? null, qty: i.qty }))
+      : [];
+    if (saleForReturn) {
+      try {
+        await assertReturnLinks(prisma, { tenantId: tid, customerId, saleInvoiceId: saleForReturn, lines: saleLinkLines });
+      } catch (e) {
+        if (e instanceof ReturnLinkError) { res.status(e.status).json({ success: false, code: e.code, message: e.message }); return; }
+        throw e;
+      }
+    } else if (isReturn && req.user!.role === 'SALES_REP' && tracksExpiry) {
+      res.status(422).json({
+        success: false, code: 'RETURN_NEEDS_SALE_INVOICE',
+        message: 'الأصناف المفعّلة صلاحيتها تُرجَع من فاتورة بيعها — اختر فاتورة البيع ثم الأصناف المرتجعة',
+      });
+      return;
+    }
+
     // الرقم يُولَّد داخل إعادة المحاولة: عند تصادم P2002 (طلبان متزامنان بنفس الرقم) يُعاد التوليد والإنشاء
     const invoice = await withNumberRetry(async () => {
     // البادئة تُشتقّ من تاريخ الفاتورة (docDate) لا وقت الرفع — يحفظ تسلسل الفترة للمستندات الأوف-لاين
@@ -602,6 +704,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     return prisma.$transaction(async tx => {
       // نقد 4.4: يرمي Phase2WentLiveError إن صار التفعيل مضبوطاً بين قراءة الإعدادات أعلاه والتزام هذه المعاملة (مطفأ لغير المُسلَّح)
       await assertNotWentLiveInTx(tx as unknown as GoLiveRaceTx, tid, armRaceActive);
+      // مرتجعٌ من فاتورة بيع: قفل صفّ فاتورة البيع ثم إعادة التحقق من المتاح — مرتجعان متزامنان لا يتجاوزانه معاً
+      if (saleForReturn) {
+        await assertReturnLinks(tx, { tenantId: tid, customerId, saleInvoiceId: saleForReturn, lines: saleLinkLines, lock: true });
+      }
       const inv = await tx.invoice.create({
         data: {
           tenantId: tid,
@@ -648,8 +754,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           einvoiceProvider,
           einvoiceStatus,
           items: {
-            create: finalItems.map(i => ({
+            create: finalItems.map((i, idx) => ({
               productId: i.productId,
+              // مرتجعٌ من فاتورة بيع: بند البيع الذي يُرجَع منه (تحقّق منه assertReturnLinks أعلاه وداخل المعاملة)
+              returnOfItemId: saleForReturn ? (saleLinkLines[idx]?.saleItemId ?? null) : null,
               qty: i.qty,
               unitPrice: i.unitPrice,
               discountPct: i.discountPct,
@@ -696,6 +804,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
   } catch (err) {
     // ZATCA (Z5.8، نقد 4.4): فُعّلت الشركة حيّاً أثناء تجهيز فاتورة المرحلة الأولى — تُرفض بدل التزام صفّ غير مختوم (لا فاتورة)
     if (err instanceof Phase2WentLiveError) { res.status(err.httpError.status).json(err.httpError.body()); return; }
+    // مرتجعٌ من فاتورة بيع تجاوز المتاح بعد القفل (مرتجعٌ متزامن سبقه) — لا مستند
+    if (err instanceof ReturnLinkError) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
     // سباق تزامن: رفعان متزامنان بنفس clientRef تجاوزا الفحص المبكر — الثاني يصطدم بالقيد.
     // نعيد الفاتورة القائمة بدل الفشل (idempotency تحت التزامن).
     const e = err as { code?: string; meta?: { target?: unknown } };

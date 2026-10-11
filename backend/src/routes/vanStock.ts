@@ -18,7 +18,8 @@ const REP_GONE_NAME = 'مندوب محذوف';
 
 const loadSchema = z.object({
   salesRepId: z.string().optional(), // الأدمن يحدّده؛ المندوب يُستخدم معرّفه تلقائياً
-  type: z.enum(['LOAD', 'UNLOAD', 'ADJUST']).default('LOAD'),
+  // EXPIRED_OUT: إزالة المنتهي صلاحيته من السيارة (إتلاف) — للإدارة وحدها، من رصيد «منتهي الصلاحية» لا من المتاح
+  type: z.enum(['LOAD', 'UNLOAD', 'ADJUST', 'EXPIRED_OUT']).default('LOAD'),
   note: z.string().optional(),
   items: z.array(z.object({
     productId: z.string(),
@@ -56,6 +57,8 @@ async function assertRepInScope(req: AuthRequest, tid: string, salesRepId: strin
 interface StockRow {
   productId: string; name: string; code: string; unit: string;
   loaded: number; unloaded: number; adjusted: number; sold: number; returned: number; remaining: number;
+  /** رصيد «منتهي الصلاحية» في السيارة: مرتجعٌ عاد بعد انتهاء صلاحيته — لا يُباع ولا يدخل `remaining`، ويبقى حتى تزيله الإدارة */
+  expired: number;
 }
 
 /**
@@ -69,11 +72,12 @@ interface StockRow {
  */
 export interface StockRange { from?: string; to?: string }
 
-export interface StockBucket { loaded: number; unloaded: number; adjusted: number; sold: number; returned: number }
+export interface StockBucket { loaded: number; unloaded: number; adjusted: number; sold: number; returned: number; expiredIn: number; expiredOut: number }
 export interface LoadRow { productId: string; qty: number; vanLoad: { type: string; createdAt: Date } }
-export interface InvRow { productId: string | null; qty: number; invoice: { type: string; returnToStock: boolean | null; invoiceDate: Date } }
+/** returnExpired: بند مرتجعٍ عاد بعد انتهاء صلاحيته (services/invoiceExpiry.ts) */
+export interface InvRow { productId: string | null; qty: number; returnExpired?: boolean | null; invoice: { type: string; returnToStock: boolean | null; invoiceDate: Date } }
 
-const blankBucket = (): StockBucket => ({ loaded: 0, unloaded: 0, adjusted: 0, sold: 0, returned: 0 });
+const blankBucket = (): StockBucket => ({ loaded: 0, unloaded: 0, adjusted: 0, sold: 0, returned: 0, expiredIn: 0, expiredOut: 0 });
 
 /**
  * يطوي الحركات في دلوين: `bal` كل ما وصل (الرصيد)، و`acc` ما وقع داخل النافذة (التدفّق).
@@ -93,12 +97,16 @@ export function foldStock(loadItems: LoadRow[], invItems: InvRow[], from?: Date)
   const addLoad = (m: StockBucket, type: string, qty: number) => {
     if (type === 'LOAD') m.loaded += qty;
     else if (type === 'UNLOAD') m.unloaded += qty;
+    else if (type === 'EXPIRED_OUT') m.expiredOut += qty; // إزالة المنتهي: من رصيده هو لا من المتاح
     else m.adjusted += qty;
   };
-  const addInv = (m: StockBucket, inv: { type: string; returnToStock: boolean | null }, qty: number) => {
-    // المرتجع لا يُعاد لمخزون السيارة إلا إذا حُدِّد returnToStock (التالف عادةً لا يعود)
-    if (inv.type === 'RETURN') { if (inv.returnToStock) m.returned += qty; }
-    else m.sold += qty;
+  const addInv = (m: StockBucket, inv: { type: string; returnToStock: boolean | null }, qty: number, returnExpired?: boolean | null) => {
+    if (inv.type === 'RETURN') {
+      // المنتهي صلاحيته يدخل السيارة «منتهي الصلاحية» مهما كان سبب الإرجاع — لا يُباع ويبقى حتى تزيله الإدارة
+      if (returnExpired) m.expiredIn += qty;
+      // وغيره لا يُعاد لمخزون السيارة إلا إذا حُدِّد returnToStock (التالف عادةً لا يعود)
+      else if (inv.returnToStock) m.returned += qty;
+    } else m.sold += qty;
   };
   for (const it of loadItems) {
     addLoad(ensure(bal, it.productId), it.vanLoad.type, it.qty);
@@ -108,8 +116,8 @@ export function foldStock(loadItems: LoadRow[], invItems: InvRow[], from?: Date)
     // مخزون السيارة للمنتجات وحدها: بندٌ بلا productId وتمريره
     // كان يفتح صفّاً بمفتاح فارغ يلوّث كل الأرصدة.
     if (!it.productId) continue;
-    addInv(ensure(bal, it.productId), it.invoice, it.qty);
-    if (inWindow(it.invoice.invoiceDate)) addInv(ensure(acc, it.productId), it.invoice, it.qty);
+    addInv(ensure(bal, it.productId), it.invoice, it.qty, it.returnExpired);
+    if (inWindow(it.invoice.invoiceDate)) addInv(ensure(acc, it.productId), it.invoice, it.qty, it.returnExpired);
   }
   return { acc, bal };
 }
@@ -131,7 +139,7 @@ export async function computeStock(tid: string, salesRepId: string, range?: Stoc
     }),
     prisma.invoiceItem.findMany({
       where: { invoice: { tenantId: tid, salesRepId, status: 'CONFIRMED', ...(to && { invoiceDate: { lte: to } }) } },
-      select: { productId: true, qty: true, invoice: { select: { type: true, returnToStock: true, invoiceDate: true } } },
+      select: { productId: true, qty: true, returnExpired: true, invoice: { select: { type: true, returnToStock: true, invoiceDate: true } } },
     }),
     prisma.product.findMany({ where: { tenantId: tid }, select: { id: true, name: true, unit: true, code: true } }),
   ]);
@@ -148,7 +156,8 @@ export async function computeStock(tid: string, salesRepId: string, range?: Stoc
     const m = acc.get(pid) ?? blankBucket();
     // تقريب 4 خانات يمحو غبار سلسلة الجمع (3×0.1−0.3 = 5.55e-17 صف شبحي يتصدر الفرز)
     const remaining = roundDecimal(b.loaded - b.unloaded + b.adjusted - b.sold + b.returned, 4);
-    rows.push({ productId: pid, name: p.name, code: p.code, unit: p.unit, ...m, remaining });
+    const expired = roundDecimal(b.expiredIn - b.expiredOut, 4);
+    rows.push({ productId: pid, name: p.name, code: p.code, unit: p.unit, ...m, remaining, expired });
   }
   rows.sort((a, b) => b.remaining - a.remaining);
   return rows;
@@ -174,6 +183,20 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
 
     const items = data.items.filter(i => i.qty !== 0);
     if (!items.length) { res.status(400).json({ success: false, message: 'لا توجد كميات صالحة' }); return; }
+
+    // إزالة المنتهي صلاحيته: كمياتٌ موجبة لا تتجاوز رصيد «منتهي الصلاحية» لكل صنف في سيارة هذا المندوب
+    if (data.type === 'EXPIRED_OUT') {
+      if (items.some(i => i.qty < 0)) { res.status(400).json({ success: false, message: 'كمية الإزالة يجب أن تكون موجبة' }); return; }
+      const expiredById = new Map((await computeStock(tid, salesRepId)).map(s => [s.productId, s.expired]));
+      const want = new Map<string, number>();
+      for (const i of items) want.set(i.productId, (want.get(i.productId) ?? 0) + i.qty);
+      for (const [pid, q] of want) {
+        if (q > (expiredById.get(pid) ?? 0) + 1e-9) {
+          res.status(400).json({ success: false, message: `الكمية أكبر من المنتهي صلاحيته في السيارة (${Number((expiredById.get(pid) ?? 0).toFixed(3))})` });
+          return;
+        }
+      }
+    }
 
     const productIds = [...new Set(items.map(i => i.productId))];
     const valid = await prisma.product.count({ where: { id: { in: productIds }, tenantId: tid } });

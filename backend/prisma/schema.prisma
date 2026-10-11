@@ -803,8 +803,13 @@ model InvoiceItem {
   expiresAt           DateTime? @db.Date
   returnExpired       Boolean?
   expirySaleInvoiceId String?
+  // مرتجعٌ من فاتورة بيع في المرحلة الأولى (services/returnLinks.ts): بند البيع الذي يُرجَع منه هذا البند. مستقلٌّ عن
+  // creditedItemId الذي تملكه الفوترة الإلكترونية (إشعارات المرحلة الثانية)
+  returnOfItemId      String?
 
   @@index([menuItemId])
+  @@index([returnOfItemId])
+  @@index([creditedItemId])
   // كان الجدول مفهرساً على `menuItemId` وحده، بينما **كل** قراءة
   // فاتورة أو تقرير مبيعات أو حساب مخزون سيارة تصل بنودها عبر `invoiceId`،
   // وتجميع «المبيعات حسب الصنف» يمرّ على `productId`.
