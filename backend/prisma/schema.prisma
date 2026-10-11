@@ -514,6 +514,10 @@ model Product {
   unitCode             String? // كود الوحدة حسب جدول المزوّد (ETA)
   status               String           @default("ACTIVE") // ACTIVE | INACTIVE
   damagedReturnToStock Boolean          @default(false) // سياسة الصنف: هل يعود مرتجعه التالف لمخزون السيارة؟ (يضبط افتراض المرتجع)
+  // صلاحية الصنف: مدةٌ من تاريخ التوريد (الوارد في مخزون الشركة) — اختيارية لكل صنف (services/shelfLife.ts)
+  shelfLifeEnabled     Boolean          @default(false)
+  shelfLifeValue       Int?
+  shelfLifeUnit        String? // DAY | MONTH | YEAR
   deletedAt            DateTime? // أرشفة بدل الحذف حين يوجد تاريخ: يختفي من القوائم ويبقى صفه باسمه للفواتير والكشوف القديمة
   categoryId           String?
   category             ProductCategory? @relation(fields: [categoryId], references: [id])
@@ -1291,6 +1295,9 @@ model WarehouseEntryItem {
   // ما يُدخله المستخدم شاملاً الضريبة يُردّ إلى صافيه في الخادم قبل الحفظ.
   // اختياريّ: الاستلام قد يُسجَّل قبل وصول فاتورة المورّد، ولا يُعطَّل لأجلها.
   unitCost  Float? // للوارد (RECEIVE) فقط
+  // تاريخ انتهاء الصلاحية — يُحسب عند الوارد من تاريخه بتوقيت الشركة وصلاحية الصنف حينها، ويُحفظ: تغيير
+  // صلاحية الصنف لاحقاً لا يعيد كتابة دفعاتٍ استُلمت. null لصنفٍ بلا صلاحية مفعّلة وللتسويات
+  expiresAt DateTime? @db.Date
 
   @@index([productId])
   @@map("warehouse_entry_items")

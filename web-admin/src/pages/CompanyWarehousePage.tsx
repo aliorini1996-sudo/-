@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { warehouseApi, productApi, companyApi } from '../api/client';
-import { formatDate, formatCurrency } from '../utils/format';
+import { formatDate, formatCurrency, formatDayOnly } from '../utils/format';
+import { daysUntil, previewExpiry } from '../lib/shelfLife';
 import { useTr } from '../i18n/strings';
 import SearchableSelect from '../components/SearchableSelect';
 import { Warehouse, PackagePlus, X, Trash2, TrendingUp, TrendingDown, AlertTriangle, Calendar, ArrowRightLeft, Wallet, Info, FileDown } from 'lucide-react';
@@ -21,7 +22,8 @@ interface WhRow {
 interface WhEntry {
   id: string; type: string; note: string | null; supplier: string | null; createdBy: string | null; createdAt: string;
   // lineCost: قيمة السطر كما قرّبها الخادم — للإشعار المطبوع، مجموعها = totalCost
-  items: { id: string; qty: number; unitCost: number | null; lineCost?: number | null; product: { name: string; unit: string } }[];
+  // expiresAt: تاريخ انتهاء الصلاحية محسوباً عند الوارد من تاريخه وصلاحية الصنف (null بلا صلاحية)
+  items: { id: string; qty: number; unitCost: number | null; lineCost?: number | null; expiresAt?: string | null; product: { name: string; unit: string } }[];
   totalCost: number; // يحسبه الخادم بالدالّة المختبَرة — لا يُعاد حسابه هنا
 }
 
@@ -191,6 +193,7 @@ export default function CompanyWarehousePage() {
                       {it.unitCost != null && it.unitCost > 0 && (
                         <span className="text-[#6E6557]"> · {formatCurrency(it.unitCost)}/{it.product.unit}</span>
                       )}
+                      {it.expiresAt && <ExpiryNote expiresAt={it.expiresAt} />}
                     </span>
                   ))}
                 </div>
@@ -232,7 +235,10 @@ function WarehouseEntryModal({ onClose }: { onClose: () => void }) {
 
   // taxPct لازمة لاستخراج الضريبة من السعر الشامل في معاينة الإجمالي — والخادم
   // يعيد الاستخراج بنفسه عند الحفظ، فلا تُصدَّق نسبةٌ آتية من المتصفّح
-  const prodQ = useQuery({ queryKey: ['products-min'], queryFn: async () => (await productApi.list({ limit: 1000 })).data.data as { id: string; name: string; unit: string; code: string; taxPct: number }[] });
+  const prodQ = useQuery({ queryKey: ['products-min'], queryFn: async () => (await productApi.list({ limit: 1000 })).data.data as {
+    id: string; name: string; unit: string; code: string; taxPct: number;
+    shelfLifeEnabled?: boolean; shelfLifeValue?: number | null; shelfLifeUnit?: string | null;
+  }[] });
 
   const addProduct = (id: string) => {
     if (!id || rows.some(r => r.productId === id)) return;
@@ -361,6 +367,12 @@ function WarehouseEntryModal({ onClose }: { onClose: () => void }) {
                       {line !== null && (
                         <p className="text-[11px] text-[#6E6557] mt-1">{tr('قيمة السطر قبل الضريبة')}: <b className="text-[#1F1A13]">{formatCurrency(line)}</b></p>
                       )}
+                      {type === 'RECEIVE' && (() => {
+                        // معاينة: الخادم يحسب التاريخ ويحفظه عند الحفظ بتوقيت الشركة وصلاحية الصنف
+                        const p = (prodQ.data || []).find(x => x.id === r.productId);
+                        const exp = p ? previewExpiry(p) : null;
+                        return exp ? <p className="text-[11px] text-[#6E6557] mt-1">{tr('تنتهي صلاحيته في')}: <b className="text-[#1F1A13]">{formatDayOnly(exp)}</b></p> : null;
+                      })()}
                     </div>
                   );
                 })}
@@ -400,5 +412,16 @@ function WarehouseEntryModal({ onClose }: { onClose: () => void }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/** تاريخ انتهاء صلاحية سطر الوارد — بلونٍ ينذر حين ينتهي أو يقترب (٣٠ يوماً) */
+function ExpiryNote({ expiresAt }: { expiresAt: string }) {
+  const tr = useTr();
+  const day = expiresAt.slice(0, 10);
+  const left = daysUntil(day);
+  const tone = left < 0 ? 'text-red-600 font-semibold' : left <= 30 ? 'text-amber-600 font-semibold' : 'text-[#6E6557]';
+  return (
+    <span className={tone}> · {left < 0 ? tr('انتهت صلاحيته') : tr('تنتهي')} {formatDayOnly(day)}</span>
   );
 }

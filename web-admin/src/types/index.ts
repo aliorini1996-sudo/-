@@ -221,6 +221,10 @@ export interface Product {
   image?: string | null;
   status: 'ACTIVE' | 'INACTIVE';
   damagedReturnToStock?: boolean; // سياسة: هل يعود مرتجع الصنف التالف للمخزون؟
+  // صلاحية الصنف من تاريخ التوريد (الوارد في مخزون الشركة) — اختيارية
+  shelfLifeEnabled?: boolean;
+  shelfLifeValue?: number | null;
+  shelfLifeUnit?: 'DAY' | 'MONTH' | 'YEAR' | null;
   categoryId?: string;
   category?: { id: string; name: string };
   priceTiers?: PriceTier[];

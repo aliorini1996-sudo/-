@@ -6,6 +6,7 @@ import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
 import { canAccessCustomer } from '../services/customerScope';
 import { applyProductVatGate } from './productsZatca';
+import { SHELF_LIFE_UNITS, shelfLifeProblem } from '../services/shelfLife';
 
 const router = Router();
 router.use(authenticate); // القراءة متاحة للمندوب (للبحث عند إصدار الفاتورة)؛ الكتابة للإدارة فقط
@@ -24,6 +25,10 @@ const productSchema = z.object({
   image: z.string().nullish().or(z.literal('')), // صورة الصنف (base64 data URL)
   status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
   damagedReturnToStock: z.boolean().optional(), // سياسة: هل يعود مرتجع هذا الصنف التالف للمخزون؟
+  // صلاحية الصنف من تاريخ التوريد — يُتحقَّق منها بعد الدمج مع المحفوظ (shelfLifeProblem)
+  shelfLifeEnabled: z.boolean().optional(),
+  shelfLifeValue: z.number().int().positive().nullish(),
+  shelfLifeUnit: z.enum(SHELF_LIFE_UNITS).nullish(),
   categoryId: z.string().nullish(),
   // أكواد الفوترة الإلكترونية
   itemCode: z.string().nullish().or(z.literal('')),     // كود الصنف (EGS/GS1)
@@ -134,6 +139,8 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
       res.status(409).json({ success: false, message: dupe.deletedAt ? 'الكود مستخدم بصنف محذوف مؤرشف بفواتيره القديمة استخدم كودا مختلفا' : 'كود الصنف مستخدم من قبل' });
       return;
     }
+    const lifeProblem = shelfLifeProblem(data);
+    if (lifeProblem) { res.status(400).json({ success: false, message: lifeProblem }); return; }
     if (data.taxPct == null) { // وراثة ضريبة دولة الشركة عند عدم تحديدها
       const company = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { defaultVatPct: true } });
       data.taxPct = company?.defaultVatPct ?? 15;
@@ -149,9 +156,19 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
 router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const exists = await prisma.product.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
+    const exists = await prisma.product.findFirst({
+      where: { id: req.params.id, tenantId: tid },
+      select: { id: true, shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true },
+    });
     if (!exists) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
     const data = productSchema.partial().parse(req.body);
+    // الصلاحية تُفحص مدمجةً مع المحفوظ: تفعيلها وحده يلزمه مدةٌ محفوظة من قبل أو مرسلة معه
+    const lifeProblem = shelfLifeProblem({
+      shelfLifeEnabled: data.shelfLifeEnabled ?? exists.shelfLifeEnabled,
+      shelfLifeValue: data.shelfLifeValue !== undefined ? data.shelfLifeValue : exists.shelfLifeValue,
+      shelfLifeUnit: data.shelfLifeUnit !== undefined ? data.shelfLifeUnit : exists.shelfLifeUnit,
+    });
+    if (lifeProblem) { res.status(400).json({ success: false, message: lifeProblem }); return; }
     const updateData: Record<string, unknown> = { ...data };
     if ('barcode' in updateData) updateData.barcode = updateData.barcode || null;
     // taxPct الفارغ (حقل مُسح او null من النموذج) يعني «بلا تغيير» لا تصفير النسبة

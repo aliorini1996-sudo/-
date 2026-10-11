@@ -7,6 +7,8 @@ import { useTr } from '../../i18n/strings';
 import { X, Upload, Trash2, Image as ImageIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { PRODUCT_VAT_CATEGORY_LABELS_AR, VATEX_LABELS_AR, productVatPayload, vatexCodesFor } from '../../lib/zatca/productVatForm';
+import { SHELF_LIFE_UNIT_LABELS, ShelfLifeUnit, previewExpiry } from '../../lib/shelfLife';
+import { formatDayOnly } from '../../utils/format';
 
 interface Props {
   product: Product | null; onClose: () => void; onSave: (data: Partial<Product>) => void; loading: boolean;
@@ -44,7 +46,10 @@ function compressImage(file: File, maxSize = 400, quality = 0.7): Promise<string
 export default function ProductModal({ product, onClose, onSave, loading, zatcaCollect = false }: Props) {
   const tr = useTr();
   const { register, handleSubmit, watch, setValue, getValues, formState: { errors } } = useForm<Partial<Product>>({
-    defaultValues: product || { status: 'ACTIVE', taxPct: 15, basePrice: 0 },
+    // وحدة الصلاحية الافتراضية «أشهر» — صنفٌ قديم بلا وحدة محفوظة لا يُرسل فارغاً حين تُفعَّل له
+    defaultValues: product
+      ? { ...product, shelfLifeUnit: product.shelfLifeUnit || 'MONTH' }
+      : { status: 'ACTIVE', taxPct: 15, basePrice: 0, shelfLifeEnabled: false, shelfLifeUnit: 'MONTH' },
   });
   // صورة الصنف تُدار بـ state ليتم ضغطها ودمجها يدوياً
   const [image, setImage] = useState<string>(product?.image || '');
@@ -66,9 +71,21 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
 
   // الفئة الضريبية (Z5.1a) تُرسل للشركة الجامعة وحدها — غيرها لا تصله الحقول الثلاثة أصلاً (كان الخادم يُسقطها)
   const vatCategory = zatcaCollect ? watch('vatCategory') : null;
+  // صلاحية الصنف: المدة تُحسب من تاريخ التوريد، والمعاينة لما يُورَّد اليوم
+  const lifeOn = !!watch('shelfLifeEnabled');
+  const lifePreview = previewExpiry({ shelfLifeEnabled: lifeOn, shelfLifeValue: watch('shelfLifeValue'), shelfLifeUnit: watch('shelfLifeUnit') });
   const submit = (data: Partial<Product>) => {
     const { vatCategory: cat, vatExemptionCode, vatExemptionReason, ...rest } = data;
-    onSave({ ...rest, image: image || null, ...(zatcaCollect ? productVatPayload({ vatCategory: cat, vatExemptionCode, vatExemptionReason }) : {}) } as Partial<Product>);
+    // حقلٌ رقميّ فارغ يصير NaN — يُرسل null لا NaN (JSON يحوّله null أصلاً، والصراحة أوضح)
+    const lifeValue = Number.isFinite(rest.shelfLifeValue as number) ? rest.shelfLifeValue : null;
+    if (rest.shelfLifeEnabled && (!lifeValue || !Number.isInteger(lifeValue) || lifeValue <= 0)) {
+      toast.error(tr('مدة الصلاحية يجب أن تكون عدداً صحيحاً أكبر من صفر'));
+      return;
+    }
+    onSave({
+      ...rest, shelfLifeEnabled: !!rest.shelfLifeEnabled, shelfLifeValue: lifeValue,
+      image: image || null, ...(zatcaCollect ? productVatPayload({ vatCategory: cat, vatExemptionCode, vatExemptionReason }) : {}),
+    } as Partial<Product>);
   };
 
   return (
@@ -152,6 +169,34 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
             <span className="text-sm text-gray-700">{tr('المرتجع التالف من هذا الصنف يعود لمخزون السيارة')}</span>
             <span className="text-[10px] text-gray-400 mr-auto">{tr('الأدمن يبقى يتحكم لكل مرتجع')}</span>
           </label>
+
+          {/* صلاحية الصنف — اختيارية: مدةٌ من تاريخ التوريد يُحسب منها تاريخ الانتهاء عند كل وارد في مخزون الشركة */}
+          <div className="rounded-xl border border-gray-200 p-3 space-y-3">
+            <label className="flex items-center gap-2.5 cursor-pointer">
+              <input type="checkbox" {...register('shelfLifeEnabled')} className="w-4 h-4 accent-[#E15A30]" />
+              <span className="text-sm font-semibold text-gray-700">{tr('تفعيل تاريخ صلاحية الصنف')}</span>
+              <span className="text-[10px] text-gray-400 mr-auto">{tr('تحسب من تاريخ التوريد')}</span>
+            </label>
+            {lifeOn && (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="label">{tr('مدة الصلاحية')} *</label>
+                  <input type="number" className="input" min="1" step="1" inputMode="numeric" {...register('shelfLifeValue', { valueAsNumber: true })} />
+                </div>
+                <div>
+                  <label className="label">{tr('الوحدة')}</label>
+                  <select className="input" {...register('shelfLifeUnit')}>
+                    {(Object.keys(SHELF_LIFE_UNIT_LABELS) as ShelfLifeUnit[]).map(u => <option key={u} value={u}>{tr(SHELF_LIFE_UNIT_LABELS[u])}</option>)}
+                  </select>
+                </div>
+                {lifePreview && (
+                  <p className="col-span-2 text-xs text-gray-500">
+                    {tr('ما يورد اليوم تنتهي صلاحيته في')} <b className="text-gray-700">{formatDayOnly(lifePreview)}</b>
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* فوترة ZATCA المرحلة الثانية: الفئة الضريبية للصنف — للشركة التي تجمع بيانات الفوترة وحدها */}
           {zatcaCollect && (
