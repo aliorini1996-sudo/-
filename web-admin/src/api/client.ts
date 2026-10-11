@@ -223,6 +223,13 @@ export const companyUserApi = {
     api.delete(`/company-users/${id}/settlements/${settlementId}`),
 };
 
+// الربط البرمجي API — مفاتيح الشركة (إصدار/قائمة/إلغاء)؛ المفتاح الكامل يعود في ردّ الإصدار وحده
+export const apiKeysApi = {
+  list: () => api.get('/api-keys'),
+  create: (data: { name: string; readOnly?: boolean }) => api.post('/api-keys', data),
+  revoke: (id: string) => api.post(`/api-keys/${id}/revoke`),
+};
+
 export const erpApi = {
   settings: () => api.get('/erp/settings'),
   saveSettings: (data: unknown) => api.put('/erp/settings', data),

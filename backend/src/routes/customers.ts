@@ -126,7 +126,8 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const tid = tenantId(req);
     const customer = await prisma.customer.findFirst({
       where: { id: req.params.id, tenantId: tid, ...(await customerScope(req, tid)) },
-      include: { customerPrices: { include: { product: true } } },
+      // أسعار أصناف الشركة وحدها — صفٌّ قديم رُبط بصنف شركةٍ أخرى لا يكشفه
+      include: { customerPrices: { where: { product: { tenantId: tid } }, include: { product: true } } },
     });
     if (!customer) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
     res.json({ success: true, data: customer });
@@ -354,12 +355,20 @@ router.get('/:id/invoices', async (req: AuthRequest, res: Response, next: NextFu
   } catch (err) { next(err); }
 });
 
+const pricesSchema = z.object({
+  prices: z.array(z.object({ productId: z.string().min(1).max(64), price: z.coerce.number().finite().nonnegative() })).max(5000),
+});
+
 router.put('/:id/prices', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
     const exists = await prisma.customer.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
     if (!exists) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
-    const { prices } = req.body as { prices: { productId: string; price: number }[] };
+    const { prices } = pricesSchema.parse(req.body);
+    // الصنف من الشركة نفسها: بلا هذا يُربط سعرٌ بصنف شركةٍ أخرى ثم يُقرأ صفّه كاملاً مع العميل
+    const productIds = [...new Set(prices.map(p => p.productId))];
+    const owned = await prisma.product.count({ where: { id: { in: productIds }, tenantId: tid } });
+    if (owned !== productIds.length) { res.status(400).json({ success: false, message: 'صنف غير موجود في الشركة' }); return; }
     await prisma.$transaction(
       prices.map(p =>
         prisma.customerPrice.upsert({

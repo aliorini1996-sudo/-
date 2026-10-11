@@ -57,10 +57,13 @@ export async function stampInvoiceExpiry(tenantId: string, invoiceId: string): P
 
   if (!isReturn) {
     if (inv.documentKind === 'DEBIT_NOTE' || !SALE_TYPES.includes(inv.type)) return;
-    await prisma.$transaction(lines.map((it) => prisma.invoiceItem.update({
-      where: { id: it.id },
-      data: { expiresAt: expiryDateFor(it.product!, inv.invoiceDate, tz) },
-    })));
+    await prisma.$transaction([
+      ...lines.map((it) => prisma.invoiceItem.update({
+        where: { id: it.id },
+        data: { expiresAt: expiryDateFor(it.product!, inv.invoiceDate, tz) },
+      })),
+      touchInvoice(inv.id),
+    ]);
     return;
   }
 
@@ -98,8 +101,14 @@ export async function stampInvoiceExpiry(tenantId: string, invoiceId: string): P
       data: { expiresAt, returnExpired: isExpiredOn(returnDay, expiresAt), expirySaleInvoiceId: sale.invoiceId },
     }));
   }
-  if (updates.length) await prisma.$transaction(updates);
+  if (updates.length) await prisma.$transaction([...updates, touchInvoice(inv.id)]);
 }
+
+/**
+ * البنود بلا طابع تعديل وتُضمَّن في الفاتورة، والختم يجري بعد ردّ الإصدار — فيُلمس طابع الفاتورة معه،
+ * وإلا قرأت مزامنةٌ (ERP أو /api/v1/sync) الفاتورة قبل الختم ولم ترَ صلاحية بنودها أبداً.
+ */
+const touchInvoice = (id: string) => prisma.invoice.update({ where: { id }, data: { updatedAt: new Date() } });
 
 /**
  * صلاحية بنود مرتجعٍ مرتبط بفاتورة بيع (services/returnLinks.ts) — تُحسب **قبل** الإصدار فتُكتب مع بنوده داخل معاملته:

@@ -49,6 +49,7 @@ export interface Tenant {
   invoiceSignatureEnabled?: boolean; // توقيع المستلم اليدويّ على فواتير المندوب — يُفعّله المالك لكل شركة
   zatcaPhase2Enabled?: boolean;  // تبويب ربط فوترة ZATCA المرحلة الثانية — مطفأ افتراضياً، يُفعّله المالك لكل شركة سعودية
   aiRepEnabled?: boolean;        // المندوب الذكي AI — مطفأ افتراضياً، يُفعّله المالك لكل شركة
+  apiEnabled?: boolean;          // الربط البرمجي API — مطفأ افتراضياً، يُفعّله المالك لكل شركة
   receivablesSummaryEnabled?: boolean; // سطر «إجمالي مديونية العملاء المُسنَدين» — يُفعّله المالك لكل شركة
   accountingEnabled?: boolean;   // النظام المحاسبي (منتجات · مخزون · فواتير · سندات) — مفعّل افتراضياً، وغيابه يعني مفعّل
   accountingSuiteEnabled?: boolean; // النظام المحاسبي المتكامل (الدفاتر) — مطفأ افتراضياً، وغيابه يعني مطفأ

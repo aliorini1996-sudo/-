@@ -42,6 +42,7 @@ const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
 const CompanySettingsPage = lazy(() => import('./pages/CompanySettingsPage'));
 const CompanyUsersPage = lazy(() => import('./pages/CompanyUsersPage'));
 const ErpIntegrationPage = lazy(() => import('./pages/ErpIntegrationPage'));
+const ApiKeysPage = lazy(() => import('./pages/ApiKeysPage'));
 const PetroappPage = lazy(() => import('./pages/PetroappPage'));
 const AiRepPage = lazy(() => import('./pages/AiRepPage'));
 const PaylinkPage = lazy(() => import('./pages/PaylinkPage'));
@@ -335,6 +336,7 @@ export default function App() {
           <Route path="tracking" element={<PermissionRoute permission="canManageTracking"><TrackingPage /></PermissionRoute>} />
           <Route path="company-users" element={<PermissionRoute permission="canManageCompanyUsers"><CompanyUsersPage /></PermissionRoute>} />
           <Route path="erp" element={<PermissionRoute permission="canManageCompanySettings"><ErpIntegrationPage /></PermissionRoute>} />
+          <Route path="api" element={<PermissionRoute permission="canManageCompanySettings"><ApiKeysPage /></PermissionRoute>} />
           <Route path="petroapp" element={<PermissionRoute permission="canManageCompanySettings"><PetroappPage /></PermissionRoute>} />
           <Route path="ai-rep" element={<PermissionRoute permission="canManageCompanySettings"><AiRepPage /></PermissionRoute>} />
           <Route path="paylink" element={<PermissionRoute permission="canManageReceipts"><PaylinkPage /></PermissionRoute>} />

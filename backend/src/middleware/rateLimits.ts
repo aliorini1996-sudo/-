@@ -1,4 +1,5 @@
 import rateLimit, { Options } from 'express-rate-limit';
+import { apiKeyFromHeaders, isWellFormedApiKey, hashApiKey, isLiveKeyHash, API_KEY_RATE_PER_MINUTE } from '../services/apiKeys';
 
 // حدود معدّل الطلبات — حماية ضد التخمين والسبام وإساءة الاستخدام.
 // ملاحظة: يتطلب app.set('trust proxy', 1) خلف بروكسي Render لاحتساب IP الحقيقي.
@@ -62,11 +63,30 @@ export const quoteLimiter = rateLimit({
   message: { success: false, message: 'عروض كثيرة خلال ساعة حاول لاحقا' },
 });
 
-// حدّ عام واقٍ لكل واجهة API
+/**
+ * بصمة مفتاح API **حيّ** في الطلب — أجازه authenticate خلال الدقيقة الأخيرة (markLiveKey) — أو null.
+ * لا قاعدة هنا: المفتاح المجهول أو المزيّف أو الملغى ليس في الذاكرة فيُعامل طلبه كأي طلب.
+ */
+function liveKeyHashOf(req: { headers: Record<string, unknown> }): string | null {
+  const key = apiKeyFromHeaders(req.headers as { authorization?: string; 'x-api-key'?: string | string[] });
+  if (!key || !isWellFormedApiKey(key)) return null;
+  const hash = hashApiKey(key);
+  return isLiveKeyHash(hash) ? hash : null;
+}
+
+/**
+ * حدّ عام واقٍ لكل واجهة API. طلب المفتاح الحيّ يُعدّ في **دلو مفتاحه** لا في دلو IP: خادم الشركة يزامن من IP
+ * واحد طوال اليوم والحدّ العام (٤٠/دقيقة) كان سيخنقه — ولا يُعفى من العدّ إطلاقاً، فالمسارات العامة والمرفوضة
+ * تُحسب عليه أيضاً. سقف الدلو ربع ساعة بمعدّل حدّ المفتاح الدقيق (١٢٠/دقيقة في authenticate).
+ */
 export const apiLimiter = rateLimit({
   ...base,
   windowMs: 15 * 60 * 1000,
-  limit: 600,
+  limit: (req) => (liveKeyHashOf(req) ? API_KEY_RATE_PER_MINUTE * 15 : 600),
+  keyGenerator: (req) => {
+    const h = liveKeyHashOf(req);
+    return h ? `key:${h}` : (req.ip ?? '');
+  },
 });
 
 /**

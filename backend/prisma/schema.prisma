@@ -52,6 +52,7 @@ model Tenant {
   zatcaPhase2Enabled        Boolean   @default(false) // تبويب ربط فوترة ZATCA المرحلة الثانية (/api/zatca) — يفعّله المالك لكل شركة سعودية؛ لا يغيّر إصدار الفواتير
   accountingSuiteEnabled    Boolean   @default(false) // النظام المحاسبي المتكامل — يفعّله المالك لكل شركة؛ لا يعمل إلا مع accountingEnabled !== false
   aiRepEnabled              Boolean   @default(false) // «المندوب الذكي AI» — محلات قريبة وتوقّع مشتريات كل محل ومسار؛ يفعّله المالك لكل شركة
+  apiEnabled                Boolean   @default(false) // «الربط البرمجي API» — مفاتيح API لنظام الشركة الخاص؛ يفعّله المالك لكل شركة (services/apiKeys.ts)
   subscriptionEndsAt        DateTime? // تاريخ انتهاء الاشتراك (null = غير محدود)
   notes                     String?
   createdAt                 DateTime  @default(now())
@@ -68,6 +69,7 @@ model Tenant {
   notifications        Notification[]
   settings             CompanySettings?
   erpIntegration       ErpIntegration?
+  apiKeys              ApiKey[]
   petroappIntegration  PetroappIntegration?
   telephonyIntegration TelephonyIntegration?
   workChannels         WorkChannel[]
@@ -214,6 +216,7 @@ model Admin {
 
   customerScopes AdminCustomerScope[]
   repScopes      AdminRepScope[]
+  apiKeys        ApiKey[]
 
   @@index([tenantId])
   @@index([lastSeenAt])
@@ -896,6 +899,9 @@ model AccountEntry {
   description String
   entryDate   DateTime @default(now())
   createdAt   DateTime @default(now())
+  /// طابع التعديل — للمزامنة (/api/v1/sync و ERP): الرصيد المتحرّك يُعاد حسابه وentryDate يُزاح بعد الإنشاء.
+  /// @default(now()) يجعله إضافياً على جدولٍ مأهول (عمودٌ إلزامي بلا افتراض يُفشل db push)
+  updatedAt   DateTime @default(now()) @updatedAt
 
   @@index([tenantId])
   // قراءة الرصيد الجاري (`accounting.ts: currentBalance`) تقع **داخل معاملة**
@@ -1021,6 +1027,34 @@ model ErpIntegration {
 
   @@index([tenantId])
   @@map("erp_integrations")
+}
+
+/// مفتاح «الربط البرمجي API» — يعمل به نظام الشركة على مسارات اللوحة بهوية المستخدم الذي أصدره
+/// (services/apiKeys.ts). المفتاح نفسه لا يُخزَّن: بصمته SHA-256 وحدها، ويُعرض كاملاً مرة عند إصداره.
+/// جدولٌ جديد بأعمدة جديدة — إضافيٌّ خالص على db push.
+model ApiKey {
+  id          String    @id @default(uuid())
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// مستخدم الشركة الذي يعمل المفتاح بهويته وصلاحياته ونطاقه — تعطيله أو حذفه يُغلق المفتاح
+  adminId     String
+  admin       Admin     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  name        String
+  /// أول ١٢ محرفاً (fsk_ + ٨) — لتمييز المفتاح في القائمة دون كشفه
+  prefix      String
+  keyHash     String    @unique
+  /// قراءة فقط (GET/HEAD) — وإلا فكامل بصلاحيات صاحبه
+  readOnly    Boolean   @default(false)
+  /// من أصدره: معرّف المستخدم، أو OWNER:<معرّف> لجلسة المالك (actorOf)
+  createdBy   String?
+  createdAt   DateTime  @default(now())
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+  revokedBy   String?
+
+  @@index([tenantId])
+  @@index([adminId])
+  @@map("api_keys")
 }
 
 model ErpSyncLog {
@@ -1246,6 +1280,9 @@ model VanLoad {
   note       String?
   createdBy  String? // "REP" | "ADMIN" — من سجّل الحركة
   createdAt  DateTime @default(now())
+  /// طابع التعديل — للمزامنة (/api/v1/sync): حذف المندوب يغيّر salesRepId/deletedSalesRepId بعد الإنشاء.
+  /// @default(now()) يجعله إضافياً على جدولٍ مأهول
+  updatedAt  DateTime @default(now()) @updatedAt
 
   items VanLoadItem[]
 
@@ -1355,6 +1392,10 @@ model RepVisit {
   startedAt   DateTime? // لحظة بدء المؤقّت
   endedAt     DateTime? // لحظة الخروج من ملفّ العميل
   durationSec Int? // المدّة المعتمَدة بالثواني (null = زيارة ملاحظة بلا توقيت)
+  /// لحظة وصول الزيارة إلى الخادم — بساعة الخادم. createdAt يأتي من الجهاز للزيارة الملتقطة دون اتصال
+  /// فقد يسبق رفعها بساعات؛ ومزامنة /api/v1/sync تقرأ بهذا الطابع كي لا تفوتها زيارةٌ رُفعت متأخرة.
+  /// إضافيّ بقيمة افتراضية: الصفوف القائمة تأخذ لحظة db push.
+  receivedAt  DateTime @default(now())
 
   photos VisitPhoto[]
 

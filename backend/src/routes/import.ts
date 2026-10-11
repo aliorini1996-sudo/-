@@ -1349,8 +1349,9 @@ router.post('/batches/:id/revert', async (req: AuthRequest, res: Response, next:
           for (let i = 0; i < affected.length; i += 1000) {
             const part = Prisma.join(affected.slice(i, i + 1000));
             await tx.$executeRaw`SELECT id FROM customers WHERE id IN (${part}) AND "tenantId" = ${tid} ORDER BY id FOR UPDATE`;
-            await tx.$executeRaw`UPDATE account_entries ae SET balance = s.run FROM (SELECT id, ROUND(SUM(debit - credit) OVER (PARTITION BY "customerId" ORDER BY "entryDate", "createdAt", debit DESC, id ROWS UNBOUNDED PRECEDING)::numeric, 6)::float8 AS run FROM account_entries WHERE "customerId" IN (${part})) s WHERE ae.id = s.id AND ae.balance IS DISTINCT FROM s.run`;
-            await tx.$executeRaw`UPDATE customers c SET balance = COALESCE((SELECT ROUND(SUM(debit - credit)::numeric, 6)::float8 FROM account_entries WHERE "customerId" = c.id), 0) WHERE c.id IN (${part}) AND c."tenantId" = ${tid}`;
+            await tx.$executeRaw`UPDATE account_entries ae SET balance = s.run, "updatedAt" = NOW() FROM (SELECT id, ROUND(SUM(debit - credit) OVER (PARTITION BY "customerId" ORDER BY "entryDate", "createdAt", debit DESC, id ROWS UNBOUNDED PRECEDING)::numeric, 6)::float8 AS run FROM account_entries WHERE "customerId" IN (${part})) s WHERE ae.id = s.id AND ae.balance IS DISTINCT FROM s.run`;
+            // "updatedAt" يُلمس صراحةً: SQL الخام لا يمرّ بـ@updatedAt، ورصيدٌ تغيّر بلا طابع لا تراه مزامنة ERP ولا /api/v1/sync
+            await tx.$executeRaw`UPDATE customers c SET balance = COALESCE((SELECT ROUND(SUM(debit - credit)::numeric, 6)::float8 FROM account_entries WHERE "customerId" = c.id), 0), "updatedAt" = NOW() WHERE c.id IN (${part}) AND c."tenantId" = ${tid}`;
           }
           await tx.importBatch.update({ where: { id: batch.id }, data: { reverted: true } });
         }, { maxWait: 10_000, timeout: 60_000 });

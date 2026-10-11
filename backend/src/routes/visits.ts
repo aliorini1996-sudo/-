@@ -101,8 +101,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const salesRepId = req.user!.role === 'SALES_REP' ? req.user!.id
       : (req.body.salesRepId as string | undefined);
     if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
-    // نطاق المستخدم الإداري: لا يسجّل زيارة باسم مندوب لا يراه
-    if (!(await canAccessRep(req, tid, salesRepId))) {
+    // نطاق المستخدم الإداري: لا يسجّل زيارة باسم مندوب لا يراه — والمندوب من الشركة نفسها (canAccessRep بلا
+    // نطاق تقول «نعم» دون سؤال، والمفتاح الأجنبيّ لا يعرف الشركة فتُنسب زيارةٌ لمندوب شركةٍ أخرى)
+    if (typeof salesRepId !== 'string' || !(await canAccessRep(req, tid, salesRepId))
+      || (req.user!.role !== 'SALES_REP' && !(await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid }, select: { id: true } })))) {
       res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return;
     }
     // المقيَّد بـ«اشتراط تفعيل الموقع»: لا زيارة بلا موقع ولا من صفّ العمل دون اتصال — قبل أي حلٍّ أو كتابة

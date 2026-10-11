@@ -102,9 +102,10 @@ test('القوائم: الفلتر والشارات والملخّص والشر�
   assert.ok(app.includes('{zatcaCollect && buyerBadge(c) && ('));
   assert.ok(app.includes('{zatcaCollect && incomplete && incomplete.count > 0 && ('));
 
-  // لا ملف آخر يطلب النقطة
+  // لا ملف آخر يطلب النقطة — عدا فهرس مستند API (lib/apiDocsCatalog.ts): نصٌّ يصف المسار لمبرمج الشركة لا طلبٌ إليه
   const callers = walk(path.join(root, 'src')).filter(f => /zatca-buyer-data|buyer-data`|buyerData\(|updateBuyerData\(|applySuggestedType\(/.test(fs.readFileSync(f, 'utf8')))
-    .map(f => path.relative(path.join(root, 'src'), f).split(path.sep).join('/')).sort();
+    .map(f => path.relative(path.join(root, 'src'), f).split(path.sep).join('/'))
+    .filter(f => f !== 'lib/apiDocsCatalog.ts').sort();
   assert.deepEqual(callers, ['api/client.ts', 'm/MCustomers.tsx', 'pages/CustomersPage.tsx', 'rep/RepBuyerData.tsx']);
 });
 

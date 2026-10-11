@@ -361,10 +361,11 @@ test('كل بادئةٍ تُركَّب بعد الحارس مصنَّفة: مح�
   // ما يعمل على عميل — كل كتابةٍ فيه للمندوب محروسة بالبادئة (والمسارات الإدارية تحته لا يبلغها المندوب أصلاً)
   const GUARDED = ['/customers', '/invoices', '/paylink', '/receipts', '/visits'];
   // مفتوحٌ للمقيَّد بمراجعة (٧ أكتوبر ٢٠٢٦): ليس عملاً على عميل، أو إداريٌّ/عامٌّ لا يبلغه المندوب بكتابة
-  const OPEN = ['/affiliate', '/affiliate-admin', '/ai-rep', '/analytics', '/auth', '/company', '/company-users', '/contact', '/daily-reports',
+  // '/api-keys' و'/v1' (الربط البرمجي API): إداريّان لا يبلغهما المندوب — الأول requireAdmin والثاني لمفاتيح API وحدها
+  const OPEN = ['/affiliate', '/affiliate-admin', '/ai-rep', '/analytics', '/api-keys', '/auth', '/company', '/company-users', '/contact', '/daily-reports',
     '/dashboard', '/erp', '/finance', '/hunter', '/import', '/leads', '/leads-cron', '/ledger', '/live', '/notifications', '/payments',
     '/petroapp', '/products', '/profile-deck', '/promo-videos', '/public', '/quotes', '/rep-routes', '/reports', '/sales-reps',
-    '/site-content', '/support', '/tenants', '/tracking', '/van-stock', '/wa-inbox', '/warehouse', '/work-numbers', '/zatca'];
+    '/site-content', '/support', '/tenants', '/tracking', '/v1', '/van-stock', '/wa-inbox', '/warehouse', '/work-numbers', '/zatca'];
   const unclassified = mounted.filter((p) => !GUARDED.includes(p) && !OPEN.includes(p));
   assert.deepEqual(unclassified, [], 'بادئةٌ جديدة: إن كانت تعمل على عميل أضفها إلى LIVE_GUARDED_PREFIXES (الخادم والتطبيق)، وإلا إلى OPEN هنا');
   for (const g of GUARDED) assert.ok(live.LIVE_GUARDED_PREFIXES.some((x) => x === g || x.startsWith(g + '/')), g);

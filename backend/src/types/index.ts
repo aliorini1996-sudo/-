@@ -19,6 +19,10 @@ export interface AuthPayload {
   canManageDailyReport?: boolean;
   canManageCompanyUsers?: boolean;
   canReceiveUserCollections?: boolean;
+  /** الطلب مصادَقٌ بمفتاح API (services/apiKeys.ts) لا بجلسة — معرّف المفتاح */
+  apiKeyId?: string;
+  /** المفتاح أصدره الدعم الفني في جلسة المالك — يُسجَّل OWNER: في التدقيق (actorOf) بلا تجاوزات الجلسة */
+  ownerIssuedKey?: boolean;
 }
 
 export interface AuthRequest extends Request {

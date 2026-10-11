@@ -42,6 +42,8 @@ import visitsRouter from './routes/visits';
 import supportRouter from './routes/support';
 import companyUsersRouter from './routes/companyUsers';
 import erpRouter from './routes/erp';
+import apiKeysRouter from './routes/apiKeys';
+import apiV1Router from './routes/apiV1';
 import petroappRouter from './routes/petroapp';
 import aiRepRouter from './routes/aiRep';
 import { publicScanHealth } from './ai-rep/publicMaps';
@@ -223,6 +225,8 @@ app.use('/api/visits', visitsRouter);
 app.use('/api/support', supportRouter);
 app.use('/api/company-users', companyUsersRouter);
 app.use('/api/erp', erpRouter);
+app.use('/api/api-keys', apiKeysRouter); // «الربط البرمجي API» — مفاتيح الشركة (services/apiKeys.ts)
+app.use('/api/v1', apiV1Router); // مزامنة «الربط البرمجي API» لمفاتيح الشركة (services/apiSync.ts)
 app.use('/api/petroapp', petroappRouter);
 app.use('/api/ai-rep', aiRepRouter); // المندوب الذكي AI — خامل حتى يفعّله المالك لكل شركة
 app.use('/api/work-numbers', workNumbersRouter);

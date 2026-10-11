@@ -776,6 +776,8 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
   const [zatcaPhase2Enabled, setZatcaPhase2Enabled] = useState(!!tenant.zatcaPhase2Enabled);
   // المندوب الذكي AI — مطفأ افتراضياً ⇒ `!!`
   const [aiRepEnabled, setAiRepEnabled] = useState(!!tenant.aiRepEnabled);
+  // الربط البرمجي API — مطفأ افتراضياً ⇒ `!!`
+  const [apiEnabled, setApiEnabled] = useState(!!tenant.apiEnabled);
   const [accountingEnabled, setAccountingEnabled] = useState(tenant.accountingEnabled !== false);
   // النظام المحاسبي المتكامل — مطفأ افتراضياً ⇒ `!!`. الخانة ظاهرة لكل الشركات والمالك يفعّلها
   // بنفسه (قرار المالك 17 سبتمبر 2026 بإزالة قائمة التجربة).
@@ -811,6 +813,7 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
       invoiceSignatureEnabled,
       zatcaPhase2Enabled,
       aiRepEnabled,
+      apiEnabled,
       accountingEnabled,
       accountingSuiteEnabled,
       subscriptionEndsAt: subscriptionEndsAt || null,
@@ -902,6 +905,11 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
               <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={erpEnabled} onChange={e => setErpEnabled(e.target.checked)} />
               {tr('تفعيل ميزة ربط ERP لهذه الشركة')}
             </label>
+            <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2">
+              <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={apiEnabled} onChange={e => setApiEnabled(e.target.checked)} />
+              {tr('تفعيل الربط البرمجي API لهذه الشركة')}
+            </label>
+            <p className="text-xs text-gray-400 mt-1">{tr('يظهر لمدير الشركة قسم الربط البرمجي API يصدر منه مفاتيح يعمل بها نظامهم الخاص على بيانات الشركة كاملة قراءة وكتابة بصلاحيات من أصدرها')}</p>
             <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2">
               <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={petroappEnabled} onChange={e => setPetroappEnabled(e.target.checked)} />
               {tr('تفعيل ميزة ربط بترو اب لهذه الشركة')}

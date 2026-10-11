@@ -129,6 +129,15 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
   } catch (err) { next(err); }
 });
 
+/**
+ * التصنيف من الشركة نفسها — أو لا تصنيف. بلا هذا يُربط صنفٌ بتصنيف شركةٍ أخرى (المفتاح الأجنبيّ لا يعرف
+ * الشركة) فيُقرأ اسمه مع الصنف، أو يفشل معرّفٌ مجهول بخطأ 500 بدل 400.
+ */
+async function categoryOwned(tid: string, categoryId: string | null | undefined): Promise<boolean> {
+  if (!categoryId) return true;
+  return (await prisma.productCategory.count({ where: { id: categoryId, tenantId: tid } })) > 0;
+}
+
 router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
@@ -148,6 +157,7 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
     // فوترة ZATCA (Z5.1a): الفئة الضريبية للشركة الجامعة وحدها — لا تُقرأ البوابة إلا إن حمل الجسم حقلاً منها
     const vatGate = await applyProductVatGate(prisma, req.body, tid, { productId: null, taxPct: data.taxPct });
     if (!vatGate.ok) { res.status(vatGate.status).json(vatGate.body); return; }
+    if (!(await categoryOwned(tid, data.categoryId))) { res.status(400).json({ success: false, message: 'التصنيف غير موجود' }); return; }
     const product = await prisma.product.create({ data: { ...data, ...vatGate.patch, barcode: data.barcode || null, categoryId: data.categoryId || null, image: data.image || null, itemCode: data.itemCode || null, unitCode: data.unitCode || null, tenantId: tid } as any, include: { category: true } });
     res.status(201).json({ success: true, data: product });
   } catch (err) { next(err); }
@@ -174,6 +184,7 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
     // taxPct الفارغ (حقل مُسح او null من النموذج) يعني «بلا تغيير» لا تصفير النسبة
     if (updateData.taxPct == null) delete updateData.taxPct;
     if ('categoryId' in updateData) updateData.categoryId = updateData.categoryId || null;
+    if (!(await categoryOwned(tid, updateData.categoryId as string | null | undefined))) { res.status(400).json({ success: false, message: 'التصنيف غير موجود' }); return; }
     if ('image' in updateData) updateData.image = updateData.image || null;
     if ('itemCode' in updateData) updateData.itemCode = updateData.itemCode || null;
     if ('unitCode' in updateData) updateData.unitCode = updateData.unitCode || null;
@@ -233,6 +244,8 @@ router.put('/:id/price-tiers', requireAdmin, async (req: AuthRequest, res: Respo
     await prisma.$transaction([
       prisma.priceTier.deleteMany({ where: { productId: req.params.id } }),
       ...tiers.map(t => prisma.priceTier.create({ data: { productId: req.params.id, ...t } as any })),
+      // الشرائح بلا طابع تعديل وتُضمَّن في الصنف — فتغييرها تغييرٌ للصنف تراه مزامنة ERP و/api/v1/sync
+      prisma.product.update({ where: { id: req.params.id }, data: { updatedAt: new Date() } }),
     ]);
     res.json({ success: true });
   } catch (err) { next(err); }

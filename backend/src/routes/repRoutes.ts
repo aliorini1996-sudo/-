@@ -245,8 +245,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const tid = tenantId(req);
     const body = routeSchema.parse(req.body);
 
-    // النطاق يسبق كل شيء: لا يُسنَد خطٌّ لمندوبٍ لا يراه المستخدم
-    if (!(await canAccessRep(req, tid, body.salesRepId))) {
+    // النطاق يسبق كل شيء: لا يُسنَد خطٌّ لمندوبٍ لا يراه المستخدم — ولا لمندوب شركةٍ أخرى (canAccessRep بلا
+    // نطاق لا تسأل عن الشركة، والمفتاح الأجنبيّ لا يعرفها)
+    if (!(await canAccessRep(req, tid, body.salesRepId))
+      || !(await prisma.salesRep.findFirst({ where: { id: body.salesRepId, tenantId: tid }, select: { id: true } }))) {
       res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return;
     }
     // ولا يُوضع في الخط عميلٌ خارج نطاق المستخدم أو خارج شركته
