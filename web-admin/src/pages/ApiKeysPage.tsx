@@ -22,7 +22,8 @@ const errMsg = (e: unknown, fallback: string) =>
  * «الربط البرمجي API» — مفاتيح يعمل بها نظام الشركة الخاص على حسابها كما يعمل مديرها في اللوحة
  * (backend/src/services/apiKeys.ts). المفتاح يظهر كاملاً مرة واحدة عند إصداره، ويُلغى بضغطة.
  */
-export default function ApiKeysPage() {
+/** `embedded`: داخل تبويب «الربط البرمجي API» في «إعدادات الشركة» — بلا العنوان الكبير، فالتبويب يحمل الاسم */
+export default function ApiKeysPage({ embedded = false }: { embedded?: boolean } = {}) {
   const tr = useTr();
   const qc = useQueryClient();
   const [name, setName] = useState('');
@@ -67,8 +68,8 @@ export default function ApiKeysPage() {
   return (
     <div className="space-y-5" dir="rtl">
       <div>
-        <h1 className="text-xl font-bold text-[#1F1A13] flex items-center gap-2"><KeyRound size={22} className="text-[#E15A30]" /> {tr('الربط البرمجي API')}</h1>
-        <p className="text-xs text-[#9A8F7E] mt-1">{tr('مفاتيح يعمل بها نظامكم الخاص على بيانات الشركة قراءة وكتابة كما يعمل صاحب المفتاح في لوحة التحكم')}</p>
+        {!embedded && <h1 className="text-xl font-bold text-[#1F1A13] flex items-center gap-2"><KeyRound size={22} className="text-[#E15A30]" /> {tr('الربط البرمجي API')}</h1>}
+        <p className={`text-xs text-[#9A8F7E] ${embedded ? '' : 'mt-1'}`}>{tr('مفاتيح يعمل بها نظامكم الخاص على بيانات الشركة قراءة وكتابة كما يعمل صاحب المفتاح في لوحة التحكم')}</p>
       </div>
 
       <div className="flex gap-2">

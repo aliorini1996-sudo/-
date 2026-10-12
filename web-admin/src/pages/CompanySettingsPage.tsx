@@ -14,9 +14,12 @@ import { LOCKED_INPUT_CLASS, SELLER_LOCK_HINT_ID, companySaveErrorMessage, compa
 import ZatcaTabBoundary from '../components/zatca/ZatcaTabBoundary';
 import { isZatcaPhase2Live } from '../lib/zatcaRegime';
 import { useAuthStore } from '../store/authStore';
+import { useSearchParams } from 'react-router-dom';
 
 // تبويب ربط فوترة المرحلة الثانية كسول: لا يُحمَّل (ولا عباراته) إلا لشركة فعّل لها المالك العلم وفتحت التبويب
 const loadZatcaPhase2Tab = () => import('../components/zatca/ZatcaPhase2Tab');
+// تبويب «الربط البرمجي API» — حزمةٌ مستقلّة لا تُحمَّل إلا عند فتحه
+const ApiKeysPanel = lazy(() => import('./ApiKeysPage'));
 
 interface CompanyForm {
   name: string;
@@ -63,7 +66,11 @@ export default function CompanySettingsPage() {
   // جلسة دخول مالك المنصة تحمل دور الحساب الذي دخل به ونطاقه فتعمل كذلك الحساب (قرار المالك 17 سبتمبر 2026)
   const role = useAuthStore(s => s.user?.role);
   const scopeEnabled = useAuthStore(s => s.user?.scopeEnabled === true);
-  const [tab, setTab] = useState<'general' | 'zatca'>('general');
+  // `?tab=api`: الرابط القديم للربط البرمجي (/app/api) يحوّل هنا ويفتح تبويبه
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState<'general' | 'zatca' | 'api'>(() => (params.get('tab') === 'api' ? 'api' : 'general'));
+  // تبويب الربط البرمجي يُركَّب عند أول فتح ثم يبقى مخفيّاً — كتبويب الفوترة
+  const [apiMounted, setApiMounted] = useState(() => params.get('tab') === 'api');
   // يُركَّب عند أول فتح ثم يبقى مخفيّاً لا مُزالاً: التنقّل بين التبويبين لا يمحو ما لم يُحفظ في أيٍّ منهما
   const [zatcaMounted, setZatcaMounted] = useState(false);
   // «إعادة المحاولة» بعد فشل تحميل حزمة التبويب: React.lazy يحفظ الوعد المرفوض ⇒ مكوّن كسول جديد لكل محاولة
@@ -174,7 +181,13 @@ export default function CompanySettingsPage() {
   };
 
   const zatcaTabOn = zatcaTabVisible(data, role, scopeEnabled);
+  // الربط البرمجي API (كان صفحةً مستقلّة): يفعّله المالك لكل شركة؛ ولمدير الشركة غير المقيَّد وحده — وجلسة دخول المالك
+  // تعمل كالحساب الذي تمثّله كبقية الصفحة (قرار المالك 17 سبتمبر 2026)، والخادم يحكم بالدور من القاعدة
+  const apiTabOn = (data as { apiEnabled?: boolean } | null | undefined)?.apiEnabled === true && role === 'ADMIN' && !scopeEnabled;
+  // تبويبٌ غير متاح (أُطفئ أو رابطٌ قديم) يعود للإعدادات العامة
+  const activeTab = (tab === 'zatca' && !zatcaTabOn) || (tab === 'api' && !apiTabOn) ? 'general' : tab;
   const showZatca = zatcaTabOn && tab === 'zatca';
+  const showApi = apiTabOn && activeTab === 'api';
   // فوترة ZATCA (Z5.0، D9): بعد التفعيل الحيّ يرفض الخادم تغيير العملة (409 ZATCA_SETTINGS_LOCKED) — فلا يُعرض اختيارها
   const zatcaLive = isZatcaPhase2Live(data);
   // شركة سعودية (أو بلا دولة محفوظة) بعلم المالك: الرقم الضريبي والسجل والدولة لمدير الشركة غير المقيّد وحده (الخادم يرفض غيره
@@ -189,17 +202,25 @@ export default function CompanySettingsPage() {
         <h1 className="page-title">{tr('إعدادات الشركة')}</h1>
       </div>
 
-      {zatcaTabOn && (
+      {/* شريط التبويبات: الفوترة الإلكترونية محكومة بـzatcaTabOn وحده، والربط البرمجي بـapiTabOn */}
+      {(zatcaTabOn || apiTabOn) && (
         <div className="flex gap-2 mb-5 overflow-x-auto pb-1" role="tablist">
-          {([
-            { id: 'general', label: tr('الإعدادات العامة') },
-            { id: 'zatca', label: tr('الفوترة الإلكترونية — المرحلة الثانية (فاتورة)') },
-          ] as const).map(t => (
-            <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} onClick={() => { setTab(t.id); if (t.id === 'zatca') setZatcaMounted(true); }}
-              className={`shrink-0 whitespace-nowrap rounded-xl border-2 px-4 py-2 text-sm font-semibold transition-colors ${tab === t.id ? 'border-[#E15A30] bg-[#FBEBE2] text-[#C94E28]' : 'border-[#E9E1D3] bg-white text-[#44403a] hover:border-[#D8CDB9]'}`}>
-              {t.label}
+          <button type="button" role="tab" aria-selected={activeTab === 'general'} onClick={() => setTab('general')}
+            className={`shrink-0 whitespace-nowrap rounded-xl border-2 px-4 py-2 text-sm font-semibold transition-colors ${activeTab === 'general' ? 'border-[#E15A30] bg-[#FBEBE2] text-[#C94E28]' : 'border-[#E9E1D3] bg-white text-[#44403a] hover:border-[#D8CDB9]'}`}>
+            {tr('الإعدادات العامة')}
+          </button>
+          {zatcaTabOn && (
+            <button type="button" role="tab" aria-selected={activeTab === 'zatca'} onClick={() => { setTab('zatca'); setZatcaMounted(true); }}
+              className={`shrink-0 whitespace-nowrap rounded-xl border-2 px-4 py-2 text-sm font-semibold transition-colors ${activeTab === 'zatca' ? 'border-[#E15A30] bg-[#FBEBE2] text-[#C94E28]' : 'border-[#E9E1D3] bg-white text-[#44403a] hover:border-[#D8CDB9]'}`}>
+              {tr('الفوترة الإلكترونية — المرحلة الثانية (فاتورة)')}
             </button>
-          ))}
+          )}
+          {apiTabOn && (
+            <button type="button" role="tab" aria-selected={activeTab === 'api'} onClick={() => { setTab('api'); setApiMounted(true); }}
+              className={`shrink-0 whitespace-nowrap rounded-xl border-2 px-4 py-2 text-sm font-semibold transition-colors ${activeTab === 'api' ? 'border-[#E15A30] bg-[#FBEBE2] text-[#C94E28]' : 'border-[#E9E1D3] bg-white text-[#44403a] hover:border-[#D8CDB9]'}`}>
+              {tr('الربط البرمجي API')}
+            </button>
+          )}
         </div>
       )}
 
@@ -218,6 +239,16 @@ export default function CompanySettingsPage() {
         </div>
       )}
 
+      {apiTabOn && apiMounted && (
+        <div hidden={!showApi}>
+          <Suspense fallback={<div className="flex items-center justify-center h-48"><div className="w-8 h-8 border-4 border-[#E15A30] border-t-transparent rounded-full animate-spin" /></div>}>
+            <ApiKeysPanel embedded />
+          </Suspense>
+        </div>
+      )}
+
+      {/* الإعدادات العامة: مخفيّة لا مُزالة خلف أيّ تبويبٍ آخر — فلا يضيع ما لم يُحفظ */}
+      <div hidden={showApi}>
       <div hidden={showZatca}>
       <form onSubmit={handleSubmit(values => mutation.mutate({
         form: values, state: { logo, primaryColor, headerStyle, countryCode, currencyOverride, numerals }, einv, sellerLocked,
@@ -485,6 +516,7 @@ export default function CompanySettingsPage() {
           <DataImportPanel />
         </div>
       )}
+      </div>
       </div>
     </div>
   );
