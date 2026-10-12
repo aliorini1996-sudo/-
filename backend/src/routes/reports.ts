@@ -4,6 +4,7 @@ import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '..
 import { scopedRecordWhere, scopedRepRecordWhere, adminCustomerFilter, adminRepFilter, SHAPE_INVOICE_RECEIPT, SHAPE_VISIT } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { composeWorkDays, attendanceByDay, overlayAttendance, mergeVisitsByRep, asVisitLike } from '../services/workDay';
+import { FINANCIAL_METRICS, RANKING_METRICS, rankRows, trackedMeters, type RankingMetric } from '../services/repRanking';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canViewReports'));
@@ -593,6 +594,120 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
     }).sort((a, b) => b.fieldMinutesTotal - a.fieldMinutesTotal);
 
     res.json({ success: true, data, meta: { tzOffsetMin, ...(rangeClamped ? { rangeClamped: MAX_DAYS } : {}) } });
+  } catch (err) { next(err); }
+});
+
+/**
+ * تقييم الأداء (طلب المالك ١٢ أكتوبر ٢٠٢٦) — ترتيب المناديب حسب معيارٍ واحد يختاره المشرف (services/repRanking.ts):
+ *  - visits: الزيارات بعد دمج سجلّات الوقفة الواحدة (تعريف «أداء المندوب» نفسه)؛
+ *  - product: الكمية المباعة من صنفٍ بعينه في فواتير البيع المؤكَّدة؛
+ *  - sales: قيمة المبيعات — فواتير مؤكَّدة غير مرتجعة (تعريف «أداء المندوب» نفسه)؛
+ *  - distance: المسافة المرصودة بالكيلو من نقاط GPS — تُختزل في القاعدة إلى نقطةٍ لكل دقيقة (الأدقّ) لكل مندوب على حدة،
+ *    والمدى ٣١ يوماً على الأكثر (كتقرير ساعات العمل) ويُعلن القصّ؛
+ *  - appTime: وقت استخدام التطبيق بالدقائق — جلسات النبض (مصدر «ساعات العمل» في أداء المندوب).
+ * حدود المدى على **حدود اليوم المحلي** بإزاحة المتصفّح (tz) كتقرير ساعات العمل. والمعياران الماليّان يُرفضان مع المحاسبة المطفأة.
+ */
+router.get('/rep-ranking', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const q = req.query as Record<string, string | undefined>;
+    const metric = q.metric as RankingMetric;
+    if (!(RANKING_METRICS as readonly string[]).includes(metric)) {
+      res.status(400).json({ success: false, message: 'معيار التقييم غير معروف' }); return;
+    }
+    if (FINANCIAL_METRICS.includes(metric)) {
+      const t = await prisma.tenant.findUnique({ where: { id: tid }, select: { accountingEnabled: true } });
+      if (t?.accountingEnabled === false) {
+        res.status(403).json({ success: false, code: 'ACCOUNTING_NOT_ALLOWED', message: 'النظام المحاسبي غير مفعّل لهذه الشركة تواصل مع مزود الخدمة' }); return;
+      }
+    }
+    let product: { id: string; name: string; unit: string } | null = null;
+    if (metric === 'product') {
+      if (!q.productId) { res.status(400).json({ success: false, message: 'اختر الصنف' }); return; }
+      product = await prisma.product.findFirst({ where: { id: q.productId, tenantId: tid }, select: { id: true, name: true, unit: true } });
+      if (!product) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
+    }
+
+    // المدى بالأيام المحلية: بلا «من» ⇒ منذ البداية (كأداء المندوب)، إلا المسافة فأسبوعٌ ينتهي اليوم، وسقفها ٣١ يوماً
+    const tz = Math.max(-840, Math.min(840, parseInt(q.tz || '') || 0));
+    const DAY = 24 * 60 * 60 * 1000;
+    const isDay = (d?: string) => !!d && /^\d{4}-\d{2}-\d{2}$/.test(d);
+    const dayStart = (d: string) => new Date(Date.parse(d + 'T00:00:00.000Z') - tz * 60000);
+    const today = new Date(Date.now() + tz * 60000).toISOString().slice(0, 10);
+    const toDay = isDay(q.to) ? q.to! : today;
+    const end = new Date(dayStart(toDay).getTime() + DAY);
+    let start = isDay(q.from) ? dayStart(q.from!) : (metric === 'distance' ? new Date(end.getTime() - 7 * DAY) : new Date(0));
+    let clampedDays: number | null = null;
+    const MAX_DISTANCE_DAYS = 31;
+    if (metric === 'distance' && end.getTime() - start.getTime() > MAX_DISTANCE_DAYS * DAY) {
+      start = new Date(end.getTime() - MAX_DISTANCE_DAYS * DAY);
+      clampedDays = MAX_DISTANCE_DAYS;
+    }
+
+    const reps = await prisma.salesRep.findMany({
+      where: { tenantId: tid, isActive: true, ...(await adminRepFilter(req)) },
+      select: { id: true, name: true },
+    });
+    const ids = reps.map((r) => r.id);
+    const value = new Map<string, number>();
+    const add = (rep: string | null, v: number) => { if (rep) value.set(rep, (value.get(rep) ?? 0) + v); };
+
+    if (ids.length && metric === 'sales') {
+      const rows = await prisma.invoice.groupBy({
+        by: ['salesRepId'],
+        where: { tenantId: tid, salesRepId: { in: ids }, status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: start, lt: end } },
+        _sum: { total: true },
+      });
+      for (const r of rows) add(r.salesRepId, Number(r._sum.total ?? 0));
+    } else if (ids.length && metric === 'product' && product) {
+      const rows = await prisma.invoiceItem.findMany({
+        where: {
+          productId: product.id,
+          invoice: { tenantId: tid, salesRepId: { in: ids }, status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: start, lt: end } },
+        },
+        select: { qty: true, invoice: { select: { salesRepId: true } } },
+      });
+      for (const r of rows) add(r.invoice.salesRepId, Number(r.qty));
+    } else if (ids.length && metric === 'visits') {
+      const visits = await prisma.repVisit.findMany({
+        where: { tenantId: tid, salesRepId: { in: ids }, createdAt: { gte: start, lt: end }, ...(await scopedRecordWhere(req, SHAPE_VISIT)) },
+        select: {
+          salesRepId: true, customerId: true, createdAt: true, startedAt: true, durationSec: true,
+          lat: true, lng: true, customer: { select: { name: true } },
+        },
+        orderBy: { createdAt: 'asc' }, take: 50000,
+      });
+      for (const m of mergeVisitsByRep(visits.map(asVisitLike))) add(m.sources[0].salesRepId, 1);
+    } else if (ids.length && metric === 'appTime') {
+      const sessions = await prisma.repSession.findMany({
+        where: { tenantId: tid, salesRepId: { in: ids }, startedAt: { gte: start, lt: end } },
+        select: { salesRepId: true, startedAt: true, lastBeatAt: true },
+      });
+      for (const x of sessions) add(x.salesRepId, Math.max(0, (x.lastBeatAt.getTime() - x.startedAt.getTime()) / 60000));
+    } else if (ids.length && metric === 'distance') {
+      // مندوبٌ مندوب: نقطةٌ لكل دقيقة (الأدقّ) تُختزل في القاعدة — الخام نقطةٌ كل ٨ ثوانٍ (~٣٦٠٠ يومياً)
+      for (const repId of ids) {
+        const pts = await prisma.$queryRaw<{ lat: number; lng: number; accuracy: number | null; capturedAt: Date }[]>`
+          SELECT DISTINCT ON (date_trunc('minute', "capturedAt")) "lat", "lng", "accuracy", "capturedAt"
+          FROM "rep_locations"
+          WHERE "tenantId" = ${tid} AND "salesRepId" = ${repId} AND "capturedAt" >= ${start} AND "capturedAt" < ${end}
+            AND ("accuracy" IS NULL OR "accuracy" <= 150)
+          ORDER BY date_trunc('minute', "capturedAt"), "accuracy" ASC NULLS LAST`;
+        add(repId, trackedMeters(pts.map((p) => ({ lat: Number(p.lat), lng: Number(p.lng), accuracy: p.accuracy == null ? null : Number(p.accuracy), capturedAt: new Date(p.capturedAt) }))) / 1000);
+      }
+    }
+
+    // الكيلو بمنزلةٍ عشرية، والدقائق صحيحة، والمبالغ والكميات بثلاث منازل (عملات الدينار)
+    const round = (v: number) => (metric === 'distance' ? Math.round(v * 10) / 10 : metric === 'appTime' ? Math.round(v) : Math.round(v * 1000) / 1000);
+    const rows = rankRows(reps.map((r) => ({ repId: r.id, name: r.name, value: round(value.get(r.id) ?? 0) })));
+    res.json({
+      success: true,
+      data: {
+        metric, product, rows,
+        range: { from: start.getTime() === 0 ? null : new Date(start.getTime() + tz * 60000).toISOString().slice(0, 10), to: toDay },
+        clampedDays,
+      },
+    });
   } catch (err) { next(err); }
 });
 

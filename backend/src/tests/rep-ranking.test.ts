@@ -1,0 +1,61 @@
+// تقييم أداء المناديب (services/repRanking.ts + GET /reports/rep-ranking) — المسافة المرصودة والترتيب، وحارسٌ نصّي على المسار.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { rankRows, trackedMeters, type TrackPoint } from '../services/repRanking';
+
+// خط عرض الرياض تقريباً: ٠٫٠٠١ درجة طول ≈ ١٠٢ م، و٠٫٠٠١ درجة عرض ≈ ١١١ م
+const T0 = Date.parse('2026-10-12T06:00:00Z');
+const at = (min: number) => new Date(T0 + min * 60_000);
+const P = (lat: number, lng: number, min: number, accuracy: number | null = 10): TrackPoint => ({ lat, lng, accuracy, capturedAt: at(min) });
+
+test('المسافة: مجموع المقاطع المتصلة', () => {
+  const m = trackedMeters([P(24.7, 46.7, 0), P(24.701, 46.7, 1), P(24.702, 46.7, 2)]);
+  assert.ok(m > 215 && m < 230, String(m)); // ≈ ٢٢٢ م
+});
+
+test('المسافة: التذبذب في المكان لا يُحسب، ويُبقي الحضور حيّاً فلا تُقطع الحركة بعده', () => {
+  const still = Array.from({ length: 30 }, (_, i) => P(24.7 + (i % 2) * 0.00005, 46.7, i)); // ~٥ م ذهاباً وإياباً ٣٠ دقيقة
+  assert.equal(trackedMeters(still), 0);
+  // بعد وقفة ٣٠ دقيقة عند عميل يتحرّك ١١١ م بعد دقيقة — يُحسب (الحضور تجدّد بالتذبذب)
+  const m = trackedMeters([...still, P(24.701, 46.7, 31)]);
+  assert.ok(m > 100 && m < 120, String(m));
+});
+
+test('المسافة: فجوة تتبّع طويلة لا تُوصَل بخطٍّ وهمي، وقفزة GPS مستحيلة تُتجاهل', () => {
+  // أُغلق التطبيق ساعة ثم فُتح على بعد ٥ كم: لا يُحسب
+  assert.equal(trackedMeters([P(24.7, 46.7, 0), P(24.745, 46.7, 60)]), 0);
+  // قفزة ١١ كم في دقيقة (٦٦٠ كم/س) ثم عودة: تُتجاهل القفزة
+  const m = trackedMeters([P(24.7, 46.7, 0), P(24.8, 46.7, 1), P(24.701, 46.7, 2)]);
+  assert.ok(m > 100 && m < 120, String(m));
+});
+
+test('المسافة: النقاط رديئة الدقّة تُسقط، إلا إن كانت كلّ ما نملك', () => {
+  const m = trackedMeters([P(24.7, 46.7, 0), P(24.71, 46.7, 1, 900), P(24.701, 46.7, 2)]);
+  assert.ok(m > 100 && m < 120, String(m)); // نقطة الـ٩٠٠ م أُسقطت
+  assert.ok(trackedMeters([P(24.7, 46.7, 0, 500), P(24.701, 46.7, 1, 500)]) > 100);
+  assert.equal(trackedMeters([P(24.7, 46.7, 0)]), 0);
+  assert.equal(trackedMeters([]), 0);
+});
+
+test('الترتيب: تنازلي، والمتساويان بالمرتبة نفسها', () => {
+  const r = rankRows([
+    { repId: 'a', name: 'أحمد', value: 5 }, { repId: 'b', name: 'باسم', value: 9 },
+    { repId: 'c', name: 'جمال', value: 5 }, { repId: 'd', name: 'دانة', value: 0 },
+  ]);
+  assert.deepEqual(r.map((x) => [x.repId, x.rank]), [['b', 1], ['a', 2], ['c', 2], ['d', 4]]);
+});
+
+test('حارس نصّي: المعياران الماليّان يُرفضان مع المحاسبة المطفأة، والمسافة مختزلة لكل مندوب بسقف ٣١ يوماً، والنطاق محترم', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'reports.ts'), 'utf8').replace(/\r\n/g, '\n');
+  const i = src.indexOf("router.get('/rep-ranking'");
+  assert.ok(i > 0);
+  const h = src.slice(i, src.indexOf('\nexport default router;'));
+  assert.match(h, /if \(FINANCIAL_METRICS\.includes\(metric\)\)[\s\S]*?accountingEnabled === false[\s\S]*?ACCOUNTING_NOT_ALLOWED/);
+  assert.match(h, /where: \{ tenantId: tid, isActive: true, \.\.\.\(await adminRepFilter\(req\)\) \}/, 'المناديب في نطاق المستخدم');
+  assert.match(h, /SELECT DISTINCT ON \(date_trunc\('minute', "capturedAt"\)\)/, 'نقطة لكل دقيقة في القاعدة');
+  assert.match(h, /"salesRepId" = \$\{repId\}/, 'مندوبٌ مندوب');
+  assert.match(h, /const MAX_DISTANCE_DAYS = 31;/);
+  assert.match(h, /product = await prisma\.product\.findFirst\(\{ where: \{ id: q\.productId, tenantId: tid \}/, 'الصنف من الشركة نفسها');
+});

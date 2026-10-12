@@ -149,6 +149,8 @@ export const reportApi = {
   repPerformance: (params?: Record<string, string>) => api.get('/reports/rep-performance', { params }),
   repReceivables: () => api.get('/reports/rep-receivables'), // لحظيّ — لا معاملات تاريخ
   workHours: (params?: Record<string, string>) => api.get('/reports/work-hours', { params }),
+  // تقييم الأداء: ترتيب المناديب حسب معيار (visits | product | sales | distance | appTime)
+  repRanking: (params?: Record<string, string>) => api.get('/reports/rep-ranking', { params }),
   customerVisits: (params?: Record<string, string>) => api.get('/reports/customer-visits', { params }),
 };
 

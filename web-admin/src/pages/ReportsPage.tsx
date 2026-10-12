@@ -1,6 +1,7 @@
 import { useState, useMemo, Fragment } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { reportApi } from '../api/client';
+import { reportApi, productApi } from '../api/client';
+import RepRankingBoard, { RANKING_LABELS, type RankingData, type RankingMetric } from '../components/reports/RepRankingBoard';
 import { formatCurrency, activeLocale } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { channelLabel } from '../lib/channels';
@@ -71,9 +72,15 @@ export default function ReportsPage() {
   const [to, setTo] = useState('');
   const [groupBy, setGroupBy] = useState('rep');
   const [search, setSearch] = useState('');
-  // نوع تقرير المناديب: أداء | ساعات العمل | مديونيات
-  const [perfTypeState, setPerfType] = useState<'performance' | 'hours' | 'receivables'>('performance');
-  const perfType = accountingOn ? perfTypeState : 'hours';
+  // نوع تقرير المناديب: أداء | ساعات العمل | مديونيات | تقييم الأداء (ترتيب حسب معيار)
+  const [perfTypeState, setPerfType] = useState<'performance' | 'hours' | 'receivables' | 'ranking'>('performance');
+  // المحاسبة مطفأة: يبقى ساعات العمل وتقييم الأداء بمعاييره الميدانية
+  const perfType = accountingOn ? perfTypeState : (perfTypeState === 'ranking' ? 'ranking' : 'hours');
+  // تقييم الأداء: المعياران الماليّان (المبيعات وكمية الصنف) يختفيان مع المحاسبة المطفأة
+  const rankMetrics: RankingMetric[] = accountingOn ? ['sales', 'visits', 'product', 'distance', 'appTime'] : ['visits', 'distance', 'appTime'];
+  const [rankMetricState, setRankMetric] = useState<RankingMetric>('sales');
+  const rankMetric: RankingMetric = rankMetrics.includes(rankMetricState) ? rankMetricState : 'visits';
+  const [rankProduct, setRankProduct] = useState('');
   // نوع تقرير العملاء: أرصدة العملاء | زيارات العملاء
   // نوع تقرير المبيعات: التجميعة كما كانت، أو قائمة الطلبات (فواتير بتاريخ تسليم)
   const [salesType, setSalesType] = useState<'summary' | 'orders'>('summary');
@@ -169,6 +176,24 @@ export default function ReportsPage() {
       return res.data.data as RecvRow[];
     },
     enabled: accountingReady && accountingOn && tab === 'performance' && perfType === 'receivables',
+  });
+
+  // تقييم الأداء — الترتيب من الخادم بالمعيار المختار (والصنف لمعيار الكمية)، بحدود اليوم المحلي للمتصفّح
+  const rankingQ = useQuery({
+    queryKey: ['report-rep-ranking', from, to, rankMetric, rankMetric === 'product' ? rankProduct : ''],
+    queryFn: async () => {
+      const res = await reportApi.repRanking({
+        metric: rankMetric, from, to, tz: String(-new Date().getTimezoneOffset()),
+        ...(rankMetric === 'product' ? { productId: rankProduct } : {}),
+      });
+      return res.data.data as RankingData;
+    },
+    enabled: tab === 'performance' && perfType === 'ranking' && (rankMetric !== 'product' || !!rankProduct),
+  });
+  const rankProductsQ = useQuery({
+    queryKey: ['products-min'],
+    queryFn: async () => (await productApi.list({ limit: 1000 })).data.data as { id: string; name: string }[],
+    enabled: tab === 'performance' && perfType === 'ranking' && rankMetric === 'product',
   });
 
   // نفس درس المديونيات: fetchStatus='paused' يجعل isLoading كاذباً فيُعرض
@@ -310,6 +335,12 @@ export default function ReportsPage() {
     [perfData, q],
   );
 
+  // تقييم الأداء: البحث بالاسم يقطّع اللوحة، والمرتبة تبقى مرتبته بين الجميع
+  const rankRowsShown = useMemo(
+    () => filterFlat(rankingQ.data?.rows || [], q, r => [r.name]),
+    [rankingQ.data, q],
+  );
+
   // ساعات العمل: **إيجادٌ لا تقطيع** — مقاييس اليوم تصف اليوم كلّه ولا تُشتقّ
   // من زياراتٍ مُنتقاة، فقصُّها مع إبقاء الرقم يُنتج صفحةً أرقامُها لا تشرح جدولها.
   const hoursRows = useMemo(
@@ -425,6 +456,16 @@ export default function ReportsPage() {
         }], colWidths: [32, 16, 22, 28] });
       }
       fname = tr('مديونيات المندوب');
+    } else if (tab === 'performance' && perfType === 'ranking' && rankRowsShown.length) {
+      // القيمة رقماً في عمودها بوحدته — والمبالغ بخانات العملة
+      const unit = rankMetric === 'sales' ? '' : rankMetric === 'distance' ? ` (${tr('كم')})` : rankMetric === 'appTime' ? ` (${tr('دقيقة')})`
+        : rankMetric === 'product' && rankingQ.data?.product ? ` (${rankingQ.data.product.unit})` : '';
+      const label = `${tr(RANKING_LABELS[rankMetric])}${rankMetric === 'product' && rankingQ.data?.product ? ` — ${rankingQ.data.product.name}` : ''}${unit}`;
+      sheets = [{ name: tr('تقييم الأداء'), rows: rankRowsShown.map(r => ({
+        [tr('المرتبة')]: r.rank, [tr('المندوب')]: r.name,
+        [label]: rankMetric === 'sales' ? num(r.value) : r.value,
+      })), colWidths: [10, 26, 30] }];
+      fname = tr('تقييم الأداء');
     } else if (tab === 'performance' && perfType === 'performance' && perfRows?.length) {
       sheets = [{ name: tr('أداء المناديب'), rows: perfRows.map(r => ({
         [tr('المندوب')]: r.name, [tr('عدد الفواتير')]: r.invoicesCount, [tr('إجمالي المبيعات')]: num(r.salesTotal),
@@ -766,13 +807,14 @@ export default function ReportsPage() {
               </select>
             </div>
           )}
-          {tab === 'performance' && accountingOn && (
+          {tab === 'performance' && (
             <div>
               <label className="label">{tr('نوع التقرير')}</label>
-              <select className="input w-44" value={perfType} onChange={e => setPerfType(e.target.value as 'performance' | 'hours' | 'receivables')}>
+              <select className="input w-44" value={perfType} onChange={e => setPerfType(e.target.value as 'performance' | 'hours' | 'receivables' | 'ranking')}>
                 {accountingOn && <option value="performance">{tr('أداء المندوب')}</option>}
                 <option value="hours">{tr('ساعات العمل')}</option>
                 {accountingOn && <option value="receivables">{tr('مديونيات المندوب')}</option>}
+                <option value="ranking">{tr('تقييم الأداء')}</option>
               </select>
             </div>
           )}
@@ -796,6 +838,7 @@ export default function ReportsPage() {
           : tab === 'balances' ? (custType === 'visits' ? custGroups.length : balanceRows.length)
           : perfType === 'performance' ? perfRows.length
           : perfType === 'hours' ? hoursRows.length
+          : perfType === 'ranking' ? rankRowsShown.length
           : (recvRows?.length ?? 0);
         return (
           <div className={`mb-4 rounded-xl px-4 py-2.5 text-sm border ${shown ? 'bg-[#FAF7F0] border-[#F1EBDF] text-[#6E6557]' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
@@ -1196,6 +1239,16 @@ export default function ReportsPage() {
             </table>
           </div>
         </div>
+      )}
+
+      {/* تقييم الأداء — ترتيب المناديب حسب معيارٍ يختاره المشرف */}
+      {tab === 'performance' && perfType === 'ranking' && (
+        <RepRankingBoard
+          metric={rankMetric} onMetric={setRankMetric} metrics={rankMetrics}
+          products={rankProductsQ.data ?? []} productId={rankProduct} onProduct={setRankProduct}
+          data={rankingQ.data} loading={rankingQ.isLoading || (rankingQ.fetchStatus === 'fetching' && !rankingQ.data)}
+          rows={rankRowsShown}
+        />
       )}
 
       {/* Performance Report */}
