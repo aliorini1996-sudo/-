@@ -144,6 +144,8 @@ export const reportApi = {
   sales: (params?: Record<string, string>) => api.get('/reports/sales', { params }),
   // تقرير الطلبات: الفواتير ذات تاريخ التسليم (المدى على تاريخ التسليم)
   orders: (params?: Record<string, string>) => api.get('/reports/orders', { params }),
+  // تقرير المرتجع: مستندات الإرجاع المؤكَّدة في المدى بفواتير بيعها وبنودها، ونسبة المرتجع من المبيعات
+  returns: (params?: Record<string, string>) => api.get('/reports/returns', { params }),
   collections: (params?: Record<string, string>) => api.get('/reports/collections', { params }),
   balances: (params?: Record<string, string>) => api.get('/reports/balances', { params }),
   repPerformance: (params?: Record<string, string>) => api.get('/reports/rep-performance', { params }),

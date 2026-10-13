@@ -651,6 +651,15 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   // تقرير مديونيات المندوب
   'مديونيات المندوب': { en: 'Rep receivables', fr: 'Créances du représentant', tr: 'Temsilci alacakları', zh: '业务员应收账款' },
   // تقييم الأداء — ترتيب المناديب حسب معيار
+  // تقرير المرتجع
+  'تقرير المرتجع': { en: 'Returns report', fr: 'Rapport des retours', tr: 'İade raporu', zh: '退货报表' },
+  'إجمالي قيمة المرتجعات': { en: 'Total returns value', fr: 'Valeur totale des retours', tr: 'Toplam iade tutarı', zh: '退货总额' },
+  'نسبة المرتجع من المبيعات': { en: 'Returns as % of sales', fr: 'Retours en % des ventes', tr: 'Satışlara göre iade oranı', zh: '退货占销售比例' },
+  'لا مرتجعات في هذه الفترة': { en: 'No returns in this period', fr: 'Aucun retour sur cette période', tr: 'Bu dönemde iade yok', zh: '此期间无退货' },
+  'تفاصيل الأصناف': { en: 'Item details', fr: 'Détail des articles', tr: 'Ürün ayrıntıları', zh: '商品明细' },
+  'مرتجع عادي': { en: 'Normal return', fr: 'Retour normal', tr: 'Normal iade', zh: '普通退货' },
+  'بضاعة تالفة': { en: 'Damaged goods', fr: 'Marchandise endommagée', tr: 'Hasarlı ürün', zh: '损坏商品' },
+  'استبدال': { en: 'Exchange', fr: 'Échange', tr: 'Değişim', zh: '换货' },
   'تقييم الأداء': { en: 'Performance ranking', fr: 'Classement des performances', tr: 'Performans sıralaması', zh: '业绩排名' },
   'معيار التقييم': { en: 'Ranking criterion', fr: 'Critère de classement', tr: 'Sıralama ölçütü', zh: '排名标准' },
   'كمية صنف معين': { en: 'Quantity of a specific item', fr: 'Quantité d un article précis', tr: 'Belirli bir ürünün miktarı', zh: '指定商品数量' },

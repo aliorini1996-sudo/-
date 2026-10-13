@@ -50,6 +50,17 @@ interface OrderRow {
   customer: { id: string; name: string; phone: string; city: string | null } | null;
   salesRep: { id: string; name: string } | null;
 }
+/** صفّ «تقرير المرتجع» — مستند إرجاعٍ مؤكَّد بفاتورة بيعه (إن رُبط) وبنوده */
+interface ReturnRow {
+  id: string; number: string; invoiceDate: string; total: number; taxAmt: number;
+  reason: 'NORMAL' | 'DAMAGED' | 'EXCHANGE' | string; returnToStock: boolean | null; creditNote: boolean; notes: string | null;
+  saleInvoices: string[];
+  customer: { id: string; name: string; phone: string; city: string | null } | null;
+  salesRep: { id: string; name: string } | null;
+  items: { name: string; unit: string; qty: number; lineTotal: number; returnExpired: boolean | null; expiresAt: string | null }[];
+}
+interface ReturnsSummary { count: number; total: number; salesTotal: number; returnRate: number | null; byReason: Record<string, { count: number; total: number }>; expiredLines: number }
+const RETURN_REASON_LABELS: Record<string, string> = { NORMAL: 'مرتجع عادي', DAMAGED: 'بضاعة تالفة', EXCHANGE: 'استبدال' };
 interface CustGroup { customerId: string; customerName: string; visitsCount: number; avgDurationSec: number | null; lastVisit: string; visits: CustVisit[] }
 /* سند القبض وتجميعةُ المندوب: أنواع وحدة `lib/collectionsByRep` نفسها —
    نسخةٌ ثانية منهما تنحرف عن الحساب الذي تختبره وحدتُه. */
@@ -83,7 +94,7 @@ export default function ReportsPage() {
   const [rankProduct, setRankProduct] = useState('');
   // نوع تقرير العملاء: أرصدة العملاء | زيارات العملاء
   // نوع تقرير المبيعات: التجميعة كما كانت، أو قائمة الطلبات (فواتير بتاريخ تسليم)
-  const [salesType, setSalesType] = useState<'summary' | 'orders'>('summary');
+  const [salesType, setSalesType] = useState<'summary' | 'orders' | 'returns'>('summary');
   // نوع تقرير التحصيل: ملخّصٌ عامّ (كما كان) أو تفصيلٌ لكلّ مندوب
   const [collType, setCollType] = useState<'summary' | 'byRep'>('summary');
   const [expandedColl, setExpandedColl] = useState<string | null>(null); // صفّ المندوب المفتوح
@@ -121,6 +132,16 @@ export default function ReportsPage() {
       return res.data.data as { orders: OrderRow[]; summary: { count: number; total: number; paid: number }; rangeApplied: boolean; defaultDays: number | null };
     },
     enabled: accountingReady && accountingOn && tab === 'sales' && salesType === 'orders',
+  });
+
+  // تقرير المرتجع — مستندات الإرجاع المؤكَّدة في المدى (تاريخ المرتجع)، ومعها نسبة المرتجع من مبيعات المدى نفسه
+  const returnsQ = useQuery({
+    queryKey: ['report-returns', from, to],
+    queryFn: async () => {
+      const res = await reportApi.returns({ from, to });
+      return res.data.data as { returns: ReturnRow[]; summary: ReturnsSummary; rangeApplied: boolean; defaultDays: number | null };
+    },
+    enabled: accountingReady && accountingOn && tab === 'sales' && salesType === 'returns',
   });
 
   const { data: collectData } = useQuery({
@@ -262,6 +283,19 @@ export default function ReportsPage() {
     () => filterFlat(ordersQ.data?.orders || [], q, o => [o.number, o.customer?.name, o.customer?.phone, o.customer?.city, o.salesRep?.name]),
     [ordersQ.data, q],
   );
+  // البحث: رقم المرتجع أو فاتورة بيعه أو العميل أو المندوب أو المدينة أو اسم صنف فيه
+  const returnRows = useMemo(
+    () => filterFlat(returnsQ.data?.returns || [], q, r => [
+      r.number, ...r.saleInvoices, r.customer?.name, r.customer?.phone, r.customer?.city, r.salesRep?.name, ...r.items.map(i => i.name),
+    ]),
+    [returnsQ.data, q],
+  );
+  const returnTotals = useMemo(() => ({
+    count: returnRows.length,
+    total: Math.round(returnRows.reduce((t, r) => t + Number(r.total || 0), 0) * 1e6) / 1e6,
+  }), [returnRows]);
+  const reasonLabel = (r: string) => tr(RETURN_REASON_LABELS[r] ?? r);
+
   const orderTotals = useMemo(() => ({
     count: orderRows.length,
     total: Math.round(orderRows.reduce((t, o) => t + Number(o.total || 0), 0) * 1e6) / 1e6,
@@ -480,6 +514,29 @@ export default function ReportsPage() {
       const loc = mergeRuns(locItems.map(x => x.row), [{ cols: [tr('المندوب')], keyOf: i => locItems[i].rep }]);
       if (loc.rows.length) sheets.push({ name: tr('مواقع الزيارات'), rows: loc.rows, merges: loc.merges, colWidths: [22, 22, 18, 40] });
       fname = tr('أداء المناديب');
+    } else if (tab === 'sales' && salesType === 'returns' && returnRows.length) {
+      sheets = [
+        { name: tr('المرتجعات'), rows: returnRows.map(r => ({
+          [tr('رقم المرتجع')]: r.number,
+          [tr('التاريخ')]: fmtDay(r.invoiceDate),
+          [tr('العميل')]: r.customer?.name || '—',
+          [tr('المندوب')]: r.salesRep?.name || '—',
+          [tr('السبب')]: reasonLabel(r.reason),
+          [tr('يعود للمخزون')]: r.returnToStock ? tr('نعم') : tr('لا'),
+          [tr('من فاتورة البيع')]: r.saleInvoices.join('، '),
+          [tr('الإجمالي')]: num(r.total),
+        })), colWidths: [16, 12, 24, 20, 14, 12, 18, 14] },
+        { name: tr('تفاصيل الأصناف'), rows: returnRows.flatMap(r => r.items.map(i => ({
+          [tr('رقم المرتجع')]: r.number,
+          [tr('التاريخ')]: fmtDay(r.invoiceDate),
+          [tr('العميل')]: r.customer?.name || '—',
+          [tr('الصنف')]: i.name,
+          [tr('الكمية')]: i.qty,
+          [tr('القيمة')]: num(i.lineTotal),
+          [tr('منتهي الصلاحية')]: i.returnExpired === true ? tr('نعم') : i.returnExpired === false ? tr('لا') : '',
+        }))), colWidths: [16, 12, 24, 26, 10, 14, 14] },
+      ];
+      fname = tr('تقرير المرتجع');
     } else if (tab === 'sales' && salesType === 'orders' && orderRows.length) {
       sheets = [{ name: tr('تقرير الطلبات'), rows: orderRows.map(o => ({
         [tr('رقم الفاتورة')]: o.number,
@@ -780,9 +837,10 @@ export default function ReportsPage() {
           {tab === 'sales' && (
             <div>
               <label className="label">{tr('نوع التقرير')}</label>
-              <select className="input w-44" value={salesType} onChange={e => setSalesType(e.target.value as 'summary' | 'orders')}>
+              <select className="input w-44" value={salesType} onChange={e => setSalesType(e.target.value as 'summary' | 'orders' | 'returns')}>
                 <option value="summary">{tr('تقرير المبيعات')}</option>
                 <option value="orders">{tr('تقرير الطلبات')}</option>
+                <option value="returns">{tr('تقرير المرتجع')}</option>
               </select>
             </div>
           )}
@@ -833,7 +891,7 @@ export default function ReportsPage() {
       {/* حصيلة البحث: بلا هذا السطر يبدو الفراغُ الناتج عن بحثٍ ضيّق كأنه
           غيابُ بيانات — وهي رسالةٌ مختلفة تماماً تدفع المشرف لمطاردة عطلٍ لا وجود له. */}
       {q && (() => {
-        const shown = tab === 'sales' ? (salesType === 'orders' ? orderRows.length : (Array.isArray(salesRows) ? salesRows.length : 0))
+        const shown = tab === 'sales' ? (salesType === 'orders' ? orderRows.length : salesType === 'returns' ? returnRows.length : (Array.isArray(salesRows) ? salesRows.length : 0))
           : tab === 'collections' ? collRepShown.length
           : tab === 'balances' ? (custType === 'visits' ? custGroups.length : balanceRows.length)
           : perfType === 'performance' ? perfRows.length
@@ -894,6 +952,98 @@ export default function ReportsPage() {
             </>
           ) : (
             <div className="card text-center text-gray-400 py-12">{tr('لا توجد بيانات')}</div>
+          )}
+        </div>
+      )}
+
+      {/* تقرير المرتجع: مستندات الإرجاع المؤكَّدة في المدى، الأحدث أوّلاً */}
+      {tab === 'sales' && salesType === 'returns' && (
+        <div className="space-y-4">
+          {returnsQ.isPending ? (
+            <div className="card flex items-center justify-center h-32 text-gray-400">{tr('جاري التحميل')}</div>
+          ) : returnsQ.isError ? (
+            <div className="card flex flex-col items-center gap-3 py-10 text-gray-500">
+              <span>{tr('تعذر تحميل التقرير')}</span>
+              <button onClick={() => returnsQ.refetch()} className="btn-secondary">{tr('إعادة المحاولة')}</button>
+            </div>
+          ) : returnRows.length === 0 ? (
+            <div className="card text-center text-gray-400 py-12">
+              {q ? tr('لا نتائج مطابقة للبحث') : tr('لا مرتجعات في هذه الفترة')}
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="card text-center">
+                  <p className="text-xs text-gray-500">{tr('عدد المرتجعات')}</p>
+                  <p className="text-xl font-bold text-gray-700 tabular-nums">{returnTotals.count}</p>
+                </div>
+                <div className="card text-center">
+                  <p className="text-xs text-gray-500">{tr('إجمالي قيمة المرتجعات')}</p>
+                  <p className="text-xl font-bold text-amber-700 tabular-nums">{formatCurrency(returnTotals.total)}</p>
+                </div>
+                {/* النسبة على المرتجعات كلها لا على نتائج البحث — بحثٌ يقطّع القائمة لا يغيّر نسبة الشركة */}
+                <div className="card text-center">
+                  <p className="text-xs text-gray-500">{tr('نسبة المرتجع من المبيعات')}</p>
+                  <p className="text-xl font-bold text-gray-700 tabular-nums">
+                    {returnsQ.data?.summary.returnRate == null ? '—' : `${returnsQ.data.summary.returnRate}%`}
+                  </p>
+                </div>
+                <div className="card text-center">
+                  <p className="text-xs text-gray-500 mb-1">{tr('السبب')}</p>
+                  <div className="space-y-0.5 text-xs">
+                    {Object.entries(returnsQ.data?.summary.byReason ?? {}).map(([k, v]) => (
+                      <p key={k} className="flex justify-between gap-2"><span className="text-gray-600">{reasonLabel(k)}</span><b className="tabular-nums">{v.count}</b></p>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              {returnsQ.data?.rangeApplied === false && returnsQ.data.defaultDays && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 text-amber-800 text-xs px-3 py-2">
+                  {tr('بلا مدى محدد يعرض الخادم آخر تسعين يوما فقط')}
+                </div>
+              )}
+              <div className="card p-0">
+                <div className="table-wrapper">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>#</th><th>{tr('رقم المرتجع')}</th><th>{tr('العميل')}</th><th>{tr('المندوب')}</th>
+                        <th>{tr('التاريخ')}</th><th>{tr('السبب')}</th><th>{tr('من فاتورة البيع')}</th>
+                        <th>{tr('الأصناف')}</th><th>{tr('الإجمالي')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {returnRows.map((r, i) => (
+                        <tr key={r.id}>
+                          <td className="text-gray-400">{i + 1}</td>
+                          <td className="font-medium text-gray-800" dir="ltr">
+                            {r.number}
+                            {r.creditNote && <span className="ms-1.5 text-[10px] text-[#5B4B9C]">{tr('إشعار دائن')}</span>}
+                          </td>
+                          <td className="text-gray-700">{r.customer?.name || '—'}</td>
+                          <td className="text-gray-600">{r.salesRep?.name || '—'}</td>
+                          <td className="text-gray-500 text-sm">{fmtDay(r.invoiceDate)}</td>
+                          <td className="text-sm">
+                            <span className={r.reason === 'DAMAGED' ? 'text-red-600 font-semibold' : 'text-gray-700'}>{reasonLabel(r.reason)}</span>
+                            {r.returnToStock && <span className="block text-[10px] text-[#1E7A52]">{tr('يعود للمخزون')}</span>}
+                          </td>
+                          <td className="text-gray-600 text-sm" dir="ltr">{r.saleInvoices.length ? r.saleInvoices.join('، ') : '—'}</td>
+                          <td className="text-xs text-gray-600">
+                            {r.items.map((it, j) => (
+                              <span key={j} className="block">
+                                {it.name} ×{Number(it.qty.toFixed(3))}
+                                {it.returnExpired === true && <span className="ms-1 text-[10px] font-semibold text-red-600">{tr('منتهي الصلاحية')}</span>}
+                              </span>
+                            ))}
+                          </td>
+                          <td className="tabular-nums font-semibold text-amber-700">{formatCurrency(r.total)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
           )}
         </div>
       )}

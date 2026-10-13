@@ -196,6 +196,108 @@ router.get('/orders', async (req: AuthRequest, res: Response, next: NextFunction
   } catch (err) { next(err); }
 });
 
+/**
+ * تقرير المرتجع (طلب المالك ١٣ أكتوبر ٢٠٢٦) — مستندات الإرجاع المؤكَّدة في المدى، ومنها الإشعارات الدائنة (المرحلة الثانية).
+ * لكلّ مرتجع: عميله ومندوبه وسببه وهل عاد للمخزون، وفاتورة البيع التي أُرجع منها إن رُبط بها (الإشعار الدائن بأصله،
+ * والمرتجع من فاتورة بيع ببنوده returnOfItemId)، وبنوده بحالة صلاحيتها. والملخّص: العدد والقيمة وتوزيعها على السبب،
+ * ونسبة المرتجع من مبيعات المدى نفسه في النطاق نفسه. المدى كتقرير المبيعات: الطرف الغائب بلا حدّ، وغيابهما ٩٠ يوماً.
+ */
+router.get('/returns', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const { from, to } = req.query as Record<string, string>;
+    const DEFAULT_DAYS = 90;
+    const rangeApplied = !!(from || to);
+    const dateFilter = rangeApplied
+      ? {
+        ...(from ? { gte: new Date(from) } : {}),
+        ...(to ? { lt: new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) } : {}),
+      }
+      : { gte: new Date(Date.now() - DEFAULT_DAYS * 24 * 60 * 60 * 1000) };
+    const scope = await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT);
+
+    const [returns, sales] = await Promise.all([
+      prisma.invoice.findMany({
+        where: { tenantId: tid, ...scope, status: 'CONFIRMED', type: 'RETURN', invoiceDate: dateFilter },
+        select: {
+          id: true, number: true, invoiceDate: true, total: true, taxAmt: true,
+          returnReason: true, returnToStock: true, documentKind: true, notes: true,
+          originalInvoice: { select: { number: true } },
+          customer: { select: { id: true, name: true, phone: true, city: true } },
+          salesRep: { select: { id: true, name: true } },
+          items: {
+            select: {
+              qty: true, lineTotal: true, returnExpired: true, expiresAt: true, returnOfItemId: true, itemName: true,
+              product: { select: { name: true, unit: true } },
+            },
+          },
+        },
+        orderBy: { invoiceDate: 'desc' },
+        take: 5000,
+      }),
+      // نسبة المرتجع: مبيعات المدى نفسه في النطاق نفسه (تعريف تقرير المبيعات)
+      prisma.invoice.aggregate({
+        where: { tenantId: tid, ...scope, status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: dateFilter },
+        _sum: { total: true },
+      }),
+    ]);
+
+    // فاتورة البيع للمرتجع المرتبط في المرحلة الأولى: من بنوده (returnOfItemId) — استعلامٌ واحد لكل المرتجعات
+    const saleItemIds = [...new Set(returns.flatMap((r) => r.items.map((i) => i.returnOfItemId).filter((x): x is string => !!x)))];
+    const saleNumberOf = new Map<string, string>();
+    if (saleItemIds.length) {
+      const saleItems = await prisma.invoiceItem.findMany({
+        where: { id: { in: saleItemIds }, invoice: { tenantId: tid } },
+        select: { id: true, invoice: { select: { number: true } } },
+      });
+      for (const it of saleItems) saleNumberOf.set(it.id, it.invoice.number);
+    }
+
+    const rows = returns.map((r) => {
+      const linked = [...new Set(r.items.map((i) => (i.returnOfItemId ? saleNumberOf.get(i.returnOfItemId) : undefined)).filter((x): x is string => !!x))];
+      return {
+        id: r.id, number: r.number, invoiceDate: r.invoiceDate,
+        total: Number(r.total), taxAmt: Number(r.taxAmt),
+        reason: r.returnReason ?? 'NORMAL', returnToStock: r.returnToStock, creditNote: r.documentKind === 'CREDIT_NOTE',
+        notes: r.notes,
+        saleInvoices: r.originalInvoice ? [r.originalInvoice.number] : linked,
+        customer: r.customer, salesRep: r.salesRep,
+        items: r.items.map((i) => ({
+          name: i.product?.name ?? i.itemName ?? 'صنف محذوف', unit: i.product?.unit ?? '',
+          qty: Number(i.qty), lineTotal: Number(i.lineTotal),
+          returnExpired: i.returnExpired, expiresAt: i.expiresAt ? i.expiresAt.toISOString().slice(0, 10) : null,
+        })),
+      };
+    });
+
+    const total = rows.reduce((t, r) => t + r.total, 0);
+    const byReason: Record<string, { count: number; total: number }> = {};
+    for (const r of rows) {
+      const b = (byReason[r.reason] ??= { count: 0, total: 0 });
+      b.count += 1;
+      b.total += r.total;
+    }
+    const salesTotal = Number(sales._sum.total ?? 0);
+    res.json({
+      success: true,
+      data: {
+        returns: rows,
+        summary: {
+          count: rows.length,
+          total: Math.round(total * 1000) / 1000,
+          salesTotal: Math.round(salesTotal * 1000) / 1000,
+          // نسبة المرتجع من المبيعات بمنزلةٍ عشرية — null بلا مبيعات (القسمة على صفر لا معنى لها)
+          returnRate: salesTotal > 0 ? Math.round((total / salesTotal) * 1000) / 10 : null,
+          byReason,
+          expiredLines: rows.reduce((n, r) => n + r.items.filter((i) => i.returnExpired === true).length, 0),
+        },
+        rangeApplied,
+        defaultDays: rangeApplied ? null : DEFAULT_DAYS,
+      },
+    });
+  } catch (err) { next(err); }
+});
+
 router.get('/collections', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
