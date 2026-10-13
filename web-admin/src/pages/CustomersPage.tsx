@@ -6,7 +6,8 @@ import { Customer } from '../types';
 import { formatCurrency, formatDate, statusLabels } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { SALES_CHANNELS, channelLabel } from '../lib/channels';
-import { Plus, Search, Edit, FileText, FileBarChart2, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Search, Edit, FileText, FileBarChart2, Trash2, ChevronLeft, ChevronRight, Download } from 'lucide-react';
+import { shareOrDownloadExcel, num } from '../utils/excel';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../store/authStore';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -194,11 +195,66 @@ export default function CustomersPage() {
     return <span className={map[s] || ''}>{tr(statusLabels[s])}</span>;
   };
 
+  /* تصدير العملاء إلى Excel — كلّهم وفق البحث والحالة والقناة المختارة (بلا فلتر: كل العملاء)، ونطاق المستخدم يطبّقه الخادم.
+   * على دفعاتٍ من ١٠٠٠ حتى آخرهم: سقفٌ ثابت كان يقصّ شركةً كبيرة بصمت. والأعمدة المالية تختفي مع المحاسبة المطفأة. */
+  const [exporting, setExporting] = useState(false);
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const PAGE = 1000;
+      const all: Customer[] = [];
+      for (let p = 1; ; p++) {
+        const res = await customerApi.list({ search, status, channel: bucketMode ? '' : channel, page: p, limit: PAGE });
+        const rows = res.data.data as Customer[];
+        all.push(...rows);
+        const total = Number(res.data.pagination?.total ?? 0);
+        if (rows.length < PAGE || all.length >= total) break;
+      }
+      if (!all.length) { toast.error(tr('لا يوجد عملاء للتصدير')); return; }
+      const rows = all.map(c => ({
+        [tr('الكود')]: c.code,
+        [tr('العميل')]: c.name,
+        [tr('النشاط التجاري')]: c.businessName || '',
+        [tr('الجوال')]: c.phone,
+        [tr('رقم بديل')]: c.altPhone || '',
+        [tr('البريد الإلكتروني')]: c.email || '',
+        [tr('المدينة')]: c.city || '',
+        [tr('الحي')]: c.district || '',
+        [tr('العنوان')]: c.address || '',
+        [tr('الرقم الضريبي')]: c.taxNumber || '',
+        [tr('السجل التجاري')]: c.commercialReg || '',
+        [tr('القناة')]: c.channel ? tr(channelLabel(c.channel)) : '',
+        ...(accountingOn ? {
+          [tr('الرصيد')]: num(c.balance),
+          [tr('الحد الائتماني')]: num(c.creditLimit),
+          [tr('فترة السداد يوم')]: c.paymentDays,
+        } : {}),
+        [tr('الحالة')]: tr(statusLabels[c.status] || c.status),
+        [tr('الموقع')]: c.lat != null && c.lng != null ? `https://www.google.com/maps?q=${c.lat},${c.lng}` : '',
+        [tr('تاريخ الإضافة')]: formatDate(c.createdAt),
+      }));
+      const out = await shareOrDownloadExcel(
+        [{ name: tr('العملاء'), rows, colWidths: accountingOn
+          ? [26, 28, 24, 14, 14, 24, 14, 14, 28, 18, 16, 14, 14, 14, 10, 10, 40, 14]
+          : [26, 28, 24, 14, 14, 24, 14, 14, 28, 18, 16, 14, 10, 40, 14] }],
+        `${tr('العملاء')}-${new Date().toISOString().slice(0, 10)}`,
+      );
+      toast.success(out === 'shared' ? tr('تمت المشاركة') : `${tr('تم تصدير')} ${rows.length} ${tr('عميل')}`);
+    } catch { toast.error(tr('تعذر التصدير')); }
+    finally { setExporting(false); }
+  };
+
   return (
     <div>
       <div className="page-header">
         <h1 className="page-title">{tr('إدارة العملاء')}</h1>
-        <button className="btn-primary" onClick={openAdd}><Plus size={16} />{tr('إضافة عميل')}</button>
+        <div className="flex gap-2">
+          <button className="btn-secondary" onClick={handleExport} disabled={exporting} title={tr('تصدير العملاء وفق البحث والفلاتر الحالية')}>
+            {exporting ? <span className="w-4 h-4 border-2 border-gray-300 border-t-[#E15A30] rounded-full animate-spin" /> : <Download size={16} />}
+            {tr('تصدير Excel')}
+          </button>
+          <button className="btn-primary" onClick={openAdd}><Plus size={16} />{tr('إضافة عميل')}</button>
+        </div>
       </div>
 
       {/* Filters */}

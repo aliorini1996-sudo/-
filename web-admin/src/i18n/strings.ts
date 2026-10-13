@@ -662,6 +662,10 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   // تقرير مديونيات المندوب
   'مديونيات المندوب': { en: 'Rep receivables', fr: 'Créances du représentant', tr: 'Temsilci alacakları', zh: '业务员应收账款' },
   // تقييم الأداء — ترتيب المناديب حسب معيار
+  // تصدير العملاء
+  'لا يوجد عملاء للتصدير': { en: 'No customers to export', fr: 'Aucun client à exporter', tr: 'Dışa aktarılacak müşteri yok', zh: '没有可导出的客户' },
+  'تاريخ الإضافة': { en: 'Date added', fr: 'Date d ajout', tr: 'Eklenme tarihi', zh: '添加日期' },
+  'تصدير العملاء وفق البحث والفلاتر الحالية': { en: 'Export customers matching the current search and filters', fr: 'Exporter les clients selon la recherche et les filtres actuels', tr: 'Mevcut arama ve filtrelere uyan müşterileri dışa aktar', zh: '按当前搜索和筛选导出客户' },
   // تقرير المرتجع
   'تقرير المرتجع': { en: 'Returns report', fr: 'Rapport des retours', tr: 'İade raporu', zh: '退货报表' },
   'إجمالي قيمة المرتجعات': { en: 'Total returns value', fr: 'Valeur totale des retours', tr: 'Toplam iade tutarı', zh: '退货总额' },
