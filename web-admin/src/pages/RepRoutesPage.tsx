@@ -1,11 +1,12 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Route as RouteIcon, Plus, Trash2, ArrowUp, ArrowDown, Search, X, CheckCircle2, Repeat, CalendarDays,
+  Route as RouteIcon, Plus, Trash2, ArrowUp, ArrowDown, Search, X, CheckCircle2, Repeat, CalendarDays, Navigation, Undo2,
 } from 'lucide-react';
 import { repRouteApi, salesRepApi, customerApi } from '../api/client';
 import { useTr } from '../i18n/strings';
 import { backdropClose } from '../lib/backdropClose';
+import { orderByDistance } from '../lib/routeOrder';
 
 /**
  * بناء خطوط سير المناديب — قائمة عملاء مرتّبة يجب زيارتهم.
@@ -26,6 +27,10 @@ interface RouteRow {
 }
 interface Stop { customerId: string; customerName: string; note?: string | null }
 interface Named { id: string; name: string; businessName?: string | null }
+/** موقع عميل من /customers/locations — المفتاح نفسه الذي تقرؤه خريطة التتبّع فيُعاد استعمال ما جُلب */
+interface CustomerLoc { id: string; lat: number; lng: number }
+
+const km = (n: number) => (Math.round(n * 10) / 10).toLocaleString('en-US');
 
 /**
  * نافذةٌ لا صفحة: خطوط السير تُبنى وأنت تنظر إلى مواقع عملائك على الخريطة.
@@ -198,6 +203,52 @@ function RouteEditor({ id, onDone }: { id?: string; onDone: () => void }) {
     const c = [...v]; [c[i], c[j]] = [c[j], c[i]]; return c;
   });
 
+  /**
+   * ترتيب حسب المسافة (lib/routeOrder.ts): العملاء متتابعين حسب مواقعهم وحدها — لا موقع المندوب ولا
+   * عميلٌ مثبَّت — بأقصر مسارٍ مفتوح تقريبيّ. لا يُحفظ شيء: يتغيّر الترتيب في النموذج فيراجعه المشرف
+   * ثم يحفظ، و«تراجع عن الترتيب» تعيد ما كان.
+   */
+  const qc = useQueryClient();
+  const [sorting, setSorting] = useState(false);
+  const [sortMsg, setSortMsg] = useState<{ text: string; tone: 'ok' | 'info' | 'err' } | null>(null);
+  const [beforeSort, setBeforeSort] = useState<Stop[] | null>(null);
+  const sortByDistance = async () => {
+    setSorting(true); setSortMsg(null);
+    try {
+      // تعذّر الجلب مع وجود مواقع سابقة في الذاكرة (من الخريطة): تُستعمل — المواقع لا تتغيّر بين دقيقة وأخرى
+      const locs = await qc.fetchQuery({
+        queryKey: ['customer-locations'],
+        queryFn: async () => (await customerApi.locations()).data.data as CustomerLoc[],
+        staleTime: 60_000,
+      }).catch((e) => {
+        const cached = qc.getQueryData<CustomerLoc[]>(['customer-locations']);
+        if (cached?.length) return cached;
+        throw e;
+      });
+      const byId = new Map((locs || []).map(l => [l.id, l]));
+      const r = orderByDistance(stops.map(s => ({ ...s, id: s.customerId, lat: byId.get(s.customerId)?.lat, lng: byId.get(s.customerId)?.lng })));
+      const located = stops.length - r.missing;
+      const missingNote = r.missing ? ` · ${r.missing} ${tr('بلا موقع على الخريطة في آخر القائمة')}` : '';
+      if (located < 3) {
+        setSortMsg({ tone: 'info', text: tr('يلزم ثلاثة عملاء على الأقل لهم موقع على الخريطة') });
+      } else if (r.changed) {
+        setBeforeSort(stops);
+        setStops(r.ordered.map(({ customerId, customerName, note }) => ({ customerId, customerName, note })));
+        setSortMsg({ tone: 'ok', text: `${tr('رتب بأقصر مسار تقريبي')}: ${km(r.afterKm)} ${tr('كم')} ${tr('بدل')} ${km(r.beforeKm)} ${tr('كم')}${missingNote}` });
+      } else {
+        setSortMsg({ tone: 'info', text: `${tr('الترتيب الحالي هو الأقصر')}: ${km(r.beforeKm)} ${tr('كم')}${missingNote}` });
+      }
+    } catch {
+      setSortMsg({ tone: 'err', text: tr('تعذر جلب مواقع العملاء') });
+    } finally {
+      setSorting(false);
+    }
+  };
+  const undoSort = () => {
+    if (beforeSort) setStops(beforeSort);
+    setBeforeSort(null); setSortMsg(null);
+  };
+
   const ready = !!salesRepId && !!name.trim() && stops.length > 0 && (isPermanent || !!routeDate);
 
   return (
@@ -236,12 +287,30 @@ function RouteEditor({ id, onDone }: { id?: string; onDone: () => void }) {
               <input type="date" className="input w-40" value={routeDate} onChange={e => setRouteDate(e.target.value)} />
             </div>
           )}
+          <button
+            type="button" onClick={sortByDistance} disabled={stops.length < 3 || sorting}
+            title={tr('يرتب العملاء متتابعين حسب مواقعهم بأقصر مسار تقريبي')}
+            className="btn-secondary !px-3 whitespace-nowrap disabled:opacity-50"
+          >
+            <Navigation size={14} className="text-[#E15A30]" /> {sorting ? tr('جار الترتيب') : tr('ترتيب بالمسافة')}
+          </button>
         </div>
         <p className="text-xs text-[#6E6557] mt-2">
           {isPermanent
             ? tr('يظهر للمندوب كل يوم، وعلامة الإنجاز تبدأ من جديد كل صباح')
             : tr('يظهر في يومه وحده، ويسبق الخط الدائم إن وجد')}
         </p>
+        {sortMsg && (
+          <p className={`text-xs mt-2 rounded-lg px-3 py-2 flex items-center gap-2 flex-wrap ${
+            sortMsg.tone === 'ok' ? 'bg-green-50 text-green-800' : sortMsg.tone === 'err' ? 'bg-red-50 text-red-700' : 'bg-[#FAF7F0] text-[#6E6557]'}`}>
+            <span>{sortMsg.text}</span>
+            {sortMsg.tone === 'ok' && beforeSort && (
+              <button type="button" onClick={undoSort} className="inline-flex items-center gap-1 font-semibold underline">
+                <Undo2 size={12} /> {tr('تراجع عن الترتيب')}
+              </button>
+            )}
+          </p>
+        )}
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
