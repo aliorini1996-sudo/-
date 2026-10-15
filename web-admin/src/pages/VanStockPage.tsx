@@ -4,7 +4,7 @@ import { vanStockApi, productApi, salesRepApi, companyApi } from '../api/client'
 import { formatDate, activeLocale } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import SearchableSelect from '../components/SearchableSelect';
-import { Truck, Package, TrendingDown, Plus, X, Trash2, ArrowDownToLine, Boxes, Calendar, Sparkles, AlertTriangle, Target, Download } from 'lucide-react';
+import { Truck, Package, TrendingDown, Plus, X, Trash2, ArrowDownToLine, Boxes, Calendar, Sparkles, AlertTriangle, Target, Download, Wrench } from 'lucide-react';
 import toast from 'react-hot-toast';
 import DocumentModal from '../components/DocumentModal';
 import { loadNoticeDocFromData, Company } from '../rep/RepDocuments';
@@ -58,13 +58,20 @@ interface AccResponse {
 interface RepSummary {
   salesRepId: string; repName: string; isActive: boolean; canSellWithoutStock: boolean;
   productCount: number; totalRemaining: number; totalLoaded: number; totalSold: number; lastLoadAt: string | null;
+  /** «المرتجع التالف» في السيارة — رصيدٌ لا يُباع حتى تزيله الإدارة */
+  totalDamaged?: number;
+  /** عدد الأدوات في عهدة السيارة الآن (عربة، سلة…) */
+  toolsCount?: number;
 }
 interface StockRow {
   productId: string; name: string; code: string; unit: string;
   loaded: number; unloaded: number; adjusted: number; sold: number; returned: number; remaining: number;
   /** «منتهي الصلاحية» في السيارة: مرتجعٌ عاد بعد انتهاء صلاحيته — لا يُباع ولا يدخل المتبقّي حتى تزيله الإدارة */
   expired?: number;
+  /** «المرتجع التالف» في السيارة: مرتجعٌ سجّله المندوب «بضاعة تالفة» — لا يُباع ولا يدخل المتبقّي حتى تزيله الإدارة */
+  damaged?: number;
 }
+type OutKind = 'EXPIRED_OUT' | 'DAMAGED_OUT';
 interface Movement {
   kind: string; date: string; ref: string; by: string | null;
   items: { name: string; unit: string; qty: number }[];
@@ -80,6 +87,7 @@ export default function VanStockPage() {
   const [showLoad, setShowLoad] = useState(false);
   const [showAccuracy, setShowAccuracy] = useState(false);
   const [noticeMv, setNoticeMv] = useState<Movement | null>(null);
+  const [toolsRep, setToolsRep] = useState<RepSummary | null>(null);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const filtered = !!(from || to);
@@ -109,26 +117,43 @@ export default function VanStockPage() {
     onSettled: () => qc.invalidateQueries({ queryKey: ['van-summary'] }),
   });
 
-  /* إزالة المنتهي صلاحيته من سيارة المندوب (EXPIRED_OUT) — للإدارة بصلاحية إدارة مخزون السيارة (الخادم يحرسها ويمنع
-   * تجاوز رصيد المنتهي). الكمية الافتراضية كامل المنتهي، ويمكن إزالة بعضه. */
-  const removeExpired = useMutation({
-    mutationFn: (v: { productId: string; qty: number }) => vanStockApi.createLoad({
-      salesRepId: selected, type: 'EXPIRED_OUT', note: tr('إزالة منتهي الصلاحية'), items: [{ productId: v.productId, qty: v.qty }],
+  /* إزالة المنتهي صلاحيته (EXPIRED_OUT) أو المرتجع التالف (DAMAGED_OUT) من سيارة المندوب — للإدارة بصلاحية إدارة مخزون
+   * السيارة (الخادم يحرسها ويمنع تجاوز رصيد كلٍّ منهما). الكمية الافتراضية كامل الرصيد، ويمكن إزالة بعضه. */
+  const removeOut = useMutation({
+    mutationFn: (v: { productId: string; qty: number; kind: OutKind }) => vanStockApi.createLoad({
+      salesRepId: selected, type: v.kind,
+      note: v.kind === 'EXPIRED_OUT' ? tr('إزالة منتهي الصلاحية') : tr('إزالة مرتجع تالف'),
+      items: [{ productId: v.productId, qty: v.qty }],
     }),
-    onSuccess: () => {
-      toast.success(tr('أزيل المنتهي صلاحيته من السيارة'));
+    onSuccess: (_d, v) => {
+      toast.success(v.kind === 'EXPIRED_OUT' ? tr('أزيل المنتهي صلاحيته من السيارة') : tr('أزيل التالف من السيارة'));
       qc.invalidateQueries({ queryKey: ['van-current'] });
       qc.invalidateQueries({ queryKey: ['van-movements'] });
       qc.invalidateQueries({ queryKey: ['van-summary'] });
     },
     onError: (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الحفظ')),
   });
-  const askRemoveExpired = (row: StockRow) => {
-    const raw = window.prompt(`${tr('كمية منتهي الصلاحية المراد إزالتها من السيارة')} — ${row.name}`, String(row.expired ?? 0));
+  const askRemove = (row: StockRow, kind: OutKind) => {
+    const have = (kind === 'EXPIRED_OUT' ? row.expired : row.damaged) ?? 0;
+    const ask = kind === 'EXPIRED_OUT' ? tr('كمية منتهي الصلاحية المراد إزالتها من السيارة') : tr('كمية التالف المراد إزالتها من السيارة');
+    const raw = window.prompt(`${ask} — ${row.name}`, String(have));
     if (raw == null) return;
     const qty = Number(raw);
-    if (!(qty > 0) || qty > (row.expired ?? 0) + 1e-9) { toast.error(tr('الكمية غير صالحة')); return; }
-    removeExpired.mutate({ productId: row.productId, qty });
+    if (!(qty > 0) || qty > have + 1e-9) { toast.error(tr('الكمية غير صالحة')); return; }
+    removeOut.mutate({ productId: row.productId, qty, kind });
+  };
+  /** رصيدٌ لا يُباع (منتهٍ أو تالف) مع زرّ إزالته — والسالب (إلغاء مرتجعٍ بعد إزالة بضاعته) يظهر ولا يُخفى */
+  const outCell = (row: StockRow, kind: OutKind) => {
+    const v = (kind === 'EXPIRED_OUT' ? row.expired : row.damaged) ?? 0;
+    return Math.abs(v) > 1e-9 ? (
+      <span className="inline-flex items-center gap-2">
+        <b className="text-red-600">{fmtQty(v)}</b>
+        {v > 0 && <button onClick={() => askRemove(row, kind)} disabled={removeOut.isPending}
+          className="text-[11px] font-semibold text-red-600 border border-red-200 rounded-md px-2 py-0.5 hover:bg-red-50 disabled:opacity-50">
+          {tr('إزالة')}
+        </button>}
+      </span>
+    ) : <span className="text-[#9A8F7E]">—</span>;
   };
 
   const currentQ = useQuery({
@@ -207,8 +232,11 @@ export default function VanStockPage() {
                 <tr className="text-[#6E6557] text-xs bg-[#FAF7F0]">
                   <th className="text-right font-semibold px-5 py-2.5">{tr('المندوب')}</th>
                   <th className="text-center font-semibold px-3 py-2.5">{tr('أصناف بالسيارة')}</th>
+                  {/* عهدةٌ قائمة الآن — لا تتبع المدّة */}
+                  <th className="text-center font-semibold px-3 py-2.5">{tr('أدوات بالسيارة')}</th>
                   <th className="text-center font-semibold px-3 py-2.5">{filtered ? tr('محمل بالمدة') : tr('إجمالي محمل')}</th>
                   <th className="text-center font-semibold px-3 py-2.5">{filtered ? tr('مباع بالمدة') : tr('إجمالي مباع')}</th>
+                  <th className="text-center font-semibold px-3 py-2.5">{filtered ? tr('التالف بنهاية المدة') : tr('المرتجع التالف')}</th>
                   <th className="text-center font-semibold px-3 py-2.5">{filtered ? tr('المتبقي بنهاية المدة') : tr('المتبقي')}</th>
                   <th className="text-center font-semibold px-3 py-2.5">{tr('البيع بدون مخزون')}</th>
                   <th className="text-center font-semibold px-3 py-2.5">{tr('آخر تحميل')}</th>
@@ -221,8 +249,18 @@ export default function VanStockPage() {
                     className={`border-t border-[#F1EBDF] cursor-pointer transition-colors ${selected === r.salesRepId ? 'bg-[#FBEBE2]' : 'hover:bg-[#FAF7F0]'}`}>
                     <td className="px-5 py-3 font-semibold text-[#1F1A13]">{r.repName}{!r.isActive && <span className="text-[10px] text-red-500 mr-2">{tr('موقوف')}</span>}</td>
                     <td className="text-center px-3 py-3">{r.productCount}</td>
+                    <td className="text-center px-3 py-3" onClick={e => e.stopPropagation()}>
+                      <button onClick={() => setToolsRep(r)} title={tr('عهدة أدوات السيارة')}
+                        className="inline-flex items-center gap-1.5 text-[12px] font-semibold rounded-full px-3 py-1 border border-[#E9E1D3] text-[#1F1A13] hover:bg-[#FAF7F0]">
+                        <Wrench size={12} className="text-[#E15A30]" /> {formatCount(r.toolsCount ?? 0)}
+                      </button>
+                    </td>
                     <td className="text-center px-3 py-3 text-[#6E6557]">{fmtQty(r.totalLoaded)}</td>
                     <td className="text-center px-3 py-3 text-[#6E6557]">{fmtQty(r.totalSold)}</td>
+                    {/* «المرتجع التالف»: رصيدٌ في السيارة لا يُباع ولا يدخل المتبقّي حتى تزيله الإدارة من تفاصيل المندوب */}
+                    <td className={`text-center px-3 py-3 ${Math.abs(r.totalDamaged ?? 0) > 1e-9 ? 'font-bold text-red-600' : 'text-[#9A8F7E]'}`}>
+                      {Math.abs(r.totalDamaged ?? 0) > 1e-9 ? fmtQty(r.totalDamaged!) : '—'}
+                    </td>
                     <td className={`text-center px-3 py-3 font-bold ${r.totalRemaining < 0 ? 'text-red-600' : 'text-[#1E7A52]'}`}>{fmtQty(r.totalRemaining)}</td>
                     <td className="text-center px-3 py-3" onClick={e => e.stopPropagation()}>
                       <button onClick={() => setSellPerm.mutate({ id: r.salesRepId, val: !r.canSellWithoutStock })}
@@ -264,6 +302,7 @@ export default function VanStockPage() {
                       <th className="text-center font-semibold px-2 py-2.5">{tr('مرتجع')}</th>
                       <th className="text-center font-semibold px-3 py-2.5">{tr('المتبقي')}</th>
                       <th className="text-center font-semibold px-3 py-2.5">{tr('منتهي الصلاحية')}</th>
+                      <th className="text-center font-semibold px-3 py-2.5">{tr('تالف')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -277,18 +316,8 @@ export default function VanStockPage() {
                         <td className="text-center px-2 py-2.5 text-[#C94E28]">{fmtQty(row.sold)}</td>
                         <td className="text-center px-2 py-2.5 text-[#6E6557]">{fmtQty(row.returned)}</td>
                         <td className={`text-center px-3 py-2.5 font-bold ${row.remaining < 0 ? 'text-red-600' : row.remaining === 0 ? 'text-[#9A8F7E]' : 'text-[#1E7A52]'}`}>{fmtQty(row.remaining)}</td>
-                        <td className="text-center px-3 py-2.5">
-                          {/* رصيدٌ سالب (إلغاء مرتجعٍ بعد إزالة بضاعته) يظهر ولا يُخفى */}
-                          {Math.abs(row.expired ?? 0) > 1e-9 ? (
-                            <span className="inline-flex items-center gap-2">
-                              <b className="text-red-600">{fmtQty(row.expired!)}</b>
-                              {(row.expired ?? 0) > 0 && <button onClick={() => askRemoveExpired(row)} disabled={removeExpired.isPending}
-                                className="text-[11px] font-semibold text-red-600 border border-red-200 rounded-md px-2 py-0.5 hover:bg-red-50 disabled:opacity-50">
-                                {tr('إزالة')}
-                              </button>}
-                            </span>
-                          ) : <span className="text-[#9A8F7E]">—</span>}
-                        </td>
+                        <td className="text-center px-3 py-2.5">{outCell(row, 'EXPIRED_OUT')}</td>
+                        <td className="text-center px-3 py-2.5">{outCell(row, 'DAMAGED_OUT')}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -318,6 +347,136 @@ export default function VanStockPage() {
       {showLoad && <LoadModal preselectRep={selected} onClose={() => setShowLoad(false)} />}
       {showAccuracy && <AccuracyModal preselectRep={selected} onClose={() => setShowAccuracy(false)} />}
       {noticeMv && <DocumentModal doc={loadNoticeDocFromData(repName, noticeMv, companyQ.data ?? null)} onClose={() => setNoticeMv(null)} />}
+      {toolsRep && <ToolsModal repId={toolsRep.salesRepId} repName={toolsRep.repName} onClose={() => setToolsRep(null)} />}
+    </div>
+  );
+}
+
+const formatCount = (n: number) => n.toLocaleString(activeLocale());
+
+/* ═══ عهدة أدوات السيارة (طلب المالك ١٥ أكتوبر ٢٠٢٦) ═══
+ * ما سُلّم لسيارة المندوب من أدوات (عربة تحميل، سلة…): الإدارة تسلّم وتستلم، والرصيد لكل أداة مشتقّ من الحركات في الخادم
+ * (الاستلام لا يتجاوز العهدة، والاسم يُطابق بلا فروق المسافات). والمندوب يرى عهدته في تطبيقه للاطلاع. */
+interface ToolsData {
+  balances: { toolName: string; qty: number }[];
+  total: number;
+  moves: { id: string; type: 'ISSUE' | 'RETURN'; toolName: string; qty: number; note: string | null; createdByName: string | null; createdAt: string }[];
+  names: string[];
+}
+
+function ToolsModal({ repId, repName, onClose }: { repId: string; repName: string; onClose: () => void }) {
+  const tr = useTr();
+  const qc = useQueryClient();
+  const toolsQ = useQuery({
+    queryKey: ['van-tools', repId],
+    queryFn: async () => (await vanStockApi.tools(repId)).data.data as ToolsData,
+  });
+  const [type, setType] = useState<'ISSUE' | 'RETURN'>('ISSUE');
+  const [rows, setRows] = useState<{ toolName: string; qty: string }[]>([{ toolName: '', qty: '1' }]);
+  const [note, setNote] = useState('');
+  const filled = rows.filter(r => r.toolName.trim());
+  const valid = filled.length > 0 && filled.every(r => Number.isInteger(Number(r.qty)) && Number(r.qty) > 0);
+  const save = useMutation({
+    mutationFn: () => vanStockApi.toolMove({
+      salesRepId: repId, type, note: note.trim() || undefined,
+      items: filled.map(r => ({ toolName: r.toolName.trim(), qty: Number(r.qty) })),
+    }),
+    onSuccess: () => {
+      toast.success(type === 'ISSUE' ? tr('سجل تسليم الأدوات للسيارة') : tr('سجل استلام الأدوات من السيارة'));
+      setRows([{ toolName: '', qty: '1' }]); setNote('');
+      qc.invalidateQueries({ queryKey: ['van-tools', repId] });
+      qc.invalidateQueries({ queryKey: ['van-summary'] });
+    },
+    onError: (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الحفظ')),
+  });
+  const balances = toolsQ.data?.balances ?? [];
+  // اقتراحات الاسم: للتسليم أسماء أدوات الشركة، وللاستلام ما في عهدة هذه السيارة وحدها
+  const suggestions = type === 'ISSUE' ? (toolsQ.data?.names ?? []) : balances.map(b => b.toolName);
+  const listId = `van-tool-names-${repId}`;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
+          <h2 className="text-lg font-bold text-[#1F1A13] flex items-center gap-2"><Wrench size={20} className="text-[#E15A30]" /> {tr('أدوات بالسيارة')} — {repName}</h2>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
+        </div>
+
+        <div className="p-5 space-y-5 overflow-y-auto">
+          {/* العهدة الحالية */}
+          <div>
+            <p className="text-sm font-bold text-[#1F1A13] mb-2">{tr('العهدة الحالية')}</p>
+            {toolsQ.isLoading ? (
+              <p className="text-center text-gray-400 text-sm py-4">{tr('جار التحميل')}</p>
+            ) : balances.length === 0 ? (
+              <p className="text-center text-gray-400 text-sm py-4 border border-dashed border-[#E9E1D3] rounded-xl">{tr('لا توجد أدوات في عهدة هذه السيارة')}</p>
+            ) : (
+              <div className="border border-[#E9E1D3] rounded-xl divide-y divide-[#F1EBDF]">
+                {balances.map(b => (
+                  <div key={b.toolName} className="flex items-center justify-between px-3.5 py-2.5 text-sm">
+                    <span className="font-semibold text-[#1F1A13]">{b.toolName}</span>
+                    <b className="tabular-nums text-[#1E7A52]">{formatCount(b.qty)}</b>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* تسليم أو استلام */}
+          <div className="border border-[#E9E1D3] rounded-xl p-3.5 space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              {(['ISSUE', 'RETURN'] as const).map(t => (
+                <button key={t} type="button" onClick={() => setType(t)} disabled={t === 'RETURN' && balances.length === 0}
+                  className={`py-2 rounded-lg text-sm font-semibold border disabled:opacity-40 ${type === t ? 'bg-[#E15A30] text-white border-[#E15A30]' : 'bg-white text-[#6E6557] border-[#E9E1D3] hover:bg-[#FAF7F0]'}`}>
+                  {t === 'ISSUE' ? tr('تسليم للسيارة') : tr('استلام من السيارة')}
+                </button>
+              ))}
+            </div>
+            <datalist id={listId}>{suggestions.map(n => <option key={n} value={n} />)}</datalist>
+            {rows.map((r, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <input className="input flex-1" list={listId} placeholder={tr('اسم الأداة مثل عربة تحميل أو سلة')} value={r.toolName} maxLength={80}
+                  onChange={e => setRows(rs => rs.map((x, j) => j === i ? { ...x, toolName: e.target.value } : x))} />
+                <input type="number" min="1" step="1" inputMode="numeric" className="input w-20 text-center" value={r.qty}
+                  onChange={e => setRows(rs => rs.map((x, j) => j === i ? { ...x, qty: e.target.value } : x))} />
+                {rows.length > 1 && (
+                  <button type="button" onClick={() => setRows(rs => rs.filter((_, j) => j !== i))} className="text-red-400 p-1"><Trash2 size={16} /></button>
+                )}
+              </div>
+            ))}
+            <button type="button" onClick={() => setRows(rs => [...rs, { toolName: '', qty: '1' }])}
+              className="text-xs font-semibold text-[#E15A30] inline-flex items-center gap-1"><Plus size={13} /> {tr('إضافة أداة')}</button>
+            <input className="input" placeholder={tr('ملاحظة اختياري')} value={note} maxLength={300} onChange={e => setNote(e.target.value)} />
+            <button type="button" onClick={() => save.mutate()} disabled={!valid || save.isPending} className="btn-primary w-full justify-center">
+              {save.isPending ? tr('جار الحفظ') : type === 'ISSUE' ? tr('حفظ التسليم') : tr('حفظ الاستلام')}
+            </button>
+          </div>
+
+          {/* السجل */}
+          {(toolsQ.data?.moves ?? []).length > 0 && (
+            <div>
+              <p className="text-sm font-bold text-[#1F1A13] mb-2">{tr('سجل التسليم والاستلام')}</p>
+              <div className="border border-[#E9E1D3] rounded-xl divide-y divide-[#F1EBDF] max-h-56 overflow-y-auto">
+                {toolsQ.data!.moves.map(m => (
+                  <div key={m.id} className="px-3.5 py-2 text-xs flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[#1F1A13]">
+                        <span className={`font-bold ${m.type === 'ISSUE' ? 'text-[#1E7A52]' : 'text-amber-600'}`}>{m.type === 'ISSUE' ? tr('تسليم للسيارة') : tr('استلام من السيارة')}</span>
+                        {' '}{m.toolName} × {formatCount(m.qty)}
+                      </p>
+                      {m.note && <p className="text-[#9A8F7E] truncate">{m.note}</p>}
+                    </div>
+                    <div className="text-left text-[#9A8F7E] shrink-0">
+                      <p>{formatDate(m.createdAt)}</p>
+                      {m.createdByName && <p>{m.createdByName}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -327,6 +486,9 @@ const KIND_META: Record<string, { label: string; color: string; sign: string }> 
   SALE: { label: 'بيع', color: 'text-[#C94E28] bg-[#FBEBE2]', sign: '−' },
   RETURN: { label: 'مرتجع', color: 'text-blue-600 bg-blue-50', sign: '+' },
   EXPIRED_OUT: { label: 'إزالة منتهي الصلاحية', color: 'text-red-600 bg-red-50', sign: '−' },
+  // المرتجع التالف يدخل رصيد «المرتجع التالف» لا المتاح، وإزالته من ذلك الرصيد
+  RETURN_DAMAGED: { label: 'مرتجع تالف', color: 'text-red-600 bg-red-50', sign: '+' },
+  DAMAGED_OUT: { label: 'إزالة مرتجع تالف', color: 'text-red-600 bg-red-50', sign: '−' },
   UNLOAD: { label: 'تنزيل للمستودع', color: 'text-amber-600 bg-amber-50', sign: '−' },
   ADJUST: { label: 'تسوية', color: 'text-purple-600 bg-purple-50', sign: '±' },
 };

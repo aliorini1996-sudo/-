@@ -452,6 +452,10 @@ export const vanStockApi = {
     api.get('/van-stock/suggest', { params }),
   setSellPermission: (salesRepId: string, canSellWithoutStock: boolean) =>
     api.patch('/van-stock/sell-permission', { salesRepId, canSellWithoutStock }),
+  // عهدة أدوات السيارة: الأرصدة والحركات، والتسليم/الاستلام للإدارة
+  tools: (salesRepId: string) => api.get('/van-stock/tools', { params: { salesRepId } }),
+  toolMove: (data: { salesRepId: string; type: 'ISSUE' | 'RETURN'; note?: string; items: { toolName: string; qty: number }[] }) =>
+    api.post('/van-stock/tools', data),
 };
 
 // مخزون الشركة (المستودع المركزيّ) — مرتبطٌ بمخزون السيارات

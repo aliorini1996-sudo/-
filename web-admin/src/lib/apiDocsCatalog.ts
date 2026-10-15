@@ -851,7 +851,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "damagedReturnToStock",
       "type": "boolean",
       "required": false,
-      "desc": "سياسة المرتجع التالف لهذا الصنف: هل يعود للمخزون والافتراضي false"
+      "desc": "سياسة قديمة للمرتجع التالف (الافتراضي false). منذ ١٥ أكتوبر ٢٠٢٦ يدخل كل مرتجعٍ تالف رصيد «المرتجع التالف» في السيارة ولا يُباع مهما كانت قيمتها"
      },
      {
       "name": "shelfLifeEnabled",
@@ -1509,7 +1509,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "returnToStock",
       "type": "boolean",
       "required": false,
-      "desc": "هل تعود كميات المرتجع لمخزون سيارة المندوب. عند الغياب: التالف DAMAGED يعود فقط إذا سمحت كل أصنافه بذلك، وغيره يعود"
+      "desc": "هل تعود كميات المرتجع لمخزون سيارة المندوب. عند الغياب: يعود غير التالف. والتالف DAMAGED يدخل رصيد «المرتجع التالف» في السيارة (لا يُباع) مهما كانت هذه القيمة"
      },
      {
       "name": "originalInvoiceId",
@@ -1663,7 +1663,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "returnToStock",
       "type": "boolean",
       "required": false,
-      "desc": "إعادة الكميات لمخزون السيارة. عند الغياب: التالف حسب سياسة الأصناف، وغيره نعم"
+      "desc": "إعادة الكميات لمخزون السيارة. عند الغياب: غير التالف نعم. والتالف يدخل رصيد «المرتجع التالف» في السيارة (لا يُباع) مهما كانت هذه القيمة"
      },
      {
       "name": "clientRef",
@@ -2955,9 +2955,9 @@ export const API_DOC_GROUPS: DocGroup[] = [
      },
      {
       "name": "type",
-      "type": "enum: LOAD | UNLOAD | ADJUST",
+      "type": "enum: LOAD | UNLOAD | ADJUST | EXPIRED_OUT | DAMAGED_OUT",
       "required": false,
-      "desc": "نوع الحركة، والافتراضي LOAD. التحميل يخرج من المستودع إلى السيارة، والتنزيل يعيد إلى المستودع، والتسوية تمسّ السيارة وحدها"
+      "desc": "نوع الحركة، والافتراضي LOAD. التحميل يخرج من المستودع إلى السيارة، والتنزيل يعيد إلى المستودع، والتسوية تمسّ السيارة وحدها. EXPIRED_OUT وDAMAGED_OUT إزالة (إتلاف) من رصيد «منتهي الصلاحية» أو «المرتجع التالف» في السيارة"
      },
      {
       "name": "note",
@@ -3005,9 +3005,10 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "الأثر على المستودع: LOAD ينقص onHand في المستودع، وUNLOAD يعيد الكمية إليه بكلفة خروجها من نفس السيارة (آخر ما حُمّل أول ما يعود)، وADJUST لا يمسّ المستودع",
      "الإدارة لا قيد عليها في إشارة qty، فـLOAD أو UNLOAD بكمية سالبة يُقبل ويعكس المعنى. أرسل الكميات موجبة دائماً",
      "createdBy يُسجَّل ADMIN لكل طلب من غير المندوب",
+     "EXPIRED_OUT وDAMAGED_OUT: كمياتٌ موجبة لا تتجاوز رصيد expired أو damaged للصنف في السيارة (وإلا 400)، ولا تمسّ remaining ولا المستودع",
      "لا يوجد clientRef ولا حماية من التكرار، ولا مسار تعديل أو حذف. التصحيح يكون بحركة معاكسة أو تسوية",
-     "إن غاب salesRepId يُرمى خطأ يحمل status 400، لكن معالج الأخطاء يتجاهل status فيُرَدّ HTTP 500 برسالة «يجب تحديد المندوب»",
-     "مندوب خارج نطاق صاحب المفتاح يُرَدّ عليه HTTP 500 برسالة «المندوب غير موجود»، لا 404"
+     "إن غاب salesRepId يُرَدّ 400 برسالة «يجب تحديد المندوب»",
+     "مندوب خارج نطاق صاحب المفتاح يُرَدّ عليه 404 برسالة «المندوب غير موجود»"
     ],
     "example": "{\"salesRepId\":\"3f6c2a1e-8b4d-4c1a-9e2f-1a2b3c4d5e6f\",\"type\":\"LOAD\",\"note\":\"تحميل صباح الأحد\",\"items\":[{\"productId\":\"a1b2c3d4-0000-4000-8000-000000000001\",\"qty\":24,\"suggestedQty\":24,\"expectedQty\":20.5},{\"productId\":\"a1b2c3d4-0000-4000-8000-000000000002\",\"qty\":10}]}"
    },
@@ -3030,15 +3031,18 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{productId, name, code, unit, loaded, unloaded, adjusted, sold, returned, remaining}]}، مرتبة تنازلياً حسب remaining",
+    "response": "{success:true, data:[{productId, name, code, unit, loaded, unloaded, adjusted, sold, returned, remaining, expired, damaged}]}، مرتبة تنازلياً حسب remaining",
     "rules": [
      "remaining = loaded − unloaded + adjusted − sold + returned، مقرّبة لأربع خانات، وتُحسب على كامل التاريخ",
      "sold هو بنود كل فاتورة مؤكدة (CONFIRMED) غير مرتجعة منسوبة لهذا المندوب، أياً كان من أنشأها",
-     "returned هو المرتجعات التي returnToStock فيها true فقط، أما التالف فلا يعود",
+     "returned هو المرتجعات غير المنتهية وغير التالفة التي returnToStock فيها true",
+     "expired رصيد «منتهي الصلاحية»: مرتجعٌ عاد بعد انتهاء صلاحيته، لا يدخل remaining حتى يُزال بـEXPIRED_OUT",
+     "damaged رصيد «المرتجع التالف»: مرتجعٌ سببه DAMAGED سُجّل منذ ١٥ أكتوبر ٢٠٢٦، لا يدخل remaining مهما كانت returnToStock حتى يُزال بـDAMAGED_OUT. والتالف المنتهي صلاحيته يدخل expired",
      "تظهر فقط الأصناف التي لها حركة لهذا المندوب، والأصناف غير النشطة تظهر إن كانت لها حركة",
      "remaining قد يكون سالباً إن باع المندوب فوق ما حمّل وهو يملك إذن canSellWithoutStock",
      "بنود الفاتورة التي لا صنف لها تُتجاهل",
-     "معرّف مندوب غير موجود يعيد مصفوفة فارغة، ومندوب خارج النطاق يعيد HTTP 500 «المندوب غير موجود»",
+     "معرّف مندوب غير موجود يعيد مصفوفة فارغة، ومندوب خارج النطاق يعيد 404 «المندوب غير موجود»",
+     "salesRepId يُقبل نصاً واحداً فقط، وغير ذلك يُعامَل غائباً",
      "لا ترقيم صفحات"
     ],
     "example": ""
@@ -3159,12 +3163,14 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{salesRepId, repName, isActive, canSellWithoutStock, productCount, totalRemaining, totalLoaded, totalSold, lastLoadAt}], filtered:boolean, from:string|null, to:string|null}",
+    "response": "{success:true, data:[{salesRepId, repName, isActive, canSellWithoutStock, productCount, totalRemaining, totalLoaded, totalSold, totalDamaged, toolsCount, lastLoadAt}], filtered:boolean, from:string|null, to:string|null}",
     "rules": [
      "بلا from وto: الأرقام إجمالية على كامل التاريخ",
      "مع from أو to: totalLoaded وtotalSold هما ما جرى داخل المدة، أما totalRemaining فهو الرصيد التراكمي حتى نهاية to",
      "lastLoadAt هو تاريخ آخر LOAD قبل نهاية to",
      "productCount هو عدد الأصناف التي متبقيها غير صفري",
+     "totalDamaged رصيد «المرتجع التالف» في السيارة حتى نهاية to، كالمتبقي",
+     "toolsCount عدد الأدوات في عهدة السيارة الآن (المسلَّم − المستلَم) ولا يتبع المدة",
      "يشمل المناديب غير النشطين (راجع حقل isActive)",
      "لا ترقيم صفحات، والقائمة تشمل كل المناديب في النطاق"
     ],
@@ -3201,7 +3207,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "الافتراضي true لكل مندوب schema.prisma:314",
      "عند false تُرفض بـ403 الفاتورة غير المرتجعة التي يصدرها المندوب من تطبيقه إن تجاوزت كمية صنف متبقي سيارته",
      "القيد لا يسري على الفواتير التي تنشئها الإدارة أو المفتاح لهذا المندوب، لكنها تُنقص متبقي سيارته",
-     "مندوب غير موجود يعطي 404، ومندوب خارج النطاق يعطي HTTP 500 «المندوب غير موجود»"
+     "مندوب غير موجود أو خارج النطاق يعطي 404 «المندوب غير موجود»"
     ],
     "example": "{\"salesRepId\":\"3f6c2a1e-8b4d-4c1a-9e2f-1a2b3c4d5e6f\",\"canSellWithoutStock\":false}"
    },
@@ -3228,7 +3234,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "rules": [
      "آخر 100 حركة فقط، الأحدث أولاً، بلا ترقيم صفحات. للتاريخ الكامل استعمل /v1/sync/van-loads",
      "حركات مندوب محذوف تبقى وتظهر بـsalesRep={id:null, name:'مندوب محذوف'}، ولا يراها صاحب مفتاح مقيّد النطاق",
-     "salesRepId خارج النطاق يعطي HTTP 500 «المندوب غير موجود»"
+     "salesRepId خارج النطاق يعطي 404 «المندوب غير موجود»"
     ],
     "example": ""
    },
@@ -3251,15 +3257,102 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{kind:'LOAD'|'UNLOAD'|'ADJUST'|'SALE'|'RETURN', date, ref, by, items:[{name, unit, qty}]}]}",
+    "response": "{success:true, data:[{kind:'LOAD'|'UNLOAD'|'ADJUST'|'EXPIRED_OUT'|'DAMAGED_OUT'|'SALE'|'RETURN'|'RETURN_DAMAGED', date, ref, by, items:[{name, unit, qty}]}]}",
     "rules": [
      "يدمج آخر 50 حركة سيارة مع آخر 50 فاتورة مؤكدة، ثم يرتبها تنازلياً حسب التاريخ ويقتطع أول 60",
      "ref في حركة السيارة هو الملاحظة، وفي الفاتورة «رقم الفاتورة · اسم العميل»",
      "by في الفواتير دائماً 'REP' حتى لو أنشأتها الإدارة، وفي حركات السيارة REP أو ADMIN",
-     "المرتجع يظهر هنا حتى لو لم يُعَد للمخزون (returnToStock=false)، وبند بلا صنف يظهر باسم «صنف محذوف»",
+     "المرتجع يظهر هنا حتى لو لم يُعَد للمخزون (returnToStock=false)، والمرتجع التالف الداخل رصيد «المرتجع التالف» يظهر RETURN_DAMAGED، وبند بلا صنف يظهر باسم «صنف محذوف»",
      "لا تُعاد معرّفات للبنود أو الأصناف، فقط الاسم والوحدة والكمية"
     ],
     "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/van-stock/tools",
+    "purpose": "عهدة أدوات سيارة مندوب (عربة تحميل، سلة…): الرصيد لكل أداة وآخر حركات التسليم والاستلام",
+    "permission": "canManageVanStock",
+    "gates": [
+     "accountingEnabled ليس false",
+     "صلاحية canManageVanStock",
+     "المندوب ضمن نطاق صاحب المفتاح"
+    ],
+    "query": [
+     {
+      "name": "salesRepId",
+      "type": "string (uuid)",
+      "required": true,
+      "desc": "معرّف المندوب، وغيابه يعطي 400"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{balances:[{toolName, qty}], total, moves:[{id, type:'ISSUE'|'RETURN', toolName, qty, note, createdByName, createdAt}], names:[string]}}",
+    "rules": [
+     "الرصيد لكل أداة = المسلَّم (ISSUE) − المستلَم (RETURN)، والأداة التي رصيدها صفر لا تظهر في balances",
+     "اسم الأداة يُطابق بلا فروق المسافات ولا حالة الحروف اللاتينية",
+     "moves آخر 100 حركة، الأحدث أولاً",
+     "names أسماء أدوات الشركة المستعملة سابقاً (للاقتراح عند التسليم)",
+     "العهدة ليست بضاعة: لا تمسّ مخزون السيارة ولا المستودع"
+    ],
+    "example": ""
+   },
+   {
+    "method": "POST",
+    "path": "/van-stock/tools",
+    "purpose": "تسليم أدوات لسيارة مندوب عهدةً، أو استلامها منها",
+    "permission": "canManageVanStock + دور لوحة الشركة (requireAdmin)",
+    "gates": [
+     "accountingEnabled ليس false",
+     "صلاحية canManageVanStock",
+     "مفتاح قراءة فقط مرفوض 403 API_KEY_FORBIDDEN",
+     "المندوب ضمن نطاق صاحب المفتاح"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "salesRepId",
+      "type": "string (uuid)",
+      "required": true,
+      "desc": "معرّف المندوب صاحب السيارة"
+     },
+     {
+      "name": "type",
+      "type": "enum: ISSUE | RETURN",
+      "required": true,
+      "desc": "ISSUE تسليم للسيارة، وRETURN استلام منها"
+     },
+     {
+      "name": "note",
+      "type": "string (≤300)",
+      "required": false,
+      "desc": "ملاحظة حرة"
+     },
+     {
+      "name": "items",
+      "type": "array (1..50)",
+      "required": true,
+      "desc": "الأدوات"
+     },
+     {
+      "name": "items[].toolName",
+      "type": "string (1..80)",
+      "required": true,
+      "desc": "اسم الأداة نصاً حراً، مثل «عربة تحميل» أو «سلة»"
+     },
+     {
+      "name": "items[].qty",
+      "type": "integer > 0",
+      "required": true,
+      "desc": "العدد"
+     }
+    ],
+    "response": "201 {success:true, data:{count}}",
+    "rules": [
+     "RETURN لا يتجاوز عهدة الأداة في السيارة، وإلا 400",
+     "سطران للأداة نفسها في الطلب يُجمعان في حركة واحدة",
+     "لا مسار تعديل أو حذف: التصحيح بحركة معاكسة"
+    ],
+    "example": "{\"salesRepId\":\"3f6c2a1e-8b4d-4c1a-9e2f-1a2b3c4d5e6f\",\"type\":\"ISSUE\",\"items\":[{\"toolName\":\"عربة تحميل\",\"qty\":1},{\"toolName\":\"سلة\",\"qty\":4}]}"
    },
    {
     "method": "GET",

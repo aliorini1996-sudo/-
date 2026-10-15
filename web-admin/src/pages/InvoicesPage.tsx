@@ -19,6 +19,7 @@ import { isShareableRow } from '../lib/zatca/shareView';
 import { useAuthStore } from '../store/authStore';
 import { shareOrDownloadExcel, num } from '../utils/excel';
 import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
+import { isDamagedVanReturn } from '../lib/vanDamaged';
 
 /** ألوان شارة حالة الفوترة الإلكترونية (المرحلة الثانية) — مفتاحها `ZatcaChipTone`. */
 const ADMIN_CHIP_TONE: Record<string, string> = {
@@ -103,7 +104,12 @@ export default function InvoicesPage() {
   // تحكّم الأدمن: هل يعود المرتجع لمخزون السيارة؟
   const restockMutation = useMutation({
     mutationFn: ({ id, returnToStock }: { id: string; returnToStock: boolean }) => invoiceApi.setRestock(id, returnToStock),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['invoices'] }); toast.success(tr('تم تحديث عودة المرتجع للمخزون')); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['invoices'] });
+      qc.invalidateQueries({ queryKey: ['van-summary'] });
+      qc.invalidateQueries({ queryKey: ['van-current'] });
+      toast.success(tr('تم تحديث عودة المرتجع للمخزون'));
+    },
     onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('خطأ')),
   });
 
@@ -286,8 +292,14 @@ export default function InvoicesPage() {
                       <button onClick={() => openInvoicePdf(inv.id)} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title={tr('عرض / PDF')}>
                         {openingId === inv.id ? <span className="w-3.5 h-3.5 border-2 border-[#F5C9BA] border-t-[#E15A30] rounded-full animate-spin inline-block" /> : <FileText size={14} />}
                       </button>
+                      {/* المرتجع التالف (منذ ١٥ أكتوبر ٢٠٢٦) يدخل السيارة رصيداً تالفاً لا يُباع مهما كانت «يعود للمخزون» — فلا مبدّل له */}
+                      {inv.type === 'RETURN' && inv.status === 'CONFIRMED' && isDamagedVanReturn(inv) && (
+                        <span className="px-2 py-1 rounded text-[11px] font-semibold whitespace-nowrap bg-red-50 text-red-600" title={tr('يدخل سيارة المندوب تالفا ولا يباع حتى تزيله الإدارة')}>
+                          {tr('تالف بالسيارة')}
+                        </span>
+                      )}
                       {/* تحكّم الأدمن بعودة المرتجع للمخزون — للمرتجعات المعتمدة فقط */}
-                      {inv.type === 'RETURN' && inv.status === 'CONFIRMED' && (
+                      {inv.type === 'RETURN' && inv.status === 'CONFIRMED' && !isDamagedVanReturn(inv) && (
                         <button
                           onClick={() => restockMutation.mutate({ id: inv.id, returnToStock: !inv.returnToStock })}
                           disabled={restockMutation.isPending}

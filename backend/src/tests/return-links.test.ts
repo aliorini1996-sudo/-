@@ -100,8 +100,10 @@ test('حارس نصّي: المندوب يُرجع أصناف الصلاحية �
 
   const van = read('routes/vanStock.ts');
   assert.match(van, /if \(isRep && \(data\.type !== 'LOAD'/, 'المندوب لا يزيل المنتهي (غير التحميل للإدارة وحدها)');
-  assert.ok(van.includes('const assertExpiredAvailable = async () => {'), 'الإزالة لا تتجاوز رصيد المنتهي');
-  assert.ok(van.includes("SELECT pg_advisory_xact_lock(hashtext(${'van-expired:' + salesRepId}))"), 'قفل الإزالة لكل مندوب');
-  assert.ok(van.indexOf('await assertExpiredAvailable();') > van.indexOf('pg_advisory_xact_lock'), 'الفحص بعد القفل');
-  assert.match(van, /returnExpired: true, invoice: \{ select:/, 'مخزون السيارة يقرأ حالة الصلاحية');
+  // المنتهي والتالف بالنمط نفسه: كلٌّ من رصيده، وتحت قفلٍ لكل مندوب ولذلك الرصيد
+  assert.ok(van.includes("const outBucket = data.type === 'EXPIRED_OUT' ? 'expired' : data.type === 'DAMAGED_OUT' ? 'damaged' : null;"));
+  assert.ok(van.includes("const assertOutAvailable = async (bucket: 'expired' | 'damaged') => {"), 'الإزالة لا تتجاوز رصيدها');
+  assert.ok(van.includes("SELECT pg_advisory_xact_lock(hashtext(${`van-${outBucket}:` + salesRepId}))"), 'قفل الإزالة لكل مندوب');
+  assert.ok(van.indexOf('await assertOutAvailable(outBucket);') > van.indexOf('pg_advisory_xact_lock'), 'الفحص بعد القفل');
+  assert.match(van, /returnExpired: true,\s*invoice: \{ select:/, 'مخزون السيارة يقرأ حالة الصلاحية');
 });

@@ -2,12 +2,13 @@ import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import prisma from '../config/database';
-import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
+import { actorOf, authenticate, requireAdmin, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { suggestLoad, type SaleRow } from '../services/suggestLoad';
 import { computeAccuracy } from '../services/suggestAccuracy';
 import { canAccessRep, adminRepFilter, scopedRepRecordWhere } from '../services/adminScope';
 import { roundDecimal } from '../utils/helpers';
+import { DAMAGED_VAN_SINCE, isDamagedVanReturn } from '../services/vanDamaged';
 
 const router = Router();
 router.use(authenticate);
@@ -19,8 +20,8 @@ const REP_GONE_NAME = 'مندوب محذوف';
 
 const loadSchema = z.object({
   salesRepId: z.string().optional(), // الأدمن يحدّده؛ المندوب يُستخدم معرّفه تلقائياً
-  // EXPIRED_OUT: إزالة المنتهي صلاحيته من السيارة (إتلاف) — للإدارة وحدها، من رصيد «منتهي الصلاحية» لا من المتاح
-  type: z.enum(['LOAD', 'UNLOAD', 'ADJUST', 'EXPIRED_OUT']).default('LOAD'),
+  // EXPIRED_OUT / DAMAGED_OUT: إزالة المنتهي صلاحيته أو التالف من السيارة (إتلاف) — للإدارة وحدها، من رصيده هو لا من المتاح
+  type: z.enum(['LOAD', 'UNLOAD', 'ADJUST', 'EXPIRED_OUT', 'DAMAGED_OUT']).default('LOAD'),
   note: z.string().optional(),
   items: z.array(z.object({
     productId: z.string(),
@@ -50,9 +51,21 @@ function resolveRep(req: AuthRequest, bodyRepId?: string): { salesRepId: string;
  */
 async function assertRepInScope(req: AuthRequest, tid: string, salesRepId: string): Promise<void> {
   if (req.user?.role === 'SALES_REP') return;
+  // حزامٌ ثانٍ: معرّفٌ غير نصّي شرطُ Prisma لا معرّف (انظر queryRepId)
+  if (typeof salesRepId !== 'string' || !salesRepId) throw Object.assign(new Error('المندوب غير موجود'), { status: 404 });
   if (!(await canAccessRep(req, tid, salesRepId))) {
     throw Object.assign(new Error('المندوب غير موجود'), { status: 404 });
   }
+}
+
+/**
+ * معرّف المندوب من الاستعلام **نصاً وحده**. Express يحلّل الاستعلام بـqs فيصير `?salesRepId[in][]=A&salesRepId[in][]=B`
+ * كائناً `{ in: [A, B] }` — وتمريره كما هو إلى Prisma شرطٌ لا معرّف: حارس النطاق يجد المندوب الذي في النطاق فيمرّ، ثم
+ * يعيد الاستعلام بيانات الاثنين (مراجعة ١٥ أكتوبر ٢٠٢٦). غير النصّ يُعامَل غائباً.
+ */
+function queryRepId(req: AuthRequest): string | undefined {
+  const v = req.query.salesRepId;
+  return typeof v === 'string' && v ? v : undefined;
 }
 
 interface StockRow {
@@ -60,6 +73,8 @@ interface StockRow {
   loaded: number; unloaded: number; adjusted: number; sold: number; returned: number; remaining: number;
   /** رصيد «منتهي الصلاحية» في السيارة: مرتجعٌ عاد بعد انتهاء صلاحيته — لا يُباع ولا يدخل `remaining`، ويبقى حتى تزيله الإدارة */
   expired: number;
+  /** رصيد «المرتجع التالف» في السيارة: مرتجعٌ سجّله المندوب «بضاعة تالفة» — لا يُباع ولا يدخل `remaining` حتى تزيله الإدارة */
+  damaged: number;
 }
 
 /**
@@ -73,12 +88,24 @@ interface StockRow {
  */
 export interface StockRange { from?: string; to?: string }
 
-export interface StockBucket { loaded: number; unloaded: number; adjusted: number; sold: number; returned: number; expiredIn: number; expiredOut: number }
+export interface StockBucket {
+  loaded: number; unloaded: number; adjusted: number; sold: number; returned: number;
+  expiredIn: number; expiredOut: number; damagedIn: number; damagedOut: number;
+}
 export interface LoadRow { productId: string; qty: number; vanLoad: { type: string; createdAt: Date } }
-/** returnExpired: بند مرتجعٍ عاد بعد انتهاء صلاحيته (services/invoiceExpiry.ts) */
-export interface InvRow { productId: string | null; qty: number; returnExpired?: boolean | null; invoice: { type: string; returnToStock: boolean | null; invoiceDate: Date } }
+/**
+ * returnExpired: بند مرتجعٍ عاد بعد انتهاء صلاحيته (services/invoiceExpiry.ts). returnReason/createdAt: سبب المرتجع ولحظة
+ * تسجيله في الخادم — التالف يدخل رصيد «المرتجع التالف» منذ DAMAGED_VAN_SINCE.
+ */
+export interface InvRow {
+  productId: string | null; qty: number; returnExpired?: boolean | null;
+  invoice: { type: string; returnToStock: boolean | null; invoiceDate: Date; returnReason?: string | null; createdAt?: Date | null };
+}
 
-const blankBucket = (): StockBucket => ({ loaded: 0, unloaded: 0, adjusted: 0, sold: 0, returned: 0, expiredIn: 0, expiredOut: 0 });
+// «المرتجع التالف» منذ DAMAGED_VAN_SINCE («من اليوم فصاعداً» — services/vanDamaged.ts)
+export { DAMAGED_VAN_SINCE, isDamagedVanReturn };
+
+const blankBucket = (): StockBucket => ({ loaded: 0, unloaded: 0, adjusted: 0, sold: 0, returned: 0, expiredIn: 0, expiredOut: 0, damagedIn: 0, damagedOut: 0 });
 
 /**
  * يطوي الحركات في دلوين: `bal` كل ما وصل (الرصيد)، و`acc` ما وقع داخل النافذة (التدفّق).
@@ -99,13 +126,16 @@ export function foldStock(loadItems: LoadRow[], invItems: InvRow[], from?: Date)
     if (type === 'LOAD') m.loaded += qty;
     else if (type === 'UNLOAD') m.unloaded += qty;
     else if (type === 'EXPIRED_OUT') m.expiredOut += qty; // إزالة المنتهي: من رصيده هو لا من المتاح
+    else if (type === 'DAMAGED_OUT') m.damagedOut += qty; // إزالة التالف: من رصيده هو لا من المتاح
     else m.adjusted += qty;
   };
-  const addInv = (m: StockBucket, inv: { type: string; returnToStock: boolean | null }, qty: number, returnExpired?: boolean | null) => {
+  const addInv = (m: StockBucket, inv: InvRow['invoice'], qty: number, returnExpired?: boolean | null) => {
     if (inv.type === 'RETURN') {
       // المنتهي صلاحيته يدخل السيارة «منتهي الصلاحية» مهما كان سبب الإرجاع — لا يُباع ويبقى حتى تزيله الإدارة
       if (returnExpired) m.expiredIn += qty;
-      // وغيره لا يُعاد لمخزون السيارة إلا إذا حُدِّد returnToStock (التالف عادةً لا يعود)
+      // والتالف (منذ DAMAGED_VAN_SINCE) يدخل «المرتجع التالف» — لا يُباع مهما كانت returnToStock أو سياسة الصنف
+      else if (isDamagedVanReturn(inv)) m.damagedIn += qty;
+      // وغيرهما لا يُعاد لمخزون السيارة إلا إذا حُدِّد returnToStock
       else if (inv.returnToStock) m.returned += qty;
     } else m.sold += qty;
   };
@@ -140,7 +170,10 @@ export async function computeStock(tid: string, salesRepId: string, range?: Stoc
     }),
     prisma.invoiceItem.findMany({
       where: { invoice: { tenantId: tid, salesRepId, status: 'CONFIRMED', ...(to && { invoiceDate: { lte: to } }) } },
-      select: { productId: true, qty: true, returnExpired: true, invoice: { select: { type: true, returnToStock: true, invoiceDate: true } } },
+      select: {
+        productId: true, qty: true, returnExpired: true,
+        invoice: { select: { type: true, returnToStock: true, invoiceDate: true, returnReason: true, createdAt: true } },
+      },
     }),
     prisma.product.findMany({ where: { tenantId: tid }, select: { id: true, name: true, unit: true, code: true } }),
   ]);
@@ -158,7 +191,8 @@ export async function computeStock(tid: string, salesRepId: string, range?: Stoc
     // تقريب 4 خانات يمحو غبار سلسلة الجمع (3×0.1−0.3 = 5.55e-17 صف شبحي يتصدر الفرز)
     const remaining = roundDecimal(b.loaded - b.unloaded + b.adjusted - b.sold + b.returned, 4);
     const expired = roundDecimal(b.expiredIn - b.expiredOut, 4);
-    rows.push({ productId: pid, name: p.name, code: p.code, unit: p.unit, ...m, remaining, expired });
+    const damaged = roundDecimal(b.damagedIn - b.damagedOut, 4);
+    rows.push({ productId: pid, name: p.name, code: p.code, unit: p.unit, ...m, remaining, expired, damaged });
   }
   rows.sort((a, b) => b.remaining - a.remaining);
   return rows;
@@ -185,19 +219,21 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     const items = data.items.filter(i => i.qty !== 0);
     if (!items.length) { res.status(400).json({ success: false, message: 'لا توجد كميات صالحة' }); return; }
 
-    // إزالة المنتهي صلاحيته: كمياتٌ موجبة لا تتجاوز رصيد «منتهي الصلاحية» لكل صنف في سيارة هذا المندوب — والفحص
-    // والإنشاء تحت قفلٍ استشاري للمندوب (أدناه) فلا تتجاوز إزالتان متزامنتان رصيده معاً
-    if (data.type === 'EXPIRED_OUT' && items.some(i => i.qty < 0)) {
+    // إزالة المنتهي صلاحيته أو التالف: كمياتٌ موجبة لا تتجاوز رصيده لكل صنف في سيارة هذا المندوب — والفحص والإنشاء
+    // تحت قفلٍ استشاري للمندوب ولذلك الرصيد (أدناه) فلا تتجاوز إزالتان متزامنتان رصيده معاً
+    const outBucket = data.type === 'EXPIRED_OUT' ? 'expired' : data.type === 'DAMAGED_OUT' ? 'damaged' : null;
+    if (outBucket && items.some(i => i.qty < 0)) {
       res.status(400).json({ success: false, message: 'كمية الإزالة يجب أن تكون موجبة' }); return;
     }
-    const assertExpiredAvailable = async () => {
-      const expiredById = new Map((await computeStock(tid, salesRepId)).map(s => [s.productId, s.expired]));
+    const assertOutAvailable = async (bucket: 'expired' | 'damaged') => {
+      const haveById = new Map((await computeStock(tid, salesRepId)).map(s => [s.productId, s[bucket]]));
       const want = new Map<string, number>();
       for (const i of items) want.set(i.productId, (want.get(i.productId) ?? 0) + i.qty);
       for (const [pid, q] of want) {
-        const have = expiredById.get(pid) ?? 0;
+        const have = haveById.get(pid) ?? 0;
         if (q > have + 1e-9) {
-          throw Object.assign(new Error(`الكمية أكبر من المنتهي صلاحيته في السيارة (${Number(Math.max(0, have).toFixed(3))})`), { status: 400 });
+          const what = bucket === 'expired' ? 'المنتهي صلاحيته' : 'التالف';
+          throw Object.assign(new Error(`الكمية أكبر من ${what} في السيارة (${Number(Math.max(0, have).toFixed(3))})`), { status: 400 });
         }
       }
     };
@@ -214,10 +250,10 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
       },
       include: { items: { include: { product: { select: { id: true, name: true, unit: true } } } } },
     });
-    const load = data.type === 'EXPIRED_OUT'
+    const load = outBucket
       ? await prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'van-expired:' + salesRepId}))`;
-        await assertExpiredAvailable(); // يقرأ الملتزَم: الإزالة السابقة التزمت قبل أن يُفكّ قفلها
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`van-${outBucket}:` + salesRepId}))`;
+        await assertOutAvailable(outBucket); // يقرأ الملتزَم: الإزالة السابقة التزمت قبل أن يُفكّ قفلها
         return createLoad(tx);
       })
       : await createLoad(prisma);
@@ -230,7 +266,7 @@ router.get('/current', async (req: AuthRequest, res: Response, next: NextFunctio
   try {
     const tid = tenantId(req);
     const isRep = req.user?.role === 'SALES_REP';
-    const salesRepId = isRep ? req.user!.id : (req.query.salesRepId as string | undefined);
+    const salesRepId = isRep ? req.user!.id : queryRepId(req);
     if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
     await assertRepInScope(req, tid, salesRepId);
     const rows = await computeStock(tid, salesRepId);
@@ -251,7 +287,7 @@ router.get('/suggest', async (req: AuthRequest, res: Response, next: NextFunctio
   try {
     const tid = tenantId(req);
     const isRep = req.user?.role === 'SALES_REP';
-    const salesRepId = isRep ? req.user!.id : (req.query.salesRepId as string | undefined);
+    const salesRepId = isRep ? req.user!.id : queryRepId(req);
     if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
     await assertRepInScope(req, tid, salesRepId);
 
@@ -309,7 +345,7 @@ router.get('/accuracy', async (req: AuthRequest, res: Response, next: NextFuncti
   try {
     const tid = tenantId(req);
     const isRep = req.user?.role === 'SALES_REP';
-    const salesRepId = isRep ? req.user!.id : (req.query.salesRepId as string | undefined);
+    const salesRepId = isRep ? req.user!.id : queryRepId(req);
     if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
     await assertRepInScope(req, tid, salesRepId);
 
@@ -376,6 +412,11 @@ router.get('/summary', requireAdmin, async (req: AuthRequest, res: Response, nex
     const lastLoadBefore = to ? new Date(new Date(to).setHours(23, 59, 59, 999)) : undefined;
 
     const reps = await prisma.salesRep.findMany({ where: { tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true, name: true, isActive: true, canSellWithoutStock: true } });
+    // عهدة الأدوات: رصيد اللحظة (لا تتبع المدّة — عهدةٌ قائمة لا تدفّق)، باستعلامٍ مجمَّع واحد للشركة
+    const toolGroups = await prisma.vanToolMove.groupBy({
+      by: ['salesRepId', 'type'], where: { tenantId: tid, salesRepId: { in: reps.map(r => r.id) } }, _sum: { qty: true },
+    });
+    const toolsByRep = toolCountsByRep(toolGroups);
     const data = await Promise.all(reps.map(async r => {
       const rows = await computeStock(tid, r.id, range);
       const lastLoad = await prisma.vanLoad.findFirst({
@@ -389,6 +430,10 @@ router.get('/summary', requireAdmin, async (req: AuthRequest, res: Response, nex
         totalRemaining: roundDecimal(rows.reduce((s, x) => s + x.remaining, 0), 4),
         totalLoaded: roundDecimal(rows.reduce((s, x) => s + x.loaded, 0), 4),
         totalSold: roundDecimal(rows.reduce((s, x) => s + x.sold, 0), 4),
+        // «المرتجع التالف»: رصيدٌ حتى نهاية المدّة كالمتبقّي، لا يُباع
+        // الموجب وحده: رصيدٌ سالب لصنف (إلغاء مرتجعٍ بعد إزالة بضاعته) لا يُخفي تالفاً حقيقياً لصنفٍ آخر في المجموع
+        totalDamaged: roundDecimal(rows.reduce((s, x) => s + Math.max(0, x.damaged), 0), 4),
+        toolsCount: toolsByRep.get(r.id) ?? 0,
         lastLoadAt: lastLoad?.createdAt || null,
       };
     }));
@@ -417,7 +462,7 @@ router.get('/loads', async (req: AuthRequest, res: Response, next: NextFunction)
   try {
     const tid = tenantId(req);
     const isRep = req.user?.role === 'SALES_REP';
-    const salesRepId = isRep ? req.user!.id : (req.query.salesRepId as string | undefined);
+    const salesRepId = isRep ? req.user!.id : queryRepId(req);
     if (salesRepId) await assertRepInScope(req, tid, salesRepId);
     const loads = await prisma.vanLoad.findMany({
       // القيد يغطّي حالة عدم تمرير معرّف: بلا نطاق يعود {} فلا يتغيّر شيء
@@ -439,7 +484,7 @@ router.get('/movements', async (req: AuthRequest, res: Response, next: NextFunct
   try {
     const tid = tenantId(req);
     const isRep = req.user?.role === 'SALES_REP';
-    const salesRepId = isRep ? req.user!.id : (req.query.salesRepId as string | undefined);
+    const salesRepId = isRep ? req.user!.id : queryRepId(req);
     if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
     await assertRepInScope(req, tid, salesRepId);
 
@@ -460,7 +505,8 @@ router.get('/movements', async (req: AuthRequest, res: Response, next: NextFunct
         items: l.items.map(i => ({ name: i.product.name, unit: i.product.unit, qty: i.qty })),
       })),
       ...invoices.map(inv => ({
-        kind: inv.type === 'RETURN' ? 'RETURN' : 'SALE', date: inv.invoiceDate,
+        // المرتجع التالف (منذ DAMAGED_VAN_SINCE) يدخل رصيد «المرتجع التالف» لا المتاح — فيُوسم بذلك في الحركة
+        kind: inv.type === 'RETURN' ? (isDamagedVanReturn(inv) ? 'RETURN_DAMAGED' : 'RETURN') : 'SALE', date: inv.invoiceDate,
         ref: `${inv.number} · ${inv.customer.name}`, by: 'REP',
         items: inv.items.map(i => ({ name: i.product?.name ?? 'صنف محذوف', unit: i.product?.unit ?? '', qty: i.qty })),
       })),
@@ -468,6 +514,135 @@ router.get('/movements', async (req: AuthRequest, res: Response, next: NextFunct
 
     res.json({ success: true, data: movements });
   } catch (err) { next(err); }
+});
+
+// ═══ عهدة أدوات السيارة (طلب المالك ١٥ أكتوبر ٢٠٢٦) ═══
+// عربة تحميل، سلة… تُسلَّم لسيارة المندوب عهدةً. دفتر حركات (VanToolMove): تسليمٌ ISSUE أو استلامٌ RETURN، والرصيد مشتقّ.
+// الإدارة تسجّل (requireAdmin + نطاق المندوب)، والمندوب يطّلع على عهدته وحده. ليست بضاعة: لا تمسّ مخزون السيارة ولا المستودع.
+
+/** مفتاح اسم الأداة: «سلة»، « سلة »، و«سلة  كبيرة» بمسافتين = أداةٌ واحدة؛ والحروف اللاتينية بلا حالة */
+export const toolKey = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase();
+
+/**
+ * أرصدة العهدة لكل أداة من حركاتها بترتيبها الزمني: المسلَّم − المستلَم، والاسم المعروض أول ما سُجّل به. أداةٌ رصيدها
+ * صفر (سُلّمت ثم استُلمت كلها) لا تظهر.
+ */
+export function foldTools(moves: { toolName: string; qty: number; type: string }[]): { toolName: string; qty: number }[] {
+  const byKey = new Map<string, { toolName: string; qty: number }>();
+  for (const m of moves) {
+    const k = toolKey(m.toolName);
+    const row = byKey.get(k) ?? { toolName: m.toolName.trim().replace(/\s+/g, ' '), qty: 0 };
+    row.qty += m.type === 'RETURN' ? -m.qty : m.qty;
+    byKey.set(k, row);
+  }
+  return [...byKey.values()].filter(r => r.qty !== 0).sort((a, b) => b.qty - a.qty || a.toolName.localeCompare(b.toolName, 'ar'));
+}
+
+/** عدد الأدوات في عهدة كل مندوب من مجموعٍ مجمَّع (salesRepId × type) */
+export function toolCountsByRep(groups: { salesRepId: string | null; type: string; _sum: { qty: number | null } }[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const g of groups) {
+    if (!g.salesRepId) continue;
+    const q = g._sum.qty ?? 0;
+    out.set(g.salesRepId, (out.get(g.salesRepId) ?? 0) + (g.type === 'RETURN' ? -q : q));
+  }
+  return out;
+}
+
+const toolMoveSchema = z.object({
+  salesRepId: z.string().min(1),
+  type: z.enum(['ISSUE', 'RETURN']),
+  note: z.string().trim().max(300).optional(),
+  items: z.array(z.object({
+    toolName: z.string().trim().min(1, 'اكتب اسم الأداة').max(80),
+    qty: z.number().int('العدد يجب أن يكون عددا صحيحا').positive('العدد يجب أن يكون أكبر من صفر').max(100000),
+  })).min(1).max(50),
+});
+
+// عهدة الأدوات لمندوب: الأرصدة وآخر الحركات (المندوب=سيارته، الأدمن=يمرّر salesRepId) + أسماء أدوات الشركة للإدارة
+router.get('/tools', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const isRep = req.user?.role === 'SALES_REP';
+    const salesRepId = isRep ? req.user!.id : queryRepId(req);
+    if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
+    await assertRepInScope(req, tid, salesRepId);
+    const [moves, names] = await Promise.all([
+      prisma.vanToolMove.findMany({
+        where: { tenantId: tid, salesRepId }, orderBy: { createdAt: 'asc' },
+        select: { id: true, type: true, toolName: true, qty: true, note: true, createdByName: true, createdAt: true },
+      }),
+      // اقتراحات الاسم في نموذج التسليم — من كل أدوات الشركة، للإدارة وحدها
+      isRep ? Promise.resolve([] as { toolName: string }[]) : prisma.vanToolMove.findMany({
+        where: { tenantId: tid }, distinct: ['toolName'], select: { toolName: true }, take: 200,
+      }),
+    ]);
+    const balances = foldTools(moves);
+    res.json({
+      success: true,
+      data: {
+        balances,
+        total: balances.reduce((s, b) => s + b.qty, 0),
+        moves: moves.slice(-100).reverse(),
+        names: [...new Map(names.map(n => [toolKey(n.toolName), n.toolName.trim().replace(/\s+/g, ' ')])).values()].sort((a, b) => a.localeCompare(b, 'ar')),
+      },
+    });
+  } catch (err) { next(err); }
+});
+
+// تسليم أدوات للسيارة أو استلامها منها — للإدارة. الاستلام لا يتجاوز ما في العهدة، والفحص والكتابة تحت قفلٍ استشاري
+// للمندوب فلا يتجاوز استلامان متزامنان رصيده معاً
+router.post('/tools', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const data = toolMoveSchema.parse(req.body);
+    await assertRepInScope(req, tid, data.salesRepId);
+    const rep = await prisma.salesRep.findFirst({ where: { id: data.salesRepId, tenantId: tid }, select: { id: true } });
+    if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+    // سطران للأداة نفسها في الطلب يُجمعان — والاسم بصيغته الموحّدة
+    const want = new Map<string, { toolName: string; qty: number }>();
+    for (const i of data.items) {
+      const k = toolKey(i.toolName);
+      const row = want.get(k) ?? { toolName: i.toolName.trim().replace(/\s+/g, ' '), qty: 0 };
+      row.qty += i.qty;
+      want.set(k, row);
+    }
+    const actor = actorOf(req);
+    const created = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'van-tools:' + data.salesRepId}))`;
+      if (data.type === 'RETURN') {
+        const have = new Map(foldTools(await tx.vanToolMove.findMany({
+          where: { tenantId: tid, salesRepId: data.salesRepId }, orderBy: { createdAt: 'asc' },
+          select: { toolName: true, qty: true, type: true },
+        })).map(b => [toolKey(b.toolName), b]));
+        for (const [k, w] of want) {
+          const h = have.get(k)?.qty ?? 0;
+          if (w.qty > h) throw Object.assign(new Error(`العدد أكبر من عهدة «${w.toolName}» في السيارة (${Math.max(0, h)})`), { status: 400 });
+          w.toolName = have.get(k)!.toolName; // الاستلام باسم التسليم نفسه
+        }
+      }
+      await tx.vanToolMove.createMany({
+        data: [...want.values()].map(w => ({
+          tenantId: tid, salesRepId: data.salesRepId, type: data.type, toolName: w.toolName, qty: w.qty,
+          // جلسة المالك تُسجَّل OWNER:<المعرّف> و«الدعم الفني» لا باسم مدير الشركة (actorOf)
+          note: data.note || null, createdById: actor, createdByName: actor.startsWith('OWNER:') ? 'الدعم الفني' : (req.user?.name ?? null),
+        })),
+      });
+      return want.size;
+    });
+    res.status(201).json({ success: true, data: { count: created } });
+  } catch (err) { next(err); }
+});
+
+// أخطاء هذا الموجّه ذات status (4xx): «يجب تحديد المندوب»، «المندوب غير موجود»، تجاوز رصيد الإزالة أو العهدة — تُردّ
+// بحالتها ورسالتها. معالج الأخطاء العام لا يقرأ status فيردّها 500، ولمفتاح API «خطأ في الخادم» بلا سبب.
+router.use((err: unknown, _req: AuthRequest, res: Response, next: NextFunction) => {
+  const status = (err as { status?: unknown })?.status;
+  if (err instanceof Error && typeof status === 'number' && status >= 400 && status < 500) {
+    res.status(status).json({ success: false, message: err.message });
+    return;
+  }
+  next(err);
 });
 
 export default router;

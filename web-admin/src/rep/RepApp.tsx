@@ -37,7 +37,7 @@ import { BUYER_BILLING_FIELDS, BuyerField } from '../lib/zatca/buyerData';
 import { BuyerFormValues, buyerBadge, buyerCreatePayload, buyerFormCheck, buyerFormValues, buyerUpdatePayload } from '../lib/zatca/buyerForm';
 import { RepBuyerBanner, RepBuyerDataForm, fetchIncompleteBuyers } from './RepBuyerData';
 import { Component, lazy, Suspense, useRef, type ReactNode } from 'react';
-import { Sparkles, MapPinOff } from 'lucide-react';
+import { Sparkles, MapPinOff, Wrench } from 'lucide-react';
 import { useLocationGate, strictLiveFix } from './locationGate';
 import { attemptClientRef, customerScopeOpen, deviceKind, liveSnapshot, onLiveRefused, requestLocationInGesture, resetLive, strictRepNow, LIVE_REFUSAL_MESSAGE, type LiveBlock } from './liveGate';
 import { clearAiSession, markConverted, type AiAddPrefill } from './aiRepSession';
@@ -1916,6 +1916,12 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                 <div className="bg-amber-50 border border-amber-100 rounded-xl p-2 text-[11px] text-amber-800 text-center">
                   {tr('مرتجع مبيعات سيخفض رصيد العميل بقيمة المرتجع')}
                 </div>
+                {/* التالف يدخل سيارة المندوب رصيداً تالفاً لا يُباع حتى تزيله الإدارة */}
+                {returnReason === 'DAMAGED' && (
+                  <div className="bg-red-50 border border-red-100 rounded-xl p-2 text-[11px] text-red-700 text-center">
+                    {tr('البضاعة التالفة تدخل سيارتك تالفة ولا تباع حتى تزيلها الإدارة')}
+                  </div>
+                )}
                 {/* مرتجعٌ من فاتورة بيع — إلزامي للأصناف المفعّلة صلاحيتها */}
                 {saleRef ? (
                   <div className="flex items-center gap-2 bg-white border border-amber-200 rounded-xl p-2 text-xs">
@@ -3009,7 +3015,10 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
   const [view, setView] = useState<'list' | 'load' | 'request'>('list');
   useBackClose(view !== 'list', () => setView('list'));
   // expired: «منتهي الصلاحية» في السيارة — مرتجعٌ عاد بعد انتهاء صلاحيته، لا يُباع ولا يدخل المتبقّي حتى تزيله الإدارة
-  const [stock, setStock] = useState<{ productId: string; name: string; code: string; unit: string; loaded: number; sold: number; returned: number; remaining: number; expired?: number }[]>([]);
+  // damaged: «المرتجع التالف» — مرتجعٌ سجّله المندوب «بضاعة تالفة»، لا يُباع ولا يدخل المتبقّي حتى تزيله الإدارة
+  const [stock, setStock] = useState<{ productId: string; name: string; code: string; unit: string; loaded: number; sold: number; returned: number; remaining: number; expired?: number; damaged?: number }[]>([]);
+  // عهدة أدوات السيارة (عربة، سلة…) — تسجّلها الإدارة، والمندوب يطّلع عليها وحسب
+  const [tools, setTools] = useState<{ toolName: string; qty: number }[]>([]);
   const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState<{ id: string; name: string; unit: string; code: string }[]>([]);
   const [rows, setRows] = useState<{ productId: string; name: string; unit: string; qty: string }[]>([]);
@@ -3020,6 +3029,7 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
   const loadStock = useCallback(async () => {
     setLoading(true);
     try { const r = await repApi.get('/van-stock/current'); setStock(r.data.data); } catch { /* offline */ }
+    try { const t = await repApi.get('/van-stock/tools'); setTools(t.data.data?.balances ?? []); } catch { /* offline */ }
     setLoading(false);
   }, []);
   useEffect(() => { loadStock(); }, [loadStock]);
@@ -3222,6 +3232,19 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
         <div className="mx-3 mt-3 bg-amber-50 text-amber-700 text-xs rounded-lg px-3 py-2">{tr('لا تملك صلاحية التحميل اطلب ما تحتاجه من زر طلب بضاعة')}</div>
       ))}
       <div className="flex-1 overflow-y-auto p-3 space-y-2 pb-24">
+        {/* عهدة أدوات السيارة: للاطلاع — التسليم والاستلام تسجّلهما الإدارة */}
+        {!loading && tools.length > 0 && (
+          <div className="bg-white border border-gray-100 rounded-xl p-3 shadow-sm">
+            <p className="text-xs font-bold text-[#1F1A13] flex items-center gap-1.5 mb-1.5"><Wrench size={14} className="text-[#E15A30]" /> {tr('عهدة أدوات السيارة')}</p>
+            <div className="flex flex-wrap gap-1.5">
+              {tools.map(t => (
+                <span key={t.toolName} className="text-[11px] bg-[#FAF7F0] border border-[#E9E1D3] rounded-full px-2.5 py-1 text-[#1F1A13]">
+                  {t.toolName} <b className="tabular-nums">× {fmt(t.qty)}</b>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
         {loading ? <p className="text-center text-gray-400 text-sm py-8">{tr('جار التحميل')}</p>
           : stock.length === 0 ? (
             <div className="text-center py-10">
@@ -3236,6 +3259,9 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
                 <p className="text-[11px] text-gray-400">{tr('محمل')} {fmt(s.loaded)} · {tr('مباع')} {fmt(s.sold)} {s.unit}</p>
                 {(s.expired ?? 0) > 0 && (
                   <p className="text-[11px] font-semibold text-red-600">{tr('منتهي الصلاحية')} {fmt(s.expired!)} {s.unit} — {tr('لا يباع حتى تزيله الإدارة')}</p>
+                )}
+                {(s.damaged ?? 0) > 0 && (
+                  <p className="text-[11px] font-semibold text-red-600">{tr('تالف')} {fmt(s.damaged!)} {s.unit} — {tr('لا يباع حتى تزيله الإدارة')}</p>
                 )}
               </div>
               <div className="text-left shrink-0">

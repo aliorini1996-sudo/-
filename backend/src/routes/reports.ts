@@ -5,6 +5,7 @@ import { scopedRecordWhere, scopedRepRecordWhere, adminCustomerFilter, adminRepF
 import { AuthRequest } from '../types';
 import { composeWorkDays, attendanceByDay, overlayAttendance, mergeVisitsByRep, asVisitLike } from '../services/workDay';
 import { FINANCIAL_METRICS, RANKING_METRICS, rankRows, trackedMeters, type RankingMetric } from '../services/repRanking';
+import { isDamagedVanReturn } from '../services/vanDamaged';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canViewReports'));
@@ -221,7 +222,7 @@ router.get('/returns', async (req: AuthRequest, res: Response, next: NextFunctio
         where: { tenantId: tid, ...scope, status: 'CONFIRMED', type: 'RETURN', invoiceDate: dateFilter },
         select: {
           id: true, number: true, invoiceDate: true, total: true, taxAmt: true,
-          returnReason: true, returnToStock: true, documentKind: true, notes: true,
+          returnReason: true, returnToStock: true, documentKind: true, notes: true, createdAt: true,
           originalInvoice: { select: { number: true } },
           customer: { select: { id: true, name: true, phone: true, city: true } },
           salesRep: { select: { id: true, name: true } },
@@ -259,6 +260,8 @@ router.get('/returns', async (req: AuthRequest, res: Response, next: NextFunctio
         id: r.id, number: r.number, invoiceDate: r.invoiceDate,
         total: Number(r.total), taxAmt: Number(r.taxAmt),
         reason: r.returnReason ?? 'NORMAL', returnToStock: r.returnToStock, creditNote: r.documentKind === 'CREDIT_NOTE',
+        // التالف منذ ١٥ أكتوبر ٢٠٢٦ يدخل رصيد «المرتجع التالف» في السيارة (لا يُباع) مهما كانت returnToStock
+        toDamagedStock: isDamagedVanReturn(r),
         notes: r.notes,
         saleInvoices: r.originalInvoice ? [r.originalInvoice.number] : linked,
         customer: r.customer, salesRep: r.salesRep,

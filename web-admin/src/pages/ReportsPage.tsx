@@ -54,6 +54,8 @@ interface OrderRow {
 interface ReturnRow {
   id: string; number: string; invoiceDate: string; total: number; taxAmt: number;
   reason: 'NORMAL' | 'DAMAGED' | 'EXCHANGE' | string; returnToStock: boolean | null; creditNote: boolean; notes: string | null;
+  /** تالفٌ يدخل رصيد «المرتجع التالف» في السيارة (لا يُباع) مهما كانت returnToStock — منذ ١٥ أكتوبر ٢٠٢٦ */
+  toDamagedStock?: boolean;
   saleInvoices: string[];
   customer: { id: string; name: string; phone: string; city: string | null } | null;
   salesRep: { id: string; name: string } | null;
@@ -522,7 +524,7 @@ export default function ReportsPage() {
           [tr('العميل')]: r.customer?.name || '—',
           [tr('المندوب')]: r.salesRep?.name || '—',
           [tr('السبب')]: reasonLabel(r.reason),
-          [tr('يعود للمخزون')]: r.returnToStock ? tr('نعم') : tr('لا'),
+          [tr('يعود للمخزون')]: r.toDamagedStock ? tr('تالف بالسيارة') : r.returnToStock ? tr('نعم') : tr('لا'),
           [tr('من فاتورة البيع')]: r.saleInvoices.join('، '),
           [tr('الإجمالي')]: num(r.total),
         })), colWidths: [16, 12, 24, 20, 14, 12, 18, 14] },
@@ -1025,7 +1027,9 @@ export default function ReportsPage() {
                           <td className="text-gray-500 text-sm">{fmtDay(r.invoiceDate)}</td>
                           <td className="text-sm">
                             <span className={r.reason === 'DAMAGED' ? 'text-red-600 font-semibold' : 'text-gray-700'}>{reasonLabel(r.reason)}</span>
-                            {r.returnToStock && <span className="block text-[10px] text-[#1E7A52]">{tr('يعود للمخزون')}</span>}
+                            {r.toDamagedStock
+                              ? <span className="block text-[10px] text-red-600">{tr('تالف بالسيارة')}</span>
+                              : r.returnToStock && <span className="block text-[10px] text-[#1E7A52]">{tr('يعود للمخزون')}</span>}
                           </td>
                           <td className="text-gray-600 text-sm" dir="ltr">{r.saleInvoices.length ? r.saleInvoices.join('، ') : '—'}</td>
                           <td className="text-xs text-gray-600">

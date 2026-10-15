@@ -200,12 +200,8 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
             </div>
           </div>
 
-          {/* سياسة المرتجع التالف لهذا الصنف — تضبط افتراض «يعود للمخزون» عند إنشاء مرتجع تالف */}
-          <label className="flex items-center gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50/60 cursor-pointer">
-            <input type="checkbox" {...register('damagedReturnToStock')} className="w-4 h-4 accent-[#E15A30]" />
-            <span className="text-sm text-gray-700">{tr('المرتجع التالف من هذا الصنف يعود لمخزون السيارة')}</span>
-            <span className="text-[10px] text-gray-400 mr-auto">{tr('الأدمن يبقى يتحكم لكل مرتجع')}</span>
-          </label>
+          {/* سياسة «المرتجع التالف يعود لمخزون السيارة» أُلغيت (طلب المالك ١٥ أكتوبر ٢٠٢٦): كل مرتجعٍ تالف يدخل السيارة رصيد
+              «المرتجع التالف» ولا يُباع حتى تزيله الإدارة — من صفحة مخزون سيارات المناديب */}
 
           {/* صلاحية الصنف — اختيارية: مدةٌ من أساسٍ يُختار (البيع أو الشراء أو تحميل السيارة)، ومنها يُسجَّل عند المرتجع هل عاد منتهياً */}
           <div className="rounded-xl border border-gray-200 p-3 space-y-3">

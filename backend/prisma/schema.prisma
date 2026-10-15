@@ -78,6 +78,7 @@ model Tenant {
   erpSyncLogs          ErpSyncLog[]
   vanLoads             VanLoad[]
   repStockRequests     RepStockRequest[]
+  vanToolMoves         VanToolMove[]
   warehouseEntries     WarehouseEntry[]
   repLocations         RepLocation[]
   repSettlements       RepSettlement[]
@@ -332,6 +333,7 @@ model SalesRep {
   notifications Notification[]
   vanLoads      VanLoad[]
   stockRequests RepStockRequest[]
+  vanToolMoves  VanToolMove[]
   locations     RepLocation[]
   settlements   RepSettlement[]
   RepVisit      RepVisit[]
@@ -1365,6 +1367,28 @@ model RepStockRequestItem {
 
   @@unique([requestId, productId])
   @@map("rep_stock_request_items")
+}
+
+// عهدة أدوات سيارة المندوب (طلب المالك ١٥ أكتوبر ٢٠٢٦): عربة تحميل، سلة… — **دفتر حركات** لا قائمة تُعدَّل: تسليمٌ
+// للسيارة (ISSUE) أو استلامٌ منها (RETURN)، والرصيد لكل أداة مشتقّ (routes/vanStock.ts foldTools) فيبقى أثر كل تسليم
+// ومن سجّله. ليست بضاعة: لا صنف ولا تدخل مخزون السيارة ولا المستودع. الإدارة تسجّل، والمندوب يطّلع على عهدته.
+model VanToolMove {
+  id            String    @id @default(uuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  // SetNull كالتحميل: حذف المندوب لا يمحو أثر ما سُلّم له
+  salesRepId    String?
+  salesRep      SalesRep? @relation(fields: [salesRepId], references: [id], onDelete: SetNull)
+  type          String // ISSUE تسليم للسيارة | RETURN استلام منها
+  toolName      String
+  qty           Int // موجبٌ دائماً — الاتجاه في type
+  note          String?
+  createdById   String?
+  createdByName String?
+  createdAt     DateTime  @default(now())
+
+  @@index([tenantId, salesRepId])
+  @@map("van_tool_moves")
 }
 
 /// وارد مخزون الشركة (المستودع المركزيّ) — استلام/شراء أو تسوية. مرتبطٌ بمخزون

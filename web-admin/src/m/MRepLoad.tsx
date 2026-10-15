@@ -31,6 +31,8 @@ interface StockRow {
   loaded: number; unloaded: number; adjusted: number; sold: number; returned: number; remaining: number;
   /** «منتهي الصلاحية» في السيارة — لا يُباع ولا يدخل المتبقّي، وتزيله الإدارة من لوحة مخزون السيارات */
   expired?: number;
+  /** «المرتجع التالف» في السيارة — لا يُباع ولا يدخل المتبقّي، وتزيله الإدارة من لوحة مخزون السيارات */
+  damaged?: number;
 }
 
 interface ProductPick { id: string; name: string; code?: string; unit?: string }
@@ -71,6 +73,8 @@ const KIND_META: Record<string, { label: string; cls: string; sign: string }> = 
   UNLOAD: { label: 'تنزيل للمستودع', cls: 'text-[#B7791F] bg-[#FDF6E7]', sign: '−' },
   ADJUST: { label: 'تسوية', cls: 'text-[#6B46C1] bg-[#F3EEFB]', sign: '±' },
   EXPIRED_OUT: { label: 'إزالة منتهي الصلاحية', cls: 'text-[#C0392B] bg-[#FDECEA]', sign: '−' },
+  RETURN_DAMAGED: { label: 'مرتجع تالف', cls: 'text-[#C0392B] bg-[#FDECEA]', sign: '+' },
+  DAMAGED_OUT: { label: 'إزالة مرتجع تالف', cls: 'text-[#C0392B] bg-[#FDECEA]', sign: '−' },
 };
 
 /* إشعار الحركة في حزمة مستقلّة — يجرّ jspdf وhtml2canvas وqrcode معه */
@@ -294,9 +298,12 @@ export default function MRepLoad({ rep, company, onClose }: {
                     return (
                       <MRow key={s.productId}
                         title={s.name}
-                        subtitle={(s.expired ?? 0) > 0
-                          ? `${s.code} · ${s.unit} · ${tr('منتهي الصلاحية')} ${fmtQty(s.expired!)}`
-                          : `${s.code} · ${s.unit}`}
+                        // ما لا يُباع (منتهٍ أو تالف) يُذكر بجانب الصنف — لا يدخل المتبقّي
+                        subtitle={[
+                          `${s.code} · ${s.unit}`,
+                          (s.expired ?? 0) > 0 ? `${tr('منتهي الصلاحية')} ${fmtQty(s.expired!)}` : '',
+                          (s.damaged ?? 0) > 0 ? `${tr('تالف')} ${fmtQty(s.damaged!)}` : '',
+                        ].filter(Boolean).join(' · ')}
                         // صفٌّ مضافٌ سلفاً لا يُنقر: نقرةٌ لا أثر لها تُقرأ عطلاً
                         onClick={picked ? undefined : () => addFromStock(s)}
                         trailing={(
