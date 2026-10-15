@@ -2993,11 +2993,21 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
   );
 }
 
+// طلب بضاعة المندوب كما يعيده الخادم (/rep-stock-requests/mine): requestedQty ما كتبه، وqty ما اعتمدته الإدارة
+interface MyStockRequest {
+  id: string; status: 'PENDING' | 'SENT' | 'REJECTED'; note: string | null; updatedAt: string; decidedAt: string | null;
+  items: { productId: string; name: string; code?: string; unit?: string; requestedQty: number; qty: number }[];
+}
+/** آخر طلبٍ حُسم يبقى ظاهراً أسبوعاً — بعده لا يعني المندوب شيئاً */
+const DECIDED_SHOWN_MS = 7 * 24 * 3600 * 1000;
+
 // ============ مخزون سيارتي ============
-function RepVanStock({ canLoad }: { canLoad: boolean }) {
+// canLoad: صلاحية التحميل. ومن لا يملكها وشركته تفعّل مخزون الشركة (canRequest) يرى «طلب بضاعة» مكان «تحميل»:
+// يكتب كمية كل صنف ويرفعها، فتظهر للإدارة في «طلب مخزون» بصفحة مخزون الشركة (طلب المالك، ١٥ أكتوبر ٢٠٢٦)
+function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: boolean }) {
   const tr = useTr();
-  const [view, setView] = useState<'list' | 'load'>('list');
-  useBackClose(view === 'load', () => setView('list'));
+  const [view, setView] = useState<'list' | 'load' | 'request'>('list');
+  useBackClose(view !== 'list', () => setView('list'));
   // expired: «منتهي الصلاحية» في السيارة — مرتجعٌ عاد بعد انتهاء صلاحيته، لا يُباع ولا يدخل المتبقّي حتى تزيله الإدارة
   const [stock, setStock] = useState<{ productId: string; name: string; code: string; unit: string; loaded: number; sold: number; returned: number; remaining: number; expired?: number }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -3015,6 +3025,52 @@ function RepVanStock({ canLoad }: { canLoad: boolean }) {
   useEffect(() => { loadStock(); }, [loadStock]);
   useEffect(() => { (async () => { const { data } = await fetchThenCache('products', async () => (await repApi.get('/products', { params: { limit: 1000, status: 'ACTIVE' } })).data.data); if (data) setProducts(data as { id: string; name: string; unit: string; code: string }[]); })(); }, []);
   useEffect(() => { if (!canLoad && view === 'load') setView('list'); }, [canLoad, view]);
+  useEffect(() => { if (!canRequest && view === 'request') setView('list'); }, [canRequest, view]);
+
+  // ——— طلب بضاعة ———
+  const [myReq, setMyReq] = useState<{ pending: MyStockRequest | null; last: MyStockRequest | null } | null>(null);
+  const [reqQty, setReqQty] = useState<Record<string, string>>({});
+  const [reqSearch, setReqSearch] = useState('');
+  const [reqNote, setReqNote] = useState('');
+  const loadMyReq = useCallback(async () => {
+    if (!canRequest) return;
+    try { const r = await repApi.get('/rep-stock-requests/mine'); setMyReq(r.data.data); } catch { /* دون اتصال: تبقى آخر حالة معروفة */ }
+  }, [canRequest]);
+  useEffect(() => { loadMyReq(); }, [loadMyReq]);
+
+  const openRequest = () => {
+    // يبدأ من الطلب المعلّق إن وُجد: الرفع الثاني يحدّثه لا يكرّره
+    const p = myReq?.pending;
+    setReqQty(p ? Object.fromEntries(p.items.filter(i => i.requestedQty > 0).map(i => [i.productId, String(i.requestedQty)])) : {});
+    setReqNote(p?.note ?? ''); setReqSearch(''); setMsg(null); setView('request');
+  };
+  const reqLines = Object.entries(reqQty).map(([productId, raw]) => ({ productId, qty: Number(raw) })).filter(l => Number.isFinite(l.qty) && l.qty > 0);
+  const reqBad = Object.values(reqQty).some(v => v.trim() !== '' && !(Number(v) >= 0));
+
+  const submitRequest = async () => {
+    if (!reqLines.length || reqBad) { setMsg({ ok: false, text: tr('أضف صنفا وكمية صحيحة') }); return; }
+    setSaving(true); setMsg(null);
+    try {
+      await repApi.put('/rep-stock-requests/mine', { note: reqNote.trim() || undefined, items: reqLines });
+      setView('list'); await loadMyReq();
+      setMsg({ ok: true, text: tr('تم رفع طلب البضاعة للإدارة') });
+    } catch (e) {
+      setMsg({ ok: false, text: (e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر رفع الطلب') });
+    }
+    setSaving(false);
+  };
+  const withdrawRequest = async () => {
+    if (!window.confirm(`${tr('سحب طلب البضاعة')}؟`)) return;
+    setSaving(true); setMsg(null);
+    try {
+      await repApi.delete('/rep-stock-requests/mine');
+      setView('list'); await loadMyReq();
+      setMsg({ ok: true, text: tr('تم سحب الطلب') });
+    } catch (e) {
+      setMsg({ ok: false, text: (e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الحفظ') });
+    }
+    setSaving(false);
+  };
 
   // الكميات تتبع خيار الشركة في شكل الأرقام كبقية المنصة (كانت مثبّتة لاتينية)
   const fmt = (n: number) => Number(n.toFixed(2)).toLocaleString(activeLocale());
@@ -3040,6 +3096,59 @@ function RepVanStock({ canLoad }: { canLoad: boolean }) {
     }
     setSaving(false);
   };
+
+  if (view === 'request') {
+    const pending = myReq?.pending ?? null;
+    const approved = new Map((pending?.items ?? []).map(i => [i.productId, i]));
+    const inVan = new Map(stock.map(s => [s.productId, s.remaining]));
+    // صنفٌ في الطلب المعلّق خرج من قائمة الأصناف النشطة يبقى ظاهراً ليُعدَّل أو يُزال
+    const all = [...products, ...(pending?.items ?? []).filter(i => !products.some(p => p.id === i.productId)).map(i => ({ id: i.productId, name: i.name, unit: i.unit || '', code: i.code || '' }))];
+    const q = reqSearch.trim().toLowerCase();
+    const list = all.filter(p => !q || p.name.toLowerCase().includes(q) || (p.code || '').toLowerCase().includes(q));
+    return (
+      <div className="h-full flex flex-col">
+        <div className="p-3 flex items-center gap-2 border-b border-gray-100">
+          <button onClick={() => setView('list')} className="p-1.5 text-[#6E6557]"><ArrowRight size={18} /></button>
+          <span className="font-bold text-[#1F1A13]">{tr('طلب بضاعة')}</span>
+        </div>
+        <div className="p-3 border-b border-gray-100">
+          <input className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm" placeholder={tr('بحث بالاسم أو الكود')} value={reqSearch} onChange={e => setReqSearch(e.target.value)} />
+        </div>
+        {pending && <div className="mx-3 mt-3 bg-blue-50 text-blue-800 text-xs rounded-lg px-3 py-2">{tr('لديك طلب قيد مراجعة الإدارة والتعديل هنا يحدثه')}</div>}
+        <div className="flex-1 overflow-y-auto p-3 space-y-2 pb-28">
+          {list.map(p => {
+            const a = approved.get(p.id);
+            const changed = a && Math.abs(a.qty - a.requestedQty) > 1e-9;
+            const raw = reqQty[p.id] ?? '';
+            const bad = raw.trim() !== '' && !(Number(raw) >= 0);
+            return (
+              <div key={p.id} className={`flex items-center gap-2 bg-white border rounded-xl p-2.5 shadow-sm ${Number(raw) > 0 ? 'border-[#E15A30]/40' : 'border-gray-100'}`}>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold truncate">{p.name}</p>
+                  <p className="text-[10px] text-gray-400">{p.unit} · {tr('في سيارتك')} {fmt(inVan.get(p.id) ?? 0)}</p>
+                  {changed && <p className="text-[10px] font-semibold text-amber-700">{tr('عدلته الإدارة إلى')} {fmt(a.qty)}</p>}
+                </div>
+                <input type="number" min="0" step="any" inputMode="decimal" value={raw} placeholder="0"
+                  onChange={e => setReqQty(m => ({ ...m, [p.id]: e.target.value }))}
+                  aria-label={`${tr('الكمية المطلوبة')} ${p.name}`}
+                  className={`w-20 text-center border rounded-lg py-1.5 ${bad ? 'border-red-400 bg-red-50' : 'border-gray-200'}`} />
+              </div>
+            );
+          })}
+          {list.length === 0 && <p className="text-center text-gray-400 text-xs py-6">{tr('لا أصناف مطابقة')}</p>}
+          <input className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm" placeholder={tr('ملاحظة اختياري')} value={reqNote} onChange={e => setReqNote(e.target.value)} />
+          {msg && !msg.ok && <p className="text-xs text-center text-red-500">{msg.text}</p>}
+        </div>
+        <div className="p-3 border-t border-gray-100 space-y-2">
+          <button onClick={submitRequest} disabled={saving || reqLines.length === 0 || reqBad} className="w-full bg-[#E15A30] disabled:bg-[#E89B7E] text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2">
+            {saving ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <ClipboardList size={18} />}
+            {pending ? tr('تحديث الطلب') : tr('رفع الطلب')} ({reqLines.length})
+          </button>
+          {pending && <button onClick={withdrawRequest} disabled={saving} className="w-full text-red-600 text-xs font-semibold py-1.5">{tr('سحب الطلب')}</button>}
+        </div>
+      </div>
+    );
+  }
 
   if (view === 'load') {
     return (
@@ -3081,17 +3190,37 @@ function RepVanStock({ canLoad }: { canLoad: boolean }) {
     <div className="h-full flex flex-col">
       <div className="p-3 flex items-center justify-between border-b border-gray-100">
         <span className="font-bold text-[#1F1A13] flex items-center gap-2"><Truck size={18} className="text-[#E15A30]" /> {tr('مخزون سيارتي')}</span>
-        <button
-          onClick={() => { if (canLoad) { setView('load'); setMsg(null); } }}
-          disabled={!canLoad}
-          title={canLoad ? undefined : tr('لا تملك صلاحية تحميل مخزون السيارة')}
-          className="bg-[#E15A30] text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
-        >
-          <Plus size={14} /> {tr('تحميل')}
-        </button>
+        {!canLoad && canRequest ? (
+          <button onClick={openRequest}
+            className="bg-[#E15A30] text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1">
+            <ClipboardList size={14} /> {tr('طلب بضاعة')}
+          </button>
+        ) : (
+          <button
+            onClick={() => { if (canLoad) { setView('load'); setMsg(null); } }}
+            disabled={!canLoad}
+            title={canLoad ? undefined : tr('لا تملك صلاحية تحميل مخزون السيارة')}
+            className="bg-[#E15A30] text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
+          >
+            <Plus size={14} /> {tr('تحميل')}
+          </button>
+        )}
       </div>
       {msg && msg.ok && <div className="mx-3 mt-3 bg-green-50 text-green-700 text-xs rounded-lg px-3 py-2 flex items-center gap-1.5"><Check size={14} /> {msg.text}</div>}
-      {!canLoad && <div className="mx-3 mt-3 bg-amber-50 text-amber-700 text-xs rounded-lg px-3 py-2">{tr('يمكنك عرض مخزون السيارة فقط ولا تملك صلاحية تسجيل تحميل جديد')}</div>}
+      {!canLoad && !canRequest && <div className="mx-3 mt-3 bg-amber-50 text-amber-700 text-xs rounded-lg px-3 py-2">{tr('يمكنك عرض مخزون السيارة فقط ولا تملك صلاحية تسجيل تحميل جديد')}</div>}
+      {/* حالة طلب البضاعة: المعلّق يُفتح للتعديل، وآخر ما حُسم يبقى أسبوعاً */}
+      {!canLoad && canRequest && (myReq?.pending ? (
+        <button onClick={openRequest} className="mx-3 mt-3 bg-blue-50 text-blue-800 text-xs rounded-lg px-3 py-2 flex items-center gap-1.5 text-start">
+          <ClipboardList size={14} className="shrink-0" />
+          <span className="flex-1">{tr('طلب بضاعة قيد مراجعة الإدارة')} ({myReq.pending.items.filter(i => i.requestedQty > 0).length})</span>
+        </button>
+      ) : myReq?.last && myReq.last.decidedAt && Date.now() - new Date(myReq.last.decidedAt).getTime() < DECIDED_SHOWN_MS ? (
+        <div className={`mx-3 mt-3 text-xs rounded-lg px-3 py-2 ${myReq.last.status === 'SENT' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+          {myReq.last.status === 'SENT' ? tr('أرسلت الإدارة طلبك ضمن طلب المخزون') : tr('رفضت الإدارة طلبك الأخير')} · {formatDate(myReq.last.decidedAt)}
+        </div>
+      ) : (
+        <div className="mx-3 mt-3 bg-amber-50 text-amber-700 text-xs rounded-lg px-3 py-2">{tr('لا تملك صلاحية التحميل اطلب ما تحتاجه من زر طلب بضاعة')}</div>
+      ))}
       <div className="flex-1 overflow-y-auto p-3 space-y-2 pb-24">
         {loading ? <p className="text-center text-gray-400 text-sm py-8">{tr('جار التحميل')}</p>
           : stock.length === 0 ? (
@@ -4019,7 +4148,7 @@ export default function RepApp() {
                 {screen === 'invoices' && <SimpleList key={`invoices-${refreshKey}`} endpoint="/invoices" kind="invoice" onOpen={(d) => { setDocBack(null); setDocResult(invoiceDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'receipts' && <SimpleList key={`receipts-${refreshKey}`} endpoint="/receipts" kind="receipt" onOpen={(d) => { setDocBack(null); setDocResult(receiptDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'customers' && <RepCustomers onSelect={c => { setSelectedCustomer(c); setModal('customerDetail'); }} canAdd={!!user.canAddCustomer} onAdd={() => { setAiPrefill(null); setModal('addCustomer'); }} accountingOn={accountingOn} zatcaCollect={zatcaCollect} />}
-                {screen === 'vanstock' && <RepVanStock canLoad={user.canManageVanStock !== false} />}
+                {screen === 'vanstock' && <RepVanStock canLoad={user.canManageVanStock !== false} canRequest={(company as { warehouseEnabled?: boolean } | null)?.warehouseEnabled === true} />}
                 {screen === 'fuel' && <RepFuel accountingOn={accountingOn} />}
                 {screen === 'worknum' && <RepWorkNumber />}
                 {screen === 'attendance' && <RepAttendance />}

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { warehouseApi, productApi, companyApi } from '../api/client';
+import { warehouseApi, productApi, companyApi, repStockRequestApi } from '../api/client';
 import { formatDate, formatCurrency } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import SearchableSelect from '../components/SearchableSelect';
@@ -60,6 +60,14 @@ export default function CompanyWarehousePage() {
     enabled: accountingReady && accountingOn,
   });
 
+  // طلبات بضاعة المناديب المعلّقة — المفتاح نفسه الذي تقرؤه نافذة «طلب مخزون»، وعددها شارةٌ على زرّها
+  const repReqQ = useQuery({
+    queryKey: ['rep-stock-requests'],
+    queryFn: async () => (await repStockRequestApi.pending()).data.data as unknown[],
+    enabled: accountingReady && accountingOn,
+  });
+  const pendingRepRequests = repReqQ.data?.length ?? 0;
+
   const rows = stockQ.data || [];
   const lowCount = rows.filter(r => r.onHand <= 0).length;
   // قيمة المخزون بتكلفة الشراء — ومعها حدّ صدقها: كم صنفا وارده بلا سعر
@@ -77,9 +85,12 @@ export default function CompanyWarehousePage() {
           <p className="text-xs text-[#9A8F7E] mt-1">{tr('المستودع المركزي التحميل يخرج منه والتنزيل يعود إليه والوارد يزيده')}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <button onClick={() => setShowRequest(true)} disabled={rows.length === 0}
-            title={tr('طلب مخزون')} className="btn-secondary disabled:opacity-50">
+          <button onClick={() => setShowRequest(true)} disabled={rows.length === 0 && pendingRepRequests === 0}
+            title={tr('طلب مخزون')} className="btn-secondary disabled:opacity-50 relative">
             <ClipboardList size={17} className="text-[#E15A30]" /> {tr('طلب مخزون')}
+            {pendingRepRequests > 0 && (
+              <span title={tr('طلبات المناديب')} className="absolute -top-2 -start-2 min-w-[20px] h-5 px-1 rounded-full bg-[#E15A30] text-white text-[11px] font-bold flex items-center justify-center">{pendingRepRequests}</span>
+            )}
           </button>
           <button onClick={() => setShowEntry(true)} className="btn-primary"><PackagePlus size={17} /> {tr('استلام / تسوية')}</button>
         </div>

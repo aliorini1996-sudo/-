@@ -465,6 +465,14 @@ export const warehouseApi = {
   }) => api.post('/warehouse/entries', data),
 };
 
+// «طلب بضاعة» المناديب — المعلّق منها يظهر في نافذة «طلب مخزون»؛ updatedAt نسخةٌ يرفض الخادم ما يخالفها (409)
+export const repStockRequestApi = {
+  pending: () => api.get('/rep-stock-requests'),
+  update: (id: string, data: { updatedAt: string; items: { productId: string; qty: number }[] }) => api.put(`/rep-stock-requests/${id}`, data),
+  reject: (id: string, updatedAt: string) => api.post(`/rep-stock-requests/${id}/reject`, { updatedAt }),
+  send: (data: { ref: string; requests: { id: string; updatedAt: string }[] }) => api.post('/rep-stock-requests/send', data),
+};
+
 // محتوى الصفحة التعريفية التسويقية (CMS) — القراءة عامة، التحرير للمالك
 export const siteContentApi = {
   get: () => api.get('/site-content'),

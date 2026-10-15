@@ -76,7 +76,8 @@ test('تطبيق المندوب: الطبقات الأساسية موصولة', 
     ['ماسح الباركود', /useBackClose\(showScanner/],
     ['سلّة الأصناف', /useBackClose\(!showScanner && showCart/],
     ['ورقة رابط الدفع', /useBackClose\(payLinkOpen/],
-    ['تحميل السيارة', /useBackClose\(view === 'load'/],
+    // شاشتا «تحميل» و«طلب بضاعة» كلتاهما فوق قائمة مخزون السيارة
+    ['تحميل السيارة وطلب البضاعة', /useBackClose\(view !== 'list', \(\) => setView\('list'\)\)/],
     ['العودة للتبويب الرئيسي', /screen !== 'home', \(\) => setScreen\('home'\)\)/],
   ] as const) {
     assert.match(rep, re, `غير موصول: ${what}`);

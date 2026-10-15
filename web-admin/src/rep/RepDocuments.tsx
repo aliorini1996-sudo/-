@@ -271,6 +271,8 @@ export interface StockRequestDoc {
   /** مقدّم الطلب: المستخدم الذي أصدره */
   by?: string;
   items: StockRequestLine[];
+  /** طلبات المناديب التي أُرسلت ضمنه — تفصيلٌ لمن يجهّز التحميل بعد وصول البضاعة */
+  reps?: { name: string; items: { name: string; unit?: string; qty: number }[] }[];
 }
 
 export type AnyDoc = InvoiceDoc | ReceiptDoc | StatementDoc | SettlementLogDoc | LoadNoticeDoc | WarehouseNoticeDoc | StockRequestDoc;
@@ -1245,6 +1247,29 @@ export const PrintableStockRequest = forwardRef<HTMLDivElement, { doc: StockRequ
           </tr>
         </tfoot>
       </table>
+
+      {/* طلبات المناديب المشمولة — سطرٌ لكل مندوب بأصنافه، فيعرف المستودع لمن يحمّل حين تصل البضاعة */}
+      {doc.reps && doc.reps.length > 0 && (
+        <div style={{ marginTop: 6, marginBottom: 12 }}>
+          <div style={{ fontWeight: 700, color: brand, marginBottom: 6, fontSize: 13 }}>{tr('تفصيل طلبات المناديب')}</div>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <tbody>
+              {doc.reps.map((r, i) => (
+                <tr key={i}>
+                  <td style={{ ...td, textAlign: 'right', fontWeight: 600, width: '28%', verticalAlign: 'top' }}>{r.name}</td>
+                  <td style={{ ...td, textAlign: 'right', color: '#374151' }}>
+                    {r.items.length === 0 ? '-' : r.items.map((it, j) => (
+                      <span key={j} style={{ display: 'inline-block', marginInlineEnd: 10 }}>
+                        {it.name} <b dir="ltr">{fmtNoticeQty(it.qty)}</b> {it.unit || ''}
+                      </span>
+                    ))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* التوقيعان */}
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 40, marginTop: 24 }}>

@@ -77,6 +77,7 @@ model Tenant {
   zatcaEgs             ZatcaEgs?
   erpSyncLogs          ErpSyncLog[]
   vanLoads             VanLoad[]
+  repStockRequests     RepStockRequest[]
   warehouseEntries     WarehouseEntry[]
   repLocations         RepLocation[]
   repSettlements       RepSettlement[]
@@ -330,6 +331,7 @@ model SalesRep {
   receipts      Receipt[]
   notifications Notification[]
   vanLoads      VanLoad[]
+  stockRequests RepStockRequest[]
   locations     RepLocation[]
   settlements   RepSettlement[]
   RepVisit      RepVisit[]
@@ -539,6 +541,7 @@ model Product {
   customerPrices      CustomerPrice[]
   invoiceItems        InvoiceItem[]
   vanLoadItems        VanLoadItem[]
+  stockRequestItems   RepStockRequestItem[]
   warehouseEntryItems WarehouseEntryItem[]
 
 
@@ -1321,6 +1324,47 @@ model VanLoadItem {
 
   @@index([vanLoadId])
   @@map("van_load_items")
+}
+
+/// «طلب بضاعة» من مندوبٍ لا يملك صلاحية التحميل (طلب المالك، ١٥ أكتوبر ٢٠٢٦): يرفعه من «مخزون سيارتي»،
+/// فيظهر للإدارة في «طلب مخزون» بصفحة مخزون الشركة، تعدّله ثم ترسله ضمن الطلب العام للمشتريات/الإنتاج.
+/// طلبٌ معلّق واحد لكل مندوب (يُحرس بقفلٍ استشاري في routes/repStockRequests.ts): رفعٌ ثانٍ يحدّثه لا يكرّره.
+/// لا يمسّ المخزون: هو طلب لا حركة — التحميل الفعليّ يبقى VanLoad تسجّله الإدارة.
+model RepStockRequest {
+  id         String    @id @default(uuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  salesRepId String
+  salesRep   SalesRep  @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+  status     String    @default("PENDING") // PENDING | SENT | REJECTED | CANCELLED
+  note       String?
+  /// وقت إرساله ضمن الطلب العام أو رفضه، ومَن فعل، ومرجع الطلب العام (SR-…) حين أُرسل
+  decidedAt  DateTime?
+  decidedBy  String?
+  sentRef    String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  items RepStockRequestItem[]
+
+  @@index([tenantId, status])
+  @@index([salesRepId, status])
+  @@map("rep_stock_requests")
+}
+
+model RepStockRequestItem {
+  id           String          @id @default(uuid())
+  requestId    String
+  request      RepStockRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  productId    String
+  product      Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  /// ما طلبه المندوب — يبقى كما كتبه ليرى الإداري الأصل بجانب تعديله
+  requestedQty Float
+  /// الكمية المعتمدة: تبدأ بما طلبه المندوب، وتعدّلها الإدارة (صفرٌ = حُذف الصنف من طلبه)
+  qty          Float
+
+  @@unique([requestId, productId])
+  @@map("rep_stock_request_items")
 }
 
 /// وارد مخزون الشركة (المستودع المركزيّ) — استلام/شراء أو تسوية. مرتبطٌ بمخزون

@@ -5,6 +5,7 @@ import path from 'node:path';
 import {
   parseRequestQty, isInvalidRequestQty, stockRequestLines, stockRequestTotalQty, stockRequestRef,
   stockRequestToLabel, stockRequestApproverLabel, shortFirst,
+  repItemQty, repRequestDirty, repRequestTotals, withRequestedProducts, requestedFirst, type RepStockRequest,
 } from './stockRequest';
 
 /**
@@ -67,4 +68,50 @@ test('حارس ثابت: الزر بجانب «استلام / تسوية»، و�
   assert.match(docs, /\| StockRequestDoc;/, 'النوع خارج AnyDoc');
   assert.match(docs, /if \(doc\.kind === 'stockRequest'\) return <PrintableStockRequest/);
   assert.match(docs, /doc\.kind === 'stockRequest' \? `\$\{tr\('طلب مخزون'\)\}-\$\{doc\.ref\}`/, 'اسم الملف');
+});
+
+// ——— طلبات بضاعة المناديب (طلب المالك، ١٥ أكتوبر ٢٠٢٦) ———
+const req = (id: string, items: [string, number, number][]): RepStockRequest => ({
+  id, salesRepId: `rep-${id}`, repName: `مندوب ${id}`, note: null, createdAt: '', updatedAt: 'v1',
+  items: items.map(([productId, requestedQty, qty]) => ({ productId, name: productId, requestedQty, qty })),
+});
+
+test('الكمية المعتمدة لبند: خانة الإداري إن كُتبت (فارغها صفر)، والنصّ غير المفهوم لا يغيّر المحفوظ', () => {
+  assert.equal(repItemQty(5, undefined), 5);
+  assert.equal(repItemQty(5, '3'), 3);
+  assert.equal(repItemQty(5, ''), 0);
+  assert.equal(repItemQty(5, '0'), 0);
+  assert.equal(repItemQty(5, '٧'), 7);
+  assert.equal(repItemQty(5, 'abc'), 5);
+});
+
+test('مجموع المناديب لكل صنف بالمعتمد وتعديلات الشاشة، والمتغيّر وحده «معدَّل»', () => {
+  const a = req('a', [['x', 10, 8], ['y', 2, 2]]);
+  const b = req('b', [['x', 4, 4], ['z', 1, 0]]);
+  assert.deepEqual([...repRequestTotals([a, b], {})], [['x', 12], ['y', 2]]); // z معتمدُه صفر فلا يدخل
+  assert.deepEqual([...repRequestTotals([a, b], { b: { x: '1.5', z: '3' } })], [['x', 9.5], ['y', 2], ['z', 3]]);
+  assert.deepEqual([...repRequestTotals([a], { b: { x: '100' } })], [['x', 8], ['y', 2]], 'المستبعَد لا يدخل ولا تعديله');
+  assert.equal(repRequestDirty(a, undefined), false);
+  assert.equal(repRequestDirty(a, { x: '8' }), false, 'كتابة القيمة نفسها ليست تعديلاً');
+  assert.equal(repRequestDirty(a, { x: '7' }), true);
+});
+
+test('صنف طلبه مندوب خارج جدول المستودع يُلحق برصيد صفر، وما طلبه المناديب أولاً ثم الناقص', () => {
+  const rows = [{ productId: 'p1', name: 'أ', onHand: 5 }, { productId: 'p2', name: 'ب', onHand: 0 }, { productId: 'p3', name: 'ج', onHand: 9 }];
+  const all = withRequestedProducts(rows, [req('a', [['p3', 1, 1], ['new', 2, 2]])]);
+  assert.deepEqual(all.map(r => [r.productId, r.onHand]), [['p1', 5], ['p2', 0], ['p3', 9], ['new', 0]]);
+  assert.deepEqual(requestedFirst(all, new Set(['p3', 'new'])).map(r => r.productId), ['p3', 'new', 'p2', 'p1']);
+});
+
+test('حارس ثابت: «طلب بضاعة» مكان «تحميل» لمن لا يملك الصلاحية وشركته تفعّل المستودع، والنافذة تقرأ طلبات المناديب', () => {
+  const read = (...p: string[]) => fs.readFileSync(path.resolve(process.cwd(), 'src', ...p), 'utf8');
+  const app = read('rep', 'RepApp.tsx');
+  assert.match(app, /<RepVanStock canLoad=\{user\.canManageVanStock !== false\} canRequest=\{\(company as \{ warehouseEnabled\?: boolean \} \| null\)\?\.warehouseEnabled === true\} \/>/);
+  assert.match(app, /\{!canLoad && canRequest \? \(\s*<button onClick=\{openRequest\}/, 'الزر لا يتبدّل');
+  assert.match(app, /repApi\.put\('\/rep-stock-requests\/mine'/);
+  const modal = read('components', 'StockRequestModal.tsx');
+  assert.match(modal, /queryKey: \['rep-stock-requests'\]/);
+  // الإرسال يحفظ التعديل أولاً ثم يعلّم المشمول — والمرسَل نسخته من الخادم
+  assert.match(modal, /repRequestDirty\(r, edits\[r\.id\]\) \? await saveReq\(r\) : r\.updatedAt/);
+  assert.ok(modal.indexOf('repStockRequestApi.send(') < modal.indexOf('setDoc({'), 'الورقة قبل نجاح الإرسال');
 });
