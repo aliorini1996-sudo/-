@@ -25,6 +25,8 @@ export interface ReturnableLine {
   shelfLife: boolean;
   expiresAt: string | null;
   expiredToday: boolean | null;
+  /** قيد المرتجع للصنف اليوم: سبب الرفض (من الخادم) فلا يُضاف للمرتجع — والخادم يقرّر عند الإصدار */
+  returnBlocked?: string | null;
 }
 
 export interface ReturnableSale {
@@ -79,6 +81,10 @@ export default function SaleInvoicePicker({ customerId, products, onPick, onClos
       const r = await repApi.get(`/invoices/${row.id}/returnable`);
       const sale = r.data.data as ReturnableSale;
       if (!sale.lines.some(l => l.returnable > 0)) { setMsg(tr('لا يوجد في هذه الفاتورة ما يمكن إرجاعه')); setBusy(null); return; }
+      const blocked = sale.lines.find(l => l.returnable > 0 && l.returnBlocked);
+      if (!sale.lines.some(l => l.returnable > 0 && !l.returnBlocked)) {
+        setMsg(`${tr('قيد الصلاحية يمنع مرتجع أصناف هذه الفاتورة')} — ${blocked?.name}: ${blocked?.returnBlocked}`); setBusy(null); return;
+      }
       onPick(sale);
     } catch (e: any) {
       setMsg(e?.response?.data?.message || tr('تعذر تحميل بنود الفاتورة'));

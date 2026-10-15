@@ -122,3 +122,73 @@ export function shelfLifeProblem(p: ShelfLifeSettings): string | null {
   if (shelfLifeBasisOf(p) === 'PURCHASE' && !dayOf(p.shelfLifeFromDate)) return 'اكتب تاريخ الشراء أو الإنتاج الذي تحسب منه الصلاحية';
   return null;
 }
+
+// ═══ قيد المرتجع (طلب المالك ١٥ أكتوبر ٢٠٢٦) ═══
+// للصنف المفعّلة صلاحيته قيدٌ يُفعَّل أو يُطفأ: لا يُقبل مرتجعه إلا حين يقترب من الانتهاء (NEAR_EXPIRY — والمنتهي يُقبل)،
+// أو إلا وهو ما زال صالحاً بما يكفي (STILL_VALID — والمنتهي يُرفض)؛ والحدّ أيامٌ أو نسبةٌ من مدة الصلاحية. ويُقاس على
+// تاريخ انتهاء ما بيع (بند البيع المرتبط، أو آخر بيعٍ للعميل) في يوم المرتجع.
+
+export const RETURN_RULE_MODES = ['NEAR_EXPIRY', 'STILL_VALID'] as const;
+export const RETURN_RULE_METRICS = ['DAYS', 'PERCENT'] as const;
+
+export interface ReturnRuleSettings extends ShelfLifeSettings {
+  returnRuleEnabled?: boolean | null;
+  returnRuleMode?: string | null;
+  returnRuleMetric?: string | null;
+  returnRuleValue?: number | null;
+}
+
+/** صحّة إعداد القيد — رسالةٌ عربية أو null. والمطفأ يُقبل كما هو */
+export function returnRuleConfigProblem(p: ReturnRuleSettings): string | null {
+  if (!p.returnRuleEnabled) return null;
+  if (!p.shelfLifeEnabled) return 'قيد المرتجع يلزمه تفعيل صلاحية الصنف';
+  if (!(RETURN_RULE_MODES as readonly string[]).includes(String(p.returnRuleMode))) return 'اختر متى يقبل المرتجع: قرب الانتهاء أو وهو ما زال صالحا';
+  if (!(RETURN_RULE_METRICS as readonly string[]).includes(String(p.returnRuleMetric))) return 'اختر حد القيد: بالأيام أو بنسبة الصلاحية';
+  const v = p.returnRuleValue;
+  if (v == null || !Number.isInteger(v) || v <= 0) return 'حد قيد المرتجع يجب أن يكون عددا صحيحا أكبر من صفر';
+  if (p.returnRuleMetric === 'PERCENT' && v > 100) return 'نسبة قيد المرتجع لا تتجاوز ١٠٠٪';
+  if (p.returnRuleMetric === 'DAYS' && v > SHELF_LIFE_MAX.DAY) return 'حد قيد المرتجع أطول من المعقول';
+  return null;
+}
+
+const DAY_MS = 86_400_000;
+const utcDay = (d: string) => Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10));
+
+/** أيامٌ من يومٍ إلى يوم (YYYY-MM-DD) — سالبةٌ إن سبق الثاني الأول */
+export function daysBetween(fromDay: string, toDay: string): number {
+  return Math.round((utcDay(toDay) - utcDay(fromDay)) / DAY_MS);
+}
+
+/** طول مدة الصلاحية بالأيام — تقريباً للأشهر والسنوات (يكفي للنسبة) */
+export function shelfLifeDays(p: ShelfLifeSettings): number | null {
+  const life = shelfLifeOf(p);
+  if (!life) return null;
+  return life.unit === 'DAY' ? life.value : life.unit === 'MONTH' ? life.value * 30.4375 : life.value * 365.25;
+}
+
+/**
+ * هل يُقبل مرتجعُ صنفٍ انتهاءُ ما بيع منه `expiresAt`، في يوم `returnDay`؟ رسالة الرفض أو null. يوم الانتهاء نفسه آخر يومٍ
+ * صالح (باقٍ صفر يوم)، وما بعده منتهٍ. صنفٌ بلا قيدٍ مفعّل أو بلا صلاحية: null.
+ */
+export function returnRuleProblem(p: ReturnRuleSettings, expiresAt: Date, returnDay: string): string | null {
+  if (!p.returnRuleEnabled || returnRuleConfigProblem(p)) return null;
+  const total = shelfLifeDays(p);
+  if (!total) return null;
+  const left = daysBetween(returnDay, expiresAt.toISOString().slice(0, 10));
+  const pct = Math.round((Math.max(0, left) / total) * 1000) / 10;
+  const v = Number(p.returnRuleValue);
+  const byDays = p.returnRuleMetric === 'DAYS';
+  const measured = byDays ? left : pct;
+  const leftText = byDays ? `والباقي ${Math.max(0, left)} يوماً` : `والباقي ${pct}٪`;
+  if (p.returnRuleMode === 'NEAR_EXPIRY') {
+    if (left < 0 || measured <= v) return null; // المنتهي يُقبل
+    return byDays
+      ? `يقبل المرتجع قبل انتهاء الصلاحية بـ${v} يوماً أو أقل، ${leftText}`
+      : `يقبل المرتجع إذا بقي من الصلاحية ${v}٪ أو أقل، ${leftText}`;
+  }
+  if (left < 0) return 'منتهي الصلاحية — يقبل المرتجع والصنف ما زال صالحاً فقط';
+  if (measured >= v) return null;
+  return byDays
+    ? `يقبل المرتجع إذا بقي من الصلاحية ${v} يوماً أو أكثر، ${leftText}`
+    : `يقبل المرتجع إذا بقي من الصلاحية ${v}٪ أو أكثر، ${leftText}`;
+}

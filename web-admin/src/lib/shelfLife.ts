@@ -14,6 +14,26 @@ export const SHELF_LIFE_BASIS_LABELS: Record<ShelfLifeBasis, string> = {
   VAN_LOAD: 'تاريخ تحميل سيارة المندوب',
 };
 
+/** قيد المرتجع — مرآة RETURN_RULE_MODES وRETURN_RULE_METRICS في الخادم (returnRuleProblem هناك يقرّر) */
+export type ReturnRuleMode = 'NEAR_EXPIRY' | 'STILL_VALID';
+export type ReturnRuleMetric = 'DAYS' | 'PERCENT';
+export const RETURN_RULE_MODE_LABELS: Record<ReturnRuleMode, string> = {
+  NEAR_EXPIRY: 'قرب انتهاء الصلاحية فقط',
+  STILL_VALID: 'وهو ما زال صالحا فقط',
+};
+export const RETURN_RULE_METRIC_LABELS: Record<ReturnRuleMetric, string> = {
+  DAYS: 'أيام متبقية على الانتهاء',
+  PERCENT: 'نسبة متبقية من مدة الصلاحية',
+};
+
+/** صحّة حدّ القيد قبل الحفظ — مفتاح رسالةٍ للترجمة أو null (الخادم يتحقّق ثانيةً) */
+export function returnRuleValueProblem(metric: string | null | undefined, value: number | null | undefined): string | null {
+  const v = Number(value);
+  if (!Number.isInteger(v) || v <= 0) return 'حد قيد المرتجع يجب أن يكون عددا صحيحا أكبر من صفر';
+  if (metric === 'PERCENT' && v > 100) return 'نسبة قيد المرتجع لا تتجاوز ١٠٠٪';
+  return null;
+}
+
 const pad = (n: number) => String(n).padStart(2, '0');
 const isoOf = (d: Date) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
 

@@ -7,7 +7,10 @@ import { useTr } from '../../i18n/strings';
 import { X, Upload, Trash2, Image as ImageIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { PRODUCT_VAT_CATEGORY_LABELS_AR, VATEX_LABELS_AR, productVatPayload, vatexCodesFor } from '../../lib/zatca/productVatForm';
-import { SHELF_LIFE_BASIS_LABELS, SHELF_LIFE_UNIT_LABELS, ShelfLifeBasis, ShelfLifeUnit, previewExpiry } from '../../lib/shelfLife';
+import {
+  RETURN_RULE_METRIC_LABELS, RETURN_RULE_MODE_LABELS, ReturnRuleMetric, ReturnRuleMode, SHELF_LIFE_BASIS_LABELS, SHELF_LIFE_UNIT_LABELS,
+  ShelfLifeBasis, ShelfLifeUnit, previewExpiry, returnRuleValueProblem,
+} from '../../lib/shelfLife';
 import { formatDayOnly } from '../../utils/format';
 
 interface Props {
@@ -49,8 +52,14 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
     // وحدة الصلاحية الافتراضية «أشهر» — صنفٌ قديم بلا وحدة محفوظة لا يُرسل فارغاً حين تُفعَّل له
     // وتاريخ الشراء بصيغة حقل التاريخ (YYYY-MM-DD) — الخادم يعيده لحظةً كاملة
     defaultValues: product
-      ? { ...product, shelfLifeUnit: product.shelfLifeUnit || 'MONTH', shelfLifeBasis: product.shelfLifeBasis || 'SALE', shelfLifeFromDate: product.shelfLifeFromDate ? product.shelfLifeFromDate.slice(0, 10) : '' }
-      : { status: 'ACTIVE', taxPct: 15, basePrice: 0, shelfLifeEnabled: false, shelfLifeUnit: 'MONTH', shelfLifeBasis: 'SALE', shelfLifeFromDate: '' },
+      ? {
+        ...product, shelfLifeUnit: product.shelfLifeUnit || 'MONTH', shelfLifeBasis: product.shelfLifeBasis || 'SALE', shelfLifeFromDate: product.shelfLifeFromDate ? product.shelfLifeFromDate.slice(0, 10) : '',
+        returnRuleMode: product.returnRuleMode || 'NEAR_EXPIRY', returnRuleMetric: product.returnRuleMetric || 'DAYS',
+      }
+      : {
+        status: 'ACTIVE', taxPct: 15, basePrice: 0, shelfLifeEnabled: false, shelfLifeUnit: 'MONTH', shelfLifeBasis: 'SALE', shelfLifeFromDate: '',
+        returnRuleEnabled: false, returnRuleMode: 'NEAR_EXPIRY', returnRuleMetric: 'DAYS',
+      },
   });
   // صورة الصنف تُدار بـ state ليتم ضغطها ودمجها يدوياً
   const [image, setImage] = useState<string>(product?.image || '');
@@ -79,6 +88,11 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
     shelfLifeEnabled: lifeOn, shelfLifeValue: watch('shelfLifeValue'), shelfLifeUnit: watch('shelfLifeUnit'),
     shelfLifeBasis: lifeBasis, shelfLifeFromDate: watch('shelfLifeFromDate'),
   });
+  // قيد المرتجع: لا يقبل مرتجع الصنف إلا قرب انتهائه أو وهو ما زال صالحاً، بأيامٍ أو نسبةٍ متبقية
+  const ruleOn = lifeOn && !!watch('returnRuleEnabled');
+  const ruleMode = (watch('returnRuleMode') || 'NEAR_EXPIRY') as ReturnRuleMode;
+  const ruleMetric = (watch('returnRuleMetric') || 'DAYS') as ReturnRuleMetric;
+  const ruleValue = Number(watch('returnRuleValue'));
   const PREVIEW_LABEL: Record<ShelfLifeBasis, string> = {
     SALE: 'ما يباع اليوم تنتهي صلاحيته في',
     PURCHASE: 'تنتهي صلاحية كمية هذا الصنف في',
@@ -97,9 +111,16 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
       toast.error(tr('اكتب تاريخ الشراء أو الإنتاج الذي تحسب منه الصلاحية'));
       return;
     }
+    // القيد يتبع الصلاحية: إطفاؤها يطفئه، ويبقى اتجاهه وحدّه محفوظين لإعادة التفعيل
+    const ruleEnabled = !!rest.shelfLifeEnabled && !!rest.returnRuleEnabled;
+    const ruleVal = Number.isFinite(rest.returnRuleValue as number) ? rest.returnRuleValue : null;
+    const ruleProblem = ruleEnabled ? returnRuleValueProblem(rest.returnRuleMetric, ruleVal) : null;
+    if (ruleProblem) { toast.error(tr(ruleProblem)); return; }
     onSave({
       ...rest, shelfLifeEnabled: !!rest.shelfLifeEnabled, shelfLifeValue: lifeValue,
       shelfLifeBasis: rest.shelfLifeBasis || 'SALE', shelfLifeFromDate: fromDate,
+      returnRuleEnabled: ruleEnabled, returnRuleMode: rest.returnRuleMode || 'NEAR_EXPIRY', returnRuleMetric: rest.returnRuleMetric || 'DAYS',
+      returnRuleValue: ruleVal,
       image: image || null, ...(zatcaCollect ? productVatPayload({ vatCategory: cat, vatExemptionCode, vatExemptionReason }) : {}),
     } as Partial<Product>);
   };
@@ -225,6 +246,43 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
                     {tr(PREVIEW_LABEL[lifeBasis])} <b className="text-gray-700">{formatDayOnly(lifePreview)}</b>
                   </p>
                 )}
+                {/* قيد المرتجع — يُفعَّل أو يُطفأ لكل صنف، ويُطبَّق على كل مرتجعٍ له من المندوب والإدارة */}
+                <div className="col-span-2 rounded-lg bg-gray-50 p-3 space-y-3" data-return-rule="">
+                  <label className="flex items-center gap-2.5 cursor-pointer">
+                    <input type="checkbox" {...register('returnRuleEnabled')} className="w-4 h-4 accent-[#E15A30]" />
+                    <span className="text-sm font-semibold text-gray-700">{tr('قيد على مرتجع الصنف')}</span>
+                    <span className="text-[10px] text-gray-400 mr-auto">{tr('لا يقبل المرتجع إلا ضمن حد الصلاحية')}</span>
+                  </label>
+                  {ruleOn && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="col-span-2">
+                        <label className="label">{tr('يقبل المرتجع')}</label>
+                        <select className="input" {...register('returnRuleMode')}>
+                          {(Object.keys(RETURN_RULE_MODE_LABELS) as ReturnRuleMode[]).map(m => <option key={m} value={m}>{tr(RETURN_RULE_MODE_LABELS[m])}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="label">{tr('الحد')} *</label>
+                        <input type="number" className="input" min="1" step="1" max={ruleMetric === 'PERCENT' ? 100 : undefined} inputMode="numeric"
+                          {...register('returnRuleValue', { valueAsNumber: true })} />
+                      </div>
+                      <div>
+                        <label className="label">{tr('يقاس بـ')}</label>
+                        <select className="input" {...register('returnRuleMetric')}>
+                          {(Object.keys(RETURN_RULE_METRIC_LABELS) as ReturnRuleMetric[]).map(m => <option key={m} value={m}>{tr(RETURN_RULE_METRIC_LABELS[m])}</option>)}
+                        </select>
+                      </div>
+                      {Number.isInteger(ruleValue) && ruleValue > 0 && (
+                        <p className="col-span-2 text-xs text-gray-500" data-return-rule-summary="">
+                          {tr('يقبل المرتجع إذا بقي على انتهاء صلاحيته')}{' '}
+                          <b className="text-gray-700">{ruleMetric === 'PERCENT' ? `${ruleValue}%` : `${ruleValue} ${tr('أيام')}`}</b>{' '}
+                          {tr(ruleMode === 'NEAR_EXPIRY' ? 'أو أقل والمنتهي يقبل' : 'أو أكثر والمنتهي لا يقبل')}
+                          {ruleMetric === 'PERCENT' && <> — {tr('النسبة من مدة الصلاحية كاملة')}</>}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>

@@ -524,7 +524,12 @@ model Product {
   // أساس الحساب (services/shelfLife.ts): SALE تاريخ البيع | PURCHASE تاريخ شراءٍ/إنتاجٍ يُكتب هنا | VAN_LOAD تحميل السيارة
   shelfLifeBasis       String           @default("SALE")
   shelfLifeFromDate    DateTime?        @db.Date
-  deletedAt            DateTime? // أرشفة بدل الحذف حين يوجد تاريخ: يختفي من القوائم ويبقى صفه باسمه للفواتير والكشوف القديمة
+  // قيد المرتجع (services/shelfLife.ts returnRuleProblem): لا يُقبل مرتجعه إلا قرب الانتهاء أو وهو ما زال صالحاً، بأيامٍ أو نسبة
+  returnRuleEnabled    Boolean          @default(false)
+  returnRuleMode       String? // NEAR_EXPIRY | STILL_VALID
+  returnRuleMetric     String? // DAYS | PERCENT
+  returnRuleValue      Int?
+  deletedAt           DateTime? // أرشفة بدل الحذف حين يوجد تاريخ: يختفي من القوائم ويبقى صفه باسمه للفواتير والكشوف القديمة
   categoryId           String?
   category             ProductCategory? @relation(fields: [categoryId], references: [id])
   createdAt            DateTime         @default(now())

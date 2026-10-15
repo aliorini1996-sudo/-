@@ -229,6 +229,11 @@ export interface Product {
   // أساس الحساب: البيع | الشراء بتاريخٍ يُكتب في الصنف | تحميل سيارة المندوب (الأقدم يُصرف أولاً)
   shelfLifeBasis?: 'SALE' | 'PURCHASE' | 'VAN_LOAD';
   shelfLifeFromDate?: string | null;
+  // قيد المرتجع لصنف الصلاحية: لا يقبل مرتجعه إلا قرب الانتهاء أو وهو ما زال صالحاً، بالأيام أو بالنسبة
+  returnRuleEnabled?: boolean;
+  returnRuleMode?: 'NEAR_EXPIRY' | 'STILL_VALID' | null;
+  returnRuleMetric?: 'DAYS' | 'PERCENT' | null;
+  returnRuleValue?: number | null;
   categoryId?: string;
   category?: { id: string; name: string };
   priceTiers?: PriceTier[];

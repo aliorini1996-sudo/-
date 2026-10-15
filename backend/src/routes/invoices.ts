@@ -1,8 +1,8 @@
 ﻿import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { ReturnLinkError, SALE_TYPES, assertReturnLinks, returnableOf, returnedBySaleItem } from '../services/returnLinks';
-import { isExpiredOn, linkedReturnExpiry, saleExpiryFor, stampExpiryAfterIssue, tenantTz } from '../services/invoiceExpiry';
-import { expiryDateFor, localDateIn, shelfLifeOf } from '../services/shelfLife';
+import { isExpiredOn, linkedReturnExpiry, returnRuleBlock, saleExpiryFor, stampExpiryAfterIssue, tenantTz } from '../services/invoiceExpiry';
+import { expiryDateFor, localDateIn, returnRuleProblem, shelfLifeOf } from '../services/shelfLife';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
 import { scopedRecordWhere, canAccessRep, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
@@ -323,6 +323,7 @@ router.get('/:id/returnable', async (req: AuthRequest, res: Response, next: Next
               select: {
                 id: true, name: true, code: true, unit: true,
                 shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true, shelfLifeBasis: true, shelfLifeFromDate: true,
+                returnRuleEnabled: true, returnRuleMode: true, returnRuleMetric: true, returnRuleValue: true,
               },
             },
           },
@@ -352,6 +353,8 @@ router.get('/:id/returnable', async (req: AuthRequest, res: Response, next: Next
         shelfLife: !!shelfLifeOf(it.product!),
         expiresAt: expiresAt ? expiresAt.toISOString().slice(0, 10) : null,
         expiredToday: expiresAt ? isExpiredOn(today, expiresAt) : null,
+        // قيد المرتجع للصنف اليوم: سبب الرفض فيُستبعد البند من الاختيار، والخادم يقرّر عند الإصدار
+        returnBlocked: expiresAt ? returnRuleProblem(it.product!, expiresAt, today) : null,
       };
     }));
     res.json({ success: true, data: { id: sale.id, number: sale.number, invoiceDate: sale.invoiceDate, customerId: sale.customerId, lines } });
@@ -472,7 +475,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       where: { id: { in: productIds }, tenantId: tid, status: 'ACTIVE' },
       select: {
         id: true, name: true, basePrice: true, taxPct: true, damagedReturnToStock: true, priceTiers: { select: { price: true } },
-        shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true,
+        shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true, shelfLifeBasis: true, shelfLifeFromDate: true,
+        returnRuleEnabled: true, returnRuleMode: true, returnRuleMetric: true, returnRuleValue: true,
       },
     });
     if (products.length !== productIds.length) { res.status(400).json({ success: false, message: 'أحد الأصناف غير موجود أو غير نشط' }); return; }
@@ -597,6 +601,16 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       if (installmentRows.length > MAX_INSTALLMENTS) {
         res.status(400).json({ success: false, message: `عدد الأقساط يتجاوز الحد المسموح (${MAX_INSTALLMENTS})` }); return;
       }
+    }
+
+    // قيد المرتجع لكل صنف (services/invoiceExpiry.ts returnRuleBlock): قبل الإصدار بمرحلتيه — مرتجعٌ أو إشعارٌ دائن، من
+    // المندوب أو الإدارة. لفاتورةٍ فيها صنفٌ قيدُه مفعّل وحدها: غيرها لا يدفع استعلاماً واحداً
+    if (isReturn && products.some((p) => p.returnRuleEnabled && shelfLifeOf(p))) {
+      const ruleBlock = await returnRuleBlock(tid, {
+        customerId, saleInvoiceId: body.originalInvoiceId ?? null, invoiceDate: docDate ?? new Date(),
+        returnAt: body.clientCreatedAt ? new Date(body.clientCreatedAt) : (docDate ?? new Date()),
+      }, body.items.map(i => ({ productId: i.productId, saleItemId: i.invoiceItemId ?? null })), products);
+      if (ruleBlock) { res.status(422).json({ success: false, code: 'RETURN_RULE_BLOCKED', message: ruleBlock }); return; }
     }
 
     /* ═══ ZATCA المرحلة الثانية (Z5.2) — الفرع الوحيد ═══

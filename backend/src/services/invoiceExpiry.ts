@@ -17,7 +17,10 @@
  */
 import prisma from '../config/database';
 import { companyTimeZone } from './erpPayload';
-import { expiryDateFor, fifoBatchAt, localDateIn, purchaseExpiry, shelfLifeBasisOf, shelfLifeOf, type ShelfLifeSettings } from './shelfLife';
+import {
+  expiryDateFor, fifoBatchAt, localDateIn, purchaseExpiry, returnRuleProblem, shelfLifeBasisOf, shelfLifeOf,
+  type ReturnRuleSettings, type ShelfLifeSettings,
+} from './shelfLife';
 
 const SALE_TYPES = ['CASH', 'CREDIT'];
 const NOTE_KINDS = ['CREDIT_NOTE', 'DEBIT_NOTE'];
@@ -156,6 +159,54 @@ export async function stampInvoiceExpiry(tenantId: string, invoiceId: string): P
     }));
   }
   if (updates.length) await prisma.$transaction([...updates, touchInvoice(inv.id)]);
+}
+
+/**
+ * قيد المرتجع لكل صنف (طلب المالك ١٥ أكتوبر ٢٠٢٦، `returnRuleProblem`): كل بند مرتجعٍ صنفُه قيدُه مفعّل يُقاس على البيع
+ * الذي يقيس عليه الوسم (stampInvoiceExpiry): بند الأصل للمرتبط (أو بند الصنف في فاتورة الأصل)، وإلا آخر بيعٍ للصنف لهذا
+ * العميل حتى تاريخ المرتجع. أول رفضٍ «اسم الصنف: السبب»، أو null. بيعٌ لا يُعرف انتهاؤه (لا بيع سابق، أو أساسٌ بلا تاريخ)
+ * لا يُرفض به — لا تخمين. ويُستدعى قبل الإصدار بمرحلتيه لفاتورةٍ فيها صنفٌ قيدُه مفعّل وحدها.
+ */
+export async function returnRuleBlock(
+  tenantId: string,
+  ret: { customerId: string; saleInvoiceId: string | null; invoiceDate: Date; returnAt: Date },
+  lines: { productId: string; saleItemId: string | null }[],
+  products: (ReturnRuleSettings & { id: string; name: string })[],
+): Promise<string | null> {
+  const ruled = new Map(products.filter((p) => p.returnRuleEnabled && shelfLifeOf(p)).map((p) => [p.id, p]));
+  const todo = lines.filter((l) => ruled.has(l.productId));
+  if (!todo.length) return null;
+  const tz = await tenantTz(tenantId);
+  const returnDay = localDateIn(ret.returnAt, tz);
+  const pick = { invoiceId: true, expiresAt: true, invoice: { select: { invoiceDate: true, salesRepId: true } } } as const;
+  for (const l of todo) {
+    const p = ruled.get(l.productId)!;
+    const sale = l.saleItemId
+      ? await prisma.invoiceItem.findFirst({ where: { id: l.saleItemId, invoice: { tenantId } }, select: pick })
+      : ret.saleInvoiceId
+        ? await prisma.invoiceItem.findFirst({ where: { productId: l.productId, invoiceId: ret.saleInvoiceId, invoice: { tenantId } }, select: pick })
+        : await prisma.invoiceItem.findFirst({
+          where: {
+            productId: l.productId,
+            invoice: {
+              tenantId, customerId: ret.customerId,
+              type: { in: SALE_TYPES }, status: { not: 'CANCELLED' },
+              OR: [{ documentKind: null }, { documentKind: { notIn: NOTE_KINDS } }],
+              invoiceDate: { lte: ret.invoiceDate },
+            },
+          },
+          orderBy: [{ invoice: { invoiceDate: 'desc' } }, { invoice: { createdAt: 'desc' } }],
+          select: pick,
+        });
+    if (!sale) continue;
+    const expiresAt = sale.expiresAt ?? await saleExpiryFor(tenantId, tz, p, {
+      invoiceId: sale.invoiceId, invoiceDate: sale.invoice.invoiceDate, salesRepId: sale.invoice.salesRepId, productId: l.productId,
+    });
+    if (!expiresAt) continue;
+    const why = returnRuleProblem(p, expiresAt, returnDay);
+    if (why) return `${p.name}: ${why}`;
+  }
+  return null;
 }
 
 /**

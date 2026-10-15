@@ -1726,14 +1726,17 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   // اختيار فاتورة البيع: بنودها المتاحة تملأ المرتجع (الكمية كاملة) ثم يُبقي المندوب ما يُرجَع منها
   const onPickSale = (sale: ReturnableSale) => {
     setSaleRef({ id: sale.id, number: sale.number });
-    setLines(sale.lines.filter(l => l.returnable > 0).map(l => ({
+    // بندٌ يمنعه قيد المرتجع للصنف لا يُضاف، ويُذكر للمندوب باسمه وسببه
+    const blocked = sale.lines.filter(l => l.returnable > 0 && l.returnBlocked);
+    setLines(sale.lines.filter(l => l.returnable > 0 && !l.returnBlocked).map(l => ({
       productId: l.productId, name: l.name, unit: l.unit,
       image: products.find(x => x.id === l.productId)?.image || null,
       qty: l.returnable, maxQty: l.returnable,
       unitPrice: l.refundUnitPrice, refPrice: l.refundUnitPrice, discountPct: 0, taxPct: l.taxPct,
       saleItemId: l.saleItemId, shelfLife: l.shelfLife, expiresAt: l.expiresAt, expiredToday: l.expiredToday,
     })));
-    setPickSale(false); setMsg(''); setShowCart(true);
+    setPickSale(false); setShowCart(true);
+    setMsg(blocked.length ? `${tr('استبعد حسب قيد الصلاحية')}: ${blocked.map(l => `${l.name} (${l.returnBlocked})`).join('، ')}` : '');
   };
   const clearSale = () => { setSaleRef(null); setLines([]); setShowCart(false); };
 

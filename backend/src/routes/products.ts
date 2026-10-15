@@ -6,7 +6,7 @@ import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
 import { canAccessCustomer } from '../services/customerScope';
 import { applyProductVatGate } from './productsZatca';
-import { SHELF_LIFE_BASES, SHELF_LIFE_UNITS, shelfLifeProblem } from '../services/shelfLife';
+import { RETURN_RULE_METRICS, RETURN_RULE_MODES, SHELF_LIFE_BASES, SHELF_LIFE_UNITS, returnRuleConfigProblem, shelfLifeProblem } from '../services/shelfLife';
 
 const router = Router();
 router.use(authenticate); // القراءة متاحة للمندوب (للبحث عند إصدار الفاتورة)؛ الكتابة للإدارة فقط
@@ -31,6 +31,11 @@ const productSchema = z.object({
   shelfLifeUnit: z.enum(SHELF_LIFE_UNITS).nullish(),
   shelfLifeBasis: z.enum(SHELF_LIFE_BASES).optional(),
   shelfLifeFromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish().or(z.literal('')),
+  // قيد المرتجع لصنف الصلاحية: قرب الانتهاء | ما زال صالحاً، بالأيام | بالنسبة — يُتحقَّق منه مدمجاً (returnRuleConfigProblem)
+  returnRuleEnabled: z.boolean().optional(),
+  returnRuleMode: z.enum(RETURN_RULE_MODES).nullish(),
+  returnRuleMetric: z.enum(RETURN_RULE_METRICS).nullish(),
+  returnRuleValue: z.number().int().positive().nullish(),
   categoryId: z.string().nullish(),
   // أكواد الفوترة الإلكترونية
   itemCode: z.string().nullish().or(z.literal('')),     // كود الصنف (EGS/GS1)
@@ -153,7 +158,7 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
       res.status(409).json({ success: false, message: dupe.deletedAt ? 'الكود مستخدم بصنف محذوف مؤرشف بفواتيره القديمة استخدم كودا مختلفا' : 'كود الصنف مستخدم من قبل' });
       return;
     }
-    const lifeProblem = shelfLifeProblem(data);
+    const lifeProblem = shelfLifeProblem(data) ?? returnRuleConfigProblem(data);
     if (lifeProblem) { res.status(400).json({ success: false, message: lifeProblem }); return; }
     if (data.taxPct == null) { // وراثة ضريبة دولة الشركة عند عدم تحديدها
       const company = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { defaultVatPct: true } });
@@ -173,18 +178,26 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
     const tid = tenantId(req);
     const exists = await prisma.product.findFirst({
       where: { id: req.params.id, tenantId: tid },
-      select: { id: true, shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true, shelfLifeBasis: true, shelfLifeFromDate: true },
+      select: {
+        id: true, shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true, shelfLifeBasis: true, shelfLifeFromDate: true,
+        returnRuleEnabled: true, returnRuleMode: true, returnRuleMetric: true, returnRuleValue: true,
+      },
     });
     if (!exists) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
     const data = productSchema.partial().parse(req.body);
     // الصلاحية تُفحص مدمجةً مع المحفوظ: تفعيلها وحده يلزمه مدةٌ محفوظة من قبل أو مرسلة معه
-    const lifeProblem = shelfLifeProblem({
+    const merged = {
       shelfLifeEnabled: data.shelfLifeEnabled ?? exists.shelfLifeEnabled,
       shelfLifeValue: data.shelfLifeValue !== undefined ? data.shelfLifeValue : exists.shelfLifeValue,
       shelfLifeUnit: data.shelfLifeUnit !== undefined ? data.shelfLifeUnit : exists.shelfLifeUnit,
       shelfLifeBasis: data.shelfLifeBasis ?? exists.shelfLifeBasis,
       shelfLifeFromDate: data.shelfLifeFromDate !== undefined ? (data.shelfLifeFromDate || null) : exists.shelfLifeFromDate,
-    });
+      returnRuleEnabled: data.returnRuleEnabled ?? exists.returnRuleEnabled,
+      returnRuleMode: data.returnRuleMode !== undefined ? data.returnRuleMode : exists.returnRuleMode,
+      returnRuleMetric: data.returnRuleMetric !== undefined ? data.returnRuleMetric : exists.returnRuleMetric,
+      returnRuleValue: data.returnRuleValue !== undefined ? data.returnRuleValue : exists.returnRuleValue,
+    };
+    const lifeProblem = shelfLifeProblem(merged) ?? returnRuleConfigProblem(merged);
     if (lifeProblem) { res.status(400).json({ success: false, message: lifeProblem }); return; }
     const updateData: Record<string, unknown> = { ...data };
     if ('barcode' in updateData) updateData.barcode = updateData.barcode || null;

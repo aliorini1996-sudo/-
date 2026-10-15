@@ -1,7 +1,7 @@
 // معاينة الصلاحية في اللوحة تطابق قاعدة الخادم (backend/src/tests/shelf-life.test.ts) في الحالات نفسها
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addShelfLife, previewExpiry } from './shelfLife';
+import { addShelfLife, previewExpiry, returnRuleValueProblem } from './shelfLife';
 
 test('الحالات نفسها في الخادم: أيام وأشهر تُقصّ وسنوات كبيسة', () => {
   assert.equal(addShelfLife('2026-10-11', 30, 'DAY'), '2026-11-10');
@@ -24,4 +24,13 @@ test('المعاينة بأساس الشراء: التاريخ المكتوب + 
   assert.equal(previewExpiry({ ...p, shelfLifeFromDate: '' }, '2026-10-15'), null);
   // البيع وتحميل السيارة: ما يحدث اليوم
   assert.equal(previewExpiry({ ...p, shelfLifeBasis: 'VAN_LOAD' }, '2026-10-15'), '2027-04-15');
+});
+
+test('قيد المرتجع: حدّ صحيح قبل الحفظ، والنسبة لا تتجاوز ١٠٠ (الخادم يتحقّق ثانيةً)', () => {
+  assert.equal(returnRuleValueProblem('DAYS', 10), null);
+  assert.equal(returnRuleValueProblem('PERCENT', 100), null);
+  assert.match(String(returnRuleValueProblem('DAYS', 0)), /أكبر من صفر/);
+  assert.match(String(returnRuleValueProblem('DAYS', null)), /أكبر من صفر/);
+  assert.match(String(returnRuleValueProblem('DAYS', 2.5)), /أكبر من صفر/);
+  assert.match(String(returnRuleValueProblem('PERCENT', 101)), /١٠٠٪/);
 });

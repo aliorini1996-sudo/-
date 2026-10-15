@@ -137,3 +137,67 @@ test('حارس نصّي: صلاحية ما بيع بأساس الصنف في ك�
   assert.match(svc, /type: 'UNLOAD', createdAt: \{ lt: saleAt \}/, 'التنزيل للمستودع مصروف');
   assert.match(read('routes/invoices.ts'), /await saleExpiryFor\(tid, tz, it\.product!/, 'شاشة اختيار فاتورة البيع');
 });
+
+// ═══ قيد المرتجع لكل صنف (١٥ أكتوبر ٢٠٢٦): قرب الانتهاء | ما زال صالحاً، بالأيام | بالنسبة ═══
+import { daysBetween, returnRuleConfigProblem, returnRuleProblem, shelfLifeDays } from '../services/shelfLife';
+
+const RULE_BASE = { shelfLifeEnabled: true, shelfLifeValue: 100, shelfLifeUnit: 'DAY', returnRuleEnabled: true };
+const EXP = new Date('2026-12-31T00:00:00Z');
+
+test('قيد المرتجع: الإعداد — مطفأ يُقبل، والمفعّل يلزمه صلاحيةٌ واتجاهٌ وحدٌّ صحيح', () => {
+  assert.equal(returnRuleConfigProblem({ returnRuleEnabled: false }), null);
+  assert.match(String(returnRuleConfigProblem({ returnRuleEnabled: true, returnRuleMode: 'NEAR_EXPIRY', returnRuleMetric: 'DAYS', returnRuleValue: 5 })), /تفعيل صلاحية/);
+  assert.match(String(returnRuleConfigProblem({ ...RULE_BASE, returnRuleMode: 'X', returnRuleMetric: 'DAYS', returnRuleValue: 5 })), /متى يقبل/);
+  assert.match(String(returnRuleConfigProblem({ ...RULE_BASE, returnRuleMode: 'NEAR_EXPIRY', returnRuleMetric: null, returnRuleValue: 5 })), /بالأيام أو بنسبة/);
+  assert.match(String(returnRuleConfigProblem({ ...RULE_BASE, returnRuleMode: 'NEAR_EXPIRY', returnRuleMetric: 'DAYS', returnRuleValue: 0 })), /أكبر من صفر/);
+  assert.match(String(returnRuleConfigProblem({ ...RULE_BASE, returnRuleMode: 'STILL_VALID', returnRuleMetric: 'PERCENT', returnRuleValue: 120 })), /١٠٠٪/);
+  assert.equal(returnRuleConfigProblem({ ...RULE_BASE, returnRuleMode: 'STILL_VALID', returnRuleMetric: 'PERCENT', returnRuleValue: 50 }), null);
+});
+
+test('قيد المرتجع: الأيام والنسبة من يوم المرتجع إلى الانتهاء', () => {
+  assert.equal(daysBetween('2026-12-21', '2026-12-31'), 10);
+  assert.equal(daysBetween('2027-01-02', '2026-12-31'), -2);
+  assert.equal(shelfLifeDays({ shelfLifeEnabled: true, shelfLifeValue: 6, shelfLifeUnit: 'MONTH' }), 182.625);
+  assert.equal(shelfLifeDays({ shelfLifeEnabled: false, shelfLifeValue: 6, shelfLifeUnit: 'MONTH' }), null);
+});
+
+test('قيد المرتجع «قرب الانتهاء»: يُقبل إن بقي الحدّ أو أقل، والمنتهي يُقبل', () => {
+  const days = { ...RULE_BASE, returnRuleMode: 'NEAR_EXPIRY', returnRuleMetric: 'DAYS', returnRuleValue: 10 };
+  assert.equal(returnRuleProblem(days, EXP, '2026-12-21'), null, 'باقٍ ١٠ = الحدّ');
+  assert.match(String(returnRuleProblem(days, EXP, '2026-12-20')), /10 يوماً أو أقل، والباقي 11 يوماً/);
+  assert.equal(returnRuleProblem(days, EXP, '2026-12-31'), null, 'يوم الانتهاء');
+  assert.equal(returnRuleProblem(days, EXP, '2027-01-05'), null, 'المنتهي يُقبل');
+  const pct = { ...RULE_BASE, returnRuleMode: 'NEAR_EXPIRY', returnRuleMetric: 'PERCENT', returnRuleValue: 20 };
+  assert.equal(returnRuleProblem(pct, EXP, '2026-12-11'), null, 'باقٍ ٢٠ من ١٠٠ يوم = ٢٠٪');
+  assert.match(String(returnRuleProblem(pct, EXP, '2026-12-10')), /20٪ أو أقل، والباقي 21٪/);
+});
+
+test('قيد المرتجع «ما زال صالحاً»: يُقبل إن بقي الحدّ أو أكثر، والمنتهي يُرفض', () => {
+  const days = { ...RULE_BASE, returnRuleMode: 'STILL_VALID', returnRuleMetric: 'DAYS', returnRuleValue: 30 };
+  assert.equal(returnRuleProblem(days, EXP, '2026-12-01'), null, 'باقٍ ٣٠ = الحدّ');
+  assert.match(String(returnRuleProblem(days, EXP, '2026-12-02')), /30 يوماً أو أكثر، والباقي 29 يوماً/);
+  assert.match(String(returnRuleProblem(days, EXP, '2027-01-01')), /منتهي الصلاحية/);
+  const pct = { ...RULE_BASE, returnRuleMode: 'STILL_VALID', returnRuleMetric: 'PERCENT', returnRuleValue: 50 };
+  assert.equal(returnRuleProblem(pct, EXP, '2026-11-11'), null, 'باقٍ ٥٠ من ١٠٠ يوم = ٥٠٪');
+  assert.match(String(returnRuleProblem(pct, EXP, '2026-11-21')), /50٪ أو أكثر، والباقي 40٪/);
+});
+
+test('قيد المرتجع: المطفأ أو بلا صلاحية أو بإعدادٍ ناقص لا يرفض شيئاً', () => {
+  const off = { ...RULE_BASE, returnRuleEnabled: false, returnRuleMode: 'STILL_VALID', returnRuleMetric: 'DAYS', returnRuleValue: 30 };
+  assert.equal(returnRuleProblem(off, EXP, '2027-06-01'), null);
+  assert.equal(returnRuleProblem({ ...off, returnRuleEnabled: true, shelfLifeEnabled: false }, EXP, '2027-06-01'), null);
+  assert.equal(returnRuleProblem({ ...off, returnRuleEnabled: true, returnRuleValue: null }, EXP, '2027-06-01'), null);
+});
+
+test('حارس نصّي: القيد يُفرض قبل الإصدار بمرحلتيه، بشرطٍ من استعلام الأصناف القائم، والصنف يتحقّق مدمجاً', () => {
+  const read = (rel: string) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8').replace(/\r\n/g, '\n');
+  const inv = read('routes/invoices.ts');
+  const post = inv.slice(inv.indexOf("router.post('/',"));
+  const gate = post.indexOf('if (isReturn && products.some((p) => p.returnRuleEnabled && shelfLifeOf(p))) {');
+  assert.ok(gate > 0 && gate < post.indexOf('regimeCandidate({'), 'القيد قبل فرع المرحلة الثانية (يشمل الإشعار الدائن)');
+  assert.ok(post.indexOf("code: 'RETURN_RULE_BLOCKED'") > gate);
+  assert.match(inv, /returnBlocked: expiresAt \? returnRuleProblem\(it\.product!, expiresAt, today\) : null/, 'شاشة اختيار فاتورة البيع');
+  const products = read('routes/products.ts');
+  assert.equal(products.split('returnRuleConfigProblem(').length - 1, 2, 'الإنشاء والتعديل كلاهما يتحقّقان من القيد');
+  assert.ok(products.includes('data.returnRuleEnabled ?? exists.returnRuleEnabled'), 'التعديل يدمج القيد مع المحفوظ');
+});
