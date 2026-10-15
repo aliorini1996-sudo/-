@@ -1,7 +1,7 @@
 ﻿import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { ReturnLinkError, SALE_TYPES, assertReturnLinks, returnableOf, returnedBySaleItem } from '../services/returnLinks';
-import { isExpiredOn, linkedReturnExpiry, stampExpiryAfterIssue, tenantTz } from '../services/invoiceExpiry';
+import { isExpiredOn, linkedReturnExpiry, saleExpiryFor, stampExpiryAfterIssue, tenantTz } from '../services/invoiceExpiry';
 import { expiryDateFor, localDateIn, shelfLifeOf } from '../services/shelfLife';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
@@ -315,11 +315,16 @@ router.get('/:id/returnable', async (req: AuthRequest, res: Response, next: Next
     const sale = await prisma.invoice.findFirst({
       where: { id: req.params.id, tenantId: tid, ...(isRep ? {} : await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) },
       select: {
-        id: true, number: true, invoiceDate: true, customerId: true, type: true, status: true, documentKind: true,
+        id: true, number: true, invoiceDate: true, customerId: true, salesRepId: true, type: true, status: true, documentKind: true,
         items: {
           select: {
             id: true, productId: true, qty: true, lineTotal: true, taxPct: true, expiresAt: true,
-            product: { select: { id: true, name: true, code: true, unit: true, shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true } },
+            product: {
+              select: {
+                id: true, name: true, code: true, unit: true,
+                shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true, shelfLifeBasis: true, shelfLifeFromDate: true,
+              },
+            },
           },
         },
       },
@@ -334,8 +339,11 @@ router.get('/:id/returnable', async (req: AuthRequest, res: Response, next: Next
     const [returned, tz] = await Promise.all([returnedBySaleItem(prisma, tid, sale.items.map((i) => i.id)), tenantTz(tid)]);
     const left = returnableOf(sale.items, returned);
     const today = localDateIn(new Date(), tz);
-    const lines = sale.items.filter((it) => it.productId && it.product).map((it) => {
-      const expiresAt = it.expiresAt ?? expiryDateFor(it.product!, sale.invoiceDate, tz);
+    const lines = await Promise.all(sale.items.filter((it) => it.productId && it.product).map(async (it) => {
+      // بيعٌ قبل الميزة بلا لقطة: بأساس الصنف الحالي (البيع أو الشراء أو تحميل السيارة)
+      const expiresAt = it.expiresAt ?? await saleExpiryFor(tid, tz, it.product!, {
+        invoiceId: sale.id, invoiceDate: sale.invoiceDate, salesRepId: sale.salesRepId, productId: it.productId!,
+      });
       return {
         saleItemId: it.id, productId: it.productId, name: it.product!.name, code: it.product!.code, unit: it.product!.unit,
         sold: Number(it.qty), returned: returned.get(it.id) ?? 0, returnable: left.get(it.id) ?? 0,
@@ -345,7 +353,7 @@ router.get('/:id/returnable', async (req: AuthRequest, res: Response, next: Next
         expiresAt: expiresAt ? expiresAt.toISOString().slice(0, 10) : null,
         expiredToday: expiresAt ? isExpiredOn(today, expiresAt) : null,
       };
-    });
+    }));
     res.json({ success: true, data: { id: sale.id, number: sale.number, invoiceDate: sale.invoiceDate, customerId: sale.customerId, lines } });
   } catch (err) { next(err); }
 });

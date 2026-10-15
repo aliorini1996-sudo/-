@@ -6,6 +6,14 @@ export type ShelfLifeUnit = 'DAY' | 'MONTH' | 'YEAR';
 
 export const SHELF_LIFE_UNIT_LABELS: Record<ShelfLifeUnit, string> = { DAY: 'أيام', MONTH: 'أشهر', YEAR: 'سنوات' };
 
+/** أساس حساب الصلاحية — مرآة SHELF_LIFE_BASES في الخادم */
+export type ShelfLifeBasis = 'SALE' | 'PURCHASE' | 'VAN_LOAD';
+export const SHELF_LIFE_BASIS_LABELS: Record<ShelfLifeBasis, string> = {
+  SALE: 'تاريخ البيع',
+  PURCHASE: 'تاريخ الشراء',
+  VAN_LOAD: 'تاريخ تحميل سيارة المندوب',
+};
+
 const pad = (n: number) => String(n).padStart(2, '0');
 const isoOf = (d: Date) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
 
@@ -26,13 +34,20 @@ export function todayLocal(now = new Date()): string {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
-/** تاريخ الانتهاء لما يُباع اليوم، أو null لصنفٍ بلا صلاحية مكتملة */
+/**
+ * تاريخ الانتهاء للمعاينة: أساس الشراء ⇒ التاريخ المكتوب + المدة (ثابتٌ لكل الكمية)؛ والبيع وتحميل السيارة ⇒ ما يُباع
+ * أو يُحمَّل اليوم. null لصنفٍ بلا صلاحية مكتملة أو لشراءٍ بلا تاريخ.
+ */
 export function previewExpiry(
-  p: { shelfLifeEnabled?: boolean | null; shelfLifeValue?: number | null; shelfLifeUnit?: string | null },
+  p: { shelfLifeEnabled?: boolean | null; shelfLifeValue?: number | null; shelfLifeUnit?: string | null; shelfLifeBasis?: string | null; shelfLifeFromDate?: string | null },
   today = todayLocal(),
 ): string | null {
   const v = Number(p.shelfLifeValue);
   const unit = p.shelfLifeUnit as ShelfLifeUnit;
   if (!p.shelfLifeEnabled || !Number.isInteger(v) || v <= 0 || !(unit in SHELF_LIFE_UNIT_LABELS)) return null;
+  if (p.shelfLifeBasis === 'PURCHASE') {
+    const from = (p.shelfLifeFromDate || '').slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(from) ? addShelfLife(from, v, unit) : null;
+  }
   return addShelfLife(today, v, unit);
 }

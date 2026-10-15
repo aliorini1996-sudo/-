@@ -7,7 +7,7 @@ import { useTr } from '../../i18n/strings';
 import { X, Upload, Trash2, Image as ImageIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { PRODUCT_VAT_CATEGORY_LABELS_AR, VATEX_LABELS_AR, productVatPayload, vatexCodesFor } from '../../lib/zatca/productVatForm';
-import { SHELF_LIFE_UNIT_LABELS, ShelfLifeUnit, previewExpiry } from '../../lib/shelfLife';
+import { SHELF_LIFE_BASIS_LABELS, SHELF_LIFE_UNIT_LABELS, ShelfLifeBasis, ShelfLifeUnit, previewExpiry } from '../../lib/shelfLife';
 import { formatDayOnly } from '../../utils/format';
 
 interface Props {
@@ -47,9 +47,10 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
   const tr = useTr();
   const { register, handleSubmit, watch, setValue, getValues, formState: { errors } } = useForm<Partial<Product>>({
     // وحدة الصلاحية الافتراضية «أشهر» — صنفٌ قديم بلا وحدة محفوظة لا يُرسل فارغاً حين تُفعَّل له
+    // وتاريخ الشراء بصيغة حقل التاريخ (YYYY-MM-DD) — الخادم يعيده لحظةً كاملة
     defaultValues: product
-      ? { ...product, shelfLifeUnit: product.shelfLifeUnit || 'MONTH' }
-      : { status: 'ACTIVE', taxPct: 15, basePrice: 0, shelfLifeEnabled: false, shelfLifeUnit: 'MONTH' },
+      ? { ...product, shelfLifeUnit: product.shelfLifeUnit || 'MONTH', shelfLifeBasis: product.shelfLifeBasis || 'SALE', shelfLifeFromDate: product.shelfLifeFromDate ? product.shelfLifeFromDate.slice(0, 10) : '' }
+      : { status: 'ACTIVE', taxPct: 15, basePrice: 0, shelfLifeEnabled: false, shelfLifeUnit: 'MONTH', shelfLifeBasis: 'SALE', shelfLifeFromDate: '' },
   });
   // صورة الصنف تُدار بـ state ليتم ضغطها ودمجها يدوياً
   const [image, setImage] = useState<string>(product?.image || '');
@@ -71,9 +72,18 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
 
   // الفئة الضريبية (Z5.1a) تُرسل للشركة الجامعة وحدها — غيرها لا تصله الحقول الثلاثة أصلاً (كان الخادم يُسقطها)
   const vatCategory = zatcaCollect ? watch('vatCategory') : null;
-  // صلاحية الصنف: المدة تُحسب من تاريخ البيع، والمعاينة لما يُباع اليوم
+  // صلاحية الصنف: المدة من أساسٍ يختاره المالك (البيع أو الشراء المكتوب أو تحميل السيارة)، والمعاينة بحسبه
   const lifeOn = !!watch('shelfLifeEnabled');
-  const lifePreview = previewExpiry({ shelfLifeEnabled: lifeOn, shelfLifeValue: watch('shelfLifeValue'), shelfLifeUnit: watch('shelfLifeUnit') });
+  const lifeBasis = (watch('shelfLifeBasis') || 'SALE') as ShelfLifeBasis;
+  const lifePreview = previewExpiry({
+    shelfLifeEnabled: lifeOn, shelfLifeValue: watch('shelfLifeValue'), shelfLifeUnit: watch('shelfLifeUnit'),
+    shelfLifeBasis: lifeBasis, shelfLifeFromDate: watch('shelfLifeFromDate'),
+  });
+  const PREVIEW_LABEL: Record<ShelfLifeBasis, string> = {
+    SALE: 'ما يباع اليوم تنتهي صلاحيته في',
+    PURCHASE: 'تنتهي صلاحية كمية هذا الصنف في',
+    VAN_LOAD: 'ما يحمل اليوم في سيارة المندوب تنتهي صلاحيته في',
+  };
   const submit = (data: Partial<Product>) => {
     const { vatCategory: cat, vatExemptionCode, vatExemptionReason, ...rest } = data;
     // حقلٌ رقميّ فارغ يصير NaN — يُرسل null لا NaN (JSON يحوّله null أصلاً، والصراحة أوضح)
@@ -82,8 +92,14 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
       toast.error(tr('مدة الصلاحية يجب أن تكون عدداً صحيحاً أكبر من صفر'));
       return;
     }
+    const fromDate = rest.shelfLifeFromDate ? String(rest.shelfLifeFromDate).slice(0, 10) : null;
+    if (rest.shelfLifeEnabled && rest.shelfLifeBasis === 'PURCHASE' && !fromDate) {
+      toast.error(tr('اكتب تاريخ الشراء أو الإنتاج الذي تحسب منه الصلاحية'));
+      return;
+    }
     onSave({
       ...rest, shelfLifeEnabled: !!rest.shelfLifeEnabled, shelfLifeValue: lifeValue,
+      shelfLifeBasis: rest.shelfLifeBasis || 'SALE', shelfLifeFromDate: fromDate,
       image: image || null, ...(zatcaCollect ? productVatPayload({ vatCategory: cat, vatExemptionCode, vatExemptionReason }) : {}),
     } as Partial<Product>);
   };
@@ -170,12 +186,12 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
             <span className="text-[10px] text-gray-400 mr-auto">{tr('الأدمن يبقى يتحكم لكل مرتجع')}</span>
           </label>
 
-          {/* صلاحية الصنف — اختيارية: مدةٌ من تاريخ البيع، ومنها يُسجَّل عند المرتجع هل عاد الصنف منتهي الصلاحية */}
+          {/* صلاحية الصنف — اختيارية: مدةٌ من أساسٍ يُختار (البيع أو الشراء أو تحميل السيارة)، ومنها يُسجَّل عند المرتجع هل عاد منتهياً */}
           <div className="rounded-xl border border-gray-200 p-3 space-y-3">
             <label className="flex items-center gap-2.5 cursor-pointer">
               <input type="checkbox" {...register('shelfLifeEnabled')} className="w-4 h-4 accent-[#E15A30]" />
               <span className="text-sm font-semibold text-gray-700">{tr('تفعيل تاريخ صلاحية الصنف')}</span>
-              <span className="text-[10px] text-gray-400 mr-auto">{tr('تحسب من تاريخ البيع')}</span>
+              <span className="text-[10px] text-gray-400 mr-auto">{tr('تحسب من')} {tr(SHELF_LIFE_BASIS_LABELS[lifeBasis])}</span>
             </label>
             {lifeOn && (
               <div className="grid grid-cols-2 gap-4">
@@ -189,9 +205,24 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
                     {(Object.keys(SHELF_LIFE_UNIT_LABELS) as ShelfLifeUnit[]).map(u => <option key={u} value={u}>{tr(SHELF_LIFE_UNIT_LABELS[u])}</option>)}
                   </select>
                 </div>
+                <div className={lifeBasis === 'PURCHASE' ? '' : 'col-span-2'}>
+                  <label className="label">{tr('تحسب الصلاحية من')}</label>
+                  <select className="input" {...register('shelfLifeBasis')}>
+                    {(Object.keys(SHELF_LIFE_BASIS_LABELS) as ShelfLifeBasis[]).map(b => <option key={b} value={b}>{tr(SHELF_LIFE_BASIS_LABELS[b])}</option>)}
+                  </select>
+                </div>
+                {lifeBasis === 'PURCHASE' && (
+                  <div>
+                    <label className="label">{tr('تاريخ الشراء أو الإنتاج')} *</label>
+                    <input type="date" className="input" {...register('shelfLifeFromDate')} />
+                  </div>
+                )}
+                {lifeBasis === 'VAN_LOAD' && (
+                  <p className="col-span-2 text-[11px] text-gray-400">{tr('البيع يطابق بدفعة التحميل التي جاء منها والأقدم يباع أولا')}</p>
+                )}
                 {lifePreview && (
                   <p className="col-span-2 text-xs text-gray-500">
-                    {tr('ما يباع اليوم تنتهي صلاحيته في')} <b className="text-gray-700">{formatDayOnly(lifePreview)}</b>
+                    {tr(PREVIEW_LABEL[lifeBasis])} <b className="text-gray-700">{formatDayOnly(lifePreview)}</b>
                   </p>
                 )}
               </div>

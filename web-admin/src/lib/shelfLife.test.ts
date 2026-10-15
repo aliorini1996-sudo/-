@@ -17,3 +17,11 @@ test('المعاينة: المطفأة أو الناقصة بلا تاريخ', (
   assert.equal(previewExpiry({ shelfLifeEnabled: true, shelfLifeValue: null, shelfLifeUnit: 'MONTH' }, '2026-10-11'), null);
   assert.equal(previewExpiry({ shelfLifeEnabled: true, shelfLifeValue: 6, shelfLifeUnit: null }, '2026-10-11'), null);
 });
+
+test('المعاينة بأساس الشراء: التاريخ المكتوب + المدة، وبلا تاريخ لا معاينة', () => {
+  const p = { shelfLifeEnabled: true, shelfLifeValue: 6, shelfLifeUnit: 'MONTH', shelfLifeBasis: 'PURCHASE' };
+  assert.equal(previewExpiry({ ...p, shelfLifeFromDate: '2026-08-31' }, '2026-10-15'), '2027-02-28');
+  assert.equal(previewExpiry({ ...p, shelfLifeFromDate: '' }, '2026-10-15'), null);
+  // البيع وتحميل السيارة: ما يحدث اليوم
+  assert.equal(previewExpiry({ ...p, shelfLifeBasis: 'VAN_LOAD' }, '2026-10-15'), '2027-04-15');
+});

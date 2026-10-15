@@ -60,7 +60,7 @@ const CUSTOMER_COLS = [
 ];
 const PRODUCT_COLS = [
   'id', 'code', 'name', 'barcode', 'unit', 'basePrice', 'taxPct', 'itemCode', 'itemCodeType', 'unitCode', 'status',
-  'damagedReturnToStock', 'shelfLifeEnabled', 'shelfLifeValue', 'shelfLifeUnit', 'deletedAt', 'categoryId', 'createdAt',
+  'damagedReturnToStock', 'shelfLifeEnabled', 'shelfLifeValue', 'shelfLifeUnit', 'shelfLifeBasis', 'shelfLifeFromDate', 'deletedAt', 'categoryId', 'createdAt',
   'updatedAt', 'vatCategory', 'vatExemptionCode', 'vatExemptionReason',
 ];
 const SALES_REP_COLS = [

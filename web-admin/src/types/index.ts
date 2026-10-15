@@ -226,6 +226,9 @@ export interface Product {
   shelfLifeEnabled?: boolean;
   shelfLifeValue?: number | null;
   shelfLifeUnit?: 'DAY' | 'MONTH' | 'YEAR' | null;
+  // أساس الحساب: البيع | الشراء بتاريخٍ يُكتب في الصنف | تحميل سيارة المندوب (الأقدم يُصرف أولاً)
+  shelfLifeBasis?: 'SALE' | 'PURCHASE' | 'VAN_LOAD';
+  shelfLifeFromDate?: string | null;
   categoryId?: string;
   category?: { id: string; name: string };
   priceTiers?: PriceTier[];

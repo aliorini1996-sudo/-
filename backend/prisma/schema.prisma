@@ -521,6 +521,9 @@ model Product {
   shelfLifeEnabled     Boolean          @default(false)
   shelfLifeValue       Int?
   shelfLifeUnit        String? // DAY | MONTH | YEAR
+  // أساس الحساب (services/shelfLife.ts): SALE تاريخ البيع | PURCHASE تاريخ شراءٍ/إنتاجٍ يُكتب هنا | VAN_LOAD تحميل السيارة
+  shelfLifeBasis       String           @default("SALE")
+  shelfLifeFromDate    DateTime?        @db.Date
   deletedAt            DateTime? // أرشفة بدل الحذف حين يوجد تاريخ: يختفي من القوائم ويبقى صفه باسمه للفواتير والكشوف القديمة
   categoryId           String?
   category             ProductCategory? @relation(fields: [categoryId], references: [id])

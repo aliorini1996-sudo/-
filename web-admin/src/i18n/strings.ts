@@ -666,6 +666,17 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'لا يوجد عملاء للتصدير': { en: 'No customers to export', fr: 'Aucun client à exporter', tr: 'Dışa aktarılacak müşteri yok', zh: '没有可导出的客户' },
   'تاريخ الإضافة': { en: 'Date added', fr: 'Date d ajout', tr: 'Eklenme tarihi', zh: '添加日期' },
   'تصدير العملاء وفق البحث والفلاتر الحالية': { en: 'Export customers matching the current search and filters', fr: 'Exporter les clients selon la recherche et les filtres actuels', tr: 'Mevcut arama ve filtrelere uyan müşterileri dışa aktar', zh: '按当前搜索和筛选导出客户' },
+  // أساس حساب صلاحية الصنف
+  'تحسب من': { en: 'Counted from', fr: 'Calculée à partir de', tr: 'Hesaplama başlangıcı', zh: '起算自' },
+  'تحسب الصلاحية من': { en: 'Shelf life counted from', fr: 'Durée calculée à partir de', tr: 'Raf ömrü başlangıcı', zh: '保质期起算自' },
+  'تاريخ البيع': { en: 'Sale date', fr: 'Date de vente', tr: 'Satış tarihi', zh: '销售日期' },
+  'تاريخ الشراء': { en: 'Purchase date', fr: 'Date d achat', tr: 'Satın alma tarihi', zh: '采购日期' },
+  'تاريخ تحميل سيارة المندوب': { en: 'Rep van load date', fr: 'Date de chargement du véhicule', tr: 'Temsilci aracının yükleme tarihi', zh: '业务员装车日期' },
+  'تاريخ الشراء أو الإنتاج': { en: 'Purchase or production date', fr: 'Date d achat ou de production', tr: 'Satın alma veya üretim tarihi', zh: '采购或生产日期' },
+  'اكتب تاريخ الشراء أو الإنتاج الذي تحسب منه الصلاحية': { en: 'Enter the purchase or production date the shelf life is counted from', fr: 'Saisissez la date d achat ou de production à partir de laquelle la durée est calculée', tr: 'Raf ömrünün hesaplanacağı satın alma veya üretim tarihini girin', zh: '请填写计算保质期所依据的采购或生产日期' },
+  'تنتهي صلاحية كمية هذا الصنف في': { en: 'This item s stock expires on', fr: 'Le stock de cet article expire le', tr: 'Bu ürünün stoğunun son kullanma tarihi', zh: '该商品库存到期日' },
+  'ما يحمل اليوم في سيارة المندوب تنتهي صلاحيته في': { en: 'Stock loaded into the rep van today expires on', fr: 'Le stock chargé aujourd hui dans le véhicule expire le', tr: 'Bugün temsilci aracına yüklenen stokun son kullanma tarihi', zh: '今日装入业务员车辆的货品到期日' },
+  'البيع يطابق بدفعة التحميل التي جاء منها والأقدم يباع أولا': { en: 'Each sale is matched to the load it came from — the oldest load is sold first', fr: 'Chaque vente est rattachée au chargement d origine — le plus ancien est vendu en premier', tr: 'Her satış geldiği yüklemeyle eşleşir — en eski yükleme önce satılır', zh: '每笔销售按其来源装车批次匹配——先装先卖' },
   // تقرير المرتجع
   'تقرير المرتجع': { en: 'Returns report', fr: 'Rapport des retours', tr: 'İade raporu', zh: '退货报表' },
   'إجمالي قيمة المرتجعات': { en: 'Total returns value', fr: 'Valeur totale des retours', tr: 'Toplam iade tutarı', zh: '退货总额' },

@@ -6,7 +6,7 @@ import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
 import { canAccessCustomer } from '../services/customerScope';
 import { applyProductVatGate } from './productsZatca';
-import { SHELF_LIFE_UNITS, shelfLifeProblem } from '../services/shelfLife';
+import { SHELF_LIFE_BASES, SHELF_LIFE_UNITS, shelfLifeProblem } from '../services/shelfLife';
 
 const router = Router();
 router.use(authenticate); // القراءة متاحة للمندوب (للبحث عند إصدار الفاتورة)؛ الكتابة للإدارة فقط
@@ -25,10 +25,12 @@ const productSchema = z.object({
   image: z.string().nullish().or(z.literal('')), // صورة الصنف (base64 data URL)
   status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
   damagedReturnToStock: z.boolean().optional(), // سياسة: هل يعود مرتجع هذا الصنف التالف للمخزون؟
-  // صلاحية الصنف من تاريخ التوريد — يُتحقَّق منها بعد الدمج مع المحفوظ (shelfLifeProblem)
+  // صلاحية الصنف وأساس حسابها (البيع | الشراء بتاريخٍ يُكتب هنا | تحميل السيارة) — يُتحقَّق منها بعد الدمج مع المحفوظ
   shelfLifeEnabled: z.boolean().optional(),
   shelfLifeValue: z.number().int().positive().nullish(),
   shelfLifeUnit: z.enum(SHELF_LIFE_UNITS).nullish(),
+  shelfLifeBasis: z.enum(SHELF_LIFE_BASES).optional(),
+  shelfLifeFromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish().or(z.literal('')),
   categoryId: z.string().nullish(),
   // أكواد الفوترة الإلكترونية
   itemCode: z.string().nullish().or(z.literal('')),     // كود الصنف (EGS/GS1)
@@ -37,6 +39,9 @@ const productSchema = z.object({
 });
 
 const categorySchema = z.object({ name: z.string().min(1) });
+
+/** تاريخ الشراء YYYY-MM-DD ⇒ تاريخٌ مجرّد (منتصف ليل UTC لعمود @db.Date)؛ والفارغ null */
+const asDay = (d: string | null | undefined) => (d ? new Date(`${d}T00:00:00.000Z`) : null);
 
 const priceTierSchema = z.array(z.object({
   minQty: z.number().min(0),
@@ -158,7 +163,7 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
     const vatGate = await applyProductVatGate(prisma, req.body, tid, { productId: null, taxPct: data.taxPct });
     if (!vatGate.ok) { res.status(vatGate.status).json(vatGate.body); return; }
     if (!(await categoryOwned(tid, data.categoryId))) { res.status(400).json({ success: false, message: 'التصنيف غير موجود' }); return; }
-    const product = await prisma.product.create({ data: { ...data, ...vatGate.patch, barcode: data.barcode || null, categoryId: data.categoryId || null, image: data.image || null, itemCode: data.itemCode || null, unitCode: data.unitCode || null, tenantId: tid } as any, include: { category: true } });
+    const product = await prisma.product.create({ data: { ...data, ...vatGate.patch, barcode: data.barcode || null, shelfLifeFromDate: asDay(data.shelfLifeFromDate), categoryId: data.categoryId || null, image: data.image || null, itemCode: data.itemCode || null, unitCode: data.unitCode || null, tenantId: tid } as any, include: { category: true } });
     res.status(201).json({ success: true, data: product });
   } catch (err) { next(err); }
 });
@@ -168,7 +173,7 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
     const tid = tenantId(req);
     const exists = await prisma.product.findFirst({
       where: { id: req.params.id, tenantId: tid },
-      select: { id: true, shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true },
+      select: { id: true, shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true, shelfLifeBasis: true, shelfLifeFromDate: true },
     });
     if (!exists) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
     const data = productSchema.partial().parse(req.body);
@@ -177,6 +182,8 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
       shelfLifeEnabled: data.shelfLifeEnabled ?? exists.shelfLifeEnabled,
       shelfLifeValue: data.shelfLifeValue !== undefined ? data.shelfLifeValue : exists.shelfLifeValue,
       shelfLifeUnit: data.shelfLifeUnit !== undefined ? data.shelfLifeUnit : exists.shelfLifeUnit,
+      shelfLifeBasis: data.shelfLifeBasis ?? exists.shelfLifeBasis,
+      shelfLifeFromDate: data.shelfLifeFromDate !== undefined ? (data.shelfLifeFromDate || null) : exists.shelfLifeFromDate,
     });
     if (lifeProblem) { res.status(400).json({ success: false, message: lifeProblem }); return; }
     const updateData: Record<string, unknown> = { ...data };
@@ -188,6 +195,7 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
     if ('image' in updateData) updateData.image = updateData.image || null;
     if ('itemCode' in updateData) updateData.itemCode = updateData.itemCode || null;
     if ('unitCode' in updateData) updateData.unitCode = updateData.unitCode || null;
+    if ('shelfLifeFromDate' in updateData) updateData.shelfLifeFromDate = asDay(data.shelfLifeFromDate);
     // فوترة ZATCA (Z5.1a): الفئة الضريبية للشركة الجامعة وحدها — على الحالة المدمجة مع المحفوظ والنسبة التي ستُحفظ
     const vatGate = await applyProductVatGate(prisma, req.body, tid, { productId: req.params.id, taxPct: updateData.taxPct as number | undefined });
     if (!vatGate.ok) { res.status(vatGate.status).json(vatGate.body); return; }

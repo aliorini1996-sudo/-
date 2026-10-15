@@ -1,9 +1,9 @@
 /**
- * صلاحية الصنف من **تاريخ البيع** (طلب المالك ١١ أكتوبر ٢٠٢٦) — والغاية: حين يُسجَّل مرتجعٌ يُسجَّل معه هل الصنف
- * المُرتجَع منتهي الصلاحية أم لا.
+ * صلاحية الصنف (طلب المالك ١١ أكتوبر ٢٠٢٦، وأساسها لكل صنف ١٥ أكتوبر) — والغاية: حين يُسجَّل مرتجعٌ يُسجَّل معه هل
+ * الصنف المُرتجَع منتهي الصلاحية أم لا.
  *
- * - **بند البيع** (نقدي/آجل): `expiresAt` = يوم الفاتورة بتوقيت الشركة + صلاحية الصنف حينها — لقطةٌ لا تتغيّر
- *   إن عُدّلت صلاحية الصنف لاحقاً.
+ * - **بند البيع** (نقدي/آجل): `expiresAt` = تاريخ انتهاء ما بيع حسب أساس الصنف (`saleExpiryFor`: البيع، أو الشراء المكتوب
+ *   في الصنف، أو دفعة تحميل السيارة) — لقطةٌ لا تتغيّر إن عُدّلت صلاحية الصنف لاحقاً.
  * - **بند المرتجع**: يُقاس على بيعه —
  *     · المرتجع المرتبط بفاتورته: بندُ الأصل نفسه — `creditedItemId` (إشعار دائن، المرحلة الثانية) أو `returnOfItemId`
  *       (مرتجعٌ من فاتورة بيع في المرحلة الأولى، services/returnLinks.ts).
@@ -17,7 +17,7 @@
  */
 import prisma from '../config/database';
 import { companyTimeZone } from './erpPayload';
-import { expiryDateFor, localDateIn, shelfLifeOf } from './shelfLife';
+import { expiryDateFor, fifoBatchAt, localDateIn, purchaseExpiry, shelfLifeBasisOf, shelfLifeOf, type ShelfLifeSettings } from './shelfLife';
 
 const SALE_TYPES = ['CASH', 'CREDIT'];
 const NOTE_KINDS = ['CREDIT_NOTE', 'DEBIT_NOTE'];
@@ -38,14 +38,62 @@ export async function tenantTz(tenantId: string): Promise<string> {
   return companyTimeZone(gl?.timezone, company?.countryCode);
 }
 
-const LIFE = { shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true } as const;
+const LIFE = { shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true, shelfLifeBasis: true, shelfLifeFromDate: true } as const;
+
+/**
+ * صلاحية ما بيع في بند بيعٍ حسب **أساس الصنف** (services/shelfLife.ts): البيع ⇒ يوم الفاتورة؛ الشراء ⇒ التاريخ المكتوب
+ * في الصنف؛ تحميل السيارة ⇒ دفعة التحميل التي صُرف منها هذا البيع (الأقدم أولاً). null لصنفٍ بلا صلاحية أو بلا أساسٍ
+ * معروف (شراءٌ بلا تاريخ، أو تحميلٌ لبيعٍ بلا مندوب أو قبل أيّ تحميل).
+ */
+export async function saleExpiryFor(
+  tenantId: string, tz: string, product: ShelfLifeSettings,
+  sale: { invoiceId: string; invoiceDate: Date; salesRepId: string | null; productId: string },
+): Promise<Date | null> {
+  if (!shelfLifeOf(product)) return null;
+  const basis = shelfLifeBasisOf(product);
+  if (basis === 'PURCHASE') return purchaseExpiry(product);
+  if (basis === 'VAN_LOAD') {
+    if (!sale.salesRepId) return null;
+    const at = await vanLoadBatchAt(tenantId, sale.salesRepId, sale.productId, sale.invoiceId, sale.invoiceDate);
+    return at ? expiryDateFor(product, at, tz) : null;
+  }
+  return expiryDateFor(product, sale.invoiceDate, tz);
+}
+
+/**
+ * لحظة دفعة التحميل التي يُصرف منها بيعٌ في سيارة المندوب: التحميلات حتى لحظة البيع، والمصروف قبله = مبيعاته المؤكَّدة
+ * السابقة من الصنف + ما نزّله للمستودع — والأقدم يُصرف أولاً (fifoBatchAt).
+ */
+async function vanLoadBatchAt(tenantId: string, repId: string, productId: string, invoiceId: string, saleAt: Date): Promise<Date | null> {
+  const [loads, sold, unloaded] = await Promise.all([
+    prisma.vanLoadItem.findMany({
+      where: { productId, vanLoad: { tenantId, salesRepId: repId, type: 'LOAD', createdAt: { lte: saleAt } } },
+      select: { qty: true, vanLoad: { select: { createdAt: true } } },
+    }),
+    prisma.invoiceItem.aggregate({
+      where: {
+        productId,
+        invoice: { tenantId, salesRepId: repId, status: 'CONFIRMED', type: { not: 'RETURN' }, id: { not: invoiceId }, invoiceDate: { lt: saleAt } },
+      },
+      _sum: { qty: true },
+    }),
+    prisma.vanLoadItem.aggregate({
+      where: { productId, vanLoad: { tenantId, salesRepId: repId, type: 'UNLOAD', createdAt: { lt: saleAt } } },
+      _sum: { qty: true },
+    }),
+  ]);
+  return fifoBatchAt(
+    loads.map((l) => ({ qty: Number(l.qty), at: l.vanLoad.createdAt })),
+    Number(sold._sum.qty ?? 0) + Number(unloaded._sum.qty ?? 0),
+  );
+}
 
 /** يحسب ويسجّل صلاحية بنود فاتورةٍ أو مرتجع صدر للتوّ */
 export async function stampInvoiceExpiry(tenantId: string, invoiceId: string): Promise<void> {
   const inv = await prisma.invoice.findFirst({
     where: { id: invoiceId, tenantId },
     select: {
-      id: true, type: true, documentKind: true, invoiceDate: true, clientCreatedAt: true, customerId: true,
+      id: true, type: true, documentKind: true, invoiceDate: true, clientCreatedAt: true, customerId: true, salesRepId: true,
       items: { select: { id: true, productId: true, creditedItemId: true, returnOfItemId: true, product: { select: LIFE } } },
     },
   });
@@ -57,11 +105,15 @@ export async function stampInvoiceExpiry(tenantId: string, invoiceId: string): P
 
   if (!isReturn) {
     if (inv.documentKind === 'DEBIT_NOTE' || !SALE_TYPES.includes(inv.type)) return;
+    // الحساب قبل المعاملة (أساس تحميل السيارة يقرأ التحميلات والمبيعات السابقة)، والكتابة في معاملةٍ واحدة
+    const stamped = await Promise.all(lines.map(async (it) => ({
+      id: it.id,
+      expiresAt: await saleExpiryFor(tenantId, tz, it.product!, {
+        invoiceId: inv.id, invoiceDate: inv.invoiceDate, salesRepId: inv.salesRepId, productId: it.productId!,
+      }),
+    })));
     await prisma.$transaction([
-      ...lines.map((it) => prisma.invoiceItem.update({
-        where: { id: it.id },
-        data: { expiresAt: expiryDateFor(it.product!, inv.invoiceDate, tz) },
-      })),
+      ...stamped.map((x) => prisma.invoiceItem.update({ where: { id: x.id }, data: { expiresAt: x.expiresAt } })),
       touchInvoice(inv.id),
     ]);
     return;
@@ -77,7 +129,7 @@ export async function stampInvoiceExpiry(tenantId: string, invoiceId: string): P
     const sale = linkedSaleItem
       ? await prisma.invoiceItem.findFirst({
         where: { id: linkedSaleItem, invoice: { tenantId } },
-        select: { invoiceId: true, expiresAt: true, invoice: { select: { invoiceDate: true } } },
+        select: { invoiceId: true, expiresAt: true, invoice: { select: { invoiceDate: true, salesRepId: true } } },
       })
       : await prisma.invoiceItem.findFirst({
         where: {
@@ -90,11 +142,13 @@ export async function stampInvoiceExpiry(tenantId: string, invoiceId: string): P
           },
         },
         orderBy: [{ invoice: { invoiceDate: 'desc' } }, { invoice: { createdAt: 'desc' } }],
-        select: { invoiceId: true, expiresAt: true, invoice: { select: { invoiceDate: true } } },
+        select: { invoiceId: true, expiresAt: true, invoice: { select: { invoiceDate: true, salesRepId: true } } },
       });
     if (!sale) continue;
-    // بيعٌ قبل الميزة بلا لقطة: يُحسب من تاريخه بصلاحية الصنف الحالية
-    const expiresAt = sale.expiresAt ?? expiryDateFor(it.product!, sale.invoice.invoiceDate, tz);
+    // بيعٌ قبل الميزة بلا لقطة: يُحسب بأساس الصنف الحالي وصلاحيته
+    const expiresAt = sale.expiresAt ?? await saleExpiryFor(tenantId, tz, it.product!, {
+      invoiceId: sale.invoiceId, invoiceDate: sale.invoice.invoiceDate, salesRepId: sale.invoice.salesRepId, productId: it.productId!,
+    });
     if (!expiresAt) continue;
     updates.push(prisma.invoiceItem.update({
       where: { id: it.id },
@@ -122,13 +176,15 @@ export async function linkedReturnExpiry(
   const [rows, tz] = await Promise.all([
     prisma.invoiceItem.findMany({
       where: { id: { in: saleItemIds }, invoice: { tenantId } },
-      select: { id: true, invoiceId: true, expiresAt: true, invoice: { select: { invoiceDate: true } }, product: { select: LIFE } },
+      select: { id: true, invoiceId: true, productId: true, expiresAt: true, invoice: { select: { invoiceDate: true, salesRepId: true } }, product: { select: LIFE } },
     }),
     tenantTz(tenantId),
   ]);
   const returnDay = localDateIn(returnAt, tz);
   for (const r of rows) {
-    const expiresAt = r.expiresAt ?? (r.product ? expiryDateFor(r.product, r.invoice.invoiceDate, tz) : null);
+    const expiresAt = r.expiresAt ?? (r.product && r.productId ? await saleExpiryFor(tenantId, tz, r.product, {
+      invoiceId: r.invoiceId, invoiceDate: r.invoice.invoiceDate, salesRepId: r.invoice.salesRepId, productId: r.productId,
+    }) : null);
     if (expiresAt) out.set(r.id, { expiresAt, returnExpired: isExpiredOn(returnDay, expiresAt), expirySaleInvoiceId: r.invoiceId });
   }
   return out;

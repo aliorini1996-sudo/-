@@ -90,3 +90,50 @@ test('حارس نصّي: الصلاحية من تاريخ البيع — الص�
   const wh = read('routes/warehouse.ts');
   assert.ok(!/expiresAt|shelfLife/.test(wh), 'الوارد لا يحسب الصلاحية بعد أن صارت من تاريخ البيع');
 });
+
+// ═══ أساس حساب الصلاحية لكل صنف (١٥ أكتوبر ٢٠٢٦): البيع | الشراء بتاريخٍ مكتوب | تحميل السيارة ═══
+import { dayOf, fifoBatchAt, purchaseExpiry, shelfLifeBasisOf } from '../services/shelfLife';
+
+test('الأساس: الغائب أو غير المعروف = البيع', () => {
+  assert.equal(shelfLifeBasisOf({}), 'SALE');
+  assert.equal(shelfLifeBasisOf({ shelfLifeBasis: 'X' }), 'SALE');
+  assert.equal(shelfLifeBasisOf({ shelfLifeBasis: 'VAN_LOAD' }), 'VAN_LOAD');
+});
+
+test('الشراء: التاريخ المكتوب + المدة — صلاحيةٌ واحدة لكل الكمية', () => {
+  const p = { shelfLifeEnabled: true, shelfLifeValue: 6, shelfLifeUnit: 'MONTH', shelfLifeBasis: 'PURCHASE', shelfLifeFromDate: new Date('2026-08-31T00:00:00Z') };
+  assert.equal(purchaseExpiry(p)?.toISOString(), '2027-02-28T00:00:00.000Z', '٣١ أغسطس + ٦ أشهر = آخر فبراير');
+  assert.equal(purchaseExpiry({ ...p, shelfLifeFromDate: '2026-10-01' })?.toISOString(), '2027-04-01T00:00:00.000Z');
+  assert.equal(purchaseExpiry({ ...p, shelfLifeFromDate: null }), null);
+  assert.equal(purchaseExpiry({ ...p, shelfLifeEnabled: false }), null);
+  assert.equal(dayOf('2026-10-01T05:00:00Z'), '2026-10-01');
+  assert.equal(dayOf('ليس تاريخاً'), null);
+});
+
+test('التحقّق: أساس الشراء يلزمه تاريخ، والأساس المجهول يُرفض', () => {
+  const base = { shelfLifeEnabled: true, shelfLifeValue: 6, shelfLifeUnit: 'MONTH' };
+  assert.match(String(shelfLifeProblem({ ...base, shelfLifeBasis: 'PURCHASE', shelfLifeFromDate: null })), /تاريخ الشراء/);
+  assert.equal(shelfLifeProblem({ ...base, shelfLifeBasis: 'PURCHASE', shelfLifeFromDate: '2026-10-01' }), null);
+  assert.equal(shelfLifeProblem({ ...base, shelfLifeBasis: 'VAN_LOAD' }), null);
+  assert.match(String(shelfLifeProblem({ ...base, shelfLifeBasis: 'WAREHOUSE' })), /أساس حساب الصلاحية/);
+});
+
+test('تحميل السيارة: الأقدم يُصرف أولاً — البيع من الدفعة التي بلغها المصروف قبله', () => {
+  const A = new Date('2026-10-01T06:00:00Z'), B = new Date('2026-10-05T06:00:00Z'), C = new Date('2026-10-09T06:00:00Z');
+  const loads = [{ qty: 50, at: B }, { qty: 100, at: A }, { qty: 30, at: C }]; // الترتيب الزمني لا ترتيب الورود
+  assert.equal(fifoBatchAt(loads, 0)?.getTime(), A.getTime());
+  assert.equal(fifoBatchAt(loads, 99)?.getTime(), A.getTime(), 'الوحدة المئة ما زالت من الدفعة الأولى');
+  assert.equal(fifoBatchAt(loads, 100)?.getTime(), B.getTime());
+  assert.equal(fifoBatchAt(loads, 175)?.getTime(), C.getTime());
+  assert.equal(fifoBatchAt(loads, 500)?.getTime(), C.getTime(), 'بيعٌ فوق المحمَّل يُنسب لآخر دفعة');
+  assert.equal(fifoBatchAt([], 0), null, 'بلا تحميل: غير معروف');
+});
+
+test('حارس نصّي: صلاحية ما بيع بأساس الصنف في كل المواضع، وتحميل السيارة يحسب المصروف قبله بلا هذا البيع', () => {
+  const read = (rel: string) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8').replace(/\r\n/g, '\n');
+  const svc = read('services/invoiceExpiry.ts');
+  assert.ok(svc.split('await saleExpiryFor(').length - 1 >= 3, 'البيع والمرتجع الحرّ والمرتبط');
+  assert.match(svc, /id: \{ not: invoiceId \}/, 'المصروف قبل البيع لا يشمل البيع نفسه');
+  assert.match(svc, /type: 'UNLOAD', createdAt: \{ lt: saleAt \}/, 'التنزيل للمستودع مصروف');
+  assert.match(read('routes/invoices.ts'), /await saleExpiryFor\(tid, tz, it\.product!/, 'شاشة اختيار فاتورة البيع');
+});
