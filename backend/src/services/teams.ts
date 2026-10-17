@@ -16,9 +16,24 @@
 /** عضويات المندوب كما تُقرأ مع صفّه: `teamMemberships: { select: TEAM_MEMBERSHIP_SELECT }` */
 export const TEAM_MEMBERSHIP_SELECT = { teamId: true, team: { select: { isActive: true } } } as const;
 
+/**
+ * عضويات المندوب مع إشراف الطالب عليها (في القراءة نفسها، بلا استعلام): مستخدم شركةٍ يشرف على بعض فرق المندوب لا يكتب
+ * مستنداً إلا بوسم أحدها — وإلا خرج المستند من رؤيته فور كتابته أو وُسم بفريقٍ لا يخصّه. المندوب وجلسة المالك: بلا إشراف.
+ */
+export function teamMembershipSelectFor(viewerAdminId: string | null) {
+  return {
+    teamId: true,
+    team: { select: { isActive: true, ...(viewerAdminId && { supervisors: { where: { adminId: viewerAdminId }, select: { adminId: true } } }) } },
+  } as const;
+}
+
+/** المشرف المحتمل للطلب: مستخدم شركة (لا مندوب ولا جلسة مالك) */
+export const supervisorViewerOf = (user: { id: string; role: string; impersonated?: boolean } | undefined) =>
+  user && user.role !== 'SALES_REP' && user.impersonated !== true ? user.id : null;
+
 export interface RepTeams {
   tenant?: { settings?: { teamsEnabled?: boolean | null } | null } | null;
-  teamMemberships?: { teamId: string; team?: { isActive?: boolean | null } | null }[] | null;
+  teamMemberships?: { teamId: string; team?: { isActive?: boolean | null; supervisors?: { adminId: string }[] | null } | null }[] | null;
 }
 
 /** فرق المندوب الفعّالة — والميزة المطفأة للشركة لا فرق لها (لا وسم ولا تقييد) */
@@ -35,6 +50,14 @@ export function activeTeamIdsOf(rep: RepTeams | null | undefined): string[] {
  */
 export function resolveDocTeam(rep: RepTeams | null | undefined, requested?: string | null): string | null {
   const ids = activeTeamIdsOf(rep);
+  // مشرفٌ يكتب لمندوب فرقه: بوسم أحد الفرق التي يشرف عليها وحدها (المطلوب إن كان منها، وإلا أولها)
+  const supervisedAll = rep?.tenant?.settings?.teamsEnabled === true
+    ? (rep.teamMemberships ?? []).filter((m) => (m.team?.supervisors?.length ?? 0) > 0)
+    : [];
+  const supervised = supervisedAll.filter((m) => m.team?.isActive !== false).map((m) => m.teamId);
+  if (supervised.length) return requested && supervised.includes(requested) ? requested : supervised[0];
+  // مشرفٌ فريقُه (المشترك مع المندوب) مؤرشف: «بلا فريق» — لا يسقط إلى فرق المندوب الأخرى التي لا يشرف عليها
+  if (supervisedAll.length) return null;
   if (requested && ids.includes(requested)) return requested;
   return ids.length === 1 ? ids[0] : null;
 }
@@ -90,6 +113,20 @@ export const teamDocWhere = (team: string | null | undefined) => (team === undef
 /** التقارير القائمة على المندوب (ساعات، حضور، مسافة، مديونيات): بعضويته الحالية — ومندوبٌ في فريقين يظهر تحت كليهما */
 export const teamRepWhere = (team: string | null | undefined) =>
   team === undefined ? {} : team === null ? { teamMemberships: { none: {} } } : { teamMemberships: { some: { teamId: team } } };
+
+/**
+ * مناديب تقريرٍ مقاييسه من المستندات (الأداء، التقييم): العضو الحالي **أو** من له مستندٌ موسومٌ بالفريق — فلا يسقط عمل
+ * مندوبٍ انتقل من الفريق من تقريره، ولا مستندات «بلا فريق» القديمة لمناديب صاروا في فرق.
+ */
+export const teamRepOrDocsWhere = (team: string | null | undefined) =>
+  team === undefined ? {} : {
+    OR: [
+      teamRepWhere(team),
+      { invoices: { some: { teamId: team } } },
+      { receipts: { some: { teamId: team } } },
+      { RepVisit: { some: { teamId: team } } },
+    ],
+  };
 
 /** اسم الفريق مع الصفّ (للعرض والتصدير ورقةً لكل فريق) */
 export const TEAM_NAME_SELECT = { select: { id: true, name: true } } as const;

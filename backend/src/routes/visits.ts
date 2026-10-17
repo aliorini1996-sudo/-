@@ -1,9 +1,9 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { TEAM_MEMBERSHIP_SELECT, resolveDocTeam } from '../services/teams';
+import { resolveDocTeam, supervisorViewerOf, teamMembershipSelectFor } from '../services/teams';
 import { authenticate, requireAdmin, tenantId } from '../middleware/auth';
-import { scopedRecordWhere, canAccessRep, SHAPE_VISIT } from '../services/adminScope';
+import { scopedRecordWhere, canAccessRep, existingInScope, SHAPE_VISIT } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { canAccessCustomer } from '../services/customerScope';
 import { computeVisitDuration } from '../services/visitDuration';
@@ -93,7 +93,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       if (existing) {
         // النطاق يسبق الـidempotency. ونحرس هنا لا في الاستعلام: لو صفّى القيدُ
         // الزيارةَ القائمة لسقط المسار إلى الإنشاء فتكرّرت الزيارة نفسها.
-        if (!(await canAccessCustomer(req, tid, existing.customerId))) {
+        if (!(await canAccessCustomer(req, tid, existing.customerId))
+          || !(await existingInScope(req, SHAPE_VISIT, (w) => prisma.repVisit.findFirst({ where: { id: existing.id, ...w }, select: { id: true } })))) {
           res.status(404).json({ success: false, message: 'الزيارة غير موجودة' }); return;
         }
         res.status(200).json({ success: true, data: existing, idempotent: true }); return;
@@ -155,7 +156,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // (مؤقّت زيارةٍ بدأ قبل وصول الفرق للتطبيق يُرسل بلا فريق فيُحسب لفريقه الوحيد)
     const visitTeamId = resolveDocTeam(await prisma.salesRep.findFirst({
       where: { id: salesRepId, tenantId: tid },
-      select: { tenant: { select: { settings: { select: { teamsEnabled: true } } } }, teamMemberships: { select: TEAM_MEMBERSHIP_SELECT } },
+      select: { tenant: { select: { settings: { select: { teamsEnabled: true } } } }, teamMemberships: { select: teamMembershipSelectFor(supervisorViewerOf(req.user)) } },
     }), body.teamId);
     const visit = await prisma.repVisit.create({
       data: {

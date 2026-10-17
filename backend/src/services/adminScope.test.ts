@@ -11,6 +11,7 @@ import {
   SHAPE_INVOICE_RECEIPT,
   SHAPE_VISIT,
   SHAPE_NOTIFICATION,
+  SHAPE_PAYMENT_LINK,
 } from './adminScope';
 import { AuthRequest } from '../types';
 
@@ -121,6 +122,19 @@ test('حارس: ثوابت الأشكال تطابق nullability المخطط ا
   assert.equal(kindOf('RepVisit', 'salesRepId'), SHAPE_VISIT.rep);
   assert.equal(kindOf('Notification', 'customerId'), SHAPE_NOTIFICATION.customer);
   assert.equal(kindOf('Notification', 'salesRepId'), SHAPE_NOTIFICATION.rep);
+  // «الفرق»: الشكل الموسوم يحمل teamId اختيارياً فعلاً، وغير الموسوم لا يحمله (يُقيَّد بعضوية المندوب)
+  const hasTeam = (model: string) => /\n\s*teamId\s+String\?/.test(new RegExp(`model\\s+${model}\\s*\\{([\\s\\S]*?)\\n\\}`).exec(schema)![1]);
+  for (const m of ['Invoice', 'Receipt']) assert.equal(hasTeam(m), SHAPE_INVOICE_RECEIPT.team === 'tagged', `${m}.teamId`);
+  assert.equal(hasTeam('RepVisit'), SHAPE_VISIT.team === 'tagged');
+  assert.equal(hasTeam('Notification'), SHAPE_NOTIFICATION.team === 'tagged');
+  // رابط الدفع: شكله الخاص — قيد «الفاتورة والسند» عليه كان يُسقط صفحة المدفوعات بـ500 لمشرف الفرق (لا علاقة team)
+  assert.equal(kindOf('CustomerPaymentLink', 'customerId'), SHAPE_PAYMENT_LINK.customer);
+  assert.equal(kindOf('CustomerPaymentLink', 'salesRepId'), SHAPE_PAYMENT_LINK.rep);
+  assert.equal(hasTeam('CustomerPaymentLink'), SHAPE_PAYMENT_LINK.team === 'tagged');
+  // ومشرف الفرق يُقيَّد بوسم فاتورته ⇒ invoiceId إلزاميّ فعلاً، والفاتورة نفسها موسومة
+  assert.equal(SHAPE_PAYMENT_LINK.team, 'viaInvoice');
+  assert.equal(kindOf('CustomerPaymentLink', 'invoiceId'), 'required');
+  assert.equal(hasTeam('Invoice'), true);
 });
 
 test('العزل لا يمس المندوب: كل الدوال ترجع فارغة لدور SALES_REP', async () => {

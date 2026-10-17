@@ -28,8 +28,20 @@ import { AuthRequest } from '../types';
 /** قيد Prisma على العملاء. غياب المفتاح = بلا تقييد (رؤية كاملة). */
 export type AdminCustomerFilter = { adminScopes?: { some: { adminId: string } } };
 
-/** قيد Prisma على المناديب. */
-export type AdminRepFilter = { adminScopes?: { some: { adminId: string } } };
+/**
+ * قيد Prisma على المناديب: قوائم يدوية (adminScopes)، أو — لمشرف الفرق (scopeMode=TEAMS) — مناديب الفرق التي يشرف عليها
+ * (teamMemberships). «مقيّد» يُستدلّ عليه من أي مفتاح (isRestricted) لا من اسم مفتاحٍ بعينه.
+ */
+export type AdminRepFilter = {
+  adminScopes?: { some: { adminId: string } };
+  teamMemberships?: { some: { team: { supervisors: { some: { adminId: string } } } } };
+};
+
+/** فلترٌ بأي مفتاح = مقيّد؛ الفارغ = رؤية كاملة */
+const isRestricted = (f: object) => Object.keys(f).length > 0;
+
+/** وضع نطاق المستخدم: null بلا تقييد، LISTS قوائم يدوية، TEAMS مشرف فرق (الفرق، Admin.scopeMode) */
+export type AdminScopeMode = 'LISTS' | 'TEAMS';
 
 /** أدوار لوحة الشركة (غير المندوب ومالك المنصّة) */
 const ADMIN_ROLES = ['ADMIN', 'MANAGER', 'ACCOUNTANT'];
@@ -44,25 +56,42 @@ function isCompanyUser(req: AuthRequest): boolean {
  * انتهاء جلسة المستخدم (٨ ساعات) — وإلا بقي يرى ما مُنع عنه.
  */
 export async function adminScopeEnabled(req: AuthRequest): Promise<boolean> {
-  if (!isCompanyUser(req)) return false;
-  // جلسة مالك المنصة لا نطاق يقيّدها (يرى الشركة كلها ويعمل فيها بلا استثناء)
+  // جلسة مالك المنصة لا نطاق يقيّدها (يرى الشركة كلها ويعمل فيها بلا استثناء) — صريحةٌ هنا وفي adminScopeModeOf
   if (req.user?.impersonated === true) return false;
-  const admin = await prisma.admin.findUnique({
-    where: { id: req.user!.id },
-    select: { scopeEnabled: true },
-  });
-  return admin?.scopeEnabled === true;
+  return (await adminScopeModeOf(req)) !== null;
 }
 
-/** قيد رؤية العملاء لمستخدم الشركة — يُدمج في استعلامات العملاء. */
+/**
+ * وضع نطاق المستخدم في استعلامٍ واحد (كما كان: صفّ المستخدم وحده). scopeEnabled يبقى الإشارة الوحيدة إلى «مقيّد» —
+ * فمشرف الفرق مقيّدٌ في كل بوّابات «ممنوع على المقيّد» (الدفاتر، المفاتيح، الاستيراد، ERP…) كالمقيّد بالقوائم.
+ */
+export async function adminScopeModeOf(req: AuthRequest): Promise<AdminScopeMode | null> {
+  if (!isCompanyUser(req)) return null;
+  // جلسة مالك المنصة لا نطاق يقيّدها (يرى الشركة كلها ويعمل فيها بلا استثناء)
+  if (req.user?.impersonated === true) return null;
+  const admin = await prisma.admin.findUnique({
+    where: { id: req.user!.id },
+    select: { scopeEnabled: true, scopeMode: true },
+  });
+  if (admin?.scopeEnabled !== true) return null;
+  return admin.scopeMode === 'TEAMS' ? 'TEAMS' : 'LISTS';
+}
+
+/**
+ * قيد رؤية العملاء لمستخدم الشركة — يُدمج في استعلامات العملاء. مشرف الفرق يرى كل العملاء (قرار المالك: العملاء
+ * مشتركون بين الفرق)، والفصل في المناديب والمستندات الموسومة.
+ */
 export async function adminCustomerFilter(req: AuthRequest): Promise<AdminCustomerFilter> {
-  if (!(await adminScopeEnabled(req))) return {};
+  const mode = await adminScopeModeOf(req);
+  if (mode !== 'LISTS') return {};
   return { adminScopes: { some: { adminId: req.user!.id } } };
 }
 
-/** قيد رؤية المناديب لمستخدم الشركة — يُدمج في استعلامات المناديب. */
+/** قيد رؤية المناديب لمستخدم الشركة — يُدمج في استعلامات المناديب. مشرف الفرق: مناديب فرقه (عضويتهم الحالية) */
 export async function adminRepFilter(req: AuthRequest): Promise<AdminRepFilter> {
-  if (!(await adminScopeEnabled(req))) return {};
+  const mode = await adminScopeModeOf(req);
+  if (mode === null) return {};
+  if (mode === 'TEAMS') return { teamMemberships: { some: { team: { supervisors: { some: { adminId: req.user!.id } } } } } };
   return { adminScopes: { some: { adminId: req.user!.id } } };
 }
 
@@ -72,7 +101,7 @@ export async function adminRepFilter(req: AuthRequest): Promise<AdminRepFilter> 
  */
 export async function canAccessCustomerAsAdmin(req: AuthRequest, tid: string, customerId: string): Promise<boolean> {
   const filter = await adminCustomerFilter(req);
-  if (!filter.adminScopes) return true;
+  if (!isRestricted(filter)) return true;
   const found = await prisma.customer.findFirst({
     where: { id: customerId, tenantId: tid, ...filter },
     select: { id: true },
@@ -83,7 +112,7 @@ export async function canAccessCustomerAsAdmin(req: AuthRequest, tid: string, cu
 /** هل يرى هذا المستخدم هذا المندوب؟ (يحرس الإسناد من الكتابة العمياء) */
 export async function canAccessRep(req: AuthRequest, tid: string, salesRepId: string): Promise<boolean> {
   const filter = await adminRepFilter(req);
-  if (!filter.adminScopes) return true;
+  if (!isRestricted(filter)) return true;
   const found = await prisma.salesRep.findFirst({
     where: { id: salesRepId, tenantId: tid, ...filter },
     select: { id: true },
@@ -168,14 +197,20 @@ export async function setAdminScope(
 export interface RecordShape {
   customer: 'required' | 'nullable';
   rep: 'required' | 'nullable';
+  /** «الفرق»: النموذج يحمل وسم الفريق teamId (tagged) فيُقيَّد به مشرف الفرق، أو يتبع فاتورةً موسومة (viaInvoice)،
+   *  أو لا يحمله (absent) فبعضوية المندوب */
+  team: 'tagged' | 'viaInvoice' | 'absent';
 }
 
-/** الفاتورة والسند: لكلٍّ عميلٌ إلزاميّ، وقد لا يكون له مندوب (سجلّ أنشأته الإدارة). */
-export const SHAPE_INVOICE_RECEIPT: RecordShape = { customer: 'required', rep: 'nullable' };
-/** زيارة المندوب (RepVisit): العميل والمندوب كلاهما إلزاميّ — لا استثناء null لأيّهما. */
-export const SHAPE_VISIT: RecordShape = { customer: 'required', rep: 'required' };
-/** الإشعار: قد يكون على مستوى الشركة بلا عميل ولا مندوب — كلاهما اختياريّ. */
-export const SHAPE_NOTIFICATION: RecordShape = { customer: 'nullable', rep: 'nullable' };
+/** الفاتورة والسند: لكلٍّ عميلٌ إلزاميّ، وقد لا يكون له مندوب (سجلّ أنشأته الإدارة)، ويحملان وسم الفريق. */
+export const SHAPE_INVOICE_RECEIPT: RecordShape = { customer: 'required', rep: 'nullable', team: 'tagged' };
+/** زيارة المندوب (RepVisit): العميل والمندوب كلاهما إلزاميّ — لا استثناء null لأيّهما — وتحمل وسم الفريق. */
+export const SHAPE_VISIT: RecordShape = { customer: 'required', rep: 'required', team: 'tagged' };
+/** الإشعار: قد يكون على مستوى الشركة بلا عميل ولا مندوب — كلاهما اختياريّ — ولا وسم فريقٍ له. */
+export const SHAPE_NOTIFICATION: RecordShape = { customer: 'nullable', rep: 'nullable', team: 'absent' };
+/** رابط الدفع (CustomerPaymentLink): عميلٌ إلزاميّ ومندوبٌ اختياريّ — ومشرف الفرق بوسم فاتورته (invoiceId إلزاميّ)،
+ *  لا بعضوية مندوبه: مندوبٌ في فريقين كان يكشف روابط فواتير الفريق الآخر ويتيح إلغاءها */
+export const SHAPE_PAYMENT_LINK: RecordShape = { customer: 'required', rep: 'nullable', team: 'viaInvoice' };
 
 /**
  * قيد على أي سجلّ يحمل `customerId` و/أو `salesRepId` (فاتورة، سند، زيارة…).
@@ -189,7 +224,22 @@ export const SHAPE_NOTIFICATION: RecordShape = { customer: 'nullable', rep: 'nul
  */
 export async function scopedRecordWhere(req: AuthRequest, shape: RecordShape): Promise<Record<string, unknown>> {
   const [cust, rep] = await Promise.all([adminCustomerFilter(req), adminRepFilter(req)]);
+  // مشرف الفرق: بوسم المستند (لا بعضوية مندوبه الحالية) — فمندوبٌ في فريقين لا يكشف عمله للفريق الآخر
+  if (rep.teamMemberships) return composeTeamRecordWhere(req.user!.id, shape);
   return composeRecordWhere(cust, rep, shape);
+}
+
+/**
+ * قيد مشرف الفرق — صافٍ ليُختبَر وحده. النموذج الموسوم: ما وُسم بفرقه وحده (والقديم «بلا فريق» ومستند المكتب بلا فريق
+ * لا يراهما — فشلٌ مغلق). وبلا وسم (الإشعار): بعضوية مندوبه في فرقه، واستثناء null على الحقل الاختياريّ وحده.
+ * مفتاحٌ واحد AND في المستوى الأعلى — المستدعون ينثرون OR بحثهم بعده.
+ */
+export function composeTeamRecordWhere(adminId: string, shape: RecordShape): Record<string, unknown> {
+  const supervised = { supervisors: { some: { adminId } } };
+  if (shape.team === 'tagged') return { AND: [{ team: supervised }] };
+  if (shape.team === 'viaInvoice') return { AND: [{ invoice: { team: supervised } }] };
+  const scoped = { salesRep: { teamMemberships: { some: { team: supervised } } } };
+  return { AND: [shape.rep === 'nullable' ? { OR: [scoped, { salesRepId: null }] } : scoped] };
 }
 
 /**
@@ -217,10 +267,25 @@ export function composeRecordWhere(
   return and.length ? { AND: and } : {};
 }
 
-/** قيد على سجلّ يحمل `salesRepId` فقط (موقع مندوب، جلسة حضور، تحميل سيارة) */
+/**
+ * إعادة الرفع بـclientRef تُعيد السجلّ القائم كاملاً — فللمستخدم المقيَّد يجب أن يقع السجلّ نفسه في نطاقه (عميله
+ * ومندوبه، ومشرف الفرق بوسمه)، لا عميله وحده. `find` من المستدعي (findFirst على نموذجه بالقيد)، والمندوب وغير المقيَّد
+ * بلا استعلامٍ إضافيّ.
+ */
+export async function existingInScope(
+  req: AuthRequest,
+  shape: RecordShape,
+  find: (scope: Record<string, unknown>) => Promise<unknown>,
+): Promise<boolean> {
+  const scope = await scopedRecordWhere(req, shape);
+  if (!Object.keys(scope).length) return true;
+  return Boolean(await find(scope));
+}
+
+/** قيد على سجلّ يحمل `salesRepId` فقط (موقع مندوب، جلسة حضور، تحميل سيارة) — ومشرف الفرق بعضوية مندوبه في فرقه */
 export async function scopedRepRecordWhere(req: AuthRequest): Promise<Record<string, unknown>> {
   const rep = await adminRepFilter(req);
-  return rep.adminScopes ? { salesRep: { adminScopes: rep.adminScopes } } : {};
+  return isRestricted(rep) ? { salesRep: rep } : {};
 }
 
 /** يقرأ نطاق مستخدم (للواجهة) */

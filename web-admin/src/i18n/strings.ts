@@ -719,6 +719,13 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'حفظ الاستلام': { en: 'Save receipt', fr: 'Enregistrer la réception', tr: 'Teslim almayı kaydet', zh: '保存收回' },
   'سجل التسليم والاستلام': { en: 'Handover and receipt log', fr: 'Journal des remises et réceptions', tr: 'Teslim ve teslim alma kaydı', zh: '移交与收回记录' },
   // «الفرق» داخل الشركة
+  'اكتب اسم الفريق أولا': { en: 'Enter the team name first', fr: 'Saisissez d’abord le nom de l’équipe', tr: 'Önce ekip adını yazın', zh: '请先输入团队名称' },
+  'المشرفون': { en: 'Supervisors', fr: 'Superviseurs', tr: 'Denetçiler', zh: '主管' },
+  'بعضهم ليس مقيدا بفرقه': { en: 'some are not restricted to their teams', fr: 'certains ne sont pas limités à leurs équipes', tr: 'bazıları ekipleriyle sınırlı değil', zh: '部分主管未限定于其团队' },
+  'المشرف يقيد بفرقه فيرى مناديبها وما سجل لها من فواتير وسندات وزيارات وكل العملاء ومدير الشركة لا يكون مشرفا': { en: 'A supervisor is restricted to their teams: they see its reps, the invoices, receipts and visits recorded for it, and all customers. The company admin cannot be a supervisor', fr: 'Un superviseur est limité à ses équipes : il voit leurs commerciaux, les factures, reçus et visites enregistrés pour elles, et tous les clients. L’administrateur de l’entreprise ne peut pas être superviseur', tr: 'Denetçi ekipleriyle sınırlanır: temsilcilerini, onlar için kaydedilen fatura, tahsilat ve ziyaretleri ve tüm müşterileri görür. Şirket yöneticisi denetçi olamaz', zh: '主管仅限于其团队：可查看团队的销售代表、为团队记录的发票、收款和拜访以及所有客户。公司管理员不能担任主管' },
+  'مشرف فرق': { en: 'Team supervisor', fr: 'Superviseur d’équipes', tr: 'Ekip denetçisi', zh: '团队主管' },
+  'بلا فرق لا يرى شيئا': { en: 'no teams — sees nothing', fr: 'aucune équipe — ne voit rien', tr: 'ekip yok — hiçbir şey görmez', zh: '无团队——无法查看任何内容' },
+  'يرى مناديب فرقه وما سجل لها وكل العملاء وتعديل القوائم أدناه يحوله إلى قوائم يدوية': { en: 'Sees their teams’ reps, what is recorded for them, and all customers. Editing the lists below switches them to manual lists', fr: 'Voit les commerciaux de ses équipes, ce qui leur est enregistré et tous les clients. Modifier les listes ci-dessous le passe en listes manuelles', tr: 'Ekiplerinin temsilcilerini, onlar için kaydedilenleri ve tüm müşterileri görür. Aşağıdaki listeleri düzenlemek onu manuel listelere geçirir', zh: '可查看其团队的销售代表、为团队记录的内容以及所有客户。编辑下方列表会将其切换为手动列表' },
   'الفريق': { en: 'Team', fr: 'Équipe', tr: 'Ekip', zh: '团队' },
   'بلا فريق': { en: 'No team', fr: 'Sans équipe', tr: 'Ekipsiz', zh: '无团队' },
   'كل الفرق': { en: 'All teams', fr: 'Toutes les équipes', tr: 'Tüm ekipler', zh: '所有团队' },

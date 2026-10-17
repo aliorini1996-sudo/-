@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { Users, Plus, Pencil, Archive, ArchiveRestore, Trash2, X, Search } from 'lucide-react';
-import { teamsApi, salesRepApi, productApi } from '../../api/client';
+import { teamsApi, salesRepApi, productApi, companyUserApi } from '../../api/client';
 import { useTr } from '../../i18n/strings';
 
 /**
@@ -14,6 +14,8 @@ interface TeamRow {
   id: string; name: string; isActive: boolean;
   members: { salesRepId: string; name: string; isActive: boolean }[];
   productIds: string[];
+  /** المشرفون — teamScoped: مقيّدٌ بفرقه فعلاً (فكّ تقييده من «مستخدمو الشركة» يجعله يرى الشركة كلها) */
+  supervisors: { adminId: string; name: string; teamScoped: boolean }[];
   docsCount: number;
 }
 type Err = { response?: { data?: { message?: string } } };
@@ -26,6 +28,7 @@ export default function TeamsPanel() {
   const enabled = settingsQ.data?.enabled === true;
   const teamsQ = useQuery({ queryKey: ['teams'], queryFn: async () => (await teamsApi.list()).data.data as TeamRow[], enabled });
   const [newName, setNewName] = useState('');
+  const newNameRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<TeamRow | null>(null);
 
   const toggle = useMutation({
@@ -76,9 +79,15 @@ export default function TeamsPanel() {
 
       {enabled && (
         <div className="card space-y-4">
-          <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (newName.trim()) create.mutate(newName.trim()); }}>
-            <input className="input flex-1" placeholder={tr('اسم الفريق مثل فريق المكسرات')} value={newName} maxLength={60} onChange={(e) => setNewName(e.target.value)} />
-            <button type="submit" className="btn-primary shrink-0" disabled={!newName.trim() || create.isPending}><Plus size={16} /> {tr('إضافة فريق')}</button>
+          {/* الزر يبقى فعّالاً بلا اسم: الزرّ المعطّل يبدو هنا كالفعّال (btn-primary بلا تنسيق تعطيل) فيُضغط فلا يحدث شيء —
+              فيُقال للمستخدم ما الناقص بدل الصمت */}
+          <form className="flex gap-2" onSubmit={(e) => {
+            e.preventDefault();
+            if (!newName.trim()) { toast.error(tr('اكتب اسم الفريق أولا')); newNameRef.current?.focus(); return; }
+            create.mutate(newName.trim());
+          }}>
+            <input ref={newNameRef} className="input flex-1" placeholder={tr('اسم الفريق مثل فريق المكسرات')} value={newName} maxLength={60} onChange={(e) => setNewName(e.target.value)} />
+            <button type="submit" className="btn-primary shrink-0 disabled:opacity-60" disabled={create.isPending}><Plus size={16} /> {tr('إضافة فريق')}</button>
           </form>
 
           {teamsQ.isLoading ? (
@@ -98,6 +107,14 @@ export default function TeamsPanel() {
                       {t.members.length} {tr('مندوب')} · {t.productIds.length ? `${t.productIds.length} ${tr('صنف خاص')}` : tr('الأصناف العامة فقط')}
                       {t.members.length > 0 && <span className="text-[#9A8F7E]"> — {t.members.map((m) => m.name).join('، ')}</span>}
                     </p>
+                    {t.supervisors.length > 0 && (
+                      <p className="text-xs text-[#6E6557] mt-0.5">
+                        {tr('المشرفون')}: {t.supervisors.map((s) => s.name).join('، ')}
+                        {t.supervisors.some((s) => !s.teamScoped) && (
+                          <span className="ms-1.5 text-amber-700">· {tr('بعضهم ليس مقيدا بفرقه')}</span>
+                        )}
+                      </p>
+                    )}
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button type="button" onClick={() => setEditing(t)} className="btn-secondary !py-1.5 !px-3 text-xs"><Pencil size={13} /> {tr('تعديل')}</button>
@@ -128,23 +145,30 @@ export default function TeamsPanel() {
 function TeamModal({ team, onClose }: { team: TeamRow; onClose: () => void }) {
   const tr = useTr();
   const qc = useQueryClient();
-  const [tab, setTab] = useState<'reps' | 'products'>('reps');
+  const [tab, setTab] = useState<'reps' | 'products' | 'supervisors'>('reps');
   const [name, setName] = useState(team.name);
   const [reps, setReps] = useState<Set<string>>(() => new Set(team.members.map((m) => m.salesRepId)));
   const [prods, setProds] = useState<Set<string>>(() => new Set(team.productIds));
+  const [sups, setSups] = useState<Set<string>>(() => new Set(team.supervisors.map((s) => s.adminId)));
   const [q, setQ] = useState('');
   const repsQ = useQuery({ queryKey: ['reps-min'], queryFn: async () => (await salesRepApi.list({ limit: 1000 })).data.data as { id: string; name: string; isActive?: boolean }[] });
   const prodQ = useQuery({ queryKey: ['products-min'], queryFn: async () => (await productApi.list({ limit: 1000 })).data.data as { id: string; name: string; code: string; unit: string }[] });
+  // المشرفون من مستخدمي الشركة — مدير الشركة (ADMIN) لا يكون مشرفاً (لا يُقيَّد صاحب الحساب)
+  const usersQ = useQuery({ queryKey: ['company-users'], queryFn: async () => (await companyUserApi.list()).data.data as { id: string; name: string; role: string }[] });
 
   const needle = q.trim().toLowerCase();
   const shownReps = useMemo(() => (repsQ.data ?? []).filter((r) => !needle || r.name.toLowerCase().includes(needle)), [repsQ.data, needle]);
   const shownProds = useMemo(() => (prodQ.data ?? []).filter((p) => !needle || p.name.toLowerCase().includes(needle) || p.code.toLowerCase().includes(needle)), [prodQ.data, needle]);
+  // مدير الشركة لا يُضاف مشرفاً — لكن مشرفٌ حاليّ رُقّي إلى مدير يبقى ظاهراً فيُزال
+  const shownUsers = useMemo(() => (usersQ.data ?? []).filter((u) => (u.role !== 'ADMIN' || sups.has(u.id)) && (!needle || u.name.toLowerCase().includes(needle))), [usersQ.data, needle, sups]);
 
   const save = useMutation({
     mutationFn: async () => {
       if (name.trim() && name.trim() !== team.name) await teamsApi.update(team.id, { name: name.trim() });
       await teamsApi.setMembers(team.id, [...reps]);
       await teamsApi.setProducts(team.id, [...prods]);
+      const supsBefore = new Set(team.supervisors.map((s) => s.adminId));
+      if (sups.size !== supsBefore.size || [...sups].some((id) => !supsBefore.has(id))) await teamsApi.setSupervisors(team.id, [...sups]);
     },
     onSuccess: () => { toast.success(tr('حفظ الفريق')); onClose(); },
     onError: (e) => toast.error(errMsg(e, tr('تعذر الحفظ'))),
@@ -153,9 +177,10 @@ function TeamModal({ team, onClose }: { team: TeamRow; onClose: () => void }) {
   });
 
   const toggleIn = (set: Set<string>, id: string) => { const n = new Set(set); if (n.has(id)) n.delete(id); else n.add(id); return n; };
-  const list = tab === 'reps' ? shownReps : shownProds;
-  const picked = tab === 'reps' ? reps : prods;
-  const setPicked = tab === 'reps' ? setReps : setProds;
+  const list: { id: string; name: string }[] = tab === 'reps' ? shownReps : tab === 'products' ? shownProds : shownUsers;
+  const picked = tab === 'reps' ? reps : tab === 'products' ? prods : sups;
+  const setPicked = tab === 'reps' ? setReps : tab === 'products' ? setProds : setSups;
+  const listLoading = tab === 'reps' ? repsQ.isLoading : tab === 'products' ? prodQ.isLoading : usersQ.isLoading;
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
@@ -169,18 +194,20 @@ function TeamModal({ team, onClose }: { team: TeamRow; onClose: () => void }) {
             <label className="label">{tr('اسم الفريق')}</label>
             <input className="input" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} />
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            {(['reps', 'products'] as const).map((k) => (
+          <div className="grid grid-cols-3 gap-2">
+            {(['reps', 'products', 'supervisors'] as const).map((k) => (
               <button key={k} type="button" onClick={() => { setTab(k); setQ(''); }}
-                className={`py-2 rounded-lg text-sm font-semibold border ${tab === k ? 'bg-[#E15A30] text-white border-[#E15A30]' : 'bg-white text-[#6E6557] border-[#E9E1D3] hover:bg-[#FAF7F0]'}`}>
-                {k === 'reps' ? `${tr('المناديب')} (${reps.size})` : `${tr('الأصناف الخاصة')} (${prods.size})`}
+                className={`py-2 rounded-lg text-xs sm:text-sm font-semibold border ${tab === k ? 'bg-[#E15A30] text-white border-[#E15A30]' : 'bg-white text-[#6E6557] border-[#E9E1D3] hover:bg-[#FAF7F0]'}`}>
+                {k === 'reps' ? `${tr('المناديب')} (${reps.size})` : k === 'products' ? `${tr('الأصناف الخاصة')} (${prods.size})` : `${tr('المشرفون')} (${sups.size})`}
               </button>
             ))}
           </div>
           <p className="text-xs text-[#9A8F7E]">
             {tab === 'reps'
               ? tr('المندوب قد يكون في أكثر من فريق ويختار في تطبيقه الفريق الذي يعمل له')
-              : tr('الصنف غير المسند لأي فريق عام لكل الفرق والصنف المسند لا يبيعه إلا من يعمل لأحد فرقه')}
+              : tab === 'products'
+                ? tr('الصنف غير المسند لأي فريق عام لكل الفرق والصنف المسند لا يبيعه إلا من يعمل لأحد فرقه')
+                : tr('المشرف يقيد بفرقه فيرى مناديبها وما سجل لها من فواتير وسندات وزيارات وكل العملاء ومدير الشركة لا يكون مشرفا')}
           </p>
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
@@ -193,7 +220,7 @@ function TeamModal({ team, onClose }: { team: TeamRow; onClose: () => void }) {
               onClick={() => setPicked((s) => { const n = new Set(s); list.forEach((x) => n.delete(x.id)); return n; })}>{tr('إلغاء الظاهر')}</button>
           </div>
           <div className="border border-[#E9E1D3] rounded-xl divide-y divide-[#F1EBDF] max-h-72 overflow-y-auto">
-            {(tab === 'reps' ? repsQ.isLoading : prodQ.isLoading) ? (
+            {listLoading ? (
               <p className="text-center text-gray-400 text-sm py-6">{tr('جار التحميل')}</p>
             ) : list.length === 0 ? (
               <p className="text-center text-gray-400 text-sm py-6">{tr('لا توجد نتائج')}</p>

@@ -705,10 +705,19 @@ router.get('/:id/scope', async (req: AuthRequest, res: Response, next: NextFunct
   try {
     if (!(await guardScopeAdmin(req, res))) return;
     const tid = tenantId(req);
-    const admin = await prisma.admin.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true, scopeEnabled: true } });
+    const admin = await prisma.admin.findFirst({
+      where: { id: req.params.id, tenantId: tid },
+      select: { id: true, scopeEnabled: true, scopeMode: true, supervisedTeams: { select: { team: { select: { id: true, name: true } } } } },
+    });
     if (!admin) { res.status(404).json({ success: false, message: 'المستخدم غير موجود' }); return; }
     const scope = await getAdminScope(admin.id);
-    res.json({ success: true, data: { scopeEnabled: admin.scopeEnabled, ...scope } });
+    res.json({
+      success: true,
+      data: {
+        scopeEnabled: admin.scopeEnabled, scopeMode: admin.scopeMode === 'TEAMS' ? 'TEAMS' : 'LISTS',
+        supervisedTeams: admin.supervisedTeams.map((s) => s.team), ...scope,
+      },
+    });
   } catch (err) { next(err); }
 });
 
@@ -717,7 +726,7 @@ router.put('/:id/scope', async (req: AuthRequest, res: Response, next: NextFunct
     const caller = await guardScopeAdmin(req, res);
     if (!caller) return;
     const tid = tenantId(req);
-    const admin = await prisma.admin.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true, role: true, scopeEnabled: true } });
+    const admin = await prisma.admin.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true, role: true, scopeEnabled: true, scopeMode: true } });
     if (!admin) { res.status(404).json({ success: false, message: 'المستخدم غير موجود' }); return; }
 
     // null (أو غياب المفتاح) = «لا تلمس هذه القائمة» — يسمح بتحديث إحداهما وحدها
@@ -725,13 +734,24 @@ router.put('/:id/scope', async (req: AuthRequest, res: Response, next: NextFunct
       customerIds: z.array(z.string()).max(50000).nullable().optional(),
       salesRepIds: z.array(z.string()).max(5000).nullable().optional(),
       scopeEnabled: z.boolean().optional(),
+      // «الفرق»: قوائم يدوية (LISTS) أو مشرف فرق (TEAMS: مناديب فرقه وما وُسم بها، وكل العملاء)
+      scopeMode: z.enum(['LISTS', 'TEAMS']).optional(),
     }).parse(req.body);
     // تغيير تقييد نطاق مدير الشركة حسابُ مدير (لشركة بعلم المالك): لا يرفعه مشرف أو محاسب ولا مدير مقيّد (ولو بجلسة دخول المالك)
-    const scopeChange = body.scopeEnabled !== undefined && body.scopeEnabled !== admin.scopeEnabled;
+    const scopeChange = (body.scopeEnabled !== undefined && body.scopeEnabled !== admin.scopeEnabled)
+      || (body.scopeMode !== undefined && body.scopeMode !== admin.scopeMode);
     if (!(await guardAdminAccountChange(req, res, caller, { targetRole: admin.role, scope: scopeChange }))) return;
 
-    if (body.scopeEnabled !== undefined) {
-      await prisma.admin.update({ where: { id: admin.id }, data: { scopeEnabled: body.scopeEnabled } });
+    if (body.scopeEnabled !== undefined || body.scopeMode !== undefined) {
+      // مشرف فرقٍ أُعيد إلى القوائم: تُرفع إشرافاته معه في المعاملة نفسها — وإلا بقي يرى فرقه في «الفرق» ويُوسم ما يكتبه بها
+      const dropTeams = body.scopeMode === 'LISTS' && admin.scopeMode === 'TEAMS';
+      await prisma.$transaction([
+        prisma.admin.update({
+          where: { id: admin.id },
+          data: { ...(body.scopeEnabled !== undefined && { scopeEnabled: body.scopeEnabled }), ...(body.scopeMode && { scopeMode: body.scopeMode }) },
+        }),
+        ...(dropTeams ? [prisma.teamSupervisor.deleteMany({ where: { tenantId: tid, adminId: admin.id } })] : []),
+      ]);
     }
     const counts = await setAdminScope(tid, admin.id, body.customerIds ?? null, body.salesRepIds ?? null);
     res.json({ success: true, data: counts });

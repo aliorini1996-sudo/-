@@ -2,11 +2,11 @@
 import { z } from 'zod';
 import { ReturnLinkError, SALE_TYPES, assertReturnLinks, returnableOf, returnedBySaleItem } from '../services/returnLinks';
 import { isExpiredOn, linkedReturnExpiry, returnRuleBlock, saleExpiryFor, stampExpiryAfterIssue, tenantTz } from '../services/invoiceExpiry';
-import { TEAM_MEMBERSHIP_SELECT, catalogTeamsFor, resolveDocTeam, teamCatalogProblem } from '../services/teams';
+import { catalogTeamsFor, resolveDocTeam, supervisorViewerOf, teamCatalogProblem, teamMembershipSelectFor } from '../services/teams';
 import { expiryDateFor, localDateIn, returnRuleProblem, shelfLifeOf } from '../services/shelfLife';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
-import { scopedRecordWhere, canAccessRep, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
+import { scopedRecordWhere, canAccessRep, existingInScope, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { publishInvoicesChanged } from '../services/liveEvents';
 import { paginate, paginationMeta, generateInvoiceNumber, generateReturnNumber, withNumberRetry, roundDecimal } from '../utils/helpers';
@@ -411,7 +411,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       if (existing) {
         // النطاق يسبق الـidempotency: وإلا كُشف عميل خارج النطاق (برصيده وحدّه الائتماني)
         // لمن يعرف clientRef فاتورته — فالمسار يُعيد سجلّ العميل كاملاً.
-        if (existing.customerId && !(await canAccessCustomer(req, tid, existing.customerId))) {
+        if ((existing.customerId && !(await canAccessCustomer(req, tid, existing.customerId)))
+          || !(await existingInScope(req, SHAPE_INVOICE_RECEIPT, (w) => prisma.invoice.findFirst({ where: { id: existing.id, ...w }, select: { id: true } })))) {
           res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return;
         }
         // ZATCA المرحلة الثانية (نقد الخطة 6): إعادة الرفع لا تُعيد صفّاً مختوماً لعميل بلا قدرات، وتُرفق إسقاط المستند لمن يفهمه.
@@ -460,7 +461,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // فرق المندوب وعلم الميزة مع صفّه نفسه (لا استعلام جديد في مسار الإصدار)
     const rep = await prisma.salesRep.findFirst({
       where: { id: salesRepId, tenantId: tid },
-      include: { tenant: { select: { settings: { select: { teamsEnabled: true } } } }, teamMemberships: { select: TEAM_MEMBERSHIP_SELECT } },
+      include: { tenant: { select: { settings: { select: { teamsEnabled: true } } } }, teamMemberships: { select: teamMembershipSelectFor(supervisorViewerOf(req.user)) } },
     });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
     // الفرق: فريق المستند — ما اختاره المندوب من فرقه، وإلا فريقه الوحيد، وإلا «بلا فريق»
@@ -586,6 +587,12 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // نُبقي معرّف الصنف بجانب نتائج الحساب (المحرّك نقيّ لا يعرف productId)
     const finalItems = body.items.map((src, idx) => ({ ...src, ...calc.items[idx] }));
     const isReturn = body.type === 'RETURN';
+    // المرتجع من فاتورة بيع: للمستخدم المقيَّد (ومشرف الفرق بوسمها) تقع فاتورة البيع في نطاقه — وإلا أرجع على فاتورة
+    // فريقٍ آخر فوُسم المرتجع بفريقها. والمندوب وغير المقيَّد بلا استعلامٍ إضافيّ
+    if (isReturn && body.originalInvoiceId
+      && !(await existingInScope(req, SHAPE_INVOICE_RECEIPT, (w) => prisma.invoice.findFirst({ where: { id: body.originalInvoiceId!, tenantId: tid, ...w }, select: { id: true } })))) {
+      res.status(404).json({ success: false, message: 'فاتورة البيع الأصلية غير موجودة' }); return;
+    }
     // الفرق: المرتجع من فاتورة بيعٍ يُحسب لفريقها كما هو — و«بلا فريق» لفاتورةٍ قبل التفعيل (كالإشعار الدائن) — لا لفريق
     // المندوب الحالي. يُقرأ لشركةٍ فعّلت الفرق وحدها (لا استعلام لغيرها)
     if (isReturn && body.originalInvoiceId && rep.tenant?.settings?.teamsEnabled === true) {
@@ -876,7 +883,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           include: { items: true, customer: true },
         });
         // نفس حارس النطاق في المسار المبكر: السباق لا يفتح باباً مغلقاً
-        if (existing && existing.customerId && !(await canAccessCustomer(req, tid2, existing.customerId))) {
+        if (existing && ((existing.customerId && !(await canAccessCustomer(req, tid2, existing.customerId)))
+          || !(await existingInScope(req, SHAPE_INVOICE_RECEIPT, (w) => prisma.invoice.findFirst({ where: { id: existing.id, ...w }, select: { id: true } }))))) {
           res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return;
         }
         // ZATCA المرحلة الثانية (نقد الخطة 6): السباق لا يفتح باباً مغلقاً هنا أيضاً — لا صفّ مختوم لعميل بلا قدرات

@@ -49,7 +49,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       prisma.salesRep.findMany({
         where: { tenantId: tid, ...repScope },
         take: 5,
-        select: { id: true, name: true, invoices: { where: { status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: startOfMonth } }, select: { total: true } } },
+        // فواتير المندوب بنطاق المستند (recScope): مندوبٌ مشترك لا تُجمع لمشرف فريقٍ مبيعاتُ فريقه الآخر
+        select: { id: true, name: true, invoices: { where: { status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: startOfMonth }, ...recScope }, select: { total: true } } },
       }),
       prisma.customer.findMany({
         // المحذوف يسقط من «أفضل العملاء» كما سقط من قوائمهم

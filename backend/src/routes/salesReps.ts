@@ -4,7 +4,7 @@ import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
-import { adminRepFilter, adminCustomerFilter } from '../services/adminScope';
+import { adminRepFilter, adminCustomerFilter, scopedRecordWhere, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
 import { clean } from '../services/accounting';
@@ -169,13 +169,18 @@ router.get('/:id/stats', async (req: AuthRequest, res: Response, next: NextFunct
       ...(to ? { lte: new Date(new Date(to as string).setHours(23, 59, 59, 999)) } : {}),
     } : undefined;
 
+    // نطاق المستخدم: مندوبٌ خارج نطاقه 404 كبقية مسارات المندوب، والمجاميع بنطاق المستند (مشرف الفرق: ما وُسم بفرقه)
+    if (!(await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true } }))) {
+      res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return;
+    }
+    const docScope = await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT);
     const [invoices, receipts] = await Promise.all([
       prisma.invoice.aggregate({
-        where: { tenantId: tid, salesRepId: req.params.id, status: 'CONFIRMED', ...(dateFilter && { invoiceDate: dateFilter }) },
+        where: { tenantId: tid, salesRepId: req.params.id, status: 'CONFIRMED', ...(dateFilter && { invoiceDate: dateFilter }), ...docScope },
         _count: { id: true }, _sum: { total: true },
       }),
       prisma.receipt.aggregate({
-        where: { tenantId: tid, salesRepId: req.params.id, status: 'ACTIVE', ...(dateFilter && { receiptDate: dateFilter }) },
+        where: { tenantId: tid, salesRepId: req.params.id, status: 'ACTIVE', ...(dateFilter && { receiptDate: dateFilter }), ...docScope },
         _count: { id: true }, _sum: { amount: true },
       }),
     ]);

@@ -44,6 +44,8 @@ export default function UserScopeModal({ userId, userName, onClose }: {
     queryKey: ['user-scope', userId],
     queryFn: async () => (await companyUserApi.scope(userId)).data.data as {
       scopeEnabled: boolean; customerIds: string[]; salesRepIds: string[];
+      /** «الفرق»: مشرف فرق (TEAMS) — نطاقه فرقه لا القوائم */
+      scopeMode?: 'LISTS' | 'TEAMS'; supervisedTeams?: { id: string; name: string }[];
     },
     staleTime: 0, refetchOnMount: 'always',
   });
@@ -85,8 +87,13 @@ export default function UserScopeModal({ userId, userName, onClose }: {
       // نُرسل القائمة النهائية المحسوبة من الأساس + الفروقات
       const finalC = [...new Set([...[...baseC].filter(i => !remC.has(i)), ...addC])];
       const finalR = [...new Set([...[...baseR].filter(i => !remR.has(i)), ...addR])];
+      // مشرف فرق: يتحوّل إلى قوائم يدوية فقط إن عُدّلت قوائمه هنا (لا بحفظٍ عابر بلا تغيير — كان سيُحرم فرقه)
+      const listsTouched = addC.size + remC.size + addR.size + remR.size > 0;
+      // «مشرف فرق الآن» بالحالة الفعلية على الخادم: مقيّدٌ بوضع الفرق — من يُعاد تقييده من حالةٍ مطفأة يصير قوائم كما تعرض النافذة
+      const teamsNow = scopeQ.data?.scopeEnabled === true && scopeQ.data.scopeMode === 'TEAMS';
+      const toLists = (enabled ?? false) && (!teamsNow || listsTouched);
       return companyUserApi.setScope(userId, {
-        customerIds: finalC, salesRepIds: finalR, scopeEnabled: enabled ?? false,
+        customerIds: finalC, salesRepIds: finalR, scopeEnabled: enabled ?? false, ...(toLists && { scopeMode: 'LISTS' as const }),
       });
     },
     onSuccess: () => {
@@ -128,6 +135,13 @@ export default function UserScopeModal({ userId, userName, onClose }: {
             </span>
           </label>
 
+          {/* «الفرق»: مشرف فرق — نطاقه فرقه (من إعدادات الشركة ← فرق العمل)، لا القوائم أدناه */}
+          {enabled && scopeQ.data?.scopeEnabled && scopeQ.data.scopeMode === 'TEAMS' && (
+            <div className="p-3 rounded-xl border border-amber-200 bg-amber-50 text-[12px] text-amber-800 leading-relaxed">
+              <b>{tr('مشرف فرق')}</b>: {(scopeQ.data.supervisedTeams ?? []).map(t => t.name).join('، ') || tr('بلا فرق لا يرى شيئا')}
+              <span className="block mt-0.5">{tr('يرى مناديب فرقه وما سجل لها وكل العملاء وتعديل القوائم أدناه يحوله إلى قوائم يدوية')}</span>
+            </div>
+          )}
           {enabled && (
             <>
               <div className="flex rounded-xl overflow-hidden border border-[#E9E1D3] text-sm font-semibold">
@@ -185,7 +199,7 @@ export default function UserScopeModal({ userId, userName, onClose }: {
         </div>
 
         <div className="flex gap-3 p-4 border-t border-[#E9E1D3]">
-          <button onClick={() => save.mutate()} disabled={save.isPending || scopeQ.isLoading}
+          <button onClick={() => save.mutate()} disabled={save.isPending || !scopeQ.isSuccess /* فشل التحميل: الحفظ كان يفكّ التقييد ويمحو القوائم */}
             className="btn-primary flex-1 justify-center py-2.5 disabled:opacity-60">{tr('حفظ')}</button>
           <button onClick={onClose} className="btn-secondary">{tr('إلغاء')}</button>
         </div>

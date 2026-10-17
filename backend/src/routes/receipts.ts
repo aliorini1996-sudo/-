@@ -1,9 +1,9 @@
 ﻿import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { TEAM_MEMBERSHIP_SELECT, resolveDocTeam } from '../services/teams';
+import { resolveDocTeam, supervisorViewerOf, teamMembershipSelectFor } from '../services/teams';
 import { authenticate, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
-import { scopedRecordWhere, canAccessRep, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
+import { scopedRecordWhere, canAccessRep, existingInScope, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta, generateReceiptNumber, withNumberRetry } from '../utils/helpers';
 import { postReceiptEntries, reverseReceiptEntries, clean } from '../services/accounting';
@@ -176,7 +176,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       });
       if (existing) {
         // النطاق يسبق الـidempotency (كما في الفواتير): معرفةُ clientRef لا تكشف سنداً خارج النطاق
-        if (existing.customerId && !(await canAccessCustomer(req, tid, existing.customerId))) {
+        if ((existing.customerId && !(await canAccessCustomer(req, tid, existing.customerId)))
+          || !(await existingInScope(req, SHAPE_INVOICE_RECEIPT, (w) => prisma.receipt.findFirst({ where: { id: existing.id, ...w }, select: { id: true } })))) {
           res.status(404).json({ success: false, message: 'السند غير موجود' }); return;
         }
         res.status(200).json({ success: true, data: existing, idempotent: true }); return;
@@ -201,7 +202,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // فرق المندوب وعلم الميزة مع صفّه نفسه (لا استعلام جديد)
     const rep = await prisma.salesRep.findFirst({
       where: { id: salesRepId, tenantId: tid },
-      include: { tenant: { select: { settings: { select: { teamsEnabled: true } } } }, teamMemberships: { select: TEAM_MEMBERSHIP_SELECT } },
+      include: { tenant: { select: { settings: { select: { teamsEnabled: true } } } }, teamMemberships: { select: teamMembershipSelectFor(supervisorViewerOf(req.user)) } },
     });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
     // الفرق: السند يُحسب للفريق الذي يعمل له المندوب الآن (يختاره، أو فريقه الوحيد، وإلا «بلا فريق»)
@@ -371,7 +372,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           where: { tenantId_clientRef: { tenantId: tid2, clientRef: req.body.clientRef } },
           include: RECEIPT_LINKS,
         });
-        if (existing && existing.customerId && !(await canAccessCustomer(req, tid2, existing.customerId))) {
+        if (existing && ((existing.customerId && !(await canAccessCustomer(req, tid2, existing.customerId)))
+          || !(await existingInScope(req, SHAPE_INVOICE_RECEIPT, (w) => prisma.receipt.findFirst({ where: { id: existing.id, ...w }, select: { id: true } }))))) {
           res.status(404).json({ success: false, message: 'السند غير موجود' }); return;
         }
         if (existing) { res.status(200).json({ success: true, data: existing, idempotent: true }); return; }

@@ -645,7 +645,9 @@ export default function ReportsPage() {
   // تصدير Excel للتبويب النشط
   // «ورقة لكل فريق»: أوراق المستندات تُقسَم بعمود الفريق (lib/teamReport.ts) — حين لا فلتر فريق
   const exportSheets = (sheets: ExcelSheet[]) => (teamsOn && !teamFilter && splitByTeam ? splitSheetsByTeam(sheets, tr('الفريق')) : sheets);
-  const withTeam = (name: string) => (teamFilterName ? `${name} - ${teamFilterName}` : name);
+  // أرصدة العملاء لا تنقسم بالفريق (العملاء مشتركون) — فلا يُكتب اسم فريقٍ على ملفٍ لم يُفلتر به
+  const exportTeamName = tab === 'balances' && custType === 'balances' ? '' : teamFilterName;
+  const withTeam = (name: string) => (exportTeamName ? `${name} - ${exportTeamName}` : name);
   const handleExport = async () => {
     const built = buildSheets();
     if (!built) { toast.error(tr('لا توجد بيانات للتصدير')); return; }
@@ -665,7 +667,7 @@ export default function ReportsPage() {
     const range = (tab === 'performance' && perfType === 'receivables')
       ? tr('لحظي وقت الإصدار')
       : (from && to) ? `${from} — ${to}` : tr('كل الفترات');
-    const teamLine = teamFilterName ? ` · ${tr('الفريق')}: ${teamFilterName}` : '';
+    const teamLine = exportTeamName ? ` · ${tr('الفريق')}: ${exportTeamName}` : '';
     const header = `<div style="border-bottom:2px solid #E15A30;padding-bottom:10px;margin-bottom:8px"><h2 style="font-size:18px;margin:0;color:#1F1A13">${esc(title)}</h2><p style="font-size:12px;color:#6E6557;margin:4px 0 0">${esc(tr('الفترة'))}: ${esc(range)}${esc(teamLine)} · ${esc(tr('تاريخ الإصدار'))}: ${esc(new Date().toLocaleDateString(activeLocale()))}</p></div>`;
     const wrap = (inner: string, withHeader: boolean): HTMLElement => {
       const el = document.createElement('div');
@@ -764,12 +766,12 @@ export default function ReportsPage() {
       : [daily, visits];
   };
   const exportRepPerf = async (r: PerfRow) => {
-    const out = await shareOrDownloadExcel(repPerfSheets(r), `${tr('أداء')}-${safeName(r.name)}-${day()}`);
+    const out = await shareOrDownloadExcel(repPerfSheets(r), `${tr('أداء')}-${safeName(withTeam(r.name))}-${day()}`);
     toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
   };
   const exportRepPerfPdf = (r: PerfRow) => sheetsToPdf(repPerfSheets(r), `${tr('أداء')} - ${r.name}`);
   const exportRepHours = async (r: WorkHoursRow) => {
-    const out = await shareOrDownloadExcel(repHoursSheetsAll(r), `${tr('ساعات العمل')}-${safeName(r.name)}-${day()}`);
+    const out = await shareOrDownloadExcel(repHoursSheetsAll(r), `${tr('ساعات العمل')}-${safeName(withTeam(r.name))}-${day()}`);
     toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
   };
   const exportRepHoursPdf = (r: WorkHoursRow) => sheetsToPdf(repHoursSheetsAll(r), `${tr('ساعات العمل')} - ${r.name}`);
@@ -783,7 +785,7 @@ export default function ReportsPage() {
     })),
   }];
   const exportRepRecv = async (r: RecvRow) => {
-    const out = await shareOrDownloadExcel(repRecvSheets(r), `${tr('مديونيات')}-${safeName(r.name)}-${day()}`);
+    const out = await shareOrDownloadExcel(repRecvSheets(r), `${tr('مديونيات')}-${safeName(withTeam(r.name))}-${day()}`);
     toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
   };
   const exportRepRecvPdf = (r: RecvRow) => sheetsToPdf(repRecvSheets(r), `${tr('مديونيات')} - ${r.name}`);
@@ -799,7 +801,7 @@ export default function ReportsPage() {
     })),
   }];
   const exportCustVisits = async (g: CustGroup) => {
-    const out = await shareOrDownloadExcel(custVisitSheets(g), `${tr('زيارات')}-${safeName(g.customerName)}-${day()}`);
+    const out = await shareOrDownloadExcel(custVisitSheets(g), `${tr('زيارات')}-${safeName(withTeam(g.customerName))}-${day()}`);
     toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
   };
   const exportCustVisitsPdf = (g: CustGroup) => sheetsToPdf(custVisitSheets(g), `${tr('زيارات')} - ${g.customerName}`);

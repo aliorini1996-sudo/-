@@ -5,7 +5,7 @@ import { authenticate, requireAdmin, requireAdminPermission, requireSuperAdmin, 
 import { AuthRequest } from '../types';
 import { canAccessCustomer } from '../services/customerScope';
 import { issueLink, publicLinkView, confirmLinkPayment, paylinkConfigured, expireStaleLinks } from '../services/paylink';
-import { scopedRecordWhere, SHAPE_INVOICE_RECEIPT, adminScopeEnabled } from '../services/adminScope';
+import { scopedRecordWhere, adminScopeEnabled, SHAPE_PAYMENT_LINK, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { roundHalfUp } from '../lib/money';
 import { settlementBalance, recordPayout } from '../services/settlement';
 
@@ -99,8 +99,9 @@ router.post('/issue', async (req: AuthRequest, res: Response, next: NextFunction
     const tid = tenantId(req);
     const { invoiceId } = issueSchema.parse(req.body);
 
+    // نطاق المستخدم المقيَّد (ومشرف الفرق بوسم الفاتورة) — فاتورة خارجه «غير موجودة»؛ والمندوب بلا قيد هنا
     const invoice = await prisma.invoice.findFirst({
-      where: { id: invoiceId, tenantId: tid },
+      where: { id: invoiceId, tenantId: tid, ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) },
       select: { id: true, customerId: true, salesRepId: true },
     });
     if (!invoice) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
@@ -128,7 +129,7 @@ router.get('/for-invoice/:invoiceId', async (req: AuthRequest, res: Response, ne
   try {
     const tid = tenantId(req);
     const invoice = await prisma.invoice.findFirst({
-      where: { id: req.params.invoiceId, tenantId: tid },
+      where: { id: req.params.invoiceId, tenantId: tid, ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) },
       select: { customerId: true },
     });
     if (!invoice || !(await canAccessCustomer(req, tid, invoice.customerId))) {
@@ -159,7 +160,7 @@ router.get('/links', requireAdmin, requireAdminPermission('canManageReceipts'), 
     const where = {
       tenantId: tid,
       ...(status ? { status } : {}),
-      ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)),
+      ...(await scopedRecordWhere(req, SHAPE_PAYMENT_LINK)),
     };
     const [rows, total] = await Promise.all([
       prisma.customerPaymentLink.findMany({
@@ -192,7 +193,7 @@ router.get('/summary', requireAdmin, requireAdminPermission('canManageReceipts')
     // المستخدم المقيد النطاق: دفتر الأمانات شأن الشركة كلها ولا بعد عميل له —
     // يرى إحصاء روابط عملائه فقط، وتُحجب بطاقات الأمانات والتوريد عنه
     if (await adminScopeEnabled(req)) {
-      const where = { tenantId: tid, status: 'paid', ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) };
+      const where = { tenantId: tid, status: 'paid', ...(await scopedRecordWhere(req, SHAPE_PAYMENT_LINK)) };
       const [agg, cnt] = await Promise.all([
         prisma.customerPaymentLink.aggregate({ where, _sum: { amount: true } }),
         prisma.customerPaymentLink.count({ where }),
@@ -246,7 +247,7 @@ router.post('/links/:id/cancel', requireAdmin, requireAdminPermission('canManage
   try {
     const tid = tenantId(req);
     const link = await prisma.customerPaymentLink.findFirst({
-      where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) },
+      where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req, SHAPE_PAYMENT_LINK)) },
       select: { id: true, invoiceId: true, status: true },
     });
     if (!link) { res.status(404).json({ success: false, message: 'الرابط غير موجود' }); return; }

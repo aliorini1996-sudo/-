@@ -5,7 +5,7 @@ import { scopedRecordWhere, scopedRepRecordWhere, adminCustomerFilter, adminRepF
 import { AuthRequest } from '../types';
 import { composeWorkDays, attendanceByDay, overlayAttendance, mergeVisitsByRep, asVisitLike } from '../services/workDay';
 import { FINANCIAL_METRICS, RANKING_METRICS, rankRows, trackedMeters, type RankingMetric } from '../services/repRanking';
-import { TEAM_NAME_SELECT, reportTeamOf, teamDocWhere, teamRepWhere } from '../services/teams';
+import { TEAM_NAME_SELECT, reportTeamOf, teamDocWhere, teamRepOrDocsWhere, teamRepWhere } from '../services/teams';
 import { isDamagedVanReturn } from '../services/vanDamaged';
 
 const router = Router();
@@ -398,18 +398,21 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
     const toEnd = to ? new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) : new Date();
 
     // «الفرق»: المناديب بعضويتهم، ومبيعاتهم وتحصيلهم وزياراتهم بوسم المستند — فمندوبٌ في فريقين لا تدخل مبيعات فريقه الآخر
+    // قيد المستخدم وفلتر الفريق عنصران في AND: كلاهما قد يحمل المفتاح teamMemberships (مشرف الفرق) فالنثر يمحو الأول.
+    // ومجاميع المندوب بنطاق المستند نفسه (docScope): مندوبٌ مشترك لا تظهر لمشرف فريقٍ مبيعاتُ فريقه الآخر
     const team = reportTeamOf(req.query.teamId);
+    const docScope = await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT);
     const [reps, sessions, visitRows] = await Promise.all([
       prisma.salesRep.findMany({
-        where: { tenantId: tid, isActive: true, ...(await adminRepFilter(req)), ...teamRepWhere(team) },
+        where: { tenantId: tid, isActive: true, AND: [await adminRepFilter(req), teamRepOrDocsWhere(team)] },
         select: {
           id: true, name: true,
           invoices: {
-            where: { status: 'CONFIRMED', type: { not: 'RETURN' }, ...(dateFilter && { invoiceDate: dateFilter }), ...teamDocWhere(team) },
+            where: { status: 'CONFIRMED', type: { not: 'RETURN' }, ...(dateFilter && { invoiceDate: dateFilter }), ...teamDocWhere(team), ...docScope },
             select: { total: true, discountAmt: true, type: true },
           },
           receipts: {
-            where: { status: 'ACTIVE', ...(dateFilter && { receiptDate: dateFilter }), ...teamDocWhere(team) },
+            where: { status: 'ACTIVE', ...(dateFilter && { receiptDate: dateFilter }), ...teamDocWhere(team), ...docScope },
             select: { amount: true },
           },
         },
@@ -535,7 +538,7 @@ router.get('/rep-receivables', async (req: AuthRequest, res: Response, next: Nex
 
     const [reps, assignments, sums, lastPays] = await Promise.all([
       prisma.salesRep.findMany({
-        where: { tenantId: tid, isActive: true, ...(await adminRepFilter(req)), ...teamRepWhere(reportTeamOf(req.query.teamId)) },
+        where: { tenantId: tid, isActive: true, AND: [await adminRepFilter(req), teamRepWhere(reportTeamOf(req.query.teamId))] },
         select: { id: true, name: true },
         orderBy: { name: 'asc' },
       }),
@@ -619,7 +622,7 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
 
     // «الفرق»: المناديب بعضويتهم (الساعات والحضور لا تنقسم)، وزياراتهم بوسمها
     const team = reportTeamOf(req.query.teamId);
-    const repWhere = { tenantId: tid, isActive: true, ...(await adminRepFilter(req)), ...teamRepWhere(team) };
+    const repWhere = { tenantId: tid, isActive: true, AND: [await adminRepFilter(req), teamRepWhere(team)] };
     const [reps, sessions, visits, pingRows, attendance] = await Promise.all([
       prisma.salesRep.findMany({ where: repWhere, select: { id: true, name: true } }),
       prisma.repSession.findMany({
@@ -779,8 +782,10 @@ router.get('/rep-ranking', async (req: AuthRequest, res: Response, next: NextFun
 
     // «الفرق»: المناديب بعضويتهم، والمبيعات وكمية الصنف والزيارات بوسم المستند (المسافة ووقت التطبيق لا تنقسم)
     const team = reportTeamOf(q.teamId);
+    // المسافة ووقت التطبيق بعضوية المندوب، والمبيعات والصنف والزيارات بمستنداته — فيدخل من له مستندٌ للفريق
+    const docMetric = metric === 'sales' || metric === 'product' || metric === 'visits';
     const reps = await prisma.salesRep.findMany({
-      where: { tenantId: tid, isActive: true, ...(await adminRepFilter(req)), ...teamRepWhere(team) },
+      where: { tenantId: tid, isActive: true, AND: [await adminRepFilter(req), docMetric ? teamRepOrDocsWhere(team) : teamRepWhere(team)] },
       select: { id: true, name: true },
     });
     const ids = reps.map((r) => r.id);
@@ -790,7 +795,7 @@ router.get('/rep-ranking', async (req: AuthRequest, res: Response, next: NextFun
     if (ids.length && metric === 'sales') {
       const rows = await prisma.invoice.groupBy({
         by: ['salesRepId'],
-        where: { tenantId: tid, salesRepId: { in: ids }, status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: start, lt: end }, ...teamDocWhere(team) },
+        where: { tenantId: tid, salesRepId: { in: ids }, status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: start, lt: end }, ...teamDocWhere(team), ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) },
         _sum: { total: true },
       });
       for (const r of rows) add(r.salesRepId, Number(r._sum.total ?? 0));
@@ -798,7 +803,7 @@ router.get('/rep-ranking', async (req: AuthRequest, res: Response, next: NextFun
       const rows = await prisma.invoiceItem.findMany({
         where: {
           productId: product.id,
-          invoice: { tenantId: tid, salesRepId: { in: ids }, status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: start, lt: end }, ...teamDocWhere(team) },
+          invoice: { tenantId: tid, salesRepId: { in: ids }, status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: start, lt: end }, ...teamDocWhere(team), ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) },
         },
         select: { qty: true, invoice: { select: { salesRepId: true } } },
       });

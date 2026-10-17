@@ -6,7 +6,7 @@ import { actorOf, authenticate, requireAdmin, requireAdminPermission, requireAcc
 import { AuthRequest } from '../types';
 import { suggestLoad, type SaleRow } from '../services/suggestLoad';
 import { computeAccuracy } from '../services/suggestAccuracy';
-import { canAccessRep, adminRepFilter, scopedRepRecordWhere } from '../services/adminScope';
+import { canAccessRep, adminRepFilter, scopedRepRecordWhere, scopedRecordWhere, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { roundDecimal } from '../utils/helpers';
 import { DAMAGED_VAN_SINCE, isDamagedVanReturn } from '../services/vanDamaged';
 
@@ -498,6 +498,12 @@ router.get('/movements', async (req: AuthRequest, res: Response, next: NextFunct
         include: { items: { include: { product: { select: { name: true, unit: true } } } }, customer: { select: { name: true } } },
       }),
     ]);
+    // المستخدم المقيَّد (ومشرف الفرق بوسم الفاتورة): حركة فاتورةٍ خارج نطاقه تبقى بكمّياتها (رصيد السيارة واحد) بلا رقمها
+    // ولا عميلها — مندوبٌ في فريقين لا يكشف مبيعات الفريق الآخر. والمندوب وغير المقيَّد بلا استعلامٍ إضافيّ
+    const docScope = isRep ? {} : await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT);
+    const visible = Object.keys(docScope).length
+      ? new Set((await prisma.invoice.findMany({ where: { id: { in: invoices.map(i => i.id) }, ...docScope }, select: { id: true } })).map(i => i.id))
+      : null;
 
     const movements = [
       ...loads.map(l => ({
@@ -507,7 +513,7 @@ router.get('/movements', async (req: AuthRequest, res: Response, next: NextFunct
       ...invoices.map(inv => ({
         // المرتجع التالف (منذ DAMAGED_VAN_SINCE) يدخل رصيد «المرتجع التالف» لا المتاح — فيُوسم بذلك في الحركة
         kind: inv.type === 'RETURN' ? (isDamagedVanReturn(inv) ? 'RETURN_DAMAGED' : 'RETURN') : 'SALE', date: inv.invoiceDate,
-        ref: `${inv.number} · ${inv.customer.name}`, by: 'REP',
+        ref: !visible || visible.has(inv.id) ? `${inv.number} · ${inv.customer.name}` : 'مستند خارج نطاقك', by: 'REP',
         items: inv.items.map(i => ({ name: i.product?.name ?? 'صنف محذوف', unit: i.product?.unit ?? '', qty: i.qty })),
       })),
     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 60);

@@ -57,7 +57,7 @@ stub('middleware/auth', {
   requireAdmin: (_req: unknown, _res: unknown, next: () => void) => next(),
   tenantId: (req: { user?: { tenantId?: string } }) => req.user!.tenantId!,
 });
-stub('services/adminScope', { scopedRecordWhere: async () => ({}), canAccessRep: async () => true, SHAPE_VISIT: {} });
+stub('services/adminScope', { scopedRecordWhere: async () => ({}), canAccessRep: async () => true, existingInScope: async () => true, SHAPE_VISIT: {} });
 stub('services/customerScope', { canAccessCustomer: async () => true });
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires

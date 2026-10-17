@@ -86,6 +86,8 @@ export const teamsApi = {
   remove: (id: string) => api.delete(`/company/teams/${id}`),
   setMembers: (id: string, salesRepIds: string[]) => api.put(`/company/teams/${id}/members`, { salesRepIds }),
   setProducts: (id: string, productIds: string[]) => api.put(`/company/teams/${id}/products`, { productIds }),
+  // المشرفون: المضاف يُقيَّد بفرقه (نطاق «فرق») — يحتاج صلاحية مستخدمي الشركة
+  setSupervisors: (id: string, adminIds: string[]) => api.put(`/company/teams/${id}/supervisors`, { adminIds }),
 };
 
 export const salesRepApi = {
@@ -225,7 +227,7 @@ export const companyUserApi = {
   // نطاق المستخدم: العملاء والمناديب الذين يراهم (عزل على مستوى المستخدم)
   scope: (id: string) => api.get(`/company-users/${id}/scope`),
   // null لقائمة = «لا تلمسها» (تحديث إحداهما وحدها)
-  setScope: (id: string, data: { customerIds?: string[] | null; salesRepIds?: string[] | null; scopeEnabled?: boolean }) =>
+  setScope: (id: string, data: { customerIds?: string[] | null; salesRepIds?: string[] | null; scopeEnabled?: boolean; scopeMode?: 'LISTS' | 'TEAMS' }) =>
     api.put(`/company-users/${id}/scope`, data),
   // عهدة التحصيل: ما استلمه المستخدم من المناديب ناقص ما ورّده (توريدٌ نهائيّ)
   custody: (id: string) => api.get(`/company-users/${id}/custody`),
