@@ -1,6 +1,7 @@
 import { useState, useMemo, Fragment } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { reportApi, productApi } from '../api/client';
+import { reportApi, productApi, teamsApi } from '../api/client';
+import { splitSheetsByTeam } from '../lib/teamReport';
 import RepRankingBoard, { RANKING_LABELS, type RankingData, type RankingMetric } from '../components/reports/RepRankingBoard';
 import { formatCurrency, activeLocale } from '../utils/format';
 import { useTr } from '../i18n/strings';
@@ -42,13 +43,14 @@ interface PerfRow {
 }
 interface RecvCustomer { id: string; name: string; businessName: string | null; phone: string; city: string | null; balance: number; lastPaymentAt: string | null }
 interface RecvRow { id: string; name: string; customersCount: number; debtorsCount: number; totalBalance: number; customers: RecvCustomer[] }
-interface CustVisit { id: string; customerId: string; customerName: string; repName: string; createdAt: string; durationSec: number | null; note: string; mapsUrl: string }
+interface CustVisit { id: string; customerId: string; customerName: string; repName: string; teamName?: string | null; createdAt: string; durationSec: number | null; note: string; mapsUrl: string }
 /** فاتورةٌ حُدّد لها تاريخ تسليم — صفّ «تقرير الطلبات». */
 interface OrderRow {
   id: string; number: string; invoiceDate: string; deliveryDate: string;
   total: number; paidAmt: number; status: string;
   customer: { id: string; name: string; phone: string; city: string | null } | null;
   salesRep: { id: string; name: string } | null;
+  team?: { id: string; name: string } | null;
 }
 /** صفّ «تقرير المرتجع» — مستند إرجاعٍ مؤكَّد بفاتورة بيعه (إن رُبط) وبنوده */
 interface ReturnRow {
@@ -59,6 +61,7 @@ interface ReturnRow {
   saleInvoices: string[];
   customer: { id: string; name: string; phone: string; city: string | null } | null;
   salesRep: { id: string; name: string } | null;
+  team?: { id: string; name: string } | null;
   items: { name: string; unit: string; qty: number; lineTotal: number; returnExpired: boolean | null; expiresAt: string | null }[];
 }
 interface ReturnsSummary { count: number; total: number; salesTotal: number; returnRate: number | null; byReason: Record<string, { count: number; total: number }>; expiredLines: number }
@@ -85,6 +88,19 @@ export default function ReportsPage() {
   const [to, setTo] = useState('');
   const [groupBy, setGroupBy] = useState('rep');
   const [search, setSearch] = useState('');
+  /* «فرق العمل»: فلتر الفريق ('' كل الفرق، 'none' بلا فريق، أو معرّف) — يظهر حين فعّلت الشركة الفرق ولها فرق. المستندات
+   * تُفلتر بوسمها والمناديب بعضويتهم (الخادم)، والفريق جزءٌ من مفتاح كل استعلام فلا يعرض الكاش فريقاً آخر. */
+  const [teamFilterState, setTeamFilter] = useState('');
+  const [splitByTeam, setSplitByTeam] = useState(false);
+  const teamsSettingsQ = useQuery({ queryKey: ['teams-settings'], queryFn: async () => (await teamsApi.settings()).data.data as { enabled: boolean } });
+  const teamsQ = useQuery({
+    queryKey: ['teams'], queryFn: async () => (await teamsApi.list()).data.data as { id: string; name: string; isActive: boolean }[],
+    enabled: teamsSettingsQ.data?.enabled === true,
+  });
+  const teamsOn = teamsSettingsQ.data?.enabled === true && (teamsQ.data?.length ?? 0) > 0;
+  const teamFilter = teamsOn ? teamFilterState : '';
+  const tp: Record<string, string> = teamFilter ? { teamId: teamFilter } : {};
+  const teamFilterName = teamFilter === 'none' ? tr('بلا فريق') : teamsQ.data?.find(t => t.id === teamFilter)?.name ?? '';
   // نوع تقرير المناديب: أداء | ساعات العمل | مديونيات | تقييم الأداء (ترتيب حسب معيار)
   const [perfTypeState, setPerfType] = useState<'performance' | 'hours' | 'receivables' | 'ranking'>('performance');
   // المحاسبة مطفأة: يبقى ساعات العمل وتقييم الأداء بمعاييره الميدانية
@@ -117,9 +133,9 @@ export default function ReportsPage() {
   ];
 
   const { data: salesData, isLoading: salesLoading } = useQuery({
-    queryKey: ['report-sales', from, to, groupBy],
+    queryKey: ['report-sales', from, to, groupBy, teamFilter],
     queryFn: async () => {
-      const res = await reportApi.sales({ from, to, groupBy });
+      const res = await reportApi.sales({ from, to, groupBy, ...tp });
       return res.data.data;
     },
     enabled: accountingReady && accountingOn && tab === 'sales' && salesType === 'summary',
@@ -128,9 +144,9 @@ export default function ReportsPage() {
   /* الطلبات: المدى يُطبَّق على **تاريخ التسليم** لا تاريخ الفاتورة — السؤال
    * «ما الذي عليّ تسليمه بين هذين التاريخين». */
   const ordersQ = useQuery({
-    queryKey: ['report-orders', from, to],
+    queryKey: ['report-orders', from, to, teamFilter],
     queryFn: async () => {
-      const res = await reportApi.orders({ from, to });
+      const res = await reportApi.orders({ from, to, ...tp });
       return res.data.data as { orders: OrderRow[]; summary: { count: number; total: number; paid: number }; rangeApplied: boolean; defaultDays: number | null };
     },
     enabled: accountingReady && accountingOn && tab === 'sales' && salesType === 'orders',
@@ -138,18 +154,18 @@ export default function ReportsPage() {
 
   // تقرير المرتجع — مستندات الإرجاع المؤكَّدة في المدى (تاريخ المرتجع)، ومعها نسبة المرتجع من مبيعات المدى نفسه
   const returnsQ = useQuery({
-    queryKey: ['report-returns', from, to],
+    queryKey: ['report-returns', from, to, teamFilter],
     queryFn: async () => {
-      const res = await reportApi.returns({ from, to });
+      const res = await reportApi.returns({ from, to, ...tp });
       return res.data.data as { returns: ReturnRow[]; summary: ReturnsSummary; rangeApplied: boolean; defaultDays: number | null };
     },
     enabled: accountingReady && accountingOn && tab === 'sales' && salesType === 'returns',
   });
 
   const { data: collectData } = useQuery({
-    queryKey: ['report-collections', from, to],
+    queryKey: ['report-collections', from, to, teamFilter],
     queryFn: async () => {
-      const res = await reportApi.collections({ from, to });
+      const res = await reportApi.collections({ from, to, ...tp });
       return res.data.data as { receipts: CollReceipt[]; summary: { total: number; count: number; byMethod: Record<string, number> } };
     },
     enabled: accountingReady && accountingOn && tab === 'collections',
@@ -166,9 +182,9 @@ export default function ReportsPage() {
 
   // تقرير زيارات العملاء — كل الزيارات في تقرير واحد (العميل، المندوب الزائر، الوقت)
   const { data: visitsData, status: visitsStatus, fetchStatus: visitsFetchStatus, refetch: visitsRefetch } = useQuery({
-    queryKey: ['report-customer-visits', from, to],
+    queryKey: ['report-customer-visits', from, to, teamFilter],
     queryFn: async () => {
-      const res = await reportApi.customerVisits({ from, to });
+      const res = await reportApi.customerVisits({ from, to, ...tp });
       return res.data.data as { count: number; visits: CustVisit[] };
     },
     enabled: tab === 'balances' && custType === 'visits',
@@ -178,9 +194,9 @@ export default function ReportsPage() {
   const [expandedCust, setExpandedCust] = useState<string | null>(null); // صفّ العميل المفتوح في تقرير الزيارات
   const [openDay, setOpenDay] = useState<string | null>(null);           // «معرّف المندوب|التاريخ» لليوم المفتوح
   const { data: perfData } = useQuery({
-    queryKey: ['report-performance', from, to],
+    queryKey: ['report-performance', from, to, teamFilter],
     queryFn: async () => {
-      const res = await reportApi.repPerformance({ from, to });
+      const res = await reportApi.repPerformance({ from, to, ...tp });
       return res.data.data as PerfRow[];
     },
     enabled: accountingReady && accountingOn && tab === 'performance' && perfType === 'performance',
@@ -193,9 +209,9 @@ export default function ReportsPage() {
   // وتقول للمشرف «لا عملاء مُسنَدين» والحقيقة «انقطع الاتصال». أُثبت هذا
   // بالمعاينة: status=pending + fetchStatus=paused + failureCount=1.
   const { data: recvData, status: recvStatus, fetchStatus: recvFetchStatus, refetch: recvRefetch } = useQuery({
-    queryKey: ['report-rep-receivables'],
+    queryKey: ['report-rep-receivables', teamFilter],
     queryFn: async () => {
-      const res = await reportApi.repReceivables();
+      const res = await reportApi.repReceivables(tp);
       return res.data.data as RecvRow[];
     },
     enabled: accountingReady && accountingOn && tab === 'performance' && perfType === 'receivables',
@@ -203,10 +219,10 @@ export default function ReportsPage() {
 
   // تقييم الأداء — الترتيب من الخادم بالمعيار المختار (والصنف لمعيار الكمية)، بحدود اليوم المحلي للمتصفّح
   const rankingQ = useQuery({
-    queryKey: ['report-rep-ranking', from, to, rankMetric, rankMetric === 'product' ? rankProduct : ''],
+    queryKey: ['report-rep-ranking', from, to, rankMetric, rankMetric === 'product' ? rankProduct : '', teamFilter],
     queryFn: async () => {
       const res = await reportApi.repRanking({
-        metric: rankMetric, from, to, tz: String(-new Date().getTimezoneOffset()),
+        metric: rankMetric, from, to, tz: String(-new Date().getTimezoneOffset()), ...tp,
         ...(rankMetric === 'product' ? { productId: rankProduct } : {}),
       });
       return res.data.data as RankingData;
@@ -222,9 +238,9 @@ export default function ReportsPage() {
   // نفس درس المديونيات: fetchStatus='paused' يجعل isLoading كاذباً فيُعرض
   // «لا بيانات حضور» والحقيقة «انقطع الاتصال» — نقرأ الحالة الصريحة
   const { data: hoursData, status: hoursStatus, fetchStatus: hoursFetchStatus } = useQuery({
-    queryKey: ['report-work-hours', from, to],
+    queryKey: ['report-work-hours', from, to, teamFilter],
     queryFn: async () => {
-      const res = await reportApi.workHours({ from, to, tz: String(-new Date().getTimezoneOffset()) });
+      const res = await reportApi.workHours({ from, to, tz: String(-new Date().getTimezoneOffset()), ...tp });
       // نلتقط meta لا البيانات وحدها: الخادم يقصّ المدى عند ٣١ يوماً ويُعلن ذلك
       // في `rangeClamped` — وكانت الواجهة تتجاهله، فيختار المشرف ثلاثة أشهر
       // ويقرأ شهراً واحداً وهو يظنّه ثلاثة. القصّ الصامت أسوأ من رفض الطلب.
@@ -259,9 +275,10 @@ export default function ReportsPage() {
     : <span className={`inline-block rounded px-2 py-0.5 text-xs font-bold tabular-nums ${tone}`}>{fmtClock(iso)}</span>;
 
   const groupLabel = () => groupBy === 'rep' ? tr('المندوب') : groupBy === 'customer' ? tr('العميل')
-    : groupBy === 'channel' ? tr('القناة') : groupBy === 'region' ? tr('المنطقة') : tr('الصنف');
-  // اسم العرض: أكواد القنوات تُترجَم؛ البقية كما هي
-  const displayName = (name: string) => groupBy === 'channel' ? (name === 'UNSET' ? tr('غير محدد') : tr(channelLabel(name))) : name;
+    : groupBy === 'channel' ? tr('القناة') : groupBy === 'region' ? tr('المنطقة') : groupBy === 'team' ? tr('الفريق') : tr('الصنف');
+  // اسم العرض: أكواد القنوات تُترجَم، ودلو الفريق الفارغ «بلا فريق»؛ البقية كما هي
+  const displayName = (name: string) => groupBy === 'channel' ? (name === 'UNSET' ? tr('غير محدد') : tr(channelLabel(name)))
+    : groupBy === 'team' && !name ? tr('بلا فريق') : name;
 
   /**
    * تصفية بالاسم — **على المعروض، والتصدير يتبعها**.
@@ -523,6 +540,7 @@ export default function ReportsPage() {
           [tr('التاريخ')]: fmtDay(r.invoiceDate),
           [tr('العميل')]: r.customer?.name || '—',
           [tr('المندوب')]: r.salesRep?.name || '—',
+          ...(teamsOn && { [tr('الفريق')]: r.team?.name || tr('بلا فريق') }),
           [tr('السبب')]: reasonLabel(r.reason),
           [tr('يعود للمخزون')]: r.toDamagedStock ? tr('تالف بالسيارة') : r.returnToStock ? tr('نعم') : tr('لا'),
           [tr('من فاتورة البيع')]: r.saleInvoices.join('، '),
@@ -532,6 +550,7 @@ export default function ReportsPage() {
           [tr('رقم المرتجع')]: r.number,
           [tr('التاريخ')]: fmtDay(r.invoiceDate),
           [tr('العميل')]: r.customer?.name || '—',
+          ...(teamsOn && { [tr('الفريق')]: r.team?.name || tr('بلا فريق') }),
           [tr('الصنف')]: i.name,
           [tr('الكمية')]: i.qty,
           [tr('القيمة')]: num(i.lineTotal),
@@ -546,6 +565,7 @@ export default function ReportsPage() {
         [tr('الجوال')]: o.customer?.phone || '',
         [tr('المدينة')]: o.customer?.city || '',
         [tr('المندوب')]: o.salesRep?.name || '—',
+        ...(teamsOn && { [tr('الفريق')]: o.team?.name || tr('بلا فريق') }),
         [tr('تاريخ الفاتورة')]: fmtDay(o.invoiceDate),
         [tr('تاريخ التسليم')]: fmtDay(o.deliveryDate),
         [tr('الإجمالي')]: num(Number(o.total || 0)),
@@ -554,7 +574,7 @@ export default function ReportsPage() {
       fname = tr('تقرير الطلبات');
     } else if (tab === 'sales' && salesType === 'summary' && Array.isArray(salesRows) && salesRows.length) {
       sheets = [{ name: tr('المبيعات'), rows: (salesRows as { name: string; total: number; count?: number; qty?: number }[]).map(r => ({
-        [tr('الاسم')]: r.name, [tr('العدد/الكمية')]: r.count ?? r.qty ?? '', [tr('الإجمالي')]: num(r.total),
+        [tr('الاسم')]: groupBy === 'team' ? displayName(r.name) : r.name, [tr('العدد/الكمية')]: r.count ?? r.qty ?? '', [tr('الإجمالي')]: num(r.total),
       })), colWidths: [28, 14, 16] }];
       fname = tr('تقارير المبيعات');
     } else if (tab === 'balances' && custType === 'visits' && visitRows?.length) {
@@ -564,7 +584,8 @@ export default function ReportsPage() {
           [tr('متوسط مدة الزيارة')]: fmtVisitDur(g.avgDurationSec) || tr('بلا توقيت'), [tr('آخر زيارة')]: fmtDateTime(g.lastVisit),
         })) },
         { name: tr('كل الزيارات'), colWidths: [24, 20, 20, 14, 24, 40], rows: visitRows.map(v => ({
-          [tr('العميل')]: v.customerName, [tr('المندوب')]: v.repName, [tr('التاريخ والوقت')]: fmtDateTime(v.createdAt),
+          [tr('العميل')]: v.customerName, [tr('المندوب')]: v.repName, ...(teamsOn && { [tr('الفريق')]: v.teamName || tr('بلا فريق') }),
+          [tr('التاريخ والوقت')]: fmtDateTime(v.createdAt),
           [tr('مدة الزيارة')]: fmtVisitDur(v.durationSec) || tr('بلا توقيت'), [tr('ملاحظة')]: v.note, [tr('الموقع')]: v.mapsUrl,
         })) },
       ];
@@ -592,6 +613,7 @@ export default function ReportsPage() {
         })), colWidths: [24, 12, 14, 14, 14, 14, 16] },
         { name: tr('السندات'), rows: collRepShown.flatMap(r => r.receipts.map(rc => ({
           [tr('المندوب')]: collRepName(r),
+          ...(teamsOn && { [tr('الفريق')]: rc.team?.name || tr('بلا فريق') }),
           [tr('رقم السند')]: rc.receiptNumber,
           [tr('التاريخ')]: fmtDateTime(rc.receiptDate),
           [tr('العميل')]: rc.customer?.name || '—',
@@ -621,10 +643,13 @@ export default function ReportsPage() {
   const safeName = (s: string) => s.replace(/[\\/?*[\]:]/g, '·').slice(0, 60);
 
   // تصدير Excel للتبويب النشط
+  // «ورقة لكل فريق»: أوراق المستندات تُقسَم بعمود الفريق (lib/teamReport.ts) — حين لا فلتر فريق
+  const exportSheets = (sheets: ExcelSheet[]) => (teamsOn && !teamFilter && splitByTeam ? splitSheetsByTeam(sheets, tr('الفريق')) : sheets);
+  const withTeam = (name: string) => (teamFilterName ? `${name} - ${teamFilterName}` : name);
   const handleExport = async () => {
     const built = buildSheets();
     if (!built) { toast.error(tr('لا توجد بيانات للتصدير')); return; }
-    const out = await shareOrDownloadExcel(built.sheets, `${built.fname}-${day()}`);
+    const out = await shareOrDownloadExcel(exportSheets(built.sheets), `${withTeam(built.fname)}-${day()}`);
     toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
   };
 
@@ -640,7 +665,8 @@ export default function ReportsPage() {
     const range = (tab === 'performance' && perfType === 'receivables')
       ? tr('لحظي وقت الإصدار')
       : (from && to) ? `${from} — ${to}` : tr('كل الفترات');
-    const header = `<div style="border-bottom:2px solid #E15A30;padding-bottom:10px;margin-bottom:8px"><h2 style="font-size:18px;margin:0;color:#1F1A13">${esc(title)}</h2><p style="font-size:12px;color:#6E6557;margin:4px 0 0">${esc(tr('الفترة'))}: ${esc(range)} · ${esc(tr('تاريخ الإصدار'))}: ${esc(new Date().toLocaleDateString(activeLocale()))}</p></div>`;
+    const teamLine = teamFilterName ? ` · ${tr('الفريق')}: ${teamFilterName}` : '';
+    const header = `<div style="border-bottom:2px solid #E15A30;padding-bottom:10px;margin-bottom:8px"><h2 style="font-size:18px;margin:0;color:#1F1A13">${esc(title)}</h2><p style="font-size:12px;color:#6E6557;margin:4px 0 0">${esc(tr('الفترة'))}: ${esc(range)}${esc(teamLine)} · ${esc(tr('تاريخ الإصدار'))}: ${esc(new Date().toLocaleDateString(activeLocale()))}</p></div>`;
     const wrap = (inner: string, withHeader: boolean): HTMLElement => {
       const el = document.createElement('div');
       el.style.cssText = 'position:fixed;left:-99999px;top:0;width:780px;background:#fff;padding:24px;font-family:Tahoma,Arial,sans-serif;direction:rtl';
@@ -693,7 +719,7 @@ export default function ReportsPage() {
   const handleExportPdf = async () => {
     const built = buildSheets();
     if (!built) { toast.error(tr('لا توجد بيانات للتصدير')); return; }
-    await sheetsToPdf(built.sheets, built.fname);
+    await sheetsToPdf(exportSheets(built.sheets), withTeam(built.fname));
   };
 
   // تصدير تقرير مندوب واحد بشكل مستقل (Excel أو PDF، اسم الملف باسم المندوب)
@@ -782,7 +808,13 @@ export default function ReportsPage() {
     <div>
       <div className="page-header">
         <h1 className="page-title">{tr('التقارير')}</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {teamsOn && !teamFilter && (
+            <label className="flex items-center gap-1.5 text-xs text-[#6E6557] cursor-pointer" title={tr('أوراق المستندات تقسم ورقة لكل فريق')}>
+              <input type="checkbox" checked={splitByTeam} onChange={e => setSplitByTeam(e.target.checked)} className="w-4 h-4 accent-[#E15A30]" />
+              {tr('ورقة لكل فريق')}
+            </label>
+          )}
           <button className="btn-secondary" onClick={handleExport}><Download size={16} /> {tr('تصدير Excel')}</button>
           <button className="btn-secondary" onClick={handleExportPdf}><FileText size={16} /> {tr('تصدير PDF')}</button>
         </div>
@@ -815,6 +847,17 @@ export default function ReportsPage() {
             </>
           ) : (
             <p className="text-xs text-gray-400 pb-2">{tr('الأرصدة لحظية تعكس وضع المديونية الآن لا فترة محددة')}</p>
+          )}
+          {/* «فرق العمل»: الفريق — المستندات بوسمها والمناديب بعضويتهم؛ أرصدة العملاء لا تنقسم (العملاء مشتركون) */}
+          {teamsOn && !(tab === 'balances' && custType === 'balances') && (
+            <div>
+              <label className="label">{tr('الفريق')}</label>
+              <select className="input w-44" value={teamFilter} onChange={e => setTeamFilter(e.target.value)}>
+                <option value="">{tr('كل الفرق')}</option>
+                {(teamsQ.data ?? []).map(t => <option key={t.id} value={t.id}>{t.name}{t.isActive ? '' : ` (${tr('مؤرشف')})`}</option>)}
+                <option value="none">{tr('بلا فريق')}</option>
+              </select>
+            </div>
           )}
           {/* البحث: يظهر حيث يوجد ما يُصفّى — وملخّص التحصيل بطاقاتٌ بلا صفوف */}
           {!(tab === 'collections' && collType === 'summary') && (
@@ -855,6 +898,7 @@ export default function ReportsPage() {
                 <option value="product">{tr('الصنف')}</option>
                 <option value="channel">{tr('القناة')}</option>
                 <option value="region">{tr('المنطقة')}</option>
+                {teamsOn && <option value="team">{tr('الفريق')}</option>}
               </select>
             </div>
           )}

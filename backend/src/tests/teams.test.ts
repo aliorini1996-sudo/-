@@ -92,3 +92,39 @@ test('حارس نصّي: إدارة الفرق لمدير غير مقيَّد ب
   const settings = schema.slice(schema.indexOf('model CompanySettings {'), schema.indexOf('\n}', schema.indexOf('model CompanySettings {')));
   assert.match(settings, /teamsEnabled\s+Boolean @default\(false\)/);
 });
+
+// ═══ المرحلة الثانية: التقارير حسب الفريق ═══
+import { reportTeamOf, teamDocWhere, teamRepWhere } from '../services/teams';
+
+test('فلتر التقارير بالفريق: نصّاً وحده، و«بلا فريق»، والمستندات بوسمها والمناديب بعضويتهم', () => {
+  assert.equal(reportTeamOf(undefined), undefined);
+  assert.equal(reportTeamOf(''), undefined);
+  assert.equal(reportTeamOf('none'), null);
+  assert.equal(reportTeamOf('t1'), 't1');
+  assert.equal(reportTeamOf({ not: 'x' }), undefined, 'كائن qs لا يصير شرط Prisma');
+  assert.equal(reportTeamOf(['a', 'b']), undefined);
+  assert.deepEqual(teamDocWhere(undefined), {});
+  assert.deepEqual(teamDocWhere(null), { teamId: null });
+  assert.deepEqual(teamDocWhere('t1'), { teamId: 't1' });
+  assert.deepEqual(teamRepWhere(undefined), {});
+  assert.deepEqual(teamRepWhere('t1'), { teamMemberships: { some: { teamId: 't1' } } });
+  assert.deepEqual(teamRepWhere(null), { teamMemberships: { none: {} } });
+});
+
+test('حارس نصّي: كل تقارير المستندات تُفلتر بوسم الفريق، وتقارير المناديب بعضويتهم، وساعات العمل لا تُسقط النطاق', () => {
+  const r = read('routes/reports.ts');
+  const seg = (route: string, next: string) => r.slice(r.indexOf(`router.get('${route}'`), r.indexOf(`router.get('${next}'`));
+  assert.ok(seg('/sales', '/orders').includes('...teamDocWhere(team),'), 'المبيعات');
+  assert.ok(seg('/sales', '/orders').includes("if (groupBy === 'team') {"), 'التجميع حسب الفريق');
+  assert.ok(seg('/orders', '/returns').includes('...teamDocWhere(reportTeamOf(req.query.teamId)),'), 'الطلبات');
+  assert.ok(seg('/collections', '/balances').includes('...teamDocWhere(reportTeamOf(req.query.teamId)),'), 'التحصيل');
+  const perf = seg('/rep-performance', '/customer-visits');
+  assert.equal(perf.split('...teamDocWhere(team)').length - 1, 3, 'مبيعات الأداء وتحصيله وزياراته');
+  assert.ok(perf.includes('...teamRepWhere(team) },'), 'مناديب الأداء');
+  assert.ok(seg('/customer-visits', '/rep-receivables').includes('...teamDocWhere(reportTeamOf(req.query.teamId)) },'));
+  assert.ok(seg('/rep-receivables', '/work-hours').includes('...teamRepWhere(reportTeamOf(req.query.teamId)) },'));
+  const hours = seg('/work-hours', '/rep-ranking');
+  assert.ok(hours.includes('AND: [await scopedRecordWhere(req, SHAPE_VISIT), { OR: ['), 'النطاق عنصرٌ في AND لا يُكتب فوقه');
+  assert.ok(!/\.\.\.\(await scopedRecordWhere\(req, SHAPE_VISIT\)\),\s*AND:/.test(hours), 'نثر النطاق بجانب AND يُسقطه');
+  assert.ok(r.slice(r.indexOf("router.get('/rep-ranking'")).split('...teamDocWhere(team)').length - 1 >= 3, 'المبيعات والصنف والزيارات في التقييم');
+});

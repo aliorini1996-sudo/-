@@ -5,6 +5,7 @@ import { scopedRecordWhere, scopedRepRecordWhere, adminCustomerFilter, adminRepF
 import { AuthRequest } from '../types';
 import { composeWorkDays, attendanceByDay, overlayAttendance, mergeVisitsByRep, asVisitLike } from '../services/workDay';
 import { FINANCIAL_METRICS, RANKING_METRICS, rankRows, trackedMeters, type RankingMetric } from '../services/repRanking';
+import { TEAM_NAME_SELECT, reportTeamOf, teamDocWhere, teamRepWhere } from '../services/teams';
 import { isDamagedVanReturn } from '../services/vanDamaged';
 
 const router = Router();
@@ -14,6 +15,7 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
   try {
     const tid = tenantId(req);
     const { from, to, salesRepId, customerId, groupBy } = req.query as Record<string, string>;
+    const team = reportTeamOf(req.query.teamId); // «الفرق»: فلتر الفريق (بوسم المستند)
     /**
      * نطاق شامل ليوم «إلى» كاملاً (حتى منتصف ليلته) — يُصلح التصفية ليوم واحد وآخر يوم.
      *
@@ -45,10 +47,12 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
         invoiceDate: dateFilter,
         ...(salesRepId && { salesRepId }),
         ...(customerId && { customerId }),
+        ...teamDocWhere(team),
       },
       include: {
         customer: { select: { id: true, name: true, channel: true, city: true } },
         salesRep: { select: { id: true, name: true } },
+        team: TEAM_NAME_SELECT,
         items: {
           include: { product: { select: { id: true, name: true, code: true } } },
         },
@@ -127,6 +131,19 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
       return;
     }
 
+    // «الفرق»: التجميع حسب الفريق — بوسم الفاتورة، ودلو «بلا فريق» للقديمة (قبل التفعيل) ولمن لم يُحسم فريقه
+    if (groupBy === 'team') {
+      const byTeam: Record<string, { name: string; count: number; total: number }> = {};
+      invoices.forEach(inv => {
+        const key = inv.team?.id ?? '__none';
+        if (!byTeam[key]) byTeam[key] = { name: inv.team?.name ?? '', count: 0, total: 0 };
+        byTeam[key].count++;
+        byTeam[key].total += Number(inv.total);
+      });
+      res.json({ success: true, data: Object.values(byTeam).sort((a, b) => b.total - a.total) });
+      return;
+    }
+
     const summary = {
       total: invoices.reduce((s, i) => s + Number(i.total), 0),
       count: invoices.length,
@@ -170,10 +187,11 @@ router.get('/orders', async (req: AuthRequest, res: Response, next: NextFunction
         status: { not: 'CANCELLED' },
         // الشرط الذي يصنع التقرير: تاريخ تسليمٍ محدَّد
         deliveryDate: { not: null, ...deliveryFilter },
+        ...teamDocWhere(reportTeamOf(req.query.teamId)),
       },
       select: {
         id: true, number: true, invoiceDate: true, deliveryDate: true,
-        total: true, paidAmt: true, status: true,
+        total: true, paidAmt: true, status: true, team: TEAM_NAME_SELECT,
         customer: { select: { id: true, name: true, phone: true, city: true } },
         salesRep: { select: { id: true, name: true } },
       },
@@ -215,14 +233,15 @@ router.get('/returns', async (req: AuthRequest, res: Response, next: NextFunctio
         ...(to ? { lt: new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) } : {}),
       }
       : { gte: new Date(Date.now() - DEFAULT_DAYS * 24 * 60 * 60 * 1000) };
-    const scope = await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT);
+    // «الفرق»: الفريق جزءٌ من النطاق نفسه — فيطبَّق على المرتجعات وعلى مبيعات النسبة معاً
+    const scope = { ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)), ...teamDocWhere(reportTeamOf(req.query.teamId)) };
 
     const [returns, sales] = await Promise.all([
       prisma.invoice.findMany({
         where: { tenantId: tid, ...scope, status: 'CONFIRMED', type: 'RETURN', invoiceDate: dateFilter },
         select: {
           id: true, number: true, invoiceDate: true, total: true, taxAmt: true,
-          returnReason: true, returnToStock: true, documentKind: true, notes: true, createdAt: true,
+          returnReason: true, returnToStock: true, documentKind: true, notes: true, createdAt: true, team: TEAM_NAME_SELECT,
           originalInvoice: { select: { number: true } },
           customer: { select: { id: true, name: true, phone: true, city: true } },
           salesRep: { select: { id: true, name: true } },
@@ -320,10 +339,12 @@ router.get('/collections', async (req: AuthRequest, res: Response, next: NextFun
         ...(dateFilter && { receiptDate: dateFilter }),
         ...(salesRepId && { salesRepId }),
         ...(paymentMethod && { paymentMethod: paymentMethod as 'CASH' | 'BANK_TRANSFER' | 'POS' | 'CHEQUE' }),
+        ...teamDocWhere(reportTeamOf(req.query.teamId)),
       },
       include: {
         customer: { select: { id: true, name: true } },
         salesRep: { select: { id: true, name: true } },
+        team: TEAM_NAME_SELECT,
       },
       orderBy: { receiptDate: 'asc' },
     });
@@ -376,17 +397,19 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
     const fromDate = from ? new Date(from) : new Date(0);
     const toEnd = to ? new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) : new Date();
 
+    // «الفرق»: المناديب بعضويتهم، ومبيعاتهم وتحصيلهم وزياراتهم بوسم المستند — فمندوبٌ في فريقين لا تدخل مبيعات فريقه الآخر
+    const team = reportTeamOf(req.query.teamId);
     const [reps, sessions, visitRows] = await Promise.all([
       prisma.salesRep.findMany({
-        where: { tenantId: tid, isActive: true, ...(await adminRepFilter(req)) },
+        where: { tenantId: tid, isActive: true, ...(await adminRepFilter(req)), ...teamRepWhere(team) },
         select: {
           id: true, name: true,
           invoices: {
-            where: { status: 'CONFIRMED', type: { not: 'RETURN' }, ...(dateFilter && { invoiceDate: dateFilter }) },
+            where: { status: 'CONFIRMED', type: { not: 'RETURN' }, ...(dateFilter && { invoiceDate: dateFilter }), ...teamDocWhere(team) },
             select: { total: true, discountAmt: true, type: true },
           },
           receipts: {
-            where: { status: 'ACTIVE', ...(dateFilter && { receiptDate: dateFilter }) },
+            where: { status: 'ACTIVE', ...(dateFilter && { receiptDate: dateFilter }), ...teamDocWhere(team) },
             select: { amount: true },
           },
         },
@@ -400,7 +423,7 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
        * العدّ يجري على **الوقفات** بعد الدمج: الزيارة المؤقّتة وملاحظتها سجلّان
        * ووقفةٌ واحدة، فكان عدّ السجلّات يضاعف زيارات المندوب في تقرير أدائه. */
       prisma.repVisit.findMany({
-        where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, ...(await scopedRecordWhere(req, SHAPE_VISIT)) },
+        where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, ...(await scopedRecordWhere(req, SHAPE_VISIT)), ...teamDocWhere(team) },
         select: {
           salesRepId: true, customerId: true, createdAt: true, startedAt: true, durationSec: true,
           lat: true, lng: true, customer: { select: { name: true } },
@@ -463,12 +486,13 @@ router.get('/customer-visits', async (req: AuthRequest, res: Response, next: Nex
     const fromDate = from ? new Date(from) : new Date(0);
     const toEnd = to ? new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) : new Date();
     const visits = await prisma.repVisit.findMany({
-      where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, ...(await scopedRecordWhere(req, SHAPE_VISIT)) },
+      where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, ...(await scopedRecordWhere(req, SHAPE_VISIT)), ...teamDocWhere(reportTeamOf(req.query.teamId)) },
       select: {
         id: true, salesRepId: true, customerId: true, createdAt: true, startedAt: true,
         note: true, lat: true, lng: true, durationSec: true,
         customer: { select: { name: true } },
         salesRep: { select: { name: true } },
+        team: TEAM_NAME_SELECT,
       },
       orderBy: { createdAt: 'desc' }, take: 5000,
     });
@@ -484,6 +508,7 @@ router.get('/customer-visits', async (req: AuthRequest, res: Response, next: Nex
         customerId: head.customerId,
         customerName: m.customerName,
         repName: head.salesRep?.name || '',
+        teamName: head.team?.name ?? null,
         createdAt: m.start,
         durationSec: m.durationSec,
         note: notes.join(' · '),
@@ -510,7 +535,7 @@ router.get('/rep-receivables', async (req: AuthRequest, res: Response, next: Nex
 
     const [reps, assignments, sums, lastPays] = await Promise.all([
       prisma.salesRep.findMany({
-        where: { tenantId: tid, isActive: true, ...(await adminRepFilter(req)) },
+        where: { tenantId: tid, isActive: true, ...(await adminRepFilter(req)), ...teamRepWhere(reportTeamOf(req.query.teamId)) },
         select: { id: true, name: true },
         orderBy: { name: 'asc' },
       }),
@@ -592,7 +617,9 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
       rangeClamped = true;
     }
 
-    const repWhere = { tenantId: tid, isActive: true, ...(await adminRepFilter(req)) };
+    // «الفرق»: المناديب بعضويتهم (الساعات والحضور لا تنقسم)، وزياراتهم بوسمها
+    const team = reportTeamOf(req.query.teamId);
+    const repWhere = { tenantId: tid, isActive: true, ...(await adminRepFilter(req)), ...teamRepWhere(team) };
     const [reps, sessions, visits, pingRows, attendance] = await Promise.all([
       prisma.salesRep.findMany({ where: repWhere, select: { id: true, name: true } }),
       prisma.repSession.findMany({
@@ -604,10 +631,11 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
         // createdAt وحده كان يُدخل زيارةً بدأت قبل المدى (startedAt قديم لزيارةٍ
         // عالقة أُنشئ سجلّها داخله) فتُنسب ليوم بدايتها خارج ما حدّده المشرف،
         // ويُسقط زيارةً بدأت في آخر يومٍ وأُنشئ سجلُّها بعد منتصف ليله.
+        // النطاق عنصرٌ في مصفوفة AND نفسها: نثرُه بجانب مفتاح AND كان يُكتب فوقه فيسقط قيد عملاء المستخدم المقيّد
         where: {
           tenantId: tid,
-          ...(await scopedRecordWhere(req, SHAPE_VISIT)),
-          AND: [{ OR: [
+          ...teamDocWhere(team),
+          AND: [await scopedRecordWhere(req, SHAPE_VISIT), { OR: [
             { startedAt: { gte: fromDate, lt: toEnd } },
             { startedAt: null, createdAt: { gte: fromDate, lt: toEnd } },
           ] }],
@@ -749,8 +777,10 @@ router.get('/rep-ranking', async (req: AuthRequest, res: Response, next: NextFun
       clampedDays = MAX_DISTANCE_DAYS;
     }
 
+    // «الفرق»: المناديب بعضويتهم، والمبيعات وكمية الصنف والزيارات بوسم المستند (المسافة ووقت التطبيق لا تنقسم)
+    const team = reportTeamOf(q.teamId);
     const reps = await prisma.salesRep.findMany({
-      where: { tenantId: tid, isActive: true, ...(await adminRepFilter(req)) },
+      where: { tenantId: tid, isActive: true, ...(await adminRepFilter(req)), ...teamRepWhere(team) },
       select: { id: true, name: true },
     });
     const ids = reps.map((r) => r.id);
@@ -760,7 +790,7 @@ router.get('/rep-ranking', async (req: AuthRequest, res: Response, next: NextFun
     if (ids.length && metric === 'sales') {
       const rows = await prisma.invoice.groupBy({
         by: ['salesRepId'],
-        where: { tenantId: tid, salesRepId: { in: ids }, status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: start, lt: end } },
+        where: { tenantId: tid, salesRepId: { in: ids }, status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: start, lt: end }, ...teamDocWhere(team) },
         _sum: { total: true },
       });
       for (const r of rows) add(r.salesRepId, Number(r._sum.total ?? 0));
@@ -768,14 +798,14 @@ router.get('/rep-ranking', async (req: AuthRequest, res: Response, next: NextFun
       const rows = await prisma.invoiceItem.findMany({
         where: {
           productId: product.id,
-          invoice: { tenantId: tid, salesRepId: { in: ids }, status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: start, lt: end } },
+          invoice: { tenantId: tid, salesRepId: { in: ids }, status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: start, lt: end }, ...teamDocWhere(team) },
         },
         select: { qty: true, invoice: { select: { salesRepId: true } } },
       });
       for (const r of rows) add(r.invoice.salesRepId, Number(r.qty));
     } else if (ids.length && metric === 'visits') {
       const visits = await prisma.repVisit.findMany({
-        where: { tenantId: tid, salesRepId: { in: ids }, createdAt: { gte: start, lt: end }, ...(await scopedRecordWhere(req, SHAPE_VISIT)) },
+        where: { tenantId: tid, salesRepId: { in: ids }, createdAt: { gte: start, lt: end }, ...(await scopedRecordWhere(req, SHAPE_VISIT)), ...teamDocWhere(team) },
         select: {
           salesRepId: true, customerId: true, createdAt: true, startedAt: true, durationSec: true,
           lat: true, lng: true, customer: { select: { name: true } },

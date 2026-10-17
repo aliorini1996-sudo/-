@@ -53,7 +53,7 @@ test('حارس نصّي: المعياران الماليّان يُرفضان م
   assert.ok(i > 0);
   const h = src.slice(i, src.indexOf('\nexport default router;'));
   assert.match(h, /if \(FINANCIAL_METRICS\.includes\(metric\)\)[\s\S]*?accountingEnabled === false[\s\S]*?ACCOUNTING_NOT_ALLOWED/);
-  assert.match(h, /where: \{ tenantId: tid, isActive: true, \.\.\.\(await adminRepFilter\(req\)\) \}/, 'المناديب في نطاق المستخدم');
+  assert.match(h, /where: \{ tenantId: tid, isActive: true, \.\.\.\(await adminRepFilter\(req\)\), \.\.\.teamRepWhere\(team\) \}/, 'المناديب في نطاق المستخدم والفريق');
   assert.match(h, /SELECT DISTINCT ON \(date_trunc\('minute', "capturedAt"\)\)/, 'نقطة لكل دقيقة في القاعدة');
   assert.match(h, /"salesRepId" = \$\{repId\}/, 'مندوبٌ مندوب');
   assert.match(h, /const MAX_DISTANCE_DAYS = 31;/);

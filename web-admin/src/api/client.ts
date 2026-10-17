@@ -161,7 +161,7 @@ export const reportApi = {
   collections: (params?: Record<string, string>) => api.get('/reports/collections', { params }),
   balances: (params?: Record<string, string>) => api.get('/reports/balances', { params }),
   repPerformance: (params?: Record<string, string>) => api.get('/reports/rep-performance', { params }),
-  repReceivables: () => api.get('/reports/rep-receivables'), // لحظيّ — لا معاملات تاريخ
+  repReceivables: (params?: Record<string, string>) => api.get('/reports/rep-receivables', { params }), // لحظيّ — لا معاملات تاريخ (الفريق وحده)
   workHours: (params?: Record<string, string>) => api.get('/reports/work-hours', { params }),
   // تقييم الأداء: ترتيب المناديب حسب معيار (visits | product | sales | distance | appTime)
   repRanking: (params?: Record<string, string>) => api.get('/reports/rep-ranking', { params }),

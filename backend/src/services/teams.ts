@@ -74,3 +74,22 @@ export function teamCatalogProblem(products: ProductTeams[], allowed: string[] |
 
 /** اسم فريقٍ صالح: يُشذَّب ويُطوى فراغه، ولا يتجاوز ٦٠ حرفاً */
 export const teamName = (s: string) => s.trim().replace(/\s+/g, ' ').slice(0, 60);
+
+/**
+ * فلتر التقارير بالفريق من `?teamId=` — نصاً وحده (كائن qs مثل teamId[not]=x يُهمل فلا يصير شرط Prisma):
+ * غائب/فارغ ⇒ undefined (كل الفرق)، `none` ⇒ null («بلا فريق»)، وإلا معرّف الفريق.
+ */
+export function reportTeamOf(raw: unknown): string | null | undefined {
+  if (typeof raw !== 'string' || !raw) return undefined;
+  return raw === 'none' ? null : raw;
+}
+
+/** المستندات الموسومة (فاتورة، سند، زيارة): بوسمها — فمجموع أقسام الفرق إجمالي الشركة بلا ازدواج */
+export const teamDocWhere = (team: string | null | undefined) => (team === undefined ? {} : { teamId: team });
+
+/** التقارير القائمة على المندوب (ساعات، حضور، مسافة، مديونيات): بعضويته الحالية — ومندوبٌ في فريقين يظهر تحت كليهما */
+export const teamRepWhere = (team: string | null | undefined) =>
+  team === undefined ? {} : team === null ? { teamMemberships: { none: {} } } : { teamMemberships: { some: { teamId: team } } };
+
+/** اسم الفريق مع الصفّ (للعرض والتصدير ورقةً لكل فريق) */
+export const TEAM_NAME_SELECT = { select: { id: true, name: true } } as const;

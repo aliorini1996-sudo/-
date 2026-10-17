@@ -14,6 +14,8 @@ export interface CollReceiptLike {
   receiptDate: string;
   customer: { id: string; name: string } | null;
   salesRep: { id: string; name: string } | null;
+  /** «فرق العمل»: فريق السند (وسمه) — null بلا فريق */
+  team?: { id: string; name: string } | null;
 }
 
 export interface CollRepGroup<R> {

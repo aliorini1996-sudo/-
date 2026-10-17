@@ -719,6 +719,11 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'حفظ الاستلام': { en: 'Save receipt', fr: 'Enregistrer la réception', tr: 'Teslim almayı kaydet', zh: '保存收回' },
   'سجل التسليم والاستلام': { en: 'Handover and receipt log', fr: 'Journal des remises et réceptions', tr: 'Teslim ve teslim alma kaydı', zh: '移交与收回记录' },
   // «الفرق» داخل الشركة
+  'الفريق': { en: 'Team', fr: 'Équipe', tr: 'Ekip', zh: '团队' },
+  'بلا فريق': { en: 'No team', fr: 'Sans équipe', tr: 'Ekipsiz', zh: '无团队' },
+  'كل الفرق': { en: 'All teams', fr: 'Toutes les équipes', tr: 'Tüm ekipler', zh: '所有团队' },
+  'ورقة لكل فريق': { en: 'Sheet per team', fr: 'Une feuille par équipe', tr: 'Ekip başına sayfa', zh: '每个团队一个工作表' },
+  'أوراق المستندات تقسم ورقة لكل فريق': { en: 'Document sheets are split into one sheet per team', fr: 'Les feuilles de documents sont divisées en une feuille par équipe', tr: 'Belge sayfaları ekip başına bir sayfaya bölünür', zh: '单据工作表按团队拆分为单独的工作表' },
   'فرق العمل': { en: 'Teams', fr: 'Équipes', tr: 'Ekipler', zh: '团队' },
   'تم حذف الفريق': { en: 'Team deleted', fr: 'Équipe supprimée', tr: 'Ekip silindi', zh: '团队已删除' },
   'تعذر تحميل تبويب فرق العمل': { en: 'Could not load the Teams tab', fr: 'Impossible de charger l’onglet Équipes', tr: 'Ekipler sekmesi yüklenemedi', zh: '无法加载团队选项卡' },
