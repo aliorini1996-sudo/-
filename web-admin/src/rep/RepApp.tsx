@@ -6,6 +6,8 @@ import { compressImage } from './imageCompress';
 import { previewInstallments, defaultFirstDue, MAX_INSTALLMENTS, type InstallmentPeriod } from '../lib/installments';
 import { useBackClose } from '../lib/useBackClose';
 import { getVisitTimer, setVisitTimer, clearVisitTimer, elapsedSec, fmtElapsed, type VisitTimer } from './visitTimer';
+import RepTeamSwitch from './RepTeamSwitch';
+import { currentActiveTeam, sellableNow, storedUserActiveTeam, useActiveTeam, type RepTeam } from './repTeam';
 import { toGeoFix, isGeoFix, attachFix, fixCoords, visitGate, planFinalize, visitFailure, isFinalVisitRejection, MIN_VISIT_SEC, type GeoFix } from './visitLocation';
 import { ownPendingVisits, putPendingVisit, removePendingVisit, retryPendingVisits, pendingRetryOutcome, postResultOf, beginEnding, endEnding, orphanEnding, orphanFate, type PendingVisit } from './visitPending';
 import DecimalInput from '../components/DecimalInput';
@@ -87,6 +89,9 @@ interface RepUser {
   canChangePrice?: boolean;
   canSellBelowPrice?: boolean;
   maxDiscountPct?: number;
+  /** «الفرق»: مفعّلة للشركة، وفرق المندوب الفعّالة (من /auth/me) — يختار منها الفريق الذي يعمل له (repTeam.ts) */
+  teamsEnabled?: boolean;
+  teams?: RepTeam[];
 }
 
 // ============ تسجيل الدخول ============
@@ -1434,6 +1439,8 @@ function LogVisit({ customer, strict = false, onClose, onDone }: { customer: any
       ...fixCoords(at),
       photos: photos.length ? photos : undefined,
       clientRef, createdAt: clientCreatedAt,
+      // الفرق: الفريق الذي يعمل له المندوب الآن (الخادم يتحقّق منه بعضويته)
+      ...(storedUserActiveTeam() && { teamId: storedUserActiveTeam() }),
     };
     try {
       await repApi.post('/visits', payload);
@@ -1564,6 +1571,16 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const [products, setProducts] = useState<any[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [lines, setLines] = useState<any[]>([]);
+  /* «الفرق»: الفريق الذي يعمل له المندوب الآن — أصنافه الخاصة + العامة وحدها تُعرض وتُمسح، والفاتورة تُوسم به. ومنتقي
+   * فاتورة البيع للمرتجع يأخذ القائمة كاملة (المرتجع من فاتورة بيعٍ يرث فريقها) */
+  const activeTeam = useActiveTeam(perms);
+  const teamProducts = products.filter((p) => sellableNow(p, perms, activeTeam));
+  // تبديل الفريق أثناء الفاتورة: ما في السلة من غير أصناف الفريق الجديد يُحذف (وإلا رفضه الخادم PRODUCT_NOT_IN_TEAM)
+  useEffect(() => {
+    if (saleRef || !products.length) return;
+    const keep = lines.filter((l) => { const p = products.find((x) => x.id === l.productId); return !p || sellableNow(p, perms, activeTeam); });
+    if (keep.length !== lines.length) { setLines(keep); setMsg(tr('حذفت من السلة أصناف ليست من أصناف الفريق الحالي')); }
+  }, [activeTeam]); // eslint-disable-line react-hooks/exhaustive-deps
   /* مرتجعٌ من فاتورة بيع (SaleInvoicePicker): الأصناف المفعّلة صلاحيتها تُرجَع من فاتورة بيعها وحدها — كامل أصنافها أو
    * بعضها — فتُقاس صلاحيتها على بيعها، ويدخل المنتهي منها السيارة «منتهي الصلاحية» لا يُباع. بنود الفاتورة تحمل
    * saleItemId وmaxQty (المتاح) وسعر الاسترداد ثابتاً وحالة الصلاحية اليوم. */
@@ -1647,7 +1664,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
 
   // مسح باركود مستمرّ → إيجاد الصنف بحقل barcode وإضافته؛ يُعيد نتيجة للعرض داخل الماسح (يبقى مفتوحاً)
   const onScan = (code: string): { ok: boolean; label: string } => {
-    const p = products.find((x) => x.barcode && String(x.barcode) === code);
+    const p = teamProducts.find((x) => x.barcode && String(x.barcode) === code);
+    // صنفٌ مسجَّل لكنه ليس من أصناف الفريق الحالي: يُقال ذلك لا «لا يوجد صنف» (فيظنه المندوب باركوداً غير مسجّل)
+    if (!p && products.some((x) => x.barcode && String(x.barcode) === code)) return { ok: false, label: tr('الصنف ليس من أصناف فريقك الحالي بدل الفريق') };
     if (p && returnBlock(p)) return { ok: false, label: returnBlock(p)! };
     if (p) { addProduct(p); return { ok: true, label: p.name }; }
     return { ok: false, label: `${tr('لا يوجد صنف بهذا الباركود')}: ${code}` };
@@ -1766,6 +1785,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     const body = {
       ...custRef, type: isReturn ? 'RETURN' : type, discountPct: 0,
       ...(isReturn && { returnReason }),
+      // الفرق: الفريق الذي يعمل له المندوب الآن (المرتجع من فاتورة بيعٍ يرث فريقها في الخادم)
+      ...(activeTeam && { teamId: activeTeam }),
       // مرتجعٌ من فاتورة بيع: الفاتورة وبند البيع لكل صنف — الخادم يتحقّق من المتاح ويقيس الصلاحية عليه
       ...(isReturn && saleRef && { originalInvoiceId: saleRef.id }),
       // الاسعار شاملة كما اعلنت للعميل — المحرك (عميلا وخادما) يشتق الضريبة داخليا
@@ -1948,6 +1969,13 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
             )}
             {!isReturn && !canSellAnyType && <p className="text-[11px] text-red-500 mb-2">{tr('لا تملك صلاحية البيع النقدي أو الآجل')}.</p>}
 
+            {/* «الفرق»: الفريق الحالي — تبديله يصفّي الأصناف ويحذف من السلة ما ليس من أصنافه */}
+            {!saleRef && (perms.teams?.length ?? 0) > 0 && perms.teamsEnabled && (
+              <div className="mb-2 flex items-center gap-2 text-[11px] text-gray-500">
+                <span>{tr('تعمل الآن لفريق')}</span>
+                <RepTeamSwitch user={perms} tone="light" />
+              </div>
+            )}
             <div className="mb-2 flex items-stretch gap-2">
               <div className="flex-1">
                 <SearchableSelect
@@ -1955,8 +1983,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                   searchPlaceholder={tr('اكتب اسم الصنف')}
                   value=""
                   resetOnSelect
-                  options={products.map(p => ({ value: p.id, label: p.name, hint: formatCurrency(inclPrice(p)) }))}
-                  onChange={(v) => { const p = products.find(x => x.id === v); if (p) addProduct(p); }}
+                  options={teamProducts.map(p => ({ value: p.id, label: p.name, hint: formatCurrency(inclPrice(p)) }))}
+                  onChange={(v) => { const p = teamProducts.find(x => x.id === v); if (p) addProduct(p); }}
                 />
               </div>
               <button type="button" onClick={() => setShowScanner(true)} title={tr('مسح الباركود')}
@@ -1974,7 +2002,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
               <div className="text-center text-gray-400 py-10 text-sm">{tr('لا توجد أصناف')}</div>
             ) : (
               <div className="grid grid-cols-3 gap-2">
-                {products.map(p => {
+                {teamProducts.map(p => {
                   const q = qtyInCart(p.id);
                   return (
                     <button key={p.id} onClick={() => addProduct(p)}
@@ -2188,6 +2216,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
 // ============ إنشاء سند قبض ============
 function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: { customer: any; repName: string; company: Company | null; perms: RepUser; onClose: () => void; onDone: (doc: ReceiptDoc) => void }) {
   const tr = useTr();
+  const activeTeam = useActiveTeam(perms); // «الفرق»
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('CASH');
   const [notes, setNotes] = useState('');
@@ -2291,7 +2320,11 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
     const invoiceAllocations = Object.entries(alloc)
       .filter(([, v]) => v > 0.004)
       .map(([invoiceId, a]) => ({ invoiceId, amount: a }));
-    const body = { ...custRef, amount: Number(amount), paymentMethod: method, notes: notes || undefined, ...(photos.length ? { photos } : {}), ...(invoiceAllocations.length ? { invoiceAllocations } : {}) };
+    const body = {
+      ...custRef, amount: Number(amount), paymentMethod: method, notes: notes || undefined, ...(photos.length ? { photos } : {}), ...(invoiceAllocations.length ? { invoiceAllocations } : {}),
+      // الفرق: السند يُحسب للفريق الذي يعمل له المندوب الآن
+      ...(activeTeam && { teamId: activeTeam }),
+    };
     attempt.current = attemptClientRef(attempt.current, body, newClientRef);
     const clientRef = attempt.current.ref;
     const payload = { ...body, clientRef, clientCreatedAt };
@@ -3635,6 +3668,7 @@ export default function RepApp() {
     const repId = currentRepId();
     const custRef = t.offline ? { customerClientRef: t.customerClientRef } : { customerId: t.customerId };
     const base: Record<string, unknown> = { ...custRef, startedAt: t.startedAt, endedAt, clientDurationSec, clientRef, createdAt: endedAt };
+    if (t.teamId) base.teamId = t.teamId; // «الفرق»: الفريق عند بدء الزيارة
     // المؤقّت مُسح والقراءة قد تطول (٨ث، والمقيَّد حتى ٢٨ث): الزيارة محفوظةٌ على الجهاز «تُنهى الآن» حتى تستقرّ، فإغلاق
     // التطبيق أثناءها لا يُضيعها — يتيمتها تُحسم عند الإقلاع (orphanEnding)
     beginEnding({ clientRef, repId, customerName: t.customerName, payload: { ...base, ...fixCoords(t.fix) }, endedAt });
@@ -3751,6 +3785,7 @@ export default function RepApp() {
         customerId: c.id, customerName: c.name,
         offline: !!c._offline, customerClientRef: c.clientRef,
         startedAt: new Date().toISOString(),
+        teamId: currentActiveTeam(user),
         ...(fix ? { fix } : {}),
       };
       setVisitTimer(t);
@@ -4117,6 +4152,8 @@ export default function RepApp() {
               <div className="bg-[#1F1A13] text-white px-4 py-3 flex items-center justify-between flex-shrink-0">
                 <CompanyBrand variant="bar" logo={company?.logo} companyName={company?.name} />
                 <div className="flex items-center gap-3">
+                  {/* «الفرق»: الفريق الذي يعمل له المندوب الآن */}
+                  <RepTeamSwitch user={user} />
                   {/* شارة العمل دون اتصال: بانتظار الرفع / مرفوض — نقرة تفتح لوحة المراجعة */}
                   {(pending > 0 || rejected > 0) && (
                     <button onClick={() => setShowOutbox(true)}

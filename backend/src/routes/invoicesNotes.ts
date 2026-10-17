@@ -67,7 +67,7 @@ const ORIGINAL_ITEM_SELECT = {
 } satisfies Prisma.InvoiceItemSelect;
 
 const ORIGINAL_SELECT = {
-  id: true, tenantId: true, customerId: true, salesRepId: true, number: true, status: true, type: true, paymentPlan: true,
+  id: true, tenantId: true, customerId: true, salesRepId: true, teamId: true, number: true, status: true, type: true, paymentPlan: true,
   zatcaPhase: true, documentKind: true, invoiceSubtype: true, einvoiceStatus: true, pricesIncludeTax: true, discountPct: true,
   total: true, paidAmt: true, remainingAmt: true, invoiceDate: true, einvoiceSnapshot: true,
   items: { select: ORIGINAL_ITEM_SELECT, orderBy: { seq: 'asc' } },
@@ -107,7 +107,7 @@ function originalOf(row: OriginalRow): LoadedOriginal {
   }));
   return {
     original: {
-      id: row.id, tenantId: row.tenantId, customerId: row.customerId, salesRepId: row.salesRepId, number: row.number,
+      id: row.id, tenantId: row.tenantId, customerId: row.customerId, salesRepId: row.salesRepId, teamId: row.teamId ?? null, number: row.number,
       status: row.status, type: row.type, paymentPlan: row.paymentPlan, zatcaPhase: row.zatcaPhase,
       documentKind: row.documentKind, invoiceSubtype: row.invoiceSubtype, einvoiceStatus: row.einvoiceStatus,
       pricesIncludeTax: row.pricesIncludeTax === true, discountPct: Number(row.discountPct), total: Number(row.total),
@@ -532,6 +532,8 @@ async function stampNote(
                 salesRepId: kind === 'DEBIT_NOTE'
                   ? locked.original.salesRepId
                   : (ctx.salesRepId ?? locked.original.salesRepId),
+                // الفرق: الإشعار (دائناً أو مديناً) يُحسب لفريق فاتورته الأصلية
+                ...(locked.original.teamId && { teamId: locked.original.teamId }),
                 ...legacy,
                 pricesIncludeTax: locked.original.pricesIncludeTax,
                 discountPct: kind === 'CREDIT_NOTE' ? locked.original.discountPct : 0,

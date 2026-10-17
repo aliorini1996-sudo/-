@@ -75,6 +75,8 @@ export interface NoteOriginalInvoice {
   tenantId: string;
   customerId: string;
   salesRepId: string | null;
+  /** الفرق: فريق الأصل — يرثه الإشعار */
+  teamId?: string | null;
   number: string;
   status: string;
   /** CASH | CREDIT | RETURN */

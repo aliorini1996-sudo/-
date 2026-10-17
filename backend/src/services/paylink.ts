@@ -221,7 +221,7 @@ export async function confirmLinkPayment(linkId: string): Promise<ConfirmResult>
   const link = await prisma.customerPaymentLink.findUnique({
     where: { id: linkId },
     include: {
-      invoice: { select: { id: true, number: true, customerId: true, paidAmt: true, remainingAmt: true } },
+      invoice: { select: { id: true, number: true, customerId: true, paidAmt: true, remainingAmt: true, teamId: true } },
       tenant: { select: { paylinkFeePct: true, paylinkFeeFlat: true } },
     },
   });
@@ -269,6 +269,7 @@ export async function confirmLinkPayment(linkId: string): Promise<ConfirmResult>
           clientRef,
           customerId: link.customerId,
           salesRepId: link.salesRepId, // السند باسم المندوب المصدر — يدخل تقريره
+          ...(link.invoice?.teamId && { teamId: link.invoice.teamId }), // الفرق: يُحسب لفريق فاتورته
           amount: collected,
           paymentMethod: 'ONLINE',
           notes: alloc < collected

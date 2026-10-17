@@ -407,6 +407,8 @@ export interface Phase2IssuanceContext {
   customerBalance: number;
   customerCreditLimit: number;
   salesRepId: string;
+  /** الفرق: فريق المستند المحسوم في routes/invoices.ts (null = بلا فريق) */
+  teamId?: string | null;
   companyVat: number;
   engine: EngineTotals;
   items: readonly Phase2LegacyItem[];
@@ -589,6 +591,7 @@ async function issueNow(
                 clientCreatedAt: ctx.body.clientCreatedAt ? new Date(ctx.body.clientCreatedAt) : undefined,
                 customerId: ctx.customerId,
                 salesRepId: ctx.salesRepId,
+                ...(ctx.teamId && { teamId: ctx.teamId }),
                 type: ctx.body.type,
                 ...(ctx.deliveryDate && { deliveryDate: ctx.deliveryDate }),
                 dueDate: ctx.installments.length ? ctx.installments[ctx.installments.length - 1].dueDate : ctx.dueDate,

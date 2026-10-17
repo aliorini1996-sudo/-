@@ -7,9 +7,12 @@ import { getCountryTax, OVERRIDE_CURRENCIES } from '../config/countries';
 import { ZATCA_ROUTE_CODES, auditOwnerImpersonationWrite, companyZatcaFieldChanges } from './zatca';
 import { phase2LockedSettingChanges, phase2SettingsLockedBody } from '../compliance/zatca/settingsGuards';
 import { aiRepForRep } from '../ai-rep/access';
+import teamsRouter from './teams';
 
 const router = Router();
 router.use(authenticate);
+// «الفرق» داخل الشركة — /api/company/teams (routes/teams.ts): تحت بادئة الشركة المصنّفة، بحرّاسها هي
+router.use('/teams', teamsRouter);
 
 const companySchema = z.object({
   name: z.string().min(1),

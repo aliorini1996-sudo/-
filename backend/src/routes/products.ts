@@ -117,7 +117,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       prisma.product.count({ where }),
       prisma.product.findMany({
         where,
-        include: { category: true, priceTiers: { orderBy: { minQty: 'asc' } } },
+        // teams: فرق الصنف («الفرق») — تطبيق المندوب يصفّي بها أصناف فريقه الحالي + العامة
+        include: { category: true, priceTiers: { orderBy: { minQty: 'asc' } }, teams: { select: { teamId: true } } },
         ...paginate(page, limit),
         orderBy: { name: 'asc' },
       }),

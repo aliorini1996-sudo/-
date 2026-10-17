@@ -76,6 +76,18 @@ export const productApi = {
   remove: (id: string) => api.delete(`/products/${id}`),
 };
 
+// «الفرق» داخل الشركة — /api/company/teams (مطفأة افتراضياً، يفعّلها مدير الشركة من إعدادات الشركة)
+export const teamsApi = {
+  settings: () => api.get('/company/teams/settings'),
+  setEnabled: (enabled: boolean) => api.patch('/company/teams/settings', { enabled }),
+  list: () => api.get('/company/teams'),
+  create: (name: string) => api.post('/company/teams', { name }),
+  update: (id: string, data: { name?: string; isActive?: boolean }) => api.put(`/company/teams/${id}`, data),
+  remove: (id: string) => api.delete(`/company/teams/${id}`),
+  setMembers: (id: string, salesRepIds: string[]) => api.put(`/company/teams/${id}/members`, { salesRepIds }),
+  setProducts: (id: string, productIds: string[]) => api.put(`/company/teams/${id}/products`, { productIds }),
+};
+
 export const salesRepApi = {
   list: (params?: Record<string, string | number>) => api.get('/sales-reps', { params }),
   get: (id: string) => api.get(`/sales-reps/${id}`),

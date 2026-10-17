@@ -79,6 +79,7 @@ model Tenant {
   vanLoads             VanLoad[]
   repStockRequests     RepStockRequest[]
   vanToolMoves         VanToolMove[]
+  teams                Team[]
   warehouseEntries     WarehouseEntry[]
   repLocations         RepLocation[]
   repSettlements       RepSettlement[]
@@ -208,6 +209,9 @@ model Admin {
   // المُسنَدين له (AdminCustomerScope / AdminRepScope). افتراضي false ⇒ كل
   // المستخدمين القائمين يبقون على رؤيتهم الكاملة عند db push (لا انقطاع).
   scopeEnabled Boolean @default(false)
+  // وضع النطاق حين scopeEnabled: LISTS قوائم العملاء والمناديب اليدوية (كما كان)، TEAMS مشرف فريق — يرى مناديب فرقه
+  // وما وُسم بفرقه من مستندات، وكل العملاء (services/adminScope.ts). scopeEnabled يبقى الإشارة الوحيدة إلى «مقيّد».
+  scopeMode    String  @default("LISTS")
 
   // آخر ظهور — يُلمَس في وسيط المصادقة (مخنوقاً لمرة/دقيقة) ليغذّي عدّاد «الزيارات الحية»
   // في لوحة المالك. اختياري: الصفوف القائمة تبقى null حتى أوّل طلب بعد النشر (لا انقطاع).
@@ -218,6 +222,7 @@ model Admin {
 
   customerScopes AdminCustomerScope[]
   repScopes      AdminRepScope[]
+  supervisedTeams TeamSupervisor[]
   apiKeys        ApiKey[]
 
   @@index([tenantId])
@@ -255,6 +260,75 @@ model AdminRepScope {
   @@unique([adminId, salesRepId])
   @@index([tenantId, adminId])
   @@map("admin_rep_scopes")
+}
+
+/// «الفرق» داخل الشركة (طلب المالك ١٧ أكتوبر ٢٠٢٦، مطفأة حتى يفعّلها مدير الشركة: CompanySettings.teamsEnabled): نشاطٌ أو فريق مناديب
+/// بمشرفين وأصناف خاصة. المندوب في فريقٍ أو أكثر ويختار في تطبيقه الفريق الذي يعمل له، فتُوسم به فواتيره ومرتجعاته
+/// وسنداته وزياراته (teamId)، والتقارير تُفصل بالوسم. الفريق الذي عليه مستندات لا يُحذف بل يُؤرشف (isActive=false).
+model Team {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members     TeamMember[]
+  supervisors TeamSupervisor[]
+  products    ProductTeam[]
+  invoices    Invoice[]
+  receipts    Receipt[]
+  visits      RepVisit[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("teams")
+}
+
+/// مناديب الفريق — المندوب قد يكون في أكثر من فريق
+model TeamMember {
+  id         String   @id @default(uuid())
+  tenantId   String
+  teamId     String
+  team       Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  salesRepId String
+  salesRep   SalesRep @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([teamId, salesRepId])
+  @@index([tenantId, salesRepId])
+  @@map("team_members")
+}
+
+/// مشرفو الفريق — مستخدمو شركة بنطاق TEAMS (Admin.scopeMode)، والمشرف قد يشرف على أكثر من فريق
+model TeamSupervisor {
+  id        String   @id @default(uuid())
+  tenantId  String
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  adminId   String
+  admin     Admin    @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([teamId, adminId])
+  @@index([tenantId, adminId])
+  @@map("team_supervisors")
+}
+
+/// أصناف الفريق الخاصة — الصنف قد يُسند لأكثر من فريق، والصنف بلا صفوف هنا عامٌّ لكل الفرق
+model ProductTeam {
+  id        String   @id @default(uuid())
+  tenantId  String
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([productId, teamId])
+  @@index([tenantId, teamId])
+  @@map("product_teams")
 }
 
 model SalesRep {
@@ -344,6 +418,7 @@ model SalesRep {
   // عزل العملاء: العملاء المُسنَدون لهذا المندوب، والعملاء الذين فتحهم بنفسه
   customerAssignments CustomerAssignment[]
   adminScopes         AdminRepScope[]
+  teamMemberships     TeamMember[]
   createdCustomers    Customer[]            @relation("CustomerCreatedByRep")
   paymentLinks        CustomerPaymentLink[]
   dailyReports        DailyReport[]
@@ -540,6 +615,8 @@ model Product {
   updatedAt            DateTime         @updatedAt
 
   priceTiers          PriceTier[]
+  // فرق الصنف: بلا صفوف = صنفٌ عام لكل الفرق؛ وإلا لا يبيعه إلا من يعمل لأحد فرقه
+  teams               ProductTeam[]
   customerPrices      CustomerPrice[]
   invoiceItems        InvoiceItem[]
   vanLoadItems        VanLoadItem[]
@@ -697,6 +774,9 @@ model Invoice {
   // اختياري + SetNull: حذف المندوب يحفظ فاتورته (سجلّ مالي) ويُفرِّغ مرجع المندوب فقط
   salesRepId    String?
   salesRep      SalesRep? @relation(fields: [salesRepId], references: [id], onDelete: SetNull)
+  // الفريق الذي عمل له المندوب حين أنشأه (الفرق): يختاره المندوب، أو فريقه الوحيد، أو يُورث من الأصل؛ null = بلا فريق
+  teamId        String?
+  team          Team?     @relation(fields: [teamId], references: [id], onDelete: SetNull)
   type          String    @default("CREDIT") // CASH | CREDIT | RETURN
   status        String    @default("CONFIRMED") // DRAFT | CONFIRMED | CANCELLED
   returnReason  String? // سبب الإرجاع (للمرتجعات): NORMAL | DAMAGED | EXCHANGE
@@ -780,6 +860,7 @@ model Invoice {
   @@index([tenantId])
   @@index([originalInvoiceId])
   @@index([tenantId, invoiceDate]) // المندوب الذكي: تجميع مشتريات العملاء لنافذة أشهر
+  @@index([tenantId, teamId, invoiceDate]) // تقارير الفرق
   @@map("invoices")
 }
 
@@ -844,6 +925,9 @@ model Receipt {
   // اختياري + SetNull: حذف المندوب يحفظ سنده (سجلّ مالي) ويُفرِّغ مرجع المندوب فقط
   salesRepId    String?
   salesRep      SalesRep? @relation(fields: [salesRepId], references: [id], onDelete: SetNull)
+  // الفريق الذي عمل له المندوب حين أنشأه (الفرق): يختاره المندوب، أو فريقه الوحيد، أو يُورث من الأصل؛ null = بلا فريق
+  teamId        String?
+  team          Team?     @relation(fields: [teamId], references: [id], onDelete: SetNull)
   receiptDate   DateTime  @default(now())
   amount        Float
   paymentMethod String    @default("CASH") // CASH | BANK_TRANSFER | POS | CHEQUE
@@ -866,6 +950,7 @@ model Receipt {
   @@unique([tenantId, number])
   @@unique([tenantId, clientRef])
   @@index([tenantId])
+  @@index([tenantId, teamId, receiptDate]) // تقارير الفرق
   @@map("receipts")
 }
 
@@ -948,6 +1033,9 @@ model CompanySettings {
   // عزل عملاء المناديب: عند التفعيل لا يرى المندوب إلا العملاء المُسنَدين له (CustomerAssignment).
   // افتراضي false ⇒ كل الشركات القائمة تبقى على سلوكها الحالي عند db push (لا انقطاع).
   customerIsolationEnabled Boolean @default(false)
+  // «الفرق» (routes/teams.ts، services/teams.ts): فرق مناديب بمشرفين وأصناف خاصة وتقارير مفصولة. مطفأة افتراضياً لكل
+  // الشركات (طلب المالك)، ويفعّلها مدير الشركة من «إعدادات الشركة» — والإطفاء يعيد الشركة كما كانت وتبقى الفرق والوسوم محفوظة
+  teamsEnabled             Boolean @default(false)
 
   // --- التدويل (المرحلة 0): أعمدة إضافية بقيم افتراضية — لا فقد بيانات ---
   countryCode      String  @default("SA") // ISO alpha-2: دولة الشركة
@@ -1453,6 +1541,9 @@ model RepVisit {
   tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   salesRepId String
   salesRep   SalesRep @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+  // الفريق الذي عمل له المندوب في الزيارة (الفرق)؛ null = بلا فريق
+  teamId     String?
+  team       Team?    @relation(fields: [teamId], references: [id], onDelete: SetNull)
   customerId String
   customer   Customer @relation(fields: [customerId], references: [id])
   note       String? // ملاحظة نصية عن الزيارة
@@ -1478,6 +1569,7 @@ model RepVisit {
   @@unique([tenantId, clientRef])
   @@index([tenantId, salesRepId, createdAt])
   @@index([tenantId, customerId])
+  @@index([tenantId, teamId, createdAt]) // تقارير الفرق
   @@map("rep_visits")
 }
 

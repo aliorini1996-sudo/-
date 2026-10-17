@@ -2,6 +2,7 @@
 import { z } from 'zod';
 import { ReturnLinkError, SALE_TYPES, assertReturnLinks, returnableOf, returnedBySaleItem } from '../services/returnLinks';
 import { isExpiredOn, linkedReturnExpiry, returnRuleBlock, saleExpiryFor, stampExpiryAfterIssue, tenantTz } from '../services/invoiceExpiry';
+import { TEAM_MEMBERSHIP_SELECT, catalogTeamsFor, resolveDocTeam, teamCatalogProblem } from '../services/teams';
 import { expiryDateFor, localDateIn, returnRuleProblem, shelfLifeOf } from '../services/shelfLife';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
@@ -128,6 +129,8 @@ const createInvoiceSchema = z.object({
   // العمل دون اتصال: بديل customerId حين يشير لعميل أُنشئ أوف‑لاين (يحلّه الخادم إلى id الحقيقي)
   customerClientRef: z.string().uuid().optional(),
   salesRepId: z.string().optional(),
+  // الفرق: الفريق الذي يعمل له المندوب الآن — يُتحقَّق منه بعضويته، والغائب أو غير الصالح يرجع لفريقه الوحيد (services/teams.ts)
+  teamId: z.string().nullish(),
   invoiceDate: z.string().optional(),
   deliveryDate: z.string().optional(), // تاريخ التسليم الاختياري (YYYY-MM-DD)
   // توقيع المستلم اليدويّ (PNG base64) — يُحفظ فقط إن فعّل المالك الميزة للشركة، ويُهمَل صامتاً
@@ -454,8 +457,14 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       ? { image: body.recipientSignature ?? null, repImage: body.repSignature ?? null }
       : null;
 
-    const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid } });
+    // فرق المندوب وعلم الميزة مع صفّه نفسه (لا استعلام جديد في مسار الإصدار)
+    const rep = await prisma.salesRep.findFirst({
+      where: { id: salesRepId, tenantId: tid },
+      include: { tenant: { select: { settings: { select: { teamsEnabled: true } } } }, teamMemberships: { select: TEAM_MEMBERSHIP_SELECT } },
+    });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+    // الفرق: فريق المستند — ما اختاره المندوب من فرقه، وإلا فريقه الوحيد، وإلا «بلا فريق»
+    let docTeamId = resolveDocTeam(rep, body.teamId);
     // نطاق المستخدم الإداري: لا يُنسِب فاتورة لمندوب لا يراه (كتابة عمياء تظهر في تقاريره)
     if (!(await canAccessRep(req, tid, salesRepId))) {
       res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return;
@@ -477,9 +486,18 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         id: true, name: true, basePrice: true, taxPct: true, damagedReturnToStock: true, priceTiers: { select: { price: true } },
         shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true, shelfLifeBasis: true, shelfLifeFromDate: true,
         returnRuleEnabled: true, returnRuleMode: true, returnRuleMetric: true, returnRuleValue: true,
+        teams: { select: { teamId: true } },
       },
     });
     if (products.length !== productIds.length) { res.status(400).json({ success: false, message: 'أحد الأصناف غير موجود أو غير نشط' }); return; }
+    // الفرق: أصناف الفريق تقيّد بيع المندوب (قرار المالك) — في إصداره الحيّ وحده: مستندٌ أوف-لاين يُعاد رفعه (X-FS-Replay)
+    // لا يُرفض بها أبداً (يُعدم في صندوق الإرسال وقد سُلّمت البضاعة)، ولا فاتورة الإدارة نيابةً عنه (لا مبدّل فريقٍ لها).
+    // والمرتجع من فاتورة بيعٍ يرث فريقها ولا يُفحص (صنفٌ أُزيل من الفريق بعد بيعه يبقى قابلاً للإرجاع)
+    if (req.user!.role === 'SALES_REP' && String(req.headers['x-fs-replay'] || '') !== '1'
+      && !(body.type === 'RETURN' && body.originalInvoiceId)) {
+      const notInTeam = teamCatalogProblem(products, catalogTeamsFor(rep, docTeamId));
+      if (notInTeam) { res.status(422).json({ success: false, code: 'PRODUCT_NOT_IN_TEAM', message: notInTeam }); return; }
+    }
     // صلاحية الأصناف من تاريخ البيع (services/invoiceExpiry.ts): تُسجَّل بعد الإصدار لفاتورةٍ فيها صنفٌ فُعّلت صلاحيته
     // وحدها — فالشركة التي لا تستعمل الصلاحية مسارُها واستعلاماتها كما كانت حرفياً
     const tracksExpiry = products.some((p) => shelfLifeOf(p));
@@ -568,6 +586,12 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // نُبقي معرّف الصنف بجانب نتائج الحساب (المحرّك نقيّ لا يعرف productId)
     const finalItems = body.items.map((src, idx) => ({ ...src, ...calc.items[idx] }));
     const isReturn = body.type === 'RETURN';
+    // الفرق: المرتجع من فاتورة بيعٍ يُحسب لفريقها كما هو — و«بلا فريق» لفاتورةٍ قبل التفعيل (كالإشعار الدائن) — لا لفريق
+    // المندوب الحالي. يُقرأ لشركةٍ فعّلت الفرق وحدها (لا استعلام لغيرها)
+    if (isReturn && body.originalInvoiceId && rep.tenant?.settings?.teamsEnabled === true) {
+      const saleTeam = await prisma.invoice.findFirst({ where: { id: body.originalInvoiceId, tenantId: tid }, select: { teamId: true } });
+      if (saleTeam) docTeamId = saleTeam.teamId ?? null;
+    }
     const docDate = body.invoiceDate ? new Date(body.invoiceDate) : undefined;
     // تاريخ التسليم: اختياري — القيمة غير المفهومة تُهمل بصمت (عرض لا محاسبة)
     const deliveryDate = body.deliveryDate ? new Date(body.deliveryDate) : undefined;
@@ -643,6 +667,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         customerBalance: Number(customer.balance),
         customerCreditLimit: Number(customer.creditLimit),
         salesRepId,
+        teamId: docTeamId,
         companyVat,
         engine: calc,
         items: finalItems,
@@ -748,6 +773,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           clientCreatedAt: body.clientCreatedAt ? new Date(body.clientCreatedAt) : undefined,
           customerId: customerId,
           salesRepId,
+          ...(docTeamId && { teamId: docTeamId }),
           type: body.type,
           ...(isReturn && {
             returnReason: body.returnReason || 'NORMAL',

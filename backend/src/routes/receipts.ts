@@ -1,6 +1,7 @@
 ﻿import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
+import { TEAM_MEMBERSHIP_SELECT, resolveDocTeam } from '../services/teams';
 import { authenticate, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
 import { scopedRecordWhere, canAccessRep, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { AuthRequest } from '../types';
@@ -23,6 +24,7 @@ const receiptSchema = z.object({
   customerId: z.string().optional(),
   customerClientRef: z.string().uuid().optional(), // بديل للعميل المُنشأ أوف‑لاين (M5)
   salesRepId: z.string().optional(),
+  teamId: z.string().nullish(), // الفرق: الفريق الذي يعمل له المندوب الآن
   receiptDate: z.string().optional(),
   amount: z.number().positive(),
   paymentMethod: z.enum(['CASH', 'BANK_TRANSFER', 'POS', 'CHEQUE', 'ONLINE']).default('CASH'),
@@ -196,8 +198,14 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const salesRepId = req.user!.role === 'SALES_REP' ? req.user!.id : body.salesRepId;
     if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
 
-    const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid } });
+    // فرق المندوب وعلم الميزة مع صفّه نفسه (لا استعلام جديد)
+    const rep = await prisma.salesRep.findFirst({
+      where: { id: salesRepId, tenantId: tid },
+      include: { tenant: { select: { settings: { select: { teamsEnabled: true } } } }, teamMemberships: { select: TEAM_MEMBERSHIP_SELECT } },
+    });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+    // الفرق: السند يُحسب للفريق الذي يعمل له المندوب الآن (يختاره، أو فريقه الوحيد، وإلا «بلا فريق»)
+    const docTeamId = resolveDocTeam(rep, body.teamId);
     // نطاق المستخدم الإداري: لا يُنسِب سنداً لمندوب لا يراه (يدخل رصيده التحصيلي وقيوده)
     if (!(await canAccessRep(req, tid, salesRepId))) {
       res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return;
@@ -298,6 +306,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           clientCreatedAt: body.clientCreatedAt ? new Date(body.clientCreatedAt) : undefined,
           customerId: customerId,
           salesRepId,
+          ...(docTeamId && { teamId: docTeamId }),
           ...(docDate && { receiptDate: docDate }),
           amount: body.amount,
           paymentMethod: body.paymentMethod,

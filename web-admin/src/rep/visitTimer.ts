@@ -25,6 +25,8 @@ export interface VisitTimer {
   startedAt: string;
   /** موقع المندوب عند العميل (إثبات الوصول) — أول قراءة بعد البدء، تُحفظ مع المؤقّت فتنجو من إعادة التحميل (visitLocation.ts) */
   fix?: GeoFix;
+  /** «الفرق»: الفريق الذي كان يعمل له المندوب عند بدء الزيارة — تبديله أثناءها لا يغيّرها */
+  teamId?: string | null;
 }
 
 export function getVisitTimer(): VisitTimer | null {

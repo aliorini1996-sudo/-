@@ -77,6 +77,7 @@ const INVOICE_COLS = [
   'taxAmt', 'total', 'paidAmt', 'remainingAmt', 'einvoiceProvider', 'einvoiceStatus', 'einvoiceUuid', 'einvoiceQr',
   'einvoiceSubmittedAt', 'einvoiceHash', 'einvoicePih', 'einvoiceIcv', 'einvoiceWarnings', 'createdAt', 'updatedAt',
   'zatcaPhase', 'documentKind', 'invoiceSubtype', 'issuedAt', 'originalInvoiceId', 'billingReference', 'noteReason',
+  'teamId',
 ];
 const INVOICE_ITEM_COLS = [
   'id', 'productId', 'unitCost', 'qty', 'unitPrice', 'discountPct', 'discountAmt', 'taxPct', 'taxAmt', 'lineTotal', 'seq',
@@ -85,7 +86,7 @@ const INVOICE_ITEM_COLS = [
 ];
 const RECEIPT_COLS = [
   'id', 'number', 'customerId', 'salesRepId', 'receiptDate', 'amount', 'paymentMethod', 'chequeNumber', 'bankName',
-  'notes', 'status', 'createdAt', 'updatedAt',
+  'notes', 'status', 'createdAt', 'updatedAt', 'teamId',
 ];
 
 const OFFLINE = 'سباكة العمل دون اتصال (مفتاح منع التكرار من الجهاز)';
@@ -165,7 +166,7 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
   {
     // بطابع الاستلام: createdAt من الجهاز للملتقط دون اتصال فقد يسبق رفعه بساعات فيقع خلف المؤشّر
     name: 'visits', model: 'repVisit', mode: 'created', tsColumn: 'receivedAt', permission: 'canManageTracking', tenantPath: 'direct', hardDeletes: true,
-    select: { ...pick('id', 'salesRepId', 'customerId', 'note', 'lat', 'lng', 'createdAt', 'receivedAt', 'startedAt', 'endedAt', 'durationSec'), _count: { select: { photos: true } } },
+    select: { ...pick('id', 'salesRepId', 'customerId', 'note', 'lat', 'lng', 'createdAt', 'receivedAt', 'startedAt', 'endedAt', 'durationSec', 'teamId'), _count: { select: { photos: true } } },
     denied: { tenantId: 'معروف من المفتاح', clientRef: OFFLINE },
   },
   {

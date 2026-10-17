@@ -1,6 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
+import { TEAM_MEMBERSHIP_SELECT, resolveDocTeam } from '../services/teams';
 import { authenticate, requireAdmin, tenantId } from '../middleware/auth';
 import { scopedRecordWhere, canAccessRep, SHAPE_VISIT } from '../services/adminScope';
 import { AuthRequest } from '../types';
@@ -28,6 +29,7 @@ const createVisitSchema = z.object({
   photos: z.array(z.string().max(2_500_000)).max(8).optional(),
   clientRef: z.string().uuid().optional(), // idempotency للأوف‑لاين
   createdAt: z.string().optional(),        // لحظة الزيارة على الجهاز (قد تسبق الرفع)
+  teamId: z.string().nullish(),            // الفرق: الفريق الذي يعمل له المندوب في الزيارة (يُلتقط عند بدئها)
   // مؤقّت الزيارة (اختياري): الطابعان يُرسَلان والخادم يحسب المدّة ويتحقّق منها.
   // زيارة الملاحظة القديمة تُرسَل بلا هذه الحقول فتبقى بلا مدّة.
   startedAt: z.string().optional(),
@@ -149,10 +151,17 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       // بدل رفضها كلّها — فقد تحمل ملاحظة أو صوراً قيّمة.
     }
 
+    // الفرق: فريق الزيارة كفريق الفاتورة والسند — المُرسل إن كان من فرق المندوب، وإلا فريقه الوحيد، وإلا «بلا فريق»
+    // (مؤقّت زيارةٍ بدأ قبل وصول الفرق للتطبيق يُرسل بلا فريق فيُحسب لفريقه الوحيد)
+    const visitTeamId = resolveDocTeam(await prisma.salesRep.findFirst({
+      where: { id: salesRepId, tenantId: tid },
+      select: { tenant: { select: { settings: { select: { teamsEnabled: true } } } }, teamMemberships: { select: TEAM_MEMBERSHIP_SELECT } },
+    }), body.teamId);
     const visit = await prisma.repVisit.create({
       data: {
         tenantId: tid,
         salesRepId,
+        ...(visitTeamId && { teamId: visitTeamId }),
         customerId,
         note: body.note || null,
         lat: body.lat ?? null,

@@ -73,7 +73,12 @@ export function renewToken(): Promise<string | null> {
       const fresh = body?.data?.token as string | undefined;
       if (!fresh) return token;
       localStorage.setItem('rep_token', fresh);
-      if (body?.data?.user) localStorage.setItem('rep_user', JSON.stringify(body.data.user));
+      // دمجٌ لا استبدال: ردّ التجديد صفّ المندوب وحده، وما يأتي من /auth/me (فرقه «الفرق») يبقى حتى يُحدَّث
+      if (body?.data?.user) {
+        let prev: Record<string, unknown> | null = null;
+        try { prev = JSON.parse(localStorage.getItem('rep_user') || 'null'); } catch { /* تالف: يُستبدل */ }
+        localStorage.setItem('rep_user', JSON.stringify(prev && typeof prev === 'object' ? { ...prev, ...body.data.user } : body.data.user));
+      }
       return fresh;
     } catch {
       return token; // انقطاع شبكة: لا نُخرج، نعيد الحاليّ ونحاول لاحقاً

@@ -462,9 +462,21 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response, next: Ne
           canCreateReceipt: true, canEditReceipt: true, canCancelReceipt: true,
           canManageVanStock: true,
           canAddCustomer: true, canEditCustomer: true, canViewStatement: true,
-          requireCustomerProximity: true, requireLocationOn: true }
+          requireCustomerProximity: true, requireLocationOn: true,
+          // «الفرق»: فرق المندوب الفعّالة — حين فعّلتها الشركة وحدها
+          tenant: { select: { settings: { select: { teamsEnabled: true } } } },
+          teamMemberships: { where: { team: { isActive: true } }, select: { team: { select: { id: true, name: true } } } } }
       });
-      res.json({ success: true, data: { ...rep, role: 'SALES_REP' } });
+      const { tenant: repTenant, teamMemberships, ...repRow } = rep ?? ({} as NonNullable<typeof rep>);
+      const teamsEnabled = repTenant?.settings?.teamsEnabled === true;
+      res.json({
+        success: true,
+        data: rep ? {
+          ...repRow, role: 'SALES_REP',
+          teamsEnabled,
+          teams: teamsEnabled ? (teamMemberships ?? []).map((m) => m.team).sort((a, b) => a.name.localeCompare(b.name, 'ar')) : [],
+        } : { role: 'SALES_REP' },
+      });
     } else {
       const admin = await prisma.admin.findUnique({
         where: { id: req.user.id },
