@@ -176,6 +176,8 @@ export interface StatementDoc {
   totalDebit: number;
   totalCredit: number;
   finalBalance: number;
+  /** «الفرق»: كشف مشرف فريق — قيود فرقه وحدها وإجماليات العميل لفريقه؛ يُعنوَن بذلك كي لا يُقرأ رصيداً كاملاً للعميل */
+  teamScoped?: boolean;
 }
 
 export interface SettlementEntry {
@@ -799,8 +801,8 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
           <InfoBox label={tr('الفترة')} value={period} />
           <InfoBox label={tr('المندوب')} value={doc.repName} />
           <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed #cbd5e1' }}>
-            <InfoBox label={tr('إجمالي المبيعات')} value={formatCurrency(doc.customer.totalSales ?? 0)} />
-            <InfoBox label={tr('إجمالي التحصيل')} value={formatCurrency(doc.customer.totalCollected ?? 0)} />
+            <InfoBox label={doc.teamScoped ? tr('مبيعات فريقك') : tr('إجمالي المبيعات')} value={formatCurrency(doc.customer.totalSales ?? 0)} />
+            <InfoBox label={doc.teamScoped ? tr('تحصيل فريقك') : tr('إجمالي التحصيل')} value={formatCurrency(doc.customer.totalCollected ?? 0)} />
           </div>
         </div>
       </div>
@@ -868,11 +870,16 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
       <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
         <div style={{ background: doc.finalBalance > 0 ? '#fef2f2' : '#f0fdf4', border: `2px solid ${doc.finalBalance > 0 ? '#fca5a5' : '#86efac'}`, borderRadius: 12, padding: '14px 24px', minWidth: 260 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 14, color: '#374151' }}>{tr('الرصيد المستحق على العميل')}</span>
+            <span style={{ fontSize: 14, color: '#374151' }}>{doc.teamScoped ? tr('رصيد فريقك') : tr('الرصيد المستحق على العميل')}</span>
             <span style={{ fontSize: 22, fontWeight: 700, color: doc.finalBalance > 0 ? '#dc2626' : '#16a34a' }}>{formatCurrency(doc.finalBalance)}</span>
           </div>
         </div>
       </div>
+      {doc.teamScoped && (
+        <div style={{ marginTop: 10, fontSize: 12, color: '#8A5A00' }}>
+          {tr('كشف فريقك فقط لا يشمل فواتير الفرق الأخرى وسنداتها ولا التسويات اليدوية')}
+        </div>
+      )}
 
       <div style={{ marginTop: 40, textAlign: 'center', color: '#9ca3af', fontSize: 12, borderTop: '1px solid #eef2f7', paddingTop: 12 }}>
         {doc.company?.name || ''} — {tr('تم الإصدار في')} {formatDateTime(doc.date)}
@@ -1408,7 +1415,7 @@ export function statementDocFromData(
    * و`timezone` منطقة الشركة التي رشّح بها الخادم الفترة (يعيدها مع الكشف): مرّرها كما
    * وصلت — بها تُطبع لحظاتُ الحركات بأيام الفترة نفسها لا بأيام جهاز المُصدِر.
    */
-  range?: { from?: string; to?: string; openingBalance?: number; closingBalance?: number; timezone?: string | null }
+  range?: { from?: string; to?: string; openingBalance?: number; closingBalance?: number; timezone?: string | null; teamScoped?: boolean }
 ): StatementDoc {
   const mapped: StatementEntry[] = entries.map((e: any) => ({
     date: e.entryDate,
@@ -1443,6 +1450,7 @@ export function statementDocFromData(
     totalDebit,
     totalCredit,
     finalBalance,
+    teamScoped: range?.teamScoped === true,
   };
 }
 

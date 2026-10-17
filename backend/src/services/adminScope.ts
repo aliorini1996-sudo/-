@@ -282,6 +282,26 @@ export async function existingInScope(
   return Boolean(await find(scope));
 }
 
+/**
+ * مشرف الفرق (وضع TEAMS): معرّفه لقيود ما لا شكل مستندٍ له — استلامات التحصيل وقيود كشف الحساب — وإلا null.
+ * المقيَّد بالقوائم وغير المقيَّد والمندوب وجلسة المالك: null (بلا قيد فرق).
+ */
+export async function teamSupervisorIdOf(req: AuthRequest): Promise<string | null> {
+  return (await adminScopeModeOf(req)) === 'TEAMS' ? req.user!.id : null;
+}
+
+/**
+ * قيد الفريق على ما يحمل `teamId` بلا شكل مستند (استلام التحصيل، وسندات العهدة معه): المشرف بفرقه (وإن طلب فريقاً منها
+ * فبه وحده)، وغير المقيَّد بالفريق المطلوب إن طلبه، وإلا لا قيد. صافٍ ليُختبَر وحده.
+ */
+export function composeTeamCustodyWhere(supervisorId: string | null, requestedTeamId?: string | null): Record<string, unknown> {
+  const team = requestedTeamId && requestedTeamId !== 'none' ? requestedTeamId : null;
+  if (supervisorId) return { team: { ...(team && { id: team }), supervisors: { some: { adminId: supervisorId } } } };
+  // 'none': ما لا فريق له (سندات واستلامات ما قبل الميزة، أو المسلَّم «بلا فريق») — ليُستلم صراحةً
+  if (requestedTeamId === 'none') return { teamId: null };
+  return team ? { teamId: team } : {};
+}
+
 /** قيد على سجلّ يحمل `salesRepId` فقط (موقع مندوب، جلسة حضور، تحميل سيارة) — ومشرف الفرق بعضوية مندوبه في فرقه */
 export async function scopedRepRecordWhere(req: AuthRequest): Promise<Record<string, unknown>> {
   const rep = await adminRepFilter(req);

@@ -184,8 +184,9 @@ export default function CustomersPage() {
     setOpeningId(c.id);
     try {
       const res = await customerApi.statement(c.id);
-      const { customer, entries } = res.data.data;
-      setDocResult(statementDocFromData(customer, entries, user?.name || tr('الإدارة'), company));
+      const { customer, entries, teamScoped } = res.data.data;
+      // «الفرق»: كشف المشرف يُعنوَن «رصيد فريقك» لا «المستحق على العميل»
+      setDocResult(statementDocFromData(customer, entries, user?.name || tr('الإدارة'), company, { teamScoped: teamScoped === true }));
     } catch { toast.error(tr('تعذر فتح الكشف')); }
     setOpeningId(null);
   };

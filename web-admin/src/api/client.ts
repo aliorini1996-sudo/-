@@ -97,12 +97,13 @@ export const salesRepApi = {
   update: (id: string, data: unknown) => api.put(`/sales-reps/${id}`, data),
   stats: (id: string, params?: Record<string, string>) => api.get(`/sales-reps/${id}/stats`, { params }),
   remove: (id: string) => api.delete(`/sales-reps/${id}`),
-  collection: (id: string) => api.get(`/sales-reps/${id}/collection`),
+  // teamId («الفرق»): عهدة فريقٍ واحد من فرق المندوب — ومشرف الفريق يُقيَّد بفرقه على الخادم مهما طلب
+  collection: (id: string, teamId?: string) => api.get(`/sales-reps/${id}/collection`, { params: teamId ? { teamId } : undefined }),
   // method: قاموس مغلق مطابق لسند القبض (CASH · BANK_TRANSFER · POS · CHEQUE) — والخادم
   // يردّ أيّ قيمة خارجه إلى CASH. photos: حتى ٤ صور data URL مضغوطة بوحدة imageCompress
-  settle: (id: string, data: { amount: number; method?: string; note?: string; photos?: string[] }) =>
+  settle: (id: string, data: { amount: number; method?: string; note?: string; photos?: string[]; teamId?: string }) =>
     api.post(`/sales-reps/${id}/settlements`, data),
-  settlements: (id: string, params?: { from?: string; to?: string }) =>
+  settlements: (id: string, params?: { from?: string; to?: string; teamId?: string }) =>
     api.get(`/sales-reps/${id}/settlements`, { params }),
   deleteSettlement: (id: string, settlementId: string) =>
     api.delete(`/sales-reps/${id}/settlements/${settlementId}`),

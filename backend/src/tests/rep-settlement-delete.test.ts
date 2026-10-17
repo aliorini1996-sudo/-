@@ -130,7 +130,7 @@ test('المندوب يُقرأ بقيد الشركة ونطاق المستخد�
 
 test('الردّ يعيد الرصيد المحسوب من الخادم لا من حسابٍ محلّيّ في الواجهة', () => {
   const h = deleteHandler();
-  assert.match(h, /repCollection\(tid, rep\.id\)/, 'لا يُعاد الرصيد بعد الحذف');
+  assert.match(h, /repCollection\(tid, rep\.id(, composeTeamCustodyWhere\(sup\))?\)/, 'لا يُعاد الرصيد بعد الحذف');
 });
 
 /**

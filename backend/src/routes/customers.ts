@@ -10,7 +10,8 @@ const NOT_DELETED = { status: { not: 'DELETED' } } as const;
 import { paginate, paginationMeta } from '../utils/helpers';
 import { resolveLocationUrl } from '../services/geoLink';
 import { customerScope, ensureAssignment, canAccessCustomer } from '../services/customerScope';
-import { scopedRecordWhere, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
+import { scopedRecordWhere, SHAPE_INVOICE_RECEIPT, teamSupervisorIdOf } from '../services/adminScope';
+import { scaleTeamRows, teamReceiptShare, teamStatementTotals } from '../services/teams';
 import { deriveRunningBalances, clean } from '../services/accounting';
 import { statementEntryDateFilter } from '../services/statementRange';
 import { explicitTimezone } from '../services/importLedger';
@@ -294,13 +295,40 @@ router.get('/:id/statement', async (req: AuthRequest, res: Response, next: NextF
     const range = statementEntryDateFilter(
       typeof from === 'string' ? from : undefined, typeof to === 'string' ? to : undefined, timezone,
     );
+    // «الفرق» (قرار المالك ١٧ أكتوبر ٢٠٢٦): مشرف الفريق يرى كشف فريقه وحده — قيود فواتير فرقه، وسندات القبض بحصّتها منها
+    // (teamReceiptShare: ما وُزّع على فواتير فرقه، وما لم يُوزَّع إن كان السند لفرقه — السند يُوسم بفريق المحصِّل والتوزيع
+    // يعبر الفرق). القيد بلا مستند (افتتاح، تسوية يدوية) وقيود الفرق الأخرى لا تظهر له، والرصيد الجاري يُشتقّ من المعروض
+    // فيبقى متّسقاً، وملخّص العميل في الردّ لفريقه لا للشركة. وغيره: الكشف كاملاً كما كان
+    const sup = await teamSupervisorIdOf(req);
+    const supTeam = { supervisors: { some: { adminId: sup ?? '' } } };
+    const teamEntries = sup ? { OR: [
+      { invoice: { team: supTeam } },
+      { receipt: { team: supTeam } },
+      { receipt: { invoiceItems: { some: { invoice: { team: supTeam } } } } },
+    ] } : {};
+    const supTeamIds = sup
+      ? new Set((await prisma.teamSupervisor.findMany({ where: { tenantId: tid, adminId: sup }, select: { teamId: true } })).map((t) => t.teamId))
+      : null;
+    /** حصّة فرق المشرف من كل سندٍ في القيود — استعلامٌ واحد بتوزيع السندات، وللمشرف وحده */
+    const sharesOf = async (rs: { receiptId: string | null }[]): Promise<Map<string, number>> => {
+      const ids = [...new Set(rs.map((r) => r.receiptId).filter((x): x is string => !!x))];
+      if (!supTeamIds || !ids.length) return new Map();
+      const splits = await prisma.receipt.findMany({
+        where: { id: { in: ids }, tenantId: tid },
+        select: { id: true, amount: true, teamId: true, invoiceItems: { select: { amount: true, invoice: { select: { teamId: true } } } } },
+      });
+      return new Map(splits.map((r) => [r.id, teamReceiptShare(r, supTeamIds)]));
+    };
+    const forTeam = async <T extends { debit: number; credit: number; receiptId: string | null }>(rs: T[]): Promise<T[]> =>
+      (supTeamIds ? scaleTeamRows(rs, await sharesOf(rs)) : rs);
     const where = {
       customerId: req.params.id,
       tenantId: tid,
       // طرفٌ واحد يكفي؛ و«إلى» تشمل يومها كاملاً — وإلا سقطت حركات آخر يوم بصمت
       ...(range.entryDate && { entryDate: range.entryDate }),
+      ...teamEntries,
     };
-    const rows = await prisma.accountEntry.findMany({
+    const rows = await forTeam(await prisma.accountEntry.findMany({
       where,
       include: {
         // نُضمّن بنود الفاتورة (الأصناف وكمياتها) لتظهر في كشف الحساب
@@ -313,7 +341,7 @@ router.get('/:id/statement', async (req: AuthRequest, res: Response, next: NextF
       // العميل رصيداً يرتفع بعد سداده. `debit desc` يضع الفاتورة قبل سدادها،
       // و`id asc` يحسم ما بقي فيثبت الترتيب بين كل نداءَين.
       orderBy: [{ entryDate: 'asc' }, { createdAt: 'asc' }, { debit: 'desc' }, { id: 'asc' }],
-    });
+    }));
     const customer = await prisma.customer.findFirst({ where: { id: req.params.id, tenantId: tid } });
     if (!customer) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
 
@@ -324,9 +352,16 @@ router.get('/:id/statement', async (req: AuthRequest, res: Response, next: NextF
     // الاشتقاق يجعل كل سطر ناتجَ سابقه بالضرورة، مهما كان أصل البيانات.
     // رصيد ما قبل الفترة (مُرحَّل) — بدونه يبدأ الكشف المُصفّى من صفرٍ كاذب
     let openingBalance = 0;
-    if (range.openingBefore) {
+    if (range.openingBefore && supTeamIds) {
+      // المشرف: المرحَّل بحصّة فرقه من كل سند — لا يُجمع بـaggregate (النسبة لكل سند)
+      const prior = await forTeam(await prisma.accountEntry.findMany({
+        where: { customerId: req.params.id, tenantId: tid, entryDate: { lt: range.openingBefore }, ...teamEntries },
+        select: { debit: true, credit: true, receiptId: true },
+      }));
+      openingBalance = clean(prior.reduce((s, r) => s + Number(r.debit) - Number(r.credit), 0));
+    } else if (range.openingBefore) {
       const prior = await prisma.accountEntry.aggregate({
-        where: { customerId: req.params.id, tenantId: tid, entryDate: { lt: range.openingBefore } },
+        where: { customerId: req.params.id, tenantId: tid, entryDate: { lt: range.openingBefore }, ...teamEntries },
         _sum: { debit: true, credit: true },
       });
       openingBalance = clean(Number(prior._sum.debit ?? 0) - Number(prior._sum.credit ?? 0));
@@ -334,7 +369,21 @@ router.get('/:id/statement', async (req: AuthRequest, res: Response, next: NextF
     const entries = deriveRunningBalances(rows, openingBalance);
     const closingBalance = entries.length ? entries[entries.length - 1].balance : openingBalance;
 
-    res.json({ success: true, data: { customer, entries, openingBalance, closingBalance, timezone } });
+    // المشرف: إجماليات العميل وأرصدته في الردّ لفريقه (كل الزمن كإجماليات العميل) — أرقام الشركة لا تخرج له، والمستند
+    // المطبوع وشاشة الجوال يقرآنها من هنا
+    let customerOut = customer;
+    if (supTeamIds) {
+      const all = range.entryDate
+        ? await forTeam(await prisma.accountEntry.findMany({
+          where: { customerId: req.params.id, tenantId: tid, ...teamEntries },
+          select: { type: true, debit: true, credit: true, receiptId: true },
+        }))
+        : rows;
+      const t = teamStatementTotals(all);
+      customerOut = { ...customer, totalSales: t.totalSales, totalCollected: t.totalCollected, balance: t.balance };
+    }
+
+    res.json({ success: true, data: { customer: customerOut, entries, openingBalance, closingBalance, timezone, teamScoped: sup !== null } });
   } catch (err) { next(err); }
 });
 

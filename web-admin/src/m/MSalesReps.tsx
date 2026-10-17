@@ -33,7 +33,15 @@ const MRepDailyLog = lazy(() => import('./MRepDailyLog'));
 const PAGE = 25;
 
 interface Creds { name: string; username: string; password: string }
-interface Collection { collected: number; settled: number; outstanding: number }
+interface Collection {
+  collected: number; settled: number; outstanding: number;
+  /** «الفرق»: فرق المندوب المرئية لاختيار فريق الاستلام، وهل العرض مقيَّد بفرق المشرف */
+  teams?: { id: string; name: string; archived?: boolean; former?: boolean }[];
+  teamScoped?: boolean;
+  teamsEnabled?: boolean;
+  /** لغير المشرف حين يعرض فريقاً: الرصيد الإجمالي — سقف التعبئة */
+  totalOutstanding?: number;
+}
 interface Settlement {
   id: string; amount: number; note?: string | null; createdBy?: string | null; settledAt: string;
   /** نوع الاستلام — يغيب في صفوفٍ سبقت العمود، وغيابه نقديٌّ كما يفترض الخادم */
@@ -868,29 +876,56 @@ function RepCollect({ rep, company, onClose }: { rep: SalesRep; company?: unknow
 
   useBackClose(!!pdfRow, () => setPdfRow(null));
 
-  // المفتاح نفسه الذي تقرأه القائمة وملفّ المندوب — فالاستلام يحدّث الثلاثة معاً
+  /* «الفرق»: فريق العهدة كما في اللوحة — '' عرضٌ مجمّع لا يُسجَّل عليه، و'none' ما لا فريق له (لغير المشرف). والعرض
+   * المجمّع يبقى على المفتاح نفسه الذي تقرأه القائمة وملفّ المندوب — فالاستلام يحدّث الثلاثة معاً */
+  const [teamId, setTeamId] = useState('');
+  const qc = useQueryClient();
   const colQ = useQuery({
-    queryKey: ['m-rep-collection', rep.id],
-    queryFn: async () => expectObject<Collection>((await salesRepApi.collection(rep.id)).data?.data, 'رصيد التحصيل'),
+    queryKey: teamId ? ['m-rep-collection', rep.id, teamId] : ['m-rep-collection', rep.id],
+    queryFn: async () => expectObject<Collection>((await salesRepApi.collection(rep.id, teamId || undefined)).data?.data, 'رصيد التحصيل'),
   });
   const logQ = useQuery({
-    queryKey: ['m-rep-settlements', rep.id],
-    queryFn: async () => expectArray<Settlement>((await salesRepApi.settlements(rep.id)).data?.data, 'سجل الاستلامات'),
+    queryKey: teamId ? ['m-rep-settlements', rep.id, teamId] : ['m-rep-settlements', rep.id],
+    queryFn: async () => expectArray<Settlement>((await salesRepApi.settlements(rep.id, teamId ? { teamId } : undefined)).data?.data, 'سجل الاستلامات'),
   });
+  // الفرق من أول ردٍّ حديث، وفريقٌ واحد يُختار تلقائياً (العرض والتعبئة لعهدته لا للمجموع) — للمشرف، ولغيره حين يكون
+  // فريقه الحالي والميزة مفعّلة (لا فريقاً سابقاً بقيت عليه عهدة)
+  const [teamsSeen, setTeamsSeen] = useState<NonNullable<Collection['teams']> | null>(null);
+  useEffect(() => {
+    if (teamsSeen !== null || !colQ.data || colQ.isFetching) return;
+    const ts = colQ.data.teams ?? [];
+    setTeamsSeen(ts);
+    if (ts.length === 1 && (colQ.data.teamScoped || (colQ.data.teamsEnabled && !ts[0].former))) {
+      setTeamId(ts[0].id); setAmount(''); setFilled(false);
+    }
+  }, [colQ.data, colQ.isFetching, teamsSeen]);
+  const teams = teamsSeen ?? [];
+  const teamScoped = colQ.data?.teamScoped === true;
+  const pickTeam = teamScoped ? teams.length > 1 : teams.length > 0;
+  const needsTeam = teams.length > 0 && teamId === '';
+  // لغير المشرف على عرض فريقٍ أو «بلا فريق»: ما لدى المندوب خارج هذا العرض
+  const outside = !teamScoped && teamId && colQ.data?.totalOutstanding !== undefined
+    ? Number(colQ.data.totalOutstanding) - Number(colQ.data.outstanding) : 0;
 
   // تعبئة الحقل بالرصيد المتبقّي (تسليمٌ كامل) — بخانات العملة الفعلية لا
-  // بخانتين ثابتتين، وإلّا بقي كسرٌ معلّق على المندوب إلى الأبد
+  // بخانتين ثابتتين، وإلّا بقي كسرٌ معلّق على المندوب إلى الأبد. ومن بيانات حديثة وحدها: مفتاحٌ مخبوء لعرضٍ آخر
+  // يُعرض فوراً ثم يُجلب، والتعبئة منه تقفل الحقل على رصيدٍ قبل الاستلام
   useEffect(() => {
-    if (!colQ.data || filled) return;
+    if (!colQ.data || filled || colQ.isFetching || teamsSeen === null) return;
     const dec = currencyDecimals(getActiveCurrency());
-    setAmount(String(Math.max(0, Number(Number(colQ.data.outstanding).toFixed(dec)))));
+    // ولغير المشرف بسقف الرصيد الإجمالي: استلامٌ سابق «بلا فريق» قد غطّى جزءاً من عهدة الفريق المعروض
+    const due = Math.min(Number(colQ.data.outstanding), Number(colQ.data.totalOutstanding ?? colQ.data.outstanding));
+    setAmount(String(Math.max(0, Number(due.toFixed(dec)))));
     setFilled(true);
-  }, [colQ.data, filled]);
+  }, [colQ.data, colQ.isFetching, filled, teamsSeen]);
 
   // الترتيب مقصود: يُنتظر وصول الرصيد الجديد **ثم** يُفتح قفل التعبئة — فالعكس
-  // يعيد ملء الحقل بالرقم السابق لأن react-query يُبقي البيانات القديمة أثناء الجلب
+  // يعيد ملء الحقل بالرقم السابق لأن react-query يُبقي البيانات القديمة أثناء الجلب. وكل عروض المندوب لا الحالي وحده
   const afterWrite = async () => {
-    await Promise.all([colQ.refetch(), logQ.refetch()]);
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ['m-rep-collection', rep.id] }),
+      qc.invalidateQueries({ queryKey: ['m-rep-settlements', rep.id] }),
+    ]);
     setFilled(false);
   };
 
@@ -900,6 +935,7 @@ function RepCollect({ rep, company, onClose }: { rep: SalesRep; company?: unknow
       method,
       note: note.trim() || undefined,
       photos: photos.length ? photos : undefined,
+      ...(teamId && { teamId }),
     }),
     onSuccess: async () => {
       toast.success(tr('تم تسجيل الاستلام'));
@@ -965,9 +1001,31 @@ function RepCollect({ rep, company, onClose }: { rep: SalesRep; company?: unknow
           : colQ.isError || !col ? <div className="py-10"><MError onRetry={() => colQ.refetch()} text={tr('تعذر تحميل رصيد التحصيل')} /></div>
             : (
               <>
+                {pickTeam && (
+                  <div>
+                    <label className="label">{tr('الفريق')}</label>
+                    <select className="input" value={teamId} onChange={e => { setTeamId(e.target.value); setAmount(''); setFilled(false); }}>
+                      <option value="">{teamScoped ? tr('كل فرقك') : tr('كل الفرق')}</option>
+                      {teams.map(t => <option key={t.id} value={t.id}>{t.name}{t.former ? ` (${tr('فريق سابق')})` : t.archived ? ` (${tr('مؤرشف')})` : ''}</option>)}
+                      {!teamScoped && <option value="none">{tr('بلا فريق')}</option>}
+                    </select>
+                    {needsTeam ? <Hint text={tr('اختر الفريق لتسجيل الاستلام')} />
+                      : !teamScoped && <Hint text={tr('اختر الفريق ليحسب الاستلام من عهدته وبلا فريق ينقص الإجمالي وحده')} />}
+                  </div>
+                )}
+                {teamScoped && (
+                  <p className="text-[11px] text-[#8A5A00] bg-[#FFF6E5] border border-[#F3D9A4] rounded-xl px-3 py-2">
+                    {tr('تعرض عهدة فرقك فقط وما حصله المندوب لفرق أخرى لا يدخل هنا')}
+                  </p>
+                )}
+                {outside > 0.0005 && (
+                  <p className="text-[11px] text-[#8A5A00] bg-[#FFF6E5] border border-[#F3D9A4] rounded-xl px-3 py-2">
+                    {tr('لدى المندوب مبلغ خارج هذا العرض')}: <b>{formatCurrency(outside)}</b> — {tr('اختر بلا فريق أو فريقه لاستلامه')}
+                  </p>
+                )}
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="col-span-2">
-                    <MStat icon={Wallet} label={tr('الرصيد المتبقي لدى المندوب')}
+                    <MStat icon={Wallet} label={teamId ? tr('الرصيد المتبقي') : tr('الرصيد المتبقي لدى المندوب')}
                       value={formatCurrency(col.outstanding)}
                       tone={Number(col.outstanding) > 0 ? 'warn' : 'good'} />
                   </div>
@@ -981,6 +1039,9 @@ function RepCollect({ rep, company, onClose }: { rep: SalesRep; company?: unknow
                     <input className="input" dir="ltr" type="number" inputMode="decimal" min={0} step="any"
                       value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" />
                     <Hint text={tr('معبأ بالرصيد المتبقي تسليم كامل عدله للتسليم الجزئي')} />
+                    {!!teamId && amountNum > Number(col.outstanding) + 1e-9 && (
+                      <p className="text-[11px] text-[#B8431F] mt-1">{tr('المبلغ يتجاوز رصيد هذا العرض فيصير سالبا')}</p>
+                    )}
                   </div>
 
                   {/* شرائح لا قائمة منسدلة: الشاشة تُشغَّل بإبهامٍ واحد، والمنسدلة
@@ -1039,7 +1100,7 @@ function RepCollect({ rep, company, onClose }: { rep: SalesRep; company?: unknow
                     <input className="input" value={note} onChange={e => setNote(e.target.value)}
                       placeholder={tr('مثال رقم الإيصال أو اسم البنك')} />
                   </div>
-                  <button onClick={() => settle.mutate()} disabled={!amountOk || settle.isPending}
+                  <button onClick={() => settle.mutate()} disabled={!amountOk || needsTeam || teamsSeen === null || !filled || settle.isPending}
                     className="w-full bg-[#2F855A] text-white font-bold py-3 rounded-xl min-h-[48px] flex items-center justify-center gap-2 disabled:bg-[#9CC3AE]">
                     {settle.isPending ? <Loader2 size={16} className="animate-spin" /> : <Banknote size={16} />}
                     {tr('تسجيل الاستلام')}

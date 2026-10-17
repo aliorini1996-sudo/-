@@ -62,6 +62,94 @@ export function resolveDocTeam(rep: RepTeams | null | undefined, requested?: str
   return ids.length === 1 ? ids[0] : null;
 }
 
+/**
+ * فريق استلام التحصيل (RepSettlement) — مالٌ يُكتب من اللوحة حيّاً لا مستندٌ أوف-لاين، فالرفض هنا صحيح بخلاف resolveDocTeam:
+ * فريقٌ يُخمَّن يُنقص عهدة فريقٍ لم يُسلِّم ويُبقي عهدة الذي سلّم فيُستلم المبلغ مرّتين.
+ *  • المشرف (وضع TEAMS — `supervisor`): فريقٌ من فرقه المشتركة مع المندوب (ولو مؤرشفاً) أو من فرقه التي ما زالت تحمل
+ *    عهدةً للمندوب: المطلوب منها، وإلا الوحيد، وإلا يُطلب الاختيار. وطلبُ فريقٍ ليس منها يُرفض ولا يُستبدل بغيره بصمت.
+ *  • غيره (المدير غير المقيَّد، المقيَّد بالقوائم، جلسة المالك): ما طلبه صراحةً من فرق المندوب (والميزة مفعّلة) أو من فرق
+ *    عهدته القائمة (ولو تركها أو أُطفئت الميزة)، و'none' أو بلا طلب = بلا فريق (يُنقص الإجمالي وحده — والعميل البرمجيّ
+ *    القديم لا يُكسر). وغير ذلك يُرفض ولا يُخزَّن.
+ * `custodyTeamIds`: فرقٌ عليها عهدةٌ موسومة لهذا المندوب لم تُستلم بعد (للمشرف: من فرقه وحدها) — يحسبها المستدعي.
+ */
+export function settlementTeamOf(
+  rep: RepTeams | null | undefined, supervisor: boolean, requested?: string | null, custodyTeamIds: readonly string[] = [],
+): { teamId: string | null } | { error: string } {
+  const memberships = rep?.teamMemberships ?? [];
+  if (supervisor) {
+    const supIds = [...new Set([...memberships.filter((m) => (m.team?.supervisors?.length ?? 0) > 0).map((m) => m.teamId), ...custodyTeamIds])];
+    if (requested) return supIds.includes(requested) ? { teamId: requested } : { error: 'الفريق المختار ليس من فرقك' };
+    if (supIds.length === 1) return { teamId: supIds[0] };
+    return { error: supIds.length ? 'اختر الفريق الذي تستلم عهدته' : 'لا فريق تشرف عليه لهذا المندوب' };
+  }
+  if (!requested || requested === 'none') return { teamId: null };
+  const current = rep?.tenant?.settings?.teamsEnabled === true ? memberships.map((m) => m.teamId) : [];
+  if (current.includes(requested) || custodyTeamIds.includes(requested)) return { teamId: requested };
+  return { error: 'الفريق المختار ليس من فرق المندوب' };
+}
+
+/** سند القبض كما يُقرأ لحصّة الفريق: مبلغه ووسمه وتوزيعه على الفواتير (ReceiptInvoice) بوسم كل فاتورة */
+export interface ReceiptTeamSplit {
+  amount: number;
+  teamId: string | null;
+  invoiceItems: { amount: number; invoice: { teamId: string | null } | null }[];
+}
+
+/**
+ * نسبة سند القبض التي تخصّ فرق المشرف في كشف حساب العميل (٠..١): ما وُزّع منه على فواتير فرقه، وما لم يُوزَّع (دفعةٌ
+ * مقدّمة) إن كان السند نفسه موسوماً بأحد فرقه. السند يُوسم بفريق المحصِّل والتوزيع FIFO يعبر الفرق — فسندٌ لفريقٍ آخر سدّد
+ * فاتورة الفريق يظهر في كشفه بحصّته، ولا يظهر في كشف فريقه بما سدّد غيره. ونسبةٌ لا مبلغ: قيد العكس (RECEIPT_DEBIT) للسند
+ * نفسه يُضرب بها أيضاً فيبقى زوجاه متقابلين.
+ */
+export function teamReceiptShare(receipt: ReceiptTeamSplit, supTeamIds: ReadonlySet<string>): number {
+  const own = !!receipt.teamId && supTeamIds.has(receipt.teamId);
+  const total = Number(receipt.amount) || 0;
+  if (total <= 0) return own ? 1 : 0;
+  let allocAll = 0;
+  let allocSup = 0;
+  for (const it of receipt.invoiceItems ?? []) {
+    const a = Number(it.amount) || 0;
+    allocAll += a;
+    if (it.invoice?.teamId && supTeamIds.has(it.invoice.teamId)) allocSup += a;
+  }
+  const share = allocSup + (own ? Math.max(0, total - allocAll) : 0);
+  return Math.min(1, Math.max(0, share / total));
+}
+
+const r6 = (n: number) => Math.round(n * 1e6) / 1e6;
+
+/**
+ * قيود كشف المشرف بحصّة فرقه: قيد السند يُضرب بنسبته من `shares` (معرّف السند ← teamReceiptShare)، وما صار صفراً لا يُعرض.
+ * قيد الفاتورة يبقى كما هو (لم يُختر إلا لأن فاتورته لفرقه).
+ */
+export function scaleTeamRows<T extends { debit: number; credit: number; receiptId: string | null }>(rows: T[], shares: ReadonlyMap<string, number>): T[] {
+  const out: T[] = [];
+  for (const r of rows) {
+    if (!r.receiptId) { out.push(r); continue; }
+    const k = shares.get(r.receiptId) ?? 0;
+    if (k >= 1) out.push(r);
+    else if (k > 0) out.push({ ...r, debit: r6(Number(r.debit) * k), credit: r6(Number(r.credit) * k) });
+  }
+  return out;
+}
+
+/**
+ * ملخّص كشف الفريق بأنواع القيود كما يحدّث الخادم totalSales/totalCollected (services/accounting.ts) — لا مجموع المدين
+ * والدائن: الإلغاء والمرتجع (INVOICE_CREDIT) يُنقصان المبيعات لا يُعدّان تحصيلاً، وعكس السند (RECEIPT_DEBIT) يُنقص التحصيل.
+ */
+export function teamStatementTotals(rows: { type: string; debit: number; credit: number }[]): { totalSales: number; totalCollected: number; balance: number } {
+  let sales = 0, collected = 0, balance = 0;
+  for (const r of rows) {
+    const d = Number(r.debit) || 0, c = Number(r.credit) || 0;
+    balance += d - c;
+    if (r.type === 'INVOICE_DEBIT') sales += d;
+    else if (r.type === 'INVOICE_CREDIT') sales -= c;
+    else if (r.type === 'RECEIPT_CREDIT') collected += c;
+    else if (r.type === 'RECEIPT_DEBIT') collected -= d;
+  }
+  return { totalSales: r6(sales), totalCollected: r6(collected), balance: r6(balance) };
+}
+
 /** فرق الصنف كما تُقرأ معه: `teams: { select: { teamId: true } }` — بلا صفوف = صنفٌ عامّ لكل الفرق */
 export interface ProductTeams { id?: string; name?: string; teams?: { teamId: string }[] | null }
 

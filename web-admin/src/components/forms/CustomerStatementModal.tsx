@@ -42,9 +42,16 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
       const res = await customerApi.statement(customer.id, Object.keys(params).length ? params : undefined);
       // timezone: منطقة الشركة التي رشّح بها الخادم أيام الفترة. `null` قيمةٌ يعيدها الخادم فعلاً
       // (شركة بلا منطقة مضبوطة)، و`undefined` للتوافق مع خادمٍ أقدم — والحالتان ارتدادٌ إلى المتصفّح.
-      return res.data.data as { customer: Customer; entries: AccountEntry[]; openingBalance: number; closingBalance: number; timezone?: string | null };
+      return res.data.data as { customer: Customer; entries: AccountEntry[]; openingBalance: number; closingBalance: number; timezone?: string | null; teamScoped?: boolean };
     },
   });
+
+  /* «الفرق»: مشرف الفريق يتسلّم كشف فريقه وحده، وإجماليات العميل في الردّ لفريقه (يحسبها الخادم بأنواع القيود كما يحدّث
+   * إجماليات العميل) — فالملخّص يقرأ الحقول نفسها لكلّ مستخدم، وتتبدّل عناوينه وحدها */
+  const teamScoped = data?.teamScoped === true;
+  const summarySales = Number(data?.customer.totalSales ?? 0);
+  const summaryCollected = Number(data?.customer.totalCollected ?? 0);
+  const summaryBalance = Number(data?.customer.balance ?? 0);
 
   /* منطقة الشركة التي رشّح بها الخادم الفترة: تُعرض بها **لحظاتُ الحركات** كي لا يقرأ
    * مشاهدٌ في منطقةٍ أخرى يوم الجار فيظنّ حركةً خارج الفترة وهي داخلها.
@@ -62,9 +69,9 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
     const summary = [
       { [tr('البند')]: tr('العميل'), [tr('القيمة')]: customer.name },
       { [tr('البند')]: tr('الجوال'), [tr('القيمة')]: customer.phone },
-      { [tr('البند')]: tr('إجمالي المبيعات'), [tr('القيمة')]: num(data.customer.totalSales) },
-      { [tr('البند')]: tr('إجمالي التحصيل'), [tr('القيمة')]: num(data.customer.totalCollected) },
-      { [tr('البند')]: tr('الرصيد الحالي'), [tr('القيمة')]: num(data.customer.balance) },
+      { [tr('البند')]: teamScoped ? tr('مبيعات فريقك') : tr('إجمالي المبيعات'), [tr('القيمة')]: num(summarySales) },
+      { [tr('البند')]: teamScoped ? tr('تحصيل فريقك') : tr('إجمالي التحصيل'), [tr('القيمة')]: num(summaryCollected) },
+      { [tr('البند')]: teamScoped ? tr('رصيد فريقك') : tr('الرصيد الحالي'), [tr('القيمة')]: num(summaryBalance) },
     ];
     // نفس صفّ الترحيل في الملف المُصدَّر — الكشف المطبوع يجب أن يقرأ كالمعروض
     const carry: Record<string, string | number>[] = from
@@ -126,21 +133,26 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
           </div>
           {tz && <p className="self-end pb-2 text-[11px] text-gray-400">{tr('تواريخ الكشف بتوقيت الشركة')}: <bdi dir="ltr">{tz}</bdi></p>}
         </div>
+        {teamScoped && (
+          <p className="mx-4 mt-3 text-xs text-[#8A5A00] bg-[#FFF6E5] border border-[#F3D9A4] rounded-lg px-3 py-2">
+            {tr('كشف فريقك فقط لا يشمل فواتير الفرق الأخرى وسنداتها ولا التسويات اليدوية')}
+          </p>
+        )}
 
         {/* Balance Summary */}
         <div className="grid grid-cols-3 gap-4 p-4 bg-gray-50 border-b">
           <div className="text-center">
-            <p className="text-xs text-gray-500">{tr('إجمالي المبيعات')}</p>
-            <p className="font-bold text-[#E15A30]">{formatCurrency(data?.customer.totalSales ?? 0)}</p>
+            <p className="text-xs text-gray-500">{teamScoped ? tr('مبيعات فريقك') : tr('إجمالي المبيعات')}</p>
+            <p className="font-bold text-[#E15A30]">{formatCurrency(summarySales)}</p>
           </div>
           <div className="text-center">
-            <p className="text-xs text-gray-500">{tr('إجمالي التحصيل')}</p>
-            <p className="font-bold text-green-600">{formatCurrency(data?.customer.totalCollected ?? 0)}</p>
+            <p className="text-xs text-gray-500">{teamScoped ? tr('تحصيل فريقك') : tr('إجمالي التحصيل')}</p>
+            <p className="font-bold text-green-600">{formatCurrency(summaryCollected)}</p>
           </div>
           <div className="text-center">
-            <p className="text-xs text-gray-500">{tr('الرصيد الحالي')}</p>
-            <p className={`font-bold ${Number(data?.customer.balance) > 0 ? 'text-red-600' : 'text-green-600'}`}>
-              {formatCurrency(data?.customer.balance ?? 0)}
+            <p className="text-xs text-gray-500">{teamScoped ? tr('رصيد فريقك') : tr('الرصيد الحالي')}</p>
+            <p className={`font-bold ${summaryBalance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+              {formatCurrency(summaryBalance)}
             </p>
           </div>
         </div>

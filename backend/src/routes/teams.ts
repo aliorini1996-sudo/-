@@ -59,7 +59,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
         members: { select: { salesRepId: true, salesRep: { select: { name: true, isActive: true } } } },
         products: { select: { productId: true } },
         supervisors: { select: { adminId: true, admin: { select: { name: true, scopeEnabled: true, scopeMode: true } } } },
-        _count: { select: { invoices: true, receipts: true, visits: true } },
+        _count: { select: { invoices: true, receipts: true, visits: true, settlements: true } },
       },
     });
     res.json({
@@ -73,7 +73,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
           // مقيّدٌ بفرقه فعلاً؟ (مشرفٌ عُيّن ثم فُكّ تقييده من «مستخدمو الشركة» يرى الشركة كلها)
           teamScoped: s.admin.scopeEnabled === true && s.admin.scopeMode === 'TEAMS',
         })),
-        docsCount: t._count.invoices + t._count.receipts + t._count.visits,
+        docsCount: t._count.invoices + t._count.receipts + t._count.visits + t._count.settlements,
       })),
     });
   } catch (err) { next(err); }
@@ -130,10 +130,10 @@ router.delete('/:id', managePerm, async (req: AuthRequest, res: Response, next: 
     const tid = tenantId(req);
     const team = await prisma.team.findFirst({
       where: { id: req.params.id, tenantId: tid },
-      select: { id: true, supervisors: { select: { adminId: true } }, _count: { select: { invoices: true, receipts: true, visits: true } } },
+      select: { id: true, supervisors: { select: { adminId: true } }, _count: { select: { invoices: true, receipts: true, visits: true, settlements: true } } },
     });
     if (!team) { res.status(404).json({ success: false, message: 'الفريق غير موجود' }); return; }
-    if (team._count.invoices + team._count.receipts + team._count.visits > 0) {
+    if (team._count.invoices + team._count.receipts + team._count.visits + team._count.settlements > 0) {
       res.status(409).json({ success: false, code: 'TEAM_HAS_DOCUMENTS', message: 'على الفريق فواتير أو سندات أو زيارات — أرشفه بدل الحذف ليبقى في التقارير' });
       return;
     }

@@ -280,6 +280,7 @@ model Team {
   invoices    Invoice[]
   receipts    Receipt[]
   visits      RepVisit[]
+  settlements RepSettlement[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -1603,12 +1604,17 @@ model RepSettlement {
   // معرّف مستخدم الشركة الذي استلم من المندوب — يدخل هذا المبلغ في عهدته.
   // اختياري: صفوف ما قبل الميزة تبقى null فلا تُنسب لعهدة أحد (تاريخ سابق).
   receivedByUserId String?
+  // «الفرق» (قرار المالك ١٧ أكتوبر ٢٠٢٦: مشرف الفريق يرى عهدة فريقه وحده): الاستلام يُوسم بفريق ما سُلِّم من تحصيله —
+  // فرصيد الفريق = سنداته الموسومة − استلاماته الموسومة. null = قبل الميزة أو بلا فريق (يُحسب في الإجمالي وحده)
+  teamId     String?
+  team       Team?    @relation(fields: [teamId], references: [id], onDelete: SetNull)
   settledAt  DateTime @default(now())
   createdAt  DateTime @default(now())
 
   photos RepSettlementPhoto[]
 
   @@index([tenantId, salesRepId])
+  @@index([teamId])
   @@index([tenantId, receivedByUserId])
   @@index([tenantId, createdAt, id]) // مؤشر المُطابِق المركّب للنظام المحاسبي المتكامل (§5.2، M3) — فهرس غير فريد
   @@map("rep_settlements")

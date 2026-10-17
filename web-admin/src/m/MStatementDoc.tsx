@@ -26,7 +26,7 @@ export default function MStatementDoc({ customer, entries, repName, company, ran
    * من لقطةٍ لكلّ الزمن تكذب بأصدق عنوان. وبها تطابق الورقةُ الشاشةَ رقماً
    * برقم — وهي تُسلَّم للعميل.
    */
-  range?: { from?: string; to?: string; openingBalance?: number; closingBalance?: number };
+  range?: { from?: string; to?: string; openingBalance?: number; closingBalance?: number; teamScoped?: boolean };
   onClose: () => void;
 }) {
   return (

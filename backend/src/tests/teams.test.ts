@@ -233,3 +233,122 @@ test('حارس نصّي: حركات السيارة تُخفي رقم وعميل 
   assert.equal(read('routes/receipts.ts').split('existingInScope(req, SHAPE_INVOICE_RECEIPT').length - 1, 2);
   assert.equal(read('routes/visits.ts').split('existingInScope(req, SHAPE_VISIT').length - 1, 1);
 });
+
+// ═══ العهدة وكشف الحساب بنطاق الفريق (قرار المالك ١٧ أكتوبر ٢٠٢٦: «يرى فريقه فقط، والمدير غير المعزول يرى الجميع») ═══
+import { composeTeamCustodyWhere } from '../services/adminScope';
+
+test('قيد فريق العهدة: المشرف بفرقه (وبالمطلوب منها وحده)، وغير المقيَّد بالمطلوب وإلا بلا قيد', () => {
+  const sup = { supervisors: { some: { adminId: 'a1' } } };
+  assert.deepEqual(composeTeamCustodyWhere('a1'), { team: sup });
+  assert.deepEqual(composeTeamCustodyWhere('a1', 'T2'), { team: { id: 'T2', ...sup } }, 'فريقٌ ليس من فرقه لا يفتح شيئاً');
+  assert.deepEqual(composeTeamCustodyWhere(null), {});
+  assert.deepEqual(composeTeamCustodyWhere(null, 'T2'), { teamId: 'T2' });
+});
+
+test('حارس نصّي: الاستلام موسوم بفريقه، والعهدة وسجلّها ورصيد المندوب بقيد الفريق على الطرفين، وكشف الحساب بقيود فرق المشرف', () => {
+  const sch = read('../prisma/schema.prisma');
+  const rs = /model\s+RepSettlement\s*\{([\s\S]*?)\n\}/.exec(sch)![1];
+  assert.ok(/\n\s*teamId\s+String\?/.test(rs) && rs.includes('onDelete: SetNull'), 'وسمٌ اختياريّ لا يُسقط الاستلام بحذف الفريق');
+  const s = read('routes/salesReps.ts');
+  const rc = s.slice(s.indexOf('async function repCollection'), s.indexOf("router.get('/:id/collection'"));
+  assert.equal(rc.split('...teamWhere }').length - 1, 2, 'السندات والاستلامات بالقيد نفسه — وإلا رصيدٌ سالب أو منتفخ');
+  const post = s.slice(s.indexOf("router.post('/:id/settlements'"));
+  assert.ok(post.includes('const pick = settlementTeamOf(rep, sup !== null, requested, (await custodyTeamsOf(tid, rep.id, sup)).map((t) => t.id));') && post.includes('amount, method, note, teamId,'));
+  assert.ok(post.includes("if ('error' in pick) { res.status(400).json({ success: false, code: 'TEAM_REQUIRED', message: pick.error }); return; }"), 'فريقٌ مُخمَّن يُرفض لا يُكتب');
+  assert.ok(post.includes('teamMemberships: { select: teamMembershipSelectFor(sup) },'), 'مشرف TEAMS وحده — لا كل من بقيت له صفوف إشراف');
+  const del = s.slice(s.indexOf("router.delete('/:id/settlements/:settlementId'"));
+  assert.ok(del.includes('salesRepId: rep.id, ...composeTeamCustodyWhere(sup) },') && del.includes('method: row.method, teamId: row.teamId,'), 'الحذف بنطاق الفريق ونسخته تحمل فريقه');
+  const list = s.slice(s.indexOf("router.get('/:id/settlements'"));
+  assert.ok(list.includes('...composeTeamCustodyWhere(await teamSupervisorIdOf(req), requestedTeam(req.query.teamId)),'));
+  assert.ok(read('routes/receipts.ts').includes('salesRepId: repId, ...(isSalesRep ? {} : composeTeamCustodyWhere(await teamSupervisorIdOf(req))) }'));
+  const t = read('routes/teams.ts');
+  assert.equal(t.split('visits: true, settlements: true').length - 1, 2, 'عدّ المستندات والحذف يشملان الاستلامات');
+  const c = read('routes/customers.ts');
+  const st = c.slice(c.indexOf("router.get('/:id/statement'"), c.indexOf("router.get('/:id/invoices'"));
+  assert.equal(st.split('...teamEntries').length - 1, 4, 'الحركات والمرحَّل (بالحصّة وبالمجموع) والإجماليات بالقيد نفسه — وإلا رصيدٌ افتتاحيّ لا يطابق المعروض');
+  assert.ok(st.includes('teamScoped: sup !== null'));
+});
+
+import { settlementTeamOf, teamReceiptShare, scaleTeamRows, teamStatementTotals } from '../services/teams';
+
+test('فريق الاستلام صريحٌ لا مُخمَّن: المشرف بفريقه (ولو مؤرشفاً) ويختار إن تعدّدت، وغيره بما اختاره أو بلا فريق', () => {
+  const m = (teamId: string, supervised: boolean, isActive = true) => ({ teamId, team: { isActive, supervisors: supervised ? [{ adminId: 'a1' }] : [] } });
+  const rep = (ms: ReturnType<typeof m>[]) => ({ tenant: on, teamMemberships: ms });
+  // المشرف
+  assert.deepEqual(settlementTeamOf(rep([m('A', true), m('B', false)]), true, null), { teamId: 'A' }, 'فريقه الوحيد');
+  assert.ok('error' in settlementTeamOf(rep([m('A', true), m('B', false)]), true, 'B'), 'فريقٌ لا يشرف عليه يُرفض ولا يُستبدل بفريقه بصمت');
+  assert.ok('error' in settlementTeamOf(rep([m('A', true)]), true, 'none'), 'المشرف لا «بلا فريق» له');
+  assert.ok('error' in settlementTeamOf(rep([m('B', true)]), true, null, ['A']), 'فريقه الحالي وفريقٌ سابق عليه عهدة: يختار');
+  assert.deepEqual(settlementTeamOf(rep([m('B', true)]), true, 'A', ['A']), { teamId: 'A' }, 'عهدة فريقٍ تركه المندوب تُستلم عليه');
+  assert.ok('error' in settlementTeamOf(rep([m('A', true), m('C', true)]), true, null), 'فريقان: يختار — لا الأول بترتيبٍ غير محدّد');
+  assert.deepEqual(settlementTeamOf(rep([m('A', true), m('C', true)]), true, 'C'), { teamId: 'C' });
+  assert.deepEqual(settlementTeamOf(rep([m('A', true, false)]), true, null), { teamId: 'A' }, 'المؤرشف: عهدته تُعرض فتُستلم');
+  // غير المشرف
+  assert.deepEqual(settlementTeamOf(rep([m('A', false)]), false, null), { teamId: null }, 'بلا طلب = بلا فريق (لا يُوسم الوحيد تلقائياً بإجماليٍّ معبّأ)');
+  assert.deepEqual(settlementTeamOf(rep([m('A', false)]), false, 'none'), { teamId: null });
+  assert.deepEqual(settlementTeamOf(rep([m('A', false), m('B', false)]), false, 'B'), { teamId: 'B' });
+  assert.ok('error' in settlementTeamOf(rep([m('A', false)]), false, 'X'), 'فريق شركةٍ أخرى أو ليس من فرقه يُرفض');
+  assert.ok('error' in settlementTeamOf({ tenant: { settings: { teamsEnabled: false } }, teamMemberships: [m('A', false)] }, false, 'A'), 'الميزة مطفأة ولا عهدة موسومة: لا وسم');
+  assert.deepEqual(settlementTeamOf({ tenant: { settings: { teamsEnabled: false } }, teamMemberships: [m('A', false)] }, false, 'A', ['A']), { teamId: 'A' }, 'أُطفئت وبقيت عهدة A: تُستلم عليها');
+  assert.deepEqual(settlementTeamOf(rep([m('B', false)]), false, 'A', ['A']), { teamId: 'A' }, 'فريقٌ تركه المندوب وعليه عهدة');
+});
+
+test('عرض العهدة «بلا فريق»: ما لا فريق له للمدير، ولا معنى له للمشرف', () => {
+  assert.deepEqual(composeTeamCustodyWhere(null, 'none'), { teamId: null });
+  assert.deepEqual(composeTeamCustodyWhere('a1', 'none'), { team: { supervisors: { some: { adminId: 'a1' } } } });
+});
+
+test('حصّة فرق المشرف من سند القبض: ما وُزّع على فواتير فرقه، وغير الموزَّع إن كان السند لفرقه', () => {
+  const sup = new Set(['A']);
+  const r = (teamId: string | null, amount: number, items: [string | null, number][]) =>
+    ({ teamId, amount, invoiceItems: items.map(([t, a]) => ({ amount: a, invoice: { teamId: t } })) });
+  assert.equal(teamReceiptShare(r('B', 1000, [['A', 1000]]), sup), 1, 'سند فريقٍ آخر سدّد فاتورة الفريق كلها');
+  assert.equal(teamReceiptShare(r('A', 1000, [['B', 1000]]), sup), 0, 'سند الفريق سدّد فاتورة غيره: لا يظهر في كشفه');
+  assert.equal(teamReceiptShare(r('A', 1000, [['B', 600]]), sup), 0.4, 'الباقي غير الموزَّع لفريق السند');
+  assert.equal(teamReceiptShare(r('B', 1000, [['A', 300], ['B', 700]]), sup), 0.3);
+  assert.equal(teamReceiptShare(r(null, 500, []), sup), 0, 'دفعةٌ بلا فريق ولا توزيع');
+  const rows = [
+    { debit: 1000, credit: 0, receiptId: null },
+    { debit: 0, credit: 500, receiptId: 'r1' },
+    { debit: 500, credit: 0, receiptId: 'r1' },
+    { debit: 0, credit: 200, receiptId: 'r2' },
+  ];
+  assert.deepEqual(scaleTeamRows(rows, new Map([['r1', 0.4], ['r2', 0]])), [
+    { debit: 1000, credit: 0, receiptId: null },
+    { debit: 0, credit: 200, receiptId: 'r1' },
+    { debit: 200, credit: 0, receiptId: 'r1' },
+  ], 'القيد وعكسه بالنسبة نفسها، والصفريّ يسقط');
+});
+
+test('ملخّص كشف الفريق بأنواع القيود كإجماليات العميل: الإلغاء والمرتجع لا يُعدّان تحصيلاً', () => {
+  const t = teamStatementTotals([
+    { type: 'INVOICE_DEBIT', debit: 100, credit: 0 },
+    { type: 'RECEIPT_CREDIT', debit: 0, credit: 100 },
+    { type: 'INVOICE_CREDIT', debit: 0, credit: 100 },
+    { type: 'RECEIPT_DEBIT', debit: 100, credit: 0 },
+    { type: 'INVOICE_DEBIT', debit: 1000, credit: 0 },
+    { type: 'INVOICE_CREDIT', debit: 0, credit: 300 },
+  ]);
+  assert.deepEqual(t, { totalSales: 700, totalCollected: 0, balance: 700 });
+});
+
+test('حارس نصّي: كشف المشرف بحصّة السند وملخّص فريقه، والمرحَّل بالحصّة نفسها', () => {
+  const c = read('routes/customers.ts');
+  const st = c.slice(c.indexOf("router.get('/:id/statement'"), c.indexOf("router.get('/:id/invoices'"));
+  assert.ok(st.includes('{ receipt: { invoiceItems: { some: { invoice: { team: supTeam } } } } },'), 'سند فريقٍ آخر سدّد فاتورة الفريق');
+  assert.ok(st.includes('const rows = await forTeam(await prisma.accountEntry.findMany({'));
+  assert.ok(st.includes('const prior = await forTeam(await prisma.accountEntry.findMany({'), 'المرحَّل لا يُجمع بـaggregate للمشرف');
+  assert.ok(st.includes('customerOut = { ...customer, totalSales: t.totalSales, totalCollected: t.totalCollected, balance: t.balance };'), 'أرقام الشركة لا تخرج للمشرف');
+  assert.ok(st.includes('data: { customer: customerOut, entries,'));
+});
+
+test('حارس نصّي: فرق العهدة القائمة في العرض والتسجيل، وسقف التعبئة لغير المشرف وحده', () => {
+  const s = read('routes/salesReps.ts');
+  const get = s.slice(s.indexOf("router.get('/:id/collection'"), s.indexOf("router.post('/:id/settlements'"));
+  assert.ok(get.includes('const custody = (await custodyTeamsOf(tid, rep.id, sup)).filter('), 'فريقٌ تركه المندوب وعليه عهدة يظهر للاختيار');
+  assert.ok(get.includes('const totalOutstanding = !sup && requested ? (await repCollection(tid, req.params.id)).outstanding : undefined;'), 'الإجمالي لا يخرج للمشرف');
+  const post = s.slice(s.indexOf("router.post('/:id/settlements'"));
+  assert.ok(post.includes('settlementTeamOf(rep, sup !== null, requested, (await custodyTeamsOf(tid, rep.id, sup)).map((t) => t.id));'));
+  const helper = s.slice(s.indexOf('async function custodyTeamsOf'), s.indexOf("router.get('/:id/collection'"));
+  assert.ok(helper.includes("...(sup && { supervisors: { some: { adminId: sup } } })"), 'المشرف فرقه منها وحدها');
+});

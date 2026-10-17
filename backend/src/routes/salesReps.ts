@@ -4,7 +4,8 @@ import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
-import { adminRepFilter, adminCustomerFilter, scopedRecordWhere, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
+import { adminRepFilter, adminCustomerFilter, scopedRecordWhere, SHAPE_INVOICE_RECEIPT, teamSupervisorIdOf, composeTeamCustodyWhere } from '../services/adminScope';
+import { settlementTeamOf, teamMembershipSelectFor } from '../services/teams';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
 import { clean } from '../services/accounting';
@@ -351,24 +352,76 @@ router.put('/:id/customers', async (req: AuthRequest, res: Response, next: NextF
   } catch (err) { next(err); }
 });
 
-// رصيد التحصيل لدى المندوب = مجموع سنداته النشطة − مجموع ما استلمه الأدمن منه
-async function repCollection(tid: string, repId: string) {
+// رصيد التحصيل لدى المندوب = مجموع سنداته النشطة − مجموع ما استلمه الأدمن منه.
+// «الفرق»: `teamWhere` (composeTeamCustodyWhere) على الطرفين معاً — رصيد الفريق = سنداته الموسومة − استلاماته الموسومة
+async function repCollection(tid: string, repId: string, teamWhere: Record<string, unknown> = {}) {
   const [collected, settled] = await Promise.all([
-    prisma.receipt.aggregate({ where: { tenantId: tid, salesRepId: repId, status: 'ACTIVE' }, _sum: { amount: true } }),
-    prisma.repSettlement.aggregate({ where: { tenantId: tid, salesRepId: repId }, _sum: { amount: true } }),
+    prisma.receipt.aggregate({ where: { tenantId: tid, salesRepId: repId, status: 'ACTIVE', ...teamWhere }, _sum: { amount: true } }),
+    prisma.repSettlement.aggregate({ where: { tenantId: tid, salesRepId: repId, ...teamWhere }, _sum: { amount: true } }),
   ]);
   const c = collected._sum.amount ?? 0;
   const s = settled._sum.amount ?? 0;
   return { collected: clean(c), settled: clean(s), outstanding: clean(c - s) };
 }
 
-// ملخّص رصيد التحصيل لمندوب (للإدارة)
+/** الفريق المطلوب لعرض العهدة (`?teamId=`) — نصٌّ غير فارغ وإلا لا طلب */
+const requestedTeam = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 64) : null);
+
+/**
+ * فرقٌ تحمل عهدةً موسومة لهذا المندوب لم تُستلم (سنداته النشطة بوسمها − استلاماته بوسمها ≠ ٠) — ولو تركها المندوب أو
+ * أُطفئت الميزة: عهدتها تبقى حتى تُستلم عليها، وإلا لم يبقَ إلا تسجيلها على فريقٍ آخر أو بلا فريق فتختلّ العهدتان معاً.
+ * وللمشرف فرقه منها وحدها.
+ */
+async function custodyTeamsOf(tid: string, repId: string, sup: string | null): Promise<{ id: string; name: string; isActive: boolean }[]> {
+  const [r, s] = await Promise.all([
+    prisma.receipt.groupBy({ by: ['teamId'], where: { tenantId: tid, salesRepId: repId, status: 'ACTIVE', teamId: { not: null } }, _sum: { amount: true } }),
+    prisma.repSettlement.groupBy({ by: ['teamId'], where: { tenantId: tid, salesRepId: repId, teamId: { not: null } }, _sum: { amount: true } }),
+  ]);
+  const bal = new Map<string, number>();
+  for (const x of r) if (x.teamId) bal.set(x.teamId, (bal.get(x.teamId) ?? 0) + Number(x._sum.amount ?? 0));
+  for (const x of s) if (x.teamId) bal.set(x.teamId, (bal.get(x.teamId) ?? 0) - Number(x._sum.amount ?? 0));
+  const ids = [...bal].filter(([, v]) => clean(v) !== 0).map(([id]) => id);
+  if (!ids.length) return [];
+  return prisma.team.findMany({
+    where: { tenantId: tid, id: { in: ids }, ...(sup && { supervisors: { some: { adminId: sup } } }) },
+    select: { id: true, name: true, isActive: true },
+  });
+}
+
+// ملخّص رصيد التحصيل لمندوب (للإدارة). «الفرق» (قرار المالك ١٧ أكتوبر ٢٠٢٦): مشرف الفريق يرى عهدة فرقه وحدها، والمدير غير
+// المقيَّد يرى الجميع وله أن يختار فريقاً (أو 'none'). `teams` = فرق المندوب المرئية للطالب لاختيار فريق الاستلام — والمؤرشف
+// منها أيضاً (archived): عهدته تبقى حتى تُستلم. وللمشرف فرقه منها وحدها ولو أُطفئت الميزة (عهدته تُحسب بوسم فرقه)
 router.get('/:id/collection', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true } });
+    const sup = await teamSupervisorIdOf(req);
+    const rep = await prisma.salesRep.findFirst({
+      where: { id: req.params.id, tenantId: tid, ...(await adminRepFilter(req)) },
+      select: {
+        id: true,
+        tenant: { select: { settings: { select: { teamsEnabled: true } } } },
+        teamMemberships: { select: { team: { select: { id: true, name: true, isActive: true, ...(sup && { supervisors: { where: { adminId: sup }, select: { adminId: true } } }) } } } },
+      },
+    });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
-    res.json({ success: true, data: await repCollection(tid, req.params.id) });
+    const memberTeams = rep.tenant?.settings?.teamsEnabled === true || sup
+      ? rep.teamMemberships.map((m) => m.team as { id: string; name: string; isActive: boolean; supervisors?: unknown[] })
+        .filter((t) => !sup || (t.supervisors?.length ?? 0) > 0).map((t) => ({ id: t.id, name: t.name, archived: !t.isActive }))
+      : [];
+    // وفرق العهدة القائمة التي ليست في القائمة (تركها المندوب، أو أُطفئت الميزة) — former: ليس عضواً فيها الآن
+    const custody = (await custodyTeamsOf(tid, rep.id, sup)).filter((t) => !memberTeams.some((m) => m.id === t.id));
+    const teams = [...memberTeams, ...custody.map((t) => ({
+      id: t.id, name: t.name, archived: !t.isActive, former: !rep.teamMemberships.some((m) => m.team.id === t.id),
+    }))];
+    const requested = requestedTeam(req.query.teamId);
+    const summary = await repCollection(tid, req.params.id, composeTeamCustodyWhere(sup, requested));
+    // لغير المشرف حين يعرض فريقاً: الرصيد الإجمالي أيضاً — سقفٌ للتعبئة (استلامٌ سابق «بلا فريق» قد غطّى جزءاً من عهدة
+    // الفريق فيبدو منتفخاً). والمشرف لا يُعطاه: الإجمالي يكشف عهدة الفرق الأخرى
+    const totalOutstanding = !sup && requested ? (await repCollection(tid, req.params.id)).outstanding : undefined;
+    res.json({ success: true, data: {
+      ...summary, teams, teamScoped: sup !== null, teamsEnabled: rep.tenant?.settings?.teamsEnabled === true,
+      ...(totalOutstanding !== undefined && { totalOutstanding }),
+    } });
   } catch (err) { next(err); }
 });
 
@@ -376,8 +429,22 @@ router.get('/:id/collection', async (req: AuthRequest, res: Response, next: Next
 router.post('/:id/settlements', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true } });
+    // «الفرق»: مشرفٌ بوضع TEAMS وحده (لا كل مستخدمٍ بقيت له صفوف إشراف) — بالإشارة نفسها التي يُعرض بها العرض والسجلّ
+    const sup = await teamSupervisorIdOf(req);
+    const rep = await prisma.salesRep.findFirst({
+      where: { id: req.params.id, tenantId: tid, ...(await adminRepFilter(req)) },
+      select: {
+        id: true,
+        tenant: { select: { settings: { select: { teamsEnabled: true } } } },
+        teamMemberships: { select: teamMembershipSelectFor(sup) },
+      },
+    });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+    // فريق الاستلام صريحٌ لا مُخمَّن (settlementTeamOf): المشرف بفريقه، وغيره بما اختاره أو بلا فريق
+    const requested = requestedTeam(req.body?.teamId);
+    const pick = settlementTeamOf(rep, sup !== null, requested, (await custodyTeamsOf(tid, rep.id, sup)).map((t) => t.id));
+    if ('error' in pick) { res.status(400).json({ success: false, code: 'TEAM_REQUIRED', message: pick.error }); return; }
+    const teamId = pick.teamId;
     const amount = Number(req.body?.amount);
     if (!Number.isFinite(amount) || amount <= 0) { res.status(400).json({ success: false, message: 'أدخل مبلغا صحيحا أكبر من صفر' }); return; }
     const note = typeof req.body?.note === 'string' ? req.body.note.slice(0, 300) : undefined;
@@ -401,13 +468,13 @@ router.post('/:id/settlements', async (req: AuthRequest, res: Response, next: Ne
     const receivedByUserId = by?.impersonated === true ? undefined : by?.id;
     await prisma.repSettlement.create({
       data: {
-        tenantId: tid, salesRepId: req.params.id, amount, method, note,
+        tenantId: tid, salesRepId: req.params.id, amount, method, note, teamId,
         createdBy: `${by?.name || by?.id || 'الادمن'}${by?.impersonated ? ' (الدعم الفني)' : ''}`, receivedByUserId,
         // في نفس الكتابة: استلامٌ بلا إيصاله ليس أفضل من لا استلام
         ...(photos.length && { photos: { create: photos.map((data) => ({ data })) } }),
       },
     });
-    res.status(201).json({ success: true, data: await repCollection(tid, req.params.id) });
+    res.status(201).json({ success: true, data: await repCollection(tid, req.params.id, composeTeamCustodyWhere(sup, requested)) });
   } catch (err) { next(err); }
 });
 
@@ -438,6 +505,8 @@ router.get('/:id/settlements', async (req: AuthRequest, res: Response, next: Nex
       where: {
         tenantId: tid,
         salesRepId: rep.id,
+        // «الفرق»: المشرف استلامات فرقه وحدها، وغيره الفريق المختار إن اختار
+        ...composeTeamCustodyWhere(await teamSupervisorIdOf(req), requestedTeam(req.query.teamId)),
         ...(ranged && {
           settledAt: {
             ...(gte && !Number.isNaN(gte.getTime()) ? { gte } : {}),
@@ -447,7 +516,7 @@ router.get('/:id/settlements', async (req: AuthRequest, res: Response, next: Nex
       },
       orderBy: { settledAt: 'desc' },
       take: 100,
-      include: { photos: { select: { id: true, data: true }, orderBy: { createdAt: 'asc' } } },
+      include: { photos: { select: { id: true, data: true }, orderBy: { createdAt: 'asc' } }, team: { select: { name: true } } },
     });
     res.json({ success: true, data: items });
   } catch (err) { next(err); }
@@ -497,9 +566,11 @@ router.delete('/:id/settlements/:settlementId', async (req: AuthRequest, res: Re
     });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
 
-    // الشروط الثلاثة معاً: لا يُحذف صفّ شركةٍ أخرى ولا صفّ مندوبٍ آخر بمعرّفٍ منقول
+    // الشروط الثلاثة معاً: لا يُحذف صفّ شركةٍ أخرى ولا صفّ مندوبٍ آخر بمعرّفٍ منقول — ومدير مقيَّدٌ بفرقه لا يحذف استلام غيرها
+    const sup = await teamSupervisorIdOf(req);
     const row = await prisma.repSettlement.findFirst({
-      where: { id: req.params.settlementId, tenantId: tid, salesRepId: rep.id },
+      where: { id: req.params.settlementId, tenantId: tid, salesRepId: rep.id, ...composeTeamCustodyWhere(sup) },
+      include: { team: { select: { name: true } } },
     });
     if (!row) { res.status(404).json({ success: false, message: 'سجل الاستلام غير موجود' }); return; }
 
@@ -546,11 +617,11 @@ router.delete('/:id/settlements/:settlementId', async (req: AuthRequest, res: Re
           // استلمه ومن حذفه. حقل data نسخةٌ للآلة، وهذا السطر نسخةٌ للإنسان —
           // ولا شاشة في المنتج تعرض data، فلو اكتُفي به لضاع الأثر عملياً.
           body: `حذف ${actor} استلام تحصيل بمبلغ ${clean(row.amount)} كان مسجلا بتاريخ ${when}`
-            + ` باسم ${row.createdBy || 'غير معروف'} من المندوب ${rep.name}`
+            + ` باسم ${row.createdBy || 'غير معروف'} من المندوب ${rep.name}${row.team ? ` لفريق ${row.team.name}` : ''}`
             + ` — عاد المبلغ رصيدا مطلوبا من المندوب`,
           salesRepId: rep.id,
           data: JSON.stringify({
-            settlementId: row.id, amount: row.amount, note: row.note,
+            settlementId: row.id, amount: row.amount, note: row.note, method: row.method, teamId: row.teamId,
             createdBy: row.createdBy, settledAt: row.settledAt,
             deletedBy: actor, deletedById: by?.id,
           }),
@@ -559,7 +630,7 @@ router.delete('/:id/settlements/:settlementId', async (req: AuthRequest, res: Re
     });
 
     // الرصيد بعد الحذف — لتُحدّث الواجهة بطاقاتها من مصدرٍ واحد لا من حسابٍ محلّي
-    res.json({ success: true, data: await repCollection(tid, rep.id) });
+    res.json({ success: true, data: await repCollection(tid, rep.id, composeTeamCustodyWhere(sup)) });
   } catch (err) {
     if (err instanceof CustodyBlocked) { res.status(400).json({ success: false, message: err.message }); return; }
     next(err);

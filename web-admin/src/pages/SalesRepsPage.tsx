@@ -538,10 +538,14 @@ interface SettlementPhoto { id: string; data: string }
 interface Settlement {
   id: string; amount: number; note?: string | null; createdBy?: string | null; settledAt: string;
   method?: string | null; photos?: SettlementPhoto[] | null;
+  team?: { name: string } | null;
 }
 
 /** سقف المرفقات لكلّ استلام — يطابق سقف الخادم (جدول RepSettlementPhoto) */
 const MAX_SETTLE_PHOTOS = 4;
+
+/** فريقٌ من فرق المندوب في نافذة العهدة — المؤرشف يبقى ما دامت له عهدة */
+interface CustodyTeam { id: string; name: string; archived?: boolean; former?: boolean }
 
 function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClose: () => void; onDone: () => void }) {
   const tr = useTr();
@@ -557,14 +561,40 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
   const { user } = useAuthStore();
   const isMainAdmin = user?.role === 'ADMIN';
   const [deletingS, setDeletingS] = useState<Settlement | null>(null);
+  /* «الفرق»: عهدة فريقٍ واحد — '' عرضٌ مجمّع (كل الفرق، أو كل فرق المشرف)، و'none' ما لا فريق له (للمدير غير المقيَّد).
+   * يدخل مفاتيح الاستعلامين ويُرسل مع الاستلام. والاستلام لا يُسجَّل على العرض المجمّع: المبلغ المعبّأ مجموعُ فرقٍ،
+   * وكتابته على فريقٍ واحد تُنقص عهدة من لم يُسلِّم وتُبقي عهدة من سلّم فيُستلم مرّتين */
+  const [teamId, setTeamId] = useState('');
 
-  const { data, isLoading, refetch } = useQuery({
-    queryKey: ['rep-collection', rep.id],
+  const qc = useQueryClient();
+  const { data, isLoading, isFetching } = useQuery({
+    queryKey: ['rep-collection', rep.id, teamId],
     queryFn: async () => {
-      const r = await salesRepApi.collection(rep.id);
-      return r.data.data as { collected: number; settled: number; outstanding: number };
+      const r = await salesRepApi.collection(rep.id, teamId || undefined);
+      return r.data.data as { collected: number; settled: number; outstanding: number; teams?: CustodyTeam[]; teamScoped?: boolean; teamsEnabled?: boolean; totalOutstanding?: number };
     },
   });
+  // الفرق من أول ردٍّ حديث (لا من نسخةٍ مخبوءة تُجلب: فريقٌ أُضيف بعدها لا يُعرض). وفريقٌ واحد يُختار تلقائياً — العرض
+  // والتعبئة لعهدته لا للمجموع — للمشرف، ولغيره حين يكون فريقه الحالي والميزة مفعّلة (لا فريقاً سابقاً بقيت عليه عهدة)
+  const [teamsSeen, setTeamsSeen] = useState<CustodyTeam[] | null>(null);
+  useEffect(() => {
+    if (teamsSeen !== null || !data || isFetching) return;
+    const teams = data.teams ?? [];
+    setTeamsSeen(teams);
+    if (teams.length === 1 && (data.teamScoped || (data.teamsEnabled && !teams[0].former))) {
+      setTeamId(teams[0].id); setAmount(''); setFilled(false);
+    }
+  }, [data, isFetching, teamsSeen]);
+  const teams = teamsSeen ?? [];
+  const teamScoped = data?.teamScoped === true;
+  // المشرف بفريقٍ واحد لا اختيار له؛ والمدير غير المقيَّد يرى الاختيار متى كانت للمندوب فرق («بلا فريق» منها)
+  const pickTeam = teamScoped ? teams.length > 1 : teams.length > 0;
+  const needsTeam = teams.length > 0 && teamId === '';
+  // لغير المشرف على عرض فريقٍ أو «بلا فريق»: ما لدى المندوب خارج هذا العرض — كي لا يُستلم كله على عرضٍ واحد فيصير سالباً
+  const outside = !teamScoped && teamId && data?.totalOutstanding !== undefined
+    ? Number(data.totalOutstanding) - Number(data.outstanding) : 0;
+  // استلامٌ أكبر من رصيد العرض المختار يجعل عهدته سالبة
+  const overView = !!teamId && Number(amount) > Number(data?.outstanding ?? 0) + 1e-9;
 
   /* مدى تصفية السجلّ — يدخل مفتاح الاستعلام فيُعاد الجلب عند تغيّره، والتصفية
    * تقع على الخادم: السقف ١٠٠ صفّ، وتصفيةٌ محليّة كانت ستبحث داخل آخر مئة وحدها
@@ -574,11 +604,12 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
 
   // سجلّ استلامات التحصيل لهذا المندوب (مرتّب بالوقت من الخادم)
   const settlementsQ = useQuery({
-    queryKey: ['rep-settlements', rep.id, logFrom, logTo],
+    queryKey: ['rep-settlements', rep.id, logFrom, logTo, teamId],
     queryFn: async () => {
       const r = await salesRepApi.settlements(rep.id, {
         ...(logFrom && { from: logFrom }),
         ...(logTo && { to: logTo }),
+        ...(teamId && { teamId }),
       });
       return r.data.data as Settlement[];
     },
@@ -596,7 +627,13 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
 
   // تعبئة الحقل تلقائياً بالرصيد المتبقّي (تسليم كامل) أول مرّة
   // خانات العملة الفعلية: toFixed(2) الثابتة كانت تقص الفلس الثالث فتبقى 0.005 معلقة للابد
-  if (data && !filled) { setAmount(String(Math.max(0, Number(Number(data.outstanding).toFixed(currencyDecimals(getActiveCurrency())))))); setFilled(true); }
+  // من بيانات حديثة وحدها: مفتاحٌ مخبوء لعرضٍ آخر يُعرض فوراً ثم يُجلب، والتعبئة منه تقفل الحقل على رصيدٍ قبل الاستلام
+  // ولغير المشرف بسقف الرصيد الإجمالي: استلامٌ سابق «بلا فريق» قد غطّى جزءاً من عهدة الفريق المعروض
+  if (data && !filled && !isFetching && teamsSeen !== null) {
+    const due = Math.min(Number(data.outstanding), Number(data.totalOutstanding ?? data.outstanding));
+    setAmount(String(Math.max(0, Number(due.toFixed(currencyDecimals(getActiveCurrency()))))));
+    setFilled(true);
+  }
 
   /** وسم نوع الاستلام — قاموس سند القبض نفسه، والمجهول يُقرأ نقدياً كما يفعل الخادم */
   const methodLabel = (m?: string | null) => tr(paymentMethodLabels[m || 'CASH'] || paymentMethodLabels.CASH);
@@ -624,6 +661,7 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
       method,
       note: note || undefined,
       ...(photos.length ? { photos } : {}),
+      ...(teamId && { teamId }),
     }),
     onSuccess: async () => {
       toast.success(tr('تم تسجيل الاستلام'));
@@ -631,7 +669,11 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
       // النوع والمرفقات يُفرَّغان كما يُفرَّغ المبلغ — وإلا لحق مرفقُ استلامٍ سابق باستلامٍ تالٍ
       setMethod('CASH');
       setPhotos([]);
-      await Promise.all([refetch(), settlementsQ.refetch()]);
+      // كل عروض المندوب لا المفتاح الحالي وحده: العودة إلى «كل الفرق» أو فريقٍ آخر بعد الاستلام تُعيد الجلب لا الرقم القديم
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['rep-collection', rep.id] }),
+        qc.invalidateQueries({ queryKey: ['rep-settlements', rep.id] }),
+      ]);
       setFilled(false); // بعد وصول الرصيد الجديد لا قبله — وإلا أعيد ملء الحقل بالقديم
       onDone();
     },
@@ -649,7 +691,11 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
       // الحذف يرفع الرصيد المتبقّي. الترتيب مقصود: يُنتظر وصول الرصيد الجديد
       // **ثم** يُفتح قفل التعبئة — فالعكس يملأ الحقل بالرقم الذي سبق الحذف
       // ويقفله عليه، إذ يُبقي react-query البيانات السابقة أثناء إعادة الجلب.
-      await Promise.all([refetch(), settlementsQ.refetch()]);
+      // كل عروض المندوب لا المفتاح الحالي وحده: العودة إلى «كل الفرق» أو فريقٍ آخر بعد الاستلام تُعيد الجلب لا الرقم القديم
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['rep-collection', rep.id] }),
+        qc.invalidateQueries({ queryKey: ['rep-settlements', rep.id] }),
+      ]);
       setFilled(false);
       onDone();
     },
@@ -690,6 +736,32 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
             <p className="text-center text-gray-400 py-6">{tr('جار التحميل')}</p>
           ) : (
             <>
+              {pickTeam && (
+                <div>
+                  <label className="label">{tr('الفريق')}</label>
+                  <select className="input" value={teamId}
+                    onChange={e => { setTeamId(e.target.value); setAmount(''); setFilled(false); }}>
+                    <option value="">{teamScoped ? tr('كل فرقك') : tr('كل الفرق')}</option>
+                    {teams.map(t => <option key={t.id} value={t.id}>{t.name}{t.former ? ` (${tr('فريق سابق')})` : t.archived ? ` (${tr('مؤرشف')})` : ''}</option>)}
+                    {!teamScoped && <option value="none">{tr('بلا فريق')}</option>}
+                  </select>
+                  {needsTeam ? (
+                    <p className="text-[11px] text-[#B8431F] mt-1">{tr('اختر الفريق لتسجيل الاستلام')}</p>
+                  ) : !teamScoped && (
+                    <p className="text-[11px] text-gray-400 mt-1">{tr('اختر الفريق ليحسب الاستلام من عهدته وبلا فريق ينقص الإجمالي وحده')}</p>
+                  )}
+                </div>
+              )}
+              {teamScoped && (
+                <p className="text-[11px] text-[#8A5A00] bg-[#FFF6E5] border border-[#F3D9A4] rounded-lg px-3 py-2">
+                  {tr('تعرض عهدة فرقك فقط وما حصله المندوب لفرق أخرى لا يدخل هنا')}
+                </p>
+              )}
+              {outside > 0.0005 && (
+                <p className="text-[11px] text-[#8A5A00] bg-[#FFF6E5] border border-[#F3D9A4] rounded-lg px-3 py-2">
+                  {tr('لدى المندوب مبلغ خارج هذا العرض')}: <b>{formatCurrency(outside)}</b> — {tr('اختر بلا فريق أو فريقه لاستلامه')}
+                </p>
+              )}
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div className="bg-gray-50 rounded-xl p-3">
                   <p className="text-[11px] text-gray-500">{tr('إجمالي التحصيل')}</p>
@@ -710,6 +782,7 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
                 <input className="input" type="number" min={0} step="0.01" value={amount}
                   onChange={e => setAmount(e.target.value)} placeholder="0.00" />
                 <p className="text-[11px] text-gray-400 mt-1">{tr('المبلغ معبأ بالرصيد المتبقي تسليم كامل عدله للتسليم الجزئي')}</p>
+                {overView && <p className="text-[11px] text-[#B8431F] mt-1">{tr('المبلغ يتجاوز رصيد هذا العرض فيصير سالبا')}</p>}
               </div>
 
               <div>
@@ -795,6 +868,9 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
                           <span className="text-[10px] bg-[#F1EBDF] text-[#6E6557] px-1.5 py-0.5 rounded-full whitespace-nowrap">
                             {methodLabel(s.method)}
                           </span>
+                          {s.team?.name && (
+                            <span className="text-[10px] bg-[#FDECE6] text-[#B8431F] px-1.5 py-0.5 rounded-full whitespace-nowrap">{s.team.name}</span>
+                          )}
                           {rowPhotos.length > 0 && (
                             <button type="button" onClick={() => setViewPhotos(rowPhotos)}
                               title={tr('مرفقات')} aria-label={tr('مرفقات')}
@@ -870,7 +946,7 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
 
         <div className="flex gap-3 p-5 border-t border-[#E9E1D3]">
           <button onClick={() => settle.mutate()}
-            disabled={settle.isPending || isLoading || !(Number(amount) > 0)}
+            disabled={settle.isPending || isLoading || needsTeam || teamsSeen === null || !filled || !(Number(amount) > 0)}
             className="btn-primary flex-1 justify-center py-2.5 disabled:opacity-60">
             {settle.isPending ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Banknote size={16} />}
             {tr('تسجيل الاستلام')}

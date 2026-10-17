@@ -3,7 +3,7 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { resolveDocTeam, supervisorViewerOf, teamMembershipSelectFor } from '../services/teams';
 import { authenticate, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
-import { scopedRecordWhere, canAccessRep, existingInScope, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
+import { scopedRecordWhere, canAccessRep, existingInScope, SHAPE_INVOICE_RECEIPT, teamSupervisorIdOf, composeTeamCustodyWhere } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta, generateReceiptNumber, withNumberRetry } from '../utils/helpers';
 import { postReceiptEntries, reverseReceiptEntries, clean } from '../services/accounting';
@@ -130,7 +130,8 @@ router.get('/collection-balance', async (req: AuthRequest, res: Response, next: 
     }
     const [collected, settled] = await Promise.all([
       prisma.receipt.aggregate({ where: { tenantId: tid, salesRepId: repId, status: 'ACTIVE', ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) }, _sum: { amount: true } }),
-      prisma.repSettlement.aggregate({ where: { tenantId: tid, salesRepId: repId }, _sum: { amount: true } }),
+      // «الفرق»: سندات مشرف الفريق موسومةٌ بفرقه (scopedRecordWhere) — فاستلاماته كذلك، وإلا نقص الرصيد بما سلّمه فريقٌ آخر
+      prisma.repSettlement.aggregate({ where: { tenantId: tid, salesRepId: repId, ...(isSalesRep ? {} : composeTeamCustodyWhere(await teamSupervisorIdOf(req))) }, _sum: { amount: true } }),
     ]);
     const c = collected._sum.amount ?? 0;
     const s = settled._sum.amount ?? 0;

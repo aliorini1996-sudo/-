@@ -177,5 +177,5 @@ test('حارس ثابت: مسار الكشف يستعمل statementEntryDateFilt
   assert.match(body, /aggregate\(\{[\s\S]*?entryDate: \{ lt: range\.openingBefore \}/);
   assert.doesNotMatch(body, /new Date\(from as string\)/);
   assert.doesNotMatch(body, /setHours\(/);
-  assert.match(body, /closingBalance, timezone \}/);
+  assert.match(body, /closingBalance, timezone(, teamScoped: sup !== null)? \}/);
 });

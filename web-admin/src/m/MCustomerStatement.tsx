@@ -31,6 +31,8 @@ interface StatementData {
   entries: AccountEntry[];
   openingBalance: number;
   closingBalance: number;
+  /** «الفرق»: كشف مشرف فريق — قيود فرقه وحدها */
+  teamScoped?: boolean;
 }
 
 /**
@@ -99,6 +101,7 @@ export default function MCustomerStatement({ customer, company, repName, onClose
           range={{
             from: from || undefined, to: to || undefined,
             openingBalance: q.data.openingBalance, closingBalance: q.data.closingBalance,
+            teamScoped: q.data.teamScoped === true,
           }}
           onClose={() => setPdf(false)} />
       </Suspense>
@@ -145,6 +148,11 @@ export default function MCustomerStatement({ customer, company, repName, onClose
           : !q.data ? null
           : (
             <>
+              {q.data.teamScoped && (
+                <p className="text-[11px] text-[#8A5A00] bg-[#FFF6E5] border border-[#F3D9A4] rounded-xl px-3 py-2">
+                  {tr('كشف فريقك فقط لا يشمل فواتير الفرق الأخرى وسنداتها ولا التسويات اليدوية')}
+                </p>
+              )}
               {/* الرصيد المرحَّل: يُعرض حين تُحدَّد بداية — ما قبلها لا يُطوى بصمت */}
               {from && (
                 <div className="flex items-center justify-between gap-2 rounded-xl bg-[#F1EBDF] px-3 py-2.5">
