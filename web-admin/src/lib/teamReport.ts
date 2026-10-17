@@ -38,3 +38,23 @@ export function splitSheetsByTeam(sheets: ExcelSheet[], teamCol: string): ExcelS
   }
   return out;
 }
+
+/** الفريق كما تردّه قائمة الفرق (GET /company/teams) — حالته وأعضاؤه */
+export interface TeamMembers { id: string; isActive: boolean; members: { salesRepId: string }[] }
+
+/**
+ * مناديب الفريق المختار في تتبّع المناديب (طلب المالك ١٧ أكتوبر ٢٠٢٦) — بعضويتهم الحالية: '' الجميع، و'none' من ليس عضواً
+ * في فريقٍ فعّال، أو أعضاء الفريق المختار. فلترُ عرضٍ لا نطاق: الخادم يقيّد المشرف بفرقه أصلاً. وفريقٌ لم يعد في القائمة
+ * (حُذف) لا يُفرغ الخريطة — تُعرض القائمة كاملة حتى تُعيد الصفحة الفلتر.
+ */
+export function repsOfTeam<T extends { id: string }>(reps: T[], teams: TeamMembers[], filter: string): T[] {
+  if (!filter) return reps;
+  if (filter === 'none') {
+    const inTeam = new Set(teams.filter((t) => t.isActive).flatMap((t) => t.members.map((m) => m.salesRepId)));
+    return reps.filter((r) => !inTeam.has(r.id));
+  }
+  const team = teams.find((t) => t.id === filter);
+  if (!team) return reps;
+  const ids = new Set(team.members.map((m) => m.salesRepId));
+  return reps.filter((r) => ids.has(r.id));
+}

@@ -32,7 +32,8 @@ test('الخطّة تدخل إطار الخريطة', () => {
   const i = s.indexOf('const focusPoints');
   const block = s.slice(i, i + 700);
   assert.match(block, /\.\.\.planLatLng/, 'نقاط الخطّة يجب أن تدخل حساب الإطار');
-  assert.match(block, /planLatLng, reps\]/, 'التبعيّة مفقودة فلا يُعاد الحساب');
+  // shownReps: المناديب بعد فلتر الفريق — تأطير الخريطة بما يُعرض
+  assert.match(block, /planLatLng, (reps|shownReps)\]/, 'التبعيّة مفقودة فلا يُعاد الحساب');
 });
 
 test('الخطّة تتحدّث مع بقيّة الخريطة', () => {

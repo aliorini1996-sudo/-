@@ -4,7 +4,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { trackingApi, visitsApi, customerApi } from '../api/client';
+import { trackingApi, visitsApi, customerApi, teamsApi } from '../api/client';
+import { repsOfTeam, type TeamMembers } from '../lib/teamReport';
 import { useTr } from '../i18n/strings';
 import { repRouteApi } from '../api/client';
 import RepRoutesModal from './RepRoutesPage';
@@ -253,6 +254,22 @@ export default function TrackingPage() {
   });
 
   const reps = liveQ.data || [];
+  /* «فرق العمل»: فلتر الفريق ('' كل الفرق، 'none' بلا فريق، أو معرّف) — يظهر حين فعّلت الشركة الفرق ولها فرقٌ فعّالة. فلترُ
+   * عرضٍ بعضوية المندوب الحالية (repsOfTeam) يطال القائمة والدبابيس وتأطير الخريطة؛ والنطاق يفرضه الخادم (المشرف بفرقه) */
+  const teamsSettingsQ = useQuery({ queryKey: ['teams-settings'], queryFn: async () => (await teamsApi.settings()).data.data as { enabled: boolean } });
+  const teamsQ = useQuery({
+    queryKey: ['teams'], queryFn: async () => (await teamsApi.list()).data.data as (TeamMembers & { name: string })[],
+    enabled: teamsSettingsQ.data?.enabled === true,
+  });
+  const activeTeams = useMemo(() => (teamsQ.data ?? []).filter(t => t.isActive), [teamsQ.data]);
+  const teamsOn = teamsSettingsQ.data?.enabled === true && activeTeams.length > 0;
+  const [teamFilterState, setTeamFilter] = useState('');
+  const teamFilter = teamsOn && (teamFilterState === 'none' || activeTeams.some(t => t.id === teamFilterState)) ? teamFilterState : '';
+  const shownReps = useMemo(() => repsOfTeam(reps, teamsQ.data ?? [], teamFilter), [reps, teamsQ.data, teamFilter]);
+  // المندوب المحدّد خارج الفريق المختار يُلغى تحديده — وإلا بقي خطّ سيره على خريطة فريقٍ آخر
+  useEffect(() => {
+    if (selected && teamFilter && !shownReps.some(r => r.id === selected)) setSelected('');
+  }, [teamFilter, shownReps, selected]);
   const route = routeQ.data?.points || [];
   const snapped = routeQ.data?.snapped || null;
   const checkIn = routeQ.data?.checkIn || null;
@@ -305,8 +322,8 @@ export default function TrackingPage() {
       const pts = [...rawLatLng, ...visitPins.map(v => [v.lat!, v.lng!] as [number, number]), ...punchPts, ...planLatLng];
       if (pts.length) return pts;
     }
-    return reps.filter(r => r.lastLat != null && r.lastLng != null).map(r => [r.lastLat!, r.lastLng!] as [number, number]);
-  }, [selected, rawLatLng, visitPins, punchPts, planLatLng, reps]);
+    return shownReps.filter(r => r.lastLat != null && r.lastLng != null).map(r => [r.lastLat!, r.lastLng!] as [number, number]);
+  }, [selected, rawLatLng, visitPins, punchPts, planLatLng, shownReps]);
 
   const selectedRep = reps.find(r => r.id === selected);
 
@@ -342,13 +359,25 @@ export default function TrackingPage() {
           {/* قائمة المناديب */}
           <div className="card p-0 overflow-hidden">
             <div className="px-4 py-3 border-b border-[#F1EBDF] font-bold text-[#1F1A13] text-sm flex items-center justify-between">
-              <span>{tr('المناديب')} ({reps.length})</span>
+              <span>{tr('المناديب')} ({shownReps.length})</span>
               {selected && <button onClick={() => setSelected('')} className="text-xs text-[#E15A30] font-semibold">{tr('إلغاء التحديد')}</button>}
             </div>
+            {teamsOn && (
+              <div className="px-4 py-2.5 border-b border-[#F1EBDF]">
+                <select className="input py-1.5 text-sm" value={teamFilter} onChange={e => setTeamFilter(e.target.value)}
+                  aria-label={tr('تصفية حسب الفريق')} title={tr('تصفية حسب الفريق')}>
+                  <option value="">{tr('كل الفرق')}</option>
+                  {activeTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  <option value="none">{tr('بلا فريق')}</option>
+                </select>
+              </div>
+            )}
             <div className="max-h-[340px] overflow-y-auto">
               {reps.length === 0 ? (
                 <p className="text-center text-gray-400 text-sm py-10 px-4">{tr('لا توجد مواقع بعد سجل المناديب دخولهم وفعلوا الموقع لتظهر هنا')}</p>
-              ) : reps.map(r => {
+              ) : shownReps.length === 0 ? (
+                <p className="text-center text-gray-400 text-sm py-10 px-4">{tr('لا مناديب في هذا الفريق')}</p>
+              ) : shownReps.map(r => {
                 const on = isOnline(r.lastSeenAt);
                 const located = r.lastSeenAt != null;
                 return (
@@ -538,7 +567,7 @@ export default function TrackingPage() {
                 <FlyTo target={focusVisit?.at ?? null} />
 
                 {/* علامات المواقع الحيّة (لمن لهم موقع فقط؛ تُخفى عند تحديد مندوب) */}
-                {!selected && reps.filter(r => r.lastLat != null && r.lastLng != null).map(r => (
+                {!selected && shownReps.filter(r => r.lastLat != null && r.lastLng != null).map(r => (
                   <Marker key={r.id} position={[r.lastLat!, r.lastLng!]} icon={repIcon(isOnline(r.lastSeenAt), r.name.charAt(0))}>
                     <Popup>
                       <div style={{ direction: 'rtl', minWidth: 140 }}>

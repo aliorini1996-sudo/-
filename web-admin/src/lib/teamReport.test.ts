@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { splitSheetsByTeam } from './teamReport';
+import { repsOfTeam, splitSheetsByTeam } from './teamReport';
 
 const T = 'الفريق';
 
@@ -24,4 +24,18 @@ test('اسم الورقة: منقّى من محارف Excel الممنوعة، �
     assert.ok(!/[\\/?*[\]:]/.test(s.name), s.name);
   }
   assert.equal(new Set(out.map((s) => s.name)).size, 2, 'اسمان متطابقان بعد القصّ');
+});
+
+test('تتبّع المناديب: فلتر الفريق بعضوية المندوب — الجميع، وأعضاء الفريق، و«بلا فريق» خارج الفرق الفعّالة', () => {
+  const reps = [{ id: 'r1' }, { id: 'r2' }, { id: 'r3' }, { id: 'r4' }];
+  const teams = [
+    { id: 'A', isActive: true, members: [{ salesRepId: 'r1' }, { salesRepId: 'r2' }] },
+    { id: 'B', isActive: true, members: [{ salesRepId: 'r2' }] },
+    { id: 'X', isActive: false, members: [{ salesRepId: 'r3' }] },
+  ];
+  assert.deepEqual(repsOfTeam(reps, teams, ''), reps);
+  assert.deepEqual(repsOfTeam(reps, teams, 'A').map((r) => r.id), ['r1', 'r2']);
+  assert.deepEqual(repsOfTeam(reps, teams, 'B').map((r) => r.id), ['r2'], 'المندوب في فريقين يظهر في كليهما');
+  assert.deepEqual(repsOfTeam(reps, teams, 'none').map((r) => r.id), ['r3', 'r4'], 'عضو الفريق المؤرشف وحده بلا فريق');
+  assert.deepEqual(repsOfTeam(reps, teams, 'gone'), reps, 'فريقٌ حُذف لا يُفرغ الخريطة');
 });

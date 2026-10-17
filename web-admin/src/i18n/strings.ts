@@ -728,6 +728,8 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'يرى مناديب فرقه وما سجل لها وكل العملاء وتعديل القوائم أدناه يحوله إلى قوائم يدوية': { en: 'Sees their teams’ reps, what is recorded for them, and all customers. Editing the lists below switches them to manual lists', fr: 'Voit les commerciaux de ses équipes, ce qui leur est enregistré et tous les clients. Modifier les listes ci-dessous le passe en listes manuelles', tr: 'Ekiplerinin temsilcilerini, onlar için kaydedilenleri ve tüm müşterileri görür. Aşağıdaki listeleri düzenlemek onu manuel listelere geçirir', zh: '可查看其团队的销售代表、为团队记录的内容以及所有客户。编辑下方列表会将其切换为手动列表' },
   'الفريق': { en: 'Team', fr: 'Équipe', tr: 'Ekip', zh: '团队' },
   'بلا فريق': { en: 'No team', fr: 'Sans équipe', tr: 'Ekipsiz', zh: '无团队' },
+  'تصفية حسب الفريق': { en: 'Filter by team', fr: 'Filtrer par équipe', tr: 'Ekibe göre filtrele', zh: '按团队筛选' },
+  'لا مناديب في هذا الفريق': { en: 'No reps in this team', fr: 'Aucun représentant dans cette équipe', tr: 'Bu ekipte temsilci yok', zh: '该团队没有业务员' },
   'كل الفرق': { en: 'All teams', fr: 'Toutes les équipes', tr: 'Tüm ekipler', zh: '所有团队' },
   'ورقة لكل فريق': { en: 'Sheet per team', fr: 'Une feuille par équipe', tr: 'Ekip başına sayfa', zh: '每个团队一个工作表' },
   'أوراق المستندات تقسم ورقة لكل فريق': { en: 'Document sheets are split into one sheet per team', fr: 'Les feuilles de documents sont divisées en une feuille par équipe', tr: 'Belge sayfaları ekip başına bir sayfaya bölünür', zh: '单据工作表按团队拆分为单独的工作表' },
