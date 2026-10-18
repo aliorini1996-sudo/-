@@ -477,6 +477,8 @@ export const vanStockApi = {
 export const warehouseApi = {
   stock: () => api.get('/warehouse'),
   entries: () => api.get('/warehouse/entries'),
+  // ما في مخزون السيارات الآن وقيمته بتكلفة الشراء (سيارات نطاق المستخدم)
+  vans: () => api.get('/warehouse/vans'),
   createEntry: (data: {
     type?: string; note?: string; supplier?: string;
     costsIncludeTax?: boolean;                                  // هل الأسعار المكتوبة شاملة الضريبة

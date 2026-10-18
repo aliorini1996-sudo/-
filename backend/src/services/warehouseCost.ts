@@ -187,7 +187,7 @@ const avgOf = (s: CostState) => (s.costedQty > EPS ? s.costedValue / s.costedQty
  * `uncostedQty` هو جزء الحمولة الذي خرج من الدلو غير المقيَّم فيعود إليه لا إلى
  * الدلو المقيَّم — وإلّا لاختلق التقييمُ قيمةً لبضاعةٍ لم تُعرف كلفتها قطّ.
  */
-interface VanLayer {
+export interface VanLayer {
   costedQty: number;
   unitCost: number;
   uncostedQty: number;
@@ -265,7 +265,12 @@ function addAtAvg(s: CostState, qty: number): void {
  *   وفي العملات بلا كسور (الدينار العراقيّ) يمنع التقريبَ مرّتين: ٠٫٤٩٥ كانت تصير
  *   ٠٫٥٠ ثمّ ديناراً كاملاً، وصوابها صفر.
  */
-export function valueStock(moves: CostMove[], decimals: number = DEFAULT_CURRENCY_DECIMALS): Valuation {
+export function valueStock(
+  moves: CostMove[],
+  decimals: number = DEFAULT_CURRENCY_DECIMALS,
+  /** يُملأ بطبقات كل سيارة بعد آخر حركة (مفتاحها vanId أو '') — لتقييم ما في السيارات (valueVanQty) */
+  out?: { vanLayers?: Map<string, VanLayer[]> },
+): Valuation {
   const s: CostState = { costedQty: 0, costedValue: 0, uncostedQty: 0 };
   // متوسّط آخر رصيدٍ قائم — يُقيَّد به المكشوف حين يفرغ المستودع
   let lastAvg = 0;
@@ -374,6 +379,7 @@ export function valueStock(moves: CostMove[], decimals: number = DEFAULT_CURRENC
 
   // متوسّط الوحدة يبقى بخانات التكلفة الأربع لا بخانات العملة — أوسع عمداً
   // (انظر COST_DECIMALS)، والكمّيات بأربع خانات لأنّها كمّيات لا مبالغ.
+  if (out) out.vanLayers = stacks;
   const avgCost = roundDecimal(avgOf(s), COST_DECIMALS);
   return {
     avgCost,
@@ -381,4 +387,35 @@ export function valueStock(moves: CostMove[], decimals: number = DEFAULT_CURRENC
     costedQty: roundDecimal(s.costedQty, 4),
     uncostedQty: roundDecimal(Math.max(0, s.uncostedQty), 4),
   };
+}
+
+/**
+ * قيمة كمّيةٍ في سيارة بكلفة خروجها من المستودع (طلب المالك ١٨ أكتوبر ٢٠٢٦: بطاقة «في مخزون السيارات»).
+ *
+ * من **أحدث** طبقات تحميلها نزولاً: الطبقات لا ينقصها البيع (لا يعود إلى المستودع)، والمباعُ أقدمُ ما حُمّل — فما بقي في
+ * السيارة آخرُ ما حُمّل إليها. والطبقة بنسبة دلويها كما خرجت (المقيَّم بكلفته، وغير المقيَّم خارج القيمة). وما زاد على
+ * طبقاتها (مرتجعٌ من عميل، أو بضاعةٌ سبقت النظام) بمتوسّط المستودع إن عُرف، وإلا خارج التقييم صراحةً.
+ */
+export function valueVanQty(
+  layers: readonly VanLayer[] | undefined, qty: number, fallbackUnitCost: number,
+): { value: number; costedQty: number; uncostedQty: number } {
+  let left = Number.isFinite(qty) && qty > 0 ? qty : 0;
+  let value = 0, costedQty = 0, uncostedQty = 0;
+  const ls = layers ?? [];
+  for (let i = ls.length - 1; i >= 0 && left > EPS; i--) {
+    const l = ls[i];
+    const avail = l.costedQty + l.uncostedQty;
+    if (avail <= EPS) continue;
+    const take = Math.min(left, avail);
+    const fromCosted = take * (l.costedQty / avail);
+    costedQty += fromCosted;
+    value += fromCosted * l.unitCost;
+    uncostedQty += take - fromCosted;
+    left -= take;
+  }
+  if (left > EPS) {
+    if (fallbackUnitCost > 0) { costedQty += left; value += left * fallbackUnitCost; }
+    else uncostedQty += left;
+  }
+  return { value, costedQty, uncostedQty };
 }

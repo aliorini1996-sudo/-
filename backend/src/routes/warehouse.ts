@@ -7,7 +7,10 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
-import { computeWarehouseStock, tenantCurrencyDecimals } from '../services/warehouseStock';
+import { computeWarehouseStock, tenantCurrencyDecimals, loadWarehouseInputs, composeWarehouse, summarizeVansStock } from '../services/warehouseStock';
+import type { VanLayer } from '../services/warehouseCost';
+import { foldStock, bucketRemaining, type LoadRow, type InvRow } from './vanStock';
+import { adminRepFilter } from '../services/adminScope';
 import { netUnitCost, entryTotalCost, lineCost } from '../services/warehouseCost';
 
 const router = Router();
@@ -52,6 +55,63 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     // شركةٌ بالدينار كانت ترى قيمة كل صنفٍ مقرَّبةً إلى خانتين (٠٫٣٧ بدل ٠٫٣٧١).
     const dec = await tenantCurrencyDecimals(tid);
     res.json({ success: true, data: await computeWarehouseStock(tid, dec) });
+  } catch (err) { next(err); }
+});
+
+/**
+ * ما في مخزون السيارات الآن وقيمته بتكلفة الشراء (طلب المالك ١٨ أكتوبر ٢٠٢٦) — بطاقةٌ بجانب قيمة المستودع.
+ * الرصيد بطيّ حركات كل سيارة كمسار مخزون السيارات (foldStock)، والقيمة بكلفة خروجه من المستودع (summarizeVansStock).
+ * سيارات نطاق المستخدم وحدها (المشرف مناديب فرقه). استعلاماتٌ مجمَّعة للشركة لا حلقة استعلامٍ لكل مندوب.
+ */
+router.get('/vans', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const [dec, inputs, reps] = await Promise.all([
+      tenantCurrencyDecimals(tid),
+      loadWarehouseInputs(tid, { includeInactive: true }),
+      prisma.salesRep.findMany({ where: { tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true } }),
+    ]);
+    const repIds = reps.map((r) => r.id);
+    const invItems = repIds.length ? await prisma.invoiceItem.findMany({
+      where: { invoice: { tenantId: tid, status: 'CONFIRMED', salesRepId: { in: repIds } } },
+      select: {
+        productId: true, qty: true, returnExpired: true,
+        invoice: { select: { salesRepId: true, type: true, returnToStock: true, invoiceDate: true, returnReason: true, createdAt: true } },
+      },
+    }) : [];
+
+    const layers = new Map<string, Map<string, VanLayer[]>>();
+    const rows = composeWarehouse(inputs.products, inputs.whItems, inputs.vanItems, dec, layers);
+    const avgCost = new Map(rows.map((r) => [r.productId, r.avgCost]));
+
+    const repSet = new Set(repIds);
+    const loadsByRep = new Map<string, LoadRow[]>();
+    for (const v of inputs.vanItems) {
+      if (!v.salesRepId || !repSet.has(v.salesRepId)) continue;
+      const list = loadsByRep.get(v.salesRepId) ?? [];
+      list.push({ productId: v.productId, qty: v.qty, vanLoad: { type: v.type, createdAt: v.at } });
+      loadsByRep.set(v.salesRepId, list);
+    }
+    const invByRep = new Map<string, InvRow[]>();
+    for (const it of invItems) {
+      const rid = it.invoice.salesRepId;
+      if (!rid) continue;
+      const list = invByRep.get(rid) ?? [];
+      list.push(it);
+      invByRep.set(rid, list);
+    }
+    const perRep = repIds.map((repId) => {
+      const { bal } = foldStock(loadsByRep.get(repId) ?? [], invByRep.get(repId) ?? []);
+      return {
+        repId,
+        products: [...bal].map(([productId, b]) => ({
+          productId,
+          remaining: bucketRemaining(b),
+          unsellable: Math.max(0, b.damagedIn - b.damagedOut) + Math.max(0, b.expiredIn - b.expiredOut),
+        })),
+      };
+    });
+    res.json({ success: true, data: summarizeVansStock(perRep, layers, avgCost, dec) });
   } catch (err) { next(err); }
 });
 

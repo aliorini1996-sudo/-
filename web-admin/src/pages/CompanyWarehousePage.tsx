@@ -1,10 +1,11 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { warehouseApi, productApi, companyApi, repStockRequestApi } from '../api/client';
 import { formatDate, formatCurrency } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import SearchableSelect from '../components/SearchableSelect';
-import { Warehouse, PackagePlus, X, Trash2, TrendingUp, TrendingDown, AlertTriangle, Calendar, ArrowRightLeft, Wallet, Info, FileDown, ClipboardList } from 'lucide-react';
+import { Warehouse, PackagePlus, X, Trash2, TrendingUp, TrendingDown, AlertTriangle, Calendar, ArrowRightLeft, Wallet, Info, FileDown, ClipboardList, Truck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
 import DocumentModal from '../components/DocumentModal';
@@ -28,6 +29,9 @@ interface WhEntry {
 }
 
 const fmtQty = (n: number) => Number(n.toFixed(2)).toLocaleString('en-US');
+
+/** ما في مخزون السيارات الآن (GET /warehouse/vans) — الرصيد المتاح وقيمته بكلفة خروجه من المستودع */
+interface VansStock { qty: number; value: number; uncostedQty: number; unsellableQty: number; reps: number; products: number }
 
 // مخزون الشركة (المستودع المركزيّ) — مرتبطٌ بمخزون السيارات:
 // التحميل يخرج من المستودع، والتنزيل يعود إليه، والوارد يزيده.
@@ -54,6 +58,13 @@ export default function CompanyWarehousePage() {
     queryFn: async () => (await warehouseApi.stock()).data.data as WhRow[],
     enabled: accountingReady && accountingOn,
   });
+  // بطاقة «في مخزون السيارات» بجانب قيمة المستودع (طلب المالك ١٨ أكتوبر ٢٠٢٦)
+  const vansQ = useQuery({
+    queryKey: ['warehouse-vans'],
+    queryFn: async () => (await warehouseApi.vans()).data.data as VansStock,
+    enabled: accountingReady && accountingOn,
+  });
+  const vans = vansQ.data;
   const entriesQ = useQuery({
     queryKey: ['warehouse-entries'],
     queryFn: async () => (await warehouseApi.entries()).data.data as WhEntry[],
@@ -111,6 +122,26 @@ export default function CompanyWarehousePage() {
               <Info size={13} className="shrink-0 text-amber-600" />
               {uncostedRows} {tr('صنفا فيه كمية بلا تكلفة معروفة وهي خارج هذه القيمة سجل سعر الوحدة عند الاستلام ليكتمل التقييم')}
             </p>
+          )}
+          {/* ما في مخزون السيارات: الكمية المتاحة للبيع وقيمتها بكلفة خروجها من المستودع — رابطٌ إلى مخزون السيارات */}
+          {vans && (
+            <Link to="/app/van-stock" title={tr('مخزون السيارات')}
+              className="flex items-center gap-3 rounded-xl border border-[#F1EBDF] bg-[#FAF7F0] px-4 py-2.5 hover:border-[#E15A30]/40 transition-colors">
+              <span className="w-10 h-10 rounded-xl bg-[#FBEBE2] text-[#E15A30] flex items-center justify-center"><Truck size={20} /></span>
+              <div>
+                <p className="text-xs text-[#9A8F7E]">{tr('في مخزون السيارات')}</p>
+                <p className="text-lg font-extrabold text-[#1F1A13] leading-tight">
+                  {fmtQty(vans.qty)} <span className="text-xs font-semibold text-[#6E6557]">{tr('وحدة')}</span>
+                  <span className="text-[#C9BFAE] mx-1.5">·</span>
+                  {formatCurrency(vans.value)}
+                </p>
+                <p className="text-[11px] text-[#9A8F7E]">
+                  {vans.reps} {tr('سيارة')} · {vans.products} {tr('صنف')}
+                  {vans.uncostedQty > 0 && <> · {fmtQty(vans.uncostedQty)} {tr('بلا تكلفة معروفة خارج القيمة')}</>}
+                  {vans.unsellableQty > 0 && <> · {fmtQty(vans.unsellableQty)} {tr('تالف أو منتهي لا يباع')}</>}
+                </p>
+              </div>
+            </Link>
           )}
         </div>
       )}
@@ -290,7 +321,7 @@ function WarehouseEntryModal({ onClose }: { onClose: () => void }) {
       });
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['warehouse-stock'] });
+      qc.invalidateQueries({ queryKey: ['warehouse-stock'] }); qc.invalidateQueries({ queryKey: ['warehouse-vans'] });
       qc.invalidateQueries({ queryKey: ['warehouse-entries'] });
       toast.success(tr('تم حفظ الحركة'));
       onClose();

@@ -155,6 +155,9 @@ export function foldStock(loadItems: LoadRow[], invItems: InvRow[], from?: Date)
 
 const rangeEnd = (to?: string) => (to ? new Date(new Date(to).setHours(23, 59, 59, 999)) : undefined);
 
+/** المتاح للبيع في السيارة من رصيد صنف: المحمّل − المنزَّل + التسوية − المُباع + المُرتجع (التالف والمنتهي خارجه) */
+export const bucketRemaining = (b: StockBucket) => roundDecimal(b.loaded - b.unloaded + b.adjusted - b.sold + b.returned, 4);
+
 // يحسب مخزون سيارة مندوب لكل منتج: المتبقي = المحمّل − المنزَّل + التسوية − المُباع + المُرتجع
 export async function computeStock(tid: string, salesRepId: string, range?: StockRange): Promise<StockRow[]> {
   const from = range?.from ? new Date(range.from) : undefined;
@@ -189,7 +192,7 @@ export async function computeStock(tid: string, salesRepId: string, range?: Stoc
     if (!p) continue;
     const m = acc.get(pid) ?? blankBucket();
     // تقريب 4 خانات يمحو غبار سلسلة الجمع (3×0.1−0.3 = 5.55e-17 صف شبحي يتصدر الفرز)
-    const remaining = roundDecimal(b.loaded - b.unloaded + b.adjusted - b.sold + b.returned, 4);
+    const remaining = bucketRemaining(b);
     const expired = roundDecimal(b.expiredIn - b.expiredOut, 4);
     const damaged = roundDecimal(b.damagedIn - b.damagedOut, 4);
     rows.push({ productId: pid, name: p.name, code: p.code, unit: p.unit, ...m, remaining, expired, damaged });

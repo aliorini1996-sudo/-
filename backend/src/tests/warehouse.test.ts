@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { composeWarehouse } from '../services/warehouseStock';
-import { netUnitCost, lineCost, entryTotalCost, valueStock } from '../services/warehouseCost';
+import { composeWarehouse, summarizeVansStock } from '../services/warehouseStock';
+import { netUnitCost, lineCost, entryTotalCost, valueStock, valueVanQty, type VanLayer } from '../services/warehouseCost';
 
 /** قراءة مصدرٍ للحراس الثابتة (البند 40) — بسطورٍ موحَّدة فلا يفرّقها ويندوز */
 const read = (rel: string) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8').replace(/\r\n/g, '\n');
@@ -427,23 +427,23 @@ test('البند 40: المثال المعلن في المراجعة — ٠٫٣�
 test('البند 40: حارسٌ ثابت — لا مستدعيَ إنتاجيّاً يعود ينادي التقييم بلا خانات', () => {
   const stock = read('services/warehouseStock.ts');
   // المحرّك: `valueStock` يأخذ خانات `composeWarehouse` لا افتراضَها
-  assert.match(stock, /const val = valueStock\(mv, decimals\);/, 'composeWarehouse يمرّر خاناته إلى valueStock');
+  assert.match(stock, /const val = valueStock\(mv, decimals(, out)?\);/, 'composeWarehouse يمرّر خاناته إلى valueStock');
   assert.match(stock, /decimals: number = DEFAULT_CURRENCY_DECIMALS,/, 'المعامل اختياريّ بافتراض خانتين');
   // الغلاف: خانات الشركة من مصدرها الحقيقيّ، ومرّةً واحدة
   assert.match(stock, /import \{ currencyDecimalsOf \} from '\.\.\/config\/countries';/);
   assert.match(stock, /export async function tenantCurrencyDecimals\(tid: string\): Promise<number>/);
   assert.match(stock, /decimals \?\? tenantCurrencyDecimals\(tid\)/, '?? لا || — صفر خانات عملةٌ صحيحة');
-  assert.match(stock, /at: i\.vanLoad\.createdAt \}\)\),\n\s*dec,\n\s*\);/, 'غلاف القاعدة يمرّر dec رابعةً لا يكتفي بثلاث وسائط');
+  assert.match(stock, /return composeWarehouse\(products, whItems, vanItems, dec\);/, 'غلاف القاعدة يمرّر dec رابعةً لا يكتفي بثلاث وسائط');
 
   // المسار: قراءةٌ واحدة لكل طلب، وتمريرٌ إلى الأسطر والإجمالي معاً
   const route = read('routes/warehouse.ts');
-  assert.match(route, /import \{ computeWarehouseStock, tenantCurrencyDecimals \} from '\.\.\/services\/warehouseStock';/);
+  assert.match(route, /import \{ computeWarehouseStock, tenantCurrencyDecimals[^}]*\} from '\.\.\/services\/warehouseStock';/);
   assert.match(route, /computeWarehouseStock\(tid, dec\)/);
   assert.match(route, /lineCost\(i\.qty, i\.unitCost, dec\)/);
   assert.match(route, /entryTotalCost\(e\.items, dec\)/);
   assert.equal(
-    (route.match(/tenantCurrencyDecimals\(tid\)/g) || []).length, 2,
-    'نداءٌ واحد لكل مسار من المسارين — لا داخل حلقة',
+    (route.match(/tenantCurrencyDecimals\(tid\)/g) || []).length, 3,
+    'نداءٌ واحد لكل مسار من المسارات الثلاثة (الرصيد والحركات وما في السيارات) — لا داخل حلقة',
   );
 
   // القيد الافتتاحيّ: خانات الدفاتر نفسها التي يقرأ بها toMilli
@@ -669,4 +669,54 @@ test('تسلسلٌ طويل قبل أوّل وارد: كلّ رصيدٍ مقسو
     assert.ok(r.avgCost >= Math.min(...prices[r.code]) && r.avgCost <= Math.max(...prices[r.code]),
       `${r.code}: متوسّط ${r.avgCost} خارج أسعار الشراء`);
   }
+});
+
+// ═══ بطاقة «في مخزون السيارات» (طلب المالك ١٨ أكتوبر ٢٠٢٦): ما في السيارات بكلفة خروجه ═══
+
+test('قيمة ما في السيارة من أحدث طبقات تحميلها نزولاً — المباعُ أقدمُه', () => {
+  const layers = [{ costedQty: 10, unitCost: 5, uncostedQty: 0 }, { costedQty: 10, unitCost: 8, uncostedQty: 0 }];
+  assert.deepEqual(valueVanQty(layers, 15, 0), { value: 105, costedQty: 15, uncostedQty: 0 }, '١٠ بثمانية ثم ٥ بخمسة');
+  assert.deepEqual(valueVanQty(layers, 0, 9), { value: 0, costedQty: 0, uncostedQty: 0 });
+  assert.deepEqual(valueVanQty(layers, -4, 9), { value: 0, costedQty: 0, uncostedQty: 0 }, 'رصيدٌ سالب ليس بضاعة');
+});
+
+test('طبقةٌ مختلطة تُؤخذ بنسبة دلويها، والزائد على الطبقات بمتوسّط المستودع وإلا خارج التقييم', () => {
+  assert.deepEqual(valueVanQty([{ costedQty: 6, unitCost: 10, uncostedQty: 4 }], 5, 0), { value: 30, costedQty: 3, uncostedQty: 2 });
+  assert.deepEqual(valueVanQty([{ costedQty: 10, unitCost: 5, uncostedQty: 0 }], 12, 7), { value: 64, costedQty: 12, uncostedQty: 0 }, 'مرتجع عميل بمتوسّط المستودع');
+  assert.deepEqual(valueVanQty([{ costedQty: 10, unitCost: 5, uncostedQty: 0 }], 12, 0), { value: 50, costedQty: 10, uncostedQty: 2 }, 'لا متوسّط: خارج التقييم صراحةً');
+  assert.deepEqual(valueVanQty(undefined, 3, 4), { value: 12, costedQty: 3, uncostedQty: 0 }, 'سيارةٌ بلا طبقات');
+});
+
+test('من حركات المستودع إلى قيمة ما في السيارات: التحميل بمتوسّط لحظته، والمتبقّي من أحدث تحميل، ولكل سيارة طبقاتها', () => {
+  const layers = new Map<string, Map<string, VanLayer[]>>();
+  const rows = composeWarehouse(P, [
+    { productId: 'a', qty: 100, type: 'RECEIVE', unitCost: 10, at: 1 },
+    { productId: 'a', qty: 100, type: 'RECEIVE', unitCost: 20, at: 3 },
+  ], [
+    { productId: 'a', qty: 50, type: 'LOAD', salesRepId: 'A', at: 2 },  // ٥٠ بعشرة
+    { productId: 'a', qty: 60, type: 'LOAD', salesRepId: 'A', at: 4 },  // المتوسّط بعد شراء ١٠٠ بعشرين على ٥٠ بعشرة = ١٦٫٦٦٧
+    { productId: 'a', qty: 10, type: 'LOAD', salesRepId: 'B', at: 5 },
+  ], 2, layers);
+  const avg = new Map(rows.map((r) => [r.productId, r.avgCost]));
+  // باع A ثمانين: المتبقّي ثلاثون من آخر تحميل؛ وB لم يبع شيئاً، وصنف ب سالبٌ في A (بيعٌ بلا مخزون) فلا يُحسب
+  const s = summarizeVansStock([
+    { repId: 'A', products: [{ productId: 'a', remaining: 30, unsellable: 2 }, { productId: 'b', remaining: -5, unsellable: 0 }] },
+    { repId: 'B', products: [{ productId: 'a', remaining: 10, unsellable: 0 }] },
+    { repId: 'C', products: [] },
+  ], layers, avg, 2);
+  assert.equal(s.qty, 40);
+  assert.equal(s.value, Math.round((30 * (2500 / 150) + 10 * (2500 / 150)) * 100) / 100, 'كلفة خروج كل حمولة لا متوسّط اليوم');
+  assert.equal(s.uncostedQty, 0);
+  assert.equal(s.unsellableQty, 2, 'التالف والمنتهي يُذكران ولا يدخلان الرصيد');
+  assert.equal(s.reps, 2);
+  assert.equal(s.products, 1);
+});
+
+test('حارس نصّي: مسار ما في السيارات بنطاق المستخدم واستعلامات مجمَّعة، والمتاح بصيغة مخزون السيارات نفسها', () => {
+  const w = read('routes/warehouse.ts');
+  const v = w.slice(w.indexOf("router.get('/vans'"), w.indexOf('const entrySchema'));
+  assert.ok(v.includes('prisma.salesRep.findMany({ where: { tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true } })'), 'المشرف سيارات فرقه');
+  assert.ok(v.includes("status: 'CONFIRMED', salesRepId: { in: repIds }"), 'استعلامٌ واحد لكل الفواتير لا حلقة');
+  assert.ok(v.includes('remaining: bucketRemaining(b),'));
+  assert.ok(read('routes/vanStock.ts').includes('const remaining = bucketRemaining(b);'), 'صفحة مخزون السيارات والبطاقة بالصيغة نفسها');
 });

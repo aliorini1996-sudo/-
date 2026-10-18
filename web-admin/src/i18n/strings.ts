@@ -526,6 +526,10 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'الضريبة %': { en: 'Tax %', fr: 'TVA %', tr: 'Vergi %', zh: '增值税 %' },
   'صنف': { en: 'item', fr: 'article', tr: 'ürün', zh: '商品' },
   'الوحدات المباعة': { en: 'Units sold', fr: 'Unités vendues', tr: 'Satılan adet', zh: '已售数量' },
+  'في مخزون السيارات': { en: 'In van stock', fr: 'En stock des véhicules', tr: 'Araç stoğunda', zh: '车辆库存中' },
+  'سيارة': { en: 'vans', fr: 'véhicules', tr: 'araç', zh: '辆车' },
+  'بلا تكلفة معروفة خارج القيمة': { en: 'with no known cost, outside the value', fr: 'sans coût connu, hors valeur', tr: 'maliyeti bilinmiyor, değer dışında', zh: '成本未知，未计入价值' },
+  'تالف أو منتهي لا يباع': { en: 'damaged or expired, not for sale', fr: 'endommagé ou périmé, non vendable', tr: 'hasarlı veya süresi geçmiş, satılamaz', zh: '损坏或过期，不可销售' },
   'وحدة': { en: 'unit', fr: 'unité', tr: 'birim', zh: '件' },
   // صفحة تأكيد البريد
   'جار تأكيد بريدك': { en: 'Verifying your email', fr: 'Vérification de votre e-mail', tr: 'E-postanız doğrulanıyor', zh: '正在验证您的邮箱' },

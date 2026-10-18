@@ -12,7 +12,7 @@
 import prisma from '../config/database';
 import { currencyDecimalsOf } from '../config/countries';
 import { roundDecimal } from '../utils/helpers';
-import { valueStock, CostMove, DEFAULT_CURRENCY_DECIMALS } from './warehouseCost';
+import { valueStock, valueVanQty, CostMove, VanLayer, DEFAULT_CURRENCY_DECIMALS } from './warehouseCost';
 
 export interface WarehouseRow {
   productId: string;
@@ -66,6 +66,8 @@ export function composeWarehouse(
   warehouseItems: WhItem[],
   vanItems: VanItem[],
   decimals: number = DEFAULT_CURRENCY_DECIMALS,
+  /** يُملأ بطبقات كل سيارة لكل صنف (صنف ← سيارة ← طبقات) — لتقييم ما في السيارات */
+  layersOut?: Map<string, Map<string, VanLayer[]>>,
 ): WarehouseRow[] {
   const acc = new Map<string, { received: number; adjusted: number; loadedToVans: number; returnedFromVans: number }>();
   const ensure = (pid: string) => {
@@ -112,7 +114,9 @@ export function composeWarehouse(
     const onHand = roundDecimal(m.received + m.adjusted + m.returnedFromVans - m.loadedToVans, 4);
     // الترتيب زمنيّ، وعند تساوي اللحظة يُحفظ ترتيب الورود (فرزٌ مستقرّ)
     const mv = (moves.get(p.id) || []).slice().sort((x, y) => x.t - y.t || x.i - y.i);
-    const val = valueStock(mv, decimals);
+    const out: { vanLayers?: Map<string, VanLayer[]> } | undefined = layersOut ? {} : undefined;
+    const val = valueStock(mv, decimals, out);
+    if (layersOut && out?.vanLayers) layersOut.set(p.id, out.vanLayers);
     return {
       productId: p.id, name: p.name, code: p.code, unit: p.unit, ...m, onHand,
       avgCost: val.avgCost,
@@ -154,10 +158,25 @@ export async function tenantCurrencyDecimals(tid: string): Promise<number> {
  *   و`??` لا `||` عمداً: صفرُ خاناتٍ عملةٌ صحيحة (الدينار العراقيّ) لا غياب.
  */
 export async function computeWarehouseStock(tid: string, decimals?: number): Promise<WarehouseRow[]> {
-  const [dec, products, whItems, vanItems] = await Promise.all([
+  const [dec, { products, whItems, vanItems }] = await Promise.all([
     decimals ?? tenantCurrencyDecimals(tid),
+    loadWarehouseInputs(tid),
+  ]);
+  return composeWarehouse(products, whItems, vanItems, dec);
+}
+
+/**
+ * مدخلات تقييم المستودع للشركة: الأصناف وحركات المستودع وحركات السيارات (كل الأنواع — composeWarehouse يأخذ LOAD وUNLOAD،
+ * وطيّ رصيد السيارة يأخذ الباقي). `includeInactive`: الأصناف المعطّلة أيضاً — بضاعتها قد تبقى في السيارات.
+ */
+export async function loadWarehouseInputs(tid: string, opts: { includeInactive?: boolean } = {}): Promise<{
+  products: ProdMeta[];
+  whItems: WhItem[];
+  vanItems: (VanItem & { at: Date })[];
+}> {
+  const [products, whItems, vanItems] = await Promise.all([
     prisma.product.findMany({
-      where: { tenantId: tid, status: { not: 'INACTIVE' } },
+      where: { tenantId: tid, ...(!opts.includeInactive && { status: { not: 'INACTIVE' } }) },
       select: { id: true, name: true, code: true, unit: true },
     }),
     prisma.warehouseEntryItem.findMany({
@@ -170,10 +189,55 @@ export async function computeWarehouseStock(tid: string, decimals?: number): Pro
       select: { productId: true, qty: true, vanLoad: { select: { type: true, createdAt: true, salesRepId: true, deletedSalesRepId: true } } },
     }),
   ]);
-  return composeWarehouse(
+  return {
     products,
-    whItems.map((i) => ({ productId: i.productId, qty: i.qty, type: i.entry.type, unitCost: i.unitCost, at: i.entry.createdAt })),
-    vanItems.map((i) => ({ productId: i.productId, qty: i.qty, type: i.vanLoad.type, salesRepId: vanKeyOf(i.vanLoad), at: i.vanLoad.createdAt })),
-    dec,
-  );
+    whItems: whItems.map((i) => ({ productId: i.productId, qty: i.qty, type: i.entry.type, unitCost: i.unitCost, at: i.entry.createdAt })),
+    vanItems: vanItems.map((i) => ({ productId: i.productId, qty: i.qty, type: i.vanLoad.type, salesRepId: vanKeyOf(i.vanLoad), at: i.vanLoad.createdAt })),
+  };
+}
+
+/** ما في السيارات بتكلفة الشراء — بطاقة «في مخزون السيارات» في صفحة مخزون الشركة */
+export interface VansStockSummary {
+  qty: number;           // الرصيد المتاح للبيع في كل السيارات (الموجب وحده)
+  value: number;         // قيمته بكلفة خروجه من المستودع
+  uncostedQty: number;   // منه كمية بلا تكلفة معروفة — خارج القيمة صراحةً
+  unsellableQty: number; // تالفٌ ومنتهٍ في السيارات لا يُباع — خارج الرصيد والقيمة
+  reps: number;          // سيارات فيها بضاعة
+  products: number;      // أصنافٌ في سيارةٍ واحدة على الأقل
+}
+
+/**
+ * دالّة نقيّة: رصيد كل سيارة (من طيّ حركاتها كمسار مخزون السيارات) مقيَّماً بطبقاتها (valueVanQty)، وبمتوسّط المستودع لما
+ * زاد عليها. الرصيد السالب (بيعٌ بلا مخزون) ليس بضاعة فلا يُنقص غيره.
+ */
+export function summarizeVansStock(
+  perRep: { repId: string; products: { productId: string; remaining: number; unsellable: number }[] }[],
+  layers: ReadonlyMap<string, ReadonlyMap<string, VanLayer[]>>,
+  avgCost: ReadonlyMap<string, number>,
+  decimals: number = DEFAULT_CURRENCY_DECIMALS,
+): VansStockSummary {
+  let qty = 0, value = 0, uncostedQty = 0, unsellableQty = 0, reps = 0;
+  const products = new Set<string>();
+  for (const r of perRep) {
+    let has = false;
+    for (const p of r.products) {
+      if (p.unsellable > 0) unsellableQty += p.unsellable;
+      if (!(p.remaining > 1e-9)) continue;
+      has = true;
+      products.add(p.productId);
+      qty += p.remaining;
+      const v = valueVanQty(layers.get(p.productId)?.get(r.repId), p.remaining, avgCost.get(p.productId) ?? 0);
+      value += v.value;
+      uncostedQty += v.uncostedQty;
+    }
+    if (has) reps += 1;
+  }
+  return {
+    qty: roundDecimal(qty, 4),
+    value: roundDecimal(value, decimals),
+    uncostedQty: roundDecimal(uncostedQty, 4),
+    unsellableQty: roundDecimal(unsellableQty, 4),
+    reps,
+    products: products.size,
+  };
 }
