@@ -31,7 +31,7 @@ export interface WarehouseRow {
   uncostedQty: number;     // كمية من الرصيد بلا تكلفة معروفة — خارج القيمة صراحةً
 }
 
-interface ProdMeta { id: string; name: string; code: string; unit: string }
+interface ProdMeta { id: string; name: string; code: string; unit: string; status?: string }
 // `at` لحظة الحركة — التقييم متوسّطٌ متحرّك فترتيبه الزمنيّ جزءٌ من صحّته:
 // المرور غير المرتَّب يعطي متوسّطاً خاطئاً بصمت. اختياريّ لتبقى الاختبارات
 // النقيّة تمرّر ترتيبها بترتيب المصفوفة.
@@ -157,19 +157,31 @@ export async function tenantCurrencyDecimals(tid: string): Promise<number> {
  *   تُقرأ هنا مرّةً واحدة ضمن نفس دفعة القراءات (لا استعلامٌ إضافيّ متسلسل).
  *   و`??` لا `||` عمداً: صفرُ خاناتٍ عملةٌ صحيحة (الدينار العراقيّ) لا غياب.
  */
-export async function computeWarehouseStock(tid: string, decimals?: number): Promise<WarehouseRow[]> {
+export async function computeWarehouseStock(tid: string, decimals?: number, before?: Date): Promise<WarehouseRow[]> {
   const [dec, { products, whItems, vanItems }] = await Promise.all([
     decimals ?? tenantCurrencyDecimals(tid),
-    loadWarehouseInputs(tid),
+    loadWarehouseInputs(tid, { before, includeInactive: true }),
   ]);
-  return composeWarehouse(products, whItems, vanItems, dec);
+  const inactive = new Set(products.filter((p) => p.status === 'INACTIVE').map((p) => p.id));
+  return visibleWarehouseRows(composeWarehouse(products, whItems, vanItems, dec), inactive);
+}
+
+/**
+ * الصنف المعطّل (أو المؤرشف بحذفه) يُقيَّم ما دام له رصيدٌ أو قيمة — في الحاضر وفي «المخزون في تاريخ» معاً — ويُخفى صفّه
+ * حين لا شيء له. بدونه كانت قيمة المستودع تُسقط بضاعته (وبطاقة السيارات تعدّها)، وتتغيّر قيمة يومٍ مضى بتعطيلٍ لاحق.
+ */
+export function visibleWarehouseRows(rows: WarehouseRow[], inactive: ReadonlySet<string>): WarehouseRow[] {
+  if (!inactive.size) return rows;
+  return rows.filter((r) => !inactive.has(r.productId)
+    || Math.abs(r.onHand) > 1e-9 || Math.abs(r.stockValue) > 1e-9 || r.uncostedQty > 1e-9);
 }
 
 /**
  * مدخلات تقييم المستودع للشركة: الأصناف وحركات المستودع وحركات السيارات (كل الأنواع — composeWarehouse يأخذ LOAD وUNLOAD،
  * وطيّ رصيد السيارة يأخذ الباقي). `includeInactive`: الأصناف المعطّلة أيضاً — بضاعتها قد تبقى في السيارات.
+ * `before`: الحركات قبل هذه اللحظة وحدها — المخزون كما كان في تاريخٍ مضى (نهاية يومه بتوقيت الشركة: warehouseAsOf).
  */
-export async function loadWarehouseInputs(tid: string, opts: { includeInactive?: boolean } = {}): Promise<{
+export async function loadWarehouseInputs(tid: string, opts: { includeInactive?: boolean; before?: Date } = {}): Promise<{
   products: ProdMeta[];
   whItems: WhItem[];
   vanItems: (VanItem & { at: Date })[];
@@ -177,15 +189,15 @@ export async function loadWarehouseInputs(tid: string, opts: { includeInactive?:
   const [products, whItems, vanItems] = await Promise.all([
     prisma.product.findMany({
       where: { tenantId: tid, ...(!opts.includeInactive && { status: { not: 'INACTIVE' } }) },
-      select: { id: true, name: true, code: true, unit: true },
+      select: { id: true, name: true, code: true, unit: true, status: true },
     }),
     prisma.warehouseEntryItem.findMany({
-      where: { entry: { tenantId: tid } },
+      where: { entry: { tenantId: tid, ...(opts.before && { createdAt: { lt: opts.before } }) } },
       select: { productId: true, qty: true, unitCost: true, entry: { select: { type: true, createdAt: true } } },
     }),
     prisma.vanLoadItem.findMany({
       // تحميلات المناديب المحذوفين داخلة عمداً (salesRepId فارغ): خرجت من المستودع فعلاً
-      where: { vanLoad: { tenantId: tid } },
+      where: { vanLoad: { tenantId: tid, ...(opts.before && { createdAt: { lt: opts.before } }) } },
       select: { productId: true, qty: true, vanLoad: { select: { type: true, createdAt: true, salesRepId: true, deletedSalesRepId: true } } },
     }),
   ]);
@@ -204,6 +216,8 @@ export interface VansStockSummary {
   unsellableQty: number; // تالفٌ ومنتهٍ في السيارات لا يُباع — خارج الرصيد والقيمة
   reps: number;          // سيارات فيها بضاعة
   products: number;      // أصنافٌ في سيارةٍ واحدة على الأقل
+  /** سيارات مناديب محذوفين حُمّلت ولم تُنزَّل كلها — بضاعتها غير معروفة (فواتيرهم فقدت مندوبها بالحذف) فلا تدخل هنا */
+  deletedVans?: number;
 }
 
 /**

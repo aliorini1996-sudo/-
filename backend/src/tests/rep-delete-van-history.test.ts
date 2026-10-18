@@ -252,7 +252,8 @@ test('قرّاء التحميلات: المستودع والقيد الافتت�
   assert.match(wh, /deletedSalesRepId: true/, 'المستودع لا يقرأ المعرّف المحفوظ');
   assert.match(wh, /salesRepId: vanKeyOf\(i\.vanLoad\)/, 'المستودع يقيّم بالمندوب الحيّ وحده');
   // تحميلات المحذوفين داخلةٌ في الرصيد: لا قيد على المندوب في استعلام المستودع
-  assert.match(wh, /where: \{ vanLoad: \{ tenantId: tid \} \}/);
+  // وحدّ «المخزون في تاريخ» قيدٌ زمنيّ وحده — لا مندوب
+  assert.match(wh, /where: \{ vanLoad: \{ tenantId: tid(, \.\.\.\(opts\.before && \{ createdAt: \{ lt: opts\.before \} \}\))? \} \}/);
 
   const op = read('services', 'gl', 'opening.ts');
   assert.match(op, /deletedSalesRepId: true/, 'القيد الافتتاحيّ لا يقرأ المعرّف المحفوظ');

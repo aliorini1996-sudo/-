@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { composeWarehouse, summarizeVansStock } from '../services/warehouseStock';
+import { composeWarehouse, summarizeVansStock, visibleWarehouseRows } from '../services/warehouseStock';
 import { netUnitCost, lineCost, entryTotalCost, valueStock, valueVanQty, type VanLayer } from '../services/warehouseCost';
 
 /** قراءة مصدرٍ للحراس الثابتة (البند 40) — بسطورٍ موحَّدة فلا يفرّقها ويندوز */
@@ -433,12 +433,12 @@ test('البند 40: حارسٌ ثابت — لا مستدعيَ إنتاجيّ�
   assert.match(stock, /import \{ currencyDecimalsOf \} from '\.\.\/config\/countries';/);
   assert.match(stock, /export async function tenantCurrencyDecimals\(tid: string\): Promise<number>/);
   assert.match(stock, /decimals \?\? tenantCurrencyDecimals\(tid\)/, '?? لا || — صفر خانات عملةٌ صحيحة');
-  assert.match(stock, /return composeWarehouse\(products, whItems, vanItems, dec\);/, 'غلاف القاعدة يمرّر dec رابعةً لا يكتفي بثلاث وسائط');
+  assert.match(stock, /composeWarehouse\(products, whItems, vanItems, dec\)/, 'غلاف القاعدة يمرّر dec رابعةً لا يكتفي بثلاث وسائط');
 
   // المسار: قراءةٌ واحدة لكل طلب، وتمريرٌ إلى الأسطر والإجمالي معاً
   const route = read('routes/warehouse.ts');
   assert.match(route, /import \{ computeWarehouseStock, tenantCurrencyDecimals[^}]*\} from '\.\.\/services\/warehouseStock';/);
-  assert.match(route, /computeWarehouseStock\(tid, dec\)/);
+  assert.match(route, /computeWarehouseStock\(tid, dec(, before)?\)/);
   assert.match(route, /lineCost\(i\.qty, i\.unitCost, dec\)/);
   assert.match(route, /entryTotalCost\(e\.items, dec\)/);
   assert.equal(
@@ -715,8 +715,50 @@ test('من حركات المستودع إلى قيمة ما في السيارا�
 test('حارس نصّي: مسار ما في السيارات بنطاق المستخدم واستعلامات مجمَّعة، والمتاح بصيغة مخزون السيارات نفسها', () => {
   const w = read('routes/warehouse.ts');
   const v = w.slice(w.indexOf("router.get('/vans'"), w.indexOf('const entrySchema'));
-  assert.ok(v.includes('prisma.salesRep.findMany({ where: { tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true } })'), 'المشرف سيارات فرقه');
+  assert.ok(v.includes('const repFilter = await adminRepFilter(req);')
+    && v.includes('prisma.salesRep.findMany({ where: { tenantId: tid, ...repFilter }, select: { id: true } })'), 'المشرف سيارات فرقه');
   assert.ok(v.includes("status: 'CONFIRMED', salesRepId: { in: repIds }"), 'استعلامٌ واحد لكل الفواتير لا حلقة');
   assert.ok(v.includes('remaining: bucketRemaining(b),'));
   assert.ok(read('routes/vanStock.ts').includes('const remaining = bucketRemaining(b);'), 'صفحة مخزون السيارات والبطاقة بالصيغة نفسها');
+});
+
+test('حارس نصّي: «المخزون في تاريخ» بنهاية اليوم بتوقيت الشركة، على المستودع والسيارات وفواتيرها معاً', () => {
+  const w = read('routes/warehouse.ts');
+  assert.ok(w.includes('return importedEntryInstant(addDays(asOf, 1), importTimezone(gl));'), 'نهاية اليوم حصرية بتوقيت الشركة (والرياض افتراضاً لا UTC)');
+  assert.ok(w.includes('if (!isLocalDate(asOf)) return undefined;'), 'تاريخٌ غير صالح = الرصيد الحالي');
+  assert.ok(w.includes('computeWarehouseStock(tid, dec, before)'));
+  const v = w.slice(w.indexOf("router.get('/vans'"), w.indexOf('const entrySchema'));
+  assert.ok(v.includes('loadWarehouseInputs(tid, { includeInactive: true, before })'));
+  assert.ok(v.includes('...(before && { invoiceDate: { lt: before } })'), 'فواتير السيارة قبل التاريخ وحدها');
+  const st = read('services/warehouseStock.ts');
+  assert.equal(st.split('...(opts.before && { createdAt: { lt: opts.before } })').length - 1, 2, 'حركات المستودع والسيارات معاً');
+});
+
+test('المخزون في تاريخ: حركاتٌ بعده لا تمسّ رصيده ولا قيمته', () => {
+  const wh = [
+    { productId: 'a', qty: 10, type: 'RECEIVE', unitCost: 5, at: 1 },
+  ];
+  const later = [...wh, { productId: 'a', qty: 10, type: 'RECEIVE', unitCost: 9, at: 5 }];
+  const then = composeWarehouse(P, wh, [{ productId: 'a', qty: 4, type: 'LOAD', salesRepId: 'A', at: 2 }])[0];
+  const now = composeWarehouse(P, later, [{ productId: 'a', qty: 4, type: 'LOAD', salesRepId: 'A', at: 2 }])[0];
+  assert.equal(then.onHand, 6);
+  assert.equal(then.stockValue, 30);
+  assert.equal(now.onHand, 16);
+  assert.notEqual(now.stockValue, then.stockValue, 'الفرق كله من الحركة اللاحقة التي يُسقطها حدّ التاريخ');
+});
+
+test('الصنف المعطّل يُقيَّم ما دام له رصيد، ويُخفى صفّه حين لا شيء له — في الحاضر وفي تاريخٍ مضى', () => {
+  const rows = composeWarehouse(P, [
+    { productId: 'a', qty: 10, type: 'RECEIVE', unitCost: 5, at: 1 },
+  ], []);
+  assert.equal(visibleWarehouseRows(rows, new Set(['a', 'b'])).map((r) => r.productId).join(','), 'a', 'أ معطّلٌ برصيد يبقى، وب معطّلٌ بلا شيء يُخفى');
+  assert.equal(visibleWarehouseRows(rows, new Set()).length, 2, 'الفعّال يظهر ولو صفراً');
+});
+
+test('حارس نصّي: المستودع يقيّم المعطّل كبطاقة السيارات، والمحذوفون يُعدّون صراحةً لا يسقطون', () => {
+  const st = read('services/warehouseStock.ts');
+  assert.ok(st.includes('loadWarehouseInputs(tid, { before, includeInactive: true }),'), 'المجموعتان على أصنافٍ واحدة');
+  assert.ok(st.includes('return visibleWarehouseRows(composeWarehouse(products, whItems, vanItems, dec), inactive);'));
+  const w = read('routes/warehouse.ts');
+  assert.ok(w.includes('res.json({ success: true, data: { ...summarizeVansStock(perRep, layers, avgCost, dec), deletedVans } });'));
 });

@@ -11,6 +11,22 @@ import { computeWarehouseStock, tenantCurrencyDecimals, loadWarehouseInputs, com
 import type { VanLayer } from '../services/warehouseCost';
 import { foldStock, bucketRemaining, type LoadRow, type InvRow } from './vanStock';
 import { adminRepFilter } from '../services/adminScope';
+import { addDays, isLocalDate } from '../services/gl/dates';
+import { importedEntryInstant } from '../services/importTimezoneRebase';
+import { importTimezone } from '../services/importLedger';
+
+/**
+ * «المخزون في تاريخ» (طلب المالك ١٨ أكتوبر ٢٠٢٦): لحظة نهاية اليوم المطلوب (بداية اليوم التالي، حصرية) بتوقيت الشركة،
+ * فلا تنزاح حركة الحادية عشرة ليلاً إلى اليوم التالي على خادم UTC. والتوقيت `importTimezone` (توقيت الدفاتر وإلا الرياض)
+ * لا `explicitTimezone`: هذه لحظاتٌ حيّة كُتبت بـnow() لا قيودٌ مستوردة بمنتصف ليل UTC — وشركةٌ بلا إعدادات دفاتر (أغلب
+ * الشركات) كان يومها ينتهي الثالثة فجراً بتوقيتها فيدخل تحميل الفجر في رصيد الأمس.
+ * بلا تاريخ صالح (YYYY-MM-DD) ⇒ undefined: الرصيد الحالي كما كان.
+ */
+export async function warehouseAsOf(tid: string, asOf: unknown): Promise<Date | undefined> {
+  if (!isLocalDate(asOf)) return undefined;
+  const gl = await prisma.glSettings.findUnique({ where: { tenantId: tid }, select: { activatedAt: true, timezone: true, setupDraft: true } });
+  return importedEntryInstant(addDays(asOf, 1), importTimezone(gl));
+}
 import { netUnitCost, entryTotalCost, lineCost } from '../services/warehouseCost';
 
 const router = Router();
@@ -53,8 +69,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const tid = tenantId(req);
     // خانات عملة الشركة تُقرأ **مرّة واحدة** لهذا الطلب ثم تمرّ إلى التقييم كلّه:
     // شركةٌ بالدينار كانت ترى قيمة كل صنفٍ مقرَّبةً إلى خانتين (٠٫٣٧ بدل ٠٫٣٧١).
-    const dec = await tenantCurrencyDecimals(tid);
-    res.json({ success: true, data: await computeWarehouseStock(tid, dec) });
+    const [dec, before] = await Promise.all([tenantCurrencyDecimals(tid), warehouseAsOf(tid, req.query.asOf)]);
+    res.json({ success: true, data: await computeWarehouseStock(tid, dec, before) });
   } catch (err) { next(err); }
 });
 
@@ -66,14 +82,17 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 router.get('/vans', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
+    // ما في السيارات في تاريخٍ مضى: حركاتها وفواتيرها قبل نهاية يومه وحدها (فواتير السيارة بتاريخها كصفحة مخزون السيارات)
+    const before = await warehouseAsOf(tid, req.query.asOf);
+    const repFilter = await adminRepFilter(req);
     const [dec, inputs, reps] = await Promise.all([
       tenantCurrencyDecimals(tid),
-      loadWarehouseInputs(tid, { includeInactive: true }),
-      prisma.salesRep.findMany({ where: { tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true } }),
+      loadWarehouseInputs(tid, { includeInactive: true, before }),
+      prisma.salesRep.findMany({ where: { tenantId: tid, ...repFilter }, select: { id: true } }),
     ]);
     const repIds = reps.map((r) => r.id);
     const invItems = repIds.length ? await prisma.invoiceItem.findMany({
-      where: { invoice: { tenantId: tid, status: 'CONFIRMED', salesRepId: { in: repIds } } },
+      where: { invoice: { tenantId: tid, status: 'CONFIRMED', salesRepId: { in: repIds }, ...(before && { invoiceDate: { lt: before } }) } },
       select: {
         productId: true, qty: true, returnExpired: true,
         invoice: { select: { salesRepId: true, type: true, returnToStock: true, invoiceDate: true, returnReason: true, createdAt: true } },
@@ -111,7 +130,19 @@ router.get('/vans', async (req: AuthRequest, res: Response, next: NextFunction) 
         })),
       };
     });
-    res.json({ success: true, data: summarizeVansStock(perRep, layers, avgCost, dec) });
+    // سيارات المناديب المحذوفين: حذفُ المندوب يُبقي تحميلاته بمعرّفه المحفوظ (vanKeyOf) ويُفرغ مندوب فواتيره، فلا يُعرف ما بقي
+    // في سيارته. تُعدّ صراحةً بدل أن تسقط بصمت — لغير المقيَّد وحده (المقيَّد لا يُعرف نطاقه في مندوبٍ لم يعد موجوداً)
+    let deletedVans = 0;
+    if (!Object.keys(repFilter).length) {
+      const net = new Map<string, number>();
+      for (const v of inputs.vanItems) {
+        if (!v.salesRepId || repSet.has(v.salesRepId)) continue;
+        const sign = v.type === 'LOAD' || v.type === 'ADJUST' ? 1 : v.type === 'UNLOAD' ? -1 : 0;
+        if (sign) net.set(v.salesRepId, (net.get(v.salesRepId) ?? 0) + sign * v.qty);
+      }
+      deletedVans = [...net.values()].filter((q) => q > 1e-9).length;
+    }
+    res.json({ success: true, data: { ...summarizeVansStock(perRep, layers, avgCost, dec), deletedVans } });
   } catch (err) { next(err); }
 });
 

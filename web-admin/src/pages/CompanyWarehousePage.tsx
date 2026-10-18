@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { warehouseApi, productApi, companyApi, repStockRequestApi } from '../api/client';
-import { formatDate, formatCurrency } from '../utils/format';
+import { formatDate, formatCurrency, formatDayOnly } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import SearchableSelect from '../components/SearchableSelect';
 import { Warehouse, PackagePlus, X, Trash2, TrendingUp, TrendingDown, AlertTriangle, Calendar, ArrowRightLeft, Wallet, Info, FileDown, ClipboardList, Truck } from 'lucide-react';
@@ -31,7 +31,7 @@ interface WhEntry {
 const fmtQty = (n: number) => Number(n.toFixed(2)).toLocaleString('en-US');
 
 /** ما في مخزون السيارات الآن (GET /warehouse/vans) — الرصيد المتاح وقيمته بكلفة خروجه من المستودع */
-interface VansStock { qty: number; value: number; uncostedQty: number; unsellableQty: number; reps: number; products: number }
+interface VansStock { qty: number; value: number; uncostedQty: number; unsellableQty: number; reps: number; products: number; deletedVans?: number }
 
 // مخزون الشركة (المستودع المركزيّ) — مرتبطٌ بمخزون السيارات:
 // التحميل يخرج من المستودع، والتنزيل يعود إليه، والوارد يزيده.
@@ -58,10 +58,19 @@ export default function CompanyWarehousePage() {
     queryFn: async () => (await warehouseApi.stock()).data.data as WhRow[],
     enabled: accountingReady && accountingOn,
   });
+  /* «المخزون في تاريخ» (طلب المالك ١٨ أكتوبر ٢٠٢٦): '' الآن، أو يومٌ مضى فتُعرض قيمة المستودع وما في السيارات وجدول الأرصدة
+   * كما كانت في نهاية يومه. ونافذة «طلب مخزون» وتنبيه «يحتاج استلام» على رصيد اليوم دائماً — الطلب يُبنى على الحاضر */
+  const [asOf, setAsOf] = useState('');
+  const today = new Date().toLocaleDateString('en-CA');
+  const asOfQ = useQuery({
+    queryKey: ['warehouse-stock', asOf],
+    queryFn: async () => (await warehouseApi.stock(asOf)).data.data as WhRow[],
+    enabled: accountingReady && accountingOn && !!asOf,
+  });
   // بطاقة «في مخزون السيارات» بجانب قيمة المستودع (طلب المالك ١٨ أكتوبر ٢٠٢٦)
   const vansQ = useQuery({
-    queryKey: ['warehouse-vans'],
-    queryFn: async () => (await warehouseApi.vans()).data.data as VansStock,
+    queryKey: ['warehouse-vans', asOf],
+    queryFn: async () => (await warehouseApi.vans(asOf || undefined)).data.data as VansStock,
     enabled: accountingReady && accountingOn,
   });
   const vans = vansQ.data;
@@ -81,9 +90,14 @@ export default function CompanyWarehousePage() {
 
   const rows = stockQ.data || [];
   const lowCount = rows.filter(r => r.onHand <= 0).length;
+  // المعروض في البطاقتين والجدول: رصيد التاريخ المختار أو الآن
+  const shownRows = asOf ? (asOfQ.data ?? []) : rows;
+  const shownLoading = asOf ? asOfQ.isLoading : stockQ.isLoading;
+  // فشل الطلب لا يُعرض صفراً: «تعذر تحميل الأرصدة» بدل قيمةٍ خاطئة تحت عنوان التاريخ
+  const shownError = asOf ? asOfQ.isError : stockQ.isError;
   // قيمة المخزون بتكلفة الشراء — ومعها حدّ صدقها: كم صنفا وارده بلا سعر
-  const totalValue = rows.reduce((s, r) => s + r.stockValue, 0);
-  const uncostedRows = rows.filter(r => r.uncostedQty > 0).length;
+  const totalValue = shownRows.reduce((s, r) => s + r.stockValue, 0);
+  const uncostedRows = shownRows.filter(r => r.uncostedQty > 0).length;
 
   if (!accountingReady) return null;
   if (!accountingOn) return <AccountingOffNotice />;
@@ -114,8 +128,22 @@ export default function CompanyWarehousePage() {
             <span className="w-10 h-10 rounded-xl bg-[#FBEBE2] text-[#E15A30] flex items-center justify-center"><Wallet size={20} /></span>
             <div>
               <p className="text-xs text-[#9A8F7E]">{tr('قيمة المخزون بتكلفة الشراء')}</p>
-              <p className="text-xl font-extrabold text-[#1F1A13]">{formatCurrency(totalValue)}</p>
+              <p className={`text-xl font-extrabold text-[#1F1A13] ${shownLoading ? 'opacity-40' : ''}`}>
+                {shownError ? <span className="text-sm text-red-600">{tr('تعذر تحميل الأرصدة')}</span> : formatCurrency(totalValue)}
+              </p>
             </div>
+          </div>
+          {/* «المخزون في تاريخ»: البطاقتان والجدول كما كانت في نهاية اليوم المختار */}
+          <div className="flex flex-col items-center gap-1">
+            <label htmlFor="wh-as-of" className="text-xs text-[#9A8F7E] flex items-center gap-1"><Calendar size={13} /> {tr('المخزون في تاريخ')}</label>
+            <div className="flex items-center gap-2">
+              <input id="wh-as-of" type="date" className="input py-1.5 text-sm w-40" value={asOf} max={today}
+                onChange={e => setAsOf(e.target.value && e.target.value < today ? e.target.value : '')} />
+              {asOf && (
+                <button type="button" onClick={() => setAsOf('')} className="text-xs text-[#E15A30] font-semibold whitespace-nowrap">{tr('عودة إلى اليوم')}</button>
+              )}
+            </div>
+            {asOf && <p className="text-[11px] text-[#9A8F7E]">{tr('الأرصدة كما في نهاية يوم')} {formatDayOnly(asOf)}</p>}
           </div>
           {uncostedRows > 0 && (
             <p className="text-[11px] text-[#9A8F7E] flex items-center gap-1.5 max-w-sm">
@@ -130,7 +158,7 @@ export default function CompanyWarehousePage() {
               <span className="w-10 h-10 rounded-xl bg-[#FBEBE2] text-[#E15A30] flex items-center justify-center"><Truck size={20} /></span>
               <div>
                 <p className="text-xs text-[#9A8F7E]">{tr('في مخزون السيارات')}</p>
-                <p className="text-lg font-extrabold text-[#1F1A13] leading-tight">
+                <p className={`text-lg font-extrabold text-[#1F1A13] leading-tight ${vansQ.isFetching && !vansQ.isLoading ? 'opacity-40' : ''}`}>
                   {fmtQty(vans.qty)} <span className="text-xs font-semibold text-[#6E6557]">{tr('وحدة')}</span>
                   <span className="text-[#C9BFAE] mx-1.5">·</span>
                   {formatCurrency(vans.value)}
@@ -140,6 +168,9 @@ export default function CompanyWarehousePage() {
                   {vans.uncostedQty > 0 && <> · {fmtQty(vans.uncostedQty)} {tr('بلا تكلفة معروفة خارج القيمة')}</>}
                   {vans.unsellableQty > 0 && <> · {fmtQty(vans.unsellableQty)} {tr('تالف أو منتهي لا يباع')}</>}
                 </p>
+                {(vans.deletedVans ?? 0) > 0 && (
+                  <p className="text-[11px] text-amber-700">{vans.deletedVans} {tr('سيارة لمندوب محذوف لا تعرف بضاعتها فلا تدخل هنا')}</p>
+                )}
               </div>
             </Link>
           )}
@@ -154,9 +185,11 @@ export default function CompanyWarehousePage() {
 
       {/* جدول الرصيد */}
       <div className="card p-0 overflow-hidden">
-        {stockQ.isLoading ? (
+        {shownLoading ? (
           <div className="p-8 text-center text-gray-400 text-sm">{tr('جار التحميل')}</div>
-        ) : rows.length === 0 ? (
+        ) : shownError ? (
+          <div className="p-8 text-center text-red-600 text-sm">{tr('تعذر تحميل الأرصدة')}</div>
+        ) : shownRows.length === 0 ? (
           <div className="p-8 text-center text-gray-400 text-sm">{tr('لا توجد أصناف أضف منتجات ثم سجل استلام بضاعة')}</div>
         ) : (
           <div className="overflow-x-auto">
@@ -173,7 +206,7 @@ export default function CompanyWarehousePage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#F1EBDF]">
-                {rows.map(r => (
+                {shownRows.map(r => (
                   <tr key={r.productId} className={r.onHand < 0 ? 'bg-red-50/40' : undefined}>
                     <td className="px-4 py-2.5">
                       <div className="font-semibold text-[#1F1A13]">{r.name}</div>

@@ -475,10 +475,11 @@ export const vanStockApi = {
 
 // مخزون الشركة (المستودع المركزيّ) — مرتبطٌ بمخزون السيارات
 export const warehouseApi = {
-  stock: () => api.get('/warehouse'),
+  // asOf (YYYY-MM-DD): الرصيد وقيمته كما كانا في نهاية ذلك اليوم بتوقيت الشركة — وبدونه الآن
+  stock: (asOf?: string) => api.get('/warehouse', { params: asOf ? { asOf } : undefined }),
   entries: () => api.get('/warehouse/entries'),
   // ما في مخزون السيارات الآن وقيمته بتكلفة الشراء (سيارات نطاق المستخدم)
-  vans: () => api.get('/warehouse/vans'),
+  vans: (asOf?: string) => api.get('/warehouse/vans', { params: asOf ? { asOf } : undefined }),
   createEntry: (data: {
     type?: string; note?: string; supplier?: string;
     costsIncludeTax?: boolean;                                  // هل الأسعار المكتوبة شاملة الضريبة
