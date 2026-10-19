@@ -68,7 +68,7 @@ const SALES_REP_COLS = [
   'id', 'name', 'phone', 'email', 'username', 'isActive', 'canCreateInvoice', 'canSellOnCredit', 'canSellOnInstallment',
   'canSellInCash', 'canEditInvoice', 'canDeleteInvoice', 'canCancelInvoice', 'canChangePrice', 'maxDiscountPct',
   'canSellBelowPrice', 'canCreateReceipt', 'canEditReceipt', 'canCancelReceipt', 'canAddCustomer', 'canEditCustomer',
-  'canViewStatement', 'requireCustomerProximity', 'requireLocationOn', 'showCollectionBalance', 'createdAt', 'updatedAt',
+  'canViewStatement', 'requireCustomerProximity', 'requireLocationOn', 'requirePunchAtCustomer', 'showCollectionBalance', 'createdAt', 'updatedAt',
   'canManageVanStock', 'canSellWithoutStock', 'canBeTracked',
 ];
 const INVOICE_COLS = [

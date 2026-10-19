@@ -73,7 +73,9 @@ test('حارس الشاشة: لا «انتهى عملك اليوم»، والق�
   assert.match(screen, /dayMinutes\(shifts, todayStart\)/, 'مجموع اليوم يضيف نوبة أمس');
   // انصرافٌ نجح وضاع ردّه ⇒ 409 عند الإعادة: تُحدَّث الحالة لا يعلق زرّ الانصراف
   // …إلا رفض «اشتراط تفعيل الموقع» (409 أيضاً): رسالته تُعرض ولا تُبتلع بإعادة التحميل
-  assert.match(screen, /if \(resp\?\.status === 409 && resp\.data\?\.code !== 'LOCATION_REQUIRED'\) load\(\);/);
+  assert.match(screen, /if \(resp\?\.status === 409 && !PUNCH_REFUSALS\.includes\(resp\.data\?\.code \|\| ''\)\) load\(\);/);
+  // ورموز الرفض التي تُعرض رسالتها: «اشتراط تفعيل الموقع» و«بصمة الحضور بموقع عميل»
+  assert.match(src, /const PUNCH_REFUSALS = \['LOCATION_REQUIRED', 'PUNCH_AWAY_FROM_CUSTOMER'\];/);
   // الخادم يعيد بصمات اليوم مع كل بصمة متى عرف يوم المندوب
   assert.match(screen, /repApi\.post\(`\/tracking\/attendance\/\$\{kind\}`, loc \?\? \{\}, \{ params: \{ tzOffsetMin \} \}\)/);
 });

@@ -111,7 +111,7 @@ test('حارس ثابت: القيد في نافذة المندوب بلوحة ا
   assert.match(modal, /register\('requireLocationOn'\)/);
   assert.match(modal, /requireLocationOn: false,/, 'افتراض المندوب الجديد مطفأ');
   const m = read('m', 'MSalesReps.tsx');
-  assert.match(m, /type PermKey = Grant \| 'requireCustomerProximity' \| 'requireLocationOn';/);
+  assert.match(m, /type PermKey = Grant \| 'requireCustomerProximity' \| 'requireLocationOn' \| 'requirePunchAtCustomer';/);
   assert.match(m, /requireLocationOn: false,/);
   assert.match(m, /onChange=\{v => set\('requireLocationOn', v\)\}/);
   const grants = m.slice(m.indexOf('const GRANTS = ['), m.indexOf('] as const;', m.indexOf('const GRANTS = [')));

@@ -58,8 +58,16 @@ let featureOn = true;
 const tenant = { async findUnique() { return { attendanceEnabled: featureOn }; } };
 // «اشتراط تفعيل الموقع» على المندوب (مطفأ افتراضاً كما في المخطط)
 let locationRequired = false;
-const salesRep = { async findUnique() { return { requireLocationOn: locationRequired }; } };
-stub('config/database', { default: { repAttendance, tenant, salesRep } });
+// «بصمة الحضور بموقع عميل» (مطفأ افتراضاً): مفعّلٌ ⇒ يُبحث عن عميلٍ قريب
+let punchAtCustomer = false;
+let nearCustomers: { lat: number; lng: number }[] = [];
+const salesRep = {
+  async findUnique() { return { requireLocationOn: locationRequired }; },
+  async findFirst() { return { requireLocationOn: locationRequired, requirePunchAtCustomer: punchAtCustomer }; },
+};
+const customer = { async findMany() { return nearCustomers; } };
+const companySettings = { async findUnique() { return { customerIsolationEnabled: false }; } };
+stub('config/database', { default: { repAttendance, tenant, salesRep, customer, companySettings } });
 stub('middleware/auth', {
   authenticate: (_req: unknown, _res: unknown, next: () => void) => next(),
   requireAdmin: (_req: unknown, _res: unknown, next: () => void) => next(),
@@ -68,7 +76,15 @@ stub('middleware/auth', {
 });
 stub('services/adminScope', { adminRepFilter: async () => ({}), scopedRepRecordWhere: async () => ({}), scopedRecordWhere: async () => ({}), canAccessRep: async () => true, SHAPE_VISIT: {} });
 stub('services/mapMatch', { snapToRoads: async () => [], routeThrough: async () => [] });
-stub('services/routeShape', { buildRouteShape: () => ({}) });
+// haversineM الحقيقية: حارس «البصمة بموقع عميل» يحكم بها، وتزييفها يُفرغ اختباره من معناه
+const R_EARTH = 6371000; const toRad = (d: number) => (d * Math.PI) / 180;
+stub('services/routeShape', {
+  buildRouteShape: () => ({}),
+  haversineM: (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+    const s = Math.sin(toRad(b.lat - a.lat) / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(toRad(b.lng - a.lng) / 2) ** 2;
+    return 2 * R_EARTH * Math.asin(Math.min(1, Math.sqrt(s)));
+  },
+});
 stub('services/repHeartbeat', { heartbeatClientState: () => ({}) });
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -172,6 +188,77 @@ test('«اشتراط تفعيل الموقع» لا يحرس البصمة (أم�
     assert.equal(data(await call('post', '/attendance/checkin', { body: { lat: 24.7, lng: 46.6 } })).status, 'in');
     assert.equal(rows[1].checkInLat, 24.7, 'والموقع يُسجَّل إن أرسله الجوال');
   } finally { locationRequired = false; }
+});
+
+// ═══ «بصمة الحضور بموقع عميل» (طلب المالك، ١٩ أكتوبر) ═══
+// موقعٌ في الرياض، وعميلٌ على بعد ~٣٠م شمالاً، وآخر في زاوية مربّع البحث (~٧٠م قطرياً)
+const HERE = { lat: 24.7136, lng: 46.6753 };
+const NEAR = { lat: 24.7136 + 30 / 111320, lng: 46.6753 };
+const CORNER = { lat: 24.7136 + 49 / 111320, lng: 46.6753 + 49 / (111320 * Math.cos(24.7136 * Math.PI / 180)) };
+const codeOf = (res: { body: Record<string, unknown> | null }) => (res.body as { code?: string } | null)?.code;
+
+test('بصمة بموقع عميل: بلا موقع ⇒ 409 برسالة تُعرض، ولا تُكتب نوبة', async () => {
+  rows = []; seq = 0; featureOn = true; punchAtCustomer = true; nearCustomers = [NEAR];
+  try {
+    const r = await call('post', '/attendance/checkin', {});
+    assert.equal(r.statusCode, 409);
+    assert.equal(codeOf(r), 'PUNCH_AWAY_FROM_CUSTOMER');
+    assert.match(String((r.body as { message?: string }).message), /الموقع/);
+    assert.equal(rows.length, 0, 'لا نوبة تُفتح');
+  } finally { punchAtCustomer = false; nearCustomers = []; }
+});
+
+test('بصمة بموقع عميل: لا عميل في النطاق ⇒ 409', async () => {
+  rows = []; seq = 0; featureOn = true; punchAtCustomer = true; nearCustomers = [];
+  try {
+    const r = await call('post', '/attendance/checkin', { body: HERE });
+    assert.equal(r.statusCode, 409);
+    assert.equal(codeOf(r), 'PUNCH_AWAY_FROM_CUSTOMER');
+    assert.equal(rows.length, 0);
+  } finally { punchAtCustomer = false; }
+});
+
+test('بصمة بموقع عميل: عميل على ٣٠م ⇒ تُقبل بموقعها', async () => {
+  rows = []; seq = 0; featureOn = true; punchAtCustomer = true; nearCustomers = [NEAR];
+  try {
+    assert.equal(data(await call('post', '/attendance/checkin', { body: HERE })).status, 'in');
+    assert.equal(rows[0].checkInLat, HERE.lat);
+  } finally { punchAtCustomer = false; nearCustomers = []; }
+});
+
+/** المربّع تقريبٌ للبحث لا للحكم: زاويته أبعد من ٥٠م فتُرفض بالمسافة الدقيقة */
+test('بصمة بموقع عميل: عميل في زاوية مربّع البحث (~٧٠م) ⇒ يُرفض بالمسافة الدقيقة', async () => {
+  rows = []; seq = 0; featureOn = true; punchAtCustomer = true; nearCustomers = [CORNER];
+  try {
+    const r = await call('post', '/attendance/checkin', { body: HERE });
+    assert.equal(r.statusCode, 409, 'الزاوية ~٦٩م — خارج الخمسين');
+    assert.equal(rows.length, 0);
+  } finally { punchAtCustomer = false; nearCustomers = []; }
+});
+
+test('بصمة بموقع عميل: الانصراف محروس كالحضور', async () => {
+  rows = []; seq = 0; featureOn = true; nearCustomers = [NEAR];
+  await call('post', '/attendance/checkin', { body: HERE });   // القيد مطفأ عند الحضور
+  punchAtCustomer = true; nearCustomers = [];
+  try {
+    const r = await call('post', '/attendance/checkout', { body: HERE });
+    assert.equal(r.statusCode, 409);
+    assert.equal(codeOf(r), 'PUNCH_AWAY_FROM_CUSTOMER');
+    assert.equal(rows[0].checkOutAt, null, 'النوبة باقية مفتوحة');
+    nearCustomers = [NEAR];
+    assert.equal(data(await call('post', '/attendance/checkout', { body: HERE })).status, 'out');
+  } finally { punchAtCustomer = false; nearCustomers = []; }
+});
+
+test('بصمة بموقع عميل: الضغط المكرّر على نوبة مفتوحة لا يُرفض — لا كتابة فلا حكم', async () => {
+  rows = []; seq = 0; featureOn = true; nearCustomers = [NEAR];
+  await call('post', '/attendance/checkin', { body: HERE });
+  punchAtCustomer = true; nearCustomers = [];
+  try {
+    const r = await call('post', '/attendance/checkin', {});
+    assert.equal(data(r).status, 'in');
+    assert.equal((data(r) as { already?: boolean }).already, true);
+  } finally { punchAtCustomer = false; }
 });
 
 // ═══ الدوام المتقطّع: كل دخولٍ يُسجَّل وكل خروجٍ يُسجَّل ═══

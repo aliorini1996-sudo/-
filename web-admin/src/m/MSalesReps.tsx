@@ -671,7 +671,7 @@ const GRANTS = [
 ] as const;
 
 type Grant = typeof GRANTS[number];
-type PermKey = Grant | 'requireCustomerProximity' | 'requireLocationOn';
+type PermKey = Grant | 'requireCustomerProximity' | 'requireLocationOn' | 'requirePunchAtCustomer';
 type PermState = Record<PermKey, boolean>;
 
 /**
@@ -689,6 +689,7 @@ const PERM_DEFAULTS: PermState = {
   showCollectionBalance: true,
   requireCustomerProximity: false,
   requireLocationOn: false,
+  requirePunchAtCustomer: false,
 };
 
 const PERM_LABELS: Record<PermKey, string> = {
@@ -711,6 +712,7 @@ const PERM_LABELS: Record<PermKey, string> = {
   showCollectionBalance: 'إظهار رصيد التحصيل المتراكم',
   requireCustomerProximity: 'البيع داخل نطاق العميل فقط',
   requireLocationOn: 'اشتراط تفعيل الموقع',
+  requirePunchAtCustomer: 'بصمة الحضور بموقع عميل',
 };
 
 const PERM_GROUPS: { title: string; keys: Grant[] }[] = [
@@ -835,6 +837,10 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
             checked={perms.requireLocationOn}
             onChange={v => set('requireLocationOn', v)}
             hint={tr('عند التفعيل لا يدخل المندوب صفحة اي عميل — ولا يصدر له فاتورة ولا سندا ولا يسجل زيارة ولا يضيف عميلا — الا والموقع مفعل في جواله ومحدد بدقة وهو متصل بالإنترنت وظاهر على الخريطة، وبقية التطبيق متاحة له، ويرسل موقعه للخريطة ولو كان التتبع متوقفا للشركة')} />
+          <MToggle label={tr(PERM_LABELS.requirePunchAtCustomer)}
+            checked={perms.requirePunchAtCustomer}
+            onChange={v => set('requirePunchAtCustomer', v)}
+            hint={tr('عند التفعيل لا يبصم المندوب حضورا ولا انصرافا الا وهو داخل خمسين مترا من موقع احد عملائه المسجل، والموقع مطفأ في جواله يمنع البصمة')} />
         </Group>
 
         <p className="text-[11px] text-[#9A8F7E] px-1 leading-relaxed">

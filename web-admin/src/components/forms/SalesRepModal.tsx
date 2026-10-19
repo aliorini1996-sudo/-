@@ -40,6 +40,7 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
       showCollectionBalance: true,
       requireCustomerProximity: false,
       requireLocationOn: false,
+      requirePunchAtCustomer: false,
       maxDiscountPct: 0,
     };
   const { register, handleSubmit, setValue, formState: { errors } } = useForm<FormData>({
@@ -187,6 +188,12 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
             </div>
             <p className="text-xs text-gray-400 mt-2 leading-relaxed">
               {tr('عند التفعيل لا يدخل المندوب صفحة اي عميل — ولا يصدر له فاتورة ولا سندا ولا يسجل زيارة ولا يضيف عميلا — الا والموقع مفعل في جواله ومحدد بدقة وهو متصل بالإنترنت وظاهر على الخريطة، وبقية التطبيق متاحة له، ويرسل موقعه للخريطة ولو كان التتبع متوقفا للشركة')}
+            </p>
+            <div className="grid grid-cols-1 gap-3 mt-3">
+              <PermToggle label={tr('بصمة الحضور بموقع عميل')} {...register('requirePunchAtCustomer')} />
+            </div>
+            <p className="text-xs text-gray-400 mt-2 leading-relaxed">
+              {tr('عند التفعيل لا يبصم المندوب حضورا ولا انصرافا الا وهو داخل خمسين مترا من موقع احد عملائه المسجل، والموقع مطفأ في جواله يمنع البصمة')}
             </p>
           </div>
 

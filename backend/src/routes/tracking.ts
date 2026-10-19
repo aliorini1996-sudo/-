@@ -5,7 +5,8 @@ import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '..
 import { adminRepFilter, scopedRepRecordWhere, scopedRecordWhere, canAccessRep, SHAPE_VISIT } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { snapToRoads, routeThrough } from '../services/mapMatch';
-import { buildRouteShape } from '../services/routeShape';
+import { buildRouteShape, haversineM } from '../services/routeShape';
+import { customerScope } from '../services/customerScope';
 import { heartbeatClientState } from '../services/repHeartbeat';
 import { countStopsByRep, asVisitLike } from '../services/workDay';
 import { correctCapturedAt, DEVICE_NOW_HEADER } from '../services/liveLocation';
@@ -148,6 +149,36 @@ async function ensureRepAttendance(req: AuthRequest, res: Response): Promise<{ t
 // «اشتراط تفعيل الموقع» لا يحرس البصمة (أمر المالك، ٧ أكتوبر ٢٠٢٦): القيد على صفحة العميل وحدها — موقع البصمة أفضل جهد
 // للجميع، يُسجَّل إن أرسله الجوال ولا تُردّ بغيابه.
 
+/**
+ * «بصمة الحضور بموقع عميل» — قيدٌ تقييديّ على المندوب: مفعّلٌ ⇒ لا حضور ولا انصراف إلا داخل
+ * ٥٠ متراً من موقع أحد عملائه المسجَّل. يُرجع نصّ الرفض، أو null حين تُقبل البصمة.
+ *
+ * «عملاؤه» بالنطاق نفسه الذي يرى به قائمته (`customerScope`): المُسنَدون له حين يكون العزل مفعّلاً،
+ * وعملاء الشركة كلّهم حين لا يكون. والعميل المحذوف يسقط، والعميل بلا إحداثيات لا يُحتسب.
+ *
+ * والبحث مربّعٌ تقريبيّ حول الموقع ثمّ المسافة الدقيقة — فلا يُقرأ كلّ عملاء الشركة لكلّ بصمة.
+ * ٥٠ متراً ≈ ٠٫٠٠٠٤٥ درجة عرضاً، وطولاً تتّسع بقسمة جيب تمام العرض.
+ */
+export const PUNCH_RADIUS_M = 50;
+async function punchAwayFromCustomer(req: AuthRequest, tid: string, repId: string, lat?: number, lng?: number): Promise<string | null> {
+  const rep = await prisma.salesRep.findFirst({ where: { id: repId, tenantId: tid }, select: { requirePunchAtCustomer: true } });
+  if (rep?.requirePunchAtCustomer !== true) return null;
+  if (lat == null || lng == null) return 'فعّل الموقع في جوالك — البصمة مشروطة بأن تكون عند أحد عملائك';
+  const dLat = PUNCH_RADIUS_M / 111320;
+  const dLng = PUNCH_RADIUS_M / (111320 * Math.max(0.1, Math.cos((lat * Math.PI) / 180)));
+  const near = await prisma.customer.findMany({
+    where: {
+      tenantId: tid, status: { not: 'DELETED' }, ...(await customerScope(req, tid)),
+      lat: { gte: lat - dLat, lte: lat + dLat }, lng: { gte: lng - dLng, lte: lng + dLng },
+    },
+    select: { lat: true, lng: true },
+    take: 50,
+  });
+  const atCustomer = near.some(c => c.lat != null && c.lng != null
+    && haversineM({ lat, lng }, { lat: c.lat, lng: c.lng }) <= PUNCH_RADIUS_M);
+  return atCustomer ? null : `البصمة مشروطة بأن تكون داخل ${PUNCH_RADIUS_M} مترا من موقع أحد عملائك`;
+}
+
 /** النوبة المفتوحة لهذا المندوب (بلا انصراف)، أو null. */
 async function openShift(tid: string, repId: string) {
   return prisma.repAttendance.findFirst({
@@ -211,6 +242,8 @@ router.post('/attendance/checkin', async (req: AuthRequest, res: Response, next:
     // نوبةٌ مفتوحة تُعاد كما هي: الضغط المكرّر لا يكتب شيئاً
     const existing = await openShift(tid, repId);
     if (existing) { res.json({ success: true, data: { status: 'in', shift: existing, already: true, shifts: await dayShifts(tid, repId, since) } }); return; }
+    const away = await punchAwayFromCustomer(req, tid, repId, lat, lng);
+    if (away) { res.status(409).json({ success: false, code: 'PUNCH_AWAY_FROM_CUSTOMER', message: away }); return; }
     const shift = await prisma.repAttendance.create({
       data: { tenantId: tid, salesRepId: repId, checkInAt: new Date(), checkInLat: lat ?? null, checkInLng: lng ?? null },
       select: { id: true, checkInAt: true, checkInLat: true, checkInLng: true },
@@ -227,6 +260,8 @@ router.post('/attendance/checkout', async (req: AuthRequest, res: Response, next
     const { lat, lng } = punchSchema.parse(req.body ?? {});
     const open = await openShift(tid, repId);
     if (!open) { res.status(409).json({ success: false, code: 'NO_OPEN_SHIFT', message: 'لم تسجّل حضوراً بعد' }); return; }
+    const away = await punchAwayFromCustomer(req, tid, repId, lat, lng);
+    if (away) { res.status(409).json({ success: false, code: 'PUNCH_AWAY_FROM_CUSTOMER', message: away }); return; }
     const shift = await prisma.repAttendance.update({
       where: { id: open.id },
       data: { checkOutAt: new Date(), checkOutLat: lat ?? null, checkOutLng: lng ?? null },

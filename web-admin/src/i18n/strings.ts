@@ -4413,6 +4413,8 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'خرائط Google': { en: 'Google Maps', fr: 'Google Maps', tr: 'Google Haritalar', zh: '谷歌地图' },
   'موقع تسجيل الزيارة': { en: 'Where the visit was recorded', fr: 'Lieu d’enregistrement de la visite', tr: 'Ziyaretin kaydedildiği konum', zh: '拜访记录位置' },
   'سجلت الزيارة هنا': { en: 'Visit recorded here', fr: 'Visite enregistrée ici', tr: 'Ziyaret burada kaydedildi', zh: '拜访在此记录' },
+  'بصمة الحضور بموقع عميل': { en: 'Attendance punch at a customer location', fr: 'Pointage sur le site d un client', tr: 'Musteri konumunda mesai kaydi', zh: '须在客户位置打卡' },
+  'عند التفعيل لا يبصم المندوب حضورا ولا انصرافا الا وهو داخل خمسين مترا من موقع احد عملائه المسجل، والموقع مطفأ في جواله يمنع البصمة': { en: 'When enabled, the rep can only clock in or out within fifty meters of one of their customers registered locations, and location turned off on the phone blocks the punch', fr: 'Une fois active, le commercial ne pointe son arrivee ou son depart qu a moins de cinquante metres de l emplacement enregistre d un de ses clients, et la localisation desactivee bloque le pointage', tr: 'Etkinlestirildiginde temsilci yalnizca musterilerinden birinin kayitli konumuna elli metre mesafedeyken giris veya cikis yapabilir, telefonda konum kapaliysa kayit engellenir', zh: '启用后，业务员只能在其某一客户登记位置五十米范围内打卡上下班，手机关闭定位将无法打卡' },
 };
 
 export function useTr() {

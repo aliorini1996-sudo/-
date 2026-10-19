@@ -234,6 +234,9 @@ function fmtWorkMinutes(mins: number, tr: (s: string) => string): string {
   return `${h} ${tr('ساعة')} ${m} ${tr('دقيقة')}`;
 }
 
+/** رفضٌ للبصمة يُعرض نصُّه للمندوب — لا تأخّرٌ في الشاشة يُعالَج بإعادة التحميل */
+const PUNCH_REFUSALS = ['LOCATION_REQUIRED', 'PUNCH_AWAY_FROM_CUSTOMER'];
+
 function RepAttendance() {
   const tr = useTr();
   const [state, setState] = useState<AttendanceState | null>(null);
@@ -265,8 +268,9 @@ function RepAttendance() {
       const resp = (e as { response?: { status?: number; data?: { message?: string; code?: string } } })?.response;
       // 409 = الشاشة متأخّرة عن الخادم (انصرافٌ نجح وضاع ردّه في شبكة ضعيفة، أو من جهازٍ آخر):
       // تُحدَّث الحالة فيظهر الخروج المسجَّل وزرّ الحضور، بدل «لم تسجّل حضوراً» وزرّ انصرافٍ يُرفض بلا نهاية.
-      // إلا رفض «اشتراط تفعيل الموقع» (409 أيضاً): رسالته تُعرض كما هي ولا تُبتلع بإعادة التحميل
-      if (resp?.status === 409 && resp.data?.code !== 'LOCATION_REQUIRED') load();
+      // إلا رفض «اشتراط تفعيل الموقع» و«بصمة الحضور بموقع عميل» (409 أيضاً): رسالتهما ما يحتاج
+      // المندوب أن يقرأه — تُعرض كما هي ولا تُبتلع بإعادة التحميل
+      if (resp?.status === 409 && !PUNCH_REFUSALS.includes(resp.data?.code || '')) load();
       else setErr(resp?.data?.message || tr('تعذّر التسجيل، حاول ثانية'));
     } finally { inFlight.current = false; setBusy(false); }
   };

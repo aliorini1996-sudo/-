@@ -45,6 +45,7 @@ const repSchema = z.object({
   showCollectionBalance: z.boolean().optional(),
   requireCustomerProximity: z.boolean().optional(),
   requireLocationOn: z.boolean().optional(),
+  requirePunchAtCustomer: z.boolean().optional(),
 });
 
 const repSelect = {
@@ -58,6 +59,7 @@ const repSelect = {
   showCollectionBalance: true,
   requireCustomerProximity: true,
   requireLocationOn: true,
+  requirePunchAtCustomer: true,
   createdAt: true,
 } as const;
 
