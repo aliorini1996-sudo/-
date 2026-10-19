@@ -10,7 +10,9 @@ export function isAppRoute(p: string): boolean {
   // من المسار فتُفرض العربية على شاشة دخول المالك مهما اختار المستخدم.
   // `ax` (بوابة السفير) بحدّ نهاية: متعدّدة اللغات بمبدّل التطبيق نفسه وتتبع لغته
   // المحفوظة — فلا يدهس LocaleSync اختيار السفير باشتقاق اللغة من المسار.
-  return /^\/(app|rep|pos|kds|platform|owner|login|signup|verify)/.test(p) || /^\/(m|ax)(\/|$)/.test(p);
+  // `activate` (تفعيل حساب شركةٍ فتحه سفير) بحدّ نهاية: مبدّل اللغة فيها يضبط اللغة بلا تنقّل
+  // إلى /en… — فالرمز المحفوظ في الذاكرة لا يضيع بإعادة تحميل.
+  return /^\/(app|rep|pos|kds|platform|owner|login|signup|verify)/.test(p) || /^\/(m|ax|activate)(\/|$)/.test(p);
 }
 
 function initial(): Lang {

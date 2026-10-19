@@ -11,7 +11,10 @@ export type CommissionStatus = 'pending' | 'on_hold' | 'approved' | 'paid' | 're
 export type PayoutStatus = 'draft' | 'recorded' | 'void';
 export type ClaimHow = 'visit' | 'relationship' | 'event' | 'online' | 'other';
 export type CompanyStatus = 'trial' | 'paid' | 'disputed' | 'void' | 'expired';
-export type CompanySource = 'signup_code' | 'claim' | 'owner';
+/** `portal` = حسابٌ تجريبيّ فتحه السفير من البوابة لشركةٍ طلبته (يُفعّله مسؤولها من بريده) */
+export type CompanySource = 'signup_code' | 'claim' | 'owner' | 'portal';
+/** حالة تفعيل حساب الشركة — لصفوف `portal` وحدها، وnull لغيرها */
+export type ActivationStatus = 'pending' | 'active';
 export type AdjustmentKind = 'clawback_refund' | 'correction';
 
 export interface PublicTerms {
@@ -64,6 +67,8 @@ export interface MeSettings {
   holdDays: number;
   minPayoutHalalas: number;
   currentTermsVersion: string;
+  /** مفتاح «افتح حساباً تجريبياً» (AX_PORTAL_TRIAL_ENABLED) — والواجهة تقرأ غيابه (خادمٌ أقدم) مطفأً */
+  portalTrialEnabled: boolean;
 }
 
 export interface MeResponse {
@@ -99,6 +104,26 @@ export interface CompanyRow {
   firstPaymentDeadline: string;
   firstPaidAt: string | null;
   commission: { status: CommissionStatus; commissionHalalas: number; eligibleAt: string } | null;
+  /** لصفوف `portal`: هل اختار مسؤول الشركة كلمة مروره من رابط بريده؟ null لغيرها (أو خادمٍ أقدم) */
+  activation: ActivationStatus | null;
+}
+
+/**
+ * جسم POST /trials — حسابٌ تجريبيّ يفتحه السفير لشركةٍ طلبته. **لا كلمة مرور**: مسؤول الشركة
+ * يختارها بنفسه من رابطٍ يصل بريده وحده، والسفير لا يرى الرابط ولا كلمة المرور أبداً.
+ */
+export interface TrialBody {
+  companyName: string;
+  adminName: string;
+  adminEmail: string;
+  /** جوال المسؤول دولياً `+<مفتاح><الرقم>` */
+  adminPhone: string;
+  countryCode?: string;
+  crNumber?: string | null;
+  /** إقرار السفير بأن الشركة طلبت الحساب ووافقت على بريد التفعيل — إلزاميّ */
+  consent: true;
+  /** فحص البوابات كلها بلا كتابة (للتحقّق الحيّ دون إنشاء شركة) */
+  dryRun?: boolean;
 }
 
 export interface ClaimBody {

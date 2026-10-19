@@ -6,6 +6,7 @@ import {
   EMPTY_REGISTER, registerError, buildRegisterBody, type RegisterForm, normAffiliatePhone, composeAffiliatePhone,
   EMPTY_CLAIM, claimError, buildClaimBody, type ClaimForm,
   buildProfileBody, profileError, type ProfileForm, payoutError,
+  containsLinkLike, isSelfContact, EMPTY_TRIAL, trialError, buildTrialBody, type TrialForm,
 } from './validation';
 import { AX_DICT, translate } from './i18n';
 import { z } from 'zod';
@@ -362,4 +363,145 @@ test('جوال السفير: نسخة الواجهة تطابق الخادم ع�
     '+1 (555) 123-4567', '＋９７１５０１２３４５６７', '', '12345', '971501234567', '+966 11 234 5678', '+0971501234567', '+12345',
     '+1234567890123456', 'abc'];
   for (const v of table) assert.equal(normAffiliatePhone(v), server!.normAffiliatePhone(v), v);
+});
+
+// ─────────────────────── الحساب التجريبي (يفتحه السفير) ───────────────────────
+
+/** مدخلاتٌ مشتركة لكاشف الروابط — تُمرَّر على نسخة الواجهة ونسخة الخادم معاً */
+const LINK_LIKE_TABLE: Array<[string, boolean]> = [
+  ['fieldsa-pay.com', true], ['www.x', true], ['https://', true], ['http://evil', true], ['HTTPS://X.Y', true],
+  ['زوروا موقعنا fieldsa.net', true], ['مؤسسة.com', true], ['ａｂｃ．ｃｏｍ', true], ['WWW.EXAMPLE', true],
+  ['مؤسسة النور', false], ['Al-Noor Co.', false], ['شركة 2026', false], ['', false], ['Co.', false],
+  ['مؤسسة النخبة للتوزيع', false], ['Al Noor Trading Est', false], ['شركة ٢٠٢٦', false], ['3.5 طن', false],
+];
+
+test('كاشف الروابط في الأسماء: نطاقٌ أو http(s):// أو www. — والأسماء العادية تمرّ', () => {
+  for (const [v, want] of LINK_LIKE_TABLE) assert.equal(containsLinkLike(v), want, `«${v}»`);
+  assert.equal(containsLinkLike(null), false);
+  assert.equal(containsLinkLike(12345), false);
+});
+
+test('كاشف الروابط: نسخة الواجهة تطابق الخادم على جدولٍ مشترك', async (t) => {
+  const url = new URL('../../../backend/src/services/affiliate/rules.ts', import.meta.url);
+  let server: { containsLinkLike?: (v: unknown) => boolean } | null = null;
+  try {
+    readFileSync(url);
+    server = await import(url.href);
+  } catch {
+    t.skip('مصدر الخادم غير متاح في هذا الفحص');
+    return;
+  }
+  // يفشل إن غابت الدالّة من الخادم: بلا التطابق تمنع الواجهة ما لا يمنعه الخادم أو العكس
+  assert.equal(typeof server!.containsLinkLike, 'function', 'containsLinkLike غير مُصدَّرة من backend/src/services/affiliate/rules.ts');
+  for (const [v] of LINK_LIKE_TABLE) {
+    assert.equal(containsLinkLike(v), server!.containsLinkLike!(v), `اختلاف على «${v}»`);
+  }
+});
+
+const ME = { email: 'Sara@Example.com', phone: '966551234567' };
+const validTrial = (): TrialForm => ({
+  ...EMPTY_TRIAL,
+  companyName: 'مؤسسة النخبة للتوزيع', adminName: 'خالد العتيبي', adminEmail: 'Khalid@Nokhba.sa ',
+  phoneCountry: 'SA', adminPhone: '0501234567', consent: true,
+});
+
+test('بيانات السفير نفسه مكان المسؤول: البريد بلا اعتبار للحالة والفراغ، والجوال 05… مقابل +966…', () => {
+  const base = { affiliateEmail: ME.email, affiliatePhone: ME.phone };
+  assert.equal(isSelfContact({ ...base, adminEmail: ' sara@example.COM ', adminPhone: '+966501111111' }), true);
+  assert.equal(isSelfContact({ ...base, adminEmail: 'x@y.sa', adminPhone: '0551234567' }), true);
+  assert.equal(isSelfContact({ ...base, adminEmail: 'x@y.sa', adminPhone: '+966551234567' }), true);
+  assert.equal(isSelfContact({ ...base, adminEmail: 'x@y.sa', adminPhone: '+966501111111' }), false);
+  // جوال سفيرٍ غير سعوديّ مخزَّن أرقاماً دوليةً بلا «+» (كما يحفظه التسجيل)
+  assert.equal(isSelfContact({ affiliateEmail: 'a@b.co', affiliatePhone: '971501234567', adminEmail: 'x@y.sa', adminPhone: '+971501234567' }), true);
+  // غيابٌ لا يطابق غياباً
+  assert.equal(isSelfContact({ affiliateEmail: '', affiliatePhone: null, adminEmail: '', adminPhone: null }), false);
+});
+
+/** حالاتٌ مشتركة للفحص الذاتيّ — الخادم يرفض ما تطابق هنا بـ400 self_contact */
+const SELF_TABLE: Array<{ affiliateEmail: string; affiliatePhone: string | null; adminEmail: string; adminPhone: string }> = [
+  { affiliateEmail: 'Sara@Example.com', affiliatePhone: '966551234567', adminEmail: ' sara@example.com', adminPhone: '+966501111111' },
+  { affiliateEmail: 'sara@example.com', affiliatePhone: '966551234567', adminEmail: 'x@y.sa', adminPhone: '+966551234567' },
+  { affiliateEmail: 'sara@example.com', affiliatePhone: '966551234567', adminEmail: 'x@y.sa', adminPhone: '0551234567' },
+  { affiliateEmail: 'sara@example.com', affiliatePhone: '966551234567', adminEmail: 'x@y.sa', adminPhone: '+966501111111' },
+  { affiliateEmail: 'a@b.co', affiliatePhone: '971501234567', adminEmail: 'x@y.sa', adminPhone: '+971501234567' },
+  { affiliateEmail: 'a@b.co', affiliatePhone: '971501234567', adminEmail: 'x@y.sa', adminPhone: '+201012345678' },
+  { affiliateEmail: 'a@b.co', affiliatePhone: null, adminEmail: 'x@y.sa', adminPhone: '+966551234567' },
+  { affiliateEmail: 'a@b.co', affiliatePhone: '٩٦٦٥٥١٢٣٤٥٦٧', adminEmail: 'x@y.sa', adminPhone: '+966551234567' },
+];
+
+test('الفحص الذاتيّ: نسخة الواجهة تطابق الخادم على جدولٍ مشترك', async (t) => {
+  const url = new URL('../../../backend/src/services/affiliate/rules.ts', import.meta.url);
+  let server: { isSelfContact?: (v: (typeof SELF_TABLE)[number]) => boolean } | null = null;
+  try {
+    readFileSync(url);
+    server = await import(url.href);
+  } catch {
+    t.skip('مصدر الخادم غير متاح في هذا الفحص');
+    return;
+  }
+  assert.equal(typeof server!.isSelfContact, 'function', 'isSelfContact غير مُصدَّرة من backend/src/services/affiliate/rules.ts');
+  for (const row of SELF_TABLE) {
+    assert.equal(isSelfContact(row), server!.isSelfContact!(row), JSON.stringify(row));
+  }
+});
+
+test('نموذج الحساب التجريبي: الإقرار إلزاميّ، وبيانات السفير مرفوضة، والسجل اختياريّ صحيحٌ إن كُتب', () => {
+  assert.equal(trialError(validTrial(), ME), null);
+  assert.equal(trialError(validTrial()), null, 'بلا بيانات السفير لا فحص ذاتيّ');
+  assert.equal(key(trialError({ ...validTrial(), consent: false }, ME)), 'val.consent');
+  assert.equal(key(trialError({ ...validTrial(), adminEmail: 'sara@example.com' }, ME)), 'val.selfContact');
+  assert.equal(key(trialError({ ...validTrial(), adminPhone: '0551234567' }, ME)), 'val.selfContact');
+  assert.equal(key(trialError({ ...validTrial(), crNumber: '123' }, ME)), 'val.cr');
+  assert.equal(trialError({ ...validTrial(), crNumber: '١٠١٠١٢٣٤٥٦' }, ME), null, 'السجل الصحيح بأرقامٍ عربية');
+  assert.equal(trialError({ ...validTrial(), crNumber: '' }, ME), null, 'السجل اختياريّ');
+  assert.equal(key(trialError({ ...validTrial(), companyName: 'م' }, ME)), 'val.companyName');
+  assert.equal(key(trialError({ ...validTrial(), companyName: 'النخبة 0551234567' }, ME)), 'val.companyContact');
+  assert.equal(key(trialError({ ...validTrial(), companyName: 'النخبة fieldsa-pay.com' }, ME)), 'val.linkLike');
+  assert.equal(key(trialError({ ...validTrial(), adminName: 'خ' }, ME)), 'val.adminName');
+  assert.equal(key(trialError({ ...validTrial(), adminName: 'خالد www.x' }, ME)), 'val.linkLike');
+  assert.equal(key(trialError({ ...validTrial(), adminName: 'خالد 0551234567' }, ME)), 'val.linkLike');
+  assert.equal(key(trialError({ ...validTrial(), adminEmail: 'nope' }, ME)), 'val.adminEmail');
+  assert.equal(key(trialError({ ...validTrial(), adminPhone: '12' }, ME)), 'val.adminPhone');
+  assert.equal(key(trialError({ ...validTrial(), phoneCountry: 'SA', adminPhone: '0112345678' }, ME)), 'val.adminPhone', 'ثابتٌ سعوديّ ليس جوالاً');
+  // بترتيب الحقول على الشاشة: السجل قبل الإقرار، والذاتيّ قبل السجل
+  assert.equal(key(trialError({ ...validTrial(), crNumber: '1', consent: false }, ME)), 'val.cr');
+  assert.equal(key(trialError({ ...validTrial(), adminEmail: 'sara@example.com', crNumber: '1' }, ME)), 'val.selfContact');
+  for (const r of [trialError({ ...EMPTY_TRIAL }), trialError({ ...validTrial(), consent: false }), trialError({ ...validTrial(), adminEmail: ME.email }, ME)]) {
+    assert.ok(r && r.key in AX_DICT, `مفتاح غير موجود في القاموس: ${r?.key}`);
+  }
+  // لا كلمة مرور في النموذج — المسؤول يختارها من رابط بريده وحده
+  assert.ok(!Object.keys(EMPTY_TRIAL).some((k) => /pass/i.test(k)));
+});
+
+test('جسم الحساب التجريبي: الجوال «+مفتاح+الرقم»، والبريد بأحرفٍ صغيرة، والسجل والدولة إن وُجدا', () => {
+  assert.deepEqual(buildTrialBody(validTrial()), {
+    companyName: 'مؤسسة النخبة للتوزيع', adminName: 'خالد العتيبي', adminEmail: 'khalid@nokhba.sa',
+    adminPhone: '+966501234567', countryCode: 'SA', consent: true,
+  });
+  assert.equal(buildTrialBody({ ...validTrial(), phoneCountry: 'AE', adminPhone: '050 123 4567' }).adminPhone, '+971501234567');
+  assert.equal(buildTrialBody({ ...validTrial(), phoneCountry: 'EG', adminPhone: '١٠١٢٣٤٥٦٧٨' }).adminPhone, '+201012345678');
+  assert.equal(buildTrialBody({ ...validTrial(), crNumber: ' ١٠١٠ ١٢٣ ٤٥٦ ' }).crNumber, '1010123456');
+  const body = buildTrialBody({ ...validTrial(), country: '' });
+  assert.ok(!('countryCode' in body) && !('crNumber' in body) && !('dryRun' in body));
+  for (const k of ['password', 'token', 'ref', 'affiliateId']) assert.ok(!(k in body), `${k} لا يُرسل`);
+});
+
+test('شاشة الحساب التجريبي: لا كلمة مرور ولا نسخ ولا مشاركة ولا مسودّة — والردّ موحّد', () => {
+  const s = readFileSync(new URL('./screens/TrialScreen.tsx', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  assert.doesNotMatch(s, /PasswordInput|type="password"|password/i, 'خانة كلمة مرور في نموذج السفير');
+  assert.doesNotMatch(s, /CopyButton|copyText|whatsappShareUrl|navigator\.share/, 'نسخٌ أو مشاركة في شاشة الحساب التجريبي');
+  assert.doesNotMatch(s, /localStorage|sessionStorage|saveRegisterDraft|from '\.\.\/draft'/, 'مسودّة تحفظ بيانات شخصٍ ثالث');
+  assert.doesNotMatch(s, /activationUrl|\/activate|token/i, 'رابط تفعيل أو رمز في البوابة');
+  assert.match(s, /<form onSubmit=\{submit\} className="space-y-3\.5" noValidate>/);
+  assert.match(s, /localizedServerText\(lang, message, 'trial\.accepted'\)/, 'رسالة القبول ليست الموحّدة من الخادم');
+  assert.match(s, /trialError\(form, me\.user\)/, 'الفحص الذاتيّ لا يمرّر بيانات السفير');
+  assert.match(s, /c\.source === 'portal'/, '«حسابات فتحتها» لا تُرشَّح بمصدر البوابة');
+  assert.match(s, /window\.confirm\(t\('trial\.withdrawConfirm'/, 'السحب بلا تأكيد');
+  // التبويب يتبع مفتاح الخادم
+  const app = readFileSync(new URL('./AffiliateApp.tsx', import.meta.url), 'utf8');
+  assert.match(app, /const trialOn = data\.settings\.portalTrialEnabled === true;/);
+  assert.match(app, /const shown: Tab = tab === 'trial' && !trialOn \? 'home' : tab;/, '#trial والمفتاح مطفأ لا يعود للرئيسية');
+  assert.match(app, /case 'trial': content = <TrialTab \{\.\.\.tabProps\} \/>;/);
+  assert.match(app, /\{ id: 'trial', label: 'tab\.trial', icon: <UserPlus size=\{15\} \/> \}/);
 });

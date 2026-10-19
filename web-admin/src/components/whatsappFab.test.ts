@@ -11,7 +11,7 @@ import WhatsAppFab, { refFromPath } from './WhatsAppFab';
  * ويؤكّدان تطابق التعبيرات حرفياً، فأي تعديل هناك بلا تعديل هنا يُفشل الاختبار بدل
  * أن يمرّ صامتاً. وسلوك المكوّن نفسه يُختبر برسمه فعلاً (renderToStaticMarkup).
  */
-const HIDDEN_ON = /^\/(app|platform|owner|login|verify-email|rep|m|q-fs7k2m|hx|c|pay|e|ax)(\/|$)/;
+const HIDDEN_ON = /^\/(app|platform|owner|login|verify-email|activate|rep|m|q-fs7k2m|hx|c|pay|e|ax)(\/|$)/;
 const shows = (p: string) => !HIDDEN_ON.test(p);
 
 /** كل المسارات التسويقية المسجَّلة في App.tsx — الزرّ إلزامي على كلّها */
@@ -41,7 +41,7 @@ const OUR_CUSTOMERS = ['/payment/success', '/payment/success/'];
  */
 const APP = [
   '/app', '/app/customers', '/app/invoices', '/app/settings',
-  '/platform', '/platform/leads', '/owner', '/login', '/verify-email',
+  '/platform', '/platform/leads', '/owner', '/login', '/verify-email', '/activate', '/activate/',
   '/rep', '/rep/', '/ax', '/ax/', '/q-fs7k2m',
   '/hx', '/hx/', '/c/tenant1/rep1', '/c/tenant1/rep1/', '/pay/tok123', '/pay/tok123/',
 ];

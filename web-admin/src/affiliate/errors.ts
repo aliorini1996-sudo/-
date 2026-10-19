@@ -67,6 +67,18 @@ const CODE_KEYS: Record<string, AxKey> = {
   terms_outdated: 'err.termsOutdated',
   // 429 قاعدةُ عمل لا محدِّد: ٥٠ ترشيحاً قيد المراجعة — «انتظر قليلاً» تضلّل هنا
   too_many_open_claims: 'err.tooManyOpenClaims',
+  // الحساب التجريبي: حدود الخادم (429 برمزٍ = قاعدة عمل لا محدِّد) وحالاتٌ لها نصّها
+  self_contact: 'val.selfContact',
+  trial_daily_cap: 'err.trialDailyCap',
+  trial_pending_cap: 'err.trialPendingCap',
+  portal_trial_disabled: 'err.portalTrialDisabled',
+  resend_cooldown: 'err.resendCooldown',
+  resend_limit: 'err.resendLimit',
+  resend_window: 'err.resendWindow',
+  not_pending: 'err.notPending',
+  not_found: 'err.notFound',
+  // سحب حسابٍ دفعت عنه الشركة (POST /trials/:id/withdraw — 409)
+  has_payment: 'err.hasPayment',
 };
 
 /**
@@ -78,6 +90,10 @@ const FIELD_MSGS: Array<[string, AxMsg]> = [
   ['email', { key: 'val.email' }],
   ['phone', { key: 'val.phone' }],
   ['companyName', { key: 'val.companyName' }],
+  // الحساب التجريبي: المسؤول قبل السجل كما على الشاشة
+  ['adminName', { key: 'val.adminName' }],
+  ['adminEmail', { key: 'val.adminEmail' }],
+  ['adminPhone', { key: 'val.adminPhone' }],
   ['crNumber', { key: 'val.cr' }],
   ['city', { key: 'val.cityTooLong', vars: { max: CITY_MAX } }],
   ['contactPhone', { key: 'val.contactPhone' }],
@@ -85,6 +101,7 @@ const FIELD_MSGS: Array<[string, AxMsg]> = [
   ['vatNumber', { key: 'val.vat' }],
   ['how', { key: 'val.how' }],
   ['note', { key: 'val.noteTooLong', vars: { max: NOTE_MAX } }],
+  ['consent', { key: 'val.consent' }],
 ];
 
 /** رسالة التحقّق لأوّل حقلٍ مرفوض في ردّ 400 من zod — أو null */

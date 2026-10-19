@@ -6,7 +6,7 @@
 // لا نصوص هنا: كل خطأ مفتاحٌ في قاموس البوابة (./i18n) مع متغيّراته، والواجهة
 // تترجمه بلغة العرض.
 // ============================================================================
-import type { ClaimBody, ClaimHow, RegisterBody, UpdateMeBody } from './types';
+import type { ClaimBody, ClaimHow, RegisterBody, TrialBody, UpdateMeBody } from './types';
 import { CLAIM_HOW_ORDER } from './labels';
 import { msg, type AxMsg } from './i18n';
 import { dialOf } from '../i18n/dialCodes';
@@ -45,6 +45,18 @@ export function containsContactInfo(text: unknown): boolean {
     if (m[0].replace(/\D/g, '').length >= CONTACT_MIN_DIGITS) return true;
   }
   return false;
+}
+
+/**
+ * هل في الاسم رابطٌ أو نطاق موقع؟ — مرآة `containsLinkLike` في الخادم (rules.ts):
+ * NFKC والأرقام اللاتينية أولاً، ثم `http(s)://` أو `www.`، أو كلمةٌ من حرفين فأكثر تليها نقطة
+ * وامتدادٌ لاتينيّ (fieldsa-pay.com). اسم الشركة واسم مسؤولها يصلان بريدَ المالك ولوحته،
+ * فلا يُستعملان قناةً لرابط تصيّد. «Al-Noor Co.» و«شركة 2026» أسماءٌ لا روابط.
+ */
+export function containsLinkLike(text: unknown): boolean {
+  if (typeof text !== 'string' || !text) return false;
+  const t = latinDigits(text.normalize('NFKC'));
+  return /(https?:\/\/|www\.)/i.test(t) || /[\p{L}\p{N}-]{2,}\.[a-z]{2,24}\b/iu.test(t);
 }
 
 /**
@@ -227,6 +239,106 @@ export function buildClaimBody(f: ClaimForm): ClaimBody {
   if (city) body.city = city;
   const note = f.note.trim();
   if (note) body.note = note;
+  return body;
+}
+
+// ─────────────────────── الحساب التجريبي ───────────────────────
+
+/**
+ * مفتاح مقارنة الجوال — مرآة `affiliatePhoneKey` في الخادم: صيغة normAffiliatePhone، وجوال السفير
+ * المخزَّن أرقاماً دوليةً بلا «+» (`971501234567` — هكذا يحفظه التسجيل) يُعاد إليه «+»، وإلا لما
+ * طابق سفيرٌ غير سعوديّ جواله أبداً.
+ */
+function phoneKeyOf(phone: string | null | undefined): string | null {
+  if (typeof phone !== 'string' || !phone.trim()) return null;
+  const direct = normAffiliatePhone(phone);
+  if (direct) return direct;
+  const digits = phone.trim();
+  return /^[1-9]\d{7,14}$/.test(digits) ? normAffiliatePhone(`+${digits}`) : null;
+}
+
+/**
+ * بريد مسؤول الشركة أو جواله هو بريد السفير أو جواله؟ — مرآة `isSelfContact` في الخادم الذي
+ * يرفضه رفضاً صريحاً: رابط التفعيل يصل ذلك البريد، فلا يصحّ أن يكون صندوق السفير نفسه.
+ * يقارن بيانات السفير وحده — فلا يكشف شيئاً عن غيره.
+ */
+export function isSelfContact(i: {
+  affiliateEmail: string | null | undefined;
+  affiliatePhone: string | null | undefined;
+  adminEmail: string | null | undefined;
+  adminPhone: string | null | undefined;
+}): boolean {
+  const ae = (i.affiliateEmail || '').trim().toLowerCase();
+  const be = (i.adminEmail || '').trim().toLowerCase();
+  if (ae && ae === be) return true;
+  const ap = phoneKeyOf(i.affiliatePhone);
+  const bp = phoneKeyOf(i.adminPhone);
+  return !!ap && !!bp && ap === bp;
+}
+
+/** حدود الخادم (zod في POST /trials) */
+export const TRIAL_COMPANY_MAX = 120;
+export const TRIAL_ADMIN_NAME_MAX = 80;
+export const TRIAL_EMAIL_MAX = 160;
+
+export interface TrialForm {
+  companyName: string;
+  /** دولة الشركة (ISO alpha-2) — تضبط عملتها وضريبتها، والسعودية افتراضاً */
+  country: string;
+  adminName: string;
+  adminEmail: string;
+  /** مفتاح دولة جوال المسؤول — يتبع دولة الشركة ويُغيَّر يدوياً */
+  phoneCountry: string;
+  adminPhone: string;
+  /** السجل التجاري — اختياري (قرار المالك)، ويُطابَق به الترشيح المعتمد إن وُجد */
+  crNumber: string;
+  consent: boolean;
+}
+
+export const EMPTY_TRIAL: TrialForm = {
+  companyName: '', country: 'SA', adminName: '', adminEmail: '', phoneCountry: 'SA', adminPhone: '', crNumber: '', consent: false,
+};
+
+/** جوال المسؤول دولياً `+<مفتاح الدولة><الرقم>` — كما يُرسل */
+export function trialPhone(f: Pick<TrialForm, 'phoneCountry' | 'adminPhone'>): string {
+  return composeAffiliatePhone(f.phoneCountry, f.adminPhone);
+}
+
+/**
+ * أوّل خطأ في نموذج الحساب التجريبي (بترتيب الحقول على الشاشة) أو null. `me` = بيانات السفير
+ * نفسه: بريد المسؤول أو جواله إن طابقا بريده أو جواله رُفضا هنا كما يرفضهما الخادم.
+ */
+export function trialError(f: TrialForm, me?: { email: string; phone: string | null } | null): AxMsg | null {
+  const company = f.companyName.trim();
+  if (company.length < 2 || company.length > TRIAL_COMPANY_MAX) return msg('val.companyName');
+  if (containsContactInfo(company)) return msg('val.companyContact');
+  if (containsLinkLike(company)) return msg('val.linkLike');
+  const admin = f.adminName.trim();
+  if (admin.length < 2 || admin.length > TRIAL_ADMIN_NAME_MAX) return msg('val.adminName');
+  if (containsContactInfo(admin) || containsLinkLike(admin)) return msg('val.linkLike');
+  const email = f.adminEmail.trim();
+  if (!isValidEmail(email) || email.length > TRIAL_EMAIL_MAX) return msg('val.adminEmail');
+  if (!normAffiliatePhone(trialPhone(f))) return msg('val.adminPhone');
+  if (me && isSelfContact({ affiliateEmail: me.email, affiliatePhone: me.phone, adminEmail: email, adminPhone: trialPhone(f) })) {
+    return msg('val.selfContact');
+  }
+  if (f.crNumber.trim() && !normCR(f.crNumber)) return msg('val.cr');
+  if (!f.consent) return msg('val.consent');
+  return null;
+}
+
+/** جسم POST /trials — السجل والدولة يُرسلان فقط إن وُجدا، والبريد بأحرفٍ صغيرة (اسم الدخول) */
+export function buildTrialBody(f: TrialForm): TrialBody {
+  const body: TrialBody = {
+    companyName: f.companyName.trim(),
+    adminName: f.adminName.trim(),
+    adminEmail: f.adminEmail.trim().toLowerCase(),
+    adminPhone: trialPhone(f),
+    consent: true,
+  };
+  if (/^[A-Z]{2}$/.test(f.country)) body.countryCode = f.country;
+  const cr = f.crNumber.trim();
+  if (cr) body.crNumber = normCR(cr) ?? latinDigits(cr);
   return body;
 }
 

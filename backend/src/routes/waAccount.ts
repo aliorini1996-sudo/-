@@ -26,6 +26,8 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { createInvoice, moyasarConfigured } from '../services/moyasar';
+import { phoneKey } from '../services/phoneKey';
+import { pendingActivationTenantIds, PENDING_ACTIVATION_PREFIX } from '../services/trialCompany';
 
 const router = Router();
 
@@ -40,14 +42,12 @@ function keyOk(candidate: string | undefined): boolean {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-/** أرقام فقط، وتوحيد الصيغ المحلية الخليجية الشائعة إلى الدولية (05x ⇒ 9665x) */
-export function normalizePhone(v: string | null | undefined): string {
-  let d = String(v || '').replace(/[^\d]/g, '');
-  if (d.startsWith('00')) d = d.slice(2);
-  if (d.length === 10 && d.startsWith('05')) d = '966' + d.slice(1); // سعودي محلي
-  if (d.length === 9 && d.startsWith('5')) d = '966' + d;            // بلا صفر
-  return d;
-}
+/**
+ * أرقام فقط، وتوحيد الصيغ المحلية الخليجية الشائعة إلى الدولية (05x ⇒ 9665x).
+ * المطبِّع نفسه في services/phoneKey.ts — مصدرٌ واحد مع فحوص «جوالٍ مربوطٍ بشركةٍ أخرى»
+ * (حسابٌ يفتحه السفير وتفعيله)، فلا يُجاز هناك رقمٌ تراه البوابة هنا مطابقاً.
+ */
+export const normalizePhone = phoneKey;
 
 // سقف معدّل بالذاكرة: 60/ساعة لكل رقم — يكفي محادثة نشطة ويمنع المسح
 const hits = new Map<string, { n: number; windowStart: number }>();
@@ -76,12 +76,16 @@ router.get('/lookup', async (req: Request, res: Response) => {
       where: { phone: { not: null } },
       select: { tenantId: true, phone: true },
     });
-    const matches = rows.filter((r) => normalizePhone(r.phone) === phone);
+    const raw = rows.filter((r) => normalizePhone(r.phone) === phone);
+    // حسابٌ فتحه سفيرٌ ولم تفعّله الشركة: جواله كتبه طرفٌ ثالث ولم يؤكّده صاحبه — لا هوية واتساب له،
+    // ولا يُحسب في الغموض أيضاً: وإلا عطّل رقمٌ كتبه السفير بوابةَ العميل الحقيقي الذي سجّل بعده
+    const pending = await pendingActivationTenantIds(raw.map((r) => r.tenantId));
+    const matches = raw.filter((r) => !pending.has(r.tenantId));
 
     if (matches.length !== 1) {
       // صفر = غير مربوط؛ أكثر من واحد = غموض ⇒ لا نخمّن هوية (طبقة 2)
       if (matches.length > 1) console.warn(`[wa-account] غموض: ${masked} يطابق ${matches.length} شركات — رُفض`);
-      else console.log(`[wa-account] ${masked} غير مربوط`);
+      else console.log(`[wa-account] ${masked} غير مربوط${pending.size ? ' (حسابٌ بانتظار التفعيل)' : ''}`);
       res.json({ success: true, data: { linked: false } });
       return;
     }
@@ -129,14 +133,22 @@ router.get('/lookup', async (req: Request, res: Response) => {
 
 const actionsEnabled = () => (process.env.WA_ACTION_ENABLED || '').trim() === '1';
 
-/** يستخرج المستأجر من رقم موثّق — أو null. نفس منطق القراءة، مركزياً. */
+/**
+ * يستخرج المستأجر من رقم موثّق — أو null. نفس منطق القراءة، مركزياً.
+ * وحسابٌ بانتظار التفعيل (فتحه سفير، والجوال لم يؤكّده صاحبه) ليس هويةً: لا مناديب ولا إجراءات
+ * ولا ملخّص ولا روابط دفع لمن كتب رقمه طرفٌ ثالث.
+ */
 async function tenantByPhone(phone: string): Promise<string | null> {
   const rows = await prisma.companySettings.findMany({
     where: { phone: { not: null } },
     select: { tenantId: true, phone: true },
   });
-  const m = rows.filter((r) => normalizePhone(r.phone) === phone);
-  return m.length === 1 ? m[0].tenantId : null;   // غموض ⇒ رفض
+  const raw = rows.filter((r) => normalizePhone(r.phone) === phone);
+  // المنتظر خارج العدّ كما في /lookup — لا هوية له ولا يعطّل هوية غيره
+  const pending = await pendingActivationTenantIds(raw.map((r) => r.tenantId));
+  const m = raw.filter((r) => !pending.has(r.tenantId));
+  if (m.length !== 1) return null;                 // غموض ⇒ رفض
+  return m[0].tenantId;
 }
 
 /**
@@ -359,7 +371,8 @@ router.get('/events', async (req: Request, res: Response) => {
 
     // ١) اشتراك ينتهي خلال ٣ أيام (أو انتهى ولم يُجدَّد)
     const ending = await prisma.tenant.findMany({
-      where: { isActive: true, subscriptionEndsAt: { not: null, lte: in3d } },
+      // حسابٌ بانتظار التفعيل لا يُبلَّغ بانتهاء تجربةٍ لم تبدأ — وجواله كتبه سفيرٌ لم يؤكّده صاحبه
+      where: { isActive: true, subscriptionEndsAt: { not: null, lte: in3d }, admins: { none: { passwordHash: { startsWith: PENDING_ACTIVATION_PREFIX } } } },
       select: {
         id: true, name: true, subscriptionEndsAt: true,
         settings: { select: { phone: true } },
@@ -482,6 +495,12 @@ router.post('/signup-link', async (req: Request, res: Response) => {
     // رقم مربوط أصلاً ⇒ هذا تجديد لا اشتراك جديد؛ نوجّهه للمسار الصحيح
     if (await tenantByPhone(phone)) {
       res.status(409).json({ success: false, message: 'الرقم مربوط بشركة — استخدم التجديد' });
+      return;
+    }
+    // ولا هوية له لكنه مسجّلٌ (غموضٌ، أو حسابٌ بانتظار التفعيل): لا اشتراك جديد يُنشئ له المالكُ شركةً
+    // ثانيةً بالرقم نفسه — الحاجز نفسه في /signup-trial
+    if ((await tenantCountByPhone(phone)) > 0) {
+      res.status(409).json({ success: false, message: 'الرقم مسجّل لدينا — تواصل معنا لإكمال الاشتراك' });
       return;
     }
 

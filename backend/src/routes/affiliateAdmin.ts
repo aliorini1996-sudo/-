@@ -23,6 +23,7 @@ import {
   AccrueResult,
 } from '../services/affiliate/ledger';
 import { mailDecision, mailPayoutRecorded } from '../services/affiliate/mail';
+import { pendingActivationTenantIds } from '../services/trialCompany';
 
 const router = Router();
 router.use(authenticate, requireSuperAdmin);
@@ -200,12 +201,15 @@ router.get('/affiliates/:id', handle(async (req, res) => {
   const related = [id, ...claims.map(x => x.id), ...attributions.map(x => x.id), ...commissions.map(x => x.id), ...adjustments.map(x => x.id), ...payouts.map(x => x.id)];
   const events = await prisma.affiliateEvent.findMany({ where: { entityId: { in: related } }, orderBy: { createdAt: 'desc' }, take: 200 });
   const e = await earnings([id]);
+  // درج السفير يعرض حالة تفعيل ما فتحه من البوابة كجدول الإسنادات (null لغير البوابة)
+  const pendingTenants = await pendingActivationTenantIds(attributions.filter(a => a.source === 'portal').map(a => a.tenantId));
   res.json({ success: true, data: {
     affiliate: {
       ...userRow(u, e.get(id)), vatNumber: u.vatNumber, termsVersion: u.termsVersion, termsAcceptedAt: u.termsAcceptedAt, marketingConsent: u.marketingConsent,
       payout: u.ibanEnc && u.ibanLast4 ? { holderName: u.ibanHolderName, bankName: u.bankName, ibanLast4: u.ibanLast4, updatedAt: u.payoutUpdatedAt } : null,
     },
-    claims, attributions, commissions, events,
+    claims, commissions, events,
+    attributions: attributions.map(a => ({ ...a, activation: a.source === 'portal' && a.status !== 'void' ? (pendingTenants.has(a.tenantId) ? 'pending' : 'active') : null })),
     // «سُوّي» لا يعني «في مسودّة»: المسودّة لم تُحوَّل بعد وقد تُلغى
     adjustments: adjustments.map(a => {
       const p = a.payoutId ? payouts.find(x => x.id === a.payoutId) : undefined;
@@ -358,8 +362,11 @@ router.get('/attributions', handle(async (req, res) => {
     where: status ? { status } : {}, orderBy: { createdAt: 'desc' }, take: 500,
     include: { affiliate: { select: { id: true, fullName: true, code: true } }, commission: { select: { id: true, status: true, commissionHalalas: true } } },
   });
+  // حسابٌ فتحه سفيرٌ من البوابة: هل فعّلته شركته؟ (null لغير البوابة)
+  const pendingTenants = await pendingActivationTenantIds(rows.filter(a => a.source === 'portal').map(a => a.tenantId));
   res.json({ success: true, data: rows.map(a => ({
     id: a.id, tenantId: a.tenantId, tenantName: a.tenantNameSnapshot, affiliate: a.affiliate, source: a.source, status: a.status,
+    activation: a.source === 'portal' && a.status !== 'void' ? (pendingTenants.has(a.tenantId) ? 'pending' : 'active') : null,
     flags: a.flags, codeUsed: a.codeUsed, refVia: a.refVia, reasonNote: a.reasonNote, effectiveFrom: a.effectiveFrom,
     firstPaymentDeadline: a.firstPaymentDeadline, rateBps: a.rateBps, createdAt: a.createdAt, commission: a.commission,
   })) });

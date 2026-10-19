@@ -29,6 +29,7 @@ test('الوسم مسموح على كل صفحة تسويقية — ومنها �
 test('الوسم ممنوع داخل التطبيق والبوابات الخاصة وصفحات عملاء عملائنا', () => {
   const denied = [
     '/app', '/app/', '/app/customers', '/app/ledger/moves', '/platform', '/owner', '/login', '/verify-email',
+    '/activate', '/activate/',
     '/rep', '/rep/', '/m', '/m/', '/ax', '/ax/', '/hx', '/q-fs7k2m', '/qt',
     '/pos', '/kds', '/app-r', // مسارات المطعم — خارج القائمة تلقائياً
     '/c/tenant1/rep1', '/pay/tok123', '/e/tok123', '/payment/success', '/rep-app', '/hookb',
@@ -69,7 +70,7 @@ test('كل مسارات App.tsx مصنّفة صراحةً، والتصنيف ي�
     '/free', '/free/:tool', '/blog', '/blog/:slug',
   ]);
   const PRIVATE = new Set([
-    '/rep', '/m', '/hx', '/ax', '/q-fs7k2m', '/hookb', '/login', '/owner', '/verify-email',
+    '/rep', '/m', '/hx', '/ax', '/q-fs7k2m', '/hookb', '/login', '/owner', '/verify-email', '/activate',
     '/rep-app', '/payment/success', '/c/:tenantId/:repId', '/pay/:token', '/e/:token', '/platform', '/app',
   ]);
   const src = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');

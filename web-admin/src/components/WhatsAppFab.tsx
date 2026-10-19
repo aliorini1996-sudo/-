@@ -43,9 +43,10 @@ import { trackWhatsApp } from '../lib/ads';
 //   بعد دفع اشتراك الشركة أو تجديد بوت واتساب (routes/payments.ts وroutes/waAccount.ts)، وتطلب
 //   منهم «تواصل معنا» عند تعذّر التحقق أو انتهاء الرابط. المرجع فيها `payment-success` لأن
 //   `?ref=` في الاستعلام لا في المسار. دفع زبائن الشركات يعود إلى `/pay/<token>` لا إليها.
+// `activate` صفحة تفعيل حساب شركةٍ فتحه سفير — يصلها مسؤولها من رابط بريده، كـ`verify-email`.
 // القاعدة **نفسها حرفياً** في استثناءات VisitTracker في App.tsx — whatsappFab.test.ts
 // يفرض التطابق، و`ax` آخر البدائل لأن affiliate/hiding.test.ts يفحص ذلك.
-const HIDDEN_ON = /^\/(app|platform|owner|login|verify-email|rep|m|q-fs7k2m|hx|c|pay|e|ax)(\/|$)/;
+const HIDDEN_ON = /^\/(app|platform|owner|login|verify-email|activate|rep|m|q-fs7k2m|hx|c|pay|e|ax)(\/|$)/;
 
 /**
  * ref من المسار: /pricing/ ⇒ pricing · /blog/x/ ⇒ blog-x · / ⇒ home

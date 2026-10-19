@@ -7,7 +7,7 @@
 import type { Lang } from '../i18n/lang';
 import type {
   UserStatus, ClaimStatus, AttributionStatus, CommissionStatus, PayoutStatus,
-  ClaimHow, CompanyStatus, CompanySource, AdjustmentKind,
+  ClaimHow, CompanyStatus, CompanySource, AdjustmentKind, ActivationStatus,
 } from './types';
 import { translate, type AxKey } from './i18n';
 
@@ -69,6 +69,13 @@ export const COMPANY_SOURCE: Record<CompanySource, AxKey> = {
   signup_code: 'src.signup_code',
   claim: 'src.claim',
   owner: 'src.owner',
+  portal: 'src.portal',
+};
+
+/** تفعيل حسابٍ فتحه السفير: بانتظار اختيار المسؤول كلمة مروره، أو فُعّل */
+export const ACTIVATION: Record<ActivationStatus, LabelDef> = {
+  pending: { key: 'st.activation.pending', tone: 'amber' },
+  active: { key: 'st.activation.active', tone: 'green' },
 };
 
 export const ADJUSTMENT_KIND: Record<AdjustmentKind, AxKey> = {

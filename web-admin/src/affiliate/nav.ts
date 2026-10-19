@@ -15,8 +15,10 @@
 export type AuthView = 'login' | 'register' | 'verify' | 'forgot' | 'reset' | 'resend';
 export const AUTH_VIEWS: readonly AuthView[] = ['login', 'register', 'verify', 'forgot', 'reset', 'resend'];
 
-export type Tab = 'home' | 'link' | 'pricing' | 'claims' | 'companies' | 'earnings' | 'profile' | 'terms';
-export const TAB_IDS: readonly Tab[] = ['home', 'link', 'pricing', 'claims', 'companies', 'earnings', 'profile', 'terms'];
+// `trial` («افتح حساباً تجريبياً») يظهر في الشريط حين يفعّله الخادم (settings.portalTrialEnabled)؛
+// `#trial` والتبويب مطفأ يعود للرئيسية في AffiliateApp لا هنا — فالذهاب والإياب يبقيان نقيّين.
+export type Tab = 'home' | 'link' | 'pricing' | 'claims' | 'trial' | 'companies' | 'earnings' | 'profile' | 'terms';
+export const TAB_IDS: readonly Tab[] = ['home', 'link', 'pricing', 'claims', 'trial', 'companies', 'earnings', 'profile', 'terms'];
 
 export const VIEW_PARAM = 'view';
 

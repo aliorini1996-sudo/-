@@ -93,6 +93,8 @@ const HunterApp = lazy(() => import('./hunter/HunterApp'));
 const AffiliateApp = lazy(() => import('./affiliate/AffiliateApp'));
 // صفحة HOOK B التعريفية العامّة
 const HookBLandingPage = lazy(() => import('./pages/HookBLandingPage'));
+// تفعيل حساب شركةٍ فتحه سفير — يختار مسؤولها كلمة مروره من رابط بريده (كسولة: لا تدخل حزمة الزوّار)
+const ActivatePage = lazy(() => import('./pages/ActivatePage'));
 
 // شاشة تحميل بسيطة أثناء جلب الحِزَم الكسولة — تظهر على كل مسار كسول،
 // فنصّها العربي المثبَّت كان يومض بالعربية أمام كل مستخدم أجنبي
@@ -163,13 +165,15 @@ function LocaleSync() {
 //   وسياسة الخصوصية (القسم ٥) تَعِد بأن الإحصاءات للموقع العام وحده.
 // - `/payment/success` **مُسجَّل**: صفحة عامة يعود إليها عملاؤنا نحن من ميسر بعد دفع
 //   الاشتراك (لا زبائن الشركات)، ولا يصل منها إلا المسار؛ معرّف الدفع في الاستعلام لا يُرسل.
+// - `/activate`: صفحة تفعيل حساب شركةٍ فتحه سفير — يصلها مسؤولها من رابط بريده (الرمز في `#t=`)،
+//   فهي باب حسابٍ لا زيارة موقع، كـ`/verify-email`.
 // `ax` يبقى آخر البدائل: affiliate/hiding.test.ts يفحص ذلك.
 // القاعدة نفسها حرفياً في HIDDEN_ON (components/WhatsAppFab.tsx) — حيث لا نسجّل زيارة
 // لا يظهر الزرّ العائم ولا ينشئ معرّف زائر؛ whatsappFab.test.ts يفرض التطابق.
 function VisitTracker() {
   const { pathname } = useLocation();
   useEffect(() => {
-    if (/^\/(app|platform|owner|login|verify-email|rep|m|q-fs7k2m|hx|c|pay|e|ax)(\/|$)/.test(pathname)) return;
+    if (/^\/(app|platform|owner|login|verify-email|activate|rep|m|q-fs7k2m|hx|c|pay|e|ax)(\/|$)/.test(pathname)) return;
     // نُرفق طبقة الإسناد (هوية مجهولة + جلسة + وسوم + أول لمسة) — وعند رفض التتبّع تُرسل {optOut:true} وحده
     analyticsApi.track({
       path: pathname,
@@ -203,7 +207,7 @@ function AdsTagLoader() {
 function ReferralCapture() {
   const { pathname, search } = useLocation();
   useEffect(() => {
-    if (/^\/(app|platform|owner|login|verify-email|rep|m|ax|hx)(\/|$)/.test(pathname)) return;
+    if (/^\/(app|platform|owner|login|verify-email|activate|rep|m|ax|hx)(\/|$)/.test(pathname)) return;
     captureRefFromUrl(search);
     // readRef يحذف الرمز المنتهي (٣٦٥ يوماً) — وإلا بقي في متصفّح من لم يصل /signup أبداً
     readRef();
@@ -236,6 +240,7 @@ export default function App() {
         <Route path="/owner" element={<OwnerLoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
+        <Route path="/activate" element={<ActivatePage />} />
         {/* الصفحات التعريفية الفرعية (عامة) */}
         <Route path="/about" element={<InfoPage pageKey="about" />} />
         <Route path="/terms" element={<InfoPage pageKey="terms" />} />

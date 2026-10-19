@@ -17,10 +17,15 @@ import {
   getSettings, getTerms, logEvent, logEventSafe, signSession, verifySession, signPurpose, verifyPurpose,
   hashPassword, verifyPassword, ipHash, encryptIban, referralLink, riyadhDay, isUniqueViolation, DAY_MS,
 } from '../services/affiliate/core';
-import { generateCode, normEmail, normAffiliatePhone, normCR, normCompanyName, containsContactInfo, normIbanSA, parseRef, normContactPhone } from '../services/affiliate/rules';
+import {
+  generateCode, normEmail, normAffiliatePhone, normCR, normCompanyName, containsContactInfo, normIbanSA, parseRef, normContactPhone,
+  containsLinkLike, isSelfContact,
+} from '../services/affiliate/rules';
 import { affiliatePricing } from '../services/affiliate/pricing';
 import { mailVerify, mailReset, mailOwnerNewApplicant, mailPayoutProfileChanged } from '../services/affiliate/mail';
-import { expireStaleClaims } from '../services/affiliate/ledger';
+import { expireStaleClaims, LedgerError } from '../services/affiliate/ledger';
+import { createPortalTrial, resendPortalActivation, withdrawPortalTrial, portalTrialEnabled } from '../services/affiliate/portalTrial';
+import { pendingActivationTenantIds } from '../services/trialCompany';
 
 const router = Router();
 
@@ -35,6 +40,23 @@ type AffiliateRow = NonNullable<Awaited<ReturnType<typeof prisma.affiliateUser.f
 interface AxRequest extends Request { affiliate?: AffiliateRow }
 
 const aid = (req: AxRequest) => req.affiliate!.id;
+
+/**
+ * «حسابٌ يفتحه السفير» وإعادة إرسال رابطه — **لكلّ سفير** لا لكلّ IP: يُركَّب بعد axAuth فيُفتح بمعرّف
+ * السفير من التوكن (سفراء مكتبٍ واحد خلف NAT لا يتقاسمون العدّاد، ومن يبدّل شبكته لا يتجاوزه).
+ */
+const axTrialLimiter = rateLimit({
+  ...limiterBase, windowMs: 60 * 60_000, limit: 20,
+  keyGenerator: (req) => `ax-trial:${(req as AxRequest).affiliate?.id ?? 'anon'}`,
+  message: { success: false, message: 'طلباتٌ كثيرة من حسابك — حاول بعد ساعة' },
+});
+
+/** أخطاء الخدمة تحمل حالتها ورسالتها ورمزها — والباقي لمعالج الأخطاء العام */
+function ledgerFail(res: Response, e: unknown): boolean {
+  if (!(e instanceof LedgerError)) return false;
+  res.status(e.status).json({ success: false, message: e.message, code: e.code });
+  return true;
+}
 
 function publicUser(u: AffiliateRow) {
   return {
@@ -344,7 +366,11 @@ router.get('/me', axAuth, async (req: AxRequest, res, next) => {
     const s = await getSettings();
     res.json({ success: true, data: {
       user: publicUser(req.affiliate!),
-      settings: { disclosureText: s.disclosureText, rateBps: s.rateBps, holdDays: s.holdDays, minPayoutHalalas: s.minPayoutHalalas, currentTermsVersion: s.currentTermsVersion },
+      settings: {
+        disclosureText: s.disclosureText, rateBps: s.rateBps, holdDays: s.holdDays, minPayoutHalalas: s.minPayoutHalalas, currentTermsVersion: s.currentTermsVersion,
+        // تبويب «افتح حساباً لشركة» يظهر بهذا وحده — مفتاح الإطفاء على الخادم لا في الواجهة
+        portalTrialEnabled: portalTrialEnabled(),
+      },
       link: referralLink(req.affiliate!.code),
       canSetPayout: await canSetPayout(aid(req)),
     } });
@@ -426,10 +452,14 @@ router.get('/companies', axAuth, requireApproved, async (req: AxRequest, res, ne
       include: { commission: { select: { status: true, commissionHalalas: true, eligibleAt: true, paymentPaidAt: true, affiliateId: true } } },
     });
     const now = Date.now();
+    // حسابٌ فتحه السفير: فعّلته شركته أم ما زال ينتظر — بلا معرّف الشركة ولا شيءٍ من بيانات دخولها
+    const pendingTenants = await pendingActivationTenantIds(rows.filter(a => a.source === 'portal').map(a => a.tenantId));
     res.json({ success: true, data: rows.map(a => ({
       id: a.id,
       tenantName: a.tenantNameSnapshot,
       source: a.source,
+      // المسحوب (void) بلا حالة تفعيل: مديره المعطَّل يحمل حارساً فيُقرأ «منتظراً» خطأً
+      activation: a.source === 'portal' && a.status !== 'void' ? (pendingTenants.has(a.tenantId) ? 'pending' : 'active') : null,
       status: a.status === 'void' ? 'void'
         : a.status === 'disputed' ? 'disputed'
         : a.commission ? 'paid'
@@ -500,6 +530,76 @@ router.post('/claims/:id/withdraw', axAuth, requireApproved, async (req: AxReque
     logEventSafe({ entity: 'claim', entityId: String(req.params.id), action: 'withdrawn', fromState: 'under_review', toState: 'withdrawn', actorType: 'affiliate', actorId: aid(req) });
     res.json({ success: true, data: { ok: true } });
   } catch (e) { next(e); }
+});
+
+// ───────────────────────────── حسابٌ يفتحه السفير ─────────────────────────────
+
+/**
+ * ردٌّ واحد مهما كانت النتيجة — فُتح، أو حُجب لأنّ المنشأة عميلٌ قائم، أو فحصٌ جاف. لا 409 ولا رابط
+ * ولا معرّف شركة ولا بريد: الردّ لا يصلح أداةً لمعرفة «هل هذه المنشأة عميلٌ لكم؟».
+ */
+const TRIAL_ACCEPTED = { success: true, data: { message: 'استلمنا الطلب — إن كانت البيانات صحيحة فسيصل مسؤولَ الشركة بريدُ تفعيل الحساب' } };
+const TRIAL_DISABLED = { success: false, message: 'فتح الحسابات من البوابة متوقّفٌ حالياً', code: 'portal_trial_disabled' };
+
+const trialSchema = z.object({
+  companyName: z.string().trim().min(2).max(120),
+  adminName: z.string().trim().min(2).max(80),
+  adminEmail: z.string().trim().email().max(160),
+  adminPhone: z.string().max(30),
+  countryCode: z.string().length(2).optional(),
+  // اختياريّ (قرار المالك) — إن كُتب فعشرة أرقام، ويُفحص به العميل القائم والترشيحات
+  crNumber: z.string().max(30).optional().nullable(),
+  // إقرار السفير أنّ المنشأة طلبت الحساب ووافقت على بريد التفعيل — يُحفظ في حدث الإنشاء
+  consent: z.literal(true),
+  dryRun: z.boolean().optional(),
+});
+
+/**
+ * السفير يفتح حساباً تجريبياً لمنشأة: الشركة تُنشأ ومديرها **بلا كلمة مرور**، ورابط التفعيل يذهب لبريد
+ * المسؤول وحده (services/affiliate/portalTrial.ts). بريد السفير أو جواله مكان المسؤول يُرفض صراحةً —
+ * المقارنة ببياناته هو فلا تكشف شيئاً.
+ */
+router.post('/trials', axAuth, requireApproved, axTrialLimiter, async (req: AxRequest, res, next) => {
+  try {
+    if (!portalTrialEnabled()) { res.status(403).json(TRIAL_DISABLED); return; }
+    const b = trialSchema.parse(req.body);
+    const adminPhone = normAffiliatePhone(b.adminPhone);
+    if (!adminPhone) { res.status(400).json({ success: false, message: 'رقم الجوال غير صحيح اختر مفتاح الدولة وأدخل الرقم' }); return; }
+    const cr = b.crNumber ? normCR(b.crNumber) : null;
+    if (b.crNumber && !cr) { res.status(400).json({ success: false, message: 'السجل التجاري 10 أرقام' }); return; }
+    // الاسمان يصلان صاحب البريد داخل رسالةٍ رسمية — لا رقم ولا بريد ولا رابط فيهما
+    if ([b.companyName, b.adminName].some(t => containsContactInfo(t) || containsLinkLike(t))) {
+      res.status(400).json({ success: false, message: 'لا تكتب أرقاماً أو بريداً أو روابط في اسم المنشأة أو اسم المسؤول — البريد والجوال في خانتيهما' });
+      return;
+    }
+    const u = req.affiliate!;
+    if (isSelfContact({ affiliateEmail: u.email, affiliatePhone: u.phone, adminEmail: b.adminEmail, adminPhone })) {
+      res.status(400).json({ success: false, message: 'هذا بريدك أو جوالك — أدخل بريد مسؤول الشركة وجواله. ولمنشأتك أنت سجّل من صفحة التسجيل برمزك', code: 'self_contact' });
+      return;
+    }
+    await createPortalTrial(u, {
+      companyName: b.companyName, adminName: b.adminName, adminEmail: normEmail(b.adminEmail), adminPhone,
+      countryCode: b.countryCode ? b.countryCode.toUpperCase() : null, cr, dryRun: b.dryRun === true,
+    }, { ipHash: ipHash(req.ip) });
+    res.status(202).json(b.dryRun ? { ...TRIAL_ACCEPTED, data: { ...TRIAL_ACCEPTED.data, dryRun: true } } : TRIAL_ACCEPTED);
+  } catch (e) { if (!ledgerFail(res, e)) next(e); }
+});
+
+/** إعادة إرسال رابط التفعيل إلى البريد المسجَّل وحده — بمهلةٍ وسقف، ويُبطل كلّ رابطٍ أقدم */
+router.post('/trials/:id/resend', axAuth, requireApproved, axTrialLimiter, async (req: AxRequest, res, next) => {
+  try {
+    if (!portalTrialEnabled()) { res.status(403).json(TRIAL_DISABLED); return; }
+    await resendPortalActivation(aid(req), String(req.params.id));
+    res.json({ success: true, data: { message: 'أُعيد إرسال بريد التفعيل إلى البريد المسجَّل' } });
+  } catch (e) { if (!ledgerFail(res, e)) next(e); }
+});
+
+/** سحب حسابٍ فُتح بخطأ قبل تفعيله — يحرّر البريد والجوال ليُعاد فتحه صحيحاً. يبقى متاحاً ولو أُطفئ فتح الحسابات */
+router.post('/trials/:id/withdraw', axAuth, requireApproved, async (req: AxRequest, res, next) => {
+  try {
+    await withdrawPortalTrial(aid(req), String(req.params.id));
+    res.json({ success: true, data: { ok: true } });
+  } catch (e) { if (!ledgerFail(res, e)) next(e); }
 });
 
 router.get('/commissions', axAuth, requireApproved, async (req: AxRequest, res, next) => {

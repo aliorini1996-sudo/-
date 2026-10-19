@@ -21,8 +21,10 @@ export const COMMISSION_STATUSES = ['pending', 'on_hold', 'approved', 'paid', 'r
 export const PAYOUT_STATUSES = ['draft', 'recorded', 'void'] as const;
 export const CLAIM_HOWS = ['visit', 'relationship', 'event', 'online', 'other'] as const;
 export const CLAIM_REASONS = ['existing_customer', 'duplicate', 'self_referral', 'insufficient', 'other'] as const;
-export const FLAGS = ['self_email', 'self_phone', 'returning_company', 'ip_match', 'terms_outdated', 'link_expired'] as const;
-export const ATTRIBUTION_SOURCES = ['signup_code', 'claim', 'owner'] as const;
+export const FLAGS = ['self_email', 'self_phone', 'returning_company', 'ip_match', 'terms_outdated', 'link_expired', 'claim_conflict'] as const;
+export const ATTRIBUTION_SOURCES = ['signup_code', 'claim', 'owner', 'portal'] as const;
+/** تفعيل حسابٍ فتحه السفير من البوابة (`source = 'portal'` وحده؛ null لغيره) */
+export const ACTIVATION_STATES = ['pending', 'active'] as const;
 export const REF_VIAS = ['link', 'typed'] as const;
 export const ADJUSTMENT_KINDS = ['clawback_refund', 'correction'] as const;
 export const ACTOR_TYPES = ['system', 'affiliate', 'owner', 'company'] as const;
@@ -36,6 +38,7 @@ export type ClaimHow = typeof CLAIM_HOWS[number];
 export type ClaimReason = typeof CLAIM_REASONS[number];
 export type Flag = typeof FLAGS[number];
 export type AttributionSource = typeof ATTRIBUTION_SOURCES[number];
+export type ActivationState = typeof ACTIVATION_STATES[number];
 
 /** تسمية عربية + نغمة لون (تُترجَم لأصناف Tailwind في المكوّن) */
 export type Tone = 'gray' | 'amber' | 'green' | 'red' | 'blue' | 'orange';
@@ -102,12 +105,24 @@ export const FLAG_LABEL: Record<Flag, string> = {
   ip_match: 'نفس الشبكة',
   terms_outdated: 'لم يقبل الشروط الحالية',
   link_expired: 'رابط الإحالة تجاوز مدّته',
+  // حسابٌ فتحه السفير لمنشأةٍ يحجزها ترشيحٌ معتمد لسفيرٍ آخر — «الأسبق يكسب» والقرار للمالك
+  claim_conflict: 'ترشيح سفير آخر',
 };
 
 export const SOURCE_LABEL: Record<AttributionSource, string> = {
   signup_code: 'رمز عند التسجيل',
   claim: 'ترشيح',
   owner: 'إسناد يدوي',
+  portal: 'فتحه السفير من البوابة',
+};
+
+/**
+ * تفعيل حسابٍ فتحه السفير: «بانتظار التفعيل» = لم يختر مسؤول الشركة كلمة مروره من رابط بريده
+ * بعد (بديل المالك: الدخول بالانتحال أو «إعادة تعيين كلمة مرور المدير» يفعّله).
+ */
+export const ACTIVATION_LABEL: Record<ActivationState, Label> = {
+  pending: { label: 'بانتظار تفعيل الشركة', tone: 'amber' },
+  active: { label: 'فعّلته الشركة', tone: 'green' },
 };
 
 export const REF_VIA_LABEL: Record<typeof REF_VIAS[number], string> = {
@@ -781,6 +796,8 @@ export interface AttributionRow {
   status: AttributionStatus; flags: Flag[]; codeUsed: string | null; refVia: string | null; reasonNote: string | null;
   effectiveFrom: string; firstPaymentDeadline: string; rateBps: number; createdAt: string;
   commission: { id: string; status: CommissionStatus; commissionHalalas: number } | null;
+  /** لصفوف `portal`: هل فعّل مسؤول الشركة حسابه؟ null لغيرها (وغائبٌ من خادمٍ أقدم) */
+  activation?: ActivationState | null;
 }
 
 export interface CommissionRow {

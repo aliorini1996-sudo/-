@@ -839,6 +839,7 @@ function AffiliateDrawer({ id, actions, onClose }: { id: string; actions: Action
                       <span className="font-semibold">{t.tenantName ?? t.tenantNameSnapshot ?? '—'}</span>
                       {t.source && <span className="text-[11px] text-[#9A8F7E]">{L.labelOf(L.SOURCE_LABEL, t.source)}</span>}
                       <StatusChip map={L.ATTRIBUTION_STATUS_LABEL} value={t.status} />
+                      {t.source === 'portal' && t.activation && <StatusChip map={L.ACTIVATION_LABEL} value={t.activation} />}
                       {(t.flags ?? []).map((f) => <Chip key={f} tone="red">{L.labelOf(L.FLAG_LABEL, f)}</Chip>)}
                       <span className="text-[11px] text-[#9A8F7E] mr-auto">{day(t.effectiveFrom ?? t.createdAt)}</span>
                     </li>
@@ -1334,6 +1335,8 @@ function AttributionsTab({ status, setStatus }: { status: string; setStatus: (v:
                 <Td><AffCell a={t.affiliate} /></Td>
                 <Td className="text-[11.5px]">
                   <p>{L.labelOf(L.SOURCE_LABEL, t.source)}</p>
+                  {/* حسابٌ فتحه السفير: هل اختار مسؤول الشركة كلمة مروره من رابط بريده؟ */}
+                  {t.source === 'portal' && t.activation && <div className="mt-0.5"><StatusChip map={L.ACTIVATION_LABEL} value={t.activation} /></div>}
                   {t.codeUsed && <p className="font-mono text-[#9A8F7E]" dir="ltr">{t.codeUsed}</p>}
                   {t.refVia && <p className="text-[#9A8F7E]">{L.labelOf(L.REF_VIA_LABEL, t.refVia)}</p>}
                 </Td>

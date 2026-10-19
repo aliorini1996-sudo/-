@@ -285,6 +285,8 @@ test('التسجيل: رمز الإحالة متسامح ولا يُفشل تس�
   const signup = auth.slice(auth.indexOf("router.post('/signup'"), auth.indexOf("router.post('/verify-email'"));
   assert.ok(signup.indexOf('attachSignupAttribution') > signup.indexOf('return { tenant, admin };'), 'بعد المعاملة');
   const txBody = signup.slice(signup.indexOf('$transaction'), signup.indexOf('return { tenant, admin };'));
+  // الإنشاء انتقل إلى services/trialCompany.ts — الحارس يثبت أنّ المعاملة هي معاملة الإنشاء فعلاً لا شريحةً فارغة
+  assert.match(txBody, /createTrialCompanyTx\(tx/, 'معاملة التسجيل تُنشئ الشركة بالخدمة المشتركة');
   assert.doesNotMatch(txBody, /attachSignupAttribution/, 'خطأٌ داخل معاملة Postgres يُسقط التسجيل كلّه');
   const ledger = src('services', 'affiliate', 'ledger.ts');
   const attach = ledger.slice(ledger.indexOf('export async function attachSignupAttribution'), ledger.indexOf('export type AccrueResult'));
@@ -315,11 +317,16 @@ test('التركيب: البوابة بمصادقتها الخاصة، ولوح�
 
 test('الردود الموحّدة: لا تعداد حسابات في التسجيل والاستعادة', () => {
   const portal = src('routes', 'affiliate.ts');
-  for (const route of ['/register', '/forgot', '/resend-verification']) {
+  // «حسابٌ يفتحه السفير»: 202 واحدة سواءٌ فُتح أو حُجب لأنّ المنشأة عميلٌ قائم — لا تعداد شركات
+  const uniform: Array<[string, RegExp]> = [
+    ['/register', /status\(202\)\.json\(ACCEPTED\)/], ['/forgot', /status\(202\)\.json\(ACCEPTED\)/],
+    ['/resend-verification', /status\(202\)\.json\(ACCEPTED\)/], ['/trials', /status\(202\)\.json\(/],
+  ];
+  for (const [route, accepted] of uniform) {
     const from = portal.indexOf(`router.post('${route}'`);
     assert.ok(from > 0, route);
     const handler = portal.slice(from, portal.indexOf('\nrouter.', from + 10));
-    assert.match(handler, /status\(202\)\.json\(ACCEPTED\)/, route);
+    assert.match(handler, accepted, route);
     assert.doesNotMatch(handler, /status\(40[49]\)[^\n]*(موجود|مسجّل|مستخدم)/, `${route} يكشف وجود الحساب`);
   }
 });

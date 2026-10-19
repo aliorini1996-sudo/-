@@ -11,6 +11,7 @@ Disallow: /m
 Disallow: /login
 Disallow: /signup
 Disallow: /verify-email
+Disallow: /activate
 
 # --- زواحف الذكاء الاصطناعي: مرحّب بها كلها صراحةً (GEO) ---
 # كل زاحف موثّق عالمياً مذكور أدناه، وأي زاحف جديد مشمول تلقائياً بقاعدة * أعلاه.
@@ -97,6 +98,7 @@ Disallow: /rep
 Disallow: /m
 Disallow: /login
 Disallow: /verify-email
+Disallow: /activate
 
 # دليل الموقع لنماذج الذكاء الاصطناعي: https://fieldsa.net/llms.txt
 Sitemap: https://fieldsa.net/sitemap.xml

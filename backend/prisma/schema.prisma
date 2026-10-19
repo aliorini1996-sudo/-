@@ -2694,12 +2694,12 @@ model TenantAttribution {
   tenantNameSnapshot String
   affiliateId        String
   affiliate          AffiliateUser @relation(fields: [affiliateId], references: [id])
-  source             String                        // signup_code|claim|owner
+  source             String                        // signup_code|claim|owner|portal (portal = حسابٌ فتحه السفير من البوابة — services/affiliate/portalTrial.ts)
   claimId            String?
   codeUsed           String?
   refVia             String?                       // link|typed
   status             String        @default("active") // active|disputed|void
-  flags              String[]      @default([])    // self_email|self_phone|returning_company|ip_match
+  flags              String[]      @default([])    // self_email|self_phone|returning_company|ip_match|terms_outdated|link_expired|claim_conflict
   reasonNote         String?
   effectiveFrom      DateTime
   rateBps            Int                           // لقطة من شروط السفير المقبولة

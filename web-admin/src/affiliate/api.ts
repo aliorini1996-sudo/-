@@ -8,7 +8,7 @@
 import axios, { AxiosError, type AxiosResponse } from 'axios';
 import type {
   PublicTerms, RegisterBody, AffiliateMe, MeResponse, UpdateMeBody, Dashboard, CompanyRow, UserStatus,
-  ClaimBody, ClaimRow, CommissionRow, AdjustmentRow, PayoutRow, PayoutProfileBody, PricingResponse } from './types';
+  ClaimBody, ClaimRow, CommissionRow, AdjustmentRow, PayoutRow, PayoutProfileBody, PricingResponse, TrialBody } from './types';
 import { isTermsOutdated } from './errors';
 
 const BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
@@ -122,6 +122,16 @@ export const affiliateApi = {
     unwrap<{ id: string; message: string }>(await axApi.post('/claims', body)),
   claims: async () => unwrap<ClaimRow[]>(await axApi.get('/claims')),
   withdrawClaim: async (id: string) => unwrap<{ ok: true }>(await axApi.post(`/claims/${encodeURIComponent(id)}/withdraw`)),
+  /**
+   * حسابٌ تجريبيّ لشركةٍ طلبته — ردٌّ 202 موحّد دائماً (أُنشئ أو حُجب لعميلٍ قائم أو فحصٌ بلا
+   * كتابة): لا رمز ولا رابط تفعيل ولا معرّف شركة يعود للبوابة، فالشاشة تعرض الرسالة وحدها.
+   */
+  createTrial: async (body: TrialBody) => uniformMessage(await axApi.post('/trials', body)),
+  /** إعادة بريد التفعيل إلى البريد **المخزَّن** وحده — لا يقبل بريداً ولا جوالاً جديداً */
+  resendActivation: async (id: string) =>
+    unwrap<{ message: string }>(await axApi.post(`/trials/${encodeURIComponent(id)}/resend`)),
+  /** سحب حسابٍ لم يُفعَّل بعد (خطأ كتابة في البريد مثلاً) — يحرّر البريد والجوال لإعادة الفتح */
+  withdrawTrial: async (id: string) => unwrap<{ ok: true }>(await axApi.post(`/trials/${encodeURIComponent(id)}/withdraw`)),
   commissions: async () => unwrap<CommissionRow[]>(await axApi.get('/commissions')),
   adjustments: async () => unwrap<AdjustmentRow[]>(await axApi.get('/adjustments')),
   payouts: async () => unwrap<PayoutRow[]>(await axApi.get('/payouts')),

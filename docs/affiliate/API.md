@@ -14,7 +14,7 @@ type CommissionStatus = 'pending' | 'on_hold' | 'approved' | 'paid' | 'reversed'
 type PayoutStatus = 'draft' | 'recorded' | 'void';
 type ClaimHow = 'visit' | 'relationship' | 'event' | 'online' | 'other';
 type ClaimReason = 'existing_customer' | 'duplicate' | 'self_referral' | 'insufficient' | 'other';
-type Flag = 'self_email' | 'self_phone' | 'returning_company' | 'ip_match' | 'terms_outdated' | 'link_expired';
+type Flag = 'self_email' | 'self_phone' | 'returning_company' | 'ip_match' | 'terms_outdated' | 'link_expired' | 'claim_conflict';
 ```
 
 ---
@@ -47,7 +47,8 @@ type Flag = 'self_email' | 'self_phone' | 'returning_company' | 'ip_match' | 'te
 ### بجلسة (أي حالة عدا pending_email)
 - `GET /me` ⇒
   ```ts
-  { user: AffiliateMe, settings: { disclosureText: string, rateBps: number, holdDays: number, minPayoutHalalas: number, currentTermsVersion: string },
+  { user: AffiliateMe, settings: { disclosureText: string, rateBps: number, holdDays: number, minPayoutHalalas: number, currentTermsVersion: string,
+      portalTrialEnabled: boolean /* تبويب «افتح حساباً لشركة» — مفعّلٌ ما لم يُضبط AX_PORTAL_TRIAL_ENABLED=0 */ },
     link: string /* https://fieldsa.net/?ref=CODE */, canSetPayout: boolean }
   AffiliateMe = { id, email, fullName, phone: string|null, city: string|null, code: string, status: UserStatus, statusReason: string|null,
     publicPromoter: boolean, mawthooqNo: string|null, mawthooqExpiry: string|null, vatNumber: string|null, marketingConsent: boolean,
@@ -58,10 +59,22 @@ type Flag = 'self_email' | 'self_phone' | 'returning_company' | 'ip_match' | 'te
 
 ### بجلسة **approved** وبالشروط الحالية مقبولة (غير ذلك 403 `{message}`؛ و`code: 'terms_outdated'` إن نُشرت شروطٌ لم يقبلها)
 - `GET /dashboard` ⇒ `{ clicks30d: number, signups: number, paidCompanies: number, pendingHalalas: number, approvedHalalas: number, paidHalalas: number, adjustmentsHalalas: number /* غير المسوّاة فقط */ }`
-- `GET /companies` ⇒ `Array<{ id: string /*attributionId*/, tenantName: string, source: 'signup_code'|'claim'|'owner', status: 'trial'|'paid'|'disputed'|'void'|'expired', signedUpAt: string, firstPaymentDeadline: string, firstPaidAt: string|null, commission: { status: CommissionStatus, commissionHalalas: number, eligibleAt: string } | null /* عمولة السفير نفسه فقط */ }>`
+- `GET /companies` ⇒ `Array<{ id: string /*attributionId*/, tenantName: string, source: 'signup_code'|'claim'|'owner'|'portal', activation: 'pending'|'active'|null /*لمصدر portal وحده: هل فعّلت الشركة حسابها*/, status: 'trial'|'paid'|'disputed'|'void'|'expired', signedUpAt: string, firstPaymentDeadline: string, firstPaidAt: string|null, commission: { status: CommissionStatus, commissionHalalas: number, eligibleAt: string } | null /* عمولة السفير نفسه فقط */ }>`
 - `POST /claims` `{ companyName: string /*2..120*/, crNumber: string /*10 أرقام*/, contactPhone: string /*إلزامي: جوال سعودي أو 8–15 رقماً*/, city?: string, how: ClaimHow, note?: string /*≤200*/ }` ⇒ **201** `{ id: string, message: 'استلمنا الترشيح وسيُراجع' }` — يُرفض (400) بريدٌ أو سلسلة أرقامٍ بأيّ فواصل فيها ٨ أرقامٍ فأكثر (عدا التاريخ) في الاسم أو المدينة أو الملاحظة.
 - `GET /claims` ⇒ `Array<{ id, companyName, crNumber, contactPhone: string|null, city: string|null, how: ClaimHow, status: ClaimStatus, lockedUntil: string|null, submittedAt: string }>`
 - `POST /claims/:id/withdraw` ⇒ `{ ok: true }` (فقط `under_review`، وإلا 409)
+- `POST /trials` — **حسابٌ تجريبي يفتحه السفير لمنشأة** (محدِّدٌ لكلّ سفير: ٢٠ طلباً في الساعة مع إعادة الإرسال) جسم:
+  ```ts
+  { companyName: string /*2..120*/, countryCode?: string /*حرفان — منه العملة والضريبة*/, adminName: string /*2..80*/,
+    adminEmail: string /*≤160 — يُخزَّن صغيراً وهو اسم الدخول*/, adminPhone: string /*'+'+مفتاح الدولة+الرقم ≤30*/,
+    crNumber?: string | null /*اختياري — إن كُتب فعشرة أرقام*/, consent: true /*المنشأة طلبت الحساب ووافقت على بريد التفعيل*/, dryRun?: boolean }
+  ```
+  - ⇒ **202** `{ message: string, dryRun?: true }` **دائماً**: فُتح الحساب، أو حُجب لأنّ المنشأة عميلٌ قائم (بريد مديرٍ أو جوال شركةٍ أو سجلٌّ تجاري مطابق — يراه المالك حدثاً `user/portal_trial_blocked`)، أو فحصٌ جاف (`dryRun`: كلّ البوابات بلا أيّ كتابة). **لا** رابط ولا رمز ولا كلمة مرور ولا معرّف شركة ولا بريد في الردّ أبداً، ولا 409.
+  - المدير يُنشأ **بلا كلمة مرور**، ورابط التفعيل (٧ أيام، مرّةً واحدة) يصل **بريد المسؤول وحده** — انظر §4. ولا واتساب قبل أن تفعّل الشركة وتؤكّد جوالها.
+  - الإسناد في معاملة الإنشاء نفسها: `source: 'portal'`، `codeUsed`/`refVia` فارغان، ولقطة النسبة والحجز ومهلة الدفعة الأولى من شروط السفير. ترشيحٌ معتمد ساري القفل (أو متحوّل) **لسفيرٍ آخر** بالسجل أو بالاسم المُطبَّع ⇒ `status: 'disputed'` و`flags: ['claim_conflict']` يحسمه المالك. وترشيح السفير نفسه المعتمد بالسجل نفسه يتحوّل `converted`.
+  - 400: جوال غير صحيح · سجلٌّ ليس 10 أرقام · رقمٌ أو بريدٌ أو رابط في اسم المنشأة أو المسؤول · `code: 'self_contact'` بريد السفير أو جواله مكان المسؤول. 403 `code: 'portal_trial_disabled'`. 429 `code: 'trial_daily_cap'` (١٠ محاولات في ٢٤ ساعة متحرّكة: ما فُتح + ما حُجب) · `code: 'trial_pending_cap'` (٢٠ حساباً لم تفعّلها شركاتها).
+- `POST /trials/:id/resend` (`id` = معرّف الإسناد من «شركاتي») ⇒ `{ message: string }` — رابطٌ جديد إلى **البريد المسجَّل** يُبطل كلّ رابطٍ أقدم. 404 `code: 'not_found'` · 409 `code: 'not_pending'` (فعّلت الشركة) · 409 `code: 'resend_window'` (مضى ٣٠ يوماً على الفتح) · 429 `code: 'resend_limit'` (٥ مرّات) · 429 `code: 'resend_cooldown'` (١٠ دقائق بين إرسالين) · 403 `portal_trial_disabled`.
+- `POST /trials/:id/withdraw` ⇒ `{ ok: true }` — سحب حسابٍ فُتح بخطأ قبل تفعيله: الشركة تُوقف، والمدير يُعطَّل ويتحرّر بريده، والجوال يُمسح، والإسناد `void` (لا حذف). 404 `not_found` · 409 `not_pending` · 409 `code: 'has_payment'`. متاحٌ ولو أُطفئ فتح الحسابات.
 - `GET /commissions` ⇒ `Array<{ id, tenantName, paymentAmountHalalas, refundedHalalas, commissionHalalas, rateBps, status: CommissionStatus, paymentPaidAt: string, eligibleAt: string, reasonNote: string|null, paidAt: string|null }>`
 - `GET /adjustments` ⇒ `Array<{ id, kind: 'clawback_refund'|'correction', amountHalalas: number, note: string|null, createdAt: string, settled: boolean }>`
 - `GET /payouts` ⇒ `Array<{ id, netHalalas, commissionsHalalas, adjustmentsHalalas, status: 'recorded', transferredAt: string|null, bankReference: string|null, ibanLast4: string, createdAt: string }>` (المسودّات والملغاة لا تظهر للسفير)
@@ -76,14 +89,14 @@ type Flag = 'self_email' | 'self_phone' | 'returning_company' | 'ip_match' | 'te
 - **قيم الشروط** (تتغيّر بنشر إصدار فقط): `rateBps 0..10000` · `holdDays 0..365` · `minPayoutHalalas 0..100000000` · `refWindowDays 1..365` · `claimLockDays 1..365` · `firstPaymentWithinDays 1..730`.
 - `GET /terms` ⇒ `Array<{ version, body, publishedAt, publishedBy, rules: {…القيم الست…} }>` · `POST /terms` `{ version /*^[\w.-]{3,40}$*/, body /*≥50*/, rules?: {…أيٌّ من الست…} }` ⇒ الإصدار (ويصبح الحالي، وتسري قواعده في المعاملة نفسها). النسبة والحجز ومهلة الدفعة الأولى تُؤخذ لكل إسنادٍ **من إصدار الشروط الذي قبله السفير** وتُخزَّن عليه.
 - `GET /affiliates?status=&q=` ⇒ `Array<{ id, fullName, email, phone, city, code, status, statusReason, publicPromoter, mawthooqNo, mawthooqExpiry /*'YYYY-MM-DD' بالرياض*/, createdAt, lastLoginAt, counts: { claims, attributions, commissions }, earnedHalalas /*pending+on_hold+approved+paid*/, paidHalalas, hasPayout: boolean }>`
-- `GET /affiliates/:id` ⇒ `{ affiliate: (مثل عنصر القائمة + vatNumber, termsVersion, termsAcceptedAt, marketingConsent, payout: {holderName, bankName, ibanLast4, updatedAt}|null), claims: [...], attributions: [...], commissions: [...], adjustments: [...{ settled: boolean /*في دفعة مسجَّلة*/, inDraft: boolean }], payouts: [...{ transferredAt: 'YYYY-MM-DD'|null }], events: AffiliateEvent[] }` (صفوف خام من المخطّط)
+- `GET /affiliates/:id` ⇒ `{ affiliate: (مثل عنصر القائمة + vatNumber, termsVersion, termsAcceptedAt, marketingConsent, payout: {holderName, bankName, ibanLast4, updatedAt}|null), claims: [...], attributions: [...{ activation: 'pending'|'active'|null /*portal وحده*/ }], commissions: [...], adjustments: [...{ settled: boolean /*في دفعة مسجَّلة*/, inDraft: boolean }], payouts: [...{ transferredAt: 'YYYY-MM-DD'|null }], events: AffiliateEvent[] }` (صفوف خام من المخطّط)
 - `POST /affiliates/:id/approve` · `POST /affiliates/:id/reject {reason}` · `POST /affiliates/:id/suspend {reason}` · `POST /affiliates/:id/reactivate` (موقوف ⇒ مقبول، مرفوض ⇒ قيد المراجعة) ⇒ `{ status }` (409 انتقال غير مسموح)
 - `POST /affiliates/:id/reveal-iban` ⇒ `{ iban: string, holderName, bankName }` (يُسجَّل حدثاً)
 - `GET /claims?status=` ⇒ `Array<{ id, affiliate: {id, fullName, code}, companyName, crNumber, contactPhone: string|null, city, how, note, status, reasonCode, submittedAt, reviewedAt, lockedUntil, tenantId, tenantName: string|null, conflicts: Array<{ claimId, affiliateName, status }> /*ترشيحات أخرى بالسجل نفسه*/, suggestions: Array<{ tenantId, tenantName, match: 'cr'|'name', createdAt }> }>`
 - `POST /claims/:id/approve` ⇒ `{ status: 'approved', lockedUntil }` · 409 إن وُجد ترشيح معتمد ساري بالسجل نفسه
 - `POST /claims/:id/reject {reasonCode: ClaimReason}` ⇒ `{ status: 'rejected' }`
 - `POST /claims/:id/link-tenant {tenantId}` ⇒ `{ attribution: {id, status}, commission: {id, status}|null, commissionCreated: boolean, accrualReason: string|null, conflict: { attributionStatus: string, commissionHeld: boolean } | null }` — الترشيح `approved`، أو `expired` إن سجّلت الشركة داخل قفله. بداية الإسناد = لحظة **تقديم** الترشيح (وتُسحب إليها بداية إسنادٍ قائم للسفير نفسه إن لم تنشأ عمولة). مدّة القفل عند الاعتماد من شروط صاحب الترشيح.
-- `GET /attributions?status=` ⇒ `Array<{ id, tenantId, tenantName /*لقطة*/, affiliate: {id, fullName, code}, source, status, flags: Flag[], codeUsed, refVia, reasonNote, effectiveFrom, firstPaymentDeadline, rateBps, createdAt, commission: {id, status, commissionHalalas}|null }>`
+- `GET /attributions?status=` ⇒ `Array<{ id, tenantId, tenantName /*لقطة*/, affiliate: {id, fullName, code}, source, status, activation: 'pending'|'active'|null /*portal وحده*/, flags: Flag[], codeUsed, refVia, reasonNote, effectiveFrom, firstPaymentDeadline, rateBps, createdAt, commission: {id, status, commissionHalalas}|null }>`
 - ردود الإسناد كلّها: `{ attribution: {id, status}, commission: {id, status, commissionHalalas}|null, commissionCreated: boolean, accrualReason: string|null }`
 - رموز `accrualReason`: `not_paid_or_unlinked` · `zero_amount` · `no_attribution` · `exists` · `not_first_payment` · `outside_window` · `zero_commission` · `no_payment` · `first_payment_reversed` · `earlier_payment_linked` (دفعةٌ أقدم رُبطت بعد نشوء العمولة على لاحقة — أُوقفت القائمة) · `earlier_payment_committed` (القائمة مصروفة أو في مسودّة — تصحيحٌ يدوي) · `earlier_payment_no_commission` (القائمة مستردّة أو مرفوضة) · `error` — و`null` حين كانت للإسناد عمولةٌ قائمة.
 - `POST /attributions {tenantId, affiliateId, reason, effectiveFrom?: 'YYYY-MM-DD'}` · 409 إن كان للشركة **أيّ** إسناد (ولو مُبطلاً) — استعمل «إعادة إسناد»
@@ -109,3 +122,10 @@ type Flag = 'self_email' | 'self_phone' | 'returning_company' | 'ip_match' | 'te
 
 ## 3) تسجيل الشركة — `POST BASE/api/auth/signup`
 حقول إضافية متسامحة (لا تُفشل التسجيل أبداً): `ref?: string` (≤40)، `refVia?: 'link'|'typed'`، `refAt?: number` (لحظة التقاط الرابط بالملّي ثانية — الخادم يفرض `refWindowDays` على `refVia='link'`).
+بريدٌ لحسابٍ **فتحه سفيرٌ ولم يُفعَّل** (بأيّ حالة أحرف) ⇒ 409 «هذا البريد له حساب بانتظار التفعيل — أرسلنا لك رابط التفعيل مجدداً، افحص بريدك»، ويُعاد رابط التفعيل إلى البريد المخزَّن (مرّةً كلّ ١٠ دقائق على الأكثر، و٥ مرّاتٍ لكلّ حساب) — لا حساب ثانٍ. ورسالة الحساب النشط كما هي.
+
+## 4) تفعيل حساب شركةٍ فتحه سفير — `BASE/api/auth` (عام، `authLimiter`)
+الرابط في بريد المسؤول وحده: `https://fieldsa.net/activate#t=<token>` — الرمز في **المقطع** فلا يصل الخادم ولا السجلّات ولا Referer، والصفحة ترسله في الجسم. سرٌّ مشتقّ (`COMPANY_ACTIVATION_SECRET` أو `JWT_SECRET::company-activate`) وحمولة `{ aid, purpose: 'company-activate', fp }` بلا `id/role/tenantId` — لا يصلح جلسةً في أيّ مكان. صالحٌ ٧ أيام ومرّةً واحدة، وإعادة الإرسال تُبطل الأقدم. السفير لا يراه أبداً.
+- `POST /api/auth/activation/preview` `{ token }` ⇒ `{ state: 'ready', companyName: string, adminName: string, email: string /*اسم الدخول كما خُزِّن*/, phoneMasked: string|null /*تلميحٌ مُقنَّع لما كتبه السفير — لا يُبقى صامتاً*/, countryCode: string|null, openedBy: string|null /*اسم السفير لمصدر portal*/, trialDays: number }` · `{ state: 'already_active' }` · `{ state: 'superseded' }` (أُرسل رابطٌ أحدث) · `{ state: 'locked' }` (أوقفه تكرار `phone_taken` — يُطلب رابطٌ جديد) · 400 `code: 'invalid'` (غير صالح أو منتهٍ أو حسابٌ مسحوب).
+- `POST /api/auth/activate` `{ token, password /*8..128*/, acceptTerms: true, phone: string /*مطلوب: تكتبه الشركة كاملاً — بمطبِّع جوال البوابة نفسه (سعوديٌّ 05… أو دوليٌّ بمفتاحه)*/ }` ⇒ `{ token: string, user }` بشكل `POST /login` نفسه و`emailVerified: true`. التجربة تبدأ الآن (`subscriptionEndsAt = max(الحالي، الآن + 10 أيام)` — لا يُقصَّر تاريخٌ مدفوع)، ثمّ ترحيب واتساب للجوال الذي كتبته الشركة وبريدٌ للمالك وللسفير. 400 `code: 'invalid'` · 400 `invalid_phone` · 409 `already_active` · 409 `superseded` · 409 `phone_taken` (الجوال مربوطٌ بشركةٍ فعّالة أخرى، يُفحص في كلّ تفعيل ولو أُعيد الرقم كما كتبه السفير — والمنتظر تفعيلها لا يحجب؛ كلّ رفضٍ حدث `activation_phone_taken` على الإسناد) · 409 `link_locked` (بلغ الرفض ٣ لهذا الرابط فدُوِّر الحارس «موقوفاً» — يُطلب رابطٌ جديد ويبدأ عدّاً جديداً) · 403 `tenant_inactive`.
+- بعدها يدخل المسؤول بـ`POST /login` بالبريد المخزَّن (صغيراً، المعروض في صفحة التفعيل) وكلمة مروره. وبدائل المالك قائمة: الانتحال، و`POST /api/tenants/:id/reset-admin` (يستبدل الحارس فيُعدّ مفعّلاً، والروابط القديمة تقول `already_active`).

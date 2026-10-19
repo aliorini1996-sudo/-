@@ -12,7 +12,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { Home, Link2, Tags, Send, Building2, Wallet, UserRound, FileText, LogOut } from 'lucide-react';
+import { Home, Link2, Tags, Send, UserPlus, Building2, Wallet, UserRound, FileText, LogOut } from 'lucide-react';
 import { affiliateApi, clearToken, getToken, httpStatus, onTermsOutdated, onUnauthorized, qk, shouldRetry } from './api';
 import type { AffiliateMe, MeResponse } from './types';
 import { AuthShell, AxLanguageToggle, BrandLockup, ErrorBox, Loading } from './ui';
@@ -27,6 +27,7 @@ import {
 import { StatusScreen, TermsGate } from './screens/StatusScreens';
 import { HomeTab, LinkTab } from './screens/HomeScreens';
 import { ClaimsTab } from './screens/ClaimsScreen';
+import { TrialTab } from './screens/TrialScreen';
 import { CompaniesTab } from './screens/CompaniesScreen';
 import { EarningsTab } from './screens/EarningsScreen';
 import { PricingTab } from './screens/PricingScreen';
@@ -37,6 +38,8 @@ const TABS: Array<{ id: Tab; label: AxKey; icon: ReactNode }> = [
   { id: 'link', label: 'tab.link', icon: <Link2 size={15} /> },
   { id: 'pricing', label: 'tab.pricing', icon: <Tags size={15} /> },
   { id: 'claims', label: 'tab.claims', icon: <Send size={15} /> },
+  // يظهر حين يفعّله الخادم وحده (me.settings.portalTrialEnabled) — انظر trialOn أدناه
+  { id: 'trial', label: 'tab.trial', icon: <UserPlus size={15} /> },
   { id: 'companies', label: 'tab.companies', icon: <Building2 size={15} /> },
   { id: 'earnings', label: 'tab.earnings', icon: <Wallet size={15} /> },
   { id: 'profile', label: 'tab.profile', icon: <UserRound size={15} /> },
@@ -238,12 +241,19 @@ export default function AffiliateApp() {
     return <TermsGate me={data} onAccepted={onTermsAccepted} onLogout={logout} />;
   }
 
+  // «افتح حساباً تجريبياً» يتبع مفتاح الخادم: مطفأً يغيب من الشريط، و`#trial` (رابطٌ محفوظ أو
+  // سجلّ المتصفّح) يعرض الرئيسية بدل نموذجٍ يرفضه الخادم بـ403 portal_trial_disabled.
+  const trialOn = data.settings.portalTrialEnabled === true;
+  const tabs = trialOn ? TABS : TABS.filter((item) => item.id !== 'trial');
+  const shown: Tab = tab === 'trial' && !trialOn ? 'home' : tab;
+
   const tabProps = { me: data, refreshMe };
   let content: ReactNode;
-  switch (tab) {
+  switch (shown) {
     case 'link': content = <LinkTab {...tabProps} />; break;
     case 'pricing': content = <PricingTab {...tabProps} />; break;
     case 'claims': content = <ClaimsTab {...tabProps} />; break;
+    case 'trial': content = <TrialTab {...tabProps} />; break;
     case 'companies': content = <CompaniesTab {...tabProps} />; break;
     case 'earnings': content = <EarningsTab {...tabProps} />; break;
     case 'profile': content = <ProfileTab {...tabProps} onUserUpdated={onUserUpdated} />; break;
@@ -268,8 +278,8 @@ export default function AffiliateApp() {
         </div>
         <nav className="max-w-3xl mx-auto overflow-x-auto pb-2.5" style={{ scrollbarWidth: 'none' }} aria-label={t('nav.sections')}>
           <div className="flex gap-1.5 w-max px-4">
-            {TABS.map((item) => {
-              const active = item.id === tab;
+            {tabs.map((item) => {
+              const active = item.id === shown;
               return (
                 <button
                   key={item.id} id={`ax-tab-${item.id}`} type="button" onClick={() => setTab(item.id)}

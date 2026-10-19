@@ -4,7 +4,7 @@
 import { affiliateApi, qk } from '../api';
 import { daysLabel, daysUntil, formatDay } from '../format';
 import { useAxT } from '../i18n';
-import { COMMISSION_STATUS, COMPANY_SOURCE, COMPANY_STATUS, labelOf, textOf } from '../labels';
+import { ACTIVATION, COMMISSION_STATUS, COMPANY_SOURCE, COMPANY_STATUS, labelOf, textOf } from '../labels';
 import type { MeResponse } from '../types';
 import { Badge, Empty, ErrorBox, Loading, Money, SectionTitle } from '../ui';
 import { useAxQuery } from '../useAx';
@@ -34,7 +34,13 @@ export function CompaniesTab({ refreshMe }: TabProps) {
                     <p className="font-bold text-[14.5px] text-[#1F1A13] break-words">{c.tenantName}</p>
                     <p className="text-[12px] text-[#6E6557] mt-0.5">{textOf(COMPANY_SOURCE, c.source, lang)} · {day(c.signedUpAt)}</p>
                   </div>
-                  <Badge value={labelOf(COMPANY_STATUS, c.status, lang)} />
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    {/* حسابٌ فتحه السفير من البوابة: هل اختار مسؤوله كلمة مروره بعد؟ (المسحوب بلا تفعيل) */}
+                    {c.source === 'portal' && c.activation && c.status !== 'void' && (
+                      <Badge value={labelOf(ACTIVATION, c.activation, lang)} />
+                    )}
+                    <Badge value={labelOf(COMPANY_STATUS, c.status, lang)} />
+                  </div>
                 </div>
 
                 <div className="mt-2.5 space-y-1 text-[12.5px] text-[#44403a]">

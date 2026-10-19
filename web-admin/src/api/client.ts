@@ -186,6 +186,10 @@ export const authApi = {
   changePassword: (data: { currentPassword: string; newPassword: string }) => api.post('/auth/change-password', data),
   verifyEmail: (token: string) => api.post('/auth/verify-email', { token }),
   resendVerification: () => api.post('/auth/resend-verification'),
+  // تفعيل حساب شركةٍ فتحه «سفير فيلد سيلز» (/activate): الرمز من رابط بريد المسؤول، يُرسل في الجسم
+  // لا في الرابط. preview يقرأ حالته وبيانات العرض، وactivate يضبط كلمة المرور ويُعيد جلسة الدخول.
+  activationPreview: (token: string) => api.post('/auth/activation/preview', { token }),
+  activate: (data: { token: string; password: string; acceptTerms: true; phone: string }) => api.post('/auth/activate', data),
 };
 
 export const companyApi = {

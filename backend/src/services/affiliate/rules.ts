@@ -202,6 +202,51 @@ export function containsContactInfo(text: unknown): boolean {
   return false;
 }
 
+/**
+ * هل في النصّ رابطٌ أو نطاق؟ («fieldsa-pay.com» · «www.…» · «https://…»)
+ *
+ * اسم المنشأة واسم المسؤول في «حسابٍ يفتحه السفير» يكتبهما السفير ويصلان صاحب البريد داخل
+ * رسالةٍ رسمية من فيلد سيلز — ونطاقٌ في الاسم أداة تصيّدٍ جاهزة («اشتراكك موقوف ادفع عبر
+ * fieldsa-pay.com»). يُرفض مع `containsContactInfo` على الخادم، والواجهة تعكسه حرفياً.
+ */
+export function containsLinkLike(text: unknown): boolean {
+  if (typeof text !== 'string' || !text) return false;
+  // NFKC: «．» و«ｗｗｗ» العريضة تصير عادية قبل الفحص
+  const t = latinDigits(text.normalize('NFKC'));
+  if (/(https?:\/\/|www\.)/i.test(t)) return true;
+  return /[\p{L}\p{N}-]{2,}\.[a-z]{2,24}\b/iu.test(t);
+}
+
+/**
+ * جوال السفير كما خُزِّن (`9665…` أو أرقامٌ دولية بلا `+`) أو كما كُتب (`05…` · `+971…`) — بصيغةٍ
+ * واحدة للمقارنة. المخزَّن الدوليّ بلا `+` لا يقبله `normAffiliatePhone` وحده (رقمٌ بلا مفتاحٍ صريح
+ * لا تُخمَّن دولته)، وهو هنا مفتاحٌ مخزَّن لا مُدخلٌ، فيُعاد إليه `+`.
+ */
+function affiliatePhoneKey(phone: unknown): string | null {
+  if (typeof phone !== 'string' || !phone.trim()) return null;
+  const direct = normAffiliatePhone(phone);
+  if (direct) return direct;
+  const digits = phone.trim();
+  return /^[1-9]\d{7,14}$/.test(digits) ? normAffiliatePhone(`+${digits}`) : null;
+}
+
+/**
+ * «هذا بريدك أو جوالك»: السفير يفتح حساب منشأةٍ ببريده أو جواله هو، فيصله رابط التفعيل ويختار
+ * كلمة المرور — والوعد للشركة أنّ السفير لا يدخل حسابها أبداً. يُرفض صراحةً، ولا يكشف شيئاً:
+ * المقارنة ببيانات السفير نفسه وحدها.
+ */
+export function isSelfContact(input: {
+  affiliateEmail: string | null | undefined;
+  affiliatePhone: string | null | undefined;
+  adminEmail: string | null | undefined;
+  adminPhone: string | null | undefined;
+}): boolean {
+  const ae = normEmail(input.affiliateEmail);
+  if (ae && ae === normEmail(input.adminEmail)) return true;
+  const ap = affiliatePhoneKey(input.affiliatePhone);
+  return !!ap && ap === affiliatePhoneKey(input.adminPhone);
+}
+
 // ───────────────────────────── الآيبان ─────────────────────────────
 
 /**
@@ -221,7 +266,7 @@ export function normIbanSA(iban: unknown): string | null {
 
 // ───────────────────────────── الإشارات ─────────────────────────────
 
-export type AttributionFlag = 'self_email' | 'self_phone' | 'returning_company' | 'ip_match' | 'terms_outdated' | 'link_expired';
+export type AttributionFlag = 'self_email' | 'self_phone' | 'returning_company' | 'ip_match' | 'terms_outdated' | 'link_expired' | 'claim_conflict';
 
 /**
  * إشارات الإسناد عند تسجيل شركةٍ برمز.
@@ -250,12 +295,14 @@ export function attributionFlags(input: {
 }
 
 /**
- * الإشارات التي تُوقف الإسناد للمراجعة: **العميل العائد** وحده. تسجيل الشركة ببريد
- * السفير أو جواله لا يُوقفه — السفير الموظّف أو المالك يسجّل منشأته بنفسه غالباً،
- * وإحالتها مسموحة (الشروط ٢٠٢٦-09-v2). الإشارتان تبقيان معلومةً للمالك.
+ * الإشارات التي تُوقف الإسناد للمراجعة: **العميل العائد**، و**ترشيحٌ معتمد لسفيرٍ آخر**
+ * (`claim_conflict` — حسابٌ فتحه سفيرٌ من البوابة لمنشأةٍ يحجزها ترشيح غيره: «الأسبق يفوز»
+ * يحسمه المالك بدل أن يكسب الأسرع). تسجيل الشركة ببريد السفير أو جواله لا يُوقفه — السفير
+ * الموظّف أو المالك يسجّل منشأته بنفسه غالباً، وإحالتها مسموحة (الشروط ٢٠٢٦-09-v2).
+ * و`self_*` و`ip_match` تبقى معلومةً للمالك.
  */
 export function isDisputedByFlags(flags: string[]): boolean {
-  return flags.some(f => f === 'returning_company');
+  return flags.some(f => f === 'returning_company' || f === 'claim_conflict');
 }
 
 // ───────────────────────────── الانتقالات ─────────────────────────────

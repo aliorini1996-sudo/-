@@ -95,6 +95,22 @@ export function mailPayoutRecorded(to: string, name: string, p: { netHalalas: nu
   ], { label: 'عرض الدفعات', url: portal() }));
 }
 
+/**
+ * شركةٌ فتح لها السفير حساباً من البوابة **فعّلته بنفسها** (اختار مسؤولها كلمة مروره من رابط بريده).
+ * بريد السفير مؤكَّد، والاسم واسم المنشأة مُهرَّبان — ولا يحمل شيئاً من بيانات دخول الشركة.
+ */
+export function mailTrialActivated(to: string, name: string, tenantName: string): void {
+  try {
+    send(to, 'شركةٌ فتحت لها حساباً فعّلته — سفير فيلد سيلز', layout('تفعيل حساب شركة', [
+      `مرحباً ${escapeHtml(name)}،`,
+      `فعّلت «${escapeHtml(tenantName)}» حسابها التجريبي الذي فتحته لها، وبدأت تجربتها الآن.`,
+      'تُحتسب عمولتك إن دفعت الشركة اشتراكها الأوّل خلال مهلة الإسناد.',
+    ], { label: 'شركاتي', url: `${portal()}#companies` }));
+  } catch (e) {
+    console.error('[affiliate] mail error:', (e as Error).message);
+  }
+}
+
 /** تغيير بيانات الاستلام يُبلَّغ به صاحب الحساب — جلسةٌ مسروقة لا تحوّل المستحقّات بصمت */
 export function mailPayoutProfileChanged(to: string, name: string, ibanLast4: string): void {
   send(to, 'تغيّرت بيانات الاستلام — سفير فيلد سيلز', layout('تغيير بيانات الاستلام', [

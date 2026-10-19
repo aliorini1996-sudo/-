@@ -5,10 +5,16 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
-import { sendMail, mailLayout } from '../services/mailer';
+import { sendMail } from '../services/mailer';
 import { authLimiter, signupLimiter, mailLimiter, renewLimiter } from '../middleware/rateLimits';
 import { getCountryTax } from '../config/countries';
 import { attachSignupAttribution } from '../services/affiliate/ledger';
+import { ipHash } from '../services/affiliate/core';
+import {
+  TRIAL_PERIOD_DAYS, createTrialCompanyTx, sendWaWelcome, notifyOwnerNewTrial,
+  PENDING_ACTIVATION_PREFIX, isPendingActivationHash, resendActivationForSignup,
+  activationPreview, activateCompany, ActivationError,
+} from '../services/trialCompany';
 
 const router = Router();
 
@@ -62,7 +68,8 @@ const signupSchema = z.object({
   refVia: z.unknown().optional().transform(v => (v === 'link' ? 'link' : 'typed')),
   refAt: z.unknown().optional().transform(v => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)),
 });
-const TRIAL_DAYS = 10;
+// مدّة التجربة وحدودها من مصدرٍ واحد مع «حسابٍ يفتحه السفير» (services/trialCompany.ts)
+const TRIAL_DAYS = TRIAL_PERIOD_DAYS;
 
 export const adminPermissionSelect = {
   canAccessDashboard: true,
@@ -277,32 +284,35 @@ router.post('/signup', signupLimiter, async (req: Request, res: Response, next: 
   try {
     const body = signupSchema.parse(req.body);
     const taken = await prisma.admin.findUnique({ where: { email: body.email } });
+    // بريدُ حسابٍ فتحه سفيرٌ ولم تفعّله الشركة (بأيّ حالة أحرف — البوابة تخزّنه صغيراً): لا حسابٌ ثانٍ لها،
+    // ويُعاد رابط التفعيل لبريدها المخزَّن (مرّةً كلّ عشر دقائق على الأكثر) — والردّ هذه الرسالة لا أكثر (قرار المالك)
+    const pending = taken
+      ? (taken.isActive && isPendingActivationHash(taken.passwordHash) ? taken : null)
+      // والمطابقة الأخيرة في الذاكرة حرفاً بحرف: لو صارت `insensitive` نمطَ ILIKE لكان «_» و«%» فيه حرفَي بدل،
+      // فيُعاد رابط شركةٍ أخرى إلى بريدها هي لمن كتب بريداً يشبهه
+      : (await prisma.admin.findMany({
+          where: { email: { equals: body.email, mode: 'insensitive' }, isActive: true, passwordHash: { startsWith: PENDING_ACTIVATION_PREFIX } },
+          select: { id: true, email: true }, take: 20,
+        })).find(a => a.email.toLowerCase() === body.email.toLowerCase()) ?? null;
+    if (pending) {
+      await resendActivationForSignup(pending.id);
+      res.status(409).json({ success: false, message: 'هذا البريد له حساب بانتظار التفعيل — أرسلنا لك رابط التفعيل مجدداً، افحص بريدك' });
+      return;
+    }
     if (taken) { res.status(409).json({ success: false, message: 'البريد الإلكتروني مستخدم مسبقا - سجل الدخول' }); return; }
 
     const passwordHash = await bcrypt.hash(body.password, 10);
-    const trialEndsAt = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
     // إعدادات دولة الشركة (العملة/الضريبة/مزوّد الفوترة) — تُشتقّ من رمز الدولة (افتراضي السعودية)
     const ct = getCountryTax(body.countryCode);
 
     const created = await prisma.$transaction(async tx => {
-      const tenant = await tx.tenant.create({
-        data: {
-          name: body.companyName,
-          plan: 'trial',
-          subscriptionEndsAt: trialEndsAt,
-          maxSalesReps: 5,
-          maxAdminUsers: 1,
-        } as any,
+      const { tenant, admin } = await createTrialCompanyTx(tx, {
+        companyName: body.companyName, adminName: body.adminName, email: body.email, phone: body.phone,
+        countryCode: body.countryCode, passwordHash,
       });
-      const admin = await tx.admin.create({
-        data: { tenantId: tenant.id, name: body.adminName, email: body.email, passwordHash, role: 'ADMIN' } as any,
-      });
-      await tx.companySettings.create({ data: {
-        tenantId: tenant.id, name: body.companyName, phone: body.phone,
-        countryCode: ct.code, currency: ct.currency, defaultVatPct: ct.defaultVatPct, einvoiceProvider: ct.provider,
-      } as any });
       return { tenant, admin };
     });
+    const trialEndsAt = created.tenant.subscriptionEndsAt ?? new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
 
     // إسناد السفير — بعد الالتزام لا داخله، ولا يرمي (خطأٌ داخل المعاملة كان سيُسقط التسجيل)
     if (body.ref) {
@@ -314,46 +324,12 @@ router.post('/signup', signupLimiter, async (req: Request, res: Response, next: 
 
     // ترحيب فوري على واتساب — العميل سجّل بنفسه وأعطانا جواله، فالمراسلة مشروعة.
     // لا يوقف التسجيل مهما حدث: فشل الترحيب لا يجوز أن يمنع عميلاً من الدخول.
-    void (async () => {
-      const url = (process.env.WA_BOT_URL || '').trim().replace(/\/$/, '');
-      const key = (process.env.WA_SWEEP_TOKEN || '').trim();
-      if (!url || !key) return;
-      try {
-        const r = await fetch(`${url}/outreach/welcome`, {
-          method: 'POST',
-          headers: { 'x-sweep-token': key, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            phone: body.phone,
-            adminName: body.adminName,
-            companyName: body.companyName,
-            trialEndsAt: trialEndsAt.toISOString().slice(0, 10),
-          }),
-          signal: AbortSignal.timeout(12000),
-        });
-        console.log(`[welcome] ${body.companyName} ⇒ ${r.status}`);
-      } catch (e) {
-        console.error('[welcome] تعذّر:', e);
-      }
-    })();
+    sendWaWelcome({ phone: body.phone, adminName: body.adminName, companyName: body.companyName, trialEndsAt });
 
     // إشعار «عميل تجريبي جديد» إلى البريد الرئيسي للشركة
-    const mailSent = await sendMail({
-      to: process.env.MAIL_TO || 'info@fieldsa.net',
-      subject: `🎉 عميل تجريبي جديد ${body.companyName}`,
-      replyTo: body.email,
-      html: mailLayout('🎉 عميل تجريبي جديد', [
-        ['الشركة', body.companyName],
-        ['المسؤول', body.adminName],
-        ['البريد', body.email],
-        ['الجوال', body.phone],
-        ['الدولة', `${ct.code} · ${ct.currency} · ${ct.defaultVatPct}%`],
-        ['الباقة', 'تجريبية مجانية'],
-        ['مدة التجربة', `${TRIAL_DAYS} أيام`],
-        ['تاريخ التسجيل', new Date().toISOString().slice(0, 10)],
-        ['تنتهي التجربة', trialEndsAt.toISOString().slice(0, 10)],
-      ], 'سجل عميل جديد للتجربة المجانية عبر fieldsa.net ينصح بالتواصل معه لتفعيل أفضل تجربة وتحويله لمشترك'),
+    const mailSent = await notifyOwnerNewTrial({
+      companyName: body.companyName, adminName: body.adminName, email: body.email, phone: body.phone, ct, trialEndsAt,
     });
-    if (!mailSent) console.error('[mail] فشل إرسال إشعار عميل تجريبي جديد إلى info@fieldsa.net');
 
     // بريد تأكيد للعميل — يحقّق ملكية البريد (دخول فوري + لافتة تأكيد بالواجهة)
     const verifyUrl = `${frontendBase()}/verify-email?token=${signVerifyToken(created.admin.id)}`;
@@ -406,6 +382,62 @@ router.post('/resend-verification', authenticate, mailLimiter, async (req: AuthR
     const sent = await sendMail({ to: admin.email, subject: 'تأكيد بريدك الإلكتروني FieldSales', html: verifyEmailHtml(admin.name, verifyUrl) });
     res.json({ success: true, data: { sent } });
   } catch (err) { next(err); }
+});
+
+// ─────────── تفعيل حساب شركةٍ فتحه سفير (رابط بريد المسؤول — services/trialCompany.ts) ───────────
+//
+// الرمز بسرٍّ مشتقّ وغرضٍ واحد، يُتحقَّق منه في الخدمة وحدها — لا يصلح جلسةً هنا ولا في وسيط المصادقة.
+// والصفحة تقرؤه من مقطع الرابط (#) ثمّ تمحوه، فلا يبقى في سجلٍّ ولا في Referer.
+
+/** ما تعرضه صفحة التفعيل قبل اختيار كلمة المرور: اسم المنشأة ومسؤولها واسم الدخول ومن فتحه */
+router.post('/activation/preview', authLimiter, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { token } = z.object({ token: z.string().min(1).max(2000) }).parse(req.body);
+    const p = await activationPreview(token);
+    if (p.state === 'invalid') { res.status(400).json({ success: false, message: 'رابط التفعيل غير صالح أو منتهي الصلاحية', code: 'invalid' }); return; }
+    res.json({ success: true, data: p });
+  } catch (err) { next(err); }
+});
+
+/**
+ * المسؤول يختار كلمة مروره (ويكتب جوال شركته كاملاً) فيُفعَّل الحساب مرّةً واحدة وتبدأ تجربته، ويدخل
+ * مباشرةً بجلسةٍ كالدخول تماماً. بعدها يدخل ببريده وكلمة مروره كأيّ شركة.
+ */
+router.post('/activate', authLimiter, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const b = z.object({
+      token: z.string().min(1).max(2000),
+      password: z.string().min(8, 'كلمة المرور 8 أحرف على الأقل').max(128),
+      acceptTerms: z.literal(true),
+      // تكتبه الشركة كاملاً — لا يصير رقمٌ كتبه السفير هويتَها لأنّها لم تعترض
+      phone: z.string().trim().min(1, 'رقم الجوال مطلوب').max(30),
+    }).parse(req.body);
+    const { adminId } = await activateCompany({ token: b.token, password: b.password, phone: b.phone, ipHash: ipHash(req.ip) });
+    const admin = await prisma.admin.findUnique({ where: { id: adminId }, include: { tenant: true } });
+    if (!admin || !admin.isActive) { res.status(401).json({ success: false, message: 'بيانات الدخول غير صحيحة' }); return; }
+    const block = tenantBlockReason(admin.tenant);
+    if (block) { res.status(403).json({ success: false, message: block }); return; }
+    const token = signToken({ id: admin.id, role: admin.role, name: admin.name, tenantId: admin.tenantId });
+    res.json({
+      success: true,
+      data: {
+        token,
+        user: {
+          id: admin.id,
+          name: admin.name,
+          email: admin.email,
+          role: admin.role,
+          tenantId: admin.tenantId,
+          companyName: admin.tenant.name,
+          emailVerified: true,
+          ...adminPermissionFields(admin),
+        },
+      },
+    });
+  } catch (err) {
+    if (err instanceof ActivationError) { res.status(err.status).json({ success: false, message: err.message, code: err.code }); return; }
+    next(err);
+  }
 });
 
 router.post('/refresh-fcm', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
