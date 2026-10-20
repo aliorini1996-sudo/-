@@ -2377,7 +2377,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[مندوب], pagination:{total, page, limit, pages}} مرتبة بالاسم تصاعدياً. حقول المندوب: id, name, phone, email, username, isActive, canCreateInvoice, canSellOnCredit, canSellOnInstallment, canSellInCash, canEditInvoice, canDeleteInvoice, canCancelInvoice, canChangePrice, maxDiscountPct, canSellBelowPrice, canCreateReceipt, canEditReceipt, canCancelReceipt, canManageVanStock, canAddCustomer, canEditCustomer, canViewStatement, showCollectionBalance, requireCustomerProximity, requireLocationOn, createdAt",
+    "response": "{success:true, data:[مندوب], pagination:{total, page, limit, pages}} مرتبة بالاسم تصاعدياً. حقول المندوب: id, name, phone, email, username, isActive, canCreateInvoice, canSellOnCredit, canSellOnInstallment, canSellInCash, canEditInvoice, canDeleteInvoice, canCancelInvoice, canChangePrice, maxDiscountPct, canSellBelowPrice, canCreateReceipt, canEditReceipt, canCancelReceipt, canManageVanStock, canAddCustomer, canEditCustomer, canViewStatement, showCollectionBalance, requireCustomerProximity, requireLocationOn, requirePunchAtCustomer, proximityRadiusM, punchRadiusM, createdAt",
     "rules": [
      "لا تُعاد كلمة المرور ولا حقول التتبع والموقع ولا canSellWithoutStock ولا canBeTracked",
      "pages = ceil(total/limit) من utils/helpers.ts",
@@ -2564,13 +2564,31 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "requireCustomerProximity",
       "type": "boolean",
       "required": false,
-      "desc": "قيد تقييدي: لا يفتح ملف العميل إلا داخل 50 متراً من موقعه المسجل، الافتراضي false"
+      "desc": "قيد تقييدي: لا يفتح ملف العميل إلا داخل proximityRadiusM متراً من موقعه المسجل، الافتراضي false"
      },
      {
       "name": "requireLocationOn",
       "type": "boolean",
       "required": false,
       "desc": "قيد تقييدي: اشتراط تفعيل الموقع في جوال المندوب، الافتراضي false"
+     },
+     {
+      "name": "requirePunchAtCustomer",
+      "type": "boolean",
+      "required": false,
+      "desc": "قيد تقييدي: لا يبصم المندوب حضوراً ولا انصرافاً إلا داخل punchRadiusM متراً من موقع أحد عملائه، الافتراضي false"
+     },
+     {
+      "name": "proximityRadiusM",
+      "type": "integer",
+      "required": false,
+      "desc": "مسافة قيد «البيع داخل نطاق العميل» بالأمتار، عدد صحيح من 10 إلى 5000، الافتراضي 50"
+     },
+     {
+      "name": "punchRadiusM",
+      "type": "integer",
+      "required": false,
+      "desc": "مسافة قيد «بصمة الحضور بموقع عميل» بالأمتار، عدد صحيح من 10 إلى 5000، الافتراضي 50"
      }
     ],
     "response": "201 {success:true, data:{id, name, phone, username, isActive}}",

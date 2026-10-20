@@ -755,6 +755,9 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
   const qc = useQueryClient();
   const [perms, setPerms] = useState<PermState>(() => readPerms(rep));
   const [maxDisc, setMaxDisc] = useState(String(rep.maxDiscountPct ?? 0));
+  // مسافتا قيدَي الموقع بالأمتار — ٥٠ افتراضاً كما كانتا ثابتتين (يطابق التحقّق في salesReps.ts: ١٠–٥٠٠٠)
+  const [proxRadius, setProxRadius] = useState(String(rep.proximityRadiusM ?? RADIUS_DEFAULT_M));
+  const [punchRadius, setPunchRadius] = useState(String(rep.punchRadiusM ?? RADIUS_DEFAULT_M));
 
   // المجموعات المعروضة — بلا نظامٍ محاسبيّ تسقط كل صلاحيةٍ مالية،
   // وتسقط معها مجموعةٌ خلت من مفاتيحها كلّها فلا يبقى عنوانٌ فوق فراغ
@@ -775,11 +778,18 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
 
   const discNum = Number(maxDisc);
   const discOk = maxDisc.trim() !== '' && Number.isFinite(discNum) && discNum >= 0 && discNum <= 100;
+  const proxNum = Number(proxRadius);
+  const punchNum = Number(punchRadius);
+  // المسافة تُشترط صحيحةً حين يكون قيدها مفعّلاً وحده — المطفأ لا يُرسل مسافته فلا يعطّل الحفظ
+  const proxOk = !perms.requireCustomerProximity || radiusOk(proxNum, proxRadius);
+  const punchOk = !perms.requirePunchAtCustomer || radiusOk(punchNum, punchRadius);
 
   const save = useMutation({
     mutationFn: () => salesRepApi.update(rep.id, {
       ...perms,
       maxDiscountPct: discNum,
+      ...(perms.requireCustomerProximity ? { proximityRadiusM: proxNum } : {}),
+      ...(perms.requirePunchAtCustomer ? { punchRadiusM: punchNum } : {}),
       email: rep.email ?? '', // وإلا مسحه الخادم (انظر تعليق نموذج البيانات)
     }),
     onSuccess: () => {
@@ -832,7 +842,10 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
           <MToggle label={tr(PERM_LABELS.requireCustomerProximity)}
             checked={perms.requireCustomerProximity}
             onChange={v => set('requireCustomerProximity', v)}
-            hint={tr('قيد لا صلاحية تفعيله يمنع فتح ملف العميل خارج خمسين مترا من موقعه والعميل بلا موقع يمنع تماما')} />
+            hint={tr('قيد لا صلاحية تفعيله يمنع فتح ملف العميل خارج المسافة المحددة من موقعه والعميل بلا موقع يمنع تماما')} />
+          {perms.requireCustomerProximity && (
+            <RadiusField label={tr('المسافة المسموحة بالمتر')} value={proxRadius} onChange={setProxRadius} ok={proxOk} />
+          )}
           <MToggle label={tr(PERM_LABELS.requireLocationOn)}
             checked={perms.requireLocationOn}
             onChange={v => set('requireLocationOn', v)}
@@ -840,7 +853,10 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
           <MToggle label={tr(PERM_LABELS.requirePunchAtCustomer)}
             checked={perms.requirePunchAtCustomer}
             onChange={v => set('requirePunchAtCustomer', v)}
-            hint={tr('عند التفعيل لا يبصم المندوب حضورا ولا انصرافا الا وهو داخل خمسين مترا من موقع احد عملائه المسجل، والموقع مطفأ في جواله يمنع البصمة')} />
+            hint={tr('عند التفعيل لا يبصم المندوب حضورا ولا انصرافا الا وهو داخل المسافة المحددة من موقع احد عملائه المسجل، والموقع مطفأ في جواله يمنع البصمة')} />
+          {perms.requirePunchAtCustomer && (
+            <RadiusField label={tr('المسافة المسموحة بالمتر')} value={punchRadius} onChange={setPunchRadius} ok={punchOk} />
+          )}
         </Group>
 
         <p className="text-[11px] text-[#9A8F7E] px-1 leading-relaxed">
@@ -852,7 +868,7 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
 
       <div className="flex-shrink-0 border-t border-[#E9E1D3] bg-white p-3"
         style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
-        <button onClick={() => save.mutate()} disabled={!discOk || save.isPending}
+        <button onClick={() => save.mutate()} disabled={!discOk || !proxOk || !punchOk || save.isPending}
           className="w-full bg-[#E15A30] text-white font-bold py-3.5 rounded-xl min-h-[50px] flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
           {save.isPending && <Loader2 size={16} className="animate-spin" />}
           {tr('حفظ الصلاحيات')}
@@ -1210,6 +1226,28 @@ function Field({ label, value, onChange, required, dir, type = 'text' }: {
     <div>
       <label className="label">{label}{required && ' *'}</label>
       <input className="input" type={type} dir={dir} value={value} onChange={e => onChange(e.target.value)} />
+    </div>
+  );
+}
+
+const RADIUS_MIN_M = 10;
+const RADIUS_MAX_M = 5000;
+const RADIUS_DEFAULT_M = 50;
+function radiusOk(n: number, raw: string): boolean {
+  return raw.trim() !== '' && Number.isInteger(n) && n >= RADIUS_MIN_M && n <= RADIUS_MAX_M;
+}
+
+/** مسافة قيد الموقع بالأمتار — تحت مفتاحه، تظهر حين يُفعَّل */
+function RadiusField({ label, value, onChange, ok }: { label: string; value: string; onChange: (v: string) => void; ok: boolean }) {
+  const tr = useTr();
+  return (
+    <div className="px-3.5 py-2.5 border-b border-[#F1EBDF] last:border-0">
+      <div className="flex items-center gap-3">
+        <span className="flex-1 text-sm text-[#1F1A13]">{label}</span>
+        <input className="input w-28 text-center" dir="ltr" type="number" inputMode="numeric" min={RADIUS_MIN_M} max={RADIUS_MAX_M} step={1}
+          value={value} onChange={e => onChange(e.target.value)} />
+      </div>
+      {!ok && <Hint text={tr('المسافة بين 10 و5000 متر')} bad />}
     </div>
   );
 }

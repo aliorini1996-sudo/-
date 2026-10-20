@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { distanceM, judgeProximity, GEOFENCE_RADIUS_M } from './geofence';
+import { distanceM, judgeProximity, GEOFENCE_RADIUS_M, radiusOf } from './geofence';
 
 // نقطة مرجعية: محلّ في الرياض
 const SHOP = { lat: 24.7136, lng: 46.6753 };
@@ -72,4 +72,20 @@ test('غياب الإحداثيات يسبق غياب الموقع في التر
 
 test('إحداثيات فاسدة (NaN) تُعامل كغياب لا كصفر', () => {
   assert.equal(judgeProximity(true, { lat: NaN, lng: 10 }, SHOP).reason, 'no_customer_pin');
+});
+
+test('مسافة النطاق تحدّدها الإدارة: ٢٠٠م تقبل ١٥٠ وترفض ٢٥٠، وتُعاد في الحكم لتُعرض', () => {
+  const ok = judgeProximity(true, SHOP, northOf(SHOP, 150), 200);
+  assert.equal(ok.allowed, true);
+  assert.equal(ok.radiusM, 200);
+  const far = judgeProximity(true, SHOP, northOf(SHOP, 250), 200);
+  assert.equal(far.reason, 'too_far');
+  assert.equal(far.radiusM, 200);
+  assert.equal(judgeProximity(true, SHOP, northOf(SHOP, 150)).allowed, false, 'بلا مسافة ⇒ ٥٠ كما كان');
+});
+
+test('مسافةٌ غائبة أو فاسدة تعود إلى ٥٠ — لا تفتح القيد ولا تغلقه', () => {
+  for (const bad of [undefined, null, 0, -1, 9, 5001, 12.5, NaN, '200']) assert.equal(radiusOf(bad), GEOFENCE_RADIUS_M, String(bad));
+  assert.equal(radiusOf(10), 10);
+  assert.equal(radiusOf(5000), 5000);
 });

@@ -18,6 +18,9 @@ router.use(authenticate, requireAdmin, requireAdminPermission('canManageSalesRep
 
 const emailSchema = z.preprocess(value => value === null ? '' : value, z.string().email().optional().or(z.literal('')));
 
+export const RADIUS_MIN_M = 10;
+export const RADIUS_MAX_M = 5000;
+
 const repSchema = z.object({
   name: z.string().min(1),
   phone: z.string().min(9),
@@ -46,6 +49,9 @@ const repSchema = z.object({
   requireCustomerProximity: z.boolean().optional(),
   requireLocationOn: z.boolean().optional(),
   requirePunchAtCustomer: z.boolean().optional(),
+  // مسافتا القيدين بالأمتار — عددٌ صحيح بين ١٠ و٥٠٠٠ (أضيق من ١٠ يمنع صادقاً بهامش الـGPS، وأوسع لا يقيّد شيئاً)
+  proximityRadiusM: z.number().int().min(RADIUS_MIN_M).max(RADIUS_MAX_M).optional(),
+  punchRadiusM: z.number().int().min(RADIUS_MIN_M).max(RADIUS_MAX_M).optional(),
 });
 
 const repSelect = {
@@ -60,6 +66,8 @@ const repSelect = {
   requireCustomerProximity: true,
   requireLocationOn: true,
   requirePunchAtCustomer: true,
+  proximityRadiusM: true,
+  punchRadiusM: true,
   createdAt: true,
 } as const;
 

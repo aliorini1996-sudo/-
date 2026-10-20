@@ -151,7 +151,8 @@ async function ensureRepAttendance(req: AuthRequest, res: Response): Promise<{ t
 
 /**
  * «بصمة الحضور بموقع عميل» — قيدٌ تقييديّ على المندوب: مفعّلٌ ⇒ لا حضور ولا انصراف إلا داخل
- * ٥٠ متراً من موقع أحد عملائه المسجَّل. يُرجع نصّ الرفض، أو null حين تُقبل البصمة.
+ * المسافة التي حدّدتها الإدارة له (`punchRadiusM`، ٥٠ متراً افتراضاً) من موقع أحد عملائه المسجَّل.
+ * يُرجع نصّ الرفض، أو null حين تُقبل البصمة.
  *
  * «عملاؤه» بالنطاق نفسه الذي يرى به قائمته (`customerScope`): المُسنَدون له حين يكون العزل مفعّلاً،
  * وعملاء الشركة كلّهم حين لا يكون. والعميل المحذوف يسقط، والعميل بلا إحداثيات لا يُحتسب.
@@ -160,23 +161,30 @@ async function ensureRepAttendance(req: AuthRequest, res: Response): Promise<{ t
  * ٥٠ متراً ≈ ٠٫٠٠٠٤٥ درجة عرضاً، وطولاً تتّسع بقسمة جيب تمام العرض.
  */
 export const PUNCH_RADIUS_M = 50;
+/** مسافة المندوب كما خُزّنت — وقيمةٌ فاسدة (يدويّاً في القاعدة) لا تُسقط القيد: تعود إلى الافتراض */
+export function punchRadiusOf(v: unknown): number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 10 && v <= 5000 ? v : PUNCH_RADIUS_M;
+}
 async function punchAwayFromCustomer(req: AuthRequest, tid: string, repId: string, lat?: number, lng?: number): Promise<string | null> {
-  const rep = await prisma.salesRep.findFirst({ where: { id: repId, tenantId: tid }, select: { requirePunchAtCustomer: true } });
+  const rep = await prisma.salesRep.findFirst({ where: { id: repId, tenantId: tid }, select: { requirePunchAtCustomer: true, punchRadiusM: true } });
   if (rep?.requirePunchAtCustomer !== true) return null;
   if (lat == null || lng == null) return 'فعّل الموقع في جوالك — البصمة مشروطة بأن تكون عند أحد عملائك';
-  const dLat = PUNCH_RADIUS_M / 111320;
-  const dLng = PUNCH_RADIUS_M / (111320 * Math.max(0.1, Math.cos((lat * Math.PI) / 180)));
+  const radius = punchRadiusOf(rep.punchRadiusM);
+  const dLat = radius / 111320;
+  const dLng = radius / (111320 * Math.max(0.1, Math.cos((lat * Math.PI) / 180)));
   const near = await prisma.customer.findMany({
     where: {
       tenantId: tid, status: { not: 'DELETED' }, ...(await customerScope(req, tid)),
       lat: { gte: lat - dLat, lte: lat + dLat }, lng: { gte: lng - dLng, lte: lng + dLng },
     },
     select: { lat: true, lng: true },
-    take: 50,
+    // مسافةٌ واسعة (كيلومترات) تُدخل في المربّع عملاءَ كثيرين بعضهم في زواياه خارج الدائرة: سقفٌ ضيّق كان قد
+    // يختار الزوايا وحدها فيُرفض صادق. ألفُ نقطةٍ إحداثيّتين فقط — رخيصة، والدائرة ٧٨٪ من المربّع
+    take: 1000,
   });
   const atCustomer = near.some(c => c.lat != null && c.lng != null
-    && haversineM({ lat, lng }, { lat: c.lat, lng: c.lng }) <= PUNCH_RADIUS_M);
-  return atCustomer ? null : `البصمة مشروطة بأن تكون داخل ${PUNCH_RADIUS_M} مترا من موقع أحد عملائك`;
+    && haversineM({ lat, lng }, { lat: c.lat, lng: c.lng }) <= radius);
+  return atCustomer ? null : `البصمة مشروطة بأن تكون داخل ${radius} مترا من موقع أحد عملائك`;
 }
 
 /** النوبة المفتوحة لهذا المندوب (بلا انصراف)، أو null. */

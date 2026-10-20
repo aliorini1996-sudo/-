@@ -280,7 +280,9 @@ export interface SalesRep {
   showCollectionBalance?: boolean;
   requireCustomerProximity?: boolean; // «البيع داخل نطاق العميل» — تقييديّ: true يعني مقيَّد
   requireLocationOn?: boolean; // «اشتراط تفعيل الموقع» — تقييديّ: والموقع مطفأ لا يعمل المندوب شيئاً
-  requirePunchAtCustomer?: boolean; // «بصمة الحضور بموقع عميل» — تقييديّ: لا بصمة إلا داخل ٥٠م من عميل
+  requirePunchAtCustomer?: boolean; // «بصمة الحضور بموقع عميل» — تقييديّ: لا بصمة إلا داخل مسافته من عميل
+  proximityRadiusM?: number; // مسافة «البيع داخل نطاق العميل» بالأمتار (١٠–٥٠٠٠، ٥٠ افتراضاً)
+  punchRadiusM?: number;     // مسافة «بصمة الحضور بموقع عميل» بالأمتار (١٠–٥٠٠٠، ٥٠ افتراضاً)
   createdAt: string;
 }
 

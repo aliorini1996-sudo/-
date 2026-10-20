@@ -72,6 +72,8 @@ type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'crea
 interface RepUser {
   /** «البيع داخل نطاق العميل» — تقييديّ: true يعني مقيَّد بـ٥٠ متراً حول موقع العميل */
   requireCustomerProximity?: boolean;
+  /** مسافة «البيع داخل نطاق العميل» بالأمتار — تحدّدها الإدارة (٥٠ افتراضاً) */
+  proximityRadiusM?: number;
   /** «اشتراط تفعيل الموقع» — تقييديّ: لا يدخل صفحة أي عميل إلا وموقعه المباشر ظاهرٌ على الخريطة (liveGate.ts)؛ وبقية التطبيق متاحة */
   requireLocationOn?: boolean;
   id: string; name: string; phone?: string;
@@ -3470,7 +3472,7 @@ function GeoGate({ verdict, customerName, busy, onRetry, onClose }: {
     : far ? tr('انت خارج نطاق العميل')
     : tr('تعذر تحديد موقعك');
   const body = noPin ? tr('اطلب من الادارة تفعيل موقع للعميل')
-    : far ? `${tr('اقترب من موقع العميل')} ${GEOFENCE_RADIUS_M} ${tr('متر او اقل لفتح ملفه')}`
+    : far ? `${tr('اقترب من موقع العميل')} ${verdict.radiusM ?? GEOFENCE_RADIUS_M} ${tr('متر او اقل لفتح ملفه')}`
     : tr('فعل اذن الموقع في جهازك ثم اعد المحاولة');
   return (
     <div className="h-full flex flex-col bg-[#FAF7F0]">
@@ -3557,17 +3559,20 @@ export default function RepApp() {
    * `maximumAge: 0` عمداً وليس نسخاً عن الجيران: قراءةٌ مخبّأة عمرها عشر ثوانٍ
    * قد تكون من الشارع المجاور، وبوّابةٌ تحكم على موقع قديم لا تحكم على شيء.
    */
+  // المسافة يُقرأ من مرجع: runGeoCheck ثابتة الهوية ([]) فإغلاقها لا يرى تحديث الإدارة للمسافة
+  const proximityRadiusRef = useRef<unknown>(user?.proximityRadiusM);
+  proximityRadiusRef.current = user?.proximityRadiusM;
   const runGeoCheck = useCallback((customer: any) => {
     if (!customer) return;
     // العميل بلا نقطة: حكمٌ فوريّ بلا إزعاج الـGPS أصلاً
-    const preliminary = judgeProximity(true, customer, null);
+    const preliminary = judgeProximity(true, customer, null, proximityRadiusRef.current);
     if (preliminary.reason === 'no_customer_pin') { setGeoVerdict(preliminary); return; }
     if (!navigator.geolocation) { setGeoVerdict({ allowed: false, reason: 'no_fix', distanceM: null }); return; }
     setGeoBusy(true);
     navigator.geolocation.getCurrentPosition(
       pos => {
         setGeoBusy(false);
-        setGeoVerdict(judgeProximity(true, customer, { lat: pos.coords.latitude, lng: pos.coords.longitude }));
+        setGeoVerdict(judgeProximity(true, customer, { lat: pos.coords.latitude, lng: pos.coords.longitude }, proximityRadiusRef.current));
       },
       () => { setGeoBusy(false); setGeoVerdict({ allowed: false, reason: 'no_fix', distanceM: null }); },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }

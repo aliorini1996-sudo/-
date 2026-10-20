@@ -495,6 +495,7 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response, next: Ne
           canManageVanStock: true,
           canAddCustomer: true, canEditCustomer: true, canViewStatement: true,
           requireCustomerProximity: true, requireLocationOn: true, requirePunchAtCustomer: true,
+          proximityRadiusM: true, punchRadiusM: true,
           // «الفرق»: فرق المندوب الفعّالة — حين فعّلتها الشركة وحدها
           tenant: { select: { settings: { select: { teamsEnabled: true } } } },
           teamMemberships: { where: { team: { isActive: true } }, select: { team: { select: { id: true, name: true } } } } }

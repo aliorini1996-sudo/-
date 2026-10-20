@@ -60,10 +60,12 @@ const tenant = { async findUnique() { return { attendanceEnabled: featureOn }; }
 let locationRequired = false;
 // «بصمة الحضور بموقع عميل» (مطفأ افتراضاً): مفعّلٌ ⇒ يُبحث عن عميلٍ قريب
 let punchAtCustomer = false;
+// مسافة البصمة كما حدّدتها الإدارة للمندوب (٥٠ افتراضاً كما في المخطط)
+let punchRadius: unknown = 50;
 let nearCustomers: { lat: number; lng: number }[] = [];
 const salesRep = {
   async findUnique() { return { requireLocationOn: locationRequired }; },
-  async findFirst() { return { requireLocationOn: locationRequired, requirePunchAtCustomer: punchAtCustomer }; },
+  async findFirst() { return { requireLocationOn: locationRequired, requirePunchAtCustomer: punchAtCustomer, punchRadiusM: punchRadius }; },
 };
 const customer = { async findMany() { return nearCustomers; } };
 const companySettings = { async findUnique() { return { customerIsolationEnabled: false }; } };
@@ -250,6 +252,39 @@ test('بصمة بموقع عميل: الانصراف محروس كالحضور',
   } finally { punchAtCustomer = false; nearCustomers = []; }
 });
 
+const FAR_150 = { lat: 24.7136 + 150 / 111320, lng: 46.6753 };
+const FAR_250 = { lat: 24.7136 + 250 / 111320, lng: 46.6753 };
+
+test('مسافة البصمة تحدّدها الإدارة: ٢٠٠م تقبل عميلاً على ١٥٠م وترفض ٢٥٠م برسالةٍ تذكر ٢٠٠', async () => {
+  rows = []; seq = 0; featureOn = true; punchAtCustomer = true; punchRadius = 200;
+  try {
+    nearCustomers = [FAR_250];
+    const r = await call('post', '/attendance/checkin', { body: HERE });
+    assert.equal(r.statusCode, 409);
+    assert.match(String((r.body as { message?: string }).message), /200/);
+    assert.equal(rows.length, 0);
+    nearCustomers = [FAR_150];
+    assert.equal(data(await call('post', '/attendance/checkin', { body: HERE })).status, 'in');
+  } finally { punchAtCustomer = false; punchRadius = 50; nearCustomers = []; }
+});
+
+test('مسافة البصمة ٢٠٠م: عميلٌ على ١٥٠م كان يُرفض بالخمسين — والافتراض ٥٠ كما كان', async () => {
+  rows = []; seq = 0; featureOn = true; punchAtCustomer = true; nearCustomers = [FAR_150];
+  try {
+    punchRadius = 50;
+    assert.equal((await call('post', '/attendance/checkin', { body: HERE })).statusCode, 409, 'بالخمسين يُرفض');
+  } finally { punchAtCustomer = false; nearCustomers = []; }
+});
+
+test('مسافةٌ فاسدة في القاعدة لا تُسقط القيد: تعود إلى ٥٠', async () => {
+  for (const bad of [null, 0, -5, 3, 99999, 12.5, 'x']) {
+    rows = []; seq = 0; featureOn = true; punchAtCustomer = true; punchRadius = bad; nearCustomers = [FAR_150];
+    try {
+      assert.equal((await call('post', '/attendance/checkin', { body: HERE })).statusCode, 409, `${String(bad)} ⇒ ٥٠`);
+    } finally { punchAtCustomer = false; punchRadius = 50; nearCustomers = []; }
+  }
+});
+
 test('بصمة بموقع عميل: الضغط المكرّر على نوبة مفتوحة لا يُرفض — لا كتابة فلا حكم', async () => {
   rows = []; seq = 0; featureOn = true; nearCustomers = [NEAR];
   await call('post', '/attendance/checkin', { body: HERE });
@@ -314,4 +349,20 @@ test('قائمة اليوم: نوبةُ أمسٍ المغلقة خارجها، �
   // ومندوبٌ آخر لا تظهر بصماته
   rows.push({ id: 'other', tenantId: 't1', salesRepId: 'rep2', checkInAt: new Date(), checkInLat: null, checkInLng: null, checkOutAt: null, checkOutLat: null, checkOutLng: null, createdAt: new Date() });
   assert.equal(shiftsOf(await call('get', '/attendance/today')).length, 1);
+});
+
+test('مسافتا القيدين: عمودان بافتراض ٥٠، وتحقّق ١٠–٥٠٠٠ صحيحاً، وتصلان التطبيق والمزامنة', () => {
+  const fs = require('node:fs') as typeof import('node:fs');
+  const read = (...p: string[]) => fs.readFileSync(path.join(SRC, ...p), 'utf8');
+  const schema = fs.readFileSync(path.join(SRC, '..', 'prisma', 'schema.prisma'), 'utf8');
+  assert.match(schema, /proximityRadiusM Int @default\(50\)/);
+  assert.match(schema, /punchRadiusM     Int @default\(50\)/);
+  const reps = read('routes', 'salesReps.ts');
+  assert.match(reps, /export const RADIUS_MIN_M = 10;/);
+  assert.match(reps, /export const RADIUS_MAX_M = 5000;/);
+  assert.match(reps, /proximityRadiusM: z\.number\(\)\.int\(\)\.min\(RADIUS_MIN_M\)\.max\(RADIUS_MAX_M\)\.optional\(\),/);
+  assert.match(reps, /punchRadiusM: z\.number\(\)\.int\(\)\.min\(RADIUS_MIN_M\)\.max\(RADIUS_MAX_M\)\.optional\(\),/);
+  assert.match(reps, /proximityRadiusM: true,\n  punchRadiusM: true,/, 'القائمة تحملهما فلا تعود نافذة التعديل إلى الافتراض');
+  assert.match(read('routes', 'auth.ts'), /proximityRadiusM: true, punchRadiusM: true,/, '/auth/me يحمل المسافة فتتجدّد في التطبيق');
+  assert.match(read('services', 'apiSync.ts'), /'proximityRadiusM', 'punchRadiusM',/);
 });

@@ -22,6 +22,23 @@ const PermToggle = forwardRef<HTMLInputElement, { label: string } & React.InputH
 );
 PermToggle.displayName = 'PermToggle';
 
+/** مسافة قيود الموقع — ١٠ إلى ٥٠٠٠ متر، و٥٠ افتراضاً كما كانت ثابتةً قبل (يطابق التحقّق في salesReps.ts) */
+const RADIUS_MIN_M = 10;
+const RADIUS_MAX_M = 5000;
+const RADIUS_DEFAULT_M = 50;
+
+const RadiusInput = forwardRef<HTMLInputElement, { label: string; error?: string } & React.InputHTMLAttributes<HTMLInputElement>>(
+  ({ label, error, ...props }, ref) => (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <label className="text-sm text-gray-600">{label}</label>
+      <input ref={ref} type="number" inputMode="numeric" min={RADIUS_MIN_M} max={RADIUS_MAX_M} step={1} dir="ltr"
+        className="input w-28 text-center" {...props} />
+      {error && <span className="text-xs text-red-600 w-full">{error}</span>}
+    </div>
+  )
+);
+RadiusInput.displayName = 'RadiusInput';
+
 export default function SalesRepModal({ rep, onClose, onSave, loading, accountingOn = true }: Props) {
   const tr = useTr();
   const [showPass, setShowPass] = useState(false);
@@ -41,11 +58,18 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
       requireCustomerProximity: false,
       requireLocationOn: false,
       requirePunchAtCustomer: false,
+      proximityRadiusM: RADIUS_DEFAULT_M,
+      punchRadiusM: RADIUS_DEFAULT_M,
       maxDiscountPct: 0,
     };
-  const { register, handleSubmit, setValue, formState: { errors } } = useForm<FormData>({
-    defaultValues: defaults,
+  const { register, handleSubmit, setValue, watch, formState: { errors } } = useForm<FormData>({
+    defaultValues: { ...defaults, proximityRadiusM: defaults.proximityRadiusM ?? RADIUS_DEFAULT_M, punchRadiusM: defaults.punchRadiusM ?? RADIUS_DEFAULT_M },
   });
+  // المسافة تُطلب حين يُفعَّل قيدها وحده — والمخفيّة تبقى بقيمتها فلا تضيع إن أُطفئ القيد ثم أُعيد
+  const radiusRules = {
+    valueAsNumber: true,
+    validate: (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v >= RADIUS_MIN_M && v <= RADIUS_MAX_M) || tr('المسافة بين 10 و5000 متر'),
+  } as const;
 
   // يولّد كلمة مرور قوية عشوائية لتسهيل إنشاء الحساب
   const generatePassword = () => {
@@ -180,8 +204,11 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
             <div className="grid grid-cols-1 gap-3">
               <PermToggle label={tr('البيع داخل نطاق العميل')} {...register('requireCustomerProximity')} />
             </div>
+            {watch('requireCustomerProximity') && (
+              <RadiusInput label={tr('المسافة المسموحة بالمتر')} error={errors.proximityRadiusM?.message} {...register('proximityRadiusM', radiusRules)} />
+            )}
             <p className="text-xs text-gray-400 mt-2 leading-relaxed">
-              {tr('عند التفعيل لا يفتح المندوب ملف العميل الا وهو داخل خمسين مترا من موقعه المسجل، والعميل بلا موقع يمنع منعا باتا، ويقفل عليه تعديل موقع العميل')}
+              {tr('عند التفعيل لا يفتح المندوب ملف العميل الا وهو داخل المسافة المحددة من موقعه المسجل، والعميل بلا موقع يمنع منعا باتا، ويقفل عليه تعديل موقع العميل')}
             </p>
             <div className="grid grid-cols-1 gap-3 mt-3">
               <PermToggle label={tr('اشتراط تفعيل الموقع')} {...register('requireLocationOn')} />
@@ -192,8 +219,11 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
             <div className="grid grid-cols-1 gap-3 mt-3">
               <PermToggle label={tr('بصمة الحضور بموقع عميل')} {...register('requirePunchAtCustomer')} />
             </div>
+            {watch('requirePunchAtCustomer') && (
+              <RadiusInput label={tr('المسافة المسموحة بالمتر')} error={errors.punchRadiusM?.message} {...register('punchRadiusM', radiusRules)} />
+            )}
             <p className="text-xs text-gray-400 mt-2 leading-relaxed">
-              {tr('عند التفعيل لا يبصم المندوب حضورا ولا انصرافا الا وهو داخل خمسين مترا من موقع احد عملائه المسجل، والموقع مطفأ في جواله يمنع البصمة')}
+              {tr('عند التفعيل لا يبصم المندوب حضورا ولا انصرافا الا وهو داخل المسافة المحددة من موقع احد عملائه المسجل، والموقع مطفأ في جواله يمنع البصمة')}
             </p>
           </div>
 
