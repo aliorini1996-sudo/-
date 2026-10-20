@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { useLang } from './lang';
 
 // قاموس نصوص واجهة النظام (عربي/إنجليزي/فرنسي/تركي/صيني) — يُستخدم عبر useT()
@@ -221,9 +222,11 @@ export const DICT: Record<string, { ar: string; en: string; fr: string; tr: stri
   'nav.backToPlatform': { ar: 'العودة للوحة المالك', en: 'Back to owner panel', fr: 'Retour au panneau propriétaire', tr: 'Platform sahibi paneline dön', zh: '返回所有者面板' },
 };
 
+// الدالّة ثابتة الهوية ما لم تتغيّر اللغة: أثرٌ يضعها في تبعيّاته (useCallback/useEffect) لا يُعاد في كلّ رسم —
+// دالّةٌ جديدة في كلّ رسم جعلت شاشة الحضور تطلب حالتها من الخادم مرّاتٍ في الثانية ما دامت مفتوحة
 export function useT() {
   const lang = useLang((s) => s.lang);
-  return (key: string): string => DICT[key]?.[lang] ?? key;
+  return useCallback((key: string): string => DICT[key]?.[lang] ?? key, [lang]);
 }
 
 // ============================================================================
@@ -4463,7 +4466,8 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'عند التفعيل لا يبصم المندوب حضورا ولا انصرافا الا وهو داخل خمسين مترا من موقع احد عملائه المسجل، والموقع مطفأ في جواله يمنع البصمة': { en: 'When enabled, the rep can only clock in or out within fifty meters of one of their customers registered locations, and location turned off on the phone blocks the punch', fr: 'Une fois active, le commercial ne pointe son arrivee ou son depart qu a moins de cinquante metres de l emplacement enregistre d un de ses clients, et la localisation desactivee bloque le pointage', tr: 'Etkinlestirildiginde temsilci yalnizca musterilerinden birinin kayitli konumuna elli metre mesafedeyken giris veya cikis yapabilir, telefonda konum kapaliysa kayit engellenir', zh: '启用后，业务员只能在其某一客户登记位置五十米范围内打卡上下班，手机关闭定位将无法打卡' },
 };
 
+// ثابتة الهوية ما لم تتغيّر اللغة — كـuseT (انظر سببه هناك)
 export function useTr() {
   const lang = useLang((s) => s.lang);
-  return (ar: string): string => (lang === 'ar' ? ar : (PHRASES[ar]?.[lang] ?? ar));
+  return useCallback((ar: string): string => (lang === 'ar' ? ar : (PHRASES[ar]?.[lang] ?? ar)), [lang]);
 }

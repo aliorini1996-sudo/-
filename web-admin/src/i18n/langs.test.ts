@@ -157,3 +157,15 @@ test('عبارات المندوب الذكي كلها حيّة — لا ترجم
   const dead = keys.filter(k => !SERVER_SENT.has(k) && !corpus.includes(`'${k}'`) && !corpus.includes(`"${k.replace(/\\'/g, "'")}"`));
   assert.deepEqual(dead, [], 'عبارات بلا استعمال في الكود (احذفها أو أضفها لقائمة نصوص الخادم): ' + dead.slice(0, 10).join(' | '));
 });
+
+test('دالّتا الترجمة ثابتتا الهوية ما لم تتغيّر اللغة — وإلا أعاد كلُّ أثرٍ يضعهما في تبعيّاته نفسَه في كلّ رسم', () => {
+  // درس شاشة الحضور: useCallback(load, [tr]) بدالّةٍ جديدة في كلّ رسم ⇒ طلبٌ ⇒ حالة ⇒ رسم ⇒ طلب… مرّاتٍ في الثانية
+  const src = fs.readFileSync(path.join(root, 'src', 'i18n', 'strings.ts'), 'utf8');
+  for (const sig of ['export function useT()', 'export function useTr()']) {
+    const at = src.indexOf(sig);
+    assert.ok(at >= 0, sig);
+    const body = src.slice(at, src.indexOf('\n}\n', at));
+    assert.match(body, /return useCallback\(/, `${sig} لا يعيد دالّةً ثابتة`);
+    assert.match(body, /, \[lang\]\);$/, `${sig}: الثبات مربوطٌ باللغة وحدها`);
+  }
+});
