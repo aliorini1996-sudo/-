@@ -97,6 +97,8 @@ export const salesRepApi = {
   update: (id: string, data: unknown) => api.put(`/sales-reps/${id}`, data),
   stats: (id: string, params?: Record<string, string>) => api.get(`/sales-reps/${id}/stats`, { params }),
   remove: (id: string) => api.delete(`/sales-reps/${id}`),
+  // فكّ ربط جهاز البصمة — أول بصمةٍ بعده تربط جهازها الجديد (يُدوَّن في سجلّ تدقيق الحضور)
+  unbindDevice: (id: string) => api.post(`/sales-reps/${id}/unbind-device`),
   // teamId («الفرق»): عهدة فريقٍ واحد من فرق المندوب — ومشرف الفريق يُقيَّد بفرقه على الخادم مهما طلب
   collection: (id: string, teamId?: string) => api.get(`/sales-reps/${id}/collection`, { params: teamId ? { teamId } : undefined }),
   // method: قاموس مغلق مطابق لسند القبض (CASH · BANK_TRANSFER · POS · CHEQUE) — والخادم
@@ -495,6 +497,17 @@ export const warehouseApi = {
     costsIncludeTax?: boolean;                                  // هل الأسعار المكتوبة شاملة الضريبة
     items: { productId: string; qty: number; unitCost?: number }[]; // unitCost للوارد فقط
   }) => api.post('/warehouse/entries', data),
+};
+
+// تعديل بصمات الحضور إدارياً ورفعها من Excel (backend/src/routes/attendanceAdmin.ts) — كل كتابةٍ بسببٍ مكتوب وفي سجلّ التدقيق
+export const attendanceAdminApi = {
+  rows: (params: { salesRepId: string; from: string; to: string; tz: number }) => api.get('/attendance-admin/rows', { params }),
+  create: (data: { salesRepId: string; checkInAt: string; checkOutAt: string | null; reason: string }) => api.post('/attendance-admin/rows', data),
+  update: (id: string, data: { checkInAt: string; checkOutAt: string | null; reason: string }) => api.put(`/attendance-admin/rows/${id}`, data),
+  remove: (id: string, reason: string) => api.delete(`/attendance-admin/rows/${id}`, { data: { reason } }),
+  import: (data: { reason: string; rows: { salesRepId: string; checkInAt: string; checkOutAt: string | null }[] }) => api.post('/attendance-admin/import', data),
+  // مناديب النطاق بصلاحية التتبّع وحدها (قائمة /sales-reps تشترط «إدارة المناديب»)
+  reps: () => api.get('/attendance-admin/reps'),
 };
 
 // «طلب بضاعة» المناديب — المعلّق منها يظهر في نافذة «طلب مخزون»؛ updatedAt نسخةٌ يرفض الخادم ما يخالفها (409)

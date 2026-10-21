@@ -19,7 +19,32 @@ export interface WorkPeriodLike {
   inLat?: number | null; inLng?: number | null;
   /** موقع الانصراف الذي أنهى الفترة — null للمفتوحة أو بلا التقاط */
   outLat?: number | null; outLng?: number | null;
+  /** الجهاز الذي بصم منه (وصفه) — غائبٌ من خادمٍ أقدم */
+  inDevice?: string | null; outDevice?: string | null;
+  /** «خارج النطاق» (null = لم يُحكم) ومسافة أقرب عميل بالأمتار */
+  inOutside?: boolean | null; inDistanceM?: number | null;
+  outOutside?: boolean | null; outDistanceM?: number | null;
+  /** أُضيفت أو عُدّلت إدارياً أو رُفعت من Excel */
+  edited?: boolean;
+  entry?: 'APP' | 'ADMIN' | 'IMPORT';
 }
+
+/** وسم النطاق كما يُكتب: «داخل النطاق (١٢ م)»، «خارج النطاق (٤٠٠ م)»، و«—» لمندوبٍ غير مقيَّد */
+export function placeLabel(outside: boolean | null | undefined, distanceM: number | null | undefined, tr: Tr): string {
+  if (outside == null) return '—';
+  const d = distanceM != null ? ` (${distanceM} ${tr('م')})` : '';
+  return `${outside ? tr('خارج النطاق') : tr('داخل النطاق')}${d}`;
+}
+
+/** مصدر الفترة: من التطبيق، أو معدّلة، أو إدخال إداري، أو مرفوعة من Excel */
+export function entryLabel(p: WorkPeriodLike, tr: Tr): string {
+  if (p.entry === 'ADMIN') return tr('إدخال إداري');
+  if (p.entry === 'IMPORT') return tr('مرفوعة من Excel');
+  return p.edited ? tr('معدلة') : tr('التطبيق');
+}
+
+/** فترةٌ فيها بصمة خارج النطاق (حضوراً أو انصرافاً) */
+export const periodOutside = (p: WorkPeriodLike): boolean => p.inOutside === true || p.outOutside === true;
 
 /** رابط خرائط Google لموقع — null متى غاب أحد الإحداثيين أو فسد (لا رابطٌ يفتح المحيط) */
 export function mapsUrl(lat: number | null | undefined, lng: number | null | undefined): string | null {
@@ -118,10 +143,15 @@ export function punchDetailRows(
       [tr('التاريخ')]: d.date,
       [tr('الحضور')]: fx.clock(p.start),
       [tr('موقع الحضور')]: punchInUrl(p) ?? tr('بلا موقع'),
+      [tr('نطاق الحضور')]: placeLabel(p.inOutside, p.inDistanceM, tr),
+      [tr('جهاز الحضور')]: p.inDevice || '—',
       [tr('الانصراف')]: p.end ? fx.clock(p.end) : tr('لم ينصرف'),
       [tr('موقع الانصراف')]: p.end ? punchOutUrl(p) ?? tr('بلا موقع') : '—',
+      [tr('نطاق الانصراف')]: p.end ? placeLabel(p.outOutside, p.outDistanceM, tr) : '—',
+      [tr('جهاز الانصراف')]: p.end ? p.outDevice || '—' : '—',
       // مدّة الفترة بتقريب الخادم نفسه — مجموعها يطابق «إجمالي وقت العمل» لليوم
       [tr('المدة')]: p.end ? fx.minutes(Math.max(0, Math.round((Date.parse(p.end) - Date.parse(p.start)) / 60000))) : '—',
+      [tr('المصدر')]: entryLabel(p, tr),
     } as Record<string, unknown> }))));
   return mergeRuns(items.map(x => x.row), [
     ...(withRep ? [{ cols: [tr('المندوب')], keyOf: (i: number) => items[i].rep }] : []),

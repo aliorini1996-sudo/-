@@ -667,6 +667,10 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
         select: {
           salesRepId: true, checkInAt: true, checkOutAt: true,
           checkInLat: true, checkInLng: true, checkOutLat: true, checkOutLng: true,
+          // الجهاز ووسم «خارج النطاق» ومصدر الصفّ (تعديلٌ إداري أو رفعٌ من Excel) — يعرضها التقرير مع كل فترة
+          checkInDevice: true, checkOutDevice: true,
+          checkInOutside: true, checkInDistanceM: true, checkOutOutside: true, checkOutDistanceM: true,
+          source: true, editedAt: true,
         },
       }),
     ]);

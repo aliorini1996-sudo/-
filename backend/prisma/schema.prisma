@@ -93,6 +93,7 @@ model Tenant {
   repRoutes            RepRoute[]
   RepSession           RepSession[]
   RepAttendance        RepAttendance[]
+  attendanceAudits     AttendanceAudit[]
   customerPaymentLinks CustomerPaymentLink[]
   settlementEntries    SettlementEntry[]
   invoiceInstallments  InvoiceInstallment[]
@@ -386,6 +387,23 @@ model SalesRep {
   // سلوك القيدين قبلهما حرفياً، فلا يتغيّر مندوبٌ قائم. والحدّان ١٠–٥٠٠٠ في التحقّق (salesReps.ts)
   proximityRadiusM Int @default(50) // «البيع داخل نطاق العميل»: فتح ملف العميل
   punchRadiusM     Int @default(50) // «بصمة الحضور بموقع عميل»: الحضور والانصراف
+  // «بصمة الحضور بموقع عميل»: ما يحدث للبصمة خارج النطاق (طلب المالك، ٢١ أكتوبر ٢٠٢٦) —
+  // REJECT تردّها (السلوك الأول)، FLAG تقبلها بوسم «خارج النطاق» ومسافة أقرب عميل تراها الإدارة في التقرير
+  punchOutsideAction String @default("REJECT")
+  // «ربط البصمة بجهاز واحد» (طلب المالك، ٢١ أكتوبر ٢٠٢٦، ضد البصمة بالنيابة) — تقييديّ كسابقيه: مفعّلٌ ⇒ أول جهاز
+  // يبصم منه يُربط، ولا تُقبل بصمته بعدها إلا منه، ولا يُربط جهازٌ مربوطٌ بمندوبٍ آخر. «فكّ الربط» للإدارة
+  // (routes/salesReps.ts). المعرّف يولّده التطبيق ويحفظه على الجهاز (rep/deviceId.ts) — لا معرّف عتاد في تطبيق ويب
+  requireBoundDevice Boolean   @default(false)
+  boundDeviceId      String?
+  boundDeviceName    String?
+  boundDeviceAt      DateTime?
+  // موعد الدوام (اختياري، طلب المالك ٢١ أكتوبر ٢٠٢٦) — للتنبيهات وحدها: «قبل بداية الدوام» و«نسيت الانصراف»
+  // (services/attendanceAlerts.ts). "HH:MM" بتوقيت جوال المندوب، وأيام العمل بتات: الأحد=1 … السبت=64 (الأحد–الخميس=31)
+  shiftStart  String?
+  shiftEnd    String?
+  shiftDays   Int     @default(31)
+  // إزاحة توقيت جوال المندوب بالدقائق شرقي UTC — يرسلها التطبيق مع اشتراك التنبيهات، فيُحسب موعده بتوقيته
+  tzOffsetMin Int?
 
   // إظهار رصيد التحصيل المتراكم للمندوب على شاشته الرئيسية (يحدّده الأدمن لكل مندوب)
   showCollectionBalance Boolean @default(true)
@@ -423,6 +441,7 @@ model SalesRep {
   repRoutes     RepRoute[]
   RepSession    RepSession[]
   attendance    RepAttendance[]
+  pushSubscriptions RepPushSubscription[]
 
   // عزل العملاء: العملاء المُسنَدون لهذا المندوب، والعملاء الذين فتحهم بنفسه
   customerAssignments CustomerAssignment[]
@@ -1710,10 +1729,64 @@ model RepAttendance {
   checkOutAt   DateTime? // نهاية العمل — null ما دامت النوبة مفتوحة
   checkOutLat  Float?
   checkOutLng  Float?
+  // الجهاز الذي بصم منه (طلب المالك، ٢١ أكتوبر ٢٠٢٦): معرّف التطبيق على الجهاز، ووصفه «SM-S918B · Android 14»
+  checkInDeviceId  String?
+  checkInDevice    String?
+  checkOutDeviceId String?
+  checkOutDevice   String?
+  // نطاق «بصمة الحضور بموقع عميل»: null = لم يُحكم (المندوب غير مقيّد)، true = خارج النطاق وقُبلت بوسم (FLAG)،
+  // والمسافة لأقرب عميلٍ له بالأمتار (null بلا موقع أو بلا عميل قريب)
+  checkInOutside    Boolean?
+  checkInDistanceM  Int?
+  checkOutOutside   Boolean?
+  checkOutDistanceM Int?
+  // مصدر الصف: APP (بصمة المندوب) | ADMIN (أضافها أو عدّلها مستخدم الشركة) | IMPORT (رُفعت من Excel) — وكل تعديل
+  // إداري في AttendanceAudit
+  source   String    @default("APP")
+  editedAt DateTime?
+  editedBy String?
   createdAt    DateTime  @default(now())
 
   @@index([tenantId, salesRepId, checkInAt])
   @@map("rep_attendance")
+}
+
+/// سجل تدقيق الحضور (طلب المالك، ٢١ أكتوبر ٢٠٢٦): كل إضافة أو تعديل أو حذف إداري لبصمة، وكل رفعٍ من Excel، وكل
+/// فكّ ربط جهاز — مَن ومتى ولماذا، والقيم قبل وبعد. بلا مفتاح أجنبي للمندوب ولا للبصمة: السجلّ يبقى بعد حذفهما.
+model AttendanceAudit {
+  id           String   @id @default(uuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  salesRepId   String
+  attendanceId String?
+  action       String // CREATE | UPDATE | DELETE | IMPORT | UNBIND_DEVICE
+  before       Json?
+  after        Json?
+  reason       String?
+  actorId      String
+  actorName    String?
+  createdAt    DateTime @default(now())
+
+  @@index([tenantId, salesRepId, createdAt])
+  @@map("attendance_audits")
+}
+
+/// اشتراك تنبيهات المندوب (Web Push، طلب المالك ٢١ أكتوبر ٢٠٢٦): جهازٌ وافق على الإشعارات. تنبيهات الحضور تُرسَل لكل
+/// اشتراكاته، والاشتراك الذي يردّه مزوّد الإشعارات منتهياً (404/410) يُحذف (services/webPush.ts)
+model RepPushSubscription {
+  id         String   @id @default(uuid())
+  tenantId   String
+  salesRepId String
+  salesRep   SalesRep @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+  endpoint   String   @unique
+  p256dh     String
+  auth       String
+  lang       String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([salesRepId])
+  @@map("rep_push_subscriptions")
 }
 
 // ============================================================================

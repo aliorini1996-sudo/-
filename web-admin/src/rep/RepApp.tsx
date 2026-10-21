@@ -10,6 +10,8 @@ import RepTeamSwitch from './RepTeamSwitch';
 import { currentActiveTeam, sellableNow, storedUserActiveTeam, useActiveTeam, type RepTeam } from './repTeam';
 import { toGeoFix, isGeoFix, attachFix, fixCoords, visitGate, planFinalize, visitFailure, isFinalVisitRejection, MIN_VISIT_SEC, type GeoFix } from './visitLocation';
 import { precisePunchFix } from './punchFix';
+import { getDeviceId, describeDevice } from './deviceId';
+import { pushState, enablePush, refreshPush, dropPush, forgetForeignPush, isIos, standalone, type PushState } from './pushAlerts';
 import { ownPendingVisits, putPendingVisit, removePendingVisit, retryPendingVisits, pendingRetryOutcome, postResultOf, beginEnding, endEnding, orphanEnding, orphanFate, type PendingVisit } from './visitPending';
 import DecimalInput from '../components/DecimalInput';
 import { startRenewLoop, clearRenewRejection } from './renew';
@@ -79,6 +81,8 @@ interface RepUser {
   requireLocationOn?: boolean;
   /** «بصمة الحضور بموقع عميل» — تقييديّ: البصمة تقرأ موقعاً طازجاً بأفضل دقّة (punchFix.ts) ويحكم الخادم */
   requirePunchAtCustomer?: boolean;
+  /** «ربط البصمة بجهاز واحد» — آيفون يُشرح له أن سفاري وتطبيق الشاشة الرئيسية جهازان */
+  requireBoundDevice?: boolean;
   id: string; name: string; phone?: string;
   canAddCustomer?: boolean;
   /** «تعديل بيانات العميل» — افتراضه في الخادم مُطفأ، فلا يظهر زرّ التعديل إلا بـtrue صريحة */
@@ -243,12 +247,33 @@ function fmtWorkMinutes(mins: number, tr: (s: string) => string): string {
 const PUNCH_REFUSALS = ['LOCATION_REQUIRED', 'PUNCH_AWAY_FROM_CUSTOMER'];
 
 // atCustomer: «بصمة الحضور بموقع عميل» — موقع البصمة قراءةٌ طازجة بأفضل دقّة لا قراءةٌ مخبّأة (punchFix.ts)
-function RepAttendance({ atCustomer = false }: { atCustomer?: boolean }) {
+function RepAttendance({ atCustomer = false, boundDevice = false }: { atCustomer?: boolean; boundDevice?: boolean }) {
   const tr = useTr();
+  // رفض «جهازٍ آخر» — على آيفون غالباً لأن سفاري وتطبيق الشاشة الرئيسية تخزينان معزولان فمعرّفان مختلفان
+  const [deviceRefused, setDeviceRefused] = useState(false);
   const [state, setState] = useState<AttendanceState | null>(null);
   const [busy, setBusy] = useState(false);
   const [locating, setLocating] = useState(false);
   const [err, setErr] = useState('');
+  // بصمةٌ قُبلت خارج النطاق (الإدارة اختارت «اقبلها بوسم»): يعرف المندوب أنها موسومةٌ وتظهر للإدارة
+  const [placeNote, setPlaceNote] = useState('');
+  // تنبيهات الحضور على هذا الجهاز (pushAlerts.ts)
+  const [pushSt, setPushSt] = useState<PushState | null>(null);
+  const [pushBusy, setPushBusy] = useState(false);
+  useEffect(() => {
+    let live = true;
+    pushState().then((st) => { if (live) setPushSt(st); }).catch(() => { if (live) setPushSt('unsupported'); });
+    void refreshPush();
+    return () => { live = false; };
+  }, []);
+  const turnOnPush = async () => {
+    setPushBusy(true);
+    try { setPushSt(await enablePush()); } catch (e) {
+      setPushSt(await pushState().catch(() => 'unsupported' as PushState));
+      setErr((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر تفعيل التنبيهات حاول ثانية'));
+    }
+    setPushBusy(false);
+  };
   const inFlight = useRef(false);   // حارس الضغط المزدوج: يُقرأ فوراً لا بعد إعادة الرسم كـbusy
   const tzOffsetMin = -new Date().getTimezoneOffset();
 
@@ -264,7 +289,7 @@ function RepAttendance({ atCustomer = false }: { atCustomer?: boolean }) {
     // ضغطةٌ ثانية قبل أن يُرسم التعطيل تُهمل — والخادم بدوره يعيد النوبة المفتوحة ولا يفتح ثانية
     if (inFlight.current) return;
     inFlight.current = true;
-    setBusy(true); setErr('');
+    setBusy(true); setErr(''); setPlaceNote(''); setDeviceRefused(false);
     // لا قراءة والموقع غير مرفوض (مهلة/تعذّر): رفض الخادم «فعّل الموقع» لا يصف الحال — تُقال الحقيقة بدلاً منه
     let noFix = false;
     try {
@@ -281,17 +306,26 @@ function RepAttendance({ atCustomer = false }: { atCustomer?: boolean }) {
       } else {
         loc = await grabLocation();
       }
+      // الجهاز مع كل بصمة (deviceId.ts): يُسجَّل للإدارة، ويُحكم به «ربط البصمة بجهاز واحد» في الخادم
+      const body = { ...(loc ?? {}), deviceId: getDeviceId(), deviceName: await describeDevice() };
       // tzOffsetMin ليعيد الخادم بصمات اليوم كلها مع البصمة — القائمة تتحدّث بلا طلبٍ ثانٍ
-      const r = await repApi.post(`/tracking/attendance/${kind}`, loc ?? {}, { params: { tzOffsetMin } });
+      const r = await repApi.post(`/tracking/attendance/${kind}`, body, { params: { tzOffsetMin } });
       setState(r.data.data as AttendanceState);
+      const place = (r.data.data as { place?: { outside?: boolean; distanceM?: number | null } }).place;
+      if (place?.outside) {
+        setPlaceNote(place.distanceM != null
+          ? `${tr('سجلت بصمتك خارج النطاق')} — ${tr('أقرب عملائك على بعد')} ${place.distanceM} ${tr('متر')} — ${tr('تظهر للإدارة موسومة')}`
+          : `${tr('سجلت بصمتك خارج النطاق')} — ${tr('تظهر للإدارة موسومة')}`);
+      }
     } catch (e) {
-      const resp = (e as { response?: { status?: number; data?: { message?: string; code?: string } } })?.response;
+      const resp = (e as { response?: { status?: number; data?: { message?: string; code?: string; reason?: string } } })?.response;
       // 409 = الشاشة متأخّرة عن الخادم (انصرافٌ نجح وضاع ردّه في شبكة ضعيفة، أو من جهازٍ آخر):
       // تُحدَّث الحالة فيظهر الخروج المسجَّل وزرّ الحضور، بدل «لم تسجّل حضوراً» وزرّ انصرافٍ يُرفض بلا نهاية.
       // إلا رفض «اشتراط تفعيل الموقع» و«بصمة الحضور بموقع عميل» (409 أيضاً): رسالتهما ما يحتاج
       // المندوب أن يقرأه — تُعرض كما هي ولا تُبتلع بإعادة التحميل
+      setDeviceRefused(resp?.data?.reason === 'DEVICE');
       if (resp?.status === 409 && !PUNCH_REFUSALS.includes(resp.data?.code || '')) load();
-      else if (noFix && resp?.data?.code === 'PUNCH_AWAY_FROM_CUSTOMER') setErr(tr(VISIT_NOFIX_MSG));
+      else if (noFix && resp?.data?.code === 'PUNCH_AWAY_FROM_CUSTOMER' && resp.data.reason !== 'DEVICE') setErr(tr(VISIT_NOFIX_MSG));
       else setErr(resp?.data?.message || tr('تعذّر التسجيل، حاول ثانية'));
     } finally { inFlight.current = false; setBusy(false); }
   };
@@ -343,6 +377,11 @@ function RepAttendance({ atCustomer = false }: { atCustomer?: boolean }) {
 
           {/* الزرّ فوق قائمة بصمات اليوم: يبقى ظاهراً مهما كثرت الفترات */}
           {err && <p className="text-xs text-[#C0392B] text-center">{err}</p>}
+          {/* آيفون: البصمة من سفاري تربط سفاري وحده، ودعوة «أضف إلى الشاشة الرئيسية» تولّد جهازاً آخر — يُقال قبل الربط وعند الرفض */}
+          {boundDevice && isIos() && (!standalone() || deviceRefused) && (
+            <p className="text-[11px] text-[#5C5346] bg-[#FBF7F0] rounded-xl px-3 py-2 text-center">{tr('على آيفون سفاري وتطبيق الشاشة الرئيسية جهازان مختلفان وبصمتك مربوطة بجهاز واحد ابصم دائما من تطبيق الشاشة الرئيسية وان رفضت بعد اضافته اطلب من الادارة فك الربط مرة واحدة')}</p>
+          )}
+          {placeNote && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">{placeNote}</p>}
 
           {next === 'checkout' ? (
             <button
@@ -381,6 +420,7 @@ function RepAttendance({ atCustomer = false }: { atCustomer?: boolean }) {
                           : <span className="text-xs text-[#8A8072]">{tr('لم تنصرف بعد')}</span>}
                       </span>
                     </span>
+                    {(sh.checkInOutside || sh.checkOutOutside) && <span className="text-[10px] font-semibold text-amber-800 bg-amber-100 rounded px-1.5 py-0.5 whitespace-nowrap">{tr('خارج النطاق')}</span>}
                     {sh.checkOutAt && <span className="text-[11px] text-[#8A8072] whitespace-nowrap">{fmtWorkMinutes(shiftMinutes(sh), tr)}</span>}
                   </li>
                 ))}
@@ -392,6 +432,19 @@ function RepAttendance({ atCustomer = false }: { atCustomer?: boolean }) {
               )}
             </div>
           )}
+
+          {/* تنبيهات الحضور: قبل بداية الدوام وإن نسي الانصراف (يرسلها الخادم في موعدها) */}
+          {pushSt === 'off' && (
+            <div className="rounded-2xl border border-[#EFE7D8] bg-[#FBF7F0] p-4 flex items-center gap-3">
+              <span className="flex-1 text-xs text-[#5C5346] leading-relaxed">{tr('فعل تنبيهات الحضور لنذكرك قبل بداية دوامك وإن نسيت تسجيل الانصراف')}</span>
+              <button onClick={turnOnPush} disabled={pushBusy} className="shrink-0 rounded-xl bg-[#1F1A13] text-white text-xs font-bold px-3 py-2 disabled:opacity-50">
+                {pushBusy ? tr('جارٍ التسجيل…') : tr('تفعيل التنبيهات')}
+              </button>
+            </div>
+          )}
+          {pushSt === 'denied' && <p className="text-[11px] text-amber-800 bg-amber-50 rounded-xl px-3 py-2 text-center">{tr('الإشعارات مرفوضة لهذا التطبيق فعلها من إعدادات جوالك لتصلك تنبيهات الحضور')}</p>}
+          {pushSt === 'ios-install' && <p className="text-[11px] text-[#5C5346] bg-[#FBF7F0] rounded-xl px-3 py-2 text-center">{tr('لتصلك تنبيهات الحضور على آيفون أضف التطبيق إلى الشاشة الرئيسية من زر المشاركة')}</p>}
+          {pushSt === 'on' && <p className="text-[11px] text-green-700 text-center">{tr('تنبيهات الحضور مفعلة على هذا الجهاز')}</p>}
 
           <p className="text-[11px] text-[#8A8072] text-center leading-relaxed">
             {tr('كل حضور وانصراف تسجله هنا يحسب فترة عمل، وما بين الانصراف والحضور التالي لا يحسب من ساعاتك.')}
@@ -3534,6 +3587,21 @@ export default function RepApp() {
   // شاشة تعريفية قبل الدخول (متطلّب App Store 5.1.1(v)): يفتح التطبيق عليها لا على الدخول
   const [showLogin, setShowLogin] = useState(false);
   const [screen, setScreen] = useState<Screen>('home');
+  // تنبيه الحضور يفتح شاشة البصمة (public/sw.js): بالرابط /rep?screen=attendance عند فتح نافذة، وبرسالةٍ لنافذةٍ مفتوحة
+  useEffect(() => {
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      if (sp.get('screen') === 'attendance') {
+        setScreen('attendance');
+        sp.delete('screen');
+        const q = sp.toString();
+        window.history.replaceState(null, '', window.location.pathname + (q ? `?${q}` : '') + window.location.hash);
+      }
+    } catch { /* رابطٌ غريب: الرئيسية */ }
+    const onMsg = (e: MessageEvent) => { if (e.data?.type === 'OPEN_SCREEN' && e.data.screen === 'attendance') setScreen('attendance'); };
+    navigator.serviceWorker?.addEventListener('message', onMsg);
+    return () => navigator.serviceWorker?.removeEventListener('message', onMsg);
+  }, []);
   const [modal, setModal] = useState<Modal>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   // المندوب الذكي: «أضفه عميلاً» يفتح إضافة العميل معبّأةً بنوع المحل ومعرّفه وموقع المندوب
@@ -4030,6 +4098,7 @@ export default function RepApp() {
   const login = async (t: string, u: RepUser) => {
     const prev = currentRepId();
     if (prev && prev !== u.id) { await refClear(); clearAiSession(); }
+    await forgetForeignPush(u.id); // اشتراك تنبيهاتٍ على الجهاز لحسابٍ خرج قسراً لا يبقى لمن دخل
     localStorage.setItem('rep_token', t);
     localStorage.setItem('rep_user', JSON.stringify(u));
     clearRenewRejection(); // دخولٌ جديد: أي رفض تجديد سابق لم يعد قائماً
@@ -4050,6 +4119,7 @@ export default function RepApp() {
     await refClear();
     clearAiSession();
     resetLive(); // حكم الموقع لا يرثه من يدخل بعده
+    await dropPush(); // الجهاز لا يتلقّى تنبيهات حضورِ حسابٍ خرج منه
     localStorage.removeItem('rep_token'); localStorage.removeItem('rep_user');
     setToken(null); setUser(null);
   };
@@ -4081,9 +4151,10 @@ export default function RepApp() {
     // والتقرير اليومي مثلها: شاشةٌ لا تبويب لها في الشريط السفلي، فإطفاء الميزة
     // والمندوب واقفٌ عليها يتركه أمام شاشةٍ لا مخرج منها.
     if (!dailyReportOn && screen === 'dailyreport') setScreen('home');
-    if (!attendanceOn && screen === 'attendance') setScreen('home');
+    // بعد وصول إعدادات الشركة وحدها: تنبيه الحضور يفتح التطبيق المغلق على شاشة البصمة قبل وصولها
+    if (companyReady && !attendanceOn && screen === 'attendance') setScreen('home');
     if (!aiRepOn && screen === 'airep') setScreen('home');
-  }, [accountingOn, dailyReportOn, attendanceOn, aiRepOn, screen]);
+  }, [accountingOn, dailyReportOn, attendanceOn, aiRepOn, screen, companyReady]);
 
   // إطار الجوّال يظهر فقط على سطح المكتب (للمعاينة). أمّا على الجوّال الحقيقي أو داخل
   // التطبيق (PWA/TWA) فيُعرض المحتوى ملء الشاشة — وإلا ظهر «جوال داخل جوال».
@@ -4245,7 +4316,7 @@ export default function RepApp() {
                 {screen === 'vanstock' && <RepVanStock canLoad={user.canManageVanStock !== false} canRequest={(company as { warehouseEnabled?: boolean } | null)?.warehouseEnabled === true} />}
                 {screen === 'fuel' && <RepFuel accountingOn={accountingOn} />}
                 {screen === 'worknum' && <RepWorkNumber />}
-                {screen === 'attendance' && <RepAttendance atCustomer={user.requirePunchAtCustomer === true} />}
+                {screen === 'attendance' && <RepAttendance atCustomer={user.requirePunchAtCustomer === true} boundDevice={user.requireBoundDevice === true} />}
                 {screen === 'airep' && aiRepOn && (
                   <AiRepBoundary onBack={() => setScreen('home')}>
                     <Suspense fallback={<p className="text-center text-gray-400 py-10 text-sm">{tr('جاري التحميل')}</p>}>

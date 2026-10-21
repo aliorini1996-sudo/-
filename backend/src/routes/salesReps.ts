@@ -3,7 +3,8 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
-import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
+import { authenticate, requireAdmin, requireAdminPermission, tenantId, actorOf } from '../middleware/auth';
+import { auditActorName } from '../services/attendanceEdit';
 import { adminRepFilter, adminCustomerFilter, scopedRecordWhere, SHAPE_INVOICE_RECEIPT, teamSupervisorIdOf, composeTeamCustodyWhere } from '../services/adminScope';
 import { settlementTeamOf, teamMembershipSelectFor } from '../services/teams';
 import { AuthRequest } from '../types';
@@ -20,6 +21,8 @@ const emailSchema = z.preprocess(value => value === null ? '' : value, z.string(
 
 export const RADIUS_MIN_M = 10;
 export const RADIUS_MAX_M = 5000;
+/** وقت الدوام "HH:MM" بنظام ٢٤ ساعة */
+export const SHIFT_TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 const repSchema = z.object({
   name: z.string().min(1),
@@ -52,6 +55,14 @@ const repSchema = z.object({
   // مسافتا القيدين بالأمتار — عددٌ صحيح بين ١٠ و٥٠٠٠ (أضيق من ١٠ يمنع صادقاً بهامش الـGPS، وأوسع لا يقيّد شيئاً)
   proximityRadiusM: z.number().int().min(RADIUS_MIN_M).max(RADIUS_MAX_M).optional(),
   punchRadiusM: z.number().int().min(RADIUS_MIN_M).max(RADIUS_MAX_M).optional(),
+  // البصمة خارج النطاق: REJECT تُردّ، FLAG تُقبل بوسم «خارج النطاق» (tracking.ts)
+  punchOutsideAction: z.enum(['REJECT', 'FLAG']).optional(),
+  // «ربط البصمة بجهاز واحد» — الجهاز نفسه يُربط من أول بصمة، ويُفكّ من POST /:id/unbind-device لا من هنا
+  requireBoundDevice: z.boolean().optional(),
+  // موعد الدوام للتنبيهات (services/attendanceAlerts.ts): "HH:MM" أو فارغ، وأيام العمل بتات الأحد=1 … السبت=64
+  shiftStart: z.string().regex(SHIFT_TIME_RE).nullable().optional(),
+  shiftEnd: z.string().regex(SHIFT_TIME_RE).nullable().optional(),
+  shiftDays: z.number().int().min(0).max(127).optional(),
 });
 
 const repSelect = {
@@ -68,6 +79,9 @@ const repSelect = {
   requirePunchAtCustomer: true,
   proximityRadiusM: true,
   punchRadiusM: true,
+  punchOutsideAction: true,
+  requireBoundDevice: true, boundDeviceName: true, boundDeviceAt: true,
+  shiftStart: true, shiftEnd: true, shiftDays: true,
   createdAt: true,
 } as const;
 
@@ -161,12 +175,51 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     }
     const updateData: Record<string, unknown> = { ...rest, email: rest.email || null };
     if (password) updateData.passwordHash = await bcrypt.hash(password, 10);
-    const rep = await prisma.salesRep.update({
-      where: { id: req.params.id },
-      data: updateData,
-      select: { id: true, name: true, phone: true, username: true, isActive: true },
-    });
+    // إطفاء «ربط البصمة بجهاز واحد» يفكّ الجهاز المربوط: ربطٌ نائم يبقى بعد الإطفاء يتيح ربط الجوال نفسه بمندوبٍ آخر،
+    // فإذا أُعيد القيد بصم الجوال الواحد لاثنين. وإعادة القيد تربط من جديد أوّل جهازٍ يبصم
+    const unbind = rest.requireBoundDevice === false && current.boundDeviceId != null;
+    if (unbind) Object.assign(updateData, { boundDeviceId: null, boundDeviceName: null, boundDeviceAt: null });
+    const select = { id: true, name: true, phone: true, username: true, isActive: true } as const;
+    const rep = unbind
+      ? (await prisma.$transaction([
+        prisma.salesRep.update({ where: { id: current.id }, data: updateData, select }),
+        prisma.attendanceAudit.create({
+          data: {
+            tenantId: tid, salesRepId: current.id, action: 'UNBIND_DEVICE', reason: 'أُطفئ قيد ربط البصمة بجهاز واحد',
+            before: { deviceName: current.boundDeviceName, boundAt: current.boundDeviceAt?.toISOString() ?? null },
+            actorId: actorOf(req), actorName: auditActorName(req),
+          },
+        }),
+      ]))[0]
+      : await prisma.salesRep.update({ where: { id: req.params.id }, data: updateData, select });
     res.json({ success: true, data: rep });
+  } catch (err) { next(err); }
+});
+
+/**
+ * فكّ ربط جهاز البصمة (طلب المالك، ٢١ أكتوبر ٢٠٢٦): المندوب غيّر جواله أو مسح بيانات التطبيق — أول بصمةٍ بعد الفكّ
+ * تربط جهازها الجديد. يُدوَّن في سجلّ تدقيق الحضور: مَن فكّ ومتى، والجهاز الذي كان مربوطاً.
+ */
+router.post('/:id/unbind-device', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const rep = await prisma.salesRep.findFirst({
+      where: { id: req.params.id, tenantId: tid, ...(await adminRepFilter(req)) },
+      select: { id: true, boundDeviceId: true, boundDeviceName: true, boundDeviceAt: true },
+    });
+    if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+    if (!rep.boundDeviceId) { res.json({ success: true, data: { unbound: false } }); return; }
+    await prisma.$transaction([
+      prisma.salesRep.update({ where: { id: rep.id }, data: { boundDeviceId: null, boundDeviceName: null, boundDeviceAt: null } }),
+      prisma.attendanceAudit.create({
+        data: {
+          tenantId: tid, salesRepId: rep.id, action: 'UNBIND_DEVICE',
+          before: { deviceName: rep.boundDeviceName, boundAt: rep.boundDeviceAt?.toISOString() ?? null },
+          actorId: actorOf(req), actorName: auditActorName(req),
+        },
+      }),
+    ]);
+    res.json({ success: true, data: { unbound: true } });
   } catch (err) { next(err); }
 });
 

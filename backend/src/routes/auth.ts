@@ -128,6 +128,15 @@ function signToken(payload: object): string {
 }
 
 /**
+ * صفّ المندوب كما يصل تطبيقه عند الدخول والتجديد: بلا كلمة المرور ولا الشركة، وبلا معرّف جهاز البصمة المربوط —
+ * فمن يملك كلمة المرور يقرؤه من الردّ ثم يبصم به من أيّ جهاز، فيسقط «ربط البصمة بجهاز واحد» (مراجعة ٢١ أكتوبر ٢٠٢٦).
+ */
+export function repSessionUser<T extends { passwordHash: string; tenant: unknown; boundDeviceId?: string | null; tzOffsetMin?: number | null }>(rep: T) {
+  const { passwordHash: _ph, tenant: _t, boundDeviceId: _bd, tzOffsetMin: _tz, ...repData } = rep;
+  return repData;
+}
+
+/**
  * **جلسة منزلقة**: نافذة السماح لتجديد توكن منتهٍ.
  *
  * المشكلة التي تحلّها: التوكن يعيش ٨ ساعات، فالمندوب الذي يفتح التطبيق صباحاً
@@ -204,8 +213,7 @@ router.post('/login', authLimiter, async (req: Request, res: Response, next: Nex
     const block = tenantBlockReason(rep.tenant);
     if (block) { res.status(403).json({ success: false, message: block }); return; }
     const token = signToken({ id: rep.id, role: 'SALES_REP', name: rep.name, tenantId: rep.tenantId });
-    const { passwordHash: _ph, tenant: _t, ...repData } = rep;
-    res.json({ success: true, data: { token, user: { ...repData, role: 'SALES_REP', companyName: rep.tenant.name } } });
+    res.json({ success: true, data: { token, user: { ...repSessionUser(rep), role: 'SALES_REP', companyName: rep.tenant.name } } });
   } catch (err) { next(err); }
 });
 
@@ -254,8 +262,7 @@ router.post('/renew', renewLimiter, async (req: Request, res: Response, next: Ne
       const block = tenantBlockReason(rep.tenant);
       if (block) { res.status(403).json({ success: false, message: block }); return; }
       const fresh = signToken({ id: rep.id, role: 'SALES_REP', name: rep.name, tenantId: rep.tenantId });
-      const { passwordHash: _ph, tenant: _t, ...repData } = rep;
-      res.json({ success: true, data: { token: fresh, user: { ...repData, role: 'SALES_REP', companyName: rep.tenant.name } } });
+      res.json({ success: true, data: { token: fresh, user: { ...repSessionUser(rep), role: 'SALES_REP', companyName: rep.tenant.name } } });
       return;
     }
 
@@ -495,7 +502,7 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response, next: Ne
           canManageVanStock: true,
           canAddCustomer: true, canEditCustomer: true, canViewStatement: true,
           requireCustomerProximity: true, requireLocationOn: true, requirePunchAtCustomer: true,
-          proximityRadiusM: true, punchRadiusM: true,
+          proximityRadiusM: true, punchRadiusM: true, requireBoundDevice: true,
           // «الفرق»: فرق المندوب الفعّالة — حين فعّلتها الشركة وحدها
           tenant: { select: { settings: { select: { teamsEnabled: true } } } },
           teamMemberships: { where: { team: { isActive: true } }, select: { team: { select: { id: true, name: true } } } } }

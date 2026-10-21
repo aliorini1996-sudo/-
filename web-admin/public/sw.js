@@ -132,3 +132,41 @@ self.addEventListener('fetch', (event) => {
       .catch(() => caches.match(request).then((r) => r || caches.match('/rep'))),
   );
 });
+
+// تنبيهات الحضور (طلب المالك، ٢١ أكتوبر ٢٠٢٦): الخادم يرسل { title, body, url, tag } مشفّراً (backend/src/services/webPush.ts)،
+// فيُعرض إشعاراً — والنقر يفتح شاشة البصمة في نافذة التطبيق المفتوحة إن وُجدت، وإلّا نافذةً جديدة.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch { data = { body: event.data ? event.data.text() : '' }; }
+  const title = typeof data.title === 'string' && data.title ? data.title : 'Field Sales';
+  // داخل التطبيق وحده — ‎/rep-app‎ صفحة تنزيلٍ لا شاشة بصمة
+  // و«‎//مضيفٌ/rep‎» رابطٌ لنطاقٍ آخر يبدأ بشرطة: الأصل نفسه شرطٌ، ويُفتح المسار وحده
+  let url = '/rep';
+  try {
+    const u = new URL(typeof data.url === 'string' ? data.url : '/rep', self.location.origin);
+    if (u.origin === self.location.origin && shellFor(u.pathname) === '/rep') url = u.pathname + u.search;
+  } catch { /* رابطٌ فاسد: التطبيق */ }
+  event.waitUntil(self.registration.showNotification(title, {
+    body: typeof data.body === 'string' ? data.body : '',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
+    tag: typeof data.tag === 'string' ? data.tag : undefined,
+    dir: 'auto',
+    data: { url },
+  }));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || '/rep';
+  event.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    // نافذة التطبيق بمسارها الدقيق (shellFor): تبويب صفحة التنزيل ‎/rep-app‎ يبدأ بـ‎/rep‎ أيضاً فيُبرَز بدل فتح شاشة البصمة
+    const rep = wins.find((w) => shellFor(new URL(w.url).pathname) === '/rep');
+    if (rep) {
+      rep.postMessage({ type: 'OPEN_SCREEN', screen: new URL(url, self.location.origin).searchParams.get('screen') || 'home' });
+      return rep.focus();
+    }
+    return self.clients.openWindow(url);
+  })());
+});

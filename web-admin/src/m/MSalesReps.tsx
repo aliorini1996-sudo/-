@@ -671,7 +671,7 @@ const GRANTS = [
 ] as const;
 
 type Grant = typeof GRANTS[number];
-type PermKey = Grant | 'requireCustomerProximity' | 'requireLocationOn' | 'requirePunchAtCustomer';
+type PermKey = Grant | 'requireCustomerProximity' | 'requireLocationOn' | 'requirePunchAtCustomer' | 'requireBoundDevice';
 type PermState = Record<PermKey, boolean>;
 
 /**
@@ -679,6 +679,12 @@ type PermState = Record<PermKey, boolean>;
  * ولماذا لا يُعامَل الغائب كـ`true`: «حذف فاتورة» غائبةً تعني مغلقة لا مفتوحة،
  * وتخمينُها فتحاً يمنح المندوبَ باباً لم تفتحه له الإدارة.
  */
+/** أيام الأسبوع بترتيب العرض (السبت أولاً) وبتّ كلٍّ منها — الأحد=1 … السبت=64 */
+const M_WEEK_DAYS: { label: string; bit: number }[] = [
+  { label: 'السبت', bit: 64 }, { label: 'الأحد', bit: 1 }, { label: 'الاثنين', bit: 2 }, { label: 'الثلاثاء', bit: 4 },
+  { label: 'الأربعاء', bit: 8 }, { label: 'الخميس', bit: 16 }, { label: 'الجمعة', bit: 32 },
+];
+
 const PERM_DEFAULTS: PermState = {
   canCreateInvoice: true, canSellOnCredit: true, canSellOnInstallment: false, canSellInCash: true,
   canEditInvoice: false, canCancelInvoice: false, canDeleteInvoice: false,
@@ -690,6 +696,7 @@ const PERM_DEFAULTS: PermState = {
   requireCustomerProximity: false,
   requireLocationOn: false,
   requirePunchAtCustomer: false,
+  requireBoundDevice: false,
 };
 
 const PERM_LABELS: Record<PermKey, string> = {
@@ -713,6 +720,7 @@ const PERM_LABELS: Record<PermKey, string> = {
   requireCustomerProximity: 'البيع داخل نطاق العميل فقط',
   requireLocationOn: 'اشتراط تفعيل الموقع',
   requirePunchAtCustomer: 'بصمة الحضور بموقع عميل',
+  requireBoundDevice: 'ربط البصمة بجهاز واحد',
 };
 
 const PERM_GROUPS: { title: string; keys: Grant[] }[] = [
@@ -758,6 +766,23 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
   // مسافتا قيدَي الموقع بالأمتار — ٥٠ افتراضاً كما كانتا ثابتتين (يطابق التحقّق في salesReps.ts: ١٠–٥٠٠٠)
   const [proxRadius, setProxRadius] = useState(String(rep.proximityRadiusM ?? RADIUS_DEFAULT_M));
   const [punchRadius, setPunchRadius] = useState(String(rep.punchRadiusM ?? RADIUS_DEFAULT_M));
+  // البصمة خارج النطاق: تُردّ أو تُقبل بوسم، والجهاز المربوط (يُفكّ مباشرةً)، وموعد الدوام للتنبيهات
+  const [outsideAction, setOutsideAction] = useState<'REJECT' | 'FLAG'>(rep.punchOutsideAction === 'FLAG' ? 'FLAG' : 'REJECT');
+  const [bound, setBound] = useState<string | null>(rep.boundDeviceName ?? null);
+  const [shiftStart, setShiftStart] = useState(rep.shiftStart ?? '');
+  const [shiftEnd, setShiftEnd] = useState(rep.shiftEnd ?? '');
+  const [shiftDays, setShiftDays] = useState(rep.shiftDays ?? 31);
+  const unbind = useMutation({
+    mutationFn: () => salesRepApi.unbindDevice(rep.id),
+    onSuccess: ({ data }) => {
+      setBound(null);
+      qc.invalidateQueries({ queryKey: ['m-sales-reps'] });
+      qc.invalidateQueries({ queryKey: ['m-rep', rep.id] });
+      if (data?.data?.unbound === false) toast(tr('لا جهاز مربوط بهذا المندوب'));
+      else toast.success(tr('فك ربط الجهاز واول بصمة قادمة تربط جهازه الجديد'));
+    },
+    onError: (e: unknown) => toast.error(errMsg(e, tr('تعذر الحفظ'))),
+  });
 
   // المجموعات المعروضة — بلا نظامٍ محاسبيّ تسقط كل صلاحيةٍ مالية،
   // وتسقط معها مجموعةٌ خلت من مفاتيحها كلّها فلا يبقى عنوانٌ فوق فراغ
@@ -789,7 +814,8 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
       ...perms,
       maxDiscountPct: discNum,
       ...(perms.requireCustomerProximity ? { proximityRadiusM: proxNum } : {}),
-      ...(perms.requirePunchAtCustomer ? { punchRadiusM: punchNum } : {}),
+      ...(perms.requirePunchAtCustomer ? { punchRadiusM: punchNum, punchOutsideAction: outsideAction } : {}),
+      shiftStart: shiftStart || null, shiftEnd: shiftEnd || null, shiftDays,
       email: rep.email ?? '', // وإلا مسحه الخادم (انظر تعليق نموذج البيانات)
     }),
     onSuccess: () => {
@@ -854,9 +880,53 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
             checked={perms.requirePunchAtCustomer}
             onChange={v => set('requirePunchAtCustomer', v)}
             hint={tr('عند التفعيل لا يبصم المندوب حضورا ولا انصرافا الا وهو داخل المسافة المحددة من موقع احد عملائه المسجل، والموقع مطفأ في جواله يمنع البصمة')} />
-          {perms.requirePunchAtCustomer && (
+          {perms.requirePunchAtCustomer && (<>
             <RadiusField label={tr('المسافة المسموحة بالمتر')} value={punchRadius} onChange={setPunchRadius} ok={punchOk} />
+            <div className="px-4 pb-3">
+              <label className="label">{tr('البصمة خارج النطاق')}</label>
+              <select className="input" value={outsideAction} onChange={e => setOutsideAction(e.target.value === 'FLAG' ? 'FLAG' : 'REJECT')}>
+                <option value="REJECT">{tr('ارفضها')}</option>
+                <option value="FLAG">{tr('اقبلها مع وسم خارج النطاق')}</option>
+              </select>
+            </div>
+          </>)}
+          <MToggle label={tr(PERM_LABELS.requireBoundDevice)}
+            checked={perms.requireBoundDevice}
+            onChange={v => set('requireBoundDevice', v)}
+            hint={tr('عند التفعيل يربط اول جهاز يبصم منه المندوب ولا تقبل بصمته بعدها الا منه، ولا يبصم جهاز مربوط بمندوب لغيره ضد البصمة بالنيابة، وان غير جواله او مسح بيانات التطبيق فك الربط من هنا')} />
+          {bound && (
+            <div className="px-4 pb-3 flex items-center gap-2 text-xs text-[#6E6557]">
+              <span className="flex-1">{tr('الجهاز المربوط')}: <b dir="ltr">{bound}</b></span>
+              <button onClick={() => unbind.mutate()} disabled={unbind.isPending} className="min-h-[36px] px-3 rounded-lg border border-[#E9E1D3] font-bold text-[#C94E28] disabled:opacity-50">
+                {tr('فك الربط')}
+              </button>
+            </div>
           )}
+        </Group>
+
+        <Group title={tr('موعد الدوام للتنبيهات')}>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">{tr('بداية الدوام')}</label>
+              <input className="input" type="time" dir="ltr" value={shiftStart} onChange={e => setShiftStart(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">{tr('نهاية الدوام')}</label>
+              <input className="input" type="time" dir="ltr" value={shiftEnd} onChange={e => setShiftEnd(e.target.value)} />
+            </div>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {M_WEEK_DAYS.map(d => {
+              const on = (shiftDays & d.bit) !== 0;
+              return (
+                <button key={d.bit} onClick={() => setShiftDays(on ? shiftDays & ~d.bit : shiftDays | d.bit)}
+                  className={`min-h-[36px] rounded-lg border px-2.5 text-xs ${on ? 'border-[#E15A30] bg-[#FBEBE2] text-[#C94E28] font-bold' : 'border-[#E9E1D3] text-[#6E6557]'}`}>
+                  {tr(d.label)}
+                </button>
+              );
+            })}
+          </div>
+          <Hint text={tr('اختياري ويستعمل للتنبيهات وحدها تذكير على جوال المندوب قبل بداية دوامه بربع ساعة ان لم يبصم، وتنبيه ان بقيت فترته مفتوحة بعد نهاية الدوام بنصف ساعة، وبلا موعد ينبه ان بقيت مفتوحة عشر ساعات، ويفعل المندوب التنبيهات من شاشة البصمة')} />
         </Group>
 
         <p className="text-[11px] text-[#9A8F7E] px-1 leading-relaxed">

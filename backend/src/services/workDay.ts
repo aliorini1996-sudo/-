@@ -172,6 +172,15 @@ export interface WorkPeriod {
   inLat?: number | null; inLng?: number | null;
   /** أين بصم الانصراف الذي أنهى الفترة — null للمفتوحة أو بلا التقاط */
   outLat?: number | null; outLng?: number | null;
+  /** الجهاز الذي بصم منه الحضور والانصراف (وصفه) — طلب المالك ٢١ أكتوبر ٢٠٢٦ */
+  inDevice?: string | null; outDevice?: string | null;
+  /** «خارج النطاق» لمندوبٍ مقيَّد ببصمةٍ عند عميل (null = لم يُحكم) ومسافة أقرب عميل بالأمتار */
+  inOutside?: boolean | null; inDistanceM?: number | null;
+  outOutside?: boolean | null; outDistanceM?: number | null;
+  /** أُضيفت أو عُدّلت إدارياً أو رُفعت من Excel — لا بصمةٌ من التطبيق كما هي */
+  edited?: boolean;
+  /** مصدر الصفّ: APP | ADMIN | IMPORT (للمدموجة: أيّها لم يكن من التطبيق) */
+  entry?: 'APP' | 'ADMIN' | 'IMPORT';
 }
 
 export interface WorkDay {
@@ -231,7 +240,15 @@ export interface AttendanceShift {
   /** إحداثيات البصمتين كما خُزّنت (null متى لم يُلتقط الموقع) */
   checkInLat?: number | null; checkInLng?: number | null;
   checkOutLat?: number | null; checkOutLng?: number | null;
+  checkInDevice?: string | null; checkOutDevice?: string | null;
+  checkInOutside?: boolean | null; checkInDistanceM?: number | null;
+  checkOutOutside?: boolean | null; checkOutDistanceM?: number | null;
+  source?: string | null; editedAt?: Date | null;
 }
+
+/** مصدر صفّ البصمة كما يُعرض: ما ليس ADMIN ولا IMPORT بصمةٌ من التطبيق */
+const entryOf = (s: AttendanceShift): 'APP' | 'ADMIN' | 'IMPORT' => (s.source === 'ADMIN' || s.source === 'IMPORT' ? s.source : 'APP');
+const editedOf = (s: AttendanceShift): boolean => entryOf(s) !== 'APP' || s.editedAt != null;
 
 /** إحداثيّان معاً أو لا شيء: نصفُ موقعٍ لا يُفتح على خريطة */
 const coordPair = (lat: number | null | undefined, lng: number | null | undefined): [number, number] | [null, null] =>
@@ -262,22 +279,40 @@ export function attendanceByDay(shifts: readonly AttendanceShift[], tzOffsetMin:
   const m = new Map<string, AttendanceDay>();
   for (const [key, list] of byKey) {
     const sorted = [...list].sort((a, b) => a.checkInAt.getTime() - b.checkInAt.getTime());
-    // نوبتان مغلقتان متداخلتان (بيانات مكرّرة) تتّحدان فلا تُعدّ ساعاتهما مرّتين؛
+    // نوبتان مغلقتان متداخلتان فعلاً (بيانات مكرّرة) تتّحدان فلا تُعدّ ساعاتهما مرّتين؛ والمتلاصقتان (انصرافٌ ثمّ حضورٌ
+    // في اللحظة نفسها) فترتان باستراحة صفر — دمجهما كان يُسقط جهاز ووسم الانصراف الأول ويَسِم بصمة التطبيق «إدخال إداري».
     // والمفتوحة لا تُدمج — لا نهاية لها تُقارَن، فتبقى فترةً «بلا انصراف»
     // ومكان كل بصمة يرافق فترتها: المتّحدة تأخذ موقع أول حضورٍ فيها وموقع الانصراف الذي أنهاها
     const periods: WorkPeriod[] = [];
     for (const s of sorted) {
       const cur = periods[periods.length - 1];
-      if (cur && cur.end && s.checkOutAt && s.checkInAt <= cur.end) {
+      if (cur && cur.end && s.checkOutAt && s.checkInAt < cur.end) {
+        // وسم «خارج النطاق» لا يُمحى بالدمج: حضورٌ خارجه في الجزء المدموج يبقى وسماً للفترة
+        const outsideIn = cur.inOutside === true || s.checkInOutside === true;
         if (s.checkOutAt > cur.end) {
           cur.end = s.checkOutAt;
           [cur.outLat, cur.outLng] = coordPair(s.checkOutLat, s.checkOutLng);
+          cur.outDevice = s.checkOutDevice ?? null;
+          cur.outOutside = s.checkOutOutside ?? null;
+          cur.outDistanceM = s.checkOutDistanceM ?? null;
+        } else if (s.checkOutOutside === true) {
+          cur.outOutside = true;
         }
+        if (outsideIn) cur.inOutside = true;
+        if (editedOf(s)) cur.edited = true;
+        // «إدخال إداري/مرفوعة» لفترةٍ كلّها كذلك؛ جزءٌ من التطبيق يُبقيها بصمة تطبيقٍ معدَّلة
+        if (cur.entry !== entryOf(s)) cur.entry = cur.entry === 'APP' || entryOf(s) === 'APP' ? 'APP' : entryOf(s);
       } else {
         const [inLat, inLng] = coordPair(s.checkInLat, s.checkInLng);
         // مفتوحةٌ بلا انصراف ⇒ بلا موقع انصراف ولو حمل السجلّ إحداثياتٍ عالقة
         const [outLat, outLng] = s.checkOutAt ? coordPair(s.checkOutLat, s.checkOutLng) : [null, null];
-        periods.push({ start: s.checkInAt, end: s.checkOutAt, source: 'PUNCH', inLat, inLng, outLat, outLng });
+        periods.push({
+          start: s.checkInAt, end: s.checkOutAt, source: 'PUNCH', inLat, inLng, outLat, outLng,
+          inDevice: s.checkInDevice ?? null, outDevice: s.checkOutAt ? s.checkOutDevice ?? null : null,
+          inOutside: s.checkInOutside ?? null, inDistanceM: s.checkInDistanceM ?? null,
+          outOutside: s.checkOutAt ? s.checkOutOutside ?? null : null, outDistanceM: s.checkOutAt ? s.checkOutDistanceM ?? null : null,
+          edited: editedOf(s), entry: entryOf(s),
+        });
       }
     }
     let end: Date | null = null;

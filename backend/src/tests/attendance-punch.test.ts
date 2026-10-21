@@ -3,6 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import fs from 'node:fs';
 import type { Router } from 'express';
 
 const SRC = path.join(__dirname, '..');
@@ -62,14 +63,46 @@ let locationRequired = false;
 let punchAtCustomer = false;
 // مسافة البصمة كما حدّدتها الإدارة للمندوب (٥٠ افتراضاً كما في المخطط)
 let punchRadius: unknown = 50;
+// البصمة خارج النطاق: REJECT تُردّ (الافتراض)، FLAG تُقبل بوسم
+let outsideAction = 'REJECT';
+// «ربط البصمة بجهاز واحد» ومن يحمل الجهاز المربوط
+let boundRequired = false;
+let boundId: string | null = null;
+let boundName: string | null = null;
+let otherRepBound: string | null = null; // جهازٌ مربوطٌ بمندوبٍ آخر مقيَّد
 let nearCustomers: { lat: number; lng: number }[] = [];
+let lastSql = '';
 const salesRep = {
-  async findUnique() { return { requireLocationOn: locationRequired }; },
-  async findFirst() { return { requireLocationOn: locationRequired, requirePunchAtCustomer: punchAtCustomer, punchRadiusM: punchRadius }; },
+  async findUnique() { return { requireLocationOn: locationRequired, boundDeviceId: boundId, boundDeviceName: boundName }; },
+  async findFirst(args: { where: { id?: unknown; boundDeviceId?: string } }) {
+    // البحث عن مندوبٍ آخر مربوطٍ بالجهاز نفسه (deviceRefusal)
+    if (args.where.boundDeviceId !== undefined) return otherRepBound && args.where.boundDeviceId === otherRepBound ? { id: 'rep2' } : null;
+    return {
+      requireLocationOn: locationRequired, requirePunchAtCustomer: punchAtCustomer, punchRadiusM: punchRadius, punchOutsideAction: outsideAction,
+      requireBoundDevice: boundRequired, boundDeviceId: boundId, boundDeviceName: boundName,
+    };
+  },
+  async updateMany(args: { where: { boundDeviceId: null }; data: { boundDeviceId: string; boundDeviceName: string } }) {
+    if (boundId !== null) return { count: 0 };
+    boundId = args.data.boundDeviceId; boundName = args.data.boundDeviceName;
+    return { count: 1 };
+  },
 };
-const customer = { async findMany() { return nearCustomers; } };
 const companySettings = { async findUnique() { return { customerIsolationEnabled: false }; } };
-stub('config/database', { default: { repAttendance, tenant, salesRep, customer, companySettings } });
+// أقرب العملاء كما تحسبهم القاعدة (nearestCustomersM): مربّع البحث ثم الترتيب بالمسافة المسطّحة ثم أول ثمانية —
+// القيم بترتيبها في الاستعلام: الشركة، حدود المربّع الأربعة، [قيد العزل]، النقطة، ومعامل خطّ الطول
+const $queryRaw = async (strings: TemplateStringsArray, ...values: unknown[]) => {
+  lastSql = strings.join('?');
+  const nums = values.filter((v): v is number => typeof v === 'number');
+  const [latLo, latHi, lngLo, lngHi, lat, lng, mLng] = nums;
+  return nearCustomers
+    .filter((c) => c.lat >= latLo && c.lat <= latHi && c.lng >= lngLo && c.lng <= lngHi)
+    .sort((a, b) => ((a.lat - lat) * 111320) ** 2 + ((a.lng - lng) * mLng) ** 2 - (((b.lat - lat) * 111320) ** 2 + ((b.lng - lng) * mLng) ** 2))
+    .slice(0, 8);
+};
+const db: Record<string, unknown> = { repAttendance, tenant, salesRep, companySettings, $queryRaw, $executeRaw: async () => 0 };
+db.$transaction = async (fn: (tx: unknown) => unknown) => fn(db);
+stub('config/database', { default: db });
 stub('middleware/auth', {
   authenticate: (_req: unknown, _res: unknown, next: () => void) => next(),
   requireAdmin: (_req: unknown, _res: unknown, next: () => void) => next(),
@@ -105,9 +138,11 @@ function mockRes() {
   return res;
 }
 const REP = { role: 'SALES_REP', id: 'rep1', tenantId: 't1' };
-async function call(method: 'get' | 'post', p: string, opts: { user?: unknown; body?: unknown; query?: unknown } = {}) {
+const PHONE_UA = 'Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36';
+async function call(method: 'get' | 'post', p: string, opts: { user?: unknown; body?: unknown; query?: unknown; ua?: string } = {}) {
   const res = mockRes();
-  await handler(method, p)({ user: 'user' in opts ? opts.user : REP, body: opts.body ?? {}, query: opts.query ?? {} }, res, (e?: unknown) => { if (e) throw e; });
+  const headers: Record<string, string> = { 'user-agent': opts.ua ?? PHONE_UA };
+  await handler(method, p)({ user: 'user' in opts ? opts.user : REP, body: opts.body ?? {}, query: opts.query ?? {}, get: (h: string) => headers[h.toLowerCase()] }, res, (e?: unknown) => { if (e) throw e; });
   return res;
 }
 const data = (res: { body: Record<string, unknown> | null }) => (res.body!.data as Record<string, unknown>);
@@ -365,6 +400,150 @@ test('الانصراف يحكم بالدقّة كالحضور', async () => {
     assert.equal((await call('post', '/attendance/checkout', { body: HERE })).statusCode, 409, 'بلا دقّة ٦٥م مرفوض');
     assert.equal(data(await call('post', '/attendance/checkout', { body: { ...HERE, accuracy: 20 } })).status, 'out');
   } finally { punchAtCustomer = false; nearCustomers = []; }
+});
+
+// ═══ «يعمل على كل المسافات التي تحدّدها الإدارة» (طلب المالك، ٢١ أكتوبر ٢٠٢٦) ═══
+const resetPunch = () => { rows = []; seq = 0; featureOn = true; punchAtCustomer = true; outsideAction = 'REJECT'; boundRequired = false; boundId = null; boundName = null; otherRepBound = null; };
+const cleanup = () => { punchAtCustomer = false; punchRadius = 50; nearCustomers = []; outsideAction = 'REJECT'; boundRequired = false; boundId = null; boundName = null; otherRepBound = null; };
+
+test('القيد يعمل على كل المسافات ١٠–٥٠٠٠م: عميلٌ داخلها يُقبل، وخارجها بمترٍ بعد السماحية يُرفض برسالةٍ تذكر المسافة', async () => {
+  for (const R of [10, 25, 50, 100, 300, 1000, 2000, 5000]) {
+    try {
+      resetPunch(); punchRadius = R; nearCustomers = [AT(R * 0.9)];
+      assert.equal(data(await call('post', '/attendance/checkin', { body: { ...HERE, accuracy: 5 } })).status, 'in', `${R}م: عميل على ${R * 0.9}م يُقبل`);
+      resetPunch(); punchRadius = R; nearCustomers = [AT(R + 5 + 3)]; // السماحية = الدقّة ٥م
+      const r = await call('post', '/attendance/checkin', { body: { ...HERE, accuracy: 5 } });
+      assert.equal(r.statusCode, 409, `${R}م: عميل على ${R + 8}م يُرفض`);
+      assert.match(msgOf(r), new RegExp(`داخل ${R} مترا`));
+      assert.equal(rows.length, 0);
+    } finally { cleanup(); }
+  }
+});
+
+test('مسافةٌ واسعة في مدينةٍ كثيفة: ١٥٠٠ عميلٍ في زوايا مربّع البحث لا تحجب عميلاً واحداً قريباً — الترتيب في القاعدة لا عيّنةٌ منها', async () => {
+  resetPunch(); punchRadius = 5000;
+  try {
+    const dLng = 4990 / (111320 * Math.cos(24.7136 * Math.PI / 180));
+    // زوايا المربّع (~٧ كم قطرياً) خارج الدائرة — كان سقف «ألف عميل» يقرؤها وحدها فيُرفض الصادق
+    const corners = Array.from({ length: 1500 }, (_, i) => ({ lat: 24.7136 + (4990 - (i % 10)) / 111320, lng: 46.6753 + dLng }));
+    nearCustomers = [...corners, AT(3000)];
+    assert.equal(data(await call('post', '/attendance/checkin', { body: { ...HERE, accuracy: 5 } })).status, 'in');
+    resetPunch(); punchRadius = 5000; nearCustomers = corners;
+    assert.equal((await call('post', '/attendance/checkin', { body: { ...HERE, accuracy: 5 } })).statusCode, 409, 'الزوايا وحدها خارج الدائرة');
+  } finally { cleanup(); }
+});
+
+test('الاستعلام يستبعد المحذوف وبلا إحداثيات ويرتّب بالمسافة ويأخذ الأقرب — ونطاق العزل حين يُفعَّل', async () => {
+  resetPunch(); nearCustomers = [NEAR];
+  try {
+    await call('post', '/attendance/checkin', { body: HERE });
+    assert.match(lastSql, /FROM "customers" c/);
+    assert.match(lastSql, /c\."status" <> 'DELETED'/);
+    assert.match(lastSql, /c\."lat" IS NOT NULL AND c\."lng" IS NOT NULL/);
+    assert.match(lastSql, /ORDER BY \(\(c\."lat" - \?::float8\) \* 111320\.0\) \^ 2 \+ \(\(c\."lng" - \?::float8\) \* \?::float8\) \^ 2\s+LIMIT 8/);
+  } finally { cleanup(); }
+  const route = fs.readFileSync(path.join(SRC, 'routes', 'tracking.ts'), 'utf8');
+  assert.match(route, /AND EXISTS \(SELECT 1 FROM "customer_assignments" ca WHERE ca\."customerId" = c\."id" AND ca\."salesRepId" = \$\{repId\}\)/);
+});
+
+// ═══ «خارج النطاق» مع قبول البصمة (FLAG) ═══
+test('وسم «خارج النطاق»: FLAG تقبل البصمة البعيدة وتكتب الوسم ومسافة أقرب عميل، وداخل النطاق وسمه «داخل»', async () => {
+  resetPunch(); outsideAction = 'FLAG'; nearCustomers = [AT(400)];
+  try {
+    const r = await call('post', '/attendance/checkin', { body: { ...HERE, accuracy: 5 } });
+    assert.equal(data(r).status, 'in');
+    assert.equal(rows[0].checkInOutside as unknown, true);
+    assert.equal(rows[0].checkInDistanceM as unknown, 400);
+    assert.deepEqual((data(r) as { place?: unknown }).place, { outside: true, distanceM: 400 }, 'الجوال يُبلَّغ أنها خارج النطاق');
+    nearCustomers = [NEAR];
+    const out = await call('post', '/attendance/checkout', { body: { ...HERE, accuracy: 5 } });
+    assert.equal(data(out).status, 'out');
+    assert.equal(rows[0].checkOutOutside as unknown, false);
+    assert.equal(rows[0].checkOutDistanceM as unknown, 30);
+  } finally { cleanup(); }
+});
+
+test('وسم «خارج النطاق»: البصمة بلا موقع تُقبل موسومةً بلا مسافة، وغير المقيّد لا يُحكم عليه (null)', async () => {
+  resetPunch(); outsideAction = 'FLAG'; nearCustomers = [NEAR];
+  try {
+    assert.equal(data(await call('post', '/attendance/checkin', {})).status, 'in');
+    assert.equal(rows[0].checkInOutside as unknown, true);
+    assert.equal(rows[0].checkInDistanceM as unknown, null);
+    resetPunch(); punchAtCustomer = false;
+    await call('post', '/attendance/checkin', { body: HERE });
+    assert.equal(rows[0].checkInOutside as unknown, null);
+  } finally { cleanup(); }
+});
+
+test('REJECT (الافتراض) كما كان: خارج النطاق يُردّ ولا يُكتب وسم', async () => {
+  resetPunch(); nearCustomers = [AT(400)];
+  try {
+    assert.equal((await call('post', '/attendance/checkin', { body: { ...HERE, accuracy: 5 } })).statusCode, 409);
+    assert.equal(rows.length, 0);
+  } finally { cleanup(); }
+});
+
+// ═══ تسجيل نوع الجهاز مع كل بصمة، و«ربط البصمة بجهاز واحد» ═══
+test('كل بصمة تحمل جهازها: الوصف من التطبيق، وإلّا من User-Agent — للمقيَّد وغير المقيَّد', async () => {
+  resetPunch(); punchAtCustomer = false;
+  try {
+    await call('post', '/attendance/checkin', { body: { ...HERE, deviceId: 'dev-aaaaaaaa-1111', deviceName: 'SM-S918B · Android 14' } });
+    assert.equal(rows[0].checkInDeviceId as unknown, 'dev-aaaaaaaa-1111');
+    assert.equal(rows[0].checkInDevice as unknown, 'SM-S918B · Android 14');
+    await call('post', '/attendance/checkout', { body: HERE, ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36' });
+    assert.equal(rows[0].checkOutDevice as unknown, 'Windows · Chrome · كمبيوتر', 'بصمةٌ من كمبيوتر تظهر للإدارة');
+    assert.equal(rows[0].checkOutDeviceId as unknown, null, 'حزمةٌ أقدم بلا معرّف');
+  } finally { cleanup(); }
+});
+
+test('ربط الجهاز: أول بصمةٍ تربط جهازها، وبعدها لا تُقبل إلا منه — والرفض برمزٍ تعرضه الحزمة الأقدم', async () => {
+  resetPunch(); punchAtCustomer = false; boundRequired = true;
+  try {
+    assert.equal(data(await call('post', '/attendance/checkin', { body: { deviceId: 'my-phone-0001', deviceName: 'SM-A546E · Android 14' } })).status, 'in');
+    assert.equal(boundId, 'my-phone-0001', 'رُبط الجهاز الأول');
+    assert.equal(boundName, 'SM-A546E · Android 14');
+    const r = await call('post', '/attendance/checkout', { body: { deviceId: 'friend-phone-02', deviceName: 'iPhone · iOS 17.4' } });
+    assert.equal(r.statusCode, 409);
+    assert.equal(codeOf(r), 'PUNCH_AWAY_FROM_CUSTOMER');
+    assert.equal((r.body as { reason?: string }).reason, 'DEVICE');
+    assert.match(msgOf(r), /مربوط بجهاز آخر \(SM-A546E · Android 14\)/);
+    assert.equal(rows[0].checkOutAt, null, 'لم يُكتب انصراف');
+    assert.equal(data(await call('post', '/attendance/checkout', { body: { deviceId: 'my-phone-0001' } })).status, 'out');
+  } finally { cleanup(); }
+});
+
+test('ربط الجهاز: حزمةٌ بلا معرّف تُردّ برسالةٍ تُفهم، والجهاز المربوط بمندوبٍ آخر لا يُربط لثانٍ', async () => {
+  resetPunch(); punchAtCustomer = false; boundRequired = true;
+  try {
+    const old = await call('post', '/attendance/checkin', {});
+    assert.equal(old.statusCode, 409);
+    assert.match(msgOf(old), /أغلق التطبيق وافتحه من جديد/);
+    otherRepBound = 'shared-phone-9';
+    const shared = await call('post', '/attendance/checkin', { body: { deviceId: 'shared-phone-9' } });
+    assert.equal(shared.statusCode, 409);
+    assert.match(msgOf(shared), /مربوط بحساب مندوب آخر/);
+    assert.equal(boundId, null, 'لم يُربط');
+    assert.equal(rows.length, 0);
+  } finally { cleanup(); }
+});
+
+test('ربط الجهاز مطفأ (الافتراض): أي جهازٍ يبصم ولا يُربط شيء', async () => {
+  resetPunch(); punchAtCustomer = false;
+  try {
+    await call('post', '/attendance/checkin', { body: { deviceId: 'phone-x-1234' } });
+    await call('post', '/attendance/checkout', { body: { deviceId: 'phone-y-5678' } });
+    assert.equal(boundId, null);
+    assert.ok(rows[0].checkOutAt);
+  } finally { cleanup(); }
+});
+
+test('الحضور والانصراف تحت قفل المندوب داخل معاملة — طلبان متزامنان لا يفتحان نوبتين', () => {
+  const route = fs.readFileSync(path.join(SRC, 'routes', 'tracking.ts'), 'utf8');
+  for (const p of ["router.post('/attendance/checkin'", "router.post('/attendance/checkout'"]) {
+    const h = route.slice(route.indexOf(p), route.indexOf('\n});', route.indexOf(p)));
+    assert.match(h, /prisma\.\$transaction\(async \(tx\) => \{\s*await lockRepAttendance\(tx, repId\);/, p);
+    assert.match(h, /await openShift\(tx, tid, repId\)/, `${p}: إعادة قراءة النوبة تحت القفل`);
+  }
 });
 
 test('بصمة بموقع عميل: الضغط المكرّر على نوبة مفتوحة لا يُرفض — لا كتابة فلا حكم', async () => {

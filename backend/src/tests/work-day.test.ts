@@ -640,12 +640,64 @@ test('شكل الاستجابة: الفترات بتوقيت ISO والحقول 
   }
   assert.deepStrictEqual(wire[0].periods, [{ start: '2026-10-04T06:00:00.000Z', end: '2026-10-04T10:00:00.000Z', source: 'ACTIVITY' }]);
   // فترات البصمة تحمل مواقعها دائماً (null بلا التقاط) — والامتداد ACTIVITY بلا مفاتيح مواقع
-  const noLoc = { inLat: null, inLng: null, outLat: null, outLng: null };
+  // ومعها جهازها ووسم «خارج النطاق» ومصدرها (طلب المالك ٢١ أكتوبر ٢٠٢٦) — null/APP لبصمةٍ من التطبيق بلا حكم
+  const noLoc = {
+    inLat: null, inLng: null, outLat: null, outLng: null, inDevice: null, outDevice: null,
+    inOutside: null, inDistanceM: null, outOutside: null, outDistanceM: null, edited: false, entry: 'APP',
+  };
   assert.deepStrictEqual(wire[1].periods, [
     { start: '2026-10-05T06:00:00.000Z', end: '2026-10-05T10:00:00.000Z', source: 'PUNCH', ...noLoc },
     { start: '2026-10-05T14:00:00.000Z', end: null, source: 'PUNCH', ...noLoc },
   ]);
   assert.strictEqual(wire[1].breakMinutes, 240);
+});
+
+test('الفترة تحمل جهازها ووسم «خارج النطاق» ومصدرها — والمدموجة: الحضور من أولها والانصراف ممّا أنهاها، ومعدّلةٌ إن عُدّل أيٌّ منها', () => {
+  const m = attendanceByDay([
+    { checkInAt: iso('2026-10-05T06:00:00Z'), checkOutAt: iso('2026-10-05T09:00:00Z'), checkInDevice: 'SM-S918B · Android 14', checkOutDevice: 'SM-S918B · Android 14',
+      checkInOutside: false, checkInDistanceM: 12, checkOutOutside: false, checkOutDistanceM: 20, source: 'APP' },
+    { checkInAt: iso('2026-10-05T08:00:00Z'), checkOutAt: iso('2026-10-05T10:00:00Z'), checkOutDevice: 'Windows · Chrome · كمبيوتر',
+      checkOutOutside: true, checkOutDistanceM: 4200, source: 'ADMIN', editedAt: iso('2026-10-06T08:00:00Z') },
+    { checkInAt: iso('2026-10-05T14:00:00Z'), checkOutAt: null, checkInOutside: true, checkInDistanceM: null, source: 'IMPORT' },
+  ], KSA);
+  const [merged, open] = m.get('2026-10-05')!.periods;
+  assert.equal(merged.inDevice, 'SM-S918B · Android 14');
+  assert.equal(merged.inDistanceM, 12);
+  assert.equal(merged.outDevice, 'Windows · Chrome · كمبيوتر', 'الانصراف ممّا أنهى الفترة');
+  assert.equal(merged.outOutside, true);
+  assert.equal(merged.outDistanceM, 4200);
+  assert.equal(merged.edited, true);
+  assert.equal(merged.entry, 'APP', 'جزءٌ من التطبيق يُبقيها بصمة تطبيقٍ معدَّلة لا «إدخالاً إدارياً»');
+  assert.equal(open.inOutside, true);
+  assert.equal(open.entry, 'IMPORT');
+  assert.equal(open.outDevice, null);
+});
+
+test('المتلاصقتان (انصرافٌ ثمّ حضورٌ في اللحظة نفسها) فترتان باستراحة صفر — لا يضيع جهاز الانصراف الأول ولا وسمه (مراجعة ٢١ أكتوبر)', () => {
+  const m = attendanceByDay([
+    { checkInAt: iso('2026-10-05T06:00:00Z'), checkOutAt: iso('2026-10-05T10:00:00Z'), checkOutDevice: 'iPhone · iOS 17.4', checkOutOutside: true, checkOutDistanceM: 900, source: 'APP' },
+    { checkInAt: iso('2026-10-05T10:00:00Z'), checkOutAt: iso('2026-10-05T14:00:00Z'), source: 'ADMIN', editedAt: iso('2026-10-06T08:00:00Z') },
+  ], KSA);
+  const day = m.get('2026-10-05')!;
+  assert.equal(day.periods.length, 2);
+  assert.equal(day.breakMinutes, 0);
+  assert.equal(day.minutes, 480);
+  assert.equal(day.periods[0].outDevice, 'iPhone · iOS 17.4');
+  assert.equal(day.periods[0].outOutside, true);
+  assert.equal(day.periods[0].entry, 'APP');
+  assert.equal(day.periods[1].entry, 'ADMIN');
+});
+
+test('المتداخلتان فعلاً تتّحدان دون أن يُمحى وسم «خارج النطاق» من الجزء المدموج', () => {
+  const m = attendanceByDay([
+    { checkInAt: iso('2026-10-05T06:00:00Z'), checkOutAt: iso('2026-10-05T12:00:00Z'), checkInOutside: false, checkOutOutside: false, source: 'APP' },
+    { checkInAt: iso('2026-10-05T07:00:00Z'), checkOutAt: iso('2026-10-05T09:00:00Z'), checkInOutside: true, checkOutOutside: true, source: 'IMPORT' },
+  ], KSA);
+  const [p] = m.get('2026-10-05')!.periods;
+  assert.equal(m.get('2026-10-05')!.periods.length, 1);
+  assert.equal(p.inOutside, true);
+  assert.equal(p.outOutside, true);
+  assert.equal(p.entry, 'APP');
 });
 
 test('حارس: لا عتبة زمنية تقسم اليوم، وGPS يُجمَّع في القاعدة لطرفي اليوم وحدهما وبلا make_interval', () => {

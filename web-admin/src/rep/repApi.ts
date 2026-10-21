@@ -2,6 +2,7 @@ import axios from 'axios';
 import { FS_CAPS_HEADER, FS_CAPS_VALUE } from '../api/caps';
 import { refClear } from './offlineDb';
 import { renewToken } from './renew';
+import { unsubscribeLocalPush } from './pushKey';
 import {
   LIVE_FIX_TIMEOUT_MS, emitLiveRefused, isLiveGuardedRequest, isLiveRefusal, isLocalLiveRefusal, liveFixOf, liveRefusalError,
   noteServer, notePing, pingBody, pingVerdictOf, preflightLive, strictRepNow,
@@ -143,6 +144,8 @@ repApi.interceptors.response.use(
         void refClear();
         localStorage.removeItem('rep_token');
         localStorage.removeItem('rep_user');
+        // وتنبيهات حضوره لا تبقى على الجهاز لمن يدخل بعده (محلياً بلا شبكة وبمهلة — الخادم يحذف صفّه عند أول رفض)
+        await unsubscribeLocalPush(1500);
         if (window.location.pathname.startsWith('/rep')) window.location.href = '/rep';
       }
       return Promise.reject(err);

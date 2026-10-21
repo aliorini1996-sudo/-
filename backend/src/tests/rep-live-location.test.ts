@@ -362,7 +362,7 @@ test('كل بادئةٍ تُركَّب بعد الحارس مصنَّفة: مح�
   const GUARDED = ['/customers', '/invoices', '/paylink', '/receipts', '/visits'];
   // مفتوحٌ للمقيَّد بمراجعة (٧ أكتوبر ٢٠٢٦): ليس عملاً على عميل، أو إداريٌّ/عامٌّ لا يبلغه المندوب بكتابة
   // '/api-keys' و'/v1' (الربط البرمجي API): إداريّان لا يبلغهما المندوب — الأول requireAdmin والثاني لمفاتيح API وحدها
-  const OPEN = ['/affiliate', '/affiliate-admin', '/ai-rep', '/analytics', '/api-keys', '/auth', '/company', '/company-users', '/contact', '/daily-reports',
+  const OPEN = ['/affiliate', '/affiliate-admin', '/ai-rep', '/analytics', '/api-keys', '/attendance-admin', '/auth', '/company', '/company-users', '/contact', '/daily-reports',
     '/dashboard', '/erp', '/finance', '/hunter', '/import', '/leads', '/leads-cron', '/ledger', '/live', '/notifications', '/payments',
     '/petroapp', '/products', '/profile-deck', '/promo-videos', '/public', '/quotes', '/rep-routes', '/rep-stock-requests', '/reports', '/sales-reps',
     '/site-content', '/support', '/tenants', '/tracking', '/v1', '/van-stock', '/wa-inbox', '/warehouse', '/work-numbers', '/zatca'];

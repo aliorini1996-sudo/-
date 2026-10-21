@@ -15,6 +15,7 @@ import { startOpsScheduler } from './services/opsSchedule';
 import { startPetroappScheduler } from './services/petroapp';
 import { startPaylinkScheduler } from './services/paylink';
 import { startZatcaSweep } from './services/zatcaSubmit';
+import { startAttendanceAlerts } from './services/attendanceAlerts';
 import { startLedgerSyncScheduler, trackLedgerRequestLoad } from './services/gl/sync/scheduler';
 
 import authRouter from './routes/auth';
@@ -39,6 +40,7 @@ import repStockRequestsRouter from './routes/repStockRequests';
 import repRoutesRouter from './routes/repRoutes';
 import dailyReportsRouter from './routes/dailyReports';
 import trackingRouter from './routes/tracking';
+import attendanceAdminRouter from './routes/attendanceAdmin';
 import visitsRouter from './routes/visits';
 import supportRouter from './routes/support';
 import companyUsersRouter from './routes/companyUsers';
@@ -223,6 +225,7 @@ app.use('/api/rep-stock-requests', repStockRequestsRouter); // «طلب بضاع
 app.use('/api/rep-routes', repRoutesRouter);
 app.use('/api/daily-reports', dailyReportsRouter);
 app.use('/api/tracking', trackingRouter);
+app.use('/api/attendance-admin', attendanceAdminRouter); // تعديل البصمات إدارياً ورفعها من Excel وسجلّ تدقيقها
 app.use('/api/visits', visitsRouter);
 app.use('/api/support', supportRouter);
 app.use('/api/company-users', companyUsersRouter);
@@ -382,6 +385,7 @@ server.listen(PORT, async () => {
   startPaylinkScheduler();
   startLedgerSyncScheduler(); // LEDGER_WORKER_ENABLED=0 للإطفاء
   startZatcaSweep(); // ZATCA_SWEEP_ENABLED=false للإطفاء — خامل بلا مستندات مرحلة ثانية
+  startAttendanceAlerts(); // تنبيهات الحضور على جوال المندوب — ATTENDANCE_ALERTS_ENABLED=false للإطفاء
 });
 
 export default app;

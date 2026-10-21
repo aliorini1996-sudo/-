@@ -70,6 +70,7 @@ const SALES_REP_COLS = [
   'canSellBelowPrice', 'canCreateReceipt', 'canEditReceipt', 'canCancelReceipt', 'canAddCustomer', 'canEditCustomer',
   'canViewStatement', 'requireCustomerProximity', 'requireLocationOn', 'requirePunchAtCustomer', 'showCollectionBalance', 'createdAt', 'updatedAt',
   'canManageVanStock', 'canSellWithoutStock', 'canBeTracked', 'proximityRadiusM', 'punchRadiusM',
+  'punchOutsideAction', 'requireBoundDevice', 'boundDeviceName', 'boundDeviceAt', 'shiftStart', 'shiftEnd', 'shiftDays',
 ];
 const INVOICE_COLS = [
   'id', 'number', 'customerId', 'salesRepId', 'type', 'status', 'returnReason', 'returnToStock', 'invoiceDate',
@@ -126,6 +127,9 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
       clientBundle: 'قياس داخلي لجاهزية الأجهزة', outboxPending: 'قياس داخلي', outboxTaxPending: 'قياس داخلي', outboxReportedAt: 'قياس داخلي',
       // الموقع اللحظي تحرسه صلاحية التتبّع (canManageTracking) في اللوحة لا صلاحية المناديب — فيُقرأ من /api/tracking/live
       lastLat: 'الموقع اللحظي — من مسار التتبّع بصلاحيته', lastLng: 'الموقع اللحظي — من مسار التتبّع بصلاحيته', lastSeenAt: 'الموقع اللحظي — من مسار التتبّع بصلاحيته',
+      // معرّف جهاز البصمة المربوط سرٌّ يمنع البصمة بالنيابة — من يعرفه يستطيع انتحال الجهاز
+      boundDeviceId: 'معرّف جهاز البصمة المربوط — كشفه يتيح انتحال الجهاز',
+      tzOffsetMin: 'قياس داخلي لتوقيت جوال المندوب (التنبيهات)',
     },
   },
   {
@@ -171,8 +175,12 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
   },
   {
     name: 'attendance', model: 'repAttendance', mode: 'attendance', permission: 'canManageTracking', tenantPath: 'direct', hardDeletes: true,
-    select: pick('id', 'salesRepId', 'checkInAt', 'checkInLat', 'checkInLng', 'checkOutAt', 'checkOutLat', 'checkOutLng', 'createdAt'),
-    denied: { tenantId: 'معروف من المفتاح' },
+    select: pick('id', 'salesRepId', 'checkInAt', 'checkInLat', 'checkInLng', 'checkOutAt', 'checkOutLat', 'checkOutLng', 'createdAt',
+      'checkInDevice', 'checkOutDevice', 'checkInOutside', 'checkInDistanceM', 'checkOutOutside', 'checkOutDistanceM', 'source', 'editedAt', 'editedBy'),
+    denied: {
+      tenantId: 'معروف من المفتاح',
+      checkInDeviceId: 'معرّف جهاز البصمة — كشفه يتيح انتحال الجهاز', checkOutDeviceId: 'معرّف جهاز البصمة — كشفه يتيح انتحال الجهاز',
+    },
   },
   {
     name: 'settlements', model: 'repSettlement', mode: 'created', permission: 'canManageSalesReps', tenantPath: 'direct', hardDeletes: true,
@@ -249,7 +257,8 @@ export function tenantWhere(def: SyncResource, tenantId: string): Record<string,
 /** شرط «منذ» لكل نمط — الحضور يُلتقط بالبصمة أو بالانصراف */
 export function sinceWhere(def: SyncResource, since: Date | null): Record<string, unknown> | null {
   if (!since || def.mode === 'snapshot') return null;
-  if (def.mode === 'attendance') return { OR: [{ checkInAt: { gte: since } }, { checkOutAt: { gte: since } }, { createdAt: { gte: since } }] };
+  // والتعديل الإداري (editedAt) يغيّر بصمةً قديمة — فيُعاد إرسالها مع ما تغيّر منذ آخر مزامنة
+  if (def.mode === 'attendance') return { OR: [{ checkInAt: { gte: since } }, { checkOutAt: { gte: since } }, { createdAt: { gte: since } }, { editedAt: { gte: since } }] };
   return { [cursorColumn(def)]: { gte: since } };
 }
 

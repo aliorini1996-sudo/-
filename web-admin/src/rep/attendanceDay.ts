@@ -2,7 +2,11 @@
 // قرار المالك: كل دخولٍ يُسجَّل وكل خروجٍ يُسجَّل. بعد الانصراف لا «انتهى يومك»: الحضور التالي فترةٌ جديدة،
 // والمندوب يرى بصمات يومه كلها كما سيراها المشرف في التقرير (فترةٌ لكل حضور→انصراف، وما بينها استراحة).
 
-export interface PunchShift { checkInAt: string; checkOutAt: string | null }
+export interface PunchShift {
+  checkInAt: string; checkOutAt: string | null;
+  /** «خارج النطاق» لبصمةٍ قُبلت بوسم (المندوب المقيَّد ببصمةٍ عند عميل) — غائبٌ من خادمٍ أقدم */
+  checkInOutside?: boolean | null; checkOutOutside?: boolean | null;
+}
 
 export type AttendanceState =
   | { status: 'in'; shift: { checkInAt: string; checkInLat: number | null; checkInLng: number | null }; already?: boolean; shifts?: PunchShift[] }

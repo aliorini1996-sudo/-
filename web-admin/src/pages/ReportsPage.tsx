@@ -1,6 +1,8 @@
 import { useState, useMemo, Fragment } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { reportApi, productApi, teamsApi } from '../api/client';
+import { reportApi, productApi, teamsApi, companyApi } from '../api/client';
+import AttendanceEditModal from '../components/attendance/AttendanceEditModal';
+import AttendanceImportModal from '../components/attendance/AttendanceImportModal';
 import { splitSheetsByTeam } from '../lib/teamReport';
 import RepRankingBoard, { RANKING_LABELS, type RankingData, type RankingMetric } from '../components/reports/RepRankingBoard';
 import { formatCurrency, activeLocale } from '../utils/format';
@@ -9,10 +11,10 @@ import { channelLabel } from '../lib/channels';
 import { filterFlat, filterNested } from '../lib/reportSearch';
 import { groupCollectionsByRep, collectionTotals, CollReceiptLike, CollRepGroup } from '../lib/collectionsByRep';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Download, TrendingUp, Users, UserCheck, MapPin, FileText, Search, X, Wallet, AlertTriangle } from 'lucide-react';
+import { Download, TrendingUp, Users, UserCheck, MapPin, FileText, Search, X, Wallet, AlertTriangle, Pencil, Upload } from 'lucide-react';
 import { shareOrDownloadExcel, num, ExcelSheet } from '../utils/excel';
 import { mergeRuns } from '../lib/mergeRuns';
-import { attendanceDayCells, breakOf, compactMinutes, periodsOf, punchDetailRows, punchInUrl, punchOutUrl, type WorkPeriodLike } from '../lib/workPeriods';
+import { attendanceDayCells, breakOf, compactMinutes, periodsOf, punchDetailRows, punchInUrl, punchOutUrl, periodOutside, placeLabel, entryLabel, type WorkPeriodLike } from '../lib/workPeriods';
 import { elementsToPdfBlob, downloadPdf } from '../rep/pdf';
 import toast from 'react-hot-toast';
 import { useAccountingOn } from '../components/AccountingGate';
@@ -193,6 +195,15 @@ export default function ReportsPage() {
   const [expandedPerf, setExpandedPerf] = useState<string | null>(null); // صفّ مواقع الزيارات المفتوح
   const [expandedCust, setExpandedCust] = useState<string | null>(null); // صفّ العميل المفتوح في تقرير الزيارات
   const [openDay, setOpenDay] = useState<string | null>(null);           // «معرّف المندوب|التاريخ» لليوم المفتوح
+  // تعديل بصمات يومٍ لمندوب، ورفع بصمات من Excel (طلب المالك ٢١ أكتوبر ٢٠٢٦) — لشركةٍ فعّلت بصمة الحضور
+  const [editDay, setEditDay] = useState<{ rep: { id: string; name: string }; date: string } | null>(null);
+  const [showImport, setShowImport] = useState(false);
+  const companyQ = useQuery({
+    queryKey: ['company'],
+    queryFn: async () => (await companyApi.get()).data.data as { attendanceEnabled?: boolean } | null,
+    staleTime: 300_000,
+  });
+  const attendanceOn = companyQ.data?.attendanceEnabled === true;
   const { data: perfData } = useQuery({
     queryKey: ['report-performance', from, to, teamFilter],
     queryFn: async () => {
@@ -1533,6 +1544,8 @@ export default function ReportsPage() {
           ملخّص: ساعات ثم أيام. والزيارات تُفتح بالنقر على اليوم فلا تزحم الجدول. */}
       {tab === 'performance' && perfType === 'hours' && (
         <div className="space-y-4">
+          {editDay && <AttendanceEditModal rep={editDay.rep} date={editDay.date} onClose={() => setEditDay(null)} />}
+          {showImport && <AttendanceImportModal onClose={() => setShowImport(false)} />}
           {/* مفتاح الألوان — سأل المالك «هل الأخضر بداية والأحمر نهاية؟»، وما
               لا يُشرح يُخمَّن. الشرح هنا أرخص من تخمينٍ يُبنى عليه قرار. */}
           <div className="card py-3">
@@ -1541,7 +1554,16 @@ export default function ReportsPage() {
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-[#FBEBE2] border border-[#C0392B]" /> {tr('نهاية العمل')}</span>
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-[#EAF3FB] border border-[#2E6FB0]" /> {tr('وقت داخل الزيارات')}</span>
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-[#F1EBDF] border border-[#B3A996]" /> {tr('يوم بلا نشاط')}</span>
+              {attendanceOn && <>
+                <span className="flex items-center gap-1.5"><span className="rounded bg-amber-100 px-1 text-[10px] font-bold text-amber-800">{tr('خارج النطاق')}</span> {tr('بصمة قبلت خارج نطاق العملاء')}</span>
+                <span className="flex items-center gap-1.5"><span className="rounded bg-blue-50 px-1 text-[10px] font-bold text-blue-700">{tr('معدلة')}</span> {tr('عدلت او اضيفت اداريا')}</span>
+              </>}
               <span className="text-[#9A8F7E]">· {tr('انقر على أي يوم لعرض زياراته')}</span>
+              {attendanceOn && (
+                <button onClick={() => setShowImport(true)} className="ms-auto btn-secondary py-1.5 px-3 text-xs">
+                  <Upload size={14} /> {tr('رفع بصمات من Excel')}
+                </button>
+              )}
             </div>
             <p className="text-[11px] text-[#9A8F7E] mt-2 leading-relaxed">
               {tr('إجمالي وقت العمل يقاس من أول نشاط مرصود في اليوم موقع أو فتح تطبيق أو زيارة إلى آخره أقرب مقياس متاح لخروج المندوب وعودته و نشاط التطبيق هو الوقت الذي كان فيه التطبيق مفتوحا ومتصلا فقط')}
@@ -1590,9 +1612,16 @@ export default function ReportsPage() {
                           <tr
                             onClick={() => d.visitsCount > 0 && setOpenDay(openDay === `${r.id}|${d.date}` ? null : `${r.id}|${d.date}`)}
                             className={`${d.absent ? 'bg-[#FCFAF6] text-[#B3A996]' : d.visitsCount > 0 ? 'cursor-pointer hover:bg-[#FAF7F0]' : ''}`}>
-                            <td className="tabular-nums text-xs">
+                            <td className="tabular-nums text-xs whitespace-nowrap">
                               {d.date}
                               {d.visitsCount > 0 && <span className="ms-1 text-[#9A8F7E]">{openDay === `${r.id}|${d.date}` ? '▲' : '▾'}</span>}
+                              {attendanceOn && (
+                                <button onClick={(e) => { e.stopPropagation(); setEditDay({ rep: { id: r.id, name: r.name }, date: d.date }); }}
+                                  title={tr('تعديل بصمات الحضور')} aria-label={tr('تعديل بصمات الحضور')}
+                                  className="ms-1.5 inline-flex p-1 rounded text-[#9A8F7E] hover:text-[#E15A30] hover:bg-[#FBEBE2] align-middle">
+                                  <Pencil size={12} />
+                                </button>
+                              )}
                             </td>
                             {d.absent ? (
                               <td colSpan={5} className="text-center text-xs">{tr('لا نشاط مسجل في هذا اليوم')}</td>
@@ -1608,11 +1637,21 @@ export default function ReportsPage() {
                                         {i > 0 && <span className="text-[#C9BFB0]">·</span>}
                                         <span className="inline-flex items-center gap-1"
                                           title={p.source === 'PUNCH' ? tr('من بصمة الحضور والانصراف') : tr('من أول أثر مرصود إلى آخره بلا بصمة')}>
-                                          {punchTime(p.start, punchInUrl(p), 'bg-[#E7F5EE] text-[#1E7A52]', tr('موقع الحضور'))}
+                                          {punchTime(p.start, punchInUrl(p), 'bg-[#E7F5EE] text-[#1E7A52]', [tr('موقع الحضور'), p.inDevice, p.inOutside != null ? placeLabel(p.inOutside, p.inDistanceM, tr) : null].filter(Boolean).join(' · '))}
                                           <span className="text-[#C9BFB0]">–</span>
                                           {p.end
-                                            ? punchTime(p.end, punchOutUrl(p), 'bg-[#FBEBE2] text-[#C0392B]', tr('موقع الانصراف'))
+                                            ? punchTime(p.end, punchOutUrl(p), 'bg-[#FBEBE2] text-[#C0392B]', [tr('موقع الانصراف'), p.outDevice, p.outOutside != null ? placeLabel(p.outOutside, p.outDistanceM, tr) : null].filter(Boolean).join(' · '))
                                             : <span className="text-xs text-gray-400">{tr('لم ينصرف')}</span>}
+                                          {/* وسما الفترة: بصمةٌ قُبلت خارج النطاق، وفترةٌ عُدّلت أو أُضيفت إدارياً أو رُفعت من Excel */}
+                                          {periodOutside(p) && (
+                                            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800"
+                                              title={[p.inOutside ? `${tr('الحضور')}: ${placeLabel(p.inOutside, p.inDistanceM, tr)}` : null, p.outOutside ? `${tr('الانصراف')}: ${placeLabel(p.outOutside, p.outDistanceM, tr)}` : null].filter(Boolean).join(' · ')}>
+                                              {tr('خارج النطاق')}
+                                            </span>
+                                          )}
+                                          {p.source === 'PUNCH' && (p.edited || (p.entry && p.entry !== 'APP')) && (
+                                            <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">{entryLabel(p, tr)}</span>
+                                          )}
                                         </span>
                                       </Fragment>
                                     ))}

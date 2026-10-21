@@ -284,6 +284,11 @@ export interface SalesRep {
   requirePunchAtCustomer?: boolean; // «بصمة الحضور بموقع عميل» — تقييديّ: لا بصمة إلا داخل مسافته من عميل
   proximityRadiusM?: number; // مسافة «البيع داخل نطاق العميل» بالأمتار (١٠–٥٠٠٠، ٥٠ افتراضاً)
   punchRadiusM?: number;     // مسافة «بصمة الحضور بموقع عميل» بالأمتار (١٠–٥٠٠٠، ٥٠ افتراضاً)
+  punchOutsideAction?: 'REJECT' | 'FLAG'; // البصمة خارج النطاق: تُردّ، أو تُقبل بوسم «خارج النطاق»
+  requireBoundDevice?: boolean; // «ربط البصمة بجهاز واحد» — تقييديّ ضد البصمة بالنيابة
+  boundDeviceName?: string | null; boundDeviceAt?: string | null; // الجهاز المربوط (يربطه أول بصمة)
+  shiftStart?: string | null; shiftEnd?: string | null; // موعد الدوام "HH:MM" — للتنبيهات وحدها
+  shiftDays?: number; // أيام العمل بتات: الأحد=1 … السبت=64 (الأحد–الخميس=31)
   createdAt: string;
 }
 

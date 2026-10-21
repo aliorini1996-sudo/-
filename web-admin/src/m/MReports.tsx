@@ -12,7 +12,7 @@ import { useBackClose } from '../lib/useBackClose';
 import { MCard, MRow, MStat, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import { expectArray, expectObject } from './shape';
 import { useIsLive, livePoll } from './useLiveQuery';
-import { breakOf, compactMinutes, formatPeriods, hasPunchLocation, periodsOf, punchInUrl, punchOutUrl, type WorkPeriodLike } from '../lib/workPeriods';
+import { breakOf, compactMinutes, formatPeriods, hasPunchLocation, periodsOf, punchInUrl, punchOutUrl, periodOutside, type WorkPeriodLike } from '../lib/workPeriods';
 
 /**
  * شاشة التقارير التحليلية في تطبيق الإدارة على الجوال (سبعة تقارير).
@@ -996,7 +996,12 @@ function HoursDetail({ row, onClose }: { row: WorkHoursRow; onClose: () => void 
                 subtitle={d.absent
                   ? tr('لا نشاط مسجل في هذا اليوم')
                   : `${formatPeriods(periodsOf(d), formatTime, tr('لم ينصرف'))} · ${formatNumber(d.visitsCount)} ${tr('زيارة')}`}
-                note={breakOf(d) > 0 ? `${tr('الاستراحة')} ${compactMinutes(breakOf(d), tr)}` : undefined}
+                note={[
+                  breakOf(d) > 0 ? `${tr('الاستراحة')} ${compactMinutes(breakOf(d), tr)}` : '',
+                  // وسما اليوم (طلب المالك ٢١ أكتوبر ٢٠٢٦): بصمةٌ قُبلت خارج النطاق، وفترةٌ عُدّلت أو أُضيفت إدارياً
+                  periodsOf(d).some(periodOutside) ? tr('خارج النطاق') : '',
+                  periodsOf(d).some(p => p.source === 'PUNCH' && (p.edited || (p.entry && p.entry !== 'APP'))) ? tr('معدلة') : '',
+                ].filter(Boolean).join(' · ') || undefined}
                 trailing={d.absent
                   ? <span className="text-[11px] text-[#B3A996] flex-shrink-0">{tr('غياب')}</span>
                   : <Amount value={fmtMin(d.spanMinutes, tr)} chevron={expandable} />}

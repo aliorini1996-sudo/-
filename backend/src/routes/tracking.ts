@@ -1,12 +1,16 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { adminRepFilter, scopedRepRecordWhere, scopedRecordWhere, canAccessRep, SHAPE_VISIT } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { snapToRoads, routeThrough } from '../services/mapMatch';
 import { buildRouteShape, haversineM } from '../services/routeShape';
-import { customerScope } from '../services/customerScope';
+import { isolationEnabled } from '../services/customerScope';
+import { punchDeviceOf } from '../services/punchDevice';
+import { attendanceEnabled, lockRepAttendance, REP_LOCK_TX } from '../services/attendanceEdit';
+import { getVapidKeys, pushEndpointAllowed, pushKeysValid } from '../services/webPush';
 import { heartbeatClientState } from '../services/repHeartbeat';
 import { countStopsByRep, asVisitLike } from '../services/workDay';
 import { correctCapturedAt, DEVICE_NOW_HEADER } from '../services/liveLocation';
@@ -130,16 +134,15 @@ router.post('/heartbeat', async (req: AuthRequest, res: Response, next: NextFunc
 const punchSchema = z.object({
   lat: z.number().min(-90).max(90).optional(),
   lng: z.number().min(-180).max(180).optional(),
-  // نصف قطر دقّة القراءة كما يعطيه الجوال — يحكم به «بصمة الحضور بموقع عميل» (punchAwayFromCustomer)
+  // نصف قطر دقّة القراءة كما يعطيه الجوال — يحكم به «بصمة الحضور بموقع عميل» (judgePunchPlace)
   accuracy: z.number().finite().min(0).max(1_000_000).optional(),
+  // جهاز البصمة: معرّف التطبيق على الجهاز ووصفه (services/punchDevice.ts) — يُنقّيان هناك، فحزمةٌ أقدم بلا جهاز لا تُردّ بـ400
+  deviceId: z.unknown().optional(),
+  deviceName: z.unknown().optional(),
 });
 
-// حارس الميزة: يفعّلها المالك لكل شركة (Tenant.attendanceEnabled). مطفأة ⇒ 403 حتى لو نادى التطبيقُ النقطةَ مباشرة.
-// المندوب المصرّح وحده يصل هنا (الفحص في كل معالج)؛ هذا يضيف شرط الاشتراك دفاعاً في العمق فوق إخفاء الزرّ.
-async function attendanceEnabled(tid: string): Promise<boolean> {
-  const t = await prisma.tenant.findUnique({ where: { id: tid }, select: { attendanceEnabled: true } });
-  return t?.attendanceEnabled === true;
-}
+// حارس الميزة: يفعّلها المالك لكل شركة (Tenant.attendanceEnabled — services/attendanceEdit.ts). مطفأة ⇒ 403 حتى لو نادى
+// التطبيقُ النقطةَ مباشرة. المندوب المصرّح وحده يصل هنا (الفحص في كل معالج)؛ هذا يضيف شرط الاشتراك دفاعاً في العمق.
 
 async function ensureRepAttendance(req: AuthRequest, res: Response): Promise<{ tid: string; repId: string } | null> {
   if (req.user?.role !== 'SALES_REP') { res.status(403).json({ success: false, message: 'غير مسموح' }); return null; }
@@ -152,27 +155,26 @@ async function ensureRepAttendance(req: AuthRequest, res: Response): Promise<{ t
 // للجميع، يُسجَّل إن أرسله الجوال ولا تُردّ بغيابه.
 
 /**
- * «بصمة الحضور بموقع عميل» — قيدٌ تقييديّ على المندوب: مفعّلٌ ⇒ لا حضور ولا انصراف إلا داخل
- * المسافة التي حدّدتها الإدارة له (`punchRadiusM`، ٥٠ متراً افتراضاً) من موقع أحد عملائه المسجَّل.
- * يُرجع نصّ الرفض، أو null حين تُقبل البصمة.
+ * «بصمة الحضور بموقع عميل» — قيدٌ تقييديّ على المندوب: مفعّلٌ ⇒ البصمة داخل المسافة التي حدّدتها الإدارة له
+ * (`punchRadiusM`، ١٠–٥٠٠٠ م، ٥٠ افتراضاً) من موقع أحد عملائه المسجَّل. وخارجها: تُردّ (`punchOutsideAction`=REJECT،
+ * السلوك الأول) أو تُقبل بوسم «خارج النطاق» ومسافة أقرب عميل تراها الإدارة (FLAG، طلب المالك ٢١ أكتوبر ٢٠٢٦).
  *
- * «عملاؤه» بالنطاق نفسه الذي يرى به قائمته (`customerScope`): المُسنَدون له حين يكون العزل مفعّلاً،
- * وعملاء الشركة كلّهم حين لا يكون. والعميل المحذوف يسقط، والعميل بلا إحداثيات لا يُحتسب.
+ * «عملاؤه» بالنطاق نفسه الذي يرى به قائمته (customerScope): المُسنَدون له حين يكون العزل مفعّلاً، وعملاء الشركة
+ * كلّهم حين لا يكون. والعميل المحذوف يسقط، والعميل بلا إحداثيات لا يُحتسب.
  *
- * والبحث مربّعٌ تقريبيّ حول الموقع ثمّ المسافة الدقيقة — فلا يُقرأ كلّ عملاء الشركة لكلّ بصمة.
- * ٥٠ متراً ≈ ٠٫٠٠٠٤٥ درجة عرضاً، وطولاً تتّسع بقسمة جيب تمام العرض.
+ * أقرب العملاء يُرتَّبون **في القاعدة** (nearestCustomersM) لا عيّنةً منها: سقف «ألف عميل» من مربّع البحث كان يكفي
+ * المسافات الصغيرة، لكن نطاق كيلومترات في مدينةٍ كثيفة يملأ المربّع بآلاف العملاء، فقد تُختار زواياه البعيدة وحدها
+ * ويُرفض صادقٌ عند باب عميله («يعمل على كل المسافات»، طلب المالك ٢١ أكتوبر ٢٠٢٦).
  *
- * ودقّة القراءة (بلاغ المالك ٢١ أكتوبر ٢٠٢٦: «لا يعمل إلا بـ٣٠٠ متر»): كان الجوال يرسل قراءةً مخبّأة عمرها
- * حتى ٣٠ ثانية — المندوب الواصل بسيارته قراءته من الشارع قبل مئات الأمتار — ولا يُنظر في دقّتها، فلا يقبل الصادقَ
- * إلا نطاقٌ واسع. الآن يقرأ الجوال قراءةً طازجة بأفضل دقّة، ويُسامَح هنا بقدر هامش خطأ الجهاز حتى ٢٥ متراً
- * (`PUNCH_ACCURACY_ALLOWANCE_M`). وقراءةٌ أسوأ من النطاق نفسه — وعميلٌ قد يقع داخله في حدود خطئها — لا يُحكم بها
- * بُعداً: تُردّ «موقعك غير دقيق». والرمز يبقى PUNCH_AWAY_FROM_CUSTOMER بسببٍ فرعيّ (reason) لا رمزاً جديداً:
- * حزمةٌ أقدم مفتوحة على جوال مندوب ترسل الدقّة أيضاً، ورمزٌ لا تعرفه كانت تبتلعه بلا رسالة.
+ * ودقّة القراءة (بلاغ «لا يعمل إلا بـ٣٠٠ متر»): الجوال يقرأ قراءةً طازجة بأفضل دقّة (rep/punchFix.ts)، ويُسامَح هنا
+ * بقدر هامش خطأ الجهاز حتى ٢٥ متراً. وقراءةٌ أسوأ من النطاق نفسه — وعميلٌ قد يقع داخله في حدود خطئها — لا يُحكم بها
+ * بُعداً: «موقعك غير دقيق». والرمز يبقى PUNCH_AWAY_FROM_CUSTOMER بسببٍ فرعيّ (reason) لا رمزاً جديداً: حزمةٌ أقدم
+ * مفتوحة على جوال مندوب ترسل الدقّة أيضاً، ورمزٌ لا تعرفه تبتلعه بلا رسالة.
  */
 export const PUNCH_RADIUS_M = 50;
 /** أقصى ما يُسامَح به من هامش خطأ الجهاز فوق مسافة الإدارة — فقراءةٌ رديئة لا تفتح القيد مهما ادّعت */
 export const PUNCH_ACCURACY_ALLOWANCE_M = 25;
-/** رفضٌ بسبب البُعد يذكر المسافة لأقرب عميلٍ حتى هذا البعد — يكشف للإدارة موقع عميلٍ مسجَّلاً خطأً */
+/** أقلّ مدى يُبحث فيه عن أقرب عميل — رفضٌ بالبُعد يذكر مسافته فيكشف للإدارة موقع عميلٍ مسجَّلاً خطأً */
 const PUNCH_NEAREST_SEARCH_M = 2000;
 /** مسافة المندوب كما خُزّنت — وقيمةٌ فاسدة (يدويّاً في القاعدة) لا تُسقط القيد: تعود إلى الافتراض */
 export function punchRadiusOf(v: unknown): number {
@@ -187,56 +189,125 @@ export function punchAllowanceOf(accuracy: unknown): number {
 export function punchFixTooCoarse(accuracy: unknown, radius: number): boolean {
   return typeof accuracy === 'number' && Number.isFinite(accuracy) && accuracy > Math.max(radius, PUNCH_RADIUS_M);
 }
-type PunchRefusal = { code: 'PUNCH_AWAY_FROM_CUSTOMER'; reason?: 'LOW_ACCURACY'; message: string };
+/** خارج النطاق: REJECT تردّ البصمة (الافتراض)، FLAG تقبلها بوسم */
+export type PunchOutsideAction = 'REJECT' | 'FLAG';
+export const punchOutsideActionOf = (v: unknown): PunchOutsideAction => (v === 'FLAG' ? 'FLAG' : 'REJECT');
+
+type PunchRefusal = { code: 'PUNCH_AWAY_FROM_CUSTOMER'; reason?: 'LOW_ACCURACY' | 'DEVICE'; message: string };
 const boxAround = (lat: number, lng: number, m: number) => {
   const dLat = m / 111320;
   const dLng = m / (111320 * Math.max(0.1, Math.cos((lat * Math.PI) / 180)));
   return { lat: { gte: lat - dLat, lte: lat + dLat }, lng: { gte: lng - dLng, lte: lng + dLng } };
 };
-async function punchAwayFromCustomer(req: AuthRequest, tid: string, repId: string, lat?: number, lng?: number, accuracy?: number): Promise<PunchRefusal | null> {
-  const rep = await prisma.salesRep.findFirst({ where: { id: repId, tenantId: tid }, select: { requirePunchAtCustomer: true, punchRadiusM: true } });
-  if (rep?.requirePunchAtCustomer !== true) return null;
-  if (lat == null || lng == null) return { code: 'PUNCH_AWAY_FROM_CUSTOMER', message: 'فعّل الموقع في جوالك — البصمة مشروطة بأن تكون عند أحد عملائك' };
-  const radius = punchRadiusOf(rep.punchRadiusM);
-  const reach = radius + punchAllowanceOf(accuracy);
-  const scope = await customerScope(req, tid);
-  const near = await prisma.customer.findMany({
-    where: { tenantId: tid, status: { not: 'DELETED' }, ...scope, ...boxAround(lat, lng, reach) },
-    select: { lat: true, lng: true },
-    // مسافةٌ واسعة (كيلومترات) تُدخل في المربّع عملاءَ كثيرين بعضهم في زواياه خارج الدائرة: سقفٌ ضيّق كان قد
-    // يختار الزوايا وحدها فيُرفض صادق. ألفُ نقطةٍ إحداثيّتين فقط — رخيصة، والدائرة ٧٨٪ من المربّع
-    take: 1000,
-  });
-  const atCustomer = near.some(c => c.lat != null && c.lng != null
-    && haversineM({ lat, lng }, { lat: c.lat, lng: c.lng }) <= reach);
-  if (atCustomer) return null;
-  // الرفض يذكر أقرب عميلٍ بمسافته: «أنت على ١٨٠م» يقول للإدارة أين الخلل (موقع عميلٍ خاطئ أو مسافةٌ ضيّقة)
-  const around = await prisma.customer.findMany({
-    where: { tenantId: tid, status: { not: 'DELETED' }, ...scope, ...boxAround(lat, lng, PUNCH_NEAREST_SEARCH_M) },
-    select: { lat: true, lng: true },
-    take: 2000,
-  });
-  let nearest = Infinity;
-  for (const c of around) {
-    if (c.lat == null || c.lng == null) continue;
-    nearest = Math.min(nearest, haversineM({ lat, lng }, { lat: c.lat, lng: c.lng }));
-  }
-  // الدقّة سببٌ فقط حين قد يقع عميلٌ داخل النطاق في حدود خطئها — المندوب البعيد كيلومترات يُقال له بُعده لا «انتظر»
-  if (punchFixTooCoarse(accuracy, radius) && nearest - accuracy! <= radius) {
-    return { code: 'PUNCH_AWAY_FROM_CUSTOMER', reason: 'LOW_ACCURACY', message: `موقعك غير دقيق الآن (±${Math.round(accuracy!)} م) — انتظر لحظات أو اقترب من مكان مفتوح ثم أعد المحاولة` };
-  }
-  const where = Number.isFinite(nearest) && nearest <= PUNCH_NEAREST_SEARCH_M
-    ? ` — أقرب عملائك على بعد ${Math.round(nearest)} مترا منك`
-    : ' — لا عميل لك قريب من موقعك الحالي';
-  return { code: 'PUNCH_AWAY_FROM_CUSTOMER', message: `البصمة مشروطة بأن تكون داخل ${radius} مترا من موقع أحد عملائك${where}` };
+
+/**
+ * مسافات أقرب عملاء المندوب من نقطة بالأمتار، تصاعدياً. الترتيب في القاعدة بمسافةٍ مسطّحة (دقيقةٌ لبضعة كيلومترات)،
+ * ثمّ هافرساين هنا لأقرب ثمانية. والنطاق كـcustomerScope للمندوب: كل عملاء الشركة، أو المُسنَدون له حين يكون العزل مفعّلاً.
+ */
+async function nearestCustomersM(tid: string, repId: string, lat: number, lng: number, searchM: number): Promise<number[]> {
+  const isolated = await isolationEnabled(tid);
+  const b = boxAround(lat, lng, searchM);
+  const mLng = 111320 * Math.max(0.1, Math.cos((lat * Math.PI) / 180));
+  const rows = await prisma.$queryRaw<{ lat: number; lng: number }[]>`
+    SELECT c."lat", c."lng" FROM "customers" c
+    WHERE c."tenantId" = ${tid} AND c."status" <> 'DELETED'
+      AND c."lat" IS NOT NULL AND c."lng" IS NOT NULL
+      AND c."lat" BETWEEN ${b.lat.gte}::float8 AND ${b.lat.lte}::float8
+      AND c."lng" BETWEEN ${b.lng.gte}::float8 AND ${b.lng.lte}::float8
+      ${isolated ? Prisma.sql`AND EXISTS (SELECT 1 FROM "customer_assignments" ca WHERE ca."customerId" = c."id" AND ca."salesRepId" = ${repId})` : Prisma.empty}
+    ORDER BY ((c."lat" - ${lat}::float8) * 111320.0) ^ 2 + ((c."lng" - ${lng}::float8) * ${mLng}::float8) ^ 2
+    LIMIT 8`;
+  return rows
+    .filter((c) => Number.isFinite(c.lat) && Number.isFinite(c.lng))
+    .map((c) => haversineM({ lat, lng }, { lat: c.lat, lng: c.lng }))
+    .sort((x, y) => x - y);
 }
 
+/** حكم مكان بصمةٍ لمندوبٍ مقيَّد: هل هو داخل النطاق (بسماحية الدقّة)، وأقرب عميل، وسبب الخروج */
+export interface PunchPlace { inside: boolean; nearestM: number | null; radius: number; accuracy: number | null; lowAccuracy: boolean; noFix: boolean }
+async function judgePunchPlace(tid: string, repId: string, radiusRaw: unknown, lat?: number, lng?: number, accuracy?: number): Promise<PunchPlace> {
+  const radius = punchRadiusOf(radiusRaw);
+  const acc = typeof accuracy === 'number' && Number.isFinite(accuracy) ? accuracy : null;
+  if (lat == null || lng == null) return { inside: false, nearestM: null, radius, accuracy: acc, lowAccuracy: false, noFix: true };
+  const reach = radius + punchAllowanceOf(accuracy);
+  const dists = await nearestCustomersM(tid, repId, lat, lng, Math.max(reach, PUNCH_NEAREST_SEARCH_M));
+  const nearest = dists.length ? dists[0] : null;
+  const inside = nearest != null && nearest <= reach;
+  // الدقّة سببٌ فقط حين قد يقع عميلٌ داخل النطاق في حدود خطئها — المندوب البعيد كيلومترات يُقال له بُعده لا «انتظر»
+  const lowAccuracy = !inside && nearest != null && punchFixTooCoarse(accuracy, radius) && nearest - acc! <= radius;
+  return { inside, nearestM: nearest, radius, accuracy: acc, lowAccuracy, noFix: false };
+}
+
+/** نصّ رفض البصمة خارج النطاق */
+function placeRefusal(p: PunchPlace): PunchRefusal {
+  if (p.noFix) return { code: 'PUNCH_AWAY_FROM_CUSTOMER', message: 'فعّل الموقع في جوالك — البصمة مشروطة بأن تكون عند أحد عملائك' };
+  if (p.lowAccuracy) {
+    return { code: 'PUNCH_AWAY_FROM_CUSTOMER', reason: 'LOW_ACCURACY', message: `موقعك غير دقيق الآن (±${Math.round(p.accuracy!)} م) — انتظر لحظات أو اقترب من مكان مفتوح ثم أعد المحاولة` };
+  }
+  const where = p.nearestM != null
+    ? ` — أقرب عملائك على بعد ${Math.round(p.nearestM)} مترا منك`
+    : ' — لا عميل لك قريب من موقعك الحالي';
+  return { code: 'PUNCH_AWAY_FROM_CUSTOMER', message: `البصمة مشروطة بأن تكون داخل ${p.radius} مترا من موقع أحد عملائك${where}` };
+}
+
+/** ما يُكتب على صفّ البصمة من حكم المكان: null للمندوب غير المقيّد، وإلّا داخل/خارج ومسافة أقرب عميل */
+const placeColumns = (p: PunchPlace | null) => (p
+  ? { outside: !p.inside, distanceM: p.nearestM != null ? Math.round(p.nearestM) : null }
+  : { outside: null, distanceM: null });
+
+type RepPunchPolicy = {
+  requirePunchAtCustomer: boolean; punchRadiusM: number; punchOutsideAction: string;
+  requireBoundDevice: boolean; boundDeviceId: string | null; boundDeviceName: string | null;
+};
+const REP_PUNCH_SELECT = {
+  requirePunchAtCustomer: true, punchRadiusM: true, punchOutsideAction: true,
+  requireBoundDevice: true, boundDeviceId: true, boundDeviceName: true,
+} as const;
+
+const deviceMismatch = (boundName: string | null | undefined): PunchRefusal => ({
+  code: 'PUNCH_AWAY_FROM_CUSTOMER', reason: 'DEVICE',
+  message: `حسابك مربوط بجهاز آخر${boundName ? ` (${boundName})` : ''} — ابصم منه أو اطلب من الإدارة فكّ ربط جهازك`,
+});
+
+/**
+ * «ربط البصمة بجهاز واحد» (ضد البصمة بالنيابة): مقيَّدٌ ⇒ لا بصمة إلا من جهازه المربوط. أول بصمةٍ مقبولة تربط
+ * جهازها (bindFirstDevice)، ولا يُربط جهازٌ مربوطٌ بمندوبٍ آخر مقيَّد في الشركة — جوالٌ واحد لا يبصم لاثنين.
+ * حزمةٌ أقدم بلا معرّف تُردّ برسالةٍ تُفهم: إعادة فتح التطبيق تحمّل الأحدث فيرسل المعرّف.
+ */
+async function deviceRefusal(tid: string, repId: string, rep: RepPunchPolicy, device: { id: string | null }): Promise<PunchRefusal | null> {
+  if (rep.requireBoundDevice !== true) return null;
+  if (!device.id) return { code: 'PUNCH_AWAY_FROM_CUSTOMER', reason: 'DEVICE', message: 'أغلق التطبيق وافتحه من جديد ثم أعد المحاولة — بصمتك مربوطة بجهازك' };
+  if (rep.boundDeviceId) return rep.boundDeviceId === device.id ? null : deviceMismatch(rep.boundDeviceName);
+  const other = await prisma.salesRep.findFirst({
+    // كل ربطٍ قائم ولو أُطفئ قيد صاحبه مؤقتاً: وإلّا رُبط الجوال نفسه بحسابين فيبصم لهما معاً حين يُعاد القيد
+    where: { tenantId: tid, id: { not: repId }, boundDeviceId: device.id },
+    select: { id: true },
+  });
+  return other ? { code: 'PUNCH_AWAY_FROM_CUSTOMER', reason: 'DEVICE', message: 'هذا الجهاز مربوط بحساب مندوب آخر — ابصم من جوالك' } : null;
+}
+
+class PunchRefused extends Error { constructor(public refusal: PunchRefusal) { super(refusal.message); } }
+
+/** أول بصمةٍ مقبولة لمقيَّدٍ بلا جهاز تربط جهازها — ذرّياً: بصمتان متزامنتان من جهازين يُربط أحدهما ويُردّ الآخر */
+async function bindFirstDevice(tx: Prisma.TransactionClient, repId: string, rep: RepPunchPolicy, device: { id: string | null; name: string }): Promise<void> {
+  if (rep.requireBoundDevice !== true || rep.boundDeviceId || !device.id) return;
+  const n = await tx.salesRep.updateMany({
+    where: { id: repId, boundDeviceId: null },
+    data: { boundDeviceId: device.id, boundDeviceName: device.name, boundDeviceAt: new Date() },
+  });
+  if (n.count === 1) return;
+  const now = await tx.salesRep.findUnique({ where: { id: repId }, select: { boundDeviceId: true, boundDeviceName: true } });
+  if (now?.boundDeviceId !== device.id) throw new PunchRefused(deviceMismatch(now?.boundDeviceName));
+}
+
+const OPEN_SHIFT_SELECT = { id: true, checkInAt: true, checkInLat: true, checkInLng: true, checkInOutside: true, checkInDistanceM: true } as const;
+
 /** النوبة المفتوحة لهذا المندوب (بلا انصراف)، أو null. */
-async function openShift(tid: string, repId: string) {
-  return prisma.repAttendance.findFirst({
+async function openShift(db: Prisma.TransactionClient | typeof prisma, tid: string, repId: string) {
+  return db.repAttendance.findFirst({
     where: { tenantId: tid, salesRepId: repId, checkOutAt: null },
     orderBy: { checkInAt: 'desc' },
-    select: { id: true, checkInAt: true, checkInLat: true, checkInLng: true },
+    select: OPEN_SHIFT_SELECT,
   });
 }
 
@@ -260,7 +331,7 @@ async function dayShifts(tid: string, repId: string, since: Date) {
     where: { tenantId: tid, salesRepId: repId, OR: [{ checkInAt: { gte: since } }, { checkOutAt: { gte: since } }, { checkOutAt: null }] },
     orderBy: { checkInAt: 'desc' },
     take: 50,
-    select: { checkInAt: true, checkOutAt: true },
+    select: { checkInAt: true, checkOutAt: true, checkInOutside: true, checkOutOutside: true },
   });
   return rows.reverse();
 }
@@ -272,7 +343,7 @@ router.get('/attendance/today', async (req: AuthRequest, res: Response, next: Ne
     const ctx = await ensureRepAttendance(req, res); if (!ctx) return;
     const { tid, repId } = ctx;
     const since = repDayStart(req.query.tzOffsetMin);
-    const [open, shifts] = await Promise.all([openShift(tid, repId), dayShifts(tid, repId, since)]);
+    const [open, shifts] = await Promise.all([openShift(prisma, tid, repId), dayShifts(tid, repId, since)]);
     if (open) { res.json({ success: true, data: { status: 'in', shift: open, shifts } }); return; }
     // آخر نوبة انتهت اليوم (يوم المندوب بإزاحته) — لعرض «خرجت الساعة …» بدل «لم تسجّل حضورك» فوراً بعد الانصراف
     const last = await prisma.repAttendance.findFirst({
@@ -284,24 +355,60 @@ router.get('/attendance/today', async (req: AuthRequest, res: Response, next: Ne
   } catch (err) { next(err); }
 });
 
+/**
+ * حكم بصمةٍ قبل كتابتها: الجهاز (ربطٌ مقيَّد)، ثم المكان (بصمة بموقع عميل) — يعيد رفضاً، أو حكم المكان للصفّ.
+ * غير المقيَّد بالمكان لا يُستعلم له عن عملاء: لا حكم ولا وسم (null).
+ */
+async function judgePunch(tid: string, repId: string, rep: RepPunchPolicy, device: { id: string | null }, lat?: number, lng?: number, accuracy?: number):
+  Promise<{ refusal: PunchRefusal } | { place: PunchPlace | null }> {
+  const byDevice = await deviceRefusal(tid, repId, rep, device);
+  if (byDevice) return { refusal: byDevice };
+  if (rep.requirePunchAtCustomer !== true) return { place: null };
+  const place = await judgePunchPlace(tid, repId, rep.punchRadiusM, lat, lng, accuracy);
+  if (!place.inside && punchOutsideActionOf(rep.punchOutsideAction) === 'REJECT') return { refusal: placeRefusal(place) };
+  return { place };
+}
+
 // تسجيل الحضور — يفتح نوبة. نوبةٌ مفتوحة سلفاً تُعاد كما هي (لا تُفتح ثانية) فيأمن الضغط المكرّر.
 router.post('/attendance/checkin', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const ctx = await ensureRepAttendance(req, res); if (!ctx) return;
     const { tid, repId } = ctx;
-    const { lat, lng, accuracy } = punchSchema.parse(req.body ?? {});
+    const body = punchSchema.parse(req.body ?? {});
+    const { lat, lng, accuracy } = body;
+    const device = punchDeviceOf(body, req.get('user-agent'));
     const since = repDayStart(req.query.tzOffsetMin);
     // نوبةٌ مفتوحة تُعاد كما هي: الضغط المكرّر لا يكتب شيئاً
-    const existing = await openShift(tid, repId);
+    const existing = await openShift(prisma, tid, repId);
     if (existing) { res.json({ success: true, data: { status: 'in', shift: existing, already: true, shifts: await dayShifts(tid, repId, since) } }); return; }
-    const away = await punchAwayFromCustomer(req, tid, repId, lat, lng, accuracy);
-    if (away) { res.status(409).json({ success: false, ...away }); return; }
-    const shift = await prisma.repAttendance.create({
-      data: { tenantId: tid, salesRepId: repId, checkInAt: new Date(), checkInLat: lat ?? null, checkInLng: lng ?? null },
-      select: { id: true, checkInAt: true, checkInLat: true, checkInLng: true },
-    });
-    res.json({ success: true, data: { status: 'in', shift, shifts: await dayShifts(tid, repId, since) } });
-  } catch (err) { next(err); }
+    const rep = await prisma.salesRep.findFirst({ where: { id: repId, tenantId: tid }, select: REP_PUNCH_SELECT });
+    if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+    const verdict = await judgePunch(tid, repId, rep, device, lat, lng, accuracy);
+    if ('refusal' in verdict) { res.status(409).json({ success: false, ...verdict.refusal }); return; }
+    const place = placeColumns(verdict.place);
+    const out = await prisma.$transaction(async (tx) => {
+      await lockRepAttendance(tx, repId);
+      // تحت القفل: طلبٌ متزامن سبق ففتح نوبة ⇒ تُعاد كما هي، لا تُفتح ثانية
+      const again = await openShift(tx, tid, repId);
+      if (again) return { already: again };
+      await bindFirstDevice(tx, repId, rep, device);
+      const shift = await tx.repAttendance.create({
+        data: {
+          tenantId: tid, salesRepId: repId, checkInAt: new Date(), checkInLat: lat ?? null, checkInLng: lng ?? null,
+          checkInDeviceId: device.id, checkInDevice: device.name,
+          checkInOutside: place.outside, checkInDistanceM: place.distanceM,
+        },
+        select: OPEN_SHIFT_SELECT,
+      });
+      return { shift };
+    }, REP_LOCK_TX);
+    const shifts = await dayShifts(tid, repId, since);
+    if ('already' in out) { res.json({ success: true, data: { status: 'in', shift: out.already, already: true, shifts } }); return; }
+    res.json({ success: true, data: { status: 'in', shift: out.shift, shifts, ...(place.outside ? { place } : {}) } });
+  } catch (err) {
+    if (err instanceof PunchRefused) { res.status(409).json({ success: false, ...err.refusal }); return; }
+    next(err);
+  }
 });
 
 // تسجيل الانصراف — يغلق النوبة المفتوحة. بلا نوبة مفتوحة ⇒ 409 (لم يسجّل حضوراً بعد).
@@ -309,17 +416,90 @@ router.post('/attendance/checkout', async (req: AuthRequest, res: Response, next
   try {
     const ctx = await ensureRepAttendance(req, res); if (!ctx) return;
     const { tid, repId } = ctx;
-    const { lat, lng, accuracy } = punchSchema.parse(req.body ?? {});
-    const open = await openShift(tid, repId);
+    const body = punchSchema.parse(req.body ?? {});
+    const { lat, lng, accuracy } = body;
+    const device = punchDeviceOf(body, req.get('user-agent'));
+    const open = await openShift(prisma, tid, repId);
     if (!open) { res.status(409).json({ success: false, code: 'NO_OPEN_SHIFT', message: 'لم تسجّل حضوراً بعد' }); return; }
-    const away = await punchAwayFromCustomer(req, tid, repId, lat, lng, accuracy);
-    if (away) { res.status(409).json({ success: false, ...away }); return; }
-    const shift = await prisma.repAttendance.update({
-      where: { id: open.id },
-      data: { checkOutAt: new Date(), checkOutLat: lat ?? null, checkOutLng: lng ?? null },
-      select: { checkInAt: true, checkOutAt: true },
+    const rep = await prisma.salesRep.findFirst({ where: { id: repId, tenantId: tid }, select: REP_PUNCH_SELECT });
+    if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+    const verdict = await judgePunch(tid, repId, rep, device, lat, lng, accuracy);
+    if ('refusal' in verdict) { res.status(409).json({ success: false, ...verdict.refusal }); return; }
+    const place = placeColumns(verdict.place);
+    const shift = await prisma.$transaction(async (tx) => {
+      await lockRepAttendance(tx, repId);
+      const current = await openShift(tx, tid, repId);
+      if (!current) return null;
+      await bindFirstDevice(tx, repId, rep, device);
+      return tx.repAttendance.update({
+        where: { id: current.id },
+        data: {
+          checkOutAt: new Date(), checkOutLat: lat ?? null, checkOutLng: lng ?? null,
+          checkOutDeviceId: device.id, checkOutDevice: device.name,
+          checkOutOutside: place.outside, checkOutDistanceM: place.distanceM,
+        },
+        select: { checkInAt: true, checkOutAt: true },
+      });
+    }, REP_LOCK_TX);
+    if (!shift) { res.status(409).json({ success: false, code: 'NO_OPEN_SHIFT', message: 'لم تسجّل حضوراً بعد' }); return; }
+    res.json({ success: true, data: { status: 'out', last: shift, shifts: await dayShifts(tid, repId, repDayStart(req.query.tzOffsetMin)), ...(place.outside ? { place } : {}) } });
+  } catch (err) {
+    if (err instanceof PunchRefused) { res.status(409).json({ success: false, ...err.refusal }); return; }
+    next(err);
+  }
+});
+
+// ═══ تنبيهات الحضور على جوال المندوب (Web Push، طلب المالك ٢١ أكتوبر ٢٠٢٦) — services/webPush.ts و attendanceAlerts.ts ═══
+// المندوب يوافق على الإشعارات من شاشة البصمة، فيُحفظ اشتراك جهازه ومعه إزاحة توقيته (لحساب «قبل الدوام» بتوقيته).
+
+/** أقصى اشتراكات المندوب — جهازٌ جديد يُبقي الأحدث خمسة */
+const MAX_PUSH_SUBS_PER_REP = 5;
+const pushSubscribeSchema = z.object({
+  subscription: z.object({
+    endpoint: z.string().max(1000),
+    keys: z.object({ p256dh: z.string().min(60).max(200), auth: z.string().min(16).max(64) }),
+  }),
+  tzOffsetMin: z.number().int().min(-840).max(840).optional(),
+  lang: z.string().max(8).optional(),
+});
+
+router.get('/push/key', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const ctx = await ensureRepAttendance(req, res); if (!ctx) return;
+    res.json({ success: true, data: { publicKey: (await getVapidKeys()).publicKey } });
+  } catch (err) { next(err); }
+});
+
+router.post('/push/subscribe', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const ctx = await ensureRepAttendance(req, res); if (!ctx) return;
+    const { tid, repId } = ctx;
+    const b = pushSubscribeSchema.parse(req.body ?? {});
+    // الخادم سيرسل إلى هذا الرابط: خدمات الإشعارات المعروفة وحدها (لا عناوين داخلية)
+    if (!pushEndpointAllowed(b.subscription.endpoint)) { res.status(400).json({ success: false, message: 'رابط الإشعارات غير مدعوم' }); return; }
+    if (!pushKeysValid(b.subscription.keys.p256dh, b.subscription.keys.auth)) { res.status(400).json({ success: false, message: 'مفاتيح الإشعارات غير صالحة' }); return; }
+    const lang = b.lang && /^[a-z]{2}$/.test(b.lang) ? b.lang : null;
+    // الجهاز نفسه بحسابٍ آخر (تبديل الحسابات): الاشتراك ينتقل إلى من سجّل دخوله الآن
+    await prisma.repPushSubscription.upsert({
+      where: { endpoint: b.subscription.endpoint },
+      create: { tenantId: tid, salesRepId: repId, endpoint: b.subscription.endpoint, p256dh: b.subscription.keys.p256dh, auth: b.subscription.keys.auth, lang },
+      update: { tenantId: tid, salesRepId: repId, p256dh: b.subscription.keys.p256dh, auth: b.subscription.keys.auth, lang },
     });
-    res.json({ success: true, data: { status: 'out', last: shift, shifts: await dayShifts(tid, repId, repDayStart(req.query.tzOffsetMin)) } });
+    const extra = await prisma.repPushSubscription.findMany({
+      where: { salesRepId: repId }, orderBy: { updatedAt: 'desc' }, skip: MAX_PUSH_SUBS_PER_REP, select: { id: true },
+    });
+    if (extra.length) await prisma.repPushSubscription.deleteMany({ where: { id: { in: extra.map((x) => x.id) } } });
+    if (b.tzOffsetMin != null) await prisma.salesRep.update({ where: { id: repId }, data: { tzOffsetMin: b.tzOffsetMin } });
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+router.post('/push/unsubscribe', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (req.user?.role !== 'SALES_REP') { res.status(403).json({ success: false, message: 'غير مسموح' }); return; }
+    const endpoint = z.object({ endpoint: z.string().max(1000) }).parse(req.body ?? {}).endpoint;
+    await prisma.repPushSubscription.deleteMany({ where: { endpoint, salesRepId: req.user.id } });
+    res.json({ success: true });
   } catch (err) { next(err); }
 });
 

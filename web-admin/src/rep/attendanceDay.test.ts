@@ -77,5 +77,6 @@ test('حارس الشاشة: لا «انتهى عملك اليوم»، والق�
   // ورموز الرفض التي تُعرض رسالتها: «اشتراط تفعيل الموقع» و«بصمة الحضور بموقع عميل» (والدقّة سببٌ فرعيّ فيه لا رمزٌ جديد)
   assert.match(src, /const PUNCH_REFUSALS = \['LOCATION_REQUIRED', 'PUNCH_AWAY_FROM_CUSTOMER'\];/);
   // الخادم يعيد بصمات اليوم مع كل بصمة متى عرف يوم المندوب
-  assert.match(screen, /repApi\.post\(`\/tracking\/attendance\/\$\{kind\}`, loc \?\? \{\}, \{ params: \{ tzOffsetMin \} \}\)/);
+  // ومعها جهاز البصمة (deviceId.ts) — يُسجَّل للإدارة ويُحكم به «ربط البصمة بجهاز واحد»
+  assert.match(screen, /repApi\.post\(`\/tracking\/attendance\/\$\{kind\}`, body, \{ params: \{ tzOffsetMin \} \}\)/);
 });

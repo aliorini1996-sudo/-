@@ -1,8 +1,12 @@
 import { useState, forwardRef } from 'react';
 import { useForm } from 'react-hook-form';
+import { useQueryClient } from '@tanstack/react-query';
 import { SalesRep } from '../../types';
 import { useTr } from '../../i18n/strings';
-import { X, Eye, EyeOff, RefreshCw } from 'lucide-react';
+import { X, Eye, EyeOff, RefreshCw, Smartphone } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { salesRepApi } from '../../api/client';
+import { formatDate } from '../../utils/format';
 
 interface FormData extends Partial<SalesRep> { password?: string; }
 interface Props {
@@ -26,6 +30,13 @@ PermToggle.displayName = 'PermToggle';
 const RADIUS_MIN_M = 10;
 const RADIUS_MAX_M = 5000;
 const RADIUS_DEFAULT_M = 50;
+/** أيام العمل افتراضاً: الأحد–الخميس (بتات الأحد=1 … السبت=64) */
+const SHIFT_DAYS_DEFAULT = 31;
+/** أيام الأسبوع بترتيب العرض (السبت أولاً) وبتّ كلٍّ منها */
+const WEEK_DAYS: { label: string; bit: number }[] = [
+  { label: 'السبت', bit: 64 }, { label: 'الأحد', bit: 1 }, { label: 'الاثنين', bit: 2 }, { label: 'الثلاثاء', bit: 4 },
+  { label: 'الأربعاء', bit: 8 }, { label: 'الخميس', bit: 16 }, { label: 'الجمعة', bit: 32 },
+];
 
 const RadiusInput = forwardRef<HTMLInputElement, { label: string; error?: string } & React.InputHTMLAttributes<HTMLInputElement>>(
   ({ label, error, ...props }, ref) => (
@@ -42,6 +53,23 @@ RadiusInput.displayName = 'RadiusInput';
 export default function SalesRepModal({ rep, onClose, onSave, loading, accountingOn = true }: Props) {
   const tr = useTr();
   const [showPass, setShowPass] = useState(false);
+  // الجهاز المربوط بالبصمة — يُفكّ من هنا مباشرةً (لا مع حفظ النموذج)
+  const [bound, setBound] = useState<{ name: string | null; at: string | null }>({ name: rep?.boundDeviceName ?? null, at: rep?.boundDeviceAt ?? null });
+  const [unbinding, setUnbinding] = useState(false);
+  const qc = useQueryClient();
+  const unbind = async () => {
+    if (!rep) return;
+    setUnbinding(true);
+    try {
+      const { data } = await salesRepApi.unbindDevice(rep.id);
+      setBound({ name: null, at: null });
+      // النافذة تُبنى من قائمة المناديب المخزّنة: بلا إبطالٍ يعود الجهاز ظاهراً مربوطاً عند إعادة فتحها
+      void qc.invalidateQueries({ queryKey: ['sales-reps'] });
+      if (data?.data?.unbound === false) toast(tr('لا جهاز مربوط بهذا المندوب'));
+      else toast.success(tr('فك ربط الجهاز واول بصمة قادمة تربط جهازه الجديد'));
+    } catch { toast.error(tr('تعذر الحفظ')); }
+    setUnbinding(false);
+  };
   const defaults: FormData = rep
     ? { ...rep, email: rep.email || '', canSellOnCredit: rep.canSellOnCredit ?? true, canSellInCash: rep.canSellInCash ?? true, canSellOnInstallment: rep.canSellOnInstallment ?? false, canManageVanStock: rep.canManageVanStock ?? true }
     : {
@@ -58,12 +86,20 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
       requireCustomerProximity: false,
       requireLocationOn: false,
       requirePunchAtCustomer: false,
+      punchOutsideAction: 'REJECT',
+      requireBoundDevice: false,
+      shiftStart: null,
+      shiftEnd: null,
+      shiftDays: SHIFT_DAYS_DEFAULT,
       proximityRadiusM: RADIUS_DEFAULT_M,
       punchRadiusM: RADIUS_DEFAULT_M,
       maxDiscountPct: 0,
     };
   const { register, handleSubmit, setValue, watch, formState: { errors } } = useForm<FormData>({
-    defaultValues: { ...defaults, proximityRadiusM: defaults.proximityRadiusM ?? RADIUS_DEFAULT_M, punchRadiusM: defaults.punchRadiusM ?? RADIUS_DEFAULT_M },
+    defaultValues: {
+      ...defaults, proximityRadiusM: defaults.proximityRadiusM ?? RADIUS_DEFAULT_M, punchRadiusM: defaults.punchRadiusM ?? RADIUS_DEFAULT_M,
+      punchOutsideAction: defaults.punchOutsideAction ?? 'REJECT', shiftDays: defaults.shiftDays ?? SHIFT_DAYS_DEFAULT,
+    },
   });
   // المسافة تُطلب حين يُفعَّل قيدها وحده — والمخفيّة تبقى بقيمتها فلا تضيع إن أُطفئ القيد ثم أُعيد
   const radiusRules = {
@@ -219,11 +255,62 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
             <div className="grid grid-cols-1 gap-3 mt-3">
               <PermToggle label={tr('بصمة الحضور بموقع عميل')} {...register('requirePunchAtCustomer')} />
             </div>
-            {watch('requirePunchAtCustomer') && (
+            {watch('requirePunchAtCustomer') && (<>
               <RadiusInput label={tr('المسافة المسموحة بالمتر')} error={errors.punchRadiusM?.message} {...register('punchRadiusM', radiusRules)} />
-            )}
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <label className="text-sm text-gray-600">{tr('البصمة خارج النطاق')}</label>
+                <select className="input w-auto py-1.5" {...register('punchOutsideAction')}>
+                  <option value="REJECT">{tr('ارفضها')}</option>
+                  <option value="FLAG">{tr('اقبلها مع وسم خارج النطاق')}</option>
+                </select>
+              </div>
+            </>)}
             <p className="text-xs text-gray-400 mt-2 leading-relaxed">
-              {tr('عند التفعيل لا يبصم المندوب حضورا ولا انصرافا الا وهو داخل المسافة المحددة من موقع احد عملائه المسجل، والموقع مطفأ في جواله يمنع البصمة')}
+              {watch('punchOutsideAction') === 'FLAG' && watch('requirePunchAtCustomer')
+                ? tr('عند التفعيل تقبل بصمة المندوب خارج المسافة المحددة وتظهر لك في تقرير ساعات العمل موسومة خارج النطاق مع مسافة اقرب عملائه')
+                : tr('عند التفعيل لا يبصم المندوب حضورا ولا انصرافا الا وهو داخل المسافة المحددة من موقع احد عملائه المسجل، والموقع مطفأ في جواله يمنع البصمة')}
+            </p>
+            <div className="grid grid-cols-1 gap-3 mt-3">
+              <PermToggle label={tr('ربط البصمة بجهاز واحد')} {...register('requireBoundDevice')} />
+            </div>
+            <p className="text-xs text-gray-400 mt-2 leading-relaxed">
+              {tr('عند التفعيل يربط اول جهاز يبصم منه المندوب ولا تقبل بصمته بعدها الا منه، ولا يبصم جهاز مربوط بمندوب لغيره ضد البصمة بالنيابة، وان غير جواله او مسح بيانات التطبيق فك الربط من هنا')}
+            </p>
+            {rep && bound.name && (
+              <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                <Smartphone size={14} className="text-gray-400" />
+                <span>{tr('الجهاز المربوط')}: <b dir="ltr">{bound.name}</b>{bound.at && <> · {formatDate(bound.at)}</>}</span>
+                <button type="button" onClick={unbind} disabled={unbinding} className="ms-auto text-[#C94E28] font-semibold hover:underline disabled:opacity-50">
+                  {tr('فك الربط')}
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">{tr('موعد الدوام للتنبيهات')}</h3>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 text-sm text-gray-600">{tr('بداية الدوام')}
+                <input type="time" dir="ltr" className="input w-32 py-1.5" {...register('shiftStart', { setValueAs: (v: unknown) => (v ? String(v) : null) })} />
+              </label>
+              <label className="flex items-center gap-2 text-sm text-gray-600">{tr('نهاية الدوام')}
+                <input type="time" dir="ltr" className="input w-32 py-1.5" {...register('shiftEnd', { setValueAs: (v: unknown) => (v ? String(v) : null) })} />
+              </label>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {WEEK_DAYS.map((d) => {
+                const days = watch('shiftDays') ?? SHIFT_DAYS_DEFAULT;
+                const on = (days & d.bit) !== 0;
+                return (
+                  <button key={d.bit} type="button" onClick={() => setValue('shiftDays', on ? days & ~d.bit : days | d.bit, { shouldDirty: true })}
+                    className={`rounded-lg border px-2.5 py-1 text-xs ${on ? 'border-[#E15A30] bg-[#FBEBE2] text-[#C94E28] font-semibold' : 'border-gray-200 text-gray-500'}`}>
+                    {tr(d.label)}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-xs text-gray-400 mt-2 leading-relaxed">
+              {tr('اختياري ويستعمل للتنبيهات وحدها تذكير على جوال المندوب قبل بداية دوامه بربع ساعة ان لم يبصم، وتنبيه ان بقيت فترته مفتوحة بعد نهاية الدوام بنصف ساعة، وبلا موعد ينبه ان بقيت مفتوحة عشر ساعات، ويفعل المندوب التنبيهات من شاشة البصمة')}
             </p>
           </div>
 
