@@ -74,9 +74,10 @@ test('حارس ثابت: المقيَّد لا يقرأ موقعاً مخبّأ�
   assert.match(grab, /if \(strict\) return strictLiveFix\(\);/);
   assert.doesNotMatch(grab, /maximumAge: 120_000/, 'قراءةٌ عمرها دقيقتان كانت تُثبت موقعاً والموقع مطفأ');
   const att = app.slice(app.indexOf('function RepAttendance('), app.indexOf('function', app.indexOf('function RepAttendance(') + 10));
-  assert.match(att, /const loc = await grabLocation\(\);/);
+  // غير المقيَّد بـ«بصمة الحضور بموقع عميل» أفضل جهد؛ والمقيَّد به قراءةٌ طازجة دقيقة (punchFix.ts) — وكلاهما بلا «اشتراط تفعيل الموقع»
+  assert.match(att, /loc = await grabLocation\(\);/);
   assert.doesNotMatch(att, /locationRequired|strictLiveFix/, 'البصمة لا يشترط لها القيد موقعاً');
-  assert.match(app, /<RepAttendance \/>/);
+  assert.match(app, /<RepAttendance atCustomer=\{user\.requirePunchAtCustomer === true\} \/>/);
   // الملاحظة: القراءة لحظة الحفظ لا لحظة فتح النافذة
   const lv = app.slice(app.indexOf('function LogVisit('), app.indexOf('function CreateInvoice('));
   assert.match(lv, /const at = strict \? await grabLocation\(true\) : fix;/);

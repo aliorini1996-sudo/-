@@ -285,6 +285,88 @@ test('مسافةٌ فاسدة في القاعدة لا تُسقط القيد: ت
   }
 });
 
+// ═══ دقّة القراءة (بلاغ المالك ٢١ أكتوبر: «القيد لا يعمل إلا بـ٣٠٠ متر») ═══
+const AT = (m: number) => ({ lat: 24.7136 + m / 111320, lng: 46.6753 });
+const msgOf = (res: { body: Record<string, unknown> | null }) => String((res.body as { message?: string } | null)?.message);
+
+test('دقّة القراءة: هامش خطأ الجهاز يُسامَح به فوق المسافة حتى ٢٥ متراً — عميلٌ على ٦٥م بنطاق ٥٠ ودقّة ٢٠ يُقبل', async () => {
+  rows = []; seq = 0; featureOn = true; punchAtCustomer = true; punchRadius = 50; nearCustomers = [AT(65)];
+  try {
+    assert.equal(data(await call('post', '/attendance/checkin', { body: { ...HERE, accuracy: 20 } })).status, 'in');
+  } finally { punchAtCustomer = false; nearCustomers = []; }
+});
+
+test('دقّة القراءة: السماحية سقفها ٢٥ — دقّةٌ ادّعت ٤٥م لا تفتح عميلاً على ٨٠م بنطاق ٥٠', async () => {
+  rows = []; seq = 0; featureOn = true; punchAtCustomer = true; punchRadius = 50; nearCustomers = [AT(80)];
+  try {
+    const r = await call('post', '/attendance/checkin', { body: { ...HERE, accuracy: 45 } });
+    assert.equal(r.statusCode, 409);
+    assert.equal(codeOf(r), 'PUNCH_AWAY_FROM_CUSTOMER', '٤٥ ضمن النطاق والخمسين: الحكم بُعدٌ لا دقّة');
+    assert.equal(rows.length, 0);
+  } finally { punchAtCustomer = false; nearCustomers = []; }
+});
+
+test('دقّة القراءة: بلا دقّة (جهازٌ لا يعطيها) الحكم كما كان حرفياً — ٦٥م بنطاق ٥٠ يُرفض', async () => {
+  rows = []; seq = 0; featureOn = true; punchAtCustomer = true; punchRadius = 50; nearCustomers = [AT(65)];
+  try {
+    assert.equal((await call('post', '/attendance/checkin', { body: HERE })).statusCode, 409);
+  } finally { punchAtCustomer = false; nearCustomers = []; }
+});
+
+test('دقّة القراءة: قراءةٌ أوسع خطأً من النطاق لا تُحكم بُعداً — «موقعك غير دقيق» بالرمز المعروف وسببٍ فرعيّ، ولا نوبة', async () => {
+  rows = []; seq = 0; featureOn = true; punchAtCustomer = true; punchRadius = 50; nearCustomers = [AT(300)];
+  try {
+    const r = await call('post', '/attendance/checkin', { body: { ...HERE, accuracy: 350 } });
+    assert.equal(r.statusCode, 409);
+    // رمزٌ تعرفه الحزمة الأقدم فتعرض رسالته — رمزٌ جديد كانت تبتلعه بلا كلمة
+    assert.equal(codeOf(r), 'PUNCH_AWAY_FROM_CUSTOMER');
+    assert.equal((r.body as { reason?: string }).reason, 'LOW_ACCURACY');
+    assert.match(msgOf(r), /غير دقيق/);
+    assert.match(msgOf(r), /350/);
+    assert.equal(rows.length, 0);
+  } finally { punchAtCustomer = false; nearCustomers = []; }
+});
+
+test('دقّة القراءة: المندوب البعيد كيلومتراً يُقال له بُعده لا «انتظر» — الدقّة لا تغيّر الحكم', async () => {
+  rows = []; seq = 0; featureOn = true; punchAtCustomer = true; punchRadius = 50; nearCustomers = [AT(1500)];
+  try {
+    const r = await call('post', '/attendance/checkin', { body: { ...HERE, accuracy: 120 } });
+    assert.equal(codeOf(r), 'PUNCH_AWAY_FROM_CUSTOMER');
+    assert.equal((r.body as { reason?: string }).reason, undefined);
+    assert.match(msgOf(r), /أقرب عملائك على بعد 1(49[5-9]|500) مترا/);
+    assert.equal(rows.length, 0);
+  } finally { punchAtCustomer = false; nearCustomers = []; }
+});
+
+test('دقّة القراءة: النطاق الواسع يقبل قراءةً دقّتها دونه — نطاق ٥٠٠ ودقّة ٣٠٠ وعميلٌ على ٤٠٠ يُقبل', async () => {
+  rows = []; seq = 0; featureOn = true; punchAtCustomer = true; punchRadius = 500; nearCustomers = [AT(400)];
+  try {
+    assert.equal(data(await call('post', '/attendance/checkin', { body: { ...HERE, accuracy: 300 } })).status, 'in');
+  } finally { punchAtCustomer = false; punchRadius = 50; nearCustomers = []; }
+});
+
+test('رفض البُعد يذكر المسافة لأقرب عميل — فتعرف الإدارة أين الخلل', async () => {
+  rows = []; seq = 0; featureOn = true; punchAtCustomer = true; punchRadius = 50; nearCustomers = [AT(180), AT(900)];
+  try {
+    const r = await call('post', '/attendance/checkin', { body: { ...HERE, accuracy: 8 } });
+    assert.equal(codeOf(r), 'PUNCH_AWAY_FROM_CUSTOMER');
+    assert.match(msgOf(r), /داخل 50 مترا/);
+    assert.match(msgOf(r), /أقرب عملائك على بعد 180 مترا/);
+    nearCustomers = [];
+    assert.match(msgOf(await call('post', '/attendance/checkin', { body: { ...HERE, accuracy: 8 } })), /لا عميل لك قريب/);
+  } finally { punchAtCustomer = false; nearCustomers = []; }
+});
+
+test('الانصراف يحكم بالدقّة كالحضور', async () => {
+  rows = []; seq = 0; featureOn = true; nearCustomers = [NEAR];
+  await call('post', '/attendance/checkin', { body: HERE });
+  punchAtCustomer = true; punchRadius = 50; nearCustomers = [AT(65)];
+  try {
+    assert.equal((await call('post', '/attendance/checkout', { body: HERE })).statusCode, 409, 'بلا دقّة ٦٥م مرفوض');
+    assert.equal(data(await call('post', '/attendance/checkout', { body: { ...HERE, accuracy: 20 } })).status, 'out');
+  } finally { punchAtCustomer = false; nearCustomers = []; }
+});
+
 test('بصمة بموقع عميل: الضغط المكرّر على نوبة مفتوحة لا يُرفض — لا كتابة فلا حكم', async () => {
   rows = []; seq = 0; featureOn = true; nearCustomers = [NEAR];
   await call('post', '/attendance/checkin', { body: HERE });

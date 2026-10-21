@@ -130,6 +130,8 @@ router.post('/heartbeat', async (req: AuthRequest, res: Response, next: NextFunc
 const punchSchema = z.object({
   lat: z.number().min(-90).max(90).optional(),
   lng: z.number().min(-180).max(180).optional(),
+  // نصف قطر دقّة القراءة كما يعطيه الجوال — يحكم به «بصمة الحضور بموقع عميل» (punchAwayFromCustomer)
+  accuracy: z.number().finite().min(0).max(1_000_000).optional(),
 });
 
 // حارس الميزة: يفعّلها المالك لكل شركة (Tenant.attendanceEnabled). مطفأة ⇒ 403 حتى لو نادى التطبيقُ النقطةَ مباشرة.
@@ -159,32 +161,74 @@ async function ensureRepAttendance(req: AuthRequest, res: Response): Promise<{ t
  *
  * والبحث مربّعٌ تقريبيّ حول الموقع ثمّ المسافة الدقيقة — فلا يُقرأ كلّ عملاء الشركة لكلّ بصمة.
  * ٥٠ متراً ≈ ٠٫٠٠٠٤٥ درجة عرضاً، وطولاً تتّسع بقسمة جيب تمام العرض.
+ *
+ * ودقّة القراءة (بلاغ المالك ٢١ أكتوبر ٢٠٢٦: «لا يعمل إلا بـ٣٠٠ متر»): كان الجوال يرسل قراءةً مخبّأة عمرها
+ * حتى ٣٠ ثانية — المندوب الواصل بسيارته قراءته من الشارع قبل مئات الأمتار — ولا يُنظر في دقّتها، فلا يقبل الصادقَ
+ * إلا نطاقٌ واسع. الآن يقرأ الجوال قراءةً طازجة بأفضل دقّة، ويُسامَح هنا بقدر هامش خطأ الجهاز حتى ٢٥ متراً
+ * (`PUNCH_ACCURACY_ALLOWANCE_M`). وقراءةٌ أسوأ من النطاق نفسه — وعميلٌ قد يقع داخله في حدود خطئها — لا يُحكم بها
+ * بُعداً: تُردّ «موقعك غير دقيق». والرمز يبقى PUNCH_AWAY_FROM_CUSTOMER بسببٍ فرعيّ (reason) لا رمزاً جديداً:
+ * حزمةٌ أقدم مفتوحة على جوال مندوب ترسل الدقّة أيضاً، ورمزٌ لا تعرفه كانت تبتلعه بلا رسالة.
  */
 export const PUNCH_RADIUS_M = 50;
+/** أقصى ما يُسامَح به من هامش خطأ الجهاز فوق مسافة الإدارة — فقراءةٌ رديئة لا تفتح القيد مهما ادّعت */
+export const PUNCH_ACCURACY_ALLOWANCE_M = 25;
+/** رفضٌ بسبب البُعد يذكر المسافة لأقرب عميلٍ حتى هذا البعد — يكشف للإدارة موقع عميلٍ مسجَّلاً خطأً */
+const PUNCH_NEAREST_SEARCH_M = 2000;
 /** مسافة المندوب كما خُزّنت — وقيمةٌ فاسدة (يدويّاً في القاعدة) لا تُسقط القيد: تعود إلى الافتراض */
 export function punchRadiusOf(v: unknown): number {
   return typeof v === 'number' && Number.isInteger(v) && v >= 10 && v <= 5000 ? v : PUNCH_RADIUS_M;
 }
-async function punchAwayFromCustomer(req: AuthRequest, tid: string, repId: string, lat?: number, lng?: number): Promise<string | null> {
+/** السماحية من دقّة القراءة: هامش خطأ الجهاز حتى سقفه — وغائبةٌ (جهازٌ لا يعطيها) صفر كما كان الحكم.
+ *  والحزمة الأقدم ترسل دقّة قراءتها المخبّأة أيضاً فتنالها السماحية بسقفها نفسه */
+export function punchAllowanceOf(accuracy: unknown): number {
+  return typeof accuracy === 'number' && Number.isFinite(accuracy) && accuracy > 0 ? Math.min(accuracy, PUNCH_ACCURACY_ALLOWANCE_M) : 0;
+}
+/** قراءةٌ هامش خطئها أوسع من النطاق المسموح (ومن ٥٠م) لا تكفي للحكم بأن المندوب بعيد */
+export function punchFixTooCoarse(accuracy: unknown, radius: number): boolean {
+  return typeof accuracy === 'number' && Number.isFinite(accuracy) && accuracy > Math.max(radius, PUNCH_RADIUS_M);
+}
+type PunchRefusal = { code: 'PUNCH_AWAY_FROM_CUSTOMER'; reason?: 'LOW_ACCURACY'; message: string };
+const boxAround = (lat: number, lng: number, m: number) => {
+  const dLat = m / 111320;
+  const dLng = m / (111320 * Math.max(0.1, Math.cos((lat * Math.PI) / 180)));
+  return { lat: { gte: lat - dLat, lte: lat + dLat }, lng: { gte: lng - dLng, lte: lng + dLng } };
+};
+async function punchAwayFromCustomer(req: AuthRequest, tid: string, repId: string, lat?: number, lng?: number, accuracy?: number): Promise<PunchRefusal | null> {
   const rep = await prisma.salesRep.findFirst({ where: { id: repId, tenantId: tid }, select: { requirePunchAtCustomer: true, punchRadiusM: true } });
   if (rep?.requirePunchAtCustomer !== true) return null;
-  if (lat == null || lng == null) return 'فعّل الموقع في جوالك — البصمة مشروطة بأن تكون عند أحد عملائك';
+  if (lat == null || lng == null) return { code: 'PUNCH_AWAY_FROM_CUSTOMER', message: 'فعّل الموقع في جوالك — البصمة مشروطة بأن تكون عند أحد عملائك' };
   const radius = punchRadiusOf(rep.punchRadiusM);
-  const dLat = radius / 111320;
-  const dLng = radius / (111320 * Math.max(0.1, Math.cos((lat * Math.PI) / 180)));
+  const reach = radius + punchAllowanceOf(accuracy);
+  const scope = await customerScope(req, tid);
   const near = await prisma.customer.findMany({
-    where: {
-      tenantId: tid, status: { not: 'DELETED' }, ...(await customerScope(req, tid)),
-      lat: { gte: lat - dLat, lte: lat + dLat }, lng: { gte: lng - dLng, lte: lng + dLng },
-    },
+    where: { tenantId: tid, status: { not: 'DELETED' }, ...scope, ...boxAround(lat, lng, reach) },
     select: { lat: true, lng: true },
     // مسافةٌ واسعة (كيلومترات) تُدخل في المربّع عملاءَ كثيرين بعضهم في زواياه خارج الدائرة: سقفٌ ضيّق كان قد
     // يختار الزوايا وحدها فيُرفض صادق. ألفُ نقطةٍ إحداثيّتين فقط — رخيصة، والدائرة ٧٨٪ من المربّع
     take: 1000,
   });
   const atCustomer = near.some(c => c.lat != null && c.lng != null
-    && haversineM({ lat, lng }, { lat: c.lat, lng: c.lng }) <= radius);
-  return atCustomer ? null : `البصمة مشروطة بأن تكون داخل ${radius} مترا من موقع أحد عملائك`;
+    && haversineM({ lat, lng }, { lat: c.lat, lng: c.lng }) <= reach);
+  if (atCustomer) return null;
+  // الرفض يذكر أقرب عميلٍ بمسافته: «أنت على ١٨٠م» يقول للإدارة أين الخلل (موقع عميلٍ خاطئ أو مسافةٌ ضيّقة)
+  const around = await prisma.customer.findMany({
+    where: { tenantId: tid, status: { not: 'DELETED' }, ...scope, ...boxAround(lat, lng, PUNCH_NEAREST_SEARCH_M) },
+    select: { lat: true, lng: true },
+    take: 2000,
+  });
+  let nearest = Infinity;
+  for (const c of around) {
+    if (c.lat == null || c.lng == null) continue;
+    nearest = Math.min(nearest, haversineM({ lat, lng }, { lat: c.lat, lng: c.lng }));
+  }
+  // الدقّة سببٌ فقط حين قد يقع عميلٌ داخل النطاق في حدود خطئها — المندوب البعيد كيلومترات يُقال له بُعده لا «انتظر»
+  if (punchFixTooCoarse(accuracy, radius) && nearest - accuracy! <= radius) {
+    return { code: 'PUNCH_AWAY_FROM_CUSTOMER', reason: 'LOW_ACCURACY', message: `موقعك غير دقيق الآن (±${Math.round(accuracy!)} م) — انتظر لحظات أو اقترب من مكان مفتوح ثم أعد المحاولة` };
+  }
+  const where = Number.isFinite(nearest) && nearest <= PUNCH_NEAREST_SEARCH_M
+    ? ` — أقرب عملائك على بعد ${Math.round(nearest)} مترا منك`
+    : ' — لا عميل لك قريب من موقعك الحالي';
+  return { code: 'PUNCH_AWAY_FROM_CUSTOMER', message: `البصمة مشروطة بأن تكون داخل ${radius} مترا من موقع أحد عملائك${where}` };
 }
 
 /** النوبة المفتوحة لهذا المندوب (بلا انصراف)، أو null. */
@@ -245,13 +289,13 @@ router.post('/attendance/checkin', async (req: AuthRequest, res: Response, next:
   try {
     const ctx = await ensureRepAttendance(req, res); if (!ctx) return;
     const { tid, repId } = ctx;
-    const { lat, lng } = punchSchema.parse(req.body ?? {});
+    const { lat, lng, accuracy } = punchSchema.parse(req.body ?? {});
     const since = repDayStart(req.query.tzOffsetMin);
     // نوبةٌ مفتوحة تُعاد كما هي: الضغط المكرّر لا يكتب شيئاً
     const existing = await openShift(tid, repId);
     if (existing) { res.json({ success: true, data: { status: 'in', shift: existing, already: true, shifts: await dayShifts(tid, repId, since) } }); return; }
-    const away = await punchAwayFromCustomer(req, tid, repId, lat, lng);
-    if (away) { res.status(409).json({ success: false, code: 'PUNCH_AWAY_FROM_CUSTOMER', message: away }); return; }
+    const away = await punchAwayFromCustomer(req, tid, repId, lat, lng, accuracy);
+    if (away) { res.status(409).json({ success: false, ...away }); return; }
     const shift = await prisma.repAttendance.create({
       data: { tenantId: tid, salesRepId: repId, checkInAt: new Date(), checkInLat: lat ?? null, checkInLng: lng ?? null },
       select: { id: true, checkInAt: true, checkInLat: true, checkInLng: true },
@@ -265,11 +309,11 @@ router.post('/attendance/checkout', async (req: AuthRequest, res: Response, next
   try {
     const ctx = await ensureRepAttendance(req, res); if (!ctx) return;
     const { tid, repId } = ctx;
-    const { lat, lng } = punchSchema.parse(req.body ?? {});
+    const { lat, lng, accuracy } = punchSchema.parse(req.body ?? {});
     const open = await openShift(tid, repId);
     if (!open) { res.status(409).json({ success: false, code: 'NO_OPEN_SHIFT', message: 'لم تسجّل حضوراً بعد' }); return; }
-    const away = await punchAwayFromCustomer(req, tid, repId, lat, lng);
-    if (away) { res.status(409).json({ success: false, code: 'PUNCH_AWAY_FROM_CUSTOMER', message: away }); return; }
+    const away = await punchAwayFromCustomer(req, tid, repId, lat, lng, accuracy);
+    if (away) { res.status(409).json({ success: false, ...away }); return; }
     const shift = await prisma.repAttendance.update({
       where: { id: open.id },
       data: { checkOutAt: new Date(), checkOutLat: lat ?? null, checkOutLng: lng ?? null },

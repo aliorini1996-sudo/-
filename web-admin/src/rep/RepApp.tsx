@@ -9,6 +9,7 @@ import { getVisitTimer, setVisitTimer, clearVisitTimer, elapsedSec, fmtElapsed, 
 import RepTeamSwitch from './RepTeamSwitch';
 import { currentActiveTeam, sellableNow, storedUserActiveTeam, useActiveTeam, type RepTeam } from './repTeam';
 import { toGeoFix, isGeoFix, attachFix, fixCoords, visitGate, planFinalize, visitFailure, isFinalVisitRejection, MIN_VISIT_SEC, type GeoFix } from './visitLocation';
+import { precisePunchFix } from './punchFix';
 import { ownPendingVisits, putPendingVisit, removePendingVisit, retryPendingVisits, pendingRetryOutcome, postResultOf, beginEnding, endEnding, orphanEnding, orphanFate, type PendingVisit } from './visitPending';
 import DecimalInput from '../components/DecimalInput';
 import { startRenewLoop, clearRenewRejection } from './renew';
@@ -76,6 +77,8 @@ interface RepUser {
   proximityRadiusM?: number;
   /** «اشتراط تفعيل الموقع» — تقييديّ: لا يدخل صفحة أي عميل إلا وموقعه المباشر ظاهرٌ على الخريطة (liveGate.ts)؛ وبقية التطبيق متاحة */
   requireLocationOn?: boolean;
+  /** «بصمة الحضور بموقع عميل» — تقييديّ: البصمة تقرأ موقعاً طازجاً بأفضل دقّة (punchFix.ts) ويحكم الخادم */
+  requirePunchAtCustomer?: boolean;
   id: string; name: string; phone?: string;
   canAddCustomer?: boolean;
   /** «تعديل بيانات العميل» — افتراضه في الخادم مُطفأ، فلا يظهر زرّ التعديل إلا بـtrue صريحة */
@@ -239,10 +242,12 @@ function fmtWorkMinutes(mins: number, tr: (s: string) => string): string {
 /** رفضٌ للبصمة يُعرض نصُّه للمندوب — لا تأخّرٌ في الشاشة يُعالَج بإعادة التحميل */
 const PUNCH_REFUSALS = ['LOCATION_REQUIRED', 'PUNCH_AWAY_FROM_CUSTOMER'];
 
-function RepAttendance() {
+// atCustomer: «بصمة الحضور بموقع عميل» — موقع البصمة قراءةٌ طازجة بأفضل دقّة لا قراءةٌ مخبّأة (punchFix.ts)
+function RepAttendance({ atCustomer = false }: { atCustomer?: boolean }) {
   const tr = useTr();
   const [state, setState] = useState<AttendanceState | null>(null);
   const [busy, setBusy] = useState(false);
+  const [locating, setLocating] = useState(false);
   const [err, setErr] = useState('');
   const inFlight = useRef(false);   // حارس الضغط المزدوج: يُقرأ فوراً لا بعد إعادة الرسم كـbusy
   const tzOffsetMin = -new Date().getTimezoneOffset();
@@ -260,9 +265,22 @@ function RepAttendance() {
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true); setErr('');
+    // لا قراءة والموقع غير مرفوض (مهلة/تعذّر): رفض الخادم «فعّل الموقع» لا يصف الحال — تُقال الحقيقة بدلاً منه
+    let noFix = false;
     try {
-      // موقع البصمة أفضل جهد للجميع: يُسجَّل إن توفّر — والمقيَّد بـ«اشتراط تفعيل الموقع» يبصم بلا شرط (القيد على صفحة العميل وحدها)
-      const loc = await grabLocation();
+      // موقع البصمة أفضل جهد للجميع: يُسجَّل إن توفّر — والمقيَّد بـ«اشتراط تفعيل الموقع» يبصم بلا شرط (القيد على صفحة العميل وحدها).
+      // والمقيَّد بـ«بصمة الحضور بموقع عميل» يُحكم عليه بموقعه: قراءةٌ طازجة بأفضل دقّة ومعها هامش خطئها، لا مخبّأةٌ من الطريق
+      let loc: GeoFix | null;
+      if (atCustomer) {
+        setLocating(true);
+        try {
+          const r = await precisePunchFix();
+          loc = r.fix;
+          noFix = !r.fix && r.reason !== 'denied';
+        } finally { setLocating(false); }
+      } else {
+        loc = await grabLocation();
+      }
       // tzOffsetMin ليعيد الخادم بصمات اليوم كلها مع البصمة — القائمة تتحدّث بلا طلبٍ ثانٍ
       const r = await repApi.post(`/tracking/attendance/${kind}`, loc ?? {}, { params: { tzOffsetMin } });
       setState(r.data.data as AttendanceState);
@@ -273,6 +291,7 @@ function RepAttendance() {
       // إلا رفض «اشتراط تفعيل الموقع» و«بصمة الحضور بموقع عميل» (409 أيضاً): رسالتهما ما يحتاج
       // المندوب أن يقرأه — تُعرض كما هي ولا تُبتلع بإعادة التحميل
       if (resp?.status === 409 && !PUNCH_REFUSALS.includes(resp.data?.code || '')) load();
+      else if (noFix && resp?.data?.code === 'PUNCH_AWAY_FROM_CUSTOMER') setErr(tr(VISIT_NOFIX_MSG));
       else setErr(resp?.data?.message || tr('تعذّر التسجيل، حاول ثانية'));
     } finally { inFlight.current = false; setBusy(false); }
   };
@@ -283,8 +302,10 @@ function RepAttendance() {
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const total = dayMinutes(shifts, todayStart);
 
+  // الشاشة تتمرّر: الحاوية تقصّ ما يفيض (overflow-hidden)، فكانت بصمات اليوم بعد السادسة تدفع الزرّ تحت الشاشة
+  // فلا يُبلغ — «فترات العمل ستّ فقط» (بلاغ المالك ٢١ أكتوبر ٢٠٢٦). ولا حدّ لعدد الفترات في الخادم
   return (
-    <div className="p-4 space-y-4">
+    <div className="h-full overflow-y-auto p-4 pb-8 space-y-4">
       <div className="flex items-center gap-2">
         <Fingerprint size={22} className="text-rose-600" />
         <h2 className="text-base font-bold text-[#1F1A13]">{tr('بصمة الحضور والانصراف')}</h2>
@@ -320,6 +341,25 @@ function RepAttendance() {
             )}
           </div>
 
+          {/* الزرّ فوق قائمة بصمات اليوم: يبقى ظاهراً مهما كثرت الفترات */}
+          {err && <p className="text-xs text-[#C0392B] text-center">{err}</p>}
+
+          {next === 'checkout' ? (
+            <button
+              onClick={() => punch('checkout')} disabled={busy}
+              className="w-full flex items-center justify-center gap-2 rounded-2xl bg-[#C0392B] text-white font-bold py-4 text-base disabled:opacity-50"
+            >
+              <LogOut size={20} /> {busy ? (locating ? tr('جارٍ تحديد موقعك بدقة…') : tr('جارٍ التسجيل…')) : tr('تسجيل الانصراف')}
+            </button>
+          ) : (
+            <button
+              onClick={() => punch('checkin')} disabled={busy}
+              className="w-full flex items-center justify-center gap-2 rounded-2xl bg-green-600 text-white font-bold py-4 text-base disabled:opacity-50"
+            >
+              <LogIn size={20} /> {busy ? (locating ? tr('جارٍ تحديد موقعك بدقة…') : tr('جارٍ التسجيل…')) : next === 'checkin-again' ? tr('بدء فترة عمل جديدة') : tr('تسجيل الحضور')}
+            </button>
+          )}
+
           {/* بصمات اليوم: كل حضورٍ وكل انصرافٍ سُجّل — ما سيراه المشرف فتراتٍ في تقرير الساعات */}
           {shifts.length > 0 && (
             <div className="rounded-2xl border border-[#EFE7D8] bg-white">
@@ -351,24 +391,6 @@ function RepAttendance() {
                 </p>
               )}
             </div>
-          )}
-
-          {err && <p className="text-xs text-[#C0392B] text-center">{err}</p>}
-
-          {next === 'checkout' ? (
-            <button
-              onClick={() => punch('checkout')} disabled={busy}
-              className="w-full flex items-center justify-center gap-2 rounded-2xl bg-[#C0392B] text-white font-bold py-4 text-base disabled:opacity-50"
-            >
-              <LogOut size={20} /> {busy ? tr('جارٍ التسجيل…') : tr('تسجيل الانصراف')}
-            </button>
-          ) : (
-            <button
-              onClick={() => punch('checkin')} disabled={busy}
-              className="w-full flex items-center justify-center gap-2 rounded-2xl bg-green-600 text-white font-bold py-4 text-base disabled:opacity-50"
-            >
-              <LogIn size={20} /> {busy ? tr('جارٍ التسجيل…') : next === 'checkin-again' ? tr('بدء فترة عمل جديدة') : tr('تسجيل الحضور')}
-            </button>
           )}
 
           <p className="text-[11px] text-[#8A8072] text-center leading-relaxed">
@@ -4223,7 +4245,7 @@ export default function RepApp() {
                 {screen === 'vanstock' && <RepVanStock canLoad={user.canManageVanStock !== false} canRequest={(company as { warehouseEnabled?: boolean } | null)?.warehouseEnabled === true} />}
                 {screen === 'fuel' && <RepFuel accountingOn={accountingOn} />}
                 {screen === 'worknum' && <RepWorkNumber />}
-                {screen === 'attendance' && <RepAttendance />}
+                {screen === 'attendance' && <RepAttendance atCustomer={user.requirePunchAtCustomer === true} />}
                 {screen === 'airep' && aiRepOn && (
                   <AiRepBoundary onBack={() => setScreen('home')}>
                     <Suspense fallback={<p className="text-center text-gray-400 py-10 text-sm">{tr('جاري التحميل')}</p>}>
