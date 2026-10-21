@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  COLLECTED_CASH_SALE, COLLECTED_RECEIPT, PAYMENT_METHODS, buildPaymentMethodsReport, paymentMethodsRange,
+  COLLECTED_CASH_SALE, COLLECTED_RECEIPT, PAYMENT_METHODS, buildPaymentMethodsReport, paymentMethodsRange, rosterOf,
   type CashSaleGroupRow, type ReceiptGroupRow, type RepInfo,
 } from '../services/paymentMethodsReport';
 import { CASH_VOID_KEEP_COLLECTION_NOTE } from '../lib/ledgerNotes';
@@ -254,4 +254,21 @@ test('العَلَم: عمودٌ مطفأ افتراضياً، في تحديث �
   const co = read('src', 'routes', 'company.ts');
   assert.match(co, /paymentMethodsEnabled: true \}/, 'مفقود من select');
   assert.match(co, /paymentMethodsEnabled: tenant\?\.paymentMethodsEnabled === true/, '=== true (مطفأ افتراضياً)');
+});
+
+test('قائمة المناديب: كلّ النشطين في النطاق ومن حصّل ولو موقوفاً، بلا تكرار، مرتَّبين بالاسم', () => {
+  const active = [{ id: 'r2', name: 'خالد', isActive: true }, { id: 'r1', name: 'محمد', isActive: true }, { id: 'r4', name: 'بدر', isActive: true }];
+  const collected = new Map<string, RepInfo>([['r1', { name: 'محمد', isActive: true }], ['r3', { name: 'سالم', isActive: false }]]);
+  const list = rosterOf(active, collected);
+  assert.deepEqual(list.map((r) => r.salesRepId), ['r4', 'r2', 'r3', 'r1'], 'بالاسم: بدر، خالد، سالم، محمد');
+  assert.equal(list.find((r) => r.salesRepId === 'r3')!.repActive, false, 'الموقوف الذي حصّل باقٍ موسوماً');
+  assert.equal(list.filter((r) => r.salesRepId === 'r1').length, 1, 'بلا تكرار');
+  assert.deepEqual(rosterOf([], new Map()), []);
+});
+
+test('المسار يعيد القائمة بنطاق تقارير الأداء: مناديب النطاق النشطون (adminRepFilter + الفريق)', () => {
+  const r = read('src', 'routes', 'reports.ts');
+  const seg = r.slice(r.indexOf("router.get('/payment-methods'"), r.indexOf('export default router'));
+  assert.ok(seg.includes("where: { tenantId: tid, isActive: true, AND: [await adminRepFilter(req), teamRepOrDocsWhere(team)] },"), 'نطاق المستخدم ومشرف الفريق');
+  assert.ok(seg.includes('roster: rosterOf(activeReps, repInfo)'));
 });

@@ -5,8 +5,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  PAYMENT_METHOD_KEYS, filterBlocks, localDay, methodLabel, paymentMethodsSheets, repLabel, sharePct, sumRows, uniqueSheetNames,
-  type PmBlock, type PmRow,
+  PAYMENT_METHOD_KEYS, listTotal, localDay, methodLabel, repLabel, repListSheets, repMethodList, sumRows, uniqueSheetNames,
+  type PaymentMethodsData, type PmBlock, type PmRow,
 } from './paymentMethods';
 import { PHRASES } from '../i18n/strings';
 
@@ -40,67 +40,90 @@ test('المندوب الموقوف موسومٌ ويبقى تحصيله، وا�
   assert.equal(repLabel({ repName: '', repActive: true }, arTr), '—');
 });
 
-test('البحث يقصّ الصفوف ويعيد حساب إجمالي المعروض — وبلا بحث الجداول كما جاءت', () => {
-  const cash = blockOf('CASH', [
-    row('a', 'محمد العتيبي', 300, 3, { receiptsAmount: 200, receiptsCount: 2, invoicesAmount: 100, invoicesCount: 1 }),
-    row('b', 'خالد', 120.5, 2),
-  ], { amount: 50, count: 1 });
-  const pos = blockOf('POS', [row('b', 'خالد', 80, 1)]);
-  const same = filterBlocks([cash, pos], '');
-  assert.equal(same[0], cash, 'بلا بحث: الكائن نفسه (لا إعادة حساب)');
-  const f = filterBlocks([cash, pos], 'محمد');
-  assert.deepEqual(f[0].rows.map((r) => r.salesRepId), ['a']);
-  assert.deepEqual([f[0].total.amount, f[0].total.count, f[0].total.receiptsAmount, f[0].total.invoicesAmount], [300, 3, 200, 100]);
-  assert.deepEqual(f[0].noRep, { amount: 50, count: 1 }, 'سطر «بلا مندوب» من الخادم لا يمسّه البحث');
-  assert.deepEqual(f[1].rows, [], 'جدولٌ بلا مطابق يبقى بلا صفوف');
-  assert.deepEqual([f[1].total.amount, f[1].total.count], [0, 0]);
-  // التطبيع العربي: «محمّد» بالتشكيل يطابق
-  assert.equal(filterBlocks([cash], 'مُحمد')[0].rows.length, 1);
+const dataOf = (blocks: PmBlock[], roster?: PaymentMethodsData['roster']): PaymentMethodsData => ({
+  range: { from: '2026-10-21', to: '2026-10-21', timezone: 'Asia/Riyadh' },
+  methods: blocks, total: { amount: 0, count: 0 }, noRep: { amount: 0, count: 0 }, repsCount: 0, roster,
+});
+const FIVE = (cash: PmRow[], bt: PmRow[] = [], noRepCash = { amount: 0, count: 0 }) => [
+  blockOf('CASH', cash, noRepCash), blockOf('POS', []), blockOf('BANK_TRANSFER', bt), blockOf('CHEQUE', []), blockOf('ONLINE', []),
+];
+
+test('القائمة: كلّ مناديب النطاق بالطرق الخمس ولو صفراً، بترتيب الخادم، وإجماليُّ كلّ مندوب', () => {
+  const blocks = FIVE(
+    [row('a', 'محمد', 300, 3, { receiptsAmount: 200, receiptsCount: 2, invoicesAmount: 100, invoicesCount: 1 })],
+    [row('a', 'محمد', 50, 1)],
+  );
+  const roster = [{ salesRepId: 'b', repName: 'بدر', repActive: true }, { salesRepId: 'a', repName: 'محمد', repActive: true }];
+  const list = repMethodList(dataOf(blocks, roster));
+  assert.deepEqual(list.map((g) => g.salesRepId), ['b', 'a'], 'ترتيب الخادم (بالاسم) كما جاء');
+  for (const g of list) assert.deepEqual(g.lines.map((l) => l.method), ['CASH', 'POS', 'BANK_TRANSFER', 'CHEQUE', 'ONLINE'], 'المندوب يتكرّر مع كلّ طريقة');
+  assert.deepEqual(list[0].lines.map((l) => l.amount), [0, 0, 0, 0, 0], 'بلا تحصيل: أصفار لا غياب');
+  const m = list[1];
+  assert.deepEqual([m.lines[0].amount, m.lines[0].receiptsAmount, m.lines[0].invoicesAmount], [300, 200, 100], 'النقدي بشقّيه');
+  assert.equal(m.lines[2].amount, 50);
+  assert.deepEqual([m.total.amount, m.total.count], [350, 4]);
+  assert.deepEqual([listTotal(list).amount, listTotal(list).count], [350, 4]);
 });
 
-test('المجموع بالتقريب الموحّد (٣ منازل) والنسبة من المعروض', () => {
+test('ردٌّ قديم بلا roster، أو حصّل مندوبٌ ليس فيها: يُلحق فلا يسقط تحصيله', () => {
+  const blocks = FIVE([row('a', 'محمد', 10, 1), row('z', 'سالم', 5, 1, { repActive: false })]);
+  assert.deepEqual(repMethodList(dataOf(blocks)).map((g) => g.salesRepId), ['a', 'z']);
+  const list = repMethodList(dataOf(blocks, [{ salesRepId: 'a', repName: 'محمد', repActive: true }]));
+  assert.deepEqual(list.map((g) => g.salesRepId), ['a', 'z']);
+  assert.equal(list[1].repActive, false);
+});
+
+test('البحث يقصّ المناديب ويُبقي سطورهم كاملة — وإجماليُّ المعروض لهم وحدهم', () => {
+  const blocks = FIVE([row('a', 'محمد العتيبي', 300, 3), row('b', 'خالد', 120.5, 2)]);
+  const all = repMethodList(dataOf(blocks));
+  assert.equal(all.length, 2);
+  const f = repMethodList(dataOf(blocks), 'محمد');
+  assert.deepEqual(f.map((g) => g.salesRepId), ['a']);
+  assert.equal(f[0].lines.length, 5);
+  assert.equal(listTotal(f).amount, 300);
+  assert.equal(repMethodList(dataOf(blocks), 'مُحمد').length, 1, 'التطبيع العربي');
+  assert.equal(repMethodList(dataOf(blocks), 'لا أحد').length, 0);
+});
+
+test('المجموع بالتقريب الموحّد (٣ منازل)', () => {
   assert.equal(sumRows([row('a', 'أ', 0.1, 1), row('b', 'ب', 0.2, 1)]).amount, 0.3);
   assert.equal(sumRows([row('a', 'أ', Number.NaN, 1)]).amount, 0);
-  assert.equal(sharePct(25, 100), 25);
-  assert.equal(sharePct(1, 3), 33);
-  assert.equal(sharePct(5, 0), 0, 'إجمالي صفر لا قسمة');
 });
 
-test('أوراق التصدير: الإجمالي أولاً بالطرق الخمس، ثم ورقةٌ لكل طريقةٍ فيها تحصيل بصفّ إجماليها آخراً، والنقدي بشقّيه', () => {
-  const blocks = [
-    blockOf('CASH', [row('a', 'محمد', 315, 5, { receiptsAmount: 200, receiptsCount: 2, invoicesAmount: 115, invoicesCount: 3 })], { amount: 60, count: 1 }),
-    blockOf('POS', []),
-    blockOf('BANK_TRANSFER', [row('b', 'خالد', 100, 1), row('c', 'سالم', 40, 1, { repActive: false })]),
-    blockOf('CHEQUE', []),
-    blockOf('ONLINE', []),
-  ];
-  const sheets = paymentMethodsSheets(blocks, arTr);
-  assert.deepEqual(sheets.map((s) => s.name), ['الإجمالي', 'نقدي', 'تحويل بنكي'], 'الطرق الفارغة بلا ورقة');
-  assert.equal(sheets[0].rows.length, 5, 'ورقة الإجمالي بالطرق الخمس ولو صفراً');
-  assert.deepEqual(sheets[0].rows[0], { 'طريقة الدفع': 'نقدي', 'المبلغ': 315, 'عدد العمليات': 5, 'تحصيل بلا مندوب': 60 });
-  const cash = sheets[1].rows;
-  assert.deepEqual(Object.keys(cash[0]), ['المندوب', 'المبلغ', 'عدد العمليات', 'من سندات القبض', 'عدد السندات', 'من الفواتير النقدية', 'عدد الفواتير']);
-  assert.deepEqual(cash[cash.length - 1], { 'المندوب': 'الإجمالي', 'المبلغ': 315, 'عدد العمليات': 5, 'من سندات القبض': 200, 'عدد السندات': 2, 'من الفواتير النقدية': 115, 'عدد الفواتير': 3 });
-  const bt = sheets[2].rows;
-  assert.deepEqual(Object.keys(bt[0]), ['المندوب', 'المبلغ', 'عدد العمليات'], 'غير النقدي بلا أعمدة الشقّين');
-  assert.equal(bt[1]['المندوب'], 'سالم (موقوف)');
-  assert.deepEqual(bt[2], { 'المندوب': 'الإجمالي', 'المبلغ': 140, 'عدد العمليات': 2 });
+test('التصدير: ورقة القائمة باسم المندوب مكرَّراً مع كلّ طريقة ثم إجماليّه والإجمالي العامّ، ثم ورقة الإجمالي بالطرق', () => {
+  const blocks = FIVE(
+    [row('a', 'محمد', 315, 5, { receiptsAmount: 200, receiptsCount: 2, invoicesAmount: 115, invoicesCount: 3 })],
+    [row('c', 'سالم', 40, 1, { repActive: false })],
+    { amount: 60, count: 1 },
+  );
+  const data = dataOf(blocks, [{ salesRepId: 'a', repName: 'محمد', repActive: true }, { salesRepId: 'c', repName: 'سالم', repActive: false }]);
+  const sheets = repListSheets(repMethodList(data), data, arTr);
+  assert.deepEqual(sheets.map((s) => s.name), ['قائمة المناديب', 'الإجمالي']);
+  const rows = sheets[0].rows;
+  assert.equal(rows.length, 2 * 6 + 1, 'لكل مندوب خمس طرق وإجماليّه، ثم الإجمالي العام');
+  assert.deepEqual(Object.keys(rows[0]), ['المندوب', 'طريقة الدفع', 'المبلغ', 'عدد العمليات', 'من سندات القبض', 'من الفواتير النقدية']);
+  assert.deepEqual(rows[0], { 'المندوب': 'محمد', 'طريقة الدفع': 'نقدي', 'المبلغ': 315, 'عدد العمليات': 5, 'من سندات القبض': 200, 'من الفواتير النقدية': 115 });
+  assert.equal(rows[1]['من سندات القبض'], '', 'الشقّان للنقدي وحده');
+  assert.deepEqual(rows[5], { 'المندوب': 'محمد', 'طريقة الدفع': 'الإجمالي', 'المبلغ': 315, 'عدد العمليات': 5, 'من سندات القبض': 200, 'من الفواتير النقدية': 115 });
+  assert.equal(rows[6]['المندوب'], 'سالم (موقوف)');
+  assert.deepEqual(rows[12], { 'المندوب': 'الإجمالي', 'طريقة الدفع': '', 'المبلغ': 355, 'عدد العمليات': 6, 'من سندات القبض': 240, 'من الفواتير النقدية': 115 });
+  assert.equal(sheets[1].rows.length, 5);
+  assert.deepEqual(sheets[1].rows[0], { 'طريقة الدفع': 'نقدي', 'المبلغ': 315, 'عدد العمليات': 5, 'تحصيل بلا مندوب': 60 });
 });
 
-test('أسماء الأوراق وعناوين الأعمدة سليمةٌ وفريدة في اللغات الخمس (التركية Havale/EFT فيها /)', () => {
-  const full = PAYMENT_METHOD_KEYS.map((m) => blockOf(m, [row('a', 'محمد', 10, 1, m === 'CASH' ? { invoicesAmount: 5, invoicesCount: 1 } : {})]));
+test('أسماء الأوراق وعناوين الأعمدة سليمةٌ وفريدة في اللغات الخمس', () => {
+  const blocks = PAYMENT_METHOD_KEYS.map((m) => blockOf(m, [row('a', 'محمد', 10, 1)]));
   for (const tr of [arTr, ...LANGS.map(trOf)]) {
-    const sheets = paymentMethodsSheets(full, tr);
+    const data = dataOf(blocks);
+    const sheets = repListSheets(repMethodList(data), data, tr);
     const names = sheets.map((s) => s.name);
     assert.equal(new Set(names).size, names.length, `أسماء أوراق مكرّرة: ${names.join(' | ')}`);
     for (const n of names) {
       assert.ok(n.length > 0 && n.length <= 31, n);
       assert.ok(!/[\\/?*[\]:]/.test(n), `حرفٌ ممنوع في اسم ورقة Excel: ${n}`);
     }
-    // مفاتيح الصفّ عناوين الأعمدة: ترجمتان متطابقتان تُسقطان عموداً بصمت
-    const cashCols = Object.keys(sheets[1].rows[0]);
-    assert.equal(cashCols.length, 7, `عمودٌ ابتلعه آخر: ${cashCols.join(' | ')}`);
-    assert.equal(Object.keys(sheets[0].rows[0]).length, 4);
+    assert.equal(Object.keys(sheets[0].rows[0]).length, 6, 'عمودٌ ابتلعه آخر');
+    assert.equal(Object.keys(sheets[1].rows[0]).length, 4);
   }
   assert.deepEqual(uniqueSheetNames(['a/b', 'a·b', 'x'.repeat(40)]), ['a·b', 'a·b (2)', 'x'.repeat(31)]);
 });

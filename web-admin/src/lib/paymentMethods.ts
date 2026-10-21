@@ -1,10 +1,10 @@
 /**
- * صفحة «طرق الدفع» — منطقٌ صرف معزولٌ عن React ليُختبر وحده: أنواع ردّ الخادم، وتصفية الجداول بالبحث مع إعادة حساب
- * إجمالياتها، وأوراق التصدير.
+ * صفحة «طرق الدفع» — منطقٌ صرف معزولٌ عن React ليُختبر وحده: أنواع ردّ الخادم، وقائمة المناديب بطرق الدفع، وأوراق التصدير.
  *
- * الحساب نفسه في الخادم (backend/src/services/paymentMethodsReport.ts) — النقدي سندات قبضٍ نقدية **و**فواتير بيعٍ نقدي،
- * والتحصيل بلا مندوب خارج الجداول (`noRep`). هنا لا يُعاد إلا ما يمسّه البحث: صفوفٌ مخفيّة ⇒ إجماليٌّ لما بقي معروضاً،
- * وإلا قرأ المدير إجماليَّ عشرين مندوباً تحت جدولٍ يعرض واحداً (lib/reportSearch.ts، القاعدة ٢). والتصدير يتبع الشاشة.
+ * القائمة (طلب المالك ٢١ أكتوبر ٢٠٢٦، بدل جدولٍ لكل طريقة): **كلّ مناديب النطاق**، والمندوب يتكرّر مع كلّ طريقة دفع —
+ * «محمد نقدي / محمد شبكة / محمد تحويل…» ولو بلا تحصيل (صفر) — ثم إجماليُّه. الحساب نفسه في الخادم
+ * (backend/src/services/paymentMethodsReport.ts): النقدي سندات قبضٍ نقدية **و**فواتير بيعٍ نقدي، والتحصيل بلا مندوب خارج
+ * القائمة (`noRep`). والبحث يقصّ المناديب ويعيد إجماليَّ المعروض (lib/reportSearch.ts، القاعدة ٢)، والتصدير يتبع الشاشة.
  */
 import { filterFlat } from './reportSearch';
 import { roundHalfUp } from './money';
@@ -22,13 +22,21 @@ export interface PmCollected {
 }
 export interface PmRow extends PmCollected { salesRepId: string; repName: string; repActive: boolean }
 export interface PmBlock { method: string; rows: PmRow[]; total: PmCollected; noRep: { amount: number; count: number } }
+export interface PmRosterRep { salesRepId: string; repName: string; repActive: boolean }
 export interface PaymentMethodsData {
   range: { from: string; to: string; timezone: string };
   methods: PmBlock[];
   total: { amount: number; count: number };
   noRep: { amount: number; count: number };
   repsCount: number;
+  /** كلّ مناديب النطاق (النشطون ومن حصّل) مرتَّبين بالاسم — غيابه من ردٍّ قديم: من حصّل وحدهم */
+  roster?: PmRosterRep[];
 }
+
+/** سطرٌ في القائمة: مندوبٌ × طريقة دفع */
+export interface PmLine extends PmCollected { method: string }
+/** مندوبٌ بسطوره (طريقةٌ لكلّ سطر، كلّ الطرق ولو صفراً) وإجماليّه */
+export interface PmRepGroup extends PmRosterRep { lines: PmLine[]; total: PmCollected }
 
 type Tr = (ar: string) => string;
 
@@ -62,19 +70,6 @@ export function sumRows(rows: PmCollected[]): PmCollected {
   return { ...t, amount: money(t.amount), receiptsAmount: money(t.receiptsAmount), invoicesAmount: money(t.invoicesAmount) };
 }
 
-/** الجداول بعد البحث باسم المندوب: بلا بحث كما جاءت، ومع بحثٍ صفوفٌ مطابقة وإجماليٌّ لها وحدها. */
-export function filterBlocks(blocks: PmBlock[], query: string): PmBlock[] {
-  return blocks.map((b) => {
-    const rows = filterFlat(b.rows, query, (r) => [r.repName]);
-    return rows === b.rows ? b : { ...b, rows, total: sumRows(rows) };
-  });
-}
-
-/** نسبة الصفّ من إجمالي جدوله المعروض (تجمع ١٠٠٪ مع البحث أيضاً). */
-export function sharePct(amount: number, total: number): number {
-  return total > 0 ? Math.round((amount / total) * 100) : 0;
-}
-
 const MAX_SHEET_NAME = 31;
 /** اسم ورقة Excel: بلا : \ / ? * [ ] (تركية «تحويل بنكي» Havale/EFT تُسقط المصنّف كلّه) وفريدٌ ولا يتجاوز ٣١ حرفاً. */
 export function uniqueSheetNames(names: string[]): string[] {
@@ -91,41 +86,85 @@ export function uniqueSheetNames(names: string[]): string[] {
   });
 }
 
+const ZERO: PmCollected = { amount: 0, count: 0, receiptsAmount: 0, receiptsCount: 0, invoicesAmount: 0, invoicesCount: 0 };
+const collectedOf = (r: PmCollected | undefined): PmCollected => (r ? {
+  amount: r.amount, count: r.count,
+  receiptsAmount: r.receiptsAmount, receiptsCount: r.receiptsCount,
+  invoicesAmount: r.invoicesAmount, invoicesCount: r.invoicesCount,
+} : { ...ZERO });
+
 /**
- * أوراق التصدير من الجداول **المعروضة**: ورقة الإجمالي (طريقةٌ لكل صفّ، ومعها تحصيلها بلا مندوب خارج الجداول)، ثم ورقةٌ
- * لكل طريقةٍ فيها تحصيل — صفّ لكل مندوب وصفّ «الإجمالي» آخرها. والنقدي بشقّيه: من السندات ومن الفواتير النقدية.
+ * القائمة: كلّ مندوبٍ في النطاق بطرق الدفع كلّها بترتيب الخادم (الخمس ثم ما زاد من سجلٍّ قديم)، صفرٌ حيث لا تحصيل،
+ * وإجماليُّه. والمندوب الذي حصّل ولم يرد في القائمة (ردٌّ قديم بلا roster) يُلحق بعدها فلا يسقط تحصيله. والبحث باسم
+ * المندوب يقصّ المناديب وحدهم — سطور المندوب المطابق كاملة.
  */
-export function paymentMethodsSheets(blocks: PmBlock[], tr: Tr): ExcelSheet[] {
-  const cRep = tr('المندوب'), cAmount = tr('المبلغ'), cCount = tr('عدد العمليات');
-  const cFromRc = tr('من سندات القبض'), cRcCount = tr('عدد السندات');
-  const cFromInv = tr('من الفواتير النقدية'), cInvCount = tr('عدد الفواتير');
-  const withParts = (method: string) => method === 'CASH';
-  const line = (method: string, name: string, c: PmCollected): Record<string, unknown> => ({
-    [cRep]: name,
+export function repMethodList(data: PaymentMethodsData, query = ''): PmRepGroup[] {
+  const methods = data.methods.map((b) => b.method);
+  const byRep = new Map<string, Map<string, PmRow>>();
+  const seen = new Map<string, PmRosterRep>();
+  for (const b of data.methods) {
+    for (const r of b.rows) {
+      let m = byRep.get(r.salesRepId);
+      if (!m) { m = new Map(); byRep.set(r.salesRepId, m); }
+      m.set(b.method, r);
+      if (!seen.has(r.salesRepId)) seen.set(r.salesRepId, { salesRepId: r.salesRepId, repName: r.repName, repActive: r.repActive });
+    }
+  }
+  const roster: PmRosterRep[] = [...(data.roster ?? [])];
+  const listed = new Set(roster.map((r) => r.salesRepId));
+  for (const [id, r] of seen) if (!listed.has(id)) roster.push(r);
+
+  const groups: PmRepGroup[] = roster.map((rep) => {
+    const lines: PmLine[] = methods.map((method) => ({ method, ...collectedOf(byRep.get(rep.salesRepId)?.get(method)) }));
+    return { ...rep, lines, total: sumRows(lines) };
+  });
+  return filterFlat(groups, query, (g) => [g.repName]);
+}
+
+/** إجماليُّ المعروض: مجموع المناديب المعروضين بكلّ الطرق */
+export function listTotal(groups: PmRepGroup[]): PmCollected {
+  return sumRows(groups.map((g) => g.total));
+}
+
+/**
+ * أوراق التصدير من القائمة **المعروضة**: ورقة القائمة — سطرٌ لكلّ مندوبٍ وطريقة (اسمه مكرَّر كما على الشاشة) ثم سطر
+ * إجماليّه، وسطر الإجمالي العامّ آخرها؛ والنقدي بشقّيه (من السندات ومن الفواتير النقدية). ثم ورقة الإجمالي: طريقةٌ لكلّ
+ * صفّ بمجموع المعروض، ومعها تحصيلها بلا مندوب خارج القائمة (من الخادم، لا يمسّه البحث).
+ */
+export function repListSheets(groups: PmRepGroup[], data: PaymentMethodsData, tr: Tr): ExcelSheet[] {
+  const cRep = tr('المندوب'), cMethod = tr('طريقة الدفع'), cAmount = tr('المبلغ'), cCount = tr('عدد العمليات');
+  const cFromRc = tr('من سندات القبض'), cFromInv = tr('من الفواتير النقدية');
+  const totalLabel = tr('الإجمالي');
+  const line = (rep: string, method: string, c: PmCollected, cashParts: boolean): Record<string, unknown> => ({
+    [cRep]: rep,
+    [cMethod]: method,
     [cAmount]: num(c.amount),
     [cCount]: c.count,
-    ...(withParts(method) && {
-      [cFromRc]: num(c.receiptsAmount), [cRcCount]: c.receiptsCount,
-      [cFromInv]: num(c.invoicesAmount), [cInvCount]: c.invoicesCount,
-    }),
+    [cFromRc]: cashParts ? num(c.receiptsAmount) : '',
+    [cFromInv]: cashParts ? num(c.invoicesAmount) : '',
   });
+  const rows: Record<string, unknown>[] = [];
+  for (const g of groups) {
+    const name = repLabel(g, tr);
+    for (const l of g.lines) rows.push(line(name, methodLabel(l.method, tr), l, l.method === 'CASH'));
+    rows.push(line(name, totalLabel, g.total, true));
+  }
+  rows.push(line(totalLabel, '', listTotal(groups), true));
 
-  const filled = blocks.filter((b) => b.rows.length > 0);
-  const names = uniqueSheetNames([tr('الإجمالي'), ...filled.map((b) => methodLabel(b.method, tr))]);
-  const summary: ExcelSheet = {
-    name: names[0],
-    rows: blocks.map((b) => ({
-      [tr('طريقة الدفع')]: methodLabel(b.method, tr),
-      [cAmount]: num(b.total.amount),
-      [cCount]: b.total.count,
-      [tr('تحصيل بلا مندوب')]: num(b.noRep.amount),
-    })),
-    colWidths: [20, 16, 14, 18],
-  };
-  const perMethod: ExcelSheet[] = filled.map((b, i) => ({
-    name: names[i + 1],
-    rows: [...b.rows.map((r) => line(b.method, repLabel(r, tr), r)), line(b.method, tr('الإجمالي'), b.total)],
-    colWidths: withParts(b.method) ? [26, 16, 14, 18, 14, 20, 14] : [26, 16, 14],
-  }));
-  return [summary, ...perMethod];
+  const methods = data.methods.map((b) => b.method);
+  const summary = methods.map((m) => {
+    const t = sumRows(groups.map((g) => g.lines.find((l) => l.method === m) ?? ZERO));
+    const noRep = data.methods.find((b) => b.method === m)?.noRep ?? { amount: 0, count: 0 };
+    return {
+      [cMethod]: methodLabel(m, tr),
+      [cAmount]: num(t.amount),
+      [cCount]: t.count,
+      [tr('تحصيل بلا مندوب')]: num(noRep.amount),
+    };
+  });
+  const names = uniqueSheetNames([tr('قائمة المناديب'), totalLabel]);
+  return [
+    { name: names[0], rows, colWidths: [26, 18, 16, 14, 18, 20] },
+    { name: names[1], rows: summary, colWidths: [20, 16, 14, 18] },
+  ];
 }

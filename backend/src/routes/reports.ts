@@ -8,7 +8,7 @@ import { FINANCIAL_METRICS, RANKING_METRICS, rankRows, trackedMeters, type Ranki
 import { TEAM_NAME_SELECT, reportTeamOf, teamDocWhere, teamRepOrDocsWhere, teamRepWhere } from '../services/teams';
 import { isDamagedVanReturn } from '../services/vanDamaged';
 import { tenantTz } from '../services/invoiceExpiry';
-import { COLLECTED_CASH_SALE, COLLECTED_RECEIPT, buildPaymentMethodsReport, paymentMethodsRange, type RepInfo } from '../services/paymentMethodsReport';
+import { COLLECTED_CASH_SALE, COLLECTED_RECEIPT, buildPaymentMethodsReport, paymentMethodsRange, rosterOf, type RepInfo } from '../services/paymentMethodsReport';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canViewReports'));
@@ -874,7 +874,7 @@ router.get('/payment-methods', requirePaymentMethods, async (req: AuthRequest, r
     if (!range.ok) { res.status(400).json({ success: false, message: range.message }); return; }
     const team = reportTeamOf(req.query.teamId);
     const docScope = await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT);
-    const [receiptGroups, cashSaleGroups] = await Promise.all([
+    const [receiptGroups, cashSaleGroups, activeReps] = await Promise.all([
       prisma.receipt.groupBy({
         by: ['salesRepId', 'paymentMethod'],
         where: { tenantId: tid, ...COLLECTED_RECEIPT, receiptDate: { gte: range.gte, lt: range.lt }, ...teamDocWhere(team), ...docScope },
@@ -888,6 +888,11 @@ router.get('/payment-methods', requirePaymentMethods, async (req: AuthRequest, r
         where: { tenantId: tid, invoiceDate: { gte: range.gte, lt: range.lt }, AND: [COLLECTED_CASH_SALE, teamDocWhere(team), docScope] },
         _sum: { paidAmt: true },
         _count: { _all: true },
+      }),
+      // كلّ مناديب النطاق النشطين — القائمة تعرضهم جميعاً بكلّ طرق الدفع ولو بلا تحصيل (نطاق تقارير الأداء نفسه)
+      prisma.salesRep.findMany({
+        where: { tenantId: tid, isActive: true, AND: [await adminRepFilter(req), teamRepOrDocsWhere(team)] },
+        select: { id: true, name: true, isActive: true },
       }),
     ]);
 
@@ -903,7 +908,7 @@ router.get('/payment-methods', requirePaymentMethods, async (req: AuthRequest, r
       cashSaleGroups.map((g) => ({ salesRepId: g.salesRepId, amount: Number(g._sum.paidAmt ?? 0), count: g._count._all })),
       repInfo,
     );
-    res.json({ success: true, data: { range: { from: range.from, to: range.to, timezone: tz }, ...report } });
+    res.json({ success: true, data: { range: { from: range.from, to: range.to, timezone: tz }, ...report, roster: rosterOf(activeReps, repInfo) } });
   } catch (err) { next(err); }
 });
 

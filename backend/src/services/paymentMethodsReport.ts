@@ -95,6 +95,21 @@ export interface MethodBlock {
   /** تحصيلٌ بهذه الطريقة بلا مندوب — خارج الجدول وإجماليه (القرار ٢) */
   noRep: { amount: number; count: number };
 }
+/** مندوبٌ في قائمة الصفحة — كلّ مناديب النطاق النشطين ومن حصّل في الفترة ولو أُوقف بعدها */
+export interface RosterRep { salesRepId: string; repName: string; repActive: boolean }
+
+/**
+ * قائمة المناديب (طلب المالك ٢١ أكتوبر: «قائمة فيها المناديب كلهم» — المندوب يتكرّر مع كلّ طريقة دفع ولو بلا تحصيل):
+ * النشطون في النطاق اتّحاداً مع من حصّل في الفترة (موقوفاً كان أو خارج العضوية الحالية — مستنده مرّ بالنطاق)،
+ * بلا تكرار، مرتَّبين بالاسم.
+ */
+export function rosterOf(active: { id: string; name: string; isActive: boolean }[], collected: Map<string, RepInfo>): RosterRep[] {
+  const out = new Map<string, RosterRep>();
+  for (const r of active) out.set(r.id, { salesRepId: r.id, repName: r.name, repActive: r.isActive });
+  for (const [id, r] of collected) if (!out.has(id)) out.set(id, { salesRepId: id, repName: r.name, repActive: r.isActive });
+  return [...out.values()].sort((a, b) => a.repName.localeCompare(b.repName, 'ar'));
+}
+
 export interface PaymentMethodsReport {
   methods: MethodBlock[];
   /** مجموع الجداول كلها (المناديب وحدهم) */

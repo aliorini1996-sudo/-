@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Banknote, CreditCard, Download, FileCheck, FileText, Globe, Landmark, Lock, Search, UserCheck, Wallet, X } from 'lucide-react';
+import { Banknote, CreditCard, Download, FileCheck, FileText, Globe, Landmark, Lock, Search, Wallet, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { companyApi, reportApi, teamsApi } from '../api/client';
 import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
@@ -9,14 +9,16 @@ import { formatCurrency, activeLocale } from '../utils/format';
 import { shareOrDownloadExcel, type ExcelSheet } from '../utils/excel';
 import { elementsToPdfBlob, downloadPdf } from '../rep/pdf';
 import {
-  filterBlocks, localDay, methodLabel, paymentMethodsSheets, repLabel, sharePct,
-  type PaymentMethodsData, type PmBlock,
+  listTotal, localDay, methodLabel, repLabel, repListSheets, repMethodList,
+  type PaymentMethodsData, type PmRepGroup,
 } from '../lib/paymentMethods';
 
 /**
- * «طرق الدفع» (طلب المالك ٢١ أكتوبر ٢٠٢٦) — جدولٌ لكل طريقة دفع، صفوفه المناديب بما حصّله كلٌّ منهم بها في الفترة.
+ * «طرق الدفع» (طلب المالك ٢١ أكتوبر ٢٠٢٦) — **قائمة واحدة بكلّ المناديب**، والمندوب يتكرّر مع كلّ طريقة دفع:
+ * «محمد نقدي / محمد شبكة / محمد تحويل / محمد شيك / محمد دفع إلكتروني» ثم إجماليُّه، ثم المندوب التالي (طلبه الثاني بدل
+ * جدولٍ لكل طريقة). كلّ مناديب النطاق ولو بلا تحصيل (أصفارٌ لا غياب).
  *
- * على هيئة صفحة التقارير: شريط فلاتر (من/إلى/الفريق/بحث)، بطاقات إجمالي، جداول، وتصدير Excel وPDF يتبع المعروض.
+ * على هيئة صفحة التقارير: شريط فلاتر (من/إلى/الفريق/بحث)، بطاقات إجمالي لكل طريقة، القائمة، وتصدير Excel وPDF يتبع المعروض.
  * والفرق عنها:
  *  - الفترة **اليوم** افتراضياً (لا «كل الفترات»): السؤال اليوميّ «كم حصّل كل مندوب اليوم نقداً وشبكة…».
  *  - الأرقام من الخادم (GET /reports/payment-methods) مجمّعةً بأيام الشركة المحلية — النقدي سندات قبضٍ نقدية **و**فواتير
@@ -26,14 +28,14 @@ import {
  *  - النطاق خادميّ بالكامل (المقيَّد بالقوائم ومشرف الفرق): لا تصفية نطاقٍ هنا، وقائمة الفرق نفسها مقيّدةٌ من الخادم.
  */
 
-const METHOD_STYLE: Record<string, { icon: React.ElementType; tint: string; bar: string }> = {
-  CASH: { icon: Banknote, tint: 'text-green-700 bg-green-50', bar: 'bg-green-500' },
-  POS: { icon: CreditCard, tint: 'text-purple-700 bg-purple-50', bar: 'bg-purple-500' },
-  BANK_TRANSFER: { icon: Landmark, tint: 'text-[#C94E28] bg-[#FBEBE2]', bar: 'bg-[#E15A30]' },
-  CHEQUE: { icon: FileCheck, tint: 'text-orange-700 bg-orange-50', bar: 'bg-orange-500' },
-  ONLINE: { icon: Globe, tint: 'text-sky-700 bg-sky-50', bar: 'bg-sky-500' },
+const METHOD_STYLE: Record<string, { icon: React.ElementType; tint: string }> = {
+  CASH: { icon: Banknote, tint: 'text-green-700 bg-green-50' },
+  POS: { icon: CreditCard, tint: 'text-purple-700 bg-purple-50' },
+  BANK_TRANSFER: { icon: Landmark, tint: 'text-[#C94E28] bg-[#FBEBE2]' },
+  CHEQUE: { icon: FileCheck, tint: 'text-orange-700 bg-orange-50' },
+  ONLINE: { icon: Globe, tint: 'text-sky-700 bg-sky-50' },
 };
-const styleOf = (m: string) => METHOD_STYLE[m] ?? { icon: Wallet, tint: 'text-gray-600 bg-gray-100', bar: 'bg-gray-400' };
+const styleOf = (m: string) => METHOD_STYLE[m] ?? { icon: Wallet, tint: 'text-gray-600 bg-gray-100' };
 
 /** كود رفض الخادم (٤٠٣) — كاشُ إعدادات الشركة قد يتأخّر عن إطفاء المالك للميزة */
 const errorCode = (e: unknown) => (e as { response?: { data?: { code?: string } } } | null)?.response?.data?.code;
@@ -83,7 +85,7 @@ export default function PaymentMethodsPage() {
     },
   });
   const data = reportQ.data;
-  const blocks: PmBlock[] = useMemo(() => filterBlocks(data?.methods ?? [], search), [data, search]);
+  const groups: PmRepGroup[] = useMemo(() => (data ? repMethodList(data, search) : []), [data, search]);
   const q = search.trim();
   const range = data ? (data.range.from === data.range.to ? data.range.from : `${data.range.from} — ${data.range.to}`) : '';
 
@@ -92,7 +94,7 @@ export default function PaymentMethodsPage() {
   const title = teamFilterName ? `${tr('طرق الدفع')} - ${teamFilterName}` : tr('طرق الدفع');
   // اسم الملف بالفترة المعروضة (من الخادم: أيام الشركة) لا بيوم التصدير — ملفّ أمسِ المصدَّر اليوم يحمل تاريخ أمس
   const fileName = () => `${safeName(title)}-${range.replace(' — ', '_')}`;
-  const sheetsOrNull = (): ExcelSheet[] | null => (data && blocks.some(b => b.rows.length) ? paymentMethodsSheets(blocks, tr) : null);
+  const sheetsOrNull = (): ExcelSheet[] | null => (data && groups.length ? repListSheets(groups, data, tr) : null);
 
   const handleExport = async () => {
     const sheets = sheetsOrNull();
@@ -147,8 +149,6 @@ export default function PaymentMethodsPage() {
       </div>
     );
   }
-
-  const scrollTo = (m: string) => document.getElementById(`pm-${m}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   return (
     <div>
@@ -223,14 +223,14 @@ export default function PaymentMethodsPage() {
             {data.methods.map(b => {
               const st = styleOf(b.method);
               return (
-                <button key={b.method} type="button" onClick={() => scrollTo(b.method)} className="card text-center hover:border-[#E15A30]/40 transition-colors">
+                <div key={b.method} className="card text-center">
                   <p className="text-xs text-gray-500 flex items-center justify-center gap-1.5">
                     <span className={`w-5 h-5 rounded-md flex items-center justify-center ${st.tint}`}><st.icon size={12} /></span>
                     {methodLabel(b.method, tr)}
                   </p>
                   <p className="text-lg font-bold text-gray-700 tabular-nums mt-1">{formatCurrency(b.total.amount)}</p>
                   <p className="text-[11px] text-gray-400 mt-0.5 tabular-nums">{b.total.count} {tr('عملية')}</p>
-                </button>
+                </div>
               );
             })}
           </div>
@@ -239,102 +239,104 @@ export default function PaymentMethodsPage() {
             <p className="text-xs text-[#6E6557]">{tr('نتائج البحث عن')} «{q}»</p>
           )}
 
-          {/* جدولٌ لكل طريقة دفع — النقدي بعرض الصفحة لأعمدة شقّيه */}
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            {blocks.map(b => <MethodTable key={b.method} block={b} searching={!!q} />)}
-          </div>
+          <RepMethodList groups={groups} searching={!!q} noRep={data.noRep} />
         </div>
       )}
     </div>
   );
 }
 
-function MethodTable({ block: b, searching }: { block: PmBlock; searching: boolean }) {
+/**
+ * القائمة: لكلّ مندوبٍ خمسة سطور (طريقةٌ لكلّ سطر، واسمه مكرَّرٌ في كلّ سطر كما طلب المالك) ثم سطر إجماليّه، وتتناوب
+ * خلفيّة المناديب ليُقرأ كلٌّ منهم كتلةً. والنقدي يذكر شقّيه تحت مبلغه. والصفر رماديّ لا يختفي.
+ */
+function RepMethodList({ groups, searching, noRep }: { groups: PmRepGroup[]; searching: boolean; noRep: { amount: number; count: number } }) {
   const tr = useTr();
-  const st = styleOf(b.method);
-  const cash = b.method === 'CASH';
+  const total = listTotal(groups);
   return (
-    <div id={`pm-${b.method}`} className={`card p-0 scroll-mt-4 ${cash ? 'xl:col-span-2' : ''}`}>
+    <div className="card p-0">
       <div className="px-5 py-3 border-b border-[#F1EBDF] flex items-center gap-3 text-sm flex-wrap">
-        <span className="flex items-center gap-2">
-          <span className={`w-7 h-7 rounded-lg flex items-center justify-center ${st.tint}`}><st.icon size={15} /></span>
-          <b className="text-[#1F1A13]">{methodLabel(b.method, tr)}</b>
-        </span>
+        <b className="text-[#1F1A13]">{tr('قائمة المناديب')}</b>
+        <span className="text-[#9A8F7E]">•</span>
+        <span className="text-[#6E6557]">{groups.length} {tr('مندوب')}</span>
         <span className="text-[#9A8F7E]">•</span>
         <span className="text-[#6E6557]">
-          {searching ? tr('إجمالي المعروض') : tr('الإجمالي')}: <b className="text-green-700 tabular-nums">{formatCurrency(b.total.amount)}</b> ({b.total.count} {tr('عملية')})
+          {searching ? tr('إجمالي المعروض') : tr('الإجمالي')}: <b className="text-green-700 tabular-nums">{formatCurrency(total.amount)}</b> ({total.count} {tr('عملية')})
         </span>
-        <span className="text-[#9A8F7E] flex items-center gap-1"><UserCheck size={13} /> {b.rows.length}</span>
       </div>
-      {cash && <p className="px-5 pt-2 text-[11px] text-[#9A8F7E]">{tr('النقدي يشمل سندات القبض النقدية وفواتير البيع النقدي')}</p>}
+      <p className="px-5 pt-2 text-[11px] text-[#9A8F7E]">{tr('النقدي يشمل سندات القبض النقدية وفواتير البيع النقدي')}</p>
 
-      {b.rows.length === 0 ? (
+      {groups.length === 0 ? (
         <div className="text-center text-gray-400 text-sm py-8">
-          {searching ? tr('لا نتائج مطابقة للبحث') : tr('لا تحصيل بهذه الطريقة في الفترة')}
+          {searching ? tr('لا نتائج مطابقة للبحث') : tr('لا مناديب في نطاقك')}
         </div>
       ) : (
         <div className="table-wrapper">
           <table className="table">
             <thead>
               <tr>
-                <th>#</th>
                 <th>{tr('المندوب')}</th>
+                <th>{tr('طريقة الدفع')}</th>
                 <th>{tr('المبلغ')}</th>
                 <th>{tr('عدد العمليات')}</th>
-                {cash && <th>{tr('من سندات القبض')}</th>}
-                {cash && <th>{tr('من الفواتير النقدية')}</th>}
-                <th>{tr('النسبة من الإجمالي')}</th>
               </tr>
             </thead>
             <tbody>
-              {b.rows.map((r, i) => {
-                const pct = sharePct(r.amount, b.total.amount);
-                return (
-                  <tr key={r.salesRepId}>
-                    <td className="text-gray-400">{i + 1}</td>
-                    <td className={`font-medium ${r.repActive ? 'text-gray-800' : 'text-gray-500'}`}>{repLabel(r, tr)}</td>
-                    <td className="tabular-nums font-bold text-green-600">{formatCurrency(r.amount)}</td>
-                    <td className="tabular-nums text-gray-700">{r.count}</td>
-                    {cash && (
-                      <td className="tabular-nums text-gray-600">
-                        {r.receiptsCount ? <>{formatCurrency(r.receiptsAmount)} <span className="text-[11px] text-gray-400">({r.receiptsCount})</span></> : <span className="text-gray-300">—</span>}
-                      </td>
-                    )}
-                    {cash && (
-                      <td className="tabular-nums text-gray-600">
-                        {r.invoicesCount ? <>{formatCurrency(r.invoicesAmount)} <span className="text-[11px] text-gray-400">({r.invoicesCount})</span></> : <span className="text-gray-300">—</span>}
-                      </td>
-                    )}
-                    <td>
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 min-w-[40px] bg-gray-200 rounded-full h-1.5">
-                          <div className={`h-1.5 rounded-full ${st.bar}`} style={{ width: `${pct}%` }} />
-                        </div>
-                        <span className="text-xs text-gray-600 w-9 tabular-nums">{pct}%</span>
-                      </div>
-                    </td>
-                  </tr>
-                );
+              {groups.map((g, gi) => {
+                const name = repLabel(g, tr);
+                const band = gi % 2 === 1 ? 'bg-[#FAF7F0]/70' : '';
+                return [
+                  ...g.lines.map(l => {
+                    const st = styleOf(l.method);
+                    const has = l.count > 0 || l.amount !== 0;
+                    return (
+                      <tr key={`${g.salesRepId}-${l.method}`} className={band}>
+                        <td className={`font-medium ${g.repActive ? 'text-gray-800' : 'text-gray-500'}`}>{name}</td>
+                        <td>
+                          <span className="inline-flex items-center gap-2">
+                            <span className={`w-6 h-6 rounded-md flex items-center justify-center ${st.tint}`}><st.icon size={13} /></span>
+                            {methodLabel(l.method, tr)}
+                          </span>
+                        </td>
+                        <td className={`tabular-nums ${has ? 'font-bold text-green-600' : 'text-gray-300'}`}>
+                          {formatCurrency(l.amount)}
+                          {l.method === 'CASH' && l.receiptsCount > 0 && l.invoicesCount > 0 && (
+                            <span className="block text-[11px] font-normal text-gray-400">
+                              {tr('من سندات القبض')} {formatCurrency(l.receiptsAmount)} · {tr('من الفواتير النقدية')} {formatCurrency(l.invoicesAmount)}
+                            </span>
+                          )}
+                          {l.method === 'CASH' && l.invoicesCount > 0 && l.receiptsCount === 0 && (
+                            <span className="block text-[11px] font-normal text-gray-400">{tr('من الفواتير النقدية')}</span>
+                          )}
+                        </td>
+                        <td className={`tabular-nums ${has ? 'text-gray-700' : 'text-gray-300'}`}>{l.count}</td>
+                      </tr>
+                    );
+                  }),
+                  <tr key={`${g.salesRepId}-total`} className={`${band} font-bold border-b-2 border-[#E9E1D3]`}>
+                    <td className="text-[#1F1A13]">{name}</td>
+                    <td className="text-[#6E6557]">{tr('الإجمالي')}</td>
+                    <td className="tabular-nums text-green-700">{formatCurrency(g.total.amount)}</td>
+                    <td className="tabular-nums text-gray-700">{g.total.count}</td>
+                  </tr>,
+                ];
               })}
             </tbody>
             <tfoot>
               <tr className="font-bold border-t-2 border-[#E9E1D3] bg-[#FAF7F0]">
-                <td colSpan={2} className="text-[#1F1A13]">{searching ? tr('إجمالي المعروض') : tr('الإجمالي')}</td>
-                <td className="tabular-nums text-green-700">{formatCurrency(b.total.amount)}</td>
-                <td className="tabular-nums text-gray-700">{b.total.count}</td>
-                {cash && <td className="tabular-nums text-gray-700">{formatCurrency(b.total.receiptsAmount)} <span className="text-[11px] text-gray-400">({b.total.receiptsCount})</span></td>}
-                {cash && <td className="tabular-nums text-gray-700">{formatCurrency(b.total.invoicesAmount)} <span className="text-[11px] text-gray-400">({b.total.invoicesCount})</span></td>}
-                <td />
+                <td colSpan={2} className="text-[#1F1A13]">{searching ? tr('إجمالي المعروض') : tr('الإجمالي العام')}</td>
+                <td className="tabular-nums text-green-700">{formatCurrency(total.amount)}</td>
+                <td className="tabular-nums text-gray-700">{total.count}</td>
               </tr>
             </tfoot>
           </table>
         </div>
       )}
 
-      {/* بلا مندوب: خارج الجدول وإجماليه (قرار المالك) — يُذكر كي لا يختفي مالٌ محصَّل عن الشاشة */}
-      {b.noRep.count > 0 && !searching && (
+      {/* بلا مندوب: خارج القائمة وإجماليّها (قرار المالك) — يُذكر كي لا يختفي مالٌ محصَّل عن الشاشة */}
+      {noRep.count > 0 && !searching && (
         <p className="px-5 py-2.5 border-t border-[#F1EBDF] text-[11px] text-[#9A8F7E]">
-          {tr('خارج الجدول: تحصيل بلا مندوب (سند من الإدارة أو مندوب محذوف)')}: <b className="tabular-nums text-[#6E6557]">{formatCurrency(b.noRep.amount)}</b> ({b.noRep.count} {tr('عملية')})
+          {tr('خارج القائمة: تحصيل بلا مندوب (سند من الإدارة أو مندوب محذوف)')}: <b className="tabular-nums text-[#6E6557]">{formatCurrency(noRep.amount)}</b> ({noRep.count} {tr('عملية')})
         </p>
       )}
     </div>
