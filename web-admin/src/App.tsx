@@ -38,6 +38,7 @@ const SalesRepsPage = lazy(() => import('./pages/SalesRepsPage'));
 const InvoicesPage = lazy(() => import('./pages/InvoicesPage'));
 const ReceiptsPage = lazy(() => import('./pages/ReceiptsPage'));
 const ReportsPage = lazy(() => import('./pages/ReportsPage'));
+const PaymentMethodsPage = lazy(() => import('./pages/PaymentMethodsPage'));
 const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
 const CompanySettingsPage = lazy(() => import('./pages/CompanySettingsPage'));
 const CompanyUsersPage = lazy(() => import('./pages/CompanyUsersPage'));
@@ -332,6 +333,8 @@ export default function App() {
           <Route path="products" element={<PermissionRoute permission="canManageProducts"><ProductsPage /></PermissionRoute>} />
           <Route path="sales-reps" element={<PermissionRoute permission="canManageSalesReps"><SalesRepsPage /></PermissionRoute>} />
           <Route path="invoices" element={<PermissionRoute permission="canManageInvoices"><InvoicesPage /></PermissionRoute>} />
+          {/* «طرق الدفع»: صلاحية التقارير؛ وعَلَم الشركة والمحاسبة تفحصهما الصفحة (لافتةٌ لا جدولٌ فارغ) والخادم (٤٠٣) */}
+          <Route path="payment-methods" element={<PermissionRoute permission="canViewReports"><PaymentMethodsPage /></PermissionRoute>} />
           <Route path="receipts" element={<PermissionRoute permission="canManageReceipts"><ReceiptsPage /></PermissionRoute>} />
           <Route path="reports" element={<PermissionRoute permission="canViewReports"><ReportsPage /></PermissionRoute>} />
           <Route path="van-stock" element={<PermissionRoute permission="canManageVanStock"><VanStockPage /></PermissionRoute>} />

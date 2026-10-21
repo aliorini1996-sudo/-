@@ -184,6 +184,7 @@ export const DICT: Record<string, { ar: string; en: string; fr: string; tr: stri
   'nav.repRoutes': { ar: 'خطوط السير', en: 'Rep routes', fr: 'Itineraires', tr: 'Rotalar', zh: '业务路线' },
   'nav.tracking': { ar: 'تتبع المناديب', en: 'Rep tracking', fr: 'Suivi des représentants', tr: 'Temsilci takibi', zh: '轨迹追踪' },
   'nav.invoices': { ar: 'الفواتير', en: 'Invoices', fr: 'Factures', tr: 'Faturalar', zh: '发票' },
+  'nav.paymentMethods': { ar: 'طرق الدفع', en: 'Payment methods', fr: 'Moyens de paiement', tr: 'Ödeme yöntemleri', zh: '收款方式' },
   'nav.receipts': { ar: 'سندات القبض', en: 'Receipts', fr: 'Reçus', tr: 'Tahsilat makbuzları', zh: '收款单' },
   'nav.reports': { ar: 'التقارير', en: 'Reports', fr: 'Rapports', tr: 'Raporlar', zh: '报表' },
   'nav.companyUsers': { ar: 'مستخدمو الشركة', en: 'Company users', fr: 'Utilisateurs de l entreprise', tr: 'Şirket kullanıcıları', zh: '用户管理' },
@@ -4487,6 +4488,23 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'تاريخ المرتجع قبل تاريخ فاتورة البيع': { en: 'The return date is before the sale invoice date', fr: 'La date du retour est antérieure à celle de la facture de vente', tr: 'İade tarihi satış faturası tarihinden önce', zh: '退货日期早于销售发票日期' },
   'سبب الإشعار الدائن مطلوب من 3 إلى 1000 حرف': { en: 'The credit note reason is required (3 to 1000 characters)', fr: 'Le motif de l avoir est obligatoire (3 à 1000 caractères)', tr: 'Alacak dekontu nedeni zorunludur (3 ile 1000 karakter arası)', zh: '贷项通知单原因为必填项（3至1000个字符）' },
   'الكمية المرتجعة أكبر من المتاح للإرجاع': { en: 'The returned quantity exceeds what is available to return', fr: 'La quantité retournée dépasse le disponible au retour', tr: 'İade miktarı iade edilebilir miktarı aşıyor', zh: '退货数量超过可退数量' },
+  // صفحة «طرق الدفع» (تحصيل المناديب لكل طريقة دفع) ومفتاحها في نافذة المالك
+  'طرق الدفع': { en: 'Payment methods', fr: 'Moyens de paiement', tr: 'Ödeme yöntemleri', zh: '收款方式' },
+  'تحصيل كل مندوب موزعا على طرق الدفع في الفترة المحددة': { en: 'What each rep collected, split by payment method, in the selected period', fr: 'Encaissements de chaque commercial par moyen de paiement sur la période choisie', tr: 'Seçilen dönemde her temsilcinin ödeme yöntemine göre tahsilatı', zh: '所选期间每位业务员按付款方式划分的收款' },
+  'عدد العمليات': { en: 'Transactions', fr: 'Opérations', tr: 'İşlem sayısı', zh: '笔数' },
+  'عملية': { en: 'transactions', fr: 'opérations', tr: 'işlem', zh: '笔' },
+  'من سندات القبض': { en: 'From receipts', fr: 'Par reçus', tr: 'Makbuzlardan', zh: '来自收款单' },
+  'من الفواتير النقدية': { en: 'From cash invoices', fr: 'Par factures comptant', tr: 'Nakit faturalardan', zh: '来自现金发票' },
+  'النقدي يشمل سندات القبض النقدية وفواتير البيع النقدي': { en: 'Cash includes cash receipts and cash sale invoices', fr: 'Le comptant inclut les reçus en espèces et les factures de vente comptant', tr: 'Nakit, nakit makbuzları ve nakit satış faturalarını içerir', zh: '现金包括现金收款单和现金销售发票' },
+  'لا تحصيل بهذه الطريقة في الفترة': { en: 'No collections with this method in the period', fr: 'Aucun encaissement par ce moyen sur la période', tr: 'Bu dönemde bu yöntemle tahsilat yok', zh: '该期间没有此方式的收款' },
+  'خارج الجدول: تحصيل بلا مندوب (سند من الإدارة أو مندوب محذوف)': { en: 'Not in the table: collected without a rep (issued by the office or by a deleted rep)', fr: 'Hors tableau : encaissement sans commercial (émis par le bureau ou commercial supprimé)', tr: 'Tablo dışı: temsilcisiz tahsilat (ofisten düzenlenen veya silinmiş temsilci)', zh: '未计入表格：无业务员的收款（由办公室开具或业务员已删除）' },
+  'النسبة من الإجمالي': { en: 'Share of total', fr: 'Part du total', tr: 'Toplamdaki pay', zh: '占比' },
+  'تحصيل بلا مندوب': { en: 'Collected without a rep', fr: 'Encaissé sans commercial', tr: 'Temsilcisiz tahsilat', zh: '无业务员收款' },
+  'اسم المندوب': { en: 'Rep name', fr: 'Nom du commercial', tr: 'Temsilci adı', zh: '业务员姓名' },
+  'صفحة طرق الدفع غير مفعلة لشركتك': { en: 'The payment methods page is not enabled for your company', fr: 'La page des moyens de paiement n est pas activée pour votre société', tr: 'Ödeme yöntemleri sayfası şirketiniz için etkin değil', zh: '贵公司未启用收款方式页面' },
+  'تواصل مع مزود الخدمة لتفعيلها': { en: 'Contact your service provider to enable it', fr: 'Contactez votre fournisseur de service pour l activer', tr: 'Etkinleştirmek için hizmet sağlayıcınızla iletişime geçin', zh: '请联系服务提供商开通' },
+  'تفعيل صفحة طرق الدفع لهذه الشركة': { en: 'Enable the payment methods page for this company', fr: 'Activer la page des moyens de paiement pour cette société', tr: 'Bu şirket için ödeme yöntemleri sayfasını etkinleştir', zh: '为该公司启用收款方式页面' },
+  'تظهر للشركة صفحة طرق الدفع تحت الفواتير: ما حصله كل مندوب نقدا وشبكة وتحويلا وشيكا ودفعا الكترونيا في فترة تختارها — تتطلب النظام المحاسبي': { en: 'Shows the company a Payment methods page under Invoices: what each rep collected in cash, card, transfer, cheque and online payment for a chosen period — requires the accounting system', fr: 'Affiche une page Moyens de paiement sous Factures : ce que chaque commercial a encaissé en espèces, carte, virement, chèque et paiement en ligne sur une période choisie — nécessite le système comptable', tr: 'Şirkete Faturalar altında Ödeme yöntemleri sayfası gösterir: seçilen dönemde her temsilcinin nakit, kart, havale, çek ve çevrim içi ödemeyle tahsilatı — muhasebe sistemi gerektirir', zh: '在发票下方为公司显示收款方式页面：所选期间每位业务员以现金、刷卡、转账、支票和在线支付收取的款项 — 需要启用会计系统' },
 };
 
 // ثابتة الهوية ما لم تتغيّر اللغة — كـuseT (انظر سببه هناك)

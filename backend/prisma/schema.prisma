@@ -53,6 +53,7 @@ model Tenant {
   accountingSuiteEnabled    Boolean   @default(false) // النظام المحاسبي المتكامل — يفعّله المالك لكل شركة؛ لا يعمل إلا مع accountingEnabled !== false
   aiRepEnabled              Boolean   @default(false) // «المندوب الذكي AI» — محلات قريبة وتوقّع مشتريات كل محل ومسار؛ يفعّله المالك لكل شركة
   apiEnabled                Boolean   @default(false) // «الربط البرمجي API» — مفاتيح API لنظام الشركة الخاص؛ يفعّله المالك لكل شركة (services/apiKeys.ts)
+  paymentMethodsEnabled     Boolean   @default(false) // صفحة «طرق الدفع» — تحصيل كل مندوب موزّعاً على النقدي والشبكة والتحويل والشيك والإلكتروني؛ يفعّلها المالك لكل شركة (services/paymentMethodsReport.ts)
   subscriptionEndsAt        DateTime? // تاريخ انتهاء الاشتراك (null = غير محدود)
   notes                     String?
   createdAt                 DateTime  @default(now())

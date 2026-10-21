@@ -309,6 +309,33 @@ export async function requireDailyReport(req: AuthRequest, res: Response, next: 
   } catch (err) { next(err); }
 }
 
+/**
+ * صفحة «طرق الدفع» (GET /api/reports/payment-methods) — ميزة اشتراك **مطفأة افتراضياً** يفعّلها المالك لكل شركة.
+ *
+ * - الشرط `!== true` لا `=== false` (كالتقرير اليومي): تعذّرُ قراءة الصفّ يجب أن **يمنع** لا أن يفتح.
+ * - وأرقامها كلها من سندات القبض وفواتير البيع النقدي، فهي صفحةٌ مالية: المحاسبة المطفأة تمنعها **قبل** فحص عَلَمها
+ *   (ACCOUNTING_NOT_ALLOWED كتقييم الأداء بمعياره الماليّ) — فلا يرى المستخدم «غير مفعّلة» لميزةٍ اشتُريت وهي محجوبةٌ بغيرها.
+ * - الشركة من الطلب مباشرةً (`req.user?.tenantId`): tenantId(req) ترمي للسوبر أدمن فتحوّل ٤٠٣ إلى ٥٠٠.
+ * - جلسة المالك (الانتحال) لا تتجاوز العَلَم: العَلَم صلاحية اشتراكٍ للشركة لا صلاحية مستخدم.
+ */
+export async function requirePaymentMethods(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const tid = req.user?.tenantId;
+    // لا شركة = سوبر أدمن؛ تمريره كما في requireAccounting
+    if (!tid) { next(); return; }
+    const t = await prisma.tenant.findUnique({ where: { id: tid }, select: { paymentMethodsEnabled: true, accountingEnabled: true } });
+    if (t?.accountingEnabled === false) {
+      res.status(403).json({ success: false, code: 'ACCOUNTING_NOT_ALLOWED', message: 'النظام المحاسبي غير مفعّل لهذه الشركة تواصل مع مزود الخدمة' });
+      return;
+    }
+    if (t?.paymentMethodsEnabled !== true) {
+      res.status(403).json({ success: false, code: 'PAYMENT_METHODS_NOT_ALLOWED', message: 'صفحة طرق الدفع غير مفعّلة لهذه الشركة تواصل مع مزود الخدمة' });
+      return;
+    }
+    next();
+  } catch (err) { next(err); }
+}
+
 export async function requireAccounting(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const tid = req.user?.tenantId;

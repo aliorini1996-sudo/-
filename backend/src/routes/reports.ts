@@ -1,12 +1,14 @@
 import { Router, Response, NextFunction } from 'express';
 import prisma from '../config/database';
-import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
+import { authenticate, requireAdmin, requireAdminPermission, requirePaymentMethods, tenantId } from '../middleware/auth';
 import { scopedRecordWhere, scopedRepRecordWhere, adminCustomerFilter, adminRepFilter, SHAPE_INVOICE_RECEIPT, SHAPE_VISIT } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { composeWorkDays, attendanceByDay, overlayAttendance, mergeVisitsByRep, asVisitLike } from '../services/workDay';
 import { FINANCIAL_METRICS, RANKING_METRICS, rankRows, trackedMeters, type RankingMetric } from '../services/repRanking';
 import { TEAM_NAME_SELECT, reportTeamOf, teamDocWhere, teamRepOrDocsWhere, teamRepWhere } from '../services/teams';
 import { isDamagedVanReturn } from '../services/vanDamaged';
+import { tenantTz } from '../services/invoiceExpiry';
+import { COLLECTED_CASH_SALE, COLLECTED_RECEIPT, buildPaymentMethodsReport, paymentMethodsRange, type RepInfo } from '../services/paymentMethodsReport';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canViewReports'));
@@ -848,6 +850,60 @@ router.get('/rep-ranking', async (req: AuthRequest, res: Response, next: NextFun
         clampedDays,
       },
     });
+  } catch (err) { next(err); }
+});
+
+/**
+ * «طرق الدفع» — تحصيل كل مندوب موزّعاً على طرق الدفع في الفترة (services/paymentMethodsReport.ts: القرارات ومنطق البناء).
+ *
+ * - **البوّابة:** صلاحية التقارير (canViewReports على الراوتر كلّه) + عَلَم الشركة paymentMethodsEnabled والمحاسبة
+ *   (requirePaymentMethods: ٤٠٣ PAYMENT_METHODS_NOT_ALLOWED / ACCOUNTING_NOT_ALLOWED).
+ * - **النطاق** كتقرير التحصيل وأداء المندوب: `scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)` على السندات والفواتير —
+ *   المقيَّد بالقوائم يرى ما عميله **و**مندوبه في نطاقه، ومشرف الفرق ما وُسم بفرقه وحده (القديم بلا فريق لا يراه).
+ *   وفلتر الفريق بوسم المستند (`teamDocWhere`) فمجموع الفرق إجمالي الشركة بلا ازدواج. والنطاق مفتاح AND واحد
+ *   وفلتر الفريق مفتاح teamId — لا يمحو أحدهما الآخر.
+ * - **الصفوف من المستندات لا من قائمة المناديب:** تجميعٌ في القاعدة (groupBy) ثم أسماء من حصّل وحدهم — فمندوبٌ أُوقف
+ *   بعد أن حصّل لا يسقط تحصيله، ولا يُسحب أيّ سندٍ إلى الذاكرة مهما طال المدى.
+ * - **التاريخ** تاريخ المستند (receiptDate / invoiceDate) كبقيّة التقارير — لا لحظة الرفع (المستند الأوف‑لاين يُرفع متأخراً).
+ */
+router.get('/payment-methods', requirePaymentMethods, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const tz = await tenantTz(tid);
+    const range = paymentMethodsRange(req.query.from, req.query.to, tz);
+    if (!range.ok) { res.status(400).json({ success: false, message: range.message }); return; }
+    const team = reportTeamOf(req.query.teamId);
+    const docScope = await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT);
+    const [receiptGroups, cashSaleGroups] = await Promise.all([
+      prisma.receipt.groupBy({
+        by: ['salesRepId', 'paymentMethod'],
+        where: { tenantId: tid, ...COLLECTED_RECEIPT, receiptDate: { gte: range.gte, lt: range.lt }, ...teamDocWhere(team), ...docScope },
+        _sum: { amount: true },
+        _count: { _all: true },
+      }),
+      // فواتير البيع النقدي: نقدٌ قبضه المندوب عند البيع بلا سند (القرار ١) — المبلغ المدفوع (= الإجمالي في النقدية)
+      prisma.invoice.groupBy({
+        by: ['salesRepId'],
+        // شرط «المحصَّل» فيه OR — يُجمع مع النطاق والفريق في AND فلا يطغى مفتاحٌ على مثيله عند النشر
+        where: { tenantId: tid, invoiceDate: { gte: range.gte, lt: range.lt }, AND: [COLLECTED_CASH_SALE, teamDocWhere(team), docScope] },
+        _sum: { paidAmt: true },
+        _count: { _all: true },
+      }),
+    ]);
+
+    // أسماء من حصّل وحدهم (المعرّفات من مستنداتٍ مرّت بالنطاق) — نشطاً أو موقوفاً
+    const repIds = [...new Set([...receiptGroups, ...cashSaleGroups].map((g) => g.salesRepId).filter((x): x is string => !!x))];
+    const reps = repIds.length
+      ? await prisma.salesRep.findMany({ where: { tenantId: tid, id: { in: repIds } }, select: { id: true, name: true, isActive: true } })
+      : [];
+    const repInfo = new Map<string, RepInfo>(reps.map((r) => [r.id, { name: r.name, isActive: r.isActive }]));
+
+    const report = buildPaymentMethodsReport(
+      receiptGroups.map((g) => ({ salesRepId: g.salesRepId, paymentMethod: g.paymentMethod, amount: Number(g._sum.amount ?? 0), count: g._count._all })),
+      cashSaleGroups.map((g) => ({ salesRepId: g.salesRepId, amount: Number(g._sum.paidAmt ?? 0), count: g._count._all })),
+      repInfo,
+    );
+    res.json({ success: true, data: { range: { from: range.from, to: range.to, timezone: tz }, ...report } });
   } catch (err) { next(err); }
 });
 

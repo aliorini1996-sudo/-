@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from 'react-router-dom';
-import { PhoneCall, Fuel, LayoutDashboard, Users, Package, UserCheck, FileText, Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, Warehouse, MapPin, LifeBuoy, UserCog, DatabaseZap, CreditCard, ClipboardCheck, Landmark, Sparkles } from 'lucide-react';
+import { PhoneCall, Fuel, LayoutDashboard, Users, Package, UserCheck, FileText, Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, Warehouse, MapPin, LifeBuoy, UserCog, DatabaseZap, CreditCard, ClipboardCheck, Landmark, Sparkles, Wallet } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -19,7 +19,8 @@ import { useLiveInvoiceUpdates } from '../lib/liveInvoices';
 // فغيابه من ردّ قديم أو كاش يعني «مفعّل» لا «مطفأ».
 // «المدفوعات الالكترونية» (paylink) منها: محصَّلٌ ومستحقٌّ وعمولةٌ وفواتير تُسدَّد،
 // فلا يكفي مفتاحها الخاصّ — إطفاء المحاسبة يُخفيها ولو كانت مشتراة.
-const ACCOUNTING_PAGES = ['/app/products', '/app/van-stock', '/app/warehouse', '/app/invoices', '/app/receipts', '/app/paylink'];
+// و«طرق الدفع» كذلك: أرقامها كلها من سندات القبض وفواتير البيع النقدي.
+const ACCOUNTING_PAGES = ['/app/products', '/app/van-stock', '/app/warehouse', '/app/invoices', '/app/receipts', '/app/paylink', '/app/payment-methods'];
 
 const navItems = [
   { to: '/app', icon: LayoutDashboard, label: 'nav.dashboard', exact: true, permission: 'canAccessDashboard' },
@@ -31,6 +32,8 @@ const navItems = [
   { to: '/app/daily-reports', icon: ClipboardCheck, label: 'nav.dailyReports', permission: 'canViewReports' },
   { to: '/app/tracking', icon: MapPin, label: 'nav.tracking', permission: 'canManageTracking' },
   { to: '/app/invoices', icon: FileText, label: 'nav.invoices', permission: 'canManageInvoices' },
+  // «طرق الدفع» تحت الفواتير (طلب المالك): تقريرٌ بصلاحية التقارير، يظهر حين يفعّله المالك للشركة (paymentMethodsEnabled)
+  { to: '/app/payment-methods', icon: Wallet, label: 'nav.paymentMethods', permission: 'canViewReports' },
   { to: '/app/receipts', icon: Receipt, label: 'nav.receipts', permission: 'canManageReceipts' },
   { to: '/app/reports', icon: BarChart3, label: 'nav.reports', permission: 'canViewReports' },
   // الدفاتر: بلا permission عامّ (قاعدته `!== false` تحجب المالك) — يُفحص بـcanLedger في الفلتر
@@ -55,7 +58,7 @@ export default function MainLayout() {
   // ضبط عملة العرض من إعدادات دولة الشركة (تُطبَّق على كل شاشات لوحة الأدمن)
   const { data: companyCfg } = useQuery({
     queryKey: ['company'],
-    queryFn: async () => (await companyApi.get()).data.data as { currency?: string; logo?: string | null; erpEnabled?: boolean; petroappEnabled?: boolean; hatifEnabled?: boolean; paylinkEnabled?: boolean; warehouseEnabled?: boolean; accountingEnabled?: boolean; dailyReportEnabled?: boolean; accountingSuiteEnabled?: boolean; ledgerRetentionActive?: boolean; aiRepEnabled?: boolean; apiEnabled?: boolean } | null,
+    queryFn: async () => (await companyApi.get()).data.data as { currency?: string; logo?: string | null; erpEnabled?: boolean; petroappEnabled?: boolean; hatifEnabled?: boolean; paylinkEnabled?: boolean; warehouseEnabled?: boolean; accountingEnabled?: boolean; dailyReportEnabled?: boolean; accountingSuiteEnabled?: boolean; ledgerRetentionActive?: boolean; aiRepEnabled?: boolean; apiEnabled?: boolean; paymentMethodsEnabled?: boolean } | null,
     staleTime: 300_000,
   });
   useEffect(() => {
@@ -102,7 +105,7 @@ export default function MainLayout() {
 
         {/* Nav */}
         <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-          {navItems.filter(item => (!item.permission || user?.[item.permission as keyof typeof user] !== false) && (item.to !== '/app/erp' || companyCfg?.erpEnabled !== false) && (item.to !== '/app/petroapp' || companyCfg?.petroappEnabled === true) && (item.to !== '/app/ai-rep' || (companyCfg?.aiRepEnabled === true && (user?.scopeEnabled !== true || !!impersonating))) && (item.to !== '/app/hatif' || companyCfg?.hatifEnabled === true) && (item.to !== '/app/paylink' || companyCfg?.paylinkEnabled === true) && (item.to !== '/app/warehouse' || companyCfg?.warehouseEnabled === true) && (item.to !== '/app/daily-reports' || companyCfg?.dailyReportEnabled === true) && (!ACCOUNTING_PAGES.includes(item.to) || companyCfg?.accountingEnabled !== false) && (item.to !== '/app/ledger' || (((companyCfg?.accountingSuiteEnabled === true && companyCfg?.accountingEnabled !== false) || companyCfg?.ledgerRetentionActive === true) && canLedger(user, 'canViewLedger')))).map(item => (
+          {navItems.filter(item => (!item.permission || user?.[item.permission as keyof typeof user] !== false) && (item.to !== '/app/erp' || companyCfg?.erpEnabled !== false) && (item.to !== '/app/petroapp' || companyCfg?.petroappEnabled === true) && (item.to !== '/app/ai-rep' || (companyCfg?.aiRepEnabled === true && (user?.scopeEnabled !== true || !!impersonating))) && (item.to !== '/app/hatif' || companyCfg?.hatifEnabled === true) && (item.to !== '/app/paylink' || companyCfg?.paylinkEnabled === true) && (item.to !== '/app/warehouse' || companyCfg?.warehouseEnabled === true) && (item.to !== '/app/daily-reports' || companyCfg?.dailyReportEnabled === true) && (item.to !== '/app/payment-methods' || companyCfg?.paymentMethodsEnabled === true) &&(!ACCOUNTING_PAGES.includes(item.to) || companyCfg?.accountingEnabled !== false) && (item.to !== '/app/ledger' || (((companyCfg?.accountingSuiteEnabled === true && companyCfg?.accountingEnabled !== false) || companyCfg?.ledgerRetentionActive === true) && canLedger(user, 'canViewLedger')))).map(item => (
             <NavLink
               key={item.to}
               to={item.to}

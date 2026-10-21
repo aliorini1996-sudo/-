@@ -65,6 +65,8 @@ const updateTenantSchema = z.object({
   aiRepEnabled: z.boolean().optional(),
   // «الربط البرمجي API» (مفاتيح API للشركة) — في التحديث وحده (مطفأ افتراضياً)
   apiEnabled: z.boolean().optional(),
+  // صفحة «طرق الدفع» (تحصيل المناديب لكل طريقة دفع) — في التحديث وحده (مطفأ افتراضياً)
+  paymentMethodsEnabled: z.boolean().optional(),
   // النظام المحاسبي المتكامل — في التحديث وحده، ومحروسٌ بقائمة التجربة في PUT /:id (§8.1)
   accountingSuiteEnabled: z.boolean().optional(),
   subscriptionEndsAt: z.string().nullish(),

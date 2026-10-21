@@ -778,6 +778,8 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
   const [aiRepEnabled, setAiRepEnabled] = useState(!!tenant.aiRepEnabled);
   // الربط البرمجي API — مطفأ افتراضياً ⇒ `!!`
   const [apiEnabled, setApiEnabled] = useState(!!tenant.apiEnabled);
+  // صفحة «طرق الدفع» — مطفأة افتراضياً ⇒ `!!`
+  const [paymentMethodsEnabled, setPaymentMethodsEnabled] = useState(!!tenant.paymentMethodsEnabled);
   const [accountingEnabled, setAccountingEnabled] = useState(tenant.accountingEnabled !== false);
   // النظام المحاسبي المتكامل — مطفأ افتراضياً ⇒ `!!`. الخانة ظاهرة لكل الشركات والمالك يفعّلها
   // بنفسه (قرار المالك 17 سبتمبر 2026 بإزالة قائمة التجربة).
@@ -814,6 +816,7 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
       zatcaPhase2Enabled,
       aiRepEnabled,
       apiEnabled,
+      paymentMethodsEnabled,
       accountingEnabled,
       accountingSuiteEnabled,
       subscriptionEndsAt: subscriptionEndsAt || null,
@@ -938,6 +941,11 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
               <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={attendanceEnabled} onChange={e => setAttendanceEnabled(e.target.checked)} />
               {tr('تفعيل بصمة الحضور والانصراف لهذه الشركة')}
             </label>
+            <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2">
+              <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={paymentMethodsEnabled} onChange={e => setPaymentMethodsEnabled(e.target.checked)} />
+              {tr('تفعيل صفحة طرق الدفع لهذه الشركة')}
+            </label>
+            <p className="text-xs text-gray-400 mt-1">{tr('تظهر للشركة صفحة طرق الدفع تحت الفواتير: ما حصله كل مندوب نقدا وشبكة وتحويلا وشيكا ودفعا الكترونيا في فترة تختارها — تتطلب النظام المحاسبي')}</p>
             <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2">
               <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={invoiceSignatureEnabled} onChange={e => setInvoiceSignatureEnabled(e.target.checked)} />
               {tr('تفعيل توقيع المستلم على فواتير المندوب لهذه الشركة')}
