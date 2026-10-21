@@ -67,6 +67,8 @@ const updateTenantSchema = z.object({
   apiEnabled: z.boolean().optional(),
   // صفحة «طرق الدفع» (تحصيل المناديب لكل طريقة دفع) — في التحديث وحده (مطفأ افتراضياً)
   paymentMethodsEnabled: z.boolean().optional(),
+  // «لوكيشن» (مواقع الشركة وختم الفواتير والتحميلات بموقع المندوب) — في التحديث وحده (مطفأ افتراضياً)
+  locationsEnabled: z.boolean().optional(),
   // النظام المحاسبي المتكامل — في التحديث وحده، ومحروسٌ بقائمة التجربة في PUT /:id (§8.1)
   accountingSuiteEnabled: z.boolean().optional(),
   subscriptionEndsAt: z.string().nullish(),

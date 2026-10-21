@@ -780,6 +780,8 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
   const [apiEnabled, setApiEnabled] = useState(!!tenant.apiEnabled);
   // صفحة «طرق الدفع» — مطفأة افتراضياً ⇒ `!!`
   const [paymentMethodsEnabled, setPaymentMethodsEnabled] = useState(!!tenant.paymentMethodsEnabled);
+  // «لوكيشن» (مواقع الشركة وختم الفواتير والتحميلات بموقع المندوب) — مطفأة افتراضياً ⇒ `!!`
+  const [locationsEnabled, setLocationsEnabled] = useState(!!tenant.locationsEnabled);
   const [accountingEnabled, setAccountingEnabled] = useState(tenant.accountingEnabled !== false);
   // النظام المحاسبي المتكامل — مطفأ افتراضياً ⇒ `!!`. الخانة ظاهرة لكل الشركات والمالك يفعّلها
   // بنفسه (قرار المالك 17 سبتمبر 2026 بإزالة قائمة التجربة).
@@ -817,6 +819,7 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
       aiRepEnabled,
       apiEnabled,
       paymentMethodsEnabled,
+      locationsEnabled,
       accountingEnabled,
       accountingSuiteEnabled,
       subscriptionEndsAt: subscriptionEndsAt || null,
@@ -946,6 +949,11 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
               {tr('تفعيل صفحة طرق الدفع لهذه الشركة')}
             </label>
             <p className="text-xs text-gray-400 mt-1">{tr('تظهر للشركة صفحة طرق الدفع تحت الفواتير: ما حصله كل مندوب نقدا وشبكة وتحويلا وشيكا ودفعا الكترونيا في فترة تختارها — تتطلب النظام المحاسبي')}</p>
+            <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2">
+              <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={locationsEnabled} onChange={e => setLocationsEnabled(e.target.checked)} />
+              {tr('تفعيل صفحة لوكيشن لهذه الشركة')}
+            </label>
+            <p className="text-xs text-gray-400 mt-1">{tr('تعرف الشركة مواقعها (فرع أو مستودع أو مدينة على الخريطة) وتسند كل مندوب لموقع، فتختم كل فاتورة وتحميل بموقع مندوبها وقت الإصدار، مع عمود وتصفية الموقع في الفواتير وسجل التحميلات وملخص لكل موقع — تتطلب النظام المحاسبي')}</p>
             <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2">
               <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={invoiceSignatureEnabled} onChange={e => setInvoiceSignatureEnabled(e.target.checked)} />
               {tr('تفعيل توقيع المستلم على فواتير المندوب لهذه الشركة')}

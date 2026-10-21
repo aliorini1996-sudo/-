@@ -10,6 +10,7 @@ import DocumentModal from '../components/DocumentModal';
 import { loadNoticeDocFromData, Company } from '../rep/RepDocuments';
 import { splitVanMovement } from '../lib/vanMovement';
 import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
+import VanLoadsLog from '../components/VanLoadsLog';
 
 /** استجابة /van-stock/suggest — تطابق SuggestResult في الخادم */
 interface SuggestRow {
@@ -175,6 +176,8 @@ export default function VanStockPage() {
 
   const reps = summaryQ.data || [];
   const selectedRep = reps.find(r => r.salesRepId === selected);
+  // «لوكيشن» (ميزةٌ يفعّلها المالك): «سجل التحميلات» بعمود الموقع وتصفيته — مطفأةً لا جديد في الصفحة
+  const locOn = (companyQ.data as { locationsEnabled?: boolean } | null | undefined)?.locationsEnabled === true;
 
   if (!accountingReady) return null;
   if (!accountingOn) return <AccountingOffNotice />;
@@ -343,6 +346,8 @@ export default function VanStockPage() {
           </div>
         </div>
       )}
+
+      {locOn && <VanLoadsLog reps={reps} />}
 
       {showLoad && <LoadModal preselectRep={selected} onClose={() => setShowLoad(false)} />}
       {showAccuracy && <AccuracyModal preselectRep={selected} onClose={() => setShowAccuracy(false)} />}
@@ -701,6 +706,9 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
       qc.invalidateQueries({ queryKey: ['van-summary'] });
       qc.invalidateQueries({ queryKey: ['van-current'] });
       qc.invalidateQueries({ queryKey: ['van-movements'] });
+      // «لوكيشن»: التحميل الجديد مختومٌ بموقع مندوبه — سجلّ التحميلات وملخّص المواقع يتبعانه
+      qc.invalidateQueries({ queryKey: ['van-loads-log'] });
+      qc.invalidateQueries({ queryKey: ['locations-summary'] });
       toast.success(tr('تم حفظ الحركة'));
       onClose();
     },

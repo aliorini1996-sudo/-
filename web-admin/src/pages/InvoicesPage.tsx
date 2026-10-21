@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { invoiceApi, companyApi, salesRepApi } from '../api/client';
+import { invoiceApi, companyApi, salesRepApi, locationsApi } from '../api/client';
 import { Invoice, SalesRep } from '../types';
 import { formatCurrency, formatDate, formatTime, formatDateTime, statusLabels, formatDayOnly } from '../utils/format';
 import { useTr } from '../i18n/strings';
@@ -20,6 +20,7 @@ import { useAuthStore } from '../store/authStore';
 import { shareOrDownloadExcel, num } from '../utils/excel';
 import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
 import { isDamagedVanReturn } from '../lib/vanDamaged';
+import { locationFilterOptions, type SalesLocation } from '../lib/locations';
 
 /** ألوان شارة حالة الفوترة الإلكترونية (المرحلة الثانية) — مفتاحها `ZatcaChipTone`. */
 const ADMIN_CHIP_TONE: Record<string, string> = {
@@ -60,6 +61,17 @@ export default function InvoicesPage() {
     enabled: accountingReady && accountingOn,
   });
 
+  /* «لوكيشن» (ميزةٌ يفعّلها المالك): عمود «الموقع» وتصفيته بختم الفاتورة — موقع مندوبها **وقت الإصدار**، لا موقعه اليوم.
+   * مطفأةً: لا عمود ولا تصفية ولا طلب (GET /locations يردّه الخادم ٤٠٣)، والقيمة المختارة تُهمل فلا تبقى تصفيةٌ خفيّة. */
+  const locOn = (company as { locationsEnabled?: boolean } | undefined)?.locationsEnabled === true;
+  const [locationIdState, setLocationId] = useState('');
+  const locationId = locOn ? locationIdState : '';
+  const { data: locations } = useQuery({
+    queryKey: ['locations'],
+    queryFn: async () => (await locationsApi.list()).data.data as SalesLocation[],
+    enabled: accountingReady && accountingOn && locOn,
+  });
+
   // معاملات التصفية المشتركة (تُستخدم في الجدول والتصدير)
   const filters = () => {
     const f: Record<string, string | number> = {};
@@ -67,6 +79,8 @@ export default function InvoicesPage() {
     if (status) f.status = status;
     if (type) f.type = type;
     if (salesRepId) f.salesRepId = salesRepId;
+    // معرّف موقع أو none («بلا موقع») — الخادم يفهمهما (locationFilterOf)
+    if (locationId) f.locationId = locationId;
     // كلٌّ على حدة: `from && to` كان يبتلع تصفيةً نصفَ مضبوطة بلا أثر مرئي
     if (from) f.from = from;
     if (to) f.to = to;
@@ -74,7 +88,7 @@ export default function InvoicesPage() {
   };
 
   const { data, isLoading } = useQuery({
-    queryKey: ['invoices', search, status, type, salesRepId, from, to, page],
+    queryKey: ['invoices', search, status, type, salesRepId, locationId, from, to, page],
     queryFn: async () => {
       const res = await invoiceApi.list({ ...filters(), page, limit: 15 });
       return res.data as { data: Invoice[]; pagination: { total: number; pages: number } };
@@ -153,6 +167,8 @@ export default function InvoicesPage() {
         [tr('رقم الفاتورة')]: inv.number,
         [tr('العميل')]: inv.customer.name,
         [tr('المندوب')]: inv.salesRep?.name ?? '—',
+        // «لوكيشن»: عمودٌ بعد المندوب حين تُفعَّل الميزة — ختم الفاتورة وقت إصدارها
+        ...(locOn && { [tr('الموقع')]: inv.location?.name ?? tr('بلا موقع') }),
         [tr('النوع')]: tr(statusLabels[inv.type] || inv.type),
         [tr('التاريخ')]: formatDate(inv.invoiceDate),
         [tr('الوقت')]: formatTime(issuedAt(inv)),
@@ -162,7 +178,7 @@ export default function InvoicesPage() {
         [tr('الحالة')]: tr(statusLabels[inv.status] || inv.status),
       }));
       const res2 = await shareOrDownloadExcel(
-        [{ name: tr('الفواتير'), rows, colWidths: [18, 24, 16, 10, 16, 10, 12, 12, 12, 10] }],
+        [{ name: tr('الفواتير'), rows, colWidths: locOn ? [18, 24, 16, 18, 10, 16, 10, 12, 12, 12, 10] : [18, 24, 16, 10, 16, 10, 12, 12, 12, 10] }],
         `${tr('الفواتير')}-${new Date().toISOString().slice(0, 10)}`
       );
       toast.success(res2 === 'shared' ? tr('تمت المشاركة') : `${tr('تم تصدير')} ${rows.length} ${tr('فاتورة')}`);
@@ -183,6 +199,9 @@ export default function InvoicesPage() {
 
   if (!accountingReady) return null;
   if (!accountingOn) return <AccountingOffNotice />;
+
+  // عدد الأعمدة يتبع العمودين المشروطين (الفوترة الإلكترونية والموقع) — وإلا انزاح صفّ «لا توجد فواتير»
+  const tableCols = (phase2 ? 13 : 12) + (locOn ? 1 : 0);
 
   return (
     <div>
@@ -222,6 +241,11 @@ export default function InvoicesPage() {
             <option value="">{tr('كل المناديب')}</option>
             {reps?.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
+          {locOn && (
+            <select className="input w-40" value={locationId} onChange={e => { setLocationId(e.target.value); setPage(1); }} title={tr('الموقع')}>
+              {locationFilterOptions(locations ?? [], tr).map(o => <option key={o.value || 'all'} value={o.value}>{o.label}</option>)}
+            </select>
+          )}
         </div>
         <div className="flex gap-3 flex-wrap items-end mt-3 pt-3 border-t border-[#F1EBDF]">
           <div>
@@ -232,8 +256,8 @@ export default function InvoicesPage() {
             <label className="label text-xs">{tr('إلى تاريخ')}</label>
             <input type="date" className="input w-40" value={to} onChange={e => { setTo(e.target.value); setPage(1); }} />
           </div>
-          {(from || to || salesRepId) && (
-            <button className="btn-secondary" onClick={() => { setFrom(''); setTo(''); setSalesRepId(''); setPage(1); }}>{tr('مسح الفلاتر')}</button>
+          {(from || to || salesRepId || locationId) && (
+            <button className="btn-secondary" onClick={() => { setFrom(''); setTo(''); setSalesRepId(''); setLocationId(''); setPage(1); }}>{tr('مسح الفلاتر')}</button>
           )}
         </div>
       </div>
@@ -244,7 +268,9 @@ export default function InvoicesPage() {
           <table className="table">
             <thead>
               <tr>
-                <th>{tr('رقم الفاتورة')}</th><th>{tr('العميل')}</th><th>{tr('المندوب')}</th><th>{tr('النوع')}</th>
+                <th>{tr('رقم الفاتورة')}</th><th>{tr('العميل')}</th><th>{tr('المندوب')}</th>
+                {locOn && <th>{tr('الموقع')}</th>}
+                <th>{tr('النوع')}</th>
                 <th>{tr('الإجمالي')}</th><th>{tr('المدفوع')}</th><th>{tr('المتبقي')}</th><th>{tr('التاريخ')}</th>
                 <th>{tr('الوقت')}</th>
                 <th>{tr('وقت التسليم')}</th>
@@ -254,14 +280,16 @@ export default function InvoicesPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={phase2 ? 13 : 12} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
+                <tr><td colSpan={tableCols} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
               ) : data?.data.length === 0 ? (
-                <tr><td colSpan={phase2 ? 13 : 12} className="text-center py-12 text-gray-400">{tr('لا توجد فواتير')}</td></tr>
+                <tr><td colSpan={tableCols} className="text-center py-12 text-gray-400">{tr('لا توجد فواتير')}</td></tr>
               ) : data?.data.map(inv => (
                 <tr key={inv.id}>
                   <td className="font-mono text-sm text-[#E15A30]">{inv.number}</td>
                   <td className="font-medium text-gray-800">{inv.customer.name}</td>
                   <td className="text-gray-600 text-sm">{inv.salesRep?.name ?? '—'}</td>
+                  {/* null لمندوبٍ بلا موقع ولكل فاتورةٍ قبل التفعيل — شرطةٌ لا انهيار */}
+                  {locOn && <td className="text-gray-600 text-sm whitespace-nowrap">{inv.location?.name ?? <span className="text-gray-300">—</span>}</td>}
                   <td>{typeBadge(inv.type)}</td>
                   <td className="font-semibold text-gray-800">{formatCurrency(inv.total)}</td>
                   <td className="text-green-600">{formatCurrency(inv.paidAmt)}</td>

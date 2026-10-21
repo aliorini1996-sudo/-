@@ -51,6 +51,7 @@ export interface Tenant {
   aiRepEnabled?: boolean;        // المندوب الذكي AI — مطفأ افتراضياً، يُفعّله المالك لكل شركة
   apiEnabled?: boolean;          // الربط البرمجي API — مطفأ افتراضياً، يُفعّله المالك لكل شركة
   paymentMethodsEnabled?: boolean; // صفحة «طرق الدفع» (تحصيل المناديب لكل طريقة دفع) — مطفأة افتراضياً، يُفعّلها المالك لكل شركة
+  locationsEnabled?: boolean;     // «لوكيشن» (مواقع الشركة وختم الفواتير والتحميلات بموقع المندوب) — مطفأة افتراضياً، يُفعّلها المالك لكل شركة
   receivablesSummaryEnabled?: boolean; // سطر «إجمالي مديونية العملاء المُسنَدين» — يُفعّله المالك لكل شركة
   accountingEnabled?: boolean;   // النظام المحاسبي (منتجات · مخزون · فواتير · سندات) — مفعّل افتراضياً، وغيابه يعني مفعّل
   accountingSuiteEnabled?: boolean; // النظام المحاسبي المتكامل (الدفاتر) — مطفأ افتراضياً، وغيابه يعني مطفأ
@@ -350,6 +351,9 @@ export interface Invoice {
   originalInvoiceId?: string | null;
   billingReference?: string | null;
   noteReason?: string | null;
+  // «لوكيشن»: ختم موقع المندوب وقت الإصدار — null لمندوبٍ بلا موقع ولكل فاتورة قبل تفعيل الميزة
+  locationId?: string | null;
+  location?: { id: string; name: string } | null;
   einvoiceSnapshot?: unknown;
 }
 

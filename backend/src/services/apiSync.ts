@@ -71,6 +71,8 @@ const SALES_REP_COLS = [
   'canViewStatement', 'requireCustomerProximity', 'requireLocationOn', 'requirePunchAtCustomer', 'showCollectionBalance', 'createdAt', 'updatedAt',
   'canManageVanStock', 'canSellWithoutStock', 'canBeTracked', 'proximityRadiusM', 'punchRadiusM',
   'punchOutsideAction', 'requireBoundDevice', 'boundDeviceName', 'boundDeviceAt', 'shiftStart', 'shiftEnd', 'shiftDays',
+  // «لوكيشن»: موقع المندوب الحاليّ (معرّف SalesLocation — null = بلا موقع)
+  'locationId',
 ];
 const INVOICE_COLS = [
   'id', 'number', 'customerId', 'salesRepId', 'type', 'status', 'returnReason', 'returnToStock', 'invoiceDate',
@@ -79,6 +81,8 @@ const INVOICE_COLS = [
   'einvoiceSubmittedAt', 'einvoiceHash', 'einvoicePih', 'einvoiceIcv', 'einvoiceWarnings', 'createdAt', 'updatedAt',
   'zatcaPhase', 'documentKind', 'invoiceSubtype', 'issuedAt', 'originalInvoiceId', 'billingReference', 'noteReason',
   'teamId',
+  // «لوكيشن»: ختم موقع المندوب وقت الإصدار (لقطة لا تتحرّك بنقله)
+  'locationId',
 ];
 const INVOICE_ITEM_COLS = [
   'id', 'productId', 'unitCost', 'qty', 'unitPrice', 'discountPct', 'discountAmt', 'taxPct', 'taxAmt', 'lineTotal', 'seq',
@@ -159,7 +163,7 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
   {
     // بطابع التعديل: حذف المندوب يفرّغ salesRepId ويملأ deletedSalesRepId بعد الإنشاء
     name: 'van-loads', model: 'vanLoad', mode: 'updated', permission: 'canManageVanStock', accounting: true, tenantPath: 'direct', hardDeletes: false,
-    select: { ...pick('id', 'salesRepId', 'deletedSalesRepId', 'type', 'note', 'createdBy', 'createdAt', 'updatedAt'), items: { select: pick('productId', 'qty', 'suggestedQty', 'expectedQty') } },
+    select: { ...pick('id', 'salesRepId', 'deletedSalesRepId', 'locationId', 'type', 'note', 'createdBy', 'createdAt', 'updatedAt'), items: { select: pick('productId', 'qty', 'suggestedQty', 'expectedQty') } },
     denied: { tenantId: 'معروف من المفتاح' },
   },
   {

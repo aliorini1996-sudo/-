@@ -336,6 +336,35 @@ export async function requirePaymentMethods(req: AuthRequest, res: Response, nex
   } catch (err) { next(err); }
 }
 
+/**
+ * «لوكيشن» (/api/locations: المواقع وإسناد المناديب وملخّص الفواتير والتحميلات لكل موقع) — ميزة اشتراك **مطفأة
+ * افتراضياً** يفعّلها المالك لكل شركة (services/locations.ts). على نمط requirePaymentMethods حرفياً:
+ * - الشرط `!== true` لا `=== false`: تعذّرُ قراءة الصفّ يجب أن **يمنع** لا أن يفتح.
+ * - ما تختمه الميزة فواتيرُ وتحميلات — وحدات «النظام المحاسبي» — فالمحاسبة المطفأة تمنعها **قبل** فحص عَلَمها
+ *   (ACCOUNTING_NOT_ALLOWED)، فلا يرى المستخدم «غير مفعّلة» لميزةٍ اشتُريت وهي محجوبةٌ بغيرها.
+ * - الشركة من الطلب مباشرةً (`req.user?.tenantId`): tenantId(req) ترمي للسوبر أدمن فتحوّل ٤٠٣ إلى ٥٠٠.
+ * - جلسة المالك (الانتحال) لا تتجاوز العَلَم: العَلَم صلاحية اشتراكٍ للشركة لا صلاحية مستخدم.
+ * - يحرس صفحة الميزة وحدها: الختم في مسارات الإصدار يقرأ العَلَم من صفّ المندوب نفسه (repStampLocation)، وفلتر الموقع
+ *   في قائمتَي الفواتير والتحميلات مفتاحٌ بريء لا يكشف شيئاً لشركةٍ بلا مواقع.
+ */
+export async function requireLocations(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const tid = req.user?.tenantId;
+    // لا شركة = سوبر أدمن؛ تمريره كما في requireAccounting
+    if (!tid) { next(); return; }
+    const t = await prisma.tenant.findUnique({ where: { id: tid }, select: { locationsEnabled: true, accountingEnabled: true } });
+    if (t?.accountingEnabled === false) {
+      res.status(403).json({ success: false, code: 'ACCOUNTING_NOT_ALLOWED', message: 'النظام المحاسبي غير مفعّل لهذه الشركة تواصل مع مزود الخدمة' });
+      return;
+    }
+    if (t?.locationsEnabled !== true) {
+      res.status(403).json({ success: false, code: 'LOCATIONS_NOT_ALLOWED', message: 'صفحة لوكيشن غير مفعّلة لهذه الشركة تواصل مع مزود الخدمة' });
+      return;
+    }
+    next();
+  } catch (err) { next(err); }
+}
+
 export async function requireAccounting(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const tid = req.user?.tenantId;

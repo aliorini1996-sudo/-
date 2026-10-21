@@ -9,6 +9,10 @@ import { computeAccuracy } from '../services/suggestAccuracy';
 import { canAccessRep, adminRepFilter, scopedRepRecordWhere, scopedRecordWhere, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { roundDecimal } from '../utils/helpers';
 import { DAMAGED_VAN_SINCE, isDamagedVanReturn } from '../services/vanDamaged';
+// «لوكيشن»: ختم التحميل بموقع المندوب وقت التحميل، وفلتر سجلّ التحميلات بالختم (services/locations.ts)
+import { locationDocWhere, locationFilterOf, repStampLocation } from '../services/locations';
+import { tenantTz } from '../services/invoiceExpiry';
+import { paymentMethodsRange } from '../services/paymentMethodsReport';
 
 const router = Router();
 router.use(authenticate);
@@ -215,9 +219,13 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     }
 
     await assertRepInScope(req, tid, salesRepId);
-    const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid } });
+    // عَلَم «لوكيشن» مع صفّ المندوب نفسه (موقعه عمودٌ فيه) — لا استعلام زائد للختم
+    const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid }, include: { tenant: { select: { locationsEnabled: true } } } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
     if (isRep && rep.canManageVanStock === false) { res.status(403).json({ success: false, message: 'غير مسموح لك بإدارة مخزون السيارة' }); return; }
+    // «لوكيشن»: التحميل (LOAD وحده — «فقط الفواتير والتحميلات») يُختم بموقع المندوب الآن؛ نقله لاحقاً لا يحرّك الختم.
+    // التنزيل والتسوية والإزالة بلا ختم. والميزة المطفأة ⇒ null (services/locations.ts)
+    const loadLocationId = data.type === 'LOAD' ? repStampLocation(rep) : null;
 
     const items = data.items.filter(i => i.qty !== 0);
     if (!items.length) { res.status(400).json({ success: false, message: 'لا توجد كميات صالحة' }); return; }
@@ -248,6 +256,7 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     const createLoad = (db: Prisma.TransactionClient | typeof prisma) => db.vanLoad.create({
       data: {
         tenantId: tid, salesRepId, type: data.type, note: data.note,
+        ...(loadLocationId && { locationId: loadLocationId }),
         createdBy: isRep ? 'REP' : 'ADMIN',
         items: { create: items.map(i => ({ productId: i.productId, qty: i.qty, suggestedQty: i.suggestedQty ?? null, expectedQty: i.expectedQty ?? null })) },
       },
@@ -460,25 +469,69 @@ router.patch('/sell-permission', requireAdmin, async (req: AuthRequest, res: Res
   } catch (err) { next(err); }
 });
 
-// سجل التحميلات
+/** أنواع حركات السيارة المقبولة في فلتر سجلّ التحميلات (نصٌّ من القائمة وحدها — غيره يُهمل) */
+const LOAD_TYPES = ['LOAD', 'UNLOAD', 'ADJUST', 'EXPIRED_OUT', 'DAMAGED_OUT'] as const;
+/** أقصى صفحة لسجلّ التحميلات المرقَّم — البنود تُضمَّن مع كل حركة */
+const LOADS_MAX_PAGE = 200;
+
+/**
+ * سجل التحميلات. بلا معاملات: آخر ١٠٠ حركة كما كان حرفياً (مستدعو المسار القائمون). ومعاملاتٌ اختيارية كلّها بالنشر
+ * الشرطيّ (لا مفتاح يُضاف حين تغيب):
+ * - `locationId` («لوكيشن»): معرّف موقع أو `none` («بلا موقع») — بختم الحركة لا بموقع المندوب الحاليّ.
+ * - `type`: نوع الحركة (LOAD للتحميلات وحدها).
+ * - `from`/`to` (YYYY-MM-DD): بأيام الشركة (tenantTz) على لحظة التسجيل (createdAt — لا تاريخ مستندٍ للتحميل)؛
+ *   تُقرأ منطقة الشركة حين يُطلب المدى وحده.
+ * - `page`/`limit`: ترقيمٌ مع `pagination` في الردّ (الحدّ ٢٠٠)؛ وبلا page يبقى سقف ١٠٠ بلا عدّ.
+ */
 router.get('/loads', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
     const isRep = req.user?.role === 'SALES_REP';
     const salesRepId = isRep ? req.user!.id : queryRepId(req);
     if (salesRepId) await assertRepInScope(req, tid, salesRepId);
-    const loads = await prisma.vanLoad.findMany({
+    const location = locationFilterOf(req.query.locationId);
+    const type = typeof req.query.type === 'string' && (LOAD_TYPES as readonly string[]).includes(req.query.type) ? req.query.type : undefined;
+    const wantsRange = (typeof req.query.from === 'string' && !!req.query.from) || (typeof req.query.to === 'string' && !!req.query.to);
+    let createdAt: { gte: Date; lt: Date } | undefined;
+    if (wantsRange) {
+      const range = paymentMethodsRange(req.query.from, req.query.to, await tenantTz(tid));
+      if (!range.ok) { res.status(400).json({ success: false, message: range.message }); return; }
+      createdAt = { gte: range.gte, lt: range.lt };
+    }
+    const paged = typeof req.query.page === 'string' && !!req.query.page;
+    const page = Math.max(1, parseInt(String(req.query.page)) || 1);
+    const limit = Math.min(LOADS_MAX_PAGE, Math.max(1, parseInt(String(req.query.limit)) || 50));
+    const where = {
+      tenantId: tid,
+      ...(salesRepId && { salesRepId }),
+      ...locationDocWhere(location),
+      ...(type && { type }),
+      ...(createdAt && { createdAt }),
       // القيد يغطّي حالة عدم تمرير معرّف: بلا نطاق يعود {} فلا يتغيّر شيء
-      where: { tenantId: tid, ...(salesRepId && { salesRepId }), ...(await scopedRepRecordWhere(req)) },
-      orderBy: { createdAt: 'desc' }, take: 100,
-      include: {
-        items: { include: { product: { select: { id: true, name: true, unit: true } } } },
-        salesRep: { select: { id: true, name: true } },
-      },
-    });
+      ...(await scopedRepRecordWhere(req)),
+    };
+    const [loads, total] = await Promise.all([
+      prisma.vanLoad.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: paged ? (page - 1) * limit : undefined,
+        take: paged ? limit : 100,
+        include: {
+          items: { include: { product: { select: { id: true, name: true, unit: true } } } },
+          salesRep: { select: { id: true, name: true } },
+          // «لوكيشن»: اسم الموقع المختوم (عمود السجلّ) — null لما بلا ختم
+          location: { select: { id: true, name: true } },
+        },
+      }),
+      paged ? prisma.vanLoad.count({ where }) : Promise.resolve(null),
+    ]);
     // تحميلات مندوبٍ محذوف تبقى (حركة مخزون) بلا مندوب — اسمٌ صريح لا null يكسر الواجهة.
     // والمستخدم المقيَّد لا يراها أصلاً: قيد النطاق علاقةٌ بمندوب، والمفرَّغ لا يطابقها.
-    res.json({ success: true, data: loads.map(l => ({ ...l, salesRep: l.salesRep ?? { id: null, name: REP_GONE_NAME } })) });
+    res.json({
+      success: true,
+      data: loads.map(l => ({ ...l, salesRep: l.salesRep ?? { id: null, name: REP_GONE_NAME }, location: l.location ?? null })),
+      ...(total !== null && { pagination: { total, page, limit, pages: Math.ceil(total / limit) } }),
+    });
   } catch (err) { next(err); }
 });
 

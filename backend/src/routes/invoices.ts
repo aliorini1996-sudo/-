@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { ReturnLinkError, SALE_TYPES, assertReturnLinks, returnableOf, returnedBySaleItem } from '../services/returnLinks';
 import { isExpiredOn, linkedReturnExpiry, returnRuleBlock, saleExpiryFor, stampExpiryAfterIssue, tenantTz } from '../services/invoiceExpiry';
 import { catalogTeamsFor, resolveDocTeam, supervisorViewerOf, teamCatalogProblem, teamMembershipSelectFor } from '../services/teams';
+// «لوكيشن»: ختم الفاتورة بموقع مندوبها وقت الإصدار، والمرتبط يرث ختم أصله (services/locations.ts)
+import { inheritedLocation, locationDocWhere, locationFilterOf, repStampLocation } from '../services/locations';
 import { expiryDateFor, localDateIn, returnRuleProblem, shelfLifeOf } from '../services/shelfLife';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
@@ -192,6 +194,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const to = req.query.to as string | undefined;
     const withItems = req.query.withItems === '1' || req.query.withItems === 'true'; // تضمين بنود الفاتورة (لكشوف المندوب)
     const isSalesRep = req.user?.role === 'SALES_REP';
+    // «لوكيشن»: فلتر الموقع بختم الفاتورة (معرّف، أو none = «بلا موقع») — نصٌّ وحده، فكائن qs لا يصير شرطاً
+    const location = locationFilterOf(req.query.locationId);
 
     const where = {
       tenantId: tid,
@@ -200,6 +204,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       ...(isSalesRep && { salesRepId: req.user!.id }),
       ...(salesRepId && !isSalesRep && { salesRepId }),
       ...(customerId && { customerId }),
+      // مفتاحٌ عدديّ واحد (locationId) لا AND/OR — فلا يمحو مفتاح النطاق (AND) ولا البحث (OR) عند النشر
+      ...locationDocWhere(location),
       ...(status && { status: status as 'DRAFT' | 'CONFIRMED' | 'CANCELLED' }),
       ...(type && { type: type as 'CASH' | 'CREDIT' | 'RETURN' }),
       ...(search && {
@@ -224,6 +230,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
         include: {
           customer: { select: { id: true, name: true, phone: true } },
           salesRep: { select: { id: true, name: true } },
+          // «لوكيشن»: اسم الموقع المختوم (عمود القائمة وتصديرها) — null لما بلا ختم
+          location: { select: { id: true, name: true } },
           _count: { select: { items: true } },
           ...(withItems && { items: { include: { product: { select: { name: true, unit: true } } } } }),
         },
@@ -458,14 +466,17 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       ? { image: body.recipientSignature ?? null, repImage: body.repSignature ?? null }
       : null;
 
-    // فرق المندوب وعلم الميزة مع صفّه نفسه (لا استعلام جديد في مسار الإصدار)
+    // فرق المندوب وعلم الميزة مع صفّه نفسه (لا استعلام جديد في مسار الإصدار) — ومعها عَلَم «لوكيشن» (موقعه عمودٌ في صفّه)
     const rep = await prisma.salesRep.findFirst({
       where: { id: salesRepId, tenantId: tid },
-      include: { tenant: { select: { settings: { select: { teamsEnabled: true } } } }, teamMemberships: { select: teamMembershipSelectFor(supervisorViewerOf(req.user)) } },
+      include: { tenant: { select: { locationsEnabled: true, settings: { select: { teamsEnabled: true } } } }, teamMemberships: { select: teamMembershipSelectFor(supervisorViewerOf(req.user)) } },
     });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
     // الفرق: فريق المستند — ما اختاره المندوب من فرقه، وإلا فريقه الوحيد، وإلا «بلا فريق»
     let docTeamId = resolveDocTeam(rep, body.teamId);
+    // «لوكيشن»: موقع المندوب الآن (والميزة مفعّلة) هو ختم الفاتورة — لقطةٌ لا يحرّكها نقله لاحقاً. والمرتجع من فاتورة بيع
+    // يرث ختمها بدلاً منه داخل المعاملة أدناه، والإشعاران من أصلهما (invoicesNotes.ts)
+    const docLocationId = repStampLocation(rep);
     // نطاق المستخدم الإداري: لا يُنسِب فاتورة لمندوب لا يراه (كتابة عمياء تظهر في تقاريره)
     if (!(await canAccessRep(req, tid, salesRepId))) {
       res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return;
@@ -675,6 +686,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         customerCreditLimit: Number(customer.creditLimit),
         salesRepId,
         teamId: docTeamId,
+        locationId: docLocationId,
         companyVat,
         engine: calc,
         items: finalItems,
@@ -769,8 +781,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       // نقد 4.4: يرمي Phase2WentLiveError إن صار التفعيل مضبوطاً بين قراءة الإعدادات أعلاه والتزام هذه المعاملة (مطفأ لغير المُسلَّح)
       await assertNotWentLiveInTx(tx as unknown as GoLiveRaceTx, tid, armRaceActive);
       // مرتجعٌ من فاتورة بيع: قفل صفّ فاتورة البيع ثم إعادة التحقق من المتاح — مرتجعان متزامنان لا يتجاوزانه معاً
+      // «لوكيشن»: ومن صفّها المقفل نفسه ختمُ موقعها يرثه المرتجع (null لبيعٍ بلا ختم) — بلا استعلامٍ زائد
+      let invLocationId = docLocationId;
       if (saleForReturn) {
-        await assertReturnLinks(tx, { tenantId: tid, customerId, saleInvoiceId: saleForReturn, lines: saleLinkLines, lock: true });
+        const saleLink = await assertReturnLinks(tx, { tenantId: tid, customerId, saleInvoiceId: saleForReturn, lines: saleLinkLines, lock: true });
+        invLocationId = inheritedLocation(saleLink);
       }
       const inv = await tx.invoice.create({
         data: {
@@ -781,6 +796,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           customerId: customerId,
           salesRepId,
           ...(docTeamId && { teamId: docTeamId }),
+          ...(invLocationId && { locationId: invLocationId }),
           type: body.type,
           ...(isReturn && {
             returnReason: body.returnReason || 'NORMAL',

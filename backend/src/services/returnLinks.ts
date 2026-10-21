@@ -90,16 +90,19 @@ export function returnLinkProblem(input: {
 /**
  * يقرأ فاتورة البيع ومتاحها ويتحقّق من الطلب — يُستدعى قبل الإصدار (لرسالةٍ واضحة) وداخل معاملته بعد قفل صفّ فاتورة
  * البيع (`lock`) فلا يتجاوز مرتجعان متزامنان المتاح معاً. يرمي ReturnLinkError عند المخالفة.
+ *
+ * ويُعيد من الصفّ المقروء نفسه ختمَ «لوكيشن» لفاتورة البيع (`locationId`، null بلا ختم): المرتجع المرتبط يرثه
+ * (services/locations.ts القرار ٣) — عمودٌ في القراءة القائمة لا استعلامٌ زائد في مسار الإصدار.
  */
 export async function assertReturnLinks(db: Db, input: {
   tenantId: string; customerId: string; saleInvoiceId: string; lines: ReturnLineRequest[]; lock?: boolean;
-}): Promise<void> {
+}): Promise<{ locationId: string | null }> {
   if (input.lock) {
     await db.$queryRaw`SELECT id FROM invoices WHERE id = ${input.saleInvoiceId} AND "tenantId" = ${input.tenantId} FOR UPDATE`;
   }
   const sale = await db.invoice.findFirst({
     where: { id: input.saleInvoiceId, tenantId: input.tenantId },
-    select: { customerId: true, type: true, status: true, documentKind: true, items: { select: { id: true, productId: true, qty: true } } },
+    select: { customerId: true, type: true, status: true, documentKind: true, locationId: true, items: { select: { id: true, productId: true, qty: true } } },
   });
   const returned = sale ? await returnedBySaleItem(db, input.tenantId, sale.items.map((i) => i.id)) : new Map<string, number>();
   const problem = returnLinkProblem({
@@ -107,4 +110,5 @@ export async function assertReturnLinks(db: Db, input: {
     returnable: sale ? returnableOf(sale.items, returned) : new Map(),
   });
   if (problem) throw new ReturnLinkError(problem, input.lock ? 409 : 422);
+  return { locationId: sale?.locationId ?? null };
 }

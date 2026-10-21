@@ -37,6 +37,7 @@ import contactRouter from './routes/contact';
 import vanStockRouter from './routes/vanStock';
 import warehouseRouter from './routes/warehouse';
 import repStockRequestsRouter from './routes/repStockRequests';
+import locationsRouter from './routes/locations';
 import repRoutesRouter from './routes/repRoutes';
 import dailyReportsRouter from './routes/dailyReports';
 import trackingRouter from './routes/tracking';
@@ -222,6 +223,7 @@ app.use('/api/contact', contactRouter);
 app.use('/api/van-stock', vanStockRouter);
 app.use('/api/warehouse', warehouseRouter);
 app.use('/api/rep-stock-requests', repStockRequestsRouter); // «طلب بضاعة» المندوب ← «طلب مخزون» في مخزون الشركة
+app.use('/api/locations', locationsRouter); // «لوكيشن» — مواقع الشركة وملخّص الفواتير والتحميلات لكل موقع؛ يفعّلها المالك لكل شركة
 app.use('/api/rep-routes', repRoutesRouter);
 app.use('/api/daily-reports', dailyReportsRouter);
 app.use('/api/tracking', trackingRouter);

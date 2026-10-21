@@ -54,7 +54,8 @@ model Tenant {
   aiRepEnabled              Boolean   @default(false) // «المندوب الذكي AI» — محلات قريبة وتوقّع مشتريات كل محل ومسار؛ يفعّله المالك لكل شركة
   apiEnabled                Boolean   @default(false) // «الربط البرمجي API» — مفاتيح API لنظام الشركة الخاص؛ يفعّله المالك لكل شركة (services/apiKeys.ts)
   paymentMethodsEnabled     Boolean   @default(false) // صفحة «طرق الدفع» — تحصيل كل مندوب موزّعاً على النقدي والشبكة والتحويل والشيك والإلكتروني؛ يفعّلها المالك لكل شركة (services/paymentMethodsReport.ts)
-  subscriptionEndsAt        DateTime? // تاريخ انتهاء الاشتراك (null = غير محدود)
+  locationsEnabled          Boolean   @default(false) // «لوكيشن» — مواقع الشركة (فرع/مستودع/مدينة) ووسم الفواتير والتحميلات بموقع المندوب وقت الإصدار؛ يفعّلها المالك لكل شركة (services/locations.ts)
+  subscriptionEndsAt       DateTime? // تاريخ انتهاء الاشتراك (null = غير محدود)
   notes                     String?
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
@@ -81,6 +82,7 @@ model Tenant {
   repStockRequests     RepStockRequest[]
   vanToolMoves         VanToolMove[]
   teams                Team[]
+  salesLocations       SalesLocation[]
   warehouseEntries     WarehouseEntry[]
   repLocations         RepLocation[]
   repSettlements       RepSettlement[]
@@ -334,6 +336,32 @@ model ProductTeam {
   @@map("product_teams")
 }
 
+/// «لوكيشن» (طلب المالك ٢١ أكتوبر ٢٠٢٦، يفعّلها المالك لكل شركة: Tenant.locationsEnabled): موقعٌ تحدّده الشركة — فرعٌ أو
+/// مستودعٌ أو مدينة — باسمٍ ونقطةٍ على الخريطة. المندوب في موقعٍ واحد (SalesRep.locationId)، وكلّ فاتورةٍ وتحميلٍ له يُختم
+/// بموقعه **وقت الإصدار** (Invoice.locationId / VanLoad.locationId) — فنقلُه لاحقاً لا يحرّك مستنداته القديمة.
+/// الاسم SalesLocation لا Location: RepLocation (ونقاط GPS في SalesRep.locations) جدول التتبّع اللحظي، ولا صلة بينهما.
+/// الموقع الذي عليه مستندات لا يُحذف بل يُؤرشف (isActive=false) — الحذف يفرّغ ختمها (SetNull) فتسقط من تقاريره بصمت.
+model SalesLocation {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  // نقطة الموقع على الخريطة — اختيارية (الاسم وحده يكفي لموقعٍ بلا عنوانٍ ثابت كـ«مدينة»)، والزوج معاً أو لا شيء
+  lat       Float?
+  lng       Float?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  salesReps SalesRep[]
+  invoices  Invoice[]
+  vanLoads  VanLoad[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("sales_locations")
+}
+
 model SalesRep {
   id           String  @id @default(uuid())
   tenantId     String
@@ -429,6 +457,11 @@ model SalesRep {
   outboxTaxPending Int?      // منها فواتير/مرتجعات (مستندات ضريبية)
   outboxReportedAt DateTime? // وقت الخادم لآخر إبلاغ صالح بالعدّين
 
+  // «لوكيشن» (Tenant.locationsEnabled): موقع المندوب الحاليّ — يُختم به ما يُصدره من فواتير وتحميلات **وقت الإصدار**.
+  // null = بلا موقع. SetNull: حذف الموقع لا يحذف المندوب. (لا تخلطه بـ`locations` أدناه: تلك نقاط GPS للتتبّع)
+  locationId String?
+  location   SalesLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+
   invoices      Invoice[]
   receipts      Receipt[]
   notifications Notification[]
@@ -453,6 +486,7 @@ model SalesRep {
 
   @@index([tenantId])
   @@index([lastSeenAt])
+  @@index([locationId])
   @@map("sales_reps")
 }
 
@@ -805,6 +839,10 @@ model Invoice {
   // الفريق الذي عمل له المندوب حين أنشأه (الفرق): يختاره المندوب، أو فريقه الوحيد، أو يُورث من الأصل؛ null = بلا فريق
   teamId        String?
   team          Team?     @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  // «لوكيشن»: موقع المندوب **وقت الإصدار** (لقطة لا مرجعٌ حيّ — نقل المندوب لا يحرّكه)؛ والمرتجع المرتبط والإشعاران يرثون
+  // ختم أصلهم (services/locations.ts). null = بلا موقع. لا يُطبع على الفاتورة
+  locationId    String?
+  location      SalesLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
   type          String    @default("CREDIT") // CASH | CREDIT | RETURN
   status        String    @default("CONFIRMED") // DRAFT | CONFIRMED | CANCELLED
   returnReason  String? // سبب الإرجاع (للمرتجعات): NORMAL | DAMAGED | EXCHANGE
@@ -889,6 +927,7 @@ model Invoice {
   @@index([originalInvoiceId])
   @@index([tenantId, invoiceDate]) // المندوب الذكي: تجميع مشتريات العملاء لنافذة أشهر
   @@index([tenantId, teamId, invoiceDate]) // تقارير الفرق
+  @@index([tenantId, locationId, invoiceDate]) // «لوكيشن»: ملخّص المواقع وفلتر قائمة الفواتير
   @@map("invoices")
 }
 
@@ -1405,6 +1444,10 @@ model VanLoad {
   // أجنبيّ. هو مفتاح «سيارته» في تقييم المستودع (طبقات لكل سيارة، warehouseCost):
   // بدونه تختلط حمولات مندوبَين محذوفَين في مكدّس واحد فتتغيّر قيمة المستودع بالحذف.
   deletedSalesRepId String?
+  // «لوكيشن»: موقع المندوب وقت **التحميل** (type LOAD وحده — قرار المالك «فقط الفواتير والتحميلات»؛ التنزيل والتسوية
+  // والإزالة بلا ختم). لقطةٌ لا تتحرّك بنقل المندوب؛ null = بلا موقع
+  locationId String?
+  location   SalesLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
   type       String   @default("LOAD") // LOAD | UNLOAD | ADJUST
   note       String?
   createdBy  String? // "REP" | "ADMIN" — من سجّل الحركة
@@ -1417,6 +1460,7 @@ model VanLoad {
 
   @@index([tenantId])
   @@index([salesRepId])
+  @@index([tenantId, locationId, createdAt]) // «لوكيشن»: ملخّص المواقع وفلتر سجلّ التحميلات
   @@map("van_loads")
 }
 

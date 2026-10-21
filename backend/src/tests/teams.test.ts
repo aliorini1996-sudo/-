@@ -55,7 +55,8 @@ test('كتالوج البيع الحيّ: فريق المستند، وإلا ك�
 
 test('حارس نصّي: الوسم من قراءة المندوب القائمة (لا استعلام جديد)، والمرتجع والإشعار يرثان فريق الأصل', () => {
   const inv = read('routes/invoices.ts');
-  assert.ok(inv.includes("include: { tenant: { select: { settings: { select: { teamsEnabled: true } } } }, teamMemberships: { select: teamMembershipSelectFor(supervisorViewerOf(req.user)) } },"));
+  // ومعه عَلَم «لوكيشن» في القراءة نفسها (services/locations.ts) — لا استعلام جديد
+  assert.ok(inv.includes("include: { tenant: { select: { locationsEnabled: true, settings: { select: { teamsEnabled: true } } } }, teamMemberships: { select: teamMembershipSelectFor(supervisorViewerOf(req.user)) } },"));
   assert.ok(inv.includes('let docTeamId = resolveDocTeam(rep, body.teamId);'));
   assert.ok(inv.includes("code: 'PRODUCT_NOT_IN_TEAM'"), 'أصناف الفريق تقيّد البيع في الخادم');
   // قيد الأصناف لبيع المندوب الحيّ وحده: لا الرفع المؤجَّل (يُعدم في صندوق الإرسال) ولا فاتورة الإدارة، ولا المرتجع المرتبط

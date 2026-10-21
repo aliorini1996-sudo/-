@@ -90,6 +90,19 @@ export const teamsApi = {
   setSupervisors: (id: string, adminIds: string[]) => api.put(`/company/teams/${id}/supervisors`, { adminIds }),
 };
 
+// «لوكيشن» — /api/locations (ميزة يفعّلها المالك لكل شركة؛ ٤٠٣ LOCATIONS_NOT_ALLOWED دونها): مواقع الشركة (اسم ونقطة
+// على الخريطة)، وإسناد كل مندوبٍ لموقعٍ واحد، وملخّص الفواتير والتحميلات لكل موقع في فترة (from/to بأيام الشركة)
+export const locationsApi = {
+  list: () => api.get('/locations'),
+  create: (data: { name: string; lat?: number | null; lng?: number | null }) => api.post('/locations', data),
+  update: (id: string, data: { name?: string; lat?: number | null; lng?: number | null; isActive?: boolean }) => api.put(`/locations/${id}`, data),
+  remove: (id: string) => api.delete(`/locations/${id}`),
+  reps: () => api.get('/locations/reps'),
+  // locationId: null = «بلا موقع» — يسري على ما يُصدره المندوب بعد الإسناد وحده
+  assignRep: (salesRepId: string, locationId: string | null) => api.put(`/locations/reps/${salesRepId}`, { locationId }),
+  summary: (params?: Record<string, string>) => api.get('/locations/summary', { params }),
+};
+
 export const salesRepApi = {
   list: (params?: Record<string, string | number>) => api.get('/sales-reps', { params }),
   get: (id: string) => api.get(`/sales-reps/${id}`),
@@ -468,6 +481,8 @@ export const vanStockApi = {
   summary: (params?: { from?: string; to?: string }) => api.get('/van-stock/summary', { params: { ...(params?.from && { from: params.from }), ...(params?.to && { to: params.to }) } }),
   current: (salesRepId: string) => api.get('/van-stock/current', { params: { salesRepId } }),
   loads: (salesRepId?: string) => api.get('/van-stock/loads', { params: salesRepId ? { salesRepId } : {} }),
+  // «سجل التحميلات» المرقَّم («لوكيشن»): type=LOAD وfrom/to بأيام الشركة وlocationId (معرّف أو none) وpage/limit — يعيد pagination
+  loadsLog: (params: Record<string, string | number>) => api.get('/van-stock/loads', { params }),
   movements: (salesRepId: string) => api.get('/van-stock/movements', { params: { salesRepId } }),
   // suggestedQty يُمرَّر ليُخزَّن مع البند — به وحده تُقاس جودة الاقتراح لاحقاً
   // expectedQty = التنبّؤ اليومي وقت التحميل — مرجعُ قياس الدقّة (لا suggestedQty)

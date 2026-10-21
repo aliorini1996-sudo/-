@@ -77,6 +77,8 @@ export interface NoteOriginalInvoice {
   salesRepId: string | null;
   /** الفرق: فريق الأصل — يرثه الإشعار */
   teamId?: string | null;
+  /** «لوكيشن»: ختم موقع الأصل — يرثه الإشعار (اختياريّ كي تبقى تجهيزات الاختبار القديمة صالحة) */
+  locationId?: string | null;
   number: string;
   status: string;
   /** CASH | CREDIT | RETURN */

@@ -1271,10 +1271,16 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "type": "'1' | 'true'",
       "required": false,
       "desc": "تضمين بنود كل فاتورة مع product{name,unit}"
+     },
+     {
+      "name": "locationId",
+      "type": "string (uuid) | none",
+      "required": false,
+      "desc": "تصفية بختم الموقع (ميزة «لوكيشن»): معرّف موقع، أو none للفواتير بلا موقع"
      }
     ],
     "body": [],
-    "response": "{success:true, data:[...], pagination:{total, page, limit, pages}}. كل صف فيه أعمدة الفاتورة: id وnumber وtype وstatus وinvoiceDate وdueDate وdeliveryDate وpaymentPlan وpricesIncludeTax وsubtotal وdiscountPct وdiscountAmt وtaxAmt وtotal وpaidAmt وremainingAmt وreturnReason وreturnToStock وeinvoiceProvider وeinvoiceStatus وeinvoiceQr وclientRef وzatcaPhase وdocumentKind وinvoiceSubtype وissuedAt وoriginalInvoiceId وcreatedAt. ومعها customer{id,name,phone} وsalesRep{id,name} و_count{items}، وitems عند طلب withItems. الحقل einvoiceSnapshot محذوف من صفوف القائمة",
+    "response": "{success:true, data:[...], pagination:{total, page, limit, pages}}. كل صف فيه أعمدة الفاتورة: id وnumber وtype وstatus وinvoiceDate وdueDate وdeliveryDate وpaymentPlan وpricesIncludeTax وsubtotal وdiscountPct وdiscountAmt وtaxAmt وtotal وpaidAmt وremainingAmt وreturnReason وreturnToStock وeinvoiceProvider وeinvoiceStatus وeinvoiceQr وclientRef وzatcaPhase وdocumentKind وinvoiceSubtype وissuedAt وoriginalInvoiceId وcreatedAt وlocationId. ومعها customer{id,name,phone} وsalesRep{id,name} وlocation{id,name} (ختم موقع المندوب وقت الإصدار، أو null) و_count{items}، وitems عند طلب withItems. الحقل einvoiceSnapshot محذوف من صفوف القائمة",
     "rules": [
      "الترتيب حسب createdAt تنازلياً، والترقيم بالأسلوب skip=(page-1)*limit",
      "هذه القائمة لا تشترط X-FS-Caps حتى للصفوف المربوطة بالمرحلة الثانية، بخلاف GET /invoices/:id",
@@ -2950,7 +2956,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
  {
   "key": "stock",
   "title": "مخزون السيارات ومخزون الشركة",
-  "overview": "وحدتان مترابطتان. الأولى مخزون سيارات المناديب (/van-stock)، ورصيده لا يُخزَّن بل يُحسب في كل طلب: التحميل − التنزيل + التسوية − المبيع + المرتجع العائد للمخزون. والثانية مستودع الشركة المركزي (/warehouse)، ورصيده محسوب أيضاً: الوارد + تسويات المستودع + العائد من السيارات − المحمَّل للسيارات، مع تقييم بتكلفة الشراء الصافية قبل الضريبة. لذلك فتحميل سيارة عبر POST /van-stock/loads ينقص المستودع تلقائياً، وتنزيلها يعيد الكمية إليه.\nالحراس على كل مسارات /van-stock: يجب ألا يكون النظام المحاسبي مطفأً (accountingEnabled، والرفض 403 برمز ACCOUNTING_NOT_ALLOWED)، ويجب أن يملك صاحب المفتاح صلاحية canManageVanStock (والرفض 403). ويُطبَّق كذلك نطاق المناديب المحدد لصاحب المفتاح إن كان مقيَّداً.\nمسارات /warehouse تشترط الشيئين نفسيهما، وتشترط فوقهما تفعيل ميزة مخزون الشركة (warehouseEnabled، وهي مطفأة افتراضياً، والرفض 403).\nالمفتاح المضبوط على «قراءة فقط» لا يمرّ إلا بطلبات GET.\nلا يوجد ترقيم صفحات (page/limit) في هذه المجموعة، فلكل قائمة سقف ثابت: سجل التحميلات وسجل المستودع آخر 100 حركة. للتاريخ الكامل استعمل مسارات المزامنة /v1/sync/van-loads و/v1/sync/warehouse-entries.\nلا يوجد مسار لتعديل الحركات أو حذفها، والتصحيح يكون بحركة معاكسة أو بتسوية. ولا يوجد clientRef، فإعادة إرسال طلب الكتابة تُنشئ حركة مكررة.\nالحد 120 طلباً في الدقيقة لكل مفتاح، ويظهر في رؤوس X-RateLimit-*",
+  "overview": "وحدتان مترابطتان. الأولى مخزون سيارات المناديب (/van-stock)، ورصيده لا يُخزَّن بل يُحسب في كل طلب: التحميل − التنزيل + التسوية − المبيع + المرتجع العائد للمخزون. والثانية مستودع الشركة المركزي (/warehouse)، ورصيده محسوب أيضاً: الوارد + تسويات المستودع + العائد من السيارات − المحمَّل للسيارات، مع تقييم بتكلفة الشراء الصافية قبل الضريبة. لذلك فتحميل سيارة عبر POST /van-stock/loads ينقص المستودع تلقائياً، وتنزيلها يعيد الكمية إليه.\nالحراس على كل مسارات /van-stock: يجب ألا يكون النظام المحاسبي مطفأً (accountingEnabled، والرفض 403 برمز ACCOUNTING_NOT_ALLOWED)، ويجب أن يملك صاحب المفتاح صلاحية canManageVanStock (والرفض 403). ويُطبَّق كذلك نطاق المناديب المحدد لصاحب المفتاح إن كان مقيَّداً.\nمسارات /warehouse تشترط الشيئين نفسيهما، وتشترط فوقهما تفعيل ميزة مخزون الشركة (warehouseEnabled، وهي مطفأة افتراضياً، والرفض 403).\nالمفتاح المضبوط على «قراءة فقط» لا يمرّ إلا بطلبات GET.\nلكل قائمة في هذه المجموعة سقف ثابت: سجل المستودع آخر 100 حركة، وسجل التحميلات آخر 100 حركة ما لم تُرسل page فيُرقَّم بحدّ 200. للتاريخ الكامل استعمل مسارات المزامنة /v1/sync/van-loads و/v1/sync/warehouse-entries.\nلا يوجد مسار لتعديل الحركات أو حذفها، والتصحيح يكون بحركة معاكسة أو بتسوية. ولا يوجد clientRef، فإعادة إرسال طلب الكتابة تُنشئ حركة مكررة.\nالحد 120 طلباً في الدقيقة لكل مفتاح، ويظهر في رؤوس X-RateLimit-*",
   "endpoints": [
    {
     "method": "POST",
@@ -3232,7 +3238,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
    {
     "method": "GET",
     "path": "/van-stock/loads",
-    "purpose": "سجل حركات تحميل وتنزيل وتسوية السيارات (آخر 100 حركة)",
+    "purpose": "سجل حركات تحميل وتنزيل وتسوية السيارات (آخر 100 حركة، أو مرقَّماً بالتصفية)",
     "permission": "canManageVanStock",
     "gates": [
      "accountingEnabled ليس false",
@@ -3245,12 +3251,49 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "type": "string (uuid)",
       "required": false,
       "desc": "لتصفية الحركات على مندوب واحد، وبدونه تأتي كل المناديب"
+     },
+     {
+      "name": "type",
+      "type": "enum: LOAD | UNLOAD | ADJUST | EXPIRED_OUT | DAMAGED_OUT",
+      "required": false,
+      "desc": "نوع الحركة. القيمة غير المعروفة تُهمل"
+     },
+     {
+      "name": "from",
+      "type": "date YYYY-MM-DD",
+      "required": false,
+      "desc": "بداية الفترة بأيام الشركة المحلية على لحظة تسجيل الحركة (createdAt). إذا غابت فهي يوم to"
+     },
+     {
+      "name": "to",
+      "type": "date YYYY-MM-DD",
+      "required": false,
+      "desc": "نهاية الفترة شاملة اليوم كاملاً بأيام الشركة. إذا غابت مع وجود from فهي اليوم. التاريخ غير الصالح أو from بعد to يعطي 400"
+     },
+     {
+      "name": "locationId",
+      "type": "string (uuid) | none",
+      "required": false,
+      "desc": "تصفية بختم الموقع (ميزة «لوكيشن»): معرّف موقع، أو none للحركات بلا موقع"
+     },
+     {
+      "name": "page",
+      "type": "integer",
+      "required": false,
+      "desc": "يفعّل الترقيم ويضيف pagination للردّ. بدونه تبقى آخر 100 حركة كما هي"
+     },
+     {
+      "name": "limit",
+      "type": "integer",
+      "required": false,
+      "desc": "حجم الصفحة مع page، الافتراضي 50 وأقصاه 200"
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{id, tenantId, salesRepId, deletedSalesRepId, type, note, createdBy:'REP'|'ADMIN'|null, createdAt, items:[{id, vanLoadId, productId, qty, suggestedQty, expectedQty, product:{id,name,unit}}], salesRep:{id,name}}]}",
+    "response": "{success:true, data:[{id, tenantId, salesRepId, deletedSalesRepId, locationId, type, note, createdBy:'REP'|'ADMIN'|null, createdAt, items:[{id, vanLoadId, productId, qty, suggestedQty, expectedQty, product:{id,name,unit}}], salesRep:{id,name}, location:{id,name}|null}], pagination?:{total, page, limit, pages}}",
     "rules": [
-     "آخر 100 حركة فقط، الأحدث أولاً، بلا ترقيم صفحات. للتاريخ الكامل استعمل /v1/sync/van-loads",
+     "بلا page: آخر 100 حركة فقط، الأحدث أولاً، بلا pagination. ومع page: صفحات مرقّمة بحدّ 200. للتاريخ الكامل استعمل /v1/sync/van-loads",
+     "location هو ختم موقع المندوب لحظة التحميل (حركات LOAD وحدها تُختم حين تفعّل الشركة ميزة «لوكيشن»)، ولا يتغيّر إن نُقل المندوب لاحقاً. وnull لما بلا ختم",
      "حركات مندوب محذوف تبقى وتظهر بـsalesRep={id:null, name:'مندوب محذوف'}، ولا يراها صاحب مفتاح مقيّد النطاق",
      "salesRepId خارج النطاق يعطي 404 «المندوب غير موجود»"
     ],

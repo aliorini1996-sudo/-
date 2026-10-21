@@ -148,9 +148,10 @@ test('القوائم الثلاث تعرض الشارة، ولوحة الإدا�
   const page = read('pages/InvoicesPage.tsx');
   assert.match(page, /const phase2 = zatcaRegimeOf\(company\)\.phase === 2;/, 'عمود اللوحة بلا حارس نظام');
   assert.match(page, /\{phase2 && <th>\{tr\('الفوترة الإلكترونية'\)\}<\/th>\}/, 'ترويسة العمود مفقودة');
-  // عدد الأعمدة يتبع الحارس وإلّا انزاح صفّ «لا توجد فواتير»
-  assert.match(page, /colSpan=\{phase2 \? 13 : 12\}/);
-  assert.ok(!/colSpan=\{12\}/.test(page), 'colSpan ثابت بقي مع عمودٍ مشروط');
+  // عدد الأعمدة يتبع الحارس وإلّا انزاح صفّ «لا توجد فواتير» — ومعه عمود «الموقع» المشروط («لوكيشن»)
+  assert.match(page, /const tableCols = \(phase2 \? 13 : 12\) \+ \(locOn \? 1 : 0\);/);
+  assert.equal((page.match(/colSpan=\{tableCols\}/g) || []).length, 2, 'صفّا التحميل والفراغ يتبعان عدد الأعمدة');
+  assert.ok(!/colSpan=\{1[23]\}/.test(page), 'colSpan ثابت بقي مع عمودٍ مشروط');
   // الإجراءات لمستخدمي الشركة وحدهم وبشرط حالة الصفّ
   assert.match(page, /zatcaRowActions\(inv as unknown as Record<string, unknown>, \{ allowed: canZatcaAct \}\)/);
   assert.match(page, /const canZatcaAct = useAuthStore\(s => s\.isAdmin\)\(\);/);
