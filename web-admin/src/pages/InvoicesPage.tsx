@@ -215,6 +215,8 @@ export default function InvoicesPage() {
             <option value="">{tr('جميع الأنواع')}</option>
             <option value="CASH">{tr('نقدي')}</option>
             <option value="CREDIT">{tr('آجل')}</option>
+            {/* فاتورة الإرجاع تُصدر من «فاتورة جديدة» الآن — وتصفيتها هنا (الخادم يقبل type=RETURN) */}
+            <option value="RETURN">{tr('مرتجع')}</option>
           </select>
           <select className="input w-40" value={salesRepId} onChange={e => { setSalesRepId(e.target.value); setPage(1); }}>
             <option value="">{tr('كل المناديب')}</option>

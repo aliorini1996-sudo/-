@@ -130,6 +130,10 @@ export const invoiceApi = {
   open: (customerId: string) => api.get('/invoices/open', { params: { customerId } }),
   get: (id: string) => api.get(`/invoices/${id}`),
   create: (data: unknown) => api.post('/invoices', data),
+  /* فاتورة الإرجاع من اللوحة (lib/returnInvoice.ts): فواتير بيع العميل التي بقي فيها ما يُرجَع، ثم بنود واحدةٍ منها بمبيعها
+   * ومُرجَعها ومتاحها وسعر استردادها — المساران نفسهما اللذان يخدمان تطبيق المندوب، بنطاق مستخدم الشركة على الخادم */
+  returnableSales: (customerId: string) => api.get('/invoices/returnable-sales', { params: { customerId } }),
+  returnable: (id: string) => api.get(`/invoices/${id}/returnable`),
   cancel: (id: string) => api.patch(`/invoices/${id}/cancel`),
   // تحكّم الأدمن: هل يعود المرتجع لمخزون السيارة؟
   setRestock: (id: string, returnToStock: boolean) => api.patch(`/invoices/${id}/restock`, { returnToStock }),
