@@ -146,14 +146,25 @@ self.addEventListener('push', (event) => {
     const u = new URL(typeof data.url === 'string' ? data.url : '/rep', self.location.origin);
     if (u.origin === self.location.origin && shellFor(u.pathname) === '/rep') url = u.pathname + u.search;
   } catch { /* رابطٌ فاسد: التطبيق */ }
-  event.waitUntil(self.registration.showNotification(title, {
+  const shown = self.registration.showNotification(title, {
     body: typeof data.body === 'string' ? data.body : '',
     icon: '/icons/icon-192.png',
     badge: '/icons/icon-192.png',
     tag: typeof data.tag === 'string' ? data.tag : undefined,
+    // «أثبت تواجدك» ينبّه كل مرّة (صوتٌ واهتزاز ولو حلّ محلّ سابقه بالوسم نفسه) ويبقى حتى يُلمس — مهلته دقيقتان
+    renotify: data.tag === 'presence',
+    requireInteraction: data.tag === 'presence',
     dir: 'auto',
-    data: { url },
-  }));
+    // معرّف الطلب: التطبيق يُغلق إشعار طلبه وحده، لا إشعار طلبٍ أحدث وصل وهو في الخلفية
+    data: { url, checkId: typeof data.checkId === 'string' ? data.checkId : null },
+  });
+  // «أثبت تواجدك» (التحقق العشوائي من التواجد): نافذة التطبيق المفتوحة تعرض الطلب فوراً بلا انتظار النقر — المهلة دقيقتان
+  const openNow = data.tag === 'presence'
+    ? self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
+      for (const w of wins) if (shellFor(new URL(w.url).pathname) === '/rep') w.postMessage({ type: 'OPEN_SCREEN', screen: 'presence' });
+    }).catch(() => {})
+    : Promise.resolve();
+  event.waitUntil(Promise.all([shown, openNow]));
 });
 
 self.addEventListener('notificationclick', (event) => {

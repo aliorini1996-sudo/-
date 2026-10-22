@@ -522,6 +522,8 @@ export const attendanceAdminApi = {
   update: (id: string, data: { checkInAt: string; checkOutAt: string | null; reason: string }) => api.put(`/attendance-admin/rows/${id}`, data),
   remove: (id: string, reason: string) => api.delete(`/attendance-admin/rows/${id}`, { data: { reason } }),
   import: (data: { reason: string; rows: { salesRepId: string; checkInAt: string; checkOutAt: string | null }[] }) => api.post('/attendance-admin/import', data),
+  // نتائج «التحقق العشوائي من التواجد» في مدى أيام (lib/presenceReport.ts)
+  presence: (params: { from: string; to: string; tz: number; salesRepId?: string }) => api.get('/attendance-admin/presence', { params }),
   // مناديب النطاق بصلاحية التتبّع وحدها (قائمة /sales-reps تشترط «إدارة المناديب»)
   reps: () => api.get('/attendance-admin/reps'),
 };

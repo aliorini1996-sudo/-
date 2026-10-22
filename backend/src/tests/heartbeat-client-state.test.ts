@@ -45,7 +45,9 @@ test('المسار: كتابة repSession واحدة (تحديث أو إنشاء
   const body = src.slice(start, src.indexOf('\n});', start));
   const calls = [...body.matchAll(/prisma\.(\w+)\.(\w+)\(/g)].map(m => `${m[1]}.${m[2]}`);
   assert.deepEqual(calls, ['repSession.findFirst', 'repSession.update', 'repSession.create', 'salesRep.update']);
-  assert.match(body, /await prisma\.salesRep\.update\(\{ where: \{ id: repId \}, data: \{ lastSeenAt: now, \.\.\.heartbeatClientState\(req\.body, now\) \} \}\);/);
+  assert.match(body, /await prisma\.salesRep\.update\(\{\s*where: \{ id: repId \}, data: \{ lastSeenAt: now, \.\.\.heartbeatClientState\(req\.body, now\) \}, select: \{ requirePresenceCheck: true \},\s*\}\);/);
+  // «التحقق العشوائي من التواجد»: استعلامٌ إضافي للمقيَّد وحده (طلبه المعلّق) — غيره نبضته كما كانت
+  assert.match(body, /const presence = beat\.requirePresenceCheck && \(await attendanceEnabled\(tid\)\) \? await pendingPresence\(tid, repId, now\) : null;/);
   assert.match(body, /if \(last && .*\) \{\n\s*await prisma\.repSession\.update\(.*\n\s*\} else \{\n\s*await prisma\.repSession\.create\(/);
   assert.match(src, /^import \{ heartbeatClientState \} from '\.\.\/services\/repHeartbeat';$/m);
 });

@@ -1,8 +1,10 @@
 import { useState, useMemo, Fragment } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { reportApi, productApi, teamsApi, companyApi } from '../api/client';
+import { reportApi, productApi, teamsApi, companyApi, attendanceAdminApi } from '../api/client';
 import AttendanceEditModal from '../components/attendance/AttendanceEditModal';
 import AttendanceImportModal from '../components/attendance/AttendanceImportModal';
+import PresenceDayModal from '../components/attendance/PresenceDayModal';
+import { presenceByRepDay, presenceSummary, type PresenceRow } from '../lib/presenceReport';
 import { splitSheetsByTeam } from '../lib/teamReport';
 import RepRankingBoard, { RANKING_LABELS, type RankingData, type RankingMetric } from '../components/reports/RepRankingBoard';
 import { formatCurrency, activeLocale } from '../utils/format';
@@ -197,6 +199,8 @@ export default function ReportsPage() {
   const [openDay, setOpenDay] = useState<string | null>(null);           // «معرّف المندوب|التاريخ» لليوم المفتوح
   // تعديل بصمات يومٍ لمندوب، ورفع بصمات من Excel (طلب المالك ٢١ أكتوبر ٢٠٢٦) — لشركةٍ فعّلت بصمة الحضور
   const [editDay, setEditDay] = useState<{ rep: { id: string; name: string }; date: string } | null>(null);
+  // تفاصيل «التحقق العشوائي من التواجد» لمندوبٍ في يوم
+  const [presenceDay, setPresenceDay] = useState<{ repName: string; date: string; rows: PresenceRow[] } | null>(null);
   const [showImport, setShowImport] = useState(false);
   const companyQ = useQuery({
     queryKey: ['company'],
@@ -411,6 +415,19 @@ export default function ReportsPage() {
     () => filterFlat(hoursData?.rows || [], q, r => [r.name, ...r.days.flatMap(d => d.visits.map(v => v.customerName))]),
     [hoursData, q],
   );
+
+  // «التحقق العشوائي من التواجد» لأيام التقرير نفسها — بصلاحية التتبّع (مسارات /attendance-admin): من لا يملكها لا يرى الشارة
+  const hoursSpan = useMemo(() => {
+    const days = (hoursData?.rows ?? []).flatMap(r => r.days.map(d => d.date)).sort();
+    return days.length ? { from: days[0], to: days[days.length - 1] } : null;
+  }, [hoursData]);
+  const presenceQ = useQuery({
+    queryKey: ['report-presence', hoursSpan?.from, hoursSpan?.to],
+    queryFn: async () => (await attendanceAdminApi.presence({ from: hoursSpan!.from, to: hoursSpan!.to, tz: -new Date().getTimezoneOffset() })).data.data as PresenceRow[],
+    enabled: attendanceOn && !!hoursSpan && tab === 'performance' && perfType === 'hours',
+    retry: false,
+  });
+  const presenceMap = useMemo(() => presenceByRepDay(presenceQ.data ?? []), [presenceQ.data]);
 
   // المديونيات: قائمة عملاء مسطّحة ⇒ التقطيع مفيدٌ وآمن، بشرط إعادة حساب
   // مجاميع المندوب من المعروض (تكفّلت به `filterNested`).
@@ -1545,6 +1562,7 @@ export default function ReportsPage() {
       {tab === 'performance' && perfType === 'hours' && (
         <div className="space-y-4">
           {editDay && <AttendanceEditModal rep={editDay.rep} date={editDay.date} onClose={() => setEditDay(null)} />}
+          {presenceDay && <PresenceDayModal {...presenceDay} onClose={() => setPresenceDay(null)} />}
           {showImport && <AttendanceImportModal onClose={() => setShowImport(false)} />}
           {/* مفتاح الألوان — سأل المالك «هل الأخضر بداية والأحمر نهاية؟»، وما
               لا يُشرح يُخمَّن. الشرح هنا أرخص من تخمينٍ يُبنى عليه قرار. */}
@@ -1658,6 +1676,20 @@ export default function ReportsPage() {
                                     {breakOf(d) > 0 && (
                                       <span className="text-[11px] text-[#9A8F7E] whitespace-nowrap">{tr('الاستراحة')} {compactMinutes(breakOf(d), tr)}</span>
                                     )}
+                                    {/* «التحقق العشوائي من التواجد»: في الوقت من المُرسَل — النقر يفتح التفاصيل */}
+                                    {(() => {
+                                      const pr = presenceMap.get(`${r.id}|${d.date}`);
+                                      if (!pr?.length) return null;
+                                      const s = presenceSummary(pr);
+                                      if (!s.asked) return null;
+                                      const tone = s.tone === 'bad' ? 'bg-red-50 text-red-700' : s.tone === 'warn' ? 'bg-amber-100 text-amber-800' : 'bg-green-50 text-green-700';
+                                      return (
+                                        <button onClick={(e) => { e.stopPropagation(); setPresenceDay({ repName: r.name, date: d.date, rows: pr }); }}
+                                          title={tr('التحقق من التواجد')} className={`rounded px-1.5 py-0.5 text-[10px] font-bold whitespace-nowrap ${tone}`}>
+                                          {tr('التحقق')} {s.onTime}/{s.asked}
+                                        </button>
+                                      );
+                                    })()}
                                   </span>
                                 </td>
                                 <td className="font-bold text-[#1F1A13] tabular-nums">{fmtMin(d.spanMinutes)}</td>

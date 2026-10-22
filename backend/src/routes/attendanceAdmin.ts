@@ -178,6 +178,34 @@ router.delete('/rows/:id', async (req: AuthRequest, res: Response, next: NextFun
 /** أقصى صفوف الرفع الواحد */
 export const IMPORT_MAX_ROWS = 2000;
 
+// نتائج «التحقق العشوائي من التواجد» (services/presenceChecks.ts) في مدى أيامٍ محلية — لتقرير ساعات العمل. المواعيد القادمة
+// (SCHEDULED) لا تُعاد: لا يعرفها أحدٌ قبل إرسالها، ولا مستخدم الشركة
+router.get('/presence', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const q = z.object({
+      from: z.string().regex(DAY_RE), to: z.string().regex(DAY_RE),
+      tz: z.coerce.number().int().min(-840).max(840).optional(), salesRepId: repIdSchema.optional(),
+    }).parse(req.query);
+    const span = Date.parse(`${q.to}T00:00:00.000Z`) - Date.parse(`${q.from}T00:00:00.000Z`);
+    if (!(span >= 0) || span > 92 * 24 * 60 * 60 * 1000) throw new EditError(400, 'المدى من يوم إلى ٩٣ يوماً');
+    if (q.salesRepId) await assertRep(req, tid, q.salesRepId);
+    // بيوم المندوب (يوم حضور النوبة) لا بلحظة الإرسال: نوبةٌ مسائية تعبر منتصف الليل تُنسب ليومها كتقرير ساعات العمل
+    const rows = await prisma.presenceCheck.findMany({
+      where: {
+        tenantId: tid, status: { not: 'SCHEDULED' }, day: { gte: q.from, lte: q.to },
+        ...(q.salesRepId ? { salesRepId: q.salesRepId } : { salesRep: await adminRepFilter(req) }),
+      },
+      orderBy: { dueAt: 'asc' }, take: 5000,
+      select: {
+        id: true, salesRepId: true, day: true, status: true, dueAt: true, sentAt: true, respondedAt: true, delaySec: true,
+        lat: true, lng: true, accuracy: true, distanceM: true, device: true, otherDevice: true, pushSent: true,
+      },
+    });
+    res.json({ success: true, data: rows });
+  } catch (err) { fail(err, res, next); }
+});
+
 // مناديب النطاق لمطابقة أسماء المستخدمين في ملف الرفع — بصلاحية هذا الموجّه نفسها: قائمة /sales-reps تشترط
 // «إدارة المناديب»، فصاحب صلاحية التتبّع وحدها كان يرى كل سطرٍ «اسم المستخدم غير معروف»
 router.get('/reps', async (req: AuthRequest, res: Response, next: NextFunction) => {

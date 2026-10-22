@@ -161,11 +161,11 @@ export async function sendPush(sub: PushSub, payload: object, opts: { ttlSec?: n
 }
 
 /** يرسل لكل اشتراكات المندوب ويحذف المنتهية — يعيد عدد ما وصل */
-export async function sendPushToRep(salesRepId: string, payload: object): Promise<number> {
+export async function sendPushToRep(salesRepId: string, payload: object, opts: { ttlSec?: number } = {}): Promise<number> {
   const subs = await prisma.repPushSubscription.findMany({ where: { salesRepId }, select: { id: true, endpoint: true, p256dh: true, auth: true } });
   let sent = 0;
   for (const s of subs) {
-    const r = await sendPush(s, payload);
+    const r = await sendPush(s, payload, opts);
     if (r === 'sent') sent++;
     else if (r === 'gone') await prisma.repPushSubscription.delete({ where: { id: s.id } }).catch(() => { /* حُذف للتوّ */ });
   }

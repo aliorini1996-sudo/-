@@ -17,6 +17,7 @@ import { correctCapturedAt, DEVICE_NOW_HEADER } from '../services/liveLocation';
 import { readLiveVerdict } from '../middleware/repLiveLocation';
 import { pingLimiter } from '../middleware/rateLimits';
 import { publishLocationsChanged } from '../services/liveEvents';
+import { pendingPresence, presenceOutcome, PRESENCE_TAP_HOLD_MS } from '../services/presenceChecks';
 
 const router = Router();
 router.use(authenticate);
@@ -129,9 +130,13 @@ router.post('/heartbeat', async (req: AuthRequest, res: Response, next: NextFunc
     }
     // آخر ظهور = الآن (يجعل مؤشّر «متصل» يعكس فتح التطبيق حتى بلا GPS)
     // + حالة الجهاز الاختيارية من الحزمة الحديثة (Z5.0: الحزمة وعدّا الصفّ الصادر) في التحديث نفسه — جسم غائب ⇒ كما كان
-    await prisma.salesRep.update({ where: { id: repId }, data: { lastSeenAt: now, ...heartbeatClientState(req.body, now) } });
+    const beat = await prisma.salesRep.update({
+      where: { id: repId }, data: { lastSeenAt: now, ...heartbeatClientState(req.body, now) }, select: { requirePresenceCheck: true },
+    });
 
-    res.json({ success: true });
+    // «التحقق العشوائي من التواجد»: طلبٌ أُرسل ولم يُجب — يصل التطبيق المفتوح بلا تنبيهات مفعّلة (الإشعار هو الطريق الأول)
+    const presence = beat.requirePresenceCheck && (await attendanceEnabled(tid)) ? await pendingPresence(tid, repId, now) : null;
+    res.json({ success: true, data: { presence } });
   } catch (err) { next(err); }
 });
 
@@ -457,6 +462,80 @@ router.post('/attendance/checkout', async (req: AuthRequest, res: Response, next
     if (err instanceof PunchRefused) { res.status(409).json({ success: false, ...err.refusal }); return; }
     next(err);
   }
+});
+
+// ═══ التحقق العشوائي من التواجد (طلب المالك، ٢٢ أكتوبر ٢٠٢٦) — services/presenceChecks.ts ═══
+// الخادم يرسل «أثبت تواجدك» في موعدٍ عشوائي، والمندوب يضغط «أثبت تواجدي» فيُرسل التطبيق قراءةً طازجة. الموعد لا يُكشف قبل
+// إرساله: هذه النقطة تعيد الطلب المعلّق وحده.
+
+router.get('/presence', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const ctx = await ensureRepAttendance(req, res); if (!ctx) return;
+    res.json({ success: true, data: await pendingPresence(ctx.tid, ctx.repId) });
+  } catch (err) { next(err); }
+});
+
+// لحظة الضغط على «أثبت تواجدي» بساعة الخادم — قبل قراءة الموقع: بها يُحكم، فثواني القراءة والشبكة الميدانية لا تُحسب عليه
+router.post('/presence/:id/tap', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const ctx = await ensureRepAttendance(req, res); if (!ctx) return;
+    const now = new Date();
+    const check = await prisma.presenceCheck.findFirst({
+      where: { id: String(req.params.id), tenantId: ctx.tid, salesRepId: ctx.repId, status: 'SENT' },
+      select: { id: true, sentAt: true },
+    });
+    if (!check?.sentAt || !presenceOutcome(check.sentAt, now)) { res.json({ success: true, data: { tapped: false } }); return; }
+    const n = await prisma.presenceCheck.updateMany({ where: { id: check.id, status: 'SENT', tappedAt: null }, data: { tappedAt: now } });
+    res.json({ success: true, data: { tapped: n.count === 1 } });
+  } catch (err) { next(err); }
+});
+
+router.post('/presence/:id/respond', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const ctx = await ensureRepAttendance(req, res); if (!ctx) return;
+    const { tid, repId } = ctx;
+    const body = punchSchema.parse(req.body ?? {});
+    const now = new Date();
+    const check = await prisma.presenceCheck.findFirst({
+      where: { id: String(req.params.id), tenantId: tid, salesRepId: repId },
+      select: { id: true, status: true, sentAt: true, tappedAt: true, lat: true },
+    });
+    if (!check) { res.status(404).json({ success: false, message: 'طلب التحقق غير موجود' }); return; }
+    // ردٌّ وصل وضاع جوابه في الشبكة فأُعيد: حكمه كما سُجّل، لا «انتهى» يوهمه أنه فشل
+    if (check.status === 'PASSED' || check.status === 'LATE') {
+      res.json({ success: true, data: { status: check.status, located: check.lat != null } }); return;
+    }
+    if (check.status !== 'SENT' || !check.sentAt) {
+      res.status(409).json({ success: false, code: 'PRESENCE_CLOSED', message: 'انتهى طلب التحقق' }); return;
+    }
+    // يُحكم بلحظة الضغط إن سُجّلت والردّ وصل بعدها خلال ٧٥ ثانية (قراءة الموقع والشبكة)، وإلّا بلحظة الوصول — فلا يُضغط ثم يُمشى
+    const judgedAt = check.tappedAt && now.getTime() - check.tappedAt.getTime() <= PRESENCE_TAP_HOLD_MS ? check.tappedAt : now;
+    const outcome = presenceOutcome(check.sentAt, judgedAt);
+    if (!outcome) { res.status(409).json({ success: false, code: 'PRESENCE_EXPIRED', message: 'انتهت مهلة التحقق' }); return; }
+    const { lat, lng, accuracy } = body;
+    const hasFix = lat != null && lng != null;
+    const device = punchDeviceOf(body, req.get('user-agent'));
+    const rep = await prisma.salesRep.findFirst({ where: { id: repId, tenantId: tid }, select: { requireBoundDevice: true, boundDeviceId: true } });
+    const nearest = hasFix ? (await nearestCustomersM(tid, repId, lat, lng, PUNCH_NEAREST_SEARCH_M))[0] ?? null : null;
+    // التحويل الشرطيّ: ردّان متزامنان (ضغطتان) يُكتب أولهما وحده
+    const done = await prisma.presenceCheck.updateMany({
+      where: { id: check.id, status: 'SENT' },
+      data: {
+        status: outcome, respondedAt: now, delaySec: Math.round((judgedAt.getTime() - check.sentAt.getTime()) / 1000),
+        lat: hasFix ? lat : null, lng: hasFix ? lng : null, accuracy: hasFix && accuracy != null ? accuracy : null,
+        distanceM: nearest != null ? Math.round(nearest) : null,
+        deviceId: device.id, device: device.name,
+        otherDevice: rep?.requireBoundDevice === true && rep.boundDeviceId ? device.id !== rep.boundDeviceId : null,
+      },
+    });
+    if (done.count !== 1) {
+      // سبقه ردٌّ متزامن (ضغطتان): حكمُ الأول
+      const first = await prisma.presenceCheck.findFirst({ where: { id: check.id }, select: { status: true, lat: true } });
+      if (first && (first.status === 'PASSED' || first.status === 'LATE')) { res.json({ success: true, data: { status: first.status, located: first.lat != null } }); return; }
+      res.status(409).json({ success: false, code: 'PRESENCE_CLOSED', message: 'انتهى طلب التحقق' }); return;
+    }
+    res.json({ success: true, data: { status: outcome, located: hasFix } });
+  } catch (err) { next(err); }
 });
 
 // ═══ تنبيهات الحضور على جوال المندوب (Web Push، طلب المالك ٢١ أكتوبر ٢٠٢٦) — services/webPush.ts و attendanceAlerts.ts ═══

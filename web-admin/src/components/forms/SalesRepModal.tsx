@@ -88,6 +88,7 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
       requirePunchAtCustomer: false,
       punchOutsideAction: 'REJECT',
       requireBoundDevice: false,
+      requirePresenceCheck: false,
       shiftStart: null,
       shiftEnd: null,
       shiftDays: SHIFT_DAYS_DEFAULT,
@@ -285,6 +286,10 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
                 </button>
               </div>
             )}
+            <div className="grid grid-cols-1 gap-3 mt-3">
+              <PermToggle label={tr('التحقق العشوائي من التواجد')} {...register('requirePresenceCheck')} />
+            </div>
+            <p className="text-xs text-gray-400 mt-2 leading-relaxed">{tr('عند التفعيل يصل المندوب اشعار اثبت تواجدك مرتين الى ثلاث مرات في اليوم باوقات عشوائية اثناء نوبته، ويفتح التطبيق ويضغط اثبت تواجدي خلال دقيقتين فيسجل موقعه، وتظهر النتائج في تقرير ساعات العمل')}</p>
           </div>
 
           <div>

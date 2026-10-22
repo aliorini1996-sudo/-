@@ -96,6 +96,7 @@ model Tenant {
   RepSession           RepSession[]
   RepAttendance        RepAttendance[]
   attendanceAudits     AttendanceAudit[]
+  presenceChecks       PresenceCheck[]
   customerPaymentLinks CustomerPaymentLink[]
   settlementEntries    SettlementEntry[]
   invoiceInstallments  InvoiceInstallment[]
@@ -432,6 +433,9 @@ model SalesRep {
   shiftDays   Int     @default(31)
   // إزاحة توقيت جوال المندوب بالدقائق شرقي UTC — يرسلها التطبيق مع اشتراك التنبيهات، فيُحسب موعده بتوقيته
   tzOffsetMin Int?
+  // «التحقق العشوائي من التواجد» (طلب المالك، ٢٢ أكتوبر ٢٠٢٦) — تقييديّ كسابقيه: مفعّلٌ ⇒ يصله إشعار «أثبت تواجدك»
+  // مرّتين إلى ثلاث في اليوم بأوقاتٍ عشوائية أثناء نوبته، ويردّ خلال دقيقتين بقراءة موقعٍ طازجة (services/presenceChecks.ts)
+  requirePresenceCheck Boolean @default(false)
 
   // إظهار رصيد التحصيل المتراكم للمندوب على شاشته الرئيسية (يحدّده الأدمن لكل مندوب)
   showCollectionBalance Boolean @default(true)
@@ -477,6 +481,7 @@ model SalesRep {
   RepSession    RepSession[]
   attendance    RepAttendance[]
   pushSubscriptions RepPushSubscription[]
+  presenceChecks    PresenceCheck[]
 
   // عزل العملاء: العملاء المُسنَدون لهذا المندوب، والعملاء الذين فتحهم بنفسه
   customerAssignments CustomerAssignment[]
@@ -1815,6 +1820,42 @@ model AttendanceAudit {
 
   @@index([tenantId, salesRepId, createdAt])
   @@map("attendance_audits")
+}
+
+/// التحقق العشوائي من التواجد (طلب المالك، ٢٢ أكتوبر ٢٠٢٦): مرّتان إلى ثلاث في يوم المندوب بأوقاتٍ عشوائية داخل نوبته
+/// المفتوحة (services/presenceChecks.ts). الموعد لا يصل التطبيق قبل إرساله، فلا يُتنبّأ به. الإشعار «أثبت تواجدك»، والردّ
+/// خلال دقيقتين بقراءة موقعٍ طازجة = PASSED، وبعدها حتى ربع ساعة = LATE، وبلا ردّ = MISSED. ونوبةٌ مغلقة وقت الموعد تؤجّله
+/// داخل نافذته، وإلّا SKIPPED.
+model PresenceCheck {
+  id          String    @id @default(uuid())
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  salesRepId  String
+  salesRep    SalesRep  @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+  day         String // يوم المندوب المحلي YYYY-MM-DD
+  dueAt       DateTime // الموعد العشوائي — يُؤجَّل إن لم تكن نوبته مفتوحة
+  windowEndAt DateTime // آخر ما يُؤجَّل إليه (نهاية دوامه المتوقّعة)
+  status      String    @default("SCHEDULED") // SCHEDULED | SENT | PASSED | LATE | MISSED | SKIPPED
+  sentAt      DateTime?
+  pushSent    Int? // الأجهزة التي قبل مزوّدُ الإشعارات رسالتَها (0 = لا تنبيهات مفعّلة على جهازه)
+  tappedAt    DateTime? // لحظة ضغط «أثبت تواجدي» بساعة الخادم — بها يُحكم (قراءة الموقع والشبكة لا تُحسبان عليه)
+  respondedAt DateTime?
+  delaySec    Int? // من الإرسال إلى الردّ
+  lat         Float?
+  lng         Float?
+  accuracy    Float?
+  distanceM   Int? // أقرب عملائه بالأمتار — null بلا موقع أو بلا عميل قريب
+  deviceId    String?
+  device      String?
+  // ردٌّ من جهازٍ غير المربوط («ربط البصمة بجهاز واحد» مفعّل وله جهاز) — يُقبل ويُوسَم
+  otherDevice Boolean?
+  createdAt   DateTime  @default(now())
+
+  @@index([status, dueAt])
+  @@index([tenantId, salesRepId, dueAt])
+  @@index([tenantId, day])
+  @@index([salesRepId, day])
+  @@map("presence_checks")
 }
 
 /// اشتراك تنبيهات المندوب (Web Push، طلب المالك ٢١ أكتوبر ٢٠٢٦): جهازٌ وافق على الإشعارات. تنبيهات الحضور تُرسَل لكل

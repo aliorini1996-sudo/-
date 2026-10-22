@@ -671,7 +671,7 @@ const GRANTS = [
 ] as const;
 
 type Grant = typeof GRANTS[number];
-type PermKey = Grant | 'requireCustomerProximity' | 'requireLocationOn' | 'requirePunchAtCustomer' | 'requireBoundDevice';
+type PermKey = Grant | 'requireCustomerProximity' | 'requireLocationOn' | 'requirePunchAtCustomer' | 'requireBoundDevice' | 'requirePresenceCheck';
 type PermState = Record<PermKey, boolean>;
 
 /**
@@ -697,6 +697,7 @@ const PERM_DEFAULTS: PermState = {
   requireLocationOn: false,
   requirePunchAtCustomer: false,
   requireBoundDevice: false,
+  requirePresenceCheck: false,
 };
 
 const PERM_LABELS: Record<PermKey, string> = {
@@ -721,6 +722,7 @@ const PERM_LABELS: Record<PermKey, string> = {
   requireLocationOn: 'اشتراط تفعيل الموقع',
   requirePunchAtCustomer: 'بصمة الحضور بموقع عميل',
   requireBoundDevice: 'ربط البصمة بجهاز واحد',
+  requirePresenceCheck: 'التحقق العشوائي من التواجد',
 };
 
 const PERM_GROUPS: { title: string; keys: Grant[] }[] = [
@@ -902,6 +904,10 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
               </button>
             </div>
           )}
+          <MToggle label={tr(PERM_LABELS.requirePresenceCheck)}
+            checked={perms.requirePresenceCheck}
+            onChange={v => set('requirePresenceCheck', v)}
+            hint={tr('عند التفعيل يصل المندوب اشعار اثبت تواجدك مرتين الى ثلاث مرات في اليوم باوقات عشوائية اثناء نوبته، ويفتح التطبيق ويضغط اثبت تواجدي خلال دقيقتين فيسجل موقعه، وتظهر النتائج في تقرير ساعات العمل')} />
         </Group>
 
         <Group title={tr('موعد الدوام للتنبيهات')}>

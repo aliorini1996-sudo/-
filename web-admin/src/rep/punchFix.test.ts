@@ -84,7 +84,7 @@ test('بلا أيّ قراءة: الرفض «denied» فوراً، والمهل�
 
 test('حارس الشاشة: المقيَّد بالبصمة عند عميل يقرأ بدقّة ويُقال له «تعذّر تحديد موقعك» لا «فعّل الموقع»، والشاشة تتمرّر والزرّ فوق قائمة الفترات', () => {
   const src = fs.readFileSync(path.join(process.cwd(), 'src', 'rep', 'RepApp.tsx'), 'utf8');
-  assert.match(src, /\{screen === 'attendance' && <RepAttendance atCustomer=\{user\.requirePunchAtCustomer === true\} boundDevice=\{user\.requireBoundDevice === true\} \/>\}/);
+  assert.match(src, /\{screen === 'attendance' && <RepAttendance atCustomer=\{user\.requirePunchAtCustomer === true\} boundDevice=\{user\.requireBoundDevice === true\} presenceOn=\{user\.requirePresenceCheck === true\} \/>\}/);
   const a = src.indexOf('function RepAttendance(');
   const screen = src.slice(a, src.indexOf('function RepWorkNumber()'));
   assert.match(screen, /if \(atCustomer\) \{[\s\S]*?const r = await precisePunchFix\(\);\s*loc = r\.fix;\s*noFix = !r\.fix && r\.reason !== 'denied';/);

@@ -287,6 +287,7 @@ export interface SalesRep {
   punchRadiusM?: number;     // مسافة «بصمة الحضور بموقع عميل» بالأمتار (١٠–٥٠٠٠، ٥٠ افتراضاً)
   punchOutsideAction?: 'REJECT' | 'FLAG'; // البصمة خارج النطاق: تُردّ، أو تُقبل بوسم «خارج النطاق»
   requireBoundDevice?: boolean; // «ربط البصمة بجهاز واحد» — تقييديّ ضد البصمة بالنيابة
+  requirePresenceCheck?: boolean; // «التحقق العشوائي من التواجد» — «أثبت تواجدك» مرّتين إلى ثلاث يومياً
   boundDeviceName?: string | null; boundDeviceAt?: string | null; // الجهاز المربوط (يربطه أول بصمة)
   shiftStart?: string | null; shiftEnd?: string | null; // موعد الدوام "HH:MM" — للتنبيهات وحدها
   shiftDays?: number; // أيام العمل بتات: الأحد=1 … السبت=64 (الأحد–الخميس=31)

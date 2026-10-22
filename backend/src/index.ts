@@ -16,6 +16,7 @@ import { startPetroappScheduler } from './services/petroapp';
 import { startPaylinkScheduler } from './services/paylink';
 import { startZatcaSweep } from './services/zatcaSubmit';
 import { startAttendanceAlerts } from './services/attendanceAlerts';
+import { startPresenceChecks } from './services/presenceChecks';
 import { startLedgerSyncScheduler, trackLedgerRequestLoad } from './services/gl/sync/scheduler';
 
 import authRouter from './routes/auth';
@@ -388,6 +389,7 @@ server.listen(PORT, async () => {
   startLedgerSyncScheduler(); // LEDGER_WORKER_ENABLED=0 للإطفاء
   startZatcaSweep(); // ZATCA_SWEEP_ENABLED=false للإطفاء — خامل بلا مستندات مرحلة ثانية
   startAttendanceAlerts(); // تنبيهات الحضور على جوال المندوب — ATTENDANCE_ALERTS_ENABLED=false للإطفاء
+  startPresenceChecks(); // التحقق العشوائي من التواجد — PRESENCE_CHECKS_ENABLED=false للإطفاء
 });
 
 export default app;

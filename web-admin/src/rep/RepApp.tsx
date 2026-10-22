@@ -30,6 +30,8 @@ import RepRouteScreen, { fetchMyRoute, RouteToday } from './RepRouteScreen';
 import RepDailyReport from './RepDailyReport';
 import { useRepTracking } from './useRepTracking';
 import { useHeartbeat } from './useHeartbeat';
+import PresenceCheckModal from './PresenceCheck';
+import type { PendingPresence } from './presencePhase';
 import { underCutoverReview } from './outboxReview';
 import { COMPANY_REFRESH_TICK_MS, companyRefreshDue } from './companyRefresh';
 import { APP_UPDATE_CHECK_GAP_MS, APP_UPDATE_TRIED_KEY, fetchLatestBuildId, isNewerBuild, shouldAutoReload } from './appUpdate';
@@ -83,6 +85,8 @@ interface RepUser {
   requirePunchAtCustomer?: boolean;
   /** «ربط البصمة بجهاز واحد» — آيفون يُشرح له أن سفاري وتطبيق الشاشة الرئيسية جهازان */
   requireBoundDevice?: boolean;
+  /** «التحقق العشوائي من التواجد» — يصله «أثبت تواجدك» مرّتين إلى ثلاث يومياً (PresenceCheck.tsx) */
+  requirePresenceCheck?: boolean;
   id: string; name: string; phone?: string;
   canAddCustomer?: boolean;
   /** «تعديل بيانات العميل» — افتراضه في الخادم مُطفأ، فلا يظهر زرّ التعديل إلا بـtrue صريحة */
@@ -247,7 +251,7 @@ function fmtWorkMinutes(mins: number, tr: (s: string) => string): string {
 const PUNCH_REFUSALS = ['LOCATION_REQUIRED', 'PUNCH_AWAY_FROM_CUSTOMER'];
 
 // atCustomer: «بصمة الحضور بموقع عميل» — موقع البصمة قراءةٌ طازجة بأفضل دقّة لا قراءةٌ مخبّأة (punchFix.ts)
-function RepAttendance({ atCustomer = false, boundDevice = false }: { atCustomer?: boolean; boundDevice?: boolean }) {
+function RepAttendance({ atCustomer = false, boundDevice = false, presenceOn = false }: { atCustomer?: boolean; boundDevice?: boolean; presenceOn?: boolean }) {
   const tr = useTr();
   // رفض «جهازٍ آخر» — على آيفون غالباً لأن سفاري وتطبيق الشاشة الرئيسية تخزينان معزولان فمعرّفان مختلفان
   const [deviceRefused, setDeviceRefused] = useState(false);
@@ -445,6 +449,10 @@ function RepAttendance({ atCustomer = false, boundDevice = false }: { atCustomer
           {pushSt === 'denied' && <p className="text-[11px] text-amber-800 bg-amber-50 rounded-xl px-3 py-2 text-center">{tr('الإشعارات مرفوضة لهذا التطبيق فعلها من إعدادات جوالك لتصلك تنبيهات الحضور')}</p>}
           {pushSt === 'ios-install' && <p className="text-[11px] text-[#5C5346] bg-[#FBF7F0] rounded-xl px-3 py-2 text-center">{tr('لتصلك تنبيهات الحضور على آيفون أضف التطبيق إلى الشاشة الرئيسية من زر المشاركة')}</p>}
           {pushSt === 'on' && <p className="text-[11px] text-green-700 text-center">{tr('تنبيهات الحضور مفعلة على هذا الجهاز')}</p>}
+          {/* «التحقق العشوائي من التواجد» يصل بالإشعار: بلا تنبيهات لا يعلم به إلا والتطبيق مفتوح، فيُحسب «بلا ردّ» */}
+          {presenceOn && pushSt != null && pushSt !== 'on' && (
+            <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">{tr('الادارة فعلت التحقق من تواجدك فعل التنبيهات ليصلك طلب اثبت تواجدك والا سجل بلا رد')}</p>
+          )}
 
           <p className="text-[11px] text-[#8A8072] text-center leading-relaxed">
             {tr('كل حضور وانصراف تسجله هنا يحسب فترة عمل، وما بين الانصراف والحضور التالي لا يحسب من ساعاتك.')}
@@ -3587,21 +3595,55 @@ export default function RepApp() {
   // شاشة تعريفية قبل الدخول (متطلّب App Store 5.1.1(v)): يفتح التطبيق عليها لا على الدخول
   const [showLogin, setShowLogin] = useState(false);
   const [screen, setScreen] = useState<Screen>('home');
-  // تنبيه الحضور يفتح شاشة البصمة (public/sw.js): بالرابط /rep?screen=attendance عند فتح نافذة، وبرسالةٍ لنافذةٍ مفتوحة
+  // «أثبت تواجدك» المعلّق (PresenceCheck.tsx) — من الإشعار أو رابطه أو ردّ النبضة. answered: ما أُجيب لا يُعاد فتحه
+  // بنبضةٍ كانت في الطريق
+  const [presence, setPresence] = useState<PendingPresence | null>(null);
+  const answeredPresence = useRef(new Set<string>());
+  // بدأ الردّ منها (قراءة الموقع أو الإرسال أو خطأٌ بعده) — منفصلةٌ عن answered: «إغلاق مؤقت» يُعيدها النبضة
+  const attemptedPresence = useRef(new Set<string>());
+  // لحظة ظهور الطلب المعروض — ردّ نبضةٍ أُطلقت قبلها «لا طلب» قديمٌ لا يغلقه
+  const presenceShownAt = useRef(0);
+  const showPresence = useCallback((p: unknown, beatAt?: number) => {
+    const v = p as PendingPresence | null;
+    // لا طلب معلّق الآن (أُجيب من نافذةٍ أخرى للتطبيق أو فات): نافذةٌ ما زالت تنتظر الضغط تُغلق — لا «انتهت المهلة» عن طلبٍ أُجيب.
+    // ونافذةٌ بدأ منها الردّ أو تعرض نتيجته تبقى حتى يقرأها، وردّ نبضةٍ أسبق من ظهور الطلب لا يُعتدّ به
+    if (!v) {
+      if (beatAt != null && beatAt < presenceShownAt.current) return;
+      setPresence((cur) => (cur && !answeredPresence.current.has(cur.id) && !attemptedPresence.current.has(cur.id) ? null : cur));
+      return;
+    }
+    if (typeof v.id !== 'string' || answeredPresence.current.has(v.id)) return;
+    setPresence((cur) => {
+      if (cur?.id === v.id) return cur;
+      presenceShownAt.current = Date.now();
+      return v;
+    });
+  }, []);
+  const fetchPresence = useCallback(() => {
+    if (!localStorage.getItem('rep_token')) return;
+    repApi.get('/tracking/presence', { background: true }).then((r) => showPresence(r.data?.data)).catch(() => { /* لا طلب أو الميزة مطفأة */ });
+  }, [showPresence]);
+  // تنبيه الحضور يفتح شاشة البصمة (public/sw.js): بالرابط /rep?screen=attendance عند فتح نافذة، وبرسالةٍ لنافذةٍ مفتوحة —
+  // و«أثبت تواجدك» (screen=presence) يفتح طلب التحقق المعلّق
   useEffect(() => {
     try {
       const sp = new URLSearchParams(window.location.search);
-      if (sp.get('screen') === 'attendance') {
-        setScreen('attendance');
+      const s = sp.get('screen');
+      if (s === 'attendance' || s === 'presence') {
+        if (s === 'attendance') setScreen('attendance'); else fetchPresence();
         sp.delete('screen');
         const q = sp.toString();
         window.history.replaceState(null, '', window.location.pathname + (q ? `?${q}` : '') + window.location.hash);
       }
     } catch { /* رابطٌ غريب: الرئيسية */ }
-    const onMsg = (e: MessageEvent) => { if (e.data?.type === 'OPEN_SCREEN' && e.data.screen === 'attendance') setScreen('attendance'); };
+    const onMsg = (e: MessageEvent) => {
+      if (e.data?.type !== 'OPEN_SCREEN') return;
+      if (e.data.screen === 'attendance') setScreen('attendance');
+      else if (e.data.screen === 'presence') fetchPresence();
+    };
     navigator.serviceWorker?.addEventListener('message', onMsg);
     return () => navigator.serviceWorker?.removeEventListener('message', onMsg);
-  }, []);
+  }, [fetchPresence]);
   const [modal, setModal] = useState<Modal>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   // المندوب الذكي: «أضفه عميلاً» يفتح إضافة العميل معبّأةً بنوع المحل ومعرّفه وموقع المندوب
@@ -3709,7 +3751,7 @@ export default function RepApp() {
   // تتبّع GPS — يعمل فقط عند تسجيل الدخول وتفعيل الشركة للتتبّع وموافقة المندوب. والمقيَّد بـ«اشتراط تفعيل الموقع» مُتتبَّعٌ
   // دائماً ولو أُطفئ التتبّع للشركة: ظهوره على الخريطة شرطُ عمله (والخادم يخزّن نقاطه رغم الإيقاف)
   const trackStatus = useRepTracking(!!token && !!user, locationRequired);
-  useHeartbeat(!!token && !!user); // نبضة حضور لحساب ساعات العمل (مستقلّة عن GPS)
+  useHeartbeat(!!token && !!user, showPresence); // نبضة حضور لحساب ساعات العمل (مستقلّة عن GPS)، ومعها «أثبت تواجدك» المعلّق
 
   // ───────── مؤقّت زيارة العميل ─────────
   // يعيش على مستوى RepApp (لا داخل CustomerDetail) كي ينجو من فتح النوافذ
@@ -4120,6 +4162,7 @@ export default function RepApp() {
     clearAiSession();
     resetLive(); // حكم الموقع لا يرثه من يدخل بعده
     await dropPush(); // الجهاز لا يتلقّى تنبيهات حضورِ حسابٍ خرج منه
+    setPresence(null); answeredPresence.current.clear(); attemptedPresence.current.clear(); // طلب تحققه لا يراه من يدخل بعده
     localStorage.removeItem('rep_token'); localStorage.removeItem('rep_user');
     setToken(null); setUser(null);
   };
@@ -4166,6 +4209,14 @@ export default function RepApp() {
         {/* notch — سطح المكتب فقط */}
         {framed && <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-32 h-6 bg-black rounded-b-2xl z-30" />}
         <div className={framed ? 'w-full h-full bg-white rounded-[36px] overflow-hidden relative flex flex-col' : 'w-full h-full bg-white overflow-hidden relative flex flex-col'}>
+          {/* «أثبت تواجدك» فوق كل شيء — حتى حاجز الموقع: الطلب يُجاب بقراءةٍ طازجة أينما كان المندوب في التطبيق */}
+          {presence && token && user && (
+            <PresenceCheckModal key={presence.id} pending={presence}
+              onAnswered={() => answeredPresence.current.add(presence.id)}
+              onAttempt={() => attemptedPresence.current.add(presence.id)}
+              onClose={() => { answeredPresence.current.add(presence.id); setPresence(null); }}
+              onDismiss={() => setPresence(null)} />
+          )}
           {/* «أعد المحاولة» يجدّد القيد من الخادم أولاً: مالكٌ أطفأه لمندوبٍ عالق يرفع الحاجز بلا إغلاق التطبيق */}
           {gateShown && <LocationOffGate block={liveBlock ?? 'locating'} onRetry={async () => { await refreshUser(); return checkLocation(); }} onExit={exitCustomerScope}
             visitActive={!!visitTimer && !!selectedCustomer && visitTimer.customerId === selectedCustomer.id} />}
@@ -4316,7 +4367,7 @@ export default function RepApp() {
                 {screen === 'vanstock' && <RepVanStock canLoad={user.canManageVanStock !== false} canRequest={(company as { warehouseEnabled?: boolean } | null)?.warehouseEnabled === true} />}
                 {screen === 'fuel' && <RepFuel accountingOn={accountingOn} />}
                 {screen === 'worknum' && <RepWorkNumber />}
-                {screen === 'attendance' && <RepAttendance atCustomer={user.requirePunchAtCustomer === true} boundDevice={user.requireBoundDevice === true} />}
+                {screen === 'attendance' && <RepAttendance atCustomer={user.requirePunchAtCustomer === true} boundDevice={user.requireBoundDevice === true} presenceOn={user.requirePresenceCheck === true} />}
                 {screen === 'airep' && aiRepOn && (
                   <AiRepBoundary onBack={() => setScreen('home')}>
                     <Suspense fallback={<p className="text-center text-gray-400 py-10 text-sm">{tr('جاري التحميل')}</p>}>

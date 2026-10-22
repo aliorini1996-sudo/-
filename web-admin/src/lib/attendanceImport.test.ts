@@ -100,7 +100,7 @@ test('حرّاس الربط: البصمة ترسل الجهاز، والإشعا
   assert.match(att, /resp\.data\.reason !== 'DEVICE'\) setErr\(tr\(VISIT_NOFIX_MSG\)\)/, 'رفض الجهاز لا يُقال له «تعذّر تحديد موقعك»');
   assert.match(att, /pushSt === 'off' && \(/);
   assert.match(app, /await dropPush\(\); \/\/ الجهاز لا يتلقّى تنبيهات/);
-  assert.match(app, /if \(sp\.get\('screen'\) === 'attendance'\)/);
+  assert.match(app, /if \(s === 'attendance' \|\| s === 'presence'\) \{\s*if \(s === 'attendance'\) setScreen\('attendance'\);/);
   assert.match(app, /if \(companyReady && !attendanceOn && screen === 'attendance'\) setScreen\('home'\);/, 'الإشعار لا يُردّ إلى الرئيسية قبل وصول إعدادات الشركة');
   const sw = read('public', 'sw.js');
   assert.match(sw, /self\.addEventListener\('push'/);

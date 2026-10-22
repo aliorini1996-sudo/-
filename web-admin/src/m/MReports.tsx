@@ -5,7 +5,8 @@ import {
   RefreshCw, ChevronLeft, AlertTriangle, Package, CalendarDays, UserRound,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { reportApi } from '../api/client';
+import { reportApi, attendanceAdminApi } from '../api/client';
+import { presenceByRepDay, presenceSummary, type PresenceRow } from '../lib/presenceReport';
 import { formatCurrency, formatNumber, formatDate, formatDateTime, formatDayOnly, formatTime } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { useBackClose } from '../lib/useBackClose';
@@ -965,6 +966,32 @@ function RecvDetail({ row, onClose }: { row: RecvRow; onClose: () => void }) {
 function HoursDetail({ row, onClose }: { row: WorkHoursRow; onClose: () => void }) {
   const tr = useTr();
   const [openDay, setOpenDay] = useState<string | null>(null);
+  // «التحقق العشوائي من التواجد» لأيام المندوب — بصلاحية التتبّع: من لا يملكها (403) لا يرى السطر
+  const span = useMemo(() => {
+    const days = row.days.map(d => d.date).sort();
+    return days.length ? { from: days[0], to: days[days.length - 1] } : null;
+  }, [row.days]);
+  const presenceQ = useQuery({
+    queryKey: ['m-report-presence', row.id, span?.from, span?.to],
+    queryFn: async () => (await attendanceAdminApi.presence({ from: span!.from, to: span!.to, tz: -new Date().getTimezoneOffset(), salesRepId: row.id })).data?.data as PresenceRow[],
+    enabled: !!span,
+    retry: false,
+  });
+  const presenceMap = useMemo(() => presenceByRepDay(presenceQ.data ?? []), [presenceQ.data]);
+  const presenceNote = (date: string) => {
+    const pr = presenceMap.get(`${row.id}|${date}`);
+    const s = pr?.length ? presenceSummary(pr) : null;
+    if (!s?.asked) return '';
+    return [
+      `${tr('التحقق')} ${s.onTime}/${s.asked}`,
+      s.late ? `${s.late} ${tr('متاخر')}` : '',
+      s.missed ? `${s.missed} ${tr('بلا رد')}` : '',
+      s.pending ? `${s.pending} ${tr('بانتظار الرد')}` : '',
+      s.noFix ? tr('رد بلا موقع') : '',
+      s.otherDevice ? tr('من جهاز غير المربوط') : '',
+      s.noPush ? tr('لم يصل الاشعار جهازه التنبيهات غير مفعلة') : '',
+    ].filter(Boolean).join(' · ');
+  };
   return (
     <div className="h-full flex flex-col bg-[#FAF7F0]">
       <MHeader title={row.name} subtitle={tr('ساعات العمل')} onBack={onClose} />
@@ -1001,6 +1028,7 @@ function HoursDetail({ row, onClose }: { row: WorkHoursRow; onClose: () => void 
                   // وسما اليوم (طلب المالك ٢١ أكتوبر ٢٠٢٦): بصمةٌ قُبلت خارج النطاق، وفترةٌ عُدّلت أو أُضيفت إدارياً
                   periodsOf(d).some(periodOutside) ? tr('خارج النطاق') : '',
                   periodsOf(d).some(p => p.source === 'PUNCH' && (p.edited || (p.entry && p.entry !== 'APP'))) ? tr('معدلة') : '',
+                  presenceNote(d.date),
                 ].filter(Boolean).join(' · ') || undefined}
                 trailing={d.absent
                   ? <span className="text-[11px] text-[#B3A996] flex-shrink-0">{tr('غياب')}</span>
