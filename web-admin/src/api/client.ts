@@ -408,7 +408,8 @@ export const toolsApi = {
 export const trackingApi = {
   settings: () => api.get('/tracking/settings'),
   setEnabled: (enabled: boolean) => api.patch('/tracking/settings', { enabled }),
-  live: () => api.get('/tracking/live'),
+  // lite: المواقع وحدها بلا عدّاد زيارات اليوم (lib/trackingLive.ts)
+  live: (lite = false) => api.get('/tracking/live', lite ? { params: { lite: 1 } } : undefined),
   route: (salesRepId: string, date?: string) => api.get('/tracking/route', { params: { salesRepId, ...(date ? { date } : {}) } }),
 };
 

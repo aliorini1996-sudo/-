@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { API_BASE } from '../api/client';
 import { sessionSpace } from '../store/authStore';
-import { LIVE_REFETCH, LIVE_MARK_STALE, isFinalRejection, rateLimitWait } from './livePolicy';
+import { LIVE_REFETCH, LIVE_MARK_STALE, LIVE_LOCATIONS, LOCATIONS_GAP_MS, isFinalRejection, rateLimitWait } from './livePolicy';
 import { parseSse } from './sse';
 
 /**
@@ -23,6 +23,8 @@ import { parseSse } from './sse';
  *   قراءةٌ قبل الاشتراك تترك نافذةً يضيع فيها سندٌ لم يجد مستمعاً.
  * - إخفاء الصفحة لا يُغلق القناة فوراً: تبديلٌ سريع بين التطبيقات لا يستحقّ
  *   اتصالاً جديداً وقراءةً كاملة. تُغلق بعد دقيقةٍ من الاختفاء.
+ * - والقناة نفسها تحمل «locations» (موقع مندوبٍ تحدّث، ٢٢ أكتوبر ٢٠٢٦): خريطة التتبّع الظاهرة تعيد قراءة المواقع
+ *   بفاصلٍ لا يقلّ عن LOCATIONS_GAP_MS — بدل انتظار استطلاعها كل ٢٠ث.
  */
 
 const BACKOFF_START = 2_000;
@@ -51,6 +53,8 @@ export function useLiveInvoiceUpdates(enabled: boolean, sessionKey?: string | nu
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     let hideTimer: ReturnType<typeof setTimeout> | undefined;
     let lastRefresh = 0;
+    let locTimer: ReturnType<typeof setTimeout> | undefined;
+    let lastLocRefresh = 0;
 
     const invalidate = () => {
       lastRefresh = Date.now();
@@ -65,6 +69,18 @@ export function useLiveInvoiceUpdates(enabled: boolean, sessionKey?: string | nu
       refreshTimer = setTimeout(() => {
         refreshTimer = undefined;
         if (!stopped) invalidate();
+      }, wait);
+    };
+
+    /** مواقع المناديب: الخريطة الظاهرة وحدها تُقرأ (invalidate يعيد النشط فقط)، والأحداث المتلاحقة تُجمع */
+    const refreshLocations = () => {
+      if (locTimer || stopped) return;
+      const wait = Math.max(DEBOUNCE_MS, lastLocRefresh + LOCATIONS_GAP_MS - Date.now());
+      locTimer = setTimeout(() => {
+        locTimer = undefined;
+        if (stopped) return;
+        lastLocRefresh = Date.now();
+        for (const queryKey of LIVE_LOCATIONS) void qc.invalidateQueries({ queryKey });
       }, wait);
     };
 
@@ -101,12 +117,14 @@ export function useLiveInvoiceUpdates(enabled: boolean, sessionKey?: string | nu
               buf = parsed.rest;
               for (const ev of parsed.events) {
                 if (ev.event === 'ready') {
-                  if (needCatchUp) refresh();
+                  if (needCatchUp) { refresh(); refreshLocations(); }
                   needCatchUp = false;
                   backoff = BACKOFF_START;
                   wait = backoff;
                 } else if (ev.event === 'invoices') {
                   refresh();
+                } else if (ev.event === 'locations') {
+                  refreshLocations();
                 }
               }
             }
@@ -153,6 +171,7 @@ export function useLiveInvoiceUpdates(enabled: boolean, sessionKey?: string | nu
       stopped = true;
       close();
       if (refreshTimer) clearTimeout(refreshTimer);
+      if (locTimer) clearTimeout(locTimer);
       if (hideTimer) clearTimeout(hideTimer);
       document.removeEventListener('visibilitychange', onVisibility);
     };

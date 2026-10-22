@@ -26,6 +26,8 @@ const reps: Record<string, { tenantId: string; requireLocationOn: boolean; canBe
   free: { tenantId: 't1', requireLocationOn: false },
 };
 let trackingEnabled = true;
+let repRows: Record<string, Record<string, unknown>> = {};
+const repRow = (id: string) => (repRows[id] ??= {});
 
 type Range = { gte?: Date; lte?: Date };
 const inRange = (d: Date, r?: Range) => !r || ((!r.gte || d >= r.gte) && (!r.lte || d <= r.lte));
@@ -39,7 +41,18 @@ const prisma = {
       for (const k of Object.keys(a.select)) o[k] = (r as Record<string, unknown>)[k];
       return o;
     },
-    async update() { return {}; },
+    async update(a: { where: { id: string }; data: Record<string, unknown> }) {
+      Object.assign(repRow(a.where.id), a.data);
+      return {};
+    },
+    // آخر موقع: لا يُكتب إلا لنقطةٍ أحدث من lastLocAt المخزّن (routes/tracking.ts)
+    async updateMany(a: { where: { id: string; OR: ({ lastLocAt: null } | { lastLocAt: { lt: Date } })[] }; data: Record<string, unknown> }) {
+      const row = repRow(a.where.id);
+      const cur = row.lastLocAt as Date | null | undefined;
+      const lt = (a.where.OR.find((o) => 'lastLocAt' in o && o.lastLocAt !== null) as { lastLocAt: { lt: Date } }).lastLocAt.lt;
+      if (cur == null || cur < lt) { Object.assign(row, a.data); return { count: 1 }; }
+      return { count: 0 };
+    },
   },
   repLocation: {
     async findFirst(a: { where: { tenantId: string; salesRepId: string; capturedAt?: Range; createdAt?: Range }; orderBy: { capturedAt: 'desc' } }) {
@@ -100,7 +113,7 @@ async function guard(method: string, p: string, opts: { token?: string | null; c
   if (error) throw error;
   return { passed, res };
 }
-const reset = () => { locs = []; repReads = []; locQueries = 0; trackingEnabled = true; };
+const reset = () => { locs = []; repReads = []; locQueries = 0; trackingEnabled = true; repRows = {}; };
 const ago = (ms: number) => new Date(Date.now() - ms);
 const point = (o: Partial<Loc> = {}): Loc => ({ tenantId: 't1', salesRepId: 'strict', lat: 24.7136, lng: 46.6753, accuracy: 20, capturedAt: ago(5_000), createdAt: ago(3_000), ...o });
 
@@ -370,4 +383,66 @@ test('كل بادئةٍ تُركَّب بعد الحارس مصنَّفة: مح�
   const unclassified = mounted.filter((p) => !GUARDED.includes(p) && !OPEN.includes(p));
   assert.deepEqual(unclassified, [], 'بادئةٌ جديدة: إن كانت تعمل على عميل أضفها إلى LIVE_GUARDED_PREFIXES (الخادم والتطبيق)، وإلا إلى OPEN هنا');
   for (const g of GUARDED) assert.ok(live.LIVE_GUARDED_PREFIXES.some((x) => x === g || x.startsWith(g + '/')), g);
+});
+
+test('آخر موقع: لحظته بساعة الخادم (lastLocAt)، ودفعةٌ أقدم تصل بعد انقطاع لا تُرجع الدبّوس إلى الوراء، وكل نقطةٍ تُبلغ الخريطة (علاج تأخّر الموقع)', async () => {
+  reset();
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { subscribe } = require('../services/liveEvents') as typeof import('../services/liveEvents');
+  const frames: string[] = [];
+  const off = subscribe('t1', { write: (c: string) => frames.push(c) }, 'admin')!;
+  try {
+    const skew = 10 * 60_000; // ساعة الجوال متأخّرة عشر دقائق
+    const devNow = Date.now() - skew;
+    await ping('free', [
+      { lat: 24.70, lng: 46.60, accuracy: 10, capturedAt: new Date(devNow - 20_000).toISOString() },
+      { lat: 24.71, lng: 46.61, accuracy: 10, capturedAt: new Date(devNow - 4_000).toISOString() },
+    ], { 'x-fs-device-now': String(devNow) });
+    const row = repRows.free;
+    assert.equal(row.lastLat, 24.71, 'الأحدث بين نقاط الدفعة');
+    assert.ok(Math.abs((row.lastLocAt as Date).getTime() - (Date.now() - 4_000)) < 1_500, 'مصحَّحة إلى ساعة الخادم');
+    assert.ok(row.lastSeenAt instanceof Date);
+    assert.ok(frames.some((f) => f.startsWith('event: locations')), 'الخريطة الظاهرة لم تُبلَّغ');
+    // دفعةٌ فشلت سابقاً تُعاد الآن — أقدم من الموقع المخزّن
+    const before = row.lastLocAt as Date;
+    await ping('free', [{ lat: 24.50, lng: 46.50, accuracy: 10, capturedAt: new Date(devNow - 60_000).toISOString() }], { 'x-fs-device-now': String(devNow) });
+    assert.equal(row.lastLat, 24.71, 'الدبّوس رجع إلى الوراء');
+    assert.equal(frames.filter((f) => f.startsWith('event: locations')).length, 1, 'دفعةٌ لم تحرّك الدبّوس لا تُطلق قراءة');
+    assert.equal((row.lastLocAt as Date).getTime(), before.getTime());
+    assert.equal(locs.length, 3, 'النقطة الأقدم تبقى في المسار');
+  } finally {
+    off();
+  }
+});
+
+test('حارس ثابت: نقاط الموقع في دلو المندوب لا دلو IP، والخريطة تعيد قراءة lastLocAt', () => {
+  const lim = fs.readFileSync(path.join(SRC, 'middleware', 'rateLimits.ts'), 'utf8');
+  assert.doesNotMatch(lim, /skip:/, 'لا إعفاء من العدّ');
+  assert.match(lim, /return isRepPing\(req\) \? `ping:\$\{req\.ip \?\? ''\}` : \(req\.ip \?\? ''\);/);
+  // مفتاح API (fsk_…) ليس توكن جلسة: لا يدخل دلو النقاط
+  assert.match(lim, /p\.role === 'SALES_REP'/, 'دلو النقاط لتوكن مندوبٍ صحيح التوقيع وحده');
+  assert.match(lim, /keyGenerator: \(req\) => `rep-ping:\$\{/);
+  const tr = fs.readFileSync(path.join(SRC, 'routes', 'tracking.ts'), 'utf8');
+  assert.match(tr, /router\.post\('\/ping', pingLimiter, async/);
+  assert.match(tr, /lastSeenAt: true, lastLocAt: true \},/);
+  // القراءة الخفيفة (حدث «locations») بلا عدّاد زيارات اليوم — أثقل ما في المسار
+  assert.match(tr, /lite \? Promise\.resolve\(null\) : prisma\.repVisit\.findMany\(\{/);
+  assert.match(tr, /else publishLocationsChanged\(tid\);/);
+  // ساعة الخادم في الردّين — بها تحسب اللوحة عمر الموقع ولو انحرفت ساعة جهاز المدير
+  assert.equal((tr.match(/serverNow: Date\.now\(\) \}\);/g) ?? []).length, 2);
+  assert.match(tr, /OR: \[\{ lastLocAt: null \}, \{ lastLocAt: \{ lt: latestAt \} \}\]/);
+});
+
+test('دلو النقاط لتوكن مندوبٍ صحيح التوقيع وحده: المزوّر بشكل JWT، وتوكن اللوحة، ومفتاح API، وغير POST /tracking/ping — في دلو IP العام', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { isRepPing } = require('../middleware/rateLimits') as typeof import('../middleware/rateLimits');
+  const req = (o: { method?: string; path?: string; headers?: Record<string, unknown> }) => ({ method: 'POST', path: '/tracking/ping', headers: {}, ...o });
+  const bearer = (t: string) => ({ authorization: `Bearer ${t}` });
+  assert.equal(isRepPing(req({ headers: bearer(STRICT) })), true);
+  assert.equal(isRepPing(req({ headers: bearer('aaaa.bbbb.cccc') })), false, 'ترويسةٌ مزوّرة بشكل JWT');
+  assert.equal(isRepPing(req({ headers: bearer(jwt.sign({ id: 'strict', role: 'SALES_REP' }, 'other-secret')) })), false, 'توقيعٌ بسرٍّ آخر');
+  assert.equal(isRepPing(req({ headers: bearer(tok({ id: 'a1', role: 'ADMIN', tenantId: 't1' })) })), false, 'توكن مستخدم اللوحة');
+  assert.equal(isRepPing(req({ headers: { ...bearer(STRICT), 'x-api-key': 'fsk_' + 'x'.repeat(40) } })), false, 'مفتاح API معه');
+  assert.equal(isRepPing(req({ method: 'GET', headers: bearer(STRICT) })), false);
+  assert.equal(isRepPing(req({ path: '/tracking/heartbeat', headers: bearer(STRICT) })), false);
 });

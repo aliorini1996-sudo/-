@@ -19,6 +19,14 @@ export const LIVE_REFETCH: readonly (readonly string[])[] = [
   ['rep-statement'],
 ];
 
+/**
+ * حدث «locations» (موقع مندوبٍ تحدّث): قائمة مواقع المناديب على خريطة التتبّع — الويب وتطبيق الإدارة. تُقرأ إن كانت
+ * الخريطة ظاهرة وحدها (invalidate يعيد قراءة النشط فقط)، وبين قراءتين LOCATIONS_GAP_MS على الأقل — ١٠ث: كل قراءة طلبٌ
+ * يُعدّ في حدّ IP المكتب (٦٠٠ كل ربع ساعة يتقاسمه موظفوه)، وشاشات خريطة مفتوحة طوال الدوام لا تأكله.
+ */
+export const LIVE_LOCATIONS: readonly (readonly string[])[] = [['track-live'], ['m-track-live']];
+export const LOCATIONS_GAP_MS = 10_000;
+
 const key = (k: readonly string[]) => k.join('/');
 const REFETCH_SET = new Set(LIVE_REFETCH.map(key));
 

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { MapContainer, TileLayer, Marker, Polyline, CircleMarker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -12,12 +12,17 @@ import { useTr } from '../i18n/strings';
 import { useBackClose } from '../lib/useBackClose';
 import { MSpinner, MError } from './mobileUi';
 import { expectArray, expectObject } from './shape';
-import { SA_CENTER, isOnline, repIcon, visitIcon, customerIcon, fmtDur, timeText } from './mapIcons';
+import { SA_CENTER, repIcon, visitIcon, customerIcon, fmtDur, timeText } from './mapIcons';
+import { repLiveState, repLiveText, noteServerNow, serverClockNow } from '../lib/liveRepStatus';
+import { useNow } from '../lib/useNow';
+import { readLiveReps } from '../lib/trackingLive';
 import { useIsLive, livePoll } from './useLiveQuery';
 
 interface LiveRep {
   id: string; name: string; phone: string; isActive: boolean;
   lastLat: number | null; lastLng: number | null; lastSeenAt: string | null; visitsToday: number;
+  /** لحظة التقاط آخر موقع — غائبةٌ من خادمٍ أقدم */
+  lastLocAt?: string | null;
 }
 interface RoutePoint { lat: number; lng: number; accuracy: number | null; speed: number | null; capturedAt: string }
 type SegKind = 'observed' | 'inferred' | 'raw';
@@ -46,12 +51,17 @@ interface CustomerLoc {
   lat: number; lng: number;
 }
 
-function FitBounds({ points }: { points: [number, number][] }) {
+// الإطار يُضبط مرةً لكل سياق عرض (fitKey: المندوب المحدّد، اليوم، الفريق، ووصول كل طبقة بيانات أول مرة) لا مع كل تحديث
+// للمواقع — الخريطة صارت تتحدّث كل ثوانٍ (حدث «locations»)، وإعادة التأطير كانت تلغي تكبير المدير وتحريكه و«عرض على الخريطة»
+function FitBounds({ points, fitKey }: { points: [number, number][]; fitKey: string }) {
   const map = useMap();
+  const done = useRef<string | null>(null);
   useEffect(() => {
+    if (!points.length || done.current === fitKey) return;
+    done.current = fitKey;
     if (points.length === 1) { map.setView(points[0], 15); return; }
-    if (points.length > 1) map.fitBounds(L.latLngBounds(points), { padding: [40, 40], maxZoom: 16 });
-  }, [points, map]);
+    map.fitBounds(L.latLngBounds(points), { padding: [40, 40], maxZoom: 16 });
+  }, [points, fitKey, map]);
   return null;
 }
 
@@ -92,7 +102,11 @@ export default function MTracking() {
 
   const liveQ = useQuery({
     queryKey: ['m-track-live'],
-    queryFn: async () => expectArray<LiveRep>((await trackingApi.live()).data?.data, tr('المناديب')),
+    queryFn: async () => readLiveReps('m', qc.getQueryData<LiveRep[]>(['m-track-live']), async (lite) => {
+      const r = await trackingApi.live(lite);
+      noteServerNow(r.data?.serverNow);
+      return expectArray<LiveRep>(r.data?.data, tr('المناديب'));
+    }),
     refetchInterval: livePoll(25000, live),
     enabled: settingsQ.data?.enabled !== false,
   });
@@ -150,6 +164,12 @@ export default function MTracking() {
     if (sel?.lastLat != null && sel?.lastLng != null) return [[sel.lastLat, sel.lastLng]];
     return reps.filter(r => r.lastLat != null && r.lastLng != null).map(r => [r.lastLat!, r.lastLng!]);
   }, [selected, routeQ.data, sel, reps]);
+  // وصول كل طبقة أول مرة (data لا isSuccess: فشلٌ عابر في إعادة القراءة يقلب isSuccess ويعيد التأطير)، وانتقال المحدَّد إلى
+  // خط سيره حين يصل
+  const fitKey = [selected, date, liveQ.data !== undefined, routeQ.data !== undefined,
+    selected ? !!routeQ.data?.points.length : focusPoints.length > 0].join('|');
+  // الحالة الزمنية تتقدّم ولو لم تصل بيانات (مندوبٌ صامت يصير «متوقفاً» ثم «غير متصل») — بساعة الخادم
+  const now = useNow(15_000, serverClockNow);
 
   // نفس تمييز اللوحة المكتبية: المقطع المُرجَّح (أعاده محرّك التوجيه بين نقطتين
   // متباعدتين) يُرسم متصلاً بطلب المالك، ويبقى مميّزاً بلونه الأزرق ووسمه «مُرجَّح».
@@ -179,11 +199,11 @@ export default function MTracking() {
         <TileLayer key={satellite ? 'sat' : 'road'}
           url={`https://{s}.google.com/vt/lyrs=${satellite ? 'y' : 'm'}&x={x}&y={y}&z={z}`}
           subdomains={['mt0', 'mt1', 'mt2', 'mt3']} maxZoom={20} />
-        <FitBounds points={focusPoints} />
+        <FitBounds points={focusPoints} fitKey={fitKey} />
 
         {reps.filter(r => r.lastLat != null && r.lastLng != null).map(r => (
           <Marker key={r.id} position={[r.lastLat!, r.lastLng!]}
-            icon={repIcon(isOnline(r.lastSeenAt), (r.name || '').charAt(0))}
+            icon={repIcon(repLiveState(r, now), (r.name || '').charAt(0))}
             eventHandlers={{ click: () => { setSelected(r.id); setSheetOpen(true); } }} />
         ))}
 
@@ -301,16 +321,16 @@ export default function MTracking() {
             : (
               <div className="rounded-2xl border border-[#F1EBDF] overflow-hidden mb-3">
                 {reps.map(r => {
-                  const on = isOnline(r.lastSeenAt);
+                  const state = repLiveState(r, now);
                   const active = r.id === selected;
                   return (
                     <button key={r.id} onClick={() => setSelected(active ? '' : r.id)}
                       className={`w-full text-start flex items-center gap-3 px-3 py-3 min-h-[56px] border-b border-[#F1EBDF] last:border-0 ${active ? 'bg-[#FBEBE2]' : 'active:bg-[#FAF7F0]'}`}>
-                      <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${on ? 'bg-[#2F855A]' : 'bg-[#C9BFB0]'}`} />
+                      <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${state === 'live' ? 'bg-[#2F855A]' : state === 'stale' ? 'bg-[#B7791F]' : 'bg-[#C9BFB0]'}`} />
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm font-semibold text-[#1F1A13] truncate">{r.name}</span>
-                        <span className="block text-[11px] text-[#9A8F7E]">
-                          {on ? tr('متصل الآن') : r.lastSeenAt ? `${tr('آخر ظهور')} ${timeText(r.lastSeenAt)}` : tr('لا موقع بعد')}
+                        <span className={`block text-[11px] ${state === 'stale' ? 'text-[#B7791F]' : 'text-[#9A8F7E]'}`}>
+                          {state === 'none' ? tr('لا موقع بعد') : repLiveText(r, tr, timeText, now)}
                         </span>
                       </span>
                       <span className="text-[11px] text-[#6E6557] flex items-center gap-1 flex-shrink-0">

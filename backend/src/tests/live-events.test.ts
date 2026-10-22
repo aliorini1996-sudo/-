@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  subscribe, publishInvoicesChanged, sseFrame, liveListenerCount, MAX_PER_TENANT,
+  subscribe, publishInvoicesChanged, publishLocationsChanged, LOCATIONS_MIN_GAP_MS, sseFrame, liveListenerCount, MAX_PER_TENANT,
 } from '../services/liveEvents';
 
 /**
@@ -177,4 +177,39 @@ test('HTTP: عميلٌ انقطع أثناء المصادقة البطيئة ل�
   await new Promise(r => setTimeout(r, 450));      // وصل المعالج بعد الإغلاق
   assert.equal(liveListenerCount(tid), 0, 'تسرّب: مستمعٌ لمقبسٍ ميّت لن يُلغى تسجيله أبداً');
   await new Promise(r => server.close(r));
+});
+
+test('مواقع المناديب: حدث «locations» بلا موقعٍ في حمولته، مجمَّعٌ لكل شركة بحافةٍ لاحقة، ولا يُبثّ لشركةٍ بلا مستمع (علاج تأخّر الموقع)', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000_000 });
+  const tid = 'T-loc';
+  const frames: string[] = [];
+  const off = subscribe(tid, { write: (c: string) => frames.push(c) }, 'admin');
+  assert.ok(off);
+  const t0 = Date.now();
+  publishLocationsChanged(tid);
+  assert.equal(frames.length, 1);
+  assert.equal(frames[0], sseFrame('locations', { at: t0 }));
+  // داخل النافذة: لا بثّ فوري، ولا يسقط — يُبثّ مرةً عند نهايتها مهما تكرّر
+  t.mock.timers.tick(1_500);
+  publishLocationsChanged(tid);
+  publishLocationsChanged(tid);
+  assert.equal(frames.length, 1, 'نقاطٌ متلاحقة لا تصير قراءاتٍ متلاحقة');
+  t.mock.timers.tick(LOCATIONS_MIN_GAP_MS - 1_500);
+  assert.equal(frames.length, 2, 'الحدث المؤجَّل لم يُبثّ عند نهاية النافذة');
+  t.mock.timers.tick(10 * LOCATIONS_MIN_GAP_MS);
+  assert.equal(frames.length, 2, 'المؤجَّل يُبثّ مرة واحدة');
+  publishLocationsChanged('T-other');
+  assert.equal(frames.length, 2, 'عزل الشركات');
+  // خروج آخر مستمع يلغي المؤجَّل ويمحو ذاكرة التجميع
+  t.mock.timers.tick(LOCATIONS_MIN_GAP_MS);
+  publishLocationsChanged(tid);
+  publishLocationsChanged(tid);
+  assert.equal(frames.length, 3);
+  off!();
+  t.mock.timers.tick(LOCATIONS_MIN_GAP_MS);
+  assert.equal(frames.length, 3);
+  const off2 = subscribe(tid, { write: (c: string) => frames.push(c) }, 'admin');
+  publishLocationsChanged(tid);
+  assert.equal(frames.length, 4, 'مستمعٌ جديد يبدأ بلا ذاكرة تجميعٍ قديمة');
+  off2!();
 });

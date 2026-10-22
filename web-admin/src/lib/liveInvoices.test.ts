@@ -92,7 +92,7 @@ test('المدفوع/المتبقي يُقرأ فوراً، والثقيل يُ�
 
 test('الالتقاط بعد الانقطاع عند تأكيد الاشتراك لا قبله، والإخفاء القصير لا يُغلق القناة', () => {
   const hook = read('lib/liveInvoices.ts');
-  assert.match(hook, /if \(ev\.event === 'ready'\) \{\s*if \(needCatchUp\) refresh\(\);/, 'الالتقاط قبل أن يسجّل الخادم الاشتراك — نافذةٌ يضيع فيها سند');
+  assert.match(hook, /if \(ev\.event === 'ready'\) \{\s*if \(needCatchUp\) \{ refresh\(\); refreshLocations\(\); \}/, 'الالتقاط قبل أن يسجّل الخادم الاشتراك — نافذةٌ يضيع فيها سند');
   assert.match(hook, /needCatchUp = true;\s*await sleep\(wait\);/, 'محاولةٌ فاشلة لا تستوجب التقاطاً عند الاتصال التالي');
   assert.match(hook, /HIDDEN_GRACE_MS/, 'كل تبديلٍ سريع للتطبيق يُغلق القناة ويعيد القراءة');
   assert.match(hook, /MIN_GAP_MS/, 'لا حدّ أدنى بين جولات القراءة');

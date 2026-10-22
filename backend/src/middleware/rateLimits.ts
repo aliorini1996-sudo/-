@@ -1,4 +1,5 @@
 import rateLimit, { Options } from 'express-rate-limit';
+import jwt from 'jsonwebtoken';
 import { apiKeyFromHeaders, isWellFormedApiKey, hashApiKey, isLiveKeyHash, API_KEY_RATE_PER_MINUTE } from '../services/apiKeys';
 
 // حدود معدّل الطلبات — حماية ضد التخمين والسبام وإساءة الاستخدام.
@@ -82,11 +83,57 @@ function liveKeyHashOf(req: { headers: Record<string, unknown> }): string | null
 export const apiLimiter = rateLimit({
   ...base,
   windowMs: 15 * 60 * 1000,
-  limit: (req) => (liveKeyHashOf(req) ? API_KEY_RATE_PER_MINUTE * 15 : 600),
+  limit: (req) => (liveKeyHashOf(req) ? API_KEY_RATE_PER_MINUTE * 15 : isRepPing(req) ? PING_IP_LIMIT : 600),
   keyGenerator: (req) => {
     const h = liveKeyHashOf(req);
-    return h ? `key:${h}` : (req.ip ?? '');
+    if (h) return `key:${h}`;
+    // نقاط موقع المندوب تُعدّ (لا إعفاء) في دلوٍ مستقلّ لعنوانها: مناديب الشركة خلف NAT المشغّل يتقاسمون عنواناً، ونقاطهم
+    // صارت أسرع (رفعٌ عند التحرّك) فكانت ستستهلك حدّ IP عن فواتيرهم وسنداتهم. وبعد المصادقة دلو المندوب نفسه (pingLimiter)
+    return isRepPing(req) ? `ping:${req.ip ?? ''}` : (req.ip ?? '');
   },
+});
+
+/** سقف نقاط الموقع لكل عنوان في ربع ساعة — ١٢٠/دقيقة: نحو عشرين مندوباً خلف عنوانٍ واحد */
+export const PING_IP_LIMIT = 1800;
+
+const REP_PING = Symbol('repPing');
+
+/**
+ * POST /api/tracking/ping بتوكن جلسة مندوبٍ صحيح التوقيع — يُحكم مرةً لكل طلب (limit وkeyGenerator يسألان كلاهما).
+ * التوقيع HMAC بلا قاعدة: ترويسةٌ مزوّرة بشكل JWT (ومعها مفتاحٌ عشوائي) لا تنقل صاحبها إلى الدلو الأوسع فتصل استعلام
+ * المفاتيح بأربعة أضعاف حدّ IP. ومفتاح API (fsk_…) وتوكن مستخدم اللوحة والمنتهي يبقون في دلو IP العام.
+ */
+export function isRepPing(req: { method: string; path: string; headers: Record<string, unknown> }): boolean {
+  const r = req as typeof req & { [REP_PING]?: boolean };
+  if (r[REP_PING] === undefined) r[REP_PING] = verifiedRepPing(req);
+  return r[REP_PING]!;
+}
+
+function verifiedRepPing(req: { method: string; path: string; headers: Record<string, unknown> }): boolean {
+  if (req.method !== 'POST' || req.path !== '/tracking/ping') return false;
+  if (apiKeyFromHeaders(req.headers as { authorization?: string; 'x-api-key'?: string | string[] })) return false;
+  const auth = req.headers.authorization;
+  const m = typeof auth === 'string' ? /^Bearer ([\w-]+\.[\w-]+\.[\w-]+)$/.exec(auth) : null;
+  const secret = process.env.JWT_SECRET;
+  if (!m || !secret) return false;
+  try {
+    const p = jwt.verify(m[1], secret as jwt.Secret) as { role?: unknown; id?: unknown };
+    return p.role === 'SALES_REP' && typeof p.id === 'string' && p.id.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * نقاط الموقع لكل مندوب: التطبيق يرفع كل ١٥ث متحرّكاً و٣٠ث ساكناً (≤٤/دقيقة)، والمقيَّد يزيد نقطة حاجزٍ كل ٣٠ث ونقطةً
+ * قبل الإجراء (≤٤/دقيقة) — نحو ١٠/دقيقة في أسوأ يوم. ١٦/دقيقة سقفٌ بهامش: أضيق منه يردّ نقطة ما قبل الفاتورة فيُمنع
+ * المقيَّد من عمله، وأوسع منه هامشٌ لنقاطٍ مصنوعة. يُركَّب بعد authenticate (req.user)
+ */
+export const pingLimiter = rateLimit({
+  ...base,
+  windowMs: 15 * 60 * 1000,
+  limit: 240,
+  keyGenerator: (req) => `rep-ping:${(req as unknown as { user?: { id?: string } }).user?.id ?? req.ip ?? ''}`,
 });
 
 /**

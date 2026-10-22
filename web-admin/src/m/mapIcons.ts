@@ -1,5 +1,6 @@
 import L from 'leaflet';
 import { formatMoment } from '../utils/format';
+import { STATE_COLOR, type RepLiveState } from '../lib/liveRepStatus';
 
 /**
  * أيقونات الخريطة ودوالّها الزمنية.
@@ -14,13 +15,10 @@ import { formatMoment } from '../utils/format';
  */
 
 export const SA_CENTER: [number, number] = [24.7136, 46.6753]; // الرياض مركزاً افتراضياً
-const ONLINE_MS = 5 * 60 * 1000;
 
-export const isOnline = (iso: string | null) =>
-  !!iso && Date.now() - new Date(iso).getTime() < ONLINE_MS;
-
-export function repIcon(online: boolean, label: string) {
-  const color = online ? '#1E7A52' : '#9A8F7E';
+/** `online` منطقيّ كما كان، أو حالة المندوب (lib/liveRepStatus.ts) فيُلوَّن بها: مباشر، متصلٌ وموقعه قديم، غير متصل */
+export function repIcon(online: boolean | RepLiveState, label: string) {
+  const color = typeof online === 'string' ? STATE_COLOR[online] : online ? '#1E7A52' : '#9A8F7E';
   return L.divIcon({
     className: '',
     html: `<div style="width:36px;height:36px;border-radius:50%;background:${color};border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700">${label}</div>`,

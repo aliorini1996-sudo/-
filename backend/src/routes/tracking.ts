@@ -15,6 +15,8 @@ import { heartbeatClientState } from '../services/repHeartbeat';
 import { countStopsByRep, asVisitLike } from '../services/workDay';
 import { correctCapturedAt, DEVICE_NOW_HEADER } from '../services/liveLocation';
 import { readLiveVerdict } from '../middleware/repLiveLocation';
+import { pingLimiter } from '../middleware/rateLimits';
+import { publishLocationsChanged } from '../services/liveEvents';
 
 const router = Router();
 router.use(authenticate);
@@ -49,7 +51,7 @@ const pingSchema = z.object({
 });
 
 // استقبال نقاط موقع المندوب (دفعة) — يخزّنها ويحدّث آخر موقع معروف
-router.post('/ping', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/ping', pingLimiter, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (req.user?.role !== 'SALES_REP') { res.status(403).json({ success: false, message: 'غير مسموح' }); return; }
     const tid = tenantId(req);
@@ -82,11 +84,19 @@ router.post('/ping', async (req: AuthRequest, res: Response, next: NextFunction)
     // أحدث نقطة = آخر موقع معروف (الإحداثيّات من نقطة العميل، أمّا «آخر ظهور» فبوقت
     // الخادم لا بساعة الجهاز: عدّاد «الزيارات الحية» يوازن lastSeenAt بنافذة وقت خادم
     // مطلقة، فساعةُ جهازٍ منحرفةٌ كانت ستُبقي المندوب «متصلاً» أطول/أقصر من حقيقته).
-    const latest = rows.reduce((a, b) => (a.capturedAt > b.capturedAt ? a : b));
-    await prisma.salesRep.update({
-      where: { id: repId },
-      data: { lastLat: latest.lat, lastLng: latest.lng, lastSeenAt: new Date() },
+    // ولحظة الموقع lastLocAt بساعة الخادم (مصحَّحة لكل مندوب): بها تعرف اللوحة «موقعه الآن» من «متصل وموقعه قديم».
+    // دفعةٌ أقدم تصل متأخّرة (أعاد التطبيق إرسالها بعد انقطاع) لا تُرجع الدبّوس إلى الوراء — تُخزَّن في المسار فقط
+    const fixAt = points.map(p => correctCapturedAt(p.capturedAt, req.headers[DEVICE_NOW_HEADER], serverNow).getTime());
+    const iLatest = fixAt.reduce((best, t, i) => (t > fixAt[best] ? i : best), 0);
+    const latestAt = new Date(fixAt[iLatest]);
+    const now = new Date();
+    const moved = await prisma.salesRep.updateMany({
+      where: { id: repId, OR: [{ lastLocAt: null }, { lastLocAt: { lt: latestAt } }] },
+      data: { lastLat: rows[iLatest].lat, lastLng: rows[iLatest].lng, lastLocAt: latestAt, lastSeenAt: now },
     });
+    // دفعةٌ أقدم لم تحرّك الدبّوس: لا حدث — لا جديد تقرؤه الخريطة
+    if (moved.count === 0) await prisma.salesRep.update({ where: { id: repId }, data: { lastSeenAt: now } });
+    else publishLocationsChanged(tid);
 
     // المقيَّد: حكم الخادم نفسه الذي يحرس كل إجراء (middleware/repLiveLocation.ts) في ردّ النقطة — به يرفع التطبيق حاجزه
     if (strict) {
@@ -503,30 +513,34 @@ router.post('/push/unsubscribe', async (req: AuthRequest, res: Response, next: N
   } catch (err) { next(err); }
 });
 
-// المواقع الحالية لكل المناديب — للأدمن (الخريطة الحيّة) مع عدّاد زيارات اليوم
+// المواقع الحالية لكل المناديب — للأدمن (الخريطة الحيّة) مع عدّاد زيارات اليوم.
+// lite=1: المواقع وحدها بلا عدّاد الزيارات (أثقل ما في المسار) — تقرؤها الخريطة عند حدث «locations» كل ثوانٍ، والكاملة كل دقيقة
 router.get('/live', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
     const dayStart = new Date(); dayStart.setUTCHours(0, 0, 0, 0);
+    const lite = req.query.lite === '1';
 
     const [reps, visitRows] = await Promise.all([
       // كل المناديب النشطين (لا فقط من أرسل موقعاً) — كي يظهر المضاف حديثاً فوراً؛
       // من له موقع أوّلاً (nulls last)، ومن لم يُحدّد موقعه بعد يظهر بلا دبّوس على الخريطة
       prisma.salesRep.findMany({
         where: { tenantId: tid, isActive: true, ...(await adminRepFilter(req)) },
-        select: { id: true, name: true, phone: true, isActive: true, lastLat: true, lastLng: true, lastSeenAt: true },
+        select: { id: true, name: true, phone: true, isActive: true, lastLat: true, lastLng: true, lastSeenAt: true, lastLocAt: true },
         orderBy: [{ lastSeenAt: { sort: 'desc', nulls: 'last' } }, { name: 'asc' }],
       }),
       // الوقفات لا السجلّات — عدّاد الخريطة يطابق قائمة زياراتها
-      prisma.repVisit.findMany({
+      lite ? Promise.resolve(null) : prisma.repVisit.findMany({
         where: { tenantId: tid, createdAt: { gte: dayStart }, ...(await scopedRecordWhere(req, SHAPE_VISIT)) },
         select: { salesRepId: true, customerId: true, createdAt: true, startedAt: true, durationSec: true, customer: { select: { name: true } } },
         take: 20000,
       }),
     ]);
+    // serverNow: ساعة الخادم — بها تحسب اللوحة عمر الموقع ولو انحرفت ساعة جهاز المدير
+    if (!visitRows) { res.json({ success: true, data: reps, serverNow: Date.now() }); return; }
     const visitsByRep = countStopsByRep(visitRows.map(asVisitLike));
 
-    res.json({ success: true, data: reps.map(r => ({ ...r, visitsToday: visitsByRep[r.id] || 0 })) });
+    res.json({ success: true, data: reps.map(r => ({ ...r, visitsToday: visitsByRep[r.id] || 0 })), serverNow: Date.now() });
   } catch (err) { next(err); }
 });
 

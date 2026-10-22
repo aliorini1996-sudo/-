@@ -13,10 +13,15 @@ import { MapPin, MapPinOff, Navigation, Calendar, Radio, Power, ClipboardCheck, 
 import toast from 'react-hot-toast';
 import { backdropClose } from '../lib/backdropClose';
 import { formatMoment } from '../utils/format';
+import { repLiveState, repLiveText, noteServerNow, serverClockNow, STATE_COLOR, type RepLiveState } from '../lib/liveRepStatus';
+import { useNow } from '../lib/useNow';
+import { readLiveReps } from '../lib/trackingLive';
 
 interface LiveRep {
   id: string; name: string; phone: string; isActive: boolean;
   lastLat: number | null; lastLng: number | null; lastSeenAt: string | null; visitsToday: number;
+  /** لحظة التقاط آخر موقع — غائبةٌ من خادمٍ أقدم */
+  lastLocAt?: string | null;
 }
 interface RoutePoint { lat: number; lng: number; accuracy: number | null; speed: number | null; capturedAt: string; }
 type SegKind = 'observed' | 'inferred' | 'raw';
@@ -45,12 +50,10 @@ interface CustomerLoc {
 }
 
 const SA_CENTER: [number, number] = [24.7136, 46.6753]; // الرياض كمركز افتراضي
-const ONLINE_MS = 5 * 60 * 1000;
 
-const isOnline = (iso: string | null) => !!iso && Date.now() - new Date(iso).getTime() < ONLINE_MS;
-
-function repIcon(online: boolean, label: string) {
-  const color = online ? '#1E7A52' : '#9A8F7E';
+// لون الدبّوس بحالة المندوب (lib/liveRepStatus.ts): أخضر موقعٌ مباشر، كهرمانيّ متصلٌ وموقعه قديم، رماديّ غير متصل
+function repIcon(state: RepLiveState, label: string) {
+  const color = STATE_COLOR[state];
   return L.divIcon({
     className: '',
     html: `<div style="width:30px;height:30px;border-radius:50%;background:${color};border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700">${label}</div>`,
@@ -132,12 +135,17 @@ function FlyTo({ target }: { target: [number, number] | null }) {
 }
 
 // يضبط حدود الخريطة لتشمل النقاط المعروضة
-function FitBounds({ points }: { points: [number, number][] }) {
+// الإطار يُضبط مرةً لكل سياق عرض (fitKey: المندوب المحدّد، اليوم، الفريق، ووصول كل طبقة بيانات أول مرة) لا مع كل تحديث
+// للمواقع — الخريطة صارت تتحدّث كل ثوانٍ (حدث «locations»)، وإعادة التأطير كانت تلغي تكبير المدير وتحريكه و«عرض على الخريطة»
+function FitBounds({ points, fitKey }: { points: [number, number][]; fitKey: string }) {
   const map = useMap();
+  const done = useRef<string | null>(null);
   useEffect(() => {
+    if (!points.length || done.current === fitKey) return;
+    done.current = fitKey;
     if (points.length === 1) { map.setView(points[0], 15); return; }
-    if (points.length > 1) map.fitBounds(L.latLngBounds(points), { padding: [50, 50], maxZoom: 16 });
-  }, [points, map]);
+    map.fitBounds(L.latLngBounds(points), { padding: [50, 50], maxZoom: 16 });
+  }, [points, fitKey, map]);
   return null;
 }
 
@@ -186,7 +194,11 @@ export default function TrackingPage() {
 
   const liveQ = useQuery({
     queryKey: ['track-live'],
-    queryFn: async () => (await trackingApi.live()).data.data as LiveRep[],
+    queryFn: async () => readLiveReps('web', qc.getQueryData<LiveRep[]>(['track-live']), async (lite) => {
+      const { data } = await trackingApi.live(lite);
+      noteServerNow(data.serverNow);
+      return data.data as LiveRep[];
+    }),
     refetchInterval: enabled ? 20000 : false,
     enabled,
   });
@@ -325,6 +337,14 @@ export default function TrackingPage() {
     return shownReps.filter(r => r.lastLat != null && r.lastLng != null).map(r => [r.lastLat!, r.lastLng!] as [number, number]);
   }, [selected, rawLatLng, visitPins, punchPts, planLatLng, shownReps]);
 
+  // وصول كل طبقة أول مرة (data لا isSuccess: فشلٌ عابر في إعادة القراءة يقلب isSuccess ويعيد التأطير)، وانتقال المحدَّد من
+  // إطار كل المناديب (احتياطاً) إلى نقاطه هو حين تصل
+  const ownPts = rawLatLng.length + visitPins.length + punchPts.length + planLatLng.length;
+  const fitKey = [selected, date, teamFilter, liveQ.data !== undefined, routeQ.data !== undefined, visitsQ.data !== undefined, planQ.data !== undefined,
+    selected ? ownPts > 0 : focusPoints.length > 0].join('|');
+  // الحالة الزمنية تتقدّم ولو لم تصل بيانات (مندوبٌ صامت يصير «متوقفاً» ثم «غير متصل») — بساعة الخادم
+  const now = useNow(15_000, serverClockNow);
+
   const selectedRep = reps.find(r => r.id === selected);
 
   return (
@@ -378,15 +398,14 @@ export default function TrackingPage() {
               ) : shownReps.length === 0 ? (
                 <p className="text-center text-gray-400 text-sm py-10 px-4">{tr('لا مناديب في هذا الفريق')}</p>
               ) : shownReps.map(r => {
-                const on = isOnline(r.lastSeenAt);
-                const located = r.lastSeenAt != null;
+                const state = repLiveState(r, now);
                 return (
                   <button key={r.id} onClick={() => setSelected(s => s === r.id ? '' : r.id)}
                     className={`w-full text-right px-4 py-3 border-b border-[#F1EBDF] flex items-center gap-3 transition-colors ${selected === r.id ? 'bg-[#FBEBE2]' : 'hover:bg-[#FAF7F0]'}`}>
-                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${on ? 'bg-[#1E7A52]' : located ? 'bg-gray-300' : 'bg-amber-400'}`} />
+                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${state === 'live' ? 'bg-[#1E7A52]' : state === 'stale' ? 'bg-[#B7791F]' : state === 'offline' ? 'bg-gray-300' : 'bg-amber-400'}`} />
                     <div className="min-w-0 flex-1">
                       <p className="font-semibold text-[#1F1A13] text-sm truncate">{r.name}</p>
-                      <p className="text-[11px] text-[#9A8F7E]">{!located ? tr('لم يحدد موقعه بعد') : on ? tr('متصل الآن') : `${tr('آخر ظهور')} ${sinceText(r.lastSeenAt!)}`}</p>
+                      <p className={`text-[11px] ${state === 'stale' ? 'text-[#B7791F]' : 'text-[#9A8F7E]'}`}>{repLiveText(r, tr, sinceText, now)}</p>
                     </div>
                     {/* عدّاد زيارات اليوم — لحظيّ */}
                     <span className={`shrink-0 inline-flex items-center gap-1 text-[11px] font-bold rounded-full px-2 py-1 ${r.visitsToday > 0 ? 'bg-[#E7F5EE] text-[#1E7A52]' : 'bg-[#F1EBDF] text-[#9A8F7E]'}`}
@@ -563,16 +582,16 @@ export default function TrackingPage() {
                 <TileLayer key={mapType} attribution='&copy; Google'
                   url={`https://{s}.google.com/vt/lyrs=${mapType === 'satellite' ? 'y' : 'm'}&x={x}&y={y}&z={z}`}
                   subdomains={['mt0', 'mt1', 'mt2', 'mt3']} maxZoom={20} />
-                <FitBounds points={focusPoints} />
+                <FitBounds points={focusPoints} fitKey={fitKey} />
                 <FlyTo target={focusVisit?.at ?? null} />
 
                 {/* علامات المواقع الحيّة (لمن لهم موقع فقط؛ تُخفى عند تحديد مندوب) */}
                 {!selected && shownReps.filter(r => r.lastLat != null && r.lastLng != null).map(r => (
-                  <Marker key={r.id} position={[r.lastLat!, r.lastLng!]} icon={repIcon(isOnline(r.lastSeenAt), r.name.charAt(0))}>
+                  <Marker key={r.id} position={[r.lastLat!, r.lastLng!]} icon={repIcon(repLiveState(r, now), r.name.charAt(0))}>
                     <Popup>
                       <div style={{ direction: 'rtl', minWidth: 140 }}>
                         <strong>{r.name}</strong><br />
-                        <span style={{ color: '#6E6557', fontSize: 12 }}>{isOnline(r.lastSeenAt) ? tr('متصل الآن') : `${tr('آخر ظهور')} ${r.lastSeenAt ? sinceText(r.lastSeenAt) : ''}`}</span><br />
+                        <span style={{ color: '#6E6557', fontSize: 12 }}>{repLiveText(r, tr, sinceText, now)}</span><br />
                         <span style={{ color: '#1E7A52', fontSize: 12 }}>{r.visitsToday} {tr('زيارة اليوم')}</span><br />
                         <span style={{ color: '#9A8F7E', fontSize: 11 }}>{r.phone}</span>
                       </div>

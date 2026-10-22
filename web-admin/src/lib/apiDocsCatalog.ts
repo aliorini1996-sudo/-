@@ -3766,11 +3766,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:[{id, name, phone, isActive, lastLat, lastLng, lastSeenAt, visitsToday}]}. الترتيب: الأحدث ظهوراً أولاً، ومن ليس له موقع في الآخر",
+    "response": "{success:true, data:[{id, name, phone, isActive, lastLat, lastLng, lastSeenAt, lastLocAt, visitsToday}], serverNow}. الترتيب: الأحدث ظهوراً أولاً، ومن ليس له موقع في الآخر. lite=1 يعيد المواقع بلا visitsToday",
     "rules": [
      "يشمل كل المناديب النشطين ولو لم يرسلوا موقعاً بعد، وفي هذه الحالة lastLat وlastLng بقيمة null",
      "visitsToday يُحسب منذ منتصف ليل UTC اليوم، أي الثالثة فجراً بتوقيت الرياض، ويعدّ الوقفات لا السجلات",
-     "يتحدّث lastSeenAt بنبضات تطبيق المندوب، فهو مؤشر الاتصال"
+     "يتحدّث lastSeenAt بنبضات تطبيق المندوب، فهو مؤشر الاتصال لا عمر الموقع",
+     "lastLocAt لحظة التقاط lastLat وlastLng بساعة الخادم: موقعٌ عمره دقائق والمندوب متصل يعني أن موقعه متوقف"
     ],
     "example": ""
    },

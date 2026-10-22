@@ -239,7 +239,9 @@ test('الحدّ العام: طلب المفتاح الحيّ يُعدّ في د
   const block = rl.slice(rl.indexOf('function liveKeyHashOf'), rl.indexOf('});', rl.indexOf('export const apiLimiter')));
   assert.doesNotMatch(block, /skip:/, 'لا إعفاء من العدّ — المسارات العامة والمرفوضة تُحسب على المفتاح');
   assert.match(block, /keyGenerator: \(req\) =>/);
-  assert.match(block, /return h \? `key:\$\{h\}` : \(req\.ip \?\? ''\);/);
+  assert.match(block, /if \(h\) return `key:\$\{h\}`;/);
+  // نقاط موقع المندوب (توكن جلسة لا مفتاح) في دلوٍ مستقلّ لعنوانها — تُعدّ ولا تُعفى؛ والمفتاح الحيّ قبلها في دلوه
+  assert.match(block, /return isRepPing\(req\) \? `ping:\$\{req\.ip \?\? ''\}` : \(req\.ip \?\? ''\);/);
   assert.doesNotMatch(block, /prisma\./, 'لا استعلام في الحدّ: سيل مفاتيح عشوائية لا يصير سيل استعلامات');
   // الحيّ = أجازه authenticate للتوّ (بلا قاعدة)، والإلغاء يمحوه فوراً
   keys._resetApiKeyWindows();

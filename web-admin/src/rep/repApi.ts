@@ -30,6 +30,34 @@ const repApi = axios.create({
 /** ساعة الجهاز لحظة الإرسال (ms) — بها يصحّح الخادم لحظة قراءة الموقع إلى ساعته (القفل الكامل، liveGate.ts) */
 export const DEVICE_NOW_HEADER = 'X-FS-Device-Now';
 
+/**
+ * طلبٌ يكمل بعد إخفاء التطبيق أو إغلاقه (fetch بـkeepalive، جسمه ≤ ٦٤ ك.ب) — طلب axios قد يُقطع حينها فتضيع نقاط
+ * الموقع الأخيرة. بلا معترضات repApi: لا تجديد جلسة ولا قفل موقع؛ يعيد رمز الحالة، والشبكة الغائبة ترمي.
+ */
+export async function postKeepalive(path: string, body: unknown, timeoutMs?: number): Promise<number> {
+  const token = localStorage.getItem('rep_token');
+  // المهلة تُفشل الطلب (ترمي) فلا يعلق مستدعيه — المتصفّح الأقدم بلا AbortController يرسل بلا مهلة
+  const ctrl = timeoutMs && typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+  try {
+    const res = await fetch(`${BASE}${path}`, {
+      method: 'POST',
+      keepalive: true,
+      signal: ctrl?.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        [FS_CAPS_HEADER]: FS_CAPS_VALUE,
+        [DEVICE_NOW_HEADER]: String(Date.now()),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+    return res.status;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 /** قراءةٌ طازجة الآن — لا مخبّأة (maximumAge: 0): قراءةٌ قبل إطفاء الموقع لا تُثبت شيئاً */
 export function freshLiveFix(): Promise<FreshFixResult> {
   return new Promise((resolve) => {
