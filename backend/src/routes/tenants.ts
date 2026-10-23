@@ -5,7 +5,9 @@ import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { mailLayout, sendMail } from '../services/mailer';
-import { authenticate, requireSuperAdmin } from '../middleware/auth';
+import { platformGate, impersonationIssuer, writePlatformAudit, type PlatformRequest } from '../services/platformAccess';
+import { escapeHtml, frontendBase } from '../services/affiliate/core';
+import { tempPassword } from './platformStaff';
 import { AuthRequest } from '../types';
 import { cardStatuses, platformMetrics, sendWeeklyReport } from '../services/opsSchedule';
 import { appendAudit } from '../services/gl/audit';
@@ -24,7 +26,8 @@ import { tenantDeleteArchiveBlock } from '../compliance/zatca/settingsGuards';
 
 // إدارة الشركات المشتركة — لمالك المنصّة (السوبر أدمن) فقط
 const router = Router();
-router.use(authenticate, requireSuperAdmin);
+// مالك المنصة وموظفوها بصلاحياتهم (services/platformAccess.ts: platformGate — ما لا قاعدة له للمالك وحده)
+router.use(platformGate);
 
 const createTenantSchema = z.object({
   companyName: z.string().min(1),       // اسم الشركة
@@ -40,7 +43,8 @@ const createTenantSchema = z.object({
   // بيانات أدمن الشركة الأول
   adminName: z.string().min(1),
   adminEmail: z.string().email(),
-  adminPassword: z.string().min(8, 'كلمة المرور 8 أحرف على الأقل'),
+  // المالك يضعها؛ وموظف المنصة لا يرسلها — يولّدها الخادم ويرسلها إلى بريد المدير (POST /)
+  adminPassword: z.string().min(8, 'كلمة المرور 8 أحرف على الأقل').optional(),
 });
 
 const updateTenantSchema = z.object({
@@ -183,14 +187,33 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 });
 
 // إنشاء شركة جديدة + أدمنها الأول + إعدادات شركتها
-router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/', async (req: PlatformRequest, res: Response, next: NextFunction) => {
   try {
     const body = createTenantSchema.parse(req.body);
+    // موظف المنصة لا يختار كلمة مرور المدير: كلمةٌ يعرفها كانت دخولاً دائماً بهوية المدير لا يسقطه تعطيله (كإعادة كلمة المرور)
+    const byStaff = !!req.platformStaff;
+    if (byStaff && body.adminPassword !== undefined) {
+      res.status(400).json({ success: false, code: 'STAFF_CREATE_NO_PASSWORD', message: 'كلمة مرور المدير ترسل الى بريده ولا تكتب هنا' });
+      return;
+    }
+    if (!byStaff && !body.adminPassword) { res.status(400).json({ success: false, message: 'كلمة المرور 8 أحرف على الأقل' }); return; }
 
     const emailTaken = await prisma.admin.findUnique({ where: { email: body.adminEmail } });
     if (emailTaken) { res.status(409).json({ success: false, message: 'البريد الإلكتروني مستخدم مسبقا' }); return; }
 
-    const passwordHash = await bcrypt.hash(body.adminPassword, 10);
+    const password = byStaff ? tempPassword() : body.adminPassword!;
+    if (byStaff) {
+      // تُرسل قبل الإنشاء: تعذّر البريد ⇒ لا شركة بمديرٍ لا يعرف كلمته
+      const sent = await sendMail({
+        to: body.adminEmail,
+        subject: 'حسابك في فيلد سيلز جاهز',
+        html: mailLayout('حسابك جاهز', [
+          ['الشركة', escapeHtml(body.companyName)], ['البريد', escapeHtml(body.adminEmail)], ['كلمة المرور المؤقتة', `<bdi dir="ltr">${password}</bdi>`],
+        ], `أنشأ فريق فيلد سيلز حساب شركتك. ادخل من <a href="${escapeHtml(frontendBase())}/login">${escapeHtml(frontendBase())}/login</a> ثم غيّر كلمة المرور من حسابك.`),
+      });
+      if (!sent) { res.status(502).json({ success: false, code: 'CREATE_MAIL_FAILED', message: 'تعذر ارسال البريد الى المدير فلم تنشأ الشركة' }); return; }
+    }
+    const passwordHash = await bcrypt.hash(password, 10);
 
     const tenant = await prisma.$transaction(async tx => {
       const t = await tx.tenant.create({
@@ -217,7 +240,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       return t;
     });
 
-    res.status(201).json({ success: true, data: { ...tenant, adminEmail: body.adminEmail } });
+    res.status(201).json({ success: true, data: { ...tenant, adminEmail: body.adminEmail, ...(byStaff ? { passwordSentTo: maskEmail(body.adminEmail) } : {}) } });
   } catch (err) { next(err); }
 });
 
@@ -240,7 +263,8 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       if (before && before.accountingSuiteEnabled !== updated.accountingSuiteEnabled) {
         await appendAudit(tx, {
           tenantId: updated.id,
-          actor: { actorType: 'OWNER', actorId: req.user!.id, actorName: req.user!.name ?? null, impersonated: false, requestIp: req.ip ?? null },
+          // المالك OWNER، وموظف المنصة بـtenants.edit STAFF باسمه — لا يُنسب فعله إلى المالك
+          actor: ownerActor(req),
           action: 'FLAG_TOGGLE',
           entityType: 'TENANT',
           entityId: updated.id,
@@ -269,8 +293,9 @@ router.post('/:id/impersonate', async (req: AuthRequest, res: Response, next: Ne
     if (!admin) { res.status(404).json({ success: false, message: 'لا يوجد مدير لهذه الشركة' }); return; }
     if (!admin.isActive) { res.status(409).json({ success: false, message: 'كل مديري هذه الشركة معطلون فعل حسابا قبل الدخول' }); return; }
 
+    // المُصدِر (المالك أو الموظف ونسخة جلسته) يُفحص حيّاً في كل طلب من الجلسة (authenticate ← impersonationIssuerOk)
     const token = jwt.sign(
-      { id: admin.id, role: admin.role, name: admin.name, tenantId: tenant.id, impersonated: true },
+      { id: admin.id, role: admin.role, name: admin.name, tenantId: tenant.id, impersonated: true, ...impersonationIssuer(req) },
       process.env.JWT_SECRET!,
       { expiresIn: '2h' }
     );
@@ -458,9 +483,67 @@ router.get('/:id/performance', async (req: AuthRequest, res: Response, next: Nex
   } catch (err) { next(err); }
 });
 
-// إعادة تعيين كلمة مرور أدمن الشركة
-router.post('/:id/reset-admin', async (req: AuthRequest, res: Response, next: NextFunction) => {
+/** «ab***@domain» — يعرف الموظف أين ذهبت الرسالة بلا كشف عنوان المدير كاملاً */
+export function maskEmail(email: string): string {
+  const at = email.lastIndexOf('@');
+  if (at < 1) return '***';
+  return `${email.slice(0, at > 2 ? 2 : 1)}***${email.slice(at)}`;
+}
+
+const staffResetAdminSchema = z.object({ adminId: z.string().optional() });
+
+/**
+ * إعادة كلمة مرور المدير بيد موظف المنصة: لا يضع كلمةً يعرفها — كان يدخل بها /api/auth/login دخولاً عادياً دائماً بهوية
+ * المدير لا يسقطه تعطيله. الخادم يولّد كلمة مؤقتة ويرسلها إلى بريد المدير وحده **قبل** حفظ تجزئتها (تعذّر الإرسال ⇒ لا
+ * يتغيّر شيء)، ولا تعود في الردّ. وسطرٌ في سجل النشاط بمعرّف المدير قبل الفعل (سطر الحارس يحمل معرّف الشركة وحده)
+ */
+async function staffResetAdmin(req: PlatformRequest, res: Response): Promise<void> {
+  const staff = req.platformStaff!;
+  if (req.body?.newPassword !== undefined) {
+    res.status(400).json({ success: false, code: 'STAFF_RESET_NO_PASSWORD', message: 'كلمة المرور المؤقتة ترسل الى بريد المدير ولا تكتب هنا' });
+    return;
+  }
+  const { adminId } = staffResetAdminSchema.parse(req.body ?? {});
+  const admin = adminId
+    ? await prisma.admin.findFirst({ where: { id: adminId, tenantId: req.params.id } })
+    : await prisma.admin.findFirst({ where: { tenantId: req.params.id }, orderBy: { createdAt: 'asc' } });
+  if (!admin) { res.status(404).json({ success: false, message: 'المدير غير موجود' }); return; }
+  // sendMail بلا `to` يرسل إلى بريد المالك (MAIL_TO) — فلا إرسال إلا إلى بريدٍ صالح للمدير نفسه
+  if (!z.string().email().safeParse(admin.email).success) {
+    res.status(409).json({ success: false, code: 'ADMIN_EMAIL_MISSING', message: 'لا بريد صالح لهذا المدير فلا يمكن ارسال كلمة مرور مؤقتة' });
+    return;
+  }
+  const email = maskEmail(admin.email);
   try {
+    await writePlatformAudit({
+      actorType: 'STAFF', actorId: staff.id, actorName: staff.name, action: 'tenants.resetPassword.admin', method: req.method,
+      path: `${req.baseUrl}${req.path}`, targetId: admin.id, detail: { tenantId: admin.tenantId, email }, ip: req.ip ?? null,
+    });
+  } catch {
+    res.status(503).json({ success: false, code: 'AUDIT_UNAVAILABLE', message: 'تعذر تسجيل العملية في سجل النشاط فلم تنفذ حاول مجددا' });
+    return;
+  }
+  const tenant = await prisma.tenant.findUnique({ where: { id: admin.tenantId }, select: { name: true } });
+  const password = tempPassword();
+  const sent = await sendMail({
+    to: admin.email,
+    subject: 'كلمة مرور مؤقتة لحسابك في فيلد سيلز',
+    html: mailLayout('كلمة مرور مؤقتة', [
+      ['الشركة', escapeHtml(tenant?.name ?? '—')], ['البريد', escapeHtml(admin.email)], ['كلمة المرور المؤقتة', `<bdi dir="ltr">${password}</bdi>`],
+    ], `أعاد فريق فيلد سيلز تعيين كلمة مرور حسابك. ادخل بها من <a href="${escapeHtml(frontendBase())}/login">${escapeHtml(frontendBase())}/login</a> ثم غيّرها من حسابك، وإن لم تطلب ذلك فتواصل معنا فوراً.`),
+  });
+  if (!sent) {
+    res.status(502).json({ success: false, code: 'RESET_MAIL_FAILED', message: 'تعذر ارسال البريد الى المدير فلم تتغير كلمة المرور' });
+    return;
+  }
+  await prisma.admin.update({ where: { id: admin.id }, data: { passwordHash: await bcrypt.hash(password, 10) } });
+  res.json({ success: true, data: { sent: true, email } });
+}
+
+// إعادة تعيين كلمة مرور أدمن الشركة — موظف المنصة عبر بريد المدير (staffResetAdmin)، والمالك كما كان
+router.post('/:id/reset-admin', async (req: PlatformRequest, res: Response, next: NextFunction) => {
+  try {
+    if (req.platformStaff) { await staffResetAdmin(req, res); return; }
     const schema = z.object({ adminId: z.string().optional(), newPassword: z.string().min(8, 'كلمة المرور 8 أحرف على الأقل') });
     const { adminId, newPassword } = schema.parse(req.body);
     // إن لم يُحدَّد adminId نعيد تعيين كلمة مرور المدير الرئيسي (الأقدم) للشركة
@@ -476,8 +559,11 @@ router.post('/:id/reset-admin', async (req: AuthRequest, res: Response, next: Ne
 
 // ————— النظام المحاسبي المتكامل: إجراءات المالك (M3، §5.7، §8.1، §10.3 D2) —————
 
-function ownerActor(req: AuthRequest): GlActor {
-  return { actorType: 'OWNER', actorId: req.user!.id, actorName: req.user!.name ?? null, impersonated: false, requestIp: req.ip ?? null };
+/** منفّذ إجراءات لوحة المنصة في سجل تدقيق الدفاتر: المالك OWNER، وموظف المنصة STAFF باسمه (req.user.id معرّفه) */
+export function ownerActor(req: PlatformRequest): GlActor {
+  const base = { actorId: req.user!.id, impersonated: false, requestIp: req.ip ?? null };
+  if (!req.platformStaff) return { actorType: 'OWNER', actorName: req.user!.name ?? null, ...base };
+  return { actorType: 'STAFF', actorName: `موظف المنصة: ${req.platformStaff.name}`, ...base };
 }
 
 /** رمية داخل المعاملة لرد منظّم بعد تراجعها */
@@ -486,7 +572,7 @@ class OwnerLedgerReply extends Error {
 }
 
 // إعادة ضبط الدفاتر (§5.7): قبل أول ترحيل وحده؛ القفل أول عبارة، ثم الشروط، ثم الحذف بـGL_RESET_ORDER، ثم LEDGER_RESET.
-router.post('/:id/ledger-reset', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/:id/ledger-reset', async (req: PlatformRequest, res: Response, next: NextFunction) => {
   try {
     const tid = req.params.id;
     const tenant = await prisma.tenant.findUnique({ where: { id: tid }, select: { id: true, name: true } });
@@ -496,8 +582,8 @@ router.post('/:id/ledger-reset', async (req: AuthRequest, res: Response, next: N
       res.status(422).json({ success: false, code: 'LEDGER_RESET_CONFIRM_MISMATCH', message: 'اسم التأكيد لا يطابق اسم الشركة حرفياً' });
       return;
     }
-    // تجاوز مالك المنصّة (§5.7، قرار المالك): الأسباب النظامية تحجب الأدمن، لكن مالك المنصّة — وهو
-    // الوحيد على هذا المسار (requireSuperAdmin) — يستطيع الحذف الكامل بـforce، فتعود الشركة كأنّ
+    // تجاوز مالك المنصّة (§5.7، قرار المالك): الأسباب النظامية تحجب الأدمن، لكن مالك المنصّة — ومعه موظفٌ
+    // منحه tenants.ledger (platformGate) ويُدوَّن STAFF باسمه — يستطيع الحذف الكامل بـforce، فتعود الشركة كأنّ
     // الدفاتر لم تُفعَّل قطّ. لا يُمَسّ إلا gl_* (لا فواتير ولا مخزون ولا سندات ولا account_entries)،
     // وسجل التدقيق يبقى ويُكتب فيه ما جرى تجاوزه.
     const force = req.body?.force === true;
@@ -526,10 +612,11 @@ router.post('/:id/ledger-reset', async (req: AuthRequest, res: Response, next: N
       }
       const deleted = await deleteLedgerRows(tx as unknown as ResetTx, tid);
       const summary = ledgerResetSummary(deleted);
-      const forced = reasons.length > 0; // وصلنا هنا معها ⇒ تجاوزٌ صريح من المالك
+      const forced = reasons.length > 0; // وصلنا هنا معها ⇒ تجاوزٌ صريح من المالك أو موظفٍ بـtenants.ledger
+      const overrider = req.platformStaff ? `موظف المنصّة ${req.platformStaff.name}` : 'مالك المنصّة';
       await appendAudit(tx, {
         tenantId: tid, actor, action: 'LEDGER_RESET', entityType: 'TENANT', entityId: tid,
-        summary: forced ? `${summary.text} (تجاوز مالك المنصّة: ${reasons.join(', ')})` : summary.text,
+        summary: forced ? `${summary.text} (تجاوز ${overrider}: ${reasons.join(', ')})` : summary.text,
         before: { activatedAt: settings?.activatedAt ?? null, ...(forced ? { overrodeReasons: reasons } : {}) },
         after: { deleted, total: summary.total, forced },
       });

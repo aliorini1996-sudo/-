@@ -6,6 +6,8 @@ import { POSTS, emptyPost, slugify, type BlogPost } from '../blog/posts';
 import { X, Save, Globe, Plus, Trash2, ChevronDown, Image as ImageIcon, RotateCcw, Eraser, ListChecks } from 'lucide-react';
 import { cleanContent } from '../lib/siteContentClean';
 import { applyCmsFixes, planCmsFixes, CMS_FIX_GROUP_LABEL, type CmsFixResult, type CmsFixStatus } from '../content/cmsFixes';
+import { usePlatformAccess } from '../lib/platformAccess';
+import { useTr } from '../i18n/strings';
 import toast from 'react-hot-toast';
 
 const DEFAULT_HERO = '/hero-rep-phones.svg';
@@ -337,9 +339,22 @@ function FixReport({ results, onClose }: { results: CmsFixResult[]; onClose: () 
   );
 }
 
-// محرّر محتوى الصفحة التعريفية والصفحات التابعة (للمالك)
+/**
+ * رفض الخادم لحفظ موظف المنصة (٤٠٠ STAFF_CONTENT_UNSAFE): المحتوى يُحقن في الصفحة الرئيسية HTML خاماً، فالموظف يكتب نصوصاً
+ * وروابط فقط — رسالة الخادم مع الحقل الذي رُفض (بتسميته في المحرّر إن عُرف). وغير هذا الرفض ⇒ null
+ */
+function staffUnsafeMessage(err: unknown, tr: (s: string) => string): string | null {
+  const d = (err as { response?: { data?: { code?: string; field?: string; message?: string } } })?.response?.data;
+  if (d?.code !== 'STAFF_CONTENT_UNSAFE') return null;
+  const label = SECTIONS.flatMap(s => s.fields).find(([p]) => p === d.field)?.[1];
+  return `${d.message || tr('تكتب نصوصا وروابط فقط بلا اكواد')} — ${tr('الحقل')}: ${label ?? d.field ?? '-'}`;
+}
+
+// محرّر محتوى الصفحة التعريفية والصفحات التابعة (للمالك، ولموظف المنصة بـcontent.edit نصوصاً وروابط)
 export default function SiteContentEditor({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
+  const tr = useTr();
+  const { isStaff } = usePlatformAccess();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [active, setActive] = useState(0);
 
@@ -386,7 +401,11 @@ export default function SiteContentEditor({ onClose }: { onClose: () => void }) 
   const save = useMutation({
     mutationFn: () => siteContentApi.update(draft),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['site-content'] }); toast.success('تم حفظ محتوى الصفحة'); onClose(); },
-    onError: () => toast.error('تعذر الحفظ'),
+    onError: (err: unknown) => {
+      const unsafe = staffUnsafeMessage(err, tr);
+      if (unsafe) toast.error(unsafe, { duration: 8000 });
+      else toast.error('تعذر الحفظ');
+    },
   });
 
   const field = ([path, label, area]: [string, string, boolean?]) => (
@@ -408,6 +427,7 @@ export default function SiteContentEditor({ onClose }: { onClose: () => void }) 
             <div>
               <h2 className="text-lg font-bold text-[#1F1A13]">محتوى الصفحة التعريفية</h2>
               <p className="text-xs text-[#6E6557]">حرر نصوص الصفحة الرئيسية والصفحات التابعة</p>
+              {isStaff && <p className="text-[11px] font-semibold text-[#C94E28] mt-0.5">{tr('تكتب نصوصا وروابط فقط بلا اكواد')}</p>}
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
@@ -443,11 +463,14 @@ export default function SiteContentEditor({ onClose }: { onClose: () => void }) 
             className="px-4 py-2.5 rounded-xl border border-[#E9E1D3] text-[#6E6557] hover:border-[#E8C9BC] hover:text-[#1F1A13] text-sm font-bold flex items-center gap-2 transition-colors">
             <Eraser size={15} /> تنظيف النصوص
           </button>
-          <button onClick={applyFixes} disabled={!draft}
-            title="يستبدل نصوصاً قديمة محددة في المسودة فقط: نفي المرحلة الثانية، وصيغة المرحلة الأولى، وجمل السعر التي تسقط باقة 399، ووعود العمل دون اتصال بلا قيد الربط، ومنع حد الائتمان. ثم تراجع وتحفظ بنفسك"
-            className="px-4 py-2.5 rounded-xl border border-[#E8C9BC] bg-[#FBEBE2] text-[#C94E28] hover:bg-[#F7DCCD] text-sm font-bold flex items-center gap-2 transition-colors">
-            <ListChecks size={15} /> تطبيق تصحيحات الظهور ({pendingFixes})
-          </button>
+          {/* تصحيحات الظهور تكتب في محتوى المقالات وهو HTML — حفظ الموظف لها يرفضه الخادم، فهي للمالك */}
+          {!isStaff && (
+            <button onClick={applyFixes} disabled={!draft}
+              title="يستبدل نصوصاً قديمة محددة في المسودة فقط: نفي المرحلة الثانية، وصيغة المرحلة الأولى، وجمل السعر التي تسقط باقة 399، ووعود العمل دون اتصال بلا قيد الربط، ومنع حد الائتمان. ثم تراجع وتحفظ بنفسك"
+              className="px-4 py-2.5 rounded-xl border border-[#E8C9BC] bg-[#FBEBE2] text-[#C94E28] hover:bg-[#F7DCCD] text-sm font-bold flex items-center gap-2 transition-colors">
+              <ListChecks size={15} /> تطبيق تصحيحات الظهور ({pendingFixes})
+            </button>
+          )}
           <button onClick={() => save.mutate()} disabled={save.isPending || !draft} className="btn-primary flex-1 justify-center py-2.5">
             {save.isPending ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save size={16} />}
             حفظ المحتوى ونشره

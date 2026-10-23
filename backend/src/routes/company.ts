@@ -3,6 +3,7 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
+import { isStaffImpersonation, refuseStaffCredentials } from '../services/platformAccess';
 import { getCountryTax, OVERRIDE_CURRENCIES } from '../config/countries';
 import { ZATCA_ROUTE_CODES, auditOwnerImpersonationWrite, companyZatcaFieldChanges } from './zatca';
 import { phase2LockedSettingChanges, phase2SettingsLockedBody } from '../compliance/zatca/settingsGuards';
@@ -60,11 +61,24 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   } catch (err) { next(err); }
 });
 
+/**
+ * هل يغيّر حفظُ موظف المنصة (جلسة «دخول») هاتفَ الشركة؟ بوت واتساب يعرّف الشركة به ويعيد عبره كلمات مرور المناديب
+ * (routes/waAccount.ts) — فرقمٌ يملكه الموظف قناةٌ دائمة تبقى بعد تعطيله. الرقم نفسه (حفظ النموذج كما هو) لا يُعدّ تغييراً.
+ * خارج المسار عمداً: قراءته لجلسة الموظف وحدها، ومسار الحفظ العادي بقراءتيه كما كان
+ */
+async function staffChangesPhone(tid: string, phone: string | null | undefined): Promise<boolean> {
+  if (phone === undefined) return false;
+  const cur = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { phone: true } });
+  return (phone ?? '').trim() !== (cur?.phone ?? '').trim();
+}
+
 // التعديل للإدارة فقط — ضمن شركة المستخدم
 router.put('/', requireAdmin, requireAdminPermission('canManageCompanySettings'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
     const data = companySchema.parse(req.body);
+    // جلسة «دخول» موظف المنصة لا تغيّر هاتف الشركة (staffChangesPhone) — قراءةٌ لجلسته وحدها
+    if (isStaffImpersonation(req) && await staffChangesPhone(tid, data.phone) && refuseStaffCredentials(req, res)) return;
     const clean: Record<string, unknown> = {
       ...data,
       email: data.email || null,

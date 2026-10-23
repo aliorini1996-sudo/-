@@ -22,6 +22,52 @@ model SuperAdmin {
   @@map("super_admins")
 }
 
+/// موظف منصة (طلب المالك، ٢٣ أكتوبر ٢٠٢٦) — حسابٌ منفصل عن مالك المنصة يفتحه المالك ويمنحه من قدرات لوحته ما يشاء
+/// (services/platformAccess.ts: STAFF_PERMISSIONS). يُقرأ في كل طلب: التعطيل وسحب الصلاحية وtokenVersion تسري فوراً
+model PlatformStaff {
+  id                 String    @id @default(uuid())
+  name               String
+  email              String    @unique
+  passwordHash       String
+  isActive           Boolean   @default(true)
+  /// مفاتيح من STAFF_PERMISSIONS — فارغة افتراضاً: لا يرى شيئاً حتى يمنحه المالك
+  permissions        String[]  @default([])
+  /// يُرفع بـ«إخراج من كل الأجهزة» وإعادة كلمة المرور وتغييرها — يُسقط كل توكن صدر قبله
+  tokenVersion       Int       @default(0)
+  /// كلمة مرور مؤقتة من المالك — لا يصل الموظف شيئاً حتى يغيّرها
+  mustChangePassword Boolean   @default(true)
+  /// محاولات دخول محجوزة ذرّياً قبل فحص كلمة المرور (routes/platformStaff.ts) — تتقادم بعد ربع ساعة من آخرها
+  failedLogins       Int       @default(0)
+  lastFailedAt       DateTime?
+  lockedUntil        DateTime?
+  lastLoginAt        DateTime?
+  lastSeenAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@map("platform_staff")
+}
+
+/// سجل نشاط لوحة المنصة — أفعال الموظفين كلها وقراءاتهم الحساسة، وأفعال المالك الحساسة. يُكتب قبل الفعل ولا يُعدَّل
+model PlatformAuditLog {
+  id        String   @id @default(uuid())
+  at        DateTime @default(now())
+  actorType String // OWNER | STAFF
+  actorId   String
+  actorName String?
+  action    String // مفتاح الصلاحية أو staff.* لإدارة الموظفين أو staff.login
+  method    String?
+  path      String?
+  status    Int?
+  targetId  String?
+  detail    String?
+  ip        String?
+
+  @@index([actorType, actorId, at])
+  @@index([at])
+  @@map("platform_audit_logs")
+}
+
 // الشركة المشتركة في النظام — الكيان الأعلى لعزل البيانات
 model Tenant {
   id                        String    @id @default(uuid())

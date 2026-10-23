@@ -5,6 +5,21 @@ import { X, Save, ExternalLink, RotateCcw, Upload, Loader2, CheckCircle2, Plus, 
 import toast from 'react-hot-toast';
 import { PROFILE_FIELDS, PROFILE_DEFAULTS, PROFILE_SECTIONS, showKey, sectionOn, mergeProfile, readPartners, PROFILE_CMS_KEY, PROFILE_PARTNERS_KEY, PROFILE_LANGS, PROFILE_LANG_LABEL, ProfileContent, ProfileLang, ProfilePartner } from '../content/profileContent';
 import { backdropClose } from '../lib/backdropClose';
+import { usePlatformAccess } from '../lib/platformAccess';
+import { useTr } from '../i18n/strings';
+
+/**
+ * رفض الخادم لحفظ موظف المنصة (٤٠٠ STAFF_CONTENT_UNSAFE، PUT /site-content): الموظف يكتب نصوصاً وروابط فقط —
+ * رسالة الخادم مع الحقل المرفوض (بتسميته هنا إن كان حقلاً من حقول البروفايل). وغير هذا الرفض ⇒ null
+ */
+function staffUnsafeMessage(err: unknown, tr: (s: string) => string): string | null {
+  const d = (err as { response?: { data?: { code?: string; field?: string; message?: string } } })?.response?.data;
+  if (d?.code !== 'STAFF_CONTENT_UNSAFE') return null;
+  const [root, lang, key] = (d.field ?? '').split('.');
+  const label = root === PROFILE_CMS_KEY ? PROFILE_FIELDS.find(f => f.key === key)?.label : undefined;
+  const where = label ? `${label}${lang ? ` (${lang})` : ''}` : (d.field ?? '-');
+  return `${d.message || tr('تكتب نصوصا وروابط فقط بلا اكواد')} — ${tr('الحقل')}: ${where}`;
+}
 
 /**
  * يصغّر الشعار قبل تخزينه.
@@ -57,6 +72,8 @@ async function shrinkLogo(file: File): Promise<string> {
  */
 export default function ProfileEditorPanel({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
+  const tr = useTr();
+  const { isStaff } = usePlatformAccess();
   const [lang, setLang] = useState<ProfileLang>('ar');
   const [draft, setDraft] = useState<ProfileContent | null>(null);
 
@@ -135,7 +152,11 @@ export default function ProfileEditorPanel({ onClose }: { onClose: () => void })
       setDraft(null);
       setPartnersDraft(null);
     },
-    onError: () => toast.error('تعذر الحفظ حاول مجددا'),
+    onError: (err: unknown) => {
+      const unsafe = staffUnsafeMessage(err, tr);
+      if (unsafe) toast.error(unsafe, { duration: 8000 });
+      else toast.error('تعذر الحفظ حاول مجددا');
+    },
   });
 
   const resetLang = () => {
@@ -155,6 +176,7 @@ export default function ProfileEditorPanel({ onClose }: { onClose: () => void })
           <div>
             <h2 className="text-lg font-bold text-[#1F1A13]">محتوى البروفايل</h2>
             <p className="text-xs text-[#6E6557]">كل نص في صفحة fieldsa.net/profile عدل واحفظ ويظهر فورا</p>
+            {isStaff && <p className="text-[11px] font-semibold text-[#C94E28] mt-0.5">{tr('تكتب نصوصا وروابط فقط بلا اكواد')}</p>}
           </div>
           <div className="flex items-center gap-2">
             <a href="/profile" target="_blank" rel="noopener noreferrer"

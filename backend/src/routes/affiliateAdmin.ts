@@ -8,10 +8,10 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { authenticate, requireSuperAdmin } from '../middleware/auth';
+import { platformGate } from '../services/platformAccess';
 import { AuthRequest } from '../types';
 import {
-  getSettings, logEvent, logEventSafe, decryptIban, isUniqueViolation, riyadhDay, DEFAULT_TERMS_VERSION, DEFAULT_SETTINGS,
+  getSettings, logEvent, logEventSafe, platformActor, decryptIban, isUniqueViolation, riyadhDay, DEFAULT_TERMS_VERSION, DEFAULT_SETTINGS,
   BUILTIN_TERMS_VERSIONS, builtinTermsBody,
   TERMS_RULE_KEYS, TERMS_RULE_RANGES, TermsRuleKey, parseTermsRules, pickRules, rulesFor,
 } from '../services/affiliate/core';
@@ -26,8 +26,10 @@ import { mailDecision, mailPayoutRecorded } from '../services/affiliate/mail';
 import { pendingActivationTenantIds } from '../services/trialCompany';
 
 const router = Router();
-router.use(authenticate, requireSuperAdmin);
+// مالك المنصة وموظفوها بصلاحياتهم (services/platformAccess.ts: platformGate — ما لا قاعدة له للمالك وحده)
+router.use(platformGate);
 
+// معرّف المنفّذ (المالك أو موظف المنصة) لأعمدة updatedBy/reviewedBy وأمثالها — ونوعه في السجلّ والدفاتر عبر platformActor
 const owner = (req: AuthRequest) => req.user!.id;
 const reasonBody = z.object({ reason: z.string().trim().min(3, 'اذكر السبب').max(500) });
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -98,7 +100,7 @@ router.put('/settings', handle(async (req, res) => {
     create: { id: 'global', ...before, ...ops, updatedBy: owner(req) },
     update: { ...ops, updatedBy: owner(req) },
   });
-  logEventSafe({ entity: 'settings', entityId: 'global', action: 'updated', actorType: 'owner', actorId: owner(req), meta: { changes: { ...ops } } });
+  logEventSafe({ entity: 'settings', entityId: 'global', action: 'updated', ...platformActor(req), meta: { changes: { ...ops } } });
   res.json({ success: true, data: row });
 }));
 
@@ -130,7 +132,7 @@ router.post('/terms', handle(async (req, res) => {
         create: { id: 'global', ...settings, ...rules, currentTermsVersion: b.version, updatedBy: owner(req) },
         update: { ...rules, currentTermsVersion: b.version, updatedBy: owner(req) },
       });
-      await logEvent(tx, { entity: 'terms', entityId: b.version, action: 'published', actorType: 'owner', actorId: owner(req), meta: { previous: settings.currentTermsVersion, rules } });
+      await logEvent(tx, { entity: 'terms', entityId: b.version, action: 'published', ...platformActor(req), meta: { previous: settings.currentTermsVersion, rules } });
       return row;
     });
     res.json({ success: true, data: t });
@@ -230,7 +232,7 @@ async function decideUser(req: AuthRequest, res: Response, to: string, opts: { f
       data: { status: to, statusReason: opts.reason ?? null, reviewedAt: new Date(), reviewedBy: owner(req) },
     });
     if (won.count !== 1) throw new LedgerError(409, 'تغيّرت الحالة — حدّث الصفحة');
-    await logEvent(tx, { entity: 'user', entityId: id, action: to, fromState: u.status, toState: to, actorType: 'owner', actorId: owner(req), reason: opts.reason ?? null });
+    await logEvent(tx, { entity: 'user', entityId: id, action: to, fromState: u.status, toState: to, ...platformActor(req), reason: opts.reason ?? null });
   });
   if (opts.mail) mailDecision(u.email, u.fullName, opts.mail, opts.reason);
   res.json({ success: true, data: { status: to } });
@@ -251,7 +253,7 @@ router.post('/affiliates/:id/reveal-iban', handle(async (req, res) => {
   if (!u.ibanEnc) throw new LedgerError(404, 'لا بيانات استلام');
   const iban = decryptIban(u.ibanEnc);
   if (!iban) throw new LedgerError(500, 'تعذّر فكّ التشفير — هل تغيّر مفتاح AFFILIATE_IBAN_KEY أو JWT_SECRET؟');
-  await logEvent(prisma, { entity: 'user', entityId: u.id, action: 'iban_revealed', actorType: 'owner', actorId: owner(req) });
+  await logEvent(prisma, { entity: 'user', entityId: u.id, action: 'iban_revealed', ...platformActor(req) });
   res.json({ success: true, data: { iban, holderName: u.ibanHolderName, bankName: u.bankName } });
 }));
 
@@ -321,7 +323,7 @@ router.post('/claims/:id/approve', handle(async (req, res) => {
   await prisma.$transaction(async tx => {
     const won = await tx.affiliateClaim.updateMany({ where: { id, status: 'under_review' }, data: { status: 'approved', reviewedAt: now, reviewedBy: owner(req), lockedUntil } });
     if (won.count !== 1) throw new LedgerError(409, 'تغيّرت الحالة — حدّث الصفحة');
-    await logEvent(tx, { entity: 'claim', entityId: id, action: 'approved', fromState: 'under_review', toState: 'approved', actorType: 'owner', actorId: owner(req) });
+    await logEvent(tx, { entity: 'claim', entityId: id, action: 'approved', fromState: 'under_review', toState: 'approved', ...platformActor(req) });
   });
   res.json({ success: true, data: { status: 'approved', lockedUntil } });
 }));
@@ -335,14 +337,14 @@ router.post('/claims/:id/reject', handle(async (req, res) => {
   await prisma.$transaction(async tx => {
     const won = await tx.affiliateClaim.updateMany({ where: { id, status: c.status }, data: { status: 'rejected', reasonCode, reviewedAt: new Date(), reviewedBy: owner(req), lockedUntil: null } });
     if (won.count !== 1) throw new LedgerError(409, 'تغيّرت الحالة — حدّث الصفحة');
-    await logEvent(tx, { entity: 'claim', entityId: id, action: 'rejected', fromState: c.status, toState: 'rejected', actorType: 'owner', actorId: owner(req), reason: reasonCode });
+    await logEvent(tx, { entity: 'claim', entityId: id, action: 'rejected', fromState: c.status, toState: 'rejected', ...platformActor(req), reason: reasonCode });
   });
   res.json({ success: true, data: { status: 'rejected' } });
 }));
 
 router.post('/claims/:id/link-tenant', handle(async (req, res) => {
   const { tenantId } = z.object({ tenantId: z.string().uuid() }).parse(req.body);
-  res.json({ success: true, data: await linkClaimToTenant(String(req.params.id), tenantId, owner(req)) });
+  res.json({ success: true, data: await linkClaimToTenant(String(req.params.id), tenantId, platformActor(req)) });
 }));
 
 // ───────────────────────────── الإسناد ─────────────────────────────
@@ -374,19 +376,19 @@ router.get('/attributions', handle(async (req, res) => {
 
 router.post('/attributions', handle(async (req, res) => {
   const b = z.object({ tenantId: z.string().uuid(), affiliateId: z.string().uuid(), reason: z.string().trim().min(3).max(500), effectiveFrom: dateStr.optional() }).parse(req.body);
-  const out = await createOwnerAttribution({ ...b, effectiveFrom: b.effectiveFrom ? riyadhDate(b.effectiveFrom) : undefined }, owner(req));
+  const out = await createOwnerAttribution({ ...b, effectiveFrom: b.effectiveFrom ? riyadhDate(b.effectiveFrom) : undefined }, platformActor(req));
   res.json({ success: true, data: await attributionView(out.attributionId, out.accrual) });
 }));
 
 router.post('/attributions/:id/void', handle(async (req, res) => {
   const { reason } = reasonBody.parse(req.body);
-  await voidAttribution(String(req.params.id), owner(req), reason);
+  await voidAttribution(String(req.params.id), platformActor(req), reason);
   res.json({ success: true, data: await attributionView(String(req.params.id)) });
 }));
 
 router.post('/attributions/:id/activate', handle(async (req, res) => {
   const { reason } = reasonBody.parse(req.body);
-  const out = await activateAttribution(String(req.params.id), owner(req), reason);
+  const out = await activateAttribution(String(req.params.id), platformActor(req), reason);
   res.json({ success: true, data: await attributionView(String(req.params.id), out.accrual) });
 }));
 
@@ -394,13 +396,13 @@ router.post('/attributions/:id/reassign', handle(async (req, res) => {
   const b = z.object({ affiliateId: z.string().uuid(), reason: z.string().trim().min(3, 'اذكر السبب').max(500), effectiveFrom: dateStr.optional(), claimId: z.string().uuid().optional() }).parse(req.body);
   const out = await reassignAttribution(String(req.params.id), {
     affiliateId: b.affiliateId, reason: b.reason, claimId: b.claimId, effectiveFrom: b.effectiveFrom ? riyadhDate(b.effectiveFrom) : undefined,
-  }, owner(req));
+  }, platformActor(req));
   res.json({ success: true, data: await attributionView(out.attributionId, out.accrual) });
 }));
 
 router.post('/attributions/:id/window', handle(async (req, res) => {
   const b = z.object({ effectiveFrom: dateStr, reason: z.string().trim().min(3, 'اذكر السبب').max(500) }).parse(req.body);
-  const out = await adjustAttributionWindow(String(req.params.id), { effectiveFrom: riyadhDate(b.effectiveFrom), reason: b.reason }, owner(req));
+  const out = await adjustAttributionWindow(String(req.params.id), { effectiveFrom: riyadhDate(b.effectiveFrom), reason: b.reason }, platformActor(req));
   res.json({ success: true, data: await attributionView(out.attributionId, out.accrual) });
 }));
 
@@ -428,16 +430,16 @@ router.get('/commissions', handle(async (req, res) => {
 }));
 
 router.post('/commissions/:id/approve', handle(async (req, res) => {
-  res.json({ success: true, data: { status: await approveCommission(String(req.params.id), owner(req)) } });
+  res.json({ success: true, data: { status: await approveCommission(String(req.params.id), platformActor(req)) } });
 }));
 router.post('/commissions/:id/hold', handle(async (req, res) => {
-  res.json({ success: true, data: { status: await holdCommission(String(req.params.id), owner(req), reasonBody.parse(req.body).reason) } });
+  res.json({ success: true, data: { status: await holdCommission(String(req.params.id), platformActor(req), reasonBody.parse(req.body).reason) } });
 }));
 router.post('/commissions/:id/release', handle(async (req, res) => {
-  res.json({ success: true, data: { status: await releaseCommission(String(req.params.id), owner(req)) } });
+  res.json({ success: true, data: { status: await releaseCommission(String(req.params.id), platformActor(req)) } });
 }));
 router.post('/commissions/:id/decline', handle(async (req, res) => {
-  res.json({ success: true, data: { status: await declineCommission(String(req.params.id), owner(req), reasonBody.parse(req.body).reason) } });
+  res.json({ success: true, data: { status: await declineCommission(String(req.params.id), platformActor(req), reasonBody.parse(req.body).reason) } });
 }));
 
 // ───────────────────────────── الصرف ─────────────────────────────
@@ -461,21 +463,21 @@ router.get('/payouts', handle(async (req, res) => {
 
 router.post('/payouts', handle(async (req, res) => {
   const { affiliateId } = z.object({ affiliateId: z.string().uuid() }).parse(req.body);
-  res.json({ success: true, data: await createPayout(affiliateId, owner(req)) });
+  res.json({ success: true, data: await createPayout(affiliateId, platformActor(req)) });
 }));
 
 router.post('/payouts/:id/record', handle(async (req, res) => {
   const b = z.object({ bankReference: z.string().trim().min(3).max(80), transferredAt: dateStr }).parse(req.body);
   const when = riyadhDate(b.transferredAt);
   if (Number.isNaN(when.getTime()) || when.getTime() > Date.now()) throw new LedgerError(400, 'تاريخ التحويل غير صحيح');
-  const p = await recordPayout(String(req.params.id), owner(req), b.bankReference, when);
+  const p = await recordPayout(String(req.params.id), platformActor(req), b.bankReference, when);
   const u = await prisma.affiliateUser.findUnique({ where: { id: p.affiliateId }, select: { email: true, fullName: true } });
   if (u) mailPayoutRecorded(u.email, u.fullName, { netHalalas: p.netHalalas, bankReference: b.bankReference, ibanLast4: p.ibanLast4 });
   res.json({ success: true, data: p });
 }));
 
 router.post('/payouts/:id/void', handle(async (req, res) => {
-  res.json({ success: true, data: await voidPayout(String(req.params.id), owner(req), reasonBody.parse(req.body).reason) });
+  res.json({ success: true, data: await voidPayout(String(req.params.id), platformActor(req), reasonBody.parse(req.body).reason) });
 }));
 
 router.post('/adjustments', handle(async (req, res) => {
@@ -485,7 +487,7 @@ router.post('/adjustments', handle(async (req, res) => {
   const adj = await prisma.$transaction(async tx => {
     // sourceRef فريدٌ لكلّ قيدٍ يدوي — القيد الفريد (commissionId,kind,sourceRef) مع commissionId فارغ لا يمنع التكرار في Postgres أصلاً
     const row = await tx.affiliateAdjustment.create({ data: { affiliateId: u.id, kind: 'correction', sourceRef: `manual:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`, amountHalalas: b.amountHalalas, note: b.note, createdBy: owner(req) } });
-    await logEvent(tx, { entity: 'adjustment', entityId: row.id, action: 'created', actorType: 'owner', actorId: owner(req), meta: { amountHalalas: b.amountHalalas } });
+    await logEvent(tx, { entity: 'adjustment', entityId: row.id, action: 'created', ...platformActor(req), meta: { amountHalalas: b.amountHalalas } });
     return row;
   });
   res.json({ success: true, data: adj });

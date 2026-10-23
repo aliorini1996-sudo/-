@@ -18,6 +18,8 @@ test('الهوية: المندوب والجوال واللوحة كلٌّ من �
   };
   const read = (k: string) => store[k] ?? null;
   assert.deepEqual(printIdentityFrom('/rep', read), { tenantId: 't-rep', userId: 'r-1' });
+  // موظف المنصة مساحته st_* كما في sessionSpace — لا جلسة المالك ولا اللوحة
+  assert.deepEqual(printIdentityFrom('/staff', (k) => (k === 'st_user' ? JSON.stringify({ id: 'st-1' }) : null)), { tenantId: 'local', userId: 'st-1' });
   assert.deepEqual(printIdentityFrom('/m/invoices', read), { tenantId: 't-m', userId: 'u-m' }, 'توكنٌ تالف ⇒ شركة المستخدم المحفوظ');
   assert.deepEqual(printIdentityFrom('/invoices', read), { tenantId: 't-web', userId: 'u-web' });
   assert.deepEqual(printIdentityFrom('/maghreb', read), { tenantId: 't-web', userId: 'u-web' }, '/m بحدّ نهاية');

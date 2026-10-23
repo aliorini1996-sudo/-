@@ -10,7 +10,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { IssuedQuote, Prisma } from '@prisma/client';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { authenticate, requireSuperAdmin } from '../middleware/auth';
+import { platformGate } from '../services/platformAccess';
 import { quoteLimiter } from '../middleware/rateLimits';
 import { QuoteInput, displayNo, quoteInput, resolveOffline, toQuoteRecord } from '../services/quotes';
 
@@ -100,7 +100,7 @@ const listQuery = z.object({
 });
 const PAGE = 50;
 
-router.get('/admin', authenticate, requireSuperAdmin, async (req: Request, res: Response, next: NextFunction) => {
+router.get('/admin', platformGate, async (req: Request, res: Response, next: NextFunction) => {
   const parsed = listQuery.safeParse(req.query);
   if (!parsed.success) { res.status(400).json({ success: false, message: 'استعلام غير صالح' }); return; }
   const { q, page } = parsed.data;
@@ -160,7 +160,7 @@ router.get('/admin', authenticate, requireSuperAdmin, async (req: Request, res: 
   } catch (err) { next(err); }
 });
 
-router.delete('/admin/:id', authenticate, requireSuperAdmin, async (req: Request, res: Response, next: NextFunction) => {
+router.delete('/admin/:id', platformGate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { count } = await prisma.issuedQuote.deleteMany({ where: { id: String(req.params.id) } });
     if (!count) { res.status(404).json({ success: false, message: 'العرض غير موجود' }); return; }

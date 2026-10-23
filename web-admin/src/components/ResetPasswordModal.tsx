@@ -1,18 +1,29 @@
 import { useState } from 'react';
-import { KeyRound, X, Eye, EyeOff, RefreshCw, Copy, Check, CheckCircle2 } from 'lucide-react';
+import { KeyRound, X, Eye, EyeOff, RefreshCw, Copy, Check, CheckCircle2, Mail } from 'lucide-react';
 import { useTr } from '../i18n/strings';
 import { backdropClose } from '../lib/backdropClose';
 
-interface Props {
+type Props = {
   title: string;            // عنوان النافذة، مثل: إعادة تعيين كلمة مرور المندوب
   subject: string;          // وصف صاحب الحساب: الاسم / البريد / اسم المستخدم
-  onConfirm: (newPassword: string) => Promise<void>; // ينفّذ الطلب ويرمي عند الفشل
   onClose: () => void;
-}
+} & (
+  | { onConfirm: (newPassword: string) => Promise<void>; onSendTemporary?: never } // ينفّذ الطلب ويرمي عند الفشل
+  // موظف المنصة مع مدير شركة: لا يختار الكلمة ولا يراها — الخادم يرسل مؤقتة إلى بريد المدير ويردّ بالبريد مقنّعاً
+  | { onSendTemporary: () => Promise<string>; onConfirm?: never }
+);
 
 // نافذة موحّدة لإعادة تعيين كلمة المرور (للسوبر أدمن مع الأدمن، وللأدمن مع المندوب)
 // بعد النجاح تعرض كلمة المرور الجديدة لنسخها وتسليمها لصاحب الحساب.
-export default function ResetPasswordModal({ title, subject, onConfirm, onClose }: Props) {
+export default function ResetPasswordModal(props: Props) {
+  const { title, subject, onClose } = props;
+  if (props.onSendTemporary) return <SendTemporaryModal title={title} subject={subject} onSend={props.onSendTemporary} onClose={onClose} />;
+  return <SetPasswordModal title={title} subject={subject} onConfirm={props.onConfirm as (newPassword: string) => Promise<void>} onClose={onClose} />;
+}
+
+function SetPasswordModal({ title, subject, onConfirm, onClose }: {
+  title: string; subject: string; onConfirm: (newPassword: string) => Promise<void>; onClose: () => void;
+}) {
   const tr = useTr();
   const [pwd, setPwd] = useState('');
   const [show, setShow] = useState(true);
@@ -101,6 +112,72 @@ export default function ResetPasswordModal({ title, subject, onConfirm, onClose 
               <button onClick={submit} disabled={busy} className="btn-primary flex-1 justify-center py-2.5">
                 {busy ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <KeyRound size={15} />}
                 {tr('إعادة التعيين')}
+              </button>
+              <button onClick={onClose} className="btn-secondary">{tr('إلغاء')}</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * موظف المنصة مع مدير شركة: تأكيدٌ بلا حقل — الخادم يولّد كلمة مؤقتة ويرسلها إلى بريد المدير، فلا يراها الموظف
+ * ولا يملك بها حساب الشركة. وبعد النجاح يُعرض البريد الذي وصلته وحده.
+ */
+function SendTemporaryModal({ title, subject, onSend, onClose }: {
+  title: string; subject: string; onSend: () => Promise<string>; onClose: () => void;
+}) {
+  const tr = useTr();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [sentTo, setSentTo] = useState<string | null>(null); // البريد بعد النجاح
+
+  const submit = async () => {
+    setBusy(true); setErr('');
+    try {
+      setSentTo(await onSend());
+    } catch (e) {
+      setErr((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الارسال حاول ثانية'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl" {...backdropClose(onClose)}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${sentTo !== null ? 'bg-green-100' : 'bg-[#FBEBE2]'}`}>
+              {sentTo !== null ? <CheckCircle2 size={18} className="text-green-600" /> : <Mail size={18} className="text-[#E15A30]" />}
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-base font-bold text-[#1F1A13]">{sentTo !== null ? tr('تم الارسال') : title}</h2>
+              <p className="text-xs text-[#6E6557] truncate">{subject}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
+        </div>
+
+        {sentTo !== null ? (
+          <div className="p-5 space-y-4">
+            <p className="text-sm text-[#1F1A13] bg-green-50 rounded-lg px-3 py-2.5 leading-relaxed">
+              {tr('ارسلت الى')} {sentTo ? <span className="font-semibold" dir="ltr">{sentTo}</span> : tr('بريد مدير الشركة')}
+            </p>
+            <button onClick={onClose} className="btn-primary w-full justify-center py-2.5">{tr('تم')}</button>
+          </div>
+        ) : (
+          <div className="p-5 space-y-4">
+            <p className="text-xs text-[#6E6557] bg-[#FAF7F0] rounded-lg px-3 py-2 leading-relaxed">
+              {tr('تستبدل كلمة مرور المدير بكلمة مؤقتة ترسل الى بريده ولا تظهر لك')}
+            </p>
+            {err && <p className="text-[#C0392B] text-xs">{err}</p>}
+            <div className="flex gap-3">
+              <button onClick={submit} disabled={busy} className="btn-primary flex-1 justify-center py-2.5">
+                {busy ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Mail size={15} />}
+                {tr('ارسال')}
               </button>
               <button onClick={onClose} className="btn-secondary">{tr('إلغاء')}</button>
             </div>

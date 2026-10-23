@@ -64,6 +64,7 @@ import hunterRouter from './routes/hunter';
 import affiliateRouter from './routes/affiliate';
 import affiliateAdminRouter from './routes/affiliateAdmin';
 import quotesRouter from './routes/quotes';
+import { staffAuthRouter, platformStaffRouter } from './routes/platformStaff';
 import liveRouter from './routes/live';
 import whatsappWebhookRouter from './routes/whatsappWebhook';
 import waBridgeRouter from './routes/waBridge';
@@ -216,6 +217,9 @@ app.use('/api/reports', reportsRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api/company', companyRouter);
 app.use('/api/tenants', tenantsRouter);
+// «موظفو المنصة» — دخول الموظف (staff-auth) وإدارتهم وسجل النشاط للمالك وحده (platform-staff)
+app.use('/api/staff-auth', staffAuthRouter);
+app.use('/api/platform-staff', platformStaffRouter);
 app.use('/api/finance', financeRouter);
 app.use('/api/wa-inbox', waInboxRouter);
 app.use('/api/site-content', siteContentRouter);

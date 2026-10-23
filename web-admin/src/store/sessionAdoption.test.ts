@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { adoptVerdict, shouldAdopt, jwtExpMs, AdoptInput } from './sessionAdoption';
+import { adoptVerdict, shouldAdopt, jwtExpMs, jwtPayload, isImpersonationToken, AdoptInput } from './sessionAdoption';
 
 /**
  * حرّاس حلقة الإقلاع التي أبلغ عنها أكثر من عميل.
@@ -63,6 +63,32 @@ test('لا تبنّي بلا جلسة لوحة، ولا لجلسة مالك ال
   assert.equal(adoptVerdict(at({ dashUserRaw: null })), 'no-dashboard-session');
   assert.equal(adoptVerdict(at({ dashUserRaw: '{{ تالف' })), 'no-dashboard-session', 'نصٌّ لا يُحلَّل');
   assert.equal(adoptVerdict(at({ dashUserRaw: JSON.stringify({ role: 'SUPER_ADMIN' }) })), 'owner-session');
+});
+
+test('توكن «دخول» إلى شركة لا يُتبنّى — من المالك أو موظف المنصة، فلا تبقى جلسة الشركة في /m بعد «العودة»', () => {
+  const exp = Math.floor(NOW / 1000) + 3600;
+  // الدور في `user` ADMIN كأيّ مدير — الحمولة وحدها تكشفه
+  const byOwner = tok({ id: 'a1', role: 'ADMIN', tenantId: 't1', impersonated: true, by: 'o1', byKind: 'OWNER', btv: 0, exp });
+  const byStaff = tok({ id: 'a1', role: 'ADMIN', tenantId: 't1', impersonated: true, by: 's1', byKind: 'STAFF', btv: 3, exp });
+  assert.equal(adoptVerdict(at({ dashToken: byOwner })), 'impersonation');
+  assert.equal(adoptVerdict(at({ dashToken: byStaff })), 'impersonation');
+  assert.equal(shouldAdopt(at({ dashToken: byStaff })), false);
+  // وحتى توكنٌ قديم بلا مُصدِر (قبل «موظفي المنصة»)
+  assert.equal(adoptVerdict(at({ dashToken: tok({ id: 'a1', impersonated: true, exp }) })), 'impersonation');
+  // ومدير الشركة العادي يُتبنّى كما كان — impersonated غائبة أو false
+  assert.equal(adoptVerdict(at({ dashToken: tok({ id: 'a1', role: 'ADMIN', exp }) })), 'adopt');
+  assert.equal(adoptVerdict(at({ dashToken: tok({ id: 'a1', impersonated: false, exp }) })), 'adopt');
+});
+
+test('قراءة الحمولة: كائنٌ أو null — لا انهيار على نصٍّ تالف ولا على حمولةٍ ليست كائناً', () => {
+  assert.equal(isImpersonationToken(tok({ impersonated: true })), true);
+  assert.equal(isImpersonationToken(tok({ impersonated: false })), false);
+  assert.equal(isImpersonationToken('abc.def.ghi'), false);
+  assert.equal(isImpersonationToken(''), false);
+  const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64').replace(/=+$/, '');
+  assert.equal(jwtPayload(`x.${b64([1, 2])}.y`), null, 'مصفوفة ليست حمولة');
+  assert.equal(jwtPayload(`x.${b64('نص')}.y`), null, 'نصٌّ ليس حمولة');
+  assert.deepEqual(jwtPayload(tok({ id: 'a1', exp: 9 })), { id: 'a1', exp: 9 });
 });
 
 /* ═══ قاطعا الحلقة ═══ */
@@ -147,7 +173,7 @@ test('المعترِض لا يُعيد التحميل إلى المسار الذ
    * فالانتقال إليها إقلاعٌ كامل. */
   const s = read('src', 'api', 'client.ts');
   assert.match(s, /useAuthStore\.getState\(\)\.sessionExpired\(\)/, 'المعترِض لا يستعمل فعل انتهاء الجلسة');
-  assert.match(s, /if \(!samePath\(window\.location\.pathname, loginPath\)\) window\.location\.href = loginPath;/,
+  assert.match(s, /if \(!samePath\(window\.location\.pathname, dest\)\) window\.location\.href = dest;/,
     'الانتقال يجب أن يكون مشروطاً باختلاف المسار');
   assert.match(s, /const samePath =/, 'مقارنة المسارين مفقودة');
 });

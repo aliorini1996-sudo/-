@@ -258,10 +258,18 @@ export interface EventInput {
   action: string;
   fromState?: string | null;
   toState?: string | null;
-  actorType: 'system' | 'affiliate' | 'owner' | 'company';
+  actorType: 'system' | 'affiliate' | 'owner' | 'staff' | 'company';
   actorId?: string | null;
   reason?: string | null;
   meta?: Prisma.InputJsonValue;
+}
+
+/** منفّذ لوحة المنصة في سجلّ السفراء: المالك 'owner'، وموظف المنصة 'staff' بمعرّفه — وإلا نُسب فعل الموظف إلى المالك */
+export interface PlatformActor { actorType: 'owner' | 'staff'; actorId: string }
+
+/** الدالة الواحدة لكل أفعال لوحة المنصة في السجلّ (affiliateAdmin.ts وربط الدفعة في payments.ts) — platformGate يضع platformStaff */
+export function platformActor(req: { user?: { id: string }; platformStaff?: { id: string } }): PlatformActor {
+  return req.platformStaff ? { actorType: 'staff', actorId: req.platformStaff.id } : { actorType: 'owner', actorId: req.user!.id };
 }
 
 export async function logEvent(db: Db, e: EventInput): Promise<void> {

@@ -6,6 +6,7 @@ import {
 import toast from 'react-hot-toast';
 import { quotesApi } from '../api/client';
 import { backdropClose } from '../lib/backdropClose';
+import { usePlatformAccess } from '../lib/platformAccess';
 import { elementToPdfBlob, shareOrDownloadPdf } from '../rep/pdf';
 import { IssuedQuoteRow, QuoteDocument, dmy, money, rowToDocProps } from '../quote/quoteDoc';
 
@@ -179,6 +180,8 @@ function Stat({ label, value }: { label: string; value: string }) {
 /** معاينة المستند بمقاسٍ يلائم الشاشة + تنزيل PDF من نسخةٍ بمقاسها الحقيقي خارج الشاشة */
 function QuotePreview({ row, onClose }: { row: IssuedQuoteRow; onClose: () => void }) {
   const qc = useQueryClient();
+  // الحذف: quotes.delete — المعاينة والتنزيل قراءةٌ تحت quotes.view
+  const canDelete = usePlatformAccess().can('quotes.delete');
   const props = rowToDocProps(row);
   const boxRef = useRef<HTMLDivElement>(null);
   const printRef = useRef<HTMLDivElement>(null);
@@ -244,10 +247,12 @@ function QuotePreview({ row, onClose }: { row: IssuedQuoteRow; onClose: () => vo
               className="inline-flex items-center gap-1.5 bg-[#E15A30] text-white text-[13px] font-bold px-3 py-2 rounded-xl disabled:opacity-60 hover:bg-[#C94E28]">
               {busy ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} PDF
             </button>
-            <button onClick={confirmRemove} disabled={remove.isPending}
-              className="p-2 rounded-xl text-[#C0392B] hover:bg-red-50 disabled:opacity-50" title="حذف العرض" aria-label="حذف العرض">
-              <Trash2 size={16} />
-            </button>
+            {canDelete && (
+              <button onClick={confirmRemove} disabled={remove.isPending}
+                className="p-2 rounded-xl text-[#C0392B] hover:bg-red-50 disabled:opacity-50" title="حذف العرض" aria-label="حذف العرض">
+                <Trash2 size={16} />
+              </button>
+            )}
             <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl text-gray-500" aria-label="إغلاق"><X size={18} /></button>
           </div>
         </div>

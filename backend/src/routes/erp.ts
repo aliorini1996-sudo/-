@@ -3,6 +3,7 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
+import { refuseStaffCredentials } from '../services/platformAccess';
 import { isErpSyncRunning, startErpSync, testErpConnection } from '../services/erp';
 import { erpUrlProblem } from '../services/erpPayload';
 import { sealErpSecret } from '../services/erpSecrets';
@@ -83,6 +84,8 @@ router.get('/settings', async (req: AuthRequest, res: Response, next: NextFuncti
 
 router.put('/settings', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    // عنوان خادم ERP ومفاتيحه قناةٌ تُرسل إليها بيانات الشركة في كل مزامنة لاحقة — لا يضبطها موظف المنصة في جلسة «دخول»
+    if (refuseStaffCredentials(req, res)) return;
     const tid = tenantId(req);
     const body = settingsSchema.parse(req.body);
     const data: Record<string, unknown> = {

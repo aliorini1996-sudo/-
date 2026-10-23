@@ -390,8 +390,8 @@ test('كل بادئةٍ تُركَّب بعد الحارس مصنَّفة: مح�
   // '/locations' («لوكيشن»): إداريٌّ (requireAdmin) — المواقع وإسناد المناديب وملخّصها، لا عمل على عميل
   const OPEN = ['/affiliate', '/affiliate-admin', '/ai-rep', '/analytics', '/api-keys', '/attendance-admin', '/auth', '/company', '/company-users', '/contact', '/daily-reports',
     '/dashboard', '/erp', '/finance', '/hunter', '/import', '/leads', '/leads-cron', '/ledger', '/live', '/locations', '/notifications', '/payments',
-    '/petroapp', '/products', '/profile-deck', '/promo-videos', '/public', '/quotes', '/rep-routes', '/rep-stock-requests', '/reports', '/sales-reps',
-    '/site-content', '/support', '/tenants', '/tracking', '/v1', '/van-stock', '/wa-inbox', '/warehouse', '/work-numbers', '/zatca'];
+    '/petroapp', '/platform-staff', '/products', '/profile-deck', '/promo-videos', '/public', '/quotes', '/rep-routes', '/rep-stock-requests', '/reports', '/sales-reps',
+    '/site-content', '/staff-auth', '/support', '/tenants', '/tracking', '/v1', '/van-stock', '/wa-inbox', '/warehouse', '/work-numbers', '/zatca'];
   const unclassified = mounted.filter((p) => !GUARDED.includes(p) && !OPEN.includes(p));
   assert.deepEqual(unclassified, [], 'بادئةٌ جديدة: إن كانت تعمل على عميل أضفها إلى LIVE_GUARDED_PREFIXES (الخادم والتطبيق)، وإلا إلى OPEN هنا');
   for (const g of GUARDED) assert.ok(live.LIVE_GUARDED_PREFIXES.some((x) => x === g || x.startsWith(g + '/')), g);

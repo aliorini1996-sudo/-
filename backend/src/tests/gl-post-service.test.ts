@@ -459,9 +459,9 @@ test('tenants.ts PUT /:id: FLAG_TOGGLE داخل $transaction مع tenant.update�
 
   const call = tx.slice(audit, tx.indexOf('});', audit));
   assert.match(call, /action: 'FLAG_TOGGLE'/);
-  assert.match(call, /actorType: 'OWNER'/);
-  assert.match(call, /actorId: req\.user!\.id/);
-  assert.match(call, /impersonated: false/);
+  // منفّذ اللوحة ownerActor: OWNER للمالك كما كان، وSTAFF لموظف المنصة باسمه (platform-staff-auth.test.ts)
+  assert.match(call, /actor: ownerActor\(req\)/);
+  assert.match(src, /function ownerActor[\s\S]{0,200}actorId: req\.user!\.id, impersonated: false[\s\S]{0,200}actorType: 'OWNER'/);
   assert.match(call, /entityType: 'TENANT'/);
   assert.match(call, /before: \{ accountingSuiteEnabled: before\.accountingSuiteEnabled \}/);
   assert.match(call, /after: \{ accountingSuiteEnabled: updated\.accountingSuiteEnabled \}/);

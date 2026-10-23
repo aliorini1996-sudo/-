@@ -60,9 +60,13 @@ export default function AuditLogPage() {
     { key: 'actor:IMPERSONATION', label: tr('بانتحال'), group: 'actor' },
     { key: 'actor:SYSTEM', label: tr('النظام'), group: 'actor' },
     { key: 'actor:OWNER', label: tr('مالك المنصة'), group: 'actor' },
+    { key: 'actor:STAFF', label: tr('موظف المنصة'), group: 'actor' },
   ];
 
-  const actorLabel = (r: AuditLogRow) => (r.actorType === 'SYSTEM' ? tr('النظام') : r.actorType === 'OWNER' ? tr('مالك المنصة') : r.actorName ?? '—');
+  // STAFF: الخادم يدوّن «موظف المنصة: الاسم» (tenants.ts ownerActor) — البادئة تُترجم والاسم كما هو
+  const staffName = (n: string | null) => (n ?? '').replace(/^موظف المنصة:\s*/, '');
+  const actorLabel = (r: AuditLogRow) => (r.actorType === 'SYSTEM' ? tr('النظام') : r.actorType === 'OWNER' ? tr('مالك المنصة')
+    : r.actorType === 'STAFF' ? [tr('موظف المنصة'), staffName(r.actorName)].filter(Boolean).join(': ') : r.actorName ?? '—');
 
   const columns: LedgerColumn<AuditLogRow>[] = [
     { key: 'seq', label: '#', render: r => <bdi className="tabular-nums text-[#9A8F7E]">{r.seq}</bdi> },

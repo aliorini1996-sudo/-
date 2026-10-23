@@ -3,7 +3,7 @@ import http from 'http';
 import https from 'https';
 import crypto from 'crypto';
 import prisma from '../config/database';
-import { authenticate, requireSuperAdmin } from '../middleware/auth';
+import { platformGate } from '../services/platformAccess';
 import { AuthRequest } from '../types';
 import { resolveAttribution, contentTypeOf, makeWaCode, requestOptedOut, ipFingerprint, geoLookupUrl } from '../services/attribution';
 import { computeLiveCounts, LIVE_WINDOW_MIN } from '../services/presence';
@@ -189,7 +189,7 @@ const aiLabelOf = (r: Pick<V, 'referrerHost' | 'channel' | 'aiEngine'>) =>
 // «متصل الآن» = آخر ظهور خلال آخر ٥ دقائق. المندوب يُحدَّث lastSeenAt بنبض الحضور
 // (كل ≤٣ دقائق)، ومستخدم الشركة يُلمَس في وسيط المصادقة (مخنوقاً لمرة/دقيقة).
 // العدّ نفسه في services/presence.ts كي يتطابق الرقم اللحظيّ مع نقاط المنحنى.
-router.get('/live-users', authenticate, requireSuperAdmin, async (_req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/live-users', platformGate, async (_req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const c = await computeLiveCounts();
     const ids = c.companies.map(x => x.tenantId);
@@ -255,7 +255,7 @@ router.post('/infra-metrics', (req: Request, res: Response) => {
 // المؤشّر الزمنيّ لـ«الزيارات الحية» — سلسلة لقطات الحضور عبر الوقت (للمالك فقط).
 // النطاق: 24h (نقاط خام كل ٥د) · 7d (تجميع بالساعة) · 30d (تجميع باليوم).
 // في الفترات المُجمَّعة نأخذ لقطة الذروة (أعلى total) كي يبقى reps+admins=total.
-router.get('/live-history', authenticate, requireSuperAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/live-history', platformGate, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const range = String(req.query.range || '24h');
     const now = Date.now();
@@ -299,7 +299,7 @@ router.get('/live-history', authenticate, requireSuperAdmin, async (req: AuthReq
 
 // «استهلاك الطلبات» — عدد طلبات API لكل مستخدم ولكل شركة خلال المدى (للمالك فقط).
 // النطاق: today (اليوم) · 7d · 30d — بأيّام الرياض. يشمل الطلبات الخلفية (نبضات).
-router.get('/request-stats', authenticate, requireSuperAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/request-stats', platformGate, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const range = String(req.query.range || 'today');
     const days = range === '30d' ? 30 : range === '7d' ? 7 : 1;
@@ -384,7 +384,7 @@ router.get('/request-stats', authenticate, requireSuperAdmin, async (req: AuthRe
 });
 
 // إحصاءات الزيارات — للسوبر أدمن فقط
-router.get('/stats', authenticate, requireSuperAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/stats', platformGate, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const days = Math.min(90, Math.max(1, Number(req.query.days) || 30));
     const since = new Date(Date.now() - days * 86400000);

@@ -6,6 +6,7 @@ import { X, Link2, Copy, RefreshCw, CreditCard, MessageCircle, CheckCircle2, Clo
 import toast from 'react-hot-toast';
 import { backdropClose } from '../lib/backdropClose';
 import { LinkPaymentTenantDialog } from './AffiliatesPanel';
+import { usePlatformAccess } from '../lib/platformAccess';
 
 interface PayLink {
   id: string; tenantId: string | null; tenantName: string | null;
@@ -27,6 +28,12 @@ const STATUS: Record<string, { label: string; cls: string; icon: React.ElementTy
 // والدفع يتم على صفحة ميسر المستضافة ثم تعتمد الحالة من ميسر نفسه.
 export default function PaymentLinksPanel({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
+  // موظف المنصة: السجل payments.view (به تُفتح اللوحة)، والإنشاء والتحديث من ميسر والربط بشركة payments.manage.
+  // قائمة الشركات في النموذج GET /tenants فمفتاحها tenants.view، وبحث الربط /affiliate-admin/tenants/search فمفتاحه affiliates.view
+  const { can } = usePlatformAccess();
+  const canManage = can('payments.manage');
+  const canPickTenant = canManage && can('tenants.view');
+  const canLink = canManage && can('affiliates.view');
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [tenantId, setTenantId] = useState('');
@@ -41,6 +48,7 @@ export default function PaymentLinksPanel({ onClose }: { onClose: () => void }) 
   const { data: tenants } = useQuery({
     queryKey: ['tenants'],
     queryFn: async () => (await tenantApi.list()).data.data as Tenant[],
+    enabled: canPickTenant,
   });
 
   const create = useMutation({
@@ -105,7 +113,7 @@ export default function PaymentLinksPanel({ onClose }: { onClose: () => void }) 
         </div>
 
         {/* نموذج الانشاء */}
-        <div className="px-5 py-4 border-b border-[#F1EBDF] grid sm:grid-cols-2 gap-3">
+        {canManage && <div className="px-5 py-4 border-b border-[#F1EBDF] grid sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-[12px] font-bold text-[#1F1A13] mb-1">المبلغ بالريال *</label>
             <input type="number" min="1" step="0.01" className="input w-full" dir="ltr" value={amount}
@@ -116,26 +124,29 @@ export default function PaymentLinksPanel({ onClose }: { onClose: () => void }) 
             <input className="input w-full" maxLength={255} value={description} onChange={e => setDescription(e.target.value)}
               placeholder="اشتراك منصة Field Sales" />
           </div>
-          <div>
-            <label className="block text-[12px] font-bold text-[#1F1A13] mb-1">الشركة اختياري</label>
-            <select className="input w-full" value={tenantId} onChange={e => { setTenantId(e.target.value); if (!e.target.value) setMonths('0'); }}>
-              <option value="">بلا ربط</option>
-              {(tenants || []).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-[12px] font-bold text-[#1F1A13] mb-1">تمديد الاشتراك عند الدفع اشهر</label>
-            <select className="input w-full" value={months} onChange={e => setMonths(e.target.value)} disabled={!tenantId}>
-              {['0', '1', '3', '6', '12'].map(m => <option key={m} value={m}>{m === '0' ? 'بلا تمديد تلقائي' : `${m} شهر`}</option>)}
-            </select>
-          </div>
+          {/* الشركة والتمديد يتطلبان قائمة الشركات — بلا tenants.view يُصدر الرابط بلا ربط */}
+          {canPickTenant && <>
+            <div>
+              <label className="block text-[12px] font-bold text-[#1F1A13] mb-1">الشركة اختياري</label>
+              <select className="input w-full" value={tenantId} onChange={e => { setTenantId(e.target.value); if (!e.target.value) setMonths('0'); }}>
+                <option value="">بلا ربط</option>
+                {(tenants || []).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[12px] font-bold text-[#1F1A13] mb-1">تمديد الاشتراك عند الدفع اشهر</label>
+              <select className="input w-full" value={months} onChange={e => setMonths(e.target.value)} disabled={!tenantId}>
+                {['0', '1', '3', '6', '12'].map(m => <option key={m} value={m}>{m === '0' ? 'بلا تمديد تلقائي' : `${m} شهر`}</option>)}
+              </select>
+            </div>
+          </>}
           <div className="sm:col-span-2 flex justify-end">
             <button onClick={() => create.mutate()} disabled={!canSubmit}
               className="inline-flex items-center gap-2 bg-[#E15A30] text-white font-bold text-sm px-5 py-2.5 rounded-xl disabled:opacity-50 hover:bg-[#C94E28]">
               <Link2 size={15} /> {create.isPending ? 'ينشئ' : 'انشاء رابط الدفع'}
             </button>
           </div>
-        </div>
+        </div>}
 
         {/* السجل */}
         <div className="flex-1 overflow-y-auto">
@@ -179,14 +190,14 @@ export default function PaymentLinksPanel({ onClose }: { onClose: () => void }) 
                         <div className="inline-flex items-center gap-1">
                           {l.url && <button onClick={() => copy(l.url!)} title="نسخ الرابط" className="p-1.5 rounded-lg text-[#1E7A52] hover:bg-green-50"><Copy size={14} /></button>}
                           {l.url && <button onClick={() => wa(l)} title="ارسال واتساب" className="p-1.5 rounded-lg text-[#1E7A52] hover:bg-green-50"><MessageCircle size={14} /></button>}
-                          {l.status === 'paid' && !l.tenantId && (
+                          {l.status === 'paid' && !l.tenantId && canLink && (
                             <button onClick={() => setLinkTarget(l)}
                               title="ربط بشركة — يتيح احتساب هذه الدفعة دفعةً أولى للشركة ضمن عمولة السفير الذي أحالها"
                               className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold text-[#E15A30] hover:bg-[#FBEBE2] whitespace-nowrap">
                               <Building2 size={13} /> ربط بشركة
                             </button>
                           )}
-                          {l.status !== 'paid' && (
+                          {l.status !== 'paid' && canManage && (
                             <button onClick={() => refresh.mutate(l.id)} title="تحديث الحالة من ميسر" disabled={refresh.isPending}
                               className="p-1.5 rounded-lg text-[#E15A30] hover:bg-[#FBEBE2] disabled:opacity-50">
                               <RefreshCw size={14} className={refresh.isPending && refresh.variables === l.id ? 'animate-spin' : ''} />
@@ -206,7 +217,7 @@ export default function PaymentLinksPanel({ onClose }: { onClose: () => void }) 
           الدفع يتم على صفحة ميسر المستضافة لا تمر اي بيانات بطاقة بنظامنا الحالة تعتمد من ميسر عبر الاشعارات او زر التحديث
         </p>
       </div>
-      {linkTarget && (
+      {linkTarget && canLink && (
         <LinkPaymentTenantDialog
           payment={linkTarget}
           onClose={() => setLinkTarget(null)}

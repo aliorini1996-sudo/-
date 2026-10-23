@@ -31,11 +31,11 @@ import {
   paymentWithinAttribution, parseRef, attributionFlags, isDisputedByFlags, normPhoneSA, payoutTotals,
   AttributionFlag,
 } from './rules';
-import { getSettings, rulesFor, logEvent, isUniqueViolation, DAY_MS, TermsRules } from './core';
+import { getSettings, rulesFor, logEvent, isUniqueViolation, DAY_MS, TermsRules, PlatformActor } from './core';
 import { mailCommissionCreated } from './mail';
 
 type Tx = Prisma.TransactionClient;
-type Actor = { type: 'system' | 'owner' | 'company' | 'affiliate'; id?: string | null };
+type Actor = { type: 'system' | 'owner' | 'staff' | 'company' | 'affiliate'; id?: string | null };
 
 /** أسباب الإيقاف التي يضعها النظام ويرفعها حين يزول سببها — إيقاف المالك اليدوي لا يُمسّ */
 export const HOLD_DISPUTED = 'الإسناد قيد المراجعة';
@@ -375,9 +375,9 @@ export async function reconcile(): Promise<{ accrued: number; synced: number }> 
 
 // ───────────────────────────── قرارات المالك على العمولة ─────────────────────────────
 
-export async function approveCommission(id: string, ownerId: string): Promise<string> {
+export async function approveCommission(id: string, by: PlatformActor): Promise<string> {
   // الدفعة أوّلاً: عكسٌ أو استردادٌ جزئيّ فات خطافه يُطبَّق قبل أيّ اعتماد
-  const synced = await syncCommission(id, { type: 'owner', id: ownerId });
+  const synced = await syncCommission(id, { type: by.actorType, id: by.actorId });
   if (synced === 'reversed') throw new LedgerError(409, 'الدفعة لم تعد مدفوعة — عُكست العمولة', 'payment_not_paid');
   if (synced === 'error') throw new LedgerError(503, 'تعذّرت مطابقة العمولة مع دفعتها الآن — أعد المحاولة', 'sync_failed');
   const c = await prisma.affiliateCommission.findUnique({ where: { id }, include: { affiliate: { select: { status: true } }, attribution: { select: { status: true } } } });
@@ -392,15 +392,15 @@ export async function approveCommission(id: string, ownerId: string): Promise<st
   if (c.commissionHalalas <= 0) throw new LedgerError(409, 'العمولة صفر بعد الاسترداد — ارفضها', 'zero_commission');
   await prisma.$transaction(async tx => {
     const won = await tx.affiliateCommission.updateMany({
-      where: { id, status: 'pending', commissionHalalas: c.commissionHalalas }, data: { status: 'approved', approvedAt: new Date(), approvedBy: ownerId },
+      where: { id, status: 'pending', commissionHalalas: c.commissionHalalas }, data: { status: 'approved', approvedAt: new Date(), approvedBy: by.actorId },
     });
     if (won.count !== 1) throw new LedgerError(409, 'تغيّرت العمولة — حدّث الصفحة', 'raced');
-    await logEvent(tx, { entity: 'commission', entityId: id, action: 'approved', fromState: 'pending', toState: 'approved', actorType: 'owner', actorId: ownerId, meta: { commissionHalalas: c.commissionHalalas } });
+    await logEvent(tx, { entity: 'commission', entityId: id, action: 'approved', fromState: 'pending', toState: 'approved', actorType: by.actorType, actorId: by.actorId, meta: { commissionHalalas: c.commissionHalalas } });
   });
   return 'approved';
 }
 
-export async function holdCommission(id: string, ownerId: string, reason: string): Promise<string> {
+export async function holdCommission(id: string, by: PlatformActor, reason: string): Promise<string> {
   const c = await prisma.affiliateCommission.findUnique({ where: { id } });
   if (!c) throw new LedgerError(404, 'العمولة غير موجودة');
   if (c.payoutId) throw new LedgerError(409, DRAFT_LOCKED, 'in_draft');
@@ -410,12 +410,12 @@ export async function holdCommission(id: string, ownerId: string, reason: string
       where: { id, status: c.status, payoutId: null }, data: { status: 'on_hold', reasonNote: reason },
     });
     if (won.count !== 1) throw new LedgerError(409, 'تغيّرت حالة العمولة — ربما دخلت مسودّة دفعة؛ حدّث الصفحة');
-    await logEvent(tx, { entity: 'commission', entityId: id, action: 'hold', fromState: c.status, toState: 'on_hold', actorType: 'owner', actorId: ownerId, reason });
+    await logEvent(tx, { entity: 'commission', entityId: id, action: 'hold', fromState: c.status, toState: 'on_hold', actorType: by.actorType, actorId: by.actorId, reason });
   });
   return 'on_hold';
 }
 
-export async function releaseCommission(id: string, ownerId: string): Promise<string> {
+export async function releaseCommission(id: string, by: PlatformActor): Promise<string> {
   const c = await prisma.affiliateCommission.findUnique({ where: { id }, include: { attribution: { select: { status: true } } } });
   if (!c) throw new LedgerError(404, 'العمولة غير موجودة');
   if (c.status !== 'on_hold') throw new LedgerError(409, 'العمولة ليست موقوفة');
@@ -423,19 +423,19 @@ export async function releaseCommission(id: string, ownerId: string): Promise<st
   await prisma.$transaction(async tx => {
     const won = await tx.affiliateCommission.updateMany({ where: { id, status: 'on_hold' }, data: { status: 'pending', reasonNote: null } });
     if (won.count !== 1) throw new LedgerError(409, 'تغيّرت حالة العمولة — حدّث الصفحة');
-    await logEvent(tx, { entity: 'commission', entityId: id, action: 'release', fromState: 'on_hold', toState: 'pending', actorType: 'owner', actorId: ownerId });
+    await logEvent(tx, { entity: 'commission', entityId: id, action: 'release', fromState: 'on_hold', toState: 'pending', actorType: by.actorType, actorId: by.actorId });
   });
   return 'pending';
 }
 
-export async function declineCommission(id: string, ownerId: string, reason: string): Promise<string> {
+export async function declineCommission(id: string, by: PlatformActor, reason: string): Promise<string> {
   const c = await prisma.affiliateCommission.findUnique({ where: { id } });
   if (!c) throw new LedgerError(404, 'العمولة غير موجودة');
   if (!['pending', 'on_hold'].includes(c.status)) throw new LedgerError(409, 'لا يمكن رفض عمولةٍ بهذه الحالة');
   await prisma.$transaction(async tx => {
     const won = await tx.affiliateCommission.updateMany({ where: { id, status: c.status, payoutId: null }, data: { status: 'declined', reasonNote: reason } });
     if (won.count !== 1) throw new LedgerError(409, 'تغيّرت حالة العمولة — حدّث الصفحة');
-    await logEvent(tx, { entity: 'commission', entityId: id, action: 'declined', fromState: c.status, toState: 'declined', actorType: 'owner', actorId: ownerId, reason });
+    await logEvent(tx, { entity: 'commission', entityId: id, action: 'declined', fromState: c.status, toState: 'declined', actorType: by.actorType, actorId: by.actorId, reason });
   });
   return 'declined';
 }
@@ -461,7 +461,7 @@ function assertNotInDraft(c: { payoutId: string | null; status: string } | null 
 }
 
 /** إسنادٌ يدويّ من المالك — `effectiveFrom` في الماضي يسمح بإسنادٍ متأخّر عن دفعةٍ تمّت */
-export async function createOwnerAttribution(input: { tenantId: string; affiliateId: string; reason: string; effectiveFrom?: Date }, ownerId: string) {
+export async function createOwnerAttribution(input: { tenantId: string; affiliateId: string; reason: string; effectiveFrom?: Date }, by: PlatformActor) {
   const t = await tenantBrief(input.tenantId);
   const aff = await approvedAffiliate(input.affiliateId);
   const eff = input.effectiveFrom ?? new Date();
@@ -477,11 +477,11 @@ export async function createOwnerAttribution(input: { tenantId: string; affiliat
           tenantId: t.id, tenantNameSnapshot: t.name, affiliateId: aff.id, source: 'owner', status: 'active', flags: [],
           reasonNote: input.reason, effectiveFrom: eff, rateBps: rules.rateBps, holdDays: rules.holdDays,
           firstPaymentDeadline: new Date(Math.max(eff.getTime(), t.createdAt.getTime()) + rules.firstPaymentWithinDays * DAY_MS),
-          termsVersion: aff.termsVersion, decidedBy: ownerId,
+          termsVersion: aff.termsVersion, decidedBy: by.actorId,
         },
       });
       attributionId = a.id;
-      await logEvent(tx, { entity: 'attribution', entityId: a.id, action: 'created', toState: 'active', actorType: 'owner', actorId: ownerId, reason: input.reason, meta: { source: 'owner' } });
+      await logEvent(tx, { entity: 'attribution', entityId: a.id, action: 'created', toState: 'active', actorType: by.actorType, actorId: by.actorId, reason: input.reason, meta: { source: 'owner' } });
     });
   } catch (e) {
     if (isUniqueViolation(e)) throw new LedgerError(409, 'للشركة إسنادٌ قائم — استعمل «إعادة إسناد»', 'exists');
@@ -491,7 +491,7 @@ export async function createOwnerAttribution(input: { tenantId: string; affiliat
   return { attributionId, accrual };
 }
 
-export async function voidAttribution(id: string, ownerId: string, reason: string) {
+export async function voidAttribution(id: string, by: PlatformActor, reason: string) {
   await prisma.$transaction(async tx => {
     await lockAttribution(tx, id);
     const a = await tx.tenantAttribution.findUnique({ where: { id }, include: { commission: true } });
@@ -500,41 +500,41 @@ export async function voidAttribution(id: string, ownerId: string, reason: strin
     // القرار على العمولة بعد قفلها وقراءتها من جديد: إنشاء دفعةٍ متزامن قد أدخلها مسودّة
     const c = a.commission ? (await lockCommission(tx, a.commission.id), await tx.affiliateCommission.findUnique({ where: { id: a.commission.id } })) : null;
     assertNotInDraft(c);
-    await tx.tenantAttribution.update({ where: { id }, data: { status: 'void', reasonNote: reason, decidedBy: ownerId } });
+    await tx.tenantAttribution.update({ where: { id }, data: { status: 'void', reasonNote: reason, decidedBy: by.actorId } });
     // إيقاف المالك اليدويّ يبقى كما هو بسببه — لا يُكتب فوقه سببٌ نظاميّ يرفعه التفعيل لاحقاً.
     // والمدفوعة لا تُمسّ آلياً — إن أراد المالك استعادتها فبقيد تصحيحٍ صريح
     if (c && (c.status === 'pending' || c.status === 'approved' || (c.status === 'on_hold' && !!c.reasonNote && SYSTEM_HOLDS.has(c.reasonNote)))) {
       const cw = await tx.affiliateCommission.updateMany({ where: { id: c.id, status: c.status, payoutId: null }, data: { status: 'on_hold', reasonNote: HOLD_VOID } });
       if (cw.count !== 1) throw new LedgerError(409, DRAFT_LOCKED, 'in_draft');
-      await logEvent(tx, { entity: 'commission', entityId: c.id, action: 'hold', fromState: c.status, toState: 'on_hold', actorType: 'owner', actorId: ownerId, reason: HOLD_VOID });
+      await logEvent(tx, { entity: 'commission', entityId: c.id, action: 'hold', fromState: c.status, toState: 'on_hold', actorType: by.actorType, actorId: by.actorId, reason: HOLD_VOID });
     }
-    await logEvent(tx, { entity: 'attribution', entityId: id, action: 'void', fromState: a.status, toState: 'void', actorType: 'owner', actorId: ownerId, reason });
+    await logEvent(tx, { entity: 'attribution', entityId: id, action: 'void', fromState: a.status, toState: 'void', actorType: by.actorType, actorId: by.actorId, reason });
   });
 }
 
 /** void→active أو disputed→active: تُرفع إيقافات النظام وتُحاول العمولة إن لم توجد */
-export async function activateAttribution(id: string, ownerId: string, reason: string) {
+export async function activateAttribution(id: string, by: PlatformActor, reason: string) {
   const hadCommission = await prisma.$transaction(async tx => {
     await lockAttribution(tx, id);
     const a = await tx.tenantAttribution.findUnique({ where: { id }, include: { commission: true } });
     if (!a) throw new LedgerError(404, 'الإسناد غير موجود');
     if (a.status === 'active') throw new LedgerError(409, 'الإسناد سارٍ مسبقاً');
-    await tx.tenantAttribution.update({ where: { id }, data: { status: 'active', reasonNote: reason, decidedBy: ownerId } });
+    await tx.tenantAttribution.update({ where: { id }, data: { status: 'active', reasonNote: reason, decidedBy: by.actorId } });
     const c = a.commission;
     if (c) {
       await lockCommission(tx, c.id);
       const fresh = await tx.affiliateCommission.findUnique({ where: { id: c.id } });
       if (fresh && fresh.status === 'on_hold' && fresh.reasonNote && SYSTEM_HOLDS.has(fresh.reasonNote)) {
         await tx.affiliateCommission.update({ where: { id: c.id }, data: { status: 'pending', reasonNote: null } });
-        await logEvent(tx, { entity: 'commission', entityId: c.id, action: 'release', fromState: 'on_hold', toState: 'pending', actorType: 'owner', actorId: ownerId, reason: 'تفعيل الإسناد' });
+        await logEvent(tx, { entity: 'commission', entityId: c.id, action: 'release', fromState: 'on_hold', toState: 'pending', actorType: by.actorType, actorId: by.actorId, reason: 'تفعيل الإسناد' });
       }
     }
-    await logEvent(tx, { entity: 'attribution', entityId: id, action: 'activate', fromState: a.status, toState: 'active', actorType: 'owner', actorId: ownerId, reason });
+    await logEvent(tx, { entity: 'attribution', entityId: id, action: 'activate', fromState: a.status, toState: 'active', actorType: by.actorType, actorId: by.actorId, reason });
     return c ? { commissionId: c.id, tenantId: a.tenantId } : { commissionId: null, tenantId: a.tenantId };
   });
   if (hadCommission.commissionId) {
     // الرابط قد يكون استُردّ أثناء الإبطال
-    await syncCommission(hadCommission.commissionId, { type: 'owner', id: ownerId });
+    await syncCommission(hadCommission.commissionId, { type: by.actorType, id: by.actorId });
     return { accrual: null };
   }
   return { accrual: await accrueForTenant(hadCommission.tenantId) };
@@ -554,7 +554,7 @@ export async function activateAttribution(id: string, ownerId: string, reason: s
 export async function reassignAttribution(
   id: string,
   input: { affiliateId: string; reason: string; effectiveFrom?: Date; claimId?: string },
-  ownerId: string,
+  by: PlatformActor,
 ) {
   const aff = await approvedAffiliate(input.affiliateId);
   if (input.effectiveFrom && input.effectiveFrom.getTime() > Date.now()) throw new LedgerError(400, 'تاريخ السريان لا يكون في المستقبل');
@@ -583,7 +583,7 @@ export async function reassignAttribution(
       data: {
         affiliateId: aff.id, source: claim ? 'claim' : 'owner', claimId: claim?.id ?? null, codeUsed: null, refVia: null,
         flags: [], status: 'active', reasonNote: input.reason, effectiveFrom: eff, firstPaymentDeadline: deadline,
-        rateBps: rules.rateBps, holdDays: rules.holdDays, termsVersion: aff.termsVersion, decidedBy: ownerId,
+        rateBps: rules.rateBps, holdDays: rules.holdDays, termsVersion: aff.termsVersion, decidedBy: by.actorId,
       },
     });
 
@@ -601,7 +601,7 @@ export async function reassignAttribution(
           status, reasonNote, approvedAt: null, approvedBy: null,
         },
       });
-      await logEvent(tx, { entity: 'commission', entityId: c.id, action: 'reassigned', fromState: c.status, toState: status, actorType: 'owner', actorId: ownerId, reason: input.reason, meta: { fromAffiliate: c.affiliateId, toAffiliate: aff.id } });
+      await logEvent(tx, { entity: 'commission', entityId: c.id, action: 'reassigned', fromState: c.status, toState: status, actorType: by.actorType, actorId: by.actorId, reason: input.reason, meta: { fromAffiliate: c.affiliateId, toAffiliate: aff.id } });
     } else if (c && c.status === 'paid') {
       const bearer = c.clawbackAffiliateId ?? c.affiliateId;
       if (bearer !== aff.id) {
@@ -609,25 +609,25 @@ export async function reassignAttribution(
         const net = c.commissionHalalas + (agg._sum.amountHalalas ?? 0);
         const n = await tx.affiliateAdjustment.count({ where: { commissionId: c.id, kind: 'correction', sourceRef: { startsWith: 'reassign:' } } });
         if (net > 0) {
-          await tx.affiliateAdjustment.create({ data: { affiliateId: bearer, commissionId: c.id, kind: 'correction', sourceRef: `reassign:${n}:from`, amountHalalas: -net, note: `نُقل إسناد «${c.tenantNameSnapshot}» لسفيرٍ آخر بعد صرف عمولته`, createdBy: ownerId } });
-          await tx.affiliateAdjustment.create({ data: { affiliateId: aff.id, commissionId: c.id, kind: 'correction', sourceRef: `reassign:${n}:to`, amountHalalas: net, note: `عمولة «${c.tenantNameSnapshot}» بعد نقل إسنادها إليك`, createdBy: ownerId } });
+          await tx.affiliateAdjustment.create({ data: { affiliateId: bearer, commissionId: c.id, kind: 'correction', sourceRef: `reassign:${n}:from`, amountHalalas: -net, note: `نُقل إسناد «${c.tenantNameSnapshot}» لسفيرٍ آخر بعد صرف عمولته`, createdBy: by.actorId } });
+          await tx.affiliateAdjustment.create({ data: { affiliateId: aff.id, commissionId: c.id, kind: 'correction', sourceRef: `reassign:${n}:to`, amountHalalas: net, note: `عمولة «${c.tenantNameSnapshot}» بعد نقل إسنادها إليك`, createdBy: by.actorId } });
         }
         await tx.affiliateCommission.update({ where: { id: c.id }, data: { clawbackAffiliateId: aff.id } });
-        await logEvent(tx, { entity: 'commission', entityId: c.id, action: 'reassigned_paid', actorType: 'owner', actorId: ownerId, reason: input.reason, meta: { from: bearer, to: aff.id, netHalalas: net } });
+        await logEvent(tx, { entity: 'commission', entityId: c.id, action: 'reassigned_paid', actorType: by.actorType, actorId: by.actorId, reason: input.reason, meta: { from: bearer, to: aff.id, netHalalas: net } });
       }
     }
     if (claim) {
       await tx.affiliateClaim.update({ where: { id: claim.id }, data: { status: 'converted', tenantId: a.tenantId, convertedAt: new Date() } });
-      await logEvent(tx, { entity: 'claim', entityId: claim.id, action: 'converted', toState: 'converted', actorType: 'owner', actorId: ownerId, meta: { tenantId: a.tenantId, via: 'reassign' } });
+      await logEvent(tx, { entity: 'claim', entityId: claim.id, action: 'converted', toState: 'converted', actorType: by.actorType, actorId: by.actorId, meta: { tenantId: a.tenantId, via: 'reassign' } });
     }
     await logEvent(tx, {
-      entity: 'attribution', entityId: id, action: 'reassigned', fromState: a.status, toState: 'active', actorType: 'owner', actorId: ownerId,
+      entity: 'attribution', entityId: id, action: 'reassigned', fromState: a.status, toState: 'active', actorType: by.actorType, actorId: by.actorId,
       reason: input.reason, meta: { fromAffiliate: a.affiliateId, toAffiliate: aff.id, codeUsed: a.codeUsed, claimId: claim?.id ?? null },
     });
     return { tenantId: a.tenantId, commissionId: c?.id ?? null };
   });
   if (out.commissionId) {
-    await syncCommission(out.commissionId, { type: 'owner', id: ownerId });
+    await syncCommission(out.commissionId, { type: by.actorType, id: by.actorId });
     return { attributionId: id, accrual: null };
   }
   return { attributionId: id, accrual: await accrueForTenant(out.tenantId) };
@@ -637,7 +637,7 @@ export async function reassignAttribution(
  * تعديل بداية إسنادٍ لم تنشأ له عمولة — لدفعةٍ تمّت قبل بدايته الحالية (رابط
  * تسجيل واتساب دُفع قبل إنشاء الحساب، أو ترشيحٌ اعتُمد متأخّراً).
  */
-export async function adjustAttributionWindow(id: string, input: { effectiveFrom: Date; reason: string }, ownerId: string) {
+export async function adjustAttributionWindow(id: string, input: { effectiveFrom: Date; reason: string }, by: PlatformActor) {
   if (input.effectiveFrom.getTime() > Date.now()) throw new LedgerError(400, 'تاريخ السريان لا يكون في المستقبل');
   const tenantId = await prisma.$transaction(async tx => {
     await lockAttribution(tx, id);
@@ -651,8 +651,8 @@ export async function adjustAttributionWindow(id: string, input: { effectiveFrom
       a.firstPaymentDeadline.getTime(),
       Math.max(input.effectiveFrom.getTime(), (t?.createdAt ?? input.effectiveFrom).getTime()) + rules.firstPaymentWithinDays * DAY_MS,
     ));
-    await tx.tenantAttribution.update({ where: { id }, data: { effectiveFrom: input.effectiveFrom, firstPaymentDeadline: deadline, reasonNote: input.reason, decidedBy: ownerId } });
-    await logEvent(tx, { entity: 'attribution', entityId: id, action: 'window_adjusted', actorType: 'owner', actorId: ownerId, reason: input.reason, meta: { from: a.effectiveFrom.toISOString(), to: input.effectiveFrom.toISOString() } });
+    await tx.tenantAttribution.update({ where: { id }, data: { effectiveFrom: input.effectiveFrom, firstPaymentDeadline: deadline, reasonNote: input.reason, decidedBy: by.actorId } });
+    await logEvent(tx, { entity: 'attribution', entityId: id, action: 'window_adjusted', actorType: by.actorType, actorId: by.actorId, reason: input.reason, meta: { from: a.effectiveFrom.toISOString(), to: input.effectiveFrom.toISOString() } });
     return a.tenantId;
   });
   return { attributionId: id, accrual: await accrueForTenant(tenantId) };
@@ -674,7 +674,7 @@ export async function expireStaleClaims(affiliateId?: string): Promise<void> {
  * يُقبل الترشيح المنتهي إن كانت الشركة سجّلت **داخل** قفله: السجلّ التجاري لا
  * يُطلب عند التسجيل، فقد يتأخّر ظهور المطابقة أسابيع بعد انتهاء القفل.
  */
-export async function linkClaimToTenant(claimId: string, tenantId: string, ownerId: string) {
+export async function linkClaimToTenant(claimId: string, tenantId: string, by: PlatformActor) {
   const claim = await prisma.affiliateClaim.findUnique({ where: { id: claimId } });
   if (!claim) throw new LedgerError(404, 'الترشيح غير موجود');
   const t = await tenantBrief(tenantId);
@@ -699,7 +699,7 @@ export async function linkClaimToTenant(claimId: string, tenantId: string, owner
       assertNotInDraft(c);
       if (a.status === 'active') {
         await tx.tenantAttribution.update({ where: { id: a.id }, data: { status: 'disputed', reasonNote: `ترشيحٌ معتمد سابق لسفيرٍ آخر (${claim.id})` } });
-        await logEvent(tx, { entity: 'attribution', entityId: a.id, action: 'disputed', fromState: 'active', toState: 'disputed', actorType: 'owner', actorId: ownerId, meta: { claimId } });
+        await logEvent(tx, { entity: 'attribution', entityId: a.id, action: 'disputed', fromState: 'active', toState: 'disputed', actorType: by.actorType, actorId: by.actorId, meta: { claimId } });
       }
       let commissionHeld = false;
       if (c && (c.status === 'pending' || c.status === 'approved')) {
@@ -707,7 +707,7 @@ export async function linkClaimToTenant(claimId: string, tenantId: string, owner
         commissionHeld = true;
       }
       await tx.affiliateClaim.update({ where: { id: claimId }, data: { tenantId } });
-      await logEvent(tx, { entity: 'claim', entityId: claimId, action: 'conflict_linked', actorType: 'owner', actorId: ownerId, meta: { tenantId, attributionId: a.id } });
+      await logEvent(tx, { entity: 'claim', entityId: claimId, action: 'conflict_linked', actorType: by.actorType, actorId: by.actorId, meta: { tenantId, attributionId: a.id } });
       return { attributionStatus: a.status === 'active' ? 'disputed' : a.status, commissionHeld, commission: c ? { id: c.id, status: commissionHeld ? 'on_hold' : c.status } : null };
     });
     return {
@@ -730,11 +730,11 @@ export async function linkClaimToTenant(claimId: string, tenantId: string, owner
           tenantId, tenantNameSnapshot: t.name, affiliateId: claim.affiliateId, source: 'claim', claimId,
           status: 'active', flags: [], effectiveFrom: claim.submittedAt, rateBps: rules.rateBps, holdDays: rules.holdDays,
           firstPaymentDeadline: new Date(Math.max(approvedAt.getTime(), t.createdAt.getTime()) + rules.firstPaymentWithinDays * DAY_MS),
-          termsVersion: aff.termsVersion, decidedBy: ownerId,
+          termsVersion: aff.termsVersion, decidedBy: by.actorId,
         },
       });
       attributionId = a.id;
-      await logEvent(tx, { entity: 'attribution', entityId: a.id, action: 'created', toState: 'active', actorType: 'owner', actorId: ownerId, meta: { source: 'claim', claimId } });
+      await logEvent(tx, { entity: 'attribution', entityId: a.id, action: 'created', toState: 'active', actorType: by.actorType, actorId: by.actorId, meta: { source: 'claim', claimId } });
     } else {
       // الإسناد نفسه للسفير نفسه (سجّلت الشركة برمزه): الترشيح أسبق، فتُسحب البداية إليه
       // إن لم تنشأ عمولة — وإلا خرجت دفعةٌ بين الترشيح والتسجيل من النافذة
@@ -749,11 +749,11 @@ export async function linkClaimToTenant(claimId: string, tenantId: string, owner
             firstPaymentDeadline: new Date(Math.max(a.firstPaymentDeadline.getTime(), Math.max(claim.submittedAt.getTime(), t.createdAt.getTime()) + rules.firstPaymentWithinDays * DAY_MS)),
           },
         });
-        await logEvent(tx, { entity: 'attribution', entityId: a.id, action: 'window_adjusted', actorType: 'owner', actorId: ownerId, meta: { via: 'claim', claimId, to: claim.submittedAt.toISOString() } });
+        await logEvent(tx, { entity: 'attribution', entityId: a.id, action: 'window_adjusted', actorType: by.actorType, actorId: by.actorId, meta: { via: 'claim', claimId, to: claim.submittedAt.toISOString() } });
       }
     }
     await tx.affiliateClaim.update({ where: { id: claimId }, data: { status: 'converted', tenantId, convertedAt: new Date() } });
-    await logEvent(tx, { entity: 'claim', entityId: claimId, action: 'converted', fromState: claim.status, toState: 'converted', actorType: 'owner', actorId: ownerId, meta: { tenantId } });
+    await logEvent(tx, { entity: 'claim', entityId: claimId, action: 'converted', fromState: claim.status, toState: 'converted', actorType: by.actorType, actorId: by.actorId, meta: { tenantId } });
     return { attributionId, hasCommission };
   });
   const accrual: AccrueResult | null = linked.hasCommission ? null : await accrueForTenant(tenantId);
@@ -794,7 +794,7 @@ export async function payoutCandidates() {
   return rows.sort((a, b) => b.netHalalas - a.netHalalas);
 }
 
-export async function createPayout(affiliateId: string, ownerId: string) {
+export async function createPayout(affiliateId: string, by: PlatformActor) {
   const u = await prisma.affiliateUser.findUnique({ where: { id: affiliateId } });
   if (!u) throw new LedgerError(404, 'السفير غير موجود');
   if (u.status !== 'approved') throw new LedgerError(409, 'حساب السفير ليس مقبولاً حالياً');
@@ -802,7 +802,7 @@ export async function createPayout(affiliateId: string, ownerId: string) {
 
   // مصالحةٌ قبل التجميع: عكسٌ أو استردادٌ جزئيّ فات خطافه لا يدخل دفعة
   const approved = await prisma.affiliateCommission.findMany({ where: { affiliateId, status: 'approved', payoutId: null }, select: { id: true } });
-  for (const c of approved) await syncCommission(c.id, { type: 'owner', id: ownerId });
+  for (const c of approved) await syncCommission(c.id, { type: by.actorType, id: by.actorId });
   const rules = await rulesFor(u.termsVersion);
 
   return prisma.$transaction(async tx => {
@@ -818,12 +818,12 @@ export async function createPayout(affiliateId: string, ownerId: string) {
     const payout = await tx.affiliatePayout.create({
       data: {
         affiliateId, commissionsHalalas: t.commissionsHalalas, adjustmentsHalalas: t.adjustmentsHalalas, netHalalas: t.netHalalas,
-        status: 'draft', ibanLast4: u.ibanLast4!, holderName: u.ibanHolderName!, createdBy: ownerId,
+        status: 'draft', ibanLast4: u.ibanLast4!, holderName: u.ibanHolderName!, createdBy: by.actorId,
       },
     });
     if (commissions.length) await tx.affiliateCommission.updateMany({ where: { id: { in: commissions.map(x => x.id) } }, data: { payoutId: payout.id } });
     if (adjustments.length) await tx.affiliateAdjustment.updateMany({ where: { id: { in: adjustments.map(x => x.id) } }, data: { payoutId: payout.id } });
-    await logEvent(tx, { entity: 'payout', entityId: payout.id, action: 'created', toState: 'draft', actorType: 'owner', actorId: ownerId, meta: { netHalalas: t.netHalalas, commissions: commissions.length, adjustments: adjustments.length } });
+    await logEvent(tx, { entity: 'payout', entityId: payout.id, action: 'created', toState: 'draft', actorType: by.actorType, actorId: by.actorId, meta: { netHalalas: t.netHalalas, commissions: commissions.length, adjustments: adjustments.length } });
     return payout;
   });
 }
@@ -833,22 +833,22 @@ export async function createPayout(affiliateId: string, ownerId: string) {
  * استُردّ منذ التجهيز قُيِّد سالباً للدفعة القادمة، ولا يُرفض التسجيل بسببه:
  * الرفض بعد أن غادر المال الحساب يترك دفتراً لا يطابق البنك.
  */
-export async function recordPayout(id: string, ownerId: string, bankReference: string, transferredAt: Date) {
+export async function recordPayout(id: string, by: PlatformActor, bankReference: string, transferredAt: Date) {
   const updated = await prisma.$transaction(async tx => {
     await tx.$queryRaw`SELECT id FROM affiliate_commissions WHERE "payoutId" = ${id} FOR UPDATE`;
-    const won = await tx.affiliatePayout.updateMany({ where: { id, status: 'draft' }, data: { status: 'recorded', bankReference, transferredAt, recordedBy: ownerId } });
+    const won = await tx.affiliatePayout.updateMany({ where: { id, status: 'draft' }, data: { status: 'recorded', bankReference, transferredAt, recordedBy: by.actorId } });
     if (won.count !== 1) {
       const p = await tx.affiliatePayout.findUnique({ where: { id }, select: { status: true } });
       throw new LedgerError(p ? 409 : 404, p ? 'الدفعة ليست مسودّة' : 'الدفعة غير موجودة');
     }
     await tx.affiliateCommission.updateMany({ where: { payoutId: id, status: 'approved' }, data: { status: 'paid' } });
     const p = await tx.affiliatePayout.findUniqueOrThrow({ where: { id } });
-    await logEvent(tx, { entity: 'payout', entityId: id, action: 'recorded', fromState: 'draft', toState: 'recorded', actorType: 'owner', actorId: ownerId, meta: { bankReference, netHalalas: p.netHalalas } });
+    await logEvent(tx, { entity: 'payout', entityId: id, action: 'recorded', fromState: 'draft', toState: 'recorded', actorType: by.actorType, actorId: by.actorId, meta: { bankReference, netHalalas: p.netHalalas } });
     return p;
   });
   // استردادٌ فات خطافَه: العمولة الآن مدفوعة، فيُقيَّد سالباً
   const rows = await prisma.affiliateCommission.findMany({ where: { payoutId: id }, select: { id: true } });
-  for (const r of rows) await syncCommission(r.id, { type: 'owner', id: ownerId });
+  for (const r of rows) await syncCommission(r.id, { type: by.actorType, id: by.actorId });
   return updated;
 }
 
@@ -857,7 +857,7 @@ export async function recordPayout(id: string, ownerId: string, bankReference: s
  * لها أثناء المسودّة، ثمّ تُصالَح كلٌّ مع دفعتها داخل المعاملة نفسها (عكسٌ أو
  * تخفيض) — حفاظاً على الثابت: لا قيد استرداد لعمولةٍ غير ملتزَمٍ بها.
  */
-export async function voidPayout(id: string, ownerId: string, reason: string) {
+export async function voidPayout(id: string, by: PlatformActor, reason: string) {
   return prisma.$transaction(async tx => {
     await tx.$queryRaw`SELECT id FROM affiliate_commissions WHERE "payoutId" = ${id} FOR UPDATE`;
     const won = await tx.affiliatePayout.updateMany({ where: { id, status: 'draft' }, data: { status: 'void', voidReason: reason } });
@@ -867,9 +867,9 @@ export async function voidPayout(id: string, ownerId: string, reason: string) {
     for (const c of commissions) {
       await tx.affiliateAdjustment.deleteMany({ where: { commissionId: c.id, kind: 'clawback_refund', payoutId: null } });
       await tx.affiliateCommission.update({ where: { id: c.id }, data: { payoutId: null } });
-      await syncCommissionTx(tx, c.id, { type: 'owner', id: ownerId });
+      await syncCommissionTx(tx, c.id, { type: by.actorType, id: by.actorId });
     }
-    await logEvent(tx, { entity: 'payout', entityId: id, action: 'void', fromState: 'draft', toState: 'void', actorType: 'owner', actorId: ownerId, reason });
+    await logEvent(tx, { entity: 'payout', entityId: id, action: 'void', fromState: 'draft', toState: 'void', actorType: by.actorType, actorId: by.actorId, reason });
     return tx.affiliatePayout.findUniqueOrThrow({ where: { id } });
   });
 }

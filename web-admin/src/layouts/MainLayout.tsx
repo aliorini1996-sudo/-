@@ -80,9 +80,11 @@ export default function MainLayout() {
   };
 
   const backToPlatform = () => {
+    // لوحة من دخل (المالك أو موظف المنصة) — تُقرأ قبل أن يمحوها stopImpersonating
+    const back = localStorage.getItem('impersonating_from') === '/staff' ? '/staff' : '/platform';
     stopImpersonating();
     // إعادة تحميل كاملة لتجنّب سباق إعادة التقييم عند استعادة هوية المالك
-    window.location.href = '/platform';
+    window.location.href = back;
   };
 
   return (

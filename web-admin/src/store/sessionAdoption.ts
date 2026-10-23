@@ -35,25 +35,34 @@ export const REJECTED_KEY = 'm_rejected';
 export const SIGNED_OUT_KEY = 'm_signed_out';
 
 /**
- * لحظة انتهاء توكن JWT بالمللي ثانية، أو `null` إن تعذّرت القراءة.
+ * حمولة توكن JWT كائناً، أو `null` إن تعذّرت القراءة.
  *
  * قراءةٌ بلا تحقّق من التوقيع — وهي كافية هنا: السؤال «هل يستحقّ أن يُجرَّب؟»
  * لا «هل هو صحيح؟»، والخادم وحده يجيب الثاني. وتوكنٌ مزوَّر ينتهي إلى ٤٠١
  * كأيّ توكنٍ آخر.
  */
-export function jwtExpMs(token: string): number | null {
+export function jwtPayload(token: string): Record<string, unknown> | null {
   try {
     const part = token.split('.')[1];
     if (!part) return null;
     // base64url ← base64: الحرفان المختلفان ثمّ الحشو
     const b64 = part.replace(/-/g, '+').replace(/_/g, '/')
       + '='.repeat((4 - (part.length % 4)) % 4);
-    const payload = JSON.parse(decodeURIComponent(escape(atob(b64)))) as { exp?: unknown };
-    return typeof payload.exp === 'number' ? payload.exp * 1000 : null;
+    const payload = JSON.parse(decodeURIComponent(escape(atob(b64)))) as unknown;
+    return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload as Record<string, unknown> : null;
   } catch {
     return null;
   }
 }
+
+/** لحظة انتهاء توكن JWT بالمللي ثانية، أو `null` إن تعذّرت القراءة */
+export function jwtExpMs(token: string): number | null {
+  const exp = jwtPayload(token)?.exp;
+  return typeof exp === 'number' ? exp * 1000 : null;
+}
+
+/** توكن «دخول» إلى حساب شركة (المالك أو موظف المنصة — `impersonated` في الحمولة) */
+export const isImpersonationToken = (token: string): boolean => !!jwtPayload(token)?.impersonated;
 
 export interface AdoptInput {
   /** مسار الصفحة الحاليّ */
@@ -80,6 +89,7 @@ export type AdoptVerdict =
   | 'signed-out'
   | 'no-dashboard-session'
   | 'owner-session'
+  | 'impersonation'
   | 'rejected-before'
   | 'expired';
 
@@ -95,6 +105,11 @@ export function adoptVerdict(i: AdoptInput): AdoptVerdict {
   try { role = (JSON.parse(i.dashUserRaw) as { role?: unknown })?.role; } catch { return 'no-dashboard-session'; }
   // مالك المنصّة مساحته sa_*، ووجوده في token يعني انتحالاً جارياً
   if (role === 'SUPER_ADMIN') return 'owner-session';
+
+  /* وتوكن «دخول» إلى شركة (من المالك أو موظف المنصة) شأنُ اللوحة وحدها: نسخةٌ منه في `/m`
+   * لا تمحوها «العودة» من شريط الدخول، فتبقى جلسة الشركة حيّةً في التطبيق بعد أن أنهاها صاحبها.
+   * والحمولة لا الدور: مستخدم الجلسة دوره ADMIN كأيّ مدير شركة. */
+  if (isImpersonationToken(i.dashToken)) return 'impersonation';
 
   /* توكنٌ ردّه الخادم من قبل لا يُجرَّب ثانيةً — هذا هو قاطع الحلقة.
    * ويُقارَن بالتوكن نفسه لا بعلامةٍ منطقية: دخولٌ جديد يعطي توكناً مختلفاً

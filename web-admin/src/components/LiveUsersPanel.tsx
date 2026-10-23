@@ -4,6 +4,7 @@ import { analyticsApi } from '../api/client';
 import { X, RefreshCw, Radio, Truck, Users, Building2, TrendingUp, Activity, ChevronDown, Clock, Database } from 'lucide-react';
 import type { HistPoint } from './LiveHistoryChart';
 import { backdropClose } from '../lib/backdropClose';
+import { usePlatformAccess } from '../lib/platformAccess';
 
 // المؤشّرات البيانيّة (recharts الثقيلة) — كسولاً كي لا تُثقل إقلاع لوحة المالك
 const LiveHistoryChart = lazy(() => import('./LiveHistoryChart'));
@@ -155,6 +156,9 @@ const fmtAgo = (s?: string | null): string => {
 //  • «مباشر»: من يستخدم المنصّة الآن (منحنى زمنيّ + أسماء المتصلين لكل شركة).
 //  • «الطلبات»: استهلاك طلبات API لكل مستخدم وشركة خلال مدى زمنيّ.
 export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
+  // موظف المنصة: «مباشر» live.view (به تُفتح النافذة)، و«الطلبات» (request-stats) live.requests
+  const { can, isStaff } = usePlatformAccess();
+  const canRequests = can('live.requests');
   const [mode, setMode] = useState<'live' | 'requests'>('live');
   const [range, setRange] = useState('24h');
   const [reqRange, setReqRange] = useState('today');
@@ -182,9 +186,11 @@ export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
   const { data: req, isLoading: reqLoading, isError: reqError, refetch: reqRefetch, isFetching: reqFetching } = useQuery({
     queryKey: ['request-stats', reqRange],
     queryFn: async () => { const r = await analyticsApi.requestStats(reqRange); return r.data.data as ReqStats; },
-    refetchInterval: 30000,
+    // الموظف: كل قراءةٍ لها سطرٌ في سجل النشاط (الخادم: auditRead) — فلا استطلاع ولا جلب عند العودة للنافذة، وزرّ «تحديث الآن» يكفي
+    refetchInterval: isStaff ? false : 30000,
+    refetchOnWindowFocus: !isStaff,
     refetchIntervalInBackground: false,
-    enabled: mode === 'requests',
+    enabled: mode === 'requests' && canRequests,
   });
 
   const total = data?.total ?? 0;
@@ -219,10 +225,13 @@ export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
 
         {/* مبدّل الوضع + سعة القاعدة */}
         <div className="px-5 pt-4 flex items-center justify-between gap-3 flex-wrap">
-          <div className="inline-flex bg-[#F3EDE3] rounded-xl p-0.5">
-            <ModeBtn active={mode === 'live'} onClick={() => { setMode('live'); setExpanded(null); }} icon={Radio} label="مباشر" />
-            <ModeBtn active={mode === 'requests'} onClick={() => { setMode('requests'); setExpanded(null); }} icon={Activity} label="الطلبات" />
-          </div>
+          {/* المبدّل بزرٍّ واحد لا معنى له — يظهر لمن مُنح «الطلبات» أيضاً */}
+          {canRequests ? (
+            <div className="inline-flex bg-[#F3EDE3] rounded-xl p-0.5">
+              <ModeBtn active={mode === 'live'} onClick={() => { setMode('live'); setExpanded(null); }} icon={Radio} label="مباشر" />
+              <ModeBtn active={mode === 'requests'} onClick={() => { setMode('requests'); setExpanded(null); }} icon={Activity} label="الطلبات" />
+            </div>
+          ) : <span />}
           <DbGauge infra={data?.infra} />
         </div>
 
@@ -381,7 +390,7 @@ export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
         )}
 
         {/* ————— وضع «الطلبات» ————— */}
-        {mode === 'requests' && (
+        {mode === 'requests' && canRequests && (
           <div className="p-5 space-y-5">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-baseline gap-2">

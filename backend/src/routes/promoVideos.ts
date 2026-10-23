@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
-import { authenticate, requireSuperAdmin } from '../middleware/auth';
+import { platformGate } from '../services/platformAccess';
 import { AuthRequest } from '../types';
 import {
   listFeatures, updateFeature, listJobs, getJob, deleteJob,
@@ -9,7 +9,8 @@ import {
 
 // الفيديوهات الترويجية — لمالك المنصّة (السوبر أدمن) فقط
 const router = Router();
-router.use(authenticate, requireSuperAdmin);
+// مالك المنصة وموظفوها بصلاحياتهم (services/platformAccess.ts: platformGate — ما لا قاعدة له للمالك وحده)
+router.use(platformGate);
 
 // أخطاء الخدمة تحمل status اختيارياً — تُحوَّل لاستجابة JSON موحّدة
 function fail(res: Response, e: unknown) {

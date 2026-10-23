@@ -3,12 +3,12 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import prisma from '../config/database';
 import { Prisma } from '@prisma/client';
-import { authenticate, requireSuperAdmin } from '../middleware/auth';
+import { platformGate } from '../services/platformAccess';
 import { AuthRequest } from '../types';
 import { moyasarConfigured, createInvoice, fetchInvoice, fetchPayment, cancelInvoice, sarToHalalas } from '../services/moyasar';
 import { issueForPayment } from '../services/platformInvoice';
 import { accrueForPayment, reverseForPayment, applyPartialRefund } from '../services/affiliate/ledger';
-import { logEvent } from '../services/affiliate/core';
+import { logEvent, platformActor } from '../services/affiliate/core';
 
 // روابط الدفع الالكتروني (ميسر) — يصدرها مالك المنصة بمبلغ يحدده بنفسه.
 //
@@ -172,7 +172,7 @@ async function reversePayment(linkId: string, paymentId: string): Promise<{ reve
 }
 
 // انشاء رابط دفع — المالك فقط
-router.post('/', authenticate, requireSuperAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/', platformGate, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (!moyasarConfigured()) {
       res.status(503).json({ success: false, message: 'بوابة الدفع غير مهيأة بعد اضف مفتاح ميسر في بيئة الخادم' });
@@ -231,7 +231,7 @@ router.post('/', authenticate, requireSuperAdmin, async (req: AuthRequest, res: 
 });
 
 // سرد الروابط مع اسماء الشركات — المالك فقط
-router.get('/', authenticate, requireSuperAdmin, async (_req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/', platformGate, async (_req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const rows = await prisma.paymentLink.findMany({ orderBy: { createdAt: 'desc' }, take: 200 });
     const tids = [...new Set(rows.map(r => r.tenantId).filter((v): v is string => !!v))];
@@ -244,7 +244,7 @@ router.get('/', authenticate, requireSuperAdmin, async (_req: AuthRequest, res: 
 });
 
 // تحديث حالة رابط يدويا — المالك فقط (يغني عن webhook عند الحاجة)
-router.post('/:id/refresh', authenticate, requireSuperAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/:id/refresh', platformGate, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (!moyasarConfigured()) { res.status(503).json({ success: false, message: 'بوابة الدفع غير مهيأة' }); return; }
     const out = await settleFromMoyasar(req.params.id);
@@ -260,7 +260,7 @@ router.post('/:id/refresh', authenticate, requireSuperAdmin, async (req: AuthReq
  * هنا للروابط **المدفوعة بلا شركة** وحدها (لا نقلٌ من شركةٍ لأخرى)، ولا يمدّد
  * اشتراكاً: التمديد يتبع `months` عند الإنشاء، وروابط التسجيل شهورها صفر.
  */
-router.post('/:id/link-tenant', authenticate, requireSuperAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/:id/link-tenant', platformGate, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { tenantId } = z.object({ tenantId: z.string().uuid() }).parse(req.body);
     const t = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { id: true, name: true } });
@@ -274,7 +274,7 @@ router.post('/:id/link-tenant', authenticate, requireSuperAdmin, async (req: Aut
       return;
     }
     await logEvent(prisma, {
-      entity: 'payment', entityId: req.params.id, action: 'linked_tenant', actorType: 'owner', actorId: req.user!.id,
+      entity: 'payment', entityId: req.params.id, action: 'linked_tenant', ...platformActor(req), // موظف المنصة 'staff' لا 'owner'
       meta: { tenantId, tenantName: t.name },
     });
     const accrual = await accrueForPayment(req.params.id);

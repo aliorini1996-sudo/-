@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, requireSuperAdmin, tenantId } from '../middleware/auth';
+import { platformGate } from '../services/platformAccess';
 import { AuthRequest } from '../types';
 import { canAccessCustomer } from '../services/customerScope';
 import { issueLink, publicLinkView, confirmLinkPayment, paylinkConfigured, expireStaleLinks } from '../services/paylink';
@@ -68,6 +69,8 @@ setInterval(() => {
 
 // ═══ مسارات الشركة — مصادقة ثم بوابة الاشتراك (نمط ERP حرفياً) ═══
 
+// مسارات المالك أولاً بحارس لوحته — الموظف يُردّ ٤٠٣ (لا قاعدة له هنا)، ولا يبلغ authenticate الشركة فيُردّ ٤٠١
+router.use('/owner', platformGate);
 router.use(authenticate);
 
 router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {

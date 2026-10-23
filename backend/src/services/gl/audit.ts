@@ -14,7 +14,9 @@ export type GlTx = Prisma.TransactionClient;
 
 // ═══ المنفّذ ═══
 
-export const AUDIT_ACTOR_TYPES = ['ADMIN', 'IMPERSONATION', 'SYSTEM', 'OWNER'] as const;
+// STAFF: موظف المنصة بصلاحية من المالك (routes/tenants.ts: ownerActor) — لا يُنسب فعله إلى المالك. actorType نصٌّ في
+// العمود وفي canonicalAuditEntry، فالقيمة الجديدة لا تمسّ تجزئة الصفوف القائمة
+export const AUDIT_ACTOR_TYPES = ['ADMIN', 'IMPERSONATION', 'SYSTEM', 'OWNER', 'STAFF'] as const;
 export type AuditActorType = (typeof AUDIT_ACTOR_TYPES)[number];
 
 /** منفّذ كتابة الدفاتر كما يُدوَّن على القيد (createdBy/postedBy) وفي GlAuditLog. */

@@ -109,6 +109,8 @@ function reset(): void {
 
 function fakeModels(): Record<string, unknown> {
   return {
+    // مُصدِر جلسة الانتحال (impersonationIssuerOk): مالكٌ نشط
+    superAdmin: { findUnique: async ({ where }: { where: Row }) => (where.id === 'owner-1' ? { isActive: true } : null) },
     admin: {
       findUnique: async ({ where, select }: { where: Row; select?: Row }) => {
         db.adminReads.push({ where, select });
@@ -200,7 +202,8 @@ after(async () => {
 
 /** توكن كما يوقّعه /api/auth/login (أو /api/tenants/:id/impersonate مع impersonated). */
 function token(id: string, role: string, tenantId = T1, impersonated = false): string {
-  return jwt.sign({ id, role, name: id, tenantId, ...(impersonated ? { impersonated: true } : {}) }, SECRET, { expiresIn: '1h' });
+  // جلسة الانتحال تحمل مُصدِرها كما يوقّعها tenants.ts — authenticate يقرأ حسابه في كل طلب (services/platformAccess.ts)
+  return jwt.sign({ id, role, name: id, tenantId, ...(impersonated ? { impersonated: true, by: 'owner-1', byKind: 'OWNER' } : {}) }, SECRET, { expiresIn: '1h' });
 }
 
 interface Reply { status: number; body: any; text: string } // eslint-disable-line @typescript-eslint/no-explicit-any

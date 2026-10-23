@@ -1,4 +1,5 @@
 import { Router, Response, NextFunction } from 'express';
+import { isStaffImpersonation } from '../services/platformAccess';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, requireSalesRep, tenantId } from '../middleware/auth';
@@ -88,14 +89,16 @@ router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
   } catch (err) { next(err); }
 });
 
-function publicIntegration(i: Record<string, unknown> | null, tid: string) {
+/** hideSecret: جلسة «دخول» موظف المنصة — السرّ يكتب سجلّات مكالمات في الشركة بلا مصادقة، فلا يحمله بعد سقوط جلسته */
+function publicIntegration(i: Record<string, unknown> | null, tid: string, hideSecret = false) {
   if (!i) return null;
   const { clientSecret, webhookSecret, ...safe } = i;
   return {
     ...safe,
     hasClientSecret: !!clientSecret,
     // عنوان الويبهوك الجاهز للصق في لوحة هاتف (Settings ← API Connect)
-    webhookUrl: `https://api.fieldsa.net/api/telephony/webhook/hatif/${tid}/${webhookSecret}`,
+    webhookUrl: `https://api.fieldsa.net/api/telephony/webhook/hatif/${tid}/${hideSecret ? '••••••' : webhookSecret}`,
+    ...(hideSecret ? { webhookSecretHidden: true } : {}),
   };
 }
 
@@ -109,7 +112,7 @@ router.get('/settings', async (req: AuthRequest, res: Response, next: NextFuncti
       prisma.workChannel.count({ where: { tenantId: tid } }),
       prisma.callLog.count({ where: { tenantId: tid } }),
     ]);
-    res.json({ success: true, data: { settings: publicIntegration(integ as unknown as Record<string, unknown> | null, tid), counts: { channels, calls: callCount } } });
+    res.json({ success: true, data: { settings: publicIntegration(integ as unknown as Record<string, unknown> | null, tid, isStaffImpersonation(req)), counts: { channels, calls: callCount } } });
   } catch (err) { next(err); }
 });
 
@@ -132,7 +135,7 @@ router.put('/settings', async (req: AuthRequest, res: Response, next: NextFuncti
       create: { tenantId: tid, ...data },
       update: data,
     });
-    res.json({ success: true, data: publicIntegration(integ as unknown as Record<string, unknown>, tid) });
+    res.json({ success: true, data: publicIntegration(integ as unknown as Record<string, unknown>, tid, isStaffImpersonation(req)) });
   } catch (err) { next(err); }
 });
 

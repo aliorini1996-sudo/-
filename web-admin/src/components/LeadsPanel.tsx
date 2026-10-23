@@ -11,6 +11,8 @@ import WhatsAppBridgePanel from './WhatsAppBridgePanel';
 import toast from 'react-hot-toast';
 import { backdropClose } from '../lib/backdropClose';
 import { safeHttpUrl } from '../lib/safeUrl';
+import { sessionSpace } from '../store/authStore';
+import { usePlatformAccess } from '../lib/platformAccess';
 
 const STAGES: LeadStage[] = ['NEW', 'CONTACTED', 'QUALIFIED', 'PROPOSAL', 'WON', 'LOST'];
 const STAGE_LABEL: Record<LeadStage, string> = {
@@ -54,6 +56,10 @@ function toParams(f: Filters): Record<string, string | boolean> {
 
 export default function LeadsPanel({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
+  // موظف المنصة يرى أدوات ما مُنح وحده (اللوحة نفسها تُفتح بـleads.view) — للمالك كلها صادقة
+  const { can } = usePlatformAccess();
+  const canHunt = can('leads.hunt');
+  const canMessage = can('leads.message');
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [selected, setSelected] = useState<string | null>(null);
   const [showSearch, setShowSearch] = useState(false);
@@ -86,7 +92,8 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
   };
 
   const exportCsv = async () => {
-    const token = localStorage.getItem('sa_token');
+    // توكن مساحة الجلسة الحالية (المالك sa_token، والموظف st_token) — لا مفتاحٌ ثابت يُرسل توكن غير صاحب الجلسة
+    const token = localStorage.getItem(sessionSpace().tokenKey);
     const qs = new URLSearchParams(
       Object.entries(toParams(filters)).map(([k, v]) => [k, String(v)]),
     ).toString();
@@ -172,17 +179,18 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
           >
             <Bell size={14} className="inline ml-1" /> المستحقة
           </button>
-          <button onClick={() => setShowSearch(true)} className="btn-primary"><Radar size={16} /> بحث آلي</button>
-          <button onClick={() => setShowEnrich(true)} className="px-3 py-2 rounded-lg text-sm bg-purple-600 text-white hover:bg-purple-700"><Wand2 size={14} className="inline ml-1" /> إثراء البيانات</button>
-          <button onClick={() => setShowHunt(true)} className="px-3 py-2 rounded-lg text-sm bg-[#1F1A13] text-white hover:bg-[#2c2620]"><Repeat size={14} className="inline ml-1" /> صيد مستمر</button>
-          <button onClick={() => setShowAutoEmail(true)} className="px-3 py-2 rounded-lg text-sm bg-[#1E7A52] text-white hover:bg-[#1a6a47]"><Mail size={14} className="inline ml-1" /> بريد تلقائي</button>
-          <button onClick={() => setShowCommunity(true)} className="px-3 py-2 rounded-lg text-sm bg-blue-600 text-white hover:bg-blue-700"><Users size={14} className="inline ml-1" /> بحث القروبات</button>
-          <button onClick={() => setShowEmail(true)} className="px-3 py-2 rounded-lg text-sm bg-[#1E7A52] text-white hover:bg-[#1a6a47]"><Mail size={14} className="inline ml-1" /> بريد تسويقي</button>
-          <button onClick={() => setShowWhats(true)} className="px-3 py-2 rounded-lg text-sm bg-[#25D366] text-white hover:bg-[#1eb356]"><MessageCircle size={14} className="inline ml-1" /> واتساب تسويقي</button>
-          <button onClick={() => setShowBridge(true)} className="px-3 py-2 rounded-lg text-sm bg-[#128C7E] text-white hover:bg-[#0f7268]"><Smartphone size={14} className="inline ml-1" /> واتساب ويب</button>
-          <button onClick={() => setShowAdd(true)} className="px-3 py-2 rounded-lg text-sm border border-[#E9E1D3] text-gray-700 hover:bg-white"><Plus size={14} className="inline ml-1" /> إضافة</button>
-          <ImportButton onDone={refresh} />
-          <button onClick={exportCsv} className="px-3 py-2 rounded-lg text-sm border border-[#E9E1D3] text-gray-700 hover:bg-white"><Download size={14} className="inline ml-1" /> تصدير</button>
+          {/* الصيد والإثراء والاستيراد والصيد الآلي: leads.hunt — البريد وواتساب والبريد الآلي: leads.message */}
+          {canHunt && <button onClick={() => setShowSearch(true)} className="btn-primary"><Radar size={16} /> بحث آلي</button>}
+          {canHunt && <button onClick={() => setShowEnrich(true)} className="px-3 py-2 rounded-lg text-sm bg-purple-600 text-white hover:bg-purple-700"><Wand2 size={14} className="inline ml-1" /> إثراء البيانات</button>}
+          {canHunt && <button onClick={() => setShowHunt(true)} className="px-3 py-2 rounded-lg text-sm bg-[#1F1A13] text-white hover:bg-[#2c2620]"><Repeat size={14} className="inline ml-1" /> صيد مستمر</button>}
+          {canMessage && <button onClick={() => setShowAutoEmail(true)} className="px-3 py-2 rounded-lg text-sm bg-[#1E7A52] text-white hover:bg-[#1a6a47]"><Mail size={14} className="inline ml-1" /> بريد تلقائي</button>}
+          {canHunt && <button onClick={() => setShowCommunity(true)} className="px-3 py-2 rounded-lg text-sm bg-blue-600 text-white hover:bg-blue-700"><Users size={14} className="inline ml-1" /> بحث القروبات</button>}
+          {canMessage && <button onClick={() => setShowEmail(true)} className="px-3 py-2 rounded-lg text-sm bg-[#1E7A52] text-white hover:bg-[#1a6a47]"><Mail size={14} className="inline ml-1" /> بريد تسويقي</button>}
+          {canMessage && <button onClick={() => setShowWhats(true)} className="px-3 py-2 rounded-lg text-sm bg-[#25D366] text-white hover:bg-[#1eb356]"><MessageCircle size={14} className="inline ml-1" /> واتساب تسويقي</button>}
+          {can('waBridge.view') && <button onClick={() => setShowBridge(true)} className="px-3 py-2 rounded-lg text-sm bg-[#128C7E] text-white hover:bg-[#0f7268]"><Smartphone size={14} className="inline ml-1" /> واتساب ويب</button>}
+          {can('leads.edit') && <button onClick={() => setShowAdd(true)} className="px-3 py-2 rounded-lg text-sm border border-[#E9E1D3] text-gray-700 hover:bg-white"><Plus size={14} className="inline ml-1" /> إضافة</button>}
+          {canHunt && <ImportButton onDone={refresh} />}
+          {can('leads.export') && <button onClick={exportCsv} className="px-3 py-2 rounded-lg text-sm border border-[#E9E1D3] text-gray-700 hover:bg-white"><Download size={14} className="inline ml-1" /> تصدير</button>}
         </div>
 
         {/* Availability filter chips */}
@@ -236,15 +244,15 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
       </div>
 
       {selected && <LeadDrawer id={selected} onClose={() => setSelected(null)} onChanged={refresh} />}
-      {showSearch && <SearchModal onClose={() => setShowSearch(false)} onDone={refresh} />}
-      {showEmail && <EmailModal filters={filters} onClose={() => setShowEmail(false)} onDone={refresh} />}
-      {showWhats && <WhatsAppModal filters={filters} onClose={() => setShowWhats(false)} onDone={refresh} />}
-      {showBridge && <WhatsAppBridgePanel onClose={() => { setShowBridge(false); refresh(); }} />}
-      {showEnrich && <EnrichModal filters={filters} onClose={() => setShowEnrich(false)} onDone={refresh} />}
-      {showHunt && <AutoHuntModal onClose={() => setShowHunt(false)} onDone={refresh} />}
-      {showAutoEmail && <AutoEmailModal onClose={() => setShowAutoEmail(false)} onDone={refresh} />}
-      {showCommunity && <CommunityHuntModal onClose={() => setShowCommunity(false)} onDone={refresh} />}
-      {showAdd && <AddLeadModal onClose={() => setShowAdd(false)} onDone={refresh} />}
+      {showSearch && canHunt && <SearchModal onClose={() => setShowSearch(false)} onDone={refresh} />}
+      {showEmail && canMessage && <EmailModal filters={filters} onClose={() => setShowEmail(false)} onDone={refresh} />}
+      {showWhats && canMessage && <WhatsAppModal filters={filters} onClose={() => setShowWhats(false)} onDone={refresh} />}
+      {showBridge && can('waBridge.view') && <WhatsAppBridgePanel onClose={() => { setShowBridge(false); refresh(); }} />}
+      {showEnrich && canHunt && <EnrichModal filters={filters} onClose={() => setShowEnrich(false)} onDone={refresh} />}
+      {showHunt && canHunt && <AutoHuntModal onClose={() => setShowHunt(false)} onDone={refresh} />}
+      {showAutoEmail && canMessage && <AutoEmailModal onClose={() => setShowAutoEmail(false)} onDone={refresh} />}
+      {showCommunity && canHunt && <CommunityHuntModal onClose={() => setShowCommunity(false)} onDone={refresh} />}
+      {showAdd && can('leads.edit') && <AddLeadModal onClose={() => setShowAdd(false)} onDone={refresh} />}
     </div>
   );
 }
@@ -1471,6 +1479,10 @@ function parseCsv(text: string): Record<string, string>[] {
 // ----------------------------- تفاصيل العميل المحتمل ----------------------------- //
 function LeadDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void; onChanged: () => void }) {
   const qc = useQueryClient();
+  // المرحلة والملاءمة والمتابعة والتحويل: leads.edit — الحذف: leads.delete. بلا تعديل يُعرض الملف قراءةً
+  const { can } = usePlatformAccess();
+  const canEdit = can('leads.edit');
+  const canDelete = can('leads.delete');
   const { data: lead } = useQuery({
     queryKey: ['lead', id],
     queryFn: async () => (await leadApi.get(id)).data.data as Lead,
@@ -1542,8 +1554,8 @@ function LeadDrawer({ id, onClose, onChanged }: { id: string; onClose: () => voi
             <label className="label">المرحلة</label>
             <div className="flex flex-wrap gap-1.5">
               {STAGES.map((s) => (
-                <button key={s} onClick={() => update.mutate({ stage: s })}
-                  className={`px-2.5 py-1 rounded-md text-xs ${lead.stage === s ? STAGE_CLS[s] + ' ring-1 ring-current' : 'bg-slate-50 text-slate-500'}`}>
+                <button key={s} onClick={() => update.mutate({ stage: s })} disabled={!canEdit}
+                  className={`px-2.5 py-1 rounded-md text-xs ${lead.stage === s ? STAGE_CLS[s] + ' ring-1 ring-current' : 'bg-slate-50 text-slate-500'} ${canEdit ? '' : 'cursor-default'}`}>
                   {STAGE_LABEL[s]}
                 </button>
               ))}
@@ -1554,18 +1566,18 @@ function LeadDrawer({ id, onClose, onChanged }: { id: string; onClose: () => voi
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label">الملاءمة 1-10</label>
-              <input type="number" min={0} max={10} defaultValue={lead.score ?? ''} className="input"
+              <input type="number" min={0} max={10} defaultValue={lead.score ?? ''} className="input" disabled={!canEdit}
                 onBlur={(e) => { const v = e.target.value === '' ? null : Number(e.target.value); if (v !== lead.score) update.mutate({ score: v }); }} />
             </div>
             <div>
               <label className="label">متابعة قادمة</label>
-              <input type="date" defaultValue={lead.nextFollowUpAt ? lead.nextFollowUpAt.slice(0, 10) : ''} className="input"
+              <input type="date" defaultValue={lead.nextFollowUpAt ? lead.nextFollowUpAt.slice(0, 10) : ''} className="input" disabled={!canEdit}
                 onChange={(e) => update.mutate({ nextFollowUpAt: e.target.value || null })} />
             </div>
           </div>
 
           {/* تسجيل متابعة */}
-          <div className="bg-[#FAF7F0] rounded-lg p-3">
+          {canEdit && <div className="bg-[#FAF7F0] rounded-lg p-3">
             <label className="label">تسجيل متابعة</label>
             <div className="flex gap-1.5 mb-2">
               {[['NOTE', 'ملاحظة', StickyNote], ['CALL', 'مكالمة', PhoneCall], ['EMAIL', 'بريد', Globe2], ['MEETING', 'اجتماع', Target]].map(([v, lbl, Icon]) => (
@@ -1578,15 +1590,21 @@ function LeadDrawer({ id, onClose, onChanged }: { id: string; onClose: () => voi
             </div>
             <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} className="input mb-2" placeholder="تفاصيل المتابعة" />
             <button disabled={!note || addActivity.isPending} onClick={() => addActivity.mutate()} className="btn-primary w-full text-sm">تسجيل</button>
-          </div>
+          </div>}
 
           {/* أزرار */}
-          <div className="flex gap-2">
-            <button disabled={lead.stage === 'WON'} onClick={() => convert.mutate()} className="flex-1 bg-green-600 text-white rounded-lg py-2 text-sm flex items-center justify-center gap-1 disabled:opacity-50">
-              <ArrowRightLeft size={15} /> تحويل لمشترك
-            </button>
-            <button onClick={() => { if (confirm('حذف هذا العميل المحتمل')) remove.mutate(); }} className="px-3 py-2 rounded-lg border border-red-200 text-red-600"><Trash2 size={16} /></button>
-          </div>
+          {(canEdit || canDelete) && (
+            <div className="flex gap-2">
+              {canEdit && (
+                <button disabled={lead.stage === 'WON'} onClick={() => convert.mutate()} className="flex-1 bg-green-600 text-white rounded-lg py-2 text-sm flex items-center justify-center gap-1 disabled:opacity-50">
+                  <ArrowRightLeft size={15} /> تحويل لمشترك
+                </button>
+              )}
+              {canDelete && (
+                <button onClick={() => { if (confirm('حذف هذا العميل المحتمل')) remove.mutate(); }} className="px-3 py-2 rounded-lg border border-red-200 text-red-600"><Trash2 size={16} /></button>
+              )}
+            </div>
+          )}
 
           {/* الخط الزمني */}
           <div>

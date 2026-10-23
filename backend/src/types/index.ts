@@ -2,10 +2,15 @@ import { Request } from 'express';
 
 export interface AuthPayload {
   id: string;
-  role: 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'ACCOUNTANT' | 'SALES_REP';
+  // PLATFORM_STAFF: موظف منصة — لا يحمله توكن أبداً؛ يضعه platformGate على الطلب بعد التحقق من حسابه (services/platformAccess.ts)
+  role: 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'ACCOUNTANT' | 'SALES_REP' | 'PLATFORM_STAFF';
   name: string;
   tenantId?: string; // معرّف الشركة — غير موجود للسوبر أدمن
   impersonated?: boolean; // جلسة تصفّح المالك لشركة (تُقيّد بعض الإجراءات)
+  /** مُصدِر جلسة «دخول» (impersonated): معرّف المالك أو الموظف ونوعه ونسخة جلسة الموظف — يُفحص حيّاً في authenticate */
+  by?: string;
+  byKind?: 'OWNER' | 'STAFF';
+  btv?: number;
   canAccessDashboard?: boolean;
   canManageCustomers?: boolean;
   canManageProducts?: boolean;

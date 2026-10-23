@@ -7,6 +7,7 @@ import { authenticate, requireAdmin, requireAdminPermission, tenantId, actorOf }
 import { auditActorName } from '../services/attendanceEdit';
 import { adminRepFilter, adminCustomerFilter, scopedRecordWhere, SHAPE_INVOICE_RECEIPT, teamSupervisorIdOf, composeTeamCustodyWhere } from '../services/adminScope';
 import { settlementTeamOf, teamMembershipSelectFor } from '../services/teams';
+import { noStaffCredentials, refuseStaffCredentials } from '../services/platformAccess';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
 import { clean } from '../services/accounting';
@@ -123,7 +124,8 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
   } catch (err) { next(err); }
 });
 
-router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
+// جلسة «دخول» موظف المنصة لا تُنشئ مندوباً بكلمة مرور يختارها — حسابٌ يبقى بعد تعطيله (services/platformAccess.ts)
+router.post('/', noStaffCredentials, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
     const { password, ...rest } = repSchema.parse(req.body);
@@ -168,6 +170,8 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     if (!current) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
 
     const { password, ...rest } = repSchema.partial().parse(req.body);
+    // ولا تضع كلمة مرور مندوبٍ قائم
+    if (refuseStaffCredentials(req, res, !!password)) return;
     if (password && password.length < 8) { res.status(400).json({ success: false, message: 'كلمة المرور 8 أحرف على الأقل' }); return; }
     if (rest.username || rest.phone || rest.email) {
       const dup = await checkRepDuplicates(

@@ -9,7 +9,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { authenticate, requireSuperAdmin } from '../middleware/auth';
+import { platformGate } from '../services/platformAccess';
 import { AuthRequest } from '../types';
 import {
   financeSnapshot, monthlyFinance, quarterFinance, revenueRows,
@@ -18,7 +18,8 @@ import {
 import { backfillInvoices, invoicingReady, platformSeller } from '../services/platformInvoice';
 
 const router = Router();
-router.use(authenticate, requireSuperAdmin);
+// مالك المنصة وموظفوها بصلاحياتهم (services/platformAccess.ts: platformGate — ما لا قاعدة له للمالك وحده)
+router.use(platformGate);
 
 /** الصورة المالية الكاملة — نقطة واحدة تكفي اللوحة */
 router.get('/snapshot', async (_req: AuthRequest, res: Response, next: NextFunction) => {

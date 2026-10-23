@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { authenticate, requireSuperAdmin } from '../middleware/auth';
+import { platformGate } from '../services/platformAccess';
 import { AuthRequest } from '../types';
 
 /**
@@ -121,7 +121,7 @@ router.get('/file', async (req: Request, res: Response, next: NextFunction) => {
  * الصفحة بين الرفعتين تعرض خلطاً من عرضين — نصفها من القديم ونصفها من
  * الجديد — وهو أسوأ من انتظار ثانية.
  */
-router.put('/', authenticate, requireSuperAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.put('/', platformGate, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const body = deckSchema.parse(req.body);
 
@@ -160,7 +160,7 @@ router.put('/', authenticate, requireSuperAdmin, async (req: AuthRequest, res: R
 });
 
 /** رفع الملفّ القابل للتنزيل */
-router.put('/file', authenticate, requireSuperAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.put('/file', platformGate, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const body = z.object({
       dataBase64: b64,
@@ -186,7 +186,7 @@ router.put('/file', authenticate, requireSuperAdmin, async (req: AuthRequest, re
 });
 
 /** إزالة ما رُفع — تعود الصفحة للشرائح المدمَجة في البناء */
-router.delete('/', authenticate, requireSuperAdmin, async (_req: AuthRequest, res: Response, next: NextFunction) => {
+router.delete('/', platformGate, async (_req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     await prisma.$transaction([
       prisma.profileSlide.deleteMany({}),

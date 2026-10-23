@@ -29,6 +29,7 @@ test('الوسم مسموح على كل صفحة تسويقية — ومنها �
 test('الوسم ممنوع داخل التطبيق والبوابات الخاصة وصفحات عملاء عملائنا', () => {
   const denied = [
     '/app', '/app/', '/app/customers', '/app/ledger/moves', '/platform', '/owner', '/login', '/verify-email',
+    '/staff', '/staff/', '/staff/login', // لوحة موظفي المنصة ودخولها
     '/activate', '/activate/',
     '/rep', '/rep/', '/m', '/m/', '/ax', '/ax/', '/hx', '/q-fs7k2m', '/qt',
     '/pos', '/kds', '/app-r', // مسارات المطعم — خارج القائمة تلقائياً
@@ -72,6 +73,7 @@ test('كل مسارات App.tsx مصنّفة صراحةً، والتصنيف ي�
   const PRIVATE = new Set([
     '/rep', '/m', '/hx', '/ax', '/q-fs7k2m', '/hookb', '/login', '/owner', '/verify-email', '/activate',
     '/rep-app', '/payment/success', '/c/:tenantId/:repId', '/pay/:token', '/e/:token', '/platform', '/app',
+    '/staff', '/staff/login',
   ]);
   const src = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
   const paths = [...src.matchAll(/<Route\s+path="(\/[^"]*)"/g)].map((m) => m[1]);

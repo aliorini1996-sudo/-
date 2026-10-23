@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { subscribe, sseFrame, HEARTBEAT_MS } from '../services/liveEvents';
+import { impersonationIssuerOk } from '../services/platformAccess';
 
 /**
  * قناة التحديث اللحظيّ للوحة الشركة (انظر `services/liveEvents.ts`).
@@ -10,6 +11,9 @@ import { subscribe, sseFrame, HEARTBEAT_MS } from '../services/liveEvents';
  * والبديل وضع التوكن في الرابط — فيُكتب في سجلّات الخادم والوسطاء.
  */
 const router = Router();
+
+/** أقصى مهلةٍ يقبلها setTimeout (~٢٤٫٨ يوماً) — ما فوقها يُطلقه فوراً */
+const MAX_TIMER_MS = 2_147_483_647;
 
 /** معالج القناة — مُصدَّر ليُختبر خلف مصادقةٍ مزيّفة بخادم HTTP حقيقيّ */
 export function liveStreamHandler(req: AuthRequest, res: Response): void {
@@ -40,13 +44,30 @@ export function liveStreamHandler(req: AuthRequest, res: Response): void {
   res.flushHeaders();
   res.write(sseFrame('ready', { at: Date.now() }));
 
+  // القناة لا تعيش بعد جلستها: authenticate يحكم عند الفتح وحده والقناة تبقى ساعات — فتُغلق عند انتهاء التوكن، وجلسة
+  // «دخول» تُغلق متى سقط مُصدِرها (عُطّل أو أُخرج أو سُحبت منه الصلاحية). العميل يعيد الاتصال فيردّه authenticate بـ٤٠١
+  const exp = (user as { exp?: unknown }).exp;
+  const expMs = typeof exp === 'number' ? exp * 1000 : null;
   const heartbeat = setInterval(() => {
     try { res.write(': ping\n\n'); } catch { /* يُغلق أدناه */ }
+    if (expMs !== null && Date.now() >= expMs) { end(); return; }
+    // تعذّر القراءة يُغلق أيضاً: لا قناة بلا مُصدِرٍ متحقَّقٍ منه، والعميل يعيد الاتصال
+    if (user.impersonated) impersonationIssuerOk(user).then((ok) => { if (!ok) end(); }, end);
   }, HEARTBEAT_MS);
   // لا يُبقي العملية حيّةً وحده: خادم HTTP يُبقيها في الإنتاج، ونبضٌ متسرّب لا يُعلّق اختباراً
   heartbeat.unref?.();
+  // مهلةٌ أبعد من سقف setTimeout تُترك للنبضة أعلاه
+  const expiry = expMs !== null && expMs - Date.now() <= MAX_TIMER_MS ? setTimeout(() => end(), Math.max(0, expMs - Date.now())) : undefined;
+  expiry?.unref?.();
 
-  const close = () => { clearInterval(heartbeat); unsubscribe(); };
+  let closed = false;
+  const close = () => { closed = true; clearInterval(heartbeat); clearTimeout(expiry); unsubscribe(); };
+  /** إنهاءٌ من الخادم */
+  const end = () => {
+    if (closed) return;
+    close();
+    try { res.end(); } catch { /* مقبسٌ مات */ }
+  };
   req.on('close', close);
   res.on('close', close);
   res.on('error', close);

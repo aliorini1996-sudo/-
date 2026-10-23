@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { sessionSpace, useAuthStore } from '../store/authStore';
+import { sessionSpace, expiredDestination, useAuthStore } from '../store/authStore';
 import { FS_CAPS_HEADER, FS_CAPS_VALUE } from './caps';
 import type { PrintSettingsV1 } from '../lib/print/printSettingsCore';
 
@@ -30,9 +30,13 @@ api.interceptors.response.use(
   r => r,
   err => {
     // لا نتعامل مع 401 لطلب تسجيل الدخول نفسه (لتظهر رسالة «بيانات غير صحيحة» في مكانها بلا إعادة توجيه)
-    const isLogin = (err.config?.url as string | undefined)?.includes('/auth/login');
+    // — ومنه دخول موظف المنصة: كلمة مرورٍ خاطئة ليست انتهاء جلسة (وكانت تمحو علامة الانتحال)
+    const url = err.config?.url as string | undefined;
+    const isLogin = !!url && (url.includes('/auth/login') || url.includes('/staff-auth/login'));
     if (err.response?.status === 401 && !isLogin) {
-      const { loginPath } = spaceKeys();
+      // الوجهة قبل المحو: «دخولٌ» إلى شركة أسقطه الخادم (IMPERSONATION_ENDED) يعود إلى لوحة من دخل (/staff أو /platform)
+      // لا إلى /login — وعلامة من دخل يمحوها sessionExpired
+      const dest = expiredDestination((err.response?.data as { code?: unknown } | undefined)?.code);
       // المحو ووسمُ التوكن المرفوض في المتجر — مصدرٌ واحد لمنطق المساحات
       useAuthStore.getState().sessionExpired();
       /* والانتقال **فقط إن كانت الوجهة صفحةً أخرى**.
@@ -42,7 +46,7 @@ api.interceptors.response.use(
        * وبمسحِ المتجر في الذاكرة تُرسَم شاشة الدخول في اللحظة نفسها بلا
        * تحميل، فلا سبيل للدوران أصلاً. أمّا لوحة الأدمن والمالك فوجهتهما
        * صفحةٌ أخرى حقيقةً (`/login` و`/owner`) فتنتقل كما كانت. */
-      if (!samePath(window.location.pathname, loginPath)) window.location.href = loginPath;
+      if (!samePath(window.location.pathname, dest)) window.location.href = dest;
     }
     return Promise.reject(err);
   }
@@ -333,6 +337,26 @@ export const workNumbersApi = {
 };
 
 // إدارة الشركات — لمالك المنصّة (السوبر أدمن)
+// «موظفو المنصة» — دخول الموظف وحسابه (مساحة /staff)
+export const staffAuthApi = {
+  login: (data: { email: string; password: string }) => api.post('/staff-auth/login', data),
+  me: () => api.get('/staff-auth/me'),
+  changePassword: (data: { currentPassword: string; newPassword: string }) => api.post('/staff-auth/change-password', data),
+};
+
+// إدارة موظفي المنصة وسجل النشاط — للمالك وحده (الخادم يردّ الموظف ٤٠٣)
+export const platformStaffApi = {
+  list: () => api.get('/platform-staff'),
+  catalog: () => api.get('/platform-staff/catalog'),
+  create: (data: { name: string; email: string; permissions: string[] }) => api.post('/platform-staff', data),
+  update: (id: string, data: { name?: string; email?: string; permissions?: string[]; isActive?: boolean }) => api.put(`/platform-staff/${id}`, data),
+  resetPassword: (id: string) => api.post(`/platform-staff/${id}/reset-password`),
+  revokeSessions: (id: string) => api.post(`/platform-staff/${id}/revoke-sessions`),
+  remove: (id: string) => api.delete(`/platform-staff/${id}`),
+  audit: (params?: { actorId?: string; actorType?: 'OWNER' | 'STAFF'; from?: string; to?: string; tz?: number; before?: string; beforeId?: string }) =>
+    api.get('/platform-staff/audit', { params }),
+};
+
 export const tenantApi = {
   list: () => api.get('/tenants'),
   get: (id: string) => api.get(`/tenants/${id}`),
@@ -341,7 +365,8 @@ export const tenantApi = {
   platformTotals: () => api.get('/tenants/platform-totals'),
   create: (data: unknown) => api.post('/tenants', data),
   update: (id: string, data: unknown) => api.put(`/tenants/${id}`, data),
-  resetAdmin: (id: string, data: { adminId?: string; newPassword: string }) => api.post(`/tenants/${id}/reset-admin`, data),
+  // المالك يختار الكلمة (newPassword)؛ وموظف المنصة لا يرسلها: الخادم يرسل مؤقتة إلى بريد المدير ويردّ data: { sent, email مقنّعاً }
+  resetAdmin: (id: string, data: { adminId?: string; newPassword?: string }) => api.post(`/tenants/${id}/reset-admin`, data),
   impersonate: (id: string) => api.post(`/tenants/${id}/impersonate`),
   remove: (id: string, confirmLedgerDestroy?: boolean) => api.delete(`/tenants/${id}`, { params: { confirmLedgerDestroy: confirmLedgerDestroy ? 1 : undefined } }),
   // الدفاتر (M3، §5.7، §8.1): إعادة الضبط بتأكيد الاسم، وتاريخ فوترة عمولة الدفع (D2) — preview لا يكتب

@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import prisma from '../config/database';
 import { AuthRequest, AuthPayload } from '../types';
 import { bumpRequest } from '../services/requestCounter';
+import { liveImpersonationIssuer, auditStaffImpersonationWrite, refuseStaffCredentials } from '../services/platformAccess';
 import { ledgerPermissionDecision, LedgerKey } from '../services/gl/permissions';
 import {
   apiKeyFromHeaders, isWellFormedApiKey, hashApiKey, apiKeyRouteDecision, takeApiKeyToken, tenantBlockedReason,
@@ -39,6 +40,17 @@ const COMPANY_ROLES = ['ADMIN', 'MANAGER', 'ACCOUNTANT'];
 // خنق تحديث «آخر ظهور» لمستخدمي الشركة: لا نكتب أكثر من مرة/دقيقة للحساب الواحد.
 const PRESENCE_THROTTLE_MS = 60 * 1000;
 
+/** مسارات تضبط اعتماد الحساب نفسه بـauthenticate في مسارها — ممنوعة على جلسة «دخول» الموظف (refuseStaffCredentials) */
+const STAFF_DENIED_SELF_PATHS: ReadonlySet<string> = new Set(['/api/auth/change-password']);
+
+/**
+ * مسار الطلب كما وجّهه Express (الأساس + المسار): بلا استعلام ولا شرطة أخيرة وبلا حساسية حالة. لا originalUrl: سطر الطلب
+ * برابطٍ مطلق (POST http://host/api/auth/change-password) يوجّهه Express بمساره ويبقى originalUrl رابطاً كاملاً لا يطابق
+ */
+function normalizedUrlPath(req: AuthRequest): string {
+  return `${req.baseUrl ?? ''}${req.path ?? ''}`.toLowerCase().replace(/\/+$/, '') || '/';
+}
+
 /**
  * التحقّق من الجلسة — **والحساب نفسه لمستخدمي لوحة الشركة**.
  *
@@ -71,6 +83,22 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     return;
   }
   req.user = payload;
+
+  // جلسة «دخول» إلى حساب شركة: مُصدِرها (المالك أو موظف المنصة) يُقرأ في كل طلب — تعطيله أو إخراجه من أجهزته أو سحب
+  // صلاحية «الدخول» منه يُسقطها فوراً، وتوكنٌ بلا مُصدِر (قبل «موظفي المنصة») لا يُقبل (services/platformAccess.ts)
+  if (payload.impersonated) {
+    try {
+      const issuer = await liveImpersonationIssuer(payload);
+      if (!issuer) {
+        res.status(401).json({ success: false, code: 'IMPERSONATION_ENDED', message: 'انتهت جلسة الدخول الى الشركة' });
+        return;
+      }
+      // جلسة الموظف: كل كتابةٍ سطرٌ باسمه في سجل نشاط المنصة قبل التنفيذ (تعذّره ٥٠٣) — جلسة المالك كما هي
+      if (!(await auditStaffImpersonationWrite(req, res, issuer.name))) return;
+      // وتغيير كلمة مرور الحساب نفسه اعتمادٌ يبقى بعدها — مساره (/api/auth) خارج موجّهات الشركة فيُحرس هنا
+      if (STAFF_DENIED_SELF_PATHS.has(normalizedUrlPath(req)) && refuseStaffCredentials(req, res)) return;
+    } catch (err) { next(err); return; }
+  }
 
   // عدّ الطلبات (الاستهلاك) لكل مستخدم — تراكمٌ في الذاكرة، إفراغٌ دوريّ. نتخطّى
   // المالك (لا شركة له) وجلساتِ الانتحال (كي لا تُنسَب طلبات المالك لمستخدم الشركة).
@@ -210,6 +238,8 @@ async function authenticateApiKey(req: AuthRequest, res: Response, next: NextFun
  * جلسة مالك المنصة داخل شركة (توكن انتحال من POST /api/tenants/:id/impersonate — لا يصدره إلا SUPER_ADMIN): كل صلاحية مفتوحة
  * ولا نطاق يقيّدها، أياً كانت صلاحيات حساب المدير الذي وُقّع به التوكن. أمر المالك (٢٩ سبتمبر ٢٠٢٦): «اجعل لي كمالك صلاحية تعديل كل شيء بلا استثناء».
  * كل حارس صلاحية أو نطاق يسأل هذه الدالة أولاً؛ وأفعال الجلسة تبقى موسومة «الدعم الفني» في التدقيق.
+ * وجلسةٌ أصدرها موظف منصة بصلاحية «الدخول» مثلها، عدا الاعتمادات الدائمة (refuseStaffCredentials) وسطرٍ لكل كتابة باسمه في
+ * سجل نشاط المنصة (services/platformAccess.ts).
  */
 export function isOwnerSession(req: { user?: { impersonated?: boolean } | null }): boolean {
   return req.user?.impersonated === true;

@@ -2,7 +2,11 @@ export interface User {
   id: string;
   name: string;
   email?: string;
-  role: 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'ACCOUNTANT' | 'SALES_REP';
+  role: 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'ACCOUNTANT' | 'SALES_REP' | 'PLATFORM_STAFF';
+  /** موظف المنصة (PLATFORM_STAFF): مفاتيح ما منحه المالك (lib/platformAccess.ts) */
+  permissions?: string[];
+  /** موظف المنصة بكلمة مرور مؤقتة — لا يصل أي قسم حتى يغيّرها */
+  mustChangePassword?: boolean;
   tenantId?: string;
   companyName?: string;
   emailVerified?: boolean;

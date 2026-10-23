@@ -87,7 +87,8 @@ interface Target {
 }
 
 // تشغيل دفعة بريد تلقائي واحدة (متابعات أولاً ثم لمسات أولى، ضمن الحدّ اليومي)
-export async function runAutoEmailBatch(): Promise<{
+/** excludeTool: تشغيلٌ بيد موظف منصة بلا «عملاء مولد الفواتير» — لا يراسلهم ولو استهدفهم الإعداد (routes/leads.ts) */
+export async function runAutoEmailBatch(opts: { excludeTool?: boolean } = {}): Promise<{
   sent: number; failed: number; followUps: number; remainingToday: number; targeted: number; errors: string[];
 }> {
   const cfg = await getEmailConfig();
@@ -106,6 +107,7 @@ export async function runAutoEmailBatch(): Promise<{
   // فلاتر مشتركة اختيارية
   const base: Record<string, unknown> = { email: { not: null } };
   if (cfg.source) base.source = cfg.source;
+  if (opts.excludeTool) base.source = cfg.source === 'invoice-tool' ? { in: [] } : (cfg.source || { not: 'invoice-tool' });
   if (cfg.countryCode) base.countryCode = cfg.countryCode;
 
   const targets: Target[] = [];

@@ -1,7 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { authenticate, requireSuperAdmin } from '../middleware/auth';
+import { platformGate, staffHas, PlatformRequest } from '../services/platformAccess';
 import { AuthRequest } from '../types';
 import { runSearch, qualifyLeads, LeadProvider, RawLead, providersReady } from '../services/leadSources';
 import { sendMarketingEmail, marketingProvider } from '../services/marketingMailer';
@@ -19,13 +19,27 @@ import { getCommunityConfig, saveCommunityConfig, runCommunityHuntBatch } from '
 
 // إدارة العملاء المحتملين (Leads) — لمالك المنصّة (السوبر أدمن) فقط
 const router = Router();
-router.use(authenticate, requireSuperAdmin);
+// مالك المنصة وموظفوها بصلاحياتهم (services/platformAccess.ts: platformGate — ما لا قاعدة له للمالك وحده)
+router.use(platformGate);
 
 const STAGES = ['NEW', 'CONTACTED', 'QUALIFIED', 'PROPOSAL', 'WON', 'LOST'] as const;
 
-// بناء شرط التصفية المشترك (تستخدمه القائمة والتصدير) من معاملات الاستعلام
-function buildLeadWhere(query: Record<string, string>): Record<string, unknown> {
-  const { stage, source, countryCode, q, assignedTo, dueOnly, hasEmail, hasPhone, hasWebsite, emailed, whatsapped, optedOut } = query;
+/** نصٌّ غير فارغ أو undefined — Express يحلّل الاستعلام بـqs الموسّع، فـ?source[not]=x يصل كائناً يقبله Prisma مرشّحاً */
+const str = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined);
+
+const NOT_TOOL = { source: { not: 'invoice-tool' } };
+/** يضيف «ليس من مولد الفواتير» شرطاً إيجابياً إلى AND المرشّح — أياً كان شكل source، ودون الكتابة فوق AND القائم */
+function excludeTool(where: Record<string, unknown>): Record<string, unknown> {
+  const and = where.AND;
+  where.AND = [...(Array.isArray(and) ? and : and ? [and] : []), NOT_TOOL];
+  return where;
+}
+
+// بناء شرط التصفية المشترك (تستخدمه القائمة والتصدير) من معاملات الاستعلام — نصوصاً فقط (str)
+function buildLeadWhere(query: Record<string, unknown>): Record<string, unknown> {
+  const {
+    stage, source, countryCode, q, assignedTo, dueOnly, hasEmail, noEmail, hasPhone, noPhone, hasWebsite, emailed, whatsapped, optedOut,
+  } = Object.fromEntries(Object.entries(query).map(([k, v]) => [k, str(v)])) as Record<string, string | undefined>;
   const where: Record<string, unknown> = {};
   if (stage && STAGES.includes(stage as typeof STAGES[number])) where.stage = stage;
   // مستخدمو مولّد الفواتير لهم صفحتهم المستقلة — يُستثنون من قائمة العملاء المحتملين
@@ -35,9 +49,9 @@ function buildLeadWhere(query: Record<string, string>): Record<string, unknown> 
   if (assignedTo) where.assignedTo = assignedTo;
   if (dueOnly === 'true') where.nextFollowUpAt = { lte: new Date() };
   if (hasEmail === 'true') where.email = { not: null };
-  else if (query.noEmail === 'true') where.email = null;
+  else if (noEmail === 'true') where.email = null;
   if (hasPhone === 'true') where.phone = { not: null };
-  else if (query.noPhone === 'true') where.phone = null;
+  else if (noPhone === 'true') where.phone = null;
   if (hasWebsite === 'true') where.website = { not: null };
   // انسحاب واتساب — لعدّ المستهدفين بما يطابق استهداف الإرسال تماماً
   if (optedOut === 'true') where.waOptOut = true;
@@ -93,12 +107,41 @@ const leadUpdateSchema = z.object({
   lastContactedAt: z.string().nullish(),
 });
 
+/**
+ * مرشّح القائمة والتصدير لطلبٍ بعينه: موظف المنصة بلا «عملاء مولد الفواتير» لا يصلهم بتمرير source=invoice-tool —
+ * فصفحتهم صلاحيةٌ مستقلة (invoiceTool.view)، ونصوصهم تحمل أرقامهم الضريبية
+ */
+function leadWhereFor(req: PlatformRequest): Record<string, unknown> {
+  const where = buildLeadWhere(req.query as Record<string, unknown>);
+  if (where.source === 'invoice-tool' && !staffHas(req, 'invoiceTool.view')) where.source = { not: 'invoice-tool' };
+  // والحارس الحقيقي شرطٌ إيجابي لا مقارنةٌ نصية: ?source[equals]=invoice-tool كان يمرّ من المقارنة أعلاه
+  if (!staffHas(req, 'invoiceTool.view')) excludeTool(where);
+  return where;
+}
+
+/**
+ * العميل المحتمل بمعرّفه لهذا الطلب — null إن لم يوجد أو كان من «مولد الفواتير» لموظفٍ بلا صلاحيتهم (كأنه غير موجود ⇒ ٤٠٤).
+ * التفاصيل والتعديل والحذف والمتابعة والتحويل كلها تمرّ منه
+ */
+async function leadFor(req: PlatformRequest, id: string) {
+  const lead = await prisma.lead.findUnique({ where: { id } });
+  if (!lead || (lead.source === 'invoice-tool' && !staffHas(req, 'invoiceTool.view'))) return null;
+  return lead;
+}
+
+const notFound = (res: Response) => { res.status(404).json({ success: false, message: 'العميل المحتمل غير موجود' }); };
+
+/** موظفٌ بلا «عملاء مولد الفواتير» لا يُنشئ صفاً بمصدرهم — يظهر في صفحتهم عند المالك ولا يراه هو ولا يحذفه (leadFor) */
+function sourceFor(req: PlatformRequest, s: string | null | undefined): string | undefined {
+  return s === 'invoice-tool' && !staffHas(req, 'invoiceTool.view') ? undefined : (s ?? undefined);
+}
+
 // ------------------------------- قائمة + فلاتر ------------------------------- //
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const page = Math.max(1, Number(req.query.page) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(req.query.pageSize) || 50));
-    const where = buildLeadWhere(req.query as Record<string, string>);
+    const where = leadWhereFor(req);
 
     const [total, leads] = await Promise.all([
       prisma.lead.count({ where }),
@@ -205,7 +248,8 @@ router.get('/whatsapp-preview', async (req: AuthRequest, res: Response, next: Ne
     const cfg = await getWaConfig();
     const params = (req.query.params ? String(req.query.params).split(',') : cfg.params) as WaParam[];
     const lead = await prisma.lead.findFirst({
-      where: { phone: { not: null }, waOptOut: false, activities: { none: { type: 'WHATSAPP' } } },
+      // عميلٌ حقيقي يُعرض اسمه — لا من «مولد الفواتير» لموظفٍ بلا صلاحيتهم
+      where: { ...(staffHas(req, 'invoiceTool.view') ? {} : NOT_TOOL), phone: { not: null }, waOptOut: false, activities: { none: { type: 'WHATSAPP' } } },
       select: { name: true, city: true, country: true, countryCode: true },
     });
     if (!lead) {
@@ -326,8 +370,10 @@ router.get('/invoice-tool', async (_req: AuthRequest, res: Response, next: NextF
 
 // ------------------------------- غرفة قيادة التسويق — قبل /:id ------------------------------- //
 // يجمع مؤشرات الآلية كاملة: الصيد، البريد (سلسلة اللمسات)، التفاعل (فتح/نقر/إلغاء)، والعملاء الساخنين
-router.get('/marketing-stats', async (_req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/marketing-stats', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    // موظفٌ بلا «عملاء مولد الفواتير» لا يرى أسماءهم وهواتفهم بين الساخنين ولا في توزيع الدول (المالك كما كان)
+    const notTool = staffHas(req, 'invoiceTool.view') ? {} : NOT_TOOL;
     const [huntCfg, emailCfg, communityCfg, opens, clicks, unsubs, emails, hotLeads, engagedByCountry] = await Promise.all([
       getHuntConfig(),
       getEmailConfig(),
@@ -338,12 +384,12 @@ router.get('/marketing-stats', async (_req: AuthRequest, res: Response, next: Ne
       prisma.leadActivity.count({ where: { type: 'EMAIL', createdBy: 'auto-email' } }),
       // الساخنون: نقروا رابطاً ولم يُغلقوا — أولوية التواصل البشري
       prisma.lead.findMany({
-        where: { activities: { some: { type: 'CLICK' } }, stage: { notIn: ['WON', 'LOST'] } },
+        where: { ...notTool, activities: { some: { type: 'CLICK' } }, stage: { notIn: ['WON', 'LOST'] } },
         orderBy: { updatedAt: 'desc' },
         take: 12,
         select: { id: true, name: true, country: true, countryCode: true, city: true, phone: true, email: true, stage: true, score: true, updatedAt: true },
       }),
-      prisma.lead.groupBy({ by: ['countryCode'], where: { activities: { some: { type: { in: ['OPEN', 'CLICK'] } } } }, _count: { _all: true } }),
+      prisma.lead.groupBy({ by: ['countryCode'], where: { ...notTool, activities: { some: { type: { in: ['OPEN', 'CLICK'] } } } }, _count: { _all: true } }),
     ]);
     const openRate = emails > 0 ? Math.round((opens / emails) * 1000) / 10 : 0;
     const clickRate = emails > 0 ? Math.round((clicks / emails) * 1000) / 10 : 0;
@@ -421,6 +467,10 @@ const autoEmailConfigSchema = z.object({
 router.put('/auto-email', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const patch = autoEmailConfigSchema.parse(req.body);
+    // البريد الآلي لا يُوجَّه إلى «عملاء مولد الفواتير» من موظفٍ بلا صلاحيتهم
+    if (patch.source === 'invoice-tool' && !staffHas(req, 'invoiceTool.view')) {
+      res.status(403).json({ success: false, code: 'STAFF_FORBIDDEN', message: 'لا تملك صلاحية عملاء مولد الفواتير' }); return;
+    }
     const cfg = await getEmailConfig();
     const merged = {
       ...cfg, ...patch,
@@ -433,8 +483,9 @@ router.put('/auto-email', async (req: AuthRequest, res: Response, next: NextFunc
   } catch (err) { next(err); }
 });
 
-router.post('/auto-email/run', async (_req: AuthRequest, res: Response, next: NextFunction) => {
-  try { res.json({ success: true, data: await runAutoEmailBatch() }); } catch (err) { next(err); }
+router.post('/auto-email/run', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  // تشغيلٌ بيد موظفٍ بلا «عملاء مولد الفواتير» لا يراسلهم (الإعداد الافتراضي source=null يشمل الجميع)
+  try { res.json({ success: true, data: await runAutoEmailBatch({ excludeTool: !staffHas(req, 'invoiceTool.view') }) }); } catch (err) { next(err); }
 });
 
 // ------------------------------- بحث المجتمعات المستمر — قبل /:id ------------------------------- //
@@ -465,12 +516,11 @@ router.post('/community-hunt/run', async (_req: AuthRequest, res: Response, next
 // ------------------------------- تفاصيل + أنشطة ------------------------------- //
 router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const lead = await prisma.lead.findUnique({
-      where: { id: req.params.id },
-      include: { activities: { orderBy: { createdAt: 'desc' } } },
-    });
-    if (!lead) { res.status(404).json({ success: false, message: 'العميل المحتمل غير موجود' }); return; }
-    res.json({ success: true, data: lead });
+    // مستخدم مولّد الفواتير لموظفٍ بلا صلاحيتهم — كأنه غير موجود (leadFor)
+    const lead = await leadFor(req, req.params.id);
+    if (!lead) { notFound(res); return; }
+    const activities = await prisma.leadActivity.findMany({ where: { leadId: lead.id }, orderBy: { createdAt: 'desc' } });
+    res.json({ success: true, data: { ...lead, activities } });
   } catch (err) {
     next(err);
   }
@@ -481,7 +531,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
   try {
     const body = leadCreateSchema.parse(req.body);
     const lead = await prisma.lead.create({
-      data: { ...body, name: body.name!, source: body.source || 'manual' },
+      data: { ...body, name: body.name!, source: sourceFor(req, body.source) || 'manual' },
     });
     await prisma.leadActivity.create({
       data: { leadId: lead.id, type: 'NOTE', content: 'أنشئ يدويا', createdBy: req.user?.name },
@@ -496,8 +546,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const body = leadUpdateSchema.parse(req.body);
-    const existing = await prisma.lead.findUnique({ where: { id: req.params.id } });
-    if (!existing) { res.status(404).json({ success: false, message: 'العميل المحتمل غير موجود' }); return; }
+    const existing = await leadFor(req, req.params.id);
+    if (!existing) { notFound(res); return; }
 
     const data: Record<string, unknown> = { ...body };
     if (body.nextFollowUpAt !== undefined) data.nextFollowUpAt = body.nextFollowUpAt ? new Date(body.nextFollowUpAt) : null;
@@ -520,6 +570,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 // ------------------------------- حذف ------------------------------- //
 router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    if (!(await leadFor(req, req.params.id))) { notFound(res); return; }
     await prisma.lead.delete({ where: { id: req.params.id } });
     res.json({ success: true });
   } catch (err) {
@@ -536,8 +587,8 @@ const activitySchema = z.object({
 router.post('/:id/activities', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const body = activitySchema.parse(req.body);
-    const lead = await prisma.lead.findUnique({ where: { id: req.params.id } });
-    if (!lead) { res.status(404).json({ success: false, message: 'العميل المحتمل غير موجود' }); return; }
+    const lead = await leadFor(req, req.params.id);
+    if (!lead) { notFound(res); return; }
     const activity = await prisma.leadActivity.create({
       data: { leadId: lead.id, type: body.type, content: body.content, createdBy: req.user?.name },
     });
@@ -558,6 +609,7 @@ router.post('/:id/activities', async (req: AuthRequest, res: Response, next: Nex
 router.post('/:id/convert', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { convertedTenantId } = (req.body || {}) as { convertedTenantId?: string };
+    if (!(await leadFor(req, req.params.id))) { notFound(res); return; }
     const lead = await prisma.lead.update({
       where: { id: req.params.id },
       data: { stage: 'WON', convertedTenantId: convertedTenantId || null },
@@ -717,7 +769,7 @@ router.post('/import', async (req: AuthRequest, res: Response, next: NextFunctio
     let imported = 0;
     for (const l of leads) {
       try {
-        await prisma.lead.create({ data: { ...l, name: l.name!, source: l.source || 'csv', phoneIsMobile: phoneIsMobile(l.phone) } });
+        await prisma.lead.create({ data: { ...l, name: l.name!, source: sourceFor(req, l.source) || 'csv', phoneIsMobile: phoneIsMobile(l.phone) } });
         imported++;
       } catch {
         // تجاهل الصفوف الفاشلة (مكرّر/غير صالح)
@@ -791,6 +843,8 @@ router.post('/email', async (req: AuthRequest, res: Response, next: NextFunction
         ];
       }
     }
+    // موظفٌ بلا «عملاء مولد الفواتير» لا يصلهم بمعرّفاتهم ولا بمرشّح المصدر
+    if (!staffHas(req, 'invoiceTool.view')) excludeTool(where);
 
     const cap = body.limit ?? 50;
     const leads = await prisma.lead.findMany({ where, take: cap });
@@ -890,6 +944,7 @@ router.post('/whatsapp-send', async (req: AuthRequest, res: Response, next: Next
         ];
       }
     }
+    if (!staffHas(req, 'invoiceTool.view')) excludeTool(where);
 
     // الدفعة لا تتجاوز المتبقّي من الحصّة اليومية مهما طُلب
     const cap = Math.min(body.limit ?? cfg.batchSize, remaining);
@@ -974,6 +1029,7 @@ router.post('/enrich', async (req: AuthRequest, res: Response, next: NextFunctio
       if (body.source) where.source = body.source;
       if (body.countryCode) where.countryCode = body.countryCode;
     }
+    if (!staffHas(req, 'invoiceTool.view')) excludeTool(where);
 
     const cap = body.limit ?? 40;
     const leads = await prisma.lead.findMany({ where, take: cap });
@@ -1012,7 +1068,7 @@ router.post('/enrich', async (req: AuthRequest, res: Response, next: NextFunctio
 router.get('/export/csv', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     // يحترم نفس فلاتر القائمة → «تصدير كل تصفية على حدة»
-    const where = buildLeadWhere(req.query as Record<string, string>);
+    const where = leadWhereFor(req);
     const leads = await prisma.lead.findMany({ where, orderBy: { createdAt: 'desc' } });
     const cols = ['name', 'phone', 'email', 'website', 'address', 'city', 'country', 'category', 'stage', 'score', 'source', 'mapsUrl'];
     const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;

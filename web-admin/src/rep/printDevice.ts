@@ -20,13 +20,14 @@ export const printDeviceKey = (id: PrintIdentity): string => `fs_print:${id.tena
 
 /**
  * هوية الجهاز في المساحة الحالية — المندوب (/rep: rep_token/rep_user)، وتطبيق الإدارة (/m: m_token/m_user)، والمالك
- * (sa_*)، واللوحة (token/user). مرآة sessionSpace في store/authStore.ts بلا استيراد المتجر (له آثارٌ عند التحميل)،
+ * (sa_*)، وموظف المنصة (/staff: st_*)، واللوحة (token/user). مرآة sessionSpace في store/authStore.ts بلا استيراد المتجر (له آثارٌ عند التحميل)،
  * والقراءة ممرَّرة فتُختبر وحدها. الغائب «local»: اختيارٌ يبقى للجهاز ولو لم تُعرف الهوية.
  */
 export function printIdentityFrom(pathname: string, read: (key: string) => string | null): PrintIdentity {
   const [tokenKey, userKey] = pathname === '/rep' || pathname.startsWith('/rep/') ? ['rep_token', 'rep_user']
     : pathname === '/m' || pathname.startsWith('/m/') ? ['m_token', 'm_user']
     : pathname.startsWith('/platform') || pathname.startsWith('/owner') ? ['sa_token', 'sa_user']
+    : pathname === '/staff' || pathname.startsWith('/staff/') ? ['st_token', 'st_user']
     : ['token', 'user'];
   let user: { id?: unknown; tenantId?: unknown } | null = null;
   try { user = JSON.parse(read(userKey) || 'null'); } catch { user = null; }

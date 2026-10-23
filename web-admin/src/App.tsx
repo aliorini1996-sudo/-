@@ -57,6 +57,9 @@ const CompanyWarehousePage = lazy(() => import('./pages/CompanyWarehousePage'));
 const DailyReportsPage = lazy(() => import('./pages/DailyReportsPage'));
 const TrackingPage = lazy(() => import('./pages/TrackingPage'));
 const PlatformPage = lazy(() => import('./pages/PlatformPage'));
+// «موظفو المنصة» — دخولهم ولوحتهم (لوحة المالك نفسها بما مُنح لهم)
+const StaffLoginPage = lazy(() => import('./pages/StaffLoginPage'));
+const StaffChangePasswordPage = lazy(() => import('./pages/StaffChangePasswordPage'));
 // النظام المحاسبي المتكامل — كل مسار /app/ledger ملفوف بـLedgerRoute لا PermissionRoute (§8.1)
 const LedgerRoute = lazy(() => import('./components/ledger/LedgerRoute'));
 const LedgerLayout = lazy(() => import('./pages/ledger/LedgerLayout'));
@@ -134,6 +137,17 @@ function SuperAdminRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/**
+ * لوحة موظف المنصة — لوحة المالك نفسها بما منحه المالك (lib/platformAccess.ts)، وبكلمة مرورٍ مؤقتة تُغيَّر أولاً.
+ * الخادم يمنع ما لم يُمنح أياً كان ما تعرضه الواجهة.
+ */
+function StaffRoute({ children }: { children: React.ReactNode }) {
+  const { token, user } = useAuthStore();
+  if (!token || user?.role !== 'PLATFORM_STAFF') return <Navigate to="/staff/login" replace />;
+  if (user.mustChangePassword) return <StaffChangePasswordPage />;
+  return <>{children}</>;
+}
+
 function PermissionRoute({ permission, children }: { permission: keyof NonNullable<ReturnType<typeof useAuthStore.getState>['user']>; children: React.ReactNode }) {
   const { user } = useAuthStore();
   if (user?.[permission] === false) {
@@ -175,7 +189,7 @@ function LocaleSync() {
 function VisitTracker() {
   const { pathname } = useLocation();
   useEffect(() => {
-    if (/^\/(app|platform|owner|login|verify-email|activate|rep|m|q-fs7k2m|hx|c|pay|e|ax)(\/|$)/.test(pathname)) return;
+    if (/^\/(app|platform|owner|staff|login|verify-email|activate|rep|m|q-fs7k2m|hx|c|pay|e|ax)(\/|$)/.test(pathname)) return;
     // نُرفق طبقة الإسناد (هوية مجهولة + جلسة + وسوم + أول لمسة) — وعند رفض التتبّع تُرسل {optOut:true} وحده
     analyticsApi.track({
       path: pathname,
@@ -209,7 +223,7 @@ function AdsTagLoader() {
 function ReferralCapture() {
   const { pathname, search } = useLocation();
   useEffect(() => {
-    if (/^\/(app|platform|owner|login|verify-email|activate|rep|m|ax|hx)(\/|$)/.test(pathname)) return;
+    if (/^\/(app|platform|owner|staff|login|verify-email|activate|rep|m|ax|hx)(\/|$)/.test(pathname)) return;
     captureRefFromUrl(search);
     // readRef يحذف الرمز المنتهي (٣٦٥ يوماً) — وإلا بقي في متصفّح من لم يصل /signup أبداً
     readRef();
@@ -323,6 +337,8 @@ export default function App() {
         <Route path="/fr/blog" element={<BlogIndexPage />} />
         <Route path="/fr/blog/:slug" element={<BlogPostPage />} />
         <Route path="/platform" element={<SuperAdminRoute><PlatformPage /></SuperAdminRoute>} />
+        <Route path="/staff/login" element={<StaffLoginPage />} />
+        <Route path="/staff" element={<StaffRoute><PlatformPage /></StaffRoute>} />
         {/* لوحة الأدمن على /app */}
         <Route path="/app" element={
           <ProtectedRoute>

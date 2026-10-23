@@ -76,7 +76,7 @@ test('App.tsx: الالتقاط يعمل على الصفحات العامة وا
   assert.ok(re);
   const skip = new RegExp(re![1].slice(1, -1));
   for (const p of ['/', '/pricing', '/signup', '/blog/x', '/en', '/free/van']) assert.equal(skip.test(p), false, `${p} يجب أن يُلتقط فيه`);
-  for (const p of ['/ax', '/app', '/platform', '/rep', '/m', '/hx']) assert.equal(skip.test(p), true, `${p} يجب ألا يُلتقط فيه`);
+  for (const p of ['/ax', '/app', '/platform', '/staff', '/staff/login', '/rep', '/m', '/hx']) assert.equal(skip.test(p), true, `${p} يجب ألا يُلتقط فيه`);
   assert.match(s, /<ReferralCapture \/>/, 'المكوّن غير مركّب');
 });
 

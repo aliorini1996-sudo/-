@@ -4,6 +4,7 @@ import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId, actorOf, isOwnerSession } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { generateApiKey, forgetLiveKey, API_KEY_RATE_PER_MINUTE } from '../services/apiKeys';
+import { noStaffCredentials } from '../services/platformAccess';
 
 /**
  * إدارة مفاتيح «الربط البرمجي API» للشركة — إصدارٌ وقائمةٌ وإلغاء (services/apiKeys.ts).
@@ -77,7 +78,8 @@ const createSchema = z.object({
   readOnly: z.boolean().optional(),
 });
 
-router.post('/', requireApiEnabled, async (req: AuthRequest, res: Response, next: NextFunction) => {
+// جلسة «دخول» موظف المنصة لا تُصدر مفتاحاً: بلا انتهاء، ولا يسأل authenticateApiKey عن مُصدِره — يبقى بعد تعطيله
+router.post('/', requireApiEnabled, noStaffCredentials, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
     const body = createSchema.parse(req.body);

@@ -145,8 +145,9 @@ test('نافذة الرقم المؤقّت: مستقبلٌ بدقيقتين لا
 test('التركيب: التسجيل خلف محدّد المعدّل، والسجلّ والحذف للمالك وحده، وتصادمٌ فريد يُفحص بالمعرّف أولاً', () => {
   const src = readFileSync(path.join(__dirname, '../routes/quotes.ts'), 'utf8');
   assert.match(src, /router\.post\('\/', quoteLimiter,/);
-  assert.match(src, /router\.get\('\/admin', authenticate, requireSuperAdmin,/);
-  assert.match(src, /router\.delete\('\/admin\/:id', authenticate, requireSuperAdmin,/);
+  // حارس لوحة المالك: المالك، والموظف بصلاحيتي «عروض الأسعار» (services/platformAccess.ts)
+  assert.match(src, /router\.get\('\/admin', platformGate,/);
+  assert.match(src, /router\.delete\('\/admin\/:id', platformGate,/);
   assert.equal((src.match(/router\.(get|post|put|patch|delete)\(/g) || []).length, 3, 'مسارٌ إضافيّ قد يكشف السجلّ');
   // بعد أيّ P2002 يُبحث بالمعرّف قبل تمييز الرقم بلاحقة (Postgres قد يُبلغ عن فهرس الرقم أولاً)
   const createCatch = src.slice(src.indexOf('if (!isP2002(e)) throw e;'));

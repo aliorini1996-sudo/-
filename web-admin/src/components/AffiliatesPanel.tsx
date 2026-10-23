@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import api from '../api/client';
 import { backdropClose } from '../lib/backdropClose';
+import { usePlatformAccess } from '../lib/platformAccess';
 import { formatDate, formatDateTime, formatDayOnly } from '../utils/format';
 import * as L from './affiliatesPanelLogic';
 
@@ -494,6 +495,9 @@ const TABS: Array<{ key: TabKey; label: string; icon: React.ElementType }> = [
 ];
 
 export default function AffiliatesPanel({ onClose }: { onClose: () => void }) {
+  // موظف المنصة: العرض affiliates.view (به تُفتح النافذة)؛ و«التصحيحات» نموذج قيدٍ وحده فمفتاحه affiliates.payouts
+  const { can } = usePlatformAccess();
+  const tabs = TABS.filter((t) => t.key !== 'adjustments' || can('affiliates.payouts'));
   const [tab, setTab] = useState<TabKey>('overview');
   const [filters, setFilters] = useState<Record<FilterTab, string>>({
     affiliates: '', claims: '', attributions: '', commissions: '', payouts: '',
@@ -529,7 +533,7 @@ export default function AffiliatesPanel({ onClose }: { onClose: () => void }) {
 
         <div className="px-3 sm:px-5 pt-3 border-b border-[#E7DECD] overflow-x-auto">
           <div className="flex gap-1 min-w-max">
-            {TABS.map(({ key, label, icon: Icon }) => {
+            {tabs.map(({ key, label, icon: Icon }) => {
               const n = badge[key] ?? 0;
               return (
                 <button
@@ -553,7 +557,7 @@ export default function AffiliatesPanel({ onClose }: { onClose: () => void }) {
           {tab === 'attributions' && <AttributionsTab status={filters.attributions} setStatus={setFilter('attributions')} />}
           {tab === 'commissions' && <CommissionsTab status={filters.commissions} setStatus={setFilter('commissions')} />}
           {tab === 'payouts' && <PayoutsTab status={filters.payouts} setStatus={setFilter('payouts')} />}
-          {tab === 'adjustments' && <AdjustmentsTab />}
+          {tab === 'adjustments' && can('affiliates.payouts') && <AdjustmentsTab />}
           {tab === 'settings' && <SettingsTab />}
         </div>
       </div>
@@ -631,7 +635,10 @@ function Row({ k, v, danger }: { k: string; v: ReactNode; danger?: boolean }) {
 // ─── ٢) المسوّقون ──────────────────────────────────────────────────────────
 
 function AffiliateActions({ a, actions }: { a: { id: string; fullName: string; status: L.UserStatus }; actions: Actions }) {
+  // القبول والرفض والإيقاف وإعادة التفعيل: affiliates.manage
+  const canManage = usePlatformAccess().can('affiliates.manage');
   const list = L.USER_ACTIONS[a.status] ?? [];
+  if (!canManage) return null;
   if (list.length === 0) return <span className="text-[11px] text-gray-400">—</span>;
   const k = (x: string) => `aff:${x}:${a.id}`;
   return (
@@ -770,6 +777,7 @@ function MiniList({ empty, children }: { empty: boolean; children: ReactNode }) 
 }
 
 function AffiliateDrawer({ id, actions, onClose }: { id: string; actions: Actions; onClose: () => void }) {
+  const canIban = usePlatformAccess().can('affiliates.iban');
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: [KEY, 'affiliate', id], queryFn: () => affApi.affiliate(id) });
   const a = data?.affiliate;
 
@@ -813,7 +821,7 @@ function AffiliateDrawer({ id, actions, onClose }: { id: string; actions: Action
                       <Row k="الآيبان" v={<span className="font-mono" dir="ltr">•••• {a.payout.ibanLast4}</span>} />
                       <Row k="حُدّث" v={day(a.payout.updatedAt)} />
                     </div>
-                    <RevealIban affiliateId={a.id} />
+                    {canIban && <RevealIban affiliateId={a.id} />}
                   </div>
                 ) : <p className="text-[12px] text-gray-400">لم يُدخل آيبان — يُطلب منه بعد أول عمولة معتمدة.</p>}
               </DrawerSection>
@@ -923,6 +931,8 @@ function AffiliateDrawer({ id, actions, onClose }: { id: string; actions: Action
 // ─── ٣) الترشيحات ──────────────────────────────────────────────────────────
 
 function ClaimsTab({ status, setStatus }: { status: string; setStatus: (v: string) => void }) {
+  // اعتماد الترشيح ورفضه وربطه بشركة: affiliates.manage
+  const canManage = usePlatformAccess().can('affiliates.manage');
   const actions = useActions();
   const [linkFor, setLinkFor] = useState<L.ClaimRow | null>(null);
   const [tenant, setTenant] = useState<L.TenantHit | null>(null);
@@ -959,7 +969,7 @@ function ClaimsTab({ status, setStatus }: { status: string; setStatus: (v: strin
         <div className="space-y-2.5">
           {data.map((c) => {
             const can = L.claimActions(c);
-            const canLink = can.link;
+            const canLink = canManage && can.link;
             return (
               <article key={c.id} className="rounded-xl border border-[#E7DECD] bg-white p-3.5">
                 <div className="flex flex-wrap items-start gap-3">
@@ -992,7 +1002,7 @@ function ClaimsTab({ status, setStatus }: { status: string; setStatus: (v: strin
                       <p className="text-[12px] text-green-700 mt-1 flex items-center gap-1"><Building2 className="w-3.5 h-3.5" /> مرتبط بـ {c.tenantName ?? c.tenantId}</p>
                     )}
                   </div>
-                  <div className="flex flex-wrap gap-1">
+                  {canManage && <div className="flex flex-wrap gap-1">
                     {can.approve && (
                       <ActionBtn tone="good" icon={CheckCircle2} disabled={actions.busy === `claim:approve:${c.id}`}
                         onClick={() => actions.run(`claim:approve:${c.id}`, () => affApi.approveClaim(c.id),
@@ -1016,7 +1026,7 @@ function ClaimsTab({ status, setStatus }: { status: string; setStatus: (v: strin
                     {canLink && (
                       <ActionBtn tone="brand" icon={Link2} onClick={() => { setTenant(null); setLinkFor(c); }}>ربط بشركة</ActionBtn>
                     )}
-                  </div>
+                  </div>}
                 </div>
 
                 {(c.conflicts.length > 0 || c.suggestions.length > 0) && (
@@ -1062,7 +1072,7 @@ function ClaimsTab({ status, setStatus }: { status: string; setStatus: (v: strin
         </div>
       )}
 
-      {linkFor && (
+      {linkFor && canManage && (
         <div className="fixed inset-0 z-[70] bg-black/40 flex items-center justify-center p-4" dir="rtl" {...backdropClose(() => setLinkFor(null))}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
             <div className="px-5 pt-5">
@@ -1301,6 +1311,8 @@ function WindowDialog({ row, actions, onClose }: { row: L.AttributionRow; action
 }
 
 function AttributionsTab({ status, setStatus }: { status: string; setStatus: (v: string) => void }) {
+  // الإسناد اليدوي والتفعيل والإبطال وإعادة الإسناد وتعديل البداية: affiliates.manage
+  const canManage = usePlatformAccess().can('affiliates.manage');
   const actions = useActions();
   const [showForm, setShowForm] = useState(false);
   const [reassignFor, setReassignFor] = useState<L.AttributionRow | null>(null);
@@ -1314,15 +1326,15 @@ function AttributionsTab({ status, setStatus }: { status: string; setStatus: (v:
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2 justify-between">
         <StatusFilter values={L.ATTRIBUTION_STATUSES} map={L.ATTRIBUTION_STATUS_LABEL} value={status} onChange={setStatus} />
-        {!showForm && <button onClick={() => setShowForm(true)} className="btn-primary"><Plus className="w-4 h-4" /> إسناد يدوي</button>}
+        {!showForm && canManage && <button onClick={() => setShowForm(true)} className="btn-primary"><Plus className="w-4 h-4" /> إسناد يدوي</button>}
       </div>
-      {showForm && <ManualAttributionForm actions={actions} onDone={() => setShowForm(false)} />}
+      {showForm && canManage && <ManualAttributionForm actions={actions} onDone={() => setShowForm(false)} />}
 
       {isLoading ? <Loading /> : isError ? <Failed onRetry={() => refetch()} /> : !data || data.length === 0 ? (
         <Empty>لا إسنادات{status ? ` بحالة «${L.labelOf(L.ATTRIBUTION_STATUS_LABEL, status)}»` : ''}</Empty>
       ) : (
         <Table head={<>
-          <Th>الشركة</Th><Th>السفير</Th><Th>المصدر</Th><Th>الحالة والإشارات</Th><Th>المدّة</Th><Th>العمولة</Th><Th>إجراءات</Th>
+          <Th>الشركة</Th><Th>السفير</Th><Th>المصدر</Th><Th>الحالة والإشارات</Th><Th>المدّة</Th><Th>العمولة</Th>{canManage && <Th>إجراءات</Th>}
         </>}>
           {data.map((t) => {
             const list = L.attributionActions(t);
@@ -1360,7 +1372,7 @@ function AttributionsTab({ status, setStatus }: { status: string; setStatus: (v:
                     </>
                   ) : <span className="text-[11px] text-gray-400">لم تدفع بعد</span>}
                 </Td>
-                <Td>
+                {canManage && <Td>
                   <div className="flex flex-wrap gap-1">
                     {list.includes('activate') && (
                       <ActionBtn tone="good" icon={PlayCircle}
@@ -1390,14 +1402,14 @@ function AttributionsTab({ status, setStatus }: { status: string; setStatus: (v:
                       <ActionBtn icon={CalendarClock} onClick={() => setWindowFor(t)} title="متاح لإسنادٍ بلا عمولة">تعديل بداية الإسناد</ActionBtn>
                     )}
                   </div>
-                </Td>
+                </Td>}
               </tr>
             );
           })}
         </Table>
       )}
-      {reassignFor && <ReassignDialog row={reassignFor} actions={actions} onClose={() => setReassignFor(null)} />}
-      {windowFor && <WindowDialog row={windowFor} actions={actions} onClose={() => setWindowFor(null)} />}
+      {reassignFor && canManage && <ReassignDialog row={reassignFor} actions={actions} onClose={() => setReassignFor(null)} />}
+      {windowFor && canManage && <WindowDialog row={windowFor} actions={actions} onClose={() => setWindowFor(null)} />}
       {actions.dialog}
     </div>
   );
@@ -1406,6 +1418,8 @@ function AttributionsTab({ status, setStatus }: { status: string; setStatus: (v:
 // ─── ٥) العمولات ───────────────────────────────────────────────────────────
 
 function CommissionsTab({ status, setStatus }: { status: string; setStatus: (v: string) => void }) {
+  // اعتماد العمولة وإيقافها وتحريرها ورفضها: affiliates.payouts
+  const canPayouts = usePlatformAccess().can('affiliates.payouts');
   const actions = useActions();
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: [KEY, 'commissions', status],
@@ -1424,7 +1438,7 @@ function CommissionsTab({ status, setStatus }: { status: string; setStatus: (v: 
         <Empty>لا عمولات{status ? ` بحالة «${L.labelOf(L.COMMISSION_STATUS_LABEL, status)}»` : ''}</Empty>
       ) : (
         <Table head={<>
-          <Th>الشركة</Th><Th>السفير</Th><Th>الدفعة (شامل الضريبة)</Th><Th>النسبة</Th><Th>العمولة</Th><Th>التواريخ</Th><Th>الحالة</Th><Th>رابط الدفع</Th><Th>إجراءات</Th>
+          <Th>الشركة</Th><Th>السفير</Th><Th>الدفعة (شامل الضريبة)</Th><Th>النسبة</Th><Th>العمولة</Th><Th>التواريخ</Th><Th>الحالة</Th><Th>رابط الدفع</Th>{canPayouts && <Th>إجراءات</Th>}
         </>}>
           {data.map((c) => {
             const list = L.COMMISSION_ACTIONS[c.status] ?? [];
@@ -1461,7 +1475,7 @@ function CommissionsTab({ status, setStatus }: { status: string; setStatus: (v: 
                     </span>
                   )}
                 </Td>
-                <Td>
+                {canPayouts && <Td>
                   <div className="flex flex-wrap gap-1">
                     {list.includes('approve') && (
                       <ActionBtn tone="good" icon={CheckCircle2}
@@ -1499,7 +1513,7 @@ function CommissionsTab({ status, setStatus }: { status: string; setStatus: (v: 
                     )}
                     {list.length === 0 && <span className="text-[11px] text-gray-400">—</span>}
                   </div>
-                </Td>
+                </Td>}
               </tr>
             );
           })}
@@ -1565,6 +1579,10 @@ function RecordPayoutDialog({ payout, actions, onClose }: { payout: L.PayoutRow;
 }
 
 function PayoutsTab({ status, setStatus }: { status: string; setStatus: (v: string) => void }) {
+  // إنشاء الدفعة وتسجيل تحويلها وإلغاؤها: affiliates.payouts — الآيبان الكامل: affiliates.iban
+  const access = usePlatformAccess();
+  const canPayouts = access.can('affiliates.payouts');
+  const canIban = access.can('affiliates.iban');
   const actions = useActions();
   const [recordFor, setRecordFor] = useState<L.PayoutRow | null>(null);
   const [revealFor, setRevealFor] = useState<string | null>(null);
@@ -1590,7 +1608,7 @@ function PayoutsTab({ status, setStatus }: { status: string; setStatus: (v: stri
           <Empty>لا مستحقّات معتمدة غير مصروفة</Empty>
         ) : (
           <Table head={<>
-            <Th>السفير</Th><Th>العمولات</Th><Th>التصحيحات</Th><Th>الصافي</Th><Th>الآيبان</Th><Th>الأهلية</Th><Th></Th>
+            <Th>السفير</Th><Th>العمولات</Th><Th>التصحيحات</Th><Th>الصافي</Th><Th>الآيبان</Th><Th>الأهلية</Th>{canPayouts && <Th></Th>}
           </>}>
             {cand.data.map((c) => {
               const blocker = L.candidateBlocker(c, settings?.minPayoutHalalas);
@@ -1612,13 +1630,13 @@ function PayoutsTab({ status, setStatus }: { status: string; setStatus: (v: stri
                     {c.hasPayout ? <>{c.holderName} <span className="font-mono" dir="ltr">•••• {c.ibanLast4}</span></> : <span className="text-red-600">بلا آيبان</span>}
                   </Td>
                   <Td>{can ? <Chip tone="green">مؤهّل</Chip> : <Chip tone="amber">{blocker ?? 'غير مؤهّل'}</Chip>}</Td>
-                  <Td>
+                  {canPayouts && <Td>
                     <ActionBtn tone="brand" icon={Plus} disabled={!can || actions.busy === key}
                       onClick={() => actions.run(key, () => affApi.createPayout(c.affiliate.id),
                         (p) => `أُنشئت مسودّة دفعة ${L.formatHalalas(p.netHalalas)} — حوّلها من بنكك ثم سجّل المرجع`)}>
                       إنشاء دفعة
                     </ActionBtn>
-                  </Td>
+                  </Td>}
                 </tr>
               );
             })}
@@ -1635,7 +1653,7 @@ function PayoutsTab({ status, setStatus }: { status: string; setStatus: (v: stri
           <Empty>لا دفعات{status ? ` بحالة «${L.labelOf(L.PAYOUT_STATUS_LABEL, status)}»` : ''}</Empty>
         ) : (
           <Table head={<>
-            <Th>السفير</Th><Th>المكوّنات</Th><Th>الصافي</Th><Th>المستفيد</Th><Th>الحالة</Th><Th>التحويل</Th><Th>إجراءات</Th>
+            <Th>السفير</Th><Th>المكوّنات</Th><Th>الصافي</Th><Th>المستفيد</Th><Th>الحالة</Th><Th>التحويل</Th>{canPayouts && <Th>إجراءات</Th>}
           </>}>
             {pays.data.map((p) => (
               <tr key={p.id}>
@@ -1648,7 +1666,7 @@ function PayoutsTab({ status, setStatus }: { status: string; setStatus: (v: stri
                 <Td className="text-[11.5px]">
                   <p>{p.holderName}</p>
                   <p className="font-mono" dir="ltr">•••• {p.ibanLast4}</p>
-                  {p.status === 'draft' && (
+                  {p.status === 'draft' && canIban && (
                     <div className="mt-1">
                       {revealFor === p.id ? <RevealIban affiliateId={p.affiliate.id} /> : (
                         <button onClick={() => setRevealFor(p.id)} className="text-[11px] text-amber-800 hover:underline inline-flex items-center gap-1"><Lock className="w-3 h-3" /> الآيبان الكامل للتحويل</button>
@@ -1664,7 +1682,7 @@ function PayoutsTab({ status, setStatus }: { status: string; setStatus: (v: stri
                   {p.bankReference ? <p className="font-mono" dir="ltr">{p.bankReference}</p> : <p className="text-gray-400">—</p>}
                   {p.transferredAt && <p className="text-[#9A8F7E]">{dayOnly(p.transferredAt)}</p>}
                 </Td>
-                <Td>
+                {canPayouts && <Td>
                   {p.status === 'draft' ? (
                     <div className="flex flex-wrap gap-1">
                       <ActionBtn tone="good" icon={CheckCircle2} onClick={() => setRecordFor(p)}>تسجيل التحويل</ActionBtn>
@@ -1678,14 +1696,14 @@ function PayoutsTab({ status, setStatus }: { status: string; setStatus: (v: stri
                       </ActionBtn>
                     </div>
                   ) : <span className="text-[11px] text-gray-400">—</span>}
-                </Td>
+                </Td>}
               </tr>
             ))}
           </Table>
         )}
       </section>
 
-      {recordFor && <RecordPayoutDialog payout={recordFor} actions={actions} onClose={() => setRecordFor(null)} />}
+      {recordFor && canPayouts && <RecordPayoutDialog payout={recordFor} actions={actions} onClose={() => setRecordFor(null)} />}
       {actions.dialog}
     </div>
   );
@@ -1754,7 +1772,7 @@ function AdjustmentsTab() {
 
 // ─── ٨) الإعدادات والشروط ──────────────────────────────────────────────────
 
-function SettingsForm({ s, actions }: { s: L.AffiliateSettings; actions: Actions }) {
+function SettingsForm({ s, actions, readOnly = false }: { s: L.AffiliateSettings; actions: Actions; readOnly?: boolean }) {
   // مسودّة ما يقبله PUT /settings وحده. إعادة جلب الإعدادات (بعد نشر شروط مثلاً) لا تُعيد
   // تركيب النموذج: النظيف يتبنّى القيم الجديدة، والمعدَّل يبقى وتظهر «لديك تعديلات غير محفوظة».
   const server = L.settingsDraftOf(s);
@@ -1788,14 +1806,14 @@ function SettingsForm({ s, actions }: { s: L.AffiliateSettings; actions: Actions
         {s.updatedAt && <span className="text-[11px] text-[#9A8F7E]">آخر تعديل {formatDateTime(s.updatedAt)}</span>}
       </div>
 
-      <label className="flex items-center justify-between gap-3 rounded-lg bg-[#FAF7F0] px-3 py-2.5 cursor-pointer">
+      <label className={`flex items-center justify-between gap-3 rounded-lg bg-[#FAF7F0] px-3 py-2.5 ${readOnly ? '' : 'cursor-pointer'}`}>
         <div>
           <p className="text-[13px] font-bold text-[#1F1A13]">استقبال طلبات انضمام جديدة</p>
           <p className="text-[11px] text-[#6E6557]">عند الإغلاق يرفض التسجيل في البوابة، ويبقى السفراء الحاليون كما هم.</p>
         </div>
         <button
-          type="button" role="switch" aria-checked={draft.intakeOpen} onClick={() => setDraft((d) => ({ ...d, intakeOpen: !d.intakeOpen }))}
-          className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${draft.intakeOpen ? 'bg-[#1E7A52]' : 'bg-gray-300'}`}
+          type="button" role="switch" aria-checked={draft.intakeOpen} disabled={readOnly} onClick={() => setDraft((d) => ({ ...d, intakeOpen: !d.intakeOpen }))}
+          className={`relative w-11 h-6 rounded-full transition-colors shrink-0 disabled:opacity-60 ${draft.intakeOpen ? 'bg-[#1E7A52]' : 'bg-gray-300'}`}
         >
           <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${draft.intakeOpen ? 'right-0.5' : 'right-[22px]'}`} />
         </button>
@@ -1804,7 +1822,7 @@ function SettingsForm({ s, actions }: { s: L.AffiliateSettings; actions: Actions
       <div>
         <label className="block text-[12px] font-bold text-[#1F1A13] mb-1">نصّ الإفصاح (يلتزم به السفير في النشر)</label>
         <textarea
-          rows={2} maxLength={L.DISCLOSURE_MAX} className="input w-full resize-none" value={draft.disclosureText}
+          rows={2} maxLength={L.DISCLOSURE_MAX} className="input w-full resize-none" value={draft.disclosureText} readOnly={readOnly}
           onChange={(e) => setDraft((d) => ({ ...d, disclosureText: e.target.value }))}
         />
         <p className="text-[10.5px] text-[#9A8F7E] mt-0.5 tabular-nums">{draft.disclosureText.trim().length} حرفاً (من {L.DISCLOSURE_MIN} إلى {L.DISCLOSURE_MAX})</p>
@@ -1825,13 +1843,16 @@ function SettingsForm({ s, actions }: { s: L.AffiliateSettings; actions: Actions
         <p className="text-[11px] text-[#6E6557] mt-2">هذه القيم جزء من الشروط — تتغيّر بنشر إصدار جديد</p>
       </div>
 
-      {dirty && <p className="text-[12px] text-amber-800 font-semibold">لديك تعديلات غير محفوظة</p>}
-      {error && <p className="text-[12px] text-red-600">{error}</p>}
-      <div className="flex justify-end">
-        <button onClick={save} disabled={actions.busy === 'settings:save'} className="btn-primary disabled:opacity-50">
-          <CheckCircle2 className="w-4 h-4" /> {actions.busy === 'settings:save' ? 'يحفظ…' : 'حفظ الإعدادات'}
-        </button>
-      </div>
+      {/* الحفظ PUT /settings: affiliates.manage — بدونه يُعرض النموذج قراءةً */}
+      {!readOnly && <>
+        {dirty && <p className="text-[12px] text-amber-800 font-semibold">لديك تعديلات غير محفوظة</p>}
+        {error && <p className="text-[12px] text-red-600">{error}</p>}
+        <div className="flex justify-end">
+          <button onClick={save} disabled={actions.busy === 'settings:save'} className="btn-primary disabled:opacity-50">
+            <CheckCircle2 className="w-4 h-4" /> {actions.busy === 'settings:save' ? 'يحفظ…' : 'حفظ الإعدادات'}
+          </button>
+        </div>
+      </>}
     </section>
   );
 }
@@ -1862,7 +1883,7 @@ function RuleInputsGrid({ inputs, onChange }: { inputs: L.RuleInputs; onChange: 
   );
 }
 
-function TermsSection({ settings, actions }: { settings?: L.AffiliateSettings; actions: Actions }) {
+function TermsSection({ settings, actions, readOnly = false }: { settings?: L.AffiliateSettings; actions: Actions; readOnly?: boolean }) {
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: [KEY, 'terms'], queryFn: affApi.terms });
   const [open, setOpen] = useState<string | null>(null);
   const [version, setVersion] = useState('');
@@ -1943,7 +1964,8 @@ function TermsSection({ settings, actions }: { settings?: L.AffiliateSettings; a
         </ul>
       )}
 
-      <div className="rounded-lg border border-dashed border-[#DED5C4] p-3 space-y-2">
+      {/* نشر إصدار POST /terms: affiliates.manage */}
+      {!readOnly && <div className="rounded-lg border border-dashed border-[#DED5C4] p-3 space-y-2">
         <p className="text-[12.5px] font-bold text-[#1F1A13]">نشر إصدار جديد</p>
         <input className="input w-full" dir="ltr" maxLength={40} value={version} onChange={(e) => setVersion(e.target.value)} placeholder="2026-10-v2" />
         <textarea rows={8} className="input w-full" value={body} onChange={(e) => setBody(e.target.value)} placeholder="نصّ الشروط كاملاً — نصّ عادي، الأسطر تُحفظ كما هي" />
@@ -1961,12 +1983,13 @@ function TermsSection({ settings, actions }: { settings?: L.AffiliateSettings; a
           <button onClick={publish} className="btn-primary"><FileSearch className="w-4 h-4" /> نشر</button>
         </div>
         {error && <p className="text-[12px] text-red-600">{error}</p>}
-      </div>
+      </div>}
     </section>
   );
 }
 
 function SettingsTab() {
+  const readOnly = !usePlatformAccess().can('affiliates.manage');
   const actions = useActions();
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: [KEY, 'settings'], queryFn: affApi.settings });
 
@@ -1986,9 +2009,9 @@ function SettingsTab() {
 
       {isLoading ? <Loading /> : isError || !data ? <Failed onRetry={() => refetch()} /> : (
         // بلا key: إعادة الجلب لا تُعيد تركيب النموذج فتمحو تعديلاً غير محفوظ
-        <SettingsForm s={data} actions={actions} />
+        <SettingsForm s={data} actions={actions} readOnly={readOnly} />
       )}
-      <TermsSection settings={data} actions={actions} />
+      <TermsSection settings={data} actions={actions} readOnly={readOnly} />
       {actions.dialog}
     </div>
   );

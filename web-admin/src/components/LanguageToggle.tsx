@@ -14,7 +14,7 @@ const LANGS: { code: Lang; label: string }[] = [
 ];
 
 // مبدّل اللغة الخماسي (عربي/English/Français/Türkçe/中文) على كل الصفحات:
-// - داخل التطبيق (/app · /rep · /platform · /login · /signup): يضبط اللغة مباشرةً بلا تنقّل.
+// - داخل التطبيق (/app · /rep · /platform · /staff · /login · /signup — i18n/lang.ts: isAppRoute): يضبط اللغة مباشرةً بلا تنقّل.
 // - على صفحات التسويق: ينتقل بين المسارات (/ · /en · /fr · /tr · /zh) — روابط منفصلة للفهرسة الدولية (hreflang).
 export default function LanguageToggle({ variant = 'light' }: { variant?: 'light' | 'dark' | 'floating' }) {
   const lang = useLang((s) => s.lang);

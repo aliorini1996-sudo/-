@@ -10,11 +10,12 @@
  */
 
 import { Router, Response, NextFunction } from 'express';
-import { authenticate, requireSuperAdmin } from '../middleware/auth';
+import { platformGate } from '../services/platformAccess';
 import { AuthRequest } from '../types';
 
 const router = Router();
-router.use(authenticate, requireSuperAdmin);
+// مالك المنصة وموظفوها بصلاحياتهم (services/platformAccess.ts: platformGate — ما لا قاعدة له للمالك وحده)
+router.use(platformGate);
 
 const BOT_URL = (process.env.WA_BOT_URL || 'https://wa-sales-bot.onrender.com').replace(/\/+$/, '');
 const TOKEN = (process.env.WA_SWEEP_TOKEN || '').trim();

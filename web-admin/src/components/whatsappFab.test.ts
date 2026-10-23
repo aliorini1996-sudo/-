@@ -11,7 +11,7 @@ import WhatsAppFab, { refFromPath } from './WhatsAppFab';
  * ويؤكّدان تطابق التعبيرات حرفياً، فأي تعديل هناك بلا تعديل هنا يُفشل الاختبار بدل
  * أن يمرّ صامتاً. وسلوك المكوّن نفسه يُختبر برسمه فعلاً (renderToStaticMarkup).
  */
-const HIDDEN_ON = /^\/(app|platform|owner|login|verify-email|activate|rep|m|q-fs7k2m|hx|c|pay|e|ax)(\/|$)/;
+const HIDDEN_ON = /^\/(app|platform|owner|staff|login|verify-email|activate|rep|m|q-fs7k2m|hx|c|pay|e|ax)(\/|$)/;
 const shows = (p: string) => !HIDDEN_ON.test(p);
 
 /** كل المسارات التسويقية المسجَّلة في App.tsx — الزرّ إلزامي على كلّها */
@@ -42,6 +42,8 @@ const OUR_CUSTOMERS = ['/payment/success', '/payment/success/'];
 const APP = [
   '/app', '/app/customers', '/app/invoices', '/app/settings',
   '/platform', '/platform/leads', '/owner', '/login', '/verify-email', '/activate', '/activate/',
+  // لوحة موظفي المنصة ودخولها — بوابة خاصة كلوحة المالك
+  '/staff', '/staff/', '/staff/login',
   '/rep', '/rep/', '/ax', '/ax/', '/q-fs7k2m',
   '/hx', '/hx/', '/c/tenant1/rep1', '/c/tenant1/rep1/', '/pay/tok123', '/pay/tok123/',
 ];
@@ -78,6 +80,7 @@ test('البادئات المتشابهة لا تُخطئ', () => {
   assert.equal(shows('/payments-guide'), true); // ليست /pay
   assert.equal(shows('/payment/success'), true); // `pay` بحدّ نهاية لا يبتلع `/payment`
   assert.equal(shows('/hookb'), true);          // ليست /hx
+  assert.equal(shows('/staffing'), true);       // ليست /staff
 });
 
 test('الاستعلام والشرطة الختامية لا يكسران القاعدة', () => {
@@ -171,7 +174,7 @@ function renderAt(path: string): { html: string; store: Map<string, string> } {
 }
 
 test('الرسم: لا زرّ ولا fs_anon في البوابات الخاصة وصفحات عملاء عملائنا', () => {
-  for (const p of ['/hx', '/c/tenant1/rep1', '/pay/tok123', '/app', '/ax']) {
+  for (const p of ['/hx', '/c/tenant1/rep1', '/pay/tok123', '/app', '/ax', '/staff/login']) {
     const { html, store } = renderAt(p);
     assert.equal(html, '', `الزرّ ظهر على ${p}`);
     assert.equal(store.has('fs_anon'), false, `أُنشئ fs_anon على ${p}`);

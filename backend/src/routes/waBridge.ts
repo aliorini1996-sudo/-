@@ -12,7 +12,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { authenticate, requireSuperAdmin } from '../middleware/auth';
+import { platformGate, staffHas } from '../services/platformAccess';
 import { AuthRequest } from '../types';
 import { waNumber } from '../services/whatsapp';
 import { handleInboundMessage } from '../services/waInbound';
@@ -247,7 +247,13 @@ router.post('/inbound', requireBridge, async (req: Request, res: Response, next:
 
 // ============================ 2) نقاط المالك ============================ //
 
-router.use(authenticate, requireSuperAdmin);
+// مالك المنصة وموظفوها بصلاحياتهم (services/platformAccess.ts: platformGate — ما لا قاعدة له للمالك وحده)
+router.use(platformGate);
+
+/** «عملاء مولد الفواتير» صلاحيةٌ مستقلة: لموظفٍ بلا invoiceTool.view صفوفُهم كأنها غير موجودة (المالك يراها) */
+const toolHidden = (req: AuthRequest, source: string | null | undefined): boolean =>
+  source === 'invoice-tool' && !staffHas(req, 'invoiceTool.view');
+const notFound = (res: Response) => { res.status(404).json({ success: false, message: 'العميل غير موجود' }); };
 
 // حالة الجلسة + QR — تقرأها اللوحة كل ثانيتين أثناء الربط
 router.get('/session', async (_req: AuthRequest, res: Response, next: NextFunction) => {
@@ -297,14 +303,12 @@ router.put('/draft', async (req: AuthRequest, res: Response, next: NextFunction)
 // معاينة الرسالة المخصّصة لعميل بعينه (الزاوية تُحقن حسب دولته)
 router.get('/preview/:leadId', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const lead = await prisma.lead.findUnique({
+    const row = await prisma.lead.findUnique({
       where: { id: req.params.leadId },
-      select: { id: true, name: true, city: true, country: true, countryCode: true, phone: true, waOptOut: true },
+      select: { id: true, name: true, city: true, country: true, countryCode: true, phone: true, waOptOut: true, source: true },
     });
-    if (!lead) {
-      res.status(404).json({ success: false, message: 'العميل غير موجود' });
-      return;
-    }
+    if (!row || toolHidden(req, row.source)) { notFound(res); return; }
+    const { source: _source, ...lead } = row; // المصدر للفحص وحده — الردّ كما كان
     const template = await getDraftTemplate();
     res.json({
       success: true,
@@ -326,12 +330,9 @@ router.post('/send', async (req: AuthRequest, res: Response, next: NextFunction)
     }
     const lead = await prisma.lead.findUnique({
       where: { id: b.leadId },
-      select: { id: true, phone: true, waOptOut: true, name: true },
+      select: { id: true, phone: true, waOptOut: true, name: true, source: true },
     });
-    if (!lead) {
-      res.status(404).json({ success: false, message: 'العميل غير موجود' });
-      return;
-    }
+    if (!lead || toolHidden(req, lead.source)) { notFound(res); return; }
     // من طلب الإيقاف لا يُراسَل — لا استثناء ولا تجاوز يدوي
     if (lead.waOptOut) {
       res.status(403).json({ success: false, message: `«${lead.name}» طلب إيقاف المراسلة لا يمكن الإرسال إليه` });
@@ -415,6 +416,8 @@ router.post('/bulk', async (req: AuthRequest, res: Response, next: NextFunction)
         ];
       }
     }
+    // موظفٌ بلا «عملاء مولد الفواتير» لا يصلهم بمعرّفاتهم ولا بمرشّح المصدر — شرطٌ إيجابي فوق ما سبق
+    if (!staffHas(req, 'invoiceTool.view')) where.AND = [{ source: { not: 'invoice-tool' } }];
 
     const take = Math.min(b.limit ?? 50, remaining);
     const leads = await prisma.lead.findMany({
@@ -477,6 +480,11 @@ router.post('/queue/clear', async (_req: AuthRequest, res: Response, next: NextF
 // محادثة عميل (صادر + وارد) بالترتيب الزمني
 router.get('/thread/:leadId', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    // الرسائل تُقرأ بمعرّف العميل (leadId قد يكون null فلا يُرشَّح بعلاقة lead) — فيُفحص مصدره أولاً لموظفٍ بلا صلاحيتهم
+    if (!staffHas(req, 'invoiceTool.view')) {
+      const lead = await prisma.lead.findUnique({ where: { id: req.params.leadId }, select: { source: true } });
+      if (toolHidden(req, lead?.source)) { notFound(res); return; }
+    }
     const messages = await prisma.waMessage.findMany({
       where: { leadId: req.params.leadId },
       orderBy: { createdAt: 'asc' },

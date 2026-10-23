@@ -6,6 +6,7 @@ import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '..
 import { clean } from '../services/accounting';
 import { getAdminScope, setAdminScope, adminScopeEnabled } from '../services/adminScope';
 import { userCustody, lockCustody, handoverAllowed, CustodyExceeded, CUSTODY_EPS } from '../services/userCustody';
+import { noStaffCredentials, refuseStaffCredentials } from '../services/platformAccess';
 import { AuthRequest } from '../types';
 
 const router = Router();
@@ -405,7 +406,8 @@ function blocksCustodyGrant(caller: { role: string }, requested: unknown, curren
   return requested === true && currentHas !== true && caller.role !== 'ADMIN';
 }
 
-router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
+// جلسة «دخول» موظف المنصة لا تُنشئ مستخدماً بكلمة مرور يختارها — حسابٌ يبقى بعد تعطيله (services/platformAccess.ts)
+router.post('/', noStaffCredentials, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const caller = await requireCompanyOwner(req, res);
     if (!caller) return;
@@ -476,6 +478,9 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     if (!current) { res.status(404).json({ success: false, message: 'المستخدم غير موجود' }); return; }
 
     const { password, ...data } = userSchema.partial().parse(req.body);
+    // جلسة «دخول» موظف المنصة: لا كلمة مرور ولا نقل الدخول إلى بريدٍ آخر ولا ترقية إلى مدير — اعتمادٌ يبقى بعد تعطيله
+    const emailChanges = data.email !== undefined && data.email.toLowerCase() !== current.email.toLowerCase();
+    if (refuseStaffCredentials(req, res, !!password || emailChanges || (data.role === 'ADMIN' && current.role !== 'ADMIN'))) return;
     if (blocksCustodyGrant(caller, data.canReceiveUserCollections, current.canReceiveUserCollections)) {
       res.status(403).json({ success: false, message: 'منح صلاحية استلام التحصيل من المستخدمين يخص مدير الشركة' });
       return;

@@ -1,14 +1,15 @@
-import { useState, useMemo, lazy, Suspense } from 'react';
+import { useState, useMemo, useEffect, lazy, Suspense } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { tenantApi } from '../api/client';
-import { Tenant } from '../types';
+import { tenantApi, staffAuthApi } from '../api/client';
+import { Tenant, User } from '../types';
 import { formatDate, formatCurrency, formatNumber } from '../utils/format';
 import { useAuthStore } from '../store/authStore';
+import { usePlatformAccess } from '../lib/platformAccess';
 import {
   Building2, Plus, LogOut, Power, Users, FileText,
   CheckCircle2, Copy, Check, X, Calendar, LogIn, Trash2, KeyRound, AlertTriangle,
   BarChart3, TrendingUp, Wallet, RotateCcw, Package, Trophy, Pencil, Globe, Globe2, Target, ReceiptText, Plug, Radio,
-  Truck, CreditCard, MessagesSquare, Handshake,
+  Truck, CreditCard, MessagesSquare, Handshake, UserCog, Eye, EyeOff, LayoutGrid,
 } from 'lucide-react';
 
 import toast from 'react-hot-toast';
@@ -30,11 +31,20 @@ import { useTr } from '../i18n/strings';
 import { backdropClose } from '../lib/backdropClose';
 // سجلّ عروض الأسعار — كسولٌ: يجرّ html2canvas وjsPDF لمعاينة المستند وتنزيله
 const QuotesPanel = lazy(() => import('../components/QuotesPanel'));
+// «موظفو المنصة» وسجل نشاطهم — للمالك وحده، فلا تُحمَّل حزمتها في جلسة موظف أصلاً
+const StaffPanel = lazy(() => import('../components/StaffPanel'));
 
+/**
+ * لوحة المالك (/platform) وهي نفسها لوحة موظف المنصة (/staff) بما منحه المالك (lib/platformAccess.ts):
+ * القسم أو الزرّ الذي لم يُمنح لا يُرسم، واستعلامه لا يُرسل. للمالك كل can() صادقة فلا يتغيّر عليه شيء.
+ * الإدارة المالية والموظفون للمالك وحده.
+ */
 export default function PlatformPage() {
   const tr = useTr();
   const qc = useQueryClient();
-  const { user, logout, impersonate } = useAuthStore();
+  const { user, logout, impersonate, patchUser } = useAuthStore();
+  const { isOwner, isStaff, can } = usePlatformAccess();
+  const [showStaff, setShowStaff] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showContent, setShowContent] = useState(false);
@@ -54,15 +64,31 @@ export default function PlatformPage() {
   const [resetTarget, setResetTarget] = useState<Tenant | null>(null);
   const [createdInfo, setCreatedInfo] = useState<{ company: string; email: string; password: string } | null>(null);
 
+  const canTenants = can('tenants.view');
+  const canTotals = can('tenants.totals');
   const { data: tenants, isLoading } = useQuery({
     queryKey: ['tenants'],
     queryFn: async () => { const res = await tenantApi.list(); return res.data.data as Tenant[]; },
+    enabled: canTenants,
   });
   const { data: totals, isError: totalsError } = useQuery({
     queryKey: ['platform-totals'],
     queryFn: async () => (await tenantApi.platformTotals()).data.data as PlatformTotals,
     staleTime: 60_000,
+    enabled: canTotals,
   });
+
+  // الموظف: صلاحياته تُقرأ من الخادم عند الفتح والعودة للنافذة — ما منحه المالك أو سحبه يظهر بلا خروج ودخول
+  const { data: me } = useQuery({
+    queryKey: ['staff-me'],
+    queryFn: async () => (await staffAuthApi.me()).data.data as Pick<User, 'name' | 'permissions' | 'mustChangePassword'>,
+    enabled: isStaff,
+    refetchOnWindowFocus: true,
+    refetchInterval: 5 * 60_000,
+  });
+  useEffect(() => {
+    if (me) patchUser({ name: me.name, permissions: me.permissions, mustChangePassword: me.mustChangePassword });
+  }, [me, patchUser]);
 
   const toggleMutation = useMutation({
     mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) => tenantApi.update(id, { isActive }),
@@ -82,9 +108,24 @@ export default function PlatformPage() {
     onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الدخول للشركة')),
   });
 
-  const handleLogout = () => { logout(); window.location.replace('/owner'); };
+  const handleLogout = () => { logout(); window.location.replace(isOwner ? '/owner' : '/staff/login'); };
 
   const activeCount = (tenants ?? []).filter(t => t.isActive).length;
+
+  // أقسام الشريط الجانبي الممنوحة — بلا شيءٍ منها يرى الموظف ترحيباً هادئاً بدل جدول الشركات
+  const menu = {
+    leads: can('leads.view'), invoiceTool: can('invoiceTool.view'), waInbox: can('waInbox.view'),
+    payments: can('payments.view'), affiliates: can('affiliates.view'), quotes: can('quotes.view'),
+    content: can('content.edit'), visits: can('visits.view'), live: can('live.view'),
+  };
+  const anySection = Object.values(menu).some(Boolean);
+
+  const tenantPerms: TenantPerms = {
+    add: can('tenants.create'), enter: can('tenants.impersonate'), perf: can('tenants.performance'),
+    edit: can('tenants.edit'), reset: can('tenants.resetPassword'), del: can('tenants.delete'),
+    // الموظف لا يختار كلمة مدير الشركة: الخادم يرسل مؤقتة إلى بريده
+    resetByEmail: !isOwner,
+  };
 
   const colHandlers = {
     onEnter: (t: Tenant) => enterMutation.mutate(t.id),
@@ -107,53 +148,80 @@ export default function PlatformPage() {
             <p className="text-sm leading-tight" style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 700 }}>
               <span className="text-[#FAF7F0]">Field</span><span className="text-[#E15A30]"> Sales</span>
             </p>
-            <p className="text-[#9A8F7E] text-xs">{tr('لوحة المالك')}</p>
+            <p className="text-[#9A8F7E] text-xs">{isOwner ? tr('لوحة المالك') : tr('لوحة المنصة')}</p>
           </div>
         </div>
 
-        {/* روابط التنقّل */}
+        {/* روابط التنقّل — كلٌّ بمفتاحه؛ المالية والموظفون للمالك وحده */}
         <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-          <button onClick={() => setShowLeads(true)} className="sidebar-link w-full text-[#E15A30] hover:bg-[#E15A30]/15 hover:text-[#f0703f]">
-            <Target size={18} className="flex-shrink-0" /> <span>{tr('العملاء المحتملون')}</span>
-          </button>
-          <button onClick={() => setShowInvoiceTool(true)} className="sidebar-link w-full text-[#7ED9A9] hover:bg-[#1E7A52]/20 hover:text-[#9fe7c0]">
-            <ReceiptText size={18} className="flex-shrink-0" /> <span>{tr('عملاء مولد الفواتير')}</span>
-          </button>
-          <button onClick={() => setShowWaInbox(true)} className="sidebar-link w-full text-[#7ED9A9] hover:bg-[#1E7A52]/20 hover:text-[#9fe7c0]">
-            <MessagesSquare size={18} className="flex-shrink-0" /> <span>{tr('محادثات بوت واتساب')}</span>
-          </button>
-          <button onClick={() => setShowFinance(true)} className="sidebar-link w-full text-[#F5C87A] hover:bg-[#E0A02C]/20 hover:text-[#f8d99b]">
-            <Wallet size={18} className="flex-shrink-0" /> <span>{tr('الإدارة المالية')}</span>
-          </button>
-          <button onClick={() => setShowPayments(true)} className="sidebar-link w-full text-[#F5C87A] hover:bg-[#E0A02C]/20 hover:text-[#f8d99b]">
-            <CreditCard size={18} className="flex-shrink-0" /> <span>{tr('روابط الدفع')}</span>
-          </button>
-          <button onClick={() => setShowAffiliates(true)} className="sidebar-link w-full text-[#F5C87A] hover:bg-[#E0A02C]/20 hover:text-[#f8d99b]">
-            <Handshake size={18} className="flex-shrink-0" /> <span>{tr('السفراء')}</span>
-          </button>
-          <button onClick={() => setShowQuotes(true)} className="sidebar-link w-full text-[#F5C87A] hover:bg-[#E0A02C]/20 hover:text-[#f8d99b]">
-            <FileText size={18} className="flex-shrink-0" /> <span>{tr('عروض الأسعار')}</span>
-          </button>
-          <button onClick={() => setShowProfile(true)} className="sidebar-link w-full">
-            <FileText size={18} className="flex-shrink-0" /> <span>{tr('تعديل البروفايل')}</span>
-          </button>
-          <button onClick={() => setShowContent(true)} className="sidebar-link w-full">
-            <Globe size={18} className="flex-shrink-0" /> <span>{tr('محتوى الصفحة')}</span>
-          </button>
-          <button onClick={() => setShowVisits(true)} className="sidebar-link w-full">
-            <Globe2 size={18} className="flex-shrink-0" /> <span>{tr('زيارات الموقع')}</span>
-          </button>
-          <button onClick={() => setShowLive(true)} className="sidebar-link w-full">
-            <Radio size={18} className="flex-shrink-0 text-[#7ED9A9]" /> <span>{tr('الزيارات الحية')}</span>
-            <span className="ml-auto w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-          </button>
+          {menu.leads && (
+            <button onClick={() => setShowLeads(true)} className="sidebar-link w-full text-[#E15A30] hover:bg-[#E15A30]/15 hover:text-[#f0703f]">
+              <Target size={18} className="flex-shrink-0" /> <span>{tr('العملاء المحتملون')}</span>
+            </button>
+          )}
+          {menu.invoiceTool && (
+            <button onClick={() => setShowInvoiceTool(true)} className="sidebar-link w-full text-[#7ED9A9] hover:bg-[#1E7A52]/20 hover:text-[#9fe7c0]">
+              <ReceiptText size={18} className="flex-shrink-0" /> <span>{tr('عملاء مولد الفواتير')}</span>
+            </button>
+          )}
+          {menu.waInbox && (
+            <button onClick={() => setShowWaInbox(true)} className="sidebar-link w-full text-[#7ED9A9] hover:bg-[#1E7A52]/20 hover:text-[#9fe7c0]">
+              <MessagesSquare size={18} className="flex-shrink-0" /> <span>{tr('محادثات بوت واتساب')}</span>
+            </button>
+          )}
+          {isOwner && (
+            <button onClick={() => setShowFinance(true)} className="sidebar-link w-full text-[#F5C87A] hover:bg-[#E0A02C]/20 hover:text-[#f8d99b]">
+              <Wallet size={18} className="flex-shrink-0" /> <span>{tr('الإدارة المالية')}</span>
+            </button>
+          )}
+          {menu.payments && (
+            <button onClick={() => setShowPayments(true)} className="sidebar-link w-full text-[#F5C87A] hover:bg-[#E0A02C]/20 hover:text-[#f8d99b]">
+              <CreditCard size={18} className="flex-shrink-0" /> <span>{tr('روابط الدفع')}</span>
+            </button>
+          )}
+          {menu.affiliates && (
+            <button onClick={() => setShowAffiliates(true)} className="sidebar-link w-full text-[#F5C87A] hover:bg-[#E0A02C]/20 hover:text-[#f8d99b]">
+              <Handshake size={18} className="flex-shrink-0" /> <span>{tr('السفراء')}</span>
+            </button>
+          )}
+          {menu.quotes && (
+            <button onClick={() => setShowQuotes(true)} className="sidebar-link w-full text-[#F5C87A] hover:bg-[#E0A02C]/20 hover:text-[#f8d99b]">
+              <FileText size={18} className="flex-shrink-0" /> <span>{tr('عروض الأسعار')}</span>
+            </button>
+          )}
+          {menu.content && (
+            <>
+              <button onClick={() => setShowProfile(true)} className="sidebar-link w-full">
+                <FileText size={18} className="flex-shrink-0" /> <span>{tr('تعديل البروفايل')}</span>
+              </button>
+              <button onClick={() => setShowContent(true)} className="sidebar-link w-full">
+                <Globe size={18} className="flex-shrink-0" /> <span>{tr('محتوى الصفحة')}</span>
+              </button>
+            </>
+          )}
+          {menu.visits && (
+            <button onClick={() => setShowVisits(true)} className="sidebar-link w-full">
+              <Globe2 size={18} className="flex-shrink-0" /> <span>{tr('زيارات الموقع')}</span>
+            </button>
+          )}
+          {menu.live && (
+            <button onClick={() => setShowLive(true)} className="sidebar-link w-full">
+              <Radio size={18} className="flex-shrink-0 text-[#7ED9A9]" /> <span>{tr('الزيارات الحية')}</span>
+              <span className="ml-auto w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+            </button>
+          )}
+          {isOwner && (
+            <button onClick={() => setShowStaff(true)} className="sidebar-link w-full">
+              <UserCog size={18} className="flex-shrink-0" /> <span>{tr('الموظفون')}</span>
+            </button>
+          )}
         </nav>
 
         {/* المستخدم + اللغة + كلمة المرور + الخروج */}
         <div className="p-2 border-t border-white/10 space-y-1">
           <div className="px-2"><LanguageToggle variant="dark" /></div>
           <div className="px-4 py-1.5">
-            <p className="text-xs text-[#9A8F7E] leading-tight">{tr('مالك المنصة')}</p>
+            <p className="text-xs text-[#9A8F7E] leading-tight">{isOwner ? tr('مالك المنصة') : tr('موظف المنصة')}</p>
             <p className="text-sm font-semibold truncate leading-tight">{user?.name}</p>
           </div>
           <button onClick={() => setShowPassword(true)} className="sidebar-link w-full">
@@ -168,67 +236,88 @@ export default function PlatformPage() {
       {/* المحتوى الرئيسي */}
       <main className="flex-1 overflow-y-auto">
       <div className="max-w-7xl mx-auto px-6 py-6">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <StatBox icon={Building2} label={tr('إجمالي العملاء')} value={String(tenants?.length ?? 0)} color="bg-[#1F1A13]" />
-          <StatBox icon={Truck} label={tr('شركات التوزيع')} value={String(tenants?.length ?? 0)} color="bg-[#E15A30]" />
-          <StatBox icon={CheckCircle2} label={tr('اشتراكات نشطة')} value={String(activeCount)} color="bg-green-500" />
-          <PlatformTotalsBox totals={totals} failed={totalsError} />
-        </div>
+        {(canTenants || canTotals) && (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            {canTenants && <>
+              <StatBox icon={Building2} label={tr('إجمالي العملاء')} value={String(tenants?.length ?? 0)} color="bg-[#1F1A13]" />
+              <StatBox icon={Truck} label={tr('شركات التوزيع')} value={String(tenants?.length ?? 0)} color="bg-[#E15A30]" />
+              <StatBox icon={CheckCircle2} label={tr('اشتراكات نشطة')} value={String(activeCount)} color="bg-green-500" />
+            </>}
+            {canTotals && <PlatformTotalsBox totals={totals} failed={totalsError} />}
+          </div>
+        )}
 
-        <TenantColumn
-          title={tr('شركات التوزيع')}
-          icon={Truck}
-          accent="#E15A30"
-          accentSoft="#FBEBE2"
-          tenants={tenants ?? []}
-          isLoading={isLoading}
-          onAdd={() => setCreateOpen(true)}
-          {...colHandlers}
-        />
+        {canTenants ? (
+          <TenantColumn
+            title={tr('شركات التوزيع')}
+            icon={Truck}
+            accent="#E15A30"
+            accentSoft="#FBEBE2"
+            tenants={tenants ?? []}
+            isLoading={isLoading}
+            perms={tenantPerms}
+            onAdd={() => setCreateOpen(true)}
+            {...colHandlers}
+          />
+        ) : (
+          <StaffWelcome name={user?.name} hint={anySection ? tr('اختر قسما من القائمة') : canTotals ? null : tr('لم يمنحك المالك اي صلاحية بعد')} />
+        )}
       </div>
       </main>
 
-      {createOpen && (
+      {createOpen && tenantPerms.add && (
         <CreateTenantModal
           onClose={() => setCreateOpen(false)}
           onCreated={(info) => { setCreateOpen(false); setCreatedInfo(info); qc.invalidateQueries({ queryKey: ['tenants'] }); }}
         />
       )}
       {createdInfo && <CredentialsModal info={createdInfo} onClose={() => setCreatedInfo(null)} />}
-      {perfTarget && <PerformanceModal tenant={perfTarget} onClose={() => setPerfTarget(null)} />}
-      {editTarget && (
+      {perfTarget && tenantPerms.perf && <PerformanceModal tenant={perfTarget} onClose={() => setPerfTarget(null)} />}
+      {editTarget && tenantPerms.edit && (
         <EditTenantModal
           tenant={editTarget}
           onClose={() => setEditTarget(null)}
           onSaved={() => { setEditTarget(null); qc.invalidateQueries({ queryKey: ['tenants'] }); }}
         />
       )}
-      {resetTarget && (
+      {resetTarget && tenantPerms.reset && (!tenantPerms.resetByEmail ? (
         <ResetPasswordModal
           title={tr('إعادة تعيين كلمة مرور مدير الشركة')}
           subject={`${resetTarget.name} · ${resetTarget.admins?.[0]?.email || tr('المدير الرئيسي')}`}
           onConfirm={async (newPassword) => { await tenantApi.resetAdmin(resetTarget.id, { newPassword }); }}
           onClose={() => setResetTarget(null)}
         />
-      )}
-      {showLeads && <LeadsPanel onClose={() => setShowLeads(false)} />}
-      {showInvoiceTool && <InvoiceToolPanel onClose={() => setShowInvoiceTool(false)} />}
-      {showContent && <SiteContentEditor onClose={() => setShowContent(false)} />}
-      {showVisits && <VisitsPanel onClose={() => setShowVisits(false)} />}
-      {showLive && <LiveUsersPanel onClose={() => setShowLive(false)} />}
-      {showProfile && <ProfileEditorPanel onClose={() => setShowProfile(false)} />}
-      {showWaInbox && <WaInboxPanel onClose={() => setShowWaInbox(false)} />}
-      {showFinance && (
+      ) : (
+        // الموظف لا يختار كلمة المدير ولا يراها: الخادم يرسل مؤقتة إلى بريد المدير ويردّ بالبريد مقنّعاً (ab***@domain)
+        <ResetPasswordModal
+          title={tr('ارسال كلمة مرور مؤقتة الى بريد مدير الشركة')}
+          subject={`${resetTarget.name} · ${resetTarget.admins?.[0]?.email || tr('المدير الرئيسي')}`}
+          onSendTemporary={async () => ((await tenantApi.resetAdmin(resetTarget.id, {})).data.data?.email as string | undefined) ?? ''}
+          onClose={() => setResetTarget(null)}
+        />
+      ))}
+      {/* كل لوحة تُركَّب بشرط مفتاحها أيضاً: صلاحيةٌ سُحبت وهي مفتوحة تُغلقها */}
+      {showLeads && menu.leads && <LeadsPanel onClose={() => setShowLeads(false)} />}
+      {showInvoiceTool && menu.invoiceTool && <InvoiceToolPanel onClose={() => setShowInvoiceTool(false)} />}
+      {showContent && menu.content && <SiteContentEditor onClose={() => setShowContent(false)} />}
+      {showVisits && menu.visits && <VisitsPanel onClose={() => setShowVisits(false)} />}
+      {showLive && menu.live && <LiveUsersPanel onClose={() => setShowLive(false)} />}
+      {showProfile && menu.content && <ProfileEditorPanel onClose={() => setShowProfile(false)} />}
+      {showWaInbox && menu.waInbox && <WaInboxPanel onClose={() => setShowWaInbox(false)} />}
+      {showFinance && isOwner && (
         <FinancePanel
           onClose={() => setShowFinance(false)}
           onAddRevenue={() => { setShowFinance(false); setShowPayments(true); }}
         />
       )}
-      {showPayments && <PaymentLinksPanel onClose={() => setShowPayments(false)} />}
-      {showAffiliates && <AffiliatesPanel onClose={() => setShowAffiliates(false)} />}
-      {showQuotes && <Suspense fallback={null}><QuotesPanel onClose={() => setShowQuotes(false)} /></Suspense>}
-      {showPassword && <ChangePasswordModal onClose={() => setShowPassword(false)} />}
-      {deleteTarget && (
+      {showPayments && menu.payments && <PaymentLinksPanel onClose={() => setShowPayments(false)} />}
+      {showAffiliates && menu.affiliates && <AffiliatesPanel onClose={() => setShowAffiliates(false)} />}
+      {showQuotes && menu.quotes && <Suspense fallback={null}><QuotesPanel onClose={() => setShowQuotes(false)} /></Suspense>}
+      {showStaff && isOwner && <Suspense fallback={null}><StaffPanel onClose={() => setShowStaff(false)} /></Suspense>}
+      {showPassword && (isOwner
+        ? <ChangePasswordModal onClose={() => setShowPassword(false)} />
+        : <StaffPasswordModal onClose={() => setShowPassword(false)} />)}
+      {deleteTarget && tenantPerms.del && (
         <DeleteConfirmModal
           tenant={deleteTarget}
           onDone={() => { qc.invalidateQueries({ queryKey: ['tenants'] }); setDeleteTarget(null); }}
@@ -239,9 +328,26 @@ export default function PlatformPage() {
   );
 }
 
+/** أزرار صفّ الشركة الممنوحة — للمالك كلها صادقة (tenants.create/impersonate/performance/edit/resetPassword/delete) */
+type TenantPerms = { add: boolean; enter: boolean; perf: boolean; edit: boolean; reset: boolean; resetByEmail: boolean; del: boolean };
+
+// ترحيب الموظف حين لا يُمنح جدول الشركات — القائمة الجانبية فيها ما مُنح وحده
+function StaffWelcome({ name, hint }: { name?: string; hint: string | null }) {
+  const tr = useTr();
+  return (
+    <div className="max-w-md mx-auto mt-20 text-center">
+      <div className="w-14 h-14 rounded-2xl bg-[#FBEBE2] flex items-center justify-center mx-auto mb-4">
+        <LayoutGrid size={26} className="text-[#E15A30]" />
+      </div>
+      <h2 className="text-lg font-bold text-[#1F1A13]">{tr('مرحبا')} {name}</h2>
+      {hint && <p className="text-sm text-[#6E6557] mt-2">{hint}</p>}
+    </div>
+  );
+}
+
 // عمود شركات التوزيع — ترويسة ملوّنة + جدول الشركات.
 function TenantColumn({
-  title, icon: Icon, accent, accentSoft, tenants, isLoading,
+  title, icon: Icon, accent, accentSoft, tenants, isLoading, perms,
   onAdd, onEnter, onPerf, onEdit, onReset, onToggle, onDelete, enterPending,
 }: {
   title: string;
@@ -250,6 +356,7 @@ function TenantColumn({
   accentSoft: string;
   tenants: Tenant[];
   isLoading: boolean;
+  perms: TenantPerms;
   onAdd: () => void;
   onEnter: (t: Tenant) => void;
   onPerf: (t: Tenant) => void;
@@ -267,6 +374,9 @@ function TenantColumn({
     return { label: tr('نشط'), cls: 'bg-green-100 text-green-700' };
   };
   const limitOf = (t: Tenant) => t.maxSalesReps;
+  // عمودٌ بلا أي زرٍّ ممنوح لا يُرسم
+  const showActions = perms.enter || perms.perf || perms.edit || perms.reset || perms.del;
+  const cols = showActions ? 7 : 6;
 
   return (
     <section className="card p-0 overflow-hidden flex flex-col">
@@ -281,11 +391,13 @@ function TenantColumn({
             <span className="text-xs" style={{ color: accent }}>{tenants.length} {tr('عميل')}</span>
           </div>
         </div>
-        <button onClick={onAdd}
-          className="flex items-center gap-1 text-xs text-white rounded-lg px-2.5 py-1.5 font-semibold flex-shrink-0"
-          style={{ background: accent }}>
-          <Plus size={14} /> {tr('إضافة')}
-        </button>
+        {perms.add && (
+          <button onClick={onAdd}
+            className="flex items-center gap-1 text-xs text-white rounded-lg px-2.5 py-1.5 font-semibold flex-shrink-0"
+            style={{ background: accent }}>
+            <Plus size={14} /> {tr('إضافة')}
+          </button>
+        )}
       </div>
 
       {/* جدول شركات العمود */}
@@ -299,14 +411,14 @@ function TenantColumn({
               <th className="text-center">{tr('عملاء')}</th>
               <th>{tr('انتهاء الاشتراك')}</th>
               <th>{tr('الحالة')}</th>
-              <th>{tr('إجراءات')}</th>
+              {showActions && <th>{tr('إجراءات')}</th>}
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={7} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
+              <tr><td colSpan={cols} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
             ) : tenants.length === 0 ? (
-              <tr><td colSpan={7} className="text-center py-12 text-gray-400">
+              <tr><td colSpan={cols} className="text-center py-12 text-gray-400">
                 {tr('لا توجد شركات توزيع بعد')}
               </td></tr>
             ) : tenants.map(t => {
@@ -340,36 +452,49 @@ function TenantColumn({
                       );
                     })()}
                   </td>
-                  <td>
+                  {showActions && <td>
                     <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => onEnter(t)}
-                        disabled={enterPending}
-                        className="flex items-center gap-1 text-xs text-white rounded-lg px-2.5 py-1.5 font-semibold"
-                        style={{ background: accent }}
-                        title={tr('الدخول إلى لوحة العميل والاطلاع على بياناته')}>
-                        <LogIn size={13} /> {tr('دخول')}
-                      </button>
-                      <button onClick={() => onPerf(t)} className="p-1.5 rounded text-[#1E7A52] hover:bg-green-50" title={tr('أداء الشركة')}>
-                        <BarChart3 size={15} />
-                      </button>
-                      <button onClick={() => onEdit(t)} className="p-1.5 rounded text-[#C94E28] hover:bg-[#FBEBE2]" title={tr('تعديل العميل والاشتراك')}>
-                        <Pencil size={15} />
-                      </button>
-                      <button onClick={() => onReset(t)} className="p-1.5 rounded text-amber-600 hover:bg-amber-50" title={tr('إعادة تعيين كلمة مرور مدير الشركة')}>
-                        <KeyRound size={15} />
-                      </button>
-                      <button
-                        onClick={() => onToggle(t)}
-                        className={`p-1.5 rounded ${t.isActive ? 'text-red-500 hover:bg-red-50' : 'text-green-600 hover:bg-green-50'}`}
-                        title={t.isActive ? tr('إيقاف الاشتراك') : tr('تفعيل الاشتراك')}>
-                        <Power size={15} />
-                      </button>
-                      <button onClick={() => onDelete(t)} className="p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50" title={tr('حذف نهائي')}>
-                        <Trash2 size={15} />
-                      </button>
+                      {perms.enter && (
+                        <button
+                          onClick={() => onEnter(t)}
+                          disabled={enterPending}
+                          className="flex items-center gap-1 text-xs text-white rounded-lg px-2.5 py-1.5 font-semibold"
+                          style={{ background: accent }}
+                          title={tr('الدخول إلى لوحة العميل والاطلاع على بياناته')}>
+                          <LogIn size={13} /> {tr('دخول')}
+                        </button>
+                      )}
+                      {perms.perf && (
+                        <button onClick={() => onPerf(t)} className="p-1.5 rounded text-[#1E7A52] hover:bg-green-50" title={tr('أداء الشركة')}>
+                          <BarChart3 size={15} />
+                        </button>
+                      )}
+                      {perms.edit && (
+                        <button onClick={() => onEdit(t)} className="p-1.5 rounded text-[#C94E28] hover:bg-[#FBEBE2]" title={tr('تعديل العميل والاشتراك')}>
+                          <Pencil size={15} />
+                        </button>
+                      )}
+                      {perms.reset && (
+                        <button onClick={() => onReset(t)} className="p-1.5 rounded text-amber-600 hover:bg-amber-50"
+                          title={perms.resetByEmail ? tr('ارسال كلمة مرور مؤقتة الى بريد مدير الشركة') : tr('إعادة تعيين كلمة مرور مدير الشركة')}>
+                          <KeyRound size={15} />
+                        </button>
+                      )}
+                      {perms.edit && (
+                        <button
+                          onClick={() => onToggle(t)}
+                          className={`p-1.5 rounded ${t.isActive ? 'text-red-500 hover:bg-red-50' : 'text-green-600 hover:bg-green-50'}`}
+                          title={t.isActive ? tr('إيقاف الاشتراك') : tr('تفعيل الاشتراك')}>
+                          <Power size={15} />
+                        </button>
+                      )}
+                      {perms.del && (
+                        <button onClick={() => onDelete(t)} className="p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50" title={tr('حذف نهائي')}>
+                          <Trash2 size={15} />
+                        </button>
+                      )}
                     </div>
-                  </td>
+                  </td>}
                 </tr>
               );
             })}
@@ -430,6 +555,8 @@ function ledgerResetReasonText(reason: string, tr: Tr): string {
  */
 function DeleteConfirmModal({ tenant, onDone, onClose }: { tenant: Tenant; onDone: () => void; onClose: () => void }) {
   const tr = useTr();
+  // «إيقاف الشركة» بديلاً عن الحذف مسارُه PUT /tenants/:id — مفتاح tenants.edit لا tenants.delete
+  const canSuspend = usePlatformAccess().can('tenants.edit');
   const [confirmText, setConfirmText] = useState('');
   const matches = confirmText.trim() === tenant.name.trim();
   const [stage, setStage] = useState<'confirm' | 'retention' | 'destroy'>('confirm');
@@ -495,12 +622,14 @@ function DeleteConfirmModal({ tenant, onDone, onClose }: { tenant: Tenant; onDon
             )}
           </div>
           <div className="flex gap-3 p-6 pt-0">
-            <button onClick={() => suspendMutation.mutate()} disabled={!tenant.isActive || suspendMutation.isPending}
-              className="btn-primary flex-1 justify-center py-2.5">
-              {suspendMutation.isPending ? spinner : <Power size={15} />}
-              {tr('إيقاف الشركة')}
-            </button>
-            <button onClick={onClose} className="btn-secondary">{tr('إغلاق')}</button>
+            {canSuspend && (
+              <button onClick={() => suspendMutation.mutate()} disabled={!tenant.isActive || suspendMutation.isPending}
+                className="btn-primary flex-1 justify-center py-2.5">
+                {suspendMutation.isPending ? spinner : <Power size={15} />}
+                {tr('إيقاف الشركة')}
+              </button>
+            )}
+            <button onClick={onClose} className={canSuspend ? 'btn-secondary' : 'btn-secondary flex-1 justify-center'}>{tr('إغلاق')}</button>
           </div>
         </div>
       </div>
@@ -759,6 +888,8 @@ function PlatformTotalsBox({ totals, failed }: { totals?: PlatformTotals; failed
 // تعديل شركة قائمة — عدد المناديب المسموح وتاريخ انتهاء الاشتراك (للسوبر أدمن)
 function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose: () => void; onSaved: () => void }) {
   const tr = useTr();
+  // قسما الدفاتر أدناه (تاريخ فوترة عمولة الدفع وإعادة الضبط) مفتاحهما tenants.ledger — والأول يستعلم بمسار الكتابة نفسه
+  const canLedger = usePlatformAccess().can('tenants.ledger');
   const [unlimitedReps, setUnlimitedReps] = useState(tenant.maxSalesReps == null);
   const [maxSalesReps, setMaxSalesReps] = useState(tenant.maxSalesReps != null ? String(tenant.maxSalesReps) : '');
   const [unlimitedUsers, setUnlimitedUsers] = useState(tenant.maxAdminUsers == null);
@@ -981,9 +1112,9 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
             <p className="text-xs text-gray-400 mt-1">{tr('يتطلب تفعيل النظام المحاسبي — الدفاتر لا تُحذف عند الإطفاء')}</p>
           </div>
           {/* D2 (§8.1): يظهر حين ledgerActivatedAt مضبوط — حفظ مستقل عن زر حفظ التعديلات */}
-          {!!tenant.ledgerActivatedAt && <LedgerPaylinkFeeSection tenant={tenant} />}
+          {canLedger && !!tenant.ledgerActivatedAt && <LedgerPaylinkFeeSection tenant={tenant} />}
           {/* إعادة ضبط الدفاتر (M3، §5.7): تبقى ظاهرة بعد إطفاء الميزة ما دامت الدفاتر فُعّلت */}
-          {((tenant.ledgerStatus != null && tenant.ledgerStatus !== 'OFF') || !!tenant.ledgerActivatedAt) && (
+          {canLedger && ((tenant.ledgerStatus != null && tenant.ledgerStatus !== 'OFF') || !!tenant.ledgerActivatedAt) && (
             <LedgerResetSection tenant={tenant} />
           )}
         </div>
@@ -1204,6 +1335,8 @@ function LedgerResetSection({ tenant }: { tenant: Tenant }) {
 
 function CreateTenantModal({ onClose, onCreated }: { onClose: () => void; onCreated: (info: { company: string; email: string; password: string }) => void }) {
   const tr = useTr();
+  // موظف المنصة لا يكتب كلمة مرور المدير — يرسلها الخادم إلى بريد المدير ولا تعود (routes/tenants.ts POST /)
+  const { isStaff } = usePlatformAccess();
   const accent = '#E15A30';
   const capLabel = tr('عدد المناديب المسموح');
   const [form, setForm] = useState({ companyName: '', adminName: '', adminEmail: '', adminPassword: '', maxSalesReps: '', unlimitedReps: true, maxAdminUsers: '', unlimitedUsers: true, subscriptionEndsAt: '' });
@@ -1214,13 +1347,21 @@ function CreateTenantModal({ onClose, onCreated }: { onClose: () => void; onCrea
       const cap = form.unlimitedReps ? null : Number(form.maxSalesReps);
       return tenantApi.create({
         companyName: form.companyName, adminName: form.adminName, adminEmail: form.adminEmail,
-        adminPassword: form.adminPassword,
+        ...(isStaff ? {} : { adminPassword: form.adminPassword }),
         maxSalesReps: cap,
         maxAdminUsers: form.unlimitedUsers ? null : Number(form.maxAdminUsers),
         ...(form.subscriptionEndsAt && { subscriptionEndsAt: form.subscriptionEndsAt }),
       });
     },
-    onSuccess: () => onCreated({ company: form.companyName, email: form.adminEmail, password: form.adminPassword }),
+    onSuccess: (res) => {
+      if (isStaff) {
+        const to = (res.data?.data as { passwordSentTo?: string } | undefined)?.passwordSentTo ?? form.adminEmail;
+        toast.success(`${tr('انشئت الشركة وارسلت كلمة مرور المدير الى')} ${to}`);
+        onClose();
+        return;
+      }
+      onCreated({ company: form.companyName, email: form.adminEmail, password: form.adminPassword });
+    },
     onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('حدث خطأ')),
   });
 
@@ -1234,7 +1375,7 @@ function CreateTenantModal({ onClose, onCreated }: { onClose: () => void; onCrea
     }
     if (!form.adminName.trim()) { toast.error(tr('اسم المدير مطلوب')); return; }
     if (!/^[^@]+@[^@]+\.[^@]+$/.test(form.adminEmail)) { toast.error(tr('بريد المدير غير صحيح')); return; }
-    if (form.adminPassword.length < 8) { toast.error(tr('كلمة المرور 8 أحرف على الأقل')); return; }
+    if (!isStaff && form.adminPassword.length < 8) { toast.error(tr('كلمة المرور 8 أحرف على الأقل')); return; }
     mutation.mutate();
   };
 
@@ -1300,10 +1441,14 @@ function CreateTenantModal({ onClose, onCreated }: { onClose: () => void; onCrea
                 <label className="label">{tr('البريد الإلكتروني للدخول *')}</label>
                 <input className="input" dir="ltr" value={form.adminEmail} onChange={e => set('adminEmail', e.target.value)} />
               </div>
+              {isStaff ? (
+                <p className="text-xs text-gray-500 leading-relaxed">{tr('ترسل كلمة مرور مؤقتة الى بريد المدير ولا تظهر لك')}</p>
+              ) : (
               <div>
                 <label className="label">{tr('كلمة المرور *')}</label>
                 <input className="input" dir="ltr" value={form.adminPassword} onChange={e => set('adminPassword', e.target.value)} placeholder={tr('6 أحرف على الأقل')} />
               </div>
+              )}
             </div>
           </div>
         </div>
@@ -1361,6 +1506,70 @@ function Row({ label, value }: { label: string; value: string }) {
     <div className="bg-gray-50 rounded-lg px-3 py-2.5">
       <p className="text-[11px] text-gray-400">{label}</p>
       <p className="font-mono font-semibold text-gray-800" dir="ltr">{value}</p>
+    </div>
+  );
+}
+
+/**
+ * تغيير كلمة مرور موظف المنصة — مساره /staff-auth/change-password لا مسار المالك. التغيير يُسقط كل جلساته (tokenVersion)
+ * ومنها التوكن الذي في يده الآن، فيُحفظ التوكن الجديد العائد في مساحته فوراً وإلا خرج عند أول طلب.
+ */
+function StaffPasswordModal({ onClose }: { onClose: () => void }) {
+  const tr = useTr();
+  const login = useAuthStore(s => s.login);
+  const [cur, setCur] = useState('');
+  const [nw, setNw] = useState('');
+  const [cf, setCf] = useState('');
+  const [show, setShow] = useState(false);
+
+  const mutation = useMutation({
+    mutationFn: async () => (await staffAuthApi.changePassword({ currentPassword: cur, newPassword: nw })).data.data as { token: string; user: User },
+    onSuccess: ({ token, user }) => { login(token, user); toast.success(tr('تم تغيير كلمة المرور')); onClose(); },
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر تغيير كلمة المرور')),
+  });
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cur) { toast.error(tr('ادخل كلمة المرور الحالية')); return; }
+    if (nw.length < 8) { toast.error(tr('كلمة المرور الجديدة 8 احرف على الاقل')); return; }
+    if (nw !== cf) { toast.error(tr('كلمتا المرور غير متطابقتين')); return; }
+    mutation.mutate();
+  };
+
+  const field = (label: string, value: string, setter: (v: string) => void, autoComplete: string, placeholder = '') => (
+    <div>
+      <label className="label">{label}</label>
+      <div className="relative">
+        <input type={show ? 'text' : 'password'} className="input pl-10" dir="ltr" placeholder={placeholder}
+          value={value} onChange={e => setter(e.target.value)} autoComplete={autoComplete} />
+        <button type="button" onClick={() => setShow(s => !s)} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+          title={show ? tr('اخفاء كلمة المرور') : tr('اظهار كلمة المرور')}>
+          {show ? <EyeOff size={15} /> : <Eye size={15} />}
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+        <div className="flex items-center justify-between p-5 border-b">
+          <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2"><KeyRound size={18} className="text-[#E15A30]" /> {tr('تغيير كلمة المرور')}</h2>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
+        </div>
+        <form onSubmit={submit} className="p-5 space-y-4">
+          {field(tr('كلمة المرور الحالية'), cur, setCur, 'current-password')}
+          {field(tr('كلمة المرور الجديدة'), nw, setNw, 'new-password', tr('8 احرف على الاقل'))}
+          {field(tr('تاكيد كلمة المرور الجديدة'), cf, setCf, 'new-password')}
+          <div className="flex gap-3 pt-1">
+            <button type="submit" disabled={mutation.isPending} className="btn-primary flex-1 justify-center py-2.5">
+              {mutation.isPending ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <KeyRound size={15} />}
+              {tr('حفظ')}
+            </button>
+            <button type="button" onClick={onClose} className="btn-secondary">{tr('إلغاء')}</button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

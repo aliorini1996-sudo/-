@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { User } from '../types';
-import { shouldAdopt, REJECTED_KEY, SIGNED_OUT_KEY } from './sessionAdoption';
+import { shouldAdopt, isImpersonationToken, REJECTED_KEY, SIGNED_OUT_KEY } from './sessionAdoption';
 
 interface AuthState {
   token: string | null;
@@ -19,6 +19,7 @@ interface AuthState {
 // ───────────────────────────────────────────────────────────────
 //  عزل الجلسات حسب «المساحة» لمنع تداخل الأدوار في نفس المتصفح:
 //   • مالك المنصّة (سوبر أدمن): مفاتيح sa_token / sa_user  ← مساران /platform و /owner
+//   • موظف المنصّة: st_token / st_user                      ← مسار /staff (ودخوله /staff/login)
 //   • تطبيق الإدارة على الجوال: m_token / m_user           ← مسار /m
 //   • أدمن الشركة (وجلسة الشركة أثناء انتحال المالك): token / user  ← مسار /
 //   • المندوب: rep_token / rep_user (مُدار في rep/repApi.ts) ← مسار /rep
@@ -44,12 +45,44 @@ export function sessionSpace(pathname = window.location.pathname): Space {
   if (pathname.startsWith('/platform') || pathname.startsWith('/owner')) {
     return { tokenKey: 'sa_token', userKey: 'sa_user', loginPath: '/owner' };
   }
+  // موظف المنصّة مساحته وحده — لا يقرأ توكن المالك ولو فُتحت اللوحتان في متصفّحٍ واحد
+  if (pathname === '/staff' || pathname.startsWith('/staff/')) {
+    return { tokenKey: 'st_token', userKey: 'st_user', loginPath: '/staff/login' };
+  }
   // انتهاء جلسة التطبيق تعيده إلى `/m` (شاشة دخوله الداخلية) لا إلى صفحة
   // الدخول المكتبية — وإلا قُذف المستخدم خارج التطبيق المثبَّت.
   if (pathname === '/m' || pathname.startsWith('/m/')) {
     return { tokenKey: 'm_token', userKey: 'm_user', loginPath: '/m' };
   }
   return { tokenKey: 'token', userKey: 'user', loginPath: '/login' };
+}
+
+/**
+ * وجهة ٤٠١ في المساحة الحالية — تُحسب **قبل** `sessionExpired` لأنه يمحو علامة من دخل.
+ * «دخولٌ» إلى شركة أسقطه الخادم (IMPERSONATION_ENDED: مُصدِره عُطّل أو أُخرج من أجهزته أو سُحب منه «الدخول»)
+ * يعود إلى لوحة من دخل لا إلى /login — فصاحبه ليس مدير الشركة أصلاً.
+ */
+export function expiredDestination(code: unknown, pathname = window.location.pathname): string {
+  const space = sessionSpace(pathname);
+  if (code === 'IMPERSONATION_ENDED' && space.tokenKey === 'token') {
+    return localStorage.getItem('impersonating_from') === '/staff' ? '/staff' : '/platform';
+  }
+  return space.loginPath;
+}
+
+/** نسخةٌ تبنّاها `/m` من توكن «دخول» شركة (قبل منع تبنّيه) تسقط معه — وإلا بقيت جلسة الشركة في التطبيق بعد «العودة» */
+function dropAppCopyOf(token: string | null) {
+  if (token && localStorage.getItem('m_token') === token) {
+    localStorage.removeItem('m_token');
+    localStorage.removeItem('m_user');
+  }
+}
+
+/** مساحة حساب الجلسة: المالك وموظف المنصّة لكلٍّ مساحته أينما كان، وغيرهما مساحة المسار الحاليّ */
+function spaceOf(user: User | null | undefined): { tokenKey: string; userKey: string } {
+  if (user?.role === 'SUPER_ADMIN') return { tokenKey: 'sa_token', userKey: 'sa_user' };
+  if (user?.role === 'PLATFORM_STAFF') return { tokenKey: 'st_token', userKey: 'st_user' };
+  return sessionSpace();
 }
 
 const TKEY = () => sessionSpace().tokenKey;
@@ -120,9 +153,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   // مالك المنصّة له مساحته أينما دخل؛ وغيره يدخل مساحة **المسار الحاليّ**
   // (تطبيق الجوال في m_*، واللوحة في token/user) فلا يطرد أحدهما الآخر.
   login: (token, user) => {
-    const space = user.role === 'SUPER_ADMIN'
-      ? { tokenKey: 'sa_token', userKey: 'sa_user' }
-      : sessionSpace();
+    const space = spaceOf(user);
     localStorage.setItem(space.tokenKey, token);
     localStorage.setItem(space.userKey, JSON.stringify(user));
     // دخولٌ صريح يرفع علامة الخروج، فيعود التبنّي متاحاً لاحقاً
@@ -144,9 +175,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const cur = get().user;
     if (!cur) return;
     const next = { ...cur, ...patch };
-    const space = cur.role === 'SUPER_ADMIN'
-      ? { tokenKey: 'sa_token', userKey: 'sa_user' }
-      : sessionSpace();
+    const space = spaceOf(cur);
     try { localStorage.setItem(space.userKey, JSON.stringify(next)); } catch { /* تجاهل */ }
     set({ user: next });
   },
@@ -159,9 +188,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
    */
   logout: () => {
     const u = get().user;
-    const space = u?.role === 'SUPER_ADMIN'
-      ? { tokenKey: 'sa_token', userKey: 'sa_user' }
-      : sessionSpace();
+    const space = spaceOf(u);
+    // خروجٌ من مساحة اللوحة يُسقط علامة من دخل، ونسخةَ توكن «الدخول» في التطبيق إن وُجدت — نسخة جلسة المدير العادية تبقى كما وُثّق أعلاه
+    if (space.tokenKey === 'token') {
+      const t = localStorage.getItem('token');
+      if (t && isImpersonationToken(t)) dropAppCopyOf(t);
+      localStorage.removeItem('impersonating_from');
+    }
     localStorage.removeItem(space.tokenKey);
     localStorage.removeItem(space.userKey);
     // نرفع علامة الخروج الصريح كي لا يتبنّى التطبيقُ جلسةَ اللوحة عند إعادة فتحه
@@ -181,15 +214,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
    * فتبقى ميزة التبنّي حيّةً لأيّ جلسةٍ صحيحة لاحقة.
    */
   sessionExpired: () => {
-    const space = get().user?.role === 'SUPER_ADMIN'
-      ? { tokenKey: 'sa_token', userKey: 'sa_user' }
-      : sessionSpace();
+    const space = spaceOf(get().user);
     const dead = localStorage.getItem(space.tokenKey);
     localStorage.removeItem(space.tokenKey);
     localStorage.removeItem(space.userKey);
     // الوسم لمساحة التطبيق وحدها: هي التي تتبنّى، وهي التي دارت فيها الحلقة
     if (space.tokenKey === 'm_token' && dead) localStorage.setItem(REJECTED_KEY, dead);
     if (space.tokenKey !== 'm_token') localStorage.removeItem('impersonating');
+    // وعلامة من دخل مع جلسة «الدخول» نفسها (مساحة اللوحة): انتهت فلا «عودة» بعدها — وجهة ٤٠١ تُقرأ قبل هذا (expiredDestination)
+    if (space.tokenKey === 'token') localStorage.removeItem('impersonating_from');
     set({ token: null, user: null, impersonating: space.tokenKey === 'm_token' ? get().impersonating : null });
   },
 
@@ -202,6 +235,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   // المالك يدخل لوحة شركة: جلسة المالك تبقى محفوظة بأمان في sa_token،
   // ونضع جلسة الشركة في مساحة الأدمن (token/user) مع علم الانتحال.
   impersonate: (token, user, companyName) => {
+    // من أين دخل: لوحة المالك أو لوحة الموظف — «العودة» من شريط الانتحال تعيده إليها (MainLayout)
+    localStorage.setItem('impersonating_from', window.location.pathname.startsWith('/staff') ? '/staff' : '/platform');
     localStorage.setItem('token', token);
     localStorage.setItem('user', JSON.stringify(user));
     localStorage.setItem('impersonating', companyName);
@@ -210,7 +245,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   // العودة لجلسة المالك: نمسح جلسة الشركة فقط (sa_token للمالك يبقى سليماً)
   stopImpersonating: () => {
-    ['token', 'user', 'impersonating'].forEach(k => localStorage.removeItem(k));
+    dropAppCopyOf(localStorage.getItem('token'));
+    ['token', 'user', 'impersonating', 'impersonating_from'].forEach(k => localStorage.removeItem(k));
     set({ token: null, user: null, impersonating: null });
   },
 }));

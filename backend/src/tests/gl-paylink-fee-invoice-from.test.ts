@@ -119,10 +119,10 @@ function routeBody(s: string, method: string, route: string): string {
   return next < 0 ? s.slice(i) : s.slice(i, i + head.length + next);
 }
 
-test('حارس ثابت: PUT /:id/ledger-paylink-fee-invoice-from تحت authenticate+requireSuperAdmin، في معاملة تحت قفل gl-post، مع SETTINGS_CHANGE', () => {
-  const guardUse = tenantsSrc.indexOf('router.use(authenticate, requireSuperAdmin)');
+test('حارس ثابت: PUT /:id/ledger-paylink-fee-invoice-from تحت حارس لوحة المالك (platformGate)، في معاملة تحت قفل gl-post، مع SETTINGS_CHANGE', () => {
+  const guardUse = tenantsSrc.indexOf('router.use(platformGate)');
   const route = tenantsSrc.indexOf("router.put('/:id/ledger-paylink-fee-invoice-from'");
-  assert.ok(guardUse >= 0 && route > guardUse, 'المسار بعد router.use(authenticate, requireSuperAdmin) القائم');
+  assert.ok(guardUse >= 0 && route > guardUse, 'المسار بعد router.use(platformGate) القائم');
   const body = routeBody(tenantsSrc, 'put', '/:id/ledger-paylink-fee-invoice-from');
   const txm = /\$transaction\(\s*async\s*\(?\s*(\w+)\s*\)?\s*=>\s*\{/.exec(body);
   assert.ok(txm, 'معاملة تفاعلية');

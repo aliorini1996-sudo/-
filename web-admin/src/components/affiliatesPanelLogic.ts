@@ -27,7 +27,8 @@ export const ATTRIBUTION_SOURCES = ['signup_code', 'claim', 'owner', 'portal'] a
 export const ACTIVATION_STATES = ['pending', 'active'] as const;
 export const REF_VIAS = ['link', 'typed'] as const;
 export const ADJUSTMENT_KINDS = ['clawback_refund', 'correction'] as const;
-export const ACTOR_TYPES = ['system', 'affiliate', 'owner', 'company'] as const;
+// staff: موظف منصة بصلاحية السفراء (services/affiliate/core.ts platformActor)
+export const ACTOR_TYPES = ['system', 'affiliate', 'owner', 'staff', 'company'] as const;
 
 export type UserStatus = typeof USER_STATUSES[number];
 export type ClaimStatus = typeof CLAIM_STATUSES[number];
@@ -139,6 +140,7 @@ export const ACTOR_LABEL: Record<typeof ACTOR_TYPES[number], string> = {
   system: 'النظام',
   affiliate: 'السفير',
   owner: 'المالك',
+  staff: 'موظف المنصة',
   company: 'الشركة',
 };
 

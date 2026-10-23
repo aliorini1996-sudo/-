@@ -273,7 +273,8 @@ test('خطافات الدفع: العمولة بعد القلب إلى paid وا
   const reverse = pay.slice(pay.indexOf('async function reversePayment'), pay.indexOf('// انشاء رابط دفع'));
   assert.match(reverse, /if \(flippedBack\.count === 1\) void reverseForPayment\(link\.id\);/);
   const linkTenant = pay.slice(pay.indexOf("router.post('/:id/link-tenant'"));
-  assert.match(linkTenant, /authenticate, requireSuperAdmin/);
+  // حارس لوحة المالك (services/platformAccess.ts): المالك، والموظف بصلاحية «روابط الدفع» وحدها
+  assert.match(linkTenant, /platformGate, /);
   assert.match(linkTenant, /status: 'paid', tenantId: null/, 'يُربط اليتيم المدفوع وحده، لا نقلٌ بين شركات');
 });
 
@@ -301,8 +302,8 @@ test('التركيب: البوابة بمصادقتها الخاصة، ولوح�
   assert.match(index, /app\.use\('\/api\/affiliate-admin', affiliateAdminRouter\)/);
   assert.ok(index.indexOf("app.use('/api/affiliate'") > index.indexOf("app.use('/api', apiLimiter)"), 'خلف المحدِّد العام');
   const admin = src('routes', 'affiliateAdmin.ts');
-  assert.match(admin, /router\.use\(authenticate, requireSuperAdmin\);/);
-  assert.ok(admin.indexOf('router.use(authenticate, requireSuperAdmin)') < admin.indexOf("router.get('/overview'"), 'قبل أوّل مسار');
+  assert.match(admin, /router\.use\(platformGate\);/);
+  assert.ok(admin.indexOf('router.use(platformGate)') < admin.indexOf("router.get('/overview'"), 'قبل أوّل مسار');
   const portal = src('routes', 'affiliate.ts');
   assert.doesNotMatch(portal, /middleware\/auth/, 'لا مصادقة الشركة في البوابة');
   assert.doesNotMatch(portal, /authLimiter|signupLimiter/, 'محدِّدات مستقلّة لا عدّادات مشتركة مع دخول الشركات');

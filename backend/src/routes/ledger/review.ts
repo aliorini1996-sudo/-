@@ -19,7 +19,8 @@ const CONFIGURE = requireLedgerPermission('canConfigureLedger');
 
 const locals = (res: Response) => res.locals.ledger as LedgerLocals;
 
-export const AUDIT_ACTOR_TYPES = ['ADMIN', 'IMPERSONATION', 'SYSTEM', 'OWNER'] as const;
+// STAFF: موظف المنصة (services/gl/audit.ts) — مرشّحٌ كبقية المنفّذين
+export const AUDIT_ACTOR_TYPES = ['ADMIN', 'IMPERSONATION', 'SYSTEM', 'OWNER', 'STAFF'] as const;
 
 /** where من معاملات الاستعلام (صرفة) */
 export function auditWhere(tenantId: string, q: Record<string, unknown>, timezone: string): Prisma.GlAuditLogWhereInput {
