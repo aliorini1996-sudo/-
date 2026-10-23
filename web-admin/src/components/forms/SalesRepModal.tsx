@@ -71,7 +71,7 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
     setUnbinding(false);
   };
   const defaults: FormData = rep
-    ? { ...rep, email: rep.email || '', canSellOnCredit: rep.canSellOnCredit ?? true, canSellInCash: rep.canSellInCash ?? true, canSellOnInstallment: rep.canSellOnInstallment ?? false, canManageVanStock: rep.canManageVanStock ?? true }
+    ? { ...rep, email: rep.email || '', canSellOnCredit: rep.canSellOnCredit ?? true, canSellInCash: rep.canSellInCash ?? true, canSellOnInstallment: rep.canSellOnInstallment ?? false, canManageVanStock: rep.canManageVanStock ?? true, showRouteOnMap: rep.showRouteOnMap ?? true }
     : {
       isActive: true,
       canCreateInvoice: true,
@@ -89,6 +89,7 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
       punchOutsideAction: 'REJECT',
       requireBoundDevice: false,
       requirePresenceCheck: false,
+      showRouteOnMap: true,
       shiftStart: null,
       shiftEnd: null,
       shiftDays: SHIFT_DAYS_DEFAULT,
@@ -290,6 +291,10 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
               <PermToggle label={tr('التحقق العشوائي من التواجد')} {...register('requirePresenceCheck')} />
             </div>
             <p className="text-xs text-gray-400 mt-2 leading-relaxed">{tr('عند التفعيل يصل المندوب اشعار اثبت تواجدك مرتين الى ثلاث مرات في اليوم باوقات عشوائية اثناء نوبته، ويفتح التطبيق ويضغط اثبت تواجدي خلال دقيقتين فيسجل موقعه، وتظهر النتائج في تقرير ساعات العمل')}</p>
+            <div className="grid grid-cols-1 gap-3 mt-3">
+              <PermToggle label={tr('عرض خط السير على الخريطة')} {...register('showRouteOnMap')} />
+            </div>
+            <p className="text-xs text-gray-400 mt-2 leading-relaxed">{tr('عند الايقاف لا يرسم خط سير المندوب على خريطة التتبع، ويبقى موقعه الحالي وزياراته وبصمته وخط سيره المخطط ظاهرة، ويستمر تسجيل مواقعه فيعود خط سيره كاملا عند التفعيل')}</p>
           </div>
 
           <div>

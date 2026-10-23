@@ -671,7 +671,8 @@ const GRANTS = [
 ] as const;
 
 type Grant = typeof GRANTS[number];
-type PermKey = Grant | 'requireCustomerProximity' | 'requireLocationOn' | 'requirePunchAtCustomer' | 'requireBoundDevice' | 'requirePresenceCheck';
+type PermKey = Grant | 'requireCustomerProximity' | 'requireLocationOn' | 'requirePunchAtCustomer' | 'requireBoundDevice' | 'requirePresenceCheck'
+  | 'showRouteOnMap';
 type PermState = Record<PermKey, boolean>;
 
 /**
@@ -698,6 +699,7 @@ const PERM_DEFAULTS: PermState = {
   requirePunchAtCustomer: false,
   requireBoundDevice: false,
   requirePresenceCheck: false,
+  showRouteOnMap: true,
 };
 
 const PERM_LABELS: Record<PermKey, string> = {
@@ -723,6 +725,7 @@ const PERM_LABELS: Record<PermKey, string> = {
   requirePunchAtCustomer: 'بصمة الحضور بموقع عميل',
   requireBoundDevice: 'ربط البصمة بجهاز واحد',
   requirePresenceCheck: 'التحقق العشوائي من التواجد',
+  showRouteOnMap: 'عرض خط السير على الخريطة',
 };
 
 const PERM_GROUPS: { title: string; keys: Grant[] }[] = [
@@ -908,6 +911,10 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
             checked={perms.requirePresenceCheck}
             onChange={v => set('requirePresenceCheck', v)}
             hint={tr('عند التفعيل يصل المندوب اشعار اثبت تواجدك مرتين الى ثلاث مرات في اليوم باوقات عشوائية اثناء نوبته، ويفتح التطبيق ويضغط اثبت تواجدي خلال دقيقتين فيسجل موقعه، وتظهر النتائج في تقرير ساعات العمل')} />
+          <MToggle label={tr(PERM_LABELS.showRouteOnMap)}
+            checked={perms.showRouteOnMap}
+            onChange={v => set('showRouteOnMap', v)}
+            hint={tr('عند الايقاف لا يرسم خط سير المندوب على خريطة التتبع، ويبقى موقعه الحالي وزياراته وبصمته وخط سيره المخطط ظاهرة، ويستمر تسجيل مواقعه فيعود خط سيره كاملا عند التفعيل')} />
         </Group>
 
         <Group title={tr('موعد الدوام للتنبيهات')}>

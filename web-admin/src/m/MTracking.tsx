@@ -34,7 +34,7 @@ const ROUTE_STYLE: Record<SegKind, Record<string, unknown>> = {
 };
 interface RouteSegment { kind: SegKind; points: { lat: number; lng: number }[]; meters: number }
 interface RouteShape { segments: RouteSegment[]; observedMeters: number; inferredMeters: number; rawMeters: number; truncated: boolean; degraded: boolean }
-interface RouteResp { points: RoutePoint[]; snapped: { lat: number; lng: number }[] | null; shape: RouteShape | null }
+interface RouteResp { points: RoutePoint[]; snapped: { lat: number; lng: number }[] | null; shape: RouteShape | null; hidden?: boolean }
 interface Visit {
   id: string; note: string | null; lat: number | null; lng: number | null; createdAt: string;
   durationSec: number | null; startedAt: string | null; endedAt: string | null;
@@ -120,6 +120,8 @@ export default function MTracking() {
         points: Array.isArray(d) ? d : (d as RouteResp)?.points ?? [],
         snapped: (res.data as { snapped?: RouteResp['snapped'] })?.snapped ?? null,
         shape: (res.data as { shape?: RouteShape | null })?.shape ?? null,
+        // «عرض خط السير على الخريطة» مطفأٌ في إعدادات المندوب
+        hidden: (res.data as { routeHidden?: boolean })?.routeHidden === true,
       } as RouteResp;
     },
     enabled: !!selected,
@@ -345,6 +347,9 @@ export default function MTracking() {
           {/* زيارات المندوب المختار */}
           {selected && (
             <>
+              {routeQ.data?.hidden && (
+                <p className="text-[11px] text-[#9A8F7E] px-1 mb-2">{tr('خط السير مخفي لهذا المندوب من اعداداته')}</p>
+              )}
               <h3 className="text-[11px] font-bold text-[#9A8F7E] px-1 mb-2 uppercase">
                 {tr('زيارات اليوم المحدد')} ({visitsQ.data?.length ?? 0})
               </h3>

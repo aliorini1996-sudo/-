@@ -635,7 +635,11 @@ router.get('/route', requireAdmin, async (req: AuthRequest, res: Response, next:
 
     // مندوب خارج نطاق المستخدم ⇒ لا خطّ سير (وإلا كُشف مساره بتمرير معرّفه)
     if (!(await canAccessRep(req, tid, salesRepId))) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
-    const points = await prisma.repLocation.findMany({
+    // «عرض خط السير على الخريطة» مطفأٌ في إعدادات المندوب ⇒ لا أثر ولا شكل مسار (ولا نداء مطابقةٍ وتوجيه بلا طائل)، والوسم
+    // routeHidden يفرّقه عن «لا نقاط مسجّلة». بصمتا الحضور والانصراف تبقيان: موضعا بدء العمل وانتهائه ليسا خطّ سير
+    const repView = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid }, select: { showRouteOnMap: true } });
+    const routeHidden = repView?.showRouteOnMap === false;
+    const points = routeHidden ? [] : await prisma.repLocation.findMany({
       where: { tenantId: tid, salesRepId, capturedAt: { gte: start, lt: end }, ...(await scopedRepRecordWhere(req)) },
       orderBy: { capturedAt: 'asc' }, take: 5000,
       select: { lat: true, lng: true, accuracy: true, speed: true, capturedAt: true },
@@ -656,7 +660,7 @@ router.get('/route', requireAdmin, async (req: AuthRequest, res: Response, next:
     // بناء شكل المسار: مطابقةٌ للأثر الكثيف وتوجيهٌ للفراغات، مقاطعَ موسومة
     // (مرصود/مُرجَّح). راجع services/routeShape.ts — المطابقة وحدها كانت تفشل
     // كلّياً على أي فجوة تتجاوز ٢ كم فيسقط الخطّ مستقيماً فوق البحر والمباني.
-    const snap = (req.query.snap as string | undefined) !== '0';
+    const snap = !routeHidden && (req.query.snap as string | undefined) !== '0';
 
     /**
      * مفتاح الكاش يصف **المقطع نفسه** لا يومَه.
@@ -686,7 +690,7 @@ router.get('/route', requireAdmin, async (req: AuthRequest, res: Response, next:
       ? shape.segments.flatMap((sg) => sg.points)
       : null;
 
-    res.json({ success: true, data: points, snapped, shape, checkIn, checkOut });
+    res.json({ success: true, data: points, snapped, shape, checkIn, checkOut, routeHidden });
   } catch (err) { next(err); }
 });
 

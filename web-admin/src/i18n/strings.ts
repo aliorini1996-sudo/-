@@ -1206,6 +1206,15 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'متصل بلا موقع': { en: 'Online, no location', fr: 'En ligne, sans position', tr: 'Çevrimiçi, konum yok', zh: '在线，无位置' },
   'متصل وموقعه متوقف': { en: 'Online, location paused', fr: 'En ligne, position figée', tr: 'Çevrimiçi, konum durdu', zh: '在线，位置已停止更新' },
   'متصل وموقعه غير محدث': { en: 'Online, location not updated', fr: 'En ligne, position non mise à jour', tr: 'Çevrimiçi, konum güncel değil', zh: '在线，位置未更新' },
+  // «عرض خط السير على الخريطة» (طلب المالك، ٢٣ أكتوبر ٢٠٢٦)
+  'عرض خط السير على الخريطة': { en: 'Show route on map', fr: 'Afficher le trajet sur la carte', tr: 'Rotayı haritada göster', zh: '在地图上显示行程路线' },
+  'عند الايقاف لا يرسم خط سير المندوب على خريطة التتبع، ويبقى موقعه الحالي وزياراته وبصمته وخط سيره المخطط ظاهرة، ويستمر تسجيل مواقعه فيعود خط سيره كاملا عند التفعيل': {
+    en: 'When off, the rep’s route line is not drawn on the tracking map. Their current location, visits, punches and planned route stay visible, and their locations keep being recorded, so the full route returns when you turn it back on.',
+    fr: 'Une fois désactivé, le trajet du commercial n’est pas tracé sur la carte de suivi. Sa position actuelle, ses visites, ses pointages et son itinéraire prévu restent visibles, et ses positions continuent d’être enregistrées : le trajet complet réapparaît quand vous le réactivez.',
+    tr: 'Kapalıyken temsilcinin rota çizgisi takip haritasında çizilmez. Mevcut konumu, ziyaretleri, kayıtları ve planlanan rotası görünür kalır; konumları kaydedilmeye devam eder, böylece yeniden açtığınızda rotanın tamamı geri gelir.',
+    zh: '关闭后，跟踪地图上不再绘制该代表的行程路线。其当前位置、拜访、打卡和计划路线仍然可见，位置也会继续记录，重新开启后完整路线会恢复显示。',
+  },
+  'خط السير مخفي لهذا المندوب من اعداداته': { en: 'Route hidden for this rep in their settings', fr: 'Trajet masqué pour ce commercial dans ses paramètres', tr: 'Bu temsilcinin rotası ayarlarından gizlendi', zh: '已在该代表的设置中隐藏行程路线' },
   // «التحقق العشوائي من التواجد» (طلب المالك، ٢٢ أكتوبر ٢٠٢٦)
   'التحقق العشوائي من التواجد': { en: 'Random presence checks', fr: 'Vérifications de présence aléatoires', tr: 'Rastgele varlık doğrulaması', zh: '随机在岗核验' },
   'عند التفعيل يصل المندوب اشعار اثبت تواجدك مرتين الى ثلاث مرات في اليوم باوقات عشوائية اثناء نوبته، ويفتح التطبيق ويضغط اثبت تواجدي خلال دقيقتين فيسجل موقعه، وتظهر النتائج في تقرير ساعات العمل': {

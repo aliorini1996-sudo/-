@@ -288,6 +288,7 @@ export interface SalesRep {
   punchOutsideAction?: 'REJECT' | 'FLAG'; // البصمة خارج النطاق: تُردّ، أو تُقبل بوسم «خارج النطاق»
   requireBoundDevice?: boolean; // «ربط البصمة بجهاز واحد» — تقييديّ ضد البصمة بالنيابة
   requirePresenceCheck?: boolean; // «التحقق العشوائي من التواجد» — «أثبت تواجدك» مرّتين إلى ثلاث يومياً
+  showRouteOnMap?: boolean; // «عرض خط السير على الخريطة» — مطفأٌ ⇒ لا يُرسم أثره على خريطة التتبّع (الغائب = مفعّل)
   boundDeviceName?: string | null; boundDeviceAt?: string | null; // الجهاز المربوط (يربطه أول بصمة)
   shiftStart?: string | null; shiftEnd?: string | null; // موعد الدوام "HH:MM" — للتنبيهات وحدها
   shiftDays?: number; // أيام العمل بتات: الأحد=1 … السبت=64 (الأحد–الخميس=31)

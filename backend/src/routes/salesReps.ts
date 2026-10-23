@@ -61,6 +61,8 @@ const repSchema = z.object({
   requireBoundDevice: z.boolean().optional(),
   // «التحقق العشوائي من التواجد» (services/presenceChecks.ts)
   requirePresenceCheck: z.boolean().optional(),
+  // «عرض خط السير على الخريطة» (routes/tracking.ts — /route)
+  showRouteOnMap: z.boolean().optional(),
   // موعد الدوام للتنبيهات (services/attendanceAlerts.ts): "HH:MM" أو فارغ، وأيام العمل بتات الأحد=1 … السبت=64
   shiftStart: z.string().regex(SHIFT_TIME_RE).nullable().optional(),
   shiftEnd: z.string().regex(SHIFT_TIME_RE).nullable().optional(),
@@ -84,6 +86,7 @@ const repSelect = {
   punchOutsideAction: true,
   requireBoundDevice: true, boundDeviceName: true, boundDeviceAt: true,
   requirePresenceCheck: true,
+  showRouteOnMap: true,
   shiftStart: true, shiftEnd: true, shiftDays: true,
   createdAt: true,
 } as const;

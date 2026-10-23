@@ -21,7 +21,7 @@ type Loc = { tenantId: string; salesRepId: string; lat: number; lng: number; acc
 let locs: Loc[] = [];
 let repReads: Record<string, unknown>[] = [];
 let locQueries = 0;
-const reps: Record<string, { tenantId: string; requireLocationOn: boolean; canBeTracked?: boolean }> = {
+const reps: Record<string, { tenantId: string; requireLocationOn: boolean; canBeTracked?: boolean; showRouteOnMap?: boolean }> = {
   strict: { tenantId: 't1', requireLocationOn: true },
   free: { tenantId: 't1', requireLocationOn: false },
 };
@@ -63,6 +63,13 @@ const prisma = {
         .sort((x, y) => y.capturedAt.getTime() - x.capturedAt.getTime());
       return list[0] ? { lat: list[0].lat, lng: list[0].lng, accuracy: list[0].accuracy, capturedAt: list[0].capturedAt, createdAt: list[0].createdAt } : null;
     },
+    async findMany(a: { where: { tenantId: string; salesRepId: string; capturedAt: { gte: Date; lt: Date } } }) {
+      locQueries++;
+      return locs.filter((l) => l.tenantId === a.where.tenantId && l.salesRepId === a.where.salesRepId
+        && l.capturedAt >= a.where.capturedAt.gte && l.capturedAt < a.where.capturedAt.lt)
+        .sort((x, y) => x.capturedAt.getTime() - y.capturedAt.getTime())
+        .map((l) => ({ lat: l.lat, lng: l.lng, accuracy: l.accuracy, speed: l.speed ?? null, capturedAt: l.capturedAt }));
+    },
     async createMany(a: { data: Omit<Loc, 'createdAt'>[] }) {
       const now = new Date();
       for (const d of a.data) locs.push({ ...d, createdAt: now });
@@ -70,6 +77,11 @@ const prisma = {
     },
   },
   companySettings: { async findUnique() { return { trackingEnabled }; } },
+  repAttendance: {
+    async findMany() {
+      return [{ checkInAt: ago(3_600_000), checkInLat: 24.7, checkInLng: 46.6, checkOutAt: null, checkOutLat: null, checkOutLng: null }];
+    },
+  },
 };
 stub('config/database', { default: prisma });
 stub('middleware/auth', {
@@ -445,4 +457,47 @@ test('دلو النقاط لتوكن مندوبٍ صحيح التوقيع وحد
   assert.equal(isRepPing(req({ headers: { ...bearer(STRICT), 'x-api-key': 'fsk_' + 'x'.repeat(40) } })), false, 'مفتاح API معه');
   assert.equal(isRepPing(req({ method: 'GET', headers: bearer(STRICT) })), false);
   assert.equal(isRepPing(req({ path: '/tracking/heartbeat', headers: bearer(STRICT) })), false);
+});
+
+// ─── GET /tracking/route: «عرض خط السير على الخريطة» (طلب المالك، ٢٣ أكتوبر ٢٠٢٦) ───
+function routeHandler() {
+  for (const l of (trackingRouter as unknown as { stack: Layer[] }).stack) {
+    const r = l.route;
+    if (r && r.path === '/route' && r.methods.get) return r.stack[r.stack.length - 1].handle;
+  }
+  throw new Error('GET /tracking/route غير مسجّل');
+}
+async function getRoute(repId: string) {
+  const res = { statusCode: 200, body: null as Record<string, unknown> | null, status(c: number) { this.statusCode = c; return this; }, json(b: unknown) { this.body = b as Record<string, unknown>; return this; } };
+  let error: unknown = null;
+  const date = new Date().toISOString().slice(0, 10);
+  await routeHandler()({ user: { role: 'ADMIN', id: 'a1', tenantId: 't1' }, query: { salesRepId: repId, date, snap: '0' } }, res, (e?: unknown) => { if (e) error = e; });
+  if (error) throw error;
+  return res.body!;
+}
+
+test('خط السير: مفعّلٌ (أو غائبٌ = الافتراض) يعيد أثر اليوم، ومطفأٌ لا يعيده ولا يقرأه — وتبقى بصمة الحضور', async () => {
+  reset();
+  const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+  const at = new Date(Math.max(today.getTime() + 60_000, Date.now() - 60_000));
+  locs.push(point({ capturedAt: at }), point({ capturedAt: new Date(at.getTime() + 1_000), lat: 24.72 }));
+  try {
+    const shown = await getRoute('strict');
+    assert.equal((shown.data as unknown[]).length, 2);
+    assert.equal(shown.routeHidden, false);
+    reps.strict.showRouteOnMap = true;
+    assert.equal(((await getRoute('strict')).data as unknown[]).length, 2);
+
+    reps.strict.showRouteOnMap = false;
+    const before = locQueries;
+    const hidden = await getRoute('strict');
+    assert.deepEqual(hidden.data, []);
+    assert.equal(hidden.shape, null);
+    assert.equal(hidden.snapped, null);
+    assert.equal(hidden.routeHidden, true);
+    assert.equal(locQueries, before, 'لا تُقرأ نقاطه أصلاً');
+    assert.ok(hidden.checkIn, 'بصمة الحضور ليست خطّ سير');
+  } finally {
+    delete reps.strict.showRouteOnMap;
+  }
 });

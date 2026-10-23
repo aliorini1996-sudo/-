@@ -3781,7 +3781,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "purpose": "خط السير الفعلي لمندوب في يوم: نقاط GPS ومسار مطابق للشوارع وموقع بصمتَي الحضور والانصراف",
     "permission": "requireAdmin مع canManageTracking",
     "gates": [
-     "المندوب خارج نطاق المستخدم يرجع 404"
+     "المندوب خارج نطاق المستخدم يرجع 404",
+     "إن أُطفئ «عرض خط السير على الخريطة» في إعدادات المندوب (showRouteOnMap=false) ترجع data فارغة وshape وsnapped فارغين وrouteHidden=true، وتبقى بصمتا الحضور والانصراف"
     ],
     "query": [
      {

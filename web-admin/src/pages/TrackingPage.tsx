@@ -212,6 +212,8 @@ export default function TrackingPage() {
         shape: (res.data.shape ?? null) as RouteShape | null,
         checkIn: ((res.data as { checkIn?: Punch }).checkIn ?? null),
         checkOut: ((res.data as { checkOut?: Punch }).checkOut ?? null),
+        // «عرض خط السير على الخريطة» مطفأٌ في إعدادات المندوب — لا «لا نقاط مسجّلة»
+        hidden: (res.data as { routeHidden?: boolean }).routeHidden === true,
       };
     },
     enabled: !!selected && enabled,
@@ -287,6 +289,7 @@ export default function TrackingPage() {
   const checkIn = routeQ.data?.checkIn || null;
   const checkOut = routeQ.data?.checkOut || null;
   const shape = routeQ.data?.shape || null;
+  const routeHidden = routeQ.data?.hidden === true;
   const visits = visitsQ.data || [];
   const customerLocs = showCustomers ? (customerLocsQ.data || []) : [];
 
@@ -421,7 +424,7 @@ export default function TrackingPage() {
                 <label className="text-xs font-semibold text-[#6E6557] flex items-center gap-1"><Calendar size={13} /> {tr('خط السير والزيارات ليوم')}</label>
                 <input type="date" value={date} max={new Date().toISOString().slice(0, 10)} onChange={e => setDate(e.target.value)} className="input py-2 text-sm" />
                 <p className="text-[11px] text-[#9A8F7E]">
-                  {routeQ.isLoading ? tr('جار التحميل') : `${route.length} ${tr('نقطة مسجلة')}`}
+                  {routeQ.isLoading ? tr('جار التحميل') : routeHidden ? tr('خط السير مخفي لهذا المندوب من اعداداته') : `${route.length} ${tr('نقطة مسجلة')}`}
                 </p>
                 {/* خط السير المخطَّط — بنفسجيّ، ومفتاحه يفصله عن المسار المرصود:
                     ذاك ما فعله المندوب، وهذا ما كان **مطلوباً** منه. */}
@@ -727,7 +730,7 @@ export default function TrackingPage() {
         </div>
       )}
 
-      {selected && enabled && route.length === 0 && !routeQ.isLoading && (
+      {selected && enabled && route.length === 0 && !routeQ.isLoading && !routeHidden && (
         <p className="text-center text-sm text-[#9A8F7E] flex items-center justify-center gap-1.5"><Navigation size={14} /> {tr('لا توجد نقاط مسجلة لهذا المندوب في هذا اليوم')}</p>
       )}
 
