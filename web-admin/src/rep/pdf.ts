@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { linkAreas, type LinkBox } from '../lib/pdfLinks';
+import { PRINT_LIMITS } from '../lib/print/printSettingsCore';
 
 // ينتظر تحميل كل الصور داخل العنصر (مثل رمز QR) قبل الالتقاط — كي لا تُلتقط فارغة
 async function waitForImages(el: HTMLElement, timeout = 4000): Promise<void> {
@@ -21,6 +22,27 @@ async function waitForImages(el: HTMLElement, timeout = 4000): Promise<void> {
   ]);
 }
 
+/**
+ * مقاس صفحة الـPDF من سمة جذر القالب `data-pdf-format` («إعدادات الطباعة» M2: قالب ملف PDF بمقاس A5 أو Letter أو مخصّص).
+ * الغياب — كل قالبٍ بلا إعداد، وعروض الأسعار ومولّد الفاتورة — أو أيّ قيمةٍ غير مفهومة ⇒ A4 كما اليوم. والمخصّص «العرض×الطول»
+ * بالمم يُحوَّل نقاطاً (72 للبوصة)، والأعرض من طوله أفقيّ (نصف صفحة 9.5×5.5 بوصة) كي لا يقلبه jsPDF.
+ * والأضيق من A5 (PRINT_LIMITS.pageMinWidthMm) ⇒ A4 — حدٌّ ثانٍ بعد النواة: القالب يُصغَّر بعرض الصفحة فيصغر الرمز المختوم معه
+ * (58 مم ⇒ ~0.14 مم للخلية لا تُمسح).
+ */
+export function pdfPageOf(v: string | undefined | null): { format: string | [number, number]; orientation: 'portrait' | 'landscape' } {
+  if (v === 'a5' || v === 'letter') return { format: v, orientation: 'portrait' };
+  const m = /^(\d{2,3}(?:\.\d+)?)x(\d{2,4}(?:\.\d+)?)$/.exec(v ?? '');
+  if (m) {
+    const w = Number(m[1]);
+    const h = Number(m[2]);
+    if (w >= PRINT_LIMITS.pageMinWidthMm && w <= 270 && h >= 50 && h <= 1000) {
+      const pt = (mm: number) => Math.round((mm * 72 / 25.4) * 100) / 100;
+      return { format: [pt(w), pt(h)], orientation: w > h ? 'landscape' : 'portrait' };
+    }
+  }
+  return { format: 'a4', orientation: 'portrait' };
+}
+
 // يحوّل عنصر DOM إلى PDF بصيغة Blob (صفحة A4، يدعم تعدد الصفحات)
 // `singlePage`: يُصغَّر الالتقاط ليسع صفحة واحدة دائماً — عنصرٌ بمقاس 794×1123px أطول من
 // نسبة A4 بجزءٍ من النقطة، فكان يُنتج صفحةً ثانية فارغة تقريباً
@@ -36,7 +58,9 @@ export async function elementToPdfBlob(el: HTMLElement, opts?: { singlePage?: bo
   });
   const fmt = opts?.lossless ? 'PNG' : 'JPEG';
   const imgData = opts?.lossless ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.95);
-  const pdf = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'portrait' });
+  // مقاس الصفحة من جذر القالب (A4 بلا سمة) — والنداء المحروس في شاشة النتيجة يبقى كما هو بلا وسيطٍ جديد
+  const page = pdfPageOf(el.dataset?.pdfFormat);
+  const pdf = new jsPDF({ unit: 'pt', format: page.format, orientation: page.orientation });
   const pageW = pdf.internal.pageSize.getWidth();
   const pageH = pdf.internal.pageSize.getHeight();
 

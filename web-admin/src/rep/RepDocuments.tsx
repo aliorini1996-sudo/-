@@ -1,4 +1,4 @@
-import { forwardRef, useRef, useState, useEffect } from 'react';
+import { forwardRef, useRef, useState, useEffect, useMemo } from 'react';
 import QRCode from 'qrcode';
 import { formatCurrency, formatDate, formatDayOnly, formatTime, formatDateTime, paymentMethodLabels, getActiveCurrency } from '../utils/format';
 import { currencyDecimals } from '../i18n/countries';
@@ -10,10 +10,21 @@ import { elementToPdfBlob, shareOrDownloadPdf } from './pdf';
 import { buildZatcaQr, zatcaTimestamp } from './zatca';
 import { zatcaChipOf, zatcaDocView, type ZatcaDocView } from '../lib/zatca/docStatus';
 import { zatcaPrintDecision } from '../lib/zatca/docPrint';
-import { printThermalInvoice, printThermalReceipt } from './thermal';
+import { PrintRefusedError, printThermalInvoice, printThermalReceipt } from './thermal';
 import { receiptInvoicesFrom, receiptLinkView, type ReceiptInvoiceLink } from './receiptLinks';
 import { backdropClose } from '../lib/backdropClose';
 import { useBackClose } from '../lib/useBackClose';
+import {
+  LEGACY_THERMAL_ID, PRINT_NOTES, deviceProfilesFor, pdfProfileOf, printKindOf, profileDisplayName, profileFor, readPrintSettings,
+} from '../lib/print/printSettings';
+import { PRINT_LOOK_CSS, PrintLookContext, lookFor, lookNeedsCss, lookRootAttrs, qrSlotStyle, usePrintLook } from './printLook';
+import { printPageNode } from './printPage';
+import { currentPrintIdentity, usePrintDeviceChoice, withKindChoice } from './printDevice';
+import PrintDeviceSheet from './PrintDeviceSheet';
+import { printHtmlDirect, printNodeDirect, supportsDirect, transportFor, type PrintTransport } from './printDirect';
+import { DIRECT_PRINT_FALLBACK, DirectPrintError } from '../lib/print/printErrors';
+import { directPrintAvailable, printerForJob } from '../lib/print/transport/btSerial';
+import { DirectPrintOverlay, useDirectPrint } from '../components/print/DirectPrintUi';
 import { Share2, Download, Check, ArrowRight, Printer, X, AlertTriangle } from 'lucide-react';
 
 // رمز QR كصورة PNG (data URL) بدل <canvas> — لأن html2canvas لا يلتقط محتوى الـcanvas
@@ -53,6 +64,9 @@ export interface Company {
   zatcaPhase2Enabled?: boolean;
   zatcaPhase2StartedAt?: string | null;
   zatcaRegime?: { phase: 1 | 2; mode?: 'live' | 'rehearsal'; blocked?: string | null } | null;
+  // «إعدادات الطباعة» v1 — خام كما في العمود (null = سلوك اليوم). لا يُقرأ إلا عبر normalizePrintSettings (lib/print/printSettings.ts):
+  // نسخة أحدث أو عطب ⇒ الافتراضي، فلا يطبع جوال قديم ورقةً لم يُصمَّم لها
+  printSettings?: unknown;
 }
 
 /**
@@ -301,11 +315,28 @@ export function brandColor(company?: Company | null): string {
   return company?.primaryColor || BRAND;
 }
 
+/**
+ * جذر الورقة بمظهر الطباعة (rep/printLook.ts): حشوته، وسماته (أحادي اللون/خط عريض/مقاس الـPDF)، وأسلوبه المحصور آخرَ
+ * عنصرٍ فيه (فتبقى الترويسة أولاً — بعدها يُدرج سطر «الأصل/نسخة» في rep/printPage.ts). المظهر الافتراضي يعيد PAGE نفسه
+ * بلا سمةٍ ولا أسلوب: DOM اليوم كما هو لكل شركةٍ بلا «إعدادات الطباعة».
+ */
+function useSheet(): { style: React.CSSProperties; attrs: ReturnType<typeof lookRootAttrs>; css: React.ReactNode } {
+  const look = usePrintLook();
+  return {
+    style: look.pagePadding === PAGE.padding ? PAGE : { ...PAGE, padding: look.pagePadding },
+    attrs: lookRootAttrs(look),
+    css: lookNeedsCss(look) ? <style>{PRINT_LOOK_CSS}</style> : null,
+  };
+}
+
 export function Header({ title, company }: { title: string; company?: Company | null }) {
   const tr = useTr();
+  /* مظهر الطباعة (rep/printLook.ts): الإبرية ترويستها «بسيط» إجباراً، والشعار والعنوان والهاتف والبريد خيارات القالب —
+   * واسم الشركة ورقمها الضريبي وسجلّها والعنوان (title) لا تُخفى بأيّ مظهر. والمظهر الافتراضي = ترويسة اليوم حرفياً. */
+  const look = usePrintLook();
   const brand = brandColor(company);
-  const style = company?.headerStyle || 'classic';
-  const logo = company?.logo || null;
+  const style = look.minimalHeader ? 'minimal' : (company?.headerStyle || 'classic');
+  const logo = look.showLogo ? (company?.logo || null) : null;
 
   const line = (label: string, value?: string, light?: boolean) =>
     value ? <div style={{ fontSize: 11.5, color: light ? 'rgba(255,255,255,0.9)' : '#4b5563' }}>
@@ -316,11 +347,11 @@ export function Header({ title, company }: { title: string; company?: Company | 
 
   const infoLines = (light?: boolean) => (
     <>
-      {line(tr('العنوان'), company?.address, light)}
+      {look.showContact && line(tr('العنوان'), company?.address, light)}
       {line(tr('الرقم الضريبي'), company?.taxNumber, light)}
       {line(tr('السجل التجاري'), company?.commercialReg, light)}
-      {line(tr('هاتف'), company?.phone, light)}
-      {line(tr('البريد'), company?.email, light)}
+      {look.showContact && line(tr('هاتف'), company?.phone, light)}
+      {look.showContact && line(tr('البريد'), company?.email, light)}
     </>
   );
 
@@ -385,6 +416,9 @@ function InfoBox({ label, value }: { label: string; value: string }) {
 // ============ قالب الفاتورة ============
 export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(({ doc }, ref) => {
   const tr = useTr();
+  const sheet = useSheet();
+  // خيارات القالب: اسم المندوب ووحدة الصنف والتوقيعات والتذييل — ولا خيار يمسّ العنوان أو الرمز أو الضريبة (§1.6)
+  const look = usePrintLook();
   const brand = brandColor(doc.company);
   const th: React.CSSProperties = { background: brand, color: '#fff', padding: '10px 8px', fontSize: 13, fontWeight: 600, textAlign: 'center' };
   const td: React.CSSProperties = { padding: '9px 8px', fontSize: 13, textAlign: 'center', borderBottom: '1px solid #eef2f7' };
@@ -417,7 +451,7 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
   // في نافذة الالتباس (بين نشر الاسعار الشاملة ورد العمودين الى الصافي) قبل وجود العمود
   const inclusiveDoc = doc.pricesIncludeTax ?? (doc.tax > 0 && Math.abs((doc.subtotal - doc.discount) - doc.total) < 0.005);
   return (
-    <div ref={ref} style={PAGE}>
+    <div ref={ref} style={sheet.style} {...sheet.attrs}>
       <Header title={docTitle} company={doc.company} />
 
       {/* المرحلة الثانية: بيئة المحاكاة تُوسَم على الورقة نفسها — ورقة بروفة لا تُقرأ فاتورةً حقيقية */}
@@ -443,7 +477,7 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
             doc.paymentPlan === 'INSTALLMENT' ? tr('تقسيط') : (doc.type === 'CASH' ? tr('نقدي') : tr('آجل'))
           } />}
           {doc.deliveryDate && <InfoBox label={tr('تاريخ التسليم')} value={formatDate(doc.deliveryDate)} />}
-          <InfoBox label={tr('المندوب')} value={doc.repName} />
+          {look.showRepName && <InfoBox label={tr('المندوب')} value={doc.repName} />}
         </div>
         <div style={{ flex: 1, background: '#f8fafc', borderRadius: 10, padding: 14 }}>
           <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{tr('بيانات العميل')}</div>
@@ -475,7 +509,7 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
               <td style={td}>{i + 1}</td>
               <td style={{ ...td, textAlign: 'right' }}>
                 <span style={{ fontWeight: 600 }}>{it.name}</span>
-                {it.unit && <span style={{ color: '#9ca3af', fontSize: 11 }}> ({it.unit})</span>}
+                {look.showItemUnit && it.unit && <span style={{ color: '#9ca3af', fontSize: 11 }}> ({it.unit})</span>}
                 {/* المرتجع: هل عاد الصنف بعد انتهاء صلاحيته (من تاريخ بيعه) — لا يظهر لصنفٍ بلا صلاحية أو بلا بيعٍ سابق */}
                 {doc.isReturn && it.returnExpired != null && it.expiresAt && (
                   <div style={{ fontSize: 10.5, marginTop: 2, fontWeight: 600, color: it.returnExpired ? '#dc2626' : '#1E7A52' }}>
@@ -515,13 +549,17 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
           const einv = doc.einvoice;
           const gov = !!einv?.provider && ['eta', 'peppol', 'ttn'].includes(einv.provider);
           const box: React.CSSProperties = { background: '#fff', padding: 6, border: '1px solid #eef2f7', borderRadius: 8, display: 'block', width: 'fit-content', margin: '0 auto' };
+          /* «إعدادات الطباعة» M3: النقطية خانةٌ أكبر تحمل قيمة الرمز (data-qr-value) فيُرسم فيها بنقاط صحيحة في البلوتوث المباشر
+           * (lib/print/raster.ts) — والصورة أدناه كما هي. القيمة من القرار أو من رمز المرحلة الأولى المحروس، لا تُبنى هنا.
+           * المظهر بلا خانة (كل ما عدا النقطية) لا يضيف سمةً ولا أسلوباً: الصندوق كاليوم. */
+          const slotBox: React.CSSProperties = { ...box, ...qrSlotStyle(look) };
           /* المرحلة الثانية أوّلاً: الرمز المختوم كما أعاده الخادم (لا بناء محليّ)، ومعه تسلسل المستند ومعرّفه
            * الفريد — بهما تُطابَق الورقةُ سجلَّ الهيئة. وبلا رمزٍ (سند تسليم أو مستند معلَّق) يُكتب السبب. */
           if (doc.zatca) {
             if (zDecision.qr.source === 'stamped' && zDecision.qr.value) {
               return (
                 <div style={{ textAlign: 'center' }}>
-                  <div style={box}><QrImage value={zDecision.qr.value} size={176} ec="L" scale={4} /></div>
+                  <div style={slotBox} data-qr-value={look.qrSlotPx ? zDecision.qr.value : undefined} data-qr-ec={look.qrSlotPx ? 'L' : undefined}><QrImage value={zDecision.qr.value} size={176} ec="L" scale={4} /></div>
                   <div style={{ fontSize: 10, color: '#6b7280', marginTop: 6, maxWidth: 160 }}>{tr(zDecision.qr.caption || '')}</div>
                   <div style={{ fontSize: 9, color: '#9ca3af', marginTop: 2, maxWidth: 160, wordBreak: 'break-all', direction: 'ltr' }}>
                     {doc.zatca.icv !== null ? `ICV ${doc.zatca.icv}` : ''}{doc.zatca.uuid ? ` · ${doc.zatca.uuid}` : ''}
@@ -550,7 +588,7 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
             return (
               <div style={{ textAlign: 'center' }}>
                 {/* display:block (لا inline-block) — html2canvas يُسقط inline-block المحاط بحدّ فيختفي الرمز في الـPDF */}
-                <div style={box}><QrImage value={qrValue} size={108} /></div>
+                <div style={slotBox} data-qr-value={look.qrSlotPx ? qrValue : undefined} data-qr-ec={look.qrSlotPx ? 'M' : undefined}><QrImage value={qrValue} size={108} /></div>
                 <div style={{ fontSize: 10, color: '#6b7280', marginTop: 6, maxWidth: 130 }}>{tr('رمز الاستجابة السريعة للفاتورة الضريبية')}</div>
               </div>
             );
@@ -627,18 +665,21 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
         </div>
       )}
 
-      <div style={{ marginTop: isSignatureSrc(doc.recipientSignature) || isSignatureSrc(doc.repSignature) ? 28 : 60, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', color: '#6b7280', fontSize: 13 }}>
-        <SignatureSlot src={doc.recipientSignature} label={tr('توقيع المستلم')} />
-        <SignatureSlot src={doc.repSignature} label={tr('توقيع المندوب')} />
-      </div>
+      {look.showSignatures && (
+        <div style={{ marginTop: isSignatureSrc(doc.recipientSignature) || isSignatureSrc(doc.repSignature) ? 28 : 60, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', color: '#6b7280', fontSize: 13 }}>
+          <SignatureSlot src={doc.recipientSignature} label={tr('توقيع المستلم')} />
+          <SignatureSlot src={doc.repSignature} label={tr('توقيع المندوب')} />
+        </div>
+      )}
 
       <div style={{ marginTop: 30, textAlign: 'center', color: '#9ca3af', fontSize: 12, borderTop: '1px solid #eef2f7', paddingTop: 12 }}>
-        {tr('شكرا لتعاملكم معنا')} — {doc.company?.name || ''}
+        {look.footerText ?? tr('شكرا لتعاملكم معنا')} — {doc.company?.name || ''}
         {/* بصمة المنصّة: كل فاتورة مطبوعة تسوّق للمنصّة لدى تجّار الجملة والتجزئة (حلقة فيروسية) */}
         <div style={{ marginTop: 6, fontSize: 10, color: '#c3bcae' }}>
           {tr('صدرت عبر منصة')} Field Sales · fieldsa.net
         </div>
       </div>
+      {sheet.css}
     </div>
   );
 });
@@ -647,17 +688,19 @@ PrintableInvoice.displayName = 'PrintableInvoice';
 // ============ قالب سند القبض ============
 export const PrintableReceipt = forwardRef<HTMLDivElement, { doc: ReceiptDoc }>(({ doc }, ref) => {
   const tr = useTr();
+  const sheet = useSheet();
+  const look = usePrintLook();
   const brand = brandColor(doc.company);
   const addr = fullAddress(doc.customer);
   return (
-    <div ref={ref} style={PAGE}>
+    <div ref={ref} style={sheet.style} {...sheet.attrs}>
       <Header title={tr('سند قبض')} company={doc.company} />
 
       <div style={{ marginBottom: 20 }}>
         <InfoBox label={tr('رقم السند')} value={doc.number} />
         <InfoBox label={tr('التاريخ')} value={formatDate(doc.date)} />
         <InfoBox label={tr('وقت الإصدار')} value={formatTime(doc.date)} />
-        <InfoBox label={tr('المندوب')} value={doc.repName} />
+        {look.showRepName && <InfoBox label={tr('المندوب')} value={doc.repName} />}
       </div>
 
       {doc.cancelled && (
@@ -697,6 +740,7 @@ export const PrintableReceipt = forwardRef<HTMLDivElement, { doc: ReceiptDoc }>(
           {tr('صدرت عبر منصة')} Field Sales · fieldsa.net
         </div>
       </div>
+      {sheet.css}
     </div>
   );
 });
@@ -750,6 +794,7 @@ function ReceiptInvoicesBox({ doc }: { doc: ReceiptDoc }) {
 // ============ قالب كشف الحساب ============
 export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc }>(({ doc }, ref) => {
   const tr = useTr();
+  const sheet = useSheet();
   const brand = brandColor(doc.company);
   const th: React.CSSProperties = { background: brand, color: '#fff', padding: '9px 6px', fontSize: 12, fontWeight: 600, textAlign: 'center' };
   const td: React.CSSProperties = { padding: '7px 6px', fontSize: 11.5, textAlign: 'center', borderBottom: '1px solid #eef2f7' };
@@ -781,7 +826,7 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
   })();
 
   return (
-    <div ref={ref} style={PAGE}>
+    <div ref={ref} style={sheet.style} {...sheet.attrs}>
       <Header title={tr('كشف حساب')} company={doc.company} />
 
       {/* بيانات العميل + الفترة */}
@@ -884,6 +929,7 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
       <div style={{ marginTop: 40, textAlign: 'center', color: '#9ca3af', fontSize: 12, borderTop: '1px solid #eef2f7', paddingTop: 12 }}>
         {doc.company?.name || ''} — {tr('تم الإصدار في')} {formatDateTime(doc.date)}
       </div>
+      {sheet.css}
     </div>
   );
 });
@@ -892,6 +938,7 @@ PrintableStatement.displayName = 'PrintableStatement';
 // سجلّ استلامات التحصيل لمندوب — جدولٌ مرتّب بالوقت والمبلغ ومن استلم، برأس الشركة
 export const PrintableSettlementLog = forwardRef<HTMLDivElement, { doc: SettlementLogDoc }>(({ doc }, ref) => {
   const tr = useTr();
+  const sheet = useSheet();
   const brand = brandColor(doc.company);
   const th: React.CSSProperties = { background: brand, color: '#fff', padding: '9px 6px', fontSize: 12, fontWeight: 600, textAlign: 'center' };
   const td: React.CSSProperties = { padding: '7px 6px', fontSize: 11.5, textAlign: 'center', borderBottom: '1px solid #eef2f7' };
@@ -905,7 +952,7 @@ export const PrintableSettlementLog = forwardRef<HTMLDivElement, { doc: Settleme
   const methodLabel = (m?: string): string => tr(paymentMethodLabels[m || 'CASH'] || paymentMethodLabels.CASH);
 
   return (
-    <div ref={ref} style={PAGE}>
+    <div ref={ref} style={sheet.style} {...sheet.attrs}>
       <Header title={single ? tr('سند استلام تحصيل') : tr('سجل استلام التحصيل')} company={doc.company} />
 
       {/* بيانات المندوب + ملخّص التحصيل */}
@@ -975,6 +1022,7 @@ export const PrintableSettlementLog = forwardRef<HTMLDivElement, { doc: Settleme
       <div style={{ marginTop: 40, textAlign: 'center', color: '#9ca3af', fontSize: 12, borderTop: '1px solid #eef2f7', paddingTop: 12 }}>
         {doc.company?.name || ''} — {tr('تم الإصدار في')} {formatDateTime(doc.date)}
       </div>
+      {sheet.css}
     </div>
   );
 });
@@ -983,6 +1031,7 @@ PrintableSettlementLog.displayName = 'PrintableSettlementLog';
 // إشعار حركة بضاعة لسيارة مندوب — اسم المندوب + الأصناف بكمياتها + التاريخ والوقت، برأس الشركة
 export const PrintableLoadNotice = forwardRef<HTMLDivElement, { doc: LoadNoticeDoc }>(({ doc }, ref) => {
   const tr = useTr();
+  const sheet = useSheet();
   const brand = brandColor(doc.company);
   const th: React.CSSProperties = { background: brand, color: '#fff', padding: '9px 6px', fontSize: 12, fontWeight: 600, textAlign: 'center' };
   const td: React.CSSProperties = { padding: '7px 6px', fontSize: 11.5, textAlign: 'center', borderBottom: '1px solid #eef2f7' };
@@ -991,7 +1040,7 @@ export const PrintableLoadNotice = forwardRef<HTMLDivElement, { doc: LoadNoticeD
   const totalQty = Number(doc.items.reduce((a, i) => a + Math.abs(i.qty), 0).toFixed(2));
 
   return (
-    <div ref={ref} style={PAGE}>
+    <div ref={ref} style={sheet.style} {...sheet.attrs}>
       <Header title={title} company={doc.company} />
 
       {/* بيانات المندوب + ملخّص الحركة */}
@@ -1054,6 +1103,7 @@ export const PrintableLoadNotice = forwardRef<HTMLDivElement, { doc: LoadNoticeD
       <div style={{ marginTop: 30, textAlign: 'center', color: '#9ca3af', fontSize: 12, borderTop: '1px solid #eef2f7', paddingTop: 12 }}>
         {doc.company?.name || ''} — {tr('تاريخ الحركة')} {formatDateTime(doc.date)}
       </div>
+      {sheet.css}
     </div>
   );
 });
@@ -1064,6 +1114,7 @@ const fmtNoticeQty = (n: number) => String(Number(Number(n).toFixed(2)));
 
 export const PrintableWarehouseNotice = forwardRef<HTMLDivElement, { doc: WarehouseNoticeDoc }>(({ doc }, ref) => {
   const tr = useTr();
+  const sheet = useSheet();
   const brand = brandColor(doc.company);
   const th: React.CSSProperties = { background: brand, color: '#fff', padding: '9px 6px', fontSize: 12, fontWeight: 600, textAlign: 'center' };
   const td: React.CSSProperties = { padding: '7px 6px', fontSize: 11.5, textAlign: 'center', borderBottom: '1px solid #eef2f7' };
@@ -1079,7 +1130,7 @@ export const PrintableWarehouseNotice = forwardRef<HTMLDivElement, { doc: Wareho
   const cols = receive ? 6 : 4;
 
   return (
-    <div ref={ref} style={PAGE}>
+    <div ref={ref} style={sheet.style} {...sheet.attrs}>
       <Header title={title} company={doc.company} />
 
       {/* بيانات الحركة + ملخّصها */}
@@ -1175,6 +1226,7 @@ export const PrintableWarehouseNotice = forwardRef<HTMLDivElement, { doc: Wareho
       <div style={{ marginTop: 30, textAlign: 'center', color: '#9ca3af', fontSize: 12, borderTop: '1px solid #eef2f7', paddingTop: 12 }}>
         {doc.company?.name || ''} — {tr('تاريخ الحركة')} {formatDateTime(doc.date)}
       </div>
+      {sheet.css}
     </div>
   );
 });
@@ -1183,13 +1235,14 @@ PrintableWarehouseNotice.displayName = 'PrintableWarehouseNotice';
 /** طلب مخزون — الأصناف بكمّياتها المطلوبة ورصيدها الآن، وخانتا مقدّم الطلب واعتماد الجهة */
 export const PrintableStockRequest = forwardRef<HTMLDivElement, { doc: StockRequestDoc }>(({ doc }, ref) => {
   const tr = useTr();
+  const sheet = useSheet();
   const brand = brandColor(doc.company);
   const th: React.CSSProperties = { background: brand, color: '#fff', padding: '9px 6px', fontSize: 12, fontWeight: 600, textAlign: 'center' };
   const td: React.CSSProperties = { padding: '7px 6px', fontSize: 11.5, textAlign: 'center', borderBottom: '1px solid #eef2f7' };
   const totalQty = stockRequestTotalQty(doc.items);
 
   return (
-    <div ref={ref} style={PAGE}>
+    <div ref={ref} style={sheet.style} {...sheet.attrs}>
       <Header title={tr('طلب مخزون')} company={doc.company} />
 
       {/* بيانات الطلب + الجهة وملخّصه */}
@@ -1291,6 +1344,7 @@ export const PrintableStockRequest = forwardRef<HTMLDivElement, { doc: StockRequ
       <div style={{ marginTop: 30, textAlign: 'center', color: '#9ca3af', fontSize: 12, borderTop: '1px solid #eef2f7', paddingTop: 12 }}>
         {doc.company?.name || ''} — {tr('تاريخ الطلب')} {formatDateTime(doc.date)}
       </div>
+      {sheet.css}
     </div>
   );
 });
@@ -1636,12 +1690,64 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
     : zDecision.kind === 'pending' ? 'wait'
     : null;
 
-  const printThermal = async () => {
-    setBusy(true); setStatus('');
+  /* «إعدادات الطباعة» (M2): قالب الطباعة المباشرة لهذا النوع من توجيه الشركة (ومن اختيار الجهاز إن سمحت)، وقالب ملف PDF.
+   * بلا إعدادات (null أو تالفة) ⇒ الافتراضي حرفياً: الزرّ الحراري بنصّه نفسه للفواتير والسندات وحدها وPDF الـA4 — ولا يُقرأ
+   * اختيار الجهاز ولا يظهر سطر «تغيير». */
+  const { settings, customized } = useMemo(() => readPrintSettings(doc.company?.printSettings), [doc.company?.printSettings]);
+  const printKind = printKindOf(doc.kind);
+  const printIdent = useMemo(() => currentPrintIdentity(), []);
+  const [deviceChoice, setDeviceChoice] = usePrintDeviceChoice(printIdent);
+  const [deviceOpen, setDeviceOpen] = useState(false);
+  const directProfile = profileFor(settings, printKind, customized ? deviceChoice : null);
+  // كل طباعةٍ مباشرة (حرارية أو صفحة أو نقطية) محروسةٌ بحال المستند كزرّ المشاركة: مستندٌ لا ورقة له لا يُطبع من أيّ قالب
+  const canDirect = directProfile !== null && !zBlocked && (directProfile.printer !== 'thermal' || canThermal);
+  const legacyDirect = directProfile?.id === LEGACY_THERMAL_ID;
+  const deviceChoices = customized && settings.repMayChoose ? deviceProfilesFor(settings, printKind) : [];
+  const pdfProfile = pdfProfileOf(settings);
+  const pdfLook = useMemo(() => lookFor(pdfProfile), [pdfProfile]);
+  const pageProfile = directProfile !== null && directProfile.printer !== 'thermal' ? directProfile : null;
+  const pageLook = useMemo(() => (pageProfile ? lookFor(pageProfile) : null), [pageProfile]);
+  // قالب الطباعة غير قالب الـPDF ⇒ نسخةٌ ثانية خارج الشاشة بمظهره؛ وإلا فالنسخة نفسها
+  const separatePage = pageProfile !== null && pageProfile.id !== pdfProfile.id;
+  const pageRef = useRef<HTMLDivElement>(null);
+  /* «إعدادات الطباعة» M3: طريقة هذا الجهاز — البلوتوث المباشر إن اختاره من «تغيير» ودعمه المتصفح والقالب، وإلا نظام الطباعة.
+   * بلا إعدادات مخصّصة: نظام الطباعة دائماً (الزرّ كاليوم حرفاً بحرف). وتعذّر البلوتوث يعرض سببه وبديله (نظام الطباعة أو PDF). */
+  const directTransport: PrintTransport = customized ? transportFor(directProfile, deviceChoice) : 'system';
+  const bt = useDirectPrint();
+  const [directError, setDirectError] = useState<string | null>(null);
+
+  const printDirect = async () => {
+    if (!canDirect || !directProfile) return;
+    await printWith(directTransport);
+  };
+  /** الطباعة بطريقةٍ معلومة — زرّ الطباعة بطريقة الجهاز، وزرّ البديل بنظام الطباعة بعد تعذّر البلوتوث */
+  const printWith = async (via: PrintTransport) => {
+    if (!canDirect || !directProfile) return;
+    setBusy(true); setStatus(''); setDirectError(null);
     try {
-      if (doc.kind === 'invoice') await printThermalInvoice(doc);
-      else if (doc.kind === 'receipt') await printThermalReceipt(doc);
-    } catch { setStatus(tr('تعذرت الطباعة تأكد من إعداد الطابعة')); }
+      // المنفذ أوّل الضغطة: نافذة اختيار الطابعة تحتاج إيماءة المستخدم قبل أيّ عملٍ طويل
+      const port = via === 'bt-serial' && supportsDirect(directProfile) ? await printerForJob() : null;
+      // حصيلة البلوتوث (تُكتب من داخل مسار الشريط) — حاويةٌ لا متغيّر: التضييق لا يتبع الإسناد داخل الدوالّ
+      const sent: { outcome: 'done' | 'cancelled' | null } = { outcome: null };
+      if (directProfile.printer === 'thermal') {
+        // الملف الافتراضي (legacy-58) يعود في thermal.ts إلى شريط اليوم حرفاً بحرف (ولا يُرسل بالبلوتوث أبداً)
+        const opts = {
+          profile: directProfile, tr,
+          raster: port ? async (html: string) => { sent.outcome = await bt.run((ui) => printHtmlDirect(port, html, directProfile, 'copies', ui), { slow: deviceChoice?.slow }); } : null,
+        };
+        if (doc.kind === 'invoice') await printThermalInvoice(doc, opts);
+        else if (doc.kind === 'receipt') await printThermalReceipt(doc, opts);
+      } else {
+        const node = separatePage ? pageRef.current : printRef.current;
+        if (!node) throw new Error('print sheet');
+        if (port) sent.outcome = await bt.run((ui) => printNodeDirect(port, node, directProfile, [tr('الأصل'), tr('نسخة')], ui), { slow: deviceChoice?.slow });
+        else await printPageNode(node, directProfile, [tr('الأصل'), tr('نسخة')]);
+      }
+      if (sent.outcome) setStatus(sent.outcome === 'cancelled' ? tr('ألغيت الطباعة') : tr('✓ تم الإرسال إلى الطابعة'));
+    } catch (e) {
+      if (e instanceof DirectPrintError) setDirectError(tr(e.message));
+      else setStatus(tr(e instanceof PrintRefusedError ? e.message : 'تعذرت الطباعة تأكد من إعداد الطابعة'));
+    }
     setBusy(false);
   };
 
@@ -1745,7 +1851,7 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
         <p className="text-xs text-gray-400 mb-2">{tr('معاينة المستند')}</p>
         <div className="mx-auto bg-white rounded-xl border border-gray-200 shadow-sm" style={{ width: 340, height: 470, overflow: 'hidden' }}>
           <div style={{ transform: 'scale(0.428)', transformOrigin: 'top right', width: 794 }}>
-            {renderDoc()}
+            <PrintLookContext.Provider value={pdfLook}>{renderDoc()}</PrintLookContext.Provider>
           </div>
         </div>
 
@@ -1754,11 +1860,40 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
 
       {/* أزرار */}
       <div className="p-4 border-t bg-white space-y-2">
-        {canThermal && (
-          <button onClick={printThermal} disabled={busy}
-            className="w-full bg-white border-2 border-[#DED5C4] text-[#1F1A13] font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-60">
-            <Printer size={17} /> {tr('طباعة حرارية 58 مم')}
-          </button>
+        {/* الطباعة المباشرة بقالب المستند — الافتراضي بنصّ اليوم «طباعة حرارية 58 مم»، وغيره «طباعة — اسم القالب» كما كتبته الشركة */}
+        {canDirect && directProfile && (
+          <>
+            <button onClick={printDirect} disabled={busy}
+              className="w-full bg-white border-2 border-[#DED5C4] text-[#1F1A13] font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-60">
+              <Printer size={17} /> {legacyDirect ? tr('طباعة حرارية 58 مم') : `${tr('طباعة')} — ${profileDisplayName(directProfile, tr)}`}
+            </button>
+            {/* سطر الطابعة: لاختيار قالبٍ آخر (بإذن الشركة) أو للطريقة والمعايرة (قالبٌ يُرسل بالبلوتوث) — والإعداد الافتراضي بلا سطر */}
+            {(deviceChoices.length > 1 || (customized && supportsDirect(directProfile))) && (
+              <p className="text-[11px] text-gray-500 text-center">
+                {tr('الطابعة')}: {profileDisplayName(directProfile, tr)}
+                {customized && supportsDirect(directProfile) && <> · {directTransport === 'bt-serial' ? tr('بلوتوث مباشر') : tr('نظام الطباعة في الجهاز')}</>}
+                {' '}·{' '}
+                <button type="button" onClick={() => setDeviceOpen(true)} className="text-[#C94E28] font-semibold">{tr('تغيير')}</button>
+              </p>
+            )}
+            {/* تعذّر البلوتوث: السبب بالعربية والبديل — نظام الطباعة هنا، وPDF في زرّه أدناه */}
+            {directError && (
+              <div className="bg-red-50 border border-red-200 text-red-800 text-xs leading-relaxed rounded-xl p-3 text-center" role="alert">
+                <p className="font-semibold">{directError}</p>
+                <p className="mt-1 text-red-700/80">{tr(DIRECT_PRINT_FALLBACK)}</p>
+                <button type="button" onClick={() => printWith('system')} disabled={busy}
+                  className="mt-2 w-full bg-white border border-red-200 text-[#1F1A13] font-semibold py-2 rounded-lg flex items-center justify-center gap-2 disabled:opacity-60">
+                  <Printer size={15} /> {tr('اطبع بنظام الطباعة في الجهاز')}
+                </button>
+              </div>
+            )}
+            {customized && directProfile.printer === 'impact' && directTransport === 'system' && (
+              <p className="text-[11px] text-gray-400 text-center leading-relaxed">
+                {tr(PRINT_NOTES.impactDesktop)}
+                {directPrintAvailable() && <> — {tr('للطباعة من الجوال اختر البلوتوث المباشر من تغيير')}</>}
+              </p>
+            )}
+          </>
         )}
         {/* مستند لا ورقة له (مُبطل أو لم تحسمه الهيئة): لا زرّ مشاركة يُخرج ورقةً تُقرأ مستنداً ضريبياً */}
         {zBlocked ? (
@@ -1775,10 +1910,24 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
         <button onClick={onClose} className="w-full bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">{tr('تم')}</button>
       </div>
 
-      {/* النسخة الكاملة (خارج الشاشة) للالتقاط */}
+      {/* النسخة الكاملة (خارج الشاشة) للالتقاط — بمظهر قالب الـPDF؛ ونسخةٌ ثانية بمظهر قالب الطباعة حين يختلفان */}
       <div style={{ position: 'fixed', top: 0, left: '-10000px', zIndex: -1 }} aria-hidden>
-        {renderDoc(printRef)}
+        <PrintLookContext.Provider value={pdfLook}>{renderDoc(printRef)}</PrintLookContext.Provider>
+        {separatePage && pageLook && <PrintLookContext.Provider value={pageLook}>{renderDoc(pageRef)}</PrintLookContext.Provider>}
       </div>
+
+      {deviceOpen && directProfile && (
+        <PrintDeviceSheet
+          settings={settings} kind={printKind} current={directProfile}
+          chosenId={deviceChoice?.byKind?.[printKind] ?? null}
+          onPick={(id) => setDeviceChoice(withKindChoice(deviceChoice, printKind, id))}
+          choice={deviceChoice} onChoice={setDeviceChoice}
+          company={doc.company}
+          renderSheet={(d, ref) => <PrintableInvoice ref={ref} doc={d} />}
+          onClose={() => setDeviceOpen(false)}
+        />
+      )}
+      <DirectPrintOverlay job={bt.job} onCancel={bt.cancel} />
     </div>
   );
 }

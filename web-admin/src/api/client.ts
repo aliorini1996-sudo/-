@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { sessionSpace, useAuthStore } from '../store/authStore';
 import { FS_CAPS_HEADER, FS_CAPS_VALUE } from './caps';
+import type { PrintSettingsV1 } from '../lib/print/printSettingsCore';
 
 /** مساران واحدٌ بعد تطبيع الشرطة الأخيرة — الخادم يخدم `/m` و`/m/` معاً */
 const samePath = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
@@ -216,6 +217,13 @@ export const authApi = {
 export const companyApi = {
   get: () => api.get('/company'),
   update: (data: unknown) => api.put('/company', data),
+  // «إعدادات الطباعة» — /api/company/print-settings: القراءة لكل مسجّل (data خام تُقرأ عبر normalizePrintSettings)، والحفظ
+  // بصلاحية إعدادات الشركة (409 COMPANY_SETTINGS_MISSING بلا صفّ إعدادات) — مسارٌ مستقلّ لا حقلٌ في update أعلاه.
+  // null = «استعادة الافتراضي»: يُرسل { reset: true } (express.json الصارم يرفض null الخام) فيُكتب العمود null حرفياً
+  printSettings: {
+    get: () => api.get('/company/print-settings'),
+    put: (data: PrintSettingsV1 | null) => api.put('/company/print-settings', data ?? { reset: true }),
+  },
 };
 
 // ربط فوترة ZATCA المرحلة الثانية (تبويب إعدادات الشركة) — OTP يُرسل في جسم الربط/التجديد وحدهما ولا يُحفظ في الواجهة

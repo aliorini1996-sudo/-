@@ -1114,6 +1114,9 @@ model CompanySettings {
   // «الفرق» (routes/teams.ts، services/teams.ts): فرق مناديب بمشرفين وأصناف خاصة وتقارير مفصولة. مطفأة افتراضياً لكل
   // الشركات (طلب المالك)، ويفعّلها مدير الشركة من «إعدادات الشركة» — والإطفاء يعيد الشركة كما كانت وتبقى الفرق والوسوم محفوظة
   teamsEnabled             Boolean @default(false)
+  // «إعدادات الطباعة» v1 (services/printSettingsCore.ts، routes/printSettings.ts): قوالب الطباعة وتوجيه المستندات إليها —
+  // null = سلوك اليوم حرفياً (شريط 58 مم وPDF الـA4)، فعمود إضافي بلا افتراضي لا يغيّر شركة قائمة عند db push
+  printSettings            Json?
 
   // --- التدويل (المرحلة 0): أعمدة إضافية بقيم افتراضية — لا فقد بيانات ---
   countryCode      String  @default("SA") // ISO alpha-2: دولة الشركة

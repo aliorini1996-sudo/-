@@ -8,11 +8,15 @@ import { ZATCA_ROUTE_CODES, auditOwnerImpersonationWrite, companyZatcaFieldChang
 import { phase2LockedSettingChanges, phase2SettingsLockedBody } from '../compliance/zatca/settingsGuards';
 import { aiRepForRep } from '../ai-rep/access';
 import teamsRouter from './teams';
+import printSettingsRouter from './printSettings';
 
 const router = Router();
 router.use(authenticate);
 // «الفرق» داخل الشركة — /api/company/teams (routes/teams.ts): تحت بادئة الشركة المصنّفة، بحرّاسها هي
 router.use('/teams', teamsRouter);
+// «إعدادات الطباعة» — /api/company/print-settings (routes/printSettings.ts): القراءة لكل مسجّل والحفظ بصلاحية إعدادات الشركة.
+// مسارٌ مستقلّ لا حقلٌ في PUT /api/company — companySchema وقراءتا قفل ZATCA كما هي
+router.use('/print-settings', printSettingsRouter);
 
 const companySchema = z.object({
   name: z.string().min(1),

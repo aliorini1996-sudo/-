@@ -13,7 +13,9 @@ import { keepLocalEdits } from '../components/zatca/settingsMerge';
 import { LOCKED_INPUT_CLASS, SELLER_LOCK_HINT_ID, companySaveErrorMessage, companySaveNeedsRefetch, withoutLockedSellerFields, zatcaCountryChoiceAllowed, zatcaSellerFieldsLocked, zatcaSellerLockHint, zatcaTabVisible } from '../components/zatca/zatcaAccess';
 import ZatcaTabBoundary from '../components/zatca/ZatcaTabBoundary';
 import TeamsTabBoundary from '../components/teams/TeamsTabBoundary';
+import PrintTabBoundary from '../components/print/PrintTabBoundary';
 import { isZatcaPhase2Live } from '../lib/zatcaRegime';
+import { zatcaCollectOn } from '../lib/zatcaRegime';
 import { useAuthStore } from '../store/authStore';
 import { useSearchParams } from 'react-router-dom';
 
@@ -22,6 +24,8 @@ const loadZatcaPhase2Tab = () => import('../components/zatca/ZatcaPhase2Tab');
 // تبويب «الربط البرمجي API» — حزمةٌ مستقلّة لا تُحمَّل إلا عند فتحه
 const ApiKeysPanel = lazy(() => import('./ApiKeysPage'));
 const loadTeamsPanel = () => import('../components/teams/TeamsPanel');
+// «إعدادات الطباعة» — حزمةٌ كسولة (المحرّر والمعاينة) لا تُحمَّل إلا عند فتح التبويب
+const loadPrintPanel = () => import('../components/print/PrintSettingsPanel');
 
 interface CompanyForm {
   name: string;
@@ -70,10 +74,14 @@ export default function CompanySettingsPage() {
   const scopeEnabled = useAuthStore(s => s.user?.scopeEnabled === true);
   // `?tab=api`: الرابط القديم للربط البرمجي (/app/api) يحوّل هنا ويفتح تبويبه
   const [params] = useSearchParams();
-  const [tab, setTab] = useState<'general' | 'zatca' | 'api' | 'teams'>(() => {
+  const [tab, setTab] = useState<'general' | 'print' | 'zatca' | 'api' | 'teams'>(() => {
     const t = params.get('tab');
-    return t === 'api' || t === 'teams' ? t : 'general';
+    return t === 'api' || t === 'teams' || t === 'print' ? t : 'general';
   });
+  // تبويب «إعدادات الطباعة» يُركَّب عند أول فتح ثم يبقى مخفيّاً — فلا تضيع مسودة قوالبه بالتنقّل بين التبويبات
+  const [printMounted, setPrintMounted] = useState(() => params.get('tab') === 'print');
+  const [printAttempt, setPrintAttempt] = useState(0);
+  const PrintSettingsPanel = useMemo(() => lazy(loadPrintPanel), [printAttempt]); // eslint-disable-line react-hooks/exhaustive-deps
   // تبويب «الفرق» يُركَّب عند أول فتح ثم يبقى مخفيّاً — كتبويب الربط البرمجي
   const [teamsMounted, setTeamsMounted] = useState(() => params.get('tab') === 'teams');
   // «إعادة المحاولة» بعد فشل تحميل حزمة التبويب: مكوّن كسول جديد لكل محاولة (React.lazy يحفظ الوعد المرفوض)
@@ -196,11 +204,15 @@ export default function CompanySettingsPage() {
   const apiTabOn = (data as { apiEnabled?: boolean } | null | undefined)?.apiEnabled === true && role === 'ADMIN' && !scopeEnabled;
   // «الفرق» (مطفأة افتراضياً، يفعّلها مدير الشركة هنا): لمدير الشركة غير المقيَّد — والخادم يشترط صلاحية إعدادات الشركة
   const teamsTabOn = role === 'ADMIN' && !scopeEnabled;
+  // «إعدادات الطباعة»: لكل من بلغ الصفحة (المسار نفسه بصلاحية إعدادات الشركة، والخادم يشترطها للحفظ) — لا ADMIN ولا نطاق،
+  // ولا يُخفى مع المحاسبة: سند القبض والتحميل يُطبعان بلا محاسبة أيضاً
+  const printTabOn = true;
   // تبويبٌ غير متاح (أُطفئ أو رابطٌ قديم) يعود للإعدادات العامة
   const activeTab = (tab === 'zatca' && !zatcaTabOn) || (tab === 'api' && !apiTabOn) || (tab === 'teams' && !teamsTabOn) ? 'general' : tab;
   const showZatca = zatcaTabOn && tab === 'zatca';
   const showApi = apiTabOn && activeTab === 'api';
   const showTeams = teamsTabOn && activeTab === 'teams';
+  const showPrint = printTabOn && activeTab === 'print';
   // فوترة ZATCA (Z5.0، D9): بعد التفعيل الحيّ يرفض الخادم تغيير العملة (409 ZATCA_SETTINGS_LOCKED) — فلا يُعرض اختيارها
   const zatcaLive = isZatcaPhase2Live(data);
   // شركة سعودية (أو بلا دولة محفوظة) بعلم المالك: الرقم الضريبي والسجل والدولة لمدير الشركة غير المقيّد وحده (الخادم يرفض غيره
@@ -216,12 +228,18 @@ export default function CompanySettingsPage() {
       </div>
 
       {/* شريط التبويبات: الفوترة الإلكترونية محكومة بـzatcaTabOn وحده، والربط البرمجي بـapiTabOn */}
-      {(zatcaTabOn || apiTabOn || teamsTabOn) && (
+      {(printTabOn || zatcaTabOn || apiTabOn || teamsTabOn) && (
         <div className="flex gap-2 mb-5 overflow-x-auto pb-1" role="tablist">
           <button type="button" role="tab" aria-selected={activeTab === 'general'} onClick={() => setTab('general')}
             className={`shrink-0 whitespace-nowrap rounded-xl border-2 px-4 py-2 text-sm font-semibold transition-colors ${activeTab === 'general' ? 'border-[#E15A30] bg-[#FBEBE2] text-[#C94E28]' : 'border-[#E9E1D3] bg-white text-[#44403a] hover:border-[#D8CDB9]'}`}>
             {tr('الإعدادات العامة')}
           </button>
+          {printTabOn && (
+            <button type="button" role="tab" aria-selected={activeTab === 'print'} onClick={() => { setTab('print'); setPrintMounted(true); }}
+              className={`shrink-0 whitespace-nowrap rounded-xl border-2 px-4 py-2 text-sm font-semibold transition-colors ${activeTab === 'print' ? 'border-[#E15A30] bg-[#FBEBE2] text-[#C94E28]' : 'border-[#E9E1D3] bg-white text-[#44403a] hover:border-[#D8CDB9]'}`}>
+              {tr('إعدادات الطباعة')}
+            </button>
+          )}
           {zatcaTabOn && (
             <button type="button" role="tab" aria-selected={activeTab === 'zatca'} onClick={() => { setTab('zatca'); setZatcaMounted(true); }}
               className={`shrink-0 whitespace-nowrap rounded-xl border-2 px-4 py-2 text-sm font-semibold transition-colors ${activeTab === 'zatca' ? 'border-[#E15A30] bg-[#FBEBE2] text-[#C94E28]' : 'border-[#E9E1D3] bg-white text-[#44403a] hover:border-[#D8CDB9]'}`}>
@@ -276,8 +294,18 @@ export default function CompanySettingsPage() {
         </div>
       )}
 
+      {printTabOn && printMounted && (
+        <div hidden={!showPrint}>
+          <PrintTabBoundary onRetry={() => setPrintAttempt(n => n + 1)}>
+            <Suspense fallback={<div className="flex items-center justify-center h-48"><div className="w-8 h-8 border-4 border-[#E15A30] border-t-transparent rounded-full animate-spin" /></div>}>
+              <PrintSettingsPanel phase2={zatcaCollectOn(data)} />
+            </Suspense>
+          </PrintTabBoundary>
+        </div>
+      )}
+
       {/* الإعدادات العامة: مخفيّة لا مُزالة خلف أيّ تبويبٍ آخر — فلا يضيع ما لم يُحفظ */}
-      <div hidden={showApi || showTeams}>
+      <div hidden={showApi || showTeams || showPrint}>
       <div hidden={showZatca}>
       <form onSubmit={handleSubmit(values => mutation.mutate({
         form: values, state: { logo, primaryColor, headerStyle, countryCode, currencyOverride, numerals }, einv, sellerLocked,
