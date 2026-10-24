@@ -530,3 +530,13 @@ test('حارس /auth/change-password لجلسة الموظف يطابق مسار
   assert.match(auth, /return `\$\{req\.baseUrl \?\? ''\}\$\{req\.path \?\? ''\}`\.toLowerCase\(\)/);
   assert.doesNotMatch(auth.slice(auth.indexOf('function normalizedUrlPath'), auth.indexOf('function normalizedUrlPath') + 400), /originalUrl \?\?/);
 });
+
+test('عدد عملاء الشركات للمالك وحده: لا يُقرأ لموظف المنصة في القائمة ولا في الشركة المفردة، ولا عمود له في لوحته', () => {
+  const tenants = read('routes', 'tenants.ts');
+  assert.equal((tenants.match(/customers: !req\.platformStaff/g) ?? []).length, 2);
+  assert.doesNotMatch(tenants, /_count: \{ select: \{[^}]*customers: true/, 'لا عدّ عملاء بلا شرط في مسارات الشركات');
+  const page = fs.readFileSync(path.join(SRC, '..', '..', 'web-admin', 'src', 'pages', 'PlatformPage.tsx'), 'utf8');
+  assert.match(page, /customers: isOwner,/);
+  assert.match(page, /\{perms\.customers && <th className="text-center">\{tr\('عملاء'\)\}<\/th>\}/);
+  assert.match(page, /\{perms\.customers && <td className="text-center text-gray-600">\{t\._count\?\.customers \?\? 0\}<\/td>\}/);
+});

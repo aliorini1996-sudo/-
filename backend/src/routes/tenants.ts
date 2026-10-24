@@ -138,12 +138,13 @@ router.get('/platform-totals', async (_req: AuthRequest, res: Response, next: Ne
 });
 
 // قائمة الشركات مع ملخص لكل واحدة
-router.get('/', async (_req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/', async (req: PlatformRequest, res: Response, next: NextFunction) => {
   try {
     const tenants = await prisma.tenant.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
-        _count: { select: { admins: true, salesReps: true, customers: true, invoices: true } },
+        // عدد العملاء للمالك وحده (طلب المالك): لا يُقرأ لموظف المنصة فلا يصل ردّه
+        _count: { select: { admins: true, salesReps: true, customers: !req.platformStaff, invoices: true } },
         admins: { select: { name: true, email: true }, take: 1, orderBy: { createdAt: 'asc' } },
         // M2 (§8.1): حالة الدفاتر لشارة بطاقة الشركة
         glSettings: { select: { activatedAt: true, backfillState: true } },
@@ -172,13 +173,14 @@ router.get('/', async (_req: AuthRequest, res: Response, next: NextFunction) => 
   } catch (err) { next(err); }
 });
 
-router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/:id', async (req: PlatformRequest, res: Response, next: NextFunction) => {
   try {
     const tenant = await prisma.tenant.findUnique({
       where: { id: req.params.id },
       include: {
         admins: { select: { id: true, name: true, email: true, isActive: true } },
-        _count: { select: { salesReps: true, customers: true, products: true, invoices: true, receipts: true } },
+        // عدد العملاء للمالك وحده — كقائمة الشركات
+        _count: { select: { salesReps: true, customers: !req.platformStaff, products: true, invoices: true, receipts: true } },
       },
     });
     if (!tenant) { res.status(404).json({ success: false, message: 'الشركة غير موجودة' }); return; }

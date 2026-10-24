@@ -125,6 +125,8 @@ export default function PlatformPage() {
     edit: can('tenants.edit'), reset: can('tenants.resetPassword'), del: can('tenants.delete'),
     // الموظف لا يختار كلمة مدير الشركة: الخادم يرسل مؤقتة إلى بريده
     resetByEmail: !isOwner,
+    // عدد عملاء كل شركة للمالك وحده (طلب المالك) — والخادم لا يرسله للموظف أصلاً (routes/tenants.ts)
+    customers: isOwner,
   };
 
   const colHandlers = {
@@ -329,7 +331,7 @@ export default function PlatformPage() {
 }
 
 /** أزرار صفّ الشركة الممنوحة — للمالك كلها صادقة (tenants.create/impersonate/performance/edit/resetPassword/delete) */
-type TenantPerms = { add: boolean; enter: boolean; perf: boolean; edit: boolean; reset: boolean; resetByEmail: boolean; del: boolean };
+type TenantPerms = { add: boolean; enter: boolean; perf: boolean; edit: boolean; reset: boolean; resetByEmail: boolean; del: boolean; customers: boolean };
 
 // ترحيب الموظف حين لا يُمنح جدول الشركات — القائمة الجانبية فيها ما مُنح وحده
 function StaffWelcome({ name, hint }: { name?: string; hint: string | null }) {
@@ -376,7 +378,7 @@ function TenantColumn({
   const limitOf = (t: Tenant) => t.maxSalesReps;
   // عمودٌ بلا أي زرٍّ ممنوح لا يُرسم
   const showActions = perms.enter || perms.perf || perms.edit || perms.reset || perms.del;
-  const cols = showActions ? 7 : 6;
+  const cols = 5 + (perms.customers ? 1 : 0) + (showActions ? 1 : 0);
 
   return (
     <section className="card p-0 overflow-hidden flex flex-col">
@@ -408,7 +410,7 @@ function TenantColumn({
               <th>{tr('العميل')}</th>
               <th>{tr('المدير')}</th>
               <th className="text-center">{limitLabel}</th>
-              <th className="text-center">{tr('عملاء')}</th>
+              {perms.customers && <th className="text-center">{tr('عملاء')}</th>}
               <th>{tr('انتهاء الاشتراك')}</th>
               <th>{tr('الحالة')}</th>
               {showActions && <th>{tr('إجراءات')}</th>}
@@ -436,7 +438,7 @@ function TenantColumn({
                       ? <span className="badge-active">{tr('غير محدود')}</span>
                       : <span className="font-semibold text-gray-700">{lim}</span>}
                   </td>
-                  <td className="text-center text-gray-600">{t._count?.customers ?? 0}</td>
+                  {perms.customers && <td className="text-center text-gray-600">{t._count?.customers ?? 0}</td>}
                   <td className="text-sm text-gray-500">{t.subscriptionEndsAt ? formatDate(t.subscriptionEndsAt) : tr('غير محدود')}</td>
                   <td>
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${st.cls}`}>{st.label}</span>
