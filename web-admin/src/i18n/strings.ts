@@ -686,10 +686,9 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'تم التحديث': { en: 'Updated', fr: 'Mis à jour', tr: 'Güncellendi', zh: '已更新' },
   'تم الإضافة': { en: 'Added', fr: 'Ajouté', tr: 'Eklendi', zh: '已新增' },
   // ——— موظفو المنصة — الحسابات: دخول الموظف وتغيير كلمته المؤقتة ونافذة المالك (StaffPanel) وسجل النشاط ———
-  'دخول موظفي المنصة': { en: 'Platform staff sign-in', fr: 'Connexion du personnel de la plateforme', tr: 'Platform personeli girişi', zh: '平台员工登录' },
+  'بوابة لوحة تحكم المنصة': { en: 'Platform control panel portal', fr: 'Portail du panneau de contrôle de la plateforme', tr: 'Platform kontrol paneli portalı', zh: '平台控制面板入口' },
   'اخفاء كلمة المرور': { en: 'Hide password', fr: 'Masquer le mot de passe', tr: 'Şifreyi gizle', zh: '隐藏密码' },
   'اظهار كلمة المرور': { en: 'Show password', fr: 'Afficher le mot de passe', tr: 'Şifreyi göster', zh: '显示密码' },
-  'حسابك يفتحه مالك المنصة ويمنحك ما يلزم عملك فقط': { en: 'Your account is opened by the platform owner and grants only what your work needs', fr: 'Votre compte est ouvert par le propriétaire de la plateforme et ne donne accès qu à ce dont votre travail a besoin', tr: 'Hesabınızı platform sahibi açar ve yalnızca işinizin gerektirdiği yetkileri verir', zh: '您的账号由平台所有者开通，仅授予工作所需的权限' },
   'ادخل كلمة المرور المؤقتة': { en: 'Enter the temporary password', fr: 'Saisissez le mot de passe temporaire', tr: 'Geçici şifreyi girin', zh: '请输入临时密码' },
   'كلمة المرور الجديدة 8 احرف على الاقل': { en: 'The new password must be at least 8 characters', fr: 'Le nouveau mot de passe doit comporter au moins 8 caractères', tr: 'Yeni şifre en az 8 karakter olmalıdır', zh: '新密码至少 8 个字符' },
   'كلمتا المرور غير متطابقتين': { en: 'Passwords do not match', fr: 'Les mots de passe ne correspondent pas', tr: 'Şifreler eşleşmiyor', zh: '两次输入的密码不一致' },

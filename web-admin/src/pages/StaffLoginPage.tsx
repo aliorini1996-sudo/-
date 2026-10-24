@@ -61,7 +61,7 @@ export default function StaffLoginPage() {
             <span className="text-[#FAF7F0]">Field</span><span className="text-[#E15A30]"> Sales</span>
           </div>
           <p className="text-[#9A8F7E] mt-2 text-sm flex items-center justify-center gap-1.5">
-            <UserCog size={14} /> {tr('دخول موظفي المنصة')}
+            <UserCog size={14} /> {tr('بوابة لوحة تحكم المنصة')}
           </p>
         </div>
 
@@ -94,7 +94,6 @@ export default function StaffLoginPage() {
               {loading ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : t('login.submit')}
             </button>
           </form>
-          <p className="text-[11px] text-[#9A8F7E] text-center mt-4 leading-relaxed">{tr('حسابك يفتحه مالك المنصة ويمنحك ما يلزم عملك فقط')}</p>
         </div>
       </div>
     </div>
