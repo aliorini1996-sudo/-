@@ -1,6 +1,7 @@
 import { forwardRef, useRef, useState, useEffect, useMemo } from 'react';
 import QRCode from 'qrcode';
 import { formatCurrency, formatDate, formatDayOnly, formatTime, formatDateTime, paymentMethodLabels, getActiveCurrency } from '../utils/format';
+import { methodLabelFor } from '../lib/paymentMethodsConfig';
 import { currencyDecimals } from '../i18n/countries';
 import { periodShape, statementFinalBalance, statementZone } from './statementFacts';
 import { adjustTotals, receiveTotalQty, uncostedCount, isCosted, noticeRef } from './warehouseNoticeFacts';
@@ -67,6 +68,9 @@ export interface Company {
   // «إعدادات الطباعة» v1 — خام كما في العمود (null = سلوك اليوم). لا يُقرأ إلا عبر normalizePrintSettings (lib/print/printSettings.ts):
   // نسخة أحدث أو عطب ⇒ الافتراضي، فلا يطبع جوال قديم ورقةً لم يُصمَّم لها
   printSettings?: unknown;
+  // «إدارة طرق الدفع» v1 — خام كما في العمود (null = الطرق الخمس بأسمائها الافتراضية). لا يُقرأ إلا عبر companyMethodsConfig
+  // (lib/paymentMethodsConfig.ts): نسخة أحدث أو عطب ⇒ الافتراضي — ومنه تُبنى اختيارات السند أوف‑لاين وأسماؤه المطبوعة
+  paymentMethodsConfig?: unknown;
 }
 
 /**
@@ -139,6 +143,11 @@ export interface ReceiptDoc {
   repName: string;
   amount: number;
   paymentMethod: string;
+  /**
+   * «إدارة طرق الدفع»: مفتاح الطريقة المخصّصة (c_…) — الاسم المطبوع يُحلّ من `company` بـmethodLabelFor. غيابه = مدمجة،
+   * و`paymentMethod` يبقى الأساس (نقدي/شبكة/تحويل/شيك) كما اليوم.
+   */
+  paymentMethodKey?: string | null;
   notes?: string;
   /**
    * مرفقات رفعها المندوب عند الإصدار. **لا تدخل قالب الطباعة** —
@@ -725,7 +734,8 @@ export const PrintableReceipt = forwardRef<HTMLDivElement, { doc: ReceiptDoc }>(
         {doc.customer.phone && <InfoBox label={tr('الجوال')} value={doc.customer.phone} />}
         {addr && <InfoBox label={tr('العنوان')} value={addr} />}
         <div style={{ height: 8 }} />
-        <InfoBox label={tr('طريقة الدفع')} value={tr(paymentMethodLabels[doc.paymentMethod] || doc.paymentMethod)} />
+        {/* «إدارة طرق الدفع»: اسم الشركة للطريقة (مخصّصة أو مدمجة سُمّيت) كما كتبته، وإلا الافتراضي مترجماً كما اليوم */}
+        <InfoBox label={tr('طريقة الدفع')} value={methodLabelFor(doc.company, doc.paymentMethod, doc.paymentMethodKey, tr)} />
         {doc.notes && <InfoBox label={tr('ملاحظات')} value={doc.notes} />}
       </div>
 
@@ -1452,6 +1462,7 @@ export function receiptDocFromDetail(rcp: any, repName: string, company?: Compan
     notes: rcp.notes ?? undefined,
     photos: receiptPhotosFrom(rcp.photos),
     invoices: receiptInvoicesFrom(rcp.invoiceItems),
+    paymentMethodKey: rcp.paymentMethodKey ?? null,
     ...(rcp.status === 'CANCELLED' && { cancelled: true }),
   };
 }

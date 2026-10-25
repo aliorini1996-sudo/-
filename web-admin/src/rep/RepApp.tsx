@@ -26,6 +26,8 @@ import BarcodeScanner from './BarcodeScanner';
 import SaleInvoicePicker, { type ReturnableSale } from './SaleInvoicePicker';
 import LanguageToggle from '../components/LanguageToggle';
 import { useT, useTr } from '../i18n/strings';
+import { METHOD_CHOICE_UNAVAILABLE, choicePayload, pickChoice, receiptChoicesFor, type ChoicesOptions } from '../lib/paymentMethodsConfig';
+import { methodIconComponent } from '../components/PaymentMethodIcon';
 import RepRouteScreen, { fetchMyRoute, RouteToday } from './RepRouteScreen';
 import RepDailyReport from './RepDailyReport';
 import { useRepTracking } from './useRepTracking';
@@ -2303,11 +2305,20 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
 }
 
 // ============ إنشاء سند قبض ============
+/** أزرار طريقة الدفع في سند المندوب بترتيبها وأسمائها القصيرة اليوم («تحويل») — لشركةٍ لم تُسمِّ طرقها */
+const REP_RECEIPT_METHODS: ChoicesOptions = { order: ['CASH', 'BANK_TRANSFER', 'POS', 'CHEQUE'], defaultLabels: { BANK_TRANSFER: 'تحويل' } };
+
 function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: { customer: any; repName: string; company: Company | null; perms: RepUser; onClose: () => void; onDone: (doc: ReceiptDoc) => void }) {
   const tr = useTr();
   const activeTeam = useActiveTeam(perms); // «الفرق»
   const [amount, setAmount] = useState('');
-  const [method, setMethod] = useState('CASH');
+  /* «إدارة طرق الدفع»: اختيارات الشركة — المدمجة المفعّلة بأسمائها ثم المضافة (STC Pay، تابي…) — من إعدادها المخزّن مع
+   * /company: أوف‑لاين من ذاكرة الجهاز، وقبل أول تحميل (company=null) الأربع اليوم حرفياً. وما اختاره المندوب ثم عطّلته
+   * الشركة أثناء فتح النموذج (تحديث /company كل ٥ دقائق) لا يُستبدل بغيره أبداً: لا اختيار ويُمنع الإصدار حتى يختار من جديد
+   * — فلا يُرسل اختيارٌ لم يعد معروضاً ولا يُقيَّد تحويلٌ بنكي نقداً في عهدته. */
+  const methodChoices = receiptChoicesFor(company, tr, REP_RECEIPT_METHODS);
+  const [methodId, setMethodId] = useState<string | null>(null);
+  const { chosen, unavailable: methodUnavailable } = pickChoice(methodChoices, methodId);
   const [notes, setNotes] = useState('');
   /* مرفقات السند — إيصال تحويل أو صورة شيك. تمرّ في نفس حمولة السند فتلتقطها
    * منظومة الأوف‑لاين كما هي: مرفقٌ يُرفع في طلبٍ ثانٍ كان سيضيع حين ينقطع
@@ -2377,6 +2388,7 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
   const submit = async () => {
     if (perms.canCreateReceipt === false) { setMsg(tr('لا تملك صلاحية إصدار سند قبض')); return; }
     if (!amount || Number(amount) <= 0) { setMsg(tr('أدخل مبلغا صحيحا')); return; }
+    if (!chosen) { setMsg(tr(METHOD_CHOICE_UNAVAILABLE)); return; }
     // ═══ لا سند قبل أن تُعرف فواتير العميل (قرار المالك) ═══
     // الضغط أثناء التحميل أو بعد فشله كان يُرسل السند بلا توزيع، فيختار الخادم
     // الفاتورة بدل المندوب. الإصدار يتوقّف حتى تُحمَّل القائمة ويُسنَد السند.
@@ -2410,7 +2422,9 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
       .filter(([, v]) => v > 0.004)
       .map(([invoiceId, a]) => ({ invoiceId, amount: a }));
     const body = {
-      ...custRef, amount: Number(amount), paymentMethod: method, notes: notes || undefined, ...(photos.length ? { photos } : {}), ...(invoiceAllocations.length ? { invoiceAllocations } : {}),
+      // الأساس في paymentMethod (القيود والعهدة عليه) والمفتاح للمضافة وحدها — المدمجة بلا حقل زائد فبصمة clientRef كما اليوم،
+      // ويحمله صندوق العمل دون اتصال كما هو (الخادم لا يرفض الرفع المؤجَّل لسبب اسم: X-FS-Replay)
+      ...custRef, amount: Number(amount), ...choicePayload(chosen), notes: notes || undefined, ...(photos.length ? { photos } : {}), ...(invoiceAllocations.length ? { invoiceAllocations } : {}),
       // الفرق: السند يُحسب للفريق الذي يعمل له المندوب الآن
       ...(activeTeam && { teamId: activeTeam }),
     };
@@ -2426,7 +2440,7 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
         .filter(l => !!l.number);
       onDone({
         kind: 'receipt', number: localNumber, offline: true, date: clientCreatedAt,
-        company, customer, repName, amount: Number(amount), paymentMethod: method, notes: notes || undefined,
+        company, customer, repName, amount: Number(amount), paymentMethod: chosen.base, paymentMethodKey: chosen.key, notes: notes || undefined,
         ...(localLinks.length && { invoices: localLinks }),
       });
     };
@@ -2438,7 +2452,8 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
       const rcp = res.data.data;
       onDone({
         kind: 'receipt', number: rcp.number, date: rcp.receiptDate,
-        company, customer, repName, amount: Number(amount), paymentMethod: method, notes: notes || undefined,
+        // الطريقة كما خزّنها الخادم (أساسها من إعداد الشركة لا من الجهاز)، وإلا الاختيار — خادمٌ أقدم لا يعيد المفتاح
+        company, customer, repName, amount: Number(amount), paymentMethod: rcp.paymentMethod || chosen.base, paymentMethodKey: rcp.paymentMethod ? (rcp.paymentMethodKey ?? null) : chosen.key, notes: notes || undefined,
         // من روابط الخادم لا من التوزيع المحلي — هي ما خُزّن فعلاً
         invoices: receiptInvoicesFrom(rcp.invoiceItems),
       });
@@ -2461,8 +2476,6 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
       } catch { /* ملفٌ تالف أو غير صورة — يُتجاهل ولا يُسقط البقيّة */ }
     }
   };
-
-  const methods = [['CASH', 'نقدي'], ['BANK_TRANSFER', 'تحويل'], ['POS', 'شبكة'], ['CHEQUE', 'شيك']];
 
   return (
     <div className="h-full flex flex-col bg-gray-50">
@@ -2557,13 +2570,19 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
         <div>
           <label className="label">{tr('طريقة الدفع')}</label>
           <div className="flex flex-wrap gap-2">
-            {methods.map(([v, lbl]) => (
-              <button key={v} onClick={() => setMethod(v)}
-                className={`px-4 py-2 rounded-full text-sm ${method === v ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
-                {tr(lbl)}
-              </button>
-            ))}
+            {methodChoices.map((c) => {
+              // المضافة بأيقونتها (اسمها وحده قد يشبه مدمجة) — المدمجة كما اليوم بلا أيقونة
+              const Icon = c.custom ? methodIconComponent(c.icon, c.base) : null;
+              return (
+                <button key={c.id} onClick={() => setMethodId(c.id)}
+                  className={`px-4 py-2 rounded-full text-sm ${chosen?.id === c.id ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600'}${Icon ? ' inline-flex items-center gap-1.5' : ''}`}>
+                  {Icon && <Icon size={14} />}
+                  {c.label}
+                </button>
+              );
+            })}
           </div>
+          {methodUnavailable && <p className="text-[11px] text-[#C0392B] font-semibold mt-1.5">{tr(METHOD_CHOICE_UNAVAILABLE)}</p>}
         </div>
 
         <div>

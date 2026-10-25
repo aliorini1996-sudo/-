@@ -93,6 +93,8 @@ const INVOICE_ITEM_COLS = [
 const RECEIPT_COLS = [
   'id', 'number', 'customerId', 'salesRepId', 'receiptDate', 'amount', 'paymentMethod', 'chequeNumber', 'bankName',
   'notes', 'status', 'createdAt', 'updatedAt', 'teamId',
+  // «إدارة طرق الدفع»: مفتاح الطريقة المخصّصة (c_…) أو null — paymentMethod يبقى الأساس المحاسبي
+  'paymentMethodKey',
 ];
 
 const OFFLINE = 'سباكة العمل دون اتصال (مفتاح منع التكرار من الجهاز)';

@@ -287,7 +287,7 @@ export default function MobileApp() {
             {section === 'reps' ? <MSalesReps company={company} accountingOn={accountingOn} onBack={() => setSection(null)} />
               : section === 'products' ? <MProducts onBack={() => setSection(null)} />
                 : section === 'warehouse' ? <MWarehouse company={company} onBack={() => setSection(null)} />
-                  : <MReports accountingOn={accountingOn} onBack={() => setSection(null)} />}
+                  : <MReports accountingOn={accountingOn} company={company} onBack={() => setSection(null)} />}
           </Suspense>
         </div>
       )}

@@ -95,7 +95,7 @@ export default function MDocList({ kind, company, userName, onSwitchKind }: {
         {kind === 'invoice'
           ? <MInvoiceCreate onClose={() => setCreating(false)}
               onCreated={(id) => { setCreating(false); setOpenId(id); }} />
-          : <MReceiptCreate onClose={() => setCreating(false)}
+          : <MReceiptCreate company={company} onClose={() => setCreating(false)}
               onCreated={(id) => { setCreating(false); setOpenId(id); }} />}
       </Suspense>
     );

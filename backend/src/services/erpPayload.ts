@@ -8,6 +8,7 @@
  * ولقطة الفوترة الإلكترونية) — صورةٌ واحدة بـbase64 كانت تكفي لتجاوز سقف ١٢ ميغابايت في Odoo.
  */
 import { netFromInclusive, roundHalfUp } from '../lib/money';
+import { resolvePaymentMethod, type PaymentMethodsConfigV1 } from './paymentMethodsCore';
 
 export type ErpResource = 'customers' | 'products' | 'invoices' | 'receipts';
 /** ترتيب التبعية: العميل قبل فاتورته وسنده، والمنتج قبل بند فاتورته */
@@ -105,14 +106,24 @@ export function invoicePayloadRow(inv: ErpInvoiceInput, timeZone: string): Rec {
 
 export interface ErpReceiptInput extends Rec {
   receiptDate: Date | string;
+  paymentMethod?: string | null;
+  paymentMethodKey?: string | null;
   invoiceItems?: { invoiceId: string; amount: number; invoice?: { number: string } | null }[];
 }
 
-/** السند مع الفواتير التي دُفع مقابلها (allocations) وتاريخه المحلي — بلا كائنات الفواتير كاملة */
-export function receiptPayloadRow(r: ErpReceiptInput, timeZone: string): Rec {
+/**
+ * السند مع الفواتير التي دُفع مقابلها (allocations) وتاريخه المحلي — بلا كائنات الفواتير كاملة.
+ * «إدارة طرق الدفع»: paymentMethod يبقى الأساس المحاسبي (CASH/POS/…)، ويُضاف اسم الطريقة كما تعرفها الشركة لحظة التصدير:
+ * paymentMethodLabel دائماً (اسم الشركة وإلا الافتراضي بالعربية)، وpaymentMethodCompanyLabel اسم الشركة وحده أو null —
+ * فيُبقي مستقبِلٌ له وسومه (Odoo) وسمَه حين لم تسمِّ الشركة شيئاً. الإعداد null = الأسماء الافتراضية.
+ */
+export function receiptPayloadRow(r: ErpReceiptInput, timeZone: string, methods: PaymentMethodsConfigV1 | null = null): Rec {
   const { invoiceItems, ...rest } = r;
+  const method = resolvePaymentMethod(methods, r.paymentMethod ?? null, r.paymentMethodKey ?? null);
   return {
     ...rest,
+    paymentMethodLabel: method.label,
+    paymentMethodCompanyLabel: method.companyLabel,
     // الصيغة القديمة باقية لمستقبِلٍ عام يقرؤها (ERP غير Odoo) — بأرقام الفواتير لا كائناتها كاملة
     invoiceItems: (invoiceItems ?? []).map((a) => ({ invoiceId: a.invoiceId, amount: a.amount, invoice: a.invoice ? { number: a.invoice.number } : null })),
     receiptDateLocal: localDateIn(r.receiptDate, timeZone),

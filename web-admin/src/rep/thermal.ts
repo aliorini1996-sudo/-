@@ -4,7 +4,10 @@
  * يُتّخذ هنا مرّة (`d`) ويُمرَّر للقالبين الجديدين، فلا يبني أيٌّ منهما عنواناً أو رمزاً أو سطر ضريبة لنفسه. */
 import QRCode from 'qrcode';
 import { buildZatcaQr, zatcaTimestamp } from './zatca';
-import { paymentMethodLabels, getActiveCurrency, getActiveNumerals } from '../utils/format';
+import { getActiveCurrency, getActiveNumerals } from '../utils/format';
+// «إدارة طرق الدفع»: اسم الشركة للطريقة كما كتبته (بلا tr)، وإلا الافتراضي — بلا tr في الكلاسيكي فيبقى «نقدي» بايتاً ببايت
+// لشركةٍ بلا إعداد (حارس GOLDEN_RECEIPT_ONE)، ومترجماً في القالبين الجديدين كما اليوم
+import { methodLabelFor } from '../lib/paymentMethodsConfig';
 import { currencyDecimals, currencySymbol } from '../i18n/countries';
 import type { InvoiceDoc, ReceiptDoc } from './RepDocuments';
 import { isSaudiDoc, isSignatureSrc } from './RepDocuments';
@@ -308,7 +311,7 @@ export async function printThermalReceipt(doc: ReceiptDoc, opts?: ThermalPrintOp
     <div class="row"><span>المندوب</span><span>${esc(doc.repName)}</span></div>
     <div class="sep"></div>
     <div class="row"><span>استلمنا من</span><span>${esc(doc.customer.name)}</span></div>
-    <div class="row"><span>طريقة الدفع</span><span>${esc(paymentMethodLabels[doc.paymentMethod] || doc.paymentMethod)}</span></div>
+    <div class="row"><span>طريقة الدفع</span><span>${esc(methodLabelFor(doc.company, doc.paymentMethod, doc.paymentMethodKey))}</span></div>
     ${doc.notes ? `<div class="row"><span>ملاحظات</span><span>${esc(doc.notes)}</span></div>` : ''}
     <div class="sep"></div>
     <div class="c muted">المبلغ المستلم</div>
@@ -474,7 +477,7 @@ function rollReceiptBody(doc: ReceiptDoc, r: Roll): string {
     <div class="row"><span>${tr('استلمنا من')}</span><span>${esc(doc.customer.name)}</span></div>
     ${doc.customer.taxNumber ? `<div class="row"><span>${tr('الرقم الضريبي')}</span><span>${esc(doc.customer.taxNumber)}</span></div>` : ''}
     ${r.detailed && addr ? `<div class="row"><span>${tr('العنوان')}</span><span>${esc(addr)}</span></div>` : ''}
-    <div class="row"><span>${tr('طريقة الدفع')}</span><span>${esc(tr(paymentMethodLabels[doc.paymentMethod] || doc.paymentMethod))}</span></div>
+    <div class="row"><span>${tr('طريقة الدفع')}</span><span>${esc(methodLabelFor(doc.company, doc.paymentMethod, doc.paymentMethodKey, tr))}</span></div>
     ${doc.notes ? `<div class="row"><span>${tr('ملاحظات')}</span><span>${esc(doc.notes)}</span></div>` : ''}
     <div class="sep"></div>
     <div class="c muted">${tr('المبلغ المستلم')}</div>

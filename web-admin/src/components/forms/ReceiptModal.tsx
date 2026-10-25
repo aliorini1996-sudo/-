@@ -9,6 +9,7 @@ import { receiptInvoicesFrom } from '../../rep/receiptLinks';
 import { X, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SearchableSelect from '../SearchableSelect';
+import { METHOD_CHOICE_UNAVAILABLE, choicePayload, pickChoice, receiptChoicesFor } from '../../lib/paymentMethodsConfig';
 
 interface Props { onClose: () => void; onSaved: (doc: ReceiptDoc) => void; }
 
@@ -20,7 +21,8 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
   const [customerId, setCustomerId] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [amount, setAmount] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('CASH');
+  // «إدارة طرق الدفع»: معرّف الاختيار (رمز مدمجة أو مفتاح مضافة) — الأساس يُشتقّ منه (chosen أدناه)
+  const [methodId, setMethodId] = useState<string | null>(null);
   const [chequeNumber, setChequeNumber] = useState('');
   const [bankName, setBankName] = useState('');
   const [notes, setNotes] = useState('');
@@ -40,6 +42,12 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
     queryKey: ['company'],
     queryFn: async () => { const res = await companyApi.get(); return res.data.data as Company; },
   });
+  /* اختيارات الشركة: المدمجة المفعّلة بأسمائها (بترتيب هذه الشاشة اليوم) ثم المضافة — وقبل وصول ['company'] الأربع اليوم.
+   * حقلا الشيك/البنك على **الأساس** لا المعرّف: «شيك مؤجّل» مضافة تُعامل مثل الشيك فتطلب رقمه وبنكه */
+  const methodChoices = receiptChoicesFor(company, tr, { order: ['CASH', 'BANK_TRANSFER', 'POS', 'CHEQUE'] });
+  // ما اختاره المستخدم ثم اختفى بتحديث ['company'] ⇒ لا اختيار والإصدار ممنوع حتى يختار — لا بديل صامت عنه
+  const { chosen, unavailable: methodUnavailable } = pickChoice(methodChoices, methodId);
+  const paymentMethod = chosen?.base ?? null;
 
   const { data: customers } = useQuery({
     queryKey: ['customers-all'],
@@ -67,14 +75,17 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
   const invoicesLoading = !!customerId && (invoicesPending || invoicesFetching);
 
   const mutation = useMutation({
-    mutationFn: (data: unknown) => receiptApi.create(data),
-    onSuccess: (res) => {
+    mutationFn: (data: { paymentMethod: string; paymentMethodKey?: string } & Record<string, unknown>) => receiptApi.create(data),
+    onSuccess: (res, sent) => {
       const rcp = res.data.data;
       const repName = salesReps?.find(r => r.id === salesRepId)?.name || '';
       const doc: ReceiptDoc = {
         kind: 'receipt', number: rcp.number, date: rcp.receiptDate,
         company: company ?? null, customer: selectedCustomer as Customer, repName,
-        amount: Number(amount), paymentMethod, notes: notes || undefined,
+        // الطريقة كما خزّنها الخادم (أساسها من إعداد الشركة) — وإلا ما أُرسل فعلاً لخادمٍ أقدم لا يعيد المفتاح
+        // (من جسم الطلب لا من اختيار الرسم الحالي: تحديث الإعداد بين الإرسال والردّ لا يبدّل طريقة سندٍ صدر)
+        amount: Number(amount), paymentMethod: rcp.paymentMethod || sent.paymentMethod,
+        paymentMethodKey: rcp.paymentMethod ? (rcp.paymentMethodKey ?? null) : (sent.paymentMethodKey ?? null), notes: notes || undefined,
         // من روابط الخادم لا من جدول التوزيع — الخادم قد يكون أكمل التوزيع
         invoices: receiptInvoicesFrom(rcp.invoiceItems),
       };
@@ -83,7 +94,8 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('خطأ');
-      toast.error(msg);
+      // رسائل الخادم الثابتة مترجمة في القاموس (ومنها رفض طريقة الدفع المعطّلة أو المجهولة) — وغيرها يُعرض كما هو
+      toast.error(tr(msg));
     },
   });
 
@@ -114,6 +126,7 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
     if (!customerId) { toast.error(tr('اختر العميل')); return; }
     if (!salesRepId) { toast.error(tr('اختر المندوب')); return; }
     if (!amount || Number(amount) <= 0) { toast.error(tr('أدخل المبلغ')); return; }
+    if (!chosen) { toast.error(tr(METHOD_CHOICE_UNAVAILABLE)); return; }
     if (invoicesLoading) { toast.error(tr('انتظر تحميل فواتير العميل قبل إصدار السند')); return; }
     // فشل جلب الفواتير ليس «لا مديونية»: بدون القائمة لا يُعرف المطلوب توزيعه،
     // وكان الإرسال يمرّ حينها بتوزيع صفر ويقرّر الخادم صامتاً بدل المستخدم
@@ -135,7 +148,7 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
       .filter(([, v]) => v > 0)
       .map(([invoiceId, amt]) => ({ invoiceId, amount: amt }));
     mutation.mutate({
-      customerId, salesRepId, amount: Number(amount), paymentMethod,
+      customerId, salesRepId, amount: Number(amount), ...choicePayload(chosen),
       ...(receiptDate && { receiptDate }),
       chequeNumber: chequeNumber || undefined,
       bankName: bankName || undefined,
@@ -187,12 +200,12 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
             </div>
             <div>
               <label className="label">{tr('طريقة الدفع')}</label>
-              <select className="input" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
-                <option value="CASH">{tr('نقدي')}</option>
-                <option value="BANK_TRANSFER">{tr('تحويل بنكي')}</option>
-                <option value="POS">{tr('شبكة')}</option>
-                <option value="CHEQUE">{tr('شيك')}</option>
+              <select className={`input${methodUnavailable ? ' !border-red-400' : ''}`} value={chosen?.id ?? ''} onChange={e => setMethodId(e.target.value)}>
+                {/* اختيارٌ اختفى: خيارٌ فارغ معطّل بدل أن يُظهر المتصفح أول طريقة كأنها مختارة */}
+                {!chosen && <option value="" disabled>—</option>}
+                {methodChoices.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
               </select>
+              {methodUnavailable && <p className="text-[11px] text-red-600 mt-1">{tr(METHOD_CHOICE_UNAVAILABLE)}</p>}
             </div>
           </div>
 

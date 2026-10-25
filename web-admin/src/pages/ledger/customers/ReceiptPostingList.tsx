@@ -12,6 +12,8 @@ import { ledgerErrorOf } from '../../../api/ledgerConfig';
 import { ledgerReviewApi, ledgerReviewKeys, type PostingListParams, type ReceiptPostingRow } from '../../../api/ledgerReview';
 import { ledgerErrorMessage } from '../../../lib/ledger/errors';
 import { ledgerHref } from '../routes';
+import { companyApi } from '../../../api/client';
+import { companyMethodLabel, type CompanyWithMethods } from '../../../lib/paymentMethodsConfig';
 import { NotActivatedNotice, ManualLedgerNotice, postingFilterDefs, postingParamsOf } from './postingFilters';
 
 /**
@@ -39,6 +41,18 @@ export default function ReceiptPostingList() {
   const methodLabels: Record<string, string> = {
     CASH: tr('نقدي'), BANK_TRANSFER: tr('تحويل بنكي'), POS: tr('شبكة'), CHEQUE: tr('شيك'), ONLINE: tr('دفع إلكتروني'),
   };
+  /* «إدارة طرق الدفع»: الدفاتر تعمل على الأساس (الفلتر والترحيل والحساب) — والعمود يذكر اسم الشركة للطريقة ومعه أساسها بين
+   * قوسين، فيعرف المحاسب أن «STC Pay» قُيّدت شبكةً. كاش ['company'] نفسه (لا طلبٌ ثانٍ)؛ وبلا إعداد العمود كما اليوم */
+  const { data: methodsCompany } = useQuery({
+    queryKey: ['company'],
+    queryFn: async () => (await companyApi.get()).data.data as CompanyWithMethods,
+    staleTime: 300_000,
+  });
+  const methodCell = (r: ReceiptPostingRow) => {
+    const base = methodLabels[r.paymentMethod] ?? r.paymentMethod;
+    const own = companyMethodLabel(methodsCompany, r.paymentMethod, r.paymentMethodKey);
+    return own ? <span>{own} <span className="text-[#9A8F7E]">({base})</span></span> : base;
+  };
 
   const filters: LedgerFilterDef[] = [
     ...Object.entries(methodLabels).map(([k, label]) => ({ key: `method:${k}`, label, group: 'method' })),
@@ -50,7 +64,7 @@ export default function ReceiptPostingList() {
   const columns: LedgerColumn<ReceiptPostingRow>[] = [
     { key: 'date', label: tr('التاريخ'), render: r => <span className="whitespace-nowrap">{formatDayOnly(r.date)}</span> },
     { key: 'number', label: tr('الرقم'), render: r => <bdi className="font-semibold tabular-nums">{r.number}</bdi> },
-    { key: 'method', label: tr('طريقة القبض'), render: r => methodLabels[r.paymentMethod] ?? r.paymentMethod },
+    { key: 'method', label: tr('طريقة القبض'), render: methodCell },
     { key: 'customer', label: tr('العميل'), render: r => r.customerName ?? '' },
     { key: 'rep', label: tr('المندوب'), render: r => r.salesRepName ?? '' },
     { key: 'amount', label: tr('المبلغ'), align: 'end', render: r => <LedgerAmount value={r.amount} decimals={decimals} colored={false} /> },

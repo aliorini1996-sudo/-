@@ -438,3 +438,26 @@ test('خانة الرمز للبلوتوث: القيمة كما هي ومستو�
   await assert.rejects(printThermalInvoice(FIX.stamped as InvoiceDoc, { profile: narrow, raster: sink }), (e: unknown) => e instanceof PrintRefusedError && e.message === PRINT_WARNINGS.qrNoFit);
   assert.equal(got.length, 0);
 });
+
+// ═══ «إدارة طرق الدفع» (طلب المالك ٢٥ أكتوبر): اسم الشركة للطريقة على الشريطين — والذهبيّ أعلاه (شركةٌ بلا إعداد) كما هو ═══
+
+test('طريقة الدفع باسم الشركة: المضافة باسمها لا بمفتاحها ولا تُترجم، والمدمجة المسمّاة باسمها، والمفتاح المجهول باسم أساسه', async () => {
+  const paymentMethodsConfig = {
+    version: 1,
+    builtins: { POS: { label: 'مدى', active: true } },
+    custom: [{ key: 'c_stcpay01', label: 'STC Pay', base: 'POS', icon: 'smartphone', active: true }],
+  };
+  const co = { ...company, paymentMethodsConfig };
+  const rcp = (paymentMethod: string, paymentMethodKey: string | null): ReceiptDoc => ({ ...(FIX.receiptOne as ReceiptDoc), company: co, paymentMethod, paymentMethodKey });
+  const row = (label: string, v: string) => `<span>${label}</span><span>${v}</span>`;
+  // الكلاسيكي: عربيٌّ بلا مترجم كاليوم
+  assert.ok((await printOne(rcp('POS', 'c_stcpay01'))).html.includes(row('طريقة الدفع', 'STC Pay')));
+  assert.ok((await printOne(rcp('POS', null))).html.includes(row('طريقة الدفع', 'مدى')));
+  assert.ok((await printOne(rcp('POS', 'c_gone0001'))).html.includes(row('طريقة الدفع', 'مدى')), 'مفتاحٌ مجهول ⇒ اسم أساسه لا «c_…»');
+  assert.ok((await printOne(rcp('CASH', null))).html.includes(row('طريقة الدفع', 'نقدي')));
+  // القالب الجديد: الافتراضي مترجم كاليوم، واسم الشركة كما كتبته
+  const roll = { profile: profile('roll_compact', 'roll58'), tr: brackets };
+  assert.ok((await printOne(rcp('POS', 'c_stcpay01'), roll)).html.includes(row('[طريقة الدفع]', 'STC Pay')));
+  assert.ok((await printOne(rcp('POS', null), roll)).html.includes(row('[طريقة الدفع]', 'مدى')));
+  assert.ok((await printOne(rcp('CASH', null), roll)).html.includes(row('[طريقة الدفع]', '[نقدي]')));
+});

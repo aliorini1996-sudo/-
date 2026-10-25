@@ -14,6 +14,8 @@ import { CancelRefused, claimReceiptCancel, restoreAllocations } from '../servic
 // ZATCA المرحلة الثانية (Z5.4، F2 ونقد 13): لا تحصيل على فاتورة لم تصر نهائية عند الهيئة، والمتبقّي يُقرأ مقفلاً
 import { ALLOCATION_ALLOWED_WHERE, ALLOCATION_BLOCKED_MIRRORS } from '../compliance/zatca/status';
 import { ZatcaHttpError } from '../compliance/zatca/errors';
+// «إدارة طرق الدفع»: النواة الصرفة (لا services/gl — هذا المسار محروس بـgl-hooks-static)
+import { readPaymentMethodsConfig, resolveReceiptMethod } from '../services/paymentMethodsCore';
 
 const router = Router();
 router.use(authenticate);
@@ -28,6 +30,9 @@ const receiptSchema = z.object({
   receiptDate: z.string().optional(),
   amount: z.number().positive(),
   paymentMethod: z.enum(['CASH', 'BANK_TRANSFER', 'POS', 'CHEQUE', 'ONLINE']).default('CASH'),
+  // «إدارة طرق الدفع»: مفتاح الطريقة المخصّصة (c_…) — الخادم يحلّه على إعداد الشركة ويفرض أساسه في paymentMethod
+  // (لا يثق بأساس الجهاز). غائب/null = طريقة مدمجة كما اليوم (تطبيق Flutter القديم والمكاملون بلا تغيير)
+  paymentMethodKey: z.string().max(64).nullish(),
   chequeNumber: z.string().optional(),
   bankName: z.string().optional(),
   notes: z.string().optional(),
@@ -203,7 +208,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // فرق المندوب وعلم الميزة مع صفّه نفسه (لا استعلام جديد)
     const rep = await prisma.salesRep.findFirst({
       where: { id: salesRepId, tenantId: tid },
-      include: { tenant: { select: { settings: { select: { teamsEnabled: true } } } }, teamMemberships: { select: teamMembershipSelectFor(supervisorViewerOf(req.user)) } },
+      include: { tenant: { select: { settings: { select: { teamsEnabled: true, paymentMethodsConfig: true } } } }, teamMemberships: { select: teamMembershipSelectFor(supervisorViewerOf(req.user)) } },
     });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
     // الفرق: السند يُحسب للفريق الذي يعمل له المندوب الآن (يختاره، أو فريقه الوحيد، وإلا «بلا فريق»)
@@ -215,6 +220,17 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     if (req.user?.role === 'SALES_REP' && !rep.canCreateReceipt) {
       res.status(403).json({ success: false, message: 'لا تملك صلاحية إصدار سند قبض' }); return;
     }
+
+    // «إدارة طرق الدفع» (قرار المالك ٢): الطريقة المخصّصة «تُعامل مثل» أساسها — فالأساس من إعداد الشركة يُكتب في paymentMethod
+    // (القيود والعهدة وتوجيه الحسابات كما اليوم) والمفتاح في paymentMethodKey للاسم وحده. الإعداد مع صفّ المندوب (لا استعلام).
+    // الطلب الحيّ يُرفض بـ422 على مفتاحٍ مجهول أو طريقةٍ معطّلة؛ والرفع المؤجَّل (X-FS-Replay) لا يُرفض أبداً لسبب اسم: المال
+    // قُبض فعلاً وأيّ 4xx يرفض السند في جهاز المندوب نهائياً — المعطّلة تُقبل والمجهول يُسقط ويبقى الأساس
+    const method = resolveReceiptMethod(
+      readPaymentMethodsConfig(rep.tenant?.settings?.paymentMethodsConfig ?? null),
+      { paymentMethod: body.paymentMethod, paymentMethodKey: body.paymentMethodKey },
+      { replay: String(req.headers['x-fs-replay'] || '') === '1' },
+    );
+    if (!method.ok) { res.status(method.status).json({ success: false, code: method.code, message: method.message }); return; }
 
     const customer = await prisma.customer.findFirst({ where: { id: customerId, tenantId: tid } });
     if (!customer) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
@@ -311,7 +327,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           ...(docTeamId && { teamId: docTeamId }),
           ...(docDate && { receiptDate: docDate }),
           amount: body.amount,
-          paymentMethod: body.paymentMethod,
+          paymentMethod: method.paymentMethod, // الأساس المحلول — لا مفتاح مخصّص هنا أبداً (الدفاتر ترسل المجهول إلى الحساب المعلّق)
+          ...(method.paymentMethodKey && { paymentMethodKey: method.paymentMethodKey }),
           chequeNumber: body.chequeNumber,
           bankName: body.bankName,
           notes: body.notes,

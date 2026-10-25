@@ -158,6 +158,8 @@ export interface ReceiptPostingRow {
   id: string;
   number: string;
   paymentMethod: string;
+  /** «إدارة طرق الدفع»: مفتاح الطريقة المضافة للاسم وحده — الترحيل والفلتر على الأساس paymentMethod */
+  paymentMethodKey?: string | null;
   status: string;
   date: LocalDate;
   amount: number;

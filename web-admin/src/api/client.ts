@@ -2,6 +2,7 @@ import axios from 'axios';
 import { sessionSpace, expiredDestination, useAuthStore } from '../store/authStore';
 import { FS_CAPS_HEADER, FS_CAPS_VALUE } from './caps';
 import type { PrintSettingsV1 } from '../lib/print/printSettingsCore';
+import type { PaymentMethodsConfigInput } from '../lib/paymentMethodsCore';
 
 /** مساران واحدٌ بعد تطبيع الشرطة الأخيرة — الخادم يخدم `/m` و`/m/` معاً */
 const samePath = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
@@ -227,6 +228,13 @@ export const companyApi = {
   printSettings: {
     get: () => api.get('/company/print-settings'),
     put: (data: PrintSettingsV1 | null) => api.put('/company/print-settings', data ?? { reset: true }),
+  },
+  // «إدارة طرق الدفع» — /api/company/payment-methods: القراءة لكل مسجّل ({ data, methods, choices })، والحفظ بصلاحية إعدادات
+  // الشركة وعَلَم صفحة «طرق الدفع» (400 بأسباب issues، 409 PAYMENT_METHODS_CONFLICT من تبويبٍ قديم). مسارٌ مستقلّ كالطباعة.
+  // null = «استعادة الافتراضي»: { reset: true } — المضافة تبقى معطّلة بأسمائها (سنداتها القديمة تحتاجها)
+  paymentMethods: {
+    get: () => api.get('/company/payment-methods'),
+    put: (data: PaymentMethodsConfigInput | null) => api.put('/company/payment-methods', data ?? { reset: true }),
   },
 };
 

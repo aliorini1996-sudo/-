@@ -10,15 +10,17 @@ import { useTr } from '../i18n/strings';
 import { invalidateAfterReceipt } from '../lib/receiptEffects';
 import { MHeader, MSpinner } from './mobileUi';
 import { expectArray } from './shape';
+import {
+  METHOD_CHOICE_UNAVAILABLE, choicePayload, pickChoice, receiptChoicesFor, type CompanyWithMethods, type ManualBase,
+} from '../lib/paymentMethodsConfig';
+import { methodIconComponent } from '../components/PaymentMethodIcon';
 
 interface Pick { id: string; name: string; code?: string; phone?: string }
 
-const METHODS = [
-  { v: 'CASH', label: 'نقدي', icon: Banknote },
-  { v: 'BANK_TRANSFER', label: 'تحويل', icon: Landmark },
-  { v: 'POS', label: 'شبكة', icon: CreditCard },
-  { v: 'CHEQUE', label: 'شيك', icon: FileText },
-] as const;
+/** أيقونات المدمجة في هذه الشاشة كما اليوم — والمضافة بأيقونتها من إعداد الشركة (methodIconComponent) */
+const BUILTIN_ICONS: Record<ManualBase, typeof Banknote> = { CASH: Banknote, BANK_TRANSFER: Landmark, POS: CreditCard, CHEQUE: FileText };
+/** ترتيب المدمجة واسم «تحويل» القصير كما اليوم — لشركةٍ لم تُسمِّ طرقها */
+const M_RECEIPT_METHODS = { order: ['CASH', 'BANK_TRANSFER', 'POS', 'CHEQUE'] as ManualBase[], defaultLabels: { BANK_TRANSFER: 'تحويل' } };
 
 /**
  * إصدار سند قبض من الجوال.
@@ -29,8 +31,10 @@ const METHODS = [
  * والتوزيع **بطاقاتٌ لا جدول**: جدول بأربعة أعمدة على عرض ٣٦٠px يصير غير
  * قابل للقراءة ولا للّمس.
  */
-export default function MReceiptCreate({ presetCustomerId, onClose, onCreated }: {
+export default function MReceiptCreate({ presetCustomerId, company, onClose, onCreated }: {
   presetCustomerId?: string;
+  /** ردّ /company (حالة MobileApp) — منه «إدارة طرق الدفع»؛ غيابه = الطرق الأربع اليوم */
+  company?: unknown;
   onClose: () => void;
   onCreated: (receiptId: string) => void;
 }) {
@@ -39,7 +43,13 @@ export default function MReceiptCreate({ presetCustomerId, onClose, onCreated }:
   const [customerId, setCustomerId] = useState(presetCustomerId || '');
   const [salesRepId, setSalesRepId] = useState('');
   const [amount, setAmount] = useState('');
-  const [method, setMethod] = useState<string>('CASH');
+  /* «إدارة طرق الدفع»: المدمجة المفعّلة بأسمائها ثم المضافة. وكل شرطٍ أدناه على **الأساس** (method) لا المعرّف: مضافةٌ
+   * تُعامل مثل الشيك تطلب رقمه وبنكه، ومثل التحويل بنكه — والقيود على الأساس نفسه */
+  const methodChoices = receiptChoicesFor(company as CompanyWithMethods, tr, M_RECEIPT_METHODS);
+  const [methodId, setMethodId] = useState<string | null>(null);
+  // ما اختاره المستخدم ثم اختفى بتحديث الشركة ⇒ لا اختيار والإصدار ممنوع حتى يختار — لا بديل صامت عنه
+  const { chosen, unavailable: methodUnavailable } = pickChoice(methodChoices, methodId);
+  const method: string = chosen ? chosen.base : '';
   const [chequeNumber, setChequeNumber] = useState('');
   const [bankName, setBankName] = useState('');
   const [receiptDate, setReceiptDate] = useState('');
@@ -75,11 +85,12 @@ export default function MReceiptCreate({ presetCustomerId, onClose, onCreated }:
 
   const save = useMutation({
     mutationFn: async () => {
+      if (!chosen) throw new Error(METHOD_CHOICE_UNAVAILABLE);
       const invoiceAllocations = Object.entries(alloc)
         .filter(([, v]) => v > 0)
         .map(([invoiceId, a]) => ({ invoiceId, amount: a }));
       const res = await receiptApi.create({
-        customerId, salesRepId, amount: amt, paymentMethod: method,
+        customerId, salesRepId, amount: amt, ...choicePayload(chosen),
         ...(method === 'CHEQUE' && chequeNumber.trim() && { chequeNumber: chequeNumber.trim() }),
         ...((method === 'CHEQUE' || method === 'BANK_TRANSFER') && bankName.trim() && { bankName: bankName.trim() }),
         ...(receiptDate && { receiptDate }),
@@ -94,13 +105,14 @@ export default function MReceiptCreate({ presetCustomerId, onClose, onCreated }:
       onCreated(r.id);
     },
     onError: (e: unknown) =>
-      toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الإصدار')),
+      toast.error(tr((e as { response?: { data?: { message?: string } } })?.response?.data?.message
+        || (e instanceof Error && e.message === METHOD_CHOICE_UNAVAILABLE ? METHOD_CHOICE_UNAVAILABLE : 'تعذر الإصدار'))),
   });
 
   // أيّ جلبٍ جارٍ لفواتير العميل يوقف الإصدار: الإرسال قبل وصولها كان يمرّ بتوزيع
   // صفر فيختار الخادم الفاتورة بدل المستخدم (قرار المالك: لا سند قبل إسناده)
   const invBusy = !!customerId && (invQ.isPending || invQ.isFetching);
-  const ready = !!customerId && !!salesRepId && amt > 0 && !overAllocated
+  const ready = !!chosen && !!customerId && !!salesRepId && amt > 0 && !overAllocated
     && !invBusy && !invQ.isError && shortfall <= 0.004;
 
   /** يوزّع المبلغ تلقائياً على الأقدم فالأحدث — أكثر ما يُفعل يدوياً */
@@ -134,18 +146,19 @@ export default function MReceiptCreate({ presetCustomerId, onClose, onCreated }:
         <div>
           <label className="label">{tr('طريقة الدفع')}</label>
           <div className="grid grid-cols-4 gap-2">
-            {METHODS.map(m => {
-              const Icon = m.icon;
-              const on = method === m.v;
+            {methodChoices.map(m => {
+              const Icon = m.custom ? methodIconComponent(m.icon, m.base) : BUILTIN_ICONS[m.base];
+              const on = chosen?.id === m.id;
               return (
-                <button key={m.v} onClick={() => setMethod(m.v)}
-                  className={`flex flex-col items-center gap-1 py-2.5 rounded-xl border min-h-[60px] justify-center ${on ? 'bg-[#E9F6EF] border-[#2F855A] text-[#2F855A]' : 'bg-white border-[#E9E1D3] text-[#6E6557]'}`}>
+                <button key={m.id} onClick={() => setMethodId(m.id)}
+                  className={`flex flex-col items-center gap-1 py-2.5 px-1 rounded-xl border min-h-[60px] justify-center ${on ? 'bg-[#E9F6EF] border-[#2F855A] text-[#2F855A]' : 'bg-white border-[#E9E1D3] text-[#6E6557]'}`}>
                   <Icon size={17} />
-                  <span className="text-[10px] font-semibold">{tr(m.label)}</span>
+                  <span className="text-[10px] font-semibold leading-tight text-center break-words max-w-full">{m.label}</span>
                 </button>
               );
             })}
           </div>
+          {methodUnavailable && <p className="text-[11px] text-[#C0392B] font-semibold mt-1.5 px-1">{tr(METHOD_CHOICE_UNAVAILABLE)}</p>}
         </div>
 
         {method === 'CHEQUE' && (

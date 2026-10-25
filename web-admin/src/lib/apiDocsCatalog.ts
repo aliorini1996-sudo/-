@@ -2087,7 +2087,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{ success: true, data: [سند], pagination: { total, page, limit, pages } }. كل سند يحمل حقوله: id وnumber وcustomerId وsalesRepId وreceiptDate وamount وpaymentMethod وchequeNumber وbankName وnotes وstatus وclientRef وclientCreatedAt وcreatedAt وupdatedAt. ويُضاف إليها customer {id, name} وsalesRep {id, name}، وinvoiceItems وكل عنصر فيها {id, receiptId, invoiceId, amount, invoice: {number}}. المرفقات photos لا تأتي في القائمة",
+    "response": "{ success: true, data: [سند], pagination: { total, page, limit, pages } }. كل سند يحمل حقوله: id وnumber وcustomerId وsalesRepId وreceiptDate وamount وpaymentMethod (الأساس المحاسبي) وpaymentMethodKey (مفتاح طريقة الشركة المخصّصة أو null) وchequeNumber وbankName وnotes وstatus وclientRef وclientCreatedAt وcreatedAt وupdatedAt. ويُضاف إليها customer {id, name} وsalesRep {id, name}، وinvoiceItems وكل عنصر فيها {id, receiptId, invoiceId, amount, invoice: {number}}. المرفقات photos لا تأتي في القائمة",
     "rules": [
      "تُعرض السندات ACTIVE وحدها، والملغاة لا تظهر في القائمة أبداً ولا يوجد باراميتر status",
      "الترتيب حسب createdAt تنازلياً أي الأحدث أولاً، وليس حسب receiptDate",
@@ -2188,7 +2188,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "paymentMethod",
       "type": "enum: CASH | BANK_TRANSFER | POS | CHEQUE | ONLINE",
       "required": false,
-      "desc": "طريقة الدفع، والافتراضي CASH"
+      "desc": "طريقة الدفع، والافتراضي CASH. وهي الأساس المحاسبي للسند: مع paymentMethodKey يُستبدل بالأساس المحفوظ لتلك الطريقة في إعداد الشركة. والطريقة التي عطّلتها الشركة تُرفض بـ422 PAYMENT_METHOD_DISABLED"
+     },
+     {
+      "name": "paymentMethodKey",
+      "type": "string | null",
+      "required": false,
+      "desc": "مفتاح طريقة دفع أضافتها الشركة (يبدأ بـc_، مثل STC Pay) من صفحة طرق الدفع. الخادم يكتب في paymentMethod الأساس الذي تُعامل مثله الطريقة (CASH أو POS أو BANK_TRANSFER أو CHEQUE) أياً كانت القيمة المرسلة. مفتاح غير معروف ⇒ 422 PAYMENT_METHOD_UNKNOWN، وطريقة معطّلة ⇒ 422 PAYMENT_METHOD_DISABLED، ومع ONLINE ⇒ 422 PAYMENT_METHOD_KEY_ONLINE. غيابه = طريقة مدمجة كما كان"
      },
      {
       "name": "chequeNumber",
@@ -4122,11 +4128,17 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "paymentMethod",
       "type": "enum: CASH | BANK_TRANSFER | POS | CHEQUE",
       "required": false,
-      "desc": "حصر التقرير بطريقة دفع، والقيمة غير المعروفة تُرجع قائمة فارغة لأن الحقل نصي"
+      "desc": "حصر التقرير بطريقة دفع، والقيمة غير المعروفة تُرجع قائمة فارغة لأن الحقل نصي. التصفية بالأساس المحاسبي فتشمل طرق الشركة المخصّصة التي تُعامل مثله"
+     },
+     {
+      "name": "paymentMethodKey",
+      "type": "string",
+      "required": false,
+      "desc": "حصر التقرير بطريقة دفع أضافتها الشركة بمفتاحها (c_…)"
      }
     ],
     "body": [],
-    "response": "{success:true, data:{receipts:[صف السند كاملاً بكل أعمدته ومنها number وamount وpaymentMethod وreceiptDate وstatus، مع customer{id,name} وsalesRep{id,name} أو null], summary:{total, count, byMethod:{CASH?:number, BANK_TRANSFER?:number, POS?:number, CHEQUE?:number}}}}",
+    "response": "{success:true, data:{receipts:[صف السند كاملاً بكل أعمدته ومنها number وamount وpaymentMethod وreceiptDate وstatus، مع customer{id,name} وsalesRep{id,name} أو null], summary:{total, count, byMethod:{CASH?:number, BANK_TRANSFER?:number, POS?:number, CHEQUE?:number} بالأساس المحاسبي, byMethodKey:{معرّف الطريقة: number} حيث المعرّف رمز الطريقة المدمجة أو مفتاح طريقة الشركة المخصّصة, methods:[{id, base, key, custom, label, companyLabel, icon, active, manual, amount, count}]}}}",
     "rules": [
      "السندات ذات الحالة ACTIVE فقط، فالملغاة لا تدخل",
      "لا يوجد مدى افتراضي هنا خلافاً لتقرير المبيعات، فبلا from وto يرجع كل السجل",

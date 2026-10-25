@@ -331,7 +331,9 @@ def map_receipt(row):
         'name': _s(row.get('number')) or _s(row.get('id')),
         'amount': amount,
         'receipt_date': _date(row.get('receiptDateLocal')) or _date(row.get('receiptDate')),
-        'payment_method': _PAYMENT_LABEL.get(method, method),
+        # «إدارة طرق الدفع»: اسم الشركة لطريقتها (مخصّصة كـSTC Pay أو مدمجة أعادت تسميتها) يعلو الوسم؛ وبلا تسمية يبقى
+        # وسم الموصل كما كان حرفياً. paymentMethod نفسه يبقى الأساس المحاسبي (CASH/POS/…)
+        'payment_method': _s(row.get('paymentMethodCompanyLabel')) or _PAYMENT_LABEL.get(method, method),
         'fs_customer_id': _s((row.get('customer') or {}).get('id')) or _s(row.get('customerId')),
         'note': ' · '.join(extra) or False,
         'state': _RECEIPT_STATE.get(status, status),

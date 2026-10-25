@@ -8,7 +8,8 @@ import { FINANCIAL_METRICS, RANKING_METRICS, rankRows, trackedMeters, type Ranki
 import { TEAM_NAME_SELECT, reportTeamOf, teamDocWhere, teamRepOrDocsWhere, teamRepWhere } from '../services/teams';
 import { isDamagedVanReturn } from '../services/vanDamaged';
 import { tenantTz } from '../services/invoiceExpiry';
-import { COLLECTED_CASH_SALE, COLLECTED_RECEIPT, buildPaymentMethodsReport, paymentMethodsRange, rosterOf, type RepInfo } from '../services/paymentMethodsReport';
+import { COLLECTED_CASH_SALE, COLLECTED_RECEIPT, buildPaymentMethodsReport, paymentMethodsRange, rosterOf, summarizeCollectionsByMethod, type RepInfo } from '../services/paymentMethodsReport';
+import { CUSTOM_METHOD_KEY_RE, readPaymentMethodsConfig } from '../services/paymentMethodsCore';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canViewReports'));
@@ -325,7 +326,7 @@ router.get('/returns', async (req: AuthRequest, res: Response, next: NextFunctio
 router.get('/collections', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const { from, to, salesRepId, paymentMethod } = req.query as Record<string, string>;
+    const { from, to, salesRepId, paymentMethod, paymentMethodKey } = req.query as Record<string, string>;
     // نطاق شامل ليوم «إلى» كاملاً (حتى منتصف ليلته) — يُصلح التصفية ليوم واحد وآخر يوم
     // طرفٌ واحد يكفي (راجع تقرير المبيعات): الغائب = بلا حدّ، لا إلغاءَ للفلتر
     const dateFilter = (from || to) ? {
@@ -333,23 +334,30 @@ router.get('/collections', async (req: AuthRequest, res: Response, next: NextFun
       ...(to ? { lt: new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) } : {}),
     } : undefined;
 
-    const receipts = await prisma.receipt.findMany({
-      where: {
-        tenantId: tid,
-        ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)),
-        status: 'ACTIVE',
-        ...(dateFilter && { receiptDate: dateFilter }),
-        ...(salesRepId && { salesRepId }),
-        ...(paymentMethod && { paymentMethod: paymentMethod as 'CASH' | 'BANK_TRANSFER' | 'POS' | 'CHEQUE' }),
-        ...teamDocWhere(reportTeamOf(req.query.teamId)),
-      },
-      include: {
-        customer: { select: { id: true, name: true } },
-        salesRep: { select: { id: true, name: true } },
-        team: TEAM_NAME_SELECT,
-      },
-      orderBy: { receiptDate: 'asc' },
-    });
+    const [receipts, methodsRow] = await Promise.all([
+      prisma.receipt.findMany({
+        where: {
+          tenantId: tid,
+          ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)),
+          status: 'ACTIVE',
+          ...(dateFilter && { receiptDate: dateFilter }),
+          ...(salesRepId && { salesRepId }),
+          // paymentMethod يصفّي بالأساس كما اليوم (ومعه المخصّصة التي تُعامل مثله)؛ وpaymentMethodKey بطريقة مخصّصة بعينها
+          ...(paymentMethod && { paymentMethod: paymentMethod as 'CASH' | 'BANK_TRANSFER' | 'POS' | 'CHEQUE' }),
+          ...(typeof paymentMethodKey === 'string' && CUSTOM_METHOD_KEY_RE.test(paymentMethodKey) && { paymentMethodKey }),
+          ...teamDocWhere(reportTeamOf(req.query.teamId)),
+        },
+        include: {
+          customer: { select: { id: true, name: true } },
+          salesRep: { select: { id: true, name: true } },
+          team: TEAM_NAME_SELECT,
+        },
+        orderBy: { receiptDate: 'asc' },
+      }),
+      // «إدارة طرق الدفع»: أسماء الشركة لملخّص الطرق — byMethod يبقى بالأساس للجداول القائمة ووثائق API
+      prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { paymentMethodsConfig: true } }),
+    ]);
+    const byKey = summarizeCollectionsByMethod(receipts, readPaymentMethodsConfig(methodsRow?.paymentMethodsConfig ?? null));
 
     const summary = {
       total: receipts.reduce((s, r) => s + Number(r.amount), 0),
@@ -358,6 +366,8 @@ router.get('/collections', async (req: AuthRequest, res: Response, next: NextFun
         acc[r.paymentMethod] = (acc[r.paymentMethod] ?? 0) + Number(r.amount);
         return acc;
       }, {} as Record<string, number>),
+      byMethodKey: byKey.byMethodKey,
+      methods: byKey.methods,
     };
 
     res.json({ success: true, data: { receipts, summary } });
@@ -878,9 +888,10 @@ router.get('/payment-methods', requirePaymentMethods, async (req: AuthRequest, r
     if (!range.ok) { res.status(400).json({ success: false, message: range.message }); return; }
     const team = reportTeamOf(req.query.teamId);
     const docScope = await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT);
-    const [receiptGroups, cashSaleGroups, activeReps] = await Promise.all([
+    const [receiptGroups, cashSaleGroups, activeReps, methodsRow] = await Promise.all([
       prisma.receipt.groupBy({
-        by: ['salesRepId', 'paymentMethod'],
+        // «إدارة طرق الدفع»: والمفتاح المخصّص — جدولٌ لكل طريقة مخصّصة (القرار ٦ في services/paymentMethodsReport.ts)
+        by: ['salesRepId', 'paymentMethod', 'paymentMethodKey'],
         where: { tenantId: tid, ...COLLECTED_RECEIPT, receiptDate: { gte: range.gte, lt: range.lt }, ...teamDocWhere(team), ...docScope },
         _sum: { amount: true },
         _count: { _all: true },
@@ -898,6 +909,8 @@ router.get('/payment-methods', requirePaymentMethods, async (req: AuthRequest, r
         where: { tenantId: tid, isActive: true, AND: [await adminRepFilter(req), teamRepOrDocsWhere(team)] },
         select: { id: true, name: true, isActive: true },
       }),
+      // أسماء الشركة لطرقها وطرقها المخصّصة وما عطّلته
+      prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { paymentMethodsConfig: true } }),
     ]);
 
     // أسماء من حصّل وحدهم (المعرّفات من مستنداتٍ مرّت بالنطاق) — نشطاً أو موقوفاً
@@ -908,9 +921,10 @@ router.get('/payment-methods', requirePaymentMethods, async (req: AuthRequest, r
     const repInfo = new Map<string, RepInfo>(reps.map((r) => [r.id, { name: r.name, isActive: r.isActive }]));
 
     const report = buildPaymentMethodsReport(
-      receiptGroups.map((g) => ({ salesRepId: g.salesRepId, paymentMethod: g.paymentMethod, amount: Number(g._sum.amount ?? 0), count: g._count._all })),
+      receiptGroups.map((g) => ({ salesRepId: g.salesRepId, paymentMethod: g.paymentMethod, paymentMethodKey: g.paymentMethodKey, amount: Number(g._sum.amount ?? 0), count: g._count._all })),
       cashSaleGroups.map((g) => ({ salesRepId: g.salesRepId, amount: Number(g._sum.paidAmt ?? 0), count: g._count._all })),
       repInfo,
+      readPaymentMethodsConfig(methodsRow?.paymentMethodsConfig ?? null),
     );
     res.json({ success: true, data: { range: { from: range.from, to: range.to, timezone: tz }, ...report, roster: rosterOf(activeReps, repInfo) } });
   } catch (err) { next(err); }

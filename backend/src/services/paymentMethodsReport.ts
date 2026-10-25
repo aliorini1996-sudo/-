@@ -17,12 +17,18 @@
  *  ٤. **الفترة بأيام الشركة المحلية** (`tenantTz`: الرياض +٣): «اليوم» من منتصف ليل الشركة إلى منتصف ليلها التالي. تقارير
  *     التحصيل القديمة تقرأ 'YYYY-MM-DD' منتصفَ ليل UTC، فقد يختلف مجموع اليوم نفسه بينهما بما وقع بين ٠٠:٠٠ و٠٣:٠٠.
  *  ٥. **الإلكتروني (ميسر)** سندٌ ONLINE منسوبٌ لمن أصدر رابط الدفع — يظهر في جدوله لأنه تحصيلُ ذلك المندوب من عميله.
+ *  ٦. **«إدارة طرق الدفع»** (طلب المالك ٢٥ أكتوبر): كل طريقة مخصّصة (STC Pay، تابي…) **جدولٌ مستقلّ بمفتاحها** ولو
+ *     «تُعامل مثل» النقدي — فلا يدخل سندها جدول «نقدي» (الذي يبقى سندات النقدي المدمج + فواتير البيع النقدي)، وإن دخل عهدة
+ *     المندوب النقدية في الدفاتر لأن أساسه النقدي. كل سندٍ في جدولٍ واحد بالضبط، فالإجمالي لا يتغيّر. ومفتاحٌ لا يعرفه
+ *     الإعداد يرجع لجدول أساسه. والطريقة المعطّلة (مدمجة أو مخصّصة) تختفي جدولاً إلا إن حُصّل بها في الفترة.
+ *     null في الإعداد = الطرق الخمس حاضرةً دائماً بأسمائها الافتراضية (سلوك ما قبل الميزة حرفياً).
  *
  * وحدةٌ صافية بلا قاعدة بيانات (الاستعلام في routes/reports.ts) لتُختبر وحدها.
  */
 import { addDays, isLocalDate, todayLocal, zonedStartOfDay } from './gl/dates';
 import type { Prisma } from '@prisma/client';
 import { CASH_VOID_KEEP_COLLECTION_NOTE } from '../lib/ledgerNotes';
+import { resolvePaymentMethod, type PaymentMethodsConfigV1, type ResolvedPaymentMethod } from './paymentMethodsCore';
 
 /** ترتيب الجداول على الشاشة: الأكثر استعمالاً في الميدان أولاً. قيمٌ خارجها (سجلٌّ قديم) تُلحق بعدها ولا تسقط. */
 export const PAYMENT_METHODS = ['CASH', 'POS', 'BANK_TRANSFER', 'CHEQUE', 'ONLINE'] as const;
@@ -74,8 +80,8 @@ export function paymentMethodsRange(rawFrom: unknown, rawTo: unknown, tz: string
   return { ok: true, from, to, gte: zonedStartOfDay(from, tz), lt: zonedStartOfDay(addDays(to, 1), tz) };
 }
 
-/** صفّ تجميع السندات من القاعدة (groupBy مندوب × طريقة). */
-export interface ReceiptGroupRow { salesRepId: string | null; paymentMethod: string; amount: number; count: number }
+/** صفّ تجميع السندات من القاعدة (groupBy مندوب × طريقة × مفتاح الطريقة المخصّصة). */
+export interface ReceiptGroupRow { salesRepId: string | null; paymentMethod: string; paymentMethodKey?: string | null; amount: number; count: number }
 /** صفّ تجميع فواتير البيع النقدي (groupBy مندوب). */
 export interface CashSaleGroupRow { salesRepId: string | null; amount: number; count: number }
 export interface RepInfo { name: string; isActive: boolean }
@@ -88,7 +94,18 @@ export interface Collected {
 }
 export interface MethodRepRow extends Collected { salesRepId: string; repName: string; repActive: boolean }
 export interface MethodBlock {
+  /** معرّف الجدول: رمز الطريقة المدمجة (CASH…) أو مفتاح المخصّصة (c_…) أو قيمة قديمة مجهولة */
   method: string;
+  /** الأساس الذي تُعامل مثله (= method للمدمجة) */
+  base: string;
+  key: string | null;
+  custom: boolean;
+  /** الاسم المعروض (اسم الشركة وإلا الافتراضي بالعربية) — وcompanyLabel: اسم الشركة وحده، null = الافتراضي (تترجمه الواجهة) */
+  label: string;
+  companyLabel: string | null;
+  icon: string | null;
+  /** false = معطّلة: لا تُعرض إلا لأن بها تحصيلاً في الفترة */
+  active: boolean;
   rows: MethodRepRow[];
   /** إجمالي الجدول = مجموع صفوف المناديب وحدها */
   total: Collected;
@@ -134,6 +151,7 @@ export function buildPaymentMethodsReport(
   receipts: ReceiptGroupRow[],
   cashSales: CashSaleGroupRow[],
   reps: Map<string, RepInfo>,
+  config: PaymentMethodsConfigV1 | null = null,
 ): PaymentMethodsReport {
   const byMethod = new Map<string, { rows: Map<string, Collected>; noRep: { amount: number; count: number } }>();
   const methodOf = (m: string) => {
@@ -153,14 +171,19 @@ export function buildPaymentMethodsReport(
     if (part === 'receipts') { row.receiptsAmount += a; row.receiptsCount += c; } else { row.invoicesAmount += a; row.invoicesCount += c; }
     b.rows.set(repId, row);
   };
-  for (const r of receipts) add(r.paymentMethod || 'CASH', r.salesRepId, Number(r.amount), Number(r.count), 'receipts');
+  // المخصّصة كلها لها جدول (المعطّلة تُسقط أدناه إن خلت) — ومعرّف السند: مفتاحه إن عرفه الإعداد وإلا أساسه (القرار ٦)
+  for (const c of config?.custom ?? []) methodOf(c.key);
+  for (const r of receipts) add(resolvePaymentMethod(config, r.paymentMethod || 'CASH', r.paymentMethodKey).id, r.salesRepId, Number(r.amount), Number(r.count), 'receipts');
   for (const r of cashSales) add('CASH', r.salesRepId, Number(r.amount), Number(r.count), 'invoices');
 
-  const known = new Set<string>(PAYMENT_METHODS);
-  const order = [...PAYMENT_METHODS, ...[...byMethod.keys()].filter((m) => !known.has(m)).sort()];
+  const customKeys = (config?.custom ?? []).map((c) => c.key);
+  const known = new Set<string>([...PAYMENT_METHODS, ...customKeys]);
+  const order = [...PAYMENT_METHODS, ...customKeys, ...[...byMethod.keys()].filter((m) => !known.has(m)).sort()];
   const activeReps = new Set<string>();
-  const methods: MethodBlock[] = order.map((method) => {
+  const built = order.map((method) => {
     const b = byMethod.get(method)!;
+    // المفتاح نفسه يُمرَّر: المخصّصة تُحلّ باسمها، والمدمجة والقديمة المجهولة بقيمتها
+    const d: ResolvedPaymentMethod = resolvePaymentMethod(config, method, method);
     const rows: MethodRepRow[] = [...b.rows.entries()]
       .map(([salesRepId, c]) => ({
         salesRepId,
@@ -180,8 +203,15 @@ export function buildPaymentMethodsReport(
       total.invoicesAmount += r.invoicesAmount; total.invoicesCount += r.invoicesCount;
     }
     total.amount = round3(total.amount); total.receiptsAmount = round3(total.receiptsAmount); total.invoicesAmount = round3(total.invoicesAmount);
-    return { method, rows, total, noRep: { amount: round3(b.noRep.amount), count: b.noRep.count } };
+    const block: MethodBlock = {
+      method, base: d.base, key: d.key, custom: d.custom, label: d.label, companyLabel: d.companyLabel, icon: d.icon, active: d.active,
+      rows, total, noRep: { amount: round3(b.noRep.amount), count: b.noRep.count },
+    };
+    const hasMoney = rows.length > 0 || block.noRep.count > 0 || block.noRep.amount !== 0;
+    return { block, show: d.active || hasMoney };
   });
+  // المعطّلة بلا تحصيلٍ في الفترة لا جدول لها؛ والتي حُصّل بها تبقى (سنداتها قائمة) — والمجهولة القديمة لا تُنشأ إلا بتحصيل
+  const methods: MethodBlock[] = built.filter((x) => x.show).map((x) => x.block);
 
   return {
     methods,
@@ -195,4 +225,33 @@ export function buildPaymentMethodsReport(
     },
     repsCount: activeReps.size,
   };
+}
+
+/** طريقةٌ في ملخّص تقرير التحصيل: وصفها ومجموعها وعددها */
+export interface CollectionMethodSummary extends ResolvedPaymentMethod { amount: number; count: number }
+
+/**
+ * ملخّص تقرير التحصيل (GET /reports/collections) بالطريقة كما تعرفها الشركة — **بجانب** byMethod لا بدلاً منه:
+ * byMethod يبقى بالأساس (CASH/POS/BANK_TRANSFER/CHEQUE…) لأن جداول الواجهة القائمة بأعمدتها الأربعة ووثائق API العامة
+ * تقرؤه بهذه المفاتيح. وهنا: byMethodKey بمعرّف الطريقة (مفتاح المخصّصة المعروف وإلا الأساس — القرار ٦ نفسه)، وmethods
+ * بأسمائها مرتّبةً كالصفحة (المدمجة ثم المخصّصة بترتيب الشركة ثم المجهولة) — ما حُصّل به وحده. كل سندٍ في معرّفٍ واحد.
+ */
+export function summarizeCollectionsByMethod(
+  receipts: { paymentMethod: string; paymentMethodKey?: string | null; amount: number }[],
+  config: PaymentMethodsConfigV1 | null,
+): { byMethodKey: Record<string, number>; methods: CollectionMethodSummary[] } {
+  const acc = new Map<string, CollectionMethodSummary>();
+  for (const r of receipts) {
+    const d = resolvePaymentMethod(config, r.paymentMethod || 'CASH', r.paymentMethodKey);
+    const s = acc.get(d.id) ?? { ...d, amount: 0, count: 0 };
+    const a = Number(r.amount);
+    s.amount += Number.isFinite(a) ? a : 0;
+    s.count += 1;
+    acc.set(d.id, s);
+  }
+  const customKeys = (config?.custom ?? []).map((c) => c.key);
+  const known = new Set<string>([...PAYMENT_METHODS, ...customKeys]);
+  const order = [...PAYMENT_METHODS, ...customKeys, ...[...acc.keys()].filter((m) => !known.has(m)).sort()];
+  const methods = order.filter((id) => acc.has(id)).map((id) => { const s = acc.get(id)!; return { ...s, amount: round3(s.amount) }; });
+  return { byMethodKey: Object.fromEntries(methods.map((m) => [m.id, m.amount])), methods };
 }

@@ -1055,6 +1055,10 @@ model Receipt {
   receiptDate   DateTime  @default(now())
   amount        Float
   paymentMethod String    @default("CASH") // CASH | BANK_TRANSFER | POS | CHEQUE
+  // «إدارة طرق الدفع» (services/paymentMethodsCore.ts): مفتاح الطريقة المخصّصة (c_…) للعرض وحده — الاسم والأيقونة وجداول التقرير.
+  // paymentMethod أعلاه يبقى **الأساس** الذي تُعامل مثله (CASH|POS|BANK_TRANSFER|CHEQUE، أو ONLINE لروابط ميسر) فتعمل عليه القيود والدفاتر
+  // والعهدة كما اليوم. null = طريقة مدمجة (كل سند قائم) — عمود إضافي بلا افتراضي ولا فهرس، فلا يتغيّر صفّ قائم عند db push
+  paymentMethodKey String?
   chequeNumber  String?
   bankName      String?
   notes         String?
@@ -1163,6 +1167,9 @@ model CompanySettings {
   // «إعدادات الطباعة» v1 (services/printSettingsCore.ts، routes/printSettings.ts): قوالب الطباعة وتوجيه المستندات إليها —
   // null = سلوك اليوم حرفياً (شريط 58 مم وPDF الـA4)، فعمود إضافي بلا افتراضي لا يغيّر شركة قائمة عند db push
   printSettings            Json?
+  // «إدارة طرق الدفع» v1 (services/paymentMethodsCore.ts، routes/paymentMethodsConfig.ts): أسماء الطرق المدمجة وتعطيلها والطرق
+  // المخصّصة بأساسها — null = سلوك اليوم حرفياً (الطرق الخمس بأسمائها الافتراضية مفعّلة)، فعمود إضافي بلا افتراضي لا يغيّر شركة قائمة
+  paymentMethodsConfig     Json?
 
   // --- التدويل (المرحلة 0): أعمدة إضافية بقيم افتراضية — لا فقد بيانات ---
   countryCode      String  @default("SA") // ISO alpha-2: دولة الشركة

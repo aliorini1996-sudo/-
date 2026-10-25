@@ -11,6 +11,8 @@ export interface CollReceiptLike {
   receiptNumber: string;
   amount: number | string;
   paymentMethod: string;
+  /** «إدارة طرق الدفع»: مفتاح الطريقة المضافة (c_…) — null لمدمجة؛ paymentMethod يبقى أساسها */
+  paymentMethodKey?: string | null;
   receiptDate: string;
   customer: { id: string; name: string } | null;
   salesRep: { id: string; name: string } | null;
@@ -38,7 +40,11 @@ export interface CollRepGroup<R> {
  */
 export const NO_REP = '__none__';
 
-export function groupCollectionsByRep<R extends CollReceiptLike>(receipts: R[] | undefined | null): CollRepGroup<R>[] {
+/**
+ * `methodOf` معرّف عمود الطريقة للسند — الافتراضي أساسه (paymentMethod) كما قبل «إدارة طرق الدفع». وتقرير التحصيل يمرّر
+ * مفتاح المضافة التي يعرفها الخادم (عمودٌ لكل طريقة كما تعرفها الشركة). كل سندٍ في عمودٍ واحد، فالإجمالي لا يتغيّر.
+ */
+export function groupCollectionsByRep<R extends CollReceiptLike>(receipts: R[] | undefined | null, methodOf: (r: R) => string = (r) => r.paymentMethod): CollRepGroup<R>[] {
   if (!Array.isArray(receipts)) return [];
   const map = new Map<string, CollRepGroup<R>>();
   for (const r of receipts) {
@@ -53,7 +59,8 @@ export function groupCollectionsByRep<R extends CollReceiptLike>(receipts: R[] |
     const safe = Number.isFinite(amt) ? amt : 0;
     row.count += 1;
     row.total += safe;
-    row.byMethod[r.paymentMethod] = (row.byMethod[r.paymentMethod] ?? 0) + safe;
+    const m = methodOf(r);
+    row.byMethod[m] = (row.byMethod[m] ?? 0) + safe;
     row.receipts.push(r);
   }
   // الأكبر تحصيلاً أوّلاً، ودلو «بلا مندوب» آخراً مهما كان مبلغه — ليس مندوباً يُقارَن

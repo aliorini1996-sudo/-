@@ -12,6 +12,7 @@ import { useTr } from '../i18n/strings';
 import { channelLabel } from '../lib/channels';
 import { filterFlat, filterNested } from '../lib/reportSearch';
 import { groupCollectionsByRep, collectionTotals, CollReceiptLike, CollRepGroup } from '../lib/collectionsByRep';
+import { companyMethodLabel } from '../lib/paymentMethodsConfig';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Download, TrendingUp, Users, UserCheck, MapPin, FileText, Search, X, Wallet, AlertTriangle, Pencil, Upload } from 'lucide-react';
 import { shareOrDownloadExcel, num, ExcelSheet } from '../utils/excel';
@@ -75,6 +76,10 @@ interface CustGroup { customerId: string; customerName: string; visitsCount: num
    نسخةٌ ثانية منهما تنحرف عن الحساب الذي تختبره وحدتُه. */
 type CollReceipt = CollReceiptLike;
 type CollRepRow = CollRepGroup<CollReceipt>;
+/** طريقةٌ في ملخّص التحصيل كما حلّها الخادم («إدارة طرق الدفع»: المضافة بمفتاحها) — غائبة من خادمٍ أقدم */
+interface CollMethod { id: string; base: string; key: string | null; custom: boolean; label: string; companyLabel: string | null; amount: number }
+/** أعمدة الأسس الأربعة في جدول «التحصيل حسب المندوب» — حاضرةٌ دائماً كما قبل الميزة */
+const COLL_BASE_COLS = ['CASH', 'POS', 'BANK_TRANSFER', 'CHEQUE'];
 
 export default function ReportsPage() {
   const tr = useTr();
@@ -125,7 +130,6 @@ export default function ReportsPage() {
 
   // اسم المندوب للعرض: الفارغ هو دلو «بلا مندوب» (سندٌ من اللوحة أو مندوبٌ حُذف)
   const collRepName = (r: { name: string }) => r.name || tr('بدون مندوب سند من الإدارة');
-  const methodLabel = (m: string) => m === 'CASH' ? tr('نقدي') : m === 'BANK_TRANSFER' ? tr('تحويل بنكي') : m === 'POS' ? tr('شبكة') : tr('شيك');
 
   const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
     ...(accountingOn ? [
@@ -170,7 +174,7 @@ export default function ReportsPage() {
     queryKey: ['report-collections', from, to, teamFilter],
     queryFn: async () => {
       const res = await reportApi.collections({ from, to, ...tp });
-      return res.data.data as { receipts: CollReceipt[]; summary: { total: number; count: number; byMethod: Record<string, number> } };
+      return res.data.data as { receipts: CollReceipt[]; summary: { total: number; count: number; byMethod: Record<string, number>; methods?: CollMethod[] } };
     },
     enabled: accountingReady && accountingOn && tab === 'collections',
   });
@@ -204,10 +208,39 @@ export default function ReportsPage() {
   const [showImport, setShowImport] = useState(false);
   const companyQ = useQuery({
     queryKey: ['company'],
-    queryFn: async () => (await companyApi.get()).data.data as { attendanceEnabled?: boolean } | null,
+    queryFn: async () => (await companyApi.get()).data.data as { attendanceEnabled?: boolean; paymentMethodsConfig?: unknown } | null,
     staleTime: 300_000,
   });
   const attendanceOn = companyQ.data?.attendanceEnabled === true;
+  /* «إدارة طرق الدفع»: اسم الشركة للطريقة (مضافة أو مدمجة سمّتها) كما كتبته، وإلا كلمات هذا التقرير منذ قبل الميزة — و«تحويل»
+   * القصير في البطاقات ورؤوس الأعمدة. وكان كل ما سوى الأربع (الإلكتروني وقيمٌ قديمة) يُقرأ «شيك» خطأً: الإلكتروني باسمه الآن */
+  const baseMethodLabel = (m: string, short = false) => m === 'CASH' ? tr('نقدي') : m === 'BANK_TRANSFER' ? (short ? tr('تحويل') : tr('تحويل بنكي'))
+    : m === 'POS' ? tr('شبكة') : m === 'CHEQUE' ? tr('شيك') : m === 'ONLINE' ? tr('دفع الكتروني') : m;
+  const methodLabel = (m: string, key?: string | null) => companyMethodLabel(companyQ.data, m, key) ?? baseMethodLabel(m);
+  /** طرق الملخّص: من الخادم بأسماء الشركة (المضافة سطرٌ بمفتاحها)، وخادمٌ أقدم ⇒ byMethod بالأساس كما اليوم */
+  const collMethods = useMemo<{ id: string; label: string; short: string; amount: number }[]>(() => {
+    const sm = collectData?.summary;
+    if (!sm) return [];
+    if (sm.methods) return sm.methods.map(m => {
+      const own = m.companyLabel ?? (m.custom ? m.label : null);
+      return { id: m.id, label: own ?? baseMethodLabel(m.base), short: own ?? baseMethodLabel(m.base, true), amount: m.amount };
+    });
+    return Object.entries(sm.byMethod).map(([m, v]) => {
+      const own = companyMethodLabel(companyQ.data, m);
+      return { id: m, label: own ?? baseMethodLabel(m), short: own ?? baseMethodLabel(m, true), amount: v };
+    });
+  }, [collectData, companyQ.data, tr]); // eslint-disable-line react-hooks/exhaustive-deps
+  /* أعمدة «التحصيل حسب المندوب»: الأسس الأربعة دائماً ثم ما حُصّل به غيرها (الإلكتروني والمضافة) — فتجمع الأعمدة الإجمالي.
+   * والمفتاح المضاف عمودٌ إن عرفه الخادم (ملخّصه)، وإلا سندُه في عمود أساسه — قاعدة الخادم نفسها، لا كاش الشركة في المتصفح */
+  const collKnownKeys = useMemo(
+    () => new Set((collectData?.summary.methods ?? []).filter(m => m.custom && m.key).map(m => m.key as string)),
+    [collectData],
+  );
+  const collCols = useMemo(() => {
+    const extra = collMethods.map(m => m.id).filter(id => !COLL_BASE_COLS.includes(id));
+    // عمود أساسٍ بلا تحصيلٍ في الفترة يحمل اسم الشركة أيضاً («مدى» لا «شبكة») — الملخّص لا يذكر إلا ما حُصّل به
+    return [...COLL_BASE_COLS, ...extra].map(id => ({ id, short: collMethods.find(m => m.id === id)?.short ?? companyMethodLabel(companyQ.data, id) ?? baseMethodLabel(id, true) }));
+  }, [collMethods, companyQ.data, tr]); // eslint-disable-line react-hooks/exhaustive-deps
   const { data: perfData } = useQuery({
     queryKey: ['report-performance', from, to, teamFilter],
     queryFn: async () => {
@@ -352,7 +385,10 @@ export default function ReportsPage() {
    * يعني اختفاء مالٍ محصَّل من التقرير بلا أثر — ومجموعُ الأعمدة لا يطابق
    * البطاقة فوقه، وهو أسوأ من عرض صفٍّ بلا اسم.
    */
-  const collRepRows = useMemo<CollRepRow[]>(() => groupCollectionsByRep(collectData?.receipts), [collectData]);
+  const collRepRows = useMemo<CollRepRow[]>(
+    () => groupCollectionsByRep(collectData?.receipts, (r) => (r.paymentMethodKey && collKnownKeys.has(r.paymentMethodKey) ? r.paymentMethodKey : r.paymentMethod)),
+    [collectData, collKnownKeys],
+  );
 
   // البحث يصفّي بالمندوب **أو** بعميلٍ في سنداته — فيعرف المشرف من حصّل من ذاك العميل
   const collRepShown = useMemo(
@@ -629,23 +665,29 @@ export default function ReportsPage() {
     } else if (tab === 'collections' && collType === 'byRep' && collRepShown.length) {
       /* التصدير يتبع المعروض (البحث ضمناً) كبقيّة التقارير — ورقتان: تجميعة
        * المناديب، ثمّ كلّ سندٍ بمندوبه كي يُراجَع المبلغ سنداً سنداً. */
+      // رؤوس أعمدة الطرق فريدة: اسمٌ مضاف يطابق «تحويل» القصير أو رأساً آخر كان سيمحو عموده في الصفّ (مفاتيح كائن)
+      const usedHeads = new Set<string>([tr('المندوب'), tr('عدد السندات'), tr('الإجمالي')]);
+      const colHeads = collCols.map(c => {
+        let h = c.short;
+        for (let i = 2; usedHeads.has(h); i++) h = `${c.short} (${i})`;
+        usedHeads.add(h);
+        return h;
+      });
       sheets = [
         { name: tr('التحصيل حسب المندوب'), rows: collRepShown.map(r => ({
           [tr('المندوب')]: collRepName(r),
           [tr('عدد السندات')]: r.count,
-          [tr('نقدي')]: num(r.byMethod.CASH || 0),
-          [tr('شبكة')]: num(r.byMethod.POS || 0),
-          [tr('تحويل')]: num(r.byMethod.BANK_TRANSFER || 0),
-          [tr('شيك')]: num(r.byMethod.CHEQUE || 0),
+          // الأسس الأربعة كما اليوم ثم الإلكتروني والمضافة بأسماء الشركة — أعمدة الشاشة نفسها
+          ...Object.fromEntries(collCols.map((c, i) => [colHeads[i], num(r.byMethod[c.id] || 0)])),
           [tr('الإجمالي')]: num(r.total),
-        })), colWidths: [24, 12, 14, 14, 14, 14, 16] },
+        })), colWidths: [24, 12, ...collCols.map(() => 14), 16] },
         { name: tr('السندات'), rows: collRepShown.flatMap(r => r.receipts.map(rc => ({
           [tr('المندوب')]: collRepName(r),
           ...(teamsOn && { [tr('الفريق')]: rc.team?.name || tr('بلا فريق') }),
           [tr('رقم السند')]: rc.receiptNumber,
           [tr('التاريخ')]: fmtDateTime(rc.receiptDate),
           [tr('العميل')]: rc.customer?.name || '—',
-          [tr('طريقة الدفع')]: methodLabel(rc.paymentMethod),
+          [tr('طريقة الدفع')]: methodLabel(rc.paymentMethod, rc.paymentMethodKey),
           [tr('المبلغ')]: num(Number(rc.amount) || 0),
         }))), colWidths: [24, 16, 18, 24, 14, 14] },
       ];
@@ -660,7 +702,7 @@ export default function ReportsPage() {
       sheets = [{ name: tr('التحصيل'), rows: [
         { [tr('البند')]: tr('إجمالي التحصيل'), [tr('القيمة')]: num(collectData.summary.total) },
         { [tr('البند')]: tr('عدد السندات'), [tr('القيمة')]: collectData.summary.count },
-        ...Object.entries(collectData.summary.byMethod).map(([m, v]) => ({ [tr('البند')]: methodLabel(m), [tr('القيمة')]: num(v) })),
+        ...collMethods.map(m => ({ [tr('البند')]: m.label, [tr('القيمة')]: num(m.amount) })),
       ], colWidths: [20, 16] }];
       fname = tr('تقارير التحصيل');
     }
@@ -1213,10 +1255,10 @@ export default function ReportsPage() {
               <p className="text-xs text-gray-500">{tr('عدد السندات')}</p>
               <p className="text-xl font-bold text-gray-700">{collectData.summary.count}</p>
             </div>
-            {Object.entries(collectData.summary.byMethod).map(([m, v]) => (
-              <div key={m} className="card text-center">
-                <p className="text-xs text-gray-500">{m === 'CASH' ? tr('نقدي') : m === 'BANK_TRANSFER' ? tr('تحويل') : m === 'POS' ? tr('شبكة') : tr('شيك')}</p>
-                <p className="text-lg font-bold text-gray-700">{formatCurrency(v)}</p>
+            {collMethods.map(m => (
+              <div key={m.id} className="card text-center">
+                <p className="text-xs text-gray-500">{m.short}</p>
+                <p className="text-lg font-bold text-gray-700">{formatCurrency(m.amount)}</p>
               </div>
             ))}
           </div>
@@ -1239,7 +1281,7 @@ export default function ReportsPage() {
                     <thead>
                       <tr>
                         <th>#</th><th>{tr('المندوب')}</th><th>{tr('عدد السندات')}</th>
-                        <th>{tr('نقدي')}</th><th>{tr('شبكة')}</th><th>{tr('تحويل')}</th><th>{tr('شيك')}</th>
+                        {collCols.map(c => <th key={c.id}>{c.short}</th>)}
                         <th>{tr('الإجمالي')}</th><th>{tr('النسبة')}</th>
                       </tr>
                     </thead>
@@ -1259,10 +1301,9 @@ export default function ReportsPage() {
                                 </span>
                               </td>
                               <td className="tabular-nums text-gray-700">{r.count}</td>
-                              <td className="tabular-nums text-gray-600">{r.byMethod.CASH ? formatCurrency(r.byMethod.CASH) : <span className="text-gray-300">—</span>}</td>
-                              <td className="tabular-nums text-gray-600">{r.byMethod.POS ? formatCurrency(r.byMethod.POS) : <span className="text-gray-300">—</span>}</td>
-                              <td className="tabular-nums text-gray-600">{r.byMethod.BANK_TRANSFER ? formatCurrency(r.byMethod.BANK_TRANSFER) : <span className="text-gray-300">—</span>}</td>
-                              <td className="tabular-nums text-gray-600">{r.byMethod.CHEQUE ? formatCurrency(r.byMethod.CHEQUE) : <span className="text-gray-300">—</span>}</td>
+                              {collCols.map(c => (
+                                <td key={c.id} className="tabular-nums text-gray-600">{r.byMethod[c.id] ? formatCurrency(r.byMethod[c.id]) : <span className="text-gray-300">—</span>}</td>
+                              ))}
                               <td className="tabular-nums font-bold text-green-600">{formatCurrency(r.total)}</td>
                               <td>
                                 <div className="flex items-center gap-2">
@@ -1275,7 +1316,7 @@ export default function ReportsPage() {
                             </tr>
                             {expandedColl === r.id && (
                               <tr>
-                                <td colSpan={9} className="bg-[#FAF7F0] p-0">
+                                <td colSpan={5 + collCols.length} className="bg-[#FAF7F0] p-0">
                                   <div className="p-3">
                                     <p className="text-xs font-semibold text-[#6E6557] mb-2">{tr('سندات')} {collRepName(r)} ({r.count})</p>
                                     <div className="overflow-x-auto rounded-lg border border-[#F1EBDF] bg-white">
@@ -1297,7 +1338,7 @@ export default function ReportsPage() {
                                               <td className="py-1.5 px-3 font-medium text-gray-700" dir="ltr">{rc.receiptNumber}</td>
                                               <td className="py-1.5 px-3 text-gray-500">{fmtDateTime(rc.receiptDate)}</td>
                                               <td className="py-1.5 px-3 text-gray-700">{rc.customer?.name || '—'}</td>
-                                              <td className="py-1.5 px-3 text-gray-500">{methodLabel(rc.paymentMethod)}</td>
+                                              <td className="py-1.5 px-3 text-gray-500">{methodLabel(rc.paymentMethod, rc.paymentMethodKey)}</td>
                                               <td className="py-1.5 px-3 tabular-nums font-semibold text-green-600">{formatCurrency(Number(rc.amount) || 0)}</td>
                                             </tr>
                                           ))}

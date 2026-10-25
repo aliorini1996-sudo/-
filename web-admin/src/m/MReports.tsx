@@ -9,6 +9,7 @@ import { reportApi, attendanceAdminApi } from '../api/client';
 import { presenceByRepDay, presenceSummary, type PresenceRow } from '../lib/presenceReport';
 import { formatCurrency, formatNumber, formatDate, formatDateTime, formatDayOnly, formatTime } from '../utils/format';
 import { useTr } from '../i18n/strings';
+import { companyMethodLabel, type CompanyWithMethods } from '../lib/paymentMethodsConfig';
 import { useBackClose } from '../lib/useBackClose';
 import { MCard, MRow, MStat, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import { expectArray, expectObject } from './shape';
@@ -39,11 +40,15 @@ interface SalesRow { name: string; total: number; count?: number; qty?: number; 
 
 interface ReceiptRow {
   id: string; number: string; receiptDate: string; amount: number; paymentMethod: string;
+  /** «إدارة طرق الدفع»: مفتاح الطريقة المضافة — null لمدمجة */
+  paymentMethodKey?: string | null;
   customer: { id: string; name: string }; salesRep: { id: string; name: string } | null;
 }
+/** طريقةٌ في ملخّص التحصيل كما حلّها الخادم (المدمجة ثم المضافة بترتيب الشركة) — غائبة من خادمٍ أقدم */
+interface CollectionMethod { id: string; base: string; custom: boolean; label: string; companyLabel: string | null; amount: number }
 interface CollectionsRes {
   receipts: ReceiptRow[];
-  summary: { total: number; count: number; byMethod: Record<string, number> };
+  summary: { total: number; count: number; byMethod: Record<string, number>; methods?: CollectionMethod[] };
 }
 
 interface BalanceRow {
@@ -111,10 +116,14 @@ const fmtSec = (s: number | null, tr: Tr): string | null =>
       : s >= 60 ? `${Math.floor(s / 60)} ${tr('د')} ${s % 60} ${tr('ث')}`
         : `${s} ${tr('ث')}`;
 
-const methodLabel = (m: string, tr: Tr) =>
+/** الاسم الافتراضي في تقارير /m (كما قبل «إدارة طرق الدفع» حرفياً) */
+const defaultMethodLabel = (m: string, tr: Tr) =>
   m === 'CASH' ? tr('نقدي') : m === 'BANK_TRANSFER' ? tr('تحويل بنكي')
     : m === 'POS' ? tr('شبكة') : m === 'CHEQUE' ? tr('شيك')
       : m === 'ONLINE' ? tr('دفع إلكتروني') : m;
+/** اسم الشركة للطريقة (مضافة أو مدمجة سمّتها) كما كتبته بلا ترجمة، وإلا الافتراضي — مفتاحٌ مجهول يرجع لاسم أساسه */
+const methodLabel = (m: string, tr: Tr, company?: CompanyWithMethods, key?: string | null) =>
+  companyMethodLabel(company, m, key) ?? defaultMethodLabel(m, tr);
 
 /** المعاملات الفارغة تُحذف: `from=''` يصل الخادم سلسلةً فارغة فيُبنى منها تاريخ باطل */
 const params = (o: Record<string, string>): Record<string, string> =>
@@ -319,8 +328,10 @@ type Detail =
   | { kind: 'hours'; row: WorkHoursRow }
   | { kind: 'cust'; group: CustGroup };
 
-export default function MReports({ onBack, accountingOn = true }: {
+export default function MReports({ onBack, accountingOn = true, company }: {
   onBack: () => void;
+  /** ردّ /company — منه أسماء الشركة لطرق الدفع («إدارة طرق الدفع») */
+  company?: unknown;
   /** «النظام المحاسبي» مفعّل للشركة؟ حين يكون false تبقى تقارير الوقت
    *  والزيارات وحدها، ولا يُصدَر أيّ استعلامٍ لتقريرٍ ماليّ. */
   accountingOn?: boolean;
@@ -423,7 +434,7 @@ export default function MReports({ onBack, accountingOn = true }: {
       )}
 
       {shown === 'sales' && <SalesReport from={from} to={to} groupBy={groupBy} onGroupBy={setGroupBy} />}
-      {shown === 'collections' && <CollectionsReport from={from} to={to} />}
+      {shown === 'collections' && <CollectionsReport from={from} to={to} company={company as CompanyWithMethods} />}
       {shown === 'balances' && <BalancesReport />}
       {shown === 'performance' && <PerformanceReport from={from} to={to} onOpen={setDetail} />}
       {shown === 'receivables' && <ReceivablesReport onOpen={setDetail} />}
@@ -515,7 +526,7 @@ function SalesReport({ from, to, groupBy, onGroupBy }: {
 
 // ═══════════════ ٢) التحصيل ═══════════════
 
-function CollectionsReport({ from, to }: { from: string; to: string }) {
+function CollectionsReport({ from, to, company }: { from: string; to: string; company?: CompanyWithMethods }) {
   const tr = useTr();
   const q = useQuery({
     queryKey: ['m-report', 'collections', from, to],
@@ -525,7 +536,12 @@ function CollectionsReport({ from, to }: { from: string; to: string }) {
   const receipts = useMemo(() => q.data?.receipts ?? [], [q.data]);
   const { limit, onScroll, hidden } = useWindowed(`${from}|${to}`, receipts.length);
   const summary = q.data?.summary;
-  const methods = summary ? Object.entries(summary.byMethod) : [];
+  /* التوزيع بالطريقة كما تعرفها الشركة (summary.methods: المضافة سطرٌ بمفتاحها) — وخادمٌ أقدم بلاها: byMethod بالأساس كما اليوم.
+   * كل سندٍ في سطرٍ واحد في الحالتين، فالنسب تجمع ١٠٠٪ */
+  const methods: { id: string; title: string; amount: number }[] = !summary ? []
+    : summary.methods
+      ? summary.methods.map(m => ({ id: m.id, title: m.companyLabel ?? (m.custom ? m.label : defaultMethodLabel(m.base, tr)), amount: m.amount }))
+      : Object.entries(summary.byMethod).map(([m, v]) => ({ id: m, title: methodLabel(m, tr, company), amount: v }));
 
   return (
     <Pane onScroll={onScroll}>
@@ -540,8 +556,8 @@ function CollectionsReport({ from, to }: { from: string; to: string }) {
 
             {/* التوزيع على طرق الدفع: النقد في السيارة سؤالُ المشرف الأول */}
             <MCard>
-              {methods.map(([m, v]) => (
-                <MRow key={m} title={methodLabel(m, tr)}
+              {methods.map(({ id: m, title, amount: v }) => (
+                <MRow key={m} title={title}
                   subtitle={summary.total > 0 ? `${Math.round((v / summary.total) * 100)}%` : undefined}
                   trailing={<Amount value={formatCurrency(v)} tone="good" />} />
               ))}
@@ -553,7 +569,7 @@ function CollectionsReport({ from, to }: { from: string; to: string }) {
                 <MRow key={r.id}
                   leading={<Initial name={r.customer.name} />}
                   title={r.customer.name}
-                  subtitle={`${r.number} · ${formatDate(r.receiptDate)} · ${methodLabel(r.paymentMethod, tr)}`}
+                  subtitle={`${r.number} · ${formatDate(r.receiptDate)} · ${methodLabel(r.paymentMethod, tr, company, r.paymentMethodKey)}`}
                   note={r.salesRep ? `${tr('المندوب')}: ${r.salesRep.name}` : undefined}
                   trailing={<Amount value={formatCurrency(r.amount)} tone="good" />} />
               ))}

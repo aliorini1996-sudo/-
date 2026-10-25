@@ -374,6 +374,9 @@ export interface Receipt {
   clientCreatedAt?: string | null;
   amount: number;
   paymentMethod: 'CASH' | 'BANK_TRANSFER' | 'POS' | 'CHEQUE' | 'ONLINE';
+  // «إدارة طرق الدفع»: مفتاح الطريقة المخصّصة (c_…) أو null لمدمجة — paymentMethod يبقى الأساس الذي تُبنى عليه القيود،
+  // والمفتاح للاسم وحده (methodLabelFor في lib/paymentMethodsConfig.ts)
+  paymentMethodKey?: string | null;
   chequeNumber?: string;
   bankName?: string;
   notes?: string;

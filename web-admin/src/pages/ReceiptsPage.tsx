@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { receiptApi, companyApi, salesRepApi } from '../api/client';
 import { Receipt, SalesRep } from '../types';
-import { formatCurrency, formatDate, formatTime, formatDateTime, paymentMethodLabels } from '../utils/format';
+import { formatCurrency, formatDate, formatTime, formatDateTime } from '../utils/format';
+import { methodIdentity, methodLabelFor } from '../lib/paymentMethodsConfig';
+import PaymentMethodIcon from '../components/PaymentMethodIcon';
 import { useTr } from '../i18n/strings';
 import { invalidateAfterReceipt } from '../lib/receiptEffects';
 import { Plus, XCircle, ChevronLeft, ChevronRight, FileText, Download } from 'lucide-react';
@@ -71,7 +73,8 @@ export default function ReceiptsPage() {
         [tr('العميل')]: r.customer.name,
         [tr('المندوب')]: r.salesRep?.name ?? '—',
         [tr('المبلغ')]: num(r.amount),
-        [tr('طريقة الدفع')]: tr(paymentMethodLabels[r.paymentMethod] || r.paymentMethod),
+        // «إدارة طرق الدفع»: اسم الشركة للطريقة (مضافة أو مدمجة سمّتها)، وإلا الافتراضي مترجماً كما اليوم
+        [tr('طريقة الدفع')]: methodLabelFor(company, r.paymentMethod, r.paymentMethodKey, tr),
         [tr('التاريخ')]: formatDate(r.receiptDate),
         [tr('الوقت')]: formatTime(issuedAt(r)),
         [tr('الحالة')]: r.status === 'ACTIVE' ? tr('نشط') : tr('ملغي'),
@@ -101,13 +104,20 @@ export default function ReceiptsPage() {
     onError: () => toast.error(tr('خطأ في الإلغاء')),
   });
 
-  const methodBadge = (m: string) => {
+  // لون الشارة بالأساس (المضافة تأخذ لون ما تُعامل مثله) والاسم من الشركة — والمضافة بأيقونتها كي لا تُقرأ مدمجةً بلونها
+  const methodBadge = (m: string, key?: string | null) => {
+    const who = methodIdentity(company, m, key);
     const colors: Record<string, string> = {
       CASH: 'bg-green-100 text-green-700', BANK_TRANSFER: 'bg-[#FBEBE2] text-[#C94E28]',
       POS: 'bg-purple-100 text-purple-700', CHEQUE: 'bg-orange-100 text-orange-700',
       ONLINE: 'bg-sky-100 text-sky-700',
     };
-    return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${colors[m] || ''}`}>{tr(paymentMethodLabels[m])}</span>;
+    return (
+      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${colors[who.base] || 'bg-gray-100 text-gray-600'}`}>
+        {who.custom && <PaymentMethodIcon icon={who.icon} base={who.base} size={11} />}
+        {methodLabelFor(company, m, key, tr)}
+      </span>
+    );
   };
 
   // لحظة إصدار السند الفعلية: على جهاز المندوب إن وُجدت (السند الأوف‑لاين يُحرَّر في
@@ -172,7 +182,7 @@ export default function ReceiptsPage() {
                   <td className="font-medium text-gray-800">{r.customer.name}</td>
                   <td className="text-gray-600 text-sm">{r.salesRep?.name ?? '—'}</td>
                   <td className="font-bold text-green-700">{formatCurrency(r.amount)}</td>
-                  <td>{methodBadge(r.paymentMethod)}</td>
+                  <td>{methodBadge(r.paymentMethod, r.paymentMethodKey)}</td>
                   <td className="text-xs text-gray-400">{formatDate(r.receiptDate)}</td>
                   <td className="text-xs text-gray-500 font-mono whitespace-nowrap" title={formatDateTime(issuedAt(r))}>
                     {formatTime(issuedAt(r))}

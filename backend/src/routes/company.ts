@@ -10,6 +10,7 @@ import { phase2LockedSettingChanges, phase2SettingsLockedBody } from '../complia
 import { aiRepForRep } from '../ai-rep/access';
 import teamsRouter from './teams';
 import printSettingsRouter from './printSettings';
+import paymentMethodsConfigRouter from './paymentMethodsConfig';
 
 const router = Router();
 router.use(authenticate);
@@ -18,6 +19,9 @@ router.use('/teams', teamsRouter);
 // «إعدادات الطباعة» — /api/company/print-settings (routes/printSettings.ts): القراءة لكل مسجّل والحفظ بصلاحية إعدادات الشركة.
 // مسارٌ مستقلّ لا حقلٌ في PUT /api/company — companySchema وقراءتا قفل ZATCA كما هي
 router.use('/print-settings', printSettingsRouter);
+// «إدارة طرق الدفع» — /api/company/payment-methods (routes/paymentMethodsConfig.ts): القراءة لكل مسجّل (المندوب يبني منها
+// اختيارات السند وأسماءه) والحفظ بصلاحية إعدادات الشركة وعَلَم صفحة «طرق الدفع». مسارٌ مستقلّ كإعدادات الطباعة — PUT /api/company كما هو
+router.use('/payment-methods', paymentMethodsConfigRouter);
 
 const companySchema = z.object({
   name: z.string().min(1),

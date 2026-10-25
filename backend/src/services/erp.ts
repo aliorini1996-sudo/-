@@ -14,6 +14,7 @@ import { isIP } from 'node:net';
 import prisma from '../config/database';
 import { isPublicIp } from './geoLink';
 import { openErpSecret } from './erpSecrets';
+import { readPaymentMethodsConfig, type PaymentMethodsConfigV1 } from './paymentMethodsCore';
 import {
   ERP_PAGE_SIZE, ERP_REQUEST_TIMEOUT_MS, ERP_RESOURCES, ERP_SYNC_V2_SINCE, ERP_WATERMARK_OVERLAP_MS,
   companyTimeZone, customerPayloadRow, erpEnvelope, erpUrlProblem, invoicePayloadRow, parseErpResponse, productPayloadRow,
@@ -112,7 +113,16 @@ type PageCursor = { updatedAt: Date; id: string };
  * صفحةٌ من القسم بترتيب ثابت (آخر تعديل ثم المعرّف) بعد مؤشّرٍ ثابت لا برقم صفحة: سجلٌّ يُعدَّل أثناء المزامنة
  * ينتقل إلى آخر الترتيب، فلو كانت الصفحات بالإزاحة (skip) لانزاح ما بعده خانةً وسقط جاره من المزامنة إلى الأبد.
  */
-async function readPage(tenantId: string, resource: ErpResource, since: Date | null, after: PageCursor | null, timeZone: string): Promise<unknown[]> {
+/**
+ * إعداد «إدارة طرق الدفع» للشركة (null = الأسماء الافتراضية). تعذّر القراءة لا يوقف المزامنة: الاسم الافتراضي يُرسل.
+ * والاسم لقطةُ لحظة التصدير: علامة المزامنة updatedAt، فإعادة تسمية طريقة لا تعيد إرسال سنداتٍ قديمة.
+ */
+async function tenantPaymentMethods(tenantId: string): Promise<PaymentMethodsConfigV1 | null> {
+  const row = await prisma.companySettings.findUnique({ where: { tenantId }, select: { paymentMethodsConfig: true } }).catch(() => null);
+  return readPaymentMethodsConfig(row?.paymentMethodsConfig ?? null);
+}
+
+async function readPage(tenantId: string, resource: ErpResource, since: Date | null, after: PageCursor | null, timeZone: string, methods: PaymentMethodsConfigV1 | null = null): Promise<unknown[]> {
   const where = {
     tenantId,
     ...(since ? { updatedAt: { gt: since } } : {}),
@@ -149,7 +159,7 @@ async function readPage(tenantId: string, resource: ErpResource, since: Date | n
     },
     ...page,
   });
-  return rows.map((r) => receiptPayloadRow(r as unknown as ErpReceiptInput, timeZone));
+  return rows.map((r) => receiptPayloadRow(r as unknown as ErpReceiptInput, timeZone, methods));
 }
 
 /** اختبار الاتصال: مع Odoo طلب ping بالمفتاح (يتحقّق من الرابط والمفتاح معاً)، ومع غيره GET على الرابط */
@@ -181,10 +191,14 @@ export async function syncErpResource(tenantId: string, resource: ErpResource) {
   try {
     const url = erpResourceUrl(config, resource);
     await assertSafeErpUrl(url);
-    const [since, timeZone] = await Promise.all([watermark(tenantId, resource), tenantTimeZone(tenantId)]);
+    const [since, timeZone, methods] = await Promise.all([
+      watermark(tenantId, resource), tenantTimeZone(tenantId),
+      // «إدارة طرق الدفع»: أسماء الشركة لطرق سنداتها — للسندات وحدها
+      resource === 'receipts' ? tenantPaymentMethods(tenantId) : Promise.resolve(null),
+    ]);
     let after: PageCursor | null = null;
     for (;;) {
-      const rows = await readPage(tenantId, resource, since, after, timeZone);
+      const rows = await readPage(tenantId, resource, since, after, timeZone, methods);
       if (!rows.length) break;
       const last = rows[rows.length - 1] as { updatedAt: Date; id: string };
       after = { updatedAt: last.updatedAt, id: last.id };

@@ -9,6 +9,7 @@ import ResetPasswordModal from '../components/ResetPasswordModal';
 import ConfirmDialog from '../components/ConfirmDialog';
 import RepVanStockNote from '../components/RepVanStockNote';
 import { formatCurrency, formatDate, formatDayOnly, formatTime, formatNumber, statusLabels, paymentMethodLabels, getActiveCurrency } from '../utils/format';
+import { methodLabelFor, type CompanyWithMethods } from '../lib/paymentMethodsConfig';
 import { currencyDecimals } from '../i18n/countries';
 import { useTr } from '../i18n/strings';
 import { shareOrDownloadExcel, num } from '../utils/excel';
@@ -963,6 +964,13 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
   const tr = useTr();
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  // «إدارة طرق الدفع»: أسماء الشركة لطرق سندات الكشف (الجدول والتصدير والطباعة) — كاش ['company'] نفسه، لا طلبٌ ثانٍ
+  const { data: methodsCompany } = useQuery({
+    queryKey: ['company'],
+    queryFn: async () => (await companyApi.get()).data.data as CompanyWithMethods,
+    staleTime: 300_000,
+  });
+  const rcpMethod = (r: Receipt) => methodLabelFor(methodsCompany, r.paymentMethod, r.paymentMethodKey, tr);
 
   const { data, isLoading } = useQuery({
     queryKey: ['rep-statement', rep.id, from, to],
@@ -1025,7 +1033,7 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
     });
     const rcpRows = receipts.map(r => ({
       [tr('رقم السند')]: r.number, [tr('العميل')]: r.customer.name,
-      [tr('طريقة الدفع')]: tr(paymentMethodLabels[r.paymentMethod] || r.paymentMethod),
+      [tr('طريقة الدفع')]: rcpMethod(r),
       [tr('التاريخ')]: formatDate(r.receiptDate), [tr('المبلغ')]: num(r.amount),
     }));
     const out = await shareOrDownloadExcel([
@@ -1040,7 +1048,7 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
   const printStatement = () => {
     const esc = (s: unknown) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string));
     const invRows = invoices.map((i, n) => `<tr><td>${n + 1}</td><td>${esc(i.number)}</td><td>${esc(i.customer.name)}</td><td style="font-size:10px">${esc((i.items?.length ? `${i.items.length} ${tr('صنف')}: ` : '') + itemsText(i))}</td><td>${esc(tr(statusLabels[i.type] || i.type))}</td><td>${formatDate(i.invoiceDate)}</td><td style="text-align:left">${num(i.total).toFixed(2)}</td></tr>`).join('');
-    const rcpRows = receipts.map((r, n) => `<tr><td>${n + 1}</td><td>${esc(r.number)}</td><td>${esc(r.customer.name)}</td><td>${esc(tr(paymentMethodLabels[r.paymentMethod] || r.paymentMethod))}</td><td>${formatDate(r.receiptDate)}</td><td style="text-align:left">${num(r.amount).toFixed(2)}</td></tr>`).join('');
+    const rcpRows = receipts.map((r, n) => `<tr><td>${n + 1}</td><td>${esc(r.number)}</td><td>${esc(r.customer.name)}</td><td>${esc(rcpMethod(r))}</td><td>${formatDate(r.receiptDate)}</td><td style="text-align:left">${num(r.amount).toFixed(2)}</td></tr>`).join('');
     const html = `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"/><title>${tr('كشف')} ${esc(rep.name)}</title>
     <style>
       @page { size: A4; margin: 14mm; }
@@ -1169,7 +1177,7 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
                           <tr key={r.id}>
                             <td className="font-mono text-xs text-[#1E7A52]">{r.number}</td>
                             <td>{r.customer.name}</td>
-                            <td>{tr(paymentMethodLabels[r.paymentMethod] || r.paymentMethod)}</td>
+                            <td>{rcpMethod(r)}</td>
                             <td className="text-xs text-gray-500">{formatDate(r.receiptDate)}</td>
                             <td className="font-semibold text-[#1E7A52]">{formatCurrency(r.amount)}</td>
                           </tr>

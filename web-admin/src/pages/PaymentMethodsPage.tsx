@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Banknote, CreditCard, Download, FileCheck, FileText, Globe, Landmark, Lock, Search, Wallet, X } from 'lucide-react';
+import { Banknote, CreditCard, Download, FileCheck, FileText, Globe, Landmark, Lock, Search, Settings2, Wallet, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { companyApi, reportApi, teamsApi } from '../api/client';
 import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
@@ -9,9 +9,12 @@ import { formatCurrency, activeLocale } from '../utils/format';
 import { shareOrDownloadExcel, type ExcelSheet } from '../utils/excel';
 import { elementsToPdfBlob, downloadPdf } from '../rep/pdf';
 import {
-  listTotal, localDay, methodLabel, repLabel, repListSheets, repMethodList,
-  type PaymentMethodsData, type PmRepGroup,
+  hasCashLikeCustom, listTotal, localDay, methodLabel, repLabel, repListSheets, repMethodList,
+  type PaymentMethodsData, type PmBlock, type PmRepGroup,
 } from '../lib/paymentMethods';
+import { useAuthStore } from '../store/authStore';
+import { methodIconComponent } from '../components/PaymentMethodIcon';
+import PaymentMethodsManager from '../components/PaymentMethodsManager';
 
 /**
  * «طرق الدفع» (طلب المالك ٢١ أكتوبر ٢٠٢٦) — **قائمة واحدة بكلّ المناديب**، والمندوب يتكرّر مع كلّ طريقة دفع:
@@ -26,6 +29,9 @@ import {
  *  - ثلاث بوّابات بترتيب: المحاسبة (AccountingOffNotice)، ثم عَلَم الشركة الذي يفعّله المالك (لافتة)، ثم صلاحية التقارير
  *    (PermissionRoute في App.tsx). والخادم يفرض الثلاث (٤٠٣) — الواجهة تُخفي فقط.
  *  - النطاق خادميّ بالكامل (المقيَّد بالقوائم ومشرف الفرق): لا تصفية نطاقٍ هنا، وقائمة الفرق نفسها مقيّدةٌ من الخادم.
+ *  - «إدارة طرق الدفع» (طلب المالك ٢٥ أكتوبر): زرٌّ في الرأس لمن يملك «إعدادات الشركة» (وجلسة المالك) يفتح النافذة
+ *    (components/PaymentMethodsManager). وكل جدولٍ بوصف الخادم: اسم الشركة للطريقة، والمضافة جدولٌ بمفتاحها وأيقونتها ولون
+ *    أساسها — ولو «تُعامل مثل» النقدي فلا تدخل سطر «نقدي» (سطورٌ مستقلّة تدخل عهدة المندوب النقدية).
  */
 
 const METHOD_STYLE: Record<string, { icon: React.ElementType; tint: string }> = {
@@ -36,6 +42,9 @@ const METHOD_STYLE: Record<string, { icon: React.ElementType; tint: string }> = 
   ONLINE: { icon: Globe, tint: 'text-sky-700 bg-sky-50' },
 };
 const styleOf = (m: string) => METHOD_STYLE[m] ?? { icon: Wallet, tint: 'text-gray-600 bg-gray-100' };
+/** نمط جدولٍ من وصف الخادم: المضافة بأيقونتها المختارة ولون أساسها، والمدمجة كما اليوم */
+const styleOfBlock = (b: Pick<PmBlock, 'method' | 'base' | 'custom' | 'icon'> | undefined, m: string) =>
+  b?.custom ? { icon: methodIconComponent(b.icon, b.base ?? 'CASH'), tint: styleOf(b.base ?? '').tint } : styleOf(m);
 
 /** كود رفض الخادم (٤٠٣) — كاشُ إعدادات الشركة قد يتأخّر عن إطفاء المالك للميزة */
 const errorCode = (e: unknown) => (e as { response?: { data?: { code?: string } } } | null)?.response?.data?.code;
@@ -46,11 +55,16 @@ export default function PaymentMethodsPage() {
   // مفتاح ['company'] ودالّته كبقيّة اللوحة (MainLayout وAccountingGate) — كاشٌ واحد لا طلبٌ ثانٍ
   const companyQ = useQuery({
     queryKey: ['company'],
-    queryFn: async () => (await companyApi.get()).data.data as { paymentMethodsEnabled?: boolean } | null,
+    queryFn: async () => (await companyApi.get()).data.data as { paymentMethodsEnabled?: boolean; paymentMethodsConfig?: unknown } | null,
     staleTime: 300_000,
   });
   // مطفأة افتراضياً: لا تُفتح إلا بـtrue صريحة (غيابها من ردٍّ قديم = مطفأة)
   const featureOn = companyQ.data?.paymentMethodsEnabled === true;
+  // «إدارة طرق الدفع»: صلاحية «إعدادات الشركة» (الغائب مسموح كبقيّة اللوحة)، وجلسة المالك تمرّ كما على الخادم
+  const user = useAuthStore(s => s.user);
+  const impersonating = useAuthStore(s => s.impersonating);
+  const canManageMethods = !!impersonating || (!!user && user.canManageCompanySettings !== false);
+  const [managing, setManaging] = useState(false);
 
   const [from, setFrom] = useState(() => localDay());
   const [to, setTo] = useState(() => localDay());
@@ -158,6 +172,9 @@ export default function PaymentMethodsPage() {
           <p className="text-xs text-gray-400 mt-0.5">{tr('تحصيل كل مندوب موزعا على طرق الدفع في الفترة المحددة')}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {canManageMethods && (
+            <button className="btn-secondary" onClick={() => setManaging(true)}><Settings2 size={16} /> {tr('إدارة طرق الدفع')}</button>
+          )}
           <button className="btn-secondary" onClick={handleExport}><Download size={16} /> {tr('تصدير Excel')}</button>
           <button className="btn-secondary" onClick={handleExportPdf}><FileText size={16} /> {tr('تصدير PDF')}</button>
         </div>
@@ -221,12 +238,14 @@ export default function PaymentMethodsPage() {
               <p className="text-[11px] text-gray-400 mt-0.5 tabular-nums">{data.total.count} {tr('عملية')} · {tr('عدد المناديب المحصلين')}: {data.repsCount}</p>
             </div>
             {data.methods.map(b => {
-              const st = styleOf(b.method);
+              const st = styleOfBlock(b, b.method);
               return (
                 <div key={b.method} className="card text-center">
-                  <p className="text-xs text-gray-500 flex items-center justify-center gap-1.5">
+                  <p className="text-xs text-gray-500 flex items-center justify-center gap-1.5 flex-wrap">
                     <span className={`w-5 h-5 rounded-md flex items-center justify-center ${st.tint}`}><st.icon size={12} /></span>
-                    {methodLabel(b.method, tr)}
+                    {methodLabel(b.method, tr, data)}
+                    {/* معطّلة لا تظهر إلا لأن بها تحصيلاً في الفترة — تُوسَم كي لا تُظنّ متاحةً في نموذج السند */}
+                    {b.active === false && <span className="text-[10px] text-[#9A8F7E]">({tr('معطلة')})</span>}
                   </p>
                   <p className="text-lg font-bold text-gray-700 tabular-nums mt-1">{formatCurrency(b.total.amount)}</p>
                   <p className="text-[11px] text-gray-400 mt-0.5 tabular-nums">{b.total.count} {tr('عملية')}</p>
@@ -239,9 +258,11 @@ export default function PaymentMethodsPage() {
             <p className="text-xs text-[#6E6557]">{tr('نتائج البحث عن')} «{q}»</p>
           )}
 
-          <RepMethodList groups={groups} searching={!!q} noRep={data.noRep} />
+          <RepMethodList groups={groups} searching={!!q} noRep={data.noRep} data={data} />
         </div>
       )}
+
+      {managing && <PaymentMethodsManager onClose={() => setManaging(false)} />}
     </div>
   );
 }
@@ -250,9 +271,10 @@ export default function PaymentMethodsPage() {
  * القائمة: لكلّ مندوبٍ خمسة سطور (طريقةٌ لكلّ سطر، واسمه مكرَّرٌ في كلّ سطر كما طلب المالك) ثم سطر إجماليّه، وتتناوب
  * خلفيّة المناديب ليُقرأ كلٌّ منهم كتلةً. والنقدي يذكر شقّيه تحت مبلغه. والصفر رماديّ لا يختفي.
  */
-function RepMethodList({ groups, searching, noRep }: { groups: PmRepGroup[]; searching: boolean; noRep: { amount: number; count: number } }) {
+function RepMethodList({ groups, searching, noRep, data }: { groups: PmRepGroup[]; searching: boolean; noRep: { amount: number; count: number }; data: PaymentMethodsData }) {
   const tr = useTr();
   const total = listTotal(groups);
+  const blockOf = (m: string) => data.methods.find(b => b.method === m);
   return (
     <div className="card p-0">
       <div className="px-5 py-3 border-b border-[#F1EBDF] flex items-center gap-3 text-sm flex-wrap">
@@ -265,6 +287,10 @@ function RepMethodList({ groups, searching, noRep }: { groups: PmRepGroup[]; sea
         </span>
       </div>
       <p className="px-5 pt-2 text-[11px] text-[#9A8F7E]">{tr('النقدي يشمل سندات القبض النقدية وفواتير البيع النقدي')}</p>
+      {/* مضافةٌ «تُعامل مثل» النقدي: سطرها مستقلّ عن «نقدي» (كل سندٍ في سطرٍ واحد فالإجمالي صحيح) وأساسها نقديّ في العهدة */}
+      {hasCashLikeCustom(data) && (
+        <p className="px-5 pt-0.5 text-[11px] text-[#9A8F7E]">{tr('الطرق المضافة التي تعامل مثل النقدي لها سطورها الخاصة وتدخل عهدة المندوب النقدية')}</p>
+      )}
 
       {groups.length === 0 ? (
         <div className="text-center text-gray-400 text-sm py-8">
@@ -287,7 +313,7 @@ function RepMethodList({ groups, searching, noRep }: { groups: PmRepGroup[]; sea
                 const band = gi % 2 === 1 ? 'bg-[#FAF7F0]/70' : '';
                 return [
                   ...g.lines.map(l => {
-                    const st = styleOf(l.method);
+                    const st = styleOfBlock(blockOf(l.method), l.method);
                     const has = l.count > 0 || l.amount !== 0;
                     return (
                       <tr key={`${g.salesRepId}-${l.method}`} className={band}>
@@ -295,7 +321,7 @@ function RepMethodList({ groups, searching, noRep }: { groups: PmRepGroup[]; sea
                         <td>
                           <span className="inline-flex items-center gap-2">
                             <span className={`w-6 h-6 rounded-md flex items-center justify-center ${st.tint}`}><st.icon size={13} /></span>
-                            {methodLabel(l.method, tr)}
+                            {methodLabel(l.method, tr, data)}
                           </span>
                         </td>
                         <td className={`tabular-nums ${has ? 'font-bold text-green-600' : 'text-gray-300'}`}>

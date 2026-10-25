@@ -312,7 +312,7 @@ router.get('/customers/receipts', VIEW, ledgerHandler(async (req, res) => {
     prisma.receipt.findMany({
       where, orderBy: [{ receiptDate: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }], skip: page.offset, take: page.limit,
       select: {
-        id: true, number: true, paymentMethod: true, status: true, receiptDate: true, createdAt: true, amount: true,
+        id: true, number: true, paymentMethod: true, paymentMethodKey: true, status: true, receiptDate: true, createdAt: true, amount: true,
         customerId: true, salesRepId: true, customer: { select: { name: true } }, salesRep: { select: { name: true } },
       },
     }),
@@ -331,7 +331,8 @@ router.get('/customers/receipts', VIEW, ledgerHandler(async (req, res) => {
     data: {
       ...f.meta, activated: f.activated, total, ...page, postingFilterCapped,
       rows: rows.map((r) => ({
-        id: r.id, number: r.number, paymentMethod: r.paymentMethod, status: r.status,
+        // paymentMethodKey للاسم المعروض وحده (طريقة الشركة المخصّصة) — الفلتر والترحيل على الأساس paymentMethod
+        id: r.id, number: r.number, paymentMethod: r.paymentMethod, paymentMethodKey: r.paymentMethodKey, status: r.status,
         date: localDate(r.receiptDate, f.timezone), receiptDate: r.receiptDate, createdAt: r.createdAt, amount: r.amount,
         customerId: r.customerId, customerName: r.customer?.name ?? null, salesRepId: r.salesRepId, salesRepName: r.salesRep?.name ?? null,
         paylinkId: linkOf.get(r.id)?.id ?? null, paylinkStatus: linkOf.get(r.id)?.status ?? null,

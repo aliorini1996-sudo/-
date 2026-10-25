@@ -9,6 +9,7 @@
 import { filterFlat } from './reportSearch';
 import { roundHalfUp } from './money';
 import { paymentMethodLabels } from '../utils/format';
+import { resolvedMethodLabel } from './paymentMethodsConfig';
 import { num, type ExcelSheet } from '../utils/excel';
 
 /** ترتيب الجداول — ترتيب الخادم نفسه (الأكثر استعمالاً في الميدان أولاً). */
@@ -21,7 +22,21 @@ export interface PmCollected {
   invoicesAmount: number; invoicesCount: number;
 }
 export interface PmRow extends PmCollected { salesRepId: string; repName: string; repActive: boolean }
-export interface PmBlock { method: string; rows: PmRow[]; total: PmCollected; noRep: { amount: number; count: number } }
+export interface PmBlock {
+  /** معرّف الجدول: رمز المدمجة (CASH…) أو مفتاح المضافة (c_…) أو قيمة قديمة — «إدارة طرق الدفع» */
+  method: string;
+  /** ما تُعامل مثله (= method للمدمجة) — وحقول الوصف أدناه غائبة من خادمٍ أقدم */
+  base?: string;
+  key?: string | null;
+  custom?: boolean;
+  /** اسم الشركة وإلا الافتراضي بالعربية — والواجهة تعرض companyLabel كما هو، وإلا افتراضيّها مترجماً */
+  label?: string;
+  companyLabel?: string | null;
+  icon?: string | null;
+  /** false = معطّلة: لا تُعرض إلا لأن بها تحصيلاً في الفترة */
+  active?: boolean;
+  rows: PmRow[]; total: PmCollected; noRep: { amount: number; count: number };
+}
 export interface PmRosterRep { salesRepId: string; repName: string; repActive: boolean }
 export interface PaymentMethodsData {
   range: { from: string; to: string; timezone: string };
@@ -40,10 +55,21 @@ export interface PmRepGroup extends PmRosterRep { lines: PmLine[]; total: PmColl
 
 type Tr = (ar: string) => string;
 
-/** اسم الطريقة للعرض — خريطة utils/format نفسها التي تعرض بها شاشة السندات الطرقَ الخمس؛ قيمةٌ غريبة تُعرض كما هي. */
-export function methodLabel(method: string, tr: Tr): string {
+/**
+ * اسم الطريقة للعرض — خريطة utils/format نفسها التي تعرض بها شاشة السندات الطرقَ الخمس؛ قيمةٌ غريبة تُعرض كما هي.
+ * و«إدارة طرق الدفع»: مع ردّ التقرير (data) يُقرأ وصف جدولها من الخادم — اسم الشركة كما كتبته (لا يمرّ بـtr: كلماتها هي)،
+ * والمضافة باسمها لا بمفتاحها «c_…»، وإلا الافتراضي مترجماً كما اليوم.
+ */
+export function methodLabel(method: string, tr: Tr, data?: Pick<PaymentMethodsData, 'methods'> | null): string {
+  const b = data?.methods.find((x) => x.method === method);
+  if (b) return resolvedMethodLabel(b, tr);
   const ar = paymentMethodLabels[method];
   return ar ? tr(ar) : method;
+}
+
+/** هل في التقرير طريقةٌ مضافة «تُعامل مثل» النقدي؟ — تُذكر تحت القائمة: سطرها مستقلّ عن «نقدي» وتدخل عهدة المندوب النقدية */
+export function hasCashLikeCustom(data: Pick<PaymentMethodsData, 'methods'> | null | undefined): boolean {
+  return !!data?.methods.some((b) => b.custom === true && b.base === 'CASH');
 }
 
 /** اسم المندوب للعرض: الموقوف موسومٌ (تحصيله باقٍ في الفترة)، والاسم الغائب شرطة. */
@@ -146,7 +172,7 @@ export function repListSheets(groups: PmRepGroup[], data: PaymentMethodsData, tr
   const rows: Record<string, unknown>[] = [];
   for (const g of groups) {
     const name = repLabel(g, tr);
-    for (const l of g.lines) rows.push(line(name, methodLabel(l.method, tr), l, l.method === 'CASH'));
+    for (const l of g.lines) rows.push(line(name, methodLabel(l.method, tr, data), l, l.method === 'CASH'));
     rows.push(line(name, totalLabel, g.total, true));
   }
   rows.push(line(totalLabel, '', listTotal(groups), true));
@@ -156,7 +182,7 @@ export function repListSheets(groups: PmRepGroup[], data: PaymentMethodsData, tr
     const t = sumRows(groups.map((g) => g.lines.find((l) => l.method === m) ?? ZERO));
     const noRep = data.methods.find((b) => b.method === m)?.noRep ?? { amount: 0, count: 0 };
     return {
-      [cMethod]: methodLabel(m, tr),
+      [cMethod]: methodLabel(m, tr, data),
       [cAmount]: num(t.amount),
       [cCount]: t.count,
       [tr('تحصيل بلا مندوب')]: num(noRep.amount),

@@ -278,6 +278,14 @@ class TestReceipt(unittest.TestCase):
         self.assertEqual(map_receipt(dict(self.ROW, paymentMethod='POS'))['payment_method'], 'شبكة / نقاط بيع')
         self.assertEqual(map_receipt(dict(self.ROW, paymentMethod='CASH'))['payment_method'], 'نقداً')
 
+    def test_اسم_الشركة_للطريقة_يعلو_الوسم(self):
+        # «إدارة طرق الدفع»: طريقة مخصّصة تُعامل مثل النقدي باسم الشركة، وبلا تسمية يبقى وسم الموصل
+        v = map_receipt(dict(self.ROW, paymentMethod='CASH', paymentMethodKey='c_stcpay01',
+                             paymentMethodLabel='STC Pay', paymentMethodCompanyLabel='STC Pay'))
+        self.assertEqual(v['payment_method'], 'STC Pay')
+        plain = map_receipt(dict(self.ROW, paymentMethod='CASH', paymentMethodLabel='نقدي', paymentMethodCompanyLabel=None))
+        self.assertEqual(plain['payment_method'], 'نقداً')
+
     def test_حالة_السند_والملغى(self):
         self.assertEqual(map_receipt(dict(self.ROW, status='ACTIVE'))['state'], 'ساري')
         self.assertEqual(map_receipt(dict(self.ROW, status='CANCELLED'))['state'], 'ملغى')
