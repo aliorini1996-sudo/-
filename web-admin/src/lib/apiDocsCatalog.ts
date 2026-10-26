@@ -1,8 +1,12 @@
 /**
  * فهرس مسارات المنصة في مستند «الربط البرمجي API» — مستخرجٌ من مخططات zod ومعالجات كل موجّه
- * (العملاء، المنتجات، الفواتير، السندات، المناديب، المخزون، الميدان، التقارير). يُرسم في components/ApiDocs.tsx.
- * يُحدَّث حين يتغيّر عقد مسار؛ واختبار apiDocsCatalog.test.ts يتحقّق أن كل مسار مذكور هنا مركَّب فعلاً في الخادم.
+ * (العملاء، المنتجات، الفواتير، السندات، المناديب، المخزون، الميدان، التقارير، لوكيشن، طرق الدفع، الفرق). يُرسم في
+ * components/ApiDocs.tsx، ومعه في آخر الملف دليلا ربط صفحتي «لوكيشن» و«طرق الدفع» خطوةً بخطوة (API_DOC_GUIDES).
+ * يُحدَّث حين يتغيّر عقد مسار؛ واختبار apiDocsCatalog.test.ts يتحقّق أن كل مسار مذكور هنا مركَّب فعلاً في الخادم **في ملف
+ * موجّهه** (ومنها الموجّهات المتداخلة تحت /company)، وأن كل مسار في موجّهات الميزات الحديثة موثّقٌ هنا أو مستثنى بسببه.
  */
+import { API_BASE_URL } from './apiDocsData';
+
 export interface DocField { name: string; type: string; required: boolean; desc: string }
 export interface DocEndpoint {
   method: string; path: string; purpose: string; permission: string; gates: string[];
@@ -490,8 +494,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "locationUrl: إذا نجح تحويله إلى إحداثيات يحل محل lat وlng، وإذا فشل يُتجاهل بصمت. لا تُتبع إلا روابط Google",
      "email وchannel وoutletType الفارغة تُحفظ null",
      "حقول زاتكا وفحصها تعمل فقط إذا كانت الشركة تجمع بيانات الفوترة ((zatcaPhase2Enabled أو zatcaPhase2StartedAt) مع countryCode=SA)، وإلا تُهمل حقول المرحلة الثانية بصمت ويُحفظ taxNumber كما هو",
-     "في الشركة التي تجمع البيانات: القيمة غير الصالحة تعود 400 CUSTOMER_ZATCA_INVALID مع fieldErrors. الاستثناء عند إرسال clientRef: لا يُرفض الطلب، بل تُسقط حقول المرحلة الثانية الخاطئة ويعود warnings",
-     "aiPlaceId المسجل لعميل آخر في الشركة يعود 409 AI_PLACE_ALREADY_CUSTOMER. إذا أرسلت الرأس x-fs-replay: 1 لا يُرفض الإنشاء، وإنما يُسقط الربط وحده",
+     "في الشركة التي تجمع البيانات: القيمة غير الصالحة تعود 400 CUSTOMER_ZATCA_INVALID مع fieldErrors، ولطلب المفتاح دائماً ولو أرسلت clientRef. التسامح (إسقاط حقول المرحلة الثانية الخاطئة مع warnings بدل الرفض) خاص بصندوق تطبيق المندوب حين يعيد رفع ما سُجّل دون اتصال، ولا يرثه المفتاح. وwarnings قد تعود مع 201 لنقصٍ لا يمنع الحفظ",
+     "aiPlaceId المسجل لعميل آخر في الشركة يعود 409 AI_PLACE_ALREADY_CUSTOMER لطلب المفتاح دائماً. ترويسة X-FS-Replay تُمحى من طلبات المفتاح فلا ترسلها",
      "إنشاء العميل لا يكتب أي قيد مالي ولا يغيّر أي رصيد"
     ],
     "example": "{\"name\":\"بقالة النخيل\",\"phone\":\"0551234567\",\"businessName\":\"مؤسسة النخيل التجارية\",\"taxNumber\":\"310123456700003\",\"commercialReg\":\"1010123456\",\"city\":\"الرياض\",\"district\":\"العليا\",\"address\":\"شارع التحلية\",\"lat\":24.7136,\"lng\":46.6753,\"channel\":\"TT\",\"creditLimit\":5000,\"paymentDays\":30,\"clientRef\":\"6f1c2a9e-3b7d-4c2e-9a51-2f0e8d7c4b10\"}"
@@ -1199,7 +1203,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
  {
   "key": "invoices",
   "title": "الفواتير والمرتجعات والإشعارات",
-  "overview": "كل المسارات تحت /api/invoices وتعمل بمفتاح الشركة (Authorization: Bearer fsk_… أو X-API-Key) بهوية المستخدم الذي أصدره. كل طلب يمر أولاً بحارس النظام المحاسبي: إذا كان accountingEnabled=false للشركة يرجع 403 بالرمز ACCOUNTING_NOT_ALLOWED. بعده كل المسارات تحتاج صلاحية canManageInvoices ما عدا GET /invoices/open الذي يحتاج canManageReceipts. الصلاحية ترفض فقط إذا كانت قيمتها false في حساب المستخدم، والرفض يرجع 403. ولأن مسارات الفوترة الإلكترونية (/einvoice/*) مركبة على نفس البادئة بعد موجّه الفواتير، فهي تمر بنفس الحارسين وتضيف requireAdmin، أي أن الدور يجب أن يكون ADMIN أو MANAGER أو ACCOUNTANT. نطاق المستخدم المقيّد (قوائم عملاء ومناديب) يُطبَّق على كل قراءة وكتابة، وما يقع خارج النطاق يرجع 404 أو 403. المفتاح المحدد «قراءة فقط» لا يقبل إلا GET وHEAD، وأي طريقة أخرى ترجع 403 بالرمز API_KEY_FORBIDDEN. حد الطلبات 120 طلباً في الدقيقة لكل مفتاح، ويرجع 429 بالرمز API_RATE_LIMIT مع ترويسة Retry-After. المفتاح معفى من الحد العام لـ/api. الترقيم يتم تلقائياً: الفاتورة INV-YYMM-000001 والمرتجع أو الإشعار الدائن RET-YYMM-000001، والتسلسل منفصل لكل شركة. الشركات المربوطة بالمرحلة الثانية من زاتكا (zatcaPhase2StartedAt مضبوط): يجب أن ترسل الترويسة X-FS-Caps: zatca2 في الإصدار وفي قراءة أي صف zatcaPhase=2 وفي الإشعارات وفي إعادة الإصدار، وبدونها يرجع 426 بالرمز ZATCA_CLIENT_UPDATE_REQUIRED. الترويسة تعني أن نظامك يطبع QR المرحلة الثانية من data.einvoice.qr ويحترم الحقل printable. لا ترسل X-FS-Replay، فهي خاصة بصندوق تطبيق المندوب حين يعمل دون اتصال. شكل الأخطاء: أخطاء التحقق ترجع 400 بالشكل {success:false, message, errors:{field:[...]}}. أخطاء زاتكا ترجع {success, code, message, issues?, errors?, data?, reason?, customerId?}، وsuccess=true فيها فقط عندما يكون الرمز 202. الأخطاء العامة ترجع {success:false, message}. ردود النجاح شكلها {success:true, data}، وتضاف pagination في القوائم المرقّمة",
+  "overview": "كل المسارات تحت /api/invoices وتعمل بمفتاح الشركة (Authorization: Bearer fsk_… أو X-API-Key) بهوية المستخدم الذي أصدره. كل طلب يمر أولاً بحارس النظام المحاسبي: إذا كان accountingEnabled=false للشركة يرجع 403 بالرمز ACCOUNTING_NOT_ALLOWED. بعده كل المسارات تحتاج صلاحية canManageInvoices ما عدا GET /invoices/open الذي يحتاج canManageReceipts. الصلاحية ترفض فقط إذا كانت قيمتها false في حساب المستخدم، والرفض يرجع 403. ولأن مسارات الفوترة الإلكترونية (/einvoice/*) مركبة على نفس البادئة بعد موجّه الفواتير، فهي تمر بنفس الحارسين وتضيف requireAdmin، أي أن الدور يجب أن يكون ADMIN أو MANAGER أو ACCOUNTANT. نطاق المستخدم المقيّد (قوائم عملاء ومناديب) يُطبَّق على كل قراءة وكتابة، وما يقع خارج النطاق يرجع 404 أو 403. المفتاح المحدد «قراءة فقط» لا يقبل إلا GET وHEAD، وأي طريقة أخرى ترجع 403 بالرمز API_KEY_FORBIDDEN. حد الطلبات 120 طلباً في الدقيقة لكل مفتاح، ويرجع 429 بالرمز API_RATE_LIMIT مع ترويسة Retry-After. المفتاح معفى من الحد العام لـ/api. الترقيم يتم تلقائياً: الفاتورة INV-YYMM-000001 والمرتجع أو الإشعار الدائن RET-YYMM-000001، والتسلسل منفصل لكل شركة. الشركات المربوطة بالمرحلة الثانية من زاتكا (zatcaPhase2StartedAt مضبوط): يجب أن ترسل الترويسة X-FS-Caps: zatca2 في الإصدار وفي قراءة أي صف zatcaPhase=2 وفي الإشعارات وفي إعادة الإصدار، وبدونها يرجع 426 بالرمز ZATCA_CLIENT_UPDATE_REQUIRED. الترويسة تعني أن نظامك يطبع QR المرحلة الثانية من data.einvoice.qr ويحترم الحقل printable. لا ترسل X-FS-Replay، فهي خاصة بصندوق تطبيق المندوب حين يعمل دون اتصال، والخادم يمحوها من طلبات المفتاح فيُحكم عليها حكم الطلب الحيّ دائماً. شكل الأخطاء: أخطاء التحقق ترجع 400 بالشكل {success:false, message, errors:{field:[...]}}. أخطاء زاتكا ترجع {success, code, message, issues?, errors?, data?, reason?, customerId?}، وsuccess=true فيها فقط عندما يكون الرمز 202. الأخطاء العامة ترجع {success:false, message}. ردود النجاح شكلها {success:true, data}، وتضاف pagination في القوائم المرقّمة",
   "endpoints": [
    {
     "method": "GET",
@@ -1276,7 +1280,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "locationId",
       "type": "string (uuid) | none",
       "required": false,
-      "desc": "تصفية بختم الموقع (ميزة «لوكيشن»): معرّف موقع، أو none للفواتير بلا موقع"
+      "desc": "تصفية بختم الموقع (ميزة «لوكيشن»): معرّف موقع من GET /locations، أو none للفواتير بلا موقع. يعمل ولو كانت الميزة مطفأة، والقيمة غير النصية (مثل locationId[not]=x) تُهمل"
      }
     ],
     "body": [],
@@ -1286,7 +1290,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "هذه القائمة لا تشترط X-FS-Caps حتى للصفوف المربوطة بالمرحلة الثانية، بخلاف GET /invoices/:id",
      "المبالغ subtotal وdiscountAmt صافية قبل الضريبة دائماً. أما unitPrice وlineTotal للبنود فتكون شاملة الضريبة إذا كان pricesIncludeTax=true",
      "لا ترسل قيماً سالبة لـpage أو limit، لأنها لا تُصحَّح وقد تسبب خطأ 500",
-     "ملف المرجع"
+     "from وto هنا بمنتصف ليل UTC، بخلاف ملخّص لوكيشن وسجل التحميلات وتقرير طرق الدفع التي تُحسب بأيام الشركة المحلية — فقد يختلف مجموع يومٍ واحد بينهما بما وقع بين منتصف الليل والثالثة فجراً بتوقيت الرياض",
+     "teamId (ميزة «الفرق») عمود في كل صف: الفريق الذي وُسمت به الفاتورة أو null، وأسماء الفرق من GET /company/teams"
     ],
     "example": ""
    },
@@ -1335,6 +1340,57 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "قراءة فقط ولا تتصل بالهيئة",
      "إذا لم توجد الفاتورة أو كانت خارج النطاق يرجع 404 الفاتورة غير موجودة",
      "المرجع"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/invoices/returnable-sales",
+    "purpose": "فواتير بيع العميل التي بقي فيها ما يُرجَع — الخطوة الأولى لإصدار مرتجع من فاتورة بيع",
+    "permission": "canManageInvoices",
+    "gates": [
+     "requireAccounting",
+     "requireAdminPermission('canManageInvoices')",
+     "نطاق المستخدم: فواتير في نطاق صاحب المفتاح وحدها",
+     "مسموح لمفتاح القراءة فقط"
+    ],
+    "query": [
+     {
+      "name": "customerId",
+      "type": "string",
+      "required": true,
+      "desc": "العميل. غيابه يرجع 400 «يجب تحديد العميل»"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:[{id, number, invoiceDate, total, type, itemsCount, returnableQty, productIds:[...]}]}",
+    "rules": [
+     "تُفحص أحدث 300 فاتورة بيع مؤكدة للعميل (CASH أو CREDIT، بلا الإشعارات الدائنة والمدينة)، ويُعاد منها ما بقي فيه ما يُرجَع، من الأحدث تاريخاً",
+     "returnableQty مجموع ما بقي في كل بنود الفاتورة بعد المرتجعات السابقة، وproductIds الأصناف التي بقي منها شيء — للبحث بالصنف",
+     "يعمل في المرحلتين، ولا يشترط ميزة لوكيشن ولا الفرق"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/invoices/:id/returnable",
+    "purpose": "بنود فاتورة بيع مع المبيع والمُرجَع والمتاح لكل بند وسعر الاسترداد وصلاحيته — لبناء جسم المرتجع",
+    "permission": "canManageInvoices",
+    "gates": [
+     "requireAccounting",
+     "requireAdminPermission('canManageInvoices')",
+     "نطاق المستخدم",
+     "مسموح لمفتاح القراءة فقط"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:{id, number, invoiceDate, customerId, lines:[{saleItemId, productId, name, code, unit, sold, returned, returnable, refundUnitPrice, taxPct, shelfLife, expiresAt, expiredToday, returnBlocked}]}}",
+    "rules": [
+     "saleItemId هو ما يُرسل في items[].invoiceItemId عند POST /invoices، وreturnable أقصى كمية تُقبل له الآن",
+     "refundUnitPrice ما دفعه العميل للوحدة شاملاً الضريبة بعد خصمي البند والفاتورة (إجمالي البند ÷ كميته، بأربع منازل)",
+     "shelfLife وexpiresAt (YYYY-MM-DD) وexpiredToday لصنف مفعّلة صلاحيته: المنتهي يُقبل ويدخل مخزون السيارة «منتهي الصلاحية» فلا يُباع",
+     "returnBlocked نص سبب الرفض إن كان قيد المرتجع للصنف يمنعه اليوم (مدة الإرجاع أو قرب الانتهاء)، وإلا null. وهو إرشاد للعرض: القرار للخادم عند الإصدار في POST /invoices، فيرجع 422 RETURN_RULE_BLOCKED برسالة «اسم الصنف: السبب» ويُقاس يوم المرتجع بـclientCreatedAt إن أُرسل وإلا invoiceDate وإلا اليوم",
+     "فاتورة غير موجودة أو خارج النطاق 404، وفاتورة ليست بيعاً مؤكداً (مرتجع أو ملغاة أو إشعار) 422"
     ],
     "example": ""
    },
@@ -1392,6 +1448,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "المندوب المنسوبة إليه الفاتورة. إجباري للمفتاح، وغيابه يرجع 400 يجب تحديد المندوب"
      },
      {
+      "name": "teamId",
+      "type": "string | null",
+      "required": false,
+      "desc": "ميزة «الفرق»: الفريق الذي يعمل له المندوب الآن. يُقبل إن كان من فرق المندوب الفعّالة، وإلا يُوسم بفريقه الوحيد إن كان له فريق واحد، وإلا بلا فريق — بلا رفض. والمرتجع من فاتورة بيع يرث فريقها. يُهمل إن كانت الفرق مطفأة للشركة"
+     },
+     {
       "name": "type",
       "type": "enum CASH | CREDIT | RETURN",
       "required": false,
@@ -1437,7 +1499,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "items[].invoiceItemId",
       "type": "string",
       "required": false,
-      "desc": "للمرتجع في المرحلة الثانية فقط: معرّف بند الفاتورة الأصلية المُرجَع منه"
+      "desc": "للمرتجع من فاتورة بيع (في المرحلتين): معرّف بند البيع الذي يُرجَع منه، وهو saleItemId من GET /invoices/:id/returnable. والكمية لا تتجاوز returnable لذلك البند"
      },
      {
       "name": "pricesIncludeTax",
@@ -1521,7 +1583,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "originalInvoiceId",
       "type": "string",
       "required": false,
-      "desc": "للمرتجع في المرحلة الثانية: الفاتورة الأصلية. إجباري هناك، وغيابه يرجع 422 ZATCA_RETURN_NEEDS_ORIGINAL"
+      "desc": "للمرتجع (type=RETURN): فاتورة البيع التي يُرجَع منها، في المرحلتين. في المرحلة الأولى اختياري: معه يتحقق الخادم من كل بند (من الفاتورة نفسها، بالصنف نفسه، والكمية ضمن المتاح)، ويرث المرتجع ختم موقعها وفريقها. وفي المرحلة الثانية إجباري، وغيابه يرجع 422 ZATCA_RETURN_NEEDS_ORIGINAL"
      },
      {
       "name": "noteReason",
@@ -1569,8 +1631,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "المرحلة الثانية: إرسال clientCreatedAt دون clientRef يرجع 426. وخلال فترة تسليح التفعيل قد يرجع 409 ZATCA_GO_LIVE_ARMING لمستند يحمل clientCreatedAt",
      "أخطاء زاتكا الأخرى: 503 ZATCA_UNIT_UNAVAILABLE أو UNIT_BUSY أو STAMP_FAILED (أعد المحاولة بنفس clientRef)، و422 ZATCA_AMOUNTS أو PREFLIGHT أو CURRENCY",
      "مثال تقسيط: {\"customerId\":\"…\",\"salesRepId\":\"…\",\"type\":\"CREDIT\",\"paymentPlan\":\"INSTALLMENT\",\"installmentPlan\":{\"count\":3,\"firstDueDate\":\"2026-11-01\",\"period\":\"MONTHLY\"},\"items\":[{\"productId\":\"…\",\"qty\":10,\"unitPrice\":120}]}",
-     "مثال مرتجع في المرحلة الأولى: {\"customerId\":\"…\",\"salesRepId\":\"…\",\"type\":\"RETURN\",\"returnReason\":\"DAMAGED\",\"returnToStock\":false,\"items\":[{\"productId\":\"…\",\"qty\":2,\"unitPrice\":5}]}",
-     "مثال مرتجع في المرحلة الثانية: أضف originalInvoiceId وnoteReason وitems[].invoiceItemId. الحقل unitPrice إلزامي في المخطط لكنه يُهمل"
+     "ختم الموقع (ميزة «لوكيشن»): الخادم يكتب locationId بموقع المندوب لحظة الإصدار إن كانت الميزة مفعّلة للشركة، والمرتجع من فاتورة بيع يرث ختمها. لا حقل له في الجسم",
+     "المرتجع من فاتورة بيع (المرحلة الأولى): اختر الفاتورة من GET /invoices/returnable-sales?customerId=… ثم بنودها من GET /invoices/:id/returnable. أرسل لكل بند invoiceItemId = saleItemId وunitPrice = refundUnitPrice وtaxPct من البند وdiscountPct = 0، ومع pricesIncludeTax = true وdiscountPct = 0 للفاتورة — فيساوي المرتجع ما دفعه العميل فعلاً. الخادم يتحقق من الربط والكميات ولا يتحقق من السعر، فالسعر الصافي بلا pricesIncludeTax يضيف الضريبة مرة ثانية",
+     "قيد المرتجع للصنف (منتج مفعّلة صلاحيته وقيد إرجاعه returnRuleEnabled): مرتجع فيه صنف يمنع قيدُه إرجاعه (مدة الإرجاع من البيع أو قرب الانتهاء) يرجع 422 RETURN_RULE_BLOCKED برسالة «اسم الصنف: السبب»، لأي مُصدِر ومنه المفتاح وفي المرحلتين، مرتبطاً بفاتورة بيع كان أو حرّاً. يُقاس على بند البيع المرتبط، وإلا آخر بيع للصنف لهذا العميل حتى invoiceDate. ويوم المرتجع clientCreatedAt إن أُرسل وإلا invoiceDate وإلا اليوم. وبيع لا يُعرف انتهاؤه لا يُرفض به",
+     "أخطاء الربط: 422 RETURN_LINK_INVALID (بند ليس من الفاتورة، أو صنف مختلف، أو كمية فوق المتاح، أو فاتورة ليست بيعاً مؤكداً للعميل نفسه)، و409 بالرمز نفسه حين يسبقك مرتجع متزامن على الكمية نفسها، و404 «فاتورة البيع الأصلية غير موجودة» لفاتورة خارج نطاق صاحب المفتاح",
+     "مثال مرتجع حرّ بلا فاتورة بيع (المرحلة الأولى): {\"customerId\":\"…\",\"salesRepId\":\"…\",\"type\":\"RETURN\",\"returnReason\":\"DAMAGED\",\"returnToStock\":false,\"items\":[{\"productId\":\"…\",\"qty\":2,\"unitPrice\":5}]}",
+     "مثال مرتجع من فاتورة بيع (المرحلة الأولى): {\"customerId\":\"…\",\"salesRepId\":\"…\",\"type\":\"RETURN\",\"returnReason\":\"NORMAL\",\"originalInvoiceId\":\"<id فاتورة البيع>\",\"pricesIncludeTax\":true,\"discountPct\":0,\"items\":[{\"productId\":\"…\",\"invoiceItemId\":\"<saleItemId>\",\"qty\":1,\"unitPrice\":103.5,\"discountPct\":0,\"taxPct\":15}]}",
+     "مثال مرتجع في المرحلة الثانية: الجسم نفسه مع noteReason (3 أحرف على الأقل). الأسعار والضريبة تؤخذ من بنود الأصل ويُهمل unitPrice المرسل، لكنه يبقى إلزامياً في المخطط"
     ],
     "example": "{\"customerId\":\"8f1c2a4e-1b2c-4d5e-9f00-112233445566\",\"salesRepId\":\"2b7e9d10-3c4d-4e5f-8a90-aabbccddeeff\",\"type\":\"CASH\",\"pricesIncludeTax\":true,\"items\":[{\"productId\":\"a1d2c3b4-0000-4000-8000-000000000001\",\"qty\":12,\"unitPrice\":5.75},{\"productId\":\"a1d2c3b4-0000-4000-8000-000000000002\",\"qty\":2,\"unitPrice\":34.5,\"discountPct\":5}],\"notes\":\"طلب من نظام ERP\",\"clientRef\":\"3f2b8c1e-6a4d-4e2b-9c7a-1d2e3f4a5b6c\"}"
    },
@@ -2173,6 +2240,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "المندوب الذي يُنسب إليه التحصيل. الزود يعتبره اختيارياً، لكنه مطلوب فعلياً للمفتاح، فغيابه يعطي 400 مع رسالة يجب تحديد المندوب، والمندوب الخارج عن الشركة أو النطاق يعطي 404"
      },
      {
+      "name": "teamId",
+      "type": "string | null",
+      "required": false,
+      "desc": "ميزة «الفرق»: الفريق الذي يعمل له المندوب الآن، بقواعد POST /invoices نفسها (فريق من فرقه الفعّالة، وإلا فريقه الوحيد، وإلا بلا فريق — بلا رفض)"
+     },
+     {
       "name": "receiptDate",
       "type": "string (ISO date-time)",
       "required": false,
@@ -2192,9 +2265,9 @@ export const API_DOC_GROUPS: DocGroup[] = [
      },
      {
       "name": "paymentMethodKey",
-      "type": "string | null",
+      "type": "string (c_…) | null",
       "required": false,
-      "desc": "مفتاح طريقة دفع أضافتها الشركة (يبدأ بـc_، مثل STC Pay) من صفحة طرق الدفع. الخادم يكتب في paymentMethod الأساس الذي تُعامل مثله الطريقة (CASH أو POS أو BANK_TRANSFER أو CHEQUE) أياً كانت القيمة المرسلة. مفتاح غير معروف ⇒ 422 PAYMENT_METHOD_UNKNOWN، وطريقة معطّلة ⇒ 422 PAYMENT_METHOD_DISABLED، ومع ONLINE ⇒ 422 PAYMENT_METHOD_KEY_ONLINE. غيابه = طريقة مدمجة كما كان"
+      "desc": "مفتاح طريقة دفع أضافتها الشركة (مثل STC Pay)، يُقرأ من choices في GET /company/payment-methods. الخادم يكتب في paymentMethod الأساس المحفوظ للطريقة (CASH أو POS أو BANK_TRANSFER أو CHEQUE) أياً كانت القيمة المرسلة. مفتاح غير معروف ⇒ 422 PAYMENT_METHOD_UNKNOWN، وطريقة معطّلة ⇒ 422 PAYMENT_METHOD_DISABLED، ومع paymentMethod = ONLINE ⇒ 422 PAYMENT_METHOD_KEY_ONLINE. غيابه أو null = طريقة مدمجة كما كان"
      },
      {
       "name": "chequeNumber",
@@ -2264,7 +2337,10 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "الأثر داخل معاملة واحدة: إنشاء السند ومرفقاته، وروابط receipt_invoices، وتحديث paidAmt وremainingAmt لكل فاتورة مع قفل الصفوف، وقيد RECEIPT_CREDIT في كشف الحساب بالمبلغ كاملاً بتاريخ receiptDate، وخفض customer.balance وزيادة totalCollected",
      "بعد الالتزام تُلغى روابط الدفع الإلكتروني الحية (ميسر) على الفواتير المخصّصة، بأسلوب best-effort",
      "لا يُفحص status العميل (نشط أو موقوف)، وتكفي أن يكون في الشركة والنطاق. العميل غير الموجود يعطي 404، والخارج عن النطاق 403 مع رسالة هذا العميل غير مسند لك",
-     "فشل التحقق بالزود يعطي 400 مع { success:false, message:'بيانات غير صحيحة ...', errors }. وإرسال amount نصاً يُرفض"
+     "فشل التحقق بالزود يعطي 400 مع { success:false, message:'بيانات غير صحيحة ...', errors }. وإرسال amount نصاً يُرفض",
+     "مفتاح API يرسل salesRepId دائماً: بدونه 400 «يجب تحديد المندوب»، ولمندوب خارج النطاق أو من شركة أخرى 404",
+     "ترويسة X-FS-Replay خاصة بصندوق تطبيق المندوب وتُمحى من طلبات المفتاح، فرفض 422 لطريقة مجهولة أو معطّلة يسري على المفتاح دائماً",
+     "paymentMethodKey في صف السند (وفي /v1/sync/receipts) هو المفتاح المخصّص أو null للطرق المدمجة، وpaymentMethod الأساس المحاسبي دائماً"
     ],
     "example": "{\"customerId\":\"5b0c7e2a-1f3d-4a9e-8c21-7d4f6a9b2e10\",\"salesRepId\":\"a8e4d1c9-3b7f-4f02-9a6e-0c5d2b8f7e31\",\"amount\":1150.00,\"paymentMethod\":\"BANK_TRANSFER\",\"bankName\":\"مصرف الراجحي\",\"receiptDate\":\"2026-10-11T09:30:00+03:00\",\"notes\":\"دفعة حساب أكتوبر\",\"invoiceAllocations\":[{\"invoiceId\":\"e3f9a2b4-6c1d-4e8f-b5a7-9d0c2e4f6a81\",\"amount\":1150.00}],\"clientRef\":\"3f1c2b9e-6a4d-4c1e-9b7a-2d5e8f0a1b2c\"}"
    },
@@ -2379,7 +2455,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "limit",
       "type": "integer",
       "required": false,
-      "desc": "حجم الصفحة (الافتراضي 20، وأقصاه 200 لطلبات المفتاح). القيمة 0 أو غير الرقمية تعود إلى 20"
+      "desc": "حجم الصفحة (الافتراضي 20). لطلب المفتاح تُقصّ القيمة فوق 200 أو غير الرقمية إلى 200، والقيمة 0 تعود إلى 20"
      },
      {
       "name": "search",
@@ -2389,11 +2465,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[مندوب], pagination:{total, page, limit, pages}} مرتبة بالاسم تصاعدياً. حقول المندوب: id, name, phone, email, username, isActive, canCreateInvoice, canSellOnCredit, canSellOnInstallment, canSellInCash, canEditInvoice, canDeleteInvoice, canCancelInvoice, canChangePrice, maxDiscountPct, canSellBelowPrice, canCreateReceipt, canEditReceipt, canCancelReceipt, canManageVanStock, canAddCustomer, canEditCustomer, canViewStatement, showCollectionBalance, requireCustomerProximity, requireLocationOn, requirePunchAtCustomer, proximityRadiusM, punchRadiusM, createdAt",
+    "response": "{success:true, data:[مندوب], pagination:{total, page, limit, pages}} مرتبة بالاسم تصاعدياً. حقول المندوب: id, name, phone, email, username, isActive, canCreateInvoice, canSellOnCredit, canSellOnInstallment, canSellInCash, canEditInvoice, canDeleteInvoice, canCancelInvoice, canChangePrice, maxDiscountPct, canSellBelowPrice, canCreateReceipt, canEditReceipt, canCancelReceipt, canManageVanStock, canAddCustomer, canEditCustomer, canViewStatement, showCollectionBalance, requireCustomerProximity, requireLocationOn, requirePunchAtCustomer, proximityRadiusM, punchRadiusM, punchOutsideAction, requireBoundDevice, boundDeviceName, boundDeviceAt, requirePresenceCheck, showRouteOnMap, shiftStart, shiftEnd, shiftDays, locationId, createdAt",
     "rules": [
      "لا تُعاد كلمة المرور ولا حقول التتبع والموقع ولا canSellWithoutStock ولا canBeTracked",
      "pages = ceil(total/limit) من utils/helpers.ts",
-     "يُنصح بـ limit لا يتجاوز 100 لأن الخادم لا يفرض سقفاً"
+     "لطلب المفتاح سقف الصفحة 200 صف. للسحب الكامل استعمل /v1/sync/sales-reps",
+     "locationId موقع المندوب الحالي في ميزة «لوكيشن» (أو null) للقراءة وحدها — الإسناد من PUT /locations/reps/:salesRepId، واسم الموقع من GET /locations"
     ],
     "example": ""
    },
@@ -2411,7 +2488,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "body": [],
     "response": "{success:true, data:{نفس حقول عنصر القائمة}} أو 404 {success:false, message:'المندوب غير موجود'} إذا لم يكن في الشركة أو خارج نطاق صاحب المفتاح",
     "rules": [
-     "المعرّف UUID"
+     "المعرّف UUID",
+     "حقول المندوب نفسها كما في القائمة، ومنها locationId وحقول البصمة والدوام"
     ],
     "example": ""
    },
@@ -2601,6 +2679,48 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "type": "integer",
       "required": false,
       "desc": "مسافة قيد «بصمة الحضور بموقع عميل» بالأمتار، عدد صحيح من 10 إلى 5000، الافتراضي 50"
+     },
+     {
+      "name": "shiftDays",
+      "type": "integer 0-127",
+      "required": false,
+      "desc": "أيام العمل بتات: الأحد = 1، الاثنين = 2، … السبت = 64 (مثال: الأحد إلى الخميس = 31)"
+     },
+     {
+      "name": "shiftEnd",
+      "type": "string \"HH:MM\" | null",
+      "required": false,
+      "desc": "نهاية الدوام لتنبيه «نسيت الانصراف»"
+     },
+     {
+      "name": "shiftStart",
+      "type": "string \"HH:MM\" | null",
+      "required": false,
+      "desc": "بداية الدوام لتنبيهات الحضور (24 ساعة)"
+     },
+     {
+      "name": "showRouteOnMap",
+      "type": "boolean",
+      "required": false,
+      "desc": "عرض خط سير المندوب على الخريطة (GET /tracking/route). false يُخفيه ويبقى التسجيل"
+     },
+     {
+      "name": "requirePresenceCheck",
+      "type": "boolean",
+      "required": false,
+      "desc": "التحقق العشوائي من التواجد أثناء الدوام"
+     },
+     {
+      "name": "requireBoundDevice",
+      "type": "boolean",
+      "required": false,
+      "desc": "ربط البصمة بجهاز واحد: أول جهاز يبصم يُربط. وإرسال false يفكّ الجهاز المربوط أيضاً (ويُدوَّن في سجل الحضور)"
+     },
+     {
+      "name": "punchOutsideAction",
+      "type": "enum REJECT | FLAG",
+      "required": false,
+      "desc": "بصمة خارج نطاق العميل حين يكون requirePunchAtCustomer مفعّلاً: REJECT ترفضها، وFLAG تقبلها موسومة «خارج النطاق» في التقرير"
      }
     ],
     "response": "201 {success:true, data:{id, name, phone, username, isActive}}",
@@ -2609,7 +2729,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "التكرار يرجع 409: اسم المستخدم عالمياً ثم الجوال ثم البريد داخل الشركة",
      "كلمة مرور أقل من 8 أحرف ترجع 400",
      "الحقول غير المعرّفة في المخطط تُتجاهل بصمت، فلا يمكن ضبط canSellWithoutStock أو canBeTracked من هنا",
-     "الافتراضات من prisma/schema.prisma model SalesRep"
+     "الافتراضات من prisma/schema.prisma model SalesRep",
+     "locationId لا يُقبل هنا: إسناد الموقع من PUT /locations/reps/:salesRepId وحده"
     ],
     "example": "{\"name\":\"خالد العتيبي\",\"phone\":\"0551234567\",\"email\":\"khalid@example.com\",\"username\":\"khalid.rep\",\"password\":\"Rep2026secure\",\"canSellOnCredit\":true,\"maxDiscountPct\":5,\"canAddCustomer\":true}"
    },
@@ -2663,19 +2784,41 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "false يعطّل المندوب ويحفظ تاريخه وعهدته، وهو البديل المقترح للحذف"
      },
      {
-      "name": "canCreateInvoice ... requireLocationOn",
+      "name": "canCreateInvoice ... shiftDays",
       "type": "boolean / number",
       "required": false,
-      "desc": "نفس حقول الصلاحيات في POST وكلها اختيارية، و maxDiscountPct رقم من 0 إلى 100"
+      "desc": "نفس حقول POST وكلها اختيارية: الصلاحيات، وmaxDiscountPct من 0 إلى 100، وproximityRadiusM وpunchRadiusM أعداد صحيحة من 10 إلى 5000، وpunchOutsideAction وrequireBoundDevice وrequirePresenceCheck وshowRouteOnMap وshiftStart وshiftEnd وshiftDays"
      }
     ],
     "response": "{success:true, data:{id, name, phone, username, isActive}} أو 404 'المندوب غير موجود'",
     "rules": [
      "تحديث جزئي (repSchema.partial) لكن email يُكتب دائماً: rest.email || null",
      "فحص التكرار يجري فقط إذا أُرسل username أو phone أو email ويرجع 409",
-     "password أقل من 8 أحرف يرجع 400"
+     "password أقل من 8 أحرف يرجع 400",
+     "requireBoundDevice = false يفكّ الجهاز المربوط في الكتابة نفسها، وlocationId لا يُقبل هنا (PUT /locations/reps/:salesRepId)"
     ],
     "example": "{\"email\":\"khalid@example.com\",\"maxDiscountPct\":10,\"canCancelInvoice\":true,\"isActive\":true}"
+   },
+   {
+    "method": "POST",
+    "path": "/sales-reps/:id/unbind-device",
+    "purpose": "فكّ ربط جهاز البصمة عن المندوب (غيّر جواله أو مسح بيانات التطبيق) — أول بصمة بعده تربط جهازه الجديد",
+    "permission": "canManageSalesReps",
+    "gates": [
+     "requireAdmin",
+     "requireAdminPermission('canManageSalesReps')",
+     "نطاق المستخدم adminRepFilter",
+     "يُرفض لمفتاح القراءة فقط (403 API_KEY_FORBIDDEN)"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:{unbound:true}} إذا كان مربوطاً ففُكّ، أو {unbound:false} إذا لم يكن مربوطاً أصلاً. مندوب غير موجود أو خارج النطاق 404",
+    "rules": [
+     "بلا جسم",
+     "يُدوَّن في سجل تدقيق الحضور (UNBIND_DEVICE) باسم صاحب المفتاح والجهاز الذي كان مربوطاً",
+     "معرّف الجهاز نفسه لا يُعاد في أي رد ولا في المزامنة"
+    ],
+    "example": ""
    },
    {
     "method": "GET",
@@ -2962,7 +3105,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
  {
   "key": "stock",
   "title": "مخزون السيارات ومخزون الشركة",
-  "overview": "وحدتان مترابطتان. الأولى مخزون سيارات المناديب (/van-stock)، ورصيده لا يُخزَّن بل يُحسب في كل طلب: التحميل − التنزيل + التسوية − المبيع + المرتجع العائد للمخزون. والثانية مستودع الشركة المركزي (/warehouse)، ورصيده محسوب أيضاً: الوارد + تسويات المستودع + العائد من السيارات − المحمَّل للسيارات، مع تقييم بتكلفة الشراء الصافية قبل الضريبة. لذلك فتحميل سيارة عبر POST /van-stock/loads ينقص المستودع تلقائياً، وتنزيلها يعيد الكمية إليه.\nالحراس على كل مسارات /van-stock: يجب ألا يكون النظام المحاسبي مطفأً (accountingEnabled، والرفض 403 برمز ACCOUNTING_NOT_ALLOWED)، ويجب أن يملك صاحب المفتاح صلاحية canManageVanStock (والرفض 403). ويُطبَّق كذلك نطاق المناديب المحدد لصاحب المفتاح إن كان مقيَّداً.\nمسارات /warehouse تشترط الشيئين نفسيهما، وتشترط فوقهما تفعيل ميزة مخزون الشركة (warehouseEnabled، وهي مطفأة افتراضياً، والرفض 403).\nالمفتاح المضبوط على «قراءة فقط» لا يمرّ إلا بطلبات GET.\nلكل قائمة في هذه المجموعة سقف ثابت: سجل المستودع آخر 100 حركة، وسجل التحميلات آخر 100 حركة ما لم تُرسل page فيُرقَّم بحدّ 200. للتاريخ الكامل استعمل مسارات المزامنة /v1/sync/van-loads و/v1/sync/warehouse-entries.\nلا يوجد مسار لتعديل الحركات أو حذفها، والتصحيح يكون بحركة معاكسة أو بتسوية. ولا يوجد clientRef، فإعادة إرسال طلب الكتابة تُنشئ حركة مكررة.\nالحد 120 طلباً في الدقيقة لكل مفتاح، ويظهر في رؤوس X-RateLimit-*",
+  "overview": "وحدتان مترابطتان. الأولى مخزون سيارات المناديب (/van-stock)، ورصيده لا يُخزَّن بل يُحسب في كل طلب: التحميل − التنزيل + التسوية − المبيع + المرتجع العائد للمخزون. والثانية مستودع الشركة المركزي (/warehouse)، ورصيده محسوب أيضاً: الوارد + تسويات المستودع + العائد من السيارات − المحمَّل للسيارات، مع تقييم بتكلفة الشراء الصافية قبل الضريبة. لذلك فتحميل سيارة عبر POST /van-stock/loads ينقص المستودع تلقائياً، وتنزيلها يعيد الكمية إليه.\nالحراس على كل مسارات /van-stock: يجب ألا يكون النظام المحاسبي مطفأً (accountingEnabled، والرفض 403 برمز ACCOUNTING_NOT_ALLOWED)، ويجب أن يملك صاحب المفتاح صلاحية canManageVanStock (والرفض 403). ويُطبَّق كذلك نطاق المناديب المحدد لصاحب المفتاح إن كان مقيَّداً.\nمسارات /warehouse تشترط الشيئين نفسيهما وتفعيل ميزة مخزون الشركة (warehouseEnabled، وهي مطفأة افتراضياً)، بهذا الترتيب: صلاحية canManageVanStock أولاً (403 بلا code، فيأتي ولو كان النظام المحاسبي مطفأً)، ثم النظام المحاسبي (403 ACCOUNTING_NOT_ALLOWED)، ثم عَلَم المستودع (403 بلا code برسالة «ميزة مخزون الشركة غير مفعلة لهذه الشركة»).\nالمفتاح المضبوط على «قراءة فقط» لا يمرّ إلا بطلبات GET.\nلكل قائمة في هذه المجموعة سقف ثابت: سجل المستودع آخر 100 حركة، وسجل التحميلات آخر 100 حركة ما لم تُرسل page فيُرقَّم بحدّ 200. للتاريخ الكامل استعمل مسارات المزامنة /v1/sync/van-loads و/v1/sync/warehouse-entries.\nلا يوجد مسار لتعديل الحركات أو حذفها، والتصحيح يكون بحركة معاكسة أو بتسوية. ولا يوجد clientRef، فإعادة إرسال طلب الكتابة تُنشئ حركة مكررة.\nالحد 120 طلباً في الدقيقة لكل مفتاح، ويظهر في رؤوس X-RateLimit-*",
   "endpoints": [
    {
     "method": "POST",
@@ -3038,7 +3181,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "EXPIRED_OUT وDAMAGED_OUT: كمياتٌ موجبة لا تتجاوز رصيد expired أو damaged للصنف في السيارة (وإلا 400)، ولا تمسّ remaining ولا المستودع",
      "لا يوجد clientRef ولا حماية من التكرار، ولا مسار تعديل أو حذف. التصحيح يكون بحركة معاكسة أو تسوية",
      "إن غاب salesRepId يُرَدّ 400 برسالة «يجب تحديد المندوب»",
-     "مندوب خارج نطاق صاحب المفتاح يُرَدّ عليه 404 برسالة «المندوب غير موجود»"
+     "مندوب خارج نطاق صاحب المفتاح يُرَدّ عليه 404 برسالة «المندوب غير موجود»",
+     "ختم الموقع (ميزة «لوكيشن»): التحميل من النوع LOAD يُختم في الخادم بموقع المندوب لحظة التسجيل إن كانت الميزة مفعّلة، والأنواع الأخرى بلا ختم. لا حقل له في الجسم"
     ],
     "example": "{\"salesRepId\":\"3f6c2a1e-8b4d-4c1a-9e2f-1a2b3c4d5e6f\",\"type\":\"LOAD\",\"note\":\"تحميل صباح الأحد\",\"items\":[{\"productId\":\"a1b2c3d4-0000-4000-8000-000000000001\",\"qty\":24,\"suggestedQty\":24,\"expectedQty\":20.5},{\"productId\":\"a1b2c3d4-0000-4000-8000-000000000002\",\"qty\":10}]}"
    },
@@ -3280,7 +3424,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "locationId",
       "type": "string (uuid) | none",
       "required": false,
-      "desc": "تصفية بختم الموقع (ميزة «لوكيشن»): معرّف موقع، أو none للحركات بلا موقع"
+      "desc": "تصفية بختم الموقع (ميزة «لوكيشن»): معرّف موقع أو none. الختم على التحميل (LOAD) وحده، فالتنزيل والتسوية بلا موقع. يعمل ولو كانت الميزة مطفأة"
      },
      {
       "name": "page",
@@ -3427,11 +3571,18 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "purpose": "رصيد مستودع الشركة لكل صنف، مع تفصيل الوارد والتسويات والمحمَّل للسيارات والعائد منها، وقيمته بتكلفة الشراء",
     "permission": "canManageVanStock",
     "gates": [
+     "صلاحية canManageVanStock أولاً (403 بلا code)",
      "accountingEnabled ليس false وإلا 403 ACCOUNTING_NOT_ALLOWED",
-     "warehouseEnabled يجب أن يكون true وإلا 403 «ميزة مخزون الشركة غير مفعلة»",
-     "صلاحية canManageVanStock"
+     "warehouseEnabled يجب أن يكون true وإلا 403 بلا code «ميزة مخزون الشركة غير مفعلة لهذه الشركة»"
     ],
-    "query": [],
+    "query": [
+     {
+      "name": "asOf",
+      "type": "string (YYYY-MM-DD)",
+      "required": false,
+      "desc": "المخزون في تاريخ مضى: حركات ما قبل نهاية ذلك اليوم بتوقيت الشركة وحدها. غيابه = الآن"
+     }
+    ],
     "body": [],
     "response": "{success:true, data:[{productId, name, code, unit, received, adjusted, loadedToVans, returnedFromVans, onHand, avgCost, stockValue, costedQty, uncostedQty}]}، مرتبة تنازلياً حسب onHand",
     "rules": [
@@ -3445,14 +3596,43 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "example": ""
    },
    {
+    "method": "GET",
+    "path": "/warehouse/vans",
+    "purpose": "ما في مخزون السيارات الآن (أو في تاريخ) وقيمته بتكلفة خروجه من المستودع — بطاقة «في مخزون السيارات» بجانب قيمة المستودع",
+    "permission": "canManageVanStock",
+    "gates": [
+     "صلاحية canManageVanStock أولاً (403 بلا code)",
+     "accountingEnabled ليس false وإلا 403 ACCOUNTING_NOT_ALLOWED",
+     "warehouseEnabled يجب أن يكون true وإلا 403 بلا code «ميزة مخزون الشركة غير مفعلة لهذه الشركة»",
+     "نطاق المستخدم: سيارات مناديبه وحدها",
+     "مسموح لمفتاح القراءة فقط"
+    ],
+    "query": [
+     {
+      "name": "asOf",
+      "type": "string (YYYY-MM-DD)",
+      "required": false,
+      "desc": "ما في السيارات في نهاية ذلك اليوم بتوقيت الشركة. غيابه = الآن"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{qty, value, uncostedQty, unsellableQty, reps, products, deletedVans}}",
+    "rules": [
+     "value قيمة ما في السيارات بطبقات تكلفة خروجه من المستودع (الأحدث أولاً)، وuncostedQty كمية بلا تكلفة معروفة لا تدخل القيمة",
+     "unsellableQty التالف والمنتهي في السيارات (لا يُباع)، وreps عدد السيارات التي فيها شيء، وproducts عدد الأصناف",
+     "deletedVans سيارات مناديب محذوفين بقي فيها رصيد — تُعدّ لصاحب المفتاح غير المقيّد وحده"
+    ],
+    "example": ""
+   },
+   {
     "method": "POST",
     "path": "/warehouse/entries",
     "purpose": "تسجيل وارد (شراء أو استلام) إلى مستودع الشركة، أو تسوية جرد له",
     "permission": "canManageVanStock",
     "gates": [
-     "accountingEnabled ليس false",
-     "warehouseEnabled يجب أن يكون true",
-     "صلاحية canManageVanStock",
+     "صلاحية canManageVanStock أولاً (403 بلا code)",
+     "accountingEnabled ليس false وإلا 403 ACCOUNTING_NOT_ALLOWED",
+     "warehouseEnabled يجب أن يكون true وإلا 403 بلا code «ميزة مخزون الشركة غير مفعلة لهذه الشركة»",
      "مفتاح قراءة فقط مرفوض 403 API_KEY_FORBIDDEN"
     ],
     "query": [],
@@ -3526,9 +3706,9 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "purpose": "سجل حركات المستودع (الوارد والتسويات) مع قيمة كل سطر وإجمالي الحركة (آخر 100 حركة)",
     "permission": "canManageVanStock",
     "gates": [
-     "accountingEnabled ليس false",
-     "warehouseEnabled يجب أن يكون true",
-     "صلاحية canManageVanStock"
+     "صلاحية canManageVanStock أولاً (403 بلا code)",
+     "accountingEnabled ليس false وإلا 403 ACCOUNTING_NOT_ALLOWED",
+     "warehouseEnabled يجب أن يكون true وإلا 403 بلا code «ميزة مخزون الشركة غير مفعلة لهذه الشركة»"
     ],
     "query": [],
     "body": [],
@@ -3547,7 +3727,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
  {
   "key": "field",
   "title": "الزيارات والتتبع وخطوط السير",
-  "overview": "ثلاثة موجّهات: /visits لزيارات المناديب الميدانية مع صورها، و/tracking للخريطة الحية وخط سير المندوب الفعلي وإعداد التتبع، و/rep-routes لخطوط السير المخططة (قائمة عملاء مرتبة ليوم معيّن أو دائمة). المفتاح يعمل بهوية المستخدم الذي أصدره وأدواره وصلاحياته ونطاقه. المفتاح «قراءة فقط» يُرفض في POST وPATCH وDELETE برمز 403 API_KEY_FORBIDDEN. حد الطلبات 120 طلباً في الدقيقة لكل مفتاح، ويُرجع رأسي X-RateLimit-Limit وX-RateLimit-Remaining، وعند تجاوزه 429 API_RATE_LIMIT. شكل الرد دائماً {success, data} ولا يوجد ترقيم صفحات (pagination) في هذه المجموعة، والقوائم مسقوفة داخلياً. أخطاء التحقق من الحقول ترجع 400 بالشكل {success:false, message, errors}. انتبه للأيام: في /visits و/tracking اليوم يُحسب بتوقيت UTC، أي من الساعة 3 فجراً إلى 3 فجراً بتوقيت الرياض. أما /rep-routes فتقبل tzOffsetMin بالدقائق شرق UTC (الرياض 180). نقاط المندوب الخاصة بتطبيق الجوال (إرسال الموقع والنبضة وبصمة الحضور) لا يستعملها المفتاح",
+  "overview": "ثلاثة موجّهات: /visits لزيارات المناديب الميدانية مع صورها، و/tracking للخريطة الحية وخط سير المندوب الفعلي وإعداد التتبع، و/rep-routes لخطوط السير المخططة (قائمة عملاء مرتبة ليوم معيّن أو دائمة). المفتاح يعمل بهوية المستخدم الذي أصدره وأدواره وصلاحياته ونطاقه. المفتاح «قراءة فقط» يُرفض في POST وPATCH وDELETE برمز 403 API_KEY_FORBIDDEN. حد الطلبات 120 طلباً في الدقيقة لكل مفتاح، ويُرجع رأسي X-RateLimit-Limit وX-RateLimit-Remaining، وعند تجاوزه 429 API_RATE_LIMIT. شكل الرد دائماً {success, data} ولا يوجد ترقيم صفحات (pagination) في هذه المجموعة، والقوائم مسقوفة داخلياً. أخطاء التحقق من الحقول ترجع 400 بالشكل {success:false, message, errors}. انتبه للأيام: في /visits و/tracking اليوم يُحسب بتوقيت UTC، أي من الساعة 3 فجراً إلى 3 فجراً بتوقيت الرياض. أما /rep-routes فتقبل tzOffsetMin بالدقائق شرق UTC (الرياض 180). نقاط المندوب الخاصة بتطبيق الجوال (إرسال الموقع والنبضة وبصمة الحضور) لا يستعملها المفتاح\nوموجّه رابع /attendance-admin لتعديل بصمات الحضور إدارياً ورفعها دفعة واحدة: يشترط صلاحية canManageTracking وتفعيل ميزة بصمة الحضور للشركة (attendanceEnabled في GET /company، وإلا 403 ATTENDANCE_DISABLED). كل كتابة فيه تشترط سبباً مكتوباً من 3 إلى 300 حرف ويُدوَّن في سجل التدقيق باسم صاحب المفتاح، وتداخل الفترات يرجع 409 ATTENDANCE_OVERLAP مع conflict. والأيام فيه بمعامل tz بالدقائق شرق UTC (الرياض 180)، وافتراضه 0 أي أيام UTC",
   "endpoints": [
    {
     "method": "POST",
@@ -3995,13 +4175,291 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "الخط غير الموجود يرجع 404 «خط السير غير موجود»"
     ],
     "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/attendance-admin/rows",
+    "purpose": "بصمات مندوب في مدى أيام مع سجل تدقيق تعديلاتها — لنافذة التعديل",
+    "permission": "canManageTracking",
+    "gates": [
+     "requireAdmin",
+     "requireAdminPermission('canManageTracking')",
+     "attendanceEnabled: 403 ATTENDANCE_DISABLED",
+     "نطاق المستخدم: مناديبه وحدهم (404 لغيرهم)",
+     "مسموح لمفتاح القراءة فقط"
+    ],
+    "query": [
+     {
+      "name": "salesRepId",
+      "type": "string",
+      "required": true,
+      "desc": "المندوب"
+     },
+     {
+      "name": "from",
+      "type": "string (YYYY-MM-DD)",
+      "required": true,
+      "desc": "أول يوم"
+     },
+     {
+      "name": "to",
+      "type": "string (YYYY-MM-DD)",
+      "required": true,
+      "desc": "آخر يوم ويشمل يومه. المدى من يوم إلى 31 يوماً وإلا 400"
+     },
+     {
+      "name": "tz",
+      "type": "integer -840..840",
+      "required": false,
+      "desc": "إزاحة التوقيت بالدقائق شرق UTC لحدود الأيام (الرياض 180). الافتراضي 0 = أيام UTC"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{rows:[{id, salesRepId, checkInAt, checkOutAt, checkInLat, checkInLng, checkOutLat, checkOutLng, checkInDevice, checkOutDevice, checkInOutside, checkInDistanceM, checkOutOutside, checkOutDistanceM, source, editedAt, editedBy}], audit:[{id, attendanceId, action, before, after, reason, actorName, createdAt}]}}",
+    "rules": [
+     "الصفوف بالحضور تصاعدياً وحتى 500، والسجل الأحدث أولاً وحتى 100",
+     "source: APP (بصمة التطبيق) أو ADMIN (أُضيفت يدوياً) أو IMPORT (من الرفع)، وeditedAt/editedBy لما عُدّل"
+    ],
+    "example": ""
+   },
+   {
+    "method": "POST",
+    "path": "/attendance-admin/rows",
+    "purpose": "إضافة فترة حضور يدوياً (حضور وانصراف، أو حضور مفتوح)",
+    "permission": "canManageTracking",
+    "gates": [
+     "requireAdmin",
+     "requireAdminPermission('canManageTracking')",
+     "attendanceEnabled: 403 ATTENDANCE_DISABLED",
+     "نطاق المستخدم: مناديبه وحدهم (404 لغيرهم)",
+     "يُرفض لمفتاح القراءة فقط (403 API_KEY_FORBIDDEN)"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "salesRepId",
+      "type": "string",
+      "required": true,
+      "desc": "المندوب"
+     },
+     {
+      "name": "checkInAt",
+      "type": "ISO date-time",
+      "required": true,
+      "desc": "وقت الحضور"
+     },
+     {
+      "name": "checkOutAt",
+      "type": "ISO date-time | null",
+      "required": false,
+      "desc": "وقت الانصراف، وغيابه حضور مفتوح"
+     },
+     {
+      "name": "reason",
+      "type": "string 3-300",
+      "required": true,
+      "desc": "سبب الإضافة، ويُدوَّن في السجل"
+     }
+    ],
+    "response": "201 {success:true, data:{id, salesRepId, checkInAt, checkOutAt, checkInLat, checkInLng, checkOutLat, checkOutLng, checkInDevice, checkOutDevice, checkInOutside, checkInDistanceM, checkOutOutside, checkOutDistanceM, source, editedAt, editedBy}} بمصدر ADMIN",
+    "rules": [
+     "لا مستقبل، والانصراف بعد الحضور، ولا فترة فوق 24 ساعة، ولا أقدم من 400 يوم — وإلا 400 برسالة القاعدة",
+     "التداخل مع فترة قائمة للمندوب 409 ATTENDANCE_OVERLAP مع conflict:{checkInAt, checkOutAt}"
+    ],
+    "example": "{\"salesRepId\":\"<salesRepId>\",\"checkInAt\":\"2026-10-25T05:00:00Z\",\"checkOutAt\":\"2026-10-25T13:00:00Z\",\"reason\":\"نسي البصمة صباحاً\"}"
+   },
+   {
+    "method": "PUT",
+    "path": "/attendance-admin/rows/:id",
+    "purpose": "تعديل وقتي فترة، أو إغلاق نوبة مفتوحة على وقتها الحقيقي",
+    "permission": "canManageTracking",
+    "gates": [
+     "requireAdmin",
+     "requireAdminPermission('canManageTracking')",
+     "attendanceEnabled: 403 ATTENDANCE_DISABLED",
+     "نطاق المستخدم: مناديبه وحدهم (404 لغيرهم)",
+     "يُرفض لمفتاح القراءة فقط (403 API_KEY_FORBIDDEN)"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "checkInAt",
+      "type": "ISO date-time",
+      "required": true,
+      "desc": "وقت الحضور"
+     },
+     {
+      "name": "checkOutAt",
+      "type": "ISO date-time | null",
+      "required": true,
+      "desc": "وقت الانصراف، أو null لإبقائها مفتوحة"
+     },
+     {
+      "name": "reason",
+      "type": "string 3-300",
+      "required": true,
+      "desc": "سبب التعديل"
+     }
+    ],
+    "response": "{success:true, data:{id, salesRepId, checkInAt, checkOutAt, checkInLat, checkInLng, checkOutLat, checkOutLng, checkInDevice, checkOutDevice, checkInOutside, checkInDistanceM, checkOutOutside, checkOutDistanceM, source, editedAt, editedBy}}",
+    "rules": [
+     "الحقلان يُرسلان معاً دائماً (كتابة كاملة للفترة)",
+     "السجل يحفظ القيمتين قبل وبعد، وبصمة التطبيق المعدّلة تبقى موسومة editedAt"
+    ],
+    "example": ""
+   },
+   {
+    "method": "DELETE",
+    "path": "/attendance-admin/rows/:id",
+    "purpose": "حذف فترة بسبب مكتوب — تبقى في سجل التدقيق بوقتيها ومصدرها",
+    "permission": "canManageTracking",
+    "gates": [
+     "requireAdmin",
+     "requireAdminPermission('canManageTracking')",
+     "attendanceEnabled: 403 ATTENDANCE_DISABLED",
+     "نطاق المستخدم: مناديبه وحدهم (404 لغيرهم)",
+     "يُرفض لمفتاح القراءة فقط (403 API_KEY_FORBIDDEN)"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "reason",
+      "type": "string 3-300",
+      "required": true,
+      "desc": "سبب الحذف في الجسم وحده (Content-Type: application/json مع DELETE)، وغيابه 400"
+     }
+    ],
+    "response": "{success:true}",
+    "rules": [
+     "السبب لا يُقرأ من الرابط (?reason=) عمداً: نص حرّ قد يحوي معلومة شخصية عن المندوب، والرابط يُكتب كاملاً في سجلات الوصول وسجلات الوسطاء"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/attendance-admin/presence",
+    "purpose": "نتائج «التحقق العشوائي من التواجد» في مدى أيام — لتقرير ساعات العمل",
+    "permission": "canManageTracking",
+    "gates": [
+     "requireAdmin",
+     "requireAdminPermission('canManageTracking')",
+     "attendanceEnabled: 403 ATTENDANCE_DISABLED",
+     "نطاق المستخدم: بلا salesRepId تُصفّى النتائج بمناديبه، وsalesRepId لمندوب خارج نطاقه أو غير موجود 404",
+     "مسموح لمفتاح القراءة فقط"
+    ],
+    "query": [
+     {
+      "name": "from",
+      "type": "string (YYYY-MM-DD)",
+      "required": true,
+      "desc": "أول يوم (يوم نوبة المندوب)"
+     },
+     {
+      "name": "to",
+      "type": "string (YYYY-MM-DD)",
+      "required": true,
+      "desc": "آخر يوم. المدى حتى 93 يوماً وإلا 400"
+     },
+     {
+      "name": "tz",
+      "type": "integer -840..840",
+      "required": false,
+      "desc": "يُقبل ويُتحقق منه (عدد صحيح بين -840 و840 وإلا 400) ولا أثر له في النتيجة: التصفية على اليوم المحفوظ مع كل تحقق (day، يوم نوبة المندوب)"
+     },
+     {
+      "name": "salesRepId",
+      "type": "string",
+      "required": false,
+      "desc": "حصر بمندوب، وغيابه كل مناديب النطاق"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:[{id, salesRepId, day, status, dueAt, sentAt, respondedAt, delaySec, lat, lng, accuracy, distanceM, device, otherDevice, pushSent}]}",
+    "rules": [
+     "المواعيد القادمة (SCHEDULED) لا تُعاد",
+     "حتى 5000 صف بموعدها تصاعدياً"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/attendance-admin/reps",
+    "purpose": "مناديب النطاق بأسماء مستخدميهم — لمطابقة ملف الرفع",
+    "permission": "canManageTracking",
+    "gates": [
+     "requireAdmin",
+     "requireAdminPermission('canManageTracking')",
+     "attendanceEnabled: 403 ATTENDANCE_DISABLED",
+     "نطاق المستخدم: القائمة مصفّاة بمناديبه (لا 404 في هذا المسار)",
+     "مسموح لمفتاح القراءة فقط"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:[{id, name, username}]}",
+    "rules": [
+     "تشمل المناديب الموقوفين (لا تصفية بـisActive) مرتبين بالاسم، حتى 5000 مندوب"
+    ],
+    "example": ""
+   },
+   {
+    "method": "POST",
+    "path": "/attendance-admin/import",
+    "purpose": "رفع بصمات دفعة واحدة (من Excel أو نظام حضور آخر) — كل صف يُحكم وحده",
+    "permission": "canManageTracking",
+    "gates": [
+     "requireAdmin",
+     "requireAdminPermission('canManageTracking')",
+     "attendanceEnabled: 403 ATTENDANCE_DISABLED",
+     "نطاق المستخدم: مناديبه وحدهم (404 لغيرهم)",
+     "يُرفض لمفتاح القراءة فقط (403 API_KEY_FORBIDDEN)"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "reason",
+      "type": "string 3-300",
+      "required": true,
+      "desc": "سبب الرفع، ويُدوَّن سطراً لكل مندوب"
+     },
+     {
+      "name": "rows",
+      "type": "array 1-2000",
+      "required": true,
+      "desc": "الصفوف"
+     },
+     {
+      "name": "rows[].salesRepId",
+      "type": "string",
+      "required": true,
+      "desc": "المندوب"
+     },
+     {
+      "name": "rows[].checkInAt",
+      "type": "ISO date-time",
+      "required": true,
+      "desc": "وقت الحضور"
+     },
+     {
+      "name": "rows[].checkOutAt",
+      "type": "ISO date-time | null",
+      "required": false,
+      "desc": "وقت الانصراف"
+     }
+    ],
+    "response": "{success:true, data:{created, rejected:[{index, message}]}}",
+    "rules": [
+     "الملف ليس Excel: حوّله في نظامك إلى صفوف JSON بأوقات ISO (بتوقيتك) ومعرّفات المناديب",
+     "المقبول يُكتب بمصدر IMPORT، والمرفوض يعود برقم صفه وسببه (مندوب خارج النطاق، أو مخالف للحدود، أو متداخل مع القائم أو مع صف آخر في الملف)",
+     "الرفع كله معاملة واحدة: إما يُكتب كل المقبول أو لا شيء. فوق 2000 صف 400 IMPORT_TOO_MANY_ROWS"
+    ],
+    "example": ""
    }
   ]
  },
  {
   "key": "reports",
   "title": "التقارير ولوحة المؤشرات وبيانات الشركة والإشعارات",
-  "overview": "كل المسارات تحت https://api.fieldsa.net/api وتقبل مفتاح الشركة في Authorization: Bearer fsk_... أو في الترويسة X-API-Key، ويعمل المفتاح بهوية المستخدم الذي أصدره (ADMIN أو MANAGER أو ACCOUNTANT) فتسري عليه صلاحياته ونطاقه. لا يقع أي من هذه المسارات ضمن البادئات الممنوعة على المفاتيح. حد الطلبات 120 في الدقيقة لكل مفتاح (X-RateLimit-Limit و429 API_RATE_LIMIT). المفتاح المضبوط «قراءة فقط» لا يمر إلا بطلبات GET وHEAD، فيُرفض عليه PUT /company وPATCH للإشعارات برمز 403 API_KEY_FORBIDDEN. لا يوجد ترقيم صفحات (page/limit) في أي مسار من هذه المجموعة، وبعضها يرجع كل الصفوف دفعة واحدة، فاستعمل مدى زمنياً ضيقاً. التواريخ في from وto بصيغة YYYY-MM-DD وتُفسَّر على أنها منتصف ليل UTC، وقيمة to تشمل يومها كاملاً، إلا في work-hours حيث تُحسب بالتوقيت المحلي عبر tz. التقارير (/reports) لا يحجبها إطفاء النظام المحاسبي، أما لوحة المؤشرات (/dashboard) فتُرجع أصفاراً حين يكون مطفأً. أخطاء التحقق من الجسم ترجع 400 بالشكل {success:false, message, errors:{field:[...]}} من middleware/",
+  "overview": "كل المسارات تحت https://api.fieldsa.net/api وتقبل مفتاح الشركة في Authorization: Bearer fsk_... أو في الترويسة X-API-Key، ويعمل المفتاح بهوية المستخدم الذي أصدره (ADMIN أو MANAGER أو ACCOUNTANT) فتسري عليه صلاحياته ونطاقه. لا يقع أي من هذه المسارات ضمن البادئات الممنوعة على المفاتيح. حد الطلبات 120 في الدقيقة لكل مفتاح (X-RateLimit-Limit و429 API_RATE_LIMIT). المفتاح المضبوط «قراءة فقط» لا يمر إلا بطلبات GET وHEAD، فيُرفض عليه PUT /company وPATCH للإشعارات برمز 403 API_KEY_FORBIDDEN. لا يوجد ترقيم صفحات (page/limit) في أي مسار من هذه المجموعة، وبعضها يرجع كل الصفوف دفعة واحدة، فاستعمل مدى زمنياً ضيقاً. التواريخ في from وto بصيغة YYYY-MM-DD وتُفسَّر على أنها منتصف ليل UTC، وقيمة to تشمل يومها كاملاً، إلا في work-hours وrep-ranking حيث تُحسب بالتوقيت المحلي عبر tz، وفي payment-methods حيث تُحسب بأيام الشركة المحلية (المنطقة الزمنية لإعداد الشركة) والافتراض اليوم. التقارير (/reports) لا يحجبها إطفاء النظام المحاسبي إلا اثنان: GET /reports/payment-methods (403 ACCOUNTING_NOT_ALLOWED قبل فحص عَلَم صفحتها)، وGET /reports/rep-ranking بالمعيارين الماليين sales وproduct (403 ACCOUNTING_NOT_ALLOWED؛ والمعايير الأخرى تعمل). أما لوحة المؤشرات (/dashboard) فتُرجع أصفاراً حين يكون مطفأً. أخطاء التحقق من الجسم ترجع 400 بالشكل {success:false, message, errors:{field:[...]}}. ميزة «الفرق»: معظم التقارير تقبل teamId (معرّف فريق أو none)، وللفلتر معنيان بحسب ما يقوم عليه الرقم:\n- بوسم المستند: sales وorders وreturns وcollections وcustomer-visits وpayment-methods، ومبيعات وتحصيل وزيارات rep-performance، والمعايير sales وproduct وvisits في rep-ranking، وزيارات work-hours. المستند يحمل فريقاً واحداً، فمجموع الفرق مع none يساوي إجمالي الشركة بلا ازدواج.\n- بعضوية المندوب الحالية في الفريق: rep-receivables كلها، وساعات work-hours وجلساتها وبصماتها ونقاطها، وworkMinutes في rep-performance، والمعياران distance وappTime في rep-ranking. هذه لا تنقسم بالفريق، فالمندوب في فريقين يُحسب كاملاً تحت كليهما ولا يصح جمع الفرق.\nوصف كل تقرير يذكر معناه.",
   "endpoints": [
    {
     "method": "GET",
@@ -4045,6 +4503,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "type": "enum: product | rep | customer | channel | region",
       "required": false,
       "desc": "نوع التجميع، وبدونه أو بقيمة غير معروفة يرجع التقرير التفصيلي مع الملخص"
+     },
+     {
+      "name": "teamId",
+      "type": "string | none",
+      "required": false,
+      "desc": "ميزة «الفرق»: معرّف فريق من GET /company/teams لحصر التقرير بمستندات الفريق (بوسم المستند)، أو none لما بلا فريق. غيابه = كل الفرق، والقيمة غير النصية تُهمل"
      }
     ],
     "body": [],
@@ -4082,6 +4546,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "type": "string (YYYY-MM-DD)",
       "required": false,
       "desc": "نهاية المدى على deliveryDate شاملة اليوم كاملاً"
+     },
+     {
+      "name": "teamId",
+      "type": "string | none",
+      "required": false,
+      "desc": "ميزة «الفرق»: معرّف فريق من GET /company/teams لحصر التقرير بمستندات الفريق (بوسم المستند)، أو none لما بلا فريق. غيابه = كل الفرق، والقيمة غير النصية تُهمل"
      }
     ],
     "body": [],
@@ -4091,6 +4561,47 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "تُستثنى الحالة CANCELLED فقط، فتدخل المسودات DRAFT، ولا يوجد فلتر على نوع المستند",
      "بلا from ولا to يُطبَّق deliveryDate أكبر من أو يساوي الآن ناقص 90 يوماً بلا حد أعلى، فتدخل التسليمات المستقبلية",
      "الحد الأقصى 5000 صف مرتبة تصاعدياً بـ deliveryDate"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/reports/returns",
+    "purpose": "تقرير المرتجعات: كل مرتجع مؤكد بسببه وبنوده وفاتورة البيع التي أُرجع منها، مع نسبة المرتجع من المبيعات",
+    "permission": "canViewReports",
+    "gates": [
+     "requireAdmin",
+     "requireAdminPermission('canViewReports')",
+     "نطاق المستخدم",
+     "مسموح لمفتاح القراءة فقط"
+    ],
+    "query": [
+     {
+      "name": "from",
+      "type": "string (YYYY-MM-DD)",
+      "required": false,
+      "desc": "بداية المدى على invoiceDate (منتصف ليل UTC)"
+     },
+     {
+      "name": "to",
+      "type": "string (YYYY-MM-DD)",
+      "required": false,
+      "desc": "نهاية المدى شاملة اليوم. بلا from وto: آخر 90 يوماً"
+     },
+     {
+      "name": "teamId",
+      "type": "string | none",
+      "required": false,
+      "desc": "ميزة «الفرق»: معرّف فريق من GET /company/teams لحصر التقرير بمستندات الفريق (بوسم المستند)، أو none لما بلا فريق. غيابه = كل الفرق، والقيمة غير النصية تُهمل"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{returns:[{id, number, invoiceDate, total, taxAmt, reason, returnToStock, toDamagedStock, creditNote, notes, saleInvoices:[number], customer{id,name,phone,city}, salesRep{id,name}, items:[{name, unit, qty, lineTotal, returnExpired, expiresAt}]}], summary:{count, total, salesTotal, returnRate, byReason:{NORMAL|DAMAGED|EXCHANGE:{count,total}}, expiredLines}, rangeApplied, defaultDays}}",
+    "rules": [
+     "returnRate نسبة المرتجع من مبيعات المدى نفسه بمنزلة عشرية واحدة، وnull بلا مبيعات",
+     "saleInvoices أرقام فواتير البيع: الأصل للإشعار الدائن، أو فواتير البنود المرتبطة للمرتجع من فاتورة بيع في المرحلة الأولى",
+     "toDamagedStock = true للتالف الذي دخل رصيد «المرتجع التالف» في السيارة (لا يُباع)",
+     "حتى 5000 مرتجع، الأحدث أولاً"
     ],
     "example": ""
    },
@@ -4132,9 +4643,15 @@ export const API_DOC_GROUPS: DocGroup[] = [
      },
      {
       "name": "paymentMethodKey",
-      "type": "string",
+      "type": "string (c_…)",
       "required": false,
-      "desc": "حصر التقرير بطريقة دفع أضافتها الشركة بمفتاحها (c_…)"
+      "desc": "حصر التقرير بطريقة أضافتها الشركة بمفتاحها. القيمة التي لا تطابق الصيغة c_[a-z0-9]{4,24} تُهمل بصمت فيعود كل السجل"
+     },
+     {
+      "name": "teamId",
+      "type": "string | none",
+      "required": false,
+      "desc": "ميزة «الفرق»: معرّف فريق من GET /company/teams لحصر التقرير بمستندات الفريق (بوسم المستند)، أو none لما بلا فريق. غيابه = كل الفرق، والقيمة غير النصية تُهمل"
      }
     ],
     "body": [],
@@ -4142,7 +4659,54 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "rules": [
      "السندات ذات الحالة ACTIVE فقط، فالملغاة لا تدخل",
      "لا يوجد مدى افتراضي هنا خلافاً لتقرير المبيعات، فبلا from وto يرجع كل السجل",
-     "لا ترقيم ولا حد للصفوف، والترتيب تصاعدي بـ receiptDate"
+     "لا ترقيم ولا حد للصفوف، والترتيب تصاعدي بـ receiptDate",
+     "byMethod بالأساس المحاسبي كما كان، وbyMethodKey وmethods بطرق الشركة وأسمائها: المعرّف رمز الطريقة المدمجة أو مفتاح المخصّصة",
+     "لا تطابق أرقامه صفحة طرق الدفع (GET /reports/payment-methods) لثلاثة فروق: from وto هنا أيام UTC (منتصف الليل UTC) وهناك أيام الشركة المحلية، والسند بلا مندوب يدخل total والمجاميع هنا وهناك يُعزل في noRep خارج الإجماليات، والنقدي هناك يضيف فواتير البيع النقدي",
+     "كل صف سند يحمل team{id, name} (أو null) وteamId"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/reports/payment-methods",
+    "purpose": "صفحة «طرق الدفع»: ما حصّله كل مندوب بكل طريقة دفع في الفترة — جدول لكل طريقة",
+    "permission": "canViewReports",
+    "gates": [
+     "requireAdmin",
+     "requireAdminPermission('canViewReports')",
+     "requirePaymentMethods: 403 ACCOUNTING_NOT_ALLOWED إن كان النظام المحاسبي مطفأً، ثم 403 PAYMENT_METHODS_NOT_ALLOWED إن كانت صفحة طرق الدفع مطفأة",
+     "نطاق المستخدم على السندات والفواتير",
+     "مسموح لمفتاح القراءة فقط"
+    ],
+    "query": [
+     {
+      "name": "from",
+      "type": "string (YYYY-MM-DD)",
+      "required": false,
+      "desc": "أول يوم بأيام الشركة المحلية (لا UTC). الافتراضي = to"
+     },
+     {
+      "name": "to",
+      "type": "string (YYYY-MM-DD)",
+      "required": false,
+      "desc": "آخر يوم ويشمل يومه. الافتراض اليوم بتوقيت الشركة، إلا إن أُرسل from وحده في المستقبل فيصير to = from. التاريخ غير الصالح أو from بعد to يرجع 400"
+     },
+     {
+      "name": "teamId",
+      "type": "string | none",
+      "required": false,
+      "desc": "ميزة «الفرق»: معرّف فريق من GET /company/teams لحصر التقرير بمستندات الفريق (بوسم المستند)، أو none لما بلا فريق. غيابه = كل الفرق، والقيمة غير النصية تُهمل"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{range:{from, to, timezone}, methods:[{method, base, key, custom, label, companyLabel, icon, active, rows:[{salesRepId, repName, repActive, amount, count, receiptsAmount, receiptsCount, invoicesAmount, invoicesCount}], total:{…}, noRep:{amount, count}}], total:{amount, count}, noRep:{amount, count}, repsCount, roster:[{salesRepId, repName, repActive}]}}",
+    "rules": [
+     "method معرّف الجدول: رمز الطريقة المدمجة (CASH وPOS وBANK_TRANSFER وCHEQUE وONLINE) أو مفتاح طريقة الشركة المخصّصة (c_…)، وbase الأساس الذي تُعامل مثله",
+     "النقدي = سندات القبض النقدية + فواتير البيع النقدي (receiptsAmount وinvoicesAmount)، فلا يطابق رصيد التحصيل ولا /reports/collections. ويختلف عن /reports/collections في كل الطرق أيضاً: الأيام هنا بتوقيت الشركة وهناك UTC، والتحصيل بلا مندوب هنا خارج total وهناك داخله",
+     "كل طريقة مخصّصة جدول مستقل بمفتاحها ولو كان أساسها النقدي، والمعطّلة لا تظهر إلا إن حُصّل بها في الفترة (active = false)",
+     "التحصيل بلا مندوب في noRep خارج جداول المناديب",
+     "roster = مناديب النطاق النشطون، ويُضاف إليهم كل من حصّل في الفترة ولو كان موقوفاً (repActive = false). ومع teamId يصير النشطون أعضاء الفريق الحاليين أو من له مستند موسوم به في أي وقت، ومع none من ليس في أي فريق أو له مستند بلا فريق. لعرض «كل مندوب مع كل طريقة» ولو بلا تحصيل اجمع roster مع rows كل طريقة",
+     "التاريخ تاريخ المستند (receiptDate وinvoiceDate) لا لحظة الرفع"
     ],
     "example": ""
    },
@@ -4199,6 +4763,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "type": "string (YYYY-MM-DD)",
       "required": false,
       "desc": "نهاية المدى شاملة اليوم كاملاً"
+     },
+     {
+      "name": "teamId",
+      "type": "string | none",
+      "required": false,
+      "desc": "ميزة «الفرق»: معرّف فريق من GET /company/teams أو none. المبيعات والتحصيل والزيارات بوسم المستند، والمناديب المعروضون أعضاء الفريق الحاليون أو من له فاتورة أو سند أو زيارة موسومة به (في أي وقت). أما workMinutes فمن كل جلسات المندوب ولا تنقسم بالفريق. غيابه = كل الفرق، والقيمة غير النصية تُهمل"
      }
     ],
     "body": [],
@@ -4237,6 +4807,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "type": "string (YYYY-MM-DD)",
       "required": false,
       "desc": "نهاية المدى شاملة اليوم كاملاً، وغيابه يعني حتى الآن"
+     },
+     {
+      "name": "teamId",
+      "type": "string | none",
+      "required": false,
+      "desc": "ميزة «الفرق»: معرّف فريق من GET /company/teams لحصر التقرير بمستندات الفريق (بوسم المستند)، أو none لما بلا فريق. غيابه = كل الفرق، والقيمة غير النصية تُهمل"
      }
     ],
     "body": [],
@@ -4260,7 +4836,14 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "نطاق المستخدم المقيّد: تقاطع مناديبه وعملائه",
      "مسموح لمفتاح القراءة فقط"
     ],
-    "query": [],
+    "query": [
+     {
+      "name": "teamId",
+      "type": "string | none",
+      "required": false,
+      "desc": "ميزة «الفرق»: معرّف فريق من GET /company/teams، أو none للمناديب الذين ليسوا في أي فريق. يحصر المناديب بعضويتهم الحالية في الفريق، لا بوسم المستند: الأرصدة والإسناد لا تُوسم، فيظهر كل عضو بكل عملائه المسندين وأرصدتهم كاملة، والمندوب في فريقين يظهر تحت كليهما. غيابه = كل المناديب، والقيمة غير النصية تُهمل"
+     }
+    ],
     "body": [],
     "response": "{success:true, data:[{id, name, customersCount, debtorsCount, totalBalance, customers:[{id, name, businessName, phone, city, balance, lastPaymentAt}]}]} المناديب مرتبون تنازلياً حسب totalBalance والعملاء داخل كل مندوب تنازلياً حسب balance",
     "rules": [
@@ -4301,6 +4884,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "type": "integer",
       "required": false,
       "desc": "إزاحة التوقيت المحلي بالدقائق شرق UTC، للسعودية 180، الافتراضي 0 ومحصور بين -840 و840"
+     },
+     {
+      "name": "teamId",
+      "type": "string | none",
+      "required": false,
+      "desc": "ميزة «الفرق»: معرّف فريق من GET /company/teams، أو none للمناديب الذين ليسوا في أي فريق. يحصر المناديب بعضويتهم الحالية في الفريق، وجلساتهم وبصماتهم ونقاط موقعهم تُحسب كاملة بلا تصفية بالفريق، والزيارات وحدها بوسم المستند. المندوب في فريقين يظهر تحت كليهما. غيابه = كل المناديب، والقيمة غير النصية تُهمل"
      }
     ],
     "body": [],
@@ -4313,6 +4902,65 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "اليوم الذي فيه بصمة حضور تُؤخذ فترته من البصمات (PUNCH) ومجموع النوبات المغلقة وحدها، واليوم بلا بصمة امتداد واحد من أول أثر لآخر أثر (ACTIVITY)",
      "الأيام الخالية داخل المدى تظهر بصف absent=true، وavgDayMinutes يُقسم على أيام العمل لا أيام المدى",
      "الزيارات الخام محدودة بـ 10000 سجل"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/reports/rep-ranking",
+    "purpose": "تقييم المناديب وترتيبهم بمعيار واحد في مدى أيام",
+    "permission": "canViewReports",
+    "gates": [
+     "requireAdmin",
+     "requireAdminPermission('canViewReports')",
+     "نطاق المستخدم: مناديبه النشطون",
+     "المعياران الماليان (sales وproduct) يرجعان 403 ACCOUNTING_NOT_ALLOWED إن كان النظام المحاسبي مطفأً",
+     "مسموح لمفتاح القراءة فقط"
+    ],
+    "query": [
+     {
+      "name": "metric",
+      "type": "enum sales | product | visits | distance | appTime",
+      "required": true,
+      "desc": "المعيار: قيمة المبيعات، أو كمية صنف، أو عدد الزيارات، أو المسافة بالكيلو، أو وقت استخدام التطبيق بالدقائق. غيره 400"
+     },
+     {
+      "name": "productId",
+      "type": "string",
+      "required": false,
+      "desc": "إلزامي مع metric=product، وصنف من شركة أخرى 404"
+     },
+     {
+      "name": "from",
+      "type": "string (YYYY-MM-DD)",
+      "required": false,
+      "desc": "أول يوم بالتوقيت المحلي عبر tz. غيابه = منذ البداية، إلا distance فأسبوع ينتهي في to"
+     },
+     {
+      "name": "to",
+      "type": "string (YYYY-MM-DD)",
+      "required": false,
+      "desc": "آخر يوم، والافتراض اليوم"
+     },
+     {
+      "name": "tz",
+      "type": "integer -840..840",
+      "required": false,
+      "desc": "إزاحة التوقيت بالدقائق شرق UTC (الرياض 180)"
+     },
+     {
+      "name": "teamId",
+      "type": "string | none",
+      "required": false,
+      "desc": "ميزة «الفرق»: معرّف فريق من GET /company/teams أو none. مع sales وproduct وvisits: القيمة من المستندات الموسومة بالفريق، والمناديب أعضاؤه الحاليون أو من له مستند موسوم به. مع distance وappTime: المناديب بعضويتهم الحالية والقيمة من كل نقاطهم وجلساتهم بلا تصفية بالفريق، فالمندوب في فريقين يُحسب تحت كليهما. غيابه = كل الفرق، والقيمة غير النصية تُهمل"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{metric, product:{id,name,unit}|null, rows:[{repId, name, value, rank}], range:{from, to}, clampedDays}}",
+    "rules": [
+     "الصفوف بالقيمة تنازلياً، والمتساويان يأخذان المرتبة نفسها (1، 2، 2، 4)",
+     "distance مدى أقصاه 31 يوماً، وما زاد يُقصّ ويُعلن في clampedDays",
+     "المبالغ والكميات بثلاث منازل، والكيلو بمنزلة واحدة، والدقائق صحيحة"
     ],
     "example": ""
    },
@@ -4382,12 +5030,14 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:{كل أعمدة إعدادات الشركة ومنها name وaddress وtaxNumber وcommercialReg وphone وemail وlogo (base64) وprimaryColor وheaderStyle وnumerals وcountryCode وcurrency وcurrencyOverride وdefaultVatPct وeinvoiceProvider وeinvoiceEnabled وeinvoiceEnv وeinvoiceClientId وحقول بائع زاتكا وzatcaPhase2StartedAt، مع einvoiceHasSecret:boolean بدل السر، والأعلام erpEnabled وpetroappEnabled وhatifEnabled وcatalogEnabled وpaylinkEnabled وwarehouseEnabled وreceivablesSummaryEnabled وaccountingEnabled وdailyReportEnabled وattendanceEnabled وinvoiceSignatureEnabled وaccountingSuiteEnabled وzatcaPhase2Enabled وaiRepEnabled وapiEnabled}}",
+    "response": "{success:true, data:{كل أعمدة إعدادات الشركة ومنها name وaddress وtaxNumber وcommercialReg وphone وemail وlogo (base64) وprimaryColor وheaderStyle وnumerals وcountryCode وcurrency وcurrencyOverride وdefaultVatPct وeinvoiceProvider وeinvoiceEnabled وeinvoiceEnv وeinvoiceClientId وحقول بائع زاتكا وzatcaPhase2StartedAt، مع einvoiceHasSecret:boolean بدل السر، والأعلام erpEnabled وpetroappEnabled وhatifEnabled وcatalogEnabled وpaylinkEnabled وwarehouseEnabled وreceivablesSummaryEnabled وaccountingEnabled وdailyReportEnabled وattendanceEnabled وinvoiceSignatureEnabled وaccountingSuiteEnabled وzatcaPhase2Enabled وaiRepEnabled وapiEnabled وlocationsEnabled وpaymentMethodsEnabled}}. وفي أعمدة الإعدادات الخام: teamsEnabled وprintSettings وpaymentMethodsConfig (JSON أو null)",
     "rules": [
      "einvoiceClientSecret لا يُعاد أبداً ويُستبدل بـ einvoiceHasSecret",
      "accountingEnabled يكون true ما لم يُطفأ صراحة، وبقية الأعلام false ما لم تُفعَّل",
      "إذا لم يوجد صف إعدادات للشركة ترجع الأعلام وحدها",
-     "استعمل الأعلام لمعرفة الميزات المتاحة قبل استدعاء مساراتها مثل المستودع وروابط الدفع"
+     "استعمل الأعلام لمعرفة الميزات المتاحة قبل استدعاء مساراتها مثل المستودع وروابط الدفع",
+     "تحقّق من locationsEnabled قبل /locations، ومن paymentMethodsEnabled قبل /reports/payment-methods وPUT /company/payment-methods، ومن attendanceEnabled قبل /attendance-admin",
+     "اقرأ طرق الدفع من GET /company/payment-methods وإعدادات الطباعة من GET /company/print-settings لا من العمودين الخام: المساران يعيدان الصورة المكتملة بالافتراضي"
     ],
     "example": ""
    },
@@ -4534,6 +5184,53 @@ export const API_DOC_GROUPS: DocGroup[] = [
    },
    {
     "method": "GET",
+    "path": "/company/print-settings",
+    "purpose": "إعدادات الطباعة للشركة: قوالب الطابعات ومقاساتها وأي قالب لكل نوع مستند",
+    "permission": "لا تتطلب صلاحية خاصة (أي مستخدم مصادق)",
+    "gates": [
+     "authenticate فقط",
+     "مسموح لمفتاح القراءة فقط"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:PrintSettingsV1, stored, hasCompany}. PrintSettingsV1 = {version:1, profiles:[1..12 قالب طابعة: نوعها ومقاس الورق وتصميمه وهوامشه], routing:{لكل نوع مستند معرّف قالبه أو null}, pdfProfileId (قالب الطابعة العادية لمشاركة PDF), repMayChoose}",
+    "rules": [
+     "stored = false يعني الافتراضي (شريط 58 مم للفواتير والسندات وA4 للـPDF)، وdata يحمل حينها الافتراضي كاملاً",
+     "hasCompany = false: لا صف لبيانات الشركة بعد، فالحفظ يرجع 409 COMPANY_SETTINGS_MISSING"
+    ],
+    "example": ""
+   },
+   {
+    "method": "PUT",
+    "path": "/company/print-settings",
+    "purpose": "حفظ إعدادات الطباعة كاملة، أو استعادة الافتراضي",
+    "permission": "canManageCompanySettings",
+    "gates": [
+     "requireAdmin",
+     "requireAdminPermission('canManageCompanySettings')",
+     "بلا عَلَم اشتراك",
+     "يُرفض لمفتاح القراءة فقط (403 API_KEY_FORBIDDEN)"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "(الجسم كله)",
+      "type": "PrintSettingsV1 | {reset:true}",
+      "required": true,
+      "desc": "الإعداد كاملاً بصيغة GET نفسها (لا PATCH)، أو {\"reset\":true} وحده لاستعادة الافتراضي"
+     }
+    ],
+    "response": "{success:true, data:PrintSettingsV1, stored, hasCompany:true}",
+    "rules": [
+     "البنية صارمة: حقل غير معروف في أي مستوى أو نسخة غير 1 يُرفض 400 PRINT_SETTINGS_INVALID مع issues:[{path, message}]",
+     "فوق 16 كيلوبايت 413 PRINT_SETTINGS_TOO_LARGE، وبلا صف بيانات شركة 409 COMPANY_SETTINGS_MISSING",
+     "الاستعادة بـ{\"reset\":true} لا بـnull: محلّل JSON في الخادم يرفض null خاماً في أعلى الجسم",
+     "اقرأ GET أولاً وعدّل ثم أرسل الكل"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
     "path": "/notifications",
     "purpose": "أحدث 50 إشعاراً للشركة ضمن نطاق المستخدم",
     "permission": "لا تتطلب صلاحية خاصة (أي مستخدم شركة مصادق)",
@@ -4591,5 +5288,746 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "example": ""
    }
   ]
+ },
+ {
+  "key": "locations",
+  "title": "لوكيشن (مواقع الشركة وختم الفواتير والتحميلات)",
+  "overview": "ميزة «لوكيشن»: تعرّف الشركة مواقعها (فرع أو مدينة أو مستودع)، وتُسند كل مندوب إلى موقع واحد، فيُختم كل مستند يصدره بموقعه لحظة الإصدار، وتعرض صفحة لوكيشن مبيعات كل موقع ومرتجعاته وتحميلاته في فترة. المسارات تحت https://api.fieldsa.net/api/locations وتعمل بمفتاح الشركة بهوية من أصدره.\nالبوّابة على كل المسارات بالترتيب: مستخدم شركة (requireAdmin)، ثم النظام المحاسبي (403 ACCOUNTING_NOT_ALLOWED إن كان مطفأً)، ثم عَلَم الميزة الذي يفعّله مزوّد الخدمة لكل شركة (403 LOCATIONS_NOT_ALLOWED). تحقّق منه بقراءة data.locationsEnabled من GET /company.\nالختم:\n- يكتبه الخادم وحده لحظة الإصدار: الفاتورة (POST /invoices) وتحميل السيارة من النوع LOAD (POST /van-stock/loads) يأخذان موقع المندوب الحالي. لا حقل locationId في جسم الإصدار.\n- الختم لقطة ثابتة: نقل المندوب لموقع آخر لا يغيّر مستنداته القديمة، وإطفاء الميزة يوقف الختم الجديد ويُبقي القديم.\n- المرتجع من فاتورة بيع والإشعاران الدائن والمدين ترث ختم الفاتورة الأصلية. السندات والزيارات والتنزيل والتسوية لا تُختم.\nالقراءة بلا العَلَم: فلتر locationId=<معرّف>|none في GET /invoices وGET /van-stock/loads يعمل دائماً، وlocationId يأتي في صفوف GET /sales-reps وفي مزامنة sales-reps وinvoices وvan-loads. أسماء المواقع من GET /locations أو من مورد المزامنة locations (كلاهما يشترط العَلَم).\nالموقع الذي عليه مستندات لا يُحذف بل يُؤرشف (isActive = false)، والموقع الذي فيه مناديب لا يُؤرشف ولا يُحذف حتى يُنقلوا. المفتاح «قراءة فقط» يمرّ بطلبات GET وحدها.",
+  "endpoints": [
+   {
+    "method": "GET",
+    "path": "/locations",
+    "purpose": "مواقع الشركة مع عدد المناديب المسندين لكل موقع",
+    "permission": "أي مستخدم شركة (لا صلاحية خاصة)",
+    "gates": [
+     "requireAdmin",
+     "requireLocations: 403 ACCOUNTING_NOT_ALLOWED إن كان النظام المحاسبي مطفأً، ثم 403 LOCATIONS_NOT_ALLOWED إن كانت الميزة مطفأة",
+     "مسموح لمفتاح القراءة فقط"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:[{id, name, lat, lng, isActive, createdAt, updatedAt, repsCount}]}",
+    "rules": [
+     "الترتيب: الفعّال أولاً ثم بالاسم",
+     "repsCount يُعدّ ضمن نطاق صاحب المفتاح إن كان مقيّداً",
+     "id هو القيمة التي تأتي في locationId للفواتير والتحميلات والمناديب",
+     "lat وlng اختياريان، null لموقع بلا نقطة على الخريطة"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/locations/summary",
+    "purpose": "ملخّص الفترة لكل موقع بختم المستند: فواتير البيع والمرتجعات (عدداً ومبلغاً)، وتحميلات السيارات (عدداً وكميات لكل صنف)",
+    "permission": "canViewReports",
+    "gates": [
+     "requireAdmin",
+     "requireLocations: 403 ACCOUNTING_NOT_ALLOWED إن كان النظام المحاسبي مطفأً، ثم 403 LOCATIONS_NOT_ALLOWED إن كانت الميزة مطفأة",
+     "requireAdminPermission('canViewReports')",
+     "نطاق المستخدم: مستنداته وحدها",
+     "مسموح لمفتاح القراءة فقط"
+    ],
+    "query": [
+     {
+      "name": "from",
+      "type": "string (YYYY-MM-DD)",
+      "required": false,
+      "desc": "أول يوم بأيام الشركة المحلية (لا UTC). الافتراضي = to"
+     },
+     {
+      "name": "to",
+      "type": "string (YYYY-MM-DD)",
+      "required": false,
+      "desc": "آخر يوم ويشمل يومه، والافتراض اليوم. التاريخ غير الصالح أو from بعد to يرجع 400"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{range:{from, to, timezone}, rows:[LocationBucket], none:LocationBucket, totals:{sales:{count, amount}, returns:{count, amount}, net, loads:{count, qty}}}}. LocationBucket = {locationId, name, isActive, lat, lng, sales:{count, amount}, returns:{count, amount}, net, loads:{count, qty, products:[{productId, name, unit, qty}]}}",
+    "rules": [
+     "الفواتير المؤكدة وحدها بتاريخها invoiceDate: البيع (CASH وCREDIT ومعه الإشعار المدين) في sales، والمرتجع (ومعه الإشعار الدائن) في returns، وnet = البيع − المرتجع",
+     "التحميلات من النوع LOAD بلحظة تسجيلها createdAt، بكميات بلا مبالغ، وأصنافها بالكمية تنازلياً",
+     "none سطر «بلا موقع»: ما خُتم قبل التفعيل أو لمندوب بلا موقع أو لموقع حُذف",
+     "الصفوف: كل موقع فعّال ولو بلا حركة، والمؤرشف إن كانت له حركة في الفترة. المبالغ بثلاث منازل والكميات بأربع"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/locations/reps",
+    "purpose": "مناديب النطاق بموقع كلٍّ منهم الحالي — لشاشة الإسناد",
+    "permission": "canManageSalesReps",
+    "gates": [
+     "requireAdmin",
+     "requireLocations: 403 ACCOUNTING_NOT_ALLOWED إن كان النظام المحاسبي مطفأً، ثم 403 LOCATIONS_NOT_ALLOWED إن كانت الميزة مطفأة",
+     "requireAdminPermission('canManageSalesReps')",
+     "نطاق المستخدم",
+     "مسموح لمفتاح القراءة فقط"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:[{id, name, isActive, locationId}]}",
+    "rules": [
+     "الفعّال أولاً ثم بالاسم، وlocationId = null لمندوب بلا موقع"
+    ],
+    "example": ""
+   },
+   {
+    "method": "PUT",
+    "path": "/locations/reps/:salesRepId",
+    "purpose": "إسناد مندوب لموقع واحد، أو إخراجه من كل المواقع",
+    "permission": "canManageSalesReps",
+    "gates": [
+     "requireAdmin",
+     "requireLocations: 403 ACCOUNTING_NOT_ALLOWED إن كان النظام المحاسبي مطفأً، ثم 403 LOCATIONS_NOT_ALLOWED إن كانت الميزة مطفأة",
+     "requireAdminPermission('canManageSalesReps')",
+     "نطاق المستخدم: مندوب في نطاقه (canAccessRep)",
+     "يُرفض لمفتاح القراءة فقط (403 API_KEY_FORBIDDEN)"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "locationId",
+      "type": "string | null",
+      "required": true,
+      "desc": "معرّف الموقع، أو null = «بلا موقع». الحقل إلزامي في الجسم، وغيابه 400"
+     }
+    ],
+    "response": "{success:true, data:{salesRepId, locationId}}",
+    "rules": [
+     "يسري على ما يصدره المندوب بعد الإسناد وحده — مستنداته القديمة باقية على ختمها",
+     "مندوب أو موقع غير موجود أو خارج النطاق 404، وموقع مؤرشف 409 LOCATION_ARCHIVED"
+    ],
+    "example": "{\"locationId\":\"<locationId>\"}"
+   },
+   {
+    "method": "POST",
+    "path": "/locations",
+    "purpose": "تعريف موقع جديد",
+    "permission": "canManageCompanySettings",
+    "gates": [
+     "requireAdmin",
+     "requireLocations: 403 ACCOUNTING_NOT_ALLOWED إن كان النظام المحاسبي مطفأً، ثم 403 LOCATIONS_NOT_ALLOWED إن كانت الميزة مطفأة",
+     "requireAdminPermission('canManageCompanySettings')",
+     "صاحب المفتاح غير مقيّد النطاق (وإلا 403)",
+     "يُرفض لمفتاح القراءة فقط (403 API_KEY_FORBIDDEN)"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "name",
+      "type": "string",
+      "required": true,
+      "desc": "اسم الموقع: يُشذَّب طرفاه، فإن زاد بعدها على 120 حرفاً يُرفض 400؛ وإلا يُطوى فراغه المتكرر ويُقصّ إلى 60 حرفاً بصمت. فريد في الشركة بعد ذلك"
+     },
+     {
+      "name": "lat",
+      "type": "number | null",
+      "required": false,
+      "desc": "خط العرض -90..90، يُرسل مع lng أو لا يُرسلان"
+     },
+     {
+      "name": "lng",
+      "type": "number | null",
+      "required": false,
+      "desc": "خط الطول -180..180"
+     }
+    ],
+    "response": "201 {success:true, data:{id, name, lat, lng, isActive, createdAt, updatedAt, repsCount}} بـrepsCount = 0",
+    "rules": [
+     "اسم مكرر 409 LOCATION_NAME_TAKEN، والمقارنة بالاسم بعد قصّه إلى 60 حرفاً",
+     "أحد الإحداثيين دون الآخر أو خارج المدى 400"
+    ],
+    "example": "{\"name\":\"فرع جدة\",\"lat\":21.5433,\"lng\":39.1728}"
+   },
+   {
+    "method": "PUT",
+    "path": "/locations/:id",
+    "purpose": "إعادة تسمية موقع، أو تغيير نقطته، أو أرشفته واستعادته",
+    "permission": "canManageCompanySettings",
+    "gates": [
+     "requireAdmin",
+     "requireLocations: 403 ACCOUNTING_NOT_ALLOWED إن كان النظام المحاسبي مطفأً، ثم 403 LOCATIONS_NOT_ALLOWED إن كانت الميزة مطفأة",
+     "requireAdminPermission('canManageCompanySettings')",
+     "صاحب المفتاح غير مقيّد النطاق",
+     "يُرفض لمفتاح القراءة فقط (403 API_KEY_FORBIDDEN)"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "name",
+      "type": "string",
+      "required": false,
+      "desc": "اسم جديد بقواعد الإنشاء نفسها"
+     },
+     {
+      "name": "lat",
+      "type": "number | null",
+      "required": false,
+      "desc": "null يمسح النقطة. ما لم يُرسل من الإحداثيين يبقى على قيمته، والزوج الناتج يُتحقق منه كاملاً"
+     },
+     {
+      "name": "lng",
+      "type": "number | null",
+      "required": false,
+      "desc": "كما lat"
+     },
+     {
+      "name": "isActive",
+      "type": "boolean",
+      "required": false,
+      "desc": "false يؤرشف الموقع (لا يُسند إليه ولا يُختم به جديد)، وtrue يستعيده"
+     }
+    ],
+    "response": "{success:true, data:{id, name, lat, lng, isActive, createdAt, updatedAt}}",
+    "rules": [
+     "موقع غير موجود 404، واسم مكرر 409 LOCATION_NAME_TAKEN",
+     "الأرشفة وفيه مناديب 409 LOCATION_HAS_REPS مع repsCount — انقلهم أولاً بـPUT /locations/reps/:salesRepId",
+     "إعادة التسمية لا تمسّ المستندات المختومة (الختم معرّف لا اسم)، فتظهر بالاسم الجديد في الملخّص"
+    ],
+    "example": "{\"isActive\":false}"
+   },
+   {
+    "method": "DELETE",
+    "path": "/locations/:id",
+    "purpose": "حذف موقع بلا مناديب ولا مستندات",
+    "permission": "canManageCompanySettings",
+    "gates": [
+     "requireAdmin",
+     "requireLocations: 403 ACCOUNTING_NOT_ALLOWED إن كان النظام المحاسبي مطفأً، ثم 403 LOCATIONS_NOT_ALLOWED إن كانت الميزة مطفأة",
+     "requireAdminPermission('canManageCompanySettings')",
+     "صاحب المفتاح غير مقيّد النطاق",
+     "يُرفض لمفتاح القراءة فقط (403 API_KEY_FORBIDDEN)"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true}",
+    "rules": [
+     "فيه مناديب 409 LOCATION_HAS_REPS مع repsCount، وعليه فواتير أو تحميلات 409 LOCATION_HAS_DOCUMENTS — أرشفه بدل الحذف ليبقى في التقارير",
+     "الحذف الفعلي لا يصل المزامنة تعديلاً: طابِق معرّفات مورد locations بـ/v1/sync/locations/ids"
+    ],
+    "example": ""
+   }
+  ]
+ },
+ {
+  "key": "payment-methods",
+  "title": "طرق الدفع (إدارة الطرق وصفحة التحصيل لكل طريقة)",
+  "overview": "لكل شركة خمس طرق مدمجة (CASH نقدي، POS شبكة، BANK_TRANSFER تحويل بنكي، CHEQUE شيك، ONLINE دفع إلكتروني من روابط الدفع)، وتستطيع إعادة تسميتها وإيقافها، وإضافة طرق خاصة بها (مثل STC Pay) لكلٍّ منها مفتاح c_… وأساس من الأربعة اليدوية تُعامل مثله محاسبياً.\nالسند يحمل الأساس في paymentMethod (القيود والعهدة عليه كما كانت) ومفتاح الطريقة المخصّصة في paymentMethodKey. المفاتيح لا تُحذف أبداً ولا يتغيّر أساسها، فهي ثابتة لربط نظامك.\nالبوّابة:\n- قراءة الطرق GET /company/payment-methods لأي مستخدم مسجّل وبلا عَلَم — منها تُبنى اختيارات السند وأسماء paymentMethodKey.\n- تعديل الطرق PUT وصفحة التحصيل GET /reports/payment-methods يشترطان النظام المحاسبي (403 ACCOUNTING_NOT_ALLOWED) ثم عَلَم الصفحة الذي يفعّله مزوّد الخدمة (403 PAYMENT_METHODS_NOT_ALLOWED). تحقّق منه بقراءة data.paymentMethodsEnabled من GET /company.\n- إصدار السند بطريقة مخصّصة (POST /receipts بـpaymentMethodKey) وتقرير التحصيل (/reports/collections) لا يشترطان العَلَم.\nصفحة التحصيل نفسها (GET /reports/payment-methods) موثّقة في مجموعة التقارير.",
+  "endpoints": [
+   {
+    "method": "GET",
+    "path": "/company/payment-methods",
+    "purpose": "طرق دفع الشركة بأسمائها وحالتها، وما يصح اختياره في سند القبض الآن",
+    "permission": "لا تتطلب صلاحية خاصة (أي مستخدم مصادق)",
+    "gates": [
+     "authenticate فقط",
+     "بلا عَلَم",
+     "مسموح لمفتاح القراءة فقط"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:PaymentMethodsConfigV1|null, stored, hasCompany, methods:[{id, base, key, custom, label, companyLabel, icon, active, manual}], choices:[{id, base, key, custom, label, companyLabel, icon, active, manual}]}. PaymentMethodsConfigV1 = {version:1, builtins:{CASH|POS|BANK_TRANSFER|CHEQUE|ONLINE:{label|null, active}}, custom:[{key, label, base, icon, active}]}",
+    "rules": [
+     "data = null والـstored = false: الشركة على الافتراضي (الطرق الخمس بأسمائها الافتراضية ومفعّلة)",
+     "methods كل الطرق ومنها المعطّلة: id رمز المدمجة أو مفتاح المخصّصة، وlabel الاسم المعروض، وcompanyLabel اسم الشركة الخاص أو null للافتراضي",
+     "choices ما يصح إرساله في السند الآن: المفعّلة اليدوية بلا ONLINE. أرسل paymentMethod = base، ومعه paymentMethodKey = key للمخصّصة",
+     "لترجمة paymentMethodKey في السندات القديمة استعمل methods (المفاتيح لا تُحذف، فالمعطّلة باقية فيها)"
+    ],
+    "example": ""
+   },
+   {
+    "method": "PUT",
+    "path": "/company/payment-methods",
+    "purpose": "حفظ إعداد طرق الدفع كاملاً (إعادة تسمية، إيقاف، إضافة طريقة)، أو استعادة الافتراضي",
+    "permission": "canManageCompanySettings",
+    "gates": [
+     "requireAdmin",
+     "requireAdminPermission('canManageCompanySettings')",
+     "requirePaymentMethods: 403 ACCOUNTING_NOT_ALLOWED إن كان النظام المحاسبي مطفأً، ثم 403 PAYMENT_METHODS_NOT_ALLOWED إن كانت صفحة طرق الدفع مطفأة",
+     "يُرفض لمفتاح القراءة فقط (403 API_KEY_FORBIDDEN)"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "version",
+      "type": "1",
+      "required": true,
+      "desc": "نسخة الإعداد"
+     },
+     {
+      "name": "builtins",
+      "type": "object",
+      "required": false,
+      "desc": "لكل طريقة مدمجة {label?: string|null, active?: boolean}. الغائب منها يعود للافتراضي، والاسم بقاعدة التفرّد نفسها في custom[].label"
+     },
+     {
+      "name": "custom",
+      "type": "array ≤ 20",
+      "required": false,
+      "desc": "الطرق المخصّصة بترتيب العرض: {key?, label, base, icon?, active?}"
+     },
+     {
+      "name": "custom[].key",
+      "type": "string c_[a-z0-9]{4,24}",
+      "required": false,
+      "desc": "مفتاح طريقة محفوظة. الطريقة الجديدة تُرسل بلا key فيولّده الخادم ويعيده في data.custom"
+     },
+     {
+      "name": "custom[].label",
+      "type": "string 1-40",
+      "required": true,
+      "desc": "الاسم، فريد بين كل الطرق بعد التطبيع العربي، ومنها المعطّلة. والمدمجة التي لم تُسمَّ تحجز اسمها الافتراضي (نقدي، شبكة، تحويل بنكي، شيك، دفع إلكتروني) وأسماءها البديلة (نقد للنقدي، وتحويل للتحويل البنكي، ودفع الكتروني للدفع الإلكتروني). الاسم المكرر أو المحجوز 400 PAYMENT_METHODS_INVALID"
+     },
+     {
+      "name": "custom[].base",
+      "type": "enum CASH | POS | BANK_TRANSFER | CHEQUE",
+      "required": true,
+      "desc": "الأساس الذي تُعامل مثله، ولا يتغيّر بعد أول حفظ"
+     },
+     {
+      "name": "custom[].icon",
+      "type": "enum",
+      "required": false,
+      "desc": "wallet أو smartphone أو credit-card أو banknote أو landmark أو qr-code أو coins أو gift أو receipt أو handshake أو store أو globe"
+     },
+     {
+      "name": "custom[].active",
+      "type": "boolean",
+      "required": false,
+      "desc": "false يوقفها: تختفي من نموذج السند وتبقى في التقارير والسندات القديمة"
+     },
+     {
+      "name": "reset",
+      "type": "true",
+      "required": false,
+      "desc": "بديل الجسم كله: {\"reset\":true} وحده يستعيد الافتراضي للمدمجة، والمخصّصة تبقى معطّلة بأسمائها"
+     }
+    ],
+    "response": "{success:true, data, stored, hasCompany:true, methods:[…], choices:[…]} بصيغة GET نفسها",
+    "rules": [
+     "الإعداد يُرسل كاملاً (لا PATCH): اقرأ data من GET، عدّله، ثم أرسله كله. والجسم الذي يساوي الافتراضي يُحفظ null",
+     "حذف طريقة محفوظة (غيابها من custom) أو تغيير base لها 409 PAYMENT_METHODS_CONFLICT مع issues — أوقفها بـactive:false بدل حذفها",
+     "ONLINE لا يُعطّل، وطريقة مفعّلة واحدة على الأقل، وحقل غير معروف أو نسخة غير 1 تُرفض: 400 PAYMENT_METHODS_INVALID مع issues:[{path, message}]",
+     "الجسم فوق 8 كيلوبايت 413 PAYMENT_METHODS_TOO_LARGE، وبلا صف بيانات شركة 409 COMPANY_SETTINGS_MISSING",
+     "إن انقطع الرد بعد إضافة طريقة جديدة فلا تُعد الطلب كما هو: المفتاح المولَّد غائب عن جسمك فتصير الإعادة «حذفاً» يرجع 409. اقرأ GET أولاً ثم أعد التعديل",
+     "الاستعادة بـ{\"reset\":true} لا بـnull: محلّل JSON في الخادم يرفض null خاماً في أعلى الجسم"
+    ],
+    "example": "{\"version\":1,\"builtins\":{\"POS\":{\"label\":\"مدى\"},\"CHEQUE\":{\"active\":false}},\"custom\":[{\"label\":\"STC Pay\",\"base\":\"BANK_TRANSFER\",\"icon\":\"smartphone\"}]}"
+   }
+  ]
+ },
+ {
+  "key": "teams",
+  "title": "الفرق داخل الشركة",
+  "overview": "ميزة «الفرق»: مطفأة افتراضياً ويفعّلها مدير الشركة (PATCH /company/teams/settings). حين تُفعَّل تُوسم الفواتير والسندات والزيارات واستلامات التحصيل بفريق المندوب (teamId)، وتقيّد أصناف الفريق بيع مناديبه، وتقبل التقارير teamId.\nالمسارات تحت https://api.fieldsa.net/api/company/teams لأي مستخدم شركة للقراءة، والكتابة بصلاحية canManageCompanySettings ولصاحب مفتاح غير مقيّد النطاق.\nالفريق الذي عليه مستندات لا يُحذف بل يُؤرشف (409 TEAM_HAS_DOCUMENTS). وتعيين مشرفي الفريق (PUT /company/teams/:id/supervisors) يكتب نطاق مستخدمي الشركة فهو ممنوع على المفتاح دائماً بـ403 — من لوحة التحكم وحدها. الرمز API_KEY_FORBIDDEN، إلا إن نقص صاحب المفتاح canManageCompanySettings أو canManageCompanyUsers فيسبقه 403 نقص الصلاحية بلا code، لأن الصلاحيتين تُفحصان أولاً.\nحذف فريق له مشرفون بالمفتاح يحوّل من لم يبقَ له فريق منهم إلى قوائم يدوية مقيّدة (يرى أقل لا أكثر) — احذفه من اللوحة إن أردت مراجعة نطاقهم.\nللمزامنة: مورد teams في /v1/sync قائمة كاملة بالأعضاء والأصناف.",
+  "endpoints": [
+   {
+    "method": "GET",
+    "path": "/company/teams/settings",
+    "purpose": "حالة ميزة الفرق للشركة",
+    "permission": "أي مستخدم شركة",
+    "gates": [
+     "authenticate (موجّه الشركة)",
+     "requireAdmin",
+     "مسموح لمفتاح القراءة فقط"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:{enabled}}",
+    "rules": [],
+    "example": ""
+   },
+   {
+    "method": "PATCH",
+    "path": "/company/teams/settings",
+    "purpose": "تفعيل الفرق أو إطفاؤها — الإطفاء لا يحذف الفرق ولا الوسوم",
+    "permission": "canManageCompanySettings",
+    "gates": [
+     "authenticate (موجّه الشركة)",
+     "requireAdmin",
+     "requireAdminPermission('canManageCompanySettings')",
+     "صاحب المفتاح غير مقيّد النطاق (وإلا 403)",
+     "يُرفض لمفتاح القراءة فقط (403 API_KEY_FORBIDDEN)"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "enabled",
+      "type": "boolean",
+      "required": true,
+      "desc": "الحالة الجديدة"
+     }
+    ],
+    "response": "{success:true, data:{enabled}}",
+    "rules": [],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/company/teams",
+    "purpose": "الفرق بأعضائها وأصنافها ومشرفيها",
+    "permission": "أي مستخدم شركة",
+    "gates": [
+     "authenticate (موجّه الشركة)",
+     "requireAdmin",
+     "المقيّد النطاق يرى الفرق التي يشرف عليها وحدها",
+     "مسموح لمفتاح القراءة فقط"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:[{id, name, isActive, createdAt, members:[{salesRepId, name, isActive}], productIds:[...], supervisors:[{adminId, name, teamScoped}], docsCount}]}",
+    "rules": [
+     "الفعّال أولاً ثم بالاسم",
+     "productIds فارغة = الفريق يبيع كل الأصناف"
+    ],
+    "example": ""
+   },
+   {
+    "method": "POST",
+    "path": "/company/teams",
+    "purpose": "إنشاء فريق",
+    "permission": "canManageCompanySettings",
+    "gates": [
+     "authenticate (موجّه الشركة)",
+     "requireAdmin",
+     "requireAdminPermission('canManageCompanySettings')",
+     "صاحب المفتاح غير مقيّد النطاق (وإلا 403)",
+     "يُرفض لمفتاح القراءة فقط (403 API_KEY_FORBIDDEN)"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "name",
+      "type": "string 1-60",
+      "required": true,
+      "desc": "اسم فريد في الشركة"
+     }
+    ],
+    "response": "201 {success:true, data:{id, name, isActive}}",
+    "rules": [
+     "اسم مكرر 409"
+    ],
+    "example": "{\"name\":\"فريق الشمال\"}"
+   },
+   {
+    "method": "PUT",
+    "path": "/company/teams/:id",
+    "purpose": "إعادة تسمية فريق أو أرشفته واستعادته",
+    "permission": "canManageCompanySettings",
+    "gates": [
+     "authenticate (موجّه الشركة)",
+     "requireAdmin",
+     "requireAdminPermission('canManageCompanySettings')",
+     "صاحب المفتاح غير مقيّد النطاق (وإلا 403)",
+     "يُرفض لمفتاح القراءة فقط (403 API_KEY_FORBIDDEN)"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "name",
+      "type": "string 1-60",
+      "required": false,
+      "desc": "الاسم الجديد"
+     },
+     {
+      "name": "isActive",
+      "type": "boolean",
+      "required": false,
+      "desc": "false يؤرشف"
+     }
+    ],
+    "response": "{success:true, data:{id, name, isActive}}",
+    "rules": [
+     "غير موجود 404، واسم مكرر 409"
+    ],
+    "example": ""
+   },
+   {
+    "method": "DELETE",
+    "path": "/company/teams/:id",
+    "purpose": "حذف فريق بلا مستندات",
+    "permission": "canManageCompanySettings",
+    "gates": [
+     "authenticate (موجّه الشركة)",
+     "requireAdmin",
+     "requireAdminPermission('canManageCompanySettings')",
+     "صاحب المفتاح غير مقيّد النطاق (وإلا 403)",
+     "يُرفض لمفتاح القراءة فقط (403 API_KEY_FORBIDDEN)"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true}",
+    "rules": [
+     "عليه فواتير أو سندات أو زيارات أو استلامات 409 TEAM_HAS_DOCUMENTS — أرشفه بدل الحذف",
+     "مشرفوه الذين لم يبقَ لهم فريق يتحوّلون إلى قوائم يدوية مقيّدة"
+    ],
+    "example": ""
+   },
+   {
+    "method": "PUT",
+    "path": "/company/teams/:id/members",
+    "purpose": "أعضاء الفريق: القائمة الكاملة بعد التعديل",
+    "permission": "canManageCompanySettings",
+    "gates": [
+     "authenticate (موجّه الشركة)",
+     "requireAdmin",
+     "requireAdminPermission('canManageCompanySettings')",
+     "صاحب المفتاح غير مقيّد النطاق (وإلا 403)",
+     "يُرفض لمفتاح القراءة فقط (403 API_KEY_FORBIDDEN)"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "salesRepIds",
+      "type": "string[] ≤ 5000",
+      "required": true,
+      "desc": "كل مناديب الفريق بعد التعديل (يُضاف الجديد ويُزال الغائب)، والمندوب قد يكون في أكثر من فريق"
+     }
+    ],
+    "response": "{success:true, data:{added, removed}}",
+    "rules": [
+     "فريق غير موجود 404، ومندوب ليس من الشركة 400"
+    ],
+    "example": ""
+   },
+   {
+    "method": "PUT",
+    "path": "/company/teams/:id/products",
+    "purpose": "أصناف الفريق التي يقتصر عليها بيع مناديبه",
+    "permission": "canManageCompanySettings",
+    "gates": [
+     "authenticate (موجّه الشركة)",
+     "requireAdmin",
+     "requireAdminPermission('canManageCompanySettings')",
+     "صاحب المفتاح غير مقيّد النطاق (وإلا 403)",
+     "يُرفض لمفتاح القراءة فقط (403 API_KEY_FORBIDDEN)"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "productIds",
+      "type": "string[] ≤ 5000",
+      "required": true,
+      "desc": "كل أصناف الفريق بعد التعديل، وفارغة = الفريق يبيع كل الأصناف"
+     }
+    ],
+    "response": "{success:true, data:{added, removed}}",
+    "rules": [
+     "فريق غير موجود 404، وصنف ليس من الشركة 400",
+     "الأصناف المتغيّرة يتحرّك updatedAt لها فتصل مزامنة products"
+    ],
+    "example": ""
+   }
+  ]
  }
+];
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * أدلّة الربط خطوةً بخطوة (طلب المالك ٢٦ أكتوبر ٢٠٢٦: «ملف دليل ربط API حدّثه لكي يكون فيه آلية لربط صفحة اللوكيشن وصفحة
+ * طرق الدفع»). الفهرس أعلاه يجيب «ماذا يقبل كل مسار»، وهذان يجيبان «بأي ترتيب أستدعيها لأعيد بناء الصفحة في نظامي».
+ * يُرسمان في components/ApiDocs.tsx قسمين قبل الفهرس فيدخلان ملف FieldSales-API.html المحمَّل.
+ * اختبار apiDocsCatalog.test.ts يحرسهما: كل خطوةٍ بمسار موثّقةٌ في الفهرس بطريقتها، وكل curl بالعنوان الحيّ والمفتاح الوهمي
+ * (لا مفتاح حقيقي ولا مفتاح في الرابط)، وكل رمز خطأ يذكرانه موجودٌ في الخادم — دليلٌ يَعِد برمزٍ لا يرسله الخادم يضلّل المبرمج.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+export interface DocGuideStep {
+  title: string;
+  text: string;
+  /** المسار الذي تدور عليه الخطوة — موثّق في API_DOC_GROUPS بالطريقة نفسها */
+  method?: string;
+  path?: string;
+  curl?: string;
+}
+export interface DocGuide { key: string; title: string; intro: string; steps: DocGuideStep[] }
+
+/** المفتاح في الأمثلة وهميّ دائماً — المستند يُسلَّم لمبرمج الشركة ولا يحوي مفتاحاً */
+export const API_DOC_PLACEHOLDER_KEY = 'fsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+const AUTH = `-H "Authorization: Bearer ${API_DOC_PLACEHOLDER_KEY}"`;
+const JSON_CT = '-H "Content-Type: application/json"';
+const get = (p: string) => `curl -s "${API_BASE_URL}${p}" \\\n  ${AUTH}`;
+const send = (method: string, p: string, body?: string) =>
+  `curl -s -X ${method} "${API_BASE_URL}${p}" \\\n  ${AUTH}${body === undefined ? '' : ` \\\n  ${JSON_CT} \\\n  -d '${body}'`}`;
+
+export const API_DOC_GUIDES: DocGuide[] = [
+  {
+    key: 'locations-guide',
+    title: 'ربط صفحة اللوكيشن',
+    intro: [
+      'صفحة «لوكيشن» تعرض لكل موقع من مواقع الشركة مبيعاته ومرتجعاته وتحميلات سياراته في فترة. كل فاتورة وكل تحميل سيارة (النوع LOAD وحده) يُختم بموقع مندوبه لحظة الإصدار، والختم لقطة ثابتة: نقل المندوب لاحقاً لا يغيّر مستنداته القديمة.',
+      'المرتجع من فاتورة بيع والإشعاران الدائن والمدين ترث ختم الفاتورة الأصلية. السندات والزيارات والتنزيل والتسوية لا تُختم.',
+      'الخطوات أدناه تعيد بناء الصفحة في نظامكم: المواقع، ثم إسناد المناديب، ثم الملخّص أو المستندات المختومة نفسها.',
+    ].join('\n'),
+    steps: [
+      {
+        title: 'تحقّق أن الميزة مفعّلة لشركتكم',
+        method: 'GET', path: '/company',
+        text: [
+          'الميزة يفعّلها مزوّد الخدمة لكل شركة، وتشترط ألا يكون النظام المحاسبي مطفأً. اقرأ data.locationsEnabled وdata.accountingEnabled.',
+          '- بدونها ترجع كل مسارات /api/locations الرمز 403 LOCATIONS_NOT_ALLOWED، وقبله 403 ACCOUNTING_NOT_ALLOWED إن كان النظام المحاسبي مطفأً.',
+          '- فلتر locationId في الفواتير والتحميلات يعمل دائماً، لكن الختم الجديد لا يُكتب إلا والميزة مفعّلة.',
+        ].join('\n'),
+        curl: get('/company'),
+      },
+      {
+        title: 'جهّز المفتاح بالصلاحيات المناسبة',
+        text: [
+          'المفتاح يُصدَر من لوحة التحكم ← إعدادات الشركة ← تبويب «الربط البرمجي API»، ويعمل بصلاحيات من أصدره:',
+          '- قراءة المواقع: أي مستخدم شركة. والملخّص: canViewReports. والإسناد: canManageSalesReps.',
+          '- تعريف المواقع وأرشفتها وحذفها: canManageCompanySettings وحساب غير مقيّد النطاق، وبمفتاح «قراءة وكتابة».',
+          '- الفواتير: canManageInvoices، والتحميلات: canManageVanStock.',
+          'جرّب المفتاح بـGET /api/v1/me قبل أي شيء.',
+        ].join('\n'),
+        curl: get('/v1/me'),
+      },
+      {
+        title: 'اقرأ المواقع واحفظ معرّفاتها',
+        method: 'GET', path: '/locations',
+        text: [
+          'الرد [{id, name, lat, lng, isActive, createdAt, updatedAt, repsCount}]، الفعّال أولاً ثم بالاسم.',
+          'احفظ id في نظامكم: هو القيمة التي تأتي في locationId للفواتير والتحميلات والمناديب. والمؤرشف isActive = false يبقى لترجمة المستندات القديمة.',
+        ].join('\n'),
+        curl: get('/locations'),
+      },
+      {
+        title: 'عرّف موقعاً جديداً (اختياري)',
+        method: 'POST', path: '/locations',
+        text: [
+          'الجسم {name, lat?, lng?}. الاسم حتى 120 حرفاً بعد تشذيب طرفيه وإلا 400، ويُحفظ أول 60 حرفاً منه بعد طيّ فراغه بصمت. الإحداثيان معاً أو لا شيء. أرسل الجسم بترميز UTF-8.',
+          '- النجاح 201 بالموقع الجديد.',
+          '- 409 LOCATION_NAME_TAKEN لاسم مكرر، و400 لإحداثي دون الآخر أو خارج المدى.',
+          '- إعادة التسمية أو الأرشفة بـPUT /api/locations/:id بالجسم {"isActive":false}، وترجع 409 LOCATION_HAS_REPS (مع repsCount) إن بقي فيه مناديب.',
+          '- الحذف بـDELETE لا يصح إلا لموقع بلا مناديب ولا مستندات، وإلا 409 LOCATION_HAS_DOCUMENTS — أرشفه بدلاً من حذفه.',
+        ].join('\n'),
+        curl: send('POST', '/locations', '{"name":"فرع جدة","lat":21.5433,"lng":39.1728}'),
+      },
+      {
+        title: 'أسند المناديب إلى المواقع',
+        method: 'PUT', path: '/locations/reps/:salesRepId',
+        text: [
+          'اقرأ المناديب بموقع كلٍّ منهم من GET /api/locations/reps ([{id, name, isActive, locationId}])، أو من locationId في GET /api/sales-reps.',
+          'ثم أسند بالجسم {"locationId":"<locationId>"}، أو {"locationId":null} لإخراجه من كل المواقع. الحقل إلزامي في الجسم.',
+          '- 409 LOCATION_ARCHIVED لموقع مؤرشف، و404 لمندوب أو موقع غير موجود أو خارج النطاق.',
+          '- الإسناد يسري على ما يصدره المندوب بعده فقط.',
+        ].join('\n'),
+        curl: send('PUT', '/locations/reps/<salesRepId>', '{"locationId":"<locationId>"}'),
+      },
+      {
+        title: 'اقرأ ملخّص الفترة كما تعرضه الصفحة',
+        method: 'GET', path: '/locations/summary',
+        text: [
+          'الرد data{range{from, to, timezone}, rows[], none, totals}، وكل صف {locationId, name, isActive, lat, lng, sales{count, amount}, returns{count, amount}, net, loads{count, qty, products[{productId, name, unit, qty}]}}.',
+          '- from وto أيام بتوقيت الشركة المحلي لا UTC، والافتراض اليوم. التاريخ غير الصالح أو from بعد to يرجع 400.',
+          '- الفواتير المؤكدة وحدها بتاريخها invoiceDate، والتحميلات بلحظة تسجيلها بكميات بلا مبالغ.',
+          '- none سطر «بلا موقع»: ما خُتم قبل التفعيل أو لمندوب بلا موقع.',
+        ].join('\n'),
+        curl: get('/locations/summary?from=2026-10-01&to=2026-10-25'),
+      },
+      {
+        title: 'أو اسحب المستندات المختومة نفسها',
+        method: 'GET', path: '/invoices',
+        text: [
+          'الفواتير: GET /api/invoices?locationId=<id>&from=…&to=…&page=1&limit=200، والقيمة none للفواتير بلا موقع. كل صف يحمل locationId وlocation{id, name}.',
+          'التحميلات: GET /api/van-stock/loads?locationId=<id>&type=LOAD&from=…&to=…&page=1&limit=200، ومع page يضاف pagination للرد.',
+          'تنبيه: from وto في الفواتير بمنتصف ليل UTC، وفي التحميلات والملخّص بأيام الشركة — فقد يختلف مجموع يوم واحد بينهما بما وقع بين منتصف الليل والثالثة فجراً بتوقيت الرياض.',
+        ].join('\n'),
+        curl: get('/invoices?locationId=<locationId>&from=2026-10-01&to=2026-10-25&page=1&limit=200'),
+      },
+      {
+        title: 'أبقِ نظامكم متزامناً',
+        text: [
+          'للانعكاس أولاً بأول استعمل المزامنة (القسم ٣) بدل سحب القوائم:',
+          '- /api/v1/sync/locations: أسماء المواقع ونقاطها وأرشفتها، تُلتقط إعادة التسمية والأرشفة بطابع التعديل. يشترط صلاحية canManageSalesReps، ثم ألا يكون النظام المحاسبي مطفأً (403 ACCOUNTING_DISABLED)، ثم تفعيل الميزة (403 LOCATIONS_DISABLED).',
+          '- locationId موجود في /api/v1/sync/invoices و/api/v1/sync/van-loads و/api/v1/sync/sales-reps، فتبني الملخّص في نظامكم بتجميعها.',
+          '- الموقع المحذوف حذفاً فعلياً يُكتشف بمطابقة /api/v1/sync/locations/ids مرة في اليوم.',
+        ].join('\n'),
+        curl: get('/v1/sync/locations?since=2026-10-25T00:00:00Z&limit=500'),
+      },
+    ],
+  },
+  {
+    key: 'payment-methods-guide',
+    title: 'ربط صفحة طرق الدفع',
+    intro: [
+      'صفحة «طرق الدفع» تعرض ما حصّله كل مندوب بكل طريقة دفع في فترة. النقدي فيها = سندات القبض النقدية + فواتير البيع النقدي، وكل طريقة أضافتها الشركة (مثل STC Pay) لها جدولها المستقل بمفتاحها c_….',
+      'كل طريقة مخصّصة تُعامل محاسبياً مثل أساس من أربعة: CASH أو POS أو BANK_TRANSFER أو CHEQUE. السند يحمل الأساس في paymentMethod والمفتاح في paymentMethodKey، والمفاتيح لا تُحذف أبداً ولا يتغيّر أساسها.',
+    ].join('\n'),
+    steps: [
+      {
+        title: 'تحقّق أن الصفحة مفعّلة لشركتكم',
+        method: 'GET', path: '/company',
+        text: [
+          'العَلَم يفعّله مزوّد الخدمة: اقرأ data.paymentMethodsEnabled وdata.accountingEnabled.',
+          '- بدونه يرجع GET /api/reports/payment-methods وPUT /api/company/payment-methods الرمز 403 PAYMENT_METHODS_NOT_ALLOWED، وقبله 403 ACCOUNTING_NOT_ALLOWED إن كان النظام المحاسبي مطفأً.',
+          '- لا يشترط العَلَم: قراءة الطرق، وإصدار السند بـpaymentMethodKey، وتقرير التحصيل.',
+        ].join('\n'),
+        curl: get('/company'),
+      },
+      {
+        title: 'جهّز المفتاح بالصلاحيات المناسبة',
+        text: [
+          '- التقرير: canViewReports، ويحترم نطاق مُصدِر المفتاح إن كان مقيّداً.',
+          '- تعديل الطرق: canManageCompanySettings بمفتاح «قراءة وكتابة».',
+          '- إصدار السندات: canManageReceipts بمفتاح «قراءة وكتابة».',
+        ].join('\n'),
+      },
+      {
+        title: 'اقرأ طرق الشركة وما يصح اختياره في السند',
+        method: 'GET', path: '/company/payment-methods',
+        text: [
+          'الرد {data: الإعداد أو null, stored, hasCompany, methods:[{id, base, key, custom, label, companyLabel, icon, active, manual}], choices:[…]}.',
+          '- choices ما يصح إرساله في السند الآن: المفعّلة اليدوية بلا ONLINE.',
+          '- methods كل الطرق ومنها المعطّلة: بها تترجم paymentMethodKey في السندات القديمة إلى اسم.',
+          '- data = null يعني الافتراضي: الطرق الخمس بأسمائها الافتراضية ومفعّلة.',
+        ].join('\n'),
+        curl: get('/company/payment-methods'),
+      },
+      {
+        title: 'عدّل الطرق أو أضف طريقة (اختياري)',
+        method: 'PUT', path: '/company/payment-methods',
+        text: [
+          'الإعداد يُرسل كاملاً ولا يوجد PATCH: اقرأ data أولاً، عدّله، ثم أرسله كله. الطريقة الجديدة بلا key يولّد الخادم مفتاحها c_… ويعيده في data.custom.',
+          'القواعد:',
+          '- لا تُحذف طريقة محفوظة ولا يتغيّر base لها، وإلا 409 PAYMENT_METHODS_CONFLICT — أوقفها بـ"active":false بدل حذفها.',
+          '- ONLINE لا يُعطَّل، وطريقة مفعّلة واحدة على الأقل، و20 طريقة مخصّصة على الأكثر، والاسم من 1 إلى 40 حرفاً وفريد بعد التطبيع العربي.',
+          '- المدمجة التي لم تُسمَّ تحجز اسمها الافتراضي وأسماءها البديلة («نقد» و«تحويل» و«دفع الكتروني»)، فطريقة مخصّصة بأحدها ترجع 400 PAYMENT_METHODS_INVALID.',
+          '- الأيقونات من قائمة مغلقة: wallet وsmartphone وcredit-card وbanknote وlandmark وqr-code وcoins وgift وreceipt وhandshake وstore وglobe.',
+          '- الأخطاء: 400 PAYMENT_METHODS_INVALID مع issues[{path, message}]، و413 PAYMENT_METHODS_TOO_LARGE فوق 8 كيلوبايت، و409 COMPANY_SETTINGS_MISSING.',
+          '- استعادة الافتراضي بالجسم {"reset":true} لا null، والطرق المخصّصة تبقى معطّلة لا تُحذف.',
+          '- إن انقطع الرد بعد إضافة طريقة جديدة فلا تُعد الطلب كما هو: الإعادة ترجع 409 لأن المفتاح المولَّد غائب عن جسمك. اقرأ GET أولاً ثم أعد التعديل.',
+        ].join('\n'),
+        curl: send('PUT', '/company/payment-methods', '{"version":1,"builtins":{"POS":{"label":"مدى"},"CHEQUE":{"active":false}},"custom":[{"label":"STC Pay","base":"BANK_TRANSFER","icon":"smartphone"}]}'),
+      },
+      {
+        title: 'أصدر سند قبض بطريقة مخصّصة',
+        method: 'POST', path: '/receipts',
+        text: [
+          'أرسل paymentMethodKey من choices، ومعه salesRepId دائماً (بدونه 400). الخادم يكتب في paymentMethod الأساس المحفوظ للطريقة أياً كان المرسل.',
+          '- الأخطاء 422: PAYMENT_METHOD_UNKNOWN لمفتاح غير معروف، وPAYMENT_METHOD_DISABLED لطريقة معطّلة، وPAYMENT_METHOD_KEY_ONLINE مع paymentMethod = ONLINE.',
+          '- للطرق المدمجة يكفي paymentMethod وحده، والمعطّلة منها ترجع 422 PAYMENT_METHOD_DISABLED.',
+          '- أرسل clientRef (UUID) لمنع التكرار عند إعادة المحاولة. وترويسة X-FS-Replay تُمحى من طلبات المفتاح فلا ترسلها.',
+        ].join('\n'),
+        curl: send('POST', '/receipts', '{"customerId":"<customerId>","salesRepId":"<salesRepId>","amount":250,"paymentMethodKey":"c_k3x9q2m7p1","clientRef":"<uuid>"}'),
+      },
+      {
+        title: 'اقرأ تقرير الصفحة',
+        method: 'GET', path: '/reports/payment-methods',
+        text: [
+          'الرد data{range{from, to, timezone}, methods[{method, base, key, custom, label, companyLabel, icon, active, rows[{salesRepId, repName, repActive, amount, count, receiptsAmount, receiptsCount, invoicesAmount, invoicesCount}], total, noRep}], total{amount, count}, noRep, repsCount, roster[{salesRepId, repName, repActive}]}.',
+          '- from وto أيام بتوقيت الشركة لا UTC، والافتراض اليوم (وfrom وحده في المستقبل يجعل to = from). ويقبل teamId=<id> أو none بوسم المستند.',
+          '- التحصيل بلا مندوب في noRep خارج الجداول، والطريقة المعطّلة لا تظهر إلا إن حُصّل بها في الفترة.',
+          '- لا يطابق تقرير التحصيل: النقدي هنا يضيف فواتير البيع النقدي، والأيام هنا بتوقيت الشركة وهناك UTC، والتحصيل بلا مندوب هنا خارج total وهناك داخله.',
+          '- roster مناديب النطاق النشطون (أو أعضاء الفريق ومن له مستند موسوم به مع teamId) ومعهم كل من حصّل في الفترة ولو موقوفاً. لعرض «كل مندوب مع كل طريقة» ولو بلا تحصيل اجمع roster مع rows كل طريقة.',
+        ].join('\n'),
+        curl: get('/reports/payment-methods?from=2026-10-01&to=2026-10-25'),
+      },
+      {
+        title: 'التحصيل التفصيلي والمزامنة',
+        method: 'GET', path: '/reports/collections',
+        text: [
+          'GET /api/reports/collections?from=…&to=…&paymentMethodKey=c_… يرجع السندات وsummary.byMethod بالأساس وbyMethodKey وmethods بأسماء الشركة. from وto هنا بمنتصف ليل UTC، والمفتاح بغير صيغة c_… يُهمل فيعود كل السجل.',
+          'وللانعكاس أولاً بأول: /api/v1/sync/receipts يحمل paymentMethodKey (null للطرق المدمجة) والأساس في paymentMethod، وأسماء الطرق من GET /api/company/payment-methods.',
+        ].join('\n'),
+        curl: get('/reports/collections?from=2026-10-01&to=2026-10-25&paymentMethodKey=c_k3x9q2m7p1'),
+      },
+    ],
+  },
 ];

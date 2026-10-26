@@ -171,15 +171,20 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     }
 
     // فوترة ZATCA (Z5.1a): حقول المشتري للشركة الجامعة وحدها (البوابة لا تُقرأ إلا إن حمل الجسم حقلاً منها أو الرقم الضريبي/السجل).
-    // إنشاء بـclientRef (الرفع المؤجَّل من الصفّ) لا يُرفض أبداً: تُسقط حقول المرحلة الثانية الخاطئة ويعود warnings
-    const buyerGate = await applyBuyerGateToWrite(buyerDataDeps, req, tid, data as Record<string, unknown>, { customerId: null, replay: !!data.clientRef });
+    // إنشاء بـclientRef (الرفع المؤجَّل من الصفّ) لا يُرفض أبداً: تُسقط حقول المرحلة الثانية الخاطئة ويعود warnings.
+    // إلا طلب مفتاح API: clientRef حقلٌ في الجسم يكتبه المُرسِل كما يشاء، والمفتاح عميلٌ حيّ لا صندوق إرسال — فلو اشتُقّ
+    // التسامح منه لتجاوز أيُّ مكامِلٍ رفض 400 CUSTOMER_ZATCA_INVALID بإضافة سطرٍ واحد (والدليل يوصيه بـclientRef لمنع التكرار)،
+    // فحُفظ رقمٌ ضريبي وسجلٌّ بلا فحص. هويةُ المصادقة لا يزوّرها الجسم؛ والحارس نفسه يكرّر الشرط (applyBuyerGateToWrite)
+    const buyerGate = await applyBuyerGateToWrite(buyerDataDeps, req, tid, data as Record<string, unknown>, { customerId: null, replay: !!data.clientRef && !req.user?.apiKeyId });
     if (!buyerGate.ok) { res.status(buyerGate.status).json(buyerGate.body); return; }
 
     // المندوب الذكي: معرّف مكان Google يُربط فقط لمندوب مفعّلة له الميزة، ولمحلٍّ ليس عميلاً للشركة أصلاً.
     // عميل قائم بالمعرّف نفسه ⇒ 409 برسالة محايدة (لا تسمّي المندوب المالك — عزل العملاء)؛ وعند إعادة الرفع من صفّ
     // الإرسال دون اتصال لا يُرفض الإنشاء (القاعدة: مستند الصفّ لا يُعدَم) بل يُسقط الربط وحده.
     if (data.aiPlaceId) {
-      const replay = String(req.headers['x-fs-replay'] || '') === '1';
+      // الترويسة تُمحى من طلب المفتاح في المصادقة (middleware/auth.ts)؛ والشرط هنا يكرّر ذلك عند نقطة القرار نفسها كي لا يعلّق
+      // أمن المسار على ترتيب الوسائط: المفتاح يعود 409 دائماً
+      const replay = String(req.headers['x-fs-replay'] || '') === '1' && !req.user?.apiKeyId;
       const allowedForRep = !creatorRepId || (await aiRepForRep(tid, creatorRepId));
       const taken = allowedForRep ? await prisma.customer.findFirst({ where: { tenantId: tid, aiPlaceId: data.aiPlaceId }, select: { id: true } }) : null;
       if (taken && !replay) {

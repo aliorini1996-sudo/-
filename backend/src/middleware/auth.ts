@@ -217,6 +217,13 @@ async function authenticateApiKey(req: AuthRequest, res: Response, next: NextFun
       // مفتاحٌ أصدره الدعم الفني (جلسة المالك): أفعاله تُسجَّل OWNER: كجلسته — بلا تجاوزاتها
       ...((row.createdBy || '').startsWith('OWNER:') ? { ownerIssuedKey: true } : {}),
     };
+    // يُمحى هنا شيءٌ واحد: ترويسة X-FS-Replay — ترويسة صندوق تطبيق المندوب حين يعيد رفع ما سُجّل دون اتصال، ويتسامح معها
+    // الخادم لأن المال قُبض فعلاً والمستند لا يُعدَم (مفتاح طريقة دفع مجهول يسقط بصمت، والمعطّلة تُقبل، ومستند قبل تفعيل
+    // المرحلة الثانية يُقبل مرحلةً أولى، وaiPlaceId مكرّر يُسقط ربطه بدل 409). المفتاح عميلٌ حيّ لا صندوق إرسال فلا
+    // يرث ذلك بإرسال ترويسة، فتُمحى قبل أي موجّه. أمّا X-FS-Caps فتبقى عمداً (بها يعلن المكامل طباعة رمز المرحلة الثانية).
+    // والمحو لا يغطّي تسامحاً يُشتقّ من **الجسم**: ذاك يُحكم عند نقطته بهوية المصادقة (req.user.apiKeyId) — مثل clientRef في
+    // POST /customers (routes/customersZatca.ts applyBuyerGateToWrite). والمندوب لا يتأثّر: لا يصادق بمفتاح
+    delete req.headers['x-fs-replay'];
     markLiveKey(hash);
     // صفحة قوائم اللوحة محدودة للمفتاح — والسحب الكامل من /api/v1/sync بحدوده الخاصة
     if (!pathAfterApi(matched || (req.originalUrl ?? '')).startsWith('/v1/')) clampPageQuery(req);

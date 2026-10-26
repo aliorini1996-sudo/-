@@ -32,7 +32,7 @@ async function resourceRefusal(req: AuthRequest, def: SyncResource): Promise<{ s
   const tid = tenantId(req);
   const [admin, tenant] = await Promise.all([
     prisma.admin.findUnique({ where: { id: req.user!.id }, select: { isActive: true, scopeEnabled: true, [def.permission]: true } as Record<string, true> }),
-    prisma.tenant.findUnique({ where: { id: tid }, select: { accountingEnabled: true, warehouseEnabled: true } }),
+    prisma.tenant.findUnique({ where: { id: tid }, select: { accountingEnabled: true, warehouseEnabled: true, locationsEnabled: true } }),
   ]);
   const a = admin as Record<string, unknown> | null;
   if (!a || a.isActive !== true) return { status: 401, code: 'API_KEY_OWNER_INACTIVE', message: 'حساب المستخدم صاحب المفتاح معطل' };
@@ -40,6 +40,8 @@ async function resourceRefusal(req: AuthRequest, def: SyncResource): Promise<{ s
   if (a[def.permission] === false) return { status: 403, code: 'FORBIDDEN', message: 'صاحب المفتاح لا يملك صلاحية هذا القسم' };
   if (def.accounting && tenant?.accountingEnabled === false) return { status: 403, code: 'ACCOUNTING_DISABLED', message: 'النظام المحاسبي غير مفعل لشركتك' };
   if (def.warehouse && tenant?.warehouseEnabled !== true) return { status: 403, code: 'WAREHOUSE_DISABLED', message: 'ميزة مخزون الشركة غير مفعلة لشركتك' };
+  // «لوكيشن» بترتيب حارس صفحتها (requireLocations): المحاسبة أعلاه ثم العَلَم — `!== true` فتعذّر القراءة يمنع لا يفتح
+  if (def.locations && tenant?.locationsEnabled !== true) return { status: 403, code: 'LOCATIONS_DISABLED', message: 'ميزة لوكيشن غير مفعلة لشركتك' };
   return null;
 }
 

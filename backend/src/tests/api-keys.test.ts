@@ -302,6 +302,33 @@ test('مفتاحٌ أصدره الدعم الفني: أفعاله تُسجَّل
   assert.equal(auth.actorOf(plain.req as never), 'a1');
 });
 
+test('المفتاح عميلٌ حيّ لا صندوق إرسال: X-FS-Replay تُمحى بعد مصادقته فلا يرث تسامح إعادة الرفع — وجلسة اللوحة كما هي', async () => {
+  keys._resetApiKeyWindows(); keyRow = freshRow();
+  // الترويسة تخفّف حكم السند (مفتاح طريقة مجهول يسقط بصمت) والفاتورة (قبولٌ مرحلةً أولى بعد تفعيل الثانية) — للصندوق وحده
+  const mk = (auth: string) => ({
+    headers: { authorization: auth, 'x-fs-replay': '1', 'x-fs-caps': 'zatca2' } as Record<string, string>,
+    method: 'POST', originalUrl: '/api/receipts', url: '/api/receipts',
+  });
+  const viaKey = mk(`Bearer ${fresh.key}`);
+  let passed = false;
+  await authenticate(viaKey as never, mockRes() as never, () => { passed = true; });
+  assert.equal(passed, true);
+  assert.equal(viaKey.headers['x-fs-replay'], undefined, 'تُمحى قبل أي موجّه');
+  assert.equal(viaKey.headers['x-fs-caps'], 'zatca2', 'ترويسة القدرات تبقى: المكامل يعلن بها طباعة رمز المرحلة الثانية');
+  // جلسة اللوحة (والمندوب بتوكنه) لا يمسّها هذا — صندوق التطبيق يعيد رفعه بتوكن جلسة لا بمفتاح
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const jwt = require('jsonwebtoken');
+  const viaSession = mk(`Bearer ${jwt.sign({ id: 'r1', role: 'SALES_REP', name: 'م', tenantId: 't1' }, process.env.JWT_SECRET)}`);
+  await authenticate(viaSession as never, mockRes() as never, () => undefined);
+  assert.equal(viaSession.headers['x-fs-replay'], '1');
+  // ومفتاحٌ مرفوض (ممنوع أو قراءة فقط) يُردّ قبلها كما كان — المحو بعد القبول وحده
+  keyRow = freshRow({ readOnly: true });
+  const ro = mk(`Bearer ${fresh.key}`);
+  const res = mockRes();
+  await authenticate(ro as never, res as never, () => { throw new Error('مرّ'); });
+  assert.equal(res.statusCode, 403);
+});
+
 test('خطأ الخادم لطلب المفتاح رسالةٌ عامة — والتفصيل في سجلّ الخادم', () => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { errorHandler } = require('../middleware/errorHandler') as typeof import('../middleware/errorHandler');

@@ -180,6 +180,18 @@ test('حذف فترة: تختفي ويبقى وقتاها ومصدرها في ا
   assert.equal((await call('delete', '/rows/:id', { params: { id: 'z9' }, body: { reason: 'من شركة أخرى' } })).statusCode, 404);
 });
 
+test('حذف فترة: السبب من الجسم وحده — ?reason= في الرابط لا يُقرأ (نصٌّ حرّ قد يحمل معلومة شخصية فلا يُكتب في سجلّ الوصول)', async () => {
+  reset();
+  rows.push({ id: 'p1', tenantId: 't1', salesRepId: 'rep1', checkInAt: new Date(H(5)), checkOutAt: new Date(H(6)), source: 'APP', editedAt: null, editedBy: null });
+  // express.json لا يضع جسماً لطلبٍ بلا محتوى — والسبب في الرابط وحده لا يكفي: رفض التحقق ولا حذف
+  await assert.rejects(call('delete', '/rows/:id', { params: { id: 'p1' }, body: undefined, query: { reason: 'بصمة مكررة من النظام' } }), 'الرابط لا يحمل السبب');
+  assert.equal(rows.filter((r) => r.id === 'p1').length, 1, 'لا حذف بسبب الرابط');
+  assert.equal(audits.length, 0);
+  // والجسم يمرّ، وما في الرابط معه يُهمل فلا يصل سطر التدقيق
+  assert.equal((await call('delete', '/rows/:id', { params: { id: 'p1' }, body: { reason: 'سبب الجسم' }, query: { reason: 'سبب الرابط' } })).statusCode, 200);
+  assert.equal(audits[0].reason, 'سبب الجسم');
+});
+
 test('رفع Excel: يُكتب الصالح بمصدر IMPORT، ويعود المرفوض برقمه وسببه (تداخلٌ داخل الملف، مستقبل، خارج النطاق)', async () => {
   reset(); inScope = false;
   const future = new Date(Date.now() + 3 * 3600_000).toISOString();

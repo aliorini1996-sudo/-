@@ -322,6 +322,13 @@ app.get('/api/health', async (_req, res) => {
   });
 });
 
+// مسارٌ مجهول تحت /api ⇒ JSON بصيغة الأخطاء نفسها لا صفحة Express النصّية «Cannot GET»: نظام الشركة المربوط بمفتاح API
+// يحلّل كل ردٍّ JSON، وصفحة HTML تكسر محلّله برسالةٍ لا تقول إن المسار خطأ (كما يفعل /api/v1 لمساراته). بعد آخر مسار /api
+// (والصحّة قبله) وقبل الواجهة المبنيّة التي لا تلتقط /api أصلاً — والخطأ المرمي يتخطّاه إلى errorHandler كما كان
+app.use('/api', (_req, res) => {
+  res.status(404).json({ success: false, code: 'NOT_FOUND', message: 'مسار غير موجود' });
+});
+
 // عرض الواجهة المبنيّة إن وُجدت (اختياري — الواجهة الرسمية على Vercel)
 const webDist = path.join(__dirname, '../../web-admin/dist');
 if (fs.existsSync(path.join(webDist, 'index.html'))) {

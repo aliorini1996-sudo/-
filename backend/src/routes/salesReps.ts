@@ -89,6 +89,9 @@ const repSelect = {
   requirePresenceCheck: true,
   showRouteOnMap: true,
   shiftStart: true, shiftEnd: true, shiftDays: true,
+  // «لوكيشن»: موقع المندوب الحاليّ للقراءة وحدها — من يقرأ المناديب (ومنهم مفتاح API) يعرف موقع كلٍّ منهم بلا صفحة لوكيشن
+  // المحجوبة بعَلَمها. الإسناد نفسه من PUT /api/locations/reps/:salesRepId وحده (repSchema لا يقبله فلا يُكتب من هنا)
+  locationId: true,
   createdAt: true,
 } as const;
 

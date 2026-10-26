@@ -110,7 +110,8 @@ export type BuyerGateResult =
 /**
  * POST/PUT /api/customers: يُستدعى من داخل المعالج بعد تحليل zod (وبعد فحص الوجود للتعديل) وقبل الكتابة. يضيف الحقول المطبَّعة
  * إلى data للشركة الجامعة وحدها. customerId = null للإنشاء. replay = إنشاء بـclientRef (رفع مؤجَّل من الصفّ أو إرسال مباشر
- * يحمل مفتاح التكرار) — لا يُرفض.
+ * يحمل مفتاح التكرار) — لا يُرفض. **وطلب مفتاح API لا يُعامَل replay أبداً** ولو مرّره المستدعي: المفتاح عميلٌ حيّ
+ * يملك جسمه كلّه (clientRef منه)، فالتسامح المشتقّ من الجسم ثغرةٌ لا رحمة بصندوق؛ يُحكم هنا لا في كل مستدعٍ وحده.
  */
 export async function applyBuyerGateToWrite(
   deps: CustomerBuyerDataDeps, req: AuthRequest, tid: string, data: Record<string, unknown>, opts: { customerId: string | null; replay: boolean },
@@ -130,8 +131,10 @@ export async function applyBuyerGateToWrite(
     return { ok: false, status: 403, body: { success: false, code: 'CUSTOMER_BUYER_REP_RESTRICTED', message: BUYER_DATA_CODES.CUSTOMER_BUYER_REP_RESTRICTED } };
   }
   let warnings = [...v.warnings];
+  // التسامح لصندوق تطبيق المندوب (وجلسات اللوحة) وحده — هوية المفتاح من المصادقة لا من الجسم، فلا يفتحه clientRef
+  const replay = opts.replay && !req.user?.apiKeyId;
   if (errors.length > 0) {
-    if (!(opts.customerId === null && opts.replay)) return { ok: false, status: 400, body: customerZatcaInvalidBody(errors) };
+    if (!(opts.customerId === null && replay)) return { ok: false, status: 400, body: customerZatcaInvalidBody(errors) };
     // الرفع المؤجَّل: حقول المرحلة الثانية الخاطئة تُسقط (لم تكن تُحفظ قبل Z5.1a أصلاً)، والقديمة (الرقم الضريبي والسجل والنصوص)
     // تُحفظ كما كانت تُحفظ اليوم بلا فحص — والقائمة تُظهرها ناقصة. والتحذير يعود للجهاز
     for (const e of errors) {

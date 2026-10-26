@@ -159,6 +159,9 @@ router.put('/rows/:id', async (req: AuthRequest, res: Response, next: NextFuncti
 router.delete('/rows/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
+    // السبب من الجسم وحده عمداً، لا من ?reason=: نصٌّ حرّ قد يحمل معلومةً شخصية عن المندوب (مرض، خلاف، سبب غياب)، والرابط
+    // يُكتب كاملاً في سجلّ الوصول (morgan combined لا يُخفي إلا رموز المشاركة) وفي سجلّات كل وسيطٍ بين العميل والخادم.
+    // والدليل ينصّ على إرسال الجسم مع DELETE (Content-Type: application/json) — كل عميل HTTP جادّ يدعمه
     const b = z.object({ reason: reasonSchema }).parse(req.body ?? {});
     const found = await rowInScope(req, tid, String(req.params.id));
     const name = auditActorName(req);

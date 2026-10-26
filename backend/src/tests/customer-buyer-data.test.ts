@@ -196,6 +196,23 @@ test('الرفع المؤجَّل (إنشاء بـclientRef): لا 400 أبدا�
   assert.deepEqual((r.warnings ?? []).map(w => w.field).sort(), ['addrBuildingNo', 'buyerIdScheme', 'buyerType', 'taxNumber']);
 });
 
+test('مفتاح API عميلٌ حيّ لا صندوق إرسال: clientRef في جسمه لا يفتح تسامح الرفع المؤجَّل — 400 CUSTOMER_ZATCA_INVALID ولو مرّر المستدعي replay', async () => {
+  const f = fakeDb({ flag: true });
+  const body = { name: 'x', phone: '0500000000', taxNumber: '123', buyerType: 'PERSON', clientRef: '6f1c2a9e-3b7d-4c2e-9a51-2f0e8d7c4b10' };
+  // صاحب المفتاح مديرٌ بهويته، والفارق الوحيد apiKeyId الذي تضعه المصادقة — والجسم لا يملك تزويره
+  const KEY = { ...ADMIN, apiKeyId: 'key-1' };
+  const data: Record<string, unknown> = { name: 'x', phone: '0500000000', taxNumber: '123' };
+  const r = await applyBuyerGateToWrite(deps(f.db), reqOf(KEY, body), TENANT, data, { customerId: null, replay: true });
+  assert.equal(r.ok, false);
+  if (r.ok) return;
+  assert.equal(r.status, 400);
+  assert.equal((r.body as { code?: string }).code, 'CUSTOMER_ZATCA_INVALID');
+  assert.deepEqual(data, { name: 'x', phone: '0500000000', taxNumber: '123' }, 'لا يُكتب شيء من الحمولة الخاطئة');
+  // والجلسة نفسها بلا مفتاح (صندوق المندوب أو اللوحة) يبقى تسامحها كما كان
+  const viaSession = await applyBuyerGateToWrite(deps(f.db), reqOf(ADMIN, body), TENANT, { name: 'x', phone: '0500000000', taxNumber: '123' }, { customerId: null, replay: true });
+  assert.equal(viaSession.ok, true);
+});
+
 test('التعديل: المتغيّر وحده يُفحص (بيانات قديمة خاطئة لا تمنع)، والمندوب لا يحوّل منشأة إلى فرد (403)، والإدارة تفعل بسطر تدقيق', async () => {
   const stale = { ...VAT_ONLY, id: 'c-stale', taxNumber: '123' };
   const f = fakeDb({ flag: true, customers: [stale, COMPLETE, VAT_ONLY] });
@@ -563,11 +580,13 @@ test('customers.ts: مخطّط zod بلا حقول المرحلة الثانية
 
   const post = src.slice(src.indexOf("router.post('/',"), src.indexOf("router.put('/:id',"));
   const idem = post.indexOf('if (data.clientRef) {');
-  const gate = post.indexOf("const buyerGate = await applyBuyerGateToWrite(buyerDataDeps, req, tid, data as Record<string, unknown>, { customerId: null, replay: !!data.clientRef });");
+  const gate = post.indexOf("const buyerGate = await applyBuyerGateToWrite(buyerDataDeps, req, tid, data as Record<string, unknown>, { customerId: null, replay: !!data.clientRef && !req.user?.apiKeyId });");
   const create = post.indexOf('prisma.customer.create(');
   assert.ok(idem > 0 && idem < gate && gate < create, 'POST: بعد التكرار وقبل الإنشاء');
   assert.match(post.slice(gate), /^[^\n]*\n\s*if \(!buyerGate\.ok\) \{ res\.status\(buyerGate\.status\)\.json\(buyerGate\.body\); return; \}/);
   assert.ok(post.includes('res.status(201).json({ success: true, data: customer, ...(buyerGate.warnings && { warnings: buyerGate.warnings }) });'));
+  // تسامح aiPlaceId (إسقاط الربط بدل 409) لصندوق المندوب وحده: المفتاح لا يرثه ولو وصلته الترويسة
+  assert.ok(post.includes("const replay = String(req.headers['x-fs-replay'] || '') === '1' && !req.user?.apiKeyId;"), 'aiPlaceId: المفتاح يعود 409 دائماً');
 
   const put = src.slice(src.indexOf("router.put('/:id',"), src.indexOf("router.get('/:id/statement',"));
   const exists = put.indexOf('if (!exists) {');

@@ -1,11 +1,11 @@
 import { useRef } from 'react';
-import { Download, KeyRound, RefreshCw, ShieldAlert, Gauge, AlertTriangle, ListTree, Code2 } from 'lucide-react';
+import { Download, KeyRound, RefreshCw, ShieldAlert, Gauge, AlertTriangle, ListTree, Code2, MapPin, Wallet } from 'lucide-react';
 import { useTr } from '../i18n/strings';
 import {
   API_BASE_URL, API_DENIED, API_SYNC_RESOURCES, SYNC_MODE_DOC, CURL_EXAMPLE, JS_SYNC_EXAMPLE, PY_SYNC_EXAMPLE, DELETE_RECONCILE_NOTE,
   API_MAX_PAGE,
 } from '../lib/apiDocsData';
-import { API_DOC_GROUPS, type DocEndpoint, type DocField } from '../lib/apiDocsCatalog';
+import { API_DOC_GROUPS, API_DOC_GUIDES, type DocEndpoint, type DocField, type DocGuide } from '../lib/apiDocsCatalog';
 
 const METHOD_TONE: Record<string, string> = {
   GET: 'bg-blue-50 text-blue-700', POST: 'bg-green-50 text-green-700', PUT: 'bg-amber-50 text-amber-700',
@@ -59,7 +59,7 @@ function Endpoint({ e }: { e: DocEndpoint }) {
       </p>
       <FieldsTable title="معاملات الرابط (query)" fields={e.query} />
       <FieldsTable title="جسم الطلب (JSON body) — النجمة إلزامي" fields={e.body} />
-      {e.response && <p className="text-xs text-[#6E6557]"><b>الرد:</b> {e.response}</p>}
+      {e.response && <p className="api-text text-xs text-[#6E6557] whitespace-pre-line"><b>الرد:</b> {e.response}</p>}
       {e.rules.length > 0 && (
         <ul className="text-xs text-[#6E6557] list-disc ps-5 space-y-0.5">{e.rules.map((r, i) => <li key={i}>{r}</li>)}</ul>
       )}
@@ -67,6 +67,40 @@ function Endpoint({ e }: { e: DocEndpoint }) {
     </div>
   );
 }
+
+/**
+ * دليل ربط صفحة خطوةً بخطوة (لوكيشن، طرق الدفع): تمهيدٌ ثم خطواتٌ مرقّمة لكلٍّ منها مسارها ومثال curl بالمفتاح الوهمي.
+ * داخل div المستند نفسه فيدخل الملف المحمَّل كما يُرى هنا.
+ */
+function Guide({ guide }: { guide: DocGuide }) {
+  return (
+    <>
+      <p className="api-text text-sm text-[#6E6557] whitespace-pre-line">{guide.intro}</p>
+      <ol className="api-steps list-decimal ps-5 space-y-3">
+        {guide.steps.map((s, i) => (
+          <li key={i} className="space-y-1.5">
+            <p className="text-sm font-semibold text-[#1F1A13]">{s.title}</p>
+            {s.method && s.path && (
+              <div className="flex items-center gap-2 flex-wrap" dir="ltr">
+                <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${METHOD_TONE[s.method] ?? 'bg-gray-100 text-gray-700'}`}>{s.method}</span>
+                <code className="text-xs font-mono text-[#1F1A13]">/api{s.path}</code>
+              </div>
+            )}
+            <p className="api-text text-xs text-[#6E6557] whitespace-pre-line">{s.text}</p>
+            {s.curl && <Code>{s.curl}</Code>}
+          </li>
+        ))}
+      </ol>
+    </>
+  );
+}
+
+/** أرقام أقسام الدليلين بعد أمثلة الكود (٤) — والفهرس بعدهما */
+const GUIDE_NUMBERS = ['٥', '٦', '٧', '٨'];
+const GUIDE_ICONS: Record<string, React.ReactNode> = {
+  'locations-guide': <MapPin size={18} className="text-[#E15A30]" />,
+  'payment-methods-guide': <Wallet size={18} className="text-[#E15A30]" />,
+};
 
 /**
  * مستند API للمبرمج — يُقرأ هنا ويُحمَّل ملف HTML مستقلّاً يُسلَّم لمبرمج الشركة.
@@ -84,6 +118,7 @@ h1{color:#E15A30}h2{border-bottom:2px solid #E15A30;padding-bottom:4px;margin-to
 pre{background:#1F1A13;color:#F6EFE3;padding:12px;border-radius:8px;overflow:auto;direction:ltr;text-align:left;font-size:12px}
 code{font-family:Consolas,monospace}table{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}
 td,th{border:1px solid #E9E1D3;padding:4px 6px;vertical-align:top}.api-endpoint{border:1px solid #E9E1D3;border-radius:8px;padding:10px;margin:10px 0}
+.api-text{white-space:pre-line}.api-steps{padding-inline-start:22px}.api-steps li{margin:12px 0}
 button{display:none}`;
     const html = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Field Sales API</title><style>${css}</style></head><body><h1>Field Sales — API</h1>${ref.current.innerHTML}</body></html>`;
     const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
@@ -124,11 +159,13 @@ button{display:none}`;
           <table className="w-full text-xs border border-[#F1EBDF]">
             <tbody className="divide-y divide-[#F1EBDF] text-[#6E6557]">
               {[
-                ['400', 'بيانات غير صحيحة (تفاصيل الحقول في errors) أو since/cursor غير صالح'],
-                ['401', 'API_KEY_INVALID مفتاح غير صالح أو ملغى · API_KEY_OWNER_INACTIVE صاحب المفتاح معطل'],
-                ['403', 'API_NOT_ALLOWED الميزة غير مفعلة · TENANT_BLOCKED الاشتراك موقوف أو منتهٍ · API_KEY_FORBIDDEN مسار ممنوع أو مفتاح قراءة فقط يكتب · نقص صلاحية'],
-                ['404', 'غير موجود'],
-                ['409', 'تعارض: تكرار أو حالة لا تسمح (مثل إلغاء فاتورة عليها سند)'],
+                ['400', 'بيانات غير صحيحة (تفاصيل الحقول في errors، أو issues لإعدادات طرق الدفع والطباعة: PAYMENT_METHODS_INVALID وPRINT_SETTINGS_INVALID) · في المزامنة BAD_SINCE أو BAD_CURSOR'],
+                ['401', 'بلا مفتاح: {success:false, message:"غير مصرح"} بلا code · API_KEY_INVALID مفتاح غير صالح أو ملغى · API_KEY_OWNER_INACTIVE صاحب المفتاح معطل'],
+                ['403', 'API_NOT_ALLOWED الميزة غير مفعلة · TENANT_BLOCKED الاشتراك موقوف أو منتهٍ · API_KEY_FORBIDDEN مسار ممنوع أو مفتاح قراءة فقط يكتب · نقص صلاحية (بلا code) · ميزة مطفأة للشركة: ACCOUNTING_NOT_ALLOWED وLOCATIONS_NOT_ALLOWED وPAYMENT_METHODS_NOT_ALLOWED وATTENDANCE_DISABLED · في المزامنة: API_KEY_REQUIRED وAPI_KEY_SCOPED_OWNER وFORBIDDEN وACCOUNTING_DISABLED وWAREHOUSE_DISABLED وLOCATIONS_DISABLED'],
+                ['404', 'غير موجود أو خارج نطاق صاحب المفتاح · مسار مجهول NOT_FOUND · مورد مزامنة مجهول UNKNOWN_RESOURCE مع قائمة resources'],
+                ['409', 'تعارض: تكرار أو حالة لا تسمح (مثل إلغاء فاتورة عليها سند) · LOCATION_NAME_TAKEN وLOCATION_HAS_REPS وLOCATION_HAS_DOCUMENTS وLOCATION_ARCHIVED · PAYMENT_METHODS_CONFLICT · COMPANY_SETTINGS_MISSING · TEAM_HAS_DOCUMENTS · ATTENDANCE_OVERLAP · RETURN_LINK_INVALID حين يسبقك مرتجع متزامن على الكمية نفسها'],
+                ['413', 'الجسم أكبر من حدّه: PAYMENT_METHODS_TOO_LARGE (8 كيلوبايت) وPRINT_SETTINGS_TOO_LARGE (16 كيلوبايت)'],
+                ['422', 'رفض منطقي: PAYMENT_METHOD_UNKNOWN وPAYMENT_METHOD_DISABLED وPAYMENT_METHOD_KEY_ONLINE في السند · RETURN_LINK_INVALID في ربط المرتجع بفاتورة بيع (و409 عند سباق مرتجعين) · RETURN_RULE_BLOCKED حين يمنع قيد المرتجع للصنف إرجاعه · رموز ZATCA_* في المرحلة الثانية'],
                 ['429', 'API_RATE_LIMIT تجاوزت الحد — انتظر Retry-After'],
               ].map(([c, d]) => <tr key={c}><td dir="ltr" className="px-2 py-1.5 font-mono font-bold text-left">{c}</td><td className="px-2 py-1.5">{d}</td></tr>)}
             </tbody>
@@ -174,7 +211,8 @@ GET /api/v1/sync/{resource}/ids?limit=5000&cursor=...       # all current ids`}<
             </table>
           </div>
           <ul className="text-xs text-[#6E6557] list-disc ps-5 space-y-1">
-            <li>الحذف المنطقي يصلك تعديلاً: العميل status = DELETED، الصنف deletedAt أو status = INACTIVE، الفاتورة والسند status = CANCELLED، المندوب isActive = false.</li>
+            <li>الحذف المنطقي يصلك تعديلاً: العميل status = DELETED، الصنف deletedAt أو status = INACTIVE، الفاتورة والسند status = CANCELLED، المندوب isActive = false، الموقع والفريق isActive = false (مؤرشف).</li>
+            <li>الحقول المرجعية: locationId يُترجم من مورد locations (أو GET /api/locations)، وteamId من مورد teams (أو GET /api/company/teams)، وpaymentMethodKey من GET /api/company/payment-methods — المفاتيح لا تُحذف أبداً فالمعطّلة باقية فيه.</li>
             <li>توزيعات السند الملغى (invoiceItems) تبقى في السجل — تجاهلها، فالمبالغ أُعيدت للفواتير.</li>
             <li>المبالغ أرقام عشرية والتواريخ ISO-8601 بتوقيت UTC. أسعار بنود الفاتورة شاملة الضريبة حين pricesIncludeTax = true، وsubtotal وdiscountAmt صافيان قبل الضريبة دائماً.</li>
             <li>رصيد مخزون السيارات والمستودع محسوب لا مخزَّن: اقرأه من مسارات المخزون أدناه، أو احسبه من van-loads وwarehouse-entries والفواتير.</li>
@@ -187,7 +225,13 @@ GET /api/v1/sync/{resource}/ids?limit=5000&cursor=...       # all current ids`}<
           <Code>{PY_SYNC_EXAMPLE}</Code>
         </Section>
 
-        <Section icon={<ListTree size={18} className="text-[#E15A30]" />} title="٥. مسارات المنصة (قراءة وكتابة)">
+        {API_DOC_GUIDES.map((guide, i) => (
+          <Section key={guide.key} icon={GUIDE_ICONS[guide.key] ?? <ListTree size={18} className="text-[#E15A30]" />} title={`${GUIDE_NUMBERS[i]}. ${guide.title}`}>
+            <Guide guide={guide} />
+          </Section>
+        ))}
+
+        <Section icon={<ListTree size={18} className="text-[#E15A30]" />} title={`${GUIDE_NUMBERS[API_DOC_GUIDES.length]}. مسارات المنصة (قراءة وكتابة)`}>
           <p className="text-sm text-[#6E6557]">
             المفتاح يعمل على مسارات لوحة التحكم نفسها، بنفس قواعد التحقق والترقيم والمخزون وفوترة الزكاة. هذه أهمها بحقولها كما يقبلها الخادم.
           </p>
@@ -195,7 +239,7 @@ GET /api/v1/sync/{resource}/ids?limit=5000&cursor=...       # all current ids`}<
           {API_DOC_GROUPS.map(g => (
             <div key={g.key} className="space-y-2">
               <h3 className="font-bold text-[#1F1A13] text-sm mt-3">{g.title}</h3>
-              {g.overview && <p className="text-xs text-[#6E6557]">{g.overview}</p>}
+              {g.overview && <p className="api-text text-xs text-[#6E6557] whitespace-pre-line">{g.overview}</p>}
               {g.endpoints.map(e => <Endpoint key={`${e.method} ${e.path}`} e={e} />)}
             </div>
           ))}

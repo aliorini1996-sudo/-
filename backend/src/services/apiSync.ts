@@ -37,6 +37,8 @@ export interface SyncResource {
   accounting?: boolean;
   /** يتطلّب ميزة مخزون الشركة */
   warehouse?: boolean;
+  /** يتطلّب ميزة «لوكيشن» للشركة (Tenant.locationsEnabled) — كصفحتها في اللوحة (requireLocations) */
+  locations?: boolean;
   /** عزل الشركة — مباشرة بعمود tenantId، أو عبر العميل والصنف معاً (أسعار العملاء بلا عمود شركة) */
   tenantPath: 'direct' | 'customerAndProduct';
   /** عمود الطابع إن خالف افتراض النمط — الزيارات بطابع الاستلام لا بطابع الجهاز */
@@ -139,6 +141,28 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
       boundDeviceId: 'معرّف جهاز البصمة المربوط — كشفه يتيح انتحال الجهاز',
       tzOffsetMin: 'قياس داخلي لتوقيت جوال المندوب (التنبيهات)',
     },
+  },
+  {
+    // «لوكيشن»: أسماء مواقع الشركة ونقاطها وأرشفتها — بها يُترجَم locationId في المناديب والفواتير والتحميلات. إعادة التسمية
+    // والأرشفة لا تمسّان المستندات المختومة (الختم معرّفٌ لا اسم) فلا تصلان إلا من هنا، وكلتاهما update تحرّك updatedAt.
+    // الحذف الفعلي لموقعٍ بلا مناديب ولا مستندات وحده (ما عليه مستندات يُؤرشف) ⇒ يُطابَق بـ/ids.
+    // الصلاحية صلاحية المناديب (المورد الذي يحمل موقع المندوب)، والبوّابة بوّابة الصفحة: المحاسبة ثم عَلَم الميزة
+    name: 'locations', model: 'salesLocation', mode: 'updated', permission: 'canManageSalesReps', accounting: true, locations: true, tenantPath: 'direct', hardDeletes: true,
+    select: pick('id', 'name', 'lat', 'lng', 'isActive', 'createdAt', 'updatedAt'),
+    denied: { tenantId: 'معروف من المفتاح' },
+  },
+  {
+    // «الفرق»: أسماء الفرق وأرشفتها وأعضاؤها وأصنافها — بها يُترجَم teamId في الفواتير والسندات والزيارات والاستلامات.
+    // قائمة كاملة (snapshot) لا «منذ»: تعديل أصناف الفريق صفوفٌ في جدول الربط تحرّك updatedAt الأصناف لا الفريق، فكان
+    // «منذ» سيُفوّتها — والجدول صغير (فرق الشركة). بلا مشرفي الفرق: هم مستخدمو الشركة، وإدارتهم ممنوعة على المفتاح (/company-users).
+    // بلا بوّابة عَلَم كصفحتها في اللوحة (GET /api/company/teams لأي مستخدم شركة) — والإطفاء يُبقي الفرق محفوظة
+    name: 'teams', model: 'team', mode: 'snapshot', permission: 'canManageSalesReps', tenantPath: 'direct', hardDeletes: true,
+    select: {
+      ...pick('id', 'name', 'isActive', 'createdAt', 'updatedAt'),
+      members: { select: pick('salesRepId'), orderBy: { salesRepId: 'asc' } },
+      products: { select: pick('productId'), orderBy: { productId: 'asc' } },
+    },
+    denied: { tenantId: 'معروف من المفتاح' },
   },
   {
     name: 'invoices', model: 'invoice', mode: 'updated', permission: 'canManageInvoices', accounting: true, tenantPath: 'direct', hardDeletes: false,

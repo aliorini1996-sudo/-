@@ -198,6 +198,70 @@ test('مورد مجهول 404 بقائمة الموارد، ومؤشّر مور�
   assert.match(JSON.stringify(lastArgs!.where), /"tenantId":"t1"/);
 });
 
+test('«لوكيشن» في المزامنة: بوّابة صفحتها نفسها — المحاسبة ثم العَلَم (المطفأ أو غير المقروء يمنع) ثم صلاحية المناديب', async () => {
+  rows = [];
+  adminRow = { isActive: true, scopeEnabled: false, canManageSalesReps: true };
+  tenantRow = { accountingEnabled: true, warehouseEnabled: false };
+  let res = await call('/sync/locations');
+  assert.equal(res.statusCode, 403); assert.equal(res.body!.code, 'LOCATIONS_DISABLED', 'عَلَمٌ غير مقروء يمنع لا يفتح');
+  tenantRow = { accountingEnabled: true, warehouseEnabled: false, locationsEnabled: false };
+  res = await call('/sync/locations/ids');
+  assert.equal(res.statusCode, 403); assert.equal(res.body!.code, 'LOCATIONS_DISABLED', '/ids بالبوّابة نفسها');
+  tenantRow = { accountingEnabled: false, warehouseEnabled: false, locationsEnabled: true };
+  res = await call('/sync/locations');
+  assert.equal(res.body!.code, 'ACCOUNTING_DISABLED', 'المحاسبة قبل العَلَم كـrequireLocations');
+  tenantRow = { accountingEnabled: true, warehouseEnabled: false, locationsEnabled: true };
+  adminRow = { isActive: true, scopeEnabled: false, canManageSalesReps: false };
+  res = await call('/sync/locations');
+  assert.equal(res.body!.code, 'FORBIDDEN');
+  adminRow = { isActive: true, scopeEnabled: false, canManageSalesReps: true };
+  rows = [{ id: 'L1', name: 'الرياض', updatedAt: new Date('2026-10-20T00:00:00Z') }];
+  res = await call('/sync/locations', { query: { since: '2026-10-01T00:00:00Z' } });
+  assert.equal(res.statusCode, 200);
+  assert.match(JSON.stringify(lastArgs!.where), /"tenantId":"t1"/);
+  assert.match(JSON.stringify(lastArgs!.where), /"updatedAt":\{"gte"/, 'إعادة التسمية والأرشفة تُلتقط بطابع التعديل');
+  assert.deepEqual(Object.keys(lastArgs!.select as object).sort(), ['createdAt', 'id', 'isActive', 'lat', 'lng', 'name', 'updatedAt']);
+  tenantRow = { accountingEnabled: true, warehouseEnabled: false };
+});
+
+test('«الفرق» في المزامنة: قائمة كاملة بأعضائها وأصنافها (تعديل الأصناف لا يحرّك updatedAt الفريق) — بلا مشرفين ولا بوّابة عَلَم', async () => {
+  const teams = sync.syncResource('teams')!;
+  assert.equal(teams.mode, 'snapshot');
+  assert.equal(sync.sinceWhere(teams, new Date()), null, 'since يُتجاهل');
+  const sel = teams.select as Record<string, unknown>;
+  assert.ok('members' in sel && 'products' in sel);
+  assert.ok(!('supervisors' in sel), 'مشرفو الفرق مستخدمو الشركة — إدارتهم ممنوعة على المفتاح');
+  adminRow = { isActive: true, scopeEnabled: false, canManageSalesReps: true };
+  tenantRow = { accountingEnabled: false, warehouseEnabled: false };
+  rows = [{ id: 'T1', name: 'الشمال', members: [{ salesRepId: 'R1' }], products: [] }];
+  const res = await call('/sync/teams', { query: { since: '2026-10-01T00:00:00Z' } });
+  assert.equal(res.statusCode, 200, 'الفرق ليست وحدة محاسبية');
+  assert.deepEqual(lastArgs!.orderBy, [{ id: 'asc' }]);
+  assert.doesNotMatch(JSON.stringify(lastArgs!.where), /updatedAt/);
+  tenantRow = { accountingEnabled: true, warehouseEnabled: false };
+});
+
+test('أعمدة الميزات الحديثة مكشوفة في المزامنة لا ممنوعة — بها يعيد نظام الشركة بناء صفحتي لوكيشن وطرق الدفع والفرق', () => {
+  // اختبار التصنيف أعلاه يقبل نقل عمودٍ من السماح إلى المنع بسبب مكتوب — وهذا يُسقط الربط بصمت: نظامٌ يجمع مبيعات كل
+  // موقع من locationId، أو تحصيل كل طريقة من paymentMethodKey، يفقد عموده دون خطأ. فالأعمدة التي يعِد بها المستند تُثبَّت هنا
+  const exposed: [string, string][] = [
+    ['sales-reps', 'locationId'], ['sales-reps', 'proximityRadiusM'], ['sales-reps', 'punchRadiusM'], ['sales-reps', 'showRouteOnMap'],
+    ['invoices', 'locationId'], ['invoices', 'teamId'], ['invoices', 'originalInvoiceId'],
+    ['van-loads', 'locationId'], ['receipts', 'paymentMethodKey'], ['receipts', 'paymentMethod'], ['receipts', 'teamId'],
+    ['visits', 'teamId'], ['settlements', 'teamId'],
+    ['locations', 'name'], ['locations', 'isActive'], ['teams', 'name'], ['teams', 'isActive'],
+  ];
+  for (const [r, c] of exposed) {
+    const def = sync.syncResource(r);
+    assert.ok(def, `المورد ${r} مفقود`);
+    assert.equal((def!.select as Record<string, unknown>)[c], true, `${r}.${c}`);
+    assert.ok(!(c in def!.denied), `${r}.${c} ممنوع`);
+  }
+  // بند المرتجع يشير إلى بند البيع الذي أُرجع منه — به يُعاد ربط المرتجع بفاتورة بيعه في المرحلة الأولى
+  const items = (sync.syncResource('invoices')!.select as { items: { select: Record<string, unknown> } }).items.select;
+  assert.equal(items.returnOfItemId, true);
+});
+
 test('GET /me: الشركة والمفتاح والموارد', async () => {
   const res = await call('/me');
   assert.equal(res.statusCode, 200);
