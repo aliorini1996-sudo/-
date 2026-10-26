@@ -611,6 +611,13 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       if (saleTeam) docTeamId = saleTeam.teamId ?? null;
     }
     const docDate = body.invoiceDate ? new Date(body.invoiceDate) : undefined;
+    // لحظة الجهاز (clientCreatedAt) هي «يوم المرتجع» في قيد المرتجع للصنف ووسم صلاحيته (services/invoiceExpiry.ts) — لصندوق
+    // تطبيق المندوب الذي يرفع لاحقاً ما سجّله دون اتصال، فلا يُقاس مرتجعُ الأمس بيوم المزامنة. ومفتاح API عميلٌ حيّ لا صندوق
+    // (X-FS-Replay تُمحى له في middleware/auth.ts)، فلحظةٌ يكتبها في جسمه يومٌ يختاره بنفسه: يُرجع بيومٍ يمرّ به قيد «قرب
+    // الانتهاء» أو «ما زال صالحاً»، ويُوسَم المنتهي صالحاً فيعود متاحاً للبيع في السيارة. فلا تُقرأ له هنا ولا تُخزَّن، ويومُه
+    // invoiceDate وإلا الآن. ويبقى الحقل الخام من الجسم حيث لا يزيد القاعدة إلا تشدّداً: رفض التسليح (phase1ArmRefusal) وحارس
+    // clientRef في المرحلة الثانية (invoicesZatca.ts/invoicesNotes.ts offlineOrigin). والمندوب كما كان حرفاً بحرف.
+    const deviceAt = req.user?.apiKeyId ? undefined : body.clientCreatedAt;
     // تاريخ التسليم: اختياري — القيمة غير المفهومة تُهمل بصمت (عرض لا محاسبة)
     const deliveryDate = body.deliveryDate ? new Date(body.deliveryDate) : undefined;
     const deliveryOk = deliveryDate && !Number.isNaN(deliveryDate.getTime()) ? deliveryDate : undefined;
@@ -650,7 +657,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     if (isReturn && products.some((p) => p.returnRuleEnabled && shelfLifeOf(p))) {
       const ruleBlock = await returnRuleBlock(tid, {
         customerId, saleInvoiceId: body.originalInvoiceId ?? null, invoiceDate: docDate ?? new Date(),
-        returnAt: body.clientCreatedAt ? new Date(body.clientCreatedAt) : (docDate ?? new Date()),
+        returnAt: deviceAt ? new Date(deviceAt) : (docDate ?? new Date()),
       }, body.items.map(i => ({ productId: i.productId, saleItemId: i.invoiceItemId ?? null })), products);
       if (ruleBlock) { res.status(422).json({ success: false, code: 'RETURN_RULE_BLOCKED', message: ruleBlock }); return; }
     }
@@ -717,6 +724,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           returnToStock: body.returnToStock ?? null,
           clientRef: body.clientRef ?? null,
           clientCreatedAt: body.clientCreatedAt ?? null,
+          // مفتاح API: لحظة جهازه لا تُخزَّن على الإشعار (deviceAt أعلاه) — وتبقى أعلاه لحارس clientRef وحده
+          viaApiKey: !!req.user?.apiKeyId,
         }, productionPhase2Deps());
         if (note && tracksExpiry) await stampExpiryAfterIssue(tid, note.status, note.body);
         if (note) { res.status(note.status).json(note.body); return; }
@@ -770,7 +779,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // صلاحية بنود المرتجع المرتبط تُحسب الآن فتُكتب مع البنود في المعاملة (يوم المرتجع: إنشاؤه على الجهاز إن رُفع لاحقاً)
     const linkedExpiry = saleForReturn && tracksExpiry
       ? await linkedReturnExpiry(tid, saleLinkLines.map(l => l.saleItemId).filter((x): x is string => !!x),
-        body.clientCreatedAt ? new Date(body.clientCreatedAt) : (docDate ?? new Date()))
+        deviceAt ? new Date(deviceAt) : (docDate ?? new Date()))
       : null;
 
     // الرقم يُولَّد داخل إعادة المحاولة: عند تصادم P2002 (طلبان متزامنان بنفس الرقم) يُعاد التوليد والإنشاء
@@ -792,7 +801,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           tenantId: tid,
           number,
           clientRef: body.clientRef,
-          clientCreatedAt: body.clientCreatedAt ? new Date(body.clientCreatedAt) : undefined,
+          // يقرؤه وسم الصلاحية بعد الإصدار يومَ المرتجع (stampInvoiceExpiry) — فلا يُخزَّن من مفتاح API (deviceAt أعلاه)
+          clientCreatedAt: deviceAt ? new Date(deviceAt) : undefined,
           customerId: customerId,
           salesRepId,
           ...(docTeamId && { teamId: docTeamId }),
@@ -1179,6 +1189,8 @@ router.post('/:id/credit-note', async (req: AuthRequest, res: Response, next: Ne
       returnToStock: body.returnToStock ?? null,
       clientRef: body.clientRef ?? null,
       clientCreatedAt: body.clientCreatedAt ?? null,
+      // مفتاح API عميلٌ حيّ: لحظة جهازه لا تُخزَّن فلا يقيس بها وسمُ الصلاحية يومَ المرتجع (كمرتجع POST /)
+      viaApiKey: !!req.user?.apiKeyId,
     }, productionPhase2Deps());
     if (!r) { res.status(409).json({ success: false, message: NOTES_NOT_ENABLED }); return; }
     await stampExpiryAfterIssue(tid, r.status, r.body);
@@ -1220,6 +1232,7 @@ router.post('/:id/debit-note', async (req: AuthRequest, res: Response, next: Nex
       })),
       clientRef: body.clientRef ?? null,
       clientCreatedAt: body.clientCreatedAt ?? null,
+      viaApiKey: !!req.user?.apiKeyId,
     }, productionPhase2Deps());
     if (!r) { res.status(409).json({ success: false, message: NOTES_NOT_ENABLED }); return; }
     await stampExpiryAfterIssue(tid, r.status, r.body);

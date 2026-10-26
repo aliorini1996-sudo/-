@@ -153,6 +153,41 @@ export async function applyBuyerGateToWrite(
   return { ok: true, warnings: warnings.length > 0 ? warnings : null };
 }
 
+/** خطأ صفّ استيراد (شكل ImportRowError في services/importLedger.ts: row = موضع الصف المرسل + 2) */
+export interface ImportBuyerRowError { row: number; code: 'CUSTOMER_ZATCA_INVALID'; field: string; value?: string; message: string }
+
+/**
+ * POST /api/import/customers بمفتاح API: فحص POST /customers نفسه (applyBuyerGateToWrite) صفاً صفاً — كل صفٍّ عميلٌ جديد
+ * (stored = null) بلا تسامح replay، فالمفتاح عميلٌ حيّ يملك جسمه كله. وإلا كتب المفتاحُ بالجملة رقماً ضريبياً أو سجلاً تجارياً
+ * يرفضه الإنشاء المفرد بـ400 CUSTOMER_ZATCA_INVALID، فتتعثّر فاتورة المرحلة الثانية لعميله لاحقاً.
+ * يعيد أخطاء الصفوف المخالفة، ويطبّع حقول الفوترة في الصفوف السليمة في مكانها كما يطبّعها الإنشاء (أرقام لاتينية؛ '' ⇒ غائب).
+ * الشركة غير الجامعة، أو ملفٌّ لا يحمل صفٌّ فيه رقماً ضريبياً ولا سجلاً: لا استعلام ولا أثر (كالإنشاء المفرد حرفياً).
+ */
+export async function importBuyerRowsGate(
+  db: Pick<PrismaClient, 'tenant'>, tid: string, rows: readonly object[],
+): Promise<ImportBuyerRowError[]> {
+  if (!rows.some(r => bodyTouchesBuyerGate(r))) return [];
+  if (!(await loadBuyerCollect(db, tid))) return [];
+  const out: ImportBuyerRowError[] = [];
+  rows.forEach((r, i) => {
+    if (!bodyTouchesBuyerGate(r)) return;
+    const { patch, errors: typeErrors } = normalizeBuyerFields(r);
+    const errors = [...typeErrors, ...validateBuyerChanges(patch, null).errors];
+    if (errors.length) {
+      const raw = r as Record<string, unknown>;
+      for (const e of errors) {
+        out.push({
+          row: i + 2, code: 'CUSTOMER_ZATCA_INVALID', field: e.field, message: e.messageAr,
+          ...(typeof raw[e.field] === 'string' ? { value: String(raw[e.field]).slice(0, 64) } : {}),
+        });
+      }
+      return;
+    }
+    for (const [f, v] of Object.entries(patch)) (r as Record<string, unknown>)[f] = v ?? undefined;
+  });
+  return out;
+}
+
 // ─── القائمة ───
 
 export type BuyerListBucket = 'incomplete' | 'unclassified' | 'complete' | 'all';

@@ -11,7 +11,7 @@ import type { AddressInfo } from 'node:net';
 import express, { NextFunction, Request, Response } from 'express';
 import {
   BUYER_DOWNGRADE_AUDIT_EVENT, BuyerDataDb, CustomerBuyerDataDeps, applyBuyerGateToWrite, buyerDataReadiness, buyerListWhere,
-  createCustomerBuyerDataRouter, scanBuyerData,
+  createCustomerBuyerDataRouter, importBuyerRowsGate, scanBuyerData,
 } from '../routes/customersZatca';
 import { applyProductVatGate } from '../routes/productsZatca';
 import { TENANT, fakeSleep, harness } from '../compliance/zatca/__fixtures__/z4-harness';
@@ -211,6 +211,41 @@ test('مفتاح API عميلٌ حيّ لا صندوق إرسال: clientRef ف�
   // والجلسة نفسها بلا مفتاح (صندوق المندوب أو اللوحة) يبقى تسامحها كما كان
   const viaSession = await applyBuyerGateToWrite(deps(f.db), reqOf(ADMIN, body), TENANT, { name: 'x', phone: '0500000000', taxNumber: '123' }, { customerId: null, replay: true });
   assert.equal(viaSession.ok, true);
+});
+
+test('استيراد العملاء بمفتاح API (importBuyerRowsGate): فحص POST /customers نفسه صفاً صفاً — المخالف خطأ صفّ برقم سطره، والسليم يُطبَّع', async () => {
+  const f = fakeDb({ flag: true });
+  const rows: Record<string, unknown>[] = [
+    { name: 'سليم', phone: '0500000010', taxNumber: '٣٠٠٠٠٠٠٠٠٠٠٠٠٠٣', commercialReg: '2050012345' },
+    { name: 'بلا ضريبة', phone: '0500000011', city: 'الرياض' },
+    { name: 'ضريبي خاطئ', phone: '0500000012', taxNumber: '123' },
+    { name: 'سجل خاطئ', phone: '0500000013', commercialReg: '12-34 56' },
+  ];
+  const errs = await importBuyerRowsGate(f.db, TENANT, rows);
+  // row = موضع الصف + 2 (سطر الملف بعد العناوين) كأخطاء الاستيراد كلها، وبرمز الإنشاء المفرد نفسه
+  assert.deepEqual(errs.map(e => [e.row, e.code, e.field, e.value]), [
+    [4, 'CUSTOMER_ZATCA_INVALID', 'taxNumber', '123'],
+    [5, 'CUSTOMER_ZATCA_INVALID', 'commercialReg', '12-34 56'],
+  ]);
+  assert.match(errs[0].message, /15 رقماً/);
+  // السليم يُكتب مطبَّعاً كما في الإنشاء المفرد (أرقام لاتينية)، وصفٌّ بلا رقم ضريبي ولا سجل لا يُمسّ
+  assert.equal(rows[0].taxNumber, '300000000000003');
+  assert.equal(rows[0].commercialReg, '2050012345');
+  assert.deepEqual(rows[1], { name: 'بلا ضريبة', phone: '0500000011', city: 'الرياض' });
+  assert.deepEqual(f.calls, ['tenant.findUnique'], 'استعلام البوابة مرّة واحدة للملف كله');
+});
+
+test('importBuyerRowsGate: الشركة غير الجامعة كما اليوم حرفياً، وملفٌّ بلا رقم ضريبي ولا سجل لا يستعلم أصلاً', async () => {
+  for (const cfg of [{ flag: false }, { flag: true, country: 'EG' }]) {
+    const f = fakeDb(cfg);
+    const rows: Record<string, unknown>[] = [{ name: 'x', phone: '0500000000', taxNumber: '123', commercialReg: ' ١٢٣ ' }];
+    const before = JSON.stringify(rows);
+    assert.deepEqual(await importBuyerRowsGate(f.db, TENANT, rows), [], JSON.stringify(cfg));
+    assert.equal(JSON.stringify(rows), before, 'لا تطبيع لغير الجامعة');
+  }
+  const f = fakeDb({ flag: true });
+  assert.deepEqual(await importBuyerRowsGate(f.db, TENANT, [{ name: 'x', phone: '0500000000', city: 'جدة' }]), []);
+  assert.deepEqual(f.calls, [], 'بلا حقول البوابة لا استعلام');
 });
 
 test('التعديل: المتغيّر وحده يُفحص (بيانات قديمة خاطئة لا تمنع)، والمندوب لا يحوّل منشأة إلى فرد (403)، والإدارة تفعل بسطر تدقيق', async () => {
@@ -595,6 +630,20 @@ test('customers.ts: مخطّط zod بلا حقول المرحلة الثانية
   const update = put.indexOf('prisma.customer.update(');
   assert.ok(exists > 0 && strip > exists && pgate > strip && pgate < update, 'PUT: بعد الوجود ونزع الحقول المالية وقبل الكتابة');
   assert.ok(put.includes('res.json({ success: true, data: customer, ...(buyerGate.warnings && { warnings: buyerGate.warnings }) });'));
+});
+
+test('import.ts: استيراد العملاء بمفتاح API يمرّ ببوابة بيانات المشتري بعد فحص المخطط وقبل حجز الدفعة وأي كتابة، والجلسة كما كانت', () => {
+  const src = read('routes/import.ts');
+  const post = src.slice(src.indexOf("router.post('/customers',"), src.indexOf("router.post('/products',"));
+  const schemaErrors = post.indexOf('if (result.errors.length) {');
+  const gate = post.indexOf('if (req.user?.apiKeyId) {\n      result.errors.push(...await importBuyerRowsGate(prisma, tid, rows));');
+  const reserve = post.indexOf('await reserveMasterBatch(');
+  const create = post.indexOf('tx.customer.create(');
+  assert.ok(schemaErrors > 0 && gate > schemaErrors && gate < reserve && reserve < create, 'البوابة بعد المخطط وقبل الحجز والكتابة');
+  // المخالف يعود بالشكل نفسه بلا كتابة (لا حجز دفعة)
+  assert.match(post.slice(gate), /^[^\n]*\n[^\n]*\n\s*if \(result\.errors\.length\) \{ res\.json\(\{ success: true, data: \{ \.\.\.result, \.\.\.cappedErrors\(result\.errors\), skippedRows, attachedRows, warnings: \{ similar \} \} \}\); return; \}/);
+  // والبوابة مشروطة بهوية المصادقة وحدها — مرّة واحدة في الملف
+  assert.equal(src.split('importBuyerRowsGate(').length - 1, 1);
 });
 
 test('products.ts: المخطّط بلا حقول الفئة، والبوابة قبل الإنشاء والتعديل بالحالة المدمجة', () => {

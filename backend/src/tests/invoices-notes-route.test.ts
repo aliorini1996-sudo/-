@@ -794,3 +794,101 @@ test('استُنفد المتاح: إشعارٌ كامل بعد كامل ⇒ 409
   assert.ok(data.lines.every(l => l.returnable === 0), 'المعاينة تعرض متاحاً بعد استنفاده');
   assert.equal(rig.created.length, 1, 'أُصدر إشعار ثانٍ رغم استنفاد المتاح');
 });
+
+// ═══ (١٠) مفتاح API عميلٌ حيّ: لحظة الجهاز (clientCreatedAt) لا تصنع يومَ المرتجع ═══
+//
+// صندوق تطبيق المندوب يرفع لاحقاً ما سجّله دون اتصال، فيُقاس مرتجعه بلحظة إنشائه على الجهاز. أمّا المفتاح فيكتب جسمه كله:
+// لحظةٌ يرسلها يومٌ يختاره — يمرّ به قيد المرتجع للصنف، ويُوسَم به المنتهي صالحاً. فلا تُقرأ له ولا تُخزَّن، ويومُه
+// invoiceDate وإلا الآن. وما تُشدّد به اللحظة (حارس clientRef في المرحلة الثانية) يبقى عليه كما هو.
+
+const API_KEY_ADMIN = { id: 'admin-1', role: 'ADMIN', tenantId: Z5_TENANT, apiKeyId: 'key-1' } as typeof currentUser;
+const SESSION_ADMIN = { id: 'admin-1', role: 'ADMIN', tenantId: Z5_TENANT };
+
+/** صنفٌ بصلاحية ٣٠ يوماً وقيد «ما زال صالحاً» بعشرة أيام: المرتجع يُقبل إن بقي من صلاحية ما بيع ١٠ أيام أو أكثر */
+const STILL_VALID_RICE = {
+  ...PRODUCT_ROWS.find(p => p.id === 'p-rice')!, teams: [],
+  shelfLifeEnabled: true, shelfLifeValue: 30, shelfLifeUnit: 'DAY', shelfLifeBasis: 'SALE', shelfLifeFromDate: null,
+  returnRuleEnabled: true, returnRuleMode: 'STILL_VALID', returnRuleMetric: 'DAYS', returnRuleValue: 10,
+};
+
+test('مفتاح API: مرتجع المرحلة الأولى لا يُخزَّن عليه clientCreatedAt المرسَل — والجلسة (صندوق المندوب واللوحة) تخزّنه كما كانت', async () => {
+  const rig = buildRig();
+  script(rig, { startedAt: null });
+  const created: Record<string, unknown>[] = [];
+  scripted['invoice.create'] = (args: unknown) => {
+    const data = (args as { data: Record<string, unknown> }).data;
+    created.push(data);
+    return { id: `legacy-${created.length}`, ...data };
+  };
+  const at = '2026-10-01T08:00:00.000Z';
+  currentUser = API_KEY_ADMIN;
+  try {
+    const r = await call('POST', '/api/invoices', { body: returnBody({ clientCreatedAt: at }) });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.equal(created[0].clientCreatedAt, undefined, 'خُزّنت لحظة جهاز من مفتاح API');
+  } finally {
+    currentUser = SESSION_ADMIN;
+  }
+  const s = await call('POST', '/api/invoices', { body: returnBody({ clientCreatedAt: at }) });
+  assert.equal(s.status, 201, JSON.stringify(s.body));
+  assert.equal((created[1].clientCreatedAt as Date).toISOString(), at, 'الجلسة فقدت لحظة جهازها');
+});
+
+test('مفتاح API: قيد المرتجع للصنف يُقاس باليوم لا بـclientCreatedAt المرسَل (إرجاعٌ بيومٍ مختار يُرفض 422) — والجلسة تُقاس بلحظة جهازها كما كانت', async () => {
+  const rig = buildRig();
+  script(rig, { startedAt: null });
+  scripted['product.findMany'] = () => [STILL_VALID_RICE];
+  // آخر بيعٍ للصنف لهذا العميل ينتهي بعد ٥ أيام من اليوم: اليوم يبقى ٥ (< ١٠ ⇒ مرفوض)، وقبل ٣٠ يوماً بقي ٣٥ (مقبول)
+  scripted['invoiceItem.findFirst'] = () => ({
+    invoiceId: 'sale-1', expiresAt: new Date(Date.now() + 5 * 86_400_000), invoice: { invoiceDate: new Date(), salesRepId: 'rep-1' },
+  });
+  const created: Record<string, unknown>[] = [];
+  scripted['invoice.create'] = (args: unknown) => {
+    const data = (args as { data: Record<string, unknown> }).data;
+    created.push(data);
+    return { id: `legacy-${created.length}`, ...data };
+  };
+  const backdated = new Date(Date.now() - 30 * 86_400_000).toISOString();
+  currentUser = API_KEY_ADMIN;
+  try {
+    const r = await call('POST', '/api/invoices', { body: returnBody({ clientCreatedAt: backdated }) });
+    assert.equal(r.status, 422, JSON.stringify(r.body));
+    assert.equal(r.body.code, 'RETURN_RULE_BLOCKED');
+    assert.equal(created.length, 0, 'صدر مرتجعٌ بيومٍ اختاره المفتاح');
+  } finally {
+    currentUser = SESSION_ADMIN;
+  }
+  // الجلسة: رفعٌ مؤجَّل من الجهاز يُقاس بيوم إنشائه — كما كان حرفاً بحرف
+  const s = await call('POST', '/api/invoices', { body: returnBody({ clientCreatedAt: backdated }) });
+  assert.equal(s.status, 201, JSON.stringify(s.body));
+  assert.equal(created.length, 1);
+});
+
+test('مفتاح API: الإشعار الدائن والمدين لا يُخزَّن عليهما clientCreatedAt — وحارس clientRef (426) يبقى عليه، والجلسة تخزّنه كما كانت', async () => {
+  const rig = buildRig();
+  const original = script(rig)!;
+  const at = '2026-11-20T05:30:00.000Z';
+  currentUser = API_KEY_ADMIN;
+  try {
+    // ما تُشدّد به اللحظة باقٍ للمفتاح: رفعٌ «مؤجَّل» بلا مفتاح منع تكرار ⇒ 426 بلا مستند
+    const { clientRef: _drop, ...noKey } = creditBody();
+    const refused = await call('POST', `/api/invoices/${original.id}/credit-note`, { body: { ...noKey, clientCreatedAt: at }, headers: CAPS });
+    assert.equal(refused.status, 426, JSON.stringify(refused.body));
+    assert.equal(refused.body.code, 'ZATCA_CLIENT_UPDATE_REQUIRED');
+    assert.equal(rig.created.length, 0);
+    const credit = await call('POST', `/api/invoices/${original.id}/credit-note`, { body: { ...creditBody(), clientCreatedAt: at }, headers: CAPS });
+    assert.equal(credit.status, 201, JSON.stringify(credit.body));
+    assert.equal(rig.created[0].clientCreatedAt, undefined, 'خُزّنت لحظة جهاز من مفتاح API على الإشعار الدائن');
+    const debit = await call('POST', `/api/invoices/${original.id}/debit-note`, {
+      body: { reason: 'فرق سعر على الفاتورة', lines: [{ description: 'فرق سعر أرز', qty: 1, unitPrice: 100, taxPct: 15 }], clientRef: crypto.randomUUID(), clientCreatedAt: at },
+      headers: CAPS,
+    });
+    assert.equal(debit.status, 201, JSON.stringify(debit.body));
+    assert.equal(rig.created[1].clientCreatedAt, undefined, 'خُزّنت لحظة جهاز من مفتاح API على الإشعار المدين');
+  } finally {
+    currentUser = SESSION_ADMIN;
+  }
+  const s = await call('POST', `/api/invoices/${original.id}/credit-note`, { body: { ...creditBody(), clientCreatedAt: at }, headers: CAPS });
+  assert.equal(s.status, 201, JSON.stringify(s.body));
+  assert.equal((rig.created[2].clientCreatedAt as Date).toISOString(), at, 'الجلسة فقدت لحظة جهازها');
+});

@@ -32,6 +32,7 @@ import {
   ACCOUNTING_NOT_ALLOWED_MESSAGE, importAccessBody, importAccessDecision, importKindsAllowed, isImportAccountingKind, loadImportActor, requireImportAccess,
 } from '../services/importAccess';
 import { buildCustomerMatcher, customerImportPlanner, type CustomerImportDecision, type CustomerSkipReason } from '../services/importMatch';
+import { importBuyerRowsGate } from './customersZatca';
 import {
   importChunkTarget, mergeImportDeltas, planImportChunks, runImportChunks, type ImportProgressDelta, type ImportProgressState,
 } from '../services/importChunks';
@@ -445,6 +446,13 @@ router.post('/customers', requireImportAccess('customers'), async (req: AuthRequ
     let phoneNotEditable: ReturnType<typeof phoneNotEditableRows> = null;
     // البند 36: صفّ مخالف للمخطط ⇒ أخطاء صفوف بلا أي كتابة ولا حجز دفعة (الرد بشكله نفسه بأصفار)
     if (result.errors.length) { res.json({ success: true, data: { ...result, ...cappedErrors(result.errors), skippedRows, attachedRows, warnings: { similar } } }); return; }
+    // مفتاح API: بوابة بيانات المشتري التي يمرّ بها POST /customers تسري هنا صفاً صفاً (customersZatca.ts importBuyerRowsGate) —
+    // وإلا صار الاستيراد بالمفتاح طريقاً حول رفض الرقم الضريبي أو السجل الخاطئ. المخالف خطأ صفٍّ برمز CUSTOMER_ZATCA_INVALID
+    // بلا أي كتابة ولا حجز دفعة، كالصفّ المخالف للمخطط أعلاه، والسليم يُطبَّع. وجلسة اللوحة (رفع ملف Excel) كما كانت حرفاً بحرف
+    if (req.user?.apiKeyId) {
+      result.errors.push(...await importBuyerRowsGate(prisma, tid, rows));
+      if (result.errors.length) { res.json({ success: true, data: { ...result, ...cappedErrors(result.errors), skippedRows, attachedRows, warnings: { similar } } }); return; }
+    }
     // البند 20: الدفعة محجوزة قبل أي كتابة (البصمة والاستيراد الجاري تحت قفل النوع)
     const progress = new ImportBatchProgress(
       await reserveMasterBatch(tid, 'customers', importContentHash('customers', rows), importedBy(req), body.force === true), 'customers');

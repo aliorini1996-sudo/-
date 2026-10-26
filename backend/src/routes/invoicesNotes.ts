@@ -312,6 +312,12 @@ export interface NoteContextBase {
   reason: string;
   clientRef?: string | null;
   clientCreatedAt?: string | null;
+  /**
+   * الطلب بمفتاح API (req.user.apiKeyId): عميلٌ حيّ لا صندوق إرسال، فلحظة جهازه لا تُخزَّن على الإشعار — وإلا قاس بها وسمُ
+   * الصلاحية يومَ المرتجع (services/invoiceExpiry.ts stampInvoiceExpiry) بيومٍ يختاره المُرسِل. وتبقى clientCreatedAt تُقرأ
+   * لحارس clientRef أدناه (offlineOrigin)، فهو يُشدّد ولا يُرخّص.
+   */
+  viaApiKey?: boolean;
   /** صاحب الطلب (Q5) — يُفحص ثانيةً على **أثر** الإشعار لا على صيغته، قبل أيّ قفل أو ICV. */
   actor?: NoteActor;
 }
@@ -527,7 +533,7 @@ async function stampNote(
                 tenantId: ctx.tenantId,
                 number: record.number,
                 clientRef: ctx.clientRef ?? undefined,
-                clientCreatedAt: ctx.clientCreatedAt ? new Date(ctx.clientCreatedAt) : undefined,
+                clientCreatedAt: ctx.clientCreatedAt && !ctx.viaApiKey ? new Date(ctx.clientCreatedAt) : undefined,
                 customerId: locked.original.customerId,
                 // المدين يُنسب لمندوب الأصل (لا بيع جديد)، والدائن للمُصدِر وإلا لمندوب الأصل
                 salesRepId: kind === 'DEBIT_NOTE'

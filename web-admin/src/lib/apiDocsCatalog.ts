@@ -495,6 +495,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "email وchannel وoutletType الفارغة تُحفظ null",
      "حقول زاتكا وفحصها تعمل فقط إذا كانت الشركة تجمع بيانات الفوترة ((zatcaPhase2Enabled أو zatcaPhase2StartedAt) مع countryCode=SA)، وإلا تُهمل حقول المرحلة الثانية بصمت ويُحفظ taxNumber كما هو",
      "في الشركة التي تجمع البيانات: القيمة غير الصالحة تعود 400 CUSTOMER_ZATCA_INVALID مع fieldErrors، ولطلب المفتاح دائماً ولو أرسلت clientRef. التسامح (إسقاط حقول المرحلة الثانية الخاطئة مع warnings بدل الرفض) خاص بصندوق تطبيق المندوب حين يعيد رفع ما سُجّل دون اتصال، ولا يرثه المفتاح. وwarnings قد تعود مع 201 لنقصٍ لا يمنع الحفظ",
+     "الاستيراد الجماعي POST /import/customers بالمفتاح يمرّ بالفحص نفسه صفاً صفاً في الشركة التي تجمع البيانات: صفٌّ رقمه الضريبي أو سجله التجاري أو نصوصه غير صالحة يعود في data.errors بالشكل {row, code:'CUSTOMER_ZATCA_INVALID', field, value, message} (row = موضع الصف في rows + 2)، ولا يُكتب حينئذٍ أي صف من الدفعة كأخطاء المخطط. والسليم يُحفظ مطبَّعاً (أرقام لاتينية) كما في الإنشاء المفرد",
      "aiPlaceId المسجل لعميل آخر في الشركة يعود 409 AI_PLACE_ALREADY_CUSTOMER لطلب المفتاح دائماً. ترويسة X-FS-Replay تُمحى من طلبات المفتاح فلا ترسلها",
      "إنشاء العميل لا يكتب أي قيد مالي ولا يغيّر أي رصيد"
     ],
@@ -1389,7 +1390,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "saleItemId هو ما يُرسل في items[].invoiceItemId عند POST /invoices، وreturnable أقصى كمية تُقبل له الآن",
      "refundUnitPrice ما دفعه العميل للوحدة شاملاً الضريبة بعد خصمي البند والفاتورة (إجمالي البند ÷ كميته، بأربع منازل)",
      "shelfLife وexpiresAt (YYYY-MM-DD) وexpiredToday لصنف مفعّلة صلاحيته: المنتهي يُقبل ويدخل مخزون السيارة «منتهي الصلاحية» فلا يُباع",
-     "returnBlocked نص سبب الرفض إن كان قيد المرتجع للصنف يمنعه اليوم (مدة الإرجاع أو قرب الانتهاء)، وإلا null. وهو إرشاد للعرض: القرار للخادم عند الإصدار في POST /invoices، فيرجع 422 RETURN_RULE_BLOCKED برسالة «اسم الصنف: السبب» ويُقاس يوم المرتجع بـclientCreatedAt إن أُرسل وإلا invoiceDate وإلا اليوم",
+     "returnBlocked نص سبب الرفض إن كان قيد المرتجع للصنف يمنعه اليوم بتوقيت الشركة، وإلا null. للقيد وضعان (returnRuleMode) بحدٍّ بالأيام أو بنسبة من مدة الصلاحية (returnRuleMetric وreturnRuleValue): NEAR_EXPIRY «قرب الانتهاء» يقبل المرتجع إذا بقي من صلاحية ما بيع الحدُّ أو أقل والمنتهي يُقبل، وSTILL_VALID «ما زال صالحاً» يقبله إذا بقي الحدُّ أو أكثر والمنتهي يُرفض. وهو إرشاد للعرض: القرار للخادم عند الإصدار في POST /invoices، فيرجع 422 RETURN_RULE_BLOCKED برسالة «اسم الصنف: السبب»، ويوم المرتجع لطلب المفتاح invoiceDate إن أُرسل وإلا اليوم (clientCreatedAt لا يُقرأ للمفتاح)",
      "فاتورة غير موجودة أو خارج النطاق 404، وفاتورة ليست بيعاً مؤكداً (مرتجع أو ملغاة أو إشعار) 422"
     ],
     "example": ""
@@ -1451,7 +1452,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "teamId",
       "type": "string | null",
       "required": false,
-      "desc": "ميزة «الفرق»: الفريق الذي يعمل له المندوب الآن. يُقبل إن كان من فرق المندوب الفعّالة، وإلا يُوسم بفريقه الوحيد إن كان له فريق واحد، وإلا بلا فريق — بلا رفض. والمرتجع من فاتورة بيع يرث فريقها. يُهمل إن كانت الفرق مطفأة للشركة"
+      "desc": "ميزة «الفرق»: الفريق الذي يعمل له المندوب الآن، ويُهمل كله إن كانت الفرق مطفأة للشركة. الوسم بهذا الترتيب: ١) إن كان صاحب المفتاح مشرفاً على فريق فعّال يضمّ المندوب فالأولوية لإشرافه: يُقبل teamId إن كان من الفرق التي يشرف عليها، وإلا يُوسم بأولها، ولا يُقبل فريقٌ للمندوب لا يشرف عليه (وإن كانت الفرق المشتركة التي يشرف عليها مؤرشفة كلها فبلا فريق) ٢) وإلا يُقبل إن كان من فرق المندوب الفعّالة ٣) وإلا فريقه الوحيد إن كان له فريق فعّال واحد ٤) وإلا بلا فريق. لا رفض أبداً: القيمة غير الصالحة ترجع إلى هذا الترتيب بصمت. والمرتجع من فاتورة بيع يرث فريقها (ولو بلا فريق) أياً كان المرسل"
      },
      {
       "name": "type",
@@ -1601,7 +1602,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "clientCreatedAt",
       "type": "date-time string",
       "required": false,
-      "desc": "لحظة الإنشاء على الجهاز، وهو حقل للعمل دون اتصال. لا ترسله من التكاملات"
+      "desc": "لحظة الإنشاء على الجهاز، وهو حقل لتطبيق المندوب حين يعمل دون اتصال. لا ترسله من التكاملات: لطلب المفتاح لا يُخزَّن ولا يصير يوم المرتجع (قيد المرتجع للصنف ووسم صلاحية بنوده يُقاسان بـinvoiceDate وإلا اليوم)، لكنه يبقى يُشدّد إن أرسلته: في المرحلة الثانية يلزمه clientRef وإلا 426، وخلال تسليح التفعيل قد يُرفض به المستند 409"
      },
      {
       "name": "recipientSignature",
@@ -1633,7 +1634,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "مثال تقسيط: {\"customerId\":\"…\",\"salesRepId\":\"…\",\"type\":\"CREDIT\",\"paymentPlan\":\"INSTALLMENT\",\"installmentPlan\":{\"count\":3,\"firstDueDate\":\"2026-11-01\",\"period\":\"MONTHLY\"},\"items\":[{\"productId\":\"…\",\"qty\":10,\"unitPrice\":120}]}",
      "ختم الموقع (ميزة «لوكيشن»): الخادم يكتب locationId بموقع المندوب لحظة الإصدار إن كانت الميزة مفعّلة للشركة، والمرتجع من فاتورة بيع يرث ختمها. لا حقل له في الجسم",
      "المرتجع من فاتورة بيع (المرحلة الأولى): اختر الفاتورة من GET /invoices/returnable-sales?customerId=… ثم بنودها من GET /invoices/:id/returnable. أرسل لكل بند invoiceItemId = saleItemId وunitPrice = refundUnitPrice وtaxPct من البند وdiscountPct = 0، ومع pricesIncludeTax = true وdiscountPct = 0 للفاتورة — فيساوي المرتجع ما دفعه العميل فعلاً. الخادم يتحقق من الربط والكميات ولا يتحقق من السعر، فالسعر الصافي بلا pricesIncludeTax يضيف الضريبة مرة ثانية",
-     "قيد المرتجع للصنف (منتج مفعّلة صلاحيته وقيد إرجاعه returnRuleEnabled): مرتجع فيه صنف يمنع قيدُه إرجاعه (مدة الإرجاع من البيع أو قرب الانتهاء) يرجع 422 RETURN_RULE_BLOCKED برسالة «اسم الصنف: السبب»، لأي مُصدِر ومنه المفتاح وفي المرحلتين، مرتبطاً بفاتورة بيع كان أو حرّاً. يُقاس على بند البيع المرتبط، وإلا آخر بيع للصنف لهذا العميل حتى invoiceDate. ويوم المرتجع clientCreatedAt إن أُرسل وإلا invoiceDate وإلا اليوم. وبيع لا يُعرف انتهاؤه لا يُرفض به",
+     "قيد المرتجع للصنف (منتج مفعّلة صلاحيته وقيد إرجاعه returnRuleEnabled): مرتجع فيه صنف يمنع قيدُه إرجاعه يرجع 422 RETURN_RULE_BLOCKED برسالة «اسم الصنف: السبب»، لأي مُصدِر ومنه المفتاح وفي المرحلتين، مرتبطاً بفاتورة بيع كان أو حرّاً. للقيد وضعان (returnRuleMode) بحدٍّ بالأيام أو بنسبة من مدة الصلاحية: NEAR_EXPIRY «قرب الانتهاء» يقبل المرتجع إذا بقي من صلاحية ما بيع الحدُّ أو أقل والمنتهي يُقبل، وSTILL_VALID «ما زال صالحاً» يقبله إذا بقي الحدُّ أو أكثر والمنتهي يُرفض. يُقاس على بند البيع المرتبط، وإلا آخر بيع للصنف لهذا العميل حتى invoiceDate. ويوم المرتجع لطلب المفتاح invoiceDate إن أُرسل وإلا اليوم بتوقيت الشركة، وclientCreatedAt لا يُقرأ للمفتاح هنا ولا في وسم صلاحية البنود ولا يُخزَّن (هو لحظة جهاز تطبيق المندوب حين يرفع ما سجّله دون اتصال). وبيع لا يُعرف انتهاؤه لا يُرفض به",
      "أخطاء الربط: 422 RETURN_LINK_INVALID (بند ليس من الفاتورة، أو صنف مختلف، أو كمية فوق المتاح، أو فاتورة ليست بيعاً مؤكداً للعميل نفسه)، و409 بالرمز نفسه حين يسبقك مرتجع متزامن على الكمية نفسها، و404 «فاتورة البيع الأصلية غير موجودة» لفاتورة خارج نطاق صاحب المفتاح",
      "مثال مرتجع حرّ بلا فاتورة بيع (المرحلة الأولى): {\"customerId\":\"…\",\"salesRepId\":\"…\",\"type\":\"RETURN\",\"returnReason\":\"DAMAGED\",\"returnToStock\":false,\"items\":[{\"productId\":\"…\",\"qty\":2,\"unitPrice\":5}]}",
      "مثال مرتجع من فاتورة بيع (المرحلة الأولى): {\"customerId\":\"…\",\"salesRepId\":\"…\",\"type\":\"RETURN\",\"returnReason\":\"NORMAL\",\"originalInvoiceId\":\"<id فاتورة البيع>\",\"pricesIncludeTax\":true,\"discountPct\":0,\"items\":[{\"productId\":\"…\",\"invoiceItemId\":\"<saleItemId>\",\"qty\":1,\"unitPrice\":103.5,\"discountPct\":0,\"taxPct\":15}]}",
@@ -1748,7 +1749,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "clientCreatedAt",
       "type": "date-time string",
       "required": false,
-      "desc": "لا ترسله، وإن أرسلته فـclientRef إجباري معه وإلا 426"
+      "desc": "لا ترسله، وإن أرسلته فـclientRef إجباري معه وإلا 426. ولطلب المفتاح لا يُخزَّن على الإشعار ولا يقيس به وسم صلاحية البنود يوم المرتجع (اليوم وحده)"
      }
     ],
     "response": "201 {success:true, data:{...صف الإشعار (type=RETURN, documentKind=CREDIT_NOTE, number=RET-YYMM-######, originalInvoiceId, items, customer), einvoice:{...}, original:{id, number, remainingAmt, customerCredit, creditedTotal}}}. إذا كان الأصل قياسياً (01) يُعتمد داخل الطلب: 201 أو 202 بانتظار الاعتماد أو 422 مرفوض ومُبطل. تكرار clientRef يرجع 200 مع idempotent:true",
@@ -1840,7 +1841,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "clientCreatedAt",
       "type": "date-time string",
       "required": false,
-      "desc": "لا ترسله إلا مع clientRef"
+      "desc": "لا ترسله إلا مع clientRef (وإلا 426)، ولطلب المفتاح لا يُخزَّن على الإشعار"
      }
     ],
     "response": "201 {success:true, data:{...صف الإشعار (type=CREDIT, documentKind=DEBIT_NOTE, number=INV-YYMM-######, remainingAmt=total), einvoice, original{...}}}. الأصل القياسي يمر بالاعتماد الحي: 201 أو 202 أو 422",
@@ -2243,7 +2244,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "teamId",
       "type": "string | null",
       "required": false,
-      "desc": "ميزة «الفرق»: الفريق الذي يعمل له المندوب الآن، بقواعد POST /invoices نفسها (فريق من فرقه الفعّالة، وإلا فريقه الوحيد، وإلا بلا فريق — بلا رفض)"
+      "desc": "ميزة «الفرق»: الفريق الذي يعمل له المندوب الآن، بترتيب POST /invoices نفسه ويُهمل إن كانت الفرق مطفأة: ١) إشراف صاحب المفتاح أولاً — إن أشرف على فريق فعّال يضمّ المندوب فيُقبل teamId من فرقه المُشرَف عليها وإلا أولها (والمشتركة المؤرشفة كلها ⇒ بلا فريق) ٢) وإلا فريق من فرق المندوب الفعّالة ٣) وإلا فريقه الوحيد ٤) وإلا بلا فريق — بلا رفض أبداً"
      },
      {
       "name": "receiptDate",
@@ -4410,7 +4411,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "requireAdmin",
      "requireAdminPermission('canManageTracking')",
      "attendanceEnabled: 403 ATTENDANCE_DISABLED",
-     "نطاق المستخدم: مناديبه وحدهم (404 لغيرهم)",
+     "نطاق المستخدم: مناديبه وحدهم — لكن المندوب خارج النطاق (أو خارج الشركة) لا يُرجع الطلب كله 404: يعود صفّه في rejected[] برسالة «المندوب غير موجود» ويُكتب المقبول من غيره",
      "يُرفض لمفتاح القراءة فقط (403 API_KEY_FORBIDDEN)"
     ],
     "query": [],
@@ -4637,9 +4638,9 @@ export const API_DOC_GROUPS: DocGroup[] = [
      },
      {
       "name": "paymentMethod",
-      "type": "enum: CASH | BANK_TRANSFER | POS | CHEQUE",
+      "type": "enum: CASH | BANK_TRANSFER | POS | CHEQUE | ONLINE",
       "required": false,
-      "desc": "حصر التقرير بطريقة دفع، والقيمة غير المعروفة تُرجع قائمة فارغة لأن الحقل نصي. التصفية بالأساس المحاسبي فتشمل طرق الشركة المخصّصة التي تُعامل مثله"
+      "desc": "حصر التقرير بطريقة دفع، والقيمة غير المعروفة تُرجع قائمة فارغة لأن الحقل نصي. التصفية بالأساس المحاسبي فتشمل طرق الشركة المخصّصة التي تُعامل مثله. وONLINE الدفع الإلكتروني: سندات روابط الدفع (ميسر) التي يكتبها الخادم حين يُدفع الرابط"
      },
      {
       "name": "paymentMethodKey",
@@ -4655,12 +4656,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{receipts:[صف السند كاملاً بكل أعمدته ومنها number وamount وpaymentMethod وreceiptDate وstatus، مع customer{id,name} وsalesRep{id,name} أو null], summary:{total, count, byMethod:{CASH?:number, BANK_TRANSFER?:number, POS?:number, CHEQUE?:number} بالأساس المحاسبي, byMethodKey:{معرّف الطريقة: number} حيث المعرّف رمز الطريقة المدمجة أو مفتاح طريقة الشركة المخصّصة, methods:[{id, base, key, custom, label, companyLabel, icon, active, manual, amount, count}]}}}",
+    "response": "{success:true, data:{receipts:[صف السند كاملاً بكل أعمدته ومنها number وamount وpaymentMethod وreceiptDate وstatus، مع customer{id,name} وsalesRep{id,name} أو null], summary:{total, count, byMethod:{CASH?:number, BANK_TRANSFER?:number, POS?:number, CHEQUE?:number, ONLINE?:number} بالأساس المحاسبي, byMethodKey:{معرّف الطريقة: number} حيث المعرّف رمز الطريقة المدمجة أو مفتاح طريقة الشركة المخصّصة, methods:[{id, base, key, custom, label, companyLabel, icon, active, manual, amount, count}]}}}",
     "rules": [
      "السندات ذات الحالة ACTIVE فقط، فالملغاة لا تدخل",
      "لا يوجد مدى افتراضي هنا خلافاً لتقرير المبيعات، فبلا from وto يرجع كل السجل",
      "لا ترقيم ولا حد للصفوف، والترتيب تصاعدي بـ receiptDate",
-     "byMethod بالأساس المحاسبي كما كان، وbyMethodKey وmethods بطرق الشركة وأسمائها: المعرّف رمز الطريقة المدمجة أو مفتاح المخصّصة",
+     "byMethod بالأساس المحاسبي كما كان، وbyMethodKey وmethods بطرق الشركة وأسمائها: المعرّف رمز الطريقة المدمجة أو مفتاح المخصّصة. ومنها ONLINE لما حُصّل من روابط الدفع الإلكتروني (ميسر)، وكل طريقة تظهر في الثلاثة حين يوجد في الفترة سند بها",
      "لا تطابق أرقامه صفحة طرق الدفع (GET /reports/payment-methods) لثلاثة فروق: from وto هنا أيام UTC (منتصف الليل UTC) وهناك أيام الشركة المحلية، والسند بلا مندوب يدخل total والمجاميع هنا وهناك يُعزل في noRep خارج الإجماليات، والنقدي هناك يضيف فواتير البيع النقدي",
      "كل صف سند يحمل team{id, name} (أو null) وteamId"
     ],

@@ -273,3 +273,65 @@ test('الدليلان يُرسمان داخل المستند المحمَّل �
   // الأسطر والشرطات في النصوص تبقى أسطراً في الملف المحمَّل (لا صنف tailwind هناك)
   assert.match(docs, /\.api-text\{white-space:pre-line\}/);
 });
+
+/** نقطة واحدة في الفهرس بطريقتها ومسارها */
+const endpointOf = (method: string, p: string) => {
+  const e = API_DOC_GROUPS.flatMap((g) => g.endpoints).find((x) => x.method === method && x.path === p);
+  assert.ok(e, `${method} ${p} غير موثّق`);
+  return e!;
+};
+const fieldOf = (e: { body: { name: string; desc: string }[]; query: { name: string; desc: string; type: string }[] }, name: string) => {
+  const f = [...e.body, ...e.query].find((x) => x.name === name);
+  assert.ok(f, `الحقل ${name} غائب`);
+  return f as { name: string; desc: string; type?: string };
+};
+
+test('دقّة المستند: وضعا قيد المرتجع كما في الخادم (NEAR_EXPIRY وSTILL_VALID) لا «مدة الإرجاع من البيع»', () => {
+  const modes = /RETURN_RULE_MODES = \[([^\]]+)\]/.exec(read(path.join(BACKEND, 'services', 'shelfLife.ts')))![1].match(/[A-Z_]+/g)!;
+  assert.deepEqual(modes, ['NEAR_EXPIRY', 'STILL_VALID']);
+  const rule = endpointOf('POST', '/invoices').rules.find((r) => r.includes('RETURN_RULE_BLOCKED'))!;
+  const blocked = endpointOf('GET', '/invoices/:id/returnable').rules.find((r) => r.startsWith('returnBlocked'))!;
+  for (const text of [rule, blocked]) {
+    for (const m of modes) assert.ok(text.includes(m), `${m} غائب: ${text.slice(0, 80)}`);
+    assert.doesNotMatch(text, /مدة الإرجاع/);
+  }
+});
+
+test('دقّة المستند: clientCreatedAt لا يصنع يوم المرتجع لطلب المفتاح ولا يُخزَّن، والاستيراد يفحص بيانات المشتري صفاً صفاً', () => {
+  assert.match(fieldOf(endpointOf('POST', '/invoices'), 'clientCreatedAt').desc, /لطلب المفتاح لا يُخزَّن/);
+  assert.match(fieldOf(endpointOf('POST', '/invoices/:id/credit-note'), 'clientCreatedAt').desc, /لطلب المفتاح لا يُخزَّن/);
+  assert.match(fieldOf(endpointOf('POST', '/invoices/:id/debit-note'), 'clientCreatedAt').desc, /لطلب المفتاح لا يُخزَّن/);
+  const rule = endpointOf('POST', '/invoices').rules.find((r) => r.includes('RETURN_RULE_BLOCKED'))!;
+  assert.match(rule, /clientCreatedAt لا يُقرأ للمفتاح/);
+  const imp = endpointOf('POST', '/customers').rules.find((r) => r.includes('/import/customers'))!;
+  assert.match(imp, /CUSTOMER_ZATCA_INVALID/);
+  // والخادم كذلك: البوابة في مسار الاستيراد مشروطة بهوية المفتاح
+  assert.ok(routeFile('import').includes('if (req.user?.apiKeyId) {\n      result.errors.push(...await importBuyerRowsGate(prisma, tid, rows));'));
+});
+
+test('دقّة المستند: تقرير التحصيل يعرف ONLINE (سندات روابط الدفع)، ورفع البصمات يرفض المندوب خارج النطاق صفاً لا 404', () => {
+  const col = endpointOf('GET', '/reports/collections');
+  assert.match(fieldOf(col, 'paymentMethod').type ?? '', /\bONLINE\b/);
+  assert.match(col.response, /ONLINE\?:number/);
+  // سندات الدفع الإلكتروني يكتبها الخادم بـONLINE
+  assert.ok(read(path.join(BACKEND, 'services', 'paylink.ts')).includes("paymentMethod: 'ONLINE'"));
+
+  const imp = endpointOf('POST', '/attendance-admin/import');
+  assert.ok(!imp.gates.some((g) => g.includes('404 لغيرهم')), 'الرفع لا يرجع 404 لمندوب خارج النطاق');
+  assert.ok(imp.gates.some((g) => g.includes('rejected[]') && g.includes('المندوب غير موجود')));
+  assert.ok(routeFile('attendanceAdmin').includes("rejected.push({ index, message: 'المندوب غير موجود' })"));
+});
+
+test('دقّة المستند: teamId في الفاتورة والسند يذكر أولوية إشراف صاحب المفتاح كما في resolveDocTeam', () => {
+  const teams = read(path.join(BACKEND, 'services', 'teams.ts'));
+  const fn = teams.slice(teams.indexOf('export function resolveDocTeam'), teams.indexOf('export function settlementTeamOf'));
+  // الإشراف قبل فرق المندوب، ثم المطلوب منها، ثم الوحيد
+  const sup = fn.indexOf('if (supervised.length)');
+  assert.ok(sup > 0 && sup < fn.indexOf('if (requested && ids.includes(requested))') && fn.indexOf('ids.length === 1') > sup);
+  for (const [method, p] of [['POST', '/invoices'], ['POST', '/receipts']]) {
+    const d = fieldOf(endpointOf(method, p), 'teamId').desc;
+    assert.match(d, /إشراف/, `${p}: أولوية الإشراف غائبة`);
+    assert.ok(d.indexOf('١)') < d.indexOf('٢)') && d.indexOf('٢)') < d.indexOf('٣)') && d.indexOf('٣)') < d.indexOf('٤)'), `${p}: الترتيب`);
+    assert.match(d, /لا رفض/);
+  }
+});

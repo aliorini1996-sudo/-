@@ -93,6 +93,24 @@ test('حارس نصّي: المندوب يُرجع أصناف الصلاحية �
   const exp = read('services/invoiceExpiry.ts');
   assert.ok(exp.includes('localDateIn(inv.clientCreatedAt ?? inv.invoiceDate, tz)'), 'يوم المرتجع يوم إنشائه على الجهاز');
 
+  // مفتاح API عميلٌ حيّ: لحظة جهازه المرسَلة لا تصنع يوم المرتجع في القيد ولا في الوسم ولا تُخزَّن (اختبار المسار في
+  // invoices-notes-route.test.ts) — وتبقى body.clientCreatedAt حيث تُشدّد وحدها: رفض التسليح وحارس clientRef في الإشعارات
+  assert.ok(inv.includes('const deviceAt = req.user?.apiKeyId ? undefined : body.clientCreatedAt;'), 'لحظة الجهاز للجلسة وحدها');
+  for (const frag of [
+    'returnAt: deviceAt ? new Date(deviceAt) : (docDate ?? new Date()),',
+    'deviceAt ? new Date(deviceAt) : (docDate ?? new Date()))',
+    'clientCreatedAt: deviceAt ? new Date(deviceAt) : undefined,',
+  ]) assert.ok(inv.includes(frag), `يوم المرتجع بلا لحظة المفتاح: ${frag}`);
+  assert.equal(inv.split('viaApiKey: !!req.user?.apiKeyId,').length - 1, 3, 'المرتجع-إشعاراً والدائن والمدين');
+  const create = inv.slice(inv.indexOf("router.post('/', async"), inv.indexOf("router.patch('/:id/"));
+  assert.deepEqual(
+    [...create.matchAll(/body\.clientCreatedAt[^,)\n]*/g)].map((m) => m[0]),
+    ['body.clientCreatedAt;', 'body.clientCreatedAt ?? null', 'body.clientCreatedAt ? new Date(body.clientCreatedAt'],
+    'body.clientCreatedAt في POST / لا يُقرأ إلا لـdeviceAt وحارس clientRef ورفض التسليح',
+  );
+  const notes = read('routes/invoicesNotes.ts');
+  assert.ok(notes.includes('clientCreatedAt: ctx.clientCreatedAt && !ctx.viaApiKey ? new Date(ctx.clientCreatedAt) : undefined,'), 'الإشعار لا يخزّن لحظة المفتاح');
+
   const svc = read('services/returnLinks.ts');
   assert.match(svc, /FOR UPDATE/, 'قفل صفّ فاتورة البيع');
   assert.match(svc, /OR: \[\{ returnOfItemId: \{ in: saleItemIds \} \}, \{ creditedItemId: \{ in: saleItemIds \} \}\]/, 'المرتجَع يشمل الإشعارات الدائنة');
