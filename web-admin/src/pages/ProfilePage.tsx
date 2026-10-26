@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { siteContentApi } from '../api/client';
+import { PUBLIC_SITE_CONTENT_KEY, fetchPublicSiteContent } from '../content/publicSiteContent';
 import { Download } from 'lucide-react';
 import { BrandIcon } from '../components/BrandLogo';
 import { mergeProfile, splitLines, splitPairs, sectionOn, readPartners, PROFILE_CMS_KEY, PROFILE_LANGS, PROFILE_LANG_LABEL, ProfileLang, ProfileContent } from '../content/profileContent';
@@ -286,8 +286,8 @@ export default function ProfilePage() {
   const dir = isAr ? 'rtl' : 'ltr';
 
   const { data: cms } = useQuery({
-    queryKey: ['site-content'],
-    queryFn: async () => (await siteContentApi.get()).data.data as Record<string, unknown> | null,
+    queryKey: PUBLIC_SITE_CONTENT_KEY,
+    queryFn: () => fetchPublicSiteContent<Record<string, unknown> | null>(),
     staleTime: 300_000,
   });
   const content = mergeProfile(cms?.[PROFILE_CMS_KEY] as Partial<ProfileContent> | undefined);

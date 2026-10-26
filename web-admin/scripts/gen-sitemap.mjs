@@ -1,6 +1,7 @@
 // يولّد public/sitemap.xml آلياً من المسارات + روابط hreflang + مقالات المدوّنة.
-// مصادر المقالات: اتحاد محتوى الـCMS الحيّ ومقالات src/blog/posts.ts — بالدالة نفسها التي يراها الزائر
-// (effectivePosts)، لا نسخة موازية. يُشغَّل عند كل بناء (prebuild) وفي الصيانة المجدولة.
+// مصادر المقالات: اتحاد محتوى الـCMS الحيّ (مصحَّحاً بقائمة cmsFixes.ts كما يُنشر — scripts/cms-content.mjs)
+// ومقالات src/blog/posts.ts — بالدالة نفسها التي يراها الزائر (effectivePosts)، لا نسخة موازية.
+// يُشغَّل عند كل بناء (prebuild) وفي الصيانة المجدولة.
 // لا اتصال مباشر بقاعدة البيانات — يستخدم الـAPI العام فقط.
 //
 // التشغيل: node scripts/gen-sitemap.mjs [--out <ملف>]   (الافتراضي public/sitemap.xml)
@@ -18,7 +19,7 @@ const ORIGIN = 'https://fieldsa.net';
 import { SECTORS } from './sectors-data.mjs';
 import { FEATURES } from '../src/content/features.mjs';
 import { TEMPLATES } from './templates-data.mjs';
-const API = 'https://api.fieldsa.net/api/site-content';
+import { fetchPublicCms } from './cms-content.mjs';
 
 const argv = process.argv.slice(2);
 const outArg = argv.indexOf('--out') >= 0 ? argv[argv.indexOf('--out') + 1] : null;
@@ -43,42 +44,17 @@ const I18N_ROUTES = [
 const langsFor = (arPath) => (arPath === '/' ? ['ar', 'en', 'fr', 'tr', 'zh'] : ['ar', 'en', 'fr']);
 
 /**
- * يجلب محتوى الـCMS بمحاولات متكرّرة حتى نحو 90 ثانية (تصحيح الناقد 16: نشر الخادم قد يتزامن مع
- * بناء الموقع، و2+4+8 ثوانٍ لا تكفي). الفشل الكلّي يُسقط البناء (exit 1) فيبقى نشر Render السابق
- * حيّاً — بدل خريطة منكمشة بلا ~108 مقالات تُنشر صامتة. لا حدّ أدنى لعدد المقالات: ردّ صالح يكفي.
+ * محتوى CMS **كما يُنشر** (scripts/cms-content.mjs، الوحدة نفسها في prerender وgen-llms): الجلب بمحاولات حتى
+ * نحو 90 ثانية (تصحيح الناقد 16: نشر الخادم قد يتزامن مع بناء الموقع، و2+4+8 ثوانٍ لا تكفي) ثم قائمة التصحيح
+ * (src/content/cmsFixes.ts) التي تختم modified كل مقال يحمل نصّها بـCMS_FIXES_VERSION ⇒ lastmod صادق له.
+ * الفشل الكلّي يُسقط البناء (exit 1) فيبقى نشر Render السابق حيّاً — بدل خريطة منكمشة بلا ~108 مقالات
+ * تُنشر صامتة. لا حدّ أدنى لعدد المقالات: ردّ صالح يكفي.
  */
-async function fetchCms() {
-  const DEADLINE = 90_000;
-  const started = Date.now();
-  let wait = 2000;
-  let attempt = 0;
-  let last = '';
-  for (;;) {
-    attempt++;
-    const left = DEADLINE - (Date.now() - started);
-    try {
-      const r = await fetch(API, { signal: AbortSignal.timeout(Math.max(5000, Math.min(20000, left))) });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data = (await r.json())?.data;
-      if (!data || typeof data !== 'object') throw new Error('ردّ بلا data');
-      if (attempt > 1) console.log(`  نجح جلب CMS في المحاولة ${attempt}`);
-      return data;
-    } catch (e) {
-      last = e?.message || String(e);
-    }
-    if (Date.now() - started + wait >= DEADLINE) break;
-    console.log(`  تعذّر جلب CMS (محاولة ${attempt}: ${last}) — إعادة بعد ${wait / 1000} ث`);
-    await new Promise((res) => setTimeout(res, wait));
-    wait = Math.min(wait * 2, 30_000);
-  }
-  if (process.env.SEO_ALLOW_OFFLINE === '1') {
-    console.log(`  ⚠️ CMS غير متاح (${last}) — SEO_ALLOW_OFFLINE=1: مقالات المستودع وحدها (تشغيل محلي فقط)`);
-    return null;
-  }
-  console.error(`✗ تعذّر جلب CMS بعد ${attempt} محاولات خلال ${Math.round((Date.now() - started) / 1000)} ث (${last}).`);
-  console.error('  أُوقف البناء عمداً: خريطة بلا مقالات CMS أسوأ من إبقاء النشر السابق. للتشغيل المحلي بلا شبكة: SEO_ALLOW_OFFLINE=1');
-  process.exit(1);
-}
+const fetchCms = () => fetchPublicCms({
+  who: 'gen-sitemap',
+  failHint: 'أُوقف البناء عمداً: خريطة بلا مقالات CMS أسوأ من إبقاء النشر السابق.',
+  offlineHint: 'مقالات المستودع وحدها',
+});
 
 /** يحمّل src/blog/posts.ts (بلا استيرادات) كوحدة ESM في الذاكرة — المصدر نفسه الذي يقرؤه الزائر وprerender */
 async function loadPostsModule() {
@@ -144,7 +120,7 @@ const urlEntry = (loc, { lastmod = CONTENT_VERSION, freq = 'monthly', priority =
   `  <url>\n    <loc>${canon(loc)}</loc>\n${alternates ? alternates + '\n' : ''}${imageBlock(image)}    <lastmod>${lastmod}</lastmod>\n  </url>`;
 
 async function main() {
-  const cms = await fetchCms();
+  const { data: cms, fixes, version: fixesVersion } = await fetchCms();
   const mod = await loadPostsModule();
   const catalog = buildCatalog();
   const catalogSlugs = new Set(catalog.map((a) => a.slug));
@@ -163,11 +139,13 @@ async function main() {
   const urls = [];
 
   // الصفحات التسويقية: الرئيسية بخمس لغات، والبقية بثلاث — كلٌّ يحمل بدائل لغاته الموجودة وحدها
+  // الرئيسية العربية وحدها تقرأ أسئلة CMS ومزاياه: إن حملت بنود قائمة التصحيح فتاريخها تاريخ القائمة إن كان أحدث
+  const homeArMod = fixes?.home.touched ? [CONTENT_VERSION, fixesVersion].sort().pop() : CONTENT_VERSION;
   for (const r of I18N_ROUTES) {
     const langs = langsFor(r.p);
     const alternates = alt(r.p, langs);
     const u = urlsOf(r.p);
-    for (const L of langs) urls.push(urlEntry(u[L], { freq: r.freq, priority: r.priority, alternates }));
+    for (const L of langs) urls.push(urlEntry(u[L], { lastmod: r.p === '/' && L === 'ar' ? homeArMod : CONTENT_VERSION, freq: r.freq, priority: r.priority, alternates }));
   }
 
   // فهرس المدوّنة (عربي + /en + /fr مع hreflang)
@@ -201,7 +179,8 @@ async function main() {
 
   // المقالات اليدوية: عربية دائماً + إنجليزية للثنائية، عدا النسخ المدموجة (P3).
   // lastmod = تاريخ المقال نفسه (updatedAt/modified/date — lastModifiedOf في posts.ts)، لا CONTENT_VERSION
-  // ولا اليوم: نسخة المقال في CMS لا تتغيّر بتغيّر قالب الكتالوج.
+  // ولا اليوم: نسخة المقال في CMS لا تتغيّر بتغيّر قالب الكتالوج. والمقال الذي غيّرت قائمة التصحيح نصّه
+  // مختوم modified فيه بـCMS_FIXES_VERSION (publicCmsContent في cmsFixes.ts) فيصل هنا عبر lastModifiedOf نفسها.
   let consolidatedOut = 0;
   for (const p of posts) {
     const arLoc = `/blog/${p.slug}`;

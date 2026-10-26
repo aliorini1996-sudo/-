@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { siteContentApi } from '../api/client';
+import { PUBLIC_SITE_CONTENT_KEY, fetchPublicSiteContent } from '../content/publicSiteContent';
 import { defaultContent } from '../landing/defaultContent';
 import { defaultContentEn } from '../landing/defaultContentEn';
 import { defaultContentFr } from '../landing/defaultContentFr';
@@ -200,8 +200,8 @@ export default function InfoPage({ pageKey }: { pageKey: PageKey }) {
   const dir = useDir();
   const t = useT();
   const { data } = useQuery({
-    queryKey: ['site-content'],
-    queryFn: async () => { const r = await siteContentApi.get(); return r.data.data as unknown; },
+    queryKey: PUBLIC_SITE_CONTENT_KEY,
+    queryFn: () => fetchPublicSiteContent(),
     staleTime: 60_000,
   });
   // نُفضّل المحتوى الأغنى للعربية: إن كان نصّ الـCMS أطول من الافتراضي فهو تخصيص فعلي للمالك،

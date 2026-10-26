@@ -19,55 +19,29 @@ import {
   repAppJsonLd, PHASE2_FEATURE_HREF, PHASE2_ANCHOR,
 } from '../src/blog/clusters.mjs';
 import * as claimsRules from './claims-rules.mjs';
+import { fetchPublicCms, postUrl } from './cms-content.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.resolve(__dirname, '../dist');
 const ORIGIN = 'https://fieldsa.net';
 const LANGS = ['ar', 'en', 'fr'];
-const CMS_API = 'https://api.fieldsa.net/api/site-content';
 /** مصنِّف أسئلة FAQPage بقواعد حارس الادّعاءات نفسها (نفي قديم للمرحلة الثانية، وعد «دون اتصال» غير مقيَّد) */
 const faqProblem = faqProblemWith(claimsRules);
 /** مرجع المنظّمة المعرَّفة في كتلة القالب (index.html) — كاتب المقالات وناشرها كيان واحد بمعرّف ثابت */
 const ORG_REF = { '@id': `${ORIGIN}/#organization` };
 
 /**
- * يجلب محتوى الـCMS بمحاولات متكرّرة حتى نحو 90 ثانية (تصحيح الناقد 16). الفشل الكلّي يُسقط البناء
- * (exit 1) فيبقى نشر Render السابق حيّاً: كان التعثّر يُبتلع بصمت فتُخدَم ~108 مقالة قوقعةَ الرئيسية
- * حتى النشر التالي. لا حدّ أدنى لعدد المقالات: ردّ صالح يكفي. مطابق لـfetchCms في gen-sitemap.mjs.
- * SEO_ALLOW_OFFLINE=1 للتشغيل المحلي بلا شبكة فقط (مقالات المستودع وأسئلة الرئيسية الافتراضية).
+ * محتوى CMS **كما يُنشر**: الجلب بمحاولات حتى نحو 90 ثانية (تصحيح الناقد 16) ثم قائمة التصحيح
+ * (src/content/cmsFixes.ts) — scripts/cms-content.mjs، الوحدة نفسها في gen-sitemap وgen-llms. الفشل الكلّي
+ * يُسقط البناء (exit 1) فيبقى نشر Render السابق حيّاً: كان التعثّر يُبتلع بصمت فتُخدَم ~108 مقالة قوقعةَ
+ * الرئيسية حتى النشر التالي. SEO_ALLOW_OFFLINE=1 للتشغيل المحلي بلا شبكة فقط (مقالات المستودع وأسئلة
+ * الرئيسية الافتراضية).
  */
-async function fetchCms() {
-  const DEADLINE = 90_000;
-  const started = Date.now();
-  let wait = 2000;
-  let attempt = 0;
-  let last = '';
-  for (;;) {
-    attempt++;
-    const left = DEADLINE - (Date.now() - started);
-    try {
-      const r = await fetch(CMS_API, { signal: AbortSignal.timeout(Math.max(5000, Math.min(20000, left))) });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data = (await r.json())?.data;
-      if (!data || typeof data !== 'object') throw new Error('ردّ بلا data');
-      if (attempt > 1) console.log(`  نجح جلب CMS في المحاولة ${attempt}`);
-      return data;
-    } catch (e) {
-      last = e?.message || String(e);
-    }
-    if (Date.now() - started + wait >= DEADLINE) break;
-    console.log(`  تعذّر جلب CMS (محاولة ${attempt}: ${last}) — إعادة بعد ${wait / 1000} ث`);
-    await new Promise((res) => setTimeout(res, wait));
-    wait = Math.min(wait * 2, 30_000);
-  }
-  if (process.env.SEO_ALLOW_OFFLINE === '1') {
-    console.log(`  ⚠️ CMS غير متاح (${last}) — SEO_ALLOW_OFFLINE=1: محتوى المستودع وحده (تشغيل محلي فقط)`);
-    return null;
-  }
-  console.error(`✗ تعذّر جلب CMS بعد ${attempt} محاولات خلال ${Math.round((Date.now() - started) / 1000)} ث (${last}).`);
-  console.error('  أُوقف البناء عمداً: موقع بلا مقالات CMS أسوأ من إبقاء النشر السابق. للتشغيل المحلي بلا شبكة: SEO_ALLOW_OFFLINE=1');
-  process.exit(1);
-}
+const fetchCms = () => fetchPublicCms({
+  who: 'prerender',
+  failHint: 'أُوقف البناء عمداً: موقع بلا مقالات CMS أسوأ من إبقاء النشر السابق.',
+  offlineHint: 'محتوى المستودع وحده',
+});
 
 /** يحوّل ملف TS بلا استيرادات إلى ESM عبر esbuild ويستورده (ملف مؤقت داخل dist يُحذف فوراً) */
 async function loadTs(rel, exportName) {
@@ -305,8 +279,9 @@ function articleJsonLd(a, lang, canonical) {
 }
 
 async function main() {
-  // محتوى CMS أولاً وبمحاولات متكرّرة: تعذّره الكلّي يوقف البناء قبل أن يُكتب شيء في dist
-  const cms = await fetchCms();
+  // محتوى CMS أولاً وبمحاولات متكرّرة: تعذّره الكلّي يوقف البناء قبل أن يُكتب شيء في dist.
+  // والمصحَّح لا الخام: كل ما يلي (المقالات وأسئلة الرئيسية) يقرأ النص المنشور نفسه الذي يرسمه React.
+  const { data: cms, fixes: cmsFixes, version: fixesVersion } = await fetchCms();
   // التسعير من مصدره الحيّ (CMS) لا من رقم مكتوب هنا — الأسعار تُحرَّر من لوحة المالك،
   // فأي رقم يدوي في هذا الملف ينزاح صامتاً عن الحقيقة ويصل جوجل ومحرّكات الذكاء وحده.
   const pricing = await loadPricing();
@@ -342,6 +317,25 @@ async function main() {
   const consolidation = consolidationReport(exists, (slug, L) => manual.some((p) => p.slug === slug && (L === 'ar' || !!p.en)));
   console.log(`  الدمج: ${consolidation.applied.length} نسخة مدموجة canonical إلى مقالها الغني`);
   for (const s of consolidation.skipped) console.log(`  دمج متجاهَل: ${s.lang} ${s.slug} ← ${s.target} (${s.why})`);
+
+  // الصفحات التي غيّرت قائمة التصحيح نصّها في هذا البناء (CMS ما زال قديماً) — قائمة IndexNow. lastmod وdateModified
+  // لها CMS_FIXES_VERSION (مختوم في المحتوى المصحَّح). الرابط بلغة يملكها المقال المُصيَّر فعلاً، والمدموج يُذكر وحده.
+  if (cmsFixes) {
+    const pages = [];
+    const mergedPages = [];
+    for (const fp of cmsFixes.posts.filter((x) => x.applied)) {
+      const p = manual.find((m) => m.slug === fp.slug);
+      if (!p) { console.log(`  ⚠️ مقال مصحَّح لا يُصيَّر مقالاً يدوياً (مولَّد أو محذوف): ${fp.slug}`); continue; }
+      for (const L of (p.en ? ['ar', 'en'] : ['ar'])) {
+        const target = consolidatedTarget(p.slug, L, exists);
+        (target ? mergedPages : pages).push(target ? `${postUrl(p.slug, L)} (مدموج ← ${target})` : postUrl(p.slug, L));
+      }
+    }
+    if (cmsFixes.home.applied) pages.unshift(`${ORIGIN}/`);
+    console.log(`  صفحات غيّرت التصحيحات نصّها (${pages.length}، تاريخ تعديلها ${fixesVersion}) — لـIndexNow:`);
+    for (const u of pages) console.log(`    ${u}`);
+    if (mergedPages.length) console.log(`  ونسخ مدموجة تغيّر نصّها (خارج الخريطة): ${mergedPages.join(' · ')}`);
+  }
 
   // 1) المقالات المولَّدة (~966) — محتوى كامل + وسوم + JSON-LD
   for (const { slug, cc, canonical: canonSlug, isCanonical } of buildCatalog()) {

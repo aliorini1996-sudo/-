@@ -815,29 +815,17 @@ Pricing: Per company, not per user: 299 SAR/month (up to 5 reps), 399 SAR/month 
   كثير من شركات التوزيع السعودية يديرها مدراء يقرؤون بالإنجليزية بينما يعمل مناديبها بالعربية: هذه الصفحة تخاطب الأولين، ودليلنا العربي الكامل للفريق كله.
 - [نظام إدارة الموزعين في السعودية بالإنجليزية: ملخص الدليل](https://fieldsa.net/blog/dms-saudi-arabia/)
   صفحة إنجليزية للباحثين بمصطلح DMS في السوق السعودي — الدليلان العربيان الكاملان: ركيزة DMS وصفحة إدارة الموزعين.
+- [فاتورة ZATCA من الميدان: دليل مناديب التوزيع](https://fieldsa.net/blog/zatca-invoicing-for-field-reps/)
+  التقاطع الذي لا يجيب عنه أحد: كيف تلتقي متطلبات الفوترة الإلكترونية بمرحلتيها مع واقع مندوب يبيع من سيارة في مناطق بلا تغطية؟ الجواب العملي هنا.
 - [قاموس مصطلحات التوزيع والمبيعات الميدانية: 30 مصطلحاً](https://fieldsa.net/blog/distribution-terms-glossary/)
   المرجع العربي لمصطلحات التوزيع: كاش فان، بري-سيلز، عهدة، خط سير، DSD، أعمار الديون وغيرها — تعريفات عملية موجزة من الميدان لا من المعاجم.
 - [أسئلة أصحاب شركات التوزيع: 10 إجابات مباشرة من الميدان](https://fieldsa.net/blog/distribution-owners-questions/)
   الأسئلة العشرة التي يطرحها أصحاب شركات التوزيع فعلاً — من إثبات الزيارات إلى حساب العمولات وضبط العهدة — بإجابات مباشرة وروابط للأدلة الكاملة.
-- [سند قبض من جوال المندوب: تحصيل موثّق لحظة الاستلام](https://fieldsa.net/blog/mobile-receipt-vouchers/)
-  أخطر لحظة في التحصيل الميداني هي ما بين استلام المندوب للمبلغ وتسجيله في النظام: سند القبض من الجوال يُغلق هذه الفجوة — يصدر لحظة الاستلام، يُخصم من رصيد العميل فوراً، ويُطبع للعميل في مكانه.
-- [مرتجعات المبيعات الميدانية: تالف واستبدال وضبط العهدة](https://fieldsa.net/blog/field-sales-returns-management/)
-  المرتجع بلا مستند ثغرة مزدوجة: بضاعة تختفي من العهدة وذمة تختل عند العميل. المرتجع المُسبَّب من جوال المندوب — تالف أو استبدال — يوثّق الحركة لحظتها ويضبط عودة البضاعة للمخزون أو إخراجها منه.
 - [مسح الباركود بكاميرا الجوال لإضافة الأصناف في الفاتورة](https://fieldsa.net/blog/barcode-scanning-invoices/)
   البحث اليدوي عن الصنف أبطأ خطوة في فاتورة المندوب وأكثرها خطأً حين تتشابه الأسماء والأحجام: مسح الباركود بكاميرا الجوال يضيف الصنف الصحيح بسعره المعتمد في ثانية — بلا جهاز ماسح إضافي.
-- [صلاحيات مناديب المبيعات: الأسعار والخصومات والبيع الآجل](https://fieldsa.net/blog/sales-reps-permissions/)
-  أغلب تجاوزات الميدان ليست سوء نية بل غياب حدود مبنيّة في الأداة: نظام الصلاحيات يجعل سياساتك — تعديل السعر، سقف الخصم، البيع الآجل — قواعد يطبّقها التطبيق تلقائياً على كل فاتورة، لكل مندوب على حدة.
-- [حساب عمولات مناديب التوزيع: النماذج والنِّسَب والأدوات](https://fieldsa.net/blog/distribution-reps-commissions/)
-  دليل عملي لعمولات مناديب التوزيع: عمولة المبيعات مقابل عمولة التحصيل، النسب الشائعة، وحاسبة مجانية — مع تقارير لكل مندوب تُغذّي الحساب بأرقام دقيقة.
-- [اختفاء البضاعة من سيارة المندوب: الأسباب وخطة العلاج](https://fieldsa.net/blog/goods-missing-from-van/)
-  البضاعة لا «تختفي» من سيارة المندوب — تتسرب من خمس ثغرات محددة يمكن إغلاقها في أسبوع: تحميل بلا توثيق، بيع بلا فاتورة لحظية، مرتجع عائم، خصم شفهي، وجرد شهري متأخر يميّع المسؤولية.
-- [تلاعب مناديب المبيعات: خمسة أنماط وكيف يُغلق بابها](https://fieldsa.net/blog/rep-manipulation-patterns/)
-  التلاعب لا يبدأ جريمة بل ثغرة متاحة: خمسة أنماط تتكرر في شركات التوزيع — البيع خارج النظام، الخصم الوهمي، التحصيل غير المورَّد، الزيارة الوهمية، المرتجع الصوري — ولكل نمط ضبطٌ يغلق بابه قبل أول تجربة.
 - [التحول من الفواتير الورقية إلى الرقمية لفريق المناديب](https://fieldsa.net/blog/paper-to-digital-invoicing/)
   دفتر الفواتير الورقي يكلّفك أكثر من ثمنه بكثير: أخطاء نقل، وضياع أصول، وذمماً بلا إثبات، وأياماً من الإدخال المزدوج. خطة انتقال متدرجة — سيارة فسيارة — تنقل فريقك للفوترة الرقمية دون يوم توقف واحد.
 - [برنامج فواتير يعمل بدون إنترنت للمناديب مع رفع تلقائي](https://fieldsa.net/blog/offline-invoicing-for-reps/)
-- [عهدة بضاعة سيارة المندوب: تحميل وبيع ومطابقة يومية](https://fieldsa.net/blog/rep-van-custody-management/)
-  البضاعة التي تصعد سيارة المندوب صباحاً أموالك خارج المستودع: نظام العهدة يسجّل التحميل بالصنف، ويخصم كل مبيعة تلقائياً، ويطابق آخر اليوم بمعادلة واحدة تُظهر أي فرق باسم صاحبه وصنفه — لا جرد شهري متأخر.
 - [برنامج فواتير بطباعة حرارية بلوتوث من جوال المندوب](https://fieldsa.net/blog/thermal-printing-field-invoices/)
 - [متابعة زيارات المناديب بإثبات GPS وصور من الميدان](https://fieldsa.net/blog/rep-visit-tracking-gps/)
   سؤال «هل زار المندوب العميل فعلاً؟» لا يُجاب بالمكالمات: كل زيارة تُسجَّل من موقع العميل بصورة من الكاميرا وإحداثيات GPS ووقت، ويُطابَق خط السير مع الطرق الفعلية — فتتحول المتابعة من ظنون إلى سجل.
@@ -846,7 +834,7 @@ Pricing: Per company, not per user: 299 SAR/month (up to 5 reps), 399 SAR/month 
   ست خطوات عملية لإدارة شبكة الموزعين: توثيق العلاقة التجارية، إسناد المناطق دون تداخل، ضبط العهدة بالصنف، سقف ائتمان لكل موزع، أدلة ميدانية بدل التقارير الشفهية، ثم الانتقال من الجداول إلى نظام متخصص.
 - [نظام الكاش فان: الدليل الشامل من تحميل العهدة إلى المطابقة](https://fieldsa.net/blog/cash-van-software-guide/)
   الكاش فان أسرع نماذج التوزيع دوراناً للنقد — وأكثرها عرضة للتسرّب. هذا الدليل يشرح دورة يوم المندوب كاملة داخل النظام: من تحميل العهدة صباحاً إلى مطابقة آخر اليوم بالصنف، مع معايير الاختيار ومؤشرات الأداء والأخطاء الشائعة التي تكلّفك أكثر من ثمن أي نظام.
-- [برنامج كاش فان في السعودية: فاتورة QR مبسطة وعمل أوف-لاين](https://fieldsa.net/blog/cash-van-software-saudi/)
+- [برنامج كاش فان في السعودية: فاتورة QR وربط المرحلة الثانية مع منصة فاتورة](https://fieldsa.net/blog/cash-van-software-saudi/)
 - [نظام إدارة المناديب: متابعة GPS وفوترة وتحصيل من 299 ريال](https://fieldsa.net/blog/sales-reps-management-system/)
   صفحة شاملة لنظام إدارة المناديب: كيف تضبط الصلاحيات وتتابع الزيارات بـGPS وتُصدر الفواتير من الجوال وتدير التحصيل بأعمار الديون — بسعر معلن وتجربة مجانية 10 أيام.
 - [نظام إدارة المناديب في السعودية: ما الذي تحتاجه فعلاً؟](https://fieldsa.net/blog/sales-reps-management-saudi/)
@@ -857,6 +845,24 @@ Pricing: Per company, not per user: 299 SAR/month (up to 5 reps), 399 SAR/month 
   مسح 123 مورّداً لبرامج إدارة المناديب: 54% يخفون أسعارهم، و14% فقط يسعّرون لكل شركة، وفارق يتجاوز 40 ضعفاً في كلفة المستخدم الواحد — أرقام مجمّعة قابلة للاقتباس مع حسبة عملية لشركة بعشرة مناديب.
 - [تحصيل الذمم المتعثّرة عبر المناديب: 7 خطوات عملية تُنقذ سيولتك](https://fieldsa.net/blog/field-collection-overdue-receivables/)
   دليل عملي لتحصيل الذمم المتعثّرة من العملاء عبر مناديب التوزيع: تصنيف أعمار الديون، حدود الائتمان، سياسة التحصيل الميداني، وسند القبض اللحظي — مع خطوات تقلّل الديون المعدومة وتحمي سيولتك.
+- [دليل الفوترة الإلكترونية ZATCA لشركات التوزيع (المرحلة الثانية)](https://fieldsa.net/blog/zatca-einvoicing-distribution/)
+  كل ما تحتاجه شركات التوزيع عن الفوترة الإلكترونية ZATCA: المرحلة الثانية، رمز QR، الفواتير الضريبية المبسطة، وكيف تلتزم بسهولة من الميدان.
+- [دورة الطلب حتى التحصيل Order-to-Cash: خطواتها وزمنها وأين تنكسر](https://fieldsa.net/blog/order-to-cash-cycle/)
+  ما دورة الطلب حتى التحصيل O2C وخطواتها الثماني وكيف تقيس زمن الدورة وأعمار الديون وأين تنكسر فعلاً في التوزيع الميداني
+- [سند قبض من جوال المندوب: تحصيل موثّق لحظة الاستلام](https://fieldsa.net/blog/mobile-receipt-vouchers/)
+  أخطر لحظة في التحصيل الميداني هي ما بين استلام المندوب للمبلغ وتسجيله في النظام: سند القبض من الجوال يُغلق هذه الفجوة — يصدر لحظة الاستلام، يُخصم من رصيد العميل فوراً، ويُطبع للعميل في مكانه.
+- [مرتجعات المبيعات الميدانية: تالف واستبدال وضبط العهدة](https://fieldsa.net/blog/field-sales-returns-management/)
+  المرتجع بلا مستند ثغرة مزدوجة: بضاعة تختفي من العهدة وذمة تختل عند العميل. المرتجع المُسبَّب من جوال المندوب — تالف أو استبدال — يوثّق الحركة لحظتها ويضبط عودة البضاعة للمخزون أو إخراجها منه.
+- [صلاحيات مناديب المبيعات: الأسعار والخصومات والبيع الآجل](https://fieldsa.net/blog/sales-reps-permissions/)
+  أغلب تجاوزات الميدان ليست سوء نية بل غياب حدود مبنيّة في الأداة: نظام الصلاحيات يجعل سياساتك — تعديل السعر، سقف الخصم، البيع الآجل — قواعد يطبّقها التطبيق تلقائياً على كل فاتورة، لكل مندوب على حدة.
+- [حساب عمولات مناديب التوزيع: النماذج والنِّسَب والأدوات](https://fieldsa.net/blog/distribution-reps-commissions/)
+  دليل عملي لعمولات مناديب التوزيع: عمولة المبيعات مقابل عمولة التحصيل، النسب الشائعة، وحاسبة مجانية — مع تقارير لكل مندوب تُغذّي الحساب بأرقام دقيقة.
+- [اختفاء البضاعة من سيارة المندوب: الأسباب وخطة العلاج](https://fieldsa.net/blog/goods-missing-from-van/)
+  البضاعة لا «تختفي» من سيارة المندوب — تتسرب من خمس ثغرات محددة يمكن إغلاقها في أسبوع: تحميل بلا توثيق، بيع بلا فاتورة لحظية، مرتجع عائم، خصم شفهي، وجرد شهري متأخر يميّع المسؤولية.
+- [تلاعب مناديب المبيعات: خمسة أنماط وكيف يُغلق بابها](https://fieldsa.net/blog/rep-manipulation-patterns/)
+  التلاعب لا يبدأ جريمة بل ثغرة متاحة: خمسة أنماط تتكرر في شركات التوزيع — البيع خارج النظام، الخصم الوهمي، التحصيل غير المورَّد، الزيارة الوهمية، المرتجع الصوري — ولكل نمط ضبطٌ يغلق بابه قبل أول تجربة.
+- [عهدة بضاعة سيارة المندوب: تحميل وبيع ومطابقة يومية](https://fieldsa.net/blog/rep-van-custody-management/)
+  البضاعة التي تصعد سيارة المندوب صباحاً أموالك خارج المستودع: نظام العهدة يسجّل التحميل بالصنف، ويخصم كل مبيعة تلقائياً، ويطابق آخر اليوم بمعادلة واحدة تُظهر أي فرق باسم صاحبه وصنفه — لا جرد شهري متأخر.
 - [كيف تكشف الزيارات الوهمية للمناديب وتمنع تزييف الموقع (GPS)](https://fieldsa.net/blog/prevent-fake-visits-gps-spoofing/)
   دليل عملي لكشف الزيارات الوهمية لمناديب المبيعات ومنع تزييف موقع GPS: العلامات التي تفضح الزيارة المزيّفة، لماذا يفعلها المندوب، وكيف يوقفها نظام تتبّع ميداني بربط الزيارة بالفاتورة والصورة والوقت.
 - [كيف تُنشئ فاتورة ضريبية مجانية برمز QR في 30 ثانية؟ (دليل + أداة جاهزة)](https://fieldsa.net/blog/how-to-create-free-tax-invoice-qr/)
@@ -867,8 +873,6 @@ Pricing: Per company, not per user: 299 SAR/month (up to 5 reps), 399 SAR/month 
   دليل شركات التوزيع في مصر لاختيار نظام إدارة مناديب المبيعات: الطلبات، التحصيل وإدارة الذمم، مخزون سيارة المندوب، وتتبّع المناديب — لرفع كفاءة فريقك الميداني.
 - [إدارة التوزيع والبيع المتنقّل في المغرب والجزائر وتونس](https://fieldsa.net/blog/van-sales-distribution-maghreb/)
   كيف تدير شركات التوزيع في المغرب العربي مناديبها وسياراتها؟ دليل البيع المتنقّل Van Sales، التحصيل، ومخزون السيارة لرفع كفاءة الفرق الميدانية وتقليل الهدر.
-- [دليل الفوترة الإلكترونية ZATCA لشركات التوزيع (المرحلة الثانية)](https://fieldsa.net/blog/zatca-einvoicing-distribution/)
-  كل ما تحتاجه شركات التوزيع عن الفوترة الإلكترونية ZATCA: المرحلة الثانية، رمز QR، الفواتير الضريبية المبسطة، وكيف تلتزم بسهولة من الميدان.
 - [كيف تدير مناديب التوزيع الميدانيين بكفاءة؟ 7 خطوات عملية](https://fieldsa.net/blog/manage-field-sales-reps/)
   7 خطوات عملية لإدارة مناديب التوزيع الميدانيين: الصلاحيات، التحصيل، مخزون السيارة، التتبّع، والتقارير اللحظية لرفع كفاءة فريقك ومبيعاتك.
 - [الفرق بين الفاتورة الضريبية والفاتورة الضريبية المبسّطة](https://fieldsa.net/blog/simplified-vs-tax-invoice/)
@@ -969,8 +973,6 @@ Pricing: Per company, not per user: 299 SAR/month (up to 5 reps), 399 SAR/month 
   مقارنة بين نموذج الكاش فان (البيع من السيارة) والبيع المسبق (pre-sales) في التوزيع: الفروق، المزايا، ومتى تختار كلاً منهما.
 - [نموذج البيع المسبق والتوصيل: نظّم الطلب والتحميل](https://fieldsa.net/blog/presales-delivery-model/)
   كيف يعمل نموذج البيع المسبق (Pre-sales) والتوصيل بكفاءة: فصل أخذ الطلب عن التسليم، تخطيط التحميل، وتقليل الفاقد وحجم السيارة.
-- [دورة الطلب حتى التحصيل Order-to-Cash: خطواتها وزمنها وأين تنكسر](https://fieldsa.net/blog/order-to-cash-cycle/)
-  ما دورة الطلب حتى التحصيل O2C وخطواتها الثماني وكيف تقيس زمن الدورة وأعمار الديون وأين تنكسر فعلاً في التوزيع الميداني
 - [من المستودع إلى السيارة: تحميل موثّق يمنع الفروقات](https://fieldsa.net/blog/warehouse-van-loading/)
   كيف تنظّم تحميل سيارات التوزيع من المستودع بدقّة: أوامر تحميل موثّقة، مطابقة الكميات، وربط العهدة — لبداية يوم بلا فروقات ولا نزاع.
 - [تتبّع الدفعات وتواريخ الصلاحية على مستوى الصنف](https://fieldsa.net/blog/batch-expiry-tracking/)
@@ -1021,7 +1023,11 @@ Pricing: Per company, not per user: 299 SAR/month (up to 5 reps), 399 SAR/month 
 - [Sales Rep Tracking App for Saudi Arabia: Arabic + ZATCA QR](https://fieldsa.net/en/blog/sales-rep-tracking-saudi/)
 - [Van Sales Software for Saudi Arabia: Offline + ZATCA QR](https://fieldsa.net/en/blog/van-sales-software-saudi/)
 - [Distributor Management System in Saudi Arabia (DMS)](https://fieldsa.net/en/blog/dms-saudi-arabia/)
-- [ZATCA E-Invoicing for Van Sales Reps: Offline QR Invoices](https://fieldsa.net/en/blog/zatca-invoicing-for-field-reps/)
+  Global DMS suites assume big-enterprise budgets and English-speaking field teams. Saudi distribution runs on Arabic-speaking reps, cash vans and ZATCA e-invoicing. Here is what a DMS looks like when it is built for that reality.
+- [ZATCA E-Invoicing for Van Sales Reps: QR Invoices and Phase 2 Integration](https://fieldsa.net/en/blog/zatca-invoicing-for-field-reps/)
+  Every ZATCA guide explains the regulation; almost none explains the van. How does ZATCA e-invoicing actually work for a rep selling from a truck in patchy coverage? The operational answer, with honest limits.
+- [The Order-to-Cash (O2C) Cycle: Steps, Cycle Time and Where It Breaks](https://fieldsa.net/en/blog/order-to-cash-cycle/)
+  What the order-to-cash cycle is, its eight steps, how to measure O2C cycle time and DSO, how billing fits in, and where the cycle actually breaks in field distribution.
 - [How to Create a Free Tax Invoice with a QR Code (Step-by-Step + Free Tool)](https://fieldsa.net/en/blog/how-to-create-free-tax-invoice-qr/)
   A practical guide to creating a professional tax invoice template for free with a ZATCA-compliant QR code: step by step, standard vs simplified invoices, and a free tool that builds and downloads the invoice as PDF with no signup.
 - [How Much Revenue Do Distribution Companies Lose Every Year?](https://fieldsa.net/en/blog/how-much-distribution-companies-lose/)
@@ -1076,8 +1082,6 @@ Pricing: Per company, not per user: 299 SAR/month (up to 5 reps), 399 SAR/month 
   A comparison of the cash van (van sales) model and pre-sales in distribution: differences, advantages, and when to choose each.
 - [The Pre-sales & Delivery Model: Organize Orders and Loading](https://fieldsa.net/en/blog/presales-delivery-model/)
   How the pre-sales and delivery model works efficiently: separating order-taking from delivery, load planning, and reducing waste and van size.
-- [The Order-to-Cash (O2C) Cycle: Steps, Cycle Time and Where It Breaks](https://fieldsa.net/en/blog/order-to-cash-cycle/)
-  What the order-to-cash cycle is, its eight steps, how to measure O2C cycle time and DSO, how billing fits in, and where the cycle actually breaks in field distribution.
 - [From Warehouse to Van: Documented Loading That Prevents Variances](https://fieldsa.net/en/blog/warehouse-van-loading/)
   How to organize van loading from the warehouse accurately: documented load orders, quantity matching and custody linking — for a variance-free, dispute-free day start.
 - [Batch and Expiry Tracking at the Item Level](https://fieldsa.net/en/blog/batch-expiry-tracking/)

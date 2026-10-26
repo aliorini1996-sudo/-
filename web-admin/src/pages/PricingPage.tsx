@@ -9,7 +9,7 @@ import { seoUrls, pathForLocale } from '../i18n/locale';
 import { waHref, refFromPath } from '../components/WhatsAppFab';
 import { trackWhatsApp } from '../lib/ads';
 import { useQuery } from '@tanstack/react-query';
-import { siteContentApi } from '../api/client';
+import { PUBLIC_SITE_CONTENT_KEY, fetchPublicSiteContent } from '../content/publicSiteContent';
 import { PRICING_TEXT as T } from '../content/pricingText';
 // @ts-ignore -- لا ملف تعريف للوحدة بعد (extractFaq.d.mts)؛ الأنواع مثبّتة بالتحويل أدناه
 import * as faqMod from '../blog/extractFaq.mjs';
@@ -96,8 +96,8 @@ export default function PricingPage() {
 
   // الأسعار من الـCMS — نفس مصدر الصفحة الرئيسية، فلا تنزاح صفحتان عن بعضهما
   const { data: cms } = useQuery({
-    queryKey: ['site-content'],
-    queryFn: async () => (await siteContentApi.get()).data.data as { pricing?: { plans?: Plan[] } },
+    queryKey: PUBLIC_SITE_CONTENT_KEY,
+    queryFn: () => fetchPublicSiteContent<{ pricing?: { plans?: Plan[] } }>(),
     staleTime: 5 * 60 * 1000,
   });
   const plans: Plan[] = cms?.pricing?.plans?.length ? cms.pricing.plans : FALLBACK_PLANS;

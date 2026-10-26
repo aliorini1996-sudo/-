@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { siteContentApi } from '../api/client';
+import { PUBLIC_SITE_CONTENT_KEY, fetchPublicSiteContent } from '../content/publicSiteContent';
 import { BrandIcon } from '../components/BrandLogo';
 import { ArrowLeft, Globe, WifiOff, Receipt, MapPin, Printer, ScanLine, type LucideIcon } from 'lucide-react';
 import { useSeo } from '../lib/seo';
@@ -104,8 +104,8 @@ function StoreLink({ url, store, Badge }: { url: string; store: string; Badge: (
 
 export default function RepAppPage() {
   const { data } = useQuery({
-    queryKey: ['site-content'],
-    queryFn: async () => { const res = await siteContentApi.get(); return res.data.data as Record<string, unknown>; },
+    queryKey: PUBLIC_SITE_CONTENT_KEY,
+    queryFn: () => fetchPublicSiteContent<Record<string, unknown>>(),
   });
 
   // العنوان والوصف وFAQPage مطابقة للمُصيَّر — كان العنوان «تنزيل تطبيق المندوب Field Sales» بعد الإقلاع

@@ -2,7 +2,8 @@
 //
 // المصادر، كلٌّ من موضعه الواحد:
 //  - المقالات المولّدة: src/blog/seo/catalog.mjs.
-//  - المقالات اليدوية: effectivePosts في src/blog/posts.ts فوق CMS الحيّ، الدالة نفسها التي يراها الزائر وتبني الخريطة.
+//  - المقالات اليدوية: effectivePosts في src/blog/posts.ts فوق CMS الحيّ مصحَّحاً بقائمة src/content/cmsFixes.ts
+//    (scripts/cms-content.mjs)، الدالة والنص نفسهما اللذان يراهما الزائر وتبني منهما الخريطة.
 //  - صفحات المنتج: FEATURES والقطاعات والنماذج والأدوات المجانية من ملفاتها، والأسعار من CMS وقت التوليد.
 //  - الأجوبة وجملة التعريف: src/content/answers.mjs.
 //
@@ -35,11 +36,11 @@ import { SECTORS } from './sectors-data.mjs';
 import { TEMPLATES } from './templates-data.mjs';
 import { loadPricing, repsCap } from './pricing-source.mjs';
 import { RULES, findViolation, findViolations, norm, PHASE1, PHASE2 } from './claims-rules.mjs';
+import { fetchPublicCms } from './cms-content.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const ORIGIN = 'https://fieldsa.net';
-const API = 'https://api.fieldsa.net/api/site-content';
 
 const argv = process.argv.slice(2);
 const outArg = argv.indexOf('--out') >= 0 ? argv[argv.indexOf('--out') + 1] : null;
@@ -52,39 +53,16 @@ const blogUrl = (slug, L) => abs(`${L === 'ar' ? '' : `/${L}`}/blog/${slug}/`);
 /* ─── الجلب ──────────────────────────────────────────────────────────────────── */
 
 /**
- * محتوى CMS بمحاولات حتى نحو 90 ثانية، كما في gen-sitemap (تصحيح الناقد 16). الفشل الكلّي يوقف التوليد
- * فيبقى الملفان الملتزمان كما هما، بدل فهرس بلا مقالات CMS أو بأسعار احتياطية يُنشر صامتاً.
+ * محتوى CMS **كما يُنشر** (scripts/cms-content.mjs، الوحدة نفسها في prerender وgen-sitemap): بمحاولات حتى نحو
+ * 90 ثانية (تصحيح الناقد 16) ثم قائمة التصحيح (src/content/cmsFixes.ts) — فالصفحات التي كانت تُحجب هنا لنفيها
+ * القديم تُبرَز بنصّها المصحَّح، كما يراها الزاحف في dist. الفشل الكلّي يوقف التوليد فيبقى الملفان الملتزمان
+ * كما هما، بدل فهرس بلا مقالات CMS أو بأسعار احتياطية يُنشر صامتاً.
  */
-async function fetchCms() {
-  const DEADLINE = 90_000;
-  const started = Date.now();
-  let wait = 2000;
-  let attempt = 0;
-  let last = '';
-  for (;;) {
-    attempt++;
-    const left = DEADLINE - (Date.now() - started);
-    try {
-      const r = await fetch(API, { signal: AbortSignal.timeout(Math.max(5000, Math.min(20000, left))) });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data = (await r.json())?.data;
-      if (!data || typeof data !== 'object') throw new Error('ردّ بلا data');
-      return data;
-    } catch (e) {
-      last = e?.message || String(e);
-    }
-    if (Date.now() - started + wait >= DEADLINE) break;
-    console.log(`  تعذّر جلب CMS (محاولة ${attempt}: ${last}) — إعادة بعد ${wait / 1000} ث`);
-    await new Promise((res) => setTimeout(res, wait));
-    wait = Math.min(wait * 2, 30_000);
-  }
-  if (process.env.SEO_ALLOW_OFFLINE === '1') {
-    console.log(`  ⚠️ CMS غير متاح (${last}) — SEO_ALLOW_OFFLINE=1: مقالات المستودع وأسعار احتياطية (تشغيل محلي فقط)`);
-    return null;
-  }
-  console.error(`✗ تعذّر جلب CMS بعد ${attempt} محاولات (${last}). أُوقف التوليد وبقي llms.txt الحالي كما هو.`);
-  process.exit(1);
-}
+const fetchCms = async () => (await fetchPublicCms({
+  who: 'gen-llms',
+  failHint: 'أُوقف التوليد وبقي llms.txt الحالي كما هو.',
+  offlineHint: 'مقالات المستودع وأسعار احتياطية',
+})).data;
 
 /** src/blog/posts.ts (بلا استيرادات) كوحدة ESM في الذاكرة — كما يحمّلها gen-sitemap */
 async function loadPostsModule() {

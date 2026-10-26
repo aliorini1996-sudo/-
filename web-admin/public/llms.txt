@@ -40,12 +40,20 @@ Key facts:
 
 ## Saudi buyer guides
 
+- [نظام الكاش فان: الدليل الشامل من تحميل العهدة إلى المطابقة](https://fieldsa.net/blog/cash-van-software-guide/): answers «برنامج كاش فان». الكاش فان أسرع نماذج التوزيع دوراناً للنقد — وأكثرها عرضة للتسرّب. هذا الدليل يشرح دورة يوم المندوب كاملة داخل النظام: من تحميل العهدة صباحاً إلى مطابقة آخر اليوم بالصنف، مع معايير الاختيار ومؤشرات الأداء والأخطاء الشائعة التي تكلّفك أكثر من ثمن أي نظام.
 - [تطبيق كاش فان لمناديب التوزيع Van Sales في السعودية](https://fieldsa.net/blog/van-sales-app-sa/): answers «برنامج كاش فان». عهدة لكل صنف في السيارة وفاتورة تطبع عند باب العميل وتخصم من المخزون لحظيا
+- [نظام إدارة المناديب: متابعة GPS وفوترة وتحصيل من 299 ريال](https://fieldsa.net/blog/sales-reps-management-system/): answers «نظام إدارة المناديب». صفحة شاملة لنظام إدارة المناديب: كيف تضبط الصلاحيات وتتابع الزيارات بـGPS وتُصدر الفواتير من الجوال وتدير التحصيل بأعمار الديون — بسعر معلن وتجربة مجانية 10 أيام.
 - [برنامج متابعة المناديب والتحصيل في السعودية](https://fieldsa.net/blog/sales-rep-management-sa/): answers «نظام إدارة المناديب». صلاحيات لكل مندوب في الآجل والخصم والعملاء ومتابعة مبيعاته وتحصيله وموقعه يوميا
+- [برنامج إدارة الموزعين: عهدة وتحصيل وحدود ائتمان لكل موزع](https://fieldsa.net/blog/distributor-network-management-software/): answers «برنامج إدارة الموزعين».
 - [نظام إدارة الموزعين وشركات التوزيع والجملة DMS في السعودية](https://fieldsa.net/blog/distribution-management-system-sa/): answers «برنامج إدارة الموزعين». مخزون كل سيارة بالصنف وكشف حساب لكل منفذ وتقارير المناديب لحظيا
+- [نظام إدارة شركات التوزيع: دليل شامل للسعودية والخليج ومصر](https://fieldsa.net/blog/distribution-companies-management-system/): answers «نظام إدارة شركات التوزيع».
+- [نظام مبيعات ميدانية للشركات: الدورة الكاملة من 299 ريال](https://fieldsa.net/blog/field-sales-system-for-companies/): answers «نظام مبيعات ميدانية للشركات».
 - [برنامج إدارة مناديب المبيعات الميدانية في السعودية](https://fieldsa.net/blog/field-sales-software-sa/): answers «نظام مبيعات ميدانية للشركات». فاتورة وسند قبض من جوال المندوب ومخزون سيارته وتتبع زياراته لحظيا
+- [Van Sales Software for Saudi Arabia: Offline + ZATCA QR](https://fieldsa.net/en/blog/van-sales-software-saudi/): answers «van sales software Saudi Arabia».
 - [Van Sales App in Saudi Arabia](https://fieldsa.net/en/blog/van-sales-app-sa/): answers «van sales software Saudi Arabia». A van sales app turns the rep's vehicle into both a mobile warehouse and a point of sale: the rep sees what is on board, sells it, prints the invoice on a thermal printer, and the item leaves the van's balance immediately.
+- [Sales Rep Tracking App for Saudi Arabia: Arabic + ZATCA QR](https://fieldsa.net/en/blog/sales-rep-tracking-saudi/): answers «sales rep tracking Saudi Arabia».
 - [GPS Rep Tracking in Saudi Arabia](https://fieldsa.net/en/blog/gps-rep-tracking-sa/): answers «sales rep tracking Saudi Arabia». GPS rep tracking is not surveillance; it ties each visit and invoice to a place and a time.
+- [Distributor Management System in Saudi Arabia (DMS)](https://fieldsa.net/en/blog/dms-saudi-arabia/): answers «DMS Saudi Arabia». Global DMS suites assume big-enterprise budgets and English-speaking field teams. Saudi distribution runs on Arabic-speaking reps, cash vans and ZATCA e-invoicing. Here is what a DMS looks like when it is built for that reality.
 - [Distributor Management System (DMS) Software in Saudi Arabia](https://fieldsa.net/en/blog/distribution-management-system-sa/): answers «DMS Saudi Arabia». A distributor management system (DMS) connects warehouse, van and outlet in one chain: stock is loaded onto the van, the rep sells from it and issues the invoice, and at day's end the dashboard shows what remains per item against what was loaded and sold.
 - [برنامج تحصيل المناديب والذمم والمديونيات في السعودية](https://fieldsa.net/blog/collection-receivables-sa/): سند قبض من جوال المندوب مربوط بالفاتورة وتنبيه فوري عند تجاوز حد الائتمان
 - [E-Invoicing & Tax Compliance in Saudi Arabia](https://fieldsa.net/en/blog/einvoicing-compliance-sa/): E-invoicing means issuing the invoice in a structured digital format that systems can read, rather than a hand-written slip.
@@ -191,6 +199,10 @@ Key facts:
 - [دمج نظام المبيعات الميدانية مع المحاسبة و ERP](https://fieldsa.net/blog/erp-accounting-integration/): لماذا يجب أن يتكامل نظام المبيعات الميدانية مع المحاسبة و ERP؟ لمنع الإدخال المزدوج، وتوحيد المخزون والذمم، وإغلاق دفاتر أسرع وأدق.
   English: [Integrating Field Sales with Accounting & ERP](https://fieldsa.net/en/blog/erp-accounting-integration/)
 - [أمان وعزل بيانات الشركات في أنظمة SaaS متعدّدة المستأجرين](https://fieldsa.net/blog/multitenant-data-security/): كيف تحمي أنظمة SaaS متعدّدة المستأجرين بيانات كل شركة بعزل تام: فصل البيانات، الصلاحيات، والتشفير — لثقة كاملة في نظام مبيعاتك السحابي.
+
+## Original research
+
+- [برامج إدارة المناديب 2026: تقرير سوق من مسح 123 مورّداً](https://fieldsa.net/blog/field-sales-software-market-report-2026/): Arabic market survey of field sales software vendors: how many publish prices, per-company versus per-user pricing, e-invoicing readiness and the survey method.
 
 ## Optional
 

@@ -16,11 +16,21 @@
  *    «ندعم ربط المرحلة الثانية مع منصة فاتورة» بلا اعتماد ولا موعد، وأسعار CMS وحدها (299/399/599
  *    حتى 5/10/20 مندوباً) ولا سعر سنوي، وقيد الاتصال للمفعّل لهم بجوار أي وعد «دون اتصال».
  *  - بند فيه سعر لا يُطبَّق إن لم تطابق أسعارُه باقات المسودّة نفسها (لو غيّر المالك الأسعار بعد كتابته).
+ *  - لا مصطلح «المرحلة الثانية» في بند وصف (description): prerender يكتب الوصف في كتلة Article تتلوه
+ *    datePublished مباشرة، فتقع السنة في نافذة حارس الموعد (zatca-phase2-dated) ويفشل verify-claims — القاعدة
+ *    نفسها في catalog.mjs. جملة الربط في متن المقال (أول بناء بالطبقة العامة كشف ذلك في ٤ أوصاف).
  *
  * خارج القائمة عمداً: الذكر التعليمي للمرحلة الأولى («ما الفرق بين المرحلة الأولى والثانية؟»)، ومعادلة
  * العهدة في القاموس، وبقاء مقال المقارنة ذي الاسم (قرار المالك — هنا تُحذف منه «المرحلة الأولى» فقط).
  * بعد تطبيق القائمة كاملة لا يبقى في CMS ما تلتقطه قاعدة zatca-phase2-stale-denial (قِيس على اللقطة)،
  * فيُقلب PHASE2_CMS_CLEANED بعد الحفظ والبناء (docs/owner-actions.md §٨).
+ *
+ * الطبقة العامة (publicCmsContent أدناه، ٢٦ أكتوبر ٢٠٢٦): ما دام الزر لم يُضغط كان ChatGPT يقتبس النفي القديم
+ * من المقالات الحيّة. فالقائمة نفسها تُطبَّق **على المنشور وحده** دون كتابة على CMS: وقت البناء على المحتوى
+ * المجلوب (scripts/cms-content.mjs ← prerender وgen-llms وgen-sitemap)، ووقت العرض في صفحات الموقع العامة
+ * (src/content/publicSiteContent.ts) كي لا يختلف ما يرسمه React عن HTML المُصيَّر. المحرّران (SiteContentEditor
+ * وProfileEditorPanel) يقرآن الخام، والمالك يطبّق الزر ويحفظ بنفسه؛ بعد الحفظ تصير البنود «مطبَّقة» فلا تفعل
+ * الطبقة شيئاً. لذا هذا الملف بلا استيرادات (تحوّله السكربتات بـesbuild transformSync).
  */
 
 export type CmsFixGroup = 'phase2' | 'offline' | 'price' | 'credit';
@@ -92,7 +102,7 @@ export const CMS_FIXES: CmsFix[] = [
   {
     id: 'rep-tracking-en-desc', group: 'phase2', path: blog('sales-rep-tracking-saudi', 'en.description'),
     from: 'road-matched routes, and ZATCA Phase-1 QR invoices from the rep phone — offline included.',
-    to: `road-matched routes and QR tax invoices from the rep phone. ${P2_EN}`,
+    to: 'road-matched routes and QR tax invoices from the rep phone.',
   },
   {
     id: 'rep-tracking-en-table', group: 'phase2', path: blog('sales-rep-tracking-saudi', 'en.contentHtml'),
@@ -124,7 +134,7 @@ export const CMS_FIXES: CmsFix[] = [
   {
     id: 'van-sales-en-desc', group: 'phase2', path: blog('van-sales-software-saudi', 'en.description'),
     from: 'offline invoicing with Phase-1 QR codes, Bluetooth thermal printing, per-item van stock reconciliation, and an Arabic-first rep app.',
-    to: `QR invoicing from the rep phone, Bluetooth thermal printing, per-item van stock reconciliation and an Arabic-first rep app. ${P2_EN}`,
+    to: 'QR invoicing from the rep phone, Bluetooth thermal printing, per-item van stock reconciliation and an Arabic-first rep app.',
   },
   {
     id: 'van-sales-en-intro', group: 'phase2', path: blog('van-sales-software-saudi', 'en.contentHtml'),
@@ -156,7 +166,7 @@ export const CMS_FIXES: CmsFix[] = [
   {
     id: 'dms-en-desc', group: 'phase2', path: blog('dms-saudi-arabia', 'en.description'),
     from: 'offline Phase-1 QR invoicing,',
-    to: 'QR invoicing with Phase 2 integration with ZATCA’s Fatoora platform,',
+    to: 'QR tax invoicing,',
   },
   {
     id: 'dms-en-excerpt', group: 'phase2', path: blog('dms-saudi-arabia', 'en.excerpt'),
@@ -198,7 +208,7 @@ export const CMS_FIXES: CmsFix[] = [
   {
     id: 'zatca-reps-desc', group: 'phase2', path: blog('zatca-invoicing-for-field-reps', 'description'),
     from: 'كيف يُصدر المندوب فاتورة مبسّطة برمز QR وفق المرحلة الأولى من جواله — أوف-لاين وبطباعة حرارية، مع حدود صريحة لما هو غير مبنيّ.',
-    to: `كيف يُصدر المندوب فاتورة مبسّطة برمز QR من جواله بطباعة حرارية، ونحن ${P2}.`,
+    to: 'كيف يُصدر المندوب فاتورة مبسّطة برمز QR من جواله بطباعة حرارية، ومتى يحتاج اتصالاً لحظة الإصدار.',
   },
   {
     id: 'zatca-reps-keywords', group: 'phase2', path: blog('zatca-invoicing-for-field-reps', 'keywords'),
@@ -223,7 +233,7 @@ export const CMS_FIXES: CmsFix[] = [
   {
     id: 'zatca-reps-en-desc', group: 'phase2', path: blog('zatca-invoicing-for-field-reps', 'en.description'),
     from: 'How field reps issue simplified Phase-1 (Generation) QR invoices from a phone — offline, thermally printed at the customer — and what is honestly not built (Phase 2).',
-    to: `How field reps issue simplified QR tax invoices from a phone, thermally printed at the customer. ${P2_EN}`,
+    to: 'How field reps issue simplified QR tax invoices from a phone, thermally printed at the customer, and when a connection is needed at the moment of issue.',
   },
   {
     id: 'zatca-reps-en-excerpt', group: 'phase2', path: blog('zatca-invoicing-for-field-reps', 'en.excerpt'),
@@ -815,4 +825,74 @@ export function applyCmsFixes<T>(content: T, fixes: CmsFix[] = CMS_FIXES): { val
     if (loc) loc.holder[loc.key] = text;
   }
   return { value, results, applied: results.filter((r) => r.status === 'applied').length };
+}
+
+// ── الطبقة العامة: ما يُنشر للزاحف والزائر ─────────────────────────────────────
+
+/**
+ * تاريخ نشر القائمة على الموقع العام بالطبقة أدناه — **ثابت لا «اليوم»**: يصير lastmod المقال في الخريطة
+ * وdateModified في Article لكل مقال يحمل نصّ القائمة. يُرفع يدوياً مع تعديل جوهري للقائمة نفسها
+ * (بند جديد أو نص جديد) لا مع كل بناء، وإلا تجدّدت التواريخ بلا تغيير فيكفّ جوجل عن الوثوق بها.
+ */
+export const CMS_FIXES_VERSION = '2026-10-26';
+
+export interface PublicCmsPost {
+  slug: string;
+  /** لغات المقال التي يحمل نصُّها بنود القائمة */
+  langs: ('ar' | 'en')[];
+  /** true: غيّرت الطبقة نصّه الآن (CMS ما زال قديماً) · false: النص المصحَّح محفوظ في CMS من زرّ المحرّر */
+  applied: boolean;
+}
+
+export interface PublicCmsFixes<T> {
+  value: T;
+  results: CmsFixResult[];
+  applied: number;
+  /** المقالات التي يحمل نصّها المنشور بنود القائمة (مطبَّقة الآن أو محفوظة سلفاً) — وقد خُتم تاريخ تعديلها */
+  posts: PublicCmsPost[];
+  /** حقول الرئيسية العربية (faq · features): touched إن حملت بنداً، وapplied إن غيّرتها الطبقة الآن */
+  home: { touched: boolean; applied: boolean };
+}
+
+/** «blog[slug=x].en.contentHtml» ← { slug: x, lang: 'en' }؛ وغير المدوّنة null */
+function postOfPath(path: string): { slug: string; lang: 'ar' | 'en' } | null {
+  const m = path.match(/^blog\[slug=([^\]]+)\]\.(en\.)?/);
+  return m ? { slug: m[1], lang: m[2] ? 'en' : 'ar' } : null;
+}
+
+/**
+ * المحتوى العام كما يُنشر: القائمة مطبَّقة على **نسخة** (الأصل لا يُمسّ)، وكل مقال يحمل نصّها — طبّقته الطبقة
+ * الآن أو حفظه المالك من الزر — يُختم modified فيه بـCMS_FIXES_VERSION ما لم يكن أحدث. ختم «المحفوظ سلفاً»
+ * مقصود: النص المنشور تغيّر يوم نُشرت الطبقة لا يوم الحفظ (الحفظ لا يغيّر ما يراه الزاحف)، وCMS لا يحمل
+ * updatedAt، فلولا الختم لعاد lastmod بعد الحفظ إلى تاريخ المقال القديم.
+ * التاريخ على مستوى المقال (الخريطة وArticle يقرآنه للّغتين): كل مقال فيه بند إنجليزي فيه بند عربي أيضاً
+ * (قِيس على CMS الحيّ في ٢٦ أكتوبر)، والمقالات العربية المصحّحة وحدها بلا نسخة إنجليزية.
+ * لا يستعملها المحرّران: المالك يحرّر CMS الخام (cmsFixes.test.ts يحرس ذلك).
+ */
+export function publicCmsContent<T>(content: T, fixes: CmsFix[] = CMS_FIXES): PublicCmsFixes<T> {
+  if (!content || typeof content !== 'object') return { value: content, results: [], applied: 0, posts: [], home: { touched: false, applied: false } };
+  const { value, results, applied } = applyCmsFixes(content, fixes);
+  const posts = new Map<string, PublicCmsPost>();
+  const home = { touched: false, applied: false };
+  for (const r of results) {
+    if (r.status !== 'applied' && r.status !== 'already') continue;
+    const at = postOfPath(r.fix.path);
+    if (!at) {
+      home.touched = true;
+      if (r.status === 'applied') home.applied = true;
+      continue;
+    }
+    const p = posts.get(at.slug) ?? { slug: at.slug, langs: [], applied: false };
+    if (!p.langs.includes(at.lang)) p.langs.push(at.lang);
+    if (r.status === 'applied') p.applied = true;
+    posts.set(at.slug, p);
+  }
+  const blog = (value as { blog?: unknown }).blog;
+  if (!posts.size || !Array.isArray(blog)) return { value, results, applied, posts: [...posts.values()], home };
+  const stamp = (d: unknown) => (typeof d === 'string' && d.slice(0, 10) >= CMS_FIXES_VERSION ? d : CMS_FIXES_VERSION);
+  // نسخة سطحية للمصفوفة والمقالات المختومة وحدها: value قد يكون الأصل نفسه (كل البنود «مطبَّقة» سلفاً)
+  const stamped = blog.map((p) => (p && typeof p === 'object' && posts.has(String((p as { slug?: unknown }).slug))
+    ? { ...(p as Record<string, unknown>), modified: stamp((p as { modified?: unknown }).modified) }
+    : p));
+  return { value: { ...(value as object), blog: stamped } as T, results, applied, posts: [...posts.values()], home };
 }

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { siteContentApi } from '../api/client';
+import { PUBLIC_SITE_CONTENT_KEY, fetchPublicSiteContent } from '../content/publicSiteContent';
 import { LANDING_TEMPLATE } from '../landing/landingTemplate';
 import { defaultContent } from '../landing/defaultContent';
 import { defaultContentEn } from '../landing/defaultContentEn';
@@ -872,8 +872,8 @@ export default function LandingPage() {
   const { canonical, alternates } = seoUrls('/', lang);
 
   const { data } = useQuery({
-    queryKey: ['site-content'],
-    queryFn: async () => { const res = await siteContentApi.get(); return res.data.data as unknown; },
+    queryKey: PUBLIC_SITE_CONTENT_KEY,
+    queryFn: () => fetchPublicSiteContent(),
     staleTime: 60_000,
   });
   // sameAs لمحرّكات البحث — روابط الـCMS، والحقول الفارغة تسقط للحسابات الافتراضية (نفس سلوك بقية الصفحة)
