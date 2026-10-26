@@ -5,6 +5,8 @@
 export interface FeatureBlock { title: string; body: string }
 export interface FeatureFaq { q: string; a: string }
 export interface FeatureCompare { caption: string; head: string[]; rows: string[][] }
+/** قسم مواصفات تقنية ظاهر بعنوانه (H2) وبنود H3 — مفردات المشتري ومحرّكات الإجابة، مكتوبة من الكود */
+export interface FeatureSpecs { title: string; intro?: string; items: FeatureBlock[] }
 
 export interface Feature {
   id: string;
@@ -27,6 +29,10 @@ export interface Feature {
   faq: FeatureFaq[];
   /** جدول مقارنة ظاهر (اختياري) — الصف الأول عنوان كل صف */
   compare?: FeatureCompare;
+  /** قسم المواصفات التقنية (اختياري) — يُصيَّر بعد «كيف تعمل عندنا» */
+  specs?: FeatureSpecs;
+  /** آخر تعديل جوهري على نصّ الصفحة (YYYY-MM-DD) — lastmod في الخريطة إن كان أحدث من CONTENT_VERSION */
+  updated?: string;
   /** ملفات الكود التي تُثبت كل ما سبق (للمراجعة لا للعرض) */
   proof: string[];
   /** المقال المقترن (زوج هبوط + مقال) */

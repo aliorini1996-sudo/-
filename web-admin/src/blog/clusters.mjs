@@ -68,8 +68,10 @@ export const REPS_LANDING = { href: '/blog/sales-reps-management-system/', ancho
 export const CLUSTERS = {
   cashvan: {
     ar: {
-      landing: { href: '/blog/cash-van-software-guide/', anchor: 'برنامج كاش فان' },
-      feature: { href: featureHref('عهدة-سيارة-المندوب'), anchor: 'برنامج عهدة سيارة المندوب' },
+      // الهبوط صفحة الميزة الجامعة للدورة (٢٦ أكتوبر ٢٠٢٦) لا مقال CMS ‎cash-van-software-guide الذي ما زال يقول
+      // «وفق متطلبات المرحلة الأولى» — يعود هبوطاً بعد تصحيحه في CMS (docs/owner-actions.md §٨).
+      landing: { href: featureHref('برنامج-كاش-فان'), anchor: 'برنامج كاش فان' },
+      feature: { href: featureHref('عهدة-سيارة-المندوب'), anchor: 'برنامج عهدة سيارة المندوب ومطابقة المحمّل بالمباع' },
     },
     en: { landing: { href: '/en/blog/van-sales-app-sa/', anchor: 'Van sales app for Saudi Arabia' } },
   },

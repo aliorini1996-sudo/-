@@ -1,6 +1,6 @@
 import { Link, useParams, Navigate } from 'react-router-dom';
 import { BrandIcon } from '../components/BrandLogo';
-import { ArrowLeft, Check, MessageCircle, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Check, MessageCircle, AlertTriangle, Cpu } from 'lucide-react';
 import LanguageToggle from '../components/LanguageToggle';
 import { useLang, useDir } from '../i18n/lang';
 import { useSeo } from '../lib/seo';
@@ -109,6 +109,25 @@ export default function FeaturePage() {
                 ))}
               </div>
             </section>
+
+            {/* المواصفات التقنية — بالترتيب والنصّ نفسيهما في prerender.mjs (لا مصدر مزدوج) */}
+            {feature.specs && (
+              <section className="mt-8">
+                <h2 className="font-semibold text-lg">{feature.specs.title}</h2>
+                {feature.specs.intro && <p className="text-sm text-[#4a443a] mt-2 leading-relaxed">{feature.specs.intro}</p>}
+                <div className="mt-4 space-y-4">
+                  {feature.specs.items.map((s) => (
+                    <div key={s.title} className="bg-white border border-[#E8E0D2] rounded-xl p-4">
+                      <h3 className="font-semibold text-sm flex items-start gap-1.5">
+                        <Cpu size={14} className="text-[#E15A30] mt-0.5 shrink-0" />
+                        <span>{s.title}</span>
+                      </h3>
+                      <p className="text-xs text-[#6b6357] mt-2 leading-relaxed">{s.body}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
 
             {feature.compare && (
               <section className="mt-8 bg-white border border-[#E8E0D2] rounded-xl p-5 overflow-x-auto">

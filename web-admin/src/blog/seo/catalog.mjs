@@ -469,6 +469,27 @@ const S = {
      <p>FieldSales émet la facture simplifiée avec code QR et impression thermique dès la conclusion de la vente sur le terrain — idéale pour la vente directe du commercial. Choisissez le type selon le client et vérifiez toujours les exigences de ${c.tax.fr} auprès d'un conseiller local.</p>${p2}`);
   },
 
+  // المواصفات التقنية لربط المرحلة الثانية — للصفحة السعودية الإنجليزية وحدها (العربية في صفحة الميزة
+  // /مزايا/ربط-المرحلة-الثانية/ بقسمها «المواصفات التقنية للربط»). مفردات يسأل بها المشتري ومحرّك الإجابة
+  // («verify … UUID/CSID device onboarding» في قياس Google AI Mode، ٢٦ أكتوبر ٢٠٢٦)، وكل بند من backend/src/compliance/zatca:
+  // ubl.ts وmapInvoice.ts · crypto.ts وxades.ts · qr.ts · issueChain.ts · onboarding.ts وapi.ts · status.ts وclearance.ts وsweep.ts · notes.ts.
+  // ⚠️ جملة الربط بالصيغة المعلنة في أول فقرة، وأول ١٢٠ حرفاً بعدها بلا رقم ولا مهلة (zatca-phase2-dated)؛ ورموز
+  // الأنواع والخوارزميات (388 · SHA-256 · secp256k1) ليست مواعيد ولا أعداداً في الحارس.
+  zatcaspec: (c, L) => (c.code !== 'SA' ? '' : P(L, '',
+    `<h2>ZATCA Phase 2 technical specifications</h2>
+     <p>FieldSales supports ZATCA Phase 2 integration with the Fatoora platform, enabled per company once its admin completes the onboarding steps in company settings. This is what the FieldSales server does for every tax document of a company with the integration enabled, in the vocabulary of the ZATCA specifications:</p>
+     <ul>
+       <li><strong>Document format:</strong> every tax document is generated as UBL 2.1 XML with a UUID, using invoice type code 388 for invoices, 381 for credit notes and 383 for debit notes, each flagged as a standard (B2B) or simplified (B2C) invoice. The XML is stored exactly as it was sent, together with the cleared copy the platform returns for a standard invoice.</li>
+       <li><strong>Cryptographic stamp:</strong> the document is hashed with SHA-256 and signed with ECDSA on the secp256k1 curve inside an XAdES signature, using the private key and certificate of the company’s e-invoice generation solution (EGS) unit. The key is generated on our server and stored encrypted.</li>
+       <li><strong>QR code:</strong> TLV-encoded, then Base64, carrying the seller name, VAT number, timestamp, invoice total, VAT total, invoice hash, ECDSA signature and public key, plus the certificate signature on simplified invoices and their notes. A cleared standard invoice prints the QR code returned by the platform.</li>
+       <li><strong>Hash chain:</strong> each document carries an invoice counter value (ICV) and the previous invoice hash (PIH), allocated under a database lock on the EGS unit so concurrent invoices cannot break the chain.</li>
+       <li><strong>Onboarding and CSID:</strong> the company admin registers an EGS unit and pastes a one-time password (OTP) generated on the Fatoora portal. The system then creates the key pair and the CSR, obtains a compliance CSID, passes the compliance checks on sample invoices and notes, and receives the production CSID. A simulation environment is available before production, and the certificate is renewed with a new OTP.</li>
+       <li><strong>Clearance and reporting:</strong> a standard invoice between businesses is sent for clearance at the moment of issue and is not printed as a tax invoice before the platform replies. A simplified invoice is stamped and numbered by our server, printed at once and sent for reporting within the reporting window set by ZATCA.</li>
+       <li><strong>Credit and debit notes:</strong> after activation no tax document is cancelled. A return or full cancellation is issued as a credit note referencing the original invoice, limited per item to the quantity sold minus earlier returns, and a debit note adds to an invoice already issued.</li>
+       <li><strong>When the Fatoora platform is slow or down:</strong> simplified invoices keep printing and wait in the reporting queue. A standard invoice without a reply is replaced at the door by a delivery note marked as not a tax invoice, and the system retries automatically at growing intervals until the invoice is settled. A monitoring screen shows the company admin every document that is late, past the reporting window or needs action.</li>
+     </ul>
+     <p>For companies with the integration enabled, invoices (standard and simplified) and returns need a connection at the moment of issue, while receipts and visits still work offline. ZATCA does not certify software vendors, so we claim no certification from it.</p>`, '')),
+
   collect: (c, L) => P(L,
     `<h2>التحصيل وإدارة الذمم وكشوف الحساب</h2>
      <p>سجل كل دفعة نقد/تحويل/شيك واربطها بكشف حساب العميل ب${c.cur.ar} تلقائيا اضبط حد ائتمان لكل عميل واحصل على تنبيه فوري عند تجاوزه قبل أن يتحول الدين إلى متعثر </p>
@@ -1206,7 +1227,7 @@ const TOPICS = [
       ['factures structurées à code QR imprimées depuis le mobile et relevé par client.', 'factures structurées à code QR depuis le mobile.']),
     label: svc('الفوترة الإلكترونية والالتزام الضريبي', 'E-Invoicing & Tax Compliance', 'Facturation électronique et conformité'),
     kw: (c, L) => P(L, `الفوترة الإلكترونية ${c.ar}, فاتورة ضريبية ${c.ar}, ضريبة القيمة المضافة, ${c.tax.ar}`, `e-invoicing ${c.en}, tax invoice ${c.en}, VAT, ${c.tax.en}`, `facturation électronique ${c.fr}, TVA ${c.fr}, ${c.tax.fr}`),
-    secs: ['tax', 'invoice', 'invoicetypes', 'features', 'faq', 'cta'] },
+    secs: ['tax', 'invoice', 'invoicetypes', 'zatcaspec', 'features', 'faq', 'cta'] },
   { id: 'sales-rep-management', cs: true, rm: 6,
     question: svc('كيف تدير مناديب المبيعات وتتابعهم', 'How do you manage and monitor sales reps?', 'Comment gérer et suivre ses commerciaux ?'),
     desc: (c, L) => P(L,
@@ -1375,6 +1396,7 @@ const dateFor = (i) => new Date(BASE - (i % 120) * 86400000).toISOString().slice
  * 2026-10-04: روابط قانونية فقط (لا ‎-region‎ ولا صفحات مدموجة ولا O2C فرنسي) + روابط الميزات والقطاعات
  *             والنماذج + ربط المرحلة الثانية في صفحات السعودية + أسئلة عناوين لكتلة الإجابة وأوصاف خاصة
  *             + جدول معايير المقارنة بدل التتويج الذاتي + تصحيح الجواب المقلوب عن الجهاز و«نحو» و«البيع من السيارة» وأعمار الديون.
+ * (2026-10-26 لا رفع: تعديل مواضيع بعينها لا القالب كله — تاريخه في REVISED أدناه.)
  */
 export const CONTENT_VERSION = '2026-10-05';
 
@@ -1382,9 +1404,22 @@ export const CONTENT_VERSION = '2026-10-05';
 // 10 أغسطس: تقليل التكرار غيّر كل صفحات الدول (أولوية وغيرها)، فالثابتان متساويان الآن —
 // تغيير حقيقيّ واحد واسع، لا churn كاذب (الخريطة تُخبر جوجل بصدق أنّ ~600 صفحة تغيّرت فيُعيد زحفها).
 const PRIORITY_CONTENT_VERSION = '2026-10-05';
-export const modifiedOf = (date, cc) => {
+/**
+ * تعديلٌ جوهري على صفحات بعينها لا على القالب كله — فلا يُرفع CONTENT_VERSION لألف صفحة تعدّل منها عشرات
+ * (الخريطة الصادقة شرطُ أن يحترم جوجل lastmod). المفتاح slug صفحة واحدة أو معرّف موضوع (كل دوله).
+ * 2026-10-26: رابط صفحة «برنامج كاش فان» في صفحات المنصّة لمواضيع الكاش فان الثلاثة (العربية)،
+ *             وقسم المواصفات التقنية لربط المرحلة الثانية في einvoicing-compliance-sa (الإنجليزية).
+ */
+const REVISED = {
+  'van-sales-app': '2026-10-26',
+  'van-sales-best-practices': '2026-10-26',
+  'van-stock-inventory': '2026-10-26',
+  'einvoicing-compliance-sa': '2026-10-26',
+};
+export const modifiedOf = (date, cc, slug, topicId) => {
   const v = cc && PRIORITY_BRIEF[cc] ? PRIORITY_CONTENT_VERSION : CONTENT_VERSION;
-  return date > v ? date : v;
+  const r = (slug && REVISED[slug]) || (topicId && REVISED[topicId]) || '';
+  return [date, v, r].sort().pop();
 };
 
 // slug المقال: عام = id، خاص بدولة = id-cc
@@ -1469,9 +1504,10 @@ const AR_PLATFORM_LINKS = {
   'credit-limit-control': [['/مزايا/تحصيل-المناديب/', 'تحصيل المناديب وسند القبض المربوط بالفاتورة'], ['/نماذج/كشف-حساب-عميل/', 'نموذج كشف حساب عميل']],
   'distribution-customer-management': [['/نماذج/كشف-حساب-عميل/', 'نموذج كشف حساب عميل'], ['/نماذج/قائمة-أسعار-متدرجة/', 'نموذج قائمة أسعار متدرجة بالكمية']],
   'sales-rep-management': [['/مزايا/تحصيل-المناديب/', 'تحصيل المناديب وعهدة التحصيل'], ['/نماذج/تسوية-التحصيل-اليومية/', 'نموذج تسوية التحصيل النقدي اليومية']],
-  'van-stock-inventory': [['/مزايا/عهدة-سيارة-المندوب/', 'عهدة سيارة المندوب بالصنف'], ['/نماذج/عهدة-سيارة-المندوب/', 'نموذج عهدة مخزون سيارة المندوب']],
-  'van-sales-app': [['/مزايا/عهدة-سيارة-المندوب/', 'عهدة سيارة المندوب بالصنف']],
-  'van-sales-best-practices': [['/مزايا/عهدة-سيارة-المندوب/', 'عهدة سيارة المندوب بالصنف'], ['/نماذج/عهدة-سيارة-المندوب/', 'نموذج عهدة مخزون سيارة المندوب']],
+  // صفحة «برنامج كاش فان» (الدورة كاملة) أولاً في مواضيع الكاش فان، ثم عهدة السيارة تفصيلاً
+  'van-stock-inventory': [['/مزايا/عهدة-سيارة-المندوب/', 'عهدة سيارة المندوب بالصنف'], ['/مزايا/برنامج-كاش-فان/', 'برنامج كاش فان للمناديب: التحميل والبيع والتحصيل والمطابقة'], ['/نماذج/عهدة-سيارة-المندوب/', 'نموذج عهدة مخزون سيارة المندوب']],
+  'van-sales-app': [['/مزايا/برنامج-كاش-فان/', 'برنامج كاش فان للمناديب'], ['/مزايا/عهدة-سيارة-المندوب/', 'عهدة سيارة المندوب بالصنف']],
+  'van-sales-best-practices': [['/مزايا/برنامج-كاش-فان/', 'برنامج كاش فان للمناديب'], ['/مزايا/عهدة-سيارة-المندوب/', 'عهدة سيارة المندوب بالصنف'], ['/نماذج/عهدة-سيارة-المندوب/', 'نموذج عهدة مخزون سيارة المندوب']],
   'gps-rep-tracking': [['/مزايا/إثبات-زيارة-المندوب/', 'إثبات زيارة المندوب بالموقع والصور'], ['/نماذج/تقرير-زيارة-ميدانية/', 'نموذج تقرير زيارة ميدانية']],
   'retail-execution': [['/مزايا/إثبات-زيارة-المندوب/', 'إثبات زيارة المندوب بالموقع والصور']],
   'route-planning-sales': [['/نماذج/خطة-خط-سير-أسبوعية/', 'نموذج خطة خط سير أسبوعية']],
@@ -1574,7 +1610,7 @@ export function listArticles(L) {
   const out = [];
   for (const [slug, { topic, country, date }] of index()) {
     out.push({
-      slug, lang: L, date, modified: modifiedOf(date, topic.cs ? country.code : null), readMinutes: topic.rm,
+      slug, lang: L, date, modified: modifiedOf(date, topic.cs ? country.code : null, slug, topic.id), readMinutes: topic.rm,
       countryCode: topic.cs ? country.code : null,
       title: titleOf(topic, country, L),
       excerpt: excerptOf(topic, country, L),
@@ -1625,7 +1661,7 @@ export function getArticle(slug, L) {
   const contentHtml = `${answerBlock(topic, c, L)}\n${intro}\n${body}\n${cta(L)}\n${relatedLinks(topic, c, L)}`;
   return {
     slug, title: t, description: descOf(topic, c, L), keywords: topic.kw(c, L) + ', ' + EXTRA_KW(c, L),
-    excerpt: excerptOf(topic, c, L), contentHtml, date, modified: modifiedOf(date, topic.cs ? c.code : null), readMinutes: topic.rm,
+    excerpt: excerptOf(topic, c, L), contentHtml, date, modified: modifiedOf(date, topic.cs ? c.code : null, slug, topic.id), readMinutes: topic.rm,
     image: `${ORIGIN}/og/${slug}-${L}.jpg`, imagePath: `/og/${slug}-${L}.jpg`,
     faq: faqData(c, L, topic.id),
     howto: howToData(c, L),
@@ -1682,7 +1718,7 @@ export function buildCatalog() {
     // REGION ليست دولة — الصفحة الجامعة تُعامَل كعامّة (cc=null) في التقليم والخرائط
     const cc = topic.cs && country.code !== 'REGION' ? country.code : null;
     const canon = canonicalSlug(slug);
-    out.push({ slug, date, modified: modifiedOf(date, cc), cc, canonical: canon, isCanonical: canon === slug, trilingual: true, fr: cc ? FRANCOPHONE.has(cc) : false });
+    out.push({ slug, date, modified: modifiedOf(date, cc, slug, topic.id), cc, canonical: canon, isCanonical: canon === slug, trilingual: true, fr: cc ? FRANCOPHONE.has(cc) : false });
   }
   return out;
 }

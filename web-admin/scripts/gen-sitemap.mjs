@@ -183,9 +183,12 @@ async function main() {
   for (const t of TEMPLATES) {
     urls.push(urlEntry(ORIGIN + '/نماذج/' + t.slug, { freq: 'monthly', priority: '0.7' }));
   }
-  urls.push(urlEntry(ORIGIN + '/مزايا', { freq: 'monthly', priority: '0.7' }));
+  // lastmod صفحة الميزة = آخر تعديل جوهري لنصّها (ft.updated) إن كان أحدث من CONTENT_VERSION، والفهرس = أحدثها
+  // (ميزة جديدة تغيّر قائمته). لا «اليوم»: التاريخ مكتوب في features.mjs مع التعديل نفسه.
+  const featureMod = (ft) => [CONTENT_VERSION, ft.updated].filter(Boolean).sort().pop();
+  urls.push(urlEntry(ORIGIN + '/مزايا', { lastmod: FEATURES.map(featureMod).sort().pop(), freq: 'monthly', priority: '0.7' }));
   for (const ft of FEATURES) {
-    urls.push(urlEntry(ORIGIN + '/مزايا/' + ft.slug, { freq: 'monthly', priority: '0.8' }));
+    urls.push(urlEntry(ORIGIN + '/مزايا/' + ft.slug, { lastmod: featureMod(ft), freq: 'monthly', priority: '0.8' }));
   }
   urls.push(urlEntry(ORIGIN + '/قطاعات', { freq: 'monthly', priority: '0.7' }));
   for (const sec of SECTORS) {

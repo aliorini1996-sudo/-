@@ -867,11 +867,17 @@ ${REP_APP.faq.map((f) => `<h3>${esc(f.q)}</h3><p>${esc(f.a)}</p>`).join('\n')}
       : '';
     const otherHtml = FEATURES.filter((o) => o.id !== ft.id)
       .map((o) => `<li><a href="/مزايا/${o.slug}/">${esc(o.name)}</a></li>`).join('');
+    // قسم المواصفات التقنية (اختياري): H2 بعنوانه وبنود H3 — بالترتيب نفسه في FeaturePage.tsx
+    const sp = ft.specs;
+    const specsHtml = sp
+      ? `<h2>${esc(sp.title)}</h2>${sp.intro ? `<p>${esc(sp.intro)}</p>` : ''}${sp.items.map((s) => `<h3>${esc(s.title)}</h3><p>${esc(s.body)}</p>`).join('')}`
+      : '';
     const body = `<main>
 <h1>${esc(ft.h1)}</h1>
 <p>${esc(ft.pain)}</p>
 <h2>المشهد الذي تعالجه</h2><p>${esc(ft.scene)}</p>
 <h2>كيف تعمل عندنا</h2>${howHtml}
+${specsHtml}
 ${compareHtml}
 <h2>ما لا تفعله هذه الميزة</h2><ul>${limHtml}</ul>
 ${faqHtml}
@@ -902,7 +908,7 @@ ${alsoHtml ? `<h2>اقرأ أيضاً</h2><ul>${alsoHtml}</ul>` : ''}
   // فهرس المزايا
   writeRoute('/مزايا', buildPage({
     lang: 'ar', title: 'مزايا Field Sales للتوزيع الميداني وكيف تعمل فعلاً',
-    description: 'الفوترة بدون إنترنت، عهدة سيارة المندوب، الطباعة الحرارية ٥٨ مم، إثبات زيارة المندوب — كل ميزة وكيف تعمل وما لا تفعله بصراحة.',
+    description: 'برنامج كاش فان، الفوترة بدون إنترنت، عهدة سيارة المندوب، الطباعة الحرارية ٥٨ مم، إثبات زيارة المندوب — كل ميزة وكيف تعمل وما لا تفعله بصراحة.',
     canonical: canon(`${ORIGIN}/مزايا`), image: `${ORIGIN}/og-image.png`,
     bodyHtml: `<main><h1>مزايا المنصّة</h1><ul>${FEATURES.map((f2) => `<li><a href="/مزايا/${f2.slug}/">${esc(f2.name)}</a> — ${esc(f2.pain)}</li>`).join('')}</ul></main>`,
   }));
@@ -1028,6 +1034,7 @@ ${t.feat ? `<p>وللفهم الأعمق قبل الحساب: <a href="${t.feat[
     .slice(0, 12);
   const homeFeatures = FEATURES.filter((ft) => `/مزايا/${ft.slug}/` !== PHASE2_FEATURE_HREF);
   const HOME_FEATURE_ANCHOR = {
+    'cash-van': 'برنامج كاش فان للمناديب',
     'offline-invoicing': 'برنامج فواتير يعمل بدون إنترنت',
     'van-stock': 'برنامج عهدة سيارة المندوب',
     'thermal-printing': 'طباعة فاتورة من الجوال',
@@ -1062,7 +1069,7 @@ ${homeFaqHtml}
 <p>أدلّة الدول: ${homeCountries.map((c) => `<a href="/blog/field-sales-software-${c.code.toLowerCase()}/">${esc(c.ar)}</a>`).join(' · ')} · <a href="/blog/field-sales-software/">بقية الدول العربية</a></p>
 <p>كيف تعمل مزايانا: ${homeFeatures.map((ft) => `<a href="/مزايا/${ft.slug}/">${esc(HOME_FEATURE_ANCHOR[ft.id] || ft.name)}</a>`).join(' · ')} · <a href="/مزايا/">كل المزايا</a></p>
 <p>دلائل عملية: <a href="/blog/offline-invoicing-for-reps/">كيف تعمل الفوترة بدون إنترنت ومتى تحتاج اتصالاً</a> · <a href="/blog/rep-van-custody-management/">دورة عهدة السيارة اليومية: تحميل وبيع ومطابقة</a> · <a href="/blog/thermal-printing-field-invoices/">الطباعة الحرارية: أي طابعة وأي مقاس</a> · <a href="/blog/prevent-fake-visits-gps-spoofing/">كيف تكشف الزيارة الوهمية</a> · <a href="/blog/rep-visit-tracking-gps/">متابعة زيارات المناديب بالموقع والصور</a> · <a href="/blog/collection-receivables-sa/">تحصيل الذمم والمديونيات في السعودية</a> · <a href="/blog/mobile-receipt-vouchers/">سند قبض من الجوال</a> · <a href="/blog/field-sales-returns-management/">مرتجعات المبيعات الميدانية</a> · <a href="/blog/barcode-scanning-invoices/">مسح الباركود بالكاميرا</a> · <a href="/blog/sales-reps-permissions/">صلاحيات مناديب المبيعات</a> · <a href="/blog/distribution-reps-commissions/">عمولات مناديب التوزيع</a></p>
-<p>أدلّة متخصّصة: <a href="/blog/distributor-network-management-software/">برنامج إدارة الموزعين</a> · <a href="/blog/cash-van-software-guide/">برنامج كاش فان</a> · <a href="/blog/sales-reps-management-system/">نظام إدارة المناديب</a> · <a href="/blog/distribution-companies-management-system/">نظام إدارة شركات التوزيع</a> · <a href="/blog/field-sales-system-for-companies/">نظام مبيعات ميدانية للشركات</a> · <a href="/blog/field-sales-software-om/">برنامج مناديب التوزيع سلطنة عمان</a> · <a href="/blog/field-sales-software-market-report-2026/">تقرير سوق برامج المناديب 2026</a></p>
+<p>أدلّة متخصّصة: <a href="/blog/distributor-network-management-software/">برنامج إدارة الموزعين</a> · <a href="/مزايا/برنامج-كاش-فان/">برنامج كاش فان</a> · <a href="/blog/sales-reps-management-system/">نظام إدارة المناديب</a> · <a href="/blog/distribution-companies-management-system/">نظام إدارة شركات التوزيع</a> · <a href="/blog/field-sales-system-for-companies/">نظام مبيعات ميدانية للشركات</a> · <a href="/blog/field-sales-software-om/">برنامج مناديب التوزيع سلطنة عمان</a> · <a href="/blog/field-sales-software-market-report-2026/">تقرير سوق برامج المناديب 2026</a></p>
 </main>`;
   let rootHtml = template.replace(/<div id="root">\s*<\/div>/, `<div id="root"><div data-ssr>${homeAr}</div></div>`);
   // FAQPage الرئيسية داخل كتلة القالب (لا كتلة data-seo-page): LandingPage يستبدل كتلة الصفحة

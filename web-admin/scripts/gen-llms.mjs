@@ -292,14 +292,14 @@ async function main() {
 Last updated: ${UPDATED}
 
 Key facts:
-- Also known as: فيلد سيلز, Field Sales (fieldsa.net). Other products share the generic name “Field Sales”; this file describes only FieldSales at fieldsa.net.
+- Also known as: فيلد سيلز, Field Sales, Fieldsa (fieldsa.net). Other products share the generic name “Field Sales”; this file describes only FieldSales at fieldsa.net.
 - Product type: field sales, van sales (DSD) and sales rep management software (SaaS, multi-tenant).
 - Core features: tax invoices with a QR code and returns from the rep’s phone, receipt vouchers linked to the invoices they settle, customer balances and statements, van stock per item, visit proof with location and photos, routes drawn on roads, thermal printing, team permissions, product catalog and price tiers, ERP integration.
 - Markets: all ${COUNTRIES.length} Arab League countries, with country guides (currency, VAT rate, tax authority).
 - Languages: website in Arabic, English and French, plus Turkish and Chinese home pages. The apps are Arabic-first (right to left) and also run in English and French.
 - Pricing: ${PRICING_LINE} No setup fees. Free 10-day trial, no credit card; sign-up form: ${ORIGIN}/signup/
 - Rep app: runs in any smartphone browser and is on Google Play and the App Store; a thermal printer is optional.
-- Saudi e-invoicing: We support Phase 2 integration with ZATCA’s Fatoora platform, for companies in Saudi Arabia. ZATCA does not certify software vendors, so FieldSales claims no certification.
+- Saudi e-invoicing: We support Phase 2 integration with ZATCA’s Fatoora platform, for companies in Saudi Arabia: UBL 2.1 XML with a UUID, an ECDSA cryptographic stamp, a QR code, an ICV/PIH hash chain, clearance for standard and reporting for simplified invoices, and EGS onboarding with a CSID obtained through a Fatoora portal OTP. ZATCA does not certify software vendors, so FieldSales claims no certification.
 - Working offline: receipts, visits and new customers work without a connection and sync automatically without duplicates, and companies without the integration also issue invoices offline. Saudi companies with Phase 2 integration enabled need a connection at the moment of issue for invoices (standard and simplified) and returns.
 
 ## Product & pricing

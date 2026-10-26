@@ -1,4 +1,4 @@
-# FieldSales (فيلد سيلز): full index of canonical pages (updated 2026-10-05)
+# FieldSales (فيلد سيلز): full index of canonical pages (updated 2026-10-26)
 
 > Every canonical page on fieldsa.net for distribution companies in Arab markets: product pages, generated guides in Arabic, English and French with a direct answer each, and blog posts. Curated overview: https://fieldsa.net/llms.txt
 
@@ -8,6 +8,7 @@ Pricing: Per company, not per user: 299 SAR/month (up to 5 reps), 399 SAR/month 
 
 - [Pricing](https://fieldsa.net/pricing/) · [English](https://fieldsa.net/en/pricing/) · [French](https://fieldsa.net/fr/pricing/)
 - [Rep app](https://fieldsa.net/rep-app/)
+- [برنامج كاش فان](https://fieldsa.net/مزايا/برنامج-كاش-فان/): برنامج كاش فان للمناديب في السعودية
 - [الفوترة بدون إنترنت](https://fieldsa.net/مزايا/فوترة-بدون-إنترنت/): برنامج فواتير يعمل بدون إنترنت للمناديب
 - [عهدة سيارة المندوب](https://fieldsa.net/مزايا/عهدة-سيارة-المندوب/): برنامج عهدة سيارة المندوب ومطابقة المحمّل بالمباع
 - [الطباعة الحرارية من الجوال](https://fieldsa.net/مزايا/طباعة-فاتورة-من-الجوال/): فاتورة ضريبية من جوال المندوب على طابعة حرارية ٥٨ مم

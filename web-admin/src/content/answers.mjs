@@ -24,7 +24,7 @@
  * تاريخ آخر تعديل للنصوص المكتوبة يدوياً في llms.txt: الأجوبة هنا والحقائق الثابتة في scripts/gen-llms.mjs.
  * يدخل في «Last updated» مع CONTENT_VERSION وتواريخ المقالات، فارفعه عند تعديل أي منها.
  */
-export const TEXT_VERSION = '2026-10-05';
+export const TEXT_VERSION = '2026-10-26';
 
 /** جملة التعريف المستقلة: ما يُقتبس جواباً عن «ما هي فيلد سيلز؟» */
 export const WHAT_IS = {
@@ -82,7 +82,8 @@ export function answersFor(lang, { tiers = [] } = {}) {
       },
       {
         q: 'هل تدعم فيلد سيلز ربط المرحلة الثانية مع منصة فاتورة؟',
-        a: 'ندعم ربط المرحلة الثانية مع منصة فاتورة للشركات في السعودية. يُجري مدير الشركة خطوات الربط من إعدادات الشركة، ثم يختم الخادم كل فاتورة ويرقّمها ويرسلها إلى المنصة، وتتابع الإدارة حالة كل مستند ضريبي من شاشة المتابعة. والهيئة لا تعتمد مزوّدي البرمجيات ولا تصادق عليهم، لذلك لا ندّعي اعتماداً منها ولا شراكة رسمية معها.',
+        // المفردات التقنية من backend/src/compliance/zatca (ubl.ts · crypto.ts · qr.ts · issueChain.ts · onboarding.ts · status.ts)
+        a: 'ندعم ربط المرحلة الثانية مع منصة فاتورة للشركات في السعودية. يصدر كل مستند ضريبي ملف XML بصيغة UBL 2.1 بمعرّف UUID وختم تشفيري بتوقيع ECDSA ورمز QR، ضمن سلسلة بعدّاد ICV وتجزئة المستند السابق PIH. وتمرّ الفاتورة القياسية بالاعتماد (Clearance) وتُبلَّغ المبسّطة (Reporting)، بعد أن يسجّل مدير الشركة وحدة الفوترة (EGS) ويحصل على شهادة CSID برمز OTP من بوابة فاتورة. والهيئة لا تعتمد مزوّدي البرمجيات، فلا ندّعي اعتماداً منها.',
         href: '/مزايا/ربط-المرحلة-الثانية/', label: 'كيف يعمل الربط وما حدوده',
       },
       {
@@ -98,7 +99,7 @@ export function answersFor(lang, { tiers = [] } = {}) {
       {
         q: 'ما هو الكاش فان؟',
         a: 'الكاش فان أسلوب توزيع يحمّل فيه المندوب البضاعة في سيارته، فيبيع ويسلّم ويصدر الفاتورة ويحصّل القيمة في الزيارة نفسها، بدل أخذ الطلب اليوم وتسليمه لاحقاً من المستودع كما في البيع المسبق. يناسب السلع سريعة الحركة كالمواد الغذائية والمشروبات، ويحتاج مطابقة يومية لعهدة السيارة والنقد حتى لا تتسرّب البضاعة أو المال.',
-        href: '/blog/van-sales-app/', label: 'دليل تطبيق الكاش فان',
+        href: '/مزايا/برنامج-كاش-فان/', label: 'برنامج كاش فان للمناديب في السعودية',
       },
       {
         q: 'ما هو نظام إدارة الموزعين DMS؟',
@@ -117,7 +118,7 @@ export function answersFor(lang, { tiers = [] } = {}) {
       },
       {
         q: 'كيف تدير عهدة سيارة المندوب؟',
-        a: 'عهدة المندوب هي البضاعة المسجّلة باسمه في سيارته، وتُدار بثلاث حركات موثّقة هي التحميل من المستودع إلى السيارة والتنزيل منها إلى المستودع والتسوية بسبب مكتوب. وفي فيلد سيلز يُحسب المتبقّي من كل صنف في كل سيارة لحظياً على أنه المحمّل ناقص المباع، وتقارنه أنت آخر اليوم بالعدّ الفعلي وتسجّل أي فرق تسويةً في يومه.',
+        a: 'عهدة المندوب هي البضاعة المسجّلة باسمه في سيارته، وتُدار بحركات موثّقة أهمها التحميل من المستودع إلى السيارة والتنزيل منها إلى المستودع والتسوية بسبب مكتوب، إضافة إلى إزالة التالف والمنتهي من رصيدهما المستقل. وفي فيلد سيلز يُحسب المتبقّي من كل صنف في كل سيارة لحظياً على أنه المحمّل ناقص المباع، وتقارنه أنت آخر اليوم بالعدّ الفعلي وتسجّل أي فرق تسويةً في يومه.',
         href: '/مزايا/عهدة-سيارة-المندوب/', label: 'عهدة سيارة المندوب',
       },
     ];
@@ -129,8 +130,8 @@ export function answersFor(lang, { tiers = [] } = {}) {
       href: '/en/', label: 'FieldSales home page',
     },
     {
-      q: 'Does FieldSales support ZATCA Phase 2 integration?',
-      a: 'We support Phase 2 integration with ZATCA’s Fatoora platform for companies in Saudi Arabia. The company admin runs the integration steps from company settings, then the server stamps, numbers and sends each invoice to the platform, and managers track every tax document on a monitoring screen. ZATCA does not certify software vendors, so we claim no certification.',
+      q: 'Does FieldSales support ZATCA Phase 2?',
+      a: 'FieldSales supports ZATCA Phase 2 integration with the Fatoora platform for companies in Saudi Arabia. Every tax document is UBL 2.1 XML with a UUID, an ECDSA cryptographic stamp, a QR code and an ICV/PIH hash chain. Standard invoices go through clearance and simplified ones through reporting, after the admin onboards an EGS unit and gets a CSID with a Fatoora portal OTP. ZATCA does not certify software vendors.',
       href: '/en/blog/einvoicing-compliance-sa/', label: 'E-invoicing in Saudi Arabia',
     },
     {
