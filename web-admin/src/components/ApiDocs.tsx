@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { Download, KeyRound, RefreshCw, ShieldAlert, Gauge, AlertTriangle, ListTree, Code2, MapPin, Wallet } from 'lucide-react';
+import { Download, KeyRound, RefreshCw, ShieldAlert, Gauge, AlertTriangle, ListTree, Code2, MapPin, Wallet, Warehouse } from 'lucide-react';
 import { useTr } from '../i18n/strings';
 import {
   API_BASE_URL, API_DENIED, API_SYNC_RESOURCES, SYNC_MODE_DOC, CURL_EXAMPLE, JS_SYNC_EXAMPLE, PY_SYNC_EXAMPLE, DELETE_RECONCILE_NOTE,
@@ -95,11 +95,12 @@ function Guide({ guide }: { guide: DocGuide }) {
   );
 }
 
-/** أرقام أقسام الدليلين بعد أمثلة الكود (٤) — والفهرس بعدهما */
+/** أرقام أقسام أدلّة الربط بعد أمثلة الكود (٤) — والفهرس بعدها */
 const GUIDE_NUMBERS = ['٥', '٦', '٧', '٨'];
 const GUIDE_ICONS: Record<string, React.ReactNode> = {
   'locations-guide': <MapPin size={18} className="text-[#E15A30]" />,
   'payment-methods-guide': <Wallet size={18} className="text-[#E15A30]" />,
+  'warehouse-guide': <Warehouse size={18} className="text-[#E15A30]" />,
 };
 
 /**

@@ -112,9 +112,13 @@ test('كل مسار في المستند مركَّبٌ في الخادم بطر�
  */
 const COVERED_ROUTERS = [
   'locations', 'paymentMethodsConfig', 'printSettings', 'attendanceAdmin', 'teams', 'reports', 'invoices', 'salesReps', 'vanStock', 'warehouse', 'receipts',
+  'repStockRequests',
 ];
 const NOT_DOCUMENTED: Readonly<Record<string, string>> = {
   'PUT /company/teams/:id/supervisors': 'يرفض مفاتيح API دائماً بـ403 (API_KEY_FORBIDDEN بعد فحص صلاحيتي الإعدادات والمستخدمين) — نطاق مستخدمي الشركة من اللوحة وحدها، ومذكورٌ في مقدمة مجموعة الفرق',
+  'GET /rep-stock-requests/mine': 'للمندوب وحده (repOnly) والمفتاح مستخدم شركة فيُرفض 403 — رفع الطلب من تطبيق المندوب، ومذكورٌ في GET /rep-stock-requests',
+  'PUT /rep-stock-requests/mine': 'للمندوب وحده (repOnly) والمفتاح مستخدم شركة فيُرفض 403',
+  'DELETE /rep-stock-requests/mine': 'للمندوب وحده (repOnly) والمفتاح مستخدم شركة فيُرفض 403',
 };
 
 test('كل مسار في موجّهات الميزات الحديثة موثّقٌ في المستند أو مستثنى بسبب مكتوب', () => {
@@ -202,8 +206,8 @@ function backendSources(dir: string): string {
 const BACKEND_SRC = backendSources(BACKEND);
 const CODE_RE = /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g;
 
-test('دليلا الربط: صفحة اللوكيشن وصفحة طرق الدفع، بخطوات مرقّمة لكلٍّ منهما', () => {
-  assert.deepEqual(API_DOC_GUIDES.map((g) => g.title), ['ربط صفحة اللوكيشن', 'ربط صفحة طرق الدفع']);
+test('أدلّة الربط: صفحة اللوكيشن وصفحة طرق الدفع وصفحة مخزون الشركة، بخطوات مرقّمة لكلٍّ منها', () => {
+  assert.deepEqual(API_DOC_GUIDES.map((g) => g.title), ['ربط صفحة اللوكيشن', 'ربط صفحة طرق الدفع', 'ربط صفحة مخزون الشركة']);
   for (const g of API_DOC_GUIDES) {
     assert.ok(g.intro.length > 50, g.key);
     assert.ok(g.steps.length >= 5, `${g.key}: خطوات قليلة`);
@@ -211,7 +215,8 @@ test('دليلا الربط: صفحة اللوكيشن وصفحة طرق الد�
   }
   // مسارات الصفحتين الأساسية حاضرة في الخطوات
   const stepPaths = new Set(API_DOC_GUIDES.flatMap((g) => g.steps.filter((s) => s.path).map((s) => `${s.method} ${s.path}`)));
-  for (const k of ['GET /locations', 'PUT /locations/reps/:salesRepId', 'GET /locations/summary', 'GET /company/payment-methods', 'PUT /company/payment-methods', 'POST /receipts', 'GET /reports/payment-methods']) {
+  for (const k of ['GET /locations', 'PUT /locations/reps/:salesRepId', 'GET /locations/summary', 'GET /company/payment-methods', 'PUT /company/payment-methods', 'POST /receipts', 'GET /reports/payment-methods',
+    'GET /warehouse', 'POST /warehouse/entries', 'GET /warehouse/entries', 'POST /van-stock/loads', 'GET /rep-stock-requests', 'PUT /rep-stock-requests/:id', 'POST /rep-stock-requests/send']) {
     assert.ok(stepPaths.has(k), `الدليل لا يذكر ${k}`);
   }
 });
