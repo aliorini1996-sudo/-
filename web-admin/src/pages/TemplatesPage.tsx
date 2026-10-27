@@ -163,7 +163,7 @@ export default function TemplatesPage() {
                 الفواتير القياسية والمبسطة والمرتجعات اتصالا لحظة الإصدار
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
-                <Link to={slash(pathForLocale('/pricing', lang))} className="text-sm border border-[#E8E0D2] rounded-lg px-3 py-2">شاهد الأسعار</Link>
+                <Link to={`${slash(pathForLocale('/subscribe-request', lang))}?type=quote`} className="text-sm border border-[#E8E0D2] rounded-lg px-3 py-2">اطلب عرض سعر</Link>
                 <a href={waHref(arPath, { lang })} target="_blank" rel="noopener noreferrer"
                    onClick={() => trackWhatsApp(refFromPath(arPath))}
                    className="inline-flex items-center gap-2 bg-[#25D366] text-white rounded-lg px-3 py-2 text-sm">

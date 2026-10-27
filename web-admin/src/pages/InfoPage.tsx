@@ -17,21 +17,15 @@ import { seoUrls, pathForLocale } from '../i18n/locale';
 import { optOut, optIn, isOptedOut, isExplicitOptOut } from '../lib/attribution';
 // @ts-ignore -- لا ملف تعريف للوحدة بعد (clusters.d.mts)؛ الأنواع مثبّتة بالتحويل أدناه
 import * as clustersMod from '../blog/clusters.mjs';
-// @ts-ignore -- لا ملف تعريف للوحدة بعد (extractFaq.d.mts)؛ الأنواع مثبّتة بالتحويل أدناه
-import * as faqMod from '../blog/extractFaq.mjs';
 
-type PricePlan = { name?: string; price?: string; limit?: string; features?: string[] };
 type AboutSection = { h2: string; paras?: string[]; items?: string[]; links?: { href: string; label: string }[] };
 /**
  * كتل «عن المنصة» (P7): المدينة وسنة التأسيس والمؤسس وما تفعله المنصة والتسعير وجملة الربط وما لا ندّعيه
- * والحسابات الرسمية — من clusters.mjs، المصدر نفسه الذي يصيّره prerender.mjs. والأسعار من CMS بالصيغة نفسها.
+ * والحسابات الرسمية — من clusters.mjs، المصدر نفسه الذي يصيّره prerender.mjs. بلا أرقام أسعار (السعر بعرض سعر).
  */
-const { aboutContent, enPriceLine, frPriceLine } = clustersMod as {
-  aboutContent: (lang: string, opts?: { priceLine?: string }) => null | { title: string; description: string; sections: AboutSection[] };
-  enPriceLine: (plans: PricePlan[]) => string;
-  frPriceLine: (plans: PricePlan[]) => string;
+const { aboutContent } = clustersMod as {
+  aboutContent: (lang: string) => null | { title: string; description: string; sections: AboutSection[] };
 };
-const { pricingSummaries } = faqMod as { pricingSummaries: (plans: PricePlan[]) => { ar: string; has: boolean } };
 
 type PageKey = 'about' | 'terms' | 'serviceAgreement' | 'privacy';
 type SeoText = { title: string; description: string; keywords: string };
@@ -218,10 +212,8 @@ export default function InfoPage({ pageKey }: { pageKey: PageKey }) {
     : lang === 'zh' ? defaultContentZh.pages[pageKey]
     : arPage;
 
-  // عن المنصة: العنوان والوصف والكتل من clusters.mjs (مطابقة للمُصيَّر)، والأسعار من باقات CMS نفسها
-  const plans = ((data as { pricing?: { plans?: PricePlan[] } } | null | undefined)?.pricing?.plans) || [];
-  const priceLine = lang === 'en' ? enPriceLine(plans) : lang === 'fr' ? frPriceLine(plans) : lang === 'ar' && pricingSummaries(plans).has ? pricingSummaries(plans).ar : '';
-  const about = pageKey === 'about' ? aboutContent(lang, { priceLine }) : null;
+  // عن المنصة: العنوان والوصف والكتل من clusters.mjs (مطابقة للمُصيَّر)
+  const about = pageKey === 'about' ? aboutContent(lang) : null;
 
   const seo = PAGE_SEO[pageKey];
   const base = lang === 'en' || lang === 'tr' || lang === 'zh' ? seo.en : lang === 'fr' ? seo.fr : seo.ar; // tr/zh: ميتا إنجليزية مؤقتاً

@@ -708,5 +708,8 @@ test('صفحة الأسعار: لا <a> يوجّه إلى /signup — التسج
   const reload = anchors.filter((a) => /signupPath|['"`]\/signup/.test(a));
   assert.deepEqual(reload, [], `رابط تسجيل يعيد تحميل الصفحة: ${reload.join(' · ')}`);
   const links = pricing.match(/<Link\s+to=\{signupPath\}/g) || [];
-  assert.ok(links.length >= 2, `المتوقّع زرّا تجربة بـ<Link> (بطاقة الباقة وأسفل الصفحة)، وُجد ${links.length}`);
+  assert.ok(links.length >= 1, `المتوقّع زرّ تجربة بـ<Link> أسفل الصفحة، وُجد ${links.length}`);
+  // بطاقات الباقات وأسفل الصفحة: «اطلب عرض سعر» تنقّلٌ داخلي أيضاً (لا سعر ظاهر — قرار المالك ٢٧ أكتوبر ٢٠٢٦)
+  const quotes = pricing.match(/<Link\s+to=\{quotePath\}/g) || [];
+  assert.ok(quotes.length >= 2, `المتوقّع زرّا عرض سعر بـ<Link> (بطاقة الباقة وأسفل الصفحة)، وُجد ${quotes.length}`);
 });

@@ -8,7 +8,9 @@
  * يفشل هذا الفحص إذا:
  *   1) ظهر أي سعر لا يطابق الـCMS في المخرجات (كشف الانزياح).
  *   2) ظهر سعر أو AggregateOffer في الرئيسيات الخمس (لا سعر في الرئيسية — قرار المالك ٢٧ أكتوبر ٢٠٢٦،
- *      ومكانه «طلب عرض سعر»)، أو غاب رابط «طلب عرض سعر» عنها، أو غاب السعر الحيّ عن صفحة الأسعار المُصيَّرة.
+ *      ومكانه «طلب عرض سعر»)، أو غاب رابط «طلب عرض سعر» عنها، أو غاب السعر الحيّ عن بيانات صفحة الأسعار
+ *      المنظّمة، أو ظهر سعر باقة في النصّ الظاهر لأي صفحة غير المقالات (الأسعار باقية في البيانات المنظّمة
+ *      وllms.txt والمقالات وحدها — قرار المالك ٢٧ أكتوبر ٢٠٢٦).
  *   3) غاب رابط واتساب عن الصفحة الرئيسية المُصيَّرة.
  *
  * ويُحذّر دون إفشال (أكتوبر 2026 — مصدر النصّ غالباً مقالات CMS يحرّرها المالك):
@@ -117,14 +119,40 @@ for (const L of ['', 'en', 'fr', 'tr', 'zh']) {
   else if (L !== 'tr' && L !== 'zh') fail.push(`رابط «طلب عرض سعر» (/subscribe-request/?type=quote) غائب عن ${rel}`);
 }
 const pricingPage = path.join(DIST, 'pricing', 'index.html');
+const ldOf = (html) => [...html.matchAll(/<script type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]).join('\n');
 if (fs.existsSync(pricingPage)) {
-  const pp = fs.readFileSync(pricingPage, 'utf8');
+  const ld = ldOf(fs.readFileSync(pricingPage, 'utf8'));
   for (const p of livePrices) {
-    if (pp.includes(p)) ok.push(`السعر ${p} حاضر في صفحة الأسعار المُصيَّرة`);
-    else fail.push(`السعر الحيّ ${p} غائب عن dist/pricing/index.html`);
+    if (ld.includes(p)) ok.push(`السعر ${p} حاضر في بيانات صفحة الأسعار المنظّمة`);
+    else fail.push(`السعر الحيّ ${p} غائب عن البيانات المنظّمة في dist/pricing/index.html`);
   }
 } else {
   fail.push('dist/pricing/index.html غير موجود');
+}
+
+// النصّ الظاهر لكل صفحة غير المقالات: لا سعر باقة (رقم بجوار عملته). يُنزع ما لا يراه الزائر —
+// <head> والسكربتات (البيانات المنظّمة) والأنماط — ثم الوسوم. المقالات مستثناة بقرار المالك.
+const isArticle = (rel) => /^(?:(?:en|fr|tr|zh)[\\/])?blog[\\/]/.test(rel);
+const visibleText = (html) => html
+  .replace(/<head[\s\S]*?<\/head>/i, ' ')
+  .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ')
+  .replace(/<[^>]+>/g, ' ');
+const visibleHits = [];
+for (const f of files) {
+  const rel = path.relative(DIST, f);
+  if (!/\.html$/i.test(f) || isArticle(rel)) continue;
+  const v = visibleText(fs.readFileSync(f, 'utf8'));
+  const found = new Set();
+  for (const re of PRICE_PATTERNS.slice(0, 2)) {
+    re.lastIndex = 0;
+    for (const m of v.matchAll(re)) if (livePrices.includes(m[1])) found.add(m[0].trim());
+  }
+  if (found.size) visibleHits.push(`${rel}: ${[...found].slice(0, 3).join('، ')}`);
+}
+if (visibleHits.length) {
+  fail.push(`سعر باقة ظاهر في ${visibleHits.length} صفحة غير المقالات — مثال: ${visibleHits.slice(0, 4).join(' | ')}`);
+} else {
+  ok.push('لا سعر باقة ظاهر في صفحات الموقع غير المقالات');
 }
 
 // 3) رابط واتساب حاضر في الرئيسية المُصيَّرة

@@ -267,6 +267,7 @@ test('عدد الباقات في العنوان يطابق عددها في ال�
     iki: 2, 'üç': 3, 'dört': 4,
     '两': 2, '三': 3, '四': 4,
   };
+  const PLAN_START = /^(المبتدئة|المتوسّطة|الاحترافيّة|Starter|Growth|Advanced|Débutant|Croissance|Avancé|Başlangıç|Büyüme|Gelişmiş|入门版|成长版|进阶版)/;
   for (const l of PROFILE_LANGS) {
     const title = PROFILE_DEFAULTS[l].model_title || '';
     const m = title.match(WORD[l]);
@@ -274,13 +275,15 @@ test('عدد الباقات في العنوان يطابق عددها في ال�
     const key = m[0].replace(/\s*(plans|formules|paket|种套餐)\s*/i, '').trim().toLowerCase();
     const said = COUNT[key] ?? COUNT[m[0]];
     assert.ok(said, `${PROFILE_LANG_LABEL[l]}: تعذّر قراءة العدد من «${m[0]}»`);
-    // الباقة سطرٌ فيه سعر. والعدّ بـ«الأسطر ناقص واحد» كان يفترض أن الزائد سطرُ
-    // التجربة وحده — فأي سطر آخر (كسطر «وما زاد فبالتفاوض») كان يُحسب باقةً.
-    const paid = splitLines(PROFILE_DEFAULTS[l].model_items)
-      .filter(line => /(299|399|599|٢٩٩|٣٩٩|٥٩٩)/.test(line)).length;
+    // الباقة سطرٌ يبدأ باسمها — بلا سعر ظاهر (قرار المالك ٢٧ أكتوبر ٢٠٢٦، والسعر بعرض سعر).
+    // والعدّ بـ«الأسطر ناقص واحد» كان يفترض أن الزائد سطرُ التجربة وحده فيعدّ سطر «ما زاد» باقةً.
+    const items = splitLines(PROFILE_DEFAULTS[l].model_items);
+    const paid = items.filter(line => PLAN_START.test(line)).length;
     assert.ok(paid >= 2, `${PROFILE_LANG_LABEL[l]}: لم تُرصد أسطر الباقات`);
     assert.equal(said, paid,
-      `${PROFILE_LANG_LABEL[l]}: العنوان يقول ${said} والبنود المسعَّرة ${paid}`);
+      `${PROFILE_LANG_LABEL[l]}: العنوان يقول ${said} وأسطر الباقات ${paid}`);
+    const priced = items.filter(line => /(299|399|599|٢٩٩|٣٩٩|٥٩٩)/.test(line));
+    assert.deepEqual(priced, [], `${PROFILE_LANG_LABEL[l]}: سعر ظاهر في بنود الاشتراك`);
   }
 });
 

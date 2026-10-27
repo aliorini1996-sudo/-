@@ -1,7 +1,6 @@
-import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { BrandIcon } from '../components/BrandLogo';
-import { Check, MessageCircle, ArrowLeft, Info } from 'lucide-react';
+import { Check, MessageCircle, ArrowLeft } from 'lucide-react';
 import LanguageToggle from '../components/LanguageToggle';
 import { useLang, useDir } from '../i18n/lang';
 import { useSeo } from '../lib/seo';
@@ -22,27 +21,25 @@ const { pricingFaq, pricingJsonLd } = faqMod as {
   pricingFaq: (lang: string, plans: Plan[]) => { q: string; a: string }[];
   pricingJsonLd: (lang: string, plans: Plan[], canonical: string) => object;
 };
-// الوصف وأقسام «كم تدفع شركتك» و«لكل شركة» و«ما المشمول» ورابط الربط من المصدر نفسه الذي يصيّره prerender.mjs (P7)
-const { pricingTitle, pricingDescription, pricingSections, phase2LinkFor } = clustersMod as {
+// الوصف وأقسام «أي باقة تناسبك» و«لكل شركة» و«ما المشمول» ورابط الربط وعرض السعر من المصدر نفسه الذي يصيّره prerender.mjs (P7)
+const { pricingTitle, pricingDescription, pricingSections, phase2LinkFor, quoteHref } = clustersMod as {
   pricingTitle: (lang: string) => string;
   pricingDescription: (lang: string, plans: Plan[]) => string;
   pricingSections: (lang: string, plans: Plan[]) => { h2: string; paras?: string[]; items?: string[] }[];
   phase2LinkFor: (lang: string) => { href: string; label: string };
+  quoteHref: (lang: string) => string;
 };
 
 /**
- * صفحة التسعير الشفّافة.
+ * صفحة الباقات (/pricing).
  *
- * لماذا تستحق صفحة مستقلّة: أغلب مورّدي هذا السوق يخفون أسعارهم، فاستعلامات
- * «كم سعر…» شاغرة تقريباً. وإعلان السعر ليس تجميلاً بل شرط عملي: من يعتمد
- * البحث العضوي لا يملك ترف إخفاء الرقم.
+ * لا سعر ظاهر فيها (قرار المالك ٢٧ أكتوبر ٢٠٢٦): كل باقة باسمها وحدّها ومزاياها، ونداؤها
+ * «اطلب عرض سعر» إلى نموذج الطلب بصيغة عرض السعر. وتبقى الأسعار في البيانات المنظّمة
+ * (Product/AggregateOffer من pricingJsonLd) وفي llms.txt وحدهما — بقرار المالك أيضاً.
  *
  * قرارات مقصودة:
- * - **الأسعار من الـCMS** (نفس مصدر الصفحة الرئيسية) لا مكتوبة هنا — وإلا انزاحت
- *   صامتاً كما حدث سابقاً حين نُشر سعر لا وجود له للزواحف.
- * - الحاسبة تقارن **نموذجَي تسعير** (لكل شركة مقابل لكل مستخدم) **بلا ذكر اسم أي
- *   منافس** — المقارنة الاسمية تعرّض قانوني وتبقى في صفحات المقارنة المُراجَعة.
- * - نداء الفعل محادثة أو تجربة، لا «اشترك الآن»: لا اشتراك ذاتي في المنتج.
+ * - **الباقات من الـCMS** (نفس مصدر الصفحة الرئيسية) لا مكتوبة هنا — وإلا انزاحت صامتاً.
+ * - نداء الفعل عرض سعر أو محادثة أو تجربة، لا «اشترك الآن»: لا اشتراك ذاتي في المنتج.
  */
 
 type Lang = 'ar' | 'en' | 'fr';
@@ -80,8 +77,6 @@ const PLAN_I18N: Record<string, { en: string; fr: string }> = {
   '599': { en: 'Professional', fr: 'Professionnel' },
 };
 
-const nf = (n: number) => new Intl.NumberFormat('ar-SA', { maximumFractionDigits: 0 }).format(Math.round(n));
-
 export default function PricingPage() {
   const lang = useLang((s) => s.lang) as Lang;
   const dir = useDir();
@@ -94,14 +89,14 @@ export default function PricingPage() {
   // (localizeLinks في LandingPage وprerender.mjs يتركان `/signup` بلا بادئة للسبب نفسه.)
   const signupPath = '/signup';
 
-  // الأسعار من الـCMS — نفس مصدر الصفحة الرئيسية، فلا تنزاح صفحتان عن بعضهما
+  // الباقات من الـCMS — نفس مصدر الصفحة الرئيسية، فلا تنزاح صفحتان عن بعضهما
   const { data: cms } = useQuery({
     queryKey: PUBLIC_SITE_CONTENT_KEY,
     queryFn: () => fetchPublicSiteContent<{ pricing?: { plans?: Plan[] } }>(),
     staleTime: 5 * 60 * 1000,
   });
   const plans: Plan[] = cms?.pricing?.plans?.length ? cms.pricing.plans : FALLBACK_PLANS;
-  const numeric = plans.filter((p) => /^\d+$/.test(String(p.price)));
+  const quotePath = quoteHref(lang);
 
   const seo = seoUrls('/pricing', lang); // ع/إ/فر — مطابق للخريطة وللصفحات المُصيَّرة
   const faq = pricingFaq(lang, plans);
@@ -117,29 +112,6 @@ export default function PricingPage() {
     locale: lang,
     jsonLd: pricingJsonLd(lang, plans, seo.canonical.endsWith('/') ? seo.canonical : `${seo.canonical}/`),
   });
-
-  // حاسبة النموذجين — مدخلات المستخدم لا أرقام مورّدين
-  const [reps, setReps] = useState(20);
-  const [perUser, setPerUser] = useState(140);
-  const [setup, setSetup] = useState(4000);
-  const [vat, setVat] = useState(15);
-
-  const calc = useMemo(() => {
-    // أوّل باقة يتّسع حدُّها لعدد المناديب — لا شرطٌ ثنائيّ يقفز فوق الباقة الوسطى.
-    const tiers = numeric
-      .map((p) => ({ price: Number(p.price), cap: repsCap(p.limit) }))
-      .filter((t) => t.cap && Number.isFinite(t.price))
-      .sort((a, b) => (a.cap as number) - (b.cap as number));
-    const hit = tiers.find((t) => reps <= (t.cap as number));
-    const ourMonthly = hit ? hit.price : NaN;
-    const theirMonthly = reps * perUser;
-    const v = 1 + vat / 100;
-    const ourYear = Number.isFinite(ourMonthly) ? ourMonthly * 12 * v : NaN;
-    const theirYear = (theirMonthly * 12 + setup) * v;
-    return { ourMonthly, theirMonthly, ourYear, theirYear, diff: theirYear - ourYear };
-  }, [reps, perUser, setup, vat, numeric]);
-
-  const overLimit = reps > 20;
 
   return (
     <div dir={dir} className="min-h-screen bg-[#FAF7F0] text-[#1F1A13]">
@@ -159,14 +131,14 @@ export default function PricingPage() {
         <p className="text-[#6b6357] mt-2 max-w-2xl leading-relaxed">{t.sub}</p>
 
         <ul className="flex flex-wrap gap-2 mt-4 text-xs">
-          {[t.perCompany, t.vatIncl, t.noSetup, t.noCommit, t.trial].map((x) => (
+          {[t.perCompany, t.noSetup, t.noCommit, t.trial].map((x) => (
             <li key={x} className="inline-flex items-center gap-1.5 bg-white border border-[#E8E0D2] rounded-full px-3 py-1.5">
               <Check size={13} className="text-green-600" />{x}
             </li>
           ))}
         </ul>
 
-        {/* الباقات — جدول دلالي حقيقي لا صور ولا حقن بجافاسكربت */}
+        {/* الباقات — باسمها وحدّها ومزاياها بلا سعر ظاهر؛ النداء عرض سعر */}
         <section className="mt-8 grid gap-4 sm:grid-cols-3">
           {plans.map((p) => {
             const isCustom = !/^\d+$/.test(String(p.price));
@@ -175,10 +147,6 @@ export default function PricingPage() {
               <div key={p.name} className={`bg-white rounded-xl border p-5 flex flex-col ${p.badge ? 'border-[#E15A30] shadow-sm' : 'border-[#E8E0D2]'}`}>
                 {p.badge && <span className="self-start text-[10px] bg-[#FBEBE2] text-[#C94E28] px-2 py-0.5 rounded-full mb-2">{p.badge}</span>}
                 <h2 className="font-semibold">{lang === 'ar' ? p.name : (PLAN_I18N[String(p.price)]?.[lang] ?? p.name)}</h2>
-                <p className="mt-2">
-                  <span className="text-3xl font-bold">{p.price}</span>
-                  {p.period && <span className="text-xs text-[#9A8F7E]"> {p.period}</span>}
-                </p>
                 <p className="text-xs text-[#6b6357] mt-1">
                   {lang === 'ar'
                     ? p.limit
@@ -207,10 +175,9 @@ export default function PricingPage() {
                   </a>
                 ) : (
                   // <Link> لا <a>: إعادة تحميل الصفحة تُضيع وسوم الهبوط المحفوظة في الذاكرة
-                  // (landingTags في lib/attribution.ts) فتُسجَّل زيارة /signup «مباشرة» بدل
-                  // الحملة، وقد يضيع gclid إن سبقت النقرةُ كتابةَ الوسم لكوكي _gcl_aw.
-                  <Link to={signupPath} className={cta}>
-                    {t.startTrial}
+                  // (landingTags في lib/attribution.ts)، وقد يضيع gclid إن سبقت النقرةُ كتابةَ الوسم لكوكي _gcl_aw.
+                  <Link to={quotePath} className={cta}>
+                    {t.quote}
                   </Link>
                 )}
               </div>
@@ -218,7 +185,7 @@ export default function PricingPage() {
           })}
         </section>
 
-        {/* كم تدفع شركتك شهرياً، ولماذا السعر لكل شركة، وما المشمول — أرقامها من باقات CMS، شهرية فقط */}
+        {/* أي باقة تناسب شركتك، ولماذا السعر لكل شركة، وما المشمول — من باقات CMS بلا أرقام أسعار */}
         {pricingSections(lang, plans).map((sec) => (
           <section key={sec.h2} className="mt-8">
             <h2 className="font-semibold">{sec.h2}</h2>
@@ -230,56 +197,6 @@ export default function PricingPage() {
             )}
           </section>
         ))}
-
-        {/* حاسبة النموذجين */}
-        <section className="mt-10 bg-white rounded-xl border border-[#E8E0D2] p-5">
-          <h2 className="font-semibold">{t.calcTitle}</h2>
-          <p className="text-xs text-[#6b6357] mt-1">{t.calcSub}</p>
-
-          <div className="grid gap-3 sm:grid-cols-4 mt-4">
-            {[
-              { l: t.reps, v: reps, set: setReps, min: 1, max: 500 },
-              { l: t.perUserPrice, v: perUser, set: setPerUser, min: 0, max: 2000 },
-              { l: t.setupFee, v: setup, set: setSetup, min: 0, max: 50000 },
-              { l: t.vat, v: vat, set: setVat, min: 0, max: 30 },
-            ].map((f) => (
-              <label key={f.l} className="block">
-                <span className="block text-[11px] text-[#6b6357] mb-1">{f.l}</span>
-                <input
-                  type="number" inputMode="numeric" min={f.min} max={f.max} value={f.v}
-                  onChange={(e) => f.set(Math.max(f.min, Math.min(f.max, Number(e.target.value) || 0)))}
-                  className="w-full border border-[#E8E0D2] rounded-lg px-3 py-2 text-sm tabular-nums"
-                />
-              </label>
-            ))}
-          </div>
-
-          {overLimit ? (
-            <div className="mt-5 text-sm bg-[#FBEBE2] border border-[#F0C9B6] rounded-lg p-3 flex gap-2">
-              <Info size={16} className="shrink-0 mt-0.5 text-[#C94E28]" />
-              <span>{t.overLimit}</span>
-            </div>
-          ) : (
-            <div className="mt-5 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-lg border border-[#E15A30] p-4">
-                <p className="text-xs text-[#6b6357]">{t.ourModel}</p>
-                <p className="text-2xl font-bold mt-1 tabular-nums" dir="ltr">{nf(calc.ourMonthly)} <span className="text-xs font-normal">ر.س / {t.monthly}</span></p>
-                <p className="text-xs text-[#6b6357] mt-1">{t.year1}: <b className="tabular-nums" dir="ltr">{nf(calc.ourYear)}</b> ر.س</p>
-              </div>
-              <div className="rounded-lg border border-[#E8E0D2] p-4">
-                <p className="text-xs text-[#6b6357]">{t.theirModel}</p>
-                <p className="text-2xl font-bold mt-1 tabular-nums" dir="ltr">{nf(calc.theirMonthly)} <span className="text-xs font-normal">ر.س / {t.monthly}</span></p>
-                <p className="text-xs text-[#6b6357] mt-1">{t.year1}: <b className="tabular-nums" dir="ltr">{nf(calc.theirYear)}</b> ر.س</p>
-              </div>
-              {Number.isFinite(calc.diff) && calc.diff > 0 && (
-                <p className="sm:col-span-2 text-sm text-green-700">
-                  {t.save}: <b className="tabular-nums" dir="ltr">{nf(calc.diff)}</b> ر.س
-                </p>
-              )}
-            </div>
-          )}
-          <p className="text-[11px] text-[#9A8F7E] mt-3">{t.calcNote}</p>
-        </section>
 
         {/* صندوق الإنصاف — إلزامي في كل صفحة تلمّح للامتثال */}
         <section className="mt-8 bg-white rounded-xl border border-[#E8E0D2] p-5">
@@ -308,6 +225,9 @@ export default function PricingPage() {
         )}
 
         <div className="mt-8 flex flex-wrap gap-3">
+          <Link to={quotePath} className="inline-flex items-center gap-2 bg-[#E15A30] text-white rounded-lg px-4 py-2.5 text-sm">
+            {t.quote}
+          </Link>
           <a href={waHref(path, { lang })} target="_blank" rel="noopener noreferrer"
              onClick={() => trackWhatsApp(refFromPath(path))}
              className="inline-flex items-center gap-2 bg-[#25D366] text-white rounded-lg px-4 py-2.5 text-sm">

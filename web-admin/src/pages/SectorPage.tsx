@@ -165,8 +165,8 @@ export default function SectorPage() {
                  className="inline-flex items-center gap-2 bg-[#25D366] text-white rounded-lg px-4 py-2.5 text-sm">
                 <MessageCircle size={16} />تحدث معنا على واتساب
               </a>
-              <Link to={withSlash(pathForLocale('/pricing', lang))} className="inline-flex items-center gap-2 border border-[#E8E0D2] bg-white rounded-lg px-4 py-2.5 text-sm">
-                شاهد الأسعار
+              <Link to={`${withSlash(pathForLocale('/subscribe-request', lang))}?type=quote`} className="inline-flex items-center gap-2 border border-[#E8E0D2] bg-white rounded-lg px-4 py-2.5 text-sm">
+                اطلب عرض سعر
               </Link>
             </div>
           </>

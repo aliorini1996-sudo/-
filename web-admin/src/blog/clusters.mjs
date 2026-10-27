@@ -332,48 +332,56 @@ export function frPriceLine(plans) {
 
 /** عنوان صفحة الأسعار بلغتها — مصدر واحد لـprerender وPricingPage (كانا يختلفان بعلامة استفهام وشَرطة) */
 export const pricingTitle = (lang) => ({
-  en: 'Field Sales pricing — published, no hidden fees',
-  fr: 'Tarifs Field Sales — publiés, sans frais cachés',
+  en: 'Field Sales plans — request a quote, no hidden fees',
+  fr: 'Offres Field Sales — sur devis, sans frais cachés',
 }[lang] || 'كم سعر برنامج مندوبين المبيعات؟ | Field Sales');
 
 /**
- * وصف صفحة الأسعار (150 حرفاً أو أقل) بأرقام CMS كلها — مصدر واحد لـprerender وPricingPage.
- * كان 234 حرفاً يقصّه جوجل قبل الأرقام.
+ * وصف صفحة الأسعار (150 حرفاً أو أقل) — مصدر واحد لـprerender وPricingPage. بلا أرقام أسعار:
+ * لا سعر ظاهر في الموقع (قرار المالك ٢٧ أكتوبر ٢٠٢٦، والسعر بعرض سعر)؛ حدود المناديب ليست أسعاراً فتبقى.
+ * ويبقى السعر في البيانات المنظّمة وllms.txt وحدها.
  */
 export function pricingDescription(lang, plans) {
-  const t = planTiers(plans);
-  const prices = t.map((p) => p.price);
-  const caps = t.map((p) => p.cap).filter(Boolean);
-  if (!prices.length) {
-    return { ar: 'أسعار Field Sales معلنة لكل شركة لا لكل مستخدم، بلا رسوم تأسيس، وتجربة ١٠ أيام بلا بطاقة.', en: 'Field Sales pricing is published, per company not per user. No setup fees, 10-day free trial without a card.', fr: 'Tarifs Field Sales publiés, par entreprise et non par utilisateur. Sans frais de mise en service, essai de 10 jours.' }[lang] || '';
+  const caps = planTiers(plans).map((p) => p.cap).filter(Boolean).map(String);
+  if (lang === 'en') {
+    return caps.length
+      ? `Field Sales plans are per company, not per user, for teams of up to ${joinWith(caps, 'and')} reps. No setup fees, 10-day free trial. Request a quote.`
+      : 'Field Sales plans are per company, not per user. No setup fees, 10-day free trial. Request a quote.';
   }
-  if (lang === 'en') return `Field Sales pricing: ${joinWith(prices, 'and')} SAR a month per company for up to ${joinWith(caps.map(String), 'and')} reps, VAT included. 10-day free trial.`;
-  if (lang === 'fr') return `Tarifs Field Sales : ${joinWith(prices, 'et')} SAR par mois et par entreprise, jusqu’à ${joinWith(caps.map(String), 'et')} commerciaux, TVA incluse. Essai de 10 jours.`;
-  return `أسعار Field Sales: ${joinAr(prices)} ر.س شهرياً لكل شركة حتى ${joinAr(caps.map(String))} مناديب، شاملة الضريبة، وتجربة ١٠ أيام بلا بطاقة.`;
+  if (lang === 'fr') {
+    return caps.length
+      ? `Offres Field Sales par entreprise et non par utilisateur, jusqu’à ${joinWith(caps, 'et')} commerciaux. Sans frais de mise en service. Sur devis.`
+      : 'Offres Field Sales par entreprise et non par utilisateur. Sans frais de mise en service, essai de 10 jours. Sur devis.';
+  }
+  return caps.length
+    ? `باقات Field Sales لكل شركة لا لكل مستخدم للفرق حتى ${joinAr(caps)} مناديب، بلا رسوم تأسيس، وتجربة ١٠ أيام بلا بطاقة. اطلب عرض سعر.`
+    : 'باقات Field Sales لكل شركة لا لكل مستخدم، بلا رسوم تأسيس، وتجربة ١٠ أيام بلا بطاقة. اطلب عرض سعر.';
 }
 
+/** رابط نموذج «طلب عرض سعر» بلغة الصفحة (‎?type=quote يغيّر عنوان النموذج وبريد الإدارة) */
+export const quoteHref = (lang) => `${lang === 'en' || lang === 'fr' ? `/${lang}` : ''}/subscribe-request/?type=quote`;
+
 /**
- * أقسام صفحة الأسعار: كم تدفع الشركة شهرياً بحسب عدد مناديبها، ولماذا السعر لكل شركة، وما المشمول.
- * شهري فقط (تصحيح الناقد 4): لا سعر سنوي في CMS، فلا رقم سنوي هنا.
+ * أقسام صفحة الأسعار: أي باقة تناسب الشركة بحسب عدد مناديبها، ولماذا السعر لكل شركة، وما المشمول.
+ * بلا أرقام أسعار (قرار المالك ٢٧ أكتوبر ٢٠٢٦): الباقة بحدّها، والسعر بعرض سعر.
  * «ما المشمول» من مزايا الباقات في CMS نفسها، بلا ذكر أن الربط مشمول (قرار المالك معلّق).
- * كل بند سعري ينتهي بنقطة: verify-pricing يقرن عدد المناديب بأقرب سعر في الجملة نفسها.
  * @returns {Array<{h2: string, paras?: string[], items?: string[]}>}
  */
 export function pricingSections(lang, plans) {
   const t = planTiers(plans);
-  const priced = t.filter((p) => p.cap);
+  const capped = t.filter((p) => p.cap);
   const withFeatures = t.filter((p) => p.features.length);
   const out = [];
   if (lang === 'en' || lang === 'fr') {
     const en = lang === 'en';
     const nameOf = (p) => ({ 299: en ? 'Starter' : 'Débutant', 399: en ? 'Growth' : 'Croissance', 599: en ? 'Professional' : 'Professionnel' })[p.price] || p.name;
-    if (priced.length) {
+    if (capped.length) {
       out.push({
-        h2: en ? 'What a company pays per month, by number of reps' : 'Ce que paie une entreprise par mois selon le nombre de commerciaux',
-        items: priced.map((p) => (en
-          ? `A company with up to ${p.cap} reps pays ${p.price} SAR a month for the whole team (${nameOf(p)} plan).`
-          : `Une entreprise jusqu’à ${p.cap} commerciaux paie ${p.price} SAR par mois pour toute l’équipe (offre ${nameOf(p)}).`)),
-        paras: [en ? 'Prices include VAT. Monthly subscription, no setup fees.' : 'Prix TVA incluse. Abonnement mensuel, sans frais de mise en service.'],
+        h2: en ? 'Which plan fits your company' : 'Quelle offre convient à votre entreprise',
+        items: capped.map((p) => (en
+          ? `Up to ${p.cap} reps: the ${nameOf(p)} plan, for the whole team.`
+          : `Jusqu’à ${p.cap} commerciaux : l’offre ${nameOf(p)}, pour toute l’équipe.`)),
+        paras: [en ? 'Monthly subscription, no setup fees. Request a quote and we will send you the price of your plan.' : 'Abonnement mensuel, sans frais de mise en service. Demandez un devis et nous vous enverrons le prix de votre offre.'],
       });
     }
     out.push({
@@ -384,11 +392,11 @@ export function pricingSections(lang, plans) {
     });
     return out;
   }
-  if (priced.length) {
+  if (capped.length) {
     out.push({
-      h2: 'كم تدفع شركتك شهرياً بحسب عدد مناديبها؟',
-      items: priced.map((p) => `شركة حتى ${p.cap} ${repsWordAr(p.cap)}: ${p.price} ر.س شهرياً للفريق كله${p.name ? ` (${p.name})` : ''}.`),
-      paras: ['الأسعار شاملة ضريبة القيمة المضافة، والاشتراك شهري بلا رسوم تأسيس.'],
+      h2: 'أي باقة تناسب شركتك؟',
+      items: capped.map((p) => `شركة حتى ${p.cap} ${repsWordAr(p.cap)}: ${p.name ? `باقة ${p.name}` : 'باقة'} للفريق كله.`),
+      paras: ['الاشتراك شهري بلا رسوم تأسيس، ونرسل لك سعر باقتك بعرض سعر.'],
     });
   }
   out.push({
@@ -499,7 +507,7 @@ export const freeToolJsonLd = (t, canonical) => ({
 });
 
 /* ─── ٦) عن المنصة ──────────────────────────────────────────────────────────────
- * الحقائق من كيان Organization في index.html (المدينة وسنة التأسيس والمؤسس وsameAs)، والأسعار من CMS.
+ * الحقائق من كيان Organization في index.html (المدينة وسنة التأسيس والمؤسس وsameAs)، وبلا أرقام أسعار (السعر بعرض سعر).
  * لا اسم كيان قانوني ولا رقم سجل ولا رقم ضريبي هنا حتى يؤكّدها المالك.
  * سنة التأسيس في أول الصفحة وجملة الربط في قسم بعيد عنها (تصحيح الناقد 8).
  */
@@ -515,14 +523,13 @@ export const OFFICIAL_LINKS = [
 
 /**
  * @param {'ar'|'en'|'fr'|string} lang
- * @param {{ priceLine?: string }} [opts] سطر الأسعار بلغة الصفحة من CMS (arSummary أو enPriceLine…)
  * @returns {null | { title: string, description: string, sections: Array<{h2: string, paras?: string[], items?: string[], links?: Array<{href: string, label: string}>}> }}
  */
-export function aboutContent(lang, { priceLine = '' } = {}) {
+export function aboutContent(lang) {
   if (lang === 'ar') {
     return {
       title: 'عن فيلد سيلز – نظام إدارة المناديب | FieldSales',
-      description: 'فيلد سيلز منصة سعودية من الرياض لإدارة مناديب التوزيع: فواتير وتحصيل وعهدة سيارة وزيارات موثّقة، بأسعار معلنة لكل شركة في الدول العربية.',
+      description: 'فيلد سيلز منصة سعودية من الرياض لإدارة مناديب التوزيع: فواتير وتحصيل وعهدة سيارة وزيارات موثّقة، باشتراك لكل شركة في الدول العربية.',
       sections: [
         { h2: 'فيلد سيلز في سطور', items: ['المقر: الرياض، المملكة العربية السعودية.', 'سنة التأسيس: 2026.', 'المؤسس: Ali Aloraini.', 'البريد: info@fieldsa.net'] },
         {
@@ -535,10 +542,8 @@ export function aboutContent(lang, { priceLine = '' } = {}) {
         },
         {
           h2: 'التسعير',
-          paras: [priceLine
-            ? `الاشتراك شهري لكل شركة لا لكل مستخدم: ${priceLine}. وتجربة مجانية عشرة أيام بلا بطاقة ائتمان.`
-            : 'الاشتراك شهري لكل شركة لا لكل مستخدم، والأسعار معلنة. وتجربة مجانية عشرة أيام بلا بطاقة ائتمان.'],
-          links: [{ href: '/pricing/', label: 'تفاصيل الأسعار' }],
+          paras: ['الاشتراك شهري لكل شركة لا لكل مستخدم، والسعر بعرض سعر حسب عدد مناديبك. وتجربة مجانية عشرة أيام بلا بطاقة ائتمان.'],
+          links: [{ href: '/pricing/', label: 'الباقات' }, { href: quoteHref('ar'), label: 'اطلب عرض سعر' }],
         },
         {
           h2: 'اللغات والأسواق',
@@ -564,7 +569,7 @@ export function aboutContent(lang, { priceLine = '' } = {}) {
   if (lang === 'en') {
     return {
       title: 'About FieldSales – Sales Rep Management System',
-      description: 'Riyadh-based FieldSales manages distribution sales reps: invoices, collection, van stock and verified visits, with published per-company pricing.',
+      description: 'Riyadh-based FieldSales manages distribution sales reps: invoices, collection, van stock and verified visits, with per-company plans.',
       sections: [
         { h2: 'FieldSales at a glance', items: ['Head office: Riyadh, Saudi Arabia.', 'Founded: 2026.', 'Founder: Ali Aloraini.', 'Email: info@fieldsa.net'] },
         {
@@ -574,10 +579,8 @@ export function aboutContent(lang, { priceLine = '' } = {}) {
         },
         {
           h2: 'Pricing',
-          paras: [priceLine
-            ? `Priced per company, not per user: ${priceLine}. A 10-day free trial needs no credit card.`
-            : 'Priced per company, not per user, with published prices. A 10-day free trial needs no credit card.'],
-          links: [{ href: '/en/pricing/', label: 'Pricing details' }],
+          paras: ['Priced per company, not per user; request a quote for your number of reps. A 10-day free trial needs no credit card.'],
+          links: [{ href: '/en/pricing/', label: 'Plans' }, { href: quoteHref('en'), label: 'Request a quote' }],
         },
         {
           h2: 'Languages and markets',
@@ -612,10 +615,8 @@ export function aboutContent(lang, { priceLine = '' } = {}) {
         },
         {
           h2: 'Tarifs',
-          paras: [priceLine
-            ? `Abonnement par entreprise et non par utilisateur : ${priceLine}. Essai gratuit de 10 jours sans carte bancaire.`
-            : 'Abonnement par entreprise et non par utilisateur, prix publiés. Essai gratuit de 10 jours sans carte bancaire.'],
-          links: [{ href: '/fr/pricing/', label: 'Détail des tarifs' }],
+          paras: ['Abonnement par entreprise et non par utilisateur, sur devis selon le nombre de commerciaux. Essai gratuit de 10 jours sans carte bancaire.'],
+          links: [{ href: '/fr/pricing/', label: 'Offres' }, { href: quoteHref('fr'), label: 'Demander un devis' }],
         },
         {
           h2: 'Langues et marchés',

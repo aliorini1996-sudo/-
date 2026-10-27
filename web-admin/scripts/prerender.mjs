@@ -15,7 +15,7 @@ import { existsWith, consolidatedTarget, consolidatedUrl, consolidationReport } 
 import { extractFaqDetailed, publishableFaq, faqPageNode, faqProblemWith, pricingFaq, pricingJsonLd } from '../src/blog/extractFaq.mjs';
 import {
   relatedPlan, RELATED_TITLE, RELATED_CAP, blogTitle, sectorRelatedLinks, pricingTitle, pricingDescription, pricingSections, phase2LinkFor,
-  enPriceLine, frPriceLine, FREE_TOOLS, FREE_INDEX, freeToolMeta, freeToolJsonLd, aboutContent, REP_APP, REP_APP_STORES, repAppSections,
+  quoteHref, FREE_TOOLS, FREE_INDEX, freeToolMeta, freeToolJsonLd, aboutContent, REP_APP, REP_APP_STORES, repAppSections,
   repAppJsonLd, PHASE2_FEATURE_HREF, PHASE2_ANCHOR,
 } from '../src/blog/clusters.mjs';
 import * as claimsRules from './claims-rules.mjs';
@@ -445,8 +445,8 @@ async function main() {
   //
   // الإنجليزية (P7): كانت 202 كلمة بلا أسعار ولا ربط ولا حدود العمل دون اتصال. الأسئلة من المصدر الذي
   // يعرضه LandingPage على /en/ (defaultContentEn.faq) مصفّاةً بالقواعد نفسها، وFAQPage لها في كتلة القالب
-  // (templateLd) كي لا تختفي بعد الإقلاع. ولا سعر في الرئيسيات (قرار المالك ٢٧ أكتوبر ٢٠٢٦): قسم «Request a quote»
-  // مكان الأسعار كما في LandingPage، وenLine باقٍ لصفحة «عن المنصّة» وحدها.
+  // (templateLd) كي لا تختفي بعد الإقلاع. ولا سعر ظاهر في الموقع (قرار المالك ٢٧ أكتوبر ٢٠٢٦): قسم «Request a quote»
+  // مكان الأسعار كما في LandingPage؛ والأسعار باقية في البيانات المنظّمة وllms.txt وحدهما.
   // أدلّة السعودية من صفحات الكتالوج القانونية: مقالات CMS الإنجليزية (sales-rep-tracking-saudi وvan-sales-software-saudi
   // وdms-saudi-arabia وorder-to-cash-cycle) ما زالت تقول «Phase 2 not built»، والصفحة نفسها تعلن الربط. تعود بعد تنظيف CMS.
   const homeEnDefaults = await loadTs('landing/defaultContentEn.ts', 'defaultContentEn').catch((e) => {
@@ -458,7 +458,6 @@ async function main() {
   const enFaqHtml = enFaq.kept.length
     ? `<h2>${esc(homeEnDefaults?.faq?.title || 'Frequently asked questions')}</h2>\n` + enFaq.kept.map((f) => `<h3>${esc(f.q)}</h3><p>${esc(f.a)}</p>`).join('\n')
     : '';
-  const enLine = enPriceLine(pricing.plans);
   const homeMeta = {
     en: {
       title: 'FieldSales | Field Sales & Distribution Management Software for Arab Markets',
@@ -603,9 +602,7 @@ ${enFaqHtml}
   const planRowsFor = (lang) =>
     pricing.plans
       .map((p) => {
-        const isNum = /^\d+$/.test(String(p.price));
         const name = lang === 'ar' ? p.name : PLAN_I18N[String(p.price)]?.[lang] || p.name;
-        const price = `${esc(p.price)}${isNum ? (lang === 'ar' ? ' ر.س' : ' SAR') : ''}`;
         const cap = repsCap(p.limit);
         const limit =
           lang === 'ar' || !cap
@@ -613,7 +610,7 @@ ${enFaqHtml}
             : lang === 'fr'
               ? `Jusqu'à ${cap} commerciaux`
               : `Up to ${cap} reps`;
-        return `<tr><td>${esc(name)}</td><td>${price}</td><td>${limit}</td></tr>`;
+        return `<tr><td>${esc(name)}</td><td>${limit}</td></tr>`;
       })
       .join('');
 
@@ -633,32 +630,23 @@ ${enFaqHtml}
       : '')
     + (s.link ? `<p><a href="${esc(s.link.href)}">${esc(s.link.label)}</a></p>` : '')).join('\n');
 
-  // حدّ أعلى باقة رقمية من CMS — كان «فوق ${high === 599 ? '٢٠' : high}»: لو تغيّر أعلى سعر لكُتب السعر عدداً للمناديب
-  const topCap = (() => {
-    const numeric = pricing.plans.filter((p) => /^\d+$/.test(String(p.price))).sort((a, b) => Number(a.price) - Number(b.price));
-    return numeric.length ? repsCap(numeric[numeric.length - 1].limit) : null;
-  })();
   const phase2Html = (L) => { const l = phase2LinkFor(L); return `<p><a href="${l.href}">${esc(l.label)}</a></p>`; };
 
-  // عن المنصة (P7): الحقائق من كيان Organization والأسعار من CMS، والمصدر نفسه يعرضه InfoPage تحت نصّ الصفحة.
+  // عن المنصة (P7): الحقائق من كيان Organization بلا أرقام أسعار، والمصدر نفسه يعرضه InfoPage تحت نصّ الصفحة.
   // سنة التأسيس أول الصفحة وجملة الربط في قسم بعيد عنها (تصحيح الناقد 8).
-  const about = {
-    ar: aboutContent('ar', { priceLine: pricing.arSummary }),
-    en: aboutContent('en', { priceLine: enLine }),
-    fr: aboutContent('fr', { priceLine: frPriceLine(pricing.plans) }),
-  };
+  const about = { ar: aboutContent('ar'), en: aboutContent('en'), fr: aboutContent('fr') };
 
   const INFO = {
     pricing: {
       ar: {
         t: pricingTitle('ar'),
-        // ١٥٠ حرفاً أو أقل بالأرقام الثلاثة من CMS — كان ٢٣٤ حرفاً يقصّه جوجل (مطابق لـPricingPage)
+        // ١٥٠ حرفاً أو أقل بلا أرقام أسعار (مطابق لـPricingPage) — الأسعار في البيانات المنظّمة وحدها
         d: pricingDescription('ar', pricing.plans),
         j: pricingLd('ar'),
-        b: `<h1>أسعار Field Sales — معلنة وبلا رسوم خفية</h1>
+        b: `<h1>باقات Field Sales — بلا رسوم خفية</h1>
 <p>السعر <strong>لكل شركة لا لكل مستخدم</strong>: إضافة مندوب ضمن حدّ باقتك لا تزيد فاتورتك الشهرية. بلا رسوم تأسيس، وبلا التزام سنوي، وتجربة عشرة أيام دون بطاقة ائتمان.</p>
-<table><caption>باقات Field Sales</caption><thead><tr><th>الباقة</th><th>السعر شهرياً</th><th>الحدّ</th></tr></thead><tbody>${planRowsFor('ar')}</tbody></table>
-<p>${topCap ? `فوق ${topCap} مندوباً نحدّد السعر بالمحادثة حسب حجمك` : 'للفرق الأكبر نحدّد السعر بالمحادثة حسب حجمك'} — <a href="${waHref}" rel="noopener">تحدّث معنا على واتساب</a> أو <a href="/signup">ابدأ التجربة المجانية</a>.</p>
+<table><caption>باقات Field Sales</caption><thead><tr><th>الباقة</th><th>الحدّ</th></tr></thead><tbody>${planRowsFor('ar')}</tbody></table>
+<p><a href="${quoteHref('ar')}">اطلب عرض سعر</a> لباقتك، أو <a href="${waHref}" rel="noopener">تحدّث معنا على واتساب</a>، أو <a href="/signup">ابدأ التجربة المجانية</a>.</p>
 ${sectionsHtml(pricingSections('ar', pricing.plans))}
 <h2>ما نملكه وما لا نملكه — بصراحة</h2>
 <p>ندعم الفاتورة الإلكترونية برمز QR، وندعم <strong>ربط المرحلة الثانية</strong> مع منصة فاتورة التابعة لهيئة الزكاة والضريبة والجمارك. والهيئة لا تعتمد ولا تصادق مزوّدي البرمجيات فلا ندّعي اعتماداً منها، وليست لدينا شهادات SOC2 أو ISO.</p>
@@ -669,10 +657,10 @@ ${pricingFaqHtml('ar')}`,
         t: pricingTitle('en'),
         d: pricingDescription('en', pricing.plans),
         j: pricingLd('en'),
-        b: `<h1>Field Sales pricing — published, with no hidden fees</h1>
-<p>Priced <strong>per company, not per user</strong>: ${pricing.enSummary} per month. No setup fees, no annual lock-in, and a 10-day trial without a credit card.</p>
-<table><caption>Field Sales plans</caption><thead><tr><th>Plan</th><th>Monthly</th><th>Limit</th></tr></thead><tbody>${planRowsFor('en')}</tbody></table>
-<p>${topCap ? `Above ${topCap} reps we price in conversation` : 'For larger teams we price in conversation'} — <a href="${waHref}" rel="noopener">talk to us on WhatsApp</a> or <a href="/signup">start the free trial</a>.</p>
+        b: `<h1>Field Sales plans — no hidden fees</h1>
+<p>Priced <strong>per company, not per user</strong>: adding a rep within your plan limit does not raise your monthly bill. No setup fees, no annual lock-in, and a 10-day trial without a credit card.</p>
+<table><caption>Field Sales plans</caption><thead><tr><th>Plan</th><th>Limit</th></tr></thead><tbody>${planRowsFor('en')}</tbody></table>
+<p><a href="${quoteHref('en')}">Request a quote</a> for your plan, <a href="${waHref}" rel="noopener">talk to us on WhatsApp</a> or <a href="/signup">start the free trial</a>.</p>
 ${sectionsHtml(pricingSections('en', pricing.plans))}
 <h2>What we have and do not have — plainly</h2>
 <p>We support <strong>Phase 2 integration</strong> with ZATCA’s Fatoora platform. ZATCA does not certify software vendors, so we claim no approval. We hold no SOC2 or ISO certification.</p>
@@ -683,10 +671,10 @@ ${pricingFaqHtml('en')}`,
         t: pricingTitle('fr'),
         d: pricingDescription('fr', pricing.plans),
         j: pricingLd('fr'),
-        b: `<h1>Tarifs Field Sales — publiés, sans frais cachés</h1>
-<p>Facturation <strong>par entreprise, pas par utilisateur</strong> : ${pricing.enSummary} par mois. Sans frais de mise en service ni engagement annuel, avec un essai de 10 jours sans carte bancaire.</p>
-<table><caption>Offres Field Sales</caption><thead><tr><th>Offre</th><th>Par mois</th><th>Limite</th></tr></thead><tbody>${planRowsFor('fr')}</tbody></table>
-<p>${topCap ? `Au-delà de ${topCap} commerciaux, le prix se définit en conversation` : 'Pour les équipes plus grandes, le prix se définit en conversation'} — <a href="${waHref}" rel="noopener">discutez avec nous</a>.</p>
+        b: `<h1>Offres Field Sales — sans frais cachés</h1>
+<p>Facturation <strong>par entreprise, pas par utilisateur</strong> : ajouter un commercial dans la limite de votre offre n’augmente pas la facture. Sans frais de mise en service ni engagement annuel, avec un essai de 10 jours sans carte bancaire.</p>
+<table><caption>Offres Field Sales</caption><thead><tr><th>Offre</th><th>Limite</th></tr></thead><tbody>${planRowsFor('fr')}</tbody></table>
+<p><a href="${quoteHref('fr')}">Demandez un devis</a> pour votre offre ou <a href="${waHref}" rel="noopener">discutez avec nous</a>.</p>
 ${sectionsHtml(pricingSections('fr', pricing.plans))}
 <h2>Ce que nous avons et n’avons pas — clairement</h2>
 <p>Nous prenons en charge <strong>l’intégration phase 2</strong> avec la plateforme Fatoora de la ZATCA. La ZATCA ne certifie aucun éditeur ; nous ne revendiquons aucune homologation.</p>
@@ -777,7 +765,7 @@ ${faqHtml}
 <h2>ما نملكه وما لا نملكه — بصراحة</h2>
 <p>ندعم الفاتورة الإلكترونية برمز QR، وندعم ربط المرحلة الثانية مع منصة فاتورة التابعة لهيئة الزكاة والضريبة والجمارك. والهيئة لا تعتمد ولا تصادق مزوّدي البرمجيات فلا ندّعي اعتماداً منها.</p>
 ${relHtml}
-<p><a href="/pricing">شاهد الأسعار</a> أو <a href="${waHref}" rel="noopener">تحدّث معنا على واتساب</a>.</p>
+<p><a href="${quoteHref('ar')}">اطلب عرض سعر</a> أو <a href="${waHref}" rel="noopener">تحدّث معنا على واتساب</a>.</p>
 </main>`;
     const jsonLd = {
       '@context': 'https://schema.org',
@@ -877,7 +865,7 @@ ${compareHtml}
 ${faqHtml}
 ${alsoHtml ? `<h2>اقرأ أيضاً</h2><ul>${alsoHtml}</ul>` : ''}
 <h2>مزايا أخرى</h2><ul>${otherHtml}</ul>
-<p><a href="/pricing">شاهد الأسعار</a> أو <a href="${waHref}" rel="noopener">تحدّث معنا على واتساب</a>.</p>
+<p><a href="${quoteHref('ar')}">اطلب عرض سعر</a> أو <a href="${waHref}" rel="noopener">تحدّث معنا على واتساب</a>.</p>
 </main>`;
     const jsonLd = {
       '@context': 'https://schema.org',
