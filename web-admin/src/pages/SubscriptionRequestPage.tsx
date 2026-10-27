@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { contactApi } from '../api/client';
 import { BrandIcon } from '../components/BrandLogo';
 import { ArrowLeft, Building2, Send, CheckCircle2 } from 'lucide-react';
@@ -10,10 +10,13 @@ import { useSeo } from '../lib/seo';
 import { seoUrls, pathForLocale } from '../i18n/locale';
 import { useNoindex } from './NotFoundPage';
 
-// صفحة «تسجيل طلب اشتراك جديد» — تصل بيانات الشركة للإدارة بريدياً (زر «اطلب اشتراكك الآن» بالرئيسية)
+// صفحة «تسجيل طلب اشتراك جديد» — تصل بيانات الشركة للإدارة بريدياً (زر «اطلب اشتراكك الآن» بالرئيسية).
+// وبصيغة «طلب عرض سعر» (‎?type=quote — زرّ قسم عرض السعر بالرئيسية): النموذج نفسه بعنوانه وزرّه، ويصل البريد بعنوان «طلب عرض سعر».
 export default function SubscriptionRequestPage() {
   const lang = useLang((s) => s.lang);
   const dir = useDir();
+  const [params] = useSearchParams();
+  const isQuote = params.get('type') === 'quote';
   // نصوص الصفحة ثلاثية اللغة (ذاتية الاحتواء كنمط صفحات المدوّنة)
   const tr = (ar: string, en: string, fr: string) => (lang === 'fr' ? fr : lang === 'ar' ? ar : en); // tr → الإنجليزية مؤقتاً
 
@@ -21,7 +24,9 @@ export default function SubscriptionRequestPage() {
   const home = homePath.endsWith('/') ? homePath : `${homePath}/`; // «/en» يصير «/en/»: الروابط العامة بشرطة أخيرة
   const seoUrl = seoUrls('/subscribe-request', lang);
   useSeo({
-    title: tr('تسجيل طلب اشتراك جديد | FieldSales', 'New Subscription Request | FieldSales', 'Nouvelle demande d’abonnement | FieldSales'),
+    title: isQuote
+      ? tr('طلب عرض سعر | FieldSales', 'Request a quote | FieldSales', 'Demander un devis | FieldSales')
+      : tr('تسجيل طلب اشتراك جديد | FieldSales', 'New Subscription Request | FieldSales', 'Nouvelle demande d’abonnement | FieldSales'),
     description: tr(
       'سجل طلب اشتراك شركتك في منصة FieldSales لإدارة المبيعات الميدانية والتوزيع يصلنا طلبك فورا ونتواصل معك',
       'Register your company’s subscription request for the FieldSales field sales platform — we receive it instantly and get back to you.',
@@ -53,6 +58,7 @@ export default function SubscriptionRequestPage() {
         companyName: form.companyName.trim(), contactName: form.contactName.trim(),
         email: form.email.trim(), phone: form.phone.trim(), country: form.country.trim(),
         city: form.city.trim() || undefined, repsCount: form.repsCount.trim() || undefined, notes: form.notes.trim() || undefined,
+        ...(isQuote ? { kind: 'quote' as const } : {}),
       });
       setSent(true);
       toast.success(tr('استلمنا طلبك بنجاح', 'Request received successfully', 'Demande reçue avec succès'));
@@ -89,11 +95,17 @@ export default function SubscriptionRequestPage() {
           <div className="w-16 h-16 rounded-2xl bg-[#FBEBE2] flex items-center justify-center mx-auto mb-4">
             <Building2 size={30} className="text-[#E15A30]" />
           </div>
-          <h1 className="text-3xl lg:text-4xl font-extrabold tracking-tight">{tr('تسجيل طلب اشتراك جديد', 'New Subscription Request', 'Nouvelle demande d’abonnement')}</h1>
+          <h1 className="text-3xl lg:text-4xl font-extrabold tracking-tight">{isQuote
+            ? tr('طلب عرض سعر', 'Request a quote', 'Demander un devis')
+            : tr('تسجيل طلب اشتراك جديد', 'New Subscription Request', 'Nouvelle demande d’abonnement')}</h1>
           <p className="text-[#6E6557] mt-3 max-w-xl mx-auto leading-relaxed">
-            {tr('عبئ بيانات شركتك وسيصل طلبك لإدارة FieldSales فورا نتواصل معك لتفعيل الاشتراك وتجهيز حسابك',
-              'Fill in your company details and your request reaches the FieldSales team instantly — we’ll contact you to activate the subscription and set up your account.',
-              'Renseignez les informations de votre entreprise : votre demande parvient instantanément à l’équipe FieldSales, qui vous contactera pour activer l’abonnement.')}
+            {isQuote
+              ? tr('عبئ بيانات شركتك وعدد مناديبك وسيصل طلبك لإدارة FieldSales فورا نتواصل معك بعرض سعر يناسب شركتك',
+                'Fill in your company details and number of reps — your request reaches the FieldSales team instantly and we’ll get back to you with a quote that fits your company.',
+                'Renseignez les informations de votre entreprise et le nombre de commerciaux : votre demande parvient instantanément à l’équipe FieldSales, qui vous recontactera avec un devis adapté.')
+              : tr('عبئ بيانات شركتك وسيصل طلبك لإدارة FieldSales فورا نتواصل معك لتفعيل الاشتراك وتجهيز حسابك',
+                'Fill in your company details and your request reaches the FieldSales team instantly — we’ll contact you to activate the subscription and set up your account.',
+                'Renseignez les informations de votre entreprise : votre demande parvient instantanément à l’équipe FieldSales, qui vous contactera pour activer l’abonnement.')}
           </p>
         </div>
 
@@ -105,9 +117,13 @@ export default function SubscriptionRequestPage() {
               </div>
               <h3 className="text-xl font-bold text-[#1F1A13]">{tr('استلمنا طلبك بنجاح ✅', 'We received your request ✅', 'Nous avons bien reçu votre demande ✅')}</h3>
               <p className="text-sm text-[#6E6557] mt-2 leading-relaxed">
-                {tr('سيتواصل معك فريقنا خلال يوم عمل على بريدك أو جوالك لتفعيل اشتراك شركتك',
-                  'Our team will contact you within one business day by email or phone to activate your company subscription.',
-                  'Notre équipe vous contactera sous un jour ouvré par e-mail ou téléphone pour activer votre abonnement.')}
+                {isQuote
+                  ? tr('سيتواصل معك فريقنا خلال يوم عمل على بريدك أو جوالك بعرض السعر',
+                    'Our team will contact you within one business day by email or phone with your quote.',
+                    'Notre équipe vous contactera sous un jour ouvré par e-mail ou téléphone avec votre devis.')
+                  : tr('سيتواصل معك فريقنا خلال يوم عمل على بريدك أو جوالك لتفعيل اشتراك شركتك',
+                    'Our team will contact you within one business day by email or phone to activate your company subscription.',
+                    'Notre équipe vous contactera sous un jour ouvré par e-mail ou téléphone pour activer votre abonnement.')}
               </p>
               <Link to={home} className="btn-primary mx-auto mt-6 inline-flex">{tr('العودة للرئيسية', 'Back to home', 'Retour à l’accueil')}</Link>
             </div>
@@ -152,7 +168,9 @@ export default function SubscriptionRequestPage() {
               <button type="submit" disabled={sending}
                 className="w-full bg-[#E15A30] hover:bg-[#C94E28] disabled:bg-[#E89B7E] text-white font-bold py-3.5 rounded-xl transition-colors flex items-center justify-center gap-2">
                 {sending ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Send size={17} />}
-                {tr('إرسال طلب الاشتراك', 'Send subscription request', 'Envoyer la demande')}
+                {isQuote
+                  ? tr('إرسال طلب عرض السعر', 'Send quote request', 'Envoyer la demande de devis')
+                  : tr('إرسال طلب الاشتراك', 'Send subscription request', 'Envoyer la demande')}
               </button>
               <p className="text-[11px] text-[#9A8F7E] text-center leading-relaxed">
                 {tr('أو ابدأ فورا بنفسك عبر', 'Or start right away with the', 'Ou commencez immédiatement avec l’')}{' '}

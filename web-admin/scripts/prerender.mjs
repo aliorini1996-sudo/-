@@ -445,7 +445,8 @@ async function main() {
   //
   // الإنجليزية (P7): كانت 202 كلمة بلا أسعار ولا ربط ولا حدود العمل دون اتصال. الأسئلة من المصدر الذي
   // يعرضه LandingPage على /en/ (defaultContentEn.faq) مصفّاةً بالقواعد نفسها، وFAQPage لها في كتلة القالب
-  // (templateLd) كي لا تختفي بعد الإقلاع. وسطر الأسعار من باقات CMS (enPriceLine).
+  // (templateLd) كي لا تختفي بعد الإقلاع. ولا سعر في الرئيسيات (قرار المالك ٢٧ أكتوبر ٢٠٢٦): قسم «Request a quote»
+  // مكان الأسعار كما في LandingPage، وenLine باقٍ لصفحة «عن المنصّة» وحدها.
   // أدلّة السعودية من صفحات الكتالوج القانونية: مقالات CMS الإنجليزية (sales-rep-tracking-saudi وvan-sales-software-saudi
   // وdms-saudi-arabia وorder-to-cash-cycle) ما زالت تقول «Phase 2 not built»، والصفحة نفسها تعلن الربط. تعود بعد تنظيف CMS.
   const homeEnDefaults = await loadTs('landing/defaultContentEn.ts', 'defaultContentEn').catch((e) => {
@@ -470,12 +471,12 @@ async function main() {
 <h2>E-invoicing in Saudi Arabia</h2>
 <p>FieldSales supports Phase 2 integration with ZATCA’s Fatoora platform.</p>
 <p>For Saudi companies with the integration enabled, invoices (standard and simplified) and returns need a connection at the moment of issuance, while receipts and visit logging still work offline. <a href="/en/blog/einvoicing-compliance-sa/">E-invoicing and tax compliance in Saudi Arabia</a></p>
-<h2>Pricing</h2>
-<p>Priced per company, not per user${enLine ? `: ${esc(enLine)}` : ''}. No setup fees, and a free trial without a credit card. <a href="/en/pricing/">See pricing details</a></p>
+<h2>Request a quote</h2>
+<p>Tell us how many reps you have and what your company needs, and we will send you a quote that fits. <a href="/en/subscribe-request/?type=quote">Request a quote</a> or <a href="${waHref}" rel="noopener">chat with us on WhatsApp</a>.</p>
 ${enFaqHtml}
 <h2>Contact &amp; subscription requests</h2>
 <p>Official email: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Head office: Riyadh, Saudi Arabia · <a href="/en/subscribe-request/">Submit a subscription request</a> or <a href="/signup">start the free trial</a> directly.</p>
-<p><a href="/signup">Start your free 10-day trial</a> — no credit card required. <a href="/en/blog">Read the blog</a> · <a href="/en/pricing/">Pricing</a> · <a href="/en/about">About</a> · <a href="/en/contact">Contact</a> · <a href="/en/terms/">Terms</a> · <a href="/en/privacy/">Privacy</a> · <a href="/en/service-agreement/">Service agreement</a></p>
+<p><a href="/signup">Start your free 10-day trial</a> — no credit card required. <a href="/en/blog">Read the blog</a> · <a href="/en/subscribe-request/?type=quote">Request a quote</a> · <a href="/en/about">About</a> · <a href="/en/contact">Contact</a> · <a href="/en/terms/">Terms</a> · <a href="/en/privacy/">Privacy</a> · <a href="/en/service-agreement/">Service agreement</a></p>
 <p>Guides for Saudi distribution: <a href="/en/blog/sales-rep-management-sa/">Sales rep management in Saudi Arabia</a> · <a href="/en/blog/van-sales-app-sa/">Van sales app for Saudi Arabia</a> · <a href="/en/blog/distribution-management-system-sa/">Distributor management system (DMS) in Saudi Arabia</a> · <a href="/en/blog/field-sales-software-sa/">Field sales management software for Saudi Arabia</a> · <a href="/en/blog/collection-receivables-sa/">Collection and receivables in Saudi Arabia</a></p>
 <p>By topic: <a href="/en/blog/mobile-field-invoicing/">offline field sales app</a> · <a href="/en/blog/fmcg-distribution/">trade marketing and distribution</a> · <a href="/en/blog/wholesale-food-distributors/">dairy distribution</a> · <a href="/en/blog/van-sales-app/">van sales app</a> · <a href="/en/blog/collection-receivables/">collection and receivables</a></p></main>`,
     },
@@ -487,7 +488,7 @@ ${enFaqHtml}
 <ul><li>Facturation terrain avec code QR et impression thermique</li><li>Encaissement, créances et relevés clients avec limites de crédit</li><li>Stock du véhicule par commercial avec détection des écarts</li><li>Suivi GPS et planification des tournées</li><li>Catalogue produits, grilles tarifaires et intégration ERP</li></ul>
 <h2>Contact et demandes d'abonnement</h2>
 <p>E-mail officiel : <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Siège social : Arabie saoudite · <a href="/fr/subscribe-request/">Envoyez une demande d'abonnement</a> ou <a href="/signup">commencez l'essai gratuit</a>.</p>
-<p><a href="/signup">Essai gratuit de 10 jours</a> — sans carte bancaire. <a href="/fr/blog">Blog</a> · <a href="/fr/pricing/">Tarifs</a> · <a href="/fr/invoice-generator/">Générateur de factures gratuit</a> · <a href="/fr/about">À propos</a> · <a href="/fr/contact">Contact</a> · <a href="/fr/terms/">Conditions</a> · <a href="/fr/privacy/">Confidentialité</a> · <a href="/fr/service-agreement/">Accord de service</a></p>
+<p><a href="/signup">Essai gratuit de 10 jours</a> — sans carte bancaire. <a href="/fr/blog">Blog</a> · <a href="/fr/subscribe-request/?type=quote">Demander un devis</a> · <a href="/fr/invoice-generator/">Générateur de factures gratuit</a> · <a href="/fr/about">À propos</a> · <a href="/fr/contact">Contact</a> · <a href="/fr/terms/">Conditions</a> · <a href="/fr/privacy/">Confidentialité</a> · <a href="/fr/service-agreement/">Accord de service</a></p>
 <p>Par thème : <a href="/fr/blog/collection-receivables/">recouvrement de créances</a> · <a href="/fr/blog/collection-receivables-eg/">recouvrement de créances en Égypte</a> · <a href="/fr/blog/van-sales-app/">application van sales</a> · <a href="/fr/blog/collection-receivables-sa/">recouvrement de créances en Arabie saoudite</a> · <a href="/fr/blog/distribution-management-system/">système de gestion de la distribution</a></p></main>`,
     },
     tr: {
@@ -752,11 +753,10 @@ ${pricingFaqHtml('fr')}`,
     }
   }
 
-  const PRICING_HTML = `<p>اشتراك FieldSales <strong>لكل شركة لا لكل مستخدم</strong>: `
-    + `<strong>${pricing.arSummary}</strong>`
-    + (pricing.hasCustomTier ? `، وباقة ${esc(pricing.customTierName)} لعدد غير محدود من المناديب حسب الطلب` : '')
-    + `. مع <strong>تجربة مجانية 10 أيام</strong> تبدأ خلال دقائق دون بطاقة ائتمان.</p>`
-    + `<p><a href="/signup">ابدأ تجربتك المجانية</a> أو <a href="${waHref}" rel="noopener">تحدّث معنا على واتساب</a> ${topCap ? `لتسعير أكثر من ${topCap} مندوباً` : 'لتسعير الفرق الأكبر'}.</p>`;
+  // لا سعر في الرئيسية (قرار المالك ٢٧ أكتوبر ٢٠٢٦): «طلب عرض سعر» مكان الأسعار كما في LandingPage.
+  // رابط واتساب هنا هو رابط الرئيسية الوحيد للزواحف (verify-pricing يشترطه) — لا يُحذف مع الفقرة.
+  const QUOTE_HTML = `<p>أخبرنا بعدد مناديبك واحتياج شركتك، ونرسل لك عرض سعر يناسبك. `
+    + `<a href="/subscribe-request/?type=quote">اطلب عرض سعر</a> أو <a href="${waHref}" rel="noopener">تحدّث معنا على واتساب</a>.</p>`;
 
   // 4.5) صفحات القطاعات السبعة — محتوى مكتوب لكل قطاع (لا استنساخ)
   for (const sec of SECTORS) {
@@ -1050,15 +1050,15 @@ ${t.feat ? `<p>وللفهم الأعمق قبل الحساب: <a href="${t.feat[
 <li>صلاحيات دقيقة للفريق وتكامل مع أنظمة ERP</li>
 <li>تقارير وتحليلات لحظية على لوحة واحدة</li>
 </ul>
-<h2>الأسعار</h2>
-${PRICING_HTML}
+<h2>طلب عرض سعر</h2>
+${QUOTE_HTML}
 ${homeFaqHtml}
 <h2>للتواصل وطلبات الاشتراك</h2>
 <p>البريد الرسمي: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · مقر الشركة: المملكة العربية السعودية · <a href="/subscribe-request/">سجّل طلب اشتراك جديد</a> أو <a href="/signup">ابدأ التجربة المجانية</a> مباشرةً.</p>
 <h2>روابط مفيدة</h2>
 <p><a href="/blog/">المدوّنة</a> · <a href="/calculator/">حاسبة تسريب الإيرادات</a> · <a href="/invoice-generator/">مولّد الفاتورة الضريبية المجاني</a> · <a href="/blog/distribution-terms-glossary/">قاموس مصطلحات التوزيع</a> · <a href="/blog/distribution-owners-questions/">أسئلة أصحاب شركات التوزيع</a> · <a href="/about/">عن المنصّة</a> · <a href="/contact/">تواصل معنا</a> · <a href="/en/">English</a> · <a href="/fr/">Français</a></p>
 <p>الشروط والسياسات: <a href="/terms/">الشروط والأحكام</a> · <a href="/privacy/">سياسة الخصوصية</a> · <a href="/service-agreement/">اتفاقية الخدمة</a></p>
-<p>صفحات المنصّة: <a href="/pricing/">الأسعار</a> · <a href="/rep-app/">تطبيق المندوب</a> · <a href="/نماذج/">نماذج Excel مجانية</a> · <a href="/free/">أدوات مجانية</a> · <a href="${PHASE2_FEATURE_HREF}">${esc(PHASE2_ANCHOR)}</a> · <a href="/tr/">Türkçe</a> · <a href="/zh/">中文</a></p>
+<p>صفحات المنصّة: <a href="/subscribe-request/?type=quote">طلب عرض سعر</a> · <a href="/rep-app/">تطبيق المندوب</a> · <a href="/نماذج/">نماذج Excel مجانية</a> · <a href="/free/">أدوات مجانية</a> · <a href="${PHASE2_FEATURE_HREF}">${esc(PHASE2_ANCHOR)}</a> · <a href="/tr/">Türkçe</a> · <a href="/zh/">中文</a></p>
 <p>القطاعات: ${SECTORS.map((sec) => `<a href="/قطاعات/${sec.slug}/">${esc(sec.name)}</a>`).join(' · ')} · <a href="/قطاعات/">كل القطاعات</a></p>
 <p>أدلّة الدول: ${homeCountries.map((c) => `<a href="/blog/field-sales-software-${c.code.toLowerCase()}/">${esc(c.ar)}</a>`).join(' · ')} · <a href="/blog/field-sales-software/">بقية الدول العربية</a></p>
 <p>كيف تعمل مزايانا: ${homeFeatures.map((ft) => `<a href="/مزايا/${ft.slug}/">${esc(HOME_FEATURE_ANCHOR[ft.id] || ft.name)}</a>`).join(' · ')} · <a href="/مزايا/">كل المزايا</a></p>
@@ -1072,7 +1072,11 @@ ${homeFaqHtml}
     try {
       const j = JSON.parse(body);
       if (!Array.isArray(j['@graph'])) return m;
-      const g = j['@graph'].filter((x) => !(x && x['@type'] === 'FAQPage'));
+      // ولا عرض أسعار في الرئيسية: offers تُنزع من SoftwareApplication هنا وحدها، وبقية الصفحات
+      // تُبنى من `template` في الذاكرة فتبقى AggregateOffer فيها (قرار المالك ٢٧ أكتوبر ٢٠٢٦)
+      const g = j['@graph']
+        .filter((x) => !(x && x['@type'] === 'FAQPage'))
+        .map((x) => (x && x['@type'] === 'SoftwareApplication' ? (({ offers, ...rest }) => rest)(x) : x));
       if (homeFaq.kept.length) g.push(faqPageNode(homeFaq.kept));
       return `<script type="application/ld+json">${JSON.stringify({ ...j, '@graph': g })}</script>`;
     } catch { return m; }

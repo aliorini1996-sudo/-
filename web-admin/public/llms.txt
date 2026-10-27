@@ -167,7 +167,7 @@ Key facts:
 
 ## Main pages
 
-- [Home (Arabic)](https://fieldsa.net/): product overview, features, pricing and FAQ.
+- [Home (Arabic)](https://fieldsa.net/): product overview, features, quote request and FAQ.
 - [Home (English)](https://fieldsa.net/en/) · [French](https://fieldsa.net/fr/) · [Turkish](https://fieldsa.net/tr/) · [Chinese](https://fieldsa.net/zh/)
 - [About](https://fieldsa.net/about/): who is behind FieldSales. English: https://fieldsa.net/en/about/
 - [Contact](https://fieldsa.net/contact/): sales and support. English: https://fieldsa.net/en/contact/

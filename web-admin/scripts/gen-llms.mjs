@@ -371,7 +371,7 @@ ${answersFor('ar', { tiers }).map(answerLine).join('')}
 ${answersFor('en', { tiers }).map(answerLine).join('')}
 ## Main pages
 
-- [Home (Arabic)](${abs('/')}): product overview, features, pricing and FAQ.
+- [Home (Arabic)](${abs('/')}): product overview, features, quote request and FAQ.
 - [Home (English)](${abs('/en/')}) · [French](${abs('/fr/')}) · [Turkish](${abs('/tr/')}) · [Chinese](${abs('/zh/')})
 - [About](${abs('/about/')}): who is behind FieldSales. English: ${abs('/en/about/')}
 - [Contact](${abs('/contact/')}): sales and support. English: ${abs('/en/contact/')}

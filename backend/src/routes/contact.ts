@@ -31,7 +31,8 @@ router.post('/', mailLimiter, async (req: Request, res: Response, next: NextFunc
   } catch (err) { next(err); }
 });
 
-// طلب اشتراك جديد من صفحة «تسجيل طلب اشتراك جديد» — يصل للإدارة بريدياً بكامل بيانات الشركة
+// طلب اشتراك جديد من صفحة «تسجيل طلب اشتراك جديد» — يصل للإدارة بريدياً بكامل بيانات الشركة.
+// kind='quote' = الصفحة نفسها بصيغة «طلب عرض سعر» (زرّ الرئيسية): البيانات نفسها وعنوان البريد وحده يتغيّر.
 router.post('/subscription', mailLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const body = z.object({
@@ -43,13 +44,15 @@ router.post('/subscription', mailLimiter, async (req: Request, res: Response, ne
       city: z.string().max(100).optional(),
       repsCount: z.string().max(30).optional(),
       notes: z.string().max(2000).optional(),
+      kind: z.enum(['quote']).optional(),
     }).parse(req.body);
 
+    const title = body.kind === 'quote' ? 'طلب عرض سعر' : 'طلب اشتراك جديد';
     const sent = await sendMail({
       to: 'info@fieldsa.net',
-      subject: `🟠 طلب اشتراك جديد ${body.companyName}`,
+      subject: `🟠 ${title} ${body.companyName}`,
       replyTo: body.email,
-      html: mailLayout('طلب اشتراك جديد', [
+      html: mailLayout(title, [
         ['الشركة', body.companyName],
         ['المسؤول', body.contactName],
         ['البريد', body.email],

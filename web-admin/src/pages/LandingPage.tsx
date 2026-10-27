@@ -9,8 +9,6 @@ import { defaultContentFr } from '../landing/defaultContentFr';
 import { defaultContentTr } from '../landing/defaultContentTr';
 import { defaultContentZh } from '../landing/defaultContentZh';
 import { useLang, type Lang } from '../i18n/lang';
-import { useCurrency, type Currency } from '../i18n/currency';
-import { useBilling, type Billing } from '../i18n/billing';
 import { seoUrls, pathForLocale } from '../i18n/locale';
 import { useSeo } from '../lib/seo';
 import { waHref, refFromPath } from '../components/WhatsAppFab';
@@ -74,7 +72,7 @@ function renderSocialSection(social: Record<string, string> = {}, lang: Lang = '
   </section>`;
 }
 
-// قسم بارز لحاسبة تسريب الإيرادات — منتصف الصفحة، أيقونة كبيرة عائمة بتوهّج نابض (يُحقن قبل الأسعار)
+// قسم بارز لحاسبة تسريب الإيرادات — منتصف الصفحة، أيقونة كبيرة عائمة بتوهّج نابض (يُحقن قبل قسم «طلب عرض سعر»)
 function renderCalculatorSection(lang: Lang = 'ar'): string {
   const t = {
     ar: {
@@ -179,7 +177,7 @@ function renderCalculatorSection(lang: Lang = 'ar'): string {
 export function applyContent(template: string, content: Record<string, unknown>, lang: Lang = 'ar'): string {
   const social = content.social as Record<string, string>;
   let html = template.split('{{__SOCIAL_SECTION__}}').join(renderSocialSection(social, lang));
-  // حقن قسم الحاسبة البارز قبل قسم الأسعار مباشرة (منتصف الصفحة)
+  // حقن قسم الحاسبة البارز قبل قسم «طلب عرض سعر» مباشرة (منتصف الصفحة)
   html = html.replace('<section id="pricing"', renderCalculatorSection(lang) + '<section id="pricing"');
   html = html.split('{{__SOCIAL__}}').join(renderSocial(social, lang));
   html = html.replace(/\{\{([^}]+)\}\}/g, (_, path: string) => {
@@ -205,29 +203,13 @@ const CHROME_EN: [string, string][] = [
   ['text-anchor:start; direction:rtl', 'text-anchor:end; direction:ltr'],
   ['>١<', '>1<'], ['>٢<', '>2<'], ['>٣<', '>3<'], ['>٤<', '>4<'], ['>٥<', '>5<'],
   // التنقّل
-  ['>المميزات<', '>Features<'], ['>كيف يعمل<', '>How it works<'], ['>الأسعار<', '>Pricing<'],
+  ['>المميزات<', '>Features<'], ['>كيف يعمل<', '>How it works<'], ['>طلب عرض سعر<', '>Request a quote<'], ['>عرض سعر<', '>Quote<'],
   ['>الأسئلة<', '>FAQ<'], ['>دخول الأدمن<', '>Admin login<'], ['>تطبيق المندوب<', '>Rep app<'],
   ['طلب اجتماع', 'Request a meeting'], ['ابدأ مجانا', 'Get started free'], ['المدونة', 'Blog'], ['حاسبة التسريب', 'Leak Calculator'], ['مولد الفواتير', 'Invoice Generator'],
   // بطاقات العرض في القسم الرئيسي
   ['المبيعات والتحصيل', 'Sales & collection'], ['٧ أيام', '7 days'], ['محصل اليوم', 'Collected today'],
   ['+12.4% عن أمس', '+12.4% vs. yesterday'], ['>سند قبض<', '>Receipt<'], ['>المبلغ<', '>Amount<'],
   ['>الحالة<', '>Status<'], ['تم الإرسال', 'Sent'], ['طلب #10428 قيد التنفيذ', 'Order #10428 in progress'],
-  ['٩٢٬٧٠٠', '92,700'], ['٨٠٠٫٠٠ ر.س', 'SAR 800.00'],
-  // الأسعار (نص ثابت)
-  [' ر.س / شهريا', ' SAR / mo'],
-  ['إدارة الطلبات والتحصيل', 'Order & collection management'],
-  ['فواتير ضريبية وسندات قبض', 'Tax invoices & receipts'],
-  ['تطبيق جوال للمناديب', 'Mobile app for reps'],
-  ['تقارير أساسية', 'Basic reports'],
-  ['>ابدأ الآن<', '>Get started<'],
-  ['كل مميزات الباقة', 'Everything in'], ['على الخريطة', 'on the map'],
-  ['تقارير وكشوف حساب متقدمة', 'Advanced reports & statements'],
-  ['دعم أولوية', 'Priority support'],
-  ['كل مميزات', 'Everything in'],
-  ['تكامل ERP ومحاسبة', 'ERP & accounting integration'],
-  ['مدير حساب مخصص', 'Dedicated account manager'],
-  ['تدريب وإعداد كامل', 'Full training & onboarding'],
-  ['تواصل مع المبيعات', 'Contact sales'],
   // التذييل
   ['>المنتج<', '>Product<'], ['تطبيق الجوال', 'Mobile app'],
   ['>الشركة<', '>Company<'], ['>من نحن<', '>About us<'], ['>تواصل معنا<', '>Contact us<'],
@@ -257,29 +239,13 @@ const CHROME_FR: [string, string][] = [
   ['text-anchor:start; direction:rtl', 'text-anchor:end; direction:ltr'],
   ['>١<', '>1<'], ['>٢<', '>2<'], ['>٣<', '>3<'], ['>٤<', '>4<'], ['>٥<', '>5<'],
   // التنقّل
-  ['>المميزات<', '>Fonctionnalités<'], ['>كيف يعمل<', '>Comment ça marche<'], ['>الأسعار<', '>Tarifs<'],
+  ['>المميزات<', '>Fonctionnalités<'], ['>كيف يعمل<', '>Comment ça marche<'], ['>طلب عرض سعر<', '>Demander un devis<'], ['>عرض سعر<', '>Devis<'],
   ['>الأسئلة<', '>FAQ<'], ['>دخول الأدمن<', '>Espace admin<'], ['>تطبيق المندوب<', '>App commercial<'],
   ['طلب اجتماع', 'Demander une reunion'], ['ابدأ مجانا', 'Essai gratuit'], ['المدونة', 'Blog'], ['حاسبة التسريب', 'Calculateur de fuite'], ['مولد الفواتير', 'Générateur de factures'],
   // بطاقات العرض في القسم الرئيسي
   ['المبيعات والتحصيل', 'Ventes et encaissement'], ['٧ أيام', '7 jours'], ['محصل اليوم', 'Encaissé aujourd’hui'],
   ['+12.4% عن أمس', '+12,4 % vs hier'], ['>سند قبض<', '>Bon de reçu<'], ['>المبلغ<', '>Montant<'],
   ['>الحالة<', '>Statut<'], ['تم الإرسال', 'Envoyé'], ['طلب #10428 قيد التنفيذ', 'Commande #10428 en cours'],
-  ['٩٢٬٧٠٠', '92 700'], ['٨٠٠٫٠٠ ر.س', '800,00 SAR'],
-  // الأسعار (نص ثابت)
-  [' ر.س / شهريا', ' SAR / mois'],
-  ['إدارة الطلبات والتحصيل', 'Gestion des commandes et encaissement'],
-  ['فواتير ضريبية وسندات قبض', 'Factures fiscales et bons de reçu'],
-  ['تطبيق جوال للمناديب', 'Application mobile pour commerciaux'],
-  ['تقارير أساسية', 'Rapports de base'],
-  ['>ابدأ الآن<', '>Commencer<'],
-  ['كل مميزات الباقة', 'Toutes les fonctionnalités de l’offre'],
-  ['تقارير وكشوف حساب متقدمة', 'Rapports et relevés avancés'],
-  ['دعم أولوية', 'Support prioritaire'],
-  ['كل مميزات', 'Toutes les fonctionnalités de l’offre'],
-  ['تكامل ERP ومحاسبة', 'Intégration ERP et comptabilité'],
-  ['مدير حساب مخصص', 'Gestionnaire de compte dédié'],
-  ['تدريب وإعداد كامل', 'Formation et mise en place complètes'],
-  ['تواصل مع المبيعات', 'Contacter les ventes'],
   // التذييل
   ['>المنتج<', '>Produit<'], ['تطبيق الجوال', 'Application mobile'],
   ['>الشركة<', '>Entreprise<'], ['>من نحن<', '>À propos<'], ['>تواصل معنا<', '>Contact<'],
@@ -324,7 +290,7 @@ const CHROME_TR: [string, string][] = [
   ['>٥<', '>5<'],
   ['>المميزات<', '>Özellikler<'],
   ['>كيف يعمل<', '>Nasıl çalışır<'],
-  ['>الأسعار<', '>Fiyatlandırma<'],
+  ['>طلب عرض سعر<', '>Teklif isteyin<'], ['>عرض سعر<', '>Teklif<'],
   ['>الأسئلة<', '>SSS<'],
   ['>دخول الأدمن<', '>Yönetici girişi<'],
   ['>تطبيق المندوب<', '>Temsilci uygulaması<'],
@@ -341,23 +307,6 @@ const CHROME_TR: [string, string][] = [
   ['>الحالة<', '>Durum<'],
   ['تم الإرسال', 'Gönderildi'],
   ['طلب #10428 قيد التنفيذ', 'Sipariş #10428 işlemde'],
-  ['٩٢٬٧٠٠', '92.700'],
-  ['٨٠٠٫٠٠ ر.س', '800,00 SAR'],
-  [' ر.س / شهريا', ' SAR / ay'],
-  ['إدارة الطلبات والتحصيل', 'Sipariş ve tahsilat yönetimi'],
-  ['فواتير ضريبية وسندات قبض', 'Vergi faturaları ve tahsilat makbuzları'],
-  ['تطبيق جوال للمناديب', 'Saha temsilcileri için mobil uygulama'],
-  ['تقارير أساسية', 'Temel raporlar'],
-  ['>ابدأ الآن<', '>Hemen başlayın<'],
-  ['كل مميزات الباقة', 'Şu paketteki her şey:'],
-  ['على الخريطة', 'harita üzerinde'],
-  ['تقارير وكشوف حساب متقدمة', 'Gelişmiş raporlar ve hesap ekstreleri'],
-  ['دعم أولوية', 'Öncelikli destek'],
-  ['كل مميزات', 'Şu paketin tüm özellikleri:'],
-  ['تكامل ERP ومحاسبة', 'ERP ve muhasebe entegrasyonu'],
-  ['مدير حساب مخصص', 'Özel hesap yöneticisi'],
-  ['تدريب وإعداد كامل', 'Eksiksiz eğitim ve kurulum'],
-  ['تواصل مع المبيعات', 'Satış ekibine ulaşın'],
   ['>المنتج<', '>Ürün<'],
   ['تطبيق الجوال', 'Mobil uygulama'],
   ['>الشركة<', '>Şirket<'],
@@ -407,7 +356,7 @@ const CHROME_ZH: [string, string][] = [
   ['>٥<', '>5<'],
   ['>المميزات<', '>功能<'],
   ['>كيف يعمل<', '>如何运作<'],
-  ['>الأسعار<', '>价格<'],
+  ['>طلب عرض سعر<', '>获取报价<'], ['>عرض سعر<', '>报价<'],
   ['>الأسئلة<', '>常见问题<'],
   ['>دخول الأدمن<', '>管理员登录<'],
   ['>تطبيق المندوب<', '>业务员应用<'],
@@ -424,23 +373,6 @@ const CHROME_ZH: [string, string][] = [
   ['>الحالة<', '>状态<'],
   ['تم الإرسال', '已发送'],
   ['طلب #10428 قيد التنفيذ', '订单 #10428 处理中'],
-  ['٩٢٬٧٠٠', '92,700'],
-  ['٨٠٠٫٠٠ ر.س', '800.00 SAR'],
-  [' ر.س / شهريا', ' SAR / 月'],
-  ['إدارة الطلبات والتحصيل', '订单与收款管理'],
-  ['فواتير ضريبية وسندات قبض', '增值税发票与收款单'],
-  ['تطبيق جوال للمناديب', '业务员移动应用'],
-  ['تقارير أساسية', '基础报表'],
-  ['>ابدأ الآن<', '>立即开始<'],
-  ['كل مميزات الباقة', '包含以下套餐的全部功能：'],
-  ['على الخريطة', '在地图上'],
-  ['تقارير وكشوف حساب متقدمة', '高级报表与对账单'],
-  ['دعم أولوية', '优先支持'],
-  ['كل مميزات', '包含以下套餐的全部功能：'],
-  ['تكامل ERP ومحاسبة', 'ERP 与会计系统集成'],
-  ['مدير حساب مخصص', '专属客户经理'],
-  ['تدريب وإعداد كامل', '完整培训与上线部署'],
-  ['تواصل مع المبيعات', '联系销售团队'],
   ['>المنتج<', '>产品<'],
   ['تطبيق الجوال', '移动应用'],
   ['>الشركة<', '>企业<'],
@@ -541,7 +473,7 @@ function coverageSection(lang: Lang): string {
   </section>`;
 }
 
-// يحقن قسم تغطية العالم العربي قبل قسم الأسعار
+// يحقن قسم تغطية العالم العربي قبل قسم «طلب عرض سعر»
 function injectCoverage(html: string, lang: Lang): string {
   const anchor = '<!-- ============ PRICING ============ -->';
   return html.replace(anchor, `${coverageSection(lang)}\n  ${anchor}`);
@@ -599,6 +531,36 @@ function contactSection(contact: ContactInfo, lang: Lang): string {
       <a href="${requestUrl}" style="display:inline-flex; align-items:center; gap:8px; margin-top:28px; background:#E15A30; color:#fff; font-weight:700; font-size:15.5px; padding:13px 30px; border-radius:14px; text-decoration:none; box-shadow:0 8px 22px rgba(225,90,48,.32);">${t.cta}</a>
     </div>
   </section>`;
+}
+
+// ---- «طلب عرض سعر» مكان قسم الأسعار — لا سعر في الصفحة الرئيسية (قرار المالك ٢٧ أكتوبر ٢٠٢٦) ----
+// الزرّ الأساسي نموذج طلب الاشتراك بصيغة «عرض سعر» (يصل للإدارة بريدياً ومعه عدد المناديب)،
+// والثانوي واتساب المبيعات عبر المحوّل المتتبَّع. بيانات التواصل من CMS العربي كمربع التواصل.
+function quoteSection(contact: ContactInfo, lang: Lang): string {
+  const t = {
+    ar: { title: 'طلب عرض سعر', sub: 'أخبرنا بعدد مناديبك واحتياج شركتك، ونرسل لك عرض سعر يناسبك.', cta: 'اطلب عرض سعر', wa: 'تواصل عبر واتساب' },
+    en: { title: 'Request a quote', sub: 'Tell us how many reps you have and what your company needs, and we will send you a quote that fits.', cta: 'Request a quote', wa: 'Chat on WhatsApp' },
+    fr: { title: 'Demander un devis', sub: 'Indiquez-nous le nombre de vos commerciaux et les besoins de votre entreprise, et nous vous enverrons un devis adapté.', cta: 'Demander un devis', wa: 'Écrire sur WhatsApp' },
+    tr: { title: 'Teklif isteyin', sub: 'Kaç saha temsilciniz olduğunu ve şirketinizin ihtiyaçlarını bize bildirin, size uygun bir teklif gönderelim.', cta: 'Teklif isteyin', wa: 'WhatsApp üzerinden yazın' },
+    zh: { title: '获取报价', sub: '告诉我们您的业务员人数和企业需求，我们将为您发送合适的报价。', cta: '获取报价', wa: '通过 WhatsApp 联系' },
+  }[lang];
+  // الرابط مكتوب بلغته وشرطته هنا: localizeLinks وslashInternalLinks لا يطابقان رابطاً فيه استعلام
+  const quoteUrl = `${lang === 'ar' ? '' : `/${lang}`}/subscribe-request/?type=quote`;
+  const wa = String(contact.whatsapp || '').trim();
+  return `<div style="text-align:center; max-width:640px; margin:0 auto;">
+      <div style="font-family:'IBM Plex Sans',sans-serif; font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:#E15A30; font-weight:600;">Quote</div>
+      <h2 style="font-size:42px; line-height:1.15; font-weight:700; letter-spacing:-1px; margin-top:12px;">${t.title}</h2>
+      <p style="font-size:18px; line-height:1.6; color:#6E6557; margin-top:14px;">${t.sub}</p>
+      <div style="display:flex; flex-wrap:wrap; gap:12px; justify-content:center; margin-top:28px;">
+        <a href="${quoteUrl}" style="display:inline-flex; align-items:center; background:#E15A30; color:#fff; font-weight:700; font-size:15.5px; padding:13px 30px; border-radius:14px; text-decoration:none; box-shadow:0 8px 22px rgba(225,90,48,.32);">${t.cta}</a>
+        <a href="${waLink(wa, lang)}" target="_blank" rel="noreferrer" data-wa-track style="display:inline-flex; align-items:center; background:#fff; color:#1F1A13; font-weight:600; font-size:15.5px; padding:13px 26px; border-radius:14px; border:1.5px solid #DED5C4; text-decoration:none;">${t.wa}</a>
+      </div>
+    </div>`;
+}
+
+// يملأ قسم «طلب عرض سعر» في موضعه من القالب (داخل section#pricing فتبقى روابط ‎#pricing القديمة صالحة)
+function injectQuote(html: string, contact: ContactInfo, lang: Lang): string {
+  return html.replace('<!-- ============ QUOTE ============ -->', quoteSection(contact, lang));
 }
 
 // يحقن مربع التواصل قبل التذييل مباشرة (بعد دعوة الإجراء الأخيرة)
@@ -667,184 +629,6 @@ function slashInternalLinks(html: string): string {
   return html.replace(/href="(\/(?!\/)[^"#?.]*[^"#?./])"/g, 'href="$1/"');
 }
 
-// ---- تبديل عملة عرض الأسعار (ريال ⇄ دولار) ----
-// الريال مربوط رسميًا بالدولار عند 3.75، فنحوّل القيمة نفسها دون تغيير التكلفة الفعلية.
-const SAR_PER_USD = 3.75;
-
-// يحوّل نصّ سعر بالريال (أرقام عربية أو لاتينية) إلى قيمته المكافئة بالدولار،
-// ويُعيد null لغير الأرقام («حسب الطلب / Custom») فتبقى كما هي.
-function sarToUsd(price: string): string | null {
-  const western = price.replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
-  const n = parseFloat(western.replace(/[^\d.]/g, ''));
-  if (isNaN(n)) return null;
-  const usd = n / SAR_PER_USD;
-  return Number.isInteger(usd) ? String(usd) : usd.toFixed(2); // خانتان عشريتان للحفاظ على القيمة بدقّة
-}
-
-// يستبدل أسعار الباقات بقيمتها المكافئة بالدولار عند اختيار USD (لا يمسّ «حسب الطلب/Custom»)
-function applyCurrency(content: Record<string, unknown>, cur: Currency): Record<string, unknown> {
-  if (cur === 'sar') return content;
-  const pricing = content.pricing as { plans?: Array<Record<string, unknown>> } | undefined;
-  if (!pricing?.plans) return content;
-  const plans = pricing.plans.map((p) => {
-    const usd = sarToUsd(p.price as string);
-    return usd ? { ...p, price: usd } : p;
-  });
-  return { ...content, pricing: { ...pricing, plans } };
-}
-
-// يُطبّق أسعار الـCMS الرقمية (التي يحرّرها المالك على النسخة العربية) على نسخ اللغات الأخرى،
-// فيتغيّر السعر في كل اللغات معًا. السعر رقم لا يتأثّر باللغة؛ والأسعار غير الرقمية («حسب الطلب»)
-// تبقى بنصّ اللغة الهدف (Custom / Sur devis). يتطابق ترتيب الباقات بين اللغات.
-function applyCmsPrices(target: Record<string, unknown>, arContent: Record<string, unknown>): Record<string, unknown> {
-  const arPricing = arContent.pricing as { plans?: Array<Record<string, unknown>> } | undefined;
-  const tPricing = target.pricing as { plans?: Array<Record<string, unknown>> } | undefined;
-  if (!arPricing?.plans || !tPricing?.plans) return target;
-  const plans = tPricing.plans.map((p, i) => {
-    const raw = arPricing.plans?.[i]?.price;
-    if (typeof raw !== 'string') return p;
-    const digits = raw.replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[^\d.]/g, '');
-    if (!/\d/.test(digits)) return p; // رقمي فقط؛ «حسب الطلب» يبقى كما هو
-    const yearly = arPricing.plans?.[i]?.yearlyPrice;
-    return { ...p, price: digits, ...(typeof yearly === 'string' && yearly.trim() ? { yearlyPrice: yearly } : {}) };
-  });
-  return { ...target, pricing: { ...tPricing, plans } };
-}
-
-// ---- دورة عرض الأسعار (شهري ⇄ سنوي) ----
-// السعر السنويّ: حقل `yearlyPrice` إن حرّره المالك في الـCMS، وإلا **عشرة أشهر** (شهران مجاناً) —
-// قرار المالك ١٤ سبتمبر ٢٠٢٦: ٢٩٩٠ / ٣٩٩٠ / ٥٩٩٠، ومطابقٌ لكتالوج عروض الأسعار
-// (backend/src/services/quotes.ts). اشتقاقه من الشهريّ يُبقيه صادقاً إن تغيّر الشهريّ ولم يُحرَّر السنويّ.
-const YEARLY_PAID_MONTHS = 10;
-
-const priceNum = (raw: unknown): number | null => {
-  if (typeof raw !== 'string' && typeof raw !== 'number') return null;
-  const n = parseFloat(String(raw).replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[^\d.]/g, ''));
-  return Number.isFinite(n) && n > 0 ? n : null;
-};
-
-/** السعر الشهريّ والسنويّ لباقةٍ رقمية — null لباقة «حسب الطلب» */
-function planCycle(plan: Record<string, unknown>): { monthly: number; yearly: number; freeMonths: number | null } | null {
-  const monthly = priceNum(plan.price);
-  if (monthly == null) return null;
-  const yearly = priceNum(plan.yearlyPrice) ?? monthly * YEARLY_PAID_MONTHS;
-  const free = Math.round(((monthly * 12 - yearly) / monthly) * 100) / 100;
-  return { monthly, yearly, freeMonths: Number.isInteger(free) && free >= 1 ? free : null };
-}
-
-const fmtAmount = (sar: number, cur: Currency) => {
-  if (cur === 'usd') return sarToUsd(String(sar)) ?? String(sar);
-  return sar.toLocaleString('en-US', { maximumFractionDigits: 2 });
-};
-
-function freeMonthsText(n: number, lang: Lang): string {
-  if (lang === 'en') return `${n} month${n > 1 ? 's' : ''} free`;
-  if (lang === 'fr') return `${n} mois offert${n > 1 ? 's' : ''}`;
-  if (lang === 'tr') return `${n} ay ücretsiz`;
-  if (lang === 'zh') return `免费 ${n} 个月`;
-  return n === 1 ? 'شهر مجانا' : n === 2 ? 'شهران مجانا' : `${n} أشهر مجانا`;
-}
-
-/** سطر التوفير تحت السعر السنويّ: «شهران مجاناً · بدلاً من ٣٥٨٨ ر.س» بلغة الصفحة وعملتها */
-function yearlyNote(c: { monthly: number; freeMonths: number | null }, lang: Lang, cur: Currency): string {
-  const amt = fmtAmount(c.monthly * 12, cur);
-  const unit = cur === 'usd' ? (lang === 'ar' ? 'دولار' : 'USD') : (lang === 'ar' ? 'ر.س' : 'SAR');
-  const instead = {
-    ar: `بدلا من ${amt} ${unit}`, en: `instead of ${unit} ${amt}`, fr: `au lieu de ${amt} ${unit}`,
-    tr: `${amt} ${unit} yerine`, zh: `原价 ${amt} ${unit}`,
-  }[lang];
-  const text = c.freeMonths ? `${freeMonthsText(c.freeMonths, lang)} · ${instead}` : instead;
-  return `<div style="font-size:12.5px; font-weight:700; color:#E15A30; margin-top:6px;">${text}</div>`;
-}
-
-/**
- * يطبّق الدورة على محتوى الأسعار: في السنويّ يصير سعر كل باقةٍ رقمية سعرَ سنتها ويُضاف سطر
- * توفيرها، ويُقلب «الشهري» في وصف القسم إلى «السنوي». يسبق تحويل العملة فيُحوَّل السنويّ أيضاً.
- */
-function applyBilling(content: Record<string, unknown>, billing: Billing, lang: Lang, cur: Currency): Record<string, unknown> {
-  const pricing = content.pricing as { subtitle?: unknown; plans?: Array<Record<string, unknown>> } | undefined;
-  if (!pricing?.plans) return content;
-  const plans = pricing.plans.map((p) => {
-    const c = planCycle(p);
-    if (billing === 'monthly' || !c) return { ...p, billingNote: '' };
-    // يحافظ على نمط أرقام السعر المحرَّر (٢٩٩ أو 299)
-    const yearly = /[٠-٩]/.test(String(p.price)) ? String(c.yearly).replace(/\d/g, (d) => '٠١٢٣٤٥٦٧٨٩'[Number(d)]) : String(c.yearly);
-    return { ...p, price: yearly, billingNote: yearlyNote(c, lang, cur) };
-  });
-  const subtitle = billing === 'yearly' && typeof pricing.subtitle === 'string'
-    ? pricing.subtitle.split('الشهري').join('السنوي')
-    : pricing.subtitle;
-  return { ...content, pricing: { ...pricing, subtitle, plans } };
-}
-
-/**
- * قالب الأسعار مهيّأً للدورة: موضعٌ لسطر التوفير تحت سعر كل باقة، والباقة الثالثة — المصمَّمة
- * أصلاً «حسب الطلب» بلا لاحقة وبخطٍّ أصغر — تُوحَّد مع أختيها متى كان سعرها رقماً (٥٩٩ اليوم).
- */
-function pricingTemplate(plan2Numeric: boolean): string {
-  let t = LANDING_TEMPLATE;
-  for (const i of [0, 1, 2]) {
-    const limit = `<div style="font-size:13.5px; color:#9A8F7E; margin-top:6px;">{{pricing.plans.${i}.limit}}</div>`;
-    t = t.replace(limit, `{{pricing.plans.${i}.billingNote}}${limit}`);
-  }
-  if (plan2Numeric) {
-    t = t.replace(
-      `<span style="font-family:'IBM Plex Sans',sans-serif; font-size:34px; font-weight:700; letter-spacing:-1px;">{{pricing.plans.2.price}}</span></div>`,
-      `<span style="font-family:'IBM Plex Sans',sans-serif; font-size:42px; font-weight:700; letter-spacing:-1px;">{{pricing.plans.2.price}}</span><span style="font-size:15px; color:#9A8F7E; font-weight:500;"> ر.س / شهريا</span></div>`,
-    );
-  }
-  return t;
-}
-
-/** لاحقة السعر حسب الدورة ثم العملة — اللاحقة الشهرية ثابتة في القالب ومترجمة لكل لغة */
-function applyPriceSuffix(html: string, billing: Billing, currency: Currency): string {
-  let out = html;
-  if (billing === 'yearly') {
-    out = out
-      .split(' ر.س / شهريا').join(' ر.س / سنويا')
-      .split(' SAR / mois').join(' SAR / an')
-      .split(' SAR / mo').join(' SAR / yr')
-      .split(' SAR / ay').join(' SAR / yıl')
-      .split(' SAR / 月').join(' SAR / 年');
-  }
-  if (currency === 'usd') {
-    out = out
-      .split(' ر.س / شهريا').join(' دولار / شهريا')
-      .split(' ر.س / سنويا').join(' دولار / سنويا');
-    // قائمةٌ صريحة لا « SAR / » عامّة — كي لا يُمسّ نصٌّ آخر في الصفحة يحوي العملة
-    for (const unit of ['mois', 'mo', 'yr', 'an', 'ay', 'yıl', '月', '年']) out = out.split(` SAR / ${unit}`).join(` USD / ${unit}`);
-  }
-  return out;
-}
-
-const segPill = (active: boolean) =>
-  `flex:1; padding:8px 18px; border:none; white-space:nowrap; border-radius:9px; font-size:14.5px; font-weight:700; cursor:pointer; font-family:inherit; transition:all .15s;` +
-  (active ? 'background:#E15A30; color:#fff; box-shadow:0 1px 4px rgba(225,90,48,.35);' : 'background:transparent; color:#6E6557;');
-const segWrap = (inner: string) =>
-  `<div style="display:flex; align-items:center; gap:4px; width:100%; background:#F3EDE3; border:1.5px solid #DED5C4; border-radius:13px; padding:4px; box-sizing:border-box;">${inner}</div>`;
-
-// مبدّل عملة الأسعار (ريال ⇄ دولار) على شكل زرّين مقسّمين
-function currencyToggle(currency: Currency, lang: Lang): string {
-  const sarLabel = lang === 'ar' ? 'ريال ﷼' : 'SAR ﷼';
-  const usdLabel = lang === 'ar' ? 'دولار $' : 'USD $';
-  return segWrap(`<button type="button" aria-label="SAR" onclick="window.__fsSetCurrency&&window.__fsSetCurrency('sar')" style="${segPill(currency === 'sar')}">${sarLabel}</button><button type="button" aria-label="USD" onclick="window.__fsSetCurrency&&window.__fsSetCurrency('usd')" style="${segPill(currency === 'usd')}">${usdLabel}</button>`);
-}
-
-// مبدّل الدورة (شهري ⇄ سنوي) — التوفير يُذكر تحت كل سعر لا على الزرّ (قرار المالك)
-function billingToggle(billing: Billing, lang: Lang): string {
-  const labels = {
-    ar: ['شهري', 'سنوي'], en: ['Monthly', 'Yearly'], fr: ['Mensuel', 'Annuel'], tr: ['Aylık', 'Yıllık'], zh: ['按月', '按年'],
-  }[lang];
-  return segWrap(`<button type="button" aria-label="Monthly" onclick="window.__fsSetBilling&&window.__fsSetBilling('monthly')" style="${segPill(billing === 'monthly')}">${labels[0]}</button><button type="button" aria-label="Yearly" onclick="window.__fsSetBilling&&window.__fsSetBilling('yearly')" style="${segPill(billing === 'yearly')}">${labels[1]}</button>`);
-}
-
-// يحقن مبدّلَي الدورة والعملة **فوق بعضهما** بعرضٍ واحد قبل شبكة بطاقات الباقات (المُحدِّد فريد في القالب)
-function injectPricingToggles(html: string, billing: Billing, currency: Currency, lang: Lang): string {
-  const anchor = '<div style="display:grid; grid-template-columns:repeat(3,1fr); gap:20px; align-items:stretch;">';
-  const stack = `<div style="display:flex; flex-direction:column; align-items:stretch; gap:10px; width:260px; max-width:100%; margin:0 auto 30px;">${billingToggle(billing, lang)}${currencyToggle(currency, lang)}</div>`;
-  return html.replace(anchor, `${stack}${anchor}`);
-}
-
 function mergeContent<T>(base: T, saved: unknown): T {
   if (Array.isArray(base)) {
     const savedArray = Array.isArray(saved) ? saved : [];
@@ -866,8 +650,6 @@ function mergeContent<T>(base: T, saved: unknown): T {
 // صفحة الهبوط التعريفية التسويقية — تصميم Field Sales، محتواها يُدار من لوحة المالك (CMS)
 export default function LandingPage() {
   const lang = useLang((s) => s.lang);
-  const currency = useCurrency((s) => s.currency);
-  const billing = useBilling((s) => s.billing);
   const navigate = useNavigate();
   const { canonical, alternates } = seoUrls('/', lang);
 
@@ -932,12 +714,6 @@ export default function LandingPage() {
       navigate(p.endsWith('/') ? p : `${p}/`);
     };
   }, [navigate]);
-
-  // مبدّلا العملة والدورة — يضبطان الريال/الدولار والشهري/السنوي محليًا دون تغيير المسار (يُحفظ الاختيار)
-  useEffect(() => {
-    (window as unknown as { __fsSetCurrency?: (c: Currency) => void }).__fsSetCurrency = (c) => useCurrency.getState().setCurrency(c);
-    (window as unknown as { __fsSetBilling?: (b: Billing) => void }).__fsSetBilling = (b) => useBilling.getState().setBilling(b);
-  }, []);
 
   // أزرار واتساب داخل HTML المحقون (بطاقة التواصل وأيقونة التواصل) لا تحمل onClick —
   // مستمع واحد على الحاوية يُطلق تحويل الحملة كما يفعل الزرّ العائم.
@@ -1032,7 +808,7 @@ export default function LandingPage() {
   // ونستخدم المحتوى الافتراضي الحالي حتى لا تُعرَض ميزات/نصوص قديمة. وإلا ندمج تحرير المالك.
   const savedItems = (data as { features?: { items?: unknown[] } } | null | undefined)?.features?.items;
   const cmsCurrent = Array.isArray(savedItems) && savedItems.length === defaultContent.features.items.length;
-  // ندمج تخصيصات CMS (روابط/تواصل/أسعار/عناوين) دائماً؛ لكن إن كانت مميزات CMS أقدم (عدد مختلف)
+  // ندمج تخصيصات CMS (روابط/تواصل/عناوين) دائماً؛ لكن إن كانت مميزات CMS أقدم (عدد مختلف)
   // نستبدل عناصر المميزات فقط بالافتراضية الحالية (لتظهر الجديدة) مع الحفاظ على عنوان/وصف القسم من CMS.
   const mergedObj = (data ? mergeContent(defaultContent, data) : defaultContent) as Record<string, unknown>;
   const arContent = (cmsCurrent ? mergedObj : {
@@ -1041,45 +817,34 @@ export default function LandingPage() {
   }) as Record<string, unknown>;
 
   const socialLinks = (arContent.social as Record<string, string>) || {};
-  const arPlans = ((arContent.pricing as { plans?: Array<Record<string, unknown>> } | undefined)?.plans) || [];
-  const TEMPLATE = pricingTemplate(!!arPlans[2] && planCycle(arPlans[2]) != null);
-  // الدورة ثم العملة: السعر السنويّ يُحوَّل إلى الدولار كالشهريّ
-  const priced = (c: Record<string, unknown>, l: Lang) => applyCurrency(applyBilling(c, billing, l, currency), currency);
+  const TEMPLATE = LANDING_TEMPLATE;
   let html: string;
   if (lang === 'en') {
-    // النسخة الإنجليزية: محتوى إنجليزي ثابت + روابط CMS + أسعار CMS الرقمية + ترجمة النص الثابت
-    const enBase = { ...defaultContentEn, social: socialLinks || defaultContentEn.social, heroImage: arContent.heroImage } as Record<string, unknown>;
-    const enContent = applyCmsPrices(enBase, arContent);
-    html = translateChrome(applyContent(TEMPLATE, priced(enContent, 'en'), 'en'));
+    // النسخة الإنجليزية: محتوى إنجليزي ثابت + روابط CMS + ترجمة النص الثابت
+    const enContent = { ...defaultContentEn, social: socialLinks || defaultContentEn.social, heroImage: arContent.heroImage } as Record<string, unknown>;
+    html = translateChrome(applyContent(TEMPLATE, enContent, 'en'));
   } else if (lang === 'tr') {
-    // النسخة التركية: محتوى تركي ثابت + روابط CMS + أسعار CMS الرقمية + ترجمة النص الثابت
-    const trBase = { ...defaultContentTr, social: socialLinks || defaultContentTr.social, heroImage: arContent.heroImage } as Record<string, unknown>;
-    const trContent = applyCmsPrices(trBase, arContent);
-    html = translateChromeTr(applyContent(TEMPLATE, priced(trContent, 'tr'), 'tr'));
+    // النسخة التركية: محتوى تركي ثابت + روابط CMS + ترجمة النص الثابت
+    const trContent = { ...defaultContentTr, social: socialLinks || defaultContentTr.social, heroImage: arContent.heroImage } as Record<string, unknown>;
+    html = translateChromeTr(applyContent(TEMPLATE, trContent, 'tr'));
   } else if (lang === 'zh') {
-    // النسخة الصينية: محتوى صيني ثابت + روابط CMS + أسعار CMS الرقمية + ترجمة النص الثابت
-    const zhBase = { ...defaultContentZh, social: socialLinks || defaultContentZh.social, heroImage: arContent.heroImage } as Record<string, unknown>;
-    const zhContent = applyCmsPrices(zhBase, arContent);
-    html = translateChromeZh(applyContent(TEMPLATE, priced(zhContent, 'zh'), 'zh'));
+    // النسخة الصينية: محتوى صيني ثابت + روابط CMS + ترجمة النص الثابت
+    const zhContent = { ...defaultContentZh, social: socialLinks || defaultContentZh.social, heroImage: arContent.heroImage } as Record<string, unknown>;
+    html = translateChromeZh(applyContent(TEMPLATE, zhContent, 'zh'));
   } else if (lang === 'fr') {
-    // النسخة الفرنسية: محتوى فرنسي ثابت + روابط CMS + أسعار CMS الرقمية + ترجمة النص الثابت (المغرب العربي)
-    const frBase = { ...defaultContentFr, social: socialLinks || defaultContentFr.social, heroImage: arContent.heroImage } as Record<string, unknown>;
-    const frContent = applyCmsPrices(frBase, arContent);
-    html = translateChromeFr(applyContent(TEMPLATE, priced(frContent, 'fr'), 'fr'));
+    // النسخة الفرنسية: محتوى فرنسي ثابت + روابط CMS + ترجمة النص الثابت (المغرب العربي)
+    const frContent = { ...defaultContentFr, social: socialLinks || defaultContentFr.social, heroImage: arContent.heroImage } as Record<string, unknown>;
+    html = translateChromeFr(applyContent(TEMPLATE, frContent, 'fr'));
   } else {
-    html = applyContent(TEMPLATE, priced(arContent, 'ar'), 'ar');
+    html = applyContent(TEMPLATE, arContent, 'ar');
   }
   html = injectLangSwitcher(html, lang);
   html = injectCoverage(html, lang);
-  // مربع «للتواصل وطلبات الاشتراك» — بياناته من CMS العربي (المصدر الواحد) وتُعرض بكل اللغات
+  // «طلب عرض سعر» ومربع «للتواصل وطلبات الاشتراك» — بياناتهما من CMS العربي (المصدر الواحد) وتُعرض بكل اللغات
+  html = injectQuote(html, (arContent.contact as ContactInfo) || {}, lang);
   html = injectContactBox(html, (arContent.contact as ContactInfo) || {}, lang);
   html = localizeLinks(html, lang); // يبقي لغة الروابط ثابتة عند الانتقال للصفحات التالية
   html = slashInternalLinks(html); // بعد التوطين: localizeLinks يطابق الرابط حرفياً
-
-  // مبدّلا الدورة والعملة داخل قسم الأسعار + لاحقة السعر حسب الدورة والعملة (اللاحقة ثابتة في القالب)
-  html = applyPriceSuffix(html, billing, currency);
-  html = injectPricingToggles(html, billing, currency, lang);
-
 
   return <div ref={rootRef} dangerouslySetInnerHTML={{ __html: html }} />;
 }

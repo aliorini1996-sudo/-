@@ -670,7 +670,7 @@ export const importApi = {
 export const contactApi = {
   send: (data: { name: string; email: string; phone?: string; message: string }) => api.post('/contact', data),
   // طلب اشتراك جديد (صفحة تسجيل طلب اشتراك) — يصل للإدارة بريدياً
-  subscription: (data: { companyName: string; contactName: string; email: string; phone: string; country: string; city?: string; repsCount?: string; notes?: string }) =>
+  subscription: (data: { companyName: string; contactName: string; email: string; phone: string; country: string; city?: string; repsCount?: string; notes?: string; kind?: 'quote' }) =>
     api.post('/contact/subscription', data),
 };
 

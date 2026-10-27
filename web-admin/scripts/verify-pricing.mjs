@@ -7,7 +7,8 @@
  *
  * يفشل هذا الفحص إذا:
  *   1) ظهر أي سعر لا يطابق الـCMS في المخرجات (كشف الانزياح).
- *   2) غاب السعر الحيّ عن الصفحة الرئيسية المُصيَّرة.
+ *   2) ظهر سعر أو AggregateOffer في الرئيسيات الخمس (لا سعر في الرئيسية — قرار المالك ٢٧ أكتوبر ٢٠٢٦،
+ *      ومكانه «طلب عرض سعر»)، أو غاب رابط «طلب عرض سعر» عنها، أو غاب السعر الحيّ عن صفحة الأسعار المُصيَّرة.
  *   3) غاب رابط واتساب عن الصفحة الرئيسية المُصيَّرة.
  *
  * ويُحذّر دون إفشال (أكتوبر 2026 — مصدر النصّ غالباً مقالات CMS يحرّرها المالك):
@@ -100,14 +101,35 @@ if (strays.size) {
   ok.push(`لا سعر غريب في ${files.length} ملف مُصيَّر`);
 }
 
-// 2 و3) الصفحة الرئيسية: السعر الحيّ + رابط واتساب حاضران
+// 2) لا سعر في الرئيسيات الخمس، و«طلب عرض سعر» مكانه — والسعر الحيّ حاضر في صفحة الأسعار.
+//    الأنماط نفسها (رقم بجوار عملة أو حقل سعر) لا «299» مجرّدة: بصمات الملفات قد تحويها.
 const home = path.join(DIST, 'index.html');
+for (const L of ['', 'en', 'fr', 'tr', 'zh']) {
+  const f = path.join(DIST, L, 'index.html');
+  const rel = path.relative(DIST, f);
+  if (!fs.existsSync(f)) { fail.push(`${rel} غير موجود`); continue; }
+  const h = fs.readFileSync(f, 'utf8');
+  const hits = PRICE_PATTERNS.flatMap((re) => { re.lastIndex = 0; return [...h.matchAll(re)].map((m) => m[0]); });
+  if (/AggregateOffer|"(?:lowPrice|highPrice)"/.test(h)) hits.push('AggregateOffer');
+  if (hits.length) fail.push(`سعر في الرئيسية ${rel}: ${[...new Set(hits)].slice(0, 4).join('، ')} — الرئيسية بلا أسعار (طلب عرض سعر مكانها)`);
+  else ok.push(`لا سعر في الرئيسية ${rel}`);
+  if (h.includes('/subscribe-request/?type=quote')) ok.push(`رابط «طلب عرض سعر» حاضر في ${rel}`);
+  else if (L !== 'tr' && L !== 'zh') fail.push(`رابط «طلب عرض سعر» (/subscribe-request/?type=quote) غائب عن ${rel}`);
+}
+const pricingPage = path.join(DIST, 'pricing', 'index.html');
+if (fs.existsSync(pricingPage)) {
+  const pp = fs.readFileSync(pricingPage, 'utf8');
+  for (const p of livePrices) {
+    if (pp.includes(p)) ok.push(`السعر ${p} حاضر في صفحة الأسعار المُصيَّرة`);
+    else fail.push(`السعر الحيّ ${p} غائب عن dist/pricing/index.html`);
+  }
+} else {
+  fail.push('dist/pricing/index.html غير موجود');
+}
+
+// 3) رابط واتساب حاضر في الرئيسية المُصيَّرة
 if (fs.existsSync(home)) {
   const h = fs.readFileSync(home, 'utf8');
-  for (const p of livePrices) {
-    if (h.includes(p)) ok.push(`السعر ${p} حاضر في الصفحة الرئيسية المُصيَّرة`);
-    else fail.push(`السعر الحيّ ${p} غائب عن dist/index.html`);
-  }
   const wa = waDigits(pricing.whatsapp);
   if (wa && h.includes(wa)) ok.push('رابط واتساب حاضر في الصفحة الرئيسية المُصيَّرة');
   else fail.push(`رابط واتساب (${wa}) غائب عن dist/index.html — الزواحف لا ترى قناة التحويل`);
@@ -154,12 +176,13 @@ if (apiRoot) {
 // الدرس: حارسٌ يفحص الأرقام وحدها يحرس نصف الحقيقة.
 const numericPlans = pricing.plans.filter((p) => /^\d+$/.test(String(p.price)));
 
-// (أ) وصف العرض في القوقعة يذكر كل باقة رقمية — وإلا فهو يصف بنية أضيق من الحيّة
-if (fs.existsSync(home)) {
-  const shell = fs.readFileSync(home, 'utf8');
+// (أ) وصف العرض في القوقعة يذكر كل باقة رقمية — وإلا فهو يصف بنية أضيق من الحيّة.
+//     يُفحص في صفحة الأسعار: الرئيسية بلا AggregateOffer، وبقية الصفحات العربية ترث القوقعة نفسها.
+if (fs.existsSync(pricingPage)) {
+  const shell = fs.readFileSync(pricingPage, 'utf8');
   const desc = shell.match(/"description"\s*:\s*"(تجربة مجانية[^"]*)"/);
   if (!desc) {
-    fail.push('لم أجد وصف AggregateOffer في dist/index.html — تحقّق من قالب القوقعة');
+    fail.push('لم أجد وصف AggregateOffer في dist/pricing/index.html — تحقّق من قالب القوقعة');
   } else {
     const missing = numericPlans.filter((p) => !desc[1].includes(String(p.price)));
     if (missing.length) {
