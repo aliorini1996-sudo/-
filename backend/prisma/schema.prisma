@@ -101,6 +101,14 @@ model Tenant {
   apiEnabled                Boolean   @default(false) // «الربط البرمجي API» — مفاتيح API لنظام الشركة الخاص؛ يفعّله المالك لكل شركة (services/apiKeys.ts)
   paymentMethodsEnabled     Boolean   @default(false) // صفحة «طرق الدفع» — تحصيل كل مندوب موزّعاً على النقدي والشبكة والتحويل والشيك والإلكتروني؛ يفعّلها المالك لكل شركة (services/paymentMethodsReport.ts)
   locationsEnabled          Boolean   @default(false) // «لوكيشن» — مواقع الشركة (فرع/مستودع/مدينة) ووسم الفواتير والتحميلات بموقع المندوب وقت الإصدار؛ يفعّلها المالك لكل شركة (services/locations.ts)
+  // «التحصيل بالبطاقة» (NearPay SoftPOS، طلب المالك ٢٨ أكتوبر ٢٠٢٦): العميل يلمس بطاقته بجوال المندوب. ميزة مستقلة عن روابط
+  // الدفع (paylinkEnabled) يفعّلها المالك لكل شركة. المال يذهب من NearPay إلى الشركة مباشرة (تاجرٌ مستقل لكل شركة) — لا تجميع
+  // عندنا ولا عمولة ولا توريد؛ نحن نسجّل سند القبض وحده بعد التحقق من NearPay (services/cardPayment.ts)
+  cardPayEnabled            Boolean   @default(false)
+  // معرّف تاجر الشركة لدى NearPay (UUID) — نقاط البيع المسندة لمناديبها يجب أن تكون لهذا التاجر وحده، فلا يذهب مالها لغيرها
+  // تاجرٌ واحد لشركة واحدة — تُفرض في PUT /api/tenants/:id لا بـ@unique: قيدٌ فريد على جدولٍ يحمل بيانات يُفشل db push
+  // بلا --accept-data-loss (درس ١٧ يوليو ٢٠٢٦)
+  nearpayMerchantId         String?
   subscriptionEndsAt       DateTime? // تاريخ انتهاء الاشتراك (null = غير محدود)
   notes                     String?
   createdAt                 DateTime  @default(now())
@@ -144,6 +152,7 @@ model Tenant {
   attendanceAudits     AttendanceAudit[]
   presenceChecks       PresenceCheck[]
   customerPaymentLinks CustomerPaymentLink[]
+  cardPayments         CardPayment[]
   settlementEntries    SettlementEntry[]
   invoiceInstallments  InvoiceInstallment[]
   payouts              Payout[]
@@ -518,6 +527,9 @@ model SalesRep {
   locationId String?
   location   SalesLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
 
+  // «التحصيل بالبطاقة» (Tenant.cardPayEnabled): نقطة بيع NearPay المسندة للمندوب — TID من ١٦ رقماً لتاجر شركته. null = لا تحصيل بالبطاقة
+  nearpayTid String?
+
   invoices      Invoice[]
   receipts      Receipt[]
   notifications Notification[]
@@ -539,6 +551,7 @@ model SalesRep {
   teamMemberships     TeamMember[]
   createdCustomers    Customer[]            @relation("CustomerCreatedByRep")
   paymentLinks        CustomerPaymentLink[]
+  cardPayments        CardPayment[]
   dailyReports        DailyReport[]
 
   @@index([tenantId])
@@ -609,6 +622,52 @@ model CustomerPaymentLink {
   @@index([tenantId, status])
   @@index([tenantId, invoiceId])
   @@map("customer_payment_links")
+}
+
+/// «التحصيل بالبطاقة» عبر NearPay (SoftPOS): عملية دفعٍ واحدة لفاتورة — يُنشئها الخادم قبل لمس البطاقة (المعرّف نفسه هو
+/// intentUUID الذي يمرّره تطبيق المندوب إلى purchase())، ثم يتحقّق منها من واجهة NearPay بمفتاحنا لا من الجوال، فيُصدر سند
+/// القبض في معاملة واحدة. المال يذهب من NearPay إلى تاجر الشركة مباشرة، فلا قيود أمانات هنا (بخلاف CustomerPaymentLink).
+model CardPayment {
+  id          String    @id @default(uuid()) // = intentUUID لدى NearPay
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoiceId   String
+  invoice     Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  customerId  String
+  customer    Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  salesRepId  String?
+  salesRep    SalesRep? @relation(fields: [salesRepId], references: [id], onDelete: SetNull)
+  createdById String? // الإداري حين يبدأ العملية من اللوحة
+
+  amount         Float // بالريال — مجمّد لحظة الإنشاء، ولا يتجاوز متبقي الفاتورة
+  amountHalalas  Int // ما يُمرَّر إلى purchase() ويُطابَق مع NearPay حرفياً
+  tid            String // نقطة البيع المسندة للمندوب لحظة الإنشاء — تُطابَق مع إيصال NearPay
+  reference      String // customerReferenceNumber: رقم الفاتورة — للعرض والبحث لا للمطابقة (ليس فريداً لدى NearPay)
+  // رمز تسليمٍ لمرة واحدة من صفحة المندوب إلى وحدة الدفع الأصلية (intent://) — يُحفظ تجزئته فقط، وينتهي سريعاً
+  launchTokenHash String?   @unique
+  launchExpiresAt DateTime?
+  launchedAt      DateTime?
+
+  status          String    @default("pending") // pending | approved | declined | reversed | expired | failed
+  statusDetail    String? // سبب الرفض أو الفشل كما ورد — للعرض
+  transactionUuid String?   @unique // transaction_uuid لدى NearPay — مفتاح عدم التكرار الثاني بعد المعرّف
+  rrn             String?
+  stan            String?
+  approvalCode    String?
+  cardScheme      String?
+  maskedPan       String?
+  receiptId       String?   @unique // سند القبض الذي أصدرته الموافقة
+  approvedAt      DateTime?
+  lastCheckedAt   DateTime?
+  checks          Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@index([tenantId, invoiceId])
+  @@index([status, updatedAt])
+  @@map("card_payments")
 }
 
 // دفتر أمانات الشركات — نفس فلسفة AccountEntry: قيود موقعة لا رصيد مخزن.
@@ -821,6 +880,7 @@ model Customer {
   assignments    CustomerAssignment[]
   adminScopes    AdminCustomerScope[]
   paymentLinks   CustomerPaymentLink[]
+  cardPayments   CardPayment[]
 
 
   // ZATCA المرحلة الثانية — بيانات المشتري (اختيارية؛ countryCode بلا قيمة افتراضية كي لا تُوسَم عملاء دول أخرى SA — المُطابِق يعامل null كـSA)
@@ -961,6 +1021,7 @@ model Invoice {
   receiptItems   ReceiptInvoice[]
   accountEntries AccountEntry[]
   paymentLinks   CustomerPaymentLink[]
+  cardPayments   CardPayment[]
   installments   InvoiceInstallment[]
   signature      InvoiceSignature?
 

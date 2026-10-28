@@ -220,7 +220,7 @@ test('قائمة المحروس = التطبيق حرفياً (rep/liveGate.ts)'
   const server = fs.readFileSync(path.join(SRC, 'services', 'liveLocation.ts'), 'utf8');
   const web = fs.readFileSync(path.join(SRC, '..', '..', 'web-admin', 'src', 'rep', 'liveGate.ts'), 'utf8');
   assert.deepEqual(list(server), list(web));
-  assert.deepEqual([...live.LIVE_GUARDED_PREFIXES], ['/invoices', '/receipts', '/visits', '/customers', '/paylink/issue']);
+  assert.deepEqual([...live.LIVE_GUARDED_PREFIXES], ['/invoices', '/receipts', '/visits', '/customers', '/paylink/issue', '/card-payments/issue']);
 });
 
 test('غير المقيَّد والإدارة والتوكن الغائب/الفاسد: يمرّ كما كان (والمصادقة في الموجّه تحكم)', async () => {
@@ -384,7 +384,7 @@ test('كل بادئةٍ تُركَّب بعد الحارس مصنَّفة: مح�
   const after = idx.slice(idx.indexOf("app.use('/api', requireRepLiveLocation);"));
   const mounted = [...new Set([...after.matchAll(/app\.use\('(\/api\/[^']+)'/g)].map((m) => m[1].slice(4)))].sort();
   // ما يعمل على عميل — كل كتابةٍ فيه للمندوب محروسة بالبادئة (والمسارات الإدارية تحته لا يبلغها المندوب أصلاً)
-  const GUARDED = ['/customers', '/invoices', '/paylink', '/receipts', '/visits'];
+  const GUARDED = ['/card-payments', '/customers', '/invoices', '/paylink', '/receipts', '/visits'];
   // مفتوحٌ للمقيَّد بمراجعة (٧ أكتوبر ٢٠٢٦): ليس عملاً على عميل، أو إداريٌّ/عامٌّ لا يبلغه المندوب بكتابة
   // '/api-keys' و'/v1' (الربط البرمجي API): إداريّان لا يبلغهما المندوب — الأول requireAdmin والثاني لمفاتيح API وحدها
   // '/locations' («لوكيشن»): إداريٌّ (requireAdmin) — المواقع وإسناد المناديب وملخّصها، لا عمل على عميل

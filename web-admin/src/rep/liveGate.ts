@@ -150,7 +150,7 @@ export function strictRepNow(): boolean {
  * والتقرير اليومي، وتحميل السيارة، والمندوب الذكي، والإشعارات…) متاحٌ للمقيَّد بلا شرط. القراءة لا تُحرس.
  */
 export const LIVE_GUARDED_PREFIXES: readonly string[] = Object.freeze([
-  '/invoices', '/receipts', '/visits', '/customers', '/paylink/issue',
+  '/invoices', '/receipts', '/visits', '/customers', '/paylink/issue', '/card-payments/issue',
 ]);
 /** المسار نسبةً إلى /api بلا استعلام ولا أصل، بحروفٍ صغيرة وبلا شرطةٍ أخيرة */
 function apiPath(url: string | undefined): string {

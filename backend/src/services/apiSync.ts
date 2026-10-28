@@ -76,6 +76,8 @@ const SALES_REP_COLS = [
   'requirePresenceCheck', 'showRouteOnMap',
   // «لوكيشن»: موقع المندوب الحاليّ (معرّف SalesLocation — null = بلا موقع)
   'locationId',
+  // «التحصيل بالبطاقة»: نقطة بيع NearPay المسندة (TID — null = لا تحصيل بالبطاقة)
+  'nearpayTid',
 ];
 const INVOICE_COLS = [
   'id', 'number', 'customerId', 'salesRepId', 'type', 'status', 'returnReason', 'returnToStock', 'invoiceDate',

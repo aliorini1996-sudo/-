@@ -69,6 +69,14 @@ export const mailLimiter = rateLimit({
  * تسجيل عروض الأسعار من الرابط الخاص بلا دخول — سخيٌّ لفريق مبيعاتٍ يخرج من IP مكتبٍ
  * واحد (ستّون عرضاً في الساعة تفوق أيّ يوم عمل)، وضيّقٌ على من يكتشف الواجهة فيُغرقها.
  */
+/** وحدة الدفع الأصلية تستبدل رمز التسليم بلا دخول — الرمز عشوائي لمرة واحدة، والحدّ يمنع تخمينه */
+export const cardPayLaunchLimiter = rateLimit({
+  ...base,
+  windowMs: 10 * 60 * 1000,
+  limit: 30,
+  message: { success: false, message: 'محاولات كثيرة حاول بعد قليل' },
+});
+
 export const quoteLimiter = rateLimit({
   ...base,
   windowMs: 60 * 60 * 1000,

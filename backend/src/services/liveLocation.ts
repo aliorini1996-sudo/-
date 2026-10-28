@@ -81,7 +81,7 @@ export function isReplay(header: unknown): boolean {
  * والشرطة الأخيرة؛ البادئة تحرس المسار نفسه وكل ما تحته (الاتجاه الآمن لما يُضاف تحتها لاحقاً). = التطبيق (rep/liveGate.ts).
  */
 export const LIVE_GUARDED_PREFIXES: readonly string[] = Object.freeze([
-  '/invoices', '/receipts', '/visits', '/customers', '/paylink/issue',
+  '/invoices', '/receipts', '/visits', '/customers', '/paylink/issue', '/card-payments/issue',
 ]);
 
 export function isLiveGuarded(method: string, path: string): boolean {

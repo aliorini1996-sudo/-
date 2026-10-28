@@ -14,6 +14,7 @@ import prisma from './config/database';
 import { startOpsScheduler } from './services/opsSchedule';
 import { startPetroappScheduler } from './services/petroapp';
 import { startPaylinkScheduler } from './services/paylink';
+import { startCardPayScheduler } from './services/cardPayment';
 import { startZatcaSweep } from './services/zatcaSubmit';
 import { startAttendanceAlerts } from './services/attendanceAlerts';
 import { startPresenceChecks } from './services/presenceChecks';
@@ -73,6 +74,7 @@ import financeRouter from './routes/finance';
 import waInboxRouter from './routes/waInbox';
 import paymentsRouter, { paymentsWebhookRouter } from './routes/payments';
 import paylinkRouter from './routes/paylink';
+import cardPaymentsRouter from './routes/cardPayments';
 import ledgerRouter from './routes/ledger';
 import { createZatcaRouter, zatcaErrorGuard } from './routes/zatca';
 import { productionZatcaDeps } from './routes/zatcaDeps';
@@ -250,6 +252,8 @@ app.use('/api/leads-cron', leadsCronRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/payments', paymentsRouter);
 app.use('/api/paylink', paylinkRouter);
+// «التحصيل بالبطاقة» عبر NearPay (SoftPOS) — يفعّله المالك لكل شركة؛ /launch عامّ لوحدة الدفع الأصلية برمزٍ لمرة واحدة
+app.use('/api/card-payments', cardPaymentsRouter);
 // النظام المحاسبي المتكامل — سلسلة الحراسة داخل الموجّه (§9.1)
 app.use('/api/ledger', ledgerRouter);
 // ربط فوترة ZATCA المرحلة الثانية (تسجيل وحدة EGS) — الحراسة كلها داخل الموجّه: مدير الشركة، علم المالك
@@ -397,6 +401,7 @@ server.listen(PORT, async () => {
   startOpsScheduler();
   startPetroappScheduler();
   startPaylinkScheduler();
+  startCardPayScheduler();
   startLedgerSyncScheduler(); // LEDGER_WORKER_ENABLED=0 للإطفاء
   startZatcaSweep(); // ZATCA_SWEEP_ENABLED=false للإطفاء — خامل بلا مستندات مرحلة ثانية
   startAttendanceAlerts(); // تنبيهات الحضور على جوال المندوب — ATTENDANCE_ALERTS_ENABLED=false للإطفاء

@@ -73,6 +73,9 @@ const updateTenantSchema = z.object({
   paymentMethodsEnabled: z.boolean().optional(),
   // «لوكيشن» (مواقع الشركة وختم الفواتير والتحميلات بموقع المندوب) — في التحديث وحده (مطفأ افتراضياً)
   locationsEnabled: z.boolean().optional(),
+  // «التحصيل بالبطاقة» (NearPay SoftPOS) وتاجر الشركة لديهم — في التحديث وحده (مطفأ افتراضياً)
+  cardPayEnabled: z.boolean().optional(),
+  nearpayMerchantId: z.string().uuid().nullable().optional(),
   // النظام المحاسبي المتكامل — في التحديث وحده، ومحروسٌ بقائمة التجربة في PUT /:id (§8.1)
   accountingSuiteEnabled: z.boolean().optional(),
   subscriptionEndsAt: z.string().nullish(),
@@ -250,6 +253,11 @@ router.post('/', async (req: PlatformRequest, res: Response, next: NextFunction)
 router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const body = updateTenantSchema.parse(req.body);
+    // «التحصيل بالبطاقة»: تاجرٌ واحد لشركة واحدة — لا تتقاسم شركتان نقاط بيعٍ ومالاً
+    if (body.nearpayMerchantId) {
+      const owner = await prisma.tenant.findFirst({ where: { nearpayMerchantId: body.nearpayMerchantId, id: { not: req.params.id } }, select: { name: true } });
+      if (owner) { res.status(409).json({ success: false, message: `تاجر NearPay مربوط بشركة أخرى (${owner.name})` }); return; }
+    }
     // النظام المحاسبي المتكامل: يفعّله المالك لأي شركة (قرار المالك 17 سبتمبر 2026 بإزالة قائمة التجربة، §8.1)
     const data: Record<string, unknown> = { ...body };
     if ('subscriptionEndsAt' in body) {
@@ -261,6 +269,13 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       const before = body.accountingSuiteEnabled === undefined
         ? null
         : await tx.tenant.findUnique({ where: { id: req.params.id }, select: { accountingSuiteEnabled: true } });
+      // «التحصيل بالبطاقة»: تغيير تاجر الشركة لدى NearPay يُسقط إسناد نقاط البيع القديمة — نقطةُ التاجر السابق لا يبقى مالها لهذه الشركة
+      if (body.nearpayMerchantId !== undefined) {
+        const prev = await tx.tenant.findUnique({ where: { id: req.params.id }, select: { nearpayMerchantId: true } });
+        if (prev && prev.nearpayMerchantId !== body.nearpayMerchantId) {
+          await tx.salesRep.updateMany({ where: { tenantId: req.params.id, nearpayTid: { not: null } }, data: { nearpayTid: null } });
+        }
+      }
       const updated = await tx.tenant.update({ where: { id: req.params.id }, data });
       if (before && before.accountingSuiteEnabled !== updated.accountingSuiteEnabled) {
         await appendAudit(tx, {
@@ -387,6 +402,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
           ...(destroyLedger ? [...GL_RESET_ORDER, ...GL_RESET_KEEP].map(m => (tx as unknown as Record<string, { deleteMany(a: { where: { tenantId: string } }): Promise<{ count: number }> }>)[resetDelegateName(m)]) : []),
         ];
         for (const d of ledgerDelegates) await d.deleteMany({ where: { tenantId: tid } });
+        await tx.cardPayment.deleteMany({ where: { tenantId: tid } });
         await tx.receiptInvoice.deleteMany({ where: { receipt: { tenantId: tid } } });
         await tx.invoiceItem.deleteMany({ where: { invoice: { tenantId: tid } } });
         await tx.accountEntry.deleteMany({ where: { tenantId: tid } });
