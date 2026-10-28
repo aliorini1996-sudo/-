@@ -109,6 +109,14 @@ export const locationsApi = {
   summary: (params?: Record<string, string>) => api.get('/locations/summary', { params }),
 };
 
+// «التحصيل بالبطاقة» عبر NearPay — /api/card-payments (ميزة يفعّلها المالك؛ ٤٠٣ CARD_PAY_NOT_ALLOWED دونها): نقاط بيع تاجر
+// الشركة وإسنادها للمناديب (tid: null = بلا نقطة)، وتجّار NearPay للمالك يربط بهم كل شركة
+export const cardPayApi = {
+  terminals: () => api.get('/card-payments/terminals'),
+  assignRep: (salesRepId: string, tid: string | null) => api.put(`/card-payments/reps/${salesRepId}`, { tid }),
+  ownerMerchants: () => api.get('/card-payments/owner/merchants'),
+};
+
 export const salesRepApi = {
   list: (params?: Record<string, string | number>) => api.get('/sales-reps', { params }),
   get: (id: string) => api.get(`/sales-reps/${id}`),

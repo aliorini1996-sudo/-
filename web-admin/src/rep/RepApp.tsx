@@ -7,6 +7,7 @@ import { previewInstallments, defaultFirstDue, MAX_INSTALLMENTS, type Installmen
 import { useBackClose } from '../lib/useBackClose';
 import { getVisitTimer, setVisitTimer, clearVisitTimer, elapsedSec, fmtElapsed, type VisitTimer } from './visitTimer';
 import RepTeamSwitch from './RepTeamSwitch';
+import { CardPaySheet, CardPayResult, cardPayDeviceSupported, readPendingCardPay, clearPendingCardPay, type CardPayPending } from './CardPay';
 import { currentActiveTeam, sellableNow, storedUserActiveTeam, useActiveTeam, type RepTeam } from './repTeam';
 import { toGeoFix, isGeoFix, attachFix, fixCoords, visitGate, planFinalize, visitFailure, isFinalVisitRejection, MIN_VISIT_SEC, type GeoFix } from './visitLocation';
 import { precisePunchFix } from './punchFix';
@@ -1186,7 +1187,7 @@ function PayLinkSheet({ customer, onClose }: { customer: any; onClose: () => voi
   );
 }
 
-function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice, onReceipt, onReturn, onStatement, onOpenDoc, onLogVisit, visitActive, visitElapsedLabel, onStartVisit, visitStart = null, visitFixed = false, paylinkOn, accountingOn = true, onEdit, zatcaCollect = false, onCompleteBuyer }: {
+function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice, onReceipt, onReturn, onStatement, onOpenDoc, onLogVisit, visitActive, visitElapsedLabel, onStartVisit, visitStart = null, visitFixed = false, paylinkOn, cardPayOn = false, accountingOn = true, onEdit, zatcaCollect = false, onCompleteBuyer }: {
   customer: any; repName: string; company: Company | null;
   /** فوترة ZATCA (Z5.1a، D2): الشركة تجمع بيانات الفوترة؟ ⇒ لافتة النواقص و«أكمل البيانات» (نقطة الفوترة الضيّقة — Q3) */
   zatcaCollect?: boolean;
@@ -1195,6 +1196,8 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
   onEdit?: () => void;
   /** ميزة الدفع الإلكتروني مفعلة لهذه الشركة (بوابة المالك كالمنيو) */
   paylinkOn?: boolean;
+  /** «التحصيل بالبطاقة» (NearPay) مفعّل لهذه الشركة — والزرّ على أندرويد وحده (وحدة الدفع الأصلية في التطبيق) */
+  cardPayOn?: boolean;
   /** «النظام المحاسبي» مفعّل؟ إطفاؤه يحذف كل ما هو ماليّ من هذا الملفّ */
   accountingOn?: boolean;
   perms: RepUser;
@@ -1220,6 +1223,8 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
   const [docError, setDocError] = useState('');
   const [payLinkOpen, setPayLinkOpen] = useState(false);
   useBackClose(payLinkOpen, () => setPayLinkOpen(false));
+  const [cardPayOpen, setCardPayOpen] = useState(false);
+  useBackClose(cardPayOpen, () => setCardPayOpen(false));
 
   // فتح مستند الحركة (فاتورة/سند) من كشف الحساب
   const openDoc = async (e: any) => {
@@ -1408,6 +1413,14 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
           </button>
         )}
         {payLinkOpen && <PayLinkSheet customer={customer} onClose={() => setPayLinkOpen(false)} />}
+        {/* التحصيل بالبطاقة (NearPay): العميل يلمس بطاقته بجوال المندوب — للشركة المفعّلة، وعلى أندرويد، وبصلاحية السندات */}
+        {accountingOn && cardPayOn && cardPayDeviceSupported() && (
+          <button onClick={() => setCardPayOpen(true)} disabled={unassigned || !canCreateReceipt || !!customer._offline}
+            className="w-full mt-3 bg-[#1F1A13] hover:bg-black disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
+            <CreditCard size={16} /> {tr('تحصيل بالبطاقة')}
+          </button>
+        )}
+        {cardPayOpen && <CardPaySheet customer={customer} onClose={() => setCardPayOpen(false)} />}
 
         {/* Statement — القسم كلّه (عنوانه ولافتاته وحركاته) يُحذف عند الإطفاء */}
         {accountingOn && <>
@@ -3663,6 +3676,32 @@ export default function RepApp() {
     navigator.serviceWorker?.addEventListener('message', onMsg);
     return () => navigator.serviceWorker?.removeEventListener('message', onMsg);
   }, [fetchPresence]);
+  // «التحصيل بالبطاقة»: نتيجة الرجوع من وحدة الدفع الأصلية — من الرابط (/rep?cardpay=<المعرّف>|unsupported) أو من عملية
+  // معلّقة محفوظة حين يعود المندوب بزرّ الرجوع. الخادم يحسم ويُصدر السند؛ النافذة تعرض فقط
+  const [cardPayView, setCardPayView] = useState<{ pending: CardPayPending | null; unsupported?: boolean } | null>(null);
+  useEffect(() => {
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      const c = sp.get('cardpay');
+      if (c) {
+        if (c === 'unsupported') { clearPendingCardPay(); setCardPayView({ pending: null, unsupported: true }); }
+        else {
+          const saved = readPendingCardPay();
+          setCardPayView({ pending: saved && saved.id === c ? saved : { id: c, invoiceNumber: '', amount: 0, at: Date.now() } });
+        }
+        sp.delete('cardpay');
+        const q = sp.toString();
+        window.history.replaceState(null, '', window.location.pathname + (q ? `?${q}` : '') + window.location.hash);
+      }
+    } catch { /* رابطٌ غريب */ }
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      const saved = readPendingCardPay();
+      if (saved) setCardPayView((cur) => cur ?? { pending: saved });
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, []);
   const [modal, setModal] = useState<Modal>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   // المندوب الذكي: «أضفه عميلاً» يفتح إضافة العميل معبّأةً بنوع المحل ومعرّفه وموقع المندوب
@@ -4236,6 +4275,12 @@ export default function RepApp() {
               onClose={() => { answeredPresence.current.add(presence.id); setPresence(null); }}
               onDismiss={() => setPresence(null)} />
           )}
+          {/* نتيجة التحصيل بالبطاقة بعد الرجوع من وحدة الدفع — فوق الشاشات، والخادم يحسم ويُصدر السند */}
+          {cardPayView && token && user && (
+            <CardPayResult pending={cardPayView.pending} unsupported={cardPayView.unsupported}
+              onClose={() => { if (!cardPayView.unsupported) clearPendingCardPay(); setCardPayView(null); }}
+              onDone={() => setRefreshKey((k) => k + 1)} />
+          )}
           {/* «أعد المحاولة» يجدّد القيد من الخادم أولاً: مالكٌ أطفأه لمندوبٍ عالق يرفع الحاجز بلا إغلاق التطبيق */}
           {gateShown && <LocationOffGate block={liveBlock ?? 'locating'} onRetry={async () => { await refreshUser(); return checkLocation(); }} onExit={exitCustomerScope}
             visitActive={!!visitTimer && !!selectedCustomer && visitTimer.customerId === selectedCustomer.id} />}
@@ -4260,6 +4305,7 @@ export default function RepApp() {
           ) : modal === 'customerDetail' && selectedCustomer ? (
             <CustomerDetail customer={selectedCustomer} repName={user.name} company={company} perms={user}
               paylinkOn={(company as any)?.paylinkEnabled === true}
+              cardPayOn={(company as any)?.cardPayEnabled === true}
               accountingOn={accountingOn}
               // الخروج الحقيقي لقائمة العملاء يُنهي مؤقّت هذا العميل ويرفع الزيارة.
               // النوافذ الفرعية (فاتورة/سند) لا تمرّ من هنا فيبقى المؤقّت جارياً.

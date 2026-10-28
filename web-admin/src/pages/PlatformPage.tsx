@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, lazy, Suspense } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { tenantApi, staffAuthApi } from '../api/client';
+import { tenantApi, staffAuthApi, cardPayApi } from '../api/client';
 import { Tenant, User } from '../types';
 import { formatDate, formatCurrency, formatNumber } from '../utils/format';
 import { useAuthStore } from '../store/authStore';
@@ -915,6 +915,15 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
   const [paymentMethodsEnabled, setPaymentMethodsEnabled] = useState(!!tenant.paymentMethodsEnabled);
   // «لوكيشن» (مواقع الشركة وختم الفواتير والتحميلات بموقع المندوب) — مطفأة افتراضياً ⇒ `!!`
   const [locationsEnabled, setLocationsEnabled] = useState(!!tenant.locationsEnabled);
+  // «التحصيل بالبطاقة» (NearPay SoftPOS) — مطفأ افتراضياً ⇒ `!!`، وتاجر الشركة لدى NearPay (المال يذهب إليه مباشرة)
+  const [cardPayEnabled, setCardPayEnabled] = useState(!!tenant.cardPayEnabled);
+  const [nearpayMerchantId, setNearpayMerchantId] = useState<string>(tenant.nearpayMerchantId || '');
+  const merchantsQ = useQuery({
+    queryKey: ['nearpay-merchants'],
+    queryFn: async () => (await cardPayApi.ownerMerchants()).data as { data: { id: string; name: string; referenceId: string | null }[]; configured: boolean },
+    enabled: cardPayEnabled,
+    staleTime: 60_000,
+  });
   const [accountingEnabled, setAccountingEnabled] = useState(tenant.accountingEnabled !== false);
   // النظام المحاسبي المتكامل — مطفأ افتراضياً ⇒ `!!`. الخانة ظاهرة لكل الشركات والمالك يفعّلها
   // بنفسه (قرار المالك 17 سبتمبر 2026 بإزالة قائمة التجربة).
@@ -953,6 +962,8 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
       apiEnabled,
       paymentMethodsEnabled,
       locationsEnabled,
+      cardPayEnabled,
+      nearpayMerchantId: nearpayMerchantId || null,
       accountingEnabled,
       accountingSuiteEnabled,
       subscriptionEndsAt: subscriptionEndsAt || null,
@@ -1087,6 +1098,25 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
               {tr('تفعيل صفحة لوكيشن لهذه الشركة')}
             </label>
             <p className="text-xs text-gray-400 mt-1">{tr('تعرف الشركة مواقعها (فرع أو مستودع أو مدينة على الخريطة) وتسند كل مندوب لموقع، فتختم كل فاتورة وتحميل بموقع مندوبها وقت الإصدار، مع عمود وتصفية الموقع في الفواتير وسجل التحميلات وملخص لكل موقع — تتطلب النظام المحاسبي')}</p>
+            <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2">
+              <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={cardPayEnabled} onChange={e => setCardPayEnabled(e.target.checked)} />
+              {tr('تفعيل التحصيل بالبطاقة (NearPay) لهذه الشركة')}
+            </label>
+            <p className="text-xs text-gray-400 mt-1">{tr('يلمس العميل بطاقته بجوال المندوب ويسجل سند القبض تلقائيا بعد تأكيد NearPay والمال يذهب من NearPay إلى حساب الشركة مباشرة — تتطلب النظام المحاسبي وتاجرا للشركة لدى NearPay')}</p>
+            {cardPayEnabled && (
+              <div className="mt-2">
+                <label className="label">{tr('تاجر الشركة لدى NearPay')}</label>
+                <select className="input" value={nearpayMerchantId} onChange={e => setNearpayMerchantId(e.target.value)} disabled={merchantsQ.isLoading}>
+                  <option value="">{merchantsQ.isLoading ? tr('جاري التحميل') : tr('لم يربط بعد')}</option>
+                  {(merchantsQ.data?.data || []).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  {nearpayMerchantId && !(merchantsQ.data?.data || []).some(m => m.id === nearpayMerchantId) && <option value={nearpayMerchantId}>{nearpayMerchantId}</option>}
+                </select>
+                {merchantsQ.data && merchantsQ.data.configured === false && (
+                  <p className="text-xs text-amber-700 mt-1">{tr('مفاتيح NearPay غير مضبوطة على الخادم')}</p>
+                )}
+                <p className="text-xs text-gray-400 mt-1">{tr('تغيير التاجر يلغي إسناد نقاط البيع القديمة لمناديب الشركة')}</p>
+              </div>
+            )}
             <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2">
               <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={invoiceSignatureEnabled} onChange={e => setInvoiceSignatureEnabled(e.target.checked)} />
               {tr('تفعيل توقيع المستلم على فواتير المندوب لهذه الشركة')}

@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { salesRepApi, invoiceApi, receiptApi, customerApi, companyApi, dailyReportApi } from '../api/client';
 import { SalesRep, Invoice, Receipt, Customer } from '../types';
-import { Plus, Search, Edit, Check, X as XIcon, Copy, KeyRound, UserCheck, FileBarChart2, Download, Printer, X, Trash2, Banknote, Users, ShieldCheck, Image as ImageIcon, ClipboardList, UserX } from 'lucide-react';
+import { Plus, Search, Edit, Check, X as XIcon, Copy, KeyRound, UserCheck, FileBarChart2, Download, Printer, X, Trash2, Banknote, Users, ShieldCheck, Image as ImageIcon, ClipboardList, UserX, CreditCard } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SalesRepModal from '../components/forms/SalesRepModal';
 import ResetPasswordModal from '../components/ResetPasswordModal';
 import ConfirmDialog from '../components/ConfirmDialog';
 import RepVanStockNote from '../components/RepVanStockNote';
+import CardTerminalsModal from '../components/CardTerminalsModal';
 import { formatCurrency, formatDate, formatDayOnly, formatTime, formatNumber, statusLabels, paymentMethodLabels, getActiveCurrency } from '../utils/format';
 import { methodLabelFor, type CompanyWithMethods } from '../lib/paymentMethodsConfig';
 import { currencyDecimals } from '../i18n/countries';
@@ -133,10 +134,13 @@ export default function SalesRepsPage() {
    * حقيقيّ لا تجميل — والخادم يحرس على كل حال. */
   const { data: companyCfg } = useQuery({
     queryKey: ['company'],
-    queryFn: async () => (await companyApi.get()).data.data as { dailyReportEnabled?: boolean } | null,
+    queryFn: async () => (await companyApi.get()).data.data as { dailyReportEnabled?: boolean; cardPayEnabled?: boolean } | null,
     staleTime: 300_000,
   });
   const dailyReportOn = companyCfg?.dailyReportEnabled === true && user?.canViewReports !== false;
+  // «التحصيل بالبطاقة» (NearPay): ميزة يفعّلها المالك — إسناد نقاط البيع إداريٌّ بصلاحية المناديب (والخادم يحرس)
+  const cardPayOn = companyCfg?.cardPayEnabled === true && user?.role !== 'SALES_REP' && user?.canManageSalesReps !== false;
+  const [cardTerminalsOpen, setCardTerminalsOpen] = useState(false);
 
   // المحاسبة مطفأة ⇒ تختفي صلاحيات الفوترة والتسعير والتحصيل ومخزون السيارة
   // من الجدول ومن نافذة المندوب، ويختفي زرّا «استلام تحصيل» و«كشف الأداء
@@ -153,8 +157,14 @@ export default function SalesRepsPage() {
     <div>
       <div className="page-header">
         <h1 className="page-title">{tr('إدارة المناديب')}</h1>
-        <button className="btn-primary" onClick={() => { setSelected(null); setShowModal(true); }}><Plus size={16} />{tr('إضافة مندوب')}</button>
+        <div className="flex items-center gap-2">
+          {cardPayOn && (
+            <button className="btn-secondary" onClick={() => setCardTerminalsOpen(true)}><CreditCard size={16} />{tr('نقاط البيع بالبطاقة')}</button>
+          )}
+          <button className="btn-primary" onClick={() => { setSelected(null); setShowModal(true); }}><Plus size={16} />{tr('إضافة مندوب')}</button>
+        </div>
       </div>
+      {cardTerminalsOpen && <CardTerminalsModal onClose={() => setCardTerminalsOpen(false)} />}
 
       {/* عزل العملاء — عند التفعيل لا يرى المندوب إلا العملاء المُسنَدين له */}
       <div className="card mb-4">
