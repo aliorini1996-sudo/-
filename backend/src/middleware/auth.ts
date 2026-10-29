@@ -423,6 +423,28 @@ export async function requireLocations(req: AuthRequest, res: Response, next: Ne
   } catch (err) { next(err); }
 }
 
+/**
+ * «تتبّع اللوط» (/api/lots) — ميزة **مطفأة افتراضياً** يفعّلها المالك لكل شركة (services/lots.ts). نسخة requireLocations:
+ * المحاسبة المطفأة تمنع أولاً (اللوط على المخزون والفواتير)، ثم العَلَم بشرط `!== true`، والشركة من الطلب مباشرةً،
+ * وجلسة المالك لا تتجاوز العَلَم. يحرس موجّه اللوط وحده: مسارات الإصدار والتحميل تقرأ العَلَم من صفٍّ محمَّل أصلاً.
+ */
+export async function requireLots(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const tid = req.user?.tenantId;
+    if (!tid) { next(); return; }
+    const t = await prisma.tenant.findUnique({ where: { id: tid }, select: { lotTrackingEnabled: true, accountingEnabled: true } });
+    if (t?.accountingEnabled === false) {
+      res.status(403).json({ success: false, code: 'ACCOUNTING_NOT_ALLOWED', message: 'النظام المحاسبي غير مفعّل لهذه الشركة تواصل مع مزود الخدمة' });
+      return;
+    }
+    if (t?.lotTrackingEnabled !== true) {
+      res.status(403).json({ success: false, code: 'LOTS_NOT_ALLOWED', message: 'تتبع اللوط غير مفعّل لهذه الشركة تواصل مع مزود الخدمة' });
+      return;
+    }
+    next();
+  } catch (err) { next(err); }
+}
+
 export async function requireAccounting(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const tid = req.user?.tenantId;

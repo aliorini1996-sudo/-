@@ -67,10 +67,11 @@ type Rec = Record<string, unknown>;
 /**
  * المنتج بلا صورته (base64): لا يلزم المستقبِل ويُضخّم الحمولة. ووحداته (`units`: الاسم والمعامل والسعر والرمز)
  * وشرائحه كما في القاعدة — `unit` و`basePrice` لوحدة الأساس، وهما ما تُقاس به كميات بنود الفواتير وأسعارها.
+ * وبلا أعمدة «تتبّع اللوط» (لا ربط خارجي للّوط، §٥.٥ R4).
  */
-export function productPayloadRow<T extends Rec>(p: T): Omit<T, 'image'> {
-  const { image: _image, ...rest } = p as T & { image?: unknown };
-  void _image;
+export function productPayloadRow<T extends Rec>(p: T): Omit<T, 'image' | 'lotTracked' | 'lotTrackedSince'> {
+  const { image: _image, lotTracked: _lotTracked, lotTrackedSince: _lotTrackedSince, ...rest } = p as T & { image?: unknown; lotTracked?: unknown; lotTrackedSince?: unknown };
+  void _image; void _lotTracked; void _lotTrackedSince;
   return rest;
 }
 

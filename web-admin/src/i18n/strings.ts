@@ -180,6 +180,7 @@ export const DICT: Record<string, { ar: string; en: string; fr: string; tr: stri
   'nav.reps': { ar: 'المناديب', en: 'Sales reps', fr: 'Représentants', tr: 'Saha temsilcileri', zh: '业务员' },
   'nav.vanStock': { ar: 'مخزون السيارات', en: 'Van stock', fr: 'Stock du véhicule', tr: 'Araç stoku', zh: '车辆库存' },
   'nav.warehouse': { ar: 'مخزون الشركة', en: 'Company warehouse', fr: 'Entrepôt', tr: 'Şirket deposu', zh: '公司仓库' },
+  'nav.lots': { ar: 'تتبع اللوط', en: 'Lot tracking', fr: 'Traçabilité des lots', tr: 'Parti takibi', zh: '批次追踪' },
   'nav.dailyReports': { ar: 'التقرير اليومي', en: 'Daily report', fr: 'Rapport quotidien', tr: 'Günlük rapor', zh: '每日报告' },
   'nav.repRoutes': { ar: 'خطوط السير', en: 'Rep routes', fr: 'Itineraires', tr: 'Rotalar', zh: '业务路线' },
   'nav.tracking': { ar: 'تتبع المناديب', en: 'Rep tracking', fr: 'Suivi des représentants', tr: 'Temsilci takibi', zh: '轨迹追踪' },
@@ -685,6 +686,7 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'حركة': { en: 'entries', fr: 'écritures', tr: 'hareket', zh: '条记录' },
   'تم التحديث': { en: 'Updated', fr: 'Mis à jour', tr: 'Güncellendi', zh: '已更新' },
   'تم الإضافة': { en: 'Added', fr: 'Ajouté', tr: 'Eklendi', zh: '已新增' },
+  // ═══ تتبّع اللوط — W1 ═══
   // ——— موظفو المنصة — الحسابات: دخول الموظف وتغيير كلمته المؤقتة ونافذة المالك (StaffPanel) وسجل النشاط ———
   'بوابة لوحة تحكم المنصة': { en: 'Platform control panel portal', fr: 'Portail du panneau de contrôle de la plateforme', tr: 'Platform kontrol paneli portalı', zh: '平台控制面板入口' },
   'اخفاء كلمة المرور': { en: 'Hide password', fr: 'Masquer le mot de passe', tr: 'Şifreyi gizle', zh: '隐藏密码' },
@@ -1421,6 +1423,7 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'بيع': { en: 'Sale', fr: 'Vente', tr: 'Satış', zh: '销售' },
   'تنزيل للمستودع': { en: 'Unload to warehouse', fr: 'Déchargement vers l entrepôt', tr: 'Depoya boşaltma', zh: '卸货入库' },
   'تسوية': { en: 'Adjustment', fr: 'Ajustement', tr: 'Düzeltme', zh: '库存调整' },
+  // ═══ تتبّع اللوط — W2 ═══
   // نافذة العميل
   'تعديل عميل': { en: 'Edit customer', fr: 'Modifier le client', tr: 'Müşteriyi düzenle', zh: '编辑客户' },
   'إضافة عميل جديد': { en: 'Add new customer', fr: 'Ajouter un nouveau client', tr: 'Yeni müşteri ekle', zh: '新增客户' },
@@ -1527,6 +1530,62 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'الحركات': { en: 'Transactions', fr: 'Mouvements', tr: 'Hareketler', zh: '交易明细' },
   'تم تصدير كشف الحساب': { en: 'Statement exported', fr: 'Relevé exporté', tr: 'Hesap ekstresi dışa aktarıldı', zh: '对账单已导出' },
   'لا توجد حركات': { en: 'No transactions', fr: 'Aucun mouvement', tr: 'Hareket yok', zh: '暂无交易记录' },
+  // ═══ تتبّع اللوط — W0: المفردات المشتركة وتسميات lib/lots.ts ═══
+  // التسميات تُعرض بـtr(LABELS[x]) فلا يلتقطها حارس langs.test، ويحرس وجودها lib/lots.test.ts. ابحث هنا قبل أن تضيف
+  // عبارةً تحت علامة حزمتك: المفتاح المكرّر في PHRASES يكسر tsc. (تحميل وتسوية وتالف ومرتجع ونحوها قائمة قبل اللوط)
+  'التشغيلة': { en: 'Lot', fr: 'Lot', tr: 'Parti', zh: '批次' },
+  'التشغيلات': { en: 'Lots', fr: 'Lots', tr: 'Partiler', zh: '批次' },
+  'رقم التشغيلة': { en: 'Lot number', fr: 'Numéro de lot', tr: 'Parti numarası', zh: '批号' },
+  'تاريخ الإنتاج': { en: 'Production date', fr: 'Date de production', tr: 'Üretim tarihi', zh: '生产日期' },
+  'تاريخ الانتهاء': { en: 'Expiry date', fr: 'Date de péremption', tr: 'Son kullanma tarihi', zh: '到期日期' },
+  'غير مسمى': { en: 'Unlabeled', fr: 'Non identifié', tr: 'Etiketsiz', zh: '未标批次' },
+  'عجز': { en: 'Shortfall', fr: 'Déficit', tr: 'Eksik', zh: '短缺' },
+  'معزول': { en: 'Quarantined', fr: 'En quarantaine', tr: 'Karantinada', zh: '已隔离' },
+  'محجوز': { en: 'Held', fr: 'Retenu', tr: 'Bekletilen', zh: '暂扣' },
+  'بانتظار الاعتماد': { en: 'Awaiting clearance', fr: 'En attente de validation', tr: 'Onay bekliyor', zh: '等待审批' },
+  'تتبع اللوط': { en: 'Lot tracking', fr: 'Traçabilité des lots', tr: 'Parti takibi', zh: '批次追踪' },
+  'تتبع باللوط': { en: 'Track by lot', fr: 'Suivi par lot', tr: 'Partiye göre takip', zh: '按批次追踪' },
+  // اليقين والحالة والإيقاف والدلو والمكان
+  'مؤكد': { en: 'Confirmed', fr: 'Confirmé', tr: 'Kesin', zh: '已确认' },
+  'مفترض': { en: 'Assumed', fr: 'Présumé', tr: 'Varsayılan', zh: '推定' },
+  'غير معروف': { en: 'Unknown', fr: 'Inconnu', tr: 'Bilinmiyor', zh: '未知' },
+  'نشطة': { en: 'Active', fr: 'Actif', tr: 'Aktif', zh: '正常' },
+  'موقوفة': { en: 'Blocked', fr: 'Bloqué', tr: 'Bloke', zh: '已冻结' },
+  'إيقاف احترازي': { en: 'Precautionary hold', fr: 'Blocage préventif', tr: 'İhtiyati bloke', zh: '预防性冻结' },
+  'سحب من السوق': { en: 'Market recall', fr: 'Rappel de produit', tr: 'Piyasadan geri çağırma', zh: '市场召回' },
+  'صالح للبيع': { en: 'Sellable', fr: 'Vendable', tr: 'Satılabilir', zh: '可售' },
+  'المستودع': { en: 'Warehouse', fr: 'Entrepôt', tr: 'Depo', zh: '仓库' },
+  'سيارة المندوب': { en: 'Rep van', fr: 'Véhicule du représentant', tr: 'Temsilci aracı', zh: '业务员车辆' },
+  'إزالة التالف': { en: 'Remove damaged stock', fr: 'Retirer le stock endommagé', tr: 'Hasarlı stoku kaldır', zh: '移除损坏库存' },
+  // مصدر التشغيلة وسبب التسمية
+  'وارد للمستودع': { en: 'Warehouse receipt', fr: 'Entrée en entrepôt', tr: 'Depo girişi', zh: '仓库入库' },
+  'تحميل مباشر للسيارة': { en: 'Direct van load', fr: 'Chargement direct du véhicule', tr: 'Araca doğrudan yükleme', zh: '直接装车' },
+  'مخزون افتتاحي': { en: 'Opening stock', fr: 'Stock initial', tr: 'Açılış stoku', zh: '期初库存' },
+  'تسمية أو إعادة تصنيف': { en: 'Labeling or reclassification', fr: 'Identification ou reclassement', tr: 'Etiketleme veya yeniden sınıflandırma', zh: '标记或重新归类' },
+  'إدخال يدوي': { en: 'Manual entry', fr: 'Saisie manuelle', tr: 'Manuel giriş', zh: '手动录入' },
+  'تسمية الرصيد القائم': { en: 'Label existing stock', fr: 'Identifier le stock existant', tr: 'Mevcut stoku etiketle', zh: '为现有库存标记批次' },
+  'إعادة التصنيف': { en: 'Reclassify', fr: 'Reclasser', tr: 'Yeniden sınıflandır', zh: '重新归类' },
+  'تصحيح': { en: 'Correction', fr: 'Correction', tr: 'Düzeltme', zh: '更正' },
+  // وسوم صفّ التوزيع والتحذيرات
+  'صرف دون اتصال من تشغيلة موقوفة': { en: 'Issued offline from a blocked lot', fr: 'Sorti hors ligne d un lot bloqué', tr: 'Çevrimdışı bloke partiden çıkış', zh: '离线时从冻结批次出货' },
+  'صرف دون اتصال من تشغيلة مسحوبة': { en: 'Issued offline from a recalled lot', fr: 'Sorti hors ligne d un lot rappelé', tr: 'Çevrimdışı geri çağrılan partiden çıkış', zh: '离线时从召回批次出货' },
+  'صرف دون اتصال من تشغيلة منتهية': { en: 'Issued offline from an expired lot', fr: 'Sorti hors ligne d un lot périmé', tr: 'Çevrimdışı süresi dolmuş partiden çıkış', zh: '离线时从过期批次出货' },
+  'وقت الجهاز خارج المدى المقبول': { en: 'Device time outside the accepted range', fr: 'Heure de l appareil hors de la plage acceptée', tr: 'Cihaz saati kabul edilen aralığın dışında', zh: '设备时间超出允许范围' },
+  'رفض تلميح الجهاز ووزعت الكمية بالقاعدة': { en: 'Device hint rejected and the quantity was allocated by rule', fr: 'Indication de l appareil rejetée et quantité répartie selon la règle', tr: 'Cihaz önerisi reddedildi ve miktar kurala göre dağıtıldı', zh: '设备建议被拒，已按规则分配数量' },
+  'وحدة موزعة على أكثر من تشغيلة': { en: 'Unit split across more than one lot', fr: 'Unité répartie sur plusieurs lots', tr: 'Birim birden fazla partiye bölündü', zh: '一个单位分摊到多个批次' },
+  'في السيارة أكثر من تشغيلة لهذا الصنف': { en: 'The van holds more than one lot of this product', fr: 'Le véhicule contient plusieurs lots de ce produit', tr: 'Araçta bu ürünün birden fazla partisi var', zh: '车上该商品有多个批次' },
+  'أضيفت الكمية إلى تشغيلة موقوفة فتبقى معزولة': { en: 'The quantity was added to a blocked lot and stays quarantined', fr: 'La quantité a été ajoutée à un lot bloqué et reste en quarantaine', tr: 'Miktar bloke bir partiye eklendi ve karantinada kalır', zh: '数量已计入冻结批次，将保持隔离' },
+  'صرف جزء من الكمية من رصيد غير مسمى': { en: 'Part of the quantity was issued from unlabeled stock', fr: 'Une partie de la quantité est sortie du stock non identifié', tr: 'Miktarın bir kısmı etiketsiz stoktan çıktı', zh: '部分数量出自未标批次库存' },
+  'فاتورة دون اتصال صرفت بوسم مراجعة': { en: 'Offline invoice issued with a review flag', fr: 'Facture hors ligne émise avec un indicateur de revue', tr: 'Çevrimdışı fatura inceleme işaretiyle kesildi', zh: '离线发票已出货并标记待审核' },
+  // سجل التدقيق
+  'إنشاء التشغيلة': { en: 'Lot created', fr: 'Lot créé', tr: 'Parti oluşturuldu', zh: '创建批次' },
+  'تعديل تواريخ التشغيلة': { en: 'Lot dates changed', fr: 'Dates du lot modifiées', tr: 'Parti tarihleri değiştirildi', zh: '修改批次日期' },
+  'تعديل ملاحظة التشغيلة': { en: 'Lot note changed', fr: 'Note du lot modifiée', tr: 'Parti notu değiştirildi', zh: '修改批次备注' },
+  'إيقاف التشغيلة': { en: 'Lot blocked', fr: 'Lot bloqué', tr: 'Parti bloke edildi', zh: '冻结批次' },
+  'إعادة تنشيط التشغيلة': { en: 'Lot reactivated', fr: 'Lot réactivé', tr: 'Parti yeniden etkinleştirildi', zh: '恢复批次' },
+  'حذف التشغيلة': { en: 'Lot deleted', fr: 'Lot supprimé', tr: 'Parti silindi', zh: '删除批次' },
+  'تفعيل تتبع الصنف باللوط': { en: 'Lot tracking turned on for the product', fr: 'Suivi par lot activé pour le produit', tr: 'Ürün için parti takibi açıldı', zh: '商品启用批次追踪' },
+  'إطفاء تتبع الصنف باللوط': { en: 'Lot tracking turned off for the product', fr: 'Suivi par lot désactivé pour le produit', tr: 'Ürün için parti takibi kapatıldı', zh: '商品关闭批次追踪' },
   // قوالب المستندات المطبوعة (RepDocuments)
   'هاتف': { en: 'Phone', fr: 'Tél', tr: 'Telefon', zh: '电话' },
   'إشعار دائن مرتجع': { en: 'Credit note return', fr: 'Note de crédit retour', tr: 'İade alacak dekontu', zh: '退货单' },
@@ -1567,6 +1626,7 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'معاينة المستند': { en: 'Document preview', fr: 'Aperçu du document', tr: 'Belge önizlemesi', zh: '单据预览' },
   'طباعة حرارية 58 مم': { en: 'Thermal print 58 mm', fr: 'Impression thermique 58 mm', tr: 'Termal yazdırma 58 mm', zh: '58 毫米热敏打印' },
   'مشاركة / حفظ PDF': { en: 'Share / Save PDF', fr: 'Partager / Enregistrer PDF', tr: 'PDF paylaş / kaydet', zh: '分享 / 保存 PDF' },
+  // ═══ تتبّع اللوط — W3 ═══
   // تطبيق المندوب (RepApp)
   'مرحبا': { en: 'Hello', fr: 'Bonjour', tr: 'Merhaba', zh: '您好' },
   'مزامنة': { en: 'Syncing', fr: 'Synchronisation', tr: 'Senkronize ediliyor', zh: '同步中' },
@@ -1617,6 +1677,7 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'مشاركة موقعك مفعلة': { en: 'Location sharing is on', fr: 'Le partage de position est activé', tr: 'Konum paylaşımı açık', zh: '位置共享已开启' },
   'فعل إذن الموقع من إعدادات المتصفح': { en: 'Enable location permission in browser settings', fr: 'Activez l autorisation de localisation dans les paramètres du navigateur', tr: 'Tarayıcı ayarlarından konum iznini etkinleştirin', zh: '请在浏览器设置中开启位置权限' },
   'الموقع متوقف': { en: 'Location off', fr: 'Position désactivée', tr: 'Konum kapalı', zh: '位置已关闭' },
+  // ═══ تتبّع اللوط — W6 ═══
 
   // ——— مفاتيح كانت تُنادى في الكود ولا وجود لها في القاموس، فتسقط للعربية
   // بكل اللغات لا الصينية وحدها. أُضيفت بعد جردٍ آليّ لكل نداءات tr(). ———
@@ -2382,6 +2443,7 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'يبدأ المندوب بالصلاحيات الافتراضية اضبطها من ملفه بعد الإنشاء': { en: 'The sales rep starts with the default permissions, adjust them from their profile after creation', fr: 'Le commercial demarre avec les permissions par defaut, ajustez-les depuis sa fiche apres la creation', tr: 'Temsilci varsayilan yetkilerle baslar, olusturduktan sonra profilinden ayarlayin', zh: '业务员以默认权限开始，创建后请在其档案中调整' },
   'يجري تحديث التقرير': { en: 'The report is being updated', fr: 'Le rapport est en cours de mise a jour', tr: 'Rapor guncelleniyor', zh: '报表正在更新' },
   'يوم حضور': { en: 'attendance days', fr: 'jours de presence', tr: 'devam gunu', zh: '出勤天数' },
+  // ═══ تتبّع اللوط — W5 ═══
   // ——— إسناد العملاء وتسجيل التحميل في ملفّ المندوب على الجوال ———
   'تعذر قراءة إعداد العزل': { en: 'Could not read the isolation setting', fr: 'Impossible de lire le parametre de cloisonnement', tr: 'Izolasyon ayari okunamadi', zh: '无法读取隔离设置' },
   'مطفأ كل مناديب الشركة يرون كل العملاء': { en: 'Off every sales rep in the company sees every customer', fr: 'Desactive chaque commercial de la societe voit tous les clients', tr: 'Kapali sirketteki her temsilci tum musterileri gorur', zh: '已关闭，公司所有业务员可见全部客户' },
@@ -4749,6 +4811,7 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'تاريخ المرتجع قبل تاريخ فاتورة البيع': { en: 'The return date is before the sale invoice date', fr: 'La date du retour est antérieure à celle de la facture de vente', tr: 'İade tarihi satış faturası tarihinden önce', zh: '退货日期早于销售发票日期' },
   'سبب الإشعار الدائن مطلوب من 3 إلى 1000 حرف': { en: 'The credit note reason is required (3 to 1000 characters)', fr: 'Le motif de l avoir est obligatoire (3 à 1000 caractères)', tr: 'Alacak dekontu nedeni zorunludur (3 ile 1000 karakter arası)', zh: '贷项通知单原因为必填项（3至1000个字符）' },
   'الكمية المرتجعة أكبر من المتاح للإرجاع': { en: 'The returned quantity exceeds what is available to return', fr: 'La quantité retournée dépasse le disponible au retour', tr: 'İade miktarı iade edilebilir miktarı aşıyor', zh: '退货数量超过可退数量' },
+  // ═══ تتبّع اللوط — W4 ═══
   // صفحة «طرق الدفع» (تحصيل المناديب لكل طريقة دفع) ومفتاحها في نافذة المالك
   'طرق الدفع': { en: 'Payment methods', fr: 'Moyens de paiement', tr: 'Ödeme yöntemleri', zh: '收款方式' },
   'تحصيل كل مندوب موزعا على طرق الدفع في الفترة المحددة': { en: 'What each rep collected, split by payment method, in the selected period', fr: 'Encaissements de chaque commercial par moyen de paiement sur la période choisie', tr: 'Seçilen dönemde her temsilcinin ödeme yöntemine göre tahsilatı', zh: '所选期间每位业务员按付款方式划分的收款' },

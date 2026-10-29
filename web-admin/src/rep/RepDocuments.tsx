@@ -7,6 +7,7 @@ import { periodShape, statementFinalBalance, statementZone } from './statementFa
 import { adjustTotals, receiveTotalQty, uncostedCount, isCosted, noticeRef, qtyByUnit, unitTotalsText } from './warehouseNoticeFacts';
 import { factorOf, formatQty, roundQty, type UnitDef } from '../lib/units';
 import { stockRequestToLabel, stockRequestApproverLabel, stockRequestTotalQty, type StockRequestTo, type StockRequestLine } from '../lib/stockRequest';
+import type { DocLotLine } from '../lib/lots';
 import { useTr } from '../i18n/strings';
 import { elementToPdfBlob, shareOrDownloadPdf } from './pdf';
 import { buildZatcaQr, zatcaTimestamp } from './zatca';
@@ -72,6 +73,9 @@ export interface Company {
   // «إدارة طرق الدفع» v1 — خام كما في العمود (null = الطرق الخمس بأسمائها الافتراضية). لا يُقرأ إلا عبر companyMethodsConfig
   // (lib/paymentMethodsConfig.ts): نسخة أحدث أو عطب ⇒ الافتراضي — ومنه تُبنى اختيارات السند أوف‑لاين وأسماؤه المطبوعة
   paymentMethodsConfig?: unknown;
+  // «تتبّع اللوط» — يصلان مع ردّ /company، وغيابهما (نسخة قديمة) إطفاء؛ lotOnInvoice يطبع التشغيلة على فاتورة العميل (lotFlagsOf)
+  lotTrackingEnabled?: boolean;
+  lotOnInvoice?: boolean;
 }
 
 /**
@@ -117,6 +121,8 @@ export interface InvoiceDoc {
     unitFactor?: number | null; multiUnit?: boolean;
     // للمرتجع: صلاحية الصنف المقيسة على بيعه (services/invoiceExpiry.ts) — منتهٍ أم سارٍ وتاريخ الانتهاء
     returnExpired?: boolean | null; expiresAt?: string | null;
+    // «تتبّع اللوط»: تشغيلات البند من ردّ الخادم (items[].lots ← docLotsFrom) — تُطبع بشرط company.lotOnInvoice
+    lots?: DocLotLine[];
   }[];
   subtotal: number;   // صافٍ قبل الضريبة دائما
   discount: number;   // صافٍ قبل الضريبة دائما
@@ -232,7 +238,11 @@ export interface SettlementLogDoc {
   outstanding?: number;
 }
 
-export interface LoadNoticeItem { name: string; qty: number; unit?: string; /** معامل وحدة السطر — ≠١ ⇒ الإجمالي لكل وحدة */ unitFactor?: number | null; }
+export interface LoadNoticeItem {
+  name: string; qty: number; unit?: string; /** معامل وحدة السطر — ≠١ ⇒ الإجمالي لكل وحدة */ unitFactor?: number | null;
+  /** «تتبّع اللوط»: تشغيلات البند (withLots=1 ← docLotsFrom) — سطرٌ لكل تشغيلة متى وُجدت، وكمّياتها بالأساس (D19) */
+  lots?: DocLotLine[];
+}
 
 /** إشعار حركة بضاعة (تحميل/تنزيل/تسوية) لسيارة مندوب — قابل للتصدير PDF */
 export interface LoadNoticeDoc {
@@ -258,6 +268,8 @@ export interface WarehouseNoticeItem {
   unitCost?: number | null;
   /** قيمة السطر كما قرّبها الخادم — مجموعها يطابق `totalCost` فلساً بفلس */
   lineCost?: number | null;
+  /** «تتبّع اللوط»: تشغيلة السطر (سطرٌ = تشغيلةٌ واحدة، من `lot` في السجل) */
+  lots?: DocLotLine[];
 }
 
 /**

@@ -145,7 +145,12 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
       priceTiers: { select: pick('minQty', 'maxQty', 'baseMinQty', 'baseMaxQty', 'price'), orderBy: { minQty: 'asc' } },
       units: { select: pick(...PRODUCT_UNIT_COLS), orderBy: [{ sortOrder: 'asc' }, { factor: 'asc' }] },
     },
-    denied: { tenantId: 'معروف من المفتاح', image: 'صورة base64 ثقيلة — تُقرأ من GET /api/products/:id' },
+    denied: {
+      tenantId: 'معروف من المفتاح', image: 'صورة base64 ثقيلة — تُقرأ من GET /api/products/:id',
+      // «تتبّع اللوط»: محجوبان حتى تحسم الحزمة B7 كشفهما — الميزة مطفأة فلا تغيير في شكل الرد (§١٠.١)
+      lotTracked: 'عَلَم «تتبّع اللوط» للصنف — كشفه تقرّره الحزمة B7 (§٥.٣ مقابل §١٠.١)',
+      lotTrackedSince: 'بداية حقبة «تتبّع اللوط» (D25) — تقرّره الحزمة B7',
+    },
     nested: {
       // minQty/maxQty بوحدة الصنف وقت إنشاء الشريحة (للعرض القديم)، وbaseMinQty/baseMaxQty حدودها بالأساس — بها يُقارَن
       priceTiers: { model: 'priceTier', denied: { id: 'الشرائح قائمة كاملة مع صنفها تُستبدل جملةً', productId: PARENT, createdAt: 'الشرائح تُستبدل جملةً فلا معنى لطابعها' } },

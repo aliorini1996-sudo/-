@@ -101,6 +101,9 @@ model Tenant {
   apiEnabled                Boolean   @default(false) // «الربط البرمجي API» — مفاتيح API لنظام الشركة الخاص؛ يفعّله المالك لكل شركة (services/apiKeys.ts)
   paymentMethodsEnabled     Boolean   @default(false) // صفحة «طرق الدفع» — تحصيل كل مندوب موزّعاً على النقدي والشبكة والتحويل والشيك والإلكتروني؛ يفعّلها المالك لكل شركة (services/paymentMethodsReport.ts)
   locationsEnabled          Boolean   @default(false) // «لوكيشن» — مواقع الشركة (فرع/مستودع/مدينة) ووسم الفواتير والتحميلات بموقع المندوب وقت الإصدار؛ يفعّلها المالك لكل شركة (services/locations.ts)
+  // «تتبّع اللوط» — يفعّله المالك لكل شركة؛ مطفأ ⇒ لا تغيير في أي مسار (services/lots.ts)
+  lotTrackingEnabled        Boolean   @default(false)
+  lotTrackingSince          DateTime? // بداية الحقبة: يُضبط عند كل انتقال إلى المفعّل (D25)
   // «التحصيل بالبطاقة» (NearPay SoftPOS، طلب المالك ٢٨ أكتوبر ٢٠٢٦): العميل يلمس بطاقته بجوال المندوب. ميزة مستقلة عن روابط
   // الدفع (paylinkEnabled) يفعّلها المالك لكل شركة. المال يذهب من NearPay إلى الشركة مباشرة (تاجرٌ مستقل لكل شركة) — لا تجميع
   // عندنا ولا عمولة ولا توريد؛ نحن نسجّل سند القبض وحده بعد التحقق من NearPay (services/cardPayment.ts)
@@ -144,6 +147,10 @@ model Tenant {
   customerAssignments  CustomerAssignment[]
   adminCustomerScopes  AdminCustomerScope[]
   adminRepScopes       AdminRepScope[]
+  // «تتبّع اللوط» (services/lots.ts)
+  productLots          ProductLot[]
+  lotRelabels          LotRelabel[]
+  lotEvents            LotEvent[]
 
   RepVisit             RepVisit[]
   repRoutes            RepRoute[]
@@ -792,6 +799,8 @@ model Product {
   returnRuleMode       String? // NEAR_EXPIRY | STILL_VALID
   returnRuleMetric     String? // DAYS | PERCENT
   returnRuleValue      Int?
+  lotTracked           Boolean          @default(false) // «تتبّع باللوط» — لا أثر إلا مع Tenant.lotTrackingEnabled
+  lotTrackedSince      DateTime? // بداية حقبة الصنف (D25)
   deletedAt           DateTime? // أرشفة بدل الحذف حين يوجد تاريخ: يختفي من القوائم ويبقى صفه باسمه للفواتير والكشوف القديمة
   categoryId           String?
   category             ProductCategory? @relation(fields: [categoryId], references: [id])
@@ -808,6 +817,7 @@ model Product {
   vanLoadItems        VanLoadItem[]
   stockRequestItems   RepStockRequestItem[]
   warehouseEntryItems WarehouseEntryItem[]
+  lots                ProductLot[]
 
 
   // ZATCA المرحلة الثانية — الفئة الضريبية
@@ -1086,6 +1096,7 @@ model Invoice {
   @@index([tenantId, invoiceDate]) // المندوب الذكي: تجميع مشتريات العملاء لنافذة أشهر
   @@index([tenantId, teamId, invoiceDate]) // تقارير الفرق
   @@index([tenantId, locationId, invoiceDate]) // «لوكيشن»: ملخّص المواقع وفلتر قائمة الفواتير
+  @@index([tenantId, salesRepId, status]) // طيّ رصيد السيارة تحت قفل اللوط (computeStock يرشّح بها: vanStock.ts:179)
   @@map("invoices")
 }
 
@@ -1135,6 +1146,9 @@ model InvoiceItem {
   // مرتجعٌ من فاتورة بيع في المرحلة الأولى (services/returnLinks.ts): بند البيع الذي يُرجَع منه هذا البند. مستقلٌّ عن
   // creditedItemId الذي تملكه الفوترة الإلكترونية (إشعارات المرحلة الثانية)
   returnOfItemId      String?
+
+  // «تتبّع اللوط»: توزيع البند على التشغيلات (لا عمود جديد هنا — الأعمدة تتسرّب إلى حمولة ERP)
+  lots InvoiceItemLot[]
 
   @@index([menuItemId])
   @@index([returnOfItemId])
@@ -1272,6 +1286,7 @@ model CompanySettings {
   // «الفرق» (routes/teams.ts، services/teams.ts): فرق مناديب بمشرفين وأصناف خاصة وتقارير مفصولة. مطفأة افتراضياً لكل
   // الشركات (طلب المالك)، ويفعّلها مدير الشركة من «إعدادات الشركة» — والإطفاء يعيد الشركة كما كانت وتبقى الفرق والوسوم محفوظة
   teamsEnabled             Boolean @default(false)
+  lotOnInvoice             Boolean @default(false) // طباعة التشغيلة على فاتورة العميل — لا أثر إلا مع الميزة (D15)
   // «إعدادات الطباعة» v1 (services/printSettingsCore.ts، routes/printSettings.ts): قوالب الطباعة وتوجيه المستندات إليها —
   // null = سلوك اليوم حرفياً (شريط 58 مم وPDF الـA4)، فعمود إضافي بلا افتراضي لا يغيّر شركة قائمة عند db push
   printSettings            Json?
@@ -1666,7 +1681,11 @@ model VanLoadItem {
   // موهوماً فتوصي القياسات برفع الهامش وتُملأ السيارات ببضاعة راكدة.
   expectedQty Float?
 
+  // «تتبّع اللوط»: توزيع البند على التشغيلات في جدول ابن — البند لا يُشطر (D2)
+  lots VanLoadItemLot[]
+
   @@index([vanLoadId])
+  @@index([productId]) // المجاميع تُقيَّد بالأصناف، والجدول كان مفهرساً على vanLoadId وحده
   @@map("van_load_items")
 }
 
@@ -1778,10 +1797,154 @@ model WarehouseEntryItem {
   // مهجور (١١ أكتوبر ٢٠٢٦): كانت الصلاحية تُحسب من تاريخ التوريد ثم صارت من تاريخ البيع (InvoiceItem.expiresAt)
   // بأمر المالك. لا يُكتب ولا يُقرأ؛ باقٍ لأن إسقاط عمودٍ من جدولٍ حيّ في preDeploy يُفشل db push إن حمل قيماً
   expiresAt DateTime? @db.Date
+  // «تتبّع اللوط»: سطرٌ = لوطٌ واحد؛ null = غير مسمّى أو صنف غير متتبَّع (لا يُعاد استعمال expiresAt المهجور)
+  lotId     String?
+  lot       ProductLot?    @relation(fields: [lotId], references: [id], onDelete: NoAction)
 
   @@index([productId])
+  @@index([lotId])
   @@map("warehouse_entry_items")
 }
+
+// ═══ تتبّع اللوط (التشغيلة) — services/lots.ts وservices/lotsDb.ts ═══
+// كل ما يلي إضافي: جداول جديدة، والتفرّد على ProductLot الجديد وحده (لا @@unique على جدول قائم).
+// الحالات نصوص لا enum: اختبار المزامنة لا يرى أعمدة enum. والكميات كلها بوحدة الأساس (D22).
+
+/// لوط (تشغيلة) صنفٍ في شركة — services/lots.ts. الرقم مطبَّع (normalizeLotNumber) والتفرّد عليه.
+model ProductLot {
+  id             String    @id @default(uuid())
+  tenantId       String
+  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  productId      String
+  product        Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  lotNumber      String
+  productionDate DateTime? @db.Date
+  expiryDate     DateTime? @db.Date // null = بلا انتهاء (يأتي آخر FEFO)؛ إلزامي إن كانت صلاحية الصنف مفعّلة
+  status         String    @default("ACTIVE") // ACTIVE | BLOCKED
+  blockKind      String? // HOLD | RECALL
+  blockReason    String?
+  blockedAt      DateTime?
+  blockedBy      String?
+  note           String?
+  source         String    @default("MANUAL") // RECEIVE | LOAD | OPENING_IMPORT | RELABEL | RETURN | MANUAL
+  sourceEntryId  String? // حركة المستودع المنشئة (بلا مفتاح أجنبي) — للتراجع عن الاستيراد
+  createdBy      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @default(now()) @updatedAt
+
+  warehouseEntryItems WarehouseEntryItem[]
+  vanLoadItemLots     VanLoadItemLot[]
+  invoiceItemLots     InvoiceItemLot[]
+  relabelsFrom        LotRelabel[]         @relation("LotRelabelFrom")
+  relabelsTo          LotRelabel[]         @relation("LotRelabelTo")
+
+  @@unique([tenantId, productId, lotNumber])
+  @@index([tenantId, productId, status, expiryDate])
+  @@index([tenantId, lotNumber])
+  @@index([tenantId, updatedAt])
+  @@map("product_lots")
+}
+
+/// توزيع بند حركة السيارة على اللوطات — Σ qty = الكمية الأساسية للبند بإشارته (D2، D22).
+model VanLoadItemLot {
+  id            String      @id @default(uuid())
+  vanLoadItemId String
+  vanLoadItem   VanLoadItem @relation(fields: [vanLoadItemId], references: [id], onDelete: Cascade)
+  tenantId      String // مكرَّر بلا مفتاح أجنبي — للتجميع تحت القفل
+  productId     String // مكرَّر من البند
+  vanKey        String // معرّف المندوب (أو المحذوف) وقت الحركة — نصّ بلا مفتاح أجنبي
+  moveType      String // مكرَّر من VanLoad.type — يغني عن ضمّين في التجميع (LOAD|UNLOAD|ADJUST|EXPIRED_OUT|DAMAGED_OUT)
+  viaWarehouse  Boolean     @default(false) // D28
+  lotId         String? // null = غير مسمّى صراحةً
+  lot           ProductLot? @relation(fields: [lotId], references: [id], onDelete: NoAction)
+  qty           Float // أساسية، بإشارة كمية البند (ADJUST قد يكون سالباً)
+  certainty     String      @default("CONFIRMED") // CONFIRMED | ASSUMED | UNKNOWN
+  reason        String? // EXPIRED_UNSOLD_DESTROY (إتلاف منتهٍ لم يُبع بتسوية نقص)
+  createdAt     DateTime    @default(now())
+
+  @@index([vanLoadItemId])
+  @@index([tenantId, vanKey, productId])
+  @@index([tenantId, productId, viaWarehouse])
+  @@index([lotId])
+  @@index([tenantId, createdAt])
+  @@map("van_load_item_lots")
+}
+
+/// توزيع بند الفاتورة على اللوطات (البند يُقسَّم هنا لا في invoice_items) — Σ quantity = الكمية الأساسية للبند.
+model InvoiceItemLot {
+  id              String      @id @default(uuid())
+  invoiceItemId   String
+  invoiceItem     InvoiceItem @relation(fields: [invoiceItemId], references: [id], onDelete: Cascade)
+  invoiceId       String // مكرَّر — معرّف الفاتورة يُولَّد مسبقاً حين يحمل المستند صنفاً متتبَّعاً
+  tenantId        String
+  productId       String
+  vanKey          String? // Invoice.salesRepId لحظة الإصدار؛ للإشعار: مندوب الإشعار
+  lotId           String? // null = غير معروف
+  lot             ProductLot? @relation(fields: [lotId], references: [id], onDelete: NoAction)
+  quantity        Float // أساسية موجبة؛ الاتجاه من نوع الفاتورة
+  certainty       String // CONFIRMED | ASSUMED | UNKNOWN
+  expiryDate      DateTime?   @db.Date // لقطة انتهاء اللوط وقت الإصدار
+  sourceItemLotId String? // للمرتجع والإشعار الدائن: صفّ توزيع البيع الموروث منه
+  flags           String? // مفصولة بفاصلة: LOT_ROW_FLAGS
+  createdAt       DateTime    @default(now())
+
+  @@index([invoiceItemId])
+  @@index([invoiceId])
+  @@index([tenantId, vanKey, productId])
+  @@index([tenantId, lotId])
+  @@index([sourceItemLotId])
+  @@index([tenantId, createdAt])
+  @@map("invoice_item_lots")
+}
+
+/// تسمية الرصيد القائم وإعادة التصنيف — بُعد اللوط وحده، لا يغيّر رصيد الصنف ولا التقييم (R9).
+model LotRelabel {
+  id        String      @id @default(uuid())
+  tenantId  String
+  tenant    Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  productId String
+  place     String // WAREHOUSE | VAN
+  vanKey    String?
+  bucket    String      @default("SELLABLE") // المستودع: SELLABLE وحده
+  fromLotId String? // null = من غير المسمّى
+  fromLot   ProductLot? @relation("LotRelabelFrom", fields: [fromLotId], references: [id], onDelete: NoAction)
+  toLotId   String? // null = إلى غير المسمّى (تصحيح)
+  toLot     ProductLot? @relation("LotRelabelTo", fields: [toLotId], references: [id], onDelete: NoAction)
+  qty       Float // أساسية موجبة
+  reason    String // LABEL_EXISTING | RECLASSIFY | CORRECTION
+  note      String?
+  createdBy String?
+  createdAt DateTime    @default(now())
+
+  @@index([tenantId, productId, place, vanKey])
+  @@index([fromLotId])
+  @@index([toLotId])
+  @@index([tenantId, createdAt])
+  @@map("lot_relabels")
+}
+
+/// سجل تدقيق اللوط (المادة ٥٢) — lotId نصّ بلا مفتاح أجنبي: يبقى بعد حذف اللوط.
+model LotEvent {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lotId     String? // null لأحداث الصنف (TRACKING_ON/OFF)
+  productId String
+  kind      String // LOT_EVENT_KINDS
+  before    Json?
+  after     Json?
+  reason    String?
+  actorType String // ADMIN | OWNER | STAFF | API_KEY | SYSTEM
+  actorId   String?
+  actorName String?
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, lotId, createdAt])
+  @@index([tenantId, productId, createdAt])
+  @@index([tenantId, createdAt])
+  @@map("lot_events")
+}
+// ═══ نهاية تتبّع اللوط ═══
 
 // نقطة موقع GPS للمندوب — سجلّ زمني لرسم خطّ السير ومعرفة الموقع الحالي
 model RepLocation {

@@ -1,3 +1,5 @@
+import type { InvoiceItemLotDto } from '../lib/lots';
+
 export interface User {
   id: string;
   name: string;
@@ -60,6 +62,8 @@ export interface Tenant {
   cardPayEnabled?: boolean;       // «التحصيل بالبطاقة» عبر NearPay — مطفأ افتراضياً، يُفعّله المالك لكل شركة
   nearpayMerchantId?: string | null; // تاجر الشركة لدى NearPay (المال يذهب إليه مباشرة)
   locationsEnabled?: boolean;     // «لوكيشن» (مواقع الشركة وختم الفواتير والتحميلات بموقع المندوب) — مطفأة افتراضياً، يُفعّلها المالك لكل شركة
+  lotTrackingEnabled?: boolean;   // «تتبّع اللوط» (التشغيلات) — مطفأ افتراضياً، يُفعّله المالك لكل شركة (lib/lots.ts)
+  lotTrackingSince?: string | null; // بداية الحقبة — مضبوطٌ والعلم مطفأ ⇒ إعادة التفعيل تبدأ حقبة جديدة (D8)
   receivablesSummaryEnabled?: boolean; // سطر «إجمالي مديونية العملاء المُسنَدين» — يُفعّله المالك لكل شركة
   accountingEnabled?: boolean;   // النظام المحاسبي (منتجات · مخزون · فواتير · سندات) — مفعّل افتراضياً، وغيابه يعني مفعّل
   accountingSuiteEnabled?: boolean; // النظام المحاسبي المتكامل (الدفاتر) — مطفأ افتراضياً، وغيابه يعني مطفأ
@@ -264,6 +268,9 @@ export interface Product {
   returnRuleMode?: 'NEAR_EXPIRY' | 'STILL_VALID' | null;
   returnRuleMetric?: 'DAYS' | 'PERCENT' | null;
   returnRuleValue?: number | null;
+  // «تتبّع باللوط» — لا أثر إلا مع Tenant.lotTrackingEnabled؛ lotTrackedSince بداية حقبة الصنف (D25)
+  lotTracked?: boolean;
+  lotTrackedSince?: string | null;
   categoryId?: string;
   category?: { id: string; name: string };
   priceTiers?: PriceTier[];
@@ -344,6 +351,8 @@ export interface InvoiceItem {
   // و«هل عاد بعد انتهائه» (null = غير معروف: صنفٌ بلا صلاحية أو بلا بيعٍ سابق)
   expiresAt?: string | null;
   returnExpired?: boolean | null;
+  // «تتبّع اللوط»: توزيع البند على التشغيلات بالكمية الأساسية — مع withLots=1 أو ردّ الإصدار، وغيابه = بلا تشغيلات
+  lots?: InvoiceItemLotDto[];
 }
 
 export interface Invoice {

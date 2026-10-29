@@ -15,7 +15,12 @@
 // معامله (routes/vanStock.ts). وكانت هذه الوحدة تعيد بناء بند التنزيل من
 // `productId` و`qty` وحدهما فتُسقط كل حقلٍ آخر — فتنزيل «٢ كرتون» يدخل المستودع
 // حبّتين بصمت. فالوحدة تمرّ في الاتجاهين، وبند الأساس بلا حقلٍ كما كان حرفياً.
+//
+// و«تتبّع اللوط» يرث الفخّ نفسه: صفوف التشغيلات تتبع إشارة سطرها، فتُقلب معه —
+// وكمّياتها **بالأساس** دائماً (D19) مهما كانت وحدة السطر، فلا تُضرب في معامله.
 // ============================================================================
+
+import type { LotRef } from './lots';
 
 export interface MovementItem {
   productId: string;
@@ -26,17 +31,19 @@ export interface MovementItem {
   /** ما اقترحه المحرّك وما تنبّأ به — قرارُ تحميلٍ لا يخصّ المرتجع. **بالأساس دائماً** مهما كانت وحدة السطر */
   suggestedQty?: number;
   expectedQty?: number;
+  /** «تتبّع اللوط»: توزيع السطر على التشغيلات بالكمية الأساسية (lotId: null = غير مسمّى) — يمرّ مع التحميل كما هو */
+  lots?: LotRef[];
 }
 
-/** بند تنزيلٍ يُرسَل: الكمية مطلقةً بوحدة السطر، ووحدته إن لم تكن الأساس */
-export interface BackItem { productId: string; qty: number; unitId?: string }
+/** بند تنزيلٍ يُرسَل: الكمية مطلقةً بوحدة السطر، ووحدته إن لم تكن الأساس، وصفوف تشغيلاته مطلقةً بالأساس */
+export interface BackItem { productId: string; qty: number; unitId?: string; lots?: LotRef[] }
 
-/** بند تحميلٍ يُرسَل: كـMovementItem لكن الوحدة معرّفٌ أو غائبة (`null` لا يُرسَل — الأساس غيابُها) */
-export type OutItem = Omit<MovementItem, 'unitId'> & { unitId?: string };
+/** بند تحميلٍ يُرسَل: كعنصر الشاشة لكن الوحدة معرّفٌ أو غائبة (`null` لا يُرسَل — الأساس غيابُها)، وما حمله السطر من حقولٍ أخرى يمرّ معه */
+export type OutItem<T extends MovementItem = MovementItem> = Omit<T, 'unitId'> & { unitId?: string };
 
-export interface SplitMovement {
+export interface SplitMovement<T extends MovementItem = MovementItem> {
   /** الكمّيات الموجبة كما هي — تحميلٌ للسيارة */
-  out: OutItem[];
+  out: OutItem<T>[];
   /** الكمّيات السالبة بقيمتها المطلقة — تنزيلٌ للمستودع */
   back: BackItem[];
 }
@@ -48,14 +55,18 @@ const unitField = (unitId: string | null | undefined): { unitId?: string } => (u
  * يقسّم أسطر الشاشة إلى وثيقتَي تحميلٍ وتنزيل.
  * الأصفار وغير الأرقام تسقط: سطرٌ فارغ ليس حركة.
  */
-export function splitVanMovement(items: MovementItem[]): SplitMovement {
+export function splitVanMovement<T extends MovementItem>(items: T[]): SplitMovement<T> {
   const clean = items.filter((i) => Number.isFinite(i.qty) && i.qty !== 0);
   return {
     // `unitId: null` (الأساس صراحةً) لا يُرسَل: الخادم يقرأ غيابه أساساً، والجسم يبقى كما قبل الميزة
-    out: clean.filter((i) => i.qty > 0).map(({ unitId, ...rest }) => ({ ...rest, ...unitField(unitId) })),
+    out: clean.filter((i) => i.qty > 0).map(({ unitId, ...rest }): OutItem<T> => ({ ...rest, ...unitField(unitId) })),
     // المُرجَع يُجرَّد من المقترَح والتنبّؤ: يُقاس بهما التحميل وحده، وحملُهما
     // على المرتجع يلوّث قياس دقّة الاقتراح ببياناتٍ ليست قراراً تنبّؤياً.
     // والوحدة **تبقى**: هي معنى الكمية لا قرارٌ تنبّؤي.
-    back: clean.filter((i) => i.qty < 0).map((i) => ({ productId: i.productId, qty: -i.qty, ...unitField(i.unitId) })),
+    // وتشغيلاته تُقلب مطلقةً معه (UNLOAD يطرح الموجب)، والمصفوفة الفارغة غياب: الخادم يختار المصدر
+    back: clean.filter((i) => i.qty < 0).map((i): BackItem => ({
+      productId: i.productId, qty: -i.qty, ...unitField(i.unitId),
+      ...(i.lots?.length ? { lots: i.lots.map((r) => ({ lotId: r.lotId, qty: Math.abs(r.qty) })) } : {}),
+    })),
   };
 }

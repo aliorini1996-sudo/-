@@ -3,6 +3,9 @@ import { sessionSpace, expiredDestination, useAuthStore } from '../store/authSto
 import { FS_CAPS_HEADER, FS_CAPS_VALUE } from './caps';
 import type { PrintSettingsV1 } from '../lib/print/printSettingsCore';
 import type { PaymentMethodsConfigInput } from '../lib/paymentMethodsCore';
+import type {
+  LotCreateRequest, LotListParams, LotRef, LotRelabelRequest, LotStatusRequest, LotTrackingRequest, LotUpdateRequest,
+} from '../lib/lots';
 
 /** مساران واحدٌ بعد تطبيع الشرطة الأخيرة — الخادم يخدم `/m` و`/m/` معاً */
 const samePath = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
@@ -54,6 +57,10 @@ api.interceptors.response.use(
 );
 
 export default api;
+
+/** «تتبّع اللوط» (D11): صفوف التوزيع تُضمّ بـwithLots=1 وحده — والشاشة ترسله حين تكون الميزة مفعّلة، وبدونه الطلب كما كان */
+export interface WithLots { withLots?: boolean }
+const lotsParam = (opts?: WithLots) => (opts?.withLots ? { withLots: 1 } : {});
 
 export const customerApi = {
   list: (params?: Record<string, string | number>) => api.get('/customers', { params }),
@@ -170,12 +177,15 @@ export const invoiceApi = {
   list: (params?: Record<string, string | number>) => api.get('/invoices', { params }),
   // فواتير العميل المفتوحة لتوزيع سند القبض — كل فواتيره لا فواتير مندوب بعينه
   open: (customerId: string) => api.get('/invoices/open', { params: { customerId } }),
-  get: (id: string) => api.get(`/invoices/${id}`),
+  // withLots: items[].lots بتشغيلاتها (InvoiceItemLotDto في lib/lots.ts)
+  get: (id: string, opts?: WithLots) => (opts?.withLots ? api.get(`/invoices/${id}`, { params: lotsParam(opts) }) : api.get(`/invoices/${id}`)),
   create: (data: unknown) => api.post('/invoices', data),
   /* فاتورة الإرجاع من اللوحة (lib/returnInvoice.ts): فواتير بيع العميل التي بقي فيها ما يُرجَع، ثم بنود واحدةٍ منها بمبيعها
-   * ومُرجَعها ومتاحها وسعر استردادها — المساران نفسهما اللذان يخدمان تطبيق المندوب، بنطاق مستخدم الشركة على الخادم */
+   * ومُرجَعها ومتاحها وسعر استردادها — المساران نفسهما اللذان يخدمان تطبيق المندوب، بنطاق مستخدم الشركة على الخادم.
+   * withLots: لكل سطر lots [{lotId, lotNumber, expiryDate, sold, returned, returnable, certainty}] */
   returnableSales: (customerId: string) => api.get('/invoices/returnable-sales', { params: { customerId } }),
-  returnable: (id: string) => api.get(`/invoices/${id}/returnable`),
+  returnable: (id: string, opts?: WithLots) =>
+    (opts?.withLots ? api.get(`/invoices/${id}/returnable`, { params: lotsParam(opts) }) : api.get(`/invoices/${id}/returnable`)),
   cancel: (id: string) => api.patch(`/invoices/${id}/cancel`),
   // تحكّم الأدمن: هل يعود المرتجع لمخزون السيارة؟
   setRestock: (id: string, returnToStock: boolean) => api.patch(`/invoices/${id}/restock`, { returnToStock }),
@@ -397,7 +407,8 @@ export const tenantApi = {
   // المالك يختار الكلمة (newPassword)؛ وموظف المنصة لا يرسلها: الخادم يرسل مؤقتة إلى بريد المدير ويردّ data: { sent, email مقنّعاً }
   resetAdmin: (id: string, data: { adminId?: string; newPassword?: string }) => api.post(`/tenants/${id}/reset-admin`, data),
   impersonate: (id: string) => api.post(`/tenants/${id}/impersonate`),
-  remove: (id: string, confirmLedgerDestroy?: boolean) => api.delete(`/tenants/${id}`, { params: { confirmLedgerDestroy: confirmLedgerDestroy ? 1 : undefined } }),
+  // confirmLotRecords («تتبّع اللوط»، D31): شركةٌ لها سجلات تشغيلات حديثة تُردّ 409 LOT_RECORDS_RETAINED حتى يُؤكَّد بعد التصدير
+  remove: (id: string, confirmLedgerDestroy?: boolean, confirmLotRecords?: boolean) => api.delete(`/tenants/${id}`, { params: { confirmLedgerDestroy: confirmLedgerDestroy ? 1 : undefined, confirmLotRecords: confirmLotRecords ? 1 : undefined } }),
   // الدفاتر (M3، §5.7، §8.1): إعادة الضبط بتأكيد الاسم، وتاريخ فوترة عمولة الدفع (D2) — preview لا يكتب
   ledgerReset: (id: string, data: { confirmName: string; force?: boolean }) => api.post(`/tenants/${id}/ledger-reset`, data),
   setPaylinkFeeTaxInvoiceFrom: (id: string, data: { from: string | null }, preview?: boolean) =>
@@ -543,13 +554,23 @@ export const dailyReportApi = {
 export const vanStockApi = {
   summary: (params?: { from?: string; to?: string }) => api.get('/van-stock/summary', { params: { ...(params?.from && { from: params.from }), ...(params?.to && { to: params.to }) } }),
   current: (salesRepId: string) => api.get('/van-stock/current', { params: { salesRepId } }),
-  loads: (salesRepId?: string) => api.get('/van-stock/loads', { params: salesRepId ? { salesRepId } : {} }),
+  // withLots: items[].lots بتشغيلاتها (VanLoadItemLotDto في lib/lots.ts)
+  loads: (salesRepId?: string, opts?: WithLots) => api.get('/van-stock/loads', { params: { ...(salesRepId ? { salesRepId } : {}), ...lotsParam(opts) } }),
   // «سجل التحميلات» المرقَّم («لوكيشن»): type=LOAD وfrom/to بأيام الشركة وlocationId (معرّف أو none) وpage/limit — يعيد pagination
   loadsLog: (params: Record<string, string | number>) => api.get('/van-stock/loads', { params }),
-  movements: (salesRepId: string) => api.get('/van-stock/movements', { params: { salesRepId } }),
+  movements: (salesRepId: string, opts?: WithLots) => api.get('/van-stock/movements', { params: { salesRepId, ...lotsParam(opts) } }),
   // suggestedQty يُمرَّر ليُخزَّن مع البند — به وحده تُقاس جودة الاقتراح لاحقاً
   // expectedQty = التنبّؤ اليومي وقت التحميل — مرجعُ قياس الدقّة (لا suggestedQty)
-  createLoad: (data: { salesRepId?: string; type?: string; note?: string; items: { productId: string; qty: number; suggestedQty?: number; expectedQty?: number }[] }) =>
+  // «تتبّع اللوط» (§٤.٧، للصنف المتتبَّع وحده): lots صفوف صريحة بالكمية الأساسية (lotId: null = غير مسمّى)؛ lotNumber
+  // والتاريخان لإنشاء تشغيلة مع التحميل في شركة بلا مستودع (D4)؛ lotReason لإتلاف منتهٍ لم يُبع بتسوية نقص؛
+  // deletedSalesRepId تنزيلٌ إداري من سيارة مندوب محذوف (D30، UNLOAD وحده). والردّ يحمل warnings
+  createLoad: (data: {
+    salesRepId?: string; type?: string; note?: string; deletedSalesRepId?: string;
+    items: {
+      productId: string; qty: number; suggestedQty?: number; expectedQty?: number;
+      lots?: LotRef[]; lotNumber?: string; productionDate?: string | null; expiryDate?: string | null; lotReason?: 'EXPIRED_UNSOLD_DESTROY';
+    }[];
+  }) =>
     api.post('/van-stock/loads', data),
   accuracy: (params: { salesRepId: string; days?: number }) =>
     api.get('/van-stock/accuracy', { params: { ...params, tz: String(-new Date().getTimezoneOffset()) } }),
@@ -573,8 +594,46 @@ export const warehouseApi = {
   createEntry: (data: {
     type?: string; note?: string; supplier?: string;
     costsIncludeTax?: boolean;                                  // هل الأسعار المكتوبة شاملة الضريبة
-    items: { productId: string; qty: number; unitCost?: number }[]; // unitCost للوارد فقط
+    // unitCost للوارد فقط. «تتبّع اللوط» (§٤.٤): سطرٌ = تشغيلةٌ واحدة — lotId لقائمة، أو lotNumber وتاريخاها لجديدة
+    // (الانتهاء إلزامي مع الصلاحية)، وnull صريح لغير المسمّى في التسوية بالزيادة. والردّ 201 يحمل lot وwarnings
+    items: { productId: string; qty: number; unitCost?: number; lotId?: string | null; lotNumber?: string; productionDate?: string | null; expiryDate?: string | null }[];
   }) => api.post('/warehouse/entries', data),
+};
+
+// «تتبّع اللوط» — /api/lots (ميزة يفعّلها المالك لكل شركة؛ ٤٠٣ LOTS_NOT_ALLOWED دونها، والمسارات بصلاحية مخزون السيارات).
+// الكميات كلها بوحدة الأساس، وlotId: null = «غير مسمّى». أشكال الأجسام والردود في lib/lots.ts (مرآة عقود الخادم)
+export const lotsApi = {
+  // البطاقات مع ملخّص أرصدتها: q بحثٌ بالرقم أو الصنف، وexpiringWithinDays للقريب من الانتهاء
+  list: (params?: LotListParams) => api.get('/lots', { params }),
+  get: (id: string) => api.get(`/lots/${id}`),
+  // LotBalancesDto: المستودع وكل سيارة لصنفٍ أو أصناف (≤ ٥٠، تُرسل مفصولةً بفاصلة)، وasOf يوم YYYY-MM-DD («المخزون في تاريخ»)
+  balances: (params: { productId?: string; productIds?: string[]; asOf?: string }) => api.get('/lots/balances', {
+    params: { productId: params.productId, productIds: params.productIds?.length ? params.productIds.join(',') : undefined, asOf: params.asOf },
+  }),
+  // LotFefoDto: اقتراح تحميل qty (أساسية) لسيارة salesRepId بلا قفل — قابلٌ للتعديل، والخادم يعيد التحقق عند الحفظ
+  fefo: (params: { productId: string; qty: number; salesRepId?: string }) => api.get('/lots/fefo', { params }),
+  // العجوزات (خامٌ أو صالحٌ سالب) لكل الأصناف المتتبَّعة والأماكن — «سلامة الأرصدة»
+  health: () => api.get('/lots/health'),
+  create: (data: LotCreateRequest) => api.post('/lots', data),
+  update: (id: string, data: LotUpdateRequest) => api.patch(`/lots/${id}`, data),
+  // الإيقاف (HOLD) والسحب (RECALL) وإعادة التنشيط — لمستخدم غير مقيّد بنطاق، وبسببٍ إلزامي في الاتجاهين
+  setStatus: (id: string, data: LotStatusRequest) => api.patch(`/lots/${id}/status`, data),
+  remove: (id: string) => api.delete(`/lots/${id}`),
+  // LotTraceDto: STRICT ما سُجّل باللوط، وBROAD يضيف بيع الصنف من السيارة في نافذة وجود اللوط فيها
+  trace: (id: string, scope: 'STRICT' | 'BROAD' = 'STRICT') => api.get(`/lots/${id}/trace`, { params: { scope } }),
+  // LotUnloadPlanDto[]: لكل سيارةٍ فيها اللوط (والمحذوفة) ما يُنزَّل عبر vanStockApi.createLoad
+  unloadPlan: (id: string) => api.get(`/lots/${id}/unload-plan`),
+  events: (id: string) => api.get(`/lots/${id}/events`),
+  // تسمية الرصيد القائم وإعادة التصنيف والتصحيح — بُعد اللوط وحده، لا يغيّر رصيد الصنف ولا تقييمه
+  relabel: (data: LotRelabelRequest) => api.post('/lots/relabel', data),
+  // التفعيل الجماعي (LotTrackingResultDto) — بصلاحية المنتجات أيضاً؛ الإطفاء مع أرصدة مسمّاة يلزمه confirmLotBalances
+  setTracking: (data: LotTrackingRequest) => api.post('/lots/products/tracking', data),
+  // «طباعة رقم التشغيلة على فاتورة العميل» — بصلاحية إعدادات الشركة
+  setSettings: (data: { lotOnInvoice: boolean }) => api.put('/lots/settings', data),
+  // VanLotSnapshotDto لسيارة مندوب (الإداري يمرّر salesRepId) — ومنه تحذير حذف المندوب
+  vanLotBalances: (salesRepId?: string) => api.get('/van-stock/lot-balances', { params: salesRepId ? { salesRepId } : {} }),
+  // المباع والمرتجع والصافي وعدد العملاء لكل تشغيلة في الفترة (from/to بأيام الشركة) — بصلاحية التقارير وبالنطاق
+  lotSales: (params: { from?: string; to?: string; productId?: string; lotId?: string }) => api.get('/reports/lot-sales', { params }),
 };
 
 // تعديل بصمات الحضور إدارياً ورفعها من Excel (backend/src/routes/attendanceAdmin.ts) — كل كتابةٍ بسببٍ مكتوب وفي سجلّ التدقيق

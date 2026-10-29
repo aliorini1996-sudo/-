@@ -78,3 +78,40 @@ test('الصنف بوحدتين في حركة واحدة: لكل سطر وحدت
   assert.deepEqual(out.map(i => [i.productId, i.qty, i.unitId]), [['p', 5, 'u-ctn']]);
   assert.deepEqual(back, [{ productId: 'p', qty: 3 }]);
 });
+
+// «تتبّع اللوط»: صفوف التشغيلات تتبع إشارة سطرها
+test('تشغيلات التحميل تمر كما هي مع سطرها', () => {
+  const lots = [{ lotId: 'l1', qty: 6 }, { lotId: null, qty: 4 }];
+  const { out } = splitVanMovement([{ productId: 'p', qty: 10, lots }]);
+  assert.deepEqual(out[0].lots, lots);
+});
+
+test('تشغيلات التنزيل تقلب الى قيمتها المطلقة مع سطرها — UNLOAD يطرح الموجب', () => {
+  const { back } = splitVanMovement([{ productId: 'p', qty: -5, lots: [{ lotId: 'l1', qty: -3 }, { lotId: null, qty: -2 }] }]);
+  assert.deepEqual(back, [{ productId: 'p', qty: 5, lots: [{ lotId: 'l1', qty: 3 }, { lotId: null, qty: 2 }] }]);
+  // ومن كتبها موجبة على سطر سالب تبقى موجبة: الاتجاه من نوع الوثيقة لا من إشارة الصف
+  const { back: b2 } = splitVanMovement([{ productId: 'p', qty: -5, lots: [{ lotId: 'l1', qty: 5 }] }]);
+  assert.deepEqual(b2[0].lots, [{ lotId: 'l1', qty: 5 }]);
+});
+
+test('تنزيل بلا تشغيلات او بمصفوفة فارغة لا يحمل lots — الخادم يختار المصدر الوحيد', () => {
+  const { back } = splitVanMovement([{ productId: 'a', qty: -2 }, { productId: 'b', qty: -3, lots: [] }]);
+  assert.deepEqual(back, [{ productId: 'a', qty: 2 }, { productId: 'b', qty: 3 }]);
+  assert.ok(!('lots' in back[1]));
+});
+
+test('حقول السطر الاضافية تمر مع التحميل — نوع العنصر محفوظ', () => {
+  const { out, back } = splitVanMovement([{ productId: 'p', qty: 4, lotNumber: 'A1' }, { productId: 'q', qty: -1, lotNumber: 'B2' }]);
+  assert.equal(out[0].lotNumber, 'A1');
+  assert.ok(!('lotNumber' in back[0]), 'التنزيل لا ينشئ تشغيلة');
+});
+
+test('الوحدة والتشغيلات معا: السطر بالكرتون وصفوف التشغيلات بالاساس لا تضرب في المعامل (D19)', () => {
+  const { out, back } = splitVanMovement([
+    { productId: 'p', qty: 2, unitId: 'u-ctn', lots: [{ lotId: 'l1', qty: 24 }] },
+    { productId: 'p', qty: -1, unitId: 'u-ctn', lots: [{ lotId: 'l1', qty: -12 }] },
+  ]);
+  assert.equal(out[0].unitId, 'u-ctn');
+  assert.deepEqual(out[0].lots, [{ lotId: 'l1', qty: 24 }]);
+  assert.deepEqual(back, [{ productId: 'p', qty: 1, unitId: 'u-ctn', lots: [{ lotId: 'l1', qty: 12 }] }]);
+});
