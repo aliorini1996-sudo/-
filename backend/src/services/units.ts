@@ -111,8 +111,13 @@ export interface UnitDef {
  * ٢٤ حبّة بسعرها. ومن أراد سعر جملةٍ أقلّ حدّده صراحةً على الوحدة.
  */
 export function unitPriceOf(unit: UnitDef, basePrice: number | string | null | undefined): number {
-  const p = Number(unit?.price);
-  if (Number.isFinite(p) && p >= 0) return p;
+  // `null`/غائب ⇒ لا سعر محدَّد فيُشتقّ — لا صفراً. وكان `Number(null)` = 0 «سعراً
+  // صالحاً» فيصير مرجع الحارس السعريّ صفراً: يُرفض بيع الكرتون لمن لا يملك تغيير
+  // السعر، وتسقط أرضيته لمن يملكه. (نظير درس `baseQtyOf`.)
+  if (unit?.price != null && (unit.price as unknown) !== '') {
+    const p = Number(unit.price);
+    if (Number.isFinite(p) && p >= 0) return p;
+  }
   const bp = Number(basePrice);
   return Number.isFinite(bp) ? money(bp * factorOf({ unitFactor: unit?.factor })) : 0;
 }

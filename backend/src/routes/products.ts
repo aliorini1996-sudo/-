@@ -8,7 +8,7 @@ import { paginate, paginationMeta, roundDecimal } from '../utils/helpers';
 import { canAccessCustomer } from '../services/customerScope';
 import { applyProductVatGate } from './productsZatca';
 import { RETURN_RULE_METRICS, RETURN_RULE_MODES, SHELF_LIFE_BASES, SHELF_LIFE_UNITS, returnRuleConfigProblem, shelfLifeProblem } from '../services/shelfLife';
-import { MAX_UNIT_FACTOR, QTY_EPS, unitProblem, type UnitDef } from '../services/units';
+import { MAX_UNIT_FACTOR, QTY_EPS, unitProblem, factorOf, type UnitDef } from '../services/units';
 
 const router = Router();
 router.use(authenticate); // القراءة متاحة للمندوب (للبحث عند إصدار الفاتورة)؛ الكتابة للإدارة فقط
@@ -561,8 +561,16 @@ router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Res
         FROM "rep_stock_requests" AS d
         WHERE r."requestId" = d.id AND d."tenantId" = ${tid} AND r."productId" = ${pid}`;
 
-      // ٣. الوحدات القائمة تُضرب بـF (طبليةٌ = ٥٠ كرتون ⇒ ١٢٠٠ حبة) وتتأخّر رتبةً، والوحدة القديمة تصير وحدةً بمعامل F
-      // **بسعرها القديم** ورمزها الضريبي، وأولى في الترتيب: هي ما يبيعه المندوب كل يوم، فلا يتغيّر عمله بعد التحويل
+      /* ٣. الوحدات القائمة تُضرب بـF (طبليةٌ = ٥٠ كرتون ⇒ ١٢٠٠ حبة) وتتأخّر رتبةً، والوحدة القديمة تصير وحدةً بمعامل F
+       * **بسعرها القديم** ورمزها الضريبي، وأولى في الترتيب: هي ما يبيعه المندوب كل يوم، فلا يتغيّر عمله بعد التحويل.
+       *
+       * وقبل الضرب: الوحداتُ المشتقّةُ سعرَها (price = null، كالطبلية) تُجمَّد على سعرها المشتقّ الآن
+       * (سعر الأساس القديم × معاملها). وإلّا فبعد التحويل يُشتقّ سعرها من الأساس الجديد المقرَّب لأربع منازل ×
+       * المعامل المضروب، فيزحّ سعرها هللاتٍ بلا أن يطلب أحدٌ ذلك. التجميد يبقيه كما كان حرفاً. */
+      const derived = await tx.productUnit.findMany({ where: { productId: pid, tenantId: tid, price: null }, select: { id: true, factor: true } });
+      for (const u of derived) {
+        await tx.productUnit.update({ where: { id: u.id }, data: { price: roundDecimal(Number(product.basePrice) * factorOf({ unitFactor: u.factor }), 2) } });
+      }
       await tx.productUnit.updateMany({
         where: { productId: pid, tenantId: tid },
         data: { factor: { multiply: F }, sortOrder: { increment: 1 } },

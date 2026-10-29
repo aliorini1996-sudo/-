@@ -61,6 +61,19 @@ test('سعر الوحدة: المحدَّد لها، وإلّا سعر الأس�
   assert.equal(unitPriceOf({ name: 'حبة', factor: 1 }, 0.5), 0.5);
 });
 
+/**
+ * null/الفراغ ⇒ يُشتقّ لا صفر. الخلل الحرج الذي كشفته المراجعة: `Number(null)` = 0
+ * «سعرٌ صالح»، فيصير مرجع الحارس السعريّ صفراً — يُرفض بيع الكرتون لمن لا يملك
+ * تغيير السعر، وتسقط أرضيته لمن يملكه.
+ */
+test('سعر الوحدة: price = null أو فراغ ⇒ يُشتقّ لا صفر', () => {
+  assert.equal(unitPriceOf({ name: 'كرتون', factor: 24, price: null }, 1), 24);
+  assert.equal(unitPriceOf({ name: 'كرتون', factor: 24, price: undefined }, 1), 24);
+  assert.equal(unitPriceOf({ name: 'كرتون', factor: 24, price: '' as unknown as number }, 1), 24);
+  // صفرٌ صريح يُحترَم (مجّانيّ مقصود) — ليس غياباً
+  assert.equal(unitPriceOf({ name: 'كرتون', factor: 24, price: 0 }, 1), 0);
+});
+
 test('سعر المرتجع من البند المباع لا من سعر اليوم', () => {
   // كرتون بِيع بـ١٠ (بعد خصم)، فيه ٢٤ حبة ⇒ الحبة تُردّ بـ٠٫٤١٦٦٧
   const line = { lineTotal: 10, qty: 1, ...carton };
