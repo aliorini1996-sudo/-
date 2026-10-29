@@ -35,6 +35,7 @@ type FormValues = {
   canManageCompanyUsers: boolean;
   canManageDailyReport: boolean;
   canReceiveUserCollections: boolean;
+  canDelete: boolean;
   // صلاحيات الدفاتر — افتراضها false، فلا `?? true` إطلاقاً (§9.2)
   canViewLedger?: boolean;
   canPostJournals?: boolean;
@@ -75,6 +76,8 @@ const permissionItems: { key: keyof FormValues; label: string }[] = [
   { key: 'canManageCompanyUsers', label: 'مستخدمي الشركة' },
   // استلام عهدة التحصيل من مستخدمٍ آخر — مطفأة افتراضياً، ومن يملكها يرى أيقونة الاستلام
   { key: 'canReceiveUserCollections', label: 'استلام التحصيل من المستخدمين' },
+  // بدونها لا يحذف المستخدم شيئاً (عملاء، منتجات، مناديب، مستخدمين…) — يرفضه الخادم
+  { key: 'canDelete', label: 'صلاحية الحذف' },
 ];
 
 export default function CompanyUsersPage() {
@@ -318,6 +321,7 @@ function CompanyUserModal({ user, currentUserId, loading, dailyReportOn, account
     canManageDailyReport: user?.canManageDailyReport ?? true,
     // ميزة جديدة: `=== true` لا `?? true` — لا تُمنح ضمناً لمن أُنشئ قبلها
     canReceiveUserCollections: user?.canReceiveUserCollections === true,
+    canDelete: user?.canDelete ?? true,
     canViewLedger: user?.canViewLedger === true,
     canPostJournals: user?.canPostJournals === true,
     canManagePayables: user?.canManagePayables === true,

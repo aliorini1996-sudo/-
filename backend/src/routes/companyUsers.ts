@@ -33,6 +33,7 @@ const userSchema = z.object({
   canManageDailyReport: z.boolean().optional(),
   canManageCompanyUsers: z.boolean().optional(),
   canReceiveUserCollections: z.boolean().optional(),
+  canDelete: z.boolean().optional(),
   // صلاحيات الدفاتر (§9.2) — تُنزع في الإنشاء والتعديل ما لم تكن الميزة مفعّلة للشركة
   canViewLedger: z.boolean().optional(),
   canPostJournals: z.boolean().optional(),
@@ -69,6 +70,7 @@ const userSelect = {
   canManageDailyReport: true,
   canManageCompanyUsers: true,
   canReceiveUserCollections: true,
+  canDelete: true,
   // بدونها يقرأ نموذج التعديل undefined فيعيد كل حفظٍ كتابة صلاحيات الدفاتر
   canViewLedger: true,
   canPostJournals: true,
@@ -93,22 +95,22 @@ function stripLedgerKeys(data: Record<string, unknown>): void {
 }
 
 /** من يدير مستخدمي الشركة — يعيد دوره من القاعدة (لا من التوكن) لحارس حسابات المدير، أو null بعد ردّ 403. */
-async function requireCompanyOwner(req: AuthRequest, res: Response): Promise<{ role: string } | null> {
+async function requireCompanyOwner(req: AuthRequest, res: Response): Promise<{ role: string; canDelete: boolean } | null> {
   if (!req.user || !['ADMIN', 'MANAGER', 'ACCOUNTANT'].includes(req.user.role)) {
     res.status(403).json({ success: false, message: 'غير مسموح' });
     return null;
   }
   // جلسة مالك المنصة: مالك الشركة ضمناً — تدير المستخدمين كلهم أياً كانت صلاحيات حساب التوكن
-  if (req.user.impersonated === true) return { role: 'ADMIN' };
+  if (req.user.impersonated === true) return { role: 'ADMIN', canDelete: true };
   const admin = await prisma.admin.findUnique({
     where: { id: req.user.id },
-    select: { isActive: true, canManageCompanyUsers: true, role: true },
+    select: { isActive: true, canManageCompanyUsers: true, role: true, canDelete: true },
   });
   if (!admin?.isActive || !admin.canManageCompanyUsers) {
     res.status(403).json({ success: false, message: 'إدارة مستخدمي الشركة غير متاحة لهذا الحساب' });
     return null;
   }
-  return { role: admin.role };
+  return { role: admin.role, canDelete: admin.canDelete !== false };
 }
 
 export const ADMIN_ACCOUNT_REFUSALS = Object.freeze({
@@ -406,6 +408,15 @@ function blocksCustodyGrant(caller: { role: string }, requested: unknown, curren
   return requested === true && currentHas !== true && caller.role !== 'ADMIN';
 }
 
+/**
+ * «صلاحية الحذف» — لا يمنحها إلا من يملكها أو مدير الشركة: مشرفٌ سُحب منه الحذف ويدير المستخدمين لا يعيده لنفسه بطلب.
+ * والسحب متاحٌ لكل من يدير المستخدمين كنظيرتها.
+ */
+export function blocksDeleteGrant(caller: { role: string; canDelete: boolean }, requested: unknown, currentHas?: boolean): boolean {
+  return requested === true && currentHas !== true && caller.role !== 'ADMIN' && !caller.canDelete;
+}
+const DELETE_GRANT_REFUSED = 'لا يمنح صلاحية الحذف إلا مدير الشركة أو من يملكها';
+
 // جلسة «دخول» موظف المنصة لا تُنشئ مستخدماً بكلمة مرور يختارها — حسابٌ يبقى بعد تعطيله (services/platformAccess.ts)
 router.post('/', noStaffCredentials, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -415,6 +426,11 @@ router.post('/', noStaffCredentials, async (req: AuthRequest, res: Response, nex
     const body = userSchema.parse(req.body);
     if (blocksCustodyGrant(caller, body.canReceiveUserCollections)) {
       res.status(403).json({ success: false, message: 'منح صلاحية استلام التحصيل من المستخدمين يخص مدير الشركة' });
+      return;
+    }
+    // الإنشاء بلا قيمة يعني true (الافتراض) — فيُحكم على ما سيُكتب لا على ما أُرسل
+    if (blocksDeleteGrant(caller, body.canDelete ?? true)) {
+      res.status(403).json({ success: false, message: DELETE_GRANT_REFUSED });
       return;
     }
     if (!(await guardAdminAccountChange(req, res, caller, { targetRole: null, newRole: body.role }))) return;
@@ -455,6 +471,7 @@ router.post('/', noStaffCredentials, async (req: AuthRequest, res: Response, nex
         canManageDailyReport: body.canManageDailyReport ?? true,
         canManageCompanyUsers: body.canManageCompanyUsers ?? false,
         canReceiveUserCollections: body.canReceiveUserCollections ?? false,
+        canDelete: body.canDelete ?? true,
         // الدفاتر ميزة جديدة: ?? false لا ?? true كنظائرها
         canViewLedger: body.canViewLedger ?? false,
         canPostJournals: body.canPostJournals ?? false,
@@ -483,6 +500,10 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     if (refuseStaffCredentials(req, res, !!password || emailChanges || (data.role === 'ADMIN' && current.role !== 'ADMIN'))) return;
     if (blocksCustodyGrant(caller, data.canReceiveUserCollections, current.canReceiveUserCollections)) {
       res.status(403).json({ success: false, message: 'منح صلاحية استلام التحصيل من المستخدمين يخص مدير الشركة' });
+      return;
+    }
+    if (blocksDeleteGrant(caller, data.canDelete, current.canDelete)) {
+      res.status(403).json({ success: false, message: DELETE_GRANT_REFUSED });
       return;
     }
     if (!(await guardAdminAccountChange(req, res, caller, { targetRole: current.role, newRole: data.role, password: !!password }))) return;

@@ -2536,6 +2536,8 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'النظام المحاسبي المتكامل غير مفعل لشركتك': { en: 'The full accounting suite is not enabled for your company', fr: 'La comptabilité complète n’est pas activée pour votre entreprise', tr: 'Tam muhasebe sistemi şirketiniz için etkin değil', zh: '贵公司尚未启用完整会计系统' },
   'غير مسموح': { en: 'Not allowed', fr: 'Non autorisé', tr: 'İzin verilmiyor', zh: '无权访问' },
   'لا تملك صلاحية الوصول لهذا القسم': { en: 'You do not have permission to access this section', fr: 'Vous n’avez pas l’autorisation d’accéder à cette section', tr: 'Bu bölüme erişim izniniz yok', zh: '您无权访问此部分' },
+  'لا تملك صلاحية الحذف تواصل مع مدير الشركة': { en: 'You do not have delete permission — contact the company manager', fr: 'Vous n’avez pas le droit de suppression — contactez le responsable de la société', tr: 'Silme yetkiniz yok — şirket yöneticisiyle iletişime geçin', zh: '您没有删除权限 — 请联系公司管理员' },
+  'لا يمنح صلاحية الحذف إلا مدير الشركة أو من يملكها': { en: 'Only the company manager or a user who has delete permission can grant it', fr: 'Seul le responsable de la société ou un utilisateur disposant du droit de suppression peut l’accorder', tr: 'Silme yetkisini yalnızca şirket yöneticisi veya bu yetkiye sahip kullanıcı verebilir', zh: '只有公司管理员或拥有删除权限的用户才能授予该权限' },
   'النظام المحاسبي المتكامل': { en: 'Full accounting suite', fr: 'Comptabilité complète', tr: 'Tam muhasebe sistemi', zh: '完整会计系统' },
   'قيد الإعداد': { en: 'Being set up', fr: 'En cours de préparation', tr: 'Hazırlanıyor', zh: '筹备中' },
   'شجرة الحسابات والقيود اليومية والقوائم المالية تصل قريبا لشركتك': { en: 'The chart of accounts, journal entries and financial statements are coming soon for your company', fr: 'Le plan comptable, les écritures et les états financiers arrivent bientôt pour votre entreprise', tr: 'Hesap planı, yevmiye kayıtları ve finansal tablolar yakında şirketinizde', zh: '会计科目表、日记账分录和财务报表即将为贵公司上线' },
@@ -4386,6 +4388,7 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
 
   // ——— عهدة التحصيل لمستخدمي الشركة وتوريدها ———
   'استلام التحصيل من المستخدمين': { en: 'Receive collections from users', fr: 'Recevoir les encaissements des utilisateurs', tr: 'Kullanicilardan tahsilat teslim alma', zh: '接收用户的收款' },
+  'صلاحية الحذف': { en: 'Delete permission', fr: 'Droit de suppression', tr: 'Silme yetkisi', zh: '删除权限' },
   'عهدة التحصيل': { en: 'Collection custody', fr: 'Encaissements en garde', tr: 'Tahsilat zimmeti', zh: '收款保管额' },
   'استلمه من المناديب': { en: 'Received from reps', fr: 'Recu des commerciaux', tr: 'Temsilcilerden alinan', zh: '自业务员收取' },
   'ورّده سابقا': { en: 'Handed over before', fr: 'Deja remis', tr: 'Daha once teslim edilen', zh: '此前已上缴' },

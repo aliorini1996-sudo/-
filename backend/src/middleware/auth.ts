@@ -26,6 +26,8 @@ export type AdminPermission =
   // استلام (توريد) عهدة التحصيل من مستخدمي الشركة — افتراضها false، فيحرسها
   // requireAdminPermission بأمان (يمنع عند القيمة false، فلا يمرّ إلا المفعَّل له)
   | 'canReceiveUserCollections'
+  // صلاحية الحذف — يحرسها authenticate على كل طلب DELETE (deleteRefused)، وتُستعمل هنا لحذفٍ يمرّ بـPOST
+  | 'canDelete'
   // صلاحيات الدفاتر — تُحرس بـrequireLedgerPermission لا بـrequireAdminPermission
   // (ذاك يمنع عند === false وحدها ويتجاهل الدور، وهذه افتراضها false)
   | 'canViewLedger'
@@ -36,6 +38,16 @@ export type AdminPermission =
   | 'canConfigureLedger';
 
 const COMPANY_ROLES = ['ADMIN', 'MANAGER', 'ACCOUNTANT'];
+
+export const DELETE_NOT_ALLOWED_MESSAGE = 'لا تملك صلاحية الحذف تواصل مع مدير الشركة';
+
+/**
+ * «صلاحية الحذف» لمستخدم الشركة: حارسٌ واحد على كل طلب DELETE بدل حارسٍ في كل مسار — مسار حذفٍ يُضاف غداً محروسٌ
+ * تلقائياً. جلسة المالك تتجاوزها كسائر الصلاحيات (isOwnerSession)، والمفتاح البرمجي يرثها من صاحبه.
+ */
+export function deleteRefused(method: string | undefined, canDelete: boolean | null | undefined, impersonated?: boolean): boolean {
+  return (method || '').toUpperCase() === 'DELETE' && canDelete === false && impersonated !== true;
+}
 
 // خنق تحديث «آخر ظهور» لمستخدمي الشركة: لا نكتب أكثر من مرة/دقيقة للحساب الواحد.
 const PRESENCE_THROTTLE_MS = 60 * 1000;
@@ -111,10 +123,14 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
   try {
     const admin = await prisma.admin.findUnique({
       where: { id: payload.id },
-      select: { isActive: true, lastSeenAt: true },
+      select: { isActive: true, lastSeenAt: true, canDelete: true },
     });
     if (!admin?.isActive) {
       res.status(401).json({ success: false, message: 'انتهت صلاحية الحساب سجل الدخول مجددا' });
+      return;
+    }
+    if (deleteRefused(req.method, admin.canDelete, payload.impersonated)) {
+      res.status(403).json({ success: false, code: 'DELETE_NOT_ALLOWED', message: DELETE_NOT_ALLOWED_MESSAGE });
       return;
     }
     // لمسة «آخر ظهور» لعدّاد «الزيارات الحية» في لوحة المالك — مخنوقة لمرة/دقيقة،
@@ -175,7 +191,7 @@ async function authenticateApiKey(req: AuthRequest, res: Response, next: NextFun
       where: { keyHash: hash },
       select: {
         id: true, tenantId: true, readOnly: true, revokedAt: true, lastUsedAt: true, createdBy: true,
-        admin: { select: { id: true, name: true, role: true, isActive: true, tenantId: true } },
+        admin: { select: { id: true, name: true, role: true, isActive: true, tenantId: true, canDelete: true } },
         tenant: { select: { apiEnabled: true, isActive: true, subscriptionEndsAt: true } },
       },
     });
@@ -200,6 +216,11 @@ async function authenticateApiKey(req: AuthRequest, res: Response, next: NextFun
     if (blocked) { res.status(403).json({ success: false, code: 'TENANT_BLOCKED', message: blocked }); return; }
     if (!row.admin.isActive || row.admin.tenantId !== row.tenantId || !COMPANY_ROLES.includes(row.admin.role)) {
       res.status(401).json({ success: false, code: 'API_KEY_OWNER_INACTIVE', message: 'حساب المستخدم صاحب المفتاح معطل' });
+      return;
+    }
+    // المفتاح يرث «صلاحية الحذف» من صاحبه — ولو أصدره الدعم الفني (ownerIssuedKey بلا تجاوزات الجلسة)
+    if (deleteRefused(req.method, row.admin.canDelete)) {
+      res.status(403).json({ success: false, code: 'DELETE_NOT_ALLOWED', message: DELETE_NOT_ALLOWED_MESSAGE });
       return;
     }
     // الحكم على المسار الذي طابقه Express فعلاً (baseUrl + path) **وعلى** نصّ الطلب — يُرفض إن منعه أيّهما
