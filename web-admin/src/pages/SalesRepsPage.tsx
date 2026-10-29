@@ -10,6 +10,7 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import RepVanStockNote from '../components/RepVanStockNote';
 import CardTerminalsModal from '../components/CardTerminalsModal';
 import { formatCurrency, formatDate, formatDayOnly, formatTime, formatNumber, statusLabels, paymentMethodLabels, getActiveCurrency } from '../utils/format';
+import { totalsByUnit, docQtyText } from '../lib/adminUnits';
 import { methodLabelFor, type CompanyWithMethods } from '../lib/paymentMethodsConfig';
 import { currencyDecimals } from '../i18n/countries';
 import { useTr } from '../i18n/strings';
@@ -1006,15 +1007,13 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
   const collectTotal = receipts.reduce((s, r) => s + Number(r.amount), 0);
   const periodLabel = from && to ? `${formatDate(from)} — ${formatDate(to)}` : tr('كل الفترات');
   // ملخّص أصناف الفاتورة: «اسم ×كمية، …» (لعمود الأصناف في الكشف)
-  const itemsText = (i: Invoice) => (i.items || []).map(it => `${it.product.name} ×${Number(it.qty)}`).join('، ');
+  // لقطة وحدة البند لا وحدة الصنف الحالية: بعد التحويل صارت وحدة الصنف «حبة» والبند كرتون
+  const itemsText = (i: Invoice) => (i.items || []).map(it => `${it.product.name} ×${docQtyText({ qty: it.qty, unitName: it.unitName, unitFactor: it.unitFactor, unit: it.product.unit }, formatNumber)}`).join('، ');
   // إجماليات أسفل الكشف: مجموع مبالغ الفواتير + مجموع الوحدات المباعة مفصّلة حسب الوحدة (كرتون/قطعة/…)
   const invoicesAmountTotal = invoices.reduce((s, i) => s + Number(i.total), 0);
+  // الوحدات المباعة لكل وحدةٍ بلقطتها (كرتونٌ وحبّةٌ لا يُجمعان رقماً واحداً، ووحدة البند لا وحدة الصنف الحالية)
   const soldUnits = (() => {
-    const m = new Map<string, number>();
-    for (const i of sales) for (const it of (i.items || [])) { // البيع فقط (بلا المرتجعات)
-      const u = (it.product.unit || '').trim() || tr('وحدة');
-      m.set(u, (m.get(u) || 0) + Number(it.qty));
-    }
+    const m = totalsByUnit(sales.flatMap(i => (i.items || []).map(it => ({ qty: it.qty, unitName: it.unitName, unit: it.product.unit }))), tr('وحدة'));
     return [...m.entries()].map(([u, q]) => `${formatNumber(q)} ${u}`).join(' · ');
   })();
 

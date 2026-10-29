@@ -123,12 +123,13 @@ const invoiceItemSchema = z.object({
   unitId: z.string().nullish(),
   // لقطة وحدة الجهاز لحظة الإصدار (القاعدة ٧): في إعادة الرفع (X-FS-Replay) تُكتب بعد التحقّق أنها كانت للصنف؛ وفي
   // الإصدار الحيّ لا تُكتب أبداً — تكشف كاشاً قديماً على الجهاز (معاملٌ أو اسمٌ غير ما يحلّه الخادم ⇒ 400 UNIT_INVALID).
-  // ولا تُرفض قيمةٌ تالفة هنا (nullish بلا حدود): مستند الصندوق لا يُعدم بمخطّط، والتالفة تُهمل في resolveLineUnit
-  unitName: z.string().max(64).nullish(),
+  // ولا تُرفض قيمةٌ تالفة هنا: مستند الصندوق لا يُعدم بمخطّط، والتالفة تُهمل في resolveLineUnit. والطول يُقصّ لا يُرفض —
+  // اسم وحدة الصنف (Product.unit) بلا حدٍّ في إنشائه، فصنفٌ قديمٌ باسمٍ طويل كان ترفَض كلُّ فاتورةٍ له بـmax(64)
+  unitName: z.string().transform((v) => v.slice(0, 64)).nullish(),
   unitFactor: z.number().nullish(),
   // ومعها وحدة أساس الصنف على الجهاز لحظتها (product.unit): بها وحدها يُعرف أنّ الأساس حُوّل بعد الإصدار (كرتون ⇒ حبة)
   // فتُقرأ لقطةٌ كـ«١ طبلية = ٥٠» على الأساس القديم (٥٠ كرتوناً) لا الجديد (٥٠ حبّة). اختيارية: غيابها سلوك اللقطة وحدها
-  baseUnitName: z.string().max(64).nullish(),
+  baseUnitName: z.string().transform((v) => v.slice(0, 64)).nullish(),
   unitPrice: z.number().min(0),
   discountPct: z.number().min(0).max(100).default(0),
   taxPct: z.number().min(0).max(100).optional(), // يُورَث من ضريبة دولة الشركة عند الغياب
