@@ -7,6 +7,7 @@
  *   - لغة المندوب: وقائع التوجيه والدراسة ودروس الفريق ورموز الأخطاء ← نصوص بلغته (tr من useAiRepTr يُمرَّر).
  *   - «الطلب المتوقع من ملف المحل في Google»: سطر القائمة وأرقام الأصناف ومداها وسطر الأساس بلغة المندوب.
  */
+import { formatQty } from '../lib/units';
 
 export interface Pt { lat: number; lng: number }
 
@@ -433,9 +434,14 @@ export function teamTipText(key: string | null | undefined, text: string | null 
 // لكل صنف في سيارة المندوب: حجم الطلب المعتاد للصنف من فواتير الشركة × مؤشرات ملف المحل (عدد المقيّمين مقارنةً بمحلات
 // نوعه في المسح، والتقييم، وحديث المراجعات وذكر الصنف فيها حين تُقرأ). الأرقام والوحدات بلغة المندوب.
 
-/** صنفٌ في الطلب المتوقع (نسخة الواجهة من ExpectedProduct) — qty = null ⇒ لا رقم وسببه reason. */
+/** وحدةٌ أكبر من الأساس للعرض (نسخة الواجهة من QtyUnit في ai-rep/baseQty.ts) — الاسم وعدد وحدات الأساس فيها. */
+export interface ExpectedUnit { name: string; factor: number }
+/**
+ * صنفٌ في الطلب المتوقع (نسخة الواجهة من ExpectedProduct) — qty = null ⇒ لا رقم وسببه reason.
+ * الكمية ومداها **بوحدة الأساس** `unit`، و`units` وحدات الصنف الأكبر ليفكّكها العرض «٢ كرتون و٣ حبة» (غائبة لصنفٍ بوحدة واحدة).
+ */
 export interface ExpectedProduct {
-  productId: string; name: string; unit: string; qty: number | null; low: number | null; high: number | null;
+  productId: string; name: string; unit: string; units?: ExpectedUnit[]; qty: number | null; low: number | null; high: number | null;
   mentioned: boolean; mentions?: number; complaint?: 'QUALITY' | 'SHORTAGE'; quote?: string; reason?: 'NO_ANCHOR';
 }
 /** وقائع سطر الأساس (نسخة الواجهة من ExpectedBasis) — text نصّه العربي. */
@@ -469,14 +475,29 @@ export const CONFIDENCE_TEXT: Record<Expected['confidence'], string> = { HIGH: '
 /** كمية بلغة المندوب: الصحيح كما هو، والكسر بمنزلة واحدة (بالفاصلة العشرية في الفرنسية والتركية). */
 export const fmtQty = (q: number, lang: string): string => fmtNum(lang, q, 0, 1);
 
-/** «12 كرتون» — الوحدة كما في الكتالوج (مترجمةً إن عُرفت). */
-export function expectedQtyText(p: Pick<ExpectedProduct, 'qty' | 'unit'>, lang: string, tr: Tr): string {
-  return p.qty == null ? '—' : `${fmtQty(p.qty, lang)} ${tr(p.unit)}`.trim();
+/**
+ * «12 كرتون» — الوحدة كما في الكتالوج (مترجمةً إن عُرفت). ولصنفٍ له وحدات: الكمية بالأساس من الخادم تُفكَّك «٢ كرتون و٣ حبة»
+ * (`formatQty` — لا حسابٌ موازٍ) — فـ«٥١ حبة» لا تُقرأ وحدها، و«٥١ كرتون» خطأٌ ٢٤ ضعفاً. والأرقام بلغة المندوب، والواو
+ * العربية «+» في غيرها.
+ */
+export function expectedQtyText(p: Pick<ExpectedProduct, 'qty' | 'unit' | 'units'>, lang: string, tr: Tr): string {
+  if (p.qty == null) return '—';
+  if (!p.units?.length) return `${fmtQty(p.qty, lang)} ${tr(p.unit)}`.trim();
+  const units = p.units.map(u => ({ name: tr(u.name), factor: Number(u.factor) }));
+  return formatQty(p.qty, units, tr(p.unit))
+    .replace(/ و(?=\d)/, lang === 'ar' ? ' و' : ' + ')
+    .replace(/\d+(?:\.\d+)?/g, m => fmtQty(Number(m), lang))
+    .trim();
 }
 
-/** المدى «9–16» — null حين لا مدى (حدّاه متساويان أو غائبان). */
-export function expectedRangeText(p: Pick<ExpectedProduct, 'low' | 'high'>, lang: string): string | null {
-  return p.low != null && p.high != null && p.low !== p.high ? `${fmtQty(p.low, lang)}–${fmtQty(p.high, lang)}` : null;
+/**
+ * المدى «9–16» — null حين لا مدى (حدّاه متساويان أو غائبان). ولصنفٍ له وحدات يُذكر اسم الأساس («9–16 حبة»): المدى بالأساس
+ * والكمية بجانبه بالكراتين، فرقمٌ بلا وحدة يُقرأ كراتين. (`tr` اختياري: المستدعي القديم بلا وحدات كما كان.)
+ */
+export function expectedRangeText(p: Pick<ExpectedProduct, 'low' | 'high'> & Partial<Pick<ExpectedProduct, 'unit' | 'units'>>, lang: string, tr?: Tr): string | null {
+  if (!(p.low != null && p.high != null && p.low !== p.high)) return null;
+  const range = `${fmtQty(p.low, lang)}–${fmtQty(p.high, lang)}`;
+  return p.units?.length && p.unit ? `${range} ${tr ? tr(p.unit) : p.unit}` : range;
 }
 
 /**

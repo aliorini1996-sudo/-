@@ -1736,9 +1736,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       if (l.saleItemId) return l;
       const cp = custPrices[l.productId];
       if (cp === undefined) return l;
-      // بوحدة البند: سعر العميل للحبّة × معامل الكرتون (أو سعر الكرتون المحدَّد) — وإلا بِيع الكرتون بسعر الحبّة صامتاً
+      // بوحدة البند: سعر العميل للحبّة × معامل الكرتون (يغلب سعر الكرتون المحدَّد كحارس الخادم) — وإلا بِيع الكرتون بسعر الحبّة صامتاً
       const unit: UnitChoice = l.unitId ? { id: l.unitId, name: l.unitName, factor: l.unitFactor, price: l.unitDefPrice ?? null } : { id: null, name: l.unit, factor: 1, price: null };
-      const fresh = roundDecimal(choiceNet(unit, cp) * (1 + Number(l.taxPct) / 100), currencyDecimals(getActiveCurrency()));
+      const fresh = roundDecimal(choiceNet(unit, cp, cp) * (1 + Number(l.taxPct) / 100), currencyDecimals(getActiveCurrency()));
       if (fresh === l.refPrice) return l;
       const untouched = Math.abs(Number(l.unitPrice) - Number(l.refPrice)) < 1e-9;
       return { ...l, refPrice: fresh, ...(untouched ? { unitPrice: fresh } : {}) };
@@ -1750,10 +1750,10 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   // بخانات عملة الدولة: round2 الثابتة صارت — بعد تخزين السعر كما يرسل — تقص الفلس
   // الثالث في اسواق الدينار (KWD/BHD/OMR) فيخالف المخزن ما اعلن
   // السعر المتفق مع هذا العميل ان وجد، وإلا السعر الاساسي — وكلاهما صافٍ فيحول لشامل
-  const netPriceOf = (p: any) => custPrices[p.id] ?? Number(p.basePrice);
-  /* الوحدات المتعددة: السعر لوحدة البند — سعر العميل/الصنف مخزَّنان لوحدة الأساس فيُضربان بالمعامل، ووحدةٌ لها سعرٌ
-   * محدَّد يغلب (unitPriceOf، كحارس الخادم). ويُقرَّب الشامل من صافي الوحدة لا ×المعامل من شامل الحبّة، فيطابق أرضيته */
-  const inclOf = (p: any, c: UnitChoice) => roundDecimal(choiceNet(c, netPriceOf(p)) * (1 + Number(p.taxPct) / 100), currencyDecimals(getActiveCurrency()));
+  /* الوحدات المتعددة: السعر لوحدة البند كمرجع حارس الخادم (choiceNet) — سعر العميل/الصنف مخزَّنان لوحدة الأساس فيُضربان
+   * بالمعامل، وسعر العميل يغلب سعر الوحدة المحدَّد، وبلاه المحدَّد ثم الأساس × المعامل. ويُقرَّب الشامل من صافي الوحدة لا
+   * ×المعامل من شامل الحبّة، فيطابق أرضيته */
+  const inclOf = (p: any, c: UnitChoice) => roundDecimal(choiceNet(c, Number(p.basePrice), custPrices[p.id]) * (1 + Number(p.taxPct) / 100), currencyDecimals(getActiveCurrency()));
   const inclPrice = (p: any) => inclOf(p, unitChoices(p)[0]); // السعر شامل الضريبة (وحدة الأساس)
   // سعر الوحدة الافتراضية مع اسمها حين للصنف وحدات — وإلا الرقم وحده كما كان
   const priceHint = (p: any) => (hasUnitChoice(p) ? `${formatCurrency(inclOf(p, defaultChoice(p)))} / ${defaultChoice(p).name}` : formatCurrency(inclPrice(p)));
@@ -3263,8 +3263,12 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
 // طلب بضاعة المندوب كما يعيده الخادم (/rep-stock-requests/mine): requestedQty ما كتبه، وqty ما اعتمدته الإدارة
 interface MyStockRequest {
   id: string; status: 'PENDING' | 'SENT' | 'REJECTED'; note: string | null; updatedAt: string; decidedAt: string | null;
-  /** unitName/unitFactor لقطة وحدة البند (الوحدات المتعددة) — غائبة ⇒ وحدة الأساس */
-  items: { productId: string; name: string; code?: string; unit?: string; unitName?: string | null; unitFactor?: number | null; requestedQty: number; qty: number }[];
+  /** unitName/unitFactor لقطة وحدة البند (الوحدات المتعددة) — غائبة ⇒ وحدة الأساس. `unit` وحدة السطر (لقطته وإلا وحدة الصنف)،
+   * و`baseQty`/`requestedBaseQty` الكميتان بالأساس `baseUnit`، و`units` وحدات الصنف لعرضها «٢ كرتون و٣ حبة» */
+  items: {
+    productId: string; name: string; code?: string; unit?: string; unitName?: string | null; unitFactor?: number | null; requestedQty: number; qty: number;
+    baseQty?: number | null; requestedBaseQty?: number | null; baseUnit?: string | null; units?: UnitDef[] | null;
+  }[];
 }
 /** آخر طلبٍ حُسم يبقى ظاهراً أسبوعاً — بعده لا يعني المندوب شيئاً */
 const DECIDED_SHOWN_MS = 7 * 24 * 3600 * 1000;
@@ -3278,7 +3282,8 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
   useBackClose(view !== 'list', () => setView('list'));
   // expired: «منتهي الصلاحية» في السيارة — مرتجعٌ عاد بعد انتهاء صلاحيته، لا يُباع ولا يدخل المتبقّي حتى تزيله الإدارة
   // damaged: «المرتجع التالف» — مرتجعٌ سجّله المندوب «بضاعة تالفة»، لا يُباع ولا يدخل المتبقّي حتى تزيله الإدارة
-  const [stock, setStock] = useState<{ productId: string; name: string; code: string; unit: string; loaded: number; sold: number; returned: number; remaining: number; expired?: number; damaged?: number }[]>([]);
+  // الأرصدة بالأساس، و`units` وحدات الصنف من الخادم (/van-stock/current) لعرضها «٢ كرتون و٣ حبة» — ولو خرج الصنف من الكتالوج النشط
+  const [stock, setStock] = useState<{ productId: string; name: string; code: string; unit: string; loaded: number; sold: number; returned: number; remaining: number; expired?: number; damaged?: number; units?: UnitDef[] | null }[]>([]);
   // عهدة أدوات السيارة (عربة، سلة…) — تسجّلها الإدارة، والمندوب يطّلع عليها وحسب
   const [tools, setTools] = useState<{ toolName: string; qty: number }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -3399,7 +3404,8 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
     const approved = new Map((pending?.items ?? []).map(i => [i.productId, i]));
     const inVan = new Map(stock.map(s => [s.productId, s.remaining]));
     // صنفٌ في الطلب المعلّق خرج من قائمة الأصناف النشطة يبقى ظاهراً ليُعدَّل أو يُزال
-    const all = [...products, ...(pending?.items ?? []).filter(i => !products.some(p => p.id === i.productId)).map(i => ({ id: i.productId, name: i.name, unit: i.unit || '', code: i.code || '' }))];
+    // ووحدة الأساس ووحداته من بند الطلب نفسه (`unit` هناك وحدة السطر — «كرتون · في سيارتك ٤٨» تقرأ الحبّات كراتين)
+    const all: { id: string; name: string; unit: string; code: string; units?: UnitDef[] | null }[] = [...products, ...(pending?.items ?? []).filter(i => !products.some(p => p.id === i.productId)).map(i => ({ id: i.productId, name: i.name, unit: i.baseUnit || i.unit || '', code: i.code || '', units: i.units ?? null }))];
     const q = reqSearch.trim().toLowerCase();
     const list = all.filter(p => !q || p.name.toLowerCase().includes(q) || (p.code || '').toLowerCase().includes(q));
     return (
@@ -3415,7 +3421,8 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
         <div className="flex-1 overflow-y-auto p-3 space-y-2 pb-28">
           {list.map(p => {
             const a = approved.get(p.id);
-            const changed = a && Math.abs(a.qty - a.requestedQty) > 1e-9;
+            // بالأساس: اعتمادٌ بوحدةٍ غير وحدة الطلب («٢٤ حبة» لطلب «١ كرتون») ليس تعديلاً للكمية
+            const changed = a && Math.abs((a.baseQty ?? a.qty) - (a.requestedBaseQty ?? a.requestedQty)) > 1e-9;
             const raw = reqQty[p.id] ?? '';
             const bad = raw.trim() !== '' && !(Number(raw) >= 0);
             return (
@@ -3426,7 +3433,7 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
                   <p className="text-[10px] text-gray-400">{unitsText(inVan.get(p.id) ?? 0, p, fmt) != null
                     ? `${tr('في سيارتك')} ${unitsText(inVan.get(p.id) ?? 0, p, fmt)}`
                     : <>{p.unit} · {tr('في سيارتك')} {fmt(inVan.get(p.id) ?? 0)}</>}</p>
-                  {changed && <p className="text-[10px] font-semibold text-amber-700">{tr('عدلته الإدارة إلى')} {fmt(a.qty)}{a.unitName ? ` ${a.unitName}` : ''}</p>}
+                  {changed && <p className="text-[10px] font-semibold text-amber-700">{tr('عدلته الإدارة إلى')} {fmt(a.qty)}{a.unitName || hasUnitChoice(p) ? ` ${a.unitName || a.unit || ''}` : ''}</p>}
                   {hasUnitChoice(p) && (
                     <div className="flex flex-wrap gap-1 mt-1" role="radiogroup" aria-label={tr('الوحدة')}>
                       {unitChoices(p).map(o => (
@@ -3571,7 +3578,7 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
             /* الأرصدة من الخادم بالأساس (القاعدة ٨): لصنفٍ له وحدات «٢ كرتون و٣ حبة» لا رقمٌ بجانب اسم الأساس.
              * والألوان (العجز والصفر) على الرقم بالأساس نفسه */
             const prod = products.find(x => x.id === s.productId);
-            const u = (n: number) => unitsText(n, prod ? { unit: s.unit || prod.unit, units: prod.units } : null, fmt);
+            const u = (n: number) => unitsText(n, { unit: s.unit || prod?.unit, units: s.units ?? prod?.units }, fmt);
             const q = (n: number) => u(n) ?? `${fmt(n)} ${s.unit}`;
             return (
             <div key={s.productId} className="bg-white border border-gray-100 rounded-xl p-3 shadow-sm flex items-center justify-between">

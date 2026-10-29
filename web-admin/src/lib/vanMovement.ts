@@ -10,22 +10,39 @@
 // (`remaining = loaded − unloaded + …`) فالسالب فيه **يزيد** الرصيد بدل أن
 // ينقصه. لذلك يُقلَب السالب إلى قيمته المطلقة قبل إرساله، وتمريره كما هو يقلب
 // الرصيد بصمتٍ في الاتجاه المعاكس تماماً.
+//
+// والوحدات المتعددة: الكمية **بوحدة السطر** (كرتون) و`unitId` يحلّه الخادم إلى
+// معامله (routes/vanStock.ts). وكانت هذه الوحدة تعيد بناء بند التنزيل من
+// `productId` و`qty` وحدهما فتُسقط كل حقلٍ آخر — فتنزيل «٢ كرتون» يدخل المستودع
+// حبّتين بصمت. فالوحدة تمرّ في الاتجاهين، وبند الأساس بلا حقلٍ كما كان حرفياً.
 // ============================================================================
 
 export interface MovementItem {
   productId: string;
+  /** بوحدة السطر — `unitId` غائب ⇒ وحدة الأساس */
   qty: number;
-  /** ما اقترحه المحرّك وما تنبّأ به — قرارُ تحميلٍ لا يخصّ المرتجع */
+  /** وحدة السطر (ProductUnit) — غائبة أو null ⇒ الأساس بمعامل ١ */
+  unitId?: string | null;
+  /** ما اقترحه المحرّك وما تنبّأ به — قرارُ تحميلٍ لا يخصّ المرتجع. **بالأساس دائماً** مهما كانت وحدة السطر */
   suggestedQty?: number;
   expectedQty?: number;
 }
 
+/** بند تنزيلٍ يُرسَل: الكمية مطلقةً بوحدة السطر، ووحدته إن لم تكن الأساس */
+export interface BackItem { productId: string; qty: number; unitId?: string }
+
+/** بند تحميلٍ يُرسَل: كـMovementItem لكن الوحدة معرّفٌ أو غائبة (`null` لا يُرسَل — الأساس غيابُها) */
+export type OutItem = Omit<MovementItem, 'unitId'> & { unitId?: string };
+
 export interface SplitMovement {
   /** الكمّيات الموجبة كما هي — تحميلٌ للسيارة */
-  out: MovementItem[];
+  out: OutItem[];
   /** الكمّيات السالبة بقيمتها المطلقة — تنزيلٌ للمستودع */
-  back: { productId: string; qty: number }[];
+  back: BackItem[];
 }
+
+/** حقل الوحدة في جسم البند: معرّفها لغير الأساس، ولا شيء للأساس — فجسم صنفٍ بلا وحدات يبقى كما كان */
+const unitField = (unitId: string | null | undefined): { unitId?: string } => (unitId ? { unitId } : {});
 
 /**
  * يقسّم أسطر الشاشة إلى وثيقتَي تحميلٍ وتنزيل.
@@ -34,9 +51,11 @@ export interface SplitMovement {
 export function splitVanMovement(items: MovementItem[]): SplitMovement {
   const clean = items.filter((i) => Number.isFinite(i.qty) && i.qty !== 0);
   return {
-    out: clean.filter((i) => i.qty > 0),
+    // `unitId: null` (الأساس صراحةً) لا يُرسَل: الخادم يقرأ غيابه أساساً، والجسم يبقى كما قبل الميزة
+    out: clean.filter((i) => i.qty > 0).map(({ unitId, ...rest }) => ({ ...rest, ...unitField(unitId) })),
     // المُرجَع يُجرَّد من المقترَح والتنبّؤ: يُقاس بهما التحميل وحده، وحملُهما
     // على المرتجع يلوّث قياس دقّة الاقتراح ببياناتٍ ليست قراراً تنبّؤياً.
-    back: clean.filter((i) => i.qty < 0).map((i) => ({ productId: i.productId, qty: -i.qty })),
+    // والوحدة **تبقى**: هي معنى الكمية لا قرارٌ تنبّؤي.
+    back: clean.filter((i) => i.qty < 0).map((i) => ({ productId: i.productId, qty: -i.qty, ...unitField(i.unitId) })),
   };
 }

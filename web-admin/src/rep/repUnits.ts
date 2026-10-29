@@ -73,10 +73,15 @@ export function choiceById(p: UnitProduct | null | undefined, id: string | null 
 }
 
 /**
- * السعر الصافي للوحدة من سعر الأساس (سعر العميل الخاص وإلا سعر الصنف). الأساسُ حرفياً كما كان (بلا تقريبٍ
- * وسيط)، وغيره `unitPriceOf` — سعرها المحدَّد يغلب سعر العميل كما يحكم حارس الخادم (routes/invoices.ts).
+ * السعر الصافي للوحدة — مرجع حارس الخادم (routes/invoices.ts) حرفاً، وإلّا رفض الخادم مندوباً لم يغيّر السعر أصلاً:
+ *  • سعر العميل الخاص (مخزَّنٌ لوحدة الأساس) × المعامل **يغلب** سعر الوحدة المحدَّد: هو السقف المتّفق عليه معه، والتحويل
+ *    يقسمه على المعامل لئلّا يتغيّر سعر كرتونه — فلو غلبه سعر الوحدة العامّ لضاع على العميل سعره بعد التحويل.
+ *  • وبلا سعر عميل: سعر الوحدة المحدَّد (جملة) وإلّا الأساس × المعامل (`unitPriceOf`).
+ * والأساس حرفياً كما كان (بلا تقريبٍ وسيط)، والضرب بلا تقريبٍ كذلك: التقريب مرّةً واحدة على الشامل عند المستدعي.
  */
-export function choiceNet(c: UnitChoice, basePrice: number | string): number {
+export function choiceNet(c: UnitChoice, basePrice: number | string, customerPrice?: number | null): number {
+  const cp = customerPrice == null ? NaN : Number(customerPrice);
+  if (Number.isFinite(cp)) return c.id ? cp * c.factor : cp;
   if (!c.id) return Number(basePrice);
   // `?? undefined` لا null: Number(null) = 0 «سعرٌ صالح» في unitPriceOf فيُباع الكرتون بلا سعرٍ محدَّد مجاناً
   return unitPriceOf({ name: c.name, factor: c.factor, price: c.price ?? undefined }, basePrice);

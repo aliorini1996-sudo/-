@@ -140,7 +140,10 @@ function assignedColumns(sql: string): string[] {
 // ═══ (١) تحويل وحدة الأساس ═══
 
 type UnitRow = { id: string; tenantId: string; productId: string; name: string; factor: number; price: number | null; unitCode: string | null; isActive: boolean; sortOrder: number };
-type ItemRow = { productId: string; qty: number; unitName: string | null; unitFactor: number; baseQty: number | null; unitPrice: number; lineTotal: number };
+type ItemRow = {
+  productId: string; qty: number; unitName: string | null; unitFactor: number; baseQty: number | null; unitPrice: number; lineTotal: number;
+  unitCode?: string | null; suggestedQty?: number | null; expectedQty?: number | null;
+};
 
 /** صنفٌ بتاريخ: كرتون أساسٌ (٢٤ ريالاً) وطبليةٌ = ٥٠ كرتوناً، وصفوفٌ في الجداول الأربعة */
 function productWorld() {
@@ -211,7 +214,12 @@ function productWorld() {
     }
     const rows = tables[table];
     if (!rows) return 0;
-    const [oldUnit, F, F2, tid, pid] = r.values as [string, number, number, string, string];
+    // الاسم والمعامل (للمعامل وللأساس) أوّلاً، والشركة والصنف آخراً — وبينهما ما يخصّ الجدول:
+    // رمز الوحدة الضريبي لبند الفاتورة (القاعدة ١٠)، والمعامل للاقتراح والتنبّؤ في بند التحميل (بالأساس دائماً)
+    const v = r.values as unknown[];
+    const [oldUnit, F, F2] = v as [string, number, number];
+    const tid = v[v.length - 2] as string;
+    const pid = v[v.length - 1] as string;
     assert.equal(F, F2, 'المعامل نفسه للمعامل والأساس');
     if (tid !== TENANT) return 0;
     const mine = rows.filter(x => x.productId === pid);
@@ -220,6 +228,11 @@ function productWorld() {
       x.unitName = x.unitName ?? oldUnit;
       x.unitFactor = f * F;
       x.baseQty = x.qty * f * F;
+      if (table === 'invoice_items') x.unitCode = x.unitCode ?? (v[3] as string | null);
+      if (table === 'van_load_items') {
+        x.suggestedQty = x.suggestedQty == null ? x.suggestedQty : x.suggestedQty * (v[3] as number);
+        x.expectedQty = x.expectedQty == null ? x.expectedQty : x.expectedQty * (v[4] as number);
+      }
     }
     return mine.length;
   };
@@ -261,11 +274,15 @@ test('التحويل: أرقام التاريخ المطبوعة لا تتغيّ
     const stmt = raws.find(x => x.kind === '$executeRaw' && x.sql.includes(`UPDATE "${table}"`));
     assert.ok(stmt, `لا جملة على ${table}`);
     assert.equal(stmt!.inTx, true, `${table} خارج المعاملة`);
-    assert.deepEqual(assignedColumns(stmt!.sql), ['unitName', 'unitFactor', 'baseQty'], `${table}: يكتب اللقطة وحدها`);
+    const cols: Record<string, string[]> = {
+      invoice_items: ['unitName', 'unitFactor', 'baseQty', 'unitCode'],
+      van_load_items: ['unitName', 'unitFactor', 'baseQty', 'suggestedQty', 'expectedQty'],
+    };
+    assert.deepEqual(assignedColumns(stmt!.sql), cols[table] ?? ['unitName', 'unitFactor', 'baseQty'], `${table}: يكتب اللقطة وحدها`);
     assert.ok(stmt!.sql.includes(`FROM "${head}" AS d`) && stmt!.sql.includes(`r."${fk}" = d.id`), `${table}: عبر رأس المستند`);
     assert.match(stmt!.sql, /d\."tenantId" = \?/, `${table}: قيد الشركة`);
     assert.match(stmt!.sql, /r\."productId" = \?/, `${table}: قيد الصنف`);
-    assert.deepEqual(stmt!.values.slice(3), [TENANT, 'p1']);
+    assert.deepEqual(stmt!.values.slice(-2), [TENANT, 'p1'], `${table}: الشركة والصنف`);
   }
   // القفل أوّلاً: FOR UPDATE على صفّ الصنف قبل أيّ كتابة
   const lockAt = raws.findIndex(x => x.kind === '$queryRaw' && /FROM products WHERE id = \? AND "tenantId" = \? FOR UPDATE/.test(x.sql));
@@ -454,31 +471,39 @@ test('إعادة الرفع: لقطة الجهاز تُكتب بعد التحق�
   assert.equal((await u({ unitId: 'u-sh' })).unitFactor, 6, 'بلا لقطة: معامل الوحدة الموقوفة');
   // وحدةٌ حُذفت: يشهد لها التاريخ وإلّا فلا
   assert.equal((await u({ unitName: 'علبة', unitFactor: 4 }, { replay: true, seenInHistory: async (n, f) => n === 'علبة' && f === 4 })).unitFactor, 4);
-  assert.deepEqual(await u({ unitName: 'علبة', unitFactor: 4 }), { unitName: null, unitFactor: 1, unitCode: null, priceUnit: null }, 'معاملٌ لا شاهد له لا يُكتب');
+  // معاملٌ لا شاهد له لا يُكتب **ولا يُقيَّد بالأساس**: «٤ علب» حبّاتٍ أربعاً بدل ستّ عشرة خطأٌ ماليٌّ صامت.
+  // يُرفض ظاهراً في صندوق الإرسال (القرار المدوّن في DESIGN.md) فيراجعه المشرف ولا يضيع المستند
+  const gone = await resolveLineUnit(CONVERTED, { unitName: 'علبة', unitFactor: 4 }, replay);
+  assert.deepEqual(((r: unknown) => [(r as { ok: boolean }).ok, (r as { status?: number }).status, (r as { code?: string }).code])(gone), [false, 400, 'UNIT_INVALID'], 'معاملٌ لا شاهد له لا يُكتب ولا يُقيَّد بالأساس');
   // لقطة تالفة تُهمل ولا تُرفض؛ ولقطة الأساس أساس
   assert.equal((await u({ unitId: 'u-ct', unitFactor: 0 })).unitFactor, 24);
   assert.equal((await u({ unitName: 'حبة', unitFactor: 1 })).unitFactor, 1);
   assert.equal((await u({})).unitFactor, 1, 'جسم ما قبل الميزة');
 });
 
-test('الإصدار الحيّ: الخادم يحلّ الوحدة، والموقوفة ٤٢٢، والكاش القديم ٤٠٩ — ومعرّفٌ لا يخصّ الصنف أساس', async () => {
+/**
+ * الحيّ: وحدةٌ غير صالحة بأيّ وجه ⇒ 400 UNIT_INVALID موحّداً (القرار المدوّن في DESIGN.md).
+ * والمعرّف الذي لا يخصّ الصنف لا يُقرأ أساساً: الصمت يحمّل كرتوناً على أنه حبّة.
+ */
+test('الإصدار الحيّ: الخادم يحلّ الوحدة، والموقوفة والكاش القديم ومعرّف صنفٍ آخر ٤٠٠ UNIT_INVALID', async () => {
   const live = { replay: false, seenInHistory: async () => { throw new Error('التاريخ لا يُقرأ في الحيّ'); } };
   const ok = await resolveLineUnit(CONVERTED, { unitId: 'u-ct' }, live);
   assert.deepEqual(ok, { ok: true, unit: { unitName: 'كرتون', unitFactor: 24, unitCode: 'CT', priceUnit: CONVERTED.units[0] } });
   assert.deepEqual(await resolveLineUnit(CONVERTED, { unitId: 'u-ct', unitName: 'كرتون', unitFactor: 24 }, live), ok, 'لقطةٌ مطابقة');
   const off = await resolveLineUnit(CONVERTED, { unitId: 'u-sh' }, live);
-  assert.equal(off.ok, false);
-  assert.deepEqual([(off as { status: number }).status, (off as { code: string }).code], [422, 'UNIT_INACTIVE']);
+  assert.deepEqual(((r: unknown) => [(r as { ok: boolean }).ok, (r as { status?: number }).status, (r as { code?: string }).code])(off), [false, 400, 'UNIT_INVALID'], 'الموقوفة');
   for (const stale of [
     { unitId: 'u-ct', unitName: 'كرتون', unitFactor: 12 }, // المعامل تغيّر
     { unitName: 'كرتون', unitFactor: 1 }, // يرى الكرتون أساساً — حُوّل الصنف بعد كاشه
     { unitId: 'u-gone', unitName: 'علبة', unitFactor: 4 }, // وحدةٌ حُذفت
   ]) {
     const r = await resolveLineUnit(CONVERTED, stale, live);
-    assert.equal(r.ok, false, JSON.stringify(stale));
-    assert.deepEqual([(r as { status: number }).status, (r as { code: string }).code], [409, 'UNIT_CHANGED']);
+    assert.deepEqual(((r: unknown) => [(r as { ok: boolean }).ok, (r as { status?: number }).status, (r as { code?: string }).code])(r), [false, 400, 'UNIT_INVALID'], JSON.stringify(stale));
+    // والرسالة تقول للمندوب ما يفعل: حدّث قائمة الأصناف
+    assert.match(String((r as { message?: string }).message), /حدّث قائمة الأصناف/);
   }
-  assert.deepEqual(await resolveLineUnit(CONVERTED, { unitId: 'u-of-another-product' }, live), { ok: true, unit: { unitName: null, unitFactor: 1, unitCode: null, priceUnit: null } });
+  const foreign = await resolveLineUnit(CONVERTED, { unitId: 'u-of-another-product' }, live);
+  assert.deepEqual(((r: unknown) => [(r as { ok: boolean }).ok, (r as { status?: number }).status, (r as { code?: string }).code])(foreign), [false, 400, 'UNIT_INVALID'], 'معرّف صنفٍ آخر لا يُقرأ أساساً');
   assert.deepEqual(await resolveLineUnit({ name: 'x', unit: 'حبة' }, {}, live), { ok: true, unit: { unitName: null, unitFactor: 1, unitCode: null, priceUnit: null } }, 'صنفٌ بلا وحدات');
 });
 
@@ -617,7 +642,7 @@ test('حارس السعر بوحدة البند: سعر العميل × المع
   assert.equal((await call('POST', '/api/invoices', { body: sell([{ productId: 'p1', qty: 2, unitPrice: 0.375, discountPct: 0 }]) })).status, 201);
 });
 
-test('إعادة الرفع تكتب لقطة الجهاز (الأساس المحوَّل بعد الإصدار)، والحيّ يُردّ ٤٠٩ بكاشٍ قديم ولا مستند', async () => {
+test('إعادة الرفع تكتب لقطة الجهاز (الأساس المحوَّل بعد الإصدار)، والحيّ يُردّ ٤٠٠ بكاشٍ قديم ولا مستند', async () => {
   const body = { customerId: 'c1', salesRepId: 'rep-1', type: 'CASH', pricesIncludeTax: false, discountPct: 0, items: [{ productId: 'p1', qty: 2, unitPrice: 10, discountPct: 0, unitName: 'كرتون', unitFactor: 1 }] };
   reset();
   const w = issueWorld();
@@ -628,8 +653,8 @@ test('إعادة الرفع تكتب لقطة الجهاز (الأساس الم�
   reset();
   issueWorld();
   const live = await call('POST', '/api/invoices', { body });
-  assert.equal(live.status, 409, JSON.stringify(live.body));
-  assert.equal(live.body.code, 'UNIT_CHANGED');
+  assert.equal(live.status, 400, JSON.stringify(live.body));
+  assert.equal(live.body.code, 'UNIT_INVALID');
   assert.equal(calls.includes('invoice.create'), false);
 });
 
@@ -642,7 +667,8 @@ test('تحويلٌ التزم بين حلّ اللقطات وقفل الأصنا
   assert.equal(live.body.code, 'PRODUCT_UNITS_CHANGED');
   assert.equal(calls.includes('invoice.create'), false);
   const lock = raws.find(x => /FROM products WHERE id IN/.test(x.sql))!;
-  assert.match(lock.sql, /FOR SHARE/);
+  // FOR KEY SHARE لا FOR SHARE: يتسلسل مع FOR UPDATE الذي يأخذه التحويل، ولا يحبس تعديل سعر الصنف أو اسمه أثناء البيع
+  assert.match(lock.sql, /FOR KEY SHARE/);
   assert.equal(lock.inTx, true);
   reset();
   issueWorld({ lockedUnit: 'قطعة' });

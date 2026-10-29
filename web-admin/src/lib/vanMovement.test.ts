@@ -45,3 +45,36 @@ test('حركة كلها سالبة لا تنشئ وثيقة تحميل فارغ�
   assert.equal(out.length, 0, 'وثيقة بلا بنود يرفضها الخادم بـ400');
   assert.equal(back.length, 2);
 });
+
+// ——— الوحدات المتعددة: الوحدة تمرّ في الاتجاهين ———
+
+test('تنزيل الكرتون يبقى كرتونا — الوحدة تمر في بند التنزيل', () => {
+  const { back } = splitVanMovement([{ productId: 'p', qty: -2, unitId: 'u-ctn' }]);
+  assert.deepEqual(back, [{ productId: 'p', qty: 2, unitId: 'u-ctn' }], 'بلا unitId يدخل المستودع حبتين بصمت');
+});
+
+test('التحميل يحمل وحدته ومقترحه ومتنبأه بالأساس معا', () => {
+  const { out } = splitVanMovement([{ productId: 'p', qty: 3, unitId: 'u-ctn', suggestedQty: 72, expectedQty: 60 }]);
+  assert.equal(out[0].unitId, 'u-ctn');
+  assert.equal(out[0].qty, 3, 'الكمية بوحدة السطر لا تحول');
+  assert.equal(out[0].suggestedQty, 72, 'المقترح بالأساس كما اخرجه المحرك');
+});
+
+test('بند الأساس بلا حقل وحدة — جسم صنف بلا وحدات كما كان حرفيا', () => {
+  const { out, back } = splitVanMovement([
+    { productId: 'a', qty: 4, unitId: null },
+    { productId: 'b', qty: -1 },
+    { productId: 'c', qty: -6, unitId: null },
+  ]);
+  assert.ok(!('unitId' in out[0]), 'null = الأساس لا يرسل');
+  assert.deepEqual(back, [{ productId: 'b', qty: 1 }, { productId: 'c', qty: 6 }]);
+});
+
+test('الصنف بوحدتين في حركة واحدة: لكل سطر وحدته في وثيقته', () => {
+  const { out, back } = splitVanMovement([
+    { productId: 'p', qty: 5, unitId: 'u-ctn' },
+    { productId: 'p', qty: -3 },
+  ]);
+  assert.deepEqual(out.map(i => [i.productId, i.qty, i.unitId]), [['p', 5, 'u-ctn']]);
+  assert.deepEqual(back, [{ productId: 'p', qty: 3 }]);
+});

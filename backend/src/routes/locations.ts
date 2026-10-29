@@ -7,6 +7,7 @@ import { adminRepFilter, adminScopeEnabled, canAccessRep, scopedRecordWhere, sco
 import { tenantTz } from '../services/invoiceExpiry';
 import { paymentMethodsRange } from '../services/paymentMethodsReport';
 import { LOCATION_NAME_MAX, buildLocationsSummary, locationName, locationPointProblem, type ProductInfo } from '../services/locations';
+import { baseQtyOf } from '../services/units';
 
 /**
  * «لوكيشن» (طلب المالك ٢١ أكتوبر ٢٠٢٦) — /api/locations: مواقع الشركة، وإسناد كل مندوبٍ لموقعٍ واحد، وملخّص الفواتير
@@ -62,7 +63,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
  * - الفترة بأيام الشركة (`from`/`to` YYYY-MM-DD، اليوم افتراضاً) — paymentMethodsRange كصفحة «طرق الدفع».
  * - الفواتير المؤكَّدة وحدها بتاريخها (invoiceDate)، تجميعاً في القاعدة (groupBy موقع × نوع) بنطاق المستندات
  *   (`scopedRecordWhere`: المقيَّد بالقوائم عميله ومندوبه، ومشرف الفرق ما وُسم بفرقه) — مفتاح AND واحد لا يمحوه شيء.
- * - التحميلات (LOAD) بلحظة تسجيلها بنطاق المندوب (`scopedRepRecordWhere`) كسجلّ التحميلات، وبنودها كمّياتٌ لا مبالغ.
+ * - التحميلات (LOAD) بلحظة تسجيلها بنطاق المندوب (`scopedRepRecordWhere`) كسجلّ التحميلات، وبنودها كمّياتٌ لا مبالغ —
+ *   **بوحدة الأساس** (الوحدات المتعددة: بندٌ بالكرتون وآخر بالحبة يُجمعان حبّات، ويُعرضان بوحدة أساس الصنف).
  */
 router.get('/summary', requireAdminPermission('canViewReports'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -80,7 +82,8 @@ router.get('/summary', requireAdminPermission('canViewReports'), async (req: Aut
       }),
       prisma.vanLoad.findMany({
         where: { tenantId: tid, type: 'LOAD', createdAt: { gte: range.gte, lt: range.lt }, ...repScope },
-        select: { locationId: true, items: { select: { productId: true, qty: true } } },
+        // لقطة وحدة كل بند: الكمية تُجمع بالأساس (كرتون ٢٤ حبة + ٣ حبّات = ٢٧ لا ٤) — services/units.ts القاعدة ١
+        select: { locationId: true, items: { select: { productId: true, qty: true, unitFactor: true, baseQty: true } } },
       }),
       prisma.salesLocation.findMany({ where: { tenantId: tid }, select: { id: true, name: true, isActive: true, lat: true, lng: true } }),
     ]);
@@ -91,7 +94,8 @@ router.get('/summary', requireAdminPermission('canViewReports'), async (req: Aut
       : [];
     const summary = buildLocationsSummary(
       invoiceGroups.map((g) => ({ locationId: g.locationId, type: g.type, amount: Number(g._sum.total ?? 0), count: g._count._all })),
-      loads.map((l) => ({ locationId: l.locationId, items: l.items.map((i) => ({ productId: i.productId, qty: Number(i.qty) })) })),
+      // بالأساس، ووحدتها المعروضة وحدة الأساس (product.unit) — فرقمٌ واحد لكل صنف يجمع تحميلاته بكل وحداتها
+      loads.map((l) => ({ locationId: l.locationId, items: l.items.map((i) => ({ productId: i.productId, qty: baseQtyOf(i) })) })),
       locations,
       new Map<string, ProductInfo>(products.map((p) => [p.id, { name: p.name, unit: p.unit ?? null }])),
     );

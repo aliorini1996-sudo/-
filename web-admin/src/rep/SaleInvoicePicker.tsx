@@ -25,8 +25,11 @@ export interface ReturnableSale {
   lines: ReturnableLine[];
 }
 
-/** productIds: أصناف الفاتورة التي بقي منها ما يُرجَع — للبحث بالصنف */
-interface SaleRow { id: string; number: string; invoiceDate: string; total: number; type: string; itemsCount: number; returnableQty: number; productIds?: string[] }
+/**
+ * productIds: أصناف الفاتورة التي بقي منها ما يُرجَع — للبحث بالصنف. returnableLines: عدد البنود التي بقي منها شيء —
+ * `returnableQty` مجموعٌ بالأساس عبر أصنافٍ ووحداتٍ مختلفة (كراتين وحبّات) فلا يُعرض رقماً إلا لخادمٍ قبل الميزة
+ */
+interface SaleRow { id: string; number: string; invoiceDate: string; total: number; type: string; itemsCount: number; returnableQty: number; returnableLines?: number; productIds?: string[] }
 
 export default function SaleInvoicePicker({ customerId, products, onPick, onClose }: {
   customerId: string;
@@ -114,7 +117,9 @@ export default function SaleInvoicePicker({ customerId, products, onPick, onClos
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-sm text-gray-800">{row.number}</p>
                 <p className="text-[11px] text-gray-500">
-                  {formatDate(row.invoiceDate)} · {row.itemsCount} {tr('صنف')} · {tr('المتاح للإرجاع')} {Number(row.returnableQty.toFixed(3))}
+                  {formatDate(row.invoiceDate)} · {row.itemsCount} {tr('صنف')} · {tr('المتاح للإرجاع')} {row.returnableLines != null
+                    ? `${row.returnableLines} ${tr('صنف')}`
+                    : Number(row.returnableQty.toFixed(3))}
                 </p>
               </div>
               <span className="text-sm font-bold text-gray-700">{formatCurrency(row.total)}</span>

@@ -352,6 +352,20 @@ test('الطلب المتوقع: الكمية والمدى بأرقام لغة �
   assert.equal(expectedRangeText(prod({ low: null }), 'ar'), null);
 });
 
+test('الطلب المتوقع لصنفٍ له وحدات: الكمية بالأساس تُفكَّك «٢ كرتون و٣ حبة» والمدى باسم الأساس — وبلا وحدات كما كان', () => {
+  const water = prod({ name: 'ماء', unit: 'حبة', units: [{ name: 'كرتون', factor: 24 }], qty: 51, low: 36, high: 66 });
+  assert.equal(expectedQtyText(water, 'ar', trOf('ar')), '2 كرتون و3 حبة');
+  assert.equal(expectedQtyText({ ...water, qty: 48 }, 'ar', trOf('ar')), '2 كرتون');
+  assert.equal(expectedQtyText({ ...water, qty: 5 }, 'ar', trOf('ar')), '5 حبة', 'أقلّ من كرتون: بالأساس');
+  assert.equal(expectedQtyText(water, 'en', (s: string) => s), '2 كرتون + 3 حبة', 'الواو العربية «+» في غير العربية');
+  assert.equal(expectedQtyText({ ...water, qty: 24.5 }, 'fr', (s: string) => s), '1 كرتون + 0,5 حبة', 'الكسر بفاصلة الفرنسية');
+  assert.equal(expectedRangeText(water, 'ar', trOf('ar')), '36–66 حبة');
+  assert.equal(expectedRowText(expOf([water]), 'ar', trOf('ar'))?.text, 'متوقع: 2 كرتون و3 حبة ماء');
+  // صنفٌ بوحدةٍ واحدة (units غائبة أو فارغة): الرقم والوسم كما كانا حرفاً
+  assert.equal(expectedQtyText(prod({ units: [] }), 'ar', trOf('ar')), '12 كرتون');
+  assert.equal(expectedRangeText(prod({ units: [] }), 'ar', trOf('ar')), '8–16');
+});
+
 test('الطلب المتوقع: سطر الأساس — العربية نصّ الخادم، وغيرها من وقائعه (المقيّمون ومكانهم في المنطقة، التقييم، الذكر، الحديث)', () => {
   const b = basisOf();
   assert.equal(expectedBasisText(b, 'ar', trOf('ar')), b.text);

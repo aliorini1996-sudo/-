@@ -119,12 +119,16 @@ const invoiceItemSchema = z.object({
   invoiceItemId: z.string().optional(),
   qty: z.number().positive(),
   // الوحدات المتعددة: وحدة البيع المختارة (كرتون/حبة). غائبة ⇒ وحدة الأساس بمعامل ١ (سلوك ما قبل الميزة).
-  unitId: z.string().optional(),
+  // nullish لا optional: عميلٌ يرسل null صراحةً للأساس — optional() يرفضه فيسقط المستند كلّه بخطأ مخطّط (درس RHF)
+  unitId: z.string().nullish(),
   // لقطة وحدة الجهاز لحظة الإصدار (القاعدة ٧): في إعادة الرفع (X-FS-Replay) تُكتب بعد التحقّق أنها كانت للصنف؛ وفي
-  // الإصدار الحيّ لا تُكتب أبداً — تكشف كاشاً قديماً على الجهاز (معاملٌ أو اسمٌ غير ما يحلّه الخادم ⇒ 409). ولا تُرفض
-  // قيمةٌ تالفة هنا (nullish بلا حدود): مستند الصندوق لا يُعدم بمخطّط، والتالفة تُهمل في resolveLineUnit
+  // الإصدار الحيّ لا تُكتب أبداً — تكشف كاشاً قديماً على الجهاز (معاملٌ أو اسمٌ غير ما يحلّه الخادم ⇒ 400 UNIT_INVALID).
+  // ولا تُرفض قيمةٌ تالفة هنا (nullish بلا حدود): مستند الصندوق لا يُعدم بمخطّط، والتالفة تُهمل في resolveLineUnit
   unitName: z.string().max(64).nullish(),
   unitFactor: z.number().nullish(),
+  // ومعها وحدة أساس الصنف على الجهاز لحظتها (product.unit): بها وحدها يُعرف أنّ الأساس حُوّل بعد الإصدار (كرتون ⇒ حبة)
+  // فتُقرأ لقطةٌ كـ«١ طبلية = ٥٠» على الأساس القديم (٥٠ كرتوناً) لا الجديد (٥٠ حبّة). اختيارية: غيابها سلوك اللقطة وحدها
+  baseUnitName: z.string().max(64).nullish(),
   unitPrice: z.number().min(0),
   discountPct: z.number().min(0).max(100).default(0),
   taxPct: z.number().min(0).max(100).optional(), // يُورَث من ضريبة دولة الشركة عند الغياب
@@ -219,14 +223,17 @@ function deviceFactorOf(v: unknown): number | null {
  * حُذفت بعد إصداره). وما لا يثبت يُحلّ كالإصدار الحيّ: لا يكتب جهازٌ معاملاً اخترعه.
  * والمعامل ١ لا يكون إلّا للأساس (لا وحدة إضافية بمعامل ١ — products.ts)؛ فلقطةٌ بمعامل ١ واسمٍ صار اسمَ وحدةٍ للصنف
  * تعني أنّ الأساس **حُوّل** بعد إصدارها (كرتون ⇒ حبة): «٢ كرتون» تُكتب بمعامل الكرتون الآن لا حبّتين.
+ * ومعامل وحدةٍ أكبر («١ طبلية = ٥٠») محسوبٌ على أساس الجهاز: إن حمل البند `baseUnitName` وصار ذلك الأساس وحدةً للصنف
+ * بمعامل F (التحويل يخلقها باسمه — products.ts convert-base) فاللقطة تُضرب بـF فتصير ١٢٠٠ حبّة لا ٥٠.
+ * وما لا يثبت لا يُكتب ولا يُردّ إلى الأساس: ٤٠٠ UNIT_INVALID ظاهرٌ في الصندوق، لا كرتونٌ مقيَّدٌ حبّةً بصمت.
  *
- * ═══ الإصدار الحيّ ═══
- * اللقطة لا تُكتب؛ تكشف كاشاً قديماً: معاملٌ أو اسمٌ غير ما يحلّه الخادم ⇒ 409، لا بندٌ يُقيَّد بغير ما رآه المندوب.
- * ووحدةٌ موقوفة ⇒ 422: ردّها إلى الأساس بصمت كان يقيّد «٢ كرتون» حبّتين.
+ * ═══ الإصدار الحيّ — قرار التنفيذ: وحدةٌ غير صالحة ⇒ 400 UNIT_INVALID ═══
+ * معرّفٌ لا يخصّ الصنف (صنفٌ آخر أو شركةٌ أخرى: وحدات الصنف محمَّلة بشركته) أو لوحدةٍ موقوفة ⇒ رفض، وكذا لقطةٌ تخالف
+ * ما يحلّه الخادم (كاشٌ قديم على الجهاز): لا بندٌ يُقيَّد بغير ما رآه المندوب. الصمت والقراءة بالأساس يحمّلان كرتوناً حبّة.
  */
 export async function resolveLineUnit(
   product: { name: string; unit: string; units?: ProductUnitRow[] | null },
-  item: { unitId?: string | null; unitName?: string | null; unitFactor?: number | null },
+  item: { unitId?: string | null; unitName?: string | null; unitFactor?: number | null; baseUnitName?: string | null },
   opts: { replay: boolean; seenInHistory: (name: string, factor: number) => Promise<boolean> },
 ): Promise<LineUnitResult> {
   const units = product.units ?? [];
@@ -235,34 +242,49 @@ export async function resolveLineUnit(
     unitName: u.name, unitFactor: factor, unitCode: u.unitCode ?? null,
     priceUnit: Math.abs(factorOf({ unitFactor: u.factor }) - factor) < QTY_EPS ? u : null,
   });
+  const invalid = (message: string): LineUnitResult => ({ ok: false, status: 400, code: 'UNIT_INVALID', message });
+  const byName = (name: string | null) => (name ? units.find((u) => u.name.trim() === name) : undefined);
   const byId = item.unitId ? units.find((u) => u.id === item.unitId) : undefined;
   const devFactor = deviceFactorOf(item.unitFactor);
   const devName = item.unitName?.trim() || null;
+  const devBase = item.baseUnitName?.trim() || null;
 
   if (opts.replay && devFactor != null) {
-    if (devFactor === 1) {
-      if (!devName || devName === baseName) return { ok: true, unit: BASE_LINE_UNIT };
-      const was = units.find((u) => u.name.trim() === devName);
+    // أساس الجهاز صار وحدةً للصنف ⇒ حُوّل بعد الإصدار، ومعاملها F يردّ اللقطة إلى الأساس الجديد. اسمٌ آخر بلا وحدةٍ تحمله
+    // إعادةُ تسميةٍ للأساس لا تحويل: المعامل كما هو
+    const rebased = devBase && devBase !== baseName ? byName(devBase) : undefined;
+    const factor = rebased ? devFactor * factorOf({ unitFactor: rebased.factor }) : devFactor;
+    // لقطة أساس الجهاز بلا اسم: هي الوحدة التي صارها ذلك الأساس
+    const name = devName ?? (rebased && devFactor === 1 ? rebased.name.trim() : null);
+    // معاملٌ فوق الحدّ بعد الضرب لا يكون لوحدةٍ حقيقية — ولو كُتب لرمى unitFields خطأً ٥٠٠ بعد كل التحقق
+    if (factor > MAX_UNIT_FACTOR) return invalid(`معامل وحدة «${name ?? '؟'}» لصنف «${product.name}» غير صالح — راجع الإدارة`);
+    if (factor === 1) {
+      if (!name || name === baseName) return { ok: true, unit: BASE_LINE_UNIT };
+      // جهازٌ لا يرسل أساسه: معامل ١ باسم وحدةٍ للصنف = الأساس القديم قبل التحويل
+      const was = byName(name);
       if (was) return { ok: true, unit: asUnit(was) };
     } else {
-      const known = byId ?? (devName ? units.find((u) => u.name.trim() === devName) : undefined);
-      if (known) return { ok: true, unit: { ...asUnit(known, devFactor), unitName: devName ?? known.name } };
-      if (devName && await opts.seenInHistory(devName, devFactor)) {
-        return { ok: true, unit: { unitName: devName, unitFactor: devFactor, unitCode: null, priceUnit: null } };
+      const known = byId ?? byName(name);
+      if (known) return { ok: true, unit: { ...asUnit(known, factor), unitName: name ?? known.name } };
+      if (name && await opts.seenInHistory(name, factor)) {
+        return { ok: true, unit: { unitName: name, unitFactor: factor, unitCode: null, priceUnit: null } };
       }
+      return invalid(`وحدة «${name ?? '؟'}» لصنف «${product.name}» لم تعد معرّفة ولا أثر لها في تاريخه — راجع الإدارة قبل إعادة الرفع`);
     }
   }
 
   let unit = BASE_LINE_UNIT;
-  if (byId) {
-    if (byId.isActive === false && !opts.replay) {
-      return { ok: false, status: 422, code: 'UNIT_INACTIVE', message: `وحدة «${byId.name}» موقوفة لصنف «${product.name}» — اختر وحدة أخرى` };
-    }
+  if (item.unitId) {
+    if (!byId) return invalid(`الوحدة المختارة ليست من وحدات صنف «${product.name}» — حدّث قائمة الأصناف ثم أعد الحفظ`);
+    // الموقوفة تُقبل في إعادة الرفع وحدها: أُوقفت بعد إصدار المستند على الجهاز (القاعدة ٧)
+    if (byId.isActive === false && !opts.replay) return invalid(`وحدة «${byId.name}» موقوفة لصنف «${product.name}» — اختر وحدة أخرى`);
     unit = asUnit(byId);
   }
-  if (!opts.replay && (devFactor != null || devName)) {
-    const stale = (devFactor != null && devFactor !== unit.unitFactor) || (devName != null && devName !== (unit.unitName ?? baseName).trim());
-    if (stale) return { ok: false, status: 409, code: 'UNIT_CHANGED', message: `تغيّرت وحدات «${product.name}» — حدّث قائمة الأصناف ثم أعد الحفظ` };
+  if (!opts.replay && (devFactor != null || devName || devBase)) {
+    const stale = (devFactor != null && devFactor !== unit.unitFactor)
+      || (devName != null && devName !== (unit.unitName ?? baseName).trim())
+      || (devBase != null && devBase !== baseName);
+    if (stale) return invalid(`تغيّرت وحدات «${product.name}» — حدّث قائمة الأصناف ثم أعد الحفظ`);
   }
   return { ok: true, unit };
 }
@@ -712,7 +734,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     if (products.length !== productIds.length) { res.status(400).json({ success: false, message: 'أحد الأصناف غير موجود أو غير نشط' }); return; }
 
     /* لقطة وحدة كلّ بند: الخادم يحلّها من وحدات الصنف لا من رقمٍ يرسله العميل (resolveLineUnit).
-     * `unitId` غائبٌ (أو لا يخصّ الصنف) ⇒ وحدة الأساس بمعامل ١ — سلوك ما قبل الميزة.
+     * `unitId` غائبٌ ⇒ وحدة الأساس بمعامل ١ — سلوك ما قبل الميزة. ومعرّفٌ لا يخصّ الصنف أو لوحدةٍ موقوفة ⇒ 400 UNIT_INVALID.
      * إعادةُ الرفع (X-FS-Replay) تقبل لقطة الجهاز إن ثبت أنها كانت للصنف: مستند الصندوق
      * وثيقةٌ صدرت وسُلّمت بضاعتها، لا يُعاد حلّ وحدتها بما تغيّر بعدها.
      * (ومفتاح API عميلٌ حيّ: X-FS-Replay تُمحى له في middleware/auth.ts، فلا يكتب لقطةً أبداً.) */
@@ -1061,9 +1083,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       await assertNotWentLiveInTx(tx as unknown as GoLiveRaceTx, tid, armRaceActive);
       /* تحويل وحدة الأساس المتزامن (products.ts convert-base يقفل صفّ الصنف FOR UPDATE ويعيد كتابة لقطات تاريخه): لقطات
        * البنود حُلّت أعلاه قبل المعاملة، فلو التزم تحويلٌ بينهما لكُتب الكرتون حبّةً بعد أن مرّ التحويل على التاريخ. القفل
-       * المشترك يرتّبهما — يسبقه التحويل فيُرى هنا أساسه الجديد ويُعاد الطلب بلا مستند، أو ينتظر التحويلُ هذا الالتزام */
+       * يرتّبهما — يسبقه التحويل فيُرى هنا أساسه الجديد ويُعاد الطلب بلا مستند، أو ينتظر التحويلُ هذا الالتزام.
+       * FOR KEY SHARE لا FOR SHARE: يتعارض مع FOR UPDATE وحده (وهو ما يأخذه التحويل)، ولا يحبس تعديلاً عادياً للصنف
+       * (سعره أو صورته) خلف كل فاتورة تُصدر — وهو القفل نفسه الذي يأخذه المفتاح الأجنبيّ عند إدراج البند */
       const lockedUnits = await tx.$queryRaw<Array<{ id: string; unit: string }>>`
-        SELECT id, unit FROM products WHERE id IN (${Prisma.join(productIds)}) AND "tenantId" = ${tid} FOR SHARE`;
+        SELECT id, unit FROM products WHERE id IN (${Prisma.join(productIds)}) AND "tenantId" = ${tid} FOR KEY SHARE`;
       const movedBase = (lockedUnits ?? []).filter(r => products.find(p => p.id === r.id)?.unit !== r.unit);
       if (movedBase.length) throw new ProductUnitsChanged(movedBase.map(r => products.find(p => p.id === r.id)?.name ?? r.id));
       // مرتجعٌ من فاتورة بيع: قفل صفّ فاتورة البيع ثم إعادة التحقق من المتاح — مرتجعان متزامنان لا يتجاوزانه معاً
@@ -1328,7 +1352,9 @@ const creditNoteSchema = z.object({
   // 'FULL' = كلّ ما لم يُرجَع بعد (بديل الإلغاء — D4)؛ وإلا بنود الأصل بكمّياتها
   lines: z.union([
     z.literal('FULL'),
-    z.array(z.object({ invoiceItemId: z.string(), qty: z.number().positive() })).min(1),
+    // unitId: وحدة الإشعار (حبّةٌ من بند كرتون — القاعدة ١٠)؛ الكمية بها، والحارس يحوّلها إلى الأساس (compliance/zatca/notes.ts).
+    // وبلا هذا الحقل كان المخطّط يمحوه صامتاً فيُقرأ «١» من بند كرتون كرتوناً كاملاً
+    z.array(z.object({ invoiceItemId: z.string(), qty: z.number().positive(), unitId: z.string().nullish() })).min(1),
   ]),
 });
 

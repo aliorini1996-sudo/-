@@ -67,3 +67,12 @@ test('خصم البند وخصم الفاتورة يجتمعان — والضر�
 test('فاتورة فارغة ⇒ أصفار لا NaN', () => {
   assert.deepEqual(invoiceTotals([], 0), { subtotal: 0, discount: 0, tax: 0, total: 0 });
 });
+
+test('الوحدات المتعددة: البند بوحدته — المعامل لا يدخل المبلغ (سعر الكرتون × عدد الكراتين)', () => {
+  // كرتونان (٢٤ حبة) بسعر الكرتون ٢٤٠ ⇒ ٤٨٠ قبل الضريبة، لا ٤٨٠ × ٢٤. المعامل للمخزون وحده (القاعدة ٢)
+  const ctn = line({ qty: 2, unitPrice: 240, unit: 'كرتون', unitId: 'u-ctn', unitName: 'كرتون', unitFactor: 24 });
+  assert.equal(lineTotal(ctn), 552); // 480 + 72
+  assert.deepEqual(invoiceTotals([ctn], 0), { subtotal: 480, discount: 0, tax: 72, total: 552 });
+  // وبند الأساس بلا لقطة يُحسب كما قبل الميزة حرفاً
+  assert.equal(lineTotal(line({ qty: 2, unitPrice: 240 })), lineTotal(ctn));
+});

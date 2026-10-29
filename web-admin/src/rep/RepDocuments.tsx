@@ -5,7 +5,7 @@ import { methodLabelFor } from '../lib/paymentMethodsConfig';
 import { currencyDecimals } from '../i18n/countries';
 import { periodShape, statementFinalBalance, statementZone } from './statementFacts';
 import { adjustTotals, receiveTotalQty, uncostedCount, isCosted, noticeRef, qtyByUnit, unitTotalsText } from './warehouseNoticeFacts';
-import { factorOf, roundQty } from '../lib/units';
+import { factorOf, formatQty, roundQty, type UnitDef } from '../lib/units';
 import { stockRequestToLabel, stockRequestApproverLabel, stockRequestTotalQty, type StockRequestTo, type StockRequestLine } from '../lib/stockRequest';
 import { useTr } from '../i18n/strings';
 import { elementToPdfBlob, shareOrDownloadPdf } from './pdf';
@@ -286,6 +286,13 @@ export interface WarehouseNoticeDoc {
 }
 
 /**
+ * سطر ورقة طلب المخزون: `StockRequestLine` ومعه اختيارياً وحدات الصنف (الوحدات المتعددة) — الرصيد `onHand` بالأساس فيُطبع
+ * «٢ كرتون و٣ حبة» بجانب طلبٍ بالكرتون لا رقماً يُقرأ كراتين، و`unitFactor` معامل وحدة الكمية المطلوبة (`unit`) فلا يُجمع
+ * كرتونٌ وحبّةٌ في «إجمالي الكميات» رقماً واحداً. غيابها ⇒ الورقة كما كانت حرفاً.
+ */
+export type StockRequestDocLine = StockRequestLine & { unitFactor?: number | null; units?: UnitDef[] | null; baseUnit?: string | null };
+
+/**
  * طلب مخزون (زيادة المستودع) يُرسَل لإدارة المشتريات أو الإنتاج — انظر `lib/stockRequest.ts`.
  * ورقة طلبٍ لا حركة: لا قيمة فيها ولا تغيّر رصيداً، فلا يُحفظ لها سجلّ في الخادم.
  */
@@ -301,7 +308,7 @@ export interface StockRequestDoc {
   note?: string;
   /** مقدّم الطلب: المستخدم الذي أصدره */
   by?: string;
-  items: StockRequestLine[];
+  items: StockRequestDocLine[];
   /** طلبات المناديب التي أُرسلت ضمنه — تفصيلٌ لمن يجهّز التحميل بعد وصول البضاعة */
   reps?: { name: string; items: { name: string; unit?: string; qty: number }[] }[];
 }
@@ -1272,6 +1279,16 @@ export const PrintableStockRequest = forwardRef<HTMLDivElement, { doc: StockRequ
   const th: React.CSSProperties = { background: brand, color: '#fff', padding: '9px 6px', fontSize: 12, fontWeight: 600, textAlign: 'center' };
   const td: React.CSSProperties = { padding: '7px 6px', fontSize: 11.5, textAlign: 'center', borderBottom: '1px solid #eef2f7' };
   const totalQty = stockRequestTotalQty(doc.items);
+  // وحداتٌ مختلطة في الكميات المطلوبة: الإجمالي لكل وحدة (qtyByUnit) — وإلا الرقم كما كان
+  const byUnit = qtyByUnit(doc.items);
+  const totalText = byUnit ? unitTotalsText(byUnit, fmtNoticeQty) : fmtNoticeQty(totalQty);
+  // الرصيد بالأساس بوحدات الصنف «٢ كرتون و٣ حبة» حين تصل؛ والعجز بإشارة الطرح نفسها كما كان
+  const onHandText = (it: StockRequestDocLine): string => {
+    const big = (it.units ?? []).some((u) => Number(u.factor) > 1 && u.isActive !== false);
+    const abs = Math.abs(it.onHand);
+    const txt = big ? formatQty(abs, it.units ?? [], String(it.baseUnit || it.unit || '')) : fmtNoticeQty(abs);
+    return it.onHand < 0 ? `−${txt}` : txt;
+  };
 
   return (
     <div ref={ref} style={sheet.style} {...sheet.attrs}>
@@ -1291,7 +1308,7 @@ export const PrintableStockRequest = forwardRef<HTMLDivElement, { doc: StockRequ
           <InfoBox label={tr('موجه إلى')} value={tr(stockRequestToLabel(doc.to))} />
           {doc.neededBy && <InfoBox label={tr('مطلوب قبل')} value={formatDayOnly(doc.neededBy)} />}
           <InfoBox label={tr('عدد الأصناف')} value={String(doc.items.length)} />
-          <InfoBox label={tr('إجمالي الكميات')} value={fmtNoticeQty(totalQty)} />
+          <InfoBox label={tr('إجمالي الكميات')} value={totalText} />
         </div>
       </div>
 
@@ -1325,8 +1342,8 @@ export const PrintableStockRequest = forwardRef<HTMLDivElement, { doc: StockRequ
               </td>
               <td style={{ ...td, color: '#6b7280' }}>{it.unit || '-'}</td>
               {/* الرصيد السالب عجزٌ مسجَّل — يُطبع بإشارته لا مطلقاً */}
-              <td style={{ ...td, color: it.onHand < 0 ? '#dc2626' : it.onHand === 0 ? '#b45309' : '#6b7280' }} dir="ltr">
-                {it.onHand < 0 ? `−${fmtNoticeQty(Math.abs(it.onHand))}` : fmtNoticeQty(it.onHand)}
+              <td style={{ ...td, color: it.onHand < 0 ? '#dc2626' : it.onHand === 0 ? '#b45309' : '#6b7280' }} dir={onHandText(it).match(/[؀-ۿ]/) ? 'rtl' : 'ltr'}>
+                {onHandText(it)}
               </td>
               <td style={{ ...td, fontWeight: 700, fontSize: 13, color: brand }}>{fmtNoticeQty(it.qty)}</td>
             </tr>
@@ -1335,7 +1352,7 @@ export const PrintableStockRequest = forwardRef<HTMLDivElement, { doc: StockRequ
         <tfoot>
           <tr style={{ background: '#f1f5f9', fontWeight: 700 }}>
             <td style={{ ...td, borderTop: `2px solid ${brand}`, textAlign: 'right' }} colSpan={4}>{tr('إجمالي الكميات')}</td>
-            <td style={{ ...td, borderTop: `2px solid ${brand}`, color: brand }}>{fmtNoticeQty(totalQty)}</td>
+            <td style={{ ...td, borderTop: `2px solid ${brand}`, color: brand }}>{totalText}</td>
           </tr>
         </tfoot>
       </table>

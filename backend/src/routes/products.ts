@@ -272,7 +272,7 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
     const vatGate = await applyProductVatGate(prisma, req.body, tid, { productId: null, taxPct: data.taxPct });
     if (!vatGate.ok) { res.status(vatGate.status).json(vatGate.body); return; }
     if (!(await categoryOwned(tid, data.categoryId))) { res.status(400).json({ success: false, message: 'التصنيف غير موجود' }); return; }
-    const product = await prisma.product.create({ data: { ...data, ...vatGate.patch, barcode: data.barcode || null, shelfLifeFromDate: asDay(data.shelfLifeFromDate), categoryId: data.categoryId || null, image: data.image || null, itemCode: data.itemCode || null, unitCode: data.unitCode || null, tenantId: tid } as any, include: { category: true } });
+    const product = await prisma.product.create({ data: { ...data, ...vatGate.patch, barcode: data.barcode || null, shelfLifeFromDate: asDay(data.shelfLifeFromDate), categoryId: data.categoryId || null, image: data.image || null, itemCode: data.itemCode || null, unitCode: data.unitCode || null, tenantId: tid } as any, include: { category: true, units: UNITS_ORDER } });
     res.status(201).json({ success: true, data: product });
   } catch (err) { next(err); }
 });
@@ -523,19 +523,27 @@ router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Res
       /* ٢. لقطات الصفوف في الجداول الأربعة: الاسم القديم لما لا اسم له، والمعامل × F، والأساس من جديد.
        * qty وunitPrice وunitCost وlineTotal لا تُمسّ — هي بوحدة الصفّ وما زالت الكرتون. والمعامل التالف (≤٠) يُقرأ ١
        * كما يقرؤه factorOf، فيصير F لا صفراً. والمُطلِق (scripts/backfillBaseQty.ts) يحسب baseQty أيضاً؛ القيمة الصريحة
-       * هنا لبيئةٍ لم يُركَّب فيها بعد. والشركة شرطٌ في كل جملة عبر رأس المستند — لا يكفي معرّف الصنف وحده. */
+       * هنا لبيئةٍ لم يُركَّب فيها بعد. والشركة شرطٌ في كل جملة عبر رأس المستند — لا يكفي معرّف الصنف وحده.
+       * وبند الفاتورة يحمل رمز وحدته الضريبي أيضاً (القاعدة ١٠): البند القديم بلا رمز كان يُقرأ برمز الصنف، فيأخذه لقطةً
+       * قبل أن يتغيّر رمز الصنف إلى رمز الأساس الجديد (baseUnitCode) — وإلّا خرج إشعارٌ دائن على كرتونٍ قديم برمز الحبة.
+       * ورمزٌ فارغٌ على الصنف يبقى البند فارغاً كما كان (COALESCE مع null). */
       const invoiceItems = await tx.$executeRaw`
         UPDATE "invoice_items" AS r SET
           "unitName" = COALESCE(r."unitName", ${oldUnit}::text),
           "unitFactor" = (CASE WHEN r."unitFactor" > 0 THEN r."unitFactor" ELSE 1 END) * ${F}::float8,
-          "baseQty" = r."qty" * (CASE WHEN r."unitFactor" > 0 THEN r."unitFactor" ELSE 1 END) * ${F}::float8
+          "baseQty" = r."qty" * (CASE WHEN r."unitFactor" > 0 THEN r."unitFactor" ELSE 1 END) * ${F}::float8,
+          "unitCode" = COALESCE(r."unitCode", ${product.unitCode || null}::text)
         FROM "invoices" AS d
         WHERE r."invoiceId" = d.id AND d."tenantId" = ${tid} AND r."productId" = ${pid}`;
+      /* وبند التحميل يحمل كميّتين **بالأساس دائماً** (قرار التنفيذ): الاقتراح والتنبّؤ — بلا ضربهما بـF يُقاس تنبّؤ «٥ كرتون»
+       * على مبيعٍ صار ١٢٠ حبّة فتنقلب دقّة الاقتراح كلّها لأشهرٍ مضت. والفارغ يبقى فارغاً (null × F = null) */
       const vanLoadItems = await tx.$executeRaw`
         UPDATE "van_load_items" AS r SET
           "unitName" = COALESCE(r."unitName", ${oldUnit}::text),
           "unitFactor" = (CASE WHEN r."unitFactor" > 0 THEN r."unitFactor" ELSE 1 END) * ${F}::float8,
-          "baseQty" = r."qty" * (CASE WHEN r."unitFactor" > 0 THEN r."unitFactor" ELSE 1 END) * ${F}::float8
+          "baseQty" = r."qty" * (CASE WHEN r."unitFactor" > 0 THEN r."unitFactor" ELSE 1 END) * ${F}::float8,
+          "suggestedQty" = r."suggestedQty" * ${F}::float8,
+          "expectedQty" = r."expectedQty" * ${F}::float8
         FROM "van_loads" AS d
         WHERE r."vanLoadId" = d.id AND d."tenantId" = ${tid} AND r."productId" = ${pid}`;
       const warehouseEntryItems = await tx.$executeRaw`

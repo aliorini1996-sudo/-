@@ -685,7 +685,8 @@ function ExpectedOrder({ e, placesConfigured }: { e: Expected; placesConfigured:
       </div>
       <ul className="divide-y divide-gray-50">
         {e.products.map(p => {
-          const range = expectedRangeText(p, lang);
+          // ولصنفٍ له وحدات: المدى بالأساس باسمه («9–16 حبة») — الكمية بجانبه مفكّكة بالكراتين
+          const range = expectedRangeText(p, lang, tr);
           return (
             <li key={p.productId} className="py-2 space-y-0.5">
               <div className="flex items-start justify-between gap-2">
