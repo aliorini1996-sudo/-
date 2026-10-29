@@ -8,33 +8,45 @@
 // تسوية السيارة (VanLoad ADJUST) حركةٌ داخل السيارة لا تمسّ المستودع.
 // والعائد يدخل بالكلفة التي خرج بها لا بمتوسّط لحظة عودته، وبكلفة **سيارته هو**
 // لا كلفة حمولة زميله — انظر `valueStock`.
+//
+// الوحدات المتعددة: كل كميةٍ هنا **بوحدة الأساس** وكل تكلفةٍ **لوحدة الأساس**. التحويل
+// يقع مرّةً واحدة عند حدّ القراءة (`loadWarehouseInputs`: baseQtyOf وunitCostPerBase)،
+// فيبقى الحساب النقيّ (composeWarehouse/valueStock) صرفاً بالأساس واختباراته صالحة.
 // ============================================================================
 import prisma from '../config/database';
 import { currencyDecimalsOf } from '../config/countries';
 import { roundDecimal } from '../utils/helpers';
-import { valueStock, valueVanQty, CostMove, VanLayer, DEFAULT_CURRENCY_DECIMALS } from './warehouseCost';
+import { valueStock, valueVanQty, unitCostPerBase, CostMove, VanLayer, DEFAULT_CURRENCY_DECIMALS } from './warehouseCost';
+import { baseQtyOf, factorOf, type UnitDef } from './units';
 
 export interface WarehouseRow {
   productId: string;
   name: string;
   code: string;
+  /** وحدة الأساس — كل كميات الصفّ بها */
   unit: string;
+  /** وحدات الصنف بمعاملاتها — لعرض الرصيد «٢ كرتون و٣ حبة» (formatQty) لا لحسابه */
+  units?: UnitDef[];
   received: number;        // الوارد للمستودع
   adjusted: number;        // تسويات المستودع (+/−)
   loadedToVans: number;    // خرج للسيارات
   returnedFromVans: number; // عاد من السيارات (UNLOAD)
   onHand: number;          // الرصيد المتبقّي في المستودع
   // ═══ التقييم بتكلفة الشراء ═══
-  avgCost: number;         // متوسّط تكلفة الوحدة المرجّح (من الوارد المسعّر وحده)
+  avgCost: number;         // متوسّط تكلفة **وحدة الأساس** المرجّح (من الوارد المسعّر وحده) — لا الكرتون
   stockValue: number;      // قيمة الرصيد = الكمّية المقيَّمة × متوسّطها
   costedQty: number;       // كمية من الرصيد تكلفتها معروفة (هي وحدها المقيَّمة)
   uncostedQty: number;     // كمية من الرصيد بلا تكلفة معروفة — خارج القيمة صراحةً
 }
 
-interface ProdMeta { id: string; name: string; code: string; unit: string; status?: string }
+/** حقول وحدات الصنف كما يحتاجها العرض (formatQty) — النشطة والموقوفة معاً، وformatQty يُسقط الموقوفة */
+export const UNIT_SELECT = { id: true, name: true, factor: true, isActive: true } as const;
+
+interface ProdMeta { id: string; name: string; code: string; unit: string; status?: string; units?: UnitDef[] }
 // `at` لحظة الحركة — التقييم متوسّطٌ متحرّك فترتيبه الزمنيّ جزءٌ من صحّته:
 // المرور غير المرتَّب يعطي متوسّطاً خاطئاً بصمت. اختياريّ لتبقى الاختبارات
 // النقيّة تمرّر ترتيبها بترتيب المصفوفة.
+// والكمية **بالأساس** والتكلفة **لوحدة الأساس** — `loadWarehouseInputs` يحوّلهما من صفّ القاعدة.
 interface WhItem { productId: string; qty: number; type: string; unitCost?: number | null; at?: Date | string | number }
 interface VanItem { productId: string; qty: number; type: string; salesRepId?: string | null; at?: Date | string | number }
 
@@ -118,7 +130,7 @@ export function composeWarehouse(
     const val = valueStock(mv, decimals, out);
     if (layersOut && out?.vanLayers) layersOut.set(p.id, out.vanLayers);
     return {
-      productId: p.id, name: p.name, code: p.code, unit: p.unit, ...m, onHand,
+      productId: p.id, name: p.name, code: p.code, unit: p.unit, ...(p.units && { units: p.units }), ...m, onHand,
       avgCost: val.avgCost,
       stockValue: val.stockValue,
       costedQty: val.costedQty,
@@ -189,23 +201,76 @@ export async function loadWarehouseInputs(tid: string, opts: { includeInactive?:
   const [products, whItems, vanItems] = await Promise.all([
     prisma.product.findMany({
       where: { tenantId: tid, ...(!opts.includeInactive && { status: { not: 'INACTIVE' } }) },
-      select: { id: true, name: true, code: true, unit: true, status: true },
+      select: { id: true, name: true, code: true, unit: true, status: true, units: { select: UNIT_SELECT } },
     }),
     prisma.warehouseEntryItem.findMany({
       where: { entry: { tenantId: tid, ...(opts.before && { createdAt: { lt: opts.before } }) } },
-      select: { productId: true, qty: true, unitCost: true, entry: { select: { type: true, createdAt: true } } },
+      select: { productId: true, qty: true, unitFactor: true, baseQty: true, unitCost: true, entry: { select: { type: true, createdAt: true } } },
     }),
     prisma.vanLoadItem.findMany({
       // تحميلات المناديب المحذوفين داخلة عمداً (salesRepId فارغ): خرجت من المستودع فعلاً
       where: { vanLoad: { tenantId: tid, ...(opts.before && { createdAt: { lt: opts.before } }) } },
-      select: { productId: true, qty: true, vanLoad: { select: { type: true, createdAt: true, salesRepId: true, deletedSalesRepId: true } } },
+      select: { productId: true, qty: true, unitFactor: true, baseQty: true, vanLoad: { select: { type: true, createdAt: true, salesRepId: true, deletedSalesRepId: true } } },
     }),
   ]);
+  /* حدّ التحويل الوحيد إلى الأساس: الكمية من لقطة الصفّ نفسه (لا وحدة الصنف اليوم — تعديل معامل الكرتون لا يعيد كتابة
+   * رصيدٍ مضى ولا «المخزون في تاريخ»)، والتكلفة لوحدة الأساس بلا تقريب. ولا يُمرَّر المعامل بعدها: الكمية صارت أساساً،
+   * وحمله معها يضربها مرّةً ثانية عند أيّ طيٍّ يقرأ baseQtyOf. */
   return {
     products,
-    whItems: whItems.map((i) => ({ productId: i.productId, qty: i.qty, type: i.entry.type, unitCost: i.unitCost, at: i.entry.createdAt })),
-    vanItems: vanItems.map((i) => ({ productId: i.productId, qty: i.qty, type: i.vanLoad.type, salesRepId: vanKeyOf(i.vanLoad), at: i.vanLoad.createdAt })),
+    whItems: whItems.map((i) => ({ productId: i.productId, qty: baseQtyOf(i), type: i.entry.type, unitCost: unitCostPerBase(i.unitCost, i), at: i.entry.createdAt })),
+    vanItems: vanItems.map((i) => ({ productId: i.productId, qty: baseQtyOf(i), type: i.vanLoad.type, salesRepId: vanKeyOf(i.vanLoad), at: i.vanLoad.createdAt })),
   };
+}
+
+// ═══ وحدة البند في مسارات كتابة المخزون (تحميل/تفريغ/تسوية سيارة، وارد/تسوية مستودع، طلب بضاعة) ═══
+
+/** وحدة بندٍ يُكتب — تُمرَّر إلى `unitFields(qty, unit)` فتُكتب لقطتها وكميته بالأساس */
+export interface LineUnit { name: string | null; factor: number }
+
+/** وحدة الأساس بمعامل ١ — حال كل بندٍ بلا `unitId` (سلوك ما قبل الميزة حرفياً) */
+export const BASE_UNIT: LineUnit = Object.freeze({ name: null, factor: 1 }) as LineUnit;
+
+/** صفّ `ProductUnit` كما يحتاجه الحلّ */
+export interface UnitRow { id: string; productId: string; name: string; factor: number; isActive?: boolean | null }
+
+/**
+ * وحدة بندٍ من معرّفها — الخادم يحلّ المعامل من وحدات الصنف ولا يثق برقمٍ يرسله العميل (القاعدة ٦).
+ * `unitId` غائبٌ، أو لوحدة صنفٍ آخر، أو لوحدةٍ موقوفة ⇒ الأساس بمعامل ١ — كمسار الفاتورة (routes/invoices.ts).
+ */
+export function pickLineUnit(units: readonly UnitRow[], productId: string, unitId?: string | null): LineUnit {
+  if (!unitId) return BASE_UNIT;
+  const u = units.find((x) => x.id === unitId && x.productId === productId && x.isActive !== false);
+  return u ? { name: u.name, factor: factorOf({ unitFactor: u.factor }) } : BASE_UNIT;
+}
+
+/**
+ * وحدات بنود مسار كتابة، بترتيب البنود. استعلامٌ واحد لكل الطلب، ولا استعلام أصلاً حين لا يحمل بندٌ وحدة —
+ * فعميلٌ قديم (أو مفتاح API) يرسل `{productId, qty}` يبقى مساره كما كان حرفياً.
+ */
+export async function resolveLineUnits(tid: string, lines: readonly { productId: string; unitId?: string | null }[]): Promise<LineUnit[]> {
+  const ids = [...new Set(lines.map((l) => l.unitId).filter((x): x is string => typeof x === 'string' && !!x))];
+  const units: UnitRow[] = ids.length
+    ? await prisma.productUnit.findMany({ where: { tenantId: tid, id: { in: ids } }, select: { id: true, productId: true, name: true, factor: true, isActive: true } })
+    : [];
+  return lines.map((l) => pickLineUnit(units, l.productId, l.unitId));
+}
+
+/** وحدات أصنافٍ للعرض (صنف ← وحداته) — لردٍّ يحمل كمياتٍ بالأساس فتعرضها الواجهة «X كرتون و Y حبة» */
+export async function unitsByProduct(tid: string, productIds: readonly string[]): Promise<Map<string, UnitDef[]>> {
+  const out = new Map<string, UnitDef[]>();
+  if (!productIds.length) return out;
+  const rows = await prisma.productUnit.findMany({
+    where: { tenantId: tid, productId: { in: [...new Set(productIds)] } },
+    select: { ...UNIT_SELECT, productId: true },
+    orderBy: [{ sortOrder: 'asc' }, { factor: 'asc' }],
+  });
+  for (const { productId, ...u } of rows) {
+    const list = out.get(productId) ?? [];
+    list.push(u);
+    out.set(productId, list);
+  }
+  return out;
 }
 
 /** ما في السيارات بتكلفة الشراء — بطاقة «في مخزون السيارات» في صفحة مخزون الشركة */

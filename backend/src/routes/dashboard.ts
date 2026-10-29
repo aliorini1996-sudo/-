@@ -75,6 +75,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     // المشتريات الشهرية = قيمة الوارد إلى مخزون الشركة (WarehouseEntry type='RECEIVE'): Σ الكمية×سعر التكلفة.
     // تُحسب فقط حين تُفعَّل ميزة المستودع (وإلا لا معنى للبطاقة ولا داعي للاستعلام على قاعدة 0.1 نواة).
     // مبلغٌ على مستوى الشركة (المستودع مركزيّ لا يُنسَب لمندوب)، فلا يمرّ بنطاق السجلات.
+    // الوحدات المتعددة: `qty` و`unitCost` كلاهما **بوحدة الصفّ** (كرتونان × سعر الكرتون، كفاتورة المورّد)،
+    // فحاصل ضربهما قيمة السطر أيّاً كانت وحدته — لا `baseQty` هنا، وإلا ضُربت كمية الحبّات بسعر الكرتون.
     let monthPurchases = { purchasesTotal: 0, entriesCount: 0 };
     if (warehouseOn && accountingOn) {
       const rows = await prisma.$queryRaw<{ total: number | null; entries: number | bigint }[]>`

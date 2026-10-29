@@ -127,8 +127,14 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const tid = tenantId(req);
     const customer = await prisma.customer.findFirst({
       where: { id: req.params.id, tenantId: tid, ...(await customerScope(req, tid)) },
-      // أسعار أصناف الشركة وحدها — صفٌّ قديم رُبط بصنف شركةٍ أخرى لا يكشفه
-      include: { customerPrices: { where: { product: { tenantId: tid } }, include: { product: true } } },
+      // أسعار أصناف الشركة وحدها — صفٌّ قديم رُبط بصنف شركةٍ أخرى لا يكشفه.
+      // والسعر الخاص **لوحدة الأساس** (DESIGN §٤)، فتُرفق وحدات الصنف ليعرض العارض سعر الكرتون = السعر × معامله
+      include: {
+        customerPrices: {
+          where: { product: { tenantId: tid } },
+          include: { product: { include: { units: { orderBy: [{ sortOrder: 'asc' }, { factor: 'asc' }] } } } },
+        },
+      },
     });
     if (!customer) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
     res.json({ success: true, data: customer });
@@ -336,7 +342,8 @@ router.get('/:id/statement', async (req: AuthRequest, res: Response, next: NextF
     const rows = await forTeam(await prisma.accountEntry.findMany({
       where,
       include: {
-        // نُضمّن بنود الفاتورة (الأصناف وكمياتها) لتظهر في كشف الحساب
+        // نُضمّن بنود الفاتورة (الأصناف وكمياتها) لتظهر في كشف الحساب. البند يحمل لقطة وحدته (unitName/unitFactor/baseQty)
+        // فيُعرض «qty unitName» — و`product.unit` (وحدة الأساس اليوم) لبندٍ سبق الميزة بلا لقطة. الأرصدة من القيود بالمبالغ فلا تمسّها الوحدة
         invoice: { include: { items: { include: { product: { select: { name: true, unit: true } } } } } },
         receipt: true,
       },
@@ -409,6 +416,8 @@ router.get('/:id/invoices', async (req: AuthRequest, res: Response, next: NextFu
   } catch (err) { next(err); }
 });
 
+// السعر الخاص **لوحدة الأساس** (الحبة) — سعر الكرتون للعميل = السعر × معامل الكرتون، ويحرسه مسار الإصدار
+// بالمعامل نفسه (routes/invoices.ts). وتحويل وحدة الأساس يقسمه على المعامل فيبقى سعر الكرتون كما هو.
 const pricesSchema = z.object({
   prices: z.array(z.object({ productId: z.string().min(1).max(64), price: z.coerce.number().finite().nonnegative() })).max(5000),
 });

@@ -134,7 +134,10 @@ async function readPage(tenantId: string, resource: ErpResource, since: Date | n
   }
   if (resource === 'products') {
     // المؤرشف (deletedAt) يُرسل أيضاً فيُؤرشف في ERP — لا يبقى نشطاً هناك إلى الأبد
-    const rows = await prisma.product.findMany({ where, include: { category: true, priceTiers: true }, ...page });
+    // ووحداته (كرتون = ٢٤ حبة) بترتيب العقد — تعديلها يحدّث updatedAt الصنف فيُعاد إرساله معها
+    const rows = await prisma.product.findMany({
+      where, include: { category: true, priceTiers: true, units: { orderBy: [{ sortOrder: 'asc' }, { factor: 'asc' }] } }, ...page,
+    });
     return rows.map((p) => productPayloadRow(p as unknown as Record<string, unknown>));
   }
   if (resource === 'invoices') {
@@ -143,7 +146,8 @@ async function readPage(tenantId: string, resource: ErpResource, since: Date | n
       include: {
         customer: { select: { id: true, code: true, name: true } },
         salesRep: { select: { id: true, name: true, phone: true } },
-        items: { include: { product: { select: { id: true, code: true, name: true, unit: true, barcode: true, taxPct: true } } } },
+        // unit (اسم الأساس) وunitCode (رمزه) يصفان البند المحوَّل إلى الأساس في الحمولة (erpPayload.invoiceItemPayloadRow)
+        items: { include: { product: { select: { id: true, code: true, name: true, unit: true, unitCode: true, barcode: true, taxPct: true } } } },
         originalInvoice: { select: { number: true } },
       },
       ...page,

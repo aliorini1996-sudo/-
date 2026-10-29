@@ -20,8 +20,10 @@ import {
   debitNoteLegacyColumns, hasCreditableQty, isNoteKind, noteEligibility, noteInvoiceColumns, noteItemColumns, noteNumberPrefix,
   noteRefusalError, prepareCreditNote, prepareDebitNote, remainingAfterCreditNote, resolveCreditLines, resolveReturnToStock,
   stampNoteInTx, taxBucketCount, effectiveCreditScope,
-  type NoteEligible, type NoteOriginalInvoice, type PrepareCreditNoteInput, type PriorNote,
+  type NoteEligible, type NoteOriginalInvoice, type NoteUnitDef, type PrepareCreditNoteInput, type PreparedNote, type PriorNote,
 } from './notes';
+import type { IssuanceRequest } from './issue';
+import { roundDecimal } from '../../lib/invoiceCalc';
 import { verifyStampedXml } from './stamp';
 import { serializeUnsigned } from './ubl';
 import { KeyedAsyncMutex } from './unitMutex';
@@ -613,4 +615,179 @@ test('المبسّطة التي رفضتها الهيئة لم تُبطل: رف�
   const standard = originalInvoice({ request: REQ_STANDARD_Z1, subtype: '01', einvoiceStatus: 'rejected', status: 'CANCELLED' });
   const es = noteEligibility({ tenantId: Z5_TENANT, original: standard, customer: CUSTOMERS.b2bComplete });
   assert.equal(es.ok ? '' : es.refusal, 'ORIGINAL_VOIDED');
+});
+
+// ─── الوحدات المتعددة: المتاح بالأساس، وبند الإشعار بوحدة الإرجاع، وسعر الحبّة حصّةٌ تراكمية ───
+
+const CARTON: NoteUnitDef = { id: 'u-ct', name: 'كرتون', factor: 24, unitCode: 'CT', isActive: true };
+
+/** أصلٌ ببند كرتون: `cartons` كرتوناً بسعر `price` للكرتون (٢٤ حبة) — حصري قياسيّ، أو شامل مبسّط كفواتير المندوب. */
+function cartonOriginal(o: { cartons?: number; price?: number; inclusive?: boolean; units?: NoteUnitDef[] } = {}): NoteOriginalInvoice {
+  const inclusive = o.inclusive === true;
+  const request: IssuanceRequest = {
+    type: inclusive ? 'CASH' : 'CREDIT', paymentPlan: null, pricesIncludeTax: inclusive, discountPct: 0, supplyDate: null,
+    items: [{ productId: 'p-water', qty: o.cartons ?? 1, unitPrice: o.price ?? 10, discountPct: 0, taxPct: 15 }],
+  };
+  const base = inclusive
+    ? originalInvoice({ request, subtype: '02', customerId: 'c-walkin', einvoiceStatus: 'reported' })
+    : originalInvoice({ request, subtype: '01', einvoiceStatus: 'cleared' });
+  return {
+    ...base,
+    items: base.items.map(it => ({
+      ...it, unitCode: 'CT', unitName: 'كرتون', unitFactor: 24, baseQty: Number(it.qty) * 24, units: o.units ?? [CARTON], baseUnitName: 'حبة',
+    })),
+  };
+}
+
+/** أصلٌ ببند حبّات (وحدة الأساس) لصنفٍ له كرتون. */
+function pieceOriginal(o: { pieces?: number; price?: number; phase?: 1 | 2 } = {}): NoteOriginalInvoice {
+  const request: IssuanceRequest = {
+    type: 'CREDIT', paymentPlan: null, pricesIncludeTax: false, discountPct: 0, supplyDate: null,
+    items: [{ productId: 'p-water', qty: o.pieces ?? 48, unitPrice: o.price ?? 0.5, discountPct: 0, taxPct: 15 }],
+  };
+  const base = originalInvoice({ request, subtype: '01', einvoiceStatus: 'cleared', phase: o.phase ?? 2 });
+  return { ...base, items: base.items.map(it => ({ ...it, units: [CARTON], baseUnitName: 'حبة' })) };
+}
+
+const customerFor = (o: NoteOriginalInvoice) => (o.invoiceSubtype === '02' ? CUSTOMERS.individual : CUSTOMERS.b2bComplete);
+const creditOn = (original: NoteOriginalInvoice, request: PrepareCreditNoteInput['request'], priorNotes: PriorNote[] = []) =>
+  credit({ original, customer: customerFor(original), request, priorNotes });
+/** الإشعار الملتزَم كما تقرؤه القاعدة في الطلب التالي (بنوده بلقطة وحدتها). */
+const asPrior = (n: PreparedNote, id: string): PriorNote => priorNote({
+  id, total: n.engine.total,
+  items: n.lines.map(l => ({ creditedItemId: l.invoiceItemId, qty: l.creditQty, unitFactor: l.creditUnitFactor })),
+});
+/** حصّة البنود قبل الخصم والضريبة: r2(الكمية × السعر) كما يحسبها المحرّك. */
+const grossOf = (n: PreparedNote) => n.lines.reduce((s, l) => s + roundDecimal(l.creditQty * l.creditUnitPrice, 2), 0);
+
+test('الوحدات: ٢٤ إشعاراً بحبّة من بند كرتون ⇒ حصصها قيمة الكرتون تماماً (لا ١٠٫٠٨)، وآخرها لا يُرفض، والخامس والعشرون لا متاح له', () => {
+  const original = cartonOriginal({ cartons: 1, price: 10 });
+  const prior: PriorNote[] = [];
+  const shares: number[] = [];
+  let totals = 0;
+  for (let k = 0; k < 24; k++) {
+    const n = creditOn(original, [{ invoiceItemId: 'it-1', qty: 1 }], prior);
+    const l = n.lines[0];
+    assert.equal(l.creditQty, 1);
+    assert.equal(l.creditBase, 1, `الإشعار ${k + 1}: حبّةٌ تُقرأ كرتوناً`);
+    assert.equal(l.creditUnitFactor, 1);
+    assert.equal(l.creditUnitName, null, 'بند الإشعار ليس بوحدة الأساس');
+    assert.equal(l.creditUnitCode, 'PCE');
+    const doc = mapInvoiceToUbl(n.prepared.src, chainFor(2));
+    assert.equal(doc.lines[0].unitCode, 'PCE', 'رمز الكرتون على سطرٍ بالحبّة');
+    assert.equal(Number(doc.lines[0].quantity), 1);
+    shares.push(grossOf(n));
+    totals += n.engine.total;
+    prior.push(asPrior(n, `n-${k + 1}`));
+  }
+  assert.equal(shares[0], 0.42, 'حصّة الحبّة الأولى = ١٠ ÷ ٢٤ مقرَّبة');
+  assert.equal(Math.round(shares.reduce((s, v) => s + v, 0) * 100), 1000, 'مجموع حصص الحبّات ≠ قيمة الكرتون');
+  // الخصم والضريبة يُقرَّبان لكل إشعار — والانحراف داخل سماح حارس القيمة (هللة لكلّ إشعار)
+  assert.ok(Math.abs(totals - original.total) <= creditAmountTolerance(1, 24) + 1e-9, `انحراف ${totals - original.total}`);
+  const left = creditableLines(original, prior)[0];
+  assert.equal(left.returnableBase, 0);
+  assert.equal(left.creditedBase, 24);
+  const e = httpError(() => creditOn(original, [{ invoiceItemId: 'it-1', qty: 1 }], prior));
+  assert.equal(e.code, 'ZATCA_NOTHING_TO_CREDIT');
+});
+
+test('الوحدات: المتاح بالأساس — ٣ حبّات أُرجعت من كرتونين ⇒ ٤٥ حبّة، وFULL يُرجعها بوحدة الأساس لا كسرَ كرتون، والمجموع قيمة البند', () => {
+  const original = cartonOriginal({ cartons: 2, price: 10 });
+  const first = creditOn(original, [{ invoiceItemId: 'it-1', qty: 3 }]);
+  assert.equal(first.lines[0].creditBase, 3);
+  const prior = [asPrior(first, 'n-1')];
+  const lines = creditableLines(original, prior);
+  assert.deepEqual(
+    [lines[0].soldBase, lines[0].creditedBase, lines[0].returnableBase, lines[0].lineQty, lines[0].unitFactor, lines[0].unitName],
+    [48, 3, 45, 2, 24, 'كرتون'],
+  );
+  // الحقول القديمة بالأساس: عميلٌ بلا وحدات يرسل بلا unitId فيُقرأ أساساً
+  assert.equal(lines[0].returnable, 45);
+  const rest = creditOn(original, 'FULL', prior);
+  const l = rest.lines[0];
+  assert.deepEqual([l.creditQty, l.creditBase, l.creditUnitFactor, l.creditUnitName, l.creditUnitCode], [45, 45, 1, null, 'PCE']);
+  assert.equal(Math.round((grossOf(first) + grossOf(rest)) * 100), 2000, 'الإشعاران لا يساويان قيمة البند');
+  assert.equal(effectiveCreditScope(lines, rest.lines), 'PARTIAL', 'إتمام فاتورةٍ أُرجع بعضها ليس إلغاءً');
+});
+
+test('الوحدات: FULL على بند كرتون لم يُرجَع منه شيء ⇒ بوحدته نفسها (كرتونان بسعره ورمز CT) — والإلغاء يعكس الفاتورة', () => {
+  const original = cartonOriginal({ cartons: 2, price: 10 });
+  const full = creditOn(original, 'FULL');
+  const l = full.lines[0];
+  assert.deepEqual([l.creditQty, l.creditBase, l.creditUnitFactor, l.creditUnitName, l.creditUnitCode, l.creditUnitPrice], [2, 48, 24, 'كرتون', 'CT', 10]);
+  assert.equal(mapInvoiceToUbl(full.prepared.src, chainFor(2)).lines[0].unitCode, 'CT');
+  assert.equal(full.engine.total, original.total);
+  assert.equal(effectiveCreditScope(creditableLines(original, []), full.lines), 'FULL');
+  // وإرجاع الكرتونين حبّةً حبّة في إشعارٍ واحد أثرُه الإلغاء نفسه (Q5 بالأساس) وقيمته قيمة البند
+  const pieces = creditOn(original, [{ invoiceItemId: 'it-1', qty: 48 }]);
+  assert.equal(effectiveCreditScope(creditableLines(original, []), pieces.lines), 'FULL', 'إلغاءٌ بالحبّات يُقرأ جزئياً');
+  assert.equal(pieces.engine.total, original.total);
+});
+
+test('الوحدات: وحدة الإرجاع بمعرّفها — كرتون من بند كرتون بمعامل لقطته ولو تغيّر اليوم، وكرتون من بند حبّات بمعامله ورمزه وحصّته', () => {
+  // الكرتون صار ١٢ بعد البيع: ما بيع كرتوناً من ٢٤ يُرجَع كرتوناً من ٢٤ بسعر البند
+  const changed = cartonOriginal({ cartons: 2, price: 10, units: [{ ...CARTON, factor: 12 }] });
+  const back = creditOn(changed, [{ invoiceItemId: 'it-1', qty: 1, unitId: 'u-ct' }]).lines[0];
+  assert.deepEqual([back.creditBase, back.creditUnitFactor, back.creditUnitPrice, back.creditUnitCode], [24, 24, 10, 'CT']);
+  // بند حبّات (٤٨ × ٠٫٥٠) يُرجَع منه كرتون: ٢٤ حبّة بسعرٍ من البند نفسه لا من بطاقة الصنف
+  const pieces = pieceOriginal({ pieces: 48, price: 0.5 });
+  const ct = creditOn(pieces, [{ invoiceItemId: 'it-1', qty: 1, unitId: 'u-ct' }]).lines[0];
+  assert.deepEqual([ct.creditQty, ct.creditBase, ct.creditUnitFactor, ct.creditUnitName, ct.creditUnitCode, ct.creditUnitPrice], [1, 24, 24, 'كرتون', 'CT', 12]);
+  // معرّفٌ لا يخصّ الصنف ⇒ وحدة الأساس بمعامل ١ (عقد التصميم §6)
+  const stray = creditOn(changed, [{ invoiceItemId: 'it-1', qty: 1, unitId: 'u-other' }]).lines[0];
+  assert.deepEqual([stray.creditBase, stray.creditUnitFactor, stray.creditUnitName], [1, 1, null]);
+});
+
+test('الوحدات: سطران من البند نفسه بوحدتين يُقبلان ويُسعَّران من موضعين متتاليين، والمكرَّر بالوحدة نفسها مرفوض، والتجاوز بالوحدات', () => {
+  const original = cartonOriginal({ cartons: 2, price: 10 });
+  const mixed = creditOn(original, [{ invoiceItemId: 'it-1', qty: 1, unitId: 'u-ct' }, { invoiceItemId: 'it-1', qty: 3 }]);
+  assert.deepEqual(mixed.lines.map(l => [l.creditQty, l.creditBase, l.creditUnitFactor]), [[1, 24, 24], [3, 3, 1]]);
+  // الثاني يُسعَّر من موضعه بعد الكرتون: cum(٢٧) − cum(٢٤) = ١١٫٢٥ − ١٠٫٠٠
+  assert.equal(roundDecimal(mixed.lines[1].creditQty * mixed.lines[1].creditUnitPrice, 2), 1.25);
+  const dup = httpError(() => creditOn(original, [{ invoiceItemId: 'it-1', qty: 1 }, { invoiceItemId: 'it-1', qty: 2 }]));
+  assert.equal(dup.code, 'ZATCA_NOTE_LINES_INVALID');
+  const over = httpError(() => creditOn(original, [{ invoiceItemId: 'it-1', qty: 2, unitId: 'u-ct' }, { invoiceItemId: 'it-1', qty: 1 }]));
+  assert.equal(over.code, 'ZATCA_CREDIT_QTY_EXCEEDED');
+  assert.ok(over.messageAr.includes('2 كرتون و1 حبة'), over.messageAr);
+  assert.ok(over.messageAr.includes('(2 كرتون)'), over.messageAr);
+});
+
+test('الوحدات: بركة المرتجعات القديمة بالأساس — كرتونٌ قديم يُخصم ٢٤ حبّة من بند حبّات لا حبّةً واحدة', () => {
+  const p1 = pieceOriginal({ pieces: 30, price: 0.5, phase: 1 });
+  const legacyReturns = [{ productId: 'p-water', qty: 1, unitFactor: 24 }];
+  const lines = creditableLines(p1, [], legacyReturns);
+  assert.deepEqual([lines[0].legacyCreditedBase, lines[0].returnableBase], [24, 6]);
+  const over = httpError(() => credit({ original: p1, eligibility: eligible(p1), legacyReturns, request: [{ invoiceItemId: 'it-1', qty: 7 }] }));
+  assert.equal(over.code, 'ZATCA_CREDIT_QTY_EXCEEDED');
+});
+
+test('الوحدات: الشامل (فاتورة المندوب المبسّطة) — حبّاتٌ من كرتون بسعرٍ يُحلّ عكسياً، ومبالغ D6 تطابق المستند', () => {
+  const original = cartonOriginal({ cartons: 1, price: 11.5, inclusive: true });
+  const n = creditOn(original, [{ invoiceItemId: 'it-1', qty: 5 }]);
+  const l = n.lines[0];
+  assert.equal(l.creditBase, 5);
+  assert.equal(roundDecimal(5 * l.creditUnitPrice, 2), 2.4, 'حصّة ٥ حبّات من ١١٫٥٠ = ٢٫٤٠');
+  assert.equal(n.prepared.amounts.total, n.engine.total);
+  const doc = mapInvoiceToUbl(n.prepared.src, chainFor(2));
+  assert.equal(doc.lines[0].unitCode, 'PCE');
+  assert.equal(Number(doc.lines[0].quantity), 5);
+});
+
+test('الوحدات: صنفٌ بلا وحدات يبقى حرفياً — بند الإشعار بوحدة البند وسعره ورمزه، وكمياته بالأساس هي كمياته', () => {
+  const original = originalInvoice({ request: REQ_STANDARD_Z1 });
+  const n = credit({ original, request: [{ invoiceItemId: 'it-2', qty: 6.25 }] });
+  const l = n.lines[0];
+  assert.equal(l.creditUnitPrice, l.unitPrice);
+  assert.equal(l.creditUnitCode, l.unitCode);
+  assert.deepEqual([l.creditQty, l.creditBase, l.creditUnitFactor, l.creditUnitName], [6.25, 6.25, 1, null]);
+  const lines = creditableLines(original, []);
+  for (const x of lines) {
+    assert.deepEqual([x.qty, x.returnable, x.unitFactor], [x.soldBase, x.returnableBase, 1]);
+    assert.equal(x.lineQty, x.qty);
+  }
+  // FULL بلا وحدات = كامل المتاح بوحدة البند كما كان
+  assert.deepEqual(
+    credit({ original, request: 'FULL' }).lines.map(x => [x.creditQty, x.creditUnitFactor, x.creditUnitPrice === x.unitPrice]),
+    lines.map(x => [x.returnable, 1, true]),
+  );
 });

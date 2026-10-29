@@ -28,6 +28,7 @@ import {
 // البند 31: ردّ السعر الشامل إلى صافيه بالدالّة المالية الموحّدة نفسها (نصف-لأعلى)
 import { netFromInclusive, roundHalfUp } from '../lib/money';
 import { entryTotalCost } from '../services/warehouseCost';
+import { unitFields } from '../services/units';
 import {
   ACCOUNTING_NOT_ALLOWED_MESSAGE, importAccessBody, importAccessDecision, importKindsAllowed, isImportAccountingKind, loadImportActor, requireImportAccess,
 } from '../services/importAccess';
@@ -549,6 +550,17 @@ const productRow = z.object({
   taxPct: z.number().min(0).max(100).optional(),
   barcode: z.string().trim().optional(),
   category: z.string().trim().optional(),         // اسم الفئة — تُنشأ إن لزم
+  /**
+   * اختياري: وحدات البيع الأكبر من `unit` (وحدة الأساس) — كرتون = ٢٤ حبة. الملف بلا أعمدتها كما كان حرفياً.
+   * `price` فارغاً ⇒ يُشتقّ عند البيع من سعر الأساس × المعامل. والصحة (معامل صحيح > ١، اسم غير مكرر) في
+   * planProductImportRows خطأ صفّ برقمه، لا رفض ملف.
+   */
+  units: z.array(z.object({
+    name: z.string().trim().min(1).max(24),
+    factor: z.number(),
+    price: z.number().nonnegative().optional(),
+    unitCode: z.string().trim().max(10).optional(),
+  })).optional(),
 });
 const productsBody = z.object({
   // البند 36: الصفوف تُفحص صفاً صفاً بعد الغلاف (parseImportBodyRows) لا دفعةً واحدة
@@ -577,6 +589,8 @@ router.post('/products', requireImportAccess('products'), async (req: AuthReques
     let netFromInclusiveRows = 0;
     /** البند 31: سعر الصفّ بعد ردّه إلى صافيه — يُحسب مرّة قبل الكتابة، فلا تُعيد شريحة فاشلة العدّ */
     const netPriceByRow = new Map<number, number>();
+    /** وأسعار وحداته الإضافية بالقاعدة نفسها (الشامل ⇒ صافيه بضريبة الصنف) — سعر الكرتون صافٍ كسعر الحبة */
+    const netUnitPricesByRow = new Map<number, (number | undefined)[]>();
 
     // البند 20: الدفعة محجوزة قبل أي كتابة (والفئات تُطابَق تحت قفل النوع فلا تتكرر)
     const progress = new ImportBatchProgress(
@@ -604,6 +618,10 @@ router.post('/products', requireImportAccess('products'), async (req: AuthReques
           const net = roundHalfUp(netFromInclusive(gross, c.r.taxPct ?? defaultVat ?? 0), decimals);
           if (net !== gross) netFromInclusiveRows++;
           netPriceByRow.set(c.row, net);
+          if (c.r.units?.length) {
+            netUnitPricesByRow.set(c.row, c.r.units.map(u => (u.price == null ? undefined
+              : roundHalfUp(netFromInclusive(u.price, c.r.taxPct ?? defaultVat ?? 0), decimals))));
+          }
         }
       }
       await runImportChunks({
@@ -634,6 +652,17 @@ router.post('/products', requireImportAccess('products'), async (req: AuthReques
             } as never,
             select: { id: true },
           });
+          // وحداته في المعاملة نفسها: صنفٌ يُنشأ بلا كرتونه ثم تفشل الوحدات يُباع كرتونه حبّةً. وحذفها عند التراجع مع الصنف
+          if (r.units?.length) {
+            const netUnit = netUnitPricesByRow.get(row);
+            await tx.productUnit.createMany({
+              data: r.units.map((u, i) => ({
+                tenantId: tid, productId: p.id, name: u.name.trim(), factor: u.factor,
+                price: netUnit ? (netUnit[i] ?? null) : (u.price ?? null),
+                unitCode: u.unitCode || null, sortOrder: i,
+              })),
+            });
+          }
           return { id: p.id, newCategory };
         },
         flush: (tx, written) => progress.write(tx, written.map(w => productDelta(w.result))),
@@ -888,6 +917,11 @@ const priceRow = z.object({
   phone: z.string().trim().optional(),
   productCode: z.string().trim().min(1),
   price: z.number().nonnegative(),
+  /**
+   * اختياري: وحدة السعر (سعر الكرتون) — الفارغ = وحدة الأساس، والسعر الخاص يُخزَّن للأساس (÷ المعامل). حدّه حدّ النصوص
+   * لا حدّ اسم الوحدة: عمود وحدة قياسٍ طويل في ملفٍ قديم لا يصير خطأ صفّ (صنفٌ بلا وحدات يتجاهله)
+   */
+  unit: z.string().trim().max(200).optional(),
 });
 const pricesBody = z.object({
   // البند 36: الصفوف تُفحص صفاً صفاً بعد الغلاف (parseImportBodyRows) لا دفعةً واحدة
@@ -919,7 +953,11 @@ router.post('/prices', requireImportAccess('prices'), async (req: AuthRequest, r
     try {
       const matcher = await customerMatcher(req, tid);
       // البند 44: المؤرشف (deletedAt) يشغل كوده ولا يُسعَّر — يُقرأ ليُميَّز عن «الصنف غير موجود»؛ وضريبته للبند 31
-      const prods = await prisma.product.findMany({ where: { tenantId: tid }, select: { id: true, code: true, deletedAt: true, taxPct: true } });
+      const prods = await prisma.product.findMany({
+        where: { tenantId: tid },
+        // ووحداته لعمود «الوحدة» (سعر الكرتون ⇒ سعر الحبة)
+        select: { id: true, code: true, deletedAt: true, taxPct: true, unit: true, units: { select: { name: true, factor: true, isActive: true } } },
+      });
       // البندان 43 و44: الزوج المكرر كتابة واحدة بآخر سعر (معلَناً)، والمؤرشف تخطٍّ معدود لا «أضيف»
       plan = planPriceImportRows(rows, matcher, prods, body.allowZeroPrice === true);
       const writes = plan.writes;
@@ -936,6 +974,9 @@ router.post('/prices', requireImportAccess('prices'), async (req: AuthRequest, r
           w.price = net;
         }
       }
+      // سعر وحدةٍ أكبر ⇒ سعر الأساس: بعد ردّ الشامل إلى صافيه (الصافي المقرَّب يُقسم مرّة) وبستّ منازل، فسعر الكرتون
+      // عند البيع (سعر العميل × المعامل) يعود إلى ما في الملف — ١٠٠ ÷ ٢٤ × ٢٤ = ١٠٠٫٠٠ لا ١٠٠٫٠٨ من ٤٫١٧
+      for (const w of writes) if (w.unitFactor && w.unitFactor !== 1) w.price = roundHalfUp(w.price / w.unitFactor, 6);
       const pairsCounted = new Set<string>();
       await runImportChunks({
         chunks: planImportChunks(writes, () => 1, importChunkTarget(writes.length)),
@@ -993,6 +1034,11 @@ const openingStockRow = z.object({
   productName: optText,
   qty: optNumber,
   unitCost: optNumber,
+  /**
+   * اختياري: وحدة الكمية والتكلفة (كرتون) — الفارغ = وحدة الأساس كما قبل الميزة، والمجهولة لصنفٍ بوحدات خطأ صفّ.
+   * بحدّ optText (٢٠٠) لا حدّ اسم الوحدة: الصفوف هنا تُفحص دفعةً واحدة، فنصٌّ أطول كان سيرفض ملفاً قديماً كاملاً
+   */
+  unit: optText,
 });
 const openingStockBody = z.object({
   rows: z.array(openingStockRow).min(1).max(5000),
@@ -1028,7 +1074,12 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
 
     // البند 24: المطابقة بالأصناف النشطة وحدها — الموقوف والمؤرشف والملتبس خطأ صف صريح
     const products = await prisma.product.findMany({
-      where: { tenantId: tid }, select: { id: true, code: true, barcode: true, name: true, taxPct: true, status: true, deletedAt: true },
+      where: { tenantId: tid },
+      select: {
+        id: true, code: true, barcode: true, name: true, taxPct: true, status: true, deletedAt: true,
+        // عمود «الوحدة» يُطابَق باسم الأساس أو بوحداته النشطة
+        unit: true, units: { select: { name: true, factor: true, isActive: true } },
+      },
     });
     const { lines, errors } = resolveOpeningStockRows(rows, openingStockProductMatcher(products), body.pricesIncludeTax);
     const result = { created: 0, skipped: 0, total: rows.length, errors, batchId: null as string | null, entryId: null as string | null, totalCost: 0 };
@@ -1101,7 +1152,8 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
         const entry = await tx.warehouseEntry.create({
           data: {
             tenantId: tid, type: OPENING_STOCK_ENTRY_TYPE, note: OPENING_STOCK_NOTE, createdBy: by, createdAt: dbNow,
-            items: { create: checked.lines.map(l => ({ productId: l.productId, qty: l.qty, unitCost: l.unitCost })) },
+            // الكمية والتكلفة بوحدة الصفّ ولقطتها وbaseQty — التقييم يقسم التكلفة على المعامل (warehouseCost)
+            items: { create: checked.lines.map(l => ({ productId: l.productId, unitCost: l.unitCost, ...unitFields(l.qty, l.unitFactor && l.unitFactor !== 1 ? { name: l.unitName ?? null, factor: l.unitFactor } : null) })) },
           },
           select: { id: true },
         });
@@ -1314,6 +1366,8 @@ router.post('/batches/:id/revert', async (req: AuthRequest, res: Response, next:
             if (reason) return { status: 'blocked' as const, reason };
             await tx.priceTier.deleteMany({ where: { productId: pid } });
             await tx.customerPrice.deleteMany({ where: { productId: pid } });
+            // وحداته (الحذف المتسلسل في القاعدة يكفي، والصراحة تحرسه إن تغيّر القيد)
+            await tx.productUnit.deleteMany({ where: { productId: pid } });
             await tx.product.deleteMany({ where: { id: pid, tenantId: tid } });
             return { status: 'removed' as const };
           }, { maxWait: 10_000, timeout: 30_000 });

@@ -14,6 +14,7 @@ import {
   suggestedCutoverDate, templatePreviewContext, validateManualBalanceRows,
   IMPORT_ENTRIES_LOCK_PREFIX, findRunningImportBatch, importInProgressDetails, type ImportBatchStateRow,
   type OpeningAccountEntryRow, type OpeningSources, type ManualBalanceRowInput,
+  openingWarehouseRowOf, openingVanRowOf, openingStockEntryValueMilli,
 } from '../services/gl/opening';
 import {
   HISTORY_MAX_ROWS, assertHistoryNotTooLarge, backfillProgress, backfillTransition, conservativeEventsPerMinute, estimateHistory, fullHistoryCutoverDate,
@@ -191,6 +192,35 @@ test('البند 40: قيمة المخزون تُقرَّب بخانات الد�
   }), CUT, { decimals, routing: ROUTING }).warehouse.valueMilli;
   assert.equal(many(3), 124_000n);
   assert.equal(many(2), 120_000n, 'أربعة دنانير كانت تضيع من القيد الافتتاحيّ');
+});
+
+test('الوحدات المتعددة: صفوف المستودع والسيارة تُحوَّل للأساس عند القراءة، والقيمة = qty × unitCost للسطر بلا خطأ تقريب', () => {
+  const whEntry = (createdAt: string) => ({ type: 'RECEIVE', createdAt: at(createdAt) });
+  // كرتونان (في كلٍّ ٢٤ حبة) بسعر الكرتون ١٠ ⇒ ٤٨ حبة بتكلفة ١٠ ÷ ٢٤ للحبّة (بلا تقريب)
+  const carton = openingWarehouseRowOf({ productId: 'p1', qty: 2, unitFactor: 24, baseQty: 48, unitCost: 10, entry: whEntry('2026-11-01T08:00:00Z') });
+  assert.equal(carton.qty, 48);
+  assert.equal(carton.unitCost, 10 / 24);
+  // صفٌّ سبق الميزة (معامل ١، baseQty فارغ لم يملأه الترحيل) يمرّ حرفياً كما كان
+  const legacy = openingWarehouseRowOf({ productId: 'p1', qty: 7, unitFactor: 1, baseQty: null, unitCost: 0.4, entry: whEntry('2026-11-02T08:00:00Z') });
+  assert.deepEqual(legacy, { productId: 'p1', qty: 7, type: 'RECEIVE', unitCost: 0.4, createdAt: at('2026-11-02T08:00:00Z') });
+  assert.equal(openingWarehouseRowOf({ productId: 'p2', qty: 3, unitFactor: 12, unitCost: null, entry: whEntry('2026-11-03T08:00:00Z') }).qty, 36, 'baseQty غائب ⇒ يُحسب من اللقطة');
+  // تحميل سيارة بكرتونٍ واحد ⇒ ٢٤ حبة تخرج من المستودع
+  const van = openingVanRowOf({ productId: 'p1', qty: 1, unitFactor: 24, baseQty: 24, vanLoad: { type: 'LOAD', createdAt: at('2026-11-05T08:00:00Z'), salesRepId: null, deletedSalesRepId: 'gone' } });
+  assert.deepEqual(van, { productId: 'p1', qty: 24, type: 'LOAD', salesRepId: 'gone', createdAt: at('2026-11-05T08:00:00Z') });
+
+  // ألف كرتون بسعر ١٠: ٢٤٠٠٠ حبة. تكلفة حبةٍ مقرَّبة (٠٫٤١٦٧) كانت تعطي ١٠٠٠٠٫٨ — والقيمة الصحيحة ١٠٠٠٠ تماماً
+  const big = openingWarehouseRowOf({ productId: 'p1', qty: 1000, unitFactor: 24, baseQty: 24000, unitCost: 10, entry: whEntry('2026-11-01T08:00:00Z') });
+  const d = computeDerivedOpening(sources({ warehouseItems: [big] }), CUT, { decimals: DEC, routing: ROUTING });
+  assert.equal(d.warehouse.valueMilli, 10_000_000n);
+  // كرتونٌ وحبّاتٌ من الصنف نفسه يُطويان بالأساس: ٤٨ + ٧ − ٢٤ = ٣١ حبة، والقيمة بمتوسّطها المرجّح
+  const mixed = computeDerivedOpening(sources({ warehouseItems: [carton, legacy], vanItems: [van] }), CUT, { decimals: DEC, routing: ROUTING });
+  // كرتونان بـ١٠ = ٢٠، وسبع حبّات بـ٠٫٤ = ٢٫٨ ⇒ المتوسّط ٢٢٫٨ ÷ ٥٥ للحبّة × ٣١ حبة = ١٢٫٨٥
+  assert.equal(mixed.warehouse.valueMilli, 12_850n);
+});
+
+test('الإرشاد: قيمة دفعة المخزون الافتتاحي = qty × unitCost بوحدة الصفّ (لا بالأساس)', () => {
+  // كرتونان بسعر الكرتون ١٠ = ٢٠ — لا ٤٨ × ١٠
+  assert.equal(openingStockEntryValueMilli([{ qty: 2, unitCost: 10 }], DEC), 20_000n);
 });
 
 // ═══ سباق اللقطة ═══

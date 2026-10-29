@@ -10,9 +10,102 @@ import { isDamagedVanReturn } from '../services/vanDamaged';
 import { tenantTz } from '../services/invoiceExpiry';
 import { COLLECTED_CASH_SALE, COLLECTED_RECEIPT, buildPaymentMethodsReport, paymentMethodsRange, rosterOf, summarizeCollectionsByMethod, type RepInfo } from '../services/paymentMethodsReport';
 import { CUSTOM_METHOD_KEY_RE, readPaymentMethodsConfig } from '../services/paymentMethodsCore';
+import { baseQtyOf, factorOf, roundQty, type UnitSnapshot } from '../services/units';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canViewReports'));
+
+/** وحدة بيعٍ أكبر من الأساس كما يحتاجها العارض لـformatQty («٢ كرتون و٣ حبة») — النشطة وحدها. */
+export interface ReportUnit { name: string; factor: number }
+
+/** وحدات الصنف النشطة للعرض، من الأكبر — `select` واحد لكل مسار يعيد كميةً بالأساس. */
+const ACTIVE_UNITS_SELECT = { where: { isActive: true }, select: { name: true, factor: true }, orderBy: { factor: 'desc' as const } };
+
+/** وحدات أصنافٍ بعينها دفعةً واحدة (صنف ← وحداته النشطة من الأكبر) — للتجميعات التي لا تمرّ بصفّ الصنف. */
+async function activeUnitsByProduct(tid: string, productIds: string[]): Promise<Map<string, ReportUnit[]>> {
+  const out = new Map<string, ReportUnit[]>();
+  if (!productIds.length) return out;
+  const rows = await prisma.productUnit.findMany({
+    where: { tenantId: tid, productId: { in: productIds }, isActive: true },
+    select: { productId: true, name: true, factor: true },
+    orderBy: { factor: 'desc' },
+  });
+  for (const r of rows) {
+    const list = out.get(r.productId) ?? [];
+    list.push({ name: r.name, factor: Number(r.factor) });
+    out.set(r.productId, list);
+  }
+  return out;
+}
+
+type SalesItemRow = { qty: number; lineTotal: number; product: { id: string; name: string; code: string; unit: string } | null } & UnitSnapshot & { baseQty?: number | null };
+
+/**
+ * المبيعات حسب الصنف — الكمية **بالأساس**.
+ *
+ * كان يجمع `qty` خاماً، فكرتونان وثلاث حبّات من الصنف نفسه تُقرأ «٥». والجمع بالأساس
+ * يعطي ٥١ حبّة، ويعرضها العارض «٢ كرتون و٣ حبة» من `units`. و`qty` يبقى في الردّ
+ * بالمعنى نفسه (`baseQty`) لأنّ مستهلكي المفاتيح يقرؤونه: لصنفٍ بلا وحدات — كلّ ما
+ * قبل الميزة — الأساس هو الخام نفسه فلا يتغيّر رقمٌ عندهم، ولصنفٍ بوحدات كان الخام
+ * رقماً بلا معنى أصلاً. و`total` مجموع `lineTotal` كما كان: المال لا يتأثّر بالوحدة.
+ */
+export function salesByProduct(
+  invoices: ReadonlyArray<{ items: ReadonlyArray<SalesItemRow> }>,
+  unitsOf: ReadonlyMap<string, ReportUnit[]> = new Map(),
+): Array<{ productId: string | null; name: string; code: string; qty: number; baseQty: number; unit: string; units: ReportUnit[]; total: number }> {
+  const byProduct: Record<string, { productId: string | null; name: string; code: string; unit: string; base: number; total: number }> = {};
+  invoices.forEach(inv => {
+    inv.items.forEach(item => {
+      // بندٌ بلا منتج يُجمَع تحت مفتاح واحد بدل أن يُسقِط التقرير —
+      // الرقم الناقص أهون من صفحة لا تفتح.
+      const ref = item.product;
+      const key = ref?.id ?? 'unknown';
+      if (!byProduct[key]) byProduct[key] = { productId: ref?.id ?? null, name: ref?.name ?? 'صنف محذوف', code: ref?.code ?? '—', unit: ref?.unit ?? '', base: 0, total: 0 };
+      byProduct[key].base += baseQtyOf(item);
+      byProduct[key].total += Number(item.lineTotal);
+    });
+  });
+  return Object.values(byProduct)
+    .map(p => {
+      const base = roundQty(p.base);
+      return { productId: p.productId, name: p.name, code: p.code, qty: base, baseQty: base, unit: p.unit, units: (p.productId && unitsOf.get(p.productId)) || [], total: p.total };
+    })
+    .sort((a, b) => b.total - a.total);
+}
+
+/**
+ * بند تقرير المرتجع: كميته **بوحدته هو** (لقطة البند) لا بوحدة الصنف اليوم.
+ *
+ * كان يأخذ الوحدة من `product.unit` الحاليّ، فتغيير اسم وحدة الصنف يغيّر تقارير الماضي،
+ * وحبّةٌ أُرجعت من بند كرتون تظهر «١ كرتون». فالوحدة = لقطة البند، وإلّا وحدة الصنف
+ * (بندٌ سبق الميزة كُتب بها)، ومعها الكمية بالأساس ووحدة الأساس لمن يجمع أو يقارن.
+ */
+export function returnLineView(i: {
+  qty: number; lineTotal: number; returnExpired: boolean | null; expiresAt: Date | null; itemName: string | null;
+  baseQty?: number | null; product: { name: string; unit: string } | null;
+} & UnitSnapshot) {
+  return {
+    name: i.product?.name ?? i.itemName ?? 'صنف محذوف',
+    unit: i.unitName || i.product?.unit || '',
+    qty: Number(i.qty),
+    unitFactor: factorOf(i),
+    baseQty: baseQtyOf(i),
+    baseUnit: i.product?.unit ?? '',
+    lineTotal: Number(i.lineTotal),
+    returnExpired: i.returnExpired,
+    expiresAt: i.expiresAt ? i.expiresAt.toISOString().slice(0, 10) : null,
+  };
+}
+
+/** معيار «الصنف» في تقييم الأداء: الكمية المباعة لكل مندوب **بالأساس** — الترتيب قد يُبنى عليه حافز، فلا يُقارن كرتونٌ بحبّة. */
+export function productQtyByRep(rows: ReadonlyArray<{ qty: number; baseQty?: number | null; invoice: { salesRepId: string | null } } & UnitSnapshot>): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const r of rows) {
+    const rep = r.invoice.salesRepId;
+    if (rep) out.set(rep, (out.get(rep) ?? 0) + baseQtyOf(r));
+  }
+  return out;
+}
 
 router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -57,26 +150,16 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
         salesRep: { select: { id: true, name: true } },
         team: TEAM_NAME_SELECT,
         items: {
-          include: { product: { select: { id: true, name: true, code: true } } },
+          // البند كاملاً ومعه لقطة وحدته (unitName/unitFactor/baseQty) — ووحدة الصنف لبندٍ سبق الميزة بلا لقطة
+          include: { product: { select: { id: true, name: true, code: true, unit: true } } },
         },
       },
       orderBy: { invoiceDate: 'asc' },
     });
 
     if (groupBy === 'product') {
-      const byProduct: Record<string, { name: string; code: string; qty: number; total: number }> = {};
-      invoices.forEach(inv => {
-        inv.items.forEach(item => {
-          // بندٌ بلا منتج يُجمَع تحت مفتاح واحد بدل أن يُسقِط التقرير —
-          // الرقم الناقص أهون من صفحة لا تفتح.
-          const ref = item.product;
-          const key = ref?.id ?? 'unknown';
-          if (!byProduct[key]) byProduct[key] = { name: ref?.name ?? 'صنف محذوف', code: ref?.code ?? '—', qty: 0, total: 0 };
-          byProduct[key].qty += Number(item.qty);
-          byProduct[key].total += Number(item.lineTotal);
-        });
-      });
-      res.json({ success: true, data: Object.values(byProduct).sort((a, b) => b.total - a.total) });
+      const ids = [...new Set(invoices.flatMap(inv => inv.items.map(i => i.product?.id).filter((x): x is string => !!x)))];
+      res.json({ success: true, data: salesByProduct(invoices, await activeUnitsByProduct(tid, ids)) });
       return;
     }
 
@@ -251,6 +334,7 @@ router.get('/returns', async (req: AuthRequest, res: Response, next: NextFunctio
           items: {
             select: {
               qty: true, lineTotal: true, returnExpired: true, expiresAt: true, returnOfItemId: true, itemName: true,
+              unitName: true, unitFactor: true, baseQty: true,
               product: { select: { name: true, unit: true } },
             },
           },
@@ -287,11 +371,7 @@ router.get('/returns', async (req: AuthRequest, res: Response, next: NextFunctio
         notes: r.notes,
         saleInvoices: r.originalInvoice ? [r.originalInvoice.number] : linked,
         customer: r.customer, salesRep: r.salesRep,
-        items: r.items.map((i) => ({
-          name: i.product?.name ?? i.itemName ?? 'صنف محذوف', unit: i.product?.unit ?? '',
-          qty: Number(i.qty), lineTotal: Number(i.lineTotal),
-          returnExpired: i.returnExpired, expiresAt: i.expiresAt ? i.expiresAt.toISOString().slice(0, 10) : null,
-        })),
+        items: r.items.map(returnLineView),
       };
     });
 
@@ -773,10 +853,11 @@ router.get('/rep-ranking', async (req: AuthRequest, res: Response, next: NextFun
         res.status(403).json({ success: false, code: 'ACCOUNTING_NOT_ALLOWED', message: 'النظام المحاسبي غير مفعّل لهذه الشركة تواصل مع مزود الخدمة' }); return;
       }
     }
-    let product: { id: string; name: string; unit: string } | null = null;
+    // الصنف ووحدة أساسه (وسم القيمة) ووحداته النشطة — القيمة بالأساس، والعارض يفكّكها «٢ كرتون و٣ حبة»
+    let product: { id: string; name: string; unit: string; units: ReportUnit[] } | null = null;
     if (metric === 'product') {
       if (!q.productId) { res.status(400).json({ success: false, message: 'اختر الصنف' }); return; }
-      product = await prisma.product.findFirst({ where: { id: q.productId, tenantId: tid }, select: { id: true, name: true, unit: true } });
+      product = await prisma.product.findFirst({ where: { id: q.productId, tenantId: tid }, select: { id: true, name: true, unit: true, units: ACTIVE_UNITS_SELECT } });
       if (!product) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
     }
 
@@ -821,9 +902,9 @@ router.get('/rep-ranking', async (req: AuthRequest, res: Response, next: NextFun
           productId: product.id,
           invoice: { tenantId: tid, salesRepId: { in: ids }, status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: start, lt: end }, ...teamDocWhere(team), ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) },
         },
-        select: { qty: true, invoice: { select: { salesRepId: true } } },
+        select: { qty: true, unitFactor: true, baseQty: true, invoice: { select: { salesRepId: true } } },
       });
-      for (const r of rows) add(r.invoice.salesRepId, Number(r.qty));
+      for (const [rep, v] of productQtyByRep(rows)) add(rep, v);
     } else if (ids.length && metric === 'visits') {
       const visits = await prisma.repVisit.findMany({
         where: { tenantId: tid, salesRepId: { in: ids }, createdAt: { gte: start, lt: end }, ...(await scopedRecordWhere(req, SHAPE_VISIT)), ...teamDocWhere(team) },

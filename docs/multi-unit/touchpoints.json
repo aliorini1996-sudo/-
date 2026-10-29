@@ -1,0 +1,2959 @@
+{
+ "touchpoints": [
+  {
+   "file": "backend/src/routes/invoices.ts",
+   "line": 116,
+   "kind": "schema",
+   "what": "invoiceItemSchema يقبل productId وqty وunitPrice وdiscountPct وtaxPct فقط، ولا يحمل أي حقل وحدة",
+   "change": "إضافة unitId (أو unitName) وunitFactor. يحلّ الخادم المعامل من وحدات الصنف ولا يثق برقم العميل، إلا في إعادة الرفع (X-FS-Replay) فيقبل لقطة الجهاز بعد التحقق من أن الوحدة كانت للصنف",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/invoices.ts",
+   "line": 848,
+   "kind": "schema",
+   "what": "إنشاء بنود الفاتورة والمرتجع في المرحلة الأولى يكتب qty وunitPrice وdiscount وtax وlineTotal فقط (السطران 853-854)، ولا يكتب unitCost، فيبقى صفراً",
+   "change": "كتابة لقطة unitName وunitFactor (ورمز الوحدة الضريبي) في كل بند. بدونها يُقرأ البند بالمعامل الافتراضي 1، فتصير الكراتين حبّات في المخزون والتقارير",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/invoices.ts",
+   "line": 545,
+   "kind": "price",
+   "what": "حارس السعر يقارن unitPrice البند بـ basePrice أو سعر العميل أو أدنى سعر شريحة، وكلها بسعر الوحدة الوحيدة (السطور 545-556)",
+   "change": "المرجع هو سعر الوحدة المختارة، أو سعر الأساس × unitFactor إن لم يكن لها سعر. اليوم يمرّ بيع كرتون بسعر الحبة ما دام السعر ≥ الحد الأدنى، ويُرفض بيعه بسعره الصحيح حين canChangePrice=false",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/invoices.ts",
+   "line": 546,
+   "kind": "price",
+   "what": "يأخذ أدنى سعر شريحة (Math.min) بلا نظر إلى minQty ولا إلى الوحدة",
+   "change": "تقييم الشريحة بالكمية بعد التحويل إلى الأساس (qty×unitFactor مقابل minQty بالأساس)، وتحويل سعرها إلى وحدة البند قبل المقارنة",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/invoices.ts",
+   "line": 526,
+   "kind": "price",
+   "what": "يقرأ CustomerPrice بالصنف وحده (productId → price) ويجعله سقف السعر",
+   "change": "سعر العميل لكل وحدة، أو يُضرب سعر الأساس بالمعامل. وإلا صار سعر الحبة للعميل مرجعاً لبند كرتون",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/invoices.ts",
+   "line": 565,
+   "kind": "qty_validation",
+   "what": "حارس مخزون السيارة يجمع it.qty الخام لكل صنف ويقارنه بـ remaining من computeStock، ورسالة الرفض تعرض الرصيد برقم خام (السطور 565-571)",
+   "change": "جمع qty×unitFactor لكل صنف (كرتون وحبة من الصنف نفسه يُجمعان بالأساس) ثم المقارنة بالرصيد بالأساس، وعرض الرسالة «X كرتون + Y حبة». اليوم يمرّ كرتونان (48 حبة) على رصيد 30 حبة",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/invoices.ts",
+   "line": 498,
+   "kind": "price",
+   "what": "اختيار الأصناف في الإصدار يحمل basePrice وpriceTiers.price فقط",
+   "change": "إضافة وحدات الصنف (المعامل والسعر والرمز الضريبي وحالة النشاط) لحلّ المعامل والسعر المرجعي ولقطة البند",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/invoices.ts",
+   "line": 542,
+   "kind": "price",
+   "what": "المرتجع يتخطى حارس السعر كلياً (if isReturnDoc break)، فسعر بند المرتجع في المرحلة الأولى يرسله العميل ولا يتحقق منه الخادم",
+   "change": "للمرتجع المرتبط ببند بيع: يحسب الخادم السعر من البند المباع، وهو lineTotal÷qty مقسوماً على نسبة المعاملين (معامل البيع÷معامل المرتجع)، بدل الثقة برقم التطبيق. وإلا رُدّ للعميل سعر كرتون عن كل حبة",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/invoices.ts",
+   "line": 761,
+   "kind": "qty_validation",
+   "what": "saleLinkLines يمرّر i.qty الخام من جسم المرتجع إلى assertReturnLinks قبل المعاملة وداخلها",
+   "change": "تمرير الكمية بالأساس (qty×unitFactor لبند المرتجع) كي يقارن حارس «لا يُرجَع أكثر مما بيع» أساساً بأساس",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/invoices.ts",
+   "line": 714,
+   "kind": "qty_validation",
+   "what": "مرتجع المرحلة الثانية يمرّر items بـ qty الخام إلى issueReturnAsCreditNote",
+   "change": "تمرير unitFactor ووحدة المرتجع مع كل بند، ليحوّل الإشعار الكمية والسعر عن وحدة بند الأصل",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/invoices.ts",
+   "line": 361,
+   "kind": "qty_aggregate",
+   "what": "‏GET /:id/returnable يعيد sold وreturned وreturnable برقم خام. returned يجمع مرتجعات بوحدات مختلفة، والوحدة المعروضة هي product.unit (السطر 360)",
+   "change": "إرجاع الكميات بالأساس مع unitName وunitFactor للبند المباع، وعرض «X كرتون + Y حبة»، وحساب returned من qty×unitFactor",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/invoices.ts",
+   "line": 362,
+   "kind": "price",
+   "what": "‏refundUnitPrice = lineTotal÷qty، أي سعر وحدة البند المباع (الكرتون)",
+   "change": "إعادة سعر استرداد لكل وحدة الأساس أيضاً (أو لكل وحدة متاحة): سعر البند ÷ (معامل البيع÷معامل المرتجع)، مع معالجة باقي التقريب في آخر حبة",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/invoices.ts",
+   "line": 308,
+   "kind": "qty_aggregate",
+   "what": "‏returnable-sales يجمع المتاح لكل بنود الفاتورة في returnableQty ويصفّي بها، وبنودها بوحدات مختلفة",
+   "change": "الجمع بالأساس، أو الاكتفاء بفحص «بقي شيء» لكل بند. والرقم المعروض يُعرض بالوحدات",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/invoices.ts",
+   "line": 236,
+   "kind": "display",
+   "what": "قائمة الفواتير مع withItems (لكشوف المندوب) تُرفق product.name وproduct.unit",
+   "change": "عرض لقطة unitName للبند بدل وحدة الصنف الحالية، وأي جمع في الكشف يكون بالأساس",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/invoices.ts",
+   "line": 384,
+   "kind": "print",
+   "what": "تفصيل الفاتورة (مصدر الطباعة والعرض) يُرفق product.unit مع كل بند",
+   "change": "الطباعة من لقطة البند unitName، لأن وحدة الصنف ستصير وحدة الأساس فتُطبع «2 حبة» عن كرتونين",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/invoices.ts",
+   "line": 594,
+   "kind": "other",
+   "what": "يمرّر qty وunitPrice كما هما إلى computeInvoiceTotals",
+   "change": "لا تغيير ما دام unitPrice بوحدة البند نفسها. يُمنع تحويل qty إلى الأساس قبل الحساب، فذلك يكسر تطابق الورقة المطبوعة أوف‑لاين مع الخادم",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/services/returnLinks.ts",
+   "line": 47,
+   "kind": "qty_aggregate",
+   "what": "‏returnedBySaleItem يجمع Number(r.qty) الخام لكل مرتجع وإشعار دائن على بند البيع (يختار qty وحده في السطر 43)",
+   "change": "اختيار unitFactor وجمع qty×unitFactor، فيصير المُرجَع بالأساس",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/services/returnLinks.ts",
+   "line": 54,
+   "kind": "qty_validation",
+   "what": "‏returnableOf = qty بند البيع − المُرجَع، بلا معامل",
+   "change": "‏(qty×unitFactor للبيع) − المُرجَع بالأساس، وSaleItemRow يحمل unitFactor",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/services/returnLinks.ts",
+   "line": 81,
+   "kind": "qty_validation",
+   "what": "‏returnLinkProblem يجمع l.qty الخام لكل بند بيع ويقارنه بالمتاح (السطر 85)، والرسالة تعرض المتاح برقم خام",
+   "change": "الجمع والمقارنة بالأساس، وعرض المتبقي «X كرتون + Y حبة». هذا هو حارس «لا يُرجَع أكثر مما بيع» في المرحلة الأولى",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/services/returnLinks.ts",
+   "line": 105,
+   "kind": "qty_validation",
+   "what": "‏assertReturnLinks يقرأ بنود البيع بـ id وproductId وqty فقط، تحت القفل وقبله",
+   "change": "إضافة unitFactor إلى الاختيار ليعمل الحارس بالأساس داخل المعاملة المقفلة أيضاً",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/invoicesNotes.ts",
+   "line": 63,
+   "kind": "einvoice",
+   "what": "‏ORIGINAL_ITEM_SELECT يقرأ unitCode وqty وunitPrice لبند الأصل بلا معامل، وoriginalOf ينسخها (السطور 92-107)",
+   "change": "قراءة unitName وunitFactor ونقلها إلى NoteOriginalItem ليحسب الإشعار المتاح والسعر بالأساس",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/invoicesNotes.ts",
+   "line": 145,
+   "kind": "qty_aggregate",
+   "what": "‏loadPriorNotes ينقل qty بنود الإشعارات السابقة خاماً",
+   "change": "نقل qty×unitFactor، فإشعار سابق بالحبة على بند كرتون يُنقص المتاح بالأساس",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/invoicesNotes.ts",
+   "line": 166,
+   "kind": "qty_aggregate",
+   "what": "‏loadLegacyReturns يجمع qty المرتجعات القديمة بالصنف خاماً",
+   "change": "الجمع بـ qty×unitFactor (بركة بالأساس)",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/invoicesNotes.ts",
+   "line": 351,
+   "kind": "qty_validation",
+   "what": "‏returnItemsToLines ينقل Number(it.qty) من بند المرتجع كما هو إلى بند الأصل (السطران 351 و362)",
+   "change": "تحويل الكمية إلى الأساس (أو إلى وحدة الإشعار المختارة) قبل مقارنتها بالمتاح، ونقل وحدة المرتجع",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/invoicesNotes.ts",
+   "line": 428,
+   "kind": "schema",
+   "what": "‏legacyNoteItem يكتب لصفّ الإشعار qty وunitPrice من المحرّك بلا وحدة، وبنود الإشعار تُنشأ في السطور 552-556",
+   "change": "كتابة لقطة unitName وunitFactor لبند الإشعار، فمخزون السيارة والتقارير تقرأ الإشعار الدائن كمرتجع وستجمعه بالمعامل",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/compliance/zatca/notes.ts",
+   "line": 300,
+   "kind": "qty_aggregate",
+   "what": "‏creditableLines يحسب qty وcredited وlegacyCredited وreturnable برقم خام، ويقرّب بـ roundQty إلى 4 خانات (السطور 289-315)",
+   "change": "الحساب كله بالأساس (qty×unitFactor). يُمنع حساب كسر الكرتون (1/24 = 0.0417 بعد التقريب)، لأن الكسور المقرّبة تُفشل آخر مرتجع بحارس الكمية",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/compliance/zatca/notes.ts",
+   "line": 387,
+   "kind": "qty_validation",
+   "what": "‏resolveCreditLines يقارن الكمية المطلوبة بـ l.returnable مباشرة",
+   "change": "المطلوب بوحدته × معامله مقابل المتاح بالأساس، ورسالة التجاوز بالوحدات",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/compliance/zatca/notes.ts",
+   "line": 575,
+   "kind": "price",
+   "what": "‏lineSourcesOf ينسخ unitPrice وunitCode بند الأصل كما هما، ثم يحسب المحرّك creditQty×unitPrice (السطر 626)",
+   "change": "إشعار بالحبة من بند كرتون: السعر = سعر البند ÷ نسبة المعاملين، والرمز رمز وحدة الحبة. اليوم يُسعَّر كل حبة بسعر كرتون فيُقيَّد للعميل 24 ضعفاً، ولا يمنعه assertCreditAmount إلا جزئياً",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/compliance/zatca/notes.ts",
+   "line": 311,
+   "kind": "einvoice",
+   "what": "رمز وحدة سطر الإشعار = unitCode بند الأصل، وإلا PCE",
+   "change": "رمز الوحدة الضريبي للوحدة التي يُرجَع بها فعلاً (قد تختلف عن وحدة البيع)",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/compliance/zatca/notes.ts",
+   "line": 409,
+   "kind": "qty_aggregate",
+   "what": "‏effectiveCreditScope (FULL أو PARTIAL، لحارس الصلاحية Q5) يجمع credited وreturnable والمطلوب برقم خام",
+   "change": "توحيد الوحدة (الأساس) بين wanted وreturnable، وإلا صُنّف إرجاع كامل بالحبات جزئياً أو العكس",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/compliance/zatca/issue.ts",
+   "line": 154,
+   "kind": "einvoice",
+   "what": "‏buildInvoiceSource يكتب unitCode = PCE ثابتاً لكل بند فاتورة المرحلة الثانية، مع qty وunitPrice كما هما",
+   "change": "رمز UN/ECE لوحدة البند من لقطتها (كرتون مثلاً) بدل PCE الثابت. الكمية والسعر يبقيان بوحدة البند",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/compliance/zatca/issue.ts",
+   "line": 500,
+   "kind": "einvoice",
+   "what": "‏phase2ItemColumns يكتب في InvoiceItem: seq وitemName وunitCode وفئة الضريبة",
+   "change": "إضافة unitName وunitFactor إلى أعمدة لقطة المرحلة الثانية، أو ضمانها من legacyItemColumns",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/invoicesZatca.ts",
+   "line": 425,
+   "kind": "schema",
+   "what": "‏legacyItemColumns يكتب لبنود فاتورة المرحلة الثانية productId وqty وunitPrice والمبالغ بلا وحدة، ولا unitCost",
+   "change": "كتابة لقطة unitName وunitFactor كما في المسار القديم، وإلا خرجت فواتير الشركات المربوطة بمعامل 1",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/invoicesZatca.ts",
+   "line": 563,
+   "kind": "einvoice",
+   "what": "‏request.items للإصدار الضريبي: productId وqty وunitPrice بلا وحدة",
+   "change": "تمرير رمز وحدة البند الضريبي إلى buildInvoiceSource",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/invoicesZatca.ts",
+   "line": 461,
+   "kind": "einvoice",
+   "what": "حمولة مستند الانتقال (cutover) تحفظ ctx.items وctx.body لإعادة إصداره لاحقاً",
+   "change": "ضمان أن البنود المحفوظة تحمل unitName وunitFactor لتُعاد بالوحدة نفسها عند القبول",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/services/invoiceExpiry.ts",
+   "line": 76,
+   "kind": "qty_aggregate",
+   "what": "‏vanLoadBatchAt يجمع vanLoadItem.qty للتحميلات، وinvoiceItem._sum.qty للمبيعات السابقة، و_sum.qty للتنزيل، ثم يمرّرها إلى fifoBatchAt (السطور 72-91)",
+   "change": "الجمع بالأساس. aggregate في Prisma لا يضرب بمعامل، فيلزم findMany مع qty×unitFactor أو عمود كمية أساس مخزَّن. وإلا اختيرت دفعة تحميل خاطئة فتاريخ انتهاء خاطئ وreturnExpired خاطئ",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/services/shelfLife.ts",
+   "line": 98,
+   "kind": "qty_aggregate",
+   "what": "‏fifoBatchAt دالة نقية تقارن consumedBefore بالمجموع التراكمي للدفعات",
+   "change": "لا تغيير في الدالة، بشرط أن تصلها كل المدخلات بالأساس من vanLoadBatchAt",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/lib/invoiceCalc.ts",
+   "line": 79,
+   "kind": "other",
+   "what": "‏bases = round(qty×unitPrice)، والبنود تُعاد بـ qty وunitPrice كما دخلت",
+   "change": "لا تغيير. qty وunitPrice يبقيان بوحدة البند نفسها، والمعامل لا يدخل المحرّك، والنسخة المطابقة في web-admin/src/rep/invoiceCalc.ts تبقى كما هي",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/lib/tax.ts",
+   "line": 36,
+   "kind": "other",
+   "what": "‏computeLine: base = qty×unitPrice − discount. لا يستورده إلا compliance/build-invoice.ts، ولا مستورد لذاك خارج الاختبارات",
+   "change": "لا تغيير، فهو كود غير مستعمل في الإنتاج. ويُذكر حتى لا يُعتمد عليه",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/routes/products.ts",
+   "line": 22,
+   "kind": "schema",
+   "what": "‏productSchema: unit نصٌّ واحد، وbasePrice سعر واحد، وunitCode واحد (السطر 43)",
+   "change": "وحدة أساس + مصفوفة وحدات إضافية (اسم، معامل >1 فريد، سعر، رمز ضريبي، نشاط)، مع منع تعديل معامل وحدة مستعملة أو قصره على الصفوف الجديدة",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/products.ts",
+   "line": 68,
+   "kind": "price",
+   "what": "‏GET /customer-prices/:customerId يعيد productId وprice فقط، وتطبيق المندوب يجعله السعر الافتراضي",
+   "change": "إعادة سعر العميل لكل وحدة، أو المعامل ليحسب التطبيق سعر الكرتون، وإلا عُرض سعر الحبة على بند كرتون ومرّ من حارس الخادم",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/products.ts",
+   "line": 51,
+   "kind": "price",
+   "what": "‏priceTierSchema (minQty وmaxQty وprice) يُستبدل كاملاً في PUT /:id/price-tiers (السطور 260-274)",
+   "change": "تحديد أن minQty وmaxQty بالأساس، وأن price لكل وحدة أساس أو لوحدة محددة (unitId في الشريحة)",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/products.ts",
+   "line": 121,
+   "kind": "display",
+   "what": "قائمة الأصناف وتفصيلها (السطر 136) تُرفق priceTiers مرتبة بـ minQty، ولا تُرفق وحدات",
+   "change": "إرفاق وحدات الصنف بأسعارها ومعاملاتها لتطبيق المندوب واللوحة",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/routes/products.ts",
+   "line": 241,
+   "kind": "other",
+   "what": "حذف أو أرشفة الصنف يحذف priceTier وcustomerPrice التابعة فقط",
+   "change": "معالجة جدول وحدات الصنف (حذف مع الحذف الفعلي، وإبقاء أو إيقاف مع الأرشفة). الفواتير القديمة تقرأ لقطة البند فلا تتأثر",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/routes/customers.ts",
+   "line": 428,
+   "kind": "price",
+   "what": "‏PUT /:id/prices يحفظ CustomerPrice بمفتاح customerId_productId، أي سعر واحد للصنف",
+   "change": "سعر خاص لكل وحدة (مفتاح يشمل الوحدة) أو سعر أساس يُضرب بالمعامل، بقرار واحد يتبعه حارس invoices.ts",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/customers.ts",
+   "line": 340,
+   "kind": "print",
+   "what": "كشف حساب العميل يُرفق بنود كل فاتورة مع product.name وproduct.unit لطباعتها",
+   "change": "العرض من لقطة unitName للبند. القيود والأرصدة بالمبالغ فلا تتغير",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/customers.ts",
+   "line": 405,
+   "kind": "display",
+   "what": "فواتير العميل تُرفق items مع product كاملاً",
+   "change": "عرض وحدة البند من لقطته لا من الصنف",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/routes/customers.ts",
+   "line": 131,
+   "kind": "display",
+   "what": "تفصيل العميل يُرفق customerPrices مع product",
+   "change": "إرفاق وحدة السعر الخاص إن صار لكل وحدة",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/services/invoiceReissue.ts",
+   "line": 95,
+   "kind": "einvoice",
+   "what": "إعادة إصدار المبسّطة المرفوضة تبني المستند من einvoiceSnapshot لا من أسعار اليوم",
+   "change": "لا تغيير، بشرط أن تحمل اللقطة رمز وحدة كل سطر وكميته بوحدته",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/lib/returnInvoice.ts",
+   "line": 165,
+   "kind": "price",
+   "what": "linkedCalcInputs يضرب qty المرتجع في refundUnitPrice (سعر وحدة بند البيع) لمعاينة إجمالي المرتجع المرتبط",
+   "change": "إن كانت كمية المرتجع بالحبة وبند البيع بالكرتون: السعر = refundUnitPrice ÷ (saleFactor ÷ returnFactor). وإلا ظهر الإجمالي ٢٤ ضعفاً",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/lib/returnInvoice.ts",
+   "line": 137,
+   "kind": "qty_validation",
+   "what": "clampReturnQty يقصّ الكمية على l.returnable وكلاهما بوحدة بند البيع ضمناً",
+   "change": "يحوَّل الطرفان إلى الأساس قبل المقارنة: returnableBase مع qty × returnFactor. بغير ذلك يُمنع إرجاع ٥ حبات من بند كرتونين، أو يُقبل ما يزيد على المتاح",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/lib/returnInvoice.ts",
+   "line": 229,
+   "kind": "qty_aggregate",
+   "what": "buildLinkedReturnPayload يرسل {productId, invoiceItemId, qty, unitPrice} بلا وحدة",
+   "change": "يضاف unitName وunitFactor لوحدة المرتجع، وunitPrice بعد قسمة نسبة المعاملين. والخادم يقارن بالأساس",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/lib/returnInvoice.ts",
+   "line": 44,
+   "kind": "schema",
+   "what": "ReturnableLineDto: الحقول sold/returned/returnable/refundUnitPrice/unit بلا معامل",
+   "change": "يضاف saleUnitName وsaleUnitFactor وreturnableBase وقائمة الوحدات المسموح الإرجاع بها، فتختار الواجهة الوحدة وتحسب السعر",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/lib/returnInvoice.ts",
+   "line": 145,
+   "kind": "qty_aggregate",
+   "what": "fillLinkedQty («إرجاع كامل المتاح») يملأ qty بقيمة returnable",
+   "change": "يملأ بوحدة البند الأصلية، أو بالأساس مع وحدة الأساس، ولا يخلط وحدتين في سطر واحد",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/lib/returnInvoice.ts",
+   "line": 241,
+   "kind": "qty_aggregate",
+   "what": "buildFreeReturnPayload يرسل بنود المرتجع الحرّ {productId, qty, unitPrice} بلا وحدة",
+   "change": "يحمل unitName وunitFactor من سطر المحرّر حتى يدخل المرتجع السيارة بالأساس الصحيح",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/lib/returnInvoice.ts",
+   "line": 374,
+   "kind": "print",
+   "what": "returnDocItems تأخذ unit من المصدر (بند البيع، ثم الصنف عند المطابقة بـproductId) لا من بند الردّ",
+   "change": "تُقرأ it.unitName من ردّ الخادم أولاً. وإلا طُبعت «٥ (كرتون)» على مرتجع ٥ حبات",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/components/forms/InvoiceModal.tsx",
+   "line": 232,
+   "kind": "price",
+   "what": "addProduct يدمج حسب productId ويضع unitPrice = p.basePrice وunit = p.unit",
+   "change": "اختيار الوحدة (الافتراضي وحدة البيع) وسعرها الخاص، والتمييز بالمفتاح productId+unitName لا productId وحده",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/components/forms/InvoiceModal.tsx",
+   "line": 312,
+   "kind": "qty_aggregate",
+   "what": "handleSubmit يرسل items {productId, qty, unitPrice, discountPct, taxPct} بلا وحدة",
+   "change": "يضاف unitName وunitFactor لكل بند، وهما اللقطة المحفوظة على InvoiceItem. والخادم يخصم المخزون بـqty×unitFactor",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/components/forms/InvoiceModal.tsx",
+   "line": 25,
+   "kind": "schema",
+   "what": "LineItem فيه unit نصّاً بلا unitFactor",
+   "change": "يضاف unitName وunitFactor وقائمة وحدات الصنف لمنتقي الوحدة في السطر",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/components/forms/InvoiceModal.tsx",
+   "line": 594,
+   "kind": "display",
+   "what": "خلية الصنف تعرض l.unit، والصف مفتاحه key={l.productId} (السطر 586)",
+   "change": "منتقي وحدة يغيّر السعر الافتراضي، ومفتاح الصف productId+unit",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/components/forms/InvoiceModal.tsx",
+   "line": 208,
+   "kind": "print",
+   "what": "ورقة البيع بعد الحفظ تُبنى محلياً من lines بـunit: l.unit",
+   "change": "تؤخذ unitName من السطر أو من ردّ الخادم، فتطابق الورقة السجلّ",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/components/forms/InvoiceModal.tsx",
+   "line": 539,
+   "kind": "display",
+   "what": "جدول المرتجع المرتبط يعرض sold/returned/returnable بلا وحدة، وحقل الكمية max={l.returnable} (السطر 544)",
+   "change": "يُعرض المتاح بالصيغة «X كرتون + Y حبة» مع منتقي وحدة للمرتجع، ويُحسب max بوحدة الإدخال",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/components/forms/InvoiceModal.tsx",
+   "line": 427,
+   "kind": "display",
+   "what": "تلميح الفاتورة يعرض returnableQty، وهو مجموع خام من الخادم لبنود قد تختلف وحداتها",
+   "change": "يُجمع بالأساس أو يُحذف الرقم ويُكتفى بعدد البنود",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/components/forms/InvoiceModal.tsx",
+   "line": 566,
+   "kind": "display",
+   "what": "تلميح الصنف في البحث: code • basePrice",
+   "change": "يُعرض سعر الوحدة الافتراضية أو أسعار الوحدات",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/components/forms/InvoiceDetailModal.tsx",
+   "line": 72,
+   "kind": "display",
+   "what": "يعرض item.product.unit مع Number(item.qty) في السطر 74. الملف لا يستورده أي موضع (كود ميت)",
+   "change": "إن أُبقي: item.unitName ?? product.unit. والأولى حذفه",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/components/forms/CustomerStatementModal.tsx",
+   "line": 22,
+   "kind": "qty_aggregate",
+   "what": "soldUnitsText يجمّع Number(it.qty) تحت it.product.unit: كرتونان يُحسبان «٢ حبة»",
+   "change": "يُجمَّع بـit.unitName أو يُحوَّل للأساس (qty×unitFactor) ثم يُعرض «X كرتون + Y حبة» لكل صنف",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/components/forms/CustomerStatementModal.tsx",
+   "line": 196,
+   "kind": "display",
+   "what": "أصناف كل حركة `${name} ×${qty}` بلا وحدة، ومثلها في تصدير Excel (السطر 84)",
+   "change": "تلحق unitName البند، وإلا لا يُعرف أكانت ×٢ كرتوناً أم حبة",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/types/index.ts",
+   "line": 222,
+   "kind": "schema",
+   "what": "Product فيه unit وbasePrice وunitCode مفردة",
+   "change": "يضاف baseUnit وunits[] {name, factor, price, barcode?, unitCode?, isDefaultSale?}",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/types/index.ts",
+   "line": 304,
+   "kind": "schema",
+   "what": "InvoiceItem يحمل product.unit وqty بلا لقطة وحدة",
+   "change": "يضاف unitName وunitFactor (افتراضه 1)، وتقرأ الواجهات اللقطة لا product.unit",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/types/index.ts",
+   "line": 397,
+   "kind": "schema",
+   "what": "AccountEntry.invoice.items {qty, product{name, unit}}",
+   "change": "يضاف unitName وunitFactor لكل بند في الكشف",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/types/index.ts",
+   "line": 257,
+   "kind": "schema",
+   "what": "PriceTier.minQty بلا وحدة",
+   "change": "يُحدَّد صراحةً أن minQty بالأساس، أو يضاف unitName للشريحة",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/components/forms/ProductModal.tsx",
+   "line": 176,
+   "kind": "schema",
+   "what": "حقل وحدة القياس نصّ واحد (placeholder «كرتون / قطعة / كيلو»)، ومعه basePrice واحد في السطر 181",
+   "change": "محرّر لوحدة الأساس ووحدات إضافية: الاسم والمعامل والسعر والباركود ورمز الوحدة. ويُمنع تعديل معامل وحدة لها حركات",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/components/forms/ProductModal.tsx",
+   "line": 339,
+   "kind": "einvoice",
+   "what": "unitCode (كود الوحدة للفوترة الإلكترونية) واحد للصنف",
+   "change": "يصير لكل وحدة رمزها، ويُرسل رمز وحدة البند لا رمز الصنف",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/components/forms/ProductModal.tsx",
+   "line": 119,
+   "kind": "schema",
+   "what": "onSave يرسل ...rest بحقل unit وbasePrice فقط",
+   "change": "يضاف units[] للحمولة والتحقق: معامل > 1 لغير الأساس، وأسماء غير مكررة",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/pages/ProductsPage.tsx",
+   "line": 99,
+   "kind": "display",
+   "what": "عمود الوحدة p.unit والسعر الأساسي p.basePrice (السطر 100)",
+   "change": "تُعرض وحدة الأساس مع الوحدات الإضافية وأسعارها، مثل «كرتون ٢٤ = ٤٨٫٠٠»",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/pages/VanStockPage.tsx",
+   "line": 698,
+   "kind": "stock_balance",
+   "what": "حفظ التحميل والتنزيل يرسل {productId, qty, suggestedQty, expectedQty} بلا وحدة",
+   "change": "يحمل كل سطر unitName وunitFactor، وsuggested وexpected بالأساس",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/pages/VanStockPage.tsx",
+   "line": 676,
+   "kind": "qty_aggregate",
+   "what": "applySuggestion يضع qty = String(r.suggested)، والاقتراح من الخادم بوحدة الأساس",
+   "change": "إن كانت وحدة السطر الافتراضية الكرتون: تُحوَّل أو تبقى الأساس صراحةً. وإلا حُمّل ٢٤ ضعفاً",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/pages/VanStockPage.tsx",
+   "line": 652,
+   "kind": "schema",
+   "what": "صفوف LoadModal {productId, name, unit, qty}، وaddProduct يرفض الصنف المكرر (السطران 661 و738)",
+   "change": "يضاف منتقي وحدة بمعامل لكل سطر، ويُحسم هل يُسمح بالصنف بوحدتين",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/pages/VanStockPage.tsx",
+   "line": 137,
+   "kind": "qty_validation",
+   "what": "askRemove يقارن الكمية المكتوبة بـhave (رصيد التالف أو المنتهي من الخادم) ثم يرسلها في السطر 127 بلا وحدة",
+   "change": "المقارنة والإرسال بالأساس صراحةً، أو بوحدة مختارة تُضرب في معاملها. والقيمة الافتراضية في prompt رقمٌ لا نص «X كرتون + Y حبة»",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/pages/VanStockPage.tsx",
+   "line": 318,
+   "kind": "display",
+   "what": "المحمل والمباع والمرتجع والمتبقي والمنتهي والتالف بـfmtQty، مع row.unit تحت الاسم (السطر 316)",
+   "change": "الأرقام بالأساس من الخادم وتُعرض «X كرتون + Y حبة» (الدالة تحتاج وحدات الصنف في الصف)",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/pages/VanStockPage.tsx",
+   "line": 527,
+   "kind": "display",
+   "what": "MovementRow يعرض it.qty مع it.unit لكل حركة",
+   "change": "تُعرض لقطة وحدة الحركة كما سُجّلت، أو الأساس مفكّكاً. ويُشترط أن يتّسق الخادم على أحدهما",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/pages/VanStockPage.tsx",
+   "line": 261,
+   "kind": "qty_aggregate",
+   "what": "ملخص المندوب: totalLoaded وtotalSold وtotalDamaged وtotalRemaining مجاميع كميات عبر أصناف مختلفة",
+   "change": "تصير بالأساس من الخادم. الجمع عبر الأصناف بلا معنى أصلاً، فيُستبدل بعدد الأصناف أو بالقيمة",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/pages/VanStockPage.tsx",
+   "line": 619,
+   "kind": "display",
+   "what": "دقة الاقتراح تعرض expected/loaded/actual/error مع r.unit",
+   "change": "بالأساس، ويُتأكد أن الخادم يقارن loaded بعد ضربه في المعامل",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/lib/vanMovement.ts",
+   "line": 40,
+   "kind": "stock_balance",
+   "what": "splitVanMovement يبني back بـ{productId, qty: -qty} فيجرّد كل حقل آخر، وMovementItem بلا وحدة",
+   "change": "يُمرَّر unitName وunitFactor في out وback معاً، وإلا نُزّل الكرتون حبة",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/lib/locations.ts",
+   "line": 253,
+   "kind": "qty_aggregate",
+   "what": "loadQty يجمع it.qty الخام لبنود التحميل في سجل التحميلات (VanLoadsLog السطر 152)",
+   "change": "يُجمع qty×unitFactor، ويعرض VanLoadsLog في السطر 146 وحدة البند لا it.product.unit",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/pages/CompanyWarehousePage.tsx",
+   "line": 340,
+   "kind": "cost",
+   "what": "WarehouseEntryModal يرسل items {productId, qty, unitCost} بلا وحدة",
+   "change": "يضاف unitName وunitFactor. qty بالوحدة المختارة وunitCost لتلك الوحدة، والخادم يخزّن qty×f والتكلفة ÷ f. وإلا ١٠ كراتين بـ٤٨ تُسجَّل ١٠ حبات بـ٤٨",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/pages/CompanyWarehousePage.tsx",
+   "line": 319,
+   "kind": "schema",
+   "what": "صفوف الوارد مفتاحها productId، فلا يتكرر الصنف (السطور 329 و334-336 و416)",
+   "change": "منتقي وحدة لكل سطر، والمفتاح productId+unit إن سُمح بالصنف بوحدتين",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/pages/CompanyWarehousePage.tsx",
+   "line": 371,
+   "kind": "cost",
+   "what": "entryTotal = q×net وقيمة السطر (السطر 436): الكمية والسعر من الوحدة نفسها",
+   "change": "تبقى صحيحة ما دام السعر لوحدة السطر نفسها. ويُكتب بجانب حقل السعر «لكل كرتون» حتى لا يُكتب سعر الحبة",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/pages/CompanyWarehousePage.tsx",
+   "line": 216,
+   "kind": "display",
+   "what": "الرصيد والوارد والخارج والعائد بـfmtQty، ومتوسط تكلفة الوحدة avgCost في السطر 223",
+   "change": "الكميات بصيغة «X كرتون + Y حبة»، وavgCost يُوسم «لكل [وحدة الأساس]» أو يُعرض لوحدة البيع أيضاً",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/pages/CompanyWarehousePage.tsx",
+   "line": 276,
+   "kind": "display",
+   "what": "سجل الوارد يعرض it.qty وformatCurrency(it.unitCost)/it.product.unit",
+   "change": "يقرأ لقطة وحدة البند (unitName) والسعر لها، وإلا عُرض سعر الكرتون منسوباً للحبة",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/pages/CompanyWarehousePage.tsx",
+   "line": 162,
+   "kind": "display",
+   "what": "بطاقة «في مخزون السيارات»: vans.qty مع كلمة «وحدة»، وهو مجموع عبر الأصناف",
+   "change": "يصير بالأساس، أو يُحذف الرقم ويُبقى على القيمة وعدد الأصناف",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/components/StockRequestModal.tsx",
+   "line": 61,
+   "kind": "qty_aggregate",
+   "what": "repRequestTotals يجمع كميات طلبات المناديب لكل صنف ويملأ بها خانة الطلب العام (السطر 68)",
+   "change": "يُجمع بالأساس (qty×unitFactor لكل بند) ثم يُعرض بالوحدة المختارة",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/components/StockRequestModal.tsx",
+   "line": 88,
+   "kind": "qty_aggregate",
+   "what": "saveReq يرسل {productId, qty} لتعديل طلب المندوب بلا وحدة",
+   "change": "يحمل وحدة البند الأصلية (unitName وunitFactor)، أو تُفرض الأساس صراحةً",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/components/StockRequestModal.tsx",
+   "line": 263,
+   "kind": "schema",
+   "what": "تعديلات بنود طلب المندوب مفتاحها edits[reqId][productId] والصف key={i.productId} (السطر 266)",
+   "change": "المفتاح معرّف البند أو productId+unit، فلا يتصادم صنف طلبه المندوب بوحدتين",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/components/StockRequestModal.tsx",
+   "line": 220,
+   "kind": "display",
+   "what": "الرصيد الحالي r.onHand بـfmtQty، والكمية المطلوبة بلا منتقي وحدة (السطر 221)",
+   "change": "الرصيد بصيغة «X كرتون + Y حبة»، والطلب بوحدة مختارة تُحفظ في سطر الورقة",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/lib/stockRequest.ts",
+   "line": 148,
+   "kind": "qty_aggregate",
+   "what": "repRequestTotals وrepRequestDirty (السطر 144) يجمعان ويقارنان i.qty حسب productId",
+   "change": "يُجمع qty×unitFactor والمفتاح بند لا صنف. وStockRequestLine في السطر 100 يحمل unitName وunitFactor",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/lib/stockRequest.ts",
+   "line": 114,
+   "kind": "qty_aggregate",
+   "what": "stockRequestTotalQty يجمع qty كل الأسطر للورقة، والطباعة تستعمله (RepDocuments السطر 1252)",
+   "change": "يُحذف أو يُجمع بالأساس. وparseRequestQty (السطر 86) يقرّب لخانتين، فلا يصلح لكسور الكرتون",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/pages/ReportsPage.tsx",
+   "line": 1062,
+   "kind": "qty_aggregate",
+   "what": "تقرير المبيعات حسب الصنف يعرض row.qty من الخادم بلا وحدة، ومثله في تصدير Excel (السطر 641)",
+   "change": "الخادم يجمع qty×unitFactor، والواجهة تعرض «X كرتون + Y حبة» أو الأساس مع اسمه",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/pages/ReportsPage.tsx",
+   "line": 1154,
+   "kind": "display",
+   "what": "تقرير المرتجع: `${it.name} ×${qty}` بلا وحدة، وفي Excel عمود الكمية بلا وحدة (السطر 619)",
+   "change": "تلحق it.unitName البند (ReturnRow.items في السطر 70 يحمل unit من الصنف)، ويضاف عمود الوحدة",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/pages/ReportsPage.tsx",
+   "line": 578,
+   "kind": "display",
+   "what": "تصدير «كمية صنف معين» يلحق rankingQ.data.product.unit، ويعرضه RepRankingBoard (السطران 43 و122)",
+   "change": "الخادم يرتّب بالأساس، والوسم اسم وحدة الأساس، أو يُعرض مفكّكاً",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/rep/RepDocuments.tsx",
+   "line": 1403,
+   "kind": "print",
+   "what": "invoiceDocFromDetail يضع unit: it.product?.unit وqty: it.qty لكل بند: الفاتورة المطبوعة من اللوحة",
+   "change": "unit: it.unitName ?? it.product.unit. وإلا طُبعت الفاتورة الضريبية «٢ (حبة)» لكرتونين",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/rep/RepDocuments.tsx",
+   "line": 521,
+   "kind": "print",
+   "what": "الوحدة تُطبع فقط إذا كان look.showItemUnit مفعّلاً، والكمية في السطر 531 رقم مجرّد",
+   "change": "تُطبع الوحدة دائماً حين يختلف unitFactor عن 1، مهما كان الخيار",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/RepDocuments.tsx",
+   "line": 831,
+   "kind": "qty_aggregate",
+   "what": "«الوحدات المباعة» في كشف الحساب المطبوع تجمع it.qty تحت it.unit، والبنود مبنية بـproduct.unit (السطر 1494)",
+   "change": "البناء بلقطة unitName، والتجميع بالأساس ثم التفكيك",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/RepDocuments.tsx",
+   "line": 1563,
+   "kind": "print",
+   "what": "إشعار حركة السيارة: items بـunit من الحركة، وإجمالي الكميات يجمع |qty| (السطر 1050)",
+   "change": "لقطة وحدة كل سطر، والإجمالي بالأساس أو يُحذف",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/rep/RepDocuments.tsx",
+   "line": 1593,
+   "kind": "print",
+   "what": "إشعار الوارد: unit: i.product.unit مع unitCost (السطر 1203: سعر الوحدة)",
+   "change": "لقطة وحدة البند والسعر لها، وإلا طُبعت تكلفة الكرتون منسوبةً للحبة",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/lib/print/printSettingsCore.ts",
+   "line": 92,
+   "kind": "print",
+   "what": "showItemUnit خيار اختياري (افتراضه true في السطر 239)، ومفتاحه في PrintSettingsPanel السطر 404",
+   "change": "يُشرح أو يُقيَّد: إخفاء الوحدة مع الوحدات المتعددة يجعل الكمية بلا معنى. ومعاينة PrintPreview (السطر 155) تعرض مثالاً بوحدتين",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/lib/importData.ts",
+   "line": 1247,
+   "kind": "cost",
+   "what": "المخزون الافتتاحي: qty وunitCost بلا عمود وحدة، وtotal += qty×unitCost (السطر 1256)",
+   "change": "يُفرض أنهما بوحدة الأساس ويُكتب ذلك، أو يضاف عمود «الوحدة» يُطابق بوحدات الصنف. ملف ERP بالكراتين يدخل رصيداً أقل ٢٤ مرة",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/lib/importData.ts",
+   "line": 1188,
+   "kind": "price",
+   "what": "قوائم الأسعار الخاصة: {customer, productCode, price} بلا وحدة",
+   "change": "يضاف عمود وحدة اختياري (الافتراض الأساس). والبيع بالكرتون يسعّر من الخاص × المعامل أو من سعر خاص لكل وحدة",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/lib/importData.ts",
+   "line": 820,
+   "kind": "integration",
+   "what": "استيراد المنتجات: unit نصّ واحد يدخل توقيع التكرار (السطران 824 و826)، والتعليق في السطر 801 يذكر «ماء كرتون» و«ماء حبة» صنفين",
+   "change": "يضاف استيراد الوحدات الإضافية (اسم ومعامل وسعر وباركود). عمود unit يبقى وحدة الأساس، ويحدَّث توقيع productRowSignature في الخادم معه",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/lib/importRevert.ts",
+   "line": 568,
+   "kind": "display",
+   "what": "تسميات حقول أخطاء الاستيراد: unit «الوحدة»، qty «الكمية»، unitCost «تكلفة الوحدة» (السطر 570)",
+   "change": "تضاف تسميات الأعمدة الجديدة (unitName وunitFactor)، والتراجع عن دفعة المنتجات (السطر 57) يحذف وحداتها",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/api/client.ts",
+   "line": 539,
+   "kind": "integration",
+   "what": "نوع createLoad.items {productId, qty, suggestedQty, expectedQty}، ومثله createEntry (السطر 563) وrepStockRequestApi.update (السطر 583)",
+   "change": "يضاف unitName? وunitFactor? للأنواع الثلاثة. invoiceApi.create (السطر 161) unknown، فيُحدَّد شكل البند",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/api/client.ts",
+   "line": 81,
+   "kind": "price",
+   "what": "updatePriceTiers يرسل tiers {minQty, maxQty, price}، يستعمله m/MProducts.tsx وحده",
+   "change": "يُحدَّد أن minQty بالأساس وأن السعر لوحدة الأساس، أو لكل شريحة وحدتها",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/lib/apiDocsCatalog.ts",
+   "line": 1476,
+   "kind": "integration",
+   "what": "دليل الـAPI يوثّق items[].qty للفاتورة وProduct.unit (السطر 760) والتحميل (السطر 3155) والمستودع (السطر 3588) بلا وحدة",
+   "change": "توثيق unitName وunitFactor (الافتراض 1)، وأن الأرصدة المعادة بالأساس. عميل API قديم يبقى بلا تغيير",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/pages/CatalogPage.tsx",
+   "line": 51,
+   "kind": "price",
+   "what": "المنيو العام يحسب gross من p.basePrice ويعرض p.unit (السطر 129)",
+   "change": "يعرض سعر وحدة البيع الافتراضية أو كل الوحدات، والمصدر /public/catalog في الخادم",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/rep/warehouseNoticeFacts.ts",
+   "line": 47,
+   "kind": "qty_aggregate",
+   "what": "receiveTotalQty وadjustTotals (السطر 37) يجمعان qty أسطر الإشعار الخام",
+   "change": "يُجمع بالأساس أو يُحذف إجمالي الكميات عند اختلاف الوحدات",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/routes/reports.ts",
+   "line": 75,
+   "kind": "qty_aggregate",
+   "what": "تقرير المبيعات groupBy=product يجمع Number(item.qty) لكل صنف كما هي",
+   "change": "اختيار unitFactor في include البنود (السطر 60) والجمع بـ qty×unitFactor (الافتراض 1)، وإرجاع الكمية بالأساس مع تفكيك عرض «X كرتون + Y حبة» من وحدات الصنف؛ total يبقى Σ lineTotal",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/reports.ts",
+   "line": 826,
+   "kind": "qty_aggregate",
+   "what": "معيار «الصنف» في تقييم الأداء rep-ranking يجمع Number(r.qty) لكل مندوب (select السطر 824 بلا معامل)",
+   "change": "إضافة unitFactor إلى select والجمع بـ qty×unitFactor؛ الترتيب (وقد يُبنى عليه حافز) يجب أن يكون بالأساس",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/reports.ts",
+   "line": 779,
+   "kind": "display",
+   "what": "يُرجع product{id,name,unit} ليوسم قيمة الترتيب (ويعود في الرد السطر 862)",
+   "change": "الوحدة الموسومة = اسم وحدة الأساس، مع إتاحة وحدات الصنف ومعاملاتها ليعرض الواجهة التفكيك",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/routes/reports.ts",
+   "line": 291,
+   "kind": "display",
+   "what": "تقرير المرتجع يعرض qty البند ووحدته من product.unit الحالية (select السطران 253-254) لا من لقطة البند",
+   "change": "اختيار unitName وunitFactor من البند؛ الوحدة = item.unitName ?? product.unit، وإضافة الكمية بالأساس والتفكيك؛ مرتجع الحبة من بند كرتون يظهر بوحدته الحقيقية",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/reports.ts",
+   "line": 60,
+   "kind": "integration",
+   "what": "تقرير المبيعات بلا groupBy يُرجع كل أعمدة InvoiceItem (موثّق لمفاتيح API fsk_) ومعها product{id,name,code}",
+   "change": "الأعمدة الجديدة unitName/unitFactor ستظهر تلقائياً (إضافة لا كسر)؛ يلزم توثيق أن qty بوحدة البند وأن الأساس = qty×unitFactor، واختيارياً إضافة baseQty",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/routes/dashboard.ts",
+   "line": 81,
+   "kind": "cost",
+   "what": "المشتريات الشهرية = SUM(i.qty * i.\"unitCost\") على warehouse_entry_items لحركات RECEIVE",
+   "change": "يتبع قرار معنى WarehouseEntryItem.unitCost: إن صار لكل وحدة أساس فالصيغة SUM(qty*unitFactor*unitCost)، وإن بقي لوحدة السطر فتبقى؛ يجب أن تطابق تقييم warehouseCost وإلا اختلف رقم اللوحة عن قيمة المخزون",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/services/gl/builders/invoice.ts",
+   "line": 134,
+   "kind": "price",
+   "what": "أوزان توزيع الإيراد والخصم على سلال (حساب، ضريبة): gross = qty×unitPrice ثم الوعاء قبل الضريبة",
+   "change": "لا تغيير ما دام unitPrice لقطة لوحدة السطر نفسها؛ الثابت الواجب: لا يُقرن qty بالأساس بسعر الكرتون أبداً، وبند مرتجع الحبة من بند كرتون يُخزَّن بكمية الحبات وسعر الحبة (سعر البند ÷ نسبة المعاملين)",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/services/gl/builders/invoice.ts",
+   "line": 400,
+   "kind": "schema",
+   "what": "invoicePayloadFromRows تبني حمولة حدث الترحيل (تُخزَّن JSON في حدث GL) من qty وunitPrice بلا وحدة",
+   "change": "لا يلزم معامل للقيد؛ اختيارياً إضافة unitName/unitFactor للحمولة للتدقيق دون تغيير معنى qty",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/services/gl/sync/postingStore.prisma.ts",
+   "line": 653,
+   "kind": "other",
+   "what": "تحميل بنود الفاتورة للمُرحِّل (qty, unitPrice …) ثم تمريرها للحمولة (السطر 674)؛ ومثله reconcilerStore.prisma.ts:100/110 وdesired.ts:97-98/272",
+   "change": "إبقاء qty بوحدة السطر مع unitPrice؛ إن أُضيف عمود baseQty فلا يُستبدل به qty هنا وإلا اختلّت الأوزان",
+   "risk": "low"
+  },
+  {
+   "file": "backend/prisma/schema.prisma",
+   "line": 1064,
+   "kind": "cost",
+   "what": "InvoiceItem.unitCost «تكلفة الصنف لحظة البيع لحساب COGS في M6» — افتراضه 0 ولا يُحسب بعد",
+   "change": "تحديد معناه صراحةً: تكلفة وحدة الأساس، وCOGS = qty×unitFactor×unitCost؛ وإلا تضاعفت التكلفة 24 مرة لبند الكرتون",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/services/gl/sync/keys.ts",
+   "line": 24,
+   "kind": "cost",
+   "what": "أحداث INVOICE:<id>:COGS وRESTOCK ومصادر WH_ENTRY/VAN_LOAD محجوزة (poster.ts:551 تُرجع false — M9)",
+   "change": "أي builder مستقبلي للتكلفة أو حركة المخزون يقرأ الكمية بالأساس (qty×unitFactor) وتكلفة الأساس",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/services/gl/opening.ts",
+   "line": 975,
+   "kind": "stock_balance",
+   "what": "loadOpeningSources يقرأ warehouseEntryItem (qty, unitCost) وvanLoadItem (qty) بلا معامل ويمرّرها لـ composeWarehouse (السطور 427-431) فتظهر قيمة المستودع والكمية بلا تكلفة في معاينة الافتتاح (السطر 1203)",
+   "change": "اختيار unitFactor وتمرير qty×unitFactor، وتحويل unitCost إلى تكلفة أساس إن كان مخزّناً لوحدة السطر",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/services/gl/opening.ts",
+   "line": 1114,
+   "kind": "cost",
+   "what": "openingStockEntryValueMilli = Σ qty×unitCost لحركات «مخزون افتتاحي» المستبعدة (التحميل في السطر 1150 بلا معامل) — تحذير المعالج",
+   "change": "اختيار unitFactor واستعمال الصيغة نفسها المعتمدة لـ unitCost (أساس أو سطر)",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/ai-rep/estimateData.ts",
+   "line": 79,
+   "kind": "qty_aggregate",
+   "what": "صافي الكمية الشهرية لكل (عميل، صنف): SUM(±ii.qty) يخلط بنود الكرتون والحبة",
+   "change": "SUM(±ii.qty*COALESCE(ii.\"unitFactor\",1)); القيمة (lineTotal−taxAmt) سليمة",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/ai-rep/estimateData.ts",
+   "line": 94,
+   "kind": "qty_aggregate",
+   "what": "بنود أول طلب لكل عميل: SUM(ii.qty)",
+   "change": "SUM(ii.qty*ii.\"unitFactor\") بالأساس",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/ai-rep/estimate.ts",
+   "line": 364,
+   "kind": "qty_aggregate",
+   "what": "يحسب monthlyQty وfirstOrderQty (384) وtrialQty (391-395) ويوسمها prod.unit (399)؛ roundQty يقرّب لعدد صحيح",
+   "change": "الأرقام بالأساس والوسم وحدة الأساس، مع تفكيك عرض؛ اختيارياً تقريب الطلب التجريبي لمضاعفات الكرتون",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/ai-rep/googleDemandData.ts",
+   "line": 44,
+   "kind": "price",
+   "what": "مرساة الطلب: وسيط ii.qty ووسيط سعر الوحدة (lineTotal−taxAmt)/qty (السطر 45) — خلط بنود الكرتون والحبة يُفسد الوسيطين",
+   "change": "ORDER BY ii.qty*unitFactor، والسعر ÷ (qty*unitFactor) أي سعر وحدة الأساس",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/ai-rep/googleDemand.ts",
+   "line": 372,
+   "kind": "qty_aggregate",
+   "what": "الطلب المتوقع raw = a.qty×T×Q… وqtyRound بحسب المرساة، والترتيب بالكمية×السعر (380)، والوسم p.unit (375، 421، 427)",
+   "change": "بعد تحويل المرساة للأساس تبقى المعادلة؛ الوسم وحدة الأساس مع تفكيك للعرض",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/ai-rep/learn/calibration.ts",
+   "line": 94,
+   "kind": "qty_aggregate",
+   "what": "تقييم لقطات التوقّع بأول فاتورة: SUM(ii.qty) ثم buildActuals (66)، وكذلك firstOrders في LOO (166)",
+   "change": "SUM(ii.qty*ii.\"unitFactor\")؛ ومعالجة اللقطات القديمة (قبل الأساس) كي لا تُقارن بمقياس مختلف",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/ai-rep/learn/gsig.ts",
+   "line": 86,
+   "kind": "other",
+   "what": "أزواج المعايرة pred (qtyRaw من اللقطة) مقابل actual.first من الفواتير",
+   "change": "الطرفان بالأساس؛ استبعاد لقطات gsig المسجّلة قبل التحويل أو وسمها بنسخة",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/ai-rep/convert.ts",
+   "line": 80,
+   "kind": "other",
+   "what": "لقطة aiEstimateSnapshot تحفظ monthlyQty/firstOrderQty/trialQty بلا ذكر لأساس القياس",
+   "change": "إضافة مؤشر qtyBasis/نسخة في payload لتميّز حلقة التعلّم الكميات القديمة من الأساس",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/ai-rep/advisorTools.ts",
+   "line": 130,
+   "kind": "display",
+   "what": "يرسل للنموذج product وunit (product.unit) مع monthly_qty_median، وكذلك 184-192 (trial «${trialQty} ${unit}») و247",
+   "change": "الوسم وحدة الأساس أو نصّ التفكيك؛ وbaseAllowedNumbers (359) يجب أن يسمح بأرقام المعاملات والتفكيك وإلا رُفض الرد كرقم مختلق",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/ai-rep/guide.ts",
+   "line": 94,
+   "kind": "display",
+   "what": "نصّ الطلب التجريبي `${p.name} ${p.trialQty} ${p.unit}`",
+   "change": "وحدة الأساس أو تفكيك «X كرتون + Y حبة»",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/routes/aiRep.ts",
+   "line": 128,
+   "kind": "display",
+   "what": "ملخّص سطر القائمة top: unit وqtyMedian",
+   "change": "وسم وحدة الأساس",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/ai-rep/profileStudy.ts",
+   "line": 207,
+   "kind": "display",
+   "what": "StudyExpected {product, unit, qty, low, high} يدخل موجّه دراسة المحل (ومثله scanGuide.ts:44)",
+   "change": "الكمية بالأساس ووحدة الأساس، وأرقام التفكيك ضمن المسموح (السطر 237)",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/routes/vanStock.ts",
+   "line": 325,
+   "kind": "qty_aggregate",
+   "what": "اقتراح التحميل /suggest: يقرأ invoiceItem.qty بلا معامل كمبيعات ومرتجعات (334-340) ويطرح منها onVan من computeStock",
+   "change": "اختيار unitFactor وتمرير qty×unitFactor؛ وonVan يجب أن يكون بالأساس كذلك",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/services/suggestLoad.ts",
+   "line": 136,
+   "kind": "qty_aggregate",
+   "what": "يجمع الطلب اليومي لكل صنف ويحسب expected ثم suggested = withBuffer − onVan",
+   "change": "المدخلات كلها بالأساس، والمخرجات بالأساس مع وحدة الأساس؛ اختيارياً تقريب suggested لمضاعفات وحدة التحميل",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/vanStock.ts",
+   "line": 375,
+   "kind": "qty_aggregate",
+   "what": "دقّة الاقتراح /accuracy: تقرأ vanLoadItem.qty وsuggestedQty وexpectedQty وinvoiceItem.qty (382) بلا معامل",
+   "change": "loaded = qty×unitFactor لبند التحميل، والمبيع qty×unitFactor؛ suggestedQty/expectedQty تُخزَّن بالأساس دائماً",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/services/suggestAccuracy.ts",
+   "line": 170,
+   "kind": "qty_validation",
+   "what": "adopted = |qty المحمَّل − suggested| < 0.001، وloaded += it.qty (161)، والفعلي من Σ qty (134)",
+   "change": "المقارنة بالأساس؛ تحميل كرتون بمعامل 24 مقابل اقتراح بالحبة لن يُعدّ «معتمداً» أبداً دون التحويل",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/services/locations.ts",
+   "line": 177,
+   "kind": "qty_aggregate",
+   "what": "تقرير اللوكيشن: loads.qty += qty لكل تحميل ولكل صنف، ومجموع عام عبر الأصناف (204)؛ والمسار routes/locations.ts:83/94 يختار qty وحده",
+   "change": "اختيار unitFactor والجمع بالأساس لكل صنف مع تفكيك؛ المجموع العابر للأصناف إمّا بالأساس صراحةً أو يُحذف",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/customers.ts",
+   "line": 340,
+   "kind": "display",
+   "what": "كشف حساب العميل يضمّن بنود الفواتير مع product{name, unit} الحالية (و/:id/invoices في 405 بـ product: true)",
+   "change": "عرض وحدة البند من لقطته unitName لا من الصنف الحالي",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/pages/ReportsPage.tsx",
+   "line": 1062,
+   "kind": "display",
+   "what": "جدول المبيعات حسب الصنف يعرض row.qty خاماً (والتصدير في 641 «العدد/الكمية»)",
+   "change": "عرض الكمية بالأساس مع تفكيك «X كرتون + Y حبة» في الجدول والتصدير",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/pages/ReportsPage.tsx",
+   "line": 1154,
+   "kind": "display",
+   "what": "تقرير المرتجع يعرض «الاسم ×qty» بلا وحدة، والتصدير (619) qty وحده",
+   "change": "إظهار وحدة البند (unitName) أو التفكيك في الشاشة والتصدير",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/components/reports/RepRankingBoard.tsx",
+   "line": 43,
+   "kind": "display",
+   "what": "formatRankingValue يعرض قيمة معيار الصنف بـ product.unit (122)، ومثله تصدير ReportsPage.tsx:579",
+   "change": "وحدة الأساس أو التفكيك",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/pages/LocationsPage.tsx",
+   "line": 287,
+   "kind": "display",
+   "what": "يعرض كمية تحميلات كل صنف بـ p.unit، والمجاميع العامة (168، 231، 279، 306)",
+   "change": "تفكيك بالأساس لكل صنف ومراجعة معنى المجموع العام",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/pages/VanStockPage.tsx",
+   "line": 681,
+   "kind": "qty_validation",
+   "what": "«تطبيق الاقتراح» يملأ سطر التحميل qty = r.suggested وsuggestedQty/expectedQty بوحدة r.unit (677-684)، والعرض في 801-802 وجدول الدقّة 618",
+   "change": "الاقتراح بالأساس يُطبَّق بمعامل 1 (وحدة الأساس) أو يُحوَّل لوحدة السطر المختارة؛ وsuggestedQty/expectedQty تُرسل بالأساس دائماً",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/m/MRepLoad.tsx",
+   "line": 197,
+   "kind": "qty_validation",
+   "what": "نسخة الجوال من «تطبيق الاقتراح» (193-200) وعرضه (398-399)",
+   "change": "كسابقه: لا يُقرن رقم أساس بوحدة كرتون",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/lib/apiDocsCatalog.ts",
+   "line": 4666,
+   "kind": "integration",
+   "what": "توثيق مفاتيح API لتقارير المبيعات (4666) والمرتجع (4750) والترتيب (5110) ومشتريات اللوحة (5137) — qty وunit بلا ذكر للوحدات",
+   "change": "توثيق unitName/unitFactor وأن الكميات المجمّعة بالأساس ومعنى unitCost",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 1748,
+   "kind": "price",
+   "what": "netPriceOf يعيد سعر العميل الخاص أو Product.basePrice للصنف كله؛ ومنه inclPrice (1749) يحوّله شاملاً بضريبة الصنف",
+   "change": "السعر يُؤخذ من وحدة البند المختارة (سعر الوحدة الإضافية نفسها، أو سعر العميل للوحدة/×المعامل حسب العقد)، ويُقرَّب الشامل من صافي الوحدة لا ×المعامل من شامل الحبة كي يطابق أرضية الخادم",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 1736,
+   "kind": "price",
+   "what": "تأثير custPrices يستبدل refPrice (وunitPrice إن لم يُمسّ) لكل سطر بسعر العميل للصنف × (1+ضريبة السطر) دون أي اعتبار للوحدة",
+   "change": "يستبدل بسعر العميل لوحدة السطر (أو cp×unitFactor) وإلا بيع الكرتون بسعر الحبة صامتاً؛ والمطابقة بالسطر (productId+unit) لا بالصنف",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 1765,
+   "kind": "price",
+   "what": "addProduct يبني سطر البيع: unit=p.unit، qty=1، unitPrice/refPrice=inclPrice(p)، taxPct=p.taxPct من الصنف",
+   "change": "السطر يحمل unitName وunitFactor (لقطة) وسعر الوحدة ورمزها الضريبي (taxPct الوحدة لا الصنف)، مع منتقي وحدة؛ الافتراض وحدة البيع الافتراضية أو الأساس بمعامل 1",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 1763,
+   "kind": "qty_aggregate",
+   "what": "الدمج بـproductId وحده: إضافة الصنف مرة ثانية تزيد qty+1 للسطر الموجود",
+   "change": "مفتاح السطر productId+unitName/unitFactor، وإلا أُضيفت حبة إلى سطر كرتون (+1 كرتون) أو العكس",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 1771,
+   "kind": "qty_validation",
+   "what": "onScan يطابق الباركود بحقل Product.barcode الواحد ويضيف الصنف بوحدته",
+   "change": "باركود لكل وحدة (كرتون/حبة)؛ مسح باركود الكرتون يضيف سطر الكرتون بمعامله لا حبة",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 1786,
+   "kind": "qty_validation",
+   "what": "بند فاتورة البيع في المرتجع: qty يُقصّ إلى maxQty بنفس وحدة البند",
+   "change": "عند إرجاع حبة من بند كرتون: maxQty بالوحدة المختارة = المتاح بالأساس ÷ معامل الوحدة المختارة، والقص يتم بالأساس",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 1791,
+   "kind": "price",
+   "what": "أرضية السعر: unitPrice لا ينزل عن refPrice للسطر",
+   "change": "refPrice يجب أن يكون بوحدة السطر نفسها؛ تبديل وحدة السطر يعيد حساب refPrice وunitPrice معاً وإلا صارت الأرضية سعر الحبة على سطر كرتون",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 1796,
+   "kind": "price",
+   "what": "تعديل إجمالي البند يشتق السعر عكسياً priceFromLineTotal(v, qty, ...) بكمية السطر",
+   "change": "يبقى صحيحاً ما دام qty وunitPrice بوحدة السطر نفسها؛ ممنوع تمرير الكمية بالأساس هنا",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 1804,
+   "kind": "display",
+   "what": "qtyInCart يعيد qty أول سطر للصنف — شارة الشبكة (2120)",
+   "change": "مع وحدات متعددة للصنف نفسه: الشارة تعرض بالأساس «X كرتون + Y حبة» أو مجموع الأساس لا كمية سطر واحد",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 1805,
+   "kind": "qty_aggregate",
+   "what": "itemCount يجمع qty كل الأسطر ويُعرض على زرّ «مراجعة وإصدار»",
+   "change": "جمع كراتين مع حبات رقم بلا معنى؛ يُعرض عدد الأسطر أو المجموع بالأساس",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 1812,
+   "kind": "tax_amount",
+   "what": "computeInvoiceTotals بالأسطر (qty, unitPrice, discountPct, taxPct) — إجمالي وضريبة الفاتورة المعروضة والمطبوعة",
+   "change": "لا معامل هنا: qty وunitPrice بوحدة السطر، وtaxPct من رمز وحدة السطر الضريبي؛ مرآة backend/src/lib/invoiceCalc.ts يجب أن تتلقى المدخلات نفسها",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 1857,
+   "kind": "qty_validation",
+   "what": "onPickSale يملأ المرتجع من بنود فاتورة البيع: qty=maxQty=l.returnable، unitPrice=refPrice=l.refundUnitPrice، unit=l.unit",
+   "change": "يحمل unitName/unitFactor لقطة بند البيع والمتاح بالأساس، ويتيح تبديل الوحدة: السعر = refundUnitPrice × (معامل الجديدة ÷ معامل البيع) بلا تقريب وسيط، والمتاح يُحوَّل",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 1899,
+   "kind": "qty_aggregate",
+   "what": "حمولة POST /invoices لكل بند: productId, qty, unitPrice, discountPct, taxPct (+invoiceItemId للمرتجع) بلا أي وحدة",
+   "change": "إضافة unitName/unitFactor (أو معرّف الوحدة) لكل بند؛ بدونها يخصم الخادم ٢ حبة بدل ٢ كرتون ويقارن السعر بأرضية الحبة",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 1916,
+   "kind": "print",
+   "what": "printItems للطباعة بعد الإصدار مباشرة (متصل أو دون اتصال) تحمل unit=l.unit وqty وunitPrice من السلة",
+   "change": "تحمل unitName/unitFactor لقطة السطر نفسها التي أُرسلت للخادم، كي تطابق ورقة الإصدار ورقة إعادة الفتح (invoiceDocFromDetail)",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 1985,
+   "kind": "offline",
+   "what": "outboxAdd يحفظ حمولة الفاتورة/المرتجع كما هي في IndexedDB وتُعاد كما هي عند المزامنة",
+   "change": "الحمولة تحمل حقول الوحدة؛ والمصفوف بحزمة قديمة بلا وحدة يجب أن يُقرأ بمعامل 1 في الخادم — وهذا يفترض أن وحدة الأساس لم تتغيّر لصنف له تاريخ",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 1707,
+   "kind": "offline",
+   "what": "fetchThenCache('products') يخزّن قائمة الأصناف (basePrice, taxPct, unit, barcode) للبيع دون اتصال",
+   "change": "الكاش يجب أن يضمّ وحدات الصنف (الاسم، المعامل، السعر، الضريبة، الباركود)؛ وكاش قديم بلا وحدات يُعامل وحدة أساس واحدة لا يُخمَّن",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 1721,
+   "kind": "offline",
+   "what": "كاش custprices:<customerId> يحفظ سعر العميل الخاص لكل صنف (خريطة productId → price)",
+   "change": "السعر الخاص بأي وحدة؟ إن صار لكل وحدة فالخريطة productId+unit؛ وكاش قديم دون اتصال يُقرأ لوحدة الأساس وحدها",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 2090,
+   "kind": "display",
+   "what": "خيارات «اختر صنفاً» وبطاقة الشبكة (2126) تعرض formatCurrency(inclPrice(p)) سعراً واحداً للصنف",
+   "change": "عرض سعر وحدة البيع الافتراضية مع اسمها (أو سعري الكرتون والحبة)",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 2154,
+   "kind": "display",
+   "what": "مراجعة السلة: key={l.productId} لكل سطر، وحقول الكمية/السعر/الخصم (2174) بلا وحدة ظاهرة",
+   "change": "المفتاح بالسطر (productId+وحدة) لتفادي تصادم React، وإظهار/تبديل وحدة السطر بجوار الكمية",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 2165,
+   "kind": "display",
+   "what": "«المتاح للإرجاع: maxQty l.unit» في بند مرتجع من فاتورة بيع",
+   "change": "يعرض المتاح بالوحدة المختارة أو «X كرتون + Y حبة» بعد إرجاع جزئي بالحبة (وإلا ظهر 0.792 كرتون)",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 2207,
+   "kind": "tax_amount",
+   "what": "سطر «الضريبة» يعرض نسبة واحدة أو «نسب متعددة» من taxPct الأسطر",
+   "change": "مع رمز ضريبي لكل وحدة قد يختلط الصنف الواحد بنسبتين؛ النسبة تُقرأ من سطر الوحدة",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 3245,
+   "kind": "qty_validation",
+   "what": "شاشة التحميل: addProduct يضيف صفاً بـproductId وunit=p.unit (الأساس)، صفاً واحداً لكل صنف",
+   "change": "منتقي وحدة لكل صف وتمييز الصف بالوحدة؛ المندوب يحمّل بالكرتون عادة",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 3251,
+   "kind": "stock_balance",
+   "what": "حمولة POST /van-stock/loads: items = {productId, qty} بلا وحدة",
+   "change": "إضافة unitName/unitFactor لكل بند (VanLoadItem)؛ بدونها تحميل ١٠ كراتين يدخل السيارة ١٠ حبات",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 3211,
+   "kind": "qty_aggregate",
+   "what": "طلب البضاعة: reqLines من خريطة reqQty بمفتاح productId → {productId, qty} وتُرسل PUT /rep-stock-requests/mine (3218) بلا وحدة",
+   "change": "وحدة لكل بند في الطلب (RepStockRequestItem.unitName/unitFactor) والخريطة بمفتاح productId+وحدة",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 3208,
+   "kind": "qty_validation",
+   "what": "openRequest يعيد ملء الطلب المعلّق من items[].requestedQty بمفتاح productId",
+   "change": "يحفظ وحدة البند المعلّق؛ صنف بوحدتين في الطلب يُطمس أحدهما الآخر",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 3285,
+   "kind": "qty_validation",
+   "what": "«عدّلته الإدارة إلى» يقارن a.qty (المعتمد) بـa.requestedQty مباشرة",
+   "change": "المقارنة بالأساس (qty×unitFactor لكلٍّ) لو اعتمدت الإدارة بوحدة غير وحدة الطلب، وعرض المعتمد بوحدته",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 3292,
+   "kind": "display",
+   "what": "في طلب البضاعة: «p.unit · في سيارتك inVan» حيث inVan = s.remaining من /van-stock/current (3267)",
+   "change": "الرصيد بالأساس يُعرض «X كرتون + Y حبة» لا رقماً بجانب اسم وحدة الأساس",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 3413,
+   "kind": "display",
+   "what": "مخزون سيارتي: محمّل/مباع/منتهي/تالف (3415، 3418) ومتبقٍّ (3422) بـfmt ثم s.unit من الخادم",
+   "change": "الخادم يجمعها بالأساس، والعرض «X كرتون + Y حبة»؛ ألوان العجز (remaining<0) تبقى على الأساس",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/RepDocuments.tsx",
+   "line": 1403,
+   "kind": "print",
+   "what": "invoiceDocFromDetail يبني بنود الفاتورة من الخادم: unit = it.product?.unit (وحدة الصنف الحالية) مع qty وunitPrice الصف",
+   "change": "unit من لقطة الصف it.unitName (وunitFactor)، وإلا طُبع «٢ حبة» لبند ٢ كرتون؛ البانية مشتركة بين المندوب واللوحة و/m",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/rep/RepDocuments.tsx",
+   "line": 113,
+   "kind": "schema",
+   "what": "نوع InvoiceDoc.items: name, unit?, qty, unitPrice, discountPct, taxPct, lineTotal",
+   "change": "إضافة unitName/unitFactor (اختياريان، الغياب = 1) ليتمكّن القالبان من إظهار الوحدة دائماً",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/RepDocuments.tsx",
+   "line": 521,
+   "kind": "print",
+   "what": "قالب A4: الوحدة بجانب اسم الصنف تُخفى إن أطفأت الشركة showItemUnit، والكمية {it.qty} (531) والسعر (533)",
+   "change": "إظهار وحدة السطر إجباراً حين unitFactor≠1 أو للصنف أكثر من وحدة، وإلا قُرئ «٢ × ٤٨» بلا معنى",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/RepDocuments.tsx",
+   "line": 538,
+   "kind": "tax_amount",
+   "what": "«قبل الضريبة» = unitPrice×100/(100+taxPct) للفاتورة القياسية",
+   "change": "صحيح بوحدة السطر ما دام unitPrice وtaxPct للوحدة؛ يجب أن تظهر الوحدة بجانبه",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/rep/RepDocuments.tsx",
+   "line": 448,
+   "kind": "einvoice",
+   "what": "رمز QR للمرحلة الأولى يُبنى على الجهاز من total وtax فقط (وكذلك thermal.ts:142)",
+   "change": "لا يحتاج معاملاً — يتأثر فقط إن خرج الإجمالي خاطئاً من أسعار الوحدات",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/rep/RepDocuments.tsx",
+   "line": 1494,
+   "kind": "display",
+   "what": "statementDocFromData: أصناف قيد الكشف {name, qty, unit: it.product?.unit}",
+   "change": "unit من لقطة صف الفاتورة unitName لا من الصنف",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/RepDocuments.tsx",
+   "line": 832,
+   "kind": "qty_aggregate",
+   "what": "soldUnits في كشف الحساب يجمع qty بمفتاح اسم الوحدة عبر كل الأصناف ويطبعه في صف الإجماليات (915)",
+   "change": "مع وحدات متعددة: إما التجميع بالأساس لكل صنف أو بالوحدة المطبوعة الحقيقية؛ اليوم يصير «كرتون» من لقطات خاطئة إن جاء unit من الصنف",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/RepDocuments.tsx",
+   "line": 901,
+   "kind": "display",
+   "what": "سطر أصناف القيد في الكشف «name ×qty» بلا وحدة",
+   "change": "إضافة وحدة السطر (×٢ كرتون) لأن الكمية لم تعد بوحدة واحدة",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/rep/RepDocuments.tsx",
+   "line": 1050,
+   "kind": "qty_aggregate",
+   "what": "إشعار التحميل: totalQty يجمع |qty| كل الأسطر ويطبعه «إجمالي الكميات» (1067) وفي التذييل بوحدة «وحدة» (1097)",
+   "change": "الجمع بالأساس أو حذف الإجمالي المختلط؛ وكمية كل سطر (1089) بوحدته",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/RepDocuments.tsx",
+   "line": 1563,
+   "kind": "print",
+   "what": "loadNoticeDocFromData يأخذ unit من حركة الخادم كما وصلت",
+   "change": "المصدر يجب أن يكون لقطة VanLoadItem.unitName لا Product.unit",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/RepDocuments.tsx",
+   "line": 1593,
+   "kind": "cost",
+   "what": "warehouseNoticeDocFromEntry: unit = i.product.unit، مع qty وunitCost وlineCost من الخادم",
+   "change": "unit من لقطة WarehouseEntryItem.unitName، وunitCost المطبوع «سعر الوحدة» (1203) يجب أن يكون بوحدة السطر نفسها لا بالأساس",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/rep/RepDocuments.tsx",
+   "line": 1162,
+   "kind": "qty_aggregate",
+   "what": "إشعار المستودع يطبع إجمالي الوارد receiveTotalQty وزيادة/نقص التسوية adjustTotals (1164-1165)",
+   "change": "الدالتان تجمعان qty خاماً؛ تُغذّيان بالأساس (qty×unitFactor) أو يُعرض الإجمالي بالأساس",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/RepDocuments.tsx",
+   "line": 1252,
+   "kind": "qty_aggregate",
+   "what": "طلب المخزون: stockRequestTotalQty يجمع qty ويطبعه «إجمالي الكميات» (1272، 1316)، والرصيد onHand بجانب it.unit (1304-1307)",
+   "change": "الإجمالي بالأساس، وonHand (رصيد بالأساس) لا يُطبع بجانب وحدة طلبٍ بالكرتون",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/RepDocuments.tsx",
+   "line": 1333,
+   "kind": "print",
+   "what": "تفصيل طلبات المناديب في ورقة طلب المخزون: «name qty unit»",
+   "change": "unit من لقطة بند طلب المندوب",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/rep/warehouseNoticeFacts.ts",
+   "line": 39,
+   "kind": "qty_aggregate",
+   "what": "adjustTotals يجمع qty الموجب والسالب كما هو، وreceiveTotalQty (48) يجمع qty الوارد",
+   "change": "تجمع qty×(unitFactor??1) أو تبقى خاماً ويتغيّر المستدعي؛ و NoticeLine يحتاج unitFactor",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/thermal.ts",
+   "line": 223,
+   "kind": "print",
+   "what": "الشريط الكلاسيكي 58مم: «اسم (unit)» ثم «qty × unitPrice» وإجمالي السطر (224)",
+   "change": "الوحدة من لقطة السطر؛ والسطر محروس بنصّ ذهبي (GOLDEN_SHA) فيجب أن يبقى بايتاً ببايت عند unitFactor=1",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/thermal.ts",
+   "line": 392,
+   "kind": "print",
+   "what": "القالبان الجديدان (مختصر/مفصّل): الوحدة تظهر فقط إن showItemUnit، والكمية (409، 417) والسعر (410)",
+   "change": "إظهار الوحدة إجباراً للسطر بغير الأساس؛ ويرثها البلوتوث المباشر (printHtmlDirect) من هذا HTML",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/thermal.ts",
+   "line": 396,
+   "kind": "tax_amount",
+   "what": "«قبل الضريبة» لكل بند = unitPrice×100/(100+taxPct)",
+   "change": "صحيح بوحدة السطر بشرط taxPct من رمز الوحدة",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/rep/SaleInvoicePicker.tsx",
+   "line": 19,
+   "kind": "schema",
+   "what": "ReturnableLine: unit, sold, returned, returnable, refundUnitPrice بوحدة واحدة ضمنية",
+   "change": "إضافة unitName/unitFactor لبند البيع والمتاح بالأساس (أو مع معامله) كي يحوّل المرتجع بالحبة من بند كرتون",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/rep/SaleInvoicePicker.tsx",
+   "line": 129,
+   "kind": "qty_aggregate",
+   "what": "يعرض «المتاح للإرجاع» = row.returnableQty من الخادم، مجموع كميات عبر أصناف الفاتورة",
+   "change": "مجموع كراتين وحبات بلا معنى؛ يُعرض عدد الأصناف المتاحة أو مجموع بالأساس",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/rep/aiRepLogic.ts",
+   "line": 474,
+   "kind": "display",
+   "what": "expectedQtyText يعرض «qty unit» للطلب المتوقع من الخادم (googleDemand.ts) ويُستعمل في RepAiScreen.tsx:697 والقائمة (491)",
+   "change": "الخادم يحسب حجم الطلب المعتاد من InvoiceItem.qty — يجب أن يكون بالأساس أو بوحدة معلنة، والعرض بالوحدة نفسها",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/rep/invoiceCalc.ts",
+   "line": 79,
+   "kind": "price",
+   "what": "أساس البند = round(qty × unitPrice) — المحرّك المشترك مع backend/src/lib/invoiceCalc.ts",
+   "change": "لا معامل داخله؛ الثابت: qty وunitPrice دائماً بوحدة السطر نفسها، ولا تُمرَّر كمية بالأساس مع سعر الوحدة",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/rep/offlineDb.ts",
+   "line": 157,
+   "kind": "offline",
+   "what": "OutboxDoc.payload: unknown يحفظ حمولة POST كما هي ويرفعها offlineSync.ts:68 دون تحويل",
+   "change": "لا تغيير في البنية؛ الخادم يعالج غياب حقول الوحدة في المصفوف قديماً بمعامل 1",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/compliance/zatca/issue.ts",
+   "line": 154,
+   "kind": "einvoice",
+   "what": "buildInvoiceSource يكتب unitCode='PCE' ثابتاً (PHASE2_UNIT_CODE، السطر 44) لكل بند، ويمرّر qty وunitPrice من الطلب كما هما",
+   "change": "يأخذ رمز UN/ECE لوحدة الصفّ (كرتون/علبة…) من لقطة الوحدة في البند، ويُبقي qty وunitPrice بوحدة الصفّ نفسها. بغير ذلك يقول المستند الضريبي «24 PCE» بسعر الكرتون، أو «2 PCE» والمقصود كرتونان. الافتراض PCE يبقى لوحدة الأساس وحدها",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/compliance/zatca/issue.ts",
+   "line": 63,
+   "kind": "schema",
+   "what": "IssuanceItemInput (63-69) فيه productId وqty وunitPrice وdiscountPct وtaxPct فقط، وIssuanceProduct (55-61) فيه حقول الضريبة وحدها",
+   "change": "إضافة unitName وunitFactor ورمز الوحدة (unitCode) إلى IssuanceItemInput حتى يبني buildInvoiceSource البند بوحدته. لا حاجة إلى unitFactor داخل الـXML نفسه",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/compliance/zatca/amounts.ts",
+   "line": 286,
+   "kind": "tax_amount",
+   "what": "engineLines يحسب الأساس r2(qty×unitPrice) بالتعبير العائم نفسه الذي في lib/invoiceCalc.ts (يحرسه اختبار مطابقة حرفية)، وsolvePrice (السطران 357 و438) يحلّ السعر عكسياً على الكمية نفسها",
+   "change": "تبقى الأرقام صحيحة ما دامت qty وunitPrice بالوحدة نفسها. ممنوع إدخال كمية بالأساس مع سعر الكرتون أو العكس. وإن غيّر المحرّك طريقة الحساب (الأساس × سعر الأساس مثلاً) فيلزم التغيير نفسه هنا حرفاً بحرف، وإلا تفشل كل فواتير المرحلة الثانية بـ422 ZATCA_AMOUNTS",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/compliance/zatca/amounts.ts",
+   "line": 359,
+   "kind": "einvoice",
+   "what": "quantity = formatDec(l.q, 6): ست خانات حدّاً أدنى بلا حدّ أعلى. وكذلك السطر 437 في الوضع الشامل",
+   "change": "لا يدخل الـXML كسرُ كرتون (19/24 مثلاً) لأنه يُكتب بسبع عشرة خانة في InvoicedQuantity. الكمية غير القابلة للقسمة تُصدَر بوحدة الأساس ورمزها، أو يُضاف حارس على عدد خانات الكمية",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/compliance/zatca/mapInvoice.ts",
+   "line": 262,
+   "kind": "einvoice",
+   "what": "InvoicedQuantity@unitCode = clean(it.unitCode) ?? 'PCE'، والكمية a.quantity من LineSource.qty (تعريف LineSource في 60-70)",
+   "change": "لا تغيير في الحساب. المطلوب أن يمرّر المستدعي رمز وحدة الصفّ الحقيقي. ولا تُضاف unitName/unitFactor إلى UblLine، لأن اللقطة تحفظ ما كُتب في الـXML وحده",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/compliance/zatca/issue.ts",
+   "line": 299,
+   "kind": "tax_amount",
+   "what": "storedAmounts (D6) يطابق إجمالي المحرّك (المحسوب في routes/invoices.ts) مع PayableAmount المحسوب من request.items",
+   "change": "يجب أن يكون مُدخل المحرّك وrequest.items المرسَل للهيئة بالوحدة نفسها وبالترتيب نفسه. تحديث جهة واحدة يُفشل الإصدار بـ422، وهو فشل آمن لكنه يوقف كل الفواتير متعددة الوحدات",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/invoicesZatca.ts",
+   "line": 425,
+   "kind": "stock_balance",
+   "what": "legacyItemColumns ينسخ قائمة صريحة من أعمدة البند (productId، qty، unitPrice، الخصم، الضريبة، lineTotal) إلى صفّ InvoiceItem في المرحلة الثانية (السطر 617)",
+   "change": "إضافة unitName وunitFactor إلى Phase2LegacyItem (329-338) وإلى هذه الدالة. وإلا يُحفظ بند الكرتون بمعامل 1 فيُخصم من مخزون السيارة كرتون واحد بدل 24 حبة، وتختلّ التكلفة والتقارير",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/invoicesZatca.ts",
+   "line": 563,
+   "kind": "einvoice",
+   "what": "issueNow يبني request.items من body.items بأربعة حقول، وتعريف Phase2RequestBody.items في السطر 319 لا يعرف الوحدة",
+   "change": "تمرير unitName وunitFactor ورمز الوحدة من بند الطلب إلى IssuanceItemInput",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/invoicesZatca.ts",
+   "line": 432,
+   "kind": "einvoice",
+   "what": "PRODUCT_PHASE2_SELECT يقرأ من الصنف id وname وحقول الضريبة فقط",
+   "change": "قراءة رمز UN/ECE لكل وحدة من جدول وحدات الصنف الجديد، أو الاكتفاء بلقطة الرمز في البند. والفئة الضريبية تبقى على مستوى الصنف",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/routes/invoicesZatca.ts",
+   "line": 446,
+   "kind": "display",
+   "what": "cutoverRecordFrom يحفظ body وitems ونتيجة المحرّك حمولةً لمراجعة الإدارة (D11)",
+   "change": "الحمولة يجب أن تحمل لقطة الوحدة لكل بند، كي يرى المراجع «2 كرتون» لا «2»",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/compliance/zatca/notes.ts",
+   "line": 284,
+   "kind": "qty_aggregate",
+   "what": "creditableLines يجمع qty بنود الإشعارات السابقة لكل creditedItemId (284-291) بلا معامل",
+   "change": "الجمع بالأساس: Σ qty×unitFactor لبنود الإشعار. مرتجعٌ بالحبة من بند كرتون يُعدّ اليوم كراتين، فيمنع إرجاعاً مشروعاً أو يسمح بإرجاع أكثر من المباع",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/compliance/zatca/notes.ts",
+   "line": 292,
+   "kind": "qty_aggregate",
+   "what": "بركة المرتجعات القديمة legacyPool تُجمع بالصنف (292-305) ثم تُطرح من qty بند الأصل",
+   "change": "تحويل كمية المرتجع القديم وبند الأصل كليهما إلى الأساس قبل الطرح والاستهلاك من البركة",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/compliance/zatca/notes.ts",
+   "line": 315,
+   "kind": "qty_validation",
+   "what": "returnable = qty − credited − legacyCredited بوحدة البند (300-315)، وCreditableLine يحمل qty/returnable بلا وحدة",
+   "change": "حساب returnableBase = qty×unitFactor − credited − legacyCredited بالأساس، وإعادته مع unitName/unitFactor وعرض «X كرتون + Y حبة» في معاينة /creditable",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/compliance/zatca/notes.ts",
+   "line": 387,
+   "kind": "qty_validation",
+   "what": "resolveCreditLines يقارن الكمية المطلوبة بـreturnable بلا وحدة، و'FULL' (السطر 353) يضع creditQty = returnable بوحدة البند",
+   "change": "قبول وحدة الطلب (unitFactor) والمقارنة بالأساس. وحين لا يقبل الباقي بعد مرتجع جزئي بالحبة القسمةَ على المعامل، يُصدر 'FULL' الباقي بوحدة الأساس لا كسرَ كرتون",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/compliance/zatca/notes.ts",
+   "line": 571,
+   "kind": "price",
+   "what": "lineSourcesOf يأخذ لبند الإشعار unitCode بند الأصل وunitPrice بند الأصل مع creditQty، وengineOf (585، 626) يحسب qty×unitPrice",
+   "change": "مرتجع الحبة من بند كرتون: السعر = سعر البند المباع ÷ (معامل الأصل/معامل المرتجع)، والرمز رمز وحدة المرتجع، والبند يحمل unitName/unitFactor. بغير ذلك يُقيَّد للعميل 24 ضعفاً حتى يوقفه حارس القيمة",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/compliance/zatca/notes.ts",
+   "line": 440,
+   "kind": "tax_amount",
+   "what": "assertCreditAmount شبكة أمان بقيمة الإشعارات مقابل إجمالي الأصل، بسماح 0.01 × سلال النسب × عدد الإشعارات (426-430)",
+   "change": "يبقى كما هو، فهو الحارس الوحيد الذي يكشف خطأ 24 ضعفاً. السماح يكفي لانحراف التقريب الناتج عن قسمة سعر الكرتون على المعامل (حتى نصف هللة لكل سطر في كل إشعار). يُضاف اختبار لمرتجعات حبة متتالية من بند كرتون",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/compliance/zatca/notes.ts",
+   "line": 404,
+   "kind": "qty_aggregate",
+   "what": "effectiveCreditScope يجمع credited وlegacyCredited وما يبقى عبر البنود ليقرّر FULL أو PARTIAL (صلاحية Q5)",
+   "change": "الجمع بالأساس بعد إصلاح creditableLines. خطأ الوحدة هنا يمنح إلغاءً كاملاً لمن لا يملك صلاحية الإلغاء أو يمنعه عن غيره",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/compliance/zatca/notes.ts",
+   "line": 53,
+   "kind": "schema",
+   "what": "NoteOriginalItem (53-70) وLegacyReturnQty (105-108) وPriorNote.items (111-117) لا تحمل وحدة",
+   "change": "إضافة unitFactor (وunitName ورمز الوحدة) إلى الثلاثة",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/compliance/zatca/notes.ts",
+   "line": 311,
+   "kind": "einvoice",
+   "what": "رمز الوحدة الاحتياطي PCE لبند أصلٍ بلا لقطة (السطر 311)، وPCE ثابت لبنود الإشعار المدين الحرّة (السطر 670)",
+   "change": "الاحتياط يصير رمز وحدة البند المحفوظ. والمدين الحرّ يبقى PCE أو يُختار رمزه، فلا أثر له على المخزون",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/routes/invoicesNotes.ts",
+   "line": 63,
+   "kind": "schema",
+   "what": "ORIGINAL_ITEM_SELECT وoriginalOf (91-107) يقرآن qty وunitPrice وunitCode لبند الأصل بلا unitName/unitFactor",
+   "change": "قراءة لقطة الوحدة وتمريرها إلى NoteOriginalItem، فلا يُبنى الإشعار إلا بها",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/invoicesNotes.ts",
+   "line": 141,
+   "kind": "qty_aggregate",
+   "what": "loadPriorNotes يقرأ من بنود الإشعارات السابقة {creditedItemId, qty} فقط (141-145)",
+   "change": "إضافة unitFactor إلى الاختيار والتحويل",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/invoicesNotes.ts",
+   "line": 163,
+   "kind": "qty_aggregate",
+   "what": "loadLegacyReturns يقرأ من بنود المرتجعات القديمة {productId, qty} فقط (163-166)",
+   "change": "إضافة unitFactor (الصفوف القديمة = 1) والتحويل إلى الأساس",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/invoicesNotes.ts",
+   "line": 346,
+   "kind": "qty_validation",
+   "what": "returnItemsToLines يحوّل بنود مرتجع التطبيق {productId, invoiceItemId, qty} (تعريف ReturnItemLine في 295) إلى بنود الأصل، ويطابق بالصنف إن وُجد بند واحد",
+   "change": "ReturnItemLine يحمل وحدة المرتجع. وفاتورة فيها الصنف بكرتون وبحبة معاً ستُرجع 422 التباس، فيلزم التطبيق إرسال invoiceItemId",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/invoicesNotes.ts",
+   "line": 428,
+   "kind": "stock_balance",
+   "what": "legacyNoteItem يكتب لبند الإشعار الدائن qty من المحرّك بلا وحدة (الإنشاء في 553-557)، ثم يقرأ مخزونُ السيارة الصفَّ مرتجعاً عادياً RETURN",
+   "change": "كتابة unitName وunitFactor لوحدة المرتجع في الصفّ، وإلا يعود إلى السيارة 1 بدل 24 حبة في مرتجع الكرتون",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/invoices.ts",
+   "line": 714,
+   "kind": "qty_validation",
+   "what": "مرتجع POST /invoices في شركة مربوطة يحوّل body.items إلى {productId, invoiceItemId, qty} قبل issueReturnAsCreditNote، فتسقط الوحدة",
+   "change": "تمرير وحدة المرتجع (unitFactor/unitName) مع كل بند",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/services/erpPayload.ts",
+   "line": 101,
+   "kind": "integration",
+   "what": "invoicePayloadRow ينشر أعمدة البند (...it) ويضيف unitPriceNet وnetAmount بوحدة الصفّ. أما product.unit المرسل (erp.ts السطر 146) فاسم وحدة الأساس",
+   "change": "إضافة حقول صريحة qtyBase وunitName وunitFactor (payloadVersion 3). الأعمدة الجديدة ستصل تلقائياً بالنشر لكن المستقبِل يجهلها، فيرى «2» بوحدة «حبة»",
+   "risk": "medium"
+  },
+  {
+   "file": "integrations/odoo/fieldsales_connector/mapping.py",
+   "line": 265,
+   "kind": "integration",
+   "what": "map_invoice_line يكتب quantity = qty وprice_unit بلا product_uom_id، فيسجّل Odoo الكراتين بوحدة الصنف الافتراضية. وmap_product (131، 139) يرسل list_price = basePrice وfs_unit نصّاً",
+   "change": "إرسال الكمية بالأساس مع سعر الأساس (أو ربط UoM بالمعامل). المبالغ تبقى صحيحة لاتساق qty×price، لكن كميات Odoo وتقاريره تختلط بين كرتون وحبة",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/services/erp.ts",
+   "line": 137,
+   "kind": "integration",
+   "what": "قراءة المنتجات للمزامنة تضمّ category وpriceTiers فقط",
+   "change": "ضمّ وحدات الصنف (الاسم والمعامل والسعر والرمز) إلى حمولة المنتج",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/services/apiSync.ts",
+   "line": 92,
+   "kind": "integration",
+   "what": "INVOICE_ITEM_COLS قائمة سماح صريحة لبنود الفواتير في /api/v1/sync/invoices (تحوي qty وunitCost وunitCode)",
+   "change": "إضافة unitName وunitFactor. اختبار التغطية (src/tests/api-sync.test.ts 81-91) لا يفحص إلا أعمدة النموذج الأعلى، فلن يُفشل البناء والعمود يُحذف بصمت، وتقرأ الأنظمة الخارجية كمية الكرتون أساساً. ويلزم توثيق وحدة unitCost (للصفّ أم للأساس)",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/services/apiSync.ts",
+   "line": 196,
+   "kind": "integration",
+   "what": "بنود van-loads ‏{productId, qty, suggestedQty, expectedQty} (السطر 196) وبنود warehouse-entries ‏{productId, qty, unitCost} (السطر 201) قوائم سماح متداخلة",
+   "change": "إضافة unitName وunitFactor لكلٍّ منهما، أو كمية أساس صريحة. والاختبار لا يحرس هذه القوائم المتداخلة كذلك",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/services/apiSync.ts",
+   "line": 125,
+   "kind": "integration",
+   "what": "مورد products يرسل PRODUCT_COLS (63-68) وpriceTiers {minQty, maxQty, price}، بلا وحدات إضافية ولا وحدة لـminQty",
+   "change": "إضافة الوحدات علاقةً متداخلة أو مورداً مستقلاً، وتوثيق أن minQty بالأساس. أعمدة Product الجديدة سيلتقطها اختبار التغطية، وجدول الوحدات الجديد لن يلتقطه",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/import.ts",
+   "line": 1104,
+   "kind": "stock_balance",
+   "what": "استيراد المخزون الافتتاحي يكتب WarehouseEntryItem {productId, qty, unitCost} من الملف (المخطط 990-996، والحساب في importLedger.ts 878-887) على أنه بالأساس ضمناً",
+   "change": "عمود وحدة في الملف أو نصّ صريح «بالوحدة الأساس»، مع لقطة unitName/unitFactor في البند. ملفٌّ بالكراتين يدخل اليوم رصيداً قدره 1/24 من الحقيقة، وتُسجَّل تكلفة الكرتون للحبة فيتضخّم التقييم 24 مرة",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/import.ts",
+   "line": 944,
+   "kind": "price",
+   "what": "استيراد الأسعار الخاصة (priceRow 885-891) يكتب CustomerPrice بمفتاح customerId_productId: سعر واحد لكل صنف",
+   "change": "تحديد أن السعر للأساس، أو إضافة بُعد الوحدة إلى المفتاح والملف إن كان للعميل سعر كرتون. سعر كرتون في الملف يُحفظ اليوم سعراً للحبة",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/import.ts",
+   "line": 628,
+   "kind": "integration",
+   "what": "استيراد المنتجات (productRow 544-551) ينشئ الصنف بوحدة نصية واحدة وbasePrice، وبصمة التكرار productRowSignature (importLedger.ts 1037) تعتمد عليهما",
+   "change": "أعمدة اختيارية للوحدات الإضافية (الاسم، المعامل، السعر، الرمز) وإدخالها في البصمة. وإلا يبقى الإعداد يدوياً لكل صنف",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/import.ts",
+   "line": 1315,
+   "kind": "schema",
+   "what": "التراجع عن دفعة المنتجات يحذف priceTier وcustomerPrice ثم الصنف",
+   "change": "حذف وحدات الصنف أيضاً (أو onDelete: Cascade)، وإلا يُمنع التراجع بقيد FK",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/routes/publicCatalog.ts",
+   "line": 47,
+   "kind": "display",
+   "what": "المنيو العام يعرض unit وbasePrice للصنف فقط (47-50 و62-65، ويعرضها CatalogPage.tsx)",
+   "change": "إضافة الوحدات الإضافية بأسعارها (كرتون = 24 حبة)",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/compliance/zatca/preflight.ts",
+   "line": 144,
+   "kind": "einvoice",
+   "what": "الفحص المسبق يتحقق من أن unitCode غير فارغ فقط، بلا قائمة رموز",
+   "change": "التحقق من رمز كل وحدة مقابل قائمة UN/ECE Rec 20/21 عند حفظ الوحدة وفي الفحص المسبق، وإلا يدخل الـXML نصّ حرّ مثل «كرتون»",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/lib/apiDocsCatalog.ts",
+   "line": 1476,
+   "kind": "integration",
+   "what": "دليل API يصف items[].qty بكلمة «الكمية» فقط، وكذلك lines[].qty للإشعار (السطر 1725)",
+   "change": "توثيق حقول الوحدة ودلالتها (الكمية بوحدة الصفّ والمعامل بالأساس) في الإنشاء والمرتجع والمزامنة",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/routes/vanStock.ts",
+   "line": 147,
+   "kind": "stock_balance",
+   "what": "foldStock يجمع it.qty خاماً في loaded/unloaded/adjusted/expiredOut/damagedOut (السطر 147-148) وفي sold/returned/expiredIn/damagedIn (السطر 154-155)، وواجهتا LoadRow/InvRow (99-107) بلا معامل",
+   "change": "الطيّ بالأساس: إما أن يصله qty×unitFactor جاهزاً من طبقة القراءة، أو تُضاف unitFactor إلى LoadRow/InvRow ويضرب بها هنا. الأفضل التحويل عند الحدّ وإبقاء الدالة صرفة بالأساس",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/vanStock.ts",
+   "line": 174,
+   "kind": "stock_balance",
+   "what": "computeStock يقرأ vanLoadItem (176) وinvoiceItem (181) بعمود qty وحده ثم يمرّرها لـfoldStock — أساس رصيد السيارة لكل المستدعين",
+   "change": "اختيار unitFactor من الصفّين وتمرير الكمية بالأساس (qty×unitFactor، والغائب = 1)",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/vanStock.ts",
+   "line": 185,
+   "kind": "display",
+   "what": "يقرأ Product.unit ويُرجعه unit في كل صفّ StockRow (202) فيُعرض الرصيد بوحدة واحدة",
+   "change": "إرجاع اسم وحدة الأساس ووحدات الصنف بمعاملاتها حتى تعرض الواجهات «X كرتون + Y حبة»؛ والرصيد نفسه يبقى رقماً بالأساس",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/vanStock.ts",
+   "line": 30,
+   "kind": "schema",
+   "what": "loadSchema: كل بند فيه productId وqty وsuggestedQty وexpectedQty، بلا وحدة",
+   "change": "قبول unitId أو unitName اختيارياً (والافتراض الأساس)، والتحقق أنها من وحدات الصنف، واشتقاق unitFactor في الخادم لا من الجسم",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/vanStock.ts",
+   "line": 242,
+   "kind": "qty_validation",
+   "what": "assertOutAvailable يجمع i.qty للإزالة (EXPIRED_OUT/DAMAGED_OUT) ويقارنه برصيد expired/damaged المحسوب (245)",
+   "change": "تحويل كل بند إلى الأساس قبل الجمع والمقارنة، وإلا أمكن إزالة «2 كرتون» من رصيد «2 حبة» تالفة",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/vanStock.ts",
+   "line": 261,
+   "kind": "schema",
+   "what": "إنشاء بنود VanLoadItem بـqty وsuggestedQty وexpectedQty فقط",
+   "change": "كتابة لقطة unitName وunitFactor على البند. وsuggestedQty/expectedQty تبقيان بالأساس (من المحرّك) مهما كانت وحدة الصفّ",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/vanStock.ts",
+   "line": 338,
+   "kind": "qty_aggregate",
+   "what": "/suggest يبني صفوف البيع والمرتجع من invoiceItem.qty خاماً (325، 338) ويمرّر onVan من computeStock",
+   "change": "qty×unitFactor لبنود الفاتورة، فلا يُجمع كرتون مع حبة في متوسط اليوم",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/vanStock.ts",
+   "line": 393,
+   "kind": "qty_aggregate",
+   "what": "/accuracy يمرّر qty وsuggestedQty وexpectedQty للتحميلات (375، 393-395) وqty المبيعات (382، 400) لمحرّك الدقة",
+   "change": "كمية التحميل وكمية البيع بالأساس، أما suggestedQty وexpectedQty فمخزّنتان بالأساس أصلاً",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/vanStock.ts",
+   "line": 442,
+   "kind": "display",
+   "what": "/summary يجمع remaining وloaded وsold وdamaged عبر أصناف مختلفة في totalRemaining/totalLoaded/totalSold/totalDamaged",
+   "change": "يصير المجموع بوحدات الأساس (×24 لما كان يُعدّ بالكرتون). يلزم قرار عرض أو تسميته «وحدة أساس»",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/routes/vanStock.ts",
+   "line": 567,
+   "kind": "display",
+   "what": "/movements يعرض qty كل بند تحميل (567) وبند فاتورة (573) مع product.unit",
+   "change": "عرض الكمية مع unitName لقطة الصفّ (أو تحويلها للأساس مع اسم وحدة الأساس)، وإلا كُتب «2 حبة» لبند هو 2 كرتون",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/vanStock.ts",
+   "line": 520,
+   "kind": "display",
+   "what": "GET /loads يضمّن items مع product.unit، وتعرضه الواجهة والتصدير كمية بوحدة الصنف",
+   "change": "إرجاع unitName وunitFactor لكل بند، أو qty بالأساس بجانب الكمية الأصلية",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/services/warehouseStock.ts",
+   "line": 196,
+   "kind": "stock_balance",
+   "what": "loadWarehouseInputs يقرأ warehouseEntryItem.qty/unitCost (196) وvanLoadItem.qty (201) ويمرّرها خاماً (206-207) لكل من المستودع وبطاقة السيارات و«المخزون في تاريخ»",
+   "change": "نقطة التحويل المركزية: qty×unitFactor للكمية، وتكلفة كل حركة وارد بقيمة السطر لا بتكلفة وحدة مقرّبة",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/services/warehouseStock.ts",
+   "line": 95,
+   "kind": "cost",
+   "what": "composeWarehouse يجمع received/adjusted (95، 98) وloadedToVans/returnedFromVans (104، 107) ويدفع qty وunitCost إلى valueStock",
+   "change": "يفترض كل الكميات بالأساس، وunitCost تكلفة وحدة الأساس. إن بقي التحويل خارجه فلا تغيير، وإلا فهنا",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/services/warehouseStock.ts",
+   "line": 242,
+   "kind": "display",
+   "what": "summarizeVansStock يجمع p.remaining لكل الأصناف في qty (242) ويقيّمه بـvalueVanQty بطبقات السيارة",
+   "change": "القيمة صحيحة إن كانت الكمية والطبقات بالأساس معاً. أما qty وunsellableQty فمجموعان بلا معنى عبر الأصناف، ويقفزان بالأساس",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/services/warehouseCost.ts",
+   "line": 294,
+   "kind": "cost",
+   "what": "valueStock يُدخل الوارد المسعّر بقيمة m.qty × unitCost (294)، والسحب بمتوسط الدلو، وطبقات السيارات بكميات VAN_OUT/VAN_IN",
+   "change": "الكمية بالأساس، والقيمة تُمرَّر قيمةَ سطر (qty×unitCost بوحدة الصف) لا تكلفةَ وحدة أساس مقرّبة لأربع خانات (10/24 = 0.4167 تصير ×24000 = 10000.8)",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/services/warehouseCost.ts",
+   "line": 56,
+   "kind": "cost",
+   "what": "netUnitCost يردّ المكتوب إلى صافيه ويقرّبه لـCOST_DECIMALS=4، ولا يعرف الوحدة",
+   "change": "تحديد معنى unitCost المخزَّن: تكلفة وحدة الصفّ (كرتون كما في فاتورة المورّد) مع unitFactor. عدم قسمته على المعامل ثم تقريبه",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/services/warehouseCost.ts",
+   "line": 69,
+   "kind": "cost",
+   "what": "lineCost = qty × unitCost وentryTotalCost يجمعه (84)",
+   "change": "يبقى صحيحاً فقط إن كانت الكمية وتكلفة الوحدة بالوحدة نفسها. لو خُزّنت التكلفة بالأساس فيلزم qty×unitFactor×unitCost",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/services/warehouseCost.ts",
+   "line": 402,
+   "kind": "cost",
+   "what": "valueVanQty يأخذ remaining من طيّ السيارة ويسحبه من طبقات التحميل بكلفتها",
+   "change": "لا تغيير إن كان الرصيد والطبقات كلاهما بالأساس. خلط وحدتين يعطي قيمة سيارة خاطئة",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/warehouse.ts",
+   "line": 97,
+   "kind": "stock_balance",
+   "what": "/vans يقرأ invoiceItem.qty خاماً (97) ويبني LoadRow من inputs.vanItems.qty (111) ثم foldStock لكل مندوب",
+   "change": "اختيار unitFactor لبنود الفاتورة وتحويلها للأساس، فالرصيد ثم قيمته بالطبقات يعتمدان عليه",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/warehouse.ts",
+   "line": 141,
+   "kind": "stock_balance",
+   "what": "عدّ سيارات المناديب المحذوفين بجمع ±v.qty للتحميل والتسوية والتنزيل",
+   "change": "الكمية بالأساس، وإلا ظهرت سيارة فارغة ممتلئة أو العكس (تحميل كرتون وتنزيل 24 حبة)",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/routes/warehouse.ts",
+   "line": 158,
+   "kind": "schema",
+   "what": "entrySchema: بنود الوارد/التسوية فيها productId وqty وunitCost فقط، والإنشاء (196-202) يكتب qty وunitCost صافياً",
+   "change": "قبول وحدة البند (افتراضها الأساس) وكتابة لقطة unitName/unitFactor، وunitCost تكلفة تلك الوحدة",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/warehouse.ts",
+   "line": 235,
+   "kind": "cost",
+   "what": "GET /entries يحسب lineCost(i.qty, i.unitCost) لكل سطر وentryTotalCost، ويضمّن product.unit للعرض (222)",
+   "change": "الإبقاء على qty×unitCost بوحدة الصفّ، وإرجاع unitName لكل سطر لإشعار الوارد المطبوع",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/prisma/schema.prisma",
+   "line": 1601,
+   "kind": "schema",
+   "what": "VanLoadItem: qty Float وsuggestedQty وexpectedQty بلا وحدة",
+   "change": "إضافة unitName وunitFactor (@default(1)) لقطة. وتوثيق أن suggestedQty/expectedQty بالأساس دائماً",
+   "risk": "high"
+  },
+  {
+   "file": "backend/prisma/schema.prisma",
+   "line": 1705,
+   "kind": "schema",
+   "what": "WarehouseEntryItem: qty Float وunitCost «تكلفة الوحدة» بلا تعريف للوحدة",
+   "change": "إضافة unitName وunitFactor (@default(1))، وحسم أن unitCost لوحدة الصفّ",
+   "risk": "high"
+  },
+  {
+   "file": "backend/prisma/schema.prisma",
+   "line": 1656,
+   "kind": "schema",
+   "what": "RepStockRequestItem: requestedQty وqty بلا وحدة، و@@unique([requestId, productId])",
+   "change": "إما تخزين الطلب بالأساس مع وحدة عرض، أو إضافة الوحدة وتوسيع القيد الفريد إلى (requestId, productId, unit)",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/repStockRequests.ts",
+   "line": 43,
+   "kind": "qty_validation",
+   "what": "itemsSchema: productId وqty بسقف MAX_REQUEST_QTY بلا وحدة. يُستعمل لطلب المندوب وتعديل الإدارة",
+   "change": "قبول وحدة البند وتحويلها. السقف يُقاس بالأساس",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/repStockRequests.ts",
+   "line": 54,
+   "kind": "display",
+   "what": "shape يُرجع unit من product.unit مع requestedQty وqty لكل بند",
+   "change": "إرجاع وحدة الطلب الفعلية (أو الأساس) حتى لا يُقرأ «10» كرتوناً وهي حبات",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/repStockRequests.ts",
+   "line": 213,
+   "kind": "schema",
+   "what": "تعديل الإدارة يحدّث qty بمفتاح requestId_productId، والإنشاء والدمج (108، 113-118) سطر واحد لكل صنف",
+   "change": "تحديد وحدة التعديل (وحدة طلب المندوب أو الأساس) ومطابقة المفتاح الفريد الجديد",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/services/repStockRequest.ts",
+   "line": 24,
+   "kind": "qty_aggregate",
+   "what": "normalizeRepLines يجمع الأسطر المكرّرة للصنف نفسه بجمع qty",
+   "change": "تحويل كل سطر إلى الأساس قبل الجمع، أو التجميع بمفتاح (صنف، وحدة)",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/services/repStockRequest.ts",
+   "line": 38,
+   "kind": "qty_validation",
+   "what": "mergeRepUpdate يحفظ تعديل الإدارة إن تساوت requestedQty القديمة والجديدة (sameQty)",
+   "change": "المقارنة بالأساس، وإلا عُدّ «1 كرتون» بعد «24 حبة» تغييراً، أو «2 كرتون» بعد «2 حبة» تطابقاً",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/services/repStockRequest.ts",
+   "line": 51,
+   "kind": "qty_validation",
+   "what": "applyAdminEdit يضع qty المعتمدة لكل صنف من الطلب",
+   "change": "تحديد وحدة الكمية المعتمدة وتحويلها مثل طلب المندوب",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/services/suggestLoad.ts",
+   "line": 136,
+   "kind": "qty_aggregate",
+   "what": "add() يجمع |qty| للمبيع ويطرح المرتجع لكل صنف/يوم، ومنه expected وwithBuffer وsuggested",
+   "change": "لا تغيير في المحرّك إن وصلته الكميات بالأساس من المسار. ونتائجه كلها بالأساس",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/services/suggestLoad.ts",
+   "line": 207,
+   "kind": "display",
+   "what": "withBuffer = ceil إلى وحدة صحيحة، وsuggested = withBuffer − onVan، ونص why يكتب الأرقام بلا وحدة (216-217)",
+   "change": "التقريب الآن لحبة أساس. وتقريبه لمضاعفات الكرتون قرار عمل. والعرض يلزمه تحويل «X كرتون + Y حبة»",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/services/suggestAccuracy.ts",
+   "line": 161,
+   "kind": "qty_aggregate",
+   "what": "loaded يجمع it.qty للتحميل (161، 168)، وadopted يقارن qty بـsuggestedQty (170)، وactual يجمع qty المبيعات (134)",
+   "change": "qty التحميل والبيع بالأساس قبل المحرّك. وإلا تحميل «2 كرتون» لاقتراح 48 يُعدّ عدم تبنٍّ وخطأ ×24",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/services/suggestAccuracy.ts",
+   "line": 185,
+   "kind": "display",
+   "what": "يعرض unit من الصنف وحكماً نصياً «متوسط الخطأ X وحدة» (231، 234)",
+   "change": "التصريح بأنها وحدة الأساس، أو التحويل للعرض",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/services/invoiceExpiry.ts",
+   "line": 72,
+   "kind": "stock_balance",
+   "what": "vanLoadBatchAt (أساس VAN_LOAD) يأخذ qty دفعات التحميل (72-74، 89)، و_sum qty للمبيعات السابقة (76-81) وللتنزيل (83-85)، ثم fifoBatchAt",
+   "change": "الكل بالأساس. aggregate _sum لا يضرب بالمعامل، فيلزم findMany+reduce أو SQL خام SUM(qty*\"unitFactor\"). الخطأ يختار دفعة خاطئة، فينقلب returnExpired ويدخل المرتجع الدلو الخطأ (منتهي/متاح)",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/services/shelfLife.ts",
+   "line": 98,
+   "kind": "stock_balance",
+   "what": "fifoBatchAt يجمع qty الدفعات ويقارنه بالمستهلَك قبل البيع",
+   "change": "لا تغيير إن كانت المدخلات بالأساس. ويُوثَّق أن الدفعات والمستهلَك يجب أن تكون بالوحدة نفسها",
+   "risk": "low"
+  },
+  {
+   "file": "backend/src/routes/invoices.ts",
+   "line": 565,
+   "kind": "qty_validation",
+   "what": "فرض مخزون السيارة: wantById يجمع it.qty لبنود الفاتورة ويقارنه بـremaining من computeStock (561-575)",
+   "change": "تحويل it.qty إلى الأساس بمعامل وحدة البند قبل الجمع، وعرض المتاح في رسالة الرفض بالوحدات",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/services/gl/opening.ts",
+   "line": 975,
+   "kind": "cost",
+   "what": "محمِّل القيد الافتتاحي يقرأ warehouseEntryItem.qty/unitCost (975) وvanLoadItem.qty (979) ويمرّرها لـcomposeWarehouse (427-436)، ثم warehouseValueMilli لحساب 114001",
+   "change": "التحويل للأساس هنا أيضاً (مسار ثالث مستقل عن loadWarehouseInputs)، وإلا خرج القيد الافتتاحي للمخزون بقيمة خاطئة",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/services/gl/opening.ts",
+   "line": 1113,
+   "kind": "cost",
+   "what": "openingStockEntryValueMilli = Σ toMilli(qty × unitCost) لتنبيه دفعات الجرد المستبعدة",
+   "change": "صحيح ما دامت الكمية والتكلفة بوحدة الصفّ نفسها، ويلزم qty×unitFactor لو خُزّنت التكلفة بالأساس",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/dashboard.ts",
+   "line": 81,
+   "kind": "cost",
+   "what": "بطاقة المشتريات الشهرية: SQL خام SUM(i.qty * i.\"unitCost\") على warehouse_entry_items",
+   "change": "يبقى صحيحاً إن كان unitCost لوحدة الصفّ. لو خُزّن بالأساس فيلزم ضرب \"unitFactor\" في الاستعلام",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/import.ts",
+   "line": 1104,
+   "kind": "integration",
+   "what": "استيراد المخزون الافتتاحي: صفوف qty وunitCost (990-996) تُكتب warehouseEntryItem بلا وحدة",
+   "change": "عمود وحدة اختياري في الملف (والغياب = الأساس)، وكتابة اللقطة. وعدم افتراض وحدة البيع الافتراضية للصنف",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/services/importLedger.ts",
+   "line": 887,
+   "kind": "integration",
+   "what": "resolveOpeningStockRows يتحقق من qty>0 وunitCost ويكتب سطراً بـnetUnitCost",
+   "change": "مطابقة اسم الوحدة من الملف بوحدات الصنف، ورفض الوحدة المجهولة صفاً صفاً",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/services/apiSync.ts",
+   "line": 196,
+   "kind": "integration",
+   "what": "مزامنة /api/v1/sync: van-loads تُصدر items {productId, qty, suggestedQty, expectedQty} (196)، وwarehouse-entries تُصدر {productId, qty, unitCost} (201)",
+   "change": "إضافة unitName وunitFactor (أو qty بالأساس) للبنود. وإلا حسب عميل الربط رصيداً خاطئاً من كميات كراتين",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/services/locations.ts",
+   "line": 177,
+   "kind": "qty_aggregate",
+   "what": "ملخّص المواقع يجمع it.qty للتحميلات في loads.qty ولكل صنف (175-189) ثم الإجمالي (204)",
+   "change": "الجمع بالأساس (يصله من routes/locations.ts:83-94 qty خاماً، فيلزم اختيار unitFactor هناك)",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/locations.ts",
+   "line": 83,
+   "kind": "qty_aggregate",
+   "what": "يقرأ vanLoad.items {productId, qty} ويمرّرها Number(qty) لملخّص المواقع (94)",
+   "change": "اختيار unitFactor وتمرير qty×unitFactor",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/ai-rep/googleDemandData.ts",
+   "line": 44,
+   "kind": "qty_aggregate",
+   "what": "مرساة الطلب: وسيط ii.qty وسعر الوحدة (lineTotal − taxAmt)/qty على بنود البيع (44-45)",
+   "change": "الوسيط والسعر بالأساس (qty×\"unitFactor\")، وإلا اختلط بند كرتون بسعر ٢٤ ضعفاً ببند حبة",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/pages/VanStockPage.tsx",
+   "line": 699,
+   "kind": "qty_validation",
+   "what": "نموذج التحميل: صفّ لكل صنف بوحدة product.unit (652-664)، وتطبيق الاقتراح يضع qty=suggested (681-684)، والإرسال qty وsuggestedQty وexpectedQty (699)",
+   "change": "منتقي وحدة لكل صفّ (والاقتراح يُعرض بالأساس أو يُحوَّل)، وإرسال الوحدة مع الكمية. ويبقى suggestedQty/expectedQty بالأساس",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/pages/VanStockPage.tsx",
+   "line": 127,
+   "kind": "qty_validation",
+   "what": "إزالة المنتهي/التالف ترسل بنداً واحداً {productId, qty} بلا وحدة",
+   "change": "الكمية بالأساس (فرصيد expired/damaged المعروض بالأساس)، أو إرسال الوحدة",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/pages/VanStockPage.tsx",
+   "line": 801,
+   "kind": "display",
+   "what": "عرض الاقتراح (801-802)، والملخّص totalLoaded/totalSold/totalRemaining (261-267)، والحركات qty+unit (527)، وجدول الدقة (618)",
+   "change": "تنسيق «X كرتون + Y حبة» بدل رقم مع اسم وحدة الصنف، ووحدة لقطة الصفّ للحركات",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/pages/CompanyWarehousePage.tsx",
+   "line": 344,
+   "kind": "cost",
+   "what": "نموذج الوارد: صفّ لكل صنف بـqty وunitCost بوحدة الصنف (319-347)، والإجمالي المعاين qty×unitCost (371-372)، وعرض avgCost (222-223) وunitCost/unit في السجل (276-278)",
+   "change": "منتقي وحدة للصفّ ومعنى «سعر الكرتون»، وتسمية avgCost «لكل وحدة أساس»، وعرض وحدة لقطة السطر في السجل",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/m/MWarehouse.tsx",
+   "line": 475,
+   "kind": "cost",
+   "what": "نموذج الوارد في تطبيق الإدارة (428-479) وإجماليه (449-450)، وعرض onHand وuncostedQty بـr.unit (274-313)",
+   "change": "كصفحة الويب: وحدة لكل صفّ، وعرض الرصيد بالوحدات",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/m/MRepLoad.tsx",
+   "line": 168,
+   "kind": "qty_validation",
+   "what": "تحميل/تنزيل الجوال: صفّ لكل صنف (176)، splitVanMovement بـqty (168)، وcreateLoad LOAD/UNLOAD (212، 218)، وtotalRemaining (163)، ومجموع الحركة (550)",
+   "change": "وحدة لكل صفّ وإرسالها، وعرض المتبقي بالوحدات. ومجموع الحركة عبر وحدات مختلفة يلزمه التحويل",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/RepApp.tsx",
+   "line": 3251,
+   "kind": "qty_validation",
+   "what": "تطبيق المندوب: التحميل الذاتي (3251، 3255) وطلب البضاعة (3211، 3218) يرسلان qty بلا وحدة، وعرض «في سيارتك» والمحمّل/المباع/المتبقي بـs.unit (3292، 3413-3422)",
+   "change": "منتقي وحدة في التحميل والطلب، وعرض الرصيد «X كرتون + Y حبة»",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/RepDocuments.tsx",
+   "line": 1050,
+   "kind": "print",
+   "what": "إشعار التحميل المطبوع: totalQty = Σ|qty| عبر الأصناف (1050)، وكل سطر qty مع unit الصنف (1089-1090)، وإشعار الوارد يأخذ product.unit (1593)",
+   "change": "طباعة وحدة لقطة كل سطر. وإجمالي الكميات عبر وحدات مختلفة إمّا بالأساس صراحةً أو يُحذف",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/warehouseNoticeFacts.ts",
+   "line": 48,
+   "kind": "print",
+   "what": "receiveTotalQty وadjustTotals يجمعان qty كل الأسطر لإشعار الوارد/التسوية الموقَّع",
+   "change": "الجمع بالأساس أو التصريح بالوحدة، فـ«+2 كرتون +5 حبة = 7» رقم خاطئ على ورقة تُوقَّع",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/lib/stockRequest.ts",
+   "line": 111,
+   "kind": "print",
+   "what": "repRequestTotals يجمع qty المعتمدة لكل صنف عبر طلبات المناديب (106-115)، وstockRequestTotalQty يجمع عبر الأصناف (72-73) لورقة الطلب العام (StockRequestModal 76، 138، 269)",
+   "change": "توحيد وحدة الطلب لكل صنف (الأساس أو وحدة شراء) قبل الجمع، وطباعة الوحدة الصحيحة",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/components/VanLoadsLog.tsx",
+   "line": 146,
+   "kind": "display",
+   "what": "سجلّ التحميلات يعرض qty مع product.unit، وتصديره (lib/locations.ts:266-279) يكتب «الوحدة» من الصنف، وloadQty يجمع عبر الأصناف (253-255)",
+   "change": "وحدة لقطة البند في العرض وExcel، والمجموع بالأساس",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/lib/repDeleteVan.ts",
+   "line": 31,
+   "kind": "display",
+   "what": "تحذير حذف المندوب يجمع remaining الموجب عبر الأصناف ويكتب «X وحدة من N صنف»",
+   "change": "يصير المجموع بالأساس. يكفي تسميته أو عرض عدد الأصناف وحده",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/lib/apiDocsCatalog.ts",
+   "line": 3113,
+   "kind": "integration",
+   "what": "دليل الربط: POST /van-stock/loads (3113)، وGET /van-stock/current بـremaining وunit (3192-3217)، وPOST /warehouse/entries بـunitCost (3630) — كلها بوحدة واحدة",
+   "change": "توثيق حقل الوحدة الاختياري (والغياب = الأساس) وأن الأرصدة بالأساس، ومعنى unitCost لوحدة السطر",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/m/MInvoiceCreate.tsx",
+   "line": 76,
+   "kind": "qty_aggregate",
+   "what": "addProduct يبحث عن سطر بنفس productId فيزيد qty بواحد (السطر 79) بدل إنشاء سطر جديد",
+   "change": "المفتاح يصير (productId + الوحدة/المعامل) مع اختيار الوحدة عند الإضافة؛ وإلا فنقرة «حبة» بعد «كرتون» تزيد سطر الكرتون",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/m/MInvoiceCreate.tsx",
+   "line": 86,
+   "kind": "price",
+   "what": "السطر الجديد يأخذ unitPrice = product.basePrice و unit = p.unit (السطر 83) وtaxPct من الصنف (88)",
+   "change": "السعر من سعر الوحدة المختارة، مع لقطة unitName وunitFactor على السطر؛ ورمز الوحدة/الضريبة من الوحدة إن اختلف",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/m/MInvoiceCreate.tsx",
+   "line": 92,
+   "kind": "qty_validation",
+   "what": "setQty وpatch (94) ومفتاح React (237) والحذف (243) كلّها تطابق productId وحده",
+   "change": "التطابق بمعرّف سطر أو بالمفتاح المركّب؛ سطران للصنف نفسه بوحدتين سيُعدَّلان أو يُحذفان معاً",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/m/MInvoiceCreate.tsx",
+   "line": 107,
+   "kind": "stock_balance",
+   "what": "الحمولة ترسل productId وqty وunitPrice وdiscountPct وtaxPct فقط",
+   "change": "إرسال unitName وunitFactor (أو معرّف الوحدة)؛ بدونهما يفترض الخادم المعامل 1 فيُخصم من السيارة حبة واحدة عن كرتون بِيع بسعر الكرتون، وتُحسب تكلفة البضاعة خطأً",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/m/MInvoiceCreate.tsx",
+   "line": 13,
+   "kind": "schema",
+   "what": "واجهة Pick للصنف فيها unit وbasePrice فقط، والقائمة من productApi.list بحدّ 60 (السطر 62)",
+   "change": "إضافة units[] (الاسم، المعامل، السعر، رمز الوحدة) إلى الشكل المقروء وإلى ردّ /products",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/m/MInvoiceCreate.tsx",
+   "line": 248,
+   "kind": "display",
+   "what": "تُعرض الكمية رقماً بلا اسم وحدة، وقائمة الأصناف تعرض basePrice وحده (272-273)",
+   "change": "إظهار الوحدة بجانب الكمية ومبدّل وحدة على السطر، وعرض أسعار الوحدات في القائمة",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/m/docMath.ts",
+   "line": 18,
+   "kind": "schema",
+   "what": "Line فيها unit نصّي فقط، بلا unitName ولا unitFactor",
+   "change": "إضافة unitName وunitFactor (والافتراض 1)، وتحديث fixture الاختبار في docMath.test.ts السطر 13",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/m/docMath.ts",
+   "line": 24,
+   "kind": "price",
+   "what": "lineTotal وinvoiceTotals (33) تحسبان qty × unitPrice عبر computeInvoiceTotals",
+   "change": "لا تغيير ما دام unitPrice سعرَ وحدة السطر؛ ولا يُضرب في المعامل هنا، فضربه يضاعف المبلغ مرّتين",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/m/MProducts.tsx",
+   "line": 342,
+   "kind": "schema",
+   "what": "حقل «وحدة القياس» نصّ حرّ قابل للتعديل دائماً ومثاله «كرتون / قطعة / كيلو»، ويُرسل unit في الحفظ (260)",
+   "change": "يصير حقل وحدة الأساس الصغرى ويُقفل تغيير معناها بعد وجود حركات؛ تغيير الأساس من كرتون إلى حبة يقلب معنى كل الكميات القديمة (أساس = qty × 1) فيتغيّر المخزون بنسبة ٢٤ ضعفاً",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/m/MProducts.tsx",
+   "line": 193,
+   "kind": "schema",
+   "what": "FormState وتهيئته (217-226) والحمولة (257-265) فيها وحدة واحدة وbasePrice واحد",
+   "change": "إضافة محرّر وحدات إضافية (الاسم، المعامل الصحيح >1، السعر، رمز الوحدة/الباركود) وإرسالها إلى المسار الجديد",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/m/MProducts.tsx",
+   "line": 584,
+   "kind": "price",
+   "what": "شرائح السعر: «من كمية/إلى كمية/السعر» بلا وحدة (584-587)، وتُحفظ minQty وmaxQty وprice كما كُتبت (516-524)",
+   "change": "تحديد وحدة الشريحة (الأساس أو وحدة بعينها) وتحويل المقارنة بالأساس؛ الخادم يستعمل أقل سعر شريحة حدّاً أدنى لسعر المندوب، فمقارنة سعر كرتون بسعر حبة تقبل بيعاً تحت الحدّ أو ترفض بيعاً سليماً",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/m/MProducts.tsx",
+   "line": 177,
+   "kind": "display",
+   "what": "صفّ الصنف يعرض p.unit وbasePrice (181)، وشاشة الشرائح تعرض basePrice وحده (536، 558)",
+   "change": "تسمية السعر بوحدته (سعر الحبة) وعرض الوحدات الإضافية وأسعارها",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/m/MRepLoad.tsx",
+   "line": 207,
+   "kind": "stock_balance",
+   "what": "الحفظ يرسل createLoad بـ items من split.out وsplit.back: productId وqty (وsuggestedQty وexpectedQty)",
+   "change": "إرسال unitName وunitFactor لكل بند؛ بدونهما يُسجَّل تحميل ٥٠ كرتوناً ٥٠ حبة، فينقص المستودع ويزيد رصيد السيارة بالرقم الخطأ",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/lib/vanMovement.ts",
+   "line": 83,
+   "kind": "stock_balance",
+   "what": "splitVanMovement تبني out وback من MovementItem (64-70) الذي لا يحمل وحدة، وback يعيد productId وqty فقط (89)",
+   "change": "حمل unitName وunitFactor عبر التقسيم والقلب، وإلا تضيع الوحدة حتى لو أضافتها الشاشة (مُستدعاة من MRepLoad السطر 167)",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/m/MRepLoad.tsx",
+   "line": 192,
+   "kind": "qty_validation",
+   "what": "applySuggestion يضع qty = suggested وsuggestedQty وexpectedQty، وكلّها بوحدة الأساس، في سطر وحدته unit الصنف",
+   "change": "إمّا يبقى السطر بالأساس صراحةً أو تُقسم القيم على المعامل؛ وقياس التبنّي في الخادم (loaded == suggestedQty) يجب أن يقارن بالأساس",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/m/MRepLoad.tsx",
+   "line": 175,
+   "kind": "schema",
+   "what": "Row (64-67) بلا معامل، وaddProduct وaddFromStock يمنعان سطراً ثانياً للصنف نفسه (176، 180)",
+   "change": "اختيار وحدة لكل سطر، وتحديد هل يُسمح بسطرين (كرتون + حبة) للصنف أم يُحوَّل كل شيء إلى الأساس قبل الإرسال",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/m/MRepLoad.tsx",
+   "line": 479,
+   "kind": "display",
+   "what": "«المتبقي» يعرض remainingOf (رصيداً بالأساس) ومعه r.unit؛ والمثل في صفوف المخزون (303-305، 311-312) وقائمة الأصناف (444-449)",
+   "change": "عرض «X كرتون + Y حبة» من الأساس؛ عرض رقم الأساس بجانب اسم الكرتون يقود إلى تحميل خاطئ",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/m/MRepLoad.tsx",
+   "line": 163,
+   "kind": "qty_aggregate",
+   "what": "totalRemaining يجمع remaining لكل الأصناف ويعرضه في بطاقة «المتبقي» (290)",
+   "change": "بعد الميزة يصير مجموعاً بالحبات؛ يُحذف أو يُعرض عدد الأصناف وحده",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/m/MRepLoad.tsx",
+   "line": 550,
+   "kind": "qty_aggregate",
+   "what": "عنوان الحركة يجمع it.qty لكل بنود الحركة (558) وفيها بيع ومرتجع وتحميل",
+   "change": "إن جاءت البنود بوحدات مختلفة فالمجموع بلا معنى؛ الجمع بالأساس (qty × unitFactor) أو عرض عدد الأصناف فقط",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/m/MRepLoad.tsx",
+   "line": 398,
+   "kind": "display",
+   "what": "الاقتراح يعرض suggested ومعه r.unit (399)، والأرقام من الخادم بالأساس",
+   "change": "تسمية وحدة الأساس أو تقسيمها كرتوناً + حبة، وتحديد تقريب ceil إلى كراتين كاملة",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/m/MLoadNoticeDoc.tsx",
+   "line": 17,
+   "kind": "print",
+   "what": "إشعار الحركة يُبنى من items {name, qty, unit} عبر loadNoticeDocFromData (rep/RepDocuments.tsx 1550-1565)",
+   "change": "طباعة unitName السطر لا وحدة الصنف، أو الأساس مقسّماً؛ وإلا يُطبع «٥٠ حبة» عن خمسين كرتوناً",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/m/MWarehouse.tsx",
+   "line": 473,
+   "kind": "cost",
+   "what": "حفظ الوارد أو التسوية يرسل لكل بند productId وqty وunitCost فقط",
+   "change": "إرسال unitName وunitFactor؛ وإلا يُسجَّل ١٠ كراتين بـ٢٤٠ عشر حبات بـ٢٤٠ للحبة، فينقص الرصيد ٢٤ مرّة ويتضخّم avgCost ٢٤ ضعفاً، ويفسد تقييم ما بعدها",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/m/MWarehouse.tsx",
+   "line": 383,
+   "kind": "schema",
+   "what": "FormRow بوحدة واحدة، وaddProduct يمنع سطراً ثانياً للصنف (426)",
+   "change": "اختيار وحدة لكل سطر وحمل المعامل",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/m/MWarehouse.tsx",
+   "line": 449,
+   "kind": "cost",
+   "what": "total = qty × net، وقيمة السطر (583، 626-629) والشريط (670-673)، وحقل «سعر الوحدة» (607) بلا وحدة",
+   "change": "يبقى صحيحاً إن كانت الكمية والتكلفة بوحدة السطر نفسها؛ تسمية الحقل «سعر الكرتون/الحبة»، وعلى الخادم قسمة التكلفة على المعامل قبل المتوسط",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/m/MWarehouse.tsx",
+   "line": 297,
+   "kind": "cost",
+   "what": "«متوسط تكلفة الوحدة» يعرض avgCost بأربع خانات، وهو بعد الميزة تكلفة الحبة",
+   "change": "تسمية الوحدة صراحةً (تكلفة الحبة) أو عرض تكلفة الكرتون معها؛ فمقارنتها بسعر شراء الكرتون تُقرأ خطأً بنسبة ٢٤",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/m/MWarehouse.tsx",
+   "line": 278,
+   "kind": "display",
+   "what": "onHand وr.unit (274-279) والوارد والتسويات والمحمّل والعائد (288-292) وuncostedQty مع r.unit (313)",
+   "change": "عرض «X كرتون + Y حبة» من الأساس",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/m/MWarehouse.tsx",
+   "line": 116,
+   "kind": "qty_aggregate",
+   "what": "totals يجمع costedQty وuncostedQty لكل الأصناف ويعرضهما في «الكمية المقيمة» و«كمية خارج التقييم» (181، 183)",
+   "change": "مجموع بالحبات بين أصناف مختلفة؛ إبقاؤه بالأساس مع تسمية، أو عرض عدد الأصناف خارج التقييم",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/m/MWarehouse.tsx",
+   "line": 441,
+   "kind": "tax_amount",
+   "what": "netOf يستخرج الضريبة بـtaxPct الصنف (429) حين تكون التكاليف شاملة",
+   "change": "إن صار لكل وحدة رمز ضريبي أو نسبة خاصة فتُقرأ من الوحدة",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/m/MWarehouseNoticeDoc.tsx",
+   "line": 21,
+   "kind": "print",
+   "what": "إشعار الوارد يُبنى عبر warehouseNoticeDocFromEntry (rep/RepDocuments.tsx 1591-1597) بوحدة product.unit مع qty وunitCost للسطر",
+   "change": "طباعة وحدة السطر، فسعر الكرتون بجانب «حبة» يُقرأ ٢٤ ضعفاً",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/m/MReports.tsx",
+   "line": 473,
+   "kind": "qty_aggregate",
+   "what": "sum.qty يجمع r.qty لكل صفوف groupBy=product ويُعرض «إجمالي الكمية» (500-502)",
+   "change": "على الخادم جمع qty × unitFactor؛ وفي الجوال لا يُجمع بين أصناف مختلفة أو يُسمّى «وحدات أساس»",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/m/MReports.tsx",
+   "line": 516,
+   "kind": "display",
+   "what": "صفّ الصنف يعرض الكمية بلفظ «وحدة» عام، وSalesRow (39) لا يحمل اسم وحدة ولا معاملات",
+   "change": "يردّ الخادم وحدة الأساس ووحداتها لتُعرض «X كرتون + Y حبة»",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/m/MCustomerStatement.tsx",
+   "line": 194,
+   "kind": "display",
+   "what": "أصناف الفاتورة في الكشف تُعرض «الاسم ×الكمية» بلا وحدة إطلاقاً (من e.invoice.items، السطر 175)",
+   "change": "إضافة unitName البند؛ «×٢» بعد الميزة قد تعني كرتونين أو حبّتين",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/m/MStatementDoc.tsx",
+   "line": 59,
+   "kind": "print",
+   "what": "المستند يُبنى بـstatementDocFromData، وفيه البند unit: it.product?.unit مع qty السطر (rep/RepDocuments.tsx 1494)",
+   "change": "طباعة unitName البند؛ الكشف يُسلَّم للعميل",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/m/MDocScreen.tsx",
+   "line": 135,
+   "kind": "print",
+   "what": "الفاتورة المطبوعة تُبنى بـinvoiceDocFromDetail وفيه لكل بند unit: it.product?.unit مع qty وunitPrice السطر (rep/RepDocuments.tsx 1401-1405)",
+   "change": "طباعة unitName ورمز الوحدة من لقطة البند؛ وإلا تُطبع الفاتورة الضريبية «٢ حبة × ٢٤٠»، فيظهر سعر الحبة بسعر الكرتون",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/m/MSalesReps.tsx",
+   "line": 487,
+   "kind": "qty_aggregate",
+   "what": "RepVanStockNote (وأيضاً السطر 1388) يجمع remaining لكل الأصناف عبر vanLeftover (lib/repDeleteVan.ts 23-34) ويقول «X وحدة»",
+   "change": "بعد الميزة يصير الرقم بالحبات؛ تسمية «وحدة أساس» أو الاكتفاء بعدد الأصناف",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/lib/apiDocsCatalog.ts",
+   "line": 1476,
+   "kind": "integration",
+   "what": "POST /invoices يوثّق items[].qty وunitPrice (1476-1485) بلا حقل وحدة",
+   "change": "توثيق unitName/unitFactor (أو معرّف الوحدة) والافتراض 1، وأن unitPrice سعر وحدة السطر، وأن المخزون يُخصم بـqty × unitFactor (وتحديث القاعدة 1627)",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/lib/apiDocsCatalog.ts",
+   "line": 1391,
+   "kind": "integration",
+   "what": "/invoices/:id/returnable يقول إن refundUnitPrice هو إجمالي البند ÷ كميته، وsold/returned/returnable بلا وحدة؛ ودليل المرتجع (1636، 1640) يقول أرسل unitPrice = refundUnitPrice",
+   "change": "returnable بالأساس مع وحدة البند، والمرتجع بالحبة من بند كرتون سعره refundUnitPrice ÷ نسبة المعاملين؛ والتعليمات الحالية تردّ سعر الكرتون عن كل حبة",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/lib/apiDocsCatalog.ts",
+   "line": 1683,
+   "kind": "einvoice",
+   "what": "/creditable يردّ lines بـunitCode وqty وreturnable، وcredit-note يأخذ lines[].qty «لا تتجاوز returnable» (1725-1728)",
+   "change": "تحديد وحدة الكمية في الإشعار الدائن، وهل يُقبل إشعار جزئي بالحبة من بند كرتون، ورمز الوحدة المرسل إلى ZATCA",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/lib/apiDocsCatalog.ts",
+   "line": 3155,
+   "kind": "integration",
+   "what": "POST /van-stock/loads يوثّق items[].qty وsuggestedQty وexpectedQty بلا وحدة؛ ومعه مثالا الدليل (6250، 6255)",
+   "change": "إضافة unitName/unitFactor، وأن الرصيد يتحرّك بالأساس، وأن الاقتراح بالأساس",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/lib/apiDocsCatalog.ts",
+   "line": 3678,
+   "kind": "integration",
+   "what": "POST /warehouse/entries يوثّق items[].qty وunitCost (3678-3688) بلا وحدة، وكذلك قاعدة الصافي (3696) والمثال (3702) والدليل (6229-6235)",
+   "change": "إضافة حقول الوحدة، وأن unitCost لوحدة السطر ويُقسم على المعامل قبل متوسط التكلفة",
+   "risk": "high"
+  },
+  {
+   "file": "web-admin/src/lib/apiDocsCatalog.ts",
+   "line": 4666,
+   "kind": "cost",
+   "what": "تقرير المبيعات يردّ بنوداً فيها qty وunitPrice وunitCost، وgroupBy=product يردّ qty مجموعاً",
+   "change": "توضيح هل unitCost في لقطة البند للحبة أم لوحدة السطر، وأن qty التجميع بالأساس",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/lib/apiDocsCatalog.ts",
+   "line": 1131,
+   "kind": "price",
+   "what": "شرائح السعر: minQty وmaxQty وprice بلا وحدة (1109-1124)، والقاعدة تقول إنها حدّ أدنى لسعر المندوب",
+   "change": "توثيق وحدة الشريحة وكيف يُقارَن سعر بيع الكرتون بها",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/lib/apiDocsCatalog.ts",
+   "line": 816,
+   "kind": "schema",
+   "what": "حقل unit يوصف «وحدة البيع نص حر مثل كرتون أو حبة»، والمثال صنف وحدته كرتون (926)، وردّ القائمة (760) بلا وحدات",
+   "change": "إعادة تعريفه وحدة أساس صغرى، وتوثيق units[] في الردّ والإنشاء والتعديل (955-958)، وتصحيح المثال",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/lib/apiDocsCatalog.ts",
+   "line": 892,
+   "kind": "einvoice",
+   "what": "unitCode حقل واحد للصنف «حسب جدول مزوّد الفوترة»، وفي التعديل (1032-1036)",
+   "change": "رمز وحدة لكل وحدة، وتوضيح أيّها يُرسل في بند الفاتورة الإلكترونية",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/lib/apiDocsCatalog.ts",
+   "line": 680,
+   "kind": "price",
+   "what": "السعر الخاص للعميل «صافياً قبل الضريبة» بلا وحدة، وكذلك القواعد 687 و1195 و300",
+   "change": "تحديد هل السعر للحبة أم لوحدة بعينها، أو سعر خاص لكل وحدة",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/lib/apiDocsCatalog.ts",
+   "line": 1411,
+   "kind": "integration",
+   "what": "ردود البنود تذكر product{id,name,code,unit} فقط: /invoices/:id، وwithItems (1278)، والكشف (623، 2421)",
+   "change": "إضافة unitName وunitFactor لكل بند في الردود الموثّقة",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/lib/apiDocsCatalog.ts",
+   "line": 3211,
+   "kind": "stock_balance",
+   "what": "معادلة remaining = loaded − unloaded + adjusted − sold + returned بلا معامل؛ والمثل في المستودع onHand وavgCost (3591-3593) والدليل (6219-6220)",
+   "change": "التنصيص على أن كل حدّ بالأساس (qty × unitFactor) وأن avgCost للحبة",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/lib/apiDocsCatalog.ts",
+   "line": 3270,
+   "kind": "integration",
+   "what": "تحويل الاقتراح إلى تحميل: qty=row.suggested، وwithBuffer بـceil (3268)، وقياس التبنّي يقارن الكمية المحمّلة بـsuggestedQty (3311)",
+   "change": "توثيق أن الاقتراح بالأساس، ومن يحمّل بالكرتون يرسل الوحدة أو يقسم، وأن التبنّي يُقاس بالأساس",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/lib/apiDocsCatalog.ts",
+   "line": 3472,
+   "kind": "integration",
+   "what": "/van-stock/movements يردّ items {name, unit, qty}، وقاعدة 3478",
+   "change": "توضيح وحدة الكمية (وحدة البند مع اسمها أم الأساس)",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/lib/apiDocsCatalog.ts",
+   "line": 3741,
+   "kind": "integration",
+   "what": "طلبات البضاعة تردّ requestedQty وqty، والتعديل يأخذ items[].qty من 0 إلى 1000000 (3785-3788) والدليل (6261-6275)",
+   "change": "تحديد وحدة الطلب (الأساس أو الوحدة التي طلب بها المندوب) وحملها",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/lib/apiDocsCatalog.ts",
+   "line": 5110,
+   "kind": "qty_aggregate",
+   "what": "rep-ranking بمعيار product يردّ value كمّيةً مع product{unit}، والقاعدة 5114",
+   "change": "القيمة بالأساس ووحدتها",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/lib/apiDocsCatalog.ts",
+   "line": 5496,
+   "kind": "qty_aggregate",
+   "what": "ملخّص اللوكيشن: loads{count, qty} ومجموع الكميات (القاعدة 5501 والدليل 6069)",
+   "change": "الجمع بالأساس، وqty على مستوى الموقع يجمع أصنافاً مختلفة",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/lib/apiDocsCatalog.ts",
+   "line": 3341,
+   "kind": "qty_aggregate",
+   "what": "/van-stock/summary فيه totalRemaining وtotalLoaded وtotalSold وtotalDamaged، و/warehouse/vans فيه qty (3620، 6253)",
+   "change": "توثيق أنها مجاميع بالأساس بين أصناف مختلفة",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/lib/apiDocsCatalog.ts",
+   "line": 4750,
+   "kind": "integration",
+   "what": "تقرير المرتجعات يردّ items {name, unit, qty, lineTotal}",
+   "change": "وحدة البند المرتجع ومعامله",
+   "risk": "low"
+  }
+ ],
+ "gotchas": [
+  "حارس السعر في المرتجع غائب أصلاً (invoices.ts:542). في المرحلة الأولى يحدّد التطبيق سعر بند المرتجع، والخادم لا يقارنه ببند البيع. مع الوحدات المتعددة يصير الخطأ الشائع إرجاع حبة بسعر كرتون، فيجب أن يحسب الخادم سعر المرتجع المرتبط من البند المباع.",
+  "تقريب سعر الحبة من الكرتون: 10.00 ÷ 24 = 0.41667. إرجاع 24 حبة في 24 مرتجعاً منفصلاً يعطي 24 × 0.42 = 10.08، أي أكثر مما دُفع. يلزم تسعير آخر حبة بالباقي (lineTotal − ما رُدّ سابقاً). في المرحلة الثانية قد يرفض assertCreditAmount إشعاراً مشروعاً أو يمرّر الفرق ضمن سماحه (0.01 × السلال × الإشعارات).",
+  "حارس الكمية يجب أن يعمل بالأساس الصحيح لا بكسور وحدة البيع. ‏notes.ts يقرّب الكميات إلى 4 خانات (roundQty، QTY_DECIMALS=4)، فالحبة من كرتون 24 تصير 0.0417. بعد 24 مرتجعاً يتجاوز المجموع 1.0008 فيُرفض آخر مرتجع بحارس EPS.",
+  "‏Prisma aggregate/groupBy بـ _sum.qty (كما في invoiceExpiry.ts:76) لا يضرب بالمعامل. يُستحسن عمود كمية أساس مخزَّن (baseQty = qty×unitFactor) في كل صفّ، وإلا يجب تحويل كل aggregate في المنصة إلى findMany وجمع في الذاكرة.",
+  "‏InvoiceItem.unitCost (افتراضه 0) لا يكتبه أي مسار إصدار: المرحلة الأولى invoices.ts:848، والثانية invoicesZatca.ts:425، والإشعار invoicesNotes.ts:428. ويُصدَّر في /api/v1/sync (services/apiSync.ts:93). إن بُنيت تكلفة البضاعة المباعة لاحقاً فيجب تعريفه تكلفةً لوحدة الأساس وضربه في qty×unitFactor، أو تخزينه بوحدة البند مع توثيق ذلك.",
+  "مسار الأوف‑لاين (clientRef وX-FS-Replay): مستند أُنشئ على الجهاز بمعامل 24 قد يُرفع بعد أن غيّر المدير الكرتون إلى 12 أو أوقف الوحدة. يجب أن تكتب اللقطة معامل الجهاز وألا تُرفض الفاتورة، على قاعدة «مستند الصندوق لا يُعدم»، كما يُتخطّى حارس الفريق في invoices.ts:508. ومسار إعادة الرفع (414-443) يعيد الصفّ القائم فلا يُعاد حلّ الوحدة.",
+  "محرّك الحساب (lib/invoiceCalc.ts) له نسخة مطابقة حرفياً في web-admin/src/rep/invoiceCalc.ts للطباعة أوف‑لاين. يبقى qty وunitPrice بوحدة البند، ولا يُحوَّل إلى الأساس قبل الحساب، وإلا اختلف التقريب بين الورقة المطبوعة وسجلّ الخادم.",
+  "‏ZATCA: ‏issue.ts:154 يكتب PCE ثابتاً، وProduct.unitCode اليوم رمز لهيئة الضرائب المصرية (ETA) ولا يُقرأ في المرحلة الثانية. رمز كل وحدة يجب أن يكون من UN/ECE Rec 20. وسطر إشعار دائن بالحبة على بند كرتون يحمل رمز الحبة وكمية الحبات وسعر الحبة، لا رمز الأصل المنسوخ في notes.ts:311.",
+  "المرتجعات القديمة (legacyReturns) تُطابَق بالصنف وحده وتُخصم بترتيب المستند (notes.ts:292-305). مع الوحدات يجب أن تكون البركة والخصم بالأساس، وإلا خصم مرتجع قديم بالكراتين حبّات من فاتورة جديدة.",
+  "حارس السعر يتجاهل minQty للشرائح ويأخذ أدنى سعر شريحة مطلقاً (invoices.ts:546). عند الانتقال يجب تحديد وحدة minQty وسعر الشريحة (أساس أو وحدة) قبل أي مقارنة.",
+  "‏returnLinkProblem يتحقق من تطابق الصنف فقط (returnLinks.ts:80) ولا يفحص الوحدة. إرجاع كرتون من بند بيع بالحبة (بيع 30 وإرجاع 24) صحيح بالأساس، فلا يجوز اشتراط تطابق الوحدة. المطلوب هو المقارنة بالأساس فقط.",
+  "‏computeStock في routes/vanStock.ts:166-206 (خارج نطاقي) يغذّي حارس مخزون السيارة في invoices.ts:562. صحة الحارس تتطلب أن يجمع هو أيضاً InvoiceItem.qty وVanLoadItem.qty بالمعامل، ويحسب المرتجع والإشعار الدائن بلقطتهما.",
+  "المستهلكون الخارجيون (services/apiSync.ts:92-95 INVOICE_ITEM_COLS، وservices/erp.ts والمزامنة مع Odoo) يقرؤون qty اليوم على أنها كمية الصنف. بعد الميزة سيقرؤون 2 كرتون على أنها 2 حبة ما لم يُضف unitName وunitFactor أو كمية الأساس إلى الحمولة.",
+  "‏customers.ts (كشف الحساب) لا يجمع كميات، فالأرصدة من قيود المبالغ، وخطره عرض وطباعة فقط. والأقساط (installments.ts) تُبنى من الإجمالي فلا تتأثر بالوحدات.",
+  "الشركات القائمة تمثّل الكرتون والحبة صنفين منفصلين. تعليق importData.ts في السطر 801 يذكر «ماء كرتون» و«ماء حبة» صراحةً. لا دمج آلياً: رصيد صنفين وحركاتهما وفواتيرهما يحتاج أداة دمج يقرّرها المالك، وإلا بقي الصنفان وأُضيفت الوحدات للجديد فقط.",
+  "صنف قديم وحدته «كرتون» يصبح بالترحيل وحدة أساس بمعامل 1. إضافة «حبة» أصغر منه تعني إعادة تأسيس القاعدة: ضرب كل الكميات التاريخية والأرصدة والتكاليف وminQty في ٢٤. أو يُمنع ذلك ويُسمح فقط بوحدات أكبر من الأساس القائم. يجب حسم هذا قبل البناء.",
+  "splitVanMovement (السطر 40 في lib/vanMovement.ts) يعيد بناء بنود التنزيل بـ{productId, qty} فقط ويسقط كل حقل إضافي. إضافة unitFactor على الصفوف لا تكفي: تنزيل الكرتون سيدخل حبة بصمت.",
+  "كل نماذج الويب تمنع تكرار الصنف وتستعمل productId مفتاحاً: InvoiceModal في السطرين 233 و586، وLoadModal في 661 و738، وWarehouseEntryModal في 329 و336، وتعديلات طلبات المناديب edits[reqId][productId]. يجب القرار: سطر واحد بوحدة واحدة لكل صنف، أو مفتاح productId+unit في كل موضع.",
+  "اقتراح التحميل (/van-stock/suggest) وقياس الدقة يعملان بكميات الأساس. ملء نموذج التحميل بوحدة افتراضية غير الأساس يضاعف التحميل، وقياس الدقة يقارن loaded بـexpected، فيجب ضرب loaded في المعامل على الخادم.",
+  "المرتجع المرتبط: refundUnitPrice في ردّ /invoices/:id/returnable سعر وحدة بند البيع شاملاً الضريبة بعد الخصومات. سعر الحبة من بند كرتون = refundUnitPrice ÷ ٢٤ يولّد كسوراً. مجموع إرجاع ٢٤ حبة متفرقة قد لا يساوي إجمالي الكرتون بالفلس، فيلزم معالجة فرق التقريب في آخر حبة على الخادم. وفي المرحلة الثانية يُسعَّر الإشعار الدائن من الأصل على الخادم، فكميته بوحدة غير وحدة البند تحتاج دعماً هناك أيضاً.",
+  "خيار الطباعة showItemUnit (printSettingsCore.ts السطر 92) يسمح للشركة بإخفاء الوحدة. مع الوحدات المتعددة يصبح «٢» في الفاتورة الضريبية بلا معنى: كرتون أم حبة. يُطبع الوحدة دائماً حين يختلف المعامل عن 1.",
+  "avgCost وstockValue في المستودع يصيران لكل وحدة أساس. عنوان «متوسط تكلفة الوحدة» يقرؤه المستخدم لوحدة البيع، ويُخطئ بمقدار المعامل.",
+  "المجاميع عبر الأصناف (totalLoaded وtotalRemaining وvans.qty وstockRequestTotalQty وreceiveTotalQty وloadQty) تخلط وحدات أصناف مختلفة اليوم أصلاً. بعد الميزة تخلط أيضاً وحدتي الصنف الواحد إن لم تُحسب بالأساس.",
+  "التقريب: fmtQty وparseRequestQty يقرّبان لخانتين. الكسر 1/24 كرتون = 0.0417. يجب أن يبقى الحساب والتخزين بالأساس، والتفكيك «X كرتون + Y حبة» للعرض فقط، لا كمية عشرية بالكرتون.",
+  "InvoiceDetailModal.tsx كود ميت: لا يستورده أي ملف. الفاتورة تُطبع من InvoicesPage عبر invoiceDocFromDetail في rep/RepDocuments.tsx، فالإصلاح هناك.",
+  "لوحة الإدارة على الويب لا تحرّر شرائح الأسعار (PriceTier) في ProductModal، ولا تطبّقها في InvoiceModal: يُرسل unitPrice صريحاً من basePrice. محرّر الشرائح الوحيد في m/MProducts.tsx (السطران 493 و525) خارج نطاقي، ويحتاج القرار نفسه: minQty بالأساس أم بوحدة.",
+  "الأسعار الخاصة للعملاء (استيراد /import/prices) لا تُطبَّق في InvoiceModal للإدارة أصلاً، فالسعر من basePrice. تطبيقها مع الوحدات قرار في الخادم وتطبيق المندوب: الخاص × المعامل، أو خاص لكل وحدة.",
+  "InvoiceGeneratorPage أداة مجانية مستقلة بلا أصناف ولا مخزون: لا موضع تغيير فيها. وCatalogPage يقرأ /public/catalog، فعرض أسعار الوحدات يتطلب تغيير الخادم أولاً.",
+  "unitCode للفوترة الإلكترونية (مصر ETA وغيرها) واحد للصنف اليوم (ProductModal السطر 340). بند الكرتون يُرسل برمز وحدة الأساس ما لم يصبح الرمز لكل وحدة ويُلتقط على البند.",
+  "بنود الردّ من الخادم يجب أن تعيد unitName وunitFactor كلقطة، في: /invoices/:id، و/van-stock/movements، و/warehouse/entries، و/customers/:id/statement، و/reports/returns. واجهات الويب كلها تقرأ اليوم product.unit المباشر، وهو سيصبح وحدة الأساس فيكذب على كل بند بوحدة أخرى.",
+  "دليل الـAPI (lib/apiDocsCatalog.ts) عقد مع عملاء خارجيين. حقلا unitName وunitFactor يجب أن يكونا اختياريين بافتراض 1، فلا ينكسر تكامل قائم يرسل qty بالأساس.",
+  "تصادم أسماء: `unit` في routes/ledger/reports.ts (السطور 244 و354) وservices/gl/reports/* هو مقياس عرض المبالغ (آحاد/آلاف — RPT-06) لا وحدة الصنف؛ البحث النصّي عن unit سيضلّل. دفاتر الأستاذ والقوائم المالية لا تلمس الكميات إطلاقاً.",
+  "builder فاتورة الـGL (invoice.ts:134) سليم بشرط ثابت واحد: unitPrice لقطة لوحدة السطر نفسها. أي تصميم يخزّن qty بالأساس مع سعر الكرتون (أو العكس) يُفسد توزيع الإيراد على السلال بصمت، لأن الأوزان وحدها تتأثر والإجمالي من subtotal المخزّن.",
+  "لا تُعِد كتابة qty أو unitPrice لبنود قديمة في الترحيل (migration): المُرحِّل وrepost يعيدان بناء الحمولة من صفوف InvoiceItem (postingStore.prisma.ts:653)، فتغيير الصفوف التاريخية يغيّر القيود المعاد ترحيلها. unitFactor=1 افتراضاً يكفي.",
+  "وضع الدفاتر الحالي CLEAN (يدوي بلا ترحيل آلي) والأرصدة المشتقة أُزيلت من قيد الافتتاح، فخطر الـGL كامن لا حيّ؛ لكن معاينة الافتتاح ما زالت تعرض قيمة المستودع والكمية بلا تكلفة (opening.ts:1203) وتحذير المخزون الافتتاحي (1114).",
+  "InvoiceItem.unitCost موجود (افتراضه 0) وأحداث COGS/RESTOCK محجوزة لـM9: يجب حسم معنى التكلفة (لوحدة الأساس) قبل أي تنفيذ لتكلفة البضاعة المباعة، وكذلك معنى WarehouseEntryItem.unitCost الذي تقرؤه لوحة المؤشرات (dashboard.ts:81) والافتتاح وwarehouseCost معاً — قرار واحد للجميع.",
+  "اقتراح التحميل يطرح onVan من computeStock (خارج نطاقي، routes/vanStock.ts) من متوسط المبيعات: إن تحوّل أحدهما للأساس دون الآخر صار الاقتراح خاطئاً بمعامل 24. وsuggestedQty/expectedQty المخزّنة على VanLoadItem يجب أن تبقى بالأساس مهما كانت وحدة سطر التحميل، وإلا انهار قياس الدقّة.",
+  "لقطات المندوب الذكي (aiEstimateSnapshot) القديمة كمياتها بوحدات مختلطة: معايرة gsig/LOO ستقارنها بفعليّ محسوب بالأساس فتتعلّم معاملاً خاطئاً. يلزم وسم نسخة (qtyBasis) أو استبعاد اللقطات السابقة للتحويل أو تصفير المعايرة.",
+  "ذاكرات مؤقتة: بيانات المحرّك ومراسي googleDemand تُحفظ ١٠ دقائق لكل شركة، ومخزون السيارة ٣ دقائق — بعد النشر قد تُعرض أرقام بالمقياس القديم حتى تنتهي.",
+  "حارس الأرقام المختلقة في ردود النموذج (baseAllowedNumbers في advisorTools.ts:356 وsanitizeStudy في profileStudy.ts:228): إن عرضنا «2 كرتون + 4 حبات» أو ذكرنا المعامل 24 فيجب إضافة هذه الأرقام للمسموح وإلا رُفضت الردود.",
+  "مجموع «الكمية» في تقرير اللوكيشن (locations.ts:204) يجمع أصنافاً مختلفة أصلاً (رقم بلا معنى اليوم)، ويصبح أسوأ مع خلط الكرتون والحبة — قرار: يُجمع بالأساس صراحةً أو يُحذف.",
+  "تقرير المرتجع يأخذ الوحدة من product.unit الحالية لا من البند — خطأ قائم حتى قبل الميزة (تغيير اسم وحدة الصنف يغيّر تقارير الماضي)، ومرتجع الحبة من بند كرتون سيظهر بوحدة خاطئة إن لم يُقرأ unitName.",
+  "تقارير /reports و/dashboard مكشوفة لمفاتيح API (fsk_) حسب apiDocsCatalog: تغيير معنى qty في groupBy=product وrep-ranking من «مجموع خام» إلى «أساس» تغيير سلوك على تكاملات العملاء — يُوثَّق ويُفضَّل إضافة حقل جديد (baseQty) بدل قلب معنى الحقل القائم بصمت.",
+  "InvoiceItem.unitCode (رمز UN/ECE لـZATCA) حقل مستقل عن unitName المقترح — خارج نطاقي لكن يجب ألا يُخلط بينهما في التقارير.",
+  "حساب «القابل للإرجاع» (routes/invoices.ts:361 sold: Number(it.qty)) خارج نطاقي لكنه يغذّي ربط المرتجع الذي يعرضه تقرير المرتجع؛ يجب أن يكون بالأساس كما في التصميم.",
+  "تطبيق المندوب لا يفحص رصيد السيارة عند البيع (لا مقارنة بالمتبقّي في CreateInvoice): الخادم وحده يحرس المخزون، فإن لم تُرسل الوحدة في POST /invoices خصم الخادم الكمية بالأساس بصمت بلا أي إنذار في الواجهة.",
+  "أخطر فخّ: إعادة اختيار وحدة الأساس لصنف له تاريخ. اليوم Product.unit قد تكون «كرتون». لو صارت الأساس «حبة» بمعامل كرتون=24 فكل InvoiceItem/VanLoadItem تاريخي وكل مستند مصفوف في الـoutbox بلا unitFactor (أي معامل 1) يُقرأ حبات لا كراتين. والكاش المحلي (products وcustprices:<id>) يبقى بأسعار الوحدة القديمة حتى أول اتصال.",
+  "الطباعة بعد الإصدار تأتي من printItems في العميل (RepApp 1916) بـl.unit، بينما إعادة الفتح تأتي من invoiceDocFromDetail (RepDocuments 1403) بـproduct.unit. لذلك يجب أن تعتمد البانيتان معاً لقطة unitName، وإلا اختلفت ورقتان للفاتورة نفسها.",
+  "invoiceDocFromDetail وstatementDocFromData وloadNoticeDocFromData وwarehouseNoticeDocFromEntry مشتركة بين ثلاث واجهات (المندوب، واللوحة: InvoicesPage/CustomersPage/VanStockPage/CompanyWarehousePage/InvoiceModal، و/m). تعديلها في RepDocuments يغيّر الثلاث معاً.",
+  "المرتجع بالحبة من بند كرتون: لا يُقرَّب سعر الحبة المشتق (refundUnitPrice ÷ 24) لخانات العملة قبل الضرب. مثلاً 10.00/24 تُقرَّب إلى 0.42، وإرجاع 24 حبة يعطي 10.08 فيُردّ للعميل أكثر مما دفع. السعر يبقى float كما يفعل priceFromLineTotal، أو يُسقَّف بقيمة البند المتبقية.",
+  "إرجاع جزئي بالحبة يترك المتاح بالكرتون كسراً (0.79166…). لذلك يُعرض المتاح «X كرتون + Y حبة»، ويُقصّ qty في upd (1786) على الأساس لا على maxQty بالوحدة.",
+  "سعر العميل الخاص (custPrices) خريطة productId → سعر واحد. يجب حسم العقد: هل هو للأساس فيُضرب في المعامل، أم لكل وحدة؟ والتقريب: round(cp×factor×(1+t)) يختلف عن factor×round(cp×(1+t))، والخادم يقارن unitPrice بأرضيته فيجب أن تتطابق الصيغتان حرفياً.",
+  "الرمز الضريبي لكل وحدة يعني أن الصنف الواحد قد يحمل نسبتين في فاتورة واحدة. computeInvoiceTotals يجمّع الضريبة بسلة النسبة فيعمل، لكن taxPct يجب أن يأتي من الوحدة (RepApp 1765 و1736 يقرآن ضريبة الصنف أو السطر).",
+  "/products يعيد priceTiers (backend routes/products.ts:121) والتطبيق يتجاهلها كلياً، ولا منطق شرائح سعرية في العميل. فأي مقارنة لـPriceTier.minQty مع الكمية تبقى على الخادم ويجب أن تتم بالأساس، وإلا أظهرت الواجهة سعراً يرفضه الخادم أو قبل الخادم سعراً أدنى.",
+  "invoiceCalc.ts مرآة حرفية لـbackend/src/lib/invoiceCalc.ts، والمتجهات الذهبية في invoiceCalc.test.ts وpriceFromTotal.test.ts. المحرّك محايد للوحدة، فلا يُدخَل فيه معامل. يكفي أن يتّسق qty وunitPrice في وحدة السطر.",
+  "الشريط الحراري الكلاسيكي محروس بـGOLDEN_SIMPLIFIED وGOLDEN_SHA في thermalHtml.test.ts (بايتاً ببايت). إظهار الوحدة أو «كرتون + حبة» يجب ألا يغيّر الناتج عند unitFactor=1 وإلا سقطت الحراسة. وعرض 58مم ضيّق، فالنص الأطول يلتفّ.",
+  "حراس نصّية تقرأ مصدر RepApp.tsx بالتعبير النمطي: saleInvoicePicker.test.ts (السطر «setLines(prev => prev.map(l => {» يليه «if (l.saleItemId) return l;» خلال 300 محرف)، وliveGate.test.ts (سطر attemptClientRef)، وrepIssueGuards.test.ts الذي يشترط أن يكون لكل نص tr جديد في RepApp ترجمة en/fr/tr/zh في strings.ts.",
+  "خيار القالب showItemUnit (افتراضه true في printLook.ts:55) يسمح للشركة بإخفاء الوحدة من A4 والرول. مع وحدات متعددة يصير إخفاؤها غموضاً في ورقة بيد العميل، فيجب تجاوزه للسطر بغير الأساس.",
+  "مفتاح idempotency (attemptClientRef) هو JSON.stringify للحمولة كلها، فإضافة حقول الوحدة تدخل فيه تلقائياً. لكن تبديل الوحدة بعد ضغطة إصدار ضاع ردّها ينتج clientRef جديداً، وهذا صحيح.",
+  "الطباعة بالبلوتوث المباشر (printHtmlDirect وprintNodeDirect في RepDocuments ~1747-1755) لا تنسّق البنود بنفسها، بل ترث قالب الرول أو عقدة A4. فإصلاح القالبين يكفيها، ولا موضع ثالث.",
+  "amounts.ts مطابق حرفياً لـcomputeInvoiceTotals في lib/invoiceCalc.ts ويحرسه اختبار مطابقة. أيّ تغيير في معالجة المحرّك للوحدة يجب أن يُنقل إلى amounts.ts بالتعبير العائم نفسه، وإلا يرمي storedAmounts (D6) خطأ 422 ZATCA_AMOUNTS لكل فاتورة مرحلة ثانية.",
+  "الأسلم أن يُكتب البند في الـXML بوحدة الصفّ: كمية الكراتين برمز الكرتون وبسعر الكرتون، لا محوّلاً إلى الأساس. قسمة السعر على المعامل تعطي كسوراً لا تنتهي (100/24)، وformatDec(q,6) بلا حدّ أعلى، وPriceAmount يقف عند 8 خانات.",
+  "كسر الكرتون ممنوع في الـXML. الإشعار الكامل 'FULL' بعد مرتجع جزئي بالحبة يجب أن يُصدر الباقي بوحدة الأساس، وإلا كُتبت InvoicedQuantity بسبع عشرة خانة.",
+  "حارس القيمة assertCreditAmount هو الشبكة الوحيدة التي توقف إشعاراً بسعر الكرتون على كمية حبات. لا يُرخى، ويُضاف اختبار لمرتجعات حبة متتالية من بند كرتون، لأن التقريب ينحرف حتى نصف هللة لكل سطر وسماحه 0.01 لكل سلّة لكل إشعار.",
+  "لقطة einvoiceSnapshot (v1) تحفظ ما كُتب في الـXML وحده، وإعادة الختم (reissue.ts) تبني منها. فلا تُضاف unitName/unitFactor إلى UblLine: مكانها أعمدة InvoiceItem. والمستندات القديمة تبقى PCE.",
+  "Product.unitCode الحالي «كود الوحدة حسب جدول المزوّد (ETA)»، ولا يقرؤه مسار ZATCA أصلاً (PHASE2_UNIT_CODE ثابت). لا يُستعمل رمزاً لـUN/ECE بلا قرار صريح.",
+  "رموز التعبئة (الكرتون والعلبة) تأتي من Rec 21، وتظهر في قائمة Rec 20 المدمجة بالبادئة X (XCT وXBX مثلاً). يُتحقق مما تقبله SDK الهيئة قبل التفعيل، فالفحص المسبق لا يفحص قائمة الرموز.",
+  "اختبار تغطية المزامنة (src/tests/api-sync.test.ts) يفحص أعمدة النموذج الأعلى فقط. القوائم المتداخلة (بنود الفواتير والتحميلات والوارد وpriceTiers) لن تُبلّغ عن unitName/unitFactor، فتُحذف من /api/v1/sync بصمت.",
+  "erpPayload ينشر أعمدة البند (...it)، فستصل الأعمدة الجديدة إلى Odoo تلقائياً، لكن الموصل يتجاهلها. والسطر في Odoo بلا product_uom_id، فالمبالغ صحيحة والكميات بوحدة غير معلنة.",
+  "كل حسابات الكمية في الإشعارات تخلط وحدات بنود مختلفة: مجموع الإشعارات السابقة بـcreditedItemId، وبركة المرتجعات القديمة بالصنف، ونطاق Q5. كلها تحتاج unitFactor من الصفوف الثلاثة (الأصل والإشعار والمرتجع القديم)، والافتراض 1 يحفظ التاريخ.",
+  "فاتورة تجمع الصنف بكرتون وبحبة في بندين ستجعل مطابقة المرتجع بالصنف (returnItemsToLines) تُرجع 422 التباس. يلزم تطبيق المندوب إرسال invoiceItemId دائماً.",
+  "الفئة الضريبية ورمز الإعفاء على مستوى الصنف (validateProductVat). عبارة «رمزها الضريبي» لكل وحدة يجب أن تعني رمز الوحدة UN/ECE فقط، لا فئة ضريبية مختلفة للكرتون عن الحبة.",
+  "معنى InvoiceItem.unitCost (تكلفة الصف أم تكلفة الأساس) يُكشف لـAPI والـERP كما هو. يجب حسمه وتوثيقه، وإلا ضرب المستقبِل qty بتكلفة الأساس فأخطأ تكلفة المبيعات بمقدار المعامل.",
+  "قيد D6 في prepareIssuance يجعل تحديث جهة واحدة (المحرّك أو request.items) يفشل فشلاً آمناً بـ422 لا صامتاً. لكنه يعني أن كل مسار مرحلة ثانية يتوقف إن لم تحمل الجهتان الوحدة نفسها.",
+  "services/zatcaSubmit.ts يرسل بايتات مختومة مخزّنة، فلا تغيير فيه. وتكامل بترو آب (services/petroapp.ts وroutes/petroapp.ts) لترات وقود ومبالغ مصروفات لا كميات أصناف، فلا أثر عليه.",
+  "أخطر فخّ في الترحيل: unitFactor=1 للصفوف القديمة معناه «وحدة Product.unit اليوم». شركة تبيع اليوم بالكرتون (unit=كرتون) ثم تجعل الأساس «حبة» تقلب كل تاريخها من تحميلات ووارد وفواتير ×24 فوراً: رصيد السيارة والمستودع والطبقات والقيد الافتتاحي. الأساس الجديد يجب أن يساوي الوحدة الحالية، أو تُرحَّل الصفوف القديمة بمعامل صريح",
+  "اللقطة على الصفّ لا جدول وحدات الصنف الحالي: كل قارئ (computeStock وloadWarehouseInputs ومحمّل opening.ts و/vans وinvoiceExpiry والملخّصات) يقرأ unitFactor من الصفّ نفسه. وتعديل معامل الكرتون لاحقاً يجب ألّا يعيد كتابة أي رصيد مضى، ومنه «المخزون في تاريخ»",
+  "يوجد ثلاثة مسارات قراءة مستقلة تُغذّي الطيّ والتقييم: computeStock (routes/vanStock.ts)، وloadWarehouseInputs (services/warehouseStock.ts)، ومحمّل القيد الافتتاحي (services/gl/opening.ts:969-985)، ومعها /warehouse/vans الذي يقرأ بنود الفاتورة بنفسه. تحويلٌ يُنسى في أحدها يجعل الشاشة تخالف القيد. والأسلم التحويل للأساس عند حدّ القراءة وإبقاء foldStock/composeWarehouse/valueStock صرفة بالأساس، فاختباراتها (van-stock-range وwarehouse وgl-opening) تبقى صالحة",
+  "Prisma aggregate/groupBy لا يضرب بالمعامل: _sum.qty في invoiceExpiry.vanLoadBatchAt (76-86) يلزمه findMany+reduce أو SQL خام SUM(qty*\"unitFactor\"). والاستعلامات الخام القائمة (dashboard SUM(qty*unitCost)، ومرساة googleDemandData) كذلك",
+  "دقة التكلفة: COST_DECIMALS=4. قسمة سعر الكرتون على 24 ثم التقريب (10/24 → 0.4167) ثم الضرب في 24000 حبة تعطي 10000.8 بدل 10000. الأصح تخزين unitCost لوحدة السطر كما في فاتورة المورّد، وتمرير قيمة السطر (qty×unitCost) إلى valueStock مع الكمية بالأساس، لا تكلفة وحدة أساس مقرّبة. وavgCost المعروض يصير لكل وحدة أساس فيُسمّى كذلك",
+  "طبقات السيارات (VAN_OUT/VAN_IN، آخر ما حُمّل أول ما يعود) تطابق التنزيل بالتحميل بالكمية. تحميلٌ بالكرتون وتنزيلٌ بالحبة دون تحويل يسحب من الطبقة الخطأ أو يعدّ الفائض «بضاعة سبقت النظام» بمتوسط اللحظة، فتتغيّر قيمة المستودع بصمت",
+  "suggestedQty وexpectedQty على VanLoadItem هما مرجع قياس الدقة، ويجب أن يُخزّنا بالأساس مهما كانت وحدة صفّ التحميل. وفحص التبنّي (suggestAccuracy.ts:170) يقارن qty×unitFactor بالمقترح. ويقرّب محرّك الاقتراح لأعلى بالحبة (ceil)، أما التقريب لمضاعفات الكرتون فقرار عمل لا يُفرض ضمناً",
+  "واجهات التحميل والوارد وطلب البضاعة كلها تفترض صفاً واحداً لكل صنف (MRepLoad.tsx:176 «تكرار الصنف يُنشئ بندين متنازعين»، وpatchQty بمفتاح productId)، ومعها @@unique([requestId, productId]) في RepStockRequestItem. «5 كرتون + 3 حبة» للصنف نفسه يلزمه إما تحويلٌ لصفّ أساس واحد أو تغيير المفاتيح",
+  "المجاميع عبر الأصناف (totalRemaining/totalLoaded/totalSold في /summary، وsummarizeVansStock.qty وunsellableQty، وتحذير حذف المندوب، وإجمالي إشعار التحميل، وstockRequestTotalQty) ستقفز بوحدات الأساس (×24 لمن كان يعدّ كراتين). وهي بلا معنى أصلاً عبر أصناف مختلفة، فيلزم قرار عرض",
+  "عرض «X كرتون + Y حبة» يحتاج قواعد للرصيد السالب (بيع بلا مخزون مسموح)، ولوحدات الأساس الكسرية (كيلو/لتر)، وللمعامل غير الصحيح. والتقريب لأربع خانات (bucketRemaining وroundDecimal) يُطبَّق على الأساس قبل التفكيك لا بعده",
+  "مفتاح API عميل حيّ على /api/van-stock/loads و/api/warehouse/entries مباشرة (index.ts:230-231)، وعلى /api/v1/sync. عميلٌ قديم يرسل qty بلا وحدة يجب أن يُفسَّر بالأساس (factor=1) لا بوحدة البيع الافتراضية للصنف. والمزامنة الصادرة (apiSync.ts:196، 201) بلا unitFactor تجعل أي ERP يجمع كراتين مع حبات",
+  "فرض مخزون السيارة في routes/invoices.ts:561-575 يجري وقت وصول الفاتورة (ومنها الأوف-لاين عند المزامنة) ويستخدم computeStock. تحويل بند الفاتورة للأساس هنا شرطٌ، وإلا مرّ بيع 10 كرتون على رصيد 10 حبات",
+  "عهدة الأدوات (VanToolMove) qty Int وليست أصنافاً، فلا تتأثر بالوحدات ولا تحتاج تغييراً (foldTools/toolCountsByRep)",
+  "الإقفال المحاسبي لحركات المخزون (WH_ENTRY/VAN_LOAD/RESTOCK/COGS) غير مبني بعد (services/gl/sync/desired.ts:37 «تصل مع M9»)، وحين يُبنى يجب أن يأخذ الكمية بالأساس والقيمة من valueStock لا qty×cost بوحدة الصفّ",
+  "خارج نطاقي لكنه يمسّ رصيد السيارة: القابل للإرجاع في services/returnLinks.ts (returnedBySaleItem 45-48، returnableOf 53-55، returnLinkProblem 81-85) يجمع qty المرتجعات ويطرحها من qty بند البيع بلا معامل. مرتجع بالحبة من بند كرتون يجب أن يُقارَن بالأساس هناك أيضاً، ووسم returnExpired على بند المرتجع (boolean) لا يتأثر",
+  "/van-stock/loads يحسب رصيد الإزالة بـcomputeStock من prisma لا من tx داخل القفل الاستشاري (vanStock.ts:239-270). هذا سلوك قائم مقصود (يقرأ الملتزَم)، والتحويل للأساس يجب أن يجري في الدالة نفسها كي يبقى الفحص والكتابة متّسقين",
+  "قاعدة «صنف واحد = سطر واحد» مقصودة في ثلاث شاشات: MRepLoad السطران 176 و180، وMWarehouse السطر 426، ودمج MInvoiceCreate السطر 76. وتعليقاتها تقول إن «تكرار الصنف يُنشئ بندين متنازعين». هذا يصطدم بكرتون + حبة في مستند واحد، فيلزم قرار: سطر لكل (صنف، وحدة)، أو سطر واحد يُحوَّل إلى الأساس قبل الإرسال.",
+  "splitVanMovement في lib/vanMovement.ts تعيد بناء البنود ولا تنقل إلا productId وqty (وsuggestedQty وexpectedQty في out). أي حقل وحدة تضيفه شاشة التحميل يسقط هنا بصمت، والخادم يفترض المعامل 1.",
+  "docMath وcomputeInvoiceTotals يحسبان qty × unitPrice. والصحيح ألّا يُضرب في unitFactor ما دام unitPrice سعر وحدة السطر؛ و«إصلاح» بالضرب في الواجهة أو الخادم يضاعف المبلغ. المعامل للمخزون والتكلفة وحدهما.",
+  "الأصناف القائمة وحدتها اليوم غالباً «كرتون» (مثال الدليل نفسه في السطر 926)، فتصير الكرتون وحدة الأساس، ولا تُضاف «حبة» أصغر منها إلا بمعامل < 1. وهذا يخالف «الأساس أصغر وحدة». تغيير الأساس لصنف له حركات يعيد تفسير كل الكميات المخزّنة، لأنها كلّها اليوم بالأساس ×1. ويلزم ترحيل أو قفل، وشاشة MProducts تسمح اليوم بتعديل الوحدة بحرية (السطر 342).",
+  "عرض «X كرتون + Y حبة» يحتاج من الجوال وحدات الصنف ومعاملاتها. وردود /van-stock/current و/warehouse و/reports/sales?groupBy=product و/van-stock/movements و/van-stock/suggest تحمل حقل unit واحداً فقط، فإمّا تُضاف units إلى كل ردّ أو يُجلب كتالوج الأصناف للتنسيق.",
+  "الشرائح (PriceTier.minQty) يستعملها الخادم حدّاً أدنى لسعر المندوب (أقلّ سعر شريحة). فإن بقيت للحبة ثم بِيع كرتون، يقارن الحارس سعر الكرتون بسعر الحبة. يلزم تحديد وحدة الشريحة قبل أي تعديل على شاشتها في MProducts.",
+  "تطبيق الجوال لا يُصدر مرتجعاً: MInvoiceCreate يعرض CREDIT وCASH والتقسيط فقط. فقاعدة «المرتجع بالحبة من بند كرتون» لا تمسّ /m إلا عبر توثيق /returnable و/creditable في دليل الـAPI. وفي الدليل اليوم تعليمة صريحة (السطر 1636): unitPrice = refundUnitPrice، وهي خاطئة عند اختلاف الوحدة.",
+  "بُناة المستندات في rep/RepDocuments.tsx مشتركة بين تطبيق المندوب واللوحة و/m: invoiceDocFromDetail (1401-1405)، وstatementDocFromData (1494)، وloadNoticeDocFromData (1563)، وwarehouseNoticeDocFromEntry (1591-1597). كلّها تأخذ الوحدة من it.product.unit لا من لقطة البند، والإصلاح مرّة واحدة هناك يصلح الأسطح الثلاثة.",
+  "شاشة المنتجات في الجوال لا تحرّر unitCode ولا أكواد الفوترة (تعليق MProducts السطر 269). فوحدة تُضاف من الجوال ستكون بلا رمز وحدة لـZATCA المرحلة الثانية ما لم يُضف الحقل أو يُشترط من اللوحة.",
+  "لقطة InvoiceItem.unitCost موثّقة في تقرير المبيعات (الدليل 4666). يجب حسم هل هي تكلفة الحبة أم تكلفة وحدة السطر، فتقارير الربح وCOGS تضربها في qty.",
+  "fmtQty في MRepLoad وMWarehouse يقرّب لخانتين، والكمية بالأساس قد تأتي من كسر كرتون (١/٣ كرتون = ٨ حبات بمعامل ٢٤، لكن ٠٫٣٣ × ٢٤ = ٧٫٩٢). يُفضَّل أن يُخزَّن الأساس ويُشتقّ منه، وأن تكون المعاملات أعداداً صحيحة.",
+  "اختبار apiDocsCatalog.test.ts يفرض توثيق كل مسار جديد في موجّهات invoices وvanStock وwarehouse وreports وrepStockRequests وreceipts (قائمة COVERED_ROUTERS)، ويمنع أن يذكر المستند «src/» أو «.ts:رقم». أما products فليس في القائمة، فمسار وحدات جديد هناك لن يُكشف غيابه من الدليل آلياً.",
+  "كل نصّ عربي جديد يمرّ عبر tr() يحتاج مفتاحاً في قاموس i18n للّغات الخمس، وإلا ظهر بالعربية في الواجهات الأخرى.",
+  "إن صار لكل وحدة نسبة أو فئة ضريبية خاصة («رمزها الضريبي»)، فـMInvoiceCreate (السطر 88) وMWarehouse (429 و441) يقرآن taxPct من الصنف لا من الوحدة."
+ ]
+}

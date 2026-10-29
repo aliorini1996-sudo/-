@@ -4,12 +4,15 @@
  *     المعتاد بلا ضريبة، وعدد فواتيره — استعلامٌ مجمَّع واحد لكل شركة بذاكرة ١٠ دقائق (كبيانات التوقّع). صنفٌ في أقل من
  *     ٣ فواتير بلا مرساة (لا يكشف الرقمُ طلبَ عميلٍ بعينه).
  *     العزل: invoice_items بلا tenantId ⇒ عبر فاتورةٍ مقيّدة بـinvoices."tenantId".
+ *     والمرساة **بالأساس** (II_BASE_QTY): وسيط الكمية بالحبّة، وسعر الوحدة سعرُ الحبّة — بندٌ بالكرتون وآخر بالحبّة
+ *     كانا يُخلطان خاماً فيقفز الوسيطان ٢٤ ضعفاً بحسب أيّهما غلب.
  *   - «الأصناف التي مع المندوب»: مخزون سيارته الآن (computeStock — المتبقّي > ٠، الفعّال غير المؤرشف) بترتيب الكمية؛
  *     سيارةٌ فارغة ⇒ المنتجات ذات الأولوية، ثم أكثر الأصناف فواتيراً — والمصدر يُقال للمندوب.
  */
 import { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import type { Anchor, DemandProduct, ProductsSource } from './googleDemand';
+import { ACTIVE_UNITS_SELECT, II_BASE_QTY, displayUnits } from './baseQty';
 
 export const ANCHOR_MONTHS = 6;
 export const MIN_ANCHOR_INVOICES = 3;
@@ -41,13 +44,13 @@ export async function loadAnchors(tid: string, now = new Date()): Promise<Map<st
   since.setUTCMonth(since.getUTCMonth() - ANCHOR_MONTHS);
   const data = prisma.$queryRaw<AnchorRow[]>(Prisma.sql`
     SELECT ii."productId" AS "productId",
-           percentile_cont(0.5) WITHIN GROUP (ORDER BY ii.qty)::float8 AS qty,
-           percentile_cont(0.5) WITHIN GROUP (ORDER BY (ii."lineTotal" - ii."taxAmt") / ii.qty)::float8 AS price,
+           percentile_cont(0.5) WITHIN GROUP (ORDER BY ${II_BASE_QTY})::float8 AS qty,
+           percentile_cont(0.5) WITHIN GROUP (ORDER BY (ii."lineTotal" - ii."taxAmt") / ${II_BASE_QTY})::float8 AS price,
            COUNT(DISTINCT i.id)::int AS invoices
     FROM invoice_items ii
     JOIN invoices i ON i.id = ii."invoiceId" AND i."tenantId" = ${tid}
     WHERE i.status = 'CONFIRMED' AND i.type IN ('CASH', 'CREDIT')
-      AND ii."productId" IS NOT NULL AND ii.qty > 0
+      AND ii."productId" IS NOT NULL AND ${II_BASE_QTY} > 0
       AND i."invoiceDate" >= ${since}
     GROUP BY 1`).then(anchorsFrom);
   if (cache.size > 500) cache.clear();
@@ -78,10 +81,16 @@ export async function loadDemandProducts(tid: string, repId: string, priorityIds
   stockOf: StockOf = vanStockOf): Promise<{ products: DemandProduct[]; source: ProductsSource }> {
   const live = async (ids: string[]): Promise<DemandProduct[]> => {
     if (!ids.length) return [];
-    const rows = await prisma.product.findMany({ where: { tenantId: tid, id: { in: ids }, status: 'ACTIVE', deletedAt: null }, select: { id: true, name: true, unit: true } });
+    const rows = await prisma.product.findMany({
+      where: { tenantId: tid, id: { in: ids }, status: 'ACTIVE', deletedAt: null },
+      select: { id: true, name: true, unit: true, units: ACTIVE_UNITS_SELECT },
+    });
     const byId = new Map(rows.map(r => [r.id, r]));
     return ids.map(id => byId.get(id)).filter((r): r is NonNullable<typeof r> => !!r).slice(0, MAX_PRODUCTS)
-      .map(r => ({ productId: r.id, name: r.name, unit: r.unit }));
+      .map(r => {
+        const units = displayUnits(r.units);
+        return { productId: r.id, name: r.name, unit: r.unit, ...(units.length ? { units } : {}) };
+      });
   };
   const stock = (await stockOf(tid, repId)).filter(r => r.remaining > 0).sort((a, b) => b.remaining - a.remaining);
   const van = await live(stock.map(r => r.productId));

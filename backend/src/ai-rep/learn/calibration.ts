@@ -10,10 +10,15 @@
  * لا تُفعَّل المعايرة من أقل من max(8, minPeers) عميلاً (حدّ خصوصية)، ولا تُرقّى إلا إن خفّضت الخطأ
  * ٣٪ على الأقل باستبعاد عميل واحد في كل مرة، وتُرجَع تلقائياً إن ثبت أن المعروض أسوأ من الخام.
  * المعايرة لا تمسّ أرقام المحلات المشابهة (الشهري، أول طلب، المشترون، الانتشار) — الاقتراح وحده.
+ *
+ * الوحدات المتعددة: المقترح والفعلي **بالأساس** — اللقطة تحفظ وحدة الأساس لحظتها (`unit`)، والتقييم يحفظ وحدة الأساس
+ * لحظته ومن للصنف وحدات (`unitOf`/`multi`)، وزوجٌ تغيّر مقياسه بينهما (تحويل الكرتون إلى حبّات) يُسقط (`sameQtyBasis`):
+ * نسبةٌ خاطئة بـ٢٤ ضعفاً تكفي لدفع المعامل إلى حدّه.
  */
 import { Prisma } from '@prisma/client';
 import prisma from '../../config/database';
 import { ENGINE_VERSION, estimateOutlet } from '../estimate';
+import { II_BASE_QTY } from '../baseQty';
 import type { TenantEstimateData } from '../estimateData';
 import { outletTypeLabel } from '../taxonomy';
 import { betaMeanVar, clamp, fnv1a32, mulberry32, normalCdf, shrinkNormal, weightedMedian, weightedVar } from './stats';
@@ -53,27 +58,66 @@ export interface CalPair {
 
 // ───────────── تقييم اللقطات ─────────────
 
-export interface SnapActualRow { sid: string; productId: string | null; qty: number | null }
-export type SnapActual = { first: Record<string, number>; noPurchase: boolean };
+/** وسم مقياس الكمية في اللقطة والتقييم: الكميات بوحدة الأساس. غيابه = كُتب قبل الوحدات المتعددة. */
+export const QTY_BASIS = 'base' as const;
+
+/** صفّ التقييم: الكمية بالأساس، ووحدة أساس الصنف الآن، وهل للصنف وحداتٌ أكبر الآن. */
+export interface SnapActualRow { sid: string; productId: string | null; qty: number | null; unit?: string | null; multi?: boolean | null }
+export type SnapActual = {
+  first: Record<string, number>;
+  noPurchase: boolean;
+  /** `base` = الفعلي بوحدة الأساس (تقييمٌ بعد الوحدات المتعددة) */
+  basis?: typeof QTY_BASIS;
+  /** وحدة أساس كل صنفٍ اشتُري لحظة التقييم */
+  unitOf?: Record<string, string>;
+  /** أصنافٌ لها وحداتٌ أكبر لحظة التقييم */
+  multi?: string[];
+};
 
 /** صفوف الاستعلام ← الطلب الأول لكل لقطة؛ noPurchase = لا صفّ بصنف (لا فاتورة خلال النافذة). */
 export function buildActuals(rows: SnapActualRow[]): Map<string, SnapActual> {
   const out = new Map<string, SnapActual>();
   for (const r of rows) {
-    const a = out.get(r.sid) ?? { first: {}, noPurchase: true };
+    const a: SnapActual = out.get(r.sid) ?? { first: {}, noPurchase: true, basis: QTY_BASIS };
     if (r.productId) {
       a.noPurchase = false;
       const q = Number(r.qty) || 0;
       if (q > 0) a.first[r.productId] = Math.round(((a.first[r.productId] ?? 0) + q) * 1000) / 1000;
+      if (typeof r.unit === 'string') (a.unitOf ??= {})[r.productId] = r.unit;
+      if (r.multi === true && !(a.multi ??= []).includes(r.productId)) a.multi.push(r.productId);
     }
     out.set(r.sid, a);
   }
   return out;
 }
 
+const finite = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+/**
+ * هل المقترح (من اللقطة) والفعلي (من التقييم) بمقياسٍ واحد؟
+ *  - تقييمٌ سبق الوحدات المتعددة: الطرفان بوحدة الصنف الوحيدة يومها ⇒ نعم (كما كان).
+ *  - لم يُشترَ الصنف: لا كمية تُقارن (يدخل buyThrough وحده) ⇒ نعم.
+ *  - لقطةٌ تحمل وحدة أساسها: تُقارن بوحدة الأساس لحظة التقييم — اختلافهما = حُوِّل الأساس بينهما ⇒ لا.
+ *  - لقطةٌ سبقت الميزة قُيِّمت بعدها: مقياسها وحدة الصنف الأصلية؛ فإن صار للصنف وحداتٌ فلعلّ أساسه حُوِّل
+ *    (التحويل يُبقي الوحدة القديمة وحدةً أكبر) ⇒ لا، احتياطاً. وصنفٌ بلا وحدات لم يُحوَّل قطعاً ⇒ نعم.
+ */
+export function sameQtyBasis(p: { unit?: unknown } | null | undefined, act: Partial<SnapActual> | null | undefined, productId: string): boolean {
+  if (!act || act.basis !== QTY_BASIS) return true;
+  const actual = finite(act.first?.[productId]);
+  if (actual == null || !(actual > 0)) return true;
+  const snapUnit = typeof p?.unit === 'string' ? p.unit : null;
+  if (snapUnit != null) {
+    const now = act.unitOf?.[productId];
+    return now == null || now === snapUnit;
+  }
+  return !(Array.isArray(act.multi) && act.multi.includes(productId));
+}
+
 /**
  * تقييم اللقطات الناضجة (≥٤٥ يوماً، ≤٥٠ في الليلة) بأول فاتورة بيع مؤكَّدة للعميل خلال ٤٥ يوماً من اللقطة.
  * العزل: كل جدول حقيقي مقيّد بـ"tenantId" = tid؛ invoice_items بلا tenantId فتُبلَغ عبر فاتورةٍ مقيّدة بالشركة.
+ * الكمية بالأساس، ومعها وحدة أساس الصنف الآن وهل له وحدات — يُجمع البند أولاً ثم يُربط الصنف (ربطٌ قبل الجمع
+ * بجدول الوحدات كان يضاعف الكمية بعدد وحداته).
  */
 export async function evaluateSnapshots(tid: string, now: Date): Promise<number> {
   const cutoff = new Date(now.getTime() - MATURE_DAYS * DAY_MS);
@@ -90,13 +134,19 @@ export async function evaluateSnapshots(tid: string, now: Date): Promise<number>
         AND i.type IN ('CASH', 'CREDIT') AND i."invoiceDate" >= s."createdAt" - interval '10 minutes'
         AND i."invoiceDate" < s."createdAt" + interval '45 days'
       ORDER BY s.id, i."invoiceDate", i.id
+    ),
+    a AS (
+      SELECT s.id AS sid, ii."productId" AS "productId", SUM(${II_BASE_QTY})::float8 AS qty
+      FROM s
+      LEFT JOIN f ON f.sid = s.id
+      LEFT JOIN invoices fi ON fi.id = f.iid AND fi."tenantId" = ${tid}
+      LEFT JOIN invoice_items ii ON ii."invoiceId" = fi.id AND ii."productId" IS NOT NULL
+      GROUP BY 1, 2
     )
-    SELECT s.id AS sid, ii."productId" AS "productId", SUM(ii.qty)::float8 AS qty
-    FROM s
-    LEFT JOIN f ON f.sid = s.id
-    LEFT JOIN invoices fi ON fi.id = f.iid AND fi."tenantId" = ${tid}
-    LEFT JOIN invoice_items ii ON ii."invoiceId" = fi.id AND ii."productId" IS NOT NULL
-    GROUP BY 1, 2`);
+    SELECT a.sid, a."productId", a.qty, p.unit AS unit,
+           EXISTS (SELECT 1 FROM product_units pu WHERE pu."tenantId" = ${tid} AND pu."productId" = a."productId") AS multi
+    FROM a
+    LEFT JOIN products p ON p.id = a."productId" AND p."tenantId" = ${tid}`);
   let n = 0;
   for (const [sid, actual] of buildActuals(rows)) {
     const r = await prisma.aiEstimateSnapshot.updateMany({ where: { id: sid, tenantId: tid }, data: { actual: actual as Prisma.InputJsonObject, evaluatedAt: now } });
@@ -124,6 +174,8 @@ export function snapshotPairs(rows: SnapRow[]): CalPair[] {
       const shown = num(p?.trialQty);
       const pred = num(p?.trialQtyRaw) ?? shown;
       if (typeof p?.productId !== 'string' || pred == null || !(pred > 0)) continue;
+      // المقترح والفعلي بمقياسٍ واحد وحده (تحويل وحدة الأساس بينهما يُسقط الزوج)
+      if (!sameQtyBasis(p, act, p.productId)) continue;
       out.push({
         customerId: row.customerId, outletType: row.outletType, pred, actual: Math.max(0, num(act.first[p.productId]) ?? 0),
         w: 1, source: 'SNAPSHOT', shown: shown ?? pred, calVersion,

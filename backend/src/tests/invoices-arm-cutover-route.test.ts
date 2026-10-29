@@ -102,7 +102,7 @@ async function call(method: 'POST' | 'GET', url: string, o: { body?: unknown; he
 
 const CAPS = { 'X-FS-Caps': 'zatca2' };
 const CUSTOMER_ROW = (base: Record<string, unknown>) => ({ ...base, status: 'ACTIVE', balance: 0, creditLimit: 0, totalSales: 0, tenantId: Z5_TENANT, phone: '0500000000' });
-const PRODUCT_ROWS = PRODUCTS.map(p => ({ id: p.id, name: p.name, basePrice: 1000, taxPct: null, damagedReturnToStock: true, priceTiers: [], vatCategory: p.vatCategory ?? null, vatExemptionCode: p.vatExemptionCode ?? null, vatExemptionReason: p.vatExemptionReason ?? null }));
+const PRODUCT_ROWS = PRODUCTS.map(p => ({ id: p.id, name: p.name, unit: 'حبة', basePrice: 1000, taxPct: null, damagedReturnToStock: true, priceTiers: [], vatCategory: p.vatCategory ?? null, vatExemptionCode: p.vatExemptionCode ?? null, vatExemptionReason: p.vatExemptionReason ?? null }));
 
 function invoiceBody(o: { customerId: string; items: { productId: string; qty: number; unitPrice: number; taxPct?: number }[]; clientRef?: string | null; clientCreatedAt?: string }): Record<string, unknown> {
   return {
@@ -229,6 +229,30 @@ test('حيّة + إعادة رفع + لحظة قبل التفعيل لكن بع�
   assert.equal(cutover.rows.length, 1, 'لم تُحفظ للمراجعة');
   assert.equal(cutover.rows[0].reason, 'WINDOW_EXPIRED');
   assert.equal(cutover.rows[0].clientRef, 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb');
+});
+
+test('الوحدات: مستندٌ انتقاليّ ببند كرتون يُحفظ للمراجعة بلقطة وحدته — يرى المراجع «٢ كرتون» لا «٢»', async () => {
+  reset();
+  const cutover = memoryGoLiveStore();
+  phase2Deps = livePhase2Deps(cutover, new Date(LIVE_AT.getTime() + 80 * 3600_000));
+  scriptBase({ startedAt: LIVE_AT, armedAt: ARMED });
+  const carton = { id: 'u-ct', name: 'كرتون', factor: 24, unitCode: 'CT', isActive: true };
+  scripted['product.findMany'] = (args: unknown) => {
+    const ids: string[] = (args as { where?: { id?: { in?: string[] } } }).where?.id?.in ?? [];
+    return PRODUCT_ROWS.filter(p => ids.includes(p.id)).map(p => ({ ...p, units: p.id === 'p-water' ? [carton] : [] }));
+  };
+  const before = new Date(LIVE_AT.getTime() - 3600_000).toISOString();
+  const r = await call('POST', '/api/invoices', {
+    body: {
+      ...invoiceBody({ customerId: 'c-walkin', items: [], clientRef: 'cccccccc-3333-4333-8333-cccccccccccc', clientCreatedAt: before }),
+      items: [{ productId: 'p-water', unitId: 'u-ct', qty: 2, unitPrice: 60, taxPct: 15 }],
+    },
+    headers: { ...CAPS, 'X-FS-Replay': '1' },
+  });
+  assert.equal(r.status, 409, JSON.stringify(r.body));
+  assert.equal(cutover.rows.length, 1, 'لم تُحفظ للمراجعة');
+  const items = (cutover.rows[0].payload as { items: Record<string, unknown>[] }).items;
+  assert.deepEqual([items[0].qty, items[0].unitName, items[0].unitFactor, items[0].unitCode], [2, 'كرتون', 24, 'CT']);
 });
 
 test('حيّة + إعادة رفع + لحظة بعد التفعيل ⇒ 409 مراجعة (CREATED_AFTER_GOLIVE)', async () => {

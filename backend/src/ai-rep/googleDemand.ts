@@ -17,8 +17,11 @@
  *   المدى ×0.7–×1.3. الثقة: عالية بـ١٠٠ مقيّم فأكثر ومراجعات مقروءة، متوسطة بـ٢٠ فأكثر، وإلا منخفضة.
  * العرض: المذكور في المراجعات أولاً، ثم بالقيمة المتوقعة (الكمية × السعر المعتاد حين تُعرض المبالغ، وإلا الكمية)، حتى ٦.
  * الاقتباس من المراجعة قصيرٌ بلا هواتف ولا روابط ولا أسماء مراجعين (النص وحده يُقرأ). لا يُخزَّن شيء من ملف المحل.
+ * الكمية **بوحدة الأساس** (المرساة بالأساس، googleDemandData.ts) والوسم `unit` وحدة الأساس؛ و`units` تمرّ ليفكّكها
+ * العارض «٢ كرتون و٣ حبة»، ونصّها (`qty_text`) يصل العقل حين للصنف وحدات.
  */
 import { normalizeDigits, scrubPii } from './advisor';
+import { qtyText, type QtyUnit } from './baseQty';
 import { cleanName } from './learn/lessons';
 import { normalizeAr as normalizeBase } from './learn/signals';
 import { GSIG_ENGINE, GSIG_F_MAX, GSIG_F_MIN } from './learn/types';
@@ -38,8 +41,9 @@ export type ProductsSource = 'VAN' | 'PRIORITY' | 'CATALOG';
 export type TalkCode = 'BUSY' | 'VARIETY' | 'SHORTAGE' | 'NEGATIVE' | 'CLOSING';
 export type ComplaintKind = 'QUALITY' | 'SHORTAGE';
 
-export interface DemandProduct { productId: string; name: string; unit: string }
-/** حجم الطلب المعتاد للصنف: وسيط كميته في بند فاتورة، وسعر الوحدة المعتاد (بلا ضريبة)، وعدد الفواتير. */
+/** صنفٌ للطلب المتوقع: `unit` وحدة الأساس، و`units` وحداته الأكبر للعرض (غائبة لصنفٍ بوحدة واحدة). */
+export interface DemandProduct { productId: string; name: string; unit: string; units?: QtyUnit[] }
+/** حجم الطلب المعتاد للصنف: وسيط كميته **بالأساس** في بند فاتورة، وسعر وحدة الأساس المعتاد (بلا ضريبة)، وعدد الفواتير. */
 export interface Anchor { qty: number; price: number | null; invoices: number }
 export interface DemandReview { rating: number | null; text: string }
 /** وسيط مقيّمي نوعٍ في المسح وما عُرف منه (counts مرتّبة). */
@@ -48,7 +52,10 @@ export interface TypeBaseline { median: number; known: number; counts: number[] 
 export interface ExpectedProduct {
   productId: string;
   name: string;
+  /** وحدة الأساس — الكمية ومداها بها */
   unit: string;
+  /** وحدات الصنف الأكبر ليفكّك الجهاز الكمية (formatQty) — غائبة لصنفٍ بوحدة واحدة */
+  units?: QtyUnit[];
   /** null = لا رقم (reason) */
   qty: number | null;
   low: number | null;
@@ -368,11 +375,12 @@ export function expectedFor(i: ExpectInput): ExpectedShop {
       mentioned: true, mentions: mt.reviews, ...(mt.complaint && !mt.plain && { complaint: mt.complaint }), ...(mt.quote && { quote: mt.quote }),
     } : { mentioned: false };
     const a = i.anchors.get(p.productId);
-    if (!a || !(a.qty > 0)) return { productId: p.productId, name: p.name, unit: p.unit, qty: null, low: null, high: null, ...mention, reason: 'NO_ANCHOR' as const };
+    const units = p.units?.length ? { units: p.units } : {};
+    if (!a || !(a.qty > 0)) return { productId: p.productId, name: p.name, unit: p.unit, ...units, qty: null, low: null, high: null, ...mention, reason: 'NO_ANCHOR' as const };
     const raw = a.qty * T * Q * talk.R * mentionFactor(mt);
     const v = raw * C;
     return {
-      productId: p.productId, name: p.name, unit: p.unit,
+      productId: p.productId, name: p.name, unit: p.unit, ...units,
       qty: qtyRound(v, a.qty), low: qtyRound(v * 0.7, a.qty), high: qtyRound(v * 1.3, a.qty), ...mention, raw: r3(raw),
     };
   });
@@ -402,7 +410,8 @@ export function expectedView(e: ExpectedShop): ExpectedShop {
 
 /** ما عُرض للمندوب بصيغة اللقطة (حلقة التعلّم): الأصناف ذات الرقم بالمعروض والخام، والنوع والثقة والمعامل. */
 export function shownOf(e: ExpectedShop, outletType: string, at = Date.now()): ShownExpected | null {
-  const products = e.products.filter(p => p.qty != null && p.raw != null).map(p => ({ productId: p.productId, qty: p.qty!, raw: p.raw! }));
+  // ووحدة الأساس لحظة العرض: تحويل وحدة الأساس قبل التقييم يغيّر مقياس الفعلي، فلا يُقارن الرقمان (gsig.ts)
+  const products = e.products.filter(p => p.qty != null && p.raw != null).map(p => ({ productId: p.productId, qty: p.qty!, raw: p.raw!, unit: p.unit }));
   return products.length ? { at, outletType, confidence: e.confidence, calVersion: e.calVersion ?? null, factor: e.basis.cal, products } : null;
 }
 
@@ -414,15 +423,22 @@ export function shownOf(e: ExpectedShop, outletType: string, at = Date.now()): S
 export const hasShopSignal = (b: Pick<ExpectedBasis, 'rating' | 'ratingCount' | 'reviewsRead'>): boolean =>
   b.ratingCount != null || b.rating != null || b.reviewsRead;
 
+/**
+ * الكمية بوحداتها للعقل («٢ كرتون») — لصنفٍ له وحدات وحده، فلا يتغيّر مدخل صنفٍ بوحدة واحدة. أرقام النصّ في المدخل
+ * نفسه فتصير مسموحةً لحارس الأرقام.
+ */
+const qtyTextOf = (p: ExpectedProduct): { qty_text?: string } =>
+  (p.units?.length && p.qty != null ? { qty_text: qtyText(p.qty, p.units, p.unit) } : {});
+
 /** أبرز صنفٍ برقم (المذكور أولاً بترتيب العرض) لتوجيه العقل — null بلا إشارة تخصّ المحل (hasShopSignal). */
-export function topExpected(e: ExpectedShop | null | undefined): { product: string; unit: string; qty: number; mentioned: boolean } | null {
+export function topExpected(e: ExpectedShop | null | undefined): { product: string; unit: string; qty: number; qty_text?: string; mentioned: boolean } | null {
   if (!e || !hasShopSignal(e.basis)) return null;
   const p = e.products.find(x => x.qty != null);
-  return p ? { product: cleanName(p.name, 40), unit: p.unit, qty: p.qty!, mentioned: p.mentioned } : null;
+  return p ? { product: cleanName(p.name, 40), unit: p.unit, qty: p.qty!, ...qtyTextOf(p), mentioned: p.mentioned } : null;
 }
 
 /** حتى ثلاثة أصناف برقم لمدخل دراسة العقل (أرقامها مسموحة لحارسه). */
-export function studyExpected(e: ExpectedShop | null | undefined): { product: string; unit: string; qty: number; low: number; high: number; mentioned: boolean }[] {
+export function studyExpected(e: ExpectedShop | null | undefined): { product: string; unit: string; qty: number; qty_text?: string; low: number; high: number; mentioned: boolean }[] {
   return (e?.products ?? []).filter(p => p.qty != null).slice(0, 3)
-    .map(p => ({ product: cleanName(p.name, 40), unit: p.unit, qty: p.qty!, low: p.low ?? p.qty!, high: p.high ?? p.qty!, mentioned: p.mentioned }));
+    .map(p => ({ product: cleanName(p.name, 40), unit: p.unit, qty: p.qty!, ...qtyTextOf(p), low: p.low ?? p.qty!, high: p.high ?? p.qty!, mentioned: p.mentioned }));
 }

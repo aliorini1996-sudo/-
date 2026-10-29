@@ -30,7 +30,9 @@ const MAX_CHARS = 1200;
 
 /** أسماء أدوات المستشار وحقولها: مصطلحات لازمة لا «لغة»، فلا تُحسب في نسبة العربية — وأي معرّف غيرها مرفوض. */
 const TOOL_IDENTS = new Set(['list_opportunities', 'outlet_estimate', 'plan_route', 'product_catalog', 'field_insights',
-  'expected_monthly_value', 'monthly_value', 'trial_order_qty', 'first_order_qty', 'monthly_qty', 'recommended_order', 'common_objection']);
+  'expected_monthly_value', 'monthly_value', 'trial_order_qty', 'first_order_qty', 'monthly_qty', 'recommended_order', 'common_objection',
+  // الوحدات المتعددة: أحجام وحدات الصنف ونصّ الطلب بها (advisorTools.ts)
+  'unit_sizes', 'trial_order_text']);
 const IDENT = /[A-Za-z]+(?:_[A-Za-z]+)+/g;
 // مراجع (P3/L2) وروابط وبريد وأسوار شيفرة ووسوم، ومحارف خفية أو اتجاهية (تُقسم الكلمات لتفادي المعجم)
 const SYNTAX = /\bP\d|\bL\d|https?:|www\.|@|```|<|>|[​-‏‪-‮⁦-⁩﻿]/i;

@@ -14,6 +14,7 @@
  * في حذف المندوب)، والتكرار يُعالَج بالمعرّف (upsert).
  */
 import type { AdminPermission } from '../middleware/auth';
+import { baseQtyOf } from './units';
 
 export type SyncMode =
   /** بطابع التعديل updatedAt — يلتقط الإنشاء والتعديل */
@@ -46,6 +47,11 @@ export interface SyncResource {
   select: Record<string, unknown>;
   /** أعمدة مقصودة بالمنع (سرّ أو ثقيل أو سباكة داخلية) — لاختبار التغطية وللمستند */
   denied: Readonly<Record<string, string>>;
+  /**
+   * القوائم المتداخلة في select (بنود الفاتورة والحركة، شرائح الصنف ووحداته) بنموذجها وممنوعها — فيفحص اختبار التغطية
+   * أعمدتها كما يفحص أعمدة المورد. بلا هذا كان عمودٌ جديد في البنود (لقطة الوحدة) يسقط من المزامنة بصمت.
+   */
+  nested?: Readonly<Record<string, { model: string; denied: Readonly<Record<string, string>> }>>;
   /** يُحذف حذفاً فعلياً في بعض المسارات — فيُذكر في المستند أن يُطابَق بـ /ids */
   hardDeletes: boolean;
 }
@@ -89,11 +95,20 @@ const INVOICE_COLS = [
   // «لوكيشن»: ختم موقع المندوب وقت الإصدار (لقطة لا تتحرّك بنقله)
   'locationId',
 ];
+/**
+ * لقطة وحدة الصفّ (الوحدات المتعددة): `qty` بوحدة الصفّ كما طُبعت، و`unitName`/`unitFactor` لقطتها لحظة الكتابة
+ * (null/1 = وحدة الأساس)، و`baseQty` = qty × unitFactor — **وهو وحده ما يُجمع** في نظام الشركة. بلا الثلاثة كان
+ * نظامٌ يجمع qty يعدّ كرتوناً من ٢٤ حبة حبّةً واحدة. والأسعار على الصفّ (unitPrice وunitCost) لوحدة الصفّ.
+ */
+const UNIT_SNAPSHOT_COLS = ['unitName', 'unitFactor', 'baseQty'] as const;
 const INVOICE_ITEM_COLS = [
   'id', 'productId', 'unitCost', 'qty', 'unitPrice', 'discountPct', 'discountAmt', 'taxPct', 'taxAmt', 'lineTotal', 'seq',
   'itemName', 'unitCode', 'vatCategory', 'vatExemptionCode', 'vatExemptionReason', 'creditedItemId', 'expiresAt',
-  'returnExpired', 'expirySaleInvoiceId', 'returnOfItemId',
+  'returnExpired', 'expirySaleInvoiceId', 'returnOfItemId', ...UNIT_SNAPSHOT_COLS,
 ];
+/** وحدات الصنف الأكبر من الأساس: factor عدد وحدات الأساس فيها، وprice فارغاً ⇒ سعر الأساس × المعامل */
+const PRODUCT_UNIT_COLS = ['id', 'name', 'factor', 'price', 'unitCode', 'isActive', 'sortOrder', 'createdAt', 'updatedAt'];
+const PARENT = 'معروف من الصفّ الأب';
 const RECEIPT_COLS = [
   'id', 'number', 'customerId', 'salesRepId', 'receiptDate', 'amount', 'paymentMethod', 'chequeNumber', 'bankName',
   'notes', 'status', 'createdAt', 'updatedAt', 'teamId',
@@ -122,8 +137,19 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
   },
   {
     name: 'products', model: 'product', mode: 'updated', permission: 'canManageProducts', accounting: true, tenantPath: 'direct', hardDeletes: true,
-    select: { ...pick(...PRODUCT_COLS), priceTiers: { select: pick('minQty', 'maxQty', 'price'), orderBy: { minQty: 'asc' } } },
+    // الوحدات متداخلة لا موردٌ مستقلّ: تعديلها يحدّث updatedAt الصنف (كالشرائح) فتصل مع صنفها، ويصل حذفها بغيابها.
+    // والموقوفة (isActive=false) تُرسل: صفوفٌ قديمة تحمل اسمها في لقطتها
+    select: {
+      ...pick(...PRODUCT_COLS),
+      priceTiers: { select: pick('minQty', 'maxQty', 'baseMinQty', 'baseMaxQty', 'price'), orderBy: { minQty: 'asc' } },
+      units: { select: pick(...PRODUCT_UNIT_COLS), orderBy: [{ sortOrder: 'asc' }, { factor: 'asc' }] },
+    },
     denied: { tenantId: 'معروف من المفتاح', image: 'صورة base64 ثقيلة — تُقرأ من GET /api/products/:id' },
+    nested: {
+      // minQty/maxQty بوحدة الصنف وقت إنشاء الشريحة (للعرض القديم)، وbaseMinQty/baseMaxQty حدودها بالأساس — بها يُقارَن
+      priceTiers: { model: 'priceTier', denied: { id: 'الشرائح قائمة كاملة مع صنفها تُستبدل جملةً', productId: PARENT, createdAt: 'الشرائح تُستبدل جملةً فلا معنى لطابعها' } },
+      units: { model: 'productUnit', denied: { tenantId: 'معروف من المفتاح', productId: PARENT } },
+    },
   },
   {
     name: 'categories', model: 'productCategory', mode: 'snapshot', permission: 'canManageProducts', accounting: true, tenantPath: 'direct', hardDeletes: true,
@@ -178,6 +204,9 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
       orderType: 'بقايا وحدة المطاعم المحذوفة', serviceChargeAmt: 'بقايا وحدة المطاعم المحذوفة', tipAmt: 'بقايا وحدة المطاعم المحذوفة', shiftId: 'بقايا وحدة المطاعم المحذوفة',
       einvoiceSnapshot: 'لقطة XML الفاتورة الإلكترونية — ثقيلة؛ المستند الضريبي من مسارات الفوترة الإلكترونية',
     },
+    nested: {
+      items: { model: 'invoiceItem', denied: { invoiceId: PARENT, menuItemId: 'بقايا وحدة المطاعم المحذوفة', orderItemId: 'بقايا وحدة المطاعم المحذوفة' } },
+    },
   },
   {
     name: 'receipts', model: 'receipt', mode: 'updated', permission: 'canManageReceipts', accounting: true, tenantPath: 'direct', hardDeletes: false,
@@ -193,13 +222,22 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
   {
     // بطابع التعديل: حذف المندوب يفرّغ salesRepId ويملأ deletedSalesRepId بعد الإنشاء
     name: 'van-loads', model: 'vanLoad', mode: 'updated', permission: 'canManageVanStock', accounting: true, tenantPath: 'direct', hardDeletes: false,
-    select: { ...pick('id', 'salesRepId', 'deletedSalesRepId', 'locationId', 'type', 'note', 'createdBy', 'createdAt', 'updatedAt'), items: { select: pick('productId', 'qty', 'suggestedQty', 'expectedQty') } },
+    // suggestedQty وexpectedQty (اقتراح التحميل وتنبّؤه) بالأساس دائماً — المحرّك يقترح حبّاتٍ لا كراتين
+    select: { ...pick('id', 'salesRepId', 'deletedSalesRepId', 'locationId', 'type', 'note', 'createdBy', 'createdAt', 'updatedAt'), items: { select: pick('productId', 'qty', ...UNIT_SNAPSHOT_COLS, 'suggestedQty', 'expectedQty') } },
     denied: { tenantId: 'معروف من المفتاح' },
+    nested: { items: { model: 'vanLoadItem', denied: { id: 'البند يُعرَّف بحركته وصنفه', vanLoadId: PARENT } } },
   },
   {
     name: 'warehouse-entries', model: 'warehouseEntry', mode: 'created', permission: 'canManageVanStock', accounting: true, warehouse: true, tenantPath: 'direct', hardDeletes: true,
-    select: { ...pick('id', 'type', 'note', 'supplier', 'createdBy', 'createdAt'), items: { select: pick('productId', 'qty', 'unitCost') } },
+    // unitCost لوحدة البند (تكلفة الكرتون لبندٍ بالكرتون) — تكلفة الأساس = unitCost ÷ unitFactor
+    select: { ...pick('id', 'type', 'note', 'supplier', 'createdBy', 'createdAt'), items: { select: pick('productId', 'qty', ...UNIT_SNAPSHOT_COLS, 'unitCost') } },
     denied: { tenantId: 'معروف من المفتاح' },
+    nested: {
+      items: {
+        model: 'warehouseEntryItem',
+        denied: { id: 'البند يُعرَّف بحركته وصنفه', entryId: PARENT, expiresAt: 'مهجور: الصلاحية تُحسب من تاريخ البيع لا التوريد' },
+      },
+    },
   },
   {
     // بطابع الاستلام: createdAt من الجهاز للملتقط دون اتصال فقد يسبق رفعه بساعات فيقع خلف المؤشّر
@@ -310,11 +348,27 @@ export function orderByFor(def: SyncResource): Record<string, 'asc'>[] {
   return col === 'id' ? [{ id: 'asc' }] : [{ [col]: 'asc' }, { id: 'asc' }];
 }
 
-/** الصفّ يُرسل كما هو — عدا `_count` الداخلي يُسمّى باسمه في المستند */
+/** موارد بنودُها كمياتٌ بلقطة وحدة — يُملأ baseQty الفارغ فيها قبل الإرسال */
+const QTY_ITEM_RESOURCES = new Set(['invoices', 'van-loads', 'warehouse-entries']);
+
+/**
+ * الصفّ يُرسل كما هو — عدا `_count` الداخلي يُسمّى باسمه في المستند، و`baseQty` الفارغ يُحسب من لقطة البند.
+ *
+ * الفارغ صفٌّ سبق الميزة لم يملأه الترحيل بعد (المُطلِق يملأ كل كتابة جديدة): لو خرج null لجمعه نظام الشركة صفراً
+ * أو أسقطه. فيُحسب هنا كما يحسبه الخادم (qty × unitFactor) — والصفر الحقيقي يبقى صفراً.
+ */
 export function shapeRow(def: SyncResource, row: Record<string, unknown>): Record<string, unknown> {
   if (def.name === 'visits' && row._count && typeof row._count === 'object') {
     const { _count, ...rest } = row;
     return { ...rest, photoCount: (_count as { photos?: number }).photos ?? 0 };
+  }
+  if (QTY_ITEM_RESOURCES.has(def.name) && Array.isArray(row.items)) {
+    return {
+      ...row,
+      items: (row.items as Record<string, unknown>[]).map((it) => (it && it.baseQty == null && 'qty' in it
+        ? { ...it, baseQty: baseQtyOf(it as Parameters<typeof baseQtyOf>[0]) }
+        : it)),
+    };
   }
   return row;
 }

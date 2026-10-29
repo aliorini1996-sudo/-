@@ -14,7 +14,10 @@
  *   - صنفٌ يهيمن عليه مشترٍ واحد (>٥٠٪ من المجموع) لا تُعرض كمّيته.
  *   - الموقع يُثبَّت على شبكة (~٥٠٠ م) كي لا تُستخرج قيم فردية بتحريك النقطة قليلاً.
  *   - لا دمج بين الشركات، ولا ضرب للانتشار في الوسيط.
+ *   - الكميات كلّها **بوحدة الأساس** (الوحدات المتعددة): المحمِّل يجمعها بالأساس (estimateData.ts)، والوسم `unit`
+ *     وحدة الأساس، و`units` تمرّ للعرض وحده («٢ كرتون و٣ حبة») ولا تدخل الحساب.
  */
+import type { QtyUnit } from './baseQty';
 
 export const ENGINE_VERSION = 'ai-est-1';
 
@@ -57,7 +60,10 @@ export interface FirstOrderLine {
 export interface EngineProduct {
   id: string;
   name: string;
+  /** وحدة الأساس — وسم كل كمية في التوقّع */
   unit: string;
+  /** وحدات البيع الأكبر (للعرض وحده) — غائبة لصنفٍ بوحدة واحدة */
+  units?: QtyUnit[];
   priority?: boolean;
 }
 
@@ -82,7 +88,10 @@ export interface Range { low: number; median: number; high: number }
 export interface ProductEstimate {
   productId: string;
   name: string;
+  /** وحدة الأساس — الكميات أدناه كلّها بها */
   unit: string;
+  /** وحدات البيع الأكبر ليفكّك العارض الكمية (formatQty) — غائبة لصنفٍ بوحدة واحدة */
+  units?: QtyUnit[];
   priority: boolean;
   /** عدد المحلات المشابهة التي تشتريه، ومن أصل كم. */
   /** null للصنف المحجوب لقلّة مشتريه (أقل من الحدّ) — لا عدد يكشف عميلاً بعينه. */
@@ -396,7 +405,7 @@ export function estimateOutlet(input: EngineInput, typeLabel: string): EstimateR
     }
 
     products.push({
-      productId: prod.id, name: prod.name, unit: prod.unit, priority: !!prod.priority,
+      productId: prod.id, name: prod.name, unit: prod.unit, ...(prod.units?.length ? { units: prod.units } : {}), priority: !!prod.priority,
       buyers: hidden === 'FEW_BUYERS' ? null : buyers, peers: peersN,
       penetration: hidden === 'FEW_BUYERS' ? null : Math.round(penetration * 100) / 100,
       monthlyQty, monthlyValue, firstOrderQty, trialQty, trialQtyRaw, trialCalibrated, confidence: pConf, hidden,

@@ -10,7 +10,7 @@ import { getActiveCurrency, getActiveNumerals } from '../utils/format';
 import { methodLabelFor } from '../lib/paymentMethodsConfig';
 import { currencyDecimals, currencySymbol } from '../i18n/countries';
 import type { InvoiceDoc, ReceiptDoc } from './RepDocuments';
-import { isSaudiDoc, isSignatureSrc } from './RepDocuments';
+import { isSaudiDoc, isSignatureSrc, showsItemUnit } from './RepDocuments';
 import { zatcaPrintDecision, type ZatcaPrintDecision } from '../lib/zatca/docPrint';
 import { receiptLinkView } from './receiptLinks';
 import { PRINT_WARNINGS, dotsPerMm, qrPlan, type PrintOptions, type PrintProfile, type PrinterDpi } from '../lib/print/printSettings';
@@ -389,7 +389,8 @@ function rollInvoiceBody(f: InvoiceFacts, r: Roll): string {
   const { o, tr } = r;
   type Item = InvoiceDoc['items'][number];
   const rate = vatPcts.length === 1 ? `${vatPcts[0]}%` : tr('نسب متعددة');
-  const unit = (it: Item) => (o.showItemUnit && it.unit ? ` <span class="muted">(${esc(it.unit)})</span>` : '');
+  // الوحدة بخيار القالب، وإجباراً لبندٍ بغير الأساس أو لصنفٍ له وحدات (showsItemUnit — قاعدة A4 نفسها، ويرثها البلوتوث)
+  const unit = (it: Item) => (showsItemUnit(it, o.showItemUnit) ? ` <span class="muted">(${esc(it.unit!)})</span>` : '');
   /* الفاتورة القياسية توجب سعر الوحدة غير شامل الضريبة — والتصنيف من القرار (مصدره الخادم في المرحلة الثانية) لا من رقم
    * المشتري الضريبي، كقالب A4 حرفاً بحرف؛ وسند التسليم (بلا تفصيل ضريبة) لا يذكر ضريبةً أصلاً */
   const beforeVat = (it: Item) => (d.showTaxBreakdown && inclusiveDoc && d.standardLayout && it.taxPct > 0

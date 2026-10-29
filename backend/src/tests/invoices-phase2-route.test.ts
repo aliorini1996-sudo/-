@@ -169,7 +169,7 @@ const CUSTOMER_ROW = (base: Record<string, unknown>) => ({
 });
 
 const PRODUCT_ROWS = PRODUCTS.map(p => ({
-  id: p.id, name: p.name, basePrice: 1000, taxPct: null, damagedReturnToStock: true, priceTiers: [],
+  id: p.id, name: p.name, unit: 'حبة', basePrice: 1000, taxPct: null, damagedReturnToStock: true, priceTiers: [],
   vatCategory: p.vatCategory ?? null, vatExemptionCode: p.vatExemptionCode ?? null, vatExemptionReason: p.vatExemptionReason ?? null,
 }));
 
@@ -353,6 +353,7 @@ const PHASE1_POST_CALLS = [
   'companySettings.findUnique',
   'invoice.findFirst',    // توليد الرقم
   '$transaction',
+  '$queryRaw',            // الوحدات المتعددة: قفل صفوف الأصناف المشترك (FOR SHARE) ضدّ تحويل وحدة الأساس المتزامن
   'invoice.create',
   'accountEntry.aggregate',
   'accountEntry.create',   // نقدية: مدين ثم دائن
@@ -861,4 +862,62 @@ test('المحرّك والمستند: مبالغ D6 المخزَّنة = مبا
   assert.equal(Number(snap.totals.taxTotal), Number(data.taxAmt));
   assert.equal(Number(snap.totals.taxExclusive), Number(data.subtotal) - Number(data.discountAmt));
   assert.equal(snap.totals.payableRounding, '0.01', 'فرق التقريب (D6) غائب عن اللقطة');
+});
+
+// ═══ الوحدات المتعددة: لقطة الوحدة في صفّ البند ورمزها في الـXML ═══
+
+const CARTON_UNIT = { id: 'u-ct', name: 'كرتون', factor: 24, unitCode: 'CT', isActive: true };
+const productRowsWithCarton = (args: unknown) => {
+  const ids: string[] = (args as { where?: { id?: { in?: string[] } } }).where?.id?.in ?? [];
+  return PRODUCT_ROWS.filter(p => ids.includes(p.id)).map(p => ({ ...p, units: p.id === 'p-water' ? [CARTON_UNIT] : [] }));
+};
+
+test('الوحدات: بند كرتون في المرحلة الثانية ⇒ لقطة وحدته في صفّه (اسمها ومعاملها وbaseQty) ورمزه CT في الـXML، والكمية والسعر بوحدته', async () => {
+  reset();
+  const rig = buildRig();
+  phase2Deps = depsFor(rig);
+  scriptBase({ customer: CUSTOMER_ROW(CUSTOMERS.individual as unknown as Record<string, unknown>), units: [unitViewOf(rig)] });
+  scripted['product.findMany'] = productRowsWithCarton;
+  const body = {
+    ...invoiceBody({ customerId: 'c-walkin', items: [] }),
+    items: [{ productId: 'p-water', unitId: 'u-ct', qty: 2, unitPrice: 60, discountPct: 0, taxPct: 15 }],
+  };
+  const r = await call('POST', '/api/invoices', { body, headers: CAPS });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const data = r.body.data as Record<string, unknown>;
+  const item = (data.items as Record<string, unknown>[])[0];
+  assert.deepEqual(
+    [item.qty, item.unitName, item.unitFactor, item.baseQty, item.unitCode, item.unitPrice],
+    [2, 'كرتون', 24, 48, 'CT', 60],
+    'بند الكرتون حُفظ بمعامل ١ — يُخصم من السيارة كرتونٌ حبّةً',
+  );
+  assert.equal(data.total, 120, 'المحرّك بوحدة البند: ٢ × ٦٠ شاملاً');
+  const doc = [...rig.sim.documents.values()][0];
+  const xml = gunzipXml(doc.xmlGz);
+  assert.match(xml, /<cbc:InvoicedQuantity unitCode="CT">2\.000000<\/cbc:InvoicedQuantity>/, 'سطر الـXML ليس «٢ CT»');
+  assert.doesNotMatch(xml, /unitCode="PCE"/, 'رمز PCE على بند كرتون');
+});
+
+test('الوحدات: phase2UnitSnapshots — اللقطة الممرَّرة تغلب، وإلا unitId من الوحدات النشطة، وإلا الأساس بمعامل ١ (والصفّ يُكتب بها)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const z = require('../routes/invoicesZatca') as typeof import('../routes/invoicesZatca');
+  const products = [{ id: 'p-water', units: [CARTON_UNIT, { id: 'u-off', name: 'شدّة', factor: 6, unitCode: null, isActive: false }] }];
+  const line = { productId: 'p-water', qty: 2, unitPrice: 60, discountPct: 0, discountAmt: 0, taxPct: 15, taxAmt: 15.65, lineTotal: 120 };
+  const body = [{ productId: 'p-water', qty: 2, unitPrice: 60 }];
+  // بلا لقطة: تُحلّ من unitId بقاعدة المسار القديم
+  assert.deepEqual(z.phase2UnitSnapshots([{ ...line, unitId: 'u-ct' }], body, products), [{ unitName: 'كرتون', unitFactor: 24, unitCode: 'CT' }]);
+  // وحدةٌ موقوفة أو غريبة أو بلا وحدة ⇒ الأساس (سلوك ما قبل الميزة)
+  for (const unitId of ['u-off', 'u-nope', undefined]) {
+    assert.deepEqual(z.phase2UnitSnapshots([{ ...line, unitId }], body, products), [{ unitName: null, unitFactor: 1, unitCode: null }], String(unitId));
+  }
+  // لقطة المسار القديم تغلب إعادة الحلّ (حُرس بها السعر والمخزون)
+  assert.deepEqual(
+    z.phase2UnitSnapshots([{ ...line, unitId: 'u-ct', unitName: 'كرتون', unitFactor: 12, unitCode: 'CT' }], body, products),
+    [{ unitName: 'كرتون', unitFactor: 12, unitCode: 'CT' }],
+  );
+  const cols = z.legacyItemColumns(line, { unitName: 'كرتون', unitFactor: 24, unitCode: 'CT' });
+  assert.deepEqual([cols.qty, cols.unitName, cols.unitFactor, cols.baseQty, cols.unitPrice], [2, 'كرتون', 24, 48, 60]);
+  // صنفٌ بلا وحدات: الأساس بمعامل ١ والكمية بالأساس هي الكمية
+  const plain = z.legacyItemColumns(line);
+  assert.deepEqual([plain.qty, plain.unitName, plain.unitFactor, plain.baseQty], [2, null, 1, 2]);
 });

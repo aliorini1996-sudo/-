@@ -70,10 +70,22 @@ test('لقطة gsig-1: الوسم والنافذة (أشهر المرساة ال
     { engineVersion: d.engineVersion, windowFrom: d.windowFrom, windowTo: d.windowTo, calibrationVersion: d.calibrationVersion, ringKm: d.ringKm, peers: d.peers },
     { engineVersion: 'gsig-1', windowFrom: '2026-03', windowTo: '2026-09', calibrationVersion: 3, ringKm: null, peers: 0 },
   );
+  // وسم المقياس (الأساس)، ووحدة الأساس لكل صنفٍ حملها العرض
   assert.deepEqual(d.payload, {
-    v: 1, engine: 'gsig-1', calibrationVersion: 3, factor: 1.2,
+    v: 1, engine: 'gsig-1', calibrationVersion: 3, factor: 1.2, qtyBasis: 'base',
     products: [{ productId: 'eggs', qty: 12, qtyRaw: 11.6 }, { productId: 'milk', qty: 4, qtyRaw: 4.2 }],
   });
+  const withUnit = GS.gsigSnapshotData('T1', { outletId: 'o', customerId: 'c' }, shown({ products: [{ productId: 'cans', qty: 48, raw: 47.5, unit: 'حبة' }] }));
+  assert.deepEqual((withUnit.payload as { products: unknown }).products, [{ productId: 'cans', qty: 48, qtyRaw: 47.5, unit: 'حبة' }]);
+});
+
+test('gsigPairs: الصنف الذي حُوِّل أساسه بين العرض والتقييم لا يصير زوجاً (لا نسبة بـ٢٤ ضعفاً)', () => {
+  const actual = { first: { cans: 48, eggs: 10 }, noPurchase: false, basis: 'base', unitOf: { cans: 'حبة', eggs: 'كرتون' }, multi: ['cans'] };
+  const row = (products: unknown[]) => ({ customerId: 'c1', outletType: 'GROCERY', calibrationVersion: null, actual, payload: { qtyBasis: 'base', products } });
+  assert.deepEqual(GS.gsigPairs([row([{ productId: 'cans', qty: 2, qtyRaw: 2, unit: 'كرتون' }, { productId: 'eggs', qty: 12, qtyRaw: 11.6, unit: 'كرتون' }])]).map(p => [p.pred, p.actual]), [[11.6, 10]]);
+  assert.deepEqual(GS.gsigPairs([row([{ productId: 'cans', qty: 48, qtyRaw: 47, unit: 'حبة' }])]).map(p => [p.pred, p.actual]), [[47, 48]], 'المقياس نفسه ⇒ زوج');
+  // لقطةٌ سبقت الوسم والصنف صار له وحدات ⇒ تسقط احتياطاً؛ وصنفٌ بلا وحدات ⇒ تبقى
+  assert.deepEqual(GS.gsigPairs([row([{ productId: 'cans', qty: 2, qtyRaw: 2 }, { productId: 'eggs', qty: 12, qtyRaw: 11.6 }])]).map(p => p.pred), [11.6]);
 });
 
 test('التحويل: ما عُرض للمحل يُحفظ لقطةً موسومة gsig-1 بالمعروض والخام — مرة واحدة', async () => {

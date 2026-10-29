@@ -149,7 +149,7 @@ async function call(method: 'POST' | 'GET', url: string, o: { body?: unknown; he
 // ═══ العُدّة: تجهيزة الإرسال نفسها تخدم الإصدار الحيّ ═══
 
 const PRODUCT_ROWS = PRODUCTS.map(p => ({
-  id: p.id, name: p.name, basePrice: 1000, taxPct: null, damagedReturnToStock: true, priceTiers: [],
+  id: p.id, name: p.name, unit: 'حبة', basePrice: 1000, taxPct: null, damagedReturnToStock: true, priceTiers: [],
   vatCategory: p.vatCategory ?? null, vatExemptionCode: p.vatExemptionCode ?? null, vatExemptionReason: p.vatExemptionReason ?? null,
 }));
 

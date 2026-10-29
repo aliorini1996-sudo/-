@@ -605,3 +605,14 @@ test('الـbuilder صرف: لا يستورد prisma ولا @prisma/client', () 
   assert.doesNotMatch(src, /from\s+['"](@prisma\/client|.*prisma)['"]/);
   assert.doesNotMatch(src, /require\(/);
 });
+
+test('الوحدات المتعددة: أوزان البند بوحدته هو — كرتونان بسعر الكرتون = ٤٨ حبة بسعر الحبة، ولا يقرأ baseQty', () => {
+  const carton = invoiceItemWeights({ qty: 2, unitPrice: 240, taxPct: 0, taxAmt: 0, lineTotal: 480 }, false, 2);
+  const pieces = invoiceItemWeights({ qty: 48, unitPrice: 10, taxPct: 0, taxAmt: 0, lineTotal: 480 }, false, 2);
+  assert.deepEqual(carton, pieces);
+  assert.equal(carton.baseMilli, toMilli(480, 2));
+  assert.equal(carton.discMilli, 0n);
+  // لو مرّ baseQty مع سعر الكرتون لتضخّم الوعاء ٢٤ ضعفاً — والحمولة لا تحمله أصلاً
+  const withBase = invoiceItemWeights({ qty: 2, unitPrice: 240, taxPct: 0, taxAmt: 0, lineTotal: 480, baseQty: 48 } as never, false, 2);
+  assert.deepEqual(withBase, carton);
+});

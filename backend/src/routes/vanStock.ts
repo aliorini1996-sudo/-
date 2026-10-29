@@ -13,6 +13,9 @@ import { DAMAGED_VAN_SINCE, isDamagedVanReturn } from '../services/vanDamaged';
 import { locationDocWhere, locationFilterOf, repStampLocation } from '../services/locations';
 import { tenantTz } from '../services/invoiceExpiry';
 import { paymentMethodsRange } from '../services/paymentMethodsReport';
+// الوحدات المتعددة: كل رصيدٍ ومقارنة بالأساس (baseQtyOf)، وكل بندٍ يُكتب بلقطة وحدته (unitFields)
+import { baseQtyOf, toBase, unitFields } from '../services/units';
+import { resolveLineUnits, unitsByProduct, UNIT_SELECT } from '../services/warehouseStock';
 
 const router = Router();
 router.use(authenticate);
@@ -29,8 +32,11 @@ const loadSchema = z.object({
   note: z.string().optional(),
   items: z.array(z.object({
     productId: z.string(),
-    qty: z.number(), // موجب للتحميل/الإرجاع للمستودع؛ قد تكون سالبة لـADJUST
-    // ما اقترحه المحرّك وقت التحميل — يُخزَّن للمقارنة لاحقاً
+    qty: z.number(), // موجب للتحميل/الإرجاع للمستودع؛ قد تكون سالبة لـADJUST — بوحدة البند
+    // وحدة البند (كرتون/حبة). غائبة ⇒ وحدة الأساس بمعامل ١: عميلٌ قديم أو مفتاح API يرسل الكمية بالأساس كما كان
+    unitId: z.string().nullish(),
+    // ما اقترحه المحرّك وقت التحميل — يُخزَّن للمقارنة لاحقاً. **بالأساس دائماً** مهما كانت وحدة البند:
+    // المحرّك يُخرجها بالأساس وقياس الدقّة يقارنها بالمحمَّل بالأساس (services/suggestAccuracy)
     suggestedQty: z.number().optional(),
     expectedQty: z.number().optional(),
   })).min(1),
@@ -72,6 +78,7 @@ function queryRepId(req: AuthRequest): string | undefined {
   return typeof v === 'string' && v ? v : undefined;
 }
 
+/** رصيد صنفٍ في السيارة — كل الكميات **بوحدة الأساس** (`unit`)، والواجهة تعرضها بـformatQty */
 interface StockRow {
   productId: string; name: string; code: string; unit: string;
   loaded: number; unloaded: number; adjusted: number; sold: number; returned: number; remaining: number;
@@ -96,12 +103,18 @@ export interface StockBucket {
   loaded: number; unloaded: number; adjusted: number; sold: number; returned: number;
   expiredIn: number; expiredOut: number; damagedIn: number; damagedOut: number;
 }
-export interface LoadRow { productId: string; qty: number; vanLoad: { type: string; createdAt: Date } }
+/**
+ * لقطة وحدة الصفّ (الوحدات المتعددة): `unitFactor`/`baseQty` كما في القاعدة، والطيّ يقرأ الكمية بالأساس منهما
+ * (baseQtyOf). غائبان ⇒ `qty` بالأساس كما هي — صفٌّ سبق الميزة، أو صفٌّ حوّله قارئه إلى الأساس سلفاً (فلا يُحمل معه
+ * المعامل وإلا ضُرب مرّتين).
+ */
+interface RowUnit { unitFactor?: number | null; baseQty?: number | null }
+export interface LoadRow extends RowUnit { productId: string; qty: number; vanLoad: { type: string; createdAt: Date } }
 /**
  * returnExpired: بند مرتجعٍ عاد بعد انتهاء صلاحيته (services/invoiceExpiry.ts). returnReason/createdAt: سبب المرتجع ولحظة
  * تسجيله في الخادم — التالف يدخل رصيد «المرتجع التالف» منذ DAMAGED_VAN_SINCE.
  */
-export interface InvRow {
+export interface InvRow extends RowUnit {
   productId: string | null; qty: number; returnExpired?: boolean | null;
   invoice: { type: string; returnToStock: boolean | null; invoiceDate: Date; returnReason?: string | null; createdAt?: Date | null };
 }
@@ -143,16 +156,19 @@ export function foldStock(loadItems: LoadRow[], invItems: InvRow[], from?: Date)
       else if (inv.returnToStock) m.returned += qty;
     } else m.sold += qty;
   };
+  // الكمية بالأساس: تحميل كرتونين (٤٨ حبة) وبيع حبّةٍ من الصنف نفسه يُطويان في رصيدٍ واحد صادق
   for (const it of loadItems) {
-    addLoad(ensure(bal, it.productId), it.vanLoad.type, it.qty);
-    if (inWindow(it.vanLoad.createdAt)) addLoad(ensure(acc, it.productId), it.vanLoad.type, it.qty);
+    const q = baseQtyOf(it);
+    addLoad(ensure(bal, it.productId), it.vanLoad.type, q);
+    if (inWindow(it.vanLoad.createdAt)) addLoad(ensure(acc, it.productId), it.vanLoad.type, q);
   }
   for (const it of invItems) {
     // مخزون السيارة للمنتجات وحدها: بندٌ بلا productId وتمريره
     // كان يفتح صفّاً بمفتاح فارغ يلوّث كل الأرصدة.
     if (!it.productId) continue;
-    addInv(ensure(bal, it.productId), it.invoice, it.qty, it.returnExpired);
-    if (inWindow(it.invoice.invoiceDate)) addInv(ensure(acc, it.productId), it.invoice, it.qty, it.returnExpired);
+    const q = baseQtyOf(it);
+    addInv(ensure(bal, it.productId), it.invoice, q, it.returnExpired);
+    if (inWindow(it.invoice.invoiceDate)) addInv(ensure(acc, it.productId), it.invoice, q, it.returnExpired);
   }
   return { acc, bal };
 }
@@ -170,15 +186,16 @@ export async function computeStock(tid: string, salesRepId: string, range?: Stoc
   // بـ`from`. استعلامٌ واحد لكل مصدر لا اثنان، والمسار يمرّ على كل مندوب في حلقة.
   const inWindow = (d: Date) => !from || d >= from;
 
+  // لقطة وحدة كل صفّ (unitFactor/baseQty) — foldStock يطوي بالأساس منها لا من `qty` الخام
   const [loadItems, invItems, products] = await Promise.all([
     prisma.vanLoadItem.findMany({
       where: { vanLoad: { tenantId: tid, salesRepId, ...(to && { createdAt: { lte: to } }) } },
-      select: { productId: true, qty: true, vanLoad: { select: { type: true, createdAt: true } } },
+      select: { productId: true, qty: true, unitFactor: true, baseQty: true, vanLoad: { select: { type: true, createdAt: true } } },
     }),
     prisma.invoiceItem.findMany({
       where: { invoice: { tenantId: tid, salesRepId, status: 'CONFIRMED', ...(to && { invoiceDate: { lte: to } }) } },
       select: {
-        productId: true, qty: true, returnExpired: true,
+        productId: true, qty: true, unitFactor: true, baseQty: true, returnExpired: true,
         invoice: { select: { type: true, returnToStock: true, invoiceDate: true, returnReason: true, createdAt: true } },
       },
     }),
@@ -229,6 +246,8 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
 
     const items = data.items.filter(i => i.qty !== 0);
     if (!items.length) { res.status(400).json({ success: false, message: 'لا توجد كميات صالحة' }); return; }
+    // لقطة وحدة كل بند بترتيب `items` — يحلّها الخادم من وحدات الصنف (بلا unitId ⇒ الأساس، ولا استعلام)
+    const units = await resolveLineUnits(tid, items);
 
     // إزالة المنتهي صلاحيته أو التالف: كمياتٌ موجبة لا تتجاوز رصيده لكل صنف في سيارة هذا المندوب — والفحص والإنشاء
     // تحت قفلٍ استشاري للمندوب ولذلك الرصيد (أدناه) فلا تتجاوز إزالتان متزامنتان رصيده معاً
@@ -238,8 +257,9 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     }
     const assertOutAvailable = async (bucket: 'expired' | 'damaged') => {
       const haveById = new Map((await computeStock(tid, salesRepId)).map(s => [s.productId, s[bucket]]));
+      // بالأساس: «٢ كرتون» تالفة لا تُزال من رصيد «٢ حبة» تالفة، وكرتونٌ وحبّةٌ من الصنف نفسه يُجمعان
       const want = new Map<string, number>();
-      for (const i of items) want.set(i.productId, (want.get(i.productId) ?? 0) + i.qty);
+      items.forEach((i, idx) => want.set(i.productId, (want.get(i.productId) ?? 0) + toBase(i.qty, { unitFactor: units[idx].factor })));
       for (const [pid, q] of want) {
         const have = haveById.get(pid) ?? 0;
         if (q > have + 1e-9) {
@@ -258,7 +278,8 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
         tenantId: tid, salesRepId, type: data.type, note: data.note,
         ...(loadLocationId && { locationId: loadLocationId }),
         createdBy: isRep ? 'REP' : 'ADMIN',
-        items: { create: items.map(i => ({ productId: i.productId, qty: i.qty, suggestedQty: i.suggestedQty ?? null, expectedQty: i.expectedQty ?? null })) },
+        // لقطة الوحدة + الكمية بالأساس؛ والمقترَح والمتنبَّأ به بالأساس كما أخرجهما المحرّك
+        items: { create: items.map((i, idx) => ({ productId: i.productId, ...unitFields(i.qty, units[idx]), suggestedQty: i.suggestedQty ?? null, expectedQty: i.expectedQty ?? null })) },
       },
       include: { items: { include: { product: { select: { id: true, name: true, unit: true } } } } },
     });
@@ -282,7 +303,10 @@ router.get('/current', async (req: AuthRequest, res: Response, next: NextFunctio
     if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
     await assertRepInScope(req, tid, salesRepId);
     const rows = await computeStock(tid, salesRepId);
-    res.json({ success: true, data: rows });
+    // الأرصدة بالأساس، ومعها وحدات كل صنف لتعرضها الواجهة «٢ كرتون و٣ حبة» (formatQty) — استعلامٌ واحد هنا لا داخل
+    // computeStock: مستدعوه الآخرون (حارس البيع في الفاتورة وملخّص كل المناديب) لا يحتاجونها
+    const units = await unitsByProduct(tid, rows.map(r => r.productId));
+    res.json({ success: true, data: rows.map(r => ({ ...r, units: units.get(r.productId) ?? [] })) });
   } catch (err) { next(err); }
 });
 
@@ -322,20 +346,22 @@ router.get('/suggest', async (req: AuthRequest, res: Response, next: NextFunctio
           productId: { not: null },
           invoice: { tenantId: tid, salesRepId, status: 'CONFIRMED', invoiceDate: { gte: since } },
         },
-        select: { productId: true, qty: true, invoice: { select: { invoiceDate: true, type: true } } },
+        select: { productId: true, qty: true, unitFactor: true, baseQty: true, invoice: { select: { invoiceDate: true, type: true } } },
       }),
+      // ووحدات الصنف تُرفق بكل صفّ اقتراح: الكمية المقترحة بالأساس، والواجهة تعرضها «٢ كرتون و٣ حبة»
       prisma.product.findMany({
         where: { tenantId: tid, status: { not: 'INACTIVE' } },
-        select: { id: true, name: true, code: true, unit: true },
+        select: { id: true, name: true, code: true, unit: true, units: { select: UNIT_SELECT } },
       }),
       computeStock(tid, salesRepId),
     ]);
 
+    // المبيع والمرتجع بالأساس — كما `onVan` من computeStock. تحويلُ أحدهما دون الآخر يُخطئ الاقتراح بمعامل الكرتون
     const sales: SaleRow[] = [];
     const returns: SaleRow[] = [];
     for (const it of items) {
       if (!it.productId) continue;
-      const row = { productId: it.productId, qty: it.qty, date: it.invoice.invoiceDate };
+      const row = { productId: it.productId, qty: baseQtyOf(it), date: it.invoice.invoiceDate };
       (it.invoice.type === 'RETURN' ? returns : sales).push(row);
     }
 
@@ -372,32 +398,34 @@ router.get('/accuracy', async (req: AuthRequest, res: Response, next: NextFuncti
       prisma.vanLoad.findMany({
         // LOAD وحدها: التسويات والتنقيصات ليست قراراتِ تحميلٍ تنبّؤية
         where: { tenantId: tid, salesRepId, type: 'LOAD', createdAt: { gte: since } },
-        select: { id: true, createdAt: true, items: { select: { productId: true, qty: true, suggestedQty: true, expectedQty: true } } },
+        select: { id: true, createdAt: true, items: { select: { productId: true, qty: true, unitFactor: true, baseQty: true, suggestedQty: true, expectedQty: true } } },
       }),
       prisma.invoiceItem.findMany({
         where: {
           productId: { not: null },
           invoice: { tenantId: tid, salesRepId, status: 'CONFIRMED', invoiceDate: { gte: since } },
         },
-        select: { productId: true, qty: true, invoice: { select: { invoiceDate: true, type: true } } },
+        select: { productId: true, qty: true, unitFactor: true, baseQty: true, invoice: { select: { invoiceDate: true, type: true } } },
       }),
       prisma.product.findMany({ where: { tenantId: tid }, select: { id: true, name: true, code: true, unit: true } }),
     ]);
 
+    // المحمَّل والمبيع بالأساس، والمقترَح والمتنبَّأ به مخزَّنان بالأساس أصلاً — وإلا عُدّ تحميل «٢ كرتون» لاقتراح ٤٨
+    // «عدم تبنٍّ» وخطأً بأربعةٍ وعشرين ضعفاً
     const result = computeAccuracy({
       loads: loads.map(l => ({
         id: l.id,
         at: shift(l.createdAt),
         items: l.items.filter(i => i.productId).map(i => ({
           productId: i.productId,
-          qty: Number(i.qty),
+          qty: baseQtyOf(i),
           suggestedQty: i.suggestedQty === null ? null : Number(i.suggestedQty),
           expectedQty: i.expectedQty === null ? null : Number(i.expectedQty),
         })),
       })),
       sales: saleItems.filter(i => i.productId).map(i => ({
         productId: i.productId!,
-        qty: Number(i.qty),
+        qty: baseQtyOf(i),
         at: shift(i.invoice.invoiceDate),
         isReturn: i.invoice.type === 'RETURN',
       })),
@@ -436,6 +464,7 @@ router.get('/summary', requireAdmin, async (req: AuthRequest, res: Response, nex
         where: { tenantId: tid, salesRepId: r.id, type: 'LOAD', ...(lastLoadBefore && { createdAt: { lte: lastLoadBefore } }) },
         orderBy: { createdAt: 'desc' }, select: { createdAt: true },
       });
+      // المجاميع عبر الأصناف بوحدات الأساس (حبّات لا كراتين) — computeStock بالأساس، فلصنفٍ بلا وحدات لا يتغيّر شيء
       return {
         salesRepId: r.id, repName: r.name, isActive: r.isActive, canSellWithoutStock: r.canSellWithoutStock,
         productCount: rows.filter(x => Math.abs(x.remaining) > 1e-9).length,
@@ -561,16 +590,17 @@ router.get('/movements', async (req: AuthRequest, res: Response, next: NextFunct
       ? new Set((await prisma.invoice.findMany({ where: { id: { in: invoices.map(i => i.id) }, ...docScope }, select: { id: true } })).map(i => i.id))
       : null;
 
+    // البند بلقطة وحدته: «٢ كرتون» تبقى كرتوناً لا «٢ حبة» (وحدة الصنف صارت الأساس)، و`baseQty` لمن يجمع الحركات
     const movements = [
       ...loads.map(l => ({
         kind: l.type, date: l.createdAt, ref: l.note || '', by: l.createdBy,
-        items: l.items.map(i => ({ name: i.product.name, unit: i.product.unit, qty: i.qty })),
+        items: l.items.map(i => ({ name: i.product.name, unit: i.unitName ?? i.product.unit, qty: i.qty, baseQty: baseQtyOf(i) })),
       })),
       ...invoices.map(inv => ({
         // المرتجع التالف (منذ DAMAGED_VAN_SINCE) يدخل رصيد «المرتجع التالف» لا المتاح — فيُوسم بذلك في الحركة
         kind: inv.type === 'RETURN' ? (isDamagedVanReturn(inv) ? 'RETURN_DAMAGED' : 'RETURN') : 'SALE', date: inv.invoiceDate,
         ref: !visible || visible.has(inv.id) ? `${inv.number} · ${inv.customer.name}` : 'مستند خارج نطاقك', by: 'REP',
-        items: inv.items.map(i => ({ name: i.product?.name ?? 'صنف محذوف', unit: i.product?.unit ?? '', qty: i.qty })),
+        items: inv.items.map(i => ({ name: i.product?.name ?? 'صنف محذوف', unit: i.unitName ?? i.product?.unit ?? '', qty: i.qty, baseQty: baseQtyOf(i) })),
       })),
     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 60);
 

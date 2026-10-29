@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { extractNumbers, normalizeDigits, numbersIn, runAdvisor, scrubPii, trimSentences, unsupportedNumbers, AdvisorTool } from '../ai-rep/advisor';
 import { chatCompletion, llmConfig, parseCompletion, LlmRequest, LlmResult } from '../ai-rep/llm';
-import { advisorSystemPrompt, buildAdvisorTools, orderStops, OutletCtx } from '../ai-rep/advisorTools';
+import { advisorSystemPrompt, baseAllowedNumbers, buildAdvisorTools, orderStops, OutletCtx } from '../ai-rep/advisorTools';
 import type { TenantEstimateData } from '../ai-rep/estimateData';
 
 const U = { promptTokens: 100, completionTokens: 20, cachedTokens: 50 };
@@ -223,6 +223,41 @@ test('الخطة الحتمية: الفرص الجديدة غير المرفوض
   assert.match(text, /1\) P1 — بقالة على بعد 400 م/);
   assert.match(text, /2\) P4/);
   assert.match(ruleGuideText([], byRef, null, 'SAR'), /لا توجد فرص جديدة/);
+});
+
+test('الوحدات المتعددة: الكميات بالأساس، وأحجام الوحدات ونصّ الطلب التجريبي بها للنموذج، وأرقامها مسموحة', async () => {
+  // صنفٌ أساسه «حبة» ووحدته الأكبر «كرتون» (٢٤): كل محلٍّ مشابه يشتري ٤٨ حبة شهرياً
+  const cans: TenantEstimateData = {
+    ...data,
+    monthly: data.monthly.map(m => ({ ...m, productId: 'c', qty: 48 })),
+    products: [{ id: 'c', name: 'ببسي', unit: 'حبة', units: [{ name: 'كرتون', factor: 24 }] }],
+  };
+  const t = buildAdvisorTools({ ...ctx, data: cans });
+  const est = await t.outlet_estimate.run({ ref: 'P1' }) as { data: { products: Array<Record<string, unknown>> }; summaryAr: string };
+  const p = est.data.products[0];
+  assert.equal(p.unit, 'حبة');
+  assert.deepEqual(p.unit_sizes, ['كرتون = 24 حبة']);
+  assert.equal((p.monthly_qty as { median: number }).median, 48, 'الوسيط بالأساس');
+  assert.equal(p.trial_order_qty, 48);
+  assert.equal(p.trial_order_text, '2 كرتون');
+  assert.match(est.summaryAr, /ببسي: 2 كرتون/);
+  const cat = await t.product_catalog.run({}) as { data: { products: Array<Record<string, unknown>> } };
+  assert.deepEqual(cat.data.products[0].unit_sizes, ['كرتون = 24 حبة']);
+  // معامل الكرتون رقمٌ من كتالوج الشركة: «الكرتون 24 حبة» لا يُرفض مختلَقاً
+  assert.ok(baseAllowedNumbers({ playbook: '', data: cans }, numbersIn).has(24));
+  // صنفٌ بوحدة واحدة: لا حقول جديدة ولا تغيير في النص
+  const plain = await buildAdvisorTools(ctx).outlet_estimate.run({ ref: 'P1' }) as { data: { products: Array<Record<string, unknown>> }; summaryAr: string };
+  assert.equal('unit_sizes' in plain.data.products[0], false);
+  assert.equal('trial_order_text' in plain.data.products[0], false);
+  assert.match(plain.summaryAr, /مياه 330 مل: 8 كرتون/);
+  // والتوجيه الحتميّ يكتب الطلب التجريبي بوحدات الصنف
+  const e = estimateOutlet({
+    target: { lat: 24.7, lng: 46.705, outletType: 'GROCERY' }, now: new Date('2026-09-20'), window: cans.window,
+    peers: cans.peers, monthly: cans.monthly, firstOrders: [], products: cans.products, minPeers: 5, showMoney: true,
+  }, 'بقالة');
+  assert.ok(e.ok && e.products[0].units?.length === 1, 'الوحدات تمرّ في التوقّع');
+  const byRef = new Map([['P1', { ...outlets[0], estimate: e, typeLabel: 'بقالة' }]]);
+  assert.match(ruleGuideText(['P1'], byRef, null, 'SAR'), /اعرض طلباً تجريبياً: ببسي 2 كرتون/);
 });
 
 test('مراجع خطة العقل: بترتيب الظهور، مقصورةً على الفرص الجديدة، بلا تكرار', () => {

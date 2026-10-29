@@ -10,6 +10,7 @@
 import { haversineKm, EstimateResult } from './estimate';
 import { orderStops } from './advisorTools';
 import { normalizeDigits } from './advisor';
+import { qtyText } from './baseQty';
 import { DEFAULT_POLICY, type ConfLevel, type PolicyParams } from './learn/types';
 
 export interface PlanCandidate {
@@ -91,7 +92,8 @@ export function ruleGuideText(plan: string[], byRef: Map<string, PlanCandidate &
     let line = `${i + 1}) ${ref} — ${c.typeLabel} على بعد ${c.distanceM} م`;
     if (e.ok) {
       if (e.monthlyTotalValue) line += `: متوقع ${e.monthlyTotalValue.low}–${e.monthlyTotalValue.high} ${currency} شهرياً قبل الضريبة`;
-      const trial = e.products.filter(p => p.trialQty).slice(0, 2).map(p => `${p.name} ${p.trialQty} ${p.unit}`);
+      // الطلب التجريبي بالأساس، ويُكتب بوحدات الصنف («٢ كرتون») — صنفٌ بوحدة واحدة يبقى «٥ حبة» حرفياً
+      const trial = e.products.filter(p => p.trialQty).slice(0, 2).map(p => `${p.name} ${qtyText(p.trialQty!, p.units, p.unit)}`);
       const top = e.products.find(p => (p.buyers ?? 0) > 0);
       if (trial.length) line += `؛ اعرض طلباً تجريبياً: ${trial.join('، ')}`;
       else if (top) line += `؛ ابدأ بعرض ${top.name}`;

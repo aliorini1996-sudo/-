@@ -94,6 +94,8 @@ export function purchaseExpiry(p: ShelfLifeSettings): Date | null {
  * أساس VAN_LOAD: لحظة دفعة التحميل التي يُصرف منها البيع — **الأقدم يُصرف أولاً**: الدفعات بترتيبها، وما صُرف قبل هذا
  * البيع (مبيعاتٌ سابقة وتنزيلٌ للمستودع) يستهلك أقدمها، فأوّل وحدةٍ في هذا البيع من الدفعة التي بلغها الاستهلاك.
  * بيعٌ فوق كل المحمَّل (بيعٌ بلا مخزون) يُنسب لآخر دفعة؛ وبلا تحميلٍ أصلاً null.
+ * والدفعات والمستهلَك **بوحدةٍ واحدة — الأساس** (الوحدات المتعددة): المستدعي يحوّلهما (invoiceExpiry.vanLoadBatchAt)،
+ * ودفعةُ كرتونين مقابل مستهلَكٍ بالحبّات تُقارن ٢ بـ٤٧ فتنسب البيع لدفعةٍ لم يبلغها.
  */
 export function fifoBatchAt(batches: { qty: number; at: Date }[], consumedBefore: number): Date | null {
   const sorted = batches.filter((b) => b.qty > 0).sort((a, b) => a.at.getTime() - b.at.getTime());

@@ -219,3 +219,37 @@ test('نافذة أقصر تحترم ولا تقل عن أسبوع', () => {
   assert.equal(run(sales, { windowDays: 7 }).rows[0].expected, 10);
   assert.equal(run(sales, { windowDays: 1 }).meta.windowDays, 7, 'نافذة أقل من أسبوع ترفع لأسبوع');
 });
+
+/* ───────────────────── الوحدات المتعددة: كل الأرقام بالأساس ───────────────────── */
+
+test('الوحدات: صنفٌ له كرتون يُشرح مقترحه به، وبلا وحدات يبقى النصّ كما كان حرفياً', () => {
+  const sales: SaleRow[] = [];
+  for (let i = 1; i <= 28; i++) sales.push({ productId: 'p1', qty: 51, date: daysAgo(i) }); // ٥١ حبة يومياً بالأساس
+  const units = [{ id: 'u', name: 'كرتون', factor: 24 }];
+  const plain = row(run(sales));
+  const withUnits = row(run(sales, { products: [{ ...PRODUCTS[0], unit: 'حبة', units }] }));
+  assert.equal(withUnits.suggested, plain.suggested, 'الوحدات للعرض لا للحساب');
+  assert.equal(withUnits.suggested, 51);
+  assert.ok(withUnits.why.endsWith(' والمقترح 2 كرتون و3 حبة.'), withUnits.why);
+  assert.ok(!plain.why.includes('والمقترح'), 'صنفٌ بلا وحدات: النصّ القائم لا يتغيّر');
+  assert.deepEqual(withUnits.units, units, 'الوحدات تُرفق بالصفّ للواجهة');
+  // وحدةٌ موقوفة أو اقتراحٌ صفري لا يُضيف شيئاً
+  const off = row(run(sales, { products: [{ ...PRODUCTS[0], unit: 'حبة', units: [{ ...units[0], isActive: false }] }] }));
+  assert.ok(!off.why.includes('والمقترح'));
+  const full = row(run(sales, { products: [{ ...PRODUCTS[0], unit: 'حبة', units }], onVan: [{ productId: 'p1', remaining: 100 }] }));
+  assert.equal(full.suggested, 0);
+  assert.ok(!full.why.includes('والمقترح'));
+});
+
+test('الوحدات: المبيع والمرتجع وما في السيارة بالأساس معاً — كرتونٌ مرتجع يُخصم ٢٤ لا ١', () => {
+  // المسار يحوّل كل بندٍ إلى الأساس قبل المحرّك (routes/vanStock /suggest)؛ هنا ما يصله
+  const sales: SaleRow[] = [];
+  const returns: SaleRow[] = [];
+  for (let i = 1; i <= 28; i++) {
+    sales.push({ productId: 'p1', qty: 48, date: daysAgo(i) });   // كرتونان يومياً
+    returns.push({ productId: 'p1', qty: 24, date: daysAgo(i) }); // وكرتونٌ يعود
+  }
+  const r = row(run(sales, { returns, onVan: [{ productId: 'p1', remaining: 10 }] }));
+  assert.equal(r.expected, 24, '٤٨ − ٢٤ يومياً');
+  assert.equal(r.suggested, 14, '٢٤ − ١٠ في السيارة');
+});

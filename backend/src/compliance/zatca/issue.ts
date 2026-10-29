@@ -4,7 +4,8 @@
 // z5_plan §2.2 (قبل المعاملة) + §2.4 (D6) + §3 Z5.2 (issue.ts) + نقد الخطة (12، 19، 24، 26) + قرارات المالك D2/Q2 وD6 وD9:
 //   • buildInvoiceSource: البائع من CompanySettings (sellerSourceFromSettings)، المشتري من صفّ العميل بأرقام لاتينية
 //     (buyerSourceFromCustomer — كما تحكم قائمة D2)، البنود بترتيب الطلب (seq = 1..n) بفئة الصنف الضريبية وtaxPct = item ?? الشركة،
-//     وحدة القياس PCE (Product.unitCode رمز ETA؛ ربطه خارج v1)، وطريقة الدفع INSTALLMENT لخطة الأقساط وإلا type.
+//     وحدة القياس رمز وحدة البند من لقطتها وإلا PCE (Product.unitCode رمز ETA لا يُقرأ)، والكمية والسعر بوحدة البند معاً،
+//     وطريقة الدفع INSTALLMENT لخطة الأقساط وإلا type.
 //   • النوع الفرعي (D2/Q2): classifyBuyerSubtype — النوع الصريح BUSINESS/GOVERNMENT أو رقم ضريبي أو سجل تجاري ⇒ 01؛ غير المصنّف
 //     (قناة، اسم منشأة، معرّف منشأة وحده) مبسّطة 02 حتى يُصنَّف — القاعدة الحيّة نفسها في customerBuyerStatus (Z5.1a).
 //   • 01 ببيانات مشترٍ ناقصة ⇒ 422 ZATCA_BUYER_INCOMPLETE (قبل أي قفل)؛ العملة غير SAR ⇒ 422 ZATCA_CURRENCY (D9).
@@ -40,8 +41,23 @@ import { riyadhParts } from './time';
 
 // ─── المدخلات ───
 
-/** وحدة القياس في المرحلة الثانية (UN/ECE Rec 20): Product.unitCode رمز ETA وربطه خارج v1. */
+/**
+ * وحدة القياس الافتراضية في المرحلة الثانية (UN/ECE Rec 20) — لوحدة الأساس ولكلّ بندٍ بلا لقطة وحدة. ولا يُقرأ
+ * Product.unitCode هنا: هو رمز ETA (جدول مزوّد مصر)، فبند الأساس يبقى PCE كما قبل الوحدات المتعددة حرفياً.
+ */
 export const PHASE2_UNIT_CODE = 'PCE';
+
+/** شكل رمز UN/ECE Rec 20/21: حرفان أو ثلاثة لاتينية أو أرقام (PCE، CT، XBX، C62). */
+const UNIT_CODE_SHAPE = /^[A-Z0-9]{2,3}$/;
+
+/**
+ * رمز وحدة سطر الـXML من رمز وحدة البند (ProductUnit.unitCode في لقطته)، وإلا PCE. رمزٌ ليس بشكل الرمز (نصٌّ حرّ
+ * مثل «كرتون» كُتب في حقل الرمز) لا يدخل مستنداً ضريبياً: يُكتب PCE والكمية والسعر بوحدة البند كما هما.
+ */
+export function phase2UnitCode(code: string | null | undefined): string {
+  const c = typeof code === 'string' ? code.trim().toUpperCase() : '';
+  return UNIT_CODE_SHAPE.test(c) ? c : PHASE2_UNIT_CODE;
+}
 /** رقم مؤقت بشكل الرقم الحقيقي للتحويل قبل القفل (الرقم الفعلي يُولَّد داخل القفل؛ لا يدخل المبالغ ولا QR). */
 export const PLACEHOLDER_INVOICE_NUMBER = 'INV-0000-000000';
 export const ISSUANCE_CURRENCY = 'SAR';
@@ -62,10 +78,13 @@ export interface IssuanceProduct {
 
 export interface IssuanceItemInput {
   productId: string;
+  /** بوحدة البند (كرتون) — والسعر لوحدة البند نفسها: الاثنان متّسقان في الـXML ولا يُحوَّلان إلى الأساس */
   qty: number;
   unitPrice: number;
   discountPct?: number | null;
   taxPct?: number | null;
+  /** رمز وحدة البند الضريبي من لقطتها (ProductUnit.unitCode)؛ غائبٌ = وحدة الأساس ⇒ PCE */
+  unitCode?: string | null;
 }
 
 /** جسم POST /invoices بعد تحقق zod (الحقول التي تمسّ المستند وحدها). */
@@ -151,7 +170,8 @@ export function buildInvoiceSource(input: BuildInvoiceSourceInput): InvoiceSourc
     if (!p) missing.push(issue('BR-25', `items[${i}].productId`, `الصنف في البند ${i + 1} غير موجود أو غير نشط`));
     const line: LineSource = {
       itemName: p?.name ?? '',
-      unitCode: PHASE2_UNIT_CODE,
+      // رمز وحدة البند لا PCE ثابتاً: «2 CT» بسعر الكرتون، لا «2 PCE» والمقصود كرتونان
+      unitCode: phase2UnitCode(it.unitCode),
       qty: it.qty,
       unitPrice: it.unitPrice,
       discountPct: it.discountPct ?? 0,

@@ -9,6 +9,7 @@ import {
   zeroPriceGate, buildImportBody, importButtonBlocked, classifyAccessFailure, accessFailureKey,
   REVERT_PERMISSION_DENIED, IMPORT_PERMISSION_DENIED, ACCOUNTING_DISABLED,
   importFieldLabel, previewCellValue,
+  importRowErrorKey, revertConfirmKey, UNIT_NOT_FOUND_MESSAGE, PRODUCT_UNIT_INVALID_MESSAGE,
 } from './importRevert';
 import { IMPORT_SCOPED_NOTE } from './importAccess';
 
@@ -783,4 +784,19 @@ test('البند 52: انقطاع النشر ليس «تعذر الاستيرا�
   assert.match(panel, /else setOlderExhausted\(true\)/, 'لا شيء جديد يُعرض على أنه دفعات');
   assert.match(panel, /resetOlderBatches\(\)/, 'الأقدم تبقى بعد التراجع فيُعرض سجل قديم');
   assert.match(panel, /setOlderCursor\(null\); setOlderHasMore\(undefined\)/, 'التراجع لا يصفّر موضع الاستئناف');
+});
+
+test('الوحدات المتعددة: وسوم أعمدة الوحدات الإضافية، ومعاينتها من units[] بموضعها، ونصّا رمزَي الوحدة ثابتان', () => {
+  assert.equal(importFieldLabel('unit2Factor'), 'معامل الوحدة الثانية');
+  assert.equal(importFieldLabel('units'), 'الوحدات الإضافية');
+  const r = { code: 'W', units: [{ name: 'كرتون', factor: 24, price: 20 }, { name: 'شدة', factor: 6 }] };
+  assert.equal(previewCellValue(r, 'unit2'), 'كرتون');
+  assert.equal(previewCellValue(r, 'unit2Factor'), 24);
+  assert.equal(previewCellValue(r, 'unit2Price'), 20);
+  assert.equal(previewCellValue(r, 'unit3'), 'شدة');
+  assert.equal(previewCellValue(r, 'unit3Price'), undefined);
+  assert.equal(previewCellValue({ code: 'J' }, 'unit2'), undefined, 'صفّ بلا وحدات');
+  assert.equal(importRowErrorKey({ code: 'UNIT_NOT_FOUND', message: 'نص آخر' }), UNIT_NOT_FOUND_MESSAGE);
+  assert.equal(importRowErrorKey({ code: 'PRODUCT_UNIT_INVALID', message: 'نص آخر' }), PRODUCT_UNIT_INVALID_MESSAGE);
+  assert.match(revertConfirmKey('products', false), /مع وحداتها/);
 });

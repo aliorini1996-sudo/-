@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22   # عارض الاختبارات يفهم أنماط ** من ٢١+ — القائمة الصريحة تجاوزت حدّ سطر الأوامر في ويندوز (٨١٩١)
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci

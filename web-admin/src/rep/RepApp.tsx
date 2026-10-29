@@ -2,6 +2,9 @@ import {
   useState, useEffect, useCallback } from 'react'; import { judgeProximity, GEOFENCE_RADIUS_M, type GeoVerdict } from './geofence'; import repApi from './repApi'; import { fetchThenCache, cacheGet, cacheSet, requestPersistentStorage, newClientRef, outboxAdd, refClear, currentRepId } from './offlineDb'; import { isNetworkError, startAutoSync, syncOutbox, pendingCount, rejectedCount, onOutboxChange, outboxDocs, requeue, discard } from './offlineSync'; import type { OutboxDoc } from './offlineDb'; import { formatCurrency, formatDate, formatDateShort, setActiveCurrency, setActiveNumerals, getActiveCurrency, activeLocale, formatDayOnly, dayLabel } from '../utils/format'; import { currencyDecimals } from '../i18n/countries'; import { DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, statementDocFromData, InvoiceDoc, ReceiptDoc, StatementDoc, Company } from './RepDocuments'; import { receiptInvoicesFrom } from './receiptLinks'; import {   TrendingUp, Eye, EyeOff, Pencil, Home, FileText, CreditCard, Users, Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon, User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon, Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw, Fuel, BookOpen, Copy, ExternalLink, PhoneCall, PhoneIncoming, PhoneOutgoing, PhoneMissed, Camera, X, ClipboardCheck, Timer, Square, Link2, ClipboardList, MessageCircle, Route as RouteIcon, Fingerprint, LogIn,
 } from 'lucide-react';
 import { computeInvoiceTotals, roundDecimal, priceFromLineTotal } from './invoiceCalc';
+import { cartBadge, cartCount, choiceById, choiceNet, defaultChoice, hasUnitChoice, invoiceItemUnit, lineUnitOf, linkedLineUnit, refreshLineUnit, sameUnit, unitChoices, unitsText, type UnitChoice } from './repUnits';
+import { fillLinkedQty, linkedUnitPrice, returnUnitChoices, withReturnUnit, type LinkedReturnLine } from '../lib/returnInvoice';
+import type { UnitDef } from '../lib/units';
 import { compressImage } from './imageCompress';
 import { previewInstallments, defaultFirstDue, MAX_INSTALLMENTS, type InstallmentPeriod } from '../lib/installments';
 import { useBackClose } from '../lib/useBackClose';
@@ -1733,7 +1736,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       if (l.saleItemId) return l;
       const cp = custPrices[l.productId];
       if (cp === undefined) return l;
-      const fresh = roundDecimal(cp * (1 + Number(l.taxPct) / 100), currencyDecimals(getActiveCurrency()));
+      // بوحدة البند: سعر العميل للحبّة × معامل الكرتون (أو سعر الكرتون المحدَّد) — وإلا بِيع الكرتون بسعر الحبّة صامتاً
+      const unit: UnitChoice = l.unitId ? { id: l.unitId, name: l.unitName, factor: l.unitFactor, price: l.unitDefPrice ?? null } : { id: null, name: l.unit, factor: 1, price: null };
+      const fresh = roundDecimal(choiceNet(unit, cp) * (1 + Number(l.taxPct) / 100), currencyDecimals(getActiveCurrency()));
       if (fresh === l.refPrice) return l;
       const untouched = Math.abs(Number(l.unitPrice) - Number(l.refPrice)) < 1e-9;
       return { ...l, refPrice: fresh, ...(untouched ? { unitPrice: fresh } : {}) };
@@ -1746,7 +1751,12 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   // الثالث في اسواق الدينار (KWD/BHD/OMR) فيخالف المخزن ما اعلن
   // السعر المتفق مع هذا العميل ان وجد، وإلا السعر الاساسي — وكلاهما صافٍ فيحول لشامل
   const netPriceOf = (p: any) => custPrices[p.id] ?? Number(p.basePrice);
-  const inclPrice = (p: any) => roundDecimal(netPriceOf(p) * (1 + Number(p.taxPct) / 100), currencyDecimals(getActiveCurrency())); // السعر شامل الضريبة
+  /* الوحدات المتعددة: السعر لوحدة البند — سعر العميل/الصنف مخزَّنان لوحدة الأساس فيُضربان بالمعامل، ووحدةٌ لها سعرٌ
+   * محدَّد يغلب (unitPriceOf، كحارس الخادم). ويُقرَّب الشامل من صافي الوحدة لا ×المعامل من شامل الحبّة، فيطابق أرضيته */
+  const inclOf = (p: any, c: UnitChoice) => roundDecimal(choiceNet(c, netPriceOf(p)) * (1 + Number(p.taxPct) / 100), currencyDecimals(getActiveCurrency()));
+  const inclPrice = (p: any) => inclOf(p, unitChoices(p)[0]); // السعر شامل الضريبة (وحدة الأساس)
+  // سعر الوحدة الافتراضية مع اسمها حين للصنف وحدات — وإلا الرقم وحده كما كان
+  const priceHint = (p: any) => (hasUnitChoice(p) ? `${formatCurrency(inclOf(p, defaultChoice(p)))} / ${defaultChoice(p).name}` : formatCurrency(inclPrice(p)));
 
   // المرتجع المرتبط بفاتورة: أصنافه من الفاتورة وحدها؛ والمرتجع الحرّ لا يقبل صنفاً مفعّلة صلاحيته
   const returnBlock = (p: any): string | null => {
@@ -1758,12 +1768,40 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const addProduct = (p: any) => {
     const blocked = returnBlock(p);
     if (blocked) { setMsg(blocked); return; }
+    // الوحدة الافتراضية = الأكبر (repUnits): بعد تحويل الصنف إلى الحبّة يبقى النقر المعتاد «+١ كرتون»
+    const c0 = defaultChoice(p);
     // تحديث دالّي + نسخ غير مُفسِد — يضمن صحّة المسح السريع المتتابع للباركود
     setLines(prev => {
-      const idx = prev.findIndex(l => l.productId === p.id);
+      // الدمج بالصنف **والوحدة**: «+١» على بند حبّاتٍ من نقرة كرتون خطأٌ ٢٤ ضعفاً
+      const idx = prev.findIndex(l => l.productId === p.id && !l.saleItemId && sameUnit(l, { unitId: c0.id }));
       if (idx >= 0) { const c = [...prev]; c[idx] = { ...c[idx], qty: c[idx].qty + 1 }; return c; }
-      return [...prev, { productId: p.id, name: p.name, unit: p.unit, image: p.image || null, qty: 1, unitPrice: inclPrice(p), refPrice: inclPrice(p), discountPct: 0, taxPct: Number(p.taxPct) }];
+      return [...prev, { productId: p.id, name: p.name, ...lineUnitOf(c0), image: p.image || null, qty: 1, unitPrice: inclOf(p, c0), refPrice: inclOf(p, c0), discountPct: 0, taxPct: Number(p.taxPct) }];
     });
+  };
+
+  // خانات عملة الشركة لمبلغ استرداد المرتجع المرتبط — كما يقيسه الخادم (refundInCurrency)
+  const retDec = () => currencyDecimals(getActiveCurrency());
+
+  /* تبديل وحدة بند: السعر والأرضية يُعادان معاً بالوحدة الجديدة (سعر الحبّة على بند كرتون أرضيةٌ كاذبة)، والكمية
+   * تبقى رقمها. وبند فاتورة بيع: وحدته من وحدات بيعه وحدها، ومتاحه وسعر استرداده يُعاد التعبير عنهما بها */
+  const setLineUnit = (i: number, unitId: string | null) => {
+    const l = lines[i];
+    if (!l) return;
+    if (l.saleItemId && l.link) {
+      const link = withReturnUnit(l.link as LinkedReturnLine, unitId);
+      const c = [...lines];
+      c[i] = { ...l, ...linkedLineUnit(link), qty: link.qty, maxQty: link.returnable, unitPrice: linkedUnitPrice(link, retDec()), refPrice: linkedUnitPrice(link, retDec()), link };
+      setLines(c); return;
+    }
+    const p = products.find(x => x.id === l.productId);
+    const ch = p ? choiceById(p, unitId) : null;
+    if (!p || !ch) return;
+    if (lines.some((x, j) => j !== i && x.productId === l.productId && !x.saleItemId && sameUnit(x, { unitId: ch.id }))) {
+      setMsg(tr('الصنف بهذه الوحدة موجود في السلة')); return;
+    }
+    const c = [...lines];
+    c[i] = { ...l, ...lineUnitOf(ch), unitPrice: inclOf(p, ch), refPrice: inclOf(p, ch) };
+    setLines(c);
   };
 
   // مسح باركود مستمرّ → إيجاد الصنف بحقل barcode وإضافته؛ يُعيد نتيجة للعرض داخل الماسح (يبقى مفتوحاً)
@@ -1784,6 +1822,13 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     if (c[i].saleItemId) {
       if (f !== 'qty') return;
       v = Math.max(0, Math.min(v || 0, Number(c[i].maxQty)));
+      /* مبلغ الاسترداد من بند البيع (refundAmount: فرق تراكميَّين) — فسعر الوحدة يتبع الكمية: ٢٤ حبّةً فرادى = قيمة
+       * الكرتون تماماً. والخادم حَكَمٌ يحسبه بنفسه عند الإصدار */
+      if (c[i].link) {
+        const link = { ...(c[i].link as LinkedReturnLine), qty: v };
+        c[i] = { ...c[i], qty: v, unitPrice: linkedUnitPrice(link, retDec()), refPrice: linkedUnitPrice(link, retDec()), link };
+        setLines(c); return;
+      }
     }
     if (f === 'discountPct') v = Math.max(0, Math.min(v || 0, maxDisc));        // حدّ الخصم المسموح
     if (f === 'unitPrice') {
@@ -1801,8 +1846,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     c[i][f] = v; setLines(c);
   };
 
-  const qtyInCart = (id: string) => lines.find(l => l.productId === id)?.qty || 0;
-  const itemCount = lines.reduce((s, l) => s + l.qty, 0);
+  // الشارة والعدّاد: كما كانا لبنود الأساس، ولا جمع كراتين مع حبّات في رقمٍ واحد (repUnits)
+  const qtyInCart = (p: any) => cartBadge(lines, p.id, p);
+  const itemCount = cartCount(lines);
 
   // الإجماليات من **المحرّك المشترك** بوضع «الأسعار شاملة»: سعر البند كما
   // أُعلن للعميل يبقى حرفياً هو المعروض والمرسل والمخزون — التحويل الوسيط
@@ -1851,12 +1897,15 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     setSaleRef({ id: sale.id, number: sale.number });
     // بندٌ يمنعه قيد المرتجع للصنف لا يُضاف، ويُذكر للمندوب باسمه وسببه
     const blocked = sale.lines.filter(l => l.returnable > 0 && l.returnBlocked);
-    setLines(sale.lines.filter(l => l.returnable > 0 && !l.returnBlocked).map(l => ({
-      productId: l.productId, name: l.name, unit: l.unit,
+    /* الكمية كاملةً بوحدة البيع (أو بالأساس إن لم ينقسم المتاح عليها بعد إرجاعٍ جزئيّ بالحبّة) — fillLinkedQty
+     * المشتركة مع اللوحة. و`link` بند البيع كما طبّعه toLinkedSale: منه المتاح بالأساس ومبلغ الاسترداد */
+    setLines(fillLinkedQty(sale.lines.filter(l => l.returnable > 0 && !l.returnBlocked), true).map(l => ({
+      productId: l.productId, name: l.name, ...linkedLineUnit(l),
       image: products.find(x => x.id === l.productId)?.image || null,
-      qty: l.returnable, maxQty: l.returnable,
-      unitPrice: l.refundUnitPrice, refPrice: l.refundUnitPrice, discountPct: 0, taxPct: l.taxPct,
+      qty: l.qty, maxQty: l.returnable,
+      unitPrice: linkedUnitPrice(l, retDec()), refPrice: linkedUnitPrice(l, retDec()), discountPct: 0, taxPct: l.taxPct,
       saleItemId: l.saleItemId, shelfLife: l.shelfLife, expiresAt: l.expiresAt, expiredToday: l.expiredToday,
+      link: l,
     })));
     setPickSale(false); setShowCart(true);
     setMsg(blocked.length ? `${tr('استبعد حسب قيد الصلاحية')}: ${blocked.map(l => `${l.name} (${l.returnBlocked})`).join('، ')}` : '');
@@ -1897,6 +1946,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       pricesIncludeTax: true,
       items: lines.map(l => ({
         productId: l.productId, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct,
+        // وحدة البند ولقطتها — يحفظها الصندوق الأوف‑لاين مع الجسم وتُرفع معه. بند الأساس بلا حقل: الجسم كما كان
+        ...invoiceItemUnit(l),
         ...(isReturn && saleRef && l.saleItemId && { invoiceItemId: l.saleItemId }),
       })),
       ...(deliveryDate && { deliveryDate }), // اختياري — لا يُرسل إن لم يُحدد
@@ -1913,7 +1964,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     const payload = { ...body, clientRef, clientCreatedAt }; // idempotency + العمل دون اتصال
     // الطباعة من نتائج المحرك نفسها: سطر البند يساوي حصته من الاجمالي حتما
     const printItems = lines.map((l, i) => ({
-      name: l.name, unit: l.unit, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct,
+      // لقطة الوحدة نفسها التي أُرسلت — فورقة الإصدار تطابق ورقة إعادة الفتح (invoiceDocFromDetail)
+      name: l.name, unit: l.unit, unitFactor: Number(l.unitFactor ?? 1), multiUnit: hasUnitChoice(products.find(x => x.id === l.productId)),
+      qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct,
       lineTotal: repCalc.items[i].lineTotal, taxAmt: repCalc.items[i].taxAmt,
       // المرتجع من فاتورة بيع: حالة الصلاحية كما عرضها الخادم (والخادم يقرّرها ويسجّلها عند الإصدار)
       ...(isReturn && l.shelfLife && l.expiresAt && { returnExpired: l.expiredToday ?? null, expiresAt: l.expiresAt }),
@@ -1952,6 +2005,18 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         setMsg(tr('صدرت الفاتورة آجلة بلا جدول أقساط — راجع الإدارة قبل تسليم الورقة'));
         return;
       }
+      /* المرتجع من فاتورة بيع يُسعَّر على الخادم من بند البيع (القاعدة ٩) — قد يفترق عن معاينة الجهاز بفلس (مرتجعٌ
+       * متزامن قبله، أو خانات العملة). فالورقة من ردّه: مبلغ كل بندٍ بمطابقة بند البيع، والإجماليات منه — وإلا خرجت
+       * بيد العميل ورقةٌ تخالف قيده. وما لا يُطابَق بنداً بنداً يبقى على المعاينة كما كان */
+      const srvRows: any[] = isReturn && saleRef && Array.isArray(inv.items) ? inv.items : [];
+      const srvOf = (l: any) => srvRows.find(r => r.returnOfItemId && r.returnOfItemId === l.saleItemId);
+      const fromServer = srvRows.length === lines.length && lines.every(l => l.saleItemId && srvOf(l));
+      const docItems = fromServer
+        ? printItems.map((it, i) => { const r = srvOf(lines[i]); return { ...it, unitPrice: Number(r.unitPrice), lineTotal: Number(r.lineTotal), taxAmt: Number(r.taxAmt ?? it.taxAmt) }; })
+        : printItems;
+      const docTotals = fromServer
+        ? { subtotal: Number(inv.subtotal), discount: Number(inv.discountAmt), tax: Number(inv.taxAmt), total: Number(inv.total) }
+        : { subtotal, discount, tax, total };
       onDone({
         kind: 'invoice', number: inv.number, date: inv.invoiceDate, deliveryDate: inv.deliveryDate ?? (deliveryDate || undefined), type, isReturn,
         recipientSignature: inv.signature?.image ?? null,
@@ -1960,8 +2025,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         installments: Array.isArray(inv.installments)
           ? inv.installments.map((r: any) => ({ seq: Number(r.seq), dueDate: r.dueDate, amount: Number(r.amount) }))
           : undefined,
-        company, customer, repName, items: printItems,
-        subtotal, discount, tax, total,
+        company, customer, repName, items: docItems,
+        ...docTotals,
         paidAmt: Number(inv.paidAmt), remainingAmt: Number(inv.remainingAmt),
         /* فوترة ZATCA المرحلة الثانية (Z5.6b، نقد الخطة 6): الطباعة بعد الإصدار مباشرة تُبنى هنا لا من
          * `invoiceDocFromDetail`، فلولا هذا السطر لطُبع رمز المرحلة الأولى على أوّل فاتورة مختومة. */
@@ -1995,9 +2060,33 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       } else {
         // 426: لا فائدة من إعادة المحاولة بالحزمة نفسها — يُعرض زرّ التحديث تحت الرسالة
         if (isZatcaOutdatedClient(err)) setNeedsUpdate(true);
+        // كاش الأصناف قديم (تغيّرت وحدة صنفٍ أو حُوِّل أساسه): يُحدَّث وتُعاد وحدات السلّة إليه، ثم يعيد المندوب الإصدار
+        if (err?.response?.data?.code === 'UNIT_CHANGED') void refreshUnits();
         setMsg(err?.response?.data?.message || tr('تعذر إصدار المستند حاول مجددا')); setLoading(false);
       }
     }
+  };
+
+  /* بعد 409 UNIT_CHANGED: الكتالوج من الخادم، وكل بندٍ (غير مرتبط بفاتورة بيع) بوحدته كما هي الآن (refreshLineUnit)
+   * بسعرها وأرضيتها. والسعر المعدَّل يدوياً يبقى ما لم يتغيّر معامل البند. وبندٌ لا وحدة صالحة له يبقى كما هو فيراه
+   * المندوب في الرسالة ويقرّر — لا يُردّ إلى الأساس بصمت فيُقيَّد «٢ كرتون» حبّتين */
+  const refreshUnits = async () => {
+    try {
+      const { data } = await fetchThenCache('products', async () =>
+        (await repApi.get('/products', { params: { status: 'ACTIVE', limit: 1000 } })).data.data);
+      if (!data) return;
+      const fresh = data as any[];
+      setProducts(fresh);
+      setLines(prev => prev.map(l => {
+        if (l.saleItemId) return l;
+        const p = fresh.find(x => x.id === l.productId);
+        const ch = refreshLineUnit(l, p);
+        if (!p || !ch) return l;
+        const ref = inclOf(p, ch);
+        const keep = Math.abs(Number(l.unitPrice) - Number(l.refPrice)) > 1e-9 && Number(l.unitFactor ?? 1) === (ch.id ? ch.factor : 1);
+        return { ...l, ...lineUnitOf(ch), refPrice: ref, unitPrice: keep ? l.unitPrice : ref };
+      }));
+    } catch { /* دون اتصال: تبقى الرسالة، والإعادة بعد الاتصال */ }
   };
 
   return (
@@ -2087,7 +2176,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                   searchPlaceholder={tr('اكتب اسم الصنف')}
                   value=""
                   resetOnSelect
-                  options={teamProducts.map(p => ({ value: p.id, label: p.name, hint: formatCurrency(inclPrice(p)) }))}
+                  options={teamProducts.map(p => ({ value: p.id, label: p.name, hint: priceHint(p) }))}
                   onChange={(v) => { const p = teamProducts.find(x => x.id === v); if (p) addProduct(p); }}
                 />
               </div>
@@ -2107,23 +2196,24 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
             ) : (
               <div className="grid grid-cols-3 gap-2">
                 {teamProducts.map(p => {
-                  const q = qtyInCart(p.id);
+                  const q = qtyInCart(p);
+                  const inCart = typeof q === 'string' || q > 0;
                   return (
                     <button key={p.id} onClick={() => addProduct(p)}
-                      className={`relative bg-white rounded-xl border overflow-hidden text-right transition-all ${q > 0 ? (isReturn ? 'border-amber-400 ring-1 ring-amber-300' : 'border-[#E15A30] ring-1 ring-[#F5C9BA]') : 'border-gray-100'}`}>
+                      className={`relative bg-white rounded-xl border overflow-hidden text-right transition-all ${inCart ? (isReturn ? 'border-amber-400 ring-1 ring-amber-300' : 'border-[#E15A30] ring-1 ring-[#F5C9BA]') : 'border-gray-100'}`}>
                       <div className="relative w-full aspect-square bg-gray-50 flex items-center justify-center overflow-hidden">
                         {p.image
                           ? <img src={p.image} alt={p.name} className="w-full h-full object-cover" />
                           : <ImageIcon size={26} className="text-gray-300" />}
-                        {q > 0 && (
-                          <span className={`absolute top-1 left-1 ${isReturn ? 'bg-amber-600' : 'bg-[#E15A30]'} text-white text-[11px] font-bold w-5 h-5 rounded-full flex items-center justify-center shadow`}>
+                        {inCart && (
+                          <span className={`absolute top-1 left-1 ${isReturn ? 'bg-amber-600' : 'bg-[#E15A30]'} text-white text-[11px] font-bold ${typeof q === 'string' ? 'px-1.5' : 'w-5'} h-5 rounded-full flex items-center justify-center shadow`}>
                             {q}
                           </span>
                         )}
                       </div>
                       <div className="p-1.5">
                         <p className="text-[11px] font-semibold text-gray-800 leading-tight line-clamp-2 h-7">{p.name}</p>
-                        <p className={`text-[11px] font-bold mt-0.5 ${isReturn ? 'text-amber-600' : 'text-[#E15A30]'}`}>{formatCurrency(inclPrice(p))}</p>
+                        <p className={`text-[11px] font-bold mt-0.5 ${isReturn ? 'text-amber-600' : 'text-[#E15A30]'}`}>{priceHint(p)}</p>
                       </div>
                     </button>
                   );
@@ -2151,7 +2241,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         <>
           <div className="flex-1 overflow-y-auto p-4">
             {lines.map((l, i) => (
-              <div key={l.productId} className="bg-white rounded-xl p-3 mb-2 border border-gray-100">
+              // المفتاح بند البيع أو الصنف بوحدته: الصنف نفسه قد يُباع بكرتونٍ وحبّة في بندين
+              <div key={l.saleItemId ?? `${l.productId}:${l.unitId ?? ''}`} className="bg-white rounded-xl p-3 mb-2 border border-gray-100">
                 <div className="flex items-center gap-2 mb-2">
                   <div className="w-10 h-10 rounded-lg bg-gray-50 flex items-center justify-center overflow-hidden flex-shrink-0">
                     {l.image ? <img src={l.image} alt="" className="w-full h-full object-cover" /> : <ImageIcon size={16} className="text-gray-300" />}
@@ -2159,10 +2250,26 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                   <span className="font-semibold text-sm flex-1">{l.name}</span>
                   <button onClick={() => setLines(lines.filter((_, j) => j !== i))} className="text-red-400"><Trash2 size={15} /></button>
                 </div>
+                {/* منتقي الوحدة: وحدات الصنف النشطة، وللمرتجع من فاتورة بيع ما لا يزيد على وحدة بيعه */}
+                {(() => {
+                  const opts: UnitChoice[] = l.saleItemId && l.link ? returnUnitChoices(l.link) : unitChoices(products.find(x => x.id === l.productId));
+                  return opts.length > 1 ? (
+                    <div className="flex flex-wrap items-center gap-1 mb-2" role="radiogroup" aria-label={tr('الوحدة')}>
+                      {opts.map(o => (
+                        <button key={o.id ?? 'base'} type="button" role="radio" aria-checked={sameUnit(l, { unitId: o.id })}
+                          onClick={() => { if (!sameUnit(l, { unitId: o.id })) setLineUnit(i, o.id); }}
+                          className={`px-2.5 py-1 rounded-full text-[11px] font-semibold ${sameUnit(l, { unitId: o.id }) ? (isReturn ? 'bg-amber-600 text-white' : 'bg-[#E15A30] text-white') : 'bg-gray-100 text-gray-600'}`}>
+                          {o.name}{o.factor > 1 && <span className="opacity-70 font-normal"> ({o.factor})</span>}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null;
+                })()}
                 {/* المرتجع من فاتورة بيع: المتاح منها وحالة صلاحية ما بيع اليوم */}
                 {l.saleItemId && (
                   <div className="mb-2 text-[11px] space-y-0.5">
-                    <p className="text-gray-500">{tr('المتاح للإرجاع')}: {Number(Number(l.maxQty).toFixed(3))} {l.unit}</p>
+                    {/* المتاح بالأساس «١ كرتون و٢٣ حبة» لصنفٍ له وحدات (لا «٠٫٩٥٨ كرتون»)، وإلا كما كان */}
+                    <p className="text-gray-500">{tr('المتاح للإرجاع')}: {(l.link && unitsText(l.link.returnableBase, { unit: l.link.baseUnit, units: l.link.units }, n => String(n))) ?? `${Number(Number(l.maxQty).toFixed(3))} ${l.unit}`}</p>
                     {l.shelfLife && l.expiresAt && (l.expiredToday
                       ? <p className="font-semibold text-red-600">{tr('منتهي الصلاحية')} · {formatDayOnly(l.expiresAt)} — {tr('يدخل السيارة منتهيا ولا يباع')}</p>
                       : <p className="font-semibold text-[#1E7A52]">{tr('ساري الصلاحية')} · {tr('حتى')} {formatDayOnly(l.expiresAt)}</p>)}
@@ -3156,7 +3263,8 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
 // طلب بضاعة المندوب كما يعيده الخادم (/rep-stock-requests/mine): requestedQty ما كتبه، وqty ما اعتمدته الإدارة
 interface MyStockRequest {
   id: string; status: 'PENDING' | 'SENT' | 'REJECTED'; note: string | null; updatedAt: string; decidedAt: string | null;
-  items: { productId: string; name: string; code?: string; unit?: string; requestedQty: number; qty: number }[];
+  /** unitName/unitFactor لقطة وحدة البند (الوحدات المتعددة) — غائبة ⇒ وحدة الأساس */
+  items: { productId: string; name: string; code?: string; unit?: string; unitName?: string | null; unitFactor?: number | null; requestedQty: number; qty: number }[];
 }
 /** آخر طلبٍ حُسم يبقى ظاهراً أسبوعاً — بعده لا يعني المندوب شيئاً */
 const DECIDED_SHOWN_MS = 7 * 24 * 3600 * 1000;
@@ -3174,8 +3282,9 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
   // عهدة أدوات السيارة (عربة، سلة…) — تسجّلها الإدارة، والمندوب يطّلع عليها وحسب
   const [tools, setTools] = useState<{ toolName: string; qty: number }[]>([]);
   const [loading, setLoading] = useState(true);
-  const [products, setProducts] = useState<{ id: string; name: string; unit: string; code: string }[]>([]);
-  const [rows, setRows] = useState<{ productId: string; name: string; unit: string; qty: string }[]>([]);
+  const [products, setProducts] = useState<{ id: string; name: string; unit: string; code: string; units?: UnitDef[] | null }[]>([]);
+  // unitId: وحدة صفّ التحميل (null = الأساس) — صفٌّ واحد لكل صنف، ووحدته تُختار عليه
+  const [rows, setRows] = useState<{ productId: string; name: string; unit: string; qty: string; unitId: string | null }[]>([]);
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -3187,13 +3296,15 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
     setLoading(false);
   }, []);
   useEffect(() => { loadStock(); }, [loadStock]);
-  useEffect(() => { (async () => { const { data } = await fetchThenCache('products', async () => (await repApi.get('/products', { params: { limit: 1000, status: 'ACTIVE' } })).data.data); if (data) setProducts(data as { id: string; name: string; unit: string; code: string }[]); })(); }, []);
+  useEffect(() => { (async () => { const { data } = await fetchThenCache('products', async () => (await repApi.get('/products', { params: { limit: 1000, status: 'ACTIVE' } })).data.data); if (data) setProducts(data as { id: string; name: string; unit: string; code: string; units?: UnitDef[] | null }[]); })(); }, []);
   useEffect(() => { if (!canLoad && view === 'load') setView('list'); }, [canLoad, view]);
   useEffect(() => { if (!canRequest && view === 'request') setView('list'); }, [canRequest, view]);
 
   // ——— طلب بضاعة ———
   const [myReq, setMyReq] = useState<{ pending: MyStockRequest | null; last: MyStockRequest | null } | null>(null);
   const [reqQty, setReqQty] = useState<Record<string, string>>({});
+  // وحدة كل صنفٍ في الطلب (null = الأساس، غائبة = الافتراضية: الأكبر) — بندٌ واحد لكل صنف كما في الخادم
+  const [reqUnit, setReqUnit] = useState<Record<string, string | null>>({});
   const [reqSearch, setReqSearch] = useState('');
   const [reqNote, setReqNote] = useState('');
   const loadMyReq = useCallback(async () => {
@@ -3205,10 +3316,29 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
   const openRequest = () => {
     // يبدأ من الطلب المعلّق إن وُجد: الرفع الثاني يحدّثه لا يكرّره
     const p = myReq?.pending;
-    setReqQty(p ? Object.fromEntries(p.items.filter(i => i.requestedQty > 0).map(i => [i.productId, String(i.requestedQty)])) : {});
+    /* بوحدة البند المعلّق: وحدته ما زالت بين وحدات الصنف ⇒ هي وكميته؛ وإلا (أُوقفت أو تغيّر معاملها) تُحوَّل كميته إلى
+     * الأساس بلقطته — فـ«٣ كرتون» لا تصير «٣ حبة» صامتةً */
+    const qty: Record<string, string> = {};
+    const unit: Record<string, string | null> = {};
+    for (const i of (p?.items ?? []).filter(x => x.requestedQty > 0)) {
+      const f = Number(i.unitFactor ?? 1) || 1;
+      const prod = products.find(x => x.id === i.productId);
+      const ch = f === 1 ? null : unitChoices(prod).find(c => c.id && Math.abs(c.factor - f) < 1e-9 && (!i.unitName || c.name === i.unitName))
+        ?? unitChoices(prod).find(c => c.id && Math.abs(c.factor - f) < 1e-9) ?? null;
+      unit[i.productId] = ch ? ch.id : null;
+      qty[i.productId] = String(ch || f === 1 ? i.requestedQty : Number((i.requestedQty * f).toFixed(6)));
+    }
+    setReqQty(qty); setReqUnit(unit);
     setReqNote(p?.note ?? ''); setReqSearch(''); setMsg(null); setView('request');
   };
-  const reqLines = Object.entries(reqQty).map(([productId, raw]) => ({ productId, qty: Number(raw) })).filter(l => Number.isFinite(l.qty) && l.qty > 0);
+  const reqUnitOf = (productId: string) => {
+    const prod = products.find(x => x.id === productId);
+    return productId in reqUnit ? choiceById(prod, reqUnit[productId]) ?? unitChoices(prod)[0] : defaultChoice(prod);
+  };
+  const reqLines = Object.entries(reqQty).map(([productId, raw]) => {
+    const u = reqUnitOf(productId);
+    return { productId, qty: Number(raw), ...(u.id && { unitId: u.id }) };
+  }).filter(l => Number.isFinite(l.qty) && l.qty > 0);
   const reqBad = Object.values(reqQty).some(v => v.trim() !== '' && !(Number(v) >= 0));
 
   const submitRequest = async () => {
@@ -3242,13 +3372,16 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
   const addProduct = (id: string) => {
     if (!id || rows.some(r => r.productId === id)) return;
     const p = products.find(x => x.id === id); if (!p) return;
-    setRows(rs => [...rs, { productId: id, name: p.name, unit: p.unit, qty: '1' }]);
+    // الافتراضية الأكبر: المندوب يحمّل بالكرتون عادةً (وبعد تحويل الصنف إلى الحبّة يبقى كذلك)
+    const c0 = defaultChoice(p);
+    setRows(rs => [...rs, { productId: id, name: p.name, unit: c0.name, qty: '1', unitId: c0.id }]);
   };
 
   const submit = async () => {
     if (!canLoad) { setMsg({ ok: false, text: tr('لا تملك صلاحية تحميل مخزون السيارة') }); return; }
     // التحميل موجب فقط؛ التنقيص متاح للإدارة من لوحة التحكم
-    const items = rows.map(r => ({ productId: r.productId, qty: Number(r.qty) })).filter(i => i.qty > 0);
+    // ووحدة الصفّ بمعرّفها — بدونها يدخل تحميل ١٠ كراتين السيارةَ ١٠ حبّات
+    const items = rows.map(r => ({ productId: r.productId, qty: Number(r.qty), ...(r.unitId && { unitId: r.unitId }) })).filter(i => i.qty > 0);
     if (!items.length) { setMsg({ ok: false, text: tr('أضف صنفا وكمية صحيحة') }); return; }
     setSaving(true); setMsg(null);
     try {
@@ -3289,8 +3422,22 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
               <div key={p.id} className={`flex items-center gap-2 bg-white border rounded-xl p-2.5 shadow-sm ${Number(raw) > 0 ? 'border-[#E15A30]/40' : 'border-gray-100'}`}>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold truncate">{p.name}</p>
-                  <p className="text-[10px] text-gray-400">{p.unit} · {tr('في سيارتك')} {fmt(inVan.get(p.id) ?? 0)}</p>
-                  {changed && <p className="text-[10px] font-semibold text-amber-700">{tr('عدلته الإدارة إلى')} {fmt(a.qty)}</p>}
+                  {/* رصيد السيارة بالأساس: «٢ كرتون و٣ حبة» لصنفٍ له وحدات، وإلا كما كان */}
+                  <p className="text-[10px] text-gray-400">{unitsText(inVan.get(p.id) ?? 0, p, fmt) != null
+                    ? `${tr('في سيارتك')} ${unitsText(inVan.get(p.id) ?? 0, p, fmt)}`
+                    : <>{p.unit} · {tr('في سيارتك')} {fmt(inVan.get(p.id) ?? 0)}</>}</p>
+                  {changed && <p className="text-[10px] font-semibold text-amber-700">{tr('عدلته الإدارة إلى')} {fmt(a.qty)}{a.unitName ? ` ${a.unitName}` : ''}</p>}
+                  {hasUnitChoice(p) && (
+                    <div className="flex flex-wrap gap-1 mt-1" role="radiogroup" aria-label={tr('الوحدة')}>
+                      {unitChoices(p).map(o => (
+                        <button key={o.id ?? 'base'} type="button" role="radio" aria-checked={reqUnitOf(p.id).id === o.id}
+                          onClick={() => setReqUnit(m => ({ ...m, [p.id]: o.id }))}
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${reqUnitOf(p.id).id === o.id ? 'bg-[#E15A30] text-white' : 'bg-gray-100 text-gray-600'}`}>
+                          {o.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <input type="number" min="0" step="any" inputMode="decimal" value={raw} placeholder="0"
                   onChange={e => setReqQty(m => ({ ...m, [p.id]: e.target.value }))}
@@ -3325,12 +3472,26 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
           <div>
             <label className="text-xs font-semibold text-[#6E6557] mb-1 block">{tr('إضافة صنف')}</label>
             <SearchableSelect dark resetOnSelect value="" onChange={addProduct}
-              options={products.filter(p => !rows.some(r => r.productId === p.id)).map(p => ({ value: p.id, label: p.name, hint: `${p.code} · ${p.unit}` }))}
+              options={products.filter(p => !rows.some(r => r.productId === p.id)).map(p => ({ value: p.id, label: p.name, hint: `${p.code} · ${defaultChoice(p).name}` }))}
               placeholder={tr('ابحث وأضف صنفا')} searchPlaceholder={tr('اكتب اسم/كود الصنف')} />
           </div>
           {rows.map((r, i) => (
             <div key={r.productId} className="flex items-center gap-2 bg-white border border-gray-100 rounded-xl p-2.5 shadow-sm">
-              <div className="flex-1 min-w-0"><p className="text-sm font-semibold truncate">{r.name}</p><p className="text-[10px] text-gray-400">{r.unit}</p></div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold truncate">{r.name}</p>
+                {/* منتقي الوحدة لصنفٍ له وحدات — وإلا اسم وحدته كما كان */}
+                {hasUnitChoice(products.find(x => x.id === r.productId)) ? (
+                  <div className="flex flex-wrap gap-1 mt-1" role="radiogroup" aria-label={tr('الوحدة')}>
+                    {unitChoices(products.find(x => x.id === r.productId)).map(o => (
+                      <button key={o.id ?? 'base'} type="button" role="radio" aria-checked={r.unitId === o.id}
+                        onClick={() => setRows(rs => rs.map((x, j) => j === i ? { ...x, unitId: o.id, unit: o.name } : x))}
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${r.unitId === o.id ? 'bg-[#E15A30] text-white' : 'bg-gray-100 text-gray-600'}`}>
+                        {o.name}
+                      </button>
+                    ))}
+                  </div>
+                ) : <p className="text-[10px] text-gray-400">{r.unit}</p>}
+              </div>
               <input type="number" min="0" step="any" inputMode="decimal" value={r.qty}
                 onChange={e => setRows(rs => rs.map((x, j) => j === i ? { ...x, qty: e.target.value } : x))}
                 className="w-20 text-center border border-gray-200 rounded-lg py-1.5" />
@@ -3406,24 +3567,33 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
               <p className="text-gray-400 text-sm">{tr('لا توجد بضاعة في سيارتك بعد')}</p>
               {canLoad && <p className="text-gray-400 text-xs mt-1">{tr('اضغط تحميل لتسجيل ما حملته')}</p>}
             </div>
-          ) : stock.map(s => (
+          ) : stock.map(s => {
+            /* الأرصدة من الخادم بالأساس (القاعدة ٨): لصنفٍ له وحدات «٢ كرتون و٣ حبة» لا رقمٌ بجانب اسم الأساس.
+             * والألوان (العجز والصفر) على الرقم بالأساس نفسه */
+            const prod = products.find(x => x.id === s.productId);
+            const u = (n: number) => unitsText(n, prod ? { unit: s.unit || prod.unit, units: prod.units } : null, fmt);
+            const q = (n: number) => u(n) ?? `${fmt(n)} ${s.unit}`;
+            return (
             <div key={s.productId} className="bg-white border border-gray-100 rounded-xl p-3 shadow-sm flex items-center justify-between">
               <div className="min-w-0">
                 <p className="font-semibold text-sm text-[#1F1A13] truncate">{s.name}</p>
-                <p className="text-[11px] text-gray-400">{tr('محمل')} {fmt(s.loaded)} · {tr('مباع')} {fmt(s.sold)} {s.unit}</p>
+                <p className="text-[11px] text-gray-400">{u(s.sold) != null
+                  ? `${tr('محمل')} ${q(s.loaded)} · ${tr('مباع')} ${q(s.sold)}`
+                  : `${tr('محمل')} ${fmt(s.loaded)} · ${tr('مباع')} ${fmt(s.sold)} ${s.unit}`}</p>
                 {(s.expired ?? 0) > 0 && (
-                  <p className="text-[11px] font-semibold text-red-600">{tr('منتهي الصلاحية')} {fmt(s.expired!)} {s.unit} — {tr('لا يباع حتى تزيله الإدارة')}</p>
+                  <p className="text-[11px] font-semibold text-red-600">{tr('منتهي الصلاحية')} {q(s.expired!)} — {tr('لا يباع حتى تزيله الإدارة')}</p>
                 )}
                 {(s.damaged ?? 0) > 0 && (
-                  <p className="text-[11px] font-semibold text-red-600">{tr('تالف')} {fmt(s.damaged!)} {s.unit} — {tr('لا يباع حتى تزيله الإدارة')}</p>
+                  <p className="text-[11px] font-semibold text-red-600">{tr('تالف')} {q(s.damaged!)} — {tr('لا يباع حتى تزيله الإدارة')}</p>
                 )}
               </div>
               <div className="text-left shrink-0">
-                <p className={`text-lg font-bold ${s.remaining < 0 ? 'text-red-600' : s.remaining === 0 ? 'text-gray-400' : 'text-[#1E7A52]'}`}>{fmt(s.remaining)}</p>
+                <p className={`${u(s.remaining) != null ? 'text-sm' : 'text-lg'} font-bold ${s.remaining < 0 ? 'text-red-600' : s.remaining === 0 ? 'text-gray-400' : 'text-[#1E7A52]'}`}>{u(s.remaining) ?? fmt(s.remaining)}</p>
                 <p className="text-[10px] text-gray-400">{tr('متبقي')}</p>
               </div>
             </div>
-          ))}
+            );
+          })}
       </div>
     </div>
   );

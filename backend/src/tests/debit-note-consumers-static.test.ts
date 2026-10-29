@@ -34,7 +34,9 @@ test('مخزون السيارة: بندٌ بلا صنف يُتخطّى ولا ي
 
 test('تقرير المبيعات: بندٌ بلا صنف يُجمَع تحت مفتاح واحد ولا يُسقط التقرير', () => {
   const reports = read('routes/reports.ts');
-  const group = between(reports, "if (groupBy === 'product')", "if (groupBy === 'rep')", 'تجميع الأصناف');
+  // التجميع صار دالّةً صرفة (salesByProduct — الكمية بالأساس للوحدات المتعددة) يستدعيها فرع groupBy=product
+  assert.match(between(reports, "if (groupBy === 'product')", "if (groupBy === 'rep')", 'فرع الأصناف'), /salesByProduct\(invoices,/);
+  const group = between(reports, 'export function salesByProduct(', 'export function returnLineView(', 'تجميع الأصناف');
   assert.match(group, /const ref = item\.product;/, 'التقرير يقرأ الصنف بلا وسيط');
   assert.match(group, /ref\?\.id \?\? 'unknown'/, 'مفتاح التجميع يفترض وجود الصنف (يسقط بـ500)');
   assert.match(group, /ref\?\.name \?\? /, 'اسم الصنف يُقرأ بلا حارس');
@@ -43,10 +45,13 @@ test('تقرير المبيعات: بندٌ بلا صنف يُجمَع تحت م
 test('تصدير ERP: بنود الفاتورة تُقرأ بحقولها لا ببطاقة صنفها', () => {
   // بناء الحمولة صار صرفاً في services/erpPayload.ts (يستعمله الاختبار الحيّ على Odoo)
   const erp = read('services/erpPayload.ts');
-  const invoices = between(erp, 'export function invoicePayloadRow(', 'export interface ErpReceiptInput', 'تصدير الفواتير');
+  // منذ الوحدات المتعددة (payloadVersion 3) بُني البند في invoiceItemPayloadRow قبل invoicePayloadRow — والحارس
+  // يمسح الدالّتين معاً: النيّة نفسها (لا قراءة بطاقة صنفٍ بلا حارس، والبند بلا صنفٍ بلا صنف، وصيغة الصافي)
+  const invoices = between(erp, 'export function invoiceItemPayloadRow(', 'export interface ErpReceiptInput', 'تصدير الفواتير');
   assert.doesNotMatch(invoices, /it\.product\.[a-zA-Z]/, 'التصدير يقرأ بطاقة الصنف بلا حارس — بندُ إشعارٍ مدين يسقطه');
-  assert.match(invoices, /product: it\.product \? productPayloadRow\(it\.product\) : null/, 'بندٌ بلا صنف (إشعار مدين) يُرسل بلا صنف');
-  assert.match(invoices, /unitPriceNet: incl \? roundHalfUp\(netFromInclusive\(it\.unitPrice, it\.taxPct\), 4\)/, 'حساب الصافي تغيّر');
+  assert.match(invoices, /const product = it\.product \? productPayloadRow\(it\.product\) : null/, 'بندٌ بلا صنف (إشعار مدين) يُرسل بلا صنف');
+  assert.match(invoices, /incl \? roundHalfUp\(netFromInclusive\(it\.unitPrice, it\.taxPct\), 4\)/, 'حساب الصافي تغيّر');
+  assert.match(invoices, /items\.map\(\(it\) => invoiceItemPayloadRow\(it, incl\)\)|invoiceItemPayloadRow\(/, 'الفاتورة لا تبني بنودها بالدالّة المحروسة');
 });
 
 test('حذف الصنف: العدّ لا يقع على بنود بلا صنف (لا يمنع حذفاً بسبب إشعار مدين)', () => {

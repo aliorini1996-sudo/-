@@ -4,7 +4,8 @@ import { formatCurrency, formatDate, formatDayOnly, formatTime, formatDateTime, 
 import { methodLabelFor } from '../lib/paymentMethodsConfig';
 import { currencyDecimals } from '../i18n/countries';
 import { periodShape, statementFinalBalance, statementZone } from './statementFacts';
-import { adjustTotals, receiveTotalQty, uncostedCount, isCosted, noticeRef } from './warehouseNoticeFacts';
+import { adjustTotals, receiveTotalQty, uncostedCount, isCosted, noticeRef, qtyByUnit, unitTotalsText } from './warehouseNoticeFacts';
+import { factorOf, roundQty } from '../lib/units';
 import { stockRequestToLabel, stockRequestApproverLabel, stockRequestTotalQty, type StockRequestTo, type StockRequestLine } from '../lib/stockRequest';
 import { useTr } from '../i18n/strings';
 import { elementToPdfBlob, shareOrDownloadPdf } from './pdf';
@@ -111,6 +112,9 @@ export interface InvoiceDoc {
   repName: string;
   items: {
     name: string; unit?: string; qty: number; unitPrice: number; discountPct: number; taxPct: number; lineTotal: number;
+    /* الوحدات المتعددة: `unit` لقطة وحدة البند (unitName ?? product.unit) والكمية والسعر بها. `unitFactor` ≠ ١ أو
+     * `multiUnit` (للصنف وحدات) ⇒ الوحدة تُطبع ولو أخفاها القالب: «٢» وحدها لا تقول أكرتونان أم حبّتان */
+    unitFactor?: number | null; multiUnit?: boolean;
     // للمرتجع: صلاحية الصنف المقيسة على بيعه (services/invoiceExpiry.ts) — منتهٍ أم سارٍ وتاريخ الانتهاء
     returnExpired?: boolean | null; expiresAt?: string | null;
   }[];
@@ -174,7 +178,7 @@ export interface StatementEntry {
   credit: number;
   balance: number;
   type?: string; // نوع القيد (INVOICE_DEBIT بيع · RECEIPT_CREDIT تحصيل · INVOICE_CREDIT مرتجع)
-  items?: { name: string; qty: number; unit?: string }[]; // أصناف الفاتورة (لعرضها في كشف الحساب)
+  items?: { name: string; qty: number; unit?: string; unitFactor?: number | null }[]; // أصناف الفاتورة (لعرضها في كشف الحساب)
 }
 
 export interface StatementDoc {
@@ -228,7 +232,7 @@ export interface SettlementLogDoc {
   outstanding?: number;
 }
 
-export interface LoadNoticeItem { name: string; qty: number; unit?: string; }
+export interface LoadNoticeItem { name: string; qty: number; unit?: string; /** معامل وحدة السطر — ≠١ ⇒ الإجمالي لكل وحدة */ unitFactor?: number | null; }
 
 /** إشعار حركة بضاعة (تحميل/تنزيل/تسوية) لسيارة مندوب — قابل للتصدير PDF */
 export interface LoadNoticeDoc {
@@ -246,6 +250,8 @@ export interface LoadNoticeDoc {
 export interface WarehouseNoticeItem {
   name: string;
   unit?: string;
+  /** معامل وحدة السطر (لقطته) — الكمية وسعر الوحدة بها، و≠١ ⇒ الإجمالي لكل وحدة */
+  unitFactor?: number | null;
   /** موجبٌ للوارد، وموجبٌ أو سالبٌ للتسوية */
   qty: number;
   /** صافٍ قبل الضريبة بأربع خانات — `null` = بلا سعر معروف */
@@ -301,6 +307,14 @@ export interface StockRequestDoc {
 }
 
 export type AnyDoc = InvoiceDoc | ReceiptDoc | StatementDoc | SettlementLogDoc | LoadNoticeDoc | WarehouseNoticeDoc | StockRequestDoc;
+
+/**
+ * تُطبع وحدة البند؟ خيار القالب (showItemUnit)، **أو** بندٌ بغير وحدة الأساس، أو صنفٌ له وحدات — فخيار «إخفاء الوحدة»
+ * يبقى لشركةٍ بوحدةٍ واحدة لكل صنف، ولا يصير «٢ × ٤٨» على فاتورةٍ ضريبية لغزاً: أكرتونان أم حبّتان؟
+ */
+export function showsItemUnit(it: { unit?: string; unitFactor?: number | null; multiUnit?: boolean }, showItemUnit: boolean): boolean {
+  return !!it.unit && (showItemUnit || it.multiUnit === true || factorOf(it) !== 1);
+}
 
 function fullAddress(c: { address?: string; district?: string; city?: string }): string {
   return [c.address, c.district, c.city].filter(Boolean).join('، ');
@@ -518,7 +532,7 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
               <td style={td}>{i + 1}</td>
               <td style={{ ...td, textAlign: 'right' }}>
                 <span style={{ fontWeight: 600 }}>{it.name}</span>
-                {look.showItemUnit && it.unit && <span style={{ color: '#9ca3af', fontSize: 11 }}> ({it.unit})</span>}
+                {showsItemUnit(it, look.showItemUnit) && <span style={{ color: '#9ca3af', fontSize: 11 }}> ({it.unit})</span>}
                 {/* المرتجع: هل عاد الصنف بعد انتهاء صلاحيته (من تاريخ بيعه) — لا يظهر لصنفٍ بلا صلاحية أو بلا بيعٍ سابق */}
                 {doc.isReturn && it.returnExpired != null && it.expiresAt && (
                   <div style={{ fontSize: 10.5, marginTop: 2, fontWeight: 600, color: it.returnExpired ? '#dc2626' : '#1E7A52' }}>
@@ -898,7 +912,7 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
                 {e.description}
                 {e.items && e.items.length > 0 && (
                   <div style={{ fontSize: 10, color: '#6b7280', marginTop: 3, lineHeight: 1.5 }}>
-                    <b style={{ color: '#4b5563' }}>{e.items.length} {tr('صنف')}:</b> {e.items.map(it => `${it.name} ×${it.qty}`).join('، ')}
+                    <b style={{ color: '#4b5563' }}>{e.items.length} {tr('صنف')}:</b> {e.items.map(it => `${it.name} ×${it.qty}${factorOf(it) !== 1 && it.unit ? ` ${it.unit}` : ''}`).join('، ')}
                   </div>
                 )}
               </td>
@@ -1048,6 +1062,9 @@ export const PrintableLoadNotice = forwardRef<HTMLDivElement, { doc: LoadNoticeD
   const title = doc.movementKind === 'UNLOAD' ? tr('إشعار تنزيل بضاعة')
     : doc.movementKind === 'ADJUST' ? tr('إشعار تسوية مخزون') : tr('إشعار تحميل بضاعة');
   const totalQty = Number(doc.items.reduce((a, i) => a + Math.abs(i.qty), 0).toFixed(2));
+  // وحداتٌ مختلطة: الإجمالي لكل وحدة — «٧ وحدة» لكرتونين وخمس حبّات رقمٌ بلا معنى على ورقةٍ يوقّعها المندوب
+  const byUnit = qtyByUnit(doc.items, (q) => Math.abs(q));
+  const totalText = byUnit ? unitTotalsText(byUnit, (n) => String(Number(n.toFixed(2)))) : String(totalQty);
 
   return (
     <div ref={ref} style={sheet.style} {...sheet.attrs}>
@@ -1064,7 +1081,7 @@ export const PrintableLoadNotice = forwardRef<HTMLDivElement, { doc: LoadNoticeD
         <div style={{ flex: 1, background: '#f0fdf4', borderRadius: 10, padding: 14 }}>
           <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{tr('ملخص الحركة')}</div>
           <InfoBox label={tr('عدد الأصناف')} value={String(doc.items.length)} />
-          <InfoBox label={tr('إجمالي الكميات')} value={String(totalQty)} />
+          <InfoBox label={tr('إجمالي الكميات')} value={totalText} />
           {doc.note && <InfoBox label={tr('ملاحظة')} value={doc.note} />}
         </div>
       </div>
@@ -1094,8 +1111,8 @@ export const PrintableLoadNotice = forwardRef<HTMLDivElement, { doc: LoadNoticeD
         <tfoot>
           <tr style={{ background: '#f1f5f9', fontWeight: 700 }}>
             <td style={{ ...td, borderTop: `2px solid ${brand}` }} colSpan={2}>{tr('الإجمالي')}</td>
-            <td style={{ ...td, color: '#16a34a', borderTop: `2px solid ${brand}` }}>{totalQty}</td>
-            <td style={{ ...td, borderTop: `2px solid ${brand}` }}>{tr('وحدة')}</td>
+            <td style={{ ...td, color: '#16a34a', borderTop: `2px solid ${brand}` }}>{totalText}</td>
+            <td style={{ ...td, borderTop: `2px solid ${brand}` }}>{byUnit ? '-' : tr('وحدة')}</td>
           </tr>
         </tfoot>
       </table>
@@ -1131,6 +1148,11 @@ export const PrintableWarehouseNotice = forwardRef<HTMLDivElement, { doc: Wareho
   const receive = doc.entryType === 'RECEIVE';
   const title = receive ? tr('إشعار وارد بضاعة') : tr('إشعار تسوية مخزون');
   const adj = adjustTotals(doc.items);
+  // وحداتٌ مختلطة: الوارد والزيادة والنقص لكل وحدة (qtyByUnit) — وإلا الأرقام كما كانت
+  const unitTotal = (pick: (q: number) => number, n: number) => {
+    const rows = qtyByUnit(doc.items, pick);
+    return rows ? unitTotalsText(rows, fmtNoticeQty) : fmtNoticeQty(n);
+  };
   const uncosted = receive ? uncostedCount(doc.items) : 0;
   /* وارد بلا أيّ سطرٍ مسعَّر (سُجّل قبل وصول فاتورة المورّد): إجماليه صفرٌ
    * حسابياً، لكنّ طباعته «٠٫٠٠» تقول على ورقةٍ موقَّعة إنّ البضاعة بلا ثمن —
@@ -1158,10 +1180,10 @@ export const PrintableWarehouseNotice = forwardRef<HTMLDivElement, { doc: Wareho
           <InfoBox label={tr('عدد الأصناف')} value={String(doc.items.length)} />
           {/* التسوية تُطبع زيادتها ونقصها منفصلين: صافيها يخفي حركةً نقلت كمّيات */}
           {receive
-            ? <InfoBox label={tr('إجمالي الكميات')} value={fmtNoticeQty(receiveTotalQty(doc.items))} />
+            ? <InfoBox label={tr('إجمالي الكميات')} value={unitTotal((q) => q, receiveTotalQty(doc.items))} />
             : <>
-                <InfoBox label={tr('إجمالي الزيادة')} value={fmtNoticeQty(adj.added)} />
-                <InfoBox label={tr('إجمالي النقص')} value={fmtNoticeQty(adj.removed)} />
+                <InfoBox label={tr('إجمالي الزيادة')} value={unitTotal((q) => (q > 0 ? q : 0), adj.added)} />
+                <InfoBox label={tr('إجمالي النقص')} value={unitTotal((q) => (q < 0 ? -q : 0), adj.removed)} />
               </>}
         </div>
       </div>
@@ -1400,7 +1422,10 @@ export function invoiceDocFromDetail(inv: any, repName: string, company?: Compan
     repName: inv.salesRep?.name ?? repName,
     items: (inv.items ?? []).map((it: any) => ({
       name: it.product?.name ?? '-',
-      unit: it.product?.unit,
+      // لقطة وحدة البند (القاعدة ٨): وحدة الصنف الحالية صارت الأساس بعد التحويل، فـ«٢ (حبة)» لكرتونين خطأٌ ٢٤ ضعفاً
+      unit: it.unitName || it.product?.unit,
+      unitFactor: it.unitFactor == null ? undefined : factorOf(it),
+      multiUnit: Array.isArray(it.product?.units) && it.product.units.length > 0,
       qty: Number(it.qty),
       unitPrice: Number(it.unitPrice),
       discountPct: Number(it.discountPct),
@@ -1491,7 +1516,10 @@ export function statementDocFromData(
     balance: Number(e.balance),
     type: e.type,
     // لا نُرفق الأصناف بقيد التحصيل النقدي (RECEIPT_CREDIT) فهو يكرّر نفس فاتورة البيع
-    items: (e.type !== 'RECEIPT_CREDIT' ? (e.invoice?.items || []) : []).map((it: any) => ({ name: it.product?.name ?? '-', qty: Number(it.qty), unit: it.product?.unit })),
+    items: (e.type !== 'RECEIPT_CREDIT' ? (e.invoice?.items || []) : []).map((it: any) => ({
+      name: it.product?.name ?? '-', qty: Number(it.qty), unit: it.unitName || it.product?.unit,
+      ...(it.unitFactor != null && { unitFactor: factorOf(it) }),
+    })),
   }));
   const totalDebit = mapped.reduce((s, e) => s + e.debit, 0);
   const totalCredit = mapped.reduce((s, e) => s + e.credit, 0);
@@ -1549,7 +1577,7 @@ export function settlementLogDocFromData(
 
 export function loadNoticeDocFromData(
   repName: string,
-  movement: { kind: string; date: string; ref?: string; by?: string | null; items: { name: string; qty: number; unit?: string }[] },
+  movement: { kind: string; date: string; ref?: string; by?: string | null; items: { name: string; qty: number; unit?: string; unitName?: string | null; unitFactor?: number | null; baseQty?: number | null }[] },
   company?: Company | null,
 ): LoadNoticeDoc {
   return {
@@ -1560,7 +1588,13 @@ export function loadNoticeDocFromData(
     movementKind: movement.kind,
     note: movement.ref || undefined,
     by: movement.by || undefined,
-    items: movement.items.map((i) => ({ name: i.name, qty: Number(i.qty), unit: i.unit || undefined })),
+    /* لقطة وحدة السطر أوّلاً (VanLoadItem.unitName)، ثم ما أرسلته الحركة. والمعامل من لقطته، وإلا من الكمية بالأساس
+     * التي يرسلها /van-stock/movements مع كل سطر — به يعرف الإشعار أنّ وحداته اختلطت فلا يجمعها رقماً واحداً */
+    items: movement.items.map((i) => {
+      const f = i.unitFactor != null ? factorOf(i)
+        : i.baseQty != null && Number(i.qty) ? roundQty(Number(i.baseQty) / Number(i.qty)) : null;
+      return { name: i.name, qty: Number(i.qty), unit: i.unitName || i.unit || undefined, ...(f != null && { unitFactor: f }) };
+    }),
   };
 }
 
@@ -1574,7 +1608,7 @@ export function warehouseNoticeDocFromEntry(
   entry: {
     id: string; type: string; createdAt: string;
     supplier?: string | null; note?: string | null; createdBy?: string | null;
-    items: { qty: number; unitCost?: number | null; lineCost?: number | null; product: { name: string; unit?: string } }[];
+    items: { qty: number; unitName?: string | null; unitFactor?: number | null; unitCost?: number | null; lineCost?: number | null; product: { name: string; unit?: string } }[];
     totalCost: number;
   },
   company?: Company | null,
@@ -1590,7 +1624,9 @@ export function warehouseNoticeDocFromEntry(
     by: entry.createdBy || undefined,
     items: entry.items.map(i => ({
       name: i.product.name,
-      unit: i.product.unit || undefined,
+      // لقطة وحدة السطر: الكمية وسعر الوحدة بها — وإلا طُبعت تكلفة الكرتون منسوبةً للحبّة
+      unit: i.unitName || i.product.unit || undefined,
+      ...(i.unitFactor != null && { unitFactor: factorOf(i) }),
       qty: Number(i.qty),
       unitCost: i.unitCost == null ? null : Number(i.unitCost),
       lineCost: i.lineCost == null ? null : Number(i.lineCost),

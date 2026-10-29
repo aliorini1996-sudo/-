@@ -3,6 +3,7 @@
 import { SALES_CHANNELS } from './channels';
 import { parseAmount, parsePercent, hasPercentSign, toAsciiDigits, columnDecimalStyle, currencyDecimalFallback, type DecimalStyle } from './importAmount';
 import { classifyPaymentStatus, type PaymentStatusClass } from './importStatus';
+import { unitProblem, type UnitDef } from './units';
 
 export { toAsciiDigits } from './importAmount';
 
@@ -555,6 +556,16 @@ export const PRODUCT_DUPLICATE_CODE = 'كود الصنف مكرر في المل�
 export const PRODUCT_DEFAULT_UNIT = 'حبة';
 export const PRODUCT_DEFAULT_PRICE = 0;
 
+// ── الوحدات المتعددة: وحدات البيع الأكبر من «الوحدة» (الأساس) في ملف المنتجات ──
+/** نصّ الخادم حرفياً (backend/src/services/importLedger.ts IMPORT_ROW_MESSAGES.PRODUCT_UNIT_INVALID) */
+export const PRODUCT_UNIT_INVALID = 'وحدة إضافية غير صالحة: معاملها عدد صحيح أكبر من 1 (كم وحدة أساس فيها)، واسمها لا يتكرر ولا يساوي وحدة الأساس';
+export const PRODUCT_UNIT_INCOMPLETE = 'وحدة إضافية ناقصة: اكتب اسمها ومعاملها معاً (كم وحدة أساس فيها)';
+/** خانات الوحدات الإضافية في الملف بترتيبها: الثانية ثم الثالثة (IMPORT_MAX_UNITS في الخادم يتّسع لها) */
+export const PRODUCT_UNIT_SLOTS = ['unit2', 'unit3'] as const;
+/** بصمة الوحدات في توقيع الصفّ — مرآة importUnitsSignature في الخادم (الرمز الضريبي لا يُرسل من الملف فخانته فارغة) */
+const productUnitsSig = (units: readonly { name: string; factor: number; price?: number }[]) =>
+  units.map((u) => [norm(u.name), u.factor, u.price ?? null, '']);
+
 // صف مجاميع التقرير: اسم يبدأ بكلمة «إجمالي/مجموع/Total» (مع «ال» أو بعدها كلمات مثل «الأرصدة»، ولو خُتم بنقطتين) بلا كود ولا جوال.
 // المطابقة بالكلمة الأولى كاملةً: «مجموعة النور» ليست «مجموع».
 const TOTALS_FIRST_WORDS = new Set(['اجمالي', 'الاجمالي', 'اجماليات', 'مجموع', 'المجموع', 'المجاميع', 'مجاميع',
@@ -777,15 +788,31 @@ function toCustomers(rows: Record<string, unknown>[], opts?: TransformOpts): Tra
 
 // ============ المنتجات ============
 const ID_NAME_EXCLUDE = ['كود', 'رقم', 'مرجع', 'باركود', 'code', 'ref', 'barcode', 'sku'];
+/**
+ * مقاطع عناوين الوحدات الإضافية (بعد التطبيع): تُستثنى من مطابقة **الاحتواء** للوحدة والسعر الأساسيين، فلا يُقرأ
+ * «الوحدة الكبرى» وحدةَ أساس ولا «Unit 2 Price» سعراً أساسياً في ملفٍ بلا عمودَي الأساس بأسمائهما.
+ */
+const EXTRA_UNIT_TOKENS = ['وحده2', 'وحده3', 'unit2', 'unit3', 'الكبري', 'الثانيه', 'الثالثه', 'second', 'third'];
 const A_PROD: ImportSpec = {
   code: { aliases: ['مرجع داخلي', 'المرجع الداخلي', 'مرجع', 'كود الصنف', 'رقم الصنف', 'code', 'sku', 'internal reference', 'reference', 'ref'], exclude: CODE_EXCLUDE },
   name: { aliases: ['اسم الصنف', 'الصنف', 'اسم المنتج', 'الاسم', 'name', 'product', 'item'], exclude: ID_NAME_EXCLUDE },
-  unit: { aliases: ['الوحدة', 'وحدة القياس', 'unit', 'uom'] },
+  // «الوحدة» وحدة الأساس: أصغر ما يُباع (الحبة) — والأكبر منها في أعمدة الوحدات الإضافية أدناه
+  unit: { aliases: ['الوحدة', 'وحدة القياس', 'unit', 'uom'], exclude: [...EXTRA_UNIT_TOKENS, 'معامل', 'factor'] },
   basePrice: {
     aliases: ['سعر البيع', 'السعر', 'السعر الأساسي', 'price', 'sales price', 'sale price', 'list price', 'unit price'],
     preferred: ['سعر البيع', 'sales price', 'sale price'],
-    exclude: ['تكلفه', 'cost', 'شراء', 'purchase'], numeric: true,
+    exclude: ['تكلفه', 'cost', 'شراء', 'purchase', ...EXTRA_UNIT_TOKENS, 'pack'], numeric: true,
   },
+  // الوحدات الإضافية (اختيارية): مطابقة تامة فقط — أعمدة جديدة لا تُلتقط بالاحتواء من ملفٍ قديم، ولا تلتقط أعمدته
+  unit2: { aliases: ['الوحدة الثانية', 'الوحدة الكبرى', 'الوحدة 2', 'وحدة 2', 'unit 2', 'second unit', 'uom 2'], exactOnly: true },
+  unit2Factor: {
+    aliases: ['معامل الوحدة الثانية', 'معامل الوحدة الكبرى', 'معامل الوحدة 2', 'عدد الحبات في الوحدة الثانية', 'التعبئة', 'unit 2 factor', 'pack size', 'units per pack'],
+    exactOnly: true, numeric: true,
+  },
+  unit2Price: { aliases: ['سعر الوحدة الثانية', 'سعر الوحدة الكبرى', 'سعر الوحدة 2', 'unit 2 price', 'pack price'], exactOnly: true, numeric: true },
+  unit3: { aliases: ['الوحدة الثالثة', 'الوحدة 3', 'وحدة 3', 'unit 3', 'third unit', 'uom 3'], exactOnly: true },
+  unit3Factor: { aliases: ['معامل الوحدة الثالثة', 'معامل الوحدة 3', 'عدد الحبات في الوحدة الثالثة', 'unit 3 factor'], exactOnly: true, numeric: true },
+  unit3Price: { aliases: ['سعر الوحدة الثالثة', 'سعر الوحدة 3', 'unit 3 price'], exactOnly: true, numeric: true },
   taxPct: {
     aliases: ['الضريبة', 'نسبة الضريبة', 'tax', 'vat'],
     // «Vendor Taxes» (ضرائب المشتريات) ليست نسبة ضريبة البيع
@@ -818,12 +845,32 @@ function toProducts(rows: Record<string, unknown>[], opts?: TransformOpts): Tran
     }
     if (taxPct !== undefined && (taxPct < 0 || taxPct > 100)) { errors.push({ row: line, message: TAX_PCT_INVALID, value: val(taxRaw), field: 'taxPct' }); return; }
     const unit = c.s(row, 'unit'); const barcode = c.s(row, 'barcode'); const category = c.s(row, 'category');
+    // الوحدات الإضافية: اسمٌ ومعاملٌ معاً (والسعر اختياري يُشتقّ عند البيع من سعر الأساس × المعامل). ما يرفضه الخادم
+    // (معامل ١ أو كسر، اسم مكرر أو باسم الأساس) يُرفض هنا بنصّه — لا يكتشفه المالك بعد الضغط
+    const units: { name: string; factor: number; price?: number }[] = [];
+    for (const slot of PRODUCT_UNIT_SLOTS) {
+      const uName = c.s(row, slot);
+      const factor = c.num(row, i, `${slot}Factor`);
+      const uPrice = c.num(row, i, `${slot}Price`);
+      if (factor === null || uPrice === null) return;
+      if (!uName && factor === undefined && uPrice === undefined) continue;
+      if (!uName || factor === undefined) { errors.push({ row: line, message: PRODUCT_UNIT_INCOMPLETE, value: uName || c.s(row, `${slot}Factor`) || c.s(row, `${slot}Price`), field: slot }); return; }
+      if (uPrice !== undefined && uPrice < 0) { errors.push({ row: line, message: NEGATIVE_PRICE, value: c.s(row, `${slot}Price`), field: `${slot}Price` }); return; }
+      units.push({ name: uName, factor, ...(uPrice !== undefined ? { price: uPrice } : {}) });
+    }
+    const seenUnits: UnitDef[] = [{ name: unit || PRODUCT_DEFAULT_UNIT, factor: 1 }];
+    for (const u of units) {
+      if (unitProblem(u, seenUnits)) { errors.push({ row: line, message: PRODUCT_UNIT_INVALID, value: `${u.name} = ${u.factor}`, field: 'units' }); return; }
+      seenUnits.push({ name: u.name, factor: u.factor });
+    }
     // التوقيع مطابق حرفياً لـproductRowSignature في backend/src/services/importLedger.ts: الافتراضيان
     // (الوحدة «حبة» والسعر 0) يُطبَّقان هنا كما يُطبَّقان هناك، وإلا عدَّ الويب صفّين متطابقَين مختلفَين
     // فأظهر «كود مكرر ببيانات مختلفة» على ملف يقبله الخادم صامتاً. أي تغيير لافتراضي import.ts يُنقل إلى الاثنين.
-    const sig = JSON.stringify([norm(name), unit || PRODUCT_DEFAULT_UNIT, basePrice ?? PRODUCT_DEFAULT_PRICE, taxPct ?? null, barcode || '', norm(category || '')]);
+    // والوحدات تدخله حين وُجدت وحدها (كالخادم): توقيع صفوف الملفات القديمة كما كان
+    const unitsSig = units.length ? [productUnitsSig(units)] : [];
+    const sig = JSON.stringify([norm(name), unit || PRODUCT_DEFAULT_UNIT, basePrice ?? PRODUCT_DEFAULT_PRICE, taxPct ?? null, barcode || '', norm(category || ''), ...unitsSig]);
     // التوقيع نفسه بلا خانة الضريبة: عليه تُقارَن الصفوف حين تكون خانة ضريبة أحدها فارغة (الخادم يملأها بضريبة الشركة)
-    const rest = JSON.stringify([norm(name), unit || PRODUCT_DEFAULT_UNIT, basePrice ?? PRODUCT_DEFAULT_PRICE, barcode || '', norm(category || '')]);
+    const rest = JSON.stringify([norm(name), unit || PRODUCT_DEFAULT_UNIT, basePrice ?? PRODUCT_DEFAULT_PRICE, barcode || '', norm(category || ''), ...unitsSig]);
     const blankTax = taxPct === undefined;
     const prev = firstByCode.get(code);
     if (prev !== undefined) {
@@ -842,6 +889,8 @@ function toProducts(rows: Record<string, unknown>[], opts?: TransformOpts): Tran
       code, name, unit: unit || undefined,
       basePrice, taxPct,
       barcode: barcode || undefined, category: category || undefined,
+      // الملف بلا أعمدة الوحدات: الصفّ كما كان حرفياً (بلا مفتاح units فلا تتغيّر بصمته)
+      ...(units.length ? { units } : {}),
     });
   });
   const incl = priceInclTax(c, 'basePrice', opts);
@@ -1167,6 +1216,10 @@ const A_PRC: ImportSpec = {
   productCode: { aliases: ['كود الصنف', 'مرجع داخلي', 'رقم الصنف', 'product code', 'item code', 'sku'], exclude: CODE_EXCLUDE },
   // «السعر الخاص» مع «السعر» الأساسي: الخاص وحده (خانته الفارغة خطأ صف لا السعر الأساسي)
   price: { aliases: ['السعر الخاص', 'السعر', 'سعر البيع', 'price', 'special price'], preferred: ['السعر الخاص', 'special price'], exclude: ['تكلفه', 'cost', 'شراء', 'purchase'], numeric: true },
+  // اختياري: وحدة السعر (سعر الكرتون) — الخادم يحفظ السعر لوحدة الأساس بقسمته على معاملها، والفارغ = الأساس.
+  // ولصنفٍ بلا وحدات يتجاهلها الخادم كما قبل الميزة (عمود UoM عامّ في قائمة أسعار قديمة لا يكسرها)
+  // «سعر الوحدة» و«Unit Price» تحويان «الوحدة»/«unit» وهما السعر نفسه ⇒ تُستثنيان من الاحتواء
+  unit: { aliases: ['الوحدة', 'وحدة القياس', 'unit', 'uom'], exclude: ['سعر', 'price', 'تكلف', 'cost'] },
 };
 function toPrices(rows: Record<string, unknown>[], opts?: TransformOpts): TransformOut {
   const c = makeCtx(rows, A_PRC, opts);
@@ -1185,14 +1238,17 @@ function toPrices(rows: Record<string, unknown>[], opts?: TransformOpts): Transf
     if (price < 0) { errors.push({ row: line, message: NEGATIVE_PRICE, value: c.s(row, 'price'), field: 'price' }); return; }
     if (price === 0) zeroPriceRows++; // صالح، لكن الإرسال يحتاج إقرار المالك (allowZeroPrice)
     fileRows.push(line);
-    valid.push({ customerName: cn || undefined, customerCode: cc || undefined, phone: ph || undefined, productCode: pc, price });
+    const unit = c.s(row, 'unit');
+    valid.push({ customerName: cn || undefined, customerCode: cc || undefined, phone: ph || undefined, productCode: pc, price, ...(unit ? { unit } : {}) });
   });
   const incl = priceInclTax(c, 'price', opts);
   return { valid, fileRows, errors, notices: c.notices(incl.notices), columns: c.res.columns, blockers: c.res.blockers, zeroPriceRows, ...incl.out };
 }
 
 // ============ المخزون الافتتاحي (opening_stock) ============
-// عقد الخادم POST /import/opening-stock: { rows: {productCode?, barcode?, productName?, qty?, unitCost?}[], pricesIncludeTax?, force? }
+// عقد الخادم POST /import/opening-stock: { rows: {productCode?, barcode?, productName?, qty?, unitCost?, unit?}[], pricesIncludeTax?, force? }
+// unit اختياري: وحدة الكمية والتكلفة (كرتون) تُطابَق في الخادم بالأساس أو بوحدات الصنف النشطة — والمجهولة لصنفٍ بوحدات خطأ صفّ،
+// ولصنفٍ بلا وحدات يُتجاهل العمود كما قبل الميزة (عمود «Unit of Measure» في جرد Odoo لا يكسر الملف)
 // المطابقة على الخادم: الكود ثم الباركود ثم الاسم المطبَّع. هنا التقاط الأعمدة ورفض ما يرفضه الخادم مسبقاً.
 export const OPENING_STOCK_MAX_UNIT_COST = 1e9;
 /**
@@ -1221,6 +1277,8 @@ const A_STOCK: ImportSpec = {
     preferred: ['تكلفة الوحدة', 'unit cost'],
     exclude: ['اجمالي', 'مجموع', 'total', 'قيمه', 'value'], numeric: true,
   },
+  // «تكلفة الوحدة» تحوي «الوحدة» و«unit cost» تحوي «unit» ⇒ الوحدة تستثني عناوين التكلفة والسعر
+  unit: { aliases: ['الوحدة', 'وحدة القياس', 'unit of measure', 'unit', 'uom'], exclude: ['تكلف', 'cost', 'سعر', 'price', 'قيمه', 'value'] },
 };
 /**
  * البند 40: تقريب مبلغ بمنازل عملة الشركة لا بخانتين ثابتتين — الدينار الكويتي/البحريني/العُماني/الأردني
@@ -1239,10 +1297,10 @@ function toOpeningStock(rows: Record<string, unknown>[], opts?: TransformOpts): 
   rows.forEach((row, i) => {
     const line = c.line(row, i); // سطر الصف في الملف (البند 38)
     const productCode = c.s(row, 'code'); const barcode = c.s(row, 'barcode'); const productName = c.s(row, 'name');
-    const qtyRaw = c.s(row, 'qty'); const costRaw = c.s(row, 'unitCost');
+    const qtyRaw = c.s(row, 'qty'); const costRaw = c.s(row, 'unitCost'); const unit = c.s(row, 'unit');
     if (!productCode && !barcode && !productName) { errors.push({ row: line, message: STOCK_ID_MISSING }); return; }
     // البند 36: قيد zod نفسه (200 حرفاً) خطأ صفّ لا رفض ملف
-    const tooLong = ([['code', productCode], ['barcode', barcode], ['name', productName]] as const).find(([, v]) => v.length > IMPORT_TEXT_MAX);
+    const tooLong = ([['code', productCode], ['barcode', barcode], ['name', productName], ['unit', unit]] as const).find(([, v]) => v.length > IMPORT_TEXT_MAX);
     if (tooLong) { errors.push({ row: line, message: TEXT_TOO_LONG, value: tooLong[1].slice(0, 40), field: tooLong[0] }); return; }
     const qty = c.num(row, i, 'qty');
     if (qty === null) return;
@@ -1255,8 +1313,10 @@ function toOpeningStock(rows: Record<string, unknown>[], opts?: TransformOpts): 
     }
     total += qty * unitCost;
     fileRows.push(line);
+    // الكمية والتكلفة بوحدة العمود (كرتون × تكلفة الكرتون) فالإجمالي أعلاه صحيح بلا تحويل
     valid.push({
       ...(productCode ? { productCode } : {}), ...(barcode ? { barcode } : {}), ...(productName ? { productName } : {}), qty, unitCost,
+      ...(unit ? { unit } : {}),
     });
   });
   return { valid, fileRows, errors, warnings: zeroQty ? [STOCK_ZERO_QTY_WARNING] : [], totalCost: roundMoney(total, opts?.currencyDecimals), notices: c.notices(), columns: c.res.columns, blockers: c.res.blockers };

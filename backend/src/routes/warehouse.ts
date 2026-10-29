@@ -7,7 +7,8 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
-import { computeWarehouseStock, tenantCurrencyDecimals, loadWarehouseInputs, composeWarehouse, summarizeVansStock } from '../services/warehouseStock';
+import { computeWarehouseStock, tenantCurrencyDecimals, loadWarehouseInputs, composeWarehouse, summarizeVansStock, resolveLineUnits } from '../services/warehouseStock';
+import { unitFields } from '../services/units';
 import type { VanLayer } from '../services/warehouseCost';
 import { foldStock, bucketRemaining, type LoadRow, type InvRow } from './vanStock';
 import { adminRepFilter } from '../services/adminScope';
@@ -91,10 +92,11 @@ router.get('/vans', async (req: AuthRequest, res: Response, next: NextFunction) 
       prisma.salesRep.findMany({ where: { tenantId: tid, ...repFilter }, select: { id: true } }),
     ]);
     const repIds = reps.map((r) => r.id);
+    // بنود الفواتير بلقطة وحدتها (foldStock يطوي بالأساس منها)؛ وحركات السيارات من loadWarehouseInputs بالأساس سلفاً
     const invItems = repIds.length ? await prisma.invoiceItem.findMany({
       where: { invoice: { tenantId: tid, status: 'CONFIRMED', salesRepId: { in: repIds }, ...(before && { invoiceDate: { lt: before } }) } },
       select: {
-        productId: true, qty: true, returnExpired: true,
+        productId: true, qty: true, unitFactor: true, baseQty: true, returnExpired: true,
         invoice: { select: { salesRepId: true, type: true, returnToStock: true, invoiceDate: true, returnReason: true, createdAt: true } },
       },
     }) : [];
@@ -155,8 +157,11 @@ const entrySchema = z.object({
   costsIncludeTax: z.boolean().optional().default(false),
   items: z.array(z.object({
     productId: z.string(),
-    qty: z.number(),
-    // موجبٌ فقط: سعرٌ سالب لا معنى له، وصفرٌ يعني «بلا سعر» فيُرسَل غائباً
+    qty: z.number(), // بوحدة البند
+    // وحدة البند (كرتون/حبة). غائبة ⇒ وحدة الأساس بمعامل ١: عميلٌ قديم أو مفتاح API يرسل الكمية بالأساس كما كان
+    unitId: z.string().nullish(),
+    // موجبٌ فقط: سعرٌ سالب لا معنى له، وصفرٌ يعني «بلا سعر» فيُرسَل غائباً.
+    // تكلفة **وحدة البند** كما في فاتورة المورّد (الكرتون) — والتقييم يقسمها على المعامل عند القراءة (unitCostPerBase)
     unitCost: z.number().positive().finite().max(1e9).optional(),
   })).min(1),
 });
@@ -187,15 +192,18 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
     });
     if (products.length !== productIds.length) { res.status(400).json({ success: false, message: 'منتج غير صالح' }); return; }
     const taxOf = new Map(products.map((p) => [p.id, p.taxPct]));
+    // لقطة وحدة كل بند بترتيب `items` — يحلّها الخادم من وحدات الصنف (بلا unitId ⇒ الأساس، ولا استعلام)
+    const units = await resolveLineUnits(tid, items);
 
     const by = req.user as { name?: string } | undefined;
     const entry = await prisma.warehouseEntry.create({
       data: {
         tenantId: tid, type: data.type, note: data.note, supplier: data.supplier, createdBy: by?.name,
         items: {
-          create: items.map((i) => ({
+          create: items.map((i, idx) => ({
             productId: i.productId,
-            qty: i.qty,
+            // الكمية بوحدة البند كما في فاتورة المورّد، ولقطة وحدتها، والكمية بالأساس للرصيد والتقييم
+            ...unitFields(i.qty, units[idx]),
             unitCost: i.unitCost == null
               ? null
               : netUnitCost(i.unitCost, taxOf.get(i.productId) ?? 0, data.costsIncludeTax),
@@ -228,6 +236,9 @@ router.get('/entries', async (req: AuthRequest, res: Response, next: NextFunctio
     // و**قيمة كل سطر** تُرسَل معه للسبب نفسه: إشعار الوارد المطبوع يعرض الأسطر
     // والإجمالي معاً على ورقةٍ تُوقَّع، فإن حسب المتصفّح الأسطر بقاعدته هو
     // وجاء الإجمالي من هنا، أمكن أن تقول الورقة «مجموع الأسطر ≠ الإجمالي».
+    //
+    // والقيمة **بوحدة السطر** (كمية الكراتين × تكلفة الكرتون)، والسطر يحمل لقطة وحدته (unitName/unitFactor)
+    // وكميته بالأساس (baseQty) — فالإشعار يطبع «٥ كرتون» لا «٥ حبة».
     res.json({
       success: true,
       data: entries.map((e) => ({

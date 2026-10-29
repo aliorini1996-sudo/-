@@ -41,7 +41,8 @@ export interface ScanShop {
   /** أُبلغ أنه أُغلق نهائياً أو لم يُعثر عليه */
   reportedClosed?: boolean;
   /** أبرز صنفٍ في «الطلب المتوقع من ملف المحل في Google» (topExpected) — لمدخل العقل، ورقمه مسموح لحارسه */
-  expected?: { product: string; unit: string; qty: number; mentioned: boolean } | null;
+  /** الكمية بوحدة الأساس `unit`، و`qty_text` بوحدات الصنف («٢ كرتون») لصنفٍ له وحدات — أرقامه في المدخل فمسموحة */
+  expected?: { product: string; unit: string; qty: number; qty_text?: string; mentioned: boolean } | null;
 }
 
 export type StopKind = 'NEW' | 'FOLLOW_UP';

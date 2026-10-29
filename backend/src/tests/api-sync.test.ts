@@ -90,6 +90,50 @@ test('كل عمود في جداول المزامنة مصنَّف: مسموح ف
   }
 });
 
+test('القوائم المتداخلة مصنَّفة كالمورد: كل عمود في بنود الفاتورة والحركة وشرائح الصنف ووحداته مسموح أو ممنوع بسبب', () => {
+  // لقطة الوحدة (unitName/unitFactor/baseQty) أُضيفت للبنود لا للمورد — والفحص أعلاه لا يرى إلا أعمدة المورد، فكانت تسقط بصمت
+  const mustCover: [string, string][] = [['invoices', 'items'], ['van-loads', 'items'], ['warehouse-entries', 'items'], ['products', 'priceTiers'], ['products', 'units']];
+  for (const [r, rel] of mustCover) assert.ok(sync.syncResource(r)?.nested?.[rel], `${r}.${rel} بلا تصنيف متداخل`);
+  for (const def of sync.SYNC_RESOURCES) {
+    for (const [rel, n] of Object.entries(def.nested ?? {})) {
+      const sel = (def.select[rel] as { select?: Record<string, unknown> } | undefined)?.select;
+      assert.ok(sel, `${def.name}.${rel}: مصنَّف وليس في select`);
+      const cols = schemaScalars(n.model);
+      const unclassified = cols.filter(c => !(c in sel!) && !(c in n.denied));
+      assert.deepEqual(unclassified, [], `${def.name}.${rel}: أعمدة غير مصنّفة`);
+      for (const d of Object.keys(n.denied)) assert.ok(!(d in sel!), `${def.name}.${rel}: ${d} ممنوع ومسموح معاً`);
+      for (const k of Object.keys(sel!)) assert.ok(cols.includes(k), `${def.name}.${rel}: ${k} ليس عموداً في ${n.model}`);
+    }
+  }
+});
+
+test('الوحدات المتعددة في المزامنة: لقطة الوحدة في كل بند كمية، ووحدات الصنف وحدود الشرائح بالأساس، وbaseQty لا يخرج فارغاً', () => {
+  const itemsOf = (r: string) => (sync.syncResource(r)!.select as { items: { select: Record<string, unknown> } }).items.select;
+  for (const r of ['invoices', 'van-loads', 'warehouse-entries']) {
+    for (const c of ['qty', 'unitName', 'unitFactor', 'baseQty']) assert.equal(itemsOf(r)[c], true, `${r}.items.${c}`);
+  }
+  const prod = sync.syncResource('products')!.select as Record<string, { select: Record<string, unknown>; orderBy?: unknown }>;
+  for (const c of ['id', 'name', 'factor', 'price', 'unitCode', 'isActive']) assert.equal(prod.units.select[c], true, `units.${c}`);
+  assert.deepEqual(prod.units.orderBy, [{ sortOrder: 'asc' }, { factor: 'asc' }], 'ترتيب العقد: sortOrder ثم المعامل');
+  for (const c of ['baseMinQty', 'baseMaxQty', 'minQty', 'price']) assert.equal(prod.priceTiers.select[c], true, `priceTiers.${c}`);
+
+  // صفٌّ سبق الميزة (baseQty فارغ) يُحسب من لقطته؛ والصفر الحقيقي يبقى صفراً؛ والمملوء لا يُمسّ
+  const inv = sync.syncResource('invoices')!;
+  const shaped = sync.shapeRow(inv, { id: 'i1', items: [
+    { qty: 2, unitFactor: 24, baseQty: null },
+    { qty: 3, unitFactor: 1, baseQty: null },
+    { qty: 0, unitFactor: 24, baseQty: 0 },
+    { qty: 1, unitFactor: 12, baseQty: 12 },
+  ] });
+  assert.deepEqual((shaped.items as { baseQty: number }[]).map(i => i.baseQty), [48, 3, 0, 12]);
+  // صنفٌ بلا وحدات: الصفّ كما كان حرفياً (baseQty = qty)
+  const legacy = sync.shapeRow(sync.syncResource('van-loads')!, { id: 'v1', items: [{ productId: 'p', qty: 5, unitName: null, unitFactor: 1, baseQty: 5 }] });
+  assert.deepEqual(legacy.items, [{ productId: 'p', qty: 5, unitName: null, unitFactor: 1, baseQty: 5 }]);
+  // مورد بلا بنود كمية لا يُمسّ
+  const cust = { id: 'c1', items: [{ qty: 1, baseQty: null }] };
+  assert.equal(sync.shapeRow(sync.syncResource('customers')!, cust), cust);
+});
+
 test('الأسرار والثقيل لا تُختار أبداً — ولا في العلاقات المضمّنة', () => {
   const all = JSON.stringify(sync.SYNC_RESOURCES.map(r => r.select));
   for (const bad of ['passwordHash', 'fcmToken', 'einvoiceClientSecret', 'einvoiceSnapshot', '"image"', 'privateKey', 'token', 'secret', 'clientBundle']) {

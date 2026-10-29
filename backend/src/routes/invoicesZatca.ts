@@ -12,6 +12,8 @@
 //   • الترتيب داخل المعاملة (نقد 38): قفل الوحدة ⇒ الرقم ⇒ الختم ⇒ صفّ الفاتورة ⇒ المستند SIGNED ⇒ تقدّم السلسلة ⇒ قيود
 //     دفتر العميل. لا يُوقَّع شيء وصفوف العملاء مقفلة، والترقيم بمقبض المعاملة نفسه (نقد 8).
 //   • لا استدعاء للهيئة هنا إطلاقاً (الإرسال والاعتماد في Z5.3/Z5.4): المستند يُحفظ SIGNED والمرآة signed/clearance_pending.
+//   • الوحدات المتعددة (docs/multi-unit/DESIGN.md §6، §10): لقطة وحدة كلّ بند (اسمها ومعاملها والكمية بالأساس) تُكتب في صفّه
+//     كمسار المرحلة الأولى، ورمزها في سطر الـXML — والكمية والسعر بوحدة البند معاً كما دخلا المحرّك.
 // لا يستورد services/gl ولا config/database (الاعتماديات تُحقن — الإنتاج في invoicesZatcaDeps.ts، والاختبار مخزن ذاكرة).
 // ============================================================================
 
@@ -36,6 +38,7 @@ import { isOverdue, isPrintableMirror, mirrorQrOf, mirrorStatusOf, subtypeOfType
 import type { KeyedAsyncMutex } from '../compliance/zatca/unitMutex';
 // ZATCA المرحلة الثانية (Z5.8، نقد 3/4 D11): قرار الانتقال — مستندٌ دون اتصال من قبل التفعيل يُرفع بعده
 import { cutoverDecision, type CutoverReason, type CutoverRecordInput, type CutoverStatus } from '../compliance/zatca/goLive';
+import { factorOf, unitFields } from '../services/units';
 
 // ─── ترويسات قدرات العميل (نقد 1، 2) ───
 
@@ -316,7 +319,8 @@ export interface Phase2RequestBody {
   paymentPlan?: string | null;
   pricesIncludeTax: boolean;
   discountPct?: number | null;
-  items: readonly { productId: string; qty: number; unitPrice: number; discountPct?: number | null; taxPct?: number | null }[];
+  /** الكمية والسعر بوحدة البند؛ `unitId` وحدته من وحدات الصنف (غائبةٌ = وحدة الأساس بمعامل ١) */
+  items: readonly { productId: string; qty: number; unitPrice: number; discountPct?: number | null; taxPct?: number | null; unitId?: string | null }[];
   /** تاريخ التوريد الذي يطلبه المدير (يُحترم للقياسية وحدها — §2.4 F16 ونقد 24). */
   invoiceDate?: string | null;
   dueDate?: string | null;
@@ -335,6 +339,50 @@ export interface Phase2LegacyItem {
   taxPct: number;
   taxAmt: number;
   lineTotal: number;
+  /** الوحدات المتعددة: وحدة البند كما طلبها الجسم */
+  unitId?: string | null;
+  /**
+   * لقطة الوحدة كما حلّها المسار القديم (snapOf في routes/invoices.ts) — تغلب إعادة الحلّ هنا متى مُرِّرت، فيُكتب البند
+   * بالوحدة نفسها التي حُرس بها سعره ومخزونه. `unitFactor` غائب ⇒ تُحلّ من `unitId` بقاعدة المسار نفسها.
+   */
+  unitName?: string | null;
+  unitFactor?: number | null;
+  unitCode?: string | null;
+}
+
+/** لقطة وحدة بند الفاتورة: تُكتب في صفّه (اسمها ومعاملها والكمية بالأساس) ورمزها في سطر الـXML. */
+export interface Phase2UnitSnapshot {
+  unitName: string | null;
+  unitFactor: number;
+  unitCode: string | null;
+}
+
+const BASE_UNIT: Phase2UnitSnapshot = Object.freeze({ unitName: null, unitFactor: 1, unitCode: null });
+
+/** وحدات الصنف كما يحتاجها حلّ اللقطة (PRODUCT_PHASE2_SELECT). */
+export interface Phase2ProductUnits {
+  id: string;
+  units?: ReadonlyArray<{ id: string; name: string; factor: number; unitCode: string | null; isActive: boolean }> | null;
+}
+
+/**
+ * لقطة وحدة كلّ بند بترتيب البنود. اللقطة التي مرّرها المسار القديم تغلب (حُلّت مرّةً واحدة، فلا تختلف عمّا حُرس به
+ * السعر والمخزون ولو أُوقفت الوحدة بين القراءتين). وإلا تُحلّ بقاعدة المسار القديم حرفاً: `unitId` من وحدات الصنف
+ * **النشطة**، وإلا وحدة الأساس بمعامل ١ — فالصنف بلا وحدات يبقى كما كان حرفياً.
+ */
+export function phase2UnitSnapshots(
+  items: readonly Phase2LegacyItem[], bodyItems: Phase2RequestBody['items'], products: readonly Phase2ProductUnits[],
+): Phase2UnitSnapshot[] {
+  const byId = new Map(products.map(p => [p.id, p]));
+  return items.map((it, idx) => {
+    if (it.unitFactor != null) {
+      return { unitName: it.unitName?.trim() || null, unitFactor: factorOf({ unitFactor: it.unitFactor }), unitCode: it.unitCode ?? null };
+    }
+    const unitId = it.unitId ?? bodyItems[idx]?.unitId ?? null;
+    if (!unitId) return BASE_UNIT;
+    const u = (byId.get(it.productId)?.units ?? []).find(x => x.id === unitId && x.isActive !== false);
+    return u ? { unitName: u.name, unitFactor: factorOf({ unitFactor: u.factor }), unitCode: u.unitCode ?? null } : BASE_UNIT;
+  });
 }
 
 export type Phase2Tx = Pick<Prisma.TransactionClient, '$queryRaw' | '$executeRaw' | 'zatcaDocument' | 'invoice' | 'notification'>;
@@ -422,16 +470,30 @@ export interface Phase2IssuanceContext {
 }
 
 /** أعمدة البند كما يكتبها المسار القديم حرفياً (دالّة لا قيماً حرفية: أعمدة المرحلة الثانية تُكتب فوقها بالانتشار). */
-function legacyItemColumns(i: Phase2LegacyItem) {
+export function legacyItemColumns(i: Phase2LegacyItem, unit: Phase2UnitSnapshot = BASE_UNIT) {
   return {
-    productId: i.productId, qty: i.qty, unitPrice: i.unitPrice, discountPct: i.discountPct, discountAmt: i.discountAmt,
+    productId: i.productId,
+    // لقطة الوحدة + الكمية بالأساس كمسار المرحلة الأولى — وإلا حُفظ بند الكرتون بمعامل ١ فخُصم من السيارة حبّةٌ لا ٢٤
+    ...unitFields(i.qty, { name: unit.unitName, factor: unit.unitFactor }),
+    unitPrice: i.unitPrice, discountPct: i.discountPct, discountAmt: i.discountAmt,
     taxPct: i.taxPct, taxAmt: i.taxAmt, lineTotal: i.lineTotal,
   };
 }
 
 const PRODUCT_PHASE2_SELECT = {
   id: true, name: true, vatCategory: true, vatExemptionCode: true, vatExemptionReason: true,
+  // الوحدات المتعددة: لحلّ لقطة البند من `unitId` حين لا يمرّرها المسار القديم (الفئة الضريبية تبقى على الصنف)
+  units: { select: { id: true, name: true, factor: true, unitCode: true, isActive: true } },
 } satisfies Prisma.ProductSelect;
+
+/** يحلّ لقطات الوحدة لحمولة المراجعة — بلا استعلام إلّا لبندٍ يحمل `unitId` بلا لقطة. */
+async function cutoverUnitSnapshots(ctx: Phase2IssuanceContext, deps: Phase2IssuanceDeps): Promise<Phase2UnitSnapshot[]> {
+  const needsLookup = ctx.items.some((it, idx) => it.unitFactor == null && (it.unitId ?? ctx.body.items[idx]?.unitId));
+  if (!needsLookup) return phase2UnitSnapshots(ctx.items, ctx.body.items, []);
+  const productIds = [...new Set(ctx.items.map(i => i.productId))];
+  const rows = await deps.db.product.findMany({ where: { id: { in: productIds }, tenantId: ctx.tenantId }, select: { id: true, units: PRODUCT_PHASE2_SELECT.units } });
+  return phase2UnitSnapshots(ctx.items, ctx.body.items, rows);
+}
 
 /** الإعدادات التي يقرأ منها النظامُ الضريبيُّ قرارَه (جزء من صفّ البائع المحمَّل). */
 export function regimeSettingsOf(seller: { countryCode: string | null; einvoiceProvider: string | null; zatcaPhase2StartedAt: Date | null; taxNumber: string | null } | null): RegimeSettings | null {
@@ -442,8 +504,11 @@ export function regimeSettingsOf(seller: { countryCode: string | null; einvoiceP
   };
 }
 
-/** حمولة مستند انتقاليّ للمراجعة (D11): تكفي لإعادة الإصدار مرحلةً أولى أو ثانية عند القبول. */
-function cutoverRecordFrom(ctx: Phase2IssuanceContext, reason: CutoverReason, at: Date): CutoverRecordInput {
+/**
+ * حمولة مستند انتقاليّ للمراجعة (D11): تكفي لإعادة الإصدار مرحلةً أولى أو ثانية عند القبول. والبنود بلقطة وحدتها
+ * كي يرى المراجع «٢ كرتون» لا «٢».
+ */
+function cutoverRecordFrom(ctx: Phase2IssuanceContext, reason: CutoverReason, at: Date, units: readonly Phase2UnitSnapshot[] = []): CutoverRecordInput {
   return {
     tenantId: ctx.tenantId,
     clientRef: ctx.body.clientRef ?? null,
@@ -458,7 +523,7 @@ function cutoverRecordFrom(ctx: Phase2IssuanceContext, reason: CutoverReason, at
       customerId: ctx.customerId,
       customerName: ctx.customerName,
       salesRepId: ctx.salesRepId,
-      items: ctx.items,
+      items: units.length === ctx.items.length ? ctx.items.map((it, idx) => ({ ...it, ...units[idx] })) : ctx.items,
       engine: { subtotal: ctx.engine.subtotal, discountAmt: ctx.engine.discountAmt, taxAmt: ctx.engine.taxAmt, total: ctx.engine.total },
     },
   };
@@ -501,7 +566,8 @@ export async function issuePhase2Invoice(ctx: Phase2IssuanceContext, deps: Phase
       if (cut.kind === 'ACCEPT_PHASE1') return null; // المسار القديم يسجّلها مرحلة أولى (armedAt يمرّرها لأنّ لحظتها قبل التسليح)
       if (deps.cutover) {
         try {
-          await deps.cutover.record(cutoverRecordFrom(ctx, cut.reason, now));
+          const units = await cutoverUnitSnapshots(ctx, deps);
+          await deps.cutover.record(cutoverRecordFrom(ctx, cut.reason, now, units));
         } catch { /* فشل الحفظ لا يغيّر الردّ — يبقى 409 مراجعة الإدارة */ }
       }
       return errorResult(new ZatcaHttpError('ZATCA_CUTOVER_REVIEW', { logDetail: { source: 'CUTOVER', code: cut.reason } }));
@@ -550,17 +616,24 @@ async function issueNow(
 ): Promise<Phase2Result> {
   // فئة الضريبة والإعفاء للأصناف — تُقرأ **داخل الفرع وحده** (المسار القديم لا يحتاجها ولا يدفع ثمنها)
   const productIds = [...new Set(ctx.body.items.map(i => i.productId))];
-  const products: IssuanceProduct[] = await deps.db.product.findMany({
+  const productRows = await deps.db.product.findMany({
     where: { id: { in: productIds }, tenantId: ctx.tenantId },
     select: PRODUCT_PHASE2_SELECT,
   });
+  const products: IssuanceProduct[] = productRows;
+  // لقطة وحدة كلّ بند — من القراءة نفسها (لا استعلام زائد)، وبقاعدة المسار القديم التي حُرس بها السعر والمخزون
+  const units = phase2UnitSnapshots(ctx.items, ctx.body.items, productRows);
 
   const request: IssuanceRequest = {
     type: ctx.body.type,
     paymentPlan: ctx.body.paymentPlan ?? null,
     pricesIncludeTax: ctx.body.pricesIncludeTax,
     discountPct: ctx.body.discountPct ?? 0,
-    items: ctx.body.items.map(i => ({ productId: i.productId, qty: i.qty, unitPrice: i.unitPrice, discountPct: i.discountPct ?? 0, taxPct: i.taxPct ?? null })),
+    // الكمية والسعر بوحدة البند كما دخلا المحرّك (D6: إجمالي المحرّك = PayableAmount)، ورمز الوحدة من لقطتها
+    items: ctx.body.items.map((i, idx) => ({
+      productId: i.productId, qty: i.qty, unitPrice: i.unitPrice, discountPct: i.discountPct ?? 0, taxPct: i.taxPct ?? null,
+      unitCode: units[idx]?.unitCode ?? null,
+    })),
     supplyDate: ctx.body.invoiceDate ?? null,
   };
   // كلّ رفض هنا قبل أيّ قفل أو ICV (D2/Q2، D9، الفحص المسبق، مبالغ D6)
@@ -613,8 +686,8 @@ async function issueNow(
                 ...phase2InvoiceColumns(record),
                 einvoiceSnapshot: record.snapshot as unknown as Prisma.InputJsonObject,
                 items: {
-                  // أعمدة البند القديمة كما هي، ثمّ seq والاسم والوحدة والفئة والإعفاء وضريبة سطر الـXML فوقها
-                  create: ctx.items.map((i, idx) => ({ ...legacyItemColumns(i), ...phase2ItemColumns(record.items[idx]) })),
+                  // أعمدة البند القديمة (بلقطة وحدته)، ثمّ seq والاسم ورمز الوحدة والفئة والإعفاء وضريبة سطر الـXML فوقها
+                  create: ctx.items.map((i, idx) => ({ ...legacyItemColumns(i, units[idx]), ...phase2ItemColumns(record.items[idx]) })),
                 },
               },
               include: { items: true, customer: true, installments: { orderBy: { seq: 'asc' } }, signature: { select: { image: true, repImage: true } } },

@@ -18,6 +18,8 @@
 //   • السلسلة والختم: stampNoteInTx يمرّ بـstampInTx نفسه — القفل والرقم واللحظة وICV/PIH وCAS وترتيب نقد 38 بلا نسخة ثانية.
 //     بادئة الرقم RET للدائن (صفّه type='RETURN') وINV للمدين (صفّه type='CREDIT').
 //   • F1 (نقد 13): أثر الإشعار على متبقّي الأصل يُحسب **فرقاً نسبياً** (decrement) لا قيمةً مطلقة، كي لا يدهس سندَ قبضٍ متزامناً.
+//   • الوحدات المتعددة (docs/multi-unit/DESIGN.md §9–10): المتاح والحارس ونطاق Q5 **بالأساس**، وبند الإشعار بوحدة الإرجاع
+//     (كميته وسعره ورمزه معاً)، وسعر الحبّة من بند كرتون حصّةٌ تراكمية من قيمة البند (services/units.ts refundAmount).
 // لا قاعدة بيانات ولا شبكة ولا services/gl هنا: القيود والمخزون يكتبها المسار بالبُناة القائمة (postReturnEntries/postInvoiceEntries).
 // ============================================================================
 
@@ -27,7 +29,7 @@ import {
   ZatcaHttpError, creditAmountExceededError, creditQtyExceededError, noteLinesError, preflightHttpError,
 } from './errors';
 import {
-  PHASE2_UNIT_CODE, phase2InvoiceColumns, phase2ItemColumns, phase2NumberPrefix, prepareIssuance,
+  PHASE2_UNIT_CODE, phase2InvoiceColumns, phase2ItemColumns, phase2NumberPrefix, phase2UnitCode, prepareIssuance,
   type IssuanceCustomer, type IssuanceItemSnapshot, type IssuanceNoteContext, type IssuanceRequest, type IssuanceSellerSettings,
   type IssuedInvoiceRecord, type PreparedIssuance,
 } from './issue';
@@ -37,6 +39,7 @@ import { mapBuyerParty, type DocumentKind, type InvoiceSubtype, type LineSource 
 import type { UblParty, ZatcaIssue } from './model';
 import { isPrintableMirror, type Subtype } from './status';
 import { computeInvoiceTotals, roundDecimal, type CalcResult } from '../../lib/invoiceCalc';
+import { baseQtyOf, factorOf, formatQty, refundAmount, toBase } from '../../services/units';
 
 // ─── الأنواع ───
 
@@ -67,6 +70,26 @@ export interface NoteOriginalItem {
   vatExemptionReason: string | null;
   /** سياسة عودة التالف لمخزون السيارة (Product.damagedReturnToStock) — لاشتقاق returnToStock كما اليوم. */
   damagedReturnToStock?: boolean | null;
+  /**
+   * الوحدات المتعددة: لقطة وحدة البند المباع كما كُتبت يوم البيع (غائبةٌ أو null/1 = وحدة الأساس كما قبل الميزة).
+   * فالكمية المباعة بالأساس = qty × unitFactor، وهي وحدها ما يُقارَن به المرتجع.
+   */
+  unitName?: string | null;
+  unitFactor?: number | null;
+  baseQty?: number | null;
+  /** وحدات الصنف اليوم (النشطة والموقوفة) — منها تُحلّ وحدة المرتجع المطلوبة بمعرّفها. */
+  units?: readonly NoteUnitDef[] | null;
+  /** اسم وحدة الأساس (Product.unit) — لرسالة التجاوز «١ كرتون و٣ حبة». */
+  baseUnitName?: string | null;
+}
+
+/** وحدة بيعٍ للصنف كما يحتاجها الإشعار (صفّ ProductUnit). */
+export interface NoteUnitDef {
+  id: string;
+  name: string;
+  factor: number;
+  unitCode?: string | null;
+  isActive?: boolean;
 }
 
 /** صفّ الفاتورة الأصلية كما يُقرأ مقفلاً (SELECT … FOR UPDATE) داخل معاملة الإشعار. */
@@ -105,6 +128,9 @@ export interface NoteOriginalInvoice {
 export interface LegacyReturnQty {
   productId: string | null;
   qty: number;
+  /** معامل وحدة صفّ المرتجع (غائبٌ = ١) — البركة تُجمع بالأساس */
+  unitFactor?: number | null;
+  baseQty?: number | null;
 }
 
 /** إشعار سابق على الأصل (يُقرأ بـoriginalInvoiceId) — الملتزَم وحده يُنقص المتاح. */
@@ -113,7 +139,8 @@ export interface PriorNote {
   status: string;
   documentKind: string | null;
   total: number;
-  items: readonly { creditedItemId: string | null; qty: number }[];
+  /** بنوده بلقطة وحدتها: إشعارٌ بالحبة على بند كرتون يُنقص المتاح حبّةً لا كرتوناً */
+  items: readonly { creditedItemId: string | null; qty: number; unitFactor?: number | null; baseQty?: number | null }[];
 }
 
 // ─── الأهليّة ───
@@ -235,7 +262,10 @@ export function noteBuyerIncomplete(customer: IssuanceCustomer, subtype: Invoice
 
 // ─── الكميات المتاحة للإرجاع ───
 
-/** دقّة الكميات المخزَّنة (Float): أربع خانات كما في حساب مخزون السيارة. */
+/**
+ * دقّة الكميات المخزَّنة (Float): أربع خانات كما في حساب مخزون السيارة. تُطبَّق على كمياتٍ **بالأساس** (والمعامل
+ * صحيح، فلا كسرَ ينشأ من التحويل)، لا على حبّةٍ ممثَّلةٍ كسرَ كرتون.
+ */
 export const QTY_DECIMALS = 4;
 const QTY_EPSILON = 1e-6;
 
@@ -252,14 +282,22 @@ export interface CreditableLine {
   productId: string | null;
   itemName: string;
   unitCode: string;
-  /** المُباع في الأصل. */
+  /*
+   * الحقول الأربعة القديمة **بوحدة الأساس**: عميلٌ لا يعرف الوحدات (تطبيقٌ قديم، مفتاح API) يرسل الكمية بلا `unitId`
+   * فيقرؤها الخادم أساساً (عقد التصميم §6) — فيجب أن يرى المتاح بها، وإلّا أرجع «٢» من «٢ كرتون» فقُيّدت حبّتان.
+   * ولصنفٍ بلا وحدات (المعامل ١) هي أرقام ما قبل الميزة نفسها. وعقد /returnable في routes/invoices.ts على القاعدة نفسها.
+   */
+  /** المُباع في الأصل (بالأساس). */
   qty: number;
-  /** المُرتجع في إشعارات ملتزَمة سابقة. */
+  /** المُرتجع في إشعارات ملتزَمة سابقة (بالأساس). */
   credited: number;
-  /** المُرتجع في مرتجعات ما قبل الربط (بلا رابط بالأصل — مطابقة بالصنف، وأصلٌ من المرحلة الأولى وحده). */
+  /** المُرتجع في مرتجعات ما قبل الربط (بلا رابط بالأصل — مطابقة بالصنف، وأصلٌ من المرحلة الأولى وحده) — بالأساس. */
   legacyCredited: number;
-  /** المتاح الآن = qty − credited − legacyCredited (لا يقلّ عن صفر). */
+  /** المتاح الآن = qty − credited − legacyCredited (لا يقلّ عن صفر) — بالأساس. */
   returnable: number;
+  /** المُباع **بوحدة البند** كما طُبع (٢ كرتون) — ومعه سعر البند لوحدته `unitPrice`. */
+  lineQty: number;
+  /** سعر البند لوحدته (سعر الكرتون) كما صدر. */
   unitPrice: number;
   discountPct: number;
   taxPct: number;
@@ -267,6 +305,18 @@ export interface CreditableLine {
   vatExemptionCode: string | null;
   vatExemptionReason: string | null;
   damagedReturnToStock: boolean | null;
+  /** لقطة وحدة البند المباع: اسمها (null = وحدة الأساس) ومعاملها. */
+  unitName: string | null;
+  unitFactor: number;
+  /** اسم وحدة الأساس للعرض (Product.unit). */
+  baseUnitName: string | null;
+  /** وحدات الصنف — ما يجوز الإرجاع به غير وحدة البند نفسها ووحدة الأساس. */
+  units: readonly NoteUnitDef[];
+  /** أسماء الحقول الأربعة أعلاه الصريحة (بالأساس) — بها يعمل الحارس وعقد الواجهة الجديد. */
+  soldBase: number;
+  creditedBase: number;
+  legacyCreditedBase: number;
+  returnableBase: number;
 }
 
 /**
@@ -277,6 +327,10 @@ export interface CreditableLine {
  * لا يحمل `originalInvoiceId` ولا `creditedItemId`، فلا تراه إشعاراتُه ويُرجَع المباعُ مرّتين (ائتمان مزدوج وكمّيةٌ
  * وهمية في السيارة). فتُخصم هذه الكمّيات **بالصنف** — وهي المطابقة الوحيدة الممكنة على صفٍّ بلا رابط — بترتيب
  * المستند: الخصم قد يصيب فاتورةً غير التي أُرجع منها فعلاً، وذاك اتجاه المنع لا اتجاه التسرّب.
+ *
+ * الوحدات المتعددة: كلّ جمعٍ وطرحٍ هنا **بالأساس** (qty × unitFactor). كان المتاح يُحسب بوحدة البند، فإشعارٌ سابق
+ * بحبّةٍ من بند كرتون يُعدّ كرتوناً كاملاً، ومرتجعٌ قديم بالكراتين يُخصم حبّاتٍ من فاتورةٍ جديدة. وتمثيلُ الحبّة كسرَ
+ * كرتونٍ (١÷٢٤ = ٠٫٠٤١٧ بعد التقريب) يتراكم فيتجاوز آخرُ مرتجعٍ المتاحَ فيُرفض — والأساس لا كسر فيه.
  */
 export function creditableLines(
   original: NoteOriginalInvoice, priorNotes: readonly PriorNote[] = [], legacyReturns: readonly LegacyReturnQty[] = [],
@@ -286,33 +340,37 @@ export function creditableLines(
     if (!countsTowardCredit(n)) continue;
     for (const it of n.items) {
       if (typeof it.creditedItemId !== 'string' || it.creditedItemId === '') continue;
-      creditedBy.set(it.creditedItemId, (creditedBy.get(it.creditedItemId) ?? 0) + Number(it.qty || 0));
+      creditedBy.set(it.creditedItemId, (creditedBy.get(it.creditedItemId) ?? 0) + baseQtyOf(it));
     }
   }
   const legacyPool = new Map<string, number>();
   for (const r of legacyReturns) {
     if (typeof r?.productId !== 'string' || r.productId === '') continue;
-    const q = Number(r.qty || 0);
+    const q = baseQtyOf(r);
     if (!(q > 0)) continue;
     legacyPool.set(r.productId, (legacyPool.get(r.productId) ?? 0) + q);
   }
   const rows = original.items.map((it, i) => {
-    const qty = roundQty(Number(it.qty || 0));
-    const credited = roundQty(creditedBy.get(it.id) ?? 0);
+    const factor = factorOf(it);
+    const soldBase = roundQty(baseQtyOf(it));
+    const creditedBase = roundQty(creditedBy.get(it.id) ?? 0);
     // بركة المرتجعات القديمة تُستهلك مرّةً واحدة: بندان بالصنف نفسه لا يخصمان الكمّية القديمة مرّتين
     const pooled = typeof it.productId === 'string' && it.productId !== '' ? (legacyPool.get(it.productId) ?? 0) : 0;
-    const legacyCredited = roundQty(Math.min(pooled, Math.max(0, qty - credited)));
-    if (legacyCredited > 0) legacyPool.set(it.productId as string, roundQty(pooled - legacyCredited));
+    const legacyCreditedBase = roundQty(Math.min(pooled, Math.max(0, soldBase - creditedBase)));
+    if (legacyCreditedBase > 0) legacyPool.set(it.productId as string, roundQty(pooled - legacyCreditedBase));
+    const returnableBase = roundQty(Math.max(0, soldBase - creditedBase - legacyCreditedBase));
     const line: CreditableLine = {
       invoiceItemId: it.id,
       seq: Number.isInteger(it.seq) && (it.seq as number) > 0 ? (it.seq as number) : i + 1,
       productId: it.productId,
       itemName: typeof it.itemName === 'string' && it.itemName.trim() !== '' ? it.itemName : '',
-      unitCode: typeof it.unitCode === 'string' && it.unitCode.trim() !== '' ? it.unitCode : PHASE2_UNIT_CODE,
-      qty,
-      credited,
-      legacyCredited,
-      returnable: roundQty(Math.max(0, qty - credited - legacyCredited)),
+      // رمز وحدة البند كما دخل مستنده؛ ورمزٌ ليس بشكل UN/ECE (نصٌّ حرّ على وحدةٍ قديمة) لا ينتقل إلى الإشعار
+      unitCode: phase2UnitCode(it.unitCode),
+      qty: soldBase,
+      credited: creditedBase,
+      legacyCredited: legacyCreditedBase,
+      returnable: returnableBase,
+      lineQty: roundQty(Number(it.qty || 0)),
       unitPrice: Number(it.unitPrice || 0),
       discountPct: Number(it.discountPct || 0),
       taxPct: Number(it.taxPct || 0),
@@ -320,6 +378,14 @@ export function creditableLines(
       vatExemptionCode: it.vatExemptionCode ?? null,
       vatExemptionReason: it.vatExemptionReason ?? null,
       damagedReturnToStock: it.damagedReturnToStock ?? null,
+      unitName: typeof it.unitName === 'string' && it.unitName.trim() !== '' ? it.unitName.trim() : null,
+      unitFactor: factor,
+      baseUnitName: typeof it.baseUnitName === 'string' && it.baseUnitName.trim() !== '' ? it.baseUnitName.trim() : null,
+      units: Array.isArray(it.units) ? it.units : [],
+      soldBase,
+      creditedBase,
+      legacyCreditedBase,
+      returnableBase,
     };
     return line;
   });
@@ -329,17 +395,131 @@ export function creditableLines(
 
 /** هل بقي في الفاتورة ما يُرجَع؟ */
 export function hasCreditableQty(lines: readonly CreditableLine[]): boolean {
-  return lines.some(l => l.returnable > QTY_EPSILON);
+  return lines.some(l => l.returnableBase > QTY_EPSILON);
 }
 
-export type CreditLinesRequest = 'FULL' | readonly { invoiceItemId: string; qty: number }[];
+/**
+ * بند الطلب: بند الأصل وكميته **بوحدة الإرجاع**. `unitId` وحدةٌ من وحدات الصنف (كرتون)، وغيابه = وحدة الأساس بمعامل ١
+ * (عقد التصميم §6) — فبندٌ بِيع بالأساس يُرجَع كما كان حرفياً، والحبّة من بند كرتون تُطلب بلا وحدة.
+ */
+export interface CreditLineRequest {
+  invoiceItemId: string;
+  qty: number;
+  unitId?: string | null;
+}
+
+export type CreditLinesRequest = 'FULL' | readonly CreditLineRequest[];
 
 export interface ResolvedCreditLine extends CreditableLine {
-  /** الكمية المطلوب إرجاعها في هذا الإشعار. */
+  /** الكمية المطلوب إرجاعها في هذا الإشعار — **بوحدة الإشعار** (كما تُطبع وتدخل الـXML). */
   creditQty: number;
+  /** الكمية نفسها بالأساس — ما يُنقص المتاح ويعود إلى مخزون السيارة. */
+  creditBase: number;
+  /** لقطة وحدة بند الإشعار (null = وحدة الأساس) ومعاملها ورمزها الضريبي. */
+  creditUnitName: string | null;
+  creditUnitFactor: number;
+  creditUnitCode: string;
+  /** سعر وحدة الإشعار: سعر البند نفسه بوحدته، وإلا حصّته من قيمة البند بفرق تراكميّ (creditUnitPriceOf). */
+  creditUnitPrice: number;
 }
 
 const lineIssue = (field: string, messageAr: string): ZatcaIssue => ({ rule: 'CREDIT-LINE', field, messageAr, severity: 'error' });
+
+/** وحدة الإرجاع بعد الحلّ — `sameAsLine` يعني وحدة البند المباع نفسها: سعرها ورمزها من البند كما صدر. */
+interface CreditUnit {
+  name: string | null;
+  factor: number;
+  code: string;
+  sameAsLine: boolean;
+}
+
+const lineUnitOf = (l: CreditableLine): CreditUnit => ({ name: l.unitName, factor: l.unitFactor, code: l.unitCode, sameAsLine: true });
+
+/**
+ * وحدة الإرجاع المطلوبة على بندٍ بعينه. الخادم يحلّها من وحدات الصنف بمعرّفها ولا يثق بمعاملٍ يرسله العميل.
+ *   • وحدةٌ اسمُها اسم وحدة البند ⇒ وحدة البند **بمعامل لقطتها**: ما بيع كرتوناً من ٢٤ يُرجَع كرتوناً من ٢٤ ولو صار
+ *     الكرتون اليوم ١٢. والوحدة الموقوفة بعد البيع تبقى صالحةً للإرجاع: الإيقاف يمنع بيعاً جديداً لا ردَّ ما بيع.
+ *   • وحدةٌ أخرى من وحدات الصنف ⇒ بمعاملها ورمزها.
+ *   • بلا وحدة (أو وحدةٌ لا تخصّ الصنف) ⇒ وحدة الأساس بمعامل ١ — وهي وحدة البند نفسها لكلّ بندٍ بِيع بالأساس.
+ */
+function creditUnitOf(l: CreditableLine, unitId: string | null | undefined): CreditUnit {
+  const u = typeof unitId === 'string' && unitId !== '' ? l.units.find(x => x?.id === unitId) : undefined;
+  if (u) {
+    if (l.unitName !== null && String(u.name ?? '').trim() === l.unitName) return lineUnitOf(l);
+    const factor = factorOf({ unitFactor: u.factor });
+    if (factor === l.unitFactor && l.unitFactor === 1) return lineUnitOf(l);
+    return { name: String(u.name ?? '').trim() || null, factor, code: phase2UnitCode(u.unitCode), sameAsLine: false };
+  }
+  if (l.unitFactor === 1) return lineUnitOf(l);
+  return { name: null, factor: 1, code: PHASE2_UNIT_CODE, sameAsLine: false };
+}
+
+/** أقصى منازل سعر الوحدة المحلول — حدّ amounts.ts نفسه (PRICE_MAX_SCALE). */
+const CREDIT_PRICE_MAX_SCALE = 8;
+
+/**
+ * سعر وحدة الإشعار حين تختلف عن وحدة البيع (حبّةٌ من بند كرتون): حصّته من قيمة البند بـ`refundAmount` — **فرقُ
+ * تراكميَّين مقرَّبين** على أساس البند (r2(qty×price) كما حسبه المحرّك يوم البيع). فأربعٌ وعشرون حبّةً في
+ * أربعةٍ وعشرين إشعاراً تساوي قيمة الكرتون تماماً (١٠٫٠٠ لا ١٠٫٠٨)، وآخر حبّةٍ تأخذ الباقي. ثمّ يُختار أقصرُ سعرٍ
+ * (منزلتان فصاعداً) يعيد الحصّة نفسها بضربه في الكمية، فيطابق المحرّكُ والـXML الحصّةَ بلا انحراف.
+ *
+ * الخصم والضريبة يُحسبان فوق الحصّة لكلّ إشعارٍ بالمحرّك نفسه، فيبقى انحرافُ مجموع الإشعارات انحرافَ تقريبٍ
+ * يغطّيه سماح حارس القيمة (هللة لكلّ سلّة نسبة لكلّ إشعار) — كما في كلّ مرتجعٍ جزئيّ قبل الميزة.
+ */
+export function creditUnitPriceOf(
+  l: Pick<CreditableLine, 'lineQty' | 'unitPrice' | 'unitFactor'>, creditQty: number, creditBase: number, doneBase: number,
+): number {
+  const gross = roundDecimal(Number(l.lineQty) * Number(l.unitPrice), 2);
+  const share = refundAmount({ lineTotal: gross, qty: l.lineQty, unitFactor: l.unitFactor }, creditBase, doneBase);
+  const q = Number(creditQty);
+  if (!(q > 0)) return 0;
+  for (let scale = 2; scale <= CREDIT_PRICE_MAX_SCALE; scale++) {
+    const p = roundDecimal(share / q, scale);
+    if (roundDecimal(q * p, 2) === share) return p;
+  }
+  return share / q;
+}
+
+/** بند إشعارٍ محلول: الكمية بوحدتها وبالأساس، وسعره من البند نفسه أو من حصّته التراكمية. */
+function creditLineOf(l: CreditableLine, unit: CreditUnit, creditQty: number, doneBase: number): ResolvedCreditLine {
+  const creditBase = roundQty(toBase(creditQty, { unitFactor: unit.factor }));
+  return {
+    ...l,
+    creditQty,
+    creditBase,
+    creditUnitName: unit.name,
+    creditUnitFactor: unit.factor,
+    creditUnitCode: unit.code,
+    // وحدة البند نفسها ⇒ سعره كما صدر (سلوك ما قبل الميزة حرفياً)؛ وحدةٌ أخرى ⇒ حصّةٌ تراكمية لا سعر الكرتون للحبّة
+    creditUnitPrice: unit.sameAsLine ? l.unitPrice : creditUnitPriceOf(l, creditQty, creditBase, doneBase),
+  };
+}
+
+/** ما أُرجع من البند قبل هذا الإشعار، بالأساس — موضع البداية في تسعير الحصص التراكمية. */
+const doneBaseOf = (l: CreditableLine): number => roundQty(Math.max(0, l.soldBase - l.returnableBase));
+
+/**
+ * 'FULL' لبندٍ: كلّ المتاح. بوحدة البند حين يكون المتاح وحداتٍ كاملةً منها (أو البند بالأساس، أو لم يُرجَع منه شيء)
+ * — فالإلغاء الكامل لبيعٍ قائم يعكس بنوده حرفاً بحرف. وإلا (بقي ٤٥ حبّة من كرتونين بعد إرجاع ٣) فبوحدة الأساس:
+ * كسرُ كرتونٍ لا يدخل مستنداً ضريبياً.
+ */
+function fullCreditLine(l: CreditableLine): ResolvedCreditLine {
+  const done = doneBaseOf(l);
+  if (l.unitFactor === 1) return creditLineOf(l, lineUnitOf(l), l.returnableBase, done);
+  if (done <= QTY_EPSILON) return creditLineOf(l, lineUnitOf(l), l.lineQty, done);
+  const whole = Math.round(l.returnableBase / l.unitFactor);
+  if (whole > 0 && Math.abs(whole * l.unitFactor - l.returnableBase) <= QTY_EPSILON) return creditLineOf(l, lineUnitOf(l), whole, done);
+  return creditLineOf(l, { name: null, factor: 1, code: PHASE2_UNIT_CODE, sameAsLine: false }, l.returnableBase, done);
+}
+
+/** هل يمسّ البندُ الوحداتِ المتعددة؟ وإلا تبقى رسالة التجاوز بأرقامها القديمة حرفياً. */
+const isMultiUnit = (l: CreditableLine, units: readonly CreditUnit[]): boolean =>
+  l.unitFactor !== 1 || l.units.length > 0 || units.some(u => u.factor !== 1);
+
+/** كمية بالأساس كما يقرؤها المندوب: «١ كرتون و٣ حبة». */
+function qtyText(base: number, l: CreditableLine): string {
+  return formatQty(base, l.units.map(u => ({ name: u.name, factor: Number(u.factor), isActive: u.isActive })), l.baseUnitName ?? '').trim();
+}
 
 /**
  * الطلب ⇒ بنود الإشعار، أو يرمي ZatcaHttpError:
@@ -347,10 +527,13 @@ const lineIssue = (field: string, messageAr: string): ZatcaIssue => ({ rule: 'CR
  *   • قائمة: كل بند من بنود الأصل، بلا تكرار، بكمية موجبة ⇒ وإلا 422 ZATCA_NOTE_LINES_INVALID بأسماء الحقول.
  *   • كمية تتجاوز المتاح ⇒ 422 ZATCA_CREDIT_QTY_EXCEEDED بالصنف والمتاح (كل البنود المخالفة معاً لا أوّلها).
  * الترتيب دائماً ترتيب المستند الأصلي (لا ترتيب الطلب): البنود المتقابلة تُقرأ بمحاذاة الأصل.
+ *
+ * الوحدات المتعددة: الكمية المطلوبة بوحدتها (`unitId`) تُحوَّل إلى الأساس وتُقارَن بالمتاح بالأساس. والبند الواحد قد
+ * يُطلب بوحدتين («١ كرتون و٣ حبة» = سطران)، والمكرَّر بالوحدة نفسها يبقى مرفوضاً كما كان.
  */
 export function resolveCreditLines(lines: readonly CreditableLine[], request: CreditLinesRequest): ResolvedCreditLine[] {
   if (request === 'FULL') {
-    const full = lines.filter(l => l.returnable > QTY_EPSILON).map(l => ({ ...l, creditQty: l.returnable }));
+    const full = lines.filter(l => l.returnableBase > QTY_EPSILON).map(fullCreditLine);
     if (!full.length) throw noteRefusalError('NOTHING_TO_CREDIT') as ZatcaHttpError;
     return full;
   }
@@ -360,35 +543,60 @@ export function resolveCreditLines(lines: readonly CreditableLine[], request: Cr
   const byId = new Map(lines.map(l => [l.invoiceItemId, l]));
   const issues: ZatcaIssue[] = [];
   const seen = new Set<string>();
-  const wanted = new Map<string, number>();
+  const wanted = new Map<string, { unit: CreditUnit; qty: number }[]>();
   request.forEach((r, i) => {
     const id = typeof r?.invoiceItemId === 'string' ? r.invoiceItemId : '';
     const q = Number(r?.qty);
-    if (!byId.has(id)) {
+    const l = byId.get(id);
+    if (!l) {
       issues.push(lineIssue(`lines[${i}].invoiceItemId`, `البند ${i + 1} ليس من بنود الفاتورة الأصلية`));
       return;
     }
-    if (seen.has(id)) {
-      issues.push(lineIssue(`lines[${i}].invoiceItemId`, `البند «${byId.get(id)!.itemName || i + 1}» مكرَّر في الطلب — اجمع كميّته في سطر واحد`));
+    const unit = creditUnitOf(l, r?.unitId);
+    const key = `${id}\u0000${unit.factor}\u0000${unit.name ?? ''}`;
+    if (seen.has(key)) {
+      issues.push(lineIssue(`lines[${i}].invoiceItemId`, `البند «${l.itemName || i + 1}» مكرَّر في الطلب — اجمع كميّته في سطر واحد`));
       return;
     }
-    seen.add(id);
+    seen.add(key);
     if (!Number.isFinite(q) || q <= 0) {
-      issues.push(lineIssue(`lines[${i}].qty`, `كمية البند «${byId.get(id)!.itemName || i + 1}» يجب أن تكون أكبر من صفر`));
+      issues.push(lineIssue(`lines[${i}].qty`, `كمية البند «${l.itemName || i + 1}» يجب أن تكون أكبر من صفر`));
       return;
     }
-    wanted.set(id, roundQty(q));
+    const list = wanted.get(id) ?? [];
+    list.push({ unit, qty: roundQty(q) });
+    wanted.set(id, list);
   });
   if (issues.length) throw noteLinesError(issues);
 
-  const over: { itemName: string; requested: number; available: number }[] = [];
-  for (const [id, q] of wanted) {
+  const over: { itemName: string; requested: number; available: number; requestedText?: string; availableText?: string }[] = [];
+  for (const [id, list] of wanted) {
     const l = byId.get(id)!;
-    if (q > l.returnable + QTY_EPSILON) over.push({ itemName: l.itemName || id, requested: q, available: l.returnable });
+    const wantBase = roundQty(list.reduce((s, w) => s + toBase(w.qty, { unitFactor: w.unit.factor }), 0));
+    if (wantBase <= l.returnableBase + QTY_EPSILON) continue;
+    if (!isMultiUnit(l, list.map(w => w.unit))) {
+      over.push({ itemName: l.itemName || id, requested: list[0].qty, available: l.returnable });
+    } else {
+      over.push({
+        itemName: l.itemName || id, requested: wantBase, available: l.returnableBase,
+        requestedText: qtyText(wantBase, l), availableText: qtyText(l.returnableBase, l),
+      });
+    }
   }
   if (over.length) throw creditQtyExceededError(over);
 
-  const out = lines.filter(l => wanted.has(l.invoiceItemId)).map(l => ({ ...l, creditQty: wanted.get(l.invoiceItemId)! }));
+  const out: ResolvedCreditLine[] = [];
+  for (const l of lines) {
+    const list = wanted.get(l.invoiceItemId);
+    if (!list) continue;
+    // موضع كلّ سطرٍ في البند بعد ما سبقه — سطران من البند نفسه لا يُسعَّران من الموضع نفسه
+    let done = doneBaseOf(l);
+    for (const w of list) {
+      const line = creditLineOf(l, w.unit, w.qty, done);
+      done = roundQty(done + line.creditBase);
+      out.push(line);
+    }
+  }
   if (!out.length) throw noteRefusalError('NOTHING_TO_CREDIT') as ZatcaHttpError;
   return out;
 }
@@ -400,14 +608,18 @@ export type CreditScope = 'FULL' | 'PARTIAL';
  * Q5 يحرس **الأثر** لا صيغة الطلب (مراجعة «تراجع»): `lines:'FULL'` وقائمةٌ تعدّ كلّ البنود بكامل المتاح ينتجان
  * المستند نفسه وأثر الإلغاء نفسه. فالنطاق كاملٌ حين — وحين فقط — لم يُرجَع من الفاتورة شيءٌ قبل هذا الإشعار ولم
  * يبقَ بعده ما يُرجَع. وإتمامُ فاتورةٍ أُرجع بعضها سابقاً يبقى جزئياً: ليس إلغاءً لبيعٍ قائم.
+ *
+ * بالأساس: إرجاعُ كرتونين حبّةً حبّة (٤٨ سطراً بالأساس) إلغاءٌ كامل كإرجاعهما كرتونين — وخلطُ الوحدات هنا كان
+ * يمنح الإلغاء الكامل لمن لا يملك صلاحيته أو يحجبه عن غيره.
  */
 export function effectiveCreditScope(lines: readonly CreditableLine[], resolved: readonly ResolvedCreditLine[]): CreditScope {
-  const wanted = new Map(resolved.map(l => [l.invoiceItemId, l.creditQty]));
+  const wanted = new Map<string, number>();
+  for (const r of resolved) wanted.set(r.invoiceItemId, (wanted.get(r.invoiceItemId) ?? 0) + r.creditBase);
   let before = 0;
   let left = 0;
   for (const l of lines) {
-    before += l.credited + l.legacyCredited;
-    left += Math.max(0, l.returnable - (wanted.get(l.invoiceItemId) ?? 0));
+    before += l.creditedBase + l.legacyCreditedBase;
+    left += Math.max(0, l.returnableBase - (wanted.get(l.invoiceItemId) ?? 0));
   }
   return before <= QTY_EPSILON && left <= QTY_EPSILON ? 'FULL' : 'PARTIAL';
 }
@@ -568,12 +780,13 @@ export interface PrepareCreditNoteInput extends PrepareNoteBase {
   request: CreditLinesRequest;
 }
 
+/** سطور الـXML: الكمية والسعر والرمز **بوحدة الإشعار** معاً — حبّاتٌ بسعر الحبّة ورمزها، لا حبّاتٌ بسعر الكرتون. */
 function lineSourcesOf(lines: readonly ResolvedCreditLine[]): LineSource[] {
   return lines.map(l => ({
     itemName: l.itemName,
-    unitCode: l.unitCode,
+    unitCode: l.creditUnitCode,
     qty: l.creditQty,
-    unitPrice: l.unitPrice,
+    unitPrice: l.creditUnitPrice,
     discountPct: l.discountPct,
     taxPct: l.taxPct,
     vatCategory: l.vatCategory,
@@ -623,7 +836,7 @@ export function prepareCreditNote(input: PrepareCreditNoteInput): PreparedNote {
   if (!hasCreditableQty(creditable)) throw noteRefusalError('NOTHING_TO_CREDIT') as ZatcaHttpError;
   const lines = resolveCreditLines(creditable, input.request);
   const request = noteRequest(input.original, 'CREDIT_NOTE');
-  const engine = engineOf(lines.map(l => ({ qty: l.creditQty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct })), request, input.companyVat, input.decimals ?? 2);
+  const engine = engineOf(lines.map(l => ({ qty: l.creditQty, unitPrice: l.creditUnitPrice, discountPct: l.discountPct, taxPct: l.taxPct })), request, input.companyVat, input.decimals ?? 2);
   assertCreditAmount({ original: input.original, priorNotes: input.priorNotes, noteTotal: engine.total, bucketCount: taxBucketCount(lines) });
   const prepared = prepareNoteCommon({ ...input, kind: 'CREDIT_NOTE', lines: lineSourcesOf(lines), engine, reasonText: reason });
   return {

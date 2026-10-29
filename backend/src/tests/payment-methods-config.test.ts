@@ -644,5 +644,6 @@ test('حارس نصّي: العمودان إضافيان بلا افتراضي،
   assert.match(block('CompanySettings'), /\n\s*paymentMethodsConfig\s+Json\?\s*\n/);
   assert.ok(read('services', 'apiSync.ts').includes("'paymentMethodKey',"));
   const pkg = JSON.parse(fs.readFileSync(path.join(SRC, '..', 'package.json'), 'utf8')) as { scripts: { test: string } };
-  assert.ok(pkg.scripts.test.includes('src/tests/payment-methods-config.test.ts'));
+  // npm test نمطٌ يشمل كل ملفات src (القائمة الصريحة تجاوزت حدّ سطر ويندوز) — أو اسم الملف صراحةً
+  assert.ok(pkg.scripts.test.includes('src/tests/payment-methods-config.test.ts') || /src\/\*\*\/\*\.test\.ts/.test(pkg.scripts.test));
 });

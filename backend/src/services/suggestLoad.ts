@@ -17,10 +17,17 @@
  *
  * وقاعدة ثانية: **لا اقتراح لصنف بلا تاريخ.** الصفر هنا معلومة صادقة، أمّا
  * رقم مُختلَق لصنف لم يُبَع قطّ فهو تخمين يُقدَّم كتوصية.
+ *
+ * وثالثة (الوحدات المتعددة): **كل كمية هنا بوحدة الأساس** — المبيع والمرتجع وما في
+ * السيارة مدخلاتٍ، وexpected/withBuffer/suggested مخرجاتٍ. فلا يُجمع كرتونٌ مع حبّة
+ * في متوسّط يوم، ويُخزَّن المقترَح على بند التحميل بالأساس مهما كانت وحدة التحميل.
+ * والتقريب لأعلى بحبّة الأساس؛ أمّا التقريب لمضاعفات الكرتون فقرار عملٍ لا يُفرض ضمناً.
  */
+import { formatQty, type UnitDef } from './units';
 
 export interface SaleRow {
   productId: string;
+  /** بوحدة الأساس */
   qty: number;
   /** تاريخ الفاتورة — ISO أو أي صيغة يقبلها Date */
   date: string | Date;
@@ -30,7 +37,10 @@ export interface ProductRow {
   id: string;
   name: string;
   code: string;
+  /** وحدة الأساس — وحدة كل أرقام الصفّ */
   unit: string;
+  /** وحدات الصنف — اختيارية، تُشرح بها الكمية المقترحة «٢ كرتون و٣ حبة» */
+  units?: UnitDef[];
 }
 
 export interface SuggestInput {
@@ -215,11 +225,13 @@ export function suggestLoad(input: SuggestInput): SuggestResult {
 
     const bufferNote = bufferPct > 0 ? ` + هامش ${bufferPct}٪ ⇒ ${withBuffer}` : '';
     const vanNote = onVan > 0 ? ` − ${fmt(onVan)} في السيارة ⇒ ${suggested}` : '';
+    // الأرقام بالأساس؛ وصنفٌ له وحدةٌ أكبر يُشرح مقترحه بها — وبلا وحداتٍ يبقى النصّ كما كان حرفياً
+    const unitNote = suggested > 0 && hasBigUnit(p.units) ? ` والمقترح ${formatQty(suggested, p.units!, p.unit)}` : '';
 
     rows.push({
       ...p, expected, withBuffer, onVan, suggested,
       basis, sampleDays, activeDays, confidence,
-      why: why + bufferNote + vanNote + '.',
+      why: why + bufferNote + vanNote + unitNote + '.',
     });
   }
 
@@ -248,3 +260,8 @@ export function suggestLoad(input: SuggestInput): SuggestResult {
 }
 
 function round2(n: number) { return Math.round(n * 100) / 100; }
+
+/** للصنف وحدةٌ نشطة أكبر من الأساس — formatQty يقول بها شيئاً غير الرقم نفسه */
+function hasBigUnit(units?: UnitDef[]): boolean {
+  return !!units?.some((u) => u && Number(u.factor) > 1 && u.isActive !== false);
+}

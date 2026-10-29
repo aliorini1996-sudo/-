@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { rankRows, trackedMeters, type TrackPoint } from '../services/repRanking';
+import { productQtyByRep } from '../routes/reports';
 
 // خط عرض الرياض تقريباً: ٠٫٠٠١ درجة طول ≈ ١٠٢ م، و٠٫٠٠١ درجة عرض ≈ ١١١ م
 const T0 = Date.parse('2026-10-12T06:00:00Z');
@@ -59,4 +60,19 @@ test('حارس نصّي: المعياران الماليّان يُرفضان م
   assert.match(h, /"salesRepId" = \$\{repId\}/, 'مندوبٌ مندوب');
   assert.match(h, /const MAX_DISTANCE_DAYS = 31;/);
   assert.match(h, /product = await prisma\.product\.findFirst\(\{ where: \{ id: q\.productId, tenantId: tid \}/, 'الصنف من الشركة نفسها');
+});
+
+test('الوحدات المتعددة: معيار «الصنف» يجمع الكمية بالأساس — كرتونٌ وحبّات لا يُقارنان خاماً', () => {
+  const m = productQtyByRep([
+    { qty: 2, unitFactor: 24, baseQty: 48, invoice: { salesRepId: 'a' } },   // كرتونان = ٤٨ حبة
+    { qty: 10, unitFactor: 1, baseQty: 10, invoice: { salesRepId: 'b' } },  // ١٠ حبّات
+    { qty: 3, unitFactor: 1, baseQty: null, invoice: { salesRepId: 'b' } }, // صفٌّ لم يملأه الترحيل ⇒ من اللقطة
+    { qty: 5, unitFactor: 1, baseQty: 5, invoice: { salesRepId: null } },   // بلا مندوب يسقط
+  ]);
+  assert.deepEqual([...m.entries()], [['a', 48], ['b', 13]]);
+  // خاماً كان «ب» (١٣) يتقدّم «أ» (٢)؛ بالأساس «أ» الأوّل
+  assert.deepEqual(rankRows([{ repId: 'a', name: 'أ', value: m.get('a')! }, { repId: 'b', name: 'ب', value: m.get('b')! }]).map((r) => r.repId), ['a', 'b']);
+  const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'reports.ts'), 'utf8').replace(/\r\n/g, '\n');
+  assert.match(src, /select: \{ qty: true, unitFactor: true, baseQty: true, invoice: \{ select: \{ salesRepId: true \} \} \}/);
+  assert.match(src, /select: \{ id: true, name: true, unit: true, units: ACTIVE_UNITS_SELECT \}/, 'الصنف بوحداته للعرض');
 });

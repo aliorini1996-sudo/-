@@ -394,3 +394,45 @@ test('الإعدادات: افتراضيات، وحدّ الخصوصية ٥ لا
   assert.equal(repInScope({ repScope: 'ALL', repIds: [] }, 'r1'), true);
   assert.equal(repInScope({ repScope: 'SELECTED', repIds: ['r2'] }, 'r1'), false);
 });
+
+// ───────────── الوحدات المتعددة: الكميات بالأساس ─────────────
+import fs from 'node:fs';
+import path from 'node:path';
+import { II_BASE_QTY, displayUnits, qtyText, unitSizes } from '../ai-rep/baseQty';
+
+test('الوحدات المتعددة: مقطع SQL للكمية بالأساس ثابتٌ بلا قيم، وأدوات العرض لا تغيّر صنفاً بوحدة واحدة', () => {
+  assert.equal(II_BASE_QTY.strings.join('?'), 'COALESCE(ii."baseQty", ii.qty * COALESCE(NULLIF(ii."unitFactor", 0), 1))');
+  assert.equal(II_BASE_QTY.values.length, 0, 'لا قيمة تُحقن');
+  // من الأكبر، والمعامل ١ أو غير الصالح يسقط
+  assert.deepEqual(displayUnits([{ name: 'شد', factor: 6 }, { name: 'كرتون', factor: '24' }, { name: 'حبة', factor: 1 }, { name: 'x', factor: Number.NaN }]),
+    [{ name: 'كرتون', factor: 24 }, { name: 'شد', factor: 6 }]);
+  assert.deepEqual(displayUnits(undefined), []);
+  assert.equal(qtyText(51, [{ name: 'كرتون', factor: 24 }], 'حبة'), '2 كرتون و3 حبة');
+  // صنفٌ بلا وحدات: النصّ نفسه الذي كان يُكتب `${qty} ${unit}`
+  for (const q of [5, 0.5, 12]) assert.equal(qtyText(q, [], 'كرتون'), `${q} كرتون`);
+  assert.deepEqual(unitSizes([{ name: 'كرتون', factor: 24 }], 'حبة'), ['كرتون = 24 حبة']);
+});
+
+test('الوحدات المتعددة: المحرّك يمرّر وحدات الصنف للعرض ولا يدخلها الحساب، وصنفٌ بلا وحدات بلا حقلٍ جديد', () => {
+  const peers = ['a', 'b', 'c', 'd', 'e'].map((id, i) => peer(id, 0.2 * (i + 1)));
+  const monthly = peers.flatMap(p => months(p.id, 'water', [48, 48, 48, 48, 48, 48]));
+  const withUnits = estimateOutlet(input({ peers, monthly, products: [{ id: 'water', name: 'مياه', unit: 'حبة', units: [{ name: 'كرتون', factor: 24 }] }] }), 'بقالة');
+  const without = estimateOutlet(input({ peers, monthly, products: [{ id: 'water', name: 'مياه', unit: 'حبة' }] }), 'بقالة');
+  assert.ok(withUnits.ok && without.ok);
+  assert.deepEqual(withUnits.products[0].units, [{ name: 'كرتون', factor: 24 }]);
+  assert.equal('units' in without.products[0], false);
+  const { units: _u, ...rest } = withUnits.products[0];
+  assert.deepEqual(rest, without.products[0], 'الأرقام نفسها بالأساس — الوحدات للعرض وحده');
+});
+
+test('حارس ثابت: محمِّلات المحرّك والمرساة والتقييم تجمع الكمية بالأساس لا خاماً', () => {
+  const read = (rel: string) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8').replace(/\r\n/g, '\n');
+  const est = read('ai-rep/estimateData.ts');
+  assert.match(est, /SUM\(CASE WHEN i\.type = 'RETURN' THEN -\$\{II_BASE_QTY\} ELSE \$\{II_BASE_QTY\} END\)::float8 AS qty/);
+  assert.match(est, /SUM\(\$\{II_BASE_QTY\}\)::float8 AS qty/);
+  assert.match(est, /units: ACTIVE_UNITS_SELECT/);
+  for (const rel of ['ai-rep/estimateData.ts', 'ai-rep/googleDemandData.ts', 'ai-rep/learn/calibration.ts']) {
+    const s = read(rel);
+    assert.doesNotMatch(s, /SUM\((?:CASE[^)]*)?ii\.qty|ORDER BY ii\.qty\)|\/ ii\.qty\)|ii\.qty > 0/, `${rel}: كمية خام في تجميعة`);
+  }
+});

@@ -124,8 +124,9 @@ function summarize(r: EstimateResult) {
     peers: r.peers,
     ringKm: r.ringKm,
     monthlyTotalValue: r.monthlyTotalValue,
+    // الوسيط بوحدة الأساس `unit`، و`units` (لصنفٍ له وحدات) ليفكّكه الجهاز «٢ كرتون و٣ حبة»
     top: r.products.filter(p => (p.buyers ?? 0) > 0 && p.penetration != null).slice(0, 3).map(p => ({
-      name: p.name, unit: p.unit, penetration: p.penetration, qtyMedian: p.monthlyQty?.median ?? null,
+      name: p.name, unit: p.unit, ...(p.units?.length ? { units: p.units } : {}), penetration: p.penetration, qtyMedian: p.monthlyQty?.median ?? null,
     })),
   };
 }

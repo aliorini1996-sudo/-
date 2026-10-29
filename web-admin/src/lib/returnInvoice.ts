@@ -17,7 +17,9 @@
  * الخادم، فإجماليّ المرتجع المرتبط المعروض قبل الإصدار هو ما يُقيَّد بعده خانةً بخانة. والورقة المطبوعة بعد الإصدار تُبنى من
  * ردّ الخادم لا من المعاينة (إجماليّ الإشعار الدائن من أسعار الأصل قد يفترق بكسرٍ عن تقديرنا).
  */
-import { computeInvoiceTotals } from '../rep/invoiceCalc';
+import { computeInvoiceTotals, roundDecimal } from '../rep/invoiceCalc';
+import { QTY_EPS, factorOf, fromBase, refundAmount, roundQty, toBase, type UnitDef } from './units';
+import { unitChoices, type UnitChoice } from '../rep/repUnits';
 
 export type ReturnReason = 'NORMAL' | 'DAMAGED' | 'EXCHANGE';
 
@@ -57,11 +59,48 @@ export interface ReturnableLineDto {
   expiredToday?: boolean | null;
   /** قيد المرتجع للصنف اليوم: سبب الرفض من الخادم — لا يُرجَع البند (والخادم يقرّر عند الإصدار) */
   returnBlocked?: string | null;
+  // ——— الوحدات المتعددة (عقد /returnable في DESIGN.md). اختيارية: خادمٌ قبل الميزة ⇒ وحدة الأساس بمعامل ١ ———
+  /** لقطة وحدة بند البيع — null ⇒ وحدة الأساس */
+  unitName?: string | null;
+  unitFactor?: number | null;
+  soldBase?: number | null;
+  returnedBase?: number | null;
+  returnableBase?: number | null;
+  /** ما دفعه العميل في البند فعلاً — مرجع `refundAmount` */
+  lineTotal?: number | null;
+  refundPerBase?: number | null;
+  /** وحدات الصنف (أو في `product.units`) */
+  units?: UnitDef[] | null;
+  product?: { unit?: string | null; units?: UnitDef[] | null } | null;
 }
 
+/**
+ * بند فاتورة البيع في نموذج المرتجع. الكمية **بوحدة المرتجع المختارة** (`ret*`) — قد تكون أصغر من وحدة البيع
+ * (حبّةٌ من كرتون)، والمتاح والمقارنة بالأساس (القاعدة ٩). والحقول القديمة (`sold/returned/returnable/
+ * refundUnitPrice/unit`) **معاد التعبير عنها بوحدة المرتجع** فيبقى الجدول متّسقاً عموداً بعمود أيّاً كانت الوحدة،
+ * ولصنفٍ بلا وحدات هي أرقام الخادم نفسها.
+ */
 export interface LinkedReturnLine extends ReturnableLineDto {
   /** الكمية المرتجعة التي أدخلها المدير — صفر = لا يُرجَع البند (لا يُرسَل) */
   qty: number;
+  /** اسم وحدة الأساس للصنف */
+  baseUnit: string;
+  saleUnitName: string | null;
+  saleUnitFactor: number;
+  soldBase: number;
+  returnedBase: number;
+  returnableBase: number;
+  /** null ⇒ خادمٌ لا يرسل إجمالي البند: يُسعَّر بسعر الاسترداد للوحدة كما قبل الميزة */
+  lineTotal: number | null;
+  /** سعر الاسترداد لوحدة الأساس (بلا تقريب) */
+  refundPerBase: number;
+  /** سعر الاسترداد لوحدة البيع كما أرسله الخادم — يُعرض حرفياً حين يُرجَع بوحدة البيع نفسها */
+  saleRefundUnitPrice: number;
+  units: UnitDef[];
+  /** وحدة المرتجع: null = الأساس */
+  retUnitId: string | null;
+  retUnitName: string | null;
+  retUnitFactor: number;
 }
 
 export interface LinkedSale {
@@ -98,25 +137,116 @@ export function toLinkedSale(raw: unknown): LinkedSale {
     invoiceDate: String(r.invoiceDate ?? ''),
     lines: lines.map((x) => {
       const l = (x ?? {}) as ReturnableLineDto;
-      return {
+      const saleUnitFactor = factorOf({ unitFactor: l.unitFactor });
+      const baseUnit = String(l.product?.unit ?? l.unit ?? '');
+      /* خادمٌ قبل الميزة: لا حقول أساس ⇒ تُشتقّ من كميات وحدة البيع (ومعاملها ١ فهي هي). والمتاح لا يقلّ عن صفر */
+      const soldBase = l.soldBase != null ? num(l.soldBase) : toBase(num(l.sold), { unitFactor: saleUnitFactor });
+      const returnedBase = l.returnedBase != null ? num(l.returnedBase) : toBase(num(l.returned), { unitFactor: saleUnitFactor });
+      const returnableBase = Math.max(0, l.returnableBase != null ? num(l.returnableBase) : toBase(num(l.returnable), { unitFactor: saleUnitFactor }));
+      const lineTotal = l.lineTotal != null && Number.isFinite(Number(l.lineTotal)) ? Number(l.lineTotal) : null;
+      /* سعر الاسترداد: خادمٌ بالوحدات يرسل حصّة الأساس (refundPerBase — والحقل القديم refundUnitPrice عنده بالأساس
+       * أيضاً لعميلٍ لا يعرف الوحدات)، وخادمٌ قبلها سعر وحدة البيع وحده (ومعاملها ١ فهما واحد) */
+      const perBaseDto = l.refundPerBase != null && Number.isFinite(Number(l.refundPerBase)) ? Math.max(0, Number(l.refundPerBase)) : null;
+      const legacyPrice = Math.max(0, num(l.refundUnitPrice));
+      const refundPerBase = perBaseDto ?? (lineTotal != null && soldBase > 0 ? lineTotal / soldBase : legacyPrice / saleUnitFactor);
+      const saleUnitPrice = perBaseDto != null || lineTotal != null ? roundDecimal(refundPerBase * saleUnitFactor, 4) : legacyPrice;
+      const line: LinkedReturnLine = {
         saleItemId: String(l.saleItemId),
         productId: String(l.productId),
         name: String(l.name ?? '-'),
         code: l.code ?? '',
-        unit: l.unit ?? '',
+        unit: baseUnit,
         sold: num(l.sold),
         returned: num(l.returned),
         returnable: Math.max(0, num(l.returnable)),
-        refundUnitPrice: Math.max(0, num(l.refundUnitPrice)),
+        refundUnitPrice: saleUnitPrice,
         taxPct: num(l.taxPct),
         shelfLife: l.shelfLife === true,
         expiresAt: l.expiresAt ?? null,
         expiredToday: typeof l.expiredToday === 'boolean' ? l.expiredToday : null,
         returnBlocked: l.returnBlocked ? String(l.returnBlocked) : null,
         qty: 0,
+        baseUnit,
+        saleUnitName: l.unitName ? String(l.unitName) : null,
+        saleUnitFactor,
+        soldBase, returnedBase, returnableBase, lineTotal, refundPerBase, saleRefundUnitPrice: saleUnitPrice,
+        units: (Array.isArray(l.units) ? l.units : Array.isArray(l.product?.units) ? l.product!.units! : []) as UnitDef[],
+        retUnitId: null, retUnitName: null, retUnitFactor: 1,
       };
+      return expressIn(line, saleUnitChoice(line));
     }),
   };
+}
+
+/**
+ * وحدات الإرجاع من بند بيع: الأساس ووحدات الصنف النشطة التي **لا تزيد** على وحدة البيع — حبّةٌ أو علبةٌ من كرتون،
+ * لا كرتونٌ من حبّات (المتاح نفسه يحرسه الخادم بالأساس، والمنتقي لا يعرض وحدةً أكبر مما بِيع).
+ */
+export function returnUnitChoices(l: Pick<LinkedReturnLine, 'baseUnit' | 'units' | 'saleUnitFactor'>): UnitChoice[] {
+  return unitChoices({ unit: l.baseUnit, units: l.units }).filter((c) => c.factor <= l.saleUnitFactor + QTY_EPS);
+}
+
+/** وحدة البيع نفسها بين وحدات الإرجاع (الاسم والمعامل، ثم المعامل وحده)، وإلّا الأساس — وحدةٌ أُوقفت بعد البيع لا تُعرض */
+function saleUnitChoice(l: LinkedReturnLine): UnitChoice {
+  const all = returnUnitChoices(l);
+  const same = (c: UnitChoice) => Math.abs(c.factor - l.saleUnitFactor) < QTY_EPS;
+  return all.find((c) => same(c) && (c.id === null || c.name === l.saleUnitName)) ?? all.find(same) ?? all[0];
+}
+
+/**
+ * البند بوحدة إرجاعٍ ما: الحقول القديمة تُعاد كتابتها بها من الأساس. ولوحدة البيع نفسها تبقى أرقام الخادم حرفياً
+ * (سعر الاسترداد المقرَّب بأربع خانات كما أرسله) — فصنفٌ بلا وحدات يُعرض ويُرسَل كما قبل الميزة.
+ */
+function expressIn(l: LinkedReturnLine, c: UnitChoice): LinkedReturnLine {
+  const f = factorOf({ unitFactor: c.factor });
+  const asSold = Math.abs(f - l.saleUnitFactor) < QTY_EPS;
+  return {
+    ...l,
+    retUnitId: c.id, retUnitName: c.id ? c.name : null, retUnitFactor: f,
+    unit: c.id ? c.name : l.baseUnit,
+    sold: fromBase(l.soldBase, f),
+    returned: fromBase(l.returnedBase, f),
+    returnable: fromBase(l.returnableBase, f),
+    refundUnitPrice: asSold ? l.saleRefundUnitPrice : roundDecimal(l.refundPerBase * f, 4),
+  };
+}
+
+/** تبديل وحدة المرتجع لبند: الكمية المكتوبة تبقى رقماً وتُقصّ على المتاح بالوحدة الجديدة */
+export function withReturnUnit(l: LinkedReturnLine, unitId: string | null): LinkedReturnLine {
+  const all = returnUnitChoices(l);
+  const next = expressIn(l, all.find((c) => c.id === (unitId ?? null)) ?? all[0]);
+  return { ...next, qty: clampReturnQty(l.qty, next) };
+}
+
+/**
+ * مبلغ استرداد الكمية المكتوبة كما يحسبه الخادم (`refundAmount`: فرق تراكميَّين مقرَّبين من إجمالي البند) —
+ * فـ٢٤ حبّةً فرادى = قيمة الكرتون تماماً. null ⇒ خادمٌ لا يرسل إجمالي البند: السعر للوحدة كما قبل الميزة.
+ */
+export function linkedRefundAmount(
+  l: Pick<LinkedReturnLine, 'qty' | 'lineTotal' | 'soldBase' | 'returnedBase' | 'retUnitFactor'>, decimals = 2,
+): number | null {
+  if (l.lineTotal == null) return null;
+  const q = num(l.qty);
+  if (q <= 0) return 0;
+  /* `refundAmount` تقرّب لمنزلتين؛ فلعملةٍ بثلاث (الدينار) أو بلا كسور يُقاس المبلغ بوحدةٍ تصير بها خاناته منزلتين ثم
+   * يُعاد — كما يفعل الخادم (refundInCurrency في routes/invoices.ts) حرفاً، وإلا افترقت المعاينة عن القيد بفلس */
+  const scale = Math.pow(10, decimals - 2);
+  const scaled = refundAmount({ lineTotal: l.lineTotal * scale, qty: l.soldBase, unitFactor: 1 }, toBase(q, { unitFactor: l.retUnitFactor }), l.returnedBase);
+  return roundDecimal(scaled / scale, decimals);
+}
+
+/**
+ * سعر الوحدة الذي يدخل المحرّك ويُرسَل: المبلغ ÷ الكمية **بلا تقريب** (كـpriceFromLineTotal) فيعيد المحرّك إنتاج
+ * المبلغ نفسه بعد تقريبه — والخادم حَكَمٌ يحسب سعر المرتجع المرتبط بنفسه من بند البيع.
+ */
+export function linkedUnitPrice(l: LinkedReturnLine, decimals = 2): number {
+  const amt = linkedRefundAmount(l, decimals);
+  return amt != null && num(l.qty) > 0 ? amt / num(l.qty) : num(l.refundUnitPrice);
+}
+
+/** أقصى ما يُرجَع بوحدة المرتجع المختارة */
+export function maxReturnQty(l: Pick<LinkedReturnLine, 'returnable'>): number {
+  return roundQty(num(l.returnable));
 }
 
 /**
@@ -141,9 +271,18 @@ export function clampReturnQty(v: unknown, l: Pick<ReturnableLineDto, 'returnabl
   return Math.min(n, num(l.returnable));
 }
 
-/** «إرجاع كامل المتاح» (all=true) أو «تصفير الكميات» (all=false) */
+/**
+ * «إرجاع كامل المتاح» (all=true) أو «تصفير الكميات» (all=false). الكامل بوحدة المرتجع إن انقسم المتاح عليها، وإلّا
+ * بالأساس مع وحدة الأساس — لا «١٫٩٥٨ كرتون» بعد إرجاع حبّةٍ منه، ولا وحدتان في سطرٍ واحد.
+ */
 export function fillLinkedQty(lines: LinkedReturnLine[], all: boolean): LinkedReturnLine[] {
-  return lines.map((l) => ({ ...l, qty: all && isLineReturnable(l) ? num(l.returnable) : 0 }));
+  return lines.map((l) => {
+    if (!all || !isLineReturnable(l)) return { ...l, qty: 0 };
+    const whole = l.returnableBase / l.retUnitFactor;
+    if (l.retUnitFactor === 1 || Math.abs(whole - Math.round(whole)) < QTY_EPS) return { ...l, qty: num(l.returnable) };
+    const base = withReturnUnit(l, null);
+    return { ...base, qty: num(base.returnable) };
+  });
 }
 
 /** البنود التي تُرسَل: كميةٌ موجبة فقط (البند المصفَّر «لا يُرجَع» — والخادم يرفض الكمية الصفرية في المخطط) */
@@ -156,13 +295,20 @@ export function activeLinkedLines(lines: LinkedReturnLine[]): LinkedReturnLine[]
  * عليه — لا تُمسح كتابته كلّها لأن بنداً واحداً نقص.
  */
 export function mergeRefreshedSale(prev: LinkedSale, fresh: LinkedSale): LinkedSale {
-  const wanted = new Map(prev.lines.map((l) => [l.saleItemId, l.qty]));
-  return { ...fresh, lines: fresh.lines.map((l) => ({ ...l, qty: clampReturnQty(wanted.get(l.saleItemId) ?? 0, l) })) };
+  // والوحدة المختارة محفوظةٌ معها: كميةٌ كُتبت بالحبّة لا تُقرأ كراتين بعد التحديث
+  const wanted = new Map(prev.lines.map((l) => [l.saleItemId, l]));
+  return {
+    ...fresh,
+    lines: fresh.lines.map((l) => {
+      const w = wanted.get(l.saleItemId);
+      return withReturnUnit({ ...l, qty: w?.qty ?? 0 }, w ? w.retUnitId : l.retUnitId);
+    }),
+  };
 }
 
 /** مدخلات المحرّك للمرتجع المرتبط — هي حرفياً ما يقرؤه الخادم من بنود الطلب (انظر رأس الملف) */
-function linkedCalcInputs(lines: LinkedReturnLine[]) {
-  return lines.map((l) => ({ qty: num(l.qty), unitPrice: num(l.refundUnitPrice), discountPct: 0, taxPct: num(l.taxPct) }));
+function linkedCalcInputs(lines: LinkedReturnLine[], decimals: number) {
+  return lines.map((l) => ({ qty: num(l.qty), unitPrice: linkedUnitPrice(l, decimals), discountPct: 0, taxPct: num(l.taxPct) }));
 }
 
 export interface LinkedReturnTotals {
@@ -180,7 +326,7 @@ export interface LinkedReturnTotals {
  */
 export function linkedReturnTotals(lines: LinkedReturnLine[], decimals: number, companyVat = 15): LinkedReturnTotals {
   const active = activeLinkedLines(lines);
-  const calc = computeInvoiceTotals(linkedCalcInputs(active), {
+  const calc = computeInvoiceTotals(linkedCalcInputs(active, decimals), {
     companyVat, decimals, invoiceDiscountPct: 0, pricesIncludeTax: true,
   });
   const lineTotals: Record<string, number> = {};
@@ -195,6 +341,8 @@ export interface FreeReturnLine {
   unitPrice: number;
   discountPct: number;
   taxPct: number;
+  /** وحدة البند (الوحدات المتعددة) — غائبة ⇒ الأساس. السعر والكمية بها */
+  unitId?: string | null;
 }
 
 export interface ReturnHead {
@@ -213,7 +361,7 @@ export interface ReturnHead {
  * جسم المرتجع المرتبط بفاتورة بيع. لا deliveryDate ولا خطة سداد (المخطط يرفض التقسيط مع المرتجع)، ولا clientCreatedAt
  * (بلا clientRef في المرحلة الثانية = 426)، ولا returnToStock (الخادم يشتقّه من السبب وسياسة الأصناف).
  */
-export function buildLinkedReturnPayload(head: ReturnHead, sale: LinkedSale): Record<string, unknown> {
+export function buildLinkedReturnPayload(head: ReturnHead, sale: LinkedSale, decimals = 2): Record<string, unknown> {
   return {
     customerId: head.customerId,
     salesRepId: head.salesRepId,
@@ -230,7 +378,9 @@ export function buildLinkedReturnPayload(head: ReturnHead, sale: LinkedSale): Re
       productId: l.productId,
       invoiceItemId: l.saleItemId,
       qty: num(l.qty),
-      unitPrice: num(l.refundUnitPrice),
+      // وحدة المرتجع (حبّةٌ من كرتون): يحلّها الخادم بمعرّفها ويقارن المتاح بالأساس. وحدة الأساس ⇒ لا حقل (كما قبل الميزة)
+      ...(l.retUnitId && { unitId: l.retUnitId }),
+      unitPrice: linkedUnitPrice(l, decimals),
       discountPct: 0,
       taxPct: num(l.taxPct),
     })),
@@ -250,6 +400,8 @@ export function buildFreeReturnPayload(head: ReturnHead, lines: FreeReturnLine[]
     ...(head.phase2 && { noteReason: (head.noteReason ?? '').trim() }),
     items: lines.map((l) => ({
       productId: l.productId, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct,
+      // بلا وحدة يدخل المرتجع السيارة بالأساس: «٢» كرتونان تصير حبّتين
+      ...(l.unitId && { unitId: l.unitId }),
     })),
   };
 }
@@ -337,6 +489,8 @@ export interface DocLineSource {
   productId: string;
   name: string;
   unit?: string;
+  /** وحدة الأساس للصنف — لبند ردٍّ بوحدة الأساس حين يكون `unit` وحدةَ بيعٍ أكبر */
+  baseUnit?: string;
   saleItemId?: string | null;
   shelfLife?: boolean;
   expiresAt?: string | null;
@@ -347,6 +501,8 @@ export interface DocLineSource {
 export interface ReturnDocItem {
   name: string;
   unit?: string;
+  /** معامل وحدة البند (≠١ ⇒ الوحدة تُطبع ولو أخفاها القالب) */
+  unitFactor?: number;
   qty: number;
   unitPrice: number;
   discountPct: number;
@@ -369,9 +525,14 @@ export function returnDocItems(items: unknown, sources: DocLineSource[]): Return
     const productId = String(it.productId ?? '');
     const src = (saleItemId ? sources.find((s) => s.saleItemId === saleItemId) : undefined)
       ?? sources.find((s) => s.productId === productId);
+    /* الوحدة من لقطة بند الردّ أولاً: «٥ (كرتون)» على مرتجع ٥ حبّات خطأٌ ٢٤ ضعفاً على ورقةٍ بيد العميل.
+     * وبندٌ بوحدة الأساس (بلا اسم، معامل ١) يأخذ اسم الأساس، ثم ما عرفه المصدر (ردٌّ من خادمٍ قبل الميزة) */
+    const snapName = typeof it.unitName === 'string' && it.unitName.trim() ? it.unitName.trim() : null;
+    const atBase = !snapName && it.unitFactor != null && factorOf({ unitFactor: Number(it.unitFactor) }) === 1;
     const out: ReturnDocItem = {
       name: src?.name ?? '-',
-      unit: src?.unit,
+      unit: snapName ?? (atBase ? src?.baseUnit ?? src?.unit : src?.unit),
+      ...(it.unitFactor != null && factorOf({ unitFactor: Number(it.unitFactor) }) !== 1 && { unitFactor: factorOf({ unitFactor: Number(it.unitFactor) }) }),
       qty: num(it.qty),
       unitPrice: num(it.unitPrice),
       discountPct: num(it.discountPct),

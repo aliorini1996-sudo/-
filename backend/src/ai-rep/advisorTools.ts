@@ -4,10 +4,13 @@
  * ما يراه النموذج: مراجع معتمة (P1…)، ونوع المحل، والمسافة، والتوقّعات المجمّعة (≥٥ محلات)، وأسماء منتجات الشركة.
  * ما لا يراه أبداً: أسماء المحلات من Google وعناوينها، وإحداثيات المندوب أو المحلات، وأسماء العملاء وبياناتهم.
  * أوصاف الأدوات بالإنجليزية (أدقّ في اختيار الأداة وتعبئة وسائطها)، والتعليمات والرد بالعربية.
+ * الكميات **بوحدة الأساس** (`unit`)؛ والصنف ذو الوحدات يحمل أحجامها (`unit_sizes`: «كرتون = 24 حبة») ونصّ الطلب
+ * التجريبي بها (`trial_order_text`) — فيقول النموذج «٢ كرتون» من أرقامٍ في مدخله لا يرفضها حارس الأرقام.
  */
 import { z } from 'zod';
 import type { AdvisorTool, ToolOutput } from './advisor';
 import { estimateOutlet, haversineKm, EstimateResult } from './estimate';
+import { qtyText, unitSizes, type QtyUnit } from './baseQty';
 import type { TenantEstimateData } from './estimateData';
 import { outletTypeLabel, isOutletType, OUTLET_TYPE_CODES } from './taxonomy';
 import { HOUR_BAND_LABEL_AR, OBJECTION_LABEL_AR } from './learn/labels';
@@ -111,6 +114,10 @@ function learnedHints(ctx: AdvisorCtx, o: OutletCtx): Record<string, string> {
   return out;
 }
 
+/** أحجام وحدات الصنف للنموذج — حقلٌ يغيب لصنفٍ بوحدة واحدة فلا يتغيّر مدخله. */
+const sizesOf = (p: { unit: string; units?: QtyUnit[] }): { unit_sizes?: string[] } =>
+  (p.units?.length ? { unit_sizes: unitSizes(p.units, p.unit) } : {});
+
 function outletBrief(ctx: AdvisorCtx, o: OutletCtx) {
   const e = estimateFor(ctx, o);
   return {
@@ -127,7 +134,7 @@ function outletBrief(ctx: AdvisorCtx, o: OutletCtx) {
           similar_outlets: e.peers,
           ...(ctx.showMoney && e.monthlyTotalValue && { expected_monthly_value: e.monthlyTotalValue }),
           top_products: e.products.filter(p => (p.buyers ?? 0) > 0 && p.penetration != null).slice(0, 3).map(p => ({
-            product: p.name, unit: p.unit, bought_by_pct: Math.round((p.penetration ?? 0) * 100), monthly_qty_median: p.monthlyQty?.median ?? null,
+            product: p.name, unit: p.unit, ...sizesOf(p), bought_by_pct: Math.round((p.penetration ?? 0) * 100), monthly_qty_median: p.monthlyQty?.median ?? null,
           })),
         }
       : { insufficient_data: true, similar_outlets_found: e.eligiblePeers, needed: e.minPeers },
@@ -181,15 +188,16 @@ export function buildAdvisorTools(ctx: AdvisorCtx): Record<string, AdvisorTool> 
         const e = estimateFor(ctx, o);
         if (!e.ok) return { data: { ref: o.ref, insufficient_data: true, reason: e.why }, summaryAr: e.why, refs: [o.ref] };
         const products = e.products.slice(0, 15).map(pr => ({
-          product: pr.name, unit: pr.unit, priority: pr.priority,
+          product: pr.name, unit: pr.unit, ...sizesOf(pr), priority: pr.priority,
           // الصنف المحجوب لقلّة مشتريه: لا عدد ولا نسبة (حدّ الخصوصية)
           ...(pr.buyers != null && { bought_by: `${pr.buyers}/${pr.peers}` }),
           monthly_qty: pr.monthlyQty, first_order_qty: pr.firstOrderQty, trial_order_qty: pr.trialQty,
+          ...(!!pr.units?.length && pr.trialQty != null && { trial_order_text: qtyText(pr.trialQty, pr.units, pr.unit) }),
           ...(pr.trialCalibrated && { trial_calibrated: true }),
           ...(ctx.showMoney && pr.monthlyValue && { monthly_value: pr.monthlyValue }),
           note: pr.hidden === 'FEW_BUYERS' ? `fewer than ${ctx.minPeers} buyers — no quantity` : pr.hidden === 'DOMINANT' ? 'one buyer dominates — no reliable quantity' : undefined,
         }));
-        const trial = e.products.filter(pr => pr.trialQty).map(pr => `${pr.name}: ${pr.trialQty} ${pr.unit}`).join('، ');
+        const trial = e.products.filter(pr => pr.trialQty).map(pr => `${pr.name}: ${qtyText(pr.trialQty!, pr.units, pr.unit)}`).join('، ');
         return {
           data: {
             ref: o.ref, type: outletTypeLabel(o.outletType), confidence: e.confidence, similar_outlets: e.peers, ring_km: e.ringKm,
@@ -244,7 +252,7 @@ export function buildAdvisorTools(ctx: AdvisorCtx): Record<string, AdvisorTool> 
         if (!p.success) return { error: 'query must be a short string' };
         const q = (p.data.query || '').trim();
         const list = ctx.data.products.filter(pr => !q || pr.name.includes(q)).slice(0, 30)
-          .map(pr => ({ product: pr.name, unit: pr.unit, priority: !!pr.priority }));
+          .map(pr => ({ product: pr.name, unit: pr.unit, ...sizesOf(pr), priority: !!pr.priority }));
         return { data: { products: list }, summaryAr: list.length ? `منتجات الشركة: ${list.slice(0, 8).map(x => x.product).join('، ')}.` : 'لا منتج مطابق.' };
       },
     },
@@ -352,10 +360,13 @@ export function orderStops<T extends { lat: number; lng: number }>(origin: { lat
   return seq;
 }
 
-/** أرقام مسموحة سلفاً: من دليل البيع وأسماء المنتجات ووحداتها («مياه ٣٣٠ مل»، «آجل ٣٠ يوماً»). */
+/**
+ * أرقام مسموحة سلفاً: من دليل البيع وأسماء المنتجات ووحداتها («مياه ٣٣٠ مل»، «آجل ٣٠ يوماً»)، ومعاملات وحداتها
+ * («كرتون = 24 حبة») — ردٌّ يقول «الكرتون ٢٤ حبة» رقمٌ من كتالوج الشركة لا مختلَق.
+ */
 export function baseAllowedNumbers(ctx: Pick<AdvisorCtx, 'playbook' | 'data'>, numbersIn: (v: unknown, acc?: Set<number>) => Set<number>): Set<number> {
   const acc = new Set<number>();
   numbersIn(ctx.playbook ?? '', acc);
-  numbersIn(ctx.data.products.map(p => `${p.name} ${p.unit}`), acc);
+  numbersIn(ctx.data.products.map(p => [`${p.name} ${p.unit}`, ...unitSizes(p.units, p.unit)].join(' ')), acc);
   return acc;
 }

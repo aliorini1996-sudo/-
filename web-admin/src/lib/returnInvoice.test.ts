@@ -5,6 +5,7 @@ import {
   toLinkedSale, linkedSaleProblem, clampReturnQty, fillLinkedQty, activeLinkedLines, mergeRefreshedSale,
   linkedReturnTotals, buildLinkedReturnPayload, buildFreeReturnPayload, returnFormProblem, returnIssueError,
   returnDocItems, RETURN_INVOICE_PHRASES, RETURN_REASONS, type LinkedSale, type ReturnHead,
+  returnUnitChoices, withReturnUnit, linkedRefundAmount,
 } from './returnInvoice';
 import { computeInvoiceTotals } from '../rep/invoiceCalc';
 import { PHRASES } from '../i18n/strings';
@@ -237,4 +238,106 @@ test('المرتجع: يُطبع مرتجعاً من ردّ الخادم، و202
   assert.match(modal, /setSelectedCustomer\(\(customers \|\| \[\]\)\.find\(c => c\.id === v\) \|\| null\); unlinkSale\(\);/);
   // مفتاح صفّ البند المرتبط بند البيع لا الصنف
   assert.match(modal, /<tr key=\{l\.saleItemId\}/);
+});
+
+// ═══ الوحدات المتعددة: بيعٌ بالكرتون (٢٤ حبة) ومرتجعٌ بالحبّة — عقد /returnable في DESIGN.md ═══
+// الخادم بالوحدات يرسل الحقول القديمة بالأساس (لعميلٍ لا يعرف الوحدات) ومعها لقطة وحدة البيع ووحدات الصنف.
+const ctnUnits = [
+  { id: 'u-pack', name: 'شدّة', factor: 6, price: null, isActive: true },
+  { id: 'u-ctn', name: 'كرتون', factor: 24, price: null, isActive: true },
+  { id: 'u-box', name: 'صندوق', factor: 48, price: null, isActive: true },
+];
+const ctnLine = (over: Record<string, unknown> = {}) => ({
+  saleItemId: 'si-w', productId: 'p-w', name: 'ماء', code: 'W1', unit: 'حبة', taxPct: 15, shelfLife: false, expiresAt: null, expiredToday: null, returnBlocked: null,
+  // كرتونان بـ٢٣٫٠٠ أُرجعت منهما حبّةٌ سابقاً
+  sold: 48, returned: 1, returnable: 47, refundUnitPrice: 0.4792, qty: 2,
+  unitName: 'كرتون', unitFactor: 24, soldBase: 48, returnedBase: 1, returnableBase: 47, lineTotal: 23, refundPerBase: 23 / 48,
+  product: { unit: 'حبة', units: ctnUnits },
+  ...over,
+});
+const ctnSale = (over: Record<string, unknown> = {}) => toLinkedSale({ id: 'sale-9', number: 'INV-9', invoiceDate: '2026-10-20', lines: [ctnLine(over)] });
+
+test('بند كرتون: المرتجع بوحدة البيع افتراضاً، والجدول متّسق بها (المبيع والمتاح وسعر الاسترداد للكرتون)', () => {
+  const [l] = ctnSale().lines;
+  assert.deepEqual([l.retUnitId, l.unit, l.baseUnit, l.saleUnitName, l.saleUnitFactor], ['u-ctn', 'كرتون', 'حبة', 'كرتون', 24]);
+  assert.deepEqual([l.soldBase, l.returnedBase, l.returnableBase], [48, 1, 47]);
+  assert.equal(l.sold, 2);
+  assert.equal(l.returnable, 1.958333, 'المتاح بالكرتون بعد إرجاع حبّة');
+  assert.equal(l.refundUnitPrice, 11.5, 'سعر استرداد الكرتون من حصّة الحبّة × ٢٤ لا ٠٫٤٧٩٢');
+  // وحدات الإرجاع: ما لا يزيد على وحدة البيع — لا «صندوق» من بند كرتون
+  assert.deepEqual(returnUnitChoices(l).map(c => c.id), [null, 'u-pack', 'u-ctn']);
+  // وصنفٌ بلا وحدات من خادمٍ بالوحدات: أرقامه كما قبل الميزة حرفياً
+  const [one] = toLinkedSale({ id: 's', number: 'n', invoiceDate: 'd', lines: [ctnLine({
+    unit: 'كرتون', unitName: null, unitFactor: 1, sold: 3, returned: 0, returnable: 3, soldBase: 3, returnedBase: 0, returnableBase: 3,
+    lineTotal: 310.5, refundPerBase: 103.5, refundUnitPrice: 103.5, product: { unit: 'كرتون', units: [] },
+  })] }).lines;
+  assert.deepEqual([one.retUnitId, one.unit, one.sold, one.returnable, one.refundUnitPrice], [null, 'كرتون', 3, 3, 103.5]);
+  assert.deepEqual(returnUnitChoices(one).map(c => c.id), [null]);
+});
+
+test('«إرجاع كامل المتاح»: بوحدة البند إن انقسم المتاح عليها، وإلا بالأساس — لا «١٫٩٥٨ كرتون»', () => {
+  const [part] = fillLinkedQty(ctnSale().lines, true);
+  assert.deepEqual([part.retUnitId, part.unit, part.qty], [null, 'حبة', 47]);
+  const [whole] = fillLinkedQty(ctnSale({ returned: 0, returnable: 48, returnedBase: 0, returnableBase: 48 }).lines, true);
+  assert.deepEqual([whole.retUnitId, whole.qty], ['u-ctn', 2]);
+});
+
+test('تبديل وحدة المرتجع: الرقم يبقى ويُقصّ على المتاح بالوحدة الجديدة، والتحديث بعد التعارض يحفظ الوحدة', () => {
+  const [l] = ctnSale().lines;
+  const pcs = withReturnUnit({ ...l, qty: 2 }, null);
+  assert.deepEqual([pcs.unit, pcs.qty, pcs.returnable, pcs.refundUnitPrice], ['حبة', 2, 47, 0.4792]);
+  const back = withReturnUnit({ ...pcs, qty: 30 }, 'u-ctn');
+  assert.equal(back.qty, 1.958333, 'ثلاثون كرتوناً تُقصّ على المتاح');
+  assert.equal(back.refundUnitPrice, 11.5);
+  assert.equal(withReturnUnit(l, 'u-box').retUnitId, null, 'وحدةٌ أكبر من وحدة البيع لا تُختار');
+  const merged = mergeRefreshedSale({ ...ctnSale(), lines: [{ ...pcs, qty: 5 }] }, ctnSale());
+  assert.deepEqual([merged.lines[0].retUnitId, merged.lines[0].qty], [null, 5], 'خمس حبّات لا تُقرأ خمسة كراتين');
+});
+
+test('مبلغ الاسترداد = refundAmount من بند البيع: ٢٤ حبّة فرادى = قيمة الكرتون تماماً، والدينار بخاناته الثلاث', () => {
+  const fresh = (lineTotal: number) => ctnSale({
+    lineTotal, refundPerBase: lineTotal / 24, soldBase: 24, sold: 24, returned: 0, returnable: 24, returnedBase: 0, returnableBase: 24,
+  }).lines[0];
+  for (const [total, dec] of [[10, 2], [1.234, 3], [7, 0]] as const) {
+    const l = withReturnUnit(fresh(total), null);
+    let sum = 0;
+    for (let k = 0; k < 24; k++) sum += linkedRefundAmount({ ...l, qty: 1, returnedBase: k }, dec)!;
+    assert.equal(Number(sum.toFixed(dec)), total, 'مجموع ٢٤ حبّة بخانات ' + dec);
+  }
+  const l = withReturnUnit(fresh(10), null);
+  assert.equal(linkedRefundAmount({ ...l, qty: 5 }), 2.08);
+  assert.equal(linkedRefundAmount({ ...l, qty: 0 }), 0);
+  // والمحرّك يعيد المبلغ نفسه من السعر المشتقّ بلا تقريب
+  assert.equal(linkedReturnTotals([{ ...l, qty: 5 }], 2).total, 2.08);
+  // خادمٌ قبل الميزة (بلا إجمالي البند): السعر للوحدة كما كان
+  assert.equal(linkedRefundAmount({ ...toLinkedSale(dto).lines[0], qty: 1 }), null);
+});
+
+test('جسم المرتجع المرتبط بالوحدات: unitId لوحدة غير الأساس، والسعر مبلغ الاسترداد ÷ الكمية — والمعاينة = محرّك الجسم', () => {
+  const [l] = ctnSale().lines;
+  const sale = { ...ctnSale(), lines: [{ ...withReturnUnit(l, null), qty: 5 }] };
+  const body = buildLinkedReturnPayload(head(), sale) as { items: Record<string, unknown>[] };
+  assert.ok(!('unitId' in body.items[0]), 'وحدة الأساس بلا حقل');
+  assert.equal(body.items[0].qty, 5);
+  const ctn = buildLinkedReturnPayload(head(), { ...sale, lines: [{ ...l, qty: 1 }] }) as { items: Record<string, unknown>[] };
+  assert.equal(ctn.items[0].unitId, 'u-ctn');
+  for (const dec of [2, 3]) {
+    const b = buildLinkedReturnPayload(head(), sale, dec) as { items: { qty: number; unitPrice: number; discountPct: number; taxPct: number }[] };
+    const engine = computeInvoiceTotals(b.items, { companyVat: 15, decimals: dec, invoiceDiscountPct: 0, pricesIncludeTax: true });
+    assert.equal(engine.total, linkedReturnTotals(sale.lines, dec).total, 'الجسم والمعاينة بخانات ' + dec);
+  }
+  // المرتجع الحرّ يحمل وحدة بنده
+  const free = buildFreeReturnPayload(head(), [{ productId: 'p-w', qty: 2, unitPrice: 10, discountPct: 0, taxPct: 15, unitId: 'u-ctn' }], 0) as { items: Record<string, unknown>[] };
+  assert.equal(free.items[0].unitId, 'u-ctn');
+});
+
+test('ورقة المرتجع: وحدة البند من لقطة الردّ، وبند الأساس باسم الأساس لا بوحدة البيع', () => {
+  const src = [{ productId: 'p-w', name: 'ماء', unit: 'كرتون', baseUnit: 'حبة', saleItemId: 'si-w' }];
+  const items = returnDocItems([
+    { productId: 'p-w', returnOfItemId: 'si-w', unitName: 'كرتون', unitFactor: 24, qty: 1, unitPrice: 11.5, discountPct: 0, taxPct: 15, lineTotal: 11.5 },
+    { productId: 'p-w', returnOfItemId: 'si-w', unitName: null, unitFactor: 1, qty: 5, unitPrice: 0.48, discountPct: 0, taxPct: 15, lineTotal: 2.4 },
+    // ردٌّ من خادمٍ قبل الميزة: وحدة المصدر كما كانت
+    { productId: 'p-w', returnOfItemId: 'si-w', qty: 1, unitPrice: 1, discountPct: 0, taxPct: 15, lineTotal: 1 },
+  ], src);
+  assert.deepEqual(items.map(i => [i.unit, i.unitFactor]), [['كرتون', 24], ['حبة', undefined], ['كرتون', undefined]]);
 });

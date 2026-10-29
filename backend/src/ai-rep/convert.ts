@@ -15,7 +15,7 @@ import { loadEstimateData } from './estimateData';
 import { settingsView, AiRepSettingsView } from './settings';
 import { isOutletType, outletTypeLabel } from './taxonomy';
 import { getLearned } from './learn/store';
-import { resolveTuning } from './learn/calibration';
+import { QTY_BASIS, resolveTuning } from './learn/calibration';
 import { gsigSnapshotData } from './learn/gsig';
 import { takeShownExpected } from './session';
 
@@ -74,11 +74,14 @@ export async function linkConvertedCustomer(
       ringKm: r.ringKm, peers: r.peers, confidence: r.confidence, windowFrom: r.window.from, windowTo: r.window.to,
       calibrationVersion: r.calibrationVersion ?? null,
       payload: {
-        v: 2,
+        // v3: الكميات بوحدة الأساس، ووحدة أساس كل صنف لحظة اللقطة — حلقة التعلّم تقارنها بوحدته لحظة التقييم
+        // فلا تُقارن لقطةٌ بالكرتون بأول طلبٍ صار بالحبّة بعد تحويل الأساس (learn/calibration.ts sameQtyBasis)
+        v: 3,
+        qtyBasis: QTY_BASIS,
         calibrationVersion: r.calibrationVersion ?? null,
         monthlyTotalValue: r.monthlyTotalValue,
         products: r.products.map(p => ({
-          productId: p.productId, penetration: p.penetration, monthlyQty: p.monthlyQty, firstOrderQty: p.firstOrderQty,
+          productId: p.productId, unit: p.unit, penetration: p.penetration, monthlyQty: p.monthlyQty, firstOrderQty: p.firstOrderQty,
           trialQtyRaw: p.trialQtyRaw, trialQty: p.trialQty, confidence: p.confidence,
         })),
       } as object,

@@ -146,7 +146,7 @@ async function call(method: 'POST' | 'GET' | 'PATCH', url: string, o: { body?: u
 // ═══ العُدّة ═══
 
 const PRODUCT_ROWS = PRODUCTS.map(p => ({
-  id: p.id, name: p.name, basePrice: 1000, taxPct: null, damagedReturnToStock: true, priceTiers: [],
+  id: p.id, name: p.name, unit: 'حبة', basePrice: 1000, taxPct: null, damagedReturnToStock: true, priceTiers: [],
   vatCategory: p.vatCategory ?? null, vatExemptionCode: p.vatExemptionCode ?? null, vatExemptionReason: p.vatExemptionReason ?? null,
 }));
 
@@ -161,7 +161,10 @@ function dbRow(o: NoteOriginalInvoice): Record<string, unknown> {
     type: o.type, paymentPlan: o.paymentPlan, zatcaPhase: o.zatcaPhase, documentKind: o.documentKind,
     invoiceSubtype: o.invoiceSubtype, einvoiceStatus: o.einvoiceStatus, pricesIncludeTax: o.pricesIncludeTax,
     discountPct: o.discountPct, total: o.total, paidAmt: o.paidAmt, remainingAmt: o.remainingAmt, einvoiceSnapshot: null,
-    items: o.items.map(i => ({ ...i, product: { name: i.itemName, damagedReturnToStock: i.damagedReturnToStock } })),
+    // الصنف كما يقرؤه المحمّل: اسمه ووحدة أساسه ووحداته (الوحدات المتعددة)
+    items: o.items.map(i => ({
+      ...i, product: { name: i.itemName, unit: i.baseUnitName ?? 'حبة', damagedReturnToStock: i.damagedReturnToStock, units: i.units ?? [] },
+    })),
   };
 }
 
@@ -199,7 +202,8 @@ function txAdapter(rig: Rig): Record<string, unknown> {
       if (data.documentKind === 'CREDIT_NOTE') {
         rig.priorNotes.push({
           id, status: 'CONFIRMED', documentKind: 'CREDIT_NOTE', total: num(data.total), originalInvoiceId: data.originalInvoiceId,
-          items: (nested?.create ?? []).map(i => ({ creditedItemId: i.creditedItemId, qty: num(i.qty) })),
+          // بلقطة الوحدة كما يقرؤها loadPriorNotes من القاعدة (حبّةٌ من كرتون تُنقص حبّة)
+          items: (nested?.create ?? []).map(i => ({ creditedItemId: i.creditedItemId, qty: num(i.qty), unitFactor: i.unitFactor ?? null, baseQty: i.baseQty ?? null })),
         });
       }
       rig.h.docs.invoices.set(id, {
@@ -719,6 +723,76 @@ test('D3: مرتجع بأصلٍ وبند الأصل ⇒ إشعار دائن مع
   assert.equal(num(items[0].unitPrice), 45.5, 'سعر الإشعار من الطلب لا من الأصل');
   assert.equal(items[0].creditedItemId, 'it-1', 'البند لم يُطابَق ببند الأصل بالصنف');
   assert.equal(einvoiceOf(r).typeCode, '381');
+});
+
+// ═══ الوحدات المتعددة: الإشعار بوحدة الإرجاع ولقطتها، والمتاح بالأساس ═══
+
+const CARTON_UNIT = { id: 'u-ct', name: 'كرتون', factor: 24, unitCode: 'CT', isActive: true };
+
+/** أصلٌ قياسيّ معتمد ببند كرتونين (٢٤ حبة) بسعر ١٠ للكرتون. */
+function cartonOriginal(): NoteOriginalInvoice {
+  const base = originalInvoice({
+    request: {
+      type: 'CREDIT', paymentPlan: null, pricesIncludeTax: false, discountPct: 0, supplyDate: null,
+      items: [{ productId: 'p-water', qty: 2, unitPrice: 10, discountPct: 0, taxPct: 15 }],
+    },
+    subtype: '01', einvoiceStatus: 'cleared',
+  });
+  return {
+    ...base,
+    items: base.items.map(i => ({ ...i, unitCode: 'CT', unitName: 'كرتون', unitFactor: 24, baseQty: 48, units: [CARTON_UNIT], baseUnitName: 'حبة' })),
+  };
+}
+
+test('الوحدات: إشعارٌ بحبّات من بند كرتون ⇒ بنده بوحدة الأساس ولقطتها وbaseQty وسعر حصّته، والمعاينة تقول المتاح بالأساس', async () => {
+  const rig = buildRig();
+  const original = script(rig, { original: cartonOriginal() })!;
+  const r = await call('POST', `/api/invoices/${original.id}/credit-note`, { body: creditBody({ lines: [{ invoiceItemId: 'it-1', qty: 3 }] }), headers: CAPS });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const item = (noteOf(r).items as Record<string, unknown>[])[0];
+  assert.deepEqual(
+    [num(item.qty), item.unitName, num(item.unitFactor), num(item.baseQty), item.unitCode, item.creditedItemId, item.productId],
+    [3, null, 1, 3, 'PCE', 'it-1', 'p-water'],
+    'بند الإشعار لا يحمل لقطة وحدة الحبّة — مخزون السيارة يقرأ baseQty',
+  );
+  // ٣ حبّات من كرتونين بـ٢٠: حصّةٌ تراكمية ١٫٢٥ لا ٣ × سعر الكرتون
+  assert.equal(Math.round(num(item.qty) * num(item.unitPrice) * 100) / 100, 1.25);
+  const view = await call('GET', `/api/invoices/${original.id}/creditable`, { headers: CAPS });
+  assert.equal(view.status, 200, JSON.stringify(view.body));
+  const line = (view.body.data as { lines: Record<string, unknown>[] }).lines[0];
+  assert.deepEqual(
+    [num(line.soldBase), num(line.creditedBase), num(line.returnableBase), num(line.returnable), line.unitName, num(line.unitFactor), num(line.lineQty)],
+    [48, 3, 45, 45, 'كرتون', 24, 2],
+  );
+  // والباقي كلّه (FULL) بوحدة الأساس: ٤٥ حبّة تُكمل قيمة البند ولا تتجاوزه
+  const rest = await call('POST', `/api/invoices/${original.id}/credit-note`, { body: creditBody({ lines: 'FULL' }), headers: CAPS });
+  assert.equal(rest.status, 201, JSON.stringify(rest.body));
+  const restItem = (noteOf(rest).items as Record<string, unknown>[])[0];
+  assert.deepEqual([num(restItem.qty), num(restItem.unitFactor), num(restItem.baseQty)], [45, 1, 45]);
+  assert.equal(Math.round((num(noteOf(r).total) + num(noteOf(rest).total)) * 100) / 100, original.total, 'الإشعاران ≠ قيمة الأصل');
+});
+
+test('الوحدات: مرتجع المندوب بكرتون (unitId) على فاتورة مربوطة ⇒ إشعارٌ بالكرتون: لقطته ومعامله ورمزه CT و٢٤ حبّة بالأساس', async () => {
+  const rig = buildRig();
+  const original = script(rig, { original: cartonOriginal() })!;
+  scripted['product.findMany'] = (args: unknown) => {
+    const ids: string[] = (args as { where?: { id?: { in?: string[] } } }).where?.id?.in ?? [];
+    return PRODUCT_ROWS.filter(p => ids.includes(p.id)).map(p => ({ ...p, units: p.id === 'p-water' ? [CARTON_UNIT] : [] }));
+  };
+  const r = await call('POST', '/api/invoices', {
+    body: returnBody({
+      originalInvoiceId: original.id, noteReason: 'إرجاع كرتون',
+      items: [{ productId: 'p-water', invoiceItemId: 'it-1', unitId: 'u-ct', qty: 1, unitPrice: 999, discountPct: 0, taxPct: 15 }],
+    }),
+    headers: CAPS,
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const item = (noteOf(r).items as Record<string, unknown>[])[0];
+  assert.deepEqual(
+    [num(item.qty), item.unitName, num(item.unitFactor), num(item.baseQty), item.unitCode, num(item.unitPrice)],
+    [1, 'كرتون', 24, 24, 'CT', 10],
+    'الكرتون المرتجع لم يُكتب بلقطته: يعود إلى السيارة حبّةً بدل ٢٤',
+  );
 });
 
 // ═══ (٩) المرحلة الأولى كما هي ═══

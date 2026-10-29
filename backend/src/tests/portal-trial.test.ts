@@ -46,7 +46,8 @@ const union = (code: string, re: RegExp) => {
 
 test('ملف الاختبار مُدرجٌ في npm test — وإلا لم يُشغَّل شيءٌ ممّا فيه', () => {
   const pkg = JSON.parse(read('package.json')) as { scripts: { test: string } };
-  assert.match(pkg.scripts.test, /src\/tests\/portal-trial\.test\.ts/);
+  // npm test نمطٌ يشمل كل ملفات src (القائمة الصريحة تجاوزت حدّ سطر ويندوز) — أو اسم الملف صراحةً
+  assert.ok(/src\/tests\/portal-trial\.test\.ts/.test(pkg.scripts.test) || /src\/\*\*\/\*\.test\.ts/.test(pkg.scripts.test));
 });
 
 // ───────────── الحارس «بانتظار التفعيل» ─────────────

@@ -346,3 +346,38 @@ test('حارس ثابت: /setup/commit يفحص المخزون المستورد 
   assertOrder(body, ['acquirePostLock(tx, tid)', 'SELECT now()', 'guard(await settingsOf(tx), dbNow)', 'createdAt: dbNow', 'tx.importBatch.create(', 'createdAt: dbNow'], 'opening-stock dbNow');
   assert.match(body, /acknowledgeCutoverChange: body\.acknowledgeCutoverChange === true/);
 });
+
+// ═══ الوحدات المتعددة: عمود «الوحدة» في المخزون الافتتاحي ═══
+
+test('المخزون الافتتاحي بوحدة: الكرتون يحمل لقطته (والتكلفة لوحدته)، والأساس والفارغ كما كانا حرفياً، والمجهولة والموقوفة خطأ صفّ', () => {
+  const withUnits = [
+    { id: 'p1', code: 'A-1', barcode: null, name: 'أرز', taxPct: 0, unit: 'حبة', units: [{ name: 'كرتون', factor: 24, isActive: true }, { name: 'شدة', factor: 6, isActive: false }] },
+  ];
+  const { lines, errors } = resolveOpeningStockRows([
+    { productCode: 'A-1', qty: 10, unitCost: 48, unit: 'كرتون' },
+    { productCode: 'A-1', qty: 5, unitCost: 2, unit: 'حبه' },
+    { productCode: 'A-1', qty: 5, unitCost: 2 },
+    { productCode: 'A-1', qty: 5, unitCost: 2, unit: '  ' },
+    { productCode: 'A-1', qty: 2, unitCost: 12, unit: 'شدة' },
+    { productCode: 'A-1', qty: 2, unitCost: 12, unit: 'طبلية' },
+  ], openingStockProductFinder(withUnits), false);
+  assert.deepEqual(lines, [
+    { row: 2, productId: 'p1', qty: 10, unitCost: 48, unitName: 'كرتون', unitFactor: 24 },
+    { row: 3, productId: 'p1', qty: 5, unitCost: 2 },
+    { row: 4, productId: 'p1', qty: 5, unitCost: 2 },
+    { row: 5, productId: 'p1', qty: 5, unitCost: 2 },
+  ]);
+  assert.deepEqual(errors.map(e => [e.row, e.code, e.value, e.field]), [[6, 'UNIT_NOT_FOUND', 'شدة', 'unit'], [7, 'UNIT_NOT_FOUND', 'طبلية', 'unit']]);
+
+  // ملفٌّ قديم: صنفٌ بلا وحدات وعمود وحدة قياسٍ عامّ (جرد Odoo «Units») ⇒ يُتجاهل كما قبل الميزة، لا خطأ في كل صف
+  const legacy = resolveOpeningStockRows([{ productCode: 'A-1', qty: 3, unitCost: 2, unit: 'Units' }], find, false);
+  assert.deepEqual(legacy, { lines: [{ row: 2, productId: 'p1', qty: 3, unitCost: 2 }], errors: [] });
+});
+
+test('حارس ثابت: بند الجرد يُكتب بلقطة وحدته وbaseQty (unitFields)، والأصناف تُقرأ بوحداتها', () => {
+  const src = read('routes/import.ts');
+  const start = src.indexOf("router.post('/opening-stock'");
+  const body = src.slice(start, src.indexOf('\nrouter.', start + 10));
+  assert.match(body, /items: \{ create: checked\.lines\.map\(l => \(\{ productId: l\.productId, unitCost: l\.unitCost, \.\.\.unitFields\(l\.qty,/);
+  assert.match(body, /unit: true, units: \{ select: \{ name: true, factor: true, isActive: true \} \}/);
+});

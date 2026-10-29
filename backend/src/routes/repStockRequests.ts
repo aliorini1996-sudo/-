@@ -14,7 +14,9 @@ import prisma from '../config/database';
 import { authenticate, requireAccounting, requireAdminPermission, isOwnerSession, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { scopedRepRecordWhere } from '../services/adminScope';
-import { normalizeRepLines, mergeRepUpdate, applyAdminEdit, MAX_REQUEST_ITEMS, MAX_REQUEST_QTY } from '../services/repStockRequest';
+import { normalizeRepLines, mergeRepUpdate, applyAdminEdit, MAX_REQUEST_ITEMS, MAX_REQUEST_QTY, type OutLine } from '../services/repStockRequest';
+import { baseQtyOf, toBase, unitFields } from '../services/units';
+import { resolveLineUnits, UNIT_SELECT } from '../services/warehouseStock';
 
 const router = Router();
 router.use(authenticate);
@@ -41,17 +43,36 @@ const companyOnly = (req: AuthRequest, res: Response, next: NextFunction) => {
 
 const itemsSchema = z.array(z.object({
   productId: z.string().min(1).max(64),
-  qty: z.number().finite().min(0).max(MAX_REQUEST_QTY),
+  qty: z.number().finite().min(0).max(MAX_REQUEST_QTY), // بوحدة البند
+  // وحدة البند. طلب المندوب: غائبة ⇒ وحدة الأساس بمعامل ١ (سلوك ما قبل الميزة).
+  // تعديل الإدارة: غائبة (undefined) ⇒ وحدة سطر المندوب نفسه، وnull ⇒ الأساس صراحةً (services/repStockRequest applyAdminEdit)
+  unitId: z.string().max(64).nullish(),
 })).min(1).max(MAX_REQUEST_ITEMS);
 
-const ITEMS_INCLUDE = { items: { include: { product: { select: { name: true, code: true, unit: true } } } } } as const;
+/** السقف بالأساس: «١٠٠٠٠٠٠ كرتون» تعني ٢٤ مليون حبّة — خطأ إدخالٍ يمرّ من سقف الكمية الخام */
+const overCap = (lines: { qty: number; unitFactor?: number | null }[]) => lines.some((l) => toBase(l.qty, l) > MAX_REQUEST_QTY);
+const OVER_CAP = 'الكمية أكبر من الحد المسموح';
+
+/** حقول سطرٍ يُكتب: ما طلبه المندوب، والمعتمد بلقطة وحدته وكميته بالأساس */
+const fieldsOf = (l: OutLine) => ({ requestedQty: l.requestedQty, ...unitFields(l.qty, { name: l.unitName, factor: l.unitFactor }) });
+const rowOf = (l: OutLine) => ({ productId: l.productId, ...fieldsOf(l) });
+
+const ITEMS_INCLUDE = { items: { include: { product: { select: { name: true, code: true, unit: true, units: { select: UNIT_SELECT } } } } } } as const;
 type RequestWithItems = Prisma.RepStockRequestGetPayload<{ include: typeof ITEMS_INCLUDE }>;
 
+/**
+ * `unit` وحدة السطر (لقطته، وإلا وحدة الصنف) فيُقرأ «١٠» بوحدتها لا كرتوناً وهي حبّات؛ و`baseQty`/`requestedBaseQty`
+ * بوحدة الأساس `baseUnit` لمن يجمع طلبات المناديب في الطلب العام، و`units` لعرضها «X كرتون و Y حبة».
+ */
 const shape = (r: RequestWithItems) => ({
   id: r.id, status: r.status, note: r.note, createdAt: r.createdAt, updatedAt: r.updatedAt,
   decidedAt: r.decidedAt, sentRef: r.sentRef,
   items: r.items
-    .map((i) => ({ productId: i.productId, name: i.product.name, code: i.product.code, unit: i.product.unit, requestedQty: i.requestedQty, qty: i.qty }))
+    .map((i) => ({
+      productId: i.productId, name: i.product.name, code: i.product.code, unit: i.unitName ?? i.product.unit, requestedQty: i.requestedQty, qty: i.qty,
+      unitName: i.unitName, unitFactor: i.unitFactor, baseQty: baseQtyOf(i), requestedBaseQty: toBase(i.requestedQty, i),
+      baseUnit: i.product.unit, units: i.product.units,
+    }))
     .sort((a, b) => a.name.localeCompare(b.name, 'ar')),
 });
 
@@ -92,8 +113,11 @@ router.put('/mine', repOnly, async (req: AuthRequest, res: Response, next: NextF
     const tid = tenantId(req);
     const me = req.user!.id;
     const data = z.object({ note: z.string().max(300).optional(), items: itemsSchema }).parse(req.body);
-    const lines = normalizeRepLines(data.items);
+    // وحدة كل بند يحلّها الخادم (بلا unitId ⇒ الأساس)، ثم سطرٌ واحد لكل صنف (المفتاح الفريد requestId+productId)
+    const units = await resolveLineUnits(tid, data.items);
+    const lines = normalizeRepLines(data.items.map((i, idx) => ({ productId: i.productId, qty: i.qty, unitName: units[idx].name, unitFactor: units[idx].factor })));
     if (!lines.length) { res.status(400).json({ success: false, message: 'أضف صنفا وكمية صحيحة' }); return; }
+    if (overCap(lines)) { res.status(400).json({ success: false, message: OVER_CAP }); return; }
 
     const ids = lines.map((l) => l.productId);
     const valid = await prisma.product.count({ where: { id: { in: ids }, tenantId: tid, deletedAt: null } });
@@ -105,7 +129,7 @@ router.put('/mine', repOnly, async (req: AuthRequest, res: Response, next: NextF
       const cur = await tx.repStockRequest.findFirst({ where: { tenantId: tid, salesRepId: me, status: 'PENDING' }, include: { items: true } });
       if (!cur) {
         return tx.repStockRequest.create({
-          data: { tenantId: tid, salesRepId: me, note, items: { create: lines.map((l) => ({ productId: l.productId, requestedQty: l.qty, qty: l.qty })) } },
+          data: { tenantId: tid, salesRepId: me, note, items: { create: lines.map((l) => rowOf({ ...l, requestedQty: l.qty })) } },
           include: ITEMS_INCLUDE,
         });
       }
@@ -114,7 +138,7 @@ router.put('/mine', repOnly, async (req: AuthRequest, res: Response, next: NextF
       return tx.repStockRequest.update({
         where: { id: cur.id },
         // updatedAt صريحاً: هو «نسخة» الطلب التي يتحقّق منها تعديل الإدارة وإرسالها
-        data: { note, updatedAt: new Date(), items: { create: merged } },
+        data: { note, updatedAt: new Date(), items: { create: merged.map(rowOf) } },
         include: ITEMS_INCLUDE,
       });
     });
@@ -204,13 +228,22 @@ router.put('/:id', companyOnly, async (req: AuthRequest, res: Response, next: Ne
   try {
     const tid = tenantId(req);
     const data = versionSchema.extend({ items: itemsSchema }).parse(req.body);
+    // وحدة التعديل: غائبةٌ ⇒ وحدة سطر المندوب (لا تُحلّ ولا تُمرَّر)، وnull ⇒ الأساس، ومعرّفٌ ⇒ وحدته من الصنف.
+    // وحلّها قبل المعاملة: إعداد الوحدات ليس ممّا يحرسه قفل الطلبات
+    const units = await resolveLineUnits(tid, data.items);
+    const edits = data.items.map((i, idx) => ({
+      productId: i.productId, qty: i.qty,
+      ...(i.unitId !== undefined && { unitName: units[idx].name, unitFactor: units[idx].factor }),
+    }));
     const saved = await prisma.$transaction(async (tx) => {
       await lockTenant(tx, tid);
       const cur = await pendingForEdit(tx, req, tid, String(req.params.id), data.updatedAt);
-      const edit = applyAdminEdit(cur.items, data.items);
+      const edit = applyAdminEdit(cur.items, edits);
       if (!edit.ok) throw Object.assign(new Error('الصنف ليس في طلب المندوب'), { status: 400 });
+      if (overCap(edit.lines)) throw Object.assign(new Error(OVER_CAP), { status: 400 });
       for (const l of edit.lines) {
-        await tx.repStockRequestItem.update({ where: { requestId_productId: { requestId: cur.id, productId: l.productId } }, data: { qty: l.qty } });
+        // الكتابة بلقطة الوحدة كاملةً: تعديلٌ بوحدةٍ أخرى يعيد السطر إلى الأساس (طلب المندوب ومعتمد الإدارة معاً)
+        await tx.repStockRequestItem.update({ where: { requestId_productId: { requestId: cur.id, productId: l.productId } }, data: fieldsOf(l) });
       }
       return tx.repStockRequest.update({ where: { id: cur.id }, data: { updatedAt: new Date() }, include: ITEMS_INCLUDE });
     });

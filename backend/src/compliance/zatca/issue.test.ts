@@ -16,7 +16,7 @@ import { DocumentBytesError } from './documentStore';
 import { ZatcaHttpError, toZatcaHttpError } from './errors';
 import {
   PHASE2_UNIT_CODE, PLACEHOLDER_INVOICE_NUMBER, amountsFingerprintOf, buildInvoiceSource, classifyIssuanceUniqueViolation, currencyAllowed, effectiveIssuanceCurrency,
-  issuanceHttpError, issuanceSubtype, mapAndCheck, nextNumberAfter, phase2InvoiceColumns, phase2ItemColumns, phase2NumberPrefix, prepareIssuance,
+  issuanceHttpError, issuanceSubtype, mapAndCheck, nextNumberAfter, phase2InvoiceColumns, phase2ItemColumns, phase2NumberPrefix, phase2UnitCode, prepareIssuance,
   signedInvoiceMirror, snapshotOf, storedAmounts, supplyDateIssues, supplyDateLowerBound, type EngineTotals, type IssuanceCustomer, type IssuanceRequest,
   type PrepareIssuanceInput,
 } from './issue';
@@ -72,6 +72,29 @@ test('مطابقة بايتات: طلب المدير لعيّنة Z1 القيا�
   assert.equal(src.subtype, '01');
   assert.equal(src.paymentType, 'CREDIT');
   assert.equal(src.supplyDate, '2026-09-13');
+});
+
+test('الوحدات المتعددة: رمز وحدة البند من لقطته ⇒ عيّنة Z1 القياسية حرفياً (KGM/BX)، والكمية والسعر بوحدة البند كما هما', () => {
+  const codes = ['PCE', 'KGM', 'BX'];
+  const request: IssuanceRequest = { ...REQ_STANDARD_Z1, items: REQ_STANDARD_Z1.items.map((it, i) => ({ ...it, unitCode: codes[i] })) };
+  const src = buildInvoiceSource({ ...input({ request, customer: CUSTOMERS.b2bComplete }), number: 'INV-2609-000124' });
+  assert.deepEqual(src.items.map(i => i.unitCode), codes);
+  assert.deepEqual(src.items.map(i => [i.qty, i.unitPrice]), REQ_STANDARD_Z1.items.map(i => [i.qty, i.unitPrice]));
+  assert.equal(serializeUnsigned(mapInvoiceToUbl(src, chainFor(2))), fixtureXml('standard-invoice'));
+  // والمبالغ المخزَّنة لا تتغيّر برمز الوحدة (D6): المحرّك والمستند بالوحدة نفسها
+  const withCodes = prepareIssuance(input({ request, customer: CUSTOMERS.b2bComplete }));
+  const without = prepareIssuance(input({ request: REQ_STANDARD_Z1, customer: CUSTOMERS.b2bComplete }));
+  assert.deepEqual(withCodes.amounts, without.amounts);
+  assert.deepEqual(withCodes.items.map(i => i.unitCode), codes, 'لقطة البند لا تحمل رمز وحدته');
+});
+
+test('phase2UnitCode: رمز UN/ECE بشكله (حرفان أو ثلاثة) يُطبَّع بأحرف كبيرة، والنصّ الحرّ والفارغ ⇒ PCE', () => {
+  assert.equal(phase2UnitCode('CT'), 'CT');
+  assert.equal(phase2UnitCode(' xbx '), 'XBX');
+  assert.equal(phase2UnitCode('C62'), 'C62');
+  for (const bad of ['كرتون', '', '  ', null, undefined, 'CARTON', 'C', 'C-1']) assert.equal(phase2UnitCode(bad), PHASE2_UNIT_CODE, String(bad));
+  // بندٌ بلا رمز (وحدة الأساس، أو صنفٌ بلا وحدات) ⇒ PCE كما قبل الميزة حرفياً
+  assert.deepEqual(buildInvoiceSource(input()).items.map(i => i.unitCode), [PHASE2_UNIT_CODE, PHASE2_UNIT_CODE]);
 });
 
 test('طرق الدفع: CASH ⇒ 10، CREDIT ⇒ 30، خطة أقساط ⇒ INSTALLMENT (30)؛ RETURN ⇒ 422 يلزم الأصل؛ الإشعار بطريقة دفع أصله', () => {

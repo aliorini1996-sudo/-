@@ -30,10 +30,11 @@ import {
   creditableLines, effectiveCreditScope, hasCreditableQty, noteEligibility, noteInvoiceColumns, noteItemColumns, noteNumberPrefix,
   noteRefusalError, prepareCreditNote, prepareDebitNote, creditNoteLegacyColumns, creditedTotalOf, debitNoteLegacyColumns,
   remainingAfterCreditNote, resolveReturnToStock, stampNoteInTx,
-  type CreditLinesRequest, type CreditScope, type CreditableLine, type DebitNoteLineInput, type LegacyReturnQty,
+  type CreditLineRequest, type CreditLinesRequest, type CreditScope, type CreditableLine, type DebitNoteLineInput, type LegacyReturnQty,
   type NoteEligible, type NoteKind, type NoteOriginalInvoice, type NoteOriginalItem, type PreparedNote, type PriorNote,
 } from '../compliance/zatca/notes';
 import { resolveInvoiceRegime } from '../compliance/zatca/regime';
+import { unitFields } from '../services/units';
 import {
   capsGate, clearStandardInline, einvoiceView, isReplayRequest, regimeSettingsOf,
   type ClientCapsHeaders, type EinvoiceView, type Phase2IssuanceDeps, type Phase2LedgerHooks, type Phase2Result, type Phase2Tx,
@@ -63,7 +64,14 @@ export type NoteDb = Pick<PrismaClient, 'invoice'>;
 const ORIGINAL_ITEM_SELECT = {
   id: true, productId: true, seq: true, itemName: true, unitCode: true, qty: true, unitPrice: true, discountPct: true,
   taxPct: true, vatCategory: true, vatExemptionCode: true, vatExemptionReason: true,
-  product: { select: { name: true, damagedReturnToStock: true } },
+  // الوحدات المتعددة: لقطة وحدة البند المباع (المتاح بالأساس)، ووحدات الصنف لحلّ وحدة الإرجاع بمعرّفها
+  unitName: true, unitFactor: true, baseQty: true,
+  product: {
+    select: {
+      name: true, unit: true, damagedReturnToStock: true,
+      units: { select: { id: true, name: true, factor: true, unitCode: true, isActive: true }, orderBy: [{ sortOrder: 'asc' }, { factor: 'asc' }] },
+    },
+  },
 } satisfies Prisma.InvoiceItemSelect;
 
 const ORIGINAL_SELECT = {
@@ -104,6 +112,11 @@ function originalOf(row: OriginalRow): LoadedOriginal {
     vatExemptionCode: it.vatExemptionCode,
     vatExemptionReason: it.vatExemptionReason,
     damagedReturnToStock: it.product?.damagedReturnToStock ?? null,
+    unitName: it.unitName ?? null,
+    unitFactor: it.unitFactor == null ? null : Number(it.unitFactor),
+    baseQty: it.baseQty == null ? null : Number(it.baseQty),
+    units: (it.product?.units ?? []).map(u => ({ id: u.id, name: u.name, factor: Number(u.factor), unitCode: u.unitCode, isActive: u.isActive })),
+    baseUnitName: it.product?.unit ?? null,
   }));
   return {
     original: {
@@ -138,11 +151,18 @@ export async function lockNoteOriginal(tx: Phase2Tx, tenantId: string, invoiceId
 export async function loadPriorNotes(db: NoteDb, tenantId: string, originalInvoiceId: string): Promise<PriorNote[]> {
   const rows = await db.invoice.findMany({
     where: { tenantId, originalInvoiceId, status: 'CONFIRMED' },
-    select: { id: true, status: true, documentKind: true, total: true, items: { select: { creditedItemId: true, qty: true } } },
+    select: {
+      id: true, status: true, documentKind: true, total: true,
+      items: { select: { creditedItemId: true, qty: true, unitFactor: true, baseQty: true } },
+    },
   });
   return rows.map(r => ({
     id: r.id, status: r.status, documentKind: r.documentKind, total: Number(r.total),
-    items: r.items.map(i => ({ creditedItemId: i.creditedItemId, qty: Number(i.qty) })),
+    // بلقطة الوحدة: إشعارٌ سابق بالحبة على بند كرتون يُنقص المتاح حبّةً (creditableLines يجمع بالأساس)
+    items: r.items.map(i => ({
+      creditedItemId: i.creditedItemId, qty: Number(i.qty),
+      unitFactor: i.unitFactor == null ? null : Number(i.unitFactor), baseQty: i.baseQty == null ? null : Number(i.baseQty),
+    })),
   }));
 }
 
@@ -160,10 +180,18 @@ export async function loadLegacyReturns(
       tenantId, customerId, type: 'RETURN', status: 'CONFIRMED', documentKind: null, originalInvoiceId: null,
       ...(since instanceof Date ? { invoiceDate: { gte: since } } : {}),
     },
-    select: { items: { select: { productId: true, qty: true } } },
+    select: { items: { select: { productId: true, qty: true, unitFactor: true, baseQty: true } } },
   });
   const out: LegacyReturnQty[] = [];
-  for (const r of rows) for (const i of r.items) out.push({ productId: i.productId, qty: Number(i.qty) });
+  // بركة بالأساس: مرتجعٌ قديم بالكراتين لا يُخصم حبّاتٍ من الفاتورة (الصفوف القديمة معاملها ١)
+  for (const r of rows) {
+    for (const i of r.items) {
+      out.push({
+        productId: i.productId, qty: Number(i.qty),
+        unitFactor: i.unitFactor == null ? null : Number(i.unitFactor), baseQty: i.baseQty == null ? null : Number(i.baseQty),
+      });
+    }
+  }
   return out;
 }
 
@@ -267,7 +295,7 @@ export async function creditableProjection(
     total: loaded.original.total,
     remainingAmt: loaded.original.remainingAmt,
     creditedTotal: creditedTotalOf(priorNotes),
-    legacyReturnsApplied: lines.some(l => l.legacyCredited > 0),
+    legacyReturnsApplied: lines.some(l => l.legacyCreditedBase > 0),
     eligible: refusal === null,
     refusal,
     messageAr: refusal === null ? null : (noteRefusalError(refusal)?.messageAr ?? null),
@@ -295,7 +323,9 @@ export async function creditableProjection(
 export interface ReturnItemLine {
   productId?: string | null;
   invoiceItemId?: string | null;
+  /** بوحدة الإرجاع `unitId` (غائبةٌ = وحدة الأساس بمعامل ١ — عقد التصميم §6) */
   qty: number;
+  unitId?: string | null;
 }
 
 /** بنود الإشعار الدائن: 'FULL' كامل، أو قائمة ببنود الأصل، أو بنود مرتجعٍ تُحلّ إلى بنود الأصل. */
@@ -345,10 +375,12 @@ const lineIssue = (field: string, messageAr: string) => ({ rule: 'CREDIT-LINE', 
  */
 export function returnItemsToLines(items: readonly ReturnItemLine[], creditable: readonly CreditableLine[]): CreditLinesRequest {
   const issues: ReturnType<typeof lineIssue>[] = [];
-  const out: { invoiceItemId: string; qty: number }[] = [];
+  const out: CreditLineRequest[] = [];
   items.forEach((it, i) => {
+    // الوحدة تنتقل كما هي: الكمية بوحدة الإرجاع، والحارس يحوّلها إلى الأساس (notes.ts resolveCreditLines)
+    const unitId = typeof it.unitId === 'string' && it.unitId !== '' ? it.unitId : null;
     const explicit = typeof it.invoiceItemId === 'string' && it.invoiceItemId !== '' ? it.invoiceItemId : null;
-    if (explicit) { out.push({ invoiceItemId: explicit, qty: Number(it.qty) }); return; }
+    if (explicit) { out.push({ invoiceItemId: explicit, qty: Number(it.qty), unitId }); return; }
     const pid = typeof it.productId === 'string' && it.productId !== '' ? it.productId : null;
     const matches = pid ? creditable.filter(l => l.productId === pid) : [];
     if (matches.length === 0) {
@@ -359,7 +391,7 @@ export function returnItemsToLines(items: readonly ReturnItemLine[], creditable:
       issues.push(lineIssue(`items[${i}].invoiceItemId`, `الصنف «${matches[0].itemName || i + 1}» مكرَّر في الفاتورة الأصلية — حدّد بند الفاتورة المراد إرجاعه`));
       return;
     }
-    out.push({ invoiceItemId: matches[0].invoiceItemId, qty: Number(it.qty) });
+    out.push({ invoiceItemId: matches[0].invoiceItemId, qty: Number(it.qty), unitId });
   });
   if (issues.length) throw noteLinesError(issues);
   return out;
@@ -425,13 +457,18 @@ function buildNote(
 }
 
 /** أعمدة بند الإشعار القديمة (ما يكتبه المسار القديم لكل بند) — مأخوذة من ناتج المحرّك. */
-function legacyNoteItem(kind: NoteKind, line: { productId: string | null } | null, calc: {
-  qty: number; unitPrice: number; discountPct: number; discountAmt: number; taxPct: number; taxAmt: number; lineTotal: number;
-}) {
+export function legacyNoteItem(
+  kind: NoteKind, line: { productId: string | null; creditUnitName?: string | null; creditUnitFactor?: number | null } | null, calc: {
+    qty: number; unitPrice: number; discountPct: number; discountAmt: number; taxPct: number; taxAmt: number; lineTotal: number;
+  },
+) {
   return {
     // المدين بلا صنف: لا يمسّ مخزون سيارة ولا مبيعات صنف (حارس tests/debit-note-consumers-static)
     productId: kind === 'CREDIT_NOTE' ? (line?.productId ?? null) : null,
-    qty: calc.qty, unitPrice: calc.unitPrice, discountPct: calc.discountPct, discountAmt: calc.discountAmt,
+    /* لقطة وحدة الإشعار + الكمية بالأساس: مخزون السيارة والتقارير تقرأ صفّ الإشعار مرتجعاً وتجمع baseQty — فإرجاع
+     * كرتونٍ بلا لقطته يعيد إلى السيارة حبّةً بدل ٢٤. والمدين وصفٌ حرّ بوحدة الأساس (لا مخزون له أصلاً). */
+    ...unitFields(calc.qty, kind === 'CREDIT_NOTE' ? { name: line?.creditUnitName ?? null, factor: line?.creditUnitFactor ?? 1 } : null),
+    unitPrice: calc.unitPrice, discountPct: calc.discountPct, discountAmt: calc.discountAmt,
     taxPct: calc.taxPct, taxAmt: calc.taxAmt, lineTotal: calc.lineTotal,
   };
 }

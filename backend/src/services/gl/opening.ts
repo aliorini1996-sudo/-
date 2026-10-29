@@ -28,6 +28,8 @@ import { resolveTemplate } from './seed';
 import { isIncludedInOpening } from './sync/classify';
 import { LATE_COMMIT_WINDOW_MS } from './sync/types';
 import { composeWarehouse, vanKeyOf } from '../warehouseStock';
+import { unitCostPerBase } from '../warehouseCost';
+import { baseQtyOf } from '../units';
 import { IMPORT_BATCH_RUNNING, importBatchState } from '../importLedger';
 import {
   JOURNAL_CODE_BY_SYSTEM_KEY, LedgerError, createBuildContext,
@@ -199,15 +201,18 @@ export interface OpeningSettlementEntryRow {
 
 export interface OpeningWarehouseItemRow {
   productId: string;
+  /** الكمية **بوحدة الأساس** (الوحدات المتعددة) — يحوّلها المحمِّل عند حدّ القراءة (`openingWarehouseRowOf`) */
   qty: number;
   /** RECEIVE | ADJUST */
   type: string;
+  /** تكلفة **وحدة الأساس** — تكلفة وحدة الصفّ ÷ معاملها (بلا تقريب: الكمية × هذه = قيمة السطر) */
   unitCost: number | null;
   createdAt: Date;
 }
 
 export interface OpeningVanItemRow {
   productId: string;
+  /** الكمية **بوحدة الأساس** (`openingVanRowOf`) */
   qty: number;
   /** LOAD | UNLOAD | ADJUST */
   type: string;
@@ -909,6 +914,30 @@ export function templatePreviewContext(templateKey: TemplateKey, countryCode: st
 // ═══ القراءة من القاعدة ═══
 
 /**
+ * حدّ القراءة إلى الأساس (الوحدات المتعددة): صفّ وارد المستودع ← كمية بالأساس وتكلفة وحدة الأساس.
+ *
+ * `composeWarehouse`/`valueStock` تطوي وتقيّم بالأساس، فيُحوَّل الصفّ هنا عند قراءته لا داخلها — بالدالّتين نفسيهما
+ * اللتين يحوّل بهما مسار شاشة المخزون (`loadWarehouseInputs`: baseQtyOf وunitCostPerBase)، وإلا خالف القيدُ
+ * الافتتاحيّ الشاشة. والتكلفة المخزَّنة لوحدة الصفّ (كفاتورة المورّد: سعر الكرتون)، فتكلفة الأساس قسمتها على المعامل
+ * **بلا تقريب**: الكمية بالأساس × هذه = qty × unitCost للسطر نفسه، ولا يتراكم خطأ ١٠ ÷ ٢٤ مقرَّباً على آلاف الحبّات.
+ * صفٌّ بلا وحدة (معامل ١) يمرّ كما كان حرفياً.
+ */
+export function openingWarehouseRowOf(i: {
+  productId: string; qty: number; unitFactor?: number | null; baseQty?: number | null; unitCost: number | null;
+  entry: { type: string; createdAt: Date };
+}): OpeningWarehouseItemRow {
+  return { productId: i.productId, qty: baseQtyOf(i), type: i.entry.type, unitCost: unitCostPerBase(i.unitCost, i), createdAt: i.entry.createdAt };
+}
+
+/** صفّ تحميل السيارة ← كمية بالأساس. ومفتاح السيارة لا المندوب الحيّ وحده: تحميلات مندوبٍ محذوف تبقى مكدّسه المستقلّ (vanKeyOf). */
+export function openingVanRowOf(i: {
+  productId: string; qty: number; unitFactor?: number | null; baseQty?: number | null;
+  vanLoad: { type: string; createdAt: Date; salesRepId: string | null; deletedSalesRepId?: string | null };
+}): OpeningVanItemRow {
+  return { productId: i.productId, qty: baseQtyOf(i), type: i.vanLoad.type, salesRepId: vanKeyOf(i.vanLoad), createdAt: i.vanLoad.createdAt };
+}
+
+/**
  * يقرأ صفوف المصادر المرشّحة في SQL بالشرطين (الأثر < cutoverStart و createdAt ≤ snapshotAt)، ويعيد
  * computeDerivedOpening الترشيح نفسه. داخل معاملة التفعيل يُمرَّر tx فتُقرأ الصفوف بلقطتها.
  */
@@ -972,16 +1001,15 @@ export async function loadOpeningSources(db: GlDb, tenantId: string, cut: Openin
     const [wh, van] = await Promise.all([
       db.warehouseEntryItem.findMany({
         where: { entry: { tenantId, createdAt: createdWindow } },
-        select: { productId: true, qty: true, unitCost: true, entry: { select: { type: true, createdAt: true } } },
+        select: { productId: true, qty: true, unitFactor: true, baseQty: true, unitCost: true, entry: { select: { type: true, createdAt: true } } },
       }),
       db.vanLoadItem.findMany({
         where: { vanLoad: { tenantId, createdAt: createdWindow } },
-        select: { productId: true, qty: true, vanLoad: { select: { type: true, createdAt: true, salesRepId: true, deletedSalesRepId: true } } },
+        select: { productId: true, qty: true, unitFactor: true, baseQty: true, vanLoad: { select: { type: true, createdAt: true, salesRepId: true, deletedSalesRepId: true } } },
       }),
     ]);
-    warehouseItems = wh.map((i) => ({ productId: i.productId, qty: i.qty, type: i.entry.type, unitCost: i.unitCost, createdAt: i.entry.createdAt }));
-    // مفتاح السيارة لا المندوب الحيّ وحده: تحميلات مندوبٍ محذوف تبقى مكدّسه المستقلّ (vanKeyOf)
-    vanItems = van.map((i) => ({ productId: i.productId, qty: i.qty, type: i.vanLoad.type, salesRepId: vanKeyOf(i.vanLoad), createdAt: i.vanLoad.createdAt }));
+    warehouseItems = wh.map(openingWarehouseRowOf);
+    vanItems = van.map(openingVanRowOf);
   }
 
   return { accountEntries, receipts, cashInvoices, settlements, settlementEntries, warehouseItems, vanItems, customerNames, salesRepNames };
@@ -1105,7 +1133,11 @@ function emptyGroup(): OpeningStockExclusionGroup {
   return { count: 0, valueMilli: 0n as Milli, entries: [] };
 }
 
-/** قيمة الحركة = Σ toMilli(qty × unitCost) — الإرشاد لا المحرك (valueStock يقيّم في القيد) */
+/**
+ * قيمة الحركة = Σ toMilli(qty × unitCost) — الإرشاد لا المحرك (valueStock يقيّم في القيد).
+ * والكمية والتكلفة هنا خامتان **بوحدة الصفّ** معاً (كرتونان × سعر الكرتون) فحاصلهما قيمة السطر أيّاً كانت وحدته؛
+ * لا تُستبدل `qty` بالأساس هنا وإلا ضُربت الحبّات بسعر الكرتون.
+ */
 export function openingStockEntryValueMilli(items: OpeningStockEntryRow['items'], decimals: number): Milli {
   let v = 0n;
   for (const i of items) {

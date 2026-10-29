@@ -461,3 +461,22 @@ test('طريقة الدفع باسم الشركة: المضافة باسمها �
   assert.ok((await printOne(rcp('POS', null), roll)).html.includes(row('[طريقة الدفع]', 'مدى')));
   assert.ok((await printOne(rcp('CASH', null), roll)).html.includes(row('[طريقة الدفع]', '[نقدي]')));
 });
+
+test('الوحدات المتعددة: وحدة البند بغير الأساس تُطبع على القالبين الجديدين ولو أخفتها الشركة — والكلاسيكي يطبعها كما كان', async () => {
+  const multi: InvoiceDoc = {
+    ...base, number: 'INV-5120',
+    items: [
+      { name: 'ماء 330 مل', unit: 'كرتون', unitFactor: 24, qty: 2, unitPrice: 23, discountPct: 0, taxPct: 15, lineTotal: 46 },
+      { name: 'ماء 330 مل', unit: 'حبة', unitFactor: 1, multiUnit: true, qty: 3, unitPrice: 1, discountPct: 0, taxPct: 15, lineTotal: 3 },
+      { name: 'عصير برتقال', unit: 'علبة', qty: 3, unitPrice: 11.5, discountPct: 10, taxPct: 15, lineTotal: 31.05 },
+    ],
+  };
+  for (const tpl of ['roll_compact', 'roll_detailed'] as const) {
+    const f = await printOne(multi, { profile: profile(tpl, 'roll80', { showItemUnit: false }) });
+    assert.ok(f.html.includes('(كرتون)'), tpl + ': «٢» وحدها لا تقول أكرتونان أم حبّتان');
+    assert.ok(f.html.includes('(حبة)'), tpl + ': بند الأساس لصنفٍ له وحدات');
+    assert.ok(!f.html.includes('(علبة)'), tpl + ': صنفٌ بوحدةٍ واحدة يحترم خيار الشركة');
+  }
+  const classic = await printOne(multi);
+  assert.ok(classic.html.includes('ماء 330 مل <span class="muted">(كرتون)</span>') && classic.html.includes('(علبة)'));
+});

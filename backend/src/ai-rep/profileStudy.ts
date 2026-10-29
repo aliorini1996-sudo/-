@@ -203,8 +203,11 @@ export function studyInput(p: PlaceProfile, products: string[], playbook: string
   });
 }
 
-/** صنفٌ من «الطلب المتوقع» في مدخل العقل (studyExpected في googleDemand). */
-export interface StudyExpected { product: string; unit: string; qty: number; low: number; high: number; mentioned: boolean }
+/**
+ * صنفٌ من «الطلب المتوقع» في مدخل العقل (studyExpected في googleDemand). الكمية ومداها بوحدة الأساس `unit`،
+ * و`qty_text` الكمية بوحدات الصنف («٢ كرتون») لصنفٍ له وحدات — أرقامها في المدخل فيقبلها حارس الأرقام.
+ */
+export interface StudyExpected { product: string; unit: string; qty: number; qty_text?: string; low: number; high: number; mentioned: boolean }
 
 function parseJson(raw: string): unknown {
   const t = raw.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');

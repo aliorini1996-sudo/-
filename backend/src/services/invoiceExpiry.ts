@@ -17,6 +17,7 @@
  */
 import prisma from '../config/database';
 import { companyTimeZone } from './erpPayload';
+import { baseQtyOf } from './units';
 import {
   expiryDateFor, fifoBatchAt, localDateIn, purchaseExpiry, returnRuleProblem, shelfLifeBasisOf, shelfLifeOf,
   type ReturnRuleSettings, type ShelfLifeSettings,
@@ -66,28 +67,31 @@ export async function saleExpiryFor(
 /**
  * لحظة دفعة التحميل التي يُصرف منها بيعٌ في سيارة المندوب: التحميلات حتى لحظة البيع، والمصروف قبله = مبيعاته المؤكَّدة
  * السابقة من الصنف + ما نزّله للمستودع — والأقدم يُصرف أولاً (fifoBatchAt).
+ *
+ * الدفعات والمصروف كلّها **بالأساس** (الوحدات المتعددة): `_sum.qty` يجمع كراتين وحبّات رقماً واحداً فتُختار دفعةٌ
+ * خاطئة، فتاريخ انتهاءٍ خاطئ، فيدخل المرتجع الدلو الخطأ (منتهي/متاح). و`baseQty` عمودٌ يحرسه مُطلِق القاعدة.
  */
 async function vanLoadBatchAt(tenantId: string, repId: string, productId: string, invoiceId: string, saleAt: Date): Promise<Date | null> {
   const [loads, sold, unloaded] = await Promise.all([
     prisma.vanLoadItem.findMany({
       where: { productId, vanLoad: { tenantId, salesRepId: repId, type: 'LOAD', createdAt: { lte: saleAt } } },
-      select: { qty: true, vanLoad: { select: { createdAt: true } } },
+      select: { qty: true, unitFactor: true, baseQty: true, vanLoad: { select: { createdAt: true } } },
     }),
     prisma.invoiceItem.aggregate({
       where: {
         productId,
         invoice: { tenantId, salesRepId: repId, status: 'CONFIRMED', type: { not: 'RETURN' }, id: { not: invoiceId }, invoiceDate: { lt: saleAt } },
       },
-      _sum: { qty: true },
+      _sum: { baseQty: true },
     }),
     prisma.vanLoadItem.aggregate({
       where: { productId, vanLoad: { tenantId, salesRepId: repId, type: 'UNLOAD', createdAt: { lt: saleAt } } },
-      _sum: { qty: true },
+      _sum: { baseQty: true },
     }),
   ]);
   return fifoBatchAt(
-    loads.map((l) => ({ qty: Number(l.qty), at: l.vanLoad.createdAt })),
-    Number(sold._sum.qty ?? 0) + Number(unloaded._sum.qty ?? 0),
+    loads.map((l) => ({ qty: baseQtyOf(l), at: l.vanLoad.createdAt })),
+    Number(sold._sum.baseQty ?? 0) + Number(unloaded._sum.baseQty ?? 0),
   );
 }
 

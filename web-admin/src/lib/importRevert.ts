@@ -54,7 +54,8 @@ export const REVERT_CONFIRM_ENTRIES = 'ستُحذف القيود المستور�
 export const REVERT_CONFIRM_PRICES = 'ستُعاد الأسعار الخاصة إلى ما كانت عليه قبل هذه الدفعة ويُحذف ما أُنشئ فيها، والسعر الذي تغيّر بعدها يدوياً أو بدفعة أحدث يبقى كما هو';
 /** البند 17: العميل ذو القيود أو الأسعار أو المحطات يبقى ولا يُحذف بصمت */
 export const REVERT_CONFIRM_CUSTOMERS = 'سيُحذف العملاء المستوردون في هذه الدفعة، ويبقى من له فواتير أو سندات أو زيارات أو قيود في كشف الحساب أو أسعار خاصة أو محطات في خطوط السير';
-export const REVERT_CONFIRM_PRODUCTS = 'ستُحذف الأصناف المستوردة في هذه الدفعة ما لم تُستعمل في فواتير أو تحميلات أو حركات مستودع، وتبقى الفئات المربوطة بحسابات أو بمسودة الدفاتر';
+/** الوحدات المتعددة: والصنف المحذوف تُحذف وحداته معه (كرتون، شدّة) — لا تبقى وحداتٌ يتيمة */
+export const REVERT_CONFIRM_PRODUCTS = 'ستُحذف الأصناف المستوردة في هذه الدفعة مع وحداتها ما لم تُستعمل في فواتير أو تحميلات أو حركات مستودع، وتبقى الفئات المربوطة بحسابات أو بمسودة الدفاتر';
 /** نوع غير معروف (خادم أحدث): النص العام القائم */
 export const REVERT_CONFIRM_GENERIC = 'سيزال ما أضيف في هذه الدفعة نهائيا وتعاد الأرصدة إلى ما قبلها متابعة';
 
@@ -226,6 +227,9 @@ export const OPENING_STOCK_ALREADY_IMPORTED_MESSAGE = 'للصنف مخزون ا�
 export const PRODUCT_HAS_STOCK_MOVEMENTS_MESSAGE = 'للصنف حركات مستودع أو تحميل سيارات سابقة، فلا يُضاف جرده الافتتاحي فوق رصيد محسوب منها. صحّح رصيده بتسوية من شاشة المستودع';
 export const PRODUCT_CODE_ARCHIVED_MESSAGE = 'الكود مستخدم بصنف مؤرشف، استخدم كوداً مختلفاً';
 export const PRODUCT_DUPLICATE_IN_FILE_MESSAGE = 'كود الصنف مكرر في الملف ببيانات مختلفة، أضف عمود الكود أو صحّح التكرار';
+/** الوحدات المتعددة: نصّا الخادم حرفياً (IMPORT_ROW_MESSAGES) — وحدة إضافية تالفة، ووحدة مجهولة لصنفٍ بوحدات */
+export const PRODUCT_UNIT_INVALID_MESSAGE = 'وحدة إضافية غير صالحة: معاملها عدد صحيح أكبر من 1 (كم وحدة أساس فيها)، واسمها لا يتكرر ولا يساوي وحدة الأساس';
+export const UNIT_NOT_FOUND_MESSAGE = 'الوحدة غير معرّفة لهذا الصنف: اكتب وحدة الأساس أو إحدى وحداته النشطة، أو اترك خانة الوحدة فارغة لوحدة الأساس';
 
 /** الرمز ⇒ نصه الثابت (يُمرَّر عبر tr) — الرموز غير المذكورة تأخذ رسالة الخادم كما جاءت */
 const ROW_CODE_MESSAGES: Readonly<Record<string, string>> = {
@@ -237,6 +241,8 @@ const ROW_CODE_MESSAGES: Readonly<Record<string, string>> = {
   PRODUCT_HAS_STOCK_MOVEMENTS: PRODUCT_HAS_STOCK_MOVEMENTS_MESSAGE,
   PRODUCT_CODE_ARCHIVED: PRODUCT_CODE_ARCHIVED_MESSAGE,
   PRODUCT_DUPLICATE_IN_FILE: PRODUCT_DUPLICATE_IN_FILE_MESSAGE,
+  PRODUCT_UNIT_INVALID: PRODUCT_UNIT_INVALID_MESSAGE,
+  UNIT_NOT_FOUND: UNIT_NOT_FOUND_MESSAGE,
 };
 
 /** مفتاح tr لخطأ صف: الرمز المعروف بنصه الثابت (لا يتأثر بتغيّر صياغة الخادم)، وإلا رسالة الخادم */
@@ -568,6 +574,9 @@ const FIELD_LABELS: Readonly<Record<string, string>> = {
   basePrice: 'السعر', taxPct: 'نسبة الضريبة %', unit: 'الوحدة', barcode: 'باركود', category: 'الفئة', productName: 'اسم الصنف',
   debit: 'مدين', credit: 'دائن', date: 'التاريخ', description: 'البيان', amount: 'المبلغ', paid: 'المدفوع',
   residual: 'المتبقي', status: 'الحالة', price: 'السعر الخاص', productCode: 'كود الصنف', qty: 'الكمية', unitCost: 'تكلفة الوحدة',
+  // الوحدات المتعددة: أعمدة الوحدات الإضافية في ملف المنتجات، ووسم خطأ الوحدة التالفة
+  unit2: 'الوحدة الثانية', unit2Factor: 'معامل الوحدة الثانية', unit2Price: 'سعر الوحدة الثانية',
+  unit3: 'الوحدة الثالثة', unit3Factor: 'معامل الوحدة الثالثة', unit3Price: 'سعر الوحدة الثالثة', units: 'الوحدات الإضافية',
 };
 export const importFieldLabel = (field: string): string => FIELD_LABELS[field] ?? field;
 
@@ -577,9 +586,17 @@ const ROW_KEY_FALLBACKS: Readonly<Record<string, readonly string[]>> = {
   code: ['customerCode', 'productCode'],
 };
 
+/** أعمدة الوحدات الإضافية (unit2، unit3Factor…) ⇒ موضعها في units[] وخانتها — الصفّ المحوّل يحملها مصفوفةً لا مفاتيح */
+const UNIT_SLOT_FIELD = /^unit([23])(Factor|Price)?$/;
+
 /** القيمة المحوّلة لحقل في صف مرسل: undefined ⇒ '—' في العرض */
 export function previewCellValue(row: Record<string, unknown>, field: string): unknown {
   if (row[field] !== undefined) return row[field];
+  const slot = UNIT_SLOT_FIELD.exec(field);
+  if (slot && Array.isArray(row.units)) {
+    const u = (row.units as Record<string, unknown>[])[Number(slot[1]) - 2];
+    return u ? u[slot[2] === 'Factor' ? 'factor' : slot[2] === 'Price' ? 'price' : 'name'] : undefined;
+  }
   for (const k of ROW_KEY_FALLBACKS[field] ?? []) if (row[k] !== undefined) return row[k];
   return undefined;
 }

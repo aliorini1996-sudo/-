@@ -223,18 +223,28 @@ const money = (v: number): string => (Math.round(Number(v) * 100) / 100).toFixed
 
 /** حارس الكمية: بندٌ (أو بنود) طُلب إرجاع أكثر من المتاح منه ⇒ 422 باسم الصنف والمتاح — رسالة يفهمها المندوب. */
 export function creditQtyExceededError(
-  lines: ReadonlyArray<{ itemName: string; requested: number; available: number }>,
+  lines: ReadonlyArray<{
+    itemName: string; requested: number; available: number;
+    /** الوحدات المتعددة: الكميتان بالأساس أعلاه، وهنا نصّهما بالوحدات («١ كرتون و٣ حبة») — غيابهما = الأرقام كما هي */
+    requestedText?: string; availableText?: string;
+  }>,
 ): ZatcaHttpError {
   const issues: ZatcaIssue[] = lines.map((l, i) => ({
     rule: 'CREDIT-QTY',
     field: `lines[${i}].qty`,
-    messageAr: `الكمية المرتجعة للصنف «${l.itemName}» (${qty(l.requested)}) تتجاوز المتاح (${qty(l.available)})`,
+    messageAr: `الكمية المرتجعة للصنف «${l.itemName}» (${l.requestedText || qty(l.requested)}) تتجاوز المتاح (${l.availableText || qty(l.available)})`,
     severity: 'error',
   }));
   return new ZatcaHttpError('ZATCA_CREDIT_QTY_EXCEEDED', {
     messageAr: issuesSummaryAr(issues) || ZATCA_ERROR_CATALOGUE.ZATCA_CREDIT_QTY_EXCEEDED.messageAr,
     issues,
-    data: { lines: lines.map(l => ({ itemName: l.itemName, requested: l.requested, available: l.available })) },
+    data: {
+      lines: lines.map(l => ({
+        itemName: l.itemName, requested: l.requested, available: l.available,
+        ...(l.requestedText ? { requestedText: l.requestedText } : {}),
+        ...(l.availableText ? { availableText: l.availableText } : {}),
+      })),
+    },
   });
 }
 

@@ -6,9 +6,25 @@
  *   POST <الرابط> {source:'field-sales', resource, exportedAt, count, data:[صفوف بأسماء حقول Prisma]}
  * والصفوف كما في القاعدة مع حقول مشتقة صريحة حيث يلزم المستقبِل، وبلا الثقيل الذي لا يلزمه (صور المنتجات
  * ولقطة الفوترة الإلكترونية) — صورةٌ واحدة بـbase64 كانت تكفي لتجاوز سقف ١٢ ميغابايت في Odoo.
+ *
+ * ═══ الوحدات المتعددة (payloadVersion 3): بند الفاتورة بوحدة الأساس ═══
+ * القرار: كمية البند وأسعاره في الحمولة **بوحدة الأساس** (وحدة الصنف `product.unit` وسعرها `basePrice`)، والبند
+ * كما طُبع (كرتون بسعر الكرتون) في `lineUnit`. لا العكس (كمية الكرتون مع وحدة قياسٍ له في Odoo)، لثلاثة أسباب:
+ *  1. الصنف يصل Odoo بوحدةٍ واحدة (`fs_unit` نصّاً، و`list_price` = سعر الأساس)، والموصل لا يضبط وحدة قياس البند
+ *     (product_uom_id) ولا يستطيع بأمان: مطابقة وحدات Odoo بالاسم غير موثوقة بين التنصيبات واللغات، و«كرتون»
+ *     ليس وحدةً واحدة (٢٤ لصنف و١٢ لآخر). فكميةٌ بوحدة البند تُقرأ هناك «٢ حبة» لكرتونين — الكميات خطأ بالمعامل.
+ *  2. بالأساس يصحّ الموصل المثبَّت **كما هو** بلا ترقية: يقرأ qty وunitPrice/unitPriceNet فيسجّل ٤٨ حبة.
+ *  3. ولكل مستقبِلٍ عامّ: `qty` كانت دائماً «بوحدة الصنف» — وهي الأساس الآن، فلا ينقلب معناها بصمت.
+ * وسعر الأساس = سعر البند ÷ المعامل **مقرَّباً لأعلى إلى خانتين**: Odoo يقرّب السعر لخانتين، والموصل يشتقّ الخصم
+ * من مبلغ البند (lineTotal/netAmount) بالسعر المرسَل — فسعرٌ مقرَّب لأعلى يجعل الخصم المشتقّ موجباً يمتصّ الفرق
+ * (والباقي ≤ هللات يسوّيه سطر «فرق تقريب»). ولو أُرسل ٠٫٤١٦٧ لقرّبه Odoo ٠٫٤٢ بعد اشتقاق الخصم فزاد البند ٨ ريالات
+ * في ١٠٠ كرتون. والمبالغ (lineTotal وtaxAmt وnetAmount) لا تتغيّر — هي الحقيقة.
+ * بندٌ بوحدة الأساس (معامل ١، وكل بندٍ قبل الميزة): حرفياً كما كان، ومعه baseQty وlineUnit.
+ * ⚠️ تحويل وحدة أساس صنفٍ (convert-base) يجعل كمياته التاريخية في Odoo بالوحدة القديمة — لا تُعاد كتابة فاتورة مُرحَّلة.
  */
 import { netFromInclusive, roundHalfUp } from '../lib/money';
 import { resolvePaymentMethod, type PaymentMethodsConfigV1 } from './paymentMethodsCore';
+import { baseQtyOf, factorOf } from './units';
 
 export type ErpResource = 'customers' | 'products' | 'invoices' | 'receipts';
 /** ترتيب التبعية: العميل قبل فاتورته وسنده، والمنتج قبل بند فاتورته */
@@ -48,7 +64,10 @@ export function localDateIn(d: Date | string | null | undefined, timeZone: strin
 
 type Rec = Record<string, unknown>;
 
-/** المنتج بلا صورته (base64): لا يلزم المستقبِل ويُضخّم الحمولة */
+/**
+ * المنتج بلا صورته (base64): لا يلزم المستقبِل ويُضخّم الحمولة. ووحداته (`units`: الاسم والمعامل والسعر والرمز)
+ * وشرائحه كما في القاعدة — `unit` و`basePrice` لوحدة الأساس، وهما ما تُقاس به كميات بنود الفواتير وأسعارها.
+ */
 export function productPayloadRow<T extends Rec>(p: T): Omit<T, 'image'> {
   const { image: _image, ...rest } = p as T & { image?: unknown };
   void _image;
@@ -64,7 +83,55 @@ export interface ErpInvoiceItemInput extends Rec {
   taxPct: number;
   taxAmt: number;
   lineTotal: number;
+  /** الكمية بوحدة البند كما طُبعت، ولقطة وحدته (null/1 = الأساس) */
+  qty?: number;
+  unitName?: string | null;
+  unitFactor?: number | null;
+  baseQty?: number | null;
+  unitCost?: number | null;
+  unitCode?: string | null;
   product?: Rec | null;
+}
+
+/** سعرٌ مقرَّب **لأعلى** إلى خانتين — انظر رأس الملف: الخصم المشتقّ في Odoo يمتصّ الزيادة ولا يمتصّ النقص */
+export function centsUp(n: number): number {
+  if (!Number.isFinite(n)) return 0;
+  // عبر الميكرو أولاً: 10 ÷ 24 × 24 لا يصير 10.000000001 فيُرفع هللة كاذبة
+  return Math.ceil(Math.round(n * 1e6) / 1e4) / 100;
+}
+
+/**
+ * بند الفاتورة في الحمولة (payloadVersion 3) — بوحدة الأساس، والمطبوع في `lineUnit` (انظر رأس الملف).
+ * بندٌ معامله ١: حرفياً كما في الإصدار الثاني، ومعه baseQty وlineUnit فقط.
+ */
+export function invoiceItemPayloadRow(it: ErpInvoiceItemInput, incl: boolean): Rec {
+  const product = it.product ? productPayloadRow(it.product) : null;
+  const netLine = incl ? roundHalfUp(netFromInclusive(it.unitPrice, it.taxPct), 4) : it.unitPrice;
+  const netAmount = roundHalfUp(it.lineTotal - it.taxAmt, 3);
+  const f = factorOf(it);
+  const hasQty = typeof it.qty === 'number' && Number.isFinite(it.qty);
+  const base = hasQty ? baseQtyOf({ qty: it.qty, unitFactor: f, baseQty: it.baseQty }) : null;
+  const baseUnit = typeof product?.unit === 'string' ? product.unit : null;
+  const lineUnit = hasQty
+    ? { name: it.unitName ?? baseUnit, factor: f, qty: it.qty, unitPrice: it.unitPrice, unitPriceNet: netLine, unitCode: it.unitCode ?? null }
+    : undefined;
+  if (f === 1) {
+    return { ...it, product, unitPriceNet: netLine, netAmount, ...(hasQty ? { baseQty: base, lineUnit } : {}) };
+  }
+  return {
+    ...it,
+    product,
+    // الكمية ولقطتها تصف وحدة الأساس معاً — qty × unitFactor = baseQty عند كل قارئ، فلا يُضرب المعامل مرتين
+    qty: base, unitName: baseUnit, unitFactor: 1, baseQty: base,
+    // رمز الوحدة الضريبي للبند (كرتون) ليس رمز الأساس — يبقى مع البند المطبوع، ورمز الأساس رمز الصنف
+    unitCode: typeof product?.unitCode === 'string' ? product.unitCode : null,
+    unitPrice: centsUp(it.unitPrice / f),
+    unitPriceNet: centsUp((incl ? netFromInclusive(it.unitPrice, it.taxPct) : it.unitPrice) / f),
+    // تكلفة الصفّ لوحدة الصفّ ⇒ لوحدة الأساس
+    ...(typeof it.unitCost === 'number' ? { unitCost: roundHalfUp(it.unitCost / f, 6) } : {}),
+    netAmount,
+    lineUnit,
+  };
 }
 
 export interface ErpInvoiceInput extends Rec {
@@ -77,7 +144,7 @@ export interface ErpInvoiceInput extends Rec {
 }
 
 /**
- * الفاتورة كما في القاعدة مع حقول مشتقة صريحة (payloadVersion 2):
+ * الفاتورة كما في القاعدة مع حقول مشتقة صريحة (payloadVersion 3 — الثالث: البنود بوحدة الأساس، invoiceItemPayloadRow):
  *  - `unitPriceNet`: سعر الوحدة **صافياً قبل الضريبة** — المستقبِل (كأي نظام محاسبي) يحسب الضريبة فوق السعر،
  *    وفواتير تطبيق المندوب تخزّنه شاملاً.
  *  - `netAmount`: صافي البند بعد خصم البند **وحصّته من خصم الفاتورة الكلّي** قبل الضريبة (lineTotal − taxAmt).
@@ -90,17 +157,12 @@ export function invoicePayloadRow(inv: ErpInvoiceInput, timeZone: string): Rec {
   const incl = inv.pricesIncludeTax === true;
   return {
     ...rest,
-    payloadVersion: 2,
+    payloadVersion: 3,
     invoiceDateLocal: localDateIn(inv.invoiceDate, timeZone),
     // الوعاء الخاضع للضريبة — صحيح في الوضعين (الإجمالي ناقص الضريبة)
     taxableBase: roundHalfUp(inv.total - inv.taxAmt, 3),
     originalInvoiceNumber: originalInvoice?.number ?? null,
-    items: items.map((it) => ({
-      ...it,
-      product: it.product ? productPayloadRow(it.product) : null,
-      unitPriceNet: incl ? roundHalfUp(netFromInclusive(it.unitPrice, it.taxPct), 4) : it.unitPrice,
-      netAmount: roundHalfUp(it.lineTotal - it.taxAmt, 3),
-    })),
+    items: items.map((it) => invoiceItemPayloadRow(it, incl)),
   };
 }
 

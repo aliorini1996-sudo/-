@@ -7,11 +7,13 @@
  *   3) بنود الفاتورة الأولى لكل عميل (أول طلب).
  * العزل: كل استعلام مقيّد بـ`invoices.tenantId` لأن invoice_items لا تحمل tenantId.
  * ذاكرة مؤقتة لكل شركة ١٠ دقائق (البيانات شهرية، والرقم لا يتغيّر بفاتورة اليوم).
+ * الكميات **بالأساس** (II_BASE_QTY): كرتونٌ وحبّةٌ من الصنف نفسه في شهرٍ واحد = ٢٥ حبّة لا «٢».
  */
 import { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { importTimezone } from '../services/importLedger';
 import { completeWindow, ymInTz, EngineProduct, FirstOrderLine, PeerCustomer, PeerProductMonth } from './estimate';
+import { ACTIVE_UNITS_SELECT, II_BASE_QTY, displayUnits } from './baseQty';
 
 export interface TenantEstimateData {
   timezone: string;
@@ -76,7 +78,7 @@ async function fetchData(tenantId: string, timezone: string, window: { from: str
     prisma.$queryRaw<Array<{ customerId: string; productId: string; ym: string; qty: number; value: number }>>(Prisma.sql`
       SELECT i."customerId" AS "customerId", ii."productId" AS "productId",
              to_char((i."invoiceDate" AT TIME ZONE 'UTC') AT TIME ZONE ${timezone}, 'YYYY-MM') AS ym,
-             SUM(CASE WHEN i.type = 'RETURN' THEN -ii.qty ELSE ii.qty END)::float8 AS qty,
+             SUM(CASE WHEN i.type = 'RETURN' THEN -${II_BASE_QTY} ELSE ${II_BASE_QTY} END)::float8 AS qty,
              SUM(CASE WHEN i.type = 'RETURN' THEN -(ii."lineTotal" - ii."taxAmt") ELSE (ii."lineTotal" - ii."taxAmt") END)::float8 AS value
       FROM invoice_items ii
       JOIN invoices i ON i.id = ii."invoiceId"
@@ -91,13 +93,13 @@ async function fetchData(tenantId: string, timezone: string, window: { from: str
         WHERE i."tenantId" = ${tenantId} AND i.status = 'CONFIRMED' AND i.type IN ('CASH', 'CREDIT')
         ORDER BY i."customerId", i."invoiceDate" ASC, i.id ASC
       )
-      SELECT f."customerId" AS "customerId", ii."productId" AS "productId", SUM(ii.qty)::float8 AS qty
+      SELECT f."customerId" AS "customerId", ii."productId" AS "productId", SUM(${II_BASE_QTY})::float8 AS qty
       FROM f JOIN invoice_items ii ON ii."invoiceId" = f.id
       WHERE ii."productId" IS NOT NULL
       GROUP BY 1, 2`),
     prisma.product.findMany({
       where: { tenantId, status: 'ACTIVE', deletedAt: null },
-      select: { id: true, name: true, unit: true },
+      select: { id: true, name: true, unit: true, units: ACTIVE_UNITS_SELECT },
       orderBy: { name: 'asc' },
     }),
   ]);
@@ -118,6 +120,9 @@ async function fetchData(tenantId: string, timezone: string, window: { from: str
     peers,
     monthly: monthlyRows.map(r => ({ customerId: r.customerId, productId: r.productId, ym: r.ym, qty: Number(r.qty) || 0, value: Number(r.value) || 0 })),
     firstOrders: firstRows.map(r => ({ customerId: r.customerId, productId: r.productId, qty: Number(r.qty) || 0 })),
-    products: products.map(p => ({ id: p.id, name: p.name, unit: p.unit })),
+    products: products.map(p => {
+      const units = displayUnits(p.units);
+      return { id: p.id, name: p.name, unit: p.unit, ...(units.length ? { units } : {}) };
+    }),
   };
 }

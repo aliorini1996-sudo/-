@@ -28,6 +28,7 @@ import {
   headerSaysPriceIncludesTax, PRICE_INCL_TAX_SUGGESTED_NOTICE,
   TAX_PCT_INVALID, IMPORT_TEXT_MAX, TEXT_TOO_LONG,
   FUTURE_DATE_NOTICE, maxImportDateYmd, IMPORT_FUTURE_DATE_GRACE_DAYS,
+  PRODUCT_UNIT_INVALID, PRODUCT_UNIT_INCOMPLETE,
 } from './importData';
 import { currencyDecimals } from '../i18n/countries';
 import { importResultView, importRowErrorKey, customerSkipReasonKey, classifyRevertFailure, CUSTOMER_CODE_NOT_FOUND_MESSAGE, IMPORT_MAX_ROWS, rowsOverMax, isClientOutdated } from './importRevert';
@@ -323,7 +324,9 @@ const unionMembers = (src: string, name: string): string[] => {
 const ROW_CODES = new Set(['CUSTOMER_NOT_FOUND', 'CUSTOMER_AMBIGUOUS', 'CUSTOMER_CODE_NOT_FOUND', 'CUSTOMER_CODE_UNREGISTERED', 'PRODUCT_NOT_FOUND', 'ZERO_PRICE', 'TAX_PCT_FRACTION', 'ROW_CONFLICT', 'ROW_WRITE_FAILED',
   // الدفعة 2: رموز صفوف المخزون الافتتاحي والمنتجات (البنود 15 و16 و24 و30)
   'PRODUCT_INACTIVE', 'PRODUCT_AMBIGUOUS', 'OPENING_STOCK_ALREADY_IMPORTED', 'PRODUCT_HAS_STOCK_MOVEMENTS',
-  'STOCK_QTY_INVALID', 'STOCK_COST_INVALID', 'STOCK_NET_COST_ZERO', 'PRODUCT_CODE_ARCHIVED', 'PRODUCT_DUPLICATE_IN_FILE']);
+  'STOCK_QTY_INVALID', 'STOCK_COST_INVALID', 'STOCK_NET_COST_ZERO', 'PRODUCT_CODE_ARCHIVED', 'PRODUCT_DUPLICATE_IN_FILE',
+  // الوحدات المتعددة: وحدة إضافية تالفة في ملف المنتجات، ووحدة مجهولة في المخزون الافتتاحي والأسعار
+  'PRODUCT_UNIT_INVALID', 'UNIT_NOT_FOUND']);
 /** رموز مسار التراجع وحده: تُصنَّف في classifyRevertFailure لا classifyImportFailure (وتُتحقَّق هناك) */
 const REVERT_ONLY_CODES = new Set(['IMPORT_BATCH_GONE']);
 /** البند 51: رمز يُفحص قبل التصنيف (isClientOutdated) فلا يمرّ بـclassifyImportFailure أصلاً */
@@ -1724,4 +1727,78 @@ test('انحدار البند 38: ملف نظيف بعنوان فوقي وأسط
   assert.deepEqual(ur.valid.map((v) => v.date), ['2025-01-15', '2025-02-28']);
   assert.ok(notice(ur.notices, DATE_ORDER_MDY_NOTICE));
   assert.deepEqual(ur.fileRows, [2, 3]);
+});
+
+// ═══ الوحدات المتعددة: أعمدة الوحدات الإضافية في المنتجات، وعمود «الوحدة» في المخزون الافتتاحي والأسعار ═══
+
+test('المنتجات بوحداتها: «الوحدة الثانية» ومعاملها وسعرها تُرسل units، والملف القديم بلا الأعمدة كما كان حرفياً', () => {
+  const r = prod([
+    { 'كود الصنف': 'W', 'اسم الصنف': 'ماء', 'الوحدة': 'حبة', 'سعر البيع': 1, 'الوحدة الثانية': 'كرتون', 'معامل الوحدة الثانية': 24, 'سعر الوحدة الثانية': 20, 'الوحدة الثالثة': 'شدة', 'معامل الوحدة الثالثة': 6 },
+    { 'كود الصنف': 'J', 'اسم الصنف': 'عصير', 'الوحدة': 'علبة', 'سعر البيع': 2 },
+  ]);
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.blockers, []);
+  assert.deepEqual(r.valid[0].units, [{ name: 'كرتون', factor: 24, price: 20 }, { name: 'شدة', factor: 6 }]);
+  assert.equal(r.valid[0].unit, 'حبة', 'الوحدة الأساس كما هي');
+  assert.ok(!('units' in r.valid[1]), 'صفّ بلا وحدات بلا مفتاح units — بصمته كما كانت');
+  assert.equal(r.columns?.find((x) => x.field === 'unit2')?.header, 'الوحدة الثانية');
+
+  // ملفٌّ قديم بلا أعمدة الوحدات: الصفوف حرفياً كما قبل الميزة
+  const legacy = prod([{ 'كود الصنف': 'J', 'اسم الصنف': 'عصير', 'الوحدة': 'علبة', 'سعر البيع': 2, 'الضريبة': 15 }]);
+  assert.deepEqual(legacy.valid, [{ code: 'J', name: 'عصير', unit: 'علبة', basePrice: 2, taxPct: 15, barcode: undefined, category: undefined }]);
+});
+
+test('المنتجات بوحداتها: الناقصة والتالفة خطأ صفّ بنصّ الخادم — ولا تُلتقط الوحدة الكبرى وحدةَ أساسٍ ولا سعرها سعراً أساسياً', () => {
+  const r = prod([
+    { 'اسم الصنف': 'أ', 'الوحدة': 'حبة', 'سعر البيع': 1, 'الوحدة الثانية': 'كرتون' },
+    { 'اسم الصنف': 'ب', 'الوحدة': 'حبة', 'سعر البيع': 1, 'الوحدة الثانية': 'كرتون', 'معامل الوحدة الثانية': 1 },
+    { 'اسم الصنف': 'ج', 'الوحدة': 'حبة', 'سعر البيع': 1, 'الوحدة الثانية': 'حبة', 'معامل الوحدة الثانية': 12 },
+    { 'اسم الصنف': 'د', 'الوحدة': 'حبة', 'سعر البيع': 1, 'الوحدة الثانية': 'كرتون', 'معامل الوحدة الثانية': 2.5 },
+    { 'اسم الصنف': 'هـ', 'الوحدة': 'حبة', 'سعر البيع': 1, 'الوحدة الثانية': 'كرتون', 'معامل الوحدة الثانية': 24, 'سعر الوحدة الثانية': -1 },
+  ]);
+  assert.deepEqual(r.errors.map((e) => [e.row, e.message === PRODUCT_UNIT_INCOMPLETE ? 'INCOMPLETE' : e.message === PRODUCT_UNIT_INVALID ? 'INVALID' : e.message]), [
+    [2, 'INCOMPLETE'], [3, 'INVALID'], [4, 'INVALID'], [5, 'INVALID'], [6, NEGATIVE_PRICE],
+  ]);
+  assert.equal(r.valid.length, 0);
+  // بلا عمودَي الأساس بأسمائهما: «الوحدة الكبرى» و«Unit 2 Price» لا تُلتقطان بالاحتواء
+  const odd = prod([{ 'Product': 'ماء', 'Unit 2': 'carton', 'Unit 2 Factor': 24, 'Unit 2 Price': 20, 'Sale Price': 1 }]);
+  assert.equal(odd.columns?.find((x) => x.field === 'unit')?.header, null);
+  assert.equal(odd.columns?.find((x) => x.field === 'basePrice')?.header, 'Sale Price');
+  assert.deepEqual(odd.valid[0].units, [{ name: 'carton', factor: 24, price: 20 }]);
+});
+
+test('المنتجات بوحداتها: التوقيع يشمل الوحدات — صفّان بالكود نفسه يختلفان في الكرتون خطأ صفّ لا تخطٍّ صامت', () => {
+  const row = (f: number) => ({ 'كود الصنف': 'W', 'اسم الصنف': 'ماء', 'الوحدة': 'حبة', 'سعر البيع': 1, 'الضريبة': 15, 'الوحدة الثانية': 'كرتون', 'معامل الوحدة الثانية': f });
+  const diff = prod([row(24), row(12)]);
+  assert.equal(diff.errors[0]?.message, PRODUCT_DUPLICATE_CODE);
+  const same = prod([row(24), row(24)]);
+  assert.deepEqual(same.errors, []);
+  assert.equal(same.valid.length, 1);
+});
+
+test('المخزون الافتتاحي والأسعار: عمود «الوحدة» يُرسل كما هو (الخادم يطابقه)، و«تكلفة الوحدة» و«سعر الوحدة» لا تُلتقطان وحدةً', () => {
+  const s = stock([
+    { 'كود الصنف': 'A-1', 'الكمية': 10, 'تكلفة الوحدة': 48, 'الوحدة': 'كرتون' },
+    { 'كود الصنف': 'A-2', 'الكمية': 5, 'تكلفة الوحدة': 2 },
+  ]);
+  assert.deepEqual(s.errors, []);
+  assert.deepEqual(s.valid, [{ productCode: 'A-1', qty: 10, unitCost: 48, unit: 'كرتون' }, { productCode: 'A-2', qty: 5, unitCost: 2 }]);
+  assert.equal(s.totalCost, 490, 'كرتون × تكلفة الكرتون + حبة × تكلفة الحبة');
+  const noUnit = stock([{ 'كود الصنف': 'A-1', 'الكمية': 1, 'تكلفة الوحدة': 3 }]);
+  assert.equal(noUnit.columns?.find((x) => x.field === 'unit')?.header, null, '«تكلفة الوحدة» ليست عمود الوحدة');
+  assert.deepEqual(noUnit.valid, [{ productCode: 'A-1', qty: 1, unitCost: 3 }], 'الملف القديم كما كان');
+  // جرد Odoo: «Unit of Measure» عمود الوحدة (والخادم يتجاهله لصنفٍ بلا وحدات)
+  const odoo = stock([{ 'Product': 'أرز', 'On Hand Quantity': 3, 'Unit Cost': 2, 'Unit of Measure': 'Units' }]);
+  assert.equal(odoo.columns?.find((x) => x.field === 'unit')?.header, 'Unit of Measure');
+  assert.equal(odoo.valid[0].unit, 'Units');
+
+  const p = prc([
+    { 'كود العميل': 'K-1', 'كود الصنف': 'A', 'السعر الخاص': 100, 'الوحدة': 'كرتون' },
+    { 'كود العميل': 'K-1', 'كود الصنف': 'B', 'السعر الخاص': 4 },
+  ]);
+  assert.deepEqual(p.errors, []);
+  assert.equal(p.valid[0].unit, 'كرتون');
+  assert.ok(!('unit' in p.valid[1]), 'بلا وحدة ⇒ الأساس كما كان');
+  const unitPriceOnly = prc([{ 'كود العميل': 'K-1', 'كود الصنف': 'A', 'سعر الوحدة': 7 }]);
+  assert.equal(unitPriceOnly.columns?.find((x) => x.field === 'unit')?.header, null, '«سعر الوحدة» سعرٌ لا وحدة');
 });

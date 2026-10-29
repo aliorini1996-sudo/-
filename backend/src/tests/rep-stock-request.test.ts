@@ -10,11 +10,11 @@ const read = (...p: string[]) => fs.readFileSync(path.join(__dirname, '..', ...p
 test('ما يرسله المندوب: الصفر يُهمل والمكرّر يُجمع بترتيب أول ظهور', () => {
   assert.deepEqual(
     normalizeRepLines([{ productId: 'a', qty: 2 }, { productId: 'b', qty: 0 }, { productId: 'c', qty: 1.5 }, { productId: 'a', qty: 3 }]),
-    [{ productId: 'a', qty: 5 }, { productId: 'c', qty: 1.5 }],
+    [{ productId: 'a', qty: 5, unitName: null, unitFactor: 1 }, { productId: 'c', qty: 1.5, unitName: null, unitFactor: 1 }],
   );
   assert.deepEqual(normalizeRepLines([{ productId: 'a', qty: 0 }]), []);
   // فرق التمثيل العشريّ لا يصنع كمية جديدة
-  assert.deepEqual(normalizeRepLines([{ productId: 'a', qty: 0.1 }, { productId: 'a', qty: 0.2 }]), [{ productId: 'a', qty: 0.3 }]);
+  assert.deepEqual(normalizeRepLines([{ productId: 'a', qty: 0.1 }, { productId: 'a', qty: 0.2 }]), [{ productId: 'a', qty: 0.3, unitName: null, unitFactor: 1 }]);
 });
 
 test('رفعٌ ثانٍ من المندوب يحفظ تعديل الإدارة لما لم يغيّره، ويعتمد ما غيّره، ويُخرج ما أزاله', () => {
@@ -25,9 +25,9 @@ test('رفعٌ ثانٍ من المندوب يحفظ تعديل الإدارة �
   ];
   const next = mergeRepUpdate(prev, [{ productId: 'a', qty: 10 }, { productId: 'b', qty: 5 }, { productId: 'd', qty: 1 }]);
   assert.deepEqual(next, [
-    { productId: 'a', requestedQty: 10, qty: 6 }, // لم يتغيّر طلبه ⇒ يبقى تعديل الإدارة
-    { productId: 'b', requestedQty: 5, qty: 5 },  // غيّره ⇒ يعود معتمداً بما كتب
-    { productId: 'd', requestedQty: 1, qty: 1 },  // جديد
+    { productId: 'a', requestedQty: 10, qty: 6, unitName: null, unitFactor: 1 }, // لم يتغيّر طلبه ⇒ يبقى تعديل الإدارة
+    { productId: 'b', requestedQty: 5, qty: 5, unitName: null, unitFactor: 1 },  // غيّره ⇒ يعود معتمداً بما كتب
+    { productId: 'd', requestedQty: 1, qty: 1, unitName: null, unitFactor: 1 },  // جديد
   ]); // c أزاله المندوب فخرج
 });
 
@@ -35,7 +35,7 @@ test('تعديل الإدارة: كميات لأصناف الطلب فقط، و�
   const prev = [{ productId: 'a', requestedQty: 10, qty: 10 }, { productId: 'b', requestedQty: 3, qty: 3 }];
   const ok = applyAdminEdit(prev, [{ productId: 'a', qty: 7 }]);
   assert.ok(ok.ok);
-  assert.deepEqual(ok.ok && ok.lines, [{ productId: 'a', requestedQty: 10, qty: 7 }, { productId: 'b', requestedQty: 3, qty: 3 }]);
+  assert.deepEqual(ok.ok && ok.lines, [{ productId: 'a', requestedQty: 10, qty: 7, unitName: null, unitFactor: 1 }, { productId: 'b', requestedQty: 3, qty: 3, unitName: null, unitFactor: 1 }]);
   const zero = applyAdminEdit(prev, [{ productId: 'b', qty: 0 }]);
   assert.ok(zero.ok && zero.lines[1].qty === 0 && zero.lines[1].requestedQty === 3, 'الحذف صفرٌ يبقى سطره بما طلبه المندوب');
   assert.deepEqual(applyAdminEdit(prev, [{ productId: 'x', qty: 1 }]), { ok: false, productId: 'x' });
@@ -48,6 +48,76 @@ const handler = (src: string, sig: string) => {
   const end = src.indexOf('\nrouter.', start + sig.length);
   return src.slice(start, end < 0 ? undefined : end);
 };
+
+// ═══ الوحدات المتعددة: سطرٌ واحد لكل صنف (@@unique([requestId, productId])) بوحدةٍ واحدة ═══
+const CT = { unitName: 'كرتون', unitFactor: 24 };
+const BASE = { unitName: null, unitFactor: 1 };
+
+test('الوحدات: سطران للصنف بوحدةٍ واحدة يُجمعان بها، وبوحدتين يصيران سطراً بالأساس بلا كسر كرتون', () => {
+  assert.deepEqual(
+    normalizeRepLines([{ productId: 'a', qty: 2, ...CT }, { productId: 'a', qty: 3, ...CT }]),
+    [{ productId: 'a', qty: 5, ...CT }],
+    'خمسة كراتين تبقى كراتين كما كتبها المندوب',
+  );
+  assert.deepEqual(
+    normalizeRepLines([{ productId: 'a', qty: 5, ...CT }, { productId: 'a', qty: 3 }, { productId: 'b', qty: 2, ...CT }]),
+    [{ productId: 'a', qty: 123, ...BASE }, { productId: 'b', qty: 2, ...CT }],
+    '٥ كرتون + ٣ حبة = ١٢٣ حبة لا ٥٫١٢٥ كرتون، والصنف الآخر بوحدته',
+  );
+  // اسم الوحدة جزءٌ من هويتها: «كرتون» و«صندوق» بمعاملٍ واحد وحدتان
+  assert.deepEqual(
+    normalizeRepLines([{ productId: 'a', qty: 1, ...CT }, { productId: 'a', qty: 1, unitName: 'صندوق', unitFactor: 24 }]),
+    [{ productId: 'a', qty: 48, ...BASE }],
+  );
+});
+
+test('الوحدات: «لم يغيّر المندوب طلبه» بالأساس — ٢٤ حبة بعد كرتونٍ الطلبُ نفسه، وكرتونان بعد حبّتين تغيير', () => {
+  const prev = [
+    { productId: 'a', requestedQty: 1, qty: 1, ...CT },   // كرتون — لم تعدّله الإدارة
+    { productId: 'b', requestedQty: 2, qty: 1, ...BASE }, // حبّتان — خفّضتهما الإدارة إلى حبّة
+    { productId: 'c', requestedQty: 3, qty: 2, ...CT },   // ٣ كراتين — خفّضتها الإدارة إلى كرتونين
+  ];
+  const next = mergeRepUpdate(prev, [
+    { productId: 'a', qty: 24, ...BASE },
+    { productId: 'b', qty: 2, ...CT },
+    { productId: 'c', qty: 3, ...CT },
+  ]);
+  assert.deepEqual(next, [
+    { productId: 'a', requestedQty: 1, qty: 1, ...CT },   // ٢٤ حبة = كرتون ⇒ السطر كما راجعته الإدارة بوحدته
+    { productId: 'b', requestedQty: 2, qty: 2, ...CT },   // ٤٨ حبة ≠ حبّتين ⇒ طلبٌ جديد معتمدٌ بما كتب
+    { productId: 'c', requestedQty: 3, qty: 2, ...CT },   // لم يتغيّر ⇒ يبقى تعديل الإدارة
+  ]);
+  // صفوف القاعدة القديمة بلا وحدة (unitFactor=1) تُقرأ بالأساس — السلوك القائم حرفياً
+  assert.deepEqual(mergeRepUpdate([{ productId: 'a', requestedQty: 10, qty: 6 }], [{ productId: 'a', qty: 10 }]), [{ productId: 'a', requestedQty: 10, qty: 6, ...BASE }]);
+});
+
+test('الوحدات: تعديل الإدارة بلا وحدة بوحدة السطر، وبوحدته نفسها كذلك، وبوحدةٍ أخرى يعود السطر كلّه إلى الأساس', () => {
+  const prev = [{ productId: 'a', requestedQty: 5, qty: 5, ...CT }];
+  const same = applyAdminEdit(prev, [{ productId: 'a', qty: 4 }]);
+  assert.deepEqual(same.ok && same.lines, [{ productId: 'a', requestedQty: 5, qty: 4, ...CT }], 'الإداري يكتب رقماً بجانب «كرتون» ⇒ كراتين');
+  const explicit = applyAdminEdit(prev, [{ productId: 'a', qty: 4, ...CT }]);
+  assert.deepEqual(explicit.ok && explicit.lines, [{ productId: 'a', requestedQty: 5, qty: 4, ...CT }]);
+  const pieces = applyAdminEdit(prev, [{ productId: 'a', qty: 100, ...BASE }]);
+  assert.deepEqual(pieces.ok && pieces.lines, [{ productId: 'a', requestedQty: 120, qty: 100, ...BASE }], 'طلب ٥ كرتون واعتُمد ١٠٠ حبة ⇒ ١٢٠ مقابل ١٠٠ بالأساس');
+  // سطرٌ بالأساس يُعتمد بالكرتون: يبقى بالأساس والكمية مضروبة
+  const up = applyAdminEdit([{ productId: 'a', requestedQty: 30, qty: 30, ...BASE }], [{ productId: 'a', qty: 1, ...CT }]);
+  assert.deepEqual(up.ok && up.lines, [{ productId: 'a', requestedQty: 30, qty: 24, ...BASE }]);
+});
+
+test('حارس نصّي: الكتابة بلقطة الوحدة، والسقف بالأساس، والوحدة يحلّها الخادم لا رقمٌ من الجسم', () => {
+  const s = route();
+  assert.match(s, /unitId: z\.string\(\)\.max\(64\)\.nullish\(\),/);
+  assert.doesNotMatch(s, /unitFactor: z\./, 'معاملٌ من الجسم لا يُقبل');
+  assert.match(s, /const fieldsOf = \(l: OutLine\) => \(\{ requestedQty: l\.requestedQty, \.\.\.unitFields\(l\.qty, \{ name: l\.unitName, factor: l\.unitFactor \}\) \}\);/);
+  const mine = handler(s, "router.put('/mine'");
+  assert.ok(mine.indexOf('resolveLineUnits(tid, data.items)') < mine.indexOf('normalizeRepLines('), 'الوحدة تُحلّ قبل الجمع');
+  assert.match(mine, /if \(overCap\(lines\)\)/);
+  assert.match(mine, /items: \{ create: merged\.map\(rowOf\) \}/);
+  const edit = handler(s, "router.put('/:id'");
+  assert.match(edit, /\.\.\.\(i\.unitId !== undefined && \{ unitName: units\[idx\]\.name, unitFactor: units\[idx\]\.factor \}\),/, 'الغائبة ⇒ وحدة السطر');
+  assert.match(edit, /if \(overCap\(edit\.lines\)\)/);
+  assert.match(edit, /data: fieldsOf\(l\)/);
+});
 
 test('الحرّاس: مصادقة ثم «النظام المحاسبي» ثم صلاحية المخزون ثم المستودع المفعّل — قبل أي مسار', () => {
   const s = route();

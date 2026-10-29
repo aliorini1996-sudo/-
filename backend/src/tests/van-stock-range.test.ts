@@ -197,3 +197,69 @@ test('حارس نصّي (مراجعة ١٥ أكتوبر): معرّف المند�
   assert.ok(van.includes('status >= 400 && status < 500') && van.indexOf('router.use((err: unknown') < van.indexOf('export default router;'));
   assert.ok(van.includes('s + Math.max(0, x.damaged)'), 'رصيدٌ سالب لصنف لا يُخفي تالف صنفٍ آخر');
 });
+
+// ═══ الوحدات المتعددة: الطيّ بالأساس من لقطة كل صفّ (services/units.ts baseQtyOf) ═══
+import { bucketRemaining } from '../routes/vanStock';
+
+const CT = 24; // كرتون = ٢٤ حبة
+
+test('الوحدات: كرتونان محمّلان (٤٨ حبة) وبيع ٥ حبّات ⇒ المتبقّي ٤٣ حبة لا −٣', () => {
+  const { bal } = foldStock([{ ...load('p', 2, '2026-10-20'), unitFactor: CT }], [sale('p', 5, '2026-10-21')], undefined);
+  assert.equal(bal.get('p')!.loaded, 48);
+  assert.equal(bucketRemaining(bal.get('p')!), 43);
+  // وبيع كرتونٍ وحبّتين في فاتورتين يُطرح بالأساس
+  const two = foldStock([{ ...load('p', 2, '2026-10-20'), unitFactor: CT }],
+    [{ ...sale('p', 1, '2026-10-21'), unitFactor: CT }, sale('p', 2, '2026-10-21')], undefined);
+  assert.equal(bucketRemaining(two.bal.get('p')!), 22);
+});
+
+test('الوحدات: baseQty المخزَّن يسبق الحساب، وnull يُحسب من اللقطة، والصفّ القديم بلا لقطة يُقرأ كما كان', () => {
+  const at = '2026-10-20';
+  const { bal } = foldStock([
+    { ...load('p', 2, at), unitFactor: CT, baseQty: 48 },   // صفٌّ كتبه المسار الجديد
+    { ...load('p', 1, at), unitFactor: CT, baseQty: null }, // سبق ملءَ الترحيل
+    load('p', 7, at),                                        // قبل الميزة: الأساس بمعامل ١
+  ], [], undefined);
+  assert.equal(bal.get('p')!.loaded, 48 + 24 + 7);
+});
+
+test('الوحدات: المنتهي والتالف كلٌّ في دلوه بالأساس — وإزالة كرتونٍ تالف تُنقص ٢٤ حبة', () => {
+  const after = new Date(DAMAGED_VAN_SINCE.getTime() + 60_000);
+  const ret = (qty: number, extra: Partial<InvRow>, reason: string | null = null): InvRow => ({
+    productId: 'p', qty, ...extra,
+    invoice: { type: 'RETURN', returnToStock: true, invoiceDate: after, returnReason: reason, createdAt: after },
+  });
+  const { bal } = foldStock(
+    [{ ...load('p', 1, '2026-10-20', 'DAMAGED_OUT'), unitFactor: CT }],
+    [ret(30, {}, 'DAMAGED'), ret(1, { unitFactor: CT, returnExpired: true }), ret(2, { unitFactor: 12 })],
+    undefined,
+  );
+  const b = bal.get('p')!;
+  assert.equal(b.damagedIn - b.damagedOut, 6, '٣٠ حبة تالفة − كرتونٌ أُزيل');
+  assert.equal(b.expiredIn, 24, 'كرتونٌ منتهٍ = ٢٤ حبة');
+  assert.equal(b.returned, 24, 'مرتجع سليم بوحدة ١٢ = ٢٤ حبة متاحة');
+});
+
+test('حارس نصّي (الوحدات): كل قارئ لرصيد السيارة يطلب لقطة الوحدة ويجمع بالأساس، والكتابة بلقطتها', () => {
+  const van = fs.readFileSync(path.join(process.cwd(), 'src', 'routes', 'vanStock.ts'), 'utf8').replace(/\r\n/g, '\n');
+  const fold = van.slice(van.indexOf('export function foldStock'), van.indexOf('const rangeEnd'));
+  assert.equal(fold.split('const q = baseQtyOf(it);').length - 1, 2, 'الطيّ بالأساس للتحميل والفاتورة');
+  assert.doesNotMatch(fold, /it\.qty/, 'qty خامٌ في الطيّ');
+  const cs = van.slice(van.indexOf('export async function computeStock'), van.indexOf("router.post('/loads'"));
+  assert.equal(cs.split('unitFactor: true, baseQty: true').length - 1, 2, 'computeStock يقرأ لقطة الصفّين');
+  const post = van.slice(van.indexOf("router.post('/loads'"), van.indexOf("router.get('/current'"));
+  assert.ok(post.includes('const units = await resolveLineUnits(tid, items);'), 'الوحدة يحلّها الخادم');
+  assert.ok(post.includes('toBase(i.qty, { unitFactor: units[idx].factor })'), 'رصيد الإزالة يُقارن بالأساس');
+  assert.ok(post.includes('...unitFields(i.qty, units[idx]),'), 'البند يُكتب بلقطة وحدته');
+  for (const sig of ["router.get('/suggest'", "router.get('/accuracy'"]) {
+    const h = van.slice(van.indexOf(sig), van.indexOf('\nrouter.', van.indexOf(sig) + 10));
+    assert.doesNotMatch(h, /qty: (Number\()?(it|i)\.qty/, `${sig}: كميةٌ خام إلى المحرّك`);
+    assert.ok(h.includes('baseQtyOf('), `${sig}: بالأساس`);
+  }
+  const mv = van.slice(van.indexOf("router.get('/movements'"), van.indexOf('export const toolKey'));
+  assert.equal(mv.split('unit: i.unitName ??').length - 1, 2, 'الحركة بلقطة وحدة البند لا وحدة الصنف الحالية');
+  // صلاحية دفعة التحميل: لا جمع خام لكمية
+  const exp = fs.readFileSync(path.join(process.cwd(), 'src', 'services', 'invoiceExpiry.ts'), 'utf8');
+  assert.doesNotMatch(exp, /_sum: \{ qty: true \}/);
+  assert.equal(exp.split('_sum: { baseQty: true }').length - 1, 2);
+});

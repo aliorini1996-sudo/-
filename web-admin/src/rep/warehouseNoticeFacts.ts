@@ -13,12 +13,41 @@
  *    ولا تُحسب هنا.
  *  · **سطرٌ بلا سعر يُطبع صفراً.** الصفر ادّعاءٌ بأنّ البضاعة مجّانية؛ والحقيقة
  *    أنّ سعرها غير معروف فهي **خارج** القيمة المطبوعة. فتُطبع «—» ويُقال ذلك.
+ *  · **جمع كرتونٍ وحبّةٍ رقماً واحداً** (الوحدات المتعددة). «+٢ كرتون +٥ حبة = ٧»
+ *    رقمٌ لا وحدة له؛ فحين تختلط الوحدات يُطبع الإجمالي لكل وحدة (`qtyByUnit`).
  */
+import { factorOf } from '../lib/units';
 
 export interface NoticeLine {
   qty: number;
   unitCost?: number | null;
   lineCost?: number | null;
+  /** اسم وحدة السطر كما يُطبع — لقطته، وإلا وحدة الصنف */
+  unit?: string;
+  /** معامل وحدة السطر (الوحدات المتعددة) — null/١ = وحدة الأساس كما قبل الميزة */
+  unitFactor?: number | null;
+}
+
+/**
+ * إجمالي كمّياتٍ **تختلط وحداتها**: مجموعٌ لكل وحدة («٢ كرتون · ٥ حبة») — لا «٧» على ورقةٍ تُوقَّع، فرقمٌ واحد
+ * يجمع كراتين وحبّات يكذب بلا علامة. و`null` حين الأسطر كلّها بوحدة الأساس: يبقى الإجمالي الرقميّ كما كان حرفاً.
+ * `pick` يختار ما يُجمع من كمية السطر (المطلق للتحميل، والموجب وحده لزيادة التسوية…).
+ */
+export function qtyByUnit(lines: NoticeLine[], pick: (q: number) => number = (q) => q): { unit: string; qty: number }[] | null {
+  if (!lines.some((l) => factorOf(l) !== 1)) return null;
+  const m = new Map<string, number>();
+  for (const l of lines) {
+    const q = pick(Number(l.qty));
+    if (!Number.isFinite(q) || q === 0) continue;
+    const u = (l.unit || '').trim();
+    m.set(u, (m.get(u) ?? 0) + q);
+  }
+  return [...m].map(([unit, qty]) => ({ unit, qty: Number(qty.toFixed(4)) }));
+}
+
+/** نصّ الإجمالي لكل وحدة بمنسّق الورقة — «٠» حين لا كميات */
+export function unitTotalsText(rows: { unit: string; qty: number }[], fmt: (n: number) => string): string {
+  return rows.length ? rows.map((r) => `${fmt(r.qty)} ${r.unit}`.trim()).join(' · ') : fmt(0);
 }
 
 /** مرجعٌ قصير للحركة — الحركات لا رقم متسلسل لها، والمعرّف الطويل لا يُقرأ على ورقة */

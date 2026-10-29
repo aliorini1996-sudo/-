@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { noticeRef, adjustTotals, receiveTotalQty, isCosted, uncostedCount } from './warehouseNoticeFacts';
+import { noticeRef, adjustTotals, receiveTotalQty, isCosted, uncostedCount, qtyByUnit, unitTotalsText } from './warehouseNoticeFacts';
 
 /**
  * حرّاس إشعار الوارد والتسوية في مخزون الشركة — ورقةٌ يوقّعها أمين المستودع.
@@ -103,4 +103,17 @@ test('الجوال: زرّ إشعارٍ لكل حركة، وطبقة رجوعٍ 
     'الزرّ يضبط حالةً لا تُرسم — لا شاشة إشعار');
   const app = read('src', 'm', 'MobileApp.tsx');
   assert.match(app, /<MWarehouse company=\{company\}/, 'ترويسة الإشعار بلا إعدادات الشركة');
+});
+
+test('وحداتٌ مختلطة: الإجمالي لكل وحدة لا رقمٌ واحد — وبوحدة الأساس وحدها يبقى الرقم كما كان', () => {
+  // كما قبل الميزة: أسطرٌ بلا لقطة أو بمعامل ١
+  assert.equal(qtyByUnit([{ qty: 10, unit: 'كرتون' }, { qty: 5, unit: 'كيس', unitFactor: 1 }]), null);
+  const mixed = [{ qty: 2, unit: 'كرتون', unitFactor: 24 }, { qty: 5, unit: 'حبة', unitFactor: 1 }, { qty: 3, unit: 'كرتون', unitFactor: 24 }];
+  assert.deepEqual(qtyByUnit(mixed), [{ unit: 'كرتون', qty: 5 }, { unit: 'حبة', qty: 5 }]);
+  assert.equal(unitTotalsText(qtyByUnit(mixed)!, String), '5 كرتون · 5 حبة');
+  // التسوية: الزيادة والنقص منفصلين لكل وحدة
+  const adj = [{ qty: 2, unit: 'كرتون', unitFactor: 24 }, { qty: -7, unit: 'حبة', unitFactor: 1 }];
+  assert.deepEqual(qtyByUnit(adj, q => (q > 0 ? q : 0)), [{ unit: 'كرتون', qty: 2 }]);
+  assert.deepEqual(qtyByUnit(adj, q => (q < 0 ? -q : 0)), [{ unit: 'حبة', qty: 7 }]);
+  assert.equal(unitTotalsText([], String), '0');
 });

@@ -762,3 +762,67 @@ test('حارس نصّي: المستودع يقيّم المعطّل كبطاقة
   const w = read('routes/warehouse.ts');
   assert.ok(w.includes('res.json({ success: true, data: { ...summarizeVansStock(perRep, layers, avgCost, dec), deletedVans } });'));
 });
+
+// ═══ الوحدات المتعددة: الكمية بالأساس والتكلفة لوحدة الأساس، والوحدة يحلّها الخادم ═══
+import { unitCostPerBase } from '../services/warehouseCost';
+import { pickLineUnit, BASE_UNIT } from '../services/warehouseStock';
+
+test('الوحدات: تكلفة الحبّة من تكلفة الكرتون بلا تقريب — ألف كرتون بعشرة = ١٠٠٠٠ لا ١٠٠٠٠٫٨', () => {
+  const rows = composeWarehouse(P, [{ productId: 'a', qty: 24000, type: 'RECEIVE', unitCost: unitCostPerBase(10, { unitFactor: 24 }) }], []);
+  assert.equal(byId(rows, 'a').stockValue, 10000);
+  assert.equal(byId(rows, 'a').avgCost, 0.4167, 'المتوسّط المعروض لوحدة الأساس بخانات التكلفة');
+  // التقريب قبل الضرب هو الفخّ: هذا ما كان سيُخزَّن لو قُسمت التكلفة وقُرّبت عند الحفظ
+  const rounded = composeWarehouse(P, [{ productId: 'a', qty: 24000, type: 'RECEIVE', unitCost: netUnitCost(10 / 24, 0, false) }], []);
+  assert.equal(byId(rounded, 'a').stockValue, 10000.8);
+});
+
+test('الوحدات: unitCostPerBase — بلا لقطة كما هي، والفارغ يبقى «بلا سعر»، والمعامل التالف يُقرأ ١', () => {
+  assert.equal(unitCostPerBase(7.5), 7.5);
+  assert.equal(unitCostPerBase(7.5, { unitFactor: 1 }), 7.5);
+  assert.equal(unitCostPerBase(120, { unitFactor: 24 }), 5);
+  assert.equal(unitCostPerBase(null, { unitFactor: 24 }), null);
+  assert.equal(unitCostPerBase(undefined), null);
+  assert.equal(unitCostPerBase(9, { unitFactor: 0 }), 9, 'صفٌّ تالف يُقرأ بالسلوك القديم');
+});
+
+test('الوحدات: تحميلٌ بالكرتون وتنزيلٌ بالحبّة بالأساس يعود بكلفة طبقته — لا «بضاعة سبقت النظام»', () => {
+  // ١٠ كراتين بـ١٢٠ (٢٤٠ حبة بخمسة)، تحميل كرتونٍ لـA، ثم شراءٌ أغلى، ثم يُنزّل A ٢٤ حبة
+  const rows = composeWarehouse(P, [
+    { productId: 'a', qty: 240, type: 'RECEIVE', unitCost: unitCostPerBase(120, { unitFactor: 24 }), at: 1 },
+    { productId: 'a', qty: 240, type: 'RECEIVE', unitCost: 9, at: 3 },
+  ], [
+    { productId: 'a', qty: 24, type: 'LOAD', salesRepId: 'A', at: 2 },
+    { productId: 'a', qty: 24, type: 'UNLOAD', salesRepId: 'A', at: 4 },
+  ]);
+  assert.equal(byId(rows, 'a').onHand, 480);
+  assert.equal(byId(rows, 'a').stockValue, 240 * 5 + 240 * 9, 'العائد بكلفة خروجه (٥) لا بمتوسّط لحظة عودته');
+});
+
+test('الوحدات: وحدة البند من معرّفها على الصنف نفسه وحده — وإلا الأساس بمعامل ١', () => {
+  const units = [
+    { id: 'u-ct', productId: 'a', name: 'كرتون', factor: 24, isActive: true },
+    { id: 'u-off', productId: 'a', name: 'شدّة', factor: 6, isActive: false },
+    { id: 'u-b', productId: 'b', name: 'كرتون', factor: 12 },
+  ];
+  assert.deepEqual(pickLineUnit(units, 'a', 'u-ct'), { name: 'كرتون', factor: 24 });
+  assert.equal(pickLineUnit(units, 'a', undefined), BASE_UNIT, 'بلا وحدة ⇒ الأساس (عميلٌ قديم)');
+  assert.equal(pickLineUnit(units, 'a', null), BASE_UNIT);
+  assert.equal(pickLineUnit(units, 'a', 'u-b'), BASE_UNIT, 'وحدة صنفٍ آخر لا تُستعار');
+  assert.equal(pickLineUnit(units, 'a', 'u-off'), BASE_UNIT, 'الموقوفة كمسار الفاتورة');
+  assert.equal(pickLineUnit(units, 'a', 'nope'), BASE_UNIT);
+  assert.deepEqual(BASE_UNIT, { name: null, factor: 1 });
+});
+
+test('حارس نصّي (الوحدات): حدّ القراءة يحوّل إلى الأساس مرّةً واحدة، والوارد يُكتب بلقطة وحدته', () => {
+  const st = read('services/warehouseStock.ts');
+  const load = st.slice(st.indexOf('export async function loadWarehouseInputs'), st.indexOf('// ═══ وحدة البند'));
+  assert.equal(load.split('unitFactor: true, baseQty: true').length - 1, 2, 'المستودع والسيارات يقرآن لقطة الصفّ');
+  assert.ok(load.includes('qty: baseQtyOf(i), type: i.entry.type, unitCost: unitCostPerBase(i.unitCost, i)'));
+  assert.ok(load.includes('qty: baseQtyOf(i), type: i.vanLoad.type, salesRepId: vanKeyOf(i.vanLoad)'));
+  assert.doesNotMatch(load, /qty: i\.qty/, 'كميةٌ خام إلى التقييم');
+  const w = read('routes/warehouse.ts');
+  const post = w.slice(w.indexOf("router.post('/entries'"), w.indexOf("router.get('/entries'"));
+  assert.ok(post.includes('const units = await resolveLineUnits(tid, items);') && post.includes('...unitFields(i.qty, units[idx]),'));
+  const vans = w.slice(w.indexOf("router.get('/vans'"), w.indexOf('const entrySchema'));
+  assert.ok(vans.includes('productId: true, qty: true, unitFactor: true, baseQty: true, returnExpired: true,'), 'فواتير السيارة بلقطة وحدتها');
+});

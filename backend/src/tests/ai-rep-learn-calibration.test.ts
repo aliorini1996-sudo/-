@@ -411,20 +411,63 @@ test('evaluateSnapshots: الاستعلام مقيّد بالشركة على ك�
   assert.equal(await evaluateSnapshots('T1', now), 2);
   assert.equal(rawCalls.length, 1);
   const q = rawCalls[0];
-  // كل «"tenantId" =» يليه المعامل tid نفسه، وثلاث مرات (اللقطات + الفواتير في الربط الأول والثاني)
+  // كل «"tenantId" =» يليه المعامل tid نفسه، وخمس مرات (اللقطات + الفواتير في الربطين + وحدات الصنف + الصنف)
   let tenantParams = 0;
   q.strings.forEach((s, i) => {
     if (/"tenantId"\s*=\s*$/.test(s)) { assert.equal(q.values[i], 'T1'); tenantParams++; }
   });
-  assert.equal(tenantParams, 3);
+  assert.equal(tenantParams, 5);
   const cutoff = q.values.find(v => v instanceof Date) as Date;
   assert.equal(cutoff.getTime(), now.getTime() - 45 * 86400000);
   assert.ok(q.values.every(v => v === 'T1' || v instanceof Date), 'لا قيم أخرى في الاستعلام');
+  // الفعلي بالأساس: يُجمع البند أولاً بالأساس ثم يُربط الصنف (لا ربط قبل الجمع يضاعفه بعدد وحداته)
+  const sql = q.strings.join('?');
+  assert.match(sql, /SUM\(COALESCE\(ii\."baseQty", ii\.qty \* COALESCE\(NULLIF\(ii\."unitFactor", 0\), 1\)\)\)::float8 AS qty/);
+  assert.doesNotMatch(sql, /SUM\(ii\.qty\)/);
+  assert.match(sql, /EXISTS \(SELECT 1 FROM product_units pu WHERE pu\."tenantId" = \? AND pu\."productId" = a\."productId"\) AS multi/);
 
+  // والتقييم موسومٌ بالأساس (basis) — اللقطات التي سبقت الوسم تُقارن كما كانت
   assert.deepEqual(updates, [
-    { where: { id: 's1', tenantId: 'T1' }, data: { actual: { first: { water: 4, juice: 2.5 }, noPurchase: false }, evaluatedAt: now } },
-    { where: { id: 's2', tenantId: 'T1' }, data: { actual: { first: {}, noPurchase: true }, evaluatedAt: now } },
+    { where: { id: 's1', tenantId: 'T1' }, data: { actual: { first: { water: 4, juice: 2.5 }, noPurchase: false, basis: 'base' }, evaluatedAt: now } },
+    { where: { id: 's2', tenantId: 'T1' }, data: { actual: { first: {}, noPurchase: true, basis: 'base' }, evaluatedAt: now } },
   ]);
+});
+
+test('buildActuals: وحدة أساس كل صنفٍ لحظة التقييم ومن له وحدات، مرةً لكل صنف', () => {
+  const m = cal.buildActuals([
+    { sid: 's1', productId: 'cans', qty: 48, unit: 'حبة', multi: true },
+    { sid: 's1', productId: 'eggs', qty: 3, unit: 'كرتون', multi: false },
+    { sid: 's2', productId: null, qty: null, unit: null, multi: false },
+  ]);
+  assert.deepEqual(m.get('s1'), { first: { cans: 48, eggs: 3 }, noPurchase: false, basis: 'base', unitOf: { cans: 'حبة', eggs: 'كرتون' }, multi: ['cans'] });
+  assert.deepEqual(m.get('s2'), { first: {}, noPurchase: true, basis: 'base' });
+});
+
+test('sameQtyBasis + snapshotPairs: الزوج الذي تغيّر مقياسه بين اللقطة والتقييم يُسقط، وغيره كما كان', () => {
+  const based = (first: Record<string, number>, unitOf: Record<string, string>, multi: string[] = []) => ({ first, noPurchase: false, basis: 'base' as const, unitOf, multi });
+  // تقييمٌ سبق الوحدات المتعددة: يُقارن كما كان
+  assert.equal(cal.sameQtyBasis({}, { first: { w: 5 }, noPurchase: false }, 'w'), true);
+  // لقطة بوحدة الأساس نفسها ⇒ تُقارن، وبغيرها (حُوِّل الكرتون إلى حبّات) ⇒ لا
+  assert.equal(cal.sameQtyBasis({ unit: 'حبة' }, based({ w: 48 }, { w: 'حبة' }), 'w'), true);
+  assert.equal(cal.sameQtyBasis({ unit: 'كرتون' }, based({ w: 48 }, { w: 'حبة' }), 'w'), false);
+  // لقطةٌ سبقت الميزة قُيِّمت بعدها: صنفٌ بلا وحدات لم يُحوَّل ⇒ تُقارن، وصنفٌ له وحدات ⇒ لا (احتياطاً)
+  assert.equal(cal.sameQtyBasis({}, based({ w: 5 }, { w: 'كرتون' }), 'w'), true);
+  assert.equal(cal.sameQtyBasis({}, based({ w: 48 }, { w: 'حبة' }, ['w']), 'w'), false);
+  // لم يُشترَ: لا مقياس يُقارن ⇒ يبقى (buyThrough)
+  assert.equal(cal.sameQtyBasis({ unit: 'كرتون' }, based({}, {}, ['w']), 'w'), true);
+
+  const pairs = snapshotPairs([
+    {
+      customerId: 'c1', outletType: 'GROCERY', calibrationVersion: null,
+      actual: based({ cans: 48, eggs: 2 }, { cans: 'حبة', eggs: 'كرتون' }, ['cans']),
+      payload: { v: 3, qtyBasis: 'base', products: [
+        { productId: 'cans', unit: 'كرتون', trialQtyRaw: 2, trialQty: 2 },   // حُوِّل أساسه بعد اللقطة ⇒ يسقط
+        { productId: 'eggs', unit: 'كرتون', trialQtyRaw: 3, trialQty: 3 },   // بالمقياس نفسه
+        { productId: 'milk', unit: 'كرتون', trialQtyRaw: 4, trialQty: 4 },   // لم يُشترَ ⇒ يبقى بفعليٍّ صفر
+      ] },
+    },
+  ]);
+  assert.deepEqual(pairs.map(p => [p.pred, p.actual]), [[3, 2], [4, 0]]);
 });
 
 test('evaluateSnapshots: فحص نصّي ثابت — "tenantId" = ${tid} على كل جدول حقيقي، وinvoice_items عبر فاتورة مقيّدة', () => {
@@ -443,9 +486,12 @@ test('evaluateSnapshots: فحص نصّي ثابت — "tenantId" = ${tid} على
   const items = sql.match(/JOIN invoice_items (\w+) ON \1\."invoiceId" = (\w+)\.id/);
   assert.ok(items, 'invoice_items تُربط بفاتورة');
   assert.ok(invoiceJoins.some(([, alias]) => alias === items![2]), 'والفاتورة مقيّدة بالشركة');
-  assert.equal(sql.match(/"tenantId" = \$\{tid\}/g)?.length, 3);
+  // ثلاثة للقطات والفواتير، واثنان للصنف ووحداته (وحدة الأساس لحظة التقييم)
+  assert.equal(sql.match(/"tenantId" = \$\{tid\}/g)?.length, 5);
+  assert.match(sql, /JOIN products p ON p\.id = a\."productId" AND p\."tenantId" = \$\{tid\}/);
   const interps = [...sql.matchAll(/\$\{([^}]+)\}/g)].map(m => m[1]);
-  assert.ok(interps.every(x => x === 'tid' || x === 'cutoff'), interps.join(','));
+  // II_BASE_QTY مقطعٌ ثابت بلا قيم (baseQty.ts) — الكمية بالأساس
+  assert.ok(interps.every(x => x === 'tid' || x === 'cutoff' || x === 'II_BASE_QTY'), interps.join(','));
   // كل نداء prisma في الوحدة يحمل tenantId
   const calls = [...code.matchAll(/prisma\.(\w+)\.(\w+)\(\{([\s\S]*?)\}\);/g)];
   assert.equal(calls.length, 2, 'findMany + updateMany');

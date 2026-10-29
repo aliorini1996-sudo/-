@@ -25,8 +25,12 @@ export interface InvoicePayloadItem {
   productId?: string | null;
   /** فئة المنتج لحظة الأثر ⇒ GlProductCategoryAccount.incomeAccountId */
   categoryId?: string | null;
+  /**
+   * الكمية **بوحدة البند** (`InvoiceItem.qty` كما طُبعت) لا بالأساس — تُضرب في `unitPrice` الذي هو لوحدة البند أيضاً
+   * (الوحدات المتعددة: كرتونان × سعر الكرتون). `baseQty` لا يدخل هنا أبداً، وإلا ضُربت الحبّات بسعر الكرتون.
+   */
   qty: number;
-  /** سعر الوحدة كما خُزّن (شامل الضريبة متى pricesIncludeTax) */
+  /** سعر الوحدة كما خُزّن (شامل الضريبة متى pricesIncludeTax) — لوحدة البند */
   unitPrice: number;
   taxPct: number;
   taxAmt: string | number;

@@ -298,7 +298,29 @@ test('المعامل المتعلَّم C: يضرب المعروض لا الخا
   assert.equal('calVersion' in view, false);
   assert.equal('raw' in view.products[0], false, 'الخام لا يُرسل للجهاز');
   const sh = G.shownOf(e, 'GROCERY', 1000)!;
-  assert.deepEqual(sh, { at: 1000, outletType: 'GROCERY', confidence: 'MEDIUM', calVersion: 7, factor: 1.5, products: [{ productId: 'eggs', qty: 15, raw: 10 }] });
+  // ووحدة الأساس لحظة العرض — تُقارن بوحدته لحظة التقييم (حلقة التعلّم)
+  assert.deepEqual(sh, { at: 1000, outletType: 'GROCERY', confidence: 'MEDIUM', calVersion: 7, factor: 1.5, products: [{ productId: 'eggs', qty: 15, raw: 10, unit: 'كرتون' }] });
+});
+
+test('الوحدات المتعددة: الكمية بالأساس ووسمها وحدة الأساس، والوحدات تمرّ للجهاز، ونصّها للعقل لصنفٍ له وحدات وحده', () => {
+  const cans = { productId: 'cans', name: 'ببسي 330 مل', unit: 'حبة', units: [{ name: 'كرتون', factor: 24 }] };
+  // المرساة ٤٨ حبة (وسيط بنود بالأساس) ⇒ المعروض ٤٨ حبة = «٢ كرتون»
+  const e = G.expectedFor(input({ ratingCount: 40, products: [cans, eggs], anchors: anchors({ cans: 48, eggs: 10 }) }));
+  const c = e.products.find(p => p.productId === 'cans')!;
+  assert.equal(c.qty, 48);
+  assert.equal(c.unit, 'حبة');
+  assert.deepEqual(c.units, [{ name: 'كرتون', factor: 24 }]);
+  assert.deepEqual(G.expectedView(e).products.find(p => p.productId === 'cans')!.units, [{ name: 'كرتون', factor: 24 }], 'الوحدات تصل الجهاز');
+  assert.equal('units' in e.products.find(p => p.productId === 'eggs')!, false, 'صنفٌ بوحدة واحدة بلا حقلٍ جديد');
+  const s = G.studyExpected(e);
+  assert.equal(s.find(x => x.product.startsWith('ببسي'))!.qty_text, '2 كرتون');
+  assert.equal('qty_text' in s.find(x => x.product.startsWith('بيض'))!, false);
+  const t = G.topExpected(G.expectedFor(input({ ratingCount: 40, products: [cans], anchors: anchors({ cans: 51 }) })))!;
+  assert.deepEqual(t, { product: 'ببسي 330 مل', unit: 'حبة', qty: 51, qty_text: '2 كرتون و3 حبة', mentioned: false });
+  // بلا مرساة: الوحدات تمرّ والرقم غائب
+  const none = G.expectedFor(input({ products: [cans], anchors: anchors({}) })).products[0];
+  assert.equal(none.reason, 'NO_ANCHOR');
+  assert.deepEqual(none.units, [{ name: 'كرتون', factor: 24 }]);
 });
 
 test('مدخل العقل: أبرز صنف للتوجيه وحتى ثلاثة للدراسة بأرقامها ومداها', () => {
@@ -330,8 +352,12 @@ test('المرساة: استعلام مجمَّع واحد معزول بالشر
   const sql = q.strings.join('?');
   assert.match(sql, /FROM invoice_items ii\s+JOIN invoices i ON i\.id = ii\."invoiceId" AND i\."tenantId" = \?/);
   assert.match(sql, /i\.status = 'CONFIRMED' AND i\.type IN \('CASH', 'CREDIT'\)/);
-  assert.match(sql, /percentile_cont\(0\.5\) WITHIN GROUP \(ORDER BY ii\.qty\)/);
-  assert.match(sql, /ii\.qty > 0/);
+  // الوسيطان بالأساس: الكمية بالحبّة، وسعر الوحدة سعرُ الحبّة — بندا الكرتون والحبّة لا يُخلطان خاماً
+  const BQ = 'COALESCE\\(ii\\."baseQty", ii\\.qty \\* COALESCE\\(NULLIF\\(ii\\."unitFactor", 0\\), 1\\)\\)';
+  assert.match(sql, new RegExp(`percentile_cont\\(0\\.5\\) WITHIN GROUP \\(ORDER BY ${BQ}\\)`));
+  assert.match(sql, new RegExp(`WITHIN GROUP \\(ORDER BY \\(ii\\."lineTotal" - ii\\."taxAmt"\\) / ${BQ}\\)`));
+  assert.match(sql, new RegExp(`${BQ} > 0`));
+  assert.doesNotMatch(sql, /ORDER BY ii\.qty\)|\/ ii\.qty\)/, 'لا وسيط على الكمية الخام');
   assert.match(sql, /GROUP BY 1/);
   assert.equal(q.values.length, 2);
   assert.equal(q.values[0], 'T1');
@@ -365,4 +391,11 @@ test('أصناف المندوب: سيارته (المتبقّي > ٠ بترتي�
   assert.deepEqual([pri.source, pri.products.map(p => p.productId)], ['PRIORITY', ['water']]);
   const cat = await D.loadDemandProducts('T1', 'r1', [], anc, async () => [{ productId: 'eggs', remaining: 0 }]);
   assert.deepEqual([cat.source, cat.products.map(p => p.productId)], ['CATALOG', ['milk', 'water']]);
+  assert.ok(van.products.every(p => !('units' in p)), 'صنفٌ بلا وحدات بلا حقلٍ جديد');
+});
+
+test('أصناف المندوب: وحداته النشطة الأكبر من الأساس تمرّ للعرض (من الأكبر)، والمعامل ١ يسقط', async () => {
+  productRows = [{ id: 'cans', name: 'ببسي', unit: 'حبة', units: [{ name: 'شد', factor: 6 }, { name: 'كرتون', factor: 24 }, { name: 'حبة٢', factor: 1 }] } as never];
+  const r = await D.loadDemandProducts('T1', 'r1', ['cans'], new Map(), async () => []);
+  assert.deepEqual(r.products, [{ productId: 'cans', name: 'ببسي', unit: 'حبة', units: [{ name: 'كرتون', factor: 24 }, { name: 'شد', factor: 6 }] }]);
 });

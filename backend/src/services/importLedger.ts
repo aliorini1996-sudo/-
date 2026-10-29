@@ -22,6 +22,7 @@ import { maxImportEntryDate } from './gl/opening';
 import { importedEntryInstant } from './importTimezoneRebase';
 import { fromMilli, toMilli } from './gl/money';
 import { netUnitCost } from './warehouseCost';
+import { factorOf, unitProblem, type UnitDef } from './units';
 
 // ═══ خطأ HTTP برمز ═══
 
@@ -772,12 +773,68 @@ export function normImportName(s: string): string {
     .replace(/[ً-ْـ]/g, '').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ىي]/g, 'ي').replace(/\s+/g, ' ');
 }
 
-export interface OpeningStockProduct {
+export interface OpeningStockProduct extends ImportProductUnits {
   id: string; code: string; barcode?: string | null; name: string; taxPct: number;
   /** البند 24: ACTIVE | INACTIVE */
   status?: string | null;
   /** البند 24: مؤرشف */
   deletedAt?: Date | null;
+}
+
+// ═══ الوحدات المتعددة في الاستيراد ═══
+
+/** وحدة الأساس ووحدات الصنف كما تلزم مطابقة عمود «الوحدة» في ملفٍ (المخزون الافتتاحي والأسعار) */
+export interface ImportProductUnits {
+  /** اسم وحدة الأساس (Product.unit) */
+  unit?: string | null;
+  units?: readonly { name: string; factor: number; isActive?: boolean | null }[] | null;
+}
+
+/**
+ * وحدة الصفّ من عمود «الوحدة» في الملف: الخانة الفارغة أو اسم الأساس ⇒ الأساس بمعامل ١ (سلوك ما قبل الميزة)،
+ * واسم وحدةٍ نشطة للصنف (مطبَّعاً) ⇒ لقطتها، وغير ذلك ⇒ null ليصير خطأ صفّ.
+ *
+ * والمجهولة لا تسقط إلى الأساس لصنفٍ عُرّفت له وحدات: ملفٌّ بالكراتين باسمٍ مكتوب خطأً كان سيدخل رصيداً أقلّ ٢٤ مرّة
+ * بلا إنذار. أمّا صنفٌ **بلا وحدات** فالعمود يُتجاهل كما كان قبل الميزة: تصديرات الأنظمة السابقة تحمل عمود وحدة قياس
+ * عامّاً («Units» في جرد Odoo) لم يكن يُقرأ، وكلّ كميةٍ فيها بوحدة الصنف الوحيدة — فلا ينكسر ملفٌّ قديم صفاً صفاً.
+ */
+export function resolveImportUnit(p: ImportProductUnits, raw: string | null | undefined): { unitName: string | null; unitFactor: number } | null {
+  const want = typeof raw === 'string' ? raw.trim() : '';
+  if (!want) return { unitName: null, unitFactor: 1 };
+  const defined = (p.units ?? []).filter(Boolean);
+  if (!defined.length) return { unitName: null, unitFactor: 1 };
+  const key = normImportName(want);
+  if (p.unit && normImportName(p.unit) === key) return { unitName: null, unitFactor: 1 };
+  // الموقوفة تُعدّ «معرَّفة» فلا يسقط ملفٌّ بكرتونٍ موقوف إلى الأساس، ولا تُطابَق: لا يُكتب بها اليوم
+  const u = defined.find(x => x.isActive !== false && normImportName(x.name) === key);
+  return u ? { unitName: u.name, unitFactor: factorOf({ unitFactor: u.factor }) } : null;
+}
+
+/** وحدة إضافية في صفّ المنتج: الاسم والمعامل (عدد وحدات الأساس فيها) والسعر الاختياري والرمز الضريبي */
+export interface ImportUnitInput { name: string; factor: number; price?: number | null; unitCode?: string | null }
+
+/** أقصى الوحدات الإضافية لصنفٍ في ملف: كرتون وشدّة وطبلية تكفي، والزائد خطأٌ في الأعمدة غالباً */
+export const IMPORT_MAX_UNITS = 3;
+
+/**
+ * أوّل وحدةٍ مرفوضة في صفّ المنتج وسببها، أو null. كل وحدة بـunitProblem مقابل الأساس (معامل ١ باسمه) وما قبلها —
+ * فمعامل ١ (تكرار الأساس) وغير الصحيح والاسم المكرّر تُرفض صفاً صفاً، لا يُكتب صنفٌ بوحدةٍ تُفسد مخزونه.
+ */
+export function importUnitsProblem(baseUnit: string, units: readonly ImportUnitInput[] | null | undefined): { unit: ImportUnitInput; problem: string } | null {
+  const list = units ?? [];
+  if (list.length > IMPORT_MAX_UNITS) return { unit: list[IMPORT_MAX_UNITS], problem: `أكثر من ${IMPORT_MAX_UNITS} وحدات إضافية` };
+  const seen: UnitDef[] = [{ name: baseUnit, factor: 1 }];
+  for (const u of list) {
+    const problem = unitProblem(u, seen);
+    if (problem) return { unit: u, problem };
+    seen.push({ name: String(u.name).trim(), factor: Number(u.factor) });
+  }
+  return null;
+}
+
+/** بصمة الوحدات في توقيع صفّ المنتج — مرآتها في web-admin/src/lib/importData.ts (productUnitsSig) */
+export function importUnitsSignature(units: readonly ImportUnitInput[]): (string | number | null)[][] {
+  return units.map(u => [normImportName(String(u.name)), Number(u.factor), u.price ?? null, u.unitCode || '']);
 }
 
 export type OpeningStockMatchError = { error: 'NOT_FOUND' | 'INACTIVE' | 'AMBIGUOUS' };
@@ -847,9 +904,15 @@ export interface OpeningStockRowInput {
   productName?: string | null;
   qty?: number | null;
   unitCost?: number | null;
+  /** اختياري: وحدة الكمية والتكلفة (كرتون) — الفارغ = وحدة الأساس كما قبل الميزة */
+  unit?: string | null;
 }
 
-export interface OpeningStockLine { row: number; productId: string; qty: number; unitCost: number }
+/**
+ * بند الحركة: الكمية والتكلفة **بوحدة الصفّ** كما في الملف، ولقطتها حين لا تكون الأساس (unitFactor غائب = ١).
+ * والمسار يكتب اللقطة وbaseQty بـunitFields، فالمخزون والتقييم يقرآن الأساس.
+ */
+export interface OpeningStockLine { row: number; productId: string; qty: number; unitCost: number; unitName?: string | null; unitFactor?: number }
 
 /**
  * الصفوف ⇒ بنود الحركة (تكلفة صافية بـnetUnitCost كمسار الوارد اليدوي) وأخطاء الصفوف (رقم السطر = الفهرس + 2).
@@ -882,9 +945,12 @@ export function resolveOpeningStockRows(
       errors.push(importRowError(row, 'STOCK_COST_INVALID', ident, identField));
       return;
     }
+    // الوحدات المتعددة: الكمية والتكلفة بوحدة العمود — والمجهولة خطأ صفّ لا أساسٌ صامت
+    const unit = resolveImportUnit(p, r.unit);
+    if (!unit) { errors.push(importRowError(row, 'UNIT_NOT_FOUND', r.unit?.trim(), 'unit')); return; }
     const net = netUnitCost(cost, p.taxPct ?? 0, pricesIncludeTax);
     if (!(net > 0)) { errors.push(importRowError(row, 'STOCK_NET_COST_ZERO', ident, identField)); return; }
-    lines.push({ row, productId: p.id, qty, unitCost: net });
+    lines.push({ row, productId: p.id, qty, unitCost: net, ...(unit.unitFactor !== 1 ? { unitName: unit.unitName, unitFactor: unit.unitFactor } : {}) });
   });
   return { lines, errors };
 }
@@ -971,7 +1037,9 @@ export type ImportRowErrorCode =
   | 'CUSTOMER_NOT_FOUND' | 'CUSTOMER_AMBIGUOUS' | 'CUSTOMER_CODE_NOT_FOUND' | 'CUSTOMER_CODE_UNREGISTERED' | 'PRODUCT_NOT_FOUND' | 'ZERO_PRICE' | 'TAX_PCT_FRACTION' | 'ROW_CONFLICT' | 'ROW_WRITE_FAILED'
   // الدفعة 2: المخزون الافتتاحي (البنود 15 و16 و24) والمنتجات (البند 30)
   | 'PRODUCT_INACTIVE' | 'PRODUCT_AMBIGUOUS' | 'OPENING_STOCK_ALREADY_IMPORTED' | 'PRODUCT_HAS_STOCK_MOVEMENTS'
-  | 'STOCK_QTY_INVALID' | 'STOCK_COST_INVALID' | 'STOCK_NET_COST_ZERO' | 'PRODUCT_CODE_ARCHIVED' | 'PRODUCT_DUPLICATE_IN_FILE';
+  | 'STOCK_QTY_INVALID' | 'STOCK_COST_INVALID' | 'STOCK_NET_COST_ZERO' | 'PRODUCT_CODE_ARCHIVED' | 'PRODUCT_DUPLICATE_IN_FILE'
+  // الوحدات المتعددة: وحدة إضافية تالفة في ملف المنتجات، ووحدة مجهولة في المخزون الافتتاحي والأسعار
+  | 'PRODUCT_UNIT_INVALID' | 'UNIT_NOT_FOUND';
 
 /** خطأ صف في ردود الاستيراد: row = موضع الصف المرسل + 2، وvalue القيمة التي أوقعت الخطأ، وfield عمودها */
 export interface ImportRowError { row: number; message: string; code?: string; value?: string; field?: string }
@@ -994,6 +1062,8 @@ export const IMPORT_ROW_MESSAGES: Record<Exclude<ImportRowErrorCode, 'ROW_WRITE_
   STOCK_NET_COST_ZERO: 'تكلفة الوحدة الصافية صفرية بعد التقريب',
   PRODUCT_CODE_ARCHIVED: 'الكود مستخدم بصنف مؤرشف، استخدم كوداً مختلفاً',
   PRODUCT_DUPLICATE_IN_FILE: 'كود الصنف مكرر في الملف ببيانات مختلفة، أضف عمود الكود أو صحّح التكرار',
+  PRODUCT_UNIT_INVALID: 'وحدة إضافية غير صالحة: معاملها عدد صحيح أكبر من 1 (كم وحدة أساس فيها)، واسمها لا يتكرر ولا يساوي وحدة الأساس',
+  UNIT_NOT_FOUND: 'الوحدة غير معرّفة لهذا الصنف: اكتب وحدة الأساس أو إحدى وحداته النشطة، أو اترك خانة الوحدة فارغة لوحدة الأساس',
 };
 
 export function importRowError(
@@ -1025,6 +1095,8 @@ export function taxPctIssue(taxPct: number | null | undefined): 'TAX_PCT_FRACTIO
 
 export interface ProductImportRowInput {
   code: string; name: string; unit?: string | null; basePrice?: number | null; taxPct?: number | null; barcode?: string | null; category?: string | null;
+  /** اختياري: وحدات البيع الأكبر من الأساس (`unit`) — الملف القديم بلا هذا العمود كما كان */
+  units?: readonly ImportUnitInput[] | null;
 }
 export type ProductSkipReason = 'CODE_EXISTS' | 'DUPLICATE_IN_FILE';
 export interface ProductSkippedRow { row: number; reason: ProductSkipReason; code?: string }
@@ -1035,7 +1107,9 @@ export interface ProductSkippedRow { row: number; reason: ProductSkipReason; cod
  * ⇒ خطأ صف PRODUCT_DUPLICATE_IN_FILE كاذب بدل تخطٍّ صامت للمكرر.
  */
 function productRowSignature(r: ProductImportRowInput, defaultVat: number | null): string {
-  return JSON.stringify([normImportName(r.name), r.unit || 'حبة', r.basePrice ?? 0, r.taxPct ?? defaultVat ?? null, r.barcode || '', normImportName(r.category || '')]);
+  // الوحدات تدخل التوقيع حين وُجدت وحدها: صفوف الملفات القديمة توقيعها كما كان حرفياً
+  const units = r.units?.length ? [importUnitsSignature(r.units)] : [];
+  return JSON.stringify([normImportName(r.name), r.unit || 'حبة', r.basePrice ?? 0, r.taxPct ?? defaultVat ?? null, r.barcode || '', normImportName(r.category || ''), ...units]);
 }
 
 /**
@@ -1068,6 +1142,9 @@ export function planProductImportRows<R extends ProductImportRowInput>(
     // البند 14: خلية ضريبة منسّقة ٪ في Excel ⇒ 0.15
     const taxIssue = taxPctIssue(r.taxPct);
     if (taxIssue) { errors.push(importRowError(row, taxIssue)); return; }
+    // الوحدات الإضافية: وحدةٌ تالفة ترفض الصفّ كله — صنفٌ بلا كرتونه يُباع كرتونه حبّةً
+    const unitIssue = importUnitsProblem(r.unit || 'حبة', r.units);
+    if (unitIssue) { errors.push(importRowError(row, 'PRODUCT_UNIT_INVALID', `${String(unitIssue.unit?.name ?? '').trim()} = ${unitIssue.unit?.factor}`, 'units')); return; }
     seen.set(r.code, sig);
     creates.push({ row, r });
   });
@@ -1230,10 +1307,18 @@ export function importRowLimitError(count: number, max: number): ImportRowError 
 
 // ═══ الدفعة 3 (البندان 43 و44): تخطيط صفوف /prices ═══
 
-export interface PriceImportRowInput extends CustomerMatchRow { productCode: string; price: number }
-export interface PriceImportWrite { row: number; customerId: string; productId: string; price: number }
+export interface PriceImportRowInput extends CustomerMatchRow {
+  productCode: string; price: number;
+  /** اختياري: وحدة السعر في الملف (سعر الكرتون) — الفارغ = وحدة الأساس كما قبل الميزة */
+  unit?: string | null;
+}
+/**
+ * `price` كما في الملف (لوحدة الصفّ)، و`unitFactor` معامل وحدته حين لا تكون الأساس: السعر الخاص يُخزَّن لوحدة الأساس
+ * (CustomerPrice.price)، فالمسار يقسمه على المعامل **بعد** ردّه إلى صافيه — لا قبله فيتضخّم تقريب الصافي بالمعامل.
+ */
+export interface PriceImportWrite { row: number; customerId: string; productId: string; price: number; unitFactor?: number }
 /** الصنف الذي تُطابَق به أسعار الملف: المؤرشف (deletedAt) يشغل كوده ولا يُسعَّر */
-export interface ImportProductRef { id: string; code: string; deletedAt?: Date | null }
+export interface ImportProductRef extends ImportProductUnits { id: string; code: string; deletedAt?: Date | null }
 export type PriceSkipReason = 'PRODUCT_ARCHIVED' | 'DUPLICATE_PAIR';
 export interface PriceSkippedRow { row: number; reason: PriceSkipReason; code?: string }
 /** زوج (عميل/صنف) تكرر في الملف: صفوفه وأسعارها، والفائز آخرها صراحةً */
@@ -1259,7 +1344,8 @@ export function planPriceImportRows<R extends PriceImportRowInput>(
 ): { writes: PriceImportWrite[]; skippedRows: PriceSkippedRow[]; duplicates: PriceDuplicatePair[]; errors: ImportRowError[] } {
   const live = new Map<string, string>();
   const archived = new Set<string>();
-  for (const p of products) { if (p.deletedAt) archived.add(p.code); else if (!live.has(p.code)) live.set(p.code, p.id); }
+  const byId = new Map<string, ImportProductRef>();
+  for (const p of products) { if (p.deletedAt) archived.add(p.code); else if (!live.has(p.code)) { live.set(p.code, p.id); byId.set(p.id, p); } }
   const errors: ImportRowError[] = [];
   const skippedRows: PriceSkippedRow[] = [];
   const pairs = new Map<string, { write: PriceImportWrite; code: string; customerName: string; rows: number[]; prices: number[] }>();
@@ -1276,7 +1362,10 @@ export function planPriceImportRows<R extends PriceImportRowInput>(
     }
     const zeroIssue = priceRowIssue(r.price, allowZeroPrice);
     if (zeroIssue) { errors.push(importRowError(row, zeroIssue)); return; }
-    const write: PriceImportWrite = { row, customerId: m.id, productId, price: r.price };
+    // سعر الكرتون في الملف يُحفظ سعراً للحبة بقسمته (لا سعر كرتونٍ للحبة، ٢٤ ضعفاً)، والوحدة المجهولة خطأ صفّ
+    const unit = resolveImportUnit(byId.get(productId)!, r.unit);
+    if (!unit) { errors.push(importRowError(row, 'UNIT_NOT_FOUND', r.unit?.trim(), 'unit')); return; }
+    const write: PriceImportWrite = { row, customerId: m.id, productId, price: r.price, ...(unit.unitFactor !== 1 ? { unitFactor: unit.unitFactor } : {}) };
     const key = `${m.id} ${productId}`;
     const g = pairs.get(key);
     if (!g) { pairs.set(key, { write, code, customerName: priceRowLabel(r), rows: [row], prices: [r.price] }); return; }

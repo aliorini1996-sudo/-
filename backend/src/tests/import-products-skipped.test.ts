@@ -273,7 +273,7 @@ test('حارس ثابت (البندان 43 و44): /prices يخطط بـplanPrice
   const src = read('routes/import.ts');
   const body = routeBody(src, "router.post('/prices'");
   // المؤرشف يُقرأ ليُميَّز عن «الصنف غير موجود» (البند 44)، وضريبته للبند 31
-  assert.match(body, /select: \{ id: true, code: true, deletedAt: true, taxPct: true \}/);
+  assert.match(body, /select: \{ id: true, code: true, deletedAt: true, taxPct: true, unit: true, units: \{ select: \{ name: true, factor: true, isActive: true \} \} \}/);
   assert.match(body, /plan = planPriceImportRows\(rows, matcher, prods, body\.allowZeroPrice === true\);/);
   assert.match(body, /result\.skipped = plan\.skippedRows\.length;/);
   assert.match(body, /skippedRows: plan\.skippedRows\.slice\(0, 500\)/);
@@ -423,4 +423,86 @@ test('حارس ثابت (البند 36): كل ردود الاستيراد تنش
   assert.ok(spreads.length >= 12, `عدد ردود الاستيراد ${spreads.length}`);
   // ولا ردّ يعيد تعيين errors بعد السقف فيلغيه
   assert.doesNotMatch(src, /cappedErrors\([^)]*\), errors:/);
+});
+
+// ═══ الوحدات المتعددة: وحدات الصنف في ملف المنتجات، ووحدة السعر في ملف الأسعار ═══
+
+test('المنتجات بوحداتها: كرتون ٢٤ وشدّة ٦ تُنشأ مع صنفها، والملف بلا وحدات كما كان، والوحدة التالفة خطأ صفّ برقمه', () => {
+  const ok = planProductImportRows([
+    { ...row({ code: 'W', name: 'ماء', unit: 'حبة', basePrice: 1 }), units: [{ name: 'كرتون', factor: 24, price: 20 }, { name: 'شدة', factor: 6 }] },
+    row({ code: 'J', name: 'عصير', basePrice: 2 }),
+  ], [], VAT);
+  assert.deepEqual(ok.errors, []);
+  assert.equal(ok.creates.length, 2);
+  assert.deepEqual(ok.creates[0].r.units, [{ name: 'كرتون', factor: 24, price: 20 }, { name: 'شدة', factor: 6 }]);
+  assert.equal(ok.creates[1].r.units, undefined, 'صفّ بلا وحدات لا يكتسب شيئاً');
+
+  const bad = (units: { name: string; factor: number }[]) => planProductImportRows([{ ...row({ code: 'W', name: 'ماء', unit: 'حبة' }), units }], [], VAT);
+  for (const [units, why] of [
+    [[{ name: 'كرتون', factor: 1 }], 'معامل ١ تكرارٌ للأساس'],
+    [[{ name: 'كرتون', factor: 2.5 }], 'المعامل كسر — الأساس ليس الأصغر'],
+    [[{ name: 'كرتون', factor: 0 }], 'صفر'],
+    [[{ name: 'حبة', factor: 12 }], 'باسم الأساس'],
+    [[{ name: 'كرتون', factor: 24 }, { name: 'كرتون', factor: 12 }], 'اسم مكرر'],
+    [[{ name: 'كرتون', factor: 24 }, { name: 'صندوق', factor: 24 }], 'معامل مكرر'],
+    [[{ name: 'أ', factor: 2 }, { name: 'ب', factor: 3 }, { name: 'ج', factor: 4 }, { name: 'د', factor: 5 }], 'أكثر من ثلاث'],
+  ] as [{ name: string; factor: number }[], string][]) {
+    const p = bad(units);
+    assert.equal(p.creates.length, 0, why);
+    assert.equal(p.errors[0]?.code, 'PRODUCT_UNIT_INVALID', why);
+    assert.equal(p.errors[0]?.row, 2, why);
+    assert.equal(p.errors[0]?.field, 'units', why);
+    assert.equal(p.errors[0]?.message, IMPORT_ROW_MESSAGES.PRODUCT_UNIT_INVALID, why);
+  }
+});
+
+test('توقيع الصفّ: الوحدات تدخله حين وُجدت وحدها — صفّان بالكود نفسه يختلفان في الكرتون خطأ صفّ، والمتطابقان تخطٍّ', () => {
+  const w = (units?: { name: string; factor: number }[]) => ({ ...row({ code: 'W', name: 'ماء', unit: 'حبة', basePrice: 1 }), ...(units ? { units } : {}) });
+  const diff = planProductImportRows([w([{ name: 'كرتون', factor: 24 }]), w([{ name: 'كرتون', factor: 12 }])], [], VAT);
+  assert.equal(diff.errors[0]?.code, 'PRODUCT_DUPLICATE_IN_FILE');
+  const same = planProductImportRows([w([{ name: 'كرتون', factor: 24 }]), w([{ name: 'كرتون', factor: 24 }])], [], VAT);
+  assert.deepEqual(same.skippedRows, [{ row: 3, reason: 'DUPLICATE_IN_FILE', code: 'W' }]);
+  // ملفٌّ قديم: units غائبة أو فارغة ⇒ التوقيع كما كان (الصفّان المتطابقان تخطٍّ لا خطأ)
+  const legacy = planProductImportRows([w(), { ...w(), units: [] }], [], VAT);
+  assert.deepEqual(legacy.errors, []);
+  assert.equal(legacy.skippedRows.length, 1);
+});
+
+test('الأسعار بوحدة: سعر الكرتون يحمل معامله إلى المسار (يُقسم هناك بعد الصافي)، والأساس والفارغ كما كانا، والمجهولة خطأ صفّ', () => {
+  const prods = [
+    { id: 'p1', code: 'A', deletedAt: null, unit: 'حبة', units: [{ name: 'كرتون', factor: 24, isActive: true }, { name: 'شدة', factor: 6, isActive: false }] },
+  ];
+  const plan = planPriceImportRows([
+    { customerCode: 'K-1', productCode: 'A', price: 100, unit: 'كرتون' },
+    { customerCode: 'K-2', productCode: 'A', price: 4.5, unit: 'حبه' },
+    { customerCode: 'K-2', productCode: 'A', price: 30, unit: 'شدة' },
+    { customerCode: 'K-2', productCode: 'A', price: 30, unit: 'طبلية' },
+  ], priceMatcher, prods, false);
+  assert.deepEqual(plan.writes, [
+    { row: 2, customerId: 'c1', productId: 'p1', price: 100, unitFactor: 24 },
+    { row: 3, customerId: 'c2', productId: 'p1', price: 4.5 },
+  ], 'اسم الأساس (بتطبيع التاء المربوطة) = الأساس بلا معامل');
+  assert.deepEqual(plan.errors.map(e => [e.row, e.code, e.value, e.field]), [
+    [4, 'UNIT_NOT_FOUND', 'شدة', 'unit'], [5, 'UNIT_NOT_FOUND', 'طبلية', 'unit'],
+  ], 'الموقوفة والمجهولة لا تسقطان إلى الأساس');
+  // صنفٌ بلا وحدات: عمود الوحدة يُتجاهل كما قبل الميزة (قائمة أسعار قديمة بعمود UoM عامّ)
+  const legacy = planPriceImportRows([{ customerCode: 'K-1', productCode: 'A', price: 9, unit: 'Units' }], priceMatcher, priceProducts, false);
+  assert.deepEqual(legacy.writes, [{ row: 2, customerId: 'c1', productId: 'p1', price: 9 }]);
+  assert.deepEqual(legacy.errors, []);
+  // ١٠٠ للكرتون ⇒ ٤٫١٦٦٦٦٧ للحبة بستّ منازل، فسعر الكرتون عند البيع (× ٢٤) يعود ١٠٠٫٠٠ لا ١٠٠٫٠٨ (من ٤٫١٧)
+  const base = roundHalfUp(100 / 24, 6);
+  assert.equal(roundHalfUp(base * 24, 2), 100);
+  assert.equal(roundHalfUp(roundHalfUp(100 / 24, 2) * 24, 2), 100.08);
+  // الحارس الثابت: القسمة في المسار بعد ردّ الشامل إلى صافيه
+  const body = routeBody(read('routes/import.ts'), "router.post('/prices'");
+  assert.ok(body.indexOf('netFromInclusive(w.price') < body.indexOf('w.price = roundHalfUp(w.price / w.unitFactor, 6)'), 'الصافي أولاً ثم القسمة');
+});
+
+test('حارس ثابت: وحدات الصنف المستورد تُكتب في معاملة الصنف نفسها، والتراجع يحذفها معه', () => {
+  const src = read('routes/import.ts');
+  const body = routeBody(src, "router.post('/products'");
+  assert.ok(body.indexOf('tx.product.create(') < body.indexOf('tx.productUnit.createMany('), 'الوحدات بعد الصنف في writeItem');
+  assert.match(body, /netUnitPricesByRow/, 'سعر الوحدة الشامل يُردّ إلى صافيه كسعر الأساس');
+  const revert = src.slice(src.indexOf("} else if (batch.kind === 'products') {"));
+  assert.ok(revert.indexOf('tx.productUnit.deleteMany(') < revert.indexOf('tx.product.deleteMany('), 'الوحدات قبل الصنف');
 });

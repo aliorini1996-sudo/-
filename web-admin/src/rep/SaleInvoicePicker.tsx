@@ -10,24 +10,13 @@ import { X, FileText, ArrowRight, Search } from 'lucide-react';
 import repApi from './repApi';
 import { useTr } from '../i18n/strings';
 import { formatCurrency, formatDate } from '../utils/format';
+import { linkedSaleProblem, toLinkedSale, type LinkedReturnLine } from '../lib/returnInvoice';
 
-export interface ReturnableLine {
-  saleItemId: string;
-  productId: string;
-  name: string;
-  code: string;
-  unit: string;
-  sold: number;
-  returned: number;
-  returnable: number;
-  refundUnitPrice: number;
-  taxPct: number;
-  shelfLife: boolean;
-  expiresAt: string | null;
-  expiredToday: boolean | null;
-  /** قيد المرتجع للصنف اليوم: سبب الرفض (من الخادم) فلا يُضاف للمرتجع — والخادم يقرّر عند الإصدار */
-  returnBlocked?: string | null;
-}
+/**
+ * بند فاتورة البيع كما تطبّعه lib/returnInvoice.ts (`toLinkedSale`) — مشتركٌ مع مرتجع اللوحة فلا يُقرأ ردّ الخادم
+ * بطريقتين: المتاح بالأساس ولقطة وحدة البيع ووحدات الصنف، والحقول القديمة بوحدة المرتجع المختارة.
+ */
+export type ReturnableLine = LinkedReturnLine;
 
 export interface ReturnableSale {
   id: string;
@@ -79,11 +68,10 @@ export default function SaleInvoicePicker({ customerId, products, onPick, onClos
     setBusy(row.id); setMsg('');
     try {
       const r = await repApi.get(`/invoices/${row.id}/returnable`);
-      const sale = r.data.data as ReturnableSale;
-      if (!sale.lines.some(l => l.returnable > 0)) { setMsg(tr('لا يوجد في هذه الفاتورة ما يمكن إرجاعه')); setBusy(null); return; }
-      const blocked = sale.lines.find(l => l.returnable > 0 && l.returnBlocked);
-      if (!sale.lines.some(l => l.returnable > 0 && !l.returnBlocked)) {
-        setMsg(`${tr('قيد الصلاحية يمنع مرتجع أصناف هذه الفاتورة')} — ${blocked?.name}: ${blocked?.returnBlocked}`); setBusy(null); return;
+      const sale: ReturnableSale = toLinkedSale(r.data.data);
+      const problem = linkedSaleProblem(sale);
+      if (problem) {
+        setMsg(problem.detail ? `${tr(problem.key)} — ${problem.detail}` : tr(problem.key)); setBusy(null); return;
       }
       onPick(sale);
     } catch (e: any) {

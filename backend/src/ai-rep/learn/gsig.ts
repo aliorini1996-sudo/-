@@ -9,7 +9,7 @@
  * ٣٪ على الأقل باستبعاد عميل واحد في كل مرة، ويُرجَع تلقائياً إن ثبت أن المعروض أسوأ من الخام (checkCalRollback).
  */
 import prisma from '../../config/database';
-import { calNeeded, type CalPair, type SnapActual } from './calibration';
+import { calNeeded, QTY_BASIS, sameQtyBasis, type CalPair, type SnapActual } from './calibration';
 import { clamp } from './stats';
 import { GSIG_ENGINE, GSIG_F_MAX as CAL_MAX, GSIG_F_MIN as CAL_MIN, type GsigParams, type Learned } from './types';
 
@@ -50,7 +50,8 @@ export interface ShownExpected {
   confidence: string;
   calVersion: number | null;
   factor: number;
-  products: { productId: string; qty: number; raw: number }[];
+  /** الكمية بالأساس، و`unit` وحدة الأساس لحظة العرض (تُقارن بوحدة الأساس لحظة التقييم — sameQtyBasis) */
+  products: { productId: string; qty: number; raw: number; unit?: string }[];
 }
 
 const ym = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
@@ -64,8 +65,8 @@ export function gsigSnapshotData(tid: string, ids: { outletId: string; customerI
     tenantId: tid, outletId: ids.outletId, customerId: ids.customerId, engineVersion: GSIG_ENGINE, outletType: s.outletType,
     ringKm: null, peers: 0, confidence: s.confidence, windowFrom: ym(from), windowTo: ym(at), calibrationVersion: s.calVersion,
     payload: {
-      v: 1, engine: GSIG_ENGINE, calibrationVersion: s.calVersion, factor: s.factor,
-      products: s.products.map(p => ({ productId: p.productId, qty: p.qty, qtyRaw: p.raw })),
+      v: 1, engine: GSIG_ENGINE, calibrationVersion: s.calVersion, factor: s.factor, qtyBasis: QTY_BASIS,
+      products: s.products.map(p => ({ productId: p.productId, qty: p.qty, qtyRaw: p.raw, ...(p.unit != null && { unit: p.unit }) })),
     },
   };
 }
@@ -86,6 +87,8 @@ export function gsigPairs(rows: GsigSnapRow[]): CalPair[] {
       const shown = num(p?.qty);
       const pred = num(p?.qtyRaw) ?? shown;
       if (typeof p?.productId !== 'string' || pred == null || !(pred > 0)) continue;
+      // المقترح والفعلي بمقياسٍ واحد وحده: صنفٌ تغيّرت وحدة أساسه بين العرض والتقييم يُسقط زوجه (لا خطأً بـ٢٤ ضعفاً)
+      if (!sameQtyBasis(p, act, p.productId)) continue;
       out.push({
         customerId: row.customerId, outletType: row.outletType, pred, actual: Math.max(0, num(act.first[p.productId]) ?? 0),
         w: 1, source: 'SNAPSHOT', shown: shown ?? pred, calVersion,

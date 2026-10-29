@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../config/database';
+import { unitPriceOf } from '../services/units';
 
 /**
  * منيو المنتجات العام — رابط يشاركه المندوب مع عملائه:
@@ -9,6 +10,10 @@ import prisma from '../config/database';
  * يُعاد فقط ما يصلح للعلن: اسم الشركة وشعارها، اسم المندوب ورقم عمله
  * (المؤسسي من تكامل هاتف إن أُسند، وإلا جوّاله)، والأصناف النشطة غير
  * المؤرشفة بأسعار القائمة — لا تكلفة ولا مخزون ولا شرائح أسعار العملاء.
+ *
+ * الوحدات المتعددة: `unit` و`basePrice` لوحدة الأساس (الحبة)، و`units` وحدات البيع الأكبر النشطة بمعاملها
+ * وسعرها (المحدَّد لها، وإلا سعر الأساس × المعامل) — فيرى العميل سعر الكرتون لا سعر الحبة وحده.
+ * وصنفٌ بلا وحدات: `units` فارغة والباقي كما كان.
  */
 const router = Router();
 
@@ -46,6 +51,8 @@ router.get('/catalog/:tenantId/:repId', async (req: Request, res: Response, next
       select: {
         name: true, unit: true, basePrice: true, taxPct: true, image: true,
         category: { select: { name: true } },
+        // الموقوفة لا تُعرض للعلن — لا يُباع بها اليوم
+        units: { where: { isActive: true }, select: { name: true, factor: true, price: true }, orderBy: [{ sortOrder: 'asc' }, { factor: 'asc' }] },
       },
     });
 
@@ -62,6 +69,9 @@ router.get('/catalog/:tenantId/:repId', async (req: Request, res: Response, next
         products: products.map(p => ({
           name: p.name, unit: p.unit, basePrice: p.basePrice, taxPct: p.taxPct,
           image: p.image, category: p.category?.name ?? null,
+          // السعر صافٍ قبل الضريبة كسعر الأساس، والواجهة تضيف taxPct فوقه. والفارغ يُمرَّر undefined لا null:
+          // Number(null) = 0 «سعرٌ صالح» في unitPriceOf فيُعرض الكرتون مجاناً بدل الأساس × المعامل
+          units: p.units.map(u => ({ name: u.name, factor: u.factor, price: unitPriceOf({ name: u.name, factor: u.factor, price: u.price ?? undefined }, p.basePrice) })),
         })),
       },
     });
