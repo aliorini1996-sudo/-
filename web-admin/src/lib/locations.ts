@@ -9,6 +9,7 @@
  */
 import { num, type ExcelSheet } from '../utils/excel';
 import { uniqueSheetNames } from './paymentMethods';
+import { baseQtyOf } from './units';
 
 type Tr = (ar: string) => string;
 
@@ -246,12 +247,20 @@ export interface VanLoadRow {
   createdAt: string;
   salesRep: { id: string | null; name: string } | null;
   location?: { id: string; name: string } | null;
-  items: { id?: string; productId?: string; qty: number | string; product: { id?: string; name: string; unit: string | null } | null }[];
+  items: {
+    id?: string; productId?: string; qty: number | string;
+    /** لقطة وحدة البند (الوحدات المتعددة): null ⇒ وحدة الأساس */
+    unitName?: string | null; unitFactor?: number | null; baseQty?: number | null;
+    product: { id?: string; name: string; unit: string | null } | null;
+  }[];
 }
 
-/** مجموع كميات التحميل (بمنزلتين) — كما يجمعها الملخّص لكل موقع */
+/**
+ * مجموع كميات التحميل (بمنزلتين) **بوحدة الأساس** — كما يجمعها ملخّص المواقع في الخادم (routes/locations.ts).
+ * والجمع الخام كان يعدّ كرتوناً وحبّةً حبّتين.
+ */
 export function loadQty(l: Pick<VanLoadRow, 'items'>): number {
-  return qtyNum(l.items.reduce((s, it) => s + (Number(it.qty) || 0), 0));
+  return qtyNum(l.items.reduce((s, it) => s + baseQtyOf(it), 0));
 }
 
 /** من سجّل الحركة: المندوب من تطبيقه أو الإدارة (الحركات القديمة بلا وسم ⇒ شرطة) */
@@ -272,7 +281,8 @@ export function loadsLogRows(loads: VanLoadRow[], tr: Tr, when: (iso: string) =>
         [tr('المندوب')]: l.salesRep?.name ?? '—',
         ...(withLocation && { [tr('الموقع')]: l.location?.name ?? tr('بلا موقع') }),
         [tr('الصنف')]: it.product?.name ?? '—',
-        [tr('الوحدة')]: it.product?.unit ?? '',
+        // لقطة وحدة البند لا وحدة الصنف الحالية: بعد التحويل صارت وحدة الصنف «حبة» والبند كرتون
+        [tr('الوحدة')]: it.unitName ?? it.product?.unit ?? '',
         [tr('الكمية')]: qtyNum(Number(it.qty)),
         [tr('بواسطة')]: loadByLabel(l.createdBy, tr),
         [tr('ملاحظة')]: l.note ?? '',

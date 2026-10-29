@@ -114,7 +114,7 @@ router.put('/mine', repOnly, async (req: AuthRequest, res: Response, next: NextF
     const me = req.user!.id;
     const data = z.object({ note: z.string().max(300).optional(), items: itemsSchema }).parse(req.body);
     // وحدة كل بند يحلّها الخادم (بلا unitId ⇒ الأساس)، ثم سطرٌ واحد لكل صنف (المفتاح الفريد requestId+productId)
-    const units = await resolveLineUnits(tid, data.items);
+    const units = await resolveLineUnits(tid, data.items, { replay: String(req.headers['x-fs-replay'] || '') === '1' });
     const lines = normalizeRepLines(data.items.map((i, idx) => ({ productId: i.productId, qty: i.qty, unitName: units[idx].name, unitFactor: units[idx].factor })));
     if (!lines.length) { res.status(400).json({ success: false, message: 'أضف صنفا وكمية صحيحة' }); return; }
     if (overCap(lines)) { res.status(400).json({ success: false, message: OVER_CAP }); return; }

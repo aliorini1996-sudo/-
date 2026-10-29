@@ -12,7 +12,7 @@
  * بعد تحويل الصنف إلى أساسٍ أصغر (حبة) تصير وحدته القديمة (كرتون) وحدةً بمعامل؛ ولو بقي الافتراض
  * الأساسَ لصار نقر المندوب المعتاد «+١ حبة» بعد أن كان «+١ كرتون» — خطأٌ صامت ٢٤ ضعفاً.
  */
-import { factorOf, formatQty, roundQty, sumBase, unitPriceOf, type UnitDef } from '../lib/units';
+import { factorOf, formatQty, roundQty, sumBase, toBase, unitPriceOf, type UnitDef } from '../lib/units';
 
 /** وحدة بيعٍ يختارها المندوب للبند */
 export interface UnitChoice {
@@ -38,6 +38,12 @@ export interface LineUnit {
   unitFactor: number;
   /** سعر الوحدة المحدَّد (لإعادة التسعير حين تصل أسعار العميل) — null ⇒ مشتقّ */
   unitDefPrice: number | null;
+  /**
+   * وحدة أساس الصنف **كما رآها الجهاز** لحظة البند (product.unit). المعامل محسوبٌ عليها: «١ طبلية = ٥٠» تعني ٥٠ كرتوناً
+   * إن كان الأساس كرتوناً وقتها — فإن حُوِّل الأساس إلى الحبّة قبل رفع البند من الصندوق عرف الخادم بها أنّ اللقطة على
+   * الأساس القديم (baseUnitName في routes/invoices.ts)، وفي الإصدار الحيّ يكشف بها كاشاً قديماً (400 UNIT_INVALID)
+   */
+  baseUnit: string;
 }
 
 export function baseChoice(p: UnitProduct | null | undefined): UnitChoice {
@@ -87,13 +93,23 @@ export function choiceNet(c: UnitChoice, basePrice: number | string, customerPri
   return unitPriceOf({ name: c.name, factor: c.factor, price: c.price ?? undefined }, basePrice);
 }
 
-export function lineUnitOf(c: UnitChoice): LineUnit {
-  return { unit: c.name, unitId: c.id, unitName: c.id ? c.name : null, unitFactor: c.id ? c.factor : 1, unitDefPrice: c.price };
+/**
+ * لقطة البند من الوحدة المختارة. `baseUnit` اسم أساس الصنف (product.unit) — ولوحدة الأساس هو اسمها نفسه، فالمستدعي
+ * الذي لا يمرّره لبندٍ بوحدةٍ أكبر يُرسل بلا أساس (سلوك اللقطة وحدها على الخادم) لا باسمٍ مخمَّن.
+ */
+export function lineUnitOf(c: UnitChoice, baseUnit?: string | null): LineUnit {
+  return {
+    unit: c.name, unitId: c.id, unitName: c.id ? c.name : null, unitFactor: c.id ? c.factor : 1, unitDefPrice: c.price,
+    baseUnit: String(baseUnit ?? (c.id ? '' : c.name)).trim(),
+  };
 }
 
-/** لقطة وحدة المرتجع على بندٍ من فاتورة بيع (`ret*` كما يطبّعها lib/returnInvoice.ts) */
-export function linkedLineUnit(l: { unit?: string; retUnitId: string | null; retUnitName: string | null; retUnitFactor: number }): LineUnit {
-  return { unit: String(l.unit ?? ''), unitId: l.retUnitId, unitName: l.retUnitName, unitFactor: l.retUnitFactor, unitDefPrice: null };
+/** لقطة وحدة المرتجع على بندٍ من فاتورة بيع (`ret*` كما يطبّعها lib/returnInvoice.ts، والأساس `baseUnit` من الخادم) */
+export function linkedLineUnit(l: { unit?: string; baseUnit?: string; retUnitId: string | null; retUnitName: string | null; retUnitFactor: number }): LineUnit {
+  return {
+    unit: String(l.unit ?? ''), unitId: l.retUnitId, unitName: l.retUnitName, unitFactor: l.retUnitFactor, unitDefPrice: null,
+    baseUnit: String(l.baseUnit ?? (l.retUnitId ? '' : l.unit ?? '')).trim(),
+  };
 }
 
 /** البندان بالوحدة نفسها؟ — مع الصنف مفتاحُ الدمج في السلّة: «+١ حبة» لا تُضاف إلى بند كرتون */
@@ -102,23 +118,25 @@ export function sameUnit(a: { unitId?: string | null }, b: { unitId?: string | n
 }
 
 /**
- * حقول الوحدة في جسم بند الفاتورة: `unitId` ولقطة الجهاز (اسم الوحدة ومعاملها كما رآها). الصندوق الأوف‑لاين
- * يحفظ الجسم كما هو، فاللقطة تُرفع معه في إعادة الرفع.
+ * حقول الوحدة في جسم بند الفاتورة: `unitId` ولقطة الجهاز (اسم الوحدة ومعاملها، ووحدة الأساس `baseUnitName`، كما رآها
+ * لحظة البند). الصندوق الأوف‑لاين يحفظ الجسم كما هو، فاللقطة تُرفع معه في إعادة الرفع (القاعدة ٧).
  *
  * وبند الأساس يحمل لقطته أيضاً (اسم الأساس بمعامل ١، بلا unitId): هي وحدها ما يكشف «أخطر فخّ» — صنفٌ حُوِّل أساسه
  * (كرتون ⇒ حبة) بعد أن صُفّت فاتورته على الجهاز. بلا اللقطة يُرفع «٢» فيُقيَّد حبّتين؛ وبها يعرف الخادم أنّ «كرتون»
- * صار وحدةً فيكتبها بمعاملها، وفي الإصدار الحيّ يردّ كاشاً قديماً بـ409 بدل أن يقيّد غير ما رآه المندوب.
+ * صار وحدةً فيكتبها بمعاملها، وفي الإصدار الحيّ يردّ كاشاً قديماً بـ400 UNIT_INVALID بدل أن يقيّد غير ما رآه المندوب.
  * ولصنفٍ بلا وحدات يقبلها الخادم كما هي (الاسم = أساسه) فلا يتغيّر قيده.
+ * و`baseUnitName` لبندٍ بوحدةٍ أكبر: «١ طبلية = ٥٠» محسوبةٌ على أساس الجهاز، فإن حُوِّل بعدها ضُربت بمعامل التحويل.
  */
-export function invoiceItemUnit(l: { unit?: string | null; unitId?: string | null; unitName?: string | null; unitFactor?: number | null }):
-  { unitId?: string; unitName: string | null; unitFactor: number } | Record<string, never> {
-  if (l.unitId) return { unitId: l.unitId, unitName: l.unitName ?? null, unitFactor: factorOf(l) };
-  const base = String(l.unit ?? '').trim();
-  return base ? { unitName: base, unitFactor: 1 } : {};
+export function invoiceItemUnit(l: { unit?: string | null; unitId?: string | null; unitName?: string | null; unitFactor?: number | null; baseUnit?: string | null }):
+  { unitId?: string; unitName: string | null; unitFactor: number; baseUnitName?: string } | Record<string, never> {
+  const base = String(l.baseUnit ?? '').trim();
+  if (l.unitId) return { unitId: l.unitId, unitName: l.unitName ?? null, unitFactor: factorOf(l), ...(base && { baseUnitName: base }) };
+  const name = String(l.unit ?? '').trim();
+  return name ? { unitName: name, unitFactor: 1, baseUnitName: base || name } : {};
 }
 
 /**
- * وحدة البند بعد تحديث الكتالوج (ردّ الخادم 409 UNIT_CHANGED: كاش الجهاز قديم). الوحدة بمعرّفها كما هي الآن؛ وبند
+ * وحدة البند بعد تحديث الكتالوج (ردّ الخادم 400 UNIT_INVALID: كاش الجهاز قديم). الوحدة بمعرّفها كما هي الآن؛ وبند
  * الأساس الذي صار اسمه وحدةً للصنف (حُوِّل الأساس: كرتون ⇒ حبة) يصير بتلك الوحدة — فـ«٢ كرتون» تبقى كرتونين لا
  * حبّتين. و`null` حين لا وحدة صالحة للبند الآن (أُوقفت أو حُذفت): يقرّر المندوب، لا يُردّ إلى الأساس بصمت.
  */
@@ -128,6 +146,23 @@ export function refreshLineUnit(l: { unit?: string | null; unitId?: string | nul
   const all = unitChoices(p);
   const was = String(l.unit ?? '').trim();
   return (was && was !== all[0].name.trim() ? all.find(c => c.id && c.name.trim() === was) : undefined) ?? all[0];
+}
+
+/**
+ * صفّ تحميلٍ أو طلب بضاعة بعد تحديث الكتالوج (ردّ 400 UNIT_INVALID): وحدته إن بقيت بين وحدات الصنف النشطة (الكرتون
+ * يُعدّ كرتوناً ولو تغيّر معامله — المندوب يحمّل عبواتٍ يعدّها)، وإلّا يصير الصفّ بالأساس وكميته × المعامل الذي اختيرت
+ * به — فـ«١٠ كرتون» أُوقف كرتونها تصير «٢٤٠ حبة» ظاهرةً على الشاشة لا «١٠ حبة» صامتة. كما يفعل فتح طلبٍ معلّقٍ أُوقفت
+ * وحدة بنده. والكمية غير الرقمية (حقلٌ يكتبه المندوب) تبقى كما هي، وصنفٌ خرج من الكتالوج (null) يبقى صفّه كما هو.
+ * وصفّ الأساس الذي صار اسمه وحدةً للصنف (حُوِّل الأساس: كرتون ⇒ حبة) يصير بتلك الوحدة كبند البيع (refreshLineUnit).
+ */
+export function rebaseRow<Q extends number | string>(
+  row: { unit?: string | null; unitId: string | null; unitFactor?: number | null; qty: Q }, p: UnitProduct | null | undefined,
+): { choice: UnitChoice; qty: Q | number } | null {
+  if (!p) return null;
+  const now = refreshLineUnit(row, p);
+  if (now) return { choice: now, qty: row.qty };
+  const q = Number(row.qty);
+  return { choice: unitChoices(p)[0], qty: String(row.qty).trim() !== '' && Number.isFinite(q) ? toBase(q, row) : row.qty };
 }
 
 interface QtyLine { productId: string; qty: number; unitId?: string | null; unitFactor?: number | null }

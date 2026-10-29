@@ -502,6 +502,10 @@ test('الإصدار الحيّ: الخادم يحلّ الوحدة، والمو
     // والرسالة تقول للمندوب ما يفعل: حدّث قائمة الأصناف
     assert.match(String((r as { message?: string }).message), /حدّث قائمة الأصناف/);
   }
+  // المرتجع المرتبط بفاتورة بيع يقبل الوحدة الموقوفة: بيعت شِدّات ثم أُوقفت، فإرجاعها بوحدتها مشروع
+  const returned = await resolveLineUnit(CONVERTED, { unitId: 'u-sh' }, { ...live, allowInactive: true });
+  assert.equal(returned.ok, true, JSON.stringify(returned));
+  assert.equal((returned as { unit: { unitFactor: number } }).unit.unitFactor, 6);
   const foreign = await resolveLineUnit(CONVERTED, { unitId: 'u-of-another-product' }, live);
   assert.deepEqual(((r: unknown) => [(r as { ok: boolean }).ok, (r as { status?: number }).status, (r as { code?: string }).code])(foreign), [false, 400, 'UNIT_INVALID'], 'معرّف صنفٍ آخر لا يُقرأ أساساً');
   assert.deepEqual(await resolveLineUnit({ name: 'x', unit: 'حبة' }, {}, live), { ok: true, unit: { unitName: null, unitFactor: 1, unitCode: null, priceUnit: null } }, 'صنفٌ بلا وحدات');

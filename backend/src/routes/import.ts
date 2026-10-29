@@ -657,7 +657,9 @@ router.post('/products', requireImportAccess('products'), async (req: AuthReques
             const netUnit = netUnitPricesByRow.get(row);
             await tx.productUnit.createMany({
               data: r.units.map((u, i) => ({
-                tenantId: tid, productId: p.id, name: u.name.trim(), factor: u.factor,
+                // المعامل صحيحٌ تحقّق منه planProductImportRows (unitProblem بسماحية QTY_EPS) — يُخزَّن مقرَّباً كمسار
+                // الأصناف (products.ts) فلا يحمل «24.0000001» من خلية Excel إلى كل لقطة تُكتب بالوحدة
+                tenantId: tid, productId: p.id, name: u.name.trim(), factor: Math.round(Number(u.factor)),
                 price: netUnit ? (netUnit[i] ?? null) : (u.price ?? null),
                 unitCode: u.unitCode || null, sortOrder: i,
               })),

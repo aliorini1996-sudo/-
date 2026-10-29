@@ -238,22 +238,43 @@ export interface UnitRow { id: string; productId: string; name: string; factor: 
  * وحدة بندٍ من معرّفها — الخادم يحلّ المعامل من وحدات الصنف ولا يثق برقمٍ يرسله العميل (القاعدة ٦).
  * `unitId` غائبٌ، أو لوحدة صنفٍ آخر، أو لوحدةٍ موقوفة ⇒ الأساس بمعامل ١ — كمسار الفاتورة (routes/invoices.ts).
  */
-export function pickLineUnit(units: readonly UnitRow[], productId: string, unitId?: string | null): LineUnit {
+/**
+ * وحدةٌ غير صالحة في مسار كتابة مخزون — يُترجمها معالج الأخطاء إلى 400 UNIT_INVALID برسالتها.
+ *
+ * وكانت تُقرأ وحدة أساسٍ بصمت: تحميل «١٠ كراتين» من شاشةٍ بقائمة أصنافٍ قديمة (وحدةٌ أُوقفت أو
+ * حُذفت أو لصنفٍ آخر) يُقيَّد عشر حبّات، فيختلّ رصيد السيارة والمستودع ولا يعلم أحد. والقرار
+ * المدوّن في DESIGN.md: الرفض الظاهر في الحيّ كمسار الفاتورة (routes/invoices.ts resolveLineUnit).
+ */
+export class UnitInvalidError extends Error {
+  readonly status = 400;
+  readonly code = 'UNIT_INVALID';
+  constructor(message: string) { super(message); this.name = 'UnitInvalidError'; }
+}
+
+/**
+ * وحدة بندٍ من وحدات صنفه: لا معرّف ⇒ الأساس (جسم ما قبل الميزة). ومعرّفٌ لا يخصّ الصنف ⇒ رفض، وموقوفٌ ⇒ رفض
+ * إلّا في إعادة الرفع أوف‑لاين (أُوقفت بعد تسجيل الحركة على الجهاز — القاعدة ٧).
+ */
+export function pickLineUnit(units: readonly UnitRow[], productId: string, unitId?: string | null, opts: { replay?: boolean } = {}): LineUnit {
   if (!unitId) return BASE_UNIT;
-  const u = units.find((x) => x.id === unitId && x.productId === productId && x.isActive !== false);
-  return u ? { name: u.name, factor: factorOf({ unitFactor: u.factor }) } : BASE_UNIT;
+  const u = units.find((x) => x.id === unitId && x.productId === productId);
+  if (!u) throw new UnitInvalidError('الوحدة المختارة ليست من وحدات الصنف — حدّث قائمة الأصناف ثم أعد الحفظ');
+  if (u.isActive === false && !opts.replay) throw new UnitInvalidError(`وحدة «${u.name}» موقوفة لهذا الصنف — اختر وحدة أخرى`);
+  return { name: u.name, factor: factorOf({ unitFactor: u.factor }) };
 }
 
 /**
  * وحدات بنود مسار كتابة، بترتيب البنود. استعلامٌ واحد لكل الطلب، ولا استعلام أصلاً حين لا يحمل بندٌ وحدة —
  * فعميلٌ قديم (أو مفتاح API) يرسل `{productId, qty}` يبقى مساره كما كان حرفياً.
  */
-export async function resolveLineUnits(tid: string, lines: readonly { productId: string; unitId?: string | null }[]): Promise<LineUnit[]> {
+export async function resolveLineUnits(
+  tid: string, lines: readonly { productId: string; unitId?: string | null }[], opts: { replay?: boolean } = {},
+): Promise<LineUnit[]> {
   const ids = [...new Set(lines.map((l) => l.unitId).filter((x): x is string => typeof x === 'string' && !!x))];
   const units: UnitRow[] = ids.length
     ? await prisma.productUnit.findMany({ where: { tenantId: tid, id: { in: ids } }, select: { id: true, productId: true, name: true, factor: true, isActive: true } })
     : [];
-  return lines.map((l) => pickLineUnit(units, l.productId, l.unitId));
+  return lines.map((l) => pickLineUnit(units, l.productId, l.unitId, opts));
 }
 
 /** وحدات أصنافٍ للعرض (صنف ← وحداته) — لردٍّ يحمل كمياتٍ بالأساس فتعرضها الواجهة «X كرتون و Y حبة» */

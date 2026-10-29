@@ -112,7 +112,7 @@ test('كل مسار في المستند مركَّبٌ في الخادم بطر�
  */
 const COVERED_ROUTERS = [
   'locations', 'paymentMethodsConfig', 'printSettings', 'attendanceAdmin', 'teams', 'reports', 'invoices', 'salesReps', 'vanStock', 'warehouse', 'receipts',
-  'repStockRequests',
+  'repStockRequests', 'products',
 ];
 const NOT_DOCUMENTED: Readonly<Record<string, string>> = {
   'PUT /company/teams/:id/supervisors': 'يرفض مفاتيح API دائماً بـ403 (API_KEY_FORBIDDEN بعد فحص صلاحيتي الإعدادات والمستخدمين) — نطاق مستخدمي الشركة من اللوحة وحدها، ومذكورٌ في مقدمة مجموعة الفرق',
@@ -339,4 +339,80 @@ test('دقّة المستند: teamId في الفاتورة والسند يذك�
     assert.ok(d.indexOf('١)') < d.indexOf('٢)') && d.indexOf('٢)') < d.indexOf('٣)') && d.indexOf('٣)') < d.indexOf('٤)'), `${p}: الترتيب`);
     assert.match(d, /لا رفض/);
   }
+});
+
+/* ═══ الوحدات المتعددة للصنف ═══ */
+
+/** مفاتيح مخطّط zod باسمه في ملف موجّه: `const <name> = z.object({ … });` ⇒ أسماء حقوله العليا */
+function zodKeys(src: string, name: string): string[] {
+  const start = src.indexOf(`const ${name} = z.object({`);
+  assert.ok(start >= 0, `المخطّط ${name} غائب`);
+  const body = src.slice(start, src.indexOf('\n});', start));
+  return [...body.matchAll(/^ {2}(\w+):/gm)].map((m) => m[1]);
+}
+
+test('دقّة المستند: مسارات وحدات الصنف والتحويل بحقول مخطّطاتها في الخادم حرفياً', () => {
+  const products = routeFile('products');
+  const bodyOf = (method: string, p: string) => endpointOf(method, p).body.map((f) => f.name).sort();
+  assert.deepEqual(bodyOf('POST', '/products/:id/units'), zodKeys(products, 'unitCreateSchema').sort());
+  assert.deepEqual(bodyOf('PUT', '/products/:id/units/:unitId'), zodKeys(products, 'unitUpdateSchema').sort());
+  assert.deepEqual(bodyOf('POST', '/products/:id/convert-base'), zodKeys(products, 'convertBaseSchema').sort());
+  // ورموز الرفض التي يذكرها المستند يرسلها الخادم
+  for (const code of ['PRODUCT_UNITS_INVALID', 'BASE_UNIT_CHANGED', 'UNIT_NOT_FOUND', 'PRODUCT_NOT_FOUND']) {
+    assert.ok(products.includes(`'${code}'`), `${code} لا يرسله موجّه الأصناف`);
+  }
+  assert.match(endpointOf('POST', '/products/:id/convert-base').response, /BASE_UNIT_CHANGED/);
+  // الشرائح بحدودها بالأساس كما في priceTierSchema
+  const tiers = endpointOf('PUT', '/products/:id/price-tiers').body.map((f) => f.name);
+  for (const k of ['minQty', 'maxQty', 'baseMinQty', 'baseMaxQty', 'price']) assert.ok(tiers.includes(`tiers[].${k}`), `tiers[].${k}`);
+  assert.ok(/baseMinQty: z\.number\(\)/.test(products) && /baseMaxQty: z\.number\(\)/.test(products), 'الحدّان بالأساس في مخطّط الشرائح');
+});
+
+test('دقّة المستند: unitId في بنود الفاتورة والتحميل والوارد وتعديل طلب البضاعة والإشعار الدائن — وفي مخطّطاتها في الخادم', () => {
+  const sites: [string, string, string, string][] = [
+    ['POST', '/invoices', 'items[].unitId', 'invoices'],
+    ['POST', '/van-stock/loads', 'items[].unitId', 'vanStock'],
+    ['POST', '/warehouse/entries', 'items[].unitId', 'warehouse'],
+    ['PUT', '/rep-stock-requests/:id', 'items[].unitId', 'repStockRequests'],
+    ['POST', '/invoices/:id/credit-note', 'lines[].unitId', 'invoices'],
+  ];
+  for (const [method, p, field, router] of sites) {
+    const f = fieldOf(endpointOf(method, p), field);
+    assert.equal((f as { required?: boolean }).required, false, `${p}: unitId اختياري`);
+    assert.match(f.desc, /وحدة الأساس/, `${p}: الغياب = الأساس`);
+    assert.ok(routeFile(router).includes('unitId: z.string()'), `${router}: unitId ليس في المخطّط`);
+  }
+  // الفاتورة وحدها ترفض الوحدة غير الصالحة برمزها؛ ومسارات المخزون تنبّه أنّها تقرؤها أساساً
+  assert.match(fieldOf(endpointOf('POST', '/invoices'), 'items[].unitId').desc, /400 UNIT_INVALID/);
+  assert.ok(BACKEND_SRC.includes("code: 'UNIT_INVALID'"), 'الخادم يرسل UNIT_INVALID');
+  for (const p of ['/van-stock/loads', '/warehouse/entries']) assert.match(fieldOf(endpointOf('POST', p), 'items[].unitId').desc, /بلا رفض/);
+  // الاقتراح والتنبّؤ بالأساس دائماً
+  for (const k of ['items[].suggestedQty', 'items[].expectedQty']) assert.match(fieldOf(endpointOf('POST', '/van-stock/loads'), k).desc, /بوحدة الأساس دائماً|بالأساس دائماً/);
+});
+
+test('دقّة المستند: ردّ /returnable بحقوله في الخادم، والمرتجع المرتبط يسعّره الخادم لا السعر المرسل', () => {
+  const r = endpointOf('GET', '/invoices/:id/returnable');
+  const handler = routeFile('invoices').slice(routeFile('invoices').indexOf("router.get('/:id/returnable'"));
+  for (const k of ['soldBase', 'returnedBase', 'returnableBase', 'refundPerBase', 'unitName', 'unitFactor', 'lineTotal']) {
+    assert.match(r.response, new RegExp(`\\b${k}\\b`), `${k} غائب عن الرد الموثّق`);
+    assert.ok(new RegExp(`\\b${k}\\b`).test(handler.slice(0, 6000)), `${k} لا يرسله الخادم`);
+  }
+  const post = endpointOf('POST', '/invoices');
+  assert.ok(!post.rules.some((x) => x.includes('ولا يتحقق من السعر')), 'القاعدة القديمة: الخادم لا يسعّر المرتجع');
+  assert.ok(post.rules.some((x) => x.includes('الخادم يسعّر المرتجع المرتبط بنفسه')));
+  assert.ok(routeFile('invoices').includes('priceLinkedReturn(body.items'), 'والخادم يسعّره فعلاً');
+});
+
+test('دقّة المستند: الأرصدة والتجميعات بالأساس ومعها units — صنفٌ بلا وحدات كما كان', () => {
+  for (const [method, p] of [['GET', '/van-stock/current'], ['GET', '/van-stock/suggest'], ['GET', '/warehouse'], ['GET', '/rep-stock-requests']]) {
+    assert.match(endpointOf(method, p).response, /units/, `${p}: units غائبة`);
+  }
+  for (const [method, p] of [['GET', '/van-stock/loads'], ['POST', '/van-stock/loads'], ['POST', '/warehouse/entries'], ['GET', '/warehouse/entries'], ['GET', '/invoices/:id']]) {
+    const resp = endpointOf(method, p).response;
+    for (const k of ['unitName', 'unitFactor', 'baseQty']) assert.match(resp, new RegExp(k), `${method} ${p}: ${k}`);
+  }
+  const stock = API_DOC_GROUPS.find((g) => g.key === 'stock')!.overview;
+  assert.match(stock, /بوحدة الأساس/);
+  assert.match(stock, /اجمع baseQty لا qty/);
+  assert.match(API_DOC_GROUPS.find((g) => g.key === 'products')!.overview, /صنفٌ بلا وحدات: units فارغة/);
 });

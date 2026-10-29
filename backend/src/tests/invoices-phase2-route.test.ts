@@ -898,26 +898,49 @@ test('الوحدات: بند كرتون في المرحلة الثانية ⇒ �
   assert.doesNotMatch(xml, /unitCode="PCE"/, 'رمز PCE على بند كرتون');
 });
 
-test('الوحدات: phase2UnitSnapshots — اللقطة الممرَّرة تغلب، وإلا unitId من الوحدات النشطة، وإلا الأساس بمعامل ١ (والصفّ يُكتب بها)', () => {
+test('الوحدات: الفرع لا يحلّ الوحدة ثانيةً — يكتب لقطة resolveLineUnit كما مُرِّرت، وunitId بلا لقطة 400 UNIT_INVALID لا الأساس بصمت', () => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const z = require('../routes/invoicesZatca') as typeof import('../routes/invoicesZatca');
-  const products = [{ id: 'p-water', units: [CARTON_UNIT, { id: 'u-off', name: 'شدّة', factor: 6, unitCode: null, isActive: false }] }];
   const line = { productId: 'p-water', qty: 2, unitPrice: 60, discountPct: 0, discountAmt: 0, taxPct: 15, taxAmt: 15.65, lineTotal: 120 };
-  const body = [{ productId: 'p-water', qty: 2, unitPrice: 60 }];
-  // بلا لقطة: تُحلّ من unitId بقاعدة المسار القديم
-  assert.deepEqual(z.phase2UnitSnapshots([{ ...line, unitId: 'u-ct' }], body, products), [{ unitName: 'كرتون', unitFactor: 24, unitCode: 'CT' }]);
-  // وحدةٌ موقوفة أو غريبة أو بلا وحدة ⇒ الأساس (سلوك ما قبل الميزة)
-  for (const unitId of ['u-off', 'u-nope', undefined]) {
-    assert.deepEqual(z.phase2UnitSnapshots([{ ...line, unitId }], body, products), [{ unitName: null, unitFactor: 1, unitCode: null }], String(unitId));
-  }
-  // لقطة المسار القديم تغلب إعادة الحلّ (حُرس بها السعر والمخزون)
-  assert.deepEqual(
-    z.phase2UnitSnapshots([{ ...line, unitId: 'u-ct', unitName: 'كرتون', unitFactor: 12, unitCode: 'CT' }], body, products),
-    [{ unitName: 'كرتون', unitFactor: 12, unitCode: 'CT' }],
-  );
-  const cols = z.legacyItemColumns(line, { unitName: 'كرتون', unitFactor: 24, unitCode: 'CT' });
-  assert.deepEqual([cols.qty, cols.unitName, cols.unitFactor, cols.baseQty, cols.unitPrice], [2, 'كرتون', 24, 48, 60]);
-  // صنفٌ بلا وحدات: الأساس بمعامل ١ والكمية بالأساس هي الكمية
-  const plain = z.legacyItemColumns(line);
+  // اللقطة كما حلّها المسار القديم (ولو تغيّر معامل الوحدة اليوم): تُكتب حرفياً
+  const cols = z.legacyItemColumns({ ...line, unitName: 'كرتون', unitFactor: 12, unitCode: 'CT' });
+  assert.deepEqual([cols.qty, cols.unitName, cols.unitFactor, cols.baseQty, cols.unitPrice], [2, 'كرتون', 12, 24, 60]);
+  // وحدة الأساس: اسمٌ null ومعامل ١ — الكمية بالأساس هي الكمية (سلوك ما قبل الميزة)
+  const plain = z.legacyItemColumns({ ...line, unitName: null, unitFactor: 1, unitCode: null });
   assert.deepEqual([plain.qty, plain.unitName, plain.unitFactor, plain.baseQty], [2, null, 1, 2]);
+  // حارس العقد: بندٌ طلب وحدةً ولا لقطة له ⇒ UNIT_INVALID، وبلا وحدةٍ ولا لقطة ⇒ يمرّ (الأساس)
+  const bare = { ...line } as unknown as Parameters<typeof z.legacyItemColumns>[0];
+  assert.throws(() => z.assertPhase2Units([bare], [{ productId: 'p-water', qty: 2, unitPrice: 60, unitId: 'u-ct' }]), (e: unknown) => (e as { code?: string }).code === 'UNIT_INVALID');
+  assert.doesNotThrow(() => z.assertPhase2Units([bare], [{ productId: 'p-water', qty: 2, unitPrice: 60 }]));
+  assert.doesNotThrow(() => z.assertPhase2Units([{ ...line, unitName: 'كرتون', unitFactor: 24, unitCode: 'CT' }], [{ productId: 'p-water', qty: 2, unitPrice: 60, unitId: 'u-ct' }]));
+  // التحويل المتزامن: صنفٌ تبدّلت وحدة أساسه عمّا حُلّت عليه اللقطة يُسمّى، وغيره لا
+  const expected = new Map([['p-water', { name: 'مياه', unit: 'كرتون' }], ['p-juice', { name: 'عصير', unit: 'حبة' }]]);
+  assert.deepEqual(z.movedBaseUnits(expected, [{ id: 'p-water', unit: 'حبة' }, { id: 'p-juice', unit: 'حبة' }]), ['مياه']);
+  assert.deepEqual(z.movedBaseUnits(expected, [{ id: 'p-water', unit: 'كرتون' }]), []);
+});
+
+test('الوحدات: تحويل وحدة أساسٍ التزم بين حلّ اللقطة والإصدار ⇒ 409 PRODUCT_UNITS_CHANGED بلا مستند ولا ICV (كالمسار القديم)', async () => {
+  reset();
+  const rig = buildRig();
+  const deps = depsFor(rig);
+  const lockSql: string[] = [];
+  // مقبض المعاملة بقفلٍ حقيقيّ الشكل: صفّ الصنف تحت القفل بأساسٍ غير الذي حُلّت عليه اللقطة (حبة ⇒ علبة)
+  phase2Deps = {
+    ...deps,
+    transaction: <T>(fn: (tx: Phase2Tx) => Promise<T>): Promise<T> => deps.transaction(tx => fn(Object.assign(tx, {
+      $queryRaw: async (strings: TemplateStringsArray) => { lockSql.push(strings.join('?')); return [{ id: 'p-water', unit: 'علبة' }]; },
+    }) as Phase2Tx)),
+  };
+  scriptBase({ customer: CUSTOMER_ROW(CUSTOMERS.individual as unknown as Record<string, unknown>), units: [unitViewOf(rig)] });
+  const before = rig.sim.units.get(rig.unitRow.id)?.lastIcv ?? 0;
+  const r = await call('POST', '/api/invoices', {
+    body: { ...invoiceBody({ customerId: 'c-walkin', items: [] }), items: [{ productId: 'p-water', qty: 2, unitPrice: 60, discountPct: 0, taxPct: 15 }] },
+    headers: CAPS,
+  });
+  assert.equal(r.status, 409, JSON.stringify(r.body));
+  assert.equal(r.body.code, 'PRODUCT_UNITS_CHANGED');
+  assert.match(String(r.body.message), /تغيّرت وحدة الأساس/);
+  assert.equal(rig.sim.documents.size, 0, 'مستندٌ خُتم ببند لقطته على أساسٍ قديم');
+  assert.equal(rig.sim.units.get(rig.unitRow.id)?.lastIcv ?? 0, before, 'استُهلك ICV');
+  assert.ok(lockSql.some(q => /FROM products WHERE id = ANY\(\?\) AND "tenantId" = \? FOR KEY SHARE/.test(q)), lockSql.join(' | '));
 });

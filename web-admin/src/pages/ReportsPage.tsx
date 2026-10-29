@@ -21,6 +21,8 @@ import { attendanceDayCells, breakOf, compactMinutes, periodsOf, punchDetailRows
 import { elementsToPdfBlob, downloadPdf } from '../rep/pdf';
 import toast from 'react-hot-toast';
 import { useAccountingOn } from '../components/AccountingGate';
+import { baseQtyText, docQtyText, hasBigUnit } from '../lib/adminUnits';
+import { factorOf, type UnitDef } from '../lib/units';
 
 type Tab = 'sales' | 'collections' | 'balances' | 'performance';
 
@@ -67,8 +69,13 @@ interface ReturnRow {
   customer: { id: string; name: string; phone: string; city: string | null } | null;
   salesRep: { id: string; name: string } | null;
   team?: { id: string; name: string } | null;
-  items: { name: string; unit: string; qty: number; lineTotal: number; returnExpired: boolean | null; expiresAt: string | null }[];
+  // الوحدات المتعددة: `unit` لقطة وحدة البند والكمية بها، و`unitFactor` معاملها و`baseQty`/`baseUnit` بالأساس (routes/reports returnLineView)
+  items: { name: string; unit: string; qty: number; unitFactor?: number; baseQty?: number; baseUnit?: string; lineTotal: number; returnExpired: boolean | null; expiresAt: string | null }[];
 }
+/** صفّ «المبيعات حسب الصنف»: `qty` **بالأساس** (`unit` اسمها) و`units` وحدات الصنف — يُعرض «٢ كرتون و٣ حبة» */
+type SalesRow = { name: string; total: number; count?: number; qty?: number; code?: string; unit?: string; units?: UnitDef[] };
+/** أرقام الكمية في التقارير كما كانت (بلا منسّق محلّي) — formatQty يُطبَّق عليها وحدها */
+const plainQty = (n: number) => String(Number(n.toFixed(3)));
 interface ReturnsSummary { count: number; total: number; salesTotal: number; returnRate: number | null; byReason: Record<string, { count: number; total: number }>; expiredLines: number }
 const RETURN_REASON_LABELS: Record<string, string> = { NORMAL: 'مرتجع عادي', DAMAGED: 'بضاعة تالفة', EXCHANGE: 'استبدال' };
 interface CustGroup { customerId: string; customerName: string; visitsCount: number; avgDurationSec: number | null; lastVisit: string; visits: CustVisit[] }
@@ -357,6 +364,8 @@ export default function ReportsPage() {
     ]),
     [returnsQ.data, q],
   );
+  // في المرتجعات بندٌ بغير وحدة الأساس (حبّةٌ من كرتون، كرتونٌ قديم بعد التحويل)؟ — تُكتب الوحدة بجانب الكمية حينها
+  const returnsMultiUnit = returnRows.some(r => r.items.some(i => factorOf(i) !== 1));
   const returnTotals = useMemo(() => ({
     count: returnRows.length,
     total: Math.round(returnRows.reduce((t, r) => t + Number(r.total || 0), 0) * 1e6) / 1e6,
@@ -617,9 +626,11 @@ export default function ReportsPage() {
           ...(teamsOn && { [tr('الفريق')]: r.team?.name || tr('بلا فريق') }),
           [tr('الصنف')]: i.name,
           [tr('الكمية')]: i.qty,
+          // الوحدات المتعددة: الكمية بوحدة البند (حبّةٌ من كرتون) — عمود الوحدة حين في المرتجعات بندٌ بغير الأساس، فلا يُقرأ «١» كرتوناً
+          ...(returnsMultiUnit && { [tr('الوحدة')]: i.unit || '' }),
           [tr('القيمة')]: num(i.lineTotal),
           [tr('منتهي الصلاحية')]: i.returnExpired === true ? tr('نعم') : i.returnExpired === false ? tr('لا') : '',
-        }))), colWidths: [16, 12, 24, 26, 10, 14, 14] },
+        }))), colWidths: returnsMultiUnit ? [16, 12, 24, 26, 10, 12, 14, 14] : [16, 12, 24, 26, 10, 14, 14] },
       ];
       fname = tr('تقرير المرتجع');
     } else if (tab === 'sales' && salesType === 'orders' && orderRows.length) {
@@ -637,9 +648,13 @@ export default function ReportsPage() {
       })), colWidths: [16, 24, 16, 14, 20, 14, 14, 14, 14] }];
       fname = tr('تقرير الطلبات');
     } else if (tab === 'sales' && salesType === 'summary' && Array.isArray(salesRows) && salesRows.length) {
-      sheets = [{ name: tr('المبيعات'), rows: (salesRows as { name: string; total: number; count?: number; qty?: number }[]).map(r => ({
-        [tr('الاسم')]: groupBy === 'team' ? displayName(r.name) : r.name, [tr('العدد/الكمية')]: r.count ?? r.qty ?? '', [tr('الإجمالي')]: num(r.total),
-      })), colWidths: [28, 14, 16] }];
+      // حسب الصنف بوحدات: الكمية بالأساس رقماً (للجمع في Excel) ومعها اسم الأساس ونصّها مفكَّكاً «٢ كرتون و٣ حبة»
+      const multi = groupBy === 'product' && (salesRows as SalesRow[]).some(r => hasBigUnit(r.units));
+      sheets = [{ name: tr('المبيعات'), rows: (salesRows as SalesRow[]).map(r => ({
+        [tr('الاسم')]: groupBy === 'team' ? displayName(r.name) : r.name, [tr('العدد/الكمية')]: r.count ?? r.qty ?? '',
+        ...(multi && { [tr('الوحدة')]: r.unit || '', [tr('الكمية بوحداتها')]: baseQtyText(Number(r.qty) || 0, r, plainQty) }),
+        [tr('الإجمالي')]: num(r.total),
+      })), colWidths: multi ? [28, 14, 12, 24, 16] : [28, 14, 16] }];
       fname = tr('تقارير المبيعات');
     } else if (tab === 'balances' && custType === 'visits' && visitRows?.length) {
       sheets = [
@@ -1056,10 +1071,11 @@ export default function ReportsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {(salesRows as { name: string; total: number; count?: number; qty?: number; code?: string }[]).map((row, i) => (
+                      {(salesRows as SalesRow[]).map((row, i) => (
                         <tr key={i}>
                           <td className="font-medium text-gray-800">{displayName(row.name)}</td>
-                          <td className="text-gray-600">{row.count ?? row.qty ?? '-'}</td>
+                          {/* حسب الصنف: الكمية بالأساس من الخادم — مفكَّكةً «٢ كرتون و٣ حبة» لصنفٍ له وحدات، والرقم كما كان لغيره */}
+                          <td className="text-gray-600">{groupBy === 'product' && hasBigUnit(row.units) ? baseQtyText(Number(row.qty) || 0, row, plainQty) : (row.count ?? row.qty ?? '-')}</td>
                           <td className="font-semibold text-[#E15A30]">{formatCurrency(row.total)}</td>
                         </tr>
                       ))}
@@ -1151,7 +1167,8 @@ export default function ReportsPage() {
                           <td className="text-xs text-gray-600">
                             {r.items.map((it, j) => (
                               <span key={j} className="block">
-                                {it.name} ×{Number(it.qty.toFixed(3))}
+                                {/* بوحدة البند حين بغير الأساس: «×١ حبة» من بند كرتون لا «×١» تُقرأ كرتوناً */}
+                                {it.name} ×{docQtyText({ qty: it.qty, unitName: it.unit, unitFactor: it.unitFactor }, plainQty)}
                                 {it.returnExpired === true && <span className="ms-1 text-[10px] font-semibold text-red-600">{tr('منتهي الصلاحية')}</span>}
                               </span>
                             ))}

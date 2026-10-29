@@ -247,7 +247,7 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     const items = data.items.filter(i => i.qty !== 0);
     if (!items.length) { res.status(400).json({ success: false, message: 'لا توجد كميات صالحة' }); return; }
     // لقطة وحدة كل بند بترتيب `items` — يحلّها الخادم من وحدات الصنف (بلا unitId ⇒ الأساس، ولا استعلام)
-    const units = await resolveLineUnits(tid, items);
+    const units = await resolveLineUnits(tid, items, { replay: String(req.headers['x-fs-replay'] || '') === '1' });
 
     // إزالة المنتهي صلاحيته أو التالف: كمياتٌ موجبة لا تتجاوز رصيده لكل صنف في سيارة هذا المندوب — والفحص والإنشاء
     // تحت قفلٍ استشاري للمندوب ولذلك الرصيد (أدناه) فلا تتجاوز إزالتان متزامنتان رصيده معاً

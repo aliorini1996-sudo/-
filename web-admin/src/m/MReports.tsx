@@ -14,6 +14,8 @@ import { useBackClose } from '../lib/useBackClose';
 import { MCard, MRow, MStat, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import { expectArray, expectObject } from './shape';
 import { useIsLive, livePoll } from './useLiveQuery';
+import { hasBigUnit, qtyText } from './mUnits';
+import type { UnitDef } from '../lib/units';
 import { breakOf, compactMinutes, formatPeriods, hasPunchLocation, periodsOf, punchInUrl, punchOutUrl, periodOutside, type WorkPeriodLike } from '../lib/workPeriods';
 
 /**
@@ -35,8 +37,15 @@ import { breakOf, compactMinutes, formatPeriods, hasPunchLocation, periodsOf, pu
 
 // ═══════════════ أشكال استجابات الخادم (مطابقة لـ routes/reports.ts) ═══════════════
 
-/** صفّ مبيعات مُجمَّع: count للمندوب/العميل، وqty+code للصنف */
-interface SalesRow { name: string; total: number; count?: number; qty?: number; code?: string }
+/**
+ * صفّ مبيعات مُجمَّع: count للمندوب/العميل، وqty+code للصنف.
+ * والصنف (الوحدات المتعددة): `qty`/`baseQty` بوحدة الأساس `unit` مجموعةً من كل بندٍ بمعامله، و`units` وحداته الأكبر
+ * فتُعرض «٢ كرتون و٣ حبة» — رقم الحبّات بلفظ «وحدة» يُقرأ كراتين.
+ */
+interface SalesRow {
+  name: string; total: number; count?: number; qty?: number; code?: string;
+  baseQty?: number; unit?: string; units?: UnitDef[];
+}
 
 interface ReceiptRow {
   id: string; number: string; receiptDate: string; amount: number; paymentMethod: string;
@@ -475,6 +484,8 @@ function SalesReport({ from, to, groupBy, onGroupBy }: {
     { total: 0, count: 0, qty: 0 }), [rows]);
 
   const byProduct = groupBy === 'product';
+  // إجمالي الكمية عبر الأصناف بالأساس: يُسمّى كذلك حين لصنفٍ وحدةٌ أكبر — وبلا وحداتٍ يبقى كما كان حرفاً
+  const anyMulti = byProduct && rows.some(r => hasBigUnit(r.units));
   const rowsLabel = byProduct ? tr('عدد الأصناف') : groupBy === 'rep' ? tr('عدد المناديب') : tr('عدد العملاء');
 
   return (
@@ -497,7 +508,7 @@ function SalesReport({ from, to, groupBy, onGroupBy }: {
         <div className="grid grid-cols-2 gap-2.5">
           <MStat label={tr('إجمالي المبيعات')} value={formatCurrency(sum.total)} icon={TrendingUp} />
           <MStat
-            label={byProduct ? tr('إجمالي الكمية') : tr('عدد الفواتير')}
+            label={byProduct ? (anyMulti ? tr('إجمالي الكمية بوحدات الأساس') : tr('إجمالي الكمية')) : tr('عدد الفواتير')}
             value={formatNumber(byProduct ? sum.qty : sum.count)}
             icon={byProduct ? Package : Receipt} />
           <MStat label={rowsLabel} value={formatNumber(rows.length)} icon={Users} />
@@ -513,7 +524,9 @@ function SalesReport({ from, to, groupBy, onGroupBy }: {
             <MRow key={`${r.name}-${i}`}
               title={r.name}
               subtitle={byProduct
-                ? [r.code, `${formatNumber(r.qty ?? 0)} ${tr('وحدة')}`].filter(Boolean).join(' · ')
+                ? [r.code, hasBigUnit(r.units)
+                    ? qtyText(r.baseQty ?? r.qty ?? 0, r, formatNumber)
+                    : `${formatNumber(r.qty ?? 0)} ${tr('وحدة')}`].filter(Boolean).join(' · ')
                 : `${formatNumber(r.count ?? 0)} ${tr('فاتورة')}`}
               trailing={<Amount value={formatCurrency(r.total)} />} />
           ))}

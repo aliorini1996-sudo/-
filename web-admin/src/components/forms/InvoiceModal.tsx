@@ -16,23 +16,42 @@ import {
   RETURN_REASONS, type ReturnReason, type ReturnableSaleRow, type LinkedSale, type ReturnHead,
   toLinkedSale, linkedSaleProblem, clampReturnQty, fillLinkedQty, isLineReturnable, linkedReturnTotals,
   mergeRefreshedSale, buildLinkedReturnPayload, buildFreeReturnPayload, returnFormProblem, returnIssueError, returnDocItems,
-  NOTE_REASON_MAX,
+  NOTE_REASON_MAX, returnUnitChoices, withReturnUnit, maxReturnQty,
 } from '../../lib/returnInvoice';
+import { choiceById, choiceNet, defaultChoice, hasUnitChoice, invoiceItemUnit, unitChoices, type UnitChoice } from '../../rep/repUnits';
+import { baseQtyText, lineKey, unitTaken } from '../../lib/adminUnits';
+import type { UnitDef } from '../../lib/units';
 import { X, Trash2, Plus, Undo2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SearchableSelect from '../SearchableSelect';
 
+/**
+ * بند الفاتورة في المحرّر. الوحدات المتعددة: `unit` اسم وحدة البند كما يُطبع، والكمية والسعر بها؛ و`unitId` وحدتها
+ * (null = الأساس بمعامل ١) يحلّها الخادم بمعرّفها. والصنف نفسه بوحدتين بندان (المفتاح صنفٌ ووحدة) — «+١» على كرتونٍ
+ * لا تُضاف إلى بند حبّات.
+ */
 interface LineItem {
   productId: string;
   productName: string;
   productCode: string;
   unit: string;
+  unitId: string | null;
+  unitFactor: number;
+  /** وحدة أساس الصنف لحظة الإضافة — تُرسل مع البند فيكشف الخادم قائمةً قديمة («حدّث قائمة الأصناف») */
+  baseUnit: string;
+  /** وحدات الصنف — لعرض المنتقي، ولطباعة الوحدة ولو أخفاها القالب */
+  units: UnitDef[];
   qty: number;
   unitPrice: number;
   discountPct: number;
   taxPct: number;
   lineTotal: number;
 }
+
+/** وحدة البند من اختيارٍ من وحدات الصنف */
+const lineUnitFields = (p: Product, c: UnitChoice) => ({
+  unit: c.name, unitId: c.id, unitFactor: c.id ? c.factor : 1, baseUnit: String(p.unit ?? ''), units: (p.units ?? []) as UnitDef[],
+});
 
 interface Props { onClose: () => void; onSaved: (doc: InvoiceDoc) => void; }
 
@@ -183,10 +202,11 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
           return;
         }
         // الاسم من بند البيع ثم من محرّر الأسطر ثم من قائمة الأصناف (بنود الردّ تحمل productId بلا اسم)
+        // ومعها وحدة الأساس: بند ردٍّ بالأساس (بلا لقطة اسم) يُطبع باسم الأساس لا بوحدة بيعٍ أكبر (returnDocItems)
         const sources = [
-          ...(linked?.lines ?? []).map(l => ({ productId: l.productId, name: l.name, unit: l.unit, saleItemId: l.saleItemId, shelfLife: l.shelfLife, expiresAt: l.expiresAt, expiredToday: l.expiredToday })),
-          ...lines.map(l => ({ productId: l.productId, name: l.productName, unit: l.unit })),
-          ...(products || []).map(p => ({ productId: p.id, name: p.name, unit: p.unit })),
+          ...(linked?.lines ?? []).map(l => ({ productId: l.productId, name: l.name, unit: l.unit, baseUnit: l.baseUnit, saleItemId: l.saleItemId, shelfLife: l.shelfLife, expiresAt: l.expiresAt, expiredToday: l.expiredToday })),
+          ...lines.map(l => ({ productId: l.productId, name: l.productName, unit: l.unit, baseUnit: l.baseUnit })),
+          ...(products || []).map(p => ({ productId: p.id, name: p.name, unit: p.unit, baseUnit: p.unit })),
         ];
         const retDoc: InvoiceDoc = {
           // InvoiceDoc.type بلا RETURN: المرتجع «آجل» بعلم isReturn كما تبنيه invoiceDocFromDetail
@@ -205,7 +225,11 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
       const doc: InvoiceDoc = {
         kind: 'invoice', number: inv.number, date: inv.invoiceDate, type, isReturn: false,
         company: company ?? null, customer: selectedCustomer as Customer, repName,
-        items: lines.map(l => ({ name: l.productName, unit: l.unit, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct, lineTotal: l.lineTotal })),
+        // لقطة وحدة البند كما أُرسلت (الخادم يرفض ما يخالفها) — فورقة الحفظ تطابق ورقة إعادة الفتح (invoiceDocFromDetail)
+        items: lines.map(l => ({
+          name: l.productName, unit: l.unit, unitFactor: l.unitFactor, multiUnit: l.units.length > 0,
+          qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct, lineTotal: l.lineTotal,
+        })),
         deliveryDate: deliveryDate || undefined,
         subtotal, discount: totalDiscount, tax: taxTotal, total,
         paidAmt: Number(inv.paidAmt), remainingAmt: Number(inv.remainingAmt),
@@ -224,27 +248,49 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
         if (e.refreshLines && linked) void refreshLinked(linked);
         return;
       }
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('خطأ');
-      toast.error(msg);
+      const data = (err as { response?: { data?: { message?: string; code?: string } } })?.response?.data;
+      // 400 UNIT_INVALID: وحدات صنفٍ تغيّرت منذ حُمّلت القائمة (أُوقفت أو حُوّل أساسه) — تُحدَّث القائمة، والمدير يراجع البند
+      if (data?.code === 'UNIT_INVALID') qc.invalidateQueries({ queryKey: ['products-all'] });
+      toast.error(data?.message || tr('خطأ'));
     },
   });
 
+  /* الوحدة الافتراضية = الأكبر (repUnits.defaultChoice): بعد تحويل الصنف إلى الحبّة يبقى «+صنف» كرتوناً كما كان قبله.
+   * والسعر سعر الوحدة (المحدَّد لها، وإلا الأساس × المعامل) — صافٍ قبل الضريبة كسعر الأساس في هذا المحرّر */
   const addProduct = (p: Product) => {
-    const existing = lines.find(l => l.productId === p.id);
+    const c = defaultChoice(p);
+    const existing = lines.find(l => l.productId === p.id && (l.unitId ?? null) === c.id);
     if (existing) {
-      setLines(ls => ls.map(l => l.productId === p.id
+      setLines(ls => ls.map(l => lineKey(l) === lineKey(existing)
         ? { ...l, qty: l.qty + 1, lineTotal: calcLine(l.qty + 1, l.unitPrice, l.discountPct, l.taxPct) }
         : l
       ));
     } else {
+      const price = choiceNet(c, p.basePrice);
       setLines(ls => [...ls, {
         productId: p.id, productName: p.name, productCode: p.code,
-        unit: p.unit, qty: 1, unitPrice: Number(p.basePrice),
+        ...lineUnitFields(p, c), qty: 1, unitPrice: price,
         discountPct: 0, taxPct: Number(p.taxPct),
-        lineTotal: calcLine(1, Number(p.basePrice), 0, Number(p.taxPct)),
+        lineTotal: calcLine(1, price, 0, Number(p.taxPct)),
       }]);
     }
   };
+
+  /** تبديل وحدة البند: الكمية رقمها كما هو والسعر سعر الوحدة الجديدة — وحدةٌ أخذها بندٌ آخر للصنف معطّلةٌ في المنتقي */
+  const setLineUnit = (idx: number, unitId: string | null) => {
+    const l = lines[idx];
+    const p = (products || []).find(x => x.id === l?.productId);
+    const c = p ? choiceById(p, unitId) : null;
+    if (!l || !p || !c || unitTaken(lines, l.productId, c.id, lineKey(l))) return;
+    const price = choiceNet(c, p.basePrice);
+    setLines(ls => ls.map((x, i) => (i !== idx ? x : {
+      ...x, ...lineUnitFields(p, c), unitPrice: price, lineTotal: calcLine(x.qty, price, x.discountPct, x.taxPct),
+    })));
+  };
+
+  /** وحدة المرتجع لبندٍ من فاتورة البيع (حبّةٌ من كرتون): المتاح وسعر الاسترداد يُعاد التعبير عنهما بها */
+  const setLinkedUnit = (saleItemId: string, unitId: string | null) =>
+    setLinked(s => s && { ...s, lines: s.lines.map(l => (l.saleItemId === saleItemId ? withReturnUnit(l, unitId) : l)) });
 
   const updateLine = (idx: number, field: keyof LineItem, value: number) => {
     // المرتجع الحرّ: لا كمية سالبة (مرتجعٌ سالب بيعٌ مقنَّع يرفع رصيد العميل) — والصفر يُمنع عند الإصدار
@@ -290,7 +336,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
     const problem = returnFormProblem({ phase2, linked, freeLines: lines, noteReason, invoiceDate });
     if (problem) { toast.error(tr(problem)); return; }
     const head: ReturnHead = { customerId, salesRepId, returnReason, notes, invoiceDate, phase2, noteReason };
-    mutation.mutate(linked ? buildLinkedReturnPayload(head, linked) : buildFreeReturnPayload(head, lines, discountPct));
+    // خانات عملة الشركة: سعر وحدة المرتجع (حبّةٌ من كرتون) يُشتقّ من مبلغه بها كما يحسبه الخادم (linkedUnitPrice)
+    mutation.mutate(linked ? buildLinkedReturnPayload(head, linked, retDec) : buildFreeReturnPayload(head, lines, discountPct));
   };
 
   const handleSubmit = () => {
@@ -312,6 +359,9 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
       items: lines.map(l => ({
         productId: l.productId, qty: l.qty, unitPrice: l.unitPrice,
         discountPct: l.discountPct, taxPct: l.taxPct,
+        // الوحدات المتعددة: معرّف الوحدة يحلّه الخادم، ولقطتها كما رآها المدير (الاسم والمعامل ووحدة الأساس) تكشف
+        // قائمةً قديمة — صنفٌ حُوّل أساسه بعد فتح النافذة يُردّ 400 UNIT_INVALID لا يُقيَّد «٢» حبّتين وقد قصد كرتونين
+        ...invoiceItemUnit({ unit: l.unit, unitId: l.unitId, unitName: l.unitId ? l.unit : null, unitFactor: l.unitFactor, baseUnit: l.baseUnit }),
       })),
     });
   };
@@ -424,7 +474,9 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                       ...(returnableSales || []).map(s => ({
                         value: s.id,
                         label: s.number,
-                        hint: `${formatDate(s.invoiceDate)} • ${formatCurrency(s.total)} • ${tr('المتاح للإرجاع')} ${Number(Number(s.returnableQty).toFixed(3))}`,
+                        // المتاح بعدد البنود: مجموع الخادم بالأساس يخلط كراتين بحبّات فلا يُعرض رقماً — إلا لخادمٍ قبل الميزة
+                        hint: `${formatDate(s.invoiceDate)} • ${formatCurrency(s.total)} • ${tr('المتاح للإرجاع')} ${s.returnableLines != null
+                          ? `${s.returnableLines} ${tr('بند')}` : Number(Number(s.returnableQty).toFixed(3))}`,
                       })),
                     ]}
                     onChange={(v) => { void pickSale(v); }}
@@ -523,12 +575,25 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                   {linked?.lines.map(l => {
                     const open = isLineReturnable(l);
                     const lt = linkedCalc?.lineTotals[l.saleItemId];
+                    /* الوحدات المتعددة: الأعمدة كلّها بوحدة المرتجع المختارة (lib/returnInvoice expressIn) — وحبّةٌ من بند كرتون
+                     * وحدةٌ تُختار هنا، والمتاح بالأساس يُعرض مفكَّكاً «١ كرتون و٢٣ حبة» فلا يُقرأ «٤٧» كراتين */
+                    const retChoices = returnUnitChoices(l);
+                    const baseOf = { unit: l.baseUnit, units: l.units };
                     return (
                       // مفتاح بند البيع لا الصنف: الفاتورة الواحدة قد تحمل الصنف نفسه في بندين بسعرين
                       <tr key={l.saleItemId} className={open ? '' : 'opacity-60'}>
                         <td>
                           <p className="font-medium text-sm">{l.name}</p>
-                          <p className="text-xs text-gray-400">{[l.code, l.unit].filter(Boolean).join(' • ')}</p>
+                          <p className="text-xs text-gray-400">{[l.code, l.saleUnitName ?? l.unit].filter(Boolean).join(' • ')}</p>
+                          {retChoices.length > 1 && (
+                            <select className="input py-1 text-xs mt-1 w-auto" value={l.retUnitId ?? ''} aria-label={tr('وحدة المرتجع')}
+                              disabled={!open || mutation.isPending} onChange={e => setLinkedUnit(l.saleItemId, e.target.value || null)}>
+                              {retChoices.map(c => <option key={c.id ?? 'base'} value={c.id ?? ''}>{c.name}{c.factor > 1 ? ` (${c.factor})` : ''}</option>)}
+                            </select>
+                          )}
+                          {retChoices.length > 1 && open && (
+                            <p className="text-[11px] text-gray-500 mt-0.5">{tr('المتاح للإرجاع')}: {baseQtyText(l.returnableBase, baseOf, n => String(Number(n.toFixed(3))))}</p>
+                          )}
                           {l.returnBlocked && <p className="text-xs text-red-600 mt-0.5">{l.returnBlocked}</p>}
                           {l.shelfLife && l.expiresAt && (
                             l.expiredToday
@@ -536,12 +601,13 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                               : <p className="text-[11px] font-semibold text-[#1E7A52] mt-0.5">{tr('ساري الصلاحية')} · {tr('حتى')} {formatDayOnly(l.expiresAt)}</p>
                           )}
                         </td>
-                        <td className="text-sm">{Number(l.sold.toFixed(3))}</td>
+                        {/* وحدة الأعمدة تُكتب بجانب الرقم حين للصنف وحدات — «٤٧» وحدها لا تقول أحبّاتٌ أم كراتين */}
+                        <td className="text-sm">{Number(l.sold.toFixed(3))}{retChoices.length > 1 && <span className="text-[10px] text-gray-400"> {l.unit}</span>}</td>
                         <td className="text-sm text-gray-500">{Number(l.returned.toFixed(3))}</td>
-                        <td className="text-sm font-semibold">{Number(l.returnable.toFixed(3))}</td>
-                        <td className="text-sm">{formatCurrency(l.refundUnitPrice, undefined, 4)}</td>
+                        <td className="text-sm font-semibold">{Number(l.returnable.toFixed(3))}{retChoices.length > 1 && <span className="text-[10px] font-normal text-gray-400"> {l.unit}</span>}</td>
+                        <td className="text-sm">{formatCurrency(l.refundUnitPrice, undefined, 4)}{retChoices.length > 1 && <span className="text-[10px] text-gray-400"> / {l.unit}</span>}</td>
                         <td>
-                          <input type="number" className="input w-24 text-center" min={0} max={l.returnable} step="any" inputMode="decimal"
+                          <input type="number" className="input w-24 text-center" min={0} max={maxReturnQty(l)} step="any" inputMode="decimal"
                             disabled={!open || mutation.isPending} value={l.qty}
                             onChange={e => setLinkedQty(l.saleItemId, Number(e.target.value))} />
                         </td>
@@ -563,7 +629,13 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                   searchPlaceholder={tr('اكتب اسم أو كود الصنف')}
                   value=""
                   resetOnSelect
-                  options={(products || []).map(p => ({ value: p.id, label: p.name, hint: `${p.code} • ${formatCurrency(p.basePrice)}` }))}
+                  // صنفٌ بوحدات: سعر الوحدة التي يُضاف بها (الأكبر) واسمها — سعر الحبة وحده يُقرأ سعر كرتون
+                  options={(products || []).map(p => ({
+                    value: p.id, label: p.name,
+                    hint: hasUnitChoice(p)
+                      ? `${p.code} • ${formatCurrency(choiceNet(defaultChoice(p), p.basePrice))} / ${defaultChoice(p).name}`
+                      : `${p.code} • ${formatCurrency(p.basePrice)}`,
+                  }))}
                   onChange={(v) => { const p = (products || []).find(x => x.id === v); if (p) addProduct(p); }}
                 />
               </div>
@@ -582,8 +654,12 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                   {lines.length === 0 && (
                     <tr><td colSpan={7} className="text-center py-8 text-gray-400 text-sm">{tr('اختر صنفا من القائمة لإضافته')}</td></tr>
                   )}
-                  {lines.map((l, i) => (
-                    <tr key={l.productId}>
+                  {lines.map((l, i) => {
+                    const p = (products || []).find(x => x.id === l.productId);
+                    const choices = p ? unitChoices(p) : [];
+                    return (
+                    // مفتاح الصنف ووحدته: الصنف نفسه بوحدتين بندان
+                    <tr key={lineKey(l)}>
                       <td>
                         <button onClick={() => setLines(ls => ls.filter((_, j) => j !== i))} className="text-red-400 hover:text-red-600">
                           <Trash2 size={14} />
@@ -591,7 +667,18 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                       </td>
                       <td>
                         <p className="font-medium text-sm">{l.productName}</p>
-                        <p className="text-xs text-gray-400">{l.unit}</p>
+                        {choices.length > 1 ? (
+                          <select className="input py-1 text-xs mt-1 w-auto" value={l.unitId ?? ''} aria-label={tr('الوحدة')}
+                            onChange={e => setLineUnit(i, e.target.value || null)}>
+                            {choices.map(c => (
+                              <option key={c.id ?? 'base'} value={c.id ?? ''} disabled={unitTaken(lines, l.productId, c.id, lineKey(l))}>
+                                {c.name}{c.factor > 1 ? ` (${c.factor} ${choices[0].name})` : ''}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <p className="text-xs text-gray-400">{l.unit}</p>
+                        )}
                       </td>
                       <td><input type="number" className="input w-20 text-center" min="0.001" step="any" inputMode="decimal" value={l.qty} onChange={e => updateLine(i, 'qty', Number(e.target.value))} /></td>
                       <td><DecimalInput className="input w-24" min={0} value={Number(l.unitPrice.toFixed(6))} onCommit={v => updateLine(i, 'unitPrice', v)} /></td>
@@ -599,7 +686,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                       <td><input type="number" className="input w-16 text-center" min="0" max="100" step="any" value={l.taxPct} onChange={e => updateLine(i, 'taxPct', Number(e.target.value))} /></td>
                       <td><DecimalInput className="input w-28 font-semibold" min={0} title={tr('عدل الاجمالي وسينعكس على سعر الوحدة')} value={l.lineTotal} onCommit={v => updateLine(i, 'lineTotal', v)} /></td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

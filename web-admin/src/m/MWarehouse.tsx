@@ -10,8 +10,14 @@ import { warehouseApi, productApi } from '../api/client';
 import { formatCurrency, formatDate, formatNumber } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { useBackClose } from '../lib/useBackClose';
+import type { UnitDef } from '../lib/units';
+import { unitChoices } from '../rep/repUnits';
 import { MScreen, MCard, MRow, MStat, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import { expectArray } from './shape';
+import {
+  qtyText, signedQtyText, hasBigUnit, biggestUnit, nextStockLineUnit, stockLineUnit, lineKey, type StockLineUnit,
+} from './mUnits';
+import MUnitChips from './MUnitChips';
 
 /* الإشعار في حزمة مستقلّة — يجرّ jspdf وhtml2canvas وqrcode معه */
 const MWarehouseNoticeDoc = lazy(() => import('./MWarehouseNoticeDoc'));
@@ -33,17 +39,24 @@ const MWarehouseNoticeDoc = lazy(() => import('./MWarehouseNoticeDoc'));
  * ⚠️ **والتكلفة المخزَّنة صافيةٌ قبل الضريبة دائماً**: المستخدم يكتب ما في
  * فاتورة مورّده ويؤشّر «شاملة الضريبة»، فيردّها الخادم إلى صافيها قبل الحفظ.
  * لذلك كل رقم تكلفةٍ معروضٍ هنا موسومٌ «قبل الضريبة» بلا استثناء.
+ *
+ * ⚠️ **والوحدات المتعددة**: كل كميات الرصيد ومتوسّط التكلفة **بوحدة الأساس** (تكلفة
+ * الحبّة لا الكرتون)، فتُعرض «٢ كرتون و٣ حبة» وتُسمّى تكلفتها بوحدتها — رقم الحبّات
+ * بجانب «كرتون» يُقرأ ٢٤ ضعفاً. أمّا سطر الوارد فبوحدته كفاتورة المورّد (عشرة كراتين
+ * بسعر الكرتون) و`unitId` يُرسَل معه فيقسم الخادم التكلفة على المعامل قبل المتوسّط.
  */
 
 /** صفّ الرصيد — مطابقٌ لـ`WarehouseRow` في backend/src/services/warehouseStock.ts */
 interface WhRow {
   productId: string; name: string; code: string; unit: string;
+  /** وحدات الصنف — كل كميات الصفّ بالأساس، وتُعرض بها «٢ كرتون و٣ حبة» */
+  units?: UnitDef[];
   received: number;         // الوارد للمستودع
   adjusted: number;         // تسويات المستودع (+/−)
   loadedToVans: number;     // خرج للسيارات
   returnedFromVans: number; // عاد منها
   onHand: number;           // الرصيد الباقي
-  avgCost: number;          // متوسّط تكلفة الوحدة (على المقيَّم وحده)
+  avgCost: number;          // متوسّط تكلفة **وحدة الأساس** (على المقيَّم وحده) — لا الكرتون
   costedQty: number;        // الكمّية المقيَّمة
   stockValue: number;       // قيمتها — ولا تشمل uncostedQty
   uncostedQty: number;      // كمّية بلا تكلفة معروفة — خارج القيمة صراحةً
@@ -54,11 +67,16 @@ interface WhEntry {
   id: string; type: string; note: string | null; supplier: string | null;
   createdBy: string | null; createdAt: string;
   // lineCost: قيمة السطر كما قرّبها الخادم — للإشعار المطبوع، مجموعها = totalCost
-  items: { id: string; qty: number; unitCost: number | null; lineCost?: number | null; product: { name: string; unit: string } }[];
+  // والسطر بلقطة وحدته (unitName/unitFactor) وكميته بالأساس — فالإشعار يطبع «٥ كرتون» لا «٥ حبة»
+  items: {
+    id: string; qty: number; unitCost: number | null; lineCost?: number | null;
+    unitName?: string | null; unitFactor?: number | null; baseQty?: number | null;
+    product: { name: string; unit: string };
+  }[];
   totalCost: number;
 }
 
-interface ProductPick { id: string; name: string; code?: string; unit?: string; taxPct?: number }
+interface ProductPick { id: string; name: string; code?: string; unit?: string; taxPct?: number; units?: UnitDef[] }
 
 /** كسورٌ محتملة في الوحدات الموزونة — بلا أصفارٍ زائدة على «١٢» */
 const fmtQty = (n: number) => formatNumber(Number(n.toFixed(2)));
@@ -118,6 +136,8 @@ export default function MWarehouse({ onBack, company }: {
     costed: a.costed + r.costedQty,
     uncosted: a.uncosted + r.uncostedQty,
   }), { value: 0, costed: 0, uncosted: 0 }), [all]);
+  // مجموع الكميات عبر الأصناف بالأساس — يُسمّى كذلك حين لصنفٍ وحدةٌ أكبر، فلا يُقرأ عدد الحبّات كراتين
+  const anyMulti = useMemo(() => all.some(r => hasBigUnit(r.units)), [all]);
 
   if (entryOpen) return <MWarehouseEntry onClose={() => setEntryOpen(false)} />;
   /* الإشعار طبقةٌ ملء الشاشة كطبقة التسجيل — ولا تجتمعان: كلتاهما تُفتح من
@@ -178,9 +198,9 @@ export default function MWarehouse({ onBack, company }: {
                   <MStat icon={Wallet} label={tr('قيمة المخزون بتكلفة الشراء')} value={formatCurrency(totals.value)} />
                 </div>
                 <MStat icon={Boxes} label={tr('عدد الأصناف')} value={formatNumber(all.length)} />
-                <MStat icon={Package} label={tr('الكمية المقيمة')} value={fmtQty(totals.costed)} />
+                <MStat icon={Package} label={anyMulti ? tr('الكمية المقيمة بوحدات الأساس') : tr('الكمية المقيمة')} value={fmtQty(totals.costed)} />
                 <div className="col-span-2">
-                  <MStat icon={AlertTriangle} label={tr('كمية خارج التقييم')} value={fmtQty(totals.uncosted)}
+                  <MStat icon={AlertTriangle} label={anyMulti ? tr('كمية خارج التقييم بوحدات الأساس') : tr('كمية خارج التقييم')} value={fmtQty(totals.uncosted)}
                     tone={totals.uncosted > 0 ? 'warn' : 'default'} />
                 </div>
               </div>
@@ -264,6 +284,10 @@ export default function MWarehouse({ onBack, company }: {
 function StockRow({ r, open, onToggle }: { r: WhRow; open: boolean; onToggle: () => void }) {
   const tr = useTr();
   const tone = r.onHand < 0 ? 'text-[#C0392B]' : r.onHand === 0 ? 'text-[#B7791F]' : 'text-[#2F855A]';
+  // صنفٌ له وحدةٌ أكبر: الكميات مفكَّكة («٢ كرتون و٣ حبة») بلا اتجاهٍ مفروض، والتكلفة تُسمّى بوحدة الأساس ومعها الكرتون
+  const multi = hasBigUnit(r.units);
+  const big = biggestUnit(r.units);
+  const q = (n: number) => qtyText(n, r, fmtQty);
   return (
     // الفاصل على الغلاف لا على `MRow`: الصفّ صار وحيد أبيه فـ`last:border-0`
     // تُسقط فاصله، فيلتصق التفصيل بالصفّ الذي يليه
@@ -274,10 +298,14 @@ function StockRow({ r, open, onToggle }: { r: WhRow; open: boolean; onToggle: ()
         subtitle={[r.code, r.unit].filter(Boolean).join(' · ')}
         trailing={
           <span className="flex items-center gap-2 flex-shrink-0">
-            <span className="text-end">
-              <span className={`block text-sm font-bold tabular-nums ${tone}`} dir="ltr">{fmtQty(r.onHand)}</span>
-              <span className="block text-[9px] text-[#9A8F7E]">{r.unit}</span>
-            </span>
+            {multi ? (
+              <span className={`text-end text-sm font-bold tabular-nums ${tone}`}>{q(r.onHand)}</span>
+            ) : (
+              <span className="text-end">
+                <span className={`block text-sm font-bold tabular-nums ${tone}`} dir="ltr">{fmtQty(r.onHand)}</span>
+                <span className="block text-[9px] text-[#9A8F7E]">{r.unit}</span>
+              </span>
+            )}
             {open ? <ChevronUp size={15} className="text-[#C9BFB0]" /> : <ChevronDown size={15} className="text-[#C9BFB0]" />}
           </span>
         } />
@@ -285,20 +313,31 @@ function StockRow({ r, open, onToggle }: { r: WhRow; open: boolean; onToggle: ()
       {open && (
         <div className="px-3.5 pb-3 -mt-0.5 space-y-2">
           <div className="grid grid-cols-2 gap-2">
-            <Cell label={tr('الوارد')} value={fmtQty(r.received)} />
-            <Cell label={tr('تسويات')} value={signed(r.adjusted)}
+            <Cell label={tr('الوارد')} value={multi ? q(r.received) : fmtQty(r.received)} multi={multi} />
+            <Cell label={tr('تسويات')} value={multi ? signedQtyText(r.adjusted, r, fmtQty) : signed(r.adjusted)} multi={multi}
               tone={r.adjusted < 0 ? 'bad' : r.adjusted > 0 ? 'good' : 'muted'} />
-            <Cell label={tr('خرج للسيارات')} value={`−${fmtQty(r.loadedToVans)}`} tone="bad" />
-            <Cell label={tr('عاد منها')} value={`+${fmtQty(r.returnedFromVans)}`} tone="good" />
+            <Cell label={tr('خرج للسيارات')} value={`−${multi ? q(r.loadedToVans) : fmtQty(r.loadedToVans)}`} tone="bad" multi={multi} />
+            <Cell label={tr('عاد منها')} value={`+${multi ? q(r.returnedFromVans) : fmtQty(r.returnedFromVans)}`} tone="good" multi={multi} />
           </div>
 
           <div className="rounded-xl bg-[#FAF7F0] border border-[#F1EBDF] px-3 py-2.5 space-y-1.5">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[11px] text-[#6E6557]">{tr('متوسط تكلفة الوحدة')}</span>
+              <span className="text-[11px] text-[#6E6557]">
+                {multi ? `${tr('متوسط التكلفة لوحدة الأساس')} (${r.unit})` : tr('متوسط تكلفة الوحدة')}
+              </span>
               <b className="text-[11px] text-[#1F1A13] tabular-nums" dir="ltr">
                 {r.avgCost > 0 ? formatCurrency(r.avgCost, undefined, 4) : '—'}
               </b>
             </div>
+            {/* تكلفة الحبّة وحدها تُقارَن خطأً بسعر شراء الكرتون — فتُعرض تكلفة أكبر وحدةٍ بجانبها */}
+            {multi && big && r.avgCost > 0 && (
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] text-[#6E6557]">{tr('ما يعادل')} {big.name}</span>
+                <b className="text-[11px] text-[#1F1A13] tabular-nums" dir="ltr">
+                  {formatCurrency(r.avgCost * Number(big.factor))}
+                </b>
+              </div>
+            )}
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] text-[#6E6557]">{tr('قيمة الرصيد')}</span>
               <b className={`text-[11px] tabular-nums ${r.stockValue < 0 ? 'text-[#C0392B]' : 'text-[#1F1A13]'}`} dir="ltr">
@@ -310,7 +349,7 @@ function StockRow({ r, open, onToggle }: { r: WhRow; open: boolean; onToggle: ()
             {r.uncostedQty > 0 && (
               <p className="text-[10px] text-[#8A6D1F] leading-relaxed">
                 <AlertTriangle size={10} className="inline -mt-0.5 me-1" />
-                {fmtQty(r.uncostedQty)} {r.unit} {tr('خارج التقييم لا تعرف تكلفتها')}
+                {qtyText(r.uncostedQty, r, fmtQty, { withUnit: true })} {tr('خارج التقييم لا تعرف تكلفتها')}
               </p>
             )}
           </div>
@@ -326,15 +365,17 @@ function signed(n: number): string {
   return `${n < 0 ? '−' : '+'}${fmtQty(Math.abs(n))}`;
 }
 
-function Cell({ label, value, tone = 'default' }: {
+function Cell({ label, value, tone = 'default', multi }: {
   label: string; value: string; tone?: 'default' | 'good' | 'bad' | 'muted';
+  /** قيمةٌ مفكَّكة بالوحدات («٢ كرتون و٣ حبة») — نصٌّ عربيّ لا يُفرض عليه اتجاهٌ يساريّ */
+  multi?: boolean;
 }) {
   const color = tone === 'good' ? 'text-[#2F855A]' : tone === 'bad' ? 'text-[#C0392B]'
     : tone === 'muted' ? 'text-[#9A8F7E]' : 'text-[#1F1A13]';
   return (
     <div className="rounded-xl bg-[#FAF7F0] border border-[#F1EBDF] px-3 py-2">
       <p className="text-[10px] text-[#9A8F7E] truncate">{label}</p>
-      <p className={`text-[13px] font-bold tabular-nums ${color}`} dir="ltr">{value}</p>
+      <p className={`text-[13px] font-bold tabular-nums ${color}`} dir={multi ? undefined : 'ltr'}>{value}</p>
     </div>
   );
 }
@@ -379,9 +420,12 @@ function EntryRow({ e, onNotice }: { e: WhEntry; onNotice: () => void }) {
 
 /* ═══════════════════════ تسجيل وارد أو تسوية ═══════════════════════ */
 
-/** سطر النموذج — الكمّية والسعر نصّان: «−» و«» حالتا كتابةٍ وسيطتان يمسحهما Number */
-interface FormRow {
-  productId: string; name: string; unit: string;
+/**
+ * سطر النموذج — الكمّية والسعر نصّان: «−» و«» حالتا كتابةٍ وسيطتان يمسحهما Number.
+ * والكمية والسعر **بوحدة السطر** كفاتورة المورّد (عشرة كراتين بسعر الكرتون)، والمعامل يحلّه الخادم من `unitId`.
+ */
+interface FormRow extends StockLineUnit {
+  productId: string; name: string;
   /** نسبة ضريبة الصنف — لازمةٌ لمعاينة الصافي حين تكون الأسعار شاملة */
   taxPct: number;
   qty: string; unitCost: string;
@@ -422,17 +466,28 @@ function MWarehouseEntry({ onClose }: { onClose: () => void }) {
     },
   });
 
-  const addProduct = (p: ProductPick) => {
-    if (rows.some(r => r.productId === p.id)) return;  // تكرار الصنف يُنشئ بندين متنازعين
-    setRows(rs => [...rs, {
-      productId: p.id, name: p.name, unit: p.unit || '',
+  /**
+   * نقرة الصنف: أوّل سطرٍ بوحدته الافتراضية (الأكبر — المورّد يفوتر بالكرتون)، وكل نقرةٍ بعدها سطرٌ بوحدةٍ لم يأخذها
+   * سطر. وصنفٌ أُخذت وحداته كلّها (أو بلا وحدات وله سطر) لا يُضاف: سطران بوحدةٍ واحدة يتنازعان الكمية.
+   */
+  const addProduct = (p: ProductPick) => setRows(rs => {
+    const u = nextStockLineUnit(p, rs, p.id);
+    return u ? [...rs, {
+      productId: p.id, name: p.name, ...u,
       taxPct: typeof p.taxPct === 'number' ? p.taxPct : 0,
       qty: '1', unitCost: '',
-    }]);
-  };
-  const patch = (id: string, k: 'qty' | 'unitCost', v: string) =>
-    setRows(rs => rs.map(r => (r.productId === id ? { ...r, [k]: v } : r)));
-  const dropRow = (id: string) => setRows(rs => rs.filter(r => r.productId !== id));
+    }] : rs;
+  });
+  const patch = (key: string, k: 'qty' | 'unitCost', v: string) =>
+    setRows(rs => rs.map(r => (lineKey(r) === key ? { ...r, [k]: v } : r)));
+  const dropRow = (key: string) => setRows(rs => rs.filter(r => lineKey(r) !== key));
+  /** وحدة السطر تتبدّل والكمية والسعر المكتوبان كما هما — كلاهما يُقرأ بالوحدة المختارة (والسعر يُراجَع) */
+  const setRowUnit = (key: string, unitId: string | null) => setRows(rs => rs.map(r => {
+    if (lineKey(r) !== key) return r;
+    const prod = { unit: r.baseUnit, units: r.units };
+    const c = unitChoices(prod).find(o => o.id === unitId);
+    return c ? { ...r, ...stockLineUnit(prod, c) } : r;
+  }));
 
   /** صافي سعر الوحدة كما سيُخزَّن — الخادم يستخرج الضريبة بنسبة كلّ صنف لا بنسبةٍ موحّدة */
   const netOf = (r: FormRow): number | null => {
@@ -471,8 +526,10 @@ function MWarehouseEntry({ onClose }: { onClose: () => void }) {
   const save = useMutation({
     mutationFn: async () => {
       const items = rows.map(r => {
-        const item: { productId: string; qty: number; unitCost?: number } = {
-          productId: r.productId, qty: Number(r.qty),
+        // `unitId` للسطر بغير وحدة الأساس وحده — بلاه يُسجَّل عشرة كراتين بـ٢٤٠ عشر حبّاتٍ بـ٢٤٠ للحبّة فيتضخّم
+        // المتوسّط ٢٤ ضعفاً؛ وسطر الأساس بلا حقل كما قبل الميزة حرفاً
+        const item: { productId: string; qty: number; unitCost?: number; unitId?: string } = {
+          productId: r.productId, qty: Number(r.qty), ...(r.unitId && { unitId: r.unitId }),
         };
         // السعر للوارد وحده، والفارغ يُرسَل **غائباً** لا صفراً: «بلا سعر» كمّيةٌ
         // خارج التقييم، بينما صفرٌ بضاعةٌ مجّانية — ومعناهما في الدفاتر مختلف
@@ -552,7 +609,8 @@ function MWarehouseEntry({ onClose }: { onClose: () => void }) {
             ) : (
               <div className="max-h-[250px] overflow-y-auto overscroll-contain">
                 {prodQ.data.map(p => {
-                  const picked = rows.some(r => r.productId === p.id);
+                  // «مضاف» حين لا وحدة حرّة للصنف — وله وحدةٌ أخرى ⇒ النقرة سطرٌ ثانٍ بها
+                  const picked = nextStockLineUnit(p, rows, p.id) === null;
                   return (
                     <MRow key={p.id}
                       title={p.name}
@@ -576,39 +634,46 @@ function MWarehouseEntry({ onClose }: { onClose: () => void }) {
             {!rows.length ? (
               <p className="p-6 text-center text-[11px] text-[#9A8F7E]">{tr('ابحث وأضف صنفا')}</p>
             ) : rows.map(r => {
+              const k = lineKey(r);
               const badQty = qtyBad(r);
               const badCost = costBad(r);
               const net = netOf(r);
               const qty = Number(r.qty);
               const line = receive && net !== null && Number.isFinite(qty) ? qty * net : null;
+              const opts = unitChoices({ unit: r.baseUnit, units: r.units });
+              const multi = opts.length > 1;
               return (
-                <div key={r.productId} className="p-3 space-y-2 border-b border-[#F1EBDF] last:border-0">
+                <div key={k} className="p-3 space-y-2 border-b border-[#F1EBDF] last:border-0">
                   <div className="flex items-start gap-2">
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm font-semibold text-[#1F1A13] truncate">{r.name}</span>
-                      {r.unit && <span className="block text-[11px] text-[#9A8F7E] truncate mt-0.5">{r.unit}</span>}
+                      {!multi && r.unit && <span className="block text-[11px] text-[#9A8F7E] truncate mt-0.5">{r.unit}</span>}
                     </span>
-                    <button onClick={() => dropRow(r.productId)} aria-label={tr('حذف')}
+                    <button onClick={() => dropRow(k)} aria-label={tr('حذف')}
                       className="p-2.5 -m-1 rounded-xl text-[#C0392B] active:bg-[#FDF2F0]">
                       <Trash2 size={16} />
                     </button>
                   </div>
 
+                  <MUnitChips options={opts} value={r.unitId} onChange={id => setRowUnit(k, id)}
+                    taken={c => rows.some(x => x !== r && x.productId === r.productId && (x.unitId ?? null) === c.id)} />
+
                   <div className="flex items-end gap-2">
                     <label className="flex-1 min-w-0">
-                      <span className="block text-[10px] text-[#9A8F7E] mb-1">{tr('الكمية')}</span>
+                      <span className="block text-[10px] text-[#9A8F7E] mb-1">{tr('الكمية')}{multi ? ` (${r.unit})` : ''}</span>
                       <input className={`input text-center min-h-[44px] text-base font-bold ${badQty ? 'border-[#E4B76A]' : ''}`}
                         dir="ltr" type="number" inputMode="decimal" step="any"
                         placeholder={receive ? '0' : '±'}
-                        value={r.qty} onChange={e => patch(r.productId, 'qty', e.target.value)} />
+                        value={r.qty} onChange={e => patch(k, 'qty', e.target.value)} />
                     </label>
                     {receive && (
                       <label className="flex-1 min-w-0">
-                        <span className="block text-[10px] text-[#9A8F7E] mb-1">{tr('سعر الوحدة')}</span>
+                        {/* السعر بوحدة السطر كفاتورة المورّد — اسمها على الخانة: سعر الكرتون في خانة حبّةٍ يتضخّم ٢٤ ضعفاً */}
+                        <span className="block text-[10px] text-[#9A8F7E] mb-1">{tr('سعر الوحدة')}{multi ? ` (${r.unit})` : ''}</span>
                         <input className={`input text-center min-h-[44px] ${badCost ? 'border-[#C0392B]' : ''}`}
                           dir="ltr" type="number" inputMode="decimal" step="any" min="0"
                           placeholder={tr('اختياري')}
-                          value={r.unitCost} onChange={e => patch(r.productId, 'unitCost', e.target.value)} />
+                          value={r.unitCost} onChange={e => patch(k, 'unitCost', e.target.value)} />
                       </label>
                     )}
                   </div>

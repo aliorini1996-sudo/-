@@ -4,6 +4,7 @@ import { productApi, companyApi } from '../api/client';
 import { zatcaCollectOn, type ZatcaCompanyLike } from '../lib/zatcaRegime';
 import { Product } from '../types';
 import { formatCurrency, statusLabels } from '../utils/format';
+import { unitPriceOf } from '../lib/units';
 import { useTr } from '../i18n/strings';
 import { Plus, Search, Edit, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -96,7 +97,15 @@ export default function ProductsPage() {
                     {p.barcode && <p className="text-xs text-gray-400 font-mono">{p.barcode}</p>}
                   </td>
                   <td className="text-gray-500 text-sm">{p.category?.name || '-'}</td>
-                  <td className="text-gray-600">{p.unit}</td>
+                  <td className="text-gray-600">
+                    {p.unit}
+                    {/* وحدات البيع الأكبر بمعاملها وسعرها («كرتون 24 = 48.00») — السعر الأساسي بجانبها لوحدة الأساس */}
+                    {(p.units ?? []).filter(u => u.isActive !== false).map(u => (
+                      <span key={u.id} className="block text-[11px] text-gray-400 whitespace-nowrap">
+                        {u.name} {Number(u.factor)} = {formatCurrency(unitPriceOf({ name: u.name, factor: Number(u.factor), price: u.price ?? undefined }, p.basePrice))}
+                      </span>
+                    ))}
+                  </td>
                   <td className="font-semibold text-[#E15A30]">{formatCurrency(p.basePrice)}</td>
                   <td className="text-gray-600">{p.taxPct}%</td>
                   <td><span className={p.status === 'ACTIVE' ? 'badge-active' : 'badge-inactive'}>{tr(statusLabels[p.status])}</span></td>

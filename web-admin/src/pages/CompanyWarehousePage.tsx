@@ -12,19 +12,31 @@ import DocumentModal from '../components/DocumentModal';
 import StockRequestModal from '../components/StockRequestModal';
 import { warehouseNoticeDocFromEntry, Company } from '../rep/RepDocuments';
 import { useAuthStore } from '../store/authStore';
+import { baseQtyText, biggestUnit, hasBigUnit } from '../lib/adminUnits';
+import { choiceById, defaultChoice, unitChoices } from '../rep/repUnits';
+import type { UnitDef } from '../lib/units';
+
+/*
+ * الوحدات المتعددة: أرصدة المستودع كلّها **بوحدة الأساس** (`unit`) وتُعرض «٢ كرتون و٣ حبة» من `units`، ومتوسّط التكلفة
+ * لوحدة الأساس (الحبة لا الكرتون). وسطر الوارد بوحدته وسعرها كما في فاتورة المورّد («١٠ كرتون بـ٤٨ للكرتون») —
+ * الخادم يحلّ `unitId` إلى معامله ويقسم التكلفة عليه عند التقييم. وسجلّ الوارد يقرأ لقطة وحدة كل سطر.
+ */
 
 interface WhRow {
   productId: string; name: string; code: string; unit: string;
+  /** وحدات الصنف — لعرض الأرصدة بالأساس مفكَّكة، لا لحسابها */
+  units?: UnitDef[];
   received: number; adjusted: number; loadedToVans: number; returnedFromVans: number; onHand: number;
-  avgCost: number;     // متوسّط تكلفة الوحدة (متحرّك، على الرصيد الباقي)
+  avgCost: number;     // متوسّط تكلفة **وحدة الأساس** (متحرّك، على الرصيد الباقي)
   costedQty: number;   // كمية من الرصيد تكلفتها معروفة — هي وحدها المقيَّمة
   stockValue: number;  // قيمة الرصيد بتكلفة الشراء
   uncostedQty: number; // كمية واردة بلا سعر — حدّ صدق التقييم
 }
 interface WhEntry {
   id: string; type: string; note: string | null; supplier: string | null; createdBy: string | null; createdAt: string;
-  // lineCost: قيمة السطر كما قرّبها الخادم — للإشعار المطبوع، مجموعها = totalCost
-  items: { id: string; qty: number; unitCost: number | null; lineCost?: number | null; product: { name: string; unit: string } }[];
+  // lineCost: قيمة السطر كما قرّبها الخادم — للإشعار المطبوع، مجموعها = totalCost.
+  // unitName/unitFactor لقطة وحدة السطر: الكمية وتكلفة الوحدة بها (الكرتون كرتوناً)
+  items: { id: string; qty: number; unitName?: string | null; unitFactor?: number | null; unitCost: number | null; lineCost?: number | null; product: { name: string; unit: string } }[];
   totalCost: number; // يحسبه الخادم بالدالّة المختبَرة — لا يُعاد حسابه هنا
 }
 
@@ -158,7 +170,9 @@ export default function CompanyWarehousePage() {
               <span className="w-10 h-10 rounded-xl bg-[#FBEBE2] text-[#E15A30] flex items-center justify-center"><Truck size={20} /></span>
               <div>
                 <p className="text-xs text-[#9A8F7E]">{tr('في مخزون السيارات')}</p>
-                <p className={`text-lg font-extrabold text-[#1F1A13] leading-tight ${vansQ.isFetching && !vansQ.isLoading ? 'opacity-40' : ''}`}>
+                {/* مجموعٌ عبر الأصناف بوحدات الأساس (الخادم) — حبّاتٌ لا كراتين لصنفٍ له وحدات */}
+                <p className={`text-lg font-extrabold text-[#1F1A13] leading-tight ${vansQ.isFetching && !vansQ.isLoading ? 'opacity-40' : ''}`}
+                  title={tr('مجموع بوحدات الأساس')}>
                   {fmtQty(vans.qty)} <span className="text-xs font-semibold text-[#6E6557]">{tr('وحدة')}</span>
                   <span className="text-[#C9BFAE] mx-1.5">·</span>
                   {formatCurrency(vans.value)}
@@ -201,27 +215,34 @@ export default function CompanyWarehousePage() {
                   <th className="text-center font-semibold px-3 py-2.5">{tr('الوارد')}</th>
                   <th className="text-center font-semibold px-3 py-2.5">{tr('خرج للسيارات')}</th>
                   <th className="text-center font-semibold px-3 py-2.5">{tr('عاد منها')}</th>
-                  <th className="text-center font-semibold px-3 py-2.5">{tr('متوسط تكلفة الوحدة')}</th>
+                  {/* لوحدة الأساس (الخادم: avgCost للحبة) — «متوسط تكلفة الوحدة» كان يُقرأ سعر كرتون */}
+                  <th className="text-center font-semibold px-3 py-2.5">{tr('متوسط التكلفة لوحدة الأساس')}</th>
                   <th className="text-center font-semibold px-3 py-2.5">{tr('قيمة الرصيد')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#F1EBDF]">
-                {shownRows.map(r => (
+                {shownRows.map(r => {
+                  const big = biggestUnit(r.units);
+                  return (
                   <tr key={r.productId} className={r.onHand < 0 ? 'bg-red-50/40' : undefined}>
                     <td className="px-4 py-2.5">
                       <div className="font-semibold text-[#1F1A13]">{r.name}</div>
-                      <div className="text-[11px] text-[#9A8F7E]">{r.code} · {r.unit}</div>
+                      <div className="text-[11px] text-[#9A8F7E]">{r.code} · {hasBigUnit(r.units) ? `${tr('وحدة الأساس')} ${r.unit}` : r.unit}</div>
                     </td>
                     <td className="px-3 py-2.5 text-center">
-                      <span className={`font-extrabold ${r.onHand < 0 ? 'text-red-600' : r.onHand === 0 ? 'text-amber-600' : 'text-[#1E7A52]'}`}>{fmtQty(r.onHand)}</span>
+                      <span className={`font-extrabold ${r.onHand < 0 ? 'text-red-600' : r.onHand === 0 ? 'text-amber-600' : 'text-[#1E7A52]'}`}>{baseQtyText(r.onHand, r, fmtQty)}</span>
                     </td>
-                    <td className="px-3 py-2.5 text-center text-[#6E6557]">{fmtQty(r.received + r.adjusted)}</td>
-                    <td className="px-3 py-2.5 text-center text-[#C94E28]">−{fmtQty(r.loadedToVans)}</td>
-                    <td className="px-3 py-2.5 text-center text-[#1E7A52]">+{fmtQty(r.returnedFromVans)}</td>
+                    <td className="px-3 py-2.5 text-center text-[#6E6557]">{baseQtyText(r.received + r.adjusted, r, fmtQty)}</td>
+                    <td className="px-3 py-2.5 text-center text-[#C94E28]">−{baseQtyText(r.loadedToVans, r, fmtQty)}</td>
+                    <td className="px-3 py-2.5 text-center text-[#1E7A52]">+{baseQtyText(r.returnedFromVans, r, fmtQty)}</td>
                     <td className="px-3 py-2.5 text-center text-[#6E6557]">
                       {r.avgCost > 0
                         ? <span title={String(r.avgCost)}>{formatCurrency(r.avgCost, undefined, 4)}</span>
                         : <span className="text-[#C9BFAE]">—</span>}
+                      {/* وتكلفة أكبر وحدةٍ بجانبها (متوسّط الحبة × معامل الكرتون) — المالك يشتري بالكرتون ويقارن به */}
+                      {r.avgCost > 0 && big && (
+                        <span className="block text-[10px] text-[#9A8F7E] mt-0.5">{big.name}: {formatCurrency(r.avgCost * Number(big.factor), undefined, 4)}</span>
+                      )}
                     </td>
                     <td className="px-3 py-2.5 text-center">
                       {r.costedQty !== 0
@@ -229,12 +250,13 @@ export default function CompanyWarehousePage() {
                         : <span className="text-[#C9BFAE]">—</span>}
                       {r.uncostedQty > 0 && (
                         <span className="block text-[10px] text-amber-600 mt-0.5">
-                          {fmtQty(r.uncostedQty)} {tr('خارج التقييم')}
+                          {baseQtyText(r.uncostedQty, r, fmtQty)} {tr('خارج التقييم')}
                         </span>
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -271,14 +293,18 @@ export default function CompanyWarehousePage() {
                 </div>
                 {(e.supplier || e.note) && <p className="text-xs text-[#6E6557] mt-1.5">{[e.supplier, e.note].filter(Boolean).join(' · ')}</p>}
                 <div className="flex flex-wrap gap-1.5 mt-1.5">
-                  {e.items.map(it => (
+                  {e.items.map(it => {
+                    // لقطة وحدة السطر: «١٠ كرتون · ٤٨/كرتون» — وحدة الصنف اليوم (الأساس بعد التحويل) تنسب سعر الكرتون للحبة
+                    const u = it.unitName || it.product.unit;
+                    return (
                     <span key={it.id} className="text-[11px] bg-[#FAF7F0] border border-[#F1EBDF] rounded-md px-2 py-0.5 text-[#1F1A13]">
-                      {it.product.name} <b className={it.qty < 0 ? 'text-red-600' : undefined}>{it.qty < 0 ? '−' : '+'}{fmtQty(Math.abs(it.qty))}</b> {it.product.unit}
+                      {it.product.name} <b className={it.qty < 0 ? 'text-red-600' : undefined}>{it.qty < 0 ? '−' : '+'}{fmtQty(Math.abs(it.qty))}</b> {u}
                       {it.unitCost != null && it.unitCost > 0 && (
-                        <span className="text-[#6E6557]"> · {formatCurrency(it.unitCost)}/{it.product.unit}</span>
+                        <span className="text-[#6E6557]"> · {formatCurrency(it.unitCost)}/{u}</span>
                       )}
                     </span>
-                  ))}
+                    );
+                  })}
                 </div>
                 {e.totalCost > 0 && (
                   <p className="text-[11px] text-[#6E6557] mt-1.5">
@@ -316,23 +342,34 @@ function WarehouseEntryModal({ onClose }: { onClose: () => void }) {
   const [type, setType] = useState<'RECEIVE' | 'ADJUST'>('RECEIVE');
   const [supplier, setSupplier] = useState('');
   const [note, setNote] = useState('');
-  const [rows, setRows] = useState<{ productId: string; name: string; unit: string; qty: string; unitCost: string }[]>([]);
+  // الوحدات المتعددة: صفٌّ واحد لكل صنف بوحدةٍ تُختار عليه — الكمية **وسعر الوحدة** بها («١٠ كرتون بـ٤٨ للكرتون» كما في
+  // فاتورة المورّد)، و`unitId` (null = الأساس) يحلّه الخادم إلى معامله. والتسوية بالوحدة نفسها زيادةً أو نقصاً
+  const [rows, setRows] = useState<{ productId: string; name: string; unit: string; unitId: string | null; qty: string; unitCost: string }[]>([]);
   // فاتورة المورّد تعلن السعر شاملاً الضريبة غالباً؛ المؤشّر يخبر الخادم فيردّه
   // إلى صافيه قبل الحفظ — فيبقى العمود بمعنى واحد مهما اختلفت عادة المورّدين
   const [costsIncludeTax, setCostsIncludeTax] = useState(false);
 
   // taxPct لازمة لاستخراج الضريبة من السعر الشامل في معاينة الإجمالي — والخادم
   // يعيد الاستخراج بنفسه عند الحفظ، فلا تُصدَّق نسبةٌ آتية من المتصفّح
-  const prodQ = useQuery({ queryKey: ['products-min'], queryFn: async () => (await productApi.list({ limit: 1000 })).data.data as { id: string; name: string; unit: string; code: string; taxPct: number }[] });
+  const prodQ = useQuery({ queryKey: ['products-min'], queryFn: async () => (await productApi.list({ limit: 1000 })).data.data as { id: string; name: string; unit: string; code: string; taxPct: number; units?: UnitDef[] }[] });
+  const productOf = (id: string) => (prodQ.data || []).find(x => x.id === id);
 
+  // الوحدة الافتراضية = الأكبر (repUnits.defaultChoice): المورّد يبيع بالكرتون، وبعد تحويل الصنف إلى الحبّة يبقى «١» كرتوناً
   const addProduct = (id: string) => {
     if (!id || rows.some(r => r.productId === id)) return;
-    const p = (prodQ.data || []).find(x => x.id === id);
+    const p = productOf(id);
     if (!p) return;
-    setRows(rs => [...rs, { productId: id, name: p.name, unit: p.unit, qty: '1', unitCost: '' }]);
+    const c = defaultChoice(p);
+    setRows(rs => [...rs, { productId: id, name: p.name, unit: c.name, unitId: c.id, qty: '1', unitCost: '' }]);
   };
   const setQty = (id: string, v: string) => setRows(rs => rs.map(r => r.productId === id ? { ...r, qty: v } : r));
   const setCost = (id: string, v: string) => setRows(rs => rs.map(r => r.productId === id ? { ...r, unitCost: v } : r));
+  /** وحدة السطر: الكمية والسعر رقماهما كما هما — يراهما المستخدم بجانب الوحدة الجديدة («سعر الكرتون») فيصحّحهما */
+  const setUnit = (id: string, unitId: string | null) => setRows(rs => rs.map(r => {
+    if (r.productId !== id) return r;
+    const c = choiceById(productOf(id), unitId);
+    return c ? { ...r, unit: c.name, unitId: c.id } : r;
+  }));
   const removeRow = (id: string) => setRows(rs => rs.filter(r => r.productId !== id));
 
   const save = useMutation({
@@ -342,6 +379,8 @@ function WarehouseEntryModal({ onClose }: { onClose: () => void }) {
         return {
           productId: r.productId,
           qty: Number(r.qty),
+          // وحدة السطر لغير الأساس وحدها — بند الأساس يُرسل كما قبل الميزة (الخادم يقرأ غيابها أساساً بمعامل ١)
+          ...(r.unitId && { unitId: r.unitId }),
           // السعر للوارد وحده؛ والفارغ أو الصفر يُرسَل غائباً لا صفراً —
           // «بلا سعر» يُستبعَد من التقييم، بينما صفرٌ يُحسَب بضاعةً مجّانية
           unitCost: type === 'RECEIVE' && r.unitCost.trim() !== '' && !Number.isNaN(cost) && cost > 0 ? cost : undefined,
@@ -434,12 +473,24 @@ function WarehouseEntryModal({ onClose }: { onClose: () => void }) {
                   const pct = (prodQ.data || []).find(p => p.id === r.productId)?.taxPct ?? 0;
                   const net = costsIncludeTax && pct > 0 ? c / (1 + pct / 100) : c;
                   const line = type === 'RECEIVE' && !Number.isNaN(q) && !Number.isNaN(c) && c > 0 ? q * net : null;
+                  const choices = unitChoices(productOf(r.productId));
                   return (
                     <div key={r.productId} className="px-3 py-2">
                       <div className="flex items-center gap-2">
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-semibold text-[#1F1A13] truncate">{r.name}</p>
-                          <p className="text-[11px] text-[#9A8F7E]">{r.unit}</p>
+                          {/* منتقي وحدة السطر لصنفٍ له وحدات، و«السعر لكل كرتون» تحته فلا يُكتب سعر الحبة في خانة الكرتون */}
+                          {choices.length > 1 ? (
+                            <select className="input w-auto py-1 text-xs mt-0.5" value={r.unitId ?? ''} aria-label={tr('الوحدة')}
+                              onChange={e => setUnit(r.productId, e.target.value || null)}>
+                              {choices.map(ch => <option key={ch.id ?? 'base'} value={ch.id ?? ''}>{ch.name}{ch.factor > 1 ? ` (${ch.factor})` : ''}</option>)}
+                            </select>
+                          ) : (
+                            <p className="text-[11px] text-[#9A8F7E]">{r.unit}</p>
+                          )}
+                          {choices.length > 1 && type === 'RECEIVE' && (
+                            <p className="text-[10px] text-[#9A8F7E] mt-0.5">{tr('السعر لكل')} {r.unit}</p>
+                          )}
                         </div>
                         <input type="number" step="any" inputMode="decimal" value={r.qty} onChange={e => setQty(r.productId, e.target.value)}
                           className="input w-20 py-1.5 text-center" placeholder={type === 'ADJUST' ? '±' : '0'} />

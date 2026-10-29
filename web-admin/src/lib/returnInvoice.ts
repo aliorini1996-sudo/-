@@ -38,7 +38,10 @@ export interface ReturnableSaleRow {
   total: number | string;
   type: string;
   itemsCount: number;
+  /** مجموع المتاح **بالأساس** عبر أصناف الفاتورة — يخلط وحداتٍ مختلفة فلا يُعرض رقماً إلا لخادمٍ قبل الميزة */
   returnableQty: number;
+  /** عدد البنود التي بقي منها ما يُرجَع — العرض الصادق حين تختلط الوحدات */
+  returnableLines?: number;
   productIds?: string[];
 }
 
@@ -301,9 +304,20 @@ export function mergeRefreshedSale(prev: LinkedSale, fresh: LinkedSale): LinkedS
     ...fresh,
     lines: fresh.lines.map((l) => {
       const w = wanted.get(l.saleItemId);
-      return withReturnUnit({ ...l, qty: w?.qty ?? 0 }, w ? w.retUnitId : l.retUnitId);
+      return w ? refreshLinkedLine(w, l) : withReturnUnit({ ...l, qty: 0 }, l.retUnitId);
     }),
   };
+}
+
+/**
+ * بند المرتجع بعد إعادة قراءة بند البيع (`fresh` من /returnable): كمية المستخدم بوحدته إن بقيت بين وحدات الإرجاع
+ * **بمعاملها نفسه**، وإلّا (أُوقفت، أو تغيّر معاملها، أو حُذفت) تُحوَّل إلى الأساس بمعاملها القديم — فـ«٣ كرتون» تصير
+ * «٧٢ حبة» لا «٣ حبة» صامتةً. ثم تُقصّ على المتاح الجديد بالأساس.
+ */
+export function refreshLinkedLine(prev: LinkedReturnLine, fresh: LinkedReturnLine): LinkedReturnLine {
+  const same = returnUnitChoices(fresh).find((c) => c.id === prev.retUnitId && Math.abs(c.factor - prev.retUnitFactor) < QTY_EPS);
+  if (same) return withReturnUnit({ ...fresh, qty: num(prev.qty) }, same.id);
+  return withReturnUnit({ ...fresh, qty: toBase(num(prev.qty), { unitFactor: prev.retUnitFactor }) }, null);
 }
 
 /** مدخلات المحرّك للمرتجع المرتبط — هي حرفياً ما يقرؤه الخادم من بنود الطلب (انظر رأس الملف) */

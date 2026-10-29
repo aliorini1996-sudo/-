@@ -2,8 +2,8 @@ import {
   useState, useEffect, useCallback } from 'react'; import { judgeProximity, GEOFENCE_RADIUS_M, type GeoVerdict } from './geofence'; import repApi from './repApi'; import { fetchThenCache, cacheGet, cacheSet, requestPersistentStorage, newClientRef, outboxAdd, refClear, currentRepId } from './offlineDb'; import { isNetworkError, startAutoSync, syncOutbox, pendingCount, rejectedCount, onOutboxChange, outboxDocs, requeue, discard } from './offlineSync'; import type { OutboxDoc } from './offlineDb'; import { formatCurrency, formatDate, formatDateShort, setActiveCurrency, setActiveNumerals, getActiveCurrency, activeLocale, formatDayOnly, dayLabel } from '../utils/format'; import { currencyDecimals } from '../i18n/countries'; import { DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, statementDocFromData, InvoiceDoc, ReceiptDoc, StatementDoc, Company } from './RepDocuments'; import { receiptInvoicesFrom } from './receiptLinks'; import {   TrendingUp, Eye, EyeOff, Pencil, Home, FileText, CreditCard, Users, Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon, User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon, Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw, Fuel, BookOpen, Copy, ExternalLink, PhoneCall, PhoneIncoming, PhoneOutgoing, PhoneMissed, Camera, X, ClipboardCheck, Timer, Square, Link2, ClipboardList, MessageCircle, Route as RouteIcon, Fingerprint, LogIn,
 } from 'lucide-react';
 import { computeInvoiceTotals, roundDecimal, priceFromLineTotal } from './invoiceCalc';
-import { cartBadge, cartCount, choiceById, choiceNet, defaultChoice, hasUnitChoice, invoiceItemUnit, lineUnitOf, linkedLineUnit, refreshLineUnit, sameUnit, unitChoices, unitsText, type UnitChoice } from './repUnits';
-import { fillLinkedQty, linkedUnitPrice, returnUnitChoices, withReturnUnit, type LinkedReturnLine } from '../lib/returnInvoice';
+import { cartBadge, cartCount, choiceById, choiceNet, defaultChoice, hasUnitChoice, invoiceItemUnit, lineUnitOf, linkedLineUnit, rebaseRow, refreshLineUnit, sameUnit, unitChoices, unitsText, type UnitChoice } from './repUnits';
+import { fillLinkedQty, linkedUnitPrice, refreshLinkedLine, returnUnitChoices, toLinkedSale, withReturnUnit, type LinkedReturnLine } from '../lib/returnInvoice';
 import type { UnitDef } from '../lib/units';
 import { compressImage } from './imageCompress';
 import { previewInstallments, defaultFirstDue, MAX_INSTALLMENTS, type InstallmentPeriod } from '../lib/installments';
@@ -1775,7 +1775,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       // الدمج بالصنف **والوحدة**: «+١» على بند حبّاتٍ من نقرة كرتون خطأٌ ٢٤ ضعفاً
       const idx = prev.findIndex(l => l.productId === p.id && !l.saleItemId && sameUnit(l, { unitId: c0.id }));
       if (idx >= 0) { const c = [...prev]; c[idx] = { ...c[idx], qty: c[idx].qty + 1 }; return c; }
-      return [...prev, { productId: p.id, name: p.name, ...lineUnitOf(c0), image: p.image || null, qty: 1, unitPrice: inclOf(p, c0), refPrice: inclOf(p, c0), discountPct: 0, taxPct: Number(p.taxPct) }];
+      return [...prev, { productId: p.id, name: p.name, ...lineUnitOf(c0, p.unit), image: p.image || null, qty: 1, unitPrice: inclOf(p, c0), refPrice: inclOf(p, c0), discountPct: 0, taxPct: Number(p.taxPct) }];
     });
   };
 
@@ -1800,7 +1800,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       setMsg(tr('الصنف بهذه الوحدة موجود في السلة')); return;
     }
     const c = [...lines];
-    c[i] = { ...l, ...lineUnitOf(ch), unitPrice: inclOf(p, ch), refPrice: inclOf(p, ch) };
+    c[i] = { ...l, ...lineUnitOf(ch, p.unit), unitPrice: inclOf(p, ch), refPrice: inclOf(p, ch) };
     setLines(c);
   };
 
@@ -2060,21 +2060,24 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       } else {
         // 426: لا فائدة من إعادة المحاولة بالحزمة نفسها — يُعرض زرّ التحديث تحت الرسالة
         if (isZatcaOutdatedClient(err)) setNeedsUpdate(true);
-        // كاش الأصناف قديم (تغيّرت وحدة صنفٍ أو حُوِّل أساسه): يُحدَّث وتُعاد وحدات السلّة إليه، ثم يعيد المندوب الإصدار
-        if (err?.response?.data?.code === 'UNIT_CHANGED') void refreshUnits();
+        // كاش الأصناف قديم (400 UNIT_INVALID: وحدةٌ أُوقفت أو تغيّر معاملها أو حُوِّل أساس صنف): رسالة الخادم تُعرض
+        // («حدّث قائمة الأصناف»)، والكتالوج يُحدَّث وتُعاد وحدات السلّة إليه، ثم يعيد المندوب الإصدار وهو يرى ما تغيّر
+        if (err?.response?.data?.code === 'UNIT_INVALID') void refreshUnits();
         setMsg(err?.response?.data?.message || tr('تعذر إصدار المستند حاول مجددا')); setLoading(false);
       }
     }
   };
 
-  /* بعد 409 UNIT_CHANGED: الكتالوج من الخادم، وكل بندٍ (غير مرتبط بفاتورة بيع) بوحدته كما هي الآن (refreshLineUnit)
+  /* بعد 400 UNIT_INVALID: الكتالوج من الخادم، وكل بندٍ (غير مرتبط بفاتورة بيع) بوحدته كما هي الآن (refreshLineUnit)
    * بسعرها وأرضيتها. والسعر المعدَّل يدوياً يبقى ما لم يتغيّر معامل البند. وبندٌ لا وحدة صالحة له يبقى كما هو فيراه
-   * المندوب في الرسالة ويقرّر — لا يُردّ إلى الأساس بصمت فيُقيَّد «٢ كرتون» حبّتين */
+   * المندوب في الرسالة ويقرّر — لا يُردّ إلى الأساس بصمت فيُقيَّد «٢ كرتون» حبّتين.
+   * والمرتجع من فاتورة بيع: بنودها تُقرأ من جديد (وحدات الإرجاع من ردّ /returnable)، والكمية بوحدتها إن بقيت وإلا
+   * بالأساس (refreshLinkedLine). وكاشٌ يعود بدل الخادم (انقطاعٌ بين الرفض والتحديث) لا يُعاد عليه شيء: هو القديم نفسه */
   const refreshUnits = async () => {
     try {
-      const { data } = await fetchThenCache('products', async () =>
+      const { data, offline } = await fetchThenCache('products', async () =>
         (await repApi.get('/products', { params: { status: 'ACTIVE', limit: 1000 } })).data.data);
-      if (!data) return;
+      if (!data || offline) return;
       const fresh = data as any[];
       setProducts(fresh);
       setLines(prev => prev.map(l => {
@@ -2084,8 +2087,18 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         if (!p || !ch) return l;
         const ref = inclOf(p, ch);
         const keep = Math.abs(Number(l.unitPrice) - Number(l.refPrice)) > 1e-9 && Number(l.unitFactor ?? 1) === (ch.id ? ch.factor : 1);
-        return { ...l, ...lineUnitOf(ch), refPrice: ref, unitPrice: keep ? l.unitPrice : ref };
+        return { ...l, ...lineUnitOf(ch, p.unit), refPrice: ref, unitPrice: keep ? l.unitPrice : ref };
       }));
+      if (saleRef && lines.some(l => l.link)) {
+        const sale = toLinkedSale((await repApi.get(`/invoices/${saleRef.id}/returnable`)).data.data);
+        const byId = new Map(sale.lines.map(x => [x.saleItemId, x]));
+        setLines(prev => prev.map(l => {
+          const f = l.link && byId.get(l.saleItemId);
+          if (!f) return l;
+          const link = refreshLinkedLine(l.link as LinkedReturnLine, f);
+          return { ...l, ...linkedLineUnit(link), qty: link.qty, maxQty: link.returnable, unitPrice: linkedUnitPrice(link, retDec()), refPrice: linkedUnitPrice(link, retDec()), link };
+        }));
+      }
     } catch { /* دون اتصال: تبقى الرسالة، والإعادة بعد الاتصال */ }
   };
 
@@ -3288,8 +3301,9 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
   const [tools, setTools] = useState<{ toolName: string; qty: number }[]>([]);
   const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState<{ id: string; name: string; unit: string; code: string; units?: UnitDef[] | null }[]>([]);
-  // unitId: وحدة صفّ التحميل (null = الأساس) — صفٌّ واحد لكل صنف، ووحدته تُختار عليه
-  const [rows, setRows] = useState<{ productId: string; name: string; unit: string; qty: string; unitId: string | null }[]>([]);
+  // unitId: وحدة صفّ التحميل (null = الأساس) — صفٌّ واحد لكل صنف، ووحدته تُختار عليه. ومعاملها كما اختير (unitFactor):
+  // به تُحوَّل الكمية إلى الأساس إن أُوقفت الوحدة قبل الحفظ (rebaseRow) — لا «١٠ حبة» عن عشرة كراتين
+  const [rows, setRows] = useState<{ productId: string; name: string; unit: string; qty: string; unitId: string | null; unitFactor: number }[]>([]);
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -3302,6 +3316,18 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
   }, []);
   useEffect(() => { loadStock(); }, [loadStock]);
   useEffect(() => { (async () => { const { data } = await fetchThenCache('products', async () => (await repApi.get('/products', { params: { limit: 1000, status: 'ACTIVE' } })).data.data); if (data) setProducts(data as { id: string; name: string; unit: string; code: string; units?: UnitDef[] | null }[]); })(); }, []);
+  /* ردّ 400 UNIT_INVALID (وحدةٌ أُوقفت أو لم تعد للصنف — كاش الجهاز قديم): الكتالوج من الخادم وحده (كاشٌ يعود بدله هو
+   * القديم نفسه ⇒ null)، والمستدعي يعيد وحدات صفوفه إليه */
+  const reloadProducts = async (): Promise<typeof products | null> => {
+    try {
+      const { data, offline } = await fetchThenCache('products', async () => (await repApi.get('/products', { params: { limit: 1000, status: 'ACTIVE' } })).data.data);
+      if (!data || offline) return null;
+      const fresh = data as typeof products;
+      setProducts(fresh);
+      return fresh;
+    } catch { return null; }
+  };
+  const isUnitInvalid = (e: unknown) => (e as { response?: { data?: { code?: string } } })?.response?.data?.code === 'UNIT_INVALID';
   useEffect(() => { if (!canLoad && view === 'load') setView('list'); }, [canLoad, view]);
   useEffect(() => { if (!canRequest && view === 'request') setView('list'); }, [canRequest, view]);
 
@@ -3336,8 +3362,15 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
     setReqQty(qty); setReqUnit(unit);
     setReqNote(p?.note ?? ''); setReqSearch(''); setMsg(null); setView('request');
   };
-  const reqUnitOf = (productId: string) => {
-    const prod = products.find(x => x.id === productId);
+  // وحدات الصنف من الكتالوج، وإلا من بند الطلب المعلّق نفسه (صنفٌ خرج من الأصناف النشطة يبقى بوحداته ليُعدَّل أو يُزال)
+  const reqProduct = (productId: string, list: { id: string; unit: string; units?: UnitDef[] | null }[] = products) => {
+    const prod = list.find(x => x.id === productId);
+    if (prod) return prod;
+    const it = myReq?.pending?.items.find(i => i.productId === productId);
+    return it ? { id: productId, unit: it.baseUnit || it.unit || '', units: it.units ?? null } : undefined;
+  };
+  const reqUnitOf = (productId: string, list?: { id: string; unit: string; units?: UnitDef[] | null }[]) => {
+    const prod = reqProduct(productId, list);
     return productId in reqUnit ? choiceById(prod, reqUnit[productId]) ?? unitChoices(prod)[0] : defaultChoice(prod);
   };
   const reqLines = Object.entries(reqQty).map(([productId, raw]) => {
@@ -3355,6 +3388,22 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
       setMsg({ ok: true, text: tr('تم رفع طلب البضاعة للإدارة') });
     } catch (e) {
       setMsg({ ok: false, text: (e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر رفع الطلب') });
+      // وحدة بندٍ لم تعد صالحة: الكتالوج من الخادم، وكل بندٍ بوحدته إن بقيت وإلا بالأساس بمعامله (rebaseRow) — ثم يعيد المندوب الرفع
+      if (isUnitInvalid(e)) {
+        const fresh = await reloadProducts();
+        if (fresh) {
+          const qty = { ...reqQty };
+          const unit = { ...reqUnit };
+          for (const [pid, raw] of Object.entries(reqQty)) {
+            const was = reqUnitOf(pid);
+            const r = rebaseRow({ unit: was.name, unitId: was.id, unitFactor: was.factor, qty: raw }, reqProduct(pid, fresh));
+            if (!r) continue;
+            unit[pid] = r.choice.id;
+            qty[pid] = String(r.qty);
+          }
+          setReqQty(qty); setReqUnit(unit);
+        }
+      }
     }
     setSaving(false);
   };
@@ -3379,7 +3428,7 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
     const p = products.find(x => x.id === id); if (!p) return;
     // الافتراضية الأكبر: المندوب يحمّل بالكرتون عادةً (وبعد تحويل الصنف إلى الحبّة يبقى كذلك)
     const c0 = defaultChoice(p);
-    setRows(rs => [...rs, { productId: id, name: p.name, unit: c0.name, qty: '1', unitId: c0.id }]);
+    setRows(rs => [...rs, { productId: id, name: p.name, unit: c0.name, qty: '1', unitId: c0.id, unitFactor: c0.factor }]);
   };
 
   const submit = async () => {
@@ -3395,6 +3444,14 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
       setMsg({ ok: true, text: tr('تم تسجيل التحميل بنجاح') });
     } catch (e) {
       setMsg({ ok: false, text: (e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الحفظ') });
+      // وحدة صفٍّ لم تعد صالحة: الكتالوج من الخادم، وكل صفٍّ بوحدته إن بقيت وإلا بالأساس بمعامله (rebaseRow) — ثم يعيد المندوب الحفظ
+      if (isUnitInvalid(e)) {
+        const fresh = await reloadProducts();
+        if (fresh) setRows(rs => rs.map(r => {
+          const x = rebaseRow(r, fresh.find(p => p.id === r.productId));
+          return x ? { ...r, unitId: x.choice.id, unit: x.choice.name, unitFactor: x.choice.factor, qty: String(x.qty) } : r;
+        }));
+      }
     }
     setSaving(false);
   };
@@ -3491,7 +3548,7 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
                   <div className="flex flex-wrap gap-1 mt-1" role="radiogroup" aria-label={tr('الوحدة')}>
                     {unitChoices(products.find(x => x.id === r.productId)).map(o => (
                       <button key={o.id ?? 'base'} type="button" role="radio" aria-checked={r.unitId === o.id}
-                        onClick={() => setRows(rs => rs.map((x, j) => j === i ? { ...x, unitId: o.id, unit: o.name } : x))}
+                        onClick={() => setRows(rs => rs.map((x, j) => j === i ? { ...x, unitId: o.id, unit: o.name, unitFactor: o.factor } : x))}
                         className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${r.unitId === o.id ? 'bg-[#E15A30] text-white' : 'bg-gray-100 text-gray-600'}`}>
                         {o.name}
                       </button>

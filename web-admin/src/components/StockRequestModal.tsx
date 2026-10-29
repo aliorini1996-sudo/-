@@ -7,12 +7,19 @@ import { formatDateTime } from '../utils/format';
 import DocumentModal from './DocumentModal';
 import type { Company, StockRequestDoc } from '../rep/RepDocuments';
 import {
-  stockRequestLines, stockRequestTotalQty, stockRequestRef, stockRequestToLabel, isInvalidRequestQty, isShort,
+  stockRequestLines, stockRequestTotalText, stockRequestRef, stockRequestToLabel, isInvalidRequestQty, isShort,
   repItemQty, repRequestDirty, repRequestTotals, withRequestedProducts, requestedFirst, parseRequestQty,
-  type StockRequestTo, type StockRequestSourceRow, type RepStockRequest,
+  requestUnitOf, defaultRequestUnit, prefillInUnit, repLineUnitId, repItemUnit, repEditItems, convertRepQty,
+  type StockRequestTo, type StockRequestSourceRow, type RepStockRequest, type RepRequestItem, type RepUnitEdits,
 } from '../lib/stockRequest';
+import { baseQtyText, hasBigUnit } from '../lib/adminUnits';
+import { unitChoices } from '../rep/repUnits';
 
 const fmtQty = (n: number) => Number(n.toFixed(2)).toLocaleString('en-US');
+/** قيمة خيار «وحدة سطر المندوب كما هي» في المنتقي — وحدةٌ لم تعد بين النشطة (أُوقفت أو تغيّر معاملها) */
+const LINE_UNIT = '__line';
+/** معامل وحدة سطر المندوب كما في لقطته */
+const factorText = (i: RepRequestItem) => String(Number(i.unitFactor ?? 1) || 1);
 const errMsg = (e: unknown, fallback: string) => (e as { response?: { data?: { message?: string } } })?.response?.data?.message || fallback;
 
 /** اليوم بتوقيت الجهاز YYYY-MM-DD — حدٌّ أدنى لخانة «مطلوب قبل» */
@@ -31,6 +38,10 @@ const todayLocal = () => {
  *
  * والورقة تُفتح فوق النموذج لا مكانه: «تم» تعيد إلى الكميات كما كُتبت — إلا بعد إرسال
  * طلبات مناديب، فحينها تُغلق النافذة كلها: ما أُرسل لا يُعاد إرساله.
+ *
+ * الوحدات المتعددة: الرصيد بالأساس مفكَّكاً، والطلب العام لكل صنف بوحدةٍ تُختار (الأكبر افتراضاً) — ومجموع المناديب
+ * بالأساس يُعبَّر عنه بها. وبند المندوب بوحدة سطره، ويختار الإداري له وحدةً أخرى إن شاء: تبديلها يحفظ الكمية نفسها
+ * («٢ كرتون» ⇒ «٤٨ حبة»)، والحفظ يرسل `unitId` حين تغيّرت وحدها (غيابه = وحدة السطر، null = الأساس).
  */
 export default function StockRequestModal({ rows, company, by, onClose }: {
   rows: StockRequestSourceRow[]; company: Company | null; by?: string; onClose: () => void;
@@ -53,39 +64,72 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
   });
   const reqs = useMemo(() => reqQ.data ?? [], [reqQ.data]);
   const [edits, setEdits] = useState<Record<string, Record<string, string>>>({});
+  // وحدة بنود المناديب التي بدّلها الإداري (غيابها = وحدة سطر المندوب، null = الأساس)
+  const [unitEdits, setUnitEdits] = useState<RepUnitEdits>({});
+  // وحدة الطلب العام لكل صنف اختارها الإداري — غيابها ⇒ defaultRequestUnit (الأكبر، أو ما ينقسم عليه مجموع المناديب)
+  const [reqUnit, setReqUnit] = useState<Record<string, string | null>>({});
   const [excluded, setExcluded] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<string | null>(null); // 'send' أو معرّف الطلب الجاري حفظه/رفضه
   const [error, setError] = useState('');
 
   const included = reqs.filter(r => !excluded[r.id]);
-  const repSum = repRequestTotals(included, edits);
+  // بالأساس: «٥ كرتون» من مندوب و«٣ حبة» من آخر = ١٢٣ حبة، لا «٨»
+  const repSum = repRequestTotals(included, edits, unitEdits);
   // ما طلبوه أصلاً — يثبّت الترتيب فلا يقفز الصنف حين يُصفّر الإداري كميّته
   const requested = useMemo(() => new Set(reqs.flatMap(r => r.items.filter(i => i.requestedQty > 0).map(i => i.productId))), [reqs]);
   const ordered = useMemo(() => requestedFirst(withRequestedProducts(rows, reqs), requested), [rows, reqs, requested]);
 
-  // خانة الصنف: ما كتبه الإداري، وإلا مجموع المناديب المشمولين
+  // وحدة الطلب العام لكل صنف — المختارة، وإلا الافتراضية من مجموع مناديبه
+  const unitById: Record<string, string | null> = {};
+  for (const r of ordered) unitById[r.productId] = r.productId in reqUnit ? reqUnit[r.productId] : defaultRequestUnit(r, repSum.get(r.productId) ?? 0);
+  const unitOfRow = (r: StockRequestSourceRow) => requestUnitOf(r, unitById[r.productId] ?? null);
+
+  // خانة الصنف: ما كتبه الإداري، وإلا مجموع المناديب المشمولين **بوحدة الطلب** (المجموع بالأساس ÷ معاملها)
   const effective: Record<string, string> = {};
-  for (const [pid, n] of repSum) effective[pid] = String(n);
+  for (const r of ordered) {
+    const base = repSum.get(r.productId);
+    if (base != null) { const c = unitOfRow(r); effective[r.productId] = prefillInUnit(base, c.id ? c.factor : 1); }
+  }
   Object.assign(effective, qty);
 
   const q = search.trim().toLowerCase();
   const visible = ordered.filter(r => (!shortOnly || isShort(r))
     && (!q || r.name.toLowerCase().includes(q) || (r.code || '').toLowerCase().includes(q)));
   // الأسطر من كل الأصناف لا المعروضة وحدها: البحث يُخفي صنفاً من الشاشة لا من الطلب
-  const lines = stockRequestLines(ordered, effective);
-  const totalQty = stockRequestTotalQty(lines);
+  const lines = stockRequestLines(ordered, effective, unitById);
   const anyInvalid = Object.values(qty).some(isInvalidRequestQty)
     || included.some(r => Object.values(edits[r.id] ?? {}).some(isInvalidRequestQty));
 
   const setEdit = (reqId: string, pid: string, v: string) => setEdits(m => ({ ...m, [reqId]: { ...m[reqId], [pid]: v } }));
-  const dropEdits = (reqId: string) => setEdits(m => { const n = { ...m }; delete n[reqId]; return n; });
+  const dropEdits = (reqId: string) => {
+    setEdits(m => { const n = { ...m }; delete n[reqId]; return n; });
+    setUnitEdits(m => { const n = { ...m }; delete n[reqId]; return n; });
+  };
+  /**
+   * تبديل وحدة بند مندوب: الكمية نفسها بالأساس تُعبَّر بالوحدة الجديدة (لا الرقم نفسه بوحدةٍ أخرى — «٢ حبة» بدل «٢
+   * كرتون» خطأٌ صامت ٢٤ ضعفاً). و`LINE_UNIT` يعيد البند إلى وحدة سطره كما هي.
+   */
+  const setItemUnit = (r: RepStockRequest, i: RepRequestItem, value: string) => {
+    const cur = unitEdits[r.id]?.[i.productId];
+    const from = repItemUnit(i, cur).factor;
+    const next = value === LINE_UNIT ? undefined : (value || null);
+    const to = repItemUnit(i, next).factor;
+    setEdit(r.id, i.productId, convertRepQty(repItemQty(i.qty, edits[r.id]?.[i.productId]), from, to));
+    setUnitEdits(m => {
+      const own = { ...m[r.id] };
+      if (next === undefined) delete own[i.productId]; else own[i.productId] = next;
+      return { ...m, [r.id]: own };
+    });
+  };
+  /** وحدة الطلب العام لصنف: الكمية التي كتبها الإداري تبقى رقمها (يراه بجانب الوحدة)، والمجموع المبدئي يتبع الوحدة */
+  const setRowUnit = (pid: string, value: string) => setReqUnit(m => ({ ...m, [pid]: value || null }));
   const replaceReq = (saved: RepStockRequest) => qc.setQueryData<RepStockRequest[]>(['rep-stock-requests'],
     list => (list ?? []).map(x => (x.id === saved.id ? { ...x, ...saved } : x)));
 
   /** يحفظ تعديل طلبٍ ويعيد نسخته الجديدة — الإرسال يُرسل ما في الخادم لا ما في الشاشة وحدها */
   const saveReq = async (r: RepStockRequest): Promise<string> => {
-    const e = edits[r.id] ?? {};
-    const items = r.items.filter(i => e[i.productId] !== undefined).map(i => ({ productId: i.productId, qty: repItemQty(i.qty, e[i.productId]) }));
+    // ما تغيّرت كميته أو وحدته — و`unitId` لما تغيّرت وحدته وحدها (repEditItems)
+    const items = repEditItems(r, edits[r.id], unitEdits[r.id]);
     const { data } = await repStockRequestApi.update(r.id, { updatedAt: r.updatedAt, items });
     const saved = data.data as RepStockRequest;
     replaceReq(saved);
@@ -119,7 +163,7 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
       setBusy('send');
       try {
         const versions: { id: string; updatedAt: string }[] = [];
-        for (const r of sending) versions.push({ id: r.id, updatedAt: repRequestDirty(r, edits[r.id]) ? await saveReq(r) : r.updatedAt });
+        for (const r of sending) versions.push({ id: r.id, updatedAt: repRequestDirty(r, edits[r.id], unitEdits[r.id]) ? await saveReq(r) : r.updatedAt });
         await repStockRequestApi.send({ ref, requests: versions });
       } catch (e) {
         setError(errMsg(e, tr('تعذر إرسال طلبات المناديب')));
@@ -133,9 +177,10 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
     setDoc({
       kind: 'stockRequest', company, ref, date: now.toISOString(),
       to, neededBy: neededBy || undefined, note: note.trim() || undefined, by: by || undefined, items: lines,
+      // كل بند بوحدته الآن (المختارة، وإلا وحدة سطر المندوب) — «٥» وحدها لا تقول أكراتين أم حبّات
       reps: sending.length ? sending.map(r => ({
         name: r.repName,
-        items: r.items.map(i => ({ name: i.name, unit: i.unit, qty: repItemQty(i.qty, edits[r.id]?.[i.productId]) })).filter(i => i.qty > 0),
+        items: r.items.map(i => ({ name: i.name, unit: repItemUnit(i, unitEdits[r.id]?.[i.productId]).name || i.unit, qty: repItemQty(i.qty, edits[r.id]?.[i.productId]) })).filter(i => i.qty > 0),
       })) : undefined,
     });
     if (sending.length) qc.invalidateQueries({ queryKey: ['rep-stock-requests'] });
@@ -203,25 +248,38 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
                   {visible.map(r => {
                     const raw = effective[r.productId] ?? '';
                     const bad = isInvalidRequestQty(qty[r.productId]);
-                    const fromReps = repSum.get(r.productId) ?? 0;
-                    // الإداري كتب غير ما جمعه المناديب — يبقى المجموع ظاهراً للمقارنة
-                    const overridden = qty[r.productId] !== undefined && (parseRequestQty(qty[r.productId]) ?? 0) !== fromReps;
+                    const fromReps = repSum.get(r.productId) ?? 0; // بالأساس
+                    const multi = hasBigUnit(r.units);
+                    const reqU = unitOfRow(r);
+                    const choices = multi ? unitChoices({ unit: r.unit ?? '', units: r.units ?? [] }) : [];
+                    // الإداري كتب غير ما جمعه المناديب — يبقى المجموع ظاهراً للمقارنة. والمقارنة بالأساس: «٢ كرتون» = ٤٨ حبة
+                    const overridden = qty[r.productId] !== undefined
+                      && Math.abs((parseRequestQty(qty[r.productId]) ?? 0) * (reqU.id ? reqU.factor : 1) - fromReps) > 1e-6;
                     return (
                       <div key={r.productId} className="flex items-center gap-2 px-3 py-2">
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-semibold text-[#1F1A13] truncate">{r.name}</p>
-                          <p className="text-[11px] text-[#9A8F7E]">{[r.code, r.unit].filter(Boolean).join(' · ')}</p>
+                          <p className="text-[11px] text-[#9A8F7E]">{[r.code, multi ? `${tr('وحدة الأساس')} ${r.unit}` : r.unit].filter(Boolean).join(' · ')}</p>
                           {fromReps > 0 && (
                             <p className={`text-[11px] font-semibold flex items-center gap-1 ${overridden ? 'text-amber-700' : 'text-[#1E7A52]'}`}>
-                              <Truck size={11} /> {tr('طلبات المناديب')}: <span dir="ltr">{fmtQty(fromReps)}</span>
+                              <Truck size={11} /> {tr('طلبات المناديب')}: <span dir={multi ? undefined : 'ltr'}>{baseQtyText(fromReps, r, fmtQty)}</span>
                             </p>
                           )}
                         </div>
-                        <span dir="ltr" className={`w-14 sm:w-20 shrink-0 text-center text-sm font-bold ${r.onHand < 0 ? 'text-red-600' : r.onHand === 0 ? 'text-amber-600' : 'text-[#6E6557]'}`}>{fmtQty(r.onHand)}</span>
-                        <input type="number" step="any" min="0" inputMode="decimal" value={raw}
-                          onChange={e => setQty(m => ({ ...m, [r.productId]: e.target.value }))}
-                          aria-label={`${tr('الكمية المطلوبة')} ${r.name}`}
-                          className={`input w-20 sm:w-28 shrink-0 py-1.5 text-center ${bad ? 'border-red-400 bg-red-50' : ''}`} placeholder="0" />
+                        {/* الرصيد بالأساس مفكَّكاً «٢ كرتون و٣ حبة» لصنفٍ له وحدات — رقمٌ بجانب خانة طلبٍ بالكرتون يُقرأ كراتين */}
+                        <span dir={multi ? undefined : 'ltr'} className={`w-14 sm:w-20 shrink-0 text-center ${multi ? 'text-[11px]' : 'text-sm'} font-bold ${r.onHand < 0 ? 'text-red-600' : r.onHand === 0 ? 'text-amber-600' : 'text-[#6E6557]'}`}>{baseQtyText(r.onHand, r, fmtQty)}</span>
+                        <div className="w-20 sm:w-28 shrink-0 flex flex-col gap-1">
+                          <input type="number" step="any" min="0" inputMode="decimal" value={raw}
+                            onChange={e => setQty(m => ({ ...m, [r.productId]: e.target.value }))}
+                            aria-label={`${tr('الكمية المطلوبة')} ${r.name}`}
+                            className={`input w-full py-1.5 text-center ${bad ? 'border-red-400 bg-red-50' : ''}`} placeholder="0" />
+                          {choices.length > 1 && (
+                            <select className="input w-full py-0.5 text-[11px]" value={reqU.id ?? ''} aria-label={`${tr('الوحدة')} ${r.name}`}
+                              onChange={e => setRowUnit(r.productId, e.target.value)}>
+                              {choices.map(c => <option key={c.id ?? 'base'} value={c.id ?? ''}>{c.name}{c.factor > 1 ? ` (${c.factor})` : ''}</option>)}
+                            </select>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -239,7 +297,7 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
                 <div className="space-y-2">
                   {reqs.map(r => {
                     const isIn = !excluded[r.id];
-                    const dirty = repRequestDirty(r, edits[r.id]);
+                    const dirty = repRequestDirty(r, edits[r.id], unitEdits[r.id]);
                     return (
                       <div key={r.id} className={`border rounded-xl ${isIn ? 'border-[#E9E1D3]' : 'border-dashed border-gray-300 opacity-60'}`}>
                         <div className="flex items-center gap-2 px-3 py-2 bg-[#FAF7F0] rounded-t-xl flex-wrap">
@@ -262,16 +320,31 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
                           {r.items.map(i => {
                             const raw = edits[r.id]?.[i.productId] ?? String(i.qty);
                             const bad = isInvalidRequestQty(edits[r.id]?.[i.productId]);
+                            // وحدة البند: المختارة (unitEdits)، وإلا وحدة سطر المندوب — ووحدةٌ لم تعد نشطة خيارٌ باسمها
+                            const choices = unitChoices({ unit: String(i.baseUnit ?? i.unit ?? ''), units: i.units ?? [] });
+                            const lineId = repLineUnitId(i);
+                            const ue = unitEdits[r.id]?.[i.productId];
+                            const value = ue !== undefined ? (ue ?? '') : (lineId === undefined ? LINE_UNIT : (lineId ?? ''));
                             return (
                               <div key={i.productId} className="flex items-center gap-2 px-3 py-1.5">
                                 <div className="min-w-0 flex-1">
                                   <p className="text-sm text-[#1F1A13] truncate">{i.name}</p>
                                   <p className="text-[11px] text-[#9A8F7E]">{tr('طلب المندوب')}: <span dir="ltr">{fmtQty(i.requestedQty)}</span> {i.unit || ''}</p>
                                 </div>
-                                <input type="number" step="any" min="0" inputMode="decimal" value={raw} disabled={!isIn}
-                                  onChange={e => setEdit(r.id, i.productId, e.target.value)}
-                                  aria-label={`${tr('الكمية المعتمدة')} ${r.repName} ${i.name}`}
-                                  className={`input w-20 sm:w-28 shrink-0 py-1 text-center ${bad ? 'border-red-400 bg-red-50' : ''}`} />
+                                <div className="w-20 sm:w-28 shrink-0 flex flex-col gap-1">
+                                  <input type="number" step="any" min="0" inputMode="decimal" value={raw} disabled={!isIn}
+                                    onChange={e => setEdit(r.id, i.productId, e.target.value)}
+                                    aria-label={`${tr('الكمية المعتمدة')} ${r.repName} ${i.name}`}
+                                    className={`input w-full py-1 text-center ${bad ? 'border-red-400 bg-red-50' : ''}`} />
+                                  {choices.length > 1 && (
+                                    <select className="input w-full py-0.5 text-[11px]" value={value} disabled={!isIn}
+                                      aria-label={`${tr('الوحدة')} ${r.repName} ${i.name}`}
+                                      onChange={e => setItemUnit(r, i, e.target.value)}>
+                                      {lineId === undefined && <option value={LINE_UNIT}>{i.unit} ({factorText(i)})</option>}
+                                      {choices.map(c => <option key={c.id ?? 'base'} value={c.id ?? ''}>{c.name}{c.factor > 1 ? ` (${c.factor})` : ''}</option>)}
+                                    </select>
+                                  )}
+                                </div>
                               </div>
                             );
                           })}
@@ -288,7 +361,8 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
           <div className="p-5 border-t border-[#E9E1D3] space-y-3">
             <div className="flex items-center justify-between text-sm">
               <span className="text-[#6E6557]">{tr('عدد الأصناف')}: <b className="text-[#1F1A13]">{lines.length}</b></span>
-              <span className="text-[#6E6557]">{tr('إجمالي الكميات')}: <b className="text-[#1F1A13]">{fmtQty(totalQty)}</b></span>
+              {/* كورقة الطلب: لكل وحدة حين تختلط («٢ كرتون · ٥ حبة») — وإلا الرقم كما كان */}
+              <span className="text-[#6E6557]">{tr('إجمالي الكميات')}: <b className="text-[#1F1A13]">{stockRequestTotalText(lines, fmtQty)}</b></span>
             </div>
             {anyInvalid && <p className="text-xs text-red-600">{tr('الكمية يجب أن تكون رقما موجبا')}</p>}
             {error && <p className="text-xs text-red-600">{error}</p>}

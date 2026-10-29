@@ -93,7 +93,8 @@ export function originalInvoice(o: OriginalOptions): NoteOriginalInvoice {
 /** إشعار سابق ملتزَم (أو ملغى) بكمّياته المربوطة ببنود الأصل. */
 export function priorNote(o: {
   id?: string; status?: string; documentKind?: string | null; total: number;
-  items: readonly { creditedItemId: string | null; qty: number }[];
+  /** بنوده كما يقرؤها loadPriorNotes — ومنها لقطة الوحدة وما قُيِّد من البند (الوحدات المتعددة) */
+  items: PriorNote['items'];
 }): PriorNote {
   return {
     id: o.id ?? 'note-1',

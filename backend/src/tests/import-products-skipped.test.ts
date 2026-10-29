@@ -503,6 +503,8 @@ test('حارس ثابت: وحدات الصنف المستورد تُكتب في 
   const body = routeBody(src, "router.post('/products'");
   assert.ok(body.indexOf('tx.product.create(') < body.indexOf('tx.productUnit.createMany('), 'الوحدات بعد الصنف في writeItem');
   assert.match(body, /netUnitPricesByRow/, 'سعر الوحدة الشامل يُردّ إلى صافيه كسعر الأساس');
+  // المعامل يُخزَّن صحيحاً مقرَّباً كمسار الأصناف: خلية Excel «24.0000001» يقبلها unitProblem بسماحيته ولا تُكتب كما هي
+  assert.ok(body.includes('factor: Math.round(Number(u.factor))'), 'المعامل مقرَّباً');
   const revert = src.slice(src.indexOf("} else if (batch.kind === 'products') {"));
   assert.ok(revert.indexOf('tx.productUnit.deleteMany(') < revert.indexOf('tx.product.deleteMany('), 'الوحدات قبل الصنف');
 });

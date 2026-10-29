@@ -8,6 +8,10 @@ import { formatDateTime, activeLocale } from '../utils/format';
 import { shareOrDownloadExcel } from '../utils/excel';
 import { localDay } from '../lib/paymentMethods';
 import { loadByLabel, loadQty, loadsLogRows, locationFilterOptions, type SalesLocation, type VanLoadRow } from '../lib/locations';
+import { factorOf, sumBase } from '../lib/units';
+
+/** بند التحميل كما يردّه /van-stock/loads: الصفّ كاملاً، ومنه لقطة وحدته (unitName/unitFactor/baseQty) — الوحدات المتعددة */
+type LogItem = VanLoadRow['items'][number] & { unitName?: string | null; unitFactor?: number | null; baseQty?: number | null };
 
 /**
  * «سجل التحميلات» في مخزون السيارات — ميزة «لوكيشن» (طلب المالك ٢١ أكتوبر ٢٠٢٦: «يظهر الموقع كعمود وتصفية في
@@ -141,15 +145,20 @@ export default function VanLoadsLog({ reps }: { reps: { salesRepId: string; repN
                   <td className="px-3 py-2.5 whitespace-nowrap">{l.location?.name ?? <span className="text-gray-300">—</span>}</td>
                   <td className="px-3 py-2.5">
                     <div className="flex flex-wrap gap-1.5">
-                      {l.items.map((it, j) => (
+                      {/* لقطة وحدة البند (الوحدات المتعددة): «٢ كرتون» تبقى كرتوناً لا «٢ حبة» بعد تحويل الصنف */}
+                      {(l.items as LogItem[]).map((it, j) => (
                         <span key={it.id ?? j} className="text-[11px] bg-[#FAF7F0] border border-[#F1EBDF] rounded-md px-2 py-0.5 text-[#1F1A13]">
-                          {it.product?.name ?? '—'} <b>{fmtQty(Number(it.qty))}</b> {it.product?.unit ?? ''}
+                          {it.product?.name ?? '—'} <b>{fmtQty(Number(it.qty))}</b> {it.unitName || it.product?.unit || ''}
                         </span>
                       ))}
                     </div>
                     {l.note && <p className="text-[11px] text-[#9A8F7E] mt-1">{l.note}</p>}
                   </td>
-                  <td className="text-center px-3 py-2.5 font-bold text-[#1E7A52] tabular-nums">{fmtQty(loadQty(l))}</td>
+                  {/* المجموع بالأساس (كملخّص المواقع في الخادم): كرتونٌ وثلاث حبّات = ٢٧ لا ٤ — وبلا وحداتٍ كما كان */}
+                  <td className="text-center px-3 py-2.5 font-bold text-[#1E7A52] tabular-nums"
+                    title={(l.items as LogItem[]).some(it => factorOf(it) !== 1) ? tr('مجموع بوحدات الأساس') : undefined}>
+                    {fmtQty((l.items as LogItem[]).some(it => factorOf(it) !== 1) ? sumBase(l.items as LogItem[]) : loadQty(l))}
+                  </td>
                   <td className="text-center px-3 py-2.5 text-xs text-[#6E6557]">{loadByLabel(l.createdBy, tr)}</td>
                 </tr>
               ))}

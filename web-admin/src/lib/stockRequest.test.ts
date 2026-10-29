@@ -6,6 +6,7 @@ import {
   parseRequestQty, isInvalidRequestQty, stockRequestLines, stockRequestTotalQty, stockRequestRef,
   stockRequestToLabel, stockRequestApproverLabel, shortFirst,
   repItemQty, repRequestDirty, repRequestTotals, withRequestedProducts, requestedFirst, type RepStockRequest,
+  requestUnitOf, defaultRequestUnit, prefillInUnit, stockRequestTotalText, repLineUnitId, repItemUnit, repEditItems, convertRepQty,
 } from './stockRequest';
 
 /**
@@ -112,6 +113,75 @@ test('حارس ثابت: «طلب بضاعة» مكان «تحميل» لمن ل
   const modal = read('components', 'StockRequestModal.tsx');
   assert.match(modal, /queryKey: \['rep-stock-requests'\]/);
   // الإرسال يحفظ التعديل أولاً ثم يعلّم المشمول — والمرسَل نسخته من الخادم
-  assert.match(modal, /repRequestDirty\(r, edits\[r\.id\]\) \? await saveReq\(r\) : r\.updatedAt/);
+  // (والوحدات المتعددة: تبديل وحدة بندٍ وحده تعديلٌ يُحفظ قبل الإرسال كتعديل الكمية)
+  assert.match(modal, /repRequestDirty\(r, edits\[r\.id\], unitEdits\[r\.id\]\) \? await saveReq\(r\) : r\.updatedAt/);
   assert.ok(modal.indexOf('repStockRequestApi.send(') < modal.indexOf('setDoc({'), 'الورقة قبل نجاح الإرسال');
+});
+
+// ——— الوحدات المتعددة: صنف «ماء» أساسه الحبة والكرتون ٢٤ ———
+const ctn = [{ id: 'u-ctn', name: 'كرتون', factor: 24, price: null, isActive: true }];
+const water = { productId: 'w', name: 'ماء', code: 'W1', unit: 'حبة', onHand: 51, units: ctn };
+
+test('الطلب العام بوحدةٍ لكل صنف: السطر يحمل معاملها ووحدات الصنف، وصنفٌ بلا وحدات كما كان حرفاً', () => {
+  const egg = { productId: 'e', name: 'بيض', code: 'E1', unit: 'كرتون', onHand: 3 };
+  const lines = stockRequestLines([water, egg], { w: '2', e: '5' }, { w: 'u-ctn' });
+  assert.deepEqual(lines[0], { productId: 'w', name: 'ماء', code: 'W1', unit: 'كرتون', onHand: 51, qty: 2, unitFactor: 24, units: ctn, baseUnit: 'حبة' });
+  assert.deepEqual(lines[1], { productId: 'e', name: 'بيض', code: 'E1', unit: 'كرتون', onHand: 3, qty: 5 }, 'بلا حقول إضافية');
+  // بلا وحدةٍ مختارة ⇒ الأساس بمعامل ١
+  assert.deepEqual([stockRequestLines([water], { w: '7' })[0].unit, stockRequestLines([water], { w: '7' })[0].unitFactor], ['حبة', 1]);
+  // وحدةٌ لم تعد نشطة ⇒ الأساس (لا يُطبع «٢ كرتون» بمعاملٍ أُوقف)
+  assert.equal(requestUnitOf({ ...water, units: [{ ...ctn[0], isActive: false }] }, 'u-ctn').id, null);
+});
+
+test('وحدة الطلب الافتراضية: ما ينقسم عليه مجموع المناديب تماماً، والأكبر بلا طلب، والأساس لصنفٍ بلا وحدات', () => {
+  assert.equal(defaultRequestUnit(water, 48), 'u-ctn', '٤٨ حبة = ٢ كرتون');
+  assert.equal(defaultRequestUnit(water, 13), null, '١٣ حبة لا تُكتب ٠٫٥٤ كرتون');
+  assert.equal(defaultRequestUnit(water, 0), 'u-ctn', 'المشتريات تشتري بالكرتون');
+  assert.equal(defaultRequestUnit({ productId: 'e', name: 'بيض', unit: 'كرتون', onHand: 0 }, 5), null);
+  assert.equal(prefillInUnit(48, 24), '2');
+  assert.equal(prefillInUnit(13, 1), '13');
+});
+
+test('«إجمالي الكميات»: الرقم كما كان بوحدة الأساس، ولكل وحدة حين تختلط — كالورقة المطبوعة', () => {
+  assert.equal(stockRequestTotalText([{ qty: 2, unit: 'كرتون' }, { qty: 3, unit: 'علبة' }], String), '5');
+  assert.equal(stockRequestTotalText([{ qty: 2, unit: 'كرتون', unitFactor: 24 }, { qty: 5, unit: 'حبة', unitFactor: 1 }, { qty: 1, unit: 'كرتون', unitFactor: 24 }], String), '3 كرتون · 5 حبة');
+});
+
+// طلب مندوب ببند كرتون (لقطته) وبند حبّات من الصنف نفسه عند مندوبٍ آخر
+const unitReq = (id: string, unitName: string | null, unitFactor: number, qty: number): RepStockRequest => ({
+  id, salesRepId: `rep-${id}`, repName: `مندوب ${id}`, note: null, createdAt: '', updatedAt: 'v1',
+  items: [{ productId: 'w', name: 'ماء', unit: unitName ?? 'حبة', unitName, unitFactor, requestedQty: qty, qty, baseUnit: 'حبة', units: ctn }],
+});
+
+test('مجموع المناديب بالأساس: «٢ كرتون» و«٣ حبة» = ٥١ حبة لا «٥»، وتبديل الوحدة يدخل المجموع بمعاملها', () => {
+  const a = unitReq('a', 'كرتون', 24, 2);
+  const b = unitReq('b', null, 1, 3);
+  assert.deepEqual([...repRequestTotals([a, b], {})], [['w', 51]]);
+  // الإداري بدّل بند المندوب أ إلى الحبّة وكتب ٤٠
+  assert.deepEqual([...repRequestTotals([a, b], { a: { w: '40' } }, { a: { w: null } })], [['w', 43]]);
+  // وحدة السطر بين وحدات الصنف بمعرّفها، والأساس null، ووحدةٌ لم تعد نشطة undefined
+  assert.equal(repLineUnitId(a.items[0]), 'u-ctn');
+  assert.equal(repLineUnitId(b.items[0]), null);
+  assert.equal(repLineUnitId({ ...a.items[0], unitFactor: 12 }), undefined, 'الكرتون صار ٢٤ بعد أن كان ١٢');
+  assert.deepEqual(repItemUnit(a.items[0], undefined), { name: 'كرتون', factor: 24 });
+  assert.deepEqual(repItemUnit(a.items[0], null), { name: 'حبة', factor: 1 });
+});
+
+test('حفظ تعديل الإداري: unitId حين تغيّرت الوحدة وحدها (null = الأساس)، وغيابه = وحدة سطر المندوب', () => {
+  const a = unitReq('a', 'كرتون', 24, 2);
+  assert.deepEqual(repEditItems(a, { w: '3' }), [{ productId: 'w', qty: 3 }], 'كميةٌ بوحدة السطر');
+  assert.deepEqual(repEditItems(a, { w: '48' }, { w: null }), [{ productId: 'w', qty: 48, unitId: null }]);
+  assert.deepEqual(repEditItems(a, undefined, { w: 'u-ctn' }), [], 'اختيار وحدة السطر نفسها ليس تعديلاً');
+  assert.equal(repRequestDirty(a, undefined, { w: null }), true, 'تبديل الوحدة وحده تعديل');
+  assert.equal(repRequestDirty(a, undefined, { w: 'u-ctn' }), false);
+  // التبديل يحفظ الكمية نفسها بالأساس: ٢ كرتون ⇒ ٤٨ حبة، ولا الرقم نفسه بوحدةٍ أخرى
+  assert.equal(convertRepQty(2, 24, 1), '48');
+  assert.equal(convertRepQty(36, 1, 24), '1.5');
+  assert.equal(convertRepQty(13, 1, 24), '0.54', 'بخانتين كما تُقرأ الخانة عند الحفظ — ما يُرى هو ما يُحفظ');
+  assert.equal(repItemQty(13, convertRepQty(13, 1, 24)), 0.54);
+});
+
+test('صنفٌ طلبه مندوب خارج جدول المستودع يُلحق بوحدة الأساس ووحداته — لا بوحدة سطر المندوب', () => {
+  const all = withRequestedProducts([], [unitReq('a', 'كرتون', 24, 2)]);
+  assert.deepEqual(all, [{ productId: 'w', name: 'ماء', code: undefined, unit: 'حبة', onHand: 0, units: ctn }]);
 });

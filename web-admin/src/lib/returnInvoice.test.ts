@@ -5,7 +5,7 @@ import {
   toLinkedSale, linkedSaleProblem, clampReturnQty, fillLinkedQty, activeLinkedLines, mergeRefreshedSale,
   linkedReturnTotals, buildLinkedReturnPayload, buildFreeReturnPayload, returnFormProblem, returnIssueError,
   returnDocItems, RETURN_INVOICE_PHRASES, RETURN_REASONS, type LinkedSale, type ReturnHead,
-  returnUnitChoices, withReturnUnit, linkedRefundAmount,
+  returnUnitChoices, withReturnUnit, linkedRefundAmount, refreshLinkedLine,
 } from './returnInvoice';
 import { computeInvoiceTotals } from '../rep/invoiceCalc';
 import { PHRASES } from '../i18n/strings';
@@ -207,8 +207,11 @@ test('كل عبارة تمرّ إلى tr() بمتغيّر من هذا المسا
 // ═══ حرّاس نصّيّة على النافذة: البيع كما كان حرفاً بحرف، والمرتجع يُطبع مرتجعاً ═══
 const modal = readFileSync(new URL('../components/forms/InvoiceModal.tsx', import.meta.url), 'utf8');
 
-test('مسار البيع لم يتغيّر: الجسم المرسل نفسه حرفياً', () => {
-  assert.ok(modal.includes(`    mutation.mutate({
+test('مسار البيع لم يتغيّر: الجسم المرسل نفسه حرفياً — والوحدات المتعددة تضيف حقول وحدة البند وحدها', () => {
+  // الجسم نفسه حرفياً حتى حقول البند القديمة؛ وبعدها (الوحدات المتعددة) لقطة وحدة البند لا غير — صنفٌ بلا وحدات يبقى
+  // بالأساس بمعامل ١ على الخادم كما كان
+  const eol = modal.includes('\r\n') ? '\r\n' : '\n';
+  const head = `    mutation.mutate({
       customerId, salesRepId, type, discountPct, notes,
       ...(invoiceDate && { invoiceDate }),
       ...(deliveryDate && { deliveryDate }),
@@ -218,9 +221,14 @@ test('مسار البيع لم يتغيّر: الجسم المرسل نفسه ح
       }),
       items: lines.map(l => ({
         productId: l.productId, qty: l.qty, unitPrice: l.unitPrice,
-        discountPct: l.discountPct, taxPct: l.taxPct,
-      })),
-    });`.replace(/\n/g, modal.includes('\r\n') ? '\r\n' : '\n')), 'جسم فاتورة البيع تغيّر');
+        discountPct: l.discountPct, taxPct: l.taxPct,`.replace(/\n/g, eol);
+  const at = modal.indexOf(head);
+  assert.ok(at >= 0, 'جسم فاتورة البيع تغيّر');
+  const rest = modal.slice(at + head.length, modal.indexOf('    });', at + head.length));
+  // ما بعد حقول البند: تعليقٌ أو حقول وحدة البند (unitId/لقطتها) وحدها، ثم إغلاق البند والقائمة
+  const extra = rest.split(eol).map(s => s.trim()).filter(s => s && !s.startsWith('//'));
+  assert.equal(extra[extra.length - 1], '})),', 'إغلاق البنود');
+  for (const s of extra.slice(0, -1)) assert.match(s, /unit/i, `حقلٌ غير وحدة البند في جسم البيع: ${s}`);
   // المرتجع يتفرّع قبل فحوص البيع ولا يمرّ بها
   assert.match(modal, /const handleSubmit = \(\) => \{\s*if \(isReturn\) \{ submitReturn\(\); return; \}/);
   // القائمة بلفظ المالك: «نوع الفاتورة» بخياري «فاتورة جديدة» و«فاتورة إرجاع»
@@ -292,6 +300,28 @@ test('تبديل وحدة المرتجع: الرقم يبقى ويُقصّ عل�
   assert.equal(withReturnUnit(l, 'u-box').retUnitId, null, 'وحدةٌ أكبر من وحدة البيع لا تُختار');
   const merged = mergeRefreshedSale({ ...ctnSale(), lines: [{ ...pcs, qty: 5 }] }, ctnSale());
   assert.deepEqual([merged.lines[0].retUnitId, merged.lines[0].qty], [null, 5], 'خمس حبّات لا تُقرأ خمسة كراتين');
+});
+
+test('التحديث بعد UNIT_INVALID أو تعارض: وحدةٌ اختفت أو تغيّر معاملها ⇒ الكمية بالأساس بمعاملها القديم، لا الرقم نفسه حبّات', () => {
+  const [l] = ctnSale({ returned: 0, returnable: 48, returnedBase: 0, returnableBase: 48 }).lines;
+  const ctn = { ...withReturnUnit(l, 'u-ctn'), qty: 1 };
+  // بقي الكرتون كما هو: كرتونٌ واحد
+  assert.deepEqual([refreshLinkedLine(ctn, l).retUnitId, refreshLinkedLine(ctn, l).qty], ['u-ctn', 1]);
+  // أُوقف الكرتون: ٢٤ حبة لا «١ حبة»
+  const stopped = ctnSale({ returned: 0, returnable: 48, returnedBase: 0, returnableBase: 48,
+    product: { unit: 'حبة', units: ctnUnits.map(u => (u.id === 'u-ctn' ? { ...u, isActive: false } : u)) } }).lines[0];
+  const r1 = refreshLinkedLine(ctn, stopped);
+  assert.deepEqual([r1.retUnitId, r1.unit, r1.qty], [null, 'حبة', 24]);
+  // تغيّر معامل الكرتون إلى ١٢ (المعرّف نفسه): بالأساس بالمعامل الذي اختاره المستخدم — ٢٤ حبة لا كرتونٌ بنصف الكمية
+  const refactored = ctnSale({ returned: 0, returnable: 48, returnedBase: 0, returnableBase: 48,
+    product: { unit: 'حبة', units: ctnUnits.map(u => (u.id === 'u-ctn' ? { ...u, factor: 12 } : u)) } }).lines[0];
+  assert.deepEqual([refreshLinkedLine(ctn, refactored).retUnitId, refreshLinkedLine(ctn, refactored).qty], [null, 24]);
+  // والمتاح الجديد يقصّها بالأساس
+  const less = ctnSale({ returned: 30, returnable: 18, returnedBase: 30, returnableBase: 18,
+    product: { unit: 'حبة', units: ctnUnits.map(u => (u.id === 'u-ctn' ? { ...u, isActive: false } : u)) } }).lines[0];
+  assert.equal(refreshLinkedLine(ctn, less).qty, 18);
+  // ودمج اللوحة بالقاعدة نفسها
+  assert.equal(mergeRefreshedSale({ ...ctnSale(), lines: [ctn] }, { ...ctnSale(), lines: [stopped] }).lines[0].qty, 24);
 });
 
 test('مبلغ الاسترداد = refundAmount من بند البيع: ٢٤ حبّة فرادى = قيمة الكرتون تماماً، والدينار بخاناته الثلاث', () => {

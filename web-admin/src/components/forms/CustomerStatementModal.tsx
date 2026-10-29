@@ -8,22 +8,26 @@ import { statementZone } from '../../rep/statementFacts';
 import { X, Printer, Download } from 'lucide-react';
 import { shareOrDownloadExcel, num } from '../../utils/excel';
 import toast from 'react-hot-toast';
+import { docQtyText, totalsByUnit } from '../../lib/adminUnits';
 
 interface Props { customer: Customer; onClose: () => void; }
+
+/**
+ * بند فاتورة في الكشف كما يردّه الخادم: `qty` بوحدة البند ولقطتها (`unitName`/`unitFactor`) — الوحدات المتعددة.
+ * غيابها (بندٌ سبق الميزة) ⇒ وحدة الصنف بمعامل ١ كما كان.
+ */
+type StatementItem = { qty: number; unitName?: string | null; unitFactor?: number | null; product: { name: string; unit?: string } };
+const itemsOf = (e: AccountEntry): StatementItem[] => (e.invoice?.items || []) as StatementItem[];
+/** «الاسم ×٢ كرتون» حين البند بغير الأساس — كالكشف المطبوع (PrintableStatement)، وصنفٌ بلا وحدات كما كان */
+const itemText = (it: StatementItem) => `${it.product.name} ×${docQtyText({ qty: it.qty, unitName: it.unitName, unitFactor: it.unitFactor, unit: it.product.unit }, n => String(Number(n)))}`;
 
 // تفصيل الوحدات المباعة حسب نوع الوحدة (كرتون/قطعة/…).
 // نحسب فقط قيود البيع الفعلي INVOICE_DEBIT — لأن الفاتورة النقدية لها قيدان بنفس invoiceId
 // (بيع + تحصيل) فتُحتسب أصنافها مرّتين، والمرتجعات (INVOICE_CREDIT) ليست بيعاً.
+// والوحدة لقطة البند لا وحدة الصنف اليوم: كرتونان بِيعا قبل تحويل الصنف إلى الحبّة يبقيان «٢ كرتون» لا «٢ حبة».
 function soldUnitsText(entries: AccountEntry[], fallback: string): string {
-  const m = new Map<string, number>();
-  for (const e of entries) {
-    if (e.type !== 'INVOICE_DEBIT') continue;
-    for (const it of (e.invoice?.items || [])) {
-      const u = (it.product.unit || '').trim() || fallback;
-      m.set(u, (m.get(u) || 0) + Number(it.qty));
-    }
-  }
-  return [...m.entries()].map(([u, q]) => `${formatNumber(q)} ${u}`).join(' · ');
+  const items = entries.filter(e => e.type === 'INVOICE_DEBIT').flatMap(e => itemsOf(e).map(it => ({ qty: it.qty, unitName: it.unitName, unit: it.product.unit })));
+  return [...totalsByUnit(items, fallback).entries()].map(([u, q]) => `${formatNumber(q)} ${u}`).join(' · ');
 }
 
 export default function CustomerStatementModal({ customer, onClose }: Props) {
@@ -81,7 +85,7 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
     const rows = data.entries.map(e => ({
       [tr('التاريخ')]: formatDate(e.entryDate, tz),
       [tr('البيان')]: e.description,
-      [tr('الأصناف')]: (e.invoice?.items || []).map(it => `${it.product.name} ×${Number(it.qty)}`).join('، '),
+      [tr('الأصناف')]: itemsOf(e).map(itemText).join('، '),
       [tr('رقم المستند')]: e.invoice?.number || e.receipt?.number || '-',
       [tr('مدين')]: num(e.debit),
       [tr('دائن')]: num(e.credit),
@@ -193,7 +197,7 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
                     {e.type !== 'RECEIPT_CREDIT' && e.invoice?.items && e.invoice.items.length > 0 && (
                       <div className="text-[11px] text-gray-500 mt-1 leading-relaxed">
                         <span className="font-semibold text-gray-600">{e.invoice.items.length} {tr('صنف')}:</span>{' '}
-                        {e.invoice.items.map(it => `${it.product.name} ×${Number(it.qty)}`).join('، ')}
+                        {itemsOf(e).map(itemText).join('، ')}
                       </div>
                     )}
                   </td>

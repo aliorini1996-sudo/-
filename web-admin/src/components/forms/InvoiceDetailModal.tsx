@@ -69,7 +69,8 @@ export default function InvoiceDetailModal({ invoice, onClose }: Props) {
                     <tr key={item.id}>
                       <td>
                         <p className="font-medium text-sm">{item.product.name}</p>
-                        <p className="text-xs text-gray-400">{item.product.unit}</p>
+                        {/* لقطة وحدة البند (الوحدات المتعددة): وحدة الصنف الحالية صارت الأساس بعد التحويل، فـ«٢ (حبة)» لكرتونين خطأ */}
+                        <p className="text-xs text-gray-400">{item.unitName || item.product.unit}</p>
                       </td>
                       <td>{Number(item.qty)}</td>
                       <td>{formatCurrency(item.unitPrice)}</td>

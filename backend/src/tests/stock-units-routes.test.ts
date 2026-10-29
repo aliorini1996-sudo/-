@@ -152,7 +152,8 @@ async function call(router: unknown, method: string, p: string, req: Row): Promi
     let err: any;
     await h.handle(full, res, (e?: unknown) => { if (e) err = e; else passed = true; });
     if (err) {
-      if (typeof err.status === 'number') return { status: err.status, body: { success: false, message: err.message } };
+      // كمعالج الأخطاء العام (middleware/errorHandler.ts): الرمز يمرّ مع الرسالة (UNIT_INVALID)
+      if (typeof err.status === 'number') return { status: err.status, body: { success: false, message: err.message, ...(err.code && { code: err.code }) } };
       throw err;
     }
     if (!passed) break;
@@ -189,16 +190,28 @@ test('تحميلٌ بلا أيّ وحدة: لا استعلام عن الوحدا
   assert.deepEqual(st.createdLoads[0].items[0], { productId: 'P1', qty: 7, unitName: null, unitFactor: 1, baseQty: 7, suggestedQty: null, expectedQty: null });
 });
 
-test('وحدةٌ لا تخصّ الصنف أو موقوفة أو لشركةٍ أخرى ⇒ الأساس بمعامل ١ لا معاملها', async () => {
+/**
+ * وحدةٌ لا تخصّ الصنف أو موقوفة أو لشركةٍ أخرى ⇒ رفضٌ ظاهر لا قيدٌ صامت بالأساس.
+ * «١٠ كراتين» من شاشةٍ بقائمة أصنافٍ قديمة كانت تُقيَّد عشر حبّات فيختلّ رصيد السيارة ولا يعلم أحد.
+ */
+test('وحدةٌ لا تخصّ الصنف أو موقوفة أو لشركةٍ أخرى ⇒ ٤٠٠ UNIT_INVALID ولا كتابة', async () => {
+  for (const unitId of ['U-P2', 'U-OFF', 'U-X']) {
+    reset();
+    const r = await call(vanRouter, 'post', '/loads', {
+      body: { salesRepId: 'R1', type: 'LOAD', items: [{ productId: 'P1', qty: 1, unitId }] },
+    });
+    assert.equal(r.status, 400, `${unitId}: ${JSON.stringify(r.body)}`);
+    assert.equal(r.body.code, 'UNIT_INVALID', unitId);
+    assert.equal(st.createdLoads.length, 0, `${unitId}: لا كتابة بعد رفض`);
+    assert.equal(st.unitQueries[0].tenantId, T, 'الحلّ داخل الشركة');
+  }
+  // والموقوفة تُقبل في إعادة الرفع أوف‑لاين وحدها (أُوقفت بعد تسجيل الحركة على الجهاز)
   reset();
-  const r = await call(vanRouter, 'post', '/loads', {
-    body: { salesRepId: 'R1', type: 'LOAD', items: [
-      { productId: 'P1', qty: 1, unitId: 'U-P2' }, { productId: 'P1', qty: 1, unitId: 'U-OFF' }, { productId: 'P1', qty: 1, unitId: 'U-X' },
-    ] },
+  const replay = await call(vanRouter, 'post', '/loads', {
+    body: { salesRepId: 'R1', type: 'LOAD', items: [{ productId: 'P1', qty: 1, unitId: 'U-OFF' }] },
+    headers: { 'x-fs-replay': '1' },
   });
-  assert.equal(r.status, 201);
-  for (const it of st.createdLoads[0].items) assert.deepEqual([it.unitFactor, it.baseQty], [1, 1]);
-  assert.equal(st.unitQueries[0].tenantId, T, 'الحلّ داخل الشركة');
+  assert.notEqual(replay.status, 400, `إعادة الرفع: ${JSON.stringify(replay.body)}`);
 });
 
 test('إزالة التالف بالأساس: كرتونان (٤٨) لا يُزالان من ٣٠ حبة تالفة، وكرتونٌ واحد يُزال', async () => {

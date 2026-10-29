@@ -64,8 +64,9 @@ export type NoteDb = Pick<PrismaClient, 'invoice'>;
 const ORIGINAL_ITEM_SELECT = {
   id: true, productId: true, seq: true, itemName: true, unitCode: true, qty: true, unitPrice: true, discountPct: true,
   taxPct: true, vatCategory: true, vatExemptionCode: true, vatExemptionReason: true,
-  // الوحدات المتعددة: لقطة وحدة البند المباع (المتاح بالأساس)، ووحدات الصنف لحلّ وحدة الإرجاع بمعرّفها
-  unitName: true, unitFactor: true, baseQty: true,
+  // الوحدات المتعددة: لقطة وحدة البند المباع (المتاح بالأساس)، ووحدات الصنف لحلّ وحدة الإرجاع بمعرّفها،
+  // وصافي البند كما قُيِّد — سقفُ حصص إشعاراته بوحدةٍ أخرى (notes.ts fitCreditPrices)
+  unitName: true, unitFactor: true, baseQty: true, lineTotal: true,
   product: {
     select: {
       name: true, unit: true, damagedReturnToStock: true,
@@ -117,6 +118,7 @@ function originalOf(row: OriginalRow): LoadedOriginal {
     baseQty: it.baseQty == null ? null : Number(it.baseQty),
     units: (it.product?.units ?? []).map(u => ({ id: u.id, name: u.name, factor: Number(u.factor), unitCode: u.unitCode, isActive: u.isActive })),
     baseUnitName: it.product?.unit ?? null,
+    lineTotal: it.lineTotal == null ? null : Number(it.lineTotal),
   }));
   return {
     original: {
@@ -137,11 +139,20 @@ export async function loadNoteOriginal(db: NoteDb, tenantId: string, invoiceId: 
   return row ? originalOf(row) : null;
 }
 
-/** الأصل مقفلاً (FOR UPDATE) داخل المعاملة — المعاملات المزيّفة بلا `$queryRaw` تقرأ بلا قفل. */
+/**
+ * الأصل مقفلاً (FOR UPDATE) داخل المعاملة — المعاملات المزيّفة بلا `$queryRaw` تقرأ بلا قفل.
+ *
+ * ثمّ أصناف بنوده بقفلٍ مشترك (FOR KEY SHARE) **قبل** قراءة البنود: تحويل وحدة الأساس (products.ts convert-base) يقفل
+ * الصنف FOR UPDATE ويعيد كتابة لقطات تاريخه — ومنها بنود هذا الأصل وإشعاراته. فإمّا سبقنا فنقرأ لقطاته الجديدة، وإمّا
+ * انتظر التزامنا فأعاد كتابة بنود الإشعار معها. وبلا القفل يُكتب إشعارٌ بلقطةٍ قرأها قبل تحويلٍ التزم بينهما: «٢» بمعامل
+ * الأساس القديم تصير حبّتين على الأساس الجديد. والقفل المشترك لا يحبس إشعاراً عن آخر ولا تعديلاً عادياً للصنف.
+ */
 export async function lockNoteOriginal(tx: Phase2Tx, tenantId: string, invoiceId: string): Promise<LoadedOriginal | null> {
   const raw = (tx as { $queryRaw?: unknown }).$queryRaw;
   if (typeof raw === 'function') {
     await tx.$queryRaw`SELECT id FROM invoices WHERE id = ${invoiceId} AND "tenantId" = ${tenantId} FOR UPDATE`;
+    await tx.$queryRaw`SELECT p.id FROM products p WHERE p."tenantId" = ${tenantId}
+      AND p.id IN (SELECT ii."productId" FROM invoice_items ii WHERE ii."invoiceId" = ${invoiceId}) FOR KEY SHARE`;
   }
   const row = await tx.invoice.findFirst({ where: { id: invoiceId, tenantId }, select: ORIGINAL_SELECT });
   return row ? originalOf(row) : null;
@@ -153,15 +164,17 @@ export async function loadPriorNotes(db: NoteDb, tenantId: string, originalInvoi
     where: { tenantId, originalInvoiceId, status: 'CONFIRMED' },
     select: {
       id: true, status: true, documentKind: true, total: true,
-      items: { select: { creditedItemId: true, qty: true, unitFactor: true, baseQty: true } },
+      items: { select: { creditedItemId: true, qty: true, unitFactor: true, baseQty: true, lineTotal: true } },
     },
   });
   return rows.map(r => ({
     id: r.id, status: r.status, documentKind: r.documentKind, total: Number(r.total),
-    // بلقطة الوحدة: إشعارٌ سابق بالحبة على بند كرتون يُنقص المتاح حبّةً (creditableLines يجمع بالأساس)
+    // بلقطة الوحدة: إشعارٌ سابق بالحبة على بند كرتون يُنقص المتاح حبّةً (creditableLines يجمع بالأساس)، وبما قُيِّد منه:
+    // به تُصحَّح حصّة الحبّة التالية فلا يتراكم تقريب الإشعارات
     items: r.items.map(i => ({
       creditedItemId: i.creditedItemId, qty: Number(i.qty),
       unitFactor: i.unitFactor == null ? null : Number(i.unitFactor), baseQty: i.baseQty == null ? null : Number(i.baseQty),
+      lineTotal: i.lineTotal == null ? null : Number(i.lineTotal),
     })),
   }));
 }

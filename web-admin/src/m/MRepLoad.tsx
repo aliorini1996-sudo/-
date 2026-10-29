@@ -10,17 +10,29 @@ import { SalesRep } from '../types';
 import { formatDate, formatTime, formatNumber } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { useBackClose } from '../lib/useBackClose';
-import { splitVanMovement } from '../lib/vanMovement';
+import type { UnitDef } from '../lib/units';
+import { unitChoices } from '../rep/repUnits';
 import { MCard, MRow, MStat, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import { expectArray, expectObject } from './shape';
+import {
+  splitLoadRows, nextStockLineUnit, stockLineUnit, lineKey, suggestionLine, movementQtyText, qtyText, hasBigUnit,
+  type StockLineUnit,
+} from './mUnits';
+import MUnitChips from './MUnitChips';
 
 /**
  * تسجيل تحميل بضاعة لسيارة مندوب — من تطبيق الإدارة على الجوال.
  *
  * ⚠️ **الإشارة**: الموجب تحميلٌ للسيارة والسالب تنزيلٌ للمستودع، والنوعان
  * يقرآن الإشارة **عكسياً** في الخادم. فالتقسيم والقلب يُتركان لـ`splitVanMovement`
- * وحدها (اقرأ تعليقاتها) — منطقُ تقسيمٍ ثانٍ هنا يعني قاعدتين تتباعدان مع
- * الوقت، وأثرُ خطئه صامت: رصيدُ سيارةٍ ينقلب في الاتجاه المعاكس بلا رسالة.
+ * وحدها (اقرأ تعليقاتها؛ و`splitLoadRows` في mUnits.ts غلافٌ رقيق عليها) — منطقُ
+ * تقسيمٍ ثانٍ هنا يعني قاعدتين تتباعدان مع الوقت، وأثرُ خطئه صامت: رصيدُ سيارةٍ
+ * ينقلب في الاتجاه المعاكس بلا رسالة.
+ *
+ * ⚠️ **الوحدات المتعددة**: السطر **بوحدته** (كرتون أو حبة) و`unitId` يُرسَل معه فيحلّ
+ * الخادم معامله — بلاه يُسجَّل تحميل خمسين كرتوناً خمسين حبّة. وصنفٌ يُحمَّل بوحدتين
+ * سطران. أمّا الرصيد والمقترح فبالأساس من الخادم، فيُعرضان «٢ كرتون و٣ حبة» لا رقماً
+ * بجانب اسم وحدة السطر (رقم الحبّات بجانب «كرتون» يقود إلى تحميلٍ خاطئ ٢٤ ضعفاً).
  *
  * ولماذا الكمّية إدخالٌ حرّ لا أزرار ±١: التحميل الصباحي خمسون كرتوناً، وخمسون
  * نقرة في المستودع تعني أن يُكتَب الرقم في دفتر ورقيّ بدل التطبيق.
@@ -33,9 +45,11 @@ interface StockRow {
   expired?: number;
   /** «المرتجع التالف» في السيارة — لا يُباع ولا يدخل المتبقّي، وتزيله الإدارة من لوحة مخزون السيارات */
   damaged?: number;
+  /** وحدات الصنف — كل كميات الصفّ بالأساس، وتُعرض بها «٢ كرتون و٣ حبة» */
+  units?: UnitDef[];
 }
 
-interface ProductPick { id: string; name: string; code?: string; unit?: string }
+interface ProductPick { id: string; name: string; code?: string; unit?: string; units?: UnitDef[] }
 
 /** استجابة /van-stock/suggest — تطابق SuggestResult في الخادم */
 interface SuggestRow {
@@ -45,6 +59,8 @@ interface SuggestRow {
   sampleDays: number; activeDays: number;
   confidence: 'high' | 'medium' | 'low';
   why: string;
+  /** وحدات الصنف — الأرقام كلّها بالأساس */
+  units?: UnitDef[];
 }
 interface SuggestResponse {
   rows: SuggestRow[];
@@ -57,12 +73,16 @@ interface SuggestResponse {
 
 interface Movement {
   kind: string; date: string; ref: string; by: string | null;
-  items: { name: string; unit: string; qty: number }[];
+  /** `unit` لقطة وحدة البند و`qty` بها، و`baseQty` كميته بالأساس — لمن يجمع بنوداً تختلف وحداتها */
+  items: { name: string; unit: string; qty: number; baseQty?: number | null }[];
 }
 
-/** سطر النموذج — الكمّية نصّ لا رقم: «-» و«» حالتا كتابةٍ وسيطتان يمسحهما Number */
-interface Row {
-  productId: string; name: string; unit: string; qty: string;
+/**
+ * سطر النموذج — الكمّية نصّ لا رقم: «-» و«» حالتا كتابةٍ وسيطتان يمسحهما Number.
+ * والكمية **بوحدة السطر** (`unit`/`unitId`)، و`suggestedQty`/`expectedQty` بالأساس دائماً (DESIGN «قرارات أثناء التنفيذ»).
+ */
+interface Row extends StockLineUnit {
+  productId: string; name: string; qty: string;
   suggestedQty?: number; expectedQty?: number;
 }
 
@@ -153,7 +173,7 @@ export default function MRepLoad({ rep, company, onClose }: {
       (await vanStockApi.movements(rep.id)).data?.data, tr('حركة البضاعة ماذا نزل ومتى')),
   });
 
-  /** رصيد الصنف في السيارة الآن — يُعرض على سطره فلا يُحمَّل ما لم ينفد */
+  /** رصيد الصنف في السيارة الآن (بالأساس) — يُعرض على سطره فلا يُحمَّل ما لم ينفد */
   const remainingOf = useMemo(() => {
     const m = new Map<string, number>();
     (stockQ.data ?? []).forEach(s => m.set(s.productId, s.remaining));
@@ -161,44 +181,56 @@ export default function MRepLoad({ rep, company, onClose }: {
   }, [stockQ.data]);
 
   const totalRemaining = (stockQ.data ?? []).reduce((s, r) => s + r.remaining, 0);
+  // مجموع المتبقّي عبر الأصناف بالأساس — يُسمّى كذلك حين لصنفٍ وحدةٌ أكبر، فلا يُقرأ ١٢٠٠ حبة «١٢٠٠ كرتون»
+  const anyMulti = (stockQ.data ?? []).some(s => hasBigUnit(s.units));
 
   // المصدر الوحيد للتقسيم — الواجهة تعرضه والحفظ يرسله، فلا يختلف المعروض عن المُرسَل
   const split = useMemo(
-    () => splitVanMovement(rows.map(r => ({
-      productId: r.productId, qty: Number(r.qty),
+    () => splitLoadRows(rows.map(r => ({
+      productId: r.productId, qty: Number(r.qty), unitId: r.unitId,
       suggestedQty: r.suggestedQty, expectedQty: r.expectedQty,
     }))),
     [rows],
   );
   const hasMovement = split.out.length > 0 || split.back.length > 0;
 
-  const addProduct = (p: ProductPick) => {
-    if (rows.some(r => r.productId === p.id)) return;   // تكرار الصنف يُنشئ بندين متنازعين
-    setRows(rs => [...rs, { productId: p.id, name: p.name, unit: p.unit || '', qty: '1' }]);
-  };
-  const addFromStock = (s: StockRow) => {
-    if (rows.some(r => r.productId === s.productId)) return;
-    setRows(rs => [...rs, { productId: s.productId, name: s.name, unit: s.unit, qty: '1' }]);
-  };
-  const patchQty = (id: string, v: string) => setRows(rs => rs.map(r => r.productId === id ? { ...r, qty: v } : r));
-  const flipSign = (id: string) => setRows(rs => rs.map(r => {
-    if (r.productId !== id) return r;
+  /**
+   * نقرة الصنف: أوّل سطرٍ بوحدته الافتراضية (الأكبر)، وكل نقرةٍ بعدها سطرٌ بوحدةٍ لم يأخذها سطر — وصنفٌ أُخذت
+   * وحداته كلّها (أو بلا وحدات وله سطر) لا يُضاف: سطران بوحدةٍ واحدة يتنازعان الكمية.
+   */
+  const addLine = (p: { unit?: string | null; units?: UnitDef[] | null }, productId: string, name: string) =>
+    setRows(rs => {
+      const u = nextStockLineUnit(p, rs, productId);
+      return u ? [...rs, { productId, name, qty: '1', ...u }] : rs;
+    });
+  const addProduct = (p: ProductPick) => addLine(p, p.id, p.name);
+  const addFromStock = (s: StockRow) => addLine(s, s.productId, s.name);
+  const patchQty = (key: string, v: string) => setRows(rs => rs.map(r => lineKey(r) === key ? { ...r, qty: v } : r));
+  const flipSign = (key: string) => setRows(rs => rs.map(r => {
+    if (lineKey(r) !== key) return r;
     const n = Number(r.qty);
     return { ...r, qty: Number.isFinite(n) ? String(-n) : r.qty };
   }));
-  const dropRow = (id: string) => setRows(rs => rs.filter(r => r.productId !== id));
+  const dropRow = (key: string) => setRows(rs => rs.filter(r => lineKey(r) !== key));
+  /** وحدة السطر تتبدّل والكمية المكتوبة كما هي — والمنتقي يعطّل وحدةً أخذها سطرٌ آخر للصنف */
+  const setRowUnit = (key: string, unitId: string | null) => setRows(rs => rs.map(r => {
+    if (lineKey(r) !== key) return r;
+    const p = { unit: r.baseUnit, units: r.units };
+    const c = unitChoices(p).find(o => o.id === unitId);
+    return c ? { ...r, ...stockLineUnit(p, c) } : r;
+  }));
 
   /** يملأ النموذج بما يستحقّ تحميلاً فقط — الأصفار ضجيجٌ لا اقتراح */
   const applySuggestion = () => {
     const list = (suggestQ.data?.rows ?? []).filter(r => r.suggested > 0);
     if (!list.length) { toast.error(tr('لا يوجد ما يقترح تحميله')); setConfirm(null); return; }
-    setRows(list.map(r => ({
-      productId: r.id, name: r.name, unit: r.unit,
-      qty: String(r.suggested), suggestedQty: r.suggested,
-      // التنبّؤ اليومي مرجعُ قياس الدقّة لا suggestedQty: الأخيرة كمّية تعبئة
-      // تتأثّر بما في السيارة وبالهامش، فقياسُها يعاقب المحرّك على ما ليس تنبّؤاً
-      expectedQty: r.expected,
-    })));
+    setRows(list.map(r => {
+      // المقترح بالأساس: يُحمَّل بأكبر وحدةٍ تنقسم عليها الكمية تماماً (٤٨ حبة ⇒ ٢ كرتون)، وإلّا بالأساس كما هو.
+      // والتنبّؤ اليومي مرجعُ قياس الدقّة لا suggestedQty: الأخيرة كمّية تعبئة تتأثّر بما في السيارة وبالهامش،
+      // فقياسُها يعاقب المحرّك على ما ليس تنبّؤاً — وكلاهما بالأساس مهما كانت وحدة السطر
+      const l = suggestionLine(r);
+      return { ...l, productId: r.id, name: r.name, qty: String(l.qty) };
+    }));
     setShowSuggest(false);
     setConfirm(null);
     toast.success(tr('طبق الاقتراح راجع الكميات قبل الحفظ'));
@@ -287,29 +319,30 @@ export default function MRepLoad({ rep, company, onClose }: {
             <>
               <div className="grid grid-cols-2 gap-2.5">
                 <MStat icon={Package} label={tr('أصناف بالسيارة')} value={formatNumber(stockQ.data.length)} />
-                <MStat icon={Truck} label={tr('المتبقي')} value={fmtQty(totalRemaining)}
+                <MStat icon={Truck} label={anyMulti ? tr('المتبقي بوحدات الأساس') : tr('المتبقي')} value={fmtQty(totalRemaining)}
                   tone={totalRemaining > 0 ? 'good' : 'default'} />
               </div>
               <MCard className="overflow-hidden">
                 {/* تمريرٌ داخليّ: قائمة أصنافٍ طويلة كانت ستدفع النموذج خارج الشاشة */}
                 <div className="max-h-[250px] overflow-y-auto overscroll-contain">
                   {stockQ.data.map(s => {
-                    const picked = rows.some(r => r.productId === s.productId);
+                    // «مضاف» حين لا وحدة حرّة للصنف — وله وحدةٌ أخرى ⇒ النقرة سطرٌ ثانٍ بها
+                    const picked = nextStockLineUnit(s, rows, s.productId) === null;
                     return (
                       <MRow key={s.productId}
                         title={s.name}
                         // ما لا يُباع (منتهٍ أو تالف) يُذكر بجانب الصنف — لا يدخل المتبقّي
                         subtitle={[
                           `${s.code} · ${s.unit}`,
-                          (s.expired ?? 0) > 0 ? `${tr('منتهي الصلاحية')} ${fmtQty(s.expired!)}` : '',
-                          (s.damaged ?? 0) > 0 ? `${tr('تالف')} ${fmtQty(s.damaged!)}` : '',
+                          (s.expired ?? 0) > 0 ? `${tr('منتهي الصلاحية')} ${qtyText(s.expired!, s, fmtQty)}` : '',
+                          (s.damaged ?? 0) > 0 ? `${tr('تالف')} ${qtyText(s.damaged!, s, fmtQty)}` : '',
                         ].filter(Boolean).join(' · ')}
                         // صفٌّ مضافٌ سلفاً لا يُنقر: نقرةٌ لا أثر لها تُقرأ عطلاً
                         onClick={picked ? undefined : () => addFromStock(s)}
                         trailing={(
                           <span className="flex items-center gap-2 flex-shrink-0">
                             <span className={`text-sm font-bold tabular-nums ${s.remaining < 0 ? 'text-[#C0392B]' : s.remaining === 0 ? 'text-[#9A8F7E]' : 'text-[#2F855A]'}`}>
-                              {fmtQty(s.remaining)}
+                              {qtyText(s.remaining, s, fmtQty)}
                             </span>
                             {picked
                               ? <span className="text-[10px] font-bold text-[#2F855A]">{tr('مضاف')}</span>
@@ -395,8 +428,15 @@ export default function MRepLoad({ rep, company, onClose }: {
                                 <span className="text-sm font-semibold text-[#1F1A13] truncate">{r.name}</span>
                                 <span className="flex items-center gap-1.5 flex-shrink-0">
                                   <ConfidenceTag c={r.confidence} />
-                                  <b className="text-sm text-[#E15A30] tabular-nums">{fmtQty(r.suggested)}</b>
-                                  <span className="text-[10px] text-[#9A8F7E]">{r.unit}</span>
+                                  {/* المقترح بالأساس: لصنفٍ له وحدات «٢ كرتون» لا «٤٨» بجانب اسمٍ يُقرأ كرتوناً */}
+                                  {hasBigUnit(r.units) ? (
+                                    <b className="text-sm text-[#E15A30] tabular-nums">{qtyText(r.suggested, r, fmtQty)}</b>
+                                  ) : (
+                                    <>
+                                      <b className="text-sm text-[#E15A30] tabular-nums">{fmtQty(r.suggested)}</b>
+                                      <span className="text-[10px] text-[#9A8F7E]">{r.unit}</span>
+                                    </>
+                                  )}
                                 </span>
                               </div>
                               {/* «لماذا هذا الرقم» — اقتراحٌ لا يُشرَح يُرفض أوّل خطأ ثم لا يُصدَّق */}
@@ -437,7 +477,7 @@ export default function MRepLoad({ rep, company, onClose }: {
             ) : (
               <div className="max-h-[250px] overflow-y-auto overscroll-contain">
                 {prodQ.data.map(p => {
-                  const picked = rows.some(r => r.productId === p.id);
+                  const picked = nextStockLineUnit(p, rows, p.id) === null;
                   return (
                     <MRow key={p.id}
                       title={p.name}
@@ -446,7 +486,7 @@ export default function MRepLoad({ rep, company, onClose }: {
                       trailing={(
                         <span className="flex items-center gap-2 flex-shrink-0">
                           <span className="text-[11px] text-[#9A8F7E] tabular-nums">
-                            {fmtQty(remainingOf(p.id))}
+                            {qtyText(remainingOf(p.id), p, fmtQty)}
                           </span>
                           {picked
                             ? <span className="text-[10px] font-bold text-[#2F855A]">{tr('مضاف')}</span>
@@ -467,30 +507,37 @@ export default function MRepLoad({ rep, company, onClose }: {
             {!rows.length ? (
               <p className="p-6 text-center text-[11px] text-[#9A8F7E]">{tr('ابحث وأضف صنفا')}</p>
             ) : rows.map(r => {
+              const k = lineKey(r);
               const n = Number(r.qty);
               const neg = Number.isFinite(n) && n < 0;
               const zero = !Number.isFinite(n) || n === 0;
+              const prod = { unit: r.baseUnit, units: r.units };
+              const opts = unitChoices(prod);
               return (
-                <div key={r.productId} className="p-3 space-y-2 border-b border-[#F1EBDF] last:border-0">
+                <div key={k} className="p-3 space-y-2 border-b border-[#F1EBDF] last:border-0">
                   <div className="flex items-start gap-2">
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm font-semibold text-[#1F1A13] truncate">{r.name}</span>
+                      {/* الرصيد بالأساس بوحدة الأساس أو مفكَّكاً — لا بجانب اسم وحدة السطر */}
                       <span className="block text-[11px] text-[#9A8F7E] truncate mt-0.5">
-                        {tr('المتبقي')} {fmtQty(remainingOf(r.productId))}{r.unit ? ` ${r.unit}` : ''}
+                        {tr('المتبقي')} {qtyText(remainingOf(r.productId), prod, fmtQty, { withUnit: true })}
                       </span>
                       {/* وسمُ الاتجاه على السطر نفسه: الإشارة وحدها تُقرأ خطأً في عجلة المستودع */}
                       <span className={`inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded-md ${neg ? 'text-[#B7791F] bg-[#FDF6E7]' : zero ? 'text-[#9A8F7E] bg-[#F5F1E9]' : 'text-[#2F855A] bg-[#EAF6F0]'}`}>
                         {neg ? tr('تنزيل للمستودع') : zero ? tr('لا حركة') : tr('تحميل')}
                       </span>
                     </span>
-                    <button onClick={() => dropRow(r.productId)} aria-label={tr('حذف')}
+                    <button onClick={() => dropRow(k)} aria-label={tr('حذف')}
                       className="p-2.5 -m-1 rounded-xl text-[#C0392B] active:bg-[#FDF2F0]">
                       <Trash2 size={16} />
                     </button>
                   </div>
 
+                  <MUnitChips options={opts} value={r.unitId} onChange={id => setRowUnit(k, id)}
+                    taken={c => rows.some(x => x !== r && x.productId === r.productId && (x.unitId ?? null) === c.id)} />
+
                   <div className="flex items-center gap-2">
-                    <button type="button" onClick={() => flipSign(r.productId)}
+                    <button type="button" onClick={() => flipSign(k)}
                       aria-label={tr('عكس الإشارة تحميل/تنقيص')}
                       className="w-11 h-11 flex-shrink-0 rounded-xl border border-[#E9E1D3] bg-white text-lg font-bold text-[#6E6557] active:bg-[#F1EBDF]">
                       ±
@@ -498,12 +545,15 @@ export default function MRepLoad({ rep, company, onClose }: {
                     {/* إدخالٌ حرّ: خمسون كرتوناً رقمٌ يُكتب لا خمسون نقرة */}
                     <input className={`input flex-1 text-center min-h-[44px] text-base font-bold ${neg ? 'border-[#E4B76A] text-[#B7791F]' : ''}`}
                       dir="ltr" type="number" inputMode="decimal" step="any"
-                      value={r.qty} onChange={e => patchQty(r.productId, e.target.value)} />
+                      aria-label={opts.length > 1 ? `${tr('الكمية')} ${r.unit}` : undefined}
+                      value={r.qty} onChange={e => patchQty(k, e.target.value)} />
+                    {/* الكمية بوحدة السطر — اسمها بجانبها حين للصنف أكثر من وحدة */}
+                    {opts.length > 1 && <span className="text-[12px] font-semibold text-[#6E6557] flex-shrink-0">{r.unit}</span>}
                   </div>
 
                   {r.suggestedQty !== undefined && (
                     <p className="text-[10px] text-[#9A8F7E] px-0.5">
-                      {tr('التحميل المقترح')} {fmtQty(r.suggestedQty)}
+                      {tr('التحميل المقترح')} {qtyText(r.suggestedQty, prod, fmtQty)}
                     </p>
                   )}
                 </div>
@@ -548,6 +598,8 @@ export default function MRepLoad({ rep, company, onClose }: {
               {mvQ.data.slice(0, 12).map((m, i) => {
                 const meta = KIND_META[m.kind] || KIND_META.ADJUST;
                 const qty = m.items.reduce((s, it) => s + it.qty, 0);
+                // بنودٌ تختلف وحداتها تُجمع لكل وحدة («٢ كرتون · ٥ حبة») — «٧» رقمٌ بلا وحدة؛ وبالأساس كلّها: كما كانت
+                const mixed = movementQtyText(m.items, fmtQty);
                 return (
                   <MRow key={`${m.date}-${i}`}
                     leading={(
@@ -555,7 +607,7 @@ export default function MRepLoad({ rep, company, onClose }: {
                         {tr(meta.label)}
                       </span>
                     )}
-                    title={`${meta.sign}${fmtQty(Math.abs(qty))} · ${m.items.length} ${tr('صنف')}`}
+                    title={`${meta.sign}${mixed ?? fmtQty(Math.abs(qty))} · ${m.items.length} ${tr('صنف')}`}
                     subtitle={m.ref || undefined}
                     note={`${formatDate(m.date)} · ${formatTime(m.date)}`}
                     trailing={EXPORTABLE.includes(m.kind) ? (

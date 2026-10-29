@@ -16,7 +16,11 @@ import { currencyDecimals, currencySymbol } from '../i18n/countries';
 interface CatalogData {
   company: { name: string; logo?: string | null; primaryColor?: string | null; currency: string };
   rep: { name: string; contact?: string | null };
-  products: { name: string; unit: string; basePrice: number; taxPct: number; image?: string | null; category?: string | null }[];
+  /**
+   * الوحدات المتعددة: `unit`/`basePrice` لوحدة الأساس (الحبة)، و`units` وحدات البيع الأكبر النشطة بمعاملها وسعرها
+   * الصافي (المحدَّد لها، وإلا الأساس × المعامل — يحسبه الخادم). وصنفٌ بلا وحدات: `units` فارغة أو غائبة (خادمٌ أقدم).
+   */
+  products: { name: string; unit: string; basePrice: number; taxPct: number; image?: string | null; category?: string | null; units?: { name: string; factor: number; price: number }[] }[];
 }
 
 const API = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
@@ -128,6 +132,13 @@ export default function CatalogPage() {
                 <span style={{ color: brand, fontWeight: 800, fontSize: 15 }}>{gross(p).toLocaleString('ar-SA', { minimumFractionDigits: dec, maximumFractionDigits: dec })} <span style={{ fontSize: 11 }}>{sym}</span></span>
                 <span style={{ fontSize: 10.5, color: '#8A8178' }}>{p.unit}</span>
               </div>
+              {/* وحدات البيع الأكبر (كرتون ٢٤) بسعرها شاملاً الضريبة بالمعادلة نفسها — العميل يطلب بالكرتون لا بالحبة */}
+              {(p.units ?? []).map(u => (
+                <div key={u.name} style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 3 }}>
+                  <span style={{ color: '#4A4239', fontWeight: 700, fontSize: 12.5 }}>{gross({ basePrice: u.price, taxPct: p.taxPct }).toLocaleString('ar-SA', { minimumFractionDigits: dec, maximumFractionDigits: dec })} <span style={{ fontSize: 10 }}>{sym}</span></span>
+                  <span style={{ fontSize: 10.5, color: '#8A8178' }}>{u.name} ({u.factor} {p.unit})</span>
+                </div>
+              ))}
             </div>
           </div>
         ))}

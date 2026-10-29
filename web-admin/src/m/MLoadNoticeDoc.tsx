@@ -14,7 +14,11 @@ import { DocumentResult, loadNoticeDocFromData, Company } from '../rep/RepDocume
  */
 export default function MLoadNoticeDoc({ repName, movement, company, onClose }: {
   repName: string;
-  movement: { kind: string; date: string; ref?: string; by?: string | null; items: { name: string; qty: number; unit?: string }[] };
+  /**
+   * الحركة كما يردّها `movements`: البند بلقطة وحدته (`unit` = unitName البند) وكميته بالأساس (`baseQty`) — فيطبع
+   * الإشعار «٥٠ كرتون» لا «٥٠ حبة»، ويُجمع الإجمالي لكل وحدة حين تختلط (عقد loadNoticeDocFromData نفسه)
+   */
+  movement: Parameters<typeof loadNoticeDocFromData>[1];
   /** إعدادات الشركة للترويسة — `null` يعطي إشعاراً بلا اسمٍ ولا رقمٍ ضريبيّ */
   company: unknown;
   onClose: () => void;

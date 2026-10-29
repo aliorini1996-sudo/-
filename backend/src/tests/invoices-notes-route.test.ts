@@ -202,8 +202,10 @@ function txAdapter(rig: Rig): Record<string, unknown> {
       if (data.documentKind === 'CREDIT_NOTE') {
         rig.priorNotes.push({
           id, status: 'CONFIRMED', documentKind: 'CREDIT_NOTE', total: num(data.total), originalInvoiceId: data.originalInvoiceId,
-          // بلقطة الوحدة كما يقرؤها loadPriorNotes من القاعدة (حبّةٌ من كرتون تُنقص حبّة)
-          items: (nested?.create ?? []).map(i => ({ creditedItemId: i.creditedItemId, qty: num(i.qty), unitFactor: i.unitFactor ?? null, baseQty: i.baseQty ?? null })),
+          // بلقطة الوحدة وما قُيِّد من البند كما يقرؤها loadPriorNotes من القاعدة (حبّةٌ من كرتون تُنقص حبّة)
+          items: (nested?.create ?? []).map(i => ({
+            creditedItemId: i.creditedItemId, qty: num(i.qty), unitFactor: i.unitFactor ?? null, baseQty: i.baseQty ?? null, lineTotal: i.lineTotal ?? null,
+          })),
         });
       }
       rig.h.docs.invoices.set(id, {
@@ -793,6 +795,43 @@ test('الوحدات: مرتجع المندوب بكرتون (unitId) على ف�
     [1, 'كرتون', 24, 24, 'CT', 10],
     'الكرتون المرتجع لم يُكتب بلقطته: يعود إلى السيارة حبّةً بدل ٢٤',
   );
+});
+
+test('الوحدات: ٢٤ إشعاراً بحبّة من كرتونٍ بخصمَي البند والفاتورة ⇒ كلّها 201 ومجموعها صافي الكرتون تماماً، والخامس والعشرون لا متاح له', async () => {
+  const rig = buildRig();
+  // ٥٢٫٢٩ للكرتون بخصم ١٪ و٢٫٥٪: الحصّة من الأساس وحدها كانت تُقيِّد للعميل ٥٨٫٢٩ عن صافي ٥٨٫٠٥ ويرفض الحارس آخرها
+  const base = originalInvoice({
+    request: {
+      type: 'CREDIT', paymentPlan: null, pricesIncludeTax: false, discountPct: 2.5, supplyDate: null,
+      items: [{ productId: 'p-water', qty: 1, unitPrice: 52.29, discountPct: 1, taxPct: 15 }],
+    },
+    subtype: '01', einvoiceStatus: 'cleared',
+  });
+  const original = script(rig, {
+    original: { ...base, items: base.items.map(i => ({ ...i, unitCode: 'CT', unitName: 'كرتون', unitFactor: 24, baseQty: 24, units: [CARTON_UNIT], baseUnitName: 'حبة' })) },
+  })!;
+  let sum = 0;
+  for (let k = 0; k < 24; k++) {
+    const r = await call('POST', `/api/invoices/${original.id}/credit-note`, { body: creditBody({ lines: [{ invoiceItemId: 'it-1', qty: 1 }] }), headers: CAPS });
+    assert.equal(r.status, 201, `الحبّة ${k + 1}: ${JSON.stringify(r.body)}`);
+    const item = (noteOf(r).items as Record<string, unknown>[])[0];
+    assert.deepEqual([num(item.baseQty), num(item.unitFactor)], [1, 1]);
+    sum += num(noteOf(r).total);
+  }
+  assert.equal(Math.round(sum * 100), Math.round(original.total * 100), `مجموع الإشعارات ${sum} ≠ صافي الكرتون ${original.total}`);
+  const extra = await call('POST', `/api/invoices/${original.id}/credit-note`, { body: creditBody({ lines: [{ invoiceItemId: 'it-1', qty: 1 }] }), headers: CAPS });
+  assert.equal(extra.body.code, 'ZATCA_NOTHING_TO_CREDIT', JSON.stringify(extra.body));
+});
+
+test('الوحدات: وحدة إرجاعٍ ليست من وحدات الصنف ⇒ 400 UNIT_INVALID بلا مستند — لا تُقرأ حبّةً بصمت', async () => {
+  const rig = buildRig();
+  const original = script(rig, { original: cartonOriginal() })!;
+  const r = await call('POST', `/api/invoices/${original.id}/credit-note`, {
+    body: creditBody({ lines: [{ invoiceItemId: 'it-1', qty: 1, unitId: 'u-other-product' }] }), headers: CAPS,
+  });
+  assert.equal(r.status, 400, JSON.stringify(r.body));
+  assert.equal(r.body.code, 'UNIT_INVALID');
+  assert.equal(rig.created.length, 0, 'أُنشئ إشعار');
 });
 
 // ═══ (٩) المرحلة الأولى كما هي ═══

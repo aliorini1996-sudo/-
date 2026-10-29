@@ -13,6 +13,13 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
     return;
   }
 
+  // وحدةٌ غير صالحة في مسار كتابة (services/warehouseStock.ts UnitInvalidError): رفضٌ ظاهر برسالته لا عطلٌ داخلي
+  const coded = err as { status?: unknown; code?: unknown };
+  if (err instanceof Error && coded.code === 'UNIT_INVALID' && coded.status === 400) {
+    res.status(400).json({ success: false, code: 'UNIT_INVALID', message: err.message });
+    return;
+  }
+
   if (err instanceof Error) {
     console.error(err.message);
     if (err.message.includes('Unique constraint')) {

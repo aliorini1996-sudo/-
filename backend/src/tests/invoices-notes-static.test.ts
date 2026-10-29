@@ -69,6 +69,16 @@ test('الأصل يُقرأ مقفلاً (FOR UPDATE) داخل المعاملة�
   assert.equal(NOTES.split('buildNote(kind, ctx,').length - 1, 2, 'عدد مرّات التحضير ليس اثنين (قبل القفل وتحته)');
 });
 
+test('الوحدات المتعددة: أصناف بنود الأصل تُقفل مشتركاً (FOR KEY SHARE) بعد الأصل وقبل قراءة لقطاتها — ضدّ تحويل وحدة الأساس المتزامن', () => {
+  const fn = NOTES.slice(NOTES.indexOf('export async function lockNoteOriginal'), NOTES.indexOf('export async function loadPriorNotes'));
+  const invoiceLock = fn.indexOf('FROM invoices WHERE id = ${invoiceId} AND "tenantId" = ${tenantId} FOR UPDATE');
+  const productLock = fn.search(/FROM products p WHERE p\."tenantId" = \$\{tenantId\}\s+AND p\.id IN \(SELECT ii\."productId" FROM invoice_items ii WHERE ii\."invoiceId" = \$\{invoiceId\}\) FOR KEY SHARE/);
+  const read = fn.indexOf('tx.invoice.findFirst(');
+  assert.ok(invoiceLock >= 0 && productLock > invoiceLock && read > productLock, 'ترتيب القفلين وقراءة اللقطات');
+  // وما قُيِّد من كلّ بندٍ في الإشعارات السابقة يُقرأ — منه تُصحَّح حصّة الحبّة التالية
+  assert.match(NOTES, /items: \{ select: \{ creditedItemId: true, qty: true, unitFactor: true, baseQty: true, lineTotal: true \} \}/);
+});
+
 test('نقد 13: متبقّي الأصل يُكتب فرقاً نسبياً لا قيمةً مطلقة — في الإشعار وفي إبطاله', () => {
   assert.match(NOTES, /data: \{ remainingAmt: \{ decrement: remaining\.decrement \} \}/, 'الإشعار يكتب متبقّياً مطلقاً');
   // كتابةٌ واحدة على صفّ الأصل في الوصل كلّه، وهي النسبية أعلاه (remainingAfter يُعرض في الردّ ولا يُكتب)

@@ -234,7 +234,7 @@ function deviceFactorOf(v: unknown): number | null {
 export async function resolveLineUnit(
   product: { name: string; unit: string; units?: ProductUnitRow[] | null },
   item: { unitId?: string | null; unitName?: string | null; unitFactor?: number | null; baseUnitName?: string | null },
-  opts: { replay: boolean; seenInHistory: (name: string, factor: number) => Promise<boolean> },
+  opts: { replay: boolean; seenInHistory: (name: string, factor: number) => Promise<boolean>; allowInactive?: boolean },
 ): Promise<LineUnitResult> {
   const units = product.units ?? [];
   const baseName = String(product.unit ?? '').trim();
@@ -276,8 +276,9 @@ export async function resolveLineUnit(
   let unit = BASE_LINE_UNIT;
   if (item.unitId) {
     if (!byId) return invalid(`الوحدة المختارة ليست من وحدات صنف «${product.name}» — حدّث قائمة الأصناف ثم أعد الحفظ`);
-    // الموقوفة تُقبل في إعادة الرفع وحدها: أُوقفت بعد إصدار المستند على الجهاز (القاعدة ٧)
-    if (byId.isActive === false && !opts.replay) return invalid(`وحدة «${byId.name}» موقوفة لصنف «${product.name}» — اختر وحدة أخرى`);
+    // الموقوفة تُقبل في إعادة الرفع (أُوقفت بعد إصدار المستند على الجهاز — القاعدة ٧)، وفي المرتجع المرتبط بفاتورة
+    // بيع: بيعت كراتين ثم أُوقف الكرتون، فإرجاعها بوحدتها مشروع — والإشعار الدائن يقبلها أصلاً (routes/invoicesNotes.ts)
+    if (byId.isActive === false && !opts.replay && !opts.allowInactive) return invalid(`وحدة «${byId.name}» موقوفة لصنف «${product.name}» — اختر وحدة أخرى`);
     unit = asUnit(byId);
   }
   if (!opts.replay && (devFactor != null || devName || devBase)) {
@@ -607,7 +608,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
         customer: true,
         salesRep: { select: { id: true, name: true, phone: true } },
         installments: { orderBy: { seq: 'asc' } },
-        items: { include: { product: { select: { id: true, name: true, code: true, unit: true } } } },
+        items: { include: { product: { select: { id: true, name: true, code: true, unit: true, units: { select: { id: true, isActive: true } } } } } },
         receiptItems: { include: { receipt: true } },
         signature: { select: { image: true, repImage: true, createdAt: true } },
       },
@@ -745,6 +746,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       const r = await resolveLineUnit(p, it, {
         replay: isReplay,
         seenInHistory: (name, factor) => unitSeenInHistory(tid, p.id, name, factor),
+        allowInactive: body.type === 'RETURN' && !!body.originalInvoiceId,
       });
       if (!r.ok) { res.status(r.status).json({ success: false, code: r.code, message: r.message }); return; }
       unitSnap.push(r.unit);
@@ -861,6 +863,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const finalItems = body.items.map((src, idx) => ({
       ...src, ...calc.items[idx],
       unitName: snapOf(idx).unitName, unitFactor: snapOf(idx).unitFactor, unitCode: snapOf(idx).unitCode,
+      // وحدة الأساس كما حُلّت عليها اللقطة — يقارنها قفل المرحلة الثانية (invoicesZatca.ts Phase2LegacyItem.productUnit)
+      productUnit: products.find(p => p.id === src.productId)?.unit ?? null,
     }));
     const isReturn = body.type === 'RETURN';
     // المرتجع من فاتورة بيع: للمستخدم المقيَّد (ومشرف الفرق بوسمها) تقع فاتورة البيع في نطاقه — وإلا أرجع على فاتورة

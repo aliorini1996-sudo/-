@@ -1,14 +1,17 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Search, Plus, Minus, Trash2, ShoppingCart, Loader2, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { customerApi, productApi, salesRepApi, invoiceApi } from '../api/client';
-import { formatCurrency, formatDate } from '../utils/format';
+import { formatCurrency, formatDate, formatNumber } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { MHeader, MSpinner } from './mobileUi';
 import { expectArray } from './shape';
 import { lineTotal, invoiceTotals, type Line } from './docMath';
 import { previewInstallments, defaultFirstDue, MAX_INSTALLMENTS, type InstallmentPeriod } from '../lib/installments';
+import { unitChoices, defaultChoice, choiceNet, invoiceItemUnit, type UnitChoice } from '../rep/repUnits';
+import { lineKey, addInvoiceLine, setInvoiceLineUnit, stepInvoiceLine, refreshInvoiceLines, type SalePick } from './mUnits';
+import MUnitChips from './MUnitChips';
 
 interface Pick { id: string; name: string; code?: string; phone?: string; basePrice?: number; taxPct?: number; unit?: string }
 
@@ -18,6 +21,11 @@ interface Pick { id: string; name: string; code?: string; phone?: string; basePr
  * فرقان جوهريان عن شاشة المندوب:
  *  1. **اختيار المندوب إلزاميّ** — لا مقابل له عند المندوب (هو نفسه).
  *  2. **السعر قبل الضريبة** (`product.basePrice`) — راجع `docMath.ts`.
+ *
+ * والوحدات المتعددة: البند **بوحدته** (كرتون أو حبة) وسعرُه سعرها صافياً، ومفتاحه الصنف مع الوحدة — فكرتونٌ وحبّةٌ من
+ * الصنف نفسه بندان، ونقرة «+ حبة» لا تزيد بند الكرتون. والجسم يحمل `unitId` ولقطة الوحدة (`invoiceItemUnit`) فيحلّ
+ * الخادم المعامل بنفسه، ويردّ قائمةً قديمة على الشاشة بـ400 UNIT_INVALID بدل أن يقيّد غير ما رآه المستخدم.
+ * والحساب كلّه في `mUnits.ts` (مختبَر) — صنفٌ بلا وحدات بندُه وشاشته كما قبل الميزة حرفاً.
  *
  * وثلاث خطوات لا شاشة واحدة: العميل ← الأصناف ← المراجعة. نموذجٌ واحد طويل
  * على الجوال يعني تمريراً لا ينتهي وأخطاءً لا تُرى.
@@ -44,6 +52,8 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }:
   const [discountPct, setDiscountPct] = useState(0);
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<Line[]>([]);
+  // أصناف البنود بوحداتها — قائمة البحث تتبدّل مع كل حرف، ومنتقي وحدة البند وإعادة تسعيره يحتاجان صنفه بعد ذلك
+  const [catalog, setCatalog] = useState<Record<string, SalePick>>({});
   const [pq, setPq] = useState('');
   const [cq, setCq] = useState('');
 
@@ -59,9 +69,22 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }:
   });
   const productsQ = useQuery({
     queryKey: ['m-inv-products', pq],
-    queryFn: async () => expectArray<Pick>((await productApi.list({ search: pq, limit: 60 })).data?.data, tr('الأصناف')),
+    queryFn: async () => expectArray<SalePick>((await productApi.list({ search: pq, limit: 60 })).data?.data, tr('الأصناف')),
     enabled: step === 'items',
   });
+
+  // صنفٌ في البنود يعود في قائمةٍ أحدث (بعد 400 UNIT_INVALID مثلاً) ⇒ تُحدَّث وحداته في منتقي بنده، ولقطة بنوده تُحلّ
+  // من جديد (refreshInvoiceLines): بلاها يبقى البند بأساسٍ لم يعد قائماً فيرفضه الخادم مرّةً بعد مرّة
+  useEffect(() => {
+    const fresh = productsQ.data;
+    if (!fresh?.length) return;
+    const inLines = new Set(lines.map(l => l.productId));
+    const hit = fresh.filter(p => inLines.has(p.id) && catalog[p.id] !== p);
+    if (!hit.length) return;
+    setCatalog(c => ({ ...c, ...Object.fromEntries(hit.map(p => [p.id, p])) }));
+    setLines(ls => hit.reduce((acc, p) => refreshInvoiceLines(acc, p), ls));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- القائمة الجديدة وحدها تُطلق التحديث، لا كل تعديلٍ في البنود
+  }, [productsQ.data]);
 
   const totals = useMemo(() => invoiceTotals(lines, discountPct), [lines, discountPct]);
   // معاينة جدول الأقساط — والخادم يكتب الحقيقي من إجماليّه
@@ -71,28 +94,20 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }:
   );
   const customer = customersQ.data?.find(c => c.id === customerId);
 
-  const addProduct = (p: Pick) => {
-    setLines(ls => {
-      const i = ls.findIndex(l => l.productId === p.id);
-      if (i >= 0) {
-        const n = [...ls];
-        n[i] = { ...n[i], qty: n[i].qty + 1 };
-        return n;
-      }
-      return [...ls, {
-        productId: p.id, name: p.name, unit: p.unit || '',
-        qty: 1,
-        // ⚠️ basePrice سعرٌ **قبل** الضريبة — هذا ما يتوقّعه مسار الأدمن
-        unitPrice: Number(p.basePrice ?? 0),
-        discountPct: 0,
-        taxPct: Number(p.taxPct ?? 15),
-      }];
-    });
+  /** إضافة الصنف بوحدة (الافتراض أكبر وحدة): بندٌ قائم بالوحدة نفسها يزيد واحداً — والسعر ⚠️ **قبل** الضريبة (mUnits.invoiceLine) */
+  const addProduct = (p: SalePick, c?: UnitChoice) => {
+    setCatalog(m => (m[p.id] === p ? m : { ...m, [p.id]: p }));
+    setLines(ls => addInvoiceLine(ls, p, c));
   };
-  const setQty = (id: string, d: number) =>
-    setLines(ls => ls.map(l => l.productId === id ? { ...l, qty: Math.max(0, l.qty + d) } : l).filter(l => l.qty > 0));
-  const patch = (id: string, k: 'unitPrice' | 'discountPct', v: number) =>
-    setLines(ls => ls.map(l => l.productId === id ? { ...l, [k]: v } : l));
+  // البند بمفتاحه (الصنف + الوحدة) لا بالصنف وحده: بندا الكرتون والحبّة يُعدَّلان ويُحذفان كلٌّ وحده
+  const setQty = (key: string, d: number) => setLines(ls => stepInvoiceLine(ls, key, d));
+  const patch = (key: string, k: 'unitPrice' | 'discountPct', v: number) =>
+    setLines(ls => ls.map(l => lineKey(l) === key ? { ...l, [k]: v } : l));
+  /** تبديل وحدة البند يعيد تسعيره بسعر الوحدة الجديدة — سعر الحبّة على بندٍ صار كرتوناً خسارةٌ صامتة */
+  const switchUnit = (key: string, p: SalePick, unitId: string | null) => {
+    const c = unitChoices(p).find(o => o.id === unitId);
+    if (c) setLines(ls => setInvoiceLineUnit(ls, key, p, c));
+  };
 
   const save = useMutation({
     mutationFn: async () => {
@@ -107,6 +122,8 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }:
         items: lines.map(l => ({
           productId: l.productId, qty: l.qty,
           unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct,
+          // وحدة البند ولقطتها كما رآها المستخدم — الخادم يحلّ المعامل بالمعرّف ويرفض لقطةً قديمة (UNIT_INVALID)
+          ...invoiceItemUnit(l),
         })),
       });
       return res.data.data as { id: string };
@@ -117,8 +134,12 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }:
       toast.success(tr('تم إصدار الفاتورة'));
       onCreated(inv.id);
     },
-    onError: (e: unknown) =>
-      toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الإصدار')),
+    onError: (e: unknown) => {
+      const data = (e as { response?: { data?: { message?: string; code?: string } } })?.response?.data;
+      // وحدات صنفٍ تغيّرت منذ فُتحت القائمة: تُجلب من جديد فيتحدّث منتقي البند — ورسالة الخادم تسمّي الصنف
+      if (data?.code === 'UNIT_INVALID') qc.invalidateQueries({ queryKey: ['m-inv-products'] });
+      toast.error(data?.message || tr('تعذر الإصدار'));
+    },
   });
 
   const headReady = !!customerId && !!salesRepId;
@@ -233,49 +254,101 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }:
 
             {lines.length > 0 && (
               <div className="rounded-2xl border border-[#F1EBDF] bg-white divide-y divide-[#F1EBDF]">
-                {lines.map(l => (
-                  <div key={l.productId} className="p-3 space-y-2">
-                    <div className="flex items-start gap-2">
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold text-[#1F1A13] truncate">{l.name}</span>
-                        <span className="block text-[11px] text-[#9A8F7E]">{formatCurrency(lineTotal(l))}</span>
-                      </span>
-                      <button onClick={() => setLines(ls => ls.filter(x => x.productId !== l.productId))}
-                        className="p-2 text-[#C0392B]" aria-label={tr('حذف')}><Trash2 size={15} /></button>
+                {lines.map(l => {
+                  const k = lineKey(l);
+                  const p = catalog[l.productId];
+                  const opts = unitChoices(p);
+                  const multi = opts.length > 1;
+                  // وحدةٌ أُوقفت أو حُذفت منذ أُضيف البند: لا تُردّ إلى الأساس بصمت — يختار المستخدم (والخادم يرفضها أصلاً)
+                  const gone = !!l.unitId && !!p && !opts.some(o => o.id === l.unitId);
+                  return (
+                    <div key={k} className="p-3 space-y-2">
+                      <div className="flex items-start gap-2">
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-semibold text-[#1F1A13] truncate">{l.name}</span>
+                          <span className="block text-[11px] text-[#9A8F7E]">
+                            {formatCurrency(lineTotal(l))}
+                            {/* الكمية بوحدتها في السطر — «٢» وحدها لا تقول أكرتونان أم حبّتان */}
+                            {multi && ` · ${formatNumber(l.qty)} ${l.unit}`}
+                          </span>
+                        </span>
+                        <button onClick={() => setLines(ls => ls.filter(x => lineKey(x) !== k))}
+                          className="p-2 text-[#C0392B]" aria-label={tr('حذف')}><Trash2 size={15} /></button>
+                      </div>
+                      {p && multi && (
+                        <MUnitChips options={opts} value={l.unitId ?? null}
+                          onChange={id => switchUnit(k, p, id)}
+                          taken={o => lines.some(x => x !== l && x.productId === l.productId && (x.unitId ?? null) === o.id)} />
+                      )}
+                      {gone && <p className="text-[10px] text-[#C0392B]">{tr('وحدة البند لم تعد متاحة اختر وحدة أخرى')}</p>}
+                      {/* لم يبقَ للصنف إلا أساسه: المنتقي لا يُرسم لوحدةٍ واحدة، فتُعرض هي خياراً صريحاً لا يُطبَّق بصمت */}
+                      {gone && p && !multi && (
+                        <button type="button" onClick={() => switchUnit(k, p, null)}
+                          className="min-h-[34px] px-3 rounded-full text-[12px] font-semibold border border-[#E9E1D3] bg-white text-[#6E6557] active:bg-[#FAF7F0]">
+                          {opts[0].name}
+                        </button>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => setQty(k, -1)} className="w-10 h-10 rounded-xl border border-[#E9E1D3] flex items-center justify-center"><Minus size={15} /></button>
+                        <span className="w-10 text-center font-bold">{l.qty}</span>
+                        <button onClick={() => setQty(k, 1)} className="w-10 h-10 rounded-xl border border-[#E9E1D3] flex items-center justify-center"><Plus size={15} /></button>
+                        <span className="flex-1" />
+                        <label className="text-[10px] text-[#9A8F7E]">{tr('السعر')}</label>
+                        <input type="number" step="any" inputMode="decimal" dir="ltr" className="input w-20 text-center py-1.5" value={l.unitPrice}
+                          aria-label={multi ? `${tr('السعر')} ${l.unit}` : undefined}
+                          onChange={e => patch(k, 'unitPrice', Number(e.target.value) || 0)} />
+                        <label className="text-[10px] text-[#9A8F7E]">{tr('خصم%')}</label>
+                        <input type="number" step="any" inputMode="decimal" dir="ltr" className="input w-14 text-center py-1.5" value={l.discountPct}
+                          onChange={e => patch(k, 'discountPct', Math.min(100, Math.max(0, Number(e.target.value) || 0)))} />
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => setQty(l.productId, -1)} className="w-10 h-10 rounded-xl border border-[#E9E1D3] flex items-center justify-center"><Minus size={15} /></button>
-                      <span className="w-10 text-center font-bold">{l.qty}</span>
-                      <button onClick={() => setQty(l.productId, 1)} className="w-10 h-10 rounded-xl border border-[#E9E1D3] flex items-center justify-center"><Plus size={15} /></button>
-                      <span className="flex-1" />
-                      <label className="text-[10px] text-[#9A8F7E]">{tr('السعر')}</label>
-                      <input type="number" step="any" inputMode="decimal" dir="ltr" className="input w-20 text-center py-1.5" value={l.unitPrice}
-                        onChange={e => patch(l.productId, 'unitPrice', Number(e.target.value) || 0)} />
-                      <label className="text-[10px] text-[#9A8F7E]">{tr('خصم%')}</label>
-                      <input type="number" step="any" inputMode="decimal" dir="ltr" className="input w-14 text-center py-1.5" value={l.discountPct}
-                        onChange={e => patch(l.productId, 'discountPct', Math.min(100, Math.max(0, Number(e.target.value) || 0)))} />
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
                 <p className="px-3 py-2 text-[10px] text-[#9A8F7E]">{tr('السعر قبل الضريبة تحسب الضريبة تلقائيا')}</p>
+                {lines.some(l => unitChoices(catalog[l.productId]).length > 1) && (
+                  <p className="px-3 pb-2 -mt-1 text-[10px] text-[#9A8F7E]">{tr('سعر البند لوحدته المختارة وتبديل الوحدة يعيد تسعيره')}</p>
+                )}
               </div>
             )}
 
             <div className="rounded-2xl border border-[#F1EBDF] bg-white divide-y divide-[#F1EBDF]">
               {productsQ.isLoading ? <MSpinner />
                 : !productsQ.data?.length ? <p className="text-center text-xs text-[#9A8F7E] py-6">{tr('لا نتائج')}</p>
-                : productsQ.data.map(p => (
-                  <button key={p.id} onClick={() => addProduct(p)}
-                    className="w-full text-start px-3 py-3 min-h-[52px] flex items-center gap-2 active:bg-[#FAF7F0]">
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-semibold text-[#1F1A13] truncate">{p.name}</span>
-                      <span className="block text-[11px] text-[#9A8F7E]">
-                        {formatCurrency(Number(p.basePrice ?? 0))} · {tr('ضريبة')} {Number(p.taxPct ?? 15)}%
-                      </span>
-                    </span>
-                    <Plus size={17} className="text-[#E15A30] flex-shrink-0" />
-                  </button>
-                ))}
+                : productsQ.data.map(p => {
+                  const opts = unitChoices(p);
+                  const multi = opts.length > 1;
+                  const d = defaultChoice(p);
+                  return (
+                    <div key={p.id}>
+                      {/* النقرة على الصنف تضيفه بوحدته الافتراضية (الأكبر) كما يضيفه المندوب */}
+                      <button onClick={() => addProduct(p)}
+                        className="w-full text-start px-3 py-3 min-h-[52px] flex items-center gap-2 active:bg-[#FAF7F0]">
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-semibold text-[#1F1A13] truncate">{p.name}</span>
+                          <span className="block text-[11px] text-[#9A8F7E]">
+                            {/* السعر بوحدته: سعر الكرتون بلا «/ كرتون» يُقرأ سعر حبّة */}
+                            {multi
+                              ? `${formatCurrency(choiceNet(d, p.basePrice ?? 0))} / ${d.name}`
+                              : formatCurrency(Number(p.basePrice ?? 0))} · {tr('ضريبة')} {Number(p.taxPct ?? 15)}%
+                          </span>
+                        </span>
+                        <Plus size={17} className="text-[#E15A30] flex-shrink-0" />
+                      </button>
+                      {/* وحدةٌ بعينها: بندٌ مستقلّ بسعرها — «+ حبة» بعد كرتونٍ بندٌ ثانٍ لا زيادةٌ على الكرتون */}
+                      {multi && (
+                        <div className="flex flex-wrap gap-1.5 px-3 pb-3 -mt-1">
+                          {opts.map(o => (
+                            <button key={o.id ?? 'base'} type="button" onClick={() => addProduct(p, o)}
+                              className="min-h-[34px] px-3 rounded-full text-[12px] font-semibold border border-[#E9E1D3] bg-white text-[#6E6557] active:bg-[#FAF7F0]">
+                              + {o.name}
+                              {o.factor > 1 && <span className="opacity-75 font-normal"> {formatNumber(o.factor)}</span>}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
             </div>
           </>
         )}

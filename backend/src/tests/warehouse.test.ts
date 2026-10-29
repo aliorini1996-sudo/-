@@ -798,7 +798,7 @@ test('الوحدات: تحميلٌ بالكرتون وتنزيلٌ بالحبّ�
   assert.equal(byId(rows, 'a').stockValue, 240 * 5 + 240 * 9, 'العائد بكلفة خروجه (٥) لا بمتوسّط لحظة عودته');
 });
 
-test('الوحدات: وحدة البند من معرّفها على الصنف نفسه وحده — وإلا الأساس بمعامل ١', () => {
+test('الوحدات: وحدة البند من معرّفها على الصنف نفسه وحده — وإلا رفض UNIT_INVALID لا الأساس', () => {
   const units = [
     { id: 'u-ct', productId: 'a', name: 'كرتون', factor: 24, isActive: true },
     { id: 'u-off', productId: 'a', name: 'شدّة', factor: 6, isActive: false },
@@ -807,9 +807,14 @@ test('الوحدات: وحدة البند من معرّفها على الصنف 
   assert.deepEqual(pickLineUnit(units, 'a', 'u-ct'), { name: 'كرتون', factor: 24 });
   assert.equal(pickLineUnit(units, 'a', undefined), BASE_UNIT, 'بلا وحدة ⇒ الأساس (عميلٌ قديم)');
   assert.equal(pickLineUnit(units, 'a', null), BASE_UNIT);
-  assert.equal(pickLineUnit(units, 'a', 'u-b'), BASE_UNIT, 'وحدة صنفٍ آخر لا تُستعار');
-  assert.equal(pickLineUnit(units, 'a', 'u-off'), BASE_UNIT, 'الموقوفة كمسار الفاتورة');
-  assert.equal(pickLineUnit(units, 'a', 'nope'), BASE_UNIT);
+  // الغريبة والمجهولة والموقوفة: رفضٌ ظاهر (يترجمه معالج الأخطاء إلى 400 UNIT_INVALID) لا قيدٌ صامت بالأساس
+  const invalid = (e: unknown) => (e as { code?: string; status?: number }).code === 'UNIT_INVALID' && (e as { status?: number }).status === 400;
+  assert.throws(() => pickLineUnit(units, 'a', 'u-b'), invalid, 'وحدة صنفٍ آخر لا تُستعار');
+  assert.throws(() => pickLineUnit(units, 'a', 'u-off'), invalid, 'الموقوفة كمسار الفاتورة');
+  assert.throws(() => pickLineUnit(units, 'a', 'nope'), invalid);
+  // والموقوفة تُقبل في إعادة الرفع أوف‑لاين وحدها
+  assert.deepEqual(pickLineUnit(units, 'a', 'u-off', { replay: true }), { name: 'شدّة', factor: 6 });
+  assert.throws(() => pickLineUnit(units, 'a', 'u-b', { replay: true }), invalid, 'الغريبة تُرفض ولو في إعادة الرفع');
   assert.deepEqual(BASE_UNIT, { name: null, factor: 1 });
 });
 

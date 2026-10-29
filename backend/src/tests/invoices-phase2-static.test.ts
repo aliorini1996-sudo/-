@@ -127,6 +127,19 @@ test('نقد 2: حارس القدرات قبل المرتجع وقبل الحج�
   ], 'ترتيب فرع الإصدار');
 });
 
+test('الوحدات المتعددة: الفرع لا يحلّ الوحدة ثانيةً (لقطة resolveLineUnit وحدها)، ويقفل أساس الأصناف قبل إدراج البنود', () => {
+  const s = stripComments(read('routes/invoicesZatca.ts'));
+  // نوعٌ فقط من routes/invoices.ts — استيرادٌ وقت التشغيل يجرّ قاعدة البيانات إلى فرعٍ اعتمادياته محقونة
+  assert.match(s, /import type \{ LineUnit \} from '\.\/invoices';/);
+  assert.doesNotMatch(s, /import \{[^}]*\} from '\.\/invoices'/, 'استيرادٌ وقت التشغيل من routes/invoices.ts');
+  // لا حلّ موازٍ: لا قراءة لوحدات الصنف هنا ولا بحثٌ بالمعرّف
+  assert.doesNotMatch(s, /units: \{ select:/, 'الفرع يقرأ وحدات الصنف ليحلّها بنفسه');
+  assert.doesNotMatch(s, /\.find\(\w+ => \w+\.id === unitId/, 'حلٌّ موازٍ للوحدة بمعرّفها');
+  const issue = s.slice(s.indexOf('async function issueNow'));
+  ordered(issue, ['assertPhase2Units(ctx.items, ctx.body.items)', 'prepareIssuance(', 'lockProductBases(t, ctx.tenantId, expectedBases)', 't.invoice.create('], 'ترتيب حرّاس الوحدة');
+  assert.match(s, /SELECT id, unit FROM products WHERE id = ANY\(\$\{ids\}\) AND "tenantId" = \$\{tenantId\} FOR KEY SHARE/);
+});
+
 test('نقد 8: الترقيم بمقبض المعاملة نفسه — لا generateInvoiceNumber ولا prisma عام داخل الفرع', () => {
   const s = read('routes/invoicesZatca.ts');
   assert.doesNotMatch(s, /generateInvoiceNumber|generateReturnNumber|withNumberRetry/, 'الفرع يستعمل ترقيم المسار القديم (اتصال ثانٍ)');

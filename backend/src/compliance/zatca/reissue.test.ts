@@ -47,6 +47,17 @@ async function reissue(h: SubmitHarness, issued: Awaited<ReturnType<SubmitHarnes
 
 // ═══ بناء المستند من اللقطة ═══
 
+test('الوحدات المتعددة: رمز وحدة البند وكميته بوحدته يُعادان من اللقطة كما خُتما — لا وحدة الصنف ولا معاملها اليوم', async () => {
+  const h = createSubmitHarness();
+  const issued = await h.issue();
+  // بند كرتون كما يكتبه الإصدار (CT بكمية الكراتين وسعر الكرتون): اللقطة وحدها المرجع
+  const snap = JSON.parse(JSON.stringify(issued.result.snapshot)) as ZatcaSnapshotV1;
+  snap.lines[0] = { ...snap.lines[0], unitCode: 'CT' };
+  const doc = documentFromSnapshot(snap, { uuid: 'U-2', icv: 2, pih: 'P-2' });
+  assert.deepEqual(doc.lines.map(l => [l.unitCode, l.quantity, l.priceAmount]), snap.lines.map(l => [l.unitCode, l.quantity, l.priceAmount]));
+  assert.equal(doc.lines[0].unitCode, 'CT');
+});
+
 test('اللقطة تُعاد كما هي وقيم السلسلة وحدها تُستبدَل (لا أسعار اليوم ولا بطاقة العميل اليوم)', async () => {
   const h = createSubmitHarness();
   const issued = await h.issue();

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  cartBadge, cartCount, choiceById, choiceNet, defaultChoice, hasUnitChoice, invoiceItemUnit, lineUnitOf, linkedLineUnit, refreshLineUnit,
+  cartBadge, cartCount, choiceById, choiceNet, defaultChoice, hasUnitChoice, invoiceItemUnit, lineUnitOf, linkedLineUnit, rebaseRow, refreshLineUnit,
   unitChoices, unitsText,
 } from './repUnits';
 import { invoiceDocFromDetail, loadNoticeDocFromData, showsItemUnit, statementDocFromData, warehouseNoticeDocFromEntry } from './RepDocuments';
@@ -48,21 +48,47 @@ test('سعر الوحدة كمرجع حارس الخادم: الأساس حرف�
   assert.equal(choiceNet(base, 0.5, null), 0.5, 'null = لا سعر عميل');
 });
 
-test('لقطة البند وجسمه: unitId ومعه لقطة الجهاز، وبند الأساس لقطته بلا unitId (تكشف تحويل الأساس بعد الصفّ)', () => {
+test('لقطة البند وجسمه: unitId ومعه لقطة الجهاز ووحدة أساسه، وبند الأساس لقطته بلا unitId (تكشف تحويل الأساس بعد الصفّ)', () => {
   const [base, , ctn] = unitChoices(water);
-  assert.deepEqual(lineUnitOf(base), { unit: 'حبة', unitId: null, unitName: null, unitFactor: 1, unitDefPrice: null });
-  assert.deepEqual(lineUnitOf(ctn), { unit: 'كرتون', unitId: 'u-ctn', unitName: 'كرتون', unitFactor: 24, unitDefPrice: null });
+  assert.deepEqual(lineUnitOf(base, 'حبة'), { unit: 'حبة', unitId: null, unitName: null, unitFactor: 1, unitDefPrice: null, baseUnit: 'حبة' });
+  assert.deepEqual(lineUnitOf(ctn, 'حبة'), { unit: 'كرتون', unitId: 'u-ctn', unitName: 'كرتون', unitFactor: 24, unitDefPrice: null, baseUnit: 'حبة' });
+  // لقطة الجهاز كاملة (القاعدة ٧): الوحدة ومعاملها **ووحدة الأساس كما رآها** — «١ كرتون = ٢٤» محسوبةٌ على «حبة»
+  assert.deepEqual(invoiceItemUnit(lineUnitOf(ctn, 'حبة')), { unitId: 'u-ctn', unitName: 'كرتون', unitFactor: 24, baseUnitName: 'حبة' });
+  // مستدعٍ لا يعرف الأساس لبندٍ بوحدةٍ أكبر: بلا baseUnitName (سلوك اللقطة وحدها) — لا اسمٌ مخمَّن
   assert.deepEqual(invoiceItemUnit(lineUnitOf(ctn)), { unitId: 'u-ctn', unitName: 'كرتون', unitFactor: 24 });
   // صنفٌ بلا وحدات: اسم أساسه بمعامل ١ ولا unitId — الخادم يحلّه أساساً كما كان (الاسم = أساسه)، وإن حُوِّل
   // أساسه بعد صفّ الفاتورة على الجهاز عرف أنّ «كرتون» صار وحدةً فلا يقيّد الكرتونين حبّتين
-  assert.deepEqual(invoiceItemUnit(lineUnitOf(unitChoices(plain)[0])), { unitName: 'كرتون', unitFactor: 1 });
-  assert.ok(!('unitId' in invoiceItemUnit(lineUnitOf(base))));
+  assert.deepEqual(invoiceItemUnit(lineUnitOf(unitChoices(plain)[0], 'كرتون')), { unitName: 'كرتون', unitFactor: 1, baseUnitName: 'كرتون' });
+  assert.deepEqual(invoiceItemUnit(lineUnitOf(unitChoices(plain)[0])), { unitName: 'كرتون', unitFactor: 1, baseUnitName: 'كرتون' }, 'بند الأساس: أساسه اسمه');
+  assert.ok(!('unitId' in invoiceItemUnit(lineUnitOf(base, 'حبة'))));
   assert.deepEqual(invoiceItemUnit({ unit: '', unitId: null }), {}, 'صنفٌ بلا اسم وحدة: لا لقطة');
-  assert.deepEqual(linkedLineUnit({ unit: 'حبة', retUnitId: null, retUnitName: null, retUnitFactor: 1 }),
-    { unit: 'حبة', unitId: null, unitName: null, unitFactor: 1, unitDefPrice: null });
+  assert.deepEqual(linkedLineUnit({ unit: 'حبة', baseUnit: 'حبة', retUnitId: null, retUnitName: null, retUnitFactor: 1 }),
+    { unit: 'حبة', unitId: null, unitName: null, unitFactor: 1, unitDefPrice: null, baseUnit: 'حبة' });
+  // بند مرتجعٍ بالشدّة من بيع كرتون: أساسه من ردّ الخادم
+  assert.deepEqual(invoiceItemUnit(linkedLineUnit({ unit: 'شدّة', baseUnit: 'حبة', retUnitId: 'u-pack', retUnitName: 'شدّة', retUnitFactor: 6 })),
+    { unitId: 'u-pack', unitName: 'شدّة', unitFactor: 6, baseUnitName: 'حبة' });
 });
 
-test('بعد 409 UNIT_CHANGED: البند بوحدته كما هي الآن، وبند الأساس الذي صار اسمه وحدةً يصير بها (كرتونان لا حبّتان)', () => {
+test('مرآة حارس الخادم (resolveLineUnit الحيّ): جسمٌ من كاشٍ حديث يمرّ، ومن كاشٍ قبل تحويل الأساس يُكشف فيُردّ 400 UNIT_INVALID', () => {
+  // نسخةٌ حرفية من شرط «stale» في backend/src/routes/invoices.ts للإصدار الحيّ — كي لا يُرسل الجهاز لقطةً يرفضها خادمٌ صحيح
+  const stale = (prod: { unit: string; units: { id: string; name: string; factor: number }[] }, it: ReturnType<typeof invoiceItemUnit>) => {
+    const i = it as { unitId?: string; unitName?: string | null; unitFactor?: number; baseUnitName?: string };
+    const u = i.unitId ? prod.units.find(x => x.id === i.unitId) : undefined;
+    const resolved = u ? { name: u.name, factor: u.factor } : { name: null, factor: 1 };
+    return (i.unitFactor != null && i.unitFactor !== resolved.factor)
+      || (i.unitName != null && i.unitName !== (resolved.name ?? prod.unit))
+      || (i.baseUnitName != null && i.baseUnitName !== prod.unit);
+  };
+  const srv = { unit: 'حبة', units: [{ id: 'u-ctn', name: 'كرتون', factor: 24 }, { id: 'u-pack', name: 'شدّة', factor: 6 }] };
+  for (const c of unitChoices(water)) assert.equal(stale(srv, invoiceItemUnit(lineUnitOf(c, water.unit))), false, c.name);
+  // كاش الجهاز: «عصير» بأساس كرتون بلا وحدات — والخادم حوّله إلى حبّة وكرتونٍ بمعامل ١٢
+  const converted = { unit: 'حبة', units: [{ id: 'u-j', name: 'كرتون', factor: 12 }] };
+  assert.equal(stale(converted, invoiceItemUnit(lineUnitOf(unitChoices(plain)[0], plain.unit))), true);
+  // وكرتونٌ تغيّر معامله من ٢٤ إلى ١٢
+  assert.equal(stale({ ...srv, units: [{ id: 'u-ctn', name: 'كرتون', factor: 12 }] }, invoiceItemUnit(lineUnitOf(unitChoices(water)[2], 'حبة'))), true);
+});
+
+test('بعد 400 UNIT_INVALID: البند بوحدته كما هي الآن، وبند الأساس الذي صار اسمه وحدةً يصير بها (كرتونان لا حبّتان)', () => {
   // كاش الجهاز: «عصير» بأساس كرتون بلا وحدات. والخادم: حُوِّل إلى الحبّة والكرتون وحدةٌ بمعامل ١٢
   const converted = { id: 'p-j', unit: 'حبة', basePrice: 23 / 12, units: [{ id: 'u-j', name: 'كرتون', factor: 12, price: 23, isActive: true }] };
   assert.equal(refreshLineUnit({ unit: 'كرتون', unitId: null }, converted)!.id, 'u-j');
@@ -70,6 +96,26 @@ test('بعد 409 UNIT_CHANGED: البند بوحدته كما هي الآن، و
   assert.equal(refreshLineUnit({ unit: 'كرتون', unitId: 'u-ctn' }, water)!.factor, 24);
   assert.equal(refreshLineUnit({ unit: 'صندوق', unitId: 'u-old' }, water), null, 'وحدةٌ أُوقفت: لا ردّ صامت إلى الأساس');
   assert.equal(refreshLineUnit({ unit: 'كرتون', unitId: null }, undefined), null);
+});
+
+test('صفّ التحميل والطلب بعد UNIT_INVALID: وحدته إن بقيت، وإلا بالأساس بمعامله — «١٠ كرتون» لا تصير «١٠ حبة»', () => {
+  // الكرتون ما زال نشطاً: يبقى كما هو (ولو تغيّر معامله — العبوة تُعدّ عبوة)
+  assert.deepEqual(rebaseRow({ unitId: 'u-ctn', unitFactor: 24, qty: '10' }, water), { choice: unitChoices(water)[2], qty: '10' });
+  // أُوقف الكرتون: الأساس و٢٤٠ حبة
+  const stopped = { ...water, units: water.units.map(u => (u.id === 'u-ctn' ? { ...u, isActive: false } : u)) };
+  const r = rebaseRow({ unitId: 'u-ctn', unitFactor: 24, qty: '10' }, stopped)!;
+  assert.deepEqual([r.choice.id, r.choice.name, r.qty], [null, 'حبة', 240]);
+  assert.equal(rebaseRow({ unitId: 'u-ctn', unitFactor: 24, qty: 2.5 }, stopped)!.qty, 60);
+  // كميةٌ لم تُكتب بعد أو غير رقمية: كما هي
+  assert.equal(rebaseRow({ unitId: 'u-ctn', unitFactor: 24, qty: '' }, stopped)!.qty, '');
+  // بند الأساس وصنفٌ بلا وحدات: كما كان حرفياً
+  assert.deepEqual(rebaseRow({ unitId: null, unitFactor: 1, qty: '3' }, plain), { choice: unitChoices(plain)[0], qty: '3' });
+  // صنفٌ خرج من الكتالوج: الصفّ كما هو
+  assert.equal(rebaseRow({ unitId: 'u-ctn', unitFactor: 24, qty: '10' }, undefined), null);
+  // صفّ أساسٍ «١٠ كرتون» وحُوِّل الصنف إلى الحبّة (الكرتون وحدةٌ بمعامل ١٢): عشرة كراتين لا عشر حبّات
+  const converted = { id: 'p-j', unit: 'حبة', basePrice: 23 / 12, units: [{ id: 'u-j', name: 'كرتون', factor: 12, price: 23, isActive: true }] };
+  const b = rebaseRow({ unit: 'كرتون', unitId: null, unitFactor: 1, qty: '10' }, converted)!;
+  assert.deepEqual([b.choice.id, b.choice.factor, b.qty], ['u-j', 12, '10']);
 });
 
 test('شارة الشبكة وعدّاد الشريط: كما كانا لبنود الأساس، ولا جمع كرتونٍ مع حبّة في رقم', () => {
@@ -137,8 +183,25 @@ test('بند الفاتورة يحمل وحدته ولقطتها — والجس�
   assert.match(repApp, /await outboxAdd\(\{ clientRef, repId: currentRepId\(\), kind: 'invoice', payload,/, 'الصندوق يحفظ الجسم نفسه');
 });
 
-test('الدمج في السلّة بالصنف والوحدة، والتحميل والطلب يرسلان unitId', () => {
+test('ردّ 400 UNIT_INVALID في الإصدار الحيّ: الرسالة تُعرض والأصناف تُحدَّث من الخادم — لا من كاشٍ قديم', () => {
+  const fail = repApp.slice(repApp.indexOf('if (isZatcaOutdatedClient(err)) setNeedsUpdate(true);'), repApp.indexOf('const refreshUnits = async'));
+  assert.match(fail, /code === 'UNIT_INVALID'\) void refreshUnits\(\);/);
+  assert.match(fail, /setMsg\(err\?\.response\?\.data\?\.message/);
+  assert.doesNotMatch(repApp, /UNIT_CHANGED/, 'رمزٌ لا يرسله الخادم');
+  const refresh = repApp.slice(repApp.indexOf('const refreshUnits = async'), repApp.indexOf('return (', repApp.indexOf('const refreshUnits = async')));
+  assert.match(refresh, /if \(!data \|\| offline\) return;/, 'كاشٌ يعود بدل الخادم هو القديم نفسه');
+  assert.match(refresh, /lineUnitOf\(ch, p\.unit\)/);
+  assert.match(refresh, /refreshLinkedLine\(/, 'بنود المرتجع من فاتورة بيع تُقرأ من جديد');
+  // والتحميل وطلب البضاعة: الكتالوج من الخادم والصفوف تُعاد بـrebaseRow — بالمعامل الذي اختير به الصفّ
+  assert.equal((repApp.match(/if \(isUnitInvalid\(e\)\) \{\s*const fresh = await reloadProducts\(\);/g) ?? []).length, 2);
+  assert.match(repApp, /unitId: c0\.id, unitFactor: c0\.factor \}/);
+  assert.match(repApp, /unitId: o\.id, unit: o\.name, unitFactor: o\.factor \}/);
+});
+
+test('الدمج في السلّة بالصنف والوحدة، والتحميل والطلب يرسلان unitId، ولقطة البند تحمل أساس الصنف', () => {
   assert.match(repApp, /prev\.findIndex\(l => l\.productId === p\.id && !l\.saleItemId && sameUnit\(l, \{ unitId: c0\.id \}\)\)/);
+  assert.match(repApp, /\.\.\.lineUnitOf\(c0, p\.unit\)/, 'بندٌ بلا أساسه: تحويل الأساس قبل رفعه يُقرأ على الأساس الجديد');
+  assert.match(repApp, /\.\.\.lineUnitOf\(ch, p\.unit\), unitPrice: inclOf\(p, ch\)/);
   assert.match(repApp, /rows\.map\(r => \(\{ productId: r\.productId, qty: Number\(r\.qty\), \.\.\.\(r\.unitId && \{ unitId: r\.unitId \}\) \}\)\)/);
   assert.match(repApp, /return \{ productId, qty: Number\(raw\), \.\.\.\(u\.id && \{ unitId: u\.id \}\) \};/);
 });

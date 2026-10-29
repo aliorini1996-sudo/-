@@ -297,7 +297,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "response": "{success:true, data: Customer + customerPrices:[{id, customerId, productId, price, createdAt, updatedAt, product:{...}}]}. إذا لم يوجد العميل أو كان خارج النطاق يعود 404 {success:false, message:'العميل غير موجود'}",
     "rules": [
      "يعيد العميل حتى لو كانت حالته DELETED (مؤرشف)",
-     "price في customerPrices صافٍ قبل الضريبة مثل basePrice للمنتج"
+     "price في customerPrices صافٍ قبل الضريبة ولوحدة الأساس مثل basePrice للمنتج، وproduct يحمل units فسعر الكرتون للعميل = price × factor"
     ],
     "example": ""
    },
@@ -627,7 +627,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "balance في كل سطر يُحسب جارياً عند العرض (لا تُعرض القيمة المخزنة)، والموجب يعني أنه مستحق على العميل",
      "الترتيب: entryDate ثم createdAt ثم debit تنازلياً ثم id",
      "قيم type: INVOICE_DEBIT | INVOICE_CREDIT | RECEIPT_CREDIT | RECEIPT_DEBIT | ADJUSTMENT_DEBIT | ADJUSTMENT_CREDIT",
-     "بلا ترقيم: يعيد كل حركات الفترة"
+     "بلا ترقيم: يعيد كل حركات الفترة",
+     "بنود الفواتير في الكشف بلقطة وحدة كل بند: qty بوحدته وunitName (null = وحدة الأساس، فاعرض product.unit) وunitFactor وbaseQty. والأرصدة من القيود بالمبالغ فلا تمسّها الوحدة"
     ],
     "example": ""
    },
@@ -665,7 +666,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "prices",
       "type": "array<object>",
       "required": true,
-      "desc": "قائمة الأسعار. لا يوجد تحقق zod عليها، وغيابها يعطي 500"
+      "desc": "قائمة الأسعار حتى 5000 سطر. غيابها أو سعرٌ سالب يعطي 400 بخطأ التحقق، وصنفٌ ليس من الشركة يعطي 400 «صنف غير موجود في الشركة»"
      },
      {
       "name": "prices[].productId",
@@ -677,14 +678,14 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "prices[].price",
       "type": "number",
       "required": true,
-      "desc": "السعر الخاص صافياً قبل الضريبة"
+      "desc": "السعر الخاص صافياً قبل الضريبة ولوحدة الأساس للصنف (unit). سعر الكرتون للعميل = هذا السعر × factor الكرتون، فلسعر كرتون بعينه أرسل سعر الكرتون ÷ factor بست منازل على الأقل"
      }
     ],
     "response": "{success:true} بلا data. إذا لم يوجد العميل في الشركة يعود 404",
     "rules": [
      "لكل صنف upsert داخل معاملة واحدة، وفشل أي سطر يلغي الكل",
      "لا يحذف الأسعار التي لم تُرسل، ولا يوجد في هذه المجموعة مسار لحذف سعر خاص",
-     "السعر صافٍ قبل الضريبة مثل basePrice، ويستخدم مرجعاً لسعر الفاتورة"
+     "السعر صافٍ قبل الضريبة ولوحدة الأساس مثل basePrice، ويستخدم مرجعاً لسعر الفاتورة"
     ],
     "example": "{\"prices\":[{\"productId\":\"b7e4c2a1-5d3f-4a8e-9b6c-2f1e0d9c8b7a\",\"price\":11.5},{\"productId\":\"c8f5d3b2-6e4a-4b9f-8c7d-3a2b1c0d9e8f\",\"price\":24}]}"
    },
@@ -713,7 +714,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
  {
   "key": "products",
   "title": "المنتجات والتصنيفات وشرائح الأسعار",
-  "overview": "كل المسارات تحت /api/products وتعمل بمفتاح الشركة (Authorization: Bearer fsk_... أو X-API-Key) بهوية المستخدم الذي أصدره. على الموجّه كله ثلاثة حرّاس بالترتيب: authenticate ثم requireAccounting (403 ACCOUNTING_NOT_ALLOWED إن كان النظام المحاسبي مطفأ للشركة) ثم requireAdminPermission('canManageProducts') (403 «لا تملك صلاحية الوصول لهذا القسم» إن كانت صلاحية إدارة المنتجات false لصاحب المفتاح) وهذا يشمل القراءة أيضاً. الكتابة (POST/PUT/DELETE) تشترط requireAdmin (دور ADMIN أو MANAGER أو ACCOUNTANT) ولا تمر بمفتاح «قراءة فقط» (403 API_KEY_FORBIDDEN). كل الأسعار هنا (basePrice وشرائح الأسعار وأسعار العملاء) مخزنة صافية قبل الضريبة. الحذف أرشفة إن كان للصنف أثر (فواتير أو تحميل سيارة أو وارد مستودع) والمؤرشف يختفي من القوائم ويبقى قابلاً للقراءة بمعرّفه. الصنف غير النشط (INACTIVE) أو المؤرشف يُرفض في إنشاء الفواتير. أخطاء التحقق من zod تعود 400 بالشكل {success:false, message:'بيانات غير صحيحة <الحقول>', errors:{field:[...]}} والحقول غير المعروفة تُسقط بصمت. حد المفتاح 120 طلباً في الدقيقة (429 API_RATE_LIMIT مع Retry-After)",
+  "overview": "كل المسارات تحت /api/products وتعمل بمفتاح الشركة (Authorization: Bearer fsk_... أو X-API-Key) بهوية المستخدم الذي أصدره. على الموجّه كله ثلاثة حرّاس بالترتيب: authenticate ثم requireAccounting (403 ACCOUNTING_NOT_ALLOWED إن كان النظام المحاسبي مطفأ للشركة) ثم requireAdminPermission('canManageProducts') (403 «لا تملك صلاحية الوصول لهذا القسم» إن كانت صلاحية إدارة المنتجات false لصاحب المفتاح) وهذا يشمل القراءة أيضاً. الكتابة (POST/PUT/DELETE) تشترط requireAdmin (دور ADMIN أو MANAGER أو ACCOUNTANT) ولا تمر بمفتاح «قراءة فقط» (403 API_KEY_FORBIDDEN). كل الأسعار هنا (basePrice وشرائح الأسعار وأسعار العملاء) مخزنة صافية قبل الضريبة. الحذف أرشفة إن كان للصنف أثر (فواتير أو تحميل سيارة أو وارد مستودع) والمؤرشف يختفي من القوائم ويبقى قابلاً للقراءة بمعرّفه. الصنف غير النشط (INACTIVE) أو المؤرشف يُرفض في إنشاء الفواتير. أخطاء التحقق من zod تعود 400 بالشكل {success:false, message:'بيانات غير صحيحة <الحقول>', errors:{field:[...]}} والحقول غير المعروفة تُسقط بصمت. حد المفتاح 120 طلباً في الدقيقة (429 API_RATE_LIMIT مع Retry-After)\nالوحدات المتعددة للصنف: unit هي وحدة الأساس، أي أصغر ما يُباع من الصنف (حبة)، وbasePrice سعرها. والوحدات الأكبر في units[] بالشكل {id, name, factor, price, unitCode, isActive, sortOrder}: factor عدد صحيح من 2 فأكثر هو عدد وحدات الأساس فيها (كرتون = 24 حبة)، وprice سعرها صافياً قبل الضريبة أو null فيُشتق عند البيع basePrice × factor. وأسعار العملاء الخاصة وأسعار الشرائح كلها لوحدة الأساس، فسعر الكرتون للعميل = سعره الخاص × factor، وحدود الشرائح baseMinQty وbaseMaxQty بوحدة الأساس (وminQty وmaxQty للعرض القديم). تُدار الوحدات بـPOST وPUT وDELETE على /products/:id/units، ويُحوَّل صنفٌ كان يُباع بالكرتون إلى الحبة بـPOST /products/:id/convert-base. صنفٌ بلا وحدات: units فارغة وكل شيء كما كان قبل الميزة. ومورد المزامنة /api/v1/sync/products يحمل units (النشطة والموقوفة) وحدود الشرائح بالأساس",
   "endpoints": [
    {
     "method": "GET",
@@ -757,12 +758,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[Product], pagination:{total, page, limit, pages}} — Product: id, tenantId, code, name, barcode, unit, basePrice, taxPct, image, itemCode, itemCodeType, unitCode, status, damagedReturnToStock, shelfLifeEnabled, shelfLifeValue, shelfLifeUnit, vatCategory, vatExemptionCode, vatExemptionReason, categoryId, deletedAt(دائماً null هنا), createdAt, updatedAt, category:{id, tenantId, name, createdAt}|null, priceTiers:[{id, productId, minQty, maxQty, price, createdAt}] مرتبة تصاعدياً بـminQty",
+    "response": "{success:true, data:[Product], pagination:{total, page, limit, pages}} — Product: id, tenantId, code, name, barcode, unit, basePrice, taxPct, image, itemCode, itemCodeType, unitCode, status, damagedReturnToStock, shelfLifeEnabled, shelfLifeValue, shelfLifeUnit, vatCategory, vatExemptionCode, vatExemptionReason, categoryId, deletedAt(دائماً null هنا), createdAt, updatedAt, category:{id, tenantId, name, createdAt}|null, priceTiers:[{id, productId, minQty, maxQty, baseMinQty, baseMaxQty, price, createdAt}] مرتبة تصاعدياً بـminQty، units:[{id, tenantId, productId, name, factor, price, unitCode, isActive, sortOrder, createdAt, updatedAt}] مرتبة بـsortOrder ثم factor",
     "rules": [
      "الأصناف المؤرشفة (deletedAt غير فارغ) مستبعدة دائماً من القائمة",
      "pages = ceil(total / limit)",
-     "basePrice وأسعار الشرائح صافية قبل الضريبة وtaxPct نسبة مئوية مثل 15",
-     "الحقل image قد يكون data URL بصيغة base64 فيكبر حجم الرد"
+     "basePrice وأسعار الشرائح صافية قبل الضريبة ولوحدة الأساس unit وtaxPct نسبة مئوية مثل 15",
+     "الحقل image قد يكون data URL بصيغة base64 فيكبر حجم الرد",
+     "units وحدات البيع الأكبر من الأساس، النشطة والموقوفة معاً: الموقوفة (isActive=false) تبقى لأن مستندات صدرت بها، ولا يُباع بها جديد (بيعها يرجع 400 UNIT_INVALID). سعر الوحدة عند البيع: price إن حُدّد، وإلا basePrice × factor مقرّباً لمنزلتين"
     ],
     "example": ""
    },
@@ -777,7 +779,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:Product} بنفس حقول القائمة مع category وpriceTiers — 404 {success:false, message:'الصنف غير موجود'} إن لم يوجد في الشركة",
+    "response": "{success:true, data:Product} بنفس حقول القائمة مع category وpriceTiers وunits (النشطة والموقوفة) — 404 {success:false, message:'الصنف غير موجود'} إن لم يوجد في الشركة",
     "rules": [
      "id في المسار = معرّف الصنف UUID",
      "هذا المسار لا يستبعد المؤرشف: يعيد الصنف المؤرشف وفيه deletedAt بتاريخ وstatus=INACTIVE — مفيد لعرض أسماء أصناف الفواتير القديمة"
@@ -814,13 +816,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "unit",
       "type": "string",
       "required": true,
-      "desc": "وحدة البيع نص حر مثل كرتون أو حبة (حرف واحد على الأقل)"
+      "desc": "وحدة الأساس: أصغر ما يُباع من الصنف، نص حر مثل حبة (حرف واحد على الأقل). الوحدات الأكبر (كرتون = 24 حبة) تُضاف بعد الإنشاء بـPOST /products/:id/units ولا تُقبل في هذا الجسم"
      },
      {
       "name": "basePrice",
       "type": "number",
       "required": true,
-      "desc": "سعر البيع الأساسي صافٍ قبل الضريبة و≥ 0"
+      "desc": "سعر وحدة الأساس صافٍ قبل الضريبة و≥ 0"
      },
      {
       "name": "taxPct",
@@ -892,7 +894,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "unitCode",
       "type": "string | null",
       "required": false,
-      "desc": "كود الوحدة حسب جدول مزود الفوترة الإلكترونية والفارغ يُحفظ null"
+      "desc": "رمز وحدة الأساس حسب جدول مزود الفوترة الإلكترونية (مثل PCE) والفارغ يُحفظ null. لكل وحدة أكبر رمزها في units[].unitCode، وبند الفاتورة يحمل رمز وحدته هو"
      },
      {
       "name": "vatCategory",
@@ -913,7 +915,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "نص سبب الإعفاء أو الصفرية — إلزامي لـZ/E/O وبحد 1000 حرف وبلا محارف تحكم"
      }
     ],
-    "response": "201 {success:true, data:Product مع category (بدون priceTiers)} — 409 {success:false, message:'كود الصنف مستخدم من قبل'} أو رسالة «الكود مستخدم بصنف محذوف مؤرشف...» — 400 برسالة عربية لخطأ الصلاحية — 400 {success:false, code:'PRODUCT_ZATCA_INVALID', message, fieldErrors:[{field, messageAr}]} لخطأ الفئة الضريبية",
+    "response": "201 {success:true, data:Product مع category وunits (فارغة عند الإنشاء) (بدون priceTiers)} — 409 {success:false, message:'كود الصنف مستخدم من قبل'} أو رسالة «الكود مستخدم بصنف محذوف مؤرشف...» — 400 برسالة عربية لخطأ الصلاحية — 400 {success:false, code:'PRODUCT_ZATCA_INVALID', message, fieldErrors:[{field, messageAr}]} لخطأ الفئة الضريبية",
     "rules": [
      "الكود فريد لكل شركة (tenantId+code) ويُفحص مسبقاً بما فيه المؤرشف فيعود 409 برسالة واضحة",
      "taxPct غائب أو null ⇒ يرث نسبة دولة الشركة defaultVatPct",
@@ -921,9 +923,10 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "فحص الصلاحية: إن كان shelfLifeEnabled=true بلا وحدة صحيحة أو بمدة غير صحيحة أو تتجاوز الحد ⇒ 400",
      "حقول ZATCA الثلاثة ليست في مخطط zod بل تُقرأ من الجسم الخام وتُقص مسافاتها والنص الفارغ = null",
      "categoryId لا يُتحقق منه في الكود — معرّف غير موجود يفشل بقيد المفتاح الأجنبي فيعود 500",
-     "لا يُنشأ مخزون ولا قيود عند إنشاء الصنف"
+     "لا يُنشأ مخزون ولا قيود عند إنشاء الصنف",
+     "لبيعه بالكرتون أيضاً أضف بعد الإنشاء وحدة: POST /products/:id/units بالجسم {\"name\":\"كرتون\",\"factor\":40,\"price\":13.04}"
     ],
-    "example": "{\"code\":\"P-1001\",\"name\":\"مياه 330 مل كرتون 40\",\"unit\":\"كرتون\",\"basePrice\":13.04,\"taxPct\":15,\"barcode\":\"6281234567890\",\"categoryId\":\"3f2c1a9e-7b1d-4c2e-9a51-0d6e8f4b2c11\",\"status\":\"ACTIVE\"}"
+    "example": "{\"code\":\"P-1001\",\"name\":\"مياه 330 مل\",\"unit\":\"حبة\",\"basePrice\":0.35,\"taxPct\":15,\"barcode\":\"6281234567890\",\"categoryId\":\"3f2c1a9e-7b1d-4c2e-9a51-0d6e8f4b2c11\",\"status\":\"ACTIVE\",\"unitCode\":\"PCE\"}"
    },
    {
     "method": "PUT",
@@ -955,13 +958,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "unit",
       "type": "string",
       "required": false,
-      "desc": "الوحدة (حرف واحد على الأقل)"
+      "desc": "اسم وحدة الأساس، وتغييره إعادة تسمية لا تحويل: الكميات المسجّلة لا تتغيّر. اسمٌ تحمله وحدة أكبر للصنف نفسه يرجع 400 «اسم وحدة الأساس مستخدم لوحدة أخرى لهذا الصنف». ولجعل صنفٍ يُباع بالكرتون يُباع بالحبة استعمل POST /products/:id/convert-base لا هذا الحقل"
      },
      {
       "name": "basePrice",
       "type": "number",
       "required": false,
-      "desc": "السعر الأساسي صافٍ قبل الضريبة و≥ 0"
+      "desc": "سعر وحدة الأساس صافٍ قبل الضريبة و≥ 0. لا يغيّر سعر وحدة أكبر حُدّد سعرها (units[].price)، أما الوحدة بلا سعر محدد فتتبعه (basePrice × factor)"
      },
      {
       "name": "taxPct",
@@ -1033,7 +1036,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "unitCode",
       "type": "string | null",
       "required": false,
-      "desc": "'' أو null يمسحه"
+      "desc": "رمز وحدة الأساس، و'' أو null يمسحه"
      },
      {
       "name": "vatCategory",
@@ -1054,13 +1057,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "سبب الإعفاء بحد 1000 حرف"
      }
     ],
-    "response": "{success:true, data:Product مع category (بدون priceTiers)} — 404 'الصنف غير موجود' — 400 لخطأ الصلاحية أو PRODUCT_ZATCA_INVALID — 409 'السجل موجود مسبقا' لتكرار الكود",
+    "response": "{success:true, data:Product مع category وunits (بدون priceTiers)} — 404 'الصنف غير موجود' — 400 لخطأ الصلاحية أو PRODUCT_ZATCA_INVALID — 409 'السجل موجود مسبقا' لتكرار الكود",
     "rules": [
      "id في المسار = معرّف الصنف",
      "فحص الصلاحية يجري على الدمج: القيمة المرسلة وإلا المحفوظة",
      "بوابة ZATCA لا تعمل إلا إن حمل الجسم أحد حقول vat* — تغيير taxPct وحده لا يعيد فحص الفئة المحفوظة فأرسل vatCategory معه عند تغيير النسبة",
      "الأصناف المؤرشفة قابلة للتعديل لكن التعديل لا يلغي الأرشفة (deletedAt يبقى) فتبقى مخفية من القوائم",
-     "التعديل لا يمس شرائح الأسعار ولا أسعار العملاء ولا الفواتير السابقة"
+     "التعديل لا يمس شرائح الأسعار ولا أسعار العملاء ولا وحدات الصنف (لها مساراتها /products/:id/units) ولا الفواتير السابقة"
     ],
     "example": "{\"basePrice\":14.5,\"status\":\"INACTIVE\"}"
    },
@@ -1082,7 +1085,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "إن وُجد للصنف أي بند فاتورة أو بند تحميل سيارة أو بند وارد مستودع ⇒ أرشفة: deletedAt=الآن وstatus=INACTIVE في معاملة واحدة",
      "في الحالتين تُحذف نهائياً شرائح أسعاره وأسعار العملاء الخاصة به ولا تعود",
      "المؤرشف يختفي من القوائم ولا يباع مجدداً ويبقى اسمه في الفواتير والتقارير القديمة ويُقرأ بـGET /products/:id",
-     "كود الصنف المؤرشف يبقى محجوزاً فلا يمكن إنشاء صنف جديد بالكود نفسه"
+     "كود الصنف المؤرشف يبقى محجوزاً فلا يمكن إنشاء صنف جديد بالكود نفسه",
+     "وحدات الصنف (units) تبقى مع الصنف المؤرشف فتُقرأ بها مستنداته، وتُحذف معه في الحذف الفعلي"
     ],
     "example": ""
    },
@@ -1109,29 +1113,228 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "tiers[].minQty",
       "type": "number",
       "required": true,
-      "desc": "أقل كمية للشريحة و≥ 0"
+      "desc": "أقل كمية للشريحة بوحدة الأساس و≥ 0. يُكتب في baseMinQty أيضاً إن لم يُرسل baseMinQty"
      },
      {
       "name": "tiers[].maxQty",
       "type": "number",
       "required": false,
-      "desc": "أعلى كمية — اختياري للشريحة المفتوحة ولا يقبل null (احذفه بدلاً من null)"
+      "desc": "أعلى كمية بوحدة الأساس — اختياري للشريحة المفتوحة ولا يقبل null (احذفه بدلاً من null). يُكتب في baseMaxQty أيضاً إن لم يُرسل baseMaxQty"
+     },
+     {
+      "name": "tiers[].baseMinQty",
+      "type": "number ≥ 0",
+      "required": false,
+      "desc": "حد الشريحة الأدنى بوحدة الأساس صراحةً، وغيابه = minQty. به يُقارَن، أما minQty وmaxQty فللعرض القديم"
+     },
+     {
+      "name": "tiers[].baseMaxQty",
+      "type": "number | null",
+      "required": false,
+      "desc": "حد الشريحة الأعلى بوحدة الأساس، وغيابه = maxQty، وnull شريحة مفتوحة"
      },
      {
       "name": "tiers[].price",
       "type": "number",
       "required": true,
-      "desc": "سعر الوحدة في الشريحة صافٍ قبل الضريبة و≥ 0"
+      "desc": "سعر وحدة الأساس في الشريحة صافٍ قبل الضريبة و≥ 0"
      }
     ],
     "response": "{success:true} بدون data — 404 'الصنف غير موجود' — 400 'بيانات غير صحيحة' إن غاب tiers أو لم يكن مصفوفة",
     "rules": [
      "العملية استبدال كامل: تحذف الشرائح القديمة وتنشئ المرسلة وتحدّث updatedAt للصنف في معاملة واحدة",
      "لا يتحقق الخادم من تداخل الشرائح ولا من أن minQty ≤ maxQty",
-     "في الخادم تُستخدم الشرائح كحد أدنى لسعر المندوب في حارس الأسعار (أقل سعر شريحة) ولا تُطبّق تلقائياً على فواتير الإدارة",
+     "في الخادم تُستخدم الشرائح كحد أدنى لسعر المندوب في حارس الأسعار (أقل سعر شريحة، مضروباً بمعامل وحدة البند لبيع الكرتون) ولا تُطبّق تلقائياً على فواتير الإدارة",
      "تحديث updatedAt يجعل التغيير مرئياً لمزامنة ERP و/api/v1/sync"
     ],
     "example": "{\"tiers\":[{\"minQty\":1,\"maxQty\":49,\"price\":13.04},{\"minQty\":50,\"price\":12.5}]}"
+   },
+   {
+    "method": "POST",
+    "path": "/products/:id/units",
+    "purpose": "إضافة وحدة بيع أكبر من وحدة الأساس لصنف (كرتون = 24 حبة)",
+    "permission": "canManageProducts",
+    "gates": [
+     "requireAccounting",
+     "requireAdminPermission('canManageProducts')",
+     "requireAdmin — الدور ADMIN أو MANAGER أو ACCOUNTANT",
+     "مفتاح قراءة فقط يُرفض 403 API_KEY_FORBIDDEN"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "name",
+      "type": "string ≤ 24",
+      "required": true,
+      "desc": "اسم الوحدة كما يُطبع. لا يساوي اسم وحدة الأساس ولا اسم وحدة أخرى للصنف"
+     },
+     {
+      "name": "factor",
+      "type": "integer 2..100000",
+      "required": true,
+      "desc": "عدد وحدات الأساس في هذه الوحدة. عدد صحيح، ولا يتكرر معامل وحدة أخرى للصنف (والمعامل 1 هو وحدة الأساس نفسها فيُرفض)"
+     },
+     {
+      "name": "price",
+      "type": "number ≥ 0 | '' | null",
+      "required": false,
+      "desc": "سعر الوحدة صافياً قبل الضريبة. فارغ أو null ⇒ يُشتق عند البيع basePrice × factor"
+     },
+     {
+      "name": "unitCode",
+      "type": "string ≤ 16 | null",
+      "required": false,
+      "desc": "رمز الوحدة الضريبي (UN/ECE مثل CT) لبند الفاتورة الإلكترونية بهذه الوحدة، ويغلب رمز الصنف"
+     },
+     {
+      "name": "sortOrder",
+      "type": "integer",
+      "required": false,
+      "desc": "ترتيب العرض، والافتراضي 0"
+     }
+    ],
+    "response": "201 {success:true, data:{id, tenantId, productId, name, factor, price, unitCode, isActive, sortOrder, createdAt, updatedAt}} — 404 {success:false, code:'PRODUCT_NOT_FOUND', message:'الصنف غير موجود'} — 400 {success:false, code:'PRODUCT_UNITS_INVALID', message} — 409 {success:false, message:'اسم الوحدة مكرر لهذا الصنف'}",
+    "rules": [
+     "الكتابة داخل معاملة بقفل صفّ الصنف، وتحدّث updatedAt الصنف فيصل التغيير لمزامنة /api/v1/sync/products ولمزامنة ERP",
+     "رسائل PRODUCT_UNITS_INVALID: «اسم الوحدة مطلوب»، «اسم الوحدة طويل»، «معامل التحويل رقم أكبر من صفر»، «معامل التحويل لا يتجاوز 100000»، «معامل التحويل عدد صحيح — وحدة الأساس هي الأصغر»، «سعر الوحدة رقم موجب»، «اسم الوحدة مكرر لهذا الصنف»، «يوجد وحدة بالمعامل نفسه لهذا الصنف»",
+     "id الوحدة في الرد هو unitId الذي يُرسل في بنود الفواتير والتحميل والوارد وطلب البضاعة"
+    ],
+    "example": "{\"name\":\"كرتون\",\"factor\":40,\"price\":13.04,\"unitCode\":\"CT\"}"
+   },
+   {
+    "method": "PUT",
+    "path": "/products/:id/units/:unitId",
+    "purpose": "تعديل وحدة: اسمها أو معاملها أو سعرها أو رمزها أو إيقافها أو ترتيبها",
+    "permission": "canManageProducts",
+    "gates": [
+     "requireAccounting",
+     "requireAdminPermission('canManageProducts')",
+     "requireAdmin — الدور ADMIN أو MANAGER أو ACCOUNTANT",
+     "مفتاح قراءة فقط يُرفض 403 API_KEY_FORBIDDEN"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "name",
+      "type": "string ≤ 24",
+      "required": false,
+      "desc": "الاسم الجديد، بالقيود نفسها في الإضافة"
+     },
+     {
+      "name": "factor",
+      "type": "integer 2..100000",
+      "required": false,
+      "desc": "المعامل الجديد. لا يمسّ الماضي (انظر القواعد)"
+     },
+     {
+      "name": "price",
+      "type": "number ≥ 0 | '' | null",
+      "required": false,
+      "desc": "السعر المحدد، و'' أو null يمسحه فيُشتق basePrice × factor"
+     },
+     {
+      "name": "unitCode",
+      "type": "string ≤ 16 | null | ''",
+      "required": false,
+      "desc": "الرمز الضريبي، و'' أو null يمسحه"
+     },
+     {
+      "name": "isActive",
+      "type": "boolean",
+      "required": false,
+      "desc": "false يوقفها: لا يُباع بها جديد (400 UNIT_INVALID)، ويبقى كل مستند صدر بها كما هو"
+     },
+     {
+      "name": "sortOrder",
+      "type": "integer",
+      "required": false,
+      "desc": "ترتيب العرض"
+     }
+    ],
+    "response": "{success:true, data:{id, tenantId, productId, name, factor, price, unitCode, isActive, sortOrder, createdAt, updatedAt}} — 404 PRODUCT_NOT_FOUND أو {code:'UNIT_NOT_FOUND', message:'الوحدة غير موجودة'} — 400 PRODUCT_UNITS_INVALID — 409 'اسم الوحدة مكرر لهذا الصنف'",
+    "rules": [
+     "تغيير factor لا يعيد كتابة الماضي: كل بند كُتب بالوحدة يحمل لقطة اسمها ومعاملها (unitName وunitFactor) وكميته بالأساس (baseQty) لحظة كتابته، فكرتونٌ صار 12 بعد أن كان 24 لا يُنقص مخزوناً مضى",
+     "التحقق على الوحدة بعد دمج المرسل مع المحفوظ، مقابل وحدة الأساس وبقية وحدات الصنف",
+     "يتحرّك updatedAt للصنف فيصل التعديل لمزامنة products"
+    ],
+    "example": "{\"price\":12.5,\"isActive\":true}"
+   },
+   {
+    "method": "DELETE",
+    "path": "/products/:id/units/:unitId",
+    "purpose": "حذف وحدة من وحدات الصنف نهائياً",
+    "permission": "canManageProducts",
+    "gates": [
+     "requireAccounting",
+     "requireAdminPermission('canManageProducts')",
+     "requireAdmin — الدور ADMIN أو MANAGER أو ACCOUNTANT",
+     "مفتاح قراءة فقط يُرفض 403 API_KEY_FORBIDDEN"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true} — 404 PRODUCT_NOT_FOUND أو UNIT_NOT_FOUND",
+    "rules": [
+     "الحذف لا يكسر التاريخ: كل بند صدر بالوحدة يحمل لقطتها، والكمية بالأساس محفوظة في baseQty",
+     "لإخفائها من البيع مع بقائها في units أوقفها بـPUT /products/:id/units/:unitId والجسم {\"isActive\":false} بدل الحذف",
+     "بيعٌ جديد بمعرّف وحدة محذوفة يرجع 400 UNIT_INVALID",
+     "يتحرّك updatedAt للصنف، فتصل مزامنة products بلا الوحدة المحذوفة"
+    ],
+    "example": ""
+   },
+   {
+    "method": "POST",
+    "path": "/products/:id/convert-base",
+    "purpose": "تحويل وحدة الأساس إلى وحدة أصغر لصنف له تاريخ (كان يُباع بالكرتون فصار يُباع بالكرتون والحبة) دون تغيير أي رقم مطبوع",
+    "permission": "canManageProducts",
+    "gates": [
+     "requireAccounting",
+     "requireAdminPermission('canManageProducts')",
+     "requireAdmin — الدور ADMIN أو MANAGER أو ACCOUNTANT",
+     "مفتاح قراءة فقط يُرفض 403 API_KEY_FORBIDDEN"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "newBaseName",
+      "type": "string ≤ 24",
+      "required": true,
+      "desc": "اسم وحدة الأساس الجديدة (حبة). لا يساوي الحالية ولا اسم وحدة للصنف"
+     },
+     {
+      "name": "factor",
+      "type": "integer 2..100000",
+      "required": true,
+      "desc": "كم وحدة أساس جديدة في وحدة الأساس الحالية (كرتون = 24 حبة ⇒ 24)"
+     },
+     {
+      "name": "expectedBaseName",
+      "type": "string",
+      "required": true,
+      "desc": "اسم وحدة الأساس الحالية كما قرأته (product.unit). إن تغيّرت قبل التنفيذ رُدّ 409 BASE_UNIT_CHANGED فلا يُحوَّل الصنف مرتين"
+     },
+     {
+      "name": "basePrice",
+      "type": "number ≥ 0 | null",
+      "required": false,
+      "desc": "سعر وحدة الأساس الجديدة صافياً، وغيابه ⇒ السعر الحالي ÷ factor بأربع منازل"
+     },
+     {
+      "name": "baseUnitCode",
+      "type": "string ≤ 16 | null | ''",
+      "required": false,
+      "desc": "رمز وحدة الأساس الجديدة الضريبي (PCE). غيابه يُبقي unitCode الصنف كما هو، والرمز القديم تحمله الوحدة التي صارتها وحدة الأساس القديمة"
+     }
+    ],
+    "response": "{success:true, data:Product مع category وpriceTiers وunits، converted:{factor, from, invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices, priceTiers}} وأعداد converted هي الصفوف المعاد كتابتها في كل جدول — 409 {success:false, code:'BASE_UNIT_CHANGED', message} — 400 {code:'PRODUCT_UNITS_INVALID', message} — 404 PRODUCT_NOT_FOUND",
+    "rules": [
+     "كل الخطوات في معاملة واحدة بقفل صفّ الصنف: يتحوّل تاريخ الصنف كله أو لا شيء",
+     "بنود الصنف في الفواتير والتحميلات والوارد وطلبات البضاعة: unitName يأخذ اسم الأساس القديم إن كان فارغاً، وunitFactor يُضرب بـfactor، وbaseQty يُعاد حسابه. أما qty وunitPrice وunitCost وlineTotal فلا تتغيّر: «2 كرتون» تبقى مطبوعة كما هي وأساسها 48 حبة. وsuggestedQty وexpectedQty في التحميلات تُضرب بـfactor (بالأساس دائماً)",
+     "وحدات الصنف القائمة يُضرب معاملها بـfactor، وتُنشأ وحدة باسم الأساس القديم بمعامل factor وبسعره القديم ورمزه، أولى في الترتيب — فيبيع المندوب الكرتون بسعره كما كان",
+     "أسعار العملاء الخاصة وأسعار الشرائح تُقسم على factor (فسعر الكرتون للعميل لا يتغيّر)، وحدود الشرائح بالأساس تُضرب بـfactor",
+     "لنظامكم: التحويل يحرّك updatedAt للصنف وحده لا للفواتير ولا للتحميلات، فمزامنة invoices وvan-loads وwarehouse-entries لا تعيد إرسال البنود القديمة بلقطاتها الجديدة. من خزّن baseQty هذا الصنف قبل التحويل يضربه بـconverted.factor، أو يعيد سحب تلك الموارد من البداية (بلا since)",
+     "صنفٌ بلا تاريخ يكفيه تعديل unit بـPUT /products/:id ثم إضافة الوحدة بـPOST /products/:id/units"
+    ],
+    "example": "{\"newBaseName\":\"حبة\",\"factor\":24,\"expectedBaseName\":\"كرتون\",\"baseUnitCode\":\"PCE\"}"
    },
    {
     "method": "GET",
@@ -1192,7 +1395,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "response": "{success:true, data:[{productId, price}]} — 403 {success:false, message:'هذا العميل غير مسند لك'}",
     "rules": [
      "customerId في المسار = معرّف العميل",
-     "price صافٍ قبل الضريبة وهو السعر المرجعي للعميل بدل basePrice",
+     "price صافٍ قبل الضريبة ولوحدة الأساس، وهو السعر المرجعي للعميل بدل basePrice. سعر وحدة أكبر للعميل = price × factor",
      "تُستبعد أسعار الأصناف المؤرشفة",
      "عميل غير موجود يعيد قائمة فارغة لا 404 (للمستخدم غير المقيد)",
      "ضبط هذه الأسعار يتم عبر PUT /customers/:id/prices في مجموعة العملاء لا هنا"
@@ -1204,7 +1407,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
  {
   "key": "invoices",
   "title": "الفواتير والمرتجعات والإشعارات",
-  "overview": "كل المسارات تحت /api/invoices وتعمل بمفتاح الشركة (Authorization: Bearer fsk_… أو X-API-Key) بهوية المستخدم الذي أصدره. كل طلب يمر أولاً بحارس النظام المحاسبي: إذا كان accountingEnabled=false للشركة يرجع 403 بالرمز ACCOUNTING_NOT_ALLOWED. بعده كل المسارات تحتاج صلاحية canManageInvoices ما عدا GET /invoices/open الذي يحتاج canManageReceipts. الصلاحية ترفض فقط إذا كانت قيمتها false في حساب المستخدم، والرفض يرجع 403. ولأن مسارات الفوترة الإلكترونية (/einvoice/*) مركبة على نفس البادئة بعد موجّه الفواتير، فهي تمر بنفس الحارسين وتضيف requireAdmin، أي أن الدور يجب أن يكون ADMIN أو MANAGER أو ACCOUNTANT. نطاق المستخدم المقيّد (قوائم عملاء ومناديب) يُطبَّق على كل قراءة وكتابة، وما يقع خارج النطاق يرجع 404 أو 403. المفتاح المحدد «قراءة فقط» لا يقبل إلا GET وHEAD، وأي طريقة أخرى ترجع 403 بالرمز API_KEY_FORBIDDEN. حد الطلبات 120 طلباً في الدقيقة لكل مفتاح، ويرجع 429 بالرمز API_RATE_LIMIT مع ترويسة Retry-After. المفتاح معفى من الحد العام لـ/api. الترقيم يتم تلقائياً: الفاتورة INV-YYMM-000001 والمرتجع أو الإشعار الدائن RET-YYMM-000001، والتسلسل منفصل لكل شركة. الشركات المربوطة بالمرحلة الثانية من زاتكا (zatcaPhase2StartedAt مضبوط): يجب أن ترسل الترويسة X-FS-Caps: zatca2 في الإصدار وفي قراءة أي صف zatcaPhase=2 وفي الإشعارات وفي إعادة الإصدار، وبدونها يرجع 426 بالرمز ZATCA_CLIENT_UPDATE_REQUIRED. الترويسة تعني أن نظامك يطبع QR المرحلة الثانية من data.einvoice.qr ويحترم الحقل printable. لا ترسل X-FS-Replay، فهي خاصة بصندوق تطبيق المندوب حين يعمل دون اتصال، والخادم يمحوها من طلبات المفتاح فيُحكم عليها حكم الطلب الحيّ دائماً. شكل الأخطاء: أخطاء التحقق ترجع 400 بالشكل {success:false, message, errors:{field:[...]}}. أخطاء زاتكا ترجع {success, code, message, issues?, errors?, data?, reason?, customerId?}، وsuccess=true فيها فقط عندما يكون الرمز 202. الأخطاء العامة ترجع {success:false, message}. ردود النجاح شكلها {success:true, data}، وتضاف pagination في القوائم المرقّمة",
+  "overview": "كل المسارات تحت /api/invoices وتعمل بمفتاح الشركة (Authorization: Bearer fsk_… أو X-API-Key) بهوية المستخدم الذي أصدره. كل طلب يمر أولاً بحارس النظام المحاسبي: إذا كان accountingEnabled=false للشركة يرجع 403 بالرمز ACCOUNTING_NOT_ALLOWED. بعده كل المسارات تحتاج صلاحية canManageInvoices ما عدا GET /invoices/open الذي يحتاج canManageReceipts. الصلاحية ترفض فقط إذا كانت قيمتها false في حساب المستخدم، والرفض يرجع 403. ولأن مسارات الفوترة الإلكترونية (/einvoice/*) مركبة على نفس البادئة بعد موجّه الفواتير، فهي تمر بنفس الحارسين وتضيف requireAdmin، أي أن الدور يجب أن يكون ADMIN أو MANAGER أو ACCOUNTANT. نطاق المستخدم المقيّد (قوائم عملاء ومناديب) يُطبَّق على كل قراءة وكتابة، وما يقع خارج النطاق يرجع 404 أو 403. المفتاح المحدد «قراءة فقط» لا يقبل إلا GET وHEAD، وأي طريقة أخرى ترجع 403 بالرمز API_KEY_FORBIDDEN. حد الطلبات 120 طلباً في الدقيقة لكل مفتاح، ويرجع 429 بالرمز API_RATE_LIMIT مع ترويسة Retry-After. المفتاح معفى من الحد العام لـ/api. الترقيم يتم تلقائياً: الفاتورة INV-YYMM-000001 والمرتجع أو الإشعار الدائن RET-YYMM-000001، والتسلسل منفصل لكل شركة. الشركات المربوطة بالمرحلة الثانية من زاتكا (zatcaPhase2StartedAt مضبوط): يجب أن ترسل الترويسة X-FS-Caps: zatca2 في الإصدار وفي قراءة أي صف zatcaPhase=2 وفي الإشعارات وفي إعادة الإصدار، وبدونها يرجع 426 بالرمز ZATCA_CLIENT_UPDATE_REQUIRED. الترويسة تعني أن نظامك يطبع QR المرحلة الثانية من data.einvoice.qr ويحترم الحقل printable. لا ترسل X-FS-Replay، فهي خاصة بصندوق تطبيق المندوب حين يعمل دون اتصال، والخادم يمحوها من طلبات المفتاح فيُحكم عليها حكم الطلب الحيّ دائماً. شكل الأخطاء: أخطاء التحقق ترجع 400 بالشكل {success:false, message, errors:{field:[...]}}. أخطاء زاتكا ترجع {success, code, message, issues?, errors?, data?, reason?, customerId?}، وsuccess=true فيها فقط عندما يكون الرمز 202. الأخطاء العامة ترجع {success:false, message}. ردود النجاح شكلها {success:true, data}، وتضاف pagination في القوائم المرقّمة\nالوحدات المتعددة: كمية كل بند qty بوحدة البند وunitPrice لوحدة البند، ووحدته items[].unitId من units[].id للصنف (GET /products). غياب unitId أو null = وحدة الأساس بمعامل 1، فالتكامل الذي لا يعرف الوحدات يبقى كما هو ويرسل الكمية بوحدة الأساس. وكل بند في الردود والمزامنة يحمل لقطة وحدته لحظة كتابته: unitName (null = وحدة الأساس) وunitFactor (عدد وحدات الأساس فيها، 1 للأساس) وbaseQty = qty × unitFactor، والجمع والمقارنة والمخزون بـbaseQty وحده. وحدةٌ لا تخصّ الصنف أو موقوفة ترجع 400 UNIT_INVALID",
   "endpoints": [
    {
     "method": "GET",
@@ -1275,7 +1478,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "withItems",
       "type": "'1' | 'true'",
       "required": false,
-      "desc": "تضمين بنود كل فاتورة مع product{name,unit}"
+      "desc": "تضمين بنود كل فاتورة مع product{name,unit}، وكل بند بلقطة وحدته unitName (تُملأ بوحدة الصنف للبند الذي بلا لقطة) وunitFactor وbaseQty"
      },
      {
       "name": "locationId",
@@ -1385,13 +1588,14 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:{id, number, invoiceDate, customerId, lines:[{saleItemId, productId, name, code, unit, sold, returned, returnable, refundUnitPrice, taxPct, shelfLife, expiresAt, expiredToday, returnBlocked}]}}",
+    "response": "{success:true, data:{id, number, invoiceDate, customerId, lines:[{saleItemId, productId, name, code, unit, sold, returned, returnable, refundUnitPrice, qty, unitName, unitFactor, soldBase, returnedBase, returnableBase, lineTotal, refundPerBase, product:{unit, units:[{id, name, factor, price, unitCode, isActive, sortOrder}]}, taxPct, shelfLife, expiresAt, expiredToday, returnBlocked}]}}",
     "rules": [
-     "saleItemId هو ما يُرسل في items[].invoiceItemId عند POST /invoices، وreturnable أقصى كمية تُقبل له الآن",
-     "refundUnitPrice ما دفعه العميل للوحدة شاملاً الضريبة بعد خصمي البند والفاتورة (إجمالي البند ÷ كميته، بأربع منازل)",
+     "saleItemId هو ما يُرسل في items[].invoiceItemId عند POST /invoices. وsold وreturned وreturnable بوحدة الأساس (unit = وحدة أساس الصنف)، وهي soldBase وreturnedBase وreturnableBase نفسها: بند «2 كرتون» من 24 يعطي sold = 48. وqty وunitName وunitFactor البند كما بيع (unitName null = الأساس)",
+     "refundUnitPrice هو refundPerBase بأربع منازل: ما دفعه العميل لوحدة الأساس شاملاً الضريبة بعد خصمي البند والفاتورة (lineTotal ÷ soldBase). للعرض وحده: مبلغ المرتجع المرتبط يحسبه الخادم عند الإصدار",
      "shelfLife وexpiresAt (YYYY-MM-DD) وexpiredToday لصنف مفعّلة صلاحيته: المنتهي يُقبل ويدخل مخزون السيارة «منتهي الصلاحية» فلا يُباع",
      "returnBlocked نص سبب الرفض إن كان قيد المرتجع للصنف يمنعه اليوم بتوقيت الشركة، وإلا null. للقيد وضعان (returnRuleMode) بحدٍّ بالأيام أو بنسبة من مدة الصلاحية (returnRuleMetric وreturnRuleValue): NEAR_EXPIRY «قرب الانتهاء» يقبل المرتجع إذا بقي من صلاحية ما بيع الحدُّ أو أقل والمنتهي يُقبل، وSTILL_VALID «ما زال صالحاً» يقبله إذا بقي الحدُّ أو أكثر والمنتهي يُرفض. وهو إرشاد للعرض: القرار للخادم عند الإصدار في POST /invoices، فيرجع 422 RETURN_RULE_BLOCKED برسالة «اسم الصنف: السبب»، ويوم المرتجع لطلب المفتاح invoiceDate إن أُرسل وإلا اليوم (clientCreatedAt لا يُقرأ للمفتاح)",
-     "فاتورة غير موجودة أو خارج النطاق 404، وفاتورة ليست بيعاً مؤكداً (مرتجع أو ملغاة أو إشعار) 422"
+     "فاتورة غير موجودة أو خارج النطاق 404، وفاتورة ليست بيعاً مؤكداً (مرتجع أو ملغاة أو إشعار) 422",
+     "الإرجاع بوحدة: أرسل الكمية بوحدة الأساس بلا unitId، أو بوحدة من product.units بمعرّفها unitId، ومجموع ما يُرجَع من البند بالأساس لا يتجاوز returnableBase (وإلا 422 RETURN_LINK_INVALID). حبةٌ من بند كرتون = {invoiceItemId, qty:1} بلا unitId. وصنفٌ بلا وحدات: الأرقام كما كانت قبل الميزة (المعامل 1)"
     ],
     "example": ""
    },
@@ -1408,11 +1612,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:{...أعمدة الفاتورة, customer{...كامل}, salesRep{id,name,phone}, installments[{seq,dueDate,amount,...}], items[{...,product{id,name,code,unit}}], receiptItems[{...,receipt{...}}], signature{image,repImage,createdAt}|null, einvoice? }}. الحقل einvoice يظهر لصفوف المرحلة الثانية فقط",
+    "response": "{success:true, data:{...أعمدة الفاتورة, customer{...كامل}, salesRep{id,name,phone}, installments[{seq,dueDate,amount,...}], items[{..., qty, unitName, unitFactor, baseQty, unitCode, product{id,name,code,unit}}], receiptItems[{...,receipt{...}}], signature{image,repImage,createdAt}|null, einvoice? }}. الحقل einvoice يظهر لصفوف المرحلة الثانية فقط",
     "rules": [
      "الحقل signature يحمل صور التوقيع PNG بصيغة base64 وقد يكون حجمها كبيراً",
      "الحقل einvoice.qr هو رمز QR الذي يُطبع، والحقل printable يبين هل يجوز تسليم المستند فاتورةً ضريبية. القياسية لا تُطبع قبل اعتماد الهيئة",
-     "المرجع"
+     "المرجع",
+     "البند يُعرض بلقطة وحدته «qty unitName»، وunitName null يعني وحدة الأساس لحظة كتابته فاعرض product.unit. وbaseQty = qty × unitFactor بوحدة الأساس"
     ],
     "example": ""
    },
@@ -1476,13 +1681,37 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "items[].qty",
       "type": "number > 0",
       "required": true,
-      "desc": "الكمية"
+      "desc": "الكمية بوحدة البند: كراتين لبند unitId وحدته كرتون، وبلا unitId بوحدة الأساس. والمخزون يتحرّك بـqty × factor"
+     },
+     {
+      "name": "items[].unitId",
+      "type": "string | null",
+      "required": false,
+      "desc": "وحدة البند من units[].id للصنف (GET /products أو مزامنة products). غيابه أو null = وحدة الأساس بمعامل 1. معرّفٌ لا يخصّ هذا الصنف (صنف آخر أو شركة أخرى) أو لوحدة موقوفة ⇒ 400 UNIT_INVALID. الخادم يحلّ المعامل والاسم ورمز الوحدة الضريبي من وحدات الصنف ولا يقبل معاملاً من الجسم"
+     },
+     {
+      "name": "items[].unitName",
+      "type": "string ≤ 64 | null",
+      "required": false,
+      "desc": "مع unitFactor وbaseUnitName: لقطة وحدة الجهاز لتطبيق المندوب حين يعيد رفع ما سجّله دون اتصال، فلا ترسلها من التكاملات. لطلب المفتاح لا تُكتب أبداً، وإن أرسلتها وخالفت ما يحلّه الخادم من unitId (الاسم أو المعامل أو اسم وحدة الأساس الحالية) رُدّ 400 UNIT_INVALID «تغيّرت وحدات الصنف — حدّث قائمة الأصناف»"
+     },
+     {
+      "name": "items[].unitFactor",
+      "type": "number | null",
+      "required": false,
+      "desc": "معامل وحدة الجهاز — انظر unitName: لا ترسله، والخادم يحلّ المعامل من unitId وحده"
+     },
+     {
+      "name": "items[].baseUnitName",
+      "type": "string ≤ 64 | null",
+      "required": false,
+      "desc": "اسم وحدة أساس الصنف على الجهاز لحظة الإصدار — انظر unitName: لا ترسله من التكاملات"
      },
      {
       "name": "items[].unitPrice",
       "type": "number >= 0",
       "required": true,
-      "desc": "سعر الوحدة. يكون صافياً قبل الضريبة إلا إذا كان pricesIncludeTax=true. في المرحلة الثانية السعر صفر يرجع 422"
+      "desc": "سعر وحدة البند (سعر الكرتون لبند بالكرتون). يكون صافياً قبل الضريبة إلا إذا كان pricesIncludeTax=true. في المرحلة الثانية السعر صفر يرجع 422"
      },
      {
       "name": "items[].discountPct",
@@ -1617,30 +1846,34 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "توقيع المندوب بنفس القيود"
      }
     ],
-    "response": "المرحلة الأولى: 201 {success:true, data:{...invoice, items[], customer{...}, installments[], signature}}. تكرار clientRef يرجع 200 {success:true, data:<الفاتورة القائمة>, idempotent:true}. المرحلة الثانية: الشكل نفسه مضافاً إليه data.einvoice. المبسّطة (02) ترجع 201. القياسية (01) تُرسل للاعتماد داخل الطلب بمهلة تقارب 20 ثانية، وترجع 201 إذا اعتُمدت، أو 202 ZATCA_CLEARANCE_PENDING إذا بقيت بانتظار الاعتماد (success:true وdata موجودة)، أو 422 ZATCA_REJECTED إذا رُفضت وأُبطلت (data.status=CANCELLED)، أو 202 ZATCA_CLEARED_NO_XML",
+    "response": "المرحلة الأولى: 201 {success:true, data:{...invoice, items[], customer{...}, installments[], signature}}. تكرار clientRef يرجع 200 {success:true, data:<الفاتورة القائمة>, idempotent:true}. المرحلة الثانية: الشكل نفسه مضافاً إليه data.einvoice. المبسّطة (02) ترجع 201. القياسية (01) تُرسل للاعتماد داخل الطلب بمهلة تقارب 20 ثانية، وترجع 201 إذا اعتُمدت، أو 202 ZATCA_CLEARANCE_PENDING إذا بقيت بانتظار الاعتماد (success:true وdata موجودة)، أو 422 ZATCA_REJECTED إذا رُفضت وأُبطلت (data.status=CANCELLED)، أو 202 ZATCA_CLEARED_NO_XML. وكل بند في data.items يحمل لقطة وحدته: qty وunitName (null = الأساس) وunitFactor وbaseQty وunitCode",
     "rules": [
      "الحساب: خصم الفاتورة يوزَّع على البنود قبل الضريبة، والإجمالي يساوي مجموع صافي البنود، والتقريب نصف لأعلى بعدد خانات عملة الشركة",
      "الأثر المحاسبي: CREDIT يرفع رصيد العميل بالإجمالي ويضع paidAmt=0 وremainingAmt=total. CASH يسجّل قيدين (مدين ثم تحصيل) فلا يتغير الرصيد، ويضع paidAmt=total وremainingAmt=0. RETURN ينقص رصيد العميل وtotalSales ويضع paid=0 وremaining=0",
      "الحد الائتماني لا يمنع الإنشاء. إذا كان creditLimit>0 وتجاوزه الرصيد مع الإجمالي يُنشأ تنبيه CREDIT_LIMIT_EXCEEDED فقط",
      "العميل المحظور BLOCKED يرجع 400، والعميل أو المندوب خارج النطاق يرجع 403 أو 404",
      "قيود المندوب (حد الخصم وتغيير السعر والبيع بلا مخزون والأذونات) لا تنطبق على المفتاح، لأنها مشروطة بالدور SALES_REP. لذلك المفتاح يستطيع البيع بأكثر من مخزون السيارة",
-     "مخزون السيارة يُحسب من الفواتير المؤكدة لكل مندوب: البيع ينقصه، والمرتجع الذي returnToStock=true له يعيده",
+     "مخزون السيارة يُحسب من الفواتير المؤكدة لكل مندوب بوحدة الأساس (qty × unitFactor): البيع ينقصه، والمرتجع الذي returnToStock=true له يعيده",
      "منع التكرار: إذا وُجدت فاتورة بنفس clientRef تُعاد كما هي مع idempotent:true ولا يُعاد الحساب، ولو اختلف الجسم. والطلبان المتزامنان يحسمهما القيد الفريد",
      "التقسيط: الخادم يبني الجدول من الإجمالي المحسوب، والفارق يحمله القسط الأخير، والمجموع يجب أن يساوي الإجمالي وإلا 400",
-     "المرحلة الثانية: المرتجع يصبح إشعاراً دائناً مرتبطاً بالأصل. أسعاره وضريبته تؤخذ من بنود الأصل، ويُتجاهل unitPrice المرسل. البند يُطابَق بـinvoiceItemId أو بالصنف إذا لم يتكرر في الأصل، وإلا 422. والكمية محدودة بما لم يُرجَع بعد",
+     "المرحلة الثانية: المرتجع يصبح إشعاراً دائناً مرتبطاً بالأصل. أسعاره وضريبته تؤخذ من بنود الأصل، ويُتجاهل unitPrice المرسل. البند يُطابَق بـinvoiceItemId أو بالصنف إذا لم يتكرر في الأصل، وإلا 422. والكمية محدودة بما لم يُرجَع بعد (المقارنة بوحدة الأساس، والكمية بوحدة unitId)",
      "المرحلة الثانية: العميل الذي لديه رقم ضريبي أو سجل تجاري أو نوع BUSINESS/GOVERNMENT تصدر له فاتورة قياسية (01) تحتاج بيانات مشترٍ كاملة، وإلا 422 ZATCA_BUYER_INCOMPLETE مع data.fields. وغيره تصدر له مبسّطة (02)",
      "المرحلة الثانية: إرسال clientCreatedAt دون clientRef يرجع 426. وخلال فترة تسليح التفعيل قد يرجع 409 ZATCA_GO_LIVE_ARMING لمستند يحمل clientCreatedAt",
      "أخطاء زاتكا الأخرى: 503 ZATCA_UNIT_UNAVAILABLE أو UNIT_BUSY أو STAMP_FAILED (أعد المحاولة بنفس clientRef)، و422 ZATCA_AMOUNTS أو PREFLIGHT أو CURRENCY",
      "مثال تقسيط: {\"customerId\":\"…\",\"salesRepId\":\"…\",\"type\":\"CREDIT\",\"paymentPlan\":\"INSTALLMENT\",\"installmentPlan\":{\"count\":3,\"firstDueDate\":\"2026-11-01\",\"period\":\"MONTHLY\"},\"items\":[{\"productId\":\"…\",\"qty\":10,\"unitPrice\":120}]}",
      "ختم الموقع (ميزة «لوكيشن»): الخادم يكتب locationId بموقع المندوب لحظة الإصدار إن كانت الميزة مفعّلة للشركة، والمرتجع من فاتورة بيع يرث ختمها. لا حقل له في الجسم",
-     "المرتجع من فاتورة بيع (المرحلة الأولى): اختر الفاتورة من GET /invoices/returnable-sales?customerId=… ثم بنودها من GET /invoices/:id/returnable. أرسل لكل بند invoiceItemId = saleItemId وunitPrice = refundUnitPrice وtaxPct من البند وdiscountPct = 0، ومع pricesIncludeTax = true وdiscountPct = 0 للفاتورة — فيساوي المرتجع ما دفعه العميل فعلاً. الخادم يتحقق من الربط والكميات ولا يتحقق من السعر، فالسعر الصافي بلا pricesIncludeTax يضيف الضريبة مرة ثانية",
+     "المرتجع من فاتورة بيع (المرحلة الأولى): اختر الفاتورة من GET /invoices/returnable-sales?customerId=… ثم بنودها من GET /invoices/:id/returnable. أرسل لكل بند invoiceItemId = saleItemId والكمية بوحدة unitId (وبلا unitId بوحدة الأساس، فحبةٌ من بند كرتون تُرسل بلا unitId)، بحيث لا يتجاوز مجموع ما يُرجَع من البند بالأساس returnable. الخادم يسعّر المرتجع المرتبط بنفسه من بند البيع: ما دفعه العميل فعلاً شاملاً الضريبة بعد خصمي البند والفاتورة لما يُرجَع، والباقي لآخر حبة (فإرجاع 24 حبة فرادى من كرتون = قيمة الكرتون تماماً)، ويُكتب المستند شاملاً للضريبة بلا خصم فاتورة. لذلك يُهمل unitPrice وdiscountPct وpricesIncludeTax المرسلة للمرتجع المرتبط، ويبقى unitPrice إلزامياً في المخطط",
      "قيد المرتجع للصنف (منتج مفعّلة صلاحيته وقيد إرجاعه returnRuleEnabled): مرتجع فيه صنف يمنع قيدُه إرجاعه يرجع 422 RETURN_RULE_BLOCKED برسالة «اسم الصنف: السبب»، لأي مُصدِر ومنه المفتاح وفي المرحلتين، مرتبطاً بفاتورة بيع كان أو حرّاً. للقيد وضعان (returnRuleMode) بحدٍّ بالأيام أو بنسبة من مدة الصلاحية: NEAR_EXPIRY «قرب الانتهاء» يقبل المرتجع إذا بقي من صلاحية ما بيع الحدُّ أو أقل والمنتهي يُقبل، وSTILL_VALID «ما زال صالحاً» يقبله إذا بقي الحدُّ أو أكثر والمنتهي يُرفض. يُقاس على بند البيع المرتبط، وإلا آخر بيع للصنف لهذا العميل حتى invoiceDate. ويوم المرتجع لطلب المفتاح invoiceDate إن أُرسل وإلا اليوم بتوقيت الشركة، وclientCreatedAt لا يُقرأ للمفتاح هنا ولا في وسم صلاحية البنود ولا يُخزَّن (هو لحظة جهاز تطبيق المندوب حين يرفع ما سجّله دون اتصال). وبيع لا يُعرف انتهاؤه لا يُرفض به",
      "أخطاء الربط: 422 RETURN_LINK_INVALID (بند ليس من الفاتورة، أو صنف مختلف، أو كمية فوق المتاح، أو فاتورة ليست بيعاً مؤكداً للعميل نفسه)، و409 بالرمز نفسه حين يسبقك مرتجع متزامن على الكمية نفسها، و404 «فاتورة البيع الأصلية غير موجودة» لفاتورة خارج نطاق صاحب المفتاح",
      "مثال مرتجع حرّ بلا فاتورة بيع (المرحلة الأولى): {\"customerId\":\"…\",\"salesRepId\":\"…\",\"type\":\"RETURN\",\"returnReason\":\"DAMAGED\",\"returnToStock\":false,\"items\":[{\"productId\":\"…\",\"qty\":2,\"unitPrice\":5}]}",
-     "مثال مرتجع من فاتورة بيع (المرحلة الأولى): {\"customerId\":\"…\",\"salesRepId\":\"…\",\"type\":\"RETURN\",\"returnReason\":\"NORMAL\",\"originalInvoiceId\":\"<id فاتورة البيع>\",\"pricesIncludeTax\":true,\"discountPct\":0,\"items\":[{\"productId\":\"…\",\"invoiceItemId\":\"<saleItemId>\",\"qty\":1,\"unitPrice\":103.5,\"discountPct\":0,\"taxPct\":15}]}",
-     "مثال مرتجع في المرحلة الثانية: الجسم نفسه مع noteReason (3 أحرف على الأقل). الأسعار والضريبة تؤخذ من بنود الأصل ويُهمل unitPrice المرسل، لكنه يبقى إلزامياً في المخطط"
+     "مثال مرتجع من فاتورة بيع (المرحلة الأولى): {\"customerId\":\"…\",\"salesRepId\":\"…\",\"type\":\"RETURN\",\"returnReason\":\"NORMAL\",\"originalInvoiceId\":\"<id فاتورة البيع>\",\"pricesIncludeTax\":true,\"discountPct\":0,\"items\":[{\"productId\":\"…\",\"invoiceItemId\":\"<saleItemId>\",\"qty\":1,\"unitPrice\":103.5,\"discountPct\":0,\"taxPct\":15}]}. وحبّتان من بند بيع بالكرتون: البند نفسه بـ\"qty\":2 بلا unitId (والسعر يحسبه الخادم)",
+     "مثال مرتجع في المرحلة الثانية: الجسم نفسه مع noteReason (3 أحرف على الأقل). الأسعار والضريبة تؤخذ من بنود الأصل ويُهمل unitPrice المرسل، لكنه يبقى إلزامياً في المخطط",
+     "الوحدات: الخادم يحلّ وحدة كل بند من unitId ويكتب لقطتها (unitName وunitFactor وunitCode وbaseQty)، فبند {\"qty\":2,\"unitId\":\"<كرتون 24>\"} يخصم 48 حبة من مخزون السيارة. والكرتون والحبة من الصنف نفسه في فاتورة واحدة يُجمعان بالأساس",
+     "رمز وحدة البند unitCode (للفوترة الإلكترونية): units[].unitCode للوحدة، وإلا رمز الصنف، وإلا PCE. والكمية والسعر في المستند الضريبي بوحدة البند",
+     "سعر الوحدة الأكبر: units[].price المحدد، وإلا basePrice × factor. وفي حارس سعر المندوب (لا ينطبق على المفتاح) يُضرب سعر العميل الخاص وأقل سعر شريحة بمعامل البند",
+     "400 {success:false, code:'UNIT_INVALID', message}: وحدة لا تخصّ الصنف أو موقوفة أو لقطة تخالف الخادم. لا يُكتب شيء، فأعد سحب الأصناف وصحّح البند ثم أعد الإرسال بنفس clientRef"
     ],
-    "example": "{\"customerId\":\"8f1c2a4e-1b2c-4d5e-9f00-112233445566\",\"salesRepId\":\"2b7e9d10-3c4d-4e5f-8a90-aabbccddeeff\",\"type\":\"CASH\",\"pricesIncludeTax\":true,\"items\":[{\"productId\":\"a1d2c3b4-0000-4000-8000-000000000001\",\"qty\":12,\"unitPrice\":5.75},{\"productId\":\"a1d2c3b4-0000-4000-8000-000000000002\",\"qty\":2,\"unitPrice\":34.5,\"discountPct\":5}],\"notes\":\"طلب من نظام ERP\",\"clientRef\":\"3f2b8c1e-6a4d-4e2b-9c7a-1d2e3f4a5b6c\"}"
+    "example": "{\"customerId\":\"8f1c2a4e-1b2c-4d5e-9f00-112233445566\",\"salesRepId\":\"2b7e9d10-3c4d-4e5f-8a90-aabbccddeeff\",\"type\":\"CASH\",\"pricesIncludeTax\":true,\"items\":[{\"productId\":\"a1d2c3b4-0000-4000-8000-000000000001\",\"qty\":12,\"unitPrice\":5.75},{\"productId\":\"a1d2c3b4-0000-4000-8000-000000000002\",\"qty\":2,\"unitId\":\"5e6f7a8b-0000-4000-8000-0000000000c6\",\"unitPrice\":34.5,\"discountPct\":5}],\"notes\":\"طلب من نظام ERP\",\"clientRef\":\"3f2b8c1e-6a4d-4e2b-9c7a-1d2e3f4a5b6c\"}"
    },
    {
     "method": "PATCH",
@@ -1680,10 +1913,10 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:{invoiceId, number, subtype, documentKind, einvoiceStatus, total, remainingAmt, creditedTotal, legacyReturnsApplied, eligible, refusal, messageAr, lines:[{invoiceItemId, seq, productId, itemName, unitCode, qty, credited, legacyCredited, returnable, unitPrice, discountPct, taxPct, vatCategory, vatExemptionCode, vatExemptionReason, damagedReturnToStock}], permissions:{full, partial, debit}}}",
+    "response": "{success:true, data:{invoiceId, number, subtype, documentKind, einvoiceStatus, total, remainingAmt, creditedTotal, legacyReturnsApplied, eligible, refusal, messageAr, lines:[{invoiceItemId, seq, productId, itemName, unitCode, qty, credited, legacyCredited, returnable, lineQty, unitPrice, discountPct, taxPct, vatCategory, vatExemptionCode, vatExemptionReason, damagedReturnToStock, unitName, unitFactor, baseUnitName, units:[{id, name, factor, unitCode, isActive}], soldBase, creditedBase, legacyCreditedBase, returnableBase}], permissions:{full, partial, debit}}}",
     "rules": [
      "الشركة في المرحلة الأولى ترجع 409 مع رسالة أن الإشعارات للشركات المربوطة، وعندها سجّل مرتجعاً عادياً عبر POST /invoices",
-     "returnable = qty − credited − legacyCredited. المرتجعات القديمة غير المرتبطة تُخصم فقط لأصل من المرحلة الأولى",
+     "returnable = qty − credited − legacyCredited، وكلها بوحدة الأساس (وهي soldBase وcreditedBase وlegacyCreditedBase وreturnableBase نفسها). والبند كما بيع: lineQty بوحدته وunitPrice لوحدته وunitName وunitFactor (null و1 = الأساس)، وbaseUnitName اسم وحدة الأساس، وunits وحدات الصنف لإشعار بوحدة أخرى. المرتجعات القديمة غير المرتبطة تُخصم فقط لأصل من المرحلة الأولى",
      "استعمل lines[].invoiceItemId في POST /invoices/:id/credit-note",
      "المرجع"
     ],
@@ -1725,7 +1958,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "lines[].qty",
       "type": "number > 0",
       "required": true,
-      "desc": "الكمية المرتجعة، ولا تتجاوز returnable"
+      "desc": "الكمية المرتجعة بوحدة unitId، وبلا unitId بوحدة الأساس. مجموع ما يُطلب من البند بالأساس لا يتجاوز returnable (بالأساس)"
+     },
+     {
+      "name": "lines[].unitId",
+      "type": "string | null",
+      "required": false,
+      "desc": "وحدة الإرجاع من units[].id في creditable: وحدة البند نفسها تُرجَع بمعامل لقطته ولو تغيّر معاملها أو أُوقفت بعد البيع. غيابه أو null أو معرّف لا يخصّ الصنف = وحدة الأساس. البند الواحد يُطلب بوحدتين في سطرين («1 كرتون و3 حبة»)، والمكرر بالوحدة نفسها يرجع 422"
      },
      {
       "name": "reasonCode",
@@ -1755,7 +1994,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "response": "201 {success:true, data:{...صف الإشعار (type=RETURN, documentKind=CREDIT_NOTE, number=RET-YYMM-######, originalInvoiceId, items, customer), einvoice:{...}, original:{id, number, remainingAmt, customerCredit, creditedTotal}}}. إذا كان الأصل قياسياً (01) يُعتمد داخل الطلب: 201 أو 202 بانتظار الاعتماد أو 422 مرفوض ومُبطل. تكرار clientRef يرجع 200 مع idempotent:true",
     "rules": [
      "الأصل يجب أن يكون فاتورة CASH أو CREDIT مؤكدة، وليس إشعاراً (وإلا 409 ZATCA_NOTE_ON_NOTE). وإذا كان من المرحلة الثانية فيجب أن يكون معتمداً أو مبلغاً (وإلا 409 ZATCA_ORIGINAL_NOT_CLEARED). الإشعار مسموح على أصل من المرحلة الأولى",
-     "الأسعار والضريبة والخصم الكلي من الأصل، ولا تُرسل أسعاراً",
+     "الأسعار والضريبة والخصم الكلي من الأصل، ولا تُرسل أسعاراً. وسعر وحدة غير وحدة البند (حبة من بند كرتون) حصّتها من قيمة البند، فإرجاع الكرتون حبةً حبةً في إشعارات متفرقة يساوي قيمته تماماً، ورمز وحدة بند الإشعار رمز الوحدة المُرجَع بها",
      "الكمية الزائدة ترجع 422 ZATCA_CREDIT_QTY_EXCEEDED، وإذا كانت كل الكميات مرتجعة سابقاً يرجع 409 ZATCA_NOTHING_TO_CREDIT",
      "الأثر: ينقص remainingAmt للأصل بفرق نسبي بقيمة min(الإجمالي، المتبقي)، والزائد يصبح رصيداً دائناً للعميل. يُسجَّل قيد مرتجع فينقص رصيد العميل، وتُبطل روابط دفع الأصل",
      "الإشعار يُنسب لمندوب الأصل لأن المفتاح لا يملك هوية مندوب، والكميات تعود لمخزون ذلك المندوب حسب returnToStock",
@@ -2424,7 +2663,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "الترتيب حسب entryDate ثم createdAt ثم debit تنازلياً ثم id، فالفاتورة النقدية تظهر قبل سدادها",
      "الصيغة غير YYYY-MM-DD تُعامل بالسلوك القديم: new Date للبداية، ونهاية اليوم بتوقيت الخادم للنهاية",
      "لا ترقيم صفحات، فكل حركات الفترة تعود دفعة واحدة",
-     "الصلاحية المطلوبة canManageCustomers لا canManageReceipts"
+     "الصلاحية المطلوبة canManageCustomers لا canManageReceipts",
+     "بنود الفواتير في الكشف بلقطة وحدة كل بند: qty بوحدته وunitName (null = وحدة الأساس، فاعرض product.unit) وunitFactor وbaseQty. والأرصدة من القيود بالمبالغ فلا تمسّها الوحدة"
     ],
     "example": ""
    }
@@ -3106,7 +3346,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
  {
   "key": "stock",
   "title": "مخزون السيارات ومخزون الشركة",
-  "overview": "وحدتان مترابطتان. الأولى مخزون سيارات المناديب (/van-stock)، ورصيده لا يُخزَّن بل يُحسب في كل طلب: التحميل − التنزيل + التسوية − المبيع + المرتجع العائد للمخزون. والثانية مستودع الشركة المركزي (/warehouse)، ورصيده محسوب أيضاً: الوارد + تسويات المستودع + العائد من السيارات − المحمَّل للسيارات، مع تقييم بتكلفة الشراء الصافية قبل الضريبة. لذلك فتحميل سيارة عبر POST /van-stock/loads ينقص المستودع تلقائياً، وتنزيلها يعيد الكمية إليه.\nالحراس على كل مسارات /van-stock: يجب ألا يكون النظام المحاسبي مطفأً (accountingEnabled، والرفض 403 برمز ACCOUNTING_NOT_ALLOWED)، ويجب أن يملك صاحب المفتاح صلاحية canManageVanStock (والرفض 403). ويُطبَّق كذلك نطاق المناديب المحدد لصاحب المفتاح إن كان مقيَّداً.\nمسارات /warehouse تشترط الشيئين نفسيهما وتفعيل ميزة مخزون الشركة (warehouseEnabled، وهي مطفأة افتراضياً)، بهذا الترتيب: صلاحية canManageVanStock أولاً (403 بلا code، فيأتي ولو كان النظام المحاسبي مطفأً)، ثم النظام المحاسبي (403 ACCOUNTING_NOT_ALLOWED)، ثم عَلَم المستودع (403 بلا code برسالة «ميزة مخزون الشركة غير مفعلة لهذه الشركة»).\nالمفتاح المضبوط على «قراءة فقط» لا يمرّ إلا بطلبات GET.\nلكل قائمة في هذه المجموعة سقف ثابت: سجل المستودع آخر 100 حركة، وسجل التحميلات آخر 100 حركة ما لم تُرسل page فيُرقَّم بحدّ 200. للتاريخ الكامل استعمل مسارات المزامنة /v1/sync/van-loads و/v1/sync/warehouse-entries.\nلا يوجد مسار لتعديل الحركات أو حذفها، والتصحيح يكون بحركة معاكسة أو بتسوية. ولا يوجد clientRef، فإعادة إرسال طلب الكتابة تُنشئ حركة مكررة.\nطلبات البضاعة (/rep-stock-requests): المندوب الذي لا يملك صلاحية التحميل يرفع من تطبيقه ما يحتاجه، فيظهر للإدارة في «طلب مخزون» بصفحة مخزون الشركة. بمفتاح الشركة تقرأ المعلّقة وتعدّل الكميات المعتمدة وترسل الطلب العام أو ترفض. الطلب لا يمسّ أي رصيد، وكل كتابة ترسل نسخة الطلب updatedAt كما قرأتها (409 إن تغيّر). وحراسها بالترتيب: النظام المحاسبي (403 ACCOUNTING_NOT_ALLOWED) ثم canManageVanStock ثم العَلَم (403 WAREHOUSE_NOT_ENABLED).\nالحد 120 طلباً في الدقيقة لكل مفتاح، ويظهر في رؤوس X-RateLimit-*",
+  "overview": "وحدتان مترابطتان. الأولى مخزون سيارات المناديب (/van-stock)، ورصيده لا يُخزَّن بل يُحسب في كل طلب: التحميل − التنزيل + التسوية − المبيع + المرتجع العائد للمخزون. والثانية مستودع الشركة المركزي (/warehouse)، ورصيده محسوب أيضاً: الوارد + تسويات المستودع + العائد من السيارات − المحمَّل للسيارات، مع تقييم بتكلفة الشراء الصافية قبل الضريبة. لذلك فتحميل سيارة عبر POST /van-stock/loads ينقص المستودع تلقائياً، وتنزيلها يعيد الكمية إليه.\nالحراس على كل مسارات /van-stock: يجب ألا يكون النظام المحاسبي مطفأً (accountingEnabled، والرفض 403 برمز ACCOUNTING_NOT_ALLOWED)، ويجب أن يملك صاحب المفتاح صلاحية canManageVanStock (والرفض 403). ويُطبَّق كذلك نطاق المناديب المحدد لصاحب المفتاح إن كان مقيَّداً.\nمسارات /warehouse تشترط الشيئين نفسيهما وتفعيل ميزة مخزون الشركة (warehouseEnabled، وهي مطفأة افتراضياً)، بهذا الترتيب: صلاحية canManageVanStock أولاً (403 بلا code، فيأتي ولو كان النظام المحاسبي مطفأً)، ثم النظام المحاسبي (403 ACCOUNTING_NOT_ALLOWED)، ثم عَلَم المستودع (403 بلا code برسالة «ميزة مخزون الشركة غير مفعلة لهذه الشركة»).\nالمفتاح المضبوط على «قراءة فقط» لا يمرّ إلا بطلبات GET.\nلكل قائمة في هذه المجموعة سقف ثابت: سجل المستودع آخر 100 حركة، وسجل التحميلات آخر 100 حركة ما لم تُرسل page فيُرقَّم بحدّ 200. للتاريخ الكامل استعمل مسارات المزامنة /v1/sync/van-loads و/v1/sync/warehouse-entries.\nلا يوجد مسار لتعديل الحركات أو حذفها، والتصحيح يكون بحركة معاكسة أو بتسوية. ولا يوجد clientRef، فإعادة إرسال طلب الكتابة تُنشئ حركة مكررة.\nطلبات البضاعة (/rep-stock-requests): المندوب الذي لا يملك صلاحية التحميل يرفع من تطبيقه ما يحتاجه، فيظهر للإدارة في «طلب مخزون» بصفحة مخزون الشركة. بمفتاح الشركة تقرأ المعلّقة وتعدّل الكميات المعتمدة وترسل الطلب العام أو ترفض. الطلب لا يمسّ أي رصيد، وكل كتابة ترسل نسخة الطلب updatedAt كما قرأتها (409 إن تغيّر). وحراسها بالترتيب: النظام المحاسبي (403 ACCOUNTING_NOT_ALLOWED) ثم canManageVanStock ثم العَلَم (403 WAREHOUSE_NOT_ENABLED).\nالحد 120 طلباً في الدقيقة لكل مفتاح، ويظهر في رؤوس X-RateLimit-*\nالوحدات المتعددة: كل رصيد وكمية مجمّعة في هذه المجموعة بوحدة الأساس للصنف (unit، أصغر ما يُباع): remaining وloaded وsold في السيارة، وonHand وreceived في المستودع، وأرقام الاقتراح والدقة، ومجاميع الملخّصات عبر الأصناف (حبّات لا كراتين). وتُرفق units (وحدات الصنف {id, name, factor, isActive}) بصفوف الأرصدة ليعرضها نظامكم «2 كرتون و3 حبة». ومسارات الكتابة (POST /van-stock/loads وPOST /warehouse/entries وتعديل طلب البضاعة) تقبل items[].unitId من units[].id للصنف، فتكون qty بوحدته (وunitCost لوحدته في الوارد)، ويكتب الخادم لقطتها unitName وunitFactor وbaseQty = qty × unitFactor. غياب unitId = وحدة الأساس كما قبل الميزة. ومزامنة /v1/sync/van-loads و/v1/sync/warehouse-entries تحمل اللقطة نفسها في كل بند: اجمع baseQty لا qty",
   "endpoints": [
    {
     "method": "POST",
@@ -3155,22 +3395,28 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "items[].qty",
       "type": "number",
       "required": true,
-      "desc": "الكمية. في LOAD وUNLOAD أرسلها موجبة. في ADJUST الموجب يزيد رصيد السيارة والسالب ينقصه. البند الذي كميته صفر يُحذف"
+      "desc": "الكمية بوحدة البند (unitId)، وبلا unitId بوحدة الأساس. في LOAD وUNLOAD أرسلها موجبة. في ADJUST الموجب يزيد رصيد السيارة والسالب ينقصه. البند الذي كميته صفر يُحذف"
+     },
+     {
+      "name": "items[].unitId",
+      "type": "string | null",
+      "required": false,
+      "desc": "وحدة البند من units[].id للصنف (GET /products). غيابه أو null = وحدة الأساس بمعامل 1. الخادم يحلّ المعامل من وحدات الصنف، والرصيد يتحرّك بـqty × factor. تنبيه: في هذا المسار معرّفٌ لا يخصّ الصنف أو لوحدة موقوفة يُقرأ وحدةَ أساس بمعامل 1 بلا رفض، فتحقّق منه قبل الإرسال"
      },
      {
       "name": "items[].suggestedQty",
       "type": "number",
       "required": false,
-      "desc": "كمية التعبئة المقترحة (حقل suggested من /van-stock/suggest)، تُحفظ لقياس تبنّي الاقتراح"
+      "desc": "كمية التعبئة المقترحة (حقل suggested من /van-stock/suggest)، تُحفظ لقياس تبنّي الاقتراح. بوحدة الأساس دائماً مهما كانت وحدة البند"
      },
      {
       "name": "items[].expectedQty",
       "type": "number",
       "required": false,
-      "desc": "التنبؤ اليومي (حقل expected من /van-stock/suggest)، وهو مرجع قياس الدقة في /accuracy. بدونه يُعدّ البند غير مقاس"
+      "desc": "التنبؤ اليومي (حقل expected من /van-stock/suggest)، وهو مرجع قياس الدقة في /accuracy. بدونه يُعدّ البند غير مقاس. بوحدة الأساس دائماً"
      }
     ],
-    "response": "201 {success:true, data:{id, tenantId, salesRepId, deletedSalesRepId, type, note, createdBy:'ADMIN', createdAt, items:[{id, vanLoadId, productId, qty, suggestedQty, expectedQty, product:{id,name,unit}}]}}",
+    "response": "201 {success:true, data:{id, tenantId, salesRepId, deletedSalesRepId, type, note, createdBy:'ADMIN', createdAt, items:[{id, vanLoadId, productId, qty, unitName, unitFactor, baseQty, suggestedQty, expectedQty, product:{id,name,unit}}]}}",
     "rules": [
      "البنود التي كميتها صفر تُحذف، فإن لم يبقَ بند يُرَدّ 400 «لا توجد كميات صالحة»",
      "أي صنف لا يتبع الشركة يعطي 400 «منتج غير صالح»",
@@ -3179,13 +3425,14 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "الأثر على المستودع: LOAD ينقص onHand في المستودع، وUNLOAD يعيد الكمية إليه بكلفة خروجها من نفس السيارة (آخر ما حُمّل أول ما يعود)، وADJUST لا يمسّ المستودع",
      "الإدارة لا قيد عليها في إشارة qty، فـLOAD أو UNLOAD بكمية سالبة يُقبل ويعكس المعنى. أرسل الكميات موجبة دائماً",
      "createdBy يُسجَّل ADMIN لكل طلب من غير المندوب",
-     "EXPIRED_OUT وDAMAGED_OUT: كمياتٌ موجبة لا تتجاوز رصيد expired أو damaged للصنف في السيارة (وإلا 400)، ولا تمسّ remaining ولا المستودع",
+     "EXPIRED_OUT وDAMAGED_OUT: كمياتٌ موجبة لا يتجاوز مجموعها بالأساس رصيد expired أو damaged للصنف في السيارة (وإلا 400)، ولا تمسّ remaining ولا المستودع",
      "لا يوجد clientRef ولا حماية من التكرار، ولا مسار تعديل أو حذف. التصحيح يكون بحركة معاكسة أو تسوية",
      "إن غاب salesRepId يُرَدّ 400 برسالة «يجب تحديد المندوب»",
      "مندوب خارج نطاق صاحب المفتاح يُرَدّ عليه 404 برسالة «المندوب غير موجود»",
-     "ختم الموقع (ميزة «لوكيشن»): التحميل من النوع LOAD يُختم في الخادم بموقع المندوب لحظة التسجيل إن كانت الميزة مفعّلة، والأنواع الأخرى بلا ختم. لا حقل له في الجسم"
+     "ختم الموقع (ميزة «لوكيشن»): التحميل من النوع LOAD يُختم في الخادم بموقع المندوب لحظة التسجيل إن كانت الميزة مفعّلة، والأنواع الأخرى بلا ختم. لا حقل له في الجسم",
+     "التحميل بالكرتون: {\"productId\":\"…\",\"unitId\":\"<كرتون 24>\",\"qty\":2} يزيد السيارة 48 حبة (baseQty) وينقص المستودع 48، ويبقى البند مطبوعاً «2 كرتون»"
     ],
-    "example": "{\"salesRepId\":\"3f6c2a1e-8b4d-4c1a-9e2f-1a2b3c4d5e6f\",\"type\":\"LOAD\",\"note\":\"تحميل صباح الأحد\",\"items\":[{\"productId\":\"a1b2c3d4-0000-4000-8000-000000000001\",\"qty\":24,\"suggestedQty\":24,\"expectedQty\":20.5},{\"productId\":\"a1b2c3d4-0000-4000-8000-000000000002\",\"qty\":10}]}"
+    "example": "{\"salesRepId\":\"3f6c2a1e-8b4d-4c1a-9e2f-1a2b3c4d5e6f\",\"type\":\"LOAD\",\"note\":\"تحميل صباح الأحد\",\"items\":[{\"productId\":\"a1b2c3d4-0000-4000-8000-000000000001\",\"qty\":24,\"suggestedQty\":24,\"expectedQty\":20.5},{\"productId\":\"a1b2c3d4-0000-4000-8000-000000000002\",\"unitId\":\"5e6f7a8b-0000-4000-8000-0000000000c1\",\"qty\":2}]}"
    },
    {
     "method": "GET",
@@ -3206,7 +3453,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{productId, name, code, unit, loaded, unloaded, adjusted, sold, returned, remaining, expired, damaged}]}، مرتبة تنازلياً حسب remaining",
+    "response": "{success:true, data:[{productId, name, code, unit, loaded, unloaded, adjusted, sold, returned, remaining, expired, damaged, units:[{id, name, factor, isActive}]}]}، مرتبة تنازلياً حسب remaining",
     "rules": [
      "remaining = loaded − unloaded + adjusted − sold + returned، مقرّبة لأربع خانات، وتُحسب على كامل التاريخ",
      "sold هو بنود كل فاتورة مؤكدة (CONFIRMED) غير مرتجعة منسوبة لهذا المندوب، أياً كان من أنشأها",
@@ -3218,7 +3465,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "بنود الفاتورة التي لا صنف لها تُتجاهل",
      "معرّف مندوب غير موجود يعيد مصفوفة فارغة، ومندوب خارج النطاق يعيد 404 «المندوب غير موجود»",
      "salesRepId يُقبل نصاً واحداً فقط، وغير ذلك يُعامَل غائباً",
-     "لا ترقيم صفحات"
+     "لا ترقيم صفحات",
+     "كل الكميات بوحدة الأساس unit (تحميل كرتونين من 24 = loaded 48)، وunits وحدات الصنف للعرض: 51 حبة = «2 كرتون و3 حبة». صنفٌ بلا وحدات: units فارغة والأرقام كما كانت"
     ],
     "example": ""
    },
@@ -3259,7 +3507,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{rows:[{id, name, code, unit, expected, withBuffer, onVan, suggested, basis:'weekday'|'overall'|'none', sampleDays, activeDays, confidence:'high'|'medium'|'low', why}], meta:{targetDate, weekday, windowDays, bufferPct, dataDays, oldestSale, warning}, salesRep:{id,name}}}",
+    "response": "{success:true, data:{rows:[{id, name, code, unit, expected, withBuffer, onVan, suggested, basis:'weekday'|'overall'|'none', sampleDays, activeDays, confidence:'high'|'medium'|'low', why, units:[{id, name, factor, isActive}]}], meta:{targetDate, weekday, windowDays, bufferPct, dataDays, oldestSale, warning}, salesRep:{id,name}}}",
     "rules": [
      "معرّف الصنف في الصف يأتي باسم id لا productId",
      "الأصناف النشطة وحدها، وصنف بلا مبيعات في النافذة يأتي بقيمة صفر وbasis='none'",
@@ -3267,8 +3515,9 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "basis='weekday' إذا وُجد في النافذة يومان على الأقل من نفس يوم الأسبوع فيهما بيع، وإلا يُستخدم المتوسط اليومي العام",
      "withBuffer = ceil(expected × (1 + bufferPct/100))، وsuggested = max(0, withBuffer − onVan)، وonVan هو متبقي السيارة الحالي",
      "الترتيب تنازلي حسب suggested ثم expected",
-     "لتحويل الاقتراح إلى تحميل أرسل في POST /van-stock/loads: productId=row.id، وqty=row.suggested، وsuggestedQty=row.suggested، وexpectedQty=row.expected",
-     "meta.warning يكون نصاً عربياً حين تقل البيانات عن 14 يوماً"
+     "لتحويل الاقتراح إلى تحميل أرسل في POST /van-stock/loads: productId=row.id، وqty=row.suggested بلا unitId (الاقتراح بوحدة الأساس)، وsuggestedQty=row.suggested، وexpectedQty=row.expected. وللتحميل بالكرتون أرسل unitId وqty = suggested ÷ factor (مقرّباً لأعلى لكراتين كاملة) مع بقاء suggestedQty وexpectedQty بالأساس",
+     "meta.warning يكون نصاً عربياً حين تقل البيانات عن 14 يوماً",
+     "expected وwithBuffer وonVan وsuggested كلها بوحدة الأساس، وunits وحدات الصنف لعرضها بالكراتين"
     ],
     "example": ""
    },
@@ -3308,7 +3557,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "تُقاس حركات LOAD فقط، وبنود بلا expectedQty تُعدّ في unmeasured خارج القياس",
      "إن تكرر التحميل في اليوم نفسه يُعتمد الأول كمرجع للتنبؤ، والتالي يزيد loaded فقط",
      "actual هو المبيع ناقص المرتجع في اليوم، ولا ينزل تحت الصفر. وerror = actual − expected",
-     "adopted تعني أن الكمية المحمّلة تساوي suggestedQty (فرق أقل من 0.001)",
+     "adopted تعني أن المحمَّل بالأساس (مجموع baseQty) يساوي suggestedQty (فرق أقل من 0.001)، فتحميل «2 كرتون» لاقتراح 48 حبة تبنٍّ. وexpected وsuggested وloaded وactual كلها بوحدة الأساس",
      "اليوم الجاري open=true ولا يدخل في summary"
     ],
     "example": ""
@@ -3347,7 +3596,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "totalDamaged رصيد «المرتجع التالف» في السيارة حتى نهاية to، كالمتبقي",
      "toolsCount عدد الأدوات في عهدة السيارة الآن (المسلَّم − المستلَم) ولا يتبع المدة",
      "يشمل المناديب غير النشطين (راجع حقل isActive)",
-     "لا ترقيم صفحات، والقائمة تشمل كل المناديب في النطاق"
+     "لا ترقيم صفحات، والقائمة تشمل كل المناديب في النطاق",
+     "totalRemaining وtotalLoaded وtotalSold وtotalDamaged مجاميع عبر أصناف مختلفة بوحدات أساسها (حبّات)، فلا تُقرأ كراتين"
     ],
     "example": ""
    },
@@ -3441,12 +3691,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{id, tenantId, salesRepId, deletedSalesRepId, locationId, type, note, createdBy:'REP'|'ADMIN'|null, createdAt, items:[{id, vanLoadId, productId, qty, suggestedQty, expectedQty, product:{id,name,unit}}], salesRep:{id,name}, location:{id,name}|null}], pagination?:{total, page, limit, pages}}",
+    "response": "{success:true, data:[{id, tenantId, salesRepId, deletedSalesRepId, locationId, type, note, createdBy:'REP'|'ADMIN'|null, createdAt, items:[{id, vanLoadId, productId, qty, unitName, unitFactor, baseQty, suggestedQty, expectedQty, product:{id,name,unit}}], salesRep:{id,name}, location:{id,name}|null}], pagination?:{total, page, limit, pages}}",
     "rules": [
      "بلا page: آخر 100 حركة فقط، الأحدث أولاً، بلا pagination. ومع page: صفحات مرقّمة بحدّ 200. للتاريخ الكامل استعمل /v1/sync/van-loads",
      "location هو ختم موقع المندوب لحظة التحميل (حركات LOAD وحدها تُختم حين تفعّل الشركة ميزة «لوكيشن»)، ولا يتغيّر إن نُقل المندوب لاحقاً. وnull لما بلا ختم",
      "حركات مندوب محذوف تبقى وتظهر بـsalesRep={id:null, name:'مندوب محذوف'}، ولا يراها صاحب مفتاح مقيّد النطاق",
-     "salesRepId خارج النطاق يعطي 404 «المندوب غير موجود»"
+     "salesRepId خارج النطاق يعطي 404 «المندوب غير موجود»",
+     "qty بوحدة البند ولقطتها unitName (null = الأساس) وunitFactor، وbaseQty بالأساس لمن يجمع. وsuggestedQty وexpectedQty بالأساس دائماً"
     ],
     "example": ""
    },
@@ -3469,13 +3720,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{kind:'LOAD'|'UNLOAD'|'ADJUST'|'EXPIRED_OUT'|'DAMAGED_OUT'|'SALE'|'RETURN'|'RETURN_DAMAGED', date, ref, by, items:[{name, unit, qty}]}]}",
+    "response": "{success:true, data:[{kind:'LOAD'|'UNLOAD'|'ADJUST'|'EXPIRED_OUT'|'DAMAGED_OUT'|'SALE'|'RETURN'|'RETURN_DAMAGED', date, ref, by, items:[{name, unit, qty, baseQty}]}]}",
     "rules": [
      "يدمج آخر 50 حركة سيارة مع آخر 50 فاتورة مؤكدة، ثم يرتبها تنازلياً حسب التاريخ ويقتطع أول 60",
      "ref في حركة السيارة هو الملاحظة، وفي الفاتورة «رقم الفاتورة · اسم العميل»",
      "by في الفواتير دائماً 'REP' حتى لو أنشأتها الإدارة، وفي حركات السيارة REP أو ADMIN",
      "المرتجع يظهر هنا حتى لو لم يُعَد للمخزون (returnToStock=false)، والمرتجع التالف الداخل رصيد «المرتجع التالف» يظهر RETURN_DAMAGED، وبند بلا صنف يظهر باسم «صنف محذوف»",
-     "لا تُعاد معرّفات للبنود أو الأصناف، فقط الاسم والوحدة والكمية"
+     "لا تُعاد معرّفات للبنود أو الأصناف، فقط الاسم والوحدة والكمية: unit وحدة البند كما كُتب (لقطته، وإلا وحدة الصنف) وqty بها، وbaseQty الكمية بوحدة الأساس لمن يجمع"
     ],
     "example": ""
    },
@@ -3585,14 +3836,15 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{productId, name, code, unit, received, adjusted, loadedToVans, returnedFromVans, onHand, avgCost, stockValue, costedQty, uncostedQty}]}، مرتبة تنازلياً حسب onHand",
+    "response": "{success:true, data:[{productId, name, code, unit, received, adjusted, loadedToVans, returnedFromVans, onHand, avgCost, stockValue, costedQty, uncostedQty, units:[{id, name, factor, isActive}]}]}، مرتبة تنازلياً حسب onHand",
     "rules": [
      "تظهر كل الأصناف النشطة حتى التي لا حركة لها",
      "onHand = received + adjusted + returnedFromVans − loadedToVans، مقرّبة لأربع خانات",
      "تُحسب تحميلات كل المناديب ومنهم المحذوفون، ولا يُطبَّق نطاق المناديب هنا لأن المستودع على مستوى الشركة",
      "avgCost متوسط متحرك من الوارد المسعّر، صافٍ قبل الضريبة، بأربع خانات. stockValue = costedQty × avgCost، مقرّبة بخانات عملة الشركة",
      "uncostedQty كمية بلا سعر معروف، وهي خارج stockValue صراحة",
-     "onHand وstockValue قد يصيران سالبين حين يُحمَّل للسيارات أكثر من الوارد"
+     "onHand وstockValue قد يصيران سالبين حين يُحمَّل للسيارات أكثر من الوارد",
+     "الكميات (received وadjusted وloadedToVans وreturnedFromVans وonHand وcostedQty وuncostedQty) بوحدة الأساس unit، وavgCost لوحدة الأساس (تكلفة الكرتون ÷ معامله بلا تقريب قبل المتوسط)، وunits وحدات الصنف للعرض"
     ],
     "example": ""
    },
@@ -3621,7 +3873,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "rules": [
      "value قيمة ما في السيارات بطبقات تكلفة خروجه من المستودع (الأحدث أولاً)، وuncostedQty كمية بلا تكلفة معروفة لا تدخل القيمة",
      "unsellableQty التالف والمنتهي في السيارات (لا يُباع)، وreps عدد السيارات التي فيها شيء، وproducts عدد الأصناف",
-     "deletedVans سيارات مناديب محذوفين بقي فيها رصيد — تُعدّ لصاحب المفتاح غير المقيّد وحده"
+     "deletedVans سيارات مناديب محذوفين بقي فيها رصيد — تُعدّ لصاحب المفتاح غير المقيّد وحده",
+     "qty وuncostedQty وunsellableQty مجاميع عبر الأصناف بوحدات أساسها"
     ],
     "example": ""
    },
@@ -3678,28 +3931,34 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "items[].qty",
       "type": "number",
       "required": true,
-      "desc": "الكمية. في RECEIVE يجب أن تكون موجبة. في ADJUST الموجب يزيد والسالب ينقص. البند الذي كميته صفر يُحذف"
+      "desc": "الكمية بوحدة البند (unitId)، وبلا unitId بوحدة الأساس. في RECEIVE يجب أن تكون موجبة. في ADJUST الموجب يزيد والسالب ينقص. البند الذي كميته صفر يُحذف"
+     },
+     {
+      "name": "items[].unitId",
+      "type": "string | null",
+      "required": false,
+      "desc": "وحدة البند من units[].id للصنف، كما في فاتورة المورّد (كرتون). غيابه أو null = وحدة الأساس بمعامل 1. تنبيه: في هذا المسار معرّفٌ لا يخصّ الصنف أو لوحدة موقوفة يُقرأ وحدةَ أساس بمعامل 1 بلا رفض، فتحقّق منه قبل الإرسال"
      },
      {
       "name": "items[].unitCost",
       "type": "number (>0, finite, max 1e9)",
       "required": false,
-      "desc": "تكلفة شراء الوحدة، وتُقبل مع RECEIVE فقط. الصفر مرفوض، فإن لم يوجد سعر أغفل الحقل"
+      "desc": "تكلفة شراء وحدة البند (تكلفة الكرتون لبند بالكرتون كما في فاتورة المورّد)، وتُقبل مع RECEIVE فقط. الصفر مرفوض، فإن لم يوجد سعر أغفل الحقل"
      }
     ],
-    "response": "201 {success:true, data:{id, tenantId, type, note, supplier, createdBy, createdAt, items:[{id, entryId, productId, qty, unitCost, expiresAt, product:{id,name,unit}}]}}",
+    "response": "201 {success:true, data:{id, tenantId, type, note, supplier, createdBy, createdAt, items:[{id, entryId, productId, qty, unitName, unitFactor, baseQty, unitCost, expiresAt, product:{id,name,unit}}]}}",
     "rules": [
      "البنود التي كميتها صفر تُحذف، فإن لم يبقَ بند يُرَدّ 400",
      "RECEIVE بكمية سالبة يعطي 400، والتنقيص يكون بتسوية ADJUST",
      "ADJUST مع unitCost يعطي 400",
      "أي صنف لا يتبع الشركة يعطي 400 «منتج غير صالح»",
-     "unitCost المحفوظ صافٍ دائماً. مع costsIncludeTax=true يكون unitCost ÷ (1 + taxPct الصنف/100) مقرّباً لأربع خانات",
+     "unitCost المحفوظ صافٍ دائماً ولوحدة البند، والتقييم يقسمه على unitFactor فتكلفة الحبة = تكلفة الكرتون ÷ 24. مع costsIncludeTax=true يكون unitCost ÷ (1 + taxPct الصنف/100) مقرّباً لأربع خانات",
      "التقييم: الوارد المسعّر يحرّك متوسط التكلفة، والوارد بلا سعر يدخل uncostedQty، والتسوية الموجبة تُقيَّم بمتوسط اللحظة، والسالبة تنقص الكمية المقيَّمة وغير المقيَّمة بنسبتهما",
      "المسار لا يُنشئ قيداً محاسبياً ولا ذمة مورد، فهو حركة مخزون فقط",
      "createdBy هو اسم مستخدم الشركة صاحب المفتاح",
      "لا يوجد clientRef، ولا مسار تعديل أو حذف"
     ],
-    "example": "{\"type\":\"RECEIVE\",\"supplier\":\"مؤسسة التوريد المتحدة\",\"note\":\"فاتورة مورد 5512\",\"costsIncludeTax\":true,\"items\":[{\"productId\":\"a1b2c3d4-0000-4000-8000-000000000001\",\"qty\":120,\"unitCost\":11.5},{\"productId\":\"a1b2c3d4-0000-4000-8000-000000000002\",\"qty\":48}]}"
+    "example": "{\"type\":\"RECEIVE\",\"supplier\":\"مؤسسة التوريد المتحدة\",\"note\":\"فاتورة مورد 5512\",\"costsIncludeTax\":true,\"items\":[{\"productId\":\"a1b2c3d4-0000-4000-8000-000000000001\",\"unitId\":\"5e6f7a8b-0000-4000-8000-0000000000c1\",\"qty\":5,\"unitCost\":276},{\"productId\":\"a1b2c3d4-0000-4000-8000-000000000002\",\"qty\":48}]}"
    },
    {
     "method": "GET",
@@ -3713,11 +3972,11 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:[{id, tenantId, type, note, supplier, createdBy, createdAt, items:[{id, entryId, productId, qty, unitCost, expiresAt, product:{name,unit}, lineCost}], totalCost}]}",
+    "response": "{success:true, data:[{id, tenantId, type, note, supplier, createdBy, createdAt, items:[{id, entryId, productId, qty, unitName, unitFactor, baseQty, unitCost, expiresAt, product:{name,unit}, lineCost}], totalCost}]}",
     "rules": [
      "آخر 100 حركة فقط، الأحدث أولاً، بلا ترقيم صفحات. للتاريخ الكامل استعمل /v1/sync/warehouse-entries",
      "unitCost صافٍ قبل الضريبة، ويكون null إن لم يُسعَّر",
-     "lineCost = qty × unitCost مقرّبة بخانات عملة الشركة، وتكون 0 حين لا يوجد سعر. وtotalCost هو مجموع قيم lineCost بعد تقريب كل منها",
+     "lineCost = qty × unitCost بوحدة السطر (كراتين × تكلفة الكرتون) مقرّبة بخانات عملة الشركة، وتكون 0 حين لا يوجد سعر. وtotalCost هو مجموع قيم lineCost بعد تقريب كل منها. وbaseQty كمية السطر بالأساس",
      "expiresAt حقل مهجور لا يُكتب، فتجاهله",
      "product في هذا المسار يحمل name وunit فقط، بلا id، والمعرّف موجود في productId"
     ],
@@ -3738,13 +3997,14 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:[{id, status, note, createdAt, updatedAt, decidedAt, sentRef, items:[{productId, name, code, unit, requestedQty, qty}], salesRepId, repName}]}، الأقدم أولاً",
+    "response": "{success:true, data:[{id, status, note, createdAt, updatedAt, decidedAt, sentRef, items:[{productId, name, code, unit, requestedQty, qty, unitName, unitFactor, baseQty, requestedBaseQty, baseUnit, units:[{id, name, factor, isActive}]}], salesRepId, repName}]}، الأقدم أولاً",
     "rules": [
      "المعلّقة (PENDING) وحدها، ولكل مندوب طلبٌ معلّق واحد على الأكثر",
      "requestedQty ما طلبه المندوب، وqty ما اعتمدته الإدارة بعد تعديلها (يساويه حتى تعدّله). الأصناف مرتبة بالاسم",
      "updatedAt «نسخة» الطلب: أرسلها كما قرأتها في التعديل والرفض والإرسال، فإن عدّل المندوب طلبه بعد قراءتك رُدّ 409",
      "الطلب لا يمسّ أي رصيد: لا في السيارة ولا في المستودع. التحميل الفعلي بـPOST /van-stock/loads",
-     "رفع الطلب نفسه من تطبيق المندوب وحده (/rep-stock-requests/mine للمندوب)، فلا مسار له بمفتاح الشركة"
+     "رفع الطلب نفسه من تطبيق المندوب وحده (/rep-stock-requests/mine للمندوب)، فلا مسار له بمفتاح الشركة",
+     "unit وحدة السطر (لقطته، وإلا وحدة الصنف) وrequestedQty وqty بها، وbaseQty وrequestedBaseQty بوحدة الأساس baseUnit لمن يجمع طلبات المناديب في الطلب العام. والطلب سطر واحد لكل صنف: أسطر المندوب بوحدة واحدة تُجمع بها، وبوحدات مختلفة تصير سطراً بالأساس"
     ],
     "example": ""
    },
@@ -3785,10 +4045,16 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "items[].qty",
       "type": "number (0..1000000)",
       "required": true,
-      "desc": "الكمية المعتمدة، تُقرَّب لأربع خانات. الصفر يُبقي الصنف بكمية صفر"
+      "desc": "الكمية المعتمدة بوحدة السطر (أو بوحدة unitId إن أُرسل)، تُقرَّب لأربع خانات. الصفر يُبقي الصنف بكمية صفر. والسقف 1000000 بوحدة الأساس أيضاً (وإلا 400 «الكمية أكبر من الحد المسموح»)"
+     },
+     {
+      "name": "items[].unitId",
+      "type": "string | null",
+      "required": false,
+      "desc": "غيابه = وحدة سطر المندوب كما هي، وnull = وحدة الأساس صراحةً، ومعرّفٌ من units[].id = تلك الوحدة. التعديل بوحدة غير وحدة السطر يعيد السطر كله إلى وحدة الأساس: «طلب 5 كرتون، اعتُمد 100 حبة» يصير requestedQty 120 وqty 100 بالحبة"
      }
     ],
-    "response": "{success:true, data:{id, status, note, createdAt, updatedAt, decidedAt, sentRef, items:[{productId, name, code, unit, requestedQty, qty}]}} بنسخة updatedAt جديدة",
+    "response": "{success:true, data:{id, status, note, createdAt, updatedAt, decidedAt, sentRef, items:[{productId, name, code, unit, requestedQty, qty, unitName, unitFactor, baseQty, requestedBaseQty, baseUnit, units}]}} بنسخة updatedAt جديدة",
     "rules": [
      "requestedQty لا يتغيّر أبداً، فيبقى ما طلبه المندوب ظاهراً بجانب المعتمد",
      "404 «الطلب غير موجود» لطلب غير معلّق أو خارج النطاق، و409 «عدل المندوب طلبه للتو» إن اختلفت updatedAt",
@@ -4663,14 +4929,15 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "بدون groupBy: {success:true, data:{invoices:[صف الفاتورة كاملاً بكل أعمدتها ومنها number وtype وinvoiceDate وsubtotal وdiscountAmt وtaxAmt وtotal وpaidAmt وremainingAmt وpricesIncludeTax، مع customer{id,name,channel,city} وsalesRep{id,name} أو null وitems[صف البند كاملاً ومنه qty وunitPrice وunitCost وdiscountAmt وtaxPct وtaxAmt وlineTotal مع product{id,name,code} أو null]], summary:{total, count, taxTotal, discountTotal, defaultRangeDays?}}}. مع groupBy=product تكون data مصفوفة [{name, code, qty, total}] حيث total مجموع lineTotal. ومع rep أو customer أو channel أو region تكون data مصفوفة [{name, count, total}]. كل التجميعات مرتبة تنازلياً حسب total",
+    "response": "بدون groupBy: {success:true, data:{invoices:[صف الفاتورة كاملاً بكل أعمدتها ومنها number وtype وinvoiceDate وsubtotal وdiscountAmt وtaxAmt وtotal وpaidAmt وremainingAmt وpricesIncludeTax، مع customer{id,name,channel,city} وsalesRep{id,name} أو null وitems[صف البند كاملاً ومنه qty وunitPrice وunitCost وdiscountAmt وtaxPct وtaxAmt وlineTotal وunitName وunitFactor وbaseQty مع product{id,name,code,unit} أو null]], summary:{total, count, taxTotal, discountTotal, defaultRangeDays?}}}. مع groupBy=product تكون data مصفوفة [{productId, name, code, qty, baseQty, unit, units:[{name, factor}], total}] حيث total مجموع lineTotal. ومع rep أو customer أو channel أو region تكون data مصفوفة [{name, count, total}]. كل التجميعات مرتبة تنازلياً حسب total",
     "rules": [
      "الحالة CONFIRMED وحدها، والنوع RETURN مستثنى",
      "بلا from ولا to يُقصر التقرير على آخر 90 يوماً، ويُعلن ذلك بـ summary.defaultRangeDays=90 في الوضع التفصيلي وحده، أما مع groupBy فيُطبَّق السقف دون إعلان",
      "يكفي طرف واحد من المدى، والطرف الغائب يعني بلا حد من جهته",
      "لا ترقيم ولا حد أقصى للصفوف، والفواتير مرتبة تصاعدياً بـ invoiceDate",
      "groupBy=rep يجمع الفواتير التي بلا مندوب تحت «بلا مندوب»، وproduct يجمع البند الذي بلا منتج تحت «صنف محذوف»، وchannel يجمع العميل الذي بلا قناة تحت UNSET، وregion يجمّع حسب customer.city وغيابها «—»",
-     "المبالغ في هذا التقرير كما خُزّنت في الفاتورة: total شامل الضريبة، وsubtotal وdiscountAmt صافيان قبل الضريبة"
+     "المبالغ في هذا التقرير كما خُزّنت في الفاتورة: total شامل الضريبة، وsubtotal وdiscountAmt صافيان قبل الضريبة",
+     "الوحدات: في التفصيلي qty البند بوحدته وunitPrice وunitCost لوحدته (الكرتون لبند بالكرتون)، وbaseQty بالأساس. ومع groupBy=product تُجمع الكمية بوحدة الأساس unit (qty = baseQty)، وunits وحدات الصنف النشطة من الأكبر لعرضها «2 كرتون و3 حبة». صنفٌ بلا وحدات: الأرقام كما كانت"
     ],
     "example": ""
    },
@@ -4747,12 +5014,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{returns:[{id, number, invoiceDate, total, taxAmt, reason, returnToStock, toDamagedStock, creditNote, notes, saleInvoices:[number], customer{id,name,phone,city}, salesRep{id,name}, items:[{name, unit, qty, lineTotal, returnExpired, expiresAt}]}], summary:{count, total, salesTotal, returnRate, byReason:{NORMAL|DAMAGED|EXCHANGE:{count,total}}, expiredLines}, rangeApplied, defaultDays}}",
+    "response": "{success:true, data:{returns:[{id, number, invoiceDate, total, taxAmt, reason, returnToStock, toDamagedStock, creditNote, notes, saleInvoices:[number], customer{id,name,phone,city}, salesRep{id,name}, items:[{name, unit, qty, unitFactor, baseQty, baseUnit, lineTotal, returnExpired, expiresAt}]}], summary:{count, total, salesTotal, returnRate, byReason:{NORMAL|DAMAGED|EXCHANGE:{count,total}}, expiredLines}, rangeApplied, defaultDays}}",
     "rules": [
      "returnRate نسبة المرتجع من مبيعات المدى نفسه بمنزلة عشرية واحدة، وnull بلا مبيعات",
      "saleInvoices أرقام فواتير البيع: الأصل للإشعار الدائن، أو فواتير البنود المرتبطة للمرتجع من فاتورة بيع في المرحلة الأولى",
      "toDamagedStock = true للتالف الذي دخل رصيد «المرتجع التالف» في السيارة (لا يُباع)",
-     "حتى 5000 مرتجع، الأحدث أولاً"
+     "حتى 5000 مرتجع، الأحدث أولاً",
+     "unit وحدة البند المرتجع كما كُتب (لقطته، وإلا وحدة الصنف) وqty بها، وbaseQty بوحدة الأساس baseUnit: حبةٌ أُرجعت من بند كرتون تظهر «1 حبة» لا «1 كرتون»"
     ],
     "example": ""
    },
@@ -5107,11 +5375,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{metric, product:{id,name,unit}|null, rows:[{repId, name, value, rank}], range:{from, to}, clampedDays}}",
+    "response": "{success:true, data:{metric, product:{id,name,unit,units:[{name, factor}]}|null, rows:[{repId, name, value, rank}], range:{from, to}, clampedDays}}",
     "rules": [
      "الصفوف بالقيمة تنازلياً، والمتساويان يأخذان المرتبة نفسها (1، 2، 2، 4)",
      "distance مدى أقصاه 31 يوماً، وما زاد يُقصّ ويُعلن في clampedDays",
-     "المبالغ والكميات بثلاث منازل، والكيلو بمنزلة واحدة، والدقائق صحيحة"
+     "المبالغ والكميات بثلاث منازل، والكيلو بمنزلة واحدة، والدقائق صحيحة",
+     "مع metric=product: value الكمية المباعة بوحدة الأساس product.unit (كرتون من 24 = 24)، وunits وحدات الصنف النشطة للعرض"
     ],
     "example": ""
    },
@@ -5496,7 +5765,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "response": "{success:true, data:{range:{from, to, timezone}, rows:[LocationBucket], none:LocationBucket, totals:{sales:{count, amount}, returns:{count, amount}, net, loads:{count, qty}}}}. LocationBucket = {locationId, name, isActive, lat, lng, sales:{count, amount}, returns:{count, amount}, net, loads:{count, qty, products:[{productId, name, unit, qty}]}}",
     "rules": [
      "الفواتير المؤكدة وحدها بتاريخها invoiceDate: البيع (CASH وCREDIT ومعه الإشعار المدين) في sales، والمرتجع (ومعه الإشعار الدائن) في returns، وnet = البيع − المرتجع",
-     "التحميلات من النوع LOAD بلحظة تسجيلها createdAt، بكميات بلا مبالغ، وأصنافها بالكمية تنازلياً",
+     "التحميلات من النوع LOAD بلحظة تسجيلها createdAt، بكميات بلا مبالغ بوحدة الأساس للصنف (unit)، والكرتون والحبة من الصنف نفسه يُجمعان حبّات، وqty على مستوى الموقع مجموع أصناف مختلفة بوحدات أساسها، وأصنافها بالكمية تنازلياً",
      "none سطر «بلا موقع»: ما خُتم قبل التفعيل أو لمندوب بلا موقع أو لموقع حُذف",
      "الصفوف: كل موقع فعّال ولو بلا حركة، والمؤرشف إن كانت له حركة في الفترة. المبالغ بثلاث منازل والكميات بأربع"
     ],
@@ -6219,6 +6488,7 @@ export const API_DOC_GUIDES: DocGuide[] = [
           '- onHand = received + adjusted + returnedFromVans − loadedToVans، وقد يصير سالباً إن حُمّل للسيارات أكثر من الوارد.',
           '- stockValue = costedQty × avgCost، وavgCost صافٍ قبل الضريبة. وuncostedQty خارج القيمة صراحةً.',
           '- للمخزون في تاريخ مضى أضف ?asOf=YYYY-MM-DD (نهاية ذلك اليوم بتوقيت الشركة).',
+          '- الكميات بوحدة الأساس للصنف (unit، أصغر ما يُباع)، وavgCost لوحدة الأساس، وunits وحدات الصنف الأكبر لعرض الرصيد «2 كرتون و3 حبة».',
         ].join('\n'),
         curl: get('/warehouse?asOf=2026-10-25'),
       },
@@ -6226,7 +6496,8 @@ export const API_DOC_GUIDES: DocGuide[] = [
         title: 'سجّل وارداً أو تسوية جرد',
         method: 'POST', path: '/warehouse/entries',
         text: [
-          'الجسم {type: RECEIVE|ADJUST, supplier?, note?, costsIncludeTax?, items:[{productId, qty, unitCost?}]}، والنجاح 201 بالحركة.',
+          'الجسم {type: RECEIVE|ADJUST, supplier?, note?, costsIncludeTax?, items:[{productId, qty, unitId?, unitCost?}]}، والنجاح 201 بالحركة.',
+          '- unitId وحدة البند كما في فاتورة المورّد (كرتون) من units[].id للصنف: qty بها وunitCost لها، والرصيد يزيد qty × factor. بلا unitId فالكمية والتكلفة بوحدة الأساس.',
           '- RECEIVE وارد أو شراء بكميات موجبة، وunitCost اختياري موجب (أغفله إن لم يوجد سعر). مع costsIncludeTax=true يحوّل الخادم التكلفة إلى الصافي بضريبة الصنف.',
           '- ADJUST تسوية جرد: الموجب يزيد والسالب ينقص، وبلا unitCost (وإلا 400).',
           '- لا clientRef ولا تعديل ولا حذف: إعادة الطلب نفسه تُنشئ حركة مكررة، فلا تُعِد الإرسال إلا بعد التأكد من فشل الأول، والتصحيح بتسوية معاكسة.',
@@ -6247,7 +6518,8 @@ export const API_DOC_GUIDES: DocGuide[] = [
         title: 'حمّل سيارة من المستودع أو أعِد إليه',
         method: 'POST', path: '/van-stock/loads',
         text: [
-          'الجسم {salesRepId, type: LOAD|UNLOAD, note?, items:[{productId, qty}]}. LOAD ينقص المستودع ويزيد السيارة، وUNLOAD يعيد الكمية إلى المستودع بكلفة خروجها من السيارة نفسها.',
+          'الجسم {salesRepId, type: LOAD|UNLOAD, note?, items:[{productId, qty, unitId?}]}. LOAD ينقص المستودع ويزيد السيارة، وUNLOAD يعيد الكمية إلى المستودع بكلفة خروجها من السيارة نفسها.',
+          '- unitId وحدة البند من units[].id للصنف (كرتون): qty بها والرصيد يتحرّك qty × factor. بلا unitId فالكمية بوحدة الأساس.',
           '- لا فحص لتوفر الكمية في المستودع ولا في السيارة، فتحقّق من GET /api/warehouse قبل التحميل إن أردت منع الرصيد السالب.',
           '- التحميل LOAD يُختم بموقع المندوب إن كانت ميزة «لوكيشن» مفعّلة (انظر دليل اللوكيشن).',
           '- السجل في GET /api/van-stock/loads، وقيمة ما في كل السيارات في GET /api/warehouse/vans ({qty, value, uncostedQty, unsellableQty, reps, products, deletedVans}).',
@@ -6258,7 +6530,8 @@ export const API_DOC_GUIDES: DocGuide[] = [
         title: 'اقرأ طلبات البضاعة من المناديب',
         method: 'GET', path: '/rep-stock-requests',
         text: [
-          'المندوب الذي لا يملك صلاحية التحميل يرفع من تطبيقه ما يحتاجه، فيظهر هنا. الرد [{id, status, note, createdAt, updatedAt, salesRepId, repName, items:[{productId, name, code, unit, requestedQty, qty}]}] للطلبات المعلّقة وحدها، الأقدم أولاً.',
+          'المندوب الذي لا يملك صلاحية التحميل يرفع من تطبيقه ما يحتاجه، فيظهر هنا. الرد [{id, status, note, createdAt, updatedAt, salesRepId, repName, items:[{productId, name, code, unit, requestedQty, qty, unitName, unitFactor, baseQty, requestedBaseQty, baseUnit, units}]}] للطلبات المعلّقة وحدها، الأقدم أولاً.',
+          '- unit وحدة السطر كما طلب المندوب (كرتون) وrequestedQty وqty بها، وbaseQty بوحدة الأساس baseUnit لجمع الطلبات في طلبكم العام.',
           '- requestedQty ما طلبه المندوب، وqty ما تعتمده الإدارة. احفظ updatedAt لكل طلب: هو نسخته التي ترسلها في الخطوتين التاليتين.',
           '- الطلب لا يمسّ أي رصيد. يصير بضاعة في السيارة حين تسجّل له تحميلاً (الخطوة السابقة).',
         ].join('\n'),
@@ -6290,7 +6563,7 @@ export const API_DOC_GUIDES: DocGuide[] = [
           'للانعكاس أولاً بأول استعمل المزامنة (القسم ٣) بدل سحب القوائم:',
           '- /api/v1/sync/warehouse-entries: الوارد والتسويات ببنودها. يشترط canManageVanStock ثم ألا يكون النظام المحاسبي مطفأً (403 ACCOUNTING_DISABLED) ثم تفعيل الميزة (403 WAREHOUSE_DISABLED). الحركة المحذوفة تُكتشف بمطابقة /ids.',
           '- /api/v1/sync/van-loads: التحميل والتنزيل والتسوية للسيارات، ومعها locationId.',
-          '- بهما مع الفواتير تحسب رصيد المستودع والسيارات في نظامكم بالمعادلة أعلاه.',
+          '- بهما مع الفواتير تحسب رصيد المستودع والسيارات في نظامكم بالمعادلة أعلاه، بجمع baseQty لكل بند (الكمية بالأساس) لا qty: البند يحمل unitName وunitFactor وbaseQty = qty × unitFactor.',
         ].join('\n'),
         curl: get('/v1/sync/warehouse-entries?since=2026-10-25T00:00:00Z&limit=500'),
       },

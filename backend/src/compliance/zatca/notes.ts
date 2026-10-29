@@ -19,7 +19,9 @@
 //     بادئة الرقم RET للدائن (صفّه type='RETURN') وINV للمدين (صفّه type='CREDIT').
 //   • F1 (نقد 13): أثر الإشعار على متبقّي الأصل يُحسب **فرقاً نسبياً** (decrement) لا قيمةً مطلقة، كي لا يدهس سندَ قبضٍ متزامناً.
 //   • الوحدات المتعددة (docs/multi-unit/DESIGN.md §9–10): المتاح والحارس ونطاق Q5 **بالأساس**، وبند الإشعار بوحدة الإرجاع
-//     (كميته وسعره ورمزه معاً)، وسعر الحبّة من بند كرتون حصّةٌ تراكمية من قيمة البند (services/units.ts refundAmount).
+//     (كميته وسعره ورمزه معاً)، وسعر الحبّة من بند كرتون حصّةٌ تراكمية من **صافي** البند (services/units.ts refundAmount)
+//     مضبوطةٌ بالمحرّك ومصحَّحةٌ بما قُيِّد قبلها (fitCreditPrices) — فمجموع إشعاراته صافي البند ولا يرفض الحارس آخرها.
+//     ووحدة إرجاعٍ ليست من وحدات الصنف ⇒ 400 UNIT_INVALID لا الأساس بصمت.
 // لا قاعدة بيانات ولا شبكة ولا services/gl هنا: القيود والمخزون يكتبها المسار بالبُناة القائمة (postReturnEntries/postInvoiceEntries).
 // ============================================================================
 
@@ -81,6 +83,11 @@ export interface NoteOriginalItem {
   units?: readonly NoteUnitDef[] | null;
   /** اسم وحدة الأساس (Product.unit) — لرسالة التجاوز «١ كرتون و٣ حبة». */
   baseUnitName?: string | null;
+  /**
+   * صافي البند شاملاً خصومه وضريبته كما قُيِّد يوم البيع (InvoiceItem.lineTotal) — مرجعُ حصّة إشعارٍ بوحدةٍ غير وحدة
+   * البند (حبّةٌ من كرتون). غائبٌ ⇒ يُعاد حسابه بالمحرّك من بنود الأصل (الحساب نفسه الذي قيّده).
+   */
+  lineTotal?: number | null;
 }
 
 /** وحدة بيعٍ للصنف كما يحتاجها الإشعار (صفّ ProductUnit). */
@@ -139,8 +146,11 @@ export interface PriorNote {
   status: string;
   documentKind: string | null;
   total: number;
-  /** بنوده بلقطة وحدتها: إشعارٌ بالحبة على بند كرتون يُنقص المتاح حبّةً لا كرتوناً */
-  items: readonly { creditedItemId: string | null; qty: number; unitFactor?: number | null; baseQty?: number | null }[];
+  /**
+   * بنوده بلقطة وحدتها: إشعارٌ بالحبة على بند كرتون يُنقص المتاح حبّةً لا كرتوناً. و`lineTotal` ما قُيِّد للعميل من
+   * البند في ذلك الإشعار — به يُصحَّح سعر الحبّة التالية فلا يتراكم تقريب الإشعارات (غائبٌ ⇒ الموضع النسبيّ وحده).
+   */
+  items: readonly { creditedItemId: string | null; qty: number; unitFactor?: number | null; baseQty?: number | null; lineTotal?: number | null }[];
 }
 
 // ─── الأهليّة ───
@@ -317,6 +327,10 @@ export interface CreditableLine {
   creditedBase: number;
   legacyCreditedBase: number;
   returnableBase: number;
+  /** صافي البند كما قُيِّد يوم البيع (شاملاً خصومه وضريبته) — سقفُ ما تُرجعه إشعاراته مجتمعةً. */
+  lineTotal: number;
+  /** ما رُدّ من قيمة البند قبل هذا الإشعار (إشعاراته السابقة، وحصّةُ المرتجعات القديمة نسبياً). */
+  creditedAmount: number;
 }
 
 /**
@@ -336,13 +350,19 @@ export function creditableLines(
   original: NoteOriginalInvoice, priorNotes: readonly PriorNote[] = [], legacyReturns: readonly LegacyReturnQty[] = [],
 ): CreditableLine[] {
   const creditedBy = new Map<string, number>();
+  // قيمة ما رُدّ من كلّ بند — null حين يغيب مبلغ بندٍ من إشعارٍ سابق فلا يُعرف (يُستعاض بالموضع النسبيّ)
+  const creditedAmtBy = new Map<string, number | null>();
   for (const n of priorNotes) {
     if (!countsTowardCredit(n)) continue;
     for (const it of n.items) {
       if (typeof it.creditedItemId !== 'string' || it.creditedItemId === '') continue;
       creditedBy.set(it.creditedItemId, (creditedBy.get(it.creditedItemId) ?? 0) + baseQtyOf(it));
+      const amt = it.lineTotal == null ? NaN : Number(it.lineTotal);
+      const was = creditedAmtBy.has(it.creditedItemId) ? creditedAmtBy.get(it.creditedItemId)! : 0;
+      creditedAmtBy.set(it.creditedItemId, was === null || !Number.isFinite(amt) ? null : was + amt);
     }
   }
+  const lineTotals = originalLineTotals(original);
   const legacyPool = new Map<string, number>();
   for (const r of legacyReturns) {
     if (typeof r?.productId !== 'string' || r.productId === '') continue;
@@ -359,6 +379,13 @@ export function creditableLines(
     const legacyCreditedBase = roundQty(Math.min(pooled, Math.max(0, soldBase - creditedBase)));
     if (legacyCreditedBase > 0) legacyPool.set(it.productId as string, roundQty(pooled - legacyCreditedBase));
     const returnableBase = roundQty(Math.max(0, soldBase - creditedBase - legacyCreditedBase));
+    const lineTotal = lineTotals[i];
+    // المرتجع القديم بلا مبلغٍ مربوطٍ بالبند: حصّته النسبية من قيمته؛ والإشعارات بمبالغها المقيَّدة فعلاً
+    const legacyAmt = cumulativeShare(lineTotal, soldBase, legacyCreditedBase);
+    const prior = creditedAmtBy.has(it.id) ? creditedAmtBy.get(it.id)! : 0;
+    const creditedAmount = prior === null
+      ? cumulativeShare(lineTotal, soldBase, creditedBase + legacyCreditedBase)
+      : roundDecimal(prior + legacyAmt, 2);
     const line: CreditableLine = {
       invoiceItemId: it.id,
       seq: Number.isInteger(it.seq) && (it.seq as number) > 0 ? (it.seq as number) : i + 1,
@@ -386,11 +413,35 @@ export function creditableLines(
       creditedBase,
       legacyCreditedBase,
       returnableBase,
+      lineTotal,
+      creditedAmount,
     };
     return line;
   });
   rows.sort((a, b) => (a.seq - b.seq) || a.invoiceItemId.localeCompare(b.invoiceItemId));
   return rows;
+}
+
+/**
+ * صافي كلّ بند كما قُيِّد: المخزَّن (InvoiceItem.lineTotal) حين يحمله كلّ بند، وإلا يُعاد حسابه بالمحرّك نفسه من بنود
+ * الأصل وخصمه ونمط أسعاره — وهو الحساب الذي كتب الصفّ (D6)، فلا رقمَ يُخترع.
+ */
+function originalLineTotals(original: NoteOriginalInvoice): number[] {
+  const stored = original.items.map(it => (it.lineTotal == null ? NaN : Number(it.lineTotal)));
+  if (stored.every(Number.isFinite)) return stored.map(v => roundDecimal(v, 2));
+  const calc = computeInvoiceTotals(
+    original.items.map(it => ({ qty: Number(it.qty || 0), unitPrice: Number(it.unitPrice || 0), discountPct: Number(it.discountPct || 0), taxPct: Number(it.taxPct || 0) })),
+    { companyVat: 0, decimals: 2, invoiceDiscountPct: Number(original.discountPct || 0), pricesIncludeTax: original.pricesIncludeTax === true },
+  );
+  return calc.items.map(x => x.lineTotal);
+}
+
+/**
+ * حصّة أوّل `base` من بندٍ قيمته `total` وكميته `soldBase` (بالأساس)، مقرَّبةً — والبند كلّه = قيمته تماماً.
+ * هي `refundAmount` نفسها من موضع الصفر (services/units.ts): فرقُ حصّتين تراكميَّتين مبلغُ مرتجعٍ لا يتراكم تقريبه.
+ */
+function cumulativeShare(total: number, soldBase: number, base: number): number {
+  return refundAmount({ lineTotal: total, qty: soldBase }, base, 0);
 }
 
 /** هل بقي في الفاتورة ما يُرجَع؟ */
@@ -419,8 +470,12 @@ export interface ResolvedCreditLine extends CreditableLine {
   creditUnitName: string | null;
   creditUnitFactor: number;
   creditUnitCode: string;
-  /** سعر وحدة الإشعار: سعر البند نفسه بوحدته، وإلا حصّته من قيمة البند بفرق تراكميّ (creditUnitPriceOf). */
+  /** سعر وحدة الإشعار: سعر البند نفسه بوحدته، وإلا حصّته من قيمة البند بفرق تراكميّ (creditUnitPriceOf ثمّ fitCreditPrices). */
   creditUnitPrice: number;
+  /** موضع هذا السطر في البند (ما أُرجع منه قبله، بالأساس) — منه تُقاس حصّته التراكمية. */
+  creditFromBase: number;
+  /** سطرٌ بوحدةٍ غير وحدة البند: سعره مشتقٌّ يُضبط على حصّته من صافي البند (fitCreditPrices)، لا سعر البند كما صدر. */
+  creditFitted: boolean;
 }
 
 const lineIssue = (field: string, messageAr: string): ZatcaIssue => ({ rule: 'CREDIT-LINE', field, messageAr, severity: 'error' });
@@ -440,16 +495,20 @@ const lineUnitOf = (l: CreditableLine): CreditUnit => ({ name: l.unitName, facto
  *   • وحدةٌ اسمُها اسم وحدة البند ⇒ وحدة البند **بمعامل لقطتها**: ما بيع كرتوناً من ٢٤ يُرجَع كرتوناً من ٢٤ ولو صار
  *     الكرتون اليوم ١٢. والوحدة الموقوفة بعد البيع تبقى صالحةً للإرجاع: الإيقاف يمنع بيعاً جديداً لا ردَّ ما بيع.
  *   • وحدةٌ أخرى من وحدات الصنف ⇒ بمعاملها ورمزها.
- *   • بلا وحدة (أو وحدةٌ لا تخصّ الصنف) ⇒ وحدة الأساس بمعامل ١ — وهي وحدة البند نفسها لكلّ بندٍ بِيع بالأساس.
+ *   • بلا وحدة ⇒ وحدة الأساس بمعامل ١ — وهي وحدة البند نفسها لكلّ بندٍ بِيع بالأساس.
+ *   • معرّفٌ ليس من وحدات الصنف (صنفٌ آخر، أو وحدةٌ حُذفت، أو كاشٌ قديم على الجهاز) ⇒ null فيُرفض الطلب UNIT_INVALID
+ *     (DESIGN.md «قرارات أثناء التنفيذ»): قراءته أساساً بصمتٍ كانت تُرجع كرتوناً حبّةً في مستندٍ ضريبيّ لا يُمحى.
  */
-function creditUnitOf(l: CreditableLine, unitId: string | null | undefined): CreditUnit {
-  const u = typeof unitId === 'string' && unitId !== '' ? l.units.find(x => x?.id === unitId) : undefined;
+function creditUnitOf(l: CreditableLine, unitId: string | null | undefined): CreditUnit | null {
+  const wanted = typeof unitId === 'string' && unitId !== '' ? unitId : null;
+  const u = wanted ? l.units.find(x => x?.id === wanted) : undefined;
   if (u) {
     if (l.unitName !== null && String(u.name ?? '').trim() === l.unitName) return lineUnitOf(l);
     const factor = factorOf({ unitFactor: u.factor });
     if (factor === l.unitFactor && l.unitFactor === 1) return lineUnitOf(l);
     return { name: String(u.name ?? '').trim() || null, factor, code: phase2UnitCode(u.unitCode), sameAsLine: false };
   }
+  if (wanted) return null;
   if (l.unitFactor === 1) return lineUnitOf(l);
   return { name: null, factor: 1, code: PHASE2_UNIT_CODE, sameAsLine: false };
 }
@@ -458,26 +517,30 @@ function creditUnitOf(l: CreditableLine, unitId: string | null | undefined): Cre
 const CREDIT_PRICE_MAX_SCALE = 8;
 
 /**
- * سعر وحدة الإشعار حين تختلف عن وحدة البيع (حبّةٌ من بند كرتون): حصّته من قيمة البند بـ`refundAmount` — **فرقُ
- * تراكميَّين مقرَّبين** على أساس البند (r2(qty×price) كما حسبه المحرّك يوم البيع). فأربعٌ وعشرون حبّةً في
- * أربعةٍ وعشرين إشعاراً تساوي قيمة الكرتون تماماً (١٠٫٠٠ لا ١٠٫٠٨)، وآخر حبّةٍ تأخذ الباقي. ثمّ يُختار أقصرُ سعرٍ
- * (منزلتان فصاعداً) يعيد الحصّة نفسها بضربه في الكمية، فيطابق المحرّكُ والـXML الحصّةَ بلا انحراف.
- *
- * الخصم والضريبة يُحسبان فوق الحصّة لكلّ إشعارٍ بالمحرّك نفسه، فيبقى انحرافُ مجموع الإشعارات انحرافَ تقريبٍ
- * يغطّيه سماح حارس القيمة (هللة لكلّ سلّة نسبة لكلّ إشعار) — كما في كلّ مرتجعٍ جزئيّ قبل الميزة.
+ * أقصر سعرٍ (منزلتان فصاعداً) يعيد مبلغ `gross` بضربه في الكمية `q` — فيطابق المحرّكُ والـXML المبلغَ بلا انحراف
+ * (amounts.ts يقبل السعر كما هو حين يحقّق BR-KSA-EN16931-11 بالضرب الدقيق).
+ */
+function priceForGross(gross: number, q: number): number {
+  if (!(q > 0)) return 0;
+  for (let scale = 2; scale <= CREDIT_PRICE_MAX_SCALE; scale++) {
+    const p = roundDecimal(gross / q, scale);
+    if (roundDecimal(q * p, 2) === gross) return p;
+  }
+  return gross / q;
+}
+
+/**
+ * السعر الأوّليّ لوحدة الإشعار حين تختلف عن وحدة البيع (حبّةٌ من بند كرتون): حصّته من **أساس** البند (r2(qty×price)
+ * كما حسبه المحرّك يوم البيع) بـ`refundAmount` — فرقُ تراكميَّين مقرَّبين، فأربعٌ وعشرون حبّةً في أربعةٍ وعشرين إشعاراً
+ * أساسُها أساسُ الكرتون تماماً (١٠٫٠٠ لا ١٠٫٠٨). وهو بدايةُ الضبط لا نهايته: الخصم والضريبة يُقرَّبان في كلّ إشعارٍ
+ * على حدة، فيضبطه fitCreditPrices على حصّته من **صافي** البند.
  */
 export function creditUnitPriceOf(
   l: Pick<CreditableLine, 'lineQty' | 'unitPrice' | 'unitFactor'>, creditQty: number, creditBase: number, doneBase: number,
 ): number {
   const gross = roundDecimal(Number(l.lineQty) * Number(l.unitPrice), 2);
   const share = refundAmount({ lineTotal: gross, qty: l.lineQty, unitFactor: l.unitFactor }, creditBase, doneBase);
-  const q = Number(creditQty);
-  if (!(q > 0)) return 0;
-  for (let scale = 2; scale <= CREDIT_PRICE_MAX_SCALE; scale++) {
-    const p = roundDecimal(share / q, scale);
-    if (roundDecimal(q * p, 2) === share) return p;
-  }
-  return share / q;
+  return priceForGross(share, Number(creditQty));
 }
 
 /** بند إشعارٍ محلول: الكمية بوحدتها وبالأساس، وسعره من البند نفسه أو من حصّته التراكمية. */
@@ -492,7 +555,77 @@ function creditLineOf(l: CreditableLine, unit: CreditUnit, creditQty: number, do
     creditUnitCode: unit.code,
     // وحدة البند نفسها ⇒ سعره كما صدر (سلوك ما قبل الميزة حرفياً)؛ وحدةٌ أخرى ⇒ حصّةٌ تراكمية لا سعر الكرتون للحبّة
     creditUnitPrice: unit.sameAsLine ? l.unitPrice : creditUnitPriceOf(l, creditQty, creditBase, doneBase),
+    creditFromBase: doneBase,
+    creditFitted: !unit.sameAsLine,
   };
+}
+
+/** أقصى عدد الجولات في ضبط الأسعار: سطورٌ تتقاسم خصم الفاتورة وضريبة سلّتها فيتأثّر كلٌّ بتعديل غيره قليلاً. */
+const FIT_PASSES = 3;
+
+/**
+ * ضبط سعر كلّ سطرٍ مشتقّ (fitted) حتى يساوي **صافيه في هذا الإشعار** — بعد خصم البند وخصم الفاتورة الموروث وضريبته،
+ * بالمحرّك نفسه — حصّتَه التراكمية من صافي البند المباع (lineTotal كما قُيِّد) ناقصاً ما رُدّ منه فعلاً قبله.
+ *
+ * لماذا لا تكفي الحصّة من الأساس (creditUnitPriceOf): الخصمان والضريبة يُقرَّبان في كلّ إشعارٍ على حدة، فحبّةٌ بسعر
+ * ٢٫١٨ وخصمَي ١٪ و٢٫٥٪ تُقيَّد ٢٫٤٣ وحقّها ٢٫٤٢ — هللةٌ زائدة في كلّ إشعار تتراكم حتى يرفض حارس القيمة الحبّةَ الأخيرة
+ * وقد قُيِّد للعميل أكثر ممّا دفع. والهدف هنا **تراكميّ مصحِّح**: ما رُدّ فعلاً يُطرح، فلا يتراكم انحراف، وآخر حبّةٍ
+ * تأخذ باقي صافي البند تماماً.
+ *
+ * البحث على مبلغ أساس السطر بالهللة حول التقدير، والمحرّك يحكم كلّ مرشّح؛ يُختار الأقرب إلى الهدف (والأدنى عند
+ * التساوي — لا يُقيَّد للعميل فوق حقّه بتعادل). وسطر البند بوحدته نفسها (sameAsLine) لا يُمسّ: سلوك ما قبل الميزة.
+ */
+export function fitCreditPrices(
+  lines: readonly ResolvedCreditLine[], request: Pick<IssuanceRequest, 'discountPct' | 'pricesIncludeTax'>, companyVat: number, decimals = 2,
+): ResolvedCreditLine[] {
+  const out = lines.map(l => ({ ...l }));
+  if (!out.some(l => l.creditFitted)) return out;
+  const head = Number(request.discountPct || 0);
+  const inclusive = request.pricesIncludeTax === true;
+  const run = () => computeInvoiceTotals(
+    out.map(l => ({ qty: l.creditQty, unitPrice: l.creditUnitPrice, discountPct: l.discountPct, taxPct: l.taxPct })),
+    { companyVat, decimals, invoiceDiscountPct: head, pricesIncludeTax: inclusive },
+  );
+  const targetOf = (i: number, totals: readonly number[]): number => {
+    const l = out[i];
+    // ما رُدّ من البند قبل هذا السطر: إشعاراته السابقة، ثمّ سطوره السابقة في هذا الإشعار نفسه
+    let done = l.creditedAmount;
+    for (let j = 0; j < i; j++) if (out[j].invoiceItemId === l.invoiceItemId) done += totals[j];
+    const upto = cumulativeShare(l.lineTotal, l.soldBase, l.creditFromBase + l.creditBase);
+    return Math.max(0, roundDecimal(upto - done, decimals));
+  };
+  for (let pass = 0; pass < FIT_PASSES; pass++) {
+    let changed = false;
+    for (let i = 0; i < out.length; i++) {
+      const l = out[i];
+      if (!l.creditFitted || !(l.creditQty > 0)) continue;
+      const calc = run();
+      const totals = calc.items.map(x => x.lineTotal);
+      const target = targetOf(i, totals);
+      if (totals[i] === target) continue;
+      // كم يتحرّك صافي السطر بهللةٍ من أساسه: خصمان ثمّ ضريبة (الشامل: الضريبة داخل المبلغ)
+      const ratio = (1 - l.discountPct / 100) * (1 - head / 100) * (inclusive ? 1 : 1 + l.taxPct / 100);
+      if (!(ratio > 1e-6)) continue;
+      const gross = roundDecimal(l.creditQty * l.creditUnitPrice, decimals);
+      const center = Math.round((gross + (target - totals[i]) / ratio) * 100);
+      const reach = Math.min(60, Math.ceil(1 / ratio) + 3);
+      let best = { price: l.creditUnitPrice, total: totals[i] };
+      for (let k = -reach; k <= reach; k++) {
+        const cents = center + k;
+        if (cents < 0) continue;
+        const price = priceForGross(cents / 100, l.creditQty);
+        out[i] = { ...l, creditUnitPrice: price };
+        const total = run().items[i].lineTotal;
+        const d = Math.abs(total - target);
+        const bestD = Math.abs(best.total - target);
+        if (d < bestD - 1e-9 || (Math.abs(d - bestD) <= 1e-9 && total < best.total)) best = { price, total };
+      }
+      out[i] = { ...l, creditUnitPrice: best.price };
+      if (best.price !== l.creditUnitPrice) changed = true;
+    }
+    if (!changed) break;
+  }
+  return out;
 }
 
 /** ما أُرجع من البند قبل هذا الإشعار، بالأساس — موضع البداية في تسعير الحصص التراكمية. */
@@ -542,6 +675,7 @@ export function resolveCreditLines(lines: readonly CreditableLine[], request: Cr
   }
   const byId = new Map(lines.map(l => [l.invoiceItemId, l]));
   const issues: ZatcaIssue[] = [];
+  const unitIssues: ZatcaIssue[] = [];
   const seen = new Set<string>();
   const wanted = new Map<string, { unit: CreditUnit; qty: number }[]>();
   request.forEach((r, i) => {
@@ -553,6 +687,13 @@ export function resolveCreditLines(lines: readonly CreditableLine[], request: Cr
       return;
     }
     const unit = creditUnitOf(l, r?.unitId);
+    if (!unit) {
+      unitIssues.push({
+        rule: 'CREDIT-UNIT', field: `lines[${i}].unitId`, severity: 'error',
+        messageAr: `وحدة الإرجاع المختارة ليست من وحدات صنف «${l.itemName || i + 1}» — حدّث قائمة الأصناف ثم أعد المحاولة`,
+      });
+      return;
+    }
     const key = `${id}\u0000${unit.factor}\u0000${unit.name ?? ''}`;
     if (seen.has(key)) {
       issues.push(lineIssue(`lines[${i}].invoiceItemId`, `البند «${l.itemName || i + 1}» مكرَّر في الطلب — اجمع كميّته في سطر واحد`));
@@ -567,6 +708,10 @@ export function resolveCreditLines(lines: readonly CreditableLine[], request: Cr
     list.push({ unit, qty: roundQty(q) });
     wanted.set(id, list);
   });
+  // وحدةٌ لا تخصّ الصنف تسبق بقيّة الأخطاء: كاشُ أصنافٍ قديم على الجهاز يفسّرها كلّها، وعلاجه واحد
+  if (unitIssues.length) {
+    throw new ZatcaHttpError('UNIT_INVALID', { messageAr: unitIssues[0].messageAr, issues: [...unitIssues, ...issues] });
+  }
   if (issues.length) throw noteLinesError(issues);
 
   const over: { itemName: string; requested: number; available: number; requestedText?: string; availableText?: string }[] = [];
@@ -834,8 +979,9 @@ export function prepareCreditNote(input: PrepareCreditNoteInput): PreparedNote {
   const reason = assertReason(input.reason);
   const creditable = creditableLines(input.original, input.priorNotes, input.legacyReturns ?? []);
   if (!hasCreditableQty(creditable)) throw noteRefusalError('NOTHING_TO_CREDIT') as ZatcaHttpError;
-  const lines = resolveCreditLines(creditable, input.request);
   const request = noteRequest(input.original, 'CREDIT_NOTE');
+  // سطور الوحدة المختلفة (حبّةٌ من كرتون) تُضبط على حصّتها من صافي البند بالمحرّك نفسه — فلا يتجاوز مجموع إشعاراته قيمته
+  const lines = fitCreditPrices(resolveCreditLines(creditable, input.request), request, input.companyVat, input.decimals ?? 2);
   const engine = engineOf(lines.map(l => ({ qty: l.creditQty, unitPrice: l.creditUnitPrice, discountPct: l.discountPct, taxPct: l.taxPct })), request, input.companyVat, input.decimals ?? 2);
   assertCreditAmount({ original: input.original, priorNotes: input.priorNotes, noteTotal: engine.total, bucketCount: taxBucketCount(lines) });
   const prepared = prepareNoteCommon({ ...input, kind: 'CREDIT_NOTE', lines: lineSourcesOf(lines), engine, reasonText: reason });

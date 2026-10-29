@@ -19,7 +19,7 @@ import {
   assertCreditAmount, buyerIdentityDrift, creditAmountTolerance, creditNoteLegacyColumns, creditableLines, creditedTotalOf,
   debitNoteLegacyColumns, hasCreditableQty, isNoteKind, noteEligibility, noteInvoiceColumns, noteItemColumns, noteNumberPrefix,
   noteRefusalError, prepareCreditNote, prepareDebitNote, remainingAfterCreditNote, resolveCreditLines, resolveReturnToStock,
-  stampNoteInTx, taxBucketCount, effectiveCreditScope,
+  stampNoteInTx, taxBucketCount, effectiveCreditScope, fitCreditPrices,
   type NoteEligible, type NoteOriginalInvoice, type NoteUnitDef, type PrepareCreditNoteInput, type PreparedNote, type PriorNote,
 } from './notes';
 import type { IssuanceRequest } from './issue';
@@ -652,18 +652,19 @@ function pieceOriginal(o: { pieces?: number; price?: number; phase?: 1 | 2 } = {
 const customerFor = (o: NoteOriginalInvoice) => (o.invoiceSubtype === '02' ? CUSTOMERS.individual : CUSTOMERS.b2bComplete);
 const creditOn = (original: NoteOriginalInvoice, request: PrepareCreditNoteInput['request'], priorNotes: PriorNote[] = []) =>
   credit({ original, customer: customerFor(original), request, priorNotes });
-/** الإشعار الملتزَم كما تقرؤه القاعدة في الطلب التالي (بنوده بلقطة وحدتها). */
+/** الإشعار الملتزَم كما تقرؤه القاعدة في الطلب التالي (loadPriorNotes): بنوده بلقطة وحدتها وما قُيِّد من كلّ بند. */
 const asPrior = (n: PreparedNote, id: string): PriorNote => priorNote({
   id, total: n.engine.total,
-  items: n.lines.map(l => ({ creditedItemId: l.invoiceItemId, qty: l.creditQty, unitFactor: l.creditUnitFactor })),
+  items: n.lines.map((l, i) => ({ creditedItemId: l.invoiceItemId, qty: l.creditQty, unitFactor: l.creditUnitFactor, lineTotal: n.engine.items[i].lineTotal })),
 });
 /** حصّة البنود قبل الخصم والضريبة: r2(الكمية × السعر) كما يحسبها المحرّك. */
 const grossOf = (n: PreparedNote) => n.lines.reduce((s, l) => s + roundDecimal(l.creditQty * l.creditUnitPrice, 2), 0);
 
-test('الوحدات: ٢٤ إشعاراً بحبّة من بند كرتون ⇒ حصصها قيمة الكرتون تماماً (لا ١٠٫٠٨)، وآخرها لا يُرفض، والخامس والعشرون لا متاح له', () => {
+test('الوحدات: ٢٤ إشعاراً بحبّة من بند كرتون ⇒ مجموعها قيمة الكرتون تماماً (لا أكثر)، وآخرها لا يُرفض، والخامس والعشرون لا متاح له', () => {
   const original = cartonOriginal({ cartons: 1, price: 10 });
   const prior: PriorNote[] = [];
   const shares: number[] = [];
+  const noteTotals: number[] = [];
   let totals = 0;
   for (let k = 0; k < 24; k++) {
     const n = creditOn(original, [{ invoiceItemId: 'it-1', qty: 1 }], prior);
@@ -677,13 +678,16 @@ test('الوحدات: ٢٤ إشعاراً بحبّة من بند كرتون ⇒ 
     assert.equal(doc.lines[0].unitCode, 'PCE', 'رمز الكرتون على سطرٍ بالحبّة');
     assert.equal(Number(doc.lines[0].quantity), 1);
     shares.push(grossOf(n));
+    noteTotals.push(n.engine.total);
     totals += n.engine.total;
     prior.push(asPrior(n, `n-${k + 1}`));
   }
   assert.equal(shares[0], 0.42, 'حصّة الحبّة الأولى = ١٠ ÷ ٢٤ مقرَّبة');
-  assert.equal(Math.round(shares.reduce((s, v) => s + v, 0) * 100), 1000, 'مجموع حصص الحبّات ≠ قيمة الكرتون');
-  // الخصم والضريبة يُقرَّبان لكل إشعار — والانحراف داخل سماح حارس القيمة (هللة لكلّ إشعار)
-  assert.ok(Math.abs(totals - original.total) <= creditAmountTolerance(1, 24) + 1e-9, `انحراف ${totals - original.total}`);
+  assert.equal(noteTotals[0], 0.48, 'صافي الحبّة الأولى = ١١٫٥٠ ÷ ٢٤ مقرَّبة');
+  // الهدف تراكميّ مصحِّح: ما قُيِّد فعلاً يُطرح، فلا يتراكم تقريب الضريبة — والمجموع صافي البند حرفاً
+  assert.equal(Math.round(totals * 100), Math.round(original.total * 100), `انحراف ${totals - original.total}`);
+  assert.ok(totals <= original.total + creditAmountTolerance(1, 24), 'تجاوز سماح حارس القيمة');
+  assert.ok(Math.abs(Math.round(shares.reduce((s, v) => s + v, 0) * 100) - 1000) <= 12, 'أساس الحبّات ابتعد عن أساس الكرتون');
   const left = creditableLines(original, prior)[0];
   assert.equal(left.returnableBase, 0);
   assert.equal(left.creditedBase, 24);
@@ -707,6 +711,7 @@ test('الوحدات: المتاح بالأساس — ٣ حبّات أُرجعت
   const l = rest.lines[0];
   assert.deepEqual([l.creditQty, l.creditBase, l.creditUnitFactor, l.creditUnitName, l.creditUnitCode], [45, 45, 1, null, 'PCE']);
   assert.equal(Math.round((grossOf(first) + grossOf(rest)) * 100), 2000, 'الإشعاران لا يساويان قيمة البند');
+  assert.equal(Math.round((first.engine.total + rest.engine.total) * 100), Math.round(original.total * 100), 'صافي الإشعارين ≠ الأصل');
   assert.equal(effectiveCreditScope(lines, rest.lines), 'PARTIAL', 'إتمام فاتورةٍ أُرجع بعضها ليس إلغاءً');
 });
 
@@ -733,9 +738,13 @@ test('الوحدات: وحدة الإرجاع بمعرّفها — كرتون م
   const pieces = pieceOriginal({ pieces: 48, price: 0.5 });
   const ct = creditOn(pieces, [{ invoiceItemId: 'it-1', qty: 1, unitId: 'u-ct' }]).lines[0];
   assert.deepEqual([ct.creditQty, ct.creditBase, ct.creditUnitFactor, ct.creditUnitName, ct.creditUnitCode, ct.creditUnitPrice], [1, 24, 24, 'كرتون', 'CT', 12]);
-  // معرّفٌ لا يخصّ الصنف ⇒ وحدة الأساس بمعامل ١ (عقد التصميم §6)
-  const stray = creditOn(changed, [{ invoiceItemId: 'it-1', qty: 1, unitId: 'u-other' }]).lines[0];
-  assert.deepEqual([stray.creditBase, stray.creditUnitFactor, stray.creditUnitName], [1, 1, null]);
+  // معرّفٌ ليس من وحدات الصنف ⇒ 400 UNIT_INVALID (DESIGN.md «قرارات أثناء التنفيذ») — لا يُقرأ أساساً بصمت
+  const stray = httpError(() => creditOn(changed, [{ invoiceItemId: 'it-1', qty: 1, unitId: 'u-other' }]));
+  assert.deepEqual([stray.code, stray.status], ['UNIT_INVALID', 400]);
+  assert.equal(stray.issues?.[0]?.field, 'lines[0].unitId');
+  // والوحدة الموقوفة بعد البيع تبقى صالحةً للإرجاع: الإيقاف يمنع بيعاً جديداً لا ردَّ ما بيع
+  const off = cartonOriginal({ cartons: 2, price: 10, units: [{ ...CARTON, isActive: false }] });
+  assert.equal(creditOn(off, [{ invoiceItemId: 'it-1', qty: 1, unitId: 'u-ct' }]).lines[0].creditBase, 24);
 });
 
 test('الوحدات: سطران من البند نفسه بوحدتين يُقبلان ويُسعَّران من موضعين متتاليين، والمكرَّر بالوحدة نفسها مرفوض، والتجاوز بالوحدات', () => {
@@ -790,4 +799,51 @@ test('الوحدات: صنفٌ بلا وحدات يبقى حرفياً — بن�
     credit({ original, request: 'FULL' }).lines.map(x => [x.creditQty, x.creditUnitFactor, x.creditUnitPrice === x.unitPrice]),
     lines.map(x => [x.returnable, 1, true]),
   );
+});
+
+test('الوحدات: حبّاتٌ من كرتونٍ بخصمَي البند والفاتورة ⇒ لا يرفض حارس القيمة آخرها، ومجموعها صافي البند تماماً (لا يُقيَّد للعميل فوق ما دفع)', () => {
+  // ٥٢٫٢٩ للكرتون بخصم ١٪ و٢٫٥٪: الحصّة من الأساس وحدها كانت تُقيِّد ٥٨٫٢٩ عن كرتونٍ صافيه ٥٨٫٠٥ ويُرفض الإشعار الأخير
+  for (const [price, lineDisc, headDisc] of [[52.29, 1, 2.5], [4.16, 1, 2.5], [11.04, 1, 5], [20.29, 0, 2.5]] as const) {
+    const request: IssuanceRequest = {
+      type: 'CREDIT', paymentPlan: null, pricesIncludeTax: false, discountPct: headDisc, supplyDate: null,
+      items: [{ productId: 'p-water', qty: 1, unitPrice: price, discountPct: lineDisc, taxPct: 15 }],
+    };
+    const base = originalInvoice({ request, subtype: '01', einvoiceStatus: 'cleared' });
+    const original: NoteOriginalInvoice = {
+      ...base, items: base.items.map(it => ({ ...it, unitCode: 'CT', unitName: 'كرتون', unitFactor: 24, baseQty: 24, units: [CARTON], baseUnitName: 'حبة' })),
+    };
+    const prior: PriorNote[] = [];
+    let sum = 0;
+    for (let k = 0; k < 24; k++) {
+      const n = creditOn(original, [{ invoiceItemId: 'it-1', qty: 1 }], prior);
+      assert.equal(n.prepared.amounts.total, n.engine.total, 'مبالغ D6 ≠ المحرّك');
+      sum += n.engine.total;
+      prior.push(asPrior(n, `n-${k + 1}`));
+    }
+    assert.equal(Math.round(sum * 100), Math.round(original.total * 100), `${price}/${lineDisc}/${headDisc}: ${sum} ≠ ${original.total}`);
+  }
+});
+
+test('الوحدات: creditableLines يحمل صافي البند وما رُدّ منه — بمبالغ الإشعارات حين تُعرف، وإلا بالموضع النسبيّ', () => {
+  const original = cartonOriginal({ cartons: 2, price: 10 });
+  const [fresh] = creditableLines(original, []);
+  assert.deepEqual([fresh.lineTotal, fresh.creditedAmount], [23, 0]);
+  const paid = [priorNote({ total: 1.45, items: [{ creditedItemId: 'it-1', qty: 3, unitFactor: 1, lineTotal: 1.45 }] })];
+  const withAmt = creditableLines(original, paid)[0];
+  assert.deepEqual([withAmt.creditedBase, withAmt.creditedAmount], [3, 1.45], 'ما قُيِّد فعلاً');
+  const noAmt = creditableLines(original, [priorNote({ total: 1.45, items: [{ creditedItemId: 'it-1', qty: 3, unitFactor: 1 }] })])[0];
+  assert.equal(noAmt.creditedAmount, 1.44, 'الموضع النسبيّ: ٢٣ × ٣ ÷ ٤٨');
+  // الإشعار التالي يصحّح: ٣ حبّات أخرى هدفها حصّة ٦ (٢٫٨٨) ناقصاً ما قُيِّد فعلاً (١٫٤٥)
+  const next = creditOn(original, [{ invoiceItemId: 'it-1', qty: 3 }], paid);
+  assert.equal(next.engine.items[0].lineTotal, 1.43);
+});
+
+test('fitCreditPrices: سطر البند بوحدته نفسها لا يُمسّ، والسطر المشتقّ وحده يُضبط', () => {
+  const original = cartonOriginal({ cartons: 2, price: 10 });
+  const resolved = resolveCreditLines(creditableLines(original, []), [{ invoiceItemId: 'it-1', qty: 1, unitId: 'u-ct' }, { invoiceItemId: 'it-1', qty: 5 }]);
+  const fitted = fitCreditPrices(resolved, { discountPct: 0, pricesIncludeTax: false }, COMPANY_VAT);
+  assert.deepEqual([fitted[0].creditFitted, fitted[0].creditUnitPrice], [false, 10]);
+  assert.equal(fitted[1].creditFitted, true);
+  const full = fitCreditPrices(resolveCreditLines(creditableLines(original, []), 'FULL'), { discountPct: 0, pricesIncludeTax: false }, COMPANY_VAT);
+  assert.deepEqual(full.map(l => [l.creditFitted, l.creditUnitPrice]), [[false, 10]]);
 });

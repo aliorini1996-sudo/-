@@ -8,6 +8,7 @@ import { useTr } from '../i18n/strings';
 import { useBackClose } from '../lib/useBackClose';
 import { MCard, MScreen, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import { expectObject } from './shape';
+import { statementItemText } from './mUnits';
 
 /* المستند في حزمة مستقلّة — يجرّ jspdf وhtml2canvas وqrcode معه */
 const MStatementDoc = lazy(() => import('./MStatementDoc'));
@@ -191,7 +192,8 @@ export default function MCustomerStatement({ customer, company, repName, onClose
                         بعشرين صنفاً تدفع بقيّة الكشف خارج الشاشة */}
                     {items.length > 0 && (
                       <p className="text-[11px] text-[#6E6557] leading-relaxed">
-                        {items.slice(0, 3).map(it => `${it.product.name} ×${formatNumber(Number(it.qty))}`).join(' · ')}
+                        {/* البند بلقطة وحدته: «×٢ كرتون» — «×٢» وحدها قد تعني كرتونين أو حبّتين (كالكشف المطبوع) */}
+                        {items.slice(0, 3).map(it => statementItemText(it, formatNumber)).join(' · ')}
                         {/* مفتاحٌ واحد لا شظايا: «و» و«أخرى» منفصلين لا يُترجمان */}
                         {items.length > 3 && ` · +${formatNumber(items.length - 3)} ${tr('أصناف أخرى')}`}
                       </p>

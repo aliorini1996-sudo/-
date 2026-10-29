@@ -132,6 +132,7 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
   {
     // العزل بالعميل **والصنف**: مسار حفظ الأسعار لا يتحقّق أن الصنف من الشركة، فالعميل وحده لا يكفي
     name: 'customer-prices', model: 'customerPrice', mode: 'updated', permission: 'canManageCustomers', accounting: true, tenantPath: 'customerAndProduct', hardDeletes: true,
+    // price لوحدة الأساس (الوحدات المتعددة): سعر الكرتون للعميل = price × معامل الكرتون في units الصنف
     select: pick('id', 'customerId', 'productId', 'price', 'createdAt', 'updatedAt'),
     denied: {},
   },

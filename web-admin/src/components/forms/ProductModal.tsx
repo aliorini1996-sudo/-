@@ -1,11 +1,17 @@
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { productApi } from '../../api/client';
-import { Product } from '../../types';
+import { Product, ProductUnit } from '../../types';
 import { useTr } from '../../i18n/strings';
-import { X, Upload, Trash2, Image as ImageIcon } from 'lucide-react';
+import { X, Upload, Trash2, Image as ImageIcon, Pencil, Plus, Layers, ArrowDownUp, Power } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { formatCurrency } from '../../utils/format';
+import { unitPriceOf } from '../../lib/units';
+import {
+  EMPTY_UNIT_FORM, unitFormOf, unitFormPayload, unitFormProblem, convertFormProblem, convertPreview, convertPayload,
+  type UnitForm, type ConvertForm,
+} from '../../lib/adminUnits';
 import { PRODUCT_VAT_CATEGORY_LABELS_AR, VATEX_LABELS_AR, productVatPayload, vatexCodesFor } from '../../lib/zatca/productVatForm';
 import {
   RETURN_RULE_METRIC_LABELS, RETURN_RULE_MODE_LABELS, ReturnRuleMetric, ReturnRuleMode, SHELF_LIFE_BASIS_LABELS, SHELF_LIFE_UNIT_LABELS,
@@ -63,6 +69,12 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
   });
   // صورة الصنف تُدار بـ state ليتم ضغطها ودمجها يدوياً
   const [image, setImage] = useState<string>(product?.image || '');
+  /* وحدات البيع (الوحدات المتعددة): تُحفظ فور كل إضافةٍ أو تعديل عبر مساراتها (/products/:id/units) لا مع زرّ الحفظ —
+   * فهي هنا حالةٌ محلية تتبع ما ردّه الخادم. ووحدة الأساس المحفوظة (لا ما في خانة الوحدة الآن) هي ما تُقاس به الوحدات
+   * وما يتوقّعه التحويل؛ التحويل يغيّرها فتُحدَّث معه */
+  const [units, setUnits] = useState<ProductUnit[]>(product?.units ?? []);
+  const [savedBase, setSavedBase] = useState<string>(product?.unit ?? '');
+  const [savedBasePrice, setSavedBasePrice] = useState<number>(Number(product?.basePrice ?? 0));
 
   const { data: categories } = useQuery({
     queryKey: ['product-categories'],
@@ -99,7 +111,15 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
     VAN_LOAD: 'ما يحمل اليوم في سيارة المندوب تنتهي صلاحيته في',
   };
   const submit = (data: Partial<Product>) => {
-    const { vatCategory: cat, vatExemptionCode, vatExemptionReason, ...rest } = data;
+    // units تُحفظ بمساراتها لا مع الصنف — وإرسال لقطتها القديمة (من فتح النافذة) لا معنى له فتُنزع من الحمولة
+    const { vatCategory: cat, vatExemptionCode, vatExemptionReason, units: _units, ...rest } = data;
+    void _units;
+    // اسم الأساس لا يأخذ اسم وحدةٍ أكبر للصنف نفسه (والخادم يرفضه) — «٢ كرتون» تصير ملتبسة بين الأساس والكرتون
+    const newBase = String(rest.unit ?? '').trim();
+    if (product && newBase !== savedBase.trim() && units.some(u => u.name.trim() === newBase)) {
+      toast.error(tr('اسم وحدة الأساس مستخدم لوحدة أخرى لهذا الصنف'));
+      return;
+    }
     // حقلٌ رقميّ فارغ يصير NaN — يُرسل null لا NaN (JSON يحوّله null أصلاً، والصراحة أوضح)
     const lifeValue = Number.isFinite(rest.shelfLifeValue as number) ? rest.shelfLifeValue : null;
     if (rest.shelfLifeEnabled && (!lifeValue || !Number.isInteger(lifeValue) || lifeValue <= 0)) {
@@ -175,10 +195,15 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
             <div>
               <label className="label">{tr('وحدة القياس')} *</label>
               <input className="input" {...register('unit', { required: true })} placeholder={tr('كرتون / قطعة / كيلو')} />
+              {/* صنفٌ قائم: الخانة إعادة تسمية لا تحويل — «كرتون» تُسمّى «حبة» فتُقرأ مبيعات سنةٍ حبّاتٍ (خطأ ٢٤ ضعفاً) */}
+              {product && (
+                <p className="text-[10px] text-gray-400 mt-1 leading-relaxed">{tr('تغيير الاسم هنا إعادة تسمية فقط ولتصغير وحدة الأساس استخدم تحويل إلى وحدة أصغر')}</p>
+              )}
             </div>
             <div>
               <label className="label">{tr('السعر الأساسي')} *</label>
               <input type="number" className="input" min="0" step="any" inputMode="decimal" {...register('basePrice', { required: true, valueAsNumber: true })} />
+              {units.length > 0 && <p className="text-[10px] text-gray-400 mt-1">{tr('سعر وحدة الأساس')}</p>}
             </div>
             <div>
               <label className="label">{tr('نسبة الضريبة %')}</label>
@@ -199,6 +224,23 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
               </select>
             </div>
           </div>
+
+          {/* وحدات البيع (الوحدات المتعددة): وحدة الأساس أصغر ما يُباع، والكرتون والطبلية وحداتٌ بمعاملها */}
+          <ProductUnitsSection
+            productId={product?.id ?? null}
+            baseUnit={savedBase}
+            basePrice={savedBasePrice}
+            units={units}
+            onUnits={setUnits}
+            onConverted={(p) => {
+              // الأساس صار الجديد وسعره: الخانتان تتبعانه، وإلا أعاد «حفظ التعديلات» بعده الاسمَ القديم فرفضه الخادم
+              setUnits(p.units ?? []);
+              setSavedBase(p.unit);
+              setSavedBasePrice(Number(p.basePrice));
+              setValue('unit', p.unit);
+              setValue('basePrice', Number(p.basePrice));
+            }}
+          />
 
           {/* سياسة «المرتجع التالف يعود لمخزون السيارة» أُلغيت (طلب المالك ١٥ أكتوبر ٢٠٢٦): كل مرتجعٍ تالف يدخل السيارة رصيد
               «المرتجع التالف» ولا يُباع حتى تزيله الإدارة — من صفحة مخزون سيارات المناديب */}
@@ -336,7 +378,8 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
                 <input className="input" dir="ltr" {...register('itemCode')} placeholder="EG-xxxx / 6221xxxxxxxxx" />
               </div>
               <div className="col-span-2">
-                <label className="label">{tr('كود الوحدة')}</label>
+                {/* للصنف وحدات: هذا رمز وحدة الأساس، ولكل وحدة بيعٍ رمزها في قسم «وحدات البيع» (بند الفاتورة يحمل رمز وحدته) */}
+                <label className="label">{units.length > 0 ? tr('كود وحدة الأساس') : tr('كود الوحدة')}</label>
                 <input className="input" dir="ltr" {...register('unitCode')} placeholder={tr('حسب جدول وحدات المزود مثال EA')} />
               </div>
             </div>
@@ -350,6 +393,302 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
             <button type="button" onClick={onClose} className="btn-secondary">{tr('إلغاء')}</button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+/** رسالة الخادم لا «حدث خطأ» العمياء — سبب الرفض (معاملٌ مكرّر، اسمٌ مستخدم، ٤٠٩ التحويل) يصل للمالك */
+const serverMessage = (err: unknown): string | undefined =>
+  (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+
+/**
+ * قسم «وحدات البيع» في نافذة الصنف: وحداتٌ أكبر من الأساس بالاسم والمعامل والسعر الاختياري والرمز الضريبي — إضافةً
+ * وتعديلاً وإيقافاً وحذفاً، كلٌّ يُحفظ فوراً بمساره (productApi.addUnit/updateUnit/removeUnit). ومعه زرّ «تحويل إلى وحدة
+ * أصغر» لصنفٍ له تاريخ (productApi.convertBase).
+ *
+ * لماذا فوراً لا مع «حفظ التعديلات»: الوحدة صفٌّ مستقلّ يحرسه الخادم بقفل الصنف (إضافةٌ تتزامن مع تحويل)، وجمعُها مع
+ * حفظ الصنف يجعل فشل أحدهما نصف حفظٍ لا يعرف المالك أيّ نصفيه التزم.
+ *
+ * والحذف فعليّ (الصفوف تحمل لقطة وحدتها فلا ينكسر تاريخ)، والإيقاف يحجبها عن البيع الجديد ويُبقي رفع مستندٍ أوف‑لاين صدر بها.
+ */
+function ProductUnitsSection({ productId, baseUnit, basePrice, units, onUnits, onConverted }: {
+  productId: string | null;
+  baseUnit: string;
+  basePrice: number;
+  units: ProductUnit[];
+  onUnits: (u: ProductUnit[]) => void;
+  onConverted: (p: Product) => void;
+}) {
+  const tr = useTr();
+  const qc = useQueryClient();
+  const [adding, setAdding] = useState<UnitForm>(EMPTY_UNIT_FORM);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<UnitForm>(EMPTY_UNIT_FORM);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [showConvert, setShowConvert] = useState(false);
+
+  // قوائم الأصناف في الصفحات الأخرى (الفاتورة والتحميل والوارد) تقرأ الوحدات — تتبع كل تغيير
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['products'] });
+    qc.invalidateQueries({ queryKey: ['products-all'] });
+    qc.invalidateQueries({ queryKey: ['products-min'] });
+  };
+  const sorted = [...units].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || Number(a.factor) - Number(b.factor));
+  const product = { unit: baseUnit, units };
+
+  // Enter في خانات الوحدة لا يُرسل نموذج الصنف كلّه (القسم داخل <form> الصنف)
+  const noSubmit = (e: React.KeyboardEvent) => { if (e.key === 'Enter') e.preventDefault(); };
+
+  if (!productId) {
+    return (
+      <div className="rounded-xl border border-dashed border-gray-200 p-3 text-xs text-gray-500 flex items-center gap-2">
+        <Layers size={14} className="text-gray-400 shrink-0" />
+        {tr('احفظ الصنف أولا ثم أضف له وحدات بيع أكبر مثل الكرتون')}
+      </div>
+    );
+  }
+
+  const add = async () => {
+    const problem = unitFormProblem(adding, product);
+    if (problem) { toast.error(tr(problem)); return; }
+    setBusy('add');
+    try {
+      const { data } = await productApi.addUnit(productId, unitFormPayload(adding));
+      onUnits([...units, data.data as ProductUnit]);
+      setAdding(EMPTY_UNIT_FORM);
+      refresh();
+      toast.success(tr('أضيفت الوحدة'));
+    } catch (err) { toast.error(tr(serverMessage(err) || 'تعذر الحفظ')); }
+    setBusy(null);
+  };
+
+  const saveEdit = async (u: ProductUnit) => {
+    const problem = unitFormProblem(editing, product, u.id);
+    if (problem) { toast.error(tr(problem)); return; }
+    setBusy(u.id);
+    try {
+      const { data } = await productApi.updateUnit(productId, u.id, unitFormPayload(editing));
+      onUnits(units.map(x => (x.id === u.id ? (data.data as ProductUnit) : x)));
+      setEditId(null);
+      refresh();
+      toast.success(tr('حفظت الوحدة'));
+    } catch (err) { toast.error(tr(serverMessage(err) || 'تعذر الحفظ')); }
+    setBusy(null);
+  };
+
+  const toggle = async (u: ProductUnit) => {
+    setBusy(u.id);
+    try {
+      const { data } = await productApi.updateUnit(productId, u.id, { isActive: u.isActive === false });
+      onUnits(units.map(x => (x.id === u.id ? (data.data as ProductUnit) : x)));
+      refresh();
+      toast.success(u.isActive === false ? tr('فعلت الوحدة') : tr('أوقفت الوحدة'));
+    } catch (err) { toast.error(tr(serverMessage(err) || 'تعذر الحفظ')); }
+    setBusy(null);
+  };
+
+  const remove = async (u: ProductUnit) => {
+    if (!window.confirm(`${tr('حذف الوحدة نهائيا؟ الفواتير والحركات السابقة بها تبقى كما هي وللإيقاف المؤقت استخدم إيقاف')} — ${u.name}`)) return;
+    setBusy(u.id);
+    try {
+      await productApi.removeUnit(productId, u.id);
+      onUnits(units.filter(x => x.id !== u.id));
+      if (editId === u.id) setEditId(null);
+      refresh();
+      toast.success(tr('حذفت الوحدة'));
+    } catch (err) { toast.error(tr(serverMessage(err) || 'تعذر الحذف')); }
+    setBusy(null);
+  };
+
+  /** خانات وحدةٍ (إضافة أو تعديل) — الاسم والمعامل والسعر الاختياري والرمز الضريبي */
+  const fields = (f: UnitForm, set: (f: UnitForm) => void) => (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" onKeyDown={noSubmit}>
+      <input className="input py-1.5 text-sm" maxLength={24} value={f.name} placeholder={tr('اسم الوحدة')}
+        aria-label={tr('اسم الوحدة')} onChange={e => set({ ...f, name: e.target.value })} />
+      <input className="input py-1.5 text-sm text-center" type="number" min="2" step="1" inputMode="numeric" value={f.factor}
+        placeholder={tr('المعامل')} aria-label={tr('عدد وحدات الأساس فيها')} title={`${tr('عدد وحدات الأساس فيها')} (${baseUnit})`}
+        onChange={e => set({ ...f, factor: e.target.value })} />
+      <input className="input py-1.5 text-sm text-center" type="number" min="0" step="any" inputMode="decimal" value={f.price}
+        placeholder={tr('السعر اختياري')} aria-label={tr('السعر اختياري')} title={tr('فارغ يعني سعر الأساس مضروبا في المعامل')}
+        onChange={e => set({ ...f, price: e.target.value })} />
+      <input className="input py-1.5 text-sm" dir="ltr" maxLength={16} value={f.unitCode} placeholder={tr('رمز الوحدة الضريبي')}
+        aria-label={tr('رمز الوحدة الضريبي')} onChange={e => set({ ...f, unitCode: e.target.value })} />
+    </div>
+  );
+
+  return (
+    <div className="rounded-xl border border-gray-200 p-3 space-y-3" data-product-units="">
+      <div className="flex items-start justify-between gap-2 flex-wrap">
+        <div>
+          <p className="text-sm font-semibold text-gray-700 flex items-center gap-1.5"><Layers size={15} className="text-[#E15A30]" /> {tr('وحدات البيع')}</p>
+          <p className="text-[11px] text-gray-500 mt-0.5">
+            {tr('وحدة الأساس')}: <b className="text-gray-700">{baseUnit}</b> — {tr('أصغر ما يباع من الصنف وكل وحدة أكبر تعرف بعدد وحدات الأساس فيها')}
+          </p>
+        </div>
+        <button type="button" onClick={() => setShowConvert(true)} disabled={busy !== null}
+          className="text-[11px] font-semibold text-[#6E6557] border border-[#E9E1D3] rounded-lg px-2.5 py-1 hover:bg-[#FAF7F0] flex items-center gap-1 disabled:opacity-50">
+          <ArrowDownUp size={12} /> {tr('تحويل إلى وحدة أصغر')}
+        </button>
+      </div>
+
+      {sorted.length === 0 ? (
+        <p className="text-[11px] text-gray-400">{tr('لا وحدات إضافية والصنف يباع بوحدة الأساس وحدها')}</p>
+      ) : (
+        <div className="border border-gray-100 rounded-lg divide-y divide-gray-100">
+          {sorted.map(u => {
+            const off = u.isActive === false;
+            const explicit = u.price != null;
+            if (editId === u.id) {
+              return (
+                <div key={u.id} className="p-2 space-y-2 bg-[#FAF7F0]">
+                  {fields(editing, setEditing)}
+                  <p className="text-[10px] text-gray-500">{tr('تغيير المعامل لا يغير الفواتير والحركات السابقة فكل حركة تحفظ معامل وحدتها لحظتها')}</p>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => saveEdit(u)} disabled={busy !== null} className="btn-primary py-1 px-3 text-xs disabled:opacity-60">{tr('حفظ')}</button>
+                    <button type="button" onClick={() => setEditId(null)} className="btn-secondary py-1 px-3 text-xs">{tr('إلغاء')}</button>
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <div key={u.id} className={`flex items-center gap-2 px-2.5 py-2 text-sm ${off ? 'opacity-60' : ''}`}>
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-gray-800">
+                    {u.name} <span className="text-[11px] font-normal text-gray-500">= {Number(u.factor)} {baseUnit}</span>
+                    {off && <span className="ms-2 text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">{tr('موقوفة')}</span>}
+                  </p>
+                  <p className="text-[11px] text-gray-500">
+                    {formatCurrency(unitPriceOf({ name: u.name, factor: Number(u.factor), price: u.price ?? undefined }, basePrice))}
+                    {!explicit && <span className="text-gray-400"> · {tr('محسوب من سعر الأساس')}</span>}
+                    {u.unitCode && <span className="font-mono" dir="ltr"> · {u.unitCode}</span>}
+                  </p>
+                </div>
+                <button type="button" title={tr('تعديل')} disabled={busy !== null}
+                  onClick={() => { setEditId(u.id); setEditing(unitFormOf(u)); }}
+                  className="p-1.5 rounded text-[#E15A30] hover:bg-[#FBEBE2] disabled:opacity-40"><Pencil size={13} /></button>
+                <button type="button" title={off ? tr('تفعيل') : tr('إيقاف')} disabled={busy !== null} onClick={() => toggle(u)}
+                  className={`p-1.5 rounded disabled:opacity-40 ${off ? 'text-[#1E7A52] hover:bg-green-50' : 'text-amber-600 hover:bg-amber-50'}`}><Power size={13} /></button>
+                <button type="button" title={tr('حذف')} disabled={busy !== null} onClick={() => remove(u)}
+                  className="p-1.5 rounded text-red-500 hover:bg-red-50 disabled:opacity-40"><Trash2 size={13} /></button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* إضافة وحدة */}
+      <div className="space-y-2">
+        {fields(adding, setAdding)}
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <p className="text-[10px] text-gray-400">{tr('تحفظ الوحدات فور إضافتها أو تعديلها')}</p>
+          <button type="button" onClick={add} disabled={busy !== null || !adding.name.trim()}
+            className="btn-secondary py-1 px-3 text-xs disabled:opacity-50"><Plus size={13} /> {tr('إضافة وحدة')}</button>
+        </div>
+      </div>
+
+      {showConvert && (
+        <ConvertBaseDialog
+          productId={productId} baseUnit={baseUnit} basePrice={basePrice} units={units}
+          onClose={() => setShowConvert(false)}
+          onDone={(p) => { setShowConvert(false); setEditId(null); onConverted(p); refresh(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * «تحويل إلى وحدة أصغر» — نافذة تأكيد بلغة المالك قبل `productApi.convertBase`.
+ *
+ * الصنف الذي يُباع بالكرتون منذ سنة لا يصير «حبة» بتعديل اسم وحدته: كل فاتورةٍ وتحميلٍ مضى كُتب بالكرتون، فإعادة
+ * التسمية تقرؤه حبّاتٍ (خطأ ٢٤ ضعفاً في كل رصيدٍ وتقرير). التحويل على الخادم يوسم كل صفٍّ قديم بوحدته ومعاملها فتبقى
+ * أرقامه المطبوعة كما هي، والكرتون يصير وحدةً بمعامله وسعره، والأساس الجديد أصغر. و`expectedBaseName` = الأساس كما
+ * رآه المالك حين فتح النافذة: تحويلٌ سبقه (نقرةٌ ثانية أو مديرٌ آخر) يُردّ ٤٠٩ «تغيّرت وحدة الأساس» برسالته هنا.
+ */
+function ConvertBaseDialog({ productId, baseUnit, basePrice, units, onClose, onDone }: {
+  productId: string; baseUnit: string; basePrice: number; units: ProductUnit[];
+  onClose: () => void; onDone: (p: Product) => void;
+}) {
+  const tr = useTr();
+  // الأساس لحظة فتح النافذة — لا يتبع ما يتغيّر بعدها، فهو ما يتحقّق منه الخادم
+  const [expected] = useState(baseUnit);
+  const [form, setForm] = useState<ConvertForm>({ newBaseName: '', factor: '', basePrice: '' });
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const product = { unit: expected, basePrice, units };
+  const problem = convertFormProblem(form, product);
+  const preview = convertPreview(product, form);
+  const newName = form.newBaseName.trim() || tr('الوحدة الجديدة');
+
+  const confirm = async () => {
+    if (problem) { setError(tr(problem)); return; }
+    setBusy(true); setError('');
+    try {
+      const { data } = await productApi.convertBase(productId, convertPayload(form, expected));
+      toast.success(tr('تم تحويل وحدة الأساس'));
+      onDone(data.data as Product);
+    } catch (err) {
+      // ٤٠٩ BASE_UNIT_CHANGED: حُوّل الصنف أو عُدّل منذ فتح النافذة — رسالة الخادم تقول الأساس الآن، ولا يُعاد الإرسال
+      setError(tr(serverMessage(err) || 'تعذر التحويل'));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4" dir="rtl" onKeyDown={e => { if (e.key === 'Enter') e.preventDefault(); }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-4 border-b">
+          <h3 className="font-bold text-gray-800 flex items-center gap-2"><ArrowDownUp size={17} className="text-[#E15A30]" /> {tr('تحويل وحدة الأساس إلى وحدة أصغر')}</h3>
+          <button type="button" onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={16} /></button>
+        </div>
+        <div className="p-4 space-y-3 text-sm">
+          {/* الشرح بلغة المالك: ما يتغيّر وما لا يتغيّر — قبل أي خانة */}
+          <ul className="text-xs text-gray-600 space-y-1.5 leading-relaxed list-disc ps-4">
+            <li>{tr('الصنف يباع اليوم بوحدة')} «<b>{expected}</b>». {tr('بعد التحويل تصير وحدة بيع بالمعامل الذي تكتبه وبسعرها الحالي')} ({formatCurrency(basePrice)})، {tr('وتصبح وحدة الأساس الجديدة هي الأصغر')}.</li>
+            <li>{tr('أرقام الفواتير والحركات السابقة لا تتغير: ما بيع بها يبقى مطبوعا كما هو وتحسب كميته بالوحدة الجديدة تلقائيا')}</li>
+            <li>{tr('أسعار العملاء الخاصة وشرائح الأسعار تقسم على المعامل فيبقى سعر الوحدة الحالية لكل عميل كما هو')}</li>
+            <li>{tr('المندوب يستمر في البيع بالوحدة الحالية افتراضيا')}</li>
+          </ul>
+
+          <div>
+            <label className="label">{tr('اسم وحدة الأساس الجديدة')} *</label>
+            <input className="input" maxLength={24} value={form.newBaseName} placeholder={tr('حبة')}
+              onChange={e => setForm(f => ({ ...f, newBaseName: e.target.value }))} />
+          </div>
+          <div>
+            <label className="label">{tr('عدد وحدات الأساس الجديدة في الوحدة الحالية')} ({newName} / {expected}) *</label>
+            <input className="input" type="number" min="2" step="1" inputMode="numeric" value={form.factor}
+              onChange={e => setForm(f => ({ ...f, factor: e.target.value }))} />
+          </div>
+          <div>
+            <label className="label">{tr('سعر وحدة الأساس الجديدة')} ({tr('اختياري')})</label>
+            <input className="input" type="number" min="0" step="any" inputMode="decimal" value={form.basePrice}
+              placeholder={preview ? String(preview.newBasePrice) : ''}
+              onChange={e => setForm(f => ({ ...f, basePrice: e.target.value }))} />
+            <p className="text-[10px] text-gray-400 mt-1">{tr('فارغ يعني السعر الحالي مقسوما على المعامل')}</p>
+          </div>
+
+          {preview && (
+            <div className="rounded-lg bg-[#FAF7F0] border border-[#F1EBDF] p-3 text-xs text-gray-700 space-y-1" data-convert-preview="">
+              <p><b>1 {preview.oldAsUnit.name}</b> = {preview.factor} {preview.newBaseName} · {formatCurrency(preview.oldAsUnit.price)}</p>
+              <p>{preview.newBaseName}: {formatCurrency(preview.newBasePrice, undefined, 4)}</p>
+              {preview.scaled.map(s => (
+                <p key={s.name} className="text-gray-500">{s.name}: {s.from} {expected} ← {s.to} {preview.newBaseName}</p>
+              ))}
+            </div>
+          )}
+
+          {error && <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>}
+        </div>
+        <div className="flex gap-3 p-4 border-t">
+          <button type="button" onClick={confirm} disabled={busy || !!problem}
+            className="btn-primary flex-1 justify-center py-2 disabled:opacity-60">
+            {busy ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <ArrowDownUp size={15} />}
+            {tr('تأكيد التحويل')}
+          </button>
+          <button type="button" onClick={onClose} className="btn-secondary">{tr('إلغاء')}</button>
+        </div>
       </div>
     </div>
   );
