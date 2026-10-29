@@ -219,13 +219,31 @@ export interface Customer {
   countryCode?: string | null;
 }
 
+/** وحدة بيعٍ للصنف أكبر من وحدة الأساس (كرتون = ٢٤ حبة). الصفوف تحمل لقطتها لا مرجعاً إليها. */
+export interface ProductUnit {
+  id: string;
+  productId?: string;
+  name: string;
+  /** عدد وحدات الأساس فيها — صحيحٌ موجب */
+  factor: number;
+  /** سعرها؛ null ⇒ سعر الأساس × المعامل */
+  price?: number | null;
+  unitCode?: string | null;
+  isActive?: boolean;
+  sortOrder?: number;
+}
+
 export interface Product {
   id: string;
   code: string;
   name: string;
   barcode?: string;
+  /** وحدة الأساس — أصغر ما يُباع منه */
   unit: string;
+  /** سعر وحدة الأساس */
   basePrice: number;
+  /** وحدات البيع الأكبر (الوحدات المتعددة) — فارغةٌ ⇒ صنفٌ بوحدةٍ واحدة */
+  units?: ProductUnit[];
   taxPct: number;
   image?: string | null;
   status: 'ACTIVE' | 'INACTIVE';
@@ -306,6 +324,12 @@ export interface InvoiceItem {
   productId: string;
   product: { id: string; name: string; code: string; unit: string };
   qty: number;
+  /** لقطة وحدة البند: null ⇒ وحدة الأساس (product.unit) */
+  unitName?: string | null;
+  /** عدد وحدات الأساس في وحدة البند — ١ لوحدة الأساس */
+  unitFactor?: number | null;
+  /** الكمية بوحدة الأساس = qty × unitFactor */
+  baseQty?: number | null;
   unitPrice: number;
   discountPct: number;
   discountAmt: number;

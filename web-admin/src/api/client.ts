@@ -80,6 +80,19 @@ export const productApi = {
   createCategory: (data: unknown) => api.post('/products/categories', data),
   updatePriceTiers: (id: string, tiers: unknown) => api.put(`/products/${id}/price-tiers`, { tiers }),
   remove: (id: string) => api.delete(`/products/${id}`),
+  // الوحدات المتعددة: وحدات البيع الأكبر من وحدة الأساس (كرتون = ٢٤ حبة)
+  addUnit: (id: string, data: { name: string; factor: number; price?: number | null; unitCode?: string | null }) =>
+    api.post(`/products/${id}/units`, data),
+  updateUnit: (id: string, unitId: string, data: { name?: string; factor?: number; price?: number | null; unitCode?: string | null; isActive?: boolean; sortOrder?: number }) =>
+    api.put(`/products/${id}/units/${unitId}`, data),
+  removeUnit: (id: string, unitId: string) => api.delete(`/products/${id}/units/${unitId}`),
+  /**
+   * تحويل صنفٍ قائم إلى وحدة أساس أصغر: وحدته الحالية تصير وحدةً بمعامل `factor`
+   * (بسعرها نفسه)، و`newBaseName` الأساس الجديد. التاريخ لا تُعاد كتابة أرقامه —
+   * تُوسَم صفوفه بمعاملها فقط. `expectedBaseName` يمنع تحويلاً مزدوجاً بنقرتين.
+   */
+  convertBase: (id: string, data: { newBaseName: string; factor: number; expectedBaseName: string; basePrice?: number }) =>
+    api.post(`/products/${id}/convert-base`, data),
 };
 
 // «الفرق» داخل الشركة — /api/company/teams (مطفأة افتراضياً، يفعّلها مدير الشركة من إعدادات الشركة)

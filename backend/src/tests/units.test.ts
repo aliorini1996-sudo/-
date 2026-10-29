@@ -33,6 +33,18 @@ test('baseQtyOf: العمود المخزَّن يسبق الحساب من الل
   assert.equal(baseQtyOf({ qty: 2, unitFactor: 24, baseQty: 0 }), 0);
 });
 
+/**
+ * الحارس الأهمّ: صفٌّ سبق الميزة (baseQty = null بعد النشر وقبل الترحيل) يُقرأ
+ * بكميته الحقيقية. كان `Number(null)` = 0 «رقماً صالحاً» فيتصفّر مخزون الشركات
+ * كلّه وتاريخ مبيعاتها لحظة النشر.
+ */
+test('صفٌّ قديم baseQty = null ⇒ كميته الحقيقية لا صفر', () => {
+  assert.equal(baseQtyOf({ qty: 5, baseQty: null }), 5);
+  assert.equal(baseQtyOf({ qty: 5, unitFactor: 1, baseQty: null }), 5);
+  assert.equal(baseQtyOf({ qty: 3, unitFactor: 24, baseQty: null }), 72);
+  assert.equal(sumBase([{ qty: 5, baseQty: null }, { qty: 2, unitFactor: 24, baseQty: 48 }]), 53);
+});
+
 test('جمع كمياتٍ بوحداتٍ مختلفة بالأساس: كرتون + ١٠ حبات = ٣٤', () => {
   assert.equal(sumBase([{ qty: 1, ...carton }, { qty: 10, ...piece }]), 34);
 });

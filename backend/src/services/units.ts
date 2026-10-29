@@ -82,8 +82,13 @@ export function sumBase(rows: Array<{ qty?: number | string | null; baseQty?: nu
  * لصفوفٍ قديمة لم يملأها الترحيل بعد، ولنتائج `select` التي لم تطلبه.
  */
 export function baseQtyOf(row: { qty?: number | string | null; baseQty?: number | string | null } & UnitSnapshot): number {
-  const b = Number(row?.baseQty);
-  if (Number.isFinite(b)) return roundQty(b);
+  // `null`/غائب ⇒ صفٌّ سبق الميزة لم يملأه الترحيل بعد، أو select لم يطلب العمود:
+  // يُحسب من اللقطة. ولا يُعامَل الصفر غياباً — الصفر كميةٌ حقيقية.
+  // (وكان `Number(null)` = 0 «رقماً صالحاً» فتُقرأ كل الصفوف القديمة صفراً.)
+  if (row?.baseQty != null && row.baseQty !== '') {
+    const b = Number(row.baseQty);
+    if (Number.isFinite(b)) return roundQty(b);
+  }
   return toBase(row?.qty, row);
 }
 
