@@ -8,6 +8,7 @@
  */
 import { Prisma } from '@prisma/client';
 import prisma from '../config/database';
+import { baseQtyOf, toBase } from './units';
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
@@ -17,12 +18,18 @@ export interface SaleItemRow {
   id: string;
   productId: string | null;
   qty: number;
+  /** معامل وحدة البند المباع — الكمية بالأساس = qty × unitFactor (الوحدات المتعددة) */
+  unitFactor?: number | null;
+  baseQty?: number | null;
 }
 
 export interface ReturnLineRequest {
   productId: string;
   saleItemId: string | null;
   qty: number;
+  /** معامل وحدة بند المرتجع — يُقارَن بالمتاح **بالأساس** لا بالخام */
+  unitFactor?: number | null;
+  baseQty?: number | null;
 }
 
 export class ReturnLinkError extends Error {
@@ -40,18 +47,20 @@ export async function returnedBySaleItem(db: Db, tenantId: string, saleItemIds: 
       OR: [{ returnOfItemId: { in: saleItemIds } }, { creditedItemId: { in: saleItemIds } }],
       invoice: { tenantId, status: { not: 'CANCELLED' } },
     },
-    select: { qty: true, returnOfItemId: true, creditedItemId: true },
+    select: { qty: true, unitFactor: true, baseQty: true, returnOfItemId: true, creditedItemId: true },
   });
   for (const r of rows) {
     const key = r.returnOfItemId ?? r.creditedItemId;
-    if (key) out.set(key, (out.get(key) ?? 0) + Number(r.qty));
+    // بالأساس: إشعارٌ أو مرتجعٌ بالحبة على بند كرتون يُنقص المتاح حبّةً لا كرتوناً
+    if (key) out.set(key, (out.get(key) ?? 0) + baseQtyOf(r));
   }
   return out;
 }
 
 /** المتاح للإرجاع من كل بند: المبيع ناقص ما أُرجع، ولا يقلّ عن صفر */
 export function returnableOf(items: SaleItemRow[], returned: Map<string, number>): Map<string, number> {
-  return new Map(items.map((it) => [it.id, Math.max(0, Number(it.qty) - (returned.get(it.id) ?? 0))]));
+  // المتاح بالأساس: المبيع بالأساس (qty×unitFactor) ناقص ما أُرجع بالأساس
+  return new Map(items.map((it) => [it.id, Math.max(0, baseQtyOf(it) - (returned.get(it.id) ?? 0))]));
 }
 
 /**
@@ -78,7 +87,8 @@ export function returnLinkProblem(input: {
     const it = byId.get(l.saleItemId);
     if (!it) return 'صنفٌ في المرتجع ليس من فاتورة البيع المختارة';
     if (it.productId !== l.productId) return 'صنف المرتجع لا يطابق صنف فاتورة البيع';
-    want.set(l.saleItemId, (want.get(l.saleItemId) ?? 0) + l.qty);
+    // الكمية بالأساس: حبّةٌ (معامل ١) تُقارَن بمتاح الكرتون (٢٤)
+    want.set(l.saleItemId, (want.get(l.saleItemId) ?? 0) + toBase(l.qty, l));
   }
   for (const [id, qty] of want) {
     const left = returnable.get(id) ?? 0;
@@ -102,7 +112,7 @@ export async function assertReturnLinks(db: Db, input: {
   }
   const sale = await db.invoice.findFirst({
     where: { id: input.saleInvoiceId, tenantId: input.tenantId },
-    select: { customerId: true, type: true, status: true, documentKind: true, locationId: true, items: { select: { id: true, productId: true, qty: true } } },
+    select: { customerId: true, type: true, status: true, documentKind: true, locationId: true, items: { select: { id: true, productId: true, qty: true, unitFactor: true, baseQty: true } } },
   });
   const returned = sale ? await returnedBySaleItem(db, input.tenantId, sale.items.map((i) => i.id)) : new Map<string, number>();
   const problem = returnLinkProblem({

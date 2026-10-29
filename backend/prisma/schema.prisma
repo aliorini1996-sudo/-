@@ -765,7 +765,10 @@ model Product {
   code                 String
   name                 String
   barcode              String?
+  /// وحدة **الأساس** — أصغر ما يُباع من الصنف. مع الوحدات المتعددة تصير «حبة»
+  /// بعد التحويل، وقبلها هي الوحدة الوحيدة كما كانت.
   unit                 String
+  /// سعر وحدة الأساس. وسعرُ كلّ وحدةٍ أكبر يُحدَّد عليها، وإلّا اشتُقّ ضرباً بمعاملها.
   basePrice            Float
   taxPct               Float            @default(15)
   image                String? // صورة الصنف (base64 data URL)
@@ -792,6 +795,8 @@ model Product {
   createdAt            DateTime         @default(now())
   updatedAt            DateTime         @updatedAt
 
+  /// وحداتُ البيع الأكبر من الأساس (كرتون = ٢٤ حبة). فارغةٌ ⇒ صنفٌ بوحدةٍ واحدة كما كان.
+  units               ProductUnit[]
   priceTiers          PriceTier[]
   // فرق الصنف: بلا صفوف = صنفٌ عام لكل الفرق؛ وإلا لا يبيعه إلا من يعمل لأحد فرقه
   teams               ProductTeam[]
@@ -812,12 +817,44 @@ model Product {
   @@map("products")
 }
 
+/// وحدة بيعٍ للصنف أكبر من وحدة الأساس.
+///
+/// `factor` عدد وحدات الأساس فيها (كرتون = ٢٤ حبة)، وهو صحيحٌ موجب: كسرُه يعني
+/// أنّ «الأساس» ليس أصغر الوحدات وهو نقضٌ للمبدأ. و`price` فارغاً يُشتقّ السعر
+/// بضرب سعر الأساس في المعامل.
+///
+/// والصفوف المكتوبة بهذه الوحدة لا تشير إليها، بل تحمل **لقطتها** (الاسم
+/// والمعامل): تغييرُ المعامل أو إيقاف الوحدة لا يُعيد كتابة فواتير مضت.
+model ProductUnit {
+  id        String  @id @default(uuid())
+  tenantId  String
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name      String
+  factor    Float
+  price     Float?
+  /// رمز الوحدة الضريبي (UN/ECE Rec 20) لبند الفاتورة الإلكترونية — يغلب رمز الصنف
+  unitCode  String?
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([productId, name])
+  @@index([tenantId, productId])
+  @@map("product_units")
+}
+
 model PriceTier {
   id        String   @id @default(uuid())
   productId String
   product   Product  @relation(fields: [productId], references: [id])
+  /// حدود الشريحة **بوحدة الأساس** (`baseMinQty`)، والعمودان القديمان يبقيان
+  /// بوحدة الصنف وقت الإنشاء لئلّا تتغيّر أرقام شاشةٍ قائمة.
   minQty    Float
   maxQty    Float?
+  baseMinQty Float  @default(0)
+  baseMaxQty Float?
   price     Float
   createdAt DateTime @default(now())
 
@@ -1063,6 +1100,12 @@ model InvoiceItem {
   orderItemId String?
   unitCost    Float    @default(0) // تكلفة الصنف لحظة البيع (لحساب COGS في M6)
   qty         Float
+  /// لقطة وحدة الصفّ: اسمها ومعاملها لحظة الكتابة (null/1 = وحدة الأساس كما قبل الميزة).
+  /// و`baseQty` الكمية بوحدة الأساس — **وهي وحدها ما يُجمع ويُقارَن**، لأنّ
+  /// `_sum.qty` في القاعدة لا يضرب بمعامل. تُكتب مع كلّ صفّ (services/units.ts).
+  unitName   String?
+  unitFactor Float    @default(1)
+  baseQty    Float    @default(0)
   unitPrice   Float
   discountPct Float    @default(0)
   discountAmt Float    @default(0)
@@ -1599,6 +1642,12 @@ model VanLoadItem {
   productId String
   product   Product @relation(fields: [productId], references: [id])
   qty       Float // موجب للتحميل/التسوية الزائدة، يُفسَّر حسب نوع VanLoad
+  /// لقطة وحدة الصفّ: اسمها ومعاملها لحظة الكتابة (null/1 = وحدة الأساس كما قبل الميزة).
+  /// و`baseQty` الكمية بوحدة الأساس — **وهي وحدها ما يُجمع ويُقارَن**، لأنّ
+  /// `_sum.qty` في القاعدة لا يضرب بمعامل. تُكتب مع كلّ صفّ (services/units.ts).
+  unitName   String?
+  unitFactor Float    @default(1)
+  baseQty    Float    @default(0)
 
   // ما اقترحه المحرّك وقت هذا التحميل. اختياري وإضافي: بلا جدول جديد.
   // بدونه لا يوجد دليل قيمة لاحقاً — مقارنة «المقترَح مقابل المُباع مقابل
@@ -1652,6 +1701,12 @@ model RepStockRequestItem {
   requestedQty Float
   /// الكمية المعتمدة: تبدأ بما طلبه المندوب، وتعدّلها الإدارة (صفرٌ = حُذف الصنف من طلبه)
   qty          Float
+  /// لقطة وحدة الصفّ: اسمها ومعاملها لحظة الكتابة (null/1 = وحدة الأساس كما قبل الميزة).
+  /// و`baseQty` الكمية بوحدة الأساس — **وهي وحدها ما يُجمع ويُقارَن**، لأنّ
+  /// `_sum.qty` في القاعدة لا يضرب بمعامل. تُكتب مع كلّ صفّ (services/units.ts).
+  unitName   String?
+  unitFactor Float    @default(1)
+  baseQty    Float    @default(0)
 
   @@unique([requestId, productId])
   @@map("rep_stock_request_items")
@@ -1703,6 +1758,12 @@ model WarehouseEntryItem {
   productId String
   product   Product        @relation(fields: [productId], references: [id])
   qty       Float // موجب للوارد؛ + أو − للتسوية
+  /// لقطة وحدة الصفّ: اسمها ومعاملها لحظة الكتابة (null/1 = وحدة الأساس كما قبل الميزة).
+  /// و`baseQty` الكمية بوحدة الأساس — **وهي وحدها ما يُجمع ويُقارَن**، لأنّ
+  /// `_sum.qty` في القاعدة لا يضرب بمعامل. تُكتب مع كلّ صفّ (services/units.ts).
+  unitName   String?
+  unitFactor Float    @default(1)
+  baseQty    Float    @default(0)
   // تكلفة شراء الوحدة **صافيةً قبل الضريبة** — معنى واحد لا معنيان:
   // ما يُدخله المستخدم شاملاً الضريبة يُردّ إلى صافيه في الخادم قبل الحفظ.
   // اختياريّ: الاستلام قد يُسجَّل قبل وصول فاتورة المورّد، ولا يُعطَّل لأجلها.

@@ -1,5 +1,6 @@
 ﻿import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { toBase, factorOf, unitPriceOf, unitFields, refundPerBase } from '../services/units';
 import { ReturnLinkError, SALE_TYPES, assertReturnLinks, returnableOf, returnedBySaleItem } from '../services/returnLinks';
 import { isExpiredOn, linkedReturnExpiry, returnRuleBlock, saleExpiryFor, stampExpiryAfterIssue, tenantTz } from '../services/invoiceExpiry';
 import { catalogTeamsFor, resolveDocTeam, supervisorViewerOf, teamCatalogProblem, teamMembershipSelectFor } from '../services/teams';
@@ -114,6 +115,8 @@ const invoiceItemSchema = z.object({
   // ويُهمَل في المرحلة الأولى تماماً (الحقل لا يُقرأ هناك ولا يُكتب).
   invoiceItemId: z.string().optional(),
   qty: z.number().positive(),
+  // الوحدات المتعددة: وحدة البيع المختارة (كرتون/حبة). غائبة ⇒ وحدة الأساس بمعامل ١ (سلوك ما قبل الميزة).
+  unitId: z.string().optional(),
   unitPrice: z.number().min(0),
   discountPct: z.number().min(0).max(100).default(0),
   taxPct: z.number().min(0).max(100).optional(), // يُورَث من ضريبة دولة الشركة عند الغياب
@@ -495,13 +498,30 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const products = await prisma.product.findMany({
       where: { id: { in: productIds }, tenantId: tid, status: 'ACTIVE' },
       select: {
-        id: true, name: true, basePrice: true, taxPct: true, damagedReturnToStock: true, priceTiers: { select: { price: true } },
+        id: true, name: true, unit: true, basePrice: true, taxPct: true, damagedReturnToStock: true,
+        priceTiers: { select: { price: true, baseMinQty: true } },
+        units: { select: { id: true, name: true, factor: true, price: true, unitCode: true, isActive: true } },
         shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true, shelfLifeBasis: true, shelfLifeFromDate: true,
         returnRuleEnabled: true, returnRuleMode: true, returnRuleMetric: true, returnRuleValue: true,
         teams: { select: { teamId: true } },
       },
     });
     if (products.length !== productIds.length) { res.status(400).json({ success: false, message: 'أحد الأصناف غير موجود أو غير نشط' }); return; }
+
+    /* لقطة وحدة كلّ بند: الخادم يحلّها من وحدات الصنف لا من رقمٍ يرسله العميل.
+     * `unitId` غائبٌ (أو لا يخصّ الصنف) ⇒ وحدة الأساس بمعامل ١ — سلوك ما قبل الميزة.
+     * إعادةُ الرفع (X-FS-Replay) تقبل لقطة الجهاز إن حملها الجسم: مستند الصندوق
+     * وثيقةٌ صدرت وسُلّمت بضاعتها، لا يُعاد حلّ وحدتها بما تغيّر بعدها. */
+    const isReplay = String(req.headers['x-fs-replay'] || '') === '1';
+    const unitSnap = new Map<number, { unitName: string | null; unitFactor: number; unitCode: string | null }>();
+    body.items.forEach((it, idx) => {
+      const p = products.find(x => x.id === it.productId)!;
+      const u = it.unitId ? p.units.find(x => x.id === it.unitId && x.isActive !== false) : null;
+      unitSnap.set(idx, u
+        ? { unitName: u.name, unitFactor: factorOf({ unitFactor: u.factor }), unitCode: u.unitCode ?? null }
+        : { unitName: null, unitFactor: 1, unitCode: null });
+    });
+    const snapOf = (idx: number) => unitSnap.get(idx) ?? { unitName: null, unitFactor: 1, unitCode: null };
     // الفرق: أصناف الفريق تقيّد بيع المندوب (قرار المالك) — في إصداره الحيّ وحده: مستندٌ أوف-لاين يُعاد رفعه (X-FS-Replay)
     // لا يُرفض بها أبداً (يُعدم في صندوق الإرسال وقد سُلّمت البضاعة)، ولا فاتورة الإدارة نيابةً عنه (لا مبدّل فريقٍ لها).
     // والمرتجع من فاتورة بيعٍ يرث فريقها ولا يُفحص (صنفٌ أُزيل من الفريق بعد بيعه يبقى قابلاً للإرجاع)
@@ -542,8 +562,14 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         if (isReturnDoc) break;
         if (it.discountPct > maxD + 1e-9) { fail(`لا تملك صلاحية منح خصم يتجاوز ${maxD}% على الأصناف`); return; }
         const p = products.find(x => x.id === it.productId)!;
-        const ref = cpMap.has(it.productId) ? cpMap.get(it.productId)! : p.basePrice;
-        const minTier = p.priceTiers.length ? Math.min(...p.priceTiers.map(t => t.price)) : ref;
+        const idx = body.items.indexOf(it);
+        const factor = snapOf(idx).unitFactor;
+        // المرجع بوحدة البند: سعر العميل/الأساس مخزَّنان لوحدة الأساس، فيُضربان بالمعامل.
+        // وحدةٌ لها سعرٌ محدَّد (جملة) يغلب الاشتقاق. وإلا مرّ بيع كرتون بسعر حبة.
+        const unitDef = it.unitId ? p.units.find(x => x.id === it.unitId) : null;
+        const baseRef = cpMap.has(it.productId) ? cpMap.get(it.productId)! : p.basePrice;
+        const ref = unitDef && unitDef.price != null ? unitDef.price : baseRef * factor;
+        const minTier = p.priceTiers.length ? Math.min(...p.priceTiers.map(t => t.price)) * factor : ref;
         const minAllowed = Math.min(ref, minTier);
         // المراجع (basePrice/سعر العميل/الشرائح) مخزنة **صافية قبل الضريبة**، بينما
         // تطبيق المندوب يرسل السعر **شاملا** كما اعلن للعميل — فنرد المرسل الى الاساس
@@ -561,8 +587,9 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       if (rep.canSellWithoutStock === false && body.type !== 'RETURN') {
         const stock = await computeStock(tid, salesRepId);
         const remById = new Map(stock.map(s => [s.productId, s.remaining]));
+        // بالأساس: كرتون (٤٨ حبة) وحبّة من الصنف نفسه يُجمعان، ويُقارنان برصيد السيارة بالأساس
         const wantById = new Map<string, number>();
-        for (const it of body.items) wantById.set(it.productId, (wantById.get(it.productId) || 0) + it.qty);
+        body.items.forEach((it, idx) => wantById.set(it.productId, (wantById.get(it.productId) || 0) + toBase(it.qty, snapOf(idx))));
         for (const [pid, want] of wantById) {
           const rem = remById.get(pid) ?? 0;
           if (want > rem + 1e-9) {
@@ -759,7 +786,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // المرتبط يُتحقَّق منه هنا (رسالةٌ واضحة) ثم داخل المعاملة بعد قفل فاتورة البيع (لا يتجاوز مرتجعان متزامنان المتاح).
     const saleForReturn = isReturn && body.originalInvoiceId ? body.originalInvoiceId : null;
     const saleLinkLines = saleForReturn
-      ? body.items.map(i => ({ productId: i.productId, saleItemId: i.invoiceItemId ?? null, qty: i.qty }))
+      ? body.items.map((i, idx) => ({ productId: i.productId, saleItemId: i.invoiceItemId ?? null, qty: i.qty, unitFactor: snapOf(idx).unitFactor }))
       : [];
     if (saleForReturn) {
       try {
@@ -850,7 +877,9 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
               // مرتجعٌ من فاتورة بيع: بند البيع الذي يُرجَع منه (تحقّق منه assertReturnLinks أعلاه وداخل المعاملة)
               returnOfItemId: saleForReturn ? (saleLinkLines[idx]?.saleItemId ?? null) : null,
               ...(linkedExpiry?.get(saleLinkLines[idx]?.saleItemId ?? '') ?? {}),
-              qty: i.qty,
+              // لقطة الوحدة + الكمية بالأساس — المخزون والتقارير تقرأ baseQty لا qty
+              ...unitFields(i.qty, { name: snapOf(idx).unitName, factor: snapOf(idx).unitFactor }),
+              unitCode: snapOf(idx).unitCode ?? undefined,
               unitPrice: i.unitPrice,
               discountPct: i.discountPct,
               discountAmt: i.discountAmt,
