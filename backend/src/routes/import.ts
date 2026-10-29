@@ -5,7 +5,7 @@ import prisma from '../config/database';
 import { arEntryTombstoneRows, ledgerTombstones, ledgerTombstoneSettings } from '../services/gl/sync/tombstone';
 import { acquirePostLock } from '../services/gl/post';
 import { currentBalance, clean } from '../services/accounting';
-import { authenticate, requireAdmin, requireAccounting, tenantId } from '../middleware/auth';
+import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { customerScope } from '../services/customerScope';
 import { currencyDecimalsOf } from '../config/countries';
@@ -1228,7 +1228,8 @@ router.get('/batches', async (req: AuthRequest, res: Response, next: NextFunctio
 // التراجع عن دفعة استيراد — يزيل سجلاتها بأمان ويعيد حساب الأرصدة
 // العملاء/المنتجات (البندان 6ب و10): معاملة لكل سجل، المحمي والمرتبط يبقى ويُعاد {blocked, remaining} والدفعة reverted:false.
 // الأرصدة/الأستاذ (البند 6أ): قفل gl-post أولاً فلا يتقاطع التراجع مع اعتماد التفعيل.
-router.post('/batches/:id/revert', async (req: AuthRequest, res: Response, next: NextFunction) => {
+// التراجع يحذف جماعياً ما أنشأته الدفعة (عملاء/منتجات/أسعار/قيود) — حذفٌ يمرّ بـPOST فلا يبلغه حارس DELETE في authenticate، فـ«صلاحية الحذف» هنا صراحةً
+router.post('/batches/:id/revert', requireAdminPermission('canDelete'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
     // البندان 5 و21: المقيّد النطاق ⇒ 403 قبل البحث عن الدفعة

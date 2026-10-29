@@ -88,6 +88,8 @@ export const adminPermissionSelect = {
   canManageDailyReport: true,
   // بدونها لا ترى الواجهةُ الصلاحيةَ فلا تظهر أيقونة استلام العهدة لمن يملكها
   canReceiveUserCollections: true,
+  // بدونها لا تعرف الواجهة أن المستخدم ممنوع من الحذف
+  canDelete: true,
   // صلاحيات الدفاتر — افتراضها false، فتُنشر في الدخول بـ?? false (جلسة قديمة أو صف بلا عمود)
   canViewLedger: true,
   canPostJournals: true,

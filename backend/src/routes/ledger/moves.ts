@@ -3,7 +3,7 @@ import express, { Router, Response } from 'express';
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 import prisma from '../../config/database';
-import { requireLedgerPermission } from '../../middleware/auth';
+import { requireLedgerPermission, requireAdminPermission } from '../../middleware/auth';
 import { AuthRequest } from '../../types';
 import { LedgerLocals } from './context';
 import { LedgerHttpError, ledgerHandler } from './errors';
@@ -717,7 +717,8 @@ router.delete('/moves/:id', requireLedgerPermission('canPostJournals'), ledgerHa
 }));
 
 /** كل شيء أو لا شيء: أي رفض ⇒ لا يُحذف شيء ويُعاد rejected بسبب كلٍّ منها. */
-router.post('/moves/delete-drafts', requireLedgerPermission('canPostJournals'), ledgerHandler(async (req, res) => {
+// حذفٌ يمرّ بـPOST فلا يبلغه حارس DELETE في authenticate — «صلاحية الحذف» هنا صراحةً
+router.post('/moves/delete-drafts', requireLedgerPermission('canPostJournals'), requireAdminPermission('canDelete'), ledgerHandler(async (req, res) => {
   const { tenantId } = locals(res);
   const actor = actorOf(req, res);
   const ids = bulkIds(req.body);

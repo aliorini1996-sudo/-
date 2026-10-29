@@ -26,6 +26,8 @@ export interface User {
   canManageCompanyUsers?: boolean;
   /** استلام عهدة التحصيل من مستخدمي الشركة — تُقرأ من جلسة الدخول لإظهار الأيقونة */
   canReceiveUserCollections?: boolean;
+  /** صلاحية الحذف — false تمنع كل حذف (يحرسها الخادم)، والغائب سماح */
+  canDelete?: boolean;
   // صلاحيات الدفاتر — تُقرأ بـcanLedger (true الصريحة وحدها، والغائب منع)
   canViewLedger?: boolean;
   canPostJournals?: boolean;
@@ -139,6 +141,8 @@ export interface CompanyUser {
   canManageCompanyUsers: boolean;
   /** استلام (توريد) عهدة التحصيل من مستخدمي الشركة — مطفأة افتراضياً */
   canReceiveUserCollections?: boolean;
+  /** صلاحية الحذف — true افتراضاً */
+  canDelete?: boolean;
   /** رصيد عهدة التحصيل لدى المستخدم — يحسبه الخادم في قائمة المستخدمين */
   custody?: number;
   canViewLedger?: boolean;
