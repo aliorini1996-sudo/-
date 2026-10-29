@@ -2,7 +2,7 @@
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import prisma from '../config/database';
-import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
+import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, tenantId, isOwnerSession } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta, roundDecimal } from '../utils/helpers';
 import { canAccessCustomer } from '../services/customerScope';
@@ -505,6 +505,17 @@ router.delete('/:id/units/:unitId', requireAdmin, async (req: AuthRequest, res: 
  */
 router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    /* تقييدٌ مؤقّت (قرار المالك ٣٠ أكتوبر): التحويل بجلسة المالك (الدعم الفني) وحدها.
+     *
+     * لماذا: العنقود الباقي من المراجعة العدائية (سباق «تحويل الأساس» — مسارات المخزون
+     * والإشعار الدائن والأوف‑لاين لا تكشف قائمة أصنافٍ قديمة على جهاز المندوب بعد التحويل)
+     * **لا ينشأ إلّا من هذا الزرّ**. وهو فعلٌ نادر مرّةً لكلّ صنف، والأصناف الجديدة تُنشأ
+     * بوحداتها من البداية فلا تحتاجه. فحصرُه بالمالك يُغلق الباب كلّه حتى تكتمل الحماية
+     * (docs/multi-unit/REVIEW.md)، ثم يُرفع القيد. والحارس في الخادم — المرجع — لا في الزرّ وحده. */
+    if (!isOwnerSession(req)) {
+      res.status(403).json({ success: false, code: 'CONVERT_BASE_OWNER_ONLY', message: 'تحويل وحدة الأساس متاح عبر الدعم الفني مؤقتا — تواصل معنا، أو أنشئ الصنف بوحداته من البداية' });
+      return;
+    }
     const tid = tenantId(req);
     const body = convertBaseSchema.parse(req.body);
     const result = await prisma.$transaction(async (tx) => {

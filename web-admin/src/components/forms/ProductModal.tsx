@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { productApi } from '../../api/client';
 import { Product, ProductUnit } from '../../types';
 import { useTr } from '../../i18n/strings';
+import { useAuthStore } from '../../store/authStore';
 import { X, Upload, Trash2, Image as ImageIcon, Pencil, Plus, Layers, ArrowDownUp, Power } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { formatCurrency } from '../../utils/format';
@@ -422,6 +423,8 @@ function ProductUnitsSection({ productId, baseUnit, basePrice, units, onUnits, o
 }) {
   const tr = useTr();
   const qc = useQueryClient();
+  // تقييدٌ مؤقّت: التحويل بجلسة المالك وحدها (الخادم يفرضه؛ هذا إخفاءٌ للزرّ) — docs/multi-unit/REVIEW.md
+  const ownerSession = useAuthStore(s => !!s.impersonating);
   const [adding, setAdding] = useState<UnitForm>(EMPTY_UNIT_FORM);
   const [editId, setEditId] = useState<string | null>(null);
   const [editing, setEditing] = useState<UnitForm>(EMPTY_UNIT_FORM);
@@ -526,10 +529,12 @@ function ProductUnitsSection({ productId, baseUnit, basePrice, units, onUnits, o
             {tr('وحدة الأساس')}: <b className="text-gray-700">{baseUnit}</b> — {tr('أصغر ما يباع من الصنف وكل وحدة أكبر تعرف بعدد وحدات الأساس فيها')}
           </p>
         </div>
+{ownerSession && (
         <button type="button" onClick={() => setShowConvert(true)} disabled={busy !== null}
           className="text-[11px] font-semibold text-[#6E6557] border border-[#E9E1D3] rounded-lg px-2.5 py-1 hover:bg-[#FAF7F0] flex items-center gap-1 disabled:opacity-50">
           <ArrowDownUp size={12} /> {tr('تحويل إلى وحدة أصغر')}
         </button>
+        )}
       </div>
 
       {sorted.length === 0 ? (

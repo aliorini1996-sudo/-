@@ -8,6 +8,7 @@ import { productApi } from '../api/client';
 import { Product, ProductUnit } from '../types';
 import { formatCurrency, formatNumber } from '../utils/format';
 import { useTr } from '../i18n/strings';
+import { useAuthStore } from '../store/authStore';
 import { useBackClose } from '../lib/useBackClose';
 import { unitPriceOf } from '../lib/units';
 import { MCard, MRow, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
@@ -733,6 +734,8 @@ function MProductUnits({ product, onClose, onConverted }: {
 }) {
   const tr = useTr();
   const qc = useQueryClient();
+  // تقييدٌ مؤقّت: التحويل بجلسة المالك وحدها (الخادم يفرضه) — docs/multi-unit/REVIEW.md
+  const ownerSession = useAuthStore(x => !!x.impersonating);
   // undefined = مغلق · null = وحدة جديدة · ProductUnit = تعديل
   const [editing, setEditing] = useState<ProductUnit | null | undefined>(undefined);
   const [removing, setRemoving] = useState<ProductUnit | null>(null);
@@ -845,6 +848,7 @@ function MProductUnits({ product, onClose, onConverted }: {
                 {tr('تحفظ الوحدات فور إضافتها أو تعديلها')}
               </p>
 
+{ownerSession && (
               <MCard onClick={() => setConverting(true)}>
                 <MRow
                   leading={
@@ -856,6 +860,7 @@ function MProductUnits({ product, onClose, onConverted }: {
                   subtitle={tr('لصنف يباع بالكرتون ويرجع أو يباع بالحبة')}
                   trailing={<ChevronLeft size={15} className="text-[#C9BFB0] flex-shrink-0" />} />
               </MCard>
+              )}
               <div className="h-2" />
             </>
           )}

@@ -69,7 +69,7 @@ const prismaFake: Record<string, unknown> = new Proxy({}, {
 });
 
 const TENANT = 'T1';
-let currentUser: { id: string; role: string; tenantId: string } = { id: 'admin-1', role: 'ADMIN', tenantId: TENANT };
+let currentUser: { id: string; role: string; tenantId: string; impersonated?: boolean } = { id: 'admin-1', role: 'ADMIN', tenantId: TENANT };
 const pass = (_req: unknown, _res: unknown, next: () => void): void => next();
 
 stub('config/database', { default: prismaFake });
@@ -77,6 +77,7 @@ stub('middleware/auth', {
   authenticate: (req: { user?: unknown }, _res: unknown, next: () => void) => { req.user = currentUser; next(); },
   requireAdmin: pass, requireAccounting: pass, requireAdminPermission: () => pass,
   tenantId: (req: { user?: { tenantId?: string } }) => req.user?.tenantId ?? '',
+  isOwnerSession: (req: { user?: { impersonated?: boolean } }) => req.user?.impersonated === true,
 });
 stub('routes/invoicesZatcaDeps', { productionPhase2Deps: () => { throw new Error('لا مرحلة ثانية في هذه الاختبارات'); } });
 
@@ -236,10 +237,22 @@ function productWorld() {
     }
     return mine.length;
   };
+  // التحويل مقيَّدٌ بجلسة المالك (الدعم الفني) مؤقّتاً — docs/multi-unit/REVIEW.md
+  currentUser = { id: 'admin-1', role: 'ADMIN', tenantId: TENANT, impersonated: true };
   return { product, units, tables, tiers, customerPriceUpdates };
 }
 
 const CONVERT = { newBaseName: 'حبة', factor: 24, expectedBaseName: 'كرتون' };
+
+test('التحويل مقيَّدٌ بجلسة المالك: مدير الشركة يُرفض 403 ولا كتابة', async () => {
+  reset();
+  productWorld();
+  currentUser = { id: 'admin-1', role: 'ADMIN', tenantId: TENANT }; // لا impersonated
+  const r = await call('POST', '/api/products/p1/convert-base', { body: CONVERT });
+  assert.equal(r.status, 403, JSON.stringify(r.body));
+  assert.equal(r.body.code, 'CONVERT_BASE_OWNER_ONLY');
+  assert.equal(raws.some(x => x.kind === '$executeRaw'), false, 'كتابةٌ رغم الرفض');
+});
 
 test('التحويل: أرقام التاريخ المطبوعة لا تتغيّر، والمعاملات تُضرب، والأساس من جديد — في الجداول الأربعة', async () => {
   reset();
