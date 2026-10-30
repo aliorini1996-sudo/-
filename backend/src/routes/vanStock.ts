@@ -900,7 +900,9 @@ router.use((err: unknown, _req: AuthRequest, res: Response, next: NextFunction) 
   if (lh) { res.status(lh.status).json(lh.body); return; }
   const status = (err as { status?: unknown })?.status;
   if (err instanceof Error && typeof status === 'number' && status >= 400 && status < 500) {
-    res.status(status).json({ success: false, message: err.message });
+    // وحدة بند غير صالحة (UnitInvalidError): برمزها UNIT_INVALID كبقية مسارات الكتابة (errorHandler)
+    const unitInvalid = (err as { code?: unknown }).code === 'UNIT_INVALID';
+    res.status(status).json(unitInvalid ? { success: false, code: 'UNIT_INVALID', message: err.message } : { success: false, message: err.message });
     return;
   }
   next(err);

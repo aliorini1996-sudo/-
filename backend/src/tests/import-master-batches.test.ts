@@ -182,7 +182,7 @@ test('حارس ثابت (البند 51): /balances و/ledger يفحصان dateCo
   }
   for (const marker of ["router.post('/balances'", "router.post('/ledger'"]) {
     const body = entryRouteBody(src, marker);
-    const at = body.indexOf('assertImportDateContract(body.dateContract);');
+    const at = body.indexOf('assertImportDateContract(body.dateContract, !!req.user?.apiKeyId);');
     assert.ok(at > 0, `${marker}: لا فحص للعقد`);
     // قبل فحص الصفوف وقبل حالة الدفاتر والحجز والكتابة
     for (const after of ['parseImportBodyRows(', 'importLedgerContext(tid)', 'resolveImportDates(', 'importContentHash(', 'reserveEntryBatch(']) {

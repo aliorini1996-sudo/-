@@ -691,7 +691,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         const p2 = isPhase2Invoice(existing) ? await phase2ReplayBody(existing, capsFromHeaders(req.headers), productionPhase2Deps(), tid) : null;
         if (p2) {
           const row = p2.reload
-            ? (await prisma.invoice.findUnique({ where: { id: existing.id }, include: { items: true, customer: true } })) ?? existing
+            // «تتبّع LOT»: الصفّ المُعاد تحميله بتضمين الصفّ القائم نفسه (صفوف التوزيع مع withLots=1 وحده)
+            ? (await prisma.invoice.findUnique({ where: { id: existing.id }, include: { items: ((await wantsLots(req, tid)) ? { include: ITEM_LOTS_INCLUDE } : true) as true, customer: true } })) ?? existing
             : existing;
           // ردّ إعادة الرفع = ردّ الرفع الأوّل: مرفوضة ⇒ 422، معلّقة ⇒ 202، معتمدة ⇒ 200. والصفّ يُرفق مع الردود
           // المشتقّة من حالة المستند وحدها — لا مع حارس القدرات (صفٌّ مختوم لا يصل حزمةً لا تفهمه، نقد 6).

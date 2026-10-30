@@ -75,10 +75,15 @@ function parseImportBodyRows<T>(schema: ImportRowSchema<T>, raw: readonly unknow
 const IMPORT_DATE_CONTRACT = 'local-ymd-v2';
 const IMPORT_CLIENT_OUTDATED_MESSAGE = 'هذه الصفحة مفتوحة من قبل تحديث النظام ولم يُكتب شيء. حدّث الصفحة ثم أعد رفع الملف';
 
+/** مفتاح API لا «صفحة» له يحدّثها: الرمز والتفاصيل نفسها، والرسالة تقول ما يُرسَل */
+const IMPORT_DATE_CONTRACT_KEY_MESSAGE = `أرسل dateContract = ${IMPORT_DATE_CONTRACT} مع الصفوف (التواريخ YYYY-MM-DD بتوقيت الشركة). لم يُكتب شيء`;
+
 /** البند 51: العقد غائب أو مختلف ⇒ 409 IMPORT_CLIENT_OUTDATED قبل أي قراءة أو كتابة */
-function assertImportDateContract(contract: string | undefined): void {
+export function assertImportDateContract(contract: string | undefined, viaKey = false): void {
   if (contract === IMPORT_DATE_CONTRACT) return;
-  throw new ImportHttpError(409, 'IMPORT_CLIENT_OUTDATED', IMPORT_CLIENT_OUTDATED_MESSAGE, { expected: IMPORT_DATE_CONTRACT, received: contract ?? null });
+  const details = { expected: IMPORT_DATE_CONTRACT, received: contract ?? null };
+  if (viaKey) throw new ImportHttpError(409, 'IMPORT_CLIENT_OUTDATED', IMPORT_DATE_CONTRACT_KEY_MESSAGE, details);
+  throw new ImportHttpError(409, 'IMPORT_CLIENT_OUTDATED', IMPORT_CLIENT_OUTDATED_MESSAGE, details);
 }
 
 /**
@@ -721,7 +726,7 @@ router.post('/balances', requireImportAccess('balances'), async (req: AuthReques
     const tid = tenantId(req);
     const body = balancesBody.parse(req.body ?? {});
     // البند 51: قبل أي قراءة أو كتابة — عميل قديم ⇒ 409 IMPORT_CLIENT_OUTDATED برسالة «حدّث الصفحة» العربية
-    assertImportDateContract(body.dateContract);
+    assertImportDateContract(body.dateContract, !!req.user?.apiKeyId);
     const parsedRows = parseImportBodyRows(balanceRow, body.rows, IMPORT_ROW_LIMITS.balances);
     const rows = parsedRows.rows;
     const result: ImportResult & { zero: number } = { created: 0, skipped: 0, zero: 0, total: body.rows.length, errors: [...parsedRows.errors] };
@@ -833,7 +838,7 @@ router.post('/ledger', requireImportAccess('ledger'), async (req: AuthRequest, r
     const tid = tenantId(req);
     const body = ledgerBody.parse(req.body ?? {});
     // البند 51: قبل أي قراءة أو كتابة — عميل قديم ⇒ 409 IMPORT_CLIENT_OUTDATED برسالة «حدّث الصفحة» العربية
-    assertImportDateContract(body.dateContract);
+    assertImportDateContract(body.dateContract, !!req.user?.apiKeyId);
     const parsedRows = parseImportBodyRows(ledgerRow, body.rows, IMPORT_ROW_LIMITS.ledger);
     const rows = parsedRows.rows;
     const result: ImportResult & { zero: number } = { created: 0, skipped: 0, zero: 0, total: body.rows.length, errors: [...parsedRows.errors] };

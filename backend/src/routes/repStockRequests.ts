@@ -82,10 +82,14 @@ const lockTenant = (tx: Prisma.TransactionClient, tid: string) => tx.$executeRaw
 const conflict = (message: string) => Object.assign(new Error(message), { status: 409 });
 const notFound = () => Object.assign(new Error('الطلب غير موجود'), { status: 404 });
 
-/** معالج الأخطاء العامّ يجعل كل Error ‏500؛ أخطاء هذا الموجّه المقصودة تحمل رمزها (409 يقول للواجهة «أعد التحميل») */
-function fail(err: unknown, res: Response, next: NextFunction) {
+/**
+ * معالج الأخطاء العامّ يجعل كل Error ‏500؛ أخطاء هذا الموجّه المقصودة تحمل رمزها (409 يقول للواجهة «أعد التحميل»).
+ * ووحدةٌ غير صالحة (UnitInvalidError) تمضي إلى المعالج العامّ ليردّها 400 {code:'UNIT_INVALID'} كبقية مسارات الكتابة
+ */
+export function fail(err: unknown, res: Response, next: NextFunction) {
   const status = (err as { status?: number })?.status;
-  if (err instanceof Error && status && status >= 400 && status < 500) { res.status(status).json({ success: false, message: err.message }); return; }
+  const unitInvalid = (err as { code?: unknown })?.code === 'UNIT_INVALID';
+  if (err instanceof Error && !unitInvalid && status && status >= 400 && status < 500) { res.status(status).json({ success: false, message: err.message }); return; }
   next(err);
 }
 
