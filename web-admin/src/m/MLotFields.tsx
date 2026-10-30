@@ -2,10 +2,14 @@ import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { lotsApi } from '../api/client';
 import { useTr } from '../i18n/strings';
-import { formatNumber } from '../utils/format';
+import { activeLocale } from '../utils/format';
 import { localDay } from '../lib/paymentMethods';
-import { LOT_STATUS_LABELS, type ProductLotDto, type LotBalancesDto } from '../lib/lots';
-import { lotDraftProblem, lotPickChoices, stalePick, type LotDraft, type LotDraftMode, type LotPickChoice } from './mLotsLogic';
+import { LOT_STATUS_LABELS, roundLot, type ProductLotDto, type LotBalancesDto } from '../lib/lots';
+import type { UnitDef } from '../lib/units';
+import { lotDraftProblem, lotPickChoices, lotQtyText, stalePick, type LotDraft, type LotDraftMode, type LotPickChoice } from './mLotsLogic';
+
+/** كمية تشغيلةٍ بالأساس: أربع خانات (D22) — formatNumber يقصّ إلى ثلاث */
+const fmtLotQ = (n: number) => new Intl.NumberFormat(activeLocale(), { maximumFractionDigits: 4 }).format(roundLot(n));
 
 /** بطاقات تشغيلات الصنف (≤ ١٠٠، الأقرب انتهاءً أولاً) — مفتاحٌ واحد لكل من يحتاج أرقامها: المنتقي هنا ومعاينة FEFO */
 export function useProductLots(productId: string, enabled = true) {
@@ -44,8 +48,10 @@ export const whLotsQuery = (productId: string) => ({
  *
  * الجلب لصنف السطر وحده وحين يُرسم — والسطر لا يُرسم إلا لصنفٍ متتبَّع والميزة مفعّلة.
  */
-export default function MLotFields({ productId, mode, shelfOn, draft, onChange, day, groupProblem }: {
+export default function MLotFields({ productId, prod, mode, shelfOn, draft, onChange, day, groupProblem }: {
   productId: string;
+  /** وحدات الصنف: «المتاح» بالأساس بجانب سطرٍ بوحدته يُفكَّك بها (القاعدة ٨) */
+  prod?: { unit?: string | null; units?: UnitDef[] | null };
   mode: LotDraftMode;
   shelfOn: boolean;
   draft: LotDraft;
@@ -76,7 +82,7 @@ export default function MLotFields({ productId, mode, shelfOn, draft, onChange, 
 
   const label = (c: LotPickChoice): string => {
     if (c.kind === 'NEW') return `+ ${tr('تشغيلة جديدة')}`;
-    const avail = c.usable != null ? `${tr('المتاح')} ${formatNumber(c.usable)}` : '';
+    const avail = c.usable != null ? `${tr('المتاح')} ${lotQtyText(c.usable, prod, fmtLotQ)}` : '';
     if (c.kind === 'UNNAMED') return [tr('غير مسمى'), avail].filter(Boolean).join(' · ');
     return [c.lotNumber, c.expiryDate, avail, c.blocked ? tr(LOT_STATUS_LABELS.BLOCKED) : '', c.expired ? tr('منتهي الصلاحية') : '']
       .filter(Boolean).join(' · ');

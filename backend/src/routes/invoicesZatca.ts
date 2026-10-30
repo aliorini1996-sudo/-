@@ -42,7 +42,7 @@ import { cutoverDecision, type CutoverReason, type CutoverRecordInput, type Cuto
 import { unitFields } from '../services/units';
 // «تتبّع اللوط» (§٤.٩): أنواع الخطة والتوزيع ودمج صفوفه في البند — services/lots.ts نقيّة (لا قاعدة ولا Prisma)
 import {
-  asLockBusy, invoiceItemLotColumns,
+  asLockBusy, invoiceItemLotColumns, lotErr,
   type InvoiceLotAllocation, type InvoiceLotPlan, type ItemExpiryStamp, type LotError, type LotWarning,
 } from '../services/lots';
 import { randomUUID } from 'node:crypto';
@@ -393,16 +393,44 @@ export function movedBaseUnits(
  * قفلٌ مشترك على أصناف البنود (FOR KEY SHARE) ومقارنة وحدة أساسها بما حُلّت عليه اللقطات — القفل نفسه الذي يأخذه المسار
  * القديم (routes/invoices.ts) ويأخذه المفتاح الأجنبيّ عند إدراج البند، فلا يغيّر ترتيب الأقفال. التحويل يقفل الصنف
  * FOR UPDATE ويعيد كتابة لقطات تاريخه: إمّا سبقنا فيُرى أساسه الجديد هنا ويُرفض الإصدار بلا مستند ولا ICV (المعاملة
- * تُلغى)، وإمّا انتظر التزامنا فأعاد كتابة بنودنا معها. المعاملات المزيّفة بلا `$queryRaw` تتخطّاه.
+ * تُلغى)، وإمّا انتظر التزامنا فأعاد كتابة بنودنا معها. المعاملات المزيّفة بلا `$queryRaw` تتخطّاه (صفوفٌ فارغة).
+ * «تتبّع اللوط» (D25): والصفوف نفسها تحمل علم التتبّع تحت القفل — كالمسار القديم، بلا استعلامٍ ثانٍ (assertLockedStillUntracked).
  */
-async function lockProductBases(tx: Phase2Tx, tenantId: string, expected: ReadonlyMap<string, { name: string; unit: string }>): Promise<void> {
+async function lockProductBases(
+  tx: Phase2Tx, tenantId: string, expected: ReadonlyMap<string, { name: string; unit: string }>,
+): Promise<Array<{ id: string; unit: string; lotTracked: boolean }>> {
   const raw = (tx as { $queryRaw?: unknown }).$queryRaw;
-  if (typeof raw !== 'function' || expected.size === 0) return;
+  if (typeof raw !== 'function' || expected.size === 0) return [];
   const ids = [...expected.keys()];
-  const rows = await tx.$queryRaw<Array<{ id: string; unit: string }>>`
-    SELECT id, unit FROM products WHERE id = ANY(${ids}) AND "tenantId" = ${tenantId} FOR KEY SHARE`;
-  const moved = movedBaseUnits(expected, Array.isArray(rows) ? rows : []);
+  const rows = await tx.$queryRaw<Array<{ id: string; unit: string; lotTracked: boolean }>>`
+    SELECT id, unit, "lotTracked" FROM products WHERE id = ANY(${ids}) AND "tenantId" = ${tenantId} FOR KEY SHARE`;
+  const locked = Array.isArray(rows) ? rows : [];
+  const moved = movedBaseUnits(expected, locked);
   if (moved.length) throw new Phase2ProductUnitsChanged(moved);
+  return locked;
+}
+
+/**
+ * «تتبّع اللوط» (D25) لمستندٍ بلا خطة لوط (القراءة المسبقة لم ترَ صنفاً متتبَّعاً، أو رأت العلم مطفأً): صفوف الأصناف المقفلة
+ * FOR KEY SHARE هي المرجع. صنفٌ صار متتبَّعاً بين القراءتين لا يُكتب بلا توزيع (يُنقص غير المسمّى بلا فحص، I2) ⇒ 503 LOT_BUSY
+ * TRACKING_CHANGED فيعيده الصندوق والواجهة فيُقرأ متتبَّعاً. وعلم الشركة المطفأ في القراءة المسبقة يُعاد قراءته **حين يكون صفٌّ
+ * مقفل متتبَّعاً وحده**: تفعيل الشركة ينتظر أصنافها المتتبَّعة FOR UPDATE (tenants.ts waitLotOperations)، فإمّا التزم قبل قفلنا
+ * فيُرى هنا، وإمّا انتظر التزامنا فوقعت كتابتنا قبل حقبته. لا صفّ متتبَّع (كل شركةٍ لم تفعّل الميزة) ⇒ لا استعلام (§١٠.١).
+ * يتشاركه فرعا الإصدار (المرحلة الأولى في routes/invoices.ts والثانية هنا) — الرمي داخل المعاملة قبل إدراج المستند فلا ICV.
+ */
+export async function assertLockedStillUntracked(
+  locked: ReadonlyArray<{ id: string; lotTracked?: boolean | null }>, lotsOn: boolean, tenantLotsOnNow: () => Promise<boolean>,
+): Promise<void> {
+  const now = locked.filter(r => r.lotTracked === true).map(r => r.id);
+  if (!now.length) return;
+  if (!lotsOn && !(await tenantLotsOnNow())) return;
+  throw lotErr('LOT_BUSY', {}, { reason: 'TRACKING_CHANGED', productIds: now });
+}
+
+/** علم الشركة داخل معاملة المرحلة الثانية (المعاملة المحقونة بلا نموذج tenant — $queryRaw وحده) */
+async function tenantLotsOnInTx(tx: Phase2Tx, tenantId: string): Promise<boolean> {
+  const rows = await tx.$queryRaw<Array<{ lotTrackingEnabled: boolean }>>`SELECT "lotTrackingEnabled" FROM tenants WHERE id = ${tenantId}`;
+  return Array.isArray(rows) && rows[0]?.lotTrackingEnabled === true;
 }
 
 /** ردّ التحويل المتزامن كما يردّه المسار القديم حرفاً: إعادة الرفع 503 (يعيد الصندوق المحاولة ولا يُعدم المستند)، والحيّ 409. */
@@ -558,6 +586,8 @@ export interface Phase2IssuanceContext {
   dueDate?: Date;
   /** «تتبّع اللوط» (§٤.٩): خطة المستند المتتبَّع كما بناها routes/invoices.ts (null/غائبة = لا صنف متتبَّع أو الميزة مطفأة) */
   lots?: InvoiceLotPlan | null;
+  /** «تتبّع اللوط» (D25): علم الشركة كما قرأه routes/invoices.ts من صفّ المندوب (غائب = مطفأ) — لحارس الصنف الذي صار متتبَّعاً */
+  lotsOn?: boolean;
 }
 
 /** أعمدة البند كما يكتبها المسار القديم حرفياً (دالّة لا قيماً حرفية: أعمدة المرحلة الثانية تُكتب فوقها بالانتشار). */
@@ -755,7 +785,9 @@ async function issueNow(
           allocateNumber: (t, issuedAt) => deps.chain.nextNumberInTx(t, ctx.tenantId, phase2NumberPrefix('INV', issuedAt)),
           createInvoice: async (t, record) => {
             // قبل إدراج البنود (وقفلِ مفتاحها الأجنبيّ نفسه): لقطاتٌ حُلّت على أساسٍ حوّله تحويلٌ متزامن لا تُكتب
-            await lockProductBases(t, ctx.tenantId, expectedBases);
+            const lockedBases = await lockProductBases(t, ctx.tenantId, expectedBases);
+            // «تتبّع اللوط» (D25): بلا خطة، صنفٌ صار متتبَّعاً بين القراءة المسبقة وهذا القفل ⇒ 503 TRACKING_CHANGED قبل المستند وICV
+            if (!ctx.lots) await assertLockedStillUntracked(lockedBases, ctx.lotsOn === true, () => tenantLotsOnInTx(t, ctx.tenantId));
             // «تتبّع اللوط» (§٤.٩ البند ٤): القفل والتوزيع قبل إدراج الصفّ وبعد الختم (رفضه يُلغي المعاملة فلا مستند ولا ICV)،
             // بمعرّفٍ مولَّدٍ مسبقاً تحمله صفوف التوزيع المتداخلة. إعادة المعاملة (تصادم ترقيم) توزّع من جديد
             const alloc = ctx.lots && deps.lots ? await allocateLotsInTx(deps.lots, t, ctx.lots) : null;

@@ -97,13 +97,21 @@ export function extendsExpiry(before: string | null | undefined, after: string |
 }
 
 /**
- * جسم تنزيل التشغيلة من سيارة بعد إيقافها (POST /van-stock/loads): صالحها في «صالح للبيع» بلوطٍ صريح، والمحذوفة بـdeletedSalesRepId
- * (D30). الكمية أساسية (بلا وحدة ⇒ الأساس). لا صالح ⇒ null (المحجوز يُنزَّل بعد اعتماد إشعاره).
+ * خطة التنزيل وزرّها للموقوفة من صنفٍ متتبَّع وحده: صنفٌ أُطفئ تتبّعه (D9) تبقى تشغيلته للسجل، وتنزيلها بلوطٍ يمرّ في الخادم
+ * بالمسار القديم فيُنقص السيارة ولا يمسّ رصيد التشغيلة — فيتكرّر الزرّ بلا نهاية. ينزل الصنف حينها من «مخزون السيارات».
  */
-export function unloadBody(lot: { id: string; productId: string }, row: LotUnloadPlanDto, note: string): {
+export const lotUnloadOn = (lot: { status: LotStatus; product?: { lotTracked?: boolean | null } | null } | null | undefined): boolean =>
+  !!lot && lot.status === 'BLOCKED' && lot.product?.lotTracked === true;
+
+/**
+ * جسم تنزيل التشغيلة من سيارة بعد إيقافها (POST /van-stock/loads): صالحها في «صالح للبيع» بلوطٍ صريح، والمحذوفة بـdeletedSalesRepId
+ * (D30). الكمية أساسية (بلا وحدة ⇒ الأساس). لا صالح ⇒ null (المحجوز يُنزَّل بعد اعتماد إشعاره)، وصنفٌ غير متتبَّع ⇒ null (lotUnloadOn).
+ */
+export function unloadBody(lot: { id: string; productId: string; product?: { lotTracked?: boolean | null } | null }, row: LotUnloadPlanDto, note: string): {
   type: 'UNLOAD'; salesRepId?: string; deletedSalesRepId?: string; note: string;
   items: { productId: string; qty: number; lots: { lotId: string; qty: number }[] }[];
 } | null {
+  if (lot.product && lot.product.lotTracked !== true) return null;
   const qty = roundLot(row.usable?.SELLABLE ?? 0);
   if (!(qty > LOT_EPS)) return null;
   return {

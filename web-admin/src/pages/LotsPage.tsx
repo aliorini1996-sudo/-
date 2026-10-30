@@ -20,7 +20,7 @@ import {
 } from '../lib/lots';
 import {
   autoBroad, defaultRelabelPlace, eventKindLabel, expiryState, extendsExpiry, healthByProduct, lotQtyOk, lotStatusLabel, originKindLabel, placeName,
-  relabelProblem, relabelReasonOf, relabelSources, statusActions, traceSheets, traceTotals, unloadBody, TRACE_PLACE_COLUMNS, vanName,
+  lotUnloadOn, relabelProblem, relabelReasonOf, relabelSources, statusActions, traceSheets, traceTotals, unloadBody, TRACE_PLACE_COLUMNS, vanName,
   type LotBalancesResponse, type LotDeficitRow, type LotDetailDto, type LotListRow, type LotStatusAction, type PlaceViewWithAvailability,
   type RelabelLineForm,
 } from '../lib/lotsPage';
@@ -431,11 +431,12 @@ function LotDetail({ id, company, onBack, onOpen }: { id: string; company: Compa
     enabled: !!lot,
     retry: retryNetOnly,
   });
-  const blocked = lot?.status === 'BLOCKED';
+  // الموقوفة من صنفٍ متتبَّع وحده: غير المتتبَّع ينزل من «مخزون السيارات» (lotUnloadOn)
+  const unloadOn = lotUnloadOn(lot);
   const planQ = useQuery({
     queryKey: ['lots', 'unload', id],
     queryFn: async () => (await lotsApi.unloadPlan(id)).data.data as LotUnloadPlanDto[],
-    enabled: blocked,
+    enabled: unloadOn,
     retry: retryNetOnly,
   });
 
@@ -555,7 +556,7 @@ function LotDetail({ id, company, onBack, onOpen }: { id: string; company: Compa
       </div>
 
       {/* خطة التنزيل بعد الإيقاف أو السحب */}
-      {blocked && (
+      {unloadOn && (
         <div className="card space-y-3">
           <h3 className="font-bold text-[#1F1A13] flex items-center gap-2"><Truck size={18} className="text-[#E15A30]" /> {tr('تنزيل التشغيلة من السيارات')}</h3>
           <p className="text-xs text-[#6E6557]">{tr('الموقوفة لا تحمل ولا تباع نزل صالحها من كل سيارة إلى المستودع والمحجوز ينزل بعد اعتماد إشعاره')}</p>
@@ -745,7 +746,7 @@ function LotDetail({ id, company, onBack, onOpen }: { id: string; company: Compa
         <ConfirmDialog danger title={tr('حذف التشغيلة')} message={tr('تحذف البطاقة وحدها لأنها بلا حركات ويبقى سجلها')}
           confirmLabel={tr('حذف')} loading={remove.isPending} onConfirm={() => remove.mutate()} onClose={() => setDeleting(false)} />
       )}
-      {unloadRow && (
+      {unloadOn && unloadRow && (
         <ConfirmDialog title={tr('تنزيل التشغيلة من السيارة')}
           message={`${vanName(unloadRow, tr)} — ${fmtQ(unloadRow.usable.SELLABLE)} ${unit}`}
           confirmLabel={tr('تنزيل')} loading={unload.isPending} onConfirm={() => unload.mutate(unloadRow)} onClose={() => setUnloadRow(null)} />

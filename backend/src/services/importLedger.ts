@@ -922,8 +922,11 @@ export interface OpeningStockRowInput {
   expiryDate?: string | null;
 }
 
-/** تشغيلة بند الجرد: الرقم مطبَّعاً (normalizeLotNumber) والتاريخان YYYY-MM-DD أو null */
-export interface OpeningStockLot { lotNumber: string; productionDate: string | null; expiryDate: string | null }
+/**
+ * تشغيلة بند الجرد: الرقم مطبَّعاً (normalizeLotNumber) والتاريخان YYYY-MM-DD أو null، و`expiryRequired` لصنفٍ صلاحيته مفعّلة —
+ * إلزام الانتهاء يُحسم تحت القفل للتشغيلة الجديدة وحدها (planOpeningLotsInTx، قاعدة resolveOrCreateLot)
+ */
+export interface OpeningStockLot { lotNumber: string; productionDate: string | null; expiryDate: string | null; expiryRequired?: boolean }
 
 /**
  * بند الحركة: الكمية والتكلفة **بوحدة الصفّ** كما في الملف، ولقطتها حين لا تكون الأساس (unitFactor غائب = ١).
@@ -934,24 +937,24 @@ export interface OpeningStockLine { row: number; productId: string; qty: number;
 
 /**
  * «تتبّع اللوط» (§٤.٥): تشغيلة صفٍّ لصنفٍ متتبَّع، أو خطأ صفّه — الرقم إلزامي (LOT_REQUIRED، ≤ ٦٤ بعد التطبيع)، والتاريخان
- * YYYY-MM-DD والإنتاج لا يتأخر عن الانتهاء (LOT_DATES_INVALID)، والانتهاء إلزامي مع صلاحية الصنف (LOT_EXPIRY_REQUIRED)، والكمية
- * بالأساس بأربع خانات (LOT_QTY_INVALID: الطيّ مقرَّب لأربع خانات فكسرٌ أدقّ يُصرف فوق خامه، I1). وتطابق التاريخين مع تشغيلةٍ
- * مسجَّلة يُفحص تحت القفل (LOT_DATES_MISMATCH، services/lotsWarehouse.ts).
+ * YYYY-MM-DD والإنتاج لا يتأخر عن الانتهاء (LOT_DATES_INVALID)، والكمية بالأساس بأربع خانات (LOT_QTY_INVALID: الطيّ مقرَّب لأربع
+ * خانات فكسرٌ أدقّ يُصرف فوق خامه، I1). وتحت القفل (services/lotsWarehouse.ts): تطابق التاريخين مع تشغيلةٍ مسجَّلة
+ * (LOT_DATES_MISMATCH)، والانتهاء إلزامي مع صلاحية الصنف **للتشغيلة الجديدة وحدها** (LOT_EXPIRY_REQUIRED) كـresolveOrCreateLot في
+ * الوارد — فالقائمة بلا انتهاء (أُنشئت قبل تفعيل الصلاحية) تُقبل بانتهاءٍ فارغ ولا يُعرف وجودها هنا.
  */
 function openingStockLotOf(r: OpeningStockRowInput, p: OpeningStockProduct, baseQty: number):
-  { lot: OpeningStockLot } | { code: 'LOT_REQUIRED' | 'LOT_DATES_INVALID' | 'LOT_EXPIRY_REQUIRED' | 'LOT_QTY_INVALID'; value?: string; field: string } {
+  { lot: OpeningStockLot } | { code: 'LOT_REQUIRED' | 'LOT_DATES_INVALID' | 'LOT_QTY_INVALID'; value?: string; field: string } {
   const lotNumber = normalizeLotNumber(r.lotNumber);
   if (!lotNumber) return { code: 'LOT_REQUIRED', value: r.lotNumber?.trim() || undefined, field: 'lotNumber' };
   const production = r.productionDate?.trim() || null;
   const expiry = r.expiryDate?.trim() || null;
-  const problem = lotDatesProblem(production, expiry, { expiryRequired: shelfLifeOf(p) != null });
-  if (problem === 'LOT_EXPIRY_REQUIRED') return { code: problem, value: lotNumber, field: 'expiryDate' };
+  const problem = lotDatesProblem(production, expiry, { expiryRequired: false });
   if (problem) {
     const bad = production != null && lotDatesProblem(production, null, { expiryRequired: false }) ? 'productionDate' : 'expiryDate';
-    return { code: problem, value: (bad === 'productionDate' ? production : expiry) ?? undefined, field: bad };
+    return { code: 'LOT_DATES_INVALID', value: (bad === 'productionDate' ? production : expiry) ?? undefined, field: bad };
   }
   if (!isLotQty(baseQty)) return { code: 'LOT_QTY_INVALID', value: String(baseQty), field: 'qty' };
-  return { lot: { lotNumber, productionDate: production, expiryDate: expiry } };
+  return { lot: { lotNumber, productionDate: production, expiryDate: expiry, ...(shelfLifeOf(p) != null && { expiryRequired: true }) } };
 }
 
 /**

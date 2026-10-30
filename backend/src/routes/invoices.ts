@@ -31,7 +31,8 @@ import { ALLOCATION_ALLOWED_WHERE } from '../compliance/zatca/status';
 import { ZatcaHttpError } from '../compliance/zatca/errors';
 import { issuanceHttpError } from '../compliance/zatca/issue';
 import {
-  capsFromHeaders, capsGate, isPhase2Invoice, issuePhase2Invoice, phase2ReadBody, phase2ReplayBody, type Phase2IssuanceContext,
+  assertLockedStillUntracked, capsFromHeaders, capsGate, isPhase2Invoice, issuePhase2Invoice, phase2ReadBody, phase2ReplayBody,
+  type Phase2IssuanceContext,
 } from './invoicesZatca';
 import { productionPhase2Deps } from './invoicesZatcaDeps';
 // ZATCA المرحلة الثانية (Z5.5): الإشعارات الدائنة والمدينة — المرتجع بعد الربط إشعارٌ مرتبط بأصله (D3/D4/Q5)
@@ -53,7 +54,7 @@ import { CancelRefused, lockInvoiceForCancel } from '../services/docCancel';
 // «تتبّع اللوط»: توزيع البنود على التشغيلات داخل معاملة الإصدار، وحارسا إلغاء المرتجع وإطفاء عودته — للصنف المتتبَّع في شركةٍ
 // فعّلت الميزة وحده؛ وغيره مساره حرفياً كما كان (services/lotsInvoice.ts)
 import { randomUUID } from 'node:crypto';
-import { LotError, invoiceItemLotColumns, lotErr, lotHttpError, type ItemExpiryStamp, type LotActor, type LotWarning } from '../services/lots';
+import { LotError, invoiceItemLotColumns, lotHttpError, type ItemExpiryStamp, type LotActor, type LotWarning } from '../services/lots';
 import { acquireLotQueue, companyDay } from '../services/lotsDb';
 import {
   LOT_ALLOW_UNKNOWN, LOT_TX_OPTIONS, allocateInvoiceLotsInTx, assertRestockOffKeepsLots, assertReturnCancelKeepsLots, assertReturnStillUntracked,
@@ -1044,6 +1045,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         dueDate: body.dueDate ? new Date(body.dueDate) : undefined,
         // «تتبّع اللوط» (§٤.٩): الخطة نفسها — فحصٌ مسبق قبل التوقيع، والتوزيع داخل createInvoice (لا طابور هنا، D29)
         ...(lotPlan && { lots: lotPlan }),
+        // والعلم من صفّ المندوب المحمَّل (لا استعلام): حارس D25 للصنف الذي صار متتبَّعاً بين القراءة وقفل الفرع
+        ...(lotsOn && { lotsOn }),
       };
       /* D3 (Z5.5): المرتجع في شركةٍ مربوطة ليس مستنداً سالباً بل **إشعارٌ دائن** يشير إلى فاتورته الأصلية —
        * بنوده وأسعاره وضريبته من بنود الأصل، وكميّاته محروسةٌ بما لم يُرجَع منها بعد. وبلا أصلٍ في الطلب يُردّ 422
@@ -1194,9 +1197,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       const movedBase = (lockedUnits ?? []).filter(r => products.find(p => p.id === r.id)?.unit !== r.unit);
       if (movedBase.length) throw new ProductUnitsChanged(movedBase.map(r => products.find(p => p.id === r.id)?.name ?? r.id));
       // «تتبّع اللوط» (D25): صنفٌ صار متتبَّعاً بين القراءة المسبقة وهذا القفل — لا يُصدر بلا توزيع (يُنقص غير المسمّى بلا فحص)؛
-      // 503 يعيده الصندوق والواجهة فيُقرأ متتبَّعاً. من الصفوف المقفلة نفسها: لا استعلام، والميزة المطفأة لا تبلغه
-      if (!lots && lotsOn && (lockedUnits ?? []).some(r => r.lotTracked === true)) {
-        throw lotErr('LOT_BUSY', {}, { reason: 'TRACKING_CHANGED', productIds: lockedUnits.filter(r => r.lotTracked === true).map(r => r.id) });
+      // 503 يعيده الصندوق والواجهة فيُقرأ متتبَّعاً. من الصفوف المقفلة نفسها: لا استعلام بلا صفٍّ متتبَّع. وعلم الشركة المطفأ في
+      // قراءة المندوب يُعاد قراءته تحت هذا القفل لصفٍّ متتبَّع وحده (تفعيلٌ التزم بين القراءتين — نمط فرع المرحلة الثانية نفسه)
+      if (!lots) {
+        await assertLockedStillUntracked(lockedUnits ?? [], lotsOn,
+          async () => (await tx.tenant.findUnique({ where: { id: tid }, select: { lotTrackingEnabled: true } }))?.lotTrackingEnabled === true);
       }
       // مرتجعٌ من فاتورة بيع: قفل صفّ فاتورة البيع ثم إعادة التحقق من المتاح — مرتجعان متزامنان لا يتجاوزانه معاً
       // «لوكيشن»: ومن صفّها المقفل نفسه ختمُ موقعها يرثه المرتجع (null لبيعٍ بلا ختم) — بلا استعلامٍ زائد

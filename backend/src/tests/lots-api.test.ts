@@ -1370,3 +1370,56 @@ test('القوائم: GET /lots بحثاً بالرقم المطبَّع وال�
   r = await call('GET', '/api/lots/L1/events');
   assert.deepEqual(r.body.data.map((e: Row) => [e.kind, e.actorName]), [['CREATE', 'مدير']]);
 });
+
+// ═══ البوابة B2 (الفاعل، والتنزيل، والتتبّع) ═══
+
+test('B2 (الفاعل): LotEvent بمعرّف lotEventActorOf في كل مسارات /lots — جلسة «دخول» بمُصدِرها (STAFF/OWNER)، والمفتاح بمعرّفه، والإدارة بمعرّفها', async () => {
+  world();
+  const STAFF = { ...ADMIN, impersonated: true, by: 'staff9', byKind: 'STAFF' } as User;
+  const OWNER = { ...ADMIN, impersonated: true, by: 'own1', byKind: 'OWNER' } as User;
+  const made: [string, unknown, unknown, unknown][] = [];
+  for (const [user, n] of [[STAFF, 'B2-S'], [OWNER, 'B2-O'], [KEY, 'B2-K'], [ADMIN, 'B2-A']] as const) {
+    const r = await call('POST', '/api/lots', { user, body: { productId: 'P3', lotNumber: n } });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    const e = eventsOf(r.body.data.id, 'CREATE')[0];
+    made.push([n, e.actorType, e.actorId, e.actorName]);
+  }
+  assert.deepEqual(made, [
+    ['B2-S', 'STAFF', 'staff9', 'موظف المنصة'], ['B2-O', 'OWNER', 'own1', 'الدعم الفني'], ['B2-K', 'API_KEY', 'k1', 'مدير'], ['B2-A', 'ADMIN', 'a1', 'مدير'],
+  ]);
+  // والإيقاف كذلك: لا معرّف المدير الذي وُقّع به التوكن ولا OWNER:<المعرّف>
+  const v = (T.productLot.find((l) => l.id === 'L1')!.updatedAt as Date).toISOString();
+  const r = await call('PATCH', '/api/lots/L1/status', { user: STAFF, body: { status: 'BLOCKED', blockKind: 'HOLD', reason: 'فحص', updatedAt: v } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(eventsOf('L1', 'BLOCK').map((e) => [e.actorType, e.actorId]), [['STAFF', 'staff9']]);
+});
+
+test('B2 (التنزيل): صنفٌ أُطفئ تتبّعه — خطة التنزيل فارغة ولو بقي للوط رصيدٌ في السيارات، والبطاقة تحمل product.lotTracked', async () => {
+  world();
+  let r = await call('GET', '/api/lots/L2/unload-plan');
+  assert.equal(r.body.data.length, 3, 'المتتبَّع كما كان');
+  T.product.find((p) => p.id === 'P1')!.lotTracked = false;
+  r = await call('GET', '/api/lots/L2/unload-plan');
+  assert.deepEqual([r.status, r.body.data], [200, []]);
+  r = await call('GET', '/api/lots/L2');
+  assert.equal(r.body.data.product.lotTracked, false);
+  r = await call('GET', '/api/lots/NOPE/unload-plan');
+  assert.equal(r.status, 404);
+});
+
+test('B2 (التتبّع BROAD): مرتجعٌ دون اتصال يُدخل اللوط لحظة المستند (clientCreatedAt) لا لحظة المزامنة — فبيوع ما بعده قبل المزامنة في النافذة', async () => {
+  world();
+  T.productLot.push(lotRow('LN', 'P1', 'N700', '2099-09-30'));
+  const at = (h: number, m = 0) => new Date(Date.UTC(2026, 1, 20, h, m));
+  // المندوب R2 دون اتصال: مرتجع LN الساعة ٩، وبيعان من الصنف (بلوط L2) الساعة ١٠ و١١، ثم مزامنةٌ الساعة ١٧
+  addInv('RN', '2026-02-20', 'R2', 'C1', 'RETURN', [{ pid: 'P1', qty: 2, lots: [{ lotId: 'LN', qty: 2 }] }], { createdAt: at(17) });
+  addInv('SA', '2026-02-20', 'R2', 'C2', 'CASH', [{ pid: 'P1', qty: 1, lots: [{ lotId: 'L2', qty: 1 }] }], { createdAt: at(17, 1) });
+  addInv('SB', '2026-02-20', 'R2', 'C2', 'CASH', [{ pid: 'P1', qty: 1, lots: [{ lotId: 'L2', qty: 1 }] }], { createdAt: at(17, 2) });
+  for (const [id, h] of [['RN', 9], ['SA', 10], ['SB', 11]] as const) T.invoice.find((i) => i.id === id)!.clientCreatedAt = at(h);
+  const r = await call('GET', '/api/lots/LN/trace?scope=BROAD');
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body.data.customers.map((c: Row) => [c.name, c.invoices.map((i: Row) => [i.number, i.sold, i.returned, i.broad])]), [
+    ['بقالة النور', [['INV-RN', 0, 2, false]]],
+    ['سوبرماركت الفجر', [['INV-SA', 1, 0, true], ['INV-SB', 1, 0, true]]],
+  ]);
+});

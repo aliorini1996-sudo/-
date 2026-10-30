@@ -210,6 +210,43 @@ test('النقص بلا تشغيلة: مصدرٌ واحد يُستعمل تلق�
   assert.equal(world.warehouseRaw(C), 4);
 });
 
+test('النقص بلا تشغيلة مع صريحٍ للصنف نفسه: التلقائي يأخذ المصدر الوحيد **مما بقي** بعد الصريح (كالسيارة) لا LOT_REQUIRED على العرض كاملاً', async () => {
+  // لوط A صالحه ١٠ وغير المسمّى ٥: الصريح يصفّي A فيبقى غير المسمّى وحده مصدراً للسطر التلقائي
+  fresh();
+  const A = stock('P1', 'A', 10);
+  world.entry('ADJUST', [{ productId: 'P1', qty: 5, lotId: null }]);
+  const r = await post({ type: 'ADJUST', items: [{ productId: 'P1', qty: -10, lotId: A }, { productId: 'P1', qty: -5 }] });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual(lastItems().map((i) => i.lotId), [A, null]);
+  assert.equal(world.warehouseRaw(A), 0);
+  assert.equal(world.warehouseUnknown('P1'), 0);
+  // والمرآة: غير المسمّى صريحٌ كله فيبقى A وحده للتلقائي
+  fresh();
+  const B = stock('P1', 'B', 10);
+  world.entry('ADJUST', [{ productId: 'P1', qty: 5, lotId: null }]);
+  const m = await post({ type: 'ADJUST', items: [{ productId: 'P1', qty: -5, lotId: null }, { productId: 'P1', qty: -4 }] });
+  assert.equal(m.status, 201, JSON.stringify(m.body));
+  assert.deepEqual(lastItems().map((i) => i.lotId), [null, B]);
+  assert.equal(world.warehouseRaw(B), 6);
+  // ما بقي لا يكفي: التلقائي فوق غير المسمّى الباقي ⇒ 409 ولا كتابة (I2 محروس كما كان)
+  fresh();
+  const C = stock('P1', 'C', 10);
+  world.entry('ADJUST', [{ productId: 'P1', qty: 5, lotId: null }]);
+  const n = world.entries.length;
+  const over = await post({ type: 'ADJUST', items: [{ productId: 'P1', qty: -10, lotId: C }, { productId: 'P1', qty: -6 }] });
+  assert.equal(over.status, 409, JSON.stringify(over.body));
+  assert.equal(over.body.code, 'LOT_STOCK_INSUFFICIENT');
+  assert.equal(world.entries.length, n);
+  assert.equal(world.warehouseRaw(C), 10);
+  // والصريح لا يصفّي مصدراً: يبقى مصدران للتلقائي ⇒ LOT_REQUIRED كما كان (D10)
+  fresh();
+  const D = stock('P1', 'D', 10);
+  world.entry('ADJUST', [{ productId: 'P1', qty: 5, lotId: null }]);
+  const still = await post({ type: 'ADJUST', items: [{ productId: 'P1', qty: -4, lotId: D }, { productId: 'P1', qty: -1 }] });
+  assert.equal(still.status, 422, JSON.stringify(still.body));
+  assert.equal(still.body.code, 'LOT_REQUIRED');
+});
+
 test('النقص من غير المسمّى (null صريح): لا ينزل دون min(0, قبله) — السالب التاريخي لا يُنقص، والزيادة غير المسمّاة تسدّه (I2)', async () => {
   fresh();
   // P3 قبل التتبّع: وارد ١٠ وتحميل ١٥ ⇒ غير المسمّى −٥ عند التفعيل
@@ -315,12 +352,13 @@ test('الانشغال: انتظار القفل (55P03) ⇒ 503 LOT_BUSY ولا 
 
 // ═══ ما لا يتغيّر (§١٠) ═══
 
-test('غير المتتبَّع والميزة مفعّلة: إنشاءٌ واحد بلا معاملة ولا قفل ولا استعلام لوط، وlotId فارغ', async () => {
+test('غير المتتبَّع والميزة مفعّلة: إنشاءٌ واحد بلا قفل لوط ولا طابور، وlotId فارغ — بعد إعادة قراءة التتبّع وحدها (D25)', async () => {
   fresh();
   world.calls.length = 0;
   const r = await post({ type: 'ADJUST', items: [{ productId: 'P3', qty: -50, lotId: 'ignored' }] });
   assert.equal(r.status, 201, 'المستودع السالب جائزٌ لغير المتتبَّع كما كان');
-  assert.deepEqual(world.calls.map((c) => c.op), ['product.findMany', 'warehouseEntry.create']);
+  // D25 (البوابة B-d25-guards، lots-d25-warehouse.test.ts): FOR KEY SHARE على الأصناف في معاملة الإنشاء، لا غير
+  assert.deepEqual(world.calls.map((c) => c.op), ['product.findMany', 'tx.begin', 'query', 'warehouseEntry.create', 'tx.commit']);
   assert.equal(lastItems()[0].lotId, null);
 });
 

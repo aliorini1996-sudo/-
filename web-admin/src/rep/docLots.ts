@@ -25,6 +25,16 @@ export function invoiceLotsOf(
   return docLotRows(item.lots);
 }
 
+/**
+ * خيارات طلب فاتورةٍ يعيد المندوب فتحها (الكشف، والقائمة) — withLots=1 مع الميزة (D11) فتحمل البنود تشغيلاتها وتُطبع بشرط
+ * lotOnInvoice كورقة الإصدار؛ ومطفأةً (أو نسخة شركة قديمة بلا العلم) لا خيارات: الطلب كما كان حرفاً (§١٠)
+ */
+export function repInvoiceGetConfig(
+  company: { lotTrackingEnabled?: unknown; lotOnInvoice?: unknown } | null | undefined,
+): { params: { withLots: 1 } } | undefined {
+  return lotFlagsOf(company).on ? { params: { withLots: 1 } } : undefined;
+}
+
 /** صفوف تشغيلاتٍ صالحة للعرض (كمية موجبة) — بلا شرط الطباعة: لشريط الإدارة خارج الورقة وللإشعارات */
 export function docLotRows(lots: readonly DocLotLine[] | null | undefined): DocLotLine[] {
   if (!Array.isArray(lots)) return [];

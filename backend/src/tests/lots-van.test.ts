@@ -822,7 +822,9 @@ test('§١٠: الميزة المطفأة أو الصنف غير المتتبَ�
   const untracked = await post({ salesRepId: 'r1', type: 'UNLOAD', items: [{ productId: 'pU', qty: 2 }] });
   assert.equal(untracked.statusCode, 201);
   assert.ok(!('warnings' in untracked.body!));
-  assert.deepEqual(S.log, ['product.findMany', 'create:vanLoad'], 'القراءة بدل العدّ — لا FOR KEY SHARE ولا تجميع');
+  // D25: إعادة قراءة التتبّع تحت FOR KEY SHARE في معاملة الكتابة وحدها (البوابة B-d25-guards) — لا طابور ولا قفل لوط ولا تجميع
+  assert.deepEqual(S.log, ['product.findMany', 'q:FOR KEY SHARE', 'create:vanLoad'], 'القراءة بدل العدّ — وإعادة قراءة التتبّع وحدها');
+  assert.deepEqual(S.txOpts, [null], 'بلا مهلة جديدة');
   assert.equal(S.vanItemLots.length, 0);
 });
 
@@ -956,4 +958,151 @@ test('planVanMovementInTx بلا سياق يأخذ الأقفال بنفسه، �
   assert.equal(S.log.indexOf('q:FOR KEY SHARE'), -1);
   await assert.rejects(planVanMovementInTx(db as unknown as LotDb, { ...input, lines: [{ ...input.lines[0], qty: 2.00001 }] }),
     (e: unknown) => e instanceof LotError && e.code === 'LOT_QTY_INVALID');
+});
+
+// ═══ D25 في المسار غير المتتبَّع والميزة مفعّلة (البوابة B-d25-guards) ═══
+// القراءة المسبقة رأت أصناف الحركة غير متتبَّعة، ثم التزم تفعيل تتبّع أحدها (وتسميةٌ تنقل غير المسمّى إلى لوط) قبل الكتابة: حركةٌ تُنقص
+// السيارة بلا صفوف لوط تُنزل غير المسمّى دون الصفر (I2) وتُبقي للوط صالحاً وهمياً. الحارس إعادة قراءة التتبّع FOR KEY SHARE داخل
+// معاملة الكتابة ⇒ 503 LOT_BUSY TRACKING_CHANGED فيُعاد الطلب بمسار اللوط.
+
+/** يلتزم تفعيل تتبّع `pid` مباشرةً بعد القراءة المسبقة لأصناف الحركة (product.findMany) — مرّةً واحدة */
+function trackAfterPreRead(pid: string): void {
+  const pm = db.product as { findMany: (a: unknown) => Promise<unknown> };
+  const orig = pm.findMany;
+  pm.findMany = async (a: unknown) => {
+    const out = await orig(a);
+    pm.findMany = orig;
+    Object.assign(S.products.find((p) => p.id === pid)!, { lotTracked: true, lotTrackedSince: clock() });
+    return out;
+  };
+}
+
+test('D25 (السيارة): UNLOAD وADJUST لصنفٍ صار متتبَّعاً بين القراءة المسبقة والكتابة ⇒ 503 TRACKING_CHANGED بلا حركة، والإعادة بمسار اللوط', async () => {
+  for (const [type, qty] of [['UNLOAD', 4], ['ADJUST', -4]] as const) {
+    reset();
+    seedMove('r1', 'LOAD', 'pU', 10, []); // ١٠ غير مسمّاة في سيارة r1 قبل التتبّع
+    const before = S.vanLoads.length;
+    trackAfterPreRead('pU');
+    S.log = [];
+    const r = await post({ salesRepId: 'r1', type, items: [{ productId: 'pU', qty }] });
+    assert.deepEqual([r.statusCode, codeOf(r), (r.body?.detail as { reason?: string })?.reason, (r.body?.detail as { productIds?: string[] })?.productIds],
+      [503, 'LOT_BUSY', 'TRACKING_CHANGED', ['pU']], `${type}: ${JSON.stringify(r.body)}`);
+    assert.equal(S.vanLoads.length, before, `${type}: كُتبت حركة بلا صفوف لوط لصنفٍ متتبَّع`);
+    assert.ok(!S.log.includes('exec:lot'), `${type}: لا قفل لوط في المسار غير المتتبَّع`);
+    S.log = [];
+    const again = await post({ salesRepId: 'r1', type, items: [{ productId: 'pU', qty }] });
+    assert.ok(S.log.includes('exec:lot'), `${type}: الإعادة لم تأخذ مسار اللوط: ${S.log.join(' ')} ${JSON.stringify(again.body)}`);
+  }
+});
+
+test('D25 (السيارة): الإزالة (EXPIRED_OUT) — قفل الدلو ثم إعادة قراءة التتبّع (§٣.١)، وصنفٌ صار متتبَّعاً ⇒ 503 بلا حركة', async () => {
+  reset();
+  seedInvoice('r1', 'RETURN', 'pU', 3, [], { returnExpired: true });
+  const before = S.vanLoads.length;
+  trackAfterPreRead('pU');
+  S.log = [];
+  const r = await post({ salesRepId: 'r1', type: 'EXPIRED_OUT', items: [{ productId: 'pU', qty: 2 }] });
+  assert.deepEqual([r.statusCode, codeOf(r), (r.body?.detail as { reason?: string })?.reason], [503, 'LOT_BUSY', 'TRACKING_CHANGED'], JSON.stringify(r.body));
+  assert.equal(S.vanLoads.length, before);
+  const at = (s: string) => S.log.indexOf(s);
+  assert.ok(at('exec:bucket:van-expired:r1') >= 0 && at('exec:bucket:van-expired:r1') < at('q:FOR KEY SHARE'), `ترتيب الأقفال: ${S.log.join(' ')}`);
+  assert.ok(!S.log.includes('computeStock'), 'الرفض قبل فحص الرصيد');
+});
+
+test('D25 (السيارة) §١٠.٢: بلا تبديل ⇒ الحركة كما كانت — إعادة قراءة واحدة FOR KEY SHARE في معاملةٍ بلا مهلة جديدة، بلا طابور ولا قفل لوط ولا صفوف', async () => {
+  reset();
+  S.log = [];
+  const r = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pU', qty: 3 }] });
+  assert.equal(r.statusCode, 201, JSON.stringify(r.body));
+  assert.ok(!('warnings' in r.body!));
+  assert.deepEqual(S.log, ['product.findMany', 'q:FOR KEY SHARE', 'create:vanLoad']);
+  assert.deepEqual(S.txOpts, [null], 'معاملةٌ بالخيارات الافتراضية (لا D13)');
+  assert.equal(S.vanItemLots.length, 0);
+  // الإزالة: قفل الدلو كما كان ثم القراءة ثم فحص الرصيد ثم الإنشاء
+  seedInvoice('r1', 'RETURN', 'pU', 3, [], { returnExpired: true });
+  S.log = []; S.txOpts = [];
+  const out = await post({ salesRepId: 'r1', type: 'EXPIRED_OUT', items: [{ productId: 'pU', qty: 2 }] });
+  assert.equal(out.statusCode, 201, JSON.stringify(out.body));
+  assert.deepEqual(S.log.filter((x) => x !== 'product.findMany'), ['exec:bucket:van-expired:r1', 'q:FOR KEY SHARE', 'computeStock', 'create:vanLoad']);
+  assert.deepEqual(S.txOpts, [null]);
+});
+
+// ═══ البوابة B2 (الفاعل، والتنزيل باللوط لصنفٍ غير متتبَّع) ═══
+
+test('B2 (الفاعل): CREATE من حركة السيارة بـlotEventActorOf — جلسة موظف المنصة STAFF بمعرّفه والمالك OWNER بمعرّفه لا معرّف المدير، والمفتاح بمعرّفه', async () => {
+  reset({ warehouse: false });
+  const users: [string, Record<string, unknown>][] = [
+    ['S', { ...ADMIN, impersonated: true, by: 'staff9', byKind: 'STAFF' }],
+    ['O', { ...ADMIN, impersonated: true, by: 'own1', byKind: 'OWNER' }],
+    ['K', { ...ADMIN, apiKeyId: 'k1' }],
+    ['A', ADMIN],
+  ];
+  const got: unknown[] = [];
+  for (const [n, user] of users) {
+    // التسوية بالزيادة برقمٍ جديد، والتحميل بلا مستودع برقمٍ جديد (D4): كلاهما ينشئ التشغيلة بحدث CREATE
+    for (const type of ['ADJUST', 'LOAD']) {
+      const res = await post({ salesRepId: 'r1', type, items: [{ productId: 'pB', qty: 2, lotNumber: `B2-${n}-${type}` }] }, user);
+      assert.equal(res.statusCode, 201, JSON.stringify(res.body));
+      const lotId = S.lots.find((l) => l.lotNumber === `B2-${n}-${type}`)!.id;
+      const e = S.events.find((x) => x.lotId === lotId && x.kind === 'CREATE')!;
+      got.push([n, type, e.actorType, e.actorId, e.actorName]);
+    }
+  }
+  assert.deepEqual(got, [
+    ['S', 'ADJUST', 'STAFF', 'staff9', 'موظف المنصة'], ['S', 'LOAD', 'STAFF', 'staff9', 'موظف المنصة'],
+    ['O', 'ADJUST', 'OWNER', 'own1', 'الدعم الفني'], ['O', 'LOAD', 'OWNER', 'own1', 'الدعم الفني'],
+    ['K', 'ADJUST', 'API_KEY', 'k1', 'مدير'], ['K', 'LOAD', 'API_KEY', 'k1', 'مدير'],
+    ['A', 'ADJUST', 'ADMIN', 'adm1', 'مدير'], ['A', 'LOAD', 'ADMIN', 'adm1', 'مدير'],
+  ]);
+});
+
+test('B2 (D9): الميزة مفعّلة — بندٌ يحمل تشغيلةً لصنفٍ غير متتبَّع 422 بموضع سطره بلا حركة، والفراغ وnull مسار غير المتتبَّع كما كان', async () => {
+  reset();
+  lot('l1', 'pU', FAR1);
+  const before = S.vanLoads.length;
+  for (const extra of [
+    { lots: [{ lotId: 'l1', qty: 2 }] }, { lotNumber: 'X1' }, { expiryDate: FAR1 }, { productionDate: '2026-01-01' }, { lotReason: 'EXPIRED_UNSOLD_DESTROY' },
+  ]) {
+    S.log = []; S.txOpts = [];
+    const res = await post({ salesRepId: 'r1', type: 'UNLOAD', items: [{ productId: 'pB', qty: 0 }, { productId: 'pU', qty: 2, ...extra }] });
+    assert.equal(res.statusCode, 422, JSON.stringify([extra, res.body]));
+    assert.equal(codeOf(res), 'LOT_PRODUCT_MISMATCH');
+    assert.deepEqual(res.body!.detail, { productId: 'pU', idx: 1, reason: 'NOT_TRACKED' });
+    assert.match(String(res.body!.message), /«ماء»/);
+    assert.deepEqual([S.vanLoads.length, S.txOpts.length], [before, 0], 'لا حركة ولا معاملة');
+  }
+  // غيابٌ صريح: lots فارغة وحقولٌ null أو فارغة ⇒ مسار غير المتتبَّع
+  const ok = await post({ salesRepId: 'r1', type: 'UNLOAD', items: [{ productId: 'pU', qty: 2, lots: [], lotNumber: '', expiryDate: null, productionDate: null, lotReason: null }] });
+  assert.equal(ok.statusCode, 201, JSON.stringify(ok.body));
+  assert.deepEqual(lotRowsOf(lastLoad().id), [[]]);
+});
+
+test('B2 (§١٠.١): الميزة مطفأة — حقول اللوط في البند تُهمل كما كانت حرفياً (لا 422 ولا استعلام زائد)', async () => {
+  reset({ lots: false });
+  lot('l1', 'pU', FAR1);
+  S.log = []; S.txOpts = [];
+  const res = await post({ salesRepId: 'r1', type: 'UNLOAD', items: [{ productId: 'pU', qty: 2, lots: [{ lotId: 'l1', qty: 2 }], lotNumber: 'X1', expiryDate: FAR1 }] });
+  assert.equal(res.statusCode, 201, JSON.stringify(res.body));
+  assert.deepEqual(S.log, ['product.count', 'create:vanLoad']);
+  assert.deepEqual(S.txOpts, []);
+  assert.deepEqual(lotRowsOf(lastLoad().id), [[]]);
+});
+
+test('B2 (D9 تحت القفل): صنفٌ متتبَّع في القراءة المسبقة أُطفئ تتبّعه قبل القفل وبنده يحمل تشغيلة — 422 لا تنزيلٌ بلا صفوف', async () => {
+  reset();
+  lot('l1', 'pB', FAR1);
+  seedMove('r1', 'LOAD', 'pB', 4, [{ lotId: 'l1', qty: 4 }]);
+  const prod = db.product as { findMany: (a: unknown) => Promise<unknown> };
+  const real = prod.findMany;
+  // الإطفاء يلتزم بين القراءة المسبقة وقفل الأصناف
+  prod.findMany = async (a: unknown) => { const r = await real(a); S.products.find((p) => p.id === 'pB')!.lotTracked = false; return r; };
+  const before = S.vanLoads.length;
+  try {
+    const res = await post({ salesRepId: 'r1', type: 'UNLOAD', items: [{ productId: 'pB', qty: 2, lots: [{ lotId: 'l1', qty: 2 }] }] });
+    assert.equal(res.statusCode, 422, JSON.stringify(res.body));
+    assert.deepEqual([codeOf(res), res.body!.detail], ['LOT_PRODUCT_MISMATCH', { productId: 'pB', idx: 0, reason: 'NOT_TRACKED' }]);
+    assert.equal(S.vanLoads.length, before);
+  } finally {
+    prod.findMany = real;
+  }
 });

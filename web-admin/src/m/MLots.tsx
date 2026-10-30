@@ -17,7 +17,7 @@ import {
   type LotCertainty, type LotTraceDto, type LotUnloadPlanDto, type ProductLotDto,
 } from '../lib/lots';
 import {
-  autoBroad, eventKindLabel, expiryState, lotStatusLabel, originKindLabel, placeName, statusActions, traceSheets, traceTotals, unloadBody, vanName,
+  autoBroad, eventKindLabel, expiryState, lotStatusLabel, lotUnloadOn, originKindLabel, placeName, statusActions, traceSheets, traceTotals, unloadBody, vanName,
   type LotDetailDto, type LotListRow, type LotStatusAction,
 } from '../lib/lotsPage';
 import { MCard, MRow, MHeader, MStat, MEmpty, MError, MSpinner } from './mobileUi';
@@ -307,10 +307,11 @@ function LotCard({ id, warehouseOn, onBack }: { id: string; warehouseOn: boolean
     queryFn: async () => expectObject<LotTraceDto>((await lotsApi.trace(id, scope)).data?.data, tr('تتبع التشغيلة')),
     retry: retryNetOnly,
   });
-  const blocked = lot?.status === 'BLOCKED';
+  // الموقوفة من صنفٍ متتبَّع وحده: غير المتتبَّع ينزل من «مخزون السيارات» (lotUnloadOn)
+  const unloadOn = lotUnloadOn(lot);
   const planQ = useQuery({
     queryKey: ['m-lot', id, 'unload'],
-    enabled: blocked,
+    enabled: unloadOn,
     queryFn: async () => expectArray<LotUnloadPlanDto>((await lotsApi.unloadPlan(id)).data?.data, tr('تنزيل التشغيلة من السيارات')),
     retry: retryNetOnly,
   });
@@ -461,7 +462,7 @@ function LotCard({ id, warehouseOn, onBack }: { id: string; warehouseOn: boolean
         </div>
 
         {/* ─────────── خطة التنزيل بعد الإيقاف أو السحب ─────────── */}
-        {blocked && (
+        {unloadOn && (
           <Section title={tr('تنزيل التشغيلة من السيارات')} icon={Truck}>
             <p className="text-[11px] text-[#6E6557] px-1 leading-relaxed">
               {tr('الموقوفة لا تحمل ولا تباع نزل صالحها من كل سيارة إلى المستودع والمحجوز ينزل بعد اعتماد إشعاره')}
@@ -644,7 +645,7 @@ function LotCard({ id, warehouseOn, onBack }: { id: string; warehouseOn: boolean
       )}
 
       {/* تأكيد التنزيل — حركةٌ تغيّر رصيد السيارة والمستودع، فلا تُنفَّذ بنقرة واحدة */}
-      {unloadRow && (
+      {unloadOn && unloadRow && (
         <Sheet title={tr('تنزيل التشغيلة من السيارة')} onClose={() => setUnloadRow(null)}>
           <p className="text-[12px] text-[#6E6557] leading-relaxed">
             {vanName(unloadRow, tr)} — <b className="tabular-nums text-[#1F1A13]">{fmtQ(unloadRow.usable.SELLABLE)} {unit}</b>

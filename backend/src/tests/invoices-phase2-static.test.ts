@@ -137,7 +137,8 @@ test('الوحدات المتعددة: الفرع لا يحلّ الوحدة ث�
   assert.doesNotMatch(s, /\.find\(\w+ => \w+\.id === unitId/, 'حلٌّ موازٍ للوحدة بمعرّفها');
   const issue = s.slice(s.indexOf('async function issueNow'));
   ordered(issue, ['assertPhase2Units(ctx.items, ctx.body.items)', 'prepareIssuance(', 'lockProductBases(t, ctx.tenantId, expectedBases)', 't.invoice.create('], 'ترتيب حرّاس الوحدة');
-  assert.match(s, /SELECT id, unit FROM products WHERE id = ANY\(\$\{ids\}\) AND "tenantId" = \$\{tenantId\} FOR KEY SHARE/);
+  // «تتبّع اللوط» (D25): الصفوف نفسها تحمل علم التتبّع — لا استعلامٌ ثانٍ
+  assert.match(s, /SELECT id, unit, "lotTracked" FROM products WHERE id = ANY\(\$\{ids\}\) AND "tenantId" = \$\{tenantId\} FOR KEY SHARE/);
 });
 
 test('نقد 8: الترقيم بمقبض المعاملة نفسه — لا generateInvoiceNumber ولا prisma عام داخل الفرع', () => {

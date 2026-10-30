@@ -197,10 +197,6 @@ export function pendingOut(outbox: readonly OutboxDoc[], posted: readonly Posted
   return out;
 }
 
-function clonePending(p: PendingOut): PendingOut {
-  return new Map([...p].map(([k, g]) => [k, { total: g.total, byLot: new Map(g.byLot) }]));
-}
-
 // ─── المتاح المحلي ───
 
 /** المؤهَّل للبيع يوم today: نشطة، ويوم الانتهاء نفسه صالح، وصالحها موجب */
@@ -275,15 +271,28 @@ const cartonFactor = (F: number | null | undefined): number => (finite(F) && F >
 export function localHint(snap: VanLotSnapshotDto, productId: string, baseQty: number, today: string, pending: PendingOut,
   opts?: { unitFactor?: number | null }): LotRef[] | null {
   if (!finite(baseQty) || !(baseQty > LOT_EPS)) return [];
-  const v = localLotView(snap, productId, today, pending);
-  const cands = v.lots.filter((x) => x.sellable && x.left > LOT_EPS).map((x) => ({ lotId: x.lot.lotId, left: x.left }));
+  return hintFrom(budgetOf(localLotView(snap, productId, today, pending)), baseQty, snap.allowUnknown, opts?.unitFactor);
+}
+
+/** ما يبقى لصنفٍ بعد المعلّق: المؤهَّل بترتيب FEFO وباقي كلٍّ منه، وغير المسمّى — تأخذ منه أسطر السلّة واحداً بعد واحد */
+interface HintBudget { cands: { lotId: string; left: number }[]; unknownLeft: number }
+
+const budgetOf = (v: LocalLotView): HintBudget => ({
+  cands: v.lots.filter((x) => x.sellable && x.left > LOT_EPS).map((x) => ({ lotId: x.lot.lotId, left: x.left })),
+  unknownLeft: v.unknownLeft,
+});
+
+/** تلميح سطرٍ من ميزانية صنفه (localHint) — ينقصها بصفوفه حين يكفي المتاح، ولا يمسّها حين لا يكفي (null) */
+function hintFrom(b: HintBudget, baseQty: number, allowUnknown: boolean, unitFactor: number | null | undefined): LotRef[] | null {
+  if (!finite(baseQty) || !(baseQty > LOT_EPS)) return [];
+  const cands = b.cands.map((c) => ({ ...c }));
   const take = new Map<string, number>();
   let left = baseQty;
   const add = (k: string, t: number) => {
     take.set(k, (take.get(k) ?? 0) + t);
     left = Math.abs(left - t) <= LOT_EPS ? 0 : left - t;
   };
-  const F = cartonFactor(opts?.unitFactor);
+  const F = cartonFactor(unitFactor);
   if (F > 1) {
     for (const c of cands) {
       if (left <= LOT_EPS) break;
@@ -301,7 +310,7 @@ export function localHint(snap: VanLotSnapshotDto, productId: string, baseQty: n
     add(c.lotId, t);
     c.left -= t;
   }
-  if (left > LOT_EPS && snap.allowUnknown && v.unknownLeft > LOT_EPS) add(UNKNOWN_LOT_KEY, v.unknownLeft >= left - LOT_EPS ? left : v.unknownLeft);
+  if (left > LOT_EPS && allowUnknown && b.unknownLeft > LOT_EPS) add(UNKNOWN_LOT_KEY, b.unknownLeft >= left - LOT_EPS ? left : b.unknownLeft);
   if (left > LOT_EPS) return null;
   const rows = [...take].map(([k, q]) => ({ lotId: k === UNKNOWN_LOT_KEY ? null : k, qty: roundLot(q) })).filter((r) => r.qty > 0);
   // أربع خانات لكل صفّ، والأخير يحمل فرق التقريب فيبقى المجموع كمية السطر
@@ -309,7 +318,13 @@ export function localHint(snap: VanLotSnapshotDto, productId: string, baseQty: n
     const others = rows.slice(0, -1).reduce((s, r) => s + r.qty, 0);
     rows[rows.length - 1].qty = roundLot(roundLot(baseQty) - others);
   }
-  return rows.filter((r) => r.qty > 0);
+  const out = rows.filter((r) => r.qty > 0);
+  // الميزانية تنقص بالصفوف نفسها التي تُرسَل (بعد التقريب)، فما بعده من أسطر الصنف يرى ما تركه هذا السطر
+  for (const r of out) {
+    if (r.lotId === null) b.unknownLeft = Math.max(0, b.unknownLeft - r.qty);
+    else { const c = b.cands.find((x) => x.lotId === r.lotId); if (c) c.left = Math.max(0, c.left - r.qty); }
+  }
+  return out;
 }
 
 export interface CartLotLine { productId: string; baseQty: number; unitFactor?: number | null; tracked: boolean }
@@ -317,18 +332,42 @@ export interface CartLotLine { productId: string; baseQty: number; unitFactor?: 
 /**
  * تلميحات السلّة كلها على متاحٍ مشترك: أسطر الصنف الواحد («٢ كرتون + ٥ حبة») يأخذ كلٌّ مما تركه ما قبله، والكرتون أولاً بمعامله
  * تنازلياً كما يخدمها الخادم (D22). لكل سطرٍ متتبَّع تلميحه أو null إن لم يكفِ المتاح، وundefined لغير المتتبَّع.
+ * المتاح يُحسب مرةً لكل صنف من المعلّق المعطى ثم تنقص منه الأسطر — لا يُعاد حسابه بإضافة السلّة إلى المعلّق: معلّقٌ لا تسعه اللقطة
+ * يُنشر حينها بالقاعدة كله **مع** ما أخذته السلّة، فيُرى المأخوذ متاحاً ويتجاوز سطرٌ لاحق صالح التشغيلة (فيرفض الخادم التلميح).
  */
 export function cartHints(snap: VanLotSnapshotDto, lines: readonly CartLotLine[], today: string, pending: PendingOut): (LotRef[] | null | undefined)[] {
   const out: (LotRef[] | null | undefined)[] = lines.map(() => undefined);
-  const pend = clonePending(pending);
+  const budgets = new Map<string, HintBudget>();
   const order = lines.map((l, i) => ({ l, i })).filter((x) => x.l.tracked)
     .sort((a, b) => cartonFactor(b.l.unitFactor) - cartonFactor(a.l.unitFactor) || a.i - b.i);
   for (const { l, i } of order) {
-    const h = localHint(snap, l.productId, l.baseQty, today, pend, { unitFactor: l.unitFactor });
-    out[i] = h;
-    if (h && h.length) addPending(pend, l.productId, h.reduce((s, r) => s + r.qty, 0), h);
+    let b = budgets.get(l.productId);
+    if (!b) { b = budgetOf(localLotView(snap, l.productId, today, pending)); budgets.set(l.productId, b); }
+    out[i] = hintFrom(b, l.baseQty, snap.allowUnknown, l.unitFactor);
   }
   return out;
+}
+
+/** أول صنفٍ يتجاوز مجموعُ تلميحاته لتشغيلةٍ (أو لغير المسمّى) ما يبقى منها بعد المعلّق، وإلا null — حارسٌ أخير قبل الصفّ */
+function hintsOverView(snap: VanLotSnapshotDto, lines: readonly { productId: string }[], hints: readonly (readonly LotRef[] | null | undefined)[],
+  today: string, pending: PendingOut): string | null {
+  const sums = new Map<string, Map<string, number>>();
+  hints.forEach((h, i) => {
+    for (const r of h ?? []) {
+      const m = sums.get(lines[i].productId) ?? new Map<string, number>();
+      m.set(keyOf(r.lotId), (m.get(keyOf(r.lotId)) ?? 0) + r.qty);
+      sums.set(lines[i].productId, m);
+    }
+  });
+  for (const [pid, m] of sums) {
+    const v = localLotView(snap, pid, today, pending);
+    const left = new Map(v.lots.filter((x) => x.sellable).map((x) => [x.lot.lotId, x.left]));
+    for (const [k, q] of m) {
+      const cap = k === UNKNOWN_LOT_KEY ? (snap.allowUnknown ? v.unknownLeft : 0) : left.get(k) ?? 0;
+      if (q > cap + LOT_EPS) return pid;
+    }
+  }
+  return null;
 }
 
 /** أسطر ورقةٍ من تلميح الجهاز — الرقم والانتهاء من اللقطة، وغير المسمّى بلا رقم */
@@ -419,13 +458,17 @@ export function offlineLotPlan(snap: VanLotSnapshotDto | null | undefined, lines
     const pid = lines[short].productId;
     return { ok: false, block: { kind: 'over', productId: pid, cap: localAvailable(snap, pid, today, pending) } };
   }
+  // ولا تشغيلةٌ فوق باقيها: تلميحٌ يتجاوزها يرفضه الخادم للصنف كله فتفترق الورقة المطبوعة عن السجل (D16)
+  const overPid = hintsOverView(snap, lines, hints, today, pending);
+  if (overPid) return { ok: false, block: { kind: 'over', productId: overPid, cap: localAvailable(snap, overPid, today, pending) } };
   return { ok: true, hints: hints.map((h) => h ?? undefined) };
 }
 
 // ─── ردّ الإصدار المتصل ───
 
 /**
- * تشغيلات كل سطرٍ من ردّ 201 (`inv.items[].lots`): بند المرتجع المرتبط ببند بيعه (returnOfItemId)، وغيره بالصنف — والصنف نفسه
+ * تشغيلات كل سطرٍ من ردّ 201 (`inv.items[].lots`): بند المرتجع المرتبط ببند بيعه (returnOfItemId في المرحلة الأولى، وcreditedItemId
+ * في إشعار الدائن بالمرحلة الثانية كما يشكّله issueNote)، وغيره بالصنف — والصنف نفسه
  * في سطرين («كرتون + حبة») يُطابَق بلقطة معامل وحدته ثم بكميته (البند لا يحمل معرّف الوحدة)، وكل بندٍ يُستعمل مرة.
  * سطرٌ بلا مطابقة undefined.
  */
@@ -443,13 +486,57 @@ export function matchServerItemLots(
   };
   const factor = (x: unknown) => { const f = Number(x); return Number.isFinite(f) && f > 0 ? f : 1; };
   return lines.map((l) => {
-    const same = (x: Record<string, unknown>) => x.productId === l.productId && !x.returnOfItemId;
+    const same = (x: Record<string, unknown>) => x.productId === l.productId && !x.returnOfItemId && !x.creditedItemId;
     const sameUnit = (x: Record<string, unknown>) => same(x) && Math.abs(factor(x.unitFactor) - factor(l.unitFactor)) <= 1e-9;
     const it = l.saleItemId
-      ? pick((x) => x.returnOfItemId === l.saleItemId)
+      ? pick((x) => x.returnOfItemId === l.saleItemId || x.creditedItemId === l.saleItemId)
       : pick((x) => sameUnit(x) && Number(x.qty) === Number(l.qty)) ?? pick(sameUnit) ?? pick(same);
     return it ? docLotsFrom(it.lots) : undefined;
   });
+}
+
+// ─── جلب اللقطة ───
+
+export interface LatestFlight<T> {
+  /** جلبٌ جارٍ؟ */
+  readonly busy: boolean;
+  /** يبدأ start إن لم يجرِ جلب، وإلا يشارك الجاري — أو، مع fresh، جلباً واحداً يبدأ بعد انتهاء الجاري لكل من طلبه أثناءه */
+  run(start: () => Promise<T>, fresh?: boolean): Promise<T>;
+}
+
+/**
+ * جلبٌ واحد جارٍ للقطة يتشاركه الطالبون (§٧.١) — إلا طلباً بعد حدثٍ تمّ للتوّ (مزامنةٌ رفعت فاتورة، إصدارٌ متصل): الجلب الجاري
+ * بدأ قبله، وختم بدئه (fetchedAt) يُبقي الحدث معلّقاً على لقطةٍ قد تعرفه فيُطرح مرتين — فيُلحق به جلبٌ يبدأ بعده (fresh).
+ */
+export function latestFlight<T>(): LatestFlight<T> {
+  let cur: Promise<T> | null = null;
+  let next: Promise<T> | null = null;
+  const launch = (start: () => Promise<T>): Promise<T> => {
+    let p: Promise<T>;
+    try { p = Promise.resolve(start()); } catch (e) { p = Promise.reject(e); }
+    const tracked: Promise<T> = p.finally(() => { if (cur === tracked) cur = null; });
+    cur = tracked;
+    return tracked;
+  };
+  return {
+    get busy() { return cur !== null; },
+    run(start, fresh = false) {
+      if (!cur) return launch(start);
+      if (!fresh) return cur;
+      if (!next) {
+        next = cur.then(() => undefined, () => undefined).then(() => {
+          next = null;
+          return cur ?? launch(start); // جارٍ بدأ بعد انتهاء الأول (طلبٌ عادي سبق) بدأ بعد الحدث فيكفي
+        });
+      }
+      return next;
+    },
+  };
+}
+
+/** مرتجعٌ صدر متصلاً بصنفٍ متتبَّع والميزة مفعّلة: اللقطة لا تعرف ما عاد إلى السيارة فتُجلب (§٧.١) — ولا يُسجَّل معلّقاً (لا يزيد) */
+export function returnRefreshesSnapshot(on: boolean, isReturn: boolean, tracked: ReadonlySet<string>, lines: readonly { productId?: unknown }[]): boolean {
+  return on && isReturn && lines.some((l) => typeof l.productId === 'string' && tracked.has(l.productId));
 }
 
 // ─── الصندوق ───

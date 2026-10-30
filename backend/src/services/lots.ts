@@ -40,7 +40,8 @@ export function roundLot(n: number): number {
 /**
  * كميةٌ صالحة لصنفٍ متتبَّع: موجبة ومُمثَّلة بأربع خانات — دقّة الطيّ ورصيد الصنف (roundLot). كسرٌ أدقّ يجعل الصالح المعروض
  * (المقرَّب) أكبر من الخام الفعلي فيُنقَص بأكثر منه (I1): وارد 1.00105 يُعرض 1.0011 فيُصرف كله والخام −0.00005.
- * يرفضها LOT_QTY_INVALID في المسار الحيّ والإداري والمفتاح (هنا وفي كل حزمة تكتب زيادة)؛ والإعادة لا تُرفض بها (R6).
+ * يرفضها LOT_QTY_INVALID في المسار الحيّ والإداري والمفتاح (هنا وفي كل حزمة تكتب زيادة)؛ والإعادة لا تُرفض بها (R6) لكن صفّها
+ * المسمّى يأخذ أرضيته والغبار لغير المسمّى (namedOnGrid). ولكسرٍ بقي من مصدرٍ آخر: الصالح الحارس أرضية الفعلي (floorLot).
  */
 export function isLotQty(q: number): boolean {
   return Number.isFinite(q) && q > LOT_EPS && Math.abs(roundLot(q) - q) <= 1e-9 * Math.max(1, Math.abs(q));
@@ -230,6 +231,32 @@ export interface LotRaw { raw: BucketQty; held: BucketQty }
 const roundBuckets = (b: BucketQty): BucketQty => ({ SELLABLE: roundLot(b.SELLABLE), EXPIRED: roundLot(b.EXPIRED), DAMAGED: roundLot(b.DAMAGED) });
 const nz = (n: number) => (n === 0 ? 0 : n); // -0 ⇒ 0 للعرض
 
+/**
+ * غبار العائمة حول شبكة الأربع خانات: دون LOT_EPS (فما يُصرف ضمنه لا يكسر I1) وفوق خطأ جمعٍ طويل لكمياتٍ كبيرة. ما بعده
+ * كسرٌ حقيقي أدقّ من أربع خانات (إعادة R6، أو صفٌّ قديم من مصدرٍ آخر).
+ */
+const lotGridTol = (n: number): number => Math.max(LOT_EPS / 10, Math.abs(n) * 1e-12);
+/** على شبكة الأربع خانات ضمن غبار العائمة؟ */
+const onLotGrid = (n: number): boolean => Math.abs(roundLot(n) - n) <= lotGridTol(n);
+
+/**
+ * أرضية الأربع خانات — للصالح الذي يحرس كل إنقاص (I1): roundLot ما لم يتجاوز الكمية بأكثر من غبار العائمة، وإلا الخانة الأدنى.
+ * فخامٌ فعلي 0.99995 يُعرض نصف لأعلى 1 ولا يُصرف منه إلا 0.9999 (gate 0: نصف لأعلى كان يصرف 1 فيصير الخام −0.00005).
+ * على الشبكة = roundLot حرفياً، فكل تاريخٍ بأربع خانات يُعطي ما كان.
+ */
+export function floorLot(n: number): number {
+  if (!Number.isFinite(n)) return n;
+  const h = roundLot(n);
+  return h - n > lotGridTol(n) ? roundLot(h - 1e-4) : h;
+}
+const floorBuckets = (b: BucketQty): BucketQty => ({ SELLABLE: floorLot(b.SELLABLE), EXPIRED: floorLot(b.EXPIRED), DAMAGED: floorLot(b.DAMAGED) });
+/**
+ * تقريب الطيّ: على الشبكة roundLot (غبار العائمة لا يصنع رصيداً، J2)، وكسرٌ أدقّ يبقى كما هو حتى buildPlaceView — يعرضه نصف لأعلى
+ * ويحرس به الإنقاص بأرضيته. تقريبه هنا نصف لأعلى كان يُضيّع الفعلي فيُعرض 0.99995 صالحاً 1.
+ */
+const snapLot = (n: number): number => (onLotGrid(n) ? roundLot(n) : n);
+const snapBuckets = (b: BucketQty): BucketQty => ({ SELLABLE: snapLot(b.SELLABLE), EXPIRED: snapLot(b.EXPIRED), DAMAGED: snapLot(b.DAMAGED) });
+
 function nested<V>(m: Map<string, Map<string, V>>, a: string, b: string, init: () => V): V {
   let inner = m.get(a);
   if (!inner) { inner = new Map(); m.set(a, inner); }
@@ -260,7 +287,8 @@ export function foldWarehouseLots(wh: AggWhLot[], van: AggVanLot[], rel: AggRela
     add(r.productId, r.toLotId, r.qty);
   }
   const out = new Map<string, Map<string, number>>();
-  for (const [pid, m] of acc) out.set(pid, new Map([...m].map(([lot, x]) => [lot, nz(roundLot(x.v))])));
+  // على الشبكة مقرَّب، والكسر الأدقّ كما هو: buildPlaceView يعرضه نصف لأعلى ويحرس الإنقاص بأرضيته (snapLot)
+  for (const [pid, m] of acc) out.set(pid, new Map([...m].map(([lot, x]) => [lot, nz(snapLot(x.v))])));
   return out;
 }
 
@@ -315,8 +343,9 @@ export function foldVanLots(van: AggVanLot[], inv: AggInvLot[], rel: AggRelabel[
       if (r.bucket === 'SELLABLE' && r.qty > 0) entered(r.productId, r.toLotId, r.firstAt);
     }
   }
+  // على الشبكة مقرَّب، والكسر الأدقّ كما هو حتى العرض (snapLot): الصالح الحارس أرضية الفعلي لا تقريبه نصف لأعلى
   for (const m of named.values()) {
-    for (const x of m.values()) { x.raw = roundBuckets(x.raw); x.held = roundBuckets(x.held); }
+    for (const x of m.values()) { x.raw = snapBuckets(x.raw); x.held = snapBuckets(x.held); }
   }
   for (const [pid, h] of heldUnknown) heldUnknown.set(pid, roundBuckets(h));
   return { named, heldUnknown, firstInAt };
@@ -363,7 +392,9 @@ export function buildPlaceView(input: {
   for (const [lotId, x] of input.named) {
     const raw = roundBuckets(x.raw);
     const held = roundBuckets(x.held);
-    const usable = roundBuckets({ SELLABLE: raw.SELLABLE - held.SELLABLE, EXPIRED: raw.EXPIRED - held.EXPIRED, DAMAGED: raw.DAMAGED - held.DAMAGED });
+    // الصالح يحرس كل إنقاص (البيع والتحميل والصريح والتنزيل والتسمية والإزالة، I1) فهو أرضية الفرق الفعلي لا تقريبه نصف لأعلى:
+    // خامٌ بكسرٍ أدقّ (إعادة R6 أو صفٌّ قديم) لا يُصرف منه ما لا يوجد. على الشبكة = تقريب (الخام − المحجوز) كما كان
+    const usable = floorBuckets({ SELLABLE: x.raw.SELLABLE - x.held.SELLABLE, EXPIRED: x.raw.EXPIRED - x.held.EXPIRED, DAMAGED: x.raw.DAMAGED - x.held.DAMAGED });
     for (const b of LOT_BUCKETS) sumRaw[b] += raw[b];
     lots.push({ lotId, meta: input.metas.get(lotId) ?? orphanMeta(lotId, input.productId), raw, held, usable });
   }
@@ -603,6 +634,27 @@ function rowsOf(cands: Cand[], taken: Map<Cand, number>, split: ReadonlySet<Cand
 function unknownRow(qty: number, flags: Iterable<LotRowFlag>): AllocRow {
   const fl = new Set<LotRowFlag>(flags);
   return { lotId: null, qty, certainty: 'UNKNOWN', flags: LOT_ROW_FLAGS.filter((f) => fl.has(f)), expiryDate: null };
+}
+
+/**
+ * صفوف سطرٍ بكسرٍ أدقّ من أربع خانات (الإعادة R6 لا تُرفض به): كل صفٍّ مسمّى يأخذ أرضيته (floorLot) والباقي — دون 0.0001 لكل
+ * صفّ — يُضمّ إلى صفّ غير المسمّى في السطر، أو صفٍّ غير معروف جديد بوسوم `flags`. فلا يحمل لوطٌ مسمّى غباراً (الغبار المقبول في
+ * غير المسمّى وحده، §٣ الكمية) وΣ صفوف السطر = كميته (I3). صفوف الشبكة كما هي حرفياً.
+ */
+function namedOnGrid(rows: AllocRow[], flags: readonly LotRowFlag[]): AllocRow[] {
+  let dust = 0;
+  const out: AllocRow[] = [];
+  for (const r of rows) {
+    if (r.lotId == null || onLotGrid(r.qty)) { out.push(r); continue; }
+    const f = Math.max(0, floorLot(r.qty));
+    dust += r.qty - f;
+    if (f > LOT_EPS) out.push({ ...r, qty: f });
+  }
+  if (!(dust > 0)) return out;
+  const u = out.findIndex((r) => r.lotId == null);
+  if (u >= 0) out[u] = { ...out[u], qty: out[u].qty + dust };
+  else out.push(unknownRow(dust, flags));
+  return out;
 }
 
 function insufficient(input: { productId: string; productName: string; qty: number; view: PlaceLotView; day: string; allowUnknown: boolean }): LotError {
@@ -846,7 +898,8 @@ export function allocateOutLines(input: {
       const rows = rowsOf(c1, t1.taken, split, extra);
       if (uq > 0) rows.push(unknownRow(uq, split.has(null) ? [...extra, 'SPLIT_UNIT'] : extra));
       if (t3) rows.push(...rowsOf(c3, t3.taken, split, extra));
-      lines.set(line.idx, rows);
+      // الكمية لا تُرفض بكسرٍ أدقّ (R6) لكن صفّ اللوط المسمّى بأربع خانات والغبار لغير المسمّى (I1 عبر الطيّ المقرَّب)
+      lines.set(line.idx, namedOnGrid(rows, extra));
       if (split.size) splitLines.push({ idx: line.idx, unitFactor: line.unitFactor });
     }
     if (fromUnknown) warnings.push({ code: 'LOT_FROM_UNKNOWN', productId });
@@ -1032,6 +1085,7 @@ export interface SaleLotRow { id: string; lotId: string | null; quantity: number
  *   أولاً (المحلّ يبيع الأقدم فيرجع آخر ما وصله — invoiceExpiry.ts:10-11). صفوف البيع غير المعروفة آخراً.
  * - اليقين: يقين صفّ البيع إن كان البيع صفّاً واحداً (لا ما بقي منه بعد مرتجعاتٍ سابقة: قسمتها افتراض)، وإلا ASSUMED؛
  *   والفائض صفٌّ UNKNOWN.
+ * - الصفّ المسمّى بأربع خانات: كسرٌ أدقّ (مرتجع إعادة R6، أو صفّ بيعٍ قديم) أرضيته للوط وباقيه UNKNOWN بمصدره نفسه.
  */
 export function allocateReturnFromSale(input: {
   qty: number; returnDay: string; saleRows: SaleLotRow[];
@@ -1063,12 +1117,19 @@ export function allocateReturnFromSale(input: {
   for (const c of cands) {
     if (left <= LOT_EPS) break;
     const t = c.avail >= left - LOT_EPS ? left : c.avail;
-    rows.push({
-      lotId: c.r.lotId, qty: t,
-      certainty: c.r.lotId == null ? 'UNKNOWN' : single ? c.r.certainty : 'ASSUMED',
-      flags: [], expiryDate: c.r.lotId == null ? null : c.r.expiryDate, sourceItemLotId: c.r.id,
-    });
     left = t === left ? 0 : left - t;
+    const named = c.r.lotId != null;
+    // صفٌّ مسمّى بأربع خانات (I1 عبر الطيّ المقرَّب): كسرٌ أدقّ (إعادة R6، أو صفّ بيعٍ قديم) أرضيته للوط وباقيه غير معروف
+    // بمصدره نفسه — فيبقى «ما أُرجع» من صفّ البيع كاملاً (returnedBySource)
+    const tn = named && !onLotGrid(t) ? Math.max(0, floorLot(t)) : t;
+    if (tn > LOT_EPS) {
+      rows.push({
+        lotId: c.r.lotId, qty: tn,
+        certainty: !named ? 'UNKNOWN' : single ? c.r.certainty : 'ASSUMED',
+        flags: [], expiryDate: !named ? null : c.r.expiryDate, sourceItemLotId: c.r.id,
+      });
+    }
+    if (tn !== t) rows.push({ lotId: null, qty: t - tn, certainty: 'UNKNOWN', flags: [], expiryDate: null, sourceItemLotId: c.r.id });
   }
   if (left > LOT_EPS) rows.push({ lotId: null, qty: left, certainty: 'UNKNOWN', flags: [], expiryDate: null, sourceItemLotId: null });
   return rows;

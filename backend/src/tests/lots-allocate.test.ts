@@ -327,7 +327,10 @@ test('isLotQty: الكمية بأربع خانات (دقّة الطيّ) — أ�
   const strict = parseLotRefsStrict([{ lotId: 'A', qty: 1.00105 }], 1.00105);
   assert.ok(strict instanceof LotError && strict.code === 'LOT_QTY_INVALID');
   assert.equal(parseLotHint([{ lotId: 'A', qty: 1.00105 }]), null, 'تلميحٌ بخمس خانات يُتجاهل فيوزّع الخادم بالطبقات');
-  assert.deepEqual(brief(ok(out({ view: v, qty: 1.00105, replay: { at: new Date('2026-11-09T10:00:00Z'), clamped: false } }))), [['A', 1.00105, 'ASSUMED']], 'الإعادة لا تُرفض (R6)');
+  // الإعادة لا تُرفض (R6)، لكن صفّ اللوط المسمّى بأربع خانات والغبار لغير المسمّى (gate 0: وإلا يُصرف ما لا يوجد بعدها)
+  const rr = ok(out({ view: v, qty: 1.00105, replay: { at: new Date('2026-11-09T10:00:00Z'), clamped: false } }));
+  assert.deepEqual(rr.map((x) => [x.lotId, x.lotId == null ? 'dust' : x.qty, x.certainty]), [['A', 1.001, 'ASSUMED'], [null, 'dust', 'UNKNOWN']], 'الإعادة لا تُرفض (R6)');
+  assert.ok(Math.abs(rr[1].qty - 0.00005) < 1e-12 && Math.abs(rr[0].qty + rr[1].qty - 1.00105) < 1e-12, 'Σ = الكمية (I3)');
 });
 
 // ── الإعادة (R6) ──

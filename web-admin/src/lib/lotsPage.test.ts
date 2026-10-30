@@ -365,7 +365,7 @@ test('LotsPage: لا جلب قبل العَلَم والمحاسبة، والإ�
   assert.ok(!/lotsApi\./.test(root), 'لا نداء lotsApi في الجذر قبل البوّابة');
   // الإيقاف والسحب وإعادة التنشيط: ConfirmDialog بسببٍ إلزامي، ثم خطة التنزيل للموقوفة
   assert.match(s, /onConfirm=\{\(\) => \{ if \(!reason\.trim\(\)\) \{ toast\.error\(tr\('اكتب سبب هذا التعديل على التشغيلة'\)\); return; \} save\.mutate\(\); \}\}/);
-  assert.match(s, /enabled: blocked,/, 'خطة التنزيل للموقوفة وحدها');
+  assert.match(s, /enabled: unloadOn,/, 'خطة التنزيل للموقوفة من صنفٍ متتبَّع وحدها (lotUnloadOn)');
   assert.match(s, /unloadBody\(lot, row, /);
   assert.match(s, /vanStockApi\.createLoad\(body\)/);
   // النطاق: الموسّع تلقائيٌّ في السحب، وشريط «النتيجة مقيدة بنطاقك» من الخادم

@@ -38,7 +38,9 @@ test('B3 الوارد: العلم من استعلام حارس التفعيل ن
   // لا دالّة لوط قبل مخرج المسار القائم
   const before = post.slice(0, post.indexOf('if (!preTracked.length) {'));
   assert.doesNotMatch(before, /acquireLotQueue|lockLotProducts|planWarehouseEntryInTx|companyDay\(/);
-  assert.equal((post.match(/warehouseEntry\.create\(/g) ?? []).length, 2, 'إنشاءٌ في كل فرع لا ثالث');
+  // ثلاثة: المسار القائم مطفأً، ومفعّلاً بإعادة قراءة التتبّع (D25، tx.warehouseEntry.create)، ومسار اللوط
+  assert.equal((post.match(/warehouseEntry\.create\(/g) ?? []).length, 3, 'إنشاءٌ في كل فرع لا رابع');
+  assert.ok(post.includes('await assertStillUntracked(tx, tid, productIds);'), 'D25: إعادة قراءة التتبّع في المسار غير المتتبَّع والميزة مفعّلة');
   // ما في السيارات: داخل الشرط وحده، والردّ القائم حرفياً خارجه
   const vans = slice(w, "router.get('/vans'", 'const entrySchema');
   ordered(vans, ['if (lotsOn(req)) {', 'await vansLotUnsellable(prisma, tid, repIds,', 'return;', 'res.json({ success: true, data: { ...summarizeVansStock(perRep, layers, avgCost, dec), deletedVans } });'], 'GET /vans');

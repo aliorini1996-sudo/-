@@ -609,3 +609,78 @@ test('R6 على خدمة B5 نفسها: كمية أساسٍ بأكثر من أر
   assert.equal(await precheckInvoiceLots(fakeDb as never, replay), null);
   assert.equal(replay.day, DAY);
 });
+
+// ═══ D25 في فرع المرحلة الثانية بلا خطة (البوابة B-d25-guards) ═══
+// الخطة تُبنى من القراءة المسبقة وحدها: صنفٌ صار متتبَّعاً بين القراءة وقفل الأصناف داخل المعاملة كان يُصدر مستنداً موقَّعاً بلا صفوف
+// توزيع (يُنقص غير المسمّى بلا فحص، I2). الحارس من صفوف lockProductBases المقفلة نفسها قبل إدراج الصفّ — فلا مستند ولا ICV.
+
+/** معاملةٌ بـ$queryRaw: صفوف الأصناف المقفلة FOR KEY SHARE كما «يراها» القفل، وعلم الشركة لحظتها */
+function lockedRowsTx(rig: Rig, deps: NoteIssuanceDeps, tracked: ReadonlySet<string>, tenantOnNow: boolean): string[] {
+  const sqls: string[] = [];
+  deps.transaction = <T>(fn: (tx: Phase2Tx) => Promise<T>): Promise<T> => fn({
+    ...txAdapter(rig),
+    $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const sql = strings.join('?').replace(/\s+/g, ' ').trim();
+      sqls.push(sql);
+      if (sql.includes('FROM products') && sql.includes('FOR KEY SHARE')) {
+        rig.log.push('tx.lockProducts');
+        const ids = (values.find(Array.isArray) ?? []) as string[];
+        return ids.map(id => ({ id, unit: 'حبة', lotTracked: tracked.has(id) }));
+      }
+      if (sql.includes('FROM tenants')) { rig.log.push('tx.tenantFlag'); return [{ lotTrackingEnabled: tenantOnNow }]; }
+      return [];
+    },
+  } as unknown as Phase2Tx);
+  return sqls;
+}
+
+const isTrackingChanged = (ids: string[]) => (e: unknown) => e instanceof LotError && e.code === 'LOT_BUSY'
+  && lotHttpError(e)?.status === 503 && (e.detail as { reason?: string; productIds?: string[] })?.reason === 'TRACKING_CHANGED'
+  && JSON.stringify((e.detail as { productIds?: string[] }).productIds) === JSON.stringify(ids);
+
+test('D25 (المرحلة الثانية): صنفٌ صار متتبَّعاً بين القراءة المسبقة والقفل والميزة مفعّلة ⇒ 503 LOT_BUSY TRACKING_CHANGED قبل إدراج الصفّ والمستند والقيود', async () => {
+  for (const hooks of [true, false]) {
+    const { rig, deps } = buildRig(hooks ? r => lotHooks(r, { inTx: SALE_ALLOC }) : null);
+    lockedRowsTx(rig, deps, new Set(['p-water']), true);
+    await assert.rejects(issuePhase2Invoice({ ...saleCtx(null), lotsOn: true }, deps), isTrackingChanged(['p-water']));
+    assert.equal(rig.created.length, 0, 'أُدرج صفّ فاتورةٍ بلا توزيع لصنفٍ متتبَّع');
+    assert.ok(!rig.log.includes('documents.insertSigned'), 'أُدرج المستند (ICV) رغم الرفض');
+    assert.equal(rig.h.docs.documents.size, 0, 'استُهلك ICV');
+    assert.equal(rig.ledger.length, 0);
+    assert.ok(!rig.log.includes('tx.tenantFlag'), 'العلم مفعّلٌ في القراءة المسبقة: لا قراءة ثانية له');
+    assert.ok(!rig.log.some(x => x.startsWith('lots.')), 'لا خطة ⇒ لا خطّاف لوط');
+  }
+});
+
+test('D25 (المرحلة الثانية): علم الشركة مطفأٌ في القراءة المسبقة ثم فُعّل — يُعاد قراءته تحت القفل حين يكون صفٌّ مقفل متتبَّعاً وحده', async () => {
+  // فُعّل بين القراءتين ⇒ الرفض نفسه
+  {
+    const { rig, deps } = buildRig(r => lotHooks(r, { inTx: SALE_ALLOC }));
+    lockedRowsTx(rig, deps, new Set(['p-juice']), true);
+    await assert.rejects(issuePhase2Invoice(saleCtx(null), deps), isTrackingChanged(['p-juice']));
+    assert.ok(before(rig.log, 'tx.lockProducts', 'tx.tenantFlag'), `قراءة العلم قبل قفل الأصناف: ${rig.log.join(' → ')}`);
+    assert.equal(rig.created.length, 0);
+    assert.equal(rig.h.docs.documents.size, 0, 'استُهلك ICV');
+  }
+  // ما زال مطفأً (علم صنفٍ باقٍ من حقبةٍ سابقة) ⇒ يُصدر كما كان بلا صفوف، بقراءةٍ واحدة للعلم
+  {
+    const { rig, deps } = buildRig(r => lotHooks(r, { inTx: SALE_ALLOC }));
+    lockedRowsTx(rig, deps, new Set(['p-juice']), false);
+    const r = await issuePhase2Invoice(saleCtx(null), deps);
+    assert.equal(r?.status, 201, JSON.stringify(r?.body));
+    assert.equal(rig.log.filter(x => x === 'tx.tenantFlag').length, 1);
+    assert.ok((rig.created[0].items as Record<string, unknown>[]).every(i => !('lots' in i)));
+  }
+});
+
+test('D25 (المرحلة الثانية) §١٠.١: لا صفّ مقفل متتبَّع ⇒ الفرع كما كان — القفل نفسه بلا قراءة للعلم ولا رفض، مطفأةً أو مفعّلة', async () => {
+  for (const lotsOn of [false, true]) {
+    const { rig, deps } = buildRig(null);
+    const sqls = lockedRowsTx(rig, deps, new Set(), true);
+    const r = await issuePhase2Invoice({ ...saleCtx(null), ...(lotsOn && { lotsOn }) }, deps);
+    assert.equal(r?.status, 201, JSON.stringify(r?.body));
+    assert.equal(rig.created.length, 1);
+    assert.deepEqual(sqls.filter(s => s.includes('FROM')).map(s => s.split(' WHERE')[0]), ['SELECT id, unit, "lotTracked" FROM products'], 'استعلامٌ واحد: قفل الأصناف القائم');
+    assert.ok(!rig.log.includes('tx.tenantFlag'));
+  }
+});

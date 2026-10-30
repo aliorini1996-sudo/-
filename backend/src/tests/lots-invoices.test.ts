@@ -982,3 +982,41 @@ test('precheckInvoiceLots: بلا قفل — يعيد LotError لما سيُرف
   assert.equal(m.day, localDateIn(new Date(now.getTime() - 7 * 86_400_000), TZ));
   assert.equal(lotsInvoice.invoiceLotMoment({ ...base, actor: 'REP', clientRef: null }).replay, null, 'بلا مرجع: لا إعادة');
 });
+
+// ═══ D25: علم الشركة المطفأ في القراءة المسبقة (البوابة B-d25-guards) ═══
+
+test('D25 (علم الشركة): مطفأٌ في القراءة المسبقة ثم فُعّل قبل القفل وصنفٌ مقفل متتبَّع ⇒ 503 TRACKING_CHANGED بلا فاتورة، وإعادته توزّعه', async () => {
+  reset(); VAN();
+  db.tenant.lotTrackingEnabled = false; // pM يحمل علمه من حقبةٍ سابقة (الإطفاء يُخفي ولا يحذف، D8)
+  const enable = () => { Object.assign(db.tenant, { lotTrackingEnabled: true, lotTrackingSince: new Date() }); };
+  onRouteProductLock = enable; // التفعيل يلتزم بين قراءة صفّ المندوب وقفل الأصناف داخل المعاملة
+  const r = await post(sale([{ productId: 'pM', qty: 2 }]));
+  assert.deepEqual([r.status, r.body.code, r.body.detail?.reason, r.body.detail?.productIds], [503, 'LOT_BUSY', 'TRACKING_CHANGED', ['pM']], JSON.stringify(r.body));
+  assert.equal(db.invoices.length, 0, 'بيعٌ بلا توزيع لصنفٍ متتبَّع في حقبةٍ جديدة');
+  enable(); // التفعيل التزم مستقلاً (المعاملة المزيّفة أعادت لقطتها عند الرمي)
+  const again = await post(sale([{ productId: 'pM', qty: 2 }]));
+  assert.equal(again.status, 201, JSON.stringify(again.body));
+  assert.ok(db.invoiceItemLots.length > 0, 'الإعادة تأخذ مسار اللوط فتكتب صفوف التوزيع');
+});
+
+test('D25 (علم الشركة) §١٠.١: ما زال مطفأً ⇒ كما كان بلا صفوف ولا قفل لوط (قراءةٌ واحدة للعلم لصفٍّ مقفل متتبَّع وحده)، وغير المتتبَّع بلا قراءة', async () => {
+  const tenantReadsInTx = () => {
+    const from = calls.indexOf('$transaction');
+    return calls.slice(from, calls.indexOf('invoice.create', from)).filter((c) => c === 'tenant.findUnique').length;
+  };
+  reset(); VAN();
+  db.tenant.lotTrackingEnabled = false;
+  calls = [];
+  const stale = await post(sale([{ productId: 'pM', qty: 2 }]));
+  assert.equal(stale.status, 201, JSON.stringify(stale.body));
+  assert.equal(db.invoiceItemLots.length, 0);
+  assert.equal(lockCalls().length, 0);
+  assert.equal(tenantReadsInTx(), 1, 'علم الشركة يُعاد قراءته تحت قفل الصفّ المتتبَّع');
+  reset();
+  load('pW', [{ lotId: null, qty: 10 }]);
+  db.tenant.lotTrackingEnabled = false;
+  calls = [];
+  const plain = await post(sale([{ productId: 'pW', qty: 2 }]));
+  assert.equal(plain.status, 201, JSON.stringify(plain.body));
+  assert.equal(tenantReadsInTx(), 0, 'لا صفّ مقفل متتبَّع ⇒ لا استعلام زائد');
+});

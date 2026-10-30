@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { warehouseApi, productApi } from '../api/client';
-import { formatCurrency, formatDate, formatNumber } from '../utils/format';
+import { activeLocale, formatCurrency, formatDate, formatNumber } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { useBackClose } from '../lib/useBackClose';
 import type { UnitDef } from '../lib/units';
@@ -22,7 +22,7 @@ import {
 } from './mUnits';
 import {
   newRowId, isTracked, shelfLifeOn, emptyLotDraft, lotDraftProblem, entryLotFields, lineBaseQty, outGroupProblems, whOutSources, whOutRows,
-  LOT_CACHE_KEYS, WH_OUT_PROBLEMS, type LotDraft,
+  lotQtyText, LOT_CACHE_KEYS, WH_OUT_PROBLEMS, type LotDraft,
 } from './mLotsLogic';
 import MUnitChips from './MUnitChips';
 import MLotFields, { whLotsQuery } from './MLotFields';
@@ -94,6 +94,9 @@ interface ProductPick {
 
 /** كسورٌ محتملة في الوحدات الموزونة — بلا أصفارٍ زائدة على «١٢» */
 const fmtQty = (n: number) => formatNumber(Number(n.toFixed(2)));
+
+/** كمية تشغيلةٍ بالأساس: أربع خانات (D22) لا خانتان — تُعرض عبر lotQtyText بوحدات الصنف */
+const fmtLotQ = (n: number) => new Intl.NumberFormat(activeLocale(), { maximumFractionDigits: 4 }).format(roundLot(n));
 
 /** رسالة الخادم أولى من رسالتنا: «ميزة مخزون الشركة غير مفعلة» تُفهم، و«تعذر التحميل» لا تُفهم */
 function errMsg(e: unknown, fallback: string): string {
@@ -369,7 +372,7 @@ function StockRow({ r, open, onToggle, lotOn }: { r: WhRow; open: boolean; onTog
               </p>
             )}
           </div>
-          {lotOn && <WhLotBreakdown productId={r.productId} />}
+          {lotOn && <WhLotBreakdown productId={r.productId} prod={r} />}
         </div>
       )}
     </div>
@@ -380,7 +383,7 @@ function StockRow({ r, open, onToggle, lotOn }: { r: WhRow; open: boolean; onTog
  * تشغيلات الصنف في المستودع — يُجلب حين يُفتح الصفّ وحده (لا لكل صنفٍ في القائمة). يُرسم حين للصنف تشغيلات أو عجز،
  * وإلا لا شيء: صنفٌ غير متتبَّع رصيده كلّه «غير مسمّى» بالتعريف، وعرضُ ذلك ضجيجٌ لا معلومة.
  */
-function WhLotBreakdown({ productId }: { productId: string }) {
+function WhLotBreakdown({ productId, prod }: { productId: string; prod: { unit?: string | null; units?: UnitDef[] | null } }) {
   const tr = useTr();
   const q = useQuery(whLotsQuery(productId));
   const view = q.data?.warehouse?.[0];
@@ -389,6 +392,7 @@ function WhLotBreakdown({ productId }: { productId: string }) {
   const lots = view.lots.filter(l => Math.abs(l.raw.SELLABLE) > LOT_EPS || Math.abs(l.held.SELLABLE) > LOT_EPS);
   const unknown = roundLot(view.unknown?.SELLABLE ?? 0);
   if (!lots.length && unknown >= -LOT_EPS) return null;
+  // بالأساس تحت صفٍّ مفكَّكٍ بالكرتون: بوحدات الصنف لا رقماً عارياً (القاعدة ٨)، وبأربع خانات (D22)
   return (
     <div className="rounded-xl bg-white border border-[#F1EBDF] px-3 py-2 space-y-1.5">
       <p className="text-[10px] font-bold text-[#6E6557]">{tr('التشغيلات')}</p>
@@ -401,15 +405,15 @@ function WhLotBreakdown({ productId }: { productId: string }) {
               <span className="ms-1 text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#FDECEA] text-[#C0392B]">{tr(LOT_STATUS_LABELS.BLOCKED)}</span>
             )}
           </span>
-          <b className={`tabular-nums flex-shrink-0 ${l.usable.SELLABLE < -LOT_EPS ? 'text-[#C0392B]' : 'text-[#1F1A13]'}`} dir="ltr">
-            {fmtQty(l.usable.SELLABLE)}
+          <b className={`tabular-nums flex-shrink-0 ${l.usable.SELLABLE < -LOT_EPS ? 'text-[#C0392B]' : 'text-[#1F1A13]'}`}>
+            {lotQtyText(l.usable.SELLABLE, prod, fmtLotQ)}
           </b>
         </div>
       ))}
       {Math.abs(unknown) > LOT_EPS && (
         <div className="flex items-center justify-between gap-2 text-[11px]">
           <span className="text-[#6E6557]">{unknown < 0 ? tr('عجز غير مسمى') : tr('غير مسمى')}</span>
-          <b className={`tabular-nums ${unknown < 0 ? 'text-[#C0392B]' : 'text-[#6E6557]'}`} dir="ltr">{fmtQty(unknown)}</b>
+          <b className={`tabular-nums ${unknown < 0 ? 'text-[#C0392B]' : 'text-[#6E6557]'}`}>{lotQtyText(unknown, prod, fmtLotQ)}</b>
         </div>
       )}
     </div>
@@ -806,7 +810,7 @@ function MWarehouseEntry({ onClose, lotOn }: { onClose: () => void; lotOn: boole
                   {/* «تتبّع اللوط»: تشغيلة السطر للصنف المتتبَّع وحده — والنقص بلا اختيار يتركه الخادم للمصدر الوحيد، وما يُمنع
                       على مستوى الصنف (أكثر من مصدر، فوق الصالح، D26) يُقال على سطره */}
                   {r.tracked && !badQty && (
-                    <MLotFields productId={r.productId} mode={lotMode(r)} shelfOn={r.shelfOn} draft={r.lot}
+                    <MLotFields productId={r.productId} prod={{ unit: r.baseUnit, units: r.units }} mode={lotMode(r)} shelfOn={r.shelfOn} draft={r.lot}
                       groupProblem={outProblems.get(k) ?? null} onChange={d => patchLot(k, d)} />
                   )}
                 </div>

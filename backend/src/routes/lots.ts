@@ -2,7 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import { z, ZodError } from 'zod';
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
-import { actorOf, authenticate, isOwnerSession, requireAdminPermission, requireLots, tenantId, type AdminPermission } from '../middleware/auth';
+import { authenticate, isOwnerSession, requireAdminPermission, requireLots, tenantId, type AdminPermission } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { adminRepFilter, adminScopeEnabled, canAccessRep, scopedRecordWhere, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { paginate, paginationMeta } from '../utils/helpers';
@@ -20,6 +20,7 @@ import {
   type LotEventActor, type LotTx,
 } from '../services/lotsDb';
 import { relabelInTx } from '../services/lotsRelabel';
+import { lotEventActorOf } from '../services/lotsWarehouse';
 import {
   LOT_REP_GONE_NAME, lotEventVisible, lotHasReferences, lotHealth, lotSummaries, lotTrace, lotVanKeys, namedLotBalances, placeViewDto, trackingAttention,
   unloadPlan,
@@ -83,12 +84,12 @@ function lotDto(r: LotRow) {
   };
 }
 
-/** فاعل سجل التدقيق: المفتاح، أو جلسة الدعم الفني (المالك أو موظف المنصة)، أو مستخدم الشركة — والمعرّف بـactorOf */
+/**
+ * فاعل سجل التدقيق بالمساعد نفسه لمسارات المستودع والاستيراد والسيارة (lotEventActorOf): جلسة «دخول» المالك أو موظف المنصة
+ * بمُصدِرها (by) لا بمعرّف المدير الذي وُقّع به التوكن، والمفتاح بمعرّفه (apiKeyId)، والإدارة بمعرّفها — فالفاعل الواحد معرّفٌ واحد
+ */
 function lotActor(req: AuthRequest): LotEventActor {
-  const id = actorOf(req);
-  if (req.user?.apiKeyId) return { type: 'API_KEY', id, name: req.user.name ?? null };
-  if (isOwnerSession(req)) return { type: req.user?.byKind === 'STAFF' ? 'STAFF' : 'OWNER', id, name: 'الدعم الفني' };
-  return { type: 'ADMIN', id, name: req.user?.name ?? null };
+  return lotEventActorOf(req.user);
 }
 
 /** صلاحيةٌ بلا منع (لإخفاء جزءٍ من الردّ): كـrequireAdminPermission — جلسة المالك تمرّ، وfalse الصريحة وحدها تمنع */

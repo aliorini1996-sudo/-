@@ -34,8 +34,11 @@ export type VanPlanRow = AllocRow & { viaWarehouse: boolean; reason: string | nu
  */
 export interface VanLotsRaw { lots?: unknown; lotNumber?: unknown; productionDate?: unknown; expiryDate?: unknown }
 
-/** سياقٌ اختياري من المسار: الأقفال المأخوذة سلفاً (فلا تُؤخذ مرتين) واسم الفاعل لسجل التدقيق — بدونه تأخذ الدالّة الأقفال بنفسها */
-export interface VanPlanContext { locked?: { tracked: ReadonlySet<string> } | null; actorName?: string | null }
+/**
+ * سياقٌ اختياري من المسار: الأقفال المأخوذة سلفاً (فلا تُؤخذ مرتين)، وفاعل سجل التدقيق كما يبنيه lotEventActorOf من req.user
+ * (جلسة «دخول» بمُصدِرها STAFF أو OWNER، والمفتاح بمعرّفه) — بدونه يُشتقّ من createdBy واسم الفاعل كما كان، وبلا أقفال تأخذها الدالّة
+ */
+export interface VanPlanContext { locked?: { tracked: ReadonlySet<string> } | null; actorName?: string | null; eventActor?: LotEventActor | null }
 
 /** خطأ طلبٍ بحالته — يردّه معالج 4xx في routes/vanStock.ts برسالته */
 const badRequest = (message: string): Error => Object.assign(new Error(message), { status: 400 });
@@ -53,6 +56,22 @@ function absRefs(raw: unknown): unknown {
   if (!Array.isArray(raw) || !raw.length) return raw;
   const neg = (r: unknown) => !!r && typeof r === 'object' && typeof (r as { qty?: unknown }).qty === 'number' && (r as { qty: number }).qty < 0;
   return raw.every(neg) ? raw.map((r) => ({ ...(r as object), qty: -(r as { qty: number }).qty })) : raw;
+}
+
+/** حقول اللوط في بند حركة: صفوفٌ غير فارغة، أو رقمٌ أو تاريخٌ أو وسم — null والنصّ الفارغ والمصفوفة الفارغة غياب */
+export function vanLineCarriesLot(i: VanLotsRaw & { lotReason?: unknown }): boolean {
+  const has = (v: unknown) => v != null && v !== '';
+  return (has(i.lots) && !(Array.isArray(i.lots) && i.lots.length === 0))
+    || has(i.lotNumber) || has(i.productionDate) || has(i.expiryDate) || has(i.lotReason);
+}
+
+/**
+ * D9: بندٌ يحمل تشغيلةً لصنفٍ غير متتبَّع (أُطفئ تتبّعه وواجهةٌ قديمة تعرض رصيد لوطه) يُرفض لا يُهمل — مسار غير المتتبَّع يُنقص
+ * رصيد الصنف ويُبقي رصيد اللوط كما هو فيتكرّر التنزيل. رمزٌ قائم (422) بسببٍ في التفاصيل وموضع السطر في الطلب
+ */
+export function lotOnUntrackedError(name: string, productId: string, idx: number): LotError {
+  return new LotError('LOT_PRODUCT_MISMATCH', `تتبع الصنف${name ? ` «${name}»` : ''} بالتشغيلات مطفأ أرسل السطر بلا تشغيلة`, 422,
+    { productId, idx, reason: 'NOT_TRACKED' });
 }
 
 const dayField = (v: unknown): string | null => (v == null || v === '' ? null : typeof v === 'string' ? v : String(v));
@@ -216,6 +235,9 @@ export async function planVanMovementInTx(tx: LotTx, input: VanMovementPlanInput
     if (type !== 'UNLOAD') throw badRequest('سيارة المندوب المحذوف تُفرَّغ بالتنزيل للمستودع وحده');
     if (src.length !== input.lines.length) throw badRequest('تنزيل سيارة مندوبٍ محذوف للأصناف المتتبَّعة وحدها');
   }
+  // D9 تحت القفل: صنفٌ أُطفئ تتبّعه بين القراءة المسبقة والقفل وبنده يحمل تشغيلة — لا يُكتب بلا صفوف (المسار يرفضه قبلها)
+  const stray = input.lines.find((l) => !locked.tracked.has(l.productId) && vanLineCarriesLot({ ...specOf(l.lotsRaw), lotReason: l.reason }));
+  if (stray) throw lotOnUntrackedError(stray.productName, stray.productId, stray.idx);
   if (!src.length) return plan;
 
   const lines = src.map((l) => parseLine(l, type, input.actor));
@@ -233,7 +255,7 @@ export async function planVanMovementInTx(tx: LotTx, input: VanMovementPlanInput
   const bucket: LotBucket = type === 'EXPIRED_OUT' ? 'EXPIRED' : type === 'DAMAGED_OUT' ? 'DAMAGED' : 'SELLABLE';
   const rowsByLine = new Map<number, AllocRow[]>();
   const metas = new Map<string, LotMeta>();
-  const actor = eventActor(input, ctx.actorName ?? null);
+  const actor = ctx.eventActor ?? eventActor(input, ctx.actorName ?? null);
 
   // الإنقاص برقم تشغيلةٍ قائمة: يُحلّ إلى صفّها الصريح (لا إنشاء — التشغيلة الجديدة تدخل بالوارد أو بالزيادة)
   for (const l of outLines) {

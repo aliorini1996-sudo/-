@@ -19,7 +19,11 @@ import { resolveLineUnits, unitsByProduct, UNIT_SELECT } from '../services/wareh
 // «تتبّع اللوط»: حركات السيارة بالتشغيلات (§٤.٧) — كلها خلف علم الشركة وعلم الصنف؛ المطفأ والصنف غير المتتبَّع كما كانا حرفياً
 import { LotError, asLotBusy, lotErr, lotErrorBody, lotHttpError, type VanMovementPlan } from '../services/lots';
 import { acquireLotQueue, companyDay, lockLotProducts } from '../services/lotsDb';
-import { VAN_LOT_ALLOW_UNKNOWN, planVanMovementInTx, vanItemLotColumns, vanLotSnapshot } from '../services/lotsVan';
+import { VAN_LOT_ALLOW_UNKNOWN, lotOnUntrackedError, planVanMovementInTx, vanItemLotColumns, vanLineCarriesLot, vanLotSnapshot } from '../services/lotsVan';
+// فاعل سجل تدقيق اللوط بالمساعد نفسه للمستودع والاستيراد: جلسة «دخول» بمُصدِرها (STAFF/OWNER)، والمفتاح بمعرّفه
+import { lotEventActorOf } from '../services/lotsWarehouse';
+// D25 للمسار غير المتتبَّع: إعادة قراءة التتبّع FOR KEY SHARE وحدها (لا حارس ولا قفل لوط) — الدالّة نفسها لإلغاء المرتجع وإعادته
+import { assertReturnStillUntracked as assertStillUntracked } from '../services/lotsInvoice';
 import { shelfLifeOf } from '../services/shelfLife';
 
 const router = Router();
@@ -342,6 +346,12 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     if (gone && preTracked.size !== productIds.length) {
       res.status(400).json({ success: false, message: 'تنزيل سيارة مندوبٍ محذوف للأصناف المتتبَّعة وحدها' }); return;
     }
+    // «تتبّع اللوط» (D9) والميزة مفعّلة: بندٌ يحمل تشغيلةً لصنفٍ غير متتبَّع ⇒ 422 بموضع سطره لا إهمالٌ صامت (واجهةٌ قديمة لصنفٍ
+    // أُطفئ تتبّعه: التنزيل بلا صفوف يُنقص الصنف ويُبقي رصيد اللوط فيتكرّر). بلا استعلام؛ والمطفأة (lotProducts null) تُهملها كما كانت
+    if (lotProducts) {
+      const stray = items.find(i => !preTracked.has(i.productId) && vanLineCarriesLot(i));
+      if (stray) throw lotOnUntrackedError(lotProducts.find(p => p.id === stray.productId)?.name ?? '', stray.productId, stray.at);
+    }
 
     // نداء الإنشاء الوحيد (locations.test.ts): الحركة وبنودها — وتوزيع البند على التشغيلات حين تحمل الخطة صفوفه (D2: البند لا يُشطر)
     const createLoad = (db: Prisma.TransactionClient | typeof prisma, plan: VanMovementPlan | null = null) => db.vanLoad.create({
@@ -390,7 +400,7 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
                 reason: i.lotReason == null ? null : String(i.lotReason),
               };
             }),
-          }, { locked, actorName: by.startsWith('OWNER:') ? 'الدعم الفني' : (req.user?.name ?? null) });
+          }, { locked, eventActor: lotEventActorOf(req.user) });
           return { load: await createLoad(tx, plan), warnings: plan.warnings };
         }, { maxWait: 10_000, timeout: 20_000 });
         res.status(201).json({ success: true, data: out.load, warnings: out.warnings });
@@ -402,13 +412,22 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
       return;
     }
 
+    // «تتبّع اللوط» (D25) والميزة مفعّلة: القراءة المسبقة رأت الأصناف كلها غير متتبَّعة — تُعاد قراءة تتبّعها FOR KEY SHARE داخل
+    // معاملة الكتابة (بعد قفل الدلو، ترتيب §٣.١). صنفٌ صار متتبَّعاً بين القراءتين ⇒ 503 LOT_BUSY TRACKING_CHANGED بلا حركة فيُعاد
+    // بمسار اللوط، وإلا انتظر التبديلُ (FOR UPDATE) التزامنا. لا طابور ولا قفل لوط ولا مهلة جديدة (§١٠.٢)، والمطفأة كما كانت حرفياً
     const load = outBucket
       ? await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`van-${outBucket}:` + salesRepId}))`;
+        if (lotsOn) await assertStillUntracked(tx, tid, productIds);
         await assertOutAvailable(outBucket); // يقرأ الملتزَم: الإزالة السابقة التزمت قبل أن يُفكّ قفلها
         return createLoad(tx);
       })
-      : await createLoad(prisma);
+      : lotsOn
+        ? await prisma.$transaction(async (tx) => {
+          await assertStillUntracked(tx, tid, productIds);
+          return createLoad(tx);
+        })
+        : await createLoad(prisma);
     res.status(201).json({ success: true, data: load });
   } catch (err) { next(err); }
 });

@@ -21,6 +21,8 @@ import {
   type LotRef, type VanLotSnapshotDto, type LotStatus, type LotBlockKind, type LotCertainty, type LotListParams,
   type LotUnloadPlanDto, type LotTraceDto, type LotBucket, type PlaceLotViewDto,
 } from '../lib/lots';
+import { qtyText } from './mUnits';
+import type { UnitDef } from '../lib/units';
 
 let seq = 0;
 /** معرّف سطرٍ محلّي فريد في الجلسة — مفتاح React وهدف التعديل والحذف */
@@ -373,6 +375,15 @@ export function whOutRows(d: LotDraft, base: number): LotRef[] | null {
 export function lotLineLabel(l: { lotNumber: string | null; expiryDate?: string | null }, unnamed: string, expires: string): string {
   const d = lotDay(l.expiryDate);
   return [l.lotNumber ?? unnamed, d ? `${expires} ${d}` : ''].filter(Boolean).join(' · ');
+}
+
+/**
+ * كمية تشغيلةٍ بالأساس بجانب سطرٍ بوحدته (القاعدة ٨، docs/multi-unit/DESIGN.md): «٢ كرتون و٦ حبة» لصنفٍ له وحدات أكبر،
+ * وإلّا الرقم بجانب اسم الأساس — فلا يُقرأ «المتاح ٣٠» ثلاثين كرتوناً. مقرّبةً بأربع خانات (D22) قبل منسّق الشاشة `num`.
+ * لكميةٍ يُدخلها المستخدم بالأساس (توزيع التنزيل) يُمرَّر `{ unit }` وحده: الرقم واسم الأساس بلا تفكيك.
+ */
+export function lotQtyText(baseQty: number, p: { unit?: string | null; units?: UnitDef[] | null } | null | undefined, num: (n: number) => string): string {
+  return qtyText(roundLot(Number(baseQty) || 0), p, num, { withUnit: true });
 }
 
 /**

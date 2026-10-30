@@ -149,10 +149,14 @@ export interface UnloadPlanRow { salesRepId: string; repName: string | null; del
 /**
  * لكل سيارة فيها اللوط (ومنها المحذوفة): صالحه ومحجوزه — لتنزيله بعد الإيقاف أو السحب (POST /van-stock/loads، والمحذوفة
  * بـdeletedSalesRepId، D30). صالحٌ موجب أو محجوزٌ موجب (يُنزَّل بعد اعتماد إشعاره). القائمة أولاً بالاسم ثم المحذوفة.
+ * صنفٌ أُطفئ تتبّعه (D9) خطته فارغة: رصيد لوطه للسجلّ وحده، وتنزيله باللوط مرفوضٌ في /van-stock/loads (لا يُنقص رصيده فيتكرّر).
  */
 export async function unloadPlan(db: LotDb, tid: string, lotId: string): Promise<UnloadPlanRow[]> {
-  const lot = await db.productLot.findFirst({ where: { id: lotId, tenantId: tid }, select: { id: true, productId: true } });
+  const lot = await db.productLot.findFirst({
+    where: { id: lotId, tenantId: tid }, select: { id: true, productId: true, product: { select: { lotTracked: true } } },
+  });
   if (!lot) throw lotErr('LOT_NOT_FOUND', {}, { lotId });
+  if (lot.product?.lotTracked !== true) return [];
   const keys = await lotVanKeys(db, tid, { lotIds: [lot.id] });
   if (!keys.length) return [];
   const names = await repNames(db, tid, keys);
@@ -498,13 +502,15 @@ export async function lotTrace(db: LotDb, tid: string, lotId: string, opts: LotT
         if (!names.has(key)) continue; // سيارة المحذوف بصفوفها وحدها
         // دخول اللوط إلى SELLABLE السيارة: تحميلٌ أو تسويةٌ موجبة، وتسميةٌ إليه، ومرتجعٌ عائد للمخزون منه
         const entries: number[] = [];
+        // لحظة المستند كالبيع (§٤.١٧): clientCreatedAt ?? createdAt — مرتجعٌ دون اتصال يُدخل اللوط لحظة أخذه لا لحظة المزامنة
+        const atOf = (inv: { clientCreatedAt: Date | null; createdAt: Date }) => new Date(inv.clientCreatedAt ?? inv.createdAt).getTime();
         for (const v of vanRows) if (v.vanKey === key && (v.moveType === 'LOAD' || v.moveType === 'ADJUST') && v.qty > 0) entries.push(new Date(v.createdAt).getTime());
         for (const r of rels) if (r.place === 'VAN' && r.vanKey === key && r.bucket === 'SELLABLE' && r.toLotId === lot.id && r.qty > 0) entries.push(new Date(r.createdAt).getTime());
         for (const r of confirmed) {
           const inv = invById.get(r.invoiceId)!;
           if (r.vanKey !== key || inv.type !== 'RETURN') continue;
           const e = invEffect({ type: inv.type, returnToStock: inv.returnToStock, returnExpired: r.invoiceItem?.returnExpired ?? null, damaged: isDamagedVanReturn(inv) });
-          if (e && e.bucket === 'SELLABLE' && e.sign > 0) entries.push(new Date(r.createdAt).getTime());
+          if (e && e.bucket === 'SELLABLE' && e.sign > 0) entries.push(atOf(inv));
         }
         if (!entries.length) continue;
         const loads = await db.vanLoadItem.findMany({
@@ -523,7 +529,6 @@ export async function lotTrace(db: LotDb, tid: string, lotId: string, opts: LotT
           const e = vanMoveEffect(ld.vanLoad.type as VanMoveType);
           if (e.bucket === 'SELLABLE') events.push({ at: new Date(ld.vanLoad.createdAt).getTime(), delta: e.sign * baseQtyOf(ld) });
         }
-        const atOf = (inv: { clientCreatedAt: Date | null; createdAt: Date }) => new Date(inv.clientCreatedAt ?? inv.createdAt).getTime();
         for (const it of items) {
           const e = invEffect({ type: it.invoice.type, returnToStock: it.invoice.returnToStock, returnExpired: it.returnExpired, damaged: isDamagedVanReturn(it.invoice) });
           if (e && e.bucket === 'SELLABLE') events.push({ at: atOf(it.invoice), delta: e.sign * baseQtyOf(it) });

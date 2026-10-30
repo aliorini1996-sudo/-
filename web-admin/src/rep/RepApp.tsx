@@ -55,12 +55,12 @@ import { cacheUpdate, outboxAll } from './offlineDb';
 import { onInvoicesSynced } from './offlineSync';
 import {
   VANLOTS_BLOCK_REFETCH_GAP_MS, VANLOTS_KEY, VANLOTS_POSTED_KEY, capLineQty, cartBaseOf, fitLineQty, hintDocLots, localAvailable,
-  localLotView, matchServerItemLots, offlineLotPlan, pendingOut, postedItemsFromServer, postedListOf, prunePosted, snapProductOf,
-  storedVanLotsOf, trackedIds, underLotReplayHeld, vanLotsEntry, withPosted, zeroQtyLine,
+  latestFlight, localLotView, matchServerItemLots, offlineLotPlan, pendingOut, postedItemsFromServer, postedListOf, prunePosted,
+  returnRefreshesSnapshot, snapProductOf, storedVanLotsOf, trackedIds, underLotReplayHeld, vanLotsEntry, withPosted, zeroQtyLine,
   type OfflineLotBlock, type PendingOut, type PlanLine, type PostedItem, type StoredVanLots,
 } from './vanLots';
 import { LOT_BLOCK_KIND_LABELS, LOT_EPS, docLotsFrom, isLotExpiredOn, lotFlagsOf, roundLot, toBaseQty } from '../lib/lots';
-import { lotCellText, lotDayText } from './docLots';
+import { lotCellText, lotDayText, repInvoiceGetConfig } from './docLots';
 import { todayLocal } from '../lib/shelfLife';
 import { useLocationGate, strictLiveFix } from './locationGate';
 import { attemptClientRef, customerScopeOpen, deviceKind, liveSnapshot, onLiveRefused, requestLocationInGesture, resetLive, strictRepNow, LIVE_REFUSAL_MESSAGE, type LiveBlock } from './liveGate';
@@ -1247,7 +1247,7 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
     setOpeningId(e.id);
     try {
       if (invId) {
-        const res = await repApi.get(`/invoices/${invId}`);
+        const res = await repApi.get(`/invoices/${invId}`, repInvoiceGetConfig(company));
         setDocError('');
         onOpenDoc(invoiceDocFromDetail(res.data.data, repName, company));
       } else {
@@ -1663,7 +1663,7 @@ function LogVisit({ customer, strict = false, onClose, onDone }: { customer: any
 // ============ «تتبّع اللوط»: لقطة أرصدة السيارة والمتاح المحلي (§٦.٣، §٧ — المنطق الصرف في vanLots.ts) ============
 /** ما يمرّره التطبيق إلى البيع و«مخزون سيارتي»: on علم الشركة من /company المخزّنة (النسخة القديمة بلا العلم إطفاء)، وstored آخر
  *  لقطة لصاحب الجلسة، وrefresh جلبٌ في الخلفية يعيد اللقطة الأحدث (minGapMs للمنع المحلي: لا طلب لكل نقرة) */
-interface RepLotCtx { on: boolean; stored: StoredVanLots | null; refresh: (minGapMs?: number) => Promise<StoredVanLots | null> }
+interface RepLotCtx { on: boolean; stored: StoredVanLots | null; refresh: (minGapMs?: number, fresh?: boolean) => Promise<StoredVanLots | null> }
 /** من RepApp إلى البيع و«مخزون سيارتي» — سياقٌ لا خاصية، فتبقى نداءات الشاشات كما هي */
 const RepLotsContext = createContext<RepLotCtx | null>(null);
 const NO_LOT_PENDING: PendingOut = new Map();
@@ -2131,7 +2131,11 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     const fetchedAt = lots?.stored?.fetchedAt ?? null;
     void cacheUpdate<unknown>(VANLOTS_POSTED_KEY, (cur) => withPosted(postedListOf(cur), { clientRef: ref, at: Date.now(), items }, fetchedAt))
       .catch(() => undefined)
-      .then(() => lots?.refresh());
+      .then(() => lots?.refresh(0, true)); // جلبٌ جارٍ بدأ قبل الإصدار لا يكفي
+  };
+  /** «تتبّع اللوط» — مرتجعٌ صدر متصلاً: ما عاد إلى السيارة لا تعرفه اللقطة فتُجلب في الخلفية (§٧.١)، ولا يُسجَّل معلّقاً (لا يزيد) */
+  const lotReturnRefresh = () => {
+    if (returnRefreshesSnapshot(lotOn, isReturn, trackedIds(lots?.stored?.snap, products), lines)) void lots?.refresh(0, true);
   };
   /** صدر على الخادم بلا تشغيلاتٍ في الردّ (بانتظار الهيئة، أو إعادة رفعٍ لمرجعٍ قائم): أسطر السلّة المتتبَّعة تُطرح بالقاعدة */
   const lotPostedLines = (ref: string) => lotPostedAdd(ref, lines.filter(l => lotTracks(l.productId)).map(l => ({
@@ -2237,6 +2241,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       if (res.status !== 201) {
         setLoading(false);
         if (lotCapsOn) lotPostedLines(clientRef); // «تتبّع اللوط»: صدر على الخادم — معلّقٌ على اللقطة حتى تعرفه
+        else lotReturnRefresh();
         // Z5.6c (D5): قياسيةٌ لم تُعتمد والبضاعة خرجت ⇒ سند تسليم من الصفّ المرفق؛ وما لا ورقة له فرسالة الخادم وحدها
         const pendingMsg = tr('صدرت الفاتورة وبانتظار اعتماد الهيئة لا تسلم فاتورة ضريبية الآن');
         const out = zatcaIssueOutcome(res, pendingMsg);
@@ -2278,6 +2283,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       const srvLots = lotOn ? matchServerItemLots(lines, inv.items) : null;
       const docItems = srvLots ? priced.map((it, i) => (srvLots[i] ? { ...it, lots: srvLots[i] } : it)) : priced;
       if (lotCapsOn && lotTrackedNow) lotPostedAdd(clientRef, postedItemsFromServer(inv.items, lotTrackedNow));
+      else lotReturnRefresh();
       const docTotals = fromServer
         ? { subtotal: Number(inv.subtotal), discount: Number(inv.discountAmt), tax: Number(inv.taxAmt), total: Number(inv.total) }
         : { subtotal, discount, tax, total };
@@ -3425,7 +3431,7 @@ const REP_CHIP_TONE: Record<string, string> = {
   muted: 'bg-gray-100 text-gray-600',
 };
 
-function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoice' | 'receipt'; onOpen: (detail: any) => void }) {
+function SimpleList({ endpoint, kind, company, onOpen }: { endpoint: string; kind: 'invoice' | 'receipt'; company?: Company | null; onOpen: (detail: any) => void }) {
   const tr = useTr();
   const PAGE = 30;
   const [items, setItems] = useState<any[]>([]);
@@ -3469,7 +3475,8 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
     setOpeningId(id);
     // فشل الفتح يُقال ولا يُبتلع: حزمةٌ قديمة تفتح فاتورة مرحلة ثانية تُردّ 426 برسالة «حدّث التطبيق»،
     // وابتلاعها يجعل النقر لا يفعل شيئاً بلا تفسير.
-    try { const res = await repApi.get(`${endpoint}/${id}`); setOpenErr(''); setOpenOutdated(false); onOpen(res.data.data); }
+    // «تتبّع اللوط» (D11): الفاتورة بتشغيلات بنودها مع الميزة — فإعادة الطباعة تحمل أسطر التشغيلة كورقة الإصدار
+    try { const res = await repApi.get(`${endpoint}/${id}`, kind === 'invoice' ? repInvoiceGetConfig(company) : undefined); setOpenErr(''); setOpenOutdated(false); onOpen(res.data.data); }
     catch (err: any) {
       setOpenOutdated(isZatcaOutdatedClient(err));
       setOpenErr(String(err?.response?.data?.message || tr('تعذر فتح المستند تحقق من الاتصال')));
@@ -3607,9 +3614,10 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const loadStock = useCallback(async () => {
+  // afterLoad: بعد تحميلٍ سجّله المندوب للتوّ — جلبٌ جارٍ بدأ قبله (فتح الشاشة) لا يعرفه، فيُلحق به جلبٌ يبدأ بعده (fresh)
+  const loadStock = useCallback(async (afterLoad = false) => {
     setLoading(true);
-    if (lotsRef.current?.on) void lotsRef.current.refresh(); // «تتبّع اللوط»: اللقطة مع الأرصدة (خلفياً)
+    if (lotsRef.current?.on) void lotsRef.current.refresh(0, afterLoad); // «تتبّع اللوط»: اللقطة مع الأرصدة (خلفياً)
     try { const r = await repApi.get('/van-stock/current'); setStock(r.data.data); } catch { /* offline */ }
     try { const t = await repApi.get('/van-stock/tools'); setTools(t.data.data?.balances ?? []); } catch { /* offline */ }
     setLoading(false);
@@ -3751,7 +3759,7 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
     try {
       // «تتبّع اللوط»: بلا حقل تشغيلة — الخادم يخصّص FEFO من المستودع، ورسالة النجاح تذكر ما خصّصه
       const res = await repApi.post('/van-stock/loads', { type: 'LOAD', note: note.trim() || undefined, items });
-      setRows([]); setNote(''); setView('list'); loadStock();
+      setRows([]); setNote(''); setView('list'); loadStock(true);
       const lotText = lotOn ? loadLotsText(res.data?.data?.items) : '';
       setMsg({ ok: true, text: lotText ? `${tr('تم تسجيل التحميل بنجاح')} — ${tr('التشغيلات')}: ${lotText}` : tr('تم تسجيل التحميل بنجاح') });
     } catch (e) {
@@ -4384,20 +4392,15 @@ export default function RepApp() {
   lotOnRef.current = lotOn;
   const [vanLots, setVanLots] = useState<StoredVanLots | null>(null);
   const vanLotsRef = useRef<StoredVanLots | null>(null);
-  const vanLotsFlight = useRef<Promise<StoredVanLots | null> | null>(null);
+  const vanLotsFlight = useRef(latestFlight<StoredVanLots | null>());
   const vanLotsBlockAt = useRef(0);
-  const refreshVanLots = useCallback((minGapMs = 0): Promise<StoredVanLots | null> => {
-    if (vanLotsFlight.current) return vanLotsFlight.current; // طلبٌ جارٍ يكفي الجميع
-    if (!lotOnRef.current || !navigator.onLine || !localStorage.getItem('rep_token')) return Promise.resolve(vanLotsRef.current);
-    // مهلة المنع المحلي (لا طلب لكل نقرة) تُحسب من جلبٍ أطلقه منعٌ سابق وحده — لا من جلب فتح البيع أو ما بعد الإصدار: لقطتها قد
-    // تسبق تحميلاً سجّلته الإدارة للتوّ، والمنع الأول بعدها يستحق لقطته (§٧.١)
-    if (minGapMs > 0) {
-      if (Date.now() - vanLotsBlockAt.current < minGapMs) return Promise.resolve(vanLotsRef.current);
-      vanLotsBlockAt.current = Date.now();
-    }
-    const repId = currentRepId() ?? null;
-    const fetchedAt = Date.now();
-    const run = (async (): Promise<StoredVanLots | null> => {
+  // fresh: الطلب بعد حدثٍ تمّ للتوّ (مزامنةٌ رفعت فاتورة، إصدارٌ متصل) — جلبٌ جارٍ بدأ قبله لا يكفي، فيُلحق به جلبٌ واحد يبدأ بعده
+  const refreshVanLots = useCallback((minGapMs = 0, fresh = false): Promise<StoredVanLots | null> => {
+    // الجلب نفسه — شروطه تُعاد عند بدئه (الجلب اللاحق يبدأ بعد انتهاء الجاري)، وختم بدئه لحظة بدئه فعلاً
+    const fetchNow = async (): Promise<StoredVanLots | null> => {
+      if (!lotOnRef.current || !navigator.onLine || !localStorage.getItem('rep_token')) return vanLotsRef.current;
+      const repId = currentRepId() ?? null;
+      const fetchedAt = Date.now();
       try {
         const res = await repApi.get('/van-stock/lot-balances', { background: true });
         const entry = vanLotsEntry(res.data?.data, repId, fetchedAt);
@@ -4411,12 +4414,17 @@ export default function RepApp() {
         return entry;
       } catch {
         return vanLotsRef.current; // دون اتصال، أو أُطفئت الميزة (403)، أو عطلٌ عابر: تبقى آخر لقطة
-      } finally {
-        vanLotsFlight.current = null;
       }
-    })();
-    vanLotsFlight.current = run;
-    return run;
+    };
+    if (vanLotsFlight.current.busy) return vanLotsFlight.current.run(fetchNow, fresh); // طلبٌ جارٍ يكفي الجميع — إلا fresh
+    if (!lotOnRef.current || !navigator.onLine || !localStorage.getItem('rep_token')) return Promise.resolve(vanLotsRef.current);
+    // مهلة المنع المحلي (لا طلب لكل نقرة) تُحسب من جلبٍ أطلقه منعٌ سابق وحده — لا من جلب فتح البيع أو ما بعد الإصدار: لقطتها قد
+    // تسبق تحميلاً سجّلته الإدارة للتوّ، والمنع الأول بعدها يستحق لقطته (§٧.١)
+    if (minGapMs > 0) {
+      if (Date.now() - vanLotsBlockAt.current < minGapMs) return Promise.resolve(vanLotsRef.current);
+      vanLotsBlockAt.current = Date.now();
+    }
+    return vanLotsFlight.current.run(fetchNow);
   }, []);
   // فتح التطبيق (أو تفعيل الميزة أثناءه): المخزّنة لصاحب الجلسة أولاً — أساس العمل دون اتصال — ثم الخادم
   useEffect(() => {
@@ -4434,7 +4442,7 @@ export default function RepApp() {
     return () => { alive = false; };
   }, [token, lotOn, refreshVanLots]);
   // مزامنةٌ رفعت فاتورةً واحدة على الأقل: اللقطة القديمة لا تعرفها
-  useEffect(() => (token && lotOn ? onInvoicesSynced(() => { void refreshVanLots(); }) : undefined), [token, lotOn, refreshVanLots]);
+  useEffect(() => (token && lotOn ? onInvoicesSynced(() => { void refreshVanLots(0, true); }) : undefined), [token, lotOn, refreshVanLots]);
   const lotCtx = useMemo<RepLotCtx>(() => ({ on: lotOn, stored: vanLots, refresh: refreshVanLots }), [lotOn, vanLots, refreshVanLots]);
 
   /**
@@ -5079,7 +5087,7 @@ export default function RepApp() {
                 {screen === 'home' && <RepHome key={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} menuOn={!!(company as { catalogEnabled?: boolean } | null)?.catalogEnabled} accountingOn={accountingOn} settingsReady={companyReady} dailyReportOn={dailyReportOn} attendanceOn={attendanceOn} aiRepOn={aiRepOn} />}
                 {screen === 'dailyreport' && <RepDailyReport key={refreshKey} onDone={() => setScreen('home')} />}
                 {screen === 'route' && <RepRouteScreen key={`route-${refreshKey}`} onBack={() => setScreen('home')} />}
-                {screen === 'invoices' && <SimpleList key={`invoices-${refreshKey}`} endpoint="/invoices" kind="invoice" onOpen={(d) => { setDocBack(null); setDocResult(invoiceDocFromDetail(d, user.name, company)); }} />}
+                {screen === 'invoices' && <SimpleList key={`invoices-${refreshKey}`} endpoint="/invoices" kind="invoice" company={company} onOpen={(d) => { setDocBack(null); setDocResult(invoiceDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'receipts' && <SimpleList key={`receipts-${refreshKey}`} endpoint="/receipts" kind="receipt" onOpen={(d) => { setDocBack(null); setDocResult(receiptDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'customers' && <RepCustomers onSelect={c => { setSelectedCustomer(c); setModal('customerDetail'); }} canAdd={!!user.canAddCustomer} onAdd={() => { setAiPrefill(null); setModal('addCustomer'); }} accountingOn={accountingOn} zatcaCollect={zatcaCollect} />}
                 {screen === 'vanstock' && <RepVanStock canLoad={user.canManageVanStock !== false} canRequest={(company as { warehouseEnabled?: boolean } | null)?.warehouseEnabled === true} />}

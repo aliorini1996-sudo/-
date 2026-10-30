@@ -11,7 +11,7 @@ import { companyDay, loadLotMetas, lockLotProducts, placeViews, resolveOrCreateL
 import {
   LOT_EPS, LOT_UNKNOWN_KEY, LotError, aggregateRequest, isLotQty, lotDatesProblem, lotErr, lotRemovalsOf, normalizeLotNumber, pickOutSources,
   refsOfByLot, removalKeepsLots, roundLot, splitAvailability,
-  type LotActor, type LotMeta, type LotRef, type LotRemovalItem, type LotSource, type LotWarning, type WarehouseEntryPlan, type WarehouseEntryPlanInput,
+  type LotActor, type LotMeta, type LotRef, type LotRemovalItem, type LotSource, type LotWarning, type PlaceLotView, type WarehouseEntryPlan, type WarehouseEntryPlanInput,
 } from './lots';
 import { shelfLifeOf, type ShelfLifeSettings } from './shelfLife';
 import { baseQtyOf } from './units';
@@ -103,6 +103,19 @@ function named(e: LotError, name: string): LotError {
 }
 
 /**
+ * العرض بعد إنقاص صفوفٍ من صالح SELLABLE (اللوط، أو غير المسمّى للصفّ الفارغ) — ما تقرؤه pickOutSources وحده لاختيار مصدر
+ * الأسطر بلا لوط مما بقي بعد صريح الصنف. الخام والرصيد لا يُمسّان: الفحص المجمَّع بعده على العرض الأصلي.
+ */
+function withoutRows(view: PlaceLotView, rows: readonly { lotId: string | null; qty: number }[]): PlaceLotView {
+  const by = new Map<string, number>();
+  for (const r of rows) by.set(r.lotId ?? LOT_UNKNOWN_KEY, (by.get(r.lotId ?? LOT_UNKNOWN_KEY) ?? 0) + Math.abs(r.qty));
+  const lots = view.lots.map((l) => (by.has(l.lotId) ? { ...l, usable: { ...l.usable, SELLABLE: roundLot(l.usable.SELLABLE - by.get(l.lotId)!) } } : l));
+  const u = by.get(LOT_UNKNOWN_KEY);
+  const unknownUsable = u != null && view.unknownUsable ? { ...view.unknownUsable, SELLABLE: roundLot(view.unknownUsable.SELLABLE - u) } : view.unknownUsable;
+  return { ...view, lots, unknownUsable };
+}
+
+/**
  * خطة اللوط لحركة مستودع داخل معاملتها بعد lockLotProducts (المتتبَّع تحت القفل هو المرجع، D25). أي رفضٍ LotError يُلغي
  * المعاملة كلها: لا نصف حركة.
  * - **غير المتتبَّع:** lotId null بلا فحص — المستودع السالب جائزٌ له كما كان.
@@ -177,10 +190,17 @@ export async function planWarehouseEntryInTx(tx: LotTx, input: WarehouseEntryPla
       const lines = outs.filter((l) => l.productId === pid);
       const name = lines[0]?.productName ?? '';
       if (!view) throw lotErr('LOT_STOCK_INSUFFICIENT', { name, place: 'المستودع', available: 0 }, { productId: pid, wanted: g.qty });
-      // الأسطر بلا لوط: المصدر الوحيد في المستودع (D10)، وأكثر من مصدر ⇒ LOT_REQUIRED بقائمتها
+      // الأسطر بلا لوط: المصدر الوحيد في المستودع **مما بقي بعد صريح الصنف** (D10، كـpickPlan في السيارة)، وأكثر من مصدر ⇒
+      // LOT_REQUIRED بقائمتها. الصريح يُفحص مجمَّعاً أولاً ثم يُطرح من العرض — صريحٌ يصفّي لوطاً لا يُبقيه مصدراً منافساً
       const auto = lines.filter((l) => !refOf.has(l.idx));
       if (auto.length) {
-        const pick = pickOutSources(view, 'SELLABLE', auto.reduce((s, l) => s + Math.abs(l.qty), 0));
+        let rest = view;
+        if (g.byLot.size) {
+          const ex = pickOutSources(view, 'SELLABLE', [...g.byLot.values()].reduce((s, q) => s + q, 0), refsOfByLot(g.byLot), lookup);
+          if (!ex.ok) throw named(ex.error, name);
+          rest = withoutRows(view, ex.rows);
+        }
+        const pick = pickOutSources(rest, 'SELLABLE', auto.reduce((s, l) => s + Math.abs(l.qty), 0));
         if (!pick.ok) throw named(pick.error, name);
         const src = pick.rows[0]?.lotId ?? null;
         if (src == null && !input.allowUnknown) throw lotErr('LOT_REQUIRED', { name }, { productId: pid });
@@ -275,11 +295,14 @@ export async function vansLotUnsellable(db: LotDb, tid: string, repIds: readonly
 
 // ═══ الاستيراد الافتتاحي (§٤.٥) ═══
 
-/** لوط صفّ الاستيراد بعد التحقق الصرف (resolveOpeningStockRows): الرقم مطبَّعاً والتاريخان YYYY-MM-DD */
-export interface OpeningLotRef { lotNumber: string; productionDate: string | null; expiryDate: string | null }
+/**
+ * لوط صفّ الاستيراد بعد التحقق الصرف (resolveOpeningStockRows): الرقم مطبَّعاً والتاريخان YYYY-MM-DD، و`expiryRequired` لصنفٍ
+ * صلاحيته مفعّلة (الانتهاء إلزامي للتشغيلة الجديدة وحدها)
+ */
+export interface OpeningLotRef { lotNumber: string; productionDate: string | null; expiryDate: string | null; expiryRequired?: boolean }
 /** سطر الجرد كما يمرّ إلى الخطة: الكمية بوحدة الصفّ ولقطتها (الأساس منها) ولوطه إن كان صنفه متتبَّعاً */
 export interface OpeningLotLine { row: number; productId: string; qty: number; unitFactor?: number; lot?: OpeningLotRef | null }
-export interface OpeningLotRejection { row: number; code: 'LOT_REQUIRED' | 'LOT_DATES_MISMATCH'; value?: string; field?: string }
+export interface OpeningLotRejection { row: number; code: 'LOT_REQUIRED' | 'LOT_DATES_MISMATCH' | 'LOT_EXPIRY_REQUIRED'; value?: string; field?: string }
 
 const dayDate = (d: string | null): Date | null => (d ? new Date(`${d}T00:00:00.000Z`) : null);
 const isoDay = (d: Date | null | undefined): string | null => (d ? new Date(d).toISOString().slice(0, 10) : null);
@@ -291,6 +314,8 @@ const isoDay = (d: Date | null | undefined): string | null => (d ? new Date(d).t
  * (كل منشئٍ يأخذه)، فالقراءة المسبقة هي الحقيقة.
  * - صنفٌ متتبَّع تحت القفل وصفّه بلا لوط ⇒ LOT_REQUIRED (صار متتبَّعاً بعد القراءة المسبقة). وصنفٌ لم يعد متتبَّعاً ⇒ بلا لوط.
  * - رقمٌ مسجَّل بتواريخ مخالفة، أو مكرَّرٌ في الملف بتواريخ تخالف أول صفوفه ⇒ LOT_DATES_MISMATCH. الفارغ يطابق أيّاً كان.
+ * - الانتهاء إلزامي مع الصلاحية (`expiryRequired`) **للجديد وحده** ⇒ LOT_EXPIRY_REQUIRED، كـresolveOrCreateLot في الوارد: القائم بلا
+ *   انتهاء (أُنشئ قبل تفعيل الصلاحية) يُقبل بالفارغ، وانتهاءٌ له مخالفةٌ لا تصحيح. والصفّ المرفوض لا يحدّد تاريخي رقمه الجديد.
  * - كلها أخطاء صفوف تُحسم **قبل** أي إنشاء: لا يُنشأ لوطٌ لصفٍّ مرفوض، ولا لوطٌ بلا حركة.
  * - الجديد بمصدر OPENING_IMPORT وsourceEntryId = معرّف الحركة (للتراجع)، ومعه LotEvent CREATE. والوارد إلى لوطٍ قائمٍ موقوف
  *   مقبولٌ بتحذير LOT_INTO_BLOCKED كالوارد اليدوي.
@@ -325,6 +350,7 @@ export async function planOpeningLotsInTx<L extends OpeningLotLine>(tx: LotTx, i
     const k = key(l.productId, l.lot.lotNumber);
     const have = existing.get(k) ?? (fresh.has(k) ? fresh.get(k)!.ref : null);
     if (have && differs(l.lot, have)) { rejected.push({ row: l.row, code: 'LOT_DATES_MISMATCH', value: l.lot.lotNumber, field: 'lotNumber' }); continue; }
+    if (!have && l.lot.expiryRequired && l.lot.expiryDate == null) { rejected.push({ row: l.row, code: 'LOT_EXPIRY_REQUIRED', value: l.lot.lotNumber, field: 'expiryDate' }); continue; }
     if (!existing.has(k) && !fresh.has(k)) fresh.set(k, { productId: l.productId, ref: l.lot });
     accepted.push(l);
   }

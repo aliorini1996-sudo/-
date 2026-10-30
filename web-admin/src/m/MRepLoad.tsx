@@ -7,14 +7,14 @@ import {
 import toast from 'react-hot-toast';
 import { vanStockApi, productApi, lotsApi } from '../api/client';
 import { SalesRep } from '../types';
-import { formatDate, formatTime, formatNumber } from '../utils/format';
+import { activeLocale, formatDate, formatTime, formatNumber } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { useBackClose } from '../lib/useBackClose';
 import type { UnitDef } from '../lib/units';
 import { unitChoices, defaultChoice } from '../rep/repUnits';
 import { splitVanMovement } from '../lib/vanMovement';
 import {
-  lotFlagsOf, lotWarningsOf, lotRowsRemaining, LOT_EPS, LOT_WARNING_LABELS, LOT_STATUS_LABELS,
+  lotFlagsOf, lotWarningsOf, lotRowsRemaining, roundLot, LOT_EPS, LOT_WARNING_LABELS, LOT_STATUS_LABELS,
   type LotRef, type LotWarning, type VanLotSnapshotDto, type AllocRowDto, type LotShortageDetail,
 } from '../lib/lots';
 import { MCard, MRow, MStat, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
@@ -25,7 +25,7 @@ import {
 } from './mUnits';
 import {
   newRowId, shelfLifeOn, resolveShelfOn, emptyLotDraft, lotDraftProblem, loadLotFields, lineBaseQty, fefoLinesParam,
-  vanOutSources, prefillOutLines, sourcesLeftFor, outGroupProblems, setOutQty, lotLineLabel, LOT_CACHE_KEYS, VAN_OUT_PROBLEMS,
+  vanOutSources, prefillOutLines, sourcesLeftFor, outGroupProblems, setOutQty, lotLineLabel, lotQtyText, LOT_CACHE_KEYS, VAN_OUT_PROBLEMS,
   type LotDraft, type OutSource,
 } from './mLotsLogic';
 import MUnitChips from './MUnitChips';
@@ -147,6 +147,9 @@ const EXPORTABLE = ['LOAD', 'UNLOAD', 'ADJUST'];
 
 /** كسورٌ محتملة في الوحدات الموزونة — لكن بلا أصفارٍ زائدة على «١٢» */
 const fmtQty = (n: number) => formatNumber(Number(n.toFixed(2)));
+
+/** كمية تشغيلةٍ بالأساس: أربع خانات (D22) لا خانتان — تُعرض عبر lotQtyText بوحدات الصنف أو باسم الأساس، لا عاريةً */
+const fmtLotQ = (n: number) => new Intl.NumberFormat(activeLocale(), { maximumFractionDigits: 4 }).format(roundLot(n));
 
 /** رسالة الخادم أولى من رسالتنا: «منتج غير صالح» تُصلح الخطأ و«تعذر الحفظ» لا تصلح شيئاً */
 function errMsg(e: unknown, fallback: string): string {
@@ -743,15 +746,15 @@ export default function MRepLoad({ rep, company, onClose }: {
 
                   {/* «تتبّع اللوط» للصنف المتتبَّع وحده: معاينة FEFO للتحميل من المستودع، أو تشغيلة التحميل بلا مستودع،
                       أو توزيع التنزيل على مصادر السيارة */}
-                  {tracked && !zero && !neg && warehouseOn && <FefoPreview productId={r.productId} f={fefoOf(r.rowId)} />}
+                  {tracked && !zero && !neg && warehouseOn && <FefoPreview productId={r.productId} prod={prod} f={fefoOf(r.rowId)} />}
                   {/* الموقوفة والمنتهية يوم الشركة لا تُحمَّل (I4) — معطّلةٌ في المنتقي بيوم اللقطة */}
                   {tracked && !zero && !neg && !warehouseOn && (
                     <MLotFields productId={r.productId} mode="LOAD" shelfOn={shelfOf(r)} draft={r.lot ?? emptyLotDraft()}
-                      day={snapQ.data?.day} onChange={d => patchRow(k, { lot: d })} />
+                      prod={prod} day={snapQ.data?.day} onChange={d => patchRow(k, { lot: d })} />
                   )}
                   {/* «المتاح» لكل مصدر ما يبقى لهذا السطر بعد أسطر صنفه الأخرى (D26) */}
                   {tracked && neg && (
-                    <OutLotsEditor sources={outSourcesOf(r)} loading={snapQ.isLoading}
+                    <OutLotsEditor sources={outSourcesOf(r)} prod={prod} loading={snapQ.isLoading}
                       base={lineBaseQty(n, r.unitFactor)} rows={outRowsOf(r)}
                       onChange={lots => patchRow(k, { outLots: lots })} />
                   )}
@@ -874,8 +877,10 @@ export default function MRepLoad({ rep, company, onClose }: {
  * «تتبّع اللوط»: معاينة توزيع FEFO لسطر تحميلٍ من المستودع — الخادم يعيد التوزيع نفسه عند الحفظ تحت القفل، فهذه قراءةٌ
  * لما سيحدث لا اختيارٌ يُرسل. وتحذيرات الصنف ونقصه على سطره الأول وحده (لا تتكرّر لكل وحدة).
  */
-function FefoPreview({ productId, f }: {
+function FefoPreview({ productId, prod, f }: {
   productId: string;
+  /** وحدات الصنف: كميات التوزيع بالأساس بجانب سطرٍ بوحدته (القاعدة ٨) */
+  prod: { unit?: string | null; units?: UnitDef[] | null };
   f: { loading: boolean; rows: AllocRowDto[]; first: boolean; warnings: LotWarning[]; shortage: LotShortageDetail | null } | null;
 }) {
   const tr = useTr();
@@ -892,12 +897,12 @@ function FefoPreview({ productId, f }: {
             <span className="min-w-0 truncate text-[#1F1A13]">
               {lotLineLabel({ lotNumber: numberOf(r.lotId), expiryDate: r.expiryDate }, tr('غير مسمى'), tr('ينتهي'))}
             </span>
-            <b className="tabular-nums flex-shrink-0" dir="ltr">{fmtQty(r.qty)}</b>
+            <b className="tabular-nums flex-shrink-0">{lotQtyText(r.qty, prod, fmtLotQ)}</b>
           </div>
         ))}
       {f.first && f.shortage && (
         <p className="text-[10px] text-[#C0392B]">
-          {tr('المتاح في المستودع')} {fmtQty(f.shortage.available)} — {tr('لن يحفظ التحميل بأكثر منه')}
+          {tr('المتاح في المستودع')} {lotQtyText(f.shortage.available, prod, fmtLotQ)} — {tr('لن يحفظ التحميل بأكثر منه')}
         </p>
       )}
       {f.first && [...new Set(f.warnings.map(w => w.code))].map(c => (
@@ -914,17 +919,20 @@ function FefoPreview({ productId, f }: {
  * «تتبّع اللوط»: توزيع سطر التنزيل على مصادر السيارة (D10) — المصدر الوحيد يُنزَّل منه تلقائياً، وأكثر من مصدرٍ يلزمه
  * توزيعٌ صريح مجموعه كمية السطر بالأساس. الموقوف والمنتهي في الأعلى: هو ما يُخرج أولاً في السحب.
  */
-function OutLotsEditor({ sources, loading, base, rows, onChange }: {
-  sources: OutSource[]; loading: boolean; base: number; rows: LotRef[]; onChange: (rows: LotRef[]) => void;
+function OutLotsEditor({ sources, prod, loading, base, rows, onChange }: {
+  sources: OutSource[]; prod: { unit?: string | null; units?: UnitDef[] | null };
+  loading: boolean; base: number; rows: LotRef[]; onChange: (rows: LotRef[]) => void;
 }) {
   const tr = useTr();
+  // التوزيع يُدخَل بالأساس: أرقامه بجانب اسم الأساس بلا تفكيك، والمصدر الوحيد مفكَّكاً بوحدات الصنف (القاعدة ٨)
+  const baseOnly = { unit: prod.unit };
   const label = (s: OutSource) => lotLineLabel(s, tr('غير مسمى'), tr('ينتهي'));
   if (loading) return <p className="text-[10px] text-[#9A8F7E] px-0.5">{tr('جاري التحميل')}</p>;
   if (sources.length === 0) return null;
   if (sources.length === 1) {
     return (
       <p className="text-[10px] text-[#6E6557] px-0.5">
-        {tr('ينزل من')} {label(sources[0])} · {tr('المتاح')} {fmtQty(sources[0].usable)}
+        {tr('ينزل من')} {label(sources[0])} · {tr('المتاح')} {lotQtyText(sources[0].usable, prod, fmtLotQ)}
       </p>
     );
   }
@@ -939,7 +947,7 @@ function OutLotsEditor({ sources, loading, base, rows, onChange }: {
             <span className="min-w-0 flex-1 text-[11px]">
               <span className="block truncate text-[#1F1A13]">{label(s)}</span>
               <span className="block text-[10px] text-[#9A8F7E]">
-                {tr('المتاح')} {fmtQty(s.usable)}
+                {tr('المتاح')} {lotQtyText(s.usable, baseOnly, fmtLotQ)}
                 {s.status === 'BLOCKED' && <b className="text-[#C0392B]"> · {tr(LOT_STATUS_LABELS.BLOCKED)}</b>}
                 {s.status !== 'BLOCKED' && s.expired && <b className="text-[#C0392B]"> · {tr('منتهي الصلاحية')}</b>}
               </span>
@@ -952,7 +960,7 @@ function OutLotsEditor({ sources, loading, base, rows, onChange }: {
       })}
       {Math.abs(left) > LOT_EPS && (
         <p className="text-[10px] text-[#C0392B]">
-          {left > 0 ? tr('باقي بلا توزيع') : tr('زائد عن كمية السطر')} {fmtQty(Math.abs(left))}
+          {left > 0 ? tr('باقي بلا توزيع') : tr('زائد عن كمية السطر')} {lotQtyText(Math.abs(left), baseOnly, fmtLotQ)}
         </p>
       )}
     </div>

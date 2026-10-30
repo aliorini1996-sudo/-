@@ -37,13 +37,13 @@ const P = [
 ];
 const find = openingStockProductFinder(P);
 
-test('رموز الصفوف: LOT_REQUIRED وLOT_DATES_INVALID وLOT_EXPIRY_REQUIRED وLOT_QTY_INVALID بعمودها وقيمتها، والرسائل معرَّفة', () => {
+test('رموز الصفوف: LOT_REQUIRED وLOT_DATES_INVALID وLOT_QTY_INVALID بعمودها وقيمتها، والرسائل معرَّفة — وإلزام الانتهاء مع الصلاحية تحت القفل للجديد وحده', () => {
   const { lines, errors } = resolveOpeningStockRows([
     { productCode: 'A-1', qty: 5, unitCost: 1 },                                                           // 2: بلا رقم
     { productCode: 'A-1', qty: 5, unitCost: 1, lotNumber: 'x'.repeat(65) },                                // 3: أطول من ٦٤
     { productCode: 'A-1', qty: 5, unitCost: 1, lotNumber: 'L1', productionDate: '2026-13-01' },            // 4: تاريخ إنتاج تالف
     { productCode: 'A-1', qty: 5, unitCost: 1, lotNumber: 'L1', productionDate: '2027-02-01', expiryDate: '2027-01-01' }, // 5: الإنتاج بعد الانتهاء
-    { productCode: 'B-2', qty: 5, unitCost: 1, lotNumber: 'M1' },                                          // 6: صلاحية بلا انتهاء
+    { productCode: 'B-2', qty: 5, unitCost: 1, lotNumber: 'M1' },                                          // 6: صلاحية بلا انتهاء — يُحسم تحت القفل (قائمةٌ تُقبل)
     { productCode: 'A-1', qty: 1.00005, unitCost: 1, lotNumber: 'L1' },                                    // 7: خمس خانات بالأساس
     { productCode: 'A-1', qty: 0.12345, unitCost: 1, lotNumber: ' l-٢ ', unit: 'كرتون' },                  // 8: ٢٫٩٦٢٨ بالأساس — مقبول
     { productCode: 'B-2', qty: 2, unitCost: 1, lotNumber: 'M1', expiryDate: '2027-03-31' },                // 9: مقبول
@@ -54,13 +54,13 @@ test('رموز الصفوف: LOT_REQUIRED وLOT_DATES_INVALID وLOT_EXPIRY_REQUI
     [3, 'LOT_REQUIRED', 'lotNumber', 'x'.repeat(65)],
     [4, 'LOT_DATES_INVALID', 'productionDate', '2026-13-01'],
     [5, 'LOT_DATES_INVALID', 'expiryDate', '2027-01-01'],
-    [6, 'LOT_EXPIRY_REQUIRED', 'expiryDate', 'M1'],
     [7, 'LOT_QTY_INVALID', 'qty', '1.00005'],
   ]);
   for (const e of errors) assert.equal(e.message, IMPORT_ROW_MESSAGES[e.code as keyof typeof IMPORT_ROW_MESSAGES]);
   assert.deepEqual(lines, [
+    { row: 6, productId: 'p2', qty: 5, unitCost: 1, lot: { lotNumber: 'M1', productionDate: null, expiryDate: null, expiryRequired: true } },
     { row: 8, productId: 'p1', qty: 0.12345, unitCost: 1, unitName: 'كرتون', unitFactor: 24, lot: { lotNumber: 'L-2', productionDate: null, expiryDate: null } },
-    { row: 9, productId: 'p2', qty: 2, unitCost: 1, lot: { lotNumber: 'M1', productionDate: null, expiryDate: '2027-03-31' } },
+    { row: 9, productId: 'p2', qty: 2, unitCost: 1, lot: { lotNumber: 'M1', productionDate: null, expiryDate: '2027-03-31', expiryRequired: true } },
     { row: 10, productId: 'p3', qty: 1.00005, unitCost: 1 },
   ]);
 });
@@ -165,6 +165,30 @@ test('planOpeningLotsInTx: دفعةٌ واحدة لا استعلامٌ لكل ص
   assert.equal(none.lines.length, 0);
   assert.equal(world.lots.length, 1);
   assert.ok(!world.calls.some((c) => c.op === 'productLot.createMany' || c.op === 'lotEvent.createMany'));
+});
+
+test('planOpeningLotsInTx: الانتهاء إلزامي مع الصلاحية **للجديد وحده** (قاعدة resolveOrCreateLot) — القائم بلا انتهاء يُقبل بالفارغ', async () => {
+  fresh();
+  const U = world.lot({ id: 'L-U', productId: 'p2', lotNumber: 'U1' });     // قائمة بلا انتهاء
+  const req = (n: string, e: string | null = null) => ({ ...lot(n, null, e), expiryRequired: true });
+  const out = await lotsW.planOpeningLotsInTx(db as never, {
+    tenantId: 't1', entryId: 'E7', createdBy: null, actor: ACTOR, locked: locks(['p2']),
+    lines: [
+      { row: 2, productId: 'p2', qty: 4, lot: req('U1') },                  // القائمة بالفارغ ⇒ مقبول
+      { row: 3, productId: 'p2', qty: 1, lot: req('U1', '2027-01-01') },    // انتهاءٌ لقائمةٍ بلا انتهاء ⇒ MISMATCH (لا تصحيح صامت)
+      { row: 4, productId: 'p2', qty: 1, lot: req('N1') },                  // جديدة بلا انتهاء ⇒ إلزامي، ولا تحدّد تاريخي الرقم
+      { row: 5, productId: 'p2', qty: 2, lot: req('N1', '2027-03-31') },    // أول صفٍّ مقبول للرقم يُنشئه
+      { row: 6, productId: 'p2', qty: 3, lot: req('N1') },                  // الفارغ يطابق ما أُنشئ في الملف
+    ],
+  });
+  assert.deepEqual(out.rejected, [
+    { row: 3, code: 'LOT_DATES_MISMATCH', value: 'U1', field: 'lotNumber' },
+    { row: 4, code: 'LOT_EXPIRY_REQUIRED', value: 'N1', field: 'expiryDate' },
+  ]);
+  const N1 = world.lotByNumber('p2', 'N1')!;
+  assert.equal(dayOf(N1.expiryDate), '2027-03-31');
+  assert.deepEqual([...out.lotIdByRow], [[2, U.id], [5, N1.id], [6, N1.id]]);
+  assert.equal(U.expiryDate, null);
 });
 
 // ═══ التراجع: القفل قبل الفحص، والمنع، وحذف اليتيم ═══
@@ -318,7 +342,7 @@ test('POST /opening-stock: أصناف الملف تُقفل بعد gl-post وق�
     { productCode: 'A-1', qty: 2, unitCost: 48, unit: 'كرتون', lotNumber: 'a-1' },
     { productCode: 'A-1', qty: 5, unitCost: 2, lotNumber: 'A-2' },
     { productCode: 'B-2', qty: 3, unitCost: 4, lotNumber: 'OLD', expiryDate: '2027-02-01' },   // مخالف ⇒ خطأ صفّ تحت القفل
-    { productCode: 'B-2', qty: 3, unitCost: 4, lotNumber: 'NEW' },                             // صلاحية بلا انتهاء ⇒ خطأ صفّ صرف
+    { productCode: 'B-2', qty: 3, unitCost: 4, lotNumber: 'NEW' },                             // جديدة بصلاحية بلا انتهاء ⇒ خطأ صفّ تحت القفل
     { productCode: 'C-3', qty: 7, unitCost: 1 },
   ]);
   assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -337,6 +361,26 @@ test('POST /opening-stock: أصناف الملف تُقفل بعد gl-post وق�
   const create = ops.findIndex((s) => s === 'warehouseEntry.create');
   assert.ok(post >= 0 && post < share && share < lotLock && lotLock < create, ops.join('\n'));
   assert.deepEqual(world.txOpts.at(-1), { maxWait: 10_000, timeout: 30_000 }, 'مهلة الاستيراد القائمة');
+});
+
+test('POST /opening-stock: تشغيلةٌ قائمة بلا انتهاء لصنفٍ صار بصلاحية تُقبل بانتهاءٍ فارغ (كالوارد اليدوي)، والجديدة بلا انتهاء LOT_EXPIRY_REQUIRED', async () => {
+  fresh();
+  // أُنشئت والصلاحية مطفأة ثم فُعّلت — بلا حركة، فالجرد الافتتاحي ما زال مسموحاً
+  const U = world.lot({ id: 'L-U', productId: 'p2', lotNumber: 'U1' });
+  const r = await importFile([
+    { productCode: 'B-2', qty: 4, unitCost: 3, lotNumber: 'u1' },                               // القائمة بلا انتهاء ⇒ مقبول
+    { productCode: 'B-2', qty: 2, unitCost: 3, lotNumber: 'U1', expiryDate: '2027-01-01' },     // انتهاءٌ يخالف المسجَّل ⇒ MISMATCH كالوارد
+    { productCode: 'B-2', qty: 1, unitCost: 3, lotNumber: 'N1' },                               // جديدة بلا انتهاء ⇒ إلزامي
+  ]);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.data.created, 1, JSON.stringify(r.body.data.errors));
+  assert.deepEqual(r.body.data.errors.map((e: Row) => [e.row, e.code, e.field, e.value]).sort(),
+    [[3, 'LOT_DATES_MISMATCH', 'lotNumber', 'U1'], [4, 'LOT_EXPIRY_REQUIRED', 'expiryDate', 'N1']]);
+  for (const e of r.body.data.errors) assert.equal(e.message, IMPORT_ROW_MESSAGES[e.code as keyof typeof IMPORT_ROW_MESSAGES]);
+  const items = world.items.filter((i) => i.entryId === r.body.data.entryId);
+  assert.deepEqual(items.map((i) => [i.productId, i.baseQty, i.lotId]), [['p2', 4, U.id]]);
+  assert.equal(world.lotByNumber('p2', 'N1'), undefined, 'لا لوط لصفٍّ مرفوض');
+  assert.equal(U.expiryDate, null, 'لا يُصحَّح تاريخ لوطٍ من استيراد');
 });
 
 test('POST /opening-stock: الميزة مطفأة ⇒ أعمدة التشغيلة تُتجاهل والمسار كما كان بلا قفل لوط ولا lotId', async () => {

@@ -18,6 +18,8 @@ import { importTimezone } from '../services/importLedger';
 import { LOT_NUMBER_MAX, LotError, asLotBusy, lotHttpError } from '../services/lots';
 import { acquireLotQueue, companyDay, lockLotProducts } from '../services/lotsDb';
 import { LOT_PRODUCT_SELECT, lotActorOf, lotEventActorOf, planWarehouseEntryInTx, vansLotUnsellable, warehousePlanLines } from '../services/lotsWarehouse';
+// D25 للمسار غير المتتبَّع: إعادة قراءة التتبّع FOR KEY SHARE وحدها (لا حارس ولا قفل لوط) — الدالّة نفسها لإلغاء المرتجع وإعادته
+import { assertReturnStillUntracked as assertStillUntracked } from '../services/lotsInvoice';
 
 /**
  * «المخزون في تاريخ» (طلب المالك ١٨ أكتوبر ٢٠٢٦): لحظة نهاية اليوم المطلوب (بداية اليوم التالي، حصرية) بتوقيت الشركة،
@@ -242,10 +244,17 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
     });
     const entryInclude = { items: { include: { product: { select: { id: true, name: true, unit: true } }, ...(withLots && { lot: ENTRY_LOT_SELECT }) } } };
 
-    // الميزة مطفأة أو لا صنف متتبَّع في الحركة ⇒ المسار القائم حرفياً: إنشاءٌ واحد بلا معاملة ولا قفل (§١٠)
+    // الميزة مطفأة أو لا صنف متتبَّع في الحركة ⇒ المسار القائم: إنشاءٌ واحد بلا قفل لوط (§١٠). والميزة مفعّلة (D25): تُعاد قراءة تتبّع
+    // الأصناف FOR KEY SHARE في معاملة الإنشاء — صنفٌ صار متتبَّعاً بين القراءتين ⇒ 503 LOT_BUSY TRACKING_CHANGED بلا حركة فيُعاد بمسار
+    // اللوط، وإلا انتظر التبديلُ (FOR UPDATE) التزامنا. بلا طابور ولا مهلة جديدة (§١٠.٢)، والمطفأة كما كانت حرفياً (§١٠.١)
     const preTracked = withLots ? products.filter((p) => p.lotTracked === true).map((p) => p.id) : [];
     if (!preTracked.length) {
-      const entry = await prisma.warehouseEntry.create({ data: entryData(null), include: entryInclude });
+      const entry = withLots
+        ? await prisma.$transaction(async (tx) => {
+          await assertStillUntracked(tx, tid, productIds);
+          return tx.warehouseEntry.create({ data: entryData(null), include: entryInclude });
+        })
+        : await prisma.warehouseEntry.create({ data: entryData(null), include: entryInclude });
       res.status(201).json({ success: true, data: entry });
       return;
     }

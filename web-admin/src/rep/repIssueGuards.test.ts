@@ -34,7 +34,7 @@ test('إصدار الفاتورة: ردٌّ غير 201 لا يفتح مستند 
 
 test('قراءة مستند: رسالة الخادم (426 «حدّث التطبيق») تظهر ولا تُبتلع', () => {
   // قائمة المستندات
-  const list = repApp.indexOf('const res = await repApi.get(`${endpoint}/${id}`);');
+  const list = repApp.indexOf('const res = await repApi.get(`${endpoint}/${id}`');
   assert.ok(list > 0, 'فتح مستند من القائمة لم يعد بهذا الشكل — راجع الحارس');
   const listTail = repApp.slice(list, list + 400);
   assert.match(listTail, /catch \(err: any\)/, 'الخطأ ما زال يُبتلع في catch فارغ');
@@ -42,7 +42,7 @@ test('قراءة مستند: رسالة الخادم (426 «حدّث التطب�
   assert.match(repApp, /\{openErr && </, 'الرسالة لا تُرسم في واجهة القائمة');
 
   // كشف الحساب (الفتح من الحركة)
-  const stmt = repApp.indexOf('const res = await repApi.get(`/invoices/${invId}`);');
+  const stmt = repApp.indexOf('const res = await repApi.get(`/invoices/${invId}`');
   assert.ok(stmt > 0, 'فتح مستند من الكشف لم يعد بهذا الشكل — راجع الحارس');
   const stmtTail = repApp.slice(stmt, stmt + 700);
   assert.match(stmtTail, /catch \(err: any\)/, 'الخطأ ما زال يُبتلع في catch فارغ');
