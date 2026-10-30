@@ -12,9 +12,7 @@
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
     "postinstall": "prisma generate",
-    "test": "tsx --test \"src/**/*.test.ts\"",
-    "posttest": "npm run test:lots",
-    "test:lots": "tsx --test src/tests/lots-fold.test.ts src/tests/lots-allocate.test.ts src/tests/lots-model.test.ts src/tests/lots-db.test.ts src/tests/lots-static.test.ts src/tests/lots-static-b1.test.ts src/tests/lots-static-b2.test.ts src/tests/lots-static-b3.test.ts src/tests/lots-static-b4.test.ts src/tests/lots-static-b5.test.ts src/tests/lots-static-b6.test.ts src/tests/lots-static-b7.test.ts src/tests/lots-static-b8.test.ts src/tests/lots-van.test.ts src/tests/lots-warehouse.test.ts src/tests/lots-import.test.ts src/tests/lots-invoices.test.ts src/tests/lots-phase2.test.ts src/tests/lots-api.test.ts src/tests/lots-reports.test.ts src/tests/lots-convert-base.test.ts"
+    "test": "tsx --test \"src/**/*.test.ts\""
 
   },
   "dependencies": {
