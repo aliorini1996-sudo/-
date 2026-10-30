@@ -314,7 +314,7 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
   },
   {
     name: 'settlements', model: 'repSettlement', mode: 'created', permission: 'canManageSalesReps', tenantPath: 'direct', hardDeletes: true,
-    select: pick('id', 'salesRepId', 'amount', 'method', 'note', 'createdBy', 'receivedByUserId', 'settledAt', 'createdAt', 'teamId'),
+    select: pick('id', 'salesRepId', 'deletedSalesRepId', 'amount', 'method', 'note', 'createdBy', 'receivedByUserId', 'settledAt', 'createdAt', 'teamId'),
     denied: { tenantId: 'معروف من المفتاح' },
   },
   {

@@ -15,6 +15,7 @@
  *
  * الحساب صرف؛ القراءة من القاعدة في loadOpeningSources على عميل/معاملة يمرّرها المُستدعي.
  */
+import { SETTLEMENT_HAS_REP, settlementHasRep } from './settlementRep';
 import type { Prisma } from '@prisma/client';
 import {
   addDays, compareLocalDate, fiscalYearStart, isLocalDate, parseLocalDate, todayLocal, zonedStartOfDay,
@@ -956,9 +957,9 @@ export async function loadOpeningSources(db: GlDb, tenantId: string, cut: Openin
       },
     }).then((rows) => rows.map(({ invoice, ...r }) => ({ ...r, invoiceType: invoice?.type ?? null }))),
     db.repSettlement.findMany({
-      where: { tenantId, ...(clean ? {} : { settledAt: before }), createdAt: upTo },
+      where: { tenantId, ...(clean ? {} : { settledAt: before }), createdAt: upTo, ...SETTLEMENT_HAS_REP },
       select: { id: true, salesRepId: true, amount: true, settledAt: true, createdAt: true },
-    }),
+    }).then((rows) => rows.filter(settlementHasRep)),
     db.settlementEntry.findMany({
       where: { tenantId, createdAt: createdWindow },
       select: { id: true, amount: true, createdAt: true },

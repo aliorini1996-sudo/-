@@ -107,7 +107,9 @@ test('حذف المندوب — حارسه الصلاحية، وسجلّاته �
   // والسجلّات المالية تُحفظ بتفريغ المرجع لا بمحوها
   assert.match(h, /invoice\.updateMany\([^)]*salesRepId: null/, 'الفواتير يجب أن تبقى بمرجعٍ مفرَّغ');
   assert.match(h, /receipt\.updateMany\([^)]*salesRepId: null/, 'السندات يجب أن تبقى بمرجعٍ مفرَّغ');
-  assert.match(h, /repSettlement\.deleteMany/, 'تغيّر شكل المعاملة — أعد فحص الحارس');
+  // واستلامات التحصيل كذلك (مراجعة ٣٠ أكتوبر ٢٠٢٦): محوها كان يُفسد عهدة من استلم من المندوب
+  assert.match(h, /repSettlement\.updateMany\([^)]*salesRepId: null, deletedSalesRepId: req\.params\.id/, 'استلامات التحصيل يجب أن تبقى بمرجعٍ مفرَّغ');
+  assert.doesNotMatch(h, /repSettlement\.deleteMany/, 'حذف المندوب يمحو استلاماته فتفسد عهدة من استلم منه');
   assert.match(
     h, /notification\.deleteMany\(\{ where: \{ tenantId: tid, salesRepId/,
     'حذف الإشعارات (الأثر التدقيقي) غير مقيَّد بالشركة',

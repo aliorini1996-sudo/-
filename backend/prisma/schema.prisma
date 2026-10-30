@@ -2023,8 +2023,12 @@ model RepSettlement {
   id         String   @id @default(uuid())
   tenantId   String
   tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  salesRepId String
-  salesRep   SalesRep @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+  // يقبل الفراغ (مراجعة ٣٠ أكتوبر ٢٠٢٦): كان حذف المندوب يمحو استلاماته (Cascade وdeleteMany)، فيسقط «المستلَم» من
+  // عهدة من استلم منه — تصفر عهدةُ مالٍ ما زال في يده، أو تصير سالبةً بعد توريده. الآن يبقى الصفّ بلا مندوب كتحميلات سيارته
+  salesRepId String?
+  salesRep   SalesRep? @relation(fields: [salesRepId], references: [id], onDelete: SetNull)
+  // معرّف المندوب بعد حذفه — يُكتب في معاملة الحذف حين يُفرَّغ salesRepId، بلا مفتاح أجنبيّ (كـVanLoad.deletedSalesRepId)
+  deletedSalesRepId String?
   amount     Float
   // كيف استُلم المبلغ من المندوب — نفس قاموس سند القبض حرفياً كي يقرأ المحاسب
   // مصطلحاً واحداً في المستندين. والافتراضي نقديّ: الاستلامات السابقة كلّها نقد.
