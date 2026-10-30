@@ -1,24 +1,34 @@
 import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Search, Plus, Trash2, Loader2, Package, Truck, Sparkles, AlertTriangle,
   ArrowDownToLine, TrendingDown, Download,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { vanStockApi, productApi } from '../api/client';
+import { vanStockApi, productApi, lotsApi } from '../api/client';
 import { SalesRep } from '../types';
 import { formatDate, formatTime, formatNumber } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { useBackClose } from '../lib/useBackClose';
 import type { UnitDef } from '../lib/units';
-import { unitChoices } from '../rep/repUnits';
+import { unitChoices, defaultChoice } from '../rep/repUnits';
+import { splitVanMovement } from '../lib/vanMovement';
+import {
+  lotFlagsOf, lotWarningsOf, lotRowsProblem, lotRowsRemaining, LOT_EPS, LOT_WARNING_LABELS, LOT_STATUS_LABELS,
+  type LotRef, type LotWarning, type VanLotSnapshotDto, type AllocRowDto, type LotShortageDetail,
+} from '../lib/lots';
 import { MCard, MRow, MStat, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import { expectArray, expectObject } from './shape';
 import {
-  splitLoadRows, nextStockLineUnit, stockLineUnit, lineKey, suggestionLine, movementQtyText, qtyText, hasBigUnit,
+  nextStockLineUnit, stockLineUnit, suggestionLine, movementQtyText, qtyText, hasBigUnit,
   type StockLineUnit,
 } from './mUnits';
+import {
+  newRowId, shelfLifeOn, emptyLotDraft, lotDraftProblem, loadLotFields, lineBaseQty, fefoLinesParam,
+  vanOutSources, prefillOut, setOutQty, lotLineLabel, type LotDraft, type OutSource,
+} from './mLots';
 import MUnitChips from './MUnitChips';
+import MLotFields, { useProductLots } from './MLotFields';
 
 /**
  * تسجيل تحميل بضاعة لسيارة مندوب — من تطبيق الإدارة على الجوال.
@@ -49,7 +59,11 @@ interface StockRow {
   units?: UnitDef[];
 }
 
-interface ProductPick { id: string; name: string; code?: string; unit?: string; units?: UnitDef[] }
+interface ProductPick {
+  id: string; name: string; code?: string; unit?: string; units?: UnitDef[];
+  /** «تتبّع اللوط»: علم الصنف وصلاحيته (إلزام انتهاء التشغيلة الجديدة في شركة بلا مستودع) */
+  lotTracked?: boolean; shelfLifeEnabled?: boolean; shelfLifeValue?: number | null; shelfLifeUnit?: string | null;
+}
 
 /** استجابة /van-stock/suggest — تطابق SuggestResult في الخادم */
 interface SuggestRow {
@@ -73,17 +87,42 @@ interface SuggestResponse {
 
 interface Movement {
   kind: string; date: string; ref: string; by: string | null;
-  /** `unit` لقطة وحدة البند و`qty` بها، و`baseQty` كميته بالأساس — لمن يجمع بنوداً تختلف وحداتها */
-  items: { name: string; unit: string; qty: number; baseQty?: number | null }[];
+  /** `unit` لقطة وحدة البند و`qty` بها، و`baseQty` كميته بالأساس — لمن يجمع بنوداً تختلف وحداتها.
+   *  و`lots` صفوف تشغيلات البند (withLots=1 والميزة مفعّلة وحدها) — للإشعار المطبوع */
+  items: { name: string; unit: string; qty: number; baseQty?: number | null; lots?: unknown }[];
 }
 
 /**
  * سطر النموذج — الكمّية نصّ لا رقم: «-» و«» حالتا كتابةٍ وسيطتان يمسحهما Number.
  * والكمية **بوحدة السطر** (`unit`/`unitId`)، و`suggestedQty`/`expectedQty` بالأساس دائماً (DESIGN «قرارات أثناء التنفيذ»).
+ * و`rowId` هويّته: صنفٌ متتبَّع قد يأخذ سطرين بالوحدة نفسها (لكل تشغيلةٍ سطر)، فلا يكفي (الصنف، الوحدة) مفتاحاً.
  */
 interface Row extends StockLineUnit {
+  rowId: string;
   productId: string; name: string; qty: string;
   suggestedQty?: number; expectedQty?: number;
+  /** «تتبّع اللوط»: انتهاء التشغيلة الجديدة إلزامي (شركة بلا مستودع، D4) */
+  shelfOn?: boolean;
+  /** تشغيلة التحميل في شركة بلا مستودع (D4) — سطرٌ = تشغيلة */
+  lot?: LotDraft;
+  /** توزيع التنزيل على مصادر السيارة بالأساس — غائبٌ ⇒ التوزيع الأوّلي (prefillOut) */
+  outLots?: LotRef[];
+}
+
+/** ردّ GET /lots/fefo — لكل سطرٍ صفوفه بترتيب الأسطر المرسلة */
+interface FefoResp {
+  rows: AllocRowDto[]; lines?: { idx: number; rows: AllocRowDto[] }[];
+  shortage?: LotShortageDetail; warnings: LotWarning[];
+}
+
+/** قيمةٌ تستقرّ بعد مهلة — لاقتراح FEFO: لا طلب شبكةٍ لكل رقمٍ يُكتب في الكمية */
+function useSettled<T>(v: T, ms: number): T {
+  const [s, setS] = useState(v);
+  useEffect(() => {
+    const t = setTimeout(() => setS(v), ms);
+    return () => clearTimeout(t);
+  }, [v, ms]);
+  return s;
 }
 
 const KIND_META: Record<string, { label: string; cls: string; sign: string }> = {
@@ -120,6 +159,10 @@ export default function MRepLoad({ rep, company, onClose }: {
 }) {
   const tr = useTr();
   const qc = useQueryClient();
+  /* «تتبّع اللوط» — مطفأ ⇒ لا لقطة ولا اقتراح ولا حقل: الشاشة والجسم كما قبل الميزة (§١٠.١). والمستودع يقرّر مصدر
+   * التحميل: مفعّلٌ ⇒ يوزّع الخادم بـFEFO (اقتراحٌ يُعرض هنا)، ومطفأٌ ⇒ تشغيلةٌ صريحة لكل سطر (D4) */
+  const lotOn = lotFlagsOf(company as { lotTrackingEnabled?: unknown } | null).on;
+  const warehouseOn = (company as { warehouseEnabled?: boolean } | null)?.warehouseEnabled === true;
 
   const [rows, setRows] = useState<Row[]>([]);
   // إشعار حركةٍ واحدة معروضٌ الآن — طبقةٌ فوق هذه الشاشة
@@ -168,10 +211,25 @@ export default function MRepLoad({ rep, company, onClose }: {
   });
 
   const mvQ = useQuery({
-    queryKey: ['m-van-movements', rep.id],
+    queryKey: ['m-van-movements', rep.id, lotOn],
+    // withLots للإشعار المطبوع وحده: صفوف تشغيلات كل بند — وبدونه الطلب كما كان حرفاً
     queryFn: async () => expectArray<Movement>(
-      (await vanStockApi.movements(rep.id)).data?.data, tr('حركة البضاعة ماذا نزل ومتى')),
+      (await vanStockApi.movements(rep.id, lotOn ? { withLots: true } : undefined)).data?.data, tr('حركة البضاعة ماذا نزل ومتى')),
   });
+
+  /* لقطة تشغيلات السيارة: قائمة الأصناف المتتبَّعة (tracked) ومصادر التنزيل بصالحها — طلبٌ واحد للشاشة والميزة مفعّلة */
+  const snapQ = useQuery({
+    queryKey: ['m-van-lots', rep.id],
+    enabled: lotOn,
+    queryFn: async () => expectObject<VanLotSnapshotDto>((await lotsApi.vanLotBalances(rep.id)).data?.data, tr('التشغيلات')),
+  });
+  const trackedSet = useMemo(() => new Set(snapQ.data?.tracked ?? []), [snapQ.data]);
+  // علم الصنف من قائمة الأصناف ريثما تصل اللقطة — وبعدها اللقطة المرجع (أصناف السيارة والاقتراح لا تحمل العلم)
+  const pickTracked = useMemo(
+    () => new Set((prodQ.data ?? []).filter(p => p.lotTracked === true).map(p => p.id)), [prodQ.data]);
+  const trackedOf = (productId: string) => lotOn && (snapQ.data ? trackedSet.has(productId) : pickTracked.has(productId));
+  const sourcesOf = (productId: string): OutSource[] =>
+    vanOutSources(snapQ.data?.products.find(p => p.productId === productId), snapQ.data?.day ?? '');
 
   /** رصيد الصنف في السيارة الآن (بالأساس) — يُعرض على سطره فلا يُحمَّل ما لم ينفد */
   const remainingOf = useMemo(() => {
@@ -184,40 +242,109 @@ export default function MRepLoad({ rep, company, onClose }: {
   // مجموع المتبقّي عبر الأصناف بالأساس — يُسمّى كذلك حين لصنفٍ وحدةٌ أكبر، فلا يُقرأ ١٢٠٠ حبة «١٢٠٠ كرتون»
   const anyMulti = (stockQ.data ?? []).some(s => hasBigUnit(s.units));
 
-  // المصدر الوحيد للتقسيم — الواجهة تعرضه والحفظ يرسله، فلا يختلف المعروض عن المُرسَل
+  /* «تتبّع اللوط» لكل سطرٍ متتبَّع (والمطفأ لا شيء):
+   *  - تحميلٌ في شركة بلا مستودع (D4): تشغيلةٌ صريحة (قائمة، أو جديدة، أو «غير مسمى»).
+   *  - تنزيل: صفوفٌ صريحة حين للصنف في السيارة أكثر من مصدر (D10)، والمصدر الوحيد يختاره الخادم.
+   *  - تحميلٌ من المستودع: لا شيء — الخادم يوزّع بـFEFO عند الحفظ، والمعاينة أدناه اقتراحه نفسه. */
+  const outRowsOf = (r: Row): LotRef[] => r.outLots ?? prefillOut(sourcesOf(r.productId), lineBaseQty(Number(r.qty), r.unitFactor));
+  const lotPartOf = (r: Row): { lots?: LotRef[]; lotNumber?: string; productionDate?: string | null; expiryDate?: string | null } => {
+    const n = Number(r.qty);
+    if (!trackedOf(r.productId) || !Number.isFinite(n) || n === 0) return {};
+    if (n > 0) return warehouseOn ? {} : loadLotFields(r.lot ?? emptyLotDraft(), lineBaseQty(n, r.unitFactor));
+    return sourcesOf(r.productId).length > 1 ? { lots: outRowsOf(r) } : {};
+  };
+  /** مشكلة تشغيلة السطر (مفتاح قاموس) أو null — تمنع الحفظ قبل أن يرفضه الخادم */
+  const lotProblemOf = (r: Row): string | null => {
+    const n = Number(r.qty);
+    if (!trackedOf(r.productId) || !Number.isFinite(n) || n === 0) return null;
+    if (n > 0) return warehouseOn ? null : lotDraftProblem(r.lot ?? emptyLotDraft(), 'IN', { shelfOn: !!r.shelfOn });
+    const src = sourcesOf(r.productId);
+    if (snapQ.data && !src.length) return 'لا رصيد صالحا لهذا الصنف في السيارة';
+    if (src.length <= 1) return null;
+    return lotRowsProblem(outRowsOf(r), lineBaseQty(n, r.unitFactor)) ? 'وزع كمية التنزيل على التشغيلات' : null;
+  };
+
+  // المصدر الوحيد للتقسيم (splitVanMovement، وsplitLoadRows غلافٌ عليها بلا حقول اللوط) — الواجهة تعرضه والحفظ يرسله،
+  // فلا يختلف المعروض عن المُرسَل. وحقول اللوط غائبةٌ لغير المتتبَّع فالجسم كما كان حرفاً
   const split = useMemo(
-    () => splitLoadRows(rows.map(r => ({
+    () => splitVanMovement(rows.map(r => ({
       productId: r.productId, qty: Number(r.qty), unitId: r.unitId,
       suggestedQty: r.suggestedQty, expectedQty: r.expectedQty,
+      ...lotPartOf(r),
     }))),
-    [rows],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- lotPartOf تقرأ اللقطة والعلمين وحدها
+    [rows, snapQ.data, lotOn, warehouseOn],
   );
   const hasMovement = split.out.length > 0 || split.back.length > 0;
+  const lotBlocked = rows.some(r => lotProblemOf(r) !== null);
+
+  /* اقتراح FEFO للتحميل من المستودع: طلبٌ لكل صنفٍ متتبَّع بأسطره كلّها («كمية:معامل») فيوزّعها الخادم من متاحٍ مشترك
+   * كما يوزّعها الحفظ — بعد أن تستقرّ الكميات المكتوبة */
+  const settled = useSettled(rows, 400);
+  const fefoGroups = useMemo(() => {
+    if (!lotOn || !warehouseOn) return [];
+    const m = new Map<string, { rowId: string; qty: number; unitFactor: number }[]>();
+    for (const r of settled) {
+      const n = Number(r.qty);
+      if (!trackedOf(r.productId) || !(n > 0) || lineBaseQty(n, r.unitFactor) <= LOT_EPS) continue;
+      m.set(r.productId, [...(m.get(r.productId) ?? []), { rowId: r.rowId, qty: n, unitFactor: r.unitFactor }]);
+    }
+    return [...m].map(([productId, ls]) => ({ productId, ls, spec: fefoLinesParam(ls) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- trackedOf تقرأ اللقطة والعلم
+  }, [settled, lotOn, warehouseOn, snapQ.data, pickTracked]);
+  const fefoQs = useQueries({
+    queries: fefoGroups.map(g => ({
+      queryKey: ['m-van-fefo', rep.id, g.productId, g.spec],
+      staleTime: 15_000,
+      queryFn: async () => {
+        // lines يحمل أسطر الصنف كلّها (qty يُتجاهل معه) — lotsApi.fefo يمرّر المعاملات كما هي
+        const params = { productId: g.productId, qty: g.ls.reduce((s, l) => s + lineBaseQty(l.qty, l.unitFactor), 0), salesRepId: rep.id, lines: g.spec };
+        return ((await lotsApi.fefo(params)).data?.data ?? null) as FefoResp | null;
+      },
+    })),
+  });
+  /** معاينة سطرٍ بهويّته: صفوفه المقترحة، وتحذيرات صنفه ونقصه (على السطر الأول للصنف وحده) */
+  const fefoOf = (rowId: string) => {
+    for (const [gi, g] of fefoGroups.entries()) {
+      const i = g.ls.findIndex(l => l.rowId === rowId);
+      if (i < 0) continue;
+      const d = fefoQs[gi]?.data ?? null;
+      return {
+        loading: !!fefoQs[gi]?.isLoading,
+        rows: d?.lines?.find(l => l.idx === i)?.rows ?? [],
+        first: i === 0, warnings: d?.warnings ?? [], shortage: d?.shortage ?? null,
+      };
+    }
+    return null;
+  };
 
   /**
    * نقرة الصنف: أوّل سطرٍ بوحدته الافتراضية (الأكبر)، وكل نقرةٍ بعدها سطرٌ بوحدةٍ لم يأخذها سطر — وصنفٌ أُخذت
    * وحداته كلّها (أو بلا وحدات وله سطر) لا يُضاف: سطران بوحدةٍ واحدة يتنازعان الكمية.
    */
-  const addLine = (p: { unit?: string | null; units?: UnitDef[] | null }, productId: string, name: string) =>
+  /* والصنف المتتبَّع يُضاف سطراً جديداً ولو أُخذت وحداته — لكل تشغيلةٍ سطرها (D4) */
+  const addLine = (p: { unit?: string | null; units?: UnitDef[] | null }, productId: string, name: string, extra: Partial<Row> = {}) =>
     setRows(rs => {
-      const u = nextStockLineUnit(p, rs, productId);
-      return u ? [...rs, { productId, name, qty: '1', ...u }] : rs;
+      const u = nextStockLineUnit(p, rs, productId) ?? (trackedOf(productId) ? stockLineUnit(p, defaultChoice(p)) : null);
+      return u ? [...rs, { rowId: newRowId(), productId, name, qty: '1', ...u, ...extra }] : rs;
     });
-  const addProduct = (p: ProductPick) => addLine(p, p.id, p.name);
+  const addProduct = (p: ProductPick) => addLine(p, p.id, p.name, lotOn ? { shelfOn: shelfLifeOn(p) } : {});
   const addFromStock = (s: StockRow) => addLine(s, s.productId, s.name);
-  const patchQty = (key: string, v: string) => setRows(rs => rs.map(r => lineKey(r) === key ? { ...r, qty: v } : r));
+  // تغيّر الكمية أو إشارتها أو وحدتها يُسقط توزيع التنزيل اليدوي: كميته لم تعد كمية السطر
+  const patchQty = (key: string, v: string) => setRows(rs => rs.map(r => r.rowId === key ? { ...r, qty: v, outLots: undefined } : r));
   const flipSign = (key: string) => setRows(rs => rs.map(r => {
-    if (lineKey(r) !== key) return r;
+    if (r.rowId !== key) return r;
     const n = Number(r.qty);
-    return { ...r, qty: Number.isFinite(n) ? String(-n) : r.qty };
+    return { ...r, qty: Number.isFinite(n) ? String(-n) : r.qty, outLots: undefined };
   }));
-  const dropRow = (key: string) => setRows(rs => rs.filter(r => lineKey(r) !== key));
+  const dropRow = (key: string) => setRows(rs => rs.filter(r => r.rowId !== key));
+  const patchRow = (key: string, patch: Partial<Row>) => setRows(rs => rs.map(r => (r.rowId === key ? { ...r, ...patch } : r)));
   /** وحدة السطر تتبدّل والكمية المكتوبة كما هي — والمنتقي يعطّل وحدةً أخذها سطرٌ آخر للصنف */
   const setRowUnit = (key: string, unitId: string | null) => setRows(rs => rs.map(r => {
-    if (lineKey(r) !== key) return r;
+    if (r.rowId !== key) return r;
     const p = { unit: r.baseUnit, units: r.units };
     const c = unitChoices(p).find(o => o.id === unitId);
-    return c ? { ...r, ...stockLineUnit(p, c) } : r;
+    return c ? { ...r, ...stockLineUnit(p, c), outLots: undefined } : r;
   }));
 
   /** يملأ النموذج بما يستحقّ تحميلاً فقط — الأصفار ضجيجٌ لا اقتراح */
@@ -229,7 +356,7 @@ export default function MRepLoad({ rep, company, onClose }: {
       // والتنبّؤ اليومي مرجعُ قياس الدقّة لا suggestedQty: الأخيرة كمّية تعبئة تتأثّر بما في السيارة وبالهامش،
       // فقياسُها يعاقب المحرّك على ما ليس تنبّؤاً — وكلاهما بالأساس مهما كانت وحدة السطر
       const l = suggestionLine(r);
-      return { ...l, productId: r.id, name: r.name, qty: String(l.qty) };
+      return { ...l, rowId: newRowId(), productId: r.id, name: r.name, qty: String(l.qty) };
     }));
     setShowSuggest(false);
     setConfirm(null);
@@ -240,19 +367,25 @@ export default function MRepLoad({ rep, company, onClose }: {
     mutationFn: async () => {
       const { out, back } = split;
       const trimmed = note.trim() || undefined;
+      // «تتبّع اللوط»: تحذيرات الوثيقتين (تشغيلتان في السيارة، كرتونٌ مقسوم، رصيدٌ غير مسمّى) — لا تمنع لكنها تُقال
+      const warnings: LotWarning[] = [];
       if (out.length) {
-        await vanStockApi.createLoad({ salesRepId: rep.id, type: 'LOAD', note: trimmed, items: out });
+        const res = await vanStockApi.createLoad({ salesRepId: rep.id, type: 'LOAD', note: trimmed, items: out });
+        warnings.push(...lotWarningsOf((res.data as { warnings?: unknown } | undefined)?.warnings));
         // وثيقة التحميل كُتبت فعلاً: تُسقَط أسطرها فوراً كي لا تُكتب مرّتين لو
         // سقط التنزيل بعدها وأعاد المستخدم المحاولة
         setRows(rs => rs.filter(r => !(Number(r.qty) > 0)));
       }
       if (back.length) {
-        await vanStockApi.createLoad({ salesRepId: rep.id, type: 'UNLOAD', note: trimmed, items: back });
+        const res = await vanStockApi.createLoad({ salesRepId: rep.id, type: 'UNLOAD', note: trimmed, items: back });
+        warnings.push(...lotWarningsOf((res.data as { warnings?: unknown } | undefined)?.warnings));
       }
+      return warnings;
     },
-    onSuccess: () => {
+    onSuccess: (warnings) => {
       invalidateVanStock();
       toast.success(tr('تم حفظ الحركة'));
+      [...new Set(warnings.map(w => w.code))].forEach(c => toast(tr(LOT_WARNING_LABELS[c])));
       setRows([]);
       setNote('');
       setConfirm(null);
@@ -269,12 +402,14 @@ export default function MRepLoad({ rep, company, onClose }: {
   function invalidateVanStock() {
     // مفاتيح الجوال ومفاتيح اللوحة معاً — الحزمة واحدة والكاش مشترك، فترك
     // مفاتيح اللوحة يُظهر للأدمن رصيداً قديماً حين ينتقل إليها
-    ['m-van-current', 'm-van-movements', 'm-van-suggest', 'van-summary', 'van-current', 'van-movements']
+    // و«تتبّع اللوط» في الجهتين: لقطة السيارة واقتراحها وأرصدة المستودع وشاشة التتبّع (الجوال واللوحة)
+    ['m-van-current', 'm-van-movements', 'm-van-suggest', 'van-summary', 'van-current', 'van-movements',
+      ...(lotOn ? ['m-van-lots', 'm-van-fefo', 'm-wh-lots', 'm-lots', 'm-lot', 'lots', 'lot', 'lot-balances'] : [])]
       .forEach(k => qc.invalidateQueries({ queryKey: [k] }));
   }
 
   const onSave = () => {
-    if (!hasMovement) return;
+    if (!hasMovement || lotBlocked) return;
     // التنزيل يعكس اتجاه الرصيد — يُؤكَّد صراحةً، والتحميل الصِّرف يمضي بلا حاجز
     if (split.back.length) { setConfirm('save'); return; }
     save.mutate();
@@ -326,8 +461,8 @@ export default function MRepLoad({ rep, company, onClose }: {
                 {/* تمريرٌ داخليّ: قائمة أصنافٍ طويلة كانت ستدفع النموذج خارج الشاشة */}
                 <div className="max-h-[250px] overflow-y-auto overscroll-contain">
                   {stockQ.data.map(s => {
-                    // «مضاف» حين لا وحدة حرّة للصنف — وله وحدةٌ أخرى ⇒ النقرة سطرٌ ثانٍ بها
-                    const picked = nextStockLineUnit(s, rows, s.productId) === null;
+                    // «مضاف» حين لا وحدة حرّة للصنف — وله وحدةٌ أخرى ⇒ النقرة سطرٌ ثانٍ بها. والمتتبَّع يقبل سطراً لكل تشغيلة
+                    const picked = !trackedOf(s.productId) && nextStockLineUnit(s, rows, s.productId) === null;
                     return (
                       <MRow key={s.productId}
                         title={s.name}
@@ -477,7 +612,7 @@ export default function MRepLoad({ rep, company, onClose }: {
             ) : (
               <div className="max-h-[250px] overflow-y-auto overscroll-contain">
                 {prodQ.data.map(p => {
-                  const picked = nextStockLineUnit(p, rows, p.id) === null;
+                  const picked = !trackedOf(p.id) && nextStockLineUnit(p, rows, p.id) === null;
                   return (
                     <MRow key={p.id}
                       title={p.name}
@@ -507,12 +642,13 @@ export default function MRepLoad({ rep, company, onClose }: {
             {!rows.length ? (
               <p className="p-6 text-center text-[11px] text-[#9A8F7E]">{tr('ابحث وأضف صنفا')}</p>
             ) : rows.map(r => {
-              const k = lineKey(r);
+              const k = r.rowId;
               const n = Number(r.qty);
               const neg = Number.isFinite(n) && n < 0;
               const zero = !Number.isFinite(n) || n === 0;
               const prod = { unit: r.baseUnit, units: r.units };
               const opts = unitChoices(prod);
+              const tracked = trackedOf(r.productId);
               return (
                 <div key={k} className="p-3 space-y-2 border-b border-[#F1EBDF] last:border-0">
                   <div className="flex items-start gap-2">
@@ -533,8 +669,9 @@ export default function MRepLoad({ rep, company, onClose }: {
                     </button>
                   </div>
 
+                  {/* المتتبَّع: سطران بالوحدة نفسها جائزان (تشغيلتان)، فلا وحدة «مأخوذة» */}
                   <MUnitChips options={opts} value={r.unitId} onChange={id => setRowUnit(k, id)}
-                    taken={c => rows.some(x => x !== r && x.productId === r.productId && (x.unitId ?? null) === c.id)} />
+                    taken={c => !tracked && rows.some(x => x !== r && x.productId === r.productId && (x.unitId ?? null) === c.id)} />
 
                   <div className="flex items-center gap-2">
                     <button type="button" onClick={() => flipSign(k)}
@@ -556,6 +693,24 @@ export default function MRepLoad({ rep, company, onClose }: {
                       {tr('التحميل المقترح')} {qtyText(r.suggestedQty, prod, fmtQty)}
                     </p>
                   )}
+
+                  {/* «تتبّع اللوط» للصنف المتتبَّع وحده: معاينة FEFO للتحميل من المستودع، أو تشغيلة التحميل بلا مستودع،
+                      أو توزيع التنزيل على مصادر السيارة */}
+                  {tracked && !zero && !neg && warehouseOn && <FefoPreview productId={r.productId} f={fefoOf(r.rowId)} />}
+                  {tracked && !zero && !neg && !warehouseOn && (
+                    <MLotFields productId={r.productId} mode="IN" shelfOn={!!r.shelfOn} draft={r.lot ?? emptyLotDraft()}
+                      onChange={d => patchRow(k, { lot: d })} />
+                  )}
+                  {tracked && neg && (
+                    <OutLotsEditor sources={sourcesOf(r.productId)} loading={snapQ.isLoading}
+                      base={lineBaseQty(n, r.unitFactor)} rows={outRowsOf(r)}
+                      onChange={lots => patchRow(k, { outLots: lots })} />
+                  )}
+                  {tracked && (() => {
+                    const p = lotProblemOf(r);
+                    // مشكلة المسودّة يقولها منتقيها نفسه — وهنا ما سواها (التنزيل)
+                    return p && (neg || warehouseOn) ? <p className="text-[10px] text-[#C0392B] px-0.5">{tr(p)}</p> : null;
+                  })()}
                 </div>
               );
             })}
@@ -635,7 +790,7 @@ export default function MRepLoad({ rep, company, onClose }: {
             {tr('تنزيل للمستودع')}: <b className="tabular-nums">{formatNumber(split.back.length)}</b>
           </p>
         )}
-        <button onClick={onSave} disabled={!hasMovement || save.isPending}
+        <button onClick={onSave} disabled={!hasMovement || lotBlocked || save.isPending}
           className="w-full bg-[#E15A30] text-white font-bold py-3.5 rounded-xl min-h-[50px] flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
           {save.isPending ? <Loader2 size={16} className="animate-spin" /> : <ArrowDownToLine size={16} />}
           {tr('حفظ الحركة')}
@@ -665,6 +820,95 @@ export default function MRepLoad({ rep, company, onClose }: {
 }
 
 /* ═══════════════════════ لبنات داخلية ═══════════════════════ */
+
+/**
+ * «تتبّع اللوط»: معاينة توزيع FEFO لسطر تحميلٍ من المستودع — الخادم يعيد التوزيع نفسه عند الحفظ تحت القفل، فهذه قراءةٌ
+ * لما سيحدث لا اختيارٌ يُرسل. وتحذيرات الصنف ونقصه على سطره الأول وحده (لا تتكرّر لكل وحدة).
+ */
+function FefoPreview({ productId, f }: {
+  productId: string;
+  f: { loading: boolean; rows: AllocRowDto[]; first: boolean; warnings: LotWarning[]; shortage: LotShortageDetail | null } | null;
+}) {
+  const tr = useTr();
+  const lotsQ = useProductLots(productId, !!f && f.rows.some(r => r.lotId));
+  if (!f) return <p className="text-[10px] text-[#9A8F7E] px-0.5">{tr('جاري حساب التشغيلات المقترحة')}</p>;
+  const numberOf = (id: string | null) => (id ? lotsQ.data?.find(l => l.id === id)?.lotNumber ?? '…' : null);
+  return (
+    <div className="rounded-xl bg-[#FAF7F0] border border-[#F1EBDF] px-2.5 py-2 space-y-1">
+      <p className="text-[10px] font-semibold text-[#6E6557]">{tr('التشغيلات المقترحة الأقرب انتهاء أولا')}</p>
+      {f.loading ? <p className="text-[10px] text-[#9A8F7E]">{tr('جاري التحميل')}</p>
+        : !f.rows.length ? <p className="text-[10px] text-[#C0392B]">{tr('لا رصيد صالحا لهذا الصنف في المستودع')}</p>
+        : f.rows.map((r, i) => (
+          <div key={`${r.lotId ?? 'u'}-${i}`} className="flex items-center justify-between gap-2 text-[11px]">
+            <span className="min-w-0 truncate text-[#1F1A13]">
+              {lotLineLabel({ lotNumber: numberOf(r.lotId), expiryDate: r.expiryDate }, tr('غير مسمى'), tr('ينتهي'))}
+            </span>
+            <b className="tabular-nums flex-shrink-0" dir="ltr">{fmtQty(r.qty)}</b>
+          </div>
+        ))}
+      {f.first && f.shortage && (
+        <p className="text-[10px] text-[#C0392B]">
+          {tr('المتاح في المستودع')} {fmtQty(f.shortage.available)} — {tr('لن يحفظ التحميل بأكثر منه')}
+        </p>
+      )}
+      {f.first && [...new Set(f.warnings.map(w => w.code))].map(c => (
+        <p key={c} className="text-[10px] text-[#B7791F] flex items-start gap-1">
+          <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> {tr(LOT_WARNING_LABELS[c])}
+        </p>
+      ))}
+      <p className="text-[9px] text-[#9A8F7E]">{tr('يؤكد التوزيع عند الحفظ')}</p>
+    </div>
+  );
+}
+
+/**
+ * «تتبّع اللوط»: توزيع سطر التنزيل على مصادر السيارة (D10) — المصدر الوحيد يُنزَّل منه تلقائياً، وأكثر من مصدرٍ يلزمه
+ * توزيعٌ صريح مجموعه كمية السطر بالأساس. الموقوف والمنتهي في الأعلى: هو ما يُخرج أولاً في السحب.
+ */
+function OutLotsEditor({ sources, loading, base, rows, onChange }: {
+  sources: OutSource[]; loading: boolean; base: number; rows: LotRef[]; onChange: (rows: LotRef[]) => void;
+}) {
+  const tr = useTr();
+  const label = (s: OutSource) => lotLineLabel(s, tr('غير مسمى'), tr('ينتهي'));
+  if (loading) return <p className="text-[10px] text-[#9A8F7E] px-0.5">{tr('جاري التحميل')}</p>;
+  if (sources.length === 0) return null;
+  if (sources.length === 1) {
+    return (
+      <p className="text-[10px] text-[#6E6557] px-0.5">
+        {tr('ينزل من')} {label(sources[0])} · {tr('المتاح')} {fmtQty(sources[0].usable)}
+      </p>
+    );
+  }
+  const left = lotRowsRemaining(rows, base);
+  return (
+    <div className="rounded-xl bg-[#FAF7F0] border border-[#F1EBDF] px-2.5 py-2 space-y-1.5">
+      <p className="text-[10px] font-semibold text-[#6E6557]">{tr('من أي تشغيلة ينزل بوحدة الأساس')}</p>
+      {sources.map(s => {
+        const v = rows.find(r => r.lotId === s.lotId)?.qty;
+        return (
+          <div key={s.lotId ?? 'u'} className="flex items-center gap-2">
+            <span className="min-w-0 flex-1 text-[11px]">
+              <span className="block truncate text-[#1F1A13]">{label(s)}</span>
+              <span className="block text-[10px] text-[#9A8F7E]">
+                {tr('المتاح')} {fmtQty(s.usable)}
+                {s.status === 'BLOCKED' && <b className="text-[#C0392B]"> · {tr(LOT_STATUS_LABELS.BLOCKED)}</b>}
+                {s.status !== 'BLOCKED' && s.expired && <b className="text-[#C0392B]"> · {tr('منتهي الصلاحية')}</b>}
+              </span>
+            </span>
+            <input className="input w-20 text-center min-h-[40px]" dir="ltr" type="number" inputMode="decimal" step="any" min="0"
+              aria-label={label(s)} value={v ?? ''}
+              onChange={e => onChange(setOutQty(rows, sources, s.lotId, Number(e.target.value)))} />
+          </div>
+        );
+      })}
+      {Math.abs(left) > LOT_EPS && (
+        <p className="text-[10px] text-[#C0392B]">
+          {left > 0 ? tr('باقي بلا توزيع') : tr('زائد عن كمية السطر')} {fmtQty(Math.abs(left))}
+        </p>
+      )}
+    </div>
+  );
+}
 
 /** وسم الثقة — يُعرض دائماً بجوار الرقم فلا يُقرأ الاقتراح يقيناً */
 function ConfidenceTag({ c }: { c: SuggestRow['confidence'] }) {

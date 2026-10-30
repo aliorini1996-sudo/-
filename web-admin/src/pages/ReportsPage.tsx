@@ -1,13 +1,13 @@
 import { useState, useMemo, Fragment } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { reportApi, productApi, teamsApi, companyApi, attendanceAdminApi } from '../api/client';
+import { reportApi, productApi, teamsApi, companyApi, attendanceAdminApi, lotsApi } from '../api/client';
 import AttendanceEditModal from '../components/attendance/AttendanceEditModal';
 import AttendanceImportModal from '../components/attendance/AttendanceImportModal';
 import PresenceDayModal from '../components/attendance/PresenceDayModal';
 import { presenceByRepDay, presenceSummary, type PresenceRow } from '../lib/presenceReport';
 import { splitSheetsByTeam } from '../lib/teamReport';
 import RepRankingBoard, { RANKING_LABELS, type RankingData, type RankingMetric } from '../components/reports/RepRankingBoard';
-import { formatCurrency, activeLocale } from '../utils/format';
+import { formatCurrency, activeLocale, formatDayOnly } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { channelLabel } from '../lib/channels';
 import { filterFlat, filterNested } from '../lib/reportSearch';
@@ -23,6 +23,8 @@ import toast from 'react-hot-toast';
 import { useAccountingOn } from '../components/AccountingGate';
 import { baseQtyText, docQtyText, hasBigUnit } from '../lib/adminUnits';
 import { factorOf, type UnitDef } from '../lib/units';
+import { LOT_BLOCK_KIND_LABELS, LOT_STATUS_LABELS, docLotsFrom, lotFlagsOf, type InvoiceItemLotDto } from '../lib/lots';
+import { docLotsText, groupLotSales, uncertainSold, type LotSalesReportDto, type LotSalesRowDto } from '../lib/invoiceLots';
 
 type Tab = 'sales' | 'collections' | 'balances' | 'performance';
 
@@ -70,7 +72,11 @@ interface ReturnRow {
   salesRep: { id: string; name: string } | null;
   team?: { id: string; name: string } | null;
   // الوحدات المتعددة: `unit` لقطة وحدة البند والكمية بها، و`unitFactor` معاملها و`baseQty`/`baseUnit` بالأساس (routes/reports returnLineView)
-  items: { name: string; unit: string; qty: number; unitFactor?: number; baseQty?: number; baseUnit?: string; lineTotal: number; returnExpired: boolean | null; expiresAt: string | null }[];
+  items: {
+    name: string; unit: string; qty: number; unitFactor?: number; baseQty?: number; baseUnit?: string; lineTotal: number; returnExpired: boolean | null; expiresAt: string | null;
+    // «تتبّع اللوط»: صفوف توزيع البند بالأساس (withLots=1 والميزة مفعّلة) — lotId null «غير معروف»
+    lots?: InvoiceItemLotDto[];
+  }[];
 }
 /** صفّ «المبيعات حسب الصنف»: `qty` **بالأساس** (`unit` اسمها) و`units` وحدات الصنف — يُعرض «٢ كرتون و٣ حبة» */
 type SalesRow = { name: string; total: number; count?: number; qty?: number; code?: string; unit?: string; units?: UnitDef[] };
@@ -128,7 +134,16 @@ export default function ReportsPage() {
   const [rankProduct, setRankProduct] = useState('');
   // نوع تقرير العملاء: أرصدة العملاء | زيارات العملاء
   // نوع تقرير المبيعات: التجميعة كما كانت، أو قائمة الطلبات (فواتير بتاريخ تسليم)
-  const [salesType, setSalesType] = useState<'summary' | 'orders' | 'returns'>('summary');
+  const companyQ = useQuery({
+    queryKey: ['company'],
+    queryFn: async () => (await companyApi.get()).data.data as { attendanceEnabled?: boolean; paymentMethodsConfig?: unknown; lotTrackingEnabled?: boolean; lotOnInvoice?: boolean } | null,
+    staleTime: 300_000,
+  });
+  /* «تتبّع اللوط» (ميزةٌ يفعّلها المالك): تقرير «المبيعات حسب التشغيلة» وتشغيلات بنود المرتجع — مطفأةً لا خيار ولا عمود ولا
+   * طلب (§١٠.١)، ونوعٌ محفوظ «حسب التشغيلة» يسقط إلى التجميعة */
+  const lotOn = lotFlagsOf(companyQ.data).on;
+  const [salesTypeState, setSalesType] = useState<'summary' | 'orders' | 'returns' | 'lots'>('summary');
+  const salesType = salesTypeState === 'lots' && !lotOn ? 'summary' : salesTypeState;
   // نوع تقرير التحصيل: ملخّصٌ عامّ (كما كان) أو تفصيلٌ لكلّ مندوب
   const [collType, setCollType] = useState<'summary' | 'byRep'>('summary');
   const [expandedColl, setExpandedColl] = useState<string | null>(null); // صفّ المندوب المفتوح
@@ -169,12 +184,22 @@ export default function ReportsPage() {
 
   // تقرير المرتجع — مستندات الإرجاع المؤكَّدة في المدى (تاريخ المرتجع)، ومعها نسبة المرتجع من مبيعات المدى نفسه
   const returnsQ = useQuery({
-    queryKey: ['report-returns', from, to, teamFilter],
+    queryKey: ['report-returns', from, to, teamFilter, lotOn],
     queryFn: async () => {
-      const res = await reportApi.returns({ from, to, ...tp });
+      const res = await reportApi.returns({ from, to, ...tp, ...(lotOn && { withLots: '1' }) });
       return res.data.data as { returns: ReturnRow[]; summary: ReturnsSummary; rangeApplied: boolean; defaultDays: number | null };
     },
     enabled: accountingReady && accountingOn && tab === 'sales' && salesType === 'returns',
+  });
+
+  // «تتبّع اللوط» — المبيعات حسب التشغيلة: لكل (صنف، تشغيلة) المباع والمرتجع والصافي بالأساس وعدد العملاء، بالنطاق والفريق
+  const lotSalesQ = useQuery({
+    queryKey: ['report-lot-sales', from, to, teamFilter],
+    queryFn: async () => {
+      const params = { ...(from ? { from } : {}), ...(to ? { to } : {}), ...tp };
+      return (await lotsApi.lotSales(params)).data.data as LotSalesReportDto;
+    },
+    enabled: accountingReady && accountingOn && lotOn && tab === 'sales' && salesType === 'lots',
   });
 
   const { data: collectData } = useQuery({
@@ -213,11 +238,6 @@ export default function ReportsPage() {
   // تفاصيل «التحقق العشوائي من التواجد» لمندوبٍ في يوم
   const [presenceDay, setPresenceDay] = useState<{ repName: string; date: string; rows: PresenceRow[] } | null>(null);
   const [showImport, setShowImport] = useState(false);
-  const companyQ = useQuery({
-    queryKey: ['company'],
-    queryFn: async () => (await companyApi.get()).data.data as { attendanceEnabled?: boolean; paymentMethodsConfig?: unknown } | null,
-    staleTime: 300_000,
-  });
   const attendanceOn = companyQ.data?.attendanceEnabled === true;
   /* «إدارة طرق الدفع»: اسم الشركة للطريقة (مضافة أو مدمجة سمّتها) كما كتبته، وإلا كلمات هذا التقرير منذ قبل الميزة — و«تحويل»
    * القصير في البطاقات ورؤوس الأعمدة. وكان كل ما سوى الأربع (الإلكتروني وقيمٌ قديمة) يُقرأ «شيك» خطأً: الإلكتروني باسمه الآن */
@@ -364,6 +384,17 @@ export default function ReportsPage() {
     ]),
     [returnsQ.data, q],
   );
+  // «حسب التشغيلة»: البحث باسم الصنف أو كوده أو رقم التشغيلة، والعرض مجمَّعٌ بالصنف بترتيب الخادم
+  const lotSalesRows = useMemo(
+    () => filterFlat(lotSalesQ.data?.rows || [], q, r => [r.productName, r.productCode, r.lotNumber]),
+    [lotSalesQ.data, q],
+  );
+  const lotGroups = useMemo(() => groupLotSales(lotSalesRows, lotSalesQ.data?.products || []), [lotSalesRows, lotSalesQ.data]);
+  // كمية تشغيلةٍ بالأساس بوحدات صنفها («٢ كرتون و٣ حبة»)
+  const lotQty = (r: Pick<LotSalesRowDto, 'unit' | 'units'>, n: number) => baseQtyText(n, r, plainQty, { withUnit: true });
+  // تشغيلات بند مرتجعٍ نصّاً: الكمية بوحدة الأساس (صفوف التوزيع بالأساس، D22)
+  const returnLotsText = (it: ReturnRow['items'][number]) =>
+    docLotsText(docLotsFrom(it.lots), tr('غير معروف'), n => `${plainQty(n)}${it.baseUnit ? ` ${it.baseUnit}` : ''}`);
   // في المرتجعات بندٌ بغير وحدة الأساس (حبّةٌ من كرتون، كرتونٌ قديم بعد التحويل)؟ — تُكتب الوحدة بجانب الكمية حينها
   const returnsMultiUnit = returnRows.some(r => r.items.some(i => factorOf(i) !== 1));
   const returnTotals = useMemo(() => ({
@@ -630,9 +661,28 @@ export default function ReportsPage() {
           ...(returnsMultiUnit && { [tr('الوحدة')]: i.unit || '' }),
           [tr('القيمة')]: num(i.lineTotal),
           [tr('منتهي الصلاحية')]: i.returnExpired === true ? tr('نعم') : i.returnExpired === false ? tr('لا') : '',
-        }))), colWidths: returnsMultiUnit ? [16, 12, 24, 26, 10, 12, 14, 14] : [16, 12, 24, 26, 10, 14, 14] },
+          // «تتبّع اللوط»: تشغيلات البند بالأساس — عمودٌ حين تُفعَّل الميزة
+          ...(lotOn && { [tr('التشغيلات')]: returnLotsText(i) }),
+        }))), colWidths: [...(returnsMultiUnit ? [16, 12, 24, 26, 10, 12, 14, 14] : [16, 12, 24, 26, 10, 14, 14]), ...(lotOn ? [34] : [])] },
       ];
       fname = tr('تقرير المرتجع');
+    } else if (tab === 'sales' && salesType === 'lots' && lotSalesRows.length) {
+      // الكميات بالأساس أرقاماً (للجمع داخل الصنف في Excel) ومعها اسم الأساس
+      sheets = [{ name: tr('المبيعات حسب التشغيلة'), rows: lotSalesRows.map(r => ({
+        [tr('الصنف')]: r.productName,
+        [tr('كود الصنف')]: r.productCode || '',
+        [tr('رقم التشغيلة')]: r.lotNumber ?? tr('غير معروف'),
+        [tr('تاريخ الإنتاج')]: r.productionDate || '',
+        [tr('تاريخ الانتهاء')]: r.expiryDate || '',
+        [tr('الحالة')]: r.status ? tr(r.blockKind ? LOT_BLOCK_KIND_LABELS[r.blockKind] : LOT_STATUS_LABELS[r.status]) : '',
+        [tr('الوحدة')]: r.unit || '',
+        [tr('مباع')]: r.sold,
+        [tr('مرتجع')]: r.returned,
+        [tr('صافي المبيع')]: r.net,
+        [tr('عدد العملاء')]: r.customers,
+        [tr('عدد فواتير البيع')]: r.invoices,
+      })), colWidths: [26, 12, 16, 12, 12, 14, 10, 10, 10, 10, 10, 12] }];
+      fname = tr('المبيعات حسب التشغيلة');
     } else if (tab === 'sales' && salesType === 'orders' && orderRows.length) {
       sheets = [{ name: tr('تقرير الطلبات'), rows: orderRows.map(o => ({
         [tr('رقم الفاتورة')]: o.number,
@@ -969,10 +1019,11 @@ export default function ReportsPage() {
           {tab === 'sales' && (
             <div>
               <label className="label">{tr('نوع التقرير')}</label>
-              <select className="input w-44" value={salesType} onChange={e => setSalesType(e.target.value as 'summary' | 'orders' | 'returns')}>
+              <select className="input w-44" value={salesType} onChange={e => setSalesType(e.target.value as 'summary' | 'orders' | 'returns' | 'lots')}>
                 <option value="summary">{tr('تقرير المبيعات')}</option>
                 <option value="orders">{tr('تقرير الطلبات')}</option>
                 <option value="returns">{tr('تقرير المرتجع')}</option>
+                {lotOn && <option value="lots">{tr('المبيعات حسب التشغيلة')}</option>}
               </select>
             </div>
           )}
@@ -1024,7 +1075,7 @@ export default function ReportsPage() {
       {/* حصيلة البحث: بلا هذا السطر يبدو الفراغُ الناتج عن بحثٍ ضيّق كأنه
           غيابُ بيانات — وهي رسالةٌ مختلفة تماماً تدفع المشرف لمطاردة عطلٍ لا وجود له. */}
       {q && (() => {
-        const shown = tab === 'sales' ? (salesType === 'orders' ? orderRows.length : salesType === 'returns' ? returnRows.length : (Array.isArray(salesRows) ? salesRows.length : 0))
+        const shown = tab === 'sales' ? (salesType === 'orders' ? orderRows.length : salesType === 'returns' ? returnRows.length : salesType === 'lots' ? lotSalesRows.length : (Array.isArray(salesRows) ? salesRows.length : 0))
           : tab === 'collections' ? collRepShown.length
           : tab === 'balances' ? (custType === 'visits' ? custGroups.length : balanceRows.length)
           : perfType === 'performance' ? perfRows.length
@@ -1170,11 +1221,119 @@ export default function ReportsPage() {
                                 {/* بوحدة البند حين بغير الأساس: «×١ حبة» من بند كرتون لا «×١» تُقرأ كرتوناً */}
                                 {it.name} ×{docQtyText({ qty: it.qty, unitName: it.unit, unitFactor: it.unitFactor }, plainQty)}
                                 {it.returnExpired === true && <span className="ms-1 text-[10px] font-semibold text-red-600">{tr('منتهي الصلاحية')}</span>}
+                                {/* «تتبّع اللوط»: تشغيلات البند بالأساس — والبند بلا صفوف (غير متتبَّع) بلا سطر */}
+                                {lotOn && returnLotsText(it) && <span className="block text-[10px] text-[#6E6557]">{tr('التشغيلة')}: {returnLotsText(it)}</span>}
                               </span>
                             ))}
                           </td>
                           <td className="tabular-nums font-semibold text-amber-700">{formatCurrency(r.total)}</td>
                         </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* «تتبّع اللوط» — المبيعات حسب التشغيلة: لكل صنفٍ تشغيلاته (FEFO و«غير معروف» آخراً) بالمباع والمرتجع والصافي بالأساس */}
+      {tab === 'sales' && salesType === 'lots' && (
+        <div className="space-y-4">
+          {lotSalesQ.isPending ? (
+            <div className="card flex items-center justify-center h-32 text-gray-400">{tr('جاري التحميل')}</div>
+          ) : lotSalesQ.isError ? (
+            <div className="card flex flex-col items-center gap-3 py-10 text-gray-500">
+              <span>{tr('تعذر تحميل التقرير')}</span>
+              <button onClick={() => lotSalesQ.refetch()} className="btn-secondary">{tr('إعادة المحاولة')}</button>
+            </div>
+          ) : lotSalesRows.length === 0 ? (
+            <div className="card text-center text-gray-400 py-12">
+              {q ? tr('لا نتائج مطابقة للبحث') : tr('لا مبيعات بتشغيلات في هذه الفترة')}
+            </div>
+          ) : (
+            <>
+              {/* العدّادات على التقرير كله لا على نتائج البحث — والكمية لا تُجمع عبر الأصناف فلا بطاقة لها */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="card text-center">
+                  <p className="text-xs text-gray-500">{tr('التشغيلات')}</p>
+                  <p className="text-xl font-bold text-gray-700 tabular-nums">{lotSalesQ.data?.summary.lots ?? 0}</p>
+                </div>
+                <div className="card text-center">
+                  <p className="text-xs text-gray-500">{tr('الأصناف')}</p>
+                  <p className="text-xl font-bold text-gray-700 tabular-nums">{lotSalesQ.data?.summary.products ?? 0}</p>
+                </div>
+                <div className="card text-center">
+                  <p className="text-xs text-gray-500">{tr('عدد العملاء')}</p>
+                  <p className="text-xl font-bold text-[#E15A30] tabular-nums">{lotSalesQ.data?.summary.customers ?? 0}</p>
+                </div>
+                <div className="card text-center">
+                  <p className="text-xs text-gray-500">{tr('عدد فواتير البيع')}</p>
+                  <p className="text-xl font-bold text-gray-700 tabular-nums">{lotSalesQ.data?.summary.invoices ?? 0}</p>
+                </div>
+              </div>
+              {lotSalesQ.data?.rangeApplied === false && lotSalesQ.data.defaultDays && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 text-amber-800 text-xs px-3 py-2">
+                  {tr('بلا مدى محدد يعرض الخادم آخر تسعين يوما فقط')}
+                </div>
+              )}
+              {lotSalesQ.data?.scoped && (
+                <div className="rounded-xl border border-[#F1EBDF] bg-[#FAF7F0] text-[#6E6557] text-xs px-3 py-2">{tr('تقرير التشغيلات مقيد بنطاقك')}</div>
+              )}
+              {lotSalesQ.data?.truncated && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 text-amber-800 text-xs px-3 py-2">{tr('النتيجة مقطوعة عند الحد الأقصى للفواتير ضيق المدى')}</div>
+              )}
+              <div className="card p-0">
+                <div className="table-wrapper">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>{tr('الصنف')}</th><th>{tr('التشغيلة')}</th><th>{tr('تاريخ الانتهاء')}</th><th>{tr('الحالة')}</th>
+                        <th>{tr('مباع')}</th><th>{tr('مرتجع')}</th><th>{tr('صافي المبيع')}</th>
+                        <th>{tr('عدد العملاء')}</th><th>{tr('عدد فواتير البيع')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lotGroups.map(g => (
+                        <Fragment key={g.productId}>
+                          {g.rows.map((r, j) => {
+                            const u = uncertainSold(r);
+                            return (
+                              <tr key={r.lotId ?? 'unknown'}>
+                                <td className="text-gray-800">
+                                  {j === 0 && <><p className="font-medium">{r.productName}</p>{r.productCode && <p className="text-[11px] text-gray-400">{r.productCode}</p>}</>}
+                                </td>
+                                <td className="font-semibold" dir="ltr">{r.lotNumber ?? <span className="font-normal text-gray-500">{tr('غير معروف')}</span>}</td>
+                                <td className="text-sm text-gray-600 whitespace-nowrap">{r.expiryDate ? formatDayOnly(r.expiryDate) : '—'}</td>
+                                <td className="text-xs whitespace-nowrap">
+                                  {r.status === 'BLOCKED'
+                                    ? <span className="px-2 py-0.5 rounded-full font-semibold bg-red-50 text-red-700">{tr(r.blockKind ? LOT_BLOCK_KIND_LABELS[r.blockKind] : LOT_STATUS_LABELS.BLOCKED)}</span>
+                                    : r.status ? <span className="text-gray-500">{tr(LOT_STATUS_LABELS[r.status])}</span> : <span className="text-gray-300">—</span>}
+                                </td>
+                                <td className="tabular-nums">
+                                  {lotQty(r, r.sold)}
+                                  {u.assumed > 0 && <span className="block text-[10px] text-amber-700">{tr('مفترض')} {lotQty(r, u.assumed)}</span>}
+                                  {u.unknown > 0 && r.lotId !== null && <span className="block text-[10px] text-gray-400">{tr('غير معروف')} {lotQty(r, u.unknown)}</span>}
+                                </td>
+                                <td className="tabular-nums text-gray-600">{lotQty(r, r.returned)}</td>
+                                <td className={`tabular-nums font-semibold ${r.net < 0 ? 'text-red-600' : 'text-gray-800'}`}>{lotQty(r, r.net)}</td>
+                                <td className="tabular-nums">{r.customers}</td>
+                                <td className="tabular-nums text-gray-600">{r.invoices}</td>
+                              </tr>
+                            );
+                          })}
+                          {g.rows.length > 1 && g.product && (
+                            <tr className="bg-[#FAF7F0]">
+                              <td className="text-xs font-semibold text-[#6E6557]" colSpan={4}>{tr('إجمالي الصنف')} — {g.product.productName}</td>
+                              <td className="tabular-nums font-semibold">{lotQty(g.product, g.product.sold)}</td>
+                              <td className="tabular-nums font-semibold text-gray-600">{lotQty(g.product, g.product.returned)}</td>
+                              <td className="tabular-nums font-bold">{lotQty(g.product, g.product.net)}</td>
+                              <td className="tabular-nums font-semibold">{g.product.customers}</td>
+                              <td className="tabular-nums font-semibold text-gray-600">{g.product.invoices}</td>
+                            </tr>
+                          )}
+                        </Fragment>
                       ))}
                     </tbody>
                   </table>

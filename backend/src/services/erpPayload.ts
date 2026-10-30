@@ -65,14 +65,24 @@ export function localDateIn(d: Date | string | null | undefined, timeZone: strin
 type Rec = Record<string, unknown>;
 
 /**
+ * «تتبّع اللوط» لا يُربط خارجياً (§٥.٥ R4): كل مفتاحٍ يبدأ بـlot يسقط من الصنف والفاتورة وبنودها — علم التتبّع وحقبته
+ * (lotTracked، lotTrackedSince)، وعلاقات التوزيع (lots) إن ضُمّت يوماً، وما يُضاف بعدها. لا عمود في القاعدة غيرها يبدأ بـlot.
+ */
+const LOT_KEY_RE = /^lot/;
+function withoutLotKeys<T extends Rec>(r: T): T {
+  if (!Object.keys(r).some((k) => LOT_KEY_RE.test(k))) return r;
+  return Object.fromEntries(Object.entries(r).filter(([k]) => !LOT_KEY_RE.test(k))) as T;
+}
+
+/**
  * المنتج بلا صورته (base64): لا يلزم المستقبِل ويُضخّم الحمولة. ووحداته (`units`: الاسم والمعامل والسعر والرمز)
  * وشرائحه كما في القاعدة — `unit` و`basePrice` لوحدة الأساس، وهما ما تُقاس به كميات بنود الفواتير وأسعارها.
- * وبلا أعمدة «تتبّع اللوط» (لا ربط خارجي للّوط، §٥.٥ R4).
+ * وبلا أعمدة «تتبّع اللوط» (withoutLotKeys).
  */
-export function productPayloadRow<T extends Rec>(p: T): Omit<T, 'image' | 'lotTracked' | 'lotTrackedSince'> {
-  const { image: _image, lotTracked: _lotTracked, lotTrackedSince: _lotTrackedSince, ...rest } = p as T & { image?: unknown; lotTracked?: unknown; lotTrackedSince?: unknown };
-  void _image; void _lotTracked; void _lotTrackedSince;
-  return rest;
+export function productPayloadRow<T extends Rec>(p: T): Omit<T, 'image' | 'lotTracked' | 'lotTrackedSince' | 'lots'> {
+  const { image: _image, ...rest } = withoutLotKeys(p) as T & { image?: unknown };
+  void _image;
+  return rest as Omit<T, 'image' | 'lotTracked' | 'lotTrackedSince' | 'lots'>;
 }
 
 export function customerPayloadRow<T extends Rec>(c: T): T {
@@ -103,9 +113,10 @@ export function centsUp(n: number): number {
 
 /**
  * بند الفاتورة في الحمولة (payloadVersion 3) — بوحدة الأساس، والمطبوع في `lineUnit` (انظر رأس الملف).
- * بندٌ معامله ١: حرفياً كما في الإصدار الثاني، ومعه baseQty وlineUnit فقط.
+ * بندٌ معامله ١: حرفياً كما في الإصدار الثاني، ومعه baseQty وlineUnit فقط. وبلا توزيع اللوط (withoutLotKeys).
  */
-export function invoiceItemPayloadRow(it: ErpInvoiceItemInput, incl: boolean): Rec {
+export function invoiceItemPayloadRow(item: ErpInvoiceItemInput, incl: boolean): Rec {
+  const it = withoutLotKeys(item);
   const product = it.product ? productPayloadRow(it.product) : null;
   const netLine = incl ? roundHalfUp(netFromInclusive(it.unitPrice, it.taxPct), 4) : it.unitPrice;
   const netAmount = roundHalfUp(it.lineTotal - it.taxAmt, 3);
@@ -150,10 +161,10 @@ export interface ErpInvoiceInput extends Rec {
  *    وفواتير تطبيق المندوب تخزّنه شاملاً.
  *  - `netAmount`: صافي البند بعد خصم البند **وحصّته من خصم الفاتورة الكلّي** قبل الضريبة (lineTotal − taxAmt).
  *  - `invoiceDateLocal`: تاريخ الفاتورة بمنطقة الشركة. `originalInvoiceNumber`: مرجع الإشعار.
- * وبلا لقطة الفوترة الإلكترونية ورمز QR (لا يلزمان المستقبِل) وبلا صور منتجات البنود.
+ * وبلا لقطة الفوترة الإلكترونية ورمز QR (لا يلزمان المستقبِل) وبلا صور منتجات البنود، ولا شيء من «تتبّع اللوط» (withoutLotKeys).
  */
 export function invoicePayloadRow(inv: ErpInvoiceInput, timeZone: string): Rec {
-  const { einvoiceSnapshot: _snap, einvoiceQr: _qr, originalInvoice, items, ...rest } = inv as ErpInvoiceInput & { einvoiceSnapshot?: unknown; einvoiceQr?: unknown };
+  const { einvoiceSnapshot: _snap, einvoiceQr: _qr, originalInvoice, items, ...rest } = withoutLotKeys(inv) as ErpInvoiceInput & { einvoiceSnapshot?: unknown; einvoiceQr?: unknown };
   void _snap; void _qr;
   const incl = inv.pricesIncludeTax === true;
   return {

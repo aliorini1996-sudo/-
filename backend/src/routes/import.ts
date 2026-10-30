@@ -37,6 +37,11 @@ import { importBuyerRowsGate } from './customersZatca';
 import {
   importChunkTarget, mergeImportDeltas, planImportChunks, runImportChunks, type ImportProgressDelta, type ImportProgressState,
 } from '../services/importChunks';
+// «تتبّع اللوط» (§٤.٥): الافتتاحي بأعمدة التشغيلة، والتراجع بقفل الأصناف قبل الفحص وحذف التشغيلة اليتيمة
+import { randomUUID } from 'node:crypto';
+import { LotError, asLotBusy, lotHttpError, type LotWarning } from '../services/lots';
+import { acquireLotQueue, lockLotProducts } from '../services/lotsDb';
+import { LOT_PRODUCT_SELECT, assertOpeningRevertKeepsLots, deleteOrphanOpeningLots, lotEventActorOf, planOpeningLotsInTx } from '../services/lotsWarehouse';
 
 // ============================================================================
 // استيراد بيانات الشركات من أنظمتها السابقة (Excel → صفوف JSON من الواجهة).
@@ -121,6 +126,9 @@ const importedBy = (req: AuthRequest): string | null => (req.user as { name?: st
 /** رد أخطاء الاستيراد ذات الرمز، وإلا errorHandler العام */
 function sendImportError(err: unknown, res: Response, next: NextFunction): void {
   if (isImportHttpError(err)) { res.status(err.status).json(importErrorBody(err)); return; }
+  // «تتبّع اللوط» (§٣.٣): LotError بحالته ورمزه لا 500 (والانشغال يُردّ 409 القائم في موضعه)
+  const lh = err instanceof LotError ? lotHttpError(err) : null;
+  if (lh) { res.status(lh.status).json(lh.body); return; }
   next(err);
 }
 
@@ -1030,7 +1038,7 @@ type PriceImportPlan = ReturnType<typeof planPriceImportRows<z.infer<typeof pric
 // الافتتاحي عبر opening.ts القائم. قبل التفعيل وحده، وقبل تاريخ بدء المسودة؛ والكتابة تحت قفل gl-post فلا تتقاطع مع الاعتماد.
 const optText = z.preprocess((v) => (typeof v === 'number' ? String(v) : v === null ? undefined : v), z.string().trim().max(200).optional());
 const optNumber = z.preprocess((v) => (v === '' || v === null ? undefined : v), z.number().optional());
-const openingStockRow = z.object({
+export const openingStockRow = z.object({
   productCode: optText,
   barcode: optText,
   productName: optText,
@@ -1041,6 +1049,10 @@ const openingStockRow = z.object({
    * بحدّ optText (٢٠٠) لا حدّ اسم الوحدة: الصفوف هنا تُفحص دفعةً واحدة، فنصٌّ أطول كان سيرفض ملفاً قديماً كاملاً
    */
   unit: optText,
+  // «تتبّع اللوط» (§٤.٥): رقم التشغيلة وتاريخاها (YYYY-MM-DD) — ملفٌّ بلا هذه الأعمدة يعطي الصفوف والبصمة نفسها
+  lotNumber: optText,
+  productionDate: optText,
+  expiryDate: optText,
 });
 const openingStockBody = z.object({
   rows: z.array(openingStockRow).min(1).max(5000),
@@ -1055,11 +1067,13 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
     const tid = tenantId(req);
     const body = openingStockBody.parse(req.body ?? {});
     const rows = body.rows;
-    const tenant = await prisma.tenant.findUnique({ where: { id: tid }, select: { warehouseEnabled: true } });
+    const tenant = await prisma.tenant.findUnique({ where: { id: tid }, select: { warehouseEnabled: true, lotTrackingEnabled: true } });
     if (!tenant?.warehouseEnabled) {
       res.status(403).json({ success: false, code: 'WAREHOUSE_NOT_ENABLED', message: 'ميزة مخزون الشركة غير مفعلة لهذه الشركة' });
       return;
     }
+    // «تتبّع اللوط» (§٤.٥): العلم من استعلام الشركة نفسه — مطفأ ⇒ أعمدة التشغيلة تُتجاهل والمسار كما كان (§١٠.١)
+    const lotsOn = tenant.lotTrackingEnabled === true;
     const settingsOf = (db: Prisma.TransactionClient | typeof prisma) =>
       db.glSettings.findUnique({ where: { tenantId: tid }, select: { activatedAt: true, timezone: true, setupDraft: true, setupMethod: true } });
     const guard = (s: Awaited<ReturnType<typeof settingsOf>>, now: Date) =>
@@ -1081,15 +1095,23 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
         id: true, code: true, barcode: true, name: true, taxPct: true, status: true, deletedAt: true,
         // عمود «الوحدة» يُطابَق باسم الأساس أو بوحداته النشطة
         unit: true, units: { select: { name: true, factor: true, isActive: true } },
+        // «تتبّع اللوط»: العلم وحقول الصلاحية (الانتهاء إلزامي معها) في الاستعلام نفسه
+        ...LOT_PRODUCT_SELECT,
       },
     });
-    const { lines, errors } = resolveOpeningStockRows(rows, openingStockProductMatcher(products), body.pricesIncludeTax);
+    const { lines, errors } = resolveOpeningStockRows(rows, openingStockProductMatcher(products), body.pricesIncludeTax, { lotsOn });
     const result = { created: 0, skipped: 0, total: rows.length, errors, batchId: null as string | null, entryId: null as string | null, totalCost: 0 };
     if (!lines.length) { res.json({ success: true, data: { ...result, ...cappedErrors(result.errors) } }); return; }
 
     const by = (req.user as { name?: string } | undefined)?.name || null;
-    let out: { batchId: string | null; entryId: string | null; accepted: OpeningStockLine[]; rejected: ImportRowError[] };
+    // «تتبّع اللوط»: أصناف الملف المتتبَّعة بالقراءة المسبقة — لا شيء منها ⇒ لا طابور ولا قفل لوط والمسار كما كان (§١٠.٢)
+    const trackedIds = new Set(lotsOn ? products.filter(p => p.lotTracked === true).map(p => p.id) : []);
+    const lotProducts = [...new Set(lines.map(l => l.productId).filter(id => trackedIds.has(id)))];
+    let releaseLots: (() => void) | null = null;
+    let out: { batchId: string | null; entryId: string | null; accepted: OpeningStockLine[]; rejected: ImportRowError[]; lotWarnings?: LotWarning[] };
     try {
+      // طابور الأصناف قبل طلب اتصال المعاملة (D29)؛ انشغاله ⇒ 409 الانشغال القائم أدناه
+      if (lotProducts.length) releaseLots = await acquireLotQueue(tid, lotProducts);
       out = await prisma.$transaction(async tx => {
         await tx.$executeRaw`SET LOCAL lock_timeout = '5s'`;
         // قفل gl-post: اعتماد التفعيل يمسكه، فلا حركة افتتاحية تُكتب بين لقطة الافتتاح وضبط activatedAt
@@ -1105,6 +1127,9 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
         // البندان 15 و16: صنف له حركات مستودع أو تحميل سيارات سابقة لا يُضاف جرده فوق رصيد محسوب منها، وما دخل
         // في دفعة opening_stock غير متراجع عنها لا يتضاعف بإعادة الرفع — صفاً صفاً، والبقية تُكتب
         const productIds = [...new Set(lines.map(l => l.productId))];
+        // «تتبّع اللوط» (§٤.٥): أصناف الملف تُقفل قبل فحص الحركات وقبل الكتابة (بعد gl-post في ترتيب الأقفال §٣.١) — فلا يدخل
+        // تحميلٌ أو تسويةٌ لصنفٍ متتبَّع بين الفحص والكتابة، والمتتبَّع تحت القفل هو المرجع (D25). يحفظ المهلة القائمة ويستعيدها
+        const lotLocks = releaseLots ? await lockLotProducts(tx, tid, productIds) : null;
         // دفعات الجرد الافتتاحي أولاً: معرّفات حركاتها تُستثنى من فحص «الحركات السابقة» وتُقرأ وحدها بالتفصيل
         const openingBatches = await tx.importBatch.findMany({
           where: { tenantId: tid, kind: OPENING_STOCK_KIND, reverted: false }, select: { id: true, recordIds: true, createdAt: true },
@@ -1150,12 +1175,23 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
           }
         }
         const checked = openingStockMovementConflicts(lines, { movedProductIds, openingBatchOf, timezone: tz });
+        // «تتبّع اللوط» (§٤.٥): معرّف الحركة أولاً، ثم تشغيلة كل بندٍ متتبَّع (قائمةٌ أو جديدةٌ بمصدر OPENING_IMPORT
+        // وsourceEntryId للتراجع)؛ وصفٌّ بلا تشغيلة لصنفٍ صار متتبَّعاً، أو برقمٍ مسجَّل بتواريخ أخرى، خطأ صفّ لا إلغاء للملف
+        const entryId = lotLocks && checked.lines.length ? randomUUID() : null;
+        const lotPlan = lotLocks && entryId ? await planOpeningLotsInTx(tx, {
+          tenantId: tid, entryId, createdBy: by, actor: lotEventActorOf(req.user), locked: lotLocks, lines: checked.lines,
+        }) : null;
+        if (lotPlan) {
+          checked.lines = lotPlan.lines;
+          checked.errors.push(...lotPlan.rejected.map(r => importRowError(r.row, r.code, r.value, r.field)));
+        }
         if (!checked.lines.length) return { batchId: null, entryId: null, accepted: [], rejected: checked.errors };
         const entry = await tx.warehouseEntry.create({
           data: {
+            ...(lotPlan && entryId ? { id: entryId } : {}),
             tenantId: tid, type: OPENING_STOCK_ENTRY_TYPE, note: OPENING_STOCK_NOTE, createdBy: by, createdAt: dbNow,
-            // الكمية والتكلفة بوحدة الصفّ ولقطتها وbaseQty — التقييم يقسم التكلفة على المعامل (warehouseCost)
-            items: { create: checked.lines.map(l => ({ productId: l.productId, unitCost: l.unitCost, ...unitFields(l.qty, l.unitFactor && l.unitFactor !== 1 ? { name: l.unitName ?? null, factor: l.unitFactor } : null) })) },
+            // الكمية والتكلفة بوحدة الصفّ ولقطتها وbaseQty — التقييم يقسم التكلفة على المعامل (warehouseCost)؛ وتشغيلته للمتتبَّع
+            items: { create: checked.lines.map(l => ({ productId: l.productId, unitCost: l.unitCost, ...unitFields(l.qty, l.unitFactor && l.unitFactor !== 1 ? { name: l.unitName ?? null, factor: l.unitFactor } : null), ...(lotPlan && { lotId: lotPlan.lotIdByRow.get(l.row) ?? null }) })) },
           },
           select: { id: true },
         });
@@ -1166,14 +1202,18 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
           },
           select: { id: true },
         });
-        return { batchId: b.id, entryId: entry.id, accepted: checked.lines, rejected: checked.errors };
+        return { batchId: b.id, entryId: entry.id, accepted: checked.lines, rejected: checked.errors, ...(lotPlan?.warnings.length ? { lotWarnings: lotPlan.warnings } : {}) };
       }, { maxWait: 10_000, timeout: 30_000 });
     } catch (e) {
-      if (!isImportHttpError(e) && isLockBusyError(e)) {
-        res.status(409).json({ success: false, code: 'OPENING_STOCK_LEDGER_BUSY', message: LEDGER_BUSY_MESSAGE });
+      // وانشغال طابور التشغيلات أو قفلها (LOT_BUSY، 55P03، 40P01) كانشغال الدفاتر: 409 القائم (§٣.٣)
+      const lotBusy = lotProducts.length ? asLotBusy(e) : null;
+      if (!isImportHttpError(e) && (isLockBusyError(e) || lotBusy)) {
+        res.status(409).json({ success: false, code: 'OPENING_STOCK_LEDGER_BUSY', message: lotBusy && !isLockBusyError(e) ? lotBusy.message : LEDGER_BUSY_MESSAGE });
         return;
       }
       throw e;
+    } finally {
+      releaseLots?.();
     }
     // البند 40: إجمالي الجرد بمنازل عملة الشركة لا بخانتين ثابتتين (دينار بثلاث خانات، ين بلا كسور).
     // القراءة **بعد** المعاملة وقبل الردّ مباشرةً: داخلها يكون قفل gl-post ممسوكاً فلا تُضاف إليه قراءة إعدادات.
@@ -1183,6 +1223,8 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
       data: {
         ...result, ...cappedErrors([...errors, ...out.rejected]), created: out.accepted.length,
         batchId: out.batchId, entryId: out.entryId, totalCost: entryTotalCost(out.accepted, decimals),
+        // «تتبّع اللوط»: وارد الجرد إلى تشغيلةٍ قائمةٍ موقوفة مقبولٌ بتحذير (LOT_INTO_BLOCKED) — المفتاح حين يوجد وحده
+        ...(out.lotWarnings && { warnings: out.lotWarnings }),
       },
     });
   } catch (err) { sendImportError(err, res, next); }
@@ -1241,12 +1283,15 @@ router.post('/batches/:id/revert', requireAdminPermission('canDelete'), async (r
     // صلاحية نوع الدفعة، ثم النظام المحاسبي للأنواع المحاسبية (نص requireAccounting نفسه)
     const kindAccess = importAccessDecision(actor, batch.kind);
     if (!kindAccess.ok) { res.status(kindAccess.status).json(importAccessBody(kindAccess)); return; }
+    // «تتبّع اللوط» (§٤.٥، §٤.٢): علم الشركة من استعلامها القائم للأنواع المحاسبية (ومنها opening_stock وproducts) — بلا استعلام زائد
+    let lotsOn = false;
     if (isImportAccountingKind(batch.kind)) {
-      const tenant = await prisma.tenant.findUnique({ where: { id: tid }, select: { accountingEnabled: true } });
+      const tenant = await prisma.tenant.findUnique({ where: { id: tid }, select: { accountingEnabled: true, lotTrackingEnabled: true } });
       if (tenant?.accountingEnabled === false) {
         res.status(403).json({ success: false, code: 'ACCOUNTING_NOT_ALLOWED', message: ACCOUNTING_NOT_ALLOWED_MESSAGE });
         return;
       }
+      lotsOn = tenant?.lotTrackingEnabled === true;
     }
     // مراجعة 7: دفعة ما زالت تُكتب ⇒ 409 IMPORT_BATCH_RUNNING (التراجع عنها يترك قيوداً تُكتب بعده)
     assertBatchRevertible(batch, new Date());
@@ -1365,6 +1410,8 @@ router.post('/batches/:id/revert', requireAdminPermission('canDelete'), async (r
               invoiceItems: await tx.invoiceItem.count({ where: { productId: pid } }),
               vanLoadItems: await tx.vanLoadItem.count({ where: { productId: pid } }),
               warehouseEntryItems: await tx.warehouseEntryItem.count({ where: { productId: pid } }),
+              // «تتبّع اللوط» (§٤.٢): صنفٌ له تشغيلات لا يُحذف (والميزة مطفأة تحرسه علاقة Restrict فيصير «مرتبط بسجلات أخرى»)
+              productLots: lotsOn ? await tx.productLot.count({ where: { tenantId: tid, productId: pid } }) : 0,
             }) ?? await productLedgerBlockReason(tx, tid, pid);
             if (reason) return { status: 'blocked' as const, reason };
             await tx.priceTier.deleteMany({ where: { productId: pid } });
@@ -1491,7 +1538,15 @@ router.post('/batches/:id/revert', requireAdminPermission('canDelete'), async (r
       // والحركة تُحذف ببنودها ما لم تُستهلك أصنافها بعدها (تحميل سيارات أو فواتير أو تسوية بالنقص) ⇒ blocked
       assertOpeningStockRevertAllowed(coupledActivatedAt(await prisma.glSettings.findUnique({ where: { tenantId: tid }, select: { activatedAt: true, setupMethod: true } })));
       for (const eid of ids) {
+        let releaseLots: (() => void) | null = null;
         try {
+          // «تتبّع اللوط» (D29): طابور أصناف الحركة المتتبَّعة قبل طلب اتصال المعاملة — والميزة مطفأة لا قراءة ولا طابور
+          if (lotsOn) {
+            const pre = await prisma.warehouseEntryItem.findMany({
+              where: { entryId: eid, entry: { tenantId: tid }, product: { lotTracked: true } }, select: { productId: true },
+            });
+            if (pre.length) releaseLots = await acquireLotQueue(tid, pre.map(i => i.productId));
+          }
           const out = await prisma.$transaction(async tx => {
             await tx.$executeRaw`SET LOCAL lock_timeout = '5s'`;
             await acquirePostLock(tx, tid);
@@ -1500,6 +1555,9 @@ router.post('/batches/:id/revert', requireAdminPermission('canDelete'), async (r
             if (locked.length === 0) return { status: 'gone' as const };
             const entry = await tx.warehouseEntry.findUniqueOrThrow({ where: { id: eid }, select: { createdAt: true, items: { select: { productId: true } } } });
             const productIds = [...new Set(entry.items.map(i => i.productId))];
+            // «تتبّع اللوط» (ن١-١١): أصناف الحركة كلها تُقفل **قبل أي فحص** — المتتبَّع منها بقفل اللوط، فلا يُصرف منها شيء
+            // بين الفحص والحذف (بعد صفّ الحركة FOR UPDATE في ترتيب الأقفال §٣.١)
+            const lotLocks = lotsOn && productIds.length ? await lockLotProducts(tx, tid, productIds) : null;
             const since = { gte: entry.createdAt };
             const reason = productIds.length ? openingStockRevertBlockReason({
               vanLoads: await tx.vanLoadItem.count({ where: { productId: { in: productIds }, vanLoad: { tenantId: tid, type: 'LOAD', createdAt: since } } }),
@@ -1511,8 +1569,13 @@ router.post('/batches/:id/revert', requireAdminPermission('canDelete'), async (r
               }),
             }) : null;
             if (reason) return { status: 'blocked' as const, reason };
+            // «تتبّع اللوط»: تشغيلات الحركة لم تُستعمل بعدها (تحميل، أو تسمية، أو تسوية بالنقص)، وطرحها لا يجعل صالح تشغيلةٍ
+            // سالباً (I1) ولا يُنقص غير المسمّى دون min(0, قبله) (I2) — وإلا LotError يصير blocked أدناه
+            if (lotLocks?.tracked.size) await assertOpeningRevertKeepsLots(tx, tid, { id: eid, createdAt: entry.createdAt, productIds }, lotLocks);
             await tx.warehouseEntryItem.deleteMany({ where: { entryId: eid } });
             await tx.warehouseEntry.deleteMany({ where: { id: eid, tenantId: tid } });
+            // «تتبّع اللوط»: تشغيلاتٌ أنشأها هذا الاستيراد ولم يبقَ لها مرجع تُحذف مع سجل تدقيقها (LotEvent DELETE)
+            if (lotsOn) await deleteOrphanOpeningLots(tx, tid, eid, lotEventActorOf(req.user));
             return { status: 'removed' as const };
           }, { maxWait: 10_000, timeout: 30_000 });
           if (out.status === 'blocked') { blocked.push({ id: eid, name: OPENING_STOCK_NOTE, reason: out.reason }); continue; }
@@ -1520,12 +1583,18 @@ router.post('/batches/:id/revert', requireAdminPermission('canDelete'), async (r
           done.add(eid);
         } catch (e) {
           if (isImportHttpError(e)) throw e;
-          if (!isFkBlockError(e) && isLockBusyError(e)) {
-            res.status(409).json({ success: false, code: 'IMPORT_REVERT_LEDGER_BUSY', message: LEDGER_BUSY_MESSAGE });
+          // وانشغال طابور التشغيلات أو قفلها كانشغال الدفاتر: 409 القائم (§٣.٣)
+          const lotBusy = lotsOn ? asLotBusy(e) : null;
+          if (!isFkBlockError(e) && (isLockBusyError(e) || lotBusy)) {
+            res.status(409).json({ success: false, code: 'IMPORT_REVERT_LEDGER_BUSY', message: lotBusy && !isLockBusyError(e) ? lotBusy.message : LEDGER_BUSY_MESSAGE });
             return;
           }
+          // «تتبّع اللوط»: تشغيلات الحركة استُعملت بعدها ⇒ ممنوعةٌ بسببها كبقية الأسباب، والدفعة تبقى بمعرّفها
+          if (e instanceof LotError) { blocked.push({ id: eid, name: OPENING_STOCK_NOTE, reason: e.message }); continue; }
           const reason = isFkBlockError(e) ? FK_BLOCK_REASON : `تعذّر الحذف: ${(e as Error).message?.slice(0, 100) || 'خطأ'}`;
           blocked.push({ id: eid, name: OPENING_STOCK_NOTE, reason });
+        } finally {
+          releaseLots?.();
         }
       }
     }

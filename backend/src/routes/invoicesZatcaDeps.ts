@@ -19,6 +19,9 @@ import { issuanceUnitMutex } from '../compliance/zatca/unitMutex';
 import { postCashInvoiceEntries, postInvoiceEntries, postReturnEntries } from '../services/accounting';
 import { publishInvoicesChanged } from '../services/liveEvents';
 import { submitDocumentNow } from '../services/zatcaSubmit';
+// «تتبّع اللوط» (§٤.٩): الفحص المسبق والتوزيع داخل معاملة الإصدار — الخدمة نفسها التي يستدعيها مسار المرحلة الأولى
+import { allocateInvoiceLotsInTx, lotTrackingEnabledFor, precheckInvoiceLots } from '../services/lotsInvoice';
+import { companyDay, type LotTx } from '../services/lotsDb';
 import type { NoteIssuanceDeps } from './invoicesNotes';
 import type { Phase2Tx } from './invoicesZatca';
 
@@ -62,6 +65,13 @@ export function productionPhase2Deps(env: NodeJS.ProcessEnv = process.env): Note
     transaction: <T>(fn: (tx: Phase2Tx) => Promise<T>): Promise<T> =>
       prisma.$transaction(tx => fn(tx), { maxWait: ISSUANCE_TX_MAX_WAIT_MS, timeout: ISSUANCE_TX_TIMEOUT_MS }),
     publish: publishInvoicesChanged,
+    // «تتبّع اللوط» (§٤.٩): بلا طابور (D29 — الإصدار مسلسل لكل وحدة)، والمعاملة بمهلتي 10 و20 ثانية أعلاه (D13) أصلاً
+    lots: {
+      enabled: tenantId => lotTrackingEnabledFor(prisma, tenantId),
+      day: async (tenantId, at) => (await companyDay(prisma, tenantId, at)).day,
+      precheck: plan => precheckInvoiceLots(prisma, plan),
+      allocateInTx: (tx, plan) => allocateInvoiceLotsInTx(tx as unknown as LotTx, plan),
+    },
     // Z5.5 (نقد 13): رابط دفعٍ قائم على فاتورةٍ أُسقط جزء من قيمتها بإشعار دائن لا يبقى حيّاً — خارج المعاملة دائماً
     expireLinks: (tenantId, invoiceId) => {
       void import('../services/paylink')

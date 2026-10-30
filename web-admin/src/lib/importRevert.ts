@@ -230,6 +230,12 @@ export const PRODUCT_DUPLICATE_IN_FILE_MESSAGE = 'كود الصنف مكرر ف�
 /** الوحدات المتعددة: نصّا الخادم حرفياً (IMPORT_ROW_MESSAGES) — وحدة إضافية تالفة، ووحدة مجهولة لصنفٍ بوحدات */
 export const PRODUCT_UNIT_INVALID_MESSAGE = 'وحدة إضافية غير صالحة: معاملها عدد صحيح أكبر من 1 (كم وحدة أساس فيها)، واسمها لا يتكرر ولا يساوي وحدة الأساس';
 export const UNIT_NOT_FOUND_MESSAGE = 'الوحدة غير معرّفة لهذا الصنف: اكتب وحدة الأساس أو إحدى وحداته النشطة، أو اترك خانة الوحدة فارغة لوحدة الأساس';
+/** «تتبّع اللوط»: نصوص الخادم حرفياً (IMPORT_ROW_MESSAGES.LOT_*) — تشغيلة صفّ المخزون الافتتاحي لصنفٍ متتبَّع */
+export const LOT_REQUIRED_MESSAGE = 'الصنف يتتبّع بالتشغيلة: اكتب رقم التشغيلة (64 حرفاً على الأكثر)';
+export const LOT_DATES_INVALID_MESSAGE = 'تاريخ الإنتاج بعد تاريخ الانتهاء أو تاريخ غير صالح، اكتبه بالصيغة YYYY-MM-DD';
+export const LOT_EXPIRY_REQUIRED_MESSAGE = 'تاريخ انتهاء التشغيلة إلزامي لصنف صلاحيته مفعّلة';
+export const LOT_DATES_MISMATCH_MESSAGE = 'التشغيلة مسجلة لهذا الصنف بتواريخ مختلفة، صحّح التاريخين أو اتركهما فارغين';
+export const LOT_QTY_INVALID_MESSAGE = 'كمية الصنف المتتبّع بالتشغيلة بأربع خانات عشرية على الأكثر بوحدة الأساس';
 
 /** الرمز ⇒ نصه الثابت (يُمرَّر عبر tr) — الرموز غير المذكورة تأخذ رسالة الخادم كما جاءت */
 const ROW_CODE_MESSAGES: Readonly<Record<string, string>> = {
@@ -243,6 +249,11 @@ const ROW_CODE_MESSAGES: Readonly<Record<string, string>> = {
   PRODUCT_DUPLICATE_IN_FILE: PRODUCT_DUPLICATE_IN_FILE_MESSAGE,
   PRODUCT_UNIT_INVALID: PRODUCT_UNIT_INVALID_MESSAGE,
   UNIT_NOT_FOUND: UNIT_NOT_FOUND_MESSAGE,
+  LOT_REQUIRED: LOT_REQUIRED_MESSAGE,
+  LOT_DATES_INVALID: LOT_DATES_INVALID_MESSAGE,
+  LOT_EXPIRY_REQUIRED: LOT_EXPIRY_REQUIRED_MESSAGE,
+  LOT_DATES_MISMATCH: LOT_DATES_MISMATCH_MESSAGE,
+  LOT_QTY_INVALID: LOT_QTY_INVALID_MESSAGE,
 };
 
 /** مفتاح tr لخطأ صف: الرمز المعروف بنصه الثابت (لا يتأثر بتغيّر صياغة الخادم)، وإلا رسالة الخادم */

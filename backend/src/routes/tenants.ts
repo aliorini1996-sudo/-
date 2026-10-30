@@ -23,6 +23,8 @@ import {
 } from '../services/gl/ownerLedger';
 import { adminPermissionFields, ownerSessionPermissionFields } from './auth';
 import { tenantDeleteArchiveBlock } from '../compliance/zatca/settingsGuards';
+import { lotErr, lotErrorBody, lotHttpError } from '../services/lots';
+import { recordLotEvent, type LotEventActor } from '../services/lotsDb';
 
 // إدارة الشركات المشتركة — لمالك المنصّة (السوبر أدمن) فقط
 const router = Router();
@@ -73,6 +75,8 @@ const updateTenantSchema = z.object({
   paymentMethodsEnabled: z.boolean().optional(),
   // «لوكيشن» (مواقع الشركة وختم الفواتير والتحميلات بموقع المندوب) — في التحديث وحده (مطفأ افتراضياً)
   locationsEnabled: z.boolean().optional(),
+  // «تتبّع اللوط» (التشغيلات، services/lots.ts) — في التحديث وحده (مطفأ افتراضياً)؛ كل انتقالٍ إلى المفعّل يبدأ حقبةً جديدة (D25)
+  lotTrackingEnabled: z.boolean().optional(),
   // «التحصيل بالبطاقة» (NearPay SoftPOS) وتاجر الشركة لديهم — في التحديث وحده (مطفأ افتراضياً)
   cardPayEnabled: z.boolean().optional(),
   nearpayMerchantId: z.string().uuid().nullable().optional(),
@@ -81,6 +85,58 @@ const updateTenantSchema = z.object({
   subscriptionEndsAt: z.string().nullish(),
   notes: z.string().nullish(),
 });
+
+// ————— «تتبّع اللوط» على مستوى الشركة (المواصفة §٤.١، §٤.١٩، D25، D31) —————
+
+/** productId حدثِ الشركة (TRACKING_ON/OFF لعلمها) في lot_events — العمود إلزامي بلا مفتاح أجنبي، وأحداث الصنف تحمل معرّفه */
+export const TENANT_LOT_EVENT_PRODUCT = '*';
+/** مدة حفظ سجلات توزيع التشغيلات بعد انتهائها (D31) */
+export const LOT_RECORDS_RETENTION_DAYS = 180;
+/** مهلة انتظار عمليات اللوط الجارية عند بدء حقبة الشركة — دون مهلة المعاملة (٣٠ ثانية) وفوق مهلة معاملة اللوط (٢٠ ثانية، D13) */
+const TENANT_LOT_WAIT_TIMEOUT = '25s';
+
+/** أقدم انتهاءٍ يُحفظ سجلّه: تاريخ اليوم (UTC — يومٌ أبكر من الرياض قبل منتصف ليلها، أي أحوط) ناقص مدة الحفظ */
+export function lotRecordsKeepFrom(now: Date): Date {
+  const d = new Date(now.getTime() - LOT_RECORDS_RETENTION_DAYS * 86_400_000);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
+/** تشغيلاتٌ سجلّها محفوظ (D31): انتهاؤها في المدة أو بعدها أو بلا انتهاء، ولها صفّ توزيع على سيارة أو فاتورة */
+export function lotRecordsRetainedWhere(tid: string, keepFrom: Date): Prisma.ProductLotWhereInput {
+  return {
+    tenantId: tid,
+    OR: [{ expiryDate: null }, { expiryDate: { gte: keepFrom } }],
+    AND: [{ OR: [{ vanLoadItemLots: { some: {} } }, { invoiceItemLots: { some: {} } }] }],
+  };
+}
+
+/** ?confirmLotRecords=1 (وحده، كتأكيد حذف الدفاتر) */
+export function isLotRecordsConfirmed(queryValue: unknown): boolean {
+  return queryValue === '1' || (Array.isArray(queryValue) && queryValue.length === 1 && queryValue[0] === '1');
+}
+
+/**
+ * تبدأ حقبة الشركة **بعد** عمليات اللوط الجارية: كل عملية لوطٍ تمسك صفوف أصنافها FOR KEY SHARE حتى تلتزم (lockLotProducts)،
+ * وFOR UPDATE على الأصناف المتتبَّعة ينتظرها — ومنها عمليةٌ قرأت حقبةً سابقة قبل إطفاءٍ وإعادة تفعيلٍ متتابعين، فلو كتبت صفوفها
+ * بعد بداية الجديدة لصار لوطٌ مسمّى سالباً (I1). وما يبدأ بعدنا ينتظر التزامنا فيقرأ الحقبة الجديدة. الصفوف بترتيب المعرّف كما يقفلها
+ * lockLotProducts (ORDER BY id) فلا تعطّل متبادل معها. المهلة محلية بالحفظ والاستعادة (نمطه نفسه): تجاوزها 55P03 ⇒ 503 LOT_BUSY،
+ * والمعاملة تُجهَض فلا حقبة نصفية.
+ */
+async function waitLotOperations(tx: Prisma.TransactionClient, tid: string): Promise<void> {
+  const prev = await tx.$queryRaw<{ lock_timeout: string }[]>`SELECT current_setting('lock_timeout') AS lock_timeout`;
+  await tx.$executeRaw`SELECT set_config('lock_timeout', ${TENANT_LOT_WAIT_TIMEOUT}, true)`;
+  await tx.$executeRaw`SELECT 1 FROM products WHERE "tenantId" = ${tid} AND "lotTracked" = true ORDER BY id FOR UPDATE`;
+  await tx.$executeRaw`SELECT set_config('lock_timeout', ${prev[0]?.lock_timeout ?? '0'}, true)`;
+}
+
+/**
+ * علم الشركة السابق تحت قفل صفّها: FOR NO KEY UPDATE هو قفل tenant.update نفسه مأخوذاً مبكّراً — يرتّب تبديلين متزامنين فيقرأ
+ * الثاني ما التزمه الأوّل، ولا يتعارض مع FOR KEY SHARE الذي تأخذه مفاتيح ProductLot وLotEvent الأجنبية (فلا ينتظره كاتب لوط).
+ */
+async function lockedTenantLotFlag(tx: Prisma.TransactionClient, tid: string): Promise<{ lotTrackingEnabled: boolean } | null> {
+  const rows = await tx.$queryRaw<{ lotTrackingEnabled: boolean }[]>`SELECT "lotTrackingEnabled" FROM tenants WHERE id = ${tid} FOR NO KEY UPDATE`;
+  return rows[0] ?? null;
+}
 
 // ————— نظام تشغيل المالك (خطة فجوة التنفيذ) —————
 // بطاقات القرار بحالتها (العمر، التأخر عن SLA، المهل التقويمية)
@@ -265,10 +321,27 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     }
     // M2 (§5.6 الخطوة 1، §9.3): تبديل العَلَم يُدوَّن FLAG_TOGGLE في معاملة التحديث نفسها، حين تتغير
     // القيمة فعلاً وحدها، دون اشتراط صف GlSettings ولا أي زرع في مسار المالك.
+    // «تتبّع اللوط» (§٤.١): الجسم بلا العلم ⇒ المعاملة كما كانت حرفياً (لا قراءة ولا مهلة جديدة)
+    const lotToggle = body.lotTrackingEnabled !== undefined;
     const tenant = await prisma.$transaction(async tx => {
       const before = body.accountingSuiteEnabled === undefined
         ? null
         : await tx.tenant.findUnique({ where: { id: req.params.id }, select: { accountingSuiteEnabled: true } });
+      // «تتبّع اللوط» (D25): السابق داخل المعاملة، وكل انتقالٍ إلى المفعّل يبدأ حقبةً جديدة (lotTrackingSince) بعد عمليات اللوط
+      // الجارية — فأرصدة التشغيلات تصير غير مسمّاة حتى تُسمّى (D8). وقبل أي كتابة: صفوف الأصناف قبل صفّ الشركة كترتيب §٣.١.
+      // القراءة الأولى بلا قفل تقرّر الانتظار وحده؛ والمرجع للحقبة والحدث هو السابق تحت قفل صفّ الشركة بعده: تبديلان متزامنان
+      // (نقرة حفظٍ مزدوجة) يرى ثانيهما ما التزمه الأوّل، فلا حقبة ثانية فوق الأولى ولا TRACKING_ON/OFF مكرّر
+      const lotHint = lotToggle
+        ? await tx.tenant.findUnique({ where: { id: req.params.id }, select: { lotTrackingEnabled: true } })
+        : null;
+      const lotWaited = lotHint !== null && lotHint.lotTrackingEnabled !== true && body.lotTrackingEnabled === true;
+      if (lotWaited) await waitLotOperations(tx, req.params.id);
+      const lotBefore = lotHint ? await lockedTenantLotFlag(tx, req.params.id) : null;
+      if (lotBefore && lotBefore.lotTrackingEnabled !== true && body.lotTrackingEnabled === true) {
+        // إطفاءٌ متزامن التزم بين القراءتين (نادر): الانتظار هنا بعد صفّ الشركة — لا تأخذ عملية لوطٍ عليه إلا FOR KEY SHARE
+        if (!lotWaited) await waitLotOperations(tx, req.params.id);
+        data.lotTrackingSince = new Date();
+      }
       // «التحصيل بالبطاقة»: تغيير تاجر الشركة لدى NearPay يُسقط إسناد نقاط البيع القديمة — نقطةُ التاجر السابق لا يبقى مالها لهذه الشركة
       if (body.nearpayMerchantId !== undefined) {
         const prev = await tx.tenant.findUnique({ where: { id: req.params.id }, select: { nearpayMerchantId: true } });
@@ -290,10 +363,25 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
           after: { accountingSuiteEnabled: updated.accountingSuiteEnabled },
         });
       }
+      // سجل تدقيق اللوط (المادة ٥٢): تبديل علم الشركة حدثٌ على مستوى الشركة (productId = TENANT_LOT_EVENT_PRODUCT)، حين تتغيّر القيمة وحدها
+      if (lotBefore && (lotBefore.lotTrackingEnabled === true) !== (updated.lotTrackingEnabled === true)) {
+        await recordLotEvent(tx, {
+          tenantId: updated.id, lotId: null, productId: TENANT_LOT_EVENT_PRODUCT,
+          kind: updated.lotTrackingEnabled === true ? 'TRACKING_ON' : 'TRACKING_OFF',
+          before: { lotTrackingEnabled: lotBefore.lotTrackingEnabled === true },
+          after: { lotTrackingEnabled: updated.lotTrackingEnabled === true, lotTrackingSince: updated.lotTrackingSince ? updated.lotTrackingSince.toISOString() : null },
+          actor: lotEventActorOf(req),
+        });
+      }
       return updated;
-    });
+    }, lotToggle ? { maxWait: 10_000, timeout: 30_000 } : undefined); // بدء الحقبة قد ينتظر عملية لوطٍ جارية (D13: حتى ٢٠ ثانية)
     res.json({ success: true, data: tenant });
-  } catch (err) { next(err); }
+  } catch (err) {
+    // تبديل «تتبّع اللوط» وحده: انتظارٌ تجاوز المهلة (55P03) أو مهلة المعاملة ⇒ 503 LOT_BUSY (أعد المحاولة)
+    const lh = req.body?.lotTrackingEnabled !== undefined ? lotHttpError(err) : null;
+    if (lh) { res.status(lh.status).json(lh.body); return; }
+    next(err);
+  }
 });
 
 // دخول المالك إلى لوحة الشركة (انتحال) — يُصدر توكن بصلاحيات أدمن الشركة
@@ -376,6 +464,20 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
       return;
     }
 
+    // «تتبّع اللوط» — حارس الحفظ (D31): سجلات توزيع تشغيلاتٍ حديثة تلزم لاستدعاء المنتج ١٨٠ يوماً بعد انتهائها؛ الحذف يتطلب
+    // ?confirmLotRecords=1 بعد تصديرها. بعد حرّاس الفوترة والدفاتر (ما لا يتجاوزه تأكيد أولاً) وقبل أول حذف. عدٌّ واحد في مسارٍ
+    // نادر للمالك (§١٠.١)، ولا عدّ بعد التأكيد
+    if (!isLotRecordsConfirmed(req.query.confirmLotRecords)) {
+      const keepFrom = lotRecordsKeepFrom(new Date());
+      const retainedLots = await prisma.productLot.count({ where: lotRecordsRetainedWhere(tid, keepFrom) });
+      if (retainedLots > 0) {
+        res.status(409).json(lotErrorBody(lotErr('LOT_RECORDS_RETAINED', {}, {
+          lots: retainedLots, expiryFrom: keepFrom.toISOString().slice(0, 10), retentionDays: LOT_RECORDS_RETENTION_DAYS,
+        })));
+        return;
+      }
+    }
+
     // معاملة تفاعلية أولها قفل gl-post: المُرحِّل يرحّل تحت القفل نفسه، فيُعاد حارس الحفظ داخلها قبل أي حذف
     // (قيد رُحّل بعد القراءة أعلاه يغيّر القرار ⇒ لا يُحذف شيء، §9.5 G6 (د))
     let finalCounts = { postedMoves, retentionUntil: retention.retentionUntil as string | null };
@@ -412,6 +514,12 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
         await tx.priceTier.deleteMany({ where: { product: { tenantId: tid } } });
         await tx.notification.deleteMany({ where: { tenantId: tid } });
         await tx.customer.deleteMany({ where: { tenantId: tid } });
+        // «تتبّع اللوط» (§٤.١٩): ما يشير إلى اللوطات بلا تعاقب (NoAction) قبلها، واللوطات قبل الأصناف (Restrict). صفوف
+        // invoice_item_lots حُذفت تعاقبياً مع البنود أعلاه، وlot_events تُحذف تعاقبياً مع الشركة
+        await tx.lotRelabel.deleteMany({ where: { tenantId: tid } });
+        await tx.vanLoadItemLot.deleteMany({ where: { tenantId: tid } });
+        await tx.warehouseEntryItem.updateMany({ where: { entry: { tenantId: tid }, lotId: { not: null } }, data: { lotId: null } });
+        await tx.productLot.deleteMany({ where: { tenantId: tid } });
         await tx.product.deleteMany({ where: { tenantId: tid } });
         await tx.productCategory.deleteMany({ where: { tenantId: tid } });
         await tx.companySettings.deleteMany({ where: { tenantId: tid } });
@@ -582,6 +690,12 @@ export function ownerActor(req: PlatformRequest): GlActor {
   const base = { actorId: req.user!.id, impersonated: false, requestIp: req.ip ?? null };
   if (!req.platformStaff) return { actorType: 'OWNER', actorName: req.user!.name ?? null, ...base };
   return { actorType: 'STAFF', actorName: `موظف المنصة: ${req.platformStaff.name}`, ...base };
+}
+
+/** منفّذ حدث اللوط من منفّذ اللوحة (ownerActor): المالك، أو موظف المنصة باسمه */
+function lotEventActorOf(req: PlatformRequest): LotEventActor {
+  const a = ownerActor(req);
+  return { type: a.actorType === 'STAFF' ? 'STAFF' : 'OWNER', id: a.actorId, name: a.actorName ?? null };
 }
 
 /** رمية داخل المعاملة لرد منظّم بعد تراجعها */

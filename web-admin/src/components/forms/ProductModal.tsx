@@ -19,11 +19,14 @@ import {
   ShelfLifeBasis, ShelfLifeUnit, previewExpiry, returnRuleValueProblem,
 } from '../../lib/shelfLife';
 import { formatDayOnly } from '../../utils/format';
+import { productLotNote, productLotPayload } from '../../lib/lotTrackingUi';
 
 interface Props {
   product: Product | null; onClose: () => void; onSave: (data: Partial<Product>) => void; loading: boolean;
   /** فوترة ZATCA (Z5.1a): الشركة تجمع بيانات الفوترة؟ (zatcaCollectOn) — false ⇒ النموذج والحمولة كما اليوم */
   zatcaCollect?: boolean;
+  /** «تتبّع اللوط» مفعّل للشركة؟ (lotFlagsOf(company).on) — false ⇒ لا قسم ولا حقل في الحمولة (§١٠.١) */
+  lotTrackingOn?: boolean;
 }
 
 // يضغط الصورة في المتصفح (يصغّر الأبعاد ويحوّلها JPEG) لتقليل حجمها قبل التخزين
@@ -53,7 +56,7 @@ function compressImage(file: File, maxSize = 400, quality = 0.7): Promise<string
   });
 }
 
-export default function ProductModal({ product, onClose, onSave, loading, zatcaCollect = false }: Props) {
+export default function ProductModal({ product, onClose, onSave, loading, zatcaCollect = false, lotTrackingOn = false }: Props) {
   const tr = useTr();
   const { register, handleSubmit, watch, setValue, getValues, formState: { errors } } = useForm<Partial<Product>>({
     // وحدة الصلاحية الافتراضية «أشهر» — صنفٌ قديم بلا وحدة محفوظة لا يُرسل فارغاً حين تُفعَّل له
@@ -76,6 +79,9 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
   const [units, setUnits] = useState<ProductUnit[]>(product?.units ?? []);
   const [savedBase, setSavedBase] = useState<string>(product?.unit ?? '');
   const [savedBasePrice, setSavedBasePrice] = useState<number>(Number(product?.basePrice ?? 0));
+  // «تتبّع باللوط» — حالةٌ محلية لا حقل نموذج: يُرسل حين يتغيّر وحده (productLotPayload)، والإطفاء بأرصدة يؤكَّد بعد ردّ الخادم (D9)
+  const [lotTracked, setLotTracked] = useState<boolean>(product?.lotTracked === true);
+  const lotNote = lotTrackingOn ? productLotNote(product, lotTracked) : null;
 
   const { data: categories } = useQuery({
     queryKey: ['product-categories'],
@@ -113,8 +119,9 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
   };
   const submit = (data: Partial<Product>) => {
     // units تُحفظ بمساراتها لا مع الصنف — وإرسال لقطتها القديمة (من فتح النافذة) لا معنى له فتُنزع من الحمولة
-    const { vatCategory: cat, vatExemptionCode, vatExemptionReason, units: _units, ...rest } = data;
-    void _units;
+    // وعلما اللوط من الصنف المحمَّل (lotTracked وحقبته) لا يُعادان كما هما: الانتقال وحده يُرسل (productLotPayload أدناه)
+    const { vatCategory: cat, vatExemptionCode, vatExemptionReason, lotTracked: _lotTracked, lotTrackedSince: _lotTrackedSince, units: _units, ...rest } = data;
+    void _units; void _lotTracked; void _lotTrackedSince;
     // اسم الأساس لا يأخذ اسم وحدةٍ أكبر للصنف نفسه (والخادم يرفضه) — «٢ كرتون» تصير ملتبسة بين الأساس والكرتون
     const newBase = String(rest.unit ?? '').trim();
     if (product && newBase !== savedBase.trim() && units.some(u => u.name.trim() === newBase)) {
@@ -143,6 +150,7 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
       returnRuleEnabled: ruleEnabled, returnRuleMode: rest.returnRuleMode || 'NEAR_EXPIRY', returnRuleMetric: rest.returnRuleMetric || 'DAYS',
       returnRuleValue: ruleVal,
       image: image || null, ...(zatcaCollect ? productVatPayload({ vatCategory: cat, vatExemptionCode, vatExemptionReason }) : {}),
+      ...productLotPayload(product, lotTrackingOn, lotTracked),
     } as Partial<Product>);
   };
 
@@ -325,6 +333,34 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
               </div>
             )}
           </div>
+
+          {/* «تتبّع باللوط» — للشركة المفعّلة لها الميزة وحدها: الصنف المتتبَّع يُسجَّل بتشغيلته في الوارد والتحميل والفواتير،
+              ويصرف المندوب الأقرب انتهاءً تلقائياً بلا نقرة، ولا يُباع من تشغيلاته أكثر من رصيدها */}
+          {lotTrackingOn && (
+            <div className="rounded-xl border border-gray-200 p-3 space-y-2" data-lot-tracking="">
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <input type="checkbox" checked={lotTracked} onChange={e => setLotTracked(e.target.checked)} className="w-4 h-4 accent-[#E15A30]" />
+                <span className="text-sm font-semibold text-gray-700">{tr('تتبع باللوط')}</span>
+                <span className="text-[10px] text-gray-400 mr-auto">{tr('رقم التشغيلة وتاريخ انتهائها في كل حركة')}</span>
+              </label>
+              <p className="text-[11px] text-gray-500 leading-relaxed">
+                {tr('يسجل الوارد بتشغيلته ويصرف المندوب الأقرب انتهاء تلقائيا ولا يباع من التشغيلات أكثر من رصيدها ولو سمح البيع بدون مخزون')}
+              </p>
+              {lotTracked && lifeOn && (
+                <p className="text-[11px] text-gray-500">{tr('تاريخ انتهاء التشغيلة إلزامي لأن صلاحية الصنف مفعلة')}</p>
+              )}
+              {lotNote === 'OFF' && (
+                <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 leading-relaxed">
+                  {tr('الإطفاء يخفي تشغيلات الصنف ولا يحذفها وإن كانت له أرصدة في تشغيلات نطلب تأكيدك عند الحفظ')}
+                </p>
+              )}
+              {lotNote === 'NEW_EPOCH' && (
+                <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 leading-relaxed">
+                  {tr('إعادة التفعيل تبدأ حقبة جديدة للصنف أرصدته تصير غير مسماة حتى تسمى من جديد')}
+                </p>
+              )}
+            </div>
+          )}
 
           {/* فوترة ZATCA المرحلة الثانية: الفئة الضريبية للصنف — للشركة التي تجمع بيانات الفوترة وحدها */}
           {zatcaCollect && (

@@ -9,8 +9,8 @@ import { canAccessCustomer } from '../services/customerScope';
 import { applyProductVatGate } from './productsZatca';
 import { RETURN_RULE_METRICS, RETURN_RULE_MODES, SHELF_LIFE_BASES, SHELF_LIFE_UNITS, returnRuleConfigProblem, shelfLifeProblem } from '../services/shelfLife';
 import { MAX_UNIT_FACTOR, QTY_EPS, unitProblem, factorOf, type UnitDef } from '../services/units';
-import { LotError, asLockBusy, lotErrorBody } from '../services/lots';
-import { lockLotProducts } from '../services/lotsDb';
+import { LOT_BUCKETS, LOT_EPS, LotError, asLockBusy, asLotBusy, lotErr, lotErrorBody, lotHttpError, roundLot, type BucketQty, type PlaceLotView } from '../services/lots';
+import { LOT_LOCK_TIMEOUT, acquireLotQueue, lockLotProducts, placeViews, recordLotEvent, type LotEventActor, type LotTx } from '../services/lotsDb';
 
 const router = Router();
 router.use(authenticate); // القراءة متاحة للمندوب (للبحث عند إصدار الفاتورة)؛ الكتابة للإدارة فقط
@@ -45,6 +45,14 @@ const productSchema = z.object({
   itemCode: z.string().nullish().or(z.literal('')),     // كود الصنف (EGS/GS1)
   itemCodeType: z.enum(['EGS', 'GS1']).nullish(),
   unitCode: z.string().nullish().or(z.literal('')),     // كود الوحدة حسب جدول المزوّد
+});
+
+// «تتبّع اللوط» (§٤.٢) — مخطّطٌ منفصل عن productSchema فلا يمرّ العلم في { ...data } إلى الإنشاء والتعديل: انتقاله يُحكم بعلم
+// الشركة والقفل والحقبة (setProductLotTracking)، وproductSchema يُسقط المفتاحين من data كأي مفتاحٍ مجهول.
+// nullish لا optional (درس productSchema أعلاه): null من نموذج RHF غيابٌ كما كان قبل الميزة — لا 400 ولا انتقال (§١٠.١)
+const productLotSchema = z.object({
+  lotTracked: z.boolean().nullish(),
+  confirmLotBalances: z.boolean().nullish(), // إطفاء تتبّع صنفٍ له أرصدة في تشغيلات (D9)
 });
 
 const categorySchema = z.object({ name: z.string().min(1) });
@@ -256,6 +264,126 @@ async function categoryOwned(tid: string, categoryId: string | null | undefined)
   return (await prisma.productCategory.count({ where: { id: categoryId, tenantId: tid } })) > 0;
 }
 
+// ═══ «تتبّع اللوط» للصنف (المواصفة §٤.٢، §٤.١٩، D9، D25) ═══
+
+/**
+ * فاعل سجل تدقيق اللوط (LotEvent، المادة ٥٢): جلسة «دخول» المالك أو موظف المنصة موسومةٌ بمُصدِرها لا باسم المدير الذي وُقّع به
+ * التوكن (وعد «لا يدخل حسابك إلا مديره»)، والمفتاح بمعرّفه، والإدارة بمعرّفها واسمها.
+ */
+function lotActorOf(req: AuthRequest): LotEventActor {
+  const u = req.user;
+  if (isOwnerSession(req)) {
+    return u?.byKind === 'STAFF' ? { type: 'STAFF', id: u.by ?? null, name: 'موظف المنصة' } : { type: 'OWNER', id: u?.by ?? null, name: 'الدعم الفني' };
+  }
+  if (u?.apiKeyId) return { type: 'API_KEY', id: u.apiKeyId, name: u.name ?? null };
+  return { type: 'ADMIN', id: u?.id ?? null, name: u?.name ?? null };
+}
+
+/** علم الشركة — يُقرأ حين يطلب الجسم **تفعيل** التتبّع وحده (§١٠.١: لا استعلام إضافي في غيره) */
+async function lotsAllowed(tid: string): Promise<boolean> {
+  const t = await prisma.tenant.findUnique({ where: { id: tid }, select: { lotTrackingEnabled: true } });
+  return t?.lotTrackingEnabled === true;
+}
+
+const isoOrNull = (d: Date | null | undefined): string | null => (d ? new Date(d).toISOString() : null);
+
+/** رصيدٌ مسمّى للصنف في مكان — qty = Σ الخام الموجب في دلائه (الأساس، D22) — تفاصيل LOT_TRACKING_HAS_BALANCE (D9) */
+export interface NamedLotBalance { place: 'WAREHOUSE' | 'VAN'; salesRepId: string | null; lotId: string; lotNumber: string; qty: number; raw: BucketQty }
+/** سقف التشغيلات المسرودة في تفاصيل الرفض — والعدد الكامل معها */
+const LOT_BALANCES_DETAIL_MAX = 50;
+
+/**
+ * أرصدة التشغيلات المسمّاة للصنف في كل الأماكن (D9): المستودع، وكل سيارةٍ لها صفّ لوطٍ للصنف (حركة أو فاتورة أو تسمية) ومنها
+ * سيارة المندوب المحذوف. الخام بعد الحقبة من placeViews نفسها وبالكمية الأساسية (D22)؛ «رصيدٌ» = خامٌ موجب > EPS في أي دلو
+ * (D9 حرفياً، ودلالة الإطفاء الجماعي نفسها: lotsTrace.namedLotBalances). يُحسب عند الانتقال إلى الإطفاء وحده (ن٢-١٤)، داخل
+ * معاملته بعد القفل.
+ */
+export async function namedLotBalances(tx: LotTx, tid: string, productId: string): Promise<NamedLotBalance[]> {
+  const keyRows = await tx.$queryRaw<{ vanKey: string }[]>`
+    SELECT "vanKey" FROM van_load_item_lots WHERE "tenantId" = ${tid} AND "productId" = ${productId}
+    UNION SELECT "vanKey" FROM invoice_item_lots WHERE "tenantId" = ${tid} AND "productId" = ${productId} AND "vanKey" IS NOT NULL
+    UNION SELECT "vanKey" FROM lot_relabels WHERE "tenantId" = ${tid} AND "productId" = ${productId} AND place = 'VAN' AND "vanKey" IS NOT NULL`;
+  const vanKeys = [...new Set(keyRows.map((r) => r.vanKey).filter((k): k is string => typeof k === 'string' && k.length > 0))].sort();
+  const views = await placeViews(tx, tid, { warehouse: true, vanKeys, productIds: [productId], withTotals: false });
+  const out: NamedLotBalance[] = [];
+  const collect = (view: PlaceLotView | undefined, place: NamedLotBalance['place'], salesRepId: string | null) => {
+    for (const l of view?.lots ?? []) {
+      const qty = roundLot(LOT_BUCKETS.reduce((s, b) => s + Math.max(0, l.raw[b]), 0));
+      if (qty > LOT_EPS) out.push({ place, salesRepId, lotId: l.lotId, lotNumber: l.meta.lotNumber, qty, raw: { ...l.raw } });
+    }
+  };
+  collect(views.warehouse.get(productId), 'WAREHOUSE', null);
+  for (const key of vanKeys) collect(views.vans.get(key)?.get(productId), 'VAN', key);
+  return out;
+}
+
+/**
+ * تفاصيل LOT_TRACKING_HAS_BALANCE للصنف الواحد: `products` بشكل الإطفاء الجماعي نفسه (POST /api/lots/products/tracking) فتعرضهما
+ * الواجهة بعارضٍ واحد، و`lots` تفصيلها لكل تشغيلةٍ ومكان (أول LOT_BALANCES_DETAIL_MAX، والعدد في `count`).
+ */
+export function trackingBalanceDetail(productId: string, name: string | null, balances: NamedLotBalance[]): Record<string, unknown> {
+  const warehouse = roundLot(balances.filter((b) => b.place === 'WAREHOUSE').reduce((s, b) => s + b.qty, 0));
+  const byVan = new Map<string, number>();
+  for (const b of balances) if (b.place === 'VAN' && b.salesRepId) byVan.set(b.salesRepId, (byVan.get(b.salesRepId) ?? 0) + b.qty);
+  const vans = [...byVan].map(([salesRepId, qty]) => ({ salesRepId, qty: roundLot(qty) }));
+  return {
+    productId, updated: 0,
+    products: [{ productId, name, warehouse, vans, qty: roundLot(warehouse + vans.reduce((s, v) => s + v.qty, 0)) }],
+    count: balances.length, lots: balances.slice(0, LOT_BALANCES_DETAIL_MAX),
+  };
+}
+
+/**
+ * تبديل «تتبّع باللوط» للصنف (§٤.٢، D25) مع بقية حقول التعديل في معاملةٍ واحدة: الطابور قبل المعاملة، ثم صفّ الصنف FOR UPDATE —
+ * ينتظر كل عملية لوطٍ تمسكه FOR KEY SHARE (lockLotProducts) ويحجب ما بعدها حتى نلتزم — ثم قفل اللوط. الحالة المقروءة تحت القفل
+ * هي المرجع: تبديلٌ متزامن سبقنا إليها ⇒ لا انتقال ولا حدث. التفعيل يبدأ حقبةً جديدة **بعد** الأقفال، فصفوفٌ كتبتها عمليةٌ وزّعت
+ * على حقبةٍ سابقة تقع قبلها ولا تدخل الخام (لا سالب مسمّى منها). الإطفاء بأرصدةٍ مسمّاة يتطلب confirmLotBalances وإلا
+ * LOT_TRACKING_HAS_BALANCE (D9)، ويُخفي ولا يحذف؛ وإعادة التفعيل حقبةٌ جديدة: المسمّى يصير غير مسمّى حتى يُسمّى. لا تسميات تصحيح
+ * (الحقبة تكفي). LotEvent TRACKING_ON/OFF في المعاملة نفسها. null ⇒ الصنف غير موجود.
+ */
+async function setProductLotTracking(tid: string, productId: string, on: boolean,
+  opts: { confirm: boolean; data: Record<string, unknown>; actor: LotEventActor }) {
+  const release = await acquireLotQueue(tid, [productId]);
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<{ id: string; name: string; lotTracked: boolean; lotTrackedSince: Date | null }[]>`
+        SELECT id, name, "lotTracked", "lotTrackedSince" FROM products WHERE id = ${productId} AND "tenantId" = ${tid} FOR UPDATE`;
+      const row = rows[0];
+      if (!row) return null;
+      // قفل اللوط في الاتجاهين — الصفّ مقفلٌ سلفاً فلا FOR KEY SHARE ثانية، والاستشاري يُؤخذ ولو لم يكن الصنف متتبَّعاً بعد
+      await lockLotProducts(tx, tid, [productId], { lockedRows: [{ id: row.id, lotTracked: true, lotTrackedSince: row.lotTrackedSince ?? null }] });
+      const moves = (row.lotTracked === true) !== on;
+      const data: Record<string, unknown> = { ...opts.data };
+      let balances: NamedLotBalance[] = [];
+      if (moves) {
+        if (!on) {
+          balances = await namedLotBalances(tx, tid, productId);
+          if (balances.length > 0 && !opts.confirm) {
+            throw lotErr('LOT_TRACKING_HAS_BALANCE', {}, trackingBalanceDetail(productId, row.name ?? null, balances));
+          }
+        }
+        data.lotTracked = on;
+        if (on) data.lotTrackedSince = new Date(); // بعد الأقفال لا قبلها
+      }
+      const product = await tx.product.update({ where: { id: productId }, data, include: { category: true, units: UNITS_ORDER } });
+      if (moves) {
+        await recordLotEvent(tx, {
+          tenantId: tid, lotId: null, productId, kind: on ? 'TRACKING_ON' : 'TRACKING_OFF',
+          before: { lotTracked: row.lotTracked === true, lotTrackedSince: isoOrNull(row.lotTrackedSince) },
+          after: {
+            lotTracked: on, lotTrackedSince: isoOrNull(on ? (data.lotTrackedSince as Date) : row.lotTrackedSince),
+            ...(!on && { confirmLotBalances: opts.confirm, namedBalances: balances.length }),
+          },
+          actor: opts.actor,
+        });
+      }
+      return product;
+    }, { maxWait: 10_000, timeout: 20_000 }); // D13
+  } finally {
+    release();
+  }
+}
+
 router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
@@ -276,12 +404,28 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
     const vatGate = await applyProductVatGate(prisma, req.body, tid, { productId: null, taxPct: data.taxPct });
     if (!vatGate.ok) { res.status(vatGate.status).json(vatGate.body); return; }
     if (!(await categoryOwned(tid, data.categoryId))) { res.status(400).json({ success: false, message: 'التصنيف غير موجود' }); return; }
-    const product = await prisma.product.create({ data: { ...data, ...vatGate.patch, barcode: data.barcode || null, shelfLifeFromDate: asDay(data.shelfLifeFromDate), categoryId: data.categoryId || null, image: data.image || null, itemCode: data.itemCode || null, unitCode: data.unitCode || null, tenantId: tid } as any, include: { category: true, units: UNITS_ORDER } });
+    // «تتبّع اللوط» (§٤.٢): صنفٌ يُنشأ متتبَّعاً يلزمه علم الشركة، وتبدأ حقبته لحظة إنشائه، وTRACKING_ON في معاملة الإنشاء نفسها.
+    // صنفٌ جديد لا عملية لوطٍ عليه قبل التزامه فلا قفل ولا طابور. والجسم بلا العلم (أو بـfalse) ⇒ الإنشاء كما كان حرفياً
+    const lot = productLotSchema.parse(req.body);
+    if (lot.lotTracked === true && !(await lotsAllowed(tid))) { res.status(403).json(lotErrorBody(lotErr('LOTS_NOT_ALLOWED'))); return; }
+    const lotStart = lot.lotTracked === true ? { lotTracked: true, lotTrackedSince: new Date() } : null;
+    const createArgs = { data: { ...data, ...vatGate.patch, barcode: data.barcode || null, shelfLifeFromDate: asDay(data.shelfLifeFromDate), categoryId: data.categoryId || null, image: data.image || null, itemCode: data.itemCode || null, unitCode: data.unitCode || null, tenantId: tid, ...lotStart } as any, include: { category: true, units: UNITS_ORDER } };
+    const product = !lotStart
+      ? await prisma.product.create(createArgs)
+      : await prisma.$transaction(async (tx) => {
+        const created = await tx.product.create(createArgs);
+        await recordLotEvent(tx, {
+          tenantId: tid, lotId: null, productId: created.id, kind: 'TRACKING_ON',
+          after: { lotTracked: true, lotTrackedSince: lotStart.lotTrackedSince.toISOString(), created: true }, actor: lotActorOf(req),
+        });
+        return created;
+      });
     res.status(201).json({ success: true, data: product });
   } catch (err) { next(err); }
 });
 
 router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  let lotPath = false;
   try {
     const tid = tenantId(req);
     const exists = await prisma.product.findFirst({
@@ -290,6 +434,7 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
         id: true, shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true, shelfLifeBasis: true, shelfLifeFromDate: true,
         returnRuleEnabled: true, returnRuleMode: true, returnRuleMetric: true, returnRuleValue: true,
         unit: true, units: { select: { name: true } },
+        lotTracked: true, // «تتبّع اللوط»: الانتقال يُعرف من القراءة نفسها بلا استعلام
       },
     });
     if (!exists) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
@@ -312,6 +457,10 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
     };
     const lifeProblem = shelfLifeProblem(merged) ?? returnRuleConfigProblem(merged);
     if (lifeProblem) { res.status(400).json({ success: false, message: lifeProblem }); return; }
+    // «تتبّع اللوط» (§٤.٢): القيمة المرسلة المختلفة عن المحفوظ وحدها انتقال — وتفعيله وحده يقرأ علم الشركة (§١٠.١)
+    const lot = productLotSchema.parse(req.body);
+    const lotTo = lot.lotTracked != null && lot.lotTracked !== exists.lotTracked ? lot.lotTracked : null;
+    if (lotTo === true && !(await lotsAllowed(tid))) { res.status(403).json(lotErrorBody(lotErr('LOTS_NOT_ALLOWED'))); return; }
     const updateData: Record<string, unknown> = { ...data };
     if ('barcode' in updateData) updateData.barcode = updateData.barcode || null;
     // taxPct الفارغ (حقل مُسح او null من النموذج) يعني «بلا تغيير» لا تصفير النسبة
@@ -326,6 +475,14 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
     const vatGate = await applyProductVatGate(prisma, req.body, tid, { productId: req.params.id, taxPct: updateData.taxPct as number | undefined });
     if (!vatGate.ok) { res.status(vatGate.status).json(vatGate.body); return; }
     Object.assign(updateData, vatGate.patch);
+    if (lotTo !== null) {
+      // الانتقال وبقية الحقول في معاملة القفل نفسها (setProductLotTracking) — والردّ بشكل التعديل العادي نفسه
+      lotPath = true;
+      const tracked = await setProductLotTracking(tid, req.params.id, lotTo, { confirm: lot.confirmLotBalances === true, data: updateData, actor: lotActorOf(req) });
+      if (!tracked) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
+      res.json({ success: true, data: tracked });
+      return;
+    }
     const product = await prisma.product.update({
       where: { id: req.params.id },
       data: updateData,
@@ -333,7 +490,12 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
       include: { category: true, units: UNITS_ORDER },
     });
     res.json({ success: true, data: product });
-  } catch (err) { next(err); }
+  } catch (err) {
+    // مسار الانتقال وحده: LotError (LOT_TRACKING_HAS_BALANCE…) والانشغال (55P03، 40P01، P2028، الطابور) ⇒ 503 LOT_BUSY
+    const lh = lotPath ? lotHttpError(err) : null;
+    if (lh) { res.status(lh.status).json(lh.body); return; }
+    next(err);
+  }
 });
 
 router.delete('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -342,33 +504,48 @@ router.delete('/:id', requireAdmin, async (req: AuthRequest, res: Response, next
     const product = await prisma.product.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
     if (!product) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
 
-    // صنف له أثر مالي/مخزني يؤرشف لا يمحى: يختفي من كل القوائم ولا يباع مجددا،
-    // ويبقى صفه باسمه حيا فتعرضه الفواتير والسندات والكشوف القديمة وتقارير
-    // المبيعات حسب الصنف كما كانت حرفيا
-    const [invoiceItems, loadItems, warehouseItems] = await Promise.all([
-      prisma.invoiceItem.count({ where: { productId: req.params.id } }),
-      prisma.vanLoadItem.count({ where: { productId: req.params.id } }),
-      prisma.warehouseEntryItem.count({ where: { productId: req.params.id } }),
-    ]);
-    if (invoiceItems > 0 || loadItems > 0 || warehouseItems > 0) {
-      await prisma.$transaction([
-        prisma.priceTier.deleteMany({ where: { productId: req.params.id } }),
-        prisma.customerPrice.deleteMany({ where: { productId: req.params.id } }),
-        prisma.product.update({ where: { id: req.params.id }, data: { deletedAt: new Date(), status: 'INACTIVE' } }),
-      ]);
-      res.json({ success: true, archived: true });
-      return;
-    }
-
-    // بلا أي أثر: حذف فعلي مع بيانات التسعير التابعة، في معاملة واحدة
-    await prisma.$transaction([
-      prisma.priceTier.deleteMany({ where: { productId: req.params.id } }),
-      prisma.customerPrice.deleteMany({ where: { productId: req.params.id } }),
-      prisma.product.delete({ where: { id: req.params.id } }),
-    ]);
-    res.json({ success: true, archived: false });
-  } catch (err) { next(err); }
+    // صنف له أثر مالي/مخزني — أو تشغيلة (§٤.١٩: ProductLot يمنع حذفه، Restrict) — يؤرشف لا يمحى: يختفي من كل القوائم ولا
+    // يباع مجددا، ويبقى صفه باسمه حيا فتعرضه الفواتير والسندات والكشوف القديمة وتقارير المبيعات حسب الصنف وشاشة التتبّع كما
+    // كانت حرفيا. العدّ والحذف في معاملة واحدة بعد قفل صفّ الصنف FOR UPDATE: بندٌ أو حركةٌ أو تشغيلةٌ تُكتب بين العدّ والحذف
+    // تنتظر القفل (فحص مفتاحها الأجنبي يأخذ FOR KEY SHARE على الصنف، وكل عملية لوطٍ كذلك)، فلا يُمحى صنفٌ صار له أثر
+    const archived = await prisma.$transaction(async (tx) => {
+      // انتظار القفل بمهلةٍ محلية تُحفظ وتُستعاد (نمط lockLotProducts): من يمسك الصفّ أطول منها (convert-base حتى ١٢٠ ثانية،
+      // أو عملية لوطٍ حتى ٢٠) ⇒ 55P03 ⇒ 503 LOT_BUSY مبكراً، لا انتظار مهلة المعاملة ثم 500
+      const prev = await tx.$queryRaw<{ lock_timeout: string }[]>`SELECT current_setting('lock_timeout') AS lock_timeout`;
+      await tx.$executeRaw`SELECT set_config('lock_timeout', ${LOT_LOCK_TIMEOUT}, true)`;
+      const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM products WHERE id = ${req.params.id} AND "tenantId" = ${tid} FOR UPDATE`;
+      await tx.$executeRaw`SELECT set_config('lock_timeout', ${prev[0]?.lock_timeout ?? '0'}, true)`;
+      return locked.length ? deleteOrArchiveLocked(tx, req) : null;
+    }, { maxWait: 10_000, timeout: 20_000 }); // قد ينتظر القفلُ عمليةَ لوطٍ جارية (D13)
+    if (archived === null) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
+    res.json({ success: true, archived });
+  } catch (err) {
+    // الانشغال (55P03، 40P01، أو P2028 مهلة المعاملة) ⇒ 503 LOT_BUSY «أعد المحاولة» (D14) لا 500 برسالةٍ داخلية
+    const busy = asLotBusy(err);
+    if (busy) { res.status(busy.status).json(lotErrorBody(busy)); return; }
+    next(err);
+  }
 });
+
+/**
+ * حذف الصنف أو أرشفته **بعد** قفل صفّه FOR UPDATE داخل معاملة الحذف (§٤.١٩) — `prisma` هنا عميل المعاملة. العدّ على بنود الصنف
+ * بمعرّفه (بند الإشعار المدين بلا صنف لا يُعدّ)، ومعه تشغيلاته: ProductLot يمنع حذفه (Restrict) فصنفٌ له تشغيلة يُؤرشف.
+ */
+async function deleteOrArchiveLocked(prisma: Prisma.TransactionClient, req: AuthRequest): Promise<boolean> {
+  const invoiceItems = await prisma.invoiceItem.count({ where: { productId: req.params.id } });
+  const loadItems = await prisma.vanLoadItem.count({ where: { productId: req.params.id } });
+  const warehouseItems = await prisma.warehouseEntryItem.count({ where: { productId: req.params.id } });
+  const lots = await prisma.productLot.count({ where: { productId: req.params.id } });
+  await prisma.priceTier.deleteMany({ where: { productId: req.params.id } });
+  await prisma.customerPrice.deleteMany({ where: { productId: req.params.id } });
+  if (invoiceItems > 0 || loadItems > 0 || warehouseItems > 0 || lots > 0) {
+    await prisma.product.update({ where: { id: req.params.id }, data: { deletedAt: new Date(), status: 'INACTIVE' } });
+    return true;
+  }
+  // بلا أي أثر: حذف فعلي مع بيانات التسعير التابعة
+  await prisma.product.delete({ where: { id: req.params.id } });
+  return false;
+}
 
 router.put('/:id/price-tiers', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {

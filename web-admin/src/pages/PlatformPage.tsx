@@ -29,6 +29,7 @@ import { BrandIcon } from '../components/BrandLogo';
 import LanguageToggle from '../components/LanguageToggle';
 import { useTr } from '../i18n/strings';
 import { backdropClose } from '../lib/backdropClose';
+import { lotRecordsRetainedOf, tenantLotNote, tenantLotPayload } from '../lib/lotTrackingUi';
 // سجلّ عروض الأسعار — كسولٌ: يجرّ html2canvas وjsPDF لمعاينة المستند وتنزيله
 const QuotesPanel = lazy(() => import('../components/QuotesPanel'));
 // «موظفو المنصة» وسجل نشاطهم — للمالك وحده، فلا تُحمَّل حزمتها في جلسة موظف أصلاً
@@ -561,16 +562,31 @@ function DeleteConfirmModal({ tenant, onDone, onClose }: { tenant: Tenant; onDon
   const canSuspend = usePlatformAccess().can('tenants.edit');
   const [confirmText, setConfirmText] = useState('');
   const matches = confirmText.trim() === tenant.name.trim();
-  const [stage, setStage] = useState<'confirm' | 'retention' | 'destroy'>('confirm');
+  const [stage, setStage] = useState<'confirm' | 'retention' | 'destroy' | 'lots'>('confirm');
   const [ledgerInfo, setLedgerInfo] = useState<{ retentionUntil: string | null; postedMoves: number } | null>(null);
   const [destroyText, setDestroyText] = useState('');
   const destroyPhrase = tr('احذف الدفاتر');
   const destroyMatches = destroyText.trim() === destroyPhrase;
+  // «تتبّع اللوط» (D31): سجلات توزيع تشغيلاتٍ حديثة تُحفظ ١٨٠ يوماً — الخادم يردّ 409 LOT_RECORDS_RETAINED بعد حرّاس الدفاتر،
+  // فيُعاد الطلب بـconfirmLotRecords مع تأكيد الدفاتر الذي سبقه (ledgerConfirmed) بعد عبارة تأكيدٍ ثانية
+  const [lotInfo, setLotInfo] = useState<{ lots: number; expiryFrom: string | null; retentionDays: number } | null>(null);
+  const [ledgerConfirmed, setLedgerConfirmed] = useState(false);
+  const [lotsText, setLotsText] = useState('');
+  const lotsPhrase = tr('احذف سجلات التشغيلات');
+  const lotsMatches = lotsText.trim() === lotsPhrase;
 
   const deleteMutation = useMutation({
-    mutationFn: (confirmLedgerDestroy: boolean) => tenantApi.remove(tenant.id, confirmLedgerDestroy),
+    mutationFn: ({ ledger, lots }: { ledger: boolean; lots: boolean }) => tenantApi.remove(tenant.id, ledger, lots),
     onSuccess: () => { toast.success(tr('تم حذف الشركة')); onDone(); },
-    onError: (err: unknown) => {
+    onError: (err: unknown, sent) => {
+      const lotRec = lotRecordsRetainedOf(err);
+      if (lotRec) {
+        setLotInfo(lotRec);
+        setLedgerConfirmed(sent.ledger);
+        setLotsText('');
+        setStage('lots');
+        return;
+      }
       const d = errData(err);
       if (d?.code === 'LEDGER_RETENTION_ACTIVE') {
         setLedgerInfo({ retentionUntil: d.retentionUntil ?? null, postedMoves: d.postedMoves ?? 0 });
@@ -638,6 +654,57 @@ function DeleteConfirmModal({ tenant, onDone, onClose }: { tenant: Tenant; onDon
     );
   }
 
+  if (stage === 'lots' && lotInfo) {
+    return (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+          <div className="p-6 text-center border-b border-gray-100">
+            <div className="w-14 h-14 bg-amber-100 rounded-2xl flex items-center justify-center mx-auto mb-3">
+              <AlertTriangle size={28} className="text-amber-600" />
+            </div>
+            <h2 className="text-lg font-bold text-gray-800">{tr('للشركة سجلات تتبع تشغيلات حديثة')}</h2>
+            <p className="text-sm text-gray-500 mt-1">{tenant.name}</p>
+          </div>
+          <div className="p-6 space-y-4">
+            <div className="bg-amber-50 text-amber-800 rounded-lg px-3 py-2.5 text-xs leading-relaxed">
+              {tr('سجلات توزيع التشغيلات على العملاء تلزم لاستدعاء المنتج وتحفظ 180 يوما بعد انتهاء التشغيلة — اطلب من الشركة تصدير سجلات التتبع من شاشة تتبع اللوط قبل الحذف أو أوقف الشركة بدل حذفها')}
+            </div>
+            <div className="bg-gray-50 rounded-lg px-3 py-2.5 space-y-1 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500">{tr('تشغيلات سجلها محفوظ')}</span>
+                <span className="font-bold text-gray-800">{formatNumber(lotInfo.lots)}</span>
+              </div>
+              {lotInfo.expiryFrom && (
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-500">{tr('تنتهي في أو بعد')}</span>
+                  <span className="font-semibold text-gray-800" dir="ltr">{lotInfo.expiryFrom}</span>
+                </div>
+              )}
+            </div>
+            <div>
+              <label className="label">{tr('اكتب العبارة للتأكيد')}: <span className="text-red-600 font-bold">{lotsPhrase}</span></label>
+              <input className="input" value={lotsText} onChange={e => setLotsText(e.target.value)} placeholder={lotsPhrase} />
+            </div>
+          </div>
+          <div className="flex gap-3 p-6 pt-0">
+            <button onClick={() => deleteMutation.mutate({ ledger: ledgerConfirmed, lots: true })} disabled={!lotsMatches || loading}
+              className="flex-1 justify-center py-2.5 rounded-xl bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white font-semibold flex items-center gap-2">
+              {loading ? spinner : <Trash2 size={15} />}
+              {tr('حذف الشركة وسجلات التشغيلات')}
+            </button>
+            {canSuspend && tenant.isActive && (
+              <button onClick={() => suspendMutation.mutate()} disabled={suspendMutation.isPending} className="btn-secondary">
+                <Power size={15} />
+                {tr('إيقاف الشركة')}
+              </button>
+            )}
+            <button onClick={onClose} className="btn-secondary">{tr('إلغاء')}</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (stage === 'destroy' && ledgerInfo) {
     return (
       <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl">
@@ -669,7 +736,7 @@ function DeleteConfirmModal({ tenant, onDone, onClose }: { tenant: Tenant; onDon
             </div>
           </div>
           <div className="flex gap-3 p-6 pt-0">
-            <button onClick={() => deleteMutation.mutate(true)} disabled={!destroyMatches || loading}
+            <button onClick={() => deleteMutation.mutate({ ledger: true, lots: false })} disabled={!destroyMatches || loading}
               className="flex-1 justify-center py-2.5 rounded-xl bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white font-semibold flex items-center gap-2">
               {loading ? spinner : <Trash2 size={15} />}
               {tr('حذف الشركة والدفاتر نهائيا')}
@@ -701,7 +768,7 @@ function DeleteConfirmModal({ tenant, onDone, onClose }: { tenant: Tenant; onDon
           </div>
         </div>
         <div className="flex gap-3 p-6 pt-0">
-          <button onClick={() => deleteMutation.mutate(false)} disabled={!matches || loading}
+          <button onClick={() => deleteMutation.mutate({ ledger: false, lots: false })} disabled={!matches || loading}
             className="flex-1 justify-center py-2.5 rounded-xl bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white font-semibold flex items-center gap-2">
             {loading ? spinner : <Trash2 size={15} />}
             {tr('حذف نهائي')}
@@ -902,6 +969,9 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
   const [catalogEnabled, setCatalogEnabled] = useState(!!tenant.catalogEnabled);
   const [paylinkEnabled, setPaylinkEnabled] = useState(!!tenant.paylinkEnabled);
   const [warehouseEnabled, setWarehouseEnabled] = useState(!!tenant.warehouseEnabled);
+  // «تتبّع اللوط» (التشغيلات) — مطفأ افتراضياً ⇒ `!!`؛ يُرسل حين يتغيّر وحده (tenantLotPayload) فلا يمرّ حفظٌ آخر بمعاملة الحقبة
+  const [lotTrackingEnabled, setLotTrackingEnabled] = useState(!!tenant.lotTrackingEnabled);
+  const lotNote = tenantLotNote(tenant, lotTrackingEnabled);
   const [dailyReportEnabled, setDailyReportEnabled] = useState(!!tenant.dailyReportEnabled);
   const [attendanceEnabled, setAttendanceEnabled] = useState(!!tenant.attendanceEnabled);
   const [invoiceSignatureEnabled, setInvoiceSignatureEnabled] = useState(!!tenant.invoiceSignatureEnabled);
@@ -954,6 +1024,7 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
       catalogEnabled,
       paylinkEnabled,
       warehouseEnabled,
+      ...tenantLotPayload(tenant, lotTrackingEnabled),
       dailyReportEnabled,
       attendanceEnabled,
       invoiceSignatureEnabled,
@@ -1080,6 +1151,26 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
               <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={warehouseEnabled} onChange={e => setWarehouseEnabled(e.target.checked)} />
               {tr('تفعيل مخزون الشركة المستودع لهذه الشركة')}
             </label>
+            <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2">
+              <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={lotTrackingEnabled} onChange={e => setLotTrackingEnabled(e.target.checked)} />
+              {tr('تفعيل تتبع اللوط التشغيلات لهذه الشركة')}
+            </label>
+            <p className="text-xs text-gray-400 mt-1">{tr('يسجل رقم التشغيلة وتاريخ انتهائها في الوارد والتحميل والفواتير فتعرف أي عميل استلم كل تشغيلة وتوقفها أو تسحبها عند الحاجة والمندوب يصرف الأقرب انتهاء تلقائيا بلا أي نقرة ولا يباع من التشغيلات أكثر من رصيدها — تتطلب النظام المحاسبي')}</p>
+            {lotNote === 'OFF' && (
+              <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-1 leading-relaxed" data-lot-tenant-note="off">
+                {tr('الإطفاء يخفي تتبع اللوط ولا يحذف بياناته وسجلات توزيع التشغيلات تحفظ 180 يوما بعد انتهائها لاستدعاء المنتج عند الحاجة')}
+              </p>
+            )}
+            {lotNote === 'NEW_EPOCH' && (
+              <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-1 leading-relaxed" data-lot-tenant-note="epoch">
+                {tr('إعادة التفعيل تبدأ حقبة جديدة أرصدة التشغيلات تصير غير مسماة حتى تسمى من جديد')}
+              </p>
+            )}
+            {lotNote === 'FIRST_ON' && (
+              <p className="text-xs text-[#6E6557] bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2 mt-1 leading-relaxed" data-lot-tenant-note="first">
+                {tr('بعد التفعيل تصحح الشركة الأرصدة السالبة ثم تسمي رصيد المستودع والسيارات ثم تفعل التتبع للأصناف من صفحة المنتجات')}
+              </p>
+            )}
             <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2">
               <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={dailyReportEnabled} onChange={e => setDailyReportEnabled(e.target.checked)} />
               {tr('تفعيل التقرير اليومي لهذه الشركة')}

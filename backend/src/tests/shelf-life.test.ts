@@ -79,6 +79,9 @@ test('حارس نصّي: الصلاحية من تاريخ البيع — الص�
   assert.ok(inv.includes('const tracksExpiry = products.some((p) => shelfLifeOf(p));'));
 
   const svc = read('services/invoiceExpiry.ts');
+  // «تتبّع اللوط» (D12): الختم اللاحق للأصناف المفعّلة صلاحيتها وحدها، ويتخطّى البند المختوم داخل معاملة إصداره (التشغيلة أو
+  // صلاحية المرتجع المرتبط) — بلا استعلامٍ ولا علم
+  assert.ok(svc.includes('it.productId && it.product && shelfLifeOf(it.product) && it.expiresAt == null'), 'مرشّح الختم اللاحق');
   const after = svc.slice(svc.indexOf('export async function stampExpiryAfterIssue'));
   assert.match(after, /try \{\s*await stampInvoiceExpiry\(tenantId, id\);\s*\} catch/, 'التسجيل لا يُفشل الإصدار أبداً');
   // المرتجع الحرّ يُقاس على آخر بيعٍ لهذا الصنف لهذا العميل قبله، غير ملغى ولا إشعار؛ والمرتبط على بند أصله

@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { warehouseApi, productApi, companyApi, repStockRequestApi } from '../api/client';
 import { formatDate, formatCurrency, formatDayOnly } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import SearchableSelect from '../components/SearchableSelect';
-import { Warehouse, PackagePlus, X, Trash2, TrendingUp, TrendingDown, AlertTriangle, Calendar, ArrowRightLeft, Wallet, Info, FileDown, ClipboardList, Truck } from 'lucide-react';
+import { Warehouse, PackagePlus, X, Trash2, TrendingUp, TrendingDown, AlertTriangle, Calendar, ArrowRightLeft, Wallet, Info, FileDown, ClipboardList, Truck, Layers, ChevronDown, ChevronUp, CopyPlus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
 import DocumentModal from '../components/DocumentModal';
@@ -15,11 +15,23 @@ import { useAuthStore } from '../store/authStore';
 import { baseQtyText, biggestUnit, hasBigUnit } from '../lib/adminUnits';
 import { choiceById, defaultChoice, unitChoices } from '../rep/repUnits';
 import type { UnitDef } from '../lib/units';
+import {
+  LOT_BLOCK_KIND_LABELS, LOT_STATUS_LABELS, LOT_WARNING_LABELS, isLotExpiredOn, lotDay, lotErrorOf, lotFlagsOf, lotWarningsOf, roundLot, toBaseQty,
+} from '../lib/lots';
+import {
+  emptyEntryLot, entryLotFields, entryLotProblem, lotRowSummary, newRowId, normalizeEntryLot, outSourcesOf, shelfLifeOn,
+  type EntryLotDraft, type EntryLotKind, type PlaceViewWithAvailability,
+} from '../lib/stockLots';
+import { EntryLotFields, fetchLotBalances, fmtLotQty } from '../components/StockLotFields';
 
 /*
  * الوحدات المتعددة: أرصدة المستودع كلّها **بوحدة الأساس** (`unit`) وتُعرض «٢ كرتون و٣ حبة» من `units`، ومتوسّط التكلفة
  * لوحدة الأساس (الحبة لا الكرتون). وسطر الوارد بوحدته وسعرها كما في فاتورة المورّد («١٠ كرتون بـ٤٨ للكرتون») —
  * الخادم يحلّ `unitId` إلى معامله ويقسم التكلفة عليه عند التقييم. وسجلّ الوارد يقرأ لقطة وحدة كل سطر.
+ *
+ * «تتبّع اللوط» (W2، يفعّله المالك لكل شركة): سطر الوارد لصنفٍ متتبَّع بتشغيلته (الرقم وتاريخا الإنتاج والانتهاء)، وللصنف
+ * أكثر من سطرٍ لدفعتين؛ والتسوية بمصدرٍ صريح؛ وصفّ الرصيد يتوسّع بتشغيلاته والمعزول والعجز (ومع «المخزون في تاريخ»).
+ * الميزة مطفأة ⇒ لا جلب ولا عمود ولا تغيير مرئي (§١٠.١).
  */
 
 interface WhRow {
@@ -36,14 +48,34 @@ interface WhEntry {
   id: string; type: string; note: string | null; supplier: string | null; createdBy: string | null; createdAt: string;
   // lineCost: قيمة السطر كما قرّبها الخادم — للإشعار المطبوع، مجموعها = totalCost.
   // unitName/unitFactor لقطة وحدة السطر: الكمية وتكلفة الوحدة بها (الكرتون كرتوناً)
-  items: { id: string; qty: number; unitName?: string | null; unitFactor?: number | null; unitCost: number | null; lineCost?: number | null; product: { name: string; unit: string } }[];
+  // lot: تشغيلة السطر («تتبّع اللوط»، والميزة مفعّلة وحدها)
+  items: {
+    id: string; qty: number; unitName?: string | null; unitFactor?: number | null; baseQty?: number | null; unitCost: number | null; lineCost?: number | null;
+    product: { name: string; unit: string };
+    lot?: { lotNumber: string; productionDate: string | null; expiryDate: string | null } | null;
+  }[];
   totalCost: number; // يحسبه الخادم بالدالّة المختبَرة — لا يُعاد حسابه هنا
+}
+/** صنفٌ كما يردّه /products — حقول اللوط والصلاحية لسطر الوارد */
+interface ProductPick {
+  id: string; name: string; unit: string; code: string; taxPct: number; units?: UnitDef[];
+  lotTracked?: boolean; shelfLifeEnabled?: boolean | null; shelfLifeValue?: number | null; shelfLifeUnit?: string | null;
 }
 
 const fmtQty = (n: number) => Number(n.toFixed(2)).toLocaleString('en-US');
 
 /** ما في مخزون السيارات الآن (GET /warehouse/vans) — الرصيد المتاح وقيمته بكلفة خروجه من المستودع */
-interface VansStock { qty: number; value: number; uncostedQty: number; unsellableQty: number; reps: number; products: number; deletedVans?: number }
+interface VansStock {
+  qty: number; value: number; uncostedQty: number; unsellableQty: number; reps: number; products: number; deletedVans?: number;
+  /** «تتبّع اللوط»: المعزول (تشغيلة موقوفة أو منتهية لم تُبع) والمحجوز (إشعار قياسي بانتظار الاعتماد) — داخلان في المتاح ولا يُباعان */
+  lotQuarantined?: number; lotHeld?: number;
+}
+
+/** أرصدة تشغيلات أصناف المستودع المتتبَّعة — عرض المستودع وحده بالصنف، ويوم القياس من الخادم */
+async function fetchWarehouseLots(ids: string[], asOf: string): Promise<{ day: string; views: Map<string, PlaceViewWithAvailability> }> {
+  const r = await fetchLotBalances(ids, asOf);
+  return { day: r.day, views: new Map(r.warehouse.map(v => [v.productId, v])) };
+}
 
 // مخزون الشركة (المستودع المركزيّ) — مرتبطٌ بمخزون السيارات:
 // التحميل يخرج من المستودع، والتنزيل يعود إليه، والوارد يزيده.
@@ -55,12 +87,16 @@ export default function CompanyWarehousePage() {
   const me = useAuthStore(s => s.user);
   // الحركة المعروض إشعارها الآن
   const [noticeOf, setNoticeOf] = useState<WhEntry | null>(null);
+  // صفّ الرصيد الموسَّع بتشغيلاته
+  const [openLots, setOpenLots] = useState<string | null>(null);
   // إعدادات الشركة لترويسة الإشعار — المفتاح نفسه الذي تقرؤه القوقعة
   const companyQ = useQuery({
     queryKey: ['company'],
     queryFn: async () => (await companyApi.get()).data.data as Company | null,
     staleTime: 300_000,
   });
+  // «تتبّع اللوط» من /company — نسخةٌ بلا العلم تُعامَل إطفاءً
+  const lotOn = lotFlagsOf(companyQ.data as { lotTrackingEnabled?: unknown } | null | undefined).on;
 
   // المستودع كميّاتٌ وتكلفةٌ وقيمة مخزون: يُمنع كلّه مع المحاسبة
   const { on: accountingOn, ready: accountingReady } = useAccountingOn();
@@ -100,6 +136,14 @@ export default function CompanyWarehousePage() {
   });
   const pendingRepRequests = repReqQ.data?.length ?? 0;
 
+  // «تتبّع اللوط»: الأصناف المتتبَّعة (علم الصنف) — تُجلب والميزة مفعّلة وحدها، بمفتاح قائمة الأصناف نفسه في نافذة الوارد
+  const prodQ = useQuery({
+    queryKey: ['products-min'],
+    queryFn: async () => (await productApi.list({ limit: 1000 })).data.data as ProductPick[],
+    enabled: accountingReady && accountingOn && lotOn,
+  });
+  const trackedSet = new Set(lotOn ? (prodQ.data ?? []).filter(p => p.lotTracked === true).map(p => p.id) : []);
+
   const rows = stockQ.data || [];
   const lowCount = rows.filter(r => r.onHand <= 0).length;
   // المعروض في البطاقتين والجدول: رصيد التاريخ المختار أو الآن
@@ -110,6 +154,17 @@ export default function CompanyWarehousePage() {
   // قيمة المخزون بتكلفة الشراء — ومعها حدّ صدقها: كم صنفا وارده بلا سعر
   const totalValue = shownRows.reduce((s, r) => s + r.stockValue, 0);
   const uncostedRows = shownRows.filter(r => r.uncostedQty > 0).length;
+
+  // أرصدة التشغيلات لأصناف الجدول المتتبَّعة، في التاريخ المختار أو الآن
+  const trackedIds = shownRows.filter(r => trackedSet.has(r.productId)).map(r => r.productId).sort();
+  const lotsQ = useQuery({
+    queryKey: ['lot-balances-wh', asOf, trackedIds.join(',')],
+    queryFn: () => fetchWarehouseLots(trackedIds, asOf),
+    enabled: lotOn && trackedIds.length > 0,
+  });
+  const lotDayNow = lotsQ.data?.day ?? today;
+  // المعزول والمحجوز في السيارات (§٤.٤ البند ٧) يُضافان إلى «لا يُباع»
+  const vansLotUnsellable = lotOn ? roundLot((vans?.lotQuarantined ?? 0) + (vans?.lotHeld ?? 0)) : 0;
 
   if (!accountingReady) return null;
   if (!accountingOn) return <AccountingOffNotice />;
@@ -182,6 +237,13 @@ export default function CompanyWarehousePage() {
                   {vans.uncostedQty > 0 && <> · {fmtQty(vans.uncostedQty)} {tr('بلا تكلفة معروفة خارج القيمة')}</>}
                   {vans.unsellableQty > 0 && <> · {fmtQty(vans.unsellableQty)} {tr('تالف أو منتهي لا يباع')}</>}
                 </p>
+                {/* «تتبّع اللوط»: تشغيلاتٌ معزولة أو محجوزة في السيارات — ضمن المتاح أعلاه ولا تُباع */}
+                {vansLotUnsellable > 0 && (
+                  <p className="text-[11px] text-amber-700">
+                    {fmtQty(vansLotUnsellable)} {tr('في تشغيلات معزولة أو محجوزة لا يباع')}
+                    {(vans.lotHeld ?? 0) > 0 && <> ({fmtQty(vans.lotHeld ?? 0)} {tr('بانتظار الاعتماد')})</>}
+                  </p>
+                )}
                 {(vans.deletedVans ?? 0) > 0 && (
                   <p className="text-[11px] text-amber-700">{vans.deletedVans} {tr('سيارة لمندوب محذوف لا تعرف بضاعتها فلا تدخل هنا')}</p>
                 )}
@@ -223,11 +285,28 @@ export default function CompanyWarehousePage() {
               <tbody className="divide-y divide-[#F1EBDF]">
                 {shownRows.map(r => {
                   const big = biggestUnit(r.units);
+                  const tracked = trackedSet.has(r.productId);
+                  const view = tracked ? lotsQ.data?.views.get(r.productId) : undefined;
+                  const sum = tracked ? lotRowSummary(view, lotDayNow) : null;
+                  const open = tracked && openLots === r.productId;
                   return (
-                  <tr key={r.productId} className={r.onHand < 0 ? 'bg-red-50/40' : undefined}>
+                  <Fragment key={r.productId}>
+                  <tr className={r.onHand < 0 ? 'bg-red-50/40' : undefined}>
                     <td className="px-4 py-2.5">
                       <div className="font-semibold text-[#1F1A13]">{r.name}</div>
                       <div className="text-[11px] text-[#9A8F7E]">{r.code} · {hasBigUnit(r.units) ? `${tr('وحدة الأساس')} ${r.unit}` : r.unit}</div>
+                      {/* «تتبّع اللوط»: شاراتُ التشغيلات ومفتاح توسيع الصفّ بها */}
+                      {tracked && (
+                        <button type="button" onClick={() => setOpenLots(open ? null : r.productId)}
+                          className="mt-1 inline-flex items-center gap-1 flex-wrap text-[10px] font-semibold text-[#6E6557] hover:text-[#E15A30]">
+                          <Layers size={11} className="text-[#E15A30]" />
+                          {sum ? `${sum.lots} ${tr('تشغيلة')}` : tr('التشغيلات')}
+                          {sum && sum.quarantined > 0 && <span className="rounded bg-amber-50 border border-amber-200 text-amber-700 px-1">{tr('معزول')} {baseQtyText(sum.quarantined, r, fmtQty)}</span>}
+                          {sum && sum.held > 0 && <span className="rounded bg-sky-50 border border-sky-200 text-sky-700 px-1">{tr('محجوز')} {baseQtyText(sum.held, r, fmtQty)}</span>}
+                          {sum?.deficit && <span className="rounded bg-red-50 border border-red-200 text-red-600 px-1">{tr('عجز')}</span>}
+                          {open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                        </button>
+                      )}
                     </td>
                     <td className="px-3 py-2.5 text-center">
                       <span className={`font-extrabold ${r.onHand < 0 ? 'text-red-600' : r.onHand === 0 ? 'text-amber-600' : 'text-[#1E7A52]'}`}>{baseQtyText(r.onHand, r, fmtQty)}</span>
@@ -255,6 +334,14 @@ export default function CompanyWarehousePage() {
                       )}
                     </td>
                   </tr>
+                  {open && (
+                    <tr className="bg-[#FAF7F0]/60">
+                      <td colSpan={7} className="px-4 py-3">
+                        <WarehouseLotsDetail view={view} day={lotDayNow} loading={lotsQ.isLoading} error={lotsQ.isError} row={r} asOf={asOf} />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                   );
                 })}
               </tbody>
@@ -302,6 +389,13 @@ export default function CompanyWarehousePage() {
                       {it.unitCost != null && it.unitCost > 0 && (
                         <span className="text-[#6E6557]"> · {formatCurrency(it.unitCost)}/{u}</span>
                       )}
+                      {/* «تتبّع اللوط»: تشغيلة السطر وانتهاؤها */}
+                      {lotOn && it.lot && (
+                        <span className="ms-1 inline-flex items-center gap-0.5 rounded bg-white border border-[#E9E1D3] px-1 text-[10px] text-[#6E6557]">
+                          <Layers size={10} className="text-[#E15A30]" /> {it.lot.lotNumber}
+                          {lotDay(it.lot.expiryDate) && <> · {tr('ينتهي')} {formatDayOnly(lotDay(it.lot.expiryDate))}</>}
+                        </span>
+                      )}
                     </span>
                     );
                   })}
@@ -318,59 +412,159 @@ export default function CompanyWarehousePage() {
         )}
       </div>
 
-      {showEntry && <WarehouseEntryModal onClose={() => setShowEntry(false)} />}
+      {showEntry && <WarehouseEntryModal lotOn={lotOn} onClose={() => setShowEntry(false)} />}
 
       {showRequest && (
         <StockRequestModal rows={rows} company={companyQ.data ?? null} by={me?.name}
           onClose={() => setShowRequest(false)} />
       )}
 
-      {/* إشعار الحركة — يُبنى من الصفّ الذي في اليد بقيمه المحسوبة في الخادم */}
+      {/* إشعار الحركة — يُبنى من الصفّ الذي في اليد بقيمه المحسوبة في الخادم، وتشغيلة كل سطرٍ معه والميزة مفعّلة */}
       {noticeOf && (
         <DocumentModal
-          doc={warehouseNoticeDocFromEntry(noticeOf, companyQ.data ?? null)}
+          doc={withEntryLots(warehouseNoticeDocFromEntry(noticeOf, companyQ.data ?? null), noticeOf, lotOn)}
           onClose={() => setNoticeOf(null)} />
       )}
     </div>
   );
 }
 
+/** تشغيلة كل سطرٍ على إشعار الوارد (سطرٌ = تشغيلةٌ واحدة، كميتها بالأساس) — الميزة مطفأة أو السطر بلا تشغيلة ⇒ كما هو */
+function withEntryLots<D extends { items: object[] }>(doc: D, entry: WhEntry, lotOn: boolean): D {
+  if (!lotOn) return doc;
+  return {
+    ...doc,
+    items: doc.items.map((it, i) => {
+      const src = entry.items[i];
+      if (!src?.lot) return it;
+      return { ...it, lots: [{ lotNumber: src.lot.lotNumber, qty: roundLot(Math.abs(toBaseQty(src))), expiryDate: lotDay(src.lot.expiryDate) }] };
+    }) as D['items'],
+  };
+}
+
+/** تفصيل صفّ الرصيد بتشغيلاته في المستودع: الخام والصالح والمحجوز لكل تشغيلة، وغير المسمّى، والعجز */
+function WarehouseLotsDetail({ view, day, loading, error, row, asOf }: {
+  view: PlaceViewWithAvailability | undefined; day: string; loading: boolean; error: boolean;
+  row: { unit: string; units?: UnitDef[] }; asOf: string;
+}) {
+  const tr = useTr();
+  if (loading) return <p className="text-xs text-[#9A8F7E]">{tr('جار التحميل')}</p>;
+  if (error) return <p className="text-xs text-red-600">{tr('تعذر تحميل الأرصدة')}</p>;
+  if (!view) return <p className="text-xs text-[#9A8F7E]">{tr('لا تشغيلات لهذا الصنف في المستودع')}</p>;
+  const lots = view.lots.filter(l => Math.abs(l.raw.SELLABLE) > 1e-6 || Math.abs(l.held.SELLABLE) > 1e-6);
+  const unknown = view.unknown?.SELLABLE ?? 0;
+  const q = (n: number) => baseQtyText(n, row, fmtLotQty);
+  return (
+    <div className="space-y-1.5">
+      {asOf && <p className="text-[10px] text-[#9A8F7E]">{tr('الأرصدة كما في نهاية يوم')} {formatDayOnly(asOf)}</p>}
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-[#9A8F7E]">
+            <th className="text-start font-semibold py-1">{tr('رقم التشغيلة')}</th>
+            <th className="text-center font-semibold py-1">{tr('تاريخ الانتهاء')}</th>
+            <th className="text-center font-semibold py-1">{tr('الحالة')}</th>
+            <th className="text-center font-semibold py-1">{tr('الرصيد')}</th>
+            <th className="text-center font-semibold py-1">{tr('محجوز')}</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[#F1EBDF]">
+          {lots.map(l => {
+            const expired = isLotExpiredOn(l.meta, day);
+            const blocked = l.meta.status === 'BLOCKED';
+            return (
+              <tr key={l.lotId}>
+                <td className="py-1 font-semibold text-[#1F1A13]">{l.meta.lotNumber}</td>
+                <td className={`py-1 text-center ${expired ? 'text-red-600 font-semibold' : 'text-[#6E6557]'}`}>{l.meta.expiryDate ? formatDayOnly(l.meta.expiryDate) : '—'}</td>
+                <td className="py-1 text-center">
+                  {blocked
+                    ? <span className="rounded bg-red-50 border border-red-200 text-red-600 px-1">{tr(l.meta.blockKind ? LOT_BLOCK_KIND_LABELS[l.meta.blockKind] : LOT_STATUS_LABELS.BLOCKED)}</span>
+                    : expired ? <span className="rounded bg-amber-50 border border-amber-200 text-amber-700 px-1">{tr('منتهية')}</span>
+                      : <span className="text-[#1E7A52]">{tr(LOT_STATUS_LABELS.ACTIVE)}</span>}
+                </td>
+                <td className={`py-1 text-center font-bold ${l.usable.SELLABLE < -1e-6 ? 'text-red-600' : 'text-[#1F1A13]'}`}>{q(l.usable.SELLABLE)}</td>
+                <td className="py-1 text-center text-[#6E6557]">{Math.abs(l.held.SELLABLE) > 1e-6 ? q(l.held.SELLABLE) : '—'}</td>
+              </tr>
+            );
+          })}
+          {Math.abs(unknown) > 1e-6 && (
+            <tr>
+              <td className="py-1 font-semibold text-[#6E6557]">{tr('غير مسمى')}</td>
+              <td className="py-1 text-center text-[#9A8F7E]">—</td>
+              <td className="py-1 text-center">{unknown < 0 && <span className="rounded bg-red-50 border border-red-200 text-red-600 px-1">{tr('عجز غير مسمى')}</span>}</td>
+              <td className={`py-1 text-center font-bold ${unknown < 0 ? 'text-red-600' : 'text-[#6E6557]'}`}>{q(unknown)}</td>
+              <td className="py-1 text-center text-[#9A8F7E]">—</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+      {view.deficits.some(d => d.lotId !== null && d.qty < -1e-6) && (
+        <p className="text-[10px] text-red-600 flex items-center gap-1"><AlertTriangle size={11} /> {tr('رصيد سالب في تشغيلة راجع الحركات أو صححه بتسوية')}</p>
+      )}
+    </div>
+  );
+}
+
+/** سطر نافذة الوارد: مفتاحه rowId لا الصنف — صنفٌ متتبَّع في سطرين لدفعتين بتشغيلتين */
+interface EntryRow { rowId: string; productId: string; name: string; unit: string; unitId: string | null; qty: string; unitCost: string; lot: EntryLotDraft }
+
 // نموذج تسجيل وارد (استلام/شراء) أو تسوية للمستودع
-function WarehouseEntryModal({ onClose }: { onClose: () => void }) {
+function WarehouseEntryModal({ onClose, lotOn }: { onClose: () => void; lotOn: boolean }) {
   const qc = useQueryClient();
   const tr = useTr();
   const [type, setType] = useState<'RECEIVE' | 'ADJUST'>('RECEIVE');
   const [supplier, setSupplier] = useState('');
   const [note, setNote] = useState('');
-  // الوحدات المتعددة: صفٌّ واحد لكل صنف بوحدةٍ تُختار عليه — الكمية **وسعر الوحدة** بها («١٠ كرتون بـ٤٨ للكرتون» كما في
-  // فاتورة المورّد)، و`unitId` (null = الأساس) يحلّه الخادم إلى معامله. والتسوية بالوحدة نفسها زيادةً أو نقصاً
-  const [rows, setRows] = useState<{ productId: string; name: string; unit: string; unitId: string | null; qty: string; unitCost: string }[]>([]);
+  // الوحدات المتعددة: صفٌّ لكل صنف بوحدةٍ تُختار عليه — الكمية **وسعر الوحدة** بها («١٠ كرتون بـ٤٨ للكرتون» كما في
+  // فاتورة المورّد)، و`unitId` (null = الأساس) يحلّه الخادم إلى معامله. والتسوية بالوحدة نفسها زيادةً أو نقصاً.
+  // «تتبّع اللوط»: الصنف المتتبَّع يجوز له أكثر من صفّ (دفعتان بتشغيلتين)، فالفهرسة بـrowId
+  const [rows, setRows] = useState<EntryRow[]>([]);
   // فاتورة المورّد تعلن السعر شاملاً الضريبة غالباً؛ المؤشّر يخبر الخادم فيردّه
   // إلى صافيه قبل الحفظ — فيبقى العمود بمعنى واحد مهما اختلفت عادة المورّدين
   const [costsIncludeTax, setCostsIncludeTax] = useState(false);
 
   // taxPct لازمة لاستخراج الضريبة من السعر الشامل في معاينة الإجمالي — والخادم
   // يعيد الاستخراج بنفسه عند الحفظ، فلا تُصدَّق نسبةٌ آتية من المتصفّح
-  const prodQ = useQuery({ queryKey: ['products-min'], queryFn: async () => (await productApi.list({ limit: 1000 })).data.data as { id: string; name: string; unit: string; code: string; taxPct: number; units?: UnitDef[] }[] });
+  const prodQ = useQuery({ queryKey: ['products-min'], queryFn: async () => (await productApi.list({ limit: 1000 })).data.data as ProductPick[] });
   const productOf = (id: string) => (prodQ.data || []).find(x => x.id === id);
+  const isTracked = (id: string) => lotOn && productOf(id)?.lotTracked === true;
 
   // الوحدة الافتراضية = الأكبر (repUnits.defaultChoice): المورّد يبيع بالكرتون، وبعد تحويل الصنف إلى الحبّة يبقى «١» كرتوناً
   const addProduct = (id: string) => {
-    if (!id || rows.some(r => r.productId === id)) return;
+    if (!id || (rows.some(r => r.productId === id) && !isTracked(id))) return;
     const p = productOf(id);
     if (!p) return;
     const c = defaultChoice(p);
-    setRows(rs => [...rs, { productId: id, name: p.name, unit: c.name, unitId: c.id, qty: '1', unitCost: '' }]);
+    setRows(rs => [...rs, { rowId: newRowId(), productId: id, name: p.name, unit: c.name, unitId: c.id, qty: '1', unitCost: '', lot: emptyEntryLot() }]);
   };
-  const setQty = (id: string, v: string) => setRows(rs => rs.map(r => r.productId === id ? { ...r, qty: v } : r));
-  const setCost = (id: string, v: string) => setRows(rs => rs.map(r => r.productId === id ? { ...r, unitCost: v } : r));
+  /** دفعةٌ ثانية للصنف المتتبَّع: سطرٌ جديد بوحدة السطر نفسها وتشغيلةٍ فارغة */
+  const addBatch = (r: EntryRow) => setRows(rs => {
+    const at = rs.findIndex(x => x.rowId === r.rowId);
+    const copy: EntryRow = { ...r, rowId: newRowId(), qty: '1', unitCost: '', lot: emptyEntryLot() };
+    return [...rs.slice(0, at + 1), copy, ...rs.slice(at + 1)];
+  });
+  const patchRow = (rowId: string, p: Partial<EntryRow>) => setRows(rs => rs.map(r => r.rowId === rowId ? { ...r, ...p } : r));
   /** وحدة السطر: الكمية والسعر رقماهما كما هما — يراهما المستخدم بجانب الوحدة الجديدة («سعر الكرتون») فيصحّحهما */
-  const setUnit = (id: string, unitId: string | null) => setRows(rs => rs.map(r => {
-    if (r.productId !== id) return r;
-    const c = choiceById(productOf(id), unitId);
+  const setUnit = (rowId: string, unitId: string | null) => setRows(rs => rs.map(r => {
+    if (r.rowId !== rowId) return r;
+    const c = choiceById(productOf(r.productId), unitId);
     return c ? { ...r, unit: c.name, unitId: c.id } : r;
   }));
-  const removeRow = (id: string) => setRows(rs => rs.filter(r => r.productId !== id));
+  const removeRow = (rowId: string) => setRows(rs => rs.filter(r => r.rowId !== rowId));
+
+  // «تتبّع اللوط»: اتجاه تشغيلة السطر، وصلاحية صنفه (الانتهاء إلزامي معها)
+  const lotKind = (r: EntryRow): EntryLotKind => (type === 'RECEIVE' ? 'RECEIVE' : Number(r.qty) < 0 ? 'DECREASE' : 'INCREASE');
+  const trackedRows = rows.filter(r => isTracked(r.productId));
+  // مصادر النقص في المستودع (D10): تُجلب لتسويةٍ فيها نقصٌ لصنفٍ متتبَّع وحدها
+  const decIds = [...new Set(trackedRows.filter(r => lotKind(r) === 'DECREASE').map(r => r.productId))].sort();
+  const srcQ = useQuery({
+    queryKey: ['lot-balances-wh', '', decIds.join(',')],
+    queryFn: () => fetchWarehouseLots(decIds, ''),
+    enabled: lotOn && decIds.length > 0,
+  });
+  const sourcesOf = (productId: string) => outSourcesOf(srcQ.data?.views.get(productId), 'SELLABLE', srcQ.data?.day ?? '');
+  const lotProblem = (r: EntryRow) => (isTracked(r.productId)
+    ? entryLotProblem(r.lot, { kind: lotKind(r), expiryRequired: shelfLifeOn(productOf(r.productId)), sourcesCount: sourcesOf(r.productId).length })
+    : null);
 
   const save = useMutation({
     mutationFn: () => {
@@ -384,6 +578,8 @@ function WarehouseEntryModal({ onClose }: { onClose: () => void }) {
           // السعر للوارد وحده؛ والفارغ أو الصفر يُرسَل غائباً لا صفراً —
           // «بلا سعر» يُستبعَد من التقييم، بينما صفرٌ يُحسَب بضاعةً مجّانية
           unitCost: type === 'RECEIVE' && r.unitCost.trim() !== '' && !Number.isNaN(cost) && cost > 0 ? cost : undefined,
+          // «تتبّع اللوط»: تشغيلة السطر للصنف المتتبَّع وحده — وغيره بلا حقلٍ جديد
+          ...(isTracked(r.productId) && entryLotFields(normalizeEntryLot(r.lot, lotKind(r)))),
         };
       }).filter(i => !Number.isNaN(i.qty) && i.qty !== 0);
       return warehouseApi.createEntry({
@@ -392,13 +588,16 @@ function WarehouseEntryModal({ onClose }: { onClose: () => void }) {
         items,
       });
     },
-    onSuccess: () => {
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['warehouse-stock'] }); qc.invalidateQueries({ queryKey: ['warehouse-vans'] });
       qc.invalidateQueries({ queryKey: ['warehouse-entries'] });
+      if (lotOn) { qc.invalidateQueries({ queryKey: ['lot-balances-wh'] }); qc.invalidateQueries({ queryKey: ['lots-of-product'] }); }
       toast.success(tr('تم حفظ الحركة'));
+      // تحذيرات اللوط لا تمنع (مثل الإضافة إلى تشغيلة موقوفة) — تُقال بعد الحفظ
+      for (const w of lotWarningsOf((res?.data as { warnings?: unknown } | undefined)?.warnings)) toast(tr(LOT_WARNING_LABELS[w.code]), { icon: '⚠️' });
       onClose();
     },
-    onError: (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الحفظ')),
+    onError: (e: unknown) => toast.error(lotErrorOf(e)?.message || (e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الحفظ')),
   });
 
   /**
@@ -415,10 +614,10 @@ function WarehouseEntryModal({ onClose }: { onClose: () => void }) {
     return sum + q * net;
   }, 0);
 
-  // الوارد يتطلّب كميات موجبة؛ التسوية تقبل ± (لكن لا صفر)
+  // الوارد يتطلّب كميات موجبة؛ التسوية تقبل ± (لكن لا صفر) — وتشغيلة كل سطرٍ متتبَّع مكتملة
   const valid = rows.length > 0 && rows.every(r => {
     const q = Number(r.qty);
-    return !Number.isNaN(q) && q !== 0 && (type === 'ADJUST' || q > 0);
+    return !Number.isNaN(q) && q !== 0 && (type === 'ADJUST' || q > 0) && !lotProblem(r);
   });
 
   return (
@@ -452,7 +651,7 @@ function WarehouseEntryModal({ onClose }: { onClose: () => void }) {
           <div>
             <label className="label">{tr('إضافة صنف')}</label>
             <SearchableSelect
-              options={(prodQ.data || []).filter(p => !rows.some(r => r.productId === p.id)).map(p => ({ value: p.id, label: p.name, hint: `${p.code} · ${p.unit}` }))}
+              options={(prodQ.data || []).filter(p => !rows.some(r => r.productId === p.id) || isTracked(p.id)).map(p => ({ value: p.id, label: p.name, hint: `${p.code} · ${p.unit}` }))}
               value="" onChange={addProduct} resetOnSelect placeholder={tr('ابحث وأضف صنفا')} searchPlaceholder={tr('اكتب اسم/كود الصنف')} />
           </div>
 
@@ -474,15 +673,17 @@ function WarehouseEntryModal({ onClose }: { onClose: () => void }) {
                   const net = costsIncludeTax && pct > 0 ? c / (1 + pct / 100) : c;
                   const line = type === 'RECEIVE' && !Number.isNaN(q) && !Number.isNaN(c) && c > 0 ? q * net : null;
                   const choices = unitChoices(productOf(r.productId));
+                  const tracked = isTracked(r.productId);
+                  const kind = lotKind(r);
                   return (
-                    <div key={r.productId} className="px-3 py-2">
+                    <div key={r.rowId} className="px-3 py-2">
                       <div className="flex items-center gap-2">
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-semibold text-[#1F1A13] truncate">{r.name}</p>
                           {/* منتقي وحدة السطر لصنفٍ له وحدات، و«السعر لكل كرتون» تحته فلا يُكتب سعر الحبة في خانة الكرتون */}
                           {choices.length > 1 ? (
                             <select className="input w-auto py-1 text-xs mt-0.5" value={r.unitId ?? ''} aria-label={tr('الوحدة')}
-                              onChange={e => setUnit(r.productId, e.target.value || null)}>
+                              onChange={e => setUnit(r.rowId, e.target.value || null)}>
                               {choices.map(ch => <option key={ch.id ?? 'base'} value={ch.id ?? ''}>{ch.name}{ch.factor > 1 ? ` (${ch.factor})` : ''}</option>)}
                             </select>
                           ) : (
@@ -492,16 +693,29 @@ function WarehouseEntryModal({ onClose }: { onClose: () => void }) {
                             <p className="text-[10px] text-[#9A8F7E] mt-0.5">{tr('السعر لكل')} {r.unit}</p>
                           )}
                         </div>
-                        <input type="number" step="any" inputMode="decimal" value={r.qty} onChange={e => setQty(r.productId, e.target.value)}
+                        <input type="number" step="any" inputMode="decimal" value={r.qty} onChange={e => patchRow(r.rowId, { qty: e.target.value })}
                           className="input w-20 py-1.5 text-center" placeholder={type === 'ADJUST' ? '±' : '0'} />
                         {type === 'RECEIVE' && (
-                          <input type="number" step="any" min="0" inputMode="decimal" value={r.unitCost} onChange={e => setCost(r.productId, e.target.value)}
+                          <input type="number" step="any" min="0" inputMode="decimal" value={r.unitCost} onChange={e => patchRow(r.rowId, { unitCost: e.target.value })}
                             className="input w-24 py-1.5 text-center" placeholder={tr('اختياري')} />
                         )}
-                        <button onClick={() => removeRow(r.productId)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={15} /></button>
+                        <button onClick={() => removeRow(r.rowId)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={15} /></button>
                       </div>
                       {line !== null && (
                         <p className="text-[11px] text-[#6E6557] mt-1">{tr('قيمة السطر قبل الضريبة')}: <b className="text-[#1F1A13]">{formatCurrency(line)}</b></p>
+                      )}
+                      {/* «تتبّع اللوط»: تشغيلة السطر — الرقم وتاريخاه للوارد، ومصدرٌ صريح للنقص، ودفعةٌ ثانية بسطرٍ جديد */}
+                      {tracked && (
+                        <>
+                          <EntryLotFields productId={r.productId} kind={kind} value={r.lot} onChange={d => patchRow(r.rowId, { lot: d })}
+                            expiryRequired={shelfLifeOn(productOf(r.productId))}
+                            sources={kind === 'DECREASE' ? sourcesOf(r.productId) : undefined}
+                            problem={Number(r.qty) ? lotProblem(r) : null} />
+                          <button type="button" onClick={() => addBatch(r)}
+                            className="mt-1 text-[11px] font-semibold text-[#E15A30] inline-flex items-center gap-1">
+                            <CopyPlus size={12} /> {tr('سطر آخر لتشغيلة ثانية')}
+                          </button>
+                        </>
                       )}
                     </div>
                   );
@@ -530,6 +744,9 @@ function WarehouseEntryModal({ onClose }: { onClose: () => void }) {
             <input className="input" value={note} onChange={e => setNote(e.target.value)} placeholder={tr('مثال فاتورة شراء رقم جرد')} />
           </div>
           {type === 'ADJUST' && <p className="text-[11px] text-[#9A8F7E]">{tr('التسوية تقبل موجبا زيادة أو سالبا نقص للجرد والتالف')}</p>}
+          {type === 'ADJUST' && trackedRows.length > 0 && (
+            <p className="text-[11px] text-[#9A8F7E]">{tr('نقص الصنف المتتبع من تشغيلة محددة وإتلاف تشغيلة موقوفة أو منتهية تسوية نقص منها')}</p>
+          )}
         </div>
 
         <div className="flex gap-3 p-5 border-t border-[#E9E1D3]">

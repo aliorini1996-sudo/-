@@ -326,7 +326,9 @@ const ROW_CODES = new Set(['CUSTOMER_NOT_FOUND', 'CUSTOMER_AMBIGUOUS', 'CUSTOMER
   'PRODUCT_INACTIVE', 'PRODUCT_AMBIGUOUS', 'OPENING_STOCK_ALREADY_IMPORTED', 'PRODUCT_HAS_STOCK_MOVEMENTS',
   'STOCK_QTY_INVALID', 'STOCK_COST_INVALID', 'STOCK_NET_COST_ZERO', 'PRODUCT_CODE_ARCHIVED', 'PRODUCT_DUPLICATE_IN_FILE',
   // الوحدات المتعددة: وحدة إضافية تالفة في ملف المنتجات، ووحدة مجهولة في المخزون الافتتاحي والأسعار
-  'PRODUCT_UNIT_INVALID', 'UNIT_NOT_FOUND']);
+  'PRODUCT_UNIT_INVALID', 'UNIT_NOT_FOUND',
+  // «تتبّع اللوط»: تشغيلة صفّ المخزون الافتتاحي لصنفٍ متتبَّع
+  'LOT_REQUIRED', 'LOT_DATES_INVALID', 'LOT_EXPIRY_REQUIRED', 'LOT_DATES_MISMATCH', 'LOT_QTY_INVALID']);
 /** رموز مسار التراجع وحده: تُصنَّف في classifyRevertFailure لا classifyImportFailure (وتُتحقَّق هناك) */
 const REVERT_ONLY_CODES = new Set(['IMPORT_BATCH_GONE']);
 /** البند 51: رمز يُفحص قبل التصنيف (isClientOutdated) فلا يمرّ بـclassifyImportFailure أصلاً */

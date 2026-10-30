@@ -7,7 +7,8 @@ import { periodShape, statementFinalBalance, statementZone } from './statementFa
 import { adjustTotals, receiveTotalQty, uncostedCount, isCosted, noticeRef, qtyByUnit, unitTotalsText } from './warehouseNoticeFacts';
 import { factorOf, formatQty, roundQty, type UnitDef } from '../lib/units';
 import { stockRequestToLabel, stockRequestApproverLabel, stockRequestTotalQty, type StockRequestTo, type StockRequestLine } from '../lib/stockRequest';
-import type { DocLotLine } from '../lib/lots';
+import { docLotsFrom, type DocLotLine } from '../lib/lots';
+import { docLotRows, invoiceLotsOf, lotCellText, lotLineText, noticeHasLots, warehouseLineLots } from './docLots';
 import { useTr } from '../i18n/strings';
 import { elementToPdfBlob, shareOrDownloadPdf } from './pdf';
 import { buildZatcaQr, zatcaTimestamp } from './zatca';
@@ -560,6 +561,10 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
                       : `${tr('ساري الصلاحية')} · ${tr('حتى')} ${formatDayOnly(it.expiresAt)}`}
                   </div>
                 )}
+                {/* «تتبّع اللوط»: سطرٌ لكل تشغيلة بشرط lotOnInvoice — النصّ نفسه في الشريط الحراري (rep/docLots.ts) */}
+                {invoiceLotsOf(doc.company, it).map((l, k) => (
+                  <div key={k} style={{ fontSize: 10.5, marginTop: 2, color: '#6b7280' }}>{lotLineText(l, { tr, unitFactor: it.unitFactor })}</div>
+                ))}
               </td>
               <td style={td}>{it.qty}</td>
               <td style={td}>
@@ -1084,6 +1089,9 @@ export const PrintableLoadNotice = forwardRef<HTMLDivElement, { doc: LoadNoticeD
   // وحداتٌ مختلطة: الإجمالي لكل وحدة — «٧ وحدة» لكرتونين وخمس حبّات رقمٌ بلا معنى على ورقةٍ يوقّعها المندوب
   const byUnit = qtyByUnit(doc.items, (q) => Math.abs(q));
   const totalText = byUnit ? unitTotalsText(byUnit, (n) => String(Number(n.toFixed(2)))) : String(totalQty);
+  // «تتبّع اللوط»: عمود «التشغيلة / الانتهاء» متى وُجدت تشغيلة — سطرٌ لكل تشغيلة، وكمّيتها حين يتوزّع البند
+  const withLots = noticeHasLots(doc.items);
+  const cols = withLots ? 5 : 4;
 
   return (
     <div ref={ref} style={sheet.style} {...sheet.attrs}>
@@ -1112,26 +1120,38 @@ export const PrintableLoadNotice = forwardRef<HTMLDivElement, { doc: LoadNoticeD
             <th style={{ ...th, borderRadius: '0 8px 0 0' }}>#</th>
             <th style={{ ...th, textAlign: 'right' }}>{tr('الصنف')}</th>
             <th style={th}>{tr('الكمية')}</th>
-            <th style={{ ...th, borderRadius: '8px 0 0 0' }}>{tr('الوحدة')}</th>
+            <th style={withLots ? th : { ...th, borderRadius: '8px 0 0 0' }}>{tr('الوحدة')}</th>
+            {withLots && <th style={{ ...th, borderRadius: '8px 0 0 0' }}>{tr('التشغيلة / الانتهاء')}</th>}
           </tr>
         </thead>
         <tbody>
           {doc.items.length === 0 ? (
-            <tr><td style={{ ...td, padding: 20, color: '#9ca3af' }} colSpan={4}>{tr('لا توجد أصناف')}</td></tr>
-          ) : doc.items.map((it, i) => (
-            <tr key={i}>
-              <td style={td}>{i + 1}</td>
-              <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{it.name}</td>
-              <td style={{ ...td, fontWeight: 700, color: '#16a34a' }}>{Number(Math.abs(it.qty).toFixed(2))}</td>
-              <td style={{ ...td, color: '#6b7280' }}>{it.unit || '-'}</td>
-            </tr>
-          ))}
+            <tr><td style={{ ...td, padding: 20, color: '#9ca3af' }} colSpan={cols}>{tr('لا توجد أصناف')}</td></tr>
+          ) : doc.items.map((it, i) => {
+            const lots = docLotRows(it.lots);
+            return (
+              <tr key={i}>
+                <td style={td}>{i + 1}</td>
+                <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{it.name}</td>
+                <td style={{ ...td, fontWeight: 700, color: '#16a34a' }}>{Number(Math.abs(it.qty).toFixed(2))}</td>
+                <td style={{ ...td, color: '#6b7280' }}>{it.unit || '-'}</td>
+                {withLots && (
+                  <td style={{ ...td, fontSize: 10.5, color: '#374151' }}>
+                    {lots.length === 0 ? '-' : lots.map((l, k) => (
+                      <div key={k}>{lotCellText(l, { tr, unitFactor: it.unitFactor, withQty: lots.length > 1 })}</div>
+                    ))}
+                  </td>
+                )}
+              </tr>
+            );
+          })}
         </tbody>
         <tfoot>
           <tr style={{ background: '#f1f5f9', fontWeight: 700 }}>
             <td style={{ ...td, borderTop: `2px solid ${brand}` }} colSpan={2}>{tr('الإجمالي')}</td>
             <td style={{ ...td, color: '#16a34a', borderTop: `2px solid ${brand}` }}>{totalText}</td>
             <td style={{ ...td, borderTop: `2px solid ${brand}` }}>{byUnit ? '-' : tr('وحدة')}</td>
+            {withLots && <td style={{ ...td, borderTop: `2px solid ${brand}` }}>-</td>}
           </tr>
         </tfoot>
       </table>
@@ -1178,7 +1198,9 @@ export const PrintableWarehouseNotice = forwardRef<HTMLDivElement, { doc: Wareho
    * وهي القاعدة نفسها التي تطبع «—» لسطرٍ بلا سعر، والشاشة تُخفي القيمة
    * أصلاً حين تكون صفراً. */
   const anyCosted = doc.items.some(isCosted);
-  const cols = receive ? 6 : 4;
+  // «تتبّع اللوط»: عمود «التشغيلة / الانتهاء» متى وُجدت تشغيلة (سطرٌ = تشغيلةٌ واحدة) — بعد الوحدة، قبل السعر
+  const withLots = noticeHasLots(doc.items);
+  const cols = (receive ? 6 : 4) + (withLots ? 1 : 0);
 
   return (
     <div ref={ref} style={sheet.style} {...sheet.attrs}>
@@ -1220,7 +1242,8 @@ export const PrintableWarehouseNotice = forwardRef<HTMLDivElement, { doc: Wareho
             <th style={{ ...th, borderRadius: '0 8px 0 0' }}>#</th>
             <th style={{ ...th, textAlign: 'right' }}>{tr('الصنف')}</th>
             <th style={th}>{tr('الكمية')}</th>
-            <th style={receive ? th : { ...th, borderRadius: '8px 0 0 0' }}>{tr('الوحدة')}</th>
+            <th style={receive || withLots ? th : { ...th, borderRadius: '8px 0 0 0' }}>{tr('الوحدة')}</th>
+            {withLots && <th style={receive ? th : { ...th, borderRadius: '8px 0 0 0' }}>{tr('التشغيلة / الانتهاء')}</th>}
             {receive && <th style={th}>{tr('سعر الوحدة قبل الضريبة')}</th>}
             {receive && <th style={{ ...th, borderRadius: '8px 0 0 0' }}>{tr('القيمة قبل الضريبة')}</th>}
           </tr>
@@ -1240,6 +1263,12 @@ export const PrintableWarehouseNotice = forwardRef<HTMLDivElement, { doc: Wareho
                   {receive ? fmtNoticeQty(q) : `${q < 0 ? '−' : '+'}${fmtNoticeQty(Math.abs(q))}`}
                 </td>
                 <td style={{ ...td, color: '#6b7280' }}>{it.unit || '-'}</td>
+                {withLots && (
+                  <td style={{ ...td, fontSize: 10.5, color: '#374151' }}>
+                    {docLotRows(it.lots).map((l, k) => <div key={k}>{lotCellText(l, { tr, unitFactor: it.unitFactor, withQty: false })}</div>)}
+                    {docLotRows(it.lots).length === 0 && '-'}
+                  </td>
+                )}
                 {/* سطرٌ بلا سعر يُطبع «—» لا صفراً: الصفر ادّعاءٌ بأنّ البضاعة مجّانية */}
                 {receive && <td style={td}>{costed ? formatCurrency(Number(it.unitCost), undefined, 4) : '—'}</td>}
                 {receive && <td style={{ ...td, fontWeight: 600 }}>{costed && it.lineCost != null ? formatCurrency(Number(it.lineCost)) : '—'}</td>}
@@ -1250,7 +1279,7 @@ export const PrintableWarehouseNotice = forwardRef<HTMLDivElement, { doc: Wareho
         {receive && (
           <tfoot>
             <tr style={{ background: '#f1f5f9', fontWeight: 700 }}>
-              <td style={{ ...td, borderTop: `2px solid ${brand}`, textAlign: 'right' }} colSpan={5}>{tr('قيمة البضاعة قبل الضريبة')}</td>
+              <td style={{ ...td, borderTop: `2px solid ${brand}`, textAlign: 'right' }} colSpan={cols - 1}>{tr('قيمة البضاعة قبل الضريبة')}</td>
               <td style={{ ...td, borderTop: `2px solid ${brand}`, color: brand }}>{anyCosted ? formatCurrency(doc.totalCost) : '—'}</td>
             </tr>
           </tfoot>
@@ -1436,6 +1465,12 @@ export const isSignatureSrc = (v: unknown): v is string =>
   typeof v === 'string' && /^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(v);
 
 // ============ بناء مستند من بيانات الخادم ============
+/** «تتبّع اللوط»: حقل lots للبند من صفوف الخادم — أو لا حقل (الشكل كما كان للشركة المطفأة) */
+const lotsField = (raw: unknown): { lots?: DocLotLine[] } => {
+  const lots = docLotsFrom(raw);
+  return lots ? { lots } : {};
+};
+
 export function invoiceDocFromDetail(inv: any, repName: string, company?: Company | null): InvoiceDoc {
   return {
     kind: 'invoice',
@@ -1450,6 +1485,8 @@ export function invoiceDocFromDetail(inv: any, repName: string, company?: Compan
     customer: inv.customer,
     repName: inv.salesRep?.name ?? repName,
     items: (inv.items ?? []).map((it: any) => ({
+      // «تتبّع اللوط»: صفوف توزيع البند (withLots=1 أو ردّ الإصدار) — غيابها لا يضيف حقلاً
+      ...lotsField(it.lots),
       name: it.product?.name ?? '-',
       // لقطة وحدة البند (القاعدة ٨): وحدة الصنف الحالية صارت الأساس بعد التحويل، فـ«٢ (حبة)» لكرتونين خطأٌ ٢٤ ضعفاً
       unit: it.unitName || it.product?.unit,
@@ -1606,7 +1643,8 @@ export function settlementLogDocFromData(
 
 export function loadNoticeDocFromData(
   repName: string,
-  movement: { kind: string; date: string; ref?: string; by?: string | null; items: { name: string; qty: number; unit?: string; unitName?: string | null; unitFactor?: number | null; baseQty?: number | null }[] },
+  // lots («تتبّع اللوط»): صفوف توزيع البند كما يضمّها /van-stock/loads أو /movements بـwithLots=1 (VanLoadItemLotDto)
+  movement: { kind: string; date: string; ref?: string; by?: string | null; items: { name: string; qty: number; unit?: string; unitName?: string | null; unitFactor?: number | null; baseQty?: number | null; lots?: unknown }[] },
   company?: Company | null,
 ): LoadNoticeDoc {
   return {
@@ -1622,7 +1660,7 @@ export function loadNoticeDocFromData(
     items: movement.items.map((i) => {
       const f = i.unitFactor != null ? factorOf(i)
         : i.baseQty != null && Number(i.qty) ? roundQty(Number(i.baseQty) / Number(i.qty)) : null;
-      return { name: i.name, qty: Number(i.qty), unit: i.unitName || i.unit || undefined, ...(f != null && { unitFactor: f }) };
+      return { name: i.name, qty: Number(i.qty), unit: i.unitName || i.unit || undefined, ...(f != null && { unitFactor: f }), ...lotsField(i.lots) };
     }),
   };
 }
@@ -1637,7 +1675,11 @@ export function warehouseNoticeDocFromEntry(
   entry: {
     id: string; type: string; createdAt: string;
     supplier?: string | null; note?: string | null; createdBy?: string | null;
-    items: { qty: number; unitName?: string | null; unitFactor?: number | null; unitCost?: number | null; lineCost?: number | null; product: { name: string; unit?: string } }[];
+    // lot («تتبّع اللوط»): تشغيلة السطر كما يضمّها السجل حين تكون الميزة مفعّلة — سطرٌ = تشغيلةٌ واحدة
+    items: {
+      qty: number; unitName?: string | null; unitFactor?: number | null; unitCost?: number | null; lineCost?: number | null; product: { name: string; unit?: string };
+      lot?: { lotNumber?: string | null; productionDate?: string | null; expiryDate?: string | null } | null;
+    }[];
     totalCost: number;
   },
   company?: Company | null,
@@ -1651,15 +1693,19 @@ export function warehouseNoticeDocFromEntry(
     supplier: entry.supplier || undefined,
     note: entry.note || undefined,
     by: entry.createdBy || undefined,
-    items: entry.items.map(i => ({
-      name: i.product.name,
-      // لقطة وحدة السطر: الكمية وسعر الوحدة بها — وإلا طُبعت تكلفة الكرتون منسوبةً للحبّة
-      unit: i.unitName || i.product.unit || undefined,
-      ...(i.unitFactor != null && { unitFactor: factorOf(i) }),
-      qty: Number(i.qty),
-      unitCost: i.unitCost == null ? null : Number(i.unitCost),
-      lineCost: i.lineCost == null ? null : Number(i.lineCost),
-    })),
+    items: entry.items.map(i => {
+      const lots = warehouseLineLots(i.lot, Number(i.qty) * factorOf(i));
+      return {
+        name: i.product.name,
+        // لقطة وحدة السطر: الكمية وسعر الوحدة بها — وإلا طُبعت تكلفة الكرتون منسوبةً للحبّة
+        unit: i.unitName || i.product.unit || undefined,
+        ...(i.unitFactor != null && { unitFactor: factorOf(i) }),
+        qty: Number(i.qty),
+        unitCost: i.unitCost == null ? null : Number(i.unitCost),
+        lineCost: i.lineCost == null ? null : Number(i.lineCost),
+        ...(lots && { lots }),
+      };
+    }),
     totalCost: Number(entry.totalCost) || 0,
   };
 }
@@ -1731,6 +1777,28 @@ function ReceiptAttachments({ photos }: { photos: ReceiptPhoto[] }) {
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * «تتبّع اللوط» — شريط «تشغيلات البنود» خارج الورقة (نمط شريط المرفقات): تشغيلات كل بند متى وصلت من الخادم، ولو لم تُطبع على
+ * الفاتورة (lotOnInvoice مطفأ) — فالمعاينة المصغّرة لا تُقرأ، والإدارة تحتاج اللوط لترد على سؤال العميل أو السحب. بلا صفوف
+ * (الميزة مطفأة أو بلا withLots) ⇒ لا شيء.
+ */
+function InvoiceLotsStrip({ doc }: { doc: InvoiceDoc }) {
+  const tr = useTr();
+  const rows = doc.items.map((it) => ({ it, lots: docLotRows(it.lots) })).filter((r) => r.lots.length > 0);
+  if (!rows.length) return null;
+  return (
+    <div className="bg-white border border-[#E9E1D3] rounded-2xl p-3 mb-4 text-xs leading-relaxed">
+      <p className="font-bold text-[#1F1A13] mb-1">{tr('تشغيلات البنود')}</p>
+      {rows.map(({ it, lots }, i) => (
+        <div key={i} className={`py-1.5 ${i ? 'border-t border-[#F1EBDF]' : ''}`}>
+          <p className="font-semibold text-[#6E6557]">{it.name}</p>
+          {lots.map((l, k) => <p key={k} className="text-[#1F1A13]">{lotLineText(l, { tr, unitFactor: it.unitFactor })}</p>)}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -1922,6 +1990,7 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
         {/* المرفقات قبل المعاينة عمداً: المعاينة كتلة بطول 470px تدفع الشريط تحت
             حافّة الشاشة، والمحاسب إنما فتح السند ليرى إيصال التحويل */}
         {doc.kind === 'receipt' && !!doc.photos?.length && <ReceiptAttachments photos={doc.photos} />}
+        {doc.kind === 'invoice' && <InvoiceLotsStrip doc={doc} />}
 
         {/* معاينة مصغّرة للمستند */}
         <p className="text-xs text-gray-400 mb-2">{tr('معاينة المستند')}</p>

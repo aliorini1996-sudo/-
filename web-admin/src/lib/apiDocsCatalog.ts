@@ -3523,6 +3523,37 @@ export const API_DOC_GROUPS: DocGroup[] = [
    },
    {
     "method": "GET",
+    "path": "/van-stock/lot-balances",
+    "purpose": "«تتبّع اللوط»: أرصدة تشغيلات سيارة مندوب للأصناف المتتبَّعة — المتاح للبيع بالتشغيلة والموقوف والمحجوز والمنتهي والتالف (لا يكتب شيئاً)",
+    "permission": "canManageVanStock",
+    "gates": [
+     "accountingEnabled ليس false",
+     "صلاحية canManageVanStock",
+     "lotTrackingEnabled للشركة، وإلا 403 LOTS_NOT_ALLOWED",
+     "المندوب ضمن نطاق صاحب المفتاح"
+    ],
+    "query": [
+     {
+      "name": "salesRepId",
+      "type": "string (uuid)",
+      "required": true,
+      "desc": "معرّف المندوب. غيابه يعطي 400، وغياب المندوب من الشركة يعطي 404"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{serverTime, day, tracked:[productId], allowUnknown, products:[{productId, available, availableNamed, unknownUsable, quarantined, held, expiredUnsold, expiredReturned, damaged, lots:[{lotId, lotNumber, expiryDate, status:'ACTIVE'|'BLOCKED', blockKind:'HOLD'|'RECALL'|null, usable}]}]}}",
+    "rules": [
+     "الكميات كلها بوحدة الأساس للصنف",
+     "tracked كل الأصناف المتتبَّعة في الشركة، وproducts ما له رصيد منها في السيارة فقط",
+     "available ما يُباع فعلاً = المسمّى الصالح غير الموقوف (availableNamed) + غير المسمّى الصالح (unknownUsable) حين allowUnknown",
+     "lots التشغيلات التي فيها رصيد صالح للبيع، والموقوفة منها (status = BLOCKED بنوع HOLD أو RECALL) تظهر بحالتها ولا تدخل في available",
+     "day يوم الشركة بمنطقتها الزمنية، وعليه يُقاس الانتهاء: التشغيلة المنتهية لا تُباع",
+     "البيع نفسه يوزّع على التشغيلات تلقائياً في الخادم بالأقرب انتهاءً (FEFO)، فلا حاجة لإرسال تشغيلة مع الفاتورة"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
     "path": "/van-stock/accuracy",
     "purpose": "قياس دقة اقتراح التحميل: مقارنة التنبؤ المحفوظ مع كل تحميل بالمبيع الفعلي في اليوم نفسه",
     "permission": "canManageVanStock",
@@ -5011,6 +5042,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "type": "string | none",
       "required": false,
       "desc": "ميزة «الفرق»: معرّف فريق من GET /company/teams لحصر التقرير بمستندات الفريق (بوسم المستند)، أو none لما بلا فريق. غيابه = كل الفرق، والقيمة غير النصية تُهمل"
+     },
+     {
+      "name": "withLots",
+      "type": "1 | true",
+      "required": false,
+      "desc": "«تتبّع اللوط»: يضيف لكل بند مرتجع lots:[{id, lotId, quantity, certainty, expiryDate, lot:{lotNumber, expiryDate}|null}] بتشغيلاته (الكمية بوحدة الأساس، وlotId = null «غير معروف») حين تكون الميزة مفعّلة للشركة، وإلا يُهمل"
      }
     ],
     "body": [],
@@ -5021,6 +5058,63 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "toDamagedStock = true للتالف الذي دخل رصيد «المرتجع التالف» في السيارة (لا يُباع)",
      "حتى 5000 مرتجع، الأحدث أولاً",
      "unit وحدة البند المرتجع كما كُتب (لقطته، وإلا وحدة الصنف) وqty بها، وbaseQty بوحدة الأساس baseUnit: حبةٌ أُرجعت من بند كرتون تظهر «1 حبة» لا «1 كرتون»"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/reports/lot-sales",
+    "purpose": "«تتبّع اللوط»: المبيعات حسب التشغيلة — لكل صنف وتشغيلة المباع والمرتجع والصافي وعدد العملاء والفواتير، ومنه تعرف من استلم تشغيلة معيّنة",
+    "permission": "canViewReports",
+    "gates": [
+     "requireAdmin",
+     "requireAdminPermission('canViewReports')",
+     "accountingEnabled ليس false، وإلا 403 ACCOUNTING_NOT_ALLOWED",
+     "lotTrackingEnabled للشركة، وإلا 403 LOTS_NOT_ALLOWED",
+     "نطاق المستخدم",
+     "مسموح لمفتاح القراءة فقط"
+    ],
+    "query": [
+     {
+      "name": "from",
+      "type": "string (YYYY-MM-DD)",
+      "required": false,
+      "desc": "بداية المدى على invoiceDate بيوم الشركة ومنطقتها الزمنية"
+     },
+     {
+      "name": "to",
+      "type": "string (YYYY-MM-DD)",
+      "required": false,
+      "desc": "نهاية المدى شاملة اليوم. بلا from وto: آخر 90 يوماً. وfrom بعد to يعطي 400"
+     },
+     {
+      "name": "productId",
+      "type": "string (uuid)",
+      "required": false,
+      "desc": "حصر التقرير بصنف واحد"
+     },
+     {
+      "name": "lotId",
+      "type": "string (uuid) | none",
+      "required": false,
+      "desc": "حصر التقرير بتشغيلة واحدة، أو none لما بيع من رصيد «غير معروف» التشغيلة"
+     },
+     {
+      "name": "teamId",
+      "type": "string | none",
+      "required": false,
+      "desc": "ميزة «الفرق»: معرّف فريق لحصر التقرير بمستندات الفريق، أو none لما بلا فريق"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{rows:[{productId, productName, productCode, unit, units, lotId, lotNumber, productionDate, expiryDate, status, blockKind, sold, returned, net, customers, invoices, returnInvoices, soldByCertainty:{CONFIRMED, ASSUMED, UNKNOWN}}], products:[{productId, productName, productCode, unit, units, lots, sold, returned, net, customers, invoices, returnInvoices, soldByCertainty}], summary:{lots, products, customers, invoices, returnInvoices}, range:{from, to, timezone}, rangeApplied, defaultDays, scoped, truncated, maxInvoices}}",
+    "rules": [
+     "الكميات بوحدة الأساس للصنف، ولا تُجمع كميات صنفين معاً: الملخّص عدّاتٌ بلا كمية",
+     "lotId = null صفّ «غير معروف»: بيعٌ من رصيد بلا تشغيلة، أو مرتجع حرّ بلا تشغيلة",
+     "soldByCertainty يقين نسبة المباع إلى التشغيلة: CONFIRMED مؤكد، وASSUMED مفترض بالأقرب انتهاءً، وUNKNOWN غير معروف",
+     "الفواتير المؤكدة وحدها، والمرتجع والإشعار الدائن يُطرحان في returned",
+     "الترتيب: الصنف بالاسم، ثم التشغيلات بالأقرب انتهاءً، و«غير معروف» آخراً",
+     "حتى 20000 فاتورة الأحدث أولاً، وtruncated = true حين يتجاوز المدى ذلك فضيّق المدى"
     ],
     "example": ""
    },

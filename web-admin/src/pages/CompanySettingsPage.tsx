@@ -1,10 +1,10 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { companyApi } from '../api/client';
+import { companyApi, lotsApi } from '../api/client';
 import { supportedCountries, getCountry } from '../i18n/countries';
 import { useTr } from '../i18n/strings';
-import { Building2, Save, Upload, Trash2, Image as ImageIcon, ShieldCheck, Lock } from 'lucide-react';
+import { Building2, Save, Upload, Trash2, Image as ImageIcon, ShieldCheck, Lock, Layers } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Header } from '../rep/RepDocuments';
 import DataImportPanel from '../components/DataImportPanel';
@@ -18,6 +18,7 @@ import { isZatcaPhase2Live } from '../lib/zatcaRegime';
 import { zatcaCollectOn } from '../lib/zatcaRegime';
 import { useAuthStore } from '../store/authStore';
 import { useSearchParams } from 'react-router-dom';
+import { lotFlagsOf } from '../lib/lots';
 
 // تبويب ربط فوترة المرحلة الثانية كسول: لا يُحمَّل (ولا عباراته) إلا لشركة فعّل لها المالك العلم وفتحت التبويب
 const loadZatcaPhase2Tab = () => import('../components/zatca/ZatcaPhase2Tab');
@@ -72,6 +73,7 @@ export default function CompanySettingsPage() {
   // جلسة دخول مالك المنصة تحمل دور الحساب الذي دخل به ونطاقه فتعمل كذلك الحساب (قرار المالك 17 سبتمبر 2026)
   const role = useAuthStore(s => s.user?.role);
   const scopeEnabled = useAuthStore(s => s.user?.scopeEnabled === true);
+  const canManageVanStock = useAuthStore(s => s.user?.canManageVanStock !== false);
   // `?tab=api`: الرابط القديم للربط البرمجي (/app/api) يحوّل هنا ويفتح تبويبه
   const [params] = useSearchParams();
   const [tab, setTab] = useState<'general' | 'print' | 'zatca' | 'api' | 'teams'>(() => {
@@ -218,6 +220,10 @@ export default function CompanySettingsPage() {
   // شركة سعودية (أو بلا دولة محفوظة) بعلم المالك: الرقم الضريبي والسجل والدولة لمدير الشركة غير المقيّد وحده (الخادم يرفض غيره
   // 403 SELLER_FIELDS_*)؛ وغير السعودية تبقى قابلة للتعديل بلا خيار السعودية (zatcaCountryChoiceAllowed)
   const sellerLocked = zatcaSellerFieldsLocked(data, role, scopeEnabled);
+  // «طباعة التشغيلة على فاتورة العميل» (D15): للشركة المفعّل لها «تتبّع اللوط» وحدها، ولمن يبلغ مسارها (مخزون السيارات وإعدادات
+  // الشركة) — تُحفظ فوراً بمسارها المستقل (PUT /lots/settings) لا مع زرّ الحفظ، ولا تمسّ قوالب الطباعة (printSettingsCore)
+  const lotFlags = lotFlagsOf(data as { lotTrackingEnabled?: unknown; lotOnInvoice?: unknown } | null | undefined);
+  const lotCardOn = accountingOn && lotFlags.on && canManageVanStock;
   // الحقل المقفل يبدو مقفلاً (لا حقلاً يتجاهل الكتابة صامتاً) ويُقرأ معه سبب القفل
   const lockedProps = sellerLocked ? { 'aria-describedby': SELLER_LOCK_HINT_ID, title: tr(zatcaSellerLockHint(role, scopeEnabled)) } : {};
 
@@ -469,6 +475,8 @@ export default function CompanySettingsPage() {
             </div>
           </div>
 
+          {lotCardOn && <LotOnInvoiceCard value={lotFlags.onInvoice} />}
+
           {/* الفوترة الإلكترونية (الربط الحكومي) — بيانات الربط تُدخلها الشركة */}
           {accountingOn && (
           <div className="card">
@@ -575,6 +583,45 @@ export default function CompanySettingsPage() {
       )}
       </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * «طباعة رقم التشغيلة على فاتورة العميل» (D15) — مفتاحٌ يُحفظ فور تبديله بمساره (lotsApi.setSettings)، ويقرؤه الطابع من ردّ
+ * /company (lotOnInvoice، لا يصل مفعّلاً إلا مع «تتبّع اللوط»). الورقة الإدارية الداخلية تعرض التشغيلات دائماً، وهذا للعميل.
+ */
+function LotOnInvoiceCard({ value }: { value: boolean }) {
+  const tr = useTr();
+  const qc = useQueryClient();
+  const save = useMutation({
+    mutationFn: (lotOnInvoice: boolean) => lotsApi.setSettings({ lotOnInvoice }),
+    onSuccess: (_res, on) => {
+      qc.invalidateQueries({ queryKey: ['company'] });
+      toast.success(on ? tr('ستطبع التشغيلة على فواتير العملاء') : tr('لن تطبع التشغيلة على فواتير العملاء'));
+    },
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('حدث خطأ في الحفظ')),
+  });
+  const checked = save.isPending && save.variables !== undefined ? save.variables : value;
+  return (
+    <div className="card" data-lot-on-invoice="">
+      <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-100">
+        <div className="w-11 h-11 bg-[#FBEBE2] rounded-xl flex items-center justify-center">
+          <Layers size={22} className="text-[#E15A30]" />
+        </div>
+        <div>
+          <p className="font-semibold text-gray-800">{tr('تتبع اللوط')}</p>
+          <p className="text-xs text-gray-400">{tr('ما يطبع من التشغيلات على المستندات')}</p>
+        </div>
+      </div>
+      <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5">
+        <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={checked} disabled={save.isPending}
+          onChange={e => save.mutate(e.target.checked)} />
+        {tr('طباعة رقم التشغيلة على فاتورة العميل')}
+      </label>
+      <p className="text-[11px] text-[#6E6557] mt-1.5 leading-relaxed">
+        {tr('سطر تحت كل صنف متتبع برقم التشغيلة وكميتها وتاريخ انتهائها في فاتورة A4 والحرارية — يحفظ فور التبديل')}
+      </p>
     </div>
   );
 }

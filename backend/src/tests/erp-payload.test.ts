@@ -144,6 +144,55 @@ test('Odoo: المنتج يحمل وحداته كما هي (سعر الأساس 
   assert.deepEqual(productPayloadRow({ id: 'p', unit: 'حبة', basePrice: 5, units, image: 'data:...' }), { id: 'p', unit: 'حبة', basePrice: 5, units });
 });
 
+// —— «تتبّع اللوط» لا يُربط خارجياً (§٥.٥ R4): لا مفتاح يبدأ بـlot في المنتج ولا الفاتورة ولا بنودها ——
+
+/** كل المفاتيح في الحمولة بعمقها — لكشف أي مفتاح لوطٍ تسرّب في كائنٍ متداخل */
+function deepKeys(v: unknown, out: string[] = []): string[] {
+  if (Array.isArray(v)) { for (const x of v) deepKeys(x, out); return out; }
+  if (v && typeof v === 'object' && !(v instanceof Date)) for (const [k, x] of Object.entries(v)) { out.push(k); deepKeys(x, out); }
+  return out;
+}
+
+test('اللوط: المنتج بلا علم التتبّع وحقبته ولا علاقة لوطاته — وبقية الصفّ (ومنها الوحدات) كما هي', () => {
+  const units = [{ id: 'u1', name: 'كرتون', factor: 24, price: 110, unitCode: 'CT', isActive: true, sortOrder: 0 }];
+  const p = { id: 'p', unit: 'حبة', basePrice: 5, units, image: 'data:...', lotTracked: true, lotTrackedSince: new Date('2026-10-01T00:00:00Z'), lots: [{ id: 'L1', lotNumber: 'B-001' }] };
+  assert.deepEqual(productPayloadRow(p), { id: 'p', unit: 'حبة', basePrice: 5, units });
+  assert.deepEqual(productPayloadRow({ id: 'p', lotTracked: false, lotTrackedSince: null }), { id: 'p' }, 'والميزة مطفأة: شكل الحمولة كما قبلها');
+});
+
+test('اللوط × الوحدات: سطر كرتون وسطر حبة للصنف نفسه بتوزيع لوطاتهما — الحمولة بالأساس (٤٨ و٥) بلا أي مفتاح لوط، والمبالغ كما هي', () => {
+  const product = { id: 'p1', unit: 'حبة', unitCode: 'PCE', lotTracked: true, lotTrackedSince: '2026-10-01T00:00:00.000Z' };
+  const row = invoicePayloadRow(invoice({
+    pricesIncludeTax: false, total: 172.5, taxAmt: 22.5,
+    items: [
+      { qty: 2, unitName: 'كرتون', unitFactor: 24, baseQty: 48, unitCode: 'CT', unitPrice: 60, taxPct: 15, taxAmt: 18, lineTotal: 138, product,
+        lots: [{ lotId: 'L1', quantity: 24, certainty: 'ASSUMED' }, { lotId: 'L2', quantity: 24, certainty: 'ASSUMED' }] },
+      { qty: 5, unitName: null, unitFactor: 1, baseQty: 5, unitPrice: 6, taxPct: 15, taxAmt: 4.5, lineTotal: 34.5, product,
+        lots: [{ lotId: 'L2', quantity: 5, certainty: 'CONFIRMED' }] },
+    ],
+  }), RIYADH);
+  assert.deepEqual(deepKeys(row).filter((k) => /^lot/.test(k)), [], 'لا lots ولا lotTracked في أي مستوى');
+  const items = row.items as Record<string, unknown>[];
+  assert.deepEqual(items.map((it) => it.qty), [48, 5], 'الكمية بوحدة الأساس كما قبل اللوط');
+  assert.deepEqual(items.map((it) => it.lineTotal), [138, 34.5]);
+  assert.deepEqual(items[0].product, { id: 'p1', unit: 'حبة', unitCode: 'PCE' });
+  assert.deepEqual((items[0].lineUnit as Record<string, unknown>).qty, 2, 'المطبوع (٢ كرتون) في lineUnit');
+  // والبند نفسه بلا توزيعه مطابقٌ حرفياً لما كان يُرسل قبل اللوط
+  const plain = invoicePayloadRow(invoice({
+    pricesIncludeTax: false, total: 172.5, taxAmt: 22.5,
+    items: [
+      { qty: 2, unitName: 'كرتون', unitFactor: 24, baseQty: 48, unitCode: 'CT', unitPrice: 60, taxPct: 15, taxAmt: 18, lineTotal: 138, product: { id: 'p1', unit: 'حبة', unitCode: 'PCE' } },
+      { qty: 5, unitName: null, unitFactor: 1, baseQty: 5, unitPrice: 6, taxPct: 15, taxAmt: 4.5, lineTotal: 34.5, product: { id: 'p1', unit: 'حبة', unitCode: 'PCE' } },
+    ],
+  }), RIYADH);
+  assert.deepEqual(row, plain);
+});
+
+test('اللوط: مفتاحٌ يبدأ بـlot على رأس الفاتورة (إن أُضيف يوماً) يسقط كذلك — والفاتورة بلا لوط كما هي حرفياً', () => {
+  const base = invoicePayloadRow(invoice(), RIYADH);
+  assert.deepEqual(invoicePayloadRow(invoice({ lotSummary: [{ lotId: 'L1' }] }), RIYADH), base);
+});
+
 test('منطقة الشركة: إعدادات الدفاتر أولاً ثم البلد ثم الرياض', () => {
   assert.equal(companyTimeZone('Asia/Dubai', 'SA'), 'Asia/Dubai');
   assert.equal(companyTimeZone(null, 'eg'), 'Africa/Cairo');

@@ -238,7 +238,8 @@ test('الفواتير: عمود «الموقع» وتصفيته بالعَلَ�
 
 test('مخزون السيارات: «سجل التحميلات» بالعَلَم وحده، بنوع LOAD، وبعمود الموقع وتصفيته', () => {
   const v = read('pages', 'VanStockPage.tsx');
-  assert.match(v, /const locOn = \(companyQ\.data as \{ locationsEnabled\?: boolean \} \| null \| undefined\)\?\.locationsEnabled === true;/);
+  assert.match(v, /const companyFlags = companyQ\.data as \{ locationsEnabled\?: boolean;[^}]*\} \| null \| undefined;/);
+  assert.match(v, /const locOn = companyFlags\?\.locationsEnabled === true;/);
   assert.ok(v.includes('{locOn && <VanLoadsLog reps={reps} />}'));
   const l = read('components', 'VanLoadsLog.tsx');
   assert.ok(l.includes("type: 'LOAD', from, to,"), 'التحميلات وحدها — «فقط الفواتير والتحميلات»');

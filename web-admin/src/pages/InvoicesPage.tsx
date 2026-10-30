@@ -21,6 +21,8 @@ import { shareOrDownloadExcel, num } from '../utils/excel';
 import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
 import { isDamagedVanReturn } from '../lib/vanDamaged';
 import { locationFilterOptions, type SalesLocation } from '../lib/locations';
+import { lotErrorOf, lotFlagsOf } from '../lib/lots';
+import { lotErrorText, withDocLots } from '../lib/invoiceLots';
 
 /** ألوان شارة حالة الفوترة الإلكترونية (المرحلة الثانية) — مفتاحها `ZatcaChipTone`. */
 const ADMIN_CHIP_TONE: Record<string, string> = {
@@ -72,6 +74,10 @@ export default function InvoicesPage() {
     enabled: accountingReady && accountingOn && locOn,
   });
 
+  /* «تتبّع اللوط» (ميزةٌ يفعّلها المالك): الفاتورة تُفتح بصفوف توزيعها (withLots) فتحمل الورقة تشغيلات بنودها، ورفض إلغاء
+   * المرتجع أو إطفاء عودته لأن بضاعته بيعت يُقال بتشغيلته. مطفأةً: الطلب والرسائل كما كانت */
+  const lotOn = lotFlagsOf(company).on;
+
   // معاملات التصفية المشتركة (تُستخدم في الجدول والتصدير)
   const filters = () => {
     const f: Record<string, string | number> = {};
@@ -100,8 +106,10 @@ export default function InvoicesPage() {
   const openInvoicePdf = async (id: string) => {
     setOpeningId(id);
     try {
-      const res = await invoiceApi.get(id);
-      setDocResult(invoiceDocFromDetail(res.data.data, '', company));
+      const res = await invoiceApi.get(id, { withLots: lotOn });
+      const doc = invoiceDocFromDetail(res.data.data, '', company);
+      // تشغيلات البنود من الردّ إن لم تحملها البانية — بالترتيب نفسه (invoiceDocFromDetail يحفظه)
+      setDocResult(lotOn ? { ...doc, items: withDocLots(doc.items, res.data.data?.items) } : doc);
     } catch { toast.error(tr('تعذر فتح المستند')); }
     setOpeningId(null);
   };
@@ -110,6 +118,9 @@ export default function InvoicesPage() {
     mutationFn: (id: string) => invoiceApi.cancel(id),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['invoices'] }); toast.success(tr('تم إلغاء الفاتورة')); },
     onError: (err: unknown) => {
+      // «تتبّع اللوط»: مرتجعٌ بيعت بضاعته لا يُلغى (409 LOT_STOCK_INSUFFICIENT بتشغيلته)، والانشغال 503 «أعد المحاولة»
+      const le = lotErrorOf(err);
+      if (le) { toast.error(lotErrorText(le, tr), { duration: 8000 }); return; }
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('خطأ');
       toast.error(msg);
     },
@@ -124,7 +135,12 @@ export default function InvoicesPage() {
       qc.invalidateQueries({ queryKey: ['van-current'] });
       toast.success(tr('تم تحديث عودة المرتجع للمخزون'));
     },
-    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('خطأ')),
+    onError: (err: unknown) => {
+      // «تتبّع اللوط»: لا تُطفأ عودة مرتجعٍ بيعت بضاعته من السيارة (409 بتشغيلته أو بالرصيد غير المسمّى)
+      const le = lotErrorOf(err);
+      if (le) { toast.error(lotErrorText(le, tr), { duration: 8000 }); return; }
+      toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('خطأ'));
+    },
   });
 
   /* فوترة ZATCA المرحلة الثانية (Z5.6b): عمود «الفوترة الإلكترونية» وإجراءاته لا يظهران إلا لشركةٍ نظامُها

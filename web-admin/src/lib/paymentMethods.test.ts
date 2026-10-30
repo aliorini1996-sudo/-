@@ -139,7 +139,7 @@ test('القائمة: «طرق الدفع» تحت «الفواتير» مباش
   assert.match(s.slice(pm, s.indexOf('\n', pm)), /label: 'nav\.paymentMethods', permission: 'canViewReports' \}/);
   assert.ok(s.includes("(item.to !== '/app/payment-methods' || companyCfg?.paymentMethodsEnabled === true)"), 'العَلَم مطفأ افتراضياً: `=== true`');
   assert.match(s, /const ACCOUNTING_PAGES = \[[^\]]*'\/app\/payment-methods'/, 'المحاسبة المطفأة تخفيها');
-  assert.match(s, /paymentMethodsEnabled\?: boolean \} \| null/, 'العَلَم في نوع إعدادات الشركة');
+  assert.match(s, /paymentMethodsEnabled\?: boolean(; \w+\?: boolean)* \} \| null/, 'العَلَم في نوع إعدادات الشركة');
 });
 
 test('المسار بصلاحية التقارير، والصفحة تقدّم بوّابة المحاسبة على بوّابة العَلَم', () => {

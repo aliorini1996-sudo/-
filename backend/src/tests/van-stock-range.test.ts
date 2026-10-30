@@ -192,7 +192,8 @@ test('حارس نصّي (مراجعة ١٥ أكتوبر): معرّف المند�
   const van = fs.readFileSync(path.join(process.cwd(), 'src', 'routes', 'vanStock.ts'), 'utf8');
   // ?salesRepId[in][]=A&salesRepId[in][]=B كائنٌ يصير شرط Prisma فيتجاوز حارس النطاق
   assert.ok(!/req\.query\.salesRepId as string/.test(van), 'معرّف مندوب من الاستعلام بلا فحص نوع');
-  assert.equal(van.split('queryRepId(req)').length - 1, 6, 'كل مسارات القراءة تمرّ بـqueryRepId');
+  // ٧ منذ «تتبّع اللوط»: GET /lot-balances (B4)
+  assert.equal(van.split('queryRepId(req)').length - 1, 7, 'كل مسارات القراءة تمرّ بـqueryRepId');
   assert.ok(van.includes("if (typeof salesRepId !== 'string' || !salesRepId) throw"), 'حارس النطاق يرفض غير النصّ');
   assert.ok(van.includes('status >= 400 && status < 500') && van.indexOf('router.use((err: unknown') < van.indexOf('export default router;'));
   assert.ok(van.includes('s + Math.max(0, x.damaged)'), 'رصيدٌ سالب لصنف لا يُخفي تالف صنفٍ آخر');

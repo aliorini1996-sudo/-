@@ -183,7 +183,8 @@ test('جرد: الفواتير تُنشأ في ثلاثة مواضع والتح�
 
 test('المرحلة الأولى: الختم من صفّ المندوب القائم (العَلَم في include نفسه)، والمرتجع المرتبط يرث من صفّ بيعه المقفل', () => {
   const inv = read('routes', 'invoices.ts');
-  assert.ok(inv.includes("include: { tenant: { select: { locationsEnabled: true, settings: { select: { teamsEnabled: true } } } }, teamMemberships:"), 'العَلَم في القراءة نفسها — لا استعلام');
+  // ومعه عَلَم «تتبّع اللوط» في القراءة نفسها (§٤.٨ البند ١) — لا استعلام
+  assert.ok(inv.includes("include: { tenant: { select: { locationsEnabled: true, lotTrackingEnabled: true, settings: { select: { teamsEnabled: true } } } }, teamMemberships:"), 'العَلَم في القراءة نفسها — لا استعلام');
   assert.ok(inv.includes('const docLocationId = repStampLocation(rep);'));
   assert.ok(inv.indexOf('const docLocationId = repStampLocation(rep);') > inv.indexOf("if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }"));
   // داخل المعاملة: الإرث من التحقق المقفل نفسه (لا استعلام زائد) قبل الإنشاء
@@ -217,7 +218,8 @@ test('المرحلة الثانية: البيع يُختم من السياق، �
 test('التحميل: LOAD وحده يُختم بموقع المندوب من صفّه القائم (العَلَم في include نفسه)', () => {
   const v = read('routes', 'vanStock.ts');
   const post = v.slice(v.indexOf("router.post('/loads'"), v.indexOf("router.get('/current'"));
-  assert.ok(post.includes("const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid }, include: { tenant: { select: { locationsEnabled: true } } } });"));
+  // «تتبّع اللوط» (B4): عَلَما اللوط والمستودع في القراءة نفسها، وسيارة المندوب المحذوف (D30) بلا صفّ مندوب
+  assert.ok(post.includes("const rep = gone ? null : await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid }, include: { tenant: { select: { locationsEnabled: true, lotTrackingEnabled: true, warehouseEnabled: true } } } });"));
   assert.ok(post.includes("const loadLocationId = data.type === 'LOAD' ? repStampLocation(rep) : null;"), 'فقط التحميلات');
   assert.ok(createBlock(post, 'db.vanLoad.create({').includes('...(loadLocationId && { locationId: loadLocationId }),'));
 });

@@ -5,7 +5,8 @@
 // بصمت عن ميزةٍ يَعِد بها المستند. هنا: Prisma مزيّف في ذاكرة الوحدات، والمصادقة **الحقيقية** تحوّل المفتاح إلى هوية، ثم تُشغَّل
 // وسائط كل موجّه وحرّاس كل مسارٍ جديد بالترتيب حتى المعالج (لا المعالج نفسه: منطقه مختبرٌ في اختبار ميزته) — لوكيشن،
 // طرق الدفع وإدارتها، إعدادات الطباعة، المرتجع من الويب، تعديل البصمات، الفرق، فكّ جهاز البصمة. والأعلام المطفأة والصلاحيات
-// المسحوبة و«قراءة فقط» تمنع المفتاح برموزها نفسها كما تمنع الجلسة. لا قاعدة ولا شبكة.
+// المسحوبة و«قراءة فقط» تمنع المفتاح برموزها نفسها كما تمنع الجلسة. و«تتبّع اللوط» (/api/lots، المواصفة §٥.٢ «وصول المفتاح»):
+// المفتاح هوية مستخدم شركة فيمرّ بحرّاس الموجّه كلها، و«قراءة فقط» لا يتجاوز GET، والعَلَم المطفأ LOTS_NOT_ALLOWED. لا قاعدة ولا شبكة.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -31,6 +32,7 @@ const fullAdmin = (): Row => ({
 });
 const allFlags = (): Row => ({
   accountingEnabled: true, locationsEnabled: true, paymentMethodsEnabled: true, attendanceEnabled: true, warehouseEnabled: true,
+  lotTrackingEnabled: true,
 });
 let adminRow: Row = fullAdmin();
 let tenantRow: Row = allFlags();
@@ -70,6 +72,7 @@ const R = {
   salesReps: require('../routes/salesReps').default,
   receipts: require('../routes/receipts').default,
   warehouse: require('../routes/warehouse').default,
+  lots: require('../routes/lots').default,
 };
 /* eslint-enable @typescript-eslint/no-var-requires */
 
@@ -175,7 +178,25 @@ const OTHERS: Case[] = [
   C('teams', 'put', '/:id/members', '/api/company/teams/t9/members', true),
   C('teams', 'put', '/:id/products', '/api/company/teams/t9/products', true),
 ];
-const ALL = [...LOCATIONS, ...PAYMENT_METHODS, ...OTHERS];
+// «تتبّع اللوط»: كل مسارات الموجّه — الثابتة قبل /:id (المواصفة §٥.١)
+const LOTS: Case[] = [
+  C('lots', 'get', '/', '/api/lots'),
+  C('lots', 'get', '/balances', '/api/lots/balances'),
+  C('lots', 'get', '/fefo', '/api/lots/fefo'),
+  C('lots', 'get', '/health', '/api/lots/health'),
+  C('lots', 'post', '/', '/api/lots'),
+  C('lots', 'post', '/relabel', '/api/lots/relabel'),
+  C('lots', 'post', '/products/tracking', '/api/lots/products/tracking'),
+  C('lots', 'put', '/settings', '/api/lots/settings'),
+  C('lots', 'get', '/:id', '/api/lots/l1'),
+  C('lots', 'patch', '/:id', '/api/lots/l1'),
+  C('lots', 'patch', '/:id/status', '/api/lots/l1/status'),
+  C('lots', 'delete', '/:id', '/api/lots/l1'),
+  C('lots', 'get', '/:id/trace', '/api/lots/l1/trace'),
+  C('lots', 'get', '/:id/unload-plan', '/api/lots/l1/unload-plan'),
+  C('lots', 'get', '/:id/events', '/api/lots/l1/events'),
+];
+const ALL = [...LOCATIONS, ...PAYMENT_METHODS, ...OTHERS, ...LOTS];
 
 function reset(): void {
   keys._resetApiKeyWindows();
@@ -220,6 +241,23 @@ test('الأعلام المطفأة تمنع المفتاح برموز الجل�
   for (const c of [...LOCATIONS, report, pmPut]) assert.equal((await runCase(c)).code, 'ACCOUNTING_NOT_ALLOWED', `${label(c)}: المحاسبة قبل العَلَم`);
 });
 
+test('«تتبّع اللوط»: العَلَم المطفأ يمنع المفتاح بـLOTS_NOT_ALLOWED في كل مسار، والمحاسبة المطفأة قبله — كالجلسة', async () => {
+  reset();
+  tenantRow = { ...allFlags(), lotTrackingEnabled: false };
+  for (const c of LOTS) {
+    const r = await runCase(c);
+    assert.deepEqual([r.passed, r.status, r.code], [false, 403, 'LOTS_NOT_ALLOWED'], label(c));
+  }
+  // غياب العَلَم (صفٌّ قبل db push، أو تعذّر القراءة) يمنع لا يفتح — الشرط !== true
+  tenantRow = { accountingEnabled: true };
+  for (const c of LOTS) assert.equal((await runCase(c)).code, 'LOTS_NOT_ALLOWED', label(c));
+  tenantRow = { ...allFlags(), accountingEnabled: false };
+  for (const c of LOTS) assert.equal((await runCase(c)).code, 'ACCOUNTING_NOT_ALLOWED', `${label(c)}: المحاسبة قبل العَلَم`);
+  // والعَلَم المفعّل لا يمسّ بقية المسارات
+  reset();
+  for (const c of OTHERS.filter((x) => x.router !== 'attendance')) assert.equal((await runCase(c)).passed, true, label(c));
+});
+
 test('الصلاحية المسحوبة من مُصدِر المفتاح تسري على مفتاحه في الحال (تُقرأ من القاعدة لا من المفتاح)', async () => {
   reset();
   const denied = async (perm: string, c: Case) => {
@@ -236,6 +274,10 @@ test('الصلاحية المسحوبة من مُصدِر المفتاح تسر�
   await denied('canManageCompanySettings', OTHERS[1]); // حفظ إعدادات الطباعة
   await denied('canManageInvoices', OTHERS[3]); // المرتجع من الويب
   await denied('canManageTracking', OTHERS.find((c) => c.router === 'attendance')!);
+  // «تتبّع اللوط»: إدارة مخزون السيارات لكل الموجّه، والمنتجات للتفعيل الجماعي، والإعدادات لطباعة التشغيلة
+  for (const c of LOTS) await denied('canManageVanStock', c);
+  await denied('canManageProducts', LOTS.find((c) => c.path === '/products/tracking')!);
+  await denied('canManageCompanySettings', LOTS.find((c) => c.path === '/settings')!);
   // وصاحبٌ عُطّل حسابه: المفتاح كلّه 401 قبل أي مسار
   reset();
   keyRow = { ...keyRowOf(false), admin: { ...keyRowOf(false).admin, isActive: false } };

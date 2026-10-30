@@ -1,6 +1,6 @@
 import { Router, Response, NextFunction } from 'express';
 import prisma from '../config/database';
-import { authenticate, requireAdmin, requireAdminPermission, requirePaymentMethods, tenantId } from '../middleware/auth';
+import { authenticate, requireAdmin, requireAdminPermission, requireLots, requirePaymentMethods, tenantId } from '../middleware/auth';
 import { scopedRecordWhere, scopedRepRecordWhere, adminCustomerFilter, adminRepFilter, SHAPE_INVOICE_RECEIPT, SHAPE_VISIT } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { composeWorkDays, attendanceByDay, overlayAttendance, mergeVisitsByRep, asVisitLike } from '../services/workDay';
@@ -11,6 +11,9 @@ import { tenantTz } from '../services/invoiceExpiry';
 import { COLLECTED_CASH_SALE, COLLECTED_RECEIPT, buildPaymentMethodsReport, paymentMethodsRange, rosterOf, summarizeCollectionsByMethod, type RepInfo } from '../services/paymentMethodsReport';
 import { CUSTOM_METHOD_KEY_RE, readPaymentMethodsConfig } from '../services/paymentMethodsCore';
 import { baseQtyOf, factorOf, roundQty, type UnitSnapshot } from '../services/units';
+import { addDays, isLocalDate, zonedStartOfDay } from '../services/gl/dates';
+import { LOT_CERTAINTIES, LOT_EPS, fefoCompare, roundLot, type LotBlockKind, type LotCertainty, type LotMeta, type LotStatus } from '../services/lots';
+import { companyDay, loadLotMetas } from '../services/lotsDb';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canViewReports'));
@@ -105,6 +108,152 @@ export function productQtyByRep(rows: ReadonlyArray<{ qty: number; baseQty?: num
     if (rep) out.set(rep, (out.get(rep) ?? 0) + baseQtyOf(r));
   }
   return out;
+}
+
+// ═══ «تتبّع اللوط» (المواصفة §٥.١–٥.٢، B8) — قراءةٌ خالصة: لا قفل ولا كتابة ولا مساس بأي رصيد ═══
+
+/** عَلَم الشركة — يُقرأ حين يُطلب withLots وحده، فمن لا يطلبه بلا استعلامٍ إضافي (§١٠.١). تعذّر القراءة يُطفئ */
+async function lotTrackingOn(tid: string): Promise<boolean> {
+  const t = await prisma.tenant.findUnique({ where: { id: tid }, select: { lotTrackingEnabled: true } });
+  return t?.lotTrackingEnabled === true;
+}
+
+const isoDayOf = (d: Date | null | undefined): string | null => (d ? new Date(d).toISOString().slice(0, 10) : null);
+
+/** صفوف توزيع بنود فواتير بعينها بشكل InvoiceItemLotDto (web-admin lib/lots.ts) مجمَّعةً بالبند — الكمية أساسية، وlotId null «غير معروف» */
+async function itemLotsOf(tid: string, invoiceIds: string[]): Promise<Map<string, Record<string, unknown>[]>> {
+  const out = new Map<string, Record<string, unknown>[]>();
+  if (!invoiceIds.length) return out;
+  const rows = await prisma.invoiceItemLot.findMany({
+    where: { tenantId: tid, invoiceId: { in: invoiceIds } },
+    select: {
+      id: true, invoiceItemId: true, invoiceId: true, productId: true, vanKey: true, lotId: true, quantity: true, certainty: true,
+      expiryDate: true, sourceItemLotId: true, flags: true, createdAt: true,
+      lot: { select: { lotNumber: true, expiryDate: true } },
+    },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+  });
+  for (const l of rows) {
+    const arr = out.get(l.invoiceItemId) ?? [];
+    arr.push({
+      ...l, quantity: roundLot(Number(l.quantity)), expiryDate: isoDayOf(l.expiryDate),
+      lot: l.lot ? { lotNumber: l.lot.lotNumber, expiryDate: isoDayOf(l.lot.expiryDate) } : null,
+    });
+    out.set(l.invoiceItemId, arr);
+  }
+  return out;
+}
+
+/** صفّ توزيعٍ كما يقرؤه تقرير التشغيلات — الكمية أساسية (D22)، والاتجاه من نوع الفاتورة */
+export interface LotSaleRowIn { productId: string; lotId: string | null; quantity: number; certainty: string }
+export interface LotSaleInvoiceIn { id: string; type: string; customerId: string; items: ReadonlyArray<{ lots: ReadonlyArray<LotSaleRowIn> }> }
+export interface LotSaleProductIn { name: string; code: string | null; unit: string; units: ReportUnit[] }
+
+/** سطر تقرير «حسب التشغيلة» — lotId null = «غير معروف» (بيعٌ من غير المسمّى D17، أو مرتجعٌ حرّ بلا لوط). الكميات بالأساس */
+export interface LotSalesRow {
+  productId: string; productName: string; productCode: string | null; unit: string; units: ReportUnit[];
+  lotId: string | null; lotNumber: string | null; productionDate: string | null; expiryDate: string | null;
+  status: LotStatus | null; blockKind: LotBlockKind | null;
+  sold: number; returned: number; net: number;
+  customers: number; invoices: number; returnInvoices: number;
+  soldByCertainty: Record<LotCertainty, number>;
+}
+/** مجموع الصنف — الجمع داخل الصنف وحده: لا يُجمع أساسُ صنفٍ إلى أساس آخر (حبّة حليب وعلبة لبن لا تُجمعان) */
+export type LotSalesProduct = Omit<LotSalesRow, 'lotId' | 'lotNumber' | 'productionDate' | 'expiryDate' | 'status' | 'blockKind'> & { lots: number };
+
+/**
+ * تجميع «المبيع حسب التشغيلة» — صرفٌ ليُختبر وحده. لكل (صنف، تشغيلة): المباع (بيعٌ type ≠ RETURN) والمرتجع (ومنه الإشعار الدائن)
+ * والصافي، وعدد العملاء وفواتير البيع (ما بيع منه > EPS)، والمباع بحسب يقينه (يقينٌ مجهول يُعدّ أضعفها: فشلٌ مغلق).
+ * الترتيب: الصنف بالاسم، ثم التشغيلات FEFO، و«غير معروف» آخراً. والملخّص عدّاتٌ بلا كمية (الكمية لا تُجمع عبر الأصناف).
+ */
+export function lotSalesRows(
+  invoices: ReadonlyArray<LotSaleInvoiceIn>,
+  products: ReadonlyMap<string, LotSaleProductIn>,
+  metas: ReadonlyMap<string, LotMeta>,
+): { rows: LotSalesRow[]; products: LotSalesProduct[]; summary: { lots: number; products: number; customers: number; invoices: number; returnInvoices: number } } {
+  type Acc = { productId: string; lotId: string | null; sold: number; returned: number; customers: Set<string>; invoices: Set<string>; returns: Set<string>; byCertainty: Record<LotCertainty, number> };
+  const fresh = (productId: string, lotId: string | null): Acc => ({
+    productId, lotId, sold: 0, returned: 0, customers: new Set(), invoices: new Set(), returns: new Set(), byCertainty: { CONFIRMED: 0, ASSUMED: 0, UNKNOWN: 0 },
+  });
+  const acc = new Map<string, Acc>();
+  const byProduct = new Map<string, Acc>();
+  const all = fresh('', null);
+  for (const inv of invoices) {
+    const isReturn = inv.type === 'RETURN';
+    for (const it of inv.items) {
+      for (const l of it.lots) {
+        const key = `${l.productId}|${l.lotId ?? ''}`;
+        let a = acc.get(key);
+        if (!a) acc.set(key, (a = fresh(l.productId, l.lotId ?? null)));
+        let p = byProduct.get(l.productId);
+        if (!p) byProduct.set(l.productId, (p = fresh(l.productId, null)));
+        const q = Number(l.quantity) || 0;
+        const c: LotCertainty = (LOT_CERTAINTIES as readonly string[]).includes(l.certainty) ? (l.certainty as LotCertainty) : 'UNKNOWN';
+        for (const x of [a, p]) {
+          if (isReturn) {
+            x.returned += q;
+            if (q > LOT_EPS) x.returns.add(inv.id);
+          } else {
+            x.sold += q;
+            x.byCertainty[c] += q;
+            if (q > LOT_EPS) { x.customers.add(inv.customerId); x.invoices.add(inv.id); }
+          }
+        }
+        if (q > LOT_EPS) {
+          if (isReturn) all.returns.add(inv.id);
+          else { all.customers.add(inv.customerId); all.invoices.add(inv.id); }
+        }
+      }
+    }
+  }
+
+  const productOf = (id: string) => products.get(id);
+  const head = (id: string) => {
+    const p = productOf(id);
+    return { productId: id, productName: p?.name ?? 'صنف محذوف', productCode: p?.code ?? null, unit: p?.unit ?? '', units: p?.units ?? [] };
+  };
+  const sums = (a: Acc) => ({
+    sold: roundLot(a.sold), returned: roundLot(a.returned), net: roundLot(a.sold - a.returned),
+    customers: a.customers.size, invoices: a.invoices.size, returnInvoices: a.returns.size,
+    soldByCertainty: { CONFIRMED: roundLot(a.byCertainty.CONFIRMED), ASSUMED: roundLot(a.byCertainty.ASSUMED), UNKNOWN: roundLot(a.byCertainty.UNKNOWN) },
+  });
+  const byName = (x: string, y: string) => {
+    const nx = productOf(x)?.name ?? '';
+    const ny = productOf(y)?.name ?? '';
+    return nx.localeCompare(ny, 'ar') || x.localeCompare(y);
+  };
+  // داخل الصنف: المسمّى ببطاقته FEFO، ثم المسمّى بلا بطاقة، ثم «غير معروف»
+  const rank = (a: Acc) => (a.lotId === null ? 2 : metas.has(a.lotId) ? 0 : 1);
+
+  const rows: LotSalesRow[] = [...acc.values()]
+    .sort((x, y) => {
+      const p = byName(x.productId, y.productId);
+      if (p) return p;
+      const mx = x.lotId ? metas.get(x.lotId) : undefined;
+      const my = y.lotId ? metas.get(y.lotId) : undefined;
+      if (mx && my) return fefoCompare(mx, my);
+      return rank(x) - rank(y) || (x.lotId ?? '').localeCompare(y.lotId ?? '');
+    })
+    .map((a) => {
+      const m = a.lotId ? metas.get(a.lotId) ?? null : null;
+      return {
+        ...head(a.productId),
+        lotId: a.lotId, lotNumber: m?.lotNumber ?? null, productionDate: m?.productionDate ?? null, expiryDate: m?.expiryDate ?? null,
+        status: m?.status ?? null, blockKind: m?.blockKind ?? null,
+        ...sums(a),
+      };
+    });
+  const productRows: LotSalesProduct[] = [...byProduct.values()]
+    .sort((x, y) => byName(x.productId, y.productId))
+    .map((p) => ({ ...head(p.productId), lots: rows.filter((r) => r.productId === p.productId && r.lotId !== null).length, ...sums(p) }));
+  return {
+    rows,
+    products: productRows,
+    summary: {
+      lots: rows.filter((r) => r.lotId !== null).length, products: productRows.length,
+      customers: all.customers.size, invoices: all.invoices.size, returnInvoices: all.returns.size,
+    },
+  };
 }
 
 router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -306,6 +455,8 @@ router.get('/orders', async (req: AuthRequest, res: Response, next: NextFunction
  * لكلّ مرتجع: عميله ومندوبه وسببه وهل عاد للمخزون، وفاتورة البيع التي أُرجع منها إن رُبط بها (الإشعار الدائن بأصله،
  * والمرتجع من فاتورة بيع ببنوده returnOfItemId)، وبنوده بحالة صلاحيتها. والملخّص: العدد والقيمة وتوزيعها على السبب،
  * ونسبة المرتجع من مبيعات المدى نفسه في النطاق نفسه. المدى كتقرير المبيعات: الطرف الغائب بلا حدّ، وغيابهما ٩٠ يوماً.
+ * «تتبّع اللوط» (D11): بـwithLots=1 (أو true) والميزة مفعّلة يحمل كل بند `lots` (صفوف توزيعه بالأساس، InvoiceItemLotDto)؛ وإلا
+ * الاستعلامات والردّ كما كانت — العَلَم لا يُقرأ إلا حين يُطلب withLots ويوجد مرتجع.
  */
 router.get('/returns', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -333,7 +484,7 @@ router.get('/returns', async (req: AuthRequest, res: Response, next: NextFunctio
           salesRep: { select: { id: true, name: true } },
           items: {
             select: {
-              qty: true, lineTotal: true, returnExpired: true, expiresAt: true, returnOfItemId: true, itemName: true,
+              id: true, qty: true, lineTotal: true, returnExpired: true, expiresAt: true, returnOfItemId: true, itemName: true,
               unitName: true, unitFactor: true, baseQty: true,
               product: { select: { name: true, unit: true } },
             },
@@ -359,6 +510,10 @@ router.get('/returns', async (req: AuthRequest, res: Response, next: NextFunctio
       });
       for (const it of saleItems) saleNumberOf.set(it.id, it.invoice.number);
     }
+    // «تتبّع اللوط»: صفوف توزيع البنود — استعلامٌ واحد لكل المرتجعات، بالشركة شرطاً؛ والمعامل '1' أو 'true' كقراءات الفاتورة والسيارة
+    const lotsByItem = (req.query.withLots === '1' || req.query.withLots === 'true') && returns.length > 0 && await lotTrackingOn(tid)
+      ? await itemLotsOf(tid, returns.map((r) => r.id))
+      : null;
 
     const rows = returns.map((r) => {
       const linked = [...new Set(r.items.map((i) => (i.returnOfItemId ? saleNumberOf.get(i.returnOfItemId) : undefined)).filter((x): x is string => !!x))];
@@ -371,7 +526,8 @@ router.get('/returns', async (req: AuthRequest, res: Response, next: NextFunctio
         notes: r.notes,
         saleInvoices: r.originalInvoice ? [r.originalInvoice.number] : linked,
         customer: r.customer, salesRep: r.salesRep,
-        items: r.items.map(returnLineView),
+        // ومع withLots كل بندٍ بصفوف توزيعه — بندُ صنفٍ غير متتبَّع بمصفوفةٍ فارغة
+        items: r.items.map(returnLineView).map((line, j) => (lotsByItem ? { ...line, lots: lotsByItem.get(r.items[j].id) ?? [] } : line)),
       };
     });
 
@@ -1008,6 +1164,106 @@ router.get('/payment-methods', requirePaymentMethods, async (req: AuthRequest, r
       readPaymentMethodsConfig(methodsRow?.paymentMethodsConfig ?? null),
     );
     res.json({ success: true, data: { range: { from: range.from, to: range.to, timezone: tz }, ...report, roster: rosterOf(activeReps, repInfo) } });
+  } catch (err) { next(err); }
+});
+
+const LOT_SALES_DEFAULT_DAYS = 90;
+/** سقف فواتير التقرير (الأحدث أولاً) — يُعلَن `truncated` فلا يُقرأ صافٍ مقصوص على أنه شامل */
+const LOT_SALES_MAX_INVOICES = 20_000;
+/** معاملٌ نصّي اختياري: الغائب والفارغ undefined، وكائن qs أو مصفوفة أو نصٌّ طويل false — يُرفض ولا يُسقَط فلترُه صامتاً */
+const oneParam = (v: unknown): string | undefined | false =>
+  (v === undefined || v === '' ? undefined : typeof v === 'string' && v.length <= 128 ? v : false);
+/**
+ * يوم مدى التقرير: YYYY-MM-DD صالح بسنةٍ 1900–2099 — isLocalDate يقبل الشكل وحده، وسنوات 0000–0099 يحملها Date.UTC
+ * إلى 1900–1999 فيُطبَّق مدى غير المعلَن في range، و9999-12-31 يتجاوز addDays فيصير ٥٠٠ لا ٤٠٠
+ */
+const isReportDay = (v: string): boolean => /^(19|20)\d\d-/.test(v) && isLocalDate(v);
+
+/**
+ * «تتبّع اللوط» — المبيع حسب التشغيلة (المواصفة §٥.١، B8): لكل (صنف، تشغيلة) في المدى المباع والمرتجع والصافي وعدد العملاء.
+ * - **المصدر:** صفوف توزيع البنود (invoice_item_lots) لفواتير CONFIRMED، بالكمية الأساسية (D22) — فسطرا كرتون وحبّة للصنف
+ *   نفسه يُجمعان بالأساس، و`unit`/`units` للعارض («٢ كرتون و٥ حبة»). البند بلا صفوف (صنفٌ غير متتبَّع أو بيعٌ قبل تتبّعه)
+ *   خارج التقرير. والملغاة والمُبطَلة (CANCELLED) خارجة بالحالة.
+ * - **السجلّ كله بلا حقبة** كشاشة التتبّع (§٤.١٧): الحقبة لأرصدة اللوط لا لوقائع البيع، والصفوف تبقى بعد إطفاء الصنف.
+ * - **النطاق والفرق** على الفاتورة كتقرير المرتجع: المقيَّد بالقوائم عميلُه **و**مندوبه، ومشرف الفرق موسومُ فرقه؛ ومنها عدد
+ *   العملاء. والنطاق مفتاح AND والفريق مفتاح teamId فلا يمحو أحدهما الآخر. `scoped` يُعلِم الواجهة أن النتيجة مقيّدة.
+ * - **المدى** بأيام الشركة على تاريخ الفاتورة: الطرف الغائب بلا حدّ، وغيابهما آخر ٩٠ يوماً تنتهي اليوم — مُعلَنة، والسنة
+ *   1900–2099 وإلا ٤٠٠. **فرقٌ معروف:** /returns و/sales تقطعان بأيام UTC (`new Date(from)`) و٩٠×٢٤ ساعة متحرّكة، وتبقيان
+ *   كما كانتا (§١٠.١)؛ فمستندٌ بين ٠٠:٠٠ و٠٣:٠٠ بتوقيت الرياض يقع في يومٍ مختلف بينهما — `range.timezone` يُعلن أساس هذا.
+ * - **العَلَم** requireLots: المحاسبة المطفأة ٤٠٣ ACCOUNTING_NOT_ALLOWED، ثم الميزة المطفأة ٤٠٣ LOTS_NOT_ALLOWED.
+ * - **الصافي في مدى وقائعٌ لا رصيد**: قد يكون سالباً (مرتجعٌ فيه لبيعٍ قبله). لا يمسّ التقرير رصيداً ولا قفلاً.
+ * - lotId=none يعرض «غير معروف» وحده.
+ */
+router.get('/lot-sales', requireLots, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const productId = oneParam(req.query.productId);
+    const lotId = oneParam(req.query.lotId);
+    const from = oneParam(req.query.from);
+    const to = oneParam(req.query.to);
+    if (productId === false || lotId === false || from === false || to === false
+      || (from !== undefined && !isReportDay(from)) || (to !== undefined && !isReportDay(to))) {
+      res.status(400).json({ success: false, message: 'معامل غير صالح' }); return;
+    }
+    if (from && to && from > to) { res.status(400).json({ success: false, message: 'تاريخ البداية بعد تاريخ النهاية' }); return; }
+
+    const { tz, day: today } = await companyDay(prisma, tid);
+    const rangeApplied = !!(from || to);
+    const rangeFrom = rangeApplied ? from ?? null : addDays(today, -(LOT_SALES_DEFAULT_DAYS - 1));
+    const rangeTo = rangeApplied ? to ?? null : today;
+    const invoiceDate = {
+      ...(rangeFrom ? { gte: zonedStartOfDay(rangeFrom, tz) } : {}),
+      ...(rangeTo ? { lt: zonedStartOfDay(addDays(rangeTo, 1), tz) } : {}),
+    };
+    const scope = await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT);
+    // الشركة شرطٌ على صفوف اللوط نفسها لا على الفاتورة وحدها
+    const lotWhere = {
+      tenantId: tid,
+      ...(productId && { productId }),
+      ...(lotId && { lotId: lotId === 'none' ? null : lotId }),
+    };
+
+    const found = await prisma.invoice.findMany({
+      where: {
+        tenantId: tid, ...scope, ...teamDocWhere(reportTeamOf(req.query.teamId)),
+        status: 'CONFIRMED', invoiceDate, items: { some: { lots: { some: lotWhere } } },
+      },
+      select: {
+        id: true, type: true, customerId: true,
+        items: {
+          where: { lots: { some: lotWhere } },
+          select: { lots: { where: lotWhere, select: { productId: true, lotId: true, quantity: true, certainty: true } } },
+        },
+      },
+      orderBy: { invoiceDate: 'desc' },
+      take: LOT_SALES_MAX_INVOICES + 1,
+    });
+    const truncated = found.length > LOT_SALES_MAX_INVOICES;
+    const invoices = truncated ? found.slice(0, LOT_SALES_MAX_INVOICES) : found;
+
+    const lotRows = invoices.flatMap((i) => i.items.flatMap((it) => it.lots));
+    const pids = [...new Set(lotRows.map((l) => l.productId))];
+    const [products, metas] = await Promise.all([
+      pids.length
+        ? prisma.product.findMany({ where: { tenantId: tid, id: { in: pids } }, select: { id: true, name: true, code: true, unit: true, units: ACTIVE_UNITS_SELECT } })
+        : Promise.resolve([]),
+      // البطاقات بالشركة شرطاً (I5)
+      loadLotMetas(prisma, tid, { lotIds: lotRows.map((l) => l.lotId).filter((x): x is string => !!x) }),
+    ]);
+    const productOf = new Map(products.map((p) => [p.id, { name: p.name, code: p.code, unit: p.unit, units: p.units.map((u) => ({ name: u.name, factor: Number(u.factor) })) }]));
+
+    res.json({
+      success: true,
+      data: {
+        ...lotSalesRows(invoices, productOf, metas),
+        range: { from: rangeFrom, to: rangeTo, timezone: tz },
+        rangeApplied,
+        defaultDays: rangeApplied ? null : LOT_SALES_DEFAULT_DAYS,
+        scoped: Object.keys(scope).length > 0,
+        truncated,
+        ...(truncated && { maxInvoices: LOT_SALES_MAX_INVOICES }),
+      },
+    });
   } catch (err) { next(err); }
 });
 

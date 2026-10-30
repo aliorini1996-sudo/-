@@ -18,6 +18,7 @@
  * ردّ الخادم لا من المعاينة (إجماليّ الإشعار الدائن من أسعار الأصل قد يفترق بكسرٍ عن تقديرنا).
  */
 import { computeInvoiceTotals, roundDecimal } from '../rep/invoiceCalc';
+import type { DocLotLine } from './lots';
 import { QTY_EPS, factorOf, fromBase, refundAmount, roundQty, toBase, type UnitDef } from './units';
 import { unitChoices, type UnitChoice } from '../rep/repUnits';
 
@@ -524,6 +525,8 @@ export interface ReturnDocItem {
   lineTotal: number;
   returnExpired?: boolean | null;
   expiresAt?: string | null;
+  /** «تتبّع اللوط»: تشغيلات البند من ردّ الخادم (withDocLots) */
+  lots?: DocLotLine[];
 }
 
 /**

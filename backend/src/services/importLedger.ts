@@ -22,7 +22,10 @@ import { maxImportEntryDate } from './gl/opening';
 import { importedEntryInstant } from './importTimezoneRebase';
 import { fromMilli, toMilli } from './gl/money';
 import { netUnitCost } from './warehouseCost';
-import { factorOf, unitProblem, type UnitDef } from './units';
+import { factorOf, toBase, unitProblem, type UnitDef } from './units';
+// «تتبّع اللوط» (§٤.٥): قواعد التشغيلة الصرفة (التطبيع والتاريخان والكمية بأربع خانات) — بلا قاعدة
+import { isLotQty, lotDatesProblem, normalizeLotNumber } from './lots';
+import { shelfLifeOf, type ShelfLifeSettings } from './shelfLife';
 
 // ═══ خطأ HTTP برمز ═══
 
@@ -602,7 +605,11 @@ export interface CustomerFootprint {
    */
   scopes?: number;
 }
-export interface ProductFootprint { invoiceItems: number; vanLoadItems: number; warehouseEntryItems: number }
+export interface ProductFootprint {
+  invoiceItems: number; vanLoadItems: number; warehouseEntryItems: number;
+  /** «تتبّع اللوط» (§٤.٢): تشغيلات الصنف — صنفٌ له تشغيلة لا يُحذف (وعلاقتها Restrict تحرسه في القاعدة أيضاً) */
+  productLots?: number;
+}
 
 export function customerBlockReason(f: CustomerFootprint): string | null {
   if (f.invoices > 0) return 'للعميل فواتير';
@@ -622,6 +629,7 @@ export function productBlockReason(f: ProductFootprint): string | null {
   if (f.invoiceItems > 0) return 'للصنف بنود فواتير';
   if (f.vanLoadItems > 0) return 'للصنف تحميلات سيارات';
   if (f.warehouseEntryItems > 0) return 'للصنف حركات مستودع';
+  if ((f.productLots ?? 0) > 0) return 'للصنف تشغيلات مسجلة';
   return null;
 }
 
@@ -773,12 +781,14 @@ export function normImportName(s: string): string {
     .replace(/[ً-ْـ]/g, '').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ىي]/g, 'ي').replace(/\s+/g, ' ');
 }
 
-export interface OpeningStockProduct extends ImportProductUnits {
+export interface OpeningStockProduct extends ImportProductUnits, ShelfLifeSettings {
   id: string; code: string; barcode?: string | null; name: string; taxPct: number;
   /** البند 24: ACTIVE | INACTIVE */
   status?: string | null;
   /** البند 24: مؤرشف */
   deletedAt?: Date | null;
+  /** «تتبّع اللوط» (§٤.٥): الصنف يتتبّع بالتشغيلة — لا أثر إلا والميزة مفعّلة للشركة (`opts.lotsOn`) */
+  lotTracked?: boolean | null;
 }
 
 // ═══ الوحدات المتعددة في الاستيراد ═══
@@ -906,22 +916,54 @@ export interface OpeningStockRowInput {
   unitCost?: number | null;
   /** اختياري: وحدة الكمية والتكلفة (كرتون) — الفارغ = وحدة الأساس كما قبل الميزة */
   unit?: string | null;
+  /** «تتبّع اللوط» (§٤.٥): رقم التشغيلة وتاريخاها (YYYY-MM-DD) — تُقرأ لصنفٍ متتبَّع والميزة مفعّلة وحدهما، وتُتجاهل لغيره */
+  lotNumber?: string | null;
+  productionDate?: string | null;
+  expiryDate?: string | null;
 }
+
+/** تشغيلة بند الجرد: الرقم مطبَّعاً (normalizeLotNumber) والتاريخان YYYY-MM-DD أو null */
+export interface OpeningStockLot { lotNumber: string; productionDate: string | null; expiryDate: string | null }
 
 /**
  * بند الحركة: الكمية والتكلفة **بوحدة الصفّ** كما في الملف، ولقطتها حين لا تكون الأساس (unitFactor غائب = ١).
  * والمسار يكتب اللقطة وbaseQty بـunitFields، فالمخزون والتقييم يقرآن الأساس.
+ * و`lot` لصنفٍ متتبَّع والميزة مفعّلة وحدهما (غائبٌ غير ذلك: البند كما كان حرفياً) — صفّان للصنف بتشغيلتين يبقيان بندين.
  */
-export interface OpeningStockLine { row: number; productId: string; qty: number; unitCost: number; unitName?: string | null; unitFactor?: number }
+export interface OpeningStockLine { row: number; productId: string; qty: number; unitCost: number; unitName?: string | null; unitFactor?: number; lot?: OpeningStockLot }
+
+/**
+ * «تتبّع اللوط» (§٤.٥): تشغيلة صفٍّ لصنفٍ متتبَّع، أو خطأ صفّه — الرقم إلزامي (LOT_REQUIRED، ≤ ٦٤ بعد التطبيع)، والتاريخان
+ * YYYY-MM-DD والإنتاج لا يتأخر عن الانتهاء (LOT_DATES_INVALID)، والانتهاء إلزامي مع صلاحية الصنف (LOT_EXPIRY_REQUIRED)، والكمية
+ * بالأساس بأربع خانات (LOT_QTY_INVALID: الطيّ مقرَّب لأربع خانات فكسرٌ أدقّ يُصرف فوق خامه، I1). وتطابق التاريخين مع تشغيلةٍ
+ * مسجَّلة يُفحص تحت القفل (LOT_DATES_MISMATCH، services/lotsWarehouse.ts).
+ */
+function openingStockLotOf(r: OpeningStockRowInput, p: OpeningStockProduct, baseQty: number):
+  { lot: OpeningStockLot } | { code: 'LOT_REQUIRED' | 'LOT_DATES_INVALID' | 'LOT_EXPIRY_REQUIRED' | 'LOT_QTY_INVALID'; value?: string; field: string } {
+  const lotNumber = normalizeLotNumber(r.lotNumber);
+  if (!lotNumber) return { code: 'LOT_REQUIRED', value: r.lotNumber?.trim() || undefined, field: 'lotNumber' };
+  const production = r.productionDate?.trim() || null;
+  const expiry = r.expiryDate?.trim() || null;
+  const problem = lotDatesProblem(production, expiry, { expiryRequired: shelfLifeOf(p) != null });
+  if (problem === 'LOT_EXPIRY_REQUIRED') return { code: problem, value: lotNumber, field: 'expiryDate' };
+  if (problem) {
+    const bad = production != null && lotDatesProblem(production, null, { expiryRequired: false }) ? 'productionDate' : 'expiryDate';
+    return { code: problem, value: (bad === 'productionDate' ? production : expiry) ?? undefined, field: bad };
+  }
+  if (!isLotQty(baseQty)) return { code: 'LOT_QTY_INVALID', value: String(baseQty), field: 'qty' };
+  return { lot: { lotNumber, productionDate: production, expiryDate: expiry } };
+}
 
 /**
  * الصفوف ⇒ بنود الحركة (تكلفة صافية بـnetUnitCost كمسار الوارد اليدوي) وأخطاء الصفوف (رقم السطر = الفهرس + 2).
  * لا يُسقط صف خاطئ الطلب: صنف غير موجود، كمية ≤ 0، تكلفة ≤ 0، أو صافيها صفري بعد التقريب.
+ * «تتبّع اللوط»: `opts.lotsOn` والصنف متتبَّع ⇒ أعمدة التشغيلة تُتحقَّق ويحمل البند `lot`؛ وغير ذلك تُتجاهل والبند كما كان.
  */
 export function resolveOpeningStockRows(
   rows: readonly OpeningStockRowInput[],
   findProduct: (r: OpeningStockRowInput) => OpeningStockProduct | OpeningStockMatchError | null,
   pricesIncludeTax: boolean,
+  opts: { lotsOn?: boolean } = {},
 ): { lines: OpeningStockLine[]; errors: ImportRowError[] } {
   const lines: OpeningStockLine[] = [];
   const errors: ImportRowError[] = [];
@@ -950,7 +992,14 @@ export function resolveOpeningStockRows(
     if (!unit) { errors.push(importRowError(row, 'UNIT_NOT_FOUND', r.unit?.trim(), 'unit')); return; }
     const net = netUnitCost(cost, p.taxPct ?? 0, pricesIncludeTax);
     if (!(net > 0)) { errors.push(importRowError(row, 'STOCK_NET_COST_ZERO', ident, identField)); return; }
-    lines.push({ row, productId: p.id, qty, unitCost: net, ...(unit.unitFactor !== 1 ? { unitName: unit.unitName, unitFactor: unit.unitFactor } : {}) });
+    // «تتبّع اللوط»: تشغيلة الصنف المتتبَّع إلزامية بتاريخيها، والكمية بالأساس كما يكتبها unitFields في المسار
+    let lot: OpeningStockLot | undefined;
+    if (opts.lotsOn === true && p.lotTracked === true) {
+      const res = openingStockLotOf(r, p, toBase(qty, { unitFactor: unit.unitFactor }));
+      if ('code' in res) { errors.push(importRowError(row, res.code, res.value, res.field)); return; }
+      lot = res.lot;
+    }
+    lines.push({ row, productId: p.id, qty, unitCost: net, ...(unit.unitFactor !== 1 ? { unitName: unit.unitName, unitFactor: unit.unitFactor } : {}), ...(lot && { lot }) });
   });
   return { lines, errors };
 }
@@ -1039,7 +1088,9 @@ export type ImportRowErrorCode =
   | 'PRODUCT_INACTIVE' | 'PRODUCT_AMBIGUOUS' | 'OPENING_STOCK_ALREADY_IMPORTED' | 'PRODUCT_HAS_STOCK_MOVEMENTS'
   | 'STOCK_QTY_INVALID' | 'STOCK_COST_INVALID' | 'STOCK_NET_COST_ZERO' | 'PRODUCT_CODE_ARCHIVED' | 'PRODUCT_DUPLICATE_IN_FILE'
   // الوحدات المتعددة: وحدة إضافية تالفة في ملف المنتجات، ووحدة مجهولة في المخزون الافتتاحي والأسعار
-  | 'PRODUCT_UNIT_INVALID' | 'UNIT_NOT_FOUND';
+  | 'PRODUCT_UNIT_INVALID' | 'UNIT_NOT_FOUND'
+  // «تتبّع اللوط» (§٣.٣، §٤.٥): تشغيلة صفّ المخزون الافتتاحي لصنفٍ متتبَّع
+  | 'LOT_REQUIRED' | 'LOT_DATES_INVALID' | 'LOT_EXPIRY_REQUIRED' | 'LOT_DATES_MISMATCH' | 'LOT_QTY_INVALID';
 
 /** خطأ صف في ردود الاستيراد: row = موضع الصف المرسل + 2، وvalue القيمة التي أوقعت الخطأ، وfield عمودها */
 export interface ImportRowError { row: number; message: string; code?: string; value?: string; field?: string }
@@ -1064,6 +1115,11 @@ export const IMPORT_ROW_MESSAGES: Record<Exclude<ImportRowErrorCode, 'ROW_WRITE_
   PRODUCT_DUPLICATE_IN_FILE: 'كود الصنف مكرر في الملف ببيانات مختلفة، أضف عمود الكود أو صحّح التكرار',
   PRODUCT_UNIT_INVALID: 'وحدة إضافية غير صالحة: معاملها عدد صحيح أكبر من 1 (كم وحدة أساس فيها)، واسمها لا يتكرر ولا يساوي وحدة الأساس',
   UNIT_NOT_FOUND: 'الوحدة غير معرّفة لهذا الصنف: اكتب وحدة الأساس أو إحدى وحداته النشطة، أو اترك خانة الوحدة فارغة لوحدة الأساس',
+  LOT_REQUIRED: 'الصنف يتتبّع بالتشغيلة: اكتب رقم التشغيلة (64 حرفاً على الأكثر)',
+  LOT_DATES_INVALID: 'تاريخ الإنتاج بعد تاريخ الانتهاء أو تاريخ غير صالح، اكتبه بالصيغة YYYY-MM-DD',
+  LOT_EXPIRY_REQUIRED: 'تاريخ انتهاء التشغيلة إلزامي لصنف صلاحيته مفعّلة',
+  LOT_DATES_MISMATCH: 'التشغيلة مسجلة لهذا الصنف بتواريخ مختلفة، صحّح التاريخين أو اتركهما فارغين',
+  LOT_QTY_INVALID: 'كمية الصنف المتتبّع بالتشغيلة بأربع خانات عشرية على الأكثر بوحدة الأساس',
 };
 
 export function importRowError(

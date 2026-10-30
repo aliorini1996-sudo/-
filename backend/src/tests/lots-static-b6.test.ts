@@ -1,5 +1,106 @@
-// «تتبّع اللوط» — حرّاس نصّية للحزمة B6 (المواصفة §٨.٣). نائبٌ سجّله الأساس (P0) في backend/package.json؛ تملكه B6.
+// «تتبّع اللوط» — حرّاس نصّية للحزمة B6 (المواصفة §٨.٣، §٤.٩). تملكه B6.
+// على المصدر: موضع الفحص المسبق والتوزيع في فرعي المرحلة الثانية، وأن اللوط خلف شرطه (R1)، وبلا طابور (D29) ولا قاعدة مباشرة.
 import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 
-test.todo('B6: الفحص المسبق قبل openIssuanceSigning في invoicesZatca.ts وinvoicesNotes.ts');
-test.todo('B6: لا طابور لوط في إصدار المرحلة الثانية (D29)، ولا config/database في invoicesZatca.ts');
+const SRC = path.join(__dirname, '..');
+const read = (rel: string): string => fs.readFileSync(path.join(SRC, rel), 'utf8').replace(/\r\n/g, '\n');
+const stripComments = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1');
+
+function ordered(text: string, needles: readonly string[], msg: string): void {
+  let pos = -1;
+  for (const n of needles) {
+    const idx = text.indexOf(n, pos + 1);
+    assert.ok(idx > pos, `${msg}: «${n}» مفقود أو خارج الترتيب`);
+    pos = idx;
+  }
+}
+
+const ZATCA = stripComments(read('routes/invoicesZatca.ts'));
+const NOTES = stripComments(read('routes/invoicesNotes.ts'));
+const DEPS = stripComments(read('routes/invoicesZatcaDeps.ts'));
+
+test('الفرع: الفحص المسبق قبل openIssuanceSigning، والتوزيع بعد قفل الأساس وقبل إدراج الصفّ وقبل afterDocument', () => {
+  const issue = ZATCA.slice(ZATCA.indexOf('async function issueNow'), ZATCA.indexOf('function pendingResult('));
+  ordered(issue, [
+    'prepareIssuance(',
+    'const pre = ctx.lots && deps.lots ? await deps.lots.precheck(ctx.lots) : null;',
+    'if (pre) throw pre;',
+    'openIssuanceSigning(',
+    'createInvoice: async (t, record) =>',
+    'lockProductBases(t, ctx.tenantId, expectedBases)',
+    'const alloc = ctx.lots && deps.lots ? await deps.lots.allocateInTx(t, ctx.lots) : null;',
+    'const lotInvoiceId = alloc ? randomUUID() : null;',
+    't.invoice.create(',
+    '...(lotInvoiceId && { id: lotInvoiceId }),',
+    '...legacyItemColumns(i), ...phase2ItemColumns(record.items[idx]),',
+    '...invoiceItemLotColumns(alloc?.lines ?? null, idx,',
+    'afterDocument:',
+  ], 'ترتيب فرع الإصدار');
+  // كل نداء للخطّاف خلف شرط الخطة والخطّاف معاً (R1): لا أثر لشركةٍ مطفأة ولا لاعتمادياتٍ بلا lots
+  assert.equal(ZATCA.split('deps.lots.').length - 1, 2, 'نداءٌ للخطّاف خارج الموضعين');
+  assert.equal(ZATCA.split('ctx.lots && deps.lots ?').length - 1, 2, 'نداءٌ للخطّاف بلا شرطه');
+});
+
+test('الإشعار الدائن: الفحص المسبق قبل stampNote/التوقيع، والتوزيع داخل createInvoice بعد قفل الأصل وإشعاراته', () => {
+  const issue = NOTES.slice(NOTES.indexOf('async function issueNote('), NOTES.indexOf('async function stampNote('));
+  ordered(issue, [
+    'const preview = buildNote(',
+    'const lots = await noteLotContext(kind, ctx, deps, preview, now);',
+    'const pre = lots && prePlan ? await lots.hooks.precheck(prePlan) : null;',
+    'if (pre) throw pre;',
+    'stampNote(kind, ctx, deps, seller, regime.unit, loaded, now, lots)',
+  ], 'ترتيب الإشعار قبل التوقيع');
+  const stamp = NOTES.slice(NOTES.indexOf('async function stampNote('), NOTES.indexOf('export function issueCreditNote'));
+  ordered(stamp, [
+    'openIssuanceSigning(',
+    'deps.chain.lockChainHead(tx, unit.id)',
+    'lockNoteOriginal(tx, ctx.tenantId, ctx.originalInvoiceId)',
+    'loadPriorNotes(tx as unknown as NoteDb',
+    'createInvoice: async (t, record) =>',
+    'const lotVan = creditVanOf(ctx, locked.original);',
+    "const lotPlan = lots && kind === 'CREDIT_NOTE' ? creditNoteLotPlan(prepared,",
+    'const alloc = lots && lotPlan ? await lots.hooks.allocateInTx(t, lotPlan) : null;',
+    't.invoice.create(',
+    '...invoiceItemLotColumns(alloc?.lines ?? null, idx,',
+    'afterDocument:',
+  ], 'ترتيب الإشعار داخل المعاملة');
+  // السيارة = مندوب الإشعار، وهو salesRepId صفّه نفسه
+  assert.match(NOTES, /const creditVanOf = \(ctx: NoteContextBase, original: NoteOriginalInvoice\): string \| null => ctx\.salesRepId \?\? original\.salesRepId \?\? null;/);
+  assert.match(NOTES, /: \(ctx\.salesRepId \?\? locked\.original\.salesRepId\)/);
+  // الخطة: الوراثة (CREDITED) بيوم الخادم بلا إعادة، والعلم يُقرأ للدائن وحده وحين يمسّ بندٌ صنفاً معلَّماً (§١٠.١)
+  assert.match(NOTES, /docType: 'RETURN', link: 'CREDITED', actor: at\.actor, replay: null, day: at\.day, returnDay: at\.day,/);
+  const ctxFn = NOTES.slice(NOTES.indexOf('async function noteLotContext('), NOTES.indexOf('const creditVanOf'));
+  ordered(ctxFn, [
+    "if (kind !== 'CREDIT_NOTE' || !deps.lots) return null;",
+    'tracked.has(l.productId)',
+    'await deps.lots.enabled(ctx.tenantId)',
+    'deps.lots.day(ctx.tenantId, now)',
+  ], 'شروط قراءة العلم');
+  assert.match(NOTES, /damagedReturnToStock: true, lotTracked: true,/, 'lotTracked لا يُقرأ من صفّ الأصل المحمَّل');
+});
+
+test('D29 وعزل الفرعين: لا طابور لوط، ولا قاعدة مباشرة، ولا خدمة لوط تجرّ Prisma — الخدمة محقونة من الاعتماديات', () => {
+  for (const [name, s] of [['invoicesZatca.ts', ZATCA], ['invoicesNotes.ts', NOTES], ['invoicesZatcaDeps.ts', DEPS]] as const) {
+    assert.doesNotMatch(s, /acquireLotQueue/, `${name}: طابور لوط في إصدار المرحلة الثانية (مسلسل لكل وحدة أصلاً)`);
+  }
+  for (const [name, s] of [['invoicesZatca.ts', ZATCA], ['invoicesNotes.ts', NOTES]] as const) {
+    assert.doesNotMatch(s, /from '\.\.\/config\/database'/, `${name}: قاعدة مباشرة`);
+    assert.doesNotMatch(s, /from '\.\.\/services\/lots(Invoice|Db)'/, `${name}: خدمة لوط بقاعدة تُستورد بدل الحقن`);
+  }
+  // الإنتاج: الخطّاف هو خدمة المرحلة الأولى نفسها (لا نسخة ثانية من المنطق)
+  assert.match(DEPS, /enabled: tenantId => lotTrackingEnabledFor\(prisma, tenantId\)/);
+  assert.match(DEPS, /day: async \(tenantId, at\) => \(await companyDay\(prisma, tenantId, at\)\)\.day/);
+  assert.match(DEPS, /precheck: plan => precheckInvoiceLots\(prisma, plan\)/);
+  assert.match(DEPS, /allocateInTx: \(tx, plan\) => allocateInvoiceLotsInTx\(tx as unknown as LotTx, plan\)/);
+  // المهلة الموسّعة (D13) قائمة أصلاً في معاملة الإصدار
+  assert.match(DEPS, /maxWait: ISSUANCE_TX_MAX_WAIT_MS, timeout: ISSUANCE_TX_TIMEOUT_MS/);
+});
+
+test('المدين بلا توزيع: الخطة للدائن وحده، وبنود المدين بلا صنف كما هي', () => {
+  assert.match(NOTES, /productId: kind === 'CREDIT_NOTE' \? \(line\?\.productId \?\? null\) : null,/);
+  const stamp = NOTES.slice(NOTES.indexOf('async function stampNote('), NOTES.indexOf('export function issueCreditNote'));
+  assert.equal(stamp.split('lots.hooks.allocateInTx(').length - 1, 1);
+});

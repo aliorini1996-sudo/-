@@ -44,12 +44,15 @@ const companySchema = z.object({
   einvoiceActivityCode: z.string().nullish().or(z.literal('')),
   einvoiceBranchCode: z.string().nullish().or(z.literal('')),
   einvoiceIntermediaryUrl: z.string().nullish().or(z.literal('')),
+  // lotOnInvoice ليس هنا عمداً: يحفظه PUT /api/lots/settings وحده (D15)، فحفظ هذا النموذج لا يمسّه ولا يمحوه
 });
 
-// لا نُعيد السرّ للواجهة إطلاقاً — نستبدله بمؤشّر «مضبوط أم لا»
+// لا نُعيد السرّ للواجهة إطلاقاً — نستبدله بمؤشّر «مضبوط أم لا».
+// و«طباعة التشغيلة» (lotOnInvoice) لا تخرج خاماً: GET يعيدها مشروطةً بعلم «تتبّع اللوط» (D15)، وردّ الحفظ كما كان قبل الميزة
 function maskCompany<T extends Record<string, unknown> | null>(c: T): T {
   if (!c) return c;
-  const { einvoiceClientSecret, ...rest } = c as Record<string, unknown>;
+  const { einvoiceClientSecret, lotOnInvoice: _lotOnInvoice, ...rest } = c as Record<string, unknown>;
+  void _lotOnInvoice;
   return { ...rest, einvoiceHasSecret: !!einvoiceClientSecret } as unknown as T;
 }
 
@@ -58,9 +61,10 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
     const company = await prisma.companySettings.findUnique({ where: { tenantId: tid } });
-    // نُرفق أعلام الاشتراك التي يتحكّم بها المالك (لإظهار/إخفاء الميزات في الواجهة)
-    const tenant = await prisma.tenant.findUnique({ where: { id: tid }, select: { erpEnabled: true, petroappEnabled: true, hatifEnabled: true, catalogEnabled: true, paylinkEnabled: true, warehouseEnabled: true, receivablesSummaryEnabled: true, accountingEnabled: true, dailyReportEnabled: true, attendanceEnabled: true, invoiceSignatureEnabled: true, accountingSuiteEnabled: true, zatcaPhase2Enabled: true, aiRepEnabled: true, apiEnabled: true, cardPayEnabled: true, locationsEnabled: true, paymentMethodsEnabled: true } });
-    const data = { ...(maskCompany(company as Record<string, unknown> | null) as object), erpEnabled: !!tenant?.erpEnabled, petroappEnabled: !!tenant?.petroappEnabled, hatifEnabled: !!tenant?.hatifEnabled, catalogEnabled: !!tenant?.catalogEnabled, paylinkEnabled: !!tenant?.paylinkEnabled, warehouseEnabled: !!tenant?.warehouseEnabled, receivablesSummaryEnabled: !!tenant?.receivablesSummaryEnabled, accountingEnabled: tenant?.accountingEnabled !== false, dailyReportEnabled: tenant?.dailyReportEnabled === true, attendanceEnabled: tenant?.attendanceEnabled === true, invoiceSignatureEnabled: tenant?.invoiceSignatureEnabled === true, accountingSuiteEnabled: tenant?.accountingSuiteEnabled === true, zatcaPhase2Enabled: tenant?.zatcaPhase2Enabled === true, aiRepEnabled: tenant?.aiRepEnabled === true && (req.user?.role !== 'SALES_REP' || await aiRepForRep(tid, req.user.id)), apiEnabled: tenant?.apiEnabled === true, cardPayEnabled: tenant?.cardPayEnabled === true, locationsEnabled: tenant?.locationsEnabled === true, paymentMethodsEnabled: tenant?.paymentMethodsEnabled === true };
+    // نُرفق أعلام الاشتراك التي يتحكّم بها المالك (لإظهار/إخفاء الميزات في الواجهة).
+    // «تتبّع اللوط»: العلم من الـselect نفسه (لا استعلام إضافي)، وlotOnInvoice (طباعة التشغيلة) لا يصل مفعّلاً إلا مع العلم (D15)
+    const tenant = await prisma.tenant.findUnique({ where: { id: tid }, select: { erpEnabled: true, petroappEnabled: true, hatifEnabled: true, catalogEnabled: true, paylinkEnabled: true, warehouseEnabled: true, receivablesSummaryEnabled: true, accountingEnabled: true, dailyReportEnabled: true, attendanceEnabled: true, invoiceSignatureEnabled: true, accountingSuiteEnabled: true, zatcaPhase2Enabled: true, aiRepEnabled: true, apiEnabled: true, cardPayEnabled: true, lotTrackingEnabled: true, locationsEnabled: true, paymentMethodsEnabled: true } });
+    const data = { ...(maskCompany(company as Record<string, unknown> | null) as object), erpEnabled: !!tenant?.erpEnabled, petroappEnabled: !!tenant?.petroappEnabled, hatifEnabled: !!tenant?.hatifEnabled, catalogEnabled: !!tenant?.catalogEnabled, paylinkEnabled: !!tenant?.paylinkEnabled, warehouseEnabled: !!tenant?.warehouseEnabled, receivablesSummaryEnabled: !!tenant?.receivablesSummaryEnabled, accountingEnabled: tenant?.accountingEnabled !== false, dailyReportEnabled: tenant?.dailyReportEnabled === true, attendanceEnabled: tenant?.attendanceEnabled === true, invoiceSignatureEnabled: tenant?.invoiceSignatureEnabled === true, accountingSuiteEnabled: tenant?.accountingSuiteEnabled === true, zatcaPhase2Enabled: tenant?.zatcaPhase2Enabled === true, aiRepEnabled: tenant?.aiRepEnabled === true && (req.user?.role !== 'SALES_REP' || await aiRepForRep(tid, req.user.id)), apiEnabled: tenant?.apiEnabled === true, cardPayEnabled: tenant?.cardPayEnabled === true, locationsEnabled: tenant?.locationsEnabled === true, paymentMethodsEnabled: tenant?.paymentMethodsEnabled === true, lotTrackingEnabled: tenant?.lotTrackingEnabled === true, lotOnInvoice: company?.lotOnInvoice === true && tenant?.lotTrackingEnabled === true };
     res.json({ success: true, data });
   } catch (err) { next(err); }
 });

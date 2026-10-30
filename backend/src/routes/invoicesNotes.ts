@@ -16,6 +16,8 @@
 //     تُماتُ بعد الالتزام — فلا يدفع العميل رابطاً لمبلغٍ أُسقط عنه.
 //   • الاعتماد قبل المشاركة (Z5.4) يسري على الإشعار كما يسري على الفاتورة: القياسيّ يُعتمد داخل الطلب (201/202/422)
 //     والمبسّط يُبلَّغ خلال ٢٤ ساعة. ورفض القياسيّ يُبطل الإشعار ويردّ متبقّي الأصل (services/invoiceVoid).
+//   • «تتبّع اللوط» (§٤.٩): الدائن يرث صفوف توزيع البيع من الأصل المقفل بسيارة مندوبه (فحصٌ قبل التوقيع، وتوزيعٌ في
+//     createInvoice)، والقياسيّ محجوزٌ بالبناء حتى اعتماده (D24). والمدين بلا صنف فلا توزيع.
 // لا يستورد services/gl ولا config/database (الاعتماديات تُحقن — الإنتاج في invoicesZatcaDeps.ts).
 // ============================================================================
 
@@ -34,10 +36,13 @@ import {
   type NoteEligible, type NoteKind, type NoteOriginalInvoice, type NoteOriginalItem, type PreparedNote, type PriorNote,
 } from '../compliance/zatca/notes';
 import { resolveInvoiceRegime } from '../compliance/zatca/regime';
-import { unitFields } from '../services/units';
+import { factorOf, unitFields } from '../services/units';
+// «تتبّع اللوط» (§٤.٩): الخطة ودمج صفوف التوزيع — services/lots.ts نقيّة (لا قاعدة ولا Prisma)
+import { invoiceItemLotColumns, lotBaseQty, type InvoiceLotLine, type InvoiceLotPlan, type LotActor } from '../services/lots';
+import { randomUUID } from 'node:crypto';
 import {
-  capsGate, clearStandardInline, einvoiceView, isReplayRequest, regimeSettingsOf,
-  type ClientCapsHeaders, type EinvoiceView, type Phase2IssuanceDeps, type Phase2LedgerHooks, type Phase2Result, type Phase2Tx,
+  ITEM_LOTS_INCLUDE, capsGate, clearStandardInline, einvoiceView, isReplayRequest, regimeSettingsOf,
+  type ClientCapsHeaders, type EinvoiceView, type Phase2IssuanceDeps, type Phase2LedgerHooks, type Phase2LotHooks, type Phase2Result, type Phase2Tx,
 } from './invoicesZatca';
 
 // ─── الاعتماديات ───
@@ -69,7 +74,8 @@ const ORIGINAL_ITEM_SELECT = {
   unitName: true, unitFactor: true, baseQty: true, lineTotal: true,
   product: {
     select: {
-      name: true, unit: true, damagedReturnToStock: true,
+      // «تتبّع اللوط» (§٤.٩): lotTracked من الصفّ المحمَّل أصلاً — علم الشركة لا يُقرأ إلا حين يحمل الأصل صنفاً متتبَّعاً (§١٠.١)
+      name: true, unit: true, damagedReturnToStock: true, lotTracked: true,
       units: { select: { id: true, name: true, factor: true, unitCode: true, isActive: true }, orderBy: [{ sortOrder: 'asc' }, { factor: 'asc' }] },
     },
   },
@@ -88,6 +94,8 @@ export interface LoadedOriginal {
   original: NoteOriginalInvoice;
   /** مشتري الأصل كما دخل الـXML (einvoiceSnapshot.customer) — يُفعّل حارس انحراف الهوية. */
   originalBuyer: UblParty | null;
+  /** «تتبّع اللوط»: أصناف بنود الأصل المعلَّمة «تتبّع باللوط» الآن (Product.lotTracked) — فارغةٌ ⇒ لا أثر للّوط إطلاقاً. */
+  lotTrackedProducts: ReadonlySet<string>;
 }
 
 /** مشتري اللقطة إن كانت لقطةً مفهومة (v1)؛ وإلا null — اللقطة لا تُفشل إشعاراً. */
@@ -130,6 +138,7 @@ function originalOf(row: OriginalRow): LoadedOriginal {
       paidAmt: Number(row.paidAmt), remainingAmt: Number(row.remainingAmt), invoiceDate: row.invoiceDate ?? null, items,
     },
     originalBuyer: buyerOfSnapshot(row.einvoiceSnapshot),
+    lotTrackedProducts: new Set(row.items.filter(it => it.productId && it.product?.lotTracked === true).map(it => it.productId as string)),
   };
 }
 
@@ -486,6 +495,64 @@ export function legacyNoteItem(
   };
 }
 
+// ─── «تتبّع اللوط» (§٤.٩ البند ٥) ───
+
+/** ما يلزم الإشعار الدائن المتتبَّع: الخطّاف ويوم الخادم بمنطقة الشركة (محسوبٌ قبل المعاملة) والفاعل. */
+interface NoteLotContext {
+  hooks: Phase2LotHooks;
+  day: string;
+  actor: LotActor;
+}
+
+/**
+ * خطة الإشعار الدائن: يرث صفوف توزيع البيع (link CREDITED ⇒ allocateReturnFromSale بالترتيب الهجين) بسيارة **مندوب
+ * الإشعار**، ويوم المرتجع يوم الخادم (لا إعادة دون اتصال: المرحلة الثانية لا تُصدَر دون اتصال). سطرٌ لكل بند إشعارٍ بصنف،
+ * بموضعه في المستند، وكميته الأساسية = baseQty الذي يُكتب للبند (unitFields بمعامل وحدة الإشعار، D22) فيساوي مجموعُ صفوفه
+ * كميةَ البند (I3). المجموعة الموثوقة تُقرأ تحت القفل (D25): الأسطر كلها تُمرَّر ويتكيّف التوزيع. null ⇒ لا بند بصنف.
+ */
+export function creditNoteLotPlan(
+  note: Pick<PreparedNote, 'lines' | 'engine'>,
+  at: { tenantId: string; customerId: string; vanKey: string | null; day: string; clientRef: string | null; actor: LotActor },
+): InvoiceLotPlan | null {
+  const lines: InvoiceLotLine[] = [];
+  note.lines.forEach((l, idx) => {
+    if (!l.productId) return;
+    const qty = Number(note.engine.items[idx]?.qty ?? l.creditQty);
+    lines.push({
+      idx, productId: l.productId, productName: l.itemName ?? '',
+      qty: lotBaseQty({ qty, unitFactor: l.creditUnitFactor }), unitFactor: factorOf({ unitFactor: l.creditUnitFactor }),
+      saleItemId: l.invoiceItemId,
+    });
+  });
+  if (!lines.length) return null;
+  return {
+    tenantId: at.tenantId, customerId: at.customerId, vanKey: at.vanKey,
+    docType: 'RETURN', link: 'CREDITED', actor: at.actor, replay: null, day: at.day, returnDay: at.day,
+    // D17 (افتراض المالك) — لا أثر له في الوراثة، والصفوف بلا بيعٍ متتبَّع «غير معروف»
+    allowUnknown: true, clientRef: at.clientRef, lines,
+    // الختم من صفوف البيع المسمّاة داخل المعاملة؛ وما بقي يختمه الختم اللاحق (يتخطّى المختوم)
+    fallbackStamps: new Map(),
+  };
+}
+
+/**
+ * للإشعار الدائن وحده، وحين يمسّ بندٌ منه صنفاً معلَّماً في الأصل المحمَّل — عندها فقط يُقرأ علم الشركة (§١٠.١) ويومها.
+ * المدين بنوده بلا صنف فلا توزيع له أصلاً (§٤.٩ البند ٦).
+ */
+async function noteLotContext(
+  kind: NoteKind, ctx: CreditNoteContext | DebitNoteContext, deps: NoteIssuanceDeps, preview: NoteBuild, now: Date,
+): Promise<NoteLotContext | null> {
+  if (kind !== 'CREDIT_NOTE' || !deps.lots) return null;
+  const tracked = preview.loaded.lotTrackedProducts;
+  if (!preview.prepared.lines.some(l => l.productId && tracked.has(l.productId))) return null;
+  if (!(await deps.lots.enabled(ctx.tenantId))) return null;
+  const actor: LotActor = ctx.actor?.role === 'SALES_REP' ? 'REP' : ctx.viaApiKey ? 'API_KEY' : 'ADMIN';
+  return { hooks: deps.lots, day: await deps.lots.day(ctx.tenantId, now), actor };
+}
+
+/** سيارة الإشعار الدائن = مندوبه (المُصدِر، وإلا مندوب الأصل) — مطابقٌ لـsalesRepId صفّه. */
+const creditVanOf = (ctx: NoteContextBase, original: NoteOriginalInvoice): string | null => ctx.salesRepId ?? original.salesRepId ?? null;
+
 async function issueNote(
   kind: NoteKind, ctx: CreditNoteContext | DebitNoteContext, deps: NoteIssuanceDeps,
 ): Promise<Phase2Result | null> {
@@ -520,8 +587,16 @@ async function issueNote(
     // التحضير قبل أيّ قفل: كلّ رفضٍ رخيص (الأهليّة، الكميات، القيمة، بيانات المشتري، العملة، الفحص المسبق) يقع هنا
     const priorNotes = await loadPriorNotes(deps.db, ctx.tenantId, loaded.original.id);
     const legacyReturns = await legacyReturnsFor(deps.db, ctx.tenantId, loaded.original);
-    buildNote(kind, ctx, loaded, priorNotes, seller, now, legacyReturns);
-    return await stampNote(kind, ctx, deps, seller, regime.unit, loaded, now);
+    const preview = buildNote(kind, ctx, loaded, priorNotes, seller, now, legacyReturns);
+    // «تتبّع اللوط» (§٤.٩، ن٢-٣): فحصٌ رخيص بلا قفل قبل التوقيع — والقرار الحاكم داخل المعاملة من الأصل المقفل
+    const lots = await noteLotContext(kind, ctx, deps, preview, now);
+    const prePlan = lots ? creditNoteLotPlan(preview.prepared, {
+      tenantId: ctx.tenantId, customerId: loaded.original.customerId, vanKey: creditVanOf(ctx, loaded.original),
+      day: lots.day, clientRef: ctx.clientRef ?? null, actor: lots.actor,
+    }) : null;
+    const pre = lots && prePlan ? await lots.hooks.precheck(prePlan) : null;
+    if (pre) throw pre;
+    return await stampNote(kind, ctx, deps, seller, regime.unit, loaded, now, lots);
   } catch (e) {
     const err = issuanceHttpError(e);
     if (!err) throw e; // P2002 على clientRef (سباق الرفع المكرّر) وما لا يخصّ الفوترة
@@ -537,6 +612,7 @@ async function issueNote(
 async function stampNote(
   kind: NoteKind, ctx: CreditNoteContext | DebitNoteContext, deps: NoteIssuanceDeps, seller: IssuanceSellerSettings,
   unit: { id: string; tenantId: string; keyVersion: number; vatNumber: string }, preview: LoadedOriginal, now: Date,
+  lots: NoteLotContext | null = null,
 ): Promise<Phase2Result> {
   const signing = await openIssuanceSigning({ store: deps.units, keyring: deps.keyring, now }, unit);
 
@@ -578,8 +654,18 @@ async function stampNote(
                 ),
               })
               : debitNoteLegacyColumns(total);
+            // «تتبّع اللوط» (§٤.٩ البند ٥): بعد قفل الأصل وقراءة إشعاراته، من بنود الإشعار الحاكمة — يرث صفوف البيع بسيارة مندوب
+            // الإشعار، بمعرّفٍ مولَّدٍ مسبقاً. والقياسيّ «01» محجوزٌ بالبناء حتى اعتماده (D24: نوعه ومرحلته ونوعه الفرعي ومرآته)
+            const lotVan = creditVanOf(ctx, locked.original);
+            const lotPlan = lots && kind === 'CREDIT_NOTE' ? creditNoteLotPlan(prepared, {
+              tenantId: ctx.tenantId, customerId: locked.original.customerId, vanKey: lotVan,
+              day: lots.day, clientRef: ctx.clientRef ?? null, actor: lots.actor,
+            }) : null;
+            const alloc = lots && lotPlan ? await lots.hooks.allocateInTx(t, lotPlan) : null;
+            const lotInvoiceId = alloc ? randomUUID() : null;
             const row = await t.invoice.create({
               data: {
+                ...(lotInvoiceId && { id: lotInvoiceId }),
                 tenantId: ctx.tenantId,
                 number: record.number,
                 clientRef: ctx.clientRef ?? undefined,
@@ -603,10 +689,13 @@ async function stampNote(
                   create: prepared.engine.items.map((calc, idx) => ({
                     ...legacyNoteItem(kind, prepared.lines[idx] ?? null, calc),
                     ...noteItemColumns(record.items[idx], kind === 'CREDIT_NOTE' ? (prepared.lines[idx]?.invoiceItemId ?? null) : null),
+                    ...invoiceItemLotColumns(alloc?.lines ?? null, idx, {
+                      tenantId: ctx.tenantId, invoiceId: lotInvoiceId ?? '', productId: prepared.lines[idx]?.productId ?? '', vanKey: lotVan,
+                    }),
                   })),
                 },
               },
-              include: { items: true, customer: true },
+              include: { items: alloc ? { include: ITEM_LOTS_INCLUDE } : true, customer: true },
             });
             created = row as unknown as Record<string, unknown> & { id: string };
             return { id: row.id };

@@ -16,6 +16,7 @@ import { receiptLinkView } from './receiptLinks';
 import { PRINT_WARNINGS, dotsPerMm, qrPlan, type PrintOptions, type PrintProfile, type PrinterDpi } from '../lib/print/printSettings';
 import { PrintRefusedError } from '../lib/print/printErrors';
 import { COPY_SLOT, LEGACY_THERMAL_GEOM, buildThermalDocument, rollHeightMm, thermalGeom, thermalPageRule, type ThermalGeom } from './thermalHtml';
+import { invoiceLotsOf, lotLineText } from './docLots';
 
 type Tr = (ar: string) => string;
 /** الشريط الكلاسيكي عربيٌّ وحده كما اليوم — فمترجمه الهويّة */
@@ -195,6 +196,16 @@ async function stampedQrBlock(value: string): Promise<string> {
   } catch { return ''; }
 }
 
+/**
+ * «تتبّع اللوط»: سطرٌ لكل تشغيلة تحت البند بشرط lotOnInvoice — النصّ نفسه في قالب A4 (rep/docLots.ts)، بأرقام الشريط. بلا
+ * شرطه أو بلا صفوف: '' فيبقى الشريط حرفاً بحرف كما كان. الكلاسيكي يمرّر asIs (عربيٌّ وحده كما اليوم).
+ */
+function lotRows(doc: InvoiceDoc, it: InvoiceDoc['items'][number], tr: Tr): string {
+  return invoiceLotsOf(doc.company, it)
+    .map((l) => `<div class="muted">${esc(lotLineText(l, { tr, unitFactor: it.unitFactor, digits: localizeDigits }))}</div>`)
+    .join('');
+}
+
 function head(company: InvoiceDoc['company']): string {
   return `
     <div class="c b lg">${esc(company?.name || 'الشركة')}</div>
@@ -221,7 +232,7 @@ export async function printThermalInvoice(doc: InvoiceDoc, opts?: ThermalPrintOp
   const items = doc.items.map(it => `
     <div class="item">
       <div class="iname">${esc(it.name)}${it.unit ? ` <span class="muted">(${esc(it.unit)})</span>` : ''}</div>
-      <div class="row"><span>${localizeDigits(String(it.qty))} × ${money(it.unitPrice)}${it.discountPct > 0 ? ` -${localizeDigits(String(it.discountPct))}%` : ''}</span><span class="b">${money(it.lineTotal)}</span></div>
+      <div class="row"><span>${localizeDigits(String(it.qty))} × ${money(it.unitPrice)}${it.discountPct > 0 ? ` -${localizeDigits(String(it.discountPct))}%` : ''}</span><span class="b">${money(it.lineTotal)}</span></div>${lotRows(doc, it, asIs)}
     </div>`).join('');
 
   // نسبة الضريبة من البنود نفسها: الاشتقاق العكسي من المبالغ كان يطبع نسبة
@@ -406,7 +417,7 @@ function rollInvoiceBody(f: InvoiceFacts, r: Roll): string {
         <th class="e">${tr('الإجمالي')}</th>
       </tr></thead><tbody>${doc.items.map(it => `
         <tr>
-          <td class="l">${esc(it.name)}${unit(it)}${it.discountPct > 0 ? `<div class="muted">${tr('الخصم')} ${localizeDigits(String(it.discountPct))}%</div>` : ''}</td>
+          <td class="l">${esc(it.name)}${unit(it)}${it.discountPct > 0 ? `<div class="muted">${tr('الخصم')} ${localizeDigits(String(it.discountPct))}%</div>` : ''}${lotRows(doc, it, tr)}</td>
           <td class="n">${localizeDigits(String(it.qty))}</td>
           <td class="n">${money(it.unitPrice)}${beforeVat(it)}</td>
           ${rateCol ? `<td class="n">${localizeDigits(String(it.taxPct))}%</td>` : ''}
@@ -416,7 +427,7 @@ function rollInvoiceBody(f: InvoiceFacts, r: Roll): string {
       <div class="item">
         <div class="iname">${esc(it.name)}${unit(it)}</div>
         <div class="row"><span>${localizeDigits(String(it.qty))} × ${money(it.unitPrice)}${it.discountPct > 0 ? ` -${localizeDigits(String(it.discountPct))}%` : ''}</span><span class="b">${money(it.lineTotal)}</span></div>
-        ${beforeVat(it)}
+        ${beforeVat(it)}${lotRows(doc, it, tr)}
       </div>`).join('');
   const addr = buyerAddress(doc.customer);
   const sigs = o.showSignatures

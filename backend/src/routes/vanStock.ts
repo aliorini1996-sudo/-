@@ -6,7 +6,7 @@ import { actorOf, authenticate, requireAdmin, requireAdminPermission, requireAcc
 import { AuthRequest } from '../types';
 import { suggestLoad, type SaleRow } from '../services/suggestLoad';
 import { computeAccuracy } from '../services/suggestAccuracy';
-import { canAccessRep, adminRepFilter, scopedRepRecordWhere, scopedRecordWhere, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
+import { canAccessRep, adminRepFilter, adminScopeEnabled, scopedRepRecordWhere, scopedRecordWhere, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { roundDecimal } from '../utils/helpers';
 import { DAMAGED_VAN_SINCE, isDamagedVanReturn } from '../services/vanDamaged';
 // «لوكيشن»: ختم التحميل بموقع المندوب وقت التحميل، وفلتر سجلّ التحميلات بالختم (services/locations.ts)
@@ -16,6 +16,11 @@ import { paymentMethodsRange } from '../services/paymentMethodsReport';
 // الوحدات المتعددة: كل رصيدٍ ومقارنة بالأساس (baseQtyOf)، وكل بندٍ يُكتب بلقطة وحدته (unitFields)
 import { baseQtyOf, toBase, unitFields } from '../services/units';
 import { resolveLineUnits, unitsByProduct, UNIT_SELECT } from '../services/warehouseStock';
+// «تتبّع اللوط»: حركات السيارة بالتشغيلات (§٤.٧) — كلها خلف علم الشركة وعلم الصنف؛ المطفأ والصنف غير المتتبَّع كما كانا حرفياً
+import { LotError, asLotBusy, lotErr, lotErrorBody, lotHttpError, type VanMovementPlan } from '../services/lots';
+import { acquireLotQueue, companyDay, lockLotProducts } from '../services/lotsDb';
+import { VAN_LOT_ALLOW_UNKNOWN, planVanMovementInTx, vanItemLotColumns, vanLotSnapshot } from '../services/lotsVan';
+import { shelfLifeOf } from '../services/shelfLife';
 
 const router = Router();
 router.use(authenticate);
@@ -30,6 +35,8 @@ const loadSchema = z.object({
   // EXPIRED_OUT / DAMAGED_OUT: إزالة المنتهي صلاحيته أو التالف من السيارة (إتلاف) — للإدارة وحدها، من رصيده هو لا من المتاح
   type: z.enum(['LOAD', 'UNLOAD', 'ADJUST', 'EXPIRED_OUT', 'DAMAGED_OUT']).default('LOAD'),
   note: z.string().optional(),
+  // «تتبّع اللوط» D30: تنزيلٌ إداري من سيارة مندوبٍ محذوف (UNLOAD وحده، لأصنافٍ متتبَّعة بلوطاتٍ صريحة) — مكان salesRepId
+  deletedSalesRepId: z.string().optional(),
   items: z.array(z.object({
     productId: z.string(),
     qty: z.number(), // موجب للتحميل/الإرجاع للمستودع؛ قد تكون سالبة لـADJUST — بوحدة البند
@@ -39,6 +46,14 @@ const loadSchema = z.object({
     // المحرّك يُخرجها بالأساس وقياس الدقّة يقارنها بالمحمَّل بالأساس (services/suggestAccuracy)
     suggestedQty: z.number().optional(),
     expectedQty: z.number().optional(),
+    // «تتبّع اللوط» (للصنف المتتبَّع وحده، ويُحلَّل بصرامة في services/lotsVan.ts): lots صفوفٌ صريحة **بالكمية الأساسية** مهما
+    // كانت وحدة البند (lotId: null = غير مسمّى)؛ lotNumber وتاريخاه لتشغيلةٍ تُنشأ مع التحميل بلا مستودع (D4) أو التسوية
+    // بالزيادة؛ lotReason = 'EXPIRED_UNSOLD_DESTROY' وسم إتلاف المنتهي غير المباع. بلا تحقق هنا: أجسام الشركة المطفأة كما كانت
+    lots: z.unknown().optional(),
+    lotNumber: z.unknown().optional(),
+    productionDate: z.unknown().optional(),
+    expiryDate: z.unknown().optional(),
+    lotReason: z.unknown().optional(),
   })).min(1),
 });
 
@@ -76,6 +91,41 @@ async function assertRepInScope(req: AuthRequest, tid: string, salesRepId: strin
 function queryRepId(req: AuthRequest): string | undefined {
   const v = req.query.salesRepId;
   return typeof v === 'string' && v ? v : undefined;
+}
+
+/**
+ * «تتبّع اللوط» D11: صفوف التوزيع تُضمّ إلى القراءة بـwithLots=1 وحده، وحين الميزة مفعّلة (D8: الإطفاء يُخفي ولا يحذف).
+ * بلا المعامل لا استعلام زائد والردّ كما كان حرفياً.
+ */
+async function withLotsOf(req: AuthRequest, tid: string): Promise<boolean> {
+  const v = req.query.withLots;
+  if (v !== '1' && v !== 'true') return false;
+  return (await prisma.tenant.findUnique({ where: { id: tid }, select: { lotTrackingEnabled: true } }))?.lotTrackingEnabled === true;
+}
+
+/** صفوف توزيع البند (حركةً أو فاتورة) مع رقم التشغيلة وانتهائها — withLots وردّ الإنشاء */
+const ITEM_LOTS_INCLUDE = { include: { lot: { select: { lotNumber: true, expiryDate: true } } }, orderBy: { createdAt: 'asc' } } as const;
+
+/**
+ * «تتبّع اللوط» D30: هدف التنزيل الإداري من سيارة مندوبٍ محذوف. «الحذف يمضي دائماً» (salesReps.ts) فتبقى سيارته بلوطاتها
+ * ويُفرَّغ بـUNLOAD وحده، لإداري غير مقيّد بنطاق والميزة مفعّلة. المعرّف لمندوبٍ محذوفٍ فعلاً: لا مندوب قائم به، وله أثرٌ
+ * محفوظ (van_loads.deletedSalesRepId، أو صفوف توزيع فواتيره). رصيد صنف سيارته مجهول، فالتنزيل بلوطاتٍ صريحة يُفحص على صالحها.
+ */
+async function deletedVanOf(req: AuthRequest, tid: string, data: { salesRepId?: string; type: string; deletedSalesRepId?: string }): Promise<{ vanKey: string; warehouseEnabled: boolean }> {
+  if (req.user?.role === 'SALES_REP') throw Object.assign(new Error('تنقيص مخزون السيارة متاح للإدارة فقط'), { status: 403 });
+  const key = data.deletedSalesRepId ?? '';
+  if (!key) throw Object.assign(new Error('يجب تحديد المندوب'), { status: 400 });
+  if (data.salesRepId) throw Object.assign(new Error('حدّد المندوب أو المندوب المحذوف لا كليهما'), { status: 400 });
+  if (data.type !== 'UNLOAD') throw Object.assign(new Error('سيارة المندوب المحذوف تُفرَّغ بالتنزيل للمستودع وحده'), { status: 400 });
+  const t = await prisma.tenant.findUnique({ where: { id: tid }, select: { lotTrackingEnabled: true, warehouseEnabled: true } });
+  if (t?.lotTrackingEnabled !== true) throw lotErr('LOTS_NOT_ALLOWED');
+  if (await adminScopeEnabled(req)) throw lotErr('LOT_SCOPED_USER');
+  const live = await prisma.salesRep.findFirst({ where: { id: key, tenantId: tid }, select: { id: true } });
+  const past = live ? null
+    : (await prisma.vanLoad.findFirst({ where: { tenantId: tid, deletedSalesRepId: key }, select: { id: true } }))
+      ?? (await prisma.invoiceItemLot.findFirst({ where: { tenantId: tid, vanKey: key }, select: { id: true } }));
+  if (live || !past) throw Object.assign(new Error('المندوب المحذوف غير موجود'), { status: 404 });
+  return { vanKey: key, warehouseEnabled: t.warehouseEnabled === true };
 }
 
 /** رصيد صنفٍ في السيارة — كل الكميات **بوحدة الأساس** (`unit`)، والواجهة تعرضها بـformatQty */
@@ -227,7 +277,9 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
   try {
     const tid = tenantId(req);
     const data = loadSchema.parse(req.body);
-    const { salesRepId, isRep } = resolveRep(req, data.salesRepId);
+    // «تتبّع اللوط» D30: سيارة مندوبٍ محذوف مفتاحها معرّفه المحفوظ — لا مندوب يُحلّ ولا نطاق (إداري غير مقيّد وحده)
+    const gone = data.deletedSalesRepId !== undefined ? await deletedVanOf(req, tid, data) : null;
+    const { salesRepId, isRep } = gone ? { salesRepId: gone.vanKey, isRep: false } : resolveRep(req, data.salesRepId);
 
     // التنقيص/التسوية (الكميات السالبة و UNLOAD/ADJUST) متاح للإدارة فقط؛ المندوب يُحمّل موجباً فقط
     if (isRep && (data.type !== 'LOAD' || data.items.some(i => i.qty < 0))) {
@@ -235,16 +287,19 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
       return;
     }
 
-    await assertRepInScope(req, tid, salesRepId);
-    // عَلَم «لوكيشن» مع صفّ المندوب نفسه (موقعه عمودٌ فيه) — لا استعلام زائد للختم
-    const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid }, include: { tenant: { select: { locationsEnabled: true } } } });
-    if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
-    if (isRep && rep.canManageVanStock === false) { res.status(403).json({ success: false, message: 'غير مسموح لك بإدارة مخزون السيارة' }); return; }
+    if (!gone) await assertRepInScope(req, tid, salesRepId);
+    // عَلَم «لوكيشن» مع صفّ المندوب نفسه (موقعه عمودٌ فيه) — لا استعلام زائد للختم؛ وعَلَما «تتبّع اللوط» والمستودع كذلك
+    const rep = gone ? null : await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid }, include: { tenant: { select: { locationsEnabled: true, lotTrackingEnabled: true, warehouseEnabled: true } } } });
+    if (!gone && !rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+    if (isRep && rep?.canManageVanStock === false) { res.status(403).json({ success: false, message: 'غير مسموح لك بإدارة مخزون السيارة' }); return; }
     // «لوكيشن»: التحميل (LOAD وحده — «فقط الفواتير والتحميلات») يُختم بموقع المندوب الآن؛ نقله لاحقاً لا يحرّك الختم.
     // التنزيل والتسوية والإزالة بلا ختم. والميزة المطفأة ⇒ null (services/locations.ts)
     const loadLocationId = data.type === 'LOAD' ? repStampLocation(rep) : null;
+    const lotsOn = gone !== null || rep?.tenant?.lotTrackingEnabled === true;
 
-    const items = data.items.filter(i => i.qty !== 0);
+    // البنود غير الصفرية وكلٌّ بموضعه `at` في طلب العميل: به تُعرَّف أسطر خطة اللوط، فيشير تحذيرها وخطؤها ({idx}، §٢.٦) إلى
+    // السطر الذي أرسله لا إلى موضعه بعد ترشيح الأصفار. وما سواها (units وترتيب البنود) بموضع البند في `items` كما كان
+    const items = data.items.map((i, at) => ({ ...i, at })).filter(i => i.qty !== 0);
     if (!items.length) { res.status(400).json({ success: false, message: 'لا توجد كميات صالحة' }); return; }
     // لقطة وحدة كل بند بترتيب `items` — يحلّها الخادم من وحدات الصنف (بلا unitId ⇒ الأساس، ولا استعلام)
     const units = await resolveLineUnits(tid, items, { replay: String(req.headers['x-fs-replay'] || '') === '1' });
@@ -270,19 +325,83 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     };
 
     const productIds = [...new Set(items.map(i => i.productId))];
-    const valid = await prisma.product.count({ where: { id: { in: productIds }, tenantId: tid } });
-    if (valid !== productIds.length) { res.status(400).json({ success: false, message: 'منتج غير صالح' }); return; }
+    // «تتبّع اللوط»: الميزة مفعّلة ⇒ الأصناف نفسها بعلمها واسمها وصلاحيتها بدل العدّ (لا استعلام زائد)؛ المطفأة كما كانت حرفياً
+    const lotProducts = lotsOn
+      ? await prisma.product.findMany({
+        where: { id: { in: productIds }, tenantId: tid },
+        select: { id: true, name: true, lotTracked: true, shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true },
+      })
+      : null;
+    if (lotProducts) {
+      if (lotProducts.length !== productIds.length) { res.status(400).json({ success: false, message: 'منتج غير صالح' }); return; }
+    } else {
+      const valid = await prisma.product.count({ where: { id: { in: productIds }, tenantId: tid } });
+      if (valid !== productIds.length) { res.status(400).json({ success: false, message: 'منتج غير صالح' }); return; }
+    }
+    const preTracked = new Set((lotProducts ?? []).filter(p => p.lotTracked === true).map(p => p.id));
+    if (gone && preTracked.size !== productIds.length) {
+      res.status(400).json({ success: false, message: 'تنزيل سيارة مندوبٍ محذوف للأصناف المتتبَّعة وحدها' }); return;
+    }
 
-    const createLoad = (db: Prisma.TransactionClient | typeof prisma) => db.vanLoad.create({
+    // نداء الإنشاء الوحيد (locations.test.ts): الحركة وبنودها — وتوزيع البند على التشغيلات حين تحمل الخطة صفوفه (D2: البند لا يُشطر)
+    const createLoad = (db: Prisma.TransactionClient | typeof prisma, plan: VanMovementPlan | null = null) => db.vanLoad.create({
       data: {
-        tenantId: tid, salesRepId, type: data.type, note: data.note,
+        tenantId: tid, salesRepId: gone ? null : salesRepId, type: data.type, note: data.note,
+        // D30: تنزيل سيارة مندوبٍ محذوف بمعرّفه المحفوظ، كما يكتبه حذف المندوب على حركاته
+        ...(gone && { deletedSalesRepId: gone.vanKey }),
         ...(loadLocationId && { locationId: loadLocationId }),
         createdBy: isRep ? 'REP' : 'ADMIN',
         // لقطة الوحدة + الكمية بالأساس؛ والمقترَح والمتنبَّأ به بالأساس كما أخرجهما المحرّك
-        items: { create: items.map((i, idx) => ({ productId: i.productId, ...unitFields(i.qty, units[idx]), suggestedQty: i.suggestedQty ?? null, expectedQty: i.expectedQty ?? null })) },
+        items: {
+          create: items.map((i, idx) => ({
+            productId: i.productId, ...unitFields(i.qty, units[idx]), suggestedQty: i.suggestedQty ?? null, expectedQty: i.expectedQty ?? null,
+            ...(plan && vanItemLotColumns(plan, i.at, { tenantId: tid, productId: i.productId, vanKey: salesRepId, moveType: data.type })),
+          })),
+        },
       },
-      include: { items: { include: { product: { select: { id: true, name: true, unit: true } } } } },
+      include: { items: { include: { product: { select: { id: true, name: true, unit: true } }, ...(plan && { lots: ITEM_LOTS_INCLUDE }) } } },
     });
+
+    // «تتبّع اللوط» (§٤.٧): في الحركة صنفٌ متتبَّع — يوم الشركة قبل المعاملة، ثم الطابور، ثم معاملةٌ بمهلة اللوط (D13) فيها
+    // بالترتيب: قفل الدلو للإزالة، ثم قفل الأصناف (lockLotProducts)، ثم فحص رصيد الإزالة القائم، ثم خطة التوزيع التي تمنع
+    // السالب على مستوى اللوط (planVanMovementInTx)، ثم نداء الإنشاء الوحيد. وبلا صنفٍ متتبَّع: المسار القائم أدناه حرفياً
+    if (preTracked.size) {
+      const byId = new Map((lotProducts ?? []).map(p => [p.id, p]));
+      const by = actorOf(req);
+      const { day } = await companyDay(prisma, tid);
+      const release = await acquireLotQueue(tid, preTracked);
+      try {
+        const out = await prisma.$transaction(async (tx) => {
+          if (outBucket) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`van-${outBucket}:` + salesRepId}))`;
+          const locked = await lockLotProducts(tx, tid, productIds);
+          if (outBucket) await assertOutAvailable(outBucket); // رصيد الدلو للصنف كما كان، ثم اللوط في الخطة
+          const plan = await planVanMovementInTx(tx, {
+            tenantId: tid, vanKey: salesRepId, deletedVan: gone !== null, type: data.type,
+            warehouseEnabled: gone ? gone.warehouseEnabled : rep?.tenant?.warehouseEnabled === true,
+            actor: isRep ? 'REP' : req.user?.apiKeyId ? 'API_KEY' : 'ADMIN', createdBy: by, day, allowUnknown: VAN_LOT_ALLOW_UNKNOWN,
+            lines: items.map((i, n) => {
+              const p = byId.get(i.productId);
+              return {
+                // idx موضع السطر في الطلب (i.at) — به تُضمّ صفوفه إلى بنده في createLoad
+                idx: i.at, productId: i.productId, productName: p?.name ?? '', shelfLifeOn: !!p && shelfLifeOf(p) !== null,
+                // الكمية الأساسية بإشارتها كما تُكتب في البند (unitFields)، ومعامل وحدته لقاعدة الكرتون (D22)
+                qty: unitFields(i.qty, units[n]).baseQty, unitFactor: units[n].factor,
+                lotsRaw: { lots: i.lots, lotNumber: i.lotNumber, productionDate: i.productionDate, expiryDate: i.expiryDate },
+                reason: i.lotReason == null ? null : String(i.lotReason),
+              };
+            }),
+          }, { locked, actorName: by.startsWith('OWNER:') ? 'الدعم الفني' : (req.user?.name ?? null) });
+          return { load: await createLoad(tx, plan), warnings: plan.warnings };
+        }, { maxWait: 10_000, timeout: 20_000 });
+        res.status(201).json({ success: true, data: out.load, warnings: out.warnings });
+      } catch (e) {
+        throw asLotBusy(e) ?? e; // 55P03 و40P01 وP2028 في مسار اللوط ⇒ 503 LOT_BUSY (صندوق المندوب يعيد المحاولة على 5xx)
+      } finally {
+        release();
+      }
+      return;
+    }
+
     const load = outBucket
       ? await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`van-${outBucket}:` + salesRepId}))`;
@@ -307,6 +426,25 @@ router.get('/current', async (req: AuthRequest, res: Response, next: NextFunctio
     // computeStock: مستدعوه الآخرون (حارس البيع في الفاتورة وملخّص كل المناديب) لا يحتاجونها
     const units = await unitsByProduct(tid, rows.map(r => r.productId));
     res.json({ success: true, data: rows.map(r => ({ ...r, units: units.get(r.productId) ?? [] })) });
+  } catch (err) { next(err); }
+});
+
+/**
+ * «تتبّع اللوط»: أرصدة تشغيلات سيارة مندوب (VanLotSnapshotDto، §٧.١) — مرجع المتاح دون اتصال في تطبيق المندوب، وتوسيع صفّ
+ * السيارة في اللوحة، وتحذير حذف المندوب. المندوب سيارته، والإدارة تمرّر salesRepId بنطاقها. قراءةٌ بلا قفل؛ والميزة المطفأة 403.
+ */
+router.get('/lot-balances', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const isRep = req.user?.role === 'SALES_REP';
+    const salesRepId = isRep ? req.user!.id : queryRepId(req);
+    if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
+    await assertRepInScope(req, tid, salesRepId);
+    // المندوب وعلم الشركة في قراءةٍ واحدة
+    const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid }, select: { id: true, tenant: { select: { lotTrackingEnabled: true } } } });
+    if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+    if (rep.tenant?.lotTrackingEnabled !== true) { res.status(403).json(lotErrorBody(lotErr('LOTS_NOT_ALLOWED'))); return; }
+    res.json({ success: true, data: await vanLotSnapshot(prisma, tid, salesRepId) });
   } catch (err) { next(err); }
 });
 
@@ -539,6 +677,8 @@ router.get('/loads', async (req: AuthRequest, res: Response, next: NextFunction)
       // القيد يغطّي حالة عدم تمرير معرّف: بلا نطاق يعود {} فلا يتغيّر شيء
       ...(await scopedRepRecordWhere(req)),
     };
+    // «تتبّع اللوط» (D11): items[].lots بتشغيلاتها مع withLots=1 والميزة مفعّلة — وبدونه الردّ كما كان
+    const withLots = await withLotsOf(req, tid);
     const [loads, total] = await Promise.all([
       prisma.vanLoad.findMany({
         where,
@@ -546,7 +686,7 @@ router.get('/loads', async (req: AuthRequest, res: Response, next: NextFunction)
         skip: paged ? (page - 1) * limit : undefined,
         take: paged ? limit : 100,
         include: {
-          items: { include: { product: { select: { id: true, name: true, unit: true } } } },
+          items: { include: { product: { select: { id: true, name: true, unit: true } }, ...(withLots && { lots: ITEM_LOTS_INCLUDE }) } },
           salesRep: { select: { id: true, name: true } },
           // «لوكيشن»: اسم الموقع المختوم (عمود السجلّ) — null لما بلا ختم
           location: { select: { id: true, name: true } },
@@ -572,15 +712,17 @@ router.get('/movements', async (req: AuthRequest, res: Response, next: NextFunct
     const salesRepId = isRep ? req.user!.id : queryRepId(req);
     if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
     await assertRepInScope(req, tid, salesRepId);
+    // «تتبّع اللوط» (D11): تشغيلات كل بندٍ (حركةً وفاتورة) مع withLots=1 والميزة مفعّلة — وبدونه الردّ كما كان
+    const withLots = await withLotsOf(req, tid);
 
     const [loads, invoices] = await Promise.all([
       prisma.vanLoad.findMany({
         where: { tenantId: tid, salesRepId }, orderBy: { createdAt: 'desc' }, take: 50,
-        include: { items: { include: { product: { select: { name: true, unit: true } } } } },
+        include: { items: { include: { product: { select: { name: true, unit: true } }, ...(withLots && { lots: ITEM_LOTS_INCLUDE }) } } },
       }),
       prisma.invoice.findMany({
         where: { tenantId: tid, salesRepId, status: 'CONFIRMED' }, orderBy: { invoiceDate: 'desc' }, take: 50,
-        include: { items: { include: { product: { select: { name: true, unit: true } } } }, customer: { select: { name: true } } },
+        include: { items: { include: { product: { select: { name: true, unit: true } }, ...(withLots && { lots: ITEM_LOTS_INCLUDE }) } }, customer: { select: { name: true } } },
       }),
     ]);
     // المستخدم المقيَّد (ومشرف الفرق بوسم الفاتورة): حركة فاتورةٍ خارج نطاقه تبقى بكمّياتها (رصيد السيارة واحد) بلا رقمها
@@ -594,13 +736,13 @@ router.get('/movements', async (req: AuthRequest, res: Response, next: NextFunct
     const movements = [
       ...loads.map(l => ({
         kind: l.type, date: l.createdAt, ref: l.note || '', by: l.createdBy,
-        items: l.items.map(i => ({ name: i.product.name, unit: i.unitName ?? i.product.unit, qty: i.qty, baseQty: baseQtyOf(i) })),
+        items: l.items.map(i => ({ name: i.product.name, unit: i.unitName ?? i.product.unit, qty: i.qty, baseQty: baseQtyOf(i), ...(withLots && { lots: (i as { lots?: unknown }).lots ?? [] }) })),
       })),
       ...invoices.map(inv => ({
         // المرتجع التالف (منذ DAMAGED_VAN_SINCE) يدخل رصيد «المرتجع التالف» لا المتاح — فيُوسم بذلك في الحركة
         kind: inv.type === 'RETURN' ? (isDamagedVanReturn(inv) ? 'RETURN_DAMAGED' : 'RETURN') : 'SALE', date: inv.invoiceDate,
         ref: !visible || visible.has(inv.id) ? `${inv.number} · ${inv.customer.name}` : 'مستند خارج نطاقك', by: 'REP',
-        items: inv.items.map(i => ({ name: i.product?.name ?? 'صنف محذوف', unit: i.unitName ?? i.product?.unit ?? '', qty: i.qty, baseQty: baseQtyOf(i) })),
+        items: inv.items.map(i => ({ name: i.product?.name ?? 'صنف محذوف', unit: i.unitName ?? i.product?.unit ?? '', qty: i.qty, baseQty: baseQtyOf(i), ...(withLots && { lots: (i as { lots?: unknown }).lots ?? [] }) })),
       })),
     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 60);
 
@@ -729,6 +871,10 @@ router.post('/tools', requireAdmin, async (req: AuthRequest, res: Response, next
 // أخطاء هذا الموجّه ذات status (4xx): «يجب تحديد المندوب»، «المندوب غير موجود»، تجاوز رصيد الإزالة أو العهدة — تُردّ
 // بحالتها ورسالتها. معالج الأخطاء العام لا يقرأ status فيردّها 500، ولمفتاح API «خطأ في الخادم» بلا سبب.
 router.use((err: unknown, _req: AuthRequest, res: Response, next: NextFunction) => {
+  // «تتبّع اللوط» قبل فرع 4xx: LotError بحالته ورمزه وتفاصيله (ومنه 503 LOT_BUSY الذي يتجاوزه فرع 4xx). الانشغال حُوِّل إليه
+  // في مسار اللوط وحده (asLotBusy في POST /loads)، فمهلة معاملةٍ في مسارٍ بلا لوط (العهدة، الإزالة القائمة) تبقى كما كانت
+  const lh = err instanceof LotError ? lotHttpError(err) : null;
+  if (lh) { res.status(lh.status).json(lh.body); return; }
   const status = (err as { status?: unknown })?.status;
   if (err instanceof Error && typeof status === 'number' && status >= 400 && status < 500) {
     res.status(status).json({ success: false, message: err.message });

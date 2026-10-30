@@ -14,7 +14,11 @@
  *
  * يُستدعى بعد إصدار المستند خارج معاملته (`stampExpiryAfterIssue`) ولا يُفشل الإصدار أبداً: الصلاحية وسمٌ
  * معلوماتي، ومسارات الإصدار (ومنها الفوترة الإلكترونية) لا تُمسّ.
+ *
+ * «تتبّع اللوط» (D12): بند الصنف المتتبَّع يُختم **داخل** معاملة إصداره من انتهاء تشغيلته، أو من اللقطة القائمة محسوبةً قبلها
+ * (services/lotsInvoice.ts)، فالختم اللاحق يتخطّى كل بندٍ مختوم أصلاً (`expiresAt != null`) — سطرٌ واحد بلا استعلام ولا علم.
  */
+import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { companyTimeZone } from './erpPayload';
 import { baseQtyOf } from './units';
@@ -44,6 +48,9 @@ export async function tenantTz(tenantId: string): Promise<string> {
 
 const LIFE = { shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true, shelfLifeBasis: true, shelfLifeFromDate: true } as const;
 
+/** عميل قراءات الصلاحية: prisma افتراضاً، أو قاعدةٌ يمرّرها المستدعي (lotsInvoice.freeReturnStamps قبل معاملة الإصدار) */
+export type ExpiryDb = Pick<Prisma.TransactionClient, 'invoiceItem' | 'vanLoadItem'>;
+
 /**
  * صلاحية ما بيع في بند بيعٍ حسب **أساس الصنف** (services/shelfLife.ts): البيع ⇒ يوم الفاتورة؛ الشراء ⇒ التاريخ المكتوب
  * في الصنف؛ تحميل السيارة ⇒ دفعة التحميل التي صُرف منها هذا البيع (الأقدم أولاً). null لصنفٍ بلا صلاحية أو بلا أساسٍ
@@ -52,13 +59,14 @@ const LIFE = { shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true
 export async function saleExpiryFor(
   tenantId: string, tz: string, product: ShelfLifeSettings,
   sale: { invoiceId: string; invoiceDate: Date; salesRepId: string | null; productId: string },
+  db: ExpiryDb = prisma,
 ): Promise<Date | null> {
   if (!shelfLifeOf(product)) return null;
   const basis = shelfLifeBasisOf(product);
   if (basis === 'PURCHASE') return purchaseExpiry(product);
   if (basis === 'VAN_LOAD') {
     if (!sale.salesRepId) return null;
-    const at = await vanLoadBatchAt(tenantId, sale.salesRepId, sale.productId, sale.invoiceId, sale.invoiceDate);
+    const at = await vanLoadBatchAt(tenantId, sale.salesRepId, sale.productId, sale.invoiceId, sale.invoiceDate, db);
     return at ? expiryDateFor(product, at, tz) : null;
   }
   return expiryDateFor(product, sale.invoiceDate, tz);
@@ -71,20 +79,20 @@ export async function saleExpiryFor(
  * الدفعات والمصروف كلّها **بالأساس** (الوحدات المتعددة): `_sum.qty` يجمع كراتين وحبّات رقماً واحداً فتُختار دفعةٌ
  * خاطئة، فتاريخ انتهاءٍ خاطئ، فيدخل المرتجع الدلو الخطأ (منتهي/متاح). و`baseQty` عمودٌ يحرسه مُطلِق القاعدة.
  */
-async function vanLoadBatchAt(tenantId: string, repId: string, productId: string, invoiceId: string, saleAt: Date): Promise<Date | null> {
+async function vanLoadBatchAt(tenantId: string, repId: string, productId: string, invoiceId: string, saleAt: Date, db: ExpiryDb): Promise<Date | null> {
   const [loads, sold, unloaded] = await Promise.all([
-    prisma.vanLoadItem.findMany({
+    db.vanLoadItem.findMany({
       where: { productId, vanLoad: { tenantId, salesRepId: repId, type: 'LOAD', createdAt: { lte: saleAt } } },
       select: { qty: true, unitFactor: true, baseQty: true, vanLoad: { select: { createdAt: true } } },
     }),
-    prisma.invoiceItem.aggregate({
+    db.invoiceItem.aggregate({
       where: {
         productId,
         invoice: { tenantId, salesRepId: repId, status: 'CONFIRMED', type: { not: 'RETURN' }, id: { not: invoiceId }, invoiceDate: { lt: saleAt } },
       },
       _sum: { baseQty: true },
     }),
-    prisma.vanLoadItem.aggregate({
+    db.vanLoadItem.aggregate({
       where: { productId, vanLoad: { tenantId, salesRepId: repId, type: 'UNLOAD', createdAt: { lt: saleAt } } },
       _sum: { baseQty: true },
     }),
@@ -101,11 +109,12 @@ export async function stampInvoiceExpiry(tenantId: string, invoiceId: string): P
     where: { id: invoiceId, tenantId },
     select: {
       id: true, type: true, documentKind: true, invoiceDate: true, clientCreatedAt: true, customerId: true, salesRepId: true,
-      items: { select: { id: true, productId: true, creditedItemId: true, returnOfItemId: true, product: { select: LIFE } } },
+      items: { select: { id: true, productId: true, creditedItemId: true, returnOfItemId: true, expiresAt: true, product: { select: LIFE } } },
     },
   });
   if (!inv) return;
-  const lines = inv.items.filter((it) => it.productId && it.product && shelfLifeOf(it.product));
+  // البند المختوم داخل معاملة إصداره (تشغيلة الصنف المتتبَّع، أو صلاحية المرتجع المرتبط) لا يُكتب فوقه (D12)
+  const lines = inv.items.filter((it) => it.productId && it.product && shelfLifeOf(it.product) && it.expiresAt == null);
   if (!lines.length) return;
   const tz = await tenantTz(tenantId);
   const isReturn = inv.type === 'RETURN' || inv.documentKind === 'CREDIT_NOTE';
@@ -128,41 +137,79 @@ export async function stampInvoiceExpiry(tenantId: string, invoiceId: string): P
 
   // يوم المرتجع: لحظة إنشائه على الجهاز إن رُفع لاحقاً (دون اتصال) — لا يوم المزامنة
   const returnDay = localDateIn(inv.clientCreatedAt ?? inv.invoiceDate, tz);
+  // المرتجع الحرّ (بلا ربط): آخر بيعٍ لهذا الصنف لهذا العميل قبل المرتجع — freeReturnStamps نفسها التي يختم بها المرتجع الحرّ
+  // لصنفٍ متتبَّع قبل معاملته (lotsInvoice.freeReturnStamps)، فلا نسختان
+  const free = await freeReturnStamps(tenantId, { id: inv.id, customerId: inv.customerId, invoiceDate: inv.invoiceDate, returnAt: inv.clientCreatedAt ?? inv.invoiceDate },
+    lines.filter((it) => !(it.creditedItemId ?? it.returnOfItemId)).map((it) => ({ key: it.id, productId: it.productId!, product: it.product! })),
+    { tz });
   const updates = [];
   for (const it of lines) {
     // البيع الذي يُقاس عليه: بند الأصل للمرتجع المرتبط (إشعار دائن أو مرتجعٌ من فاتورة بيع)، وإلا آخر بيعٍ لهذا الصنف
-    // لهذا العميل قبل المرتجع
+    // لهذا العميل قبل المرتجع (أعلاه)
     const linkedSaleItem = it.creditedItemId ?? it.returnOfItemId;
-    const sale = linkedSaleItem
-      ? await prisma.invoiceItem.findFirst({
+    let stamp: ReturnStamp | null = free.get(it.id) ?? null;
+    if (linkedSaleItem) {
+      const sale = await prisma.invoiceItem.findFirst({
         where: { id: linkedSaleItem, invoice: { tenantId } },
         select: { invoiceId: true, expiresAt: true, invoice: { select: { invoiceDate: true, salesRepId: true } } },
-      })
-      : await prisma.invoiceItem.findFirst({
-        where: {
-          productId: it.productId,
-          invoice: {
-            tenantId, customerId: inv.customerId, id: { not: inv.id },
-            type: { in: SALE_TYPES }, status: { not: 'CANCELLED' },
-            OR: [{ documentKind: null }, { documentKind: { notIn: NOTE_KINDS } }],
-            invoiceDate: { lte: inv.invoiceDate },
-          },
-        },
-        orderBy: [{ invoice: { invoiceDate: 'desc' } }, { invoice: { createdAt: 'desc' } }],
-        select: { invoiceId: true, expiresAt: true, invoice: { select: { invoiceDate: true, salesRepId: true } } },
       });
-    if (!sale) continue;
-    // بيعٌ قبل الميزة بلا لقطة: يُحسب بأساس الصنف الحالي وصلاحيته
-    const expiresAt = sale.expiresAt ?? await saleExpiryFor(tenantId, tz, it.product!, {
-      invoiceId: sale.invoiceId, invoiceDate: sale.invoice.invoiceDate, salesRepId: sale.invoice.salesRepId, productId: it.productId!,
-    });
-    if (!expiresAt) continue;
-    updates.push(prisma.invoiceItem.update({
-      where: { id: it.id },
-      data: { expiresAt, returnExpired: isExpiredOn(returnDay, expiresAt), expirySaleInvoiceId: sale.invoiceId },
-    }));
+      if (!sale) continue;
+      // بيعٌ قبل الميزة بلا لقطة: يُحسب بأساس الصنف الحالي وصلاحيته
+      const expiresAt = sale.expiresAt ?? await saleExpiryFor(tenantId, tz, it.product!, {
+        invoiceId: sale.invoiceId, invoiceDate: sale.invoice.invoiceDate, salesRepId: sale.invoice.salesRepId, productId: it.productId!,
+      });
+      stamp = expiresAt ? { expiresAt, returnExpired: isExpiredOn(returnDay, expiresAt), expirySaleInvoiceId: sale.invoiceId } : null;
+    }
+    if (!stamp) continue;
+    updates.push(prisma.invoiceItem.update({ where: { id: it.id }, data: stamp }));
   }
   if (updates.length) await prisma.$transaction([...updates, touchInvoice(inv.id)]);
+}
+
+/** ما يُكتب على بند مرتجع: انتهاء البيع الذي قيس عليه، وهل المرتجع بعده، وفاتورة ذلك البيع */
+export interface ReturnStamp { expiresAt: Date; returnExpired: boolean; expirySaleInvoiceId: string }
+
+/**
+ * لقطة «آخر بيع» للمرتجع الحرّ (بلا ربط): لكل صنف آخر بيعٍ له لهذا العميل حتى تاريخ المرتجع، غير ملغى ولا إشعار — المحلّ
+ * يبيع الأقدم أولاً فما يعود هو آخر ما وصله، وإن كان آخر بيعٍ منتهياً فكل ما قبله منتهٍ. الانتهاء من لقطة بند البيع (ومنها
+ * المختومة من تشغيلة صنفٍ متتبَّع وإن كانت صلاحيته مطفأة، D21)، وإلا بأساس الصنف الحالي. بلا بيعٍ أو بلا انتهاءٍ معروف: لا
+ * مدخل — لا تخمين. يستعملها الختم اللاحق أعلاه، والمرتجع الحرّ لصنفٍ متتبَّع **قبل** معاملة إصداره (lotsInvoice.freeReturnStamps)
+ * فيُكتب داخلها (ن١-٣). `inv.id` غائبٌ قبل الإصدار (لا فاتورة بعد تُستثنى).
+ */
+export async function freeReturnStamps<K>(
+  tenantId: string,
+  inv: { id?: string | null; customerId: string; invoiceDate: Date; returnAt: Date },
+  items: { key: K; productId: string; product: ShelfLifeSettings }[],
+  opts: { tz?: string; db?: ExpiryDb } = {},
+): Promise<Map<K, ReturnStamp>> {
+  const out = new Map<K, ReturnStamp>();
+  if (!items.length) return out;
+  const db = opts.db ?? prisma;
+  const tz = opts.tz ?? await tenantTz(tenantId);
+  const returnDay = localDateIn(inv.returnAt, tz);
+  for (const it of items) {
+    const sale = await db.invoiceItem.findFirst({
+      where: {
+        productId: it.productId,
+        invoice: {
+          tenantId, customerId: inv.customerId, ...(inv.id ? { id: { not: inv.id } } : {}),
+          type: { in: SALE_TYPES }, status: { not: 'CANCELLED' },
+          OR: [{ documentKind: null }, { documentKind: { notIn: NOTE_KINDS } }],
+          invoiceDate: { lte: inv.invoiceDate },
+        },
+      },
+      orderBy: [{ invoice: { invoiceDate: 'desc' } }, { invoice: { createdAt: 'desc' } }],
+      select: { invoiceId: true, expiresAt: true, invoice: { select: { invoiceDate: true, salesRepId: true } } },
+    });
+    if (!sale) continue;
+    // بيعٌ قبل الميزة بلا لقطة: يُحسب بأساس الصنف الحالي وصلاحيته
+    const expiresAt = sale.expiresAt ?? await saleExpiryFor(tenantId, tz, it.product, {
+      invoiceId: sale.invoiceId, invoiceDate: sale.invoice.invoiceDate, salesRepId: sale.invoice.salesRepId, productId: it.productId,
+    }, db);
+    if (!expiresAt) continue;
+    out.set(it.key, { expiresAt, returnExpired: isExpiredOn(returnDay, expiresAt), expirySaleInvoiceId: sale.invoiceId });
+  }
+  return out;
 }
 
 /**

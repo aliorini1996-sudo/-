@@ -14,6 +14,7 @@
 //   • لا استدعاء للهيئة هنا إطلاقاً (الإرسال والاعتماد في Z5.3/Z5.4): المستند يُحفظ SIGNED والمرآة signed/clearance_pending.
 //   • الوحدات المتعددة (docs/multi-unit/DESIGN.md §6، §10): لقطة وحدة كلّ بند (اسمها ومعاملها والكمية بالأساس) تُكتب في صفّه
 //     كمسار المرحلة الأولى، ورمزها في سطر الـXML — والكمية والسعر بوحدة البند معاً كما دخلا المحرّك.
+//   • «تتبّع اللوط» (§٤.٩): فحصٌ بلا قفل قبل التوقيع، والتوزيع داخل createInvoice قبل إدراج الصفّ — خطّافٌ محقون (deps.lots).
 // لا يستورد services/gl ولا config/database (الاعتماديات تُحقن — الإنتاج في invoicesZatcaDeps.ts، والاختبار مخزن ذاكرة).
 // ============================================================================
 
@@ -39,6 +40,9 @@ import type { KeyedAsyncMutex } from '../compliance/zatca/unitMutex';
 // ZATCA المرحلة الثانية (Z5.8، نقد 3/4 D11): قرار الانتقال — مستندٌ دون اتصال من قبل التفعيل يُرفع بعده
 import { cutoverDecision, type CutoverReason, type CutoverRecordInput, type CutoverStatus } from '../compliance/zatca/goLive';
 import { unitFields } from '../services/units';
+// «تتبّع اللوط» (§٤.٩): أنواع الخطة والتوزيع ودمج صفوفه في البند — services/lots.ts نقيّة (لا قاعدة ولا Prisma)
+import { invoiceItemLotColumns, type InvoiceLotAllocation, type InvoiceLotPlan, type LotError, type LotWarning } from '../services/lots';
+import { randomUUID } from 'node:crypto';
 // نوعٌ فقط (يُمحى وقت التشغيل): لقطة الوحدة التي يحلّها resolveLineUnit — الحلّ الوحيد للوحدة في المنصّة
 import type { LineUnit } from './invoices';
 
@@ -427,7 +431,32 @@ export interface Phase2LedgerHooks {
   }): Promise<void>;
 }
 
+/**
+ * «تتبّع اللوط» (§٤.٩): الخطّاف المحقون — الإنتاج من services/lotsInvoice.ts (invoicesZatcaDeps.ts)، وغيابه (اختبارات الفرع
+ * القائمة) = بلا أثر. لا طابور لوط هنا (D29): الإصدار مسلسل لكل وحدة، والانتظار على قفل القاعدة بعد قفل الوحدة.
+ */
+export interface Phase2LotHooks {
+  /** عَلَم الشركة — للإشعار الدائن وحده، وحين يحمل أصله صنفاً متتبَّعاً (§١٠.١ الاستثناء الموثَّق) */
+  enabled(tenantId: string): Promise<boolean>;
+  /** يوم الشركة بمنطقتها لحظة `at` (D23) — يُحسب قبل المعاملة (ن٢-٢)، ويوم مرتجع الإشعار يوم الخادم */
+  day(tenantId: string, at: Date): Promise<string>;
+  /** فحصٌ رخيص بلا قفل قبل التوقيع (ن٢-٣): ما سيُرفض حتماً لا يستهلك ICV */
+  precheck(plan: InvoiceLotPlan): Promise<LotError | null>;
+  /** داخل معاملة الإصدار قبل إدراج الصفّ: قفل الأصناف (D25) ثم أقفال اللوط ثم التوزيع — الرفض يُلغي المعاملة كلها */
+  allocateInTx(tx: Phase2Tx, plan: InvoiceLotPlan): Promise<InvoiceLotAllocation>;
+}
+
+/** صفوف التوزيع مع رقم التشغيلة وانتهائها في ردّ الإصدار (كالمرحلة الأولى) — للمستند المتتبَّع وحده */
+export const ITEM_LOTS_INCLUDE = { lots: { include: { lot: { select: { lotNumber: true, expiryDate: true } } } } } as const;
+
+/** تحذيرات التوزيع (لا تمنع) بجوار data كما في المرحلة الأولى — غيابها لا يغيّر الردّ حرفاً */
+export function withLotWarnings(r: Phase2Result, warnings: readonly LotWarning[]): Phase2Result {
+  return warnings.length ? { ...r, body: { ...r.body, warnings: [...warnings] } } : r;
+}
+
 export interface Phase2IssuanceDeps extends Phase2ReadDeps {
+  /** «تتبّع اللوط» (§٤.٩): غيابه أو null ⇒ لا فحص ولا توزيع (الخطة في السياق تُهمل). */
+  lots?: Phase2LotHooks | null;
   /** Z5.5: `invoice` للإشعارات (الأصل وإشعاراته السابقة) — المرحلة الأولى لا تقرأ منه شيئاً. */
   db: RegimeDb & Pick<PrismaClient, 'product' | 'invoice'>;
   units: Pick<EgsUnitStore, 'loadSellerSettings' | 'loadUnit' | 'loadUnitCredentials'>;
@@ -491,6 +520,8 @@ export interface Phase2IssuanceContext {
   creditCheck: boolean;
   deliveryDate?: Date;
   dueDate?: Date;
+  /** «تتبّع اللوط» (§٤.٩): خطة المستند المتتبَّع كما بناها routes/invoices.ts (null/غائبة = لا صنف متتبَّع أو الميزة مطفأة) */
+  lots?: InvoiceLotPlan | null;
 }
 
 /** أعمدة البند كما يكتبها المسار القديم حرفياً (دالّة لا قيماً حرفية: أعمدة المرحلة الثانية تُكتب فوقها بالانتشار). */
@@ -664,10 +695,16 @@ async function issueNow(
     settings: seller, customer: ctx.customer, products, request, companyVat: ctx.companyVat, engine: ctx.engine, now,
   });
 
+  // «تتبّع اللوط» (§٤.٩، ن٢-٣): فحصٌ رخيص بلا قفل قبل التوقيع — والقرار الحاكم داخل المعاملة (createInvoice). LotError يُرمى
+  // فيعيده issuanceHttpError إلى المسار القديم (lotReply برمزه)
+  const pre = ctx.lots && deps.lots ? await deps.lots.precheck(ctx.lots) : null;
+  if (pre) throw pre;
+
   // المفتاح والشهادة لهذا الطلب وحده (بلا تخزين مؤقت)
   const signing = await openIssuanceSigning({ store: deps.units, keyring: deps.keyring, now }, unit);
 
   let created: Record<string, unknown> & { id: string } | null = null;
+  let lotWarnings: LotWarning[] = [];
   const issued: StampInTxResult = await runIssuance({
     unitId: unit.id,
     ...(deps.mutex !== undefined ? { mutex: deps.mutex } : {}),
@@ -683,8 +720,15 @@ async function issueNow(
           createInvoice: async (t, record) => {
             // قبل إدراج البنود (وقفلِ مفتاحها الأجنبيّ نفسه): لقطاتٌ حُلّت على أساسٍ حوّله تحويلٌ متزامن لا تُكتب
             await lockProductBases(t, ctx.tenantId, expectedBases);
+            // «تتبّع اللوط» (§٤.٩ البند ٤): القفل والتوزيع قبل إدراج الصفّ وبعد الختم (رفضه يُلغي المعاملة فلا مستند ولا ICV)،
+            // بمعرّفٍ مولَّدٍ مسبقاً تحمله صفوف التوزيع المتداخلة. إعادة المعاملة (تصادم ترقيم) توزّع من جديد
+            const alloc = ctx.lots && deps.lots ? await deps.lots.allocateInTx(t, ctx.lots) : null;
+            const lotInvoiceId = alloc ? randomUUID() : null;
+            const lotVan = ctx.lots?.vanKey ?? null;
+            lotWarnings = alloc?.warnings ? [...alloc.warnings] : [];
             const row = await t.invoice.create({
               data: {
+                ...(lotInvoiceId && { id: lotInvoiceId }),
                 tenantId: ctx.tenantId,
                 number: record.number,
                 clientRef: ctx.body.clientRef ?? undefined,
@@ -711,11 +755,18 @@ async function issueNow(
                 ...phase2InvoiceColumns(record),
                 einvoiceSnapshot: record.snapshot as unknown as Prisma.InputJsonObject,
                 items: {
-                  // أعمدة البند القديمة (بلقطة وحدته)، ثمّ seq والاسم ورمز الوحدة والفئة والإعفاء وضريبة سطر الـXML فوقها
-                  create: ctx.items.map((i, idx) => ({ ...legacyItemColumns(i), ...phase2ItemColumns(record.items[idx]) })),
+                  // أعمدة البند القديمة (بلقطة وحدته)، ثمّ seq والاسم ورمز الوحدة والفئة والإعفاء وضريبة سطر الـXML فوقها،
+                  // ثمّ صفوف التشغيلات وختم صلاحيتها (اللوط لا يدخل الـXML ولا phase2ItemColumns)
+                  create: ctx.items.map((i, idx) => ({
+                    ...legacyItemColumns(i), ...phase2ItemColumns(record.items[idx]),
+                    ...invoiceItemLotColumns(alloc?.lines ?? null, idx, { tenantId: ctx.tenantId, invoiceId: lotInvoiceId ?? '', productId: i.productId, vanKey: lotVan }),
+                  })),
                 },
               },
-              include: { items: true, customer: true, installments: { orderBy: { seq: 'asc' } }, signature: { select: { image: true, repImage: true } } },
+              include: {
+                items: alloc ? { include: ITEM_LOTS_INCLUDE } : true,
+                customer: true, installments: { orderBy: { seq: 'asc' } }, signature: { select: { image: true, repImage: true } },
+              },
             });
             created = row as Record<string, unknown> & { id: string };
             return { id: row.id };
@@ -758,11 +809,11 @@ async function issueNow(
   const data = { ...(created as Record<string, unknown>), einvoice: view };
   // القياسية (01) لا تُسلَّم فاتورةً ضريبية قبل اعتماد الهيئة (D5) — الاعتماد الحيّ هنا (Z5.4)
   if (prepared.subtype === '01') {
-    return clearStandardInline(deps, { tenantId: ctx.tenantId, invoiceId: issued.invoiceId, documentId: issued.documentId }, data, {
+    return withLotWarnings(await clearStandardInline(deps, { tenantId: ctx.tenantId, invoiceId: issued.invoiceId, documentId: issued.documentId }, data, {
       view, warnings: issued.warnings, issuedAt: issued.issuedAt, documentKind: prepared.kind,
-    }, now);
+    }, now), lotWarnings);
   }
-  return { status: 201, body: { success: true, data } };
+  return withLotWarnings({ status: 201, body: { success: true, data } }, lotWarnings);
 }
 
 // ─── الاعتماد الحيّ قبل المشاركة (Z5.4، قرار المالك D5) ───

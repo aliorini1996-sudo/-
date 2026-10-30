@@ -6,18 +6,23 @@ import {
   ArrowRightLeft, FileDown,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { warehouseApi, productApi } from '../api/client';
+import { warehouseApi, productApi, lotsApi } from '../api/client';
 import { formatCurrency, formatDate, formatNumber } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { useBackClose } from '../lib/useBackClose';
 import type { UnitDef } from '../lib/units';
-import { unitChoices } from '../rep/repUnits';
+import { unitChoices, defaultChoice } from '../rep/repUnits';
+import {
+  lotFlagsOf, lotWarningsOf, lotDay, roundLot, LOT_EPS, LOT_WARNING_LABELS, LOT_STATUS_LABELS, type LotBalancesDto,
+} from '../lib/lots';
 import { MScreen, MCard, MRow, MStat, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import { expectArray } from './shape';
 import {
-  qtyText, signedQtyText, hasBigUnit, biggestUnit, nextStockLineUnit, stockLineUnit, lineKey, type StockLineUnit,
+  qtyText, signedQtyText, hasBigUnit, biggestUnit, nextStockLineUnit, stockLineUnit, type StockLineUnit,
 } from './mUnits';
+import { newRowId, isTracked, shelfLifeOn, emptyLotDraft, lotDraftProblem, entryLotFields, type LotDraft } from './mLots';
 import MUnitChips from './MUnitChips';
+import MLotFields from './MLotFields';
 
 /* الإشعار في حزمة مستقلّة — يجرّ jspdf وhtml2canvas وqrcode معه */
 const MWarehouseNoticeDoc = lazy(() => import('./MWarehouseNoticeDoc'));
@@ -72,11 +77,17 @@ interface WhEntry {
     id: string; qty: number; unitCost: number | null; lineCost?: number | null;
     unitName?: string | null; unitFactor?: number | null; baseQty?: number | null;
     product: { name: string; unit: string };
+    /** «تتبّع اللوط»: تشغيلة السطر — يضمّها الخادم حين الميزة مفعّلة وحدها */
+    lot?: { lotNumber: string; productionDate: string | null; expiryDate: string | null } | null;
   }[];
   totalCost: number;
 }
 
-interface ProductPick { id: string; name: string; code?: string; unit?: string; taxPct?: number; units?: UnitDef[] }
+interface ProductPick {
+  id: string; name: string; code?: string; unit?: string; taxPct?: number; units?: UnitDef[];
+  /** «تتبّع اللوط»: علم الصنف وما يلزم إلزام انتهاء التشغيلة الجديدة (shelfLifeOf) */
+  lotTracked?: boolean; shelfLifeEnabled?: boolean; shelfLifeValue?: number | null; shelfLifeUnit?: string | null;
+}
 
 /** كسورٌ محتملة في الوحدات الموزونة — بلا أصفارٍ زائدة على «١٢» */
 const fmtQty = (n: number) => formatNumber(Number(n.toFixed(2)));
@@ -92,6 +103,8 @@ export default function MWarehouse({ onBack, company }: {
   company?: unknown;
 }) {
   const tr = useTr();
+  // «تتبّع اللوط» — مطفأ ⇒ لا جلب ولا حقل ولا سطر زائد (§١٠.١)
+  const lotOn = lotFlagsOf(company as { lotTrackingEnabled?: unknown } | null).on;
   const [q, setQ] = useState('');
   const [dq, setDq] = useState('');
   const [openId, setOpenId] = useState<string | null>(null); // الصنف المفتوح تفصيله
@@ -139,7 +152,7 @@ export default function MWarehouse({ onBack, company }: {
   // مجموع الكميات عبر الأصناف بالأساس — يُسمّى كذلك حين لصنفٍ وحدةٌ أكبر، فلا يُقرأ عدد الحبّات كراتين
   const anyMulti = useMemo(() => all.some(r => hasBigUnit(r.units)), [all]);
 
-  if (entryOpen) return <MWarehouseEntry onClose={() => setEntryOpen(false)} />;
+  if (entryOpen) return <MWarehouseEntry lotOn={lotOn} onClose={() => setEntryOpen(false)} />;
   /* الإشعار طبقةٌ ملء الشاشة كطبقة التسجيل — ولا تجتمعان: كلتاهما تُفتح من
    * هذه الشاشة وحدها، والتسجيل يسبق في الترتيب */
   if (noticeOf) {
@@ -232,7 +245,7 @@ export default function MWarehouse({ onBack, company }: {
             ) : (
               <MCard>
                 {rows.map(r => (
-                  <StockRow key={r.productId} r={r}
+                  <StockRow key={r.productId} r={r} lotOn={lotOn}
                     open={openId === r.productId}
                     onToggle={() => setOpenId(id => (id === r.productId ? null : r.productId))} />
                 ))}
@@ -281,7 +294,7 @@ export default function MWarehouse({ onBack, company }: {
 
 /* ═══════════════════════ صفّ رصيدٍ يتوسّع بتفصيله ═══════════════════════ */
 
-function StockRow({ r, open, onToggle }: { r: WhRow; open: boolean; onToggle: () => void }) {
+function StockRow({ r, open, onToggle, lotOn }: { r: WhRow; open: boolean; onToggle: () => void; lotOn: boolean }) {
   const tr = useTr();
   const tone = r.onHand < 0 ? 'text-[#C0392B]' : r.onHand === 0 ? 'text-[#B7791F]' : 'text-[#2F855A]';
   // صنفٌ له وحدةٌ أكبر: الكميات مفكَّكة («٢ كرتون و٣ حبة») بلا اتجاهٍ مفروض، والتكلفة تُسمّى بوحدة الأساس ومعها الكرتون
@@ -353,6 +366,51 @@ function StockRow({ r, open, onToggle }: { r: WhRow; open: boolean; onToggle: ()
               </p>
             )}
           </div>
+          {lotOn && <WhLotBreakdown productId={r.productId} />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * تشغيلات الصنف في المستودع — يُجلب حين يُفتح الصفّ وحده (لا لكل صنفٍ في القائمة). يُرسم حين للصنف تشغيلات أو عجز،
+ * وإلا لا شيء: صنفٌ غير متتبَّع رصيده كلّه «غير مسمّى» بالتعريف، وعرضُ ذلك ضجيجٌ لا معلومة.
+ */
+function WhLotBreakdown({ productId }: { productId: string }) {
+  const tr = useTr();
+  const q = useQuery({
+    queryKey: ['m-wh-lots', productId],
+    staleTime: 15_000,
+    queryFn: async () => ((await lotsApi.balances({ productId })).data?.data ?? null) as LotBalancesDto | null,
+  });
+  const view = q.data?.warehouse?.[0];
+  if (q.isLoading) return <p className="text-[10px] text-[#9A8F7E] px-1">{tr('جاري التحميل')}</p>;
+  if (!view) return null;
+  const lots = view.lots.filter(l => Math.abs(l.raw.SELLABLE) > LOT_EPS || Math.abs(l.held.SELLABLE) > LOT_EPS);
+  const unknown = roundLot(view.unknown?.SELLABLE ?? 0);
+  if (!lots.length && unknown >= -LOT_EPS) return null;
+  return (
+    <div className="rounded-xl bg-white border border-[#F1EBDF] px-3 py-2 space-y-1.5">
+      <p className="text-[10px] font-bold text-[#6E6557]">{tr('التشغيلات')}</p>
+      {lots.map(l => (
+        <div key={l.lotId} className="flex items-center justify-between gap-2 text-[11px]">
+          <span className="min-w-0 truncate">
+            <b className="text-[#1F1A13]" dir="ltr">{l.meta.lotNumber}</b>
+            {lotDay(l.meta.expiryDate) && <span className="text-[#9A8F7E]"> · {tr('ينتهي')} {lotDay(l.meta.expiryDate)}</span>}
+            {l.meta.status === 'BLOCKED' && (
+              <span className="ms-1 text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#FDECEA] text-[#C0392B]">{tr(LOT_STATUS_LABELS.BLOCKED)}</span>
+            )}
+          </span>
+          <b className={`tabular-nums flex-shrink-0 ${l.usable.SELLABLE < -LOT_EPS ? 'text-[#C0392B]' : 'text-[#1F1A13]'}`} dir="ltr">
+            {fmtQty(l.usable.SELLABLE)}
+          </b>
+        </div>
+      ))}
+      {Math.abs(unknown) > LOT_EPS && (
+        <div className="flex items-center justify-between gap-2 text-[11px]">
+          <span className="text-[#6E6557]">{unknown < 0 ? tr('عجز غير مسمى') : tr('غير مسمى')}</span>
+          <b className={`tabular-nums ${unknown < 0 ? 'text-[#C0392B]' : 'text-[#6E6557]'}`} dir="ltr">{fmtQty(unknown)}</b>
         </div>
       )}
     </div>
@@ -385,6 +443,8 @@ function Cell({ label, value, tone = 'default', multi }: {
 function EntryRow({ e, onNotice }: { e: WhEntry; onNotice: () => void }) {
   const tr = useTr();
   const receive = e.type === 'RECEIVE';
+  // «تتبّع اللوط»: أرقام تشغيلات الحركة — لا تظهر إلا حين يضمّها الخادم (الميزة مفعّلة)
+  const lotNos = [...new Set(e.items.map(i => i.lot?.lotNumber).filter((n): n is string => !!n))];
   return (
     <MRow
       leading={
@@ -394,7 +454,8 @@ function EntryRow({ e, onNotice }: { e: WhEntry; onNotice: () => void }) {
         </span>
       }
       title={`${formatNumber(e.items.length)} ${tr('صنف')}`}
-      subtitle={[e.supplier, e.note, e.createdBy].filter(Boolean).join(' · ') || undefined}
+      subtitle={[e.supplier, e.note, e.createdBy, lotNos.length ? `${tr('التشغيلة')} ${lotNos.slice(0, 3).join('، ')}${lotNos.length > 3 ? '…' : ''}` : '']
+        .filter(Boolean).join(' · ') || undefined}
       note={formatDate(e.createdAt)}
       trailing={
         <span className="flex items-center gap-1 flex-shrink-0">
@@ -425,10 +486,14 @@ function EntryRow({ e, onNotice }: { e: WhEntry; onNotice: () => void }) {
  * والكمية والسعر **بوحدة السطر** كفاتورة المورّد (عشرة كراتين بسعر الكرتون)، والمعامل يحلّه الخادم من `unitId`.
  */
 interface FormRow extends StockLineUnit {
+  /** هويّة السطر — صنفٌ متتبَّع يأخذ سطرين بالوحدة نفسها (تشغيلتان في وارد واحد)، فلا يكفي (الصنف، الوحدة) مفتاحاً */
+  rowId: string;
   productId: string; name: string;
   /** نسبة ضريبة الصنف — لازمةٌ لمعاينة الصافي حين تكون الأسعار شاملة */
   taxPct: number;
   qty: string; unitCost: string;
+  /** «تتبّع اللوط»: الصنف متتبَّع والميزة مفعّلة ⇒ تشغيلة السطر (سطرٌ = تشغيلة)، وانتهاؤها إلزامي مع الصلاحية */
+  tracked: boolean; shelfOn: boolean; lot: LotDraft;
 }
 
 /**
@@ -438,7 +503,7 @@ interface FormRow extends StockLineUnit {
  * بكمّيةٍ موجبة أو سالبة **بلا سعر** (الخادم يرفض سعراً مع تسوية رفضاً صريحاً،
  * فلا نُرسله أصلاً).
  */
-function MWarehouseEntry({ onClose }: { onClose: () => void }) {
+function MWarehouseEntry({ onClose, lotOn }: { onClose: () => void; lotOn: boolean }) {
   const tr = useTr();
   const qc = useQueryClient();
   const [type, setType] = useState<'RECEIVE' | 'ADJUST'>('RECEIVE');
@@ -470,20 +535,25 @@ function MWarehouseEntry({ onClose }: { onClose: () => void }) {
    * نقرة الصنف: أوّل سطرٍ بوحدته الافتراضية (الأكبر — المورّد يفوتر بالكرتون)، وكل نقرةٍ بعدها سطرٌ بوحدةٍ لم يأخذها
    * سطر. وصنفٌ أُخذت وحداته كلّها (أو بلا وحدات وله سطر) لا يُضاف: سطران بوحدةٍ واحدة يتنازعان الكمية.
    */
+  /* «تتبّع اللوط»: الصنف المتتبَّع يُضاف سطراً جديداً بكل نقرة ولو أُخذت وحداته (لكل تشغيلةٍ سطرها، §٦.٢)؛ وغيره على منع
+   * التكرار القائم حرفاً */
   const addProduct = (p: ProductPick) => setRows(rs => {
-    const u = nextStockLineUnit(p, rs, p.id);
+    const tracked = isTracked(lotOn, p);
+    const u = nextStockLineUnit(p, rs, p.id) ?? (tracked ? stockLineUnit(p, defaultChoice(p)) : null);
     return u ? [...rs, {
-      productId: p.id, name: p.name, ...u,
+      rowId: newRowId(), productId: p.id, name: p.name, ...u,
       taxPct: typeof p.taxPct === 'number' ? p.taxPct : 0,
       qty: '1', unitCost: '',
+      tracked, shelfOn: tracked && shelfLifeOn(p), lot: emptyLotDraft(),
     }] : rs;
   });
   const patch = (key: string, k: 'qty' | 'unitCost', v: string) =>
-    setRows(rs => rs.map(r => (lineKey(r) === key ? { ...r, [k]: v } : r)));
-  const dropRow = (key: string) => setRows(rs => rs.filter(r => lineKey(r) !== key));
+    setRows(rs => rs.map(r => (r.rowId === key ? { ...r, [k]: v } : r)));
+  const patchLot = (key: string, lot: LotDraft) => setRows(rs => rs.map(r => (r.rowId === key ? { ...r, lot } : r)));
+  const dropRow = (key: string) => setRows(rs => rs.filter(r => r.rowId !== key));
   /** وحدة السطر تتبدّل والكمية والسعر المكتوبان كما هما — كلاهما يُقرأ بالوحدة المختارة (والسعر يُراجَع) */
   const setRowUnit = (key: string, unitId: string | null) => setRows(rs => rs.map(r => {
-    if (lineKey(r) !== key) return r;
+    if (r.rowId !== key) return r;
     const prod = { unit: r.baseUnit, units: r.units };
     const c = unitChoices(prod).find(o => o.id === unitId);
     return c ? { ...r, ...stockLineUnit(prod, c) } : r;
@@ -521,35 +591,45 @@ function MWarehouseEntry({ onClose }: { onClose: () => void }) {
     return !Number.isFinite(c) || c <= 0 || c > 1e9;
   };
 
-  const valid = rows.length > 0 && rows.every(r => !qtyBad(r) && !costBad(r));
+  /** «تتبّع اللوط»: ما يُسمح به لتشغيلة السطر — الوارد بتشغيلة، والتسوية بزيادة أو نقص (lotDraftProblem) */
+  const lotMode = (r: FormRow) => (type === 'RECEIVE' ? 'IN_STRICT' as const : Number(r.qty) < 0 ? 'OUT' as const : 'IN' as const);
+  const lotBad = (r: FormRow) => r.tracked && lotDraftProblem(r.lot, lotMode(r), { shelfOn: r.shelfOn }) !== null;
+
+  const valid = rows.length > 0 && rows.every(r => !qtyBad(r) && !costBad(r) && !lotBad(r));
 
   const save = useMutation({
     mutationFn: async () => {
       const items = rows.map(r => {
         // `unitId` للسطر بغير وحدة الأساس وحده — بلاه يُسجَّل عشرة كراتين بـ٢٤٠ عشر حبّاتٍ بـ٢٤٠ للحبّة فيتضخّم
-        // المتوسّط ٢٤ ضعفاً؛ وسطر الأساس بلا حقل كما قبل الميزة حرفاً
-        const item: { productId: string; qty: number; unitCost?: number; unitId?: string } = {
+        // المتوسّط ٢٤ ضعفاً؛ وسطر الأساس بلا حقل كما قبل الميزة حرفاً. وتشغيلة السطر للمتتبَّع وحده
+        const item: { productId: string; qty: number; unitCost?: number; unitId?: string } & ReturnType<typeof entryLotFields> = {
           productId: r.productId, qty: Number(r.qty), ...(r.unitId && { unitId: r.unitId }),
+          ...(r.tracked && entryLotFields(r.lot)),
         };
         // السعر للوارد وحده، والفارغ يُرسَل **غائباً** لا صفراً: «بلا سعر» كمّيةٌ
         // خارج التقييم، بينما صفرٌ بضاعةٌ مجّانية — ومعناهما في الدفاتر مختلف
         if (type === 'RECEIVE' && r.unitCost.trim() !== '') item.unitCost = Number(r.unitCost);
         return item;
       });
-      await warehouseApi.createEntry({
+      const res = await warehouseApi.createEntry({
         type,
         supplier: type === 'RECEIVE' ? supplier.trim() || undefined : undefined,
         note: note.trim() || undefined,
         costsIncludeTax: type === 'RECEIVE' ? costsIncludeTax : undefined,
         items,
       });
+      return lotWarningsOf((res.data as { warnings?: unknown } | undefined)?.warnings);
     },
-    onSuccess: () => {
+    onSuccess: (warnings) => {
       // مفاتيح الجوال ومفاتيح اللوحة معاً — الحزمة واحدة والكاش مشترك، فترك
-      // مفاتيح اللوحة يُظهر رصيداً قديماً لمن ينتقل إليها بعد الحفظ
-      ['m-wh-stock', 'm-wh-entries', 'warehouse-stock', 'warehouse-entries']
+      // مفاتيح اللوحة يُظهر رصيداً قديماً لمن ينتقل إليها بعد الحفظ.
+      // و«تتبّع اللوط» في الجهتين: أرصدة التشغيلات وقوائمها هنا وفي شاشة التتبّع (الجوال واللوحة)
+      ['m-wh-stock', 'm-wh-entries', 'warehouse-stock', 'warehouse-entries',
+        ...(lotOn ? ['m-wh-lots', 'm-lot-opts', 'm-lots', 'm-lot', 'lots', 'lot', 'lot-balances'] : [])]
         .forEach(k => qc.invalidateQueries({ queryKey: [k] }));
       toast.success(tr('تم حفظ الحركة'));
+      // التحذير لا يمنع (تشغيلة موقوفة تبقى معزولة) — لكنه يُقال
+      [...new Set(warnings.map(w => w.code))].forEach(c => toast(tr(LOT_WARNING_LABELS[c])));
       onClose();
     },
     onError: (e: unknown) => toast.error(errMsg(e, tr('تعذر الحفظ'))),
@@ -609,12 +689,13 @@ function MWarehouseEntry({ onClose }: { onClose: () => void }) {
             ) : (
               <div className="max-h-[250px] overflow-y-auto overscroll-contain">
                 {prodQ.data.map(p => {
-                  // «مضاف» حين لا وحدة حرّة للصنف — وله وحدةٌ أخرى ⇒ النقرة سطرٌ ثانٍ بها
-                  const picked = nextStockLineUnit(p, rows, p.id) === null;
+                  // «مضاف» حين لا وحدة حرّة للصنف — وله وحدةٌ أخرى ⇒ النقرة سطرٌ ثانٍ بها. والمتتبَّع يقبل سطراً لكل تشغيلة
+                  const tracked = isTracked(lotOn, p);
+                  const picked = !tracked && nextStockLineUnit(p, rows, p.id) === null;
                   return (
                     <MRow key={p.id}
                       title={p.name}
-                      subtitle={[p.code, p.unit].filter(Boolean).join(' · ') || undefined}
+                      subtitle={[p.code, p.unit, tracked ? tr('تتبع باللوط') : ''].filter(Boolean).join(' · ') || undefined}
                       // صفٌّ مضافٌ سلفاً لا يُنقر: نقرةٌ لا أثر لها تُقرأ عطلاً
                       onClick={picked ? undefined : () => addProduct(p)}
                       trailing={picked
@@ -634,7 +715,7 @@ function MWarehouseEntry({ onClose }: { onClose: () => void }) {
             {!rows.length ? (
               <p className="p-6 text-center text-[11px] text-[#9A8F7E]">{tr('ابحث وأضف صنفا')}</p>
             ) : rows.map(r => {
-              const k = lineKey(r);
+              const k = r.rowId;
               const badQty = qtyBad(r);
               const badCost = costBad(r);
               const net = netOf(r);
@@ -655,8 +736,9 @@ function MWarehouseEntry({ onClose }: { onClose: () => void }) {
                     </button>
                   </div>
 
+                  {/* المتتبَّع: سطران بالوحدة نفسها جائزان (تشغيلتان)، فلا وحدة «مأخوذة» */}
                   <MUnitChips options={opts} value={r.unitId} onChange={id => setRowUnit(k, id)}
-                    taken={c => rows.some(x => x !== r && x.productId === r.productId && (x.unitId ?? null) === c.id)} />
+                    taken={c => !r.tracked && rows.some(x => x !== r && x.productId === r.productId && (x.unitId ?? null) === c.id)} />
 
                   <div className="flex items-end gap-2">
                     <label className="flex-1 min-w-0">
@@ -692,6 +774,11 @@ function MWarehouseEntry({ onClose }: { onClose: () => void }) {
                     <p className="text-[10px] text-[#6E6557]">
                       {tr('قيمة السطر قبل الضريبة')}: <b className="text-[#1F1A13] tabular-nums">{formatCurrency(line)}</b>
                     </p>
+                  )}
+                  {/* «تتبّع اللوط»: تشغيلة السطر للصنف المتتبَّع وحده — والنقص بلا اختيار يتركه الخادم للمصدر الوحيد */}
+                  {r.tracked && !badQty && (
+                    <MLotFields productId={r.productId} mode={lotMode(r)} shelfOn={r.shelfOn} draft={r.lot}
+                      onChange={d => patchLot(k, d)} />
                   )}
                 </div>
               );
