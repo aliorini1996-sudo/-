@@ -773,10 +773,12 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
       const invoices = inv.data.data as { total: number; invoiceDate: string; type: string }[];
       const receipts = rcp.data.data as { amount: number; receiptDate: string }[];
       const todayRcp = receipts.filter(r => isToday(r.receiptDate));
-      // مبيعات اليوم: فواتير البيع فقط (تُستثنى فواتير الإرجاع)
-      const todaySales = invoices.filter(i => isToday(i.invoiceDate) && i.type !== 'RETURN');
+      // مبيعات اليوم صافية (طلب المالك ٢٩ أكتوبر ٢٠٢٦): البيع ناقص مرتجع اليوم كلوحة الإدارة، والعدد فواتير البيع وحدها
+      const todayDocs = invoices.filter(i => isToday(i.invoiceDate));
+      const todaySales = todayDocs.filter(i => i.type !== 'RETURN');
+      const todayNet = todayDocs.reduce((s, i) => s + (i.type === 'RETURN' ? -1 : 1) * Number(i.total), 0);
       const fresh = {
-        salesTotal: todaySales.reduce((s, i) => s + Number(i.total), 0),
+        salesTotal: (Math.round(todayNet * 1e6) / 1e6) || 0,
         collectTotal: todayRcp.reduce((s, r) => s + Number(r.amount), 0),
         // رصيد التحصيل المتراكم لدى المندوب — لا يُصفّر يوميًا، ينقص فقط عند استلام الإدارة
         collectBalance: Number(bal.data.data?.outstanding ?? 0),

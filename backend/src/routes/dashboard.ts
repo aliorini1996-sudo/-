@@ -3,6 +3,7 @@ import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { scopedRecordWhere, adminCustomerFilter, adminRepFilter, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { AuthRequest } from '../types';
+import { cleanMoney, netOfInvoices, netSales, signedAmount } from '../services/netSales';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canAccessDashboard'));
@@ -19,6 +20,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       dailySales, dailyReceipts, monthSales, monthReceipts,
       totalCustomers, overdueCustomers, creditExceeded,
       topReps, topCustomers, recentInvoices,
+      dailyReturns, monthReturns,
     ] = await (async () => {
     // قيود نطاق المستخدم تُحسب مرّة وتُطبَّق على كل استعلامات اللوحة
     const recScope = await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT);
@@ -49,8 +51,9 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       prisma.salesRep.findMany({
         where: { tenantId: tid, ...repScope },
         take: 5,
-        // فواتير المندوب بنطاق المستند (recScope): مندوبٌ مشترك لا تُجمع لمشرف فريقٍ مبيعاتُ فريقه الآخر
-        select: { id: true, name: true, invoices: { where: { status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: startOfMonth }, ...recScope }, select: { total: true } } },
+        // فواتير المندوب بنطاق المستند (recScope): مندوبٌ مشترك لا تُجمع لمشرف فريقٍ مبيعاتُ فريقه الآخر.
+        // والمرتجع معها بنوعه ليُطرح (services/netSales.ts)
+        select: { id: true, name: true, invoices: { where: { status: 'CONFIRMED', invoiceDate: { gte: startOfMonth }, ...recScope }, select: { total: true, type: true } } },
       }),
       prisma.customer.findMany({
         // المحذوف يسقط من «أفضل العملاء» كما سقط من قوائمهم
@@ -62,6 +65,15 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
         where: { tenantId: tid, ...recScope, status: 'CONFIRMED', type: { not: 'RETURN' } },
         take: 10, orderBy: { createdAt: 'desc' },
         include: { customer: { select: { name: true } }, salesRep: { select: { name: true } } },
+      }),
+      // «إجمالي المبيعات» صافٍ (طلب المالك ٢٩ أكتوبر ٢٠٢٦): مرتجع اليوم والشهر في النطاق نفسه يُطرح من مبيعاتهما
+      prisma.invoice.aggregate({
+        where: { tenantId: tid, ...recScope, status: 'CONFIRMED', type: 'RETURN', invoiceDate: { gte: startOfDay, lte: endOfDay } },
+        _sum: { total: true },
+      }),
+      prisma.invoice.aggregate({
+        where: { tenantId: tid, ...recScope, status: 'CONFIRMED', type: 'RETURN', invoiceDate: { gte: startOfMonth } },
+        _sum: { total: true },
       }),
     ]);
     })();
@@ -89,11 +101,11 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       monthPurchases = { purchasesTotal: Number(rows[0]?.total ?? 0), entriesCount: Number(rows[0]?.entries ?? 0) };
     }
 
+    // صافي مبيعات المندوب (البيع − مرتجعه)، وعدد فواتير البيع وحدها
     const topRepsWithStats = topReps.map(r => ({
       id: r.id,
       name: r.name,
-      invoicesCount: r.invoices.length,
-      salesTotal: r.invoices.reduce((s, i) => s + Number(i.total), 0),
+      ...netOfInvoices(r.invoices),
     })).sort((a, b) => b.salesTotal - a.salesTotal);
 
     res.json({
@@ -102,7 +114,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
         accountingEnabled: accountingOn,
         today: accountingOn
           ? {
-            salesTotal: Number(dailySales._sum.total ?? 0),
+            salesTotal: netSales(dailySales._sum.total, dailyReturns._sum.total),
             invoicesCount: dailySales._count.id,
             collectionsTotal: Number(dailyReceipts._sum.amount ?? 0),
             receiptsCount: dailyReceipts._count.id,
@@ -111,7 +123,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
         warehouseEnabled: warehouseOn,
         month: accountingOn
           ? {
-            salesTotal: Number(monthSales._sum.total ?? 0),
+            salesTotal: netSales(monthSales._sum.total, monthReturns._sum.total),
             invoicesCount: monthSales._count.id,
             collectionsTotal: Number(monthReceipts._sum.amount ?? 0),
             receiptsCount: monthReceipts._count.id,
@@ -140,19 +152,20 @@ router.get('/sales-trend', async (req: AuthRequest, res: Response, next: NextFun
     const from = new Date();
     from.setDate(from.getDate() - days);
 
+    // صافي كل يوم: المرتجع يُطرح من يومه (services/netSales.ts)
     const invoices = await prisma.invoice.findMany({
-      where: { tenantId: tid, ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)), status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: from } },
-      select: { invoiceDate: true, total: true },
+      where: { tenantId: tid, ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)), status: 'CONFIRMED', invoiceDate: { gte: from } },
+      select: { invoiceDate: true, total: true, type: true },
       orderBy: { invoiceDate: 'asc' },
     });
 
     const byDate: Record<string, number> = {};
     invoices.forEach(inv => {
       const d = inv.invoiceDate.toISOString().slice(0, 10);
-      byDate[d] = (byDate[d] ?? 0) + Number(inv.total);
+      byDate[d] = (byDate[d] ?? 0) + signedAmount(inv, inv.total);
     });
 
-    res.json({ success: true, data: Object.entries(byDate).map(([date, total]) => ({ date, total })) });
+    res.json({ success: true, data: Object.entries(byDate).map(([date, total]) => ({ date, total: cleanMoney(total) })) });
   } catch (err) { next(err); }
 });
 

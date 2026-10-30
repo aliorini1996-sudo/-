@@ -11,6 +11,7 @@ import { noStaffCredentials, refuseStaffCredentials } from '../services/platform
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
 import { clean } from '../services/accounting';
+import { netSales } from '../services/netSales';
 import { userCustody, lockCustody, removalKeepsCustodySane, CustodyBlocked } from '../services/userCustody';
 import { isLedgerError } from '../services/gl/types';
 import { assertRepDeletable, settlementTombstones } from '../services/gl/sync/tombstone';
@@ -251,10 +252,16 @@ router.get('/:id/stats', async (req: AuthRequest, res: Response, next: NextFunct
       res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return;
     }
     const docScope = await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT);
-    const [invoices, receipts] = await Promise.all([
+    // «إجمالي المبيعات» صافٍ (طلب المالك ٢٩ أكتوبر ٢٠٢٦): كان المجموع بلا شرط نوعٍ فيُضيف المرتجع إلى مبيعات المندوب —
+    // صار البيع وحده ثم يُطرح منه المرتجع (services/netSales.ts)، والعدد عدد فواتير البيع
+    const [invoices, returns, receipts] = await Promise.all([
       prisma.invoice.aggregate({
-        where: { tenantId: tid, salesRepId: req.params.id, status: 'CONFIRMED', ...(dateFilter && { invoiceDate: dateFilter }), ...docScope },
+        where: { tenantId: tid, salesRepId: req.params.id, status: 'CONFIRMED', type: { not: 'RETURN' }, ...(dateFilter && { invoiceDate: dateFilter }), ...docScope },
         _count: { id: true }, _sum: { total: true },
+      }),
+      prisma.invoice.aggregate({
+        where: { tenantId: tid, salesRepId: req.params.id, status: 'CONFIRMED', type: 'RETURN', ...(dateFilter && { invoiceDate: dateFilter }), ...docScope },
+        _sum: { total: true },
       }),
       prisma.receipt.aggregate({
         where: { tenantId: tid, salesRepId: req.params.id, status: 'ACTIVE', ...(dateFilter && { receiptDate: dateFilter }), ...docScope },
@@ -266,7 +273,7 @@ router.get('/:id/stats', async (req: AuthRequest, res: Response, next: NextFunct
       success: true,
       data: {
         invoicesCount: invoices._count.id,
-        salesTotal: invoices._sum.total ?? 0,
+        salesTotal: netSales(invoices._sum.total, returns._sum.total),
         receiptsCount: receipts._count.id,
         collectionsTotal: receipts._sum.amount ?? 0,
       },
