@@ -232,7 +232,7 @@ function MCustomerDetail({ customer, accountingOn, zatcaCollect = false, company
     return (
       <Suspense fallback={<MSpinner />}>
         {openDoc === 'invoice'
-          ? <MInvoiceCreate presetCustomerId={c.id} onClose={() => setDoc(null)} onCreated={() => setDoc(null)} />
+          ? <MInvoiceCreate presetCustomerId={c.id} company={company} onClose={() => setDoc(null)} onCreated={() => setDoc(null)} />
           : <MReceiptCreate presetCustomerId={c.id} company={company} onClose={() => setDoc(null)} onCreated={() => setDoc(null)} />}
       </Suspense>
     );

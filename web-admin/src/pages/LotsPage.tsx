@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
   AlertTriangle, ArrowRight, Download, FileText, History, Layers, Lock, Pencil, Plus, RotateCcw, Search, ShieldAlert, Tags, Trash2,
@@ -19,12 +19,12 @@ import {
   type LotBucket, type LotCertainty, type LotPlace, type LotRelabelRequest, type LotTraceDto, type LotUnloadPlanDto, type ProductLotDto,
 } from '../lib/lots';
 import {
-  autoBroad, eventKindLabel, expiryState, extendsExpiry, healthByProduct, lotQtyOk, lotStatusLabel, originKindLabel, placeName,
-  relabelProblem, relabelReasonOf, relabelSources, statusActions, traceSheets, traceTotals, unloadBody,
+  autoBroad, defaultRelabelPlace, eventKindLabel, expiryState, extendsExpiry, healthByProduct, lotQtyOk, lotStatusLabel, originKindLabel, placeName,
+  relabelProblem, relabelReasonOf, relabelSources, statusActions, traceSheets, traceTotals, unloadBody, TRACE_PLACE_COLUMNS, vanName,
   type LotBalancesResponse, type LotDeficitRow, type LotDetailDto, type LotListRow, type LotStatusAction, type PlaceViewWithAvailability,
   type RelabelLineForm,
 } from '../lib/lotsPage';
-import { activeLocale, formatDateTime, formatDayOnly } from '../utils/format';
+import { activeLocale, formatDate, formatDateTime, formatDayOnly } from '../utils/format';
 import { shareOrDownloadExcel } from '../utils/excel';
 import { elementToPdfBlob, shareOrDownloadPdf } from '../rep/pdf';
 import { Header, type Company } from '../rep/RepDocuments';
@@ -60,6 +60,12 @@ const errText = (e: unknown, tr: Tr, fallback: string): string =>
 
 const fmtQ = (n: number | null | undefined) =>
   roundLot(Number(n) || 0).toLocaleString(activeLocale(), { maximumFractionDigits: 4 });
+
+/** خليّة كمية في «الأماكن» (الشاشة وورقة PDF): الصفر «—» في أعمدة dash (المحجوز والمنتهي والتالف) */
+const placeQtyText = (c: (typeof TRACE_PLACE_COLUMNS)[number], p: LotTraceDto['places'][number]) => {
+  const q = c.qty(p);
+  return c.dash && Math.abs(q) <= LOT_EPS ? '—' : fmtQ(q);
+};
 
 const dayText = (v: string | null | undefined) => (lotDay(v) ? formatDayOnly(lotDay(v)) : '—');
 
@@ -299,10 +305,14 @@ function CreateLotModal({ onClose, onOpen }: { onClose: () => void; onOpen: (id:
   const [production, setProduction] = useState('');
   const [expiry, setExpiry] = useState('');
   const [note, setNote] = useState('');
+  // طلبٌ بعد توقّف الكتابة لا مع كل حرف
+  const [searchQ, setSearchQ] = useState('');
+  useEffect(() => { const t = setTimeout(() => setSearchQ(search.trim()), 300); return () => clearTimeout(t); }, [search]);
   const productsQ = useQuery({
-    queryKey: ['lots', 'products', search],
-    queryFn: async () => ((await productApi.list({ ...(search.trim() ? { search: search.trim() } : {}), limit: 30 })).data.data as ProductPick[])
-      .filter((p) => p.lotTracked === true),
+    queryKey: ['lots', 'products', searchQ],
+    // /products بلا مرشّح تتبّع: صفحةٌ واسعة ثم المتتبَّع منها — صفحة ٣٠ كانت تُخفي صنفاً متتبَّعاً وراء غير المتتبَّعين
+    queryFn: async () => ((await productApi.list({ ...(searchQ ? { search: searchQ } : {}), limit: 200 })).data.data as ProductPick[])
+      .filter((p) => p.lotTracked === true).slice(0, 50),
     enabled: !product,
     placeholderData: keepPreviousData,
   });
@@ -403,8 +413,6 @@ function LotDetail({ id, company, onBack, onOpen }: { id: string; company: Compa
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const impersonating = useAuthStore((s) => s.impersonating);
-  // المقيّد بنطاق لا يوقف ولا يسحب ولا يمدّ انتهاءً (LOT_SCOPED_USER) — جلسة المالك غير مقيّدة
-  const scopedUser = user?.scopeEnabled === true && !impersonating;
 
   const lotQ = useQuery({
     queryKey: ['lots', 'one', id],
@@ -412,6 +420,9 @@ function LotDetail({ id, company, onBack, onOpen }: { id: string; company: Compa
     retry: retryNetOnly,
   });
   const lot = lotQ.data;
+  // المقيّد بنطاق لا يوقف ولا يسحب ولا يمدّ انتهاءً (LOT_SCOPED_USER) — حكم الخادم (scoped = adminScopeEnabled: مقيّد القوائم
+  // ومشرف الفرق، وجلسة المالك غير مقيّدة) أولاً، وعَلَم المستخدم المحفوظ قبل وصول البطاقة
+  const scopedUser = lot ? lot.scoped === true : user?.scopeEnabled === true && !impersonating;
   const [scopeSel, setScopeSel] = useState<'STRICT' | 'BROAD' | null>(null);
   const scope = scopeSel ?? (autoBroad(lot) ? 'BROAD' : 'STRICT');
   const traceQ = useQuery({
@@ -561,7 +572,7 @@ function LotDetail({ id, company, onBack, onOpen }: { id: string; company: Compa
                 <tbody>
                   {(planQ.data ?? []).map((r) => (
                     <tr key={r.salesRepId}>
-                      <td>{r.repName || tr('مندوب محذوف')}{r.deleted && <span className="text-[11px] text-amber-700"> · {tr('مندوب محذوف')}</span>}</td>
+                      <td className={r.deleted ? 'text-amber-700' : ''}>{vanName(r, tr)}</td>
                       <td className="tabular-nums font-semibold">{fmtQ(r.usable.SELLABLE)} <span className="text-[11px] text-gray-400 font-normal">{unit}</span></td>
                       <td className="tabular-nums">{r.held.SELLABLE > LOT_EPS ? fmtQ(r.held.SELLABLE) : '—'}</td>
                       <td className="tabular-nums">{r.usable.EXPIRED > LOT_EPS ? fmtQ(r.usable.EXPIRED) : '—'}</td>
@@ -577,6 +588,17 @@ function LotDetail({ id, company, onBack, onOpen }: { id: string; company: Compa
               </table>
             </div>
           )}
+          {/* ما لا يُنزَّل من هنا: رصيد المستودع يُتلف بتسوية نقصٍ بالتشغيلة (§٤.١٦)، والمنتهي والتالف في السيارة يزالان من دلويهما */}
+          {(lot.summary?.warehouse ?? 0) > LOT_EPS && (
+            <p className="text-xs text-[#6E6557]">
+              {tr('رصيد المستودع من التشغيلة الموقوفة يتلف بتسوية نقص بالتشغيلة')} — <Link to="/app/warehouse" className="text-[#C94E28] font-semibold">{tr('مخزون الشركة')}</Link>
+            </p>
+          )}
+          {(planQ.data ?? []).some((r) => r.usable.EXPIRED > LOT_EPS || r.usable.DAMAGED > LOT_EPS) && (
+            <p className="text-xs text-[#6E6557]">
+              {tr('المنتهي والتالف من التشغيلة يزالان من دلويهما في السيارة')} — <Link to="/app/van-stock" className="text-[#C94E28] font-semibold">{tr('مخزون السيارات')}</Link>
+            </p>
+          )}
         </div>
       )}
 
@@ -591,8 +613,8 @@ function LotDetail({ id, company, onBack, onOpen }: { id: string; company: Compa
               <table className="table">
                 <thead>
                   <tr>
-                    <th>{tr('المكان')}</th><th>{tr(LOT_BUCKET_LABELS.SELLABLE)}</th><th>{tr('الصالح للإنقاص')}</th><th>{tr('محجوز')}</th>
-                    <th>{tr('منتهي الصلاحية')}</th><th>{tr('تالف')}</th><th>{tr('المحمل')}</th><th>{tr('المنزل')}</th><th>{tr('المباع')}</th><th>{tr('المرتجع')}</th>
+                    <th>{tr('المكان')}</th>
+                    {TRACE_PLACE_COLUMNS.map((c) => <th key={c.label}>{tr(c.label)}</th>)}
                   </tr>
                 </thead>
                 <tbody>
@@ -602,15 +624,11 @@ function LotDetail({ id, company, onBack, onOpen }: { id: string; company: Compa
                         {placeName(p, tr)}
                         {p.approximate && <span className="text-[11px] text-amber-700"> · {tr('تقريبي')}</span>}
                       </td>
-                      <td className={`tabular-nums font-semibold ${p.raw.SELLABLE < -LOT_EPS ? 'text-red-600' : ''}`}>{fmtQ(p.raw.SELLABLE)}</td>
-                      <td className="tabular-nums">{fmtQ(p.usable.SELLABLE)}</td>
-                      <td className="tabular-nums">{p.held.SELLABLE > LOT_EPS ? fmtQ(p.held.SELLABLE) : '—'}</td>
-                      <td className="tabular-nums">{Math.abs(p.raw.EXPIRED) > LOT_EPS ? fmtQ(p.raw.EXPIRED) : '—'}</td>
-                      <td className="tabular-nums">{Math.abs(p.raw.DAMAGED) > LOT_EPS ? fmtQ(p.raw.DAMAGED) : '—'}</td>
-                      <td className="tabular-nums">{fmtQ(p.loaded)}</td>
-                      <td className="tabular-nums">{fmtQ(p.unloaded)}</td>
-                      <td className="tabular-nums">{fmtQ(p.sold)}</td>
-                      <td className="tabular-nums">{fmtQ(p.returned)}</td>
+                      {TRACE_PLACE_COLUMNS.map((c) => (
+                        <td key={c.label} className={`tabular-nums ${c.strong ? `font-semibold ${c.qty(p) < -LOT_EPS ? 'text-red-600' : ''}` : ''}`}>
+                          {placeQtyText(c, p)}
+                        </td>
+                      ))}
                     </tr>
                   ))}
                 </tbody>
@@ -685,7 +703,7 @@ function LotDetail({ id, company, onBack, onOpen }: { id: string; company: Compa
                           {inv.broad && <span className="text-[10px] text-amber-700"> · {tr('النطاق الموسع')}</span>}
                           {inv.flags.length > 0 && <div className="text-[10px] text-[#C94E28]">{inv.flags.map((f) => tr(LOT_ROW_FLAG_LABELS[f] ?? f)).join(' · ')}</div>}
                         </td>
-                        <td className="tabular-nums">{formatDayOnly(lotDay(inv.date) ?? inv.date)}</td>
+                        <td className="tabular-nums">{formatDate(inv.date)}</td>
                         <td className="tabular-nums">{fmtQ(inv.sold)}</td>
                         <td className="tabular-nums">{inv.returned > LOT_EPS ? fmtQ(inv.returned) : '—'}</td>
                         <td className="tabular-nums font-semibold">{fmtQ(inv.net)}</td>
@@ -729,7 +747,7 @@ function LotDetail({ id, company, onBack, onOpen }: { id: string; company: Compa
       )}
       {unloadRow && (
         <ConfirmDialog title={tr('تنزيل التشغيلة من السيارة')}
-          message={`${unloadRow.repName || tr('مندوب محذوف')} — ${fmtQ(unloadRow.usable.SELLABLE)} ${unit}`}
+          message={`${vanName(unloadRow, tr)} — ${fmtQ(unloadRow.usable.SELLABLE)} ${unit}`}
           confirmLabel={tr('تنزيل')} loading={unload.isPending} onConfirm={() => unload.mutate(unloadRow)} onClose={() => setUnloadRow(null)} />
       )}
 
@@ -763,6 +781,19 @@ function MiniStat({ label, value }: { label: string; value: string }) {
 
 // ═══ تعديل التواريخ (§٤.٣) ═══
 
+/**
+ * خطأ حفظ البطاقة: رسالته (رمز اللوط برسالة الخادم)، و«تغيّرت التشغيلة منذ فتحها» (LOT_CHANGED) يعيد قراءتها فتحمل المحاولة
+ * التالية نسختها الجديدة (updatedAt) — وإلا تكرّر الرفض نفسه حتى يُغلق المستخدم النافذة ويعيد فتحها.
+ */
+function useLotSaveError(lotId: string) {
+  const tr = useTr();
+  const qc = useQueryClient();
+  return (e: unknown) => {
+    toast.error(errText(e, tr, 'تعذر الحفظ'));
+    if (lotErrorOf(e)?.code === 'LOT_CHANGED') qc.invalidateQueries({ queryKey: ['lots', 'one', lotId] });
+  };
+}
+
 function EditDatesModal({ lot, scopedUser, onClose, onDone }: { lot: LotDetailDto; scopedUser: boolean; onClose: () => void; onDone: () => void }) {
   const tr = useTr();
   const [production, setProduction] = useState(lotDay(lot.productionDate) ?? '');
@@ -771,13 +802,14 @@ function EditDatesModal({ lot, scopedUser, onClose, onDone }: { lot: LotDetailDt
   const [reason, setReason] = useState('');
   // مدّ الانتهاء (أو محوه) لتشغيلةٍ لها حركات يعيد المنتهي إلى البيع — بسببٍ ولغير المقيّد (D27)
   const needsReason = lot.inUse && extendsExpiry(lot.expiryDate, expiry || null);
+  const onSaveError = useLotSaveError(lot.id);
   const save = useMutation({
     mutationFn: () => lotsApi.update(lot.id, {
       productionDate: production || null, expiryDate: expiry || null, note: note.trim() || null,
       ...(reason.trim() ? { reason: reason.trim() } : {}), updatedAt: lot.updatedAt,
     }),
     onSuccess: () => { toast.success(tr('تم الحفظ')); onDone(); },
-    onError: (e) => toast.error(errText(e, tr, 'تعذر الحفظ')),
+    onError: onSaveError,
   });
   const submit = () => {
     const p = lotDatesProblem(production || null, expiry || null, { expiryRequired: lot.product.shelfLifeOn });
@@ -822,6 +854,7 @@ function EditDatesModal({ lot, scopedUser, onClose, onDone }: { lot: LotDetailDt
 function StatusDialog({ lot, action, onClose, onDone }: { lot: LotDetailDto; action: LotStatusAction; onClose: () => void; onDone: () => void }) {
   const tr = useTr();
   const [reason, setReason] = useState('');
+  const onSaveError = useLotSaveError(lot.id);
   const save = useMutation({
     mutationFn: () => lotsApi.setStatus(lot.id, {
       status: action.status, ...(action.blockKind ? { blockKind: action.blockKind } : {}), reason: reason.trim(), updatedAt: lot.updatedAt,
@@ -830,7 +863,7 @@ function StatusDialog({ lot, action, onClose, onDone }: { lot: LotDetailDto; act
       toast.success(action.status === 'BLOCKED' ? tr('تم إيقاف التشغيلة نزلها الآن من السيارات') : tr('أعيد تنشيط التشغيلة'));
       onDone();
     },
-    onError: (e) => toast.error(errText(e, tr, 'تعذر الحفظ')),
+    onError: onSaveError,
   });
   const message = action.status === 'ACTIVE'
     ? tr('تعود التشغيلة إلى التحميل والبيع')
@@ -881,18 +914,20 @@ function RelabelModal({ lot, preset, onClose, onDone, onOpen }: {
     const out: { key: string; place: LotPlace; vanKey: string | null; label: string; view: PlaceViewWithAvailability }[] = [];
     if (!bal) return out;
     for (const v of bal.warehouse) out.push({ key: 'WAREHOUSE', place: 'WAREHOUSE', vanKey: null, label: tr('المستودع'), view: v });
-    for (const v of bal.vans) out.push({ key: `VAN:${v.salesRepId}`, place: 'VAN', vanKey: v.salesRepId, label: v.repName || tr('مندوب محذوف'), view: v.view });
+    for (const v of bal.vans) out.push({ key: `VAN:${v.salesRepId}`, place: 'VAN', vanKey: v.salesRepId, label: vanName(v, tr), view: v.view });
     return out;
   }, [bal, tr]);
+  const day = bal?.day ?? lot.day;
+  // التسمية: من غير المسمّى إلى هذه التشغيلة؛ إعادة التصنيف: من هذه التشغيلة إلى غيرها
+  const defaultFrom = preset === 'LABEL' ? null : lot.id;
+  const defaultSrc = defaultFrom ?? '∅';
   const [placeKey, setPlaceKey] = useState('');
-  const place = places.find((p) => p.key === placeKey) ?? places[0] ?? null;
+  // المكان الافتراضي حيث المصدر الافتراضي صالح (التشغيلة في سيارةٍ لا في المستودع)، ثم ما اختاره المستخدم
+  const place = places.find((p) => p.key === placeKey) ?? defaultRelabelPlace(places, defaultFrom, day);
   const [bucket, setBucket] = useState<LotBucket>('SELLABLE');
   const effBucket: LotBucket = place?.place === 'VAN' ? bucket : 'SELLABLE';
-  const day = bal?.day ?? lot.day;
   const sources = useMemo(() => relabelSources(place?.view, effBucket, day), [place, effBucket, day]);
-  // التسمية: من غير المسمّى إلى هذه التشغيلة؛ إعادة التصنيف: من هذه التشغيلة إلى غيرها
   const [srcKey, setSrcKey] = useState<string | null>(null);
-  const defaultSrc = preset === 'LABEL' ? '∅' : lot.id;
   const source = sources.find((s) => (s.lotId ?? '∅') === (srcKey ?? defaultSrc)) ?? null;
   const [lines, setLines] = useState<RelabelLineForm[]>(() => [preset === 'LABEL' ? emptyLine('EXISTING', lot.id) : emptyLine('NEW')]);
   const [note, setNote] = useState('');
@@ -1135,15 +1170,14 @@ const LotTraceDoc = forwardRef<HTMLDivElement, { trace: LotTraceDto; company: Co
       <p style={{ fontWeight: 700, color: brand, margin: '6px 0' }}>{tr('الأماكن')}</p>
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 14 }}>
         <thead><tr>
-          <th style={th}>{tr('المكان')}</th><th style={th}>{tr(LOT_BUCKET_LABELS.SELLABLE)}</th><th style={th}>{tr('محجوز')}</th>
-          <th style={th}>{tr('المحمل')}</th><th style={th}>{tr('المنزل')}</th><th style={th}>{tr('المباع')}</th><th style={th}>{tr('المرتجع')}</th>
+          <th style={th}>{tr('المكان')}</th>
+          {TRACE_PLACE_COLUMNS.map((c) => <th key={c.label} style={th}>{tr(c.label)}</th>)}
         </tr></thead>
         <tbody>
           {trace.places.map((p, i) => (
             <tr key={i}>
               <td style={{ ...td, textAlign: 'right' }}>{placeName(p, tr)}{p.approximate ? ` (${tr('تقريبي')})` : ''}</td>
-              <td style={td}>{fmtQ(p.raw.SELLABLE)}</td><td style={td}>{fmtQ(p.held.SELLABLE)}</td>
-              <td style={td}>{fmtQ(p.loaded)}</td><td style={td}>{fmtQ(p.unloaded)}</td><td style={td}>{fmtQ(p.sold)}</td><td style={td}>{fmtQ(p.returned)}</td>
+              {TRACE_PLACE_COLUMNS.map((c) => <td key={c.label} style={c.strong ? { ...td, fontWeight: 700 } : td}>{placeQtyText(c, p)}</td>)}
             </tr>
           ))}
         </tbody>
@@ -1163,7 +1197,7 @@ const LotTraceDoc = forwardRef<HTMLDivElement, { trace: LotTraceDto; company: Co
                   <td style={{ ...td, textAlign: 'right' }}>{c.name}{c.city ? ` · ${c.city}` : ''}</td>
                   <td style={td} dir="ltr">{c.phone ?? ''}</td>
                   <td style={td}>{inv.number}{inv.broad ? ` (${tr('النطاق الموسع')})` : ''}</td>
-                  <td style={td}>{dayText(inv.date)}</td>
+                  <td style={td}>{formatDate(inv.date)}</td>
                   <td style={td}>{fmtQ(inv.sold)}</td><td style={td}>{fmtQ(inv.returned)}</td><td style={{ ...td, fontWeight: 700 }}>{fmtQ(inv.net)}</td>
                   <td style={td}>{tr(LOT_CERTAINTY_LABELS[inv.weakest] ?? inv.weakest)}</td>
                 </tr>

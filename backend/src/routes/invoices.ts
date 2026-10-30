@@ -53,11 +53,11 @@ import { CancelRefused, lockInvoiceForCancel } from '../services/docCancel';
 // «تتبّع اللوط»: توزيع البنود على التشغيلات داخل معاملة الإصدار، وحارسا إلغاء المرتجع وإطفاء عودته — للصنف المتتبَّع في شركةٍ
 // فعّلت الميزة وحده؛ وغيره مساره حرفياً كما كان (services/lotsInvoice.ts)
 import { randomUUID } from 'node:crypto';
-import { LotError, invoiceItemLotColumns, lotErr, lotHttpError, type InvoiceLotPlan, type ItemExpiryStamp, type LotActor, type LotWarning } from '../services/lots';
+import { LotError, invoiceItemLotColumns, lotErr, lotHttpError, type ItemExpiryStamp, type LotActor, type LotWarning } from '../services/lots';
 import { acquireLotQueue, companyDay } from '../services/lotsDb';
 import {
-  LOT_ALLOW_UNKNOWN, LOT_TX_OPTIONS, allocateInvoiceLotsInTx, assertRestockOffKeepsLots, assertReturnCancelKeepsLots, freeReturnStamps,
-  invoiceLotLines, invoiceLotMoment, recordReplayHeld, saleItemLots,
+  LOT_ALLOW_UNKNOWN, LOT_TX_OPTIONS, allocateInvoiceLotsInTx, assertRestockOffKeepsLots, assertReturnCancelKeepsLots, assertReturnStillUntracked,
+  freeReturnStamps, invoiceLotLines, invoiceLotMoment, recordReplayHeld, saleItemLots, type IssuanceLotPlan,
 } from '../services/lotsInvoice';
 
 const router = Router();
@@ -149,7 +149,12 @@ const invoiceItemSchema = z.object({
 
 /** «تتبّع اللوط»: صفوف التوزيع وتشغيلتها في بنود الردّ (withLots=1، D11؛ وردّ إصدار المستند المتتبَّع) */
 const ITEM_LOTS_INCLUDE = { lots: { include: { lot: { select: { lotNumber: true, expiryDate: true } } } } } as const;
-const wantsLots = (req: AuthRequest) => req.query.withLots === '1' || req.query.withLots === 'true';
+/**
+ * withLots=1 والميزة مفعّلة للشركة (D8: الإطفاء يُخفي ولا يحذف — فلا تُكشف صفوف حقبةٍ سابقة، كـwithLotsOf في vanStock.ts وقراءة
+ * المرتجعات في reports.ts). العَلَم يُقرأ حين يُطلب المعامل وحده: بدونه لا استعلام زائد والردّ كما كان (§١٠.١)
+ */
+const wantsLots = async (req: AuthRequest, tid: string): Promise<boolean> => (req.query.withLots === '1' || req.query.withLots === 'true')
+  && (await prisma.tenant.findUnique({ where: { id: tid }, select: { lotTrackingEnabled: true } }))?.lotTrackingEnabled === true;
 /** LotError دائماً، والانشغال (55P03/40P01/P2028) في مسار لوطٍ وحده — فلا يُوسَم خطأ مسارٍ آخر LOT_BUSY (§٣.٣) */
 const lotReply = (err: unknown, lotPath: boolean) => (err instanceof LotError || lotPath ? lotHttpError(err) : null);
 
@@ -478,7 +483,7 @@ router.get('/by-client-ref/:clientRef', async (req: AuthRequest, res: Response, 
     const invoice = await prisma.invoice.findFirst({
       where: { tenantId: tid, clientRef, ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) },
       // «تتبّع اللوط»: صفوف التوزيع بمعامل withLots=1 وحده (D11) — الغائب يُبقي الردّ كما هو
-      include: { items: (wantsLots(req) ? { include: ITEM_LOTS_INCLUDE } : true) as true, customer: true },
+      include: { items: ((await wantsLots(req, tid)) ? { include: ITEM_LOTS_INCLUDE } : true) as true, customer: true },
     });
     if (!invoice) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
     // النطاق يسبق الردّ (كإعادة الرفع): لا يُكشف عميلٌ خارج النطاق لمن يعرف مرجع فاتورته
@@ -582,7 +587,7 @@ router.get('/:id/returnable', async (req: AuthRequest, res: Response, next: Next
     const left = returnableOf(sale.items, returned);
     const today = localDateIn(new Date(), tz);
     // «تتبّع اللوط»: تشغيلات كل بند (المباع والمُرجَع والمتاح لكل صفّ) بمعامل withLots=1 وحده (§٤.١٨)
-    const lotsByItem = wantsLots(req) ? await saleItemLots(prisma, tid, sale.items.map((i) => i.id)) : null;
+    const lotsByItem = (await wantsLots(req, tid)) ? await saleItemLots(prisma, tid, sale.items.map((i) => i.id)) : null;
     const lines = await Promise.all(sale.items.filter((it) => it.productId && it.product).map(async (it) => {
       // بيعٌ قبل الميزة بلا لقطة: بأساس الصنف الحالي (البيع أو الشراء أو تحميل السيارة)
       const expiresAt = it.expiresAt ?? await saleExpiryFor(tid, tz, it.product!, {
@@ -632,7 +637,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
         salesRep: { select: { id: true, name: true, phone: true } },
         installments: { orderBy: { seq: 'asc' } },
         // «تتبّع اللوط»: صفوف التوزيع وتشغيلتها بمعامل withLots=1 وحده (D11)
-        items: { include: { product: { select: { id: true, name: true, code: true, unit: true, units: { select: { id: true, isActive: true } } } }, ...(wantsLots(req) && ITEM_LOTS_INCLUDE) } },
+        items: { include: { product: { select: { id: true, name: true, code: true, unit: true, units: { select: { id: true, isActive: true } } } }, ...((await wantsLots(req, tid)) && ITEM_LOTS_INCLUDE) } },
         receiptItems: { include: { receipt: true } },
         signature: { select: { image: true, repImage: true, createdAt: true } },
       },
@@ -659,7 +664,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   // «تتبّع اللوط»: خطة المستند المتتبَّع (لإشعار الحجز في catch) وتحرير الطابور في finally — null لغير المتتبَّع
-  let lotPlan: InvoiceLotPlan | null = null;
+  let lotPlan: IssuanceLotPlan | null = null;
   let releaseLots: (() => void) | null = null;
   try {
     const tid = tenantId(req);
@@ -671,7 +676,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       const existing = await prisma.invoice.findUnique({
         where: { tenantId_clientRef: { tenantId: tid, clientRef: body.clientRef } },
         // «تتبّع اللوط»: صفوف التوزيع بمعامل withLots=1 وحده (D11)
-        include: { items: (wantsLots(req) ? { include: ITEM_LOTS_INCLUDE } : true) as true, customer: true },
+        include: { items: ((await wantsLots(req, tid)) ? { include: ITEM_LOTS_INCLUDE } : true) as true, customer: true },
       });
       if (existing) {
         // النطاق يسبق الـidempotency: وإلا كُشف عميل خارج النطاق (برصيده وحدّه الائتماني)
@@ -767,6 +772,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // «تتبّع اللوط»: الأصناف المتتبَّعة في القراءة المسبقة (مفاتيح الطابور) — والمرجع النهائي ما يُقرأ تحت القفل (D25)
     const preTracked = new Set(lotsOn ? products.filter((p) => p.lotTracked === true).map((p) => p.id) : []);
     const tracksLots = preTracked.size > 0;
+    // ما تخطّاه فحص «البيع بدون مخزون» أدناه لأنه متتبَّع — تحمله الخطة فلا يُصدر بلا أي فحص إن أُطفئ تتبّعه قبل القفل (D25)
+    const stockCheckSkipped: string[] = [];
 
     /* لقطة وحدة كلّ بند: الخادم يحلّها من وحدات الصنف لا من رقمٍ يرسله العميل (resolveLineUnit).
      * `unitId` غائبٌ ⇒ وحدة الأساس بمعامل ١ — سلوك ما قبل الميزة. ومعرّفٌ لا يخصّ الصنف أو لوحدةٍ موقوفة ⇒ 400 UNIT_INVALID.
@@ -859,7 +866,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         body.items.forEach((it, idx) => wantById.set(it.productId, (wantById.get(it.productId) || 0) + toBase(it.qty, snapOf(idx))));
         for (const [pid, want] of wantById) {
           // الصنف المتتبَّع: المنع دائمٌ لكل فاعل داخل المعاملة بصالح التشغيلات (R3) — لا بمتبقّي السيارة ولا بهذا الإذن
-          if (preTracked.has(pid)) continue;
+          if (preTracked.has(pid)) { stockCheckSkipped.push(pid); continue; }
           const rem = remById.get(pid) ?? 0;
           if (want > rem + 1e-9) {
             const p = products.find(x => x.id === pid);
@@ -991,6 +998,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           saleItemId: it.invoiceItemId ?? null, lots: it.lots,
         }))),
         fallbackStamps: lotStamps,
+        ...(stockCheckSkipped.length > 0 && { stockCheckSkipped }),
       };
     }
 
@@ -1350,7 +1358,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         const existing = await prisma.invoice.findUnique({
           where: { tenantId_clientRef: { tenantId: tid2, clientRef: req.body.clientRef } },
           // «تتبّع اللوط»: صفوف التوزيع بمعامل withLots=1 وحده (D11)
-          include: { items: (wantsLots(req) ? { include: ITEM_LOTS_INCLUDE } : true) as true, customer: true },
+          include: { items: ((await wantsLots(req, tid2)) ? { include: ITEM_LOTS_INCLUDE } : true) as true, customer: true },
         });
         // نفس حارس النطاق في المسار المبكر: السباق لا يفتح باباً مغلقاً
         if (existing && ((existing.customerId && !(await canAccessCustomer(req, tid2, existing.customerId)))
@@ -1424,13 +1432,15 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
       res.status(400).json({ success: false, message: 'لا يمكن إلغاء فاتورة مرتبطة بسند قبض' }); return;
     }
 
-    // «تتبّع اللوط» (§٤.١٢): إلغاء البيع زيادةٌ خالصة بلا تغيير (D1). إلغاء مرتجعٍ والميزة مفعّلة يُنقص السيارة: الطابور على أصنافه
-    // المتتبَّعة والمهلة الموسّعة (D13)، والحارس تحت قفل الفاتورة — يقرأ التتبّع تحت قفل الأصناف (D25)، فصنفٌ صار متتبَّعاً بين
-    // القراءتين يُفحص أيضاً
+    // «تتبّع اللوط» (§٤.١٢): إلغاء البيع زيادةٌ خالصة بلا تغيير (D1). إلغاء مرتجعٍ والميزة مفعّلة يُنقص السيارة: لأصنافه المتتبَّعة
+    // الطابور والمهلة الموسّعة (D13) والحارس تحت قفل الفاتورة (يعيد قراءة التتبّع تحت قفل الأصناف، D25). ومرتجعٌ أصنافه كلها غير
+    // متتبَّعة مساره كما كان (§١٠.٢) إلا إعادة قراءة تتبّعها FOR KEY SHARE: صنفٌ صار متتبَّعاً بين القراءتين ⇒ 503 TRACKING_CHANGED
     const lotReturnCancel = invoice.type === 'RETURN' && invoice.tenant?.lotTrackingEnabled === true;
+    let lotPids: string[] = [];
     if (lotReturnCancel) {
-      const tracked = await prisma.invoiceItem.findMany({ where: { invoiceId: invoice.id, product: { lotTracked: true } }, select: { productId: true } });
-      lotCancel = [...new Set(tracked.map((r) => r.productId).filter((p): p is string => !!p))];
+      const its = await prisma.invoiceItem.findMany({ where: { invoiceId: invoice.id }, select: { productId: true, product: { select: { lotTracked: true } } } });
+      lotPids = [...new Set(its.map((r) => r.productId).filter((p): p is string => !!p))];
+      lotCancel = [...new Set(its.filter((r) => r.product?.lotTracked === true).map((r) => r.productId).filter((p): p is string => !!p))];
       if (lotCancel.length) releaseLots = await acquireLotQueue(tid, lotCancel);
     }
 
@@ -1438,7 +1448,8 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
       // الفحوص أعلاه على قراءةٍ سابقة للمعاملة: القفل وإعادتها تحته أولاً، وإلا عكس طلبان متقاربان القيد مرّتين
       await lockInvoiceForCancel(tx, tid, invoice.id);
       // «تتبّع اللوط»: لا يُلغى مرتجعٌ بيعت بضاعته — صالح كل تشغيلة بعد الإزالة ≥ 0 (I1)، وغير المسمّى ≥ min(0, قبله) (I2)
-      if (lotReturnCancel) await assertReturnCancelKeepsLots(tx, tid, invoice.id);
+      if (lotCancel.length) await assertReturnCancelKeepsLots(tx, tid, invoice.id);
+      else if (lotPids.length) await assertReturnStillUntracked(tx, tid, lotPids);
       const inv = await tx.invoice.update({ where: { id: invoice.id }, data: { status: 'CANCELLED' } });
       // نسخةٌ واحدة من فرع العكس يتشاركها الإلغاء اليدويّ وإبطالُ المرحلة الثانية (Z5.4) — والوضع 'CANCEL' هو
       // السلوك القديم حرفاً بحرف (مرتجع ⇒ عكس المرتجع، نقدية ⇒ عكس شقّيها، وإلا عكس الآجلة)
@@ -1838,9 +1849,11 @@ router.patch('/:id/restock', requireAdmin, async (req: AuthRequest, res: Respons
     if (invoice.type !== 'RETURN') { res.status(400).json({ success: false, message: 'هذا الإجراء للمرتجعات فقط' }); return; }
     // «تتبّع اللوط»: إطفاء العودة يُخرج البضاعة من المتاح للبيع في السيارة — لمرتجعٍ فيه صنفٌ متتبَّع (بصفوف أو بلا صفوف) يُقفل
     // صفّه ثم تُعاد قراءة حالته وعودته تحت القفل، ولا يُطفأ ما بيعت بضاعته (I1/I2). التشغيل إلى true زيادةٌ خالصة: السلوك القائم
+    let lotPids: string[] = [];
     if (returnToStock === false && invoice.tenant?.lotTrackingEnabled === true) {
-      const tracked = await prisma.invoiceItem.findMany({ where: { invoiceId: invoice.id, product: { lotTracked: true } }, select: { productId: true } });
-      lotOff = [...new Set(tracked.map((r) => r.productId).filter((p): p is string => !!p))];
+      const its = await prisma.invoiceItem.findMany({ where: { invoiceId: invoice.id }, select: { productId: true, product: { select: { lotTracked: true } } } });
+      lotPids = [...new Set(its.map((r) => r.productId).filter((p): p is string => !!p))];
+      lotOff = [...new Set(its.filter((r) => r.product?.lotTracked === true).map((r) => r.productId).filter((p): p is string => !!p))];
     }
     if (lotOff.length) {
       releaseLots = await acquireLotQueue(tid, lotOff);
@@ -1852,6 +1865,18 @@ router.patch('/:id/restock', requireAdmin, async (req: AuthRequest, res: Respons
       releaseLots();
       releaseLots = null;
       res.json({ success: true, data: off });
+      return;
+    }
+    // أصنافه كلها غير متتبَّعة في القراءة المسبقة: مساره كما كان (§١٠.٢، بلا طابور ولا قفل لوط ولا مهلة جديدة) إلا إعادة قراءة
+    // تتبّعها FOR KEY SHARE في معاملة الكتابة كما في الإلغاء (D25) — صنفٌ صار متتبَّعاً بين القراءتين ⇒ 503 TRACKING_CHANGED فيُعاد
+    // بالحارس. الكتابة أولاً عمداً: قفل صفّ الفاتورة يسبق قفل الأصناف (ترتيب §٣.١ في lotsDb.ts)، والرمي يلغيها مع المعاملة
+    if (lotPids.length) {
+      const kept = await prisma.$transaction(async tx => {
+        const row = await tx.invoice.update({ where: { id: invoice.id }, data: { returnToStock } });
+        await assertReturnStillUntracked(tx, tid, lotPids);
+        return row;
+      });
+      res.json({ success: true, data: kept });
       return;
     }
     const updated = await prisma.invoice.update({ where: { id: req.params.id }, data: { returnToStock } });

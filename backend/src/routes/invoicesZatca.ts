@@ -41,7 +41,10 @@ import type { KeyedAsyncMutex } from '../compliance/zatca/unitMutex';
 import { cutoverDecision, type CutoverReason, type CutoverRecordInput, type CutoverStatus } from '../compliance/zatca/goLive';
 import { unitFields } from '../services/units';
 // «تتبّع اللوط» (§٤.٩): أنواع الخطة والتوزيع ودمج صفوفه في البند — services/lots.ts نقيّة (لا قاعدة ولا Prisma)
-import { invoiceItemLotColumns, type InvoiceLotAllocation, type InvoiceLotPlan, type LotError, type LotWarning } from '../services/lots';
+import {
+  asLockBusy, invoiceItemLotColumns,
+  type InvoiceLotAllocation, type InvoiceLotPlan, type ItemExpiryStamp, type LotError, type LotWarning,
+} from '../services/lots';
 import { randomUUID } from 'node:crypto';
 // نوعٌ فقط (يُمحى وقت التشغيل): لقطة الوحدة التي يحلّها resolveLineUnit — الحلّ الوحيد للوحدة في المنصّة
 import type { LineUnit } from './invoices';
@@ -444,6 +447,11 @@ export interface Phase2LotHooks {
   precheck(plan: InvoiceLotPlan): Promise<LotError | null>;
   /** داخل معاملة الإصدار قبل إدراج الصفّ: قفل الأصناف (D25) ثم أقفال اللوط ثم التوزيع — الرفض يُلغي المعاملة كلها */
   allocateInTx(tx: Phase2Tx, plan: InvoiceLotPlan): Promise<InvoiceLotAllocation>;
+  /**
+   * اللقطة القائمة لبنود البيع (D12، الإنتاج linkedReturnExpiry) بلحظة `at`: بند البيع ⇒ ختم بند المرتجع. تُحسب قبل معاملة
+   * الإشعار الدائن فتُكتب داخلها لبندٍ ورث صفوف «غير معروف» وحدها. غيابها ⇒ يبقى ذاك البند للختم اللاحق.
+   */
+  linkedStamps?(tenantId: string, saleItemIds: readonly string[], at: Date): Promise<ReadonlyMap<string, ItemExpiryStamp>>;
 }
 
 /** صفوف التوزيع مع رقم التشغيلة وانتهائها في ردّ الإصدار (كالمرحلة الأولى) — للمستند المتتبَّع وحده */
@@ -452,6 +460,34 @@ export const ITEM_LOTS_INCLUDE = { lots: { include: { lot: { select: { lotNumber
 /** تحذيرات التوزيع (لا تمنع) بجوار data كما في المرحلة الأولى — غيابها لا يغيّر الردّ حرفاً */
 export function withLotWarnings(r: Phase2Result, warnings: readonly LotWarning[]): Phase2Result {
   return warnings.length ? { ...r, body: { ...r.body, warnings: [...warnings] } } : r;
+}
+
+/**
+ * الفحص المسبق (ن٢-٣) لفرعي المرحلة الثانية. رفضُه لطلبٍ سبقه توأمه بالـclientRef لا يُردّ: الفحص بلا قفل يرى رصيد
+ * التشغيلة مصروفاً بتوأمٍ التزم بعد الفحص المبكر في المسار، فيردّ 409 كاذباً (أو LOT_REPLAY_HELD بإشعار حجزٍ لفاتورةٍ صدرت)
+ * ويُعدمه الصندوق. السؤال عن التوأم **بعد** الرفض وحده: لا استعلام في المسار السعيد، ولا نافذة — ما صرفه التوأم التزم مع
+ * صفّه. وجوده ⇒ null فيمضي الإصدار، فيرمي التوزيع داخل المعاملة ClientRefRace (فرع P2002 يعيد القائم 200) وتُلغى فلا ICV.
+ */
+export async function lotPrecheck(hooks: Phase2LotHooks, db: Pick<PrismaClient, 'invoice'>, plan: InvoiceLotPlan): Promise<LotError | null> {
+  const pre = await hooks.precheck(plan);
+  if (!pre || !plan.clientRef) return pre;
+  const twin = await db.invoice.findUnique({
+    where: { tenantId_clientRef: { tenantId: plan.tenantId, clientRef: plan.clientRef } }, select: { id: true },
+  });
+  return twin ? null : pre;
+}
+
+/**
+ * التوزيع داخل المعاملة لفرعي المرحلة الثانية: انتظار قفل اللوط (55P03 بعد lock_timeout، أو 40P01) ⇒ LotError('LOT_BUSY', 503)
+ * (D14) في كل مستدعٍ — مسار POST /:id/credit-note لا يحوّل إلا LotError، فكان الانتظار الخام 500. وما عداه كما هو: رفض التوزيع
+ * برمزه، وClientRefRace لفرع P2002، ومهلة المعاملة P2028 لـissuanceHttpError (ZATCA_UNIT_BUSY 503).
+ */
+export async function allocateLotsInTx(hooks: Phase2LotHooks, tx: Phase2Tx, plan: InvoiceLotPlan): Promise<InvoiceLotAllocation> {
+  try {
+    return await hooks.allocateInTx(tx, plan);
+  } catch (e) {
+    throw asLockBusy(e) ?? e;
+  }
 }
 
 export interface Phase2IssuanceDeps extends Phase2ReadDeps {
@@ -696,8 +732,8 @@ async function issueNow(
   });
 
   // «تتبّع اللوط» (§٤.٩، ن٢-٣): فحصٌ رخيص بلا قفل قبل التوقيع — والقرار الحاكم داخل المعاملة (createInvoice). LotError يُرمى
-  // فيعيده issuanceHttpError إلى المسار القديم (lotReply برمزه)
-  const pre = ctx.lots && deps.lots ? await deps.lots.precheck(ctx.lots) : null;
+  // فيعيده issuanceHttpError إلى المسار القديم (lotReply برمزه)؛ ورفضٌ لطلبٍ صدر توأمه لا يُرمى (lotPrecheck)
+  const pre = ctx.lots && deps.lots ? await lotPrecheck(deps.lots, deps.db, ctx.lots) : null;
   if (pre) throw pre;
 
   // المفتاح والشهادة لهذا الطلب وحده (بلا تخزين مؤقت)
@@ -722,7 +758,7 @@ async function issueNow(
             await lockProductBases(t, ctx.tenantId, expectedBases);
             // «تتبّع اللوط» (§٤.٩ البند ٤): القفل والتوزيع قبل إدراج الصفّ وبعد الختم (رفضه يُلغي المعاملة فلا مستند ولا ICV)،
             // بمعرّفٍ مولَّدٍ مسبقاً تحمله صفوف التوزيع المتداخلة. إعادة المعاملة (تصادم ترقيم) توزّع من جديد
-            const alloc = ctx.lots && deps.lots ? await deps.lots.allocateInTx(t, ctx.lots) : null;
+            const alloc = ctx.lots && deps.lots ? await allocateLotsInTx(deps.lots, t, ctx.lots) : null;
             const lotInvoiceId = alloc ? randomUUID() : null;
             const lotVan = ctx.lots?.vanKey ?? null;
             lotWarnings = alloc?.warnings ? [...alloc.warnings] : [];

@@ -49,8 +49,19 @@ import BuyerDataFields from '../components/BuyerDataFields';
 import { BUYER_BILLING_FIELDS, BuyerField } from '../lib/zatca/buyerData';
 import { BuyerFormValues, buyerBadge, buyerCreatePayload, buyerFormCheck, buyerFormValues, buyerUpdatePayload } from '../lib/zatca/buyerForm';
 import { RepBuyerBanner, RepBuyerDataForm, fetchIncompleteBuyers } from './RepBuyerData';
-import { Component, lazy, Suspense, useRef, type ReactNode } from 'react';
+import { Component, createContext, lazy, Suspense, useContext, useMemo, useRef, type ReactNode } from 'react';
 import { Sparkles, MapPinOff, Wrench } from 'lucide-react';
+import { cacheUpdate, outboxAll } from './offlineDb';
+import { onInvoicesSynced } from './offlineSync';
+import {
+  VANLOTS_BLOCK_REFETCH_GAP_MS, VANLOTS_KEY, VANLOTS_POSTED_KEY, capLineQty, cartBaseOf, fitLineQty, hintDocLots, localAvailable,
+  localLotView, matchServerItemLots, offlineLotPlan, pendingOut, postedItemsFromServer, postedListOf, prunePosted, snapProductOf,
+  storedVanLotsOf, trackedIds, underLotReplayHeld, vanLotsEntry, withPosted, zeroQtyLine,
+  type OfflineLotBlock, type PendingOut, type PlanLine, type PostedItem, type StoredVanLots,
+} from './vanLots';
+import { LOT_BLOCK_KIND_LABELS, LOT_EPS, docLotsFrom, isLotExpiredOn, lotFlagsOf, roundLot, toBaseQty } from '../lib/lots';
+import { lotCellText, lotDayText } from './docLots';
+import { todayLocal } from '../lib/shelfLife';
 import { useLocationGate, strictLiveFix } from './locationGate';
 import { attemptClientRef, customerScopeOpen, deviceKind, liveSnapshot, onLiveRefused, requestLocationInGesture, resetLive, strictRepNow, LIVE_REFUSAL_MESSAGE, type LiveBlock } from './liveGate';
 import { clearAiSession, markConverted, type AiAddPrefill } from './aiRepSession';
@@ -1649,9 +1660,44 @@ function LogVisit({ customer, strict = false, onClose, onDone }: { customer: any
   );
 }
 
+// ============ «تتبّع اللوط»: لقطة أرصدة السيارة والمتاح المحلي (§٦.٣، §٧ — المنطق الصرف في vanLots.ts) ============
+/** ما يمرّره التطبيق إلى البيع و«مخزون سيارتي»: on علم الشركة من /company المخزّنة (النسخة القديمة بلا العلم إطفاء)، وstored آخر
+ *  لقطة لصاحب الجلسة، وrefresh جلبٌ في الخلفية يعيد اللقطة الأحدث (minGapMs للمنع المحلي: لا طلب لكل نقرة) */
+interface RepLotCtx { on: boolean; stored: StoredVanLots | null; refresh: (minGapMs?: number) => Promise<StoredVanLots | null> }
+/** من RepApp إلى البيع و«مخزون سيارتي» — سياقٌ لا خاصية، فتبقى نداءات الشاشات كما هي */
+const RepLotsContext = createContext<RepLotCtx | null>(null);
+const NO_LOT_PENDING: PendingOut = new Map();
+
+/** المعلّق على لقطةٍ بعينها: فواتير الصفّ وما صدر متصلاً بعد بدء جلبها — قراءةٌ واحدة لكلٍّ من IndexedDB */
+async function loadVanLotPending(stored: StoredVanLots): Promise<PendingOut> {
+  const [docs, posted] = await Promise.all([outboxAll(), cacheGet<unknown>(VANLOTS_POSTED_KEY)]);
+  return pendingOut(docs, postedListOf(posted?.data), stored.fetchedAt, currentRepId());
+}
+
+/** المعلّق حيّاً: يُعاد مع كل لقطة وكل تغيّرٍ في الصفّ. بلا لقطة (والميزة مطفأة دائماً) لا قراءة أصلاً */
+function useVanLotPending(stored: StoredVanLots | null): PendingOut {
+  const [pending, setPending] = useState<PendingOut>(NO_LOT_PENDING);
+  useEffect(() => {
+    if (!stored) { setPending(NO_LOT_PENDING); return; }
+    let alive = true;
+    const load = () => { loadVanLotPending(stored).then((p) => { if (alive) setPending(p); }).catch(() => { /* IndexedDB محجوب: يبقى ما قبله */ }); };
+    load();
+    const off = onOutboxChange(load);
+    return () => { alive = false; off(); };
+  }, [stored]);
+  return pending;
+}
+
+/** كمية أساسية للعرض: «٢ كرتون و٣ حبة» لصنفٍ له وحدات، وإلا الرقم بأربع خانات ووحدته */
+function lotQtyText(p: { unit?: string | null; units?: UnitDef[] | null } | null | undefined, base: number): string {
+  const num = (n: number) => roundLot(n).toLocaleString(activeLocale(), { maximumFractionDigits: 4 });
+  return unitsText(base, p, num) ?? `${num(base)}${p?.unit ? ` ${p.unit}` : ''}`;
+}
+
 // ============ إنشاء فاتورة (بيع أو إرجاع) ============
 function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClose, onDone }: { customer: any; repName: string; company: Company | null; mode?: 'sale' | 'return'; perms: RepUser; onClose: () => void; onDone: (doc: InvoiceDoc) => void }) {
   const tr = useTr();
+  const lots = useContext(RepLotsContext); // «تتبّع اللوط» (§٦.٣)
   const isReturn = mode === 'return';
   const canSellOnCredit = perms.canSellOnCredit !== false;
   const canSellInCash = perms.canSellInCash !== false;
@@ -1702,6 +1748,86 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   /* ZATCA المرحلة الثانية (426): حزمةٌ بقيت مفتوحة من قبل النشر لا تفهم المستند المختوم فيردّها الخادم. رسالته تقول
    * «أغلق التطبيق وافتحه»، وهي في جوّال المندوب زرٌّ واحد: إلغاء تسجيل عامل الخدمة (هو من يقدّم الحزمة القديمة) ثم تحميل. */
   const [needsUpdate, setNeedsUpdate] = useState(false);
+
+  /* ─── «تتبّع اللوط» (§٦.٣، §٧) — بلا أي نقرةٍ على المندوب: الخادم يوزّع FEFO، والتطبيق يمنع محلياً تجاوز المتاح في سيارته
+   * للصنف المتتبَّع (المتاح = اللقطة − المعلّق)، ودون اتصال يرسل تلميح التوزيع مع الفاتورة (D16). والميزة مطفأة لا يمرّ شيءٌ هنا:
+   * لا قراءة ولا طلب ولا سطر في الشاشة ─── */
+  const lotOn = lots?.on === true;              // تشغيلات البنود على ورقة الإصدار من ردّ الخادم — بيعاً ومرتجعاً
+  const lotCapsOn = lotOn && !isReturn;          // المتاح المحلي ومنع تجاوزه والتلميح: للبيع وحده (المرتجع يزيد السيارة)
+  const lotStored = lotCapsOn ? lots?.stored ?? null : null;
+  const lotPending = useVanLotPending(lotStored);
+  const lotToday = todayLocal();
+  // قائمة اللقطة هي المرجع، وبلا لقطة علم الصنف في الكتالوج — ليُمنع بيعه دون اتصال
+  const lotTrackedNow = useMemo(() => (lotCapsOn ? trackedIds(lotStored?.snap, products) : null), [lotCapsOn, lotStored, products]);
+  const lotTracks = (productId: string, stored: StoredVanLots | null = lotStored): boolean =>
+    lotCapsOn && (stored === lotStored ? !!lotTrackedNow?.has(productId) : trackedIds(stored?.snap, products).has(productId));
+  // متاح كل صنفٍ على اللقطة والمعلّق الحاليين يُحسب مرةً (الشبكة تسأل عنه لكل بطاقة في كل رسم)
+  const lotCapCache = useMemo(() => new Map<string, number>(), [lotStored, lotPending, lotToday]);
+  /** المتاح المحلي للصنف (أساسي) على مجموع أسطره، أو null: غير متتبَّع، أو بلا لقطة (متصلاً يحكم الخادم، ودون اتصال يُمنع) */
+  const lotCapOf = (productId: string, stored: StoredVanLots | null = lotStored, pend: PendingOut = lotPending): number | null => {
+    if (!stored || !lotTracks(productId, stored)) return null;
+    const cached = stored === lotStored && pend === lotPending;
+    if (cached && lotCapCache.has(productId)) return lotCapCache.get(productId)!;
+    const cap = localAvailable(stored.snap, productId, lotToday, pend);
+    if (cached) lotCapCache.set(productId, cap);
+    return cap;
+  };
+  // السلّة الأحدث للفحص المتزامن: المسح المتتابع قد يقرأ إغلاقاً قديماً بين رسمين (onDetectRef)، فكل إضافةٍ تُسجَّل هنا فوراً
+  const cartRef = useRef<any[]>(lines);
+  cartRef.current = lines;
+  // رسالة المنع على شبكة الأصناف (رسالة النموذج لا تظهر هناك في البيع) — تُكتب في مسارات اللوط وحدها
+  const [lotNote, setLotNote] = useState('');
+  const lotSay = (text: string) => { setMsg(text); setLotNote(text); };
+  const lotOverText = (p: { name?: string; unit?: string | null; units?: UnitDef[] | null } | null | undefined, cap: number) =>
+    tr('الكمية من «{name}» أكبر من المتاح في سيارتك ({n})').replace('{name}', () => String(p?.name ?? '')).replace('{n}', () => lotQtyText(p, cap));
+  const lotZeroText = (p: { name?: string } | null | undefined) =>
+    tr('كمية «{name}» صفر أدخل كمية أو احذف الصنف من السلة').replace('{name}', () => String(p?.name ?? ''));
+  const lotChecking = tr('جار التحقق من رصيد السيارة');
+  /** يمحو «جار التحقق» إن بقي هو الظاهر — ولا يمسّ رسالةً أحدث منه */
+  const lotUnsayChecking = () => { setMsg(m => (m === lotChecking ? '' : m)); setLotNote(n => (n === lotChecking ? '' : n)); };
+  /** المنع المحلي والجهاز متصل: لقطةٌ طازجة مرةً **قبل** الحكم والرسالة (§٧.١) ومعلّقها — أو null دون اتصال أو بلا لقطة. والمهلة
+   *  (VANLOTS_BLOCK_REFETCH_GAP_MS) تمنع طلباً لكل نقرة: داخلها تعود اللقطة الأحدث في الجهاز بلا طلب */
+  const lotFresh = async (): Promise<{ stored: StoredVanLots; pend: PendingOut } | null> => {
+    if (!navigator.onLine || !lots) return null;
+    const fresh = await lots.refresh(VANLOTS_BLOCK_REFETCH_GAP_MS).catch(() => null);
+    if (!fresh) return null;
+    const pend = await loadVanLotPending(fresh).catch(() => null);
+    return pend ? { stored: fresh, pend } : null;
+  };
+  // سطر البيع بصنفه ووحدته — فريدٌ في السلّة (الإضافة تدمج بهما، وتبديل الوحدة يرفض التكرار)، فيبقى مرجعه بعد انتظار اللقطة
+  const lotLineKey = (l: any) => `${l.productId}|${l.unitId ?? ''}`;
+  /* الكمية المكتوبة فوق المتاح والجهاز متصل: تبقى كما كُتبت مؤقتاً (فإن أُصدرت الآن حكم الخادم، ودون اتصال يمنعها الفحص النهائي)،
+   * ويُحكم عليها بعد اللقطة الطازجة — آخر تعديلٍ للسطر هو الذي يُحكم عليه، وprev كميته قبل أول تعديلٍ زائد (لا صفر صامت) */
+  const lotQtySeq = useRef(new Map<string, { seq: number; prev: number }>());
+  const lotRecheckQty = (key: string, prev: number) => {
+    const m = lotQtySeq.current;
+    const cur = m.get(key);
+    const seq = (cur?.seq ?? 0) + 1;
+    m.set(key, { seq, prev: cur ? cur.prev : prev });
+    lotSay(lotChecking);
+    void (async () => {
+      const f = await lotFresh();
+      const st = m.get(key);
+      if (!st || st.seq !== seq) return;
+      m.delete(key);
+      const stored = f?.stored ?? lotStored;
+      const pend = f?.pend ?? lotPending;
+      const rows = cartRef.current;
+      const j = rows.findIndex(l => !l.saleItemId && lotLineKey(l) === key);
+      const cap = j < 0 ? null : lotCapOf(rows[j].productId, stored, pend);
+      if (j < 0 || cap == null) { lotUnsayChecking(); return; }
+      const r = fitLineQty(Number(rows[j].qty) || 0, st.prev, rows[j].unitFactor, cap - cartBaseOf(rows, rows[j].productId, j));
+      if (!r.over) { lotUnsayChecking(); return; }
+      setLines(prevRows => prevRows.map(l => (!l.saleItemId && lotLineKey(l) === key ? { ...l, qty: r.qty } : l)));
+      lotSay(lotOverText(products.find(x => x.id === rows[j].productId) ?? rows[j], cap));
+    })();
+  };
+  /** تعديلٌ وسعه المتاح: حكمٌ ينتظره السطر لم يعد لازماً */
+  const lotQtyDone = (key: string) => { if (lotQtySeq.current.delete(key)) lotUnsayChecking(); };
+  // فتح البيع متصلاً يجلب اللقطة (§٧.١) — في الخلفية، والسلّة تُملأ أثناءه
+  useEffect(() => {
+    if (lotCapsOn && navigator.onLine) void lots?.refresh();
+  }, [lotCapsOn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // جلب قائمة المنتجات كاملة (الاختيار عبر قائمة منسدلة بالتصفية + شبكة للتصفّح)
   useEffect(() => {
@@ -1765,18 +1891,59 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     if (p?.shelfLifeEnabled === true) return tr('هذا الصنف له تاريخ صلاحية اختر فاتورة البيع لإرجاعه');
     return null;
   };
-  const addProduct = (p: any) => {
+  // «+١» بالوحدة الافتراضية — صرفةٌ على السلّة المعطاة (للمحدِّث الدالّي وللسلّة الأحدث معاً)
+  const addLine = (prev: any[], p: any, c0: UnitChoice): any[] => {
+    // الدمج بالصنف **والوحدة**: «+١» على بند حبّاتٍ من نقرة كرتون خطأٌ ٢٤ ضعفاً
+    const idx = prev.findIndex(l => l.productId === p.id && !l.saleItemId && sameUnit(l, { unitId: c0.id }));
+    if (idx >= 0) { const c = [...prev]; c[idx] = { ...c[idx], qty: c[idx].qty + 1 }; return c; }
+    return [...prev, { productId: p.id, name: p.name, ...lineUnitOf(c0, p.unit), image: p.image || null, qty: 1, unitPrice: inclOf(p, c0), refPrice: inclOf(p, c0), discountPct: 0, taxPct: Number(p.taxPct) }];
+  };
+  /** «تتبّع اللوط»: إضافة وحدةٍ (معاملها أساسي) تتجاوز المتاح المحلي على مجموع أسطر الصنف في rows؟ ⇒ المتاح، وإلا null */
+  const lotOverflow = (rows: any[], productId: string, addBase: number, stored: StoredVanLots | null = lotStored, pend: PendingOut = lotPending): number | null => {
+    const cap = lotCapOf(productId, stored, pend);
+    return cap != null && cartBaseOf(rows, productId) + addBase > cap + LOT_EPS ? cap : null;
+  };
+  const commitAdd = (p: any, c0: UnitChoice, stored: StoredVanLots | null = lotStored, pend: PendingOut = lotPending) => {
+    if (lotNote) setLotNote('');
+    cartRef.current = addLine(cartRef.current, p, c0);
+    // تحديث دالّي + نسخ غير مُفسِد — يضمن صحّة المسح السريع المتتابع للباركود. والمتاح يُحكَّم داخله على السلّة الفعلية
+    setLines(prev => (lotOverflow(prev, p.id, c0.factor, stored, pend) != null ? prev : addLine(prev, p, c0)));
+  };
+  /** المنع المحلي بنقرةٍ أو مسح والجهاز متصل: تُجلب اللقطة مرةً قبل الرسالة (§٧.١) ويُعاد الحكم عليها — فإن اتّسعت أُضيف الصنف
+   *  بلا نقرةٍ ولا مسحٍ ثانٍ. يعيد الحكم للماسح (يعرضه حين يصل) */
+  const lotRecheckAdd = async (p: any, c0: UnitChoice, cap: number): Promise<{ ok: boolean; label: string }> => {
+    lotSay(lotChecking);
+    const f = await lotFresh();
+    if (f) {
+      const again = lotOverflow(cartRef.current, p.id, c0.factor, f.stored, f.pend);
+      if (again == null) { lotUnsayChecking(); commitAdd(p, c0, f.stored, f.pend); return { ok: true, label: p.name }; }
+      cap = again;
+    }
+    const text = lotOverText(p, cap);
+    lotSay(text);
+    return { ok: false, label: text };
+  };
+  const addProduct = (p: any, scan = false): { ok: boolean; label: string; later?: Promise<{ ok: boolean; label: string }> } => {
     const blocked = returnBlock(p);
-    if (blocked) { setMsg(blocked); return; }
+    if (blocked) { if (!scan) setMsg(blocked); return { ok: false, label: blocked }; }
     // الوحدة الافتراضية = الأكبر (repUnits): بعد تحويل الصنف إلى الحبّة يبقى النقر المعتاد «+١ كرتون»
     const c0 = defaultChoice(p);
-    // تحديث دالّي + نسخ غير مُفسِد — يضمن صحّة المسح السريع المتتابع للباركود
-    setLines(prev => {
-      // الدمج بالصنف **والوحدة**: «+١» على بند حبّاتٍ من نقرة كرتون خطأٌ ٢٤ ضعفاً
-      const idx = prev.findIndex(l => l.productId === p.id && !l.saleItemId && sameUnit(l, { unitId: c0.id }));
-      if (idx >= 0) { const c = [...prev]; c[idx] = { ...c[idx], qty: c[idx].qty + 1 }; return c; }
-      return [...prev, { productId: p.id, name: p.name, ...lineUnitOf(c0, p.unit), image: p.image || null, qty: 1, unitPrice: inclOf(p, c0), refPrice: inclOf(p, c0), discountPct: 0, taxPct: Number(p.taxPct) }];
-    });
+    // «تتبّع اللوط» (§٦.٣): بلا لقطة دون اتصال لا يُباع المتتبَّع، وتجاوز المتاح المحلي يُمنع برسالةٍ واضحة
+    if (!lotStored && lotTracks(p.id) && !navigator.onLine) {
+      const text = tr('اتصل مرة لتحديث أرصدة السيارة');
+      if (!scan) lotSay(text);
+      return { ok: false, label: text };
+    }
+    const cap = lotOverflow(cartRef.current, p.id, c0.factor);
+    if (cap != null) {
+      // متصلاً: الحكم بعد اللقطة الطازجة (§٧.١) — النقر والماسح سواء؛ ودون اتصال المنع الآن برسالته
+      if (navigator.onLine && lots) return { ok: false, label: lotChecking, later: lotRecheckAdd(p, c0, cap) };
+      const text = lotOverText(p, cap);
+      lotSay(text);
+      return { ok: false, label: text };
+    }
+    commitAdd(p, c0);
+    return { ok: true, label: p.name };
   };
 
   // خانات عملة الشركة لمبلغ استرداد المرتجع المرتبط — كما يقيسه الخادم (refundInCurrency)
@@ -1784,24 +1951,53 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
 
   /* تبديل وحدة بند: السعر والأرضية يُعادان معاً بالوحدة الجديدة (سعر الحبّة على بند كرتون أرضيةٌ كاذبة)، والكمية
    * تبقى رقمها. وبند فاتورة بيع: وحدته من وحدات بيعه وحدها، ومتاحه وسعر استرداده يُعاد التعبير عنهما بها */
-  const setLineUnit = (i: number, unitId: string | null) => {
-    const l = lines[i];
+  const setLineUnit = (i: number, unitId: string | null, lotFreshSnap?: { stored: StoredVanLots | null; pend: PendingOut }) => {
+    // lotFreshSnap: إعادة الحكم بعد لقطةٍ طازجة (lotRecheckUnit) — على السلّة الأحدث. وبدونه السلوك كما كان حرفاً
+    const rows = lotFreshSnap ? cartRef.current : lines;
+    const l = rows[i];
     if (!l) return;
     if (l.saleItemId && l.link) {
       const link = withReturnUnit(l.link as LinkedReturnLine, unitId);
-      const c = [...lines];
+      const c = [...rows];
       c[i] = { ...l, ...linkedLineUnit(link), qty: link.qty, maxQty: link.returnable, unitPrice: linkedUnitPrice(link, retDec()), refPrice: linkedUnitPrice(link, retDec()), link };
       setLines(c); return;
     }
     const p = products.find(x => x.id === l.productId);
     const ch = p ? choiceById(p, unitId) : null;
     if (!p || !ch) return;
-    if (lines.some((x, j) => j !== i && x.productId === l.productId && !x.saleItemId && sameUnit(x, { unitId: ch.id }))) {
+    if (rows.some((x, j) => j !== i && x.productId === l.productId && !x.saleItemId && sameUnit(x, { unitId: ch.id }))) {
       setMsg(tr('الصنف بهذه الوحدة موجود في السلة')); return;
     }
-    const c = [...lines];
+    const c = [...rows];
     c[i] = { ...l, ...lineUnitOf(ch, p.unit), unitPrice: inclOf(p, ch), refPrice: inclOf(p, ch) };
+    /* «تتبّع اللوط»: الكمية نفسها بوحدةٍ أكبر قد تتجاوز المتاح في السيارة — متصلاً لا تُبدَّل قبل لقطةٍ طازجة (§٧.١)، ثم تُقصّ إليه؛
+     * وما لا متّسع له بالوحدة الجديدة أصلاً (ولا كرتوناً واحداً) لا تُبدَّل وحدته — لا يُصفَّر صامتاً فيرفض الخادم الفاتورة كلها */
+    const cap = lotFreshSnap ? lotCapOf(l.productId, lotFreshSnap.stored, lotFreshSnap.pend) : lotCapOf(l.productId);
+    if (cap != null) {
+      const want = Number(c[i].qty) || 0;
+      const fit = capLineQty(want, c[i].unitFactor, cap - cartBaseOf(c, l.productId, i));
+      if (fit < want - LOT_EPS) {
+        if (!lotFreshSnap && navigator.onLine && lots) { void lotRecheckUnit(l, unitId); return; }
+        if (fit <= LOT_EPS) { lotSay(lotOverText(p, cap)); return; }
+        c[i].qty = fit;
+        lotSay(lotOverText(p, cap));
+      }
+    }
+    if (lotFreshSnap) {
+      const key = lotLineKey(l);
+      setLines(prev => prev.map(x => (!x.saleItemId && lotLineKey(x) === key ? c[i] : x)));
+      return;
+    }
     setLines(c);
+  };
+  /** تبديل وحدةٍ يتجاوز المتاح والجهاز متصل: يُحكم عليه بعد اللقطة الطازجة على السطر نفسه (بصنفه ووحدته) — بلا نقرةٍ ثانية */
+  const lotRecheckUnit = async (l: any, unitId: string | null) => {
+    const key = lotLineKey(l);
+    lotSay(lotChecking);
+    const f = await lotFresh();
+    const i = cartRef.current.findIndex(x => !x.saleItemId && lotLineKey(x) === key);
+    lotUnsayChecking(); // ثم رسالة الحكم إن بقي منعٌ (تُكتب بعده)
+    if (i >= 0) setLineUnit(i, unitId, f ?? { stored: lotStored, pend: lotPending });
   };
 
   // مسح باركود مستمرّ → إيجاد الصنف بحقل barcode وإضافته؛ يُعيد نتيجة للعرض داخل الماسح (يبقى مفتوحاً)
@@ -1809,8 +2005,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     const p = teamProducts.find((x) => x.barcode && String(x.barcode) === code);
     // صنفٌ مسجَّل لكنه ليس من أصناف الفريق الحالي: يُقال ذلك لا «لا يوجد صنف» (فيظنه المندوب باركوداً غير مسجّل)
     if (!p && products.some((x) => x.barcode && String(x.barcode) === code)) return { ok: false, label: tr('الصنف ليس من أصناف فريقك الحالي بدل الفريق') };
-    if (p && returnBlock(p)) return { ok: false, label: returnBlock(p)! };
-    if (p) { addProduct(p); return { ok: true, label: p.name }; }
+    // قيد المرتجع و«تتبّع اللوط» (المتاح في السيارة) يُقالان داخل الماسح، والإضافة على السلّة الأحدث
+    if (p) return addProduct(p, true);
     return { ok: false, label: `${tr('لا يوجد صنف بهذا الباركود')}: ${code}` };
   };
 
@@ -1828,6 +2024,22 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         const link = { ...(c[i].link as LinkedReturnLine), qty: v };
         c[i] = { ...c[i], qty: v, unitPrice: linkedUnitPrice(link, retDec()), refPrice: linkedUnitPrice(link, retDec()), link };
         setLines(c); return;
+      }
+    }
+    if (f === 'qty' && lotTracks(c[i].productId)) {
+      // «تتبّع اللوط» (§٦.٣): كمية الصنف المتتبَّع بأربع خانات (§٢.٦، وإلا ردّها الخادم LOT_QTY_INVALID)، ومقصوصةٌ إلى المتاح في
+      // السيارة على مجموع أسطره متى عُرف (fitLineQty: بلا متّسعٍ لا صفر صامت). ومتصلاً يُحكم عليها بعد لقطةٍ طازجة (§٧.١)
+      const want = Math.max(0, roundLot(v || 0));
+      const cap = lotCapOf(c[i].productId);
+      v = want;
+      if (cap != null) {
+        const key = lotLineKey(c[i]);
+        // الكمية قبل التعديل — أو قبل أول تعديلٍ زائد ما زال ينتظر حكمه (المؤقّتة ليست «ما كان»)
+        const prev = lotQtySeq.current.get(key)?.prev ?? (Number(c[i].qty) || 0);
+        const fit = fitLineQty(want, prev, c[i].unitFactor, cap - cartBaseOf(c, c[i].productId, i));
+        if (!fit.over) lotQtyDone(key);
+        else if (navigator.onLine && lots) lotRecheckQty(key, prev);
+        else { lotQtyDone(key); v = fit.qty; lotSay(lotOverText(products.find(x => x.id === c[i].productId) ?? c[i], cap)); }
       }
     }
     if (f === 'discountPct') v = Math.max(0, Math.min(v || 0, maxDisc));        // حدّ الخصم المسموح
@@ -1912,9 +2124,55 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   };
   const clearSale = () => { setSaleRef(null); setLines([]); setShowCart(false); };
 
+  /** «تتبّع اللوط» — بيعٌ صدر متصلاً: يُسجَّل معلّقاً على اللقطة بتشغيلاته من ردّ الخادم (حتى تعرفه لقطةٌ أحدث)، ثم تُجلب اللقطة
+   *  في الخلفية (§٧.١). المسجَّل قبل بدء جلب اللقطة يُقلَّم بها */
+  const lotPostedAdd = (ref: string, items: PostedItem[]) => {
+    if (!items.length) return;
+    const fetchedAt = lots?.stored?.fetchedAt ?? null;
+    void cacheUpdate<unknown>(VANLOTS_POSTED_KEY, (cur) => withPosted(postedListOf(cur), { clientRef: ref, at: Date.now(), items }, fetchedAt))
+      .catch(() => undefined)
+      .then(() => lots?.refresh());
+  };
+  /** صدر على الخادم بلا تشغيلاتٍ في الردّ (بانتظار الهيئة، أو إعادة رفعٍ لمرجعٍ قائم): أسطر السلّة المتتبَّعة تُطرح بالقاعدة */
+  const lotPostedLines = (ref: string) => lotPostedAdd(ref, lines.filter(l => lotTracks(l.productId)).map(l => ({
+    productId: l.productId, qty: toBaseQty({ qty: Number(l.qty) || 0, unitFactor: l.unitFactor }), lots: null,
+  })));
+
+  /**
+   * «تتبّع اللوط» دون اتصال (§٦.٣، §٧.٢، D16): فحصٌ نهائي بالمتاح المحلي على مجموع أسطر كل صنفٍ متتبَّع، ثم تلميح التوزيع لكل
+   * سطرٍ بالكمية الأساسية في payload.items[i].lots — الخادم يلتزم به ما وسعه رصيد التشغيلة، فتطابق الورقةُ السجل — وتشغيلاته على
+   * الورقة (تُطبع بشرط lotOnInvoice). بلا لقطة لا يُباع المتتبَّع دون اتصال. بلا صنفٍ متتبَّع: الحمولة والورقة كما هما
+   */
+  const lotPlanLines = (): PlanLine[] => lines.map(l => ({
+    productId: l.productId, qty: l.qty, unitFactor: l.unitFactor, saleItemId: l.saleItemId, tracked: lotTracks(l.productId),
+  }));
+  const lotBlockText = (b: OfflineLotBlock): string => {
+    if (b.kind === 'noSnapshot') return tr('اتصل مرة لتحديث أرصدة السيارة');
+    const p = products.find(x => x.id === b.productId) ?? lines.find(l => l.productId === b.productId);
+    return b.kind === 'zeroQty' ? lotZeroText(p) : lotOverText(p, b.cap);
+  };
+  const lotOfflinePlan = async <T extends object, I extends object>(payloadItems: T[], docItems: I[]):
+    Promise<{ payloadItems: T[]; docItems: I[] } | { error: string }> => {
+    // الحَكَم الصرف المختبَر (vanLots.offlineLotPlan): بلا لقطة، وصفر المتتبَّع، والمجموع فوق المتاح — على معلّقٍ مقروءٍ الآن
+    const pend = lotStored ? await loadVanLotPending(lotStored).catch(() => lotPending) : lotPending;
+    const plan = offlineLotPlan(lotStored?.snap ?? null, lotPlanLines(), lotToday, pend);
+    if (!plan.ok) return { error: lotBlockText(plan.block) };
+    const snap = lotStored?.snap;
+    if (!snap || !plan.hints.some(h => h?.length)) return { payloadItems, docItems };
+    return {
+      payloadItems: payloadItems.map((it, i) => (plan.hints[i]?.length ? { ...it, lots: plan.hints[i] } : it)),
+      docItems: docItems.map((it, i) => (plan.hints[i]?.length ? { ...it, lots: hintDocLots(snap, lines[i].productId, plan.hints[i]) } : it)),
+    };
+  };
+
   const submit = async () => {
     if (lines.length === 0) { setMsg(tr('أضف صنفا')); return; }
     if (saleRef && lines.some(l => !(Number(l.qty) > 0))) { setMsg(tr('احذف الصنف الذي لا يرجع بدل تصفير كميته')); return; }
+    // «تتبّع اللوط»: سطرٌ متتبَّع كميته صفر يرفض الخادم به الفاتورة كلها — ودون اتصال بعد صفّها وطباعة ورقتها — فيُقال الآن
+    if (lotCapsOn) {
+      const z = zeroQtyLine(lotPlanLines());
+      if (z >= 0) { setMsg(lotZeroText(lines[z])); return; }
+    }
     if (perms.canCreateInvoice === false) { setMsg(tr('لا تملك صلاحية إنشاء فاتورة')); return; }
     if (!isReturn && !canSellAnyType) { setMsg(tr('لا تملك صلاحية البيع النقدي أو الآجل')); return; }
     if (!isReturn && type === 'CREDIT' && !canSellOnCredit) { setMsg(tr('لا تملك صلاحية البيع الآجل')); return; }
@@ -1978,6 +2236,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
        * بردٍّ غير 201: ورقةٌ عنوانها «فاتورة ضريبية» عن مستند لم تعتمده الهيئة تخرج بيد العميل. */
       if (res.status !== 201) {
         setLoading(false);
+        if (lotCapsOn) lotPostedLines(clientRef); // «تتبّع اللوط»: صدر على الخادم — معلّقٌ على اللقطة حتى تعرفه
         // Z5.6c (D5): قياسيةٌ لم تُعتمد والبضاعة خرجت ⇒ سند تسليم من الصفّ المرفق؛ وما لا ورقة له فرسالة الخادم وحدها
         const pendingMsg = tr('صدرت الفاتورة وبانتظار اعتماد الهيئة لا تسلم فاتورة ضريبية الآن');
         const out = zatcaIssueOutcome(res, pendingMsg);
@@ -2011,9 +2270,14 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       const srvRows: any[] = isReturn && saleRef && Array.isArray(inv.items) ? inv.items : [];
       const srvOf = (l: any) => srvRows.find(r => r.returnOfItemId && r.returnOfItemId === l.saleItemId);
       const fromServer = srvRows.length === lines.length && lines.every(l => l.saleItemId && srvOf(l));
-      const docItems = fromServer
+      const priced = fromServer
         ? printItems.map((it, i) => { const r = srvOf(lines[i]); return { ...it, unitPrice: Number(r.unitPrice), lineTotal: Number(r.lineTotal), taxAmt: Number(r.taxAmt ?? it.taxAmt) }; })
         : printItems;
+      /* «تتبّع اللوط» (§٦.٣): الإصدار المتصل بلا تلميح — والورقة بتشغيلات كل بندٍ من ردّ الخادم (البيع بالصنف ولقطة وحدته،
+       * والمرتجع المرتبط ببند بيعه)، تُطبع بشرط lotOnInvoice. والبيع يُسجَّل معلّقاً على اللقطة ثم تُجلب في الخلفية */
+      const srvLots = lotOn ? matchServerItemLots(lines, inv.items) : null;
+      const docItems = srvLots ? priced.map((it, i) => (srvLots[i] ? { ...it, lots: srvLots[i] } : it)) : priced;
+      if (lotCapsOn && lotTrackedNow) lotPostedAdd(clientRef, postedItemsFromServer(inv.items, lotTrackedNow));
       const docTotals = fromServer
         ? { subtotal: Number(inv.subtotal), discount: Number(inv.discountAmt), tax: Number(inv.taxAmt), total: Number(inv.total) }
         : { subtotal, discount, tax, total };
@@ -2046,6 +2310,15 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           // أسواق التخليص الحكومي اللحظي: لا يُسمح بالإصدار أوف‑لاين (قرار المالك)
           setMsg(tr('لا يمكن إصدار فاتورة دون اتصال في هذا السوق يتطلب تخليصا حكوميا لحظيا')); setLoading(false); return;
         }
+        // «تتبّع اللوط» (lotOfflinePlan): الفحص النهائي بالمتاح المحلي، ثم تلميح التوزيع في بنود الحمولة نفسها قبل الصفّ (الطلب
+        // المتصل سبقه بلا تلميح) وتشغيلاته على الورقة — والميزة مطفأة: الحمولة والورقة كما كانتا حرفاً
+        let offlineItems = printItems;
+        if (lotCapsOn) {
+          const lotPlan = await lotOfflinePlan(payload.items, printItems);
+          if ('error' in lotPlan) { setMsg(lotPlan.error); setLoading(false); return; }
+          payload.items = lotPlan.payloadItems;
+          offlineItems = lotPlan.docItems;
+        }
         const localNumber = 'محلي-' + clientRef.slice(0, 8).toUpperCase();
         await outboxAdd({ clientRef, repId: currentRepId(), kind: 'invoice', payload, status: 'queued', clientCreatedAt, localNumber });
         const paid = type === 'CASH' && !isReturn ? total : 0;
@@ -2053,7 +2326,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           kind: 'invoice', number: localNumber, offline: true, date: clientCreatedAt, deliveryDate: deliveryDate || undefined, type, isReturn,
           recipientSignature: signatureOn && signatures.recipient ? signatures.recipient.png : null,
           repSignature: signatureOn && signatures.rep ? signatures.rep.png : null,
-          company, customer, repName, items: printItems,
+          company, customer, repName, items: offlineItems,
           subtotal, discount, tax, total,
           paidAmt: paid, remainingAmt: isReturn ? 0 : total - paid,
         });
@@ -2063,6 +2336,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         // كاش الأصناف قديم (400 UNIT_INVALID: وحدةٌ أُوقفت أو تغيّر معاملها أو حُوِّل أساس صنف): رسالة الخادم تُعرض
         // («حدّث قائمة الأصناف»)، والكتالوج يُحدَّث وتُعاد وحدات السلّة إليه، ثم يعيد المندوب الإصدار وهو يرى ما تغيّر
         if (err?.response?.data?.code === 'UNIT_INVALID') void refreshUnits();
+        // «تتبّع اللوط»: الخادم وجد المتاح أقلّ مما تعرفه اللقطة — رسالته تُعرض، واللقطة تُجلب للمحاولة التالية
+        if (lotCapsOn && err?.response?.data?.code === 'LOT_STOCK_INSUFFICIENT') void lots?.refresh(VANLOTS_BLOCK_REFETCH_GAP_MS);
         setMsg(err?.response?.data?.message || tr('تعذر إصدار المستند حاول مجددا')); setLoading(false);
       }
     }
@@ -2174,6 +2449,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
               </div>
             )}
             {!isReturn && !canSellAnyType && <p className="text-[11px] text-red-500 mb-2">{tr('لا تملك صلاحية البيع النقدي أو الآجل')}.</p>}
+            {/* «تتبّع اللوط»: منع الإضافة فوق المتاح في السيارة يُقال على الشبكة نفسها */}
+            {!isReturn && lotNote && <p className="text-[11px] text-red-500 mb-2 text-center" role="status">{lotNote}</p>}
 
             {/* «الفرق»: الفريق الحالي — تبديله يصفّي الأصناف ويحذف من السلة ما ليس من أصنافه */}
             {!saleRef && (perms.teams?.length ?? 0) > 0 && perms.teamsEnabled && (
@@ -2211,9 +2488,12 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                 {teamProducts.map(p => {
                   const q = qtyInCart(p);
                   const inCart = typeof q === 'string' || q > 0;
+                  // «تتبّع اللوط»: ما بقي متاحاً في السيارة بعد السلّة — والبطاقة باهتة عند الصفر (null: لا حدّ محلي)
+                  const lotCap = lotCapOf(p.id);
+                  const lotLeft = lotCap == null ? null : Math.max(0, roundLot(lotCap - cartBaseOf(lines, p.id)));
                   return (
                     <button key={p.id} onClick={() => addProduct(p)}
-                      className={`relative bg-white rounded-xl border overflow-hidden text-right transition-all ${inCart ? (isReturn ? 'border-amber-400 ring-1 ring-amber-300' : 'border-[#E15A30] ring-1 ring-[#F5C9BA]') : 'border-gray-100'}`}>
+                      className={`relative bg-white rounded-xl border overflow-hidden text-right transition-all ${inCart ? (isReturn ? 'border-amber-400 ring-1 ring-amber-300' : 'border-[#E15A30] ring-1 ring-[#F5C9BA]') : 'border-gray-100'}${lotLeft != null && lotLeft <= LOT_EPS ? ' opacity-50' : ''}`}>
                       <div className="relative w-full aspect-square bg-gray-50 flex items-center justify-center overflow-hidden">
                         {p.image
                           ? <img src={p.image} alt={p.name} className="w-full h-full object-cover" />
@@ -2227,6 +2507,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                       <div className="p-1.5">
                         <p className="text-[11px] font-semibold text-gray-800 leading-tight line-clamp-2 h-7">{p.name}</p>
                         <p className={`text-[11px] font-bold mt-0.5 ${isReturn ? 'text-amber-600' : 'text-[#E15A30]'}`}>{priceHint(p)}</p>
+                        {lotLeft != null && (
+                          <p className={`text-[10px] mt-0.5 truncate ${lotLeft > LOT_EPS ? 'text-gray-500' : 'text-red-500'}`}>{tr('متاح')} {lotQtyText(p, lotLeft)}</p>
+                        )}
                       </div>
                     </button>
                   );
@@ -2277,6 +2560,13 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                       ))}
                     </div>
                   ) : null;
+                })()}
+                {/* «تتبّع اللوط»: المتاح في السيارة لهذا الصنف (على مجموع أسطره) — الكمية لا تتجاوزه */}
+                {(() => {
+                  const cap = l.saleItemId ? null : lotCapOf(l.productId);
+                  return cap == null ? null : (
+                    <p className="mb-2 text-[11px] text-gray-500">{tr('متاح في سيارتك')} {lotQtyText(products.find(x => x.id === l.productId) ?? l, cap)}</p>
+                  );
                 })()}
                 {/* المرتجع من فاتورة بيع: المتاح منها وحالة صلاحية ما بيع اليوم */}
                 {l.saleItemId && (
@@ -3291,6 +3581,15 @@ const DECIDED_SHOWN_MS = 7 * 24 * 3600 * 1000;
 // يكتب كمية كل صنف ويرفعها، فتظهر للإدارة في «طلب مخزون» بصفحة مخزون الشركة (طلب المالك، ١٥ أكتوبر ٢٠٢٦)
 function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: boolean }) {
   const tr = useTr();
+  const lots = useContext(RepLotsContext);
+  /* «تتبّع اللوط» (§٦.٣): لكل صنفٍ متتبَّع تشغيلاته من لقطة السيارة (الرقم والانتهاء وما بقي صالحاً بعد المعلّق) بوسومها، و«متاح»
+   * مكان «متبقٍّ». واللقطة تُجلب مع أرصدة الشاشة نفسها (فتحها وبعد التحميل) فلا تخالفها. والميزة مطفأة: الشاشة كما كانت */
+  const lotOn = lots?.on === true;
+  const lotStored = lotOn ? lots?.stored ?? null : null;
+  const lotPending = useVanLotPending(lotStored);
+  const lotToday = todayLocal();
+  const lotsRef = useRef(lots);
+  lotsRef.current = lots;
   const [view, setView] = useState<'list' | 'load' | 'request'>('list');
   useBackClose(view !== 'list', () => setView('list'));
   // expired: «منتهي الصلاحية» في السيارة — مرتجعٌ عاد بعد انتهاء صلاحيته، لا يُباع ولا يدخل المتبقّي حتى تزيله الإدارة
@@ -3310,6 +3609,7 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
 
   const loadStock = useCallback(async () => {
     setLoading(true);
+    if (lotsRef.current?.on) void lotsRef.current.refresh(); // «تتبّع اللوط»: اللقطة مع الأرصدة (خلفياً)
     try { const r = await repApi.get('/van-stock/current'); setStock(r.data.data); } catch { /* offline */ }
     try { const t = await repApi.get('/van-stock/tools'); setTools(t.data.data?.balances ?? []); } catch { /* offline */ }
     setLoading(false);
@@ -3431,6 +3731,16 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
     setRows(rs => [...rs, { productId: id, name: p.name, unit: c0.name, qty: '1', unitId: c0.id, unitFactor: c0.factor }]);
   };
 
+  /** «تتبّع اللوط»: تشغيلات التحميل من ردّ الخادم (items[].lots) — «صنف: تشغيلة · ينتهي … · ×كمية»، وبلا تشغيلات '' */
+  const loadLotsText = (items: unknown): string => (Array.isArray(items) ? items : [])
+    .map((it: { product?: { name?: string }; productId?: string; unitFactor?: number | null; lots?: unknown }) => {
+      const ls = docLotsFrom(it?.lots);
+      if (!ls) return '';
+      const name = it.product?.name ?? products.find(p => p.id === it.productId)?.name ?? '';
+      return `${name}: ${ls.map(l => lotCellText(l, { tr, withQty: true, unitFactor: it.unitFactor })).join('، ')}`;
+    })
+    .filter(Boolean).join(' — ');
+
   const submit = async () => {
     if (!canLoad) { setMsg({ ok: false, text: tr('لا تملك صلاحية تحميل مخزون السيارة') }); return; }
     // التحميل موجب فقط؛ التنقيص متاح للإدارة من لوحة التحكم
@@ -3439,9 +3749,11 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
     if (!items.length) { setMsg({ ok: false, text: tr('أضف صنفا وكمية صحيحة') }); return; }
     setSaving(true); setMsg(null);
     try {
-      await repApi.post('/van-stock/loads', { type: 'LOAD', note: note.trim() || undefined, items });
+      // «تتبّع اللوط»: بلا حقل تشغيلة — الخادم يخصّص FEFO من المستودع، ورسالة النجاح تذكر ما خصّصه
+      const res = await repApi.post('/van-stock/loads', { type: 'LOAD', note: note.trim() || undefined, items });
       setRows([]); setNote(''); setView('list'); loadStock();
-      setMsg({ ok: true, text: tr('تم تسجيل التحميل بنجاح') });
+      const lotText = lotOn ? loadLotsText(res.data?.data?.items) : '';
+      setMsg({ ok: true, text: lotText ? `${tr('تم تسجيل التحميل بنجاح')} — ${tr('التشغيلات')}: ${lotText}` : tr('تم تسجيل التحميل بنجاح') });
     } catch (e) {
       setMsg({ ok: false, text: (e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الحفظ') });
       // وحدة صفٍّ لم تعد صالحة: الكتالوج من الخادم، وكل صفٍّ بوحدته إن بقيت وإلا بالأساس بمعامله (rebaseRow) — ثم يعيد المندوب الحفظ
@@ -3637,8 +3949,12 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
             const prod = products.find(x => x.id === s.productId);
             const u = (n: number) => unitsText(n, { unit: s.unit || prod?.unit, units: s.units ?? prod?.units }, fmt);
             const q = (n: number) => u(n) ?? `${fmt(n)} ${s.unit}`;
+            // «تتبّع اللوط»: الصنف المتتبَّع من اللقطة — الغائب عنها متاحه صفر
+            const lv = lotStored && lotStored.snap.tracked.includes(s.productId) ? localLotView(lotStored.snap, s.productId, lotToday, lotPending) : null;
+            const lotHeld = lv && lotStored ? snapProductOf(lotStored.snap, s.productId)?.held ?? 0 : 0;
+            const shown = lv ? lv.available : s.remaining;
             return (
-            <div key={s.productId} className="bg-white border border-gray-100 rounded-xl p-3 shadow-sm flex items-center justify-between">
+            <div key={s.productId} className={`bg-white border border-gray-100 rounded-xl p-3 shadow-sm flex items-center justify-between${lv ? ' flex-wrap' : ''}`}>
               <div className="min-w-0">
                 <p className="font-semibold text-sm text-[#1F1A13] truncate">{s.name}</p>
                 <p className="text-[11px] text-gray-400">{u(s.sold) != null
@@ -3652,9 +3968,36 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
                 )}
               </div>
               <div className="text-left shrink-0">
-                <p className={`${u(s.remaining) != null ? 'text-sm' : 'text-lg'} font-bold ${s.remaining < 0 ? 'text-red-600' : s.remaining === 0 ? 'text-gray-400' : 'text-[#1E7A52]'}`}>{u(s.remaining) ?? fmt(s.remaining)}</p>
-                <p className="text-[10px] text-gray-400">{tr('متبقي')}</p>
+                <p className={`${u(shown) != null ? 'text-sm' : 'text-lg'} font-bold ${shown < 0 ? 'text-red-600' : shown === 0 ? 'text-gray-400' : 'text-[#1E7A52]'}`}>{u(shown) ?? fmt(shown)}</p>
+                <p className="text-[10px] text-gray-400">{lv ? tr('متاح') : tr('متبقي')}</p>
               </div>
+              {lv && (
+                <div className="w-full mt-2 pt-2 border-t border-gray-100 space-y-1">
+                  {lv.lots.filter(x => x.left > LOT_EPS).map(x => (
+                    <div key={x.lot.lotId} className="flex items-center gap-1.5 text-[11px]">
+                      <span className="font-semibold text-[#1F1A13] truncate" dir="ltr">{x.lot.lotNumber}</span>
+                      {x.lot.expiryDate && <span className="text-gray-400 shrink-0">{tr('ينتهي')} {lotDayText(x.lot.expiryDate)}</span>}
+                      {x.lot.status === 'BLOCKED' && (
+                        <span className="shrink-0 rounded-full bg-red-50 text-red-700 px-1.5 py-0.5 text-[10px] font-semibold">{tr(LOT_BLOCK_KIND_LABELS[x.lot.blockKind ?? 'HOLD'])}</span>
+                      )}
+                      {x.lot.status === 'ACTIVE' && isLotExpiredOn(x.lot, lotToday) && (
+                        <span className="shrink-0 rounded-full bg-red-50 text-red-700 px-1.5 py-0.5 text-[10px] font-semibold">{tr('منتهية')}</span>
+                      )}
+                      <span className={`ms-auto shrink-0 font-bold tabular-nums ${x.sellable ? 'text-[#1F1A13]' : 'text-gray-400 line-through'}`}>{q(x.left)}</span>
+                    </div>
+                  ))}
+                  {lv.unknownLeft > LOT_EPS && (
+                    <div className="flex items-center gap-1.5 text-[11px]">
+                      <span className="text-gray-500">{tr('غير مسمى')}</span>
+                      <span className={`ms-auto shrink-0 font-bold tabular-nums ${lotStored?.snap.allowUnknown ? 'text-[#1F1A13]' : 'text-gray-400 line-through'}`}>{q(lv.unknownLeft)}</span>
+                    </div>
+                  )}
+                  {/* مرتجع إشعارٍ دائن قياسي لم تعتمده الهيئة: في السيارة ولا يُباع حتى يُعتمد (D24) */}
+                  {lotHeld > LOT_EPS && (
+                    <p className="text-[11px] font-semibold text-amber-700">{tr('بانتظار الاعتماد')} {q(lotHeld)}</p>
+                  )}
+                </div>
+              )}
             </div>
             );
           })}
@@ -3697,6 +4040,12 @@ function OutboxPanel({ onClose, onSync, syncing }: { onClose: () => void; onSync
             {tr('مستندات صدرت دون اتصال قبل تفعيل الفوترة الإلكترونية محجوزة لمراجعة الإدارة ولن تضيع ولا يلزمك شيء')}
           </div>
         )}
+        {/* «تتبّع اللوط» (D20): فاتورةٌ دون اتصال لا يكفيها رصيد السيارة — محجوزةٌ في الصفّ حتى تسجّل الإدارة التحميل الناقص */}
+        {docs.some(underLotReplayHeld) && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-800 leading-relaxed">
+            {tr('فواتير صدرت دون اتصال لا يكفيها رصيد السيارة محجوزة حتى تسجل الإدارة التحميل الناقص ولن تضيع')}
+          </div>
+        )}
 
         {rejectedList.length > 0 && (
           <div>
@@ -3731,9 +4080,15 @@ function OutboxPanel({ onClose, onSync, syncing }: { onClose: () => void; onSync
             <p className="text-xs font-bold text-amber-600 mb-2">{tr('بانتظار الرفع')} ({pendingList.length})</p>
             <div className="space-y-2">
               {pendingList.map(d => (
-                <div key={d.clientRef} className="bg-amber-50 border border-amber-100 rounded-xl p-3 flex items-center justify-between">
+                <div key={d.clientRef} className={`bg-amber-50 border border-amber-100 rounded-xl p-3 flex items-center justify-between${underLotReplayHeld(d) ? ' flex-wrap' : ''}`}>
                   <span className="text-sm text-gray-800">{kindLabel(d.kind)} {d.localNumber ? `· ${d.localNumber}` : ''} {custName(d) && `· ${custName(d)}`}</span>
                   <span className="text-[11px] text-amber-600">{underCutoverReview(d) ? tr('قيد مراجعة الإدارة') : new Date(d.clientCreatedAt).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}</span>
+                  {/* «تتبّع اللوط» (D20): وسم الانتظار ورسالة الخادم بسببه */}
+                  {underLotReplayHeld(d) && (
+                    <p className="w-full mt-1 text-[11px] font-semibold text-amber-800 leading-relaxed">
+                      {tr('بانتظار الإدارة: تحميل ناقص')}{d.error ? ` — ${d.error}` : ''}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
@@ -4019,6 +4374,68 @@ export default function RepApp() {
   const [rejected, setRejected] = useState(0);     // مستندات رفضها الخادم (تحتاج مراجعة)
   const [syncing, setSyncing] = useState(false);
   const [showOutbox, setShowOutbox] = useState(false);
+
+  /* ═══ «تتبّع اللوط» (§٧.١): لقطة أرصدة السيارة لصاحب الجلسة ═══
+   * من الكاش ثم من الخادم في مواعيدها وحدها: فتح التطبيق، وبعد مزامنةٍ رفعت فاتورة، وفتح البيع متصلاً، وبعد إصدارٍ متصل، وعند
+   * منعٍ محلي والجهاز متصل — **لا** مع دورة الخمس دقائق (القاعدة عنق الزجاجة). fetchedAt لحظة **بدء** الطلب: ما صدر بعدها قد لا
+   * تراه اللقطة فيبقى معلّقاً عليها. والميزة مطفأة (أو نسخة /company قديمة بلا العلم): لا قراءة ولا طلب ولا مظهر */
+  const lotOn = lotFlagsOf(company).on;
+  const lotOnRef = useRef(lotOn);
+  lotOnRef.current = lotOn;
+  const [vanLots, setVanLots] = useState<StoredVanLots | null>(null);
+  const vanLotsRef = useRef<StoredVanLots | null>(null);
+  const vanLotsFlight = useRef<Promise<StoredVanLots | null> | null>(null);
+  const vanLotsBlockAt = useRef(0);
+  const refreshVanLots = useCallback((minGapMs = 0): Promise<StoredVanLots | null> => {
+    if (vanLotsFlight.current) return vanLotsFlight.current; // طلبٌ جارٍ يكفي الجميع
+    if (!lotOnRef.current || !navigator.onLine || !localStorage.getItem('rep_token')) return Promise.resolve(vanLotsRef.current);
+    // مهلة المنع المحلي (لا طلب لكل نقرة) تُحسب من جلبٍ أطلقه منعٌ سابق وحده — لا من جلب فتح البيع أو ما بعد الإصدار: لقطتها قد
+    // تسبق تحميلاً سجّلته الإدارة للتوّ، والمنع الأول بعدها يستحق لقطته (§٧.١)
+    if (minGapMs > 0) {
+      if (Date.now() - vanLotsBlockAt.current < minGapMs) return Promise.resolve(vanLotsRef.current);
+      vanLotsBlockAt.current = Date.now();
+    }
+    const repId = currentRepId() ?? null;
+    const fetchedAt = Date.now();
+    const run = (async (): Promise<StoredVanLots | null> => {
+      try {
+        const res = await repApi.get('/van-stock/lot-balances', { background: true });
+        const entry = vanLotsEntry(res.data?.data, repId, fetchedAt);
+        // ردٌّ لجلسةٍ خرجت أو تبدّلت أثناء الطلب لا يُعتمد ولا يُخزَّن
+        if (!entry || currentRepId() !== repId) return vanLotsRef.current;
+        vanLotsRef.current = entry;
+        setVanLots(entry);
+        await cacheSet(VANLOTS_KEY, entry).catch(() => undefined);
+        // ما صدر متصلاً قبل بدء هذا الجلب تعرفه اللقطة الجديدة
+        await cacheUpdate<unknown>(VANLOTS_POSTED_KEY, (cur) => prunePosted(postedListOf(cur), fetchedAt)).catch(() => undefined);
+        return entry;
+      } catch {
+        return vanLotsRef.current; // دون اتصال، أو أُطفئت الميزة (403)، أو عطلٌ عابر: تبقى آخر لقطة
+      } finally {
+        vanLotsFlight.current = null;
+      }
+    })();
+    vanLotsFlight.current = run;
+    return run;
+  }, []);
+  // فتح التطبيق (أو تفعيل الميزة أثناءه): المخزّنة لصاحب الجلسة أولاً — أساس العمل دون اتصال — ثم الخادم
+  useEffect(() => {
+    if (!token || !lotOn) return;
+    let alive = true;
+    void (async () => {
+      const hit = await cacheGet<unknown>(VANLOTS_KEY);
+      const cached = storedVanLotsOf(hit?.data, currentRepId());
+      if (alive && cached && !(vanLotsRef.current && vanLotsRef.current.fetchedAt >= cached.fetchedAt)) {
+        vanLotsRef.current = cached;
+        setVanLots(cached);
+      }
+      if (alive) void refreshVanLots();
+    })();
+    return () => { alive = false; };
+  }, [token, lotOn, refreshVanLots]);
+  // مزامنةٌ رفعت فاتورةً واحدة على الأقل: اللقطة القديمة لا تعرفها
+  useEffect(() => (token && lotOn ? onInvoicesSynced(() => { void refreshVanLots(); }) : undefined), [token, lotOn, refreshVanLots]);
+  const lotCtx = useMemo<RepLotCtx>(() => ({ on: lotOn, stored: vanLots, refresh: refreshVanLots }), [lotOn, vanLots, refreshVanLots]);
 
   /**
    * إغلاق عارض المستند — ليس «اسحب طبقةً واحدة»: أحياناً يعود لملفّ العميل
@@ -4431,7 +4848,7 @@ export default function RepApp() {
   // الصفّ الصادر لا يُمسح (مستندات لم تُرفع بعد)، بل يُرفَع كلٌّ بجلسة صاحبه.
   const login = async (t: string, u: RepUser) => {
     const prev = currentRepId();
-    if (prev && prev !== u.id) { await refClear(); clearAiSession(); }
+    if (prev && prev !== u.id) { await refClear(); clearAiSession(); vanLotsRef.current = null; setVanLots(null); }
     await forgetForeignPush(u.id); // اشتراك تنبيهاتٍ على الجهاز لحسابٍ خرج قسراً لا يبقى لمن دخل
     localStorage.setItem('rep_token', t);
     localStorage.setItem('rep_user', JSON.stringify(u));
@@ -4455,6 +4872,7 @@ export default function RepApp() {
     resetLive(); // حكم الموقع لا يرثه من يدخل بعده
     await dropPush(); // الجهاز لا يتلقّى تنبيهات حضورِ حسابٍ خرج منه
     setPresence(null); answeredPresence.current.clear(); attemptedPresence.current.clear(); // طلب تحققه لا يراه من يدخل بعده
+    vanLotsRef.current = null; setVanLots(null); // «تتبّع اللوط»: لقطة سيارته لا يراها من يدخل بعده (والمخزّنة مُسحت بـrefClear)
     localStorage.removeItem('rep_token'); localStorage.removeItem('rep_user');
     setToken(null); setUser(null);
   };
@@ -4496,6 +4914,7 @@ export default function RepApp() {
   const framed = !(typeof window !== 'undefined' &&
     (window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(max-width: 640px)').matches));
   return (
+    <RepLotsContext.Provider value={lotCtx}>
     <div className={framed ? 'min-h-screen bg-slate-200 flex items-center justify-center p-4' : 'bg-white'} style={framed ? undefined : { height: '100dvh' }} dir="rtl">
       <div className={framed ? 'relative w-[400px] h-[820px] bg-black rounded-[44px] p-2.5 shadow-2xl' : 'relative w-full h-full'}>
         {/* notch — سطح المكتب فقط */}
@@ -4698,5 +5117,6 @@ export default function RepApp() {
         </div>
       </div>
     </div>
+    </RepLotsContext.Provider>
   );
 }

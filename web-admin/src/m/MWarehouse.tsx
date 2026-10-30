@@ -1,28 +1,31 @@
 import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Search, Plus, Trash2, Loader2, Warehouse, PackagePlus, Package, Wallet,
   Boxes, AlertTriangle, TrendingUp, TrendingDown, ChevronDown, ChevronUp,
   ArrowRightLeft, FileDown,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { warehouseApi, productApi, lotsApi } from '../api/client';
+import { warehouseApi, productApi } from '../api/client';
 import { formatCurrency, formatDate, formatNumber } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { useBackClose } from '../lib/useBackClose';
 import type { UnitDef } from '../lib/units';
 import { unitChoices, defaultChoice } from '../rep/repUnits';
 import {
-  lotFlagsOf, lotWarningsOf, lotDay, roundLot, LOT_EPS, LOT_WARNING_LABELS, LOT_STATUS_LABELS, type LotBalancesDto,
+  lotFlagsOf, lotWarningsOf, lotDay, roundLot, LOT_EPS, LOT_WARNING_LABELS, LOT_STATUS_LABELS,
 } from '../lib/lots';
 import { MScreen, MCard, MRow, MStat, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import { expectArray } from './shape';
 import {
   qtyText, signedQtyText, hasBigUnit, biggestUnit, nextStockLineUnit, stockLineUnit, type StockLineUnit,
 } from './mUnits';
-import { newRowId, isTracked, shelfLifeOn, emptyLotDraft, lotDraftProblem, entryLotFields, type LotDraft } from './mLots';
+import {
+  newRowId, isTracked, shelfLifeOn, emptyLotDraft, lotDraftProblem, entryLotFields, lineBaseQty, outGroupProblems, whOutSources, whOutRows,
+  LOT_CACHE_KEYS, WH_OUT_PROBLEMS, type LotDraft,
+} from './mLotsLogic';
 import MUnitChips from './MUnitChips';
-import MLotFields from './MLotFields';
+import MLotFields, { whLotsQuery } from './MLotFields';
 
 /* الإشعار في حزمة مستقلّة — يجرّ jspdf وhtml2canvas وqrcode معه */
 const MWarehouseNoticeDoc = lazy(() => import('./MWarehouseNoticeDoc'));
@@ -379,11 +382,7 @@ function StockRow({ r, open, onToggle, lotOn }: { r: WhRow; open: boolean; onTog
  */
 function WhLotBreakdown({ productId }: { productId: string }) {
   const tr = useTr();
-  const q = useQuery({
-    queryKey: ['m-wh-lots', productId],
-    staleTime: 15_000,
-    queryFn: async () => ((await lotsApi.balances({ productId })).data?.data ?? null) as LotBalancesDto | null,
-  });
+  const q = useQuery(whLotsQuery(productId));
   const view = q.data?.warehouse?.[0];
   if (q.isLoading) return <p className="text-[10px] text-[#9A8F7E] px-1">{tr('جاري التحميل')}</p>;
   if (!view) return null;
@@ -547,8 +546,20 @@ function MWarehouseEntry({ onClose, lotOn }: { onClose: () => void; lotOn: boole
       tracked, shelfOn: tracked && shelfLifeOn(p), lot: emptyLotDraft(),
     }] : rs;
   });
+  /* «تتبّع اللوط»: قلب اتجاه السطر (زيادة ⇄ نقص) يصفّر تشغيلته — اختيار قائمة الزيادة (أي تشغيلة، أو جديدة) ليس مصدراً
+   * للنقص، فإبقاؤه يُرسل غير ما يعرضه المنتقي */
+  const outDir = (t: 'RECEIVE' | 'ADJUST', qty: string) => t === 'ADJUST' && Number(qty) < 0;
   const patch = (key: string, k: 'qty' | 'unitCost', v: string) =>
-    setRows(rs => rs.map(r => (r.rowId === key ? { ...r, [k]: v } : r)));
+    setRows(rs => rs.map(r => {
+      if (r.rowId !== key) return r;
+      const next = { ...r, [k]: v };
+      return k === 'qty' && r.tracked && outDir(type, r.qty) !== outDir(type, v) ? { ...next, lot: emptyLotDraft() } : next;
+    }));
+  const changeType = (t: 'RECEIVE' | 'ADJUST') => {
+    if (t === type) return;
+    setRows(rs => rs.map(r => (r.tracked && outDir(type, r.qty) !== outDir(t, r.qty) ? { ...r, lot: emptyLotDraft() } : r)));
+    setType(t);
+  };
   const patchLot = (key: string, lot: LotDraft) => setRows(rs => rs.map(r => (r.rowId === key ? { ...r, lot } : r)));
   const dropRow = (key: string) => setRows(rs => rs.filter(r => r.rowId !== key));
   /** وحدة السطر تتبدّل والكمية والسعر المكتوبان كما هما — كلاهما يُقرأ بالوحدة المختارة (والسعر يُراجَع) */
@@ -593,7 +604,23 @@ function MWarehouseEntry({ onClose, lotOn }: { onClose: () => void; lotOn: boole
 
   /** «تتبّع اللوط»: ما يُسمح به لتشغيلة السطر — الوارد بتشغيلة، والتسوية بزيادة أو نقص (lotDraftProblem) */
   const lotMode = (r: FormRow) => (type === 'RECEIVE' ? 'IN_STRICT' as const : Number(r.qty) < 0 ? 'OUT' as const : 'IN' as const);
-  const lotBad = (r: FormRow) => r.tracked && lotDraftProblem(r.lot, lotMode(r), { shelfOn: r.shelfOn }) !== null;
+  const draftOk = (r: FormRow) => lotDraftProblem(r.lot, lotMode(r), { shelfOn: r.shelfOn }) === null;
+
+  /* نقص المستودع على مستوى الصنف (D10، D26، I1، I2) — الخادم يجمع أسطر الصنف قبل الفحص: بلا اختيار وأكثر من مصدر، أو فوق
+   * صالح التشغيلة المختارة، أو سطران على تشغيلةٍ واحدة. والأرصدة بمفتاح المنتقي نفسه (whLotsQuery) فلا طلبٌ زائد */
+  const outLines = rows.filter(r => r.tracked && lotMode(r) === 'OUT' && !qtyBad(r) && draftOk(r));
+  const outPids = [...new Set(outLines.map(r => r.productId))];
+  const outBalQs = useQueries({ queries: outPids.map(pid => whLotsQuery(pid)) });
+  const outProblems = new Map<string, string>();
+  outPids.forEach((pid, i) => {
+    const q = outBalQs[i];
+    outGroupProblems(
+      whOutSources(q?.data?.warehouse?.[0]),
+      outLines.filter(r => r.productId === pid).map(r => ({ key: r.rowId, base: lineBaseQty(Number(r.qty), r.unitFactor), rows: whOutRows(r.lot, lineBaseQty(Number(r.qty), r.unitFactor)) })),
+      { loaded: !!q?.isSuccess },
+    ).forEach((p, k) => outProblems.set(k, WH_OUT_PROBLEMS[p]));
+  });
+  const lotBad = (r: FormRow) => r.tracked && (!draftOk(r) || outProblems.has(r.rowId));
 
   const valid = rows.length > 0 && rows.every(r => !qtyBad(r) && !costBad(r) && !lotBad(r));
 
@@ -623,9 +650,10 @@ function MWarehouseEntry({ onClose, lotOn }: { onClose: () => void; lotOn: boole
     onSuccess: (warnings) => {
       // مفاتيح الجوال ومفاتيح اللوحة معاً — الحزمة واحدة والكاش مشترك، فترك
       // مفاتيح اللوحة يُظهر رصيداً قديماً لمن ينتقل إليها بعد الحفظ.
-      // و«تتبّع اللوط» في الجهتين: أرصدة التشغيلات وقوائمها هنا وفي شاشة التتبّع (الجوال واللوحة)
+      // و«تتبّع اللوط» في الجهتين: أرصدة التشغيلات وقوائمها، واقتراح FEFO للتحميل (الوارد يغيّره)، وشاشة التتبّع —
+      // الجوال واللوحة (LOT_CACHE_KEYS)
       ['m-wh-stock', 'm-wh-entries', 'warehouse-stock', 'warehouse-entries',
-        ...(lotOn ? ['m-wh-lots', 'm-lot-opts', 'm-lots', 'm-lot', 'lots', 'lot', 'lot-balances'] : [])]
+        ...(lotOn ? LOT_CACHE_KEYS : [])]
         .forEach(k => qc.invalidateQueries({ queryKey: [k] }));
       toast.success(tr('تم حفظ الحركة'));
       // التحذير لا يمنع (تشغيلة موقوفة تبقى معزولة) — لكنه يُقال
@@ -645,11 +673,11 @@ function MWarehouseEntry({ onClose, lotOn }: { onClose: () => void; lotOn: boole
 
         {/* ─────────── نوع الحركة ─────────── */}
         <div className="grid grid-cols-2 gap-2.5">
-          <button type="button" onClick={() => setType('RECEIVE')}
+          <button type="button" onClick={() => changeType('RECEIVE')}
             className={`min-h-[48px] rounded-xl border text-sm font-bold flex items-center justify-center gap-2 ${receive ? 'border-[#2F855A] bg-[#EAF6F0] text-[#2F855A]' : 'border-[#E9E1D3] bg-white text-[#6E6557]'}`}>
             <TrendingUp size={16} /> {tr('وارد')}
           </button>
-          <button type="button" onClick={() => setType('ADJUST')}
+          <button type="button" onClick={() => changeType('ADJUST')}
             className={`min-h-[48px] rounded-xl border text-sm font-bold flex items-center justify-center gap-2 ${!receive ? 'border-[#6B46C1] bg-[#F3EEFB] text-[#6B46C1]' : 'border-[#E9E1D3] bg-white text-[#6E6557]'}`}>
             <TrendingDown size={16} /> {tr('تسوية')}
           </button>
@@ -775,10 +803,11 @@ function MWarehouseEntry({ onClose, lotOn }: { onClose: () => void; lotOn: boole
                       {tr('قيمة السطر قبل الضريبة')}: <b className="text-[#1F1A13] tabular-nums">{formatCurrency(line)}</b>
                     </p>
                   )}
-                  {/* «تتبّع اللوط»: تشغيلة السطر للصنف المتتبَّع وحده — والنقص بلا اختيار يتركه الخادم للمصدر الوحيد */}
+                  {/* «تتبّع اللوط»: تشغيلة السطر للصنف المتتبَّع وحده — والنقص بلا اختيار يتركه الخادم للمصدر الوحيد، وما يُمنع
+                      على مستوى الصنف (أكثر من مصدر، فوق الصالح، D26) يُقال على سطره */}
                   {r.tracked && !badQty && (
                     <MLotFields productId={r.productId} mode={lotMode(r)} shelfOn={r.shelfOn} draft={r.lot}
-                      onChange={d => patchLot(k, d)} />
+                      groupProblem={outProblems.get(k) ?? null} onChange={d => patchLot(k, d)} />
                   )}
                 </div>
               );

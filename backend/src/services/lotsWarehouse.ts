@@ -134,6 +134,9 @@ export async function planWarehouseEntryInTx(tx: LotTx, input: WarehouseEntryPla
     if (!Number.isFinite(l.qty) || !isLotQty(Math.abs(l.qty)) || (input.type === 'RECEIVE' && l.qty < 0)) {
       throw lotErr('LOT_QTY_INVALID', {}, { productId: l.productId, productName: l.productName, idx: l.idx, qty: l.qty, decimals: 4 });
     }
+    // «∅» مفتاح غير المسمّى في خرائط التجميع لا معرّف تشغيلة: يُحسب في النقص على غير المسمّى ثم يُكتب حرفياً lotId للسطر
+    // (مفتاحٌ أجنبي بلا صفّ ⇒ 500). غير المسمّى يُطلب بـnull الصريح وحده
+    if (l.lotId === LOT_UNKNOWN_KEY) throw lotErr('LOT_NOT_FOUND', {}, { productId: l.productId, productName: l.productName, idx: l.idx, lotId: l.lotId });
     (l.qty > 0 ? ins : outs).push(l);
   }
 

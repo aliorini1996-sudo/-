@@ -1104,7 +1104,8 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
     if (!lines.length) { res.json({ success: true, data: { ...result, ...cappedErrors(result.errors) } }); return; }
 
     const by = (req.user as { name?: string } | undefined)?.name || null;
-    // «تتبّع اللوط»: أصناف الملف المتتبَّعة بالقراءة المسبقة — لا شيء منها ⇒ لا طابور ولا قفل لوط والمسار كما كان (§١٠.٢)
+    // «تتبّع اللوط»: أصناف الملف المتتبَّعة بالقراءة المسبقة مفاتيح الطابور (§٣.١) — لا شيء منها ⇒ لا طابور، والقاعدة تحرس ما صار
+    // متتبَّعاً بعدها (lockLotProducts أدناه)
     const trackedIds = new Set(lotsOn ? products.filter(p => p.lotTracked === true).map(p => p.id) : []);
     const lotProducts = [...new Set(lines.map(l => l.productId).filter(id => trackedIds.has(id)))];
     let releaseLots: (() => void) | null = null;
@@ -1128,8 +1129,10 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
         // في دفعة opening_stock غير متراجع عنها لا يتضاعف بإعادة الرفع — صفاً صفاً، والبقية تُكتب
         const productIds = [...new Set(lines.map(l => l.productId))];
         // «تتبّع اللوط» (§٤.٥): أصناف الملف تُقفل قبل فحص الحركات وقبل الكتابة (بعد gl-post في ترتيب الأقفال §٣.١) — فلا يدخل
-        // تحميلٌ أو تسويةٌ لصنفٍ متتبَّع بين الفحص والكتابة، والمتتبَّع تحت القفل هو المرجع (D25). يحفظ المهلة القائمة ويستعيدها
-        const lotLocks = releaseLots ? await lockLotProducts(tx, tid, productIds) : null;
+        // تحميلٌ أو تسويةٌ لصنفٍ متتبَّع بين الفحص والكتابة، والمتتبَّع تحت القفل هو المرجع (D25). يحفظ المهلة القائمة ويستعيدها.
+        // والميزة مفعّلة يُقفل ولو لم يكن في القراءة المسبقة متتبَّع: صنفٌ صار متتبَّعاً بين القراءتين يُقفل في القاعدة وحدها (§٣.١)
+        // فصفّه LOT_REQUIRED لا رصيدٌ غير مسمّى. لا متتبَّع تحت القفل ⇒ قراءة FOR KEY SHARE وحدها والكتابة كما كانت
+        const lotLocks = lotsOn ? await lockLotProducts(tx, tid, productIds) : null;
         // دفعات الجرد الافتتاحي أولاً: معرّفات حركاتها تُستثنى من فحص «الحركات السابقة» وتُقرأ وحدها بالتفصيل
         const openingBatches = await tx.importBatch.findMany({
           where: { tenantId: tid, kind: OPENING_STOCK_KIND, reverted: false }, select: { id: true, recordIds: true, createdAt: true },
@@ -1177,7 +1180,7 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
         const checked = openingStockMovementConflicts(lines, { movedProductIds, openingBatchOf, timezone: tz });
         // «تتبّع اللوط» (§٤.٥): معرّف الحركة أولاً، ثم تشغيلة كل بندٍ متتبَّع (قائمةٌ أو جديدةٌ بمصدر OPENING_IMPORT
         // وsourceEntryId للتراجع)؛ وصفٌّ بلا تشغيلة لصنفٍ صار متتبَّعاً، أو برقمٍ مسجَّل بتواريخ أخرى، خطأ صفّ لا إلغاء للملف
-        const entryId = lotLocks && checked.lines.length ? randomUUID() : null;
+        const entryId = lotLocks && lotLocks.tracked.size > 0 && checked.lines.length ? randomUUID() : null;
         const lotPlan = lotLocks && entryId ? await planOpeningLotsInTx(tx, {
           tenantId: tid, entryId, createdBy: by, actor: lotEventActorOf(req.user), locked: lotLocks, lines: checked.lines,
         }) : null;
@@ -1205,8 +1208,9 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
         return { batchId: b.id, entryId: entry.id, accepted: checked.lines, rejected: checked.errors, ...(lotPlan?.warnings.length ? { lotWarnings: lotPlan.warnings } : {}) };
       }, { maxWait: 10_000, timeout: 30_000 });
     } catch (e) {
-      // وانشغال طابور التشغيلات أو قفلها (LOT_BUSY، 55P03، 40P01) كانشغال الدفاتر: 409 القائم (§٣.٣)
-      const lotBusy = lotProducts.length ? asLotBusy(e) : null;
+      // وانشغال طابور التشغيلات أو قفلها (LOT_BUSY، 55P03، 40P01) كانشغال الدفاتر: 409 القائم (§٣.٣) — والميزة مفعّلة وحدها،
+      // لأن القفل يُؤخذ حينها ولو لم يكن في القراءة المسبقة متتبَّع
+      const lotBusy = lotsOn ? asLotBusy(e) : null;
       if (!isImportHttpError(e) && (isLockBusyError(e) || lotBusy)) {
         res.status(409).json({ success: false, code: 'OPENING_STOCK_LEDGER_BUSY', message: lotBusy && !isLockBusyError(e) ? lotBusy.message : LEDGER_BUSY_MESSAGE });
         return;
@@ -1553,7 +1557,8 @@ router.post('/batches/:id/revert', requireAdminPermission('canDelete'), async (r
             assertOpeningStockRevertAllowed(coupledActivatedAt(await tx.glSettings.findUnique({ where: { tenantId: tid }, select: { activatedAt: true, setupMethod: true } })));
             const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM warehouse_entries WHERE id = ${eid} AND "tenantId" = ${tid} FOR UPDATE`;
             if (locked.length === 0) return { status: 'gone' as const };
-            const entry = await tx.warehouseEntry.findUniqueOrThrow({ where: { id: eid }, select: { createdAt: true, items: { select: { productId: true } } } });
+            // lotId في القراءة نفسها: تشغيلاتٌ أنشأها الاستيراد تُحذف يتيمةً ولو أُطفئت الميزة بعده (أدناه) — بلا استعلامٍ زائد
+            const entry = await tx.warehouseEntry.findUniqueOrThrow({ where: { id: eid }, select: { createdAt: true, items: { select: { productId: true, lotId: true } } } });
             const productIds = [...new Set(entry.items.map(i => i.productId))];
             // «تتبّع اللوط» (ن١-١١): أصناف الحركة كلها تُقفل **قبل أي فحص** — المتتبَّع منها بقفل اللوط، فلا يُصرف منها شيء
             // بين الفحص والحذف (بعد صفّ الحركة FOR UPDATE في ترتيب الأقفال §٣.١)
@@ -1574,8 +1579,10 @@ router.post('/batches/:id/revert', requireAdminPermission('canDelete'), async (r
             if (lotLocks?.tracked.size) await assertOpeningRevertKeepsLots(tx, tid, { id: eid, createdAt: entry.createdAt, productIds }, lotLocks);
             await tx.warehouseEntryItem.deleteMany({ where: { entryId: eid } });
             await tx.warehouseEntry.deleteMany({ where: { id: eid, tenantId: tid } });
-            // «تتبّع اللوط»: تشغيلاتٌ أنشأها هذا الاستيراد ولم يبقَ لها مرجع تُحذف مع سجل تدقيقها (LotEvent DELETE)
-            if (lotsOn) await deleteOrphanOpeningLots(tx, tid, eid, lotEventActorOf(req.user));
+            // «تتبّع اللوط»: تشغيلاتٌ أنشأها هذا الاستيراد ولم يبقَ لها مرجع تُحذف مع سجل تدقيقها (LotEvent DELETE) — وكذلك والميزة
+            // مطفأة إن حملت أسطرها تشغيلة (كل تشغيلةٍ أنشأها يحملها سطرٌ منها)، وإلا بقيت بلا حركة تمنع حذف صنفها (Restrict) وتصطدم
+            // بإعادة استيراد رقمها بتاريخٍ مصحَّح (LOT_DATES_MISMATCH). حارس I1/I2 أعلاه مع العلم وحده: لا حركة لوطٍ والميزة مطفأة
+            if (lotsOn || entry.items.some(i => i.lotId != null)) await deleteOrphanOpeningLots(tx, tid, eid, lotEventActorOf(req.user));
             return { status: 'removed' as const };
           }, { maxWait: 10_000, timeout: 30_000 });
           if (out.status === 'blocked') { blocked.push({ id: eid, name: OPENING_STOCK_NOTE, reason: out.reason }); continue; }

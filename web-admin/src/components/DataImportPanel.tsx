@@ -4,7 +4,7 @@ import api, { companyApi, importApi } from '../api/client';
 import {
   parseImportFile, ImportFileError, IMPORT_TYPES, ImportKind, LEDGER_IMPORT_KINDS, classifyImportRowsByCutover, classifyImportFailure,
   openingStockGate, openingStockAckState, fileRowOf, localizedServerMessage, listSeparator, PRICE_INCL_TAX_SUGGESTED_NOTICE,
-  type InvalidDateRow, type OpeningStockBlock, type OpeningStockServerBlock, type ImportNotice,
+  OPENING_STOCK_LOT_HINT, type InvalidDateRow, type OpeningStockBlock, type OpeningStockServerBlock, type ImportNotice,
 } from '../lib/importData';
 import { useTr } from '../i18n/strings';
 import { useLang } from '../i18n/lang';
@@ -51,6 +51,7 @@ import {
 import { Users, Package, Wallet, BookOpen, Tags, Boxes, Upload, X, Check, AlertTriangle, Loader2, FileUp, RotateCcw, Clock, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { backdropClose } from '../lib/backdropClose';
+import { LOT_WARNING_LABELS, lotFlagsOf, lotWarningsOf } from '../lib/lots';
 
 type Rows = Record<string, unknown>[];
 /** سياق أدنى حين يرفض الخادم الصفوف بلا تاريخ والسياق غير متاح: الدفاتر مفعّلة، بلا تاريخ بدء ولا اقتراح */
@@ -199,9 +200,11 @@ export default function DataImportPanel() {
 
   const { data: companyCfg } = useQuery({
     queryKey: ['company'],
-    queryFn: async () => (await companyApi.get()).data.data as { warehouseEnabled?: boolean } | null,
+    queryFn: async () => (await companyApi.get()).data.data as { warehouseEnabled?: boolean; lotTrackingEnabled?: boolean } | null,
     staleTime: 300_000,
   });
+  // «تتبّع اللوط»: المخزون الافتتاحي يقرأ أعمدة التشغيلة للشركة المفعّل لها وحدها — مطفأ ⇒ التحويل والمعاينة كما كانا (§١٠.١)
+  const lotTracking = lotFlagsOf(companyCfg).on;
   const stockGate = openingStockGate({
     warehouseEnabled: companyCfg?.warehouseEnabled === true,
     ctx: ledger,
@@ -336,6 +339,7 @@ export default function DataImportPanel() {
     // البند 31: خيار المالك الصريح يصل التحويل، فيسكت اقتراح «فعّل الخيار» بعد تأشير الخانة
     const tf = IMPORT_TYPES[preview.kind].transform(preview.raw, {
       ...(ledgerKind && undatedDate ? { undatedDate } : {}), currencyDecimals: companyDecimals, pricesIncludeTax: priceInclTax === true,
+      ...(lotTracking ? { lotTracking: true } : {}),
     });
     const aware = !!ledger && ledgerKind;
     const split = aware && ledger?.cutoverDate ? classifyImportRowsByCutover(tf.valid, ledger.cutoverDate, ledger.timezone) : null;
@@ -364,7 +368,7 @@ export default function DataImportPanel() {
       // البند 36: عدد الصفوف المرسلة فوق حدّ الخادم ⇒ الملف كله يُرفض قبل أي كتابة
       overMax: rowsOverMax(preview.kind, rows.length),
     };
-  }, [preview, ledger, undatedDate, excludeAfter, forceUndated, serverActivated, zeroPriceAck, companyDecimals, priceInclTax]);
+  }, [preview, ledger, undatedDate, excludeAfter, forceUndated, serverActivated, lotTracking, zeroPriceAck, companyDecimals, priceInclTax]);
   // البند 31: قرار المالك إن لمس الخانة، وإلا ما يقوله عنوان العمود
   const pricesIncludeTax = view?.inclusiveChosen ?? priceInclTax ?? false;
 
@@ -671,6 +675,8 @@ export default function DataImportPanel() {
                     <span className="font-semibold">{tr('التكلفة شاملة الضريبة')}</span>
                   </label>
                   <p>{tr('تخصم ضريبة كل صنف من التكلفة قبل التسجيل، فيدخل المخزون بتكلفته الصافية. الأصناف تطابق بالكود ثم الباركود ثم الاسم')}</p>
+                  {/* «تتبّع اللوط»: أعمدة التشغيلة لشركته وحدها */}
+                  {lotTracking && <p data-opening-stock-lots="">{tr(OPENING_STOCK_LOT_HINT)}</p>}
                 </div>
               )}
               {/* البند 31: عمود السعر شامل الضريبة ⇒ يخصمها الخادم قبل الحفظ، فلا تُضاف مرتين عند البيع */}
@@ -939,6 +945,9 @@ export default function DataImportPanel() {
         const futureDated = futureDatedWarning(w?.futureDated);
         // البند 31: أُرسل الملف بأسعار شاملة الضريبة ⇒ ما خُزّن صافٍ، وعدد ما حُوّل إن أرسله الخادم
         const netRows = netFromInclusiveCount(result.res);
+        // «تتبّع اللوط»: ردّ المخزون الافتتاحي يحمل warnings مصفوفةَ تحذيرات لوط (جردٌ إلى تشغيلةٍ موقوفة يبقى معزولاً) — لا تمنع
+        const lotWarnCodes = result.kind === OPENING_STOCK
+          ? [...new Set(lotWarningsOf((result.res as { warnings?: unknown }).warnings).map((x) => x.code))] : [];
         const stat = (value: number, label: string, cls: string, show = true) => show ? (
           <div className="min-w-[4.5rem]"><p className={`text-xl font-bold tabular-nums ${cls}`}>{value}</p><p className="text-xs text-gray-500">{tr(label)}</p></div>
         ) : null;
@@ -972,6 +981,12 @@ export default function DataImportPanel() {
                     {tr(OPENING_STOCK_REVERT_HINT)}
                   </p>
                 )}
+                {lotWarnCodes.map((code) => (
+                  <p key={code} className="bg-amber-50 border border-amber-200 rounded-xl p-2.5 mt-4 text-[11px] text-amber-900 text-right" data-opening-stock-lot-warning="">
+                    <AlertTriangle size={12} className="inline me-1" />
+                    {tr(LOT_WARNING_LABELS[code])}
+                  </p>
+                ))}
                 {(w?.undatedAsToday ?? 0) > 0 && (
                   <p className="bg-amber-50 border border-amber-200 rounded-xl p-2.5 mt-4 text-[11px] text-amber-900 text-right">
                     <AlertTriangle size={12} className="inline me-1" />

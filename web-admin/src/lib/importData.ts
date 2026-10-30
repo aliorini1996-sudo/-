@@ -333,8 +333,25 @@ export interface ImportFieldSpec {
   exactOnly?: boolean;
   /** مرادفات مفضّلة: عمود واحد يطابق أحدها تماماً يُختار وحده بلا التباس («الإجمالي شامل الضريبة» على «الإجمالي») */
   preferred?: readonly string[];
+  /**
+   * مطابقة الاحتواء تبدأ من أول كلمةٍ في العنوان لا من وسطها: «lot» يطابق «Lot #» و«Supplier Lot» و«LotNo»
+   * ولا يطابق «Slot» ولا «Plot No» ولا «Allotment». الكلمة تبدأ بعد غير حرفٍ أو رقم، أو عند حرفٍ لاتيني كبير بعد صغير.
+   */
+  wordStart?: boolean;
 }
 export type ImportSpec = Record<string, ImportFieldSpec>;
+/** ذيول العنوان المطبَّعة من بداية كل كلمة فيه (لمطابقة wordStart) */
+function wordTails(header: string): string[] {
+  const out: string[] = [];
+  const isWordChar = (ch: string) => /[\p{L}\p{N}\p{M}]/u.test(ch);
+  const chars = [...header];
+  for (let i = 0; i < chars.length; i++) {
+    if (!isWordChar(chars[i])) continue;
+    const prev = i > 0 ? chars[i - 1] : '';
+    if (!prev || !isWordChar(prev) || (/[A-Z]/.test(chars[i]) && /[a-z]/.test(prev))) out.push(norm(chars.slice(i).join('')));
+  }
+  return out;
+}
 export interface ResolvedColumns {
   /** مرشحو كل حقل بالترتيب: قيمة الصف = أول مرشح غير فارغ */
   candidates: Record<string, string[]>;
@@ -378,10 +395,12 @@ export function resolveColumns(headers: readonly string[], spec: ImportSpec): Re
     if (!exact.length && !fs.exactOnly) {
       const ex = (fs.exclude ?? []).map(norm);
       const contains: string[] = [];
+      const tails = fs.wordStart ? new Map(hs.map((x) => [x.k, wordTails(x.k)])) : null;
+      const hit = (x: { k: string; n: string }, na: string) => (tails ? (tails.get(x.k) ?? []).some((t) => t.startsWith(na)) : x.n.includes(na));
       for (const a of fs.aliases) {
         const na = norm(a);
         if (na.length < 3) continue;
-        for (const x of hs) if (x.n.includes(na) && !ex.some((e) => x.n.includes(e)) && !contains.includes(x.k)) contains.push(x.k);
+        for (const x of hs) if (hit(x, na) && !ex.some((e) => x.n.includes(e)) && !contains.includes(x.k)) contains.push(x.k);
       }
       cands = contains;
       if (fs.numeric && contains.length > 1) block(contains);
@@ -472,6 +491,11 @@ export interface TransformOpts {
   now?: Date | null;
   /** البند 39: منطقة الشركة (importContextTimezone) — بدونها يُحسب «اليوم» بتقويم المتصفح */
   timezone?: string | null;
+  /**
+   * «تتبّع اللوط» مفعّل للشركة (lotFlagsOf(company).on): المخزون الافتتاحي يقرأ أعمدة التشغيلة (رقمها وتاريخا الإنتاج والانتهاء).
+   * غائبٌ أو false ⇒ التحويل كما قبل الميزة حرفياً — لا حقل ولا عمود في المعاينة ولا بصمة مختلفة (§١٠.١)
+   */
+  lotTracking?: boolean;
 }
 /** رقم صف الخادم (موضع الصف المرسل + 2) ⇒ رقم صف الملف؛ خارج النطاق (ومنه 0) يبقى كما هو */
 export function fileRowOf(fileRows: readonly number[] | undefined, serverRow: number): number {
@@ -1246,7 +1270,8 @@ function toPrices(rows: Record<string, unknown>[], opts?: TransformOpts): Transf
 }
 
 // ============ المخزون الافتتاحي (opening_stock) ============
-// عقد الخادم POST /import/opening-stock: { rows: {productCode?, barcode?, productName?, qty?, unitCost?, unit?}[], pricesIncludeTax?, force? }
+// عقد الخادم POST /import/opening-stock: { rows: {productCode?, barcode?, productName?, qty?, unitCost?, unit?, lotNumber?, productionDate?, expiryDate?}[], pricesIncludeTax?, force? }
+// (أعمدة التشغيلة الثلاثة لشركة «تتبّع اللوط» وحدها — A_STOCK_LOT أدناه)
 // unit اختياري: وحدة الكمية والتكلفة (كرتون) تُطابَق في الخادم بالأساس أو بوحدات الصنف النشطة — والمجهولة لصنفٍ بوحدات خطأ صفّ،
 // ولصنفٍ بلا وحدات يُتجاهل العمود كما قبل الميزة (عمود «Unit of Measure» في جرد Odoo لا يكسر الملف)
 // المطابقة على الخادم: الكود ثم الباركود ثم الاسم المطبَّع. هنا التقاط الأعمدة ورفض ما يرفضه الخادم مسبقاً.
@@ -1280,6 +1305,67 @@ const A_STOCK: ImportSpec = {
   // «تكلفة الوحدة» تحوي «الوحدة» و«unit cost» تحوي «unit» ⇒ الوحدة تستثني عناوين التكلفة والسعر
   unit: { aliases: ['الوحدة', 'وحدة القياس', 'unit of measure', 'unit', 'uom'], exclude: ['تكلف', 'cost', 'سعر', 'price', 'قيمه', 'value'] },
 };
+
+// ── «تتبّع اللوط» (§٤.٥): أعمدة تشغيلة صفّ الجرد — للشركة المفعّل لها التتبّع وحدها (opts.lotTracking) ──
+// عقد الخادم (routes/import.ts openingStockRow): lotNumber وproductionDate وexpiryDate نصوصٌ اختيارية، والتاريخان YYYY-MM-DD.
+// الخادم يقرؤها للصنف المتتبَّع وحده (رقمها إلزامي له، وانتهاؤها إلزامي مع صلاحيته) ويتجاهلها لغيره، وصفّا الصنف بتشغيلتين صفّان.
+/** مقاطع عناوين التشغيلة: تُستثنى من مطابقة الاحتواء لمعرّفات الصنف — «Lot Code» ليس كود الصنف */
+const LOT_HEADER_TOKENS = ['تشغيل', 'لوط', 'باتش', 'دفعه', 'lot', 'batch'];
+/** مقاطع عناوين التواريخ: «Lot Expiration Date» ليس رقم التشغيلة، و«Production Date» ليس اسم الصنف («product») */
+const LOT_DATE_TOKENS = ['تاريخ', 'date', 'انتهاء', 'صلاحيه', 'expir', 'انتاج', 'تصنيع', 'production', 'manufactur', 'mfg', 'best before', 'use by'];
+const A_STOCK_LOT: ImportSpec = {
+  lotNumber: {
+    aliases: ['رقم التشغيلة', 'التشغيلة', 'رقم اللوط', 'اللوط', 'رقم الباتش', 'رقم الدفعة', 'lot number', 'lot no', 'lot/serial number', 'lot', 'batch number', 'batch no', 'batch'],
+    exclude: [...LOT_DATE_TOKENS, 'كميه', 'qty', 'quantity'],
+    // «lot» داخل كلمةٍ أخرى («Slot» موضع الرفّ، «Plot No») ليس رقم تشغيلة: قيمته كانت تُرسل lotNumber فيُنشئ الخادم به تشغيلة
+    wordStart: true,
+  },
+  productionDate: {
+    aliases: ['تاريخ الإنتاج', 'تاريخ التصنيع', 'الإنتاج', 'production date', 'manufacturing date', 'manufacture date', 'date of manufacture', 'mfg date'],
+    exclude: ['انتهاء', 'صلاحيه', 'expir', 'best before', 'use by'],
+  },
+  expiryDate: {
+    aliases: ['تاريخ الانتهاء', 'تاريخ انتهاء الصلاحية', 'انتهاء الصلاحية', 'تاريخ الصلاحية', 'الانتهاء', 'expiry date', 'expiration date', 'exp date', 'expiry', 'expiration', 'best before date', 'best before', 'use by'],
+    exclude: ['انتاج', 'تصنيع', 'production', 'manufactur', 'mfg', 'removal', 'alert', 'تنبيه', 'ازاله'],
+  },
+};
+/** مواصفة المخزون الافتتاحي: كما هي والميزة مطفأة، ومعها أعمدة التشغيلة واستثناءاتها لمعرّفات الصنف والميزة مفعّلة */
+function stockSpec(lotTracking: boolean): ImportSpec {
+  if (!lotTracking) return A_STOCK;
+  const ex = (f: ImportFieldSpec, extra: readonly string[]): ImportFieldSpec => ({ ...f, exclude: [...(f.exclude ?? []), ...extra] });
+  return {
+    ...A_STOCK,
+    code: ex(A_STOCK.code, LOT_HEADER_TOKENS),
+    barcode: ex(A_STOCK.barcode, LOT_HEADER_TOKENS),
+    name: ex(A_STOCK.name, [...LOT_HEADER_TOKENS, ...LOT_DATE_TOKENS]),
+    ...A_STOCK_LOT,
+  };
+}
+/**
+ * تاريخ تشغيلة YYYY-MM-DD، أو '' للفارغ، أو null لما لا يُقرأ. ملفٌّ يخلط صيغتي اليوم/الشهر (conflict) لا يُقرأ بترتيبٍ واحد:
+ * القيمة التي يحسمها جزؤها (> 12) تُقرأ بدليلها، والملتبسة (جزآها ≤ 12) لا تُقرأ — فلا قلب صامت ولا مانع للملف كله
+ */
+function readLotDate(raw: string, order: DateOrder, conflict: boolean): string | null {
+  if (!conflict) return normDate(raw, order);
+  const m = toAsciiDigits(raw.trim()).match(TWO_PART_DATE);
+  if (!m) return normDate(raw, 'dmy');
+  const a = +m[1]; const b = +m[2];
+  // اليوم والشهر متساويان («05/05/2027») يُقرآن بالترتيبين سواءً فلا التباس
+  if (a <= 12 && b <= 12) return a === b ? normDate(raw, 'dmy') : null;
+  return normDate(raw, a > 12 ? 'dmy' : 'mdy');
+}
+/** الملف بلا عمود رقم التشغيلة والميزة مفعّلة: صفوف الأصناف المتتبَّعة يرفضها الخادم (LOT_REQUIRED) — تنبيهٌ لا مانع */
+export const LOT_COLUMN_MISSING_NOTICE = 'الملف بلا عمود رقم التشغيلة: صفوف الأصناف المتتبعة باللوط يرفضها الخادم حتى يضاف رقم تشغيلتها';
+/** إرشاد معاينة المخزون الافتتاحي لشركة «تتبّع اللوط» */
+export const OPENING_STOCK_LOT_HINT = 'للصنف المتتبع باللوط اكتب رقم التشغيلة في كل صف وتاريخ انتهائها إن كانت صلاحيته مفعلة، والصنف بتشغيلتين صفان، وتتجاهل الأعمدة لغير المتتبع';
+/** صفوفٌ بتاريخ تشغيلة بلا رقمها — للصنف المتتبَّع يرفضها الخادم، ولغيره تُتجاهل التواريخ */
+export const LOT_DATES_WITHOUT_NUMBER_NOTICE = 'صفوف فيها تاريخ تشغيلة بلا رقم تشغيلة: الصنف المتتبع باللوط منها يرفضه الخادم حتى يكتب رقمها';
+/**
+ * تاريخ تشغيلةٍ لا يُقرأ (غير مفهوم، أو ملتبس اليوم والشهر في ملفٍ يخلط الصيغتين) أو إنتاجٌ بعد الانتهاء — تنبيهٌ معدود لا خطأ صفّ:
+ * الويب لا يعرف أيّ الأصناف متتبَّع، فيُرسل النصّ كما كُتب ويحكم الخادم (LOT_DATES_INVALID للمتتبَّع وحده، ويتجاهله لغيره).
+ * القيم «السطر: القيمة».
+ */
+export const LOT_DATES_UNREADABLE_NOTICE = 'تواريخ تشغيلة غير مفهومة أو ملتبسة أو إنتاجها بعد انتهائها: ترسل كما كتبت فيرفض الخادم صفها إن كان الصنف متتبعا باللوط ويتجاهلها لغيره، فاكتبها بالصيغة YYYY-MM-DD — السطر ثم القيمة';
 /**
  * البند 40: تقريب مبلغ بمنازل عملة الشركة لا بخانتين ثابتتين — الدينار الكويتي/البحريني/العُماني/الأردني
  * بثلاث منازل يخسر فلساً لكل صنف حين يُقرَّب لخانتين، فيبلغ الفرق ديناراً مع ألف صنف.
@@ -1291,16 +1377,27 @@ const roundMoney = (n: number, decimals: number | null | undefined): number => {
   return Math.round(n * f) / f;
 };
 function toOpeningStock(rows: Record<string, unknown>[], opts?: TransformOpts): TransformOut {
-  const c = makeCtx(rows, A_STOCK, opts);
+  const lotOn = opts?.lotTracking === true;
+  const c = makeCtx(rows, stockSpec(lotOn), opts);
   const valid: Record<string, unknown>[] = []; const fileRows: number[] = []; const { errors } = c;
   let zeroQty = false; let total = 0;
+  // «تتبّع اللوط»: ترتيب اليوم/الشهر يُكشف من عمودي التاريخين معاً مرة واحدة (البند 37) — في الصفوف ذات رقم تشغيلة وحدها،
+  // فتواريخ غيرها لا تُقرأ أصلاً (أدناه). والتعارض لا يمنع الملف (قد تكون أصنافه كلها غير متتبَّعة): readLotDate تقرأ كل قيمةٍ بدليلها
+  const lotScan = lotOn
+    ? detectDateOrder(rows.filter((r) => c.s(r, 'lotNumber')).flatMap((r) => [c.raw(r, 'productionDate'), c.raw(r, 'expiryDate')]))
+    : null;
+  const lotOrder: DateOrder = lotScan?.order ?? 'dmy';
+  const lotConflict = lotScan?.conflict === true;
+  let datesWithoutNumber = 0;
+  let unreadable = 0; const unreadableAt: string[] = [];
   rows.forEach((row, i) => {
     const line = c.line(row, i); // سطر الصف في الملف (البند 38)
     const productCode = c.s(row, 'code'); const barcode = c.s(row, 'barcode'); const productName = c.s(row, 'name');
     const qtyRaw = c.s(row, 'qty'); const costRaw = c.s(row, 'unitCost'); const unit = c.s(row, 'unit');
+    const lotNumber = lotOn ? c.s(row, 'lotNumber') : '';
     if (!productCode && !barcode && !productName) { errors.push({ row: line, message: STOCK_ID_MISSING }); return; }
-    // البند 36: قيد zod نفسه (200 حرفاً) خطأ صفّ لا رفض ملف
-    const tooLong = ([['code', productCode], ['barcode', barcode], ['name', productName], ['unit', unit]] as const).find(([, v]) => v.length > IMPORT_TEXT_MAX);
+    // البند 36: قيد zod نفسه (200 حرفاً) خطأ صفّ لا رفض ملف — ورقم التشغيلة منه (optText في الخادم)
+    const tooLong = ([['code', productCode], ['barcode', barcode], ['name', productName], ['unit', unit], ['lotNumber', lotNumber]] as const).find(([, v]) => v.length > IMPORT_TEXT_MAX);
     if (tooLong) { errors.push({ row: line, message: TEXT_TOO_LONG, value: tooLong[1].slice(0, 40), field: tooLong[0] }); return; }
     const qty = c.num(row, i, 'qty');
     if (qty === null) return;
@@ -1311,15 +1408,44 @@ function toOpeningStock(rows: Record<string, unknown>[], opts?: TransformOpts): 
     if (unitCost === undefined || !(unitCost > 0) || unitCost > OPENING_STOCK_MAX_UNIT_COST) {
       errors.push({ row: line, message: STOCK_COST_INVALID, ...(costRaw ? { value: costRaw } : {}) }); return;
     }
+    // «تتبّع اللوط»: الويب لا يعرف أيّ الأصناف متتبَّع، فلا يُسقط صفّاً بتاريخ تشغيلته — الخادم يحكم (§٤.٥، importLedger.openingStockLotOf):
+    // يرفض صفّ المتتبَّع بلا رقمٍ (LOT_REQUIRED) أو بتاريخٍ غير صالح (LOT_DATES_INVALID)، ويتجاهل الأعمدة لغيره.
+    // - بلا رقم تشغيلة: التاريخان لا يُخزَّنان أبداً فلا يُقرآن ولا يُرسلان (و«-» أو «لا يوجد» لصنفٍ بلا صلاحية لا يُسقط رصيده).
+    // - برقمها: التاريخ المقروء بصيغة الخادم YYYY-MM-DD، وما لا يُقرأ يُرسل نصّه كما كُتب (بحدّ zod) بتنبيهٍ معدود، وكذا الإنتاج بعد الانتهاء.
+    // الخانة الفارغة لا تُرسل حقلاً، فالصفّ بلا تشغيلة كما كان حرفياً (والبصمة معه)
+    let lot: { lotNumber?: string; productionDate?: string; expiryDate?: string } = {};
+    if (lotOn) {
+      const prodRaw = c.s(row, 'productionDate'); const expRaw = c.s(row, 'expiryDate');
+      const prod = readLotDate(prodRaw, lotOrder, lotConflict); const exp = readLotDate(expRaw, lotOrder, lotConflict);
+      if (!lotNumber) {
+        if (prod || exp) datesWithoutNumber++;
+      } else {
+        const bad = [prod === null ? prodRaw.slice(0, 40) : '', exp === null ? expRaw.slice(0, 40) : ''].filter(Boolean);
+        if (!bad.length && prod && exp && prod > exp) bad.push(`${prod} > ${exp}`);
+        if (bad.length) { unreadable++; if (unreadableAt.length < 10) unreadableAt.push(`${line}: ${bad.join(' / ')}`); }
+        const productionDate = prod ?? prodRaw.slice(0, IMPORT_TEXT_MAX); const expiryDate = exp ?? expRaw.slice(0, IMPORT_TEXT_MAX);
+        lot = { lotNumber, ...(productionDate ? { productionDate } : {}), ...(expiryDate ? { expiryDate } : {}) };
+      }
+    }
     total += qty * unitCost;
     fileRows.push(line);
     // الكمية والتكلفة بوحدة العمود (كرتون × تكلفة الكرتون) فالإجمالي أعلاه صحيح بلا تحويل
     valid.push({
       ...(productCode ? { productCode } : {}), ...(barcode ? { barcode } : {}), ...(productName ? { productName } : {}), qty, unitCost,
-      ...(unit ? { unit } : {}),
+      ...(unit ? { unit } : {}), ...lot,
     });
   });
-  return { valid, fileRows, errors, warnings: zeroQty ? [STOCK_ZERO_QTY_WARNING] : [], totalCost: roundMoney(total, opts?.currencyDecimals), notices: c.notices(), columns: c.res.columns, blockers: c.res.blockers };
+  // تنبيهات التشغيلة غير المانعة: ترتيب التاريخين، وعمود رقم التشغيلة الغائب، والتاريخ بلا رقم، والتاريخ الذي لا يُقرأ
+  // (والتعارض بلا تنبيه ترتيب: كل قيمةٍ قُرئت بدليلها، والملتبس منها في تنبيه «لا يُقرأ» بسطره)
+  const lotNotices: ImportNotice[] = [];
+  if (lotScan && !lotScan.conflict) {
+    if (lotScan.order === 'mdy') lotNotices.push({ key: DATE_ORDER_MDY_NOTICE });
+    else if (!lotScan.detected && lotScan.ambiguous) lotNotices.push({ key: DATE_ORDER_AMBIGUOUS_NOTICE, count: lotScan.ambiguous });
+  }
+  if (lotOn && valid.length && !c.has('lotNumber')) lotNotices.push({ key: LOT_COLUMN_MISSING_NOTICE });
+  if (datesWithoutNumber) lotNotices.push({ key: LOT_DATES_WITHOUT_NUMBER_NOTICE, count: datesWithoutNumber });
+  if (unreadable) lotNotices.push({ key: LOT_DATES_UNREADABLE_NOTICE, count: unreadable, values: unreadableAt });
+  return { valid, fileRows, errors, warnings: zeroQty ? [STOCK_ZERO_QTY_WARNING] : [], totalCost: roundMoney(total, opts?.currencyDecimals), notices: c.notices(lotNotices), columns: c.res.columns, blockers: c.res.blockers };
 }
 
 // ============ سجلّ الأنواع ============

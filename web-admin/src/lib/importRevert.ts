@@ -588,6 +588,9 @@ const FIELD_LABELS: Readonly<Record<string, string>> = {
   // الوحدات المتعددة: أعمدة الوحدات الإضافية في ملف المنتجات، ووسم خطأ الوحدة التالفة
   unit2: 'الوحدة الثانية', unit2Factor: 'معامل الوحدة الثانية', unit2Price: 'سعر الوحدة الثانية',
   unit3: 'الوحدة الثالثة', unit3Factor: 'معامل الوحدة الثالثة', unit3Price: 'سعر الوحدة الثالثة', units: 'الوحدات الإضافية',
+  // «تتبّع اللوط»: أعمدة تشغيلة المخزون الافتتاحي — وسما التاريخين باسم التشغيلة: رسالة LOT_EXPIRY_REQUIRED تذكر «تاريخ انتهاء
+  // التشغيلة» فلا يُلصق وسمه على قيمتها (رقم التشغيلة)، ورسالة LOT_DATES_INVALID تذكر «تاريخ الإنتاج» فيبقى وسم خانته ظاهراً
+  lotNumber: 'رقم التشغيلة', productionDate: 'تاريخ إنتاج التشغيلة', expiryDate: 'تاريخ انتهاء التشغيلة',
 };
 export const importFieldLabel = (field: string): string => FIELD_LABELS[field] ?? field;
 

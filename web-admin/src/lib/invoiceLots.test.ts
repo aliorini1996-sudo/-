@@ -13,8 +13,9 @@ import { lotErrorOf } from './lots';
 const tr = (s: string) => s;
 const src = (...p: string[]) => fs.readFileSync(path.join(process.cwd(), 'src', ...p), 'utf8');
 
+// كما يضمّه الخادم (ITEM_LOTS_INCLUDE): expiryDate الصفّ لقطة الإصدار، وهي للمسمّى انتهاء لوطه يومها
 const lotRow = (lotId: string | null, quantity: number, lotNumber?: string, expiryDate?: string) => ({
-  id: `r-${lotId ?? 'u'}-${quantity}`, lotId, quantity, certainty: lotId ? 'CONFIRMED' : 'UNKNOWN', expiryDate: null,
+  id: `r-${lotId ?? 'u'}-${quantity}`, lotId, quantity, certainty: lotId ? 'CONFIRMED' : 'UNKNOWN', expiryDate: lotId ? expiryDate ?? null : null,
   lot: lotId ? { lotNumber: lotNumber ?? lotId, expiryDate: expiryDate ?? null } : null,
 });
 

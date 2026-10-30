@@ -348,7 +348,9 @@ export class World {
         findUniqueOrThrow: async (a: Row) => {
           const e = w.entries.find((x) => x.id === a.where.id);
           if (!e) throw new Error('NotFound');
-          return { createdAt: e.createdAt, items: w.items.filter((i) => i.entryId === e.id).map((i) => ({ productId: i.productId })) };
+          // الأعمدة المطلوبة وحدها (lotId إن طُلب): مسارٌ لا يختاره لا يراه
+          const sel: Row = a.select?.items?.select ?? { productId: true };
+          return { createdAt: e.createdAt, items: w.items.filter((i) => i.entryId === e.id).map((i) => ({ productId: i.productId, ...(sel.lotId && { lotId: i.lotId }) })) };
         },
         deleteMany: async (a: Row) => { log('warehouseEntry.deleteMany'); const n = w.entries.length; w.entries = w.entries.filter((e) => e.id !== a.where.id); return { count: n - w.entries.length }; },
       },

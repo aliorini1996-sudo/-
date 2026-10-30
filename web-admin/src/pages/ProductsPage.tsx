@@ -73,7 +73,7 @@ export default function ProductsPage() {
   const saveMutation = useMutation({
     mutationFn: (values: ProductSave) =>
       selected ? productApi.update(selected.id, values) : productApi.create(values),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['products'] }); toast.success(selected ? tr('تم التحديث') : tr('تم الإضافة')); setShowModal(false); setSelected(null); setBalanceConfirm(null); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['products'] }); if (lotOn) qc.invalidateQueries({ queryKey: ['products-min'] }); toast.success(selected ? tr('تم التحديث') : tr('تم الإضافة')); setShowModal(false); setSelected(null); setBalanceConfirm(null); },
     // رسالة الخادم لا «حدث خطأ» العمياء — سبب الرفض (تحقق/تكرار كود) يصل للمستخدم
     onError: (err: unknown, values) => {
       // إطفاء تتبّع صنفٍ له أرصدة في تشغيلات (D9): تأكيدٌ بالتفاصيل ثم الإرسال نفسه بـconfirmLotBalances
@@ -103,6 +103,8 @@ export default function ProductsPage() {
     mutationFn: async (req: LotTrackingRequest) => (await lotsApi.setTracking(req)).data.data as LotTrackingResultDto,
     onSuccess: (res, req) => {
       qc.invalidateQueries({ queryKey: ['products'] });
+      // قائمة الأصناف المختصرة في المستودع ومخزون السيارات تقرأ منها «الصنف متتبَّع»
+      qc.invalidateQueries({ queryKey: ['products-min'] });
       setBulkAsk(null); setBalanceConfirm(null); setPicked(new Set());
       toast.success(`${tr('تم تحديث تتبع اللوط')} — ${formatNumber(res?.updated ?? 0)} ${tr('صنف')}`);
       const rows = req.enabled ? attentionRows(res) : [];
@@ -113,7 +115,7 @@ export default function ProductsPage() {
       const bal = trackingBalanceOf(err);
       if (bal && !req.enabled && !req.confirmLotBalances) {
         // الدفعات السابقة التزمت (updated) — والتأكيد يعيد الطلب نفسه فيكمل ما بقي
-        if (bal.updated > 0) qc.invalidateQueries({ queryKey: ['products'] });
+        if (bal.updated > 0) { qc.invalidateQueries({ queryKey: ['products'] }); qc.invalidateQueries({ queryKey: ['products-min'] }); }
         setBalanceConfirm({ kind: 'bulk', req, products: bal.products, updated: bal.updated });
         return;
       }

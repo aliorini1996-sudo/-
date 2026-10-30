@@ -93,7 +93,7 @@ export default function MDocList({ kind, company, userName, onSwitchKind }: {
     return (
       <Suspense fallback={<MSpinner />}>
         {kind === 'invoice'
-          ? <MInvoiceCreate onClose={() => setCreating(false)}
+          ? <MInvoiceCreate company={company} onClose={() => setCreating(false)}
               onCreated={(id) => { setCreating(false); setOpenId(id); }} />
           : <MReceiptCreate company={company} onClose={() => setCreating(false)}
               onCreated={(id) => { setCreating(false); setOpenId(id); }} />}

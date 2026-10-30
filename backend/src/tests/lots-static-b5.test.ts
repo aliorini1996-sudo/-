@@ -109,9 +109,17 @@ test('R1: الإصدار لا يستدعي دوال اللوط إلا داخل �
   // المهلة الموسّعة للمستند المتتبَّع وحده (D13)، وغيره بلا خيار
   assert.ok(post.includes('}, tracksLots ? LOT_TX_OPTIONS : undefined);'));
   assert.equal(count(post, 'LOT_TX_OPTIONS'), 1);
-  // canSellWithoutStock: المتتبَّع يُتخطّى في الفحص القديم ويُمنع داخل المعاملة لكل فاعل (R3)
+  // canSellWithoutStock: المتتبَّع يُتخطّى في الفحص القديم ويُمنع داخل المعاملة لكل فاعل (R3) — والمتخطّى تحمله الخطة فلا يُصدر
+  // بلا أي فحص إن أُطفئ تتبّعه قبل القفل (D25 بالعكس، trackingLost في allocateInvoiceLotsInTx)
   const stock = post.slice(post.indexOf("if (rep.canSellWithoutStock === false && body.type !== 'RETURN') {"));
-  assert.ok(stock.indexOf('if (preTracked.has(pid)) continue;') < stock.indexOf('const rem = remById.get(pid) ?? 0;'));
+  const skip = 'if (preTracked.has(pid)) { stockCheckSkipped.push(pid); continue; }';
+  assert.ok(stock.includes(skip) && stock.indexOf(skip) < stock.indexOf('const rem = remById.get(pid) ?? 0;'));
+  const plan = post.slice(post.indexOf('lotPlan = {'), post.indexOf('};', post.indexOf('lotPlan = {')));
+  assert.ok(plan.includes('...(stockCheckSkipped.length > 0 && { stockCheckSkipped }),'), 'الخطة تحمل ما تخطّاه الفحص القديم');
+  assert.ok(post.includes('let lotPlan: IssuanceLotPlan | null = null;'));
+  // شكل الردّ (§٤.٨ البند ٩، D11): صفوف التوزيع في ردّ المستند المتتبَّع وحده، وغيره بنوده كما كانت
+  const create = post.slice(post.indexOf('const inv = await tx.invoice.create({'));
+  assert.ok(create.includes('include: { items: (lots ? { include: ITEM_LOTS_INCLUDE } : true) as true, customer: true, installments:'));
 });
 
 test('الطابور قبل withNumberRetry ويُحرَّر بعد الالتزام وفي finally؛ وكذلك الإلغاء وإطفاء العودة', () => {
@@ -128,9 +136,12 @@ test('الطابور قبل withNumberRetry ويُحرَّر بعد الالتز
   ordered(cancel, [
     'include: { receiptItems: true, tenant: { select: { lotTrackingEnabled: true } } },',
     "const lotReturnCancel = invoice.type === 'RETURN' && invoice.tenant?.lotTrackingEnabled === true;",
+    'if (lotReturnCancel) {',
     'releaseLots = await acquireLotQueue(tid, lotCancel);',
     'await lockInvoiceForCancel(tx, tid, invoice.id);',
-    'if (lotReturnCancel) await assertReturnCancelKeepsLots(tx, tid, invoice.id);',
+    // الحارس لأصنافه المتتبَّعة وحدها؛ وغير المتتبَّع: إعادة قراءة التتبّع FOR KEY SHARE وحدها (D25، §١٠.٢)
+    'if (lotCancel.length) await assertReturnCancelKeepsLots(tx, tid, invoice.id);',
+    'else if (lotPids.length) await assertReturnStillUntracked(tx, tid, lotPids);',
     "const inv = await tx.invoice.update({ where: { id: invoice.id }, data: { status: 'CANCELLED' } });",
     '}, lotCancel.length ? LOT_TX_OPTIONS : undefined);',
     'const lh = lotReply(err, lotCancel.length > 0);',
@@ -145,6 +156,14 @@ test('الطابور قبل withNumberRetry ويُحرَّر بعد الالتز
     'await assertRestockOffKeepsLots(tx, tid, invoice.id);',
     'return tx.invoice.update({ where: { id: invoice.id }, data: { returnToStock } });',
     '}, LOT_TX_OPTIONS);',
+    // غير المتتبَّع والميزة مفعّلة: معاملةٌ بلا خيار فيها إعادة قراءة التتبّع وحدها (D25) — كالإلغاء؛ والكتابة قبلها فيُقفل صفّ
+    // الفاتورة قبل الأصناف (ترتيب §٣.١ — لا يعكسه مسار)
+    'if (lotPids.length) {',
+    'const row = await tx.invoice.update({ where: { id: invoice.id }, data: { returnToStock } });',
+    'await assertReturnStillUntracked(tx, tid, lotPids);',
+    'return row;',
+    '});',
+    'const updated = await prisma.invoice.update({ where: { id: req.params.id }, data: { returnToStock } });',
     'const lh = lotReply(err, lotOff.length > 0);',
     '  } finally {\n    releaseLots?.();\n  }',
   ], 'إطفاء العودة');
@@ -167,10 +186,12 @@ test('المعالجات تحوّل LotError (والانشغال في مسار �
 
 test('القراءات تضمّ صفوف التوزيع بـwithLots=1 وحده (D11)', () => {
   const inv = read('routes/invoices.ts');
-  assert.ok(handler(inv, "router.get('/:id',").includes('...(wantsLots(req) && ITEM_LOTS_INCLUDE)'));
-  assert.ok(handler(inv, "router.get('/by-client-ref/:clientRef',").includes('include: { items: (wantsLots(req) ? { include: ITEM_LOTS_INCLUDE } : true) as true, customer: true },'));
-  assert.ok(handler(inv, "router.get('/:id/returnable',").includes('const lotsByItem = wantsLots(req) ? await saleItemLots(prisma, tid, sale.items.map((i) => i.id)) : null;'));
-  assert.match(inv, /const wantsLots = \(req: AuthRequest\) => req\.query\.withLots === '1' \|\| req\.query\.withLots === 'true';/);
+  assert.ok(handler(inv, "router.get('/:id',").includes('...((await wantsLots(req, tid)) && ITEM_LOTS_INCLUDE)'));
+  assert.ok(handler(inv, "router.get('/by-client-ref/:clientRef',").includes('include: { items: ((await wantsLots(req, tid)) ? { include: ITEM_LOTS_INCLUDE } : true) as true, customer: true },'));
+  assert.ok(handler(inv, "router.get('/:id/returnable',").includes('const lotsByItem = (await wantsLots(req, tid)) ? await saleItemLots(prisma, tid, sale.items.map((i) => i.id)) : null;'));
+  // والميزة مفعّلة (D8 يُخفي ولا يحذف): العَلَم بعد المعامل فبلا withLots لا استعلام (§١٠.١) — كـwithLotsOf في vanStock.ts
+  assert.ok(inv.includes("const wantsLots = async (req: AuthRequest, tid: string): Promise<boolean> => (req.query.withLots === '1' || req.query.withLots === 'true')\n  && (await prisma.tenant.findUnique({ where: { id: tid }, select: { lotTrackingEnabled: true } }))?.lotTrackingEnabled === true;"));
+  assert.ok(!/wantsLots\(req\)/.test(inv), 'لا قراءة withLots بلا عَلَم الشركة');
 });
 
 test('stampInvoiceExpiry يرشّح بـexpiresAt == null (D12)، وfreeReturnStamps نسخةٌ واحدة يغلّفها lotsInvoice', () => {
@@ -187,12 +208,26 @@ test('stampInvoiceExpiry يرشّح بـexpiresAt == null (D12)، وfreeReturnSt
 test('lotsInvoice: lockLotProducts يسبق أول قراءة رصيد لوط وأول كتابة، وClientRefRace تحت القفل قبل التوزيع', () => {
   const s = stripComments(read('services/lotsInvoice.ts'));
   const alloc = s.slice(s.indexOf('export async function allocateInvoiceLotsInTx('), s.indexOf('export async function precheckInvoiceLots('));
-  ordered(alloc, ['await lockLotProducts(tx,', 'tx.invoice.findUnique(', 'throw new ClientRefRace();', 'await allocateTracked(tx, plan, tracked);', 'await tx.notification.create('], 'allocateInvoiceLotsInTx');
+  ordered(alloc, [
+    'await lockLotProducts(tx,',
+    // انتظار قفل اللوط (55P03/40P01) ⇒ LOT_BUSY في المصدر (D14) — الإشعار الدائن لا يحوّل خطأ القاعدة
+    'throw asLockBusy(e) ?? e;',
+    'tx.invoice.findUnique(', 'throw new ClientRefRace();',
+    // D25 بالعكس: ما تخطّاه فحص المخزون القديم ثم أُطفئ — بعد السباق على clientRef (المكرَّر 200) وقبل التوزيع
+    'const lost = trackingLost(plan, tracked);',
+    'await allocateTracked(tx, plan, tracked);', 'await tx.notification.create(',
+  ], 'allocateInvoiceLotsInTx');
   const removal = s.slice(s.indexOf('async function assertRemovalKeepsLots('), s.indexOf('export async function assertReturnCancelKeepsLots('));
   ordered(removal, ['await lockLotProducts(tx, tid, pids);', 'lotRemovalsOf(items, epoch, tracked)', 'await placeViews(tx,', 'removalKeepsLots(view, removals)'], 'حارس الإزالة');
-  // الفحص المسبق بلا قفل (ن٢-٣): لا lockLotProducts ولا كتابة
+  // إعادة قراءة التتبّع لمرتجعٍ غير متتبَّع: FOR KEY SHARE وحده — لا قفل لوط ولا قراءة شركة ولا عرض سيارة (§١٠.٢)
+  const still = s.slice(s.indexOf('export async function assertReturnStillUntracked('), s.indexOf('export async function recordReplayHeld('));
+  assert.ok(still.length > 0 && still.length < 1500, 'جسم الدالّة وحده');
+  assert.ok(still.includes('FOR KEY SHARE') && still.includes("throw lotErr('LOT_BUSY', {}, { reason: 'TRACKING_CHANGED', productIds: now });"));
+  assert.ok(!/lockLotProducts|placeViews|tenant\.findUnique|invoice\.findFirst|pg_advisory/.test(still));
+  // الفحص المسبق بلا قفل (ن٢-٣): لا lockLotProducts ولا كتابة — ويكشف ما أُطفئ بعد تخطّي الفحص القديم فلا يُوقَّع
   const pre = s.slice(s.indexOf('export async function precheckInvoiceLots('), s.indexOf('export interface FreeReturnStampsQuery'));
   assert.ok(!/lockLotProducts|\.create\(|\.update\(/.test(pre));
+  ordered(pre, ['const lost = trackingLost(plan, tracked);', 'await allocateTracked(db, plan, tracked);'], 'precheckInvoiceLots');
   // البيع لكل سطر (allocateOutLines) لا على المجموع ثم distributeToLines (D22، مراجعة الوحدات)
   assert.ok(s.includes('allocateOutLines({') && !/\ballocateOut\(|distributeToLines\(/.test(s));
 });

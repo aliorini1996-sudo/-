@@ -12,8 +12,11 @@
  */
 
 import { isLiveGuardedKind, liveRefusalError, strictRepNow } from './liveGate';
+import { withSentAt } from './vanLots';
 
 const DB_NAME = 'fieldsa-rep';
+// «تتبّع اللوط» (§٦.٣): مفتاحا ref جديدان — 'vanlots' (لقطة أرصدة السيارة) و'vanlots:posted' (ما صدر متصلاً بعد بدء جلبها) —
+// في المخزن القائم بلا رفع النسخة: مفاتيح لا مخازن، وrefClear يمسحهما مع غيرهما (جهازٌ مشترك لا يرث لقطة زميله)
 const DB_VERSION = 1;
 const STORE_REF = 'ref';
 const STORE_OUTBOX = 'outbox';
@@ -69,6 +72,27 @@ export async function cacheGet<T>(key: string): Promise<{ data: T; updatedAt: nu
 }
 
 /**
+ * قراءةٌ ثم كتابة لمفتاحٍ مرجعي في معاملة IndexedDB واحدة — فلا تمحو كتابتان متزامنتان إحداهما الأخرى (قائمة 'vanlots:posted'
+ * يضيف إليها الإصدار ويقلّمها جلب اللقطة). fn صرفة تعيد القيمة الجديدة من الحالية (undefined إن غابت).
+ */
+export async function cacheUpdate<T>(key: string, fn: (cur: T | undefined) => T): Promise<T> {
+  const db = await openDb();
+  return new Promise<T>((resolve, reject) => {
+    const t = db.transaction(STORE_REF, 'readwrite');
+    const s = t.objectStore(STORE_REF);
+    let next: T;
+    const get = s.get(key);
+    get.onsuccess = () => {
+      next = fn((get.result as RefEntry<T> | undefined)?.data);
+      s.put({ key, data: next, updatedAt: Date.now() } as RefEntry<T>);
+    };
+    t.oncomplete = () => resolve(next);
+    t.onerror = () => reject(t.error);
+    t.onabort = () => reject(t.error);
+  });
+}
+
+/**
  * نمط مشترك: جلب من الشبكة ثم التخزين، ومع الانقطاع القراءة من الكاش.
  * يُرجع {data, offline} — offline=true حين تعذّرت الشبكة وجاءت البيانات من الكاش.
  */
@@ -104,8 +128,11 @@ export interface OutboxDoc {
   serverNumber?: string;          // الرقم النهائي بعد الرفع
   serverId?: string;
   // فوترة ZATCA (Z5.0، خامل حتى Z5.8): مستند دون اتصال من قبل التفعيل ينتظر مراجعة الإدارة — يبقى مصفوفاً (لا «مرفوض»)
-  reviewCode?: string;            // ZATCA_CUTOVER_REVIEW
+  reviewCode?: string;            // ZATCA_CUTOVER_REVIEW، أو LOT_REPLAY_HELD («تتبّع اللوط» D20: بانتظار الإدارة لتسجيل تحميلٍ ناقص)
   reviewCheckedAt?: string;       // ISO — آخر سؤال للخادم (لا يُعاد قبل مهلة)
+  // «تتبّع اللوط» (§٧.٢): لحظة قبول الخادم للمستند (ISO) — يختمها outboxUpdate عند الانتقال إلى sent. المرسَل بعد بدء جلب
+  // لقطة السيارة لا تعرفه اللقطة فيُطرح من المتاح المحلي، وما قبله تعرفه
+  sentAt?: string;
 }
 
 export async function outboxAdd(doc: OutboxDoc): Promise<void> {
@@ -128,7 +155,8 @@ export async function outboxAllOrNull(): Promise<OutboxDoc[] | null> {
 }
 
 export async function outboxUpdate(doc: OutboxDoc): Promise<void> {
-  await tx(STORE_OUTBOX, 'readwrite', (s) => s.put(doc));
+  // الانتقال إلى «مُرسَل» يُختم بلحظته (sentAt) في موضعٍ واحد — كل مسارٍ يرفع مستنداً يمرّ من هنا
+  await tx(STORE_OUTBOX, 'readwrite', (s) => s.put(withSentAt(doc, new Date().toISOString())));
 }
 
 export async function outboxDelete(clientRef: string): Promise<void> {
@@ -147,8 +175,8 @@ export function currentRepId(): string | undefined {
 }
 
 /**
- * يمسح البيانات المرجعية المخزّنة (العملاء/الأصناف/إعدادات الشركة) دون المساس بالصفّ
- * الصادر. يُستدعى عند تبديل المندوب على جهاز مشترك: قاعدة IndexedDB مشتركة للأصل،
+ * يمسح البيانات المرجعية المخزّنة (العملاء/الأصناف/إعدادات الشركة، ولقطة أرصدة السيارة 'vanlots' و'vanlots:posted') دون المساس
+ * بالصفّ الصادر. يُستدعى عند تبديل المندوب على جهاز مشترك: قاعدة IndexedDB مشتركة للأصل،
  * فلولا هذا لرأى المندوب الجديد قائمة عملاء سابقه عند أول تعذّر شبكة — وهو ما يُبطل العزل.
  */
 export async function refClear(): Promise<void> {

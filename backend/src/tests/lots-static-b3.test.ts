@@ -70,11 +70,13 @@ test('B3 الاستيراد: العلم من استعلام الشركة الق�
   ordered(body, [
     'const lotsOn = tenant.lotTrackingEnabled === true;', 'resolveOpeningStockRows(rows, openingStockProductMatcher(products), body.pricesIncludeTax, { lotsOn })',
     'const trackedIds = new Set(lotsOn ?', 'if (lotProducts.length) releaseLots = await acquireLotQueue(tid, lotProducts);', 'prisma.$transaction(async tx => {',
-    'acquirePostLock(tx, tid)', 'const lotLocks = releaseLots ? await lockLotProducts(tx, tid, productIds) : null;', 'tx.warehouseEntryItem.groupBy(',
-    'openingStockMovementConflicts(', 'const entryId = lotLocks && checked.lines.length ? randomUUID() : null;', 'await planOpeningLotsInTx(tx,',
+    'acquirePostLock(tx, tid)', 'const lotLocks = lotsOn ? await lockLotProducts(tx, tid, productIds) : null;', 'tx.warehouseEntryItem.groupBy(',
+    'openingStockMovementConflicts(', 'const entryId = lotLocks && lotLocks.tracked.size > 0 && checked.lines.length ? randomUUID() : null;', 'await planOpeningLotsInTx(tx,',
     'tx.warehouseEntry.create(', 'lotId: lotPlan.lotIdByRow.get(l.row)', 'releaseLots?.();',
   ], '/opening-stock');
-  assert.match(body, /const lotBusy = lotProducts\.length \? asLotBusy\(e\) : null;[\s\S]*?'OPENING_STOCK_LEDGER_BUSY'/, 'الانشغال يبقى 409 القائم (§٣.٣)');
+  assert.match(body, /const lotBusy = lotsOn \? asLotBusy\(e\) : null;[\s\S]*?'OPENING_STOCK_LEDGER_BUSY'/, 'الانشغال يبقى 409 القائم (§٣.٣)');
+  // القفل في المعاملة بالعلم وحده لا بالقراءة المسبقة: صنفٌ صار متتبَّعاً بين القراءتين يُقفل في القاعدة (§٣.١)، والطابور بشرطه
+  assert.doesNotMatch(body, /releaseLots \? await lockLotProducts/);
 });
 
 test('B3 التراجع: lockLotProducts بعد صفّ الحركة FOR UPDATE وقبل الفحوص القائمة (ن١-١١)، ثم حارس التشغيلات، ثم الحذف فاليتيم', () => {
@@ -84,9 +86,10 @@ test('B3 التراجع: lockLotProducts بعد صفّ الحركة FOR UPDATE �
     'for (const eid of ids)', 'if (lotsOn) {', 'releaseLots = await acquireLotQueue(tid,', 'acquirePostLock(tx, tid)', 'FOR UPDATE',
     'const lotLocks = lotsOn && productIds.length ? await lockLotProducts(tx, tid, productIds) : null;',
     'openingStockRevertBlockReason(', 'await assertOpeningRevertKeepsLots(tx, tid, { id: eid, createdAt: entry.createdAt, productIds }, lotLocks);',
-    'tx.warehouseEntryItem.deleteMany(', 'tx.warehouseEntry.deleteMany(', 'if (lotsOn) await deleteOrphanOpeningLots(tx, tid, eid,',
+    'tx.warehouseEntryItem.deleteMany(', 'tx.warehouseEntry.deleteMany(', 'if (lotsOn || entry.items.some(i => i.lotId != null)) await deleteOrphanOpeningLots(tx, tid, eid,',
     'if (e instanceof LotError) { blocked.push(', 'releaseLots?.();',
   ], 'revert opening_stock');
+  assert.ok(branch.includes('select: { createdAt: true, items: { select: { productId: true, lotId: true } } } });'), 'lotId في قراءة الحركة القائمة: اليتيم يُحذف والميزة مطفأة بلا استعلام زائد');
   assert.ok(src.includes('select: { accountingEnabled: true, lotTrackingEnabled: true } });'), 'العلم من استعلام الأنواع المحاسبية القائم');
   const products = slice(src, "} else if (batch.kind === 'products') {", "} else if (batch.kind === 'balances'");
   assert.ok(products.includes('productLots: lotsOn ? await tx.productLot.count({ where: { tenantId: tid, productId: pid } }) : 0,'), 'صنفٌ له تشغيلات لا يُحذف');

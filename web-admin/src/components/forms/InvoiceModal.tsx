@@ -79,6 +79,8 @@ function FreeReturnLotPicker({ productId, value, onChange, disabled, lotOn }: {
     queryKey: ['lots-of-product', productId],
     enabled: lotOn && !!productId,
     staleTime: 60_000,
+    // بلا صلاحية مخزون السيارات ٤٠٣ لا تتغيّر بالإعادة — يبقى «غير معروف» وحده فوراً
+    retry: false,
     queryFn: async () => (await lotsApi.list({ productId, limit: 200 })).data.data as ProductLotDto[],
   });
   const picked = (lots ?? []).find(l => l.id === value);

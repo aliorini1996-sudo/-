@@ -1783,7 +1783,8 @@ function ReceiptAttachments({ photos }: { photos: ReceiptPhoto[] }) {
 /**
  * «تتبّع اللوط» — شريط «تشغيلات البنود» خارج الورقة (نمط شريط المرفقات): تشغيلات كل بند متى وصلت من الخادم، ولو لم تُطبع على
  * الفاتورة (lotOnInvoice مطفأ) — فالمعاينة المصغّرة لا تُقرأ، والإدارة تحتاج اللوط لترد على سؤال العميل أو السحب. بلا صفوف
- * (الميزة مطفأة أو بلا withLots) ⇒ لا شيء.
+ * (الميزة مطفأة أو بلا withLots) ⇒ لا شيء. **للإدارة وحدها** (§٦.١): يُرسم بـshowLotsStrip من DocumentModal وMDocScreen، وشاشة
+ * المندوب بلا شريط — ما يُريه العميلَ لا يُظهر التشغيلة إلا على الورقة بشرط lotOnInvoice.
  */
 function InvoiceLotsStrip({ doc }: { doc: InvoiceDoc }) {
   const tr = useTr();
@@ -1803,7 +1804,11 @@ function InvoiceLotsStrip({ doc }: { doc: InvoiceDoc }) {
 }
 
 // ============ شاشة النتيجة (معاينة + مشاركة/حفظ PDF) ============
-export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => void }) {
+export function DocumentResult({ doc, onClose, showLotsStrip = false }: {
+  doc: AnyDoc; onClose: () => void;
+  /** «تتبّع اللوط»: شريط «تشغيلات البنود» خارج الورقة — للإدارة وحدها (§٦.١)، فلا يمرّره تطبيق المندوب */
+  showLotsStrip?: boolean;
+}) {
   const tr = useTr();
   const printRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
@@ -1990,7 +1995,7 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
         {/* المرفقات قبل المعاينة عمداً: المعاينة كتلة بطول 470px تدفع الشريط تحت
             حافّة الشاشة، والمحاسب إنما فتح السند ليرى إيصال التحويل */}
         {doc.kind === 'receipt' && !!doc.photos?.length && <ReceiptAttachments photos={doc.photos} />}
-        {doc.kind === 'invoice' && <InvoiceLotsStrip doc={doc} />}
+        {doc.kind === 'invoice' && showLotsStrip && <InvoiceLotsStrip doc={doc} />}
 
         {/* معاينة مصغّرة للمستند */}
         <p className="text-xs text-gray-400 mb-2">{tr('معاينة المستند')}</p>

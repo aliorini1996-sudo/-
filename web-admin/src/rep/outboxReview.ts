@@ -9,13 +9,17 @@
  *    الجلسة وحده (نقد الخطة 23: جهاز مشترك يُخفي صفّ الزميل)؛ والضريبية = الفواتير والمرتجعات.
  */
 import type { OutboxDoc } from './offlineDb';
+import { LOT_REPLAY_HELD_CODE } from './vanLots';
 
 export const CUTOVER_REVIEW_CODE = 'ZATCA_CUTOVER_REVIEW';
 export const REVIEW_RECHECK_MS = 10 * 60 * 1000;
+/** وسوم المراجعة التي تُبقي المستند مصفوفاً ولا يُسأل عنه قبل المهلة — ومنها «تتبّع اللوط»: فاتورةٌ دون اتصال لا يكفيها رصيد
+ *  السيارة بانتظار تسجيل الإدارة للتحميل الناقص (D20، rep/vanLots.ts) */
+const RECHECK_GATED = new Set<string>([CUTOVER_REVIEW_CODE, LOT_REPLAY_HELD_CODE]);
 
 /** يُرفع الآن؟ مستند قيد المراجعة لا يُعاد إرساله قبل مرور المهلة على آخر سؤال. */
 export function reviewRecheckDue(doc: Pick<OutboxDoc, 'reviewCode' | 'reviewCheckedAt'>, nowMs: number): boolean {
-  if (doc.reviewCode !== CUTOVER_REVIEW_CODE) return true;
+  if (!doc.reviewCode || !RECHECK_GATED.has(doc.reviewCode)) return true;
   const at = doc.reviewCheckedAt ? Date.parse(doc.reviewCheckedAt) : NaN;
   return !Number.isFinite(at) || nowMs - at >= REVIEW_RECHECK_MS;
 }

@@ -5,6 +5,7 @@ import {
   DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, Company,
 } from '../rep/RepDocuments';
 import { useTr } from '../i18n/strings';
+import { lotFlagsOf } from '../lib/lots';
 import { MError, MSpinner } from './mobileUi';
 import { expectObject } from './shape';
 
@@ -27,10 +28,14 @@ export default function MDocScreen({ kind, id, company, userName, onClose, onCan
   onCancel?: () => void;
 }) {
   const tr = useTr();
+  /* «تتبّع اللوط» (D11): الفاتورة والمرتجع بتشغيلات بنودهما (withLots=1) حين الميزة مفعّلة وحدها — والمطفأة الطلب كما
+   * كان حرفاً. البانية (invoiceDocFromDetail) تضمّها إلى البنود، فتطبعها الورقة بشرط «طباعة رقم التشغيلة على الفاتورة»
+   * (lotOnInvoice في ردّ /company) ويعرضها شريط «تشغيلات البنود» للإدارة خارج الورقة دائماً. */
+  const lotOn = kind === 'invoice' && lotFlagsOf(company as { lotTrackingEnabled?: unknown } | null).on;
   const q = useQuery({
-    queryKey: ['m-doc', kind, id],
+    queryKey: ['m-doc', kind, id, lotOn],
     queryFn: async () => {
-      const res = kind === 'invoice' ? await invoiceApi.get(id) : await receiptApi.get(id);
+      const res = kind === 'invoice' ? await invoiceApi.get(id, lotOn ? { withLots: true } : undefined) : await receiptApi.get(id);
       return expectObject<Record<string, unknown>>(res.data?.data, kind === 'invoice' ? 'الفاتورة' : 'السند');
     },
   });
@@ -50,7 +55,7 @@ export default function MDocScreen({ kind, id, company, userName, onClose, onCan
   return (
     <div className="h-full flex flex-col">
       <div className="flex-1 overflow-hidden">
-        <DocumentResult doc={doc} onClose={onClose} />
+        <DocumentResult doc={doc} onClose={onClose} showLotsStrip />
       </div>
       {cancellable && (
         <div className="flex-shrink-0 border-t border-[#E9E1D3] bg-white p-3"

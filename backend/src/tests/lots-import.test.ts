@@ -352,6 +352,47 @@ test('POST /opening-stock: الميزة مطفأة ⇒ أعمدة التشغيل
   assert.equal(world.lots.length, 0);
 });
 
+test('POST /opening-stock: صنفٌ صار متتبَّعاً بعد القراءة المسبقة ولا متتبَّع غيره في الملف ⇒ يُقفل في القاعدة وصفّه LOT_REQUIRED لا رصيدٌ غير مسمّى (§٣.١)', async () => {
+  fresh();
+  const p1 = world.products.find((p) => p.id === 'p1')!;
+  p1.lotTracked = false;
+  p1.lotTrackedSince = null;
+  // المالك يفعّل تتبّع p1 بين القراءة المسبقة والمعاملة (تبديل العلم FOR UPDATE ثم الالتزام)
+  const orig = db.product.findMany;
+  db.product.findMany = async (a: Row) => {
+    const rows = await orig(a);
+    db.product.findMany = orig;
+    world.track('p1');
+    return rows;
+  };
+  world.calls.length = 0;
+  try {
+    const r = await importFile([{ productCode: 'A-1', qty: 5, unitCost: 2 }, { productCode: 'C-3', qty: 7, unitCost: 1 }]);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual(r.body.data.errors.map((e: Row) => [e.row, e.code]), [[2, 'LOT_REQUIRED']]);
+    assert.equal(r.body.data.created, 1);
+    const items = world.items.filter((i) => i.entryId === r.body.data.entryId);
+    assert.deepEqual(items.map((i) => [i.productId, i.lotId]), [['p3', null]], 'لا رصيد غير مسمّى لصنفٍ متتبَّع تحت القفل');
+    const ops = world.calls.map((c) => c.sql ?? c.op);
+    const post = ops.findIndex((s) => s.includes('pg_advisory_xact_lock(hashtext('));
+    const share = ops.findIndex((s) => s.includes('FOR KEY SHARE'));
+    const lotLock = ops.findIndex((s) => s === 'SELECT pg_advisory_xact_lock($1)');
+    const create = ops.findIndex((s) => s === 'warehouseEntry.create');
+    assert.ok(post >= 0 && post < share && share < lotLock && lotLock < create, ops.join('\n'));
+  } finally {
+    db.product.findMany = orig;
+  }
+  // والملف كله غير متتبَّع تحت القفل: قراءة FOR KEY SHARE وحدها، والحركة بشكلها القديم (لا معرّف مولَّد ولا مفتاح lotId)
+  fresh();
+  world.calls.length = 0;
+  const plain = await importFile([{ productCode: 'C-3', qty: 7, unitCost: 1 }, { productCode: 'D-4', qty: 2, unitCost: 3 }]);
+  assert.equal(plain.body.data.created, 2, JSON.stringify(plain.body));
+  assert.equal(world.calls.filter((c) => c.sql?.includes('FOR KEY SHARE')).length, 1);
+  assert.ok(!world.calls.some((c) => c.sql === 'SELECT pg_advisory_xact_lock($1)' || c.op.startsWith('productLot.')));
+  const create = world.calls.find((c) => c.op === 'warehouseEntry.create')!.args as Row;
+  assert.ok(!('lotId' in create.data.items.create[0]) && !('id' in create.data));
+});
+
 test('POST /opening-stock: انشغال قفل التشغيلة ⇒ 409 OPENING_STOCK_LEDGER_BUSY القائم ولا كتابة، والطابور يُحرَّر', async () => {
   fresh();
   world.failOn = (sql) => (sql === 'SELECT pg_advisory_xact_lock($1)' ? Object.assign(new Error('deadlock detected'), { code: '40P01' }) : null);
@@ -394,4 +435,33 @@ test('التراجع عن opening_stock: يحذف الحركة وتشغيلات�
   const firstCount = ops.findIndex((s) => s === 'warehouseEntryItem.count' || s === 'vanLoadItemLot.count');
   const del = ops.findIndex((s) => s === 'warehouseEntryItem.deleteMany');
   assert.ok(row >= 0 && row < share && share < lotLock && lotLock < firstCount && firstCount < del, ops.join('\n'));
+});
+
+test('التراجع عن opening_stock والميزة مطفأة: تشغيلاتٌ أنشأها الاستيراد تُحذف يتيمةً مع LotEvent DELETE (بلا قفل لوط)، وإعادة الاستيراد بعد التفعيل لا تصطدم بها', async () => {
+  fresh();
+  const imp = await importFile([{ productCode: 'B-2', qty: 10, unitCost: 2, lotNumber: 'M', expiryDate: '2027-01-01' }, { productCode: 'C-3', qty: 3, unitCost: 1 }]);
+  assert.equal(imp.body.data.created, 2, JSON.stringify(imp.body));
+  const M = world.lotByNumber('p2', 'M')!.id;
+  world.lotsEnabled = false;   // المالك أطفأ الميزة (D8) ثم تراجعت الشركة عن الجرد لتصحيحه
+  world.calls.length = 0;
+  const ok = await call('post', '/batches/:id/revert', { params: { id: imp.body.data.batchId } });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.equal(ok.body.data.reverted, true);
+  assert.equal(world.entries.length, 0);
+  assert.equal(world.lotByNumber('p2', 'M'), undefined, 'لا تشغيلة يتيمة بلا حركة');
+  assert.ok(world.events.some((e) => e.kind === 'DELETE' && e.lotId === M && e.before.sourceEntryId === imp.body.data.entryId));
+  assert.ok(!world.calls.some((c) => c.sql?.includes('FOR KEY SHARE') || c.sql === 'SELECT pg_advisory_xact_lock($1)'), 'الميزة مطفأة: لا قفل لوط ولا حارس I1/I2');
+  // بعد إعادة التفعيل: الرقم نفسه بانتهاءٍ مصحَّح يُنشأ من جديد لا LOT_DATES_MISMATCH مع تشغيلةٍ لم تحمل رصيداً
+  world.lotsEnabled = true;
+  const again = await importFile([{ productCode: 'B-2', qty: 10, unitCost: 2, lotNumber: 'M', expiryDate: '2027-02-01' }]);
+  assert.equal(again.body.data.created, 1, JSON.stringify(again.body));
+  assert.equal(dayOf(world.lotByNumber('p2', 'M')!.expiryDate), '2027-02-01');
+  // وشركةٌ لم تستعمل التشغيلات قط (الميزة مطفأة من البداية): التراجع بلا أي استعلام لوط (§١٠.١)
+  fresh();
+  world.lotsEnabled = false;
+  const off = await importFile([{ productCode: 'A-1', qty: 5, unitCost: 2, lotNumber: 'X' }]);
+  world.calls.length = 0;
+  const r = await call('post', '/batches/:id/revert', { params: { id: off.body.data.batchId } });
+  assert.equal(r.body.data.reverted, true, JSON.stringify(r.body));
+  assert.ok(!world.calls.some((c) => c.op.startsWith('productLot.') || c.op.startsWith('lotEvent.')), world.calls.map((c) => c.op).join('\n'));
 });

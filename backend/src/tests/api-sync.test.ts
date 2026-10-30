@@ -16,11 +16,23 @@ let lastArgs: Record<string, unknown> | null = null;
 let rows: Record<string, unknown>[] = [];
 let adminRow: Record<string, unknown> | null = { isActive: true, scopeEnabled: false, canManageCustomers: true, canManageInvoices: true };
 let tenantRow: Record<string, unknown> = { accountingEnabled: true, warehouseEnabled: false };
+/** شركة المفتاح في /me — تُعاد أعمدتها المختارة وحدها كبريزما، فعمودٌ لم يُطلب في الاستعلام لا يصل */
+let keyTenantRow: Record<string, unknown> = { name: 'شركة' };
+let lastKeyArgs: { select?: { tenant?: { select?: Record<string, unknown> } } } | null = null;
+let tenantReads = 0;
+let tenantFails = false;
 const delegate = { async findMany(args: Record<string, unknown>) { lastArgs = args; return rows.slice(0, Number(args.take)); } };
 const prismaFake = new Proxy({
   admin: { async findUnique() { return adminRow; } },
-  tenant: { async findUnique() { return tenantRow; } },
-  apiKey: { async findUnique() { return { name: 'نظامنا', prefix: 'fsk_abcd1234', readOnly: false, createdAt: new Date(), tenant: { name: 'شركة' }, admin: { name: 'مدير' } }; } },
+  tenant: { async findUnique() { tenantReads++; if (tenantFails) throw new Error('db down'); return tenantRow; } },
+  apiKey: {
+    async findUnique(args: typeof lastKeyArgs) {
+      lastKeyArgs = args;
+      const sel = args?.select?.tenant?.select ?? {};
+      const tenant = Object.fromEntries(Object.entries(keyTenantRow).filter(([k]) => sel[k] === true));
+      return { name: 'نظامنا', prefix: 'fsk_abcd1234', readOnly: false, createdAt: new Date(), tenant, admin: { name: 'مدير' } };
+    },
+  },
 } as Record<string, unknown>, { get: (t, k: string) => (k in t ? t[k] : delegate) });
 stub('config/database', { default: prismaFake });
 // المصادقة نفسها مختبرة في api-keys.test.ts — هنا تمرير بهوية المفتاح المحقونة
@@ -81,12 +93,14 @@ function schemaScalars(model: string): string[] {
 test('كل عمود في جداول المزامنة مصنَّف: مسموح في select أو ممنوع بسبب — عمودٌ جديد يُفشل هذا حتى يُقرَّر', () => {
   for (const def of sync.SYNC_RESOURCES) {
     const cols = schemaScalars(def.model);
-    const allowed = Object.keys(def.select).filter(k => cols.includes(k));
+    // المسموح = select المورد مع أعمدة «تتبّع اللوط» (lotSelect) التي تصل للشركة المفعّلة
+    const full = sync.selectFor(def, true);
+    const allowed = Object.keys(full).filter(k => cols.includes(k));
     const denied = Object.keys(def.denied);
     // عمود الأب (customerId في أسعار العملاء) ليس عمود شركة؛ والعزل عبر العلاقة
     const unclassified = cols.filter(c => !allowed.includes(c) && !denied.includes(c));
     assert.deepEqual(unclassified, [], `${def.name}: أعمدة غير مصنّفة`);
-    for (const d of denied) assert.ok(!(d in def.select), `${def.name}: ${d} ممنوع ومسموح معاً`);
+    for (const d of denied) assert.ok(!(d in full), `${def.name}: ${d} ممنوع ومسموح معاً`);
   }
 });
 
@@ -96,7 +110,7 @@ test('القوائم المتداخلة مصنَّفة كالمورد: كل عم
   for (const [r, rel] of mustCover) assert.ok(sync.syncResource(r)?.nested?.[rel], `${r}.${rel} بلا تصنيف متداخل`);
   for (const def of sync.SYNC_RESOURCES) {
     for (const [rel, n] of Object.entries(def.nested ?? {})) {
-      const sel = (def.select[rel] as { select?: Record<string, unknown> } | undefined)?.select;
+      const sel = (sync.selectFor(def, true)[rel] as { select?: Record<string, unknown> } | undefined)?.select;
       assert.ok(sel, `${def.name}.${rel}: مصنَّف وليس في select`);
       const cols = schemaScalars(n.model);
       const unclassified = cols.filter(c => !(c in sel!) && !(c in n.denied));
@@ -135,7 +149,7 @@ test('الوحدات المتعددة في المزامنة: لقطة الوحد
 });
 
 test('الأسرار والثقيل لا تُختار أبداً — ولا في العلاقات المضمّنة', () => {
-  const all = JSON.stringify(sync.SYNC_RESOURCES.map(r => r.select));
+  const all = JSON.stringify(sync.SYNC_RESOURCES.map(r => sync.selectFor(r, true)));
   for (const bad of ['passwordHash', 'fcmToken', 'einvoiceClientSecret', 'einvoiceSnapshot', '"image"', 'privateKey', 'token', 'secret', 'clientBundle']) {
     assert.ok(!all.includes(bad), `حقل محظور في المزامنة: ${bad}`);
   }
@@ -306,10 +320,203 @@ test('أعمدة الميزات الحديثة مكشوفة في المزامن�
   assert.equal(items.returnOfItemId, true);
 });
 
+/* ═══ «تتبّع اللوط» (المواصفة §٥.٣) ═══ */
+
+const LOT_RESOURCES: Record<string, { model: string; mode: string; permission: string; hardDeletes: boolean; exposed: string[]; denied: string[] }> = {
+  'product-lots': {
+    model: 'productLot', mode: 'updated', permission: 'canManageVanStock', hardDeletes: true,
+    exposed: ['id', 'productId', 'lotNumber', 'productionDate', 'expiryDate', 'status', 'blockKind', 'blockReason', 'blockedAt', 'blockedBy', 'note', 'source', 'createdBy', 'createdAt', 'updatedAt'],
+    denied: ['tenantId', 'sourceEntryId'],
+  },
+  'van-load-item-lots': {
+    model: 'vanLoadItemLot', mode: 'created', permission: 'canManageVanStock', hardDeletes: false,
+    exposed: ['id', 'vanLoadItemId', 'productId', 'vanKey', 'moveType', 'viaWarehouse', 'lotId', 'qty', 'certainty', 'reason', 'createdAt'],
+    denied: ['tenantId'],
+  },
+  'invoice-item-lots': {
+    model: 'invoiceItemLot', mode: 'created', permission: 'canManageInvoices', hardDeletes: false,
+    exposed: ['id', 'invoiceItemId', 'invoiceId', 'productId', 'vanKey', 'lotId', 'quantity', 'certainty', 'expiryDate', 'sourceItemLotId', 'flags', 'createdAt'],
+    denied: ['tenantId'],
+  },
+  'lot-relabels': {
+    model: 'lotRelabel', mode: 'created', permission: 'canManageVanStock', hardDeletes: false,
+    exposed: ['id', 'productId', 'place', 'vanKey', 'bucket', 'fromLotId', 'toLotId', 'qty', 'reason', 'note', 'createdBy', 'createdAt'],
+    denied: ['tenantId'],
+  },
+  'lot-events': {
+    model: 'lotEvent', mode: 'created', permission: 'canManageVanStock', hardDeletes: false,
+    exposed: ['id', 'lotId', 'productId', 'kind', 'before', 'after', 'reason', 'actorType', 'actorName', 'createdAt'],
+    denied: ['tenantId', 'actorId'],
+  },
+};
+const LOTS_ON = { accountingEnabled: true, warehouseEnabled: true, lotTrackingEnabled: true };
+
+test('موارد «تتبّع اللوط» الخمسة كما في المواصفة: النموذج والنمط والصلاحية والحذف الفعلي، والمكشوف والمحجوب حرفياً، وبوّابتا المحاسبة والعَلَم', () => {
+  const lotDefs = sync.SYNC_RESOURCES.filter(r => r.lots);
+  assert.deepEqual(lotDefs.map(r => r.name).sort(), Object.keys(LOT_RESOURCES).sort(), 'الموارد ذات عَلَم lots هي الخمسة وحدها');
+  for (const [name, want] of Object.entries(LOT_RESOURCES)) {
+    const def = sync.syncResource(name)!;
+    assert.ok(def, name);
+    assert.deepEqual([def.model, def.mode, def.permission, def.hardDeletes], [want.model, want.mode, want.permission, want.hardDeletes], name);
+    assert.equal(def.accounting, true, `${name}: المحاسبة قبل العَلَم كـrequireLots`);
+    assert.equal(def.tenantPath, 'direct', name);
+    assert.equal(def.lotSelect, undefined, `${name}: موردٌ خلف العَلَم كله فلا أعمدة شرطية`);
+    assert.deepEqual(Object.keys(def.select).sort(), [...want.exposed].sort(), `${name}: المكشوف`);
+    assert.deepEqual(Object.keys(def.denied).sort(), [...want.denied].sort(), `${name}: المحجوب`);
+    for (const reason of Object.values(def.denied)) assert.ok(reason.length > 5, `${name}: منعٌ بلا سبب`);
+  }
+  // الطوابع: البطاقات بطابع التعديل (الإيقاف والتواريخ)، والتوزيعات والتسميات والأحداث بطابع الإنشاء
+  assert.equal(sync.cursorColumn(sync.syncResource('product-lots')!), 'updatedAt');
+  for (const n of ['van-load-item-lots', 'invoice-item-lots', 'lot-relabels', 'lot-events']) assert.equal(sync.cursorColumn(sync.syncResource(n)!), 'createdAt', n);
+  // ولا موردٌ آخر خلف عَلَم اللوط: المطفأة لا تفقد شيئاً
+  for (const r of sync.SYNC_RESOURCES) if (!(r.name in LOT_RESOURCES)) assert.ok(!r.lots, r.name);
+});
+
+test('بوّابة موارد اللوط: المحاسبة ثم العَلَم (المطفأ أو غير المقروء يمنع LOTS_DISABLED) ثم الصلاحية، و/ids بالبوّابة نفسها', async () => {
+  rows = [];
+  adminRow = { isActive: true, scopeEnabled: false, canManageVanStock: true, canManageInvoices: true };
+  for (const name of Object.keys(LOT_RESOURCES)) {
+    tenantRow = { accountingEnabled: true, warehouseEnabled: true };
+    let res = await call(`/sync/${name}`);
+    assert.equal(res.statusCode, 403, name); assert.equal(res.body!.code, 'LOTS_DISABLED', `${name}: عَلَمٌ غير مقروء يمنع لا يفتح`);
+    tenantRow = { accountingEnabled: true, warehouseEnabled: true, lotTrackingEnabled: false };
+    res = await call(`/sync/${name}/ids`);
+    assert.equal(res.body!.code, 'LOTS_DISABLED', `${name}/ids`);
+    tenantRow = { accountingEnabled: false, warehouseEnabled: true, lotTrackingEnabled: true };
+    res = await call(`/sync/${name}`);
+    assert.equal(res.body!.code, 'ACCOUNTING_DISABLED', `${name}: المحاسبة قبل العَلَم`);
+  }
+  // الصلاحية: canManageInvoices لتوزيع الفواتير، وcanManageVanStock لغيرها
+  tenantRow = LOTS_ON;
+  adminRow = { isActive: true, scopeEnabled: false, canManageVanStock: true, canManageInvoices: false };
+  assert.equal((await call('/sync/invoice-item-lots')).body!.code, 'FORBIDDEN');
+  assert.equal((await call('/sync/lot-events')).statusCode, 200);
+  adminRow = { isActive: true, scopeEnabled: false, canManageVanStock: false, canManageInvoices: true };
+  assert.equal((await call('/sync/product-lots')).body!.code, 'FORBIDDEN');
+  assert.equal((await call('/sync/invoice-item-lots')).statusCode, 200);
+  // والمقيّد بنطاق ممنوع كسائر الموارد (المزامنة تعطي الشركة كاملة)
+  adminRow = { isActive: true, scopeEnabled: true, canManageVanStock: true };
+  assert.equal((await call('/sync/product-lots')).body!.code, 'API_KEY_SCOPED_OWNER');
+  tenantRow = { accountingEnabled: true, warehouseEnabled: false };
+});
+
+test('موارد اللوط للشركة المفعّلة: معزولة بالشركة، والبطاقات بطابع التعديل، وbefore/after في سجل التدقيق كما كُتبا', async () => {
+  adminRow = { isActive: true, scopeEnabled: false, canManageVanStock: true };
+  tenantRow = LOTS_ON;
+  rows = [{ id: 'L1', lotNumber: 'A-1', updatedAt: new Date('2026-10-20T00:00:00Z') }];
+  let res = await call('/sync/product-lots', { query: { since: '2026-10-01T00:00:00Z' } });
+  assert.equal(res.statusCode, 200);
+  assert.match(JSON.stringify(lastArgs!.where), /"tenantId":"t1"/);
+  assert.match(JSON.stringify(lastArgs!.where), /"updatedAt":\{"gte"/, 'الإيقاف وتعديل التواريخ يُلتقطان بطابع التعديل');
+  assert.ok(!('sourceEntryId' in (lastArgs!.select as object)) && !('tenantId' in (lastArgs!.select as object)));
+  const ev = { id: 'E1', lotId: null, productId: 'p1', kind: 'TRACKING_ON', before: { lotTracked: false }, after: { lotTracked: true, lotTrackedSince: '2026-10-20T00:00:00.000Z' }, createdAt: new Date('2026-10-20T00:00:00Z') };
+  rows = [ev];
+  res = await call('/sync/lot-events');
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual((res.body!.data as unknown[])[0], ev, 'الصفّ كما هو: JSON بلا تحويل');
+  assert.equal((lastArgs!.select as Record<string, unknown>).actorId, undefined);
+  assert.match(JSON.stringify(lastArgs!.where), /"tenantId":"t1"/);
+  assert.deepEqual(lastArgs!.orderBy, [{ createdAt: 'asc' }, { id: 'asc' }], 'سجلٌ يُنشأ ولا يُعدَّل: بطابع الإنشاء');
+  tenantRow = { accountingEnabled: true, warehouseEnabled: false };
+});
+
+test('أعمدة اللوط على الموارد القائمة للشركة المفعّلة وحدها: lotTracked في الأصناف، ومعرّف البند في التحميلات، والمعرّف والتشغيلة في الوارد — والمطفأة بشكلها القديم حرفياً (§١٠.١)', async () => {
+  // البيان: الأعمدة الشرطية هي ما تَعِد به المواصفة وحده
+  assert.deepEqual(sync.syncResource('products')!.lotSelect, { lotTracked: true });
+  assert.deepEqual(sync.syncResource('van-loads')!.lotSelect, { items: { select: { id: true } } });
+  assert.deepEqual(sync.syncResource('warehouse-entries')!.lotSelect, { items: { select: { id: true, lotId: true } } });
+  for (const r of sync.SYNC_RESOURCES) {
+    if (!['products', 'van-loads', 'warehouse-entries'].includes(r.name)) assert.equal(r.lotSelect, undefined, `${r.name}: لا عمود لوط (ولا على بنود الفاتورة)`);
+  }
+  assert.ok('lotTrackedSince' in sync.syncResource('products')!.denied, 'حقبة الصنف سباكة داخلية');
+  // المطفأة: المرجع نفسه — لا عمود يُضاف ولا يُنسخ الكائن
+  for (const r of sync.SYNC_RESOURCES) assert.equal(sync.selectFor(r, false), r.select, r.name);
+
+  const keysOf = (o: unknown) => Object.keys(o as object).sort();
+  const itemKeys = () => keysOf((lastArgs!.select as { items: { select: object } }).items.select);
+  const itemOrder = () => (lastArgs!.select as { items: { orderBy?: unknown } }).items.orderBy;
+
+  // الأصناف
+  adminRow = { isActive: true, scopeEnabled: false, canManageProducts: true, canManageVanStock: true };
+  rows = [];
+  for (const t of [{ accountingEnabled: true, warehouseEnabled: true }, { accountingEnabled: true, warehouseEnabled: true, lotTrackingEnabled: false }]) {
+    tenantRow = t;
+    await call('/sync/products');
+    assert.ok(!('lotTracked' in (lastArgs!.select as object)), 'المطفأة: لا lotTracked');
+    assert.deepEqual(keysOf(lastArgs!.select), [...keysOf(sync.syncResource('products')!.select)].sort(), 'المطفأة: select المورد كما هو');
+    await call('/sync/van-loads');
+    assert.ok(!itemKeys().includes('id'), 'المطفأة: البند بلا معرّف كما كان');
+  }
+  tenantRow = LOTS_ON;
+  await call('/sync/products');
+  assert.equal((lastArgs!.select as Record<string, unknown>).lotTracked, true);
+  assert.ok(!('lotTrackedSince' in (lastArgs!.select as object)));
+  assert.deepEqual((lastArgs!.select as { units: { orderBy: unknown } }).units.orderBy, [{ sortOrder: 'asc' }, { factor: 'asc' }], 'المتداخل لا يُمسّ');
+  await call('/sync/van-loads');
+  assert.ok(itemKeys().includes('id') && itemKeys().includes('baseQty') && itemKeys().includes('expectedQty'), 'المعرّف مضموماً إلى أعمدة البند');
+  await call('/sync/warehouse-entries');
+  assert.ok(itemKeys().includes('id') && itemKeys().includes('lotId') && itemKeys().includes('unitCost'));
+  assert.equal(itemOrder(), undefined);
+  // الدمج لا يمسّ تعريف المورد المشترك بين الطلبات
+  assert.ok(!('id' in (sync.syncResource('van-loads')!.select as { items: { select: object } }).items.select));
+  assert.ok(!('lotTracked' in sync.syncResource('products')!.select));
+  // والمحاسبة المطفأة تمنع الأصناف قبل أي عمود
+  tenantRow = { accountingEnabled: false, warehouseEnabled: true, lotTrackingEnabled: true };
+  assert.equal((await call('/sync/products')).body!.code, 'ACCOUNTING_DISABLED');
+  tenantRow = { accountingEnabled: true, warehouseEnabled: false };
+});
+
 test('GET /me: الشركة والمفتاح والموارد', async () => {
+  keyTenantRow = { name: 'شركة', lotTrackingEnabled: true };
   const res = await call('/me');
   assert.equal(res.statusCode, 200);
   const d = res.body!.data as Record<string, unknown>;
   assert.equal(d.company, 'شركة');
   assert.equal((d.resources as unknown[]).length, sync.SYNC_RESOURCES.length);
+  keyTenantRow = { name: 'شركة' };
+});
+
+test('«تتبّع اللوط» §١٠.١: /me وقائمة UNKNOWN_RESOURCE بلا موارد اللوط الخمسة للشركة المطفأة (شكلهما القديم حرفياً)، وبها للمفعّلة — و/me من استعلام المفتاح نفسه', async () => {
+  const lotNames = Object.keys(LOT_RESOURCES);
+  const oldList = sync.SYNC_RESOURCES.filter((r) => !lotNames.includes(r.name)).map((r) => r.name);
+  const allList = sync.SYNC_RESOURCES.map((r) => r.name);
+  const meNames = async () => {
+    const res = await call('/me');
+    assert.equal(res.statusCode, 200);
+    return ((res.body!.data as { resources: { name: string; mode: string; hardDeletes: boolean }[] }).resources).map((r) => r.name);
+  };
+  // /me: المطفأة (غائبٌ أو false أو صفٌّ بلا العمود) ⇒ القائمة القديمة؛ والمفعّلة ⇒ كلها
+  for (const t of [{ name: 'شركة' }, { name: 'شركة', lotTrackingEnabled: false }]) {
+    keyTenantRow = t;
+    tenantReads = 0;
+    assert.deepEqual(await meNames(), oldList, JSON.stringify(t));
+    assert.equal(tenantReads, 0, '/me: العَلَم من استعلام المفتاح نفسه — لا استعلام شركةٍ زائد');
+  }
+  keyTenantRow = { name: 'شركة', lotTrackingEnabled: true };
+  tenantReads = 0;
+  assert.deepEqual(await meNames(), allList);
+  assert.equal(lastKeyArgs?.select?.tenant?.select?.lotTrackingEnabled, true, 'العَلَم في select المفتاح');
+  assert.equal(tenantReads, 0);
+  keyTenantRow = { name: 'شركة' };
+
+  // UNKNOWN_RESOURCE: القائمة نفسها بحسب العَلَم، وتعذّر قراءته يُبقي القديمة (لا يكشف ولا يُسقط الـ404 إلى 500)
+  adminRow = { isActive: true, scopeEnabled: false, canManageCustomers: true };
+  for (const [t, want] of [[{ accountingEnabled: true, warehouseEnabled: false }, oldList], [{ accountingEnabled: true, warehouseEnabled: false, lotTrackingEnabled: false }, oldList], [LOTS_ON, allList]] as [Record<string, unknown>, string[]][]) {
+    tenantRow = t;
+    const res = await call('/sync/passwords');
+    assert.equal(res.statusCode, 404);
+    assert.equal(res.body!.code, 'UNKNOWN_RESOURCE');
+    assert.deepEqual(res.body!.resources, want, JSON.stringify(t));
+    const ids = await call('/sync/passwords/ids');
+    assert.equal(ids.statusCode, 404);
+    assert.deepEqual(ids.body!.resources, want, `/ids ${JSON.stringify(t)}`);
+  }
+  tenantRow = LOTS_ON;
+  tenantFails = true;
+  try {
+    const res = await call('/sync/passwords');
+    assert.equal(res.statusCode, 404);
+    assert.deepEqual(res.body!.resources, oldList, 'تعذّر قراءة العَلَم: القائمة القديمة');
+  } finally { tenantFails = false; }
+  tenantRow = { accountingEnabled: true, warehouseEnabled: false };
 });

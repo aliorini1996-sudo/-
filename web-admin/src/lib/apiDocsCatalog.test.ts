@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { API_DOC_GROUPS, API_DOC_GUIDES, API_DOC_PLACEHOLDER_KEY } from './apiDocsCatalog';
-import { API_BASE_URL, API_DENIED } from './apiDocsData';
+import { API_BASE_URL, API_DENIED, API_SYNC_RESOURCES } from './apiDocsData';
 
 /**
  * مستند API يُسلَّم لمبرمج الشركة: كل مسارٍ يذكره يجب أن يكون مركَّباً في الخادم بطريقته — مسارٌ يُحذف أو
@@ -112,7 +112,7 @@ test('كل مسار في المستند مركَّبٌ في الخادم بطر�
  */
 const COVERED_ROUTERS = [
   'locations', 'paymentMethodsConfig', 'printSettings', 'attendanceAdmin', 'teams', 'reports', 'invoices', 'salesReps', 'vanStock', 'warehouse', 'receipts',
-  'repStockRequests', 'products',
+  'repStockRequests', 'products', 'lots',
 ];
 const NOT_DOCUMENTED: Readonly<Record<string, string>> = {
   'PUT /company/teams/:id/supervisors': 'يرفض مفاتيح API دائماً بـ403 (API_KEY_FORBIDDEN بعد فحص صلاحيتي الإعدادات والمستخدمين) — نطاق مستخدمي الشركة من اللوحة وحدها، ومذكورٌ في مقدمة مجموعة الفرق',
@@ -206,8 +206,8 @@ function backendSources(dir: string): string {
 const BACKEND_SRC = backendSources(BACKEND);
 const CODE_RE = /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g;
 
-test('أدلّة الربط: صفحة اللوكيشن وصفحة طرق الدفع وصفحة مخزون الشركة، بخطوات مرقّمة لكلٍّ منها', () => {
-  assert.deepEqual(API_DOC_GUIDES.map((g) => g.title), ['ربط صفحة اللوكيشن', 'ربط صفحة طرق الدفع', 'ربط صفحة مخزون الشركة']);
+test('أدلّة الربط: صفحة اللوكيشن وصفحة طرق الدفع وصفحة مخزون الشركة وتتبّع اللوط، بخطوات مرقّمة لكلٍّ منها', () => {
+  assert.deepEqual(API_DOC_GUIDES.map((g) => g.title), ['ربط صفحة اللوكيشن', 'ربط صفحة طرق الدفع', 'ربط صفحة مخزون الشركة', 'ربط تتبّع اللوط']);
   for (const g of API_DOC_GUIDES) {
     assert.ok(g.intro.length > 50, g.key);
     assert.ok(g.steps.length >= 5, `${g.key}: خطوات قليلة`);
@@ -216,7 +216,9 @@ test('أدلّة الربط: صفحة اللوكيشن وصفحة طرق الد�
   // مسارات الصفحتين الأساسية حاضرة في الخطوات
   const stepPaths = new Set(API_DOC_GUIDES.flatMap((g) => g.steps.filter((s) => s.path).map((s) => `${s.method} ${s.path}`)));
   for (const k of ['GET /locations', 'PUT /locations/reps/:salesRepId', 'GET /locations/summary', 'GET /company/payment-methods', 'PUT /company/payment-methods', 'POST /receipts', 'GET /reports/payment-methods',
-    'GET /warehouse', 'POST /warehouse/entries', 'GET /warehouse/entries', 'POST /van-stock/loads', 'GET /rep-stock-requests', 'PUT /rep-stock-requests/:id', 'POST /rep-stock-requests/send']) {
+    'GET /warehouse', 'POST /warehouse/entries', 'GET /warehouse/entries', 'POST /van-stock/loads', 'GET /rep-stock-requests', 'PUT /rep-stock-requests/:id', 'POST /rep-stock-requests/send',
+    // دليل «تتبّع اللوط» (المواصفة §٥.٤): الشركة، ثم التفعيل الجماعي، ثم الوارد، ثم التسمية، ثم FEFO والتحميل، ثم الأرصدة، ثم التتبّع، ثم الإيقاف
+    'POST /lots/products/tracking', 'POST /lots/relabel', 'GET /lots/fefo', 'GET /lots/balances', 'GET /lots/:id/trace', 'PATCH /lots/:id/status']) {
     assert.ok(stepPaths.has(k), `الدليل لا يذكر ${k}`);
   }
 });
@@ -259,10 +261,12 @@ test('أمثلة curl: العنوان الحيّ والمفتاح الوهمي �
 test('كل رمز خطأ في الدليلين وجدول الأخطاء يرسله الخادم حرفياً', () => {
   const guides = JSON.stringify(API_DOC_GUIDES);
   const docs = read(path.join(process.cwd(), 'src', 'components', 'ApiDocs.tsx'));
-  const table = docs.slice(docs.indexOf("['400',"), docs.indexOf("['429',") + 80);
-  assert.ok(table.length > 200, 'جدول الأخطاء');
+  // الجدول كله حتى نهاية مصفوفته (ومنه صفّ 503 بعد 429)
+  const table = docs.slice(docs.indexOf("['400',"), docs.indexOf('].map(([c, d])', docs.indexOf("['400',")));
+  assert.ok(table.length > 200 && table.includes("['503',"), 'جدول الأخطاء');
   const codes = new Set([...guides.matchAll(CODE_RE), ...table.matchAll(CODE_RE)].map((m) => m[0]));
-  for (const must of ['LOCATIONS_NOT_ALLOWED', 'PAYMENT_METHODS_NOT_ALLOWED', 'PAYMENT_METHOD_UNKNOWN', 'LOCATION_ARCHIVED', 'PAYMENT_METHODS_CONFLICT']) {
+  for (const must of ['LOCATIONS_NOT_ALLOWED', 'PAYMENT_METHODS_NOT_ALLOWED', 'PAYMENT_METHOD_UNKNOWN', 'LOCATION_ARCHIVED', 'PAYMENT_METHODS_CONFLICT',
+    'LOTS_NOT_ALLOWED', 'LOTS_DISABLED', 'LOT_STOCK_INSUFFICIENT', 'LOT_REQUIRED', 'LOT_BUSY', 'LOT_SCOPED_USER', 'LOT_CHANGED']) {
     assert.ok(codes.has(must), `الدليل لا يذكر ${must}`);
   }
   const unknown = [...codes].filter((c) => !BACKEND_SRC.includes(`'${c}'`));
@@ -421,4 +425,191 @@ test('دقّة المستند: الأرصدة والتجميعات بالأسا�
   assert.match(stock, /بوحدة الأساس/);
   assert.match(stock, /اجمع baseQty لا qty/);
   assert.match(API_DOC_GROUPS.find((g) => g.key === 'products')!.overview, /صنفٌ بلا وحدات: units فارغة/);
+});
+
+/* ═══ «تتبّع اللوط» (المواصفة §٥.٤، الحزمة B7) ═══ */
+
+/** الحقول العليا لجسمٍ موثّق (بلا الحقول المتداخلة name[].x) */
+const topBody = (method: string, p: string) => endpointOf(method, p).body.map((f) => f.name).filter((n) => !n.includes('[')).sort();
+
+test('«تتبّع اللوط»: مجموعة lots بمسارات /api/lots كلها بالترتيب، وحرّاسها كما في الموجّه (المندوب ثم المحاسبة ثم العَلَم ثم الصلاحية) ومفتاح القراءة', () => {
+  const lots = routeFile('lots');
+  const group = API_DOC_GROUPS.find((g) => g.key === 'lots');
+  assert.ok(group, 'مجموعة lots غائبة');
+  const server = [...lots.matchAll(/router\.(get|post|put|patch|delete)\('([^']+)'/g)].map((m) => `${m[1].toUpperCase()} /lots${m[2] === '/' ? '' : m[2]}`);
+  assert.ok(server.length >= 15, `قُرئ ${server.length} مساراً فقط`);
+  assert.deepEqual(group!.endpoints.map((e) => `${e.method} ${e.path}`), server, 'كل مسار بترتيب الموجّه (الثابتة قبل /:id)');
+  // الحرّاس في الخادم بهذا الترتيب، والمستند يذكرها لكل مسار
+  const order = ["req.user?.role === 'SALES_REP'", 'router.use(requireLots);', "router.use(requireAdminPermission('canManageVanStock'));"].map((s) => lots.indexOf(s));
+  assert.ok(order.every((i, k) => i > 0 && (k === 0 || i > order[k - 1])), 'ترتيب حرّاس الموجّه');
+  for (const e of group!.endpoints) {
+    const at = `${e.method} ${e.path}`;
+    const gates = e.gates.join(' | ');
+    assert.ok(e.gates[0].includes('لا مندوب'), `${at}: رفض المندوب أولاً`);
+    assert.ok(gates.indexOf('ACCOUNTING_NOT_ALLOWED') >= 0 && gates.indexOf('ACCOUNTING_NOT_ALLOWED') < gates.indexOf('LOTS_NOT_ALLOWED'), `${at}: المحاسبة قبل العَلَم`);
+    assert.match(gates, /canManageVanStock/, at);
+    if (e.method === 'GET') assert.match(gates, /مسموح لمفتاح القراءة فقط/, at);
+    else assert.match(gates, /API_KEY_FORBIDDEN/, `${at}: مفتاح القراءة فقط`);
+  }
+  // الصلاحيات الإضافية في الخادم والمستند
+  assert.ok(lots.includes("router.post('/products/tracking', requireAdminPermission('canManageProducts')"));
+  assert.ok(lots.includes("router.put('/settings', requireAdminPermission('canManageCompanySettings')"));
+  assert.match(endpointOf('POST', '/lots/products/tracking').permission, /canManageProducts/);
+  assert.match(endpointOf('PUT', '/lots/settings').permission, /canManageCompanySettings/);
+  assert.match(endpointOf('GET', '/lots/:id/trace').permission, /canManageCustomers/);
+  // مقدمة المجموعة: العَلَم والصلاحيات والنطاق واليقين وlotId = null والكمية الأساسية والتسامح الذي لا يناله المفتاح والحجز والحقبة
+  for (const k of ['lotTrackingEnabled', 'canManageVanStock', 'LOT_SCOPED_USER', 'CONFIRMED', 'ASSUMED', 'UNKNOWN', 'lotId = null', 'بوحدة الأساس', 'X-FS-Replay', 'held', 'الحقبة', 'LOT_BUSY']) {
+    assert.ok(group!.overview.includes(k), `المقدمة لا تذكر ${k}`);
+  }
+});
+
+test('«تتبّع اللوط»: أجسام مسارات الكتابة بحقول مخطّطاتها في الموجّه حرفياً', () => {
+  const lots = routeFile('lots');
+  assert.deepEqual(topBody('POST', '/lots'), zodKeys(lots, 'createSchema').sort());
+  assert.deepEqual(topBody('POST', '/lots/relabel'), zodKeys(lots, 'relabelSchema').sort());
+  assert.deepEqual(topBody('POST', '/lots/products/tracking'), zodKeys(lots, 'trackingSchema').sort());
+  assert.deepEqual(topBody('PATCH', '/lots/:id'), zodKeys(lots, 'updateSchema').sort());
+  assert.deepEqual(topBody('PATCH', '/lots/:id/status'), zodKeys(lots, 'statusSchema').sort());
+  assert.deepEqual(topBody('PUT', '/lots/settings'), ['lotOnInvoice']);
+  assert.ok(lots.includes('z.object({ lotOnInvoice: z.boolean() })'));
+  // أسطر التسمية المتداخلة
+  const relabel = lots.slice(lots.indexOf('const relabelSchema = z.object({'), lots.indexOf('\n});', lots.indexOf('const relabelSchema = z.object({')));
+  const nested = endpointOf('POST', '/lots/relabel').body.map((f) => f.name).filter((n) => n.startsWith('lines[].')).map((n) => n.slice('lines[].'.length)).sort();
+  assert.deepEqual(nested, ['expiryDate', 'lotNumber', 'productionDate', 'qty', 'toLotId']);
+  for (const k of nested) assert.match(relabel, new RegExp(`^ {4}${k}: (z\\.|dateField,)`, 'm'), `lines[].${k} ليس في المخطّط`);
+  // ومعاملات القراءة يقرؤها الخادم
+  for (const [p, keys] of [['/lots', ['q', 'productId', 'status', 'expiringWithinDays', 'page', 'limit']], ['/lots/balances', ['productId', 'productIds', 'asOf']],
+    ['/lots/fefo', ['productId', 'qty', 'unitFactor', 'lines', 'salesRepId']], ['/lots/:id/trace', ['scope']], ['/lots/:id/events', ['limit']]] as [string, string[]][]) {
+    assert.deepEqual(endpointOf('GET', p).query.map((f) => f.name), keys, p);
+    for (const k of keys) assert.ok(lots.includes(`req.query.${k}`), `${p}: الخادم لا يقرأ ${k}`);
+  }
+});
+
+test('«تتبّع اللوط»: حقول التشغيلات في المسارات القائمة موثّقة وفي مخطّطات الخادم، وwithLots حيث يقرؤه', () => {
+  const sites: [string, string, string, string, RegExp][] = [
+    ['POST', '/invoices', 'items[].lots', 'invoices', /\blots: z\.unknown\(\)\.optional\(\)/],
+    ['POST', '/van-stock/loads', 'items[].lots', 'vanStock', /\blots: z\.unknown\(\)\.optional\(\)/],
+    ['POST', '/van-stock/loads', 'items[].lotNumber', 'vanStock', /\blotNumber: z\.unknown\(\)\.optional\(\)/],
+    ['POST', '/van-stock/loads', 'items[].productionDate', 'vanStock', /\bproductionDate: z\.unknown\(\)\.optional\(\)/],
+    ['POST', '/van-stock/loads', 'items[].expiryDate', 'vanStock', /\bexpiryDate: z\.unknown\(\)\.optional\(\)/],
+    ['POST', '/van-stock/loads', 'items[].lotReason', 'vanStock', /\blotReason: z\.unknown\(\)\.optional\(\)/],
+    ['POST', '/van-stock/loads', 'deletedSalesRepId', 'vanStock', /\bdeletedSalesRepId: z\.string\(\)\.optional\(\)/],
+    ['POST', '/warehouse/entries', 'items[].lotId', 'warehouse', /\blotId: z\.string\(\)/],
+    ['POST', '/warehouse/entries', 'items[].lotNumber', 'warehouse', /\blotNumber: z\.string\(\)/],
+    ['POST', '/warehouse/entries', 'items[].productionDate', 'warehouse', /\bproductionDate: z\.string\(\)/],
+    ['POST', '/warehouse/entries', 'items[].expiryDate', 'warehouse', /\bexpiryDate: z\.string\(\)/],
+    ['POST', '/products', 'lotTracked', 'products', /\blotTracked: z\.boolean\(\)/],
+    ['PUT', '/products/:id', 'lotTracked', 'products', /\blotTracked: z\.boolean\(\)/],
+    ['PUT', '/products/:id', 'confirmLotBalances', 'products', /\bconfirmLotBalances: z\.boolean\(\)/],
+  ];
+  for (const [method, p, field, router, schema] of sites) {
+    const f = fieldOf(endpointOf(method, p), field) as { required?: boolean; desc: string };
+    assert.equal(f.required, false, `${method} ${p} ${field}: اختياري (المطفأة كما كانت)`);
+    assert.ok(schema.test(routeFile(router)), `${router}: ${field} ليس في المخطّط`);
+  }
+  // الكمية الأساسية في كل صفوف التشغيلات الصريحة
+  for (const [method, p] of [['POST', '/invoices'], ['POST', '/van-stock/loads']]) assert.match(fieldOf(endpointOf(method, p), 'items[].lots').desc, /بالكمية الأساسية/);
+  // withLots: موثّق حيث يقرؤه الخادم
+  for (const [p, router] of [['/invoices/:id', 'invoices'], ['/invoices/by-client-ref/:clientRef', 'invoices'], ['/invoices/:id/returnable', 'invoices'],
+    ['/van-stock/loads', 'vanStock'], ['/van-stock/movements', 'vanStock'], ['/reports/returns', 'reports']]) {
+    assert.match(fieldOf(endpointOf('GET', p), 'withLots').desc, /يُهمل[^.]*مطفأة|مفعّلة للشركة، وإلا يُهمل/, `${p}: withLots يُهمل والميزة مطفأة`);
+    assert.ok(/withLots/.test(routeFile(router)), `${router} لا يقرأ withLots`);
+  }
+  // والمطفأة تتجاهله كما تقول مقدمة المجموعة (D8 يُخفي ولا يحذف): كل قراءةٍ لـwithLots في الخادم مقرونةٌ بعَلَم الشركة —
+  // وإلا كشفت فواتيرُ شركةٍ أطفأت الميزة صفوفَ حقبتها السابقة
+  for (const router of ['invoices', 'vanStock', 'reports']) {
+    const src = routeFile(router);
+    const reads = [...src.matchAll(/req\.query\.withLots\b/g)];
+    assert.ok(reads.length > 0, router);
+    for (const m of reads) {
+      const near = src.slice(Math.max(0, m.index! - 300), m.index! + 400);
+      assert.ok(/lotTrackingEnabled|lotTrackingOn\(/.test(near), `${router}: withLots بلا عَلَم الشركة`);
+    }
+  }
+  assert.match(API_DOC_GROUPS.find((g) => g.key === 'lots')!.overview, /withLots يُتجاهل/, 'المقدمة: المطفأة تتجاهل withLots');
+  // ولا وعدٌ مطلق بأن المطفأة «لا تغيّر شيئاً في أي مسار» (الأعمدة الجديدة تظهر بقيمها الافتراضية) — في المقدمة ولا في الدليل
+  const lotsGuideIntro = API_DOC_GUIDES.find((g) => g.key === 'lots-guide')!.intro;
+  assert.match(lotsGuideIntro, /withLots يُتجاهل/, 'الدليل: المطفأة تتجاهل withLots');
+  for (const t of [API_DOC_GROUPS.find((g) => g.key === 'lots')!.overview, lotsGuideIntro]) assert.ok(!/لا تغيّر شيئاً في أي مسار/.test(t), 'وعدٌ مطلق كاذب');
+  // الأعلام في /company كما يرسلها الخادم
+  const company = routeFile('company');
+  for (const k of ['lotTrackingEnabled', 'lotOnInvoice']) {
+    assert.match(endpointOf('GET', '/company').response, new RegExp(`\\b${k}\\b`));
+    assert.ok(company.includes(`${k}:`), `company.ts لا يرسل ${k}`);
+  }
+});
+
+test('«تتبّع اللوط»: القواعد التي صارت كاذبة للصنف المتتبَّع مصحّحة — لا بيع للمفتاح فوق المخزون، ولا «لا فحص» ولا مستودع سالب بلا استثناء', () => {
+  const sellRule = endpointOf('POST', '/invoices').rules.find((r) => r.includes('المفتاح يستطيع البيع بأكثر من مخزون السيارة'))!;
+  assert.match(sellRule, /LOT_STOCK_INSUFFICIENT/);
+  assert.match(sellRule, /canSellWithoutStock/);
+  const noCheck = endpointOf('POST', '/van-stock/loads').rules.find((r) => r.startsWith('لا فحص لتوفر الكمية'))!;
+  assert.match(noCheck, /LOT_STOCK_INSUFFICIENT/);
+  const negative = endpointOf('GET', '/warehouse').rules.find((r) => r.includes('قد يصيران سالبين'))!;
+  assert.match(negative, /LOT_STOCK_INSUFFICIENT/);
+  const guide = API_DOC_GUIDES.find((g) => g.key === 'warehouse-guide')!;
+  for (const needle of ['وقد يصير سالباً', 'لا فحص لتوفر الكمية']) {
+    const step = guide.steps.map((s) => s.text).join('\n').split('\n').find((l) => l.includes(needle))!;
+    assert.match(step, /LOT_STOCK_INSUFFICIENT/, needle);
+  }
+  // «البيع بدون مخزون» (PATCH /van-stock/sell-permission) ومتبقّي السيارة السالب: الإذن لا يُعفي الصنف المتتبَّع، والقفل لكل مُصدِر ومنه المفتاح
+  const perm = endpointOf('PATCH', '/van-stock/sell-permission');
+  assert.match(fieldOf(perm, 'canSellWithoutStock').desc, /LOT_STOCK_INSUFFICIENT/, 'canSellWithoutStock: الإذن لا يُعفي المتتبَّع');
+  const permRule = (start: string) => perm.rules.find((r) => r.startsWith(start))!;
+  assert.match(permRule('عند false'), /LOT_STOCK_INSUFFICIENT/, 'رفض المندوب للمتتبَّع 409 لا 403');
+  assert.match(permRule('القيد لا يسري'), /LOT_STOCK_INSUFFICIENT/, 'الإدارة والمفتاح مقيّدان بالتشغيلات');
+  const negRemaining = endpointOf('GET', '/van-stock/current').rules.find((r) => r.startsWith('remaining قد يكون سالباً'))!;
+  assert.match(negRemaining, /LOT_STOCK_INSUFFICIENT/);
+  assert.match(negRemaining, /قبل التفعيل/, 'المتتبَّع لا يصير سالباً إلا من تاريخ ما قبل التفعيل');
+  // وكل نصٍّ في المستند يَعِد بالبيع فوق المخزون بهذا الإذن يذكر استثناء المتتبَّع
+  for (const g of API_DOC_GROUPS) {
+    for (const e of g.endpoints) {
+      const texts = [...e.rules, ...e.body.map((f) => `${f.name}: ${f.desc}`), ...e.query.map((f) => `${f.name}: ${f.desc}`)];
+      for (const t of texts) {
+        if (/canSellWithoutStock/.test(t) && /(فوق|بأكثر من|سالباً)/.test(t)) assert.match(t, /LOT_STOCK_INSUFFICIENT/, `${e.method} ${e.path}: ${t.slice(0, 80)}`);
+      }
+    }
+  }
+});
+
+test('«تتبّع اللوط»: حدث الشركة في lot-events (productId الحرفي من الخادم وbefore/after بعَلَم الشركة) موثّقٌ في المورد ومسار السجل والدليل', () => {
+  const tenants = read(path.join(ROUTES, 'tenants.ts'));
+  const m = /export const TENANT_LOT_EVENT_PRODUCT = '([^']+)';/.exec(tenants);
+  assert.ok(m, 'TENANT_LOT_EVENT_PRODUCT في tenants.ts');
+  const star = `productId = "${m![1]}"`;
+  // ما يكتبه الخادم لحدث الشركة: lotId null وعَلَم الشركة وحقبتها
+  assert.ok(/lotId: null, productId: TENANT_LOT_EVENT_PRODUCT/.test(tenants));
+  assert.ok(/before: \{ lotTrackingEnabled:/.test(tenants) && /after: \{ lotTrackingEnabled: [^}]*lotTrackingSince:/.test(tenants));
+  const lotEvents = API_SYNC_RESOURCES.find((r) => r.name === 'lot-events')!.what;
+  const eventsRules = endpointOf('GET', '/lots/:id/events').rules.join('\n');
+  const guideSync = API_DOC_GUIDES.find((g) => g.key === 'lots-guide')!.steps.map((s) => s.text).join('\n');
+  for (const [where, text] of [['API_SYNC_RESOURCES lot-events', lotEvents], ['GET /lots/:id/events', eventsRules], ['lots-guide', guideSync]] as [string, string][]) {
+    assert.ok(text.includes(star), `${where}: لا يذكر ${star}`);
+    for (const k of ['lotTrackingEnabled', 'lotTrackingSince', 'lotTracked', 'lotTrackedSince']) assert.ok(new RegExp(`\\b${k}\\b`).test(text), `${where}: لا يذكر ${k}`);
+  }
+});
+
+test('«تتبّع اللوط»: موارد المزامنة الخمسة في المستند، وأعمدة اللوط الشرطية في products وvan-loads وwarehouse-entries كما في الخادم', () => {
+  const names = API_SYNC_RESOURCES.map((r) => r.name);
+  for (const n of ['product-lots', 'van-load-item-lots', 'invoice-item-lots', 'lot-relabels', 'lot-events']) assert.ok(names.includes(n), n);
+  const what = (n: string) => API_SYNC_RESOURCES.find((r) => r.name === n)!.what;
+  assert.match(what('product-lots'), /LOTS_DISABLED/);
+  assert.match(what('products'), /lotTracked/);
+  assert.match(what('van-loads'), /\bid\b/);
+  assert.match(what('warehouse-entries'), /lotId/);
+  const sync = read(path.join(BACKEND, 'services', 'apiSync.ts'));
+  assert.ok(sync.includes("lotSelect: { lotTracked: true }"), 'products.lotSelect');
+  assert.ok(sync.includes("lotSelect: { items: { select: pick('id') } }"), 'van-loads.lotSelect');
+  assert.ok(sync.includes("lotSelect: { items: { select: pick('id', 'lotId') } }"), 'warehouse-entries.lotSelect');
+  // ونصيحة التحويل تشمل موارد التشغيلات بطابع الإنشاء
+  const convert = endpointOf('POST', '/products/:id/convert-base').rules.join('\n');
+  for (const r of ['van-load-item-lots', 'invoice-item-lots', 'lot-relabels']) assert.ok(convert.includes(`/v1/sync/${r}`), `convert-base لا يذكر ${r}`);
+});
+
+test('أرقام أقسام الأدلّة وأيقوناتها تكفي كل دليل والفهرس بعدها', () => {
+  const docs = read(path.join(process.cwd(), 'src', 'components', 'ApiDocs.tsx'));
+  const nums = /const GUIDE_NUMBERS = \[([^\]]+)\]/.exec(docs)![1].match(/'[^']+'/g)!;
+  assert.ok(nums.length >= API_DOC_GUIDES.length + 1, `GUIDE_NUMBERS ${nums.length} لـ${API_DOC_GUIDES.length} أدلّة والفهرس`);
+  const icons = docs.slice(docs.indexOf('const GUIDE_ICONS'), docs.indexOf('};', docs.indexOf('const GUIDE_ICONS')));
+  for (const g of API_DOC_GUIDES) assert.ok(icons.includes(`'${g.key}':`), `${g.key} بلا أيقونة`);
 });

@@ -14,7 +14,7 @@ import type { UnitDef } from '../lib/units';
 import { unitChoices, defaultChoice } from '../rep/repUnits';
 import { splitVanMovement } from '../lib/vanMovement';
 import {
-  lotFlagsOf, lotWarningsOf, lotRowsProblem, lotRowsRemaining, LOT_EPS, LOT_WARNING_LABELS, LOT_STATUS_LABELS,
+  lotFlagsOf, lotWarningsOf, lotRowsRemaining, LOT_EPS, LOT_WARNING_LABELS, LOT_STATUS_LABELS,
   type LotRef, type LotWarning, type VanLotSnapshotDto, type AllocRowDto, type LotShortageDetail,
 } from '../lib/lots';
 import { MCard, MRow, MStat, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
@@ -24,9 +24,10 @@ import {
   type StockLineUnit,
 } from './mUnits';
 import {
-  newRowId, shelfLifeOn, emptyLotDraft, lotDraftProblem, loadLotFields, lineBaseQty, fefoLinesParam,
-  vanOutSources, prefillOut, setOutQty, lotLineLabel, type LotDraft, type OutSource,
-} from './mLots';
+  newRowId, shelfLifeOn, resolveShelfOn, emptyLotDraft, lotDraftProblem, loadLotFields, lineBaseQty, fefoLinesParam,
+  vanOutSources, prefillOutLines, sourcesLeftFor, outGroupProblems, setOutQty, lotLineLabel, LOT_CACHE_KEYS, VAN_OUT_PROBLEMS,
+  type LotDraft, type OutSource,
+} from './mLotsLogic';
 import MUnitChips from './MUnitChips';
 import MLotFields, { useProductLots } from './MLotFields';
 
@@ -101,7 +102,8 @@ interface Row extends StockLineUnit {
   rowId: string;
   productId: string; name: string; qty: string;
   suggestedQty?: number; expectedQty?: number;
-  /** «تتبّع اللوط»: انتهاء التشغيلة الجديدة إلزامي (شركة بلا مستودع، D4) */
+  /** «تتبّع اللوط»: انتهاء التشغيلة الجديدة إلزامي (شركة بلا مستودع، D4) — معروفٌ للمضاف من قائمة الأصناف وحده؛ وغائبٌ
+   *  (مخزون السيارة، الاقتراح) ⇒ يُجلب من بطاقة الصنف حين تُختار «تشغيلة جديدة» (resolveShelfOn) */
   shelfOn?: boolean;
   /** تشغيلة التحميل في شركة بلا مستودع (D4) — سطرٌ = تشغيلة */
   lot?: LotDraft;
@@ -243,10 +245,56 @@ export default function MRepLoad({ rep, company, onClose }: {
   const anyMulti = (stockQ.data ?? []).some(s => hasBigUnit(s.units));
 
   /* «تتبّع اللوط» لكل سطرٍ متتبَّع (والمطفأ لا شيء):
-   *  - تحميلٌ في شركة بلا مستودع (D4): تشغيلةٌ صريحة (قائمة، أو جديدة، أو «غير مسمى»).
+   *  - تحميلٌ في شركة بلا مستودع (D4): تشغيلةٌ صريحة (قائمة مؤهَّلة، أو جديدة، أو «غير مسمى»).
    *  - تنزيل: صفوفٌ صريحة حين للصنف في السيارة أكثر من مصدر (D10)، والمصدر الوحيد يختاره الخادم.
    *  - تحميلٌ من المستودع: لا شيء — الخادم يوزّع بـFEFO عند الحفظ، والمعاينة أدناه اقتراحه نفسه. */
-  const outRowsOf = (r: Row): LotRef[] => r.outLots ?? prefillOut(sourcesOf(r.productId), lineBaseQty(Number(r.qty), r.unitFactor));
+
+  /* أسطر التنزيل على مستوى الصنف (D26): صنفٌ متتبَّع يجوز له سطران بوحدتين («−١ كرتون» و«−٥ حبّات»)، والخادم يجمعهما قبل
+   * الفحص. فالتوزيع الأوّلي من متاحٍ مشترك (ما أخذه سطرٌ لا يأخذه آخر)، والتحقق بمجموع الأسطر ومجموع كل تشغيلةٍ عبرها */
+  const outPlan = useMemo(() => {
+    const rowsOf = new Map<string, LotRef[]>();
+    const problems = new Map<string, string>();
+    const byProduct = new Map<string, { r: Row; base: number }[]>();
+    for (const r of rows) {
+      const n = Number(r.qty);
+      if (!(n < 0) || !trackedOf(r.productId)) continue;
+      byProduct.set(r.productId, [...(byProduct.get(r.productId) ?? []), { r, base: lineBaseQty(n, r.unitFactor) }]);
+    }
+    for (const [pid, ls] of byProduct) {
+      const sources = sourcesOf(pid);
+      const filled = prefillOutLines(sources, ls.map(({ r, base }) => ({ key: r.rowId, base, factor: r.unitFactor, rows: r.outLots })));
+      filled.forEach((v, k) => rowsOf.set(k, v));
+      const multi = sources.length > 1;
+      outGroupProblems(sources, ls.map(({ r, base }) => ({ key: r.rowId, base, rows: multi ? filled.get(r.rowId) ?? [] : null })), { loaded: !!snapQ.data })
+        .forEach((p, k) => problems.set(k, VAN_OUT_PROBLEMS[p]));
+    }
+    return { rowsOf, problems, byProduct };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- trackedOf وsourcesOf تقرآن اللقطة والعلم وحدهما
+  }, [rows, snapQ.data, lotOn, pickTracked]);
+  const outRowsOf = (r: Row): LotRef[] => outPlan.rowsOf.get(r.rowId) ?? [];
+  /** مصادر السطر بما يبقى له بعد أسطر صنفه الأخرى — «المتاح» المعروض عليه */
+  const outSourcesOf = (r: Row): OutSource[] => sourcesLeftFor(
+    sourcesOf(r.productId),
+    (outPlan.byProduct.get(r.productId) ?? []).filter(x => x.r.rowId !== r.rowId).map(x => outRowsOf(x.r)),
+  );
+
+  /* صلاحية الصنف لتشغيلة التحميل الجديدة (D4): المضاف من قائمة الأصناف يحملها، وأسطر مخزون السيارة والاقتراح لا تحملها —
+   * فتُجلب ببطاقة الصنف حين تُختار «تشغيلة جديدة» لسطرٍ مجهولها، والمجهولة إلزامية ريثما تصل (resolveShelfOn) */
+  const shelfIds = lotOn && !warehouseOn
+    ? [...new Set(rows.filter(r => r.shelfOn === undefined && r.lot?.pick === 'NEW' && Number(r.qty) > 0 && trackedOf(r.productId)).map(r => r.productId))]
+    : [];
+  const shelfQs = useQueries({
+    queries: shelfIds.map(id => ({
+      queryKey: ['m-product-shelf', id],
+      staleTime: 60_000,
+      queryFn: async () => shelfLifeOn((await productApi.get(id)).data?.data as ProductPick | undefined),
+    })),
+  });
+  const shelfOf = (r: Row): boolean => {
+    const i = shelfIds.indexOf(r.productId);
+    return resolveShelfOn(r.shelfOn, i >= 0 ? shelfQs[i]?.data : undefined);
+  };
+
   const lotPartOf = (r: Row): { lots?: LotRef[]; lotNumber?: string; productionDate?: string | null; expiryDate?: string | null } => {
     const n = Number(r.qty);
     if (!trackedOf(r.productId) || !Number.isFinite(n) || n === 0) return {};
@@ -257,11 +305,9 @@ export default function MRepLoad({ rep, company, onClose }: {
   const lotProblemOf = (r: Row): string | null => {
     const n = Number(r.qty);
     if (!trackedOf(r.productId) || !Number.isFinite(n) || n === 0) return null;
-    if (n > 0) return warehouseOn ? null : lotDraftProblem(r.lot ?? emptyLotDraft(), 'IN', { shelfOn: !!r.shelfOn });
-    const src = sourcesOf(r.productId);
-    if (snapQ.data && !src.length) return 'لا رصيد صالحا لهذا الصنف في السيارة';
-    if (src.length <= 1) return null;
-    return lotRowsProblem(outRowsOf(r), lineBaseQty(n, r.unitFactor)) ? 'وزع كمية التنزيل على التشغيلات' : null;
+    if (n > 0) return warehouseOn ? null : lotDraftProblem(r.lot ?? emptyLotDraft(), 'LOAD', { shelfOn: shelfOf(r), day: snapQ.data?.day });
+    // التنزيل: مرآة pickPlan (D10، D26، I1) على مستوى الصنف — بلا مصدر، أو فوق مجموع المصادر، أو توزيعٌ ناقص، أو تشغيلةٌ فوق صالحها
+    return outPlan.problems.get(r.rowId) ?? null;
   };
 
   // المصدر الوحيد للتقسيم (splitVanMovement، وsplitLoadRows غلافٌ عليها بلا حقول اللوط) — الواجهة تعرضه والحفظ يرسله،
@@ -272,8 +318,8 @@ export default function MRepLoad({ rep, company, onClose }: {
       suggestedQty: r.suggestedQty, expectedQty: r.expectedQty,
       ...lotPartOf(r),
     }))),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- lotPartOf تقرأ اللقطة والعلمين وحدها
-    [rows, snapQ.data, lotOn, warehouseOn],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- lotPartOf تقرأ اللقطة والعلمين وخطة التنزيل وحدها
+    [rows, snapQ.data, lotOn, warehouseOn, outPlan],
   );
   const hasMovement = split.out.length > 0 || split.back.length > 0;
   const lotBlocked = rows.some(r => lotProblemOf(r) !== null);
@@ -402,9 +448,10 @@ export default function MRepLoad({ rep, company, onClose }: {
   function invalidateVanStock() {
     // مفاتيح الجوال ومفاتيح اللوحة معاً — الحزمة واحدة والكاش مشترك، فترك
     // مفاتيح اللوحة يُظهر للأدمن رصيداً قديماً حين ينتقل إليها
-    // و«تتبّع اللوط» في الجهتين: لقطة السيارة واقتراحها وأرصدة المستودع وشاشة التتبّع (الجوال واللوحة)
+    // و«تتبّع اللوط» في الجهتين: لقطة السيارة واقتراحها وأرصدة المستودع وخيارات المنتقي (تشغيلةٌ أُنشئت مع تحميلٍ بلا
+    // مستودع) وشاشة التتبّع — الجوال واللوحة (LOT_CACHE_KEYS)
     ['m-van-current', 'm-van-movements', 'm-van-suggest', 'van-summary', 'van-current', 'van-movements',
-      ...(lotOn ? ['m-van-lots', 'm-van-fefo', 'm-wh-lots', 'm-lots', 'm-lot', 'lots', 'lot', 'lot-balances'] : [])]
+      ...(lotOn ? LOT_CACHE_KEYS : [])]
       .forEach(k => qc.invalidateQueries({ queryKey: [k] }));
   }
 
@@ -697,12 +744,14 @@ export default function MRepLoad({ rep, company, onClose }: {
                   {/* «تتبّع اللوط» للصنف المتتبَّع وحده: معاينة FEFO للتحميل من المستودع، أو تشغيلة التحميل بلا مستودع،
                       أو توزيع التنزيل على مصادر السيارة */}
                   {tracked && !zero && !neg && warehouseOn && <FefoPreview productId={r.productId} f={fefoOf(r.rowId)} />}
+                  {/* الموقوفة والمنتهية يوم الشركة لا تُحمَّل (I4) — معطّلةٌ في المنتقي بيوم اللقطة */}
                   {tracked && !zero && !neg && !warehouseOn && (
-                    <MLotFields productId={r.productId} mode="IN" shelfOn={!!r.shelfOn} draft={r.lot ?? emptyLotDraft()}
-                      onChange={d => patchRow(k, { lot: d })} />
+                    <MLotFields productId={r.productId} mode="LOAD" shelfOn={shelfOf(r)} draft={r.lot ?? emptyLotDraft()}
+                      day={snapQ.data?.day} onChange={d => patchRow(k, { lot: d })} />
                   )}
+                  {/* «المتاح» لكل مصدر ما يبقى لهذا السطر بعد أسطر صنفه الأخرى (D26) */}
                   {tracked && neg && (
-                    <OutLotsEditor sources={sourcesOf(r.productId)} loading={snapQ.isLoading}
+                    <OutLotsEditor sources={outSourcesOf(r)} loading={snapQ.isLoading}
                       base={lineBaseQty(n, r.unitFactor)} rows={outRowsOf(r)}
                       onChange={lots => patchRow(k, { outLots: lots })} />
                   )}

@@ -22,6 +22,9 @@ const MSalesReps = lazy(() => import('./MSalesReps'));
 const MProducts = lazy(() => import('./MProducts'));
 const MReports = lazy(() => import('./MReports'));
 const MWarehouse = lazy(() => import('./MWarehouse'));
+// «تتبّع اللوط»: شاشة التشغيلات قسمٌ من الرئيسية لا تبويبٌ سفلي (المقاعد خمسة وقد امتلأت — tabRules.test)
+const MLots = lazy(() => import('./MLots'));
+import { lotFlagsOf } from '../lib/lots';
 import { MEmpty, MSpinner } from './mobileUi';
 import { can, PermKey } from './perms';
 import { visibleTabs } from './tabRules';
@@ -81,6 +84,9 @@ export default function MobileApp() {
   /* «مخزون الشركة» ميزة اشتراك **مطفأة افتراضياً** — الشرط `=== true` لا
    * `!== false`، بعكس النظام المحاسبيّ المفعّل افتراضاً. */
   const warehouseOn = (company as { warehouseEnabled?: boolean } | null)?.warehouseEnabled === true;
+  /* «تتبّع اللوط» ميزة يفعّلها المالك لكل شركة — مطفأة افتراضياً، فالقراءة `=== true` (lotFlagsOf): نسخة إعداداتٍ
+   * قديمة بلا العلم أو تعذّر قراءتها إطفاء، فلا بلاطة ولا مفتاح ولا جلب (§١٠.١). */
+  const lotOn = lotFlagsOf(company as { lotTrackingEnabled?: unknown } | null).on;
 
   // التبويبات المسموحة لهذا المستخدم — المنع عند `false` الصريحة وحدها،
   // ثم إسقاط التبويبين المحاسبيين حين يُطفئ المالك الميزة عن الشركة
@@ -132,8 +138,12 @@ export default function MobileApp() {
     /* مخزون الشركة بحارسٍ ثلاثيّ يطابق حارس الخادم: الصلاحية، ثمّ النظام
      * المحاسبيّ، ثمّ ميزة المستودع. وبلاطةٌ تُفضي إلى ٤٠٣ أسوأ من غيابها. */
     if (can(user, 'canManageVanStock') && accountingOn && warehouseOn) out.push('warehouse');
+    /* «تتبّع اللوط» بحارس موجّه /api/lots نفسه وبترتيبه: الصلاحية (canManageVanStock)، ثمّ النظام المحاسبيّ
+     * (ACCOUNTING_NOT_ALLOWED)، ثمّ علم الشركة (LOTS_NOT_ALLOWED). ولا يشترط المستودع: الشركة بلا مستودع تحمّل
+     * بتشغيلةٍ صريحة (D4) ولتشغيلاتها سيارات وعملاء يُتتبَّعون ويُسحب منها. */
+    if (can(user, 'canManageVanStock') && accountingOn && lotOn) out.push('lots');
     return out;
-  }, [user, accountingOn, warehouseOn]);
+  }, [user, accountingOn, warehouseOn, lotOn]);
 
   /* قسمٌ مفتوحٌ خرج من قائمة المسموح (وصلت إعدادات الشركة بعد فتحه) يُغلق —
    * وإلا بقيت شاشة المنتجات معروضةً فوق كل شيء بأسعارها. */
@@ -285,9 +295,10 @@ export default function MobileApp() {
         <div className="absolute inset-0 z-20 bg-white">
           <Suspense fallback={<MSpinner />}>
             {section === 'reps' ? <MSalesReps company={company} accountingOn={accountingOn} onBack={() => setSection(null)} />
-              : section === 'products' ? <MProducts onBack={() => setSection(null)} />
+              : section === 'products' ? <MProducts lotOn={lotOn} onBack={() => setSection(null)} />
                 : section === 'warehouse' ? <MWarehouse company={company} onBack={() => setSection(null)} />
-                  : <MReports accountingOn={accountingOn} company={company} onBack={() => setSection(null)} />}
+                  : section === 'lots' ? <MLots company={company} onBack={() => setSection(null)} />
+                    : <MReports accountingOn={accountingOn} company={company} onBack={() => setSection(null)} />}
           </Suspense>
         </div>
       )}

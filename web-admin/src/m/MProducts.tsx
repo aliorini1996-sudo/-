@@ -17,6 +17,9 @@ import {
   hasBigUnit, unitsBrief, qtyText, tierBaseBounds, tierPayload, biggestUnit,
   unitDraftProblem, unitDraftPayload, unitDraftOf, convertDraftProblem, convertedBasePrice, type UnitDraft,
 } from './mUnits';
+import { lotErrorOf } from '../lib/lots';
+import { productLotNote, productLotPayload, trackingBalanceOf, type TrackingBalanceProduct } from '../lib/lotTrackingUi';
+import { shelfLifeOn, LOT_CACHE_KEYS } from './mLotsLogic';
 
 /**
  * المنتجات والأسعار في تطبيق الإدارة على الجوال.
@@ -33,6 +36,12 @@ import {
  * «وحدات البيع» بعقود الخادم نفسها (productApi.addUnit/updateUnit/removeUnit). وتغيير اسم الأساس **لا يحوّل**
  * الكميات: «٢» المسجّلة كرتوناً تُقرأ «٢ حبة» إن صار الاسم حبة — فالتقسيم إلى وحدةٍ أصغر طريقُه «تحويل وحدة الأساس»
  * (convertBase) الذي يوسم التاريخ بمعامله ويقسم أسعار الأساس، بنافذة تأكيدٍ تقول ذلك صراحةً.
+ *
+ * ═══ «تتبّع باللوط» ═══
+ * للشركة المفعّلة لها الميزة وحدها (`lotOn` من القوقعة): مفتاحٌ في نموذج الصنف وشارة «لوط» في القائمة. والمفتاح يُرسل
+ * `lotTracked` **حين يتغيّر وحده** (productLotPayload، كنافذة اللوحة): الخادم يقفل الصنف ويفتح الحقبة متى حمل الجسم
+ * انتقالاً، فحفظ الصنف لتعديلٍ آخر لا يمرّ بها. وإطفاء صنفٍ له أرصدة في تشغيلات يردّه الخادم 409 LOT_TRACKING_HAS_BALANCE
+ * بتفاصيلها، فتُعرض ويُعاد الحفظ نفسه بـconfirmLotBalances بعد تأكيدٍ صريح (D9). والمطفأة: لا مفتاح ولا شارة ولا حقل.
  */
 
 const PAGE = 30;
@@ -59,7 +68,11 @@ function invalidateProducts(qc: ReturnType<typeof useQueryClient>, productId?: s
   if (productId) qc.invalidateQueries({ queryKey: ['m-product', productId] });
 }
 
-export default function MProducts({ onBack }: { onBack: () => void }) {
+export default function MProducts({ onBack, lotOn = false }: {
+  onBack: () => void;
+  /** «تتبّع اللوط» مفعّل للشركة (lotFlagsOf في القوقعة) — مطفأ ⇒ الشاشة كما كانت حرفاً */
+  lotOn?: boolean;
+}) {
   const tr = useTr();
   const [q, setQ] = useState('');
   const [dq, setDq] = useState('');
@@ -114,6 +127,7 @@ export default function MProducts({ onBack }: { onBack: () => void }) {
       <MProductForm
         product={editing}
         categories={catsQ.data ?? []}
+        lotOn={lotOn}
         onClose={() => setEditing(undefined)}
       />
     );
@@ -166,7 +180,7 @@ export default function MProducts({ onBack }: { onBack: () => void }) {
           : (
             <MCard>
               {listQ.data.items.map(p => (
-                <ProductRow key={p.id} p={p} onOpen={() => setEditing(p)} />
+                <ProductRow key={p.id} p={p} lotOn={lotOn} onOpen={() => setEditing(p)} />
               ))}
             </MCard>
           )}
@@ -178,9 +192,11 @@ export default function MProducts({ onBack }: { onBack: () => void }) {
   );
 }
 
-function ProductRow({ p, onOpen }: { p: Product; onOpen: () => void }) {
+function ProductRow({ p, onOpen, lotOn = false }: { p: Product; onOpen: () => void; lotOn?: boolean }) {
   const tr = useTr();
   const off = p.status === 'INACTIVE';
+  // شارة «لوط» للصنف المتتبَّع والميزة مفعّلة وحدها (الإطفاء يُخفي ولا يحذف، D8)
+  const lot = lotOn && p.lotTracked === true;
   // وحداته الأكبر بمعاملاتها في سطره («كرتون ٢٤»)، والسعر يُسمّى بوحدته: سعرُ حبّةٍ بلا اسمها يُقرأ سعر كرتون
   const multi = hasBigUnit(p.units);
   return (
@@ -199,6 +215,11 @@ function ProductRow({ p, onOpen }: { p: Product; onOpen: () => void }) {
           {off && (
             <span className="flex-shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[#F1EBDF] text-[#6E6557]">
               {tr('معطل')}
+            </span>
+          )}
+          {lot && (
+            <span className="flex-shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[#FBEBE2] text-[#C94E28]">
+              {tr('لوط')}
             </span>
           )}
         </span>
@@ -238,8 +259,10 @@ const emptyForm: FormState = {
  * `null` (`data.barcode || null`)، وهو **الطريق الوحيد لمحو** قيمة قديمة؛
  * وحذفُ المفتاح أصلاً كان سيعني «لا تغيّرها» فيبقى الباركود المشطوب مكانه.
  */
-function MProductForm({ product, categories, onClose }: {
+function MProductForm({ product, categories, onClose, lotOn = false }: {
   product: Product | null; categories: Cat[]; onClose: () => void;
+  /** «تتبّع اللوط» مفعّل للشركة — مطفأ ⇒ لا مفتاح ولا حقل في الحمولة */
+  lotOn?: boolean;
 }) {
   const tr = useTr();
   const qc = useQueryClient();
@@ -269,10 +292,20 @@ function MProductForm({ product, categories, onClose }: {
   const units = liveQ.data?.units ?? product?.units;
   const multi = hasBigUnit(units);
 
+  /* «تتبّع باللوط» — null = لم يلمسه المستخدم فيتبع الصنف كما هو على الخادم الآن (liveQ) لا لقطة القائمة: تبديلٌ من
+   * اللوحة بعد تحميل القائمة يُقرأ هنا، فلا يُرسل «انتقالٌ» عن حالةٍ لم تعد قائمة. والإرسال حين يتغيّر وحده. */
+  const [lotChoice, setLotChoice] = useState<boolean | null>(null);
+  const lotBase = liveQ.data ?? product;
+  const lotValue = lotChoice ?? (lotBase?.lotTracked === true);
+  const lotNote = lotOn ? productLotNote(lotBase ?? null, lotValue) : null;
+  // إطفاءٌ ردّه الخادم بأرصدة في تشغيلات (D9) — تفاصيلها للتأكيد، ثم الحفظ نفسه بـconfirmLotBalances
+  const [lotBalances, setLotBalances] = useState<TrackingBalanceProduct[] | null>(null);
+
   // طبقات هذا النموذج — من الأعلى بصرياً إلى الأدنى (وطبقة «أسعار الكميات»
   // تسجّل نفسها داخل مكوّنها فتقع فوق الجميع)
   useBackClose(newCat !== null, () => setNewCat(null));
   useBackClose(newCat === null && confirming, () => setConfirming(false));
+  useBackClose(lotBalances !== null, () => setLotBalances(null));
   useBackClose(unitsOpen, () => setUnitsOpen(false));
 
   // الحقول النصّية وحدها — `status` له مُبدِّله الخاص أدناه كي لا يُكتب فيه نصّ حرّ
@@ -292,7 +325,8 @@ function MProductForm({ product, categories, onClose }: {
     && form.basePrice.trim() !== '' && Number.isFinite(price) && price >= 0 && taxOk;
 
   const save = useMutation({
-    mutationFn: async () => {
+    /** confirmLot: إعادة الحفظ بعد تأكيد إطفاء التتبّع والصنف له أرصدة في تشغيلات (D9) — وإلا الحفظ العادي */
+    mutationFn: async (confirmLot: boolean = false) => {
       const payload: Record<string, unknown> = {
         name: form.name.trim(),
         code: form.code.trim(),
@@ -307,16 +341,32 @@ function MProductForm({ product, categories, onClose }: {
       if (form.taxPct.trim() !== '') payload.taxPct = Number(form.taxPct);
       // الحقول غير المذكورة (الصورة، سياسة التالف، أكواد الفوترة) تبقى كما هي:
       // مسار التعديل `partial()` فلا يُصفّر ما لم يصله
+      // «تتبّع باللوط»: المفتاح حين يتغيّر وحده (والصنف الجديد حين يُفعَّل)، والمطفأة لا شيء — الحمولة كما كانت حرفاً
+      const lot = productLotPayload(product ? (lotBase ?? null) : null, lotOn, lotValue);
+      Object.assign(payload, lot);
+      if (confirmLot && lot.lotTracked === false) payload.confirmLotBalances = true;
       if (product) await productApi.update(product.id, payload);
       else await productApi.create(payload);
+      return 'lotTracked' in lot;
     },
-    onSuccess: () => {
+    onSuccess: (lotChanged) => {
       qc.invalidateQueries({ queryKey: ['m-products'] });
       if (product) qc.invalidateQueries({ queryKey: ['m-product', product.id] });
+      // تبدّل التتبّع: قوائم الأصناف في الفاتورة والتحميل والوارد تقرأ علمه (حقل التشغيلة واقتراحها)، وشاشة التشغيلات
+      if (lotChanged) {
+        invalidateProducts(qc, product?.id);
+        LOT_CACHE_KEYS.forEach(k => qc.invalidateQueries({ queryKey: [k] }));
+      }
+      setLotBalances(null);
       toast.success(product ? tr('تم التحديث') : tr('تم الإضافة'));
       onClose();
     },
-    onError: (e: unknown) => toast.error(apiMessage(e, tr('تعذر الحفظ'))),
+    onError: (e: unknown, confirmLot) => {
+      const bal = product && !confirmLot ? trackingBalanceOf(e) : null;
+      if (bal) { setLotBalances(bal.products); return; }
+      setLotBalances(null);
+      toast.error(lotErrorOf(e)?.message || apiMessage(e, tr('تعذر الحفظ')));
+    },
   });
 
   const del = useMutation({
@@ -449,6 +499,36 @@ function MProductForm({ product, categories, onClose }: {
           </div>
         </Group>
 
+        {/* «تتبّع باللوط» — للشركة المفعّلة لها الميزة وحدها، بنصوص نافذة اللوحة نفسها (المعنى واحدٌ فاللفظ واحد) */}
+        {lotOn && (
+          <Group title={tr('تتبع باللوط')}>
+            <label className="flex items-center gap-3 min-h-[44px] cursor-pointer">
+              <input type="checkbox" checked={lotValue} onChange={e => setLotChoice(e.target.checked)}
+                className="w-5 h-5 accent-[#E15A30] flex-shrink-0" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold text-[#1F1A13]">{tr('تتبع باللوط')}</span>
+                <span className="block text-[11px] text-[#9A8F7E]">{tr('رقم التشغيلة وتاريخ انتهائها في كل حركة')}</span>
+              </span>
+            </label>
+            <p className="text-[11px] text-[#6E6557] leading-relaxed">
+              {tr('يسجل الوارد بتشغيلته ويصرف المندوب الأقرب انتهاء تلقائيا ولا يباع من التشغيلات أكثر من رصيدها ولو سمح البيع بدون مخزون')}
+            </p>
+            {lotValue && shelfLifeOn(lotBase) && (
+              <p className="text-[11px] text-[#6E6557]">{tr('تاريخ انتهاء التشغيلة إلزامي لأن صلاحية الصنف مفعلة')}</p>
+            )}
+            {lotNote === 'OFF' && (
+              <p className="text-[11px] text-[#8A6D1F] bg-[#FDF6E7] border border-[#F0E0B8] rounded-xl px-3 py-2 leading-relaxed">
+                {tr('الإطفاء يخفي تشغيلات الصنف ولا يحذفها وإن كانت له أرصدة في تشغيلات نطلب تأكيدك عند الحفظ')}
+              </p>
+            )}
+            {lotNote === 'NEW_EPOCH' && (
+              <p className="text-[11px] text-[#8A6D1F] bg-[#FDF6E7] border border-[#F0E0B8] rounded-xl px-3 py-2 leading-relaxed">
+                {tr('إعادة التفعيل تبدأ حقبة جديدة للصنف أرصدته تصير غير مسماة حتى تسمى من جديد')}
+              </p>
+            )}
+          </Group>
+        )}
+
         {/* وحدات البيع لصنفٍ قائم فقط كالشرائح: مساراتها تحتاج معرّفاً، والجديد بلا معرّف بعد */}
         {product && (
           <MCard onClick={() => setUnitsOpen(true)}>
@@ -499,7 +579,7 @@ function MProductForm({ product, categories, onClose }: {
       {/* زرّ الحفظ ثابت أسفل — لا يُبحث عنه بالتمرير */}
       <div className="flex-shrink-0 border-t border-[#E9E1D3] bg-white p-3"
         style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
-        <button onClick={() => save.mutate()} disabled={!valid || save.isPending}
+        <button onClick={() => save.mutate(false)} disabled={!valid || save.isPending}
           className="w-full bg-[#E15A30] text-white font-bold py-3.5 rounded-xl min-h-[50px] flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
           {save.isPending && <Loader2 size={16} className="animate-spin" />}
           {product ? tr('حفظ التعديلات') : tr('إضافة الصنف')}
@@ -517,6 +597,37 @@ function MProductForm({ product, categories, onClose }: {
               {tr('حفظ')}
             </button>
             <button onClick={() => setNewCat(null)}
+              className="px-5 border border-[#E9E1D3] bg-white rounded-xl min-h-[48px] text-sm font-semibold text-[#1F1A13]">
+              {tr('إلغاء')}
+            </button>
+          </div>
+        </Sheet>
+      )}
+
+      {/* D9: إطفاء تتبّع صنفٍ له أرصدة في تشغيلات — تأكيدٌ صريح بالتفاصيل، والإطفاء يُخفي ولا يحذف */}
+      {lotBalances && (
+        <Sheet title={tr('للصنف أرصدة في تشغيلات')} onClose={() => setLotBalances(null)}>
+          <p className="text-[12px] text-[#6E6557] leading-relaxed">
+            {tr('إطفاء التتبع يخفي هذه التشغيلات ولا يحذفها وإعادة التفعيل لاحقا تبدأ حقبة جديدة تصير فيها الأرصدة غير مسماة حتى تسمى')}
+          </p>
+          <div className="max-h-40 overflow-y-auto rounded-xl border border-[#E9E1D3] divide-y divide-[#F1EBDF] text-xs">
+            {lotBalances.map(b => (
+              <div key={b.productId} className="px-3 py-2">
+                <p className="font-semibold text-[#1F1A13]">{b.name ?? '-'}</p>
+                <p className="text-[#6E6557] tabular-nums">
+                  {tr('المستودع')} {formatNumber(b.warehouse)}
+                  {b.vans.length > 0 && <> · {tr('في سيارات المناديب')} {formatNumber(b.vans.reduce((s, v) => s + v.qty, 0))} ({formatNumber(b.vans.length)})</>}
+                </p>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => save.mutate(true)} disabled={save.isPending}
+              className="flex-1 bg-[#C0392B] text-white font-bold py-3 rounded-xl min-h-[48px] flex items-center justify-center gap-2 disabled:opacity-60">
+              {save.isPending && <Loader2 size={16} className="animate-spin" />}
+              {tr('أكد الإطفاء')}
+            </button>
+            <button onClick={() => setLotBalances(null)}
               className="px-5 border border-[#E9E1D3] bg-white rounded-xl min-h-[48px] text-sm font-semibold text-[#1F1A13]">
               {tr('إلغاء')}
             </button>

@@ -135,6 +135,17 @@ export function relabelSources(view: PlaceLotViewDto | null | undefined, bucket:
   return out;
 }
 
+/**
+ * المكان الذي تُفتح عليه نافذة التسمية: أول مكانٍ فيه المصدر الافتراضي صالحاً في «صالح للبيع» (غير المسمّى للتسمية، وهذه
+ * التشغيلة لإعادة التصنيف) — فلا تُفتح على المستودع وصالح التشغيلة في سيارة. وإلا أول الأماكن، ولا أماكن ⇒ null.
+ */
+export function defaultRelabelPlace<P extends { view: PlaceLotViewDto | null | undefined }>(
+  places: readonly P[], fromLotId: string | null, day: string,
+): P | null {
+  return places.find((p) => relabelSources(p.view, 'SELLABLE', day).some((s) => s.lotId === fromLotId && !s.blockedWhy))
+    ?? places[0] ?? null;
+}
+
 /** سبب التسمية من طرفيها: من غير المسمّى «تسمية الرصيد القائم»، وإلى غير المسمّى «تصحيح»، وبين تشغيلتين «إعادة التصنيف» */
 export function relabelReasonOf(fromLotId: string | null, toUnknown: boolean): LotRelabelReason {
   if (toUnknown) return 'CORRECTION';
@@ -208,9 +219,53 @@ export function traceTotals(trace: Pick<LotTraceDto, 'customers'>): { sold: numb
   return { sold: roundLot(sold), returned: roundLot(returned), net: roundLot(sold - returned), customers: trace.customers?.length ?? 0, invoices, broad };
 }
 
-/** اسم المكان في الشاشة والتصدير: المستودع، أو اسم المندوب، و«مندوب محذوف» يصل من الخادم */
-export const placeName = (p: { place: LotPlace; repName: string | null }, tr: Tr): string =>
-  p.place === 'WAREHOUSE' ? tr(LOT_PLACE_LABELS.WAREHOUSE) : (p.repName || tr(LOT_PLACE_LABELS.VAN));
+/** الاسم البديل الذي يرسله الخادم لسيارة المندوب المحذوف (LOT_REP_GONE_NAME في services/lotsTrace.ts) — نصٌّ عربي لا يُعرض كما هو */
+export const LOT_REP_GONE_NAME = 'مندوب محذوف';
+
+/**
+ * اسم سيارةٍ في الشاشة والتصدير. المحذوفة «مندوب محذوف» **مترجماً** (لا اسم الخادم العربي) وذيلٌ من معرّفها يميّز المحذوفات
+ * بعضها من بعض ويطابق بين الجداول. المحذوفة: علم deleted (/balances و/unload-plan) أو approximate (/trace)، وما لا علم له
+ * (/health) فاسم الخادم البديل علامتها.
+ */
+export function vanName(v: { salesRepId: string | null; repName: string | null; deleted?: boolean; approximate?: boolean }, tr: Tr): string {
+  const gone = v.deleted ?? v.approximate ?? v.repName === LOT_REP_GONE_NAME;
+  if (gone) return v.salesRepId ? `${tr('مندوب محذوف')} · ${v.salesRepId.slice(0, 6)}` : tr('مندوب محذوف');
+  return v.repName || tr(LOT_PLACE_LABELS.VAN);
+}
+
+/** اسم المكان في الشاشة والتصدير: المستودع، أو السيارة باسم مندوبها (vanName) */
+export const placeName = (p: { place: LotPlace; salesRepId: string | null; repName: string | null; deleted?: boolean; approximate?: boolean }, tr: Tr): string =>
+  p.place === 'WAREHOUSE' ? tr(LOT_PLACE_LABELS.WAREHOUSE) : vanName(p, tr);
+
+/**
+ * لحظة ISO بتوقيت المتصفّح — يومها «YYYY-MM-DD»، ومع withTime «YYYY-MM-DD HH:mm». كما تعرض صفحة الفواتير invoiceDate
+ * (formatDate)؛ أمّا أول عشرة أحرف من ISO فيوم UTC: فاتورة ١:٣٠ فجراً بالرياض تقع في اليوم السابق. اليوم الخالص وغير الصالح كما هما.
+ */
+export function localStamp(iso: string, withTime = false): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const p2 = (n: number) => String(n).padStart(2, '0');
+  const day = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+  return withTime ? `${day} ${p2(d.getHours())}:${p2(d.getMinutes())}` : day;
+}
+
+type TracePlace = LotTraceDto['places'][number];
+/**
+ * أعمدة كميات «الأماكن» (§٤.١٧) — مصدرٌ واحد للشاشة وورقة PDF وExcel: الخام والصالح للإنقاص والمحجوز، ودلوا المنتهي والتالف،
+ * ومجاميع الحركة. dash: الصفر «—» في الشاشة والورقة؛ strong: العمود الأساسي (والسالب أحمر في الشاشة).
+ */
+export const TRACE_PLACE_COLUMNS: readonly { label: string; qty: (p: TracePlace) => number; dash?: boolean; strong?: boolean }[] = [
+  { label: LOT_BUCKET_LABELS.SELLABLE, qty: (p) => p.raw.SELLABLE, strong: true },
+  { label: 'الصالح للإنقاص', qty: (p) => p.usable.SELLABLE },
+  { label: 'محجوز', qty: (p) => p.held.SELLABLE, dash: true },
+  { label: LOT_BUCKET_LABELS.EXPIRED, qty: (p) => p.raw.EXPIRED, dash: true },
+  { label: LOT_BUCKET_LABELS.DAMAGED, qty: (p) => p.raw.DAMAGED, dash: true },
+  { label: 'المحمل', qty: (p) => p.loaded },
+  { label: 'المنزل', qty: (p) => p.unloaded },
+  { label: 'المباع', qty: (p) => p.sold },
+  { label: 'المرتجع', qty: (p) => p.returned },
+];
 
 /** تسمية نوع المصدر: مصدر البطاقة، أو نوع حركة المستودع أو السيارة */
 export function originKindLabel(kind: string, tr: Tr): string {
@@ -251,19 +306,14 @@ export function traceSheets(trace: LotTraceDto, tr: Tr): ExcelSheet[] {
   });
   sheets.push({
     name: tr('المصدر'),
-    rows: trace.origin.map((o) => ({ [tr('النوع')]: originKindLabel(o.kind, tr), [tr('التاريخ')]: o.at.slice(0, 10), [tr('الكمية')]: q4(o.qty) })),
+    rows: trace.origin.map((o) => ({ [tr('النوع')]: originKindLabel(o.kind, tr), [tr('التاريخ')]: localStamp(o.at), [tr('الكمية')]: q4(o.qty) })),
     colWidths: [26, 14, 12],
   });
   sheets.push({
     name: tr('الأماكن'),
     rows: trace.places.map((p) => ({
       [tr('المكان')]: placeName(p, tr) + (p.approximate ? ` (${tr('تقريبي')})` : ''),
-      [tr(LOT_BUCKET_LABELS.SELLABLE)]: q4(p.raw.SELLABLE),
-      [tr('الصالح للإنقاص')]: q4(p.usable.SELLABLE),
-      [tr('محجوز')]: q4(p.held.SELLABLE),
-      [tr(LOT_BUCKET_LABELS.EXPIRED)]: q4(p.raw.EXPIRED),
-      [tr(LOT_BUCKET_LABELS.DAMAGED)]: q4(p.raw.DAMAGED),
-      [tr('المحمل')]: q4(p.loaded), [tr('المنزل')]: q4(p.unloaded), [tr('المباع')]: q4(p.sold), [tr('المرتجع')]: q4(p.returned),
+      ...Object.fromEntries(TRACE_PLACE_COLUMNS.map((c) => [tr(c.label), q4(c.qty(p))])),
     })),
     colWidths: [24, 12, 12, 10, 12, 10, 10, 10, 10, 10],
   });
@@ -273,7 +323,7 @@ export function traceSheets(trace: LotTraceDto, tr: Tr): ExcelSheet[] {
       for (const i of c.invoices) {
         rows.push({
           [tr('العميل')]: c.name, [tr('الجوال')]: c.phone ?? '', [tr('المدينة')]: c.city ?? '', [tr('العنوان')]: c.address ?? '',
-          [tr('رقم الفاتورة')]: i.number, [tr('التاريخ')]: lotDay(i.date) ?? i.date,
+          [tr('رقم الفاتورة')]: i.number, [tr('التاريخ')]: localStamp(i.date),
           [tr('المباع')]: q4(i.sold), [tr('المرتجع')]: q4(i.returned), [tr('الصافي')]: q4(i.net),
           [tr('اليقين')]: tr(LOT_CERTAINTY_LABELS[i.weakest] ?? i.weakest),
           [tr('النطاق')]: i.broad ? tr('النطاق الموسع') : tr('النطاق الدقيق'),
@@ -286,7 +336,7 @@ export function traceSheets(trace: LotTraceDto, tr: Tr): ExcelSheet[] {
   sheets.push({
     name: tr('السجل'),
     rows: trace.events.map((e) => ({
-      [tr('التاريخ')]: e.at.replace('T', ' ').slice(0, 16), [tr('الحدث')]: eventKindLabel(e.kind, tr),
+      [tr('التاريخ')]: localStamp(e.at, true), [tr('الحدث')]: eventKindLabel(e.kind, tr),
       [tr('بواسطة')]: e.actorName ?? '', [tr('السبب')]: e.reason ?? '',
     })),
     colWidths: [18, 26, 18, 40],

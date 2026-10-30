@@ -107,6 +107,9 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
     shelfLifeEnabled: lifeOn, shelfLifeValue: watch('shelfLifeValue'), shelfLifeUnit: watch('shelfLifeUnit'),
     shelfLifeBasis: lifeBasis, shelfLifeFromDate: watch('shelfLifeFromDate'),
   });
+  // «تتبّع اللوط» (§٤.١٨): الصنف المتتبَّع تُختم صلاحية بنوده من تاريخ انتهاء تشغيلته، فيُخفى «أساس الصلاحية» ومعاينته وتبقى
+  // المدة (لقيد المرتجع بالنسبة ولما بيع قبل التتبّع). أساسٌ لا يكتمل (شراءٌ بلا تاريخ) يبقى ظاهراً فلا يُرفض الحفظ بحقلٍ مخفي
+  const lotExpiry = lotTrackingOn && lotTracked && !(lifeBasis === 'PURCHASE' && !watch('shelfLifeFromDate'));
   // قيد المرتجع: لا يقبل مرتجع الصنف إلا قرب انتهائه أو وهو ما زال صالحاً، بأيامٍ أو نسبةٍ متبقية
   const ruleOn = lifeOn && !!watch('returnRuleEnabled');
   const ruleMode = (watch('returnRuleMode') || 'NEAR_EXPIRY') as ReturnRuleMode;
@@ -259,7 +262,9 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
             <label className="flex items-center gap-2.5 cursor-pointer">
               <input type="checkbox" {...register('shelfLifeEnabled')} className="w-4 h-4 accent-[#E15A30]" />
               <span className="text-sm font-semibold text-gray-700">{tr('تفعيل تاريخ صلاحية الصنف')}</span>
-              <span className="text-[10px] text-gray-400 mr-auto">{tr('تحسب من')} {tr(SHELF_LIFE_BASIS_LABELS[lifeBasis])}</span>
+              <span className="text-[10px] text-gray-400 mr-auto">
+                {lotExpiry ? tr('الصلاحية من تاريخ انتهاء التشغيلة') : <>{tr('تحسب من')} {tr(SHELF_LIFE_BASIS_LABELS[lifeBasis])}</>}
+              </span>
             </label>
             {lifeOn && (
               <div className="grid grid-cols-2 gap-4">
@@ -273,25 +278,33 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
                     {(Object.keys(SHELF_LIFE_UNIT_LABELS) as ShelfLifeUnit[]).map(u => <option key={u} value={u}>{tr(SHELF_LIFE_UNIT_LABELS[u])}</option>)}
                   </select>
                 </div>
-                <div className={lifeBasis === 'PURCHASE' ? '' : 'col-span-2'}>
-                  <label className="label">{tr('تحسب الصلاحية من')}</label>
-                  <select className="input" {...register('shelfLifeBasis')}>
-                    {(Object.keys(SHELF_LIFE_BASIS_LABELS) as ShelfLifeBasis[]).map(b => <option key={b} value={b}>{tr(SHELF_LIFE_BASIS_LABELS[b])}</option>)}
-                  </select>
-                </div>
-                {lifeBasis === 'PURCHASE' && (
-                  <div>
-                    <label className="label">{tr('تاريخ الشراء أو الإنتاج')} *</label>
-                    <input type="date" className="input" {...register('shelfLifeFromDate')} />
-                  </div>
-                )}
-                {lifeBasis === 'VAN_LOAD' && (
-                  <p className="col-span-2 text-[11px] text-gray-400">{tr('البيع يطابق بدفعة التحميل التي جاء منها والأقدم يباع أولا')}</p>
-                )}
-                {lifePreview && (
-                  <p className="col-span-2 text-xs text-gray-500">
-                    {tr(PREVIEW_LABEL[lifeBasis])} <b className="text-gray-700">{formatDayOnly(lifePreview)}</b>
+                {lotExpiry ? (
+                  <p className="col-span-2 text-[11px] text-gray-500 bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-2.5 py-1.5 leading-relaxed" data-lot-expiry-basis="">
+                    {tr('تختم صلاحية الصنف المتتبع من تاريخ انتهاء التشغيلة وتبقى المدة لقيد المرتجع بالنسبة ولما بيع قبل التتبع')}
                   </p>
+                ) : (
+                  <>
+                    <div className={lifeBasis === 'PURCHASE' ? '' : 'col-span-2'}>
+                      <label className="label">{tr('تحسب الصلاحية من')}</label>
+                      <select className="input" {...register('shelfLifeBasis')}>
+                        {(Object.keys(SHELF_LIFE_BASIS_LABELS) as ShelfLifeBasis[]).map(b => <option key={b} value={b}>{tr(SHELF_LIFE_BASIS_LABELS[b])}</option>)}
+                      </select>
+                    </div>
+                    {lifeBasis === 'PURCHASE' && (
+                      <div>
+                        <label className="label">{tr('تاريخ الشراء أو الإنتاج')} *</label>
+                        <input type="date" className="input" {...register('shelfLifeFromDate')} />
+                      </div>
+                    )}
+                    {lifeBasis === 'VAN_LOAD' && (
+                      <p className="col-span-2 text-[11px] text-gray-400">{tr('البيع يطابق بدفعة التحميل التي جاء منها والأقدم يباع أولا')}</p>
+                    )}
+                    {lifePreview && (
+                      <p className="col-span-2 text-xs text-gray-500">
+                        {tr(PREVIEW_LABEL[lifeBasis])} <b className="text-gray-700">{formatDayOnly(lifePreview)}</b>
+                      </p>
+                    )}
+                  </>
                 )}
                 {/* قيد المرتجع — يُفعَّل أو يُطفأ لكل صنف، ويُطبَّق على كل مرتجعٍ له من المندوب والإدارة */}
                 <div className="col-span-2 rounded-lg bg-gray-50 p-3 space-y-3" data-return-rule="">

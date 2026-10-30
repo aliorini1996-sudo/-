@@ -200,6 +200,11 @@ export default function ReportsPage() {
       return (await lotsApi.lotSales(params)).data.data as LotSalesReportDto;
     },
     enabled: accountingReady && accountingOn && lotOn && tab === 'sales' && salesType === 'lots',
+    // رفض ٤xx (مدى مقلوب، الميزة أُطفئت) لا يتغيّر بالإعادة فيُقال فوراً — الإعادة للشبكة و٥xx
+    retry: (n, e) => {
+      const st = (e as { response?: { status?: number } } | null)?.response?.status ?? 0;
+      return !(st >= 400 && st < 500) && n < 2;
+    },
   });
 
   const { data: collectData } = useQuery({
@@ -1245,7 +1250,8 @@ export default function ReportsPage() {
             <div className="card flex items-center justify-center h-32 text-gray-400">{tr('جاري التحميل')}</div>
           ) : lotSalesQ.isError ? (
             <div className="card flex flex-col items-center gap-3 py-10 text-gray-500">
-              <span>{tr('تعذر تحميل التقرير')}</span>
+              {/* رفضٌ برسالةٍ من الخادم (مدى مقلوب، معامل غير صالح، الميزة مطفأة) يُقال بنصّه — وإلا الرسالة العامة */}
+              <span>{(lotSalesQ.error as { response?: { data?: { message?: string } } } | null)?.response?.data?.message || tr('تعذر تحميل التقرير')}</span>
               <button onClick={() => lotSalesQ.refetch()} className="btn-secondary">{tr('إعادة المحاولة')}</button>
             </div>
           ) : lotSalesRows.length === 0 ? (

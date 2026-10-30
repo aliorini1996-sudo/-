@@ -14,7 +14,7 @@ import type { LotDb, LotTx } from './lotsDb';
 import { companyDay, loadLotMetas, lockLotProducts, placeViews } from './lotsDb';
 import {
   ClientRefRace, LOT_HOLD_MIRRORS, LotError,
-  allocateOutLines, allocateReturnFromSale, invEffect, isLotQty, lotBaseQty, lotErr, lotRemovalsOf,
+  allocateOutLines, allocateReturnFromSale, asLockBusy, invEffect, isLotQty, lotBaseQty, lotErr, lotRemovalsOf,
   parseLotHint, parseLotRefsStrict, removalKeepsLots, replayMoment, stampFromRows,
   type AllocRow, type InvoiceLotAllocation, type InvoiceLotLine, type InvoiceLotPlan, type ItemExpiryStamp, type LotActor,
   type LotCertainty, type LotMeta, type LotRef, type LotRemovalItem, type LotWarning, type SaleLotRow,
@@ -261,8 +261,26 @@ const isFlagged = (w: LotWarning) => w.code === 'LOT_REPLAY_FLAGGED';
 export interface LockedProductRow { id: string; lotTracked: boolean; lotTrackedSince: Date | null }
 
 /**
+ * خطة البيع كما يبنيها مسار الإصدار (invoices.ts): `stockCheckSkipped` أصنافٌ تخطّاها فحص «البيع بدون مخزون» القديم لمندوبٍ لا
+ * يملكه لأنها متتبَّعة في القراءة المسبقة (§٤.٨ البند ٤) — فمنعها كله داخل المعاملة بصالح التشغيلات. اختياريٌّ فوق عقد P0
+ * (InvoiceLotPlan)، والكائن نفسه يصل فرع المرحلة الثانية (ctx.lots) فيحرسه allocateInTx هناك أيضاً.
+ */
+export type IssuanceLotPlan = InvoiceLotPlan & { stockCheckSkipped?: readonly string[] };
+
+/**
+ * D25 بالعكس: صنفٌ تخطّاه الفحص القديم ثم قُرئ تحت القفل غير متتبَّع (أُطفئ تتبّعه بين القراءتين) لا يُوزَّع ولا يُفحص أصلاً — فلا
+ * يُصدر: 503 LOT_BUSY (TRACKING_CHANGED)، والإعادة تقرؤه غير متتبَّع فتمرّ بالفحص القديم. ومن لم يتخطَّ فحصاً يتكيّف بلا خطأ.
+ */
+function trackingLost(plan: InvoiceLotPlan, tracked: ReadonlySet<string>): LotError | null {
+  const lost = uniq((plan as IssuanceLotPlan).stockCheckSkipped ?? []).filter((p) => !tracked.has(p));
+  return lost.length ? lotErr('LOT_BUSY', {}, { reason: 'TRACKING_CHANGED', productIds: lost }) : null;
+}
+
+/**
  * داخل معاملة الإصدار، بعد assertReturnLinks وقبل tx.invoice.create (§٤.٨ البند ٧):
- * 1. lockLotProducts لكل أصناف المستند ⇒ المجموعة الموثوقة (D25)؛ صنفٌ صار متتبَّعاً بين القراءتين يُوزَّع، وما أُطفئ لا.
+ * 1. lockLotProducts لكل أصناف المستند ⇒ المجموعة الموثوقة (D25)؛ صنفٌ صار متتبَّعاً بين القراءتين يُوزَّع، وما أُطفئ لا (إلا ما
+ *    تخطّاه فحص المخزون القديم ⇒ TRACKING_CHANGED). انتظار قفله (55P03 بمهلة القفل، 40P01) ⇒ LotError('LOT_BUSY') هنا في المصدر:
+ *    مسار الإشعار الدائن لا يعرف أن مستنده مسارُ لوط فلا يحوّل خطأ القاعدة (D14)، وغير المتتبَّع لا يبلغ هذا القفل أصلاً.
  *    `opts.lockedRows`: صفوف استعلام FOR KEY SHARE القائم في المسار (الوحدات المتعددة) فلا يتكرّر — تُستعمل إن غطّت كل الأصناف.
  * 2. clientRef موجودٌ تحت القفل ⇒ ClientRefRace (يلتقطه فرع P2002 فيعيد الفاتورة القائمة 200) — لا توزيع ثانٍ لمستندٍ واحد،
  *    ولا 409 كاذب لطلبٍ مكرَّر صُرف رصيده للتوّ.
@@ -272,11 +290,18 @@ export async function allocateInvoiceLotsInTx(tx: LotTx, plan: InvoiceLotPlan, o
   const pids = uniq(plan.lines.map((l) => l.productId));
   const rows = opts?.lockedRows;
   const covered = !!rows && pids.every((p) => rows.some((r) => r.id === p));
-  const { tracked } = await lockLotProducts(tx, plan.tenantId, pids, covered ? { lockedRows: rows! } : undefined);
+  let tracked: Set<string>;
+  try {
+    ({ tracked } = await lockLotProducts(tx, plan.tenantId, pids, covered ? { lockedRows: rows! } : undefined));
+  } catch (e) {
+    throw asLockBusy(e) ?? e;
+  }
   if (plan.clientRef) {
     const dup = await tx.invoice.findUnique({ where: { tenantId_clientRef: { tenantId: plan.tenantId, clientRef: plan.clientRef } }, select: { id: true } });
     if (dup) throw new ClientRefRace();
   }
+  const lost = trackingLost(plan, tracked);
+  if (lost) throw lost;
   const res = await allocateTracked(tx, plan, tracked);
   const flagged = res.warnings.filter(isFlagged);
   if (flagged.length) {
@@ -304,9 +329,12 @@ export async function precheckInvoiceLots(db: LotDb, plan: InvoiceLotPlan): Prom
   const pids = uniq(plan.lines.map((l) => l.productId));
   if (!pids.length) return null;
   const rows = await db.product.findMany({ where: { tenantId: plan.tenantId, id: { in: pids }, lotTracked: true }, select: { id: true } });
+  const tracked = new Set(rows.map((r) => r.id));
+  const lost = trackingLost(plan, tracked);
+  if (lost) return lost;
   if (!rows.length) return null;
   try {
-    await allocateTracked(db, plan, new Set(rows.map((r) => r.id)));
+    await allocateTracked(db, plan, tracked);
     return null;
   } catch (e) {
     if (e instanceof LotError) return e;
@@ -423,6 +451,21 @@ export async function assertReturnCancelKeepsLots(tx: LotTx, tid: string, invoic
 /** إعادة المرتجع للمخزون إلى false (§٤.١٣): القاعدة نفسها (lotRemovalsOf ثم removalKeepsLots) بدلو SELLABLE للبنود التي يوجّهها invEffect إليه */
 export async function assertRestockOffKeepsLots(tx: LotTx, tid: string, invoiceId: string): Promise<void> {
   await assertRemovalKeepsLots(tx, tid, invoiceId, 'RESTOCK_OFF');
+}
+
+/**
+ * D25 للإزالة (إلغاء مرتجعٍ أو إطفاء عودته والميزة مفعّلة) حين قرأت القراءة المسبقة أصنافه كلها غير متتبَّعة: لا حارس ولا قفل
+ * لوط ولا عرض سيارة (§١٠.٢) — وحدها إعادة قراءة التتبّع تحت FOR KEY SHARE، وهو الحدّ الأدنى لترتيب الإزالة مع تبديل التتبّع
+ * (FOR UPDATE على الصنف): بقي غير متتبَّع ⇒ ينتظر التبديلُ هذا الالتزام فتقع الإزالة قبل الحقبة، ولا بيعَ من غير المسمّى بينهما.
+ * صار أحدها متتبَّعاً ⇒ 503 LOT_BUSY (TRACKING_CHANGED) بلا تغيير، والإعادة تأخذ مسار الحارس بطابوره ومهلته (نمط الإصدار).
+ */
+export async function assertReturnStillUntracked(tx: LotTx, tid: string, productIds: string[]): Promise<void> {
+  const ids = uniq(productIds).sort();
+  if (!ids.length) return;
+  const rows = await tx.$queryRaw<{ id: string; lotTracked: boolean }[]>`
+    SELECT id, "lotTracked" FROM products WHERE "tenantId" = ${tid} AND id = ANY(${ids}::text[]) ORDER BY id FOR KEY SHARE`;
+  const now = rows.filter((r) => r.lotTracked === true).map((r) => r.id);
+  if (now.length) throw lotErr('LOT_BUSY', {}, { reason: 'TRACKING_CHANGED', productIds: now });
 }
 
 // ═══ مساعدات المسار ═══

@@ -21,7 +21,8 @@ import {
 } from '../services/lotsDb';
 import { relabelInTx } from '../services/lotsRelabel';
 import {
-  LOT_REP_GONE_NAME, lotHasReferences, lotHealth, lotSummaries, lotTrace, lotVanKeys, namedLotBalances, placeViewDto, trackingAttention, unloadPlan,
+  LOT_REP_GONE_NAME, lotEventVisible, lotHasReferences, lotHealth, lotSummaries, lotTrace, lotVanKeys, namedLotBalances, placeViewDto, trackingAttention,
+  unloadPlan,
 } from '../services/lotsTrace';
 
 /**
@@ -390,14 +391,18 @@ const relabelSchema = z.object({
 
 /**
  * سيارةٌ يسمّي فيها المستخدم: مندوبٌ قائم في نطاقه (assertRepInScope)، أو سيارة مندوبٍ محذوف لغير المقيّد بشرط أثرٍ سابق لها
- * (D30). وإلا 404 لا 403 كي لا يكشف الردّ وجود مندوبٍ خارج النطاق (كـvanStock.ts).
+ * (D30) — بمصادر lotVanKeys نفسها التي تعرض بها الأرصدة والتتبّع وخطة التنزيل سيارات المحذوفين (تحميلاته المحفوظة، وصفوف
+ * توزيع حركات السيارة والفواتير، والتسميات في السيارة)، فلا تُعرض سيارةٌ يُرفض تصحيحها. وإلا 404 لا 403 كي لا يكشف الردّ
+ * وجود مندوبٍ خارج النطاق (كـvanStock.ts).
  */
 async function vanInScope(req: AuthRequest, tid: string, key: string, scoped: boolean): Promise<boolean> {
   const rep = await prisma.salesRep.findFirst({ where: { id: key, tenantId: tid }, select: { id: true } });
   if (rep) return canAccessRep(req, tid, key);
   if (scoped) return false;
   if (await prisma.vanLoad.findFirst({ where: { tenantId: tid, deletedSalesRepId: key }, select: { id: true } })) return true;
-  return !!(await prisma.vanLoadItemLot.findFirst({ where: { tenantId: tid, vanKey: key }, select: { id: true } }));
+  if (await prisma.vanLoadItemLot.findFirst({ where: { tenantId: tid, vanKey: key }, select: { id: true } })) return true;
+  if (await prisma.invoiceItemLot.findFirst({ where: { tenantId: tid, vanKey: key }, select: { id: true } })) return true;
+  return !!(await prisma.lotRelabel.findFirst({ where: { tenantId: tid, place: 'VAN', vanKey: key }, select: { id: true } }));
 }
 
 /** تسمية الرصيد القائم وإعادة التصنيف والتصحيح (§٤.٦) — قيود المصدر ومنع السالب في relabelInTx تحت القفل */
@@ -624,7 +629,8 @@ const statusSchema = z.object({
 /**
  * الإيقاف (HOLD) والسحب (RECALL) وإعادة التنشيط (§٤.١٦): لغير المقيّد بنطاق، وبسببٍ إلزامي في الاتجاهين (D27)، تحت قفل
  * الصنف، ثم LotEvent BLOCK أو UNBLOCK. تصعيد الإيقاف إلى سحبٍ يُبقي لحظة الإيقاف الأولى (blockedAt: طبقة الإعادة ١ تعدّ
- * الموقوف بعد البيع، فتحريكها يفتح الموقوف لبيعٍ تمّ بعد إيقافه).
+ * الموقوف بعد البيع، فتحريكها يفتح الموقوف لبيعٍ تمّ بعد إيقافه). blockKind الغائب يُبقي نوع الموقوف، والتنزيل من السحب إلى
+ * الإيقاف بـblockKind: 'HOLD' صريحاً وحده.
  */
 router.patch('/:id/status', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -642,7 +648,9 @@ router.patch('/:id/status', async (req: AuthRequest, res: Response, next: NextFu
       const cur = await tx.productLot.findFirst({ where: { id, tenantId: tid }, select: LOT_ROW_SELECT });
       if (!cur) throw lotGone(id);
       if (!sameVersion(body.updatedAt, cur.updatedAt)) throw lotErr('LOT_CHANGED', {}, { lotId: id, updatedAt: cur.updatedAt });
-      const blockKind = body.status === 'BLOCKED' ? (body.blockKind ?? 'HOLD') : null;
+      // بلا blockKind: الموقوف يبقى بنوعه (طلبٌ يعيد الحالة لا ينزّل السحب إيقافاً بصمت فتُوسَم إعادته REPLAY_BLOCKED)، والنشط HOLD
+      const kept = cur.status === 'BLOCKED' && (cur.blockKind === 'HOLD' || cur.blockKind === 'RECALL') ? cur.blockKind : 'HOLD';
+      const blockKind = body.status === 'BLOCKED' ? (body.blockKind ?? kept) : null;
       if (cur.status === body.status && (cur.blockKind ?? null) === blockKind) return cur;
       const wasBlocked = cur.status === 'BLOCKED';
       const data = body.status === 'BLOCKED'
@@ -721,19 +729,31 @@ router.get('/:id/unload-plan', async (req: AuthRequest, res: Response, next: Nex
   } catch (err) { next(err); }
 });
 
-/** سجل تدقيق اللوط (المادة ٥٢) — الأحدث أولاً، وlimit ≤ ٥٠٠. اللوط المحذوف يبقى سجلّه (lotId نصّ بلا مفتاح) */
+/**
+ * سجل تدقيق اللوط (المادة ٥٢) — الأحدث أولاً، وlimit ≤ ٥٠٠. اللوط المحذوف يبقى سجلّه (lotId نصّ بلا مفتاح). والمقيّد لا يرى
+ * تسميات سياراتٍ خارج نطاقه ولا سيارات المحذوفين (lotEventVisible، كسجلّ التتبّع)، وlimit على المرئي منه: دفعاتٌ بالترتيب
+ * نفسه حتى يكتمل أو ينفد السجلّ.
+ */
 router.get('/:id/events', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
     const id = String(req.params.id);
     const limit = Math.min(500, Math.max(1, Math.trunc(Number(req.query.limit) || 200)));
-    const exists = await prisma.productLot.findFirst({ where: { id, tenantId: tid }, select: { id: true } });
-    const events = await prisma.lotEvent.findMany({
-      where: { tenantId: tid, lotId: id }, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], take: limit,
+    const [exists, vis] = await Promise.all([prisma.productLot.findFirst({ where: { id, tenantId: tid }, select: { id: true } }), visibleReps(req, tid)]);
+    const page = (skip: number) => prisma.lotEvent.findMany({
+      where: { tenantId: tid, lotId: id }, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], skip, take: limit,
       select: { id: true, lotId: true, productId: true, kind: true, before: true, after: true, reason: true, actorType: true, actorName: true, createdAt: true },
     });
-    if (!exists && !events.length) throw lotGone(id);
-    res.json({ success: true, data: events });
+    const events: Awaited<ReturnType<typeof page>> = [];
+    let seen = false;
+    for (let skip = 0; ; skip += limit) {
+      const rows = await page(skip);
+      seen ||= rows.length > 0;
+      for (const e of rows) if (events.length < limit && lotEventVisible(e.after, vis)) events.push(e);
+      if (!vis || events.length >= limit || rows.length < limit) break;
+    }
+    if (!exists && !seen) throw lotGone(id);
+    res.json({ success: true, data: events, scoped: !!vis });
   } catch (err) { next(err); }
 });
 

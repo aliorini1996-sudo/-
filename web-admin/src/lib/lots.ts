@@ -378,8 +378,9 @@ export function lotWarningsOf(raw: unknown): LotWarning[] {
 export interface DocLotLine { lotNumber: string | null; qty: number; expiryDate?: string | null }
 
 /**
- * صفوف توزيع بندٍ (فاتورة: quantity، أو حركة سيارة: qty بإشارتها) إلى أسطر الورقة. الانتهاء من اللوط إن ضُمّ وإلا
- * لقطة الصفّ. غير المصفوفة أو الفارغة undefined: البند بلا تشغيلات لا يطبع شيئاً.
+ * صفوف توزيع بندٍ (فاتورة: quantity، أو حركة سيارة: qty بإشارتها) إلى أسطر الورقة. الانتهاء لقطة الصفّ إن حملها (صفّ
+ * الفاتورة: انتهاء اللوط وقت الإصدار، ولو null — §٤.٣: تعديل اللوط بعدها لا يغيّر ورقةً بيد العميل)، وإلا من اللوط المضموم
+ * (صفّ حركة السيارة لا عمود انتهاء له). غير المصفوفة أو الفارغة undefined: البند بلا تشغيلات لا يطبع شيئاً.
  */
 export function docLotsFrom(rows: unknown): DocLotLine[] | undefined {
   if (!Array.isArray(rows)) return undefined;
@@ -391,7 +392,7 @@ export function docLotsFrom(rows: unknown): DocLotLine[] | undefined {
     out.push({
       lotNumber: r.lotId ? r.lot?.lotNumber ?? null : null,
       qty: roundLot(Math.abs(q)),
-      expiryDate: lotDay(r.lot?.expiryDate) ?? lotDay(r.expiryDate),
+      expiryDate: r.expiryDate !== undefined ? lotDay(r.expiryDate) : lotDay(r.lot?.expiryDate),
     });
   }
   return out.length ? out : undefined;

@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { X, ScanLine, Check, AlertCircle, ArrowLeft, Keyboard, Camera } from 'lucide-react';
 import { useTr } from '../i18n/strings';
 
-type ScanResult = { ok: boolean; label: string };
+// later: حكمٌ يصل بعد قليل (تتبّع اللوط يتحقق من رصيد السيارة متصلاً) — يحلّ محلّ التأكيد الأول حين يصل
+type ScanResult = { ok: boolean; label: string; later?: Promise<{ ok: boolean; label: string }> };
 
 // أنواع الباركود المدعومة (BarcodeDetector يقبل أسماء صغيرة، ZXing يقبل ثوابت BarcodeFormat)
 const NATIVE_FORMATS = ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'qr_code'];
@@ -40,9 +41,13 @@ export default function BarcodeScanner({ onDetect, onClose, onProceed, itemCount
     if (code === lastCodeRef.current && now - lastTimeRef.current < 2000) return; // تهدئة لنفس الكود
     lastCodeRef.current = code;
     lastTimeRef.current = now;
+    const show = (r: { ok: boolean; label: string }) => {
+      setFeedback({ ok: r.ok, label: r.label });
+      setTimeout(() => setFeedback((f) => (f && f.label === r.label ? null : f)), 1500);
+    };
     const r = onDetectRef.current(code);
-    setFeedback(r);
-    setTimeout(() => setFeedback((f) => (f && f.label === r.label ? null : f)), 1500);
+    show(r);
+    r.later?.then(show).catch(() => undefined);
   };
 
   const showManual = !canScan || manualMode || cameraFailed;

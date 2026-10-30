@@ -40,6 +40,14 @@ export interface SyncResource {
   warehouse?: boolean;
   /** يتطلّب ميزة «لوكيشن» للشركة (Tenant.locationsEnabled) — كصفحتها في اللوحة (requireLocations) */
   locations?: boolean;
+  /** يتطلّب ميزة «تتبّع اللوط» للشركة (Tenant.lotTrackingEnabled) — كموجّه /api/lots (requireLots): المحاسبة ثم العَلَم */
+  lots?: boolean;
+  /**
+   * أعمدة «تتبّع اللوط» على موردٍ قائم: تُضمّ إلى select **للشركة التي فعّلت الميزة وحدها** (selectFor) — فردّ الشركة المطفأة
+   * بشكله القديم حرفياً (§١٠.١)، وتصل للمفعّلة (§٥.٣). العَلَم يُقرأ في استعلام البوّابة نفسه (apiV1.ts) فلا استعلام زائد.
+   * والمتداخل بشكل select نفسه: `{ items: { select: {...} } }` يُدمج في select البنود ويُبقي ترتيبها.
+   */
+  lotSelect?: Readonly<Record<string, unknown>>;
   /** عزل الشركة — مباشرة بعمود tenantId، أو عبر العميل والصنف معاً (أسعار العملاء بلا عمود شركة) */
   tenantPath: 'direct' | 'customerAndProduct';
   /** عمود الطابع إن خالف افتراض النمط — الزيارات بطابع الاستلام لا بطابع الجهاز */
@@ -145,11 +153,11 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
       priceTiers: { select: pick('minQty', 'maxQty', 'baseMinQty', 'baseMaxQty', 'price'), orderBy: { minQty: 'asc' } },
       units: { select: pick(...PRODUCT_UNIT_COLS), orderBy: [{ sortOrder: 'asc' }, { factor: 'asc' }] },
     },
+    // «تتبّع اللوط»: عَلَم الصنف للشركة المفعّلة وحدها (§٥.٣) — والمطفأة بشكل ردّها القديم (§١٠.١). تبديله يحرّك updatedAt فيصل
+    lotSelect: { lotTracked: true },
     denied: {
       tenantId: 'معروف من المفتاح', image: 'صورة base64 ثقيلة — تُقرأ من GET /api/products/:id',
-      // «تتبّع اللوط»: محجوبان حتى تحسم الحزمة B7 كشفهما — الميزة مطفأة فلا تغيير في شكل الرد (§١٠.١)
-      lotTracked: 'عَلَم «تتبّع اللوط» للصنف — كشفه تقرّره الحزمة B7 (§٥.٣ مقابل §١٠.١)',
-      lotTrackedSince: 'بداية حقبة «تتبّع اللوط» (D25) — تقرّره الحزمة B7',
+      lotTrackedSince: 'سباكة داخلية: بداية حقبة «تتبّع اللوط» للصنف — صفوف التشغيلات قبلها خارج الأرصدة وتبقى في التتبّع',
     },
     nested: {
       // minQty/maxQty بوحدة الصنف وقت إنشاء الشريحة (للعرض القديم)، وbaseMinQty/baseMaxQty حدودها بالأساس — بها يُقارَن
@@ -230,24 +238,64 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
     name: 'van-loads', model: 'vanLoad', mode: 'updated', permission: 'canManageVanStock', accounting: true, tenantPath: 'direct', hardDeletes: false,
     // suggestedQty وexpectedQty (اقتراح التحميل وتنبّؤه) بالأساس دائماً — المحرّك يقترح حبّاتٍ لا كراتين
     select: { ...pick('id', 'salesRepId', 'deletedSalesRepId', 'locationId', 'type', 'note', 'createdBy', 'createdAt', 'updatedAt'), items: { select: pick('productId', 'qty', ...UNIT_SNAPSHOT_COLS, 'suggestedQty', 'expectedQty') } },
+    // «تتبّع اللوط»: معرّف البند للشركة المفعّلة — به تُربط صفوف van-load-item-lots (vanLoadItemId) ببندها. والمطفأة بلا تغيير (§١٠.١):
+    // البند يُعرَّف عندها بحركته وصنفه كما كان
+    lotSelect: { items: { select: pick('id') } },
     denied: { tenantId: 'معروف من المفتاح' },
-    nested: { items: { model: 'vanLoadItem', denied: { id: 'البند يُعرَّف بحركته وصنفه', vanLoadId: PARENT } } },
+    nested: { items: { model: 'vanLoadItem', denied: { vanLoadId: PARENT } } },
   },
   {
     name: 'warehouse-entries', model: 'warehouseEntry', mode: 'created', permission: 'canManageVanStock', accounting: true, warehouse: true, tenantPath: 'direct', hardDeletes: true,
     // unitCost لوحدة البند (تكلفة الكرتون لبندٍ بالكرتون) — تكلفة الأساس = unitCost ÷ unitFactor
     select: { ...pick('id', 'type', 'note', 'supplier', 'createdBy', 'createdAt'), items: { select: pick('productId', 'qty', ...UNIT_SNAPSHOT_COLS, 'unitCost') } },
+    // «تتبّع اللوط»: للشركة المفعّلة معرّف البند وتشغيلته (سطرٌ = لوطٌ واحد؛ null = غير مسمّى أو صنفٌ غير متتبَّع) — تُترجم من
+    // product-lots. والمطفأة بلا تغيير (§١٠.١)
+    lotSelect: { items: { select: pick('id', 'lotId') } },
     denied: { tenantId: 'معروف من المفتاح' },
     nested: {
       items: {
         model: 'warehouseEntryItem',
-        denied: {
-          id: 'البند يُعرَّف بحركته وصنفه', entryId: PARENT, expiresAt: 'مهجور: الصلاحية تُحسب من تاريخ البيع لا التوريد',
-          // «تتبّع اللوط»: محجوبٌ حتى تحسم الحزمة B7 كشفه — الميزة مطفأة فلا تغيير في شكل الرد (§١٠.١)
-          lotId: 'تشغيلة السطر («تتبّع اللوط») — كشفها تقرّره الحزمة B7 (§٥.٣ مقابل §١٠.١)',
-        },
+        denied: { entryId: PARENT, expiresAt: 'مهجور: الصلاحية تُحسب من تاريخ البيع لا التوريد' },
       },
     },
+  },
+  /*
+   * ═══ «تتبّع اللوط» (§٥.٣) ═══ — بوّابة موجّه /api/lots: المحاسبة ثم عَلَم الشركة (LOTS_DISABLED)، ثم الصلاحية. كل كمية بوحدة
+   * الأساس (D22)، وlotId = null «غير مسمّى/غير معروف». التوزيعات والتسميات والأحداث تُنشأ ولا تُعدَّل (created)، عدا ضرب
+   * الكميات في «تحويل وحدة الأساس» للصنف (convert-base) بلا طابع: المستند يوصي بضربها بـconverted.factor أو بإعادة السحب.
+   * التداخل على since (٣ دقائق في المستند) يغطّي معاملات اللوط (حتى ٢٠ ثانية).
+   */
+  {
+    // البطاقات: الإنشاء والتعديل والإيقاف والسحب تحرّك updatedAt؛ والحذف فعليّ (DELETE /lots/:id بلا حركات، وتراجع الاستيراد الافتتاحي)
+    name: 'product-lots', model: 'productLot', mode: 'updated', permission: 'canManageVanStock', accounting: true, lots: true, tenantPath: 'direct', hardDeletes: true,
+    select: pick('id', 'productId', 'lotNumber', 'productionDate', 'expiryDate', 'status', 'blockKind', 'blockReason', 'blockedAt', 'blockedBy', 'note', 'source', 'createdBy', 'createdAt', 'updatedAt'),
+    denied: { tenantId: 'معروف من المفتاح', sourceEntryId: 'سباكة داخلية: حركة الاستيراد الافتتاحي المنشئة — للتراجع عنها' },
+  },
+  {
+    // توزيع بنود حركات السيارة على التشغيلات — Σ qty لبندٍ = baseQty البند بإشارته (تسوية النقص سالبة)
+    name: 'van-load-item-lots', model: 'vanLoadItemLot', mode: 'created', permission: 'canManageVanStock', accounting: true, lots: true, tenantPath: 'direct', hardDeletes: false,
+    select: pick('id', 'vanLoadItemId', 'productId', 'vanKey', 'moveType', 'viaWarehouse', 'lotId', 'qty', 'certainty', 'reason', 'createdAt'),
+    denied: { tenantId: 'معروف من المفتاح' },
+  },
+  {
+    // توزيع بنود الفواتير على التشغيلات — Σ quantity لبندٍ = baseQty البند (موجبة؛ الاتجاه من نوع الفاتورة)
+    name: 'invoice-item-lots', model: 'invoiceItemLot', mode: 'created', permission: 'canManageInvoices', accounting: true, lots: true, tenantPath: 'direct', hardDeletes: false,
+    select: pick('id', 'invoiceItemId', 'invoiceId', 'productId', 'vanKey', 'lotId', 'quantity', 'certainty', 'expiryDate', 'sourceItemLotId', 'flags', 'createdAt'),
+    denied: { tenantId: 'معروف من المفتاح' },
+  },
+  {
+    // تسمية الرصيد القائم وإعادة التصنيف والتصحيح — بُعد التشغيلة وحده، لا يغيّر رصيد الصنف ولا التقييم
+    name: 'lot-relabels', model: 'lotRelabel', mode: 'created', permission: 'canManageVanStock', accounting: true, lots: true, tenantPath: 'direct', hardDeletes: false,
+    select: pick('id', 'productId', 'place', 'vanKey', 'bucket', 'fromLotId', 'toLotId', 'qty', 'reason', 'note', 'createdBy', 'createdAt'),
+    denied: { tenantId: 'معروف من المفتاح' },
+  },
+  {
+    // سجل التدقيق (المادة ٥٢): before/after كائنا JSON كما كُتبا؛ lotId نصٌّ يبقى بعد حذف التشغيلة، وnull لأحداث التبديل —
+    // وحدث الشركة (تبديل مزود الخدمة للميزة) productId = TENANT_LOT_EVENT_PRODUCT ('*' في tenants.ts) لا معرّف صنف: موثّقٌ في المستند
+    // ويحرسه apiDocsCatalog.test.ts، وتحويله إلى null تغييرٌ في العقد يحتاج قرار المالك
+    name: 'lot-events', model: 'lotEvent', mode: 'created', permission: 'canManageVanStock', accounting: true, lots: true, tenantPath: 'direct', hardDeletes: false,
+    select: pick('id', 'lotId', 'productId', 'kind', 'before', 'after', 'reason', 'actorType', 'actorName', 'createdAt'),
+    denied: { tenantId: 'معروف من المفتاح', actorId: 'معرّف المستخدم أو المفتاح الداخلي — actorType وactorName يكفيان للتدقيق' },
   },
   {
     // بطابع الاستلام: createdAt من الجهاز للملتقط دون اتصال فقد يسبق رفعه بساعات فيقع خلف المؤشّر
@@ -277,6 +325,32 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
 ] as SyncResource[]);
 
 export const syncResource = (name: string): SyncResource | undefined => SYNC_RESOURCES.find(r => r.name === name);
+
+type SelectMap = Readonly<Record<string, unknown>>;
+const relSelect = (v: unknown): SelectMap | null => {
+  const s = v && typeof v === 'object' ? (v as { select?: unknown }).select : undefined;
+  return s && typeof s === 'object' ? (s as SelectMap) : null;
+};
+
+/** دمج select إضافي في select المورد: العلاقة المتداخلة يُدمج select بنودها ويبقى ترتيبها (orderBy)، والعمود يُضاف */
+function mergeSelect(base: SelectMap, extra: SelectMap): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...base };
+  for (const [k, v] of Object.entries(extra)) {
+    const b = relSelect(out[k]);
+    const e = relSelect(v);
+    out[k] = b && e ? { ...(out[k] as object), select: mergeSelect(b, e) } : v;
+  }
+  return out;
+}
+
+/**
+ * select المورد لشركةٍ بعينها: أعمدة «تتبّع اللوط» (lotSelect) تُضمّ حين تكون الميزة مفعّلة لها وحدها — وإلا select المورد
+ * نفسه (المرجع ذاته) فلا يتغيّر شكل ردّ المطفأة حرفاً (§١٠.١).
+ */
+export function selectFor(def: Pick<SyncResource, 'select' | 'lotSelect'>, lotsOn: boolean): Record<string, unknown> {
+  if (!lotsOn || !def.lotSelect) return def.select;
+  return mergeSelect(def.select, def.lotSelect);
+}
 
 /** عمود الطابع الذي تُرتَّب به صفحات المورد */
 export function cursorColumn(def: Pick<SyncResource, 'mode' | 'tsColumn'>): string {

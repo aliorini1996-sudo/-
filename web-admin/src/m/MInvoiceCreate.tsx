@@ -1,16 +1,23 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Search, Plus, Minus, Trash2, ShoppingCart, Loader2, Check } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, ShoppingCart, Loader2, Check, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { customerApi, productApi, salesRepApi, invoiceApi } from '../api/client';
+import { customerApi, productApi, salesRepApi, invoiceApi, lotsApi } from '../api/client';
 import { formatCurrency, formatDate, formatNumber } from '../utils/format';
 import { useTr } from '../i18n/strings';
+import { useAuthStore } from '../store/authStore';
 import { MHeader, MSpinner } from './mobileUi';
-import { expectArray } from './shape';
+import { expectArray, expectObject } from './shape';
 import { lineTotal, invoiceTotals, type Line } from './docMath';
 import { previewInstallments, defaultFirstDue, MAX_INSTALLMENTS, type InstallmentPeriod } from '../lib/installments';
 import { unitChoices, defaultChoice, choiceNet, invoiceItemUnit, type UnitChoice } from '../rep/repUnits';
-import { lineKey, addInvoiceLine, setInvoiceLineUnit, stepInvoiceLine, refreshInvoiceLines, type SalePick } from './mUnits';
+import { lineKey, addInvoiceLine, setInvoiceLineUnit, stepInvoiceLine, refreshInvoiceLines, qtyText, type SalePick } from './mUnits';
+import {
+  lotErrorOf, lotFlagsOf, lotWarningsOf, LOT_WARNING_LABELS, type LotWarning, type VanLotSnapshotDto,
+} from '../lib/lots';
+import { lotErrorText } from '../lib/invoiceLots';
+import { vanAvailableOf, vanLotShortages, LOT_CACHE_KEYS } from './mLotsLogic';
+import { can } from './perms';
 import MUnitChips from './MUnitChips';
 
 interface Pick { id: string; name: string; code?: string; phone?: string; basePrice?: number; taxPct?: number; unit?: string }
@@ -29,16 +36,31 @@ interface Pick { id: string; name: string; code?: string; phone?: string; basePr
  *
  * وثلاث خطوات لا شاشة واحدة: العميل ← الأصناف ← المراجعة. نموذجٌ واحد طويل
  * على الجوال يعني تمريراً لا ينتهي وأخطاءً لا تُرى.
+ *
+ * ═══ «تتبّع اللوط» (الميزة مفعّلة للشركة وحدها) ═══
+ * التوزيع على التشغيلات FEFO **في الخادم** تحت القفل، فلا حقل تشغيلةٍ هنا ولا نقرة: الجسم كما كان حرفاً. والصنف المتتبَّع
+ * ممنوعٌ من البيع فوق رصيد تشغيلات سيارة المندوب أيّاً كان «البيع بدون مخزون» (R3)، فيُعرض متاحه من لقطة السيارة
+ * (`/van-stock/lot-balances`، المفتاح نفسه في MRepLoad) تنبيهاً قبل الإصدار لا منعاً — والقرار للخادم. واللقطة تُجلب حين
+ * في البنود صنفٌ متتبَّع وللمستخدم صلاحية مخزون السيارات وحدهما. والردّ يحمل تحذيرات التوزيع (warnings) فتُقال، والرفض
+ * برمزه (LOT_STOCK_INSUFFICIENT وLOT_BUSY) يُشرح بلغة الواجهة (lotErrorText). والورقة بعد الإصدار تُجلب بتشغيلاتها
+ * (MDocScreen، withLots).
  */
 type Step = 'head' | 'items' | 'review';
 
-export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }: {
+/** علم الصنف من قائمة الأصناف (productApi.list يعيد الأعمدة كلّها) — ولا أثر له والميزة مطفأة */
+const lotTrackedOf = (p: SalePick | undefined): boolean => (p as { lotTracked?: boolean } | undefined)?.lotTracked === true;
+
+export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, company }: {
   presetCustomerId?: string;
   onClose: () => void;
   onCreated: (invoiceId: string) => void;
+  /** إعدادات الشركة (ردّ /company) — لعلم «تتبّع اللوط» وحده؛ غيابها إطفاء فالشاشة كما كانت حرفاً */
+  company?: unknown;
 }) {
   const tr = useTr();
   const qc = useQueryClient();
+  const user = useAuthStore(s => s.user);
+  const lotOn = lotFlagsOf(company as { lotTrackingEnabled?: unknown } | null).on;
   const [step, setStep] = useState<Step>('head');
   const [customerId, setCustomerId] = useState(presetCustomerId || '');
   const [salesRepId, setSalesRepId] = useState('');
@@ -86,6 +108,23 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }:
     // eslint-disable-next-line react-hooks/exhaustive-deps -- القائمة الجديدة وحدها تُطلق التحديث، لا كل تعديلٍ في البنود
   }, [productsQ.data]);
 
+  /* «تتبّع اللوط»: لقطة تشغيلات سيارة المندوب — حين الميزة مفعّلة وفي البنود صنفٌ متتبَّع وللمستخدم صلاحية مخزون السيارات
+   * (مسار /van-stock خلفها). المطفأة أو البنود بلا متتبَّع: لا طلب (§١٠.١) */
+  const hasLotLine = lotOn && lines.some(l => lotTrackedOf(catalog[l.productId]));
+  const snapQ = useQuery({
+    queryKey: ['m-van-lots', salesRepId],
+    enabled: hasLotLine && !!salesRepId && step !== 'head' && can(user, 'canManageVanStock'),
+    staleTime: 15_000,
+    // رفضٌ صريح (٤٠٣ صلاحية أو علم، ٤٠٤ مندوب) لا يتغيّر بالإعادة — والتنبيه يسقط بصمت فالخادم يحكم عند الإصدار
+    retry: (n, e) => {
+      const s = (e as { response?: { status?: number } } | null)?.response?.status ?? 0;
+      return !(s >= 400 && s < 500) && n < 2;
+    },
+    queryFn: async () => expectObject<VanLotSnapshotDto>((await lotsApi.vanLotBalances(salesRepId)).data?.data, tr('التشغيلات')),
+  });
+  const snap = hasLotLine ? snapQ.data ?? null : null;
+  const shortages = useMemo(() => vanLotShortages(lines, snap), [lines, snap]);
+
   const totals = useMemo(() => invoiceTotals(lines, discountPct), [lines, discountPct]);
   // معاينة جدول الأقساط — والخادم يكتب الحقيقي من إجماليّه
   const insPreview = useMemo(
@@ -126,18 +165,33 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }:
           ...invoiceItemUnit(l),
         })),
       });
-      return res.data.data as { id: string };
+      // «تتبّع اللوط»: تحذيرات التوزيع (تشغيلتان، وحدةٌ مقسومة، رصيدٌ غير مسمّى) — تأتي مع الميزة المفعّلة وحدها
+      const body = res.data as { data: { id: string }; warnings?: unknown };
+      return { inv: body.data, warnings: lotWarningsOf(body.warnings) };
     },
-    onSuccess: (inv) => {
+    onSuccess: ({ inv, warnings }: { inv: { id: string }; warnings: LotWarning[] }) => {
       qc.invalidateQueries({ queryKey: ['m-docs', 'invoice'] });
       qc.invalidateQueries({ queryKey: ['m-dashboard'] });
+      // البيع غيّر أرصدة تشغيلات السيارة وشاشة التتبّع
+      if (lotOn) LOT_CACHE_KEYS.forEach(k => qc.invalidateQueries({ queryKey: [k] }));
       toast.success(tr('تم إصدار الفاتورة'));
+      [...new Set(warnings.map(w => w.code))].forEach(c => toast(tr(LOT_WARNING_LABELS[c])));
       onCreated(inv.id);
     },
     onError: (e: unknown) => {
       const data = (e as { response?: { data?: { message?: string; code?: string } } })?.response?.data;
       // وحدات صنفٍ تغيّرت منذ فُتحت القائمة: تُجلب من جديد فيتحدّث منتقي البند — ورسالة الخادم تسمّي الصنف
       if (data?.code === 'UNIT_INVALID') qc.invalidateQueries({ queryKey: ['m-inv-products'] });
+      // «تتبّع اللوط»: الرفض برمزه وتفاصيله بلغة الواجهة (النقص بالمطلوب والمتاح بوحدات الصنف، والانشغال) — واللقطة تُجدَّد
+      const lot = lotErrorOf(e);
+      if (lot) {
+        if (lot.code === 'LOT_STOCK_INSUFFICIENT') qc.invalidateQueries({ queryKey: ['m-van-lots', salesRepId] });
+        toast.error(lotErrorText(lot, tr, {
+          nameOf: pid => catalog[pid]?.name ?? lines.find(l => l.productId === pid)?.name,
+          qtyText: (pid, n) => qtyText(n, pid ? catalog[pid] : null, formatNumber, { withUnit: true }),
+        }));
+        return;
+      }
       toast.error(data?.message || tr('تعذر الإصدار'));
     },
   });
@@ -254,11 +308,15 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }:
 
             {lines.length > 0 && (
               <div className="rounded-2xl border border-[#F1EBDF] bg-white divide-y divide-[#F1EBDF]">
-                {lines.map(l => {
+                {lines.map((l, idx) => {
                   const k = lineKey(l);
                   const p = catalog[l.productId];
                   const opts = unitChoices(p);
                   const multi = opts.length > 1;
+                  // «تتبّع اللوط»: متاح الصنف في السيارة على سطره الأول وحده (لا يتكرّر لكل وحدة)، والنقص بمجموع أسطره
+                  const lotLine = lotOn && lotTrackedOf(p) && lines.findIndex(x => x.productId === l.productId) === idx;
+                  const lotAvail = lotLine ? vanAvailableOf(snap, l.productId) : null;
+                  const lotShort = lotLine && shortages.some(s => s.productId === l.productId);
                   // وحدةٌ أُوقفت أو حُذفت منذ أُضيف البند: لا تُردّ إلى الأساس بصمت — يختار المستخدم (والخادم يرفضها أصلاً)
                   const gone = !!l.unitId && !!p && !opts.some(o => o.id === l.unitId);
                   return (
@@ -301,6 +359,17 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }:
                         <input type="number" step="any" inputMode="decimal" dir="ltr" className="input w-14 text-center py-1.5" value={l.discountPct}
                           onChange={e => patch(k, 'discountPct', Math.min(100, Math.max(0, Number(e.target.value) || 0)))} />
                       </div>
+                      {lotLine && (
+                        <p className={`text-[10px] flex items-start gap-1 leading-relaxed ${lotShort ? 'text-[#C0392B]' : 'text-[#6E6557]'}`}>
+                          {lotShort && <AlertTriangle size={11} className="flex-shrink-0 mt-0.5" />}
+                          <span>
+                            {tr('يصرف من التشغيلات الأقرب انتهاء تلقائيا')}
+                            {lotAvail !== null && (
+                              <> · {tr('المتاح في سيارة المندوب')} <b className="tabular-nums">{qtyText(lotAvail, p, formatNumber, { withUnit: true })}</b></>
+                            )}
+                          </span>
+                        </p>
+                      )}
                     </div>
                   );
                 })}
@@ -330,6 +399,7 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }:
                             {multi
                               ? `${formatCurrency(choiceNet(d, p.basePrice ?? 0))} / ${d.name}`
                               : formatCurrency(Number(p.basePrice ?? 0))} · {tr('ضريبة')} {Number(p.taxPct ?? 15)}%
+                            {lotOn && lotTrackedOf(p) && <> · {tr('لوط')}</>}
                           </span>
                         </span>
                         <Plus size={17} className="text-[#E15A30] flex-shrink-0" />
@@ -369,6 +439,23 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }:
             <Field label={tr('ملاحظات')}>
               <input className="input" value={notes} onChange={e => setNotes(e.target.value)} />
             </Field>
+
+            {/* «تتبّع اللوط»: نقصٌ في تشغيلات السيارة يُقال قبل الإصدار لا بعده — والخادم يمنعه تحت القفل أيّاً كان «البيع
+                بدون مخزون»، فالزرّ لا يُعطَّل على لقطةٍ قد تكون أقدم من تحميلٍ تمّ للتوّ */}
+            {shortages.length > 0 && (
+              <div className="rounded-2xl border border-[#F5C6C0] bg-[#FDF2F0] p-3 space-y-1.5 text-[11px] leading-relaxed">
+                <p className="font-bold text-[#C0392B] flex items-center gap-1.5">
+                  <AlertTriangle size={13} className="flex-shrink-0" /> {tr('الكمية أكبر من المتاح في تشغيلات سيارة المندوب')}
+                </p>
+                {shortages.map(s => (
+                  <p key={s.productId} className="text-[#1F1A13]">
+                    {catalog[s.productId]?.name ?? '-'}: <b className="tabular-nums">{qtyText(s.wanted, catalog[s.productId], formatNumber, { withUnit: true })}</b>
+                    {' · '}{tr('المتاح في السيارة')} <b className="tabular-nums">{qtyText(s.available, catalog[s.productId], formatNumber, { withUnit: true })}</b>
+                  </p>
+                ))}
+                <p className="text-[#8A6D1F]">{tr('الأصناف المتتبعة باللوط ممنوعة دائما من البيع بلا رصيد ولو سمح للمندوب')}</p>
+              </div>
+            )}
 
             <div className="rounded-2xl border border-[#E9E1D3] bg-white p-4 space-y-2">
               <Row k={tr('الإجمالي قبل الضريبة')} v={formatCurrency(totals.subtotal)} />

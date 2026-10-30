@@ -38,10 +38,13 @@ import {
 import { resolveInvoiceRegime } from '../compliance/zatca/regime';
 import { factorOf, unitFields } from '../services/units';
 // «تتبّع اللوط» (§٤.٩): الخطة ودمج صفوف التوزيع — services/lots.ts نقيّة (لا قاعدة ولا Prisma)
-import { invoiceItemLotColumns, lotBaseQty, type InvoiceLotLine, type InvoiceLotPlan, type LotActor } from '../services/lots';
+import {
+  invoiceItemLotColumns, lotBaseQty, replayMoment,
+  type InvoiceLotLine, type InvoiceLotPlan, type ItemExpiryStamp, type LotActor,
+} from '../services/lots';
 import { randomUUID } from 'node:crypto';
 import {
-  ITEM_LOTS_INCLUDE, capsGate, clearStandardInline, einvoiceView, isReplayRequest, regimeSettingsOf,
+  ITEM_LOTS_INCLUDE, allocateLotsInTx, capsGate, clearStandardInline, einvoiceView, isReplayRequest, lotPrecheck, regimeSettingsOf,
   type ClientCapsHeaders, type EinvoiceView, type Phase2IssuanceDeps, type Phase2LedgerHooks, type Phase2LotHooks, type Phase2Result, type Phase2Tx,
 } from './invoicesZatca';
 
@@ -497,24 +500,33 @@ export function legacyNoteItem(
 
 // ─── «تتبّع اللوط» (§٤.٩ البند ٥) ───
 
-/** ما يلزم الإشعار الدائن المتتبَّع: الخطّاف ويوم الخادم بمنطقة الشركة (محسوبٌ قبل المعاملة) والفاعل. */
+/** ما يلزم الإشعار الدائن المتتبَّع، محسوباً قبل المعاملة: الخطّاف ويوم الخادم بمنطقة الشركة والفاعل والإعادة واللقطة القائمة. */
 interface NoteLotContext {
   hooks: Phase2LotHooks;
   day: string;
   actor: LotActor;
+  /** إعادة رفعٍ من صندوق المندوب (D23) — أثرها في الوراثة إعفاؤها من رفض الكسور وحده (R6)، واليوم يبقى يوم الخادم (§٤.٩) */
+  replay: InvoiceLotPlan['replay'];
+  /** اللقطة القائمة (D12) بمفتاح بند الأصل — بها يُختم داخل المعاملة بندٌ ورث صفوف «غير معروف» وحدها */
+  stamps: ReadonlyMap<string, ItemExpiryStamp>;
 }
 
 /**
  * خطة الإشعار الدائن: يرث صفوف توزيع البيع (link CREDITED ⇒ allocateReturnFromSale بالترتيب الهجين) بسيارة **مندوب
- * الإشعار**، ويوم المرتجع يوم الخادم (لا إعادة دون اتصال: المرحلة الثانية لا تُصدَر دون اتصال). سطرٌ لكل بند إشعارٍ بصنف،
- * بموضعه في المستند، وكميته الأساسية = baseQty الذي يُكتب للبند (unitFields بمعامل وحدة الإشعار، D22) فيساوي مجموعُ صفوفه
- * كميةَ البند (I3). المجموعة الموثوقة تُقرأ تحت القفل (D25): الأسطر كلها تُمرَّر ويتكيّف التوزيع. null ⇒ لا بند بصنف.
+ * الإشعار**، ويوم المرتجع يوم الخادم ولو كان إعادة رفعٍ من الصندوق (`replay` يعفيها من رفض الكسور وحده، R6). سطرٌ لكل بند
+ * إشعارٍ بصنف، بموضعه في المستند، وكميته الأساسية = baseQty الذي يُكتب للبند (unitFields بمعامل وحدة الإشعار، D22) فيساوي
+ * مجموعُ صفوفه كميةَ البند (I3). المجموعة الموثوقة تُقرأ تحت القفل (D25): الأسطر كلها تُمرَّر ويتكيّف التوزيع. واللقطة القائمة
+ * (`stamps` بمفتاح بند الأصل) تصير fallbackStamps بفهرس البند الحاكم — البنود المقفلة قد تخالف المعاينة. null ⇒ لا بند بصنف.
  */
 export function creditNoteLotPlan(
   note: Pick<PreparedNote, 'lines' | 'engine'>,
-  at: { tenantId: string; customerId: string; vanKey: string | null; day: string; clientRef: string | null; actor: LotActor },
+  at: {
+    tenantId: string; customerId: string; vanKey: string | null; day: string; clientRef: string | null; actor: LotActor;
+    replay?: InvoiceLotPlan['replay']; stamps?: ReadonlyMap<string, ItemExpiryStamp>;
+  },
 ): InvoiceLotPlan | null {
   const lines: InvoiceLotLine[] = [];
+  const fallbackStamps = new Map<number, ItemExpiryStamp>();
   note.lines.forEach((l, idx) => {
     if (!l.productId) return;
     const qty = Number(note.engine.items[idx]?.qty ?? l.creditQty);
@@ -523,21 +535,23 @@ export function creditNoteLotPlan(
       qty: lotBaseQty({ qty, unitFactor: l.creditUnitFactor }), unitFactor: factorOf({ unitFactor: l.creditUnitFactor }),
       saleItemId: l.invoiceItemId,
     });
+    const s = at.stamps?.get(l.invoiceItemId);
+    if (s) fallbackStamps.set(idx, s);
   });
   if (!lines.length) return null;
   return {
     tenantId: at.tenantId, customerId: at.customerId, vanKey: at.vanKey,
-    docType: 'RETURN', link: 'CREDITED', actor: at.actor, replay: null, day: at.day, returnDay: at.day,
+    docType: 'RETURN', link: 'CREDITED', actor: at.actor, replay: at.replay ?? null, day: at.day, returnDay: at.day,
     // D17 (افتراض المالك) — لا أثر له في الوراثة، والصفوف بلا بيعٍ متتبَّع «غير معروف»
     allowUnknown: true, clientRef: at.clientRef, lines,
-    // الختم من صفوف البيع المسمّاة داخل المعاملة؛ وما بقي يختمه الختم اللاحق (يتخطّى المختوم)
-    fallbackStamps: new Map(),
+    // الختم من صفوف البيع المسمّاة داخل المعاملة، وإلا من اللقطة القائمة (D12) — فلا يبقى المتتبَّع رهن الختم اللاحق
+    fallbackStamps,
   };
 }
 
 /**
- * للإشعار الدائن وحده، وحين يمسّ بندٌ منه صنفاً معلَّماً في الأصل المحمَّل — عندها فقط يُقرأ علم الشركة (§١٠.١) ويومها.
- * المدين بنوده بلا صنف فلا توزيع له أصلاً (§٤.٩ البند ٦).
+ * للإشعار الدائن وحده، وحين يمسّ بندٌ منه صنفاً معلَّماً في الأصل المحمَّل — عندها فقط يُقرأ علم الشركة (§١٠.١) ويومها،
+ * واللقطة القائمة لبنوده المتتبَّعة. المدين بنوده بلا صنف فلا توزيع له أصلاً (§٤.٩ البند ٦).
  */
 async function noteLotContext(
   kind: NoteKind, ctx: CreditNoteContext | DebitNoteContext, deps: NoteIssuanceDeps, preview: NoteBuild, now: Date,
@@ -547,7 +561,17 @@ async function noteLotContext(
   if (!preview.prepared.lines.some(l => l.productId && tracked.has(l.productId))) return null;
   if (!(await deps.lots.enabled(ctx.tenantId))) return null;
   const actor: LotActor = ctx.actor?.role === 'SALES_REP' ? 'REP' : ctx.viaApiKey ? 'API_KEY' : 'ADMIN';
-  return { hooks: deps.lots, day: await deps.lots.day(ctx.tenantId, now), actor };
+  const day = await deps.lots.day(ctx.tenantId, now);
+  // D23: الإعادة للمندوب وحده بترويسة الصندوق ومرجعه ولحظة جهازٍ صالحة (invoiceLotMoment) — اللحظة محصورة كما هي، ويومها
+  // مهمَل (منطقة UTC لا تُقرأ): يوم مرتجع الإشعار يوم الخادم (§٤.٩)
+  const m = actor === 'REP' && isReplayRequest(ctx.caps) && ctx.clientRef ? replayMoment(ctx.clientCreatedAt, now, 'UTC') : null;
+  // D12: اللقطة القائمة لبنود الأصل المتتبَّعة بلحظة الخادم (linkedReturnExpiry في الإنتاج) — تُكتب داخل المعاملة لبندٍ ورث
+  // «غير معروف» وحده، فلا يدخل المنتهي SELLABLE رهنَ الختم اللاحق (invoiceExpiry.ts). غياب الخطّاف ⇒ لا لقطة
+  const saleItemIds = [...new Set(preview.prepared.lines.filter(l => l.productId && tracked.has(l.productId)).map(l => l.invoiceItemId))];
+  const stamps = deps.lots.linkedStamps && saleItemIds.length
+    ? await deps.lots.linkedStamps(ctx.tenantId, saleItemIds, now)
+    : new Map<string, ItemExpiryStamp>();
+  return { hooks: deps.lots, day, actor, replay: m ? { at: m.at, clamped: m.clamped } : null, stamps };
 }
 
 /** سيارة الإشعار الدائن = مندوبه (المُصدِر، وإلا مندوب الأصل) — مطابقٌ لـsalesRepId صفّه. */
@@ -592,9 +616,10 @@ async function issueNote(
     const lots = await noteLotContext(kind, ctx, deps, preview, now);
     const prePlan = lots ? creditNoteLotPlan(preview.prepared, {
       tenantId: ctx.tenantId, customerId: loaded.original.customerId, vanKey: creditVanOf(ctx, loaded.original),
-      day: lots.day, clientRef: ctx.clientRef ?? null, actor: lots.actor,
+      day: lots.day, clientRef: ctx.clientRef ?? null, actor: lots.actor, replay: lots.replay, stamps: lots.stamps,
     }) : null;
-    const pre = lots && prePlan ? await lots.hooks.precheck(prePlan) : null;
+    // رفضٌ لطلبٍ صدر توأمه بالـclientRef لا يُرمى (lotPrecheck): يمضي فيلتقطه سباق P2002 داخل المعاملة
+    const pre = lots && prePlan ? await lotPrecheck(lots.hooks, deps.db, prePlan) : null;
     if (pre) throw pre;
     return await stampNote(kind, ctx, deps, seller, regime.unit, loaded, now, lots);
   } catch (e) {
@@ -659,9 +684,10 @@ async function stampNote(
             const lotVan = creditVanOf(ctx, locked.original);
             const lotPlan = lots && kind === 'CREDIT_NOTE' ? creditNoteLotPlan(prepared, {
               tenantId: ctx.tenantId, customerId: locked.original.customerId, vanKey: lotVan,
-              day: lots.day, clientRef: ctx.clientRef ?? null, actor: lots.actor,
+              day: lots.day, clientRef: ctx.clientRef ?? null, actor: lots.actor, replay: lots.replay, stamps: lots.stamps,
             }) : null;
-            const alloc = lots && lotPlan ? await lots.hooks.allocateInTx(t, lotPlan) : null;
+            // انتظار قفل اللوط ⇒ LOT_BUSY 503 (D14) — مسار POST /:id/credit-note لا يحوّل غير LotError
+            const alloc = lots && lotPlan ? await allocateLotsInTx(lots.hooks, t, lotPlan) : null;
             const lotInvoiceId = alloc ? randomUUID() : null;
             const row = await t.invoice.create({
               data: {

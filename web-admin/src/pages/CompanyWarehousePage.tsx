@@ -615,7 +615,9 @@ function WarehouseEntryModal({ onClose, lotOn }: { onClose: () => void; lotOn: b
   }, 0);
 
   // الوارد يتطلّب كميات موجبة؛ التسوية تقبل ± (لكن لا صفر) — وتشغيلة كل سطرٍ متتبَّع مكتملة
-  const valid = rows.length > 0 && rows.every(r => {
+  // ومصادر النقص قيد الجلب: لا يُحكم على «التلقائي» قبل أن يُعرف أهو مصدرٌ وحيد (D10)
+  const srcPending = decIds.length > 0 && srcQ.isLoading;
+  const valid = !srcPending && rows.length > 0 && rows.every(r => {
     const q = Number(r.qty);
     return !Number.isNaN(q) && q !== 0 && (type === 'ADJUST' || q > 0) && !lotProblem(r);
   });

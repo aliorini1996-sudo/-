@@ -6,6 +6,8 @@
 //   ٢) التوزيع داخل createInvoice بعد قفل السلسلة وقبل إدراج الصفّ وقبل afterDocument، بمعرّفٍ مولَّد مسبقاً تحمله الصفوف.
 //   ٣) الإشعار الدائن يرث من الأصل المقفل (link CREDITED، saleItemId = بند الأصل) بسيارة مندوب الإشعار، ويوم الخادم.
 //   ٤) القياسيّ «01» يُكتب بأعمدة الحجز (D24)، والمدين بلا توزيع، وغياب الخطّاف أو الخطة = سلوك الفرع القائم حرفاً.
+//   ٥) مراجعة B6: رفض الفحص المسبق لطلبٍ التزم توأمه بالـclientRef لا يُردّ، وانتظار قفل اللوط داخل المعاملة LOT_BUSY 503
+//      (D14)، واللقطة القائمة تُختم داخل المعاملة لبندٍ ورث «غير معروف» (D12)، وإعادة الصندوق لا تُرفض بالكسور (R6).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSubmitHarness, type SubmitHarness } from '../compliance/zatca/__fixtures__/z5-submit';
@@ -17,7 +19,11 @@ import {
   type Phase2IssuanceContext, type Phase2LegacyItem, type Phase2LotHooks, type Phase2Tx,
 } from '../routes/invoicesZatca';
 import { creditNoteLotPlan, issueCreditNote, issueDebitNote, type NoteIssuanceDeps } from '../routes/invoicesNotes';
-import { LOT_HOLD_MIRRORS, LotError, type InvoiceLotAllocation, type InvoiceLotPlan, type LotWarning } from '../services/lots';
+import {
+  ClientRefRace, LOT_HOLD_MIRRORS, LotError, lotHttpError,
+  type InvoiceLotAllocation, type InvoiceLotPlan, type ItemExpiryStamp, type LotWarning,
+} from '../services/lots';
+import { precheckInvoiceLots } from '../services/lotsInvoice';
 
 const DAY = '2026-12-01';
 
@@ -31,6 +37,10 @@ interface Rig {
   ledger: string[];
   plans: InvoiceLotPlan[];
   prechecked: InvoiceLotPlan[];
+  /** clientRef صفوفٍ ملتزمة (توأمٌ سبق) — يقرؤها db.invoice.findUnique */
+  twins: Set<string>;
+  /** نداءات linkedStamps: [الشركة، بنود البيع، اللحظة] */
+  stampCalls: [string, readonly string[], Date][];
 }
 
 const PRODUCT_ROWS = PRODUCTS.map(p => ({
@@ -75,6 +85,8 @@ function txAdapter(rig: Rig): Record<string, unknown> {
 
 function lotHooks(rig: Rig, o: {
   enabled?: boolean; pre?: LotError | null; inTx?: (plan: InvoiceLotPlan) => InvoiceLotAllocation;
+  /** اللقطة القائمة لبنود البيع (linkedReturnExpiry في الإنتاج) — غيابها = خطّافٌ بلا linkedStamps */
+  stamps?: ReadonlyMap<string, ItemExpiryStamp>;
 } = {}): Phase2LotHooks {
   return {
     enabled: async () => { rig.log.push('lots.enabled'); return o.enabled !== false; },
@@ -85,12 +97,19 @@ function lotHooks(rig: Rig, o: {
       rig.plans.push(plan);
       return o.inTx ? o.inTx(plan) : { tracked: new Set(plan.lines.map(l => l.productId)), lines: new Map(), warnings: [] };
     },
+    ...(o.stamps ? {
+      linkedStamps: async (tenantId: string, saleItemIds: readonly string[], at: Date) => {
+        rig.log.push('lots.linkedStamps');
+        rig.stampCalls.push([tenantId, [...saleItemIds], at]);
+        return new Map([...o.stamps!].filter(([k]) => saleItemIds.includes(k)));
+      },
+    } : {}),
   };
 }
 
 function buildRig(lots: ((rig: Rig) => Phase2LotHooks) | null): { rig: Rig; deps: NoteIssuanceDeps } {
   const h = createSubmitHarness();
-  const rig: Rig = { h, log: [], rows: new Map(), created: [], ledger: [], plans: [], prechecked: [] };
+  const rig: Rig = { h, log: [], rows: new Map(), created: [], ledger: [], plans: [], prechecked: [], twins: new Set(), stampCalls: [] };
   const u = h.units.units.get(h.unitId);
   const db = {
     zatcaEgsUnit: {
@@ -104,6 +123,11 @@ function buildRig(lots: ((rig: Rig) => Phase2LotHooks) | null): { rig: Rig; deps
     invoice: {
       findFirst: async ({ where }: { where: { id: string } }) => rig.rows.get(where.id) ?? null,
       findMany: async () => [],
+      findUnique: async ({ where }: { where: { tenantId_clientRef: { tenantId: string; clientRef: string } } }) => {
+        rig.log.push('db.invoice.findUnique');
+        const k = where.tenantId_clientRef;
+        return k.tenantId === Z5_TENANT && rig.twins.has(k.clientRef) ? { id: `twin-${k.clientRef}` } : null;
+      },
     },
   };
   // openIssuanceSigning يقرأ الوحدة (loadUnit) — به يُعرف موضع التوقيع في السجلّ
@@ -409,4 +433,179 @@ test('creditNoteLotPlan: الكمية بالأساس من كمية البند و
   assert.equal(plan.fallbackStamps.size, 0);
   assert.equal(creditNoteLotPlan({ lines: [line({ productId: null })] as never, engine: { items: [{ qty: 1 }] } as never },
     { tenantId: 't', customerId: 'c', vanKey: null, day: DAY, clientRef: null, actor: 'ADMIN' }), null);
+});
+
+// ═══ مراجعة B6 ═══
+
+const TWIN_REFUSALS = (): LotError[] => [
+  new LotError('LOT_STOCK_INSUFFICIENT', 'الكمية أكبر من المتاح', 409, { productId: 'p-water' }),
+  new LotError('LOT_REPLAY_HELD', 'بانتظار تسجيل التحميل الناقص', 409, { productId: 'p-water' }),
+];
+
+test('clientRef: رفض الفحص المسبق لطلبٍ التزم توأمه لا يُردّ — يمضي فيرمي التوزيع ClientRefRace (فرع P2002 ⇒ 200) والمعاملة تُلغى', async () => {
+  for (const pre of TWIN_REFUSALS()) {
+    const { rig, deps } = buildRig(r => lotHooks(r, { pre, inTx: () => { throw new ClientRefRace(); } }));
+    rig.twins.add('cr-twin');
+    await assert.rejects(issuePhase2Invoice(saleCtx({ ...SALE_PLAN, clientRef: 'cr-twin' }), deps),
+      (e: unknown) => e instanceof ClientRefRace, `${pre.code}: رُدّ رفض الفحص المسبق (409 كاذب) لطلبٍ صدر توأمه`);
+    assert.ok(before(rig.log, 'lots.precheck', 'db.invoice.findUnique'), `التوأم يُسأل عنه قبل الفحص: ${rig.log.join(' → ')}`);
+    assert.ok(rig.log.includes('lots.allocateInTx'), 'لم يبلغ الطلب التوزيع داخل المعاملة');
+    assert.equal(rig.created.length, 0);
+    assert.ok(!rig.log.includes('documents.insertSigned'), 'أُدرج مستند');
+  }
+  // الإشعار الدائن بالقاعدة نفسها، والسباق يصل المسار P2002 لا LotError (lotReply لا يلتقطه)
+  for (const pre of TWIN_REFUSALS()) {
+    const { rig, deps } = buildRig(r => lotHooks(r, { pre, inTx: () => { throw new ClientRefRace(); } }));
+    rig.twins.add('cr-1');
+    const o = cashOriginal(new Set(['p-water']), rig);
+    await assert.rejects(issueCreditNote(creditCtx(o) as never, deps), (e: unknown) => e instanceof ClientRefRace && lotHttpError(e) === null);
+    assert.equal(rig.created.length, 0);
+  }
+});
+
+test('clientRef: بلا توأم يُردّ الرفض برمزه بلا توقيع، والفحص الناجح لا يسأل عن التوأم (لا استعلام في المسار السعيد)', async () => {
+  for (const pre of TWIN_REFUSALS()) {
+    const { rig, deps } = buildRig(r => lotHooks(r, { pre }));
+    await assert.rejects(issuePhase2Invoice(saleCtx({ ...SALE_PLAN, clientRef: 'cr-new' }), deps), (e: unknown) => e === pre);
+    assert.ok(rig.log.includes('db.invoice.findUnique'));
+    assert.ok(!rig.log.includes('sign'), 'وُقّع ما سيُرفض حتماً');
+  }
+  {
+    const { rig, deps } = buildRig(r => lotHooks(r, { pre: TWIN_REFUSALS()[0] }));
+    await assert.rejects(issuePhase2Invoice(saleCtx(SALE_PLAN), deps)); // بلا clientRef: لا توأم يُسأل عنه
+    assert.ok(!rig.log.includes('db.invoice.findUnique'));
+  }
+  {
+    const { rig, deps } = buildRig(r => lotHooks(r, { inTx: SALE_ALLOC }));
+    const r = await issuePhase2Invoice(saleCtx({ ...SALE_PLAN, clientRef: 'cr-ok' }), deps);
+    assert.equal(r?.status, 201, JSON.stringify(r?.body));
+    assert.ok(!rig.log.includes('db.invoice.findUnique'), 'استعلام توأمٍ والفحص ناجح');
+  }
+});
+
+test('D14: انتظار قفل اللوط داخل المعاملة (55P03، 40P01) ⇒ LotError LOT_BUSY 503 في الإشعار الدائن والفاتورة — وما عداه كما هو', async () => {
+  const busyErrors = [
+    Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' }),
+    Object.assign(new Error('deadlock detected'), { code: '40P01' }),
+    // شكل Prisma لاستعلامٍ خامٍ فشل: P2010 ورمز Postgres في meta
+    Object.assign(new Error('Raw query failed. Code: `55P03`. Message: `canceling statement due to lock timeout`'), { code: 'P2010', meta: { code: '55P03' } }),
+  ];
+  const isBusy = (e: unknown) => e instanceof LotError && e.code === 'LOT_BUSY' && e.status === 503 && lotHttpError(e)?.status === 503;
+  for (const busy of busyErrors) {
+    {
+      const { rig, deps } = buildRig(r => lotHooks(r, { inTx: () => { throw busy; } }));
+      const o = cashOriginal(new Set(['p-water']), rig);
+      // مسار POST /:id/credit-note لا يحوّل إلا LotError (lotReply(err, false)) — فالانتظار الخام كان 500
+      await assert.rejects(issueCreditNote(creditCtx(o) as never, deps), isBusy, `الإشعار الدائن: ${busy.message}`);
+      assert.equal(rig.created.length, 0);
+    }
+    {
+      const { deps } = buildRig(r => lotHooks(r, { inTx: () => { throw busy; } }));
+      await assert.rejects(issuePhase2Invoice(saleCtx(SALE_PLAN), deps), isBusy, `الفاتورة: ${busy.message}`);
+    }
+  }
+  // خطأٌ آخر يمرّ كما هو (لا يُوسَم انشغالاً)
+  const boom = new Error('boom');
+  {
+    const { rig, deps } = buildRig(r => lotHooks(r, { inTx: () => { throw boom; } }));
+    const o = cashOriginal(new Set(['p-water']), rig);
+    await assert.rejects(issueCreditNote(creditCtx(o) as never, deps), (e: unknown) => e === boom);
+  }
+  // ومهلة المعاملة P2028 تبقى ZATCA_UNIT_BUSY 503 كما كانت (issuanceHttpError)
+  {
+    const p2028 = Object.assign(new Error('Transaction already closed'), { code: 'P2028' });
+    const { rig, deps } = buildRig(r => lotHooks(r, { inTx: () => { throw p2028; } }));
+    const o = cashOriginal(new Set(['p-water']), rig);
+    const r = await issueCreditNote(creditCtx(o) as never, deps);
+    assert.equal(r?.status, 503);
+    assert.equal(r?.body.code, 'ZATCA_UNIT_BUSY');
+  }
+});
+
+const STAMP_IT1: ItemExpiryStamp = { expiresAt: new Date('2026-11-20T00:00:00.000Z'), returnExpired: true, expirySaleInvoiceId: 'inv-sale' };
+
+test('D12: بندٌ ورث «غير معروف» وحده يُختم داخل المعاملة من اللقطة القائمة (linkedStamps بلحظة الخادم) لا بالختم اللاحق', async () => {
+  const { rig, deps } = buildRig(r => lotHooks(r, {
+    stamps: new Map([['it-1', STAMP_IT1], ['it-2', { ...STAMP_IT1, returnExpired: false }]]),
+    // مرآة allocateLinkedReturn: صفوف البيع كلها بلا تشغيلة ⇒ stampFromRows = null ⇒ الختم fallbackStamps[idx]
+    inTx: plan => ({
+      tracked: new Set(['p-water']),
+      lines: new Map(plan.lines.map(l => [l.idx, {
+        rows: [{ lotId: null, qty: l.qty, certainty: 'UNKNOWN' as const, flags: [], expiryDate: null, sourceItemLotId: 'sl-u' }],
+        stamp: plan.fallbackStamps.get(l.idx) ?? null,
+      }])),
+      warnings: [],
+    }),
+  }));
+  const o = cashOriginal(new Set(['p-water']), rig);
+  const r = await issueCreditNote(creditCtx(o) as never, deps);
+  assert.equal(r?.status, 201, JSON.stringify(r?.body));
+  // بنود الإشعار المتتبَّعة وحدها، بلحظة الخادم (يوم مرتجع الإشعار يوم الخادم، §٤.٩)، وقبل الفحص المسبق فخطّته هي الحاكمة
+  assert.deepEqual(rig.stampCalls.map(([t, ids]) => [t, ids]), [[Z5_TENANT, ['it-1']]]);
+  assert.equal(rig.stampCalls[0][2].getTime(), rig.h.clock.now().getTime());
+  assert.ok(before(rig.log, 'lots.linkedStamps', 'lots.precheck'), rig.log.join(' → '));
+  assert.deepEqual([...rig.plans[0].fallbackStamps], [[0, STAMP_IT1]], 'لا لقطة بفهرس بند الإشعار');
+  assert.deepEqual(rig.prechecked[0], rig.plans[0]);
+  const item = (rig.created[0].items as Record<string, unknown>[])[0];
+  assert.equal(item.returnExpired, true, 'المنتهي دخل SELLABLE بلا ختم داخل المعاملة');
+  assert.equal((item.expiresAt as Date).toISOString(), STAMP_IT1.expiresAt.toISOString());
+  assert.equal(item.expirySaleInvoiceId, 'inv-sale');
+});
+
+test('creditNoteLotPlan: اللقطة القائمة بمفتاح بند الأصل تصير fallbackStamps بفهرس بند الإشعار الحاكم، وغيابها فارغة', () => {
+  const line = (o: Record<string, unknown>) => ({ invoiceItemId: 'it-1', productId: 'p1', itemName: 'حليب', creditQty: 1, creditUnitFactor: 1, ...o });
+  const stampB = { ...STAMP_IT1, expirySaleInvoiceId: 'inv-b' };
+  // البنود المقفلة قد تخالف المعاينة (FULL بعد إشعارٍ سابق): المفتاح بند الأصل لا موضع المعاينة
+  const plan = creditNoteLotPlan({
+    lines: [line({ invoiceItemId: 'it-2' }), line({ invoiceItemId: 'it-9', productId: null }), line({ invoiceItemId: 'it-1' })] as never,
+    engine: { items: [{ qty: 1 }, { qty: 1 }, { qty: 1 }] } as never,
+  }, { tenantId: 't', customerId: 'c', vanKey: 'r', day: DAY, clientRef: null, actor: 'ADMIN', stamps: new Map([['it-1', STAMP_IT1], ['it-2', stampB], ['it-9', STAMP_IT1]]) });
+  assert.ok(plan);
+  assert.deepEqual([...plan.fallbackStamps].sort((a, b) => a[0] - b[0]), [[0, stampB], [2, STAMP_IT1]]);
+});
+
+test('R6: إشعارٌ دائن من صندوق المندوب (X-FS-Replay + clientRef + لحظة الجهاز) خطته إعادة — ويومه يوم الخادم (§٤.٩)', async () => {
+  const replayCtx = (o: NoteOriginalInvoice, over: Record<string, unknown> = {}) => creditCtx(o, {
+    caps: { caps: 'zatca2', replay: '1' }, clientCreatedAt: '2026-11-30T08:00:00.000Z',
+    actor: { role: 'SALES_REP', canCreateInvoice: true }, ...over,
+  });
+  {
+    const { rig, deps } = buildRig(r => lotHooks(r));
+    const o = cashOriginal(new Set(['p-water']), rig);
+    const r = await issueCreditNote(replayCtx(o) as never, deps);
+    assert.equal(r?.status, 201, JSON.stringify(r?.body));
+    const plan = rig.plans[0];
+    assert.ok(plan.replay, 'إعادة الصندوق عوملت طلباً حيّاً فتُرفض بالكسور ويُعدمها الصندوق');
+    assert.equal(plan.day, DAY);
+    assert.equal(plan.returnDay, DAY);
+    assert.deepEqual(rig.prechecked[0], plan);
+  }
+  // الإدارة لا تنال الإعادة (D23)، وبلا ترويسة طلبٌ حيّ، وبلا لحظة جهازٍ صالحة لا إعادة
+  for (const over of [{ actor: { role: 'ADMIN' } }, { caps: { caps: 'zatca2' } }, { clientCreatedAt: 'not-a-date' }]) {
+    const { rig, deps } = buildRig(r => lotHooks(r));
+    const o = cashOriginal(new Set(['p-water']), rig);
+    const r = await issueCreditNote(replayCtx(o, over) as never, deps);
+    assert.equal(r?.status, 201, JSON.stringify(r?.body));
+    assert.equal(rig.plans[0].replay, null, JSON.stringify(over));
+  }
+});
+
+test('R6 على خدمة B5 نفسها: كمية أساسٍ بأكثر من أربع خانات تُرفض حيّةً (LOT_QTY_INVALID) وتمرّ إعادةً', async () => {
+  const note = {
+    lines: [{ invoiceItemId: 'it-1', productId: 'p1', itemName: 'حليب', creditQty: 0.123456, creditUnitFactor: 1 }],
+    engine: { items: [{ qty: 0.123456 }] },
+  } as never;
+  const at = { tenantId: 't', customerId: 'c', vanKey: 'r', day: DAY, clientRef: 'cr', actor: 'REP' as const };
+  const fakeDb = {
+    product: { findMany: async () => [{ id: 'p1' }] },
+    invoiceItemLot: { findMany: async () => [] },
+    invoiceItem: { findMany: async () => [] },
+  };
+  const live = creditNoteLotPlan(note, at);
+  assert.ok(live);
+  assert.equal((await precheckInvoiceLots(fakeDb as never, live))?.code, 'LOT_QTY_INVALID');
+  const replay = creditNoteLotPlan(note, { ...at, replay: { at: new Date('2026-12-01T08:00:00.000Z'), clamped: false } });
+  assert.ok(replay);
+  assert.equal(await precheckInvoiceLots(fakeDb as never, replay), null);
+  assert.equal(replay.day, DAY);
 });

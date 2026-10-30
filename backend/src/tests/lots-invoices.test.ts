@@ -17,7 +17,7 @@ import { Prisma } from '@prisma/client';
 import { localDateIn } from '../services/shelfLife';
 import { companyTimeZone } from '../services/erpPayload';
 import { DAMAGED_VAN_SINCE } from '../services/vanDamaged';
-import { LOT_HOLD_MIRRORS } from '../services/lots';
+import { LOT_HOLD_MIRRORS, LotError } from '../services/lots';
 
 // ═══ قاعدةٌ مزيّفة في الذاكرة ═══
 
@@ -117,8 +117,10 @@ function itemView(it: Row, withLots: boolean): Row {
     .map((r) => ({ ...r, lot: r.lotId ? { lotNumber: lotOf(r.lotId)?.lotNumber, expiryDate: lotOf(r.lotId)?.expiryDate } : null }));
   return { ...it, product: productOf(it.productId), invoice: invoiceOf(it.invoiceId), ...(withLots && { lots }) };
 }
-function invoiceView(inv: Row, include?: Row): Row {
-  const wantLots = !!include?.items?.include?.lots || include?.items?.select?.lots != null || true;
+/** صفوف التوزيع في البنود حين يطلبها الاستعلام وحده (include أو select) — كبريزما: الغائب لا يُرجع مفتاح lots (D11، §٤.٨ البند ٩) */
+const wantsItemLots = (args?: Row): boolean => !!args?.include?.items?.include?.lots || args?.select?.items?.select?.lots != null;
+function invoiceView(inv: Row, args?: Row): Row {
+  const wantLots = wantsItemLots(args);
   const items = db.invoiceItems.filter((it) => it.invoiceId === inv.id).map((it) => {
     const v = itemView(it, wantLots);
     delete v.invoice;
@@ -142,8 +144,9 @@ function group<T extends Row>(rows: T[], key: (r: T) => string, init: (r: T) => 
 function rawQuery(sql: string, values: unknown[]): unknown[] {
   const strs = new Set(values.flat(Infinity as 1).filter((v): v is string => typeof v === 'string'));
   if (sql.includes('FROM products') && sql.includes('FOR KEY SHARE')) {
-    // تبديل التتبّع المتزامن (D25): يلتزم بين القراءة المسبقة وقفل المسار
-    if (onRouteProductLock && sql.startsWith('SELECT id, unit,')) { onRouteProductLock(); onRouteProductLock = null; }
+    // تبديل التتبّع المتزامن (D25): يلتزم بين القراءة المسبقة وأول FOR KEY SHARE على الأصناف داخل المعاملة (قفل المسار في الإصدار،
+    // وإعادة قراءة التتبّع في الإلغاء وإطفاء العودة)
+    if (onRouteProductLock) { onRouteProductLock(); onRouteProductLock = null; }
     return db.products.filter((p) => strs.has(p.id)).map((p) => ({ id: p.id, unit: p.unit, lotTracked: p.lotTracked, lotTrackedSince: p.lotTrackedSince ?? null }));
   }
   if (sql.includes("current_setting('lock_timeout')")) return [{ lock_timeout: '0' }];
@@ -242,23 +245,25 @@ function createInvoice({ data, include }: Row): Row {
     db.invoiceItems.push(it);
     for (const l of lots?.create ?? []) db.invoiceItemLots.push({ id: nid('iil'), invoiceItemId: it.id, createdAt: now, ...l });
   }
-  return invoiceView(inv, include);
+  return invoiceView(inv, { include });
 }
 
 const scripted: Record<string, (args: any) => unknown> = {
-  'invoice.findUnique': ({ where }) => {
+  'invoice.findUnique': (args) => {
+    const { where } = args;
     const inv = where.tenantId_clientRef
       ? db.invoices.find((i) => i.tenantId === where.tenantId_clientRef.tenantId && i.clientRef === where.tenantId_clientRef.clientRef)
       : invoiceOf(where.id);
-    return inv ? invoiceView(inv) : null;
+    return inv ? invoiceView(inv, args) : null;
   },
-  'invoice.findFirst': ({ where }) => {
+  'invoice.findFirst': (args) => {
+    const { where } = args;
     if (where?.number?.startsWith) {
       const same = db.invoices.filter((i) => String(i.number).startsWith(where.number.startsWith)).sort((a, b) => (a.number < b.number ? 1 : -1));
       return same[0] ? { number: same[0].number } : null;
     }
     const inv = where?.id ? invoiceOf(where.id) : null;
-    return inv && (!where.tenantId || inv.tenantId === where.tenantId) ? invoiceView(inv) : null;
+    return inv && (!where.tenantId || inv.tenantId === where.tenantId) ? invoiceView(inv, args) : null;
   },
   'invoice.create': createInvoice,
   'invoice.update': ({ where, data }) => { const inv = invoiceOf(where.id)!; Object.assign(inv, data); return invoiceView(inv); },
@@ -435,6 +440,46 @@ test('صنفٌ غير متتبَّع والميزة مفعّلة: كما كان 
   assert.equal(mixed.status, 201, JSON.stringify(mixed.body));
   assert.deepEqual(rowsOf(mixed, 0), [], 'بند غير المتتبَّع بلا صفوف');
   assert.deepEqual(rowsOf(mixed, 1).map((x) => [x[0], x[1]]), [['l1', 2]]);
+});
+
+test('شكل الردّ (§٤.٨ البند ٩، D11): الميزة مطفأة أو المستند غير المتتبَّع ⇒ بنودٌ بلا مفتاح lots كما كانت، والمتتبَّع بها؛ والقراءة بـwithLots=1 وحده', async () => {
+  const noLots = (r: Reply) => (r.body.data.items as Row[]).every((it) => !('lots' in it));
+  const withLots = (r: Reply) => (r.body.data.items as Row[]).every((it) => Array.isArray(it.lots));
+  reset(); VAN();
+  db.tenant.lotTrackingEnabled = false;
+  const off = await post(sale([{ productId: 'pM', qty: 2 }]));
+  assert.equal(off.status, 201, JSON.stringify(off.body));
+  assert.ok(noLots(off), 'الميزة مطفأة: الردّ كما كان');
+  db.tenant.lotTrackingEnabled = true;
+  load('pW', [{ lotId: null, qty: 5 }]);
+  const un = await post(sale([{ productId: 'pW', qty: 1 }]));
+  assert.equal(un.status, 201, JSON.stringify(un.body));
+  assert.ok(noLots(un), 'غير المتتبَّع والميزة مفعّلة: الردّ كما كان (§١٠.٢)');
+  const tr = await post(sale([{ productId: 'pW', qty: 1 }, { productId: 'pM', qty: 1 }]));
+  assert.equal(tr.status, 201, JSON.stringify(tr.body));
+  assert.ok(withLots(tr), 'المستند المتتبَّع: صفوف التوزيع في الردّ (ورقة المندوب من ردّ الخادم)');
+  const g0 = await call('GET', `/api/invoices/${tr.body.data.id}`);
+  assert.equal(g0.status, 200, JSON.stringify(g0.body));
+  assert.ok(noLots(g0), 'القراءة بلا withLots كما كانت');
+  const g1 = await call('GET', `/api/invoices/${tr.body.data.id}?withLots=1`);
+  assert.ok(withLots(g1));
+  // الإطفاء يُخفي ولا يحذف (D8): withLots=1 لا يكشف صفوف حقبةٍ سابقة — كقراءات السيارة والتقارير؛ وبلا المعامل لا قراءة شركةٍ زائدة (§١٠.١)
+  const ref = crypto.randomUUID();
+  const tr2 = await post(sale([{ productId: 'pM', qty: 1 }], { clientRef: ref }));
+  assert.equal(tr2.status, 201, JSON.stringify(tr2.body));
+  assert.ok(withLots(tr2));
+  db.tenant.lotTrackingEnabled = false;
+  const g2 = await call('GET', `/api/invoices/${tr2.body.data.id}?withLots=1`);
+  assert.equal(g2.status, 200, JSON.stringify(g2.body));
+  assert.ok(noLots(g2), 'الميزة مطفأة: withLots=1 يُتجاهل في GET /:id');
+  const again = await call('POST', '/api/invoices?withLots=1', { body: sale([{ productId: 'pM', qty: 1 }], { clientRef: ref }) });
+  assert.equal(again.status, 200, JSON.stringify(again.body));
+  assert.ok(noLots(again), 'الميزة مطفأة: withLots=1 يُتجاهل في تكرار clientRef');
+  calls = [];
+  const g3 = await call('GET', `/api/invoices/${tr2.body.data.id}`);
+  assert.ok(noLots(g3));
+  assert.ok(!calls.includes('tenant.findUnique'), `بلا withLots لا قراءة شركة: ${calls.join(' | ')}`);
+  db.tenant.lotTrackingEnabled = true;
 });
 
 // ═══ البيع ═══
@@ -640,6 +685,58 @@ test('D25: صنفٌ صار متتبَّعاً بين القراءة المسبق
   assert.equal(db.invoiceItemLots.length, 0);
 });
 
+test('D25 بالعكس لمندوبٍ بلا «البيع بدون مخزون»: صنفٌ تخطّاه الفحص القديم لأنه متتبَّع ثم أُطفئ تتبّعه قبل القفل ⇒ 503 TRACKING_CHANGED بلا فاتورة، وإعادته تمرّ بالفحص القديم', async () => {
+  reset(REP); VAN(); // pM في السيارة: ٦ + ١٢ + ٢ = ٢٠
+  db.reps[0].canSellWithoutStock = false;
+  onRouteProductLock = () => { db.products[0].lotTracked = false; };
+  const r = await post(sale([{ productId: 'pM', qty: 25 }]));
+  assert.deepEqual([r.status, r.body.code, r.body.detail?.reason, r.body.detail?.productIds], [503, 'LOT_BUSY', 'TRACKING_CHANGED', ['pM']], JSON.stringify(r.body));
+  assert.equal(db.invoices.length, 0, 'لا بيع فوق متبقّي السيارة بلا أي فحص');
+  db.products[0].lotTracked = false; // الإطفاء التزم مستقلاً (المعاملة المزيّفة أعادت لقطتها عند الرمي)
+  const again = await post(sale([{ productId: 'pM', qty: 25 }]));
+  assert.equal(again.status, 403, JSON.stringify(again.body));
+  assert.match(String(again.body.message), /تتجاوز مخزون سيارتك/);
+  const fits = await post(sale([{ productId: 'pM', qty: 5 }]));
+  assert.equal(fits.status, 201, JSON.stringify(fits.body));
+  // من يملك الإذن لم يتخطَّ فحصاً: التوزيع يتكيّف مع المجموعة الموثوقة بلا خطأ (D25) — والمرتجع لا فحص له أصلاً
+  reset(REP); VAN();
+  onRouteProductLock = () => { db.products[0].lotTracked = false; };
+  const perm = await post(sale([{ productId: 'pM', qty: 25 }]));
+  assert.equal(perm.status, 201, JSON.stringify(perm.body));
+  assert.equal(db.invoiceItemLots.length, 0);
+  reset(REP); VAN();
+  db.reps[0].canSellWithoutStock = false;
+  onRouteProductLock = () => { db.products[0].lotTracked = false; };
+  const ret = await post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', items: [{ productId: 'pM', qty: 2, unitPrice: 10 }] });
+  assert.equal(ret.status, 201, JSON.stringify(ret.body));
+});
+
+test('allocateInvoiceLotsInTx (فرع المرحلة الثانية والإشعار الدائن): انتظار قفل اللوط 55P03/40P01 ⇒ LotError LOT_BUSY 503 لا خطأ قاعدة، وصنفٌ تخطّى الفحص القديم ثم أُطفئ ⇒ TRACKING_CHANGED (والفحص المسبق مثله)', async () => {
+  reset(); VAN();
+  const plan = (o: Row = {}) => ({
+    tenantId: 't1', customerId: 'c1', vanKey: 'r1', docType: 'CASH' as const, link: 'NONE' as const, actor: 'ADMIN' as const,
+    replay: null, day: TODAY, returnDay: null, allowUnknown: true, clientRef: null,
+    lines: lotsInvoice.invoiceLotLines([{ productId: 'pM', productName: 'حليب', qty: 2, unitFactor: 1 }]), fallbackStamps: new Map(), ...o,
+  });
+  for (const [code, msg] of [['55P03', 'canceling statement due to lock timeout'], ['40P01', 'deadlock detected']]) {
+    failExec = (sql) => (sql.includes('pg_advisory_xact_lock') ? Object.assign(new Error(msg), { code: 'P2010', meta: { code } }) : null);
+    await assert.rejects(lotsInvoice.allocateInvoiceLotsInTx(prismaFake as never, plan()),
+      (e: unknown) => e instanceof LotError && e.code === 'LOT_BUSY' && e.status === 503, code);
+  }
+  failExec = null;
+  // الإشعار الدائن يصل catch مساره بـLotError كما هو (issuanceHttpError لا يعرفه فيعيد رميه) ⇒ lotReply ⇒ 503
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { issuanceHttpError } = require('../compliance/zatca/issue') as typeof import('../compliance/zatca/issue');
+  assert.equal(issuanceHttpError(new LotError('LOT_BUSY', 'x', 503)), null);
+  db.products[0].lotTracked = false;
+  await assert.rejects(lotsInvoice.allocateInvoiceLotsInTx(prismaFake as never, plan({ stockCheckSkipped: ['pM'] })),
+    (e: unknown) => e instanceof LotError && e.code === 'LOT_BUSY' && e.detail?.reason === 'TRACKING_CHANGED');
+  const pre = await lotsInvoice.precheckInvoiceLots(prismaFake as never, plan({ stockCheckSkipped: ['pM'] }));
+  assert.deepEqual([pre?.code, pre?.detail?.reason], ['LOT_BUSY', 'TRACKING_CHANGED'], 'لا يُوقَّع ما سيُرفض');
+  const adapts = await lotsInvoice.allocateInvoiceLotsInTx(prismaFake as never, plan());
+  assert.deepEqual([adapts.tracked.size, adapts.lines.size], [0, 0], 'بلا تخطٍّ: يتكيّف بلا خطأ (D25)');
+});
+
 // ═══ المرتجع ═══
 
 test('المرتجع المرتبط: وراثة صفوف البيع بالأبعد انتهاءً أولاً، والسطر الثاني يرى ما أُرجع، والختم من التشغيلة بفاتورة البيع', async () => {
@@ -759,7 +856,7 @@ test('إلغاء المرتجع: الفارغ وبندٌ بلا صفوف (قبل
   const cs = await cancel(s.body.data.id);
   assert.equal(cs.status, 200, JSON.stringify(cs.body));
   assert.deepEqual([lockCalls().length, txOptions], [0, [undefined]]);
-  // مرتجعٌ لصنفٍ غير متتبَّع والميزة مفعّلة: الحارس يقرأ التتبّع تحت القفل فلا يقفل لوطاً ولا يمنع
+  // مرتجعٌ لصنفٍ غير متتبَّع والميزة مفعّلة: لا حارس ولا قفل لوط ولا مهلة جديدة — وحدها إعادة قراءة التتبّع FOR KEY SHARE (D25)
   load('pW', [{ lotId: null, qty: 2 }]);
   const wr = await post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', items: [{ productId: 'pW', qty: 1, unitPrice: 2 }] });
   assert.equal(wr.status, 201, JSON.stringify(wr.body));
@@ -768,6 +865,35 @@ test('إلغاء المرتجع: الفارغ وبندٌ بلا صفوف (قبل
   const cw = await cancel(wr.body.data.id);
   assert.equal(cw.status, 200, JSON.stringify(cw.body));
   assert.deepEqual([lockCalls().length, txOptions], [0, [undefined]], 'غير المتتبَّع: لا قفل لوط ولا مهلة جديدة');
+  const inTx = calls.slice(calls.indexOf('$transaction'), calls.indexOf('invoice.update'));
+  assert.ok(!inTx.includes('tenant.findUnique') && !inTx.includes('invoice.findFirst'), `لا قراءة شركةٍ ولا بنودٍ وصفوف داخل المعاملة: ${inTx.join(' | ')}`);
+  assert.deepEqual(inTx.filter((c) => c.includes('FOR KEY SHARE')).map((c) => c.split(' WHERE')[0]), ['$queryRaw SELECT id, "lotTracked" FROM products'],
+    'قراءة التتبّع تحت القفل وحدها');
+  assert.ok(!inTx.some((c) => c.includes('van_load_item_lots') || c.includes('invoice_item_lots')), 'لا عرض سيارة');
+});
+
+test('D25 في الإزالة: مرتجعٌ قُرئت أصنافه غير متتبَّعة ثم صار أحدها متتبَّعاً قبل الكتابة ⇒ 503 TRACKING_CHANGED بلا تغيير، وإعادته تمرّ بالحارس (إطفاء العودة والإلغاء)', async () => {
+  // غير المسمّى ٢، ثم مرتجعٌ حرّ ٣ قبل التتبّع (بلا صفوف)، ثم بيع ٤ ⇒ يبقى ١. إزالة المرتجع بعد التتبّع تُنقصه إلى −٢ < min(0, 1) (I2)
+  for (const mode of ['restock', 'cancel'] as const) {
+    reset();
+    load('pW', [{ lotId: null, qty: 2 }]);
+    const ret = await post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', items: [{ productId: 'pW', qty: 3, unitPrice: 2 }] });
+    assert.equal(ret.status, 201, JSON.stringify(ret.body));
+    assert.equal((await post(sale([{ productId: 'pW', qty: 4 }]))).status, 201);
+    const since = new Date();
+    const track = () => { Object.assign(db.products[1], { lotTracked: true, lotTrackedSince: since }); };
+    const act = () => (mode === 'restock' ? restock(ret.body.data.id, false) : cancel(ret.body.data.id));
+    onRouteProductLock = track; // التبديل يلتزم بين القراءة المسبقة وقراءة التتبّع داخل المعاملة
+    calls = []; txOptions = [];
+    const r = await act();
+    assert.deepEqual([r.status, r.body.code, r.body.detail?.reason], [503, 'LOT_BUSY', 'TRACKING_CHANGED'], `${mode}: ${JSON.stringify(r.body)}`);
+    assert.deepEqual([invoiceOf(ret.body.data.id)!.status, invoiceOf(ret.body.data.id)!.returnToStock], ['CONFIRMED', true], mode);
+    assert.deepEqual([lockCalls().length, txOptions], [0, [undefined]], `${mode}: بلا قفل لوط ولا مهلة جديدة`);
+    track(); // التبديل التزم مستقلاً (المعاملة المزيّفة أعادت لقطتها عند الرمي)
+    const again = await act();
+    assert.deepEqual([again.status, again.body.code], [409, 'LOT_STOCK_INSUFFICIENT'], `${mode}: ${JSON.stringify(again.body)}`);
+    assert.deepEqual([invoiceOf(ret.body.data.id)!.status, invoiceOf(ret.body.data.id)!.returnToStock], ['CONFIRMED', true], mode);
+  }
 });
 
 test('restock: الإطفاء والبضاعة مبيعة ⇒ 409 (I1)، والإطفاء الممكن يُقفل ويُحدَّث، والتشغيل إلى true زيادةٌ بلا قفل', async () => {
@@ -796,6 +922,18 @@ test('restock: الإطفاء والبضاعة مبيعة ⇒ 409 (I1)، وال�
   const offDisabled = await restock(ret2.body.data.id, false);
   assert.equal(offDisabled.status, 200);
   assert.deepEqual(txOptions, [], 'الميزة مطفأة: لا معاملة ولا قفل');
+  // مرتجعٌ لصنفٍ غير متتبَّع والميزة مفعّلة: إعادة قراءة التتبّع FOR KEY SHARE وحدها (D25) — لا حارس ولا قفل لوط ولا مهلة جديدة
+  reset();
+  load('pW', [{ lotId: null, qty: 2 }]);
+  const wret = await post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', items: [{ productId: 'pW', qty: 1, unitPrice: 2 }] });
+  assert.equal(wret.status, 201, JSON.stringify(wret.body));
+  calls = []; txOptions = [];
+  const woff = await restock(wret.body.data.id, false);
+  assert.equal(woff.status, 200, JSON.stringify(woff.body));
+  assert.equal(invoiceOf(wret.body.data.id)!.returnToStock, false);
+  assert.deepEqual([lockCalls().length, txOptions], [0, [undefined]]);
+  assert.deepEqual(calls.filter((c) => c.includes('FOR KEY SHARE') || c.includes('FOR UPDATE') || c === 'tenant.findUnique').map((c) => c.split(' WHERE')[0]),
+    ['$queryRaw SELECT id, "lotTracked" FROM products'], 'لا قفل صفّ المرتجع ولا قراءة شركة');
 });
 
 // ═══ الصلاحية ═══

@@ -157,6 +157,12 @@ test('نافذة المالك: المربع بعد المستودع، مطفأ �
   assert.ok(wh > 0 && lot > wh && daily > lot, 'بعد المستودع مباشرة');
   assert.ok(s.includes("{lotNote === 'OFF' && ("));
   assert.ok(s.includes("{lotNote === 'NEW_EPOCH' && ("));
+  // D8: نافذة الإطفاء تحذّر من المادة ٥٢ من اللائحة التنفيذية لنظام الغذاء (حفظ ١٨٠ يوماً بعد الانتهاء) — بترجمتها الكاملة
+  const off = s.slice(s.indexOf("{lotNote === 'OFF' && ("), s.indexOf("{lotNote === 'NEW_EPOCH' && ("));
+  const text = off.match(/\{tr\('([^']+)'\)\}/)?.[1] ?? '';
+  assert.ok(text.includes('المادة 52 من اللائحة التنفيذية لنظام الغذاء') && text.includes('180 يوما'), 'تحذير الإطفاء بلا المادة ٥٢');
+  const row = PHRASES[text];
+  assert.ok(row && ['en', 'fr', 'tr', 'zh'].every(l => /52/.test((row as Record<string, string>)[l] ?? '') && /180/.test((row as Record<string, string>)[l] ?? '')), 'ترجمةٌ تُسقط المادة أو المدة');
 });
 
 test('حذف الشركة: confirmLotRecords لا يُرسل إلا من مرحلة سجلات التشغيلات، ويحمل تأكيد الدفاتر الذي سبقه', () => {
@@ -182,6 +188,21 @@ test('نافذة الصنف: القسم خلف lotTrackingOn، والعلم يُ
   assert.equal((s.match(/lotTracked:/g) || []).length, 1, 'لا كتابة أخرى للعلم في الحمولة');
 });
 
+test('نافذة الصنف (§٤.١٨): الصنف المتتبَّع يُخفى أساس صلاحيته ومعاينته بنصّ «من انتهاء التشغيلة» — وتبقى المدة وقيد المرتجع', () => {
+  const s = read('components', 'forms', 'ProductModal.tsx');
+  // خلف الميزة والعلم معاً، وأساسٌ لا يكتمل (شراءٌ بلا تاريخ) يبقى ظاهراً فلا يرفض الحفظ بحقلٍ مخفي
+  assert.ok(s.includes("const lotExpiry = lotTrackingOn && lotTracked && !(lifeBasis === 'PURCHASE' && !watch('shelfLifeFromDate'));"));
+  const at = s.indexOf('{lotExpiry ? (');
+  const basis = s.indexOf("{...register('shelfLifeBasis')}");
+  const preview = s.indexOf('{tr(PREVIEW_LABEL[lifeBasis])}');
+  const rule = s.indexOf('data-return-rule=""');
+  const duration = s.indexOf("{...register('shelfLifeValue', { valueAsNumber: true })}");
+  assert.ok(at > 0 && basis > at && preview > basis && rule > preview, 'الأساس ومعاينته في فرع غير المتتبَّع');
+  assert.ok(s.slice(at, basis).includes('data-lot-expiry-basis=""'), 'نصّ «من انتهاء التشغيلة» في فرع المتتبَّع');
+  assert.ok(duration > 0 && duration < at, 'المدة خارج الفرع: تبقى لقيد النسبة');
+  assert.ok(s.includes("{lotExpiry ? tr('الصلاحية من تاريخ انتهاء التشغيلة') : <>{tr('تحسب من')} {tr(SHELF_LIFE_BASIS_LABELS[lifeBasis])}</>}"));
+});
+
 test('صفحة المنتجات: العمود والفلتر والتفعيل الجماعي وطلباتها خلف علم الشركة — والمطفأة كما كانت', () => {
   const s = read('pages', 'ProductsPage.tsx');
   assert.match(s, /const lotOn = lotFlagsOf\(company\)\.on;/);
@@ -198,6 +219,15 @@ test('صفحة المنتجات: العمود والفلتر والتفعيل ا
   // D9: التأكيد يعيد الطلب نفسه بـconfirmLotBalances
   assert.ok(s.includes('saveMutation.mutate({ ...balanceConfirm.values, confirmLotBalances: true })'));
   assert.ok(s.includes('bulkMutation.mutate({ ...balanceConfirm.req, confirmLotBalances: true })'));
+  // المستودع ومخزون السيارات يقرآن «الصنف متتبَّع» من products-min: كل تغييرٍ للعلم يبطلها (الحفظ والميزة مفعّلة، والجماعي، وما التزم قبل 409)
+  const invMin = "qc.invalidateQueries({ queryKey: ['products-min'] })";
+  const save = s.slice(s.indexOf('const saveMutation = useMutation({'), s.indexOf('const deleteMutation = useMutation({'));
+  assert.ok(save.includes(`onSuccess: () => { qc.invalidateQueries({ queryKey: ['products'] }); if (lotOn) ${invMin};`));
+  const bulkM = s.slice(s.indexOf('const bulkMutation = useMutation({'));
+  const bulkOk = bulkM.slice(bulkM.indexOf('onSuccess: (res, req) => {'), bulkM.indexOf('onError: (err: unknown, req) => {'));
+  assert.ok(bulkOk.includes(`${invMin};`), 'نجاح الجماعي');
+  const bulkErr = bulkM.slice(bulkM.indexOf('onError: (err: unknown, req) => {'));
+  assert.ok(bulkErr.includes(`if (bal.updated > 0) { qc.invalidateQueries({ queryKey: ['products'] }); ${invMin}; }`), 'دفعات التزمت قبل 409');
 });
 
 test('إعدادات الشركة: «طباعة التشغيلة» خلف الميزة والمحاسبة والصلاحية، وبمسارها المستقل وحده', () => {

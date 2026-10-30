@@ -133,14 +133,16 @@ test('requireLots: نسخة requireLocations — المحاسبة أولاً ث�
   assert.ok(auth.indexOf('export async function requireLocations(') < auth.indexOf('export async function requireLots('));
 });
 
-test('§١٠.١ وR4: أعمدة P0 على المنتج لا تتسرّب والميزة مطفأة — لا في حمولة ERP، ولا في /api/v1/sync/products حتى تحسمها B7', async () => {
+test('§١٠.١ وR4: أعمدة P0 على المنتج لا تتسرّب والميزة مطفأة — لا في حمولة ERP، ولا في /api/v1/sync/products إلا للشركة المفعّلة (B7)', async () => {
   const { productPayloadRow } = await import('../services/erpPayload');
   assert.deepEqual(productPayloadRow({ id: 'p', name: 'شاي', image: 'data:...', lotTracked: false, lotTrackedSince: null }), { id: 'p', name: 'شاي' },
     'حمولة ERP للمنتج (ولمنتج بند الفاتورة) بلا أعمدة لوط (§٥.٥)');
-  const { SYNC_RESOURCES } = await import('../services/apiSync');
+  const { SYNC_RESOURCES, selectFor } = await import('../services/apiSync');
   const products = SYNC_RESOURCES.find((r) => r.name === 'products')!;
-  assert.deepEqual(Object.keys(products.select).filter((k) => /^lot/i.test(k)), [], 'شكل ردّ المزامنة كما كان (§١٠.١) — B7 تكشف lotTracked إن حسم المالك §٥.٣');
-  assert.ok('lotTracked' in products.denied && 'lotTrackedSince' in products.denied, 'العمودان مصنَّفان محجوبين بسببٍ مكتوب');
+  // حسم B7 (§٥.٣ مقابل §١٠.١): lotTracked يُكشف للشركة المفعّلة وحدها (lotSelect)، والمطفأة بشكل ردّها القديم حرفياً
+  assert.deepEqual(Object.keys(selectFor(products, false)).filter((k) => /^lot/i.test(k)), [], 'شكل ردّ المزامنة للمطفأة كما كان (§١٠.١)');
+  assert.deepEqual(Object.keys(selectFor(products, true)).filter((k) => /^lot/i.test(k)), ['lotTracked'], 'المفعّلة: lotTracked وحده (§٥.٣)');
+  assert.ok('lotTrackedSince' in products.denied && !('lotTracked' in products.denied), 'الحقبة محجوبة بسببٍ مكتوب، والعَلَم مكشوفٌ شرطاً');
 });
 
 test('الهياكل: تواقيع الحزم مصدَّرة (العقود المجمَّدة §٤.٠)', async () => {

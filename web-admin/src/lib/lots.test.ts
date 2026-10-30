@@ -221,6 +221,24 @@ test('أسطر الورقة من صفوف التوزيع: رقم اللوط وا
   assert.equal(docLotsFrom(undefined), undefined);
 });
 
+test('انتهاء بند الفاتورة لقطةُ الإصدار لا تاريخ اللوط الحالي (§٤.٣) — وحركة السيارة بلا لقطة تأخذ تاريخ اللوط', () => {
+  // مُدّ انتهاء A12 بعد البيع: الورقة المعاد طبعها تطابق ما بيد العميل
+  assert.deepEqual(
+    docLotsFrom([{ lotId: 'l1', quantity: 5, expiryDate: '2026-11-30T00:00:00.000Z', lot: { lotNumber: 'A12', expiryDate: '2027-01-31T00:00:00.000Z' } }]),
+    [{ lotNumber: 'A12', qty: 5, expiryDate: '2026-11-30' }],
+  );
+  // صدرت بلا انتهاء ثم أُضيف للوط انتهاء: تبقى بلا انتهاء
+  assert.deepEqual(
+    docLotsFrom([{ lotId: 'l1', quantity: 1, expiryDate: null, lot: { lotNumber: 'A12', expiryDate: '2027-01-31' } }]),
+    [{ lotNumber: 'A12', qty: 1, expiryDate: null }],
+  );
+  // صفّ حركة السيارة (VanLoadItemLot) لا عمود انتهاء له: من اللوط المضموم
+  assert.deepEqual(
+    docLotsFrom([{ lotId: 'l2', qty: 4, lot: { lotNumber: 'B2', expiryDate: '2027-03-01T00:00:00.000Z' } }]),
+    [{ lotNumber: 'B2', qty: 4, expiryDate: '2027-03-01' }],
+  );
+});
+
 // ─── المرآة: الثوابت نفسها في الخادم (يكتبها P0 في backend/src/services/lots.ts) ───
 const backendLots = path.join(process.cwd(), '..', 'backend', 'src', 'services', 'lots.ts');
 test('مرآة الخادم: القوائم والرموز والحدود نفسها في services/lots.ts', { skip: !fs.existsSync(backendLots) && 'services/lots.ts لم يُكتب بعد' }, () => {

@@ -5,7 +5,7 @@ import { AuthRequest } from '../types';
 import { API_KEY_RATE_PER_MINUTE } from '../services/apiKeys';
 import {
   SYNC_RESOURCES, syncResource, cursorColumn, clampLimit, encodeCursor, decodeCursor, parseSince,
-  tenantWhere, sinceWhere, afterCursorWhere, orderByFor, shapeRow, SyncResource,
+  tenantWhere, sinceWhere, afterCursorWhere, orderByFor, shapeRow, selectFor, SyncResource,
   SYNC_DEFAULT_LIMIT, SYNC_MAX_LIMIT, IDS_MAX_LIMIT,
 } from '../services/apiSync';
 
@@ -23,37 +23,58 @@ router.use((req: AuthRequest, res: Response, next: NextFunction) => {
   next();
 });
 
+interface Refusal { status: number; code: string; message: string }
+
 /**
  * حكم المورد لصاحب المفتاح — كما تحكم صفحته في اللوحة: صلاحيته، وعدم تقييد نطاقه (المزامنة تعطي
  * الشركة كاملة فلا تُعطى لمن يرى بعضها)، والنظام المحاسبي ومخزون الشركة. يُقرأ كله من القاعدة في
  * كل طلب، فسحب صلاحية من صاحب المفتاح يسري على مفتاحه في الحال.
+ *
+ * ومعه عَلَم «تتبّع اللوط» مقروءاً في الاستعلام نفسه (§١٠.١: لا استعلام زائد) — به تُضمّ أعمدة اللوط على الموارد القائمة
+ * (selectFor)، و`=== true` وحده يضمّها فتعذّر القراءة يُبقي الشكل القديم.
  */
-async function resourceRefusal(req: AuthRequest, def: SyncResource): Promise<{ status: number; code: string; message: string } | null> {
+async function resourceGate(req: AuthRequest, def: SyncResource): Promise<{ refusal: Refusal | null; lotsOn: boolean }> {
   const tid = tenantId(req);
   const [admin, tenant] = await Promise.all([
     prisma.admin.findUnique({ where: { id: req.user!.id }, select: { isActive: true, scopeEnabled: true, [def.permission]: true } as Record<string, true> }),
-    prisma.tenant.findUnique({ where: { id: tid }, select: { accountingEnabled: true, warehouseEnabled: true, locationsEnabled: true } }),
+    prisma.tenant.findUnique({ where: { id: tid }, select: { accountingEnabled: true, warehouseEnabled: true, locationsEnabled: true, lotTrackingEnabled: true } }),
   ]);
+  const lotsOn = tenant?.lotTrackingEnabled === true;
+  const refuse = (r: Refusal) => ({ refusal: r, lotsOn });
   const a = admin as Record<string, unknown> | null;
-  if (!a || a.isActive !== true) return { status: 401, code: 'API_KEY_OWNER_INACTIVE', message: 'حساب المستخدم صاحب المفتاح معطل' };
-  if (a.scopeEnabled === true) return { status: 403, code: 'API_KEY_SCOPED_OWNER', message: 'صاحب المفتاح مقيد بنطاق محدد والمزامنة تعطي بيانات الشركة كاملة' };
-  if (a[def.permission] === false) return { status: 403, code: 'FORBIDDEN', message: 'صاحب المفتاح لا يملك صلاحية هذا القسم' };
-  if (def.accounting && tenant?.accountingEnabled === false) return { status: 403, code: 'ACCOUNTING_DISABLED', message: 'النظام المحاسبي غير مفعل لشركتك' };
-  if (def.warehouse && tenant?.warehouseEnabled !== true) return { status: 403, code: 'WAREHOUSE_DISABLED', message: 'ميزة مخزون الشركة غير مفعلة لشركتك' };
+  if (!a || a.isActive !== true) return refuse({ status: 401, code: 'API_KEY_OWNER_INACTIVE', message: 'حساب المستخدم صاحب المفتاح معطل' });
+  if (a.scopeEnabled === true) return refuse({ status: 403, code: 'API_KEY_SCOPED_OWNER', message: 'صاحب المفتاح مقيد بنطاق محدد والمزامنة تعطي بيانات الشركة كاملة' });
+  if (a[def.permission] === false) return refuse({ status: 403, code: 'FORBIDDEN', message: 'صاحب المفتاح لا يملك صلاحية هذا القسم' });
+  if (def.accounting && tenant?.accountingEnabled === false) return refuse({ status: 403, code: 'ACCOUNTING_DISABLED', message: 'النظام المحاسبي غير مفعل لشركتك' });
+  if (def.warehouse && tenant?.warehouseEnabled !== true) return refuse({ status: 403, code: 'WAREHOUSE_DISABLED', message: 'ميزة مخزون الشركة غير مفعلة لشركتك' });
   // «لوكيشن» بترتيب حارس صفحتها (requireLocations): المحاسبة أعلاه ثم العَلَم — `!== true` فتعذّر القراءة يمنع لا يفتح
-  if (def.locations && tenant?.locationsEnabled !== true) return { status: 403, code: 'LOCATIONS_DISABLED', message: 'ميزة لوكيشن غير مفعلة لشركتك' };
-  return null;
+  if (def.locations && tenant?.locationsEnabled !== true) return refuse({ status: 403, code: 'LOCATIONS_DISABLED', message: 'ميزة لوكيشن غير مفعلة لشركتك' });
+  // «تتبّع اللوط» بترتيب requireLots: المحاسبة أعلاه ثم العَلَم — والمطفأ أو غير المقروء يمنع (§٥.٣، D8)
+  if (def.lots && !lotsOn) return refuse({ status: 403, code: 'LOTS_DISABLED', message: 'ميزة تتبع اللوط غير مفعلة لشركتك' });
+  return { refusal: null, lotsOn };
 }
 
-const unknown = (res: Response, name: string) => res.status(404).json({
-  success: false, code: 'UNKNOWN_RESOURCE', message: `مورد غير معروف ${name}`, resources: SYNC_RESOURCES.map(r => r.name),
-});
+/**
+ * موارد الشركة كما تُعلَن في /me وفي قائمة UNKNOWN_RESOURCE: موارد «تتبّع اللوط» للشركة المفعّلة وحدها، فالمطفأة تبقى بقائمتها
+ * القديمة حرفياً (§١٠.١، D8 يُخفي) — `=== true` وحده يُظهرها. وموارد الميزات الأقدم (المستودع ولوكيشن) تُعلَن لكل شركة كما كانت.
+ */
+const listedResources = (lotsOn: boolean) => SYNC_RESOURCES.filter(r => !r.lots || lotsOn);
+
+/** مورد مجهول: 404 بقائمة الموارد. مسار خطأٍ نادر، فقراءة العَلَم فيه لا تمسّ مساراً ساخناً، وتعذّرها يُبقي القائمة القديمة لا 500 */
+async function unknown(req: AuthRequest, res: Response, name: string): Promise<void> {
+  const lotsOn = await prisma.tenant.findUnique({ where: { id: tenantId(req) }, select: { lotTrackingEnabled: true } })
+    .then((t) => t?.lotTrackingEnabled === true, () => false);
+  res.status(404).json({
+    success: false, code: 'UNKNOWN_RESOURCE', message: `مورد غير معروف ${name}`, resources: listedResources(lotsOn).map(r => r.name),
+  });
+}
 
 router.get('/me', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    // عَلَم «تتبّع اللوط» من شركة المفتاح في الاستعلام نفسه (§١٠.١: لا استعلام زائد)
     const key = await prisma.apiKey.findUnique({
       where: { id: req.user!.apiKeyId! },
-      select: { name: true, prefix: true, readOnly: true, createdAt: true, tenant: { select: { name: true } }, admin: { select: { name: true } } },
+      select: { name: true, prefix: true, readOnly: true, createdAt: true, tenant: { select: { name: true, lotTrackingEnabled: true } }, admin: { select: { name: true } } },
     });
     res.json({
       success: true,
@@ -62,7 +83,7 @@ router.get('/me', async (req: AuthRequest, res: Response, next: NextFunction) =>
         key: key ? { name: key.name, prefix: key.prefix, readOnly: key.readOnly, createdAt: key.createdAt, actsAs: key.admin.name } : null,
         ratePerMinute: API_KEY_RATE_PER_MINUTE,
         serverTime: new Date().toISOString(),
-        resources: SYNC_RESOURCES.map(r => ({ name: r.name, mode: r.mode, hardDeletes: r.hardDeletes })),
+        resources: listedResources(key?.tenant.lotTrackingEnabled === true).map(r => ({ name: r.name, mode: r.mode, hardDeletes: r.hardDeletes })),
       },
     });
   } catch (err) { next(err); }
@@ -71,8 +92,8 @@ router.get('/me', async (req: AuthRequest, res: Response, next: NextFunction) =>
 router.get('/sync/:resource', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const def = syncResource(String(req.params.resource));
-    if (!def) { unknown(res, String(req.params.resource)); return; }
-    const refusal = await resourceRefusal(req, def);
+    if (!def) { await unknown(req, res, String(req.params.resource)); return; }
+    const { refusal, lotsOn } = await resourceGate(req, def);
     if (refusal) { res.status(refusal.status).json({ success: false, code: refusal.code, message: refusal.message }); return; }
 
     const since = parseSince(req.query.since);
@@ -86,7 +107,7 @@ router.get('/sync/:resource', async (req: AuthRequest, res: Response, next: Next
     const col = cursorColumn(def);
     const where = { AND: [tenantWhere(def, tenantId(req)), sinceWhere(def, since), afterCursorWhere(def, cursor)].filter(Boolean) };
     const delegate = (prisma as unknown as Record<string, { findMany: (a: unknown) => Promise<Record<string, unknown>[]> }>)[def.model];
-    const rows = await delegate.findMany({ where, orderBy: orderByFor(def), take: limit + 1, select: { ...def.select, id: true, ...(col === 'id' ? {} : { [col]: true }) } });
+    const rows = await delegate.findMany({ where, orderBy: orderByFor(def), take: limit + 1, select: { ...selectFor(def, lotsOn), id: true, ...(col === 'id' ? {} : { [col]: true }) } });
 
     const hasMore = rows.length > limit;
     const page = hasMore ? rows.slice(0, limit) : rows;
@@ -102,8 +123,8 @@ router.get('/sync/:resource', async (req: AuthRequest, res: Response, next: Next
 router.get('/sync/:resource/ids', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const def = syncResource(String(req.params.resource));
-    if (!def) { unknown(res, String(req.params.resource)); return; }
-    const refusal = await resourceRefusal(req, def);
+    if (!def) { await unknown(req, res, String(req.params.resource)); return; }
+    const { refusal } = await resourceGate(req, def);
     if (refusal) { res.status(refusal.status).json({ success: false, code: refusal.code, message: refusal.message }); return; }
     const tag = `${def.name}:ids`;
     const cursor = decodeCursor(req.query.cursor, tag);

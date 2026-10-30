@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { DollarSign, CreditCard, ShoppingCart, TrendingUp, Users, AlertTriangle, Trophy, ChevronLeft, UserCog, Package, BarChart3, Warehouse } from 'lucide-react';
+import { DollarSign, CreditCard, ShoppingCart, TrendingUp, Users, AlertTriangle, Trophy, ChevronLeft, UserCog, Package, BarChart3, Warehouse, Layers } from 'lucide-react';
 import { dashboardApi } from '../api/client';
 import { DashboardStats } from '../types';
 import { formatCurrency } from '../utils/format';
@@ -19,25 +19,28 @@ const MSalesChart = lazy(() => import('./MSalesChart'));
  *  - «أفضل العملاء/المناديب» **أزرارٌ تنقل**، لا نصّاً ميتاً: تطبيق «بإجراءات
  *    كاملة» لا يليق به طريق مسدود.
  *  - أسفل الشاشة بلاطات أقسام الإدارة (المناديب · المنتجات · التقارير ·
- *    مخزون الشركة) — وهي
+ *    مخزون الشركة · تتبّع اللوط) — وهي
  *    المدخل الوحيد إليها، إذ امتلأت مقاعد الشريط السفليّ الخمسة.
  *  - الاستطلاع مشروط بحياة الشاشة (بطارية وباقة).
  */
 /** أقسام الإدارة التي تُفتح من الرئيسية صفحاتٍ كاملة */
-export type HomeSection = 'reps' | 'products' | 'reports' | 'warehouse';
+export type HomeSection = 'reps' | 'products' | 'reports' | 'warehouse' | 'lots';
 
 const SECTION_TILES: { id: HomeSection; label: string; icon: React.ElementType }[] = [
   { id: 'reps', label: 'المناديب', icon: UserCog },
   { id: 'products', label: 'المنتجات', icon: Package },
   { id: 'reports', label: 'التقارير', icon: BarChart3 },
   { id: 'warehouse', label: 'مخزون الشركة', icon: Warehouse },
+  // «تتبّع اللوط» — تظهر حين تسمح بها القوقعة وحدها (الصلاحية والمحاسبة وعلم الشركة)، والميزة المطفأة لا بلاطة لها
+  { id: 'lots', label: 'تتبع اللوط', icon: Layers },
 ];
 
 /* عدد الأعمدة يُشتقّ من عدد البلاطات المعروضة لا يُثبَّت على ثلاثة: البلاطات
- * تتراوح بين واحدة وأربع بحسب الصلاحيات وميزة المستودع، و«ثلاثة» ثابتةً تترك
- * الرابعة وحيدةً في سطرٍ بعرض الثلث. أربعٌ ⇒ شبكة ٢×٢ متّزنة. */
+ * تتراوح بين واحدة وخمس بحسب الصلاحيات والميزات، و«ثلاثة» ثابتةً تترك
+ * الرابعة وحيدةً في سطرٍ بعرض الثلث. أربعٌ ⇒ شبكة ٢×٢ متّزنة، وخمسٌ ⇒ ثلاثٌ
+ * ثمّ اثنتان (لا ٢+٢+١ بواحدةٍ يتيمة في سطرها). وما دون الخمس كما كان حرفاً. */
 const tileCols = (n: number): string =>
-  n >= 4 ? 'grid-cols-2' : n === 3 ? 'grid-cols-3' : n === 2 ? 'grid-cols-2' : 'grid-cols-1';
+  n >= 5 ? 'grid-cols-3' : n === 4 ? 'grid-cols-2' : n === 3 ? 'grid-cols-3' : n === 2 ? 'grid-cols-2' : 'grid-cols-1';
 
 export default function MHome({ accountingOn = true, onOpenCustomer, onOpenSection, allowedSections = [] }: {
   /** «النظام المحاسبي» مفعّل للشركة؟ حين يكون false تختفي كل خانة تعرض مبلغاً */

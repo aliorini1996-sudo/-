@@ -9,6 +9,10 @@ import { DocumentResult, warehouseNoticeDocFromEntry, Company } from '../rep/Rep
  *
  * والإشعار يُبنى من الحركة التي في اليد بقيمها المحسوبة في الخادم — لا طلبٌ
  * جديد ولا حسابٌ ثانٍ لرقمٍ واحد.
+ *
+ * «تتبّع اللوط»: سجل `/warehouse/entries` يضمّ `lot` لكل سطر حين الميزة مفعّلة وحدها (الحارس نفسه في الخادم، بلا معامل)،
+ * والبانية تحوّله صفّاً بالأساس (D22) فيُطبع عمود «التشغيلة / الانتهاء» متى وُجدت تشغيلة؛ والمطفأة بلا `lot` فالإشعار
+ * كما كان حرفاً.
  */
 export default function MWarehouseNoticeDoc({ entry, company, onClose }: {
   entry: Parameters<typeof warehouseNoticeDocFromEntry>[0];

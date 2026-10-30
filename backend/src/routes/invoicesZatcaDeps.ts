@@ -22,6 +22,8 @@ import { submitDocumentNow } from '../services/zatcaSubmit';
 // «تتبّع اللوط» (§٤.٩): الفحص المسبق والتوزيع داخل معاملة الإصدار — الخدمة نفسها التي يستدعيها مسار المرحلة الأولى
 import { allocateInvoiceLotsInTx, lotTrackingEnabledFor, precheckInvoiceLots } from '../services/lotsInvoice';
 import { companyDay, type LotTx } from '../services/lotsDb';
+// اللقطة القائمة لبنود البيع (D12) — الدالّة نفسها التي يختم بها المرتجع المرتبط في المرحلة الأولى (invoices.ts)
+import { linkedReturnExpiry } from '../services/invoiceExpiry';
 import type { NoteIssuanceDeps } from './invoicesNotes';
 import type { Phase2Tx } from './invoicesZatca';
 
@@ -71,6 +73,7 @@ export function productionPhase2Deps(env: NodeJS.ProcessEnv = process.env): Note
       day: async (tenantId, at) => (await companyDay(prisma, tenantId, at)).day,
       precheck: plan => precheckInvoiceLots(prisma, plan),
       allocateInTx: (tx, plan) => allocateInvoiceLotsInTx(tx as unknown as LotTx, plan),
+      linkedStamps: (tenantId, saleItemIds, at) => linkedReturnExpiry(tenantId, [...saleItemIds], at),
     },
     // Z5.5 (نقد 13): رابط دفعٍ قائم على فاتورةٍ أُسقط جزء من قيمتها بإشعار دائن لا يبقى حيّاً — خارج المعاملة دائماً
     expireLinks: (tenantId, invoiceId) => {

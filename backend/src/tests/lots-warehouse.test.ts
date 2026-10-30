@@ -245,6 +245,30 @@ test('الإتلاف: النقص من لوطٍ موقوف أو منتهٍ مسم
   assert.equal(world.warehouseRaw(other), 5);
 });
 
+test('المفتاح المحجوز «∅» (LOT_UNKNOWN_KEY) ليس معرّف تشغيلة: نقصاً أو زيادةً ⇒ 422 LOT_NOT_FOUND ولا حركة — لا سطرٌ بمعرّف لوطٍ لا وجود له', async () => {
+  fresh();
+  world.entry('RECEIVE', [{ productId: 'P1', qty: 10, lotId: null }]);   // غير المسمّى ١٠ بعد الحقبة
+  const entries = world.entries.length;
+  const out = await post({ type: 'ADJUST', items: [{ productId: 'P1', qty: -3, lotId: '∅' }] });
+  assert.equal(out.status, 422, JSON.stringify(out.body));
+  assert.equal(out.body.code, 'LOT_NOT_FOUND');
+  const inc = await post({ type: 'ADJUST', items: [{ productId: 'P1', qty: 3, lotId: '∅' }] });
+  assert.equal(inc.status, 422, JSON.stringify(inc.body));
+  assert.equal(inc.body.code, 'LOT_NOT_FOUND');
+  // مع سطرٍ صالح في الحركة نفسها: لا نصف حركة
+  const mixed = await post({ type: 'ADJUST', items: [{ productId: 'P1', qty: -1, lotId: null }, { productId: 'P1', qty: -1, lotId: '∅' }] });
+  assert.equal(mixed.body.code, 'LOT_NOT_FOUND');
+  assert.equal(world.entries.length, entries);
+  assert.ok(!world.items.some((i) => i.lotId === '∅'));
+  assert.equal(world.warehouseUnknown('P1'), 10);
+  // وnull الصريح يبقى طريق غير المسمّى، وغير المتتبَّع يتجاهل الحقل كما كان
+  assert.equal((await post({ type: 'ADJUST', items: [{ productId: 'P1', qty: -3, lotId: null }] })).status, 201);
+  assert.equal(world.warehouseUnknown('P1'), 7);
+  const plain = await post({ type: 'ADJUST', items: [{ productId: 'P3', qty: -1, lotId: '∅' }] });
+  assert.equal(plain.status, 201, JSON.stringify(plain.body));
+  assert.equal(lastItems()[0].lotId, null);
+});
+
 test('التسوية بالزيادة: لوط، أو رقمٌ جديد بمصدر MANUAL، أو null صريح؛ وزيادةٌ في الحركة نفسها لا تغطّي نقصها', async () => {
   fresh();
   const A = stock('P1', 'A', 5);

@@ -12,6 +12,7 @@ import repApi from './repApi';
 import { outboxAll, outboxUpdate, outboxDelete, OutboxDoc, currentRepId } from './offlineDb';
 import { CUTOVER_REVIEW_CODE, clearReview, reviewRecheckDue } from './outboxReview';
 import { isLiveGuardedKind, isLiveRefusal } from './liveGate';
+import { LOT_REPLAY_HELD_CODE } from './vanLots';
 
 /** حزمةٌ قديمة بلا قدرة القفل (الخادم: 426/503) — لا تصل الحزمة الحديثة، ويُبقى المستند إن وصلها */
 export const LIVE_CLIENT_UPDATE_CODE = 'LOCATION_APP_UPDATE';
@@ -26,6 +27,14 @@ export function onOutboxChange(fn: Listener): () => void {
   return () => listeners.delete(fn);
 }
 function notify() { listeners.forEach((fn) => { try { fn(); } catch { /* */ } }); }
+
+// «تتبّع اللوط» (§٧.١): مزامنةٌ رفعت فاتورةً واحدة على الأقل — تطبيق المندوب يعيد بها جلب لقطة أرصدة السيارة (والميزة مطفأة لا
+// مشترك هنا)
+const invoiceListeners = new Set<Listener>();
+export function onInvoicesSynced(fn: Listener): () => void {
+  invoiceListeners.add(fn);
+  return () => { invoiceListeners.delete(fn); };
+}
 
 export interface SyncResult { sent: number; rejected: number; pending: number; stopped: boolean }
 
@@ -46,7 +55,7 @@ function ownedByCurrentRep(d: OutboxDoc): boolean {
 export async function syncOutbox(): Promise<SyncResult> {
   if (syncing) return { sent: 0, rejected: 0, pending: 0, stopped: false };
   syncing = true;
-  let sent = 0, rejected = 0, stopped = false;
+  let sent = 0, rejected = 0, stopped = false, sentInvoices = 0;
   try {
     // ترتيب التبعية: العميل قبل فاتورته/سنده/زيارته — يضمن حلّ customerClientRef على الخادم
     const rank = (k: OutboxDoc['kind']) => (k === 'customer' ? 0 : k === 'invoice' ? 1 : k === 'receipt' ? 2 : k === 'visit' ? 3 : k === 'aiOutcome' ? 4 : 5);
@@ -67,8 +76,10 @@ export async function syncOutbox(): Promise<SyncResult> {
         // X-FS-Replay: إعادة رفع من الصفّ (Z5.0) — تميّزها قاعدة التحويل عند تفعيل الفوترة (Z5.8) عن الإصدار المباشر
         const res = await repApi.post(endpoint, doc.payload, { headers: { 'X-FS-Replay': '1' } });
         const server = res.data?.data ?? {};
+        // sentAt («تتبّع اللوط» §٧.٢) يختمه outboxUpdate لحظة الانتقال إلى sent
         await outboxUpdate({ ...clearReview(doc), status: 'sent', serverNumber: server.number, serverId: server.id });
         sent++;
+        if (doc.kind === 'invoice') sentInvoices++;
       } catch (err) {
         const status = (err as { response?: { status?: number } })?.response?.status;
         const code = (err as { response?: { data?: { code?: string } } })?.response?.data?.code;
@@ -100,6 +111,14 @@ export async function syncOutbox(): Promise<SyncResult> {
           await outboxUpdate({ ...doc, reviewCode: CUTOVER_REVIEW_CODE, reviewCheckedAt: new Date().toISOString(), error: msg || undefined });
           continue;
         }
+        if (code === LOT_REPLAY_HELD_CODE) {
+          // «تتبّع اللوط» (D20): فاتورةٌ دون اتصال لا يكفيها رصيد السيارة الفعلي (تحميلٌ لم يُسجَّل) — الورقة سُلّمت، فلا رفض أعمال
+          // ولا إعدام: تبقى مصفوفةً بوسم «بانتظار الإدارة» ورسالة الخادم، ولا يُسأل عنها قبل المهلة (reviewRecheckDue)، والإدارة
+          // أُشعرت لتسجّل التحميل الناقص فتمرّ في سؤالٍ لاحق. والمزامنة تتابع ما بعدها كمراجعة الفوترة
+          const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+          await outboxUpdate({ ...doc, reviewCode: LOT_REPLAY_HELD_CODE, reviewCheckedAt: new Date().toISOString(), error: msg || undefined });
+          continue;
+        }
         if (status && status >= 400 && status < 500) {
           // رفض أعمال (تجاوز ائتمان/سعر مرفوض/صنف معطّل...) — لا يُعاد، يراجعه المندوب (M6). ومنه زيارة المقيَّد بـ«اشتراط
           // تفعيل الموقع» بلا موقع أو من هذا الصفّ (LOCATION_REQUIRED / VISIT_NEEDS_CONNECTION): رفضٌ نهائيّ لا حلقة، يبقى
@@ -117,6 +136,7 @@ export async function syncOutbox(): Promise<SyncResult> {
   } finally {
     syncing = false;
     notify();
+    if (sentInvoices > 0) invoiceListeners.forEach((fn) => { try { fn(); } catch { /* */ } });
   }
   const pending = (await outboxAll()).filter((d) => d.status === 'queued' && ownedByCurrentRep(d)).length;
   return { sent, rejected, pending, stopped };

@@ -50,6 +50,18 @@ export async function lotVanKeys(db: LotDb, tid: string, q: { lotIds?: string[];
   return uniq([...van.map((r) => r.vanKey), ...inv.map((r) => r.vanKey), ...rel.map((r) => r.vanKey)]).sort();
 }
 
+/**
+ * حدث سجل اللوط مرئيٌّ للنطاق؟ حدثٌ في سيارةٍ (تسمية: after.place = 'VAN' وvanKey) لمقيّدٍ مرئيٌّ إن كانت من مناديب نطاقه
+ * وحدهم — بلا سيارات المحذوفين (visibleReps فيها القائمون وحدهم)، كما تُسقطها الأماكن والمصدر وخطة التنزيل. وغير المقيّد
+ * (null) يرى كل شيء، وما ليس في سيارة (المستودع والإنشاء والتواريخ والحالة) مرئيٌّ للجميع.
+ */
+export function lotEventVisible(after: unknown, visibleReps: ReadonlySet<string> | null | undefined): boolean {
+  if (!visibleReps || !after || typeof after !== 'object' || Array.isArray(after)) return true;
+  const a = after as { place?: unknown; vanKey?: unknown };
+  if (a.place !== 'VAN') return true;
+  return typeof a.vanKey === 'string' && visibleReps.has(a.vanKey);
+}
+
 /** أسماء المناديب القائمين بين المفاتيح — الغائب محذوف */
 async function repNames(db: LotDb, tid: string, keys: string[]): Promise<Map<string, string>> {
   if (!keys.length) return new Map();
@@ -545,11 +557,11 @@ export async function lotTrace(db: LotDb, tid: string, lotId: string, opts: LotT
       .sort((a, b) => a.name.localeCompare(b.name, 'ar') || a.customerId.localeCompare(b.customerId));
   }
 
-  // ── السجلّ ──
-  const evs = await db.lotEvent.findMany({
+  // ── السجلّ ── (تسميات سياراتٍ خارج النطاق تسقط كأماكنها، وسبب التسمية ملاحظتها)
+  const evs = (await db.lotEvent.findMany({
     where: { tenantId: tid, lotId: lot.id }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    select: { kind: true, createdAt: true, actorName: true, reason: true },
-  });
+    select: { kind: true, createdAt: true, actorName: true, reason: true, after: !!opts.visibleReps },
+  })).filter((e) => lotEventVisible(e.after, opts.visibleReps));
 
   const meta: LotMeta = {
     id: lot.id, productId, lotNumber: lot.lotNumber,

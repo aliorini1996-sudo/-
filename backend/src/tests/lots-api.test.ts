@@ -754,6 +754,30 @@ test('PATCH /lots/:id/status: لغير المقيّد وبسببٍ إلزامي 
   assert.deepEqual([r.status, r.body.code], [409, 'LOT_CHANGED']);
 });
 
+test('PATCH /lots/:id/status بلا blockKind: النشط يُوقَف احترازياً، والموقوف يبقى بنوعه — لا ينقلب السحب إيقافاً بصمت (والتنزيل الصريح وحده يغيّره)', async () => {
+  world();
+  const v = (id: string) => (T.productLot.find((l) => l.id === id)!.updatedAt as Date).toISOString();
+  let r = await call('PATCH', '/api/lots/L1/status', { body: { status: 'BLOCKED', blockKind: 'RECALL', reason: 'قرار الهيئة', updatedAt: v('L1') } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const blockedAt = r.body.data.blockedAt;
+  // تكاملٌ يعيد إرسال الحالة بلا نوعها: السحب يبقى سحباً، بلا حدثٍ ولا تغيير
+  r = await call('PATCH', '/api/lots/L1/status', { user: KEY, body: { status: 'BLOCKED', reason: 'تحديث السبب', updatedAt: r.body.data.updatedAt } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual([r.body.data.status, r.body.data.blockKind, r.body.data.blockReason], ['BLOCKED', 'RECALL', 'قرار الهيئة']);
+  assert.deepEqual(eventsOf('L1', 'BLOCK').map((e) => e.after.blockKind), ['RECALL']);
+  // الإيقاف الاحترازي القائم كذلك
+  r = await call('PATCH', '/api/lots/LB/status', { body: { status: 'BLOCKED', reason: 'تحديث', updatedAt: v('LB') } });
+  assert.deepEqual([r.status, r.body.data.blockKind], [200, 'HOLD']);
+  assert.equal(eventsOf('LB').length, 0);
+  // النشط بلا نوع ⇒ إيقافٌ احترازي (الافتراض)
+  r = await call('PATCH', '/api/lots/L2/status', { body: { status: 'BLOCKED', reason: 'اشتباه', updatedAt: v('L2') } });
+  assert.deepEqual([r.status, r.body.data.blockKind], [200, 'HOLD']);
+  // التنزيل من السحب إلى الإيقاف صريحٌ وحده: بنوعه وسببه، ويُبقي لحظة الإيقاف الأولى
+  r = await call('PATCH', '/api/lots/L1/status', { body: { status: 'BLOCKED', blockKind: 'HOLD', reason: 'تبيّن أنه احترازي', updatedAt: v('L1') } });
+  assert.deepEqual([r.status, r.body.data.blockKind, r.body.data.blockedAt], [200, 'HOLD', blockedAt]);
+  assert.deepEqual(eventsOf('L1', 'BLOCK').map((e) => [e.before.blockKind, e.after.blockKind]), [[null, 'RECALL'], ['RECALL', 'HOLD']]);
+});
+
 test('DELETE /lots/:id: ما له مرجعٌ 409 LOT_IN_USE، وما لا مرجع له يُحذف تحت القفل ويبقى سجلّه (DELETE) مقروءاً', async () => {
   world();
   let r = await call('DELETE', '/api/lots/L1');
@@ -852,6 +876,32 @@ test('التسمية من غير المسمّى: I2 — لا يُنقص دون m
   assert.equal(r.status, 404, 'مندوب شركةٍ أخرى');
   // كل ما سبق من المرفوض لم يكتب شيئاً
   assert.equal(T.lotRelabel.length, 2);
+});
+
+test('D30: سيارة محذوفٍ تُعرف من التسميات أو صفوف الفواتير وحدها (بلا تحميل) — تُسمّى كما تعرضها الأرصدة (lotVanKeys)', async () => {
+  world();
+  // RZ: رصيدٌ سُمّي في السيارة يوم التفعيل (لا تحميل لها قط)، ثم حُذف مندوبها
+  T.lotRelabel.push({ id: 'RLZ', tenantId: 'T1', productId: 'P1', place: 'VAN', vanKey: 'RZ', bucket: 'SELLABLE', fromLotId: null, toLotId: 'L1', qty: 6, reason: 'LABEL_EXISTING', note: null, createdBy: 'a1', createdAt: D('2026-02-08') });
+  // RY: مرتجعٌ إلى المخزون بلوطه (بلا تحميل)، ثم حُذف مندوبها فأُفرغ مرجع الفاتورة
+  addInv('RT9', '2026-02-08', 'RY', 'C1', 'RETURN', [{ pid: 'P1', qty: 3, lots: [{ lotId: 'L1', qty: 3 }] }]);
+  T.invoice.find((i) => i.id === 'RT9')!.salesRepId = null;
+  const vans = (await call('GET', '/api/lots/balances?productId=P1')).body.data.vans;
+  assert.deepEqual(vans.filter((x: Row) => x.deleted).map((x: Row) => x.salesRepId), ['RX', 'RY', 'RZ'], 'الأرصدة تعرضهما');
+  let r = await relabel({ productId: 'P1', place: 'VAN', vanKey: 'RZ', fromLotId: 'L1', reason: 'RECLASSIFY', lines: [{ toLotId: 'L2', qty: 6.0001 }] });
+  assert.deepEqual([r.status, r.body.code], [409, 'LOT_STOCK_INSUFFICIENT'], 'بحدّ صالحها المسمّى');
+  r = await relabel({ productId: 'P1', place: 'VAN', vanKey: 'RZ', fromLotId: 'L1', reason: 'RECLASSIFY', lines: [{ toLotId: 'L2', qty: 6 }] });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  r = await relabel({ productId: 'P1', place: 'VAN', vanKey: 'RY', fromLotId: 'L1', reason: 'RECLASSIFY', lines: [{ toLotId: 'L2', qty: 3 }] });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual(T.lotRelabel.filter((x) => x.id !== 'RLZ').map((x) => [x.vanKey, x.fromLotId, x.toLotId, x.qty]), [['RZ', 'L1', 'L2', 6], ['RY', 'L1', 'L2', 3]]);
+  r = await relabel({ productId: 'P1', place: 'VAN', vanKey: 'RZ', fromLotId: 'L2', reason: 'RECLASSIFY', lines: [{ toLotId: 'L1', qty: 1 }] }, SCOPED);
+  assert.equal(r.status, 404, 'المقيّد لا يبلغ سيارة محذوف');
+  r = await relabel({ productId: 'P1', place: 'VAN', vanKey: 'NOBODY', fromLotId: 'L2', reason: 'RECLASSIFY', lines: [{ toLotId: 'L1', qty: 1 }] });
+  assert.equal(r.status, 404, 'مفتاحٌ بلا أثر');
+  // أثرٌ في شركةٍ أخرى لا يفتح سيارةً هنا
+  T.lotRelabel.push({ id: 'RLT2', tenantId: 'T2', productId: 'P9', place: 'VAN', vanKey: 'RW', bucket: 'SELLABLE', fromLotId: null, toLotId: 'L9', qty: 1, reason: 'LABEL_EXISTING', note: null, createdBy: null, createdAt: D('2026-02-08') });
+  r = await relabel({ productId: 'P1', place: 'VAN', vanKey: 'RW', fromLotId: 'L2', reason: 'RECLASSIFY', lines: [{ toLotId: 'L1', qty: 1 }] });
+  assert.equal(r.status, 404);
 });
 
 test('الوحدات: سطرٌ بكرتون وسطرٌ بحبّة للصنف نفسه — غير المسمّى بالأساس في السيارة والمستودع (BASE_QTY_SQL)، والتسمية بحدّه', async () => {
@@ -1085,6 +1135,30 @@ test('خطة التنزيل: كل سيارة فيها اللوط بصالحه و
   assert.deepEqual(r.body.data.map((x: Row) => x.salesRepId), ['R1']);
   r = await call('GET', '/api/lots/LX/unload-plan');
   assert.deepEqual(r.body.data, [], 'المنتهي في المستودع وحده');
+});
+
+test('سجل اللوط بالنطاق: المقيّد لا يرى تسميات سياراتٍ خارج نطاقه ولا سيارات المحذوفين (vanKey وكمياتها) — في /events وسجلّ التتبّع، وlimit على المرئي', async () => {
+  world();
+  const steps: [string, string, string, string][] = [['VAN', 'R2', 'L2', 'L1'], ['VAN', 'R1', 'L1', 'L2'], ['WAREHOUSE', '', 'L1', 'L2'], ['VAN', 'RX', 'L2', 'L1']];
+  for (const [place, vanKey, from, to] of steps) {
+    const r = await relabel({ productId: 'P1', place, ...(vanKey ? { vanKey } : {}), fromLotId: from, reason: 'RECLASSIFY', note: `فرز ${vanKey || 'المستودع'}`, lines: [{ toLotId: to, qty: 1 }] });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+  }
+  const shape = (e: Row) => (e.kind === 'RELABEL' ? `${e.after.place}:${e.after.vanKey ?? '-'}` : e.kind);
+  let r = await call('GET', '/api/lots/L1/events');
+  assert.deepEqual([r.body.data.map(shape), r.body.scoped], [['VAN:RX', 'WAREHOUSE:-', 'VAN:R1', 'VAN:R2', 'CREATE'], false]);
+  r = await call('GET', '/api/lots/L1/events', { user: SCOPED });
+  assert.deepEqual([r.status, r.body.data.map(shape), r.body.scoped], [200, ['WAREHOUSE:-', 'VAN:R1', 'CREATE'], true]);
+  assert.ok(!JSON.stringify(r.body).includes('R2') && !JSON.stringify(r.body).includes('RX'), 'لا معرّف سيارةٍ خارج النطاق');
+  // limit على المرئي لا على الصفوف الخام: أحدث اثنين مرئيين لا واحدٌ بعد ترشيح اثنين
+  r = await call('GET', '/api/lots/L1/events?limit=2', { user: SCOPED });
+  assert.deepEqual(r.body.data.map(shape), ['WAREHOUSE:-', 'VAN:R1']);
+  r = await call('GET', '/api/lots/L1/events?limit=1');
+  assert.deepEqual(r.body.data.map(shape), ['VAN:RX']);
+  // سجلّ التتبّع بالقاعدة نفسها (أسبابها ملاحظات التسمية)
+  const reasons = async (user: User) => (await call('GET', '/api/lots/L1/trace', { user })).body.data.events.map((e: Row) => e.reason ?? e.kind);
+  assert.deepEqual(await reasons(ADMIN), ['CREATE', 'فرز R2', 'فرز R1', 'فرز المستودع', 'فرز RX']);
+  assert.deepEqual(await reasons(SCOPED), ['CREATE', 'فرز R1', 'فرز المستودع']);
 });
 
 test('/lots/health: العجز غير المسمّى والمسمّى في كل مكان، والمقيّد يرى المستودع وسياراته', async () => {
