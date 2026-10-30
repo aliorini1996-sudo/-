@@ -160,7 +160,7 @@ function FeatureOff() {
       <div className="w-12 h-12 rounded-2xl bg-[#F1EBDF] text-[#9A8F7E] flex items-center justify-center mx-auto mb-3">
         <Lock size={22} />
       </div>
-      <h1 className="text-lg font-bold text-[#1F1A13]">{tr('تتبع اللوط غير مفعل لشركتك')}</h1>
+      <h1 className="text-lg font-bold text-[#1F1A13]">{tr('تتبع LOT غير مفعل لشركتك')}</h1>
       <p className="text-sm text-gray-500 mt-1.5">{tr('تواصل مع مزود الخدمة لتفعيلها')}</p>
     </div>
   );
@@ -353,10 +353,10 @@ function CreateLotModal({ onClose, onOpen }: { onClose: () => void; onOpen: (id:
           </div>
         ) : (
           <>
-            <input className="input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={tr('ابحث عن صنف متتبع باللوط')} autoFocus />
+            <input className="input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={tr('ابحث عن صنف متتبع بـLOT')} autoFocus />
             <div className="mt-2 max-h-48 overflow-y-auto border border-[#F1EBDF] rounded-xl divide-y divide-[#F1EBDF]">
               {(productsQ.data ?? []).length === 0 ? (
-                <p className="text-xs text-gray-400 p-3">{productsQ.isFetching ? tr('جاري التحميل') : tr('لا أصناف متتبعة باللوط فعل التتبع من صفحة المنتجات')}</p>
+                <p className="text-xs text-gray-400 p-3">{productsQ.isFetching ? tr('جاري التحميل') : tr('لا أصناف متتبعة بـLOT فعل التتبع من صفحة المنتجات')}</p>
               ) : (productsQ.data ?? []).map((p) => (
                 <button key={p.id} type="button" onClick={() => setProduct(p)} className="w-full text-right px-3 py-2 text-sm hover:bg-[#FAF7F0]">
                   {p.name}{p.code ? <span className="text-gray-400"> · {p.code}</span> : null}
@@ -522,7 +522,7 @@ function LotDetail({ id, company, onBack, onOpen }: { id: string; company: Compa
               <ExpiryBadge expiryDate={lot.expiryDate} day={lot.day} />
             </div>
             <p className="text-sm text-[#6E6557] mt-1">{lot.product.name}{lot.product.code ? ` · ${lot.product.code}` : ''}</p>
-            {!lot.product.lotTracked && <p className="text-xs text-amber-700 mt-1">{tr('تتبع هذا الصنف باللوط مطفأ والتشغيلة للسجل وحده')}</p>}
+            {!lot.product.lotTracked && <p className="text-xs text-amber-700 mt-1">{tr('تتبع هذا الصنف بـLOT مطفأ والتشغيلة للسجل وحده')}</p>}
           </div>
           <div className="flex gap-2 flex-wrap">
             <button className="btn-secondary" onClick={exportExcel} disabled={!trace}><Download size={15} /> {tr('تصدير Excel')}</button>

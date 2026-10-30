@@ -429,7 +429,7 @@ test('رسائل المسودّة والتنزيل والسبب وأفعال ا�
   const home = read('m', 'MHome.tsx');
   const tiles = home.slice(home.indexOf('const SECTION_TILES'), home.indexOf('];', home.indexOf('const SECTION_TILES')));
   const labels = [...tiles.matchAll(/label: '([^']+)'/g)].map(m => m[1]);
-  assert.ok(labels.includes('تتبع اللوط'), 'بلاطة «تتبع اللوط» مفقودة');
+  assert.ok(labels.includes('تتبع LOT'), 'بلاطة «تتبع LOT» مفقودة');
   for (const l of labels) assertTranslated(have, l, 'SECTION_TILES');
 });
 
@@ -454,7 +454,7 @@ test('القوقعة: قسم التشغيلات بحارس موجّه /api/lots 
     'البلاطة بلا الصلاحية أو المحاسبة أو العلم تُفضي إلى ٤٠٣');
   assert.match(s, /\}, \[user, accountingOn, warehouseOn, lotOn\]\);/, 'lotOn خارج تبعيات allowedSections');
   assert.match(s, /section === 'lots' \? <MLots company=\{company\}/, 'القسم غير موصول');
-  assert.match(s, /<MProducts lotOn=\{lotOn\}/, 'مفتاح «تتبّع باللوط» لا يصل شاشة المنتجات');
+  assert.match(s, /<MProducts lotOn=\{lotOn\}/, 'مفتاح «تتبّع بـLOT» لا يصل شاشة المنتجات');
   const tabs = s.slice(s.indexOf('const TABS'), s.indexOf('/** حدث تثبيت PWA'));
   assert.doesNotMatch(tabs, /id: 'lots'/, 'المقاعد خمسة وقد امتلأت — التشغيلات قسمٌ لا تبويب');
 });
@@ -462,7 +462,7 @@ test('القوقعة: قسم التشغيلات بحارس موجّه /api/lots 
 test('الرئيسية: «lots» في HomeSection وبلاطتها، والأعمدة لا تتغيّر لما دون الخمس', () => {
   const s = read('m', 'MHome.tsx');
   assert.match(s, /export type HomeSection = [^;]*'lots'/);
-  assert.match(s, /\{ id: 'lots', label: 'تتبع اللوط', icon: Layers \}/);
+  assert.match(s, /\{ id: 'lots', label: 'تتبع LOT', icon: Layers \}/);
   assert.match(s, /n >= 5 \? 'grid-cols-3' : n === 4 \? 'grid-cols-2' : n === 3 \? 'grid-cols-3' : n === 2 \? 'grid-cols-2' : 'grid-cols-1'/);
 });
 
@@ -496,7 +496,7 @@ test('المنتجات: lotTracked يُرسل حين يتغيّر وحده، و�
   assert.match(s, /const lot = productLotPayload\(product \? \(lotBase \?\? null\) : null, lotOn, lotValue\);/);
   assert.match(s, /if \(confirmLot && lot\.lotTracked === false\) payload\.confirmLotBalances = true;/);
   assert.match(s, /const bal = product && !confirmLot \? trackingBalanceOf\(e\) : null;/);
-  assert.match(s, /\{lotOn && \(\s*<Group title=\{tr\('تتبع باللوط'\)\}>/);
+  assert.match(s, /\{lotOn && \(\s*<Group title=\{tr\('تتبع بـLOT'\)\}>/);
   assert.match(s, /const lot = lotOn && p\.lotTracked === true;/, 'الشارة بلا العلم تظهر لشركةٍ أطفأت الميزة');
 });
 

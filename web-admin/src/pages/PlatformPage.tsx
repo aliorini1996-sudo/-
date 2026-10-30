@@ -667,7 +667,7 @@ function DeleteConfirmModal({ tenant, onDone, onClose }: { tenant: Tenant; onDon
           </div>
           <div className="p-6 space-y-4">
             <div className="bg-amber-50 text-amber-800 rounded-lg px-3 py-2.5 text-xs leading-relaxed">
-              {tr('سجلات توزيع التشغيلات على العملاء تلزم لاستدعاء المنتج وتحفظ 180 يوما بعد انتهاء التشغيلة — اطلب من الشركة تصدير سجلات التتبع من شاشة تتبع اللوط قبل الحذف أو أوقف الشركة بدل حذفها')}
+              {tr('سجلات توزيع التشغيلات على العملاء تلزم لاستدعاء المنتج وتحفظ 180 يوما بعد انتهاء التشغيلة — اطلب من الشركة تصدير سجلات التتبع من شاشة تتبع LOT قبل الحذف أو أوقف الشركة بدل حذفها')}
             </div>
             <div className="bg-gray-50 rounded-lg px-3 py-2.5 space-y-1 text-sm">
               <div className="flex items-center justify-between">
@@ -1153,12 +1153,12 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
             </label>
             <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2">
               <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={lotTrackingEnabled} onChange={e => setLotTrackingEnabled(e.target.checked)} />
-              {tr('تفعيل تتبع اللوط التشغيلات لهذه الشركة')}
+              {tr('تفعيل تتبع LOT التشغيلات لهذه الشركة')}
             </label>
             <p className="text-xs text-gray-400 mt-1">{tr('يسجل رقم التشغيلة وتاريخ انتهائها في الوارد والتحميل والفواتير فتعرف أي عميل استلم كل تشغيلة وتوقفها أو تسحبها عند الحاجة والمندوب يصرف الأقرب انتهاء تلقائيا بلا أي نقرة ولا يباع من التشغيلات أكثر من رصيدها — تتطلب النظام المحاسبي')}</p>
             {lotNote === 'OFF' && (
               <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-1 leading-relaxed" data-lot-tenant-note="off">
-                {tr('الإطفاء يخفي تتبع اللوط ولا يحذف بياناته وسجلات توزيع التشغيلات يلزم حفظها 180 يوما بعد انتهائها وفق المادة 52 من اللائحة التنفيذية لنظام الغذاء لاستدعاء المنتج عند الحاجة')}
+                {tr('الإطفاء يخفي تتبع LOT ولا يحذف بياناته وسجلات توزيع التشغيلات يلزم حفظها 180 يوما بعد انتهائها وفق المادة 52 من اللائحة التنفيذية لنظام الغذاء لاستدعاء المنتج عند الحاجة')}
               </p>
             )}
             {lotNote === 'NEW_EPOCH' && (

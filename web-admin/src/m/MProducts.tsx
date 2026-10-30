@@ -219,7 +219,7 @@ function ProductRow({ p, onOpen, lotOn = false }: { p: Product; onOpen: () => vo
           )}
           {lot && (
             <span className="flex-shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[#FBEBE2] text-[#C94E28]">
-              {tr('لوط')}
+              {tr('LOT')}
             </span>
           )}
         </span>
@@ -501,12 +501,12 @@ function MProductForm({ product, categories, onClose, lotOn = false }: {
 
         {/* «تتبّع باللوط» — للشركة المفعّلة لها الميزة وحدها، بنصوص نافذة اللوحة نفسها (المعنى واحدٌ فاللفظ واحد) */}
         {lotOn && (
-          <Group title={tr('تتبع باللوط')}>
+          <Group title={tr('تتبع بـLOT')}>
             <label className="flex items-center gap-3 min-h-[44px] cursor-pointer">
               <input type="checkbox" checked={lotValue} onChange={e => setLotChoice(e.target.checked)}
                 className="w-5 h-5 accent-[#E15A30] flex-shrink-0" />
               <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold text-[#1F1A13]">{tr('تتبع باللوط')}</span>
+                <span className="block text-sm font-semibold text-[#1F1A13]">{tr('تتبع بـLOT')}</span>
                 <span className="block text-[11px] text-[#9A8F7E]">{tr('رقم التشغيلة وتاريخ انتهائها في كل حركة')}</span>
               </span>
             </label>

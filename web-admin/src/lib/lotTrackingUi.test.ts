@@ -152,7 +152,7 @@ test('نافذة المالك: المربع بعد المستودع، مطفأ �
   assert.match(s, /useState\(!!tenant\.lotTrackingEnabled\)/);
   assert.match(s, /\n {6}\.\.\.tenantLotPayload\(tenant, lotTrackingEnabled\),\n/, 'العلم في حمولة tenantApi.update حين يتغيّر');
   const wh = s.indexOf("{tr('تفعيل مخزون الشركة المستودع لهذه الشركة')}");
-  const lot = s.indexOf("{tr('تفعيل تتبع اللوط التشغيلات لهذه الشركة')}");
+  const lot = s.indexOf("{tr('تفعيل تتبع LOT التشغيلات لهذه الشركة')}");
   const daily = s.indexOf("{tr('تفعيل التقرير اليومي لهذه الشركة')}");
   assert.ok(wh > 0 && lot > wh && daily > lot, 'بعد المستودع مباشرة');
   assert.ok(s.includes("{lotNote === 'OFF' && ("));

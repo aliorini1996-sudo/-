@@ -727,7 +727,7 @@ function MWarehouseEntry({ onClose, lotOn }: { onClose: () => void; lotOn: boole
                   return (
                     <MRow key={p.id}
                       title={p.name}
-                      subtitle={[p.code, p.unit, tracked ? tr('تتبع باللوط') : ''].filter(Boolean).join(' · ') || undefined}
+                      subtitle={[p.code, p.unit, tracked ? tr('تتبع بـLOT') : ''].filter(Boolean).join(' · ') || undefined}
                       // صفٌّ مضافٌ سلفاً لا يُنقر: نقرةٌ لا أثر لها تُقرأ عطلاً
                       onClick={picked ? undefined : () => addProduct(p)}
                       trailing={picked

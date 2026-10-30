@@ -223,7 +223,7 @@ export const LOT_ROW_FLAG_LABELS: Record<LotRowFlag, string> = {
 export const LOT_EVENT_KIND_LABELS: Record<LotEventKind, string> = {
   CREATE: 'إنشاء التشغيلة', UPDATE_DATES: 'تعديل تواريخ التشغيلة', UPDATE_NOTE: 'تعديل ملاحظة التشغيلة',
   BLOCK: 'إيقاف التشغيلة', UNBLOCK: 'إعادة تنشيط التشغيلة', DELETE: 'حذف التشغيلة',
-  RELABEL: 'تسمية أو إعادة تصنيف', TRACKING_ON: 'تفعيل تتبع الصنف باللوط', TRACKING_OFF: 'إطفاء تتبع الصنف باللوط',
+  RELABEL: 'تسمية أو إعادة تصنيف', TRACKING_ON: 'تفعيل تتبع الصنف بـLOT', TRACKING_OFF: 'إطفاء تتبع الصنف بـLOT',
 };
 export const LOT_WARNING_LABELS: Record<LotWarningCode, string> = {
   LOT_MULTI_IN_VAN: 'في السيارة أكثر من تشغيلة لهذا الصنف',

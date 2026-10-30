@@ -610,7 +610,7 @@ function LotOnInvoiceCard({ value }: { value: boolean }) {
           <Layers size={22} className="text-[#E15A30]" />
         </div>
         <div>
-          <p className="font-semibold text-gray-800">{tr('تتبع اللوط')}</p>
+          <p className="font-semibold text-gray-800">{tr('تتبع LOT')}</p>
           <p className="text-xs text-gray-400">{tr('ما يطبع من التشغيلات على المستندات')}</p>
         </div>
       </div>

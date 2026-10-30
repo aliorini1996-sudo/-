@@ -1264,8 +1264,8 @@ export function lotMessage(code: LotErrorCode, v: LotMsgVars = {}): string {
   const nm = v.name ? ` «${v.name}»` : '';
   const lot = v.lot ? ` ${v.lot}` : '';
   switch (code) {
-    case 'LOTS_NOT_ALLOWED': return 'تتبع اللوط غير مفعّل لهذه الشركة تواصل مع مزود الخدمة';
-    case 'LOTS_DISABLED': return 'ميزة تتبع اللوط غير مفعلة لشركتك';
+    case 'LOTS_NOT_ALLOWED': return 'تتبع LOT غير مفعّل لهذه الشركة تواصل مع مزود الخدمة';
+    case 'LOTS_DISABLED': return 'ميزة تتبع LOT غير مفعلة لشركتك';
     case 'LOT_SCOPED_USER': return 'هذا الإجراء على التشغيلات لمستخدم غير مقيد بنطاق';
     case 'LOT_REQUIRED': return `حدّد التشغيلة للصنف${nm}`;
     case 'LOT_NOT_FOUND': return 'التشغيلة غير موجودة';

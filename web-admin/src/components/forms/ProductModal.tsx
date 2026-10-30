@@ -353,7 +353,7 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
             <div className="rounded-xl border border-gray-200 p-3 space-y-2" data-lot-tracking="">
               <label className="flex items-center gap-2.5 cursor-pointer">
                 <input type="checkbox" checked={lotTracked} onChange={e => setLotTracked(e.target.checked)} className="w-4 h-4 accent-[#E15A30]" />
-                <span className="text-sm font-semibold text-gray-700">{tr('تتبع باللوط')}</span>
+                <span className="text-sm font-semibold text-gray-700">{tr('تتبع بـLOT')}</span>
                 <span className="text-[10px] text-gray-400 mr-auto">{tr('رقم التشغيلة وتاريخ انتهائها في كل حركة')}</span>
               </label>
               <p className="text-[11px] text-gray-500 leading-relaxed">

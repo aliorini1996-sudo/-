@@ -438,7 +438,7 @@ export async function requireLots(req: AuthRequest, res: Response, next: NextFun
       return;
     }
     if (t?.lotTrackingEnabled !== true) {
-      res.status(403).json({ success: false, code: 'LOTS_NOT_ALLOWED', message: 'تتبع اللوط غير مفعّل لهذه الشركة تواصل مع مزود الخدمة' });
+      res.status(403).json({ success: false, code: 'LOTS_NOT_ALLOWED', message: 'تتبع LOT غير مفعّل لهذه الشركة تواصل مع مزود الخدمة' });
       return;
     }
     next();

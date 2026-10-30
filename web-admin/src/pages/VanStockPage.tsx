@@ -314,7 +314,7 @@ export default function VanStockPage() {
                   <th className="text-center font-semibold px-3 py-2.5" title={tr('مجموع بوحدات الأساس')}>{filtered ? tr('مباع بالمدة') : tr('إجمالي مباع')}</th>
                   <th className="text-center font-semibold px-3 py-2.5" title={tr('مجموع بوحدات الأساس')}>{filtered ? tr('التالف بنهاية المدة') : tr('المرتجع التالف')}</th>
                   <th className="text-center font-semibold px-3 py-2.5" title={tr('مجموع بوحدات الأساس')}>{filtered ? tr('المتبقي بنهاية المدة') : tr('المتبقي')}</th>
-                  <th className="text-center font-semibold px-3 py-2.5" title={lotOn ? tr('الأصناف المتتبعة باللوط ممنوعة دائما من البيع بلا رصيد ولو سمح للمندوب') : undefined}>{tr('البيع بدون مخزون')}</th>
+                  <th className="text-center font-semibold px-3 py-2.5" title={lotOn ? tr('الأصناف المتتبعة بـLOT ممنوعة دائما من البيع بلا رصيد ولو سمح للمندوب') : undefined}>{tr('البيع بدون مخزون')}</th>
                   <th className="text-center font-semibold px-3 py-2.5">{tr('آخر تحميل')}</th>
                 </tr>
               </thead>
@@ -357,7 +357,7 @@ export default function VanStockPage() {
         {lotOn && reps.length > 0 && (
           <p className="px-5 py-2 border-t border-[#F1EBDF] text-[11px] text-[#6E6557] flex items-center gap-1.5">
             <Info size={12} className="text-[#E15A30] shrink-0" />
-            {tr('الأصناف المتتبعة باللوط ممنوعة دائما من البيع بلا رصيد ولو سمح للمندوب')}
+            {tr('الأصناف المتتبعة بـLOT ممنوعة دائما من البيع بلا رصيد ولو سمح للمندوب')}
           </p>
         )}
       </div>

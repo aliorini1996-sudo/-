@@ -107,7 +107,7 @@ export async function relabelInTx(tx: LotTx, input: RelabelInput): Promise<{ row
   });
   // صنفٌ من شركةٍ أخرى أو محذوف: 404 كمسارات الأصناف (معالج 4xx في الموجّه)
   if (!product) throw Object.assign(new Error('الصنف غير موجود'), { status: 404 });
-  if (!tracked.has(product.id)) throw relabelInvalid('الصنف غير متتبع باللوط فعّل تتبعه أولا ثم سمّ رصيده', { productId: product.id });
+  if (!tracked.has(product.id)) throw relabelInvalid('الصنف غير متتبع بـLOT فعّل تتبعه أولا ثم سمّ رصيده', { productId: product.id });
   const vanKey = input.place === 'VAN' ? (input.vanKey as string) : null;
   if (input.place === 'WAREHOUSE') {
     const t = await tx.tenant.findUnique({ where: { id: tid }, select: { warehouseEnabled: true } });

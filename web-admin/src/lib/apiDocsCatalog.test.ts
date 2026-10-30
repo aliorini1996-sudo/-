@@ -207,7 +207,7 @@ const BACKEND_SRC = backendSources(BACKEND);
 const CODE_RE = /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g;
 
 test('أدلّة الربط: صفحة اللوكيشن وصفحة طرق الدفع وصفحة مخزون الشركة وتتبّع اللوط، بخطوات مرقّمة لكلٍّ منها', () => {
-  assert.deepEqual(API_DOC_GUIDES.map((g) => g.title), ['ربط صفحة اللوكيشن', 'ربط صفحة طرق الدفع', 'ربط صفحة مخزون الشركة', 'ربط تتبّع اللوط']);
+  assert.deepEqual(API_DOC_GUIDES.map((g) => g.title), ['ربط صفحة اللوكيشن', 'ربط صفحة طرق الدفع', 'ربط صفحة مخزون الشركة', 'ربط تتبّع LOT']);
   for (const g of API_DOC_GUIDES) {
     assert.ok(g.intro.length > 50, g.key);
     assert.ok(g.steps.length >= 5, `${g.key}: خطوات قليلة`);
@@ -432,7 +432,7 @@ test('دقّة المستند: الأرصدة والتجميعات بالأسا�
 /** الحقول العليا لجسمٍ موثّق (بلا الحقول المتداخلة name[].x) */
 const topBody = (method: string, p: string) => endpointOf(method, p).body.map((f) => f.name).filter((n) => !n.includes('[')).sort();
 
-test('«تتبّع اللوط»: مجموعة lots بمسارات /api/lots كلها بالترتيب، وحرّاسها كما في الموجّه (المندوب ثم المحاسبة ثم العَلَم ثم الصلاحية) ومفتاح القراءة', () => {
+test('«تتبّع LOT»: مجموعة lots بمسارات /api/lots كلها بالترتيب، وحرّاسها كما في الموجّه (المندوب ثم المحاسبة ثم العَلَم ثم الصلاحية) ومفتاح القراءة', () => {
   const lots = routeFile('lots');
   const group = API_DOC_GROUPS.find((g) => g.key === 'lots');
   assert.ok(group, 'مجموعة lots غائبة');
@@ -463,7 +463,7 @@ test('«تتبّع اللوط»: مجموعة lots بمسارات /api/lots كل
   }
 });
 
-test('«تتبّع اللوط»: أجسام مسارات الكتابة بحقول مخطّطاتها في الموجّه حرفياً', () => {
+test('«تتبّع LOT»: أجسام مسارات الكتابة بحقول مخطّطاتها في الموجّه حرفياً', () => {
   const lots = routeFile('lots');
   assert.deepEqual(topBody('POST', '/lots'), zodKeys(lots, 'createSchema').sort());
   assert.deepEqual(topBody('POST', '/lots/relabel'), zodKeys(lots, 'relabelSchema').sort());
@@ -485,7 +485,7 @@ test('«تتبّع اللوط»: أجسام مسارات الكتابة بحقو
   }
 });
 
-test('«تتبّع اللوط»: حقول التشغيلات في المسارات القائمة موثّقة وفي مخطّطات الخادم، وwithLots حيث يقرؤه', () => {
+test('«تتبّع LOT»: حقول التشغيلات في المسارات القائمة موثّقة وفي مخطّطات الخادم، وwithLots حيث يقرؤه', () => {
   const sites: [string, string, string, string, RegExp][] = [
     ['POST', '/invoices', 'items[].lots', 'invoices', /\blots: z\.unknown\(\)\.optional\(\)/],
     ['POST', '/van-stock/loads', 'items[].lots', 'vanStock', /\blots: z\.unknown\(\)\.optional\(\)/],
@@ -539,7 +539,7 @@ test('«تتبّع اللوط»: حقول التشغيلات في المسارا
   }
 });
 
-test('«تتبّع اللوط»: القواعد التي صارت كاذبة للصنف المتتبَّع مصحّحة — لا بيع للمفتاح فوق المخزون، ولا «لا فحص» ولا مستودع سالب بلا استثناء', () => {
+test('«تتبّع LOT»: القواعد التي صارت كاذبة للصنف المتتبَّع مصحّحة — لا بيع للمفتاح فوق المخزون، ولا «لا فحص» ولا مستودع سالب بلا استثناء', () => {
   const sellRule = endpointOf('POST', '/invoices').rules.find((r) => r.includes('المفتاح يستطيع البيع بأكثر من مخزون السيارة'))!;
   assert.match(sellRule, /LOT_STOCK_INSUFFICIENT/);
   assert.match(sellRule, /canSellWithoutStock/);
@@ -572,7 +572,7 @@ test('«تتبّع اللوط»: القواعد التي صارت كاذبة ل�
   }
 });
 
-test('«تتبّع اللوط»: حدث الشركة في lot-events (productId الحرفي من الخادم وbefore/after بعَلَم الشركة) موثّقٌ في المورد ومسار السجل والدليل', () => {
+test('«تتبّع LOT»: حدث الشركة في lot-events (productId الحرفي من الخادم وbefore/after بعَلَم الشركة) موثّقٌ في المورد ومسار السجل والدليل', () => {
   const tenants = read(path.join(ROUTES, 'tenants.ts'));
   const m = /export const TENANT_LOT_EVENT_PRODUCT = '([^']+)';/.exec(tenants);
   assert.ok(m, 'TENANT_LOT_EVENT_PRODUCT في tenants.ts');
@@ -589,7 +589,7 @@ test('«تتبّع اللوط»: حدث الشركة في lot-events (productId 
   }
 });
 
-test('«تتبّع اللوط»: موارد المزامنة الخمسة في المستند، وأعمدة اللوط الشرطية في products وvan-loads وwarehouse-entries كما في الخادم', () => {
+test('«تتبّع LOT»: موارد المزامنة الخمسة في المستند، وأعمدة LOT الشرطية في products وvan-loads وwarehouse-entries كما في الخادم', () => {
   const names = API_SYNC_RESOURCES.map((r) => r.name);
   for (const n of ['product-lots', 'van-load-item-lots', 'invoice-item-lots', 'lot-relabels', 'lot-events']) assert.ok(names.includes(n), n);
   const what = (n: string) => API_SYNC_RESOURCES.find((r) => r.name === n)!.what;
@@ -606,7 +606,7 @@ test('«تتبّع اللوط»: موارد المزامنة الخمسة في �
   for (const r of ['van-load-item-lots', 'invoice-item-lots', 'lot-relabels']) assert.ok(convert.includes(`/v1/sync/${r}`), `convert-base لا يذكر ${r}`);
 });
 
-test('«تتبّع اللوط» (D9): حقول التشغيلة لصنفٍ غير متتبَّع والميزة مفعّلة 422 NOT_TRACKED لا «تُهمل»، وخطة التنزيل [] له، وLOT_BUSY في المسار غير المتتبَّع — كما في الخادم', () => {
+test('«تتبّع LOT» (D9): حقول التشغيلة لصنفٍ غير متتبَّع والميزة مفعّلة 422 NOT_TRACKED لا «تُهمل»، وخطة التنزيل [] له، وLOT_BUSY في المسار غير المتتبَّع — كما في الخادم', () => {
   // الخادم: الرمز القائم بسبب NOT_TRACKED، ومساره في السيارة والمستودع، وانشغال معاملة المسار غير المتتبَّع ⇒ LOT_BUSY
   const lotsVan = read(path.join(BACKEND, 'services', 'lotsVan.ts'));
   assert.ok(/new LotError\('LOT_PRODUCT_MISMATCH'[^;]*reason: 'NOT_TRACKED'/s.test(lotsVan), 'lotOnUntrackedError في lotsVan.ts');
@@ -628,7 +628,7 @@ test('«تتبّع اللوط» (D9): حقول التشغيلة لصنفٍ غي�
     assert.ok(rule, `${p}: قاعدة NOT_TRACKED غائبة`);
     assert.match(rule!, /422 \{code:'LOT_PRODUCT_MISMATCH', detail:\{productId, idx, reason:'NOT_TRACKED'\}\}/);
     assert.match(rule!, /والميزة مطفأة تُهمل هذه الحقول/, `${p}: المطفأة تُهملها كما كانت`);
-    const busy = e.rules.find((r) => r.startsWith('«تتبّع اللوط» — الانشغال'));
+    const busy = e.rules.find((r) => r.startsWith('«تتبّع LOT» — الانشغال'));
     assert.ok(busy, `${p}: قاعدة الانشغال`);
     assert.match(busy!, /TRACKING_CHANGED/);
     assert.match(busy!, /غير متتبَّعة والميزة مفعّلة/, `${p}: LOT_BUSY للمسار غير المتتبَّع تحت الضغط`);
@@ -637,7 +637,7 @@ test('«تتبّع اللوط» (D9): حقول التشغيلة لصنفٍ غي�
   assert.ok(/lotTracked !== true\) return \[\];/.test(read(path.join(BACKEND, 'services', 'lotsTrace.ts'))), 'unloadPlan لا يعيد [] لغير المتتبَّع');
   const plan = endpointOf('GET', '/lots/:id/unload-plan');
   assert.match(plan.response, /و\[\] لتشغيلة صنفٍ أُطفئ تتبّعه/);
-  assert.ok(plan.rules.some((r) => r.includes('[]') && r.includes('NOT_TRACKED')), 'unload-plan: التنزيل باللوط لغير المتتبَّع 422');
+  assert.ok(plan.rules.some((r) => r.includes('[]') && r.includes('NOT_TRACKED')), 'unload-plan: التنزيل بـLOT لغير المتتبَّع 422');
   // الإشعار الدائن (المرحلة الثانية) من المسارات التي تردّ LOT_BUSY TRACKING_CHANGED
   assert.ok(/TRACKING_CHANGED|assertLockedStillUntracked/.test(routeFile('invoicesNotes')), 'invoicesNotes بلا حارس TRACKING_CHANGED');
   assert.ok(endpointOf('POST', '/invoices/:id/credit-note').rules.some((r) => /LOT_BUSY[^"]*TRACKING_CHANGED/.test(r)), 'credit-note: TRACKING_CHANGED');

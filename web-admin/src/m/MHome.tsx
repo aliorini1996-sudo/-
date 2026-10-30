@@ -32,7 +32,7 @@ const SECTION_TILES: { id: HomeSection; label: string; icon: React.ElementType }
   { id: 'reports', label: 'التقارير', icon: BarChart3 },
   { id: 'warehouse', label: 'مخزون الشركة', icon: Warehouse },
   // «تتبّع اللوط» — تظهر حين تسمح بها القوقعة وحدها (الصلاحية والمحاسبة وعلم الشركة)، والميزة المطفأة لا بلاطة لها
-  { id: 'lots', label: 'تتبع اللوط', icon: Layers },
+  { id: 'lots', label: 'تتبع LOT', icon: Layers },
 ];
 
 /* عدد الأعمدة يُشتقّ من عدد البلاطات المعروضة لا يُثبَّت على ثلاثة: البلاطات

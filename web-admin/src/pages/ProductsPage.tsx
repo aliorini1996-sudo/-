@@ -106,7 +106,7 @@ export default function ProductsPage() {
       // قائمة الأصناف المختصرة في المستودع ومخزون السيارات تقرأ منها «الصنف متتبَّع»
       qc.invalidateQueries({ queryKey: ['products-min'] });
       setBulkAsk(null); setBalanceConfirm(null); setPicked(new Set());
-      toast.success(`${tr('تم تحديث تتبع اللوط')} — ${formatNumber(res?.updated ?? 0)} ${tr('صنف')}`);
+      toast.success(`${tr('تم تحديث تتبع LOT')} — ${formatNumber(res?.updated ?? 0)} ${tr('صنف')}`);
       const rows = req.enabled ? attentionRows(res) : [];
       if (rows.length) setAttention(rows);
     },
@@ -170,7 +170,7 @@ export default function ProductsPage() {
         {/* التفعيل الجماعي لتتبّع اللوط — للمحدد أو الفئة المعروضة أو كل الأصناف */}
         {canBulk && (
           <div className="mt-3 pt-3 border-t border-[#F1EBDF] flex flex-wrap items-center gap-2" data-lot-bulk="">
-            <span className="text-sm font-semibold text-[#1F1A13] flex items-center gap-1.5"><Layers size={15} className="text-[#E15A30]" /> {tr('تتبع باللوط')}</span>
+            <span className="text-sm font-semibold text-[#1F1A13] flex items-center gap-1.5"><Layers size={15} className="text-[#E15A30]" /> {tr('تتبع بـLOT')}</span>
             <select className="input w-auto py-1.5 text-sm" value={bulkScope} aria-label={tr('نطاق التفعيل')}
               onChange={e => setBulkScope(e.target.value as typeof bulkScope)}>
               <option value="selected">{tr('الأصناف المحددة')} ({formatNumber(picked.size)})</option>
@@ -185,7 +185,7 @@ export default function ProductsPage() {
               </button>
             )}
             <p className="basis-full text-[11px] text-[#6E6557] leading-relaxed">
-              {tr('قبل تفعيل الأصناف صحح الأرصدة السالبة بتسوية موجبة ثم سم رصيد المستودع والسيارات من شاشة تتبع اللوط')}
+              {tr('قبل تفعيل الأصناف صحح الأرصدة السالبة بتسوية موجبة ثم سم رصيد المستودع والسيارات من شاشة تتبع LOT')}
             </p>
           </div>
         )}
@@ -234,7 +234,7 @@ export default function ProductsPage() {
                   {lotOn && (
                     <td>
                       {p.lotTracked === true
-                        ? <span className="text-[11px] font-semibold text-[#C94E28] bg-[#FBEBE2] border border-[#F2CDBE] rounded px-1.5 py-0.5" data-lot-badge="">{tr('لوط')}</span>
+                        ? <span className="text-[11px] font-semibold text-[#C94E28] bg-[#FBEBE2] border border-[#F2CDBE] rounded px-1.5 py-0.5" data-lot-badge="">{tr('LOT')}</span>
                         : <span className="text-gray-300">-</span>}
                     </td>
                   )}
@@ -287,8 +287,8 @@ export default function ProductsPage() {
 
       {bulkAsk && (
         <ConfirmDialog
-          title={bulkAsk.enabled ? tr('تفعيل تتبع اللوط') : tr('إطفاء تتبع اللوط')}
-          message={`${bulkAsk.enabled ? tr('سيفعل تتبع اللوط لـ') : tr('سيطفأ تتبع اللوط لـ')} ${scopeLabel(bulkAsk)} — ${bulkAsk.enabled
+          title={bulkAsk.enabled ? tr('تفعيل تتبع LOT') : tr('إطفاء تتبع LOT')}
+          message={`${bulkAsk.enabled ? tr('سيفعل تتبع LOT لـ') : tr('سيطفأ تتبع LOT لـ')} ${scopeLabel(bulkAsk)} — ${bulkAsk.enabled
             ? tr('الرصيد القائم يبقى غير مسمى حتى تسميه والمندوب يصرف الأقرب انتهاء تلقائيا')
             : tr('الإطفاء يخفي التشغيلات ولا يحذفها')}`}
           confirmLabel={bulkAsk.enabled ? tr('تفعيل التتبع') : tr('إطفاء التتبع')}
@@ -359,7 +359,7 @@ function LotAttentionModal({ rows, onClose }: { rows: AttentionRow[]; onClose: (
         <div className="p-5 space-y-3 overflow-y-auto flex-1">
           <ol className="text-xs text-[#6E6557] space-y-1 leading-relaxed list-decimal ps-4">
             {negatives > 0 && <li>{tr('صحح الأرصدة السالبة بتسوية موجبة غير مسماة')}</li>}
-            <li>{tr('سم رصيد المستودع ثم السيارات من شاشة تتبع اللوط تسمية الرصيد القائم')}</li>
+            <li>{tr('سم رصيد المستودع ثم السيارات من شاشة تتبع LOT تسمية الرصيد القائم')}</li>
             <li>{tr('البيع لا يتوقف الرصيد غير المسمى يصرف بعد نفاد التشغيلات المسماة')}</li>
           </ol>
           <div className="rounded-xl border border-[#E9E1D3] divide-y divide-[#F1EBDF] text-sm" data-lot-attention="">

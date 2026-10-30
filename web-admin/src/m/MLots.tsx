@@ -421,7 +421,7 @@ function LotCard({ id, warehouseOn, onBack }: { id: string; warehouseOn: boolean
           </div>
           <p className="text-[12px] text-[#6E6557] -mt-1.5">{lot.product.name}{lot.product.code ? ` · ${lot.product.code}` : ''}</p>
           {!lot.product.lotTracked && (
-            <p className="text-[11px] text-[#8A6D1F]">{tr('تتبع هذا الصنف باللوط مطفأ والتشغيلة للسجل وحده')}</p>
+            <p className="text-[11px] text-[#8A6D1F]">{tr('تتبع هذا الصنف بـLOT مطفأ والتشغيلة للسجل وحده')}</p>
           )}
           <div className="grid grid-cols-2 gap-x-3 gap-y-2">
             <Info label={tr('تاريخ الإنتاج')} value={dayText(lot.productionDate)} />

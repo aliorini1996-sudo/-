@@ -50,7 +50,7 @@ async function resourceGate(req: AuthRequest, def: SyncResource): Promise<{ refu
   // «لوكيشن» بترتيب حارس صفحتها (requireLocations): المحاسبة أعلاه ثم العَلَم — `!== true` فتعذّر القراءة يمنع لا يفتح
   if (def.locations && tenant?.locationsEnabled !== true) return refuse({ status: 403, code: 'LOCATIONS_DISABLED', message: 'ميزة لوكيشن غير مفعلة لشركتك' });
   // «تتبّع اللوط» بترتيب requireLots: المحاسبة أعلاه ثم العَلَم — والمطفأ أو غير المقروء يمنع (§٥.٣، D8)
-  if (def.lots && !lotsOn) return refuse({ status: 403, code: 'LOTS_DISABLED', message: 'ميزة تتبع اللوط غير مفعلة لشركتك' });
+  if (def.lots && !lotsOn) return refuse({ status: 403, code: 'LOTS_DISABLED', message: 'ميزة تتبع LOT غير مفعلة لشركتك' });
   return { refusal: null, lotsOn };
 }
 

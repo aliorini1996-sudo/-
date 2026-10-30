@@ -399,7 +399,7 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
                             {multi
                               ? `${formatCurrency(choiceNet(d, p.basePrice ?? 0))} / ${d.name}`
                               : formatCurrency(Number(p.basePrice ?? 0))} · {tr('ضريبة')} {Number(p.taxPct ?? 15)}%
-                            {lotOn && lotTrackedOf(p) && <> · {tr('لوط')}</>}
+                            {lotOn && lotTrackedOf(p) && <> · {tr('LOT')}</>}
                           </span>
                         </span>
                         <Plus size={17} className="text-[#E15A30] flex-shrink-0" />
@@ -453,7 +453,7 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
                     {' · '}{tr('المتاح في السيارة')} <b className="tabular-nums">{qtyText(s.available, catalog[s.productId], formatNumber, { withUnit: true })}</b>
                   </p>
                 ))}
-                <p className="text-[#8A6D1F]">{tr('الأصناف المتتبعة باللوط ممنوعة دائما من البيع بلا رصيد ولو سمح للمندوب')}</p>
+                <p className="text-[#8A6D1F]">{tr('الأصناف المتتبعة بـLOT ممنوعة دائما من البيع بلا رصيد ولو سمح للمندوب')}</p>
               </div>
             )}
 
