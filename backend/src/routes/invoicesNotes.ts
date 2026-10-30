@@ -44,7 +44,7 @@ import {
 } from '../services/lots';
 import { randomUUID } from 'node:crypto';
 import {
-  ITEM_LOTS_INCLUDE, allocateLotsInTx, capsGate, clearStandardInline, einvoiceView, isReplayRequest, lotPrecheck, regimeSettingsOf,
+  ITEM_LOTS_INCLUDE, allocateLotsInTx, assertLockedStillUntracked, capsGate, clearStandardInline, einvoiceView, isReplayRequest, lotPrecheck, regimeSettingsOf,
   type ClientCapsHeaders, type EinvoiceView, type Phase2IssuanceDeps, type Phase2LedgerHooks, type Phase2LotHooks, type Phase2Result, type Phase2Tx,
 } from './invoicesZatca';
 
@@ -574,6 +574,25 @@ async function noteLotContext(
   return { hooks: deps.lots, day, actor, replay: m ? { at: m.at, clamped: m.clamped } : null, stamps };
 }
 
+/**
+ * «تتبّع اللوط» (D25) للإشعار الدائن بلا خطة (المعاينة لم ترَ صنفاً متتبَّعاً في بنوده، أو رأت علم الشركة مطفأً): المرجع علم
+ * الأصناف كما قرأه lockNoteOriginal **بعد** قفلها FOR KEY SHARE — تبديل التتبّع يأخذها FOR UPDATE (lots.ts، products.ts) فإمّا
+ * التزم قبل قفلنا فيُرى هنا، وإمّا انتظر التزامنا. صنفٌ في بنود الإشعار صار متتبَّعاً لا يُكتب مرتجعه بلا صفوف (فجوة أثرٍ عن لوط
+ * البيع) ⇒ 503 LOT_BUSY TRACKING_CHANGED فيُعاد الطلب فيُقرأ متتبَّعاً. وعلم الشركة يُعاد قراءته تحت القفل **حين يكون صنفٌ منها
+ * متتبَّعاً وحده** (assertLockedStillUntracked، نمط فرع البيع نفسه). لا صنف متتبَّع ⇒ لا استعلام ولا قفل (§١٠.١). المعاملات
+ * المزيّفة بلا `$queryRaw` لا تقفل فتتخطّاه كما تتخطّى القفل نفسه.
+ */
+async function assertNoteStillUntracked(
+  tx: Phase2Tx, tenantId: string, locked: LoadedOriginal, lines: ReadonlyArray<{ productId: string | null }>,
+): Promise<void> {
+  if (typeof (tx as { $queryRaw?: unknown }).$queryRaw !== 'function') return;
+  const ids = [...new Set(lines.map(l => l.productId).filter((p): p is string => !!p))];
+  await assertLockedStillUntracked(ids.map(id => ({ id, lotTracked: locked.lotTrackedProducts.has(id) })), false, async () => {
+    const rows = await tx.$queryRaw<Array<{ lotTrackingEnabled: boolean }>>`SELECT "lotTrackingEnabled" FROM tenants WHERE id = ${tenantId}`;
+    return Array.isArray(rows) && rows[0]?.lotTrackingEnabled === true;
+  });
+}
+
 /** سيارة الإشعار الدائن = مندوبه (المُصدِر، وإلا مندوب الأصل) — مطابقٌ لـsalesRepId صفّه. */
 const creditVanOf = (ctx: NoteContextBase, original: NoteOriginalInvoice): string | null => ctx.salesRepId ?? original.salesRepId ?? null;
 
@@ -661,6 +680,8 @@ async function stampNote(
       built = build;
       const prepared = build.prepared;
       const link = prepared.link;
+      // «تتبّع اللوط» (D25): بلا خطة، صنفٌ صار متتبَّعاً بين المعاينة وقفل الأصل ⇒ 503 TRACKING_CHANGED قبل الترقيم والمستند وICV
+      if (kind === 'CREDIT_NOTE' && !lots && deps.lots) await assertNoteStillUntracked(tx, ctx.tenantId, locked, prepared.lines);
 
       return stampNoteInTx<Phase2Tx>(tx, { chain: deps.chain, documents: deps.documents, now: deps.now }, {
         tenantId: ctx.tenantId,

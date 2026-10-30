@@ -414,19 +414,22 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
 
     // «تتبّع اللوط» (D25) والميزة مفعّلة: القراءة المسبقة رأت الأصناف كلها غير متتبَّعة — تُعاد قراءة تتبّعها FOR KEY SHARE داخل
     // معاملة الكتابة (بعد قفل الدلو، ترتيب §٣.١). صنفٌ صار متتبَّعاً بين القراءتين ⇒ 503 LOT_BUSY TRACKING_CHANGED بلا حركة فيُعاد
-    // بمسار اللوط، وإلا انتظر التبديلُ (FOR UPDATE) التزامنا. لا طابور ولا قفل لوط ولا مهلة جديدة (§١٠.٢)، والمطفأة كما كانت حرفياً
+    // بمسار اللوط، وإلا انتظر التبديلُ (FOR UPDATE) التزامنا. لا طابور ولا قفل لوط ولا مهلة جديدة (§١٠.٢)، والمطفأة كما كانت حرفياً.
+    // والميزة مفعّلة: مهلة المعاملة الافتراضية (P2028) أو انتظار قفل التبديل تحت الضغط ⇒ 503 LOT_BUSY (asLotBusy كمسار اللوط) فيعيد
+    // صندوق المندوب؛ والمطفأة (الإزالة بمعاملتها القائمة) يمرّ خطؤها إلى المعالج العام كما كان
+    const busy = (e: unknown): never => { throw (lotsOn ? asLotBusy(e) : null) ?? e; };
     const load = outBucket
       ? await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`van-${outBucket}:` + salesRepId}))`;
         if (lotsOn) await assertStillUntracked(tx, tid, productIds);
         await assertOutAvailable(outBucket); // يقرأ الملتزَم: الإزالة السابقة التزمت قبل أن يُفكّ قفلها
         return createLoad(tx);
-      })
+      }).catch(busy)
       : lotsOn
         ? await prisma.$transaction(async (tx) => {
           await assertStillUntracked(tx, tid, productIds);
           return createLoad(tx);
-        })
+        }).catch(busy)
         : await createLoad(prisma);
     res.status(201).json({ success: true, data: load });
   } catch (err) { next(err); }
@@ -891,7 +894,8 @@ router.post('/tools', requireAdmin, async (req: AuthRequest, res: Response, next
 // بحالتها ورسالتها. معالج الأخطاء العام لا يقرأ status فيردّها 500، ولمفتاح API «خطأ في الخادم» بلا سبب.
 router.use((err: unknown, _req: AuthRequest, res: Response, next: NextFunction) => {
   // «تتبّع اللوط» قبل فرع 4xx: LotError بحالته ورمزه وتفاصيله (ومنه 503 LOT_BUSY الذي يتجاوزه فرع 4xx). الانشغال حُوِّل إليه
-  // في مسار اللوط وحده (asLotBusy في POST /loads)، فمهلة معاملةٍ في مسارٍ بلا لوط (العهدة، الإزالة القائمة) تبقى كما كانت
+  // في مسار اللوط وحده (asLotBusy في POST /loads، ومعه غير المتتبَّع والميزة مفعّلة)، فمهلة معاملةٍ في مسارٍ بلا لوط (العهدة، الإزالة
+  // والميزة مطفأة) تبقى كما كانت
   const lh = err instanceof LotError ? lotHttpError(err) : null;
   if (lh) { res.status(lh.status).json(lh.body); return; }
   const status = (err as { status?: unknown })?.status;

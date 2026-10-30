@@ -17,7 +17,9 @@ import { importedEntryInstant } from '../services/importTimezoneRebase';
 import { importTimezone } from '../services/importLedger';
 import { LOT_NUMBER_MAX, LotError, asLotBusy, lotHttpError } from '../services/lots';
 import { acquireLotQueue, companyDay, lockLotProducts } from '../services/lotsDb';
-import { LOT_PRODUCT_SELECT, lotActorOf, lotEventActorOf, planWarehouseEntryInTx, vansLotUnsellable, warehousePlanLines } from '../services/lotsWarehouse';
+import { LOT_PRODUCT_SELECT, lotActorOf, lotEventActorOf, planWarehouseEntryInTx, vansLotUnsellable, warehouseLineCarriesLot, warehousePlanLines } from '../services/lotsWarehouse';
+// D9: سطرٌ بتشغيلةٍ لصنفٍ غير متتبَّع — الخطأ نفسه لحركة السيارة (422 LOT_PRODUCT_MISMATCH بسبب NOT_TRACKED وموضع السطر)
+import { lotOnUntrackedError } from '../services/lotsVan';
 // D25 للمسار غير المتتبَّع: إعادة قراءة التتبّع FOR KEY SHARE وحدها (لا حارس ولا قفل لوط) — الدالّة نفسها لإلغاء المرتجع وإعادته
 import { assertReturnStillUntracked as assertStillUntracked } from '../services/lotsInvoice';
 
@@ -221,6 +223,14 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
       select: { id: true, taxPct: true, name: true, ...LOT_PRODUCT_SELECT },
     });
     if (products.length !== productIds.length) { res.status(400).json({ success: false, message: 'منتج غير صالح' }); return; }
+    // «تتبّع اللوط» (D9، كالسيارة) والميزة مفعّلة: سطرٌ يحمل تشغيلةً لصنفٍ غير متتبَّع ⇒ 422 LOT_PRODUCT_MISMATCH بسبب NOT_TRACKED
+    // وموضعه (موضع السطر بعد حذف الصفرية كسائر أخطاء الحركة) لا إهمالٌ صامت — واجهةٌ قديمة لصنفٍ أُطفئ تتبّعه تُنقص الصنف وتُبقي رصيد
+    // التشغيلة. بلا استعلام ولا معاملة؛ والمطفأة تُهملها كما كانت حرفياً (§١٠.١)
+    if (lotsOn(req)) {
+      const trackedNow = new Set(products.filter((p) => p.lotTracked === true).map((p) => p.id));
+      const at = items.findIndex((i) => !trackedNow.has(i.productId) && warehouseLineCarriesLot(i));
+      if (at >= 0) throw lotOnUntrackedError(products.find((p) => p.id === items[at].productId)?.name ?? '', items[at].productId, at);
+    }
     const taxOf = new Map(products.map((p) => [p.id, p.taxPct]));
     // لقطة وحدة كل بند بترتيب `items` — يحلّها الخادم من وحدات الصنف (بلا unitId ⇒ الأساس، ولا استعلام)
     const units = await resolveLineUnits(tid, items);
@@ -246,14 +256,15 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
 
     // الميزة مطفأة أو لا صنف متتبَّع في الحركة ⇒ المسار القائم: إنشاءٌ واحد بلا قفل لوط (§١٠). والميزة مفعّلة (D25): تُعاد قراءة تتبّع
     // الأصناف FOR KEY SHARE في معاملة الإنشاء — صنفٌ صار متتبَّعاً بين القراءتين ⇒ 503 LOT_BUSY TRACKING_CHANGED بلا حركة فيُعاد بمسار
-    // اللوط، وإلا انتظر التبديلُ (FOR UPDATE) التزامنا. بلا طابور ولا مهلة جديدة (§١٠.٢)، والمطفأة كما كانت حرفياً (§١٠.١)
+    // اللوط، وإلا انتظر التبديلُ (FOR UPDATE) التزامنا. بلا طابور ولا مهلة جديدة (§١٠.٢)، والمطفأة كما كانت حرفياً (§١٠.١).
+    // ومهلة المعاملة الافتراضية (P2028) أو انتظار قفل التبديل تحت الضغط ⇒ 503 LOT_BUSY فيعيد العميل (asLotBusy كمسار اللوط) لا 500
     const preTracked = withLots ? products.filter((p) => p.lotTracked === true).map((p) => p.id) : [];
     if (!preTracked.length) {
       const entry = withLots
         ? await prisma.$transaction(async (tx) => {
           await assertStillUntracked(tx, tid, productIds);
           return tx.warehouseEntry.create({ data: entryData(null), include: entryInclude });
-        })
+        }).catch((e: unknown) => { throw asLotBusy(e) ?? e; })
         : await prisma.warehouseEntry.create({ data: entryData(null), include: entryInclude });
       res.status(201).json({ success: true, data: entry });
       return;

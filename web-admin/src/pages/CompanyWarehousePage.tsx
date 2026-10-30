@@ -19,7 +19,7 @@ import {
   LOT_BLOCK_KIND_LABELS, LOT_STATUS_LABELS, LOT_WARNING_LABELS, isLotExpiredOn, lotDay, lotErrorOf, lotFlagsOf, lotWarningsOf, roundLot, toBaseQty,
 } from '../lib/lots';
 import {
-  emptyEntryLot, entryLotFields, entryLotProblem, lotRowSummary, newRowId, normalizeEntryLot, outSourcesOf, shelfLifeOn,
+  autoDecreaseOver, autoDecreaseSources, emptyEntryLot, entryLotFields, entryLotProblem, lotRowSummary, newRowId, normalizeEntryLot, outSourcesOf, shelfLifeOn,
   type EntryLotDraft, type EntryLotKind, type PlaceViewWithAvailability,
 } from '../lib/stockLots';
 import { EntryLotFields, fetchLotBalances, fmtLotQty } from '../components/StockLotFields';
@@ -562,8 +562,18 @@ function WarehouseEntryModal({ onClose, lotOn }: { onClose: () => void; lotOn: b
     enabled: lotOn && decIds.length > 0,
   });
   const sourcesOf = (productId: string) => outSourcesOf(srcQ.data?.views.get(productId), 'SELLABLE', srcQ.data?.day ?? '');
+  // «التلقائي» يأخذ المصدر الوحيد **مما بقي بعد صريح أسطر صنفه** كما يحكم الخادم (D10، withoutRows): [A −١٠ صريحة، تلقائي −٥]
+  // يصفّي A فمصدره B وحده — والكمية بالأساس بمعامل وحدة السطر (D22)
+  const decLinesOf = (productId: string) => trackedRows
+    .filter(x => x.productId === productId && lotKind(x) === 'DECREASE')
+    .map(x => ({ draft: x.lot, baseQty: Number(x.qty) * (choiceById(productOf(x.productId), x.unitId)?.factor ?? 1) }));
+  const autoSourcesOf = (productId: string) => autoDecreaseSources(sourcesOf(productId), decLinesOf(productId));
+  // والتلقائي فوق مصدره الوحيد الباقي يردّه الخادم LOT_STOCK_INSUFFICIENT — يُمنع هنا لا بعد الإرسال
   const lotProblem = (r: EntryRow) => (isTracked(r.productId)
-    ? entryLotProblem(r.lot, { kind: lotKind(r), expiryRequired: shelfLifeOn(productOf(r.productId)), sourcesCount: sourcesOf(r.productId).length })
+    ? entryLotProblem(r.lot, {
+      kind: lotKind(r), expiryRequired: shelfLifeOn(productOf(r.productId)), sourcesCount: autoSourcesOf(r.productId).length,
+      autoOver: autoDecreaseOver(sourcesOf(r.productId), decLinesOf(r.productId)),
+    })
     : null);
 
   const save = useMutation({
@@ -712,6 +722,7 @@ function WarehouseEntryModal({ onClose, lotOn }: { onClose: () => void; lotOn: b
                           <EntryLotFields productId={r.productId} kind={kind} value={r.lot} onChange={d => patchRow(r.rowId, { lot: d })}
                             expiryRequired={shelfLifeOn(productOf(r.productId))}
                             sources={kind === 'DECREASE' ? sourcesOf(r.productId) : undefined}
+                            autoSources={kind === 'DECREASE' ? autoSourcesOf(r.productId) : undefined}
                             problem={Number(r.qty) ? lotProblem(r) : null} />
                           <button type="button" onClick={() => addBatch(r)}
                             className="mt-1 text-[11px] font-semibold text-[#E15A30] inline-flex items-center gap-1">

@@ -134,13 +134,14 @@ test('الوحدات: سطرٌ بكرتون وسطرٌ بحبة للصنف نف�
   const r = await post({ type: 'RECEIVE', items: [
     { productId: 'P1', qty: 2, unitId: 'U-CT', lotNumber: 'A' },
     { productId: 'P1', qty: 5, lotNumber: 'B' },
-    { productId: 'P3', qty: 4, lotNumber: 'تُتجاهل' },
+    { productId: 'P3', qty: 4 },
   ] });
   assert.equal(r.status, 201, JSON.stringify(r.body));
   const [a, b, c] = lastItems();
   assert.deepEqual([a.qty, a.unitFactor, a.baseQty, a.lotId], [2, 24, 48, lotOf('A').id]);
   assert.deepEqual([b.qty, b.unitFactor, b.baseQty, b.lotId], [5, 1, 5, lotOf('B').id]);
-  assert.equal(c.lotId, null, 'غير المتتبَّع بلا لوط ولو أُرسل رقم');
+  // وسطر غير المتتبَّع بلا لوط (رقمٌ له والميزة مفعّلة 422 NOT_TRACKED، D9: lots-f1-untracked-warehouse.test.ts)
+  assert.equal(c.lotId, null, 'غير المتتبَّع بلا لوط');
   assert.equal(world.lots.filter((l) => l.productId === 'P3').length, 0);
   assert.equal(world.warehouseRaw(lotOf('A').id), 48);
   assert.equal(world.warehouseRaw(lotOf('B').id), 5);
@@ -298,12 +299,14 @@ test('المفتاح المحجوز «∅» (LOT_UNKNOWN_KEY) ليس معرّف 
   assert.equal(world.entries.length, entries);
   assert.ok(!world.items.some((i) => i.lotId === '∅'));
   assert.equal(world.warehouseUnknown('P1'), 10);
-  // وnull الصريح يبقى طريق غير المسمّى، وغير المتتبَّع يتجاهل الحقل كما كان
+  // وnull الصريح يبقى طريق غير المسمّى، وغير المتتبَّع والميزة مفعّلة يرفض الحقل (D9: 422 NOT_TRACKED) لا يكتب «∅» ولا يتجاهله
   assert.equal((await post({ type: 'ADJUST', items: [{ productId: 'P1', qty: -3, lotId: null }] })).status, 201);
   assert.equal(world.warehouseUnknown('P1'), 7);
+  const n = world.entries.length;
   const plain = await post({ type: 'ADJUST', items: [{ productId: 'P3', qty: -1, lotId: '∅' }] });
-  assert.equal(plain.status, 201, JSON.stringify(plain.body));
-  assert.equal(lastItems()[0].lotId, null);
+  assert.deepEqual([plain.status, plain.body.code, plain.body.detail], [422, 'LOT_PRODUCT_MISMATCH', { productId: 'P3', idx: 0, reason: 'NOT_TRACKED' }], JSON.stringify(plain.body));
+  assert.equal(world.entries.length, n);
+  assert.ok(!world.items.some((i) => i.lotId === '∅'));
 });
 
 test('التسوية بالزيادة: لوط، أو رقمٌ جديد بمصدر MANUAL، أو null صريح؛ وزيادةٌ في الحركة نفسها لا تغطّي نقصها', async () => {
@@ -355,7 +358,8 @@ test('الانشغال: انتظار القفل (55P03) ⇒ 503 LOT_BUSY ولا 
 test('غير المتتبَّع والميزة مفعّلة: إنشاءٌ واحد بلا قفل لوط ولا طابور، وlotId فارغ — بعد إعادة قراءة التتبّع وحدها (D25)', async () => {
   fresh();
   world.calls.length = 0;
-  const r = await post({ type: 'ADJUST', items: [{ productId: 'P3', qty: -50, lotId: 'ignored' }] });
+  // (بلا حقل تشغيلة: حقلها لغير المتتبَّع والميزة مفعّلة 422 NOT_TRACKED، D9 — lots-f1-untracked-warehouse.test.ts)
+  const r = await post({ type: 'ADJUST', items: [{ productId: 'P3', qty: -50 }] });
   assert.equal(r.status, 201, 'المستودع السالب جائزٌ لغير المتتبَّع كما كان');
   // D25 (البوابة B-d25-guards، lots-d25-warehouse.test.ts): FOR KEY SHARE على الأصناف في معاملة الإنشاء، لا غير
   assert.deepEqual(world.calls.map((c) => c.op), ['product.findMany', 'tx.begin', 'query', 'warehouseEntry.create', 'tx.commit']);

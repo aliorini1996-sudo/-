@@ -295,8 +295,9 @@ export type OutProblem = 'NO_BALANCE' | 'OVER' | 'PICK' | 'DISTRIBUTE' | 'ROW_OV
  *  - المصادر لم تصل بعد ⇒ لا حكم (لا يُمنع الحفظ على ظنّ).
  *  - لا مصدر صالح ⇒ NO_BALANCE على كل سطر (LOT_STOCK_INSUFFICIENT).
  *  - مجموع أسطر الصنف فوق مجموع مصادره ⇒ OVER على أول سطر (السبب الجذري: لا يُصلحه توزيع).
- *  - سطرٌ بلا صريح والمصادر أكثر من واحد ⇒ PICK (LOT_REQUIRED)؛ وصريحٌ فارغ أو مجموعه غير كميته ⇒ DISTRIBUTE.
- *  - مجموع كل تشغيلة عبر الأسطر (والسطر بلا صريح على المصدر الوحيد) فوق صالحها ⇒ ROW_OVER على كل سطرٍ يأخذ منها. وتشغيلةٌ
+ *  - سطرٌ بلا صريح والمصادر الباقية بعد صريح أسطر صنفه أكثر من واحد ⇒ PICK (LOT_REQUIRED)؛ وصريحٌ فارغ أو مجموعه غير كميته
+ *    ⇒ DISTRIBUTE.
+ *  - مجموع كل تشغيلة عبر الأسطر (والسطر بلا صريح على المصدر الباقي الوحيد) فوق صالحها ⇒ ROW_OVER على كل سطرٍ يأخذ منها. وتشغيلةٌ
  *    ليست مصدراً صالحها صفر (مصدرٌ نفد، أو «غير مسمى» بلا صالح: I2).
  */
 export function outGroupProblems(
@@ -315,8 +316,10 @@ export function outGroupProblems(
   const total = roundLot(sources.reduce((s, x) => s + x.usable, 0));
   const over = want > total + LOT_EPS;
   if (over) set(live[0].key, 'OVER');
+  // السطر بلا صريح يأخذ المصدر الوحيد **مما بقي بعد صريح أسطر صنفه** (D10، withoutRows في الخادم)
+  const autoSrc = autoSourcesLeft(sources, live);
   for (const l of live) {
-    if (l.rows === null) { if (sources.length > 1) set(l.key, 'PICK'); }
+    if (l.rows === null) { if (autoSrc.length > 1) set(l.key, 'PICK'); }
     // صفوفٌ فارغة ليست «الخادم يوزّع» هنا كما في lotRowsProblem: الإنقاص الصريح يلزمه مجموعٌ يساوي كمية السطر
     else if (!l.rows.length || lotRowsProblem(l.rows, roundLot(l.base))) set(l.key, 'DISTRIBUTE');
   }
@@ -325,7 +328,7 @@ export function outGroupProblems(
   const sum = new Map<string | null, number>();
   const who = new Map<string | null, string[]>();
   for (const l of live) {
-    const rows = l.rows ?? (sources.length === 1 ? [{ lotId: sources[0].lotId, qty: l.base }] : []);
+    const rows = l.rows ?? (autoSrc.length === 1 ? [{ lotId: autoSrc[0].lotId, qty: l.base }] : []);
     for (const r of rows) {
       sum.set(r.lotId, roundLot((sum.get(r.lotId) ?? 0) + r.qty));
       who.set(r.lotId, [...(who.get(r.lotId) ?? []), l.key]);
@@ -335,6 +338,24 @@ export function outGroupProblems(
     if (q > (usableOf.get(lotId) ?? 0) + LOT_EPS) for (const k of who.get(lotId) ?? []) set(k, 'ROW_OVER');
   }
   return out;
+}
+
+/**
+ * مصادر الأسطر بلا صريح مما بقي بعد صريح الصنف — مرآة planWarehouseEntryInTx (withoutRows) وpickPlan في السيارة: صفوف الأسطر
+ * الصريحة تُجمع لكل مصدر وتُطرح من صالحه، والمصدر الذي لم يبقَ له صالحٌ > EPS لا ينافس. صريحٌ فوق صالح مصدره (أو على غير مصدر)
+ * أو يصفّي كل المصادر يرفضه الخادم قبل ذلك — فلا طرح حينها ويبقى الحكم على المصادر كاملةً كما كان.
+ */
+function autoSourcesLeft(sources: readonly OutSourceQty[], lines: readonly OutLine[]): readonly OutSourceQty[] {
+  const used = new Map<string | null, number>();
+  for (const l of lines) for (const r of l.rows ?? []) used.set(r.lotId, roundLot((used.get(r.lotId) ?? 0) + r.qty));
+  if (!used.size) return sources;
+  const cap = new Map(sources.map(s => [s.lotId, s.usable] as const));
+  for (const [k, q] of used) {
+    const have = cap.get(k);
+    if (have === undefined || q > have + LOT_EPS) return sources;
+  }
+  const rest = sources.map(s => ({ ...s, usable: roundLot(s.usable - (used.get(s.lotId) ?? 0)) })).filter(s => s.usable > LOT_EPS);
+  return rest.length ? rest : sources;
 }
 
 /** رسائل مشكلة سطر التنزيل من السيارة — مفاتيح قاموسٍ تمرّ إلى tr(متغيّر)، ويحرس ترجمتها mLotsLogic.test.ts.

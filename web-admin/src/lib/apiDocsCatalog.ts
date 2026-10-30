@@ -2051,7 +2051,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "الأثر: ينقص remainingAmt للأصل بفرق نسبي بقيمة min(الإجمالي، المتبقي)، والزائد يصبح رصيداً دائناً للعميل. يُسجَّل قيد مرتجع فينقص رصيد العميل، وتُبطل روابط دفع الأصل",
      "الإشعار يُنسب لمندوب الأصل لأن المفتاح لا يملك هوية مندوب، والكميات تعود لمخزون ذلك المندوب حسب returnToStock",
      "المستخدم الإداري مسموح له بالكامل والجزئي",
-     "«تتبّع اللوط»: لا حقل تشغيلة في الجسم — الإشعار يرث تشغيلات بنود الأصل كالمرتجع المرتبط (والزائد «غير معروف»)، وبنوده في الرد تحمل lots. والإشعار القياسي (01) قبل اعتماده «محجوز»: يدخل رصيد السيارة ولا يُباع ولا يُنزَّل حتى يُعتمد، فإن رُفض أو سُحب خرج دون أن يصير شيء سالباً. والرفض برموز اللوط بالشكل {success:false, code, message, detail}، و503 LOT_BUSY حين يكون الصنف مشغولاً: أعد بنفس clientRef"
+     "«تتبّع اللوط»: لا حقل تشغيلة في الجسم — الإشعار يرث تشغيلات بنود الأصل كالمرتجع المرتبط (والزائد «غير معروف»)، وبنوده في الرد تحمل lots. والإشعار القياسي (01) قبل اعتماده «محجوز»: يدخل رصيد السيارة ولا يُباع ولا يُنزَّل حتى يُعتمد، فإن رُفض أو سُحب خرج دون أن يصير شيء سالباً. والرفض برموز اللوط بالشكل {success:false, code, message, detail}، و503 LOT_BUSY حين يكون الصنف مشغولاً، أو صار صنفٌ في بنوده متتبَّعاً أثناء الطلب (detail.reason = 'TRACKING_CHANGED'): أعد بنفس clientRef"
     ],
     "example": "{\"reason\":\"إرجاع عبوات تالفة عند الاستلام\",\"reasonCode\":\"DAMAGED\",\"returnToStock\":false,\"lines\":[{\"invoiceItemId\":\"5c6d7e8f-1111-4222-8333-444455556666\",\"qty\":3}],\"clientRef\":\"7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d\"}"
    },
@@ -3473,7 +3473,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "items[].lots",
       "type": "array ≤ 20 of {lotId: string | null, qty: number > 0}",
       "required": false,
-      "desc": "«تتبّع اللوط» للصنف المتتبَّع وحده (ويُهمل لغيره): تشغيلات البند صراحةً بالكمية الأساسية مهما كانت وحدة البند، بأربع خانات عشرية على الأكثر، ومجموعها = |qty| × factor بالضبط وإلا 422 LOT_QTY_INVALID. lotId: null = الرصيد «غير المسمّى». في الإنقاص (التنزيل، وتسوية النقص، وEXPIRED_OUT وDAMAGED_OUT): من رصيد كل تشغيلة في السيارة ودلوها (409 LOT_STOCK_INSUFFICIENT)، والموقوفة والمنتهية تُنزَّلان. في التحميل من المستودع: من تشغيلات المستودع الصالحة (الموقوفة 422 LOT_BLOCKED والمنتهية 422 LOT_EXPIRED). غيابه في التحميل من المستودع = توزيع تلقائي بالأقرب انتهاءً (FEFO)، وفي الإنقاص = المصدر الوحيد في الدلو، فإن كان أكثر من مصدر رجع 422 LOT_REQUIRED وفي detail.sources قائمتها {lotId, lotNumber, usable, status, expiryDate} لتختار منها"
+      "desc": "«تتبّع اللوط» للصنف المتتبَّع وحده (ويُهمل والميزة مطفأة، ولصنف غير متتبَّع والميزة مفعّلة 422 LOT_PRODUCT_MISMATCH بـdetail.reason = 'NOT_TRACKED' والقائمة الفارغة غياب): تشغيلات البند صراحةً بالكمية الأساسية مهما كانت وحدة البند، بأربع خانات عشرية على الأكثر، ومجموعها = |qty| × factor بالضبط وإلا 422 LOT_QTY_INVALID. lotId: null = الرصيد «غير المسمّى». في الإنقاص (التنزيل، وتسوية النقص، وEXPIRED_OUT وDAMAGED_OUT): من رصيد كل تشغيلة في السيارة ودلوها (409 LOT_STOCK_INSUFFICIENT)، والموقوفة والمنتهية تُنزَّلان. في التحميل من المستودع: من تشغيلات المستودع الصالحة (الموقوفة 422 LOT_BLOCKED والمنتهية 422 LOT_EXPIRED). غيابه في التحميل من المستودع = توزيع تلقائي بالأقرب انتهاءً (FEFO)، وفي الإنقاص = المصدر الوحيد في الدلو، فإن كان أكثر من مصدر رجع 422 LOT_REQUIRED وفي detail.sources قائمتها {lotId, lotNumber, usable, status, expiryDate} لتختار منها"
      },
      {
       "name": "items[].lotNumber",
@@ -3515,8 +3515,9 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "الأثر على المستودع: LOAD ينقص onHand في المستودع، وUNLOAD يعيد الكمية إليه بكلفة خروجها من نفس السيارة (آخر ما حُمّل أول ما يعود)، وADJUST لا يمسّ المستودع",
      "الإدارة لا قيد عليها في إشارة qty، فـLOAD أو UNLOAD بكمية سالبة يُقبل ويعكس المعنى. أرسل الكميات موجبة دائماً. والصنف المتتبَّع: الكمية السالبة لتسوية ADJUST وحدها، وغيرها 422 LOT_QTY_INVALID",
      "«تتبّع اللوط» — شركة بلا مخزون شركة: تحميل الصنف المتتبَّع يحمل تشغيلته (items[].lotNumber وتاريخاه، أو items[].lots بتشغيلة قائمة أو null للرصيد غير المسمّى صراحةً)، وبدونها 422 LOT_REQUIRED",
-     "«تتبّع اللوط» — التنزيل بعد إيقاف تشغيلة أو سحبها: اقرأ السيارات التي فيها من GET /lots/:id/unload-plan ثم أرسل UNLOAD بـitems[].lots = [{lotId, qty}] لكل سيارة",
-     "«تتبّع اللوط» — الانشغال: 503 {code:'LOT_BUSY'} حين يكون الصنف مشغولاً بعملية تشغيلات أخرى. لا يُكتب شيء، فأعد الطلب (الحركة بلا clientRef، فلا تُعِده بعد 201)",
+     "«تتبّع اللوط» — التنزيل بعد إيقاف تشغيلة أو سحبها: اقرأ السيارات التي فيها من GET /lots/:id/unload-plan ثم أرسل UNLOAD بـitems[].lots = [{lotId, qty}] لكل سيارة (والخطة [] لصنفٍ أُطفئ تتبّعه: نزّله بلا حقول التشغيلة)",
+     "«تتبّع اللوط» — صنفٌ غير متتبَّع والميزة مفعّلة للشركة: بندٌ يحمل حقل تشغيلة (items[].lots غير فارغة، أو lotNumber أو productionDate أو expiryDate أو lotReason) يُرفض 422 {code:'LOT_PRODUCT_MISMATCH', detail:{productId, idx, reason:'NOT_TRACKED'}} بلا حركة، وidx موضع البند في items كما أرسلته. أرسله بلا هذه الحقول (null والنص الفارغ والقائمة الفارغة غياب). والميزة مطفأة تُهمل هذه الحقول كما كانت",
+     "«تتبّع اللوط» — الانشغال: 503 {code:'LOT_BUSY', detail:{cause|reason}} حين يكون الصنف مشغولاً بعملية تشغيلات أخرى، أو تبدّل تتبّعه أثناء الطلب (detail.reason = 'TRACKING_CHANGED')، أو طال انتظار المعاملة تحت الضغط — ومنه حركةٌ أصنافها كلها غير متتبَّعة والميزة مفعّلة للشركة. لا يُكتب شيء، فأعد الطلب (الحركة بلا clientRef، فلا تُعِده بعد 201). والميزة مطفأة لا LOT_BUSY",
      "createdBy يُسجَّل ADMIN لكل طلب من غير المندوب",
      "EXPIRED_OUT وDAMAGED_OUT: كمياتٌ موجبة لا يتجاوز مجموعها بالأساس رصيد expired أو damaged للصنف في السيارة (وإلا 400)، ولا تمسّ remaining ولا المستودع",
      "لا يوجد clientRef ولا حماية من التكرار، ولا مسار تعديل أو حذف. التصحيح يكون بحركة معاكسة أو تسوية",
@@ -4087,7 +4088,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "items[].lotId",
       "type": "string ≤ 128 | null",
       "required": false,
-      "desc": "«تتبّع اللوط» للصنف المتتبَّع وحده (ويُهمل لغيره أو والميزة مطفأة): السطر كله تشغيلة واحدة قائمة بمعرّفها (GET /lots). null صريحاً = الرصيد «غير المسمّى»، ويُقبل في التسوية ADJUST وحدها. تشغيلة من صنف آخر 422 LOT_PRODUCT_MISMATCH، وغير موجودة 422 LOT_NOT_FOUND"
+      "desc": "«تتبّع اللوط» للصنف المتتبَّع وحده (ويُهمل والميزة مطفأة، ولصنف غير متتبَّع والميزة مفعّلة 422 LOT_PRODUCT_MISMATCH بـdetail.reason = 'NOT_TRACKED'): السطر كله تشغيلة واحدة قائمة بمعرّفها (GET /lots). null صريحاً = الرصيد «غير المسمّى»، ويُقبل في التسوية ADJUST وحدها. تشغيلة من صنف آخر 422 LOT_PRODUCT_MISMATCH، وغير موجودة 422 LOT_NOT_FOUND"
      },
      {
       "name": "items[].lotNumber",
@@ -4111,6 +4112,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "response": "201 {success:true, data:{id, tenantId, type, note, supplier, createdBy, createdAt, items:[{id, entryId, productId, qty, unitName, unitFactor, baseQty, unitCost, expiresAt, product:{id,name,unit}, lotId?, lot?}]}, warnings?}. «تتبّع اللوط» (الميزة مفعّلة): كل بند يحمل lotId وlot:{lotNumber, productionDate, expiryDate}|null (null لصنف غير متتبَّع أو للرصيد غير المسمّى)، وwarnings:[{code:'LOT_INTO_BLOCKED', productId, detail:{idx, lotId, lotNumber, blockKind}}] حين يدخل الوارد تشغيلة موقوفة",
     "rules": [
      "«تتبّع اللوط»: سطر الصنف المتتبَّع تشغيلة واحدة بالكمية الأساسية (qty × factor) بأربع خانات عشرية على الأكثر (وإلا 422 LOT_QTY_INVALID). التسوية بالنقص لا تتجاوز رصيد التشغيلة أو الرصيد غير المسمّى في المستودع (409 LOT_STOCK_INSUFFICIENT)، وسطرٌ بالنقص بلا تشغيلة يأخذ المصدر الوحيد في المستودع وإلا 422 LOT_REQUIRED بقائمة detail.sources. والموقوفة والمنتهية تخرج بالتسوية بالنقص (الإتلاف). وأي رفض يلغي الحركة كلها، والانشغال 503 LOT_BUSY",
+     "«تتبّع اللوط» — صنفٌ غير متتبَّع والميزة مفعّلة للشركة: سطرٌ يحمل حقل تشغيلة (lotId غير null، أو lotNumber أو productionDate أو expiryDate غير فارغ) يُرفض 422 {code:'LOT_PRODUCT_MISMATCH', detail:{productId, idx, reason:'NOT_TRACKED'}} وتُلغى الحركة كلها، وidx موضع السطر بين البنود غير الصفرية كسائر أخطاء الحركة. أرسله بلا هذه الحقول (null والنص الفارغ غياب). والميزة مطفأة تُهمل هذه الحقول كما كانت",
+     "«تتبّع اللوط» — الانشغال: 503 {code:'LOT_BUSY', detail:{cause|reason}} حين يكون الصنف مشغولاً بعملية تشغيلات أخرى، أو تبدّل تتبّعه أثناء الطلب (detail.reason = 'TRACKING_CHANGED')، أو طال انتظار المعاملة تحت الضغط — ومنه حركةٌ أصنافها كلها غير متتبَّعة والميزة مفعّلة للشركة. لا يُكتب شيء، فأعد الطلب (بلا clientRef، فلا تُعِده بعد 201). والميزة مطفأة لا LOT_BUSY",
      "البنود التي كميتها صفر تُحذف، فإن لم يبقَ بند يُرَدّ 400",
      "RECEIVE بكمية سالبة يعطي 400، والتنقيص يكون بتسوية ADJUST",
      "ADJUST مع unitCost يعطي 400",
@@ -4921,8 +4924,9 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:[{salesRepId, repName, deleted, usable:{SELLABLE, EXPIRED, DAMAGED}, held:{SELLABLE, EXPIRED, DAMAGED}}]}",
+    "response": "{success:true, data:[{salesRepId, repName, deleted, usable:{SELLABLE, EXPIRED, DAMAGED}, held:{SELLABLE, EXPIRED, DAMAGED}}]}، و[] لتشغيلة صنفٍ أُطفئ تتبّعه (lotTracked = false)",
     "rules": [
+     "صنفٌ أُطفئ تتبّعه خطته فارغة []: رصيد تشغيلته للسجلّ وحده، وتنزيله بـitems[].lots يُرفض 422 LOT_PRODUCT_MISMATCH (detail.reason = 'NOT_TRACKED') — نزّل الصنف بلا حقول التشغيلة",
      "لكل سيارة أرسل POST /van-stock/loads بالنوع UNLOAD وitems:[{productId, qty: usable.SELLABLE, lots:[{lotId, qty: usable.SELLABLE}]}] (الكمية بالأساس بلا unitId). وسيارة المندوب المحذوف (deleted = true) بـdeletedSalesRepId = salesRepId بدل salesRepId",
      "held محجوز بانتظار اعتماد إشعار دائن، لا يُنزَّل حتى يُعتمد. وEXPIRED وDAMAGED تُزالان بـEXPIRED_OUT وDAMAGED_OUT",
      "السيارات القائمة بالاسم أولاً ثم المحذوفة، والمحذوفة لغير المقيّد وحده"
@@ -7491,6 +7495,7 @@ export const API_DOC_GUIDES: DocGuide[] = [
         text: [
           'لكل سطر صنفٍ متتبَّع تشغيلةٌ واحدة: items[].lotNumber مع productionDate وexpiryDate (YYYY-MM-DD)، فتُنشأ التشغيلة أو تُحلّ القائمة بالرقم المطبَّع (مسافات مدموجة وأحرف لاتينية كبيرة وأرقام عربية إلى لاتينية، حتى 64 حرفاً)، أو items[].lotId لتشغيلة قائمة.',
           '- الوارد بلا تشغيلة 422 LOT_REQUIRED. والانتهاء إلزامي لصنف صلاحيته مفعّلة (422 LOT_EXPIRY_REQUIRED)، والإنتاج بعد الانتهاء 422 LOT_DATES_INVALID، ورقمٌ مسجَّل بتواريخ أخرى 409 LOT_DATES_MISMATCH.',
+          '- سطر الصنف غير المتتبَّع بلا حقول التشغيلة: حقلٌ منها له 422 LOT_PRODUCT_MISMATCH (detail.reason = "NOT_TRACKED")، وتُهمل والميزة مطفأة.',
           '- الرد 201 وكل بند فيه lotId وlot:{lotNumber, productionDate, expiryDate}. وفي شركة بلا مخزون شركة يحمل التحميل تشغيلته بنفسه (POST /api/van-stock/loads بـitems[].lotNumber).',
           '- المخزون الافتتاحي بالاستيراد (POST /api/import/opening-stock) يقبل الأعمدة نفسها لكل صف: lotNumber وproductionDate وexpiryDate.',
         ].join('\n'),
@@ -7544,7 +7549,7 @@ export const API_DOC_GUIDES: DocGuide[] = [
         text: [
           'الجسم {status: BLOCKED, blockKind: HOLD|RECALL, reason, updatedAt} — HOLD إيقاف مؤقت، وRECALL سحب من السوق. وإعادة التنشيط {status: ACTIVE, reason, updatedAt}. السبب إلزامي في الاتجاهين (422 LOT_REASON_REQUIRED)، والإجراء لمستخدم غير مقيّد بنطاق (403 LOT_SCOPED_USER).',
           '- updatedAt نسخة البطاقة كما قرأتها من GET /api/lots/:id: إن تغيّرت بعد قراءتك رجع 409 LOT_CHANGED فأعد القراءة.',
-          '- الموقوفة لا تُباع ولا تُحمَّل ولا يُسمّى منها، ورصيدها في السيارات يصير «معزولاً». نزّله: GET /api/lots/<lotId>/unload-plan يعيد [{salesRepId, repName, deleted, usable, held}] لكل سيارة فيها، ثم POST /api/van-stock/loads بالنوع UNLOAD وitems[].lots = [{lotId, qty}] (وسيارة المندوب المحذوف بـdeletedSalesRepId). والإتلاف بتسوية نقص.',
+          '- الموقوفة لا تُباع ولا تُحمَّل ولا يُسمّى منها، ورصيدها في السيارات يصير «معزولاً». نزّله: GET /api/lots/<lotId>/unload-plan يعيد [{salesRepId, repName, deleted, usable, held}] لكل سيارة فيها (و[] لصنفٍ أُطفئ تتبّعه)، ثم POST /api/van-stock/loads بالنوع UNLOAD وitems[].lots = [{lotId, qty}] (وسيارة المندوب المحذوف بـdeletedSalesRepId). والإتلاف بتسوية نقص.',
         ].join('\n'),
         curl: send('PATCH', '/lots/<lotId>/status', '{"status":"BLOCKED","blockKind":"RECALL","reason":"سحب احترازي بطلب المصنع","updatedAt":"2026-10-30T09:12:44.501Z"}'),
       },

@@ -13,6 +13,7 @@ import {
   refsOfByLot, removalKeepsLots, roundLot, splitAvailability,
   type LotActor, type LotMeta, type LotRef, type LotRemovalItem, type LotSource, type LotWarning, type PlaceLotView, type WarehouseEntryPlan, type WarehouseEntryPlanInput,
 } from './lots';
+import { lotOnUntrackedError } from './lotsVan';
 import { shelfLifeOf, type ShelfLifeSettings } from './shelfLife';
 import { baseQtyOf } from './units';
 
@@ -94,6 +95,14 @@ type PlanLine = WarehouseEntryPlanInput['lines'][number];
 const blank = (s: string | null | undefined): boolean => s == null || String(s).trim() === '';
 const uniq = (xs: Iterable<string>): string[] => [...new Set(xs)];
 
+/**
+ * حقول اللوط في سطر حركة مستودع: معرّف تشغيلة، أو رقمٌ أو تاريخٌ غير فارغ. lotId: null («غير المسمّى» صراحةً) والنصّ الفارغ
+ * أو المسافات غياب — فغير المسمّى لصنفٍ غير متتبَّع هو رصيده نفسه، وواجهة ترسله لصنفٍ صار غير متتبَّع لا تُرفض
+ */
+export function warehouseLineCarriesLot(i: { lotId?: string | null; lotNumber?: string | null; productionDate?: string | null; expiryDate?: string | null }): boolean {
+  return !blank(i.lotId) || !blank(i.lotNumber) || !blank(i.productionDate) || !blank(i.expiryDate);
+}
+
 /** خطأ من pickOutSources باسم الصنف (رسالته بلا اسم) — الرمز والحالة والتفاصيل كما هي */
 function named(e: LotError, name: string): LotError {
   if (!name) return e;
@@ -139,6 +148,11 @@ export async function planWarehouseEntryInTx(tx: LotTx, input: WarehouseEntryPla
   const actor: LotEventActor = input.eventActor
     ?? { type: input.actor === 'API_KEY' ? 'API_KEY' : 'ADMIN', id: null, name: input.createdBy ?? null };
   const source: LotSource = input.sourceEntryId ? 'OPENING_IMPORT' : input.type === 'RECEIVE' ? 'RECEIVE' : 'MANUAL';
+
+  // D9 تحت القفل (كـplanVanMovementInTx): صنفٌ أُطفئ تتبّعه بين القراءة المسبقة والقفل وسطره يحمل تشغيلة ⇒ 422 لا سطرٌ بلا لوط
+  // يُنقص الصنف ويُبقي رصيد التشغيلة (المسار يرفض ما رآه غير متتبَّع قبل المعاملة)
+  const stray = input.lines.find((l) => !tracked.has(l.productId) && warehouseLineCarriesLot(l));
+  if (stray) throw lotOnUntrackedError(stray.productName, stray.productId, stray.idx);
 
   const ins: PlanLine[] = [];
   const outs: PlanLine[] = [];

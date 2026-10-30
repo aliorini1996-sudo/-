@@ -54,6 +54,7 @@ export function entryProblemText(p: EntryLotProblem | null, tr: Tr): string | nu
   if (!p) return null;
   if (p === 'LOT_EXPIRY_REQUIRED') return tr('تاريخ انتهاء التشغيلة إلزامي لصنف صلاحيته مفعلة');
   if (p === 'LOT_DATES_INVALID') return tr('تاريخ الإنتاج بعد تاريخ الانتهاء أو تاريخ غير صالح');
+  if (p === 'LOT_OVER_SOURCE') return tr('الكمية أكبر من المتاح في التشغيلة');
   return tr('حدد التشغيلة لهذا السطر');
 }
 
@@ -106,11 +107,12 @@ const MODE_LABELS: Record<EntryLotMode, string> = {
 
 /**
  * تشغيلة سطرٍ واحد (§٤.٤، وD4 للتحميل بلا مستودع): رقمٌ وتاريخان (يُحلّ القائم برقمه أو يُنشأ)، أو تشغيلة قائمة، أو «غير مسمّى»
- * صراحةً، أو «تلقائي» للنقص من مصدرٍ وحيد. والنقص يختار من مصادر المكان (`sources`) لا من بطاقات الصنف.
+ * صراحةً، أو «تلقائي» للنقص من مصدرٍ وحيد. والنقص يختار من مصادر المكان (`sources`) لا من بطاقات الصنف، و«التلقائي» يُوصف
+ * بمصادره الباقية بعد صريح أسطر صنفه (`autoSources`، autoDecreaseSources) إن مُرِّرت.
  */
-export function EntryLotFields({ productId, kind, value, onChange, expiryRequired, sources, problem }: {
+export function EntryLotFields({ productId, kind, value, onChange, expiryRequired, sources, autoSources, problem }: {
   productId: string; kind: EntryLotKind; value: EntryLotDraft; onChange: (d: EntryLotDraft) => void;
-  expiryRequired: boolean; sources?: LotSource[]; problem?: EntryLotProblem | null;
+  expiryRequired: boolean; sources?: LotSource[]; autoSources?: LotSource[]; problem?: EntryLotProblem | null;
 }) {
   const tr = useTr();
   const modes = entryLotModes(kind);
@@ -126,6 +128,7 @@ export function EntryLotFields({ productId, kind, value, onChange, expiryRequire
   const known = lotsQ.data ?? [];
   const listId = `lot-numbers-${productId}`;
   const named = (sources ?? []).filter((s) => s.lotId !== null);
+  const auto = autoSources ?? sources;
   return (
     <div className="mt-1.5 rounded-lg border border-[#F1EBDF] bg-[#FAF7F0] px-2 py-1.5 space-y-1.5">
       <div className="flex items-center gap-1 flex-wrap">
@@ -169,8 +172,8 @@ export function EntryLotFields({ productId, kind, value, onChange, expiryRequire
       {mode === 'UNKNOWN' && <p className="text-[10px] text-[#6E6557]">{tr('تسجل الكمية رصيدا غير مسمى يمكن تسميته لاحقا')}</p>}
       {mode === 'AUTO' && (
         <p className="text-[10px] text-[#6E6557]">
-          {(sources?.length ?? 0) > 1 ? tr('للصنف أكثر من تشغيلة حدد ما ينقص منه')
-            : sources?.length === 1 ? `${tr('ينقص من المصدر الوحيد')}: ${sourceLabel(sources[0], tr)}` : tr('ينقص من المصدر الوحيد')}
+          {(auto?.length ?? 0) > 1 ? tr('للصنف أكثر من تشغيلة حدد ما ينقص منه')
+            : auto?.length === 1 ? `${tr('ينقص من المصدر الوحيد')}: ${sourceLabel(auto[0], tr)}` : tr('ينقص من المصدر الوحيد')}
         </p>
       )}
       {problem && <p className="text-[10px] text-red-600">{entryProblemText(problem, tr)}</p>}

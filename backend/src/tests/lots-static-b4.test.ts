@@ -101,7 +101,10 @@ test('المعالج: LotError بحالته ورمزه (lotHttpError) قبل ف�
   const h = between(van, 'router.use((err: unknown', 'export default router;');
   const i = h.indexOf('const lh = err instanceof LotError ? lotHttpError(err) : null;');
   assert.ok(i > 0 && i < h.indexOf('status >= 400 && status < 500'));
-  assert.equal((stripComments(van).match(/asLotBusy\(/g) ?? []).length, 1, 'مهلة معاملةٍ خارج اللوط (العهدة، الإزالة القائمة) لا تصير LOT_BUSY');
+  // اثنان: مسار اللوط، وغير المتتبَّع والميزة مفعّلة (D25، مشروطاً بـlotsOn) — والمطفأة لا تصل إليه
+  const code = stripComments(van);
+  assert.equal((code.match(/asLotBusy\(/g) ?? []).length, 2, 'مهلة معاملةٍ خارج اللوط (العهدة، الإزالة القائمة) لا تصير LOT_BUSY');
+  assert.ok(code.includes('throw (lotsOn ? asLotBusy(e) : null) ?? e;'), 'تحويل غير المتتبَّع مشروط بعلم الشركة');
 });
 
 test('lotsVan: التحميل من المستودع بـallocateOutLines لكل سطر (D22) لا التجميع ثم distributeToLines، والإنقاص من السيارة بـpickOutSources بعد aggregateRequest (D26)', () => {

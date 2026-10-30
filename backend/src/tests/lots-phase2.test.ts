@@ -684,3 +684,101 @@ test('D25 (المرحلة الثانية) §١٠.١: لا صفّ مقفل متت
     assert.ok(!rig.log.includes('tx.tenantFlag'));
   }
 });
+
+// ═══ D25 في الإشعار الدائن بلا خطة (F2-credit-note-d25) ═══
+// الخطة تُبنى من المعاينة وحدها: صنفٌ في بنود الإشعار صار متتبَّعاً بين المعاينة وقفل الأصل كان يُكتب مرتجعه بلا صفوف توزيع
+// (فجوة أثرٍ: مرتجع العميل لا يرتبط بلوط البيع). المرجع علم الصنف كما يقرؤه lockNoteOriginal بعد قفله FOR KEY SHARE.
+
+/** معاملةٌ بـ$queryRaw: الأصل المقفل يحمل علم التتبّع «الآن» (trackedNow)، والمعاينة خارجها تقرأ rig.rows كما هي */
+function lockedNoteTx(rig: Rig, deps: NoteIssuanceDeps, o: NoteOriginalInvoice, trackedNow: ReadonlySet<string>, tenantOnNow: boolean): string[] {
+  const sqls: string[] = [];
+  deps.transaction = <T>(fn: (tx: Phase2Tx) => Promise<T>): Promise<T> => {
+    const base = txAdapter(rig) as { invoice: Record<string, unknown> };
+    return fn({
+      ...base,
+      invoice: {
+        ...base.invoice,
+        findFirst: async ({ where }: { where: { id: string } }) => {
+          rig.log.push('tx.invoice.findFirst');
+          return where.id === o.id ? dbRow(o, trackedNow) : rig.rows.get(where.id) ?? null;
+        },
+      },
+      $queryRaw: async (strings: TemplateStringsArray) => {
+        const sql = strings.join('?').replace(/\s+/g, ' ').trim();
+        sqls.push(sql);
+        if (sql.includes('FROM tenants')) { rig.log.push('tx.tenantFlag'); return [{ lotTrackingEnabled: tenantOnNow }]; }
+        return [];
+      },
+    } as unknown as Phase2Tx);
+  };
+  return sqls;
+}
+
+const noTraceOfNote = (rig: Rig): void => {
+  assert.equal(rig.created.length, 0, 'أُدرج صفّ إشعارٍ بلا توزيع لصنفٍ متتبَّع');
+  assert.ok(!rig.log.includes('documents.insertSigned'), 'أُدرج المستند (ICV) رغم الرفض');
+  assert.equal(rig.h.docs.documents.size, 0, 'استُهلك ICV');
+  assert.equal(rig.ledger.length, 0);
+  assert.equal(rig.plans.length, 0);
+};
+
+test('D25 (الإشعار الدائن): صنفٌ صار متتبَّعاً بين المعاينة وقفل الأصل والميزة مفعّلة ⇒ 503 LOT_BUSY TRACKING_CHANGED قبل الصفّ والمستند والقيود', async () => {
+  const { rig, deps } = buildRig(r => lotHooks(r, { enabled: true }));
+  const o = cashOriginal(new Set(), rig); // المعاينة: لا صنف متتبَّع ⇒ لا خطة ولا قراءة للعلم
+  lockedNoteTx(rig, deps, o, new Set(['p-water']), true);
+  await assert.rejects(issueCreditNote(creditCtx(o) as never, deps), isTrackingChanged(['p-water']));
+  noTraceOfNote(rig);
+  assert.ok(!rig.log.some(x => x.startsWith('lots.')), `خطّاف لوط بلا خطة: ${rig.log.join(' → ')}`);
+  assert.ok(before(rig.log, 'tx.invoice.findFirst', 'tx.tenantFlag'), `العلم قبل قفل الأصل: ${rig.log.join(' → ')}`);
+});
+
+test('D25 (الإشعار الدائن): علم الشركة مطفأٌ في المعاينة ثم فُعّل ⇒ الرفض نفسه؛ وما زال مطفأً ⇒ يُصدر كما كان بقراءةٍ واحدة تحت القفل', async () => {
+  {
+    const { rig, deps } = buildRig(r => lotHooks(r, { enabled: false }));
+    const o = cashOriginal(new Set(['p-water']), rig);
+    lockedNoteTx(rig, deps, o, new Set(['p-water']), true);
+    await assert.rejects(issueCreditNote(creditCtx(o) as never, deps), isTrackingChanged(['p-water']));
+    noTraceOfNote(rig);
+  }
+  {
+    const { rig, deps } = buildRig(r => lotHooks(r, { enabled: false }));
+    const o = cashOriginal(new Set(['p-water']), rig);
+    lockedNoteTx(rig, deps, o, new Set(['p-water']), false);
+    const r = await issueCreditNote(creditCtx(o) as never, deps);
+    assert.equal(r?.status, 201, JSON.stringify(r?.body));
+    assert.equal(rig.log.filter(x => x === 'tx.tenantFlag').length, 1);
+    assert.ok((rig.created[0].items as Record<string, unknown>[]).every(i => !('lots' in i)));
+  }
+});
+
+test('D25 (الإشعار الدائن) §١٠.١: لا صنف متتبَّع في بنود الإشعار المقفلة ⇒ لا استعلام زائد ولا رفض — وبخطةٍ أو بلا خطّاف لا حارس', async () => {
+  // الميزة مطفأة أو مفعّلة، والصنف المتتبَّع (إن وُجد) بندٌ لا يمسّه الإشعار
+  for (const trackedNow of [new Set<string>(), new Set(['p-juice'])]) {
+    const { rig, deps } = buildRig(r => lotHooks(r));
+    const o = cashOriginal(new Set(), rig);
+    const sqls = lockedNoteTx(rig, deps, o, trackedNow, true);
+    const r = await issueCreditNote(creditCtx(o) as never, deps);
+    assert.equal(r?.status, 201, JSON.stringify(r?.body));
+    assert.ok(!sqls.some(s => s.includes('FROM tenants')), `قراءة علمٍ زائدة: ${sqls.join(' | ')}`);
+    assert.ok(!rig.log.some(x => x.startsWith('lots.')));
+  }
+  // خطةٌ قائمة (المعاينة رأته متتبَّعاً والعلم مفعّل): التوزيع يتكيّف تحت القفل — لا قراءة للعلم
+  {
+    const { rig, deps } = buildRig(r => lotHooks(r));
+    const o = cashOriginal(new Set(['p-water']), rig);
+    const sqls = lockedNoteTx(rig, deps, o, new Set(['p-water']), true);
+    const r = await issueCreditNote(creditCtx(o) as never, deps);
+    assert.equal(r?.status, 201, JSON.stringify(r?.body));
+    assert.equal(rig.plans.length, 1);
+    assert.ok(!sqls.some(s => s.includes('FROM tenants')));
+  }
+  // بلا خطّاف لوط: لا توزيع ممكناً فلا حارس (وإلا لأعاد الصندوق إلى الأبد) — سلوك الوصل القائم حرفاً
+  {
+    const { rig, deps } = buildRig(null);
+    const o = cashOriginal(new Set(), rig);
+    const sqls = lockedNoteTx(rig, deps, o, new Set(['p-water']), true);
+    const r = await issueCreditNote(creditCtx(o) as never, deps);
+    assert.equal(r?.status, 201, JSON.stringify(r?.body));
+    assert.ok(!sqls.some(s => s.includes('FROM tenants')));
+  }
+});

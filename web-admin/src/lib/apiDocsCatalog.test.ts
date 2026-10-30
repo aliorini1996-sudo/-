@@ -606,6 +606,43 @@ test('«تتبّع اللوط»: موارد المزامنة الخمسة في �
   for (const r of ['van-load-item-lots', 'invoice-item-lots', 'lot-relabels']) assert.ok(convert.includes(`/v1/sync/${r}`), `convert-base لا يذكر ${r}`);
 });
 
+test('«تتبّع اللوط» (D9): حقول التشغيلة لصنفٍ غير متتبَّع والميزة مفعّلة 422 NOT_TRACKED لا «تُهمل»، وخطة التنزيل [] له، وLOT_BUSY في المسار غير المتتبَّع — كما في الخادم', () => {
+  // الخادم: الرمز القائم بسبب NOT_TRACKED، ومساره في السيارة والمستودع، وانشغال معاملة المسار غير المتتبَّع ⇒ LOT_BUSY
+  const lotsVan = read(path.join(BACKEND, 'services', 'lotsVan.ts'));
+  assert.ok(/new LotError\('LOT_PRODUCT_MISMATCH'[^;]*reason: 'NOT_TRACKED'/s.test(lotsVan), 'lotOnUntrackedError في lotsVan.ts');
+  for (const router of ['vanStock', 'warehouse']) {
+    const src = routeFile(router);
+    assert.ok(src.includes('lotOnUntrackedError('), `${router}: لا رفض NOT_TRACKED`);
+    const at = src.lastIndexOf('assertStillUntracked(tx, tid, productIds)');
+    assert.ok(at > 0 && /\.catch\((busy|\(e: unknown\) => \{ throw asLotBusy\(e\) \?\? e; \})\)/.test(src.slice(at, at + 400)), `${router}: P2028 في المسار غير المتتبَّع ليس LOT_BUSY`);
+  }
+  for (const [p, fields] of [
+    ['/van-stock/loads', ['items[].lots', 'items[].lotNumber', 'items[].productionDate', 'items[].expiryDate', 'items[].lotReason']],
+    ['/warehouse/entries', ['items[].lotId', 'items[].lotNumber', 'items[].productionDate', 'items[].expiryDate']],
+  ] as [string, string[]][]) {
+    const e = endpointOf('POST', p);
+    // لا وصف حقل تشغيلة يَعِد بإهماله لغير المتتبَّع (صار 422 والميزة مفعّلة)
+    for (const f of fields) assert.ok(!/يُهمل لغيره/.test(fieldOf(e, f).desc), `${p} ${f}: «يُهمل لغيره» كاذبة والميزة مفعّلة`);
+    assert.match(fieldOf(e, fields[0]).desc, /422 LOT_PRODUCT_MISMATCH[^)]*NOT_TRACKED/, `${p} ${fields[0]}`);
+    const rule = e.rules.find((r) => r.includes("reason:'NOT_TRACKED'"));
+    assert.ok(rule, `${p}: قاعدة NOT_TRACKED غائبة`);
+    assert.match(rule!, /422 \{code:'LOT_PRODUCT_MISMATCH', detail:\{productId, idx, reason:'NOT_TRACKED'\}\}/);
+    assert.match(rule!, /والميزة مطفأة تُهمل هذه الحقول/, `${p}: المطفأة تُهملها كما كانت`);
+    const busy = e.rules.find((r) => r.startsWith('«تتبّع اللوط» — الانشغال'));
+    assert.ok(busy, `${p}: قاعدة الانشغال`);
+    assert.match(busy!, /TRACKING_CHANGED/);
+    assert.match(busy!, /غير متتبَّعة والميزة مفعّلة/, `${p}: LOT_BUSY للمسار غير المتتبَّع تحت الضغط`);
+  }
+  // خطة التنزيل فارغة لصنفٍ أُطفئ تتبّعه — في المستند كما في الخادم
+  assert.ok(/lotTracked !== true\) return \[\];/.test(read(path.join(BACKEND, 'services', 'lotsTrace.ts'))), 'unloadPlan لا يعيد [] لغير المتتبَّع');
+  const plan = endpointOf('GET', '/lots/:id/unload-plan');
+  assert.match(plan.response, /و\[\] لتشغيلة صنفٍ أُطفئ تتبّعه/);
+  assert.ok(plan.rules.some((r) => r.includes('[]') && r.includes('NOT_TRACKED')), 'unload-plan: التنزيل باللوط لغير المتتبَّع 422');
+  // الإشعار الدائن (المرحلة الثانية) من المسارات التي تردّ LOT_BUSY TRACKING_CHANGED
+  assert.ok(/TRACKING_CHANGED|assertLockedStillUntracked/.test(routeFile('invoicesNotes')), 'invoicesNotes بلا حارس TRACKING_CHANGED');
+  assert.ok(endpointOf('POST', '/invoices/:id/credit-note').rules.some((r) => /LOT_BUSY[^"]*TRACKING_CHANGED/.test(r)), 'credit-note: TRACKING_CHANGED');
+});
+
 test('أرقام أقسام الأدلّة وأيقوناتها تكفي كل دليل والفهرس بعدها', () => {
   const docs = read(path.join(process.cwd(), 'src', 'components', 'ApiDocs.tsx'));
   const nums = /const GUIDE_NUMBERS = \[([^\]]+)\]/.exec(docs)![1].match(/'[^']+'/g)!;

@@ -191,18 +191,66 @@ export function normalizeEntryLot(d: EntryLotDraft, kind: EntryLotKind): EntryLo
   return modes.includes(d.mode) ? d : { ...d, mode: modes[0] };
 }
 
-export type EntryLotProblem = 'LOT_REQUIRED' | 'LOT_DATES_INVALID' | 'LOT_EXPIRY_REQUIRED';
+export type EntryLotProblem = 'LOT_REQUIRED' | 'LOT_DATES_INVALID' | 'LOT_EXPIRY_REQUIRED' | 'LOT_OVER_SOURCE';
 
-/** مشكلة تشغيلة السطر قبل الإرسال (مرآة planWarehouseEntryInTx وD4) — sourcesCount لنقصٍ بلا تحديد (D10) */
-export function entryLotProblem(draft: EntryLotDraft, opts: { kind: EntryLotKind; expiryRequired: boolean; sourcesCount?: number }): EntryLotProblem | null {
+/**
+ * مشكلة تشغيلة السطر قبل الإرسال (مرآة planWarehouseEntryInTx وD4) — sourcesCount لنقصٍ بلا تحديد (D10)، وautoOver
+ * (autoDecreaseOver) لتلقائيٍّ فوق مصدره الوحيد الباقي (LOT_STOCK_INSUFFICIENT في الخادم)
+ */
+export function entryLotProblem(draft: EntryLotDraft, opts: { kind: EntryLotKind; expiryRequired: boolean; sourcesCount?: number; autoOver?: boolean }): EntryLotProblem | null {
   const d = normalizeEntryLot(draft, opts.kind);
   if (d.mode === 'NEW') {
     if (!normalizeLotNumber(d.lotNumber)) return 'LOT_REQUIRED';
     return lotDatesProblem(d.productionDate || null, d.expiryDate || null, { expiryRequired: opts.expiryRequired });
   }
   if (d.mode === 'EXISTING') return d.lotId ? null : 'LOT_REQUIRED';
-  if (d.mode === 'AUTO') return (opts.sourcesCount ?? 0) > 1 ? 'LOT_REQUIRED' : null;
+  if (d.mode === 'AUTO') return (opts.sourcesCount ?? 0) > 1 ? 'LOT_REQUIRED' : opts.autoOver ? 'LOT_OVER_SOURCE' : null;
   return null;
+}
+
+/**
+ * مصادر سطر النقص «التلقائي» مما بقي بعد صريح صنفه (D10) — مرآة planWarehouseEntryInTx (withoutRows، وpickPlan في السيارة):
+ * أسطر نقص الصنف الصريحة (تشغيلة قائمة مختارة، أو «غير مسمّى») تُجمع لكل مصدر وتُطرح كمياتها الأساسية من صالحه، والمصدر الذي
+ * لم يبقَ له صالحٌ > EPS لا ينافس — فـ[A −١٠ صريحة، تلقائي −٥] مع A:10 وB:5 مصدره B وحده.
+ * والخادم يفحص الصريح مجمَّعاً قبل الطرح: صريحٌ فوق صالح مصدره (أو على غير مصدر)، أو صريحٌ يصفّي كل المصادر، يُرفض
+ * (LOT_STOCK_INSUFFICIENT) — فلا يُطرح شيءٌ حينها ويبقى الحكم على المصادر كاملةً كما كان: الطرح لا يفتح طلباً سيُرفض.
+ * `lines` أسطر النقص لصنفٍ واحد (المسوّدة كما هي، والكمية بالأساس بإشارتها)، و«التلقائي» منها لا يُطرح.
+ */
+export function autoDecreaseSources(sources: readonly LotSource[], lines: readonly { draft: EntryLotDraft; baseQty: number }[]): LotSource[] {
+  const used = new Map<string, number>();
+  for (const l of lines) {
+    const dr = normalizeEntryLot(l.draft, 'DECREASE');
+    const q = roundLot(Math.abs(Number(l.baseQty)));
+    if (!Number.isFinite(q) || q <= LOT_EPS) continue;
+    const key = dr.mode === 'EXISTING' && dr.lotId ? dr.lotId : dr.mode === 'UNKNOWN' ? UNKNOWN_KEY : null;
+    if (key !== null) used.set(key, roundLot((used.get(key) ?? 0) + q));
+  }
+  if (!used.size) return [...sources];
+  const cap = new Map(sources.map((s) => [sourceKey(s.lotId), s.usable]));
+  for (const [k, q] of used) {
+    const have = cap.get(k);
+    if (have === undefined || q > have + LOT_EPS) return [...sources];
+  }
+  const rest = sources
+    .map((s) => ({ ...s, usable: roundLot(s.usable - (used.get(sourceKey(s.lotId)) ?? 0)) }))
+    .filter((s) => s.usable > LOT_EPS);
+  return rest.length ? rest : [...sources];
+}
+
+/**
+ * أسطر «التلقائي» لصنفٍ مجموعُها (D26) فوق صالح مصدرها الوحيد الباقي بعد صريحه (autoDecreaseSources) — مرآة pickOutSources على
+ * العرض بعد withoutRows: الخادم يردّها LOT_STOCK_INSUFFICIENT. فـ[A −١٠ صريحة، تلقائي −٨] مع A:10 وB:5 لا يُفتح بعد أن صار
+ * العدّ مما بقي. وأكثر من مصدرٍ باقٍ (LOT_REQUIRED يسبق) أو لا مصدر معروف (لم تصل المصادر) ⇒ false: لا يُمنع على ظنّ.
+ */
+export function autoDecreaseOver(sources: readonly LotSource[], lines: readonly { draft: EntryLotDraft; baseQty: number }[]): boolean {
+  let want = 0;
+  for (const l of lines) {
+    const q = roundLot(Math.abs(Number(l.baseQty)));
+    if (normalizeEntryLot(l.draft, 'DECREASE').mode === 'AUTO' && Number.isFinite(q) && q > LOT_EPS) want = roundLot(want + q);
+  }
+  if (want <= LOT_EPS) return false;
+  const rest = autoDecreaseSources(sources, lines);
+  return rest.length === 1 && want > rest[0].usable + LOT_EPS;
 }
 
 /** حقول التشغيلة في بند الطلب — AUTO لا يُرسل شيئاً (الخادم يأخذ المصدر الوحيد) */

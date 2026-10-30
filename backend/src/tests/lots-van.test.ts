@@ -1106,3 +1106,39 @@ test('B2 (D9 تحت القفل): صنفٌ متتبَّع في القراءة ا�
     prod.findMany = real;
   }
 });
+
+// ═══ متابعات البوابة F1 (ب): انشغال المسار غير المتتبَّع والميزة مفعّلة ═══
+// معاملة إعادة قراءة التتبّع (D25) بالمهلة الافتراضية: P2028 أو انتظار قفل التبديل تحت الضغط ⇒ 503 LOT_BUSY فيعيد العميل (صندوق
+// المندوب يعيد على 5xx) لا 500 — والميزة المطفأة كما كانت حرفياً (الإزالة القائمة بمعاملتها تُرجع خطأها إلى المعالج العام).
+
+test('F1 (ب): المسار غير المتتبَّع والميزة مفعّلة — P2028 أو 55P03 في معاملة إعادة القراءة ⇒ 503 LOT_BUSY بلا حركة (التحميل والإزالة)', async () => {
+  for (const fail of [
+    Object.assign(new Error('Transaction API error: Transaction already closed'), { code: 'P2028' }),
+    Object.assign(new Error('canceling statement due to lock timeout'), { code: 'P2010', meta: { code: '55P03' } }),
+  ]) {
+    for (const type of ['LOAD', 'UNLOAD', 'ADJUST', 'EXPIRED_OUT'] as const) {
+      reset();
+      seedInvoice('r1', 'RETURN', 'pU', 3, [], { returnExpired: true });
+      const before = S.vanLoads.length;
+      S.txFail = fail;
+      const r = await post({ salesRepId: 'r1', type, items: [{ productId: 'pU', qty: 2 }] });
+      assert.deepEqual([r.statusCode, codeOf(r)], [503, 'LOT_BUSY'], `${type}: ${JSON.stringify(r.body)}`);
+      assert.equal(S.vanLoads.length, before, type);
+      S.txFail = null;
+    }
+  }
+});
+
+test('F1 (ب) §١٠.١: الميزة مطفأة — الإزالة بمعاملتها القائمة تُرجع P2028 إلى المعالج العام كما كانت، والتحميل بلا معاملة', async () => {
+  reset({ lots: false });
+  seedInvoice('r1', 'RETURN', 'pU', 3, [], { returnExpired: true });
+  S.txFail = Object.assign(new Error('Transaction API error: Transaction already closed'), { code: 'P2028' });
+  const out = await post({ salesRepId: 'r1', type: 'EXPIRED_OUT', items: [{ productId: 'pU', qty: 2 }] });
+  assert.equal(out.statusCode, 500, JSON.stringify(out.body));
+  assert.match(String(out.body?.unhandled), /Transaction already closed/);
+  S.log = []; S.txOpts = [];
+  const load = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pU', qty: 2 }] });
+  assert.equal(load.statusCode, 201, JSON.stringify(load.body));
+  assert.deepEqual([S.log, S.txOpts], [['product.count', 'create:vanLoad'], []]);
+  S.txFail = null;
+});
