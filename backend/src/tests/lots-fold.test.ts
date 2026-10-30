@@ -7,8 +7,9 @@ import { foldStock, bucketRemaining, type LoadRow, type InvRow } from '../routes
 import { composeWarehouse } from '../services/warehouseStock';
 import { roundDecimal } from '../utils/helpers';
 import { DAMAGED_VAN_SINCE, isDamagedVanReturn } from '../services/vanDamaged';
+import { baseQtyOf } from '../services/units';
 import {
-  LOT_BUCKETS, VAN_MOVE_TYPES, buildPlaceView, foldVanLots, foldWarehouseLots, heldUnknownOf, invEffect, roundLot, vanMoveEffect, zeroBuckets,
+  LOT_BUCKETS, VAN_MOVE_TYPES, buildPlaceView, foldVanLots, foldWarehouseLots, heldUnknownOf, invEffect, lotBaseQty, roundLot, vanMoveEffect, zeroBuckets,
   type AggInvLot, type AggRelabel, type AggVanLot, type BucketQty, type LotMeta, type LotRaw,
 } from '../services/lots';
 import { vanHeldFromAgg, vanTotalsFromAgg, warehouseOnHandAgg, type AggVanTotalInv, type AggVanTotalLoad, type WhTotalAgg } from '../services/lotsDb';
@@ -36,25 +37,38 @@ const AFTER = new Date(DAMAGED_VAN_SINCE.getTime() + 86_400_000);
 const BEFORE = new Date(DAMAGED_VAN_SINCE.getTime() - 86_400_000);
 const PIDS = ['p1', 'p2', 'p3'];
 
+/**
+ * لقطة وحدةٍ عشوائية لصفّ بند (الوحدات المتعددة، D19): صفٌّ سبق الميزة بلا لقطة، أو كرتونٌ بمعامله والعمود المخزَّن حاضرٌ
+ * أو فارغٌ لم يملأه الترحيل — فيُطوى بالأساس (baseQtyOf) لا بـqty الخام.
+ */
+function withUnit<T extends { qty: number }>(r: ReturnType<typeof rng>, row: T): T & { unitFactor?: number; baseQty?: number | null } {
+  if (r.bool(0.4)) return row;
+  const unitFactor = r.pick([1, 6, 24]);
+  return { ...row, unitFactor, baseQty: r.bool(0.5) ? null : row.qty * unitFactor };
+}
+/** مرآة BASE_QTY_SQL للمجاميع: COALESCE("baseQty", qty * COALESCE(NULLIF("unitFactor", 0), 1)) — بلا تقريبٍ لكل صفّ كـSUM */
+const sqlBase = (x: { qty: number; unitFactor?: number | null; baseQty?: number | null }): number =>
+  x.baseQty ?? x.qty * (x.unitFactor == null || x.unitFactor === 0 ? 1 : x.unitFactor);
+
 function randomLoad(r: ReturnType<typeof rng>): LoadRow {
   const type = r.pick([...VAN_MOVE_TYPES, 'WEIRD']); // نوعٌ مجهول يقع في adjusted كما في foldStock
   const q = r.qty();
-  return { productId: r.pick(PIDS), qty: type === 'ADJUST' || type === 'LOAD' ? (r.bool(0.3) ? -q : q) : q, vanLoad: { type, createdAt: AFTER } };
+  return withUnit(r, { productId: r.pick(PIDS), qty: type === 'ADJUST' || type === 'LOAD' ? (r.bool(0.3) ? -q : q) : q, vanLoad: { type, createdAt: AFTER } });
 }
 
 function randomInv(r: ReturnType<typeof rng>): InvRow {
   const type = r.pick(['CASH', 'CREDIT', 'RETURN', 'RETURN', 'RETURN']);
-  return {
+  return withUnit(r, {
     productId: r.bool(0.05) ? null : r.pick(PIDS), qty: r.qty(),
     returnExpired: r.pick([true, false, null, undefined]),
     invoice: {
       type, returnToStock: r.pick([true, false, null]), invoiceDate: AFTER,
       returnReason: r.pick(['DAMAGED', 'NORMAL', null]), createdAt: r.pick([AFTER, BEFORE, DAMAGED_VAN_SINCE, null]),
     },
-  };
+  });
 }
 
-test('invEffect وvanMoveEffect = توجيه foldStock حرفياً على مدخلات عشوائية', () => {
+test('invEffect وvanMoveEffect = توجيه foldStock حرفياً على مدخلات عشوائية (والكمية بالأساس: lotBaseQty = baseQtyOf)', () => {
   for (let seed = 1; seed <= 300; seed++) {
     const r = rng(seed);
     const loads = Array.from({ length: r.int(0, 25) }, () => randomLoad(r));
@@ -64,12 +78,12 @@ test('invEffect وvanMoveEffect = توجيه foldStock حرفياً على مد�
     const acc = (pid: string) => { let b = viaEffects.get(pid); if (!b) { b = zeroBuckets(); viaEffects.set(pid, b); } return b; };
     for (const l of loads) {
       const e = vanMoveEffect(l.vanLoad.type as never);
-      acc(l.productId)[e.bucket] += e.sign * l.qty;
+      acc(l.productId)[e.bucket] += e.sign * lotBaseQty(l);
     }
     for (const i of invs) {
       if (!i.productId) continue;
       const e = invEffect({ type: i.invoice.type, returnToStock: i.invoice.returnToStock, returnExpired: i.returnExpired ?? null, damaged: isDamagedVanReturn(i.invoice) });
-      if (e) acc(i.productId)[e.bucket] += e.sign * i.qty;
+      if (e) acc(i.productId)[e.bucket] += e.sign * lotBaseQty(i);
     }
     for (const pid of PIDS) {
       const b = bal.get(pid);
@@ -82,18 +96,18 @@ test('invEffect وvanMoveEffect = توجيه foldStock حرفياً على مد�
   }
 });
 
-test('مساواة التجميع: foldStock على صفوف مفردة = foldStock على مجاميعها بمفاتيح التوجيه (vanTotalsFromAgg)', () => {
+test('مساواة التجميع: foldStock على صفوف مفردة (بلقطات وحداتها) = foldStock على مجاميعها بـBASE_QTY_SQL ومفاتيح التوجيه (vanTotalsFromAgg)', () => {
   for (let seed = 1; seed <= 300; seed++) {
     const r = rng(1000 + seed);
     const vans = ['r1', 'r2'];
     const loads = Array.from({ length: r.int(0, 30) }, () => ({ ...randomLoad(r), van: r.pick(vans) }));
     const invs = Array.from({ length: r.int(0, 30) }, () => ({ ...randomInv(r), van: r.pick(vans) })).filter((i) => i.productId);
-    // التجميع كما يفعله SQL: (صنف، سيارة، نوع) للحركات، و(صنف، سيارة، نوع، returnToStock، returnExpired، damaged) للفواتير
+    // التجميع كما يفعله SQL: SUM(BASE_QTY_SQL) بـ(صنف، سيارة، نوع) للحركات، و(صنف، سيارة، نوع، returnToStock، returnExpired، damaged) للفواتير
     const lAgg = new Map<string, AggVanTotalLoad>();
     for (const l of loads) {
       const k = [l.productId, l.van, l.vanLoad.type].join('|');
       const g = lAgg.get(k) ?? { productId: l.productId, vanKey: l.van, type: l.vanLoad.type, qty: 0 };
-      g.qty += l.qty; lAgg.set(k, g);
+      g.qty += sqlBase(l); lAgg.set(k, g);
     }
     const iAgg = new Map<string, AggVanTotalInv>();
     for (const i of invs) {
@@ -101,7 +115,7 @@ test('مساواة التجميع: foldStock على صفوف مفردة = foldSt
       const re = i.returnExpired ?? null;
       const k = [i.productId, i.van, i.invoice.type, String(i.invoice.returnToStock), String(re), String(damaged)].join('|');
       const g = iAgg.get(k) ?? { productId: i.productId!, vanKey: i.van, type: i.invoice.type, returnToStock: i.invoice.returnToStock, returnExpired: re, damaged, qty: 0 };
-      g.qty += i.qty; iAgg.set(k, g);
+      g.qty += sqlBase(i); iAgg.set(k, g);
     }
     const fromAgg = vanTotalsFromAgg([...lAgg.values()], [...iAgg.values()], { foldStock, bucketRemaining });
     for (const van of vans) {
@@ -128,7 +142,7 @@ test('المحجوز الكلي (D24): vanHeldFromAgg = foldStock على بنو�
       const re = i.returnExpired ?? null;
       const k = [i.productId, i.invoice.type, String(i.invoice.returnToStock), String(re), String(damaged), String(i.held)].join('|');
       const g = iAgg.get(k) ?? { productId: i.productId!, vanKey: 'r', type: i.invoice.type, returnToStock: i.invoice.returnToStock, returnExpired: re, damaged, held: i.held, qty: 0 };
-      g.qty += i.qty; iAgg.set(k, g);
+      g.qty += sqlBase(i); iAgg.set(k, g);
     }
     const held = vanHeldFromAgg([...iAgg.values()], { foldStock, bucketRemaining }).get('r');
     const all = vanTotalsFromAgg([], [...iAgg.values()], { foldStock, bucketRemaining }).get('r');
@@ -293,15 +307,18 @@ test('buildPlaceView: المحجوز غير المسمّى خارج الصالح
   assert.equal(gone.unknownUsable, null);
 });
 
-test('warehouseOnHandAgg = composeWarehouse.onHand على مدخلات عشوائية مجمَّعة بنوع الحركة', () => {
+test('warehouseOnHandAgg = composeWarehouse.onHand على مدخلات عشوائية بلقطات وحداتها مجمَّعة بنوع الحركة وBASE_QTY_SQL', () => {
   for (let seed = 1; seed <= 300; seed++) {
     const r = rng(5000 + seed);
-    const wh = Array.from({ length: r.int(0, 20) }, () => ({ productId: r.pick(PIDS), qty: r.bool(0.3) ? -r.qty() : r.qty(), type: r.pick(['RECEIVE', 'ADJUST', 'OPENING']) }));
-    const van = Array.from({ length: r.int(0, 20) }, () => ({ productId: r.pick(PIDS), qty: r.qty(), type: r.pick(['LOAD', 'UNLOAD', 'ADJUST', 'EXPIRED_OUT']), salesRepId: r.pick(['a', 'b', null]) }));
-    const rows = composeWarehouse(PIDS.map((id) => ({ id, name: id, code: id, unit: 'u' })), wh, van);
+    const wh = Array.from({ length: r.int(0, 20) }, () => withUnit(r, { productId: r.pick(PIDS), qty: r.bool(0.3) ? -r.qty() : r.qty(), type: r.pick(['RECEIVE', 'ADJUST', 'OPENING']) }));
+    const van = Array.from({ length: r.int(0, 20) }, () => withUnit(r, { productId: r.pick(PIDS), qty: r.qty(), type: r.pick(['LOAD', 'UNLOAD', 'ADJUST', 'EXPIRED_OUT']), salesRepId: r.pick(['a', 'b', null]) }));
+    // composeWarehouse يأخذ الأساس من حدّ القراءة (loadWarehouseInputs: baseQtyOf) بلا المعامل بعده
+    const rows = composeWarehouse(PIDS.map((id) => ({ id, name: id, code: id, unit: 'u' })),
+      wh.map((w) => ({ productId: w.productId, qty: baseQtyOf(w), type: w.type })),
+      van.map((v) => ({ productId: v.productId, qty: baseQtyOf(v), type: v.type, salesRepId: v.salesRepId })));
     const agg = new Map<string, WhTotalAgg>();
-    for (const w of wh) { const k = `WH|${w.productId}|${w.type}`; const g = agg.get(k) ?? { productId: w.productId, source: 'WH', type: w.type, qty: 0 }; g.qty += w.qty; agg.set(k, g); }
-    for (const v of van) { const k = `VAN|${v.productId}|${v.type}`; const g = agg.get(k) ?? { productId: v.productId, source: 'VAN', type: v.type, qty: 0 }; g.qty += v.qty; agg.set(k, g); }
+    for (const w of wh) { const k = `WH|${w.productId}|${w.type}`; const g = agg.get(k) ?? { productId: w.productId, source: 'WH', type: w.type, qty: 0 }; g.qty += sqlBase(w); agg.set(k, g); }
+    for (const v of van) { const k = `VAN|${v.productId}|${v.type}`; const g = agg.get(k) ?? { productId: v.productId, source: 'VAN', type: v.type, qty: 0 }; g.qty += sqlBase(v); agg.set(k, g); }
     const got = warehouseOnHandAgg([...agg.values()]);
     for (const row of rows) assert.equal((got.get(row.productId) ?? 0) + 0, row.onHand + 0, `seed ${seed} ${row.productId}`);
   }

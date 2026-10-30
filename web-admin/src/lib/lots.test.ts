@@ -12,6 +12,7 @@ import {
   docLotsFrom, fefoCompare, isLotExpiredOn, lotDatesProblem, lotDay, lotErrorOf, lotFlagsOf, lotRowsProblem, lotRowsRemaining,
   lotWarningsOf, normalizeLotNumber, parseLotFlags, roundLot, toBaseQty, zeroBuckets,
 } from './lots';
+import { baseQtyOf } from './units';
 
 const stringsSrc = () => fs.readFileSync(path.join(process.cwd(), 'src', 'i18n', 'strings.ts'), 'utf8');
 /** كتلة PHRASES وحدها — من إعلانها إلى أول إغلاق بعده */
@@ -124,12 +125,19 @@ test('تاريخا التشغيلة: الإنتاج لا يتجاوز الانت
   assert.equal(lotDatesProblem(' 2026-01-01', null, { expiryRequired: false }), 'LOT_DATES_INVALID', 'لا قصّ — كالخادم');
 });
 
-test('الكمية الأساسية مرآة lotBaseQty: baseQty أولاً وإلا qty × المعامل', () => {
+test('الكمية الأساسية = baseQtyOf (lib/units.ts، D19): baseQty أولاً وإلا qty × المعامل، والمعامل التالف ١', () => {
   assert.equal(toBaseQty({ qty: 3 }), 3);
   assert.equal(toBaseQty({ qty: 2, unitFactor: 12 }), 24);
   assert.equal(toBaseQty({ qty: 2, unitFactor: null }), 2);
   assert.equal(toBaseQty({ qty: 2, baseQty: 5, unitFactor: 12 }), 5);
   assert.equal(toBaseQty({ qty: 2, baseQty: Number.NaN, unitFactor: Number.NaN }), 2, 'غير المنتهي يُتجاهل كالخادم');
+  assert.equal(toBaseQty({ qty: 2, unitFactor: 0 }), 2, 'المعامل الصفري ١ كـfactorOf');
+  assert.equal(toBaseQty({ qty: 2, unitFactor: -6 }), 2, 'والسالب ١');
+  assert.equal(toBaseQty({ qty: 0, baseQty: 0, unitFactor: 24 }), 0, 'الصفر المخزَّن كمية لا غياب');
+  assert.equal(toBaseQty({ qty: 0.1 + 0.2, unitFactor: 1 }), 0.3, 'غبار الطفو يُقرَّب كـroundQty');
+  for (const row of [{ qty: 1.5, unitFactor: 24 }, { qty: 2, baseQty: 48.0000004, unitFactor: 24 }, { qty: 7 }]) {
+    assert.equal(toBaseQty(row), baseQtyOf(row), JSON.stringify(row));
+  }
 });
 
 test('صفوف السطر: موجبة بمعرّف أو null، حتى ٢٠ صفاً، ومجموعها كمية السطر بسماحية الطفو', () => {
@@ -242,7 +250,7 @@ test('مرآة الخادم: القوائم والرموز والحدود نفس
 });
 
 test('مرآة الخادم بالسلوك: الحالات نفسها تعطي النتيجة نفسها في الطرفين', { skip: !fs.existsSync(backendLots) && 'services/lots.ts لم يُكتب بعد' }, async () => {
-  // الوحدة صرفة (لا تستورد إلا node:crypto و./shelfLife) فتُحمَّل هنا بلا قاعدة
+  // الوحدة صرفة (لا تستورد إلا node:crypto و./shelfLife و./units، والأخيرتان بلا import) فتُحمَّل هنا بلا قاعدة
   const be = await import(pathToFileURL(backendLots).href) as {
     normalizeLotNumber(raw: unknown): string | null;
     lotDatesProblem(p: string | null, e: string | null, o: { expiryRequired: boolean }): string | null;
@@ -261,7 +269,8 @@ test('مرآة الخادم بالسلوك: الحالات نفسها تعطي �
   for (const [exp, day] of [['2026-10-29', '2026-10-29'], ['2026-10-29', '2026-10-30'], [null, '2099-01-01']] as const) {
     assert.equal(isLotExpiredOn({ expiryDate: exp }, day), be.isLotExpiredOn({ expiryDate: exp }, day));
   }
-  for (const row of [{ qty: 3 }, { qty: 2, unitFactor: 12 }, { qty: 2, unitFactor: null }, { qty: 2, baseQty: 5, unitFactor: 12 }, { qty: 2, baseQty: Number.NaN }]) {
+  for (const row of [{ qty: 3 }, { qty: 2, unitFactor: 12 }, { qty: 2, unitFactor: null }, { qty: 2, baseQty: 5, unitFactor: 12 }, { qty: 2, baseQty: Number.NaN },
+    { qty: 2, unitFactor: 0 }, { qty: 2, unitFactor: -6 }, { qty: 0.1 + 0.2, unitFactor: 1 }, { qty: 2, baseQty: 48.0000004, unitFactor: 24 }]) {
     assert.equal(toBaseQty(row), be.lotBaseQty(row), `toBaseQty(${JSON.stringify(row)})`);
   }
   const rowsCases: [unknown, number][] = [

@@ -1325,13 +1325,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "رمز وحدة الأساس الجديدة الضريبي (PCE). غيابه يُبقي unitCode الصنف كما هو، والرمز القديم تحمله الوحدة التي صارتها وحدة الأساس القديمة"
      }
     ],
-    "response": "{success:true, data:Product مع category وpriceTiers وunits، converted:{factor, from, invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices, priceTiers}} وأعداد converted هي الصفوف المعاد كتابتها في كل جدول — 409 {success:false, code:'BASE_UNIT_CHANGED', message} — 400 {code:'PRODUCT_UNITS_INVALID', message} — 404 PRODUCT_NOT_FOUND",
+    "response": "{success:true, data:Product مع category وpriceTiers وunits، converted:{factor, from, invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices, priceTiers, vanLoadItemLots?, invoiceItemLots?, lotRelabels?}} وأعداد converted هي الصفوف المعاد كتابتها في كل جدول، والثلاثة الأخيرة (صفوف تشغيلات الصنف) تظهر حين يمسّ التحويل صفوفاً منها وحدها — 409 {success:false, code:'BASE_UNIT_CHANGED', message} — 400 {code:'PRODUCT_UNITS_INVALID', message} — 404 PRODUCT_NOT_FOUND — 503 {code:'LOT_BUSY'} لصنفٍ متتبَّع التشغيلات مشغولٍ بعملية أخرى: أعد المحاولة",
     "rules": [
      "كل الخطوات في معاملة واحدة بقفل صفّ الصنف: يتحوّل تاريخ الصنف كله أو لا شيء",
      "بنود الصنف في الفواتير والتحميلات والوارد وطلبات البضاعة: unitName يأخذ اسم الأساس القديم إن كان فارغاً، وunitFactor يُضرب بـfactor، وbaseQty يُعاد حسابه. أما qty وunitPrice وunitCost وlineTotal فلا تتغيّر: «2 كرتون» تبقى مطبوعة كما هي وأساسها 48 حبة. وsuggestedQty وexpectedQty في التحميلات تُضرب بـfactor (بالأساس دائماً)",
      "وحدات الصنف القائمة يُضرب معاملها بـfactor، وتُنشأ وحدة باسم الأساس القديم بمعامل factor وبسعره القديم ورمزه، أولى في الترتيب — فيبيع المندوب الكرتون بسعره كما كان",
      "أسعار العملاء الخاصة وأسعار الشرائح تُقسم على factor (فسعر الكرتون للعميل لا يتغيّر)، وحدود الشرائح بالأساس تُضرب بـfactor",
-     "لنظامكم: التحويل يحرّك updatedAt للصنف وحده لا للفواتير ولا للتحميلات، فمزامنة invoices وvan-loads وwarehouse-entries لا تعيد إرسال البنود القديمة بلقطاتها الجديدة. من خزّن baseQty هذا الصنف قبل التحويل يضربه بـconverted.factor، أو يعيد سحب تلك الموارد من البداية (بلا since)",
+     "لنظامكم: التحويل يحرّك updatedAt للصنف وحده لا للفواتير ولا للتحميلات، فمزامنة invoices وvan-loads وwarehouse-entries لا تعيد إرسال البنود القديمة بلقطاتها الجديدة. من خزّن baseQty هذا الصنف قبل التحويل يضربه بـconverted.factor، أو يعيد سحب تلك الموارد من البداية (بلا since). وكميات تشغيلات الصنف بالأساس كذلك، فتُضرب بـfactor داخل التحويل نفسه (vanLoadItemLots وinvoiceItemLots وlotRelabels عددها)",
      "صنفٌ بلا تاريخ يكفيه تعديل unit بـPUT /products/:id ثم إضافة الوحدة بـPOST /products/:id/units"
     ],
     "example": "{\"newBaseName\":\"حبة\",\"factor\":24,\"expectedBaseName\":\"كرتون\",\"baseUnitCode\":\"PCE\"}"

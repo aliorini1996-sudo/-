@@ -9,6 +9,8 @@ import { canAccessCustomer } from '../services/customerScope';
 import { applyProductVatGate } from './productsZatca';
 import { RETURN_RULE_METRICS, RETURN_RULE_MODES, SHELF_LIFE_BASES, SHELF_LIFE_UNITS, returnRuleConfigProblem, shelfLifeProblem } from '../services/shelfLife';
 import { MAX_UNIT_FACTOR, QTY_EPS, unitProblem, factorOf, type UnitDef } from '../services/units';
+import { LotError, asLockBusy, lotErrorBody } from '../services/lots';
+import { lockLotProducts } from '../services/lotsDb';
 
 const router = Router();
 router.use(authenticate); // القراءة متاحة للمندوب (للبحث عند إصدار الفاتورة)؛ الكتابة للإدارة فقط
@@ -119,6 +121,8 @@ async function lockProduct(tx: Prisma.TransactionClient, tid: string, productId:
     where: { id: productId, tenantId: tid },
     select: {
       id: true, unit: true, basePrice: true, unitCode: true,
+      // «تتبّع اللوط»: الصفّ المقفل يغني convert-base عن FOR KEY SHARE ثانٍ (lockLotProducts بـlockedRows)
+      lotTracked: true, lotTrackedSince: true,
       units: { select: { id: true, name: true, factor: true, price: true, unitCode: true, isActive: true, sortOrder: true } },
     },
   });
@@ -531,6 +535,20 @@ router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Res
       const oldUnit = product.unit;
       const pid = product.id;
 
+      /* «تتبّع اللوط» (R8، §٣.١): قفل اللوط للصنف بعد صفّه المقفل FOR UPDATE وقبل أيّ كتابة — الترتيب المنصوص «صفوف الأصناف
+       * (FOR UPDATE في convert-base) ← أقفال lot». فلا تتداخل عمليةُ لوطٍ (تقرأ رصيد الصنف بالأساس وصفوف لوطه) مع إعادة
+       * كتابة الأساس. والصفّ المقفل يُمرَّر فلا يُقرأ ثانيةً؛ والقفل الاستشاري للصنف المتتبَّع الآن وحده كبقية المسارات.
+       * انتظار هذا القفل وحده (55P03، 40P01) يصير 503 LOT_BUSY؛ وما بعده كالصنف غير المتتبَّع: مهلة المعاملة (١٢٠ ثانية) ليست
+       * انشغالاً تُعاد له المحاولة. ولا طابور داخل العملية هنا (استثناءٌ مسمّى في D29: مسار المالك النادر، والقفل في القاعدة هو
+       * الحارس، وقراءة العلم قبل المعاملة استعلامٌ زائد على كل تحويلٍ والميزة مطفأة). */
+      try {
+        await lockLotProducts(tx, tid, [pid], {
+          lockedRows: [{ id: pid, lotTracked: product.lotTracked === true, lotTrackedSince: product.lotTrackedSince ?? null }],
+        });
+      } catch (e) {
+        throw asLockBusy(e) ?? e;
+      }
+
       /* ٢. لقطات الصفوف في الجداول الأربعة: الاسم القديم لما لا اسم له، والمعامل × F، والأساس من جديد.
        * qty وunitPrice وunitCost وlineTotal لا تُمسّ — هي بوحدة الصفّ وما زالت الكرتون. والمعامل التالف (≤٠) يُقرأ ١
        * كما يقرؤه factorOf، فيصير F لا صفراً. والمُطلِق (scripts/backfillBaseQty.ts) يحسب baseQty أيضاً؛ القيمة الصريحة
@@ -571,6 +589,21 @@ router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Res
           "baseQty" = r."qty" * (CASE WHEN r."unitFactor" > 0 THEN r."unitFactor" ELSE 1 END) * ${F}::float8
         FROM "rep_stock_requests" AS d
         WHERE r."requestId" = d.id AND d."tenantId" = ${tid} AND r."productId" = ${pid}`;
+
+      /* ٢ب. «تتبّع اللوط» (D22): كل كمية لوطٍ **بالأساس** ولا لقطة وحدةٍ معها، فتُضرب بـF كما صار أساس بنودها — وإلا انفصلت
+       * Σ صفوف توزيع كل بندٍ عن كميته الأساسية (I3)، وصار رصيد كل لوطٍ (وغير المسمّى = رصيد الصنف − Σ الخام) بالكراتين
+       * القديمة بين أرصدةٍ بالحبّات. لكل صفوف الصنف أيّاً كانت حقبتها وأيّاً كان علمه الآن: صفوف حقبةٍ سابقة تبقى في شاشة
+       * التتبّع. والشركة والصنف من أعمدة الجدول نفسه (مكرَّرةٌ فيه). وProductLot بلا كمية، وLotEvent سجلّ تدقيقٍ لا يُعاد
+       * كتابته (لا كمية فيه اليوم؛ ومن يضيف كميةً إلى before/after يكتب معها اسم وحدة الأساس). */
+      const vanLoadItemLots = await tx.$executeRaw`
+        UPDATE "van_load_item_lots" SET "qty" = "qty" * ${F}::float8
+        WHERE "tenantId" = ${tid} AND "productId" = ${pid}`;
+      const invoiceItemLots = await tx.$executeRaw`
+        UPDATE "invoice_item_lots" SET "quantity" = "quantity" * ${F}::float8
+        WHERE "tenantId" = ${tid} AND "productId" = ${pid}`;
+      const lotRelabels = await tx.$executeRaw`
+        UPDATE "lot_relabels" SET "qty" = "qty" * ${F}::float8
+        WHERE "tenantId" = ${tid} AND "productId" = ${pid}`;
 
       /* ٣. الوحدات القائمة تُضرب بـF (طبليةٌ = ٥٠ كرتون ⇒ ١٢٠٠ حبة) وتتأخّر رتبةً، والوحدة القديمة تصير وحدةً بمعامل F
        * **بسعرها القديم** ورمزها الضريبي، وأولى في الترتيب: هي ما يبيعه المندوب كل يوم، فلا يتغيّر عمله بعد التحويل.
@@ -622,13 +655,18 @@ router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Res
       });
       return {
         data,
-        converted: { factor: F, from: oldUnit, invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices: customerPrices.count, priceTiers },
+        converted: {
+          factor: F, from: oldUnit, invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices: customerPrices.count, priceTiers,
+          // عدّادات اللوط حين مسّ التحويل صفوفاً منها وحدها — فشكل الردّ لصنفٍ بلا لوط كما كان (§١٠.١)
+          ...(vanLoadItemLots + invoiceItemLots + lotRelabels > 0 && { vanLoadItemLots, invoiceItemLots, lotRelabels }),
+        },
       };
     }, { maxWait: 10_000, timeout: 120_000 }); // صنفٌ بتاريخ سنوات: آلاف الصفوف بالمُطلِق على قاعدةٍ صغيرة
     res.json({ success: true, data: result.data, converted: result.converted });
   } catch (err) {
     if (err instanceof UnitsRefusal) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
     if (isUniqueViolation(err)) { res.status(409).json({ success: false, message: 'يوجد وحدة باسم وحدة الأساس الحالية لهذا الصنف' }); return; }
+    if (err instanceof LotError) { res.status(err.status).json(lotErrorBody(err)); return; } // LOT_BUSY من قفل اللوط وحده
     next(err);
   }
 });

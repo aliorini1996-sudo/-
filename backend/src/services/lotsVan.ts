@@ -6,8 +6,8 @@ import type { LotDb, LotTx } from './lotsDb';
 import type { VanLotSnapshotDto, VanMovementPlan, VanMovementPlanInput } from './lots';
 
 /**
- * داخل معاملة الحركة بعد lockLotProducts (وبعد قفل الدلو وassertOutAvailable للإزالة): LOAD بالمستودع ⇒ allocateOut على عرض
- * المستودع (viaWarehouse)؛ بلا مستودع ⇒ لوطٌ صريح أو رقمٌ جديد أو null (D4)؛ UNLOAD/ADJUST− ⇒ pickOutSources على SELLABLE؛
+ * داخل معاملة الحركة بعد lockLotProducts (وبعد قفل الدلو وassertOutAvailable للإزالة): LOAD بالمستودع ⇒ allocateOutLines على عرض
+ * المستودع لكل صنفٍ بأسطره ومعامل وحدة كلٍّ (viaWarehouse، D22)؛ بلا مستودع ⇒ لوطٌ صريح أو رقمٌ جديد أو null (D4)؛ UNLOAD/ADJUST− ⇒ pickOutSources على SELLABLE؛
  * EXPIRED_OUT/DAMAGED_OUT ⇒ pickOutSources على دلوهما؛ ADJUST+ ⇒ لوط أو رقم أو null. الكمية السالبة ⇒ LOT_QTY_INVALID (I7).
  */
 export async function planVanMovementInTx(tx: LotTx, input: VanMovementPlanInput): Promise<VanMovementPlan> {

@@ -7,8 +7,8 @@ import type { InvoiceLotAllocation, InvoiceLotPlan, ItemExpiryStamp, LotError } 
 
 /**
  * داخل معاملة الإصدار، بعد assertReturnLinks وقبل tx.invoice.create: lockLotProducts ثم ClientRefRace ثم placeViews ثم
- * aggregateRequest/allocateOut (البيع) أو allocateReturnFromSale (المرتجع المرتبط) أو الصريح/الفارغ (المرتجع الحرّ)،
- * ثم distributeToLines وstampFromRows، وإشعار LOT_REPLAY_FLAGGED.
+ * allocateOutLines لكل صنفٍ بأسطره (البيع: لكل سطرٍ كميته الأساسية ومعامل وحدته وصريحه أو تلميحه — D22، D16، D26) أو
+ * allocateReturnFromSale (المرتجع المرتبط) أو الصريح/الفارغ (المرتجع الحرّ)، ثم stampFromRows لكل سطر، وإشعار LOT_REPLAY_FLAGGED.
  */
 export async function allocateInvoiceLotsInTx(tx: LotTx, plan: InvoiceLotPlan): Promise<InvoiceLotAllocation> {
   void tx; void plan;

@@ -362,6 +362,12 @@ test('دقّة المستند: مسارات وحدات الصنف والتحوي
     assert.ok(products.includes(`'${code}'`), `${code} لا يرسله موجّه الأصناف`);
   }
   assert.match(endpointOf('POST', '/products/:id/convert-base').response, /BASE_UNIT_CHANGED/);
+  // «تتبّع اللوط» (D22): عدّادات صفوف التشغيلات في converted يرسلها الموجّه بأسمائها، و503 LOT_BUSY لانشغال قفلها
+  const convertResp = endpointOf('POST', '/products/:id/convert-base').response;
+  for (const k of ['vanLoadItemLots', 'invoiceItemLots', 'lotRelabels']) {
+    assert.ok(convertResp.includes(k) && new RegExp(`\\b${k}\\b`).test(products.slice(products.indexOf("router.post('/:id/convert-base'"))), `converted.${k}`);
+  }
+  assert.match(convertResp, /503 \{code:'LOT_BUSY'\}/);
   // الشرائح بحدودها بالأساس كما في priceTierSchema
   const tiers = endpointOf('PUT', '/products/:id/price-tiers').body.map((f) => f.name);
   for (const k of ['minQty', 'maxQty', 'baseMinQty', 'baseMaxQty', 'price']) assert.ok(tiers.includes(`tiers[].${k}`), `tiers[].${k}`);

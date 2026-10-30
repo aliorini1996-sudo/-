@@ -28,10 +28,13 @@ export type LotTx = Prisma.TransactionClient;
 export type LotDb = Prisma.TransactionClient;
 
 /**
- * الكمية الأساسية لسطر مستندٍ في SQL — **موضعٌ واحد** (D19): على master = qty، وبعد دمج الوحدات المتعددة
- * COALESCE("baseQty", qty * "unitFactor"). غير مؤهَّل بالاسم المستعار: الاستعلامات التي تستعمله تضمّ جدولاً واحداً فيه qty.
+ * الكمية الأساسية لسطر مستندٍ في SQL — **موضعٌ واحد** (D19، الوحدات أولاً): تعبير الوحدات المتعددة نفسه بلا اسمٍ مستعار
+ * (= II_BASE_QTY في ai-rep/baseQty.ts، ومُطلِق fs_set_base_qty في scripts/backfillBaseQty.ts، وbaseQtyOf في units.ts):
+ * العمود المخزَّن، والفارغ (صفٌّ لم يملأه الترحيل) من اللقطة بمعاملٍ صفريّ ١. غير مؤهَّل: الاستعلامات التي تستعمله تضمّ
+ * جدول بنودٍ واحداً (invoice_items أو van_load_items أو warehouse_entry_items)، ولا عمود qty ولا baseQty ولا unitFactor في
+ * رؤوس المستندات ولا في products وtenants. صفوف جداول اللوط بالأساس أصلاً (D22) فلا تمرّ به.
  */
-export const BASE_QTY_SQL = Prisma.raw('qty');
+export const BASE_QTY_SQL = Prisma.raw('COALESCE("baseQty", qty * COALESCE(NULLIF("unitFactor", 0), 1))');
 
 /** الحقبة (D25): صفّ اللوط يُحسب إن كان بعد max(بداية حقبة الشركة، بداية حقبة الصنف) — t = tenants وp = products */
 const EPOCH_SQL = Prisma.raw(`GREATEST(COALESCE(t."lotTrackingSince", '-infinity'::timestamp), COALESCE(p."lotTrackedSince", '-infinity'::timestamp))`);

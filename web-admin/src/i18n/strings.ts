@@ -1550,7 +1550,8 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'مفترض': { en: 'Assumed', fr: 'Présumé', tr: 'Varsayılan', zh: '推定' },
   'غير معروف': { en: 'Unknown', fr: 'Inconnu', tr: 'Bilinmiyor', zh: '未知' },
   'نشطة': { en: 'Active', fr: 'Actif', tr: 'Aktif', zh: '正常' },
-  'موقوفة': { en: 'Blocked', fr: 'Bloqué', tr: 'Bloke', zh: '已冻结' },
+  // «موقوفة» وحدها مفتاحٌ للوحدة الموقوفة (Inactive) في الوحدات المتعددة — فحالة التشغيلة بمفتاحٍ يخصّها
+  'تشغيلة موقوفة': { en: 'Blocked lot', fr: 'Lot bloqué', tr: 'Bloke parti', zh: '已冻结批次' },
   'إيقاف احترازي': { en: 'Precautionary hold', fr: 'Blocage préventif', tr: 'İhtiyati bloke', zh: '预防性冻结' },
   'سحب من السوق': { en: 'Market recall', fr: 'Rappel de produit', tr: 'Piyasadan geri çağırma', zh: '市场召回' },
   'صالح للبيع': { en: 'Sellable', fr: 'Vendable', tr: 'Satılabilir', zh: '可售' },

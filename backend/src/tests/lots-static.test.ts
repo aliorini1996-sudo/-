@@ -27,11 +27,12 @@ test('وحدات services/lots*.ts كلها موجودة ولا تستورد إ�
   }
 });
 
-test('lots.ts صرفة: لا تستورد إلا node:crypto و./shelfLife (فرعا المرحلة الثانية يستوردان منها)', () => {
+test('lots.ts صرفة: لا تستورد إلا node:crypto و./shelfLife و./units (فرعا المرحلة الثانية يستوردان منها)', () => {
   const imports = importsOf(read('services/lots.ts'));
-  assert.deepEqual([...new Set(imports)].sort(), ['./shelfLife', 'node:crypto']);
-  // وshelfLife نفسها بلا أي import (فلا تجرّ القاعدة بطريق خلفي)
+  assert.deepEqual([...new Set(imports)].sort(), ['./shelfLife', './units', 'node:crypto']);
+  // وshelfLife وunits نفسهما بلا أي import (فلا تجرّان القاعدة بطريق خلفي) — units لـlotBaseQty = baseQtyOf (D19)
   assert.deepEqual(importsOf(read('services/shelfLife.ts')), []);
+  assert.deepEqual(importsOf(read('services/units.ts')), []);
 });
 
 test('LOT_HOLD_MIRRORS = VOIDABLE_MIRRORS حرفياً (D24)', () => {
@@ -93,14 +94,21 @@ test('I8: التقييم لا يقرأ أي جدول لوط (R9) — warehouseCo
 });
 
 test('BASE_QTY_SQL موضعٌ واحد (D19)، ولا كمية أساسية مكتوبة نصاً في غيره', () => {
+  const DEF = /export const BASE_QTY_SQL = Prisma\.raw\('COALESCE\("baseQty", qty \* COALESCE\(NULLIF\("unitFactor", 0\), 1\)\)'\);/;
   const defs: string[] = [];
   for (const f of lotModules()) {
     const src = stripComments(read(`services/${f}`));
     if (/BASE_QTY_SQL\s*=/.test(src)) defs.push(f);
-    assert.doesNotMatch(src, /"baseQty"|"unitFactor"/, `${f}: كمية أساسية خارج BASE_QTY_SQL`);
+    // سطر التعريف وحده يذكر العمودين؛ وكل تجميعٍ آخر يمرّ به
+    assert.doesNotMatch(src.replace(DEF, ''), /"baseQty"|"unitFactor"/, `${f}: كمية أساسية خارج BASE_QTY_SQL`);
   }
   assert.deepEqual(defs, ['lotsDb.ts']);
-  assert.match(read('services/lotsDb.ts'), /export const BASE_QTY_SQL = Prisma\.raw\('qty'\);/, 'اللوط أولاً من 4a02616: qty');
+  assert.match(read('services/lotsDb.ts'), DEF, 'الوحدات أولاً (D19): تعبير الوحدات المتعددة للكمية الأساسية');
+  // وكل SUM على جدول بنود في lotsDb يمرّ به: لا SUM(qty) ولا SUM(x.qty) خام على invoice_items/van_load_items/warehouse_entry_items
+  const code = stripComments(read('services/lotsDb.ts'));
+  for (const m of code.matchAll(/SUM\(([^)]*)\)::float8/g)) {
+    assert.ok(['${BASE_QTY_SQL}', 'l.qty', 'il.quantity', 'r.qty'].includes(m[1]), `تجميعٌ خارج BASE_QTY_SQL: SUM(${m[1]})`);
+  }
 });
 
 test('التجميع: الحقبة على صفوف اللوط وحدها، وfoldStock تُستورد ديناميكياً من routes/vanStock (لا مرآة)', () => {

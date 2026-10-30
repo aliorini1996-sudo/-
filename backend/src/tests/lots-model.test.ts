@@ -6,8 +6,8 @@
 // وتنزيل سيارته (D30)، وكمياتٍ بخمس خانات تُرفض (isLotQty)، ومرور الأيام — فوق تاريخٍ سابق للتفعيل فيه بيعٌ بلا مخزون
 // (سالب تاريخي) ومرتجعاتٌ قياسية محجوزة.
 //
-// «التنفيذ» هنا: صفوفٌ كما تكتبها المسارات، يُختار توزيعها بدوال الخطة الصرفة (allocateOut، pickOutSources،
-// allocateReturnFromSale، distributeToLines، lotRemovalsOf/removalKeepsLots)، وتُقرأ بمحاكاة تجميعات SQL (الحقبة والتوجيه
+// «التنفيذ» هنا: صفوفٌ كما تكتبها المسارات، يُختار توزيعها بدوال الخطة الصرفة (allocateOut، allocateOutLines لكل سطرٍ
+// بمعامل وحدته، pickOutSources، allocateReturnFromSale، lotRemovalsOf/removalKeepsLots)، وتُقرأ بمحاكاة تجميعات SQL (الحقبة والتوجيه
 // والحجز) ثم assemblePlaceViews نفسها التي يركّب بها placeViews العروض، ورصيد الصنف والمحجوز الكلي من foldStock وcomposeWarehouse.
 // «النموذج المرجعي»: دفترٌ مستقل يحدّث (صنف، مكان، لوط أو فارغ، دلو) بدلالة كل عملية مباشرةً.
 // بعد كل خطوة: الطيّ = النموذج، ورصيد الصنف والمحجوز الكلي = النموذج = foldStock/composeWarehouse (ومجاميعهما)، ولا صالح
@@ -17,11 +17,12 @@ import assert from 'node:assert/strict';
 import { foldStock, bucketRemaining, type LoadRow, type InvRow } from '../routes/vanStock';
 import { composeWarehouse } from '../services/warehouseStock';
 import { DAMAGED_VAN_SINCE } from '../services/vanDamaged';
+import { baseQtyOf } from '../services/units';
 import {
-  LOT_BUCKETS, LOT_EPS, LOT_HOLD_MIRRORS, allocateOut, allocateReturnFromSale, distributeToLines, isLotExpiredOn, isLotQty,
-  lotRemovalsOf, pickOutSources, removalKeepsLots, roundLot, stampFromRows, zeroBuckets,
+  LOT_BUCKETS, LOT_EPS, LOT_HOLD_MIRRORS, allocateOut, allocateOutLines, allocateReturnFromSale, distributeToLines, isLotExpiredOn, isLotQty,
+  lotBaseQty, lotRemovalsOf, pickOutSources, removalKeepsLots, roundLot, stampFromRows, zeroBuckets,
   type AggInvLot, type AggRelabel, type AggVanLot, type AggWhLot, type AllocResult, type AllocRow, type BucketQty, type LotBucket,
-  type LotMeta, type LotRef, type LotRemovalItem, type PlaceLotView, type SaleLotRow,
+  type LotMeta, type LotRef, type LotRemovalItem, type OutLine, type PlaceLotView, type SaleLotRow,
 } from '../services/lots';
 import {
   assemblePlaceViews, vanHeldFromAgg, vanTotalsFromAgg, warehouseOnHandAgg, type AggVanTotalInv, type AggVanTotalLoad, type WhTotalAgg,
@@ -68,6 +69,20 @@ interface Inv {
 interface RelRow { productId: string; place: 'WAREHOUSE' | 'VAN'; vanKey: string | null; bucket: LotBucket; fromLotId: string | null; toLotId: string | null; qty: number; createdAt: number }
 
 const isHeld = (i: Inv) => i.type === 'RETURN' && i.phase2 && (i.mirror == null || (LOT_HOLD_MIRRORS as readonly string[]).includes(i.mirror));
+
+/**
+ * الوحدات المتعددة (D19، D22): كميات النموذج وصفوف اللوط بالأساس، وصفّ البند يُكتب كما تكتبه المسارات — بوحدة السطر ومعاملها
+ * (١ أو ٦ أو ٢٤، ثابتٌ لكل بند)، والعمود المخزَّن حاضرٌ أو فارغٌ لم يملأه الترحيل. فرصيد الصنف يُقرأ بالأساس: foldStock
+ * وcomposeWarehouse بـbaseQtyOf، والمجاميع بمرآة BASE_QTY_SQL، وI3 بـlotBaseQty.
+ */
+const UNIT_FACTORS = [1, 6, 24] as const;
+function unitRow(base: number, key: string | number): { qty: number; unitFactor: number; baseQty: number | null } {
+  const h = typeof key === 'number' ? key : [...key].reduce((s, c) => s + c.charCodeAt(0), 0);
+  const unitFactor = UNIT_FACTORS[h % UNIT_FACTORS.length];
+  return { qty: base / unitFactor, unitFactor, baseQty: h % 2 ? null : base };
+}
+/** مرآة BASE_QTY_SQL: COALESCE("baseQty", qty * COALESCE(NULLIF("unitFactor", 0), 1)) — بلا تقريبٍ لكل صفّ كـSUM */
+const sqlBase = (x: { qty: number; unitFactor: number; baseQty: number | null }): number => x.baseQty ?? x.qty * (x.unitFactor === 0 ? 1 : x.unitFactor);
 
 /** الدلو الذي يوجّهه المستند — دلالة العملية مكتوبةً مباشرةً (البيع يُنقص المتاح؛ المرتجع المنتهي ثم التالف ثم العائد) */
 function bucketOf(inv: Inv, item: InvItem): { bucket: LotBucket; sign: 1 | -1 } | null {
@@ -172,12 +187,14 @@ class Sim {
     for (const x of this.relabels) if (this.counted(x.productId, x.createdAt)) rel.push({ productId: x.productId, place: x.place, vanKey: x.vanKey, bucket: x.bucket, fromLotId: x.fromLotId, toLotId: x.toLotId, qty: x.qty, firstAt: new Date(x.createdAt) });
     return { van, inv, rel, wh };
   }
+  /** صفوف البنود كما تكتبها المسارات بلقطة وحدتها (unitRow) — foldStock يطويها بالأساس (baseQtyOf) */
   loadRows(vanKey: string): LoadRow[] {
-    return this.vanItems.filter((v) => v.vanKey === vanKey).map((v) => ({ productId: v.productId, qty: v.qty, vanLoad: { type: v.type, createdAt: new Date(v.createdAt) } }));
+    return this.vanItems.map((v, i) => ({ v, i })).filter(({ v }) => v.vanKey === vanKey)
+      .map(({ v, i }) => ({ productId: v.productId, ...unitRow(v.qty, i), vanLoad: { type: v.type, createdAt: new Date(v.createdAt) } }));
   }
   invRows(vanKey: string, heldOnly = false): InvRow[] {
     return this.invoices.filter((i) => i.vanKey === vanKey && i.status === 'CONFIRMED' && (!heldOnly || isHeld(i))).flatMap((i) => i.items.map((it) => ({
-      productId: it.productId, qty: it.qty, returnExpired: it.returnExpired,
+      productId: it.productId, ...unitRow(it.qty, it.id), returnExpired: it.returnExpired,
       invoice: { type: i.type, returnToStock: i.returnToStock, invoiceDate: new Date(i.createdAt), returnReason: i.returnReason, createdAt: new Date(i.createdAt) },
     })));
   }
@@ -189,10 +206,11 @@ class Sim {
     return out;
   }
   whTotals(): Map<string, number> {
+    // الأساس من حدّ القراءة كـloadWarehouseInputs: baseQtyOf على لقطة الصفّ، بلا المعامل بعده
     const rows = composeWarehouse(
       PIDS.map((id) => ({ id, name: id, code: id, unit: 'u' })),
-      this.wh.map((w) => ({ productId: w.productId, qty: w.qty, type: w.type })),
-      this.vanItems.map((v) => ({ productId: v.productId, qty: v.qty, type: v.type, salesRepId: v.vanKey })),
+      this.wh.map((w, i) => ({ productId: w.productId, qty: baseQtyOf(unitRow(w.qty, `W${i}`)), type: w.type })),
+      this.vanItems.map((v, i) => ({ productId: v.productId, qty: baseQtyOf(unitRow(v.qty, i)), type: v.type, salesRepId: v.vanKey })),
     );
     return new Map(rows.map((r) => [r.productId, r.onHand]));
   }
@@ -254,6 +272,8 @@ function randomExplicit(r: Rng, view: PlaceLotView, bucket: LotBucket, q: number
 }
 
 const sumQty = (rows: { qty: number }[]) => rows.reduce((s, x) => s + x.qty, 0);
+/** تغطية D22 في البيع: أسطرٌ بوحدةٍ أكبر من الأساس وزّعها الخادم (ومنها في بيعٍ بسطرين)، وما وُسم منها، وما شُقّ بأكثر من صفٍّ كسري */
+const cartonStats = { lines: 0, multi: 0, split: 0, odd: 0 };
 const assertI3 = (rows: { qty: number }[], q: number, where: string) => assert.ok(Math.abs(sumQty(rows) - q) <= 1e-9, `${where}: Σ الصفوف ≠ الكمية (I3)`);
 
 type Op = (s: Sim, r: Rng, pid: string) => string | null;
@@ -414,7 +434,8 @@ const ops: Record<string, Op> = {
     const q = tracked && !replay ? liveQty(r, 8) : r.qty(8);
     const nLines = r.bool(0.3) ? 2 : 1;
     const q1 = nLines === 2 ? Math.round(q * 1000 * r.next()) / 1000 : q;
-    const lines = nLines === 2 && q1 > 0 && q1 < q ? [{ idx: 0, qty: q1 }, { idx: 1, qty: roundLot(q - q1) }] : [{ idx: 0, qty: q }];
+    // كميةٌ بخمس خانات سطرٌ واحد: تُرفض كما هي (قسمتها تقرّب الباقي فتُخفي الرفض)
+    const lines = nLines === 2 && q1 > 0 && q1 < q && isLotQty(q) ? [{ idx: 0, qty: q1 }, { idx: 1, qty: roundLot(q - q1) }] : [{ idx: 0, qty: q }];
     const inv: Inv = { id: s.id('S'), type: 'CASH', vanKey: van, status: 'CONFIRMED', returnToStock: true, returnReason: null, phase2: false, mirror: null, createdAt: s.now(), items: [] };
     if (!tracked) {
       const v = s.vanTotals(van).get(pid)?.SELLABLE ?? 0;
@@ -428,10 +449,34 @@ const ops: Record<string, Op> = {
     let hint: LotRef[] | null = null;
     if (replay && r.bool(0.6)) hint = randomExplicit(r, v, 'SELLABLE', q, null);
     const explicit = !replay && r.bool(0.25) ? randomExplicit(r, v, 'SELLABLE', q, s.day()) : null;
-    const res = allocateOut({ productId: pid, productName: pid, qty: q, unitFactor: r.pick([1, 1, 6]), view: v, day: s.day(), mode: 'SALE', allowUnknown: r.bool(0.75), explicit, hint, replay });
+    // لكل سطرٍ صريحه أو تلميحه: المسحوب على الكمية يُقسم على الأسطر بترتيبها، والعبث (Σ ≠ الكمية) كله على السطر الأول فيُرفض
+    const perLine = (refs: LotRef[] | null): (LotRef[] | null)[] => {
+      if (!refs || lines.length === 1) return lines.map(() => refs);
+      if (Math.abs(sumQty(refs) - q) > 1e-9) return [refs, null];
+      const per = distributeToLines(refs.map((x) => ({ lotId: x.lotId, qty: x.qty, certainty: 'CONFIRMED' as const, flags: [], expiryDate: null })), lines);
+      return lines.map((l) => per.get(l.idx)!.map((x) => ({ lotId: x.lotId, qty: x.qty })));
+    };
+    const ex = perLine(explicit), hi = perLine(hint);
+    // معامل وحدة كل سطر (D22): الصنف قد يتكرّر بوحدتين في الفاتورة
+    const outLines: OutLine[] = lines.map((l, i) => ({ idx: l.idx, qty: l.qty, unitFactor: r.pick([1, 1, 6, 24]), explicit: ex[i], hint: hi[i] }));
+    const res = allocateOutLines({ productId: pid, productName: pid, lines: outLines, view: v, day: s.day(), mode: 'SALE', allowUnknown: r.bool(0.75), replay });
     if (!replay && fineRefused(res, q, 'SALE')) return 'QTY/refused';
     if (refused(res, 'SALE') || !res.ok) return null;
     assertI3(res.rows, q, 'SALE');
+    // D22: سطرٌ وزّعه الخادم بوحدةٍ أكبر من الأساس لا يشقّ وحدةً بلا وسم — كرتونٌ سليم ⇒ صفٌّ واحد على الأكثر بغير مضاعفات F
+    for (const l of outLines) {
+      const rows = res.lines.get(l.idx)!;
+      const byServer = !l.explicit?.length && (!l.hint?.length || rows.some((x) => x.flags.includes('HINT_REJECTED')));
+      if (!byServer || !(l.unitFactor > 1)) continue;
+      cartonStats.lines++;
+      if (outLines.length > 1) cartonStats.multi++;
+      if (rows.some((x) => x.flags.includes('SPLIT_UNIT'))) cartonStats.split++;
+      const odd = rows.filter((x) => Math.abs(x.qty / l.unitFactor - Math.round(x.qty / l.unitFactor)) > 1e-6).length;
+      if (odd < 2) continue;
+      cartonStats.odd++;
+      assert.ok(rows.some((x) => x.flags.includes('SPLIT_UNIT')), `D22: وحدةٌ مشقوقة بلا وسم ${JSON.stringify(rows)}`);
+      assert.ok(res.warnings.some((w) => w.code === 'LOT_SPLIT_UNIT' && w.detail?.idx === l.idx), 'D22: بلا تحذيرٍ لسطره');
+    }
     for (const row of res.rows) {
       if (!row.lotId) continue;
       const m = s.metas.get(row.lotId)!;
@@ -439,9 +484,8 @@ const ops: Record<string, Op> = {
       if (!replay) assert.ok(eligible, 'I4: بيعٌ حيّ من غير مؤهَّل');
       else if (!eligible) assert.ok(row.flags.some((f) => f === 'REPLAY_BLOCKED' || f === 'REPLAY_RECALLED' || f === 'REPLAY_EXPIRED'), 'إعادةٌ من غير مؤهَّل بلا وسم');
     }
-    const per = distributeToLines(res.rows, lines);
     inv.items = lines.map((l) => {
-      const rows = per.get(l.idx)!;
+      const rows = res.lines.get(l.idx)!;
       assertI3(rows, l.qty, 'SALE line');
       const itemId = s.id('I');
       return { id: itemId, productId: pid, qty: l.qty, returnExpired: null, lots: rows.map((x) => lotRow(s, x, false, 1)), returnOfItemId: null };
@@ -672,17 +716,17 @@ function check(s: Sim, prev: Map<string, PlaceLotView> | null, opName: string, w
   // رصيد الصنف والمحجوز الكلي: النموذج = foldStock/composeWarehouse = مجاميعهما (vanTotalsFromAgg، vanHeldFromAgg، warehouseOnHandAgg)
   const loads: AggVanTotalLoad[] = [], invs: AggVanTotalInv[] = [];
   for (const van of VANS) {
-    for (const l of s.loadRows(van)) loads.push({ productId: l.productId, vanKey: van, type: l.vanLoad.type, qty: l.qty });
+    for (const l of s.loadRows(van)) loads.push({ productId: l.productId, vanKey: van, type: l.vanLoad.type, qty: sqlBase(l as Parameters<typeof sqlBase>[0]) });
     for (const i of s.invoices) {
       if (i.vanKey !== van || i.status !== 'CONFIRMED') continue;
-      for (const it of i.items) invs.push({ productId: it.productId, vanKey: van, type: i.type, returnToStock: i.returnToStock, returnExpired: it.returnExpired ?? null, damaged: i.returnReason === 'DAMAGED', held: isHeld(i), qty: it.qty });
+      for (const it of i.items) invs.push({ productId: it.productId, vanKey: van, type: i.type, returnToStock: i.returnToStock, returnExpired: it.returnExpired ?? null, damaged: i.returnReason === 'DAMAGED', held: isHeld(i), qty: sqlBase(unitRow(it.qty, it.id)) });
     }
   }
   const agg = vanTotalsFromAgg(loads, invs, { foldStock, bucketRemaining });
   const heldAgg = vanHeldFromAgg(invs, { foldStock, bucketRemaining });
   const whAgg = warehouseOnHandAgg([
-    ...s.wh.map((w): WhTotalAgg => ({ productId: w.productId, source: 'WH', type: w.type, qty: w.qty })),
-    ...s.vanItems.map((v): WhTotalAgg => ({ productId: v.productId, source: 'VAN', type: v.type, qty: v.qty })),
+    ...s.wh.map((w, i): WhTotalAgg => ({ productId: w.productId, source: 'WH', type: w.type, qty: sqlBase(unitRow(w.qty, `W${i}`)) })),
+    ...s.vanItems.map((v, i): WhTotalAgg => ({ productId: v.productId, source: 'VAN', type: v.type, qty: sqlBase(unitRow(v.qty, i)) })),
   ]);
   for (const pid of PIDS) {
     eq(views.get(Sim.k(pid, WH))!.total!.SELLABLE, s.total.get(Sim.k(pid, WH, 'SELLABLE')) ?? 0, `${where}: رصيد المستودع ${pid}`);
@@ -728,9 +772,9 @@ function check(s: Sim, prev: Map<string, PlaceLotView> | null, opName: string, w
       }
     }
   }
-  // I3: صفوف كل بند = كميته بإشارتها
-  for (const it of s.vanItems) if (it.lots) assertI3(it.lots, it.qty, `${where}: بند سيارة`);
-  for (const i of s.invoices) for (const it of i.items) if (it.lots) assertI3(it.lots, it.qty, `${where}: بند فاتورة`);
+  // I3: صفوف كل بند = كميته الأساسية بإشارتها (lotBaseQty على صفّ البند بلقطة وحدته — D22)
+  s.vanItems.forEach((it, i) => { if (it.lots) assertI3(it.lots, lotBaseQty(unitRow(it.qty, i)), `${where}: بند سيارة`); });
+  for (const i of s.invoices) for (const it of i.items) if (it.lots) assertI3(it.lots, lotBaseQty(unitRow(it.qty, it.id)), `${where}: بند فاتورة`);
   return views;
 }
 
@@ -799,6 +843,10 @@ test('J1: ألف تسلسل عشوائي — الطيّ = النموذج الم�
     // والسيارة المحذوفة، والكسر بخمس خانات
     'VOID/unnamed', 'RESTOCK/held', 'LOAD/direct', 'UNLOAD/direct', 'UNLOAD/deleted', 'DELETE_REP', 'WH_ON', 'WH_OFF', 'QTY/refused']) {
     assert.ok((stats.get(must) ?? 0) >= 20, `تغطية ضعيفة لـ${must}: ${stats.get(must) ?? 0}`);
+  }
+  // D22 لكل سطر: أسطر الكرتون وقعت فعلاً، ومنها في بيعٍ بسطرين، وفيها انشقاقٌ موسوم
+  for (const [k, min] of [['lines', 100], ['multi', 40], ['split', 8], ['odd', 8]] as const) {
+    assert.ok(cartonStats[k] >= min, `تغطية ضعيفة لقاعدة الكرتون (${k}): ${JSON.stringify(cartonStats)}`);
   }
   for (const refusedOp of ['CANCEL/return-refused', 'RESTOCK/refused']) assert.ok((stats.get(refusedOp) ?? 0) >= 1, `لم يقع رفضٌ واحد لـ${refusedOp}`);
 });

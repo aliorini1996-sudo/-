@@ -1,8 +1,9 @@
 /**
  * «تتبّع اللوط» (التشغيلة) — القواعد الصرفة: الثوابت والطيّ والعروض والتوزيع والأقفال والأخطاء.
  *
- * صرفةٌ بلا قاعدة ولا Prisma ولا مسار: تستورد node:crypto و./shelfLife وحدهما، لأن فرعي إصدار المرحلة الثانية يستوردان
- * منها وهما ممنوعان من القاعدة (invoices-phase2-static.test.ts). التجميع في SQL والأقفال في services/lotsDb.ts.
+ * صرفةٌ بلا قاعدة ولا Prisma ولا مسار: تستورد node:crypto و./shelfLife و./units وحدها (والأخيرتان بلا أي import)، لأن فرعي
+ * إصدار المرحلة الثانية يستوردان منها وهما ممنوعان من القاعدة (invoices-phase2-static.test.ts). التجميع في SQL والأقفال في
+ * services/lotsDb.ts.
  *
  * المبادئ (المواصفة §٠):
  * - **الرصيد مشتق لا مخزَّن** (D1): الخام لكل (لوط، مكان، دلو) طيُّ صفوف التوزيع بعد حقبة الصنف، مقرَّباً لأربع خانات
@@ -18,6 +19,7 @@
  */
 import { createHash } from 'node:crypto';
 import { localDateIn } from './shelfLife';
+import { baseQtyOf } from './units';
 
 // ═══ §٢.١ الثوابت والأنواع ═══
 
@@ -25,7 +27,7 @@ export const LOT_EPS = 1e-6;
 
 /**
  * تقريب ٤ خانات نصف لأعلى — مساوٍ لـroundDecimal(n, 4) الذي يقرّب به رصيد الصنف (vanStock.ts:163، warehouseStock.ts:114).
- * نسخة حرفية من roundHalfUp (lib/money.ts) لأن الوحدة لا تستورد غير shelfLife؛ واختبار lots-fold يثبّت تطابقهما.
+ * نسخة حرفية من roundHalfUp (lib/money.ts) لأن الوحدة لا تستورد غير shelfLife وunits؛ واختبار lots-fold يثبّت تطابقهما.
  */
 export function roundLot(n: number): number {
   if (!Number.isFinite(n)) return n;
@@ -190,11 +192,12 @@ export function vanMoveEffect(t: VanMoveType): { bucket: LotBucket; sign: 1 | -1
   return { bucket: 'SELLABLE', sign: 1 };
 }
 
-/** الكمية الأساسية للسطر: baseQty ?? qty × (unitFactor ?? 1) — على master = qty (D22، D19) */
+/**
+ * الكمية الأساسية للسطر (D22، D19) = baseQtyOf (units.ts) حرفياً لا مرآةً: العمود المخزَّن مقرَّباً، وإلا qty × المعامل
+ * (المعامل الصفريّ أو السالب أو غير الرقم ١ كـfactorOf). وهي ما تُقارَن به Σ صفوف التوزيع (I3).
+ */
 export function lotBaseQty(row: { qty: number; baseQty?: number | null; unitFactor?: number | null }): number {
-  if (row.baseQty != null && Number.isFinite(row.baseQty)) return row.baseQty;
-  const f = row.unitFactor != null && Number.isFinite(row.unitFactor) ? row.unitFactor : 1;
-  return row.qty * f;
+  return baseQtyOf(row);
 }
 
 /**
@@ -525,44 +528,65 @@ function physicalSources(view: PlaceLotView, bucket: LotBucket): number {
 
 const blockFlag = (m: LotMeta): LotRowFlag => (m.blockKind === 'RECALL' ? 'REPLAY_RECALLED' : 'REPLAY_BLOCKED');
 
-interface Cand { lot: LotBalance | null; avail: number; flags: LotRowFlag[]; certainty: LotCertainty }
+interface Cand { lot: LotBalance; flags: LotRowFlag[]; certainty: LotCertainty }
+/** قطعةٌ من باقي السطر بعد مرحلة الكراتين، بترتيب الأخذ — مصدرها مرشّحٌ مسمّى أو غير المسمّى (null) */
+interface Piece { src: Cand | null; qty: number }
+
+/** معامل وحدةٍ تنطبق عليه قاعدة الكرتون (D22): أكبر من الأساس. التالف (٠ أو سالب أو غير رقم) أساسٌ: FEFO صرف */
+const isCartonFactor = (F: number): boolean => Number.isFinite(F) && F > 1;
 
 /**
- * يأخذ `qty` من مرشّحين مرتّبين. قاعدة الكرتون (D22) حين `carton` وF > 1: أولاً مضاعفات F كاملةً من لوطٍ واحد بالترتيب،
- * ثم الباقي بالترتيب نفسه؛ والباقي إن توزّع على لوطين أو أكثر فقد انقسمت وحدة (SPLIT_UNIT). القطعة الأخيرة تأخذ الباقي كما
- * هو حين يكفيها المتاح ضمن EPS، فمجموع الصفوف = الكمية.
+ * يأخذ `qty` من مرشّحين مرتّبين على متاحٍ مشترك بين أسطر الصنف (`pool` بالمعرّف، يُنقص منه ما يُؤخذ). قاعدة الكرتون (D22)
+ * حين `carton` وF > 1: أولاً مضاعفات F كاملةً من لوطٍ واحد بالترتيب، ثم الباقي بالترتيب نفسه قِطعاً (`pieces`) يُكشف منها
+ * تقسيم الوحدة (splitSources). القطعة الأخيرة تأخذ الباقي كما هو حين يكفيها المتاح ضمن EPS، فمجموع الصفوف = الكمية.
  */
-function takeOrdered(cands: Cand[], qty: number, unitFactor: number, carton: boolean): { taken: Map<Cand, number>; left: number; split: Set<Cand> } {
+function takeOrdered(cands: Cand[], pool: Map<string, number>, qty: number, unitFactor: number, carton: boolean):
+  { taken: Map<Cand, number>; left: number; pieces: Piece[] } {
   const taken = new Map<Cand, number>();
-  const split = new Set<Cand>();
-  const availLeft = new Map<Cand, number>(cands.map((c) => [c, c.avail]));
+  const pieces: Piece[] = [];
+  const availOf = (c: Cand) => pool.get(c.lot.lotId) ?? 0;
   let left = qty;
   const take = (c: Cand, t: number) => {
     taken.set(c, (taken.get(c) ?? 0) + t);
-    availLeft.set(c, (availLeft.get(c) ?? 0) - t);
+    pool.set(c.lot.lotId, availOf(c) - t);
     left = t === left ? 0 : left - t;
   };
   const F = unitFactor;
-  if (carton && Number.isFinite(F) && F > 1) {
+  if (carton && isCartonFactor(F)) {
     for (const c of cands) {
       if (left <= LOT_EPS) break;
-      const k = Math.floor((Math.min(availLeft.get(c) ?? 0, left) + LOT_EPS) / F);
+      const k = Math.floor((Math.min(availOf(c), left) + LOT_EPS) / F);
       if (k > 0) take(c, Math.abs(k * F - left) <= LOT_EPS ? left : k * F);
     }
   }
-  const phaseB: Cand[] = [];
   for (const c of cands) {
     if (left <= LOT_EPS) break;
-    const a = availLeft.get(c) ?? 0;
+    const a = availOf(c);
     if (a <= LOT_EPS) continue;
-    take(c, a >= left - LOT_EPS ? left : a);
-    phaseB.push(c);
+    const t = a >= left - LOT_EPS ? left : a;
+    take(c, t);
+    pieces.push({ src: c, qty: t });
   }
-  if (carton && Number.isFinite(F) && F > 1 && phaseB.length >= 2) for (const c of phaseB) split.add(c);
-  return { taken, left: left <= LOT_EPS ? 0 : left, split };
+  return { taken, left: left <= LOT_EPS ? 0 : left, pieces };
 }
 
-function rowsOf(cands: Cand[], taken: Map<Cand, number>, split: Set<Cand>, extraFlags: LotRowFlag[]): AllocRow[] {
+/**
+ * مصادر الوحدة المقسومة (D22): باقي السطر بعد مرحلة الكراتين يبدأ على حدّ وحدة، ويُملأ وحدةً بعد وحدة بترتيب الأخذ —
+ * المسمّى، ثم غير المسمّى (D17)، ثم الطبقة ٣ في الإعادة. فكلّ حدٍّ بين قطعتين متتاليتين لا يقع على مضاعفٍ لـF يقسم وحدةً
+ * بين مصدريهما، فيُوسَمان SPLIT_UNIT. الأساس (F ≤ 1) لا يُقسم.
+ */
+function splitSources(pieces: Piece[], F: number): Set<Cand | null> {
+  const out = new Set<Cand | null>();
+  if (!isCartonFactor(F)) return out;
+  let cum = 0;
+  for (let i = 0; i + 1 < pieces.length; i++) {
+    cum += pieces[i].qty;
+    if (Math.abs(cum - Math.round(cum / F) * F) > LOT_EPS * (i + 1)) { out.add(pieces[i].src); out.add(pieces[i + 1].src); }
+  }
+  return out;
+}
+
+function rowsOf(cands: Cand[], taken: Map<Cand, number>, split: ReadonlySet<Cand | null>, extraFlags: readonly LotRowFlag[]): AllocRow[] {
   const rows: AllocRow[] = [];
   for (const c of cands) {
     const q = taken.get(c);
@@ -570,12 +594,15 @@ function rowsOf(cands: Cand[], taken: Map<Cand, number>, split: Set<Cand>, extra
     const flags = new Set<LotRowFlag>(c.flags);
     if (split.has(c)) flags.add('SPLIT_UNIT');
     for (const f of extraFlags) flags.add(f);
-    rows.push({
-      lotId: c.lot ? c.lot.lotId : null, qty: q, certainty: c.lot ? c.certainty : 'UNKNOWN',
-      flags: LOT_ROW_FLAGS.filter((f) => flags.has(f)), expiryDate: c.lot ? c.lot.meta.expiryDate : null,
-    });
+    rows.push({ lotId: c.lot.lotId, qty: q, certainty: c.certainty, flags: LOT_ROW_FLAGS.filter((f) => flags.has(f)), expiryDate: c.lot.meta.expiryDate });
   }
   return rows;
+}
+
+/** صفّ غير المسمّى (UNKNOWN) بوسومه بترتيب LOT_ROW_FLAGS */
+function unknownRow(qty: number, flags: Iterable<LotRowFlag>): AllocRow {
+  const fl = new Set<LotRowFlag>(flags);
+  return { lotId: null, qty, certainty: 'UNKNOWN', flags: LOT_ROW_FLAGS.filter((f) => fl.has(f)), expiryDate: null };
 }
 
 function insufficient(input: { productId: string; productName: string; qty: number; view: PlaceLotView; day: string; allowUnknown: boolean }): LotError {
@@ -609,78 +636,140 @@ function explicitMeta(k: string, l: LotBalance | undefined, lookup: ReadonlyMap<
   return { meta };
 }
 
+/** سطرٌ من طلب إنقاصٍ لصنفٍ واحد (allocateOutLines): كميته الأساسية، ومعامل لقطة وحدته (factorOf)، وصريحه أو تلميحه */
+export interface OutLine { idx: number; qty: number; unitFactor: number; explicit?: LotRef[] | null; hint?: LotRef[] | null }
+export type OutLinesResult =
+  | { ok: true; lines: Map<number, AllocRow[]>; rows: AllocRow[]; warnings: LotWarning[] }
+  | { ok: false; error: LotError };
+
+const hasRefs = (r: LotRef[] | null | undefined): r is LotRef[] => !!r && r.length > 0;
+const refsSum = (r: LotRef[]) => r.reduce((s, x) => s + x.qty, 0);
+/** رتبة الخدمة (D22): الوحدة الأكبر أولاً، والأساس (والمعامل التالف) آخراً */
+const cartonRank = (F: number) => (isCartonFactor(F) ? F : 1);
+
 /**
- * توزيع إنقاصٍ من SELLABLE للبيع أو التحميل (I1، I4).
- * - **الكمية** بأربع خانات (isLotQty) وإلا LOT_QTY_INVALID — في المسار الحيّ والصريح؛ والإعادة لا تُرفض بها (R6).
- * - **الصريح** (الإدارة/المفتاح، مُجمَّع): بالترتيب — اللوط موجود في الشركة (بـ`lookup`) ومن الصنف، ACTIVE، غير منتهٍ يوم
- *   `day`، مجموعه ≤ صالحه؛ والفارغ ≤ unknownUsable وبشرط allowUnknown؛ ثم Σ = qty. اليقين CONFIRMED. البطاقة من `lookup`
- *   (loadLotMetas للمعرّفات الصريحة) ثم من العرض؛ ولوطٌ غائب عن العرض صالحه صفر.
- * - **بلا صريح، حيّاً**: المؤهَّلون بـFEFO بقاعدة الكرتون، ثم غير المسمّى إن كان allowUnknown (D17)، والباقي LOT_STOCK_INSUFFICIENT.
- * - **الإعادة** (`replay`، R6): التلميح إن صلح، وإلا الطبقات ١ (المؤهَّلون والموقوفون بعد البيع، بتقدّم firstInAt ≤ at)، ٢
- *   (غير المسمّى)، ٣ (HOLD ثم المنتهي ثم RECALL، ASSUMED بوسمها)؛ والنقص الباقي LOT_REPLAY_HELD (D20). allowUnknown لا يقيّدها.
- * - اليقين: صفّ مسمّى CONFIRMED إن كان المصدر المادي الوحيد (n_phys = 1) وإلا ASSUMED، وغير المسمّى UNKNOWN.
+ * توزيع إنقاصٍ من SELLABLE للبيع أو التحميل (I1، I4) — **لكل أسطر الصنف معاً**، ولكل سطرٍ صفوفه.
+ *
+ * لماذا لكل سطر لا للمجموع ثم distributeToLines: بعد الوحدات يتكرّر الصنف في سطرين بوحدتين («٢ كرتون + ٥ حبة»). توزيع
+ * المجموع بمعاملٍ واحد ثم تقسيمه على الأسطر بترتيبها يشقّ كرتوناً أبقته قاعدة الكرتون سليماً، بلا وسم (مراجعة الوحدات).
+ * فالفحص على المجموع (D26) بالبناء: الأسطر تأخذ من متاحٍ مشترك يُنقص منه ما أخذه كل سطرٍ قبله.
+ * - **الكمية** لكل سطر بأربع خانات (isLotQty) وإلا LOT_QTY_INVALID — في المسار الحيّ والصريح؛ والإعادة لا تُرفض بها (R6).
+ * - **الصريح** (الإدارة/المفتاح، لكل سطر): يُجمع على الأسطر ويُفحص بالترتيب — اللوط موجود في الشركة (بـ`lookup`) ومن الصنف،
+ *   ACTIVE، غير منتهٍ يوم `day`، مجموعه ≤ صالحه؛ والفارغ ≤ unknownUsable وبشرط allowUnknown؛ ثم Σ كل سطرٍ = كميته. صفوف
+ *   السطر صريحه كما هو، CONFIRMED. البطاقة من `lookup` ثم من العرض؛ ولوطٌ غائب عن العرض صالحه صفر. وسطرٌ بلا صريح يوزّعه
+ *   الخادم مما بقي بعد الصريح.
+ * - **ترتيب الخدمة** (D22): أسطر F > 1 أولاً بـF تنازلياً، ثم البقية بترتيبها — فيأخذ الكرتون كراتينه كاملةً من لوطٍ واحد قبل
+ *   أن تقتطع الحبّات منه.
+ * - **بلا صريح، حيّاً**: لكل سطر المؤهَّلون بـFEFO بقاعدة الكرتون بمعامله، ثم غير المسمّى إن كان allowUnknown (D17)، والنقص
+ *   LOT_STOCK_INSUFFICIENT على المجموع.
+ * - **الإعادة** (`replay`، R6): التلميح يُقبل للصنف كله أو يُترك كله (D16) — كل سطرٍ بتلميحٍ مجموعه كميته، ومجموع كل لوطٍ على
+ *   الأسطر ≤ صالحه — فتكون صفوف كل سطرٍ تلميحه كما طُبع على الورقة. وإلا لكل سطر الطبقات ١ (المؤهَّلون والموقوفون بعد البيع،
+ *   بتقدّم firstInAt ≤ at)، ٢ (غير المسمّى)، ٣ (HOLD ثم المنتهي ثم RECALL، ASSUMED بوسمها)؛ والنقص LOT_REPLAY_HELD (D20)
+ *   على المجموع. allowUnknown لا يقيّدها.
+ * - **الوحدة المقسومة** (D22): كل كرتونٍ انقسم بين مصدرين — لوطين، أو لوطٍ وغير المسمّى، أو طبقتين — يُوسَم صفّاه SPLIT_UNIT،
+ *   ويُرفع LOT_SPLIT_UNIT لسطره `{unitFactor, idx}`.
+ * - اليقين: صفّ مسمّى CONFIRMED إن كان المصدر المادي الوحيد في المكان (n_phys = 1) وإلا ASSUMED، وغير المسمّى UNKNOWN.
+ * `lines` بترتيب الإدخال (السطر الصفري بلا صفوف)، و`rows` صفوفها متتابعةً.
  */
-export function allocateOut(input: {
-  productId: string; productName: string; qty: number; unitFactor: number;
+export function allocateOutLines(input: {
+  productId: string; productName: string;
+  lines: OutLine[];
   view: PlaceLotView; day: string; mode: 'SALE' | 'LOAD';
   allowUnknown: boolean;                                  // D17
-  explicit?: LotRef[] | null;                             // الإدارة/المفتاح (مُجمَّع)
-  hint?: LotRef[] | null;                                 // الإعادة (مُجمَّع)
   replay?: { at: Date; clamped: boolean } | null;
   lookup?: ReadonlyMap<string, LotMeta> | null;           // بطاقات اللوطات الصريحة (loadLotMetas) — للوجود والصنف والحالة خارج العرض
-}): AllocResult {
+}): OutLinesResult {
   const { view, day, productId } = input;
-  const qty = input.qty;
   const warnings: LotWarning[] = [];
-  if (!Number.isFinite(qty) || qty < 0) return { ok: false, error: lotErr('LOT_QTY_INVALID', {}, { productId, wanted: qty }) };
-  if (qty <= LOT_EPS) return { ok: true, rows: [], warnings };
-  if (!input.replay && !isLotQty(qty)) return { ok: false, error: lotErr('LOT_QTY_INVALID', {}, { productId, wanted: qty, decimals: 4 }) };
+  const lines = new Map<number, AllocRow[]>();
+  const fail = (error: LotError): OutLinesResult => ({ ok: false, error });
+  for (const l of input.lines) {
+    if (!Number.isFinite(l.qty) || l.qty < 0) return fail(lotErr('LOT_QTY_INVALID', {}, { productId, wanted: l.qty }));
+    if (l.qty > LOT_EPS && !input.replay && !isLotQty(l.qty)) return fail(lotErr('LOT_QTY_INVALID', {}, { productId, wanted: l.qty, decimals: 4 }));
+    lines.set(l.idx, []);
+  }
+  const done = (): OutLinesResult => ({ ok: true, lines, rows: [...lines.values()].flat(), warnings });
+  const live = input.lines.filter((l) => l.qty > LOT_EPS);
+  if (!live.length) return done();
+  const total = live.reduce((s, l) => s + l.qty, 0);
   const byId = new Map(view.lots.map((l) => [l.lotId, l]));
   const nPhys = physicalSources(view, 'SELLABLE');
   const namedCertainty: LotCertainty = nPhys === 1 ? 'CONFIRMED' : 'ASSUMED';
   const uu = unknownUsableOf(view, 'SELLABLE');
+  // المتاح المشترك بين الأسطر (D26): كل سطرٍ يأخذ مما تركه ما قبله
+  const pool = new Map<string, number>(view.lots.map((l) => [l.lotId, l.usable.SELLABLE]));
+  let uuLeft = uu;
 
   // ── الصريح ──
-  if (input.explicit && input.explicit.length) {
-    const want = mergeRefs(input.explicit);
-    const rows: AllocRow[] = [];
+  const explicitLines = live.filter((l) => hasRefs(l.explicit));
+  if (explicitLines.length) {
+    const want = mergeRefs(explicitLines.flatMap((l) => l.explicit ?? []));
+    const metas = new Map<string, LotMeta | null>();
     for (const [k, q] of want) {
       if (k === LOT_UNKNOWN_KEY) continue;
       const l = byId.get(k);
       const found = explicitMeta(k, l, input.lookup, productId, input.productName);
-      if ('error' in found) return { ok: false, error: found.error };
+      if ('error' in found) return fail(found.error);
       const m = found.meta;
-      if (m && m.status !== 'ACTIVE') {
-        return { ok: false, error: lotErr('LOT_BLOCKED', { lot: m.lotNumber }, { productId, lotId: k, blockKind: m.blockKind }) };
-      }
+      if (m && m.status !== 'ACTIVE') return fail(lotErr('LOT_BLOCKED', { lot: m.lotNumber }, { productId, lotId: k, blockKind: m.blockKind }));
       if (m && isLotExpiredOn(m, day)) {
-        return { ok: false, error: lotErr('LOT_EXPIRED', { lot: m.lotNumber, date: m.expiryDate }, { productId, lotId: k, expiryDate: m.expiryDate }) };
+        return fail(lotErr('LOT_EXPIRED', { lot: m.lotNumber, date: m.expiryDate }, { productId, lotId: k, expiryDate: m.expiryDate }));
       }
       const usable = l ? l.usable.SELLABLE : 0;
       if (q > usable + LOT_EPS) {
-        return {
-          ok: false,
-          error: lotErr('LOT_STOCK_INSUFFICIENT', { name: input.productName, place: placeLabel(view.place), available: fmtQty(usable) },
-            { productId, lotId: k, lotNumber: m?.lotNumber ?? null, wanted: q, usable }),
-        };
+        return fail(lotErr('LOT_STOCK_INSUFFICIENT', { name: input.productName, place: placeLabel(view.place), available: fmtQty(usable) },
+          { productId, lotId: k, lotNumber: m?.lotNumber ?? null, wanted: q, usable }));
       }
-      rows.push({ lotId: k, qty: q, certainty: 'CONFIRMED', flags: [], expiryDate: m ? m.expiryDate : null });
+      metas.set(k, m);
     }
     const uq = want.get(LOT_UNKNOWN_KEY);
-    if (uq != null) {
-      if (!input.allowUnknown || uq > Math.max(0, uu) + LOT_EPS) {
-        return {
-          ok: false,
-          error: lotErr('LOT_STOCK_INSUFFICIENT', { name: input.productName, place: placeLabel(view.place), available: fmtQty(input.allowUnknown ? uu : 0) },
-            { productId, lotId: null, wanted: uq, unknownUsable: uu, allowUnknown: input.allowUnknown }),
-        };
-      }
-      rows.push({ lotId: null, qty: uq, certainty: 'UNKNOWN', flags: [], expiryDate: null });
+    if (uq != null && (!input.allowUnknown || uq > Math.max(0, uu) + LOT_EPS)) {
+      return fail(lotErr('LOT_STOCK_INSUFFICIENT', { name: input.productName, place: placeLabel(view.place), available: fmtQty(input.allowUnknown ? uu : 0) },
+        { productId, lotId: null, wanted: uq, unknownUsable: uu, allowUnknown: input.allowUnknown }));
     }
-    const sum = rows.reduce((s, r) => s + r.qty, 0);
-    if (Math.abs(sum - qty) > LOT_EPS) return { ok: false, error: lotErr('LOT_QTY_INVALID', {}, { productId, wanted: qty, sum }) };
-    return { ok: true, rows, warnings };
+    for (const l of explicitLines) {
+      const sum = refsSum(l.explicit ?? []);
+      if (Math.abs(sum - l.qty) > LOT_EPS) return fail(lotErr('LOT_QTY_INVALID', {}, { productId, wanted: l.qty, sum }));
+    }
+    for (const l of explicitLines) {
+      const mine = mergeRefs(l.explicit ?? []);
+      const rows: AllocRow[] = [];
+      for (const [k, q] of mine) if (k !== LOT_UNKNOWN_KEY) rows.push({ lotId: k, qty: q, certainty: 'CONFIRMED', flags: [], expiryDate: metas.get(k)?.expiryDate ?? null });
+      const u = mine.get(LOT_UNKNOWN_KEY);
+      if (u != null) rows.push(unknownRow(u, []));
+      for (const r of rows) {
+        if (r.lotId == null) uuLeft -= r.qty;
+        else pool.set(r.lotId, (pool.get(r.lotId) ?? 0) - r.qty);
+      }
+      lines.set(l.idx, rows);
+    }
   }
+  const auto = live.filter((l) => !hasRefs(l.explicit));
+  if (!auto.length) return done();
+  const order = auto.map((l, i) => ({ l, i }))
+    .sort((a, b) => cartonRank(b.l.unitFactor) - cartonRank(a.l.unitFactor) || a.i - b.i)
+    .map((x) => x.l);
+  const laterQty = (i: number) => order.slice(i + 1).reduce((s, l) => s + l.qty, 0);
+  const splitLines: { idx: number; unitFactor: number }[] = [];
+  let fromUnknown = false;
+  /** غير المسمّى بعد المسمّى لسطرٍ (الطبقة ٢، أو D17 حيّاً) — قطعةٌ في سلسلة السطر */
+  const takeUnknown = (left: number, pieces: Piece[]): { left: number; uq: number } => {
+    if (!(left > LOT_EPS && uuLeft > LOT_EPS)) return { left, uq: 0 };
+    const uq = uuLeft >= left - LOT_EPS ? left : uuLeft;
+    uuLeft -= uq;
+    pieces.push({ src: null, qty: uq });
+    fromUnknown = true;
+    return { left: uq === left ? 0 : left - uq, uq };
+  };
+  const flagNotice = () => {
+    const all = [...lines.values()].flat();
+    if (all.some((r) => r.flags.some((f) => REPLAY_NOTICE_FLAGS.has(f)))) {
+      warnings.push({ code: 'LOT_REPLAY_FLAGGED', productId, detail: { flags: [...new Set(all.flatMap((r) => r.flags))] } });
+    }
+  };
+  const splitWarnings = () => {
+    for (const s of splitLines) warnings.push({ code: 'LOT_SPLIT_UNIT', productId, detail: { unitFactor: s.unitFactor, idx: s.idx } });
+  };
 
   // ── الإعادة (R6) ──
   if (input.replay) {
@@ -693,31 +782,31 @@ export function allocateOut(input: {
       return f;
     };
     let hintRejected = false;
-    // الطبقة ٠: التلميح — يُلتزم به ما دام مجموعه على كل لوط ≤ صالحه أيّاً كانت حالته، ومجموعه = الكمية (D16)
-    if (input.hint && input.hint.length) {
-      const want = mergeRefs(input.hint);
-      let ok = Math.abs([...want.values()].reduce((s, q) => s + q, 0) - qty) <= LOT_EPS;
-      for (const [k, q] of want) {
-        if (!ok) break;
-        if (k === LOT_UNKNOWN_KEY) ok = q <= Math.max(0, uu) + LOT_EPS;
-        else { const l = byId.get(k); ok = !!l && l.meta.productId === productId && q <= l.usable.SELLABLE + LOT_EPS; }
+    // الطبقة ٠: التلميح — للصنف كله أو لا شيء (D16): لكل سطرٍ تلميحٌ مجموعه كميته، ومجموع كل لوطٍ ≤ صالحه أيّاً كانت حالته
+    if (auto.some((l) => hasRefs(l.hint))) {
+      let ok = auto.every((l) => hasRefs(l.hint) && Math.abs(refsSum(l.hint) - l.qty) <= LOT_EPS);
+      if (ok) {
+        for (const [k, q] of mergeRefs(auto.flatMap((l) => l.hint ?? []))) {
+          if (k === LOT_UNKNOWN_KEY) ok = q <= Math.max(0, uuLeft) + LOT_EPS;
+          else { const b = byId.get(k); ok = !!b && b.meta.productId === productId && q <= (pool.get(k) ?? 0) + LOT_EPS; }
+          if (!ok) break;
+        }
       }
       if (ok) {
-        const rows: AllocRow[] = [];
-        let fromUnknown = false;
-        for (const [k, q] of want) {
-          if (k === LOT_UNKNOWN_KEY) {
-            fromUnknown = true;
-            rows.push({ lotId: null, qty: q, certainty: 'UNKNOWN', flags: LOT_ROW_FLAGS.filter((f) => base.includes(f)), expiryDate: null });
-          } else {
-            const l = byId.get(k)!;
-            const fl = new Set<LotRowFlag>([...markOf(l), ...base]);
-            rows.push({ lotId: k, qty: q, certainty: namedCertainty, flags: LOT_ROW_FLAGS.filter((f) => fl.has(f)), expiryDate: l.meta.expiryDate });
+        // صفوف كل سطرٍ تلميحه كما هو — لوط كل سطرٍ في السجل هو ما طُبع على ورقته
+        for (const l of auto) {
+          const rows: AllocRow[] = [];
+          for (const [k, q] of mergeRefs(l.hint ?? [])) {
+            if (k === LOT_UNKNOWN_KEY) { fromUnknown = true; rows.push(unknownRow(q, base)); continue; }
+            const b = byId.get(k)!;
+            const fl = new Set<LotRowFlag>([...markOf(b), ...base]);
+            rows.push({ lotId: k, qty: q, certainty: namedCertainty, flags: LOT_ROW_FLAGS.filter((f) => fl.has(f)), expiryDate: b.meta.expiryDate });
           }
+          lines.set(l.idx, rows);
         }
         if (fromUnknown) warnings.push({ code: 'LOT_FROM_UNKNOWN', productId });
-        if (rows.some((r) => r.flags.some((f) => REPLAY_NOTICE_FLAGS.has(f)))) warnings.push({ code: 'LOT_REPLAY_FLAGGED', productId, detail: { flags: [...new Set(rows.flatMap((r) => r.flags))] } });
-        return { ok: true, rows, warnings };
+        flagNotice();
+        return done();
       }
       hintRejected = true;
     }
@@ -732,57 +821,78 @@ export function allocateOut(input: {
     }
     const entered = (l: LotBalance) => { const t = view.firstInAt.get(l.lotId); return t != null && t <= at ? 0 : 1; };
     l1.sort((a, b) => entered(a) - entered(b) || fefoCompare(a.meta, b.meta));
-    const c1: Cand[] = l1.map((l) => ({ lot: l, avail: l.usable.SELLABLE, flags: l.meta.status !== 'ACTIVE' ? [blockFlag(l.meta)] : [], certainty: namedCertainty }));
-    const t1 = takeOrdered(c1, qty, input.unitFactor, true);
-    let left = t1.left;
-    const rows: AllocRow[] = rowsOf(c1, t1.taken, t1.split, extra);
-    // الطبقة ٢: غير المسمّى
-    if (left > LOT_EPS && uu > LOT_EPS) {
-      const t = uu >= left - LOT_EPS ? left : uu;
-      rows.push({ lotId: null, qty: t, certainty: 'UNKNOWN', flags: LOT_ROW_FLAGS.filter((f) => extra.includes(f)), expiryDate: null });
-      warnings.push({ code: 'LOT_FROM_UNKNOWN', productId });
-      left = t === left ? 0 : left - t;
-    }
+    const c1: Cand[] = l1.map((l) => ({ lot: l, flags: l.meta.status !== 'ACTIVE' ? [blockFlag(l.meta)] : [], certainty: namedCertainty }));
     // الطبقة ٣: الموقوف HOLD، ثم المنتهي، ثم المسحوب RECALL آخراً — مفترَضةً بوسمها
-    if (left > LOT_EPS) {
-      const group = (l: LotBalance) => (l.meta.status !== 'ACTIVE' ? (l.meta.blockKind === 'RECALL' ? 2 : 0) : 1);
-      const l3 = view.lots.filter((l) => !l1Set.has(l.lotId) && l.usable.SELLABLE > LOT_EPS)
-        .sort((a, b) => group(a) - group(b) || fefoCompare(a.meta, b.meta));
-      const c3: Cand[] = l3.map((l) => ({ lot: l, avail: l.usable.SELLABLE, flags: markOf(l), certainty: 'ASSUMED' }));
-      const t3 = takeOrdered(c3, left, input.unitFactor, false);
-      left = t3.left;
-      rows.push(...rowsOf(c3, t3.taken, t3.split, extra));
-    }
-    if (left > LOT_EPS) {
-      return {
-        ok: false,
-        error: lotErr('LOT_REPLAY_HELD', {}, {
-          productId, wanted: qty, missing: roundLot(left),
+    const group = (l: LotBalance) => (l.meta.status !== 'ACTIVE' ? (l.meta.blockKind === 'RECALL' ? 2 : 0) : 1);
+    const l3 = view.lots.filter((l) => !l1Set.has(l.lotId) && l.usable.SELLABLE > LOT_EPS)
+      .sort((a, b) => group(a) - group(b) || fefoCompare(a.meta, b.meta));
+    const c3: Cand[] = l3.map((l) => ({ lot: l, flags: markOf(l), certainty: 'ASSUMED' }));
+    for (let i = 0; i < order.length; i++) {
+      const line = order[i];
+      const t1 = takeOrdered(c1, pool, line.qty, line.unitFactor, true);
+      const pieces = [...t1.pieces];
+      const u = takeUnknown(t1.left, pieces);
+      const uq = u.uq;
+      let left = u.left;
+      let t3: ReturnType<typeof takeOrdered> | null = null;
+      if (left > LOT_EPS) { t3 = takeOrdered(c3, pool, left, line.unitFactor, false); left = t3.left; pieces.push(...t3.pieces); }
+      if (left > LOT_EPS) {
+        return fail(lotErr('LOT_REPLAY_HELD', {}, {
+          productId, wanted: total, missing: roundLot(left + laterQty(i)),
           usable: roundLot(view.lots.reduce((s, l) => s + Math.max(0, l.usable.SELLABLE), 0) + Math.max(0, uu)),
-        }),
-      };
+        }));
+      }
+      const split = splitSources(pieces, line.unitFactor);
+      const rows = rowsOf(c1, t1.taken, split, extra);
+      if (uq > 0) rows.push(unknownRow(uq, split.has(null) ? [...extra, 'SPLIT_UNIT'] : extra));
+      if (t3) rows.push(...rowsOf(c3, t3.taken, split, extra));
+      lines.set(line.idx, rows);
+      if (split.size) splitLines.push({ idx: line.idx, unitFactor: line.unitFactor });
     }
+    if (fromUnknown) warnings.push({ code: 'LOT_FROM_UNKNOWN', productId });
     if (hintRejected) warnings.push({ code: 'LOT_HINT_REJECTED', productId });
-    if (t1.split.size) warnings.push({ code: 'LOT_SPLIT_UNIT', productId, detail: { unitFactor: input.unitFactor } });
-    if (rows.some((r) => r.flags.some((f) => REPLAY_NOTICE_FLAGS.has(f)))) warnings.push({ code: 'LOT_REPLAY_FLAGGED', productId, detail: { flags: [...new Set(rows.flatMap((r) => r.flags))] } });
-    return { ok: true, rows, warnings };
+    splitWarnings();
+    flagNotice();
+    return done();
   }
 
   // ── المسار الحيّ بلا صريح ──
   const eligible = view.lots.filter((l) => isEligible(l, day)).sort((a, b) => fefoCompare(a.meta, b.meta));
-  const cands: Cand[] = eligible.map((l) => ({ lot: l, avail: l.usable.SELLABLE, flags: [], certainty: namedCertainty }));
-  const t = takeOrdered(cands, qty, input.unitFactor, true);
-  let left = t.left;
-  const rows = rowsOf(cands, t.taken, t.split, []);
-  if (left > LOT_EPS && input.allowUnknown && uu > LOT_EPS) {
-    const q = uu >= left - LOT_EPS ? left : uu;
-    rows.push({ lotId: null, qty: q, certainty: 'UNKNOWN', flags: [], expiryDate: null });
-    warnings.push({ code: 'LOT_FROM_UNKNOWN', productId });
-    left = q === left ? 0 : left - q;
+  const cands: Cand[] = eligible.map((l) => ({ lot: l, flags: [], certainty: namedCertainty }));
+  for (const line of order) {
+    const t = takeOrdered(cands, pool, line.qty, line.unitFactor, true);
+    const pieces = [...t.pieces];
+    const { left, uq } = input.allowUnknown ? takeUnknown(t.left, pieces) : { left: t.left, uq: 0 };
+    if (left > LOT_EPS) return fail(insufficient({ productId, productName: input.productName, qty: total, view, day, allowUnknown: input.allowUnknown }));
+    const split = splitSources(pieces, line.unitFactor);
+    const rows = rowsOf(cands, t.taken, split, []);
+    if (uq > 0) rows.push(unknownRow(uq, split.has(null) ? ['SPLIT_UNIT'] : []));
+    lines.set(line.idx, rows);
+    if (split.size) splitLines.push({ idx: line.idx, unitFactor: line.unitFactor });
   }
-  if (left > LOT_EPS) return { ok: false, error: insufficient({ ...input, view }) };
-  if (t.split.size) warnings.push({ code: 'LOT_SPLIT_UNIT', productId, detail: { unitFactor: input.unitFactor } });
-  return { ok: true, rows, warnings };
+  if (fromUnknown) warnings.push({ code: 'LOT_FROM_UNKNOWN', productId });
+  splitWarnings();
+  return done();
+}
+
+/**
+ * توزيع إنقاصٍ من SELLABLE لسطرٍ واحد = allocateOutLines بسطرٍ واحد (القواعد هناك). صنفٌ في أكثر من سطر يُوزَّع بـallocateOutLines
+ * لا بهذه على المجموع ثم distributeToLines: المجموع بمعاملٍ واحد يشقّ كرتون سطرٍ بلا وسم (D22). وتحذير LOT_SPLIT_UNIT هنا
+ * `{unitFactor}` بلا فهرس.
+ */
+export function allocateOut(input: {
+  productId: string; productName: string; qty: number; unitFactor: number;
+  view: PlaceLotView; day: string; mode: 'SALE' | 'LOAD';
+  allowUnknown: boolean;                                  // D17
+  explicit?: LotRef[] | null;                             // الإدارة/المفتاح
+  hint?: LotRef[] | null;                                 // الإعادة
+  replay?: { at: Date; clamped: boolean } | null;
+  lookup?: ReadonlyMap<string, LotMeta> | null;           // بطاقات اللوطات الصريحة (loadLotMetas) — للوجود والصنف والحالة خارج العرض
+}): AllocResult {
+  const { qty, unitFactor, explicit, hint, ...rest } = input;
+  const r = allocateOutLines({ ...rest, lines: [{ idx: 0, qty, unitFactor, explicit, hint }] });
+  if (!r.ok) return r;
+  return { ok: true, rows: r.rows, warnings: r.warnings.map((w) => (w.code === 'LOT_SPLIT_UNIT' ? { ...w, detail: { unitFactor } } : w)) };
 }
 
 /**
@@ -966,7 +1076,8 @@ export function allocateReturnFromSale(input: {
 
 /**
  * يوزّع صفوف صنفٍ مجمَّع على أسطر الطلب بالترتيب (الصف يُقسم بين سطرين حين يلزم) — Σ صفوف كل سطر = كميته (I3).
- * الصريح لكل سطر يُستعمل كما هو عند المستدعي؛ هذه للتوزيع التلقائي. اختلاف المجموعين خطأ برمجي فيرمي.
+ * لا تعرف الوحدة: لصفوفٍ لا كرتون فيها يُشقّ — مصدرٌ واحد (pickOutSources التلقائي). البيع والتحميل بـallocateOutLines
+ * (قاعدة الكرتون لكل سطر، D22)، والصريح والتلميح لكل سطر كما هو. اختلاف المجموعين خطأ برمجي فيرمي.
  */
 export function distributeToLines(rows: AllocRow[], lines: { idx: number; qty: number }[]): Map<number, AllocRow[]> {
   const out = new Map<number, AllocRow[]>();
@@ -1128,13 +1239,30 @@ export function lotErrorBody(e: LotError): { success: false; code: string; messa
 }
 
 const BUSY_SQLSTATES = new Set(['55P03', '40P01']);
+const errFields = (e: unknown) => {
+  const o = e as { code?: unknown; meta?: { code?: unknown } | null; message?: unknown } | null | undefined;
+  return {
+    code: typeof o?.code === 'string' ? o.code : '',
+    metaCode: typeof o?.meta?.code === 'string' ? o.meta.code : '',
+    msg: typeof o?.message === 'string' ? o.message : '',
+  };
+};
+
+/**
+ * انتظار قفلٍ وحده ⇒ LotError('LOT_BUSY', 503): 55P03 (مهلة lock_timeout) أو 40P01 (تعطّل متبادل)، أو LOT_BUSY نفسه؛ وإلا null.
+ * لمسارٍ لا يكون فيه كل P2028 انشغالاً — مهلة معاملةٍ طويلة (convert-base، ١٢٠ ثانية) ليست «أعد المحاولة».
+ */
+export function asLockBusy(e: unknown): LotError | null {
+  if (e instanceof LotError) return e.code === 'LOT_BUSY' ? e : null;
+  const { code, metaCode, msg } = errFields(e);
+  const busy = BUSY_SQLSTATES.has(code) || BUSY_SQLSTATES.has(metaCode) || /\b55P03\b|\b40P01\b|lock timeout|deadlock detected/i.test(msg);
+  return busy ? lotErr('LOT_BUSY', {}, { cause: code || metaCode || 'LOCK' }) : null;
+}
+
 /** 55P03 أو 40P01 أو P2028 أو انشغال الطابور ⇒ LotError('LOT_BUSY', 503)؛ وإلا null */
 export function asLotBusy(e: unknown): LotError | null {
   if (e instanceof LotError) return e.code === 'LOT_BUSY' ? e : null;
-  const o = e as { code?: unknown; meta?: { code?: unknown } | null; message?: unknown } | null | undefined;
-  const code = typeof o?.code === 'string' ? o.code : '';
-  const metaCode = typeof o?.meta?.code === 'string' ? o.meta.code : '';
-  const msg = typeof o?.message === 'string' ? o.message : '';
+  const { code, metaCode, msg } = errFields(e);
   const busy = code === 'P2028' || code === 'P2034' || BUSY_SQLSTATES.has(code) || BUSY_SQLSTATES.has(metaCode)
     || /\b55P03\b|\b40P01\b|lock timeout|deadlock detected|Transaction already closed|expired transaction/i.test(msg);
   return busy ? lotErr('LOT_BUSY', {}, { cause: code || metaCode || 'LOCK' }) : null;

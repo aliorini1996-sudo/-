@@ -241,7 +241,11 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
     nested: {
       items: {
         model: 'warehouseEntryItem',
-        denied: { id: 'البند يُعرَّف بحركته وصنفه', entryId: PARENT, expiresAt: 'مهجور: الصلاحية تُحسب من تاريخ البيع لا التوريد' },
+        denied: {
+          id: 'البند يُعرَّف بحركته وصنفه', entryId: PARENT, expiresAt: 'مهجور: الصلاحية تُحسب من تاريخ البيع لا التوريد',
+          // «تتبّع اللوط»: محجوبٌ حتى تحسم الحزمة B7 كشفه — الميزة مطفأة فلا تغيير في شكل الرد (§١٠.١)
+          lotId: 'تشغيلة السطر («تتبّع اللوط») — كشفها تقرّره الحزمة B7 (§٥.٣ مقابل §١٠.١)',
+        },
       },
     },
   },

@@ -3,9 +3,13 @@
 // والحجز)، وعروض الأماكن من المجاميع، ويوم الشركة. لا قاعدة بيانات.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { Prisma } from '@prisma/client';
 import { DAMAGED_VAN_SINCE } from '../services/vanDamaged';
-import { LOT_HOLD_MIRRORS, LotError, sortedLockKeys } from '../services/lots';
+import { II_BASE_QTY } from '../ai-rep/baseQty';
+import { baseQtyOf } from '../services/units';
+import { LOT_HOLD_MIRRORS, LotError, lotBaseQty, sortedLockKeys } from '../services/lots';
 import {
   BASE_QTY_SQL, LOT_LOCK_TIMEOUT, aggInvLots, aggRelabels, aggVanInvoices, aggVanLots, aggVanTotals, aggWarehouseTotals, aggWhLots, companyDay,
   createLotQueue, loadLotMetas, lockLotProducts, placeViews, recordLotEvent, resolveOrCreateLot, type LotTx,
@@ -271,7 +275,32 @@ test('SQL: التسميات وأسطر المستودع بالحقبة، ومج�
   assert.ok(vl.includes('vl."salesRepId" = ANY(') && vi.includes('i."salesRepId" = ANY(') && vi.includes(`i.status = 'CONFIRMED'`), 'مرشّحات computeStock');
   assert.ok(vi.includes(`i.type = 'RETURN' AND i."zatcaPhase" = 2 AND i."invoiceSubtype" = '01'`) && vi.includes('AS held'), 'البنود تحمل الحجز للمحجوز الكلي (D24)');
   assert.ok(wv.includes(`vl.type IN ('LOAD', 'UNLOAD')`) && !wv.includes('salesRepId'), 'المستودع: كل السيارات ومنها المحذوفة');
-  assert.equal(BASE_QTY_SQL.sql, 'qty', 'D19: اللوط أولاً على master ⇒ qty');
+  // D19 (الوحدات أولاً): تعبير الوحدات نفسه بلا اسمٍ مستعار — II_BASE_QTY (ai-rep/baseQty.ts) ومُطلِق القاعدة
+  assert.equal(BASE_QTY_SQL.sql, II_BASE_QTY.sql.replace(/\bii\./g, ''), 'BASE_QTY_SQL = II_BASE_QTY بلا ii.');
+  assert.equal(BASE_QTY_SQL.values.length, 0, 'مقطعٌ ثابت بلا قيم');
+  const trigger = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'backfillBaseQty.ts'), 'utf8');
+  assert.ok(trigger.includes('NEW."baseQty" := NEW."qty" * COALESCE(NULLIF(NEW."unitFactor", 0), 1);'), 'المُطلِق يحسب الأساس بالتعبير نفسه');
+});
+
+test('BASE_QTY_SQL بالدلالة = baseQtyOf (units.ts) = lotBaseQty على صفوفٍ بلقطاتٍ متنوّعة', () => {
+  // مرآة SQL صرفة للتعبير: COALESCE(baseQty, qty * COALESCE(NULLIF(unitFactor, 0), 1)) — العمود unitFactor غير فارغ (@default(1))
+  const sqlBase = (r: { qty: number; baseQty: number | null; unitFactor: number }) => r.baseQty ?? r.qty * (r.unitFactor === 0 ? 1 : r.unitFactor);
+  const rows = [
+    { qty: 2, baseQty: null, unitFactor: 24 }, { qty: 2, baseQty: 48, unitFactor: 24 }, { qty: 3, baseQty: null, unitFactor: 1 },
+    { qty: 1.5, baseQty: null, unitFactor: 6 }, { qty: 0, baseQty: 0, unitFactor: 12 }, { qty: 5, baseQty: null, unitFactor: 0 },
+    { qty: -4, baseQty: null, unitFactor: 6 }, { qty: 0.125, baseQty: 3, unitFactor: 24 },
+  ];
+  for (const r of rows) {
+    assert.equal(sqlBase(r), baseQtyOf(r), `SQL ≠ baseQtyOf ${JSON.stringify(r)}`);
+    assert.equal(lotBaseQty(r), baseQtyOf(r), `lotBaseQty ≠ baseQtyOf ${JSON.stringify(r)}`);
+  }
+  // حوافّ baseQtyOf التي لا تبلغها القاعدة (المعامل يُتحقَّق منه عند الكتابة): lotBaseQty يتبعها حرفياً لا مرآةً
+  for (const r of [{ qty: 2, unitFactor: null }, { qty: 2 }, { qty: 2, unitFactor: -3 }, { qty: 2, unitFactor: Number.NaN }, { qty: 2, baseQty: Number.NaN, unitFactor: 12 },
+    { qty: 0.1 + 0.2, unitFactor: 1 }, { qty: Number.NaN, unitFactor: 6 }]) {
+    assert.equal(lotBaseQty(r), baseQtyOf(r), `lotBaseQty ≠ baseQtyOf ${JSON.stringify(r)}`);
+  }
+  assert.equal(lotBaseQty({ qty: 2, unitFactor: 24 }), 48);
+  assert.equal(lotBaseQty({ qty: 2, baseQty: 5, unitFactor: 24 }), 5, 'العمود المخزَّن يسبق اللقطة');
 });
 
 // ── عروض الأماكن ──

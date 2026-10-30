@@ -12,6 +12,7 @@
 // ============================================================================
 
 import { roundHalfUp } from './money';
+import { baseQtyOf } from './units';
 
 export const LOT_EPS = 1e-6;
 /** صفوف لوط لكل سطر في الطلب */
@@ -197,7 +198,7 @@ export interface LotTrackingRequest { enabled: boolean; productIds?: string[]; c
 // ─── التسميات (مفاتيح القاموس — تُعرض بـtr) ───
 
 export const LOT_CERTAINTY_LABELS: Record<LotCertainty, string> = { CONFIRMED: 'مؤكد', ASSUMED: 'مفترض', UNKNOWN: 'غير معروف' };
-export const LOT_STATUS_LABELS: Record<LotStatus, string> = { ACTIVE: 'نشطة', BLOCKED: 'موقوفة' };
+export const LOT_STATUS_LABELS: Record<LotStatus, string> = { ACTIVE: 'نشطة', BLOCKED: 'تشغيلة موقوفة' };
 export const LOT_BLOCK_KIND_LABELS: Record<LotBlockKind, string> = { HOLD: 'إيقاف احترازي', RECALL: 'سحب من السوق' };
 export const LOT_BUCKET_LABELS: Record<LotBucket, string> = { SELLABLE: 'صالح للبيع', EXPIRED: 'منتهي الصلاحية', DAMAGED: 'تالف' };
 export const LOT_PLACE_LABELS: Record<LotPlace, string> = { WAREHOUSE: 'المستودع', VAN: 'سيارة المندوب' };
@@ -305,11 +306,12 @@ export function lotDatesProblem(
   return null;
 }
 
-/** الكمية الأساسية — مرآة lotBaseQty: baseQty ?? qty × (unitFactor ?? 1). على master (اللوط أولاً، D19) = qty */
+/**
+ * الكمية الأساسية (D19، الوحدات أولاً) = baseQtyOf (lib/units.ts) حرفياً، كما lotBaseQty في الخادم = baseQtyOf فيه:
+ * العمود المخزَّن مقرَّباً، وإلا qty × المعامل (التالف ١).
+ */
 export function toBaseQty(row: { qty: number; baseQty?: number | null; unitFactor?: number | null }): number {
-  if (row.baseQty != null && Number.isFinite(row.baseQty)) return row.baseQty;
-  const f = row.unitFactor != null && Number.isFinite(row.unitFactor) ? row.unitFactor : 1;
-  return row.qty * f;
+  return baseQtyOf(row);
 }
 
 /**

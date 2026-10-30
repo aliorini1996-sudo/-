@@ -2,15 +2,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { withNumberRetry } from '../utils/helpers';
+import { factorOf, unitFields } from '../services/units';
 import {
-  ClientRefRace, LOT_EPS, LotError, aggregateRequest, allocateOut, allocateReturnFromSale, asLotBusy, buildPlaceView,
-  distributeToLines, fefoCompare, foldVanLots, heldUnknownOf, invoiceItemLotColumns, isLotExpiredOn, isLotQty, lotDatesProblem, lotErr,
+  ClientRefRace, LOT_EPS, LotError, aggregateRequest, allocateOut, allocateOutLines, allocateReturnFromSale, asLockBusy, asLotBusy, buildPlaceView,
+  distributeToLines, fefoCompare, foldVanLots, heldUnknownOf, invoiceItemLotColumns, isLotExpiredOn, isLotQty, lotBaseQty, lotDatesProblem, lotErr,
   lotErrorBody, lotHttpError, lotLockKey, lotRemovalsOf, multiLotWarning, normalizeLotNumber, parseLotHint, parseLotRefsStrict,
   pickOutSources, refsOfByLot, removalKeepsLots, replayMoment, roundLot, sortedLockKeys, splitAvailability, stampFromRows, zeroBuckets,
-  type AllocResult, type AllocRow, type BucketQty, type LotMeta, type LotRaw, type LotRemovalItem, type PlaceLotView, type SaleLotRow,
+  type AllocResult, type AllocRow, type BucketQty, type LotMeta, type LotRaw, type LotRemovalItem, type OutLine, type PlaceLotView, type SaleLotRow,
 } from '../services/lots';
 
 const DAY = '2026-11-10';
+/** لحظة البيع دون اتصال في اختبارات الإعادة */
+const AT = new Date('2026-11-09T10:00:00Z');
 
 interface LotSpec {
   id: string; s?: number; e?: number; d?: number; held?: number;
@@ -42,6 +45,8 @@ function view(opts: { lots?: LotSpec[]; total?: Partial<BucketQty> | null; heldU
 
 const out = (o: Partial<Parameters<typeof allocateOut>[0]> & { view: PlaceLotView; qty: number }) =>
   allocateOut({ productId: 'p', productName: 'حليب', unitFactor: 1, day: DAY, mode: 'SALE', allowUnknown: true, ...o });
+const outLines = (o: Partial<Parameters<typeof allocateOutLines>[0]> & { view: PlaceLotView; lines: OutLine[] }) =>
+  allocateOutLines({ productId: 'p', productName: 'حليب', day: DAY, mode: 'SALE', allowUnknown: true, ...o });
 
 function ok(r: AllocResult): AllocRow[] {
   if (!r.ok) assert.fail(`متوقَّع نجاح، وصل ${r.error.code}: ${r.error.message}`);
@@ -184,6 +189,121 @@ test('قاعدة الكرتون (D22): مضاعفات F من لوطٍ واحد �
   assert.deepEqual(brief(ok(out({ view: v2, qty: 7, unitFactor: 1 }))), [['A', 5, 'ASSUMED'], ['B', 2, 'ASSUMED']], 'الوحدة الأساسية: FEFO صرف');
 });
 
+test('قاعدة الكرتون بمعامل الوحدة الحقيقي (D19، D22): سطر «٢ كرتون» كما يكتبه المسار = ٤٨ حبة بمعامل ٢٤', () => {
+  const line = unitFields(2, { name: 'كرتون', factor: 24 }); // qty 2 بوحدة السطر، unitFactor 24، baseQty 48
+  const base = lotBaseQty(line);
+  assert.equal(base, 48, 'الكمية الأساسية للسطر');
+  const v = view({ lots: [{ id: 'A', s: 30, expiry: '2026-12-01' }, { id: 'B', s: 40, expiry: '2027-01-01' }] });
+  const r = out({ view: v, qty: base, unitFactor: factorOf(line) });
+  assert.deepEqual(brief(ok(r)), [['A', 24, 'ASSUMED'], ['B', 24, 'ASSUMED']], 'كرتونٌ كامل من كلٍّ بترتيب FEFO — لا ٣٠ من A و١٨ من B');
+  assert.ok(r.ok && !r.warnings.some((w) => w.code === 'LOT_SPLIT_UNIT'));
+  assert.equal(ok(r).reduce((s, x) => s + x.qty, 0), base, 'I3: Σ الصفوف = الكمية الأساسية لا كمية السطر');
+  // كرتونٌ لا يتّسع له لوطٌ واحد ⇒ يُقسَّم بتحذيرٍ يحمل المعامل
+  const v2 = view({ lots: [{ id: 'A', s: 30, expiry: '2026-12-01' }, { id: 'B', s: 20, expiry: '2027-01-01' }] });
+  const r2 = out({ view: v2, qty: base, unitFactor: factorOf(line) });
+  assert.deepEqual(brief(ok(r2)), [['A', 30, 'ASSUMED'], ['B', 18, 'ASSUMED']]);
+  assert.ok(r2.ok && r2.warnings.some((w) => w.code === 'LOT_SPLIT_UNIT' && w.detail?.unitFactor === 24));
+  // سطر الأساس (بلا وحدة) والمعامل التالف يُقرآن ١ كـfactorOf: FEFO صرف بلا قاعدة كرتون
+  for (const snap of [unitFields(48), { qty: 48, unitFactor: 0 }, { qty: 48, unitFactor: Number.NaN }]) {
+    assert.deepEqual(brief(ok(out({ view: v, qty: lotBaseQty(snap), unitFactor: factorOf(snap) }))), [['A', 30, 'ASSUMED'], ['B', 18, 'ASSUMED']], JSON.stringify(snap));
+  }
+});
+
+// مراجعة الوحدات: الصنف في سطرين بوحدتين (InvoiceModal بـlineKey، و«الصنف بوحدتين في حركة واحدة»). المجموع بمعاملٍ واحد ثم
+// distributeToLines بترتيب الأسطر كان يشقّ كرتوناً بلا وسم: «كرتونان ثم ٥ حبات» ⇒ سطر الكرتونين A:29 + B:19.
+test('قاعدة الكرتون لكل سطر (D22): «٢ كرتون + ٥ حبة» بالترتيبين — كرتونٌ كامل من لوطٍ واحد، والحبّات مما بقي، بلا تقسيم', () => {
+  const v = view({ lots: [{ id: 'A', s: 30, expiry: '2026-12-01' }, { id: 'B', s: 40, expiry: '2027-01-01' }] });
+  const carton = unitFields(2, { name: 'كرتون', factor: 24 });
+  const piece = unitFields(5);
+  const lineOf = (idx: number, snap: { qty: number; unitFactor?: number | null; baseQty?: number | null }): OutLine =>
+    ({ idx, qty: lotBaseQty(snap), unitFactor: factorOf(snap) });
+  for (const [lines, cIdx, pIdx] of [[[lineOf(0, carton), lineOf(1, piece)], 0, 1], [[lineOf(0, piece), lineOf(1, carton)], 1, 0]] as [OutLine[], number, number][]) {
+    const r = outLines({ view: v, lines });
+    assert.ok(r.ok, JSON.stringify(r));
+    assert.deepEqual(brief(r.lines.get(cIdx)!), [['A', 24, 'ASSUMED'], ['B', 24, 'ASSUMED']], 'كرتونٌ كامل من كلٍّ بترتيب FEFO');
+    assert.deepEqual(brief(r.lines.get(pIdx)!), [['A', 5, 'ASSUMED']], 'الحبّات بـFEFO مما تركه الكرتون');
+    assert.ok(r.rows.every((x) => !x.flags.includes('SPLIT_UNIT')) && !r.warnings.some((w) => w.code === 'LOT_SPLIT_UNIT'));
+    assert.deepEqual([...r.lines.keys()], [0, 1], 'الأسطر بترتيب الإدخال');
+    assert.equal(r.rows.reduce((s, x) => s + x.qty, 0), 53, 'I3 على المجموع');
+  }
+  // كرتونٌ لا مفرّ من شقّه يُوسَم على سطره وحده، والتحذير بفهرسه
+  const tight = view({ lots: [{ id: 'A', s: 30, expiry: '2026-12-01' }, { id: 'B', s: 20, expiry: '2027-01-01' }] });
+  const r2 = outLines({ view: tight, lines: [{ idx: 3, qty: 2, unitFactor: 1 }, { idx: 7, qty: 48, unitFactor: 24 }] });
+  assert.ok(r2.ok);
+  assert.deepEqual(brief(r2.lines.get(7)!), [['A', 30, 'ASSUMED'], ['B', 18, 'ASSUMED']]);
+  assert.ok(r2.lines.get(7)!.every((x) => x.flags.includes('SPLIT_UNIT')));
+  assert.deepEqual(brief(r2.lines.get(3)!), [['B', 2, 'ASSUMED']]);
+  assert.ok(r2.lines.get(3)!.every((x) => !x.flags.includes('SPLIT_UNIT')), 'سطر الحبّات لا يُوسَم');
+  assert.deepEqual(r2.warnings.filter((w) => w.code === 'LOT_SPLIT_UNIT').map((w) => w.detail), [{ unitFactor: 24, idx: 7 }]);
+  // سطرٌ صفري بلا صفوف، والنقص على المجموع
+  const z = outLines({ view: v, lines: [{ idx: 0, qty: 0, unitFactor: 24 }, { idx: 1, qty: 5, unitFactor: 1 }] });
+  assert.ok(z.ok && z.lines.get(0)!.length === 0);
+  const short = err(outLines({ view: v, allowUnknown: false, lines: [{ idx: 0, qty: 48, unitFactor: 24 }, { idx: 1, qty: 30, unitFactor: 1 }] }), 'LOT_STOCK_INSUFFICIENT', 409);
+  assert.equal(short.detail!.wanted, 78);
+});
+
+test('allocateOutLines بالصريح لكل سطر: يُجمع ويُفحص على الأسطر (D26)، وسطرٌ بلا صريح يُوزَّع مما بقي بعده', () => {
+  const v = view({ lots: [{ id: 'A', s: 30, expiry: '2026-12-01' }, { id: 'B', s: 40, expiry: '2027-01-01' }] });
+  const r = outLines({ view: v, allowUnknown: false, lines: [
+    { idx: 0, qty: 5, unitFactor: 1, explicit: [{ lotId: 'A', qty: 5 }] },
+    { idx: 1, qty: 48, unitFactor: 24 },
+  ] });
+  assert.ok(r.ok);
+  assert.deepEqual(brief(r.lines.get(0)!), [['A', 5, 'CONFIRMED']]);
+  assert.deepEqual(brief(r.lines.get(1)!), [['A', 24, 'ASSUMED'], ['B', 24, 'ASSUMED']], 'بقي من A ٢٥: كرتونٌ منه');
+  err(outLines({ view: v, lines: [
+    { idx: 0, qty: 20, unitFactor: 1, explicit: [{ lotId: 'A', qty: 20 }] }, { idx: 1, qty: 20, unitFactor: 1, explicit: [{ lotId: 'A', qty: 20 }] },
+  ] }), 'LOT_STOCK_INSUFFICIENT', 409);
+  err(outLines({ view: view({ lots: [{ id: 'A', s: 30 }] }), allowUnknown: false, lines: [
+    { idx: 0, qty: 20, unitFactor: 1, explicit: [{ lotId: 'A', qty: 20 }] }, { idx: 1, qty: 15, unitFactor: 1 },
+  ] }), 'LOT_STOCK_INSUFFICIENT', 409);
+  err(outLines({ view: v, lines: [{ idx: 0, qty: 6, unitFactor: 1, explicit: [{ lotId: 'A', qty: 5 }] }] }), 'LOT_QTY_INVALID', 422);
+});
+
+test('الإعادة (D16) لكل سطر: تلميح كل سطرٍ يُكتب كما طُبع، وتلميحٌ لبعض الأسطر أو بمجموعٍ غير كمية سطره يُرفض للصنف كله', () => {
+  const v = view({ lots: [{ id: 'A', s: 30, expiry: '2026-12-01' }, { id: 'B', s: 40, expiry: '2027-01-01' }] });
+  const replay = { at: AT, clamped: false };
+  const r = outLines({ view: v, replay, lines: [
+    { idx: 0, qty: 48, unitFactor: 24, hint: [{ lotId: 'B', qty: 24 }, { lotId: 'A', qty: 24 }] },
+    { idx: 1, qty: 5, unitFactor: 1, hint: [{ lotId: 'B', qty: 5 }] },
+  ] });
+  assert.ok(r.ok);
+  assert.deepEqual(brief(r.lines.get(0)!), [['B', 24, 'ASSUMED'], ['A', 24, 'ASSUMED']]);
+  assert.deepEqual(brief(r.lines.get(1)!), [['B', 5, 'ASSUMED']], 'لا يُعاد توزيع المجموع B:29 على الأسطر بترتيبها');
+  assert.ok(!r.warnings.some((w) => w.code === 'LOT_HINT_REJECTED'));
+  for (const lines of [
+    [{ idx: 0, qty: 48, unitFactor: 24, hint: [{ lotId: 'B', qty: 48 }] }, { idx: 1, qty: 5, unitFactor: 1 }],
+    [{ idx: 0, qty: 48, unitFactor: 24, hint: [{ lotId: 'B', qty: 40 }] }, { idx: 1, qty: 5, unitFactor: 1, hint: [{ lotId: 'A', qty: 13 }] }],
+  ] as OutLine[][]) {
+    const rej = outLines({ view: v, replay, lines });
+    assert.ok(rej.ok);
+    assert.ok(rej.rows.every((x) => x.flags.includes('HINT_REJECTED')), JSON.stringify(lines));
+    assert.ok(rej.warnings.some((w) => w.code === 'LOT_HINT_REJECTED'));
+    assert.deepEqual(brief(rej.lines.get(0)!), [['A', 24, 'ASSUMED'], ['B', 24, 'ASSUMED']], 'والطبقات بقاعدة الكرتون لكل سطر');
+  }
+});
+
+test('D22 مع غير المسمّى: كرتونٌ يكمله غير المسمّى بعد لوطٍ مسمّى يُوسَم SPLIT_UNIT بتحذيره — حيّاً وإعادةً، وعبر الطبقة ٣', () => {
+  const v = view({ lots: [{ id: 'A', s: 10 }], total: { SELLABLE: 110 } }); // غير المسمّى ١٠٠
+  for (const replay of [null, { at: AT, clamped: false }]) {
+    const r = out({ view: v, qty: 24, unitFactor: 24, replay });
+    assert.deepEqual(brief(ok(r)), [['A', 10, 'ASSUMED'], [null, 14, 'UNKNOWN']]);
+    assert.ok(ok(r).every((x) => x.flags.includes('SPLIT_UNIT')), JSON.stringify(ok(r)));
+    assert.ok(r.ok && r.warnings.some((w) => w.code === 'LOT_SPLIT_UNIT' && w.detail?.unitFactor === 24));
+    assert.ok(r.ok && r.warnings.some((w) => w.code === 'LOT_FROM_UNKNOWN'));
+  }
+  // كرتونٌ كامل من المسمّى ثم كرتونٌ كامل من غير المسمّى: لا تقسيم
+  const whole = out({ view: view({ lots: [{ id: 'A', s: 24 }], total: { SELLABLE: 124 } }), qty: 48, unitFactor: 24 });
+  assert.deepEqual(brief(ok(whole)), [['A', 24, 'ASSUMED'], [null, 24, 'UNKNOWN']]);
+  assert.ok(whole.ok && whole.rows.every((x) => !x.flags.includes('SPLIT_UNIT')) && !whole.warnings.some((w) => w.code === 'LOT_SPLIT_UNIT'));
+  // الإعادة: الطبقة ١ ثم الطبقة ٣ (موقوفٌ قبل البيع) تشقّان كرتوناً
+  const h = view({ lots: [{ id: 'A', s: 10 }, { id: 'H', s: 100, status: 'BLOCKED', blockKind: 'HOLD', blockedAt: '2026-11-01T00:00:00Z' }] });
+  const r3 = out({ view: h, qty: 24, unitFactor: 24, replay: { at: AT, clamped: false } });
+  assert.deepEqual(brief(ok(r3)), [['A', 10, 'ASSUMED'], ['H', 14, 'ASSUMED']]);
+  assert.ok(ok(r3).every((x) => x.flags.includes('SPLIT_UNIT')));
+  assert.ok(r3.ok && r3.warnings.some((w) => w.code === 'LOT_SPLIT_UNIT'));
+});
+
 test('مجموع الصفوف = الكمية بالضبط (I3) ولو بكسور عائمة', () => {
   const v = view({ lots: [{ id: 'A', s: 0.1 }, { id: 'B', s: 0.2, expiry: '2027-07-01' }] });
   const rows = ok(out({ view: v, qty: 0.3 }));
@@ -211,7 +331,6 @@ test('isLotQty: الكمية بأربع خانات (دقّة الطيّ) — أ�
 });
 
 // ── الإعادة (R6) ──
-const AT = new Date('2026-11-09T10:00:00Z');
 test('الإعادة الطبقة ١: ما دخل السيارة قبل البيع يتقدّم على FEFO، والموقوف بعد البيع مؤهَّلٌ بوسمه', () => {
   const v = view({
     lots: [
@@ -525,6 +644,23 @@ test('asLotBusy: 55P03 و40P01 وP2028 ⇒ 503 LOT_BUSY، وغيرها null؛ lo
   const withDetail = lotErr('LOT_STOCK_INSUFFICIENT', { name: 'X', place: 'المستودع', available: 2 }, { wanted: 3 });
   assert.deepEqual(lotErrorBody(withDetail).detail, { wanted: 3 });
   assert.match(withDetail.message, /الكمية من «X» أكبر من المتاح في تشغيلات المستودع \(2\)/);
+});
+
+test('asLockBusy: انتظار القفل وحده (55P03، 40P01) ⇒ LOT_BUSY، ومهلة المعاملة (P2028) والتعارض (P2034) ليسا انشغالاً هنا', () => {
+  for (const e of [
+    { code: 'P2010', meta: { code: '55P03' }, message: 'canceling statement due to lock timeout' }, { code: 'P2010', meta: { code: '40P01' } },
+    new Error('ERROR: deadlock detected'), lotErr('LOT_BUSY'),
+  ]) {
+    const r = asLockBusy(e);
+    assert.ok(r && r.code === 'LOT_BUSY' && r.status === 503, JSON.stringify(e));
+  }
+  for (const e of [
+    { code: 'P2028', message: 'Transaction API error: Transaction already closed: A query cannot be executed on an expired transaction.' },
+    { code: 'P2034' }, new Error('boom'), null, lotErr('LOT_BLOCKED', { lot: 'X' }),
+  ]) {
+    assert.equal(asLockBusy(e), null, JSON.stringify(e));
+  }
+  assert.ok(asLotBusy({ code: 'P2028' }), 'ومسارات اللوط بمهلة ٢٠ ثانية (D13، D14) يبقى فيها P2028 انشغالاً');
 });
 
 test('ClientRefRace يحاكي P2002 على clientRef فلا تبتلعه إعادة محاولة الرقم', async () => {
