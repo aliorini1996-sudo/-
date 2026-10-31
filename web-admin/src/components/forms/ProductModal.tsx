@@ -255,6 +255,23 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
             basePrice={savedBasePrice}
             units={units}
             onUnits={setUnits}
+            syncRepUnitRules={async () => {
+              /* «قيود المندوب» تُحفظ مع «حفظ التعديلات» والوحدات فوراً: من غيّر القيد في النموذج ثم حذف آخر وحدةٍ كبرى رفضه
+               * الخادم (409 REP_UNIT_RULE_SET يقرأ القيد المحفوظ) وهو يرى القيد مُزالاً أمامه. فيُحفظ القيد كما في النموذج.
+               * و«الكبرى فقط» لفعلٍ ممنوعٍ على المندوب أصلاً لا أثر له (لا يبيعه/لا يرجعه بأي وحدة)، فيُعاد «كل الوحدات».
+               * ويبقى الرفض حين يطلب النموذج نفسه «الكبرى فقط» لفعلٍ مسموح — حذف آخر وحدةٍ كبرى يمنع الصنف عليه بلا قصد. */
+              if (!product?.id) return false;
+              const v = getValues();
+              const saleOn = v.repSaleAllowed !== false;
+              const returnOn = v.repReturnAllowed !== false;
+              const repSaleUnit = saleOn ? (v.repSaleUnit || 'ANY') : 'ANY';
+              const repReturnUnit = returnOn ? (v.repReturnUnit || 'ANY') : 'ANY';
+              if (repSaleUnit === 'LARGE' || repReturnUnit === 'LARGE') return false;
+              await productApi.update(product.id, { repSaleAllowed: saleOn, repReturnAllowed: returnOn, repSaleUnit, repReturnUnit });
+              setValue('repSaleUnit', repSaleUnit);
+              setValue('repReturnUnit', repReturnUnit);
+              return true;
+            }}
             onConverted={(p) => {
               // الأساس صار الجديد وسعره: الخانتان تتبعانه، وإلا أعاد «حفظ التعديلات» بعده الاسمَ القديم فرفضه الخادم
               setUnits(p.units ?? []);
@@ -510,12 +527,14 @@ const serverMessage = (err: unknown): string | undefined =>
  *
  * والحذف فعليّ (الصفوف تحمل لقطة وحدتها فلا ينكسر تاريخ)، والإيقاف يحجبها عن البيع الجديد ويُبقي رفع مستندٍ أوف‑لاين صدر بها.
  */
-function ProductUnitsSection({ productId, baseUnit, basePrice, units, onUnits, onConverted }: {
+function ProductUnitsSection({ productId, baseUnit, basePrice, units, onUnits, syncRepUnitRules, onConverted }: {
   productId: string | null;
   baseUnit: string;
   basePrice: number;
   units: ProductUnit[];
   onUnits: (u: ProductUnit[]) => void;
+  /** يحفظ «قيود المندوب» كما في النموذج — true إن حُفظت فتُعاد العملية، false إن بقي النموذج نفسه «الكبرى فقط» */
+  syncRepUnitRules?: () => Promise<boolean>;
   onConverted: (p: Product) => void;
 }) {
   const tr = useTr();
@@ -577,10 +596,21 @@ function ProductUnitsSection({ productId, baseUnit, basePrice, units, onUnits, o
     setBusy(null);
   };
 
+  /** رفضٌ بسبب «قيود المندوب» المحفوظة (409 REP_UNIT_RULE_SET) والنموذج أزالها ⇒ يُحفظ القيد ثم تُعاد العملية مرّةً واحدة */
+  const withRepRuleSync = async <T,>(op: () => Promise<T>): Promise<T> => {
+    try {
+      return await op();
+    } catch (err) {
+      const code = (err as { response?: { data?: { code?: string } } })?.response?.data?.code;
+      if (code !== 'REP_UNIT_RULE_SET' || !syncRepUnitRules || !(await syncRepUnitRules())) throw err;
+      return op();
+    }
+  };
+
   const toggle = async (u: ProductUnit) => {
     setBusy(u.id);
     try {
-      const { data } = await productApi.updateUnit(productId, u.id, { isActive: u.isActive === false });
+      const { data } = await withRepRuleSync(() => productApi.updateUnit(productId, u.id, { isActive: u.isActive === false }));
       onUnits(units.map(x => (x.id === u.id ? (data.data as ProductUnit) : x)));
       refresh();
       toast.success(u.isActive === false ? tr('فعلت الوحدة') : tr('أوقفت الوحدة'));
@@ -592,7 +622,7 @@ function ProductUnitsSection({ productId, baseUnit, basePrice, units, onUnits, o
     if (!window.confirm(`${tr('حذف الوحدة نهائيا؟ الفواتير والحركات السابقة بها تبقى كما هي وللإيقاف المؤقت استخدم إيقاف')} — ${u.name}`)) return;
     setBusy(u.id);
     try {
-      await productApi.removeUnit(productId, u.id);
+      await withRepRuleSync(() => productApi.removeUnit(productId, u.id));
       onUnits(units.filter(x => x.id !== u.id));
       if (editId === u.id) setEditId(null);
       refresh();
