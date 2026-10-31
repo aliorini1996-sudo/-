@@ -4888,6 +4888,9 @@ export default function RepApp() {
   const login = async (t: string, u: RepUser) => {
     const prev = currentRepId();
     if (prev && prev !== u.id) { await refClear(); clearAiSession(); vanLotsRef.current = null; setVanLots(null); }
+    // عملية بطاقةٍ معلّقة لمندوبٍ آخر (خرج قسراً فلم تُمسح) لا تُعرض لمن دخل بعده — فاتورتها ومبلغها ليسا له
+    const pendingCard = readPendingCardPay();
+    if (pendingCard?.repId && pendingCard.repId !== u.id) { clearPendingCardPay(); setCardPayView(null); }
     await forgetForeignPush(u.id); // اشتراك تنبيهاتٍ على الجهاز لحسابٍ خرج قسراً لا يبقى لمن دخل
     localStorage.setItem('rep_token', t);
     localStorage.setItem('rep_user', JSON.stringify(u));
@@ -4969,7 +4972,7 @@ export default function RepApp() {
               onDismiss={() => setPresence(null)} />
           )}
           {/* نتيجة التحصيل بالبطاقة بعد الرجوع من وحدة الدفع — فوق الشاشات، والخادم يحسم ويُصدر السند */}
-          {cardPayView && token && user && (
+          {cardPayView && token && user && (!cardPayView.pending?.repId || cardPayView.pending.repId === user.id) && (
             <CardPayResult pending={cardPayView.pending} unsupported={cardPayView.unsupported}
               onClose={() => { if (!cardPayView.unsupported) clearPendingCardPay(); setCardPayView(null); }}
               onDone={() => setRefreshKey((k) => k + 1)} />

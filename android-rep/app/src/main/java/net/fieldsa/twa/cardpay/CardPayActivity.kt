@@ -98,6 +98,9 @@ class CardPayActivity : AppCompatActivity() {
     private var cardCaptured = false // بدأت القراءة أو انتهت أو بدأ الرقم السري: قد يتحرك المال — لا خروج إلا بالنتيجة أو المهلة
     private var escapeAllowed = false
     private var returned = false
+    private var resumed = false
+    // رجوعٌ تلقائي (بعد النتيجة أو المهلة) وقع والشاشة في الخلفية: يُؤجَّل إلى عودتها — لا يمحو (CLEAR_TASK) صفحةً يستعملها المندوب
+    private var returnOnResume = false
 
     private lateinit var detailsCard: LinearLayout
     private lateinit var repView: TextView
@@ -158,6 +161,8 @@ class CardPayActivity : AppCompatActivity() {
                     startActivity(
                         Intent(this, CardPayActivity::class.java)
                             .putExtra(EXTRA_FOCUS, true)
+                            // الرابط نفسه مرتين (نقرةٌ مزدوجة) لا يُسقط الأولى؛ رابطٌ آخر يُسقطها إن لم يكن شراءٌ جارياً
+                            .putExtra(EXTRA_NEW_LINK, intent.data != null && intent.data != other.intent?.data)
                             .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
                     )
                 } catch (e: ActivityNotFoundException) {
@@ -200,12 +205,26 @@ class CardPayActivity : AppCompatActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        // singleTop، أو نسخةٌ ثانية أظهرت هذه (EXTRA_FOCUS): رابط دفعٍ آخر لا يُستبدل رمزه — عمليةٌ واحدة في كل مرة
-        if (!returned) toast("عملية تحصيل جارية — أكملها أو ارجع أولاً")
+        // singleTop، أو نسخةٌ ثانية أظهرت هذه (EXTRA_FOCUS): رابط دفعٍ آخر لا يُستبدل رمزه هنا — عمليةٌ واحدة في كل مرة
+        if (returned) return
+        val newLink =
+            if (intent.getBooleanExtra(EXTRA_FOCUS, false)) intent.getBooleanExtra(EXTRA_NEW_LINK, false)
+            else intent.data != null && intent.data != this.intent?.data
+        if (!newLink) return
+        when (stage) {
+            // الرمز في طريقه إلى الخادم، أو القارئ حيّ، أو النتيجة قادمة: لا تُترك هذه
+            Stage.REDEEMING, Stage.PAYING, Stage.CAPTURED, Stage.SETTLED, Stage.RETURNING ->
+                toast("عملية تحصيل جارية — أكملها أو ارجع أولاً")
+            // لا شراء جارٍ: المندوب طلب عمليةً أحدث، فلا تُعرض عليه عمليةٌ قديمة جاهزة للخصم بفاتورةٍ ومبلغٍ آخرين (مراجعة
+            // ٣١ أكتوبر). ترجع هذه إلى الصفحة، ويبدأ المندوب الجديدة من صفحة العميل — رمزها لم يُستبدل فلا يحجز فاتورتها
+            else -> returnToWeb(payload?.intentId, aborted = !redeemSent)
+        }
     }
 
     override fun onResume() {
         super.onResume()
+        resumed = true
+        if (returnOnResume) return returnToWeb(payload?.intentId)
         if (deadlineDue()) return expire()
         when (stage) {
             Stage.NEED_NFC -> if (payload == null) checkNfcBeforeRedeem() else checkNfc()
@@ -215,6 +234,11 @@ class CardPayActivity : AppCompatActivity() {
             }
             else -> Unit
         }
+    }
+
+    override fun onPause() {
+        resumed = false
+        super.onPause()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -657,7 +681,7 @@ class CardPayActivity : AppCompatActivity() {
         cancelWatchdog()
         render(message, busy = true, detail = detail)
         val id = payload?.intentId
-        main.postDelayed({ returnToWeb(id) }, RETURN_DELAY_MS)
+        main.postDelayed({ if (resumed) returnToWeb(id) else returnOnResume = true }, RETURN_DELAY_MS)
     }
 
     private fun fail(message: String, detail: String?) {
@@ -893,6 +917,7 @@ class CardPayActivity : AppCompatActivity() {
         const val KEY_REDEEM_SENT = "cardpay.redeemSent"
         const val KEY_INTENT_ID = "cardpay.intentId"
         const val EXTRA_FOCUS = "net.fieldsa.twa.cardpay.FOCUS"
+        const val EXTRA_NEW_LINK = "net.fieldsa.twa.cardpay.NEW_LINK"
 
         // النشاط الحيّ في هذه العملية — يُضبط بعد حارس onCreate ويُمحى في returnToWeb وonDestroy. الخيط الرئيسي وحده يلمسه
         @Volatile

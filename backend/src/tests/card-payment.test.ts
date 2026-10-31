@@ -443,6 +443,13 @@ test('زرّ المندوب لا يظهر إلا والتحصيل ممكنٌ ف�
     assert.equal(cardPayUsable('t2'), false);
     process.env.NEARPAY_GCP_PROJECT_NUMBER = 'my-project-id';
     assert.equal(cardPayUsable('t2'), false);
+    // بما تقبله الوحدة (Long موجب): صفرٌ أو رقمٌ يفيض عن Long كغيابه
+    for (const bad of ['0', '000', '12345678901234567890']) {
+      process.env.NEARPAY_GCP_PROJECT_NUMBER = bad;
+      assert.equal(cardPayUsable('t2'), false, bad);
+    }
+    process.env.NEARPAY_GCP_PROJECT_NUMBER = '00123456789012'; // الأصفار البادئة تُحذف
+    assert.equal(cardPayUsable('t2'), true);
     process.env.NEARPAY_GCP_PROJECT_NUMBER = '123456789012';
     assert.equal(cardPayUsable('t2'), true);
     delete process.env.NEARPAY_API_KEY;

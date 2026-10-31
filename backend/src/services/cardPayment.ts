@@ -66,10 +66,13 @@ export function cardPayUsable(tenantId: string): boolean {
   return nearpayConfigured() && cardPayLaunchConfigured() && !sandboxBlocked(tenantId) && process.env.CARD_PAY_APP_READY === '1';
 }
 
-/** رقم مشروع Google Cloud المربوط بـPlay Integrity — أرقامٌ فقط (Project number لا Project ID)، وغيرها كغيابه */
+/**
+ * رقم مشروع Google Cloud المربوط بـPlay Integrity — أرقامٌ فقط (Project number لا Project ID)، وغيرها كغيابه.
+ * بما تقبله الوحدة نفسها (Long موجب): صفرٌ أو رقمٌ يفيض عن Long كان يمرّ هنا فيُستهلك الرمز ثم ترفضه الوحدة
+ */
 function gcpProjectNumber(): string | null {
-  const v = (process.env.NEARPAY_GCP_PROJECT_NUMBER || '').trim();
-  return /^\d{1,20}$/.test(v) ? v : null;
+  const v = (process.env.NEARPAY_GCP_PROJECT_NUMBER || '').trim().replace(/^0+/, '');
+  return /^[1-9]\d{0,17}$/.test(v) ? v : null;
 }
 
 /**
