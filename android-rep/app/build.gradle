@@ -15,9 +15,32 @@
  */
 
 import groovy.xml.MarkupBuilder
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id 'com.android.application'
+    // وحدة التحصيل بالبطاقة مكتوبة بـKotlin (NearPay Terminal SDK نفسها مكتوبة بـKotlin)
+    id 'org.jetbrains.kotlin.android'
+}
+
+// توقيع الإصدار: القيم من خصائص Gradle (~/.gradle/gradle.properties) أو متغيرات البيئة وحدها — لا كلمة مرور في المستودع.
+// لا يُطبَّق التوقيع إلا إن وُجدت الأربع كلها؛ وإلا خرجت حزمة الإصدار غير موقّعة (Play يرفضها) والتصحيح (debug) يعمل كالمعتاد
+def signingValue = { String key ->
+    def v = project.findProperty(key) ?: System.getenv(key)
+    return v == null ? null : (v.toString().trim() ?: null)
+}
+def releaseSigning = [
+    store    : signingValue('FIELDSA_KEYSTORE'),
+    storePass: signingValue('FIELDSA_KEYSTORE_PASSWORD'),
+    alias    : signingValue('FIELDSA_KEY_ALIAS'),
+    keyPass  : signingValue('FIELDSA_KEY_PASSWORD'),
+]
+def hasReleaseSigning = releaseSigning.values().every { it != null }
+if (!hasReleaseSigning && releaseSigning.values().any { it != null }) {
+    // ضبطٌ ناقص خطأٌ على الأرجح: يُذكر اسم الناقص لا قيمة الموجود
+    def missing = ['FIELDSA_KEYSTORE', 'FIELDSA_KEYSTORE_PASSWORD', 'FIELDSA_KEY_ALIAS', 'FIELDSA_KEY_PASSWORD']
+        .findAll { signingValue(it) == null }
+    logger.warn("Release signing NOT applied, missing: ${missing.join(', ')}")
 }
 
 def twaManifest = [
@@ -148,19 +171,46 @@ android {
         resValue "bool", "enableSiteSettingsShortcut", twaManifest.enableSiteSettingsShortcut
         resValue "string", "orientation", twaManifest.orientation
 
-        
+        // وحدة التحصيل بالبطاقة: الخادم الذي يستبدل رمز التسليم (POST /card-payments/launch)، وصفحة المندوب التي تعود إليها
+        buildConfigField "String", "API_BASE", '"https://api.fieldsa.net/api"'
+        buildConfigField "String", "WEB_BASE", "\"https://${twaManifest.hostName}\""
+    }
+    buildFeatures {
+        buildConfig true
+    }
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile file(releaseSigning.store)
+                storePassword releaseSigning.storePass
+                keyAlias releaseSigning.alias
+                keyPassword releaseSigning.keyPass
+            }
+        }
     }
     buildTypes {
         release {
             minifyEnabled true
+            // كان R8 يعمل بلا ملف قواعد؛ وحدة NearPay تحتاج قواعدها (proguard-rules.pro)
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
         }
     }
+    // Java وKotlin على الهدف نفسه (17): مكتبة Kotlin حديثة قد تُبنى لـ17، والدوال المضمَّنة (inline) لا تُنسخ إلى هدفٍ أقدم
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
     lintOptions {
         checkReleaseBuilds false
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
     }
 }
 
@@ -201,6 +251,16 @@ task generateShorcutsFile {
 
 preBuild.dependsOn(generateShorcutsFile)
 
+// بلا رمز NearPay يتوقف البناء وحده (كل تجميعٍ وترجمةٍ وفحصٍ يمرّ بـpreBuild) برسالةٍ واضحة — لا عند تهيئة المشروع،
+// فتبقى clean وtasks وsigningReport ومزامنة Android Studio تعمل (build.gradle الجذري يقرأ الرمز ويضبط nearpayTokenPresent)
+def nearpayTokenPresent = rootProject.ext.nearpayTokenPresent
+def nearpayTokenMissingMessage = rootProject.ext.nearpayTokenMissingMessage
+preBuild.doFirst {
+    if (!nearpayTokenPresent) {
+        throw new GradleException(nearpayTokenMissingMessage)
+    }
+}
+
 repositories {
     
 }
@@ -209,5 +269,12 @@ dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     
         implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.6.2'
-    
+
+    // وحدة التحصيل بالبطاقة — الحزمتان حرفياً من توثيق NearPay (أحدث نسخة في سجل التغييرات: 0.2.6)
+    implementation 'io.nearpay:terminalsdk-release:0.2.6'
+    implementation 'com.google.android.gms:play-services-location:20.0.0'
+    // شاشة الوحدة: AppCompat/Material لأن واجهة NearPay (نافذة سفلية وأجزاء) تُعرض فوق نشاطنا، وenableEdgeToEdge من activity
+    implementation 'androidx.appcompat:appcompat:1.7.1'
+    implementation 'androidx.activity:activity:1.9.3'
+    implementation 'com.google.android.material:material:1.12.0'
 }

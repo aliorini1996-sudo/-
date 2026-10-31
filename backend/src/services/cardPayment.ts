@@ -63,7 +63,22 @@ const SANDBOX_MESSAGE = 'خادم الدفع على بيئة اختبار NearPa
  * قبلها كان الزرّ يظهر فيعود الجوال إلى «حدّث التطبيق» ولا تحديث في المتجر.
  */
 export function cardPayUsable(tenantId: string): boolean {
-  return nearpayConfigured() && !sandboxBlocked(tenantId) && process.env.CARD_PAY_APP_READY === '1';
+  return nearpayConfigured() && cardPayLaunchConfigured() && !sandboxBlocked(tenantId) && process.env.CARD_PAY_APP_READY === '1';
+}
+
+/** رقم مشروع Google Cloud المربوط بـPlay Integrity — أرقامٌ فقط (Project number لا Project ID)، وغيرها كغيابه */
+function gcpProjectNumber(): string | null {
+  const v = (process.env.NEARPAY_GCP_PROJECT_NUMBER || '').trim();
+  return /^\d{1,20}$/.test(v) ? v : null;
+}
+
+/**
+ * ما تحتاجه وحدة الدفع في تطبيق المندوب لتدخل نقطة البيع: مفتاح JWT (مع معرّف العميل) ورقم مشروع Google Cloud. الوحدة لا تنفّذ
+ * دخول OTP، فبدون أيٍّ منهما لا تحصيل — والزرّ يُخفى، والإصدار والاستبدال يُرفضان قبل استهلاك الرمز (مراجعة ٣١ أكتوبر ٢٠٢٦:
+ * كان الاستبدال يحرق الرمز ثم تفشل الوحدة، فتُحجز الفاتورة عشر دقائق بلا مخرج)
+ */
+export function cardPayLaunchConfigured(): boolean {
+  return nearpayJwtConfigured() && gcpProjectNumber() !== null;
 }
 
 // ═══ القرار — دالة صرفة تُختبر بلا قاعدة ولا شبكة ═══
@@ -168,7 +183,7 @@ export function launchUriFor(token: string): string {
 export async function createCardPayment(params: {
   tenantId: string; invoiceId: string; salesRepId: string; createdById?: string; amount?: number;
 }): Promise<CreatedCardPayment> {
-  if (!nearpayConfigured()) throw new CardPayError('التحصيل بالبطاقة غير مهيأ على الخادم', 503, 'CARD_PAY_NOT_CONFIGURED');
+  if (!nearpayConfigured() || !cardPayLaunchConfigured()) throw new CardPayError('التحصيل بالبطاقة غير مهيأ على الخادم', 503, 'CARD_PAY_NOT_CONFIGURED');
   if (sandboxBlocked(params.tenantId)) throw new CardPayError(SANDBOX_MESSAGE, 403, 'CARD_PAY_SANDBOX');
   const [invoice, rep, company] = await Promise.all([
     prisma.invoice.findFirst({
@@ -243,9 +258,12 @@ export async function createCardPayment(params: {
 export interface LaunchPayload {
   intentId: string; amountHalalas: number; amount: number; reference: string; tid: string;
   environment: 'SANDBOX' | 'PRODUCTION';
-  jwt: string | null; // null ⇒ تدخل الوحدة برمز التحقق (OTP) على جوال المندوب
-  googleCloudProjectNumber: string | null;
+  // دائماً: الوحدة لا تنفّذ دخول OTP، والاستبدال يُرفض (503) قبل استهلاك الرمز إن غاب مفتاح JWT أو رقم المشروع
+  jwt: string;
+  googleCloudProjectNumber: string;
   customerName: string; invoiceNumber: string; companyName: string;
+  // الوحدة تعرضه فوق المبلغ: الرمز بلا هوية والمسار عامّ — رمزٌ أصدره حسابٌ آخر يظهر باسم غير اسم المندوب قبل أي خصم
+  repName: string;
 }
 
 /**
@@ -260,7 +278,7 @@ export async function redeemLaunchToken(token: string): Promise<LaunchPayload> {
     include: {
       customer: { select: { name: true } }, tenant: { select: { name: true, cardPayEnabled: true, nearpayMerchantId: true } },
       invoice: { select: { status: true, type: true, remainingAmt: true, einvoiceStatus: true } },
-      salesRep: { select: { isActive: true, nearpayTid: true } },
+      salesRep: { select: { isActive: true, nearpayTid: true, name: true } },
     },
   });
   const invalid = () => new CardPayError('رمز الدفع غير صالح أو مستخدم أو منتهٍ — ابدأ التحصيل من جديد', 410, 'CARD_PAY_LAUNCH_INVALID');
@@ -279,7 +297,10 @@ export async function redeemLaunchToken(token: string): Promise<LaunchPayload> {
     await prisma.cardPayment.updateMany({ where: { id: row.id, status: 'pending' }, data: { status: 'failed', statusDetail: stale } });
     throw new CardPayError(stale, 409, 'CARD_PAY_STALE');
   }
-  const terminalJwt = nearpayJwtConfigured() ? signTerminalJwt(row.tid) : null;
+  // الضبط قبل الاستهلاك: 503 هنا يُبقي الرمز صالحاً (الوحدة تعدّ 5xx قابلاً للإعادة)، والفاتورة لا تُحجز
+  const gcp = gcpProjectNumber();
+  if (!nearpayJwtConfigured() || !gcp) throw new CardPayError('التحصيل بالبطاقة غير مهيأ على الخادم', 503, 'CARD_PAY_NOT_CONFIGURED');
+  const terminalJwt = signTerminalJwt(row.tid);
   const claimed = await prisma.cardPayment.updateMany({
     where: { id: row.id, launchTokenHash: hash, launchedAt: null, launchExpiresAt: { gt: now }, status: 'pending' },
     data: { launchedAt: now },
@@ -293,10 +314,11 @@ export async function redeemLaunchToken(token: string): Promise<LaunchPayload> {
     tid: row.tid,
     environment: nearpayEnv() === 'production' ? 'PRODUCTION' : 'SANDBOX',
     jwt: terminalJwt,
-    googleCloudProjectNumber: (process.env.NEARPAY_GCP_PROJECT_NUMBER || '').trim() || null,
+    googleCloudProjectNumber: gcp,
     customerName: row.customer.name,
     invoiceNumber: row.reference,
     companyName: row.tenant.name,
+    repName: row.salesRep?.name ?? '',
   };
 }
 

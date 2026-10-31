@@ -389,8 +389,11 @@ test('حرّاس نصّية: «review» بعد الخصم يمنع تحصيلا�
   assert.match(svc, /'CARD_PAY_IN_PROGRESS', f\.id\)/);
   // الساند بوكس محروس عند الإنشاء والتسليم
   assert.equal((svc.match(/sandboxBlocked\((params\.tenantId|row\.tenantId)\)/g) || []).length, 2);
-  // التوقيع قبل استهلاك الرمز
+  // التوقيع قبل استهلاك الرمز، وكذلك رفض الضبط الناقص (503 يُبقي الرمز صالحاً)
   assert.ok(svc.indexOf('const terminalJwt =') < svc.indexOf('data: { launchedAt: now }'));
+  assert.ok(svc.indexOf("if (!nearpayJwtConfigured() || !gcp) throw") > -1);
+  assert.ok(svc.indexOf("if (!nearpayJwtConfigured() || !gcp) throw") < svc.indexOf('data: { launchedAt: now }'));
+  assert.doesNotMatch(svc, /jwt: string \| null/);
   const routes = read('routes/cardPayments.ts');
   assert.match(routes, /router\.post\('\/:id\/close', requireAdmin, receiptsGate,/);
   assert.match(routes, /router\.get\('\/', receiptsGate,/);
@@ -403,10 +406,17 @@ test('حرّاس نصّية: «review» بعد الخصم يمنع تحصيلا�
 
 test('زرّ المندوب لا يظهر إلا والتحصيل ممكنٌ فعلاً: مفاتيح، وبيئةٌ غير محجوبة، وتطبيقٌ بوحدة الدفع (CARD_PAY_APP_READY)', async () => {
   const { cardPayUsable } = await import('../services/cardPayment');
-  const keys = ['NEARPAY_ENV', 'NODE_ENV', 'NEARPAY_SANDBOX_TENANTS', 'NEARPAY_API_KEY', 'NEARPAY_API_BASE', 'CARD_PAY_APP_READY'] as const;
+  const keys = [
+    'NEARPAY_ENV', 'NODE_ENV', 'NEARPAY_SANDBOX_TENANTS', 'NEARPAY_API_KEY', 'NEARPAY_API_BASE', 'CARD_PAY_APP_READY',
+    'NEARPAY_JWT_PRIVATE_KEY', 'NEARPAY_CLIENT_UUID', 'NEARPAY_GCP_PROJECT_NUMBER',
+  ] as const;
   const prev = keys.map((k) => process.env[k]);
   try {
     process.env.NEARPAY_API_KEY = 'test-key';
+    // دخول الوحدة: مفتاح JWT ومعرّف العميل ورقم المشروع — تُفحص في آخر الاختبار
+    process.env.NEARPAY_JWT_PRIVATE_KEY = 'test-private-key';
+    process.env.NEARPAY_CLIENT_UUID = 'test-client';
+    process.env.NEARPAY_GCP_PROJECT_NUMBER = '123456789012';
     process.env.NEARPAY_ENV = 'sandbox';
     process.env.NODE_ENV = 'production';
     delete process.env.NEARPAY_SANDBOX_TENANTS;
@@ -421,6 +431,19 @@ test('زرّ المندوب لا يظهر إلا والتحصيل ممكنٌ ف�
     delete process.env.NEARPAY_API_BASE;
     assert.equal(cardPayUsable('t2'), false); // الإنتاج بلا عنوان API معلَن من NearPay ⇒ غير مهيأ
     process.env.NEARPAY_API_BASE = 'https://api.example.test/v1';
+    assert.equal(cardPayUsable('t2'), true);
+    // الوحدة لا تنفّذ OTP: بلا مفتاح JWT أو بلا رقم مشروع (أو برقمٍ غير رقمي) لا زرّ — كان كل نقرٍ يحرق رمزاً ويحجز الفاتورة
+    delete process.env.NEARPAY_JWT_PRIVATE_KEY;
+    assert.equal(cardPayUsable('t2'), false);
+    process.env.NEARPAY_JWT_PRIVATE_KEY = 'test-private-key';
+    delete process.env.NEARPAY_CLIENT_UUID;
+    assert.equal(cardPayUsable('t2'), false);
+    process.env.NEARPAY_CLIENT_UUID = 'test-client';
+    delete process.env.NEARPAY_GCP_PROJECT_NUMBER;
+    assert.equal(cardPayUsable('t2'), false);
+    process.env.NEARPAY_GCP_PROJECT_NUMBER = 'my-project-id';
+    assert.equal(cardPayUsable('t2'), false);
+    process.env.NEARPAY_GCP_PROJECT_NUMBER = '123456789012';
     assert.equal(cardPayUsable('t2'), true);
     delete process.env.NEARPAY_API_KEY;
     assert.equal(cardPayUsable('t2'), false);

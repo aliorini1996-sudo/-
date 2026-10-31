@@ -15,6 +15,7 @@
  */
 package net.fieldsa.twa;
 
+import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.net.Uri;
 import android.os.Build;
@@ -47,8 +48,31 @@ public class LauncherActivity
         // Get the original launch Url.
         Uri uri = super.getLaunchingUrl();
 
-        
+        // وحدة التحصيل بالبطاقة: رجوعها (CardPayActivity.returnToWeb بـNEW_TASK|CLEAR_TASK) يجعل /rep?cardpay=<المعرّف>
+        // «النيّة الأساس» للمهمّة. فتح المهمّة لاحقاً من قائمة التطبيقات الأخيرة يعيد تسليمها بـFLAG_ACTIVITY_LAUNCHED_FROM_HISTORY،
+        // فتعرض الصفحة نتيجة دفعٍ قديم كأنه تحصيلٌ جديد. من القائمة الأخيرة يُسقط cardpay ويبقى ما سواه
+        return stripStaleCardPay(uri);
+    }
 
-        return uri;
+    private Uri stripStaleCardPay(Uri uri) {
+        Intent launch = getIntent();
+        if (uri == null || launch == null
+                || (launch.getFlags() & Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) == 0
+                || !uri.isHierarchical()) {
+            return uri;
+        }
+        try {
+            if (uri.getQueryParameter("cardpay") == null) return uri;
+            Uri.Builder clean = uri.buildUpon().clearQuery();
+            for (String name : uri.getQueryParameterNames()) {
+                if ("cardpay".equals(name)) continue;
+                for (String value : uri.getQueryParameters(name)) {
+                    clean.appendQueryParameter(name, value);
+                }
+            }
+            return clean.build();
+        } catch (RuntimeException e) {
+            return uri; // عنوانٌ لا يُحلَّل: يُترك كما سلّمته المكتبة
+        }
     }
 }

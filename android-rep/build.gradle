@@ -17,23 +17,57 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 
 buildscript {
+    // Kotlin لوحدة التحصيل بالبطاقة (net.fieldsa.twa.cardpay). 2.2.20 يدعم AGP من 7.3.1 إلى 8.11.1 وGradle من 7.6.3 إلى 8.14،
+    // والمشروع على AGP 8.9.1 وGradle 8.11.1
+    ext.kotlin_version = '2.2.20'
 
     repositories {
         google()
-        jcenter()
+        // jcenter() مُجمَّد للقراءة فقط منذ ٢٠٢١ — mavenCentral مكانه
+        mavenCentral()
     }
     dependencies {
         classpath 'com.android.tools.build:gradle:8.9.1'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
 
         // NOTE: Do not place your application dependencies here; they belong
         // in the individual module build.gradle files
     }
 }
 
+// رمز مستودع NearPay الخاص (Private-Token) يعطيه فريق NearPay. مكانه ~/.gradle/gradle.properties على جهاز البناء وحده
+// (السطر: nearpayToken=...)، أو متغير البيئة ORG_GRADLE_PROJECT_nearpayToken — لا يُكتب في أي ملف داخل المستودع.
+// بلا رمز لا يُضاف مستودع NearPay، ويتوقف البناء وحده (preBuild في app/build.gradle) برسالة واضحة بدل خطأ تنزيلٍ غامض —
+// أما clean وtasks وhelp وsigningReport ومزامنة Android Studio فتعمل بلا رمز (التبعية تظهر فيها غير محلولة فقط)
+def nearpayToken = (findProperty('nearpayToken') ?: '').toString().trim()
+ext.nearpayTokenPresent = !nearpayToken.isEmpty()
+ext.nearpayTokenMissingMessage =
+    "Missing Gradle property 'nearpayToken' (NearPay Maven Private-Token). " +
+    "Add the line nearpayToken=<token from NearPay> to ~/.gradle/gradle.properties (outside the repository, " +
+    "plain ASCII without BOM). Never commit the token. See android-rep/README.md."
+
 allprojects {
     repositories {
         google()
-        jcenter()
+        mavenCentral()
+        // NearPay Terminal SDK: العنوان والمصادقة بترويسة Private-Token حرفياً من توثيق NearPay (صيغة Groovy).
+        // التوثيق يضعها في dependencyResolutionManagement داخل settings.gradle، لكن هذا المشروع يعرّف مستودعاته هنا
+        // (allprojects)، ومستودعات المشروع تغلب مستودعات settings في وضع Gradle الافتراضي — فمكانها هنا.
+        // يأتي أخيراً: ما يوجد في google وmavenCentral لا يُسأل عنه مستودع NearPay. وبلا رمز لا يُضاف أصلاً (لا ترويسة فارغة)
+        if (nearpayToken) {
+            maven {
+                url "https://git.nearpay.io/api/v4/projects/165/packages/maven"
+                credentials(HttpHeaderCredentials) {
+                    name = "Private-Token"
+                    value = nearpayToken
+                }
+                authentication {
+                    header(HttpHeaderAuthentication)
+                }
+            }
+        }
+        // تحقّق عند وصول الحزمة: توثيق NearPay يضيف maven { url 'https://jitpack.io' } لـFlutter وحده، ولا يقول إن البناء
+        // الأصلي يحتاجه. أضِفه هنا فقط إن فشل جلب تابعٍ من تبعيات الوحدة لا يوجد في المستودعات أعلاه
     }
 }
 

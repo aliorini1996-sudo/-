@@ -20,11 +20,28 @@
      application, the package attribute will need to reflect the correct path in order to use
      the abbreviated format. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     package="net.fieldsa.twa">
 
-    
+
         <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    
+
+
+    <!-- وحدة التحصيل بالبطاقة: الأذونات التي يشترطها NearPay Terminal SDK حرفياً من توثيقه.
+         ACCESS_COARSE_LOCATION ليس منها: أندرويد 12+ يشترط طلبه مع الموقع الدقيق في الطلب نفسه -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.READ_PHONE_STATE"/>
+    <uses-permission android:name="android.permission.NFC"/>
+
+    <!-- NFC غير لازم لتثبيت التطبيق: كل المناديب يثبّتونه، والوحدة وحدها تحتاج NFC وتقول ذلك للمندوب.
+         tools:replace يمنع مكتبةً تعلن NFC «مطلوباً» من حجب التطبيق في Play عن الجوالات التي لا NFC فيها -->
+    <uses-feature
+        android:name="android.hardware.nfc"
+        android:required="false"
+        tools:replace="android:required"/>
 
     
 
@@ -35,6 +52,7 @@
     <application
         android:name="Application"
         android:allowBackup="true"
+        tools:replace="android:allowBackup"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/appName"
         
@@ -157,6 +175,31 @@
             
 
             
+        </activity>
+
+        <!-- وحدة التحصيل بالبطاقة (NearPay). تفتحها صفحة المندوب بالرابط
+             intent://cardpay?t=<رمز>#Intent;scheme=fieldsapay;package=net.fieldsa.twa;... أي fieldsapay://cardpay?t=<رمز>
+             (backend/src/services/cardPayment.ts: launchUriFor). أي موقع يستطيع إطلاق هذا الرابط، فالنشاط يعامله مدخلاً غير موثوق.
+             - singleTop: رابطٌ مكرر والنشاط في القمة يصل إلى onNewIntent فيُهمل. singleTop لا يحرس إلا في القمة (فوقه قد تكون
+               الإعدادات أو TWA)، فالحارس الحقيقي في CardPayActivity (live): نسخةٌ ثانية تُظهر الأولى وتنتهي دون أن تستبدل رمزها.
+             - taskAffinity الافتراضي (حزمة التطبيق): يُفتح فوق TWA في مهمّتها نفسها، فإن خرج المندوب إلى الشاشة الرئيسية
+               وعاد بأيقونة التطبيق وجد شاشة الدفع كما تركها. مهمّة مستقلة كانت ستُخفيها خلف TWA في منتصف عملية.
+             - excludeFromRecents غير مضبوط: لا أثر له على نشاطٍ ليس جذر مهمّته، وإن صار جذراً فإخفاؤه يمنع الرجوع إلى دفعٍ جارٍ.
+             - configChanges: التدوير ونحوه لا يعيد إنشاء النشاط؛ واجهة NearPay مربوطة به وإعادة ربطها غير موثّقة.
+             - السمة غير شفافة (Material): سمة التطبيق شفافة لشاشة البداية فقط -->
+        <activity
+            android:name="net.fieldsa.twa.cardpay.CardPayActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|locale|layoutDirection"
+            android:theme="@style/Theme.FieldSales.CardPay">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="fieldsapay" android:host="cardpay" />
+            </intent-filter>
         </activity>
 
         <activity android:name="com.google.androidbrowserhelper.trusted.FocusActivity" />
