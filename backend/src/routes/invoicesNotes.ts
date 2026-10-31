@@ -40,8 +40,7 @@ import {
   type NoteEligible, type NoteKind, type NoteOriginalInvoice, type NoteOriginalItem, type PreparedNote, type PriorNote,
 } from '../compliance/zatca/notes';
 import { resolveInvoiceRegime, type Regime } from '../compliance/zatca/regime';
-import { classifyBuyerSubtype } from '../compliance/zatca/buyerParty';
-import { buyerSourceFromCustomer } from '../compliance/zatca/buyerData';
+import { buyerIssuanceDecision } from '../compliance/zatca/buyerData';
 import type { EgsUnitStore } from '../compliance/zatca/onboardingStore';
 // «اشتراط اختيار فاتورة البيع للمرتجع»: قواعد الرقم اليدويّ وطريقة الدفع — نقيّة
 import { RETURN_NEEDS_SALE_INVOICE_MESSAGE, RETURN_PAYMENT_PROBLEM_MESSAGE, normalizeReturnRef, returnPaymentTypeOf, returnRefProblem } from '../services/returnPolicy';
@@ -1006,7 +1005,8 @@ const isInvoiceNumberTaken = async (db: NoteDb, tenantId: string, ref: string): 
  *      الكمية والقيمة — لا ائتمان مزدوج على فاتورةٍ معروفة
  * ثم نواة الفاتورة نفسها (invoicesZatca.ts issuePhase2InRegime بـmanualNote): الانتقال والقدرات والحجب والبائع ومفتاح المنع من
  * التكرار والتحويل، والبنود من الطلب بمحرّكه (buildInvoiceSource)، وprepareIssuance بنوع CREDIT_NOTE، وختم الإشعار ببادئة RET،
- * وخطة اللوط الحرّة، وقيد المرتجع، واعتماد القياسيّ داخل الطلب. والنوع الفرعي من تصنيف العميل الحيّ (كأصلٍ من المرحلة الأولى).
+ * وخطة اللوط الحرّة، وقيد المرتجع، واعتماد القياسيّ داخل الطلب. والنوع الفرعي من تصنيف العميل الحيّ (كأصلٍ من المرحلة الأولى) بقاعدة
+ * noteEligibility نفسها: فكّ قيد بيانات المشتري يجعل المنشأة الناقصة مبسّطاً بإعلام، ومطفأً تُحجب بالرسالة العامة لا «تتبع أصلها».
  */
 async function issueManualCreditNote(
   ctx: Omit<CreditNoteContext, 'lines' | 'originalInvoiceId'> & { items: readonly ReturnItemLine[] },
@@ -1030,11 +1030,13 @@ async function issueManualCreditNote(
   }
   if (manual.repPriceProblem) return { status: 403, body: { success: false, message: manual.repPriceProblem } };
   if (await isInvoiceNumberTaken(deps.db, ctx.tenantId, ref)) return errorResult(new ZatcaHttpError('ZATCA_RETURN_REF_IN_SYSTEM'));
+  const buyer = buyerIssuanceDecision(ctx.customer, buyerRelaxedOf(seller));
   return issuePhase2InRegime({
     ...manual.invoice,
     manualNote: {
       originalNumber: ref,
-      originalSubtype: classifyBuyerSubtype(buyerSourceFromCustomer(ctx.customer)),
+      originalSubtype: buyer.subtype,
+      ...(buyer.simplifiedByRelax && { buyerSimplified: true as const }),
       originalPaymentType: paymentType,
       reason,
       reasonCode: ctx.reasonCode ?? null,

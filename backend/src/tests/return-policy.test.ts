@@ -276,13 +276,15 @@ interface ScriptOptions extends Policy {
   /** أرقام فواتير الشركة القائمة — لحارس «الرقم موجود في النظام» */
   numbers?: string[];
   rig?: Rig | null;
+  /** «فك قيد الرقم الضريبي والعنوان الوطني» على صفّ البائع — غيابه = الإعدادات قبل الميزة */
+  relaxed?: boolean;
 }
 
 function script(o: ScriptOptions = {}): void {
   const startedAt = o.startedAt === undefined ? LIVE_AT : o.startedAt;
   if (o.rig) {
     const seller = o.rig.h.units.settings.get(Z5_TENANT);
-    if (seller) o.rig.h.units.settings.set(Z5_TENANT, { ...seller, zatcaPhase2StartedAt: startedAt });
+    if (seller) o.rig.h.units.settings.set(Z5_TENANT, { ...seller, zatcaPhase2StartedAt: startedAt, ...(o.relaxed !== undefined && { buyerVatAddressRelaxed: o.relaxed }) });
   }
   calls = [];
   const numbers = o.numbers ?? [];
@@ -837,6 +839,41 @@ test('المرحلة الثانية والإعداد false: المبسّط يُ�
   assert.equal(rej.status, 422, JSON.stringify(rej.body));
   assert.equal(rej.body.code, 'ZATCA_REJECTED');
   assert.equal(rejecting.rows.get('note-1')!.status, 'CANCELLED');
+});
+
+test('المرحلة الثانية والإعداد false مع فكّ قيد بيانات المشتري: منشأةٌ ناقصة ⇒ إشعار يدويّ مبسّط بإعلامٍ وسطر تدقيق — ومطفأً 422 بالرسالة العامة', async t => {
+  asAdmin();
+  const warn = t.mock.method(console, 'warn', () => undefined);
+  const incomplete = CUSTOMER_ROW(CUSTOMERS.b2bIncomplete as unknown as Row);
+  const body = () => returnBody({ customerId: 'c-b2b-inc', originalInvoiceRef: 'OLD-501', originalPaymentType: 'CASH', noteReason: 'إرجاع من فاتورة النظام السابق' });
+  const rig = buildRig();
+  script({ rig, stored: false, relaxed: true, customer: incomplete });
+  const r = await call('POST', '/api/invoices', { body: body(), headers: CAPS });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const note = r.body.data as Row;
+  const e = note.einvoice as Row;
+  // كالإشعار على أصلٍ من المرحلة الأولى والفاتورة نفسها: لا «يتبع نوع فاتورته الأصلية» ولا أصل في المنصّة
+  assert.deepEqual([e.typeCode, e.documentKind, e.subtype], ['381', 'CREDIT_NOTE', '02']);
+  assert.equal(note.billingReference, 'OLD-501');
+  const notice = r.body.notice as { code: string; fields: string[] };
+  assert.equal(notice?.code, 'ZATCA_BUYER_SIMPLIFIED', 'الإعلام غائب عن ردّ الإشعار اليدويّ');
+  assert.ok(notice.fields.length > 0);
+  const lines = warn.mock.calls.map(c => String(c.arguments[0])).filter(l => l.includes('ZATCA_BUYER_SIMPLIFIED'));
+  assert.equal(lines.length, 1);
+  assert.equal(JSON.parse(lines[0]).kind, 'CREDIT_NOTE', 'سطر التدقيق يسمّي الإشعار فاتورة');
+  const xml = gunzipXml([...rig.h.docs.documents.values()][0].xmlGz);
+  assert.doesNotMatch(xml.slice(xml.indexOf('<cac:AccountingCustomerParty>'), xml.indexOf('</cac:AccountingCustomerParty>')), /311111111111113|PostalAddress/, 'الطرف المبسّط يحمل بيانات ناقصة');
+
+  for (const relaxed of [undefined, false]) {
+    const off = buildRig();
+    script({ rig: off, stored: false, relaxed, customer: incomplete });
+    const x = await call('POST', '/api/invoices', { body: body(), headers: CAPS });
+    assert.equal(x.status, 422, JSON.stringify(x.body));
+    assert.equal(x.body.code, 'ZATCA_BUYER_INCOMPLETE');
+    assert.match(String(x.body.message), /^بيانات العميل \(منشأة\) ناقصة للفاتورة الضريبية: /);
+    assert.equal('notice' in x.body, false);
+    assert.equal(off.h.docs.documents.size, 0, 'مستندٌ قبل الحجب');
+  }
 });
 
 test('المرحلة الثانية والإعداد false: إعادة الرفع بلا clientRef ⇒ 426 كالفاتورة، وبلا قدرات ⇒ 426، قبل أيّ مستند', async () => {

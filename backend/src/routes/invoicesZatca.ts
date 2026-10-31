@@ -649,8 +649,10 @@ export interface Phase2IssuanceContext {
 export interface Phase2ManualNote {
   /** BT-25: رقم الفاتورة الأصلية كما كُتب مطبَّعاً (services/returnPolicy.ts normalizeReturnRef) */
   originalNumber: string;
-  /** لا أصل يُورَث منه: تصنيف العميل الحيّ (classifyBuyerSubtype) كأصلٍ من المرحلة الأولى */
+  /** لا أصل يُورَث منه: تصنيف العميل الحيّ (buyerIssuanceDecision) كأصلٍ من المرحلة الأولى — بفكّ قيد بيانات المشتري إن كان مفعّلاً */
   originalSubtype: InvoiceSubtype;
+  /** فكّ القيد صنّفه مبسّطاً (منشأة ناقصة البيانات) ⇒ إعلامٌ في الردّ وسطر تدقيق */
+  buyerSimplified?: true;
   /** BR-49: طريقة دفع الأصل كما يختارها المُصدِر — بلا افتراضيّ صامت */
   originalPaymentType: 'CASH' | 'CREDIT';
   /** KSA-10 مطبَّعاً (3..1000) */
@@ -858,7 +860,11 @@ async function issueNow(
     settings: seller, customer: ctx.customer, products, request, companyVat: ctx.companyVat, engine: ctx.engine, now,
     ...(manual && {
       kind: 'CREDIT_NOTE' as const,
-      note: { originalNumber: manual.originalNumber, originalSubtype: manual.originalSubtype, originalPaymentType: manual.originalPaymentType, reason: manual.reason },
+      // originalClassified: النوع من تصنيف العميل لا من أصلٍ ضريبيّ — فالحجب برسالة البيانات الناقصة العامة لا «الإشعار يتبع أصله»
+      note: {
+        originalNumber: manual.originalNumber, originalSubtype: manual.originalSubtype, originalPaymentType: manual.originalPaymentType, reason: manual.reason,
+        ...(manual.buyerSimplified && { buyerSimplified: true as const }), originalClassified: true as const,
+      },
     }),
   });
 
@@ -999,7 +1005,7 @@ async function issueNow(
   // فكّ القيد: صدرت مبسطة بدل ضريبية ناقصة — سطر تدقيق (معرّفات وأسماء حقول) وإعلامٌ في الردّ بجانب success وdata
   if (prepared.buyerNotice) {
     console.warn(buyerSimplifiedAuditLine({
-      tenantId: ctx.tenantId, customerId: ctx.customerId, invoiceId: issued.invoiceId, number: issued.number, fields: prepared.buyerNotice.fields,
+      tenantId: ctx.tenantId, customerId: ctx.customerId, invoiceId: issued.invoiceId, number: issued.number, kind: prepared.kind, fields: prepared.buyerNotice.fields,
     }));
   }
   return withLotWarnings({ status: 201, body: { success: true, data, ...(prepared.buyerNotice && { notice: prepared.buyerNotice }) } }, lotWarnings);

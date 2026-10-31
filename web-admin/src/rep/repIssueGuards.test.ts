@@ -84,7 +84,8 @@ test('ورقة الإشعار الدائن: مرجع الأصل وسببه في 
   assert.match(submitSrc, /billingReference: txtOr\(r\?\.billingReference, manualRef \? normalizeReturnRef\(manualRef\.number\) : saleRef\?\.number\),/);
   assert.match(submitSrc, /noteReason: txtOr\(r\?\.noteReason, noteReasonText\.trim\(\)\),\n\s+\} : \{\}\);/);
   assert.match(tail, /zatca: out\.view,\n\s+\.\.\.noteDoc\(row\),/, 'مسار 202');
-  assert.match(tail, /zatca: zatcaDocView\(inv\),\n\s+\.\.\.noteDoc\(inv\),/, 'مسار 201');
+  // وبينهما سطر buyerNotice (فكّ قيد بيانات المشتري) — شاشة النتيجة وحدها، لا يمسّ الورقة
+  assert.match(tail, /zatca: zatcaDocView\(inv\),\n(?:\s+\.\.\.\(notice && \{ buyerNotice: buyerNoticeText\(notice, tr\) \}\),\n)?\s+\.\.\.noteDoc\(inv\),/, 'مسار 201');
 });
 
 test('رفض الخادم لسياسة المرتجع يُعرض بعبارة القاموس بلغة المندوب', () => {
