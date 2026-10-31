@@ -1,0 +1,10 @@
+# مخرجات البناء والأسرار — المفتاح وكلمات مروره ورمز NearPay لا تدخل المستودع أبداً
+.gradle/
+build/
+app/build/
+local.properties
+*.keystore
+*.jks
+*.aab
+*.apk
+*.idsig
