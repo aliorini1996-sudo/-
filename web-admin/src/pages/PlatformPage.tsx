@@ -988,6 +988,12 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
   const [paymentMethodsEnabled, setPaymentMethodsEnabled] = useState(!!tenant.paymentMethodsEnabled);
   // «لوكيشن» (مواقع الشركة وختم الفواتير والتحميلات بموقع المندوب) — مطفأة افتراضياً ⇒ `!!`
   const [locationsEnabled, setLocationsEnabled] = useState(!!tenant.locationsEnabled);
+  // «إضافة وحدة فرعية أصغر» لمديري الشركة (الوحدة الرئيسية D14-ب) — مطفأ افتراضياً ⇒ `!!`، ويُرسل حين يتغيّر وحده فلا يمسّه حفظُ
+  // علمٍ آخر. لمالك المنصّة وحده (الخادم يردّ موظف المنصّة ٤٠٣ CONVERT_BASE_FLAG_OWNER_ONLY)، وبوابة الإطلاق في الخادم
+  // (convertBaseReleased، للقراءة فقط) مغلقة ⇒ الخانة معطّلة: العلم لا أثر له قبل اكتمال المراجعة
+  const [convertBaseOpen, setConvertBaseOpen] = useState(!!tenant.convertBaseOpen);
+  const convertBaseOwnerOnly = access.isStaff;
+  const convertBaseLocked = tenant.convertBaseReleased === false || convertBaseOwnerOnly;
   // «التحصيل بالبطاقة» (NearPay SoftPOS) — مطفأ افتراضياً ⇒ `!!`، وتاجر الشركة لدى NearPay (المال يذهب إليه مباشرة)
   const [cardPayEnabled, setCardPayEnabled] = useState(!!tenant.cardPayEnabled);
   const [nearpayMerchantId, setNearpayMerchantId] = useState<string>(tenant.nearpayMerchantId || '');
@@ -1036,6 +1042,7 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
       apiEnabled,
       paymentMethodsEnabled,
       locationsEnabled,
+      ...(convertBaseOpen !== !!tenant.convertBaseOpen ? { convertBaseOpen } : {}),
       cardPayEnabled,
       nearpayMerchantId: nearpayMerchantId || null,
       accountingEnabled,
@@ -1192,6 +1199,15 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
               {tr('تفعيل صفحة لوكيشن لهذه الشركة')}
             </label>
             <p className="text-xs text-gray-400 mt-1">{tr('تعرف الشركة مواقعها (فرع أو مستودع أو مدينة على الخريطة) وتسند كل مندوب لموقع، فتختم كل فاتورة وتحميل بموقع مندوبها وقت الإصدار، مع عمود وتصفية الموقع في الفواتير وسجل التحميلات وملخص لكل موقع — تتطلب النظام المحاسبي')}</p>
+            <label className={`flex items-center gap-2.5 text-sm select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2 ${convertBaseLocked ? 'text-gray-400' : 'text-gray-700 cursor-pointer'}`} data-convert-base-open="">
+              <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={convertBaseOpen} disabled={convertBaseLocked} onChange={e => setConvertBaseOpen(e.target.checked)} />
+              {tr('إضافة وحدة فرعية أصغر لمديري الشركة')}
+              {tenant.convertBaseReleased === false && (
+                <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 ms-auto">{tr('متاحة بعد اكتمال المراجعة')}</span>
+              )}
+            </label>
+            <p className="text-xs text-gray-400 mt-1">{tr('يضيف مدير الشركة أو المشرف بصلاحيات الأصناف والفواتير ومخزون السيارات وحدة أصغر لصنف قائم له تاريخ (قارورة لصنف كرتون) ويبقى الكرتون الوحدة الرئيسية — يرى المدير الزر بعد دخوله التالي')}</p>
+            {convertBaseOwnerOnly && <p className="text-xs text-gray-400 mt-1">{tr('يضبطه مالك المنصة وحده')}</p>}
             <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2">
               <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={cardPayEnabled} disabled={cardPayOwnerOnly} onChange={e => setCardPayEnabled(e.target.checked)} />
               {tr('تفعيل التحصيل بالبطاقة (NearPay) لهذه الشركة')}

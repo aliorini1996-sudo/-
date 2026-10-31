@@ -74,13 +74,18 @@ test('R1: مسار التحميل لا يستدعي دوال اللوط إلا �
   assert.ok(code.includes('const gone = data.deletedSalesRepId !== undefined ? await deletedVanOf(req, tid, data) : null;'));
 });
 
-test('§١٠.١: العلمان في قراءة المندوب القائمة، والمطفأة بالعدّ القائم والمعاملة القائمة بلا مهلة جديدة', () => {
+// «الوحدة الرئيسية» §2.7: العدّ صار قراءةً واحدة للأصناف بأساسها (لا استعلام زائد)، وكل فرعٍ قائم معاملةٌ تقفل الأساس (lockBases)
+// بمهلة BASE_GUARD_TX (I10) لا مهلة اللوط — والفرع المطفأ الذي كان بلا معاملة صار معاملةً لذلك وحده
+test('§١٠.١: العلمان في قراءة المندوب القائمة، والأصناف بقراءةٍ واحدة، والفروع القائمة معاملاتٌ بقفل الأساس وBASE_GUARD_TX', () => {
   assert.ok(post.includes('include: { tenant: { select: { locationsEnabled: true, lotTrackingEnabled: true, warehouseEnabled: true } } } });'), 'لا استعلام للعلم');
-  assert.ok(post.includes('const valid = await prisma.product.count({ where: { id: { in: productIds }, tenantId: tid } });'));
+  assert.equal((post.match(/prisma\.product\.(count|findMany)\(/g) ?? []).length, 1, 'قراءةٌ واحدة للأصناف كما كان العدّ');
+  assert.ok(post.includes("if (products.length !== productIds.length) { res.status(400).json({ success: false, message: 'منتج غير صالح' }); return; }"));
   const legacy = between(post, '\n    const load = outBucket', 'res.status(201).json({ success: true, data: load });');
-  assert.ok(legacy.includes('? await prisma.$transaction(async (tx) => {'));
-  assert.ok(!legacy.includes('maxWait'), 'المسار القائم بلا خيارات (D13)');
-  assert.ok(legacy.includes(': await createLoad(prisma);'));
+  assert.equal((legacy.match(/await prisma\.\$transaction\(async \(tx\) => \{/g) ?? []).length, 3, 'الإزالة وغير المتتبَّع والمطفأ');
+  assert.equal((legacy.match(/await lockBases\(tx, tid, expected\);/g) ?? []).length, 3);
+  assert.equal((legacy.match(/\}, BASE_GUARD_TX\)/g) ?? []).length, 3);
+  assert.ok(!legacy.includes('maxWait'), 'بلا مهلة اللوط (D13)');
+  assert.ok(!legacy.includes('createLoad(prisma)'), 'لا إنشاء خارج المعاملة');
   // الأجسام الجديدة اختيارية بلا تحقق في المخطط: أجسام الشركة المطفأة تُقبل كما كانت
   const schema = between(van, 'const loadSchema = z.object({', '\n});');
   for (const f of ['lots', 'lotNumber', 'productionDate', 'expiryDate', 'lotReason']) assert.ok(schema.includes(`${f}: z.unknown().optional(),`), f);
@@ -104,7 +109,8 @@ test('المعالج: LotError بحالته ورمزه (lotHttpError) قبل ف�
   // اثنان: مسار اللوط، وغير المتتبَّع والميزة مفعّلة (D25، مشروطاً بـlotsOn) — والمطفأة لا تصل إليه
   const code = stripComments(van);
   assert.equal((code.match(/asLotBusy\(/g) ?? []).length, 2, 'مهلة معاملةٍ خارج اللوط (العهدة، الإزالة القائمة) لا تصير LOT_BUSY');
-  assert.ok(code.includes('throw (lotsOn ? asLotBusy(e) : null) ?? e;'), 'تحويل غير المتتبَّع مشروط بعلم الشركة');
+  // وتبدّل الأساس («الوحدة الرئيسية» §3) لا يمرّ من asLotBusy فيبقى PRODUCT_UNITS_CHANGED
+  assert.ok(code.includes('throw (lotsOn && !(e instanceof ProductUnitsChangedError) ? asLotBusy(e) : null) ?? e;'), 'تحويل غير المتتبَّع مشروط بعلم الشركة');
 });
 
 test('lotsVan: التحميل من المستودع بـallocateOutLines لكل سطر (D22) لا التجميع ثم distributeToLines، والإنقاص من السيارة بـpickOutSources بعد aggregateRequest (D26)', () => {

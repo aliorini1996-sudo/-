@@ -101,7 +101,13 @@ test('F1 (أ) D9: غيابٌ صريح — lotId null وlotNumber فارغ أو �
   fresh();
   const r = await post({ type: 'ADJUST', items: [{ productId: 'P3', qty: -2, lotId: null, lotNumber: '  ', productionDate: null, expiryDate: null }, { productId: 'P3', qty: 1, lotNumber: '', expiryDate: '' }] });
   assert.equal(r.status, 201, JSON.stringify(r.body));
-  assert.deepEqual(ops(), ['product.findMany', 'tx.begin', 'query', 'warehouseEntry.create', 'tx.commit']);
+  // قفل الأساس («الوحدة الرئيسية» §2.8) ثم إعادة قراءة التتبّع (D25) — أيّاً كانت أوامر المهلة حولهما — ثم الإنشاء الوحيد
+  const seq = world.calls.map((c) => c.op);
+  assert.deepEqual([seq.slice(0, 2), seq.slice(-2)], [['product.findMany', 'tx.begin'], ['warehouseEntry.create', 'tx.commit']], seq.join(' '));
+  assert.ok(seq.slice(2, -2).every((x) => x === 'query' || x === 'exec'), seq.join(' '));
+  assert.deepEqual(world.calls.filter((c) => c.op === 'query' && String(c.sql ?? '').includes('FOR KEY SHARE'))
+    .map((c) => (/^SELECT id, unit, "lotTracked", "lotTrackedSince" FROM products /.test(String(c.sql)) ? 'BASE'
+      : /^SELECT id, "lotTracked" FROM products /.test(String(c.sql)) ? 'TRACK' : String(c.sql))), ['BASE', 'TRACK']);
   const last = world.items.filter((i) => i.entryId === world.entries[world.entries.length - 1].id);
   assert.deepEqual(last.map((i) => i.lotId), [null, null]);
 });
@@ -127,12 +133,13 @@ test('F1 (أ) D9 تحت القفل: صنفٌ متتبَّع في القراءة 
   }
 });
 
-test('F1 (أ) §١٠.١: الميزة مطفأة — حقول التشغيلة لصنفٍ غير متتبَّع تُهمل كما كانت حرفياً (لا 422 ولا معاملة)', async () => {
+test('F1 (أ) §١٠.١: الميزة مطفأة — حقول التشغيلة لصنفٍ غير متتبَّع تُهمل كما كانت حرفياً (لا 422، والمعاملة لقفل الأساس وحده)', async () => {
   fresh();
   world.lotsEnabled = false;
   const r = await post({ type: 'RECEIVE', items: [{ productId: 'P3', qty: 2, lotId: 'L1', lotNumber: 'X1', productionDate: '2026-01-01', expiryDate: '2999-01-01' }] });
   assert.equal(r.status, 201, JSON.stringify(r.body));
-  assert.deepEqual(ops(), ['product.findMany', 'warehouseEntry.create']);
+  // «الوحدة الرئيسية» §2.8: المسار المطفأ صار معاملةً لقفل الأساس وحده — بلا إعادة قراءة التتبّع
+  assert.deepEqual(ops(), ['product.findMany', 'tx.begin', 'query', 'exec', 'query', 'exec', 'warehouseEntry.create', 'tx.commit']);
   const last = world.items.filter((i) => i.entryId === world.entries[world.entries.length - 1].id);
   assert.deepEqual(last.map((i) => i.lotId), [null]);
 });
@@ -142,13 +149,16 @@ test('F1 (ب): معاملة إعادة قراءة التتبّع والميزة 
     Object.assign(new Error('Transaction API error: Transaction already closed'), { code: 'P2028' }),
     Object.assign(new Error('canceling statement due to lock timeout'), { code: 'P2010', meta: { code: '55P03' } }),
   ]) {
-    fresh();
-    const n = world.entries.length;
-    world.failOn = (sql) => (sql.includes('FOR KEY SHARE') ? fail : null);
-    const r = await post({ type: 'ADJUST', items: [{ productId: 'P3', qty: -2 }] });
-    assert.deepEqual([r.status, r.body?.code], [503, 'LOT_BUSY'], JSON.stringify(r.body));
-    assert.equal(world.entries.length, n);
-    world.failOn = null;
+    // إعادة قراءة التتبّع ⇒ LOT_BUSY كما كان؛ وقفل الأساس قبلها («الوحدة الرئيسية» §2.8، تحويلٌ يمسك الصنف) ⇒ PRODUCT_UNITS_BUSY
+    for (const [hit, code] of [[/SELECT id, "lotTracked" FROM/, 'LOT_BUSY'], [/SELECT id, unit, /, 'PRODUCT_UNITS_BUSY']] as const) {
+      fresh();
+      const n = world.entries.length;
+      world.failOn = (sql) => (sql.includes('FOR KEY SHARE') && hit.test(sql) ? fail : null);
+      const r = await post({ type: 'ADJUST', items: [{ productId: 'P3', qty: -2 }] });
+      assert.deepEqual([r.status, r.body?.code], [503, code], JSON.stringify(r.body));
+      assert.equal(world.entries.length, n);
+      world.failOn = null;
+    }
   }
   // وخطأٌ غير الانشغال يبقى كما هو (إلى المعالج العام)
   fresh();

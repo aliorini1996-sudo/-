@@ -88,13 +88,14 @@ test('سيناريو البند 1 (الخادم): السعر الخاص صفر �
   const i = src.indexOf("router.post('/prices'");
   const body = src.slice(i, src.indexOf('\n});', i));
   // البندان 43 و44: الفحص انتقل إلى المخطِّط الصرف، والمسار يمرّر الإقرار إليه قبل أي كتابة
-  assert.match(body, /planPriceImportRows\(rows, matcher, prods, body\.allowZeroPrice === true\)/);
+  // «الوحدة الرئيسية» (D17): الخطة عبر planPriceRowsWithUnits، وهي تمرّر الإقرار نفسه إلى planPriceImportRows
+  assert.match(body, /planPriceRowsWithUnits\(rows, matcher, prods, body\.allowZeroPrice === true\)/);
   assert.match(read('services/importLedger.ts'), /const zeroIssue = priceRowIssue\(r\.price, allowZeroPrice\);/);
   assert.match(body, /importContentHash\('prices', rows\)/, 'البصمة للصفوف وحدها');
   assert.match(src, /allowZeroPrice: z\.boolean\(\)\.optional\(\)/);
   // البند 31: خيار «شاملة الضريبة» لا يدخل البصمة (كالمخزون الافتتاحي) فلا يصير تبديله دفعةً ثانية
   assert.ok(body.indexOf('importContentHash(') < body.indexOf('pricesIncludeTax === true'), 'البصمة قبل التحويل');
-  assert.ok(body.indexOf('planPriceImportRows(') < body.indexOf('runImportChunks('));
+  assert.ok(body.indexOf('planPriceRowsWithUnits(') > 0 && body.indexOf('planPriceRowsWithUnits(') < body.indexOf('runImportChunks('));
 });
 
 test('سيناريو البند 14: taxPct غير صفري أقل من 1 (خلية 15% ⇒ 0.15) ⇒ TAX_PCT_FRACTION، والصفر و15 مقبولان', () => {
@@ -135,7 +136,9 @@ test('حارس ثابت: /customers و/products و/prices تحجز reserveMaster
   for (const [m, kind, write] of kinds) {
     const i = src.indexOf(m);
     const body = src.slice(i, src.indexOf('\n});', i));
-    const reserve = body.indexOf(`reserveMasterBatch(tid, '${kind}', importContentHash('${kind}', rows), importedBy(req), body.force === true)`);
+    // «الوحدة الرئيسية»: صفوف المنتجات تُطبَّع قبل البصمة (hashRowsOf) — بصمة الملف القديم كما كانت
+    const hashed = kind === 'products' ? 'hashRowsOf(rows)' : 'rows';
+    const reserve = body.indexOf(`reserveMasterBatch(tid, '${kind}', importContentHash('${kind}', ${hashed}), importedBy(req), body.force === true)`);
     assert.ok(reserve > 0, `${m}: بلا reserveMasterBatch`);
     assert.ok(reserve < body.indexOf(write), `${m}: الحجز بعد الكتابة`);
     assert.doesNotMatch(body, /prisma\.(customer|product|productCategory|customerPrice)\.(create|upsert)\(/, `${m}: كتابة خارج المعاملة`);

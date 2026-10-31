@@ -4,7 +4,9 @@ import toast from 'react-hot-toast';
 import {
   AlertTriangle, Check, ChevronLeft, ChevronRight, Copy, FileText, Info, Pencil, Plus, Printer, Receipt, RotateCcw, Save, Trash2, X,
 } from 'lucide-react';
-import { companyApi } from '../../api/client';
+import { companyApi, productApi } from '../../api/client';
+import { hasBigUnit } from '../../lib/adminUnits';
+import { primaryUnitOf, type UnitDef } from '../../lib/units';
 import { useTr } from '../../i18n/strings';
 import {
   COMPANY_SETTINGS_MISSING_MSG, DOC_KINDS, DOC_KIND_LABELS, DOC_KIND_SHORT, DPIS_BY_PRINTER, FEEDS_BY_PRINTER, FEED_LABELS, FONT_SCALES,
@@ -402,6 +404,7 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
                 <Toggle label={tr('اسم المندوب')} checked={p.options.showRepName} onChange={(v) => setOpt('showRepName', v)} />
                 <Toggle label={tr('التوقيعات')} hint={tr('تبقى مشروطة بتفعيل التوقيعات للشركة')} checked={p.options.showSignatures} onChange={(v) => setOpt('showSignatures', v)} />
                 <Toggle label={tr('وحدة الصنف')} checked={p.options.showItemUnit} onChange={(v) => setOpt('showItemUnit', v)} />
+                {!p.options.showItemUnit && <ItemUnitWarning />}
                 <label className="block">
                   <span className="label">{tr('نص التذييل')}</span>
                   <input className="input" maxLength={PRINT_LIMITS.footerMax} placeholder={tr('شكرا لتعاملكم معنا')} value={p.options.footerText ?? ''}
@@ -534,6 +537,28 @@ function Section({ title, open, children }: { title: string; open?: boolean; chi
       <summary className="text-sm font-semibold text-[#44403a] cursor-pointer">{title}</summary>
       <div className="space-y-3 mt-3">{children}</div>
     </details>
+  );
+}
+
+/**
+ * تنبيه R11 («الوحدة الرئيسية»): إطفاء «وحدة الصنف» والشركة لها صنفٌ بأكثر من وحدة (أو بوحدةٍ رئيسية) يطبع «×5» بلا وحدة،
+ * فلا يُعرف أكراتين أم حبّات. تنبيهٌ وحده — الطباعة لا تتغيّر (فرض الوحدة رغم الإعداد قرارٌ مفتوح للمالك §10-7).
+ * كتالوج الأصناف المختصر (المفتاح المشترك ['products-min']) يُطلب حين تُطفأ الخانة وحدها. تعذّره (صلاحيةٌ أو محاسبةٌ مطفأة) لا
+ * يُخفي التنبيه — لا نعرف أنّ الشركة بلا أصنافٍ متعدّدة الوحدات، والنصّ مشروطٌ بها أصلاً؛ وما دام يُحمَّل لا يظهر شيء
+ */
+function ItemUnitWarning() {
+  const tr = useTr();
+  const q = useQuery({
+    queryKey: ['products-min'],
+    queryFn: async () => (await productApi.list({ limit: 1000 })).data.data as { id: string; units?: UnitDef[] | null; primaryUnitId?: string | null }[],
+    staleTime: 60_000,
+  });
+  const multi = q.isError || (q.data ?? []).some((x) => primaryUnitOf(x) !== null || hasBigUnit(x?.units));
+  if (!multi) return null;
+  return (
+    <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 leading-relaxed flex items-start gap-1.5" data-item-unit-warning="">
+      <AlertTriangle size={12} className="mt-0.5 shrink-0" />{tr('إطفاؤه مع أصناف بأكثر من وحدة يطبع «×5» بلا وحدة، فلا يُعرف أكراتين أم حبّات')}
+    </p>
   );
 }
 

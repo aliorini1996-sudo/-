@@ -5,13 +5,19 @@
 import { Trophy, Medal } from 'lucide-react';
 import { useTr } from '../../i18n/strings';
 import { formatCurrency } from '../../utils/format';
+import { primaryUnitOf, productQtyText, type UnitDef } from '../../lib/units';
 import SearchableSelect from '../SearchableSelect';
 
 export type RankingMetric = 'visits' | 'product' | 'sales' | 'distance' | 'appTime';
 export interface RankingRow { repId: string; name: string; value: number; rank: number }
+/**
+ * صنف معيار «كمية صنف معين»: القيمة **بالأساس** (`unit` اسمه). `units` (بمعرّفاتها) و`primaryUnitId` من الخادم لعرض
+ * «الوحدة الرئيسية» — غيابهما أو null ⇒ العرض القائم حرفاً.
+ */
+export interface RankingProduct { id: string; name: string; unit: string; units?: UnitDef[] | null; primaryUnitId?: string | null }
 export interface RankingData {
   metric: RankingMetric;
-  product: { id: string; name: string; unit: string } | null;
+  product: RankingProduct | null;
   rows: RankingRow[];
   range: { from: string | null; to: string };
   clampedDays: number | null;
@@ -34,12 +40,16 @@ const RANKING_NOTES: Record<RankingMetric, string> = {
   appTime: 'مجموع وقت فتح التطبيق متصلا',
 };
 
-/** القيمة بوحدتها — والدقائق ساعاتٍ ودقائق */
-export function formatRankingValue(metric: RankingMetric, v: number, tr: (s: string) => string, unit?: string): string {
+/**
+ * القيمة بوحدتها — والدقائق ساعاتٍ ودقائق. وكمية الصنف (بالأساس) لصنفٍ له وحدة رئيسية «52 كرتون و2 قارورة»
+ * (productQtyText، R1)، وإلا الرقم واسم الأساس كما كان حرفاً.
+ */
+export function formatRankingValue(metric: RankingMetric, v: number, tr: (s: string) => string, unit?: string, product?: RankingProduct | null): string {
   if (metric === 'sales') return formatCurrency(v);
   if (metric === 'appTime') return `${Math.floor(v / 60)} ${tr('س')} ${Math.round(v % 60)} ${tr('د')}`;
   if (metric === 'distance') return `${Number(v.toFixed(1))} ${tr('كم')}`;
   if (metric === 'visits') return `${v} ${tr('زيارة')}`;
+  if (product && primaryUnitOf(product)) return productQtyText(v, product);
   return `${Number(v.toFixed(3))}${unit ? ` ${unit}` : ''}`;
 }
 
@@ -63,6 +73,8 @@ export default function RepRankingBoard({
   const tr = useTr();
   const max = Math.max(0, ...rows.map(r => r.value));
   const needsProduct = metric === 'product' && !productId;
+  // عنوان المقياس بوسم الوحدة الرئيسية حين للصنف رئيسية — الأشرطة بالأساس، والقيمة تُعرض بها
+  const primary = metric === 'product' ? primaryUnitOf(data?.product) : null;
 
   return (
     <div className="space-y-4">
@@ -99,6 +111,7 @@ export default function RepRankingBoard({
           <Trophy size={17} className="text-[#E15A30]" />
           {tr('ترتيب المناديب حسب')} {tr(RANKING_LABELS[metric])}
           {metric === 'product' && data?.product && <span className="text-[#6E6557] font-semibold">— {data.product.name}</span>}
+          {primary && <span className="text-[11px] font-semibold text-[#6E6557] bg-[#FAF7F0] border border-[#F1EBDF] rounded-md px-1.5 py-0.5">{tr('الوحدة الرئيسية')}: {primary.name}</span>}
         </div>
         {needsProduct ? (
           <p className="p-8 text-center text-gray-400 text-sm">{tr('اختر الصنف لعرض الترتيب')}</p>
@@ -119,7 +132,7 @@ export default function RepRankingBoard({
                   <div className="flex items-center justify-between gap-3">
                     <span className="font-semibold text-sm text-[#1F1A13] truncate">{r.name}</span>
                     <span className={`text-sm font-bold whitespace-nowrap ${r.value > 0 ? 'text-[#1F1A13]' : 'text-[#9A8F7E]'}`}>
-                      {formatRankingValue(metric, r.value, tr, data?.product?.unit)}
+                      {formatRankingValue(metric, r.value, tr, data?.product?.unit, data?.product)}
                     </span>
                   </div>
                   <div className="mt-1.5 h-1.5 rounded-full bg-[#F1EBDF] overflow-hidden">

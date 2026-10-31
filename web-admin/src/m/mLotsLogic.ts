@@ -22,7 +22,7 @@ import {
   type LotUnloadPlanDto, type LotTraceDto, type LotBucket, type PlaceLotViewDto,
 } from '../lib/lots';
 import { qtyText } from './mUnits';
-import type { UnitDef } from '../lib/units';
+import { primaryUnitOf, type UnitDef } from '../lib/units';
 
 let seq = 0;
 /** معرّف سطرٍ محلّي فريد في الجلسة — مفتاح React وهدف التعديل والحذف */
@@ -403,8 +403,26 @@ export function lotLineLabel(l: { lotNumber: string | null; expiryDate?: string 
  * وإلّا الرقم بجانب اسم الأساس — فلا يُقرأ «المتاح ٣٠» ثلاثين كرتوناً. مقرّبةً بأربع خانات (D22) قبل منسّق الشاشة `num`.
  * لكميةٍ يُدخلها المستخدم بالأساس (توزيع التنزيل) يُمرَّر `{ unit }` وحده: الرقم واسم الأساس بلا تفكيك.
  */
-export function lotQtyText(baseQty: number, p: { unit?: string | null; units?: UnitDef[] | null } | null | undefined, num: (n: number) => string): string {
+export function lotQtyText(baseQty: number, p: { unit?: string | null; units?: UnitDef[] | null; primaryUnitId?: string | null } | null | undefined, num: (n: number) => string): string {
   return qtyText(roundLot(Number(baseQty) || 0), p, num, { withUnit: true });
+}
+
+/**
+ * رصيد تشغيلةٍ في بطاقتها (R1): «52 كرتون و2 قارورة» لصنفٍ له «وحدة رئيسية» صالحة (`primaryUnitOf`)، وإلّا الرقم واسم
+ * الأساس **كما كان حرفاً** (`${num(n)} ${unit}`) — فصنفٌ بلا رئيسية لا يتغيّر نصّ بطاقته ولو كانت له وحدات (I1).
+ * المدخلات بالأساس تبقى بالأساس (R8)؛ هذا للعرض وحده.
+ */
+export function lotCardQtyText(baseQty: number, p: { unit?: string | null; units?: UnitDef[] | null; primaryUnitId?: string | null } | null | undefined, num: (n: number) => string): string {
+  return primaryUnitOf(p) ? lotQtyText(baseQty, p, num) : `${num(baseQty)} ${String(p?.unit || '')}`;
+}
+
+/**
+ * كمية تشغيلةٍ في سطرٍ ثانويّ (محجوز، منتهٍ، تالف، المحمّل والمنزّل، مصدر التشغيلة، رصيد صفّ القائمة): بجانب عنوانٍ صار
+ * «52 كرتون و2 قارورة» لا يبقى الرقم المجرّد — «محجوز 24» يُقرأ كراتين وهو قوارير. فلصنفٍ له «وحدة رئيسية» صالحة بها
+ * (R1)، وبلاها الرقم المجرّد **كما كان حرفاً** (I1).
+ */
+export function lotQtyBare(baseQty: number, p: { unit?: string | null; units?: UnitDef[] | null; primaryUnitId?: string | null } | null | undefined, num: (n: number) => string): string {
+  return primaryUnitOf(p) ? lotQtyText(baseQty, p, num) : num(baseQty);
 }
 
 /**

@@ -7,7 +7,7 @@
  *   - لغة المندوب: وقائع التوجيه والدراسة ودروس الفريق ورموز الأخطاء ← نصوص بلغته (tr من useAiRepTr يُمرَّر).
  *   - «الطلب المتوقع من ملف المحل في Google»: سطر القائمة وأرقام الأصناف ومداها وسطر الأساس بلغة المندوب.
  */
-import { formatQty } from '../lib/units';
+import { formatQty, primaryUnitOf } from '../lib/units';
 
 export interface Pt { lat: number; lng: number }
 
@@ -434,14 +434,15 @@ export function teamTipText(key: string | null | undefined, text: string | null 
 // لكل صنف في سيارة المندوب: حجم الطلب المعتاد للصنف من فواتير الشركة × مؤشرات ملف المحل (عدد المقيّمين مقارنةً بمحلات
 // نوعه في المسح، والتقييم، وحديث المراجعات وذكر الصنف فيها حين تُقرأ). الأرقام والوحدات بلغة المندوب.
 
-/** وحدةٌ أكبر من الأساس للعرض (نسخة الواجهة من QtyUnit في ai-rep/baseQty.ts) — الاسم وعدد وحدات الأساس فيها. */
-export interface ExpectedUnit { name: string; factor: number }
+/** وحدةٌ أكبر من الأساس للعرض (نسخة الواجهة من QtyUnit في ai-rep/baseQty.ts) — الاسم وعدد وحدات الأساس فيها، ومعرّفها حين يرسله الخادم. */
+export interface ExpectedUnit { id?: string; name: string; factor: number }
 /**
  * صنفٌ في الطلب المتوقع (نسخة الواجهة من ExpectedProduct) — qty = null ⇒ لا رقم وسببه reason.
  * الكمية ومداها **بوحدة الأساس** `unit`، و`units` وحدات الصنف الأكبر ليفكّكها العرض «٢ كرتون و٣ حبة» (غائبة لصنفٍ بوحدة واحدة).
+ * و`primaryUnitId` «الوحدة الرئيسية» إن كانت للصنف: التفكيك يقف عندها (R1)، وغيابها أو معرّفٌ لا يطابق وحدةً ⇒ كما كان.
  */
 export interface ExpectedProduct {
-  productId: string; name: string; unit: string; units?: ExpectedUnit[]; qty: number | null; low: number | null; high: number | null;
+  productId: string; name: string; unit: string; units?: ExpectedUnit[]; primaryUnitId?: string | null; qty: number | null; low: number | null; high: number | null;
   mentioned: boolean; mentions?: number; complaint?: 'QUALITY' | 'SHORTAGE'; quote?: string; reason?: 'NO_ANCHOR';
 }
 /** وقائع سطر الأساس (نسخة الواجهة من ExpectedBasis) — text نصّه العربي. */
@@ -478,13 +479,13 @@ export const fmtQty = (q: number, lang: string): string => fmtNum(lang, q, 0, 1)
 /**
  * «12 كرتون» — الوحدة كما في الكتالوج (مترجمةً إن عُرفت). ولصنفٍ له وحدات: الكمية بالأساس من الخادم تُفكَّك «٢ كرتون و٣ حبة»
  * (`formatQty` — لا حسابٌ موازٍ) — فـ«٥١ حبة» لا تُقرأ وحدها، و«٥١ كرتون» خطأٌ ٢٤ ضعفاً. والأرقام بلغة المندوب، والواو
- * العربية «+» في غيرها.
+ * العربية «+» في غيرها. ولصنفٍ له «وحدة رئيسية» يقف التفكيك عندها: «52 كرتون و2 حبة» لا «طبلية»، والصفر «0 كرتون».
  */
-export function expectedQtyText(p: Pick<ExpectedProduct, 'qty' | 'unit' | 'units'>, lang: string, tr: Tr): string {
+export function expectedQtyText(p: Pick<ExpectedProduct, 'qty' | 'unit' | 'units' | 'primaryUnitId'>, lang: string, tr: Tr): string {
   if (p.qty == null) return '—';
   if (!p.units?.length) return `${fmtQty(p.qty, lang)} ${tr(p.unit)}`.trim();
-  const units = p.units.map(u => ({ name: tr(u.name), factor: Number(u.factor) }));
-  return formatQty(p.qty, units, tr(p.unit))
+  const units = p.units.map(u => ({ ...(u.id != null && { id: u.id }), name: tr(u.name), factor: Number(u.factor) }));
+  return formatQty(p.qty, units, tr(p.unit), primaryUnitOf({ primaryUnitId: p.primaryUnitId, units }))
     .replace(/ و(?=\d)/, lang === 'ar' ? ' و' : ' + ')
     .replace(/\d+(?:\.\d+)?/g, m => fmtQty(Number(m), lang))
     .trim();

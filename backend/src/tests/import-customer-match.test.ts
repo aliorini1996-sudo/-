@@ -111,8 +111,9 @@ test('حارس ثابت: /customers بالمخطِّط وskippedRows وwarnings.
   assert.match(customers, /data: \{ \.\.\.result, \.\.\.cappedErrors\(result\.errors\), skippedRows, attachedRows, warnings: \{ similar, \.\.\.\(phoneNotEditable \? \{ phoneNotEditable \} : \{\}\) \} \}/);
   assert.doesNotMatch(src, /async function customerFinder\(/);
   assert.match(body("router.post('/balances'"), /customerMatchError\(/);
-  // البندان 43 و44: /prices يطابق داخل المخطِّط (planPriceImportRows) بالمطابق نفسه ورموزه
-  assert.match(body("router.post('/prices'"), /planPriceImportRows\(rows, matcher, prods, body\.allowZeroPrice === true\)/);
+  // البندان 43 و44: /prices يطابق داخل المخطِّط (planPriceImportRows) بالمطابق نفسه ورموزه — عبر planPriceRowsWithUnits («الوحدة
+  // الرئيسية» D17) الذي يمرّر المطابق نفسه إلى planPriceImportRows
+  assert.match(body("router.post('/prices'"), /planPriceRowsWithUnits\(rows, matcher, prods, body\.allowZeroPrice === true\)/);
   assert.match(read('services/importLedger.ts'), /errors\.push\(customerMatchError\(row, m\)!\);/);
   for (const m of ["router.post('/balances'", "router.post('/prices'"]) {
     assert.doesNotMatch(body(m), /'العميل غير موجود استورد العملاء أولا'/, `${m}: نص حرفي بلا رمز`);

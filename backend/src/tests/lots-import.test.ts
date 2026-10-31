@@ -390,7 +390,9 @@ test('POST /opening-stock: الميزة مطفأة ⇒ أعمدة التشغيل
   const r = await importFile([{ productCode: 'A-1', qty: 5, unitCost: 2, lotNumber: 'X' }]);
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(r.body.data.created, 1);
-  assert.ok(!world.calls.some((c) => c.sql?.includes('FOR KEY SHARE')));
+  // «الوحدة الرئيسية» §2.11: قفل حارس الوحدات وحده (lockBases بعد gl-post، FOR KEY SHARE واحد) — لا قفل لوط استشاري ولا تشغيلة
+  assert.equal(world.calls.filter((c) => c.sql?.includes('FOR KEY SHARE')).length, 1);
+  assert.ok(!world.calls.some((c) => c.sql === 'SELECT pg_advisory_xact_lock($1)' || c.op.startsWith('productLot.')));
   const create = world.calls.find((c) => c.op === 'warehouseEntry.create')!.args as Row;
   assert.ok(!('lotId' in create.data.items.create[0]) && !('id' in create.data));
   assert.equal(world.lots.length, 0);

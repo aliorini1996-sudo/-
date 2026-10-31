@@ -2,8 +2,8 @@ import {
   useState, useEffect, useCallback } from 'react'; import { judgeProximity, GEOFENCE_RADIUS_M, type GeoVerdict } from './geofence'; import repApi from './repApi'; import { fetchThenCache, cacheGet, cacheSet, requestPersistentStorage, newClientRef, outboxAdd, refClear, currentRepId } from './offlineDb'; import { isNetworkError, startAutoSync, syncOutbox, pendingCount, rejectedCount, onOutboxChange, outboxDocs, requeue, discard } from './offlineSync'; import type { OutboxDoc } from './offlineDb'; import { formatCurrency, formatDate, formatDateShort, setActiveCurrency, setActiveNumerals, getActiveCurrency, activeLocale, formatDayOnly, dayLabel } from '../utils/format'; import { currencyDecimals } from '../i18n/countries'; import { DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, statementDocFromData, InvoiceDoc, ReceiptDoc, StatementDoc, Company } from './RepDocuments'; import { receiptInvoicesFrom } from './receiptLinks'; import {   TrendingUp, Eye, EyeOff, Pencil, Home, FileText, CreditCard, Users, Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon, User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon, Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw, Fuel, BookOpen, Copy, ExternalLink, PhoneCall, PhoneIncoming, PhoneOutgoing, PhoneMissed, Camera, X, ClipboardCheck, Timer, Square, Link2, ClipboardList, MessageCircle, Route as RouteIcon, Fingerprint, LogIn,
 } from 'lucide-react';
 import { computeInvoiceTotals, roundDecimal, priceFromLineTotal } from './invoiceCalc';
-import { cartBadge, cartCount, choiceById, choiceNet, defaultChoice, hasUnitChoice, invoiceItemUnit, lineUnitOf, linkedLineUnit, rebaseRow, refreshLineUnit, sameUnit, unitChoices, unitsText, type UnitChoice } from './repUnits';
-import { repBlockKey, repDefaultChoice, repLineBlockKey, repUnitChoices, type RepAction } from './repProductRules';
+import { cartBadge, cartCount, choiceById, choiceNet, defaultChoice, hasUnitChoice, invoiceItemUnit, lineUnitOf, linkedLineUnit, primaryChoice, rebaseCustPrices, rebaseRow, refreshLineUnit, sameUnit, unitChoices, unitsText, type UnitChoice, type UnitProduct } from './repUnits';
+import { repBlockKey, repDefaultChoice, repLineBlockKey, repUnitChoices, type RepAction, type RepRuleFields } from './repProductRules';
 import { fillLinkedQty, linkedUnitPrice, refreshLinkedLine, returnUnitChoices, toLinkedSale, withReturnUnit, type LinkedReturnLine } from '../lib/returnInvoice';
 import type { UnitDef } from '../lib/units';
 import { compressImage } from './imageCompress';
@@ -1691,11 +1691,30 @@ function useVanLotPending(stored: StoredVanLots | null): PendingOut {
   return pending;
 }
 
-/** كمية أساسية للعرض: «٢ كرتون و٣ حبة» لصنفٍ له وحدات، وإلا الرقم بأربع خانات ووحدته */
-function lotQtyText(p: { unit?: string | null; units?: UnitDef[] | null } | null | undefined, base: number): string {
+/** كمية أساسية للعرض: «٢ كرتون و٣ حبة» لصنفٍ له وحدات (ولصنفٍ له وحدة رئيسية تقف عندها: «52 كرتون و2 قارورة»)، وإلا الرقم
+ *  بأربع خانات ووحدته */
+function lotQtyText(p: { unit?: string | null; units?: UnitDef[] | null; primaryUnitId?: string | null } | null | undefined, base: number): string {
   const num = (n: number) => roundLot(n).toLocaleString(activeLocale(), { maximumFractionDigits: 4 });
   return unitsText(base, p, num) ?? `${num(base)}${p?.unit ? ` ${p.unit}` : ''}`;
 }
+
+/**
+ * الوحدة الافتراضية للمندوب في البيع والمرتجع الحرّ («الوحدة الرئيسية» §6.1 مع «قيود المندوب»): الرئيسية ما دام قيد الصنف لهذا
+ * الفعل يسمح بها، وإلا الأكبر بين المسموح (repDefaultChoice)، وإلا الافتراضية كما كانت. فقيد «الصغرى فقط» يغلب الرئيسية
+ * (الافتراض الحبّة)، و«الكبرى» تبقى بمعناها في القيد (كل وحدة معاملها > ١) لا «الرئيسية». وبلا رئيسية: كما قبل الميزة حرفاً
+ */
+function repStartChoice(p: (UnitProduct & RepRuleFields) | null | undefined, action: RepAction): UnitChoice {
+  const primary = primaryChoice(p);
+  if (primary && repUnitChoices(p, action).some((c) => c.id === primary.id)) return primary;
+  return repDefaultChoice(p, action) ?? defaultChoice(p);
+}
+
+/** صفّ سعر العميل كما يردّه /products/customer-prices (ويحفظه كاش custprices:<id>): السعر صافٍ لوحدة أساس الصنف `unit` لحظة
+ *  قراءته على الخادم — غائبٌ في كاش ما قبل «الوحدة الرئيسية» (فيبقى السعر كما هو، rebaseCustPrices) */
+type CustPriceRow = { productId: string; price: number; unit?: string | null };
+const custPriceRowsOf = (data: unknown): CustPriceRow[] => (Array.isArray(data) ? data : [])
+  .filter((r: { productId?: unknown } | null) => r && r.productId != null)
+  .map((r: { productId: string; price: unknown; unit?: string | null }) => ({ productId: r.productId, price: Number(r.price), ...(r.unit != null && { unit: r.unit }) }));
 
 // ============ إنشاء فاتورة (بيع أو إرجاع) ============
 function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClose, onDone }: { customer: any; repName: string; company: Company | null; mode?: 'sale' | 'return'; perms: RepUser; onClose: () => void; onDone: (doc: InvoiceDoc) => void }) {
@@ -1848,13 +1867,17 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   // اسعار هذا العميل الخاصة (صافية) — بدونها يعرض التطبيق basePrice الاعلى ويرفضه
   // الخادم لان سعر العميل هو السقف المرجعي. كاش مستقل لكل عميل: مفتاح مشترك كان
   // يسرب تسعير عميل الى اخر في الوضع الاوف-لاين. وغيابها لا يعطل شيئا (يسقط لـbasePrice).
-  const [custPrices, setCustPrices] = useState<Record<string, number>>({});
+  /* «الوحدة الرئيسية» (§6.5، §3 البند 13ب): صفّ السعر يحمل `unit` — أساس الصنف لحظة قراءته — فسعرٌ في الكاش من قبل تحويل
+   * الصنف (كرتون ⇒ قارورة) يُعاد إلى أساس الكتالوج الحالي (rebaseCustPrices: ÷ معامل الوحدة بالاسم، أو يُسقط فيحكم الخادم) بدل
+   * أن يُضرب سعر الكرتون × ٢٤. ويُعاد الحساب كلما تغيّر الكتالوج. وكاشٌ بلا `unit` ⇒ السعر كما كان حرفاً */
+  const [custRows, setCustRows] = useState<CustPriceRow[] | null>(null);
+  const custPrices = useMemo<Record<string, number>>(() => (custRows ? rebaseCustPrices(custRows, products) : {}), [custRows, products]);
   useEffect(() => {
     if (!customer?.id || customer._offline) return;
     (async () => {
       const { data } = await fetchThenCache(`custprices:${customer.id}`, async () =>
         (await repApi.get(`/products/customer-prices/${customer.id}`)).data.data);
-      if (data) setCustPrices(Object.fromEntries((data as any[]).map(r => [r.productId, Number(r.price)])));
+      if (data) setCustRows(custPriceRowsOf(data));
     })();
   }, [customer?.id]);
 
@@ -1883,12 +1906,12 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   // السعر المتفق مع هذا العميل ان وجد، وإلا السعر الاساسي — وكلاهما صافٍ فيحول لشامل
   /* الوحدات المتعددة: السعر لوحدة البند كمرجع حارس الخادم (choiceNet) — سعر العميل/الصنف مخزَّنان لوحدة الأساس فيُضربان
    * بالمعامل، وسعر العميل يغلب سعر الوحدة المحدَّد، وبلاه المحدَّد ثم الأساس × المعامل. ويُقرَّب الشامل من صافي الوحدة لا
-   * ×المعامل من شامل الحبّة، فيطابق أرضيته */
-  const inclOf = (p: any, c: UnitChoice) => roundDecimal(choiceNet(c, Number(p.basePrice), custPrices[p.id]) * (1 + Number(p.taxPct) / 100), currencyDecimals(getActiveCurrency()));
+   * ×المعامل من شامل الحبّة، فيطابق أرضيته. و`cust` خريطة أسعار العميل (افتراضها الحالية): refreshUnits يمرّر الطازجة لا المغلقة */
+  const inclOf = (p: any, c: UnitChoice, cust: Record<string, number> = custPrices) => roundDecimal(choiceNet(c, Number(p.basePrice), cust[p.id]) * (1 + Number(p.taxPct) / 100), currencyDecimals(getActiveCurrency()));
   const inclPrice = (p: any) => inclOf(p, unitChoices(p)[0]); // السعر شامل الضريبة (وحدة الأساس)
   // سعر الوحدة الافتراضية مع اسمها حين للصنف وحدات — وإلا الرقم وحده كما كان
-  // الوحدة الافتراضية للمندوب: الأكبر بين ما يسمح به قيد الصنف (repDefaultChoice)، وإلا الأكبر كما كان
-  const startChoice = (p: any): UnitChoice => repDefaultChoice(p, repAction) ?? defaultChoice(p);
+  // الوحدة الافتراضية للمندوب: الرئيسية إن سمح بها قيد الصنف، وإلا الأكبر بين المسموح (repStartChoice)، وإلا الأكبر كما كان
+  const startChoice = (p: any): UnitChoice => repStartChoice(p, repAction);
   const priceHint = (p: any) => (hasUnitChoice(p) ? `${formatCurrency(inclOf(p, startChoice(p)))} / ${startChoice(p).name}` : formatCurrency(inclPrice(p)));
 
   // المرتجع المرتبط بفاتورة: أصنافه من الفاتورة وحدها؛ والمرتجع الحرّ لا يقبل صنفاً مفعّلة صلاحيته
@@ -1933,7 +1956,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const addProduct = (p: any, scan = false): { ok: boolean; label: string; later?: Promise<{ ok: boolean; label: string }> } => {
     const blocked = returnBlock(p);
     if (blocked) { if (!scan) setMsg(blocked); return { ok: false, label: blocked }; }
-    // الوحدة الافتراضية = الأكبر (repUnits): بعد تحويل الصنف إلى الحبّة يبقى النقر المعتاد «+١ كرتون» — بين المسموح للمندوب
+    // الوحدة الافتراضية = الرئيسية وإلا الأكبر (repUnits): بعد تحويل الصنف إلى الحبّة يبقى النقر المعتاد «+١ كرتون» — بين المسموح للمندوب
     const c0 = startChoice(p);
     // «تتبّع اللوط» (§٦.٣): بلا لقطة دون اتصال لا يُباع المتتبَّع، وتجاوز المتاح المحلي يُمنع برسالةٍ واضحة
     if (!lotStored && lotTracks(p.id) && !navigator.onLine) {
@@ -2365,6 +2388,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         if (err?.response?.data?.code === 'UNIT_INVALID') void refreshUnits();
         // «قيود المندوب»: قيدٌ تغيّر على الصنف بعد تحميل الكتالوج — يُحدَّث فتعكس القوائم والوحدات القيد الجديد
         if (err?.response?.data?.code === 'REP_PRODUCT_RULE') void refreshUnits();
+        // «الوحدة الرئيسية» (§6.4): سباقٌ مع تحويل وحدات صنف التزم أثناء الإصدار (409 PRODUCT_UNITS_CHANGED) كالكاش القديم تماماً.
+        // أما 503 PRODUCT_UNITS_BUSY (التحويل جارٍ) فرسالته وحدها تُعرض بلا تحديث: الكتالوج لم يتغيّر بعد، فيعيد المندوب الإصدار بعد لحظة
+        if (err?.response?.data?.code === 'PRODUCT_UNITS_CHANGED') void refreshUnits();
         // «تتبّع اللوط»: الخادم وجد المتاح أقلّ مما تعرفه اللقطة — رسالته تُعرض، واللقطة تُجلب للمحاولة التالية
         if (lotCapsOn && err?.response?.data?.code === 'LOT_STOCK_INSUFFICIENT') void lots?.refresh(VANLOTS_BLOCK_REFETCH_GAP_MS);
         setMsg(err?.response?.data?.message || tr('تعذر إصدار المستند حاول مجددا')); setLoading(false);
@@ -2376,20 +2402,30 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
    * بسعرها وأرضيتها. والسعر المعدَّل يدوياً يبقى ما لم يتغيّر معامل البند. وبندٌ لا وحدة صالحة له يبقى كما هو فيراه
    * المندوب في الرسالة ويقرّر — لا يُردّ إلى الأساس بصمت فيُقيَّد «٢ كرتون» حبّتين.
    * والمرتجع من فاتورة بيع: بنودها تُقرأ من جديد (وحدات الإرجاع من ردّ /returnable)، والكمية بوحدتها إن بقيت وإلا
-   * بالأساس (refreshLinkedLine). وكاشٌ يعود بدل الخادم (انقطاعٌ بين الرفض والتحديث) لا يُعاد عليه شيء: هو القديم نفسه */
+   * بالأساس (refreshLinkedLine). وكاشٌ يعود بدل الخادم (انقطاعٌ بين الرفض والتحديث) لا يُعاد عليه شيء: هو القديم نفسه.
+   * «الوحدة الرئيسية» (§6.5، البند 13ب): أسعار هذا العميل تُجلب مع الكتالوج (والعميل غير الأوف‑لاين وحده) وتُعاد إلى أساسه
+   * الجديد، والمرجع يُحسب بالخريطة الطازجة لا بالمغلقة في الـclosure — وإلا صار سعر كرتونه بعد التحويل سعرَ قارورته × ٢٤ */
   const refreshUnits = async () => {
     try {
-      const { data, offline } = await fetchThenCache('products', async () =>
-        (await repApi.get('/products', { params: { status: 'ACTIVE', limit: 1000 } })).data.data);
+      const [{ data, offline }, cust] = await Promise.all([
+        fetchThenCache('products', async () =>
+          (await repApi.get('/products', { params: { status: 'ACTIVE', limit: 1000 } })).data.data),
+        customer?.id && !customer._offline
+          ? fetchThenCache(`custprices:${customer.id}`, async () => (await repApi.get(`/products/customer-prices/${customer.id}`)).data.data)
+          : Promise.resolve(null),
+      ]);
       if (!data || offline) return;
       const fresh = data as any[];
+      const freshRows = cust?.data ? custPriceRowsOf(cust.data) : custRows;
+      const freshCust = freshRows ? rebaseCustPrices(freshRows, fresh) : {};
       setProducts(fresh);
+      if (freshRows) setCustRows(freshRows);
       setLines(prev => prev.map(l => {
         if (l.saleItemId) return l;
         const p = fresh.find(x => x.id === l.productId);
         const ch = refreshLineUnit(l, p);
         if (!p || !ch) return l;
-        const ref = inclOf(p, ch);
+        const ref = inclOf(p, ch, freshCust);
         const keep = Math.abs(Number(l.unitPrice) - Number(l.refPrice)) > 1e-9 && Number(l.unitFactor ?? 1) === (ch.id ? ch.factor : 1);
         return { ...l, ...lineUnitOf(ch, p.unit), refPrice: ref, unitPrice: keep ? l.unitPrice : ref };
       }));
@@ -2579,12 +2615,15 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                 {(() => {
                   const opts: UnitChoice[] = l.saleItemId && l.link ? returnUnitChoices(l.link) : repUnitChoices(products.find(x => x.id === l.productId), repAction);
                   // وبندٌ وحدته لم تعد مسموحة (قيدٌ تغيّر بعد إضافته) يُعرض منتقيه ولو بقي خيارٌ واحد — به يُصحَّح
+                  // «الوحدة الرئيسية» (§6.2): رقاقتها مبرزة بإطارٍ حين لا تكون المختارة — والترتيب كما هو (الأساس أوّلاً، D5). بلا رئيسية: كما كان
+                  const primaryId = primaryChoice(products.find(x => x.id === l.productId))?.id ?? null;
                   return opts.length > 1 || !opts.some(o => sameUnit(l, { unitId: o.id })) ? (
                     <div className="flex flex-wrap items-center gap-1 mb-2" role="radiogroup" aria-label={tr('الوحدة')}>
                       {opts.map(o => (
                         <button key={o.id ?? 'base'} type="button" role="radio" aria-checked={sameUnit(l, { unitId: o.id })}
                           onClick={() => { if (!sameUnit(l, { unitId: o.id })) setLineUnit(i, o.id); }}
-                          className={`px-2.5 py-1 rounded-full text-[11px] font-semibold ${sameUnit(l, { unitId: o.id }) ? (isReturn ? 'bg-amber-600 text-white' : 'bg-[#E15A30] text-white') : 'bg-gray-100 text-gray-600'}`}>
+                          {...(primaryId && o.id === primaryId && { title: tr('الوحدة الرئيسية') })}
+                          className={`px-2.5 py-1 rounded-full text-[11px] font-semibold ${sameUnit(l, { unitId: o.id }) ? (isReturn ? 'bg-amber-600 text-white' : 'bg-[#E15A30] text-white') : 'bg-gray-100 text-gray-600'}${primaryId && o.id === primaryId && !sameUnit(l, { unitId: o.id }) ? (isReturn ? ' ring-1 ring-amber-500' : ' ring-1 ring-[#E15A30]') : ''}`}>
                           {o.name}{o.factor > 1 && <span className="opacity-70 font-normal"> ({o.factor})</span>}
                         </button>
                       ))}
@@ -2601,8 +2640,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                 {/* المرتجع من فاتورة بيع: المتاح منها وحالة صلاحية ما بيع اليوم */}
                 {l.saleItemId && (
                   <div className="mb-2 text-[11px] space-y-0.5">
-                    {/* المتاح بالأساس «١ كرتون و٢٣ حبة» لصنفٍ له وحدات (لا «٠٫٩٥٨ كرتون»)، وإلا كما كان */}
-                    <p className="text-gray-500">{tr('المتاح للإرجاع')}: {(l.link && unitsText(l.link.returnableBase, { unit: l.link.baseUnit, units: l.link.units }, n => String(n))) ?? `${Number(Number(l.maxQty).toFixed(3))} ${l.unit}`}</p>
+                    {/* المتاح بالأساس «١ كرتون و٢٣ حبة» لصنفٍ له وحدات (لا «٠٫٩٥٨ كرتون»)، وإلا كما كان. والرئيسية من الكتالوج: معرّفها لا
+                      * يطابق وحدات البيع ⇒ primaryUnitOf = null فالنص كما كان */}
+                    <p className="text-gray-500">{tr('المتاح للإرجاع')}: {(l.link && unitsText(l.link.returnableBase, { unit: l.link.baseUnit, units: l.link.units, primaryUnitId: products.find(x => x.id === l.productId)?.primaryUnitId }, n => String(n))) ?? `${Number(Number(l.maxQty).toFixed(3))} ${l.unit}`}</p>
                     {l.shelfLife && l.expiresAt && (l.expiredToday
                       ? <p className="font-semibold text-red-600">{tr('منتهي الصلاحية')} · {formatDayOnly(l.expiresAt)} — {tr('يدخل السيارة منتهيا ولا يباع')}</p>
                       : <p className="font-semibold text-[#1E7A52]">{tr('ساري الصلاحية')} · {tr('حتى')} {formatDayOnly(l.expiresAt)}</p>)}
@@ -3602,6 +3642,8 @@ interface MyStockRequest {
   items: {
     productId: string; name: string; code?: string; unit?: string; unitName?: string | null; unitFactor?: number | null; requestedQty: number; qty: number;
     baseQty?: number | null; requestedBaseQty?: number | null; baseUnit?: string | null; units?: UnitDef[] | null;
+    /** «الوحدة الرئيسية» للصنف إن ردّها الخادم — عرضٌ وافتراضٌ فقط */
+    primaryUnitId?: string | null;
   }[];
 }
 /** آخر طلبٍ حُسم يبقى ظاهراً أسبوعاً — بعده لا يعني المندوب شيئاً */
@@ -3626,14 +3668,15 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
   // expired: «منتهي الصلاحية» في السيارة — مرتجعٌ عاد بعد انتهاء صلاحيته، لا يُباع ولا يدخل المتبقّي حتى تزيله الإدارة
   // damaged: «المرتجع التالف» — مرتجعٌ سجّله المندوب «بضاعة تالفة»، لا يُباع ولا يدخل المتبقّي حتى تزيله الإدارة
   // الأرصدة بالأساس، و`units` وحدات الصنف من الخادم (/van-stock/current) لعرضها «٢ كرتون و٣ حبة» — ولو خرج الصنف من الكتالوج النشط
-  const [stock, setStock] = useState<{ productId: string; name: string; code: string; unit: string; loaded: number; sold: number; returned: number; remaining: number; expired?: number; damaged?: number; units?: UnitDef[] | null }[]>([]);
+  const [stock, setStock] = useState<{ productId: string; name: string; code: string; unit: string; loaded: number; sold: number; returned: number; remaining: number; expired?: number; damaged?: number; units?: UnitDef[] | null; primaryUnitId?: string | null }[]>([]);
   // عهدة أدوات السيارة (عربة، سلة…) — تسجّلها الإدارة، والمندوب يطّلع عليها وحسب
   const [tools, setTools] = useState<{ toolName: string; qty: number }[]>([]);
   const [loading, setLoading] = useState(true);
-  const [products, setProducts] = useState<{ id: string; name: string; unit: string; code: string; units?: UnitDef[] | null }[]>([]);
+  const [products, setProducts] = useState<{ id: string; name: string; unit: string; code: string; units?: UnitDef[] | null; primaryUnitId?: string | null }[]>([]);
   // unitId: وحدة صفّ التحميل (null = الأساس) — صفٌّ واحد لكل صنف، ووحدته تُختار عليه. ومعاملها كما اختير (unitFactor):
-  // به تُحوَّل الكمية إلى الأساس إن أُوقفت الوحدة قبل الحفظ (rebaseRow) — لا «١٠ حبة» عن عشرة كراتين
-  const [rows, setRows] = useState<{ productId: string; name: string; unit: string; qty: string; unitId: string | null; unitFactor: number }[]>([]);
+  // به تُحوَّل الكمية إلى الأساس إن أُوقفت الوحدة قبل الحفظ (rebaseRow) — لا «١٠ حبة» عن عشرة كراتين. و`baseUnit` أساس الصنف كما
+  // رآه الكتالوج حين أُضيف الصفّ: يُرسل baseUnitName فيكشف الخادم كاشاً قديماً أو تحويلاً سابقاً (§6.4) بدل ×٢٤ صامتة
+  const [rows, setRows] = useState<{ productId: string; name: string; unit: string; qty: string; unitId: string | null; unitFactor: number; baseUnit: string }[]>([]);
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -3647,7 +3690,7 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
     setLoading(false);
   }, []);
   useEffect(() => { loadStock(); }, [loadStock]);
-  useEffect(() => { (async () => { const { data } = await fetchThenCache('products', async () => (await repApi.get('/products', { params: { limit: 1000, status: 'ACTIVE' } })).data.data); if (data) setProducts(data as { id: string; name: string; unit: string; code: string; units?: UnitDef[] | null }[]); })(); }, []);
+  useEffect(() => { (async () => { const { data } = await fetchThenCache('products', async () => (await repApi.get('/products', { params: { limit: 1000, status: 'ACTIVE' } })).data.data); if (data) setProducts(data as { id: string; name: string; unit: string; code: string; units?: UnitDef[] | null; primaryUnitId?: string | null }[]); })(); }, []);
   /* ردّ 400 UNIT_INVALID (وحدةٌ أُوقفت أو لم تعد للصنف — كاش الجهاز قديم): الكتالوج من الخادم وحده (كاشٌ يعود بدله هو
    * القديم نفسه ⇒ null)، والمستدعي يعيد وحدات صفوفه إليه */
   const reloadProducts = async (): Promise<typeof products | null> => {
@@ -3659,14 +3702,19 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
       return fresh;
     } catch { return null; }
   };
-  const isUnitInvalid = (e: unknown) => (e as { response?: { data?: { code?: string } } })?.response?.data?.code === 'UNIT_INVALID';
+  /* و«الوحدة الرئيسية» (§6.4): 409 PRODUCT_UNITS_CHANGED (تحويل وحدات صنف التزم أثناء الحفظ) يعيد الكتالوج والصفوف كالكاش القديم.
+   * أما 503 PRODUCT_UNITS_BUSY (التحويل جارٍ) فليس منهما: رسالته وحدها، والكتالوج لم يتغيّر بعد */
+  const isUnitInvalid = (e: unknown) => {
+    const code = (e as { response?: { data?: { code?: string } } })?.response?.data?.code;
+    return code === 'UNIT_INVALID' || code === 'PRODUCT_UNITS_CHANGED';
+  };
   useEffect(() => { if (!canLoad && view === 'load') setView('list'); }, [canLoad, view]);
   useEffect(() => { if (!canRequest && view === 'request') setView('list'); }, [canRequest, view]);
 
   // ——— طلب بضاعة ———
   const [myReq, setMyReq] = useState<{ pending: MyStockRequest | null; last: MyStockRequest | null } | null>(null);
   const [reqQty, setReqQty] = useState<Record<string, string>>({});
-  // وحدة كل صنفٍ في الطلب (null = الأساس، غائبة = الافتراضية: الأكبر) — بندٌ واحد لكل صنف كما في الخادم
+  // وحدة كل صنفٍ في الطلب (null = الأساس، غائبة = الافتراضية: الرئيسية إن وُجدت وإلا الأكبر) — بندٌ واحد لكل صنف كما في الخادم
   const [reqUnit, setReqUnit] = useState<Record<string, string | null>>({});
   const [reqSearch, setReqSearch] = useState('');
   const [reqNote, setReqNote] = useState('');
@@ -3695,19 +3743,24 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
     setReqNote(p?.note ?? ''); setReqSearch(''); setMsg(null); setView('request');
   };
   // وحدات الصنف من الكتالوج، وإلا من بند الطلب المعلّق نفسه (صنفٌ خرج من الأصناف النشطة يبقى بوحداته ليُعدَّل أو يُزال)
-  const reqProduct = (productId: string, list: { id: string; unit: string; units?: UnitDef[] | null }[] = products) => {
+  const reqProduct = (productId: string, list: { id: string; unit: string; units?: UnitDef[] | null; primaryUnitId?: string | null }[] = products) => {
     const prod = list.find(x => x.id === productId);
     if (prod) return prod;
     const it = myReq?.pending?.items.find(i => i.productId === productId);
-    return it ? { id: productId, unit: it.baseUnit || it.unit || '', units: it.units ?? null } : undefined;
+    return it ? { id: productId, unit: it.baseUnit || it.unit || '', units: it.units ?? null, primaryUnitId: it.primaryUnitId ?? null } : undefined;
   };
-  const reqUnitOf = (productId: string, list?: { id: string; unit: string; units?: UnitDef[] | null }[]) => {
+  /* أساس الصنف للبند (baseUnitName، §6.4): من الكتالوج، وإلا `baseUnit` بند الطلب المعلّق — لا `unit` السطر (وحدة البند لا الأساس):
+   * اسمٌ مخمَّن يردّه الخادم 400 في كل رفع فلا يُرفع الطلب أبداً. ومجهولٌ ⇒ بلا الحقل، فيحكم الخادم كما اليوم */
+  const reqBaseOf = (productId: string): string =>
+    String(products.find(x => x.id === productId)?.unit ?? myReq?.pending?.items.find(i => i.productId === productId)?.baseUnit ?? '').trim();
+  const reqUnitOf = (productId: string, list?: { id: string; unit: string; units?: UnitDef[] | null; primaryUnitId?: string | null }[]) => {
     const prod = reqProduct(productId, list);
     return productId in reqUnit ? choiceById(prod, reqUnit[productId]) ?? unitChoices(prod)[0] : defaultChoice(prod);
   };
   const reqLines = Object.entries(reqQty).map(([productId, raw]) => {
     const u = reqUnitOf(productId);
-    return { productId, qty: Number(raw), ...(u.id && { unitId: u.id }) };
+    const base = reqBaseOf(productId);
+    return { productId, qty: Number(raw), ...(u.id && { unitId: u.id }), ...(base && { baseUnitName: base }) };
   }).filter(l => Number.isFinite(l.qty) && l.qty > 0);
   const reqBad = Object.values(reqQty).some(v => v.trim() !== '' && !(Number(v) >= 0));
 
@@ -3758,9 +3811,9 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
   const addProduct = (id: string) => {
     if (!id || rows.some(r => r.productId === id)) return;
     const p = products.find(x => x.id === id); if (!p) return;
-    // الافتراضية الأكبر: المندوب يحمّل بالكرتون عادةً (وبعد تحويل الصنف إلى الحبّة يبقى كذلك)
+    // الافتراضية الرئيسية إن وُجدت وإلا الأكبر: المندوب يحمّل بالكرتون عادةً (وبعد تحويل الصنف إلى الحبّة يبقى كذلك)
     const c0 = defaultChoice(p);
-    setRows(rs => [...rs, { productId: id, name: p.name, unit: c0.name, qty: '1', unitId: c0.id, unitFactor: c0.factor }]);
+    setRows(rs => [...rs, { productId: id, name: p.name, unit: c0.name, baseUnit: String(p.unit ?? '').trim(), qty: '1', unitId: c0.id, unitFactor: c0.factor }]);
   };
 
   /** «تتبّع اللوط»: تشغيلات التحميل من ردّ الخادم (items[].lots) — «صنف: تشغيلة · ينتهي … · ×كمية»، وبلا تشغيلات '' */
@@ -3776,8 +3829,8 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
   const submit = async () => {
     if (!canLoad) { setMsg({ ok: false, text: tr('لا تملك صلاحية تحميل مخزون السيارة') }); return; }
     // التحميل موجب فقط؛ التنقيص متاح للإدارة من لوحة التحكم
-    // ووحدة الصفّ بمعرّفها — بدونها يدخل تحميل ١٠ كراتين السيارةَ ١٠ حبّات
-    const items = rows.map(r => ({ productId: r.productId, qty: Number(r.qty), ...(r.unitId && { unitId: r.unitId }) })).filter(i => i.qty > 0);
+    // ووحدة الصفّ بمعرّفها — بدونها يدخل تحميل ١٠ كراتين السيارةَ ١٠ حبّات. و`baseUnitName` أساس الصفّ كما رآه الكتالوج (§6.4)
+    const items = rows.map(r => ({ productId: r.productId, qty: Number(r.qty), ...(r.unitId && { unitId: r.unitId }), ...(r.baseUnit && { baseUnitName: r.baseUnit }) })).filter(i => i.qty > 0);
     if (!items.length) { setMsg({ ok: false, text: tr('أضف صنفا وكمية صحيحة') }); return; }
     setSaving(true); setMsg(null);
     try {
@@ -3791,9 +3844,11 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
       // وحدة صفٍّ لم تعد صالحة: الكتالوج من الخادم، وكل صفٍّ بوحدته إن بقيت وإلا بالأساس بمعامله (rebaseRow) — ثم يعيد المندوب الحفظ
       if (isUnitInvalid(e)) {
         const fresh = await reloadProducts();
+        // والأساس المرسَل يصير أساس الكتالوج الجديد — وإلا ردّ الخادم الصفّ نفسه 400 إلى الأبد
         if (fresh) setRows(rs => rs.map(r => {
-          const x = rebaseRow(r, fresh.find(p => p.id === r.productId));
-          return x ? { ...r, unitId: x.choice.id, unit: x.choice.name, unitFactor: x.choice.factor, qty: String(x.qty) } : r;
+          const fp = fresh.find(p => p.id === r.productId);
+          const x = rebaseRow(r, fp);
+          return x ? { ...r, unitId: x.choice.id, unit: x.choice.name, unitFactor: x.choice.factor, qty: String(x.qty), baseUnit: String(fp?.unit ?? '').trim() } : r;
         }));
       }
     }
@@ -3806,7 +3861,7 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
     const inVan = new Map(stock.map(s => [s.productId, s.remaining]));
     // صنفٌ في الطلب المعلّق خرج من قائمة الأصناف النشطة يبقى ظاهراً ليُعدَّل أو يُزال
     // ووحدة الأساس ووحداته من بند الطلب نفسه (`unit` هناك وحدة السطر — «كرتون · في سيارتك ٤٨» تقرأ الحبّات كراتين)
-    const all: { id: string; name: string; unit: string; code: string; units?: UnitDef[] | null }[] = [...products, ...(pending?.items ?? []).filter(i => !products.some(p => p.id === i.productId)).map(i => ({ id: i.productId, name: i.name, unit: i.baseUnit || i.unit || '', code: i.code || '', units: i.units ?? null }))];
+    const all: { id: string; name: string; unit: string; code: string; units?: UnitDef[] | null; primaryUnitId?: string | null }[] = [...products, ...(pending?.items ?? []).filter(i => !products.some(p => p.id === i.productId)).map(i => ({ id: i.productId, name: i.name, unit: i.baseUnit || i.unit || '', code: i.code || '', units: i.units ?? null, primaryUnitId: i.primaryUnitId ?? null }))];
     const q = reqSearch.trim().toLowerCase();
     const list = all.filter(p => !q || p.name.toLowerCase().includes(q) || (p.code || '').toLowerCase().includes(q));
     return (
@@ -3979,7 +4034,8 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
             /* الأرصدة من الخادم بالأساس (القاعدة ٨): لصنفٍ له وحدات «٢ كرتون و٣ حبة» لا رقمٌ بجانب اسم الأساس.
              * والألوان (العجز والصفر) على الرقم بالأساس نفسه */
             const prod = products.find(x => x.id === s.productId);
-            const u = (n: number) => unitsText(n, { unit: s.unit || prod?.unit, units: s.units ?? prod?.units }, fmt);
+            // و«الوحدة الرئيسية» من ردّ الرصيد إن حملها (null = لا رئيسية)، وإلا من الكتالوج — معرّفٌ لا يطابق الوحدات ⇒ لا رئيسية
+            const u = (n: number) => unitsText(n, { unit: s.unit || prod?.unit, units: s.units ?? prod?.units, primaryUnitId: s.primaryUnitId !== undefined ? s.primaryUnitId : prod?.primaryUnitId }, fmt);
             const q = (n: number) => u(n) ?? `${fmt(n)} ${s.unit}`;
             // «تتبّع اللوط»: الصنف المتتبَّع من اللقطة — الغائب عنها متاحه صفر
             const lv = lotStored && lotStored.snap.tracked.includes(s.productId) ? localLotView(lotStored.snap, s.productId, lotToday, lotPending) : null;

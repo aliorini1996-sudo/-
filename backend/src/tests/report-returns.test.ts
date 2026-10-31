@@ -58,7 +58,7 @@ test('حارس نصّي: تقرير المرتجع يقرأ لقطة الوحد�
   assert.match(r, /unitName: true, unitFactor: true, baseQty: true,/);
   assert.match(r, /items: r\.items\.map\(returnLineView\)/);
   const s = src.slice(src.indexOf("router.get('/sales'"), src.indexOf("router.get('/orders'"));
-  assert.match(s, /product: \{ select: \{ id: true, name: true, code: true, unit: true \} \}/);
+  assert.match(s, /product: \{ select: \{ id: true, name: true, code: true, unit: true, primaryUnitId: true \} \}/);
   assert.match(s, /salesByProduct\(invoices, await activeUnitsByProduct\(tid, ids\), returns\)/);
   assert.doesNotMatch(s, /\+= Number\(item\.qty\)/, 'لا جمع للكمية الخام');
 });

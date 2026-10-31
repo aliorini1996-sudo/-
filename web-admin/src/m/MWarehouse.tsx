@@ -10,8 +10,9 @@ import { warehouseApi, productApi } from '../api/client';
 import { activeLocale, formatCurrency, formatDate, formatNumber } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { useBackClose } from '../lib/useBackClose';
-import type { UnitDef } from '../lib/units';
-import { unitChoices, defaultChoice } from '../rep/repUnits';
+import { primaryUnitOf, type UnitDef } from '../lib/units';
+import { unitChoices, defaultChoice, rebaseRow } from '../rep/repUnits';
+import { productUnitLabel } from '../lib/adminUnits';
 import {
   lotFlagsOf, lotWarningsOf, lotDay, roundLot, LOT_EPS, LOT_WARNING_LABELS, LOT_STATUS_LABELS,
 } from '../lib/lots';
@@ -26,6 +27,7 @@ import {
 } from './mLotsLogic';
 import MUnitChips from './MUnitChips';
 import MLotFields, { whLotsQuery } from './MLotFields';
+import { anyPrimary, fill, qtyTotalLabel, refetchUnitsOn, withBaseUnitName } from './mPrimaryUnit';
 
 /* الإشعار في حزمة مستقلّة — يجرّ jspdf وhtml2canvas وqrcode معه */
 const MWarehouseNoticeDoc = lazy(() => import('./MWarehouseNoticeDoc'));
@@ -59,6 +61,8 @@ interface WhRow {
   productId: string; name: string; code: string; unit: string;
   /** وحدات الصنف — كل كميات الصفّ بالأساس، وتُعرض بها «٢ كرتون و٣ حبة» */
   units?: UnitDef[];
+  /** «الوحدة الرئيسية» (القاعدة ١٢، warehouseStock.ts §2.6): عرضٌ فقط — الرصيد «52 كرتون و2 قارورة» وتكلفة الكرتون أولاً */
+  primaryUnitId?: string | null;
   received: number;         // الوارد للمستودع
   adjusted: number;         // تسويات المستودع (+/−)
   loadedToVans: number;     // خرج للسيارات
@@ -87,7 +91,7 @@ interface WhEntry {
 }
 
 interface ProductPick {
-  id: string; name: string; code?: string; unit?: string; taxPct?: number; units?: UnitDef[];
+  id: string; name: string; code?: string; unit?: string; taxPct?: number; units?: UnitDef[]; primaryUnitId?: string | null;
   /** «تتبّع اللوط»: علم الصنف وما يلزم إلزام انتهاء التشغيلة الجديدة (shelfLifeOf) */
   lotTracked?: boolean; shelfLifeEnabled?: boolean; shelfLifeValue?: number | null; shelfLifeUnit?: string | null;
 }
@@ -157,6 +161,8 @@ export default function MWarehouse({ onBack, company }: {
   }), { value: 0, costed: 0, uncosted: 0 }), [all]);
   // مجموع الكميات عبر الأصناف بالأساس — يُسمّى كذلك حين لصنفٍ وحدةٌ أكبر، فلا يُقرأ عدد الحبّات كراتين
   const anyMulti = useMemo(() => all.some(r => hasBigUnit(r.units)), [all]);
+  // ولصنفٍ له «وحدة رئيسية» (R3): «… بالوحدات الصغرى» لا «بوحدات الأساس» (D21) — وبلاها الوسم القائم حرفاً (I1)
+  const primaryIn = useMemo(() => anyPrimary(all), [all]);
 
   if (entryOpen) return <MWarehouseEntry lotOn={lotOn} onClose={() => setEntryOpen(false)} />;
   /* الإشعار طبقةٌ ملء الشاشة كطبقة التسجيل — ولا تجتمعان: كلتاهما تُفتح من
@@ -217,9 +223,9 @@ export default function MWarehouse({ onBack, company }: {
                   <MStat icon={Wallet} label={tr('قيمة المخزون بتكلفة الشراء')} value={formatCurrency(totals.value)} />
                 </div>
                 <MStat icon={Boxes} label={tr('عدد الأصناف')} value={formatNumber(all.length)} />
-                <MStat icon={Package} label={anyMulti ? tr('الكمية المقيمة بوحدات الأساس') : tr('الكمية المقيمة')} value={fmtQty(totals.costed)} />
+                <MStat icon={Package} label={qtyTotalLabel(tr, 'الكمية المقيمة', 'الكمية المقيمة بوحدات الأساس', { primary: primaryIn, multi: anyMulti })} value={fmtQty(totals.costed)} />
                 <div className="col-span-2">
-                  <MStat icon={AlertTriangle} label={anyMulti ? tr('كمية خارج التقييم بوحدات الأساس') : tr('كمية خارج التقييم')} value={fmtQty(totals.uncosted)}
+                  <MStat icon={AlertTriangle} label={qtyTotalLabel(tr, 'كمية خارج التقييم', 'كمية خارج التقييم بوحدات الأساس', { primary: primaryIn, multi: anyMulti })} value={fmtQty(totals.uncosted)}
                     tone={totals.uncosted > 0 ? 'warn' : 'default'} />
                 </div>
               </div>
@@ -306,6 +312,8 @@ function StockRow({ r, open, onToggle, lotOn }: { r: WhRow; open: boolean; onTog
   // صنفٌ له وحدةٌ أكبر: الكميات مفكَّكة («٢ كرتون و٣ حبة») بلا اتجاهٍ مفروض، والتكلفة تُسمّى بوحدة الأساس ومعها الكرتون
   const multi = hasBigUnit(r.units);
   const big = biggestUnit(r.units);
+  // «الوحدة الرئيسية»: تكلفتها أولاً (avgCost × F) ثم تكلفة الفرعية الواحدة باسمها (§5.3) — وبلاها الصفّ كما كان حرفاً
+  const prim = primaryUnitOf(r);
   const q = (n: number) => qtyText(n, r, fmtQty);
   return (
     // الفاصل على الغلاف لا على `MRow`: الصفّ صار وحيد أبيه فـ`last:border-0`
@@ -314,7 +322,7 @@ function StockRow({ r, open, onToggle, lotOn }: { r: WhRow; open: boolean; onTog
       <MRow
         onClick={onToggle}
         title={r.name}
-        subtitle={[r.code, r.unit].filter(Boolean).join(' · ')}
+        subtitle={[r.code, productUnitLabel(r, formatNumber)].filter(Boolean).join(' · ')}
         trailing={
           <span className="flex items-center gap-2 flex-shrink-0">
             {multi ? (
@@ -340,6 +348,22 @@ function StockRow({ r, open, onToggle, lotOn }: { r: WhRow; open: boolean; onTog
           </div>
 
           <div className="rounded-xl bg-[#FAF7F0] border border-[#F1EBDF] px-3 py-2.5 space-y-1.5">
+            {prim ? (
+              <>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] text-[#6E6557]">{fill(tr('متوسط تكلفة {unit}'), { unit: prim.name })}</span>
+                  <b className="text-[11px] text-[#1F1A13] tabular-nums" dir="ltr">
+                    {r.avgCost > 0 ? formatCurrency(r.avgCost * Number(prim.factor)) : '—'}
+                  </b>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] text-[#6E6557]">{fill(tr('متوسط تكلفة {unit} الواحدة'), { unit: r.unit })}</span>
+                  <b className="text-[11px] text-[#1F1A13] tabular-nums" dir="ltr">
+                    {r.avgCost > 0 ? formatCurrency(r.avgCost, undefined, 4) : '—'}
+                  </b>
+                </div>
+              </>
+            ) : (
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] text-[#6E6557]">
                 {multi ? `${tr('متوسط التكلفة لوحدة الأساس')} (${r.unit})` : tr('متوسط تكلفة الوحدة')}
@@ -348,8 +372,9 @@ function StockRow({ r, open, onToggle, lotOn }: { r: WhRow; open: boolean; onTog
                 {r.avgCost > 0 ? formatCurrency(r.avgCost, undefined, 4) : '—'}
               </b>
             </div>
+            )}
             {/* تكلفة الحبّة وحدها تُقارَن خطأً بسعر شراء الكرتون — فتُعرض تكلفة أكبر وحدةٍ بجانبها */}
-            {multi && big && r.avgCost > 0 && (
+            {!prim && multi && big && r.avgCost > 0 && (
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[11px] text-[#6E6557]">{tr('ما يعادل')} {big.name}</span>
                 <b className="text-[11px] text-[#1F1A13] tabular-nums" dir="ltr">
@@ -383,7 +408,7 @@ function StockRow({ r, open, onToggle, lotOn }: { r: WhRow; open: boolean; onTog
  * تشغيلات الصنف في المستودع — يُجلب حين يُفتح الصفّ وحده (لا لكل صنفٍ في القائمة). يُرسم حين للصنف تشغيلات أو عجز،
  * وإلا لا شيء: صنفٌ غير متتبَّع رصيده كلّه «غير مسمّى» بالتعريف، وعرضُ ذلك ضجيجٌ لا معلومة.
  */
-function WhLotBreakdown({ productId, prod }: { productId: string; prod: { unit?: string | null; units?: UnitDef[] | null } }) {
+function WhLotBreakdown({ productId, prod }: { productId: string; prod: { unit?: string | null; units?: UnitDef[] | null; primaryUnitId?: string | null } }) {
   const tr = useTr();
   const q = useQuery(whLotsQuery(productId));
   const view = q.data?.warehouse?.[0];
@@ -497,6 +522,8 @@ interface FormRow extends StockLineUnit {
   qty: string; unitCost: string;
   /** «تتبّع اللوط»: الصنف متتبَّع والميزة مفعّلة ⇒ تشغيلة السطر (سطرٌ = تشغيلة)، وانتهاؤها إلزامي مع الصلاحية */
   tracked: boolean; shelfOn: boolean; lot: LotDraft;
+  /** «الوحدة الرئيسية» كما عرفها كتالوج الشاشة — عرضٌ فقط، لا يدخل الجسم (D1) */
+  primaryUnitId?: string | null;
 }
 
 /**
@@ -544,7 +571,7 @@ function MWarehouseEntry({ onClose, lotOn }: { onClose: () => void; lotOn: boole
     const tracked = isTracked(lotOn, p);
     const u = nextStockLineUnit(p, rs, p.id) ?? (tracked ? stockLineUnit(p, defaultChoice(p)) : null);
     return u ? [...rs, {
-      rowId: newRowId(), productId: p.id, name: p.name, ...u,
+      rowId: newRowId(), productId: p.id, name: p.name, ...u, primaryUnitId: p.primaryUnitId ?? null,
       taxPct: typeof p.taxPct === 'number' ? p.taxPct : 0,
       qty: '1', unitCost: '',
       tracked, shelfOn: tracked && shelfLifeOn(p), lot: emptyLotDraft(),
@@ -569,10 +596,35 @@ function MWarehouseEntry({ onClose, lotOn }: { onClose: () => void; lotOn: boole
   /** وحدة السطر تتبدّل والكمية والسعر المكتوبان كما هما — كلاهما يُقرأ بالوحدة المختارة (والسعر يُراجَع) */
   const setRowUnit = (key: string, unitId: string | null) => setRows(rs => rs.map(r => {
     if (r.rowId !== key) return r;
-    const prod = { unit: r.baseUnit, units: r.units };
+    const prod = { unit: r.baseUnit, units: r.units, primaryUnitId: r.primaryUnitId };
     const c = unitChoices(prod).find(o => o.id === unitId);
     return c ? { ...r, ...stockLineUnit(prod, c) } : r;
   }));
+
+  /**
+   * أساس صنفٍ تغيّر منذ فُتح النموذج (400 UNIT_INVALID أو 409 PRODUCT_UNITS_CHANGED): وحدات أصناف الأسطر من الخادم الآن،
+   * وكل سطرٍ يُعاد أساسه بها (rebaseRow): «١٠ كرتون» تبقى عشرة كراتين بسعر الكرتون بعد أن صار الأساس قارورة. وسطرٌ أُوقفت
+   * وحدته يصير بالأساس بكميته × معامله — وسعره المكتوب لوحدته يُقسم على المعامل نفسه، فلا يُقيَّد سعر الكرتون للقارورة.
+   */
+  async function refreshRowUnits() {
+    const ids = [...new Set(rows.map(r => r.productId))];
+    const fresh = new Map<string, ProductPick>();
+    await Promise.all(ids.map(async id => {
+      try {
+        const p = (await productApi.get(id)).data?.data as ProductPick | undefined;
+        if (p && typeof p.unit === 'string') fresh.set(id, p);
+      } catch { /* يبقى السطر كما هو */ }
+    }));
+    setRows(rs => rs.map(r => {
+      const p = fresh.get(r.productId);
+      const next = p ? rebaseRow(r, p) : null;
+      if (!p || !next) return r;
+      const scaled = String(next.qty) !== r.qty;
+      const c = Number(r.unitCost);
+      const unitCost = scaled && r.unitCost.trim() !== '' && Number.isFinite(c) && r.unitFactor > 0 ? String(c / r.unitFactor) : r.unitCost;
+      return { ...r, ...stockLineUnit(p, next.choice), qty: String(next.qty), unitCost, primaryUnitId: p.primaryUnitId ?? null };
+    }));
+  }
 
   /** صافي سعر الوحدة كما سيُخزَّن — الخادم يستخرج الضريبة بنسبة كلّ صنف لا بنسبةٍ موحّدة */
   const netOf = (r: FormRow): number | null => {
@@ -633,10 +685,12 @@ function MWarehouseEntry({ onClose, lotOn }: { onClose: () => void; lotOn: boole
       const items = rows.map(r => {
         // `unitId` للسطر بغير وحدة الأساس وحده — بلاه يُسجَّل عشرة كراتين بـ٢٤٠ عشر حبّاتٍ بـ٢٤٠ للحبّة فيتضخّم
         // المتوسّط ٢٤ ضعفاً؛ وسطر الأساس بلا حقل كما قبل الميزة حرفاً. وتشغيلة السطر للمتتبَّع وحده
-        const item: { productId: string; qty: number; unitCost?: number; unitId?: string } & ReturnType<typeof entryLotFields> = {
+        // و`baseUnitName` (§2.8، §5.3): أساس الصنف كما عرفه كتالوج النموذج — صنفٌ حُوِّل بعد فتحه يُردّ 400 بدل أن تدخل عشرة
+        // كراتين بسعر الكرتون عشر قوارير بسعر الكرتون للقارورة
+        const item: { productId: string; qty: number; unitCost?: number; unitId?: string; baseUnitName?: string } & ReturnType<typeof entryLotFields> = withBaseUnitName({
           productId: r.productId, qty: Number(r.qty), ...(r.unitId && { unitId: r.unitId }),
           ...(r.tracked && entryLotFields(r.lot)),
-        };
+        }, r.baseUnit);
         // السعر للوارد وحده، والفارغ يُرسَل **غائباً** لا صفراً: «بلا سعر» كمّيةٌ
         // خارج التقييم، بينما صفرٌ بضاعةٌ مجّانية — ومعناهما في الدفاتر مختلف
         if (type === 'RECEIVE' && r.unitCost.trim() !== '') item.unitCost = Number(r.unitCost);
@@ -664,7 +718,14 @@ function MWarehouseEntry({ onClose, lotOn }: { onClose: () => void; lotOn: boole
       [...new Set(warnings.map(w => w.code))].forEach(c => toast(tr(LOT_WARNING_LABELS[c])));
       onClose();
     },
-    onError: (e: unknown) => toast.error(errMsg(e, tr('تعذر الحفظ'))),
+    onError: (e: unknown) => {
+      // أساس صنفٍ تغيّر: الأصناف تُجلب من جديد وأسطر النموذج يُعاد أساسها — و503 PRODUCT_UNITS_BUSY رسالته وحدها
+      if (refetchUnitsOn(e)) {
+        qc.invalidateQueries({ queryKey: ['m-wh-products'] });
+        void refreshRowUnits();
+      }
+      toast.error(errMsg(e, tr('تعذر الحفظ')));
+    },
   });
 
   const receive = type === 'RECEIVE';
@@ -727,7 +788,7 @@ function MWarehouseEntry({ onClose, lotOn }: { onClose: () => void; lotOn: boole
                   return (
                     <MRow key={p.id}
                       title={p.name}
-                      subtitle={[p.code, p.unit, tracked ? tr('تتبع بـLOT') : ''].filter(Boolean).join(' · ') || undefined}
+                      subtitle={[p.code, productUnitLabel(p, formatNumber), tracked ? tr('تتبع بـLOT') : ''].filter(Boolean).join(' · ') || undefined}
                       // صفٌّ مضافٌ سلفاً لا يُنقر: نقرةٌ لا أثر لها تُقرأ عطلاً
                       onClick={picked ? undefined : () => addProduct(p)}
                       trailing={picked
@@ -753,7 +814,7 @@ function MWarehouseEntry({ onClose, lotOn }: { onClose: () => void; lotOn: boole
               const net = netOf(r);
               const qty = Number(r.qty);
               const line = receive && net !== null && Number.isFinite(qty) ? qty * net : null;
-              const opts = unitChoices({ unit: r.baseUnit, units: r.units });
+              const opts = unitChoices({ unit: r.baseUnit, units: r.units, primaryUnitId: r.primaryUnitId });
               const multi = opts.length > 1;
               return (
                 <div key={k} className="p-3 space-y-2 border-b border-[#F1EBDF] last:border-0">

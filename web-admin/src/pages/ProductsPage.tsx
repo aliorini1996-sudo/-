@@ -5,7 +5,8 @@ import { productApi, companyApi, lotsApi } from '../api/client';
 import { zatcaCollectOn, type ZatcaCompanyLike } from '../lib/zatcaRegime';
 import { Product } from '../types';
 import { formatCurrency, formatNumber, statusLabels } from '../utils/format';
-import { unitPriceOf } from '../lib/units';
+import { primaryPriceOf, primaryUnitOf, unitPriceOf } from '../lib/units';
+import { baseQtyText, productUnitLabel } from '../lib/adminUnits';
 import { useTr } from '../i18n/strings';
 import { Plus, Search, Edit, Trash2, ChevronLeft, ChevronRight, Layers, X, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -38,6 +39,8 @@ export default function ProductsPage() {
   const [bulkAsk, setBulkAsk] = useState<LotTrackingRequest | null>(null);
   const [balanceConfirm, setBalanceConfirm] = useState<BalanceConfirm | null>(null);
   const [attention, setAttention] = useState<AttentionRow[] | null>(null);
+  // «الوحدة الرئيسية»: ٤٠٩ «تغيّرت وحدات الصنف» عند الحفظ ⇒ تُعاد النافذة بالصنف كما في الخادم الآن (مفتاحٌ جديد يعيد تهيئتها)
+  const [modalKey, setModalKey] = useState(0);
 
   // صفحة الأصناف كلّها أسعارٌ وضريبة: تُمنع مع المحاسبة، ولا يُطلَب جدولها أصلاً
   // (مسار /products يردّ ٤٠٣ فتظهر لافتة خطأ — واللافتة نفسها تسريب).
@@ -80,6 +83,19 @@ export default function ProductsPage() {
       const bal = selected ? trackingBalanceOf(err) : null;
       if (bal && !values.confirmLotBalances) { setBalanceConfirm({ kind: 'product', values, products: bal.products }); return; }
       setBalanceConfirm(null);
+      // نموذجٌ بُني على وحدات قديمة (تحويلٌ أو تبديل رئيسية من مديرٍ آخر بعد فتحه) ⇒ «أعد فتحه»: يُعاد جلب الصنف وتُعاد النافذة به،
+      // ولا يُعاد إرسال سعرٍ أو وحدةٍ محسوبين على الأساس القديم
+      const code = (err as { response?: { data?: { code?: string } } })?.response?.data?.code;
+      if (selected && (code === 'BASE_UNIT_CHANGED' || code === 'PRIMARY_UNIT_CHANGED')) {
+        toast.error(tr('تغيّرت وحدات الصنف — أعد فتحه'));
+        qc.invalidateQueries({ queryKey: ['products'] });
+        const id = selected.id;
+        void productApi.get(id).then((res) => {
+          setSelected(cur => (cur?.id === id ? (res.data.data as Product) : cur));
+          setModalKey(k => k + 1);
+        }).catch(() => { /* تبقى الرسالة: «أعد فتحه» */ });
+        return;
+      }
       toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('حدث خطأ'));
     },
   });
@@ -142,6 +158,15 @@ export default function ProductsPage() {
   const togglePick = (id: string) => setPicked(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const togglePage = () => setPicked(s => { const n = new Set(s); for (const id of pageIds) { if (allPicked) n.delete(id); else n.add(id); } return n; });
   const cols = 8 + (lotOn ? 1 : 0) + (canBulk ? 1 : 0);
+  // «الوحدة الرئيسية» (R4/R5): صنفٌ له رئيسية يُعرض وسمه «كرتون (24 قارورة)» وسعره سعر الرئيسية وتحته سعر الفرعية،
+  // وأرصدته بالرئيسية (R1). وبلا رئيسية كل ذلك كما كان حرفاً (I1) — ومعه عنوان العمود
+  const anyPrimary = rows.some(p => primaryUnitOf(p) !== null);
+  const byId = new Map<string, Product>(rows.map(p => [p.id, p]));
+  if (selected) byId.set(selected.id, selected);
+  const qtyText = (productId: string, n: number) => {
+    const p = byId.get(productId);
+    return p && primaryUnitOf(p) ? baseQtyText(n, p, formatNumber) : formatNumber(n);
+  };
   const scopeLabel = (req: LotTrackingRequest) => req.productIds ? `${formatNumber(req.productIds.length)} ${tr('صنف محدد')}`
     : req.categoryId ? `${tr('أصناف الفئة')} «${categories?.find(c => c.id === req.categoryId)?.name ?? ''}»` : tr('كل أصناف الشركة');
 
@@ -200,7 +225,7 @@ export default function ProductsPage() {
                   <th className="w-8"><input type="checkbox" className="w-4 h-4 accent-[#E15A30]" aria-label={tr('تحديد أصناف الصفحة')}
                     checked={allPicked} onChange={togglePage} disabled={!pageIds.length} /></th>
                 )}
-                <th>{tr('الكود')}</th><th>{tr('اسم الصنف')}</th><th>{tr('الفئة')}</th><th>{tr('الوحدة')}</th><th>{tr('السعر الأساسي')}</th><th>{tr('الضريبة %')}</th>
+                <th>{tr('الكود')}</th><th>{tr('اسم الصنف')}</th><th>{tr('الفئة')}</th><th>{tr('الوحدة')}</th><th>{anyPrimary ? tr('السعر') : tr('السعر الأساسي')}</th><th>{tr('الضريبة %')}</th>
                 {lotOn && <th>{tr('التشغيلة')}</th>}
                 <th>{tr('الحالة')}</th><th>{tr('إجراءات')}</th>
               </tr>
@@ -208,7 +233,7 @@ export default function ProductsPage() {
             <tbody>
               {isLoading ? (
                 <tr><td colSpan={cols} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
-              ) : data?.data.map(p => (
+              ) : data?.data.map(p => { const pu = primaryUnitOf(p); return (
                 <tr key={p.id}>
                   {canBulk && (
                     <td><input type="checkbox" className="w-4 h-4 accent-[#E15A30]" aria-label={p.name}
@@ -221,15 +246,23 @@ export default function ProductsPage() {
                   </td>
                   <td className="text-gray-500 text-sm">{p.category?.name || '-'}</td>
                   <td className="text-gray-600">
-                    {p.unit}
-                    {/* وحدات البيع الأكبر بمعاملها وسعرها («كرتون 24 = 48.00») — السعر الأساسي بجانبها لوحدة الأساس */}
-                    {(p.units ?? []).filter(u => u.isActive !== false).map(u => (
+                    {pu ? <span data-primary-unit-label="">{productUnitLabel(p)}</span> : p.unit}
+                    {/* وحدات البيع الأكبر بمعاملها وسعرها («كرتون 24 = 48.00») — السعر الأساسي بجانبها لوحدة الأساس.
+                        والرئيسية في الوسم أعلاه فلا تُكرَّر */}
+                    {(p.units ?? []).filter(u => u.isActive !== false && u.id !== pu?.id).map(u => (
                       <span key={u.id} className="block text-[11px] text-gray-400 whitespace-nowrap">
                         {u.name} {Number(u.factor)} = {formatCurrency(unitPriceOf({ name: u.name, factor: Number(u.factor), price: u.price ?? undefined }, p.basePrice))}
                       </span>
                     ))}
                   </td>
-                  <td className="font-semibold text-[#E15A30]">{formatCurrency(p.basePrice)}</td>
+                  {pu ? (
+                    <td data-primary-price="">
+                      <p className="font-semibold text-[#E15A30] whitespace-nowrap">{formatCurrency(primaryPriceOf(p) ?? 0)} <span className="text-[11px] font-normal text-gray-500">/ {pu.name}</span></p>
+                      <p className="text-[11px] text-gray-400 whitespace-nowrap">{p.unit}: {formatCurrency(p.basePrice)}</p>
+                    </td>
+                  ) : (
+                    <td className="font-semibold text-[#E15A30]">{formatCurrency(p.basePrice)}</td>
+                  )}
                   <td className="text-gray-600">{p.taxPct}%</td>
                   {lotOn && (
                     <td>
@@ -246,7 +279,7 @@ export default function ProductsPage() {
                     </div>
                   </td>
                 </tr>
-              ))}
+              ); })}
             </tbody>
           </table>
         </div>
@@ -264,6 +297,7 @@ export default function ProductsPage() {
 
       {showModal && (
         <ProductModal
+          key={`${selected?.id ?? 'new'}:${modalKey}`}
           zatcaCollect={zatcaCollect}
           lotTrackingOn={lotOn}
           product={selected}
@@ -313,8 +347,8 @@ export default function ProductsPage() {
                 <div key={b.productId} className="px-3 py-2">
                   <p className="font-semibold text-[#1F1A13]">{b.name ?? '-'}</p>
                   <p className="text-[#6E6557]">
-                    {tr('المستودع')} {formatNumber(b.warehouse)}
-                    {b.vans.length > 0 && <> · {tr('في سيارات المناديب')} {formatNumber(b.vans.reduce((s, v) => s + v.qty, 0))} ({formatNumber(b.vans.length)})</>}
+                    {tr('المستودع')} {qtyText(b.productId, b.warehouse)}
+                    {b.vans.length > 0 && <> · {tr('في سيارات المناديب')} {qtyText(b.productId, b.vans.reduce((s, v) => s + v.qty, 0))} ({formatNumber(b.vans.length)})</>}
                   </p>
                 </div>
               ))}
@@ -330,7 +364,7 @@ export default function ProductsPage() {
         />
       )}
 
-      {attention && <LotAttentionModal rows={attention} onClose={() => setAttention(null)} />}
+      {attention && <LotAttentionModal rows={attention} qtyText={qtyText} onClose={() => setAttention(null)} />}
     </div>
   );
 }
@@ -340,7 +374,12 @@ export default function ProductsPage() {
  * السالب يُصحَّح بتسويةٍ موجبة غير مسمّاة أولاً (لا يُنقص غير المسمّى السالب)، ثم تُسمّى أرصدة المستودع والسيارات من شاشة التتبّع.
  * البيع لا يتوقّف: غير المسمّى يُصرف بعد نفاد المسمّى (D17).
  */
-function LotAttentionModal({ rows, onClose }: { rows: AttentionRow[]; onClose: () => void }) {
+function LotAttentionModal({ rows, qtyText, onClose }: {
+  rows: AttentionRow[];
+  /** كمية بالأساس للعرض — بالرئيسية لصنفٍ له رئيسية في الصفحة (R1)، وإلا الرقم كما كان */
+  qtyText: (productId: string, n: number) => string;
+  onClose: () => void;
+}) {
   const tr = useTr();
   const negatives = rows.filter(r => r.negative).length;
   return (
@@ -375,12 +414,12 @@ function LotAttentionModal({ rows, onClose }: { rows: AttentionRow[]; onClose: (
                 </p>
                 {r.warehouse && (
                   <p className="text-xs text-[#6E6557]">
-                    {tr('المستودع')}: {formatNumber(r.warehouse.total)} · {tr('غير مسمى')} {formatNumber(r.warehouse.unknown)}
+                    {tr('المستودع')}: {qtyText(r.productId, r.warehouse.total)} · {tr('غير مسمى')} {qtyText(r.productId, r.warehouse.unknown)}
                   </p>
                 )}
                 {r.vans.length > 0 && (
                   <p className="text-xs text-[#6E6557]">
-                    {tr('في سيارات المناديب')} ({formatNumber(r.vans.length)}): {formatNumber(r.vans.reduce((s, v) => s + v.total, 0))} · {tr('غير مسمى')} {formatNumber(r.vans.reduce((s, v) => s + v.unknown, 0))}
+                    {tr('في سيارات المناديب')} ({formatNumber(r.vans.length)}): {qtyText(r.productId, r.vans.reduce((s, v) => s + v.total, 0))} · {tr('غير مسمى')} {qtyText(r.productId, r.vans.reduce((s, v) => s + v.unknown, 0))}
                   </p>
                 )}
               </div>

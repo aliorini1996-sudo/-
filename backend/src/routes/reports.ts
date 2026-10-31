@@ -19,11 +19,24 @@ import { cleanMoney, isReturnInvoice, netSales, signedAmount } from '../services
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canViewReports'));
 
-/** وحدة بيعٍ أكبر من الأساس كما يحتاجها العارض لـformatQty («٢ كرتون و٣ حبة») — النشطة وحدها. */
-export interface ReportUnit { name: string; factor: number }
+/**
+ * وحدة بيعٍ أكبر من الأساس كما يحتاجها العارض لـformatQty («٢ كرتون و٣ حبة») — النشطة وحدها. و`id` ليعرف العارض
+ * «الوحدة الرئيسية» (`primaryUnitOf` يطابق `primaryUnitId` بمعرّف الوحدة) فيقف العرض عندها: «52 كرتون و2 قارورة».
+ */
+export interface ReportUnit { id?: string; name: string; factor: number }
 
 /** وحدات الصنف النشطة للعرض، من الأكبر — `select` واحد لكل مسار يعيد كميةً بالأساس. */
-const ACTIVE_UNITS_SELECT = { where: { isActive: true }, select: { name: true, factor: true }, orderBy: { factor: 'desc' as const } };
+const ACTIVE_UNITS_SELECT = { where: { isActive: true }, select: { id: true, name: true, factor: true }, orderBy: { factor: 'desc' as const } };
+
+/** وحدة العرض من صفّ وحدة: معرّفها إن حضر (صفٌّ من القاعدة)، والمعامل رقماً لا Decimal */
+export const reportUnit = (u: { id?: string | null; name: string; factor: unknown }): ReportUnit =>
+  ({ ...(u.id ? { id: u.id } : {}), name: u.name, factor: Number(u.factor) });
+
+/**
+ * «الوحدة الرئيسية» على صفّ تقرير (القاعدة ١٢، عرضٌ وحده): المفتاح يحضر حين للصنف رئيسية فقط، فصفّ صنفٍ بلاها يبقى
+ * بشكله قبل الميزة حرفاً (I1)، والعارض يقرأ `!!primaryUnitId` (docQtyText/baseQtyText).
+ */
+export const primaryKey = (id: string | null | undefined): { primaryUnitId?: string } => (id ? { primaryUnitId: id } : {});
 
 /** وحدات أصنافٍ بعينها دفعةً واحدة (صنف ← وحداته النشطة من الأكبر) — للتجميعات التي لا تمرّ بصفّ الصنف. */
 async function activeUnitsByProduct(tid: string, productIds: string[]): Promise<Map<string, ReportUnit[]>> {
@@ -31,18 +44,18 @@ async function activeUnitsByProduct(tid: string, productIds: string[]): Promise<
   if (!productIds.length) return out;
   const rows = await prisma.productUnit.findMany({
     where: { tenantId: tid, productId: { in: productIds }, isActive: true },
-    select: { productId: true, name: true, factor: true },
+    select: { id: true, productId: true, name: true, factor: true },
     orderBy: { factor: 'desc' },
   });
   for (const r of rows) {
     const list = out.get(r.productId) ?? [];
-    list.push({ name: r.name, factor: Number(r.factor) });
+    list.push(reportUnit(r));
     out.set(r.productId, list);
   }
   return out;
 }
 
-type SalesItemRow = { qty: number; lineTotal: number; product: { id: string; name: string; code: string; unit: string } | null } & UnitSnapshot & { baseQty?: number | null };
+type SalesItemRow = { qty: number; lineTotal: number; product: { id: string; name: string; code: string; unit: string; primaryUnitId?: string | null } | null } & UnitSnapshot & { baseQty?: number | null };
 
 /**
  * المبيعات حسب الصنف — الكمية **بالأساس**، وصافيةٌ من المرتجع: بنود `returns` تُطرح كميةً ومبلغاً (طلب المالك
@@ -58,8 +71,8 @@ export function salesByProduct(
   invoices: ReadonlyArray<{ items: ReadonlyArray<SalesItemRow> }>,
   unitsOf: ReadonlyMap<string, ReportUnit[]> = new Map(),
   returns: ReadonlyArray<{ items: ReadonlyArray<SalesItemRow> }> = [],
-): Array<{ productId: string | null; name: string; code: string; qty: number; baseQty: number; unit: string; units: ReportUnit[]; total: number }> {
-  const byProduct: Record<string, { productId: string | null; name: string; code: string; unit: string; base: number; total: number }> = {};
+): Array<{ productId: string | null; name: string; code: string; qty: number; baseQty: number; unit: string; units: ReportUnit[]; primaryUnitId?: string; total: number }> {
+  const byProduct: Record<string, { productId: string | null; name: string; code: string; unit: string; primaryUnitId: string | null; base: number; total: number }> = {};
   const signed = [...invoices.map((inv) => ({ inv, sign: 1 })), ...returns.map((inv) => ({ inv, sign: -1 }))];
   signed.forEach(({ inv, sign }) => {
     inv.items.forEach(item => {
@@ -67,7 +80,7 @@ export function salesByProduct(
       // الرقم الناقص أهون من صفحة لا تفتح.
       const ref = item.product;
       const key = ref?.id ?? 'unknown';
-      if (!byProduct[key]) byProduct[key] = { productId: ref?.id ?? null, name: ref?.name ?? 'صنف محذوف', code: ref?.code ?? '—', unit: ref?.unit ?? '', base: 0, total: 0 };
+      if (!byProduct[key]) byProduct[key] = { productId: ref?.id ?? null, name: ref?.name ?? 'صنف محذوف', code: ref?.code ?? '—', unit: ref?.unit ?? '', primaryUnitId: ref?.primaryUnitId ?? null, base: 0, total: 0 };
       byProduct[key].base += sign * baseQtyOf(item);
       byProduct[key].total += sign * Number(item.lineTotal);
     });
@@ -75,7 +88,7 @@ export function salesByProduct(
   return Object.values(byProduct)
     .map(p => {
       const base = roundQty(p.base) || 0;
-      return { productId: p.productId, name: p.name, code: p.code, qty: base, baseQty: base, unit: p.unit, units: (p.productId && unitsOf.get(p.productId)) || [], total: cleanMoney(p.total) };
+      return { productId: p.productId, name: p.name, code: p.code, qty: base, baseQty: base, unit: p.unit, units: (p.productId && unitsOf.get(p.productId)) || [], ...primaryKey(p.primaryUnitId), total: cleanMoney(p.total) };
     })
     .sort((a, b) => b.total - a.total);
 }
@@ -86,10 +99,11 @@ export function salesByProduct(
  * كان يأخذ الوحدة من `product.unit` الحاليّ، فتغيير اسم وحدة الصنف يغيّر تقارير الماضي،
  * وحبّةٌ أُرجعت من بند كرتون تظهر «١ كرتون». فالوحدة = لقطة البند، وإلّا وحدة الصنف
  * (بندٌ سبق الميزة كُتب بها)، ومعها الكمية بالأساس ووحدة الأساس لمن يجمع أو يقارن.
+ * وصنفٌ له «وحدة رئيسية» يحمل `primaryUnitId` فيُلحق العارض الوحدة دائماً («×5 قارورة» — «×5» وحدها تُقرأ كراتين).
  */
 export function returnLineView(i: {
   qty: number; lineTotal: number; returnExpired: boolean | null; expiresAt: Date | null; itemName: string | null;
-  baseQty?: number | null; product: { name: string; unit: string } | null;
+  baseQty?: number | null; product: { name: string; unit: string; primaryUnitId?: string | null } | null;
 } & UnitSnapshot) {
   return {
     name: i.product?.name ?? i.itemName ?? 'صنف محذوف',
@@ -98,6 +112,7 @@ export function returnLineView(i: {
     unitFactor: factorOf(i),
     baseQty: baseQtyOf(i),
     baseUnit: i.product?.unit ?? '',
+    ...primaryKey(i.product?.primaryUnitId),
     lineTotal: Number(i.lineTotal),
     returnExpired: i.returnExpired,
     expiresAt: i.expiresAt ? i.expiresAt.toISOString().slice(0, 10) : null,
@@ -154,11 +169,13 @@ async function itemLotsOf(tid: string, invoiceIds: string[]): Promise<Map<string
 /** صفّ توزيعٍ كما يقرؤه تقرير التشغيلات — الكمية أساسية (D22)، والاتجاه من نوع الفاتورة */
 export interface LotSaleRowIn { productId: string; lotId: string | null; quantity: number; certainty: string }
 export interface LotSaleInvoiceIn { id: string; type: string; customerId: string; items: ReadonlyArray<{ lots: ReadonlyArray<LotSaleRowIn> }> }
-export interface LotSaleProductIn { name: string; code: string | null; unit: string; units: ReportUnit[] }
+export interface LotSaleProductIn { name: string; code: string | null; unit: string; units: ReportUnit[]; primaryUnitId?: string | null }
 
 /** سطر تقرير «حسب التشغيلة» — lotId null = «غير معروف» (بيعٌ من غير المسمّى D17، أو مرتجعٌ حرّ بلا لوط). الكميات بالأساس */
 export interface LotSalesRow {
   productId: string; productName: string; productCode: string | null; unit: string; units: ReportUnit[];
+  /** «الوحدة الرئيسية» للعرض وحده — حاضرٌ حين للصنف رئيسية فقط */
+  primaryUnitId?: string;
   lotId: string | null; lotNumber: string | null; productionDate: string | null; expiryDate: string | null;
   status: LotStatus | null; blockKind: LotBlockKind | null;
   sold: number; returned: number; net: number;
@@ -217,7 +234,7 @@ export function lotSalesRows(
   const productOf = (id: string) => products.get(id);
   const head = (id: string) => {
     const p = productOf(id);
-    return { productId: id, productName: p?.name ?? 'صنف محذوف', productCode: p?.code ?? null, unit: p?.unit ?? '', units: p?.units ?? [] };
+    return { productId: id, productName: p?.name ?? 'صنف محذوف', productCode: p?.code ?? null, unit: p?.unit ?? '', units: p?.units ?? [], ...primaryKey(p?.primaryUnitId) };
   };
   const sums = (a: Acc) => ({
     sold: roundLot(a.sold), returned: roundLot(a.returned), net: roundLot(a.sold - a.returned),
@@ -309,7 +326,7 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
       team: TEAM_NAME_SELECT,
       items: {
         // البند كاملاً ومعه لقطة وحدته (unitName/unitFactor/baseQty) — ووحدة الصنف لبندٍ سبق الميزة بلا لقطة
-        include: { product: { select: { id: true, name: true, code: true, unit: true } } },
+        include: { product: { select: { id: true, name: true, code: true, unit: true, primaryUnitId: true } } },
       },
     } as const;
     const [invoices, returns] = await Promise.all([
@@ -508,7 +525,7 @@ router.get('/returns', async (req: AuthRequest, res: Response, next: NextFunctio
             select: {
               id: true, qty: true, lineTotal: true, returnExpired: true, expiresAt: true, returnOfItemId: true, itemName: true,
               unitName: true, unitFactor: true, baseQty: true,
-              product: { select: { name: true, unit: true } },
+              product: { select: { name: true, unit: true, primaryUnitId: true } },
             },
           },
         },
@@ -1034,10 +1051,10 @@ router.get('/rep-ranking', async (req: AuthRequest, res: Response, next: NextFun
       }
     }
     // الصنف ووحدة أساسه (وسم القيمة) ووحداته النشطة — القيمة بالأساس، والعارض يفكّكها «٢ كرتون و٣ حبة»
-    let product: { id: string; name: string; unit: string; units: ReportUnit[] } | null = null;
+    let product: { id: string; name: string; unit: string; primaryUnitId: string | null; units: ReportUnit[] } | null = null;
     if (metric === 'product') {
       if (!q.productId) { res.status(400).json({ success: false, message: 'اختر الصنف' }); return; }
-      product = await prisma.product.findFirst({ where: { id: q.productId, tenantId: tid }, select: { id: true, name: true, unit: true, units: ACTIVE_UNITS_SELECT } });
+      product = await prisma.product.findFirst({ where: { id: q.productId, tenantId: tid }, select: { id: true, name: true, unit: true, primaryUnitId: true, units: ACTIVE_UNITS_SELECT } });
       if (!product) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
     }
 
@@ -1271,12 +1288,12 @@ router.get('/lot-sales', requireLots, async (req: AuthRequest, res: Response, ne
     const pids = [...new Set(lotRows.map((l) => l.productId))];
     const [products, metas] = await Promise.all([
       pids.length
-        ? prisma.product.findMany({ where: { tenantId: tid, id: { in: pids } }, select: { id: true, name: true, code: true, unit: true, units: ACTIVE_UNITS_SELECT } })
+        ? prisma.product.findMany({ where: { tenantId: tid, id: { in: pids } }, select: { id: true, name: true, code: true, unit: true, primaryUnitId: true, units: ACTIVE_UNITS_SELECT } })
         : Promise.resolve([]),
       // البطاقات بالشركة شرطاً (I5)
       loadLotMetas(prisma, tid, { lotIds: lotRows.map((l) => l.lotId).filter((x): x is string => !!x) }),
     ]);
-    const productOf = new Map(products.map((p) => [p.id, { name: p.name, code: p.code, unit: p.unit, units: p.units.map((u) => ({ name: u.name, factor: Number(u.factor) })) }]));
+    const productOf = new Map(products.map((p) => [p.id, { name: p.name, code: p.code, unit: p.unit, units: p.units.map(reportUnit), primaryUnitId: p.primaryUnitId }]));
 
     res.json({
       success: true,

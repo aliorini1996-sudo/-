@@ -10,8 +10,9 @@ import { SalesRep } from '../types';
 import { activeLocale, formatDate, formatTime, formatNumber } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { useBackClose } from '../lib/useBackClose';
-import type { UnitDef } from '../lib/units';
-import { unitChoices, defaultChoice } from '../rep/repUnits';
+import { primaryUnitOf, type UnitDef } from '../lib/units';
+import { unitChoices, defaultChoice, rebaseRow } from '../rep/repUnits';
+import { productUnitLabel } from '../lib/adminUnits';
 import { splitVanMovement } from '../lib/vanMovement';
 import {
   lotFlagsOf, lotWarningsOf, lotRowsRemaining, roundLot, LOT_EPS, LOT_WARNING_LABELS, LOT_STATUS_LABELS,
@@ -30,6 +31,7 @@ import {
 } from './mLotsLogic';
 import MUnitChips from './MUnitChips';
 import MLotFields, { useProductLots } from './MLotFields';
+import { anyPrimary, fill, qtyTotalLabel, refetchUnitsOn, withBaseUnitName, backWithBaseNames } from './mPrimaryUnit';
 
 /**
  * تسجيل تحميل بضاعة لسيارة مندوب — من تطبيق الإدارة على الجوال.
@@ -58,10 +60,12 @@ interface StockRow {
   damaged?: number;
   /** وحدات الصنف — كل كميات الصفّ بالأساس، وتُعرض بها «٢ كرتون و٣ حبة» */
   units?: UnitDef[];
+  /** «الوحدة الرئيسية» (القاعدة ١٢): عرضٌ وافتراضٌ فقط — الرصيد «52 كرتون و2 قارورة»، وسطر التحميل الأول بها */
+  primaryUnitId?: string | null;
 }
 
 interface ProductPick {
-  id: string; name: string; code?: string; unit?: string; units?: UnitDef[];
+  id: string; name: string; code?: string; unit?: string; units?: UnitDef[]; primaryUnitId?: string | null;
   /** «تتبّع اللوط»: علم الصنف وصلاحيته (إلزام انتهاء التشغيلة الجديدة في شركة بلا مستودع) */
   lotTracked?: boolean; shelfLifeEnabled?: boolean; shelfLifeValue?: number | null; shelfLifeUnit?: string | null;
 }
@@ -76,6 +80,8 @@ interface SuggestRow {
   why: string;
   /** وحدات الصنف — الأرقام كلّها بالأساس */
   units?: UnitDef[];
+  /** الوحدة الرئيسية — الاقتراح يُحمَّل بها حين تقسمه (suggestionLine) ويُعرض بها */
+  primaryUnitId?: string | null;
 }
 interface SuggestResponse {
   rows: SuggestRow[];
@@ -109,6 +115,8 @@ interface Row extends StockLineUnit {
   lot?: LotDraft;
   /** توزيع التنزيل على مصادر السيارة بالأساس — غائبٌ ⇒ التوزيع الأوّلي (prefillOut) */
   outLots?: LotRef[];
+  /** «الوحدة الرئيسية» للصنف كما عرفها كتالوج الشاشة حين أُضيف السطر — عرض الرصيد بها وحده، لا يدخل الجسم (D1) */
+  primaryUnitId?: string | null;
 }
 
 /** ردّ GET /lots/fefo — لكل سطرٍ صفوفه بترتيب الأسطر المرسلة */
@@ -246,6 +254,8 @@ export default function MRepLoad({ rep, company, onClose }: {
   const totalRemaining = (stockQ.data ?? []).reduce((s, r) => s + r.remaining, 0);
   // مجموع المتبقّي عبر الأصناف بالأساس — يُسمّى كذلك حين لصنفٍ وحدةٌ أكبر، فلا يُقرأ ١٢٠٠ حبة «١٢٠٠ كرتون»
   const anyMulti = (stockQ.data ?? []).some(s => hasBigUnit(s.units));
+  // ولصنفٍ له «وحدة رئيسية» (R3): «المتبقي بالوحدات الصغرى» — «بوحدات الأساس» لا تُقال لمن عرّف صنفه بالكرتون (D21)
+  const remainingLabel = qtyTotalLabel(tr, 'المتبقي', 'المتبقي بوحدات الأساس', { primary: anyPrimary(stockQ.data), multi: anyMulti });
 
   /* «تتبّع اللوط» لكل سطرٍ متتبَّع (والمطفأ لا شيء):
    *  - تحميلٌ في شركة بلا مستودع (D4): تشغيلةٌ صريحة (قائمة مؤهَّلة، أو جديدة، أو «غير مسمى»).
@@ -315,12 +325,19 @@ export default function MRepLoad({ rep, company, onClose }: {
 
   // المصدر الوحيد للتقسيم (splitVanMovement، وsplitLoadRows غلافٌ عليها بلا حقول اللوط) — الواجهة تعرضه والحفظ يرسله،
   // فلا يختلف المعروض عن المُرسَل. وحقول اللوط غائبةٌ لغير المتتبَّع فالجسم كما كان حرفاً
+  // و«الوحدة الرئيسية» (§3 البند ١٣، §5.3): كل بندٍ يحمل أساس صنفه كما عرفه كتالوج الشاشة (`baseUnitName`) — تحويلٌ للصنف بعد
+  // فتح الشاشة يُردّ 400 UNIT_INVALID أو 409 PRODUCT_UNITS_CHANGED بدل أن يُقيَّد «١٠» كرتوناً قارورةً. والتنزيل يُعاد بناؤه
+  // في splitVanMovement فيُعاد إليه أساسه بالترتيب (backWithBaseNames)
   const split = useMemo(
-    () => splitVanMovement(rows.map(r => ({
-      productId: r.productId, qty: Number(r.qty), unitId: r.unitId,
-      suggestedQty: r.suggestedQty, expectedQty: r.expectedQty,
-      ...lotPartOf(r),
-    }))),
+    () => {
+      const items = rows.map(r => withBaseUnitName({
+        productId: r.productId, qty: Number(r.qty), unitId: r.unitId,
+        suggestedQty: r.suggestedQty, expectedQty: r.expectedQty,
+        ...lotPartOf(r),
+      }, r.baseUnit));
+      const s = splitVanMovement(items);
+      return { out: s.out, back: backWithBaseNames(items, s.back) };
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- lotPartOf تقرأ اللقطة والعلمين وخطة التنزيل وحدها
     [rows, snapQ.data, lotOn, warehouseOn, outPlan],
   );
@@ -372,10 +389,11 @@ export default function MRepLoad({ rep, company, onClose }: {
    * وحداته كلّها (أو بلا وحدات وله سطر) لا يُضاف: سطران بوحدةٍ واحدة يتنازعان الكمية.
    */
   /* والصنف المتتبَّع يُضاف سطراً جديداً ولو أُخذت وحداته — لكل تشغيلةٍ سطرها (D4) */
-  const addLine = (p: { unit?: string | null; units?: UnitDef[] | null }, productId: string, name: string, extra: Partial<Row> = {}) =>
+  /* والوحدة الافتراضية «الرئيسية» حين للصنف رئيسية (defaultChoice، R6)، وتُحفظ على السطر لعرض رصيده بها وحده */
+  const addLine = (p: { unit?: string | null; units?: UnitDef[] | null; primaryUnitId?: string | null }, productId: string, name: string, extra: Partial<Row> = {}) =>
     setRows(rs => {
       const u = nextStockLineUnit(p, rs, productId) ?? (trackedOf(productId) ? stockLineUnit(p, defaultChoice(p)) : null);
-      return u ? [...rs, { rowId: newRowId(), productId, name, qty: '1', ...u, ...extra }] : rs;
+      return u ? [...rs, { rowId: newRowId(), productId, name, qty: '1', ...u, primaryUnitId: p.primaryUnitId ?? null, ...extra }] : rs;
     });
   const addProduct = (p: ProductPick) => addLine(p, p.id, p.name, lotOn ? { shelfOn: shelfLifeOn(p) } : {});
   const addFromStock = (s: StockRow) => addLine(s, s.productId, s.name);
@@ -391,7 +409,7 @@ export default function MRepLoad({ rep, company, onClose }: {
   /** وحدة السطر تتبدّل والكمية المكتوبة كما هي — والمنتقي يعطّل وحدةً أخذها سطرٌ آخر للصنف */
   const setRowUnit = (key: string, unitId: string | null) => setRows(rs => rs.map(r => {
     if (r.rowId !== key) return r;
-    const p = { unit: r.baseUnit, units: r.units };
+    const p = { unit: r.baseUnit, units: r.units, primaryUnitId: r.primaryUnitId };
     const c = unitChoices(p).find(o => o.id === unitId);
     return c ? { ...r, ...stockLineUnit(p, c), outLots: undefined } : r;
   }));
@@ -405,7 +423,7 @@ export default function MRepLoad({ rep, company, onClose }: {
       // والتنبّؤ اليومي مرجعُ قياس الدقّة لا suggestedQty: الأخيرة كمّية تعبئة تتأثّر بما في السيارة وبالهامش،
       // فقياسُها يعاقب المحرّك على ما ليس تنبّؤاً — وكلاهما بالأساس مهما كانت وحدة السطر
       const l = suggestionLine(r);
-      return { ...l, rowId: newRowId(), productId: r.id, name: r.name, qty: String(l.qty) };
+      return { ...l, rowId: newRowId(), productId: r.id, name: r.name, qty: String(l.qty), primaryUnitId: r.primaryUnitId ?? null };
     }));
     setShowSuggest(false);
     setConfirm(null);
@@ -443,10 +461,38 @@ export default function MRepLoad({ rep, company, onClose }: {
       // حتى الفشل يُبطِل المفاتيح: الشقّ الأوّل من الحركة المختلطة قد يكون كُتب،
       // وعرضُ رصيدٍ قديم بعده يخفي عن المستخدم ما صار في السيارة حقّاً
       invalidateVanStock();
+      // أساس صنفٍ تغيّر (كاشٌ قديم أو سباقٌ مع «إضافة وحدة فرعية أصغر»): الأصناف تُجلب من جديد، وأسطر الشاشة يُعاد أساسها
+      // بها (rebaseRow كتطبيق المندوب) فلا يُرفض الحفظ التالي ثانيةً — ورسالة الخادم تسمّي الصنف. و503 PRODUCT_UNITS_BUSY
+      // رسالته وحدها: الكتالوج لم يتغيّر بعد
+      if (refetchUnitsOn(e)) {
+        qc.invalidateQueries({ queryKey: ['m-van-products'] });
+        void refreshRowUnits();
+      }
       toast.error(errMsg(e, tr('تعذر الحفظ')));
       setConfirm(null);
     },
   });
+
+  /**
+   * وحدات أصناف الأسطر من الخادم الآن، وكل سطرٍ يُعاد أساسه بها: «٢ كرتون» تبقى كرتونين بعد أن صار الأساس قارورة، وسطرٌ
+   * أُوقفت وحدته يصير بالأساس بكميته × معامله ظاهراً (rebaseRow). وصنفٌ تعذّر جلبه يبقى سطره كما هو — والخادم يحكم.
+   */
+  async function refreshRowUnits() {
+    const ids = [...new Set(rows.map(r => r.productId))];
+    const fresh = new Map<string, ProductPick>();
+    await Promise.all(ids.map(async id => {
+      try {
+        const p = (await productApi.get(id)).data?.data as ProductPick | undefined;
+        if (p && typeof p.unit === 'string') fresh.set(id, p);
+      } catch { /* يبقى السطر كما هو */ }
+    }));
+    setRows(rs => rs.map(r => {
+      const p = fresh.get(r.productId);
+      const next = p ? rebaseRow(r, p) : null;
+      if (!p || !next) return r;
+      return { ...r, ...stockLineUnit(p, next.choice), qty: String(next.qty), primaryUnitId: p.primaryUnitId ?? null, outLots: undefined };
+    }));
+  }
 
   function invalidateVanStock() {
     // مفاتيح الجوال ومفاتيح اللوحة معاً — الحزمة واحدة والكاش مشترك، فترك
@@ -504,7 +550,7 @@ export default function MRepLoad({ rep, company, onClose }: {
             <>
               <div className="grid grid-cols-2 gap-2.5">
                 <MStat icon={Package} label={tr('أصناف بالسيارة')} value={formatNumber(stockQ.data.length)} />
-                <MStat icon={Truck} label={anyMulti ? tr('المتبقي بوحدات الأساس') : tr('المتبقي')} value={fmtQty(totalRemaining)}
+                <MStat icon={Truck} label={remainingLabel} value={fmtQty(totalRemaining)}
                   tone={totalRemaining > 0 ? 'good' : 'default'} />
               </div>
               <MCard className="overflow-hidden">
@@ -518,7 +564,7 @@ export default function MRepLoad({ rep, company, onClose }: {
                         title={s.name}
                         // ما لا يُباع (منتهٍ أو تالف) يُذكر بجانب الصنف — لا يدخل المتبقّي
                         subtitle={[
-                          `${s.code} · ${s.unit}`,
+                          `${s.code} · ${productUnitLabel(s, formatNumber)}`,
                           (s.expired ?? 0) > 0 ? `${tr('منتهي الصلاحية')} ${qtyText(s.expired!, s, fmtQty)}` : '',
                           (s.damaged ?? 0) > 0 ? `${tr('تالف')} ${qtyText(s.damaged!, s, fmtQty)}` : '',
                         ].filter(Boolean).join(' · ')}
@@ -666,7 +712,7 @@ export default function MRepLoad({ rep, company, onClose }: {
                   return (
                     <MRow key={p.id}
                       title={p.name}
-                      subtitle={[p.code, p.unit].filter(Boolean).join(' · ') || undefined}
+                      subtitle={[p.code, productUnitLabel(p, formatNumber)].filter(Boolean).join(' · ') || undefined}
                       onClick={picked ? undefined : () => addProduct(p)}
                       trailing={(
                         <span className="flex items-center gap-2 flex-shrink-0">
@@ -696,7 +742,8 @@ export default function MRepLoad({ rep, company, onClose }: {
               const n = Number(r.qty);
               const neg = Number.isFinite(n) && n < 0;
               const zero = !Number.isFinite(n) || n === 0;
-              const prod = { unit: r.baseUnit, units: r.units };
+              // والرئيسية معها: الرصيد والمقترح «52 كرتون و2 قارورة» (R1)
+              const prod = { unit: r.baseUnit, units: r.units, primaryUnitId: r.primaryUnitId };
               const opts = unitChoices(prod);
               const tracked = trackedOf(r.productId);
               return (
@@ -880,7 +927,7 @@ export default function MRepLoad({ rep, company, onClose }: {
 function FefoPreview({ productId, prod, f }: {
   productId: string;
   /** وحدات الصنف: كميات التوزيع بالأساس بجانب سطرٍ بوحدته (القاعدة ٨) */
-  prod: { unit?: string | null; units?: UnitDef[] | null };
+  prod: { unit?: string | null; units?: UnitDef[] | null; primaryUnitId?: string | null };
   f: { loading: boolean; rows: AllocRowDto[]; first: boolean; warnings: LotWarning[]; shortage: LotShortageDetail | null } | null;
 }) {
   const tr = useTr();
@@ -920,7 +967,7 @@ function FefoPreview({ productId, prod, f }: {
  * توزيعٌ صريح مجموعه كمية السطر بالأساس. الموقوف والمنتهي في الأعلى: هو ما يُخرج أولاً في السحب.
  */
 function OutLotsEditor({ sources, prod, loading, base, rows, onChange }: {
-  sources: OutSource[]; prod: { unit?: string | null; units?: UnitDef[] | null };
+  sources: OutSource[]; prod: { unit?: string | null; units?: UnitDef[] | null; primaryUnitId?: string | null };
   loading: boolean; base: number; rows: LotRef[]; onChange: (rows: LotRef[]) => void;
 }) {
   const tr = useTr();
@@ -939,7 +986,10 @@ function OutLotsEditor({ sources, prod, loading, base, rows, onChange }: {
   const left = lotRowsRemaining(rows, base);
   return (
     <div className="rounded-xl bg-[#FAF7F0] border border-[#F1EBDF] px-2.5 py-2 space-y-1.5">
-      <p className="text-[10px] font-semibold text-[#6E6557]">{tr('من أي تشغيلة ينزل بوحدة الأساس')}</p>
+      {/* التوزيع بالأساس (R8) — ولصنفٍ له «وحدة رئيسية» يُسمّى الأساس باسمه لا «وحدة الأساس» (D21)، وبلاها النصّ كما كان */}
+      <p className="text-[10px] font-semibold text-[#6E6557]">
+        {primaryUnitOf(prod) ? fill(tr('من أي تشغيلة ينزل بـ{unit}'), { unit: String(prod.unit ?? '') }) : tr('من أي تشغيلة ينزل بوحدة الأساس')}
+      </p>
       {sources.map(s => {
         const v = rows.find(r => r.lotId === s.lotId)?.qty;
         return (

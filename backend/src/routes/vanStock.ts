@@ -14,8 +14,13 @@ import { locationDocWhere, locationFilterOf, repStampLocation } from '../service
 import { tenantTz } from '../services/invoiceExpiry';
 import { paymentMethodsRange } from '../services/paymentMethodsReport';
 // الوحدات المتعددة: كل رصيدٍ ومقارنة بالأساس (baseQtyOf)، وكل بندٍ يُكتب بلقطة وحدته (unitFields)
-import { baseQtyOf, toBase, unitFields } from '../services/units';
-import { resolveLineUnits, unitsByProduct, UNIT_SELECT } from '../services/warehouseStock';
+import { baseQtyOf, primaryUnitOf, productQtyText, toBase, unitFields } from '../services/units';
+import { resolveLineUnits, unitsByProduct, UnitInvalidError, UNIT_SELECT } from '../services/warehouseStock';
+// «الوحدة الرئيسية» §3 (#2 و#4): كل حركة تُقارن الأساس الذي يعرفه العميل حيّاً، ثم الأساس الذي حُلّت عليه تحت قفل الأصناف
+import {
+  BASE_GUARD_TX, ProductUnitsChangedError, assertBasesUnchanged, baseGuardReply, baseUnitRequiredReply, expectedBasesOf, lockBases,
+  missingBaseForApi, staleClientBase,
+} from '../services/baseGuard';
 // «تتبّع اللوط»: حركات السيارة بالتشغيلات (§٤.٧) — كلها خلف علم الشركة وعلم الصنف؛ المطفأ والصنف غير المتتبَّع كما كانا حرفياً
 import { LotError, asLotBusy, lotErr, lotErrorBody, lotHttpError, type VanMovementPlan } from '../services/lots';
 import { acquireLotQueue, companyDay, lockLotProducts } from '../services/lotsDb';
@@ -50,6 +55,9 @@ const loadSchema = z.object({
     // المحرّك يُخرجها بالأساس وقياس الدقّة يقارنها بالمحمَّل بالأساس (services/suggestAccuracy)
     suggestedQty: z.number().optional(),
     expectedQty: z.number().optional(),
+    // «الوحدة الرئيسية» §3: وحدة الأساس التي حسب عليها العميل الكمية (Product.unit في كتالوجه) — ومنها بنود إزالة المنتهي والتالف.
+    // غائبة ⇒ مسار اليوم حرفياً؛ ومختلفة عن أساس الصنف الآن ⇒ 400 UNIT_INVALID فيعيد تحميل أصنافه. لمفتاح API على صنفٍ حُوِّل: إلزامية (D19)
+    baseUnitName: z.string().transform(v => v.slice(0, 64)).nullish(),
     // «تتبّع اللوط» (للصنف المتتبَّع وحده، ويُحلَّل بصرامة في services/lotsVan.ts): lots صفوفٌ صريحة **بالكمية الأساسية** مهما
     // كانت وحدة البند (lotId: null = غير مسمّى)؛ lotNumber وتاريخاه لتشغيلةٍ تُنشأ مع التحميل بلا مستودع (D4) أو التسوية
     // بالزيادة؛ lotReason = 'EXPIRED_UNSOLD_DESTROY' وسم إتلاف المنتهي غير المباع. بلا تحقق هنا: أجسام الشركة المطفأة كما كانت
@@ -135,6 +143,8 @@ async function deletedVanOf(req: AuthRequest, tid: string, data: { salesRepId?: 
 /** رصيد صنفٍ في السيارة — كل الكميات **بوحدة الأساس** (`unit`)، والواجهة تعرضها بـformatQty */
 interface StockRow {
   productId: string; name: string; code: string; unit: string;
+  /** «الوحدة الرئيسية» (القاعدة ١٢): عرضٌ فقط — الرصيد يبقى بالأساس */
+  primaryUnitId: string | null;
   loaded: number; unloaded: number; adjusted: number; sold: number; returned: number; remaining: number;
   /** رصيد «منتهي الصلاحية» في السيارة: مرتجعٌ عاد بعد انتهاء صلاحيته — لا يُباع ولا يدخل `remaining`، ويبقى حتى تزيله الإدارة */
   expired: number;
@@ -253,7 +263,7 @@ export async function computeStock(tid: string, salesRepId: string, range?: Stoc
         invoice: { select: { type: true, returnToStock: true, invoiceDate: true, returnReason: true, createdAt: true } },
       },
     }),
-    prisma.product.findMany({ where: { tenantId: tid }, select: { id: true, name: true, unit: true, code: true } }),
+    prisma.product.findMany({ where: { tenantId: tid }, select: { id: true, name: true, unit: true, code: true, primaryUnitId: true } }),
   ]);
 
   const { acc, bal } = foldStock(loadItems, invItems, from);
@@ -270,7 +280,7 @@ export async function computeStock(tid: string, salesRepId: string, range?: Stoc
     const remaining = bucketRemaining(b);
     const expired = roundDecimal(b.expiredIn - b.expiredOut, 4);
     const damaged = roundDecimal(b.damagedIn - b.damagedOut, 4);
-    rows.push({ productId: pid, name: p.name, code: p.code, unit: p.unit, ...m, remaining, expired, damaged });
+    rows.push({ productId: pid, name: p.name, code: p.code, unit: p.unit, primaryUnitId: p.primaryUnitId ?? null, ...m, remaining, expired, damaged });
   }
   rows.sort((a, b) => b.remaining - a.remaining);
   return rows;
@@ -305,6 +315,18 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     // السطر الذي أرسله لا إلى موضعه بعد ترشيح الأصفار. وما سواها (units وترتيب البنود) بموضع البند في `items` كما كان
     const items = data.items.map((i, at) => ({ ...i, at })).filter(i => i.qty !== 0);
     if (!items.length) { res.status(400).json({ success: false, message: 'لا توجد كميات صالحة' }); return; }
+    const productIds = [...new Set(items.map(i => i.productId))];
+    // الأصناف نفسها بدل العدّ (استعلامٌ واحد كما كان): «الوحدة الرئيسية» §3 تحتاج أساسها وتاريخ تحويلها ووحداتها في الميزتين،
+    // و«تتبّع اللوط» علمها واسمها وصلاحيتها (lotProducts) والميزة مفعّلة وحدها. تُقرأ **قبل** حلّ وحدات البنود: فتحويلٌ يلتزم بين
+    // القراءتين يجعل الأساس المتوقَّع أقدم من الوحدات المحلولة فيرفضه القفل (409)؛ ولو قُرئت بعدها لرأت الأساس الجديد ومرّ القفل
+    // ببندٍ حُلّ معامله على الأساس القديم (طبلية ×50 كرتوناً تُكتب ×50 قارورة). ردود الرفض بترتيبها القائم (الصنف غير الصالح أدناه)
+    const products = await prisma.product.findMany({
+      where: { id: { in: productIds }, tenantId: tid },
+      select: {
+        id: true, name: true, unit: true, primaryUnitId: true, baseConvertedAt: true, units: { select: UNIT_SELECT },
+        lotTracked: true, shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true,
+      },
+    });
     // لقطة وحدة كل بند بترتيب `items` — يحلّها الخادم من وحدات الصنف (بلا unitId ⇒ الأساس، ولا استعلام)
     const units = await resolveLineUnits(tid, items, { replay: String(req.headers['x-fs-replay'] || '') === '1' });
 
@@ -323,24 +345,30 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
         const have = haveById.get(pid) ?? 0;
         if (q > have + 1e-9) {
           const what = bucket === 'expired' ? 'المنتهي صلاحيته' : 'التالف';
-          throw Object.assign(new Error(`الكمية أكبر من ${what} في السيارة (${Number(Math.max(0, have).toFixed(3))})`), { status: 400 });
+          // «الوحدة الرئيسية» (R10): صنفٌ له رئيسية ⇒ الرصيد بها «2 كرتون و3 قارورة»؛ وإلا النص القائم حرفياً (I1)
+          const p = productById.get(pid);
+          const have0 = Math.max(0, have);
+          const shown = p && primaryUnitOf(p) ? productQtyText(have0, p) : String(Number(have0.toFixed(3)));
+          throw Object.assign(new Error(`الكمية أكبر من ${what} في السيارة (${shown})`), { status: 400 });
         }
       }
     };
 
-    const productIds = [...new Set(items.map(i => i.productId))];
-    // «تتبّع اللوط»: الميزة مفعّلة ⇒ الأصناف نفسها بعلمها واسمها وصلاحيتها بدل العدّ (لا استعلام زائد)؛ المطفأة كما كانت حرفياً
-    const lotProducts = lotsOn
-      ? await prisma.product.findMany({
-        where: { id: { in: productIds }, tenantId: tid },
-        select: { id: true, name: true, lotTracked: true, shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true },
-      })
-      : null;
-    if (lotProducts) {
-      if (lotProducts.length !== productIds.length) { res.status(400).json({ success: false, message: 'منتج غير صالح' }); return; }
-    } else {
-      const valid = await prisma.product.count({ where: { id: { in: productIds }, tenantId: tid } });
-      if (valid !== productIds.length) { res.status(400).json({ success: false, message: 'منتج غير صالح' }); return; }
+    if (products.length !== productIds.length) { res.status(400).json({ success: false, message: 'منتج غير صالح' }); return; }
+    const lotProducts = lotsOn ? products : null;
+    const productById = new Map(products.map(p => [p.id, p]));
+    // «الوحدة الرئيسية» §3: الأساس الذي حُلّت عليه البنود. مفتاح API على صنفٍ حُوِّل بلا baseUnitName ⇒ 400 (D19)، ثم المقارنة
+    // الحيّة بما يعرفه العميل ⇒ 400 UNIT_INVALID — والسباق بعدها يحرسه القفل في المعاملة. وفي إعادة الرفع لا 4xx (المستند سُجّل
+    // على الجهاز ولا يُعدم): أساسٌ مُرسَل يخالف أساس الصنف ⇒ 503 PRODUCT_UNITS_CHANGED كالسباق، لا كتابةٌ صامتة بأساسٍ يعرف الخادم
+    // أنه غير أساس العميل (كمية كرتونٍ تُكتب قوارير)
+    const replay = String(req.headers['x-fs-replay'] || '') === '1';
+    const expected = expectedBasesOf(products);
+    const noBase = missingBaseForApi(!!req.user?.apiKeyId, items, productById);
+    if (noBase) { const r = baseUnitRequiredReply(noBase); res.status(r.status).json(r.body); return; }
+    const bad = staleClientBase(items, expected);
+    if (bad) {
+      if (replay) throw new ProductUnitsChangedError([bad]);
+      throw new UnitInvalidError(`تغيّرت وحدات «${bad}» — حدّث قائمة الأصناف ثم أعد الحفظ`);
     }
     const preTracked = new Set((lotProducts ?? []).filter(p => p.lotTracked === true).map(p => p.id));
     if (gone && preTracked.size !== productIds.length) {
@@ -369,7 +397,7 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
           })),
         },
       },
-      include: { items: { include: { product: { select: { id: true, name: true, unit: true } }, ...(plan && { lots: ITEM_LOTS_INCLUDE }) } } },
+      include: { items: { include: { product: { select: { id: true, name: true, unit: true, primaryUnitId: true } }, ...(plan && { lots: ITEM_LOTS_INCLUDE }) } } },
     });
 
     // «تتبّع اللوط» (§٤.٧): في الحركة صنفٌ متتبَّع — يوم الشركة قبل المعاملة، ثم الطابور، ثم معاملةٌ بمهلة اللوط (D13) فيها
@@ -384,6 +412,8 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
         const out = await prisma.$transaction(async (tx) => {
           if (outBucket) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`van-${outBucket}:` + salesRepId}))`;
           const locked = await lockLotProducts(tx, tid, productIds);
+          // §3: الأساس تحت قفل lockLotProducts نفسه (صفوفه تحمل unit) — بلا قفلٍ ثانٍ، وقبل أي رصيد أو خطة أو كتابة
+          assertBasesUnchanged(expected, locked.units);
           if (outBucket) await assertOutAvailable(outBucket); // رصيد الدلو للصنف كما كان، ثم اللوط في الخطة
           const plan = await planVanMovementInTx(tx, {
             tenantId: tid, vanKey: salesRepId, deletedVan: gone !== null, type: data.type,
@@ -405,7 +435,10 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
         }, { maxWait: 10_000, timeout: 20_000 });
         res.status(201).json({ success: true, data: out.load, warnings: out.warnings });
       } catch (e) {
-        throw asLotBusy(e) ?? e; // 55P03 و40P01 وP2028 في مسار اللوط ⇒ 503 LOT_BUSY (صندوق المندوب يعيد المحاولة على 5xx)
+        // تبدّل الأساس (§3) يُفحص قبل asLotBusy فيمرّ كما هو إلى baseGuardReply أدناه (409/503 PRODUCT_UNITS_CHANGED) — لا يُقرأ
+        // انشغالاً من اسم صنفٍ في رسالته. وما سواه: 55P03 و40P01 وP2028 في مسار اللوط ⇒ 503 LOT_BUSY (صندوق المندوب يعيد على 5xx)
+        if (e instanceof ProductUnitsChangedError) throw e;
+        throw asLotBusy(e) ?? e;
       } finally {
         release();
       }
@@ -416,23 +449,36 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     // معاملة الكتابة (بعد قفل الدلو، ترتيب §٣.١). صنفٌ صار متتبَّعاً بين القراءتين ⇒ 503 LOT_BUSY TRACKING_CHANGED بلا حركة فيُعاد
     // بمسار اللوط، وإلا انتظر التبديلُ (FOR UPDATE) التزامنا. لا طابور ولا قفل لوط ولا مهلة جديدة (§١٠.٢)، والمطفأة كما كانت حرفياً.
     // والميزة مفعّلة: مهلة المعاملة الافتراضية (P2028) أو انتظار قفل التبديل تحت الضغط ⇒ 503 LOT_BUSY (asLotBusy كمسار اللوط) فيعيد
-    // صندوق المندوب؛ والمطفأة (الإزالة بمعاملتها القائمة) يمرّ خطؤها إلى المعالج العام كما كان
-    const busy = (e: unknown): never => { throw (lotsOn ? asLotBusy(e) : null) ?? e; };
+    // صندوق المندوب؛ والمطفأة (الإزالة بمعاملتها القائمة) يمرّ خطؤها إلى baseGuardReply ثم المعالج العام.
+    // «الوحدة الرئيسية» §3: قفل الأصناف ومقارنة أساسها (lockBases) في كل فرع — بعد القفل الاستشاري للإزالة وقبل إعادة قراءة
+    // التتبّع — والفرع المطفأ صار معاملةً لذلك وحده. كلها بمهلة BASE_GUARD_TX (I10)
+    const busy = (e: unknown): never => { throw (lotsOn && !(e instanceof ProductUnitsChangedError) ? asLotBusy(e) : null) ?? e; };
     const load = outBucket
       ? await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`van-${outBucket}:` + salesRepId}))`;
+        await lockBases(tx, tid, expected);
         if (lotsOn) await assertStillUntracked(tx, tid, productIds);
         await assertOutAvailable(outBucket); // يقرأ الملتزَم: الإزالة السابقة التزمت قبل أن يُفكّ قفلها
         return createLoad(tx);
-      }).catch(busy)
+      }, BASE_GUARD_TX).catch(busy)
       : lotsOn
         ? await prisma.$transaction(async (tx) => {
+          await lockBases(tx, tid, expected);
           await assertStillUntracked(tx, tid, productIds);
           return createLoad(tx);
-        }).catch(busy)
-        : await createLoad(prisma);
+        }, BASE_GUARD_TX).catch(busy)
+        : await prisma.$transaction(async (tx) => {
+          await lockBases(tx, tid, expected);
+          return createLoad(tx);
+        }, BASE_GUARD_TX);
     res.status(201).json({ success: true, data: load });
-  } catch (err) { next(err); }
+  } catch (err) {
+    // §3: تبدّل الأساس أثناء الحفظ ⇒ PRODUCT_UNITS_CHANGED، 409 حيّاً و503 لإعادة الرفع (الصندوق يعيد ولا يُعدم المستند)؛ وانتظار
+    // قفل الأصناف أو مهلة معاملةٍ خارج مسار اللوط ⇒ 503 PRODUCT_UNITS_BUSY. LotError (ومنه LOT_BUSY) يمرّ إلى معالج الموجّه كما كان
+    const g = baseGuardReply(err, String(req.headers['x-fs-replay'] || '') === '1');
+    if (g) { res.status(g.status).json(g.body); return; }
+    next(err);
+  }
 });
 
 // المخزون الحالي لمندوب (المندوب=سيارته، الأدمن=يمرّر salesRepId)
@@ -446,6 +492,7 @@ router.get('/current', async (req: AuthRequest, res: Response, next: NextFunctio
     const rows = await computeStock(tid, salesRepId);
     // الأرصدة بالأساس، ومعها وحدات كل صنف لتعرضها الواجهة «٢ كرتون و٣ حبة» (formatQty) — استعلامٌ واحد هنا لا داخل
     // computeStock: مستدعوه الآخرون (حارس البيع في الفاتورة وملخّص كل المناديب) لا يحتاجونها
+    // و«الوحدة الرئيسية»: primaryUnitId في الصفّ نفسه (computeStock) فتعرض الواجهة الرصيد بها — عرضٌ فقط
     const units = await unitsByProduct(tid, rows.map(r => r.productId));
     res.json({ success: true, data: rows.map(r => ({ ...r, units: units.get(r.productId) ?? [] })) });
   } catch (err) { next(err); }
@@ -511,7 +558,8 @@ router.get('/suggest', async (req: AuthRequest, res: Response, next: NextFunctio
       // ووحدات الصنف تُرفق بكل صفّ اقتراح: الكمية المقترحة بالأساس، والواجهة تعرضها «٢ كرتون و٣ حبة»
       prisma.product.findMany({
         where: { tenantId: tid, status: { not: 'INACTIVE' } },
-        select: { id: true, name: true, code: true, unit: true, units: { select: UNIT_SELECT } },
+        // و«الوحدة الرئيسية»: الاقتراح بها في الواجهة (suggestionChoice) — عرضٌ فقط، الكميات بالأساس كما هي
+        select: { id: true, name: true, code: true, unit: true, units: { select: UNIT_SELECT }, primaryUnitId: true },
       }),
       computeStock(tid, salesRepId),
     ]);
@@ -567,7 +615,8 @@ router.get('/accuracy', async (req: AuthRequest, res: Response, next: NextFuncti
         },
         select: { productId: true, qty: true, unitFactor: true, baseQty: true, invoice: { select: { invoiceDate: true, type: true } } },
       }),
-      prisma.product.findMany({ where: { tenantId: tid }, select: { id: true, name: true, code: true, unit: true } }),
+      // ووحدات الصنف ورئيسيّه لعرض صفوف الدقّة (services/suggestAccuracy) — عرضٌ فقط
+      prisma.product.findMany({ where: { tenantId: tid }, select: { id: true, name: true, code: true, unit: true, units: { select: UNIT_SELECT }, primaryUnitId: true } }),
     ]);
 
     // المحمَّل والمبيع بالأساس، والمقترَح والمتنبَّأ به مخزَّنان بالأساس أصلاً — وإلا عُدّ تحميل «٢ كرتون» لاقتراح ٤٨
@@ -708,7 +757,7 @@ router.get('/loads', async (req: AuthRequest, res: Response, next: NextFunction)
         skip: paged ? (page - 1) * limit : undefined,
         take: paged ? limit : 100,
         include: {
-          items: { include: { product: { select: { id: true, name: true, unit: true } }, ...(withLots && { lots: ITEM_LOTS_INCLUDE }) } },
+          items: { include: { product: { select: { id: true, name: true, unit: true, primaryUnitId: true } }, ...(withLots && { lots: ITEM_LOTS_INCLUDE }) } },
           salesRep: { select: { id: true, name: true } },
           // «لوكيشن»: اسم الموقع المختوم (عمود السجلّ) — null لما بلا ختم
           location: { select: { id: true, name: true } },
@@ -740,11 +789,11 @@ router.get('/movements', async (req: AuthRequest, res: Response, next: NextFunct
     const [loads, invoices] = await Promise.all([
       prisma.vanLoad.findMany({
         where: { tenantId: tid, salesRepId }, orderBy: { createdAt: 'desc' }, take: 50,
-        include: { items: { include: { product: { select: { name: true, unit: true } }, ...(withLots && { lots: ITEM_LOTS_INCLUDE }) } } },
+        include: { items: { include: { product: { select: { name: true, unit: true, primaryUnitId: true } }, ...(withLots && { lots: ITEM_LOTS_INCLUDE }) } } },
       }),
       prisma.invoice.findMany({
         where: { tenantId: tid, salesRepId, status: 'CONFIRMED' }, orderBy: { invoiceDate: 'desc' }, take: 50,
-        include: { items: { include: { product: { select: { name: true, unit: true } }, ...(withLots && { lots: ITEM_LOTS_INCLUDE }) } }, customer: { select: { name: true } } },
+        include: { items: { include: { product: { select: { name: true, unit: true, primaryUnitId: true } }, ...(withLots && { lots: ITEM_LOTS_INCLUDE }) } }, customer: { select: { name: true } } },
       }),
     ]);
     // المستخدم المقيَّد (ومشرف الفرق بوسم الفاتورة): حركة فاتورةٍ خارج نطاقه تبقى بكمّياتها (رصيد السيارة واحد) بلا رقمها
@@ -754,17 +803,19 @@ router.get('/movements', async (req: AuthRequest, res: Response, next: NextFunct
       ? new Set((await prisma.invoice.findMany({ where: { id: { in: invoices.map(i => i.id) }, ...docScope }, select: { id: true } })).map(i => i.id))
       : null;
 
-    // البند بلقطة وحدته: «٢ كرتون» تبقى كرتوناً لا «٢ حبة» (وحدة الصنف صارت الأساس)، و`baseQty` لمن يجمع الحركات
+    // البند بلقطة وحدته: «٢ كرتون» تبقى كرتوناً لا «٢ حبة» (وحدة الصنف صارت الأساس)، و`baseQty` لمن يجمع الحركات.
+    // و«الوحدة الرئيسية»: primaryUnitId للبند حين لصنفه رئيسية وحدها (R2، فخّ «×5») — والصنف بلاها كما كان حرفياً (I1)
+    const primaryOf = (p: { primaryUnitId?: string | null } | null | undefined) => (p?.primaryUnitId ? { primaryUnitId: p.primaryUnitId } : {});
     const movements = [
       ...loads.map(l => ({
         kind: l.type, date: l.createdAt, ref: l.note || '', by: l.createdBy,
-        items: l.items.map(i => ({ name: i.product.name, unit: i.unitName ?? i.product.unit, qty: i.qty, baseQty: baseQtyOf(i), ...(withLots && { lots: (i as { lots?: unknown }).lots ?? [] }) })),
+        items: l.items.map(i => ({ name: i.product.name, unit: i.unitName ?? i.product.unit, qty: i.qty, baseQty: baseQtyOf(i), ...primaryOf(i.product), ...(withLots && { lots: (i as { lots?: unknown }).lots ?? [] }) })),
       })),
       ...invoices.map(inv => ({
         // المرتجع التالف (منذ DAMAGED_VAN_SINCE) يدخل رصيد «المرتجع التالف» لا المتاح — فيُوسم بذلك في الحركة
         kind: inv.type === 'RETURN' ? (isDamagedVanReturn(inv) ? 'RETURN_DAMAGED' : 'RETURN') : 'SALE', date: inv.invoiceDate,
         ref: !visible || visible.has(inv.id) ? `${inv.number} · ${inv.customer.name}` : 'مستند خارج نطاقك', by: 'REP',
-        items: inv.items.map(i => ({ name: i.product?.name ?? 'صنف محذوف', unit: i.unitName ?? i.product?.unit ?? '', qty: i.qty, baseQty: baseQtyOf(i), ...(withLots && { lots: (i as { lots?: unknown }).lots ?? [] }) })),
+        items: inv.items.map(i => ({ name: i.product?.name ?? 'صنف محذوف', unit: i.unitName ?? i.product?.unit ?? '', qty: i.qty, baseQty: baseQtyOf(i), ...primaryOf(i.product), ...(withLots && { lots: (i as { lots?: unknown }).lots ?? [] }) })),
       })),
     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 60);
 
@@ -894,8 +945,8 @@ router.post('/tools', requireAdmin, async (req: AuthRequest, res: Response, next
 // بحالتها ورسالتها. معالج الأخطاء العام لا يقرأ status فيردّها 500، ولمفتاح API «خطأ في الخادم» بلا سبب.
 router.use((err: unknown, _req: AuthRequest, res: Response, next: NextFunction) => {
   // «تتبّع اللوط» قبل فرع 4xx: LotError بحالته ورمزه وتفاصيله (ومنه 503 LOT_BUSY الذي يتجاوزه فرع 4xx). الانشغال حُوِّل إليه
-  // في مسار اللوط وحده (asLotBusy في POST /loads، ومعه غير المتتبَّع والميزة مفعّلة)، فمهلة معاملةٍ في مسارٍ بلا لوط (العهدة، الإزالة
-  // والميزة مطفأة) تبقى كما كانت
+  // في مسار اللوط وحده (asLotBusy في POST /loads، ومعه غير المتتبَّع والميزة مفعّلة)، فمهلة معاملةٍ في مسارٍ بلا لوط (العهدة) تبقى
+  // كما كانت. وPOST /loads يردّ تبدّل الأساس وانتظار قفل الأصناف (§3) في catch المسار نفسه (baseGuardReply) قبل أن يصل هنا
   const lh = err instanceof LotError ? lotHttpError(err) : null;
   if (lh) { res.status(lh.status).json(lh.body); return; }
   const status = (err as { status?: unknown })?.status;

@@ -93,22 +93,32 @@ test('D25 (المستودع): تسويةٌ بالنقص لصنفٍ صار متت
   assert.ok(world.calls.some((c) => c.op === 'exec' && String(c.sql ?? '').includes('pg_advisory_xact_lock')), `الإعادة لم تأخذ مسار اللوط: ${ops().join(' ')}`);
 });
 
-test('D25 (المستودع) §١٠.٢: بلا تبديل والميزة مفعّلة ⇒ إنشاءٌ واحد كما كان بعد إعادة قراءة التتبّع وحدها في معاملةٍ بلا مهلة جديدة، وlotId فارغ', async () => {
+// «الوحدة الرئيسية» §2.8: قفل الأساس (lockBases: حفظ lock_timeout وضبطه، FOR KEY SHARE بالوحدة، ثم الاستعادة) أول المعاملة قبل
+// إعادة قراءة التتبّع، والمعاملة بمهلة BASE_GUARD_TX (I10) لا مهلة اللوط
+test('D25 (المستودع) §١٠.٢: بلا تبديل والميزة مفعّلة ⇒ إنشاءٌ واحد كما كان بعد قفل الأساس وإعادة قراءة التتبّع في معاملة BASE_GUARD_TX، وlotId فارغ', async () => {
   fresh();
   world.txOpts.length = 0;
   const r = await post({ type: 'ADJUST', items: [{ productId: 'P3', qty: -50 }] });
   assert.equal(r.status, 201, 'المستودع السالب جائزٌ لغير المتتبَّع كما كان');
-  assert.deepEqual(ops(), ['product.findMany', 'tx.begin', 'query', 'warehouseEntry.create', 'tx.commit']);
-  assert.match(String(world.calls[2].sql), /SELECT id, "lotTracked" FROM products .*FOR KEY SHARE/);
-  assert.deepEqual(world.txOpts, [undefined], 'بلا مهلة اللوط (D13)');
+  // قفل الأساس («الوحدة الرئيسية» §2.8) ثم إعادة قراءة التتبّع (D25) — أيّاً كانت أوامر المهلة حولهما — ثم الإنشاء الوحيد
+  const seq = world.calls.map((c) => c.op);
+  assert.deepEqual([seq.slice(0, 2), seq.slice(-2)], [['product.findMany', 'tx.begin'], ['warehouseEntry.create', 'tx.commit']], seq.join(' '));
+  assert.ok(seq.slice(2, -2).every((x) => x === 'query' || x === 'exec'), seq.join(' '));
+  assert.deepEqual(world.calls.filter((c) => c.op === 'query' && String(c.sql ?? '').includes('FOR KEY SHARE'))
+    .map((c) => (/^SELECT id, unit, "lotTracked", "lotTrackedSince" FROM products /.test(String(c.sql)) ? 'BASE'
+      : /^SELECT id, "lotTracked" FROM products /.test(String(c.sql)) ? 'TRACK' : String(c.sql))), ['BASE', 'TRACK']);
+  assert.deepEqual(world.txOpts, [{ maxWait: 10_000, timeout: 20_000 }], 'BASE_GUARD_TX لا مهلة اللوط (D13)');
   const last = world.items.filter((i) => i.entryId === world.entries[world.entries.length - 1].id);
   assert.deepEqual(last.map((i) => i.lotId), [null]);
 });
 
-test('D25 (المستودع) §١٠.١: الميزة مطفأة ⇒ إنشاءٌ واحد كما كان حرفياً — بلا معاملة ولا إعادة قراءة', async () => {
+test('D25 (المستودع) §١٠.١: الميزة مطفأة ⇒ إنشاءٌ واحد بلا إعادة قراءة التتبّع — في معاملةٍ لقفل الأساس وحده («الوحدة الرئيسية» §2.8)', async () => {
   fresh();
   world.lotsEnabled = false;
+  world.txOpts.length = 0;
   const r = await post({ type: 'ADJUST', items: [{ productId: 'P3', qty: -4 }] });
   assert.equal(r.status, 201, JSON.stringify(r.body));
-  assert.deepEqual(ops(), ['product.findMany', 'warehouseEntry.create']);
+  assert.deepEqual(ops(), ['product.findMany', 'tx.begin', 'query', 'exec', 'query', 'exec', 'warehouseEntry.create', 'tx.commit']);
+  assert.ok(!world.calls.some((c) => /SELECT id, "lotTracked" FROM/.test(String(c.sql ?? ''))), 'لا إعادة قراءة للتتبّع والميزة مطفأة');
+  assert.deepEqual(world.txOpts, [{ maxWait: 10_000, timeout: 20_000 }], 'BASE_GUARD_TX');
 });

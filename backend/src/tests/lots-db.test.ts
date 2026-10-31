@@ -34,9 +34,9 @@ function fakeTx(handler: (sql: string, values: unknown[]) => unknown[] = () => [
 test('lockLotProducts: FOR KEY SHARE أولاً، ثم حفظ lock_timeout وضبطه، ثم الأقفال بترتيب المفتاح للمتتبَّع وحده، ثم الاستعادة', async () => {
   const { tx, calls } = fakeTx((sql) => {
     if (sql.includes('FOR KEY SHARE')) return [
-      { id: 'p1', lotTracked: true, lotTrackedSince: new Date('2026-11-01') },
-      { id: 'p2', lotTracked: false, lotTrackedSince: null },
-      { id: 'p3', lotTracked: true, lotTrackedSince: null },   // صار متتبَّعاً بين القراءتين: القاعدة هي المرجع
+      { id: 'p1', unit: 'قارورة', lotTracked: true, lotTrackedSince: new Date('2026-11-01') },
+      { id: 'p2', unit: 'كرتون', lotTracked: false, lotTrackedSince: null },
+      { id: 'p3', unit: 'علبة', lotTracked: true, lotTrackedSince: null },   // صار متتبَّعاً بين القراءتين: القاعدة هي المرجع
     ];
     if (sql.includes("current_setting('lock_timeout')")) return [{ lock_timeout: '7s' }];
     return [];
@@ -45,8 +45,10 @@ test('lockLotProducts: FOR KEY SHARE أولاً، ثم حفظ lock_timeout وض�
   assert.deepEqual([...res.tracked].sort(), ['p1', 'p3']);
   assert.equal(res.since.get('p1')!.toISOString(), '2026-11-01T00:00:00.000Z');
   assert.equal(res.since.get('p2'), null);
+  // «الوحدة الرئيسية» §2.6: أساس كل صنفٍ تحت القفل نفسه — يقارنه الكاتب بما حلّ عليه بنوده (assertBasesUnchanged) بلا قفلٍ ثانٍ
+  assert.deepEqual([...res.units].sort(), [['p1', 'قارورة'], ['p2', 'كرتون'], ['p3', 'علبة']]);
   assert.equal(calls.length, 1 + 1 + 1 + 2 + 1);
-  assert.match(calls[0].sql, /^SELECT id, "lotTracked", "lotTrackedSince" FROM products WHERE "tenantId" = \$1 AND id = ANY\(\$2::text\[\]\) ORDER BY id FOR KEY SHARE$/);
+  assert.match(calls[0].sql, /^SELECT id, unit, "lotTracked", "lotTrackedSince" FROM products WHERE "tenantId" = \$1 AND id = ANY\(\$2::text\[\]\) ORDER BY id FOR KEY SHARE$/);
   assert.deepEqual(calls[0].values, ['t1', ['p1', 'p2', 'p3']]);
   assert.match(calls[1].sql, /current_setting\('lock_timeout'\)/);
   assert.deepEqual([calls[2].op, calls[2].sql, calls[2].values], ['exec', "SELECT set_config('lock_timeout', $1, true)", [LOT_LOCK_TIMEOUT]]);
@@ -63,6 +65,7 @@ test('lockLotProducts: بلا صنف متتبَّع لا مسّ لـlock_timeout
   const b = fakeTx((sql) => (sql.includes('current_setting') ? [{ lock_timeout: '0' }] : []));
   const r2 = await lockLotProducts(b.tx, 't1', ['p1', 'p2'], { lockedRows: [{ id: 'p1', lotTracked: true, lotTrackedSince: null }, { id: 'pX', lotTracked: true, lotTrackedSince: null }] });
   assert.deepEqual([...r2.tracked], ['p1'], 'صفٌّ خارج أصناف العملية يُتجاهل');
+  assert.equal(r2.units.size, 0, 'الصفوف المقفلة سلفاً بلا unit (convert-base والفاتورة) لا تدخل خريطة الأساس');
   assert.ok(!b.calls.some((c) => c.sql.includes('FOR KEY SHARE')));
   assert.equal(b.calls.filter((c) => c.sql.includes('pg_advisory_xact_lock')).length, 1);
   const c = fakeTx();

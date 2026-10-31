@@ -353,7 +353,11 @@ const PHASE1_POST_CALLS = [
   'companySettings.findUnique',
   'invoice.findFirst',    // توليد الرقم
   '$transaction',
+  // «الوحدة الرئيسية» I10: مهلة القفل المحلية تُحفظ (current_setting) وتُضبط (set_config) قبل القفل وتُستعاد بعده
+  '$queryRaw',
+  '$executeRaw',
   '$queryRaw',            // الوحدات المتعددة: قفل صفوف الأصناف المشترك (FOR SHARE) ضدّ تحويل وحدة الأساس المتزامن
+  '$executeRaw',
   'invoice.create',
   'accountEntry.aggregate',
   'accountEntry.create',   // نقدية: مدين ثم دائن

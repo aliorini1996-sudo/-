@@ -18,7 +18,7 @@ import {
   mergeRefreshedSale, buildLinkedReturnPayload, buildFreeReturnPayload, returnFormProblem, returnIssueError, returnDocItems,
   NOTE_REASON_MAX, returnUnitChoices, withReturnUnit, maxReturnQty,
 } from '../../lib/returnInvoice';
-import { choiceById, choiceNet, defaultChoice, hasUnitChoice, invoiceItemUnit, unitChoices, type UnitChoice } from '../../rep/repUnits';
+import { choiceById, choiceNet, defaultChoice, hasUnitChoice, invoiceItemUnit, primaryChoice, unitChoices, type UnitChoice } from '../../rep/repUnits';
 import { baseQtyText, lineKey, unitTaken } from '../../lib/adminUnits';
 import type { UnitDef } from '../../lib/units';
 import {
@@ -315,13 +315,15 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
         return;
       }
       const data = (err as { response?: { data?: { message?: string; code?: string } } })?.response?.data;
-      // 400 UNIT_INVALID: وحدات صنفٍ تغيّرت منذ حُمّلت القائمة (أُوقفت أو حُوّل أساسه) — تُحدَّث القائمة، والمدير يراجع البند
-      if (data?.code === 'UNIT_INVALID') qc.invalidateQueries({ queryKey: ['products-all'] });
+      // 400 UNIT_INVALID: وحدات صنفٍ تغيّرت منذ حُمّلت القائمة (أُوقفت أو حُوّل أساسه) — تُحدَّث القائمة، والمدير يراجع البند.
+      // ومثله 409 PRODUCT_UNITS_CHANGED: تحويلٌ سبق الإصدار تحت القفل (§3) — الكتالوج تغيّر فعلاً
+      if (data?.code === 'UNIT_INVALID' || data?.code === 'PRODUCT_UNITS_CHANGED') qc.invalidateQueries({ queryKey: ['products-all'] });
       toast.error(data?.message || tr('خطأ'));
     },
   });
 
-  /* الوحدة الافتراضية = الأكبر (repUnits.defaultChoice): بعد تحويل الصنف إلى الحبّة يبقى «+صنف» كرتوناً كما كان قبله.
+  /* الوحدة الافتراضية (repUnits.defaultChoice): «الوحدة الرئيسية» لصنفٍ لها (كرتونٌ رئيسيّ لا الطبلية الأكبر منه)، وإلّا
+   * الأكبر كما كان — بعد تحويل الصنف إلى الحبّة يبقى «+صنف» كرتوناً كما كان قبله.
    * والسعر سعر الوحدة (المحدَّد لها، وإلا الأساس × المعامل) — صافٍ قبل الضريبة كسعر الأساس في هذا المحرّر */
   const addProduct = (p: Product) => {
     const c = defaultChoice(p);
@@ -647,7 +649,9 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                     /* الوحدات المتعددة: الأعمدة كلّها بوحدة المرتجع المختارة (lib/returnInvoice expressIn) — وحبّةٌ من بند كرتون
                      * وحدةٌ تُختار هنا، والمتاح بالأساس يُعرض مفكَّكاً «١ كرتون و٢٣ حبة» فلا يُقرأ «٤٧» كراتين */
                     const retChoices = returnUnitChoices(l);
-                    const baseOf = { unit: l.baseUnit, units: l.units };
+                    // R1: المتاح بالأساس يُعرض بـ«الوحدة الرئيسية» حين للصنف رئيسية في الكتالوج («1 كرتون و23 قارورة») —
+                    // عرضٌ فقط؛ وحدة المرتجع ولقطة البند كما هما. وبلا رئيسية النص كما كان
+                    const baseOf = { unit: l.baseUnit, units: l.units, primaryUnitId: (products || []).find(p => p.id === l.productId)?.primaryUnitId ?? null };
                     return (
                       // مفتاح بند البيع لا الصنف: الفاتورة الواحدة قد تحمل الصنف نفسه في بندين بسعرين
                       <tr key={l.saleItemId} className={open ? '' : 'opacity-60'}>
@@ -712,7 +716,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                   searchPlaceholder={tr('اكتب اسم أو كود الصنف')}
                   value=""
                   resetOnSelect
-                  // صنفٌ بوحدات: سعر الوحدة التي يُضاف بها (الأكبر) واسمها — سعر الحبة وحده يُقرأ سعر كرتون
+                  // صنفٌ بوحدات: سعر الوحدة التي يُضاف بها (الرئيسية، وإلّا الأكبر) واسمها — سعر الحبة وحده يُقرأ سعر كرتون
                   options={(products || []).map(p => ({
                     value: p.id, label: p.name,
                     hint: hasUnitChoice(p)
@@ -740,6 +744,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                   {lines.map((l, i) => {
                     const p = (products || []).find(x => x.id === l.productId);
                     const choices = p ? unitChoices(p) : [];
+                    // رقاقة «الوحدة الرئيسية» مبرزةٌ في المنتقي — وبلاها الخيارات كما كانت حرفاً
+                    const primId = p ? primaryChoice(p)?.id ?? null : null;
                     return (
                     // مفتاح الصنف ووحدته: الصنف نفسه بوحدتين بندان
                     <tr key={lineKey(l)}>
@@ -755,7 +761,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                             onChange={e => setLineUnit(i, e.target.value || null)}>
                             {choices.map(c => (
                               <option key={c.id ?? 'base'} value={c.id ?? ''} disabled={unitTaken(lines, l.productId, c.id, lineKey(l))}>
-                                {c.name}{c.factor > 1 ? ` (${c.factor} ${choices[0].name})` : ''}
+                                {c.name}{c.factor > 1 ? ` (${c.factor} ${choices[0].name})` : ''}{primId && c.id === primId ? ` · ${tr('رئيسية')}` : ''}
                               </option>
                             ))}
                           </select>

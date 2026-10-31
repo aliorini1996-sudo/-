@@ -56,11 +56,15 @@ const prismaFake: Record<string, unknown> = new Proxy({}, {
 const TENANT = 'T1';
 const pass = (_req: unknown, _res: unknown, next: () => void): void => next();
 stub('config/database', { default: prismaFake });
+// التحويل بجلسة المالك (قرار المالك ٣٠ أكتوبر) — وبوابة الإطلاق مغلقة: مدير الشركة يُرفض قبل أي قفل (الوحدة الرئيسية D14)
+const OWNER = { id: 'owner', role: 'ADMIN', tenantId: TENANT, impersonated: true };
+let user: Record<string, unknown> = OWNER;
 stub('middleware/auth', {
-  authenticate: (req: { user?: unknown }, _res: unknown, next: () => void) => { req.user = { id: 'owner', role: 'ADMIN', tenantId: TENANT, impersonated: true }; next(); },
+  authenticate: (req: { user?: unknown }, _res: unknown, next: () => void) => { req.user = user; next(); },
   requireAdmin: pass, requireAccounting: pass, requireAdminPermission: () => pass,
   tenantId: (req: { user?: { tenantId?: string } }) => req.user?.tenantId ?? '',
-  isOwnerSession: () => true, // التحويل بجلسة المالك (قرار المالك ٣٠ أكتوبر)
+  isOwnerSession: (req: { user?: { impersonated?: boolean } }) => req.user?.impersonated === true,
+  actorOf: (req: { user?: { id?: string; impersonated?: boolean } }) => (req.user?.impersonated ? `OWNER:${req.user?.id}` : req.user?.id ?? ''),
 });
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -100,7 +104,7 @@ const LOT_TABLES = { van_load_item_lots: 'qty', invoice_item_lots: 'quantity', l
 
 /** صنفٌ كرتونه أساسٌ (٢٤ حبة بعد التحويل)، وصفوف لوطٍ له ولصنفٍ آخر ولشركةٍ أخرى بالمعرّف نفسه */
 function world(lotTracked: boolean, withLots = true) {
-  raws = []; inTx = false;
+  raws = []; inTx = false; user = OWNER;
   const product = { id: 'p1', tenantId: TENANT, unit: 'كرتون', basePrice: 24, unitCode: 'CT', units: [] as unknown[], lotTracked, lotTrackedSince: null };
   const lots: Record<keyof typeof LOT_TABLES, LotRow[]> = withLots
     ? {
@@ -114,6 +118,7 @@ function world(lotTracked: boolean, withLots = true) {
     'product.updateMany': () => ({ count: 1 }),
     'productUnit.create': (args) => ({ id: 'u-new', ...args.data }),
     'customerPrice.updateMany': () => ({ count: 0 }),
+    'productBaseConversion.create': (args) => ({ id: 'conv-1', ...args.data }),
   };
   // جمل اللوط تُنفَّذ على الذاكرة بالقيم التي مرّرها الموجّه: F ثم الشركة ثم الصنف
   rawScript = (r) => {
@@ -218,4 +223,23 @@ test('convert-base لصنفٍ متتبَّع: مهلة المعاملة (P2028،
     assert.notEqual(r.body.code, 'LOT_BUSY', '«أعد المحاولة» تنتهي إلى المهلة نفسها');
     assert.equal(raws.some((x) => /pg_advisory_xact_lock/.test(x.sql)), tracked, 'المهلة بعد قفل اللوط للمتتبَّع');
   }
+});
+
+test('convert-base لمدير الشركة (لا جلسة المالك) والبوابة مغلقة ⇒ 403 OWNER_ONLY قبل أي قفلٍ أو كتابة، وصفوف اللوط كما هي', async () => {
+  for (const role of ['ADMIN', 'MANAGER']) {
+    const { lots } = world(true);
+    user = { id: 'admin-1', role, tenantId: TENANT };
+    const r = await convert(CONVERT);
+    assert.equal(r.status, 403, JSON.stringify(r.body));
+    assert.equal(r.body.code, 'CONVERT_BASE_OWNER_ONLY');
+    assert.equal(raws.length, 0, 'لا FOR UPDATE ولا قفل لوط ولا كتابة');
+    assert.deepEqual(lots.van_load_item_lots.map((x) => x.qty), [10, -2, 3, 5]);
+  }
+});
+
+test('convert-base بجلسة المالك: صفّ السجلّ بعد جمل اللوط في المعاملة نفسها، ومعرّفه في الردّ', async () => {
+  world(true);
+  const r = await convert(CONVERT);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.converted.conversionId, 'conv-1');
 });

@@ -12,9 +12,10 @@ import DocumentModal from '../components/DocumentModal';
 import StockRequestModal from '../components/StockRequestModal';
 import { warehouseNoticeDocFromEntry, Company } from '../rep/RepDocuments';
 import { useAuthStore } from '../store/authStore';
-import { baseQtyText, biggestUnit, hasBigUnit } from '../lib/adminUnits';
-import { choiceById, defaultChoice, unitChoices } from '../rep/repUnits';
-import type { UnitDef } from '../lib/units';
+import { baseQtyText, biggestUnit, hasBigUnit, productUnitLabel } from '../lib/adminUnits';
+import { choiceById, defaultChoice, rebaseRow, unitChoices } from '../rep/repUnits';
+import { primaryUnitOf, type UnitDef } from '../lib/units';
+import { anyPrimary, crossSumLabel, isStaleUnitsError } from '../lib/stockRequest';
 import {
   LOT_BLOCK_KIND_LABELS, LOT_STATUS_LABELS, LOT_WARNING_LABELS, isLotExpiredOn, lotDay, lotErrorOf, lotFlagsOf, lotWarningsOf, roundLot, toBaseQty,
 } from '../lib/lots';
@@ -32,12 +33,21 @@ import { EntryLotFields, fetchLotBalances, fmtLotQty } from '../components/Stock
  * «تتبّع اللوط» (W2، يفعّله المالك لكل شركة): سطر الوارد لصنفٍ متتبَّع بتشغيلته (الرقم وتاريخا الإنتاج والانتهاء)، وللصنف
  * أكثر من سطرٍ لدفعتين؛ والتسوية بمصدرٍ صريح؛ وصفّ الرصيد يتوسّع بتشغيلاته والمعزول والعجز (ومع «المخزون في تاريخ»).
  * الميزة مطفأة ⇒ لا جلب ولا عمود ولا تغيير مرئي (§١٠.١).
+ *
+ * «الوحدة الرئيسية» (القاعدة ١٢، primary_unit_spec §5.3): صنفٌ لها تُعرض أرصدته بها («52 كرتون و2 قارورة») ووسمه «الوحدة
+ * الرئيسية كرتون (24 قارورة)» بلا كلمة «الأساس» (D21)، وتكلفته للرئيسية أولاً (المتوسّط × معاملها) ثم للقارورة، وسطر الوارد
+ * بها افتراضاً (defaultChoice). وكل سطر وارد يحمل `baseUnitName` (الأساس كما رآه النموذج) فيكشف الخادم قائمةً قديمة:
+ * 400/409 ⇒ تُجلب الأصناف من جديد ويُعاد كل سطر إلى وحدته الآن (rebaseRow) قبل أن يُعاد الحفظ. `stockValue` لا يتغيّر.
+ * والمجاميع عبر الأصناف (ما في السيارات) بالأساس موسومةً «بالوحدات الصغرى» حين في الأصناف ما له رئيسية (R3).
+ * صنفٌ بلا رئيسية: كل نصٍّ كما كان حرفاً (I1).
  */
 
 interface WhRow {
   productId: string; name: string; code: string; unit: string;
   /** وحدات الصنف — لعرض الأرصدة بالأساس مفكَّكة، لا لحسابها */
   units?: UnitDef[];
+  /** «الوحدة الرئيسية» — عرضٌ فقط (خادمٌ قبل الميزة لا يرسلها ⇒ بلا رئيسية) */
+  primaryUnitId?: string | null;
   received: number; adjusted: number; loadedToVans: number; returnedFromVans: number; onHand: number;
   avgCost: number;     // متوسّط تكلفة **وحدة الأساس** (متحرّك، على الرصيد الباقي)
   costedQty: number;   // كمية من الرصيد تكلفتها معروفة — هي وحدها المقيَّمة
@@ -58,7 +68,7 @@ interface WhEntry {
 }
 /** صنفٌ كما يردّه /products — حقول اللوط والصلاحية لسطر الوارد */
 interface ProductPick {
-  id: string; name: string; unit: string; code: string; taxPct: number; units?: UnitDef[];
+  id: string; name: string; unit: string; code: string; taxPct: number; units?: UnitDef[]; primaryUnitId?: string | null;
   lotTracked?: boolean; shelfLifeEnabled?: boolean | null; shelfLifeValue?: number | null; shelfLifeUnit?: string | null;
 }
 
@@ -154,6 +164,9 @@ export default function CompanyWarehousePage() {
   // قيمة المخزون بتكلفة الشراء — ومعها حدّ صدقها: كم صنفا وارده بلا سعر
   const totalValue = shownRows.reduce((s, r) => s + r.stockValue, 0);
   const uncostedRows = shownRows.filter(r => r.uncostedQty > 0).length;
+  // R3: في الأصناف ما له وحدة رئيسية (صادقة — null لا يُعدّ)؟ — فالمجاميع عبر الأصناف (بالأساس) تُوسم «بالوحدات الصغرى»،
+  // وعمود متوسط التكلفة يُوسم بوحدة كل خلية، وإلا كل وسمٍ كما كان حرفياً (I1)
+  const hasPrimary = anyPrimary(rows) || anyPrimary(shownRows);
 
   // أرصدة التشغيلات لأصناف الجدول المتتبَّعة، في التاريخ المختار أو الآن
   const trackedIds = shownRows.filter(r => trackedSet.has(r.productId)).map(r => r.productId).sort();
@@ -227,8 +240,8 @@ export default function CompanyWarehousePage() {
                 <p className="text-xs text-[#9A8F7E]">{tr('في مخزون السيارات')}</p>
                 {/* مجموعٌ عبر الأصناف بوحدات الأساس (الخادم) — حبّاتٌ لا كراتين لصنفٍ له وحدات */}
                 <p className={`text-lg font-extrabold text-[#1F1A13] leading-tight ${vansQ.isFetching && !vansQ.isLoading ? 'opacity-40' : ''}`}
-                  title={tr('مجموع بوحدات الأساس')}>
-                  {fmtQty(vans.qty)} <span className="text-xs font-semibold text-[#6E6557]">{tr('وحدة')}</span>
+                  title={tr(crossSumLabel(hasPrimary))}>
+                  {fmtQty(vans.qty)} <span className="text-xs font-semibold text-[#6E6557]">{hasPrimary ? tr('بالوحدات الصغرى') : tr('وحدة')}</span>
                   <span className="text-[#C9BFAE] mx-1.5">·</span>
                   {formatCurrency(vans.value)}
                 </p>
@@ -277,14 +290,17 @@ export default function CompanyWarehousePage() {
                   <th className="text-center font-semibold px-3 py-2.5">{tr('الوارد')}</th>
                   <th className="text-center font-semibold px-3 py-2.5">{tr('خرج للسيارات')}</th>
                   <th className="text-center font-semibold px-3 py-2.5">{tr('عاد منها')}</th>
-                  {/* لوحدة الأساس (الخادم: avgCost للحبة) — «متوسط تكلفة الوحدة» كان يُقرأ سعر كرتون */}
-                  <th className="text-center font-semibold px-3 py-2.5">{tr('متوسط التكلفة لوحدة الأساس')}</th>
+                  {/* لوحدة الأساس (الخادم: avgCost للحبة) — «متوسط تكلفة الوحدة» كان يُقرأ سعر كرتون. ومع أصنافٍ لها رئيسية: خلية
+                      الصنف ذي الرئيسية موسومةٌ باسم كل وحدة (الرئيسية أولاً)، فالعنوان بلا «الأساس» (D21) */}
+                  <th className="text-center font-semibold px-3 py-2.5">{hasPrimary ? tr('متوسط التكلفة') : tr('متوسط التكلفة لوحدة الأساس')}</th>
                   <th className="text-center font-semibold px-3 py-2.5">{tr('قيمة الرصيد')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#F1EBDF]">
                 {shownRows.map(r => {
                   const big = biggestUnit(r.units);
+                  // «الوحدة الرئيسية» الصالحة — غيابها (أو معرّفٌ تالف) الصفّ كما كان حرفاً
+                  const prim = primaryUnitOf(r);
                   const tracked = trackedSet.has(r.productId);
                   const view = tracked ? lotsQ.data?.views.get(r.productId) : undefined;
                   const sum = tracked ? lotRowSummary(view, lotDayNow) : null;
@@ -294,7 +310,7 @@ export default function CompanyWarehousePage() {
                   <tr className={r.onHand < 0 ? 'bg-red-50/40' : undefined}>
                     <td className="px-4 py-2.5">
                       <div className="font-semibold text-[#1F1A13]">{r.name}</div>
-                      <div className="text-[11px] text-[#9A8F7E]">{r.code} · {hasBigUnit(r.units) ? `${tr('وحدة الأساس')} ${r.unit}` : r.unit}</div>
+                      <div className="text-[11px] text-[#9A8F7E]">{r.code} · {prim ? `${tr('الوحدة الرئيسية')} ${productUnitLabel(r)}` : hasBigUnit(r.units) ? `${tr('وحدة الأساس')} ${r.unit}` : r.unit}</div>
                       {/* «تتبّع اللوط»: شاراتُ التشغيلات ومفتاح توسيع الصفّ بها */}
                       {tracked && (
                         <button type="button" onClick={() => setOpenLots(open ? null : r.productId)}
@@ -315,12 +331,26 @@ export default function CompanyWarehousePage() {
                     <td className="px-3 py-2.5 text-center text-[#C94E28]">−{baseQtyText(r.loadedToVans, r, fmtQty)}</td>
                     <td className="px-3 py-2.5 text-center text-[#1E7A52]">+{baseQtyText(r.returnedFromVans, r, fmtQty)}</td>
                     <td className="px-3 py-2.5 text-center text-[#6E6557]">
-                      {r.avgCost > 0
-                        ? <span title={String(r.avgCost)}>{formatCurrency(r.avgCost, undefined, 4)}</span>
-                        : <span className="text-[#C9BFAE]">—</span>}
-                      {/* وتكلفة أكبر وحدةٍ بجانبها (متوسّط الحبة × معامل الكرتون) — المالك يشتري بالكرتون ويقارن به */}
-                      {r.avgCost > 0 && big && (
-                        <span className="block text-[10px] text-[#9A8F7E] mt-0.5">{big.name}: {formatCurrency(r.avgCost * Number(big.factor), undefined, 4)}</span>
+                      {/* «الوحدة الرئيسية»: تكلفتها أولاً (متوسّط القارورة × معامل الكرتون) ثم القارورة سطراً تحتها، كلٌّ باسم وحدته */}
+                      {prim ? (
+                        r.avgCost > 0 ? (
+                          <>
+                            {/* التلميح (المتوسّط غير المقرَّب للقارورة) على سطر القارورة نفسه — على سطر الكرتون يُقرأ تكلفة كرتون */}
+                            <span>{prim.name}: {formatCurrency(r.avgCost * Number(prim.factor), undefined, 4)}</span>
+                            <span className="block text-[10px] text-[#9A8F7E] mt-0.5" title={String(r.avgCost)}>{r.unit}: {formatCurrency(r.avgCost, undefined, 4)}</span>
+                          </>
+                        ) : <span className="text-[#C9BFAE]">—</span>
+                      ) : (
+                        <>
+                          {/* العنوان بلا «لوحدة الأساس» حين في الجدول صنفٌ له رئيسية — فخلية غيره تُسمّي وحدتها كي لا تُقرأ سعر كرتون */}
+                          {r.avgCost > 0
+                            ? <span title={String(r.avgCost)}>{hasPrimary ? `${r.unit}: ` : ''}{formatCurrency(r.avgCost, undefined, 4)}</span>
+                            : <span className="text-[#C9BFAE]">—</span>}
+                          {/* وتكلفة أكبر وحدةٍ بجانبها (متوسّط الحبة × معامل الكرتون) — المالك يشتري بالكرتون ويقارن به */}
+                          {r.avgCost > 0 && big && (
+                            <span className="block text-[10px] text-[#9A8F7E] mt-0.5">{big.name}: {formatCurrency(r.avgCost * Number(big.factor), undefined, 4)}</span>
+                          )}
+                        </>
                       )}
                     </td>
                     <td className="px-3 py-2.5 text-center">
@@ -445,7 +475,7 @@ function withEntryLots<D extends { items: object[] }>(doc: D, entry: WhEntry, lo
 /** تفصيل صفّ الرصيد بتشغيلاته في المستودع: الخام والصالح والمحجوز لكل تشغيلة، وغير المسمّى، والعجز */
 function WarehouseLotsDetail({ view, day, loading, error, row, asOf }: {
   view: PlaceViewWithAvailability | undefined; day: string; loading: boolean; error: boolean;
-  row: { unit: string; units?: UnitDef[] }; asOf: string;
+  row: { unit: string; units?: UnitDef[]; primaryUnitId?: string | null }; asOf: string;
 }) {
   const tr = useTr();
   if (loading) return <p className="text-xs text-[#9A8F7E]">{tr('جار التحميل')}</p>;
@@ -504,8 +534,11 @@ function WarehouseLotsDetail({ view, day, loading, error, row, asOf }: {
   );
 }
 
-/** سطر نافذة الوارد: مفتاحه rowId لا الصنف — صنفٌ متتبَّع في سطرين لدفعتين بتشغيلتين */
-interface EntryRow { rowId: string; productId: string; name: string; unit: string; unitId: string | null; qty: string; unitCost: string; lot: EntryLotDraft }
+/**
+ * سطر نافذة الوارد: مفتاحه rowId لا الصنف — صنفٌ متتبَّع في سطرين لدفعتين بتشغيلتين. و`baseUnit` أساس الصنف **كما رآه النموذج**
+ * لحظة إضافة السطر (product.unit): يُرسَل `baseUnitName` فيكشف الخادم قائمةً قديمة، ولا يتغيّر إلا بإعادة الأساس (rebaseRows)
+ */
+interface EntryRow { rowId: string; productId: string; name: string; unit: string; unitId: string | null; baseUnit: string; qty: string; unitCost: string; lot: EntryLotDraft }
 
 // نموذج تسجيل وارد (استلام/شراء) أو تسوية للمستودع
 function WarehouseEntryModal({ onClose, lotOn }: { onClose: () => void; lotOn: boolean }) {
@@ -528,13 +561,34 @@ function WarehouseEntryModal({ onClose, lotOn }: { onClose: () => void; lotOn: b
   const productOf = (id: string) => (prodQ.data || []).find(x => x.id === id);
   const isTracked = (id: string) => lotOn && productOf(id)?.lotTracked === true;
 
-  // الوحدة الافتراضية = الأكبر (repUnits.defaultChoice): المورّد يبيع بالكرتون، وبعد تحويل الصنف إلى الحبّة يبقى «١» كرتوناً
+  // الوحدة الافتراضية = الرئيسية، وإلّا الأكبر (repUnits.defaultChoice): المورّد يبيع بالكرتون، وبعد تحويل الصنف إلى الحبّة
+  // يبقى «١» كرتوناً — ولصنفٍ رئيسيّه كرتون لا تقفز إلى الطبلية
   const addProduct = (id: string) => {
     if (!id || (rows.some(r => r.productId === id) && !isTracked(id))) return;
     const p = productOf(id);
     if (!p) return;
     const c = defaultChoice(p);
-    setRows(rs => [...rs, { rowId: newRowId(), productId: id, name: p.name, unit: c.name, unitId: c.id, qty: '1', unitCost: '', lot: emptyEntryLot() }]);
+    setRows(rs => [...rs, { rowId: newRowId(), productId: id, name: p.name, unit: c.name, unitId: c.id, baseUnit: String(p.unit ?? ''), qty: '1', unitCost: '', lot: emptyEntryLot() }]);
+  };
+  /**
+   * ردّ «وحدات الصنف تغيّرت» (400 UNIT_INVALID أو 409 PRODUCT_UNITS_CHANGED): الأصناف من جديد، وكل سطرٍ بوحدته الآن
+   * (rebaseRow): الكرتون يبقى كرتوناً ولو صار وحدةً بعد تحويل الأساس، ووحدةٌ أُوقفت تصير قوارير بكميتها × معاملها ظاهرةً،
+   * وسعر الوحدة يُفرَّغ حينها (كان لكرتونٍ لم يعد السطر به). والأساس المرسَل بعدها هو أساس الصنف الآن.
+   */
+  const rebaseRows = async () => {
+    const before = prodQ.data || [];
+    const fresh = await qc.fetchQuery({
+      queryKey: ['products-min'], staleTime: 0,
+      queryFn: async () => (await productApi.list({ limit: 1000 })).data.data as ProductPick[],
+    });
+    setRows(rs => rs.map(r => {
+      const p = fresh.find(x => x.id === r.productId);
+      const was = choiceById(before.find(x => x.id === r.productId), r.unitId);
+      const rb = rebaseRow({ unit: r.unit, unitId: r.unitId, unitFactor: was?.id ? was.factor : 1, qty: r.qty }, p);
+      if (!p || !rb) return r;
+      const moved = rb.qty !== r.qty;
+      return { ...r, unit: rb.choice.name, unitId: rb.choice.id, baseUnit: String(p.unit ?? ''), qty: String(rb.qty), ...(moved && { unitCost: '' }) };
+    }));
   };
   /** دفعةٌ ثانية للصنف المتتبَّع: سطرٌ جديد بوحدة السطر نفسها وتشغيلةٍ فارغة */
   const addBatch = (r: EntryRow) => setRows(rs => {
@@ -585,6 +639,8 @@ function WarehouseEntryModal({ onClose, lotOn }: { onClose: () => void; lotOn: b
           qty: Number(r.qty),
           // وحدة السطر لغير الأساس وحدها — بند الأساس يُرسل كما قبل الميزة (الخادم يقرأ غيابها أساساً بمعامل ١)
           ...(r.unitId && { unitId: r.unitId }),
+          // الأساس كما رآه النموذج (§2.8) — خالف أساس الصنف الآن ⇒ 400 UNIT_INVALID، وسباقٌ مع تحويل ⇒ 409
+          ...(r.baseUnit && { baseUnitName: r.baseUnit }),
           // السعر للوارد وحده؛ والفارغ أو الصفر يُرسَل غائباً لا صفراً —
           // «بلا سعر» يُستبعَد من التقييم، بينما صفرٌ يُحسَب بضاعةً مجّانية
           unitCost: type === 'RECEIVE' && r.unitCost.trim() !== '' && !Number.isNaN(cost) && cost > 0 ? cost : undefined,
@@ -607,7 +663,11 @@ function WarehouseEntryModal({ onClose, lotOn }: { onClose: () => void; lotOn: b
       for (const w of lotWarningsOf((res?.data as { warnings?: unknown } | undefined)?.warnings)) toast(tr(LOT_WARNING_LABELS[w.code]), { icon: '⚠️' });
       onClose();
     },
-    onError: (e: unknown) => toast.error(lotErrorOf(e)?.message || (e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الحفظ')),
+    onError: (e: unknown) => {
+      toast.error(lotErrorOf(e)?.message || (e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الحفظ'));
+      // وحدات صنفٍ تغيّرت منذ فُتحت النافذة: لا يُعاد الحفظ بأساسٍ قديم — الأسطر بوحداتها الآن، والمستخدم يراجعها
+      if (isStaleUnitsError(e)) void rebaseRows().catch(() => qc.invalidateQueries({ queryKey: ['products-min'] }));
+    },
   });
 
   /**
@@ -663,7 +723,7 @@ function WarehouseEntryModal({ onClose, lotOn }: { onClose: () => void; lotOn: b
           <div>
             <label className="label">{tr('إضافة صنف')}</label>
             <SearchableSelect
-              options={(prodQ.data || []).filter(p => !rows.some(r => r.productId === p.id) || isTracked(p.id)).map(p => ({ value: p.id, label: p.name, hint: `${p.code} · ${p.unit}` }))}
+              options={(prodQ.data || []).filter(p => !rows.some(r => r.productId === p.id) || isTracked(p.id)).map(p => ({ value: p.id, label: p.name, hint: `${p.code} · ${productUnitLabel(p)}` }))}
               value="" onChange={addProduct} resetOnSelect placeholder={tr('ابحث وأضف صنفا')} searchPlaceholder={tr('اكتب اسم/كود الصنف')} />
           </div>
 
@@ -685,6 +745,7 @@ function WarehouseEntryModal({ onClose, lotOn }: { onClose: () => void; lotOn: b
                   const net = costsIncludeTax && pct > 0 ? c / (1 + pct / 100) : c;
                   const line = type === 'RECEIVE' && !Number.isNaN(q) && !Number.isNaN(c) && c > 0 ? q * net : null;
                   const choices = unitChoices(productOf(r.productId));
+                  const prim = primaryUnitOf(productOf(r.productId));
                   const tracked = isTracked(r.productId);
                   const kind = lotKind(r);
                   return (
@@ -696,7 +757,7 @@ function WarehouseEntryModal({ onClose, lotOn }: { onClose: () => void; lotOn: b
                           {choices.length > 1 ? (
                             <select className="input w-auto py-1 text-xs mt-0.5" value={r.unitId ?? ''} aria-label={tr('الوحدة')}
                               onChange={e => setUnit(r.rowId, e.target.value || null)}>
-                              {choices.map(ch => <option key={ch.id ?? 'base'} value={ch.id ?? ''}>{ch.name}{ch.factor > 1 ? ` (${ch.factor})` : ''}</option>)}
+                              {choices.map(ch => <option key={ch.id ?? 'base'} value={ch.id ?? ''}>{ch.name}{ch.factor > 1 ? ` (${ch.factor})` : ''}{prim && ch.id === prim.id ? ` · ${tr('رئيسية')}` : ''}</option>)}
                             </select>
                           ) : (
                             <p className="text-[11px] text-[#9A8F7E]">{r.unit}</p>

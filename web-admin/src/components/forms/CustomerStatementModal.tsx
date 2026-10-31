@@ -15,11 +15,15 @@ interface Props { customer: Customer; onClose: () => void; }
 /**
  * بند فاتورة في الكشف كما يردّه الخادم: `qty` بوحدة البند ولقطتها (`unitName`/`unitFactor`) — الوحدات المتعددة.
  * غيابها (بندٌ سبق الميزة) ⇒ وحدة الصنف بمعامل ١ كما كان.
+ * و`product.primaryUnitId` («الوحدة الرئيسية»، select كشف الحساب في routes/customers.ts) — قيمةٌ صادقة ⇒ اسم الوحدة يُلحق دائماً.
  */
-type StatementItem = { qty: number; unitName?: string | null; unitFactor?: number | null; product: { name: string; unit?: string } };
+type StatementItem = { qty: number; unitName?: string | null; unitFactor?: number | null; product: { name: string; unit?: string; primaryUnitId?: string | null } };
 const itemsOf = (e: AccountEntry): StatementItem[] => (e.invoice?.items || []) as StatementItem[];
-/** «الاسم ×٢ كرتون» حين البند بغير الأساس — كالكشف المطبوع (PrintableStatement)، وصنفٌ بلا وحدات كما كان */
-const itemText = (it: StatementItem) => `${it.product.name} ×${docQtyText({ qty: it.qty, unitName: it.unitName, unitFactor: it.unitFactor, unit: it.product.unit }, n => String(Number(n)))}`;
+/**
+ * «الاسم ×٢ كرتون» حين البند بغير الأساس — كالكشف المطبوع (PrintableStatement)، وصنفٌ بلا وحدات كما كان.
+ * ولصنفٍ له وحدة رئيسية (R2) «الاسم ×5 قارورة» دائماً: «×5» وحدها تُقرأ كراتين. `primaryUnitId: null` ⇒ القائم حرفاً.
+ */
+const itemText = (it: StatementItem) => `${it.product.name} ×${docQtyText({ qty: it.qty, unitName: it.unitName, unitFactor: it.unitFactor, unit: it.product.unit, product: { primaryUnitId: it.product.primaryUnitId } }, n => String(Number(n)))}`;
 
 // تفصيل الوحدات المباعة حسب نوع الوحدة (كرتون/قطعة/…).
 // نحسب فقط قيود البيع الفعلي INVOICE_DEBIT — لأن الفاتورة النقدية لها قيدان بنفس invoiceId

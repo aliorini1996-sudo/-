@@ -136,8 +136,12 @@ test('مسارات المندوب له وحده، ومعرّفه من توكنه
     assert.match(h, /salesRepId: me/);
     assert.doesNotMatch(h, /req\.(body|query|params)\.salesRepId/);
   }
-  // الأصناف من الشركة نفسها وغير مؤرشفة
-  assert.match(handler(s, "router.put('/mine'"), /prisma\.product\.count\(\{ where: \{ id: \{ in: ids \}, tenantId: tid, deletedAt: null \} \}\)/);
+  // الأصناف من الشركة نفسها وغير مؤرشفة — ومعها أساسها (§2.9) في الاستعلام نفسه، يُقرأ قبل حلّ الوحدات، والعدد يطابق
+  const mine = handler(s, "router.put('/mine'");
+  assert.match(mine, /prisma\.product\.findMany\(\{\s*where: \{ id: \{ in: \[\.\.\.new Set\(data\.items\.map\(\(i\) => i\.productId\)\)\] \}, tenantId: tid, deletedAt: null \}, select: \{ id: true, name: true, unit: true, baseConvertedAt: true \},?\s*\}\)/);
+  assert.ok(mine.indexOf('prisma.product.findMany(') < mine.indexOf('resolveLineUnits('), 'أساس الصنف قبل حلّ الوحدات');
+  assert.match(mine, /const prods = itemProds\.filter\(\(p\) => idSet\.has\(p\.id\)\);/);
+  assert.match(mine, /if \(prods\.length !== ids\.length\) \{ res\.status\(400\)/);
 });
 
 test('مسارات الإدارة لغير المندوب، ومقيّدة بالشركة ونطاق المستخدم، وتحت قفل الشركة مع فحص النسخة', () => {

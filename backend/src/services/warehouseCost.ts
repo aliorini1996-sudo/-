@@ -295,8 +295,12 @@ function addAtAvg(s: CostState, qty: number): void {
 export function valueStock(
   moves: CostMove[],
   decimals: number = DEFAULT_CURRENCY_DECIMALS,
-  /** يُملأ بطبقات كل سيارة بعد آخر حركة (مفتاحها vanId أو '') — لتقييم ما في السيارات (valueVanQty) */
-  out?: { vanLayers?: Map<string, VanLayer[]> },
+  /**
+   * يُملأ بطبقات كل سيارة بعد آخر حركة (مفتاحها vanId أو '') — لتقييم ما في السيارات (valueVanQty)، وبالمتوسّط **غير المقرَّب**
+   * (`rawAvgCost`) بديلاً لما زاد على الطبقات: المقرَّب لأربع خانات (avgCost) للعرض وحده، وإلا غيّر تحويلُ وحدة الأساس
+   * (كرتون ⇒ ٨ قوارير) قيمةَ «في مخزون السيارات»: ٨ × 2.0413 ≠ 16.33 (#13)
+   */
+  out?: { vanLayers?: Map<string, VanLayer[]>; rawAvgCost?: number },
 ): Valuation {
   const s: CostState = { costedQty: 0, costedValue: 0, uncostedQty: 0 };
   // متوسّط آخر رصيدٍ قائم — يُقيَّد به المكشوف حين يفرغ المستودع
@@ -406,7 +410,10 @@ export function valueStock(
 
   // متوسّط الوحدة يبقى بخانات التكلفة الأربع لا بخانات العملة — أوسع عمداً
   // (انظر COST_DECIMALS)، والكمّيات بأربع خانات لأنّها كمّيات لا مبالغ.
-  if (out) out.vanLayers = stacks;
+  if (out) {
+    out.vanLayers = stacks;
+    out.rawAvgCost = avgOf(s);
+  }
   const avgCost = roundDecimal(avgOf(s), COST_DECIMALS);
   return {
     avgCost,

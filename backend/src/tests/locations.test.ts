@@ -372,7 +372,12 @@ const db: Row = {
   },
   product: {
     async count(a: Row) { return (a.where.id.in as string[]).length; },
-    async findMany() { return st.products; },
+    // POST /loads («الوحدة الرئيسية» §2.7): الأصناف بأساسها بدل العدّ — كل معرّفٍ مطلوب صنفٌ صالح بلا تحويل (من st.products إن وُجد)
+    async findMany(a?: Row) {
+      const ids = a?.where?.id?.in as string[] | undefined;
+      if (!ids || st.products.length) return st.products;
+      return ids.map((id) => ({ id, name: id, unit: 'حبة', primaryUnitId: null, baseConvertedAt: null, units: [] }));
+    },
   },
 };
 db.$transaction = async (fn: (tx: Row) => Promise<unknown>) => fn(db);

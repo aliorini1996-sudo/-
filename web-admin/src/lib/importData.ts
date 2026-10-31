@@ -3,7 +3,7 @@
 import { SALES_CHANNELS } from './channels';
 import { parseAmount, parsePercent, hasPercentSign, toAsciiDigits, columnDecimalStyle, currencyDecimalFallback, type DecimalStyle } from './importAmount';
 import { classifyPaymentStatus, type PaymentStatusClass } from './importStatus';
-import { unitProblem, type UnitDef } from './units';
+import { primaryUnitOf, productQtyText, unitProblem, type UnitDef } from './units';
 
 export { toAsciiDigits } from './importAmount';
 
@@ -590,6 +590,13 @@ export const PRODUCT_UNIT_SLOTS = ['unit2', 'unit3'] as const;
 const productUnitsSig = (units: readonly { name: string; factor: number; price?: number }[]) =>
   units.map((u) => [norm(u.name), u.factor, u.price ?? null, '']);
 
+// ── «الوحدة الرئيسية» (§2.11): عمود اختياري يسمّي إحدى وحدات الصفّ (الكرتون) وحدةً رئيسية للصنف ──
+/** نصّا الخادم حرفياً (backend/src/routes/import.ts PRIMARY_UNIT_INVALID_MESSAGE وPRIMARY_PRICE_REQUIRED_MESSAGE) */
+export const PRIMARY_UNIT_INVALID = 'الوحدة الرئيسية يجب أن تكون إحدى وحدات الصف الإضافية (مثل الكرتون)';
+export const PRIMARY_PRICE_REQUIRED = 'اكتب سعر الوحدة الرئيسية أو سعر الوحدة الفرعية';
+/** نصّ الخادم حرفياً (QTY_UNIT_REQUIRED_MESSAGE): خانة وحدة فارغة في الجرد لصنفٍ له رئيسية أو تغيّرت وحداته */
+export const QTY_UNIT_REQUIRED = 'اكتب وحدة الكمية لهذا الصنف: له وحدة رئيسية أو تغيّرت وحداته، فلا تُقرأ الخانة الفارغة بوحدة دون أخرى';
+
 // صف مجاميع التقرير: اسم يبدأ بكلمة «إجمالي/مجموع/Total» (مع «ال» أو بعدها كلمات مثل «الأرصدة»، ولو خُتم بنقطتين) بلا كود ولا جوال.
 // المطابقة بالكلمة الأولى كاملةً: «مجموعة النور» ليست «مجموع».
 const TOTALS_FIRST_WORDS = new Set(['اجمالي', 'الاجمالي', 'اجماليات', 'مجموع', 'المجموع', 'المجاميع', 'مجاميع',
@@ -821,7 +828,8 @@ const A_PROD: ImportSpec = {
   code: { aliases: ['مرجع داخلي', 'المرجع الداخلي', 'مرجع', 'كود الصنف', 'رقم الصنف', 'code', 'sku', 'internal reference', 'reference', 'ref'], exclude: CODE_EXCLUDE },
   name: { aliases: ['اسم الصنف', 'الصنف', 'اسم المنتج', 'الاسم', 'name', 'product', 'item'], exclude: ID_NAME_EXCLUDE },
   // «الوحدة» وحدة الأساس: أصغر ما يُباع (الحبة) — والأكبر منها في أعمدة الوحدات الإضافية أدناه
-  unit: { aliases: ['الوحدة', 'وحدة القياس', 'unit', 'uom'], exclude: [...EXTRA_UNIT_TOKENS, 'معامل', 'factor'] },
+  // «الوحدة الرئيسية» ليست وحدة الصنف الصغرى: عمودها لا يُلتقط بالاحتواء هنا (مطابقته التامة في primaryUnit أدناه)
+  unit: { aliases: ['الوحدة', 'وحدة القياس', 'unit', 'uom'], exclude: [...EXTRA_UNIT_TOKENS, 'معامل', 'factor', 'الرئيسيه', 'primaryunit'] },
   basePrice: {
     aliases: ['سعر البيع', 'السعر', 'السعر الأساسي', 'price', 'sales price', 'sale price', 'list price', 'unit price'],
     preferred: ['سعر البيع', 'sales price', 'sale price'],
@@ -837,6 +845,8 @@ const A_PROD: ImportSpec = {
   unit3: { aliases: ['الوحدة الثالثة', 'الوحدة 3', 'وحدة 3', 'unit 3', 'third unit', 'uom 3'], exactOnly: true },
   unit3Factor: { aliases: ['معامل الوحدة الثالثة', 'معامل الوحدة 3', 'عدد الحبات في الوحدة الثالثة', 'unit 3 factor'], exactOnly: true, numeric: true },
   unit3Price: { aliases: ['سعر الوحدة الثالثة', 'سعر الوحدة 3', 'unit 3 price'], exactOnly: true, numeric: true },
+  // «الوحدة الرئيسية» (اختيارية): اسم إحدى الوحدات الإضافية في الصفّ — مطابقة تامة فقط، فلا يتغيّر ملفٌّ قديم
+  primaryUnit: { aliases: ['الوحدة الرئيسية', 'primaryUnit', 'primary unit'], exactOnly: true },
   taxPct: {
     aliases: ['الضريبة', 'نسبة الضريبة', 'tax', 'vat'],
     // «Vendor Taxes» (ضرائب المشتريات) ليست نسبة ضريبة البيع
@@ -887,11 +897,22 @@ function toProducts(rows: Record<string, unknown>[], opts?: TransformOpts): Tran
       if (unitProblem(u, seenUnits)) { errors.push({ row: line, message: PRODUCT_UNIT_INVALID, value: `${u.name} = ${u.factor}`, field: 'units' }); return; }
       seenUnits.push({ name: u.name, factor: u.factor });
     }
+    // «الوحدة الرئيسية» كما يحكمها الخادم (importPrimaryOf): الفارغة أو باسم «الوحدة» نفسها ⇒ بلا رئيسية ولا تُرسل، وغيرها
+    // يلزم أن تكون إحدى وحدات الصفّ، ومعها سعرها أو سعر الوحدة الصغرى (منه يُشتقّ الآخر في الخادم)
+    const primaryRaw = c.s(row, 'primaryUnit');
+    let primaryUnit = '';
+    if (primaryRaw && norm(primaryRaw) !== norm(unit || PRODUCT_DEFAULT_UNIT)) {
+      const pu = units.find((u) => norm(u.name) === norm(primaryRaw));
+      if (!pu) { errors.push({ row: line, message: PRIMARY_UNIT_INVALID, value: primaryRaw, field: 'primaryUnit' }); return; }
+      if (pu.price === undefined && basePrice === undefined) { errors.push({ row: line, message: PRIMARY_PRICE_REQUIRED, value: primaryRaw, field: 'primaryUnit' }); return; }
+      primaryUnit = primaryRaw;
+    }
     // التوقيع مطابق حرفياً لـproductRowSignature في backend/src/services/importLedger.ts: الافتراضيان
     // (الوحدة «حبة» والسعر 0) يُطبَّقان هنا كما يُطبَّقان هناك، وإلا عدَّ الويب صفّين متطابقَين مختلفَين
     // فأظهر «كود مكرر ببيانات مختلفة» على ملف يقبله الخادم صامتاً. أي تغيير لافتراضي import.ts يُنقل إلى الاثنين.
     // والوحدات تدخله حين وُجدت وحدها (كالخادم): توقيع صفوف الملفات القديمة كما كان
-    const unitsSig = units.length ? [productUnitsSig(units)] : [];
+    // و«الوحدة الرئيسية» تدخله حين كُتبت وحدها: صفّان بالكود نفسه يختلفان في رئيسيّهما خطأ صفّ لا تخطٍّ صامت
+    const unitsSig = [...(units.length ? [productUnitsSig(units)] : []), ...(primaryUnit ? [['primary', norm(primaryUnit)]] : [])];
     const sig = JSON.stringify([norm(name), unit || PRODUCT_DEFAULT_UNIT, basePrice ?? PRODUCT_DEFAULT_PRICE, taxPct ?? null, barcode || '', norm(category || ''), ...unitsSig]);
     // التوقيع نفسه بلا خانة الضريبة: عليه تُقارَن الصفوف حين تكون خانة ضريبة أحدها فارغة (الخادم يملأها بضريبة الشركة)
     const rest = JSON.stringify([norm(name), unit || PRODUCT_DEFAULT_UNIT, basePrice ?? PRODUCT_DEFAULT_PRICE, barcode || '', norm(category || ''), ...unitsSig]);
@@ -915,6 +936,8 @@ function toProducts(rows: Record<string, unknown>[], opts?: TransformOpts): Tran
       barcode: barcode || undefined, category: category || undefined,
       // الملف بلا أعمدة الوحدات: الصفّ كما كان حرفياً (بلا مفتاح units فلا تتغيّر بصمته)
       ...(units.length ? { units } : {}),
+      // و«الوحدة الرئيسية» حين تُكتب وحدها (بلا مفتاح غيرها)
+      ...(primaryUnit ? { primaryUnit } : {}),
     });
   });
   const incl = priceInclTax(c, 'basePrice', opts);
@@ -1376,6 +1399,50 @@ const roundMoney = (n: number, decimals: number | null | undefined): number => {
   const f = 10 ** d;
   return Math.round(n * f) / f;
 };
+/**
+ * «الوحدة الرئيسية» (§2.11): صنف الشركة كما تحتاجه معاينة الجرد — من GET /products حين يكون في يد الصفحة. بلا قائمة أصناف لا
+ * عمود معادل ولا فحص مسبق، والخادم يحكم (QTY_UNIT_REQUIRED).
+ */
+export interface ImportPreviewProduct {
+  code?: string | null; barcode?: string | null; name: string; unit: string;
+  units?: UnitDef[] | null; primaryUnitId?: string | null; baseConvertedAt?: string | Date | null;
+}
+/** معاينة صفّ جرد بصنفه: المعادل بالرئيسية («= 2 كرتون و3 قارورة») أو null، وهل خانة وحدته الفارغة سيرفضها الخادم (D17) */
+export interface OpeningStockPrimaryPreview { text: string | null; unitRequired: boolean }
+
+/**
+ * لكل صفّ مُرسَل من toOpeningStock (بموضعه في valid): صنفه بالكود ثم الباركود ثم الاسم المطبَّع (الوحيد)، كمطابقة الخادم، ثم:
+ * - `text`: الكمية بالأساس (× معامل وحدة الصفّ) معروضةً بالرئيسية بـproductQtyText — لصنفٍ له رئيسية صالحة وحده، وإلا null.
+ * - `unitRequired`: خانة الوحدة فارغة وللصنف رئيسية صالحة أو تاريخ تحويل ⇒ يرفضه الخادم بخطأ صفّ (D17).
+ * صنفٌ لا يُطابَق أو وحدةٌ لا تُعرف ⇒ { text: null, unitRequired: false } (الخادم يحكم بخطئه).
+ */
+export function openingStockPrimaryPreview(valid: readonly Record<string, unknown>[], products: readonly ImportPreviewProduct[]): OpeningStockPrimaryPreview[] {
+  const byCode = new Map<string, ImportPreviewProduct>();
+  const byBarcode = new Map<string, ImportPreviewProduct[]>();
+  const byName = new Map<string, ImportPreviewProduct[]>();
+  const push = (m: Map<string, ImportPreviewProduct[]>, k: string, p: ImportPreviewProduct) => { if (k) m.set(k, [...(m.get(k) ?? []), p]); };
+  for (const p of products) {
+    const code = String(p.code ?? '').trim();
+    if (code && !byCode.has(code)) byCode.set(code, p);
+    push(byBarcode, String(p.barcode ?? '').trim(), p);
+    push(byName, norm(p.name), p);
+  }
+  const one = (xs: ImportPreviewProduct[] | undefined) => (xs && xs.length === 1 ? xs[0] : null);
+  return valid.map((r) => {
+    const s = (k: string) => (typeof r[k] === 'string' ? (r[k] as string).trim() : '');
+    const p = (s('productCode') && byCode.get(s('productCode'))) || (s('barcode') && one(byBarcode.get(s('barcode')))) || (s('productName') && one(byName.get(norm(s('productName'))))) || null;
+    if (!p) return { text: null, unitRequired: false };
+    const primary = primaryUnitOf(p);
+    const unitName = s('unit');
+    if (!unitName) return { text: null, unitRequired: !!primary || !!p.baseConvertedAt };
+    if (!primary) return { text: null, unitRequired: false };
+    const qty = typeof r.qty === 'number' ? r.qty : NaN;
+    const u = norm(unitName) === norm(p.unit) ? { factor: 1 } : (p.units ?? []).find((x) => x.isActive !== false && norm(x.name) === norm(unitName));
+    if (!u || !Number.isFinite(qty)) return { text: null, unitRequired: false };
+    return { text: `= ${productQtyText(qty * Number(u.factor), p)}`, unitRequired: false };
+  });
+}
+
 function toOpeningStock(rows: Record<string, unknown>[], opts?: TransformOpts): TransformOut {
   const lotOn = opts?.lotTracking === true;
   const c = makeCtx(rows, stockSpec(lotOn), opts);

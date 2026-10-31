@@ -28,7 +28,11 @@ import {
 // البند 31: ردّ السعر الشامل إلى صافيه بالدالّة المالية الموحّدة نفسها (نصف-لأعلى)
 import { netFromInclusive, roundHalfUp } from '../lib/money';
 import { entryTotalCost } from '../services/warehouseCost';
-import { unitFields } from '../services/units';
+import { derivedBasePrice, primaryUnitOf, unitFields } from '../services/units';
+// «الوحدة الرئيسية» §2.11: استيراد الأسعار والجرد يكتبان بوحدة الصنف الصغرى تحت قفل صفّه (FOR KEY SHARE) مقارنةً بما حُلّت عليه الصفوف
+import {
+  ProductUnitsBusyError, ProductUnitsChangedError, assertBasesUnchanged, baseGuardReply, lockBases, type ExpectedBases,
+} from '../services/baseGuard';
 import {
   ACCOUNTING_NOT_ALLOWED_MESSAGE, importAccessBody, importAccessDecision, importKindsAllowed, isImportAccountingKind, loadImportActor, requireImportAccess,
 } from '../services/importAccess';
@@ -131,6 +135,10 @@ const importedBy = (req: AuthRequest): string | null => (req.user as { name?: st
 /** رد أخطاء الاستيراد ذات الرمز، وإلا errorHandler العام */
 function sendImportError(err: unknown, res: Response, next: NextFunction): void {
   if (isImportHttpError(err)) { res.status(err.status).json(importErrorBody(err)); return; }
+  // «الوحدة الرئيسية» (§2.11): تحويل وحدات صنفٍ التزم بين قراءة الأصناف والكتابة ⇒ 409 PRODUCT_UNITS_CHANGED، وانتظاره ⇒ 503.
+  // صنفا خطأ الحارس وحدهما: انشغالٌ خام في غير قفل الأصناف يبقى لمعالجه القائم
+  const guard = err instanceof ProductUnitsChangedError || err instanceof ProductUnitsBusyError ? baseGuardReply(err, false) : null;
+  if (guard) { res.status(guard.status).json(guard.body); return; }
   // «تتبّع اللوط» (§٣.٣): LotError بحالته ورمزه لا 500 (والانشغال يُردّ 409 القائم في موضعه)
   const lh = err instanceof LotError ? lotHttpError(err) : null;
   if (lh) { res.status(lh.status).json(lh.body); return; }
@@ -559,7 +567,11 @@ const productRow = z.object({
   code: z.string().trim().min(1),
   name: z.string().trim().min(1),
   unit: z.string().trim().optional().default('حبة'),
-  basePrice: z.number().nonnegative().optional().default(0),
+  /**
+   * «الوحدة الرئيسية» (§2.11): بلا افتراض — الغائب مع رئيسيةٍ مسعَّرة يُشتقّ من سعرها (derivedBasePrice)، وبلا رئيسية يُكتب 0 كما
+   * كان. والبصمة تُطبَّع (hashRowsOf) فلا تتغيّر بصمة ملفٍ قديم بلا عمود السعر
+   */
+  basePrice: z.number().nonnegative().optional(),
   taxPct: z.number().min(0).max(100).optional(),
   barcode: z.string().trim().optional(),
   category: z.string().trim().optional(),         // اسم الفئة — تُنشأ إن لزم
@@ -574,7 +586,40 @@ const productRow = z.object({
     price: z.number().nonnegative().optional(),
     unitCode: z.string().trim().max(10).optional(),
   })).optional(),
+  /**
+   * «الوحدة الرئيسية» (§2.11): اسم إحدى وحدات الصفّ (الكرتون) يُعرَّف به الصنف ويُعرض — عرضٌ وافتراضٌ فقط (القاعدة ١٢)،
+   * والحساب يبقى بـ`unit` (الأصغر). الفارغ أو اسم `unit` نفسه ⇒ بلا رئيسية (سلوك ما قبل الميزة)
+   */
+  primaryUnit: z.string().trim().max(24).optional(),
 });
+type ProductImportRow = z.infer<typeof productRow>;
+
+/**
+ * «الوحدة الرئيسية» (§2.11): بصمة الملف كما كانت قبل الميزة — `basePrice` كان بافتراض 0، فالصفّ بلا عمود السعر ولا رئيسية
+ * يُطبَّع إليه (canonicalImportRow يحذف الصفر أصلاً، والتطبيع يُثبّت ذلك صراحةً). و`primaryUnit` يدخل البصمة حين يُكتب وحده
+ */
+export const hashRowsOf = (rows: readonly ProductImportRow[]): ProductImportRow[] =>
+  rows.map((r) => (r.primaryUnit == null && r.basePrice === undefined ? { ...r, basePrice: 0 } : r));
+
+export const PRIMARY_UNIT_INVALID_MESSAGE = 'الوحدة الرئيسية يجب أن تكون إحدى وحدات الصف الإضافية (مثل الكرتون)';
+export const PRIMARY_PRICE_REQUIRED_MESSAGE = 'اكتب سعر الوحدة الرئيسية أو سعر الوحدة الفرعية';
+
+/**
+ * «الوحدة الرئيسية» (§2.11): موضع الرئيسية في `units` الصفّ، أو null بلا رئيسية (الفارغ واسم `unit` نفسه)، أو خطأ الصفّ:
+ * اسمٌ ليس من وحدات الصفّ ⇒ PRIMARY_UNIT_INVALID، ورئيسيةٌ بلا سعر و`basePrice` غائب ⇒ PRIMARY_PRICE_REQUIRED (كما يردّ POST /products 400)
+ */
+export function importPrimaryOf(r: Pick<ProductImportRow, 'unit' | 'basePrice' | 'units' | 'primaryUnit'>):
+  { index: number } | null | { error: ImportRowError } {
+  const want = normImportName(r.primaryUnit ?? '');
+  if (!want || want === normImportName(r.unit || 'حبة')) return null;
+  const index = (r.units ?? []).findIndex((u) => normImportName(u.name) === want);
+  if (index < 0) return { error: { row: 0, code: 'PRIMARY_UNIT_INVALID', message: PRIMARY_UNIT_INVALID_MESSAGE, value: r.primaryUnit, field: 'primaryUnit' } };
+  if (r.units![index].price == null && r.basePrice === undefined) {
+    return { error: { row: 0, code: 'PRIMARY_PRICE_REQUIRED', message: PRIMARY_PRICE_REQUIRED_MESSAGE, value: r.primaryUnit, field: 'primaryUnit' } };
+  }
+  return { index };
+}
+
 const productsBody = z.object({
   // البند 36: الصفوف تُفحص صفاً صفاً بعد الغلاف (parseImportBodyRows) لا دفعةً واحدة
   rows: z.array(z.unknown()),
@@ -607,7 +652,7 @@ router.post('/products', requireImportAccess('products'), async (req: AuthReques
 
     // البند 20: الدفعة محجوزة قبل أي كتابة (والفئات تُطابَق تحت قفل النوع فلا تتكرر)
     const progress = new ImportBatchProgress(
-      await reserveMasterBatch(tid, 'products', importContentHash('products', rows), importedBy(req), body.force === true), 'products');
+      await reserveMasterBatch(tid, 'products', importContentHash('products', hashRowsOf(rows)), importedBy(req), body.force === true), 'products');
     try {
       // البند 30: المؤرشف خطأ صف، والقائم والمكرر في الملف متخطى برقم صفه وسببه
       const existing = await prisma.product.findMany({ where: { tenantId: tid }, select: { code: true, deletedAt: true } });
@@ -621,21 +666,43 @@ router.post('/products', requireImportAccess('products'), async (req: AuthReques
 
       // تنسيق العقد: بصمة الصف (productRowSignature) تقارن الضريبة بالقيمة المكتوبة نفسها (r.taxPct ?? defaultVat)
       plan = planProductImportRows(rows, existing, defaultVat);
+      // «الوحدة الرئيسية» (§2.11): رئيسيةٌ ليست من وحدات الصفّ، أو بلا سعرٍ وسعر الوحدة الصغرى غائب ⇒ خطأ صفّ قبل أي كتابة
+      const primaryIndexByRow = new Map<number, number>();
+      const planErrors = [...plan.errors];
+      plan.creates = plan.creates.filter((c) => {
+        const pr = importPrimaryOf(c.r);
+        if (pr && 'error' in pr) { planErrors.push({ ...pr.error, row: c.row }); return false; }
+        if (pr) primaryIndexByRow.set(c.row, pr.index);
+        return true;
+      });
+      plan.errors = planErrors.sort((a, b) => a.row - b.row);
       const creates = plan.creates;
       result.skipped = plan.skippedRows.length;
       for (const e of plan.errors) result.errors.push(e);
       // البند 31: ضريبة الصف إن كُتبت وإلا ضريبة الشركة الافتراضية — وهي عين ما يُخزَّن في taxPct أدناه
       if (inclTax) {
         for (const c of creates) {
-          const gross = c.r.basePrice ?? 0;
-          const net = roundHalfUp(netFromInclusive(gross, c.r.taxPct ?? defaultVat ?? 0), decimals);
-          if (net !== gross) netFromInclusiveRows++;
-          netPriceByRow.set(c.row, net);
+          // فخّ الصافي (§2.11): السعر الغائب لا يُملأ صافياً — netFromInclusive(0) = 0 والصفر ليس nullish فيغلب السعر المشتقّ أدناه
+          if (c.r.basePrice !== undefined) {
+            const gross = c.r.basePrice;
+            const net = roundHalfUp(netFromInclusive(gross, c.r.taxPct ?? defaultVat ?? 0), decimals);
+            if (net !== gross) netFromInclusiveRows++;
+            netPriceByRow.set(c.row, net);
+          }
           if (c.r.units?.length) {
             netUnitPricesByRow.set(c.row, c.r.units.map(u => (u.price == null ? undefined
               : roundHalfUp(netFromInclusive(u.price, c.r.taxPct ?? defaultVat ?? 0), decimals))));
           }
         }
+      }
+      // «الوحدة الرئيسية» (§2.11، D10): سعر الوحدة الصغرى الغائب مع رئيسيةٍ مسعَّرة ⇒ صافي الرئيسية ÷ معاملها بأربع منازل
+      // (derivedBasePrice — كالإنشاء العكسي وconvert-base). وغائبٌ بلا رئيسية ⇒ 0 كما كان (السطر في الكتابة)
+      for (const c of creates) {
+        const idx = primaryIndexByRow.get(c.row);
+        if (idx === undefined || c.r.basePrice !== undefined) continue;
+        const u = c.r.units![idx];
+        const primaryNet = inclTax ? netUnitPricesByRow.get(c.row)?.[idx] : u.price;
+        if (primaryNet != null) netPriceByRow.set(c.row, derivedBasePrice(primaryNet, Math.round(Number(u.factor))));
       }
       await runImportChunks({
         chunks: planImportChunks(creates, () => 1, importChunkTarget(creates.length)),
@@ -665,11 +732,15 @@ router.post('/products', requireImportAccess('products'), async (req: AuthReques
             } as never,
             select: { id: true },
           });
+          // «الوحدة الرئيسية»: معرّف وحدتها يُولَّد هنا فيُكتب على الصنف في المعاملة نفسها (بلا مفتاح أجنبي، D2)
+          const primaryIdx = primaryIndexByRow.get(row);
+          const primaryUnitId = primaryIdx !== undefined && r.units?.length ? randomUUID() : null;
           // وحداته في المعاملة نفسها: صنفٌ يُنشأ بلا كرتونه ثم تفشل الوحدات يُباع كرتونه حبّةً. وحذفها عند التراجع مع الصنف
           if (r.units?.length) {
             const netUnit = netUnitPricesByRow.get(row);
             await tx.productUnit.createMany({
               data: r.units.map((u, i) => ({
+                ...(primaryUnitId && i === primaryIdx ? { id: primaryUnitId } : {}),
                 // المعامل صحيحٌ تحقّق منه planProductImportRows (unitProblem بسماحية QTY_EPS) — يُخزَّن مقرَّباً كمسار
                 // الأصناف (products.ts) فلا يحمل «24.0000001» من خلية Excel إلى كل لقطة تُكتب بالوحدة
                 tenantId: tid, productId: p.id, name: u.name.trim(), factor: Math.round(Number(u.factor)),
@@ -678,6 +749,8 @@ router.post('/products', requireImportAccess('products'), async (req: AuthReques
               })),
             });
           }
+          // بعد وحداته في المعاملة نفسها (§2.11): الصنف لا يشير إلى وحدةٍ لم تُكتب
+          if (primaryUnitId) await tx.product.update({ where: { id: p.id }, data: { primaryUnitId }, select: { id: true } });
           return { id: p.id, newCategory };
         },
         flush: (tx, written) => progress.write(tx, written.map(w => productDelta(w.result))),
@@ -925,6 +998,80 @@ router.post('/ledger', requireImportAccess('ledger'), async (req: AuthRequest, r
   } catch (err) { sendImportError(err, res, next); }
 });
 
+// ═══ «الوحدة الرئيسية» D17: عمود الوحدة الفارغ لصنفٍ له رئيسية أو حُوِّلت وحداته — خطأ صفّ مانع لا تفسيرٌ صامت ═══
+
+/** نصّا خطأ الصفّ (ثابتان ليُترجما في المعاينة، والصنف ووحداته في value) */
+export const PRICE_UNIT_REQUIRED_MESSAGE = 'اكتب وحدة السعر لهذا الصنف: له وحدة رئيسية أو تغيّرت وحداته، فلا تُقرأ الخانة الفارغة بوحدة دون أخرى';
+export const QTY_UNIT_REQUIRED_MESSAGE = 'اكتب وحدة الكمية لهذا الصنف: له وحدة رئيسية أو تغيّرت وحداته، فلا تُقرأ الخانة الفارغة بوحدة دون أخرى';
+
+/** الصنف كما يحتاجه D17: وحدته الصغرى ورئيسيّه ووحداته بمعرّفاتها وتاريخ آخر تحويل */
+export interface ImportUnitGuardProduct {
+  name: string; unit: string; primaryUnitId?: string | null; baseConvertedAt?: Date | null;
+  units?: { id: string; name: string; factor: number; isActive?: boolean }[] | null;
+}
+
+/**
+ * D17: خانة الوحدة الفارغة لصنفٍ له رئيسية صالحة (primaryUnitOf ≠ null) أو تاريخ تحويل ⇒ قيمة الخطأ «الصنف: كرتون أو قارورة»،
+ * وإلا null (المكتوبة تُحلّ كما كانت، والصنف بلا الحقلين على السلوك القائم حرفياً). لا تفسير للفارغ بالصغرى ولا بالرئيسية (D3)
+ */
+export function importUnitRequired(p: ImportUnitGuardProduct, raw: string | null | undefined): string | null {
+  if (typeof raw === 'string' && raw.trim()) return null;
+  const primary = primaryUnitOf({ primaryUnitId: p.primaryUnitId ?? null, units: p.units ?? null });
+  if (!primary && !p.baseConvertedAt) return null;
+  const active = (p.units ?? []).filter((u) => u && u.isActive !== false).sort((a, b) => Number(b.factor) - Number(a.factor)).map((u) => u.name);
+  const names = [...new Set([...(primary ? [primary.name] : active), p.unit].filter(Boolean))];
+  return `${p.name}: ${names.join(' أو ')}`;
+}
+
+/**
+ * planPriceImportRows (importLedger.ts) ومعه D17 في موضع حلّ الوحدة نفسه: صفٌّ مرّ بمطابقة العميل والصنف والسعر الصفري، وخانة
+ * وحدته فارغة لصنفٍ يلزمه الوحدة ⇒ خطأ صفّ PRICE_UNIT_REQUIRED، لا كتابة ولا دخول في أزواج التكرار (كبقية أخطاء الخطة).
+ * المطابِق يُغلَّف بهوية الصفّ فيسقط الصفّ من الخطة، ثم يحلّ خطأ D17 محلّ خطأ المطابقة في رقم صفّه
+ */
+export function planPriceRowsWithUnits<R extends z.infer<typeof priceRow>>(
+  rows: readonly R[], matcher: Parameters<typeof planPriceImportRows>[1],
+  products: readonly (Parameters<typeof planPriceImportRows>[2][number] & ImportUnitGuardProduct)[], allowZeroPrice: boolean,
+): ReturnType<typeof planPriceImportRows<R>> {
+  const live = new Map<string, (typeof products)[number]>();
+  for (const p of products) if (!p.deletedAt && !live.has(p.code)) live.set(p.code, p);
+  const required = new Map<object, string>();
+  for (const r of rows) {
+    const p = live.get(r.productCode);
+    if (!p || priceRowIssue(r.price, allowZeroPrice) || !('id' in matcher(r))) continue;
+    const need = importUnitRequired(p, r.unit);
+    if (need) required.set(r, need);
+  }
+  if (!required.size) return planPriceImportRows(rows, matcher, products, allowZeroPrice);
+  const plan = planPriceImportRows(rows, (r) => (required.has(r) ? { error: 'NOT_FOUND' as const } : matcher(r)), products, allowZeroPrice);
+  const byRow = new Map<number, string>();
+  rows.forEach((r, i) => { const v = required.get(r); if (v) byRow.set(i + 2, v); });
+  plan.errors = plan.errors.map((e) => {
+    const v = byRow.get(e.row);
+    return v === undefined ? e : { row: e.row, code: 'PRICE_UNIT_REQUIRED', message: PRICE_UNIT_REQUIRED_MESSAGE, value: v, field: 'unit' };
+  });
+  return plan;
+}
+
+/**
+ * D17 للجرد الافتتاحي: بندٌ خانة وحدته في الملف فارغة لصنفٍ يلزمه الوحدة ⇒ خطأ صفّ QTY_UNIT_REQUIRED بدل البند، والأخطاء بترتيب
+ * صفوفها. الصنف بلا رئيسية ولا تحويل ⇒ البنود كما هي حرفياً
+ */
+export function openingStockUnitGuard(
+  resolved: { lines: OpeningStockLine[]; errors: ImportRowError[] },
+  rows: readonly { unit?: string | null }[], productsById: ReadonlyMap<string, ImportUnitGuardProduct>,
+): { lines: OpeningStockLine[]; errors: ImportRowError[] } {
+  const lines: OpeningStockLine[] = [];
+  const extra: ImportRowError[] = [];
+  for (const l of resolved.lines) {
+    const p = productsById.get(l.productId);
+    const need = p ? importUnitRequired(p, rows[l.row - 2]?.unit) : null;
+    if (need) extra.push({ row: l.row, code: 'QTY_UNIT_REQUIRED', message: QTY_UNIT_REQUIRED_MESSAGE, value: need, field: 'unit' });
+    else lines.push(l);
+  }
+  if (!extra.length) return resolved;
+  return { lines, errors: [...resolved.errors, ...extra].sort((a, b) => a.row - b.row) };
+}
+
 // ===== استيراد قوائم الأسعار (أسعار خاصة لكل عميل) =====
 const priceRow = z.object({
   customerName: z.string().trim().optional(),
@@ -970,11 +1117,14 @@ router.post('/prices', requireImportAccess('prices'), async (req: AuthRequest, r
       // البند 44: المؤرشف (deletedAt) يشغل كوده ولا يُسعَّر — يُقرأ ليُميَّز عن «الصنف غير موجود»؛ وضريبته للبند 31
       const prods = await prisma.product.findMany({
         where: { tenantId: tid },
-        // ووحداته لعمود «الوحدة» (سعر الكرتون ⇒ سعر الحبة)
-        select: { id: true, code: true, deletedAt: true, taxPct: true, unit: true, units: { select: { name: true, factor: true, isActive: true } } },
+        // ووحداته لعمود «الوحدة» (سعر الكرتون ⇒ سعر الحبة)، ومعها رئيسيّه وتاريخ تحويله (D17) واسمه للرسالة والقفل
+        select: {
+          id: true, code: true, name: true, deletedAt: true, taxPct: true, unit: true, primaryUnitId: true, baseConvertedAt: true,
+          units: { select: { id: true, name: true, factor: true, isActive: true } },
+        },
       });
-      // البندان 43 و44: الزوج المكرر كتابة واحدة بآخر سعر (معلَناً)، والمؤرشف تخطٍّ معدود لا «أضيف»
-      plan = planPriceImportRows(rows, matcher, prods, body.allowZeroPrice === true);
+      // البندان 43 و44: الزوج المكرر كتابة واحدة بآخر سعر (معلَناً)، والمؤرشف تخطٍّ معدود لا «أضيف»؛ وD17 خطأ صفّ في الخطة
+      plan = planPriceRowsWithUnits(rows, matcher, prods, body.allowZeroPrice === true);
       const writes = plan.writes;
       result.skipped = plan.skippedRows.length;
       for (const e of plan.errors) result.errors.push(e);
@@ -993,10 +1143,26 @@ router.post('/prices', requireImportAccess('prices'), async (req: AuthRequest, r
       // عند البيع (سعر العميل × المعامل) يعود إلى ما في الملف — ١٠٠ ÷ ٢٤ × ٢٤ = ١٠٠٫٠٠ لا ١٠٠٫٠٨ من ٤٫١٧
       for (const w of writes) if (w.unitFactor && w.unitFactor !== 1) w.price = roundHalfUp(w.price / w.unitFactor, 6);
       const pairsCounted = new Set<string>();
+      // «الوحدة الرئيسية» (§2.11): كل شريحة تقفل أصنافها (FOR KEY SHARE) قبل أول كتابة فيها، مقارنةً بالأساس الذي قُسمت عليه
+      // أسعار الكرتون أعلاه. تحويلٌ التزم بعد القراءة ⇒ خطأ قاتل 409 (ما التزم قبله صحيح: التحويل قسمه)
+      const priceChunks = planImportChunks(writes, () => 1, importChunkTarget(writes.length));
+      const chunkOf = new Map<object, readonly (typeof writes)[number][]>();
+      for (const ch of priceChunks) for (const w of ch) chunkOf.set(w, ch);
+      const prodById = new Map(prods.map(p => [p.id, p]));
+      const basesOf = (items: readonly (typeof writes)[number][]): ExpectedBases => {
+        const m = new Map<string, { name: string; unit: string }>();
+        for (const w of items) { const p = prodById.get(w.productId); if (p) m.set(p.id, { name: p.name, unit: p.unit }); }
+        return m;
+      };
+      const lockedTx = new WeakSet<object>();
       await runImportChunks({
-        chunks: planImportChunks(writes, () => 1, importChunkTarget(writes.length)),
+        chunks: priceChunks,
         runTx: <X>(fn: (tx: Prisma.TransactionClient) => Promise<X>) => prisma.$transaction(async tx => fn(tx), IMPORT_WRITE_TX),
         writeItem: async (tx: Prisma.TransactionClient, w) => {
+          if (!lockedTx.has(tx)) {
+            lockedTx.add(tx);
+            await lockBases(tx, tid, basesOf(chunkOf.get(w) ?? [w]));
+          }
           const key = { customerId_productId: { customerId: w.customerId, productId: w.productId } };
           // السعر السابق قبل الكتابة (null = يُنشأ جديداً) ليستعيده التراجع
           const before = await tx.customerPrice.findUnique({ where: key, select: { price: true } });
@@ -1020,7 +1186,8 @@ router.post('/prices', requireImportAccess('prices'), async (req: AuthRequest, r
           }
         },
         onItemError: (w, e) => { result.errors.push(importWriteFailure(w.row, e)); },
-        isFatal: isImportHttpError,
+        // وتغيّر وحدات صنفٍ أو انتظار تحويله: لا يُعاد بنداً بنداً (يُرمى إلى sendImportError ⇒ 409/503)
+        isFatal: (e) => isImportHttpError(e) || e instanceof ProductUnitsChangedError || e instanceof ProductUnitsBusyError,
         afterChunk: () => progress.beat(),
       });
     } finally {
@@ -1098,13 +1265,16 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
       where: { tenantId: tid },
       select: {
         id: true, code: true, barcode: true, name: true, taxPct: true, status: true, deletedAt: true,
-        // عمود «الوحدة» يُطابَق باسم الأساس أو بوحداته النشطة
-        unit: true, units: { select: { name: true, factor: true, isActive: true } },
+        // عمود «الوحدة» يُطابَق باسم الأساس أو بوحداته النشطة، ومعها رئيسيّه وتاريخ تحويله (D17)
+        unit: true, primaryUnitId: true, baseConvertedAt: true, units: { select: { id: true, name: true, factor: true, isActive: true } },
         // «تتبّع اللوط»: العلم وحقول الصلاحية (الانتهاء إلزامي معها) في الاستعلام نفسه
         ...LOT_PRODUCT_SELECT,
       },
     });
-    const { lines, errors } = resolveOpeningStockRows(rows, openingStockProductMatcher(products), body.pricesIncludeTax, { lotsOn });
+    const resolved = resolveOpeningStockRows(rows, openingStockProductMatcher(products), body.pricesIncludeTax, { lotsOn });
+    // «الوحدة الرئيسية» D17: صفٌّ بخانة وحدة فارغة لصنفٍ له رئيسية أو حُوِّلت وحداته ⇒ QTY_UNIT_REQUIRED قبل أي كتابة — فلا يدخل
+    // القيد الافتتاحي (opening.ts) رصيدٌ مقسوم على ٢٤ أو مضروبٌ به
+    const { lines, errors } = openingStockUnitGuard(resolved, rows, new Map(products.map(p => [p.id, p])));
     const result = { created: 0, skipped: 0, total: rows.length, errors, batchId: null as string | null, entryId: null as string | null, totalCost: 0 };
     if (!lines.length) { res.json({ success: true, data: { ...result, ...cappedErrors(result.errors) } }); return; }
 
@@ -1138,6 +1308,14 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
         // والميزة مفعّلة يُقفل ولو لم يكن في القراءة المسبقة متتبَّع: صنفٌ صار متتبَّعاً بين القراءتين يُقفل في القاعدة وحدها (§٣.١)
         // فصفّه LOT_REQUIRED لا رصيدٌ غير مسمّى. لا متتبَّع تحت القفل ⇒ قراءة FOR KEY SHARE وحدها والكتابة كما كانت
         const lotLocks = lotsOn ? await lockLotProducts(tx, tid, productIds) : null;
+        // «الوحدة الرئيسية» (§2.11): الأساس الذي حُلّت عليه الكميات تحت قفل صفّ الصنف — من صفوف lockLotProducts حين يكون
+        // التتبّع مفعّلاً، وإلا lockBases بعد gl-post. تحويلٌ التزم بعد القراءة ⇒ 409 للملف كله (المعاملة واحدة)
+        const expectedBases: ExpectedBases = new Map(productIds.flatMap(id => {
+          const p = products.find(x => x.id === id);
+          return p ? [[id, { name: p.name, unit: p.unit }] as const] : [];
+        }));
+        if (lotLocks) assertBasesUnchanged(expectedBases, lotLocks.units);
+        else await lockBases(tx, tid, expectedBases);
         // دفعات الجرد الافتتاحي أولاً: معرّفات حركاتها تُستثنى من فحص «الحركات السابقة» وتُقرأ وحدها بالتفصيل
         const openingBatches = await tx.importBatch.findMany({
           where: { tenantId: tid, kind: OPENING_STOCK_KIND, reverted: false }, select: { id: true, recordIds: true, createdAt: true },
@@ -1213,6 +1391,8 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
         return { batchId: b.id, entryId: entry.id, accepted: checked.lines, rejected: checked.errors, ...(lotPlan?.warnings.length ? { lotWarnings: lotPlan.warnings } : {}) };
       }, { maxWait: 10_000, timeout: 30_000 });
     } catch (e) {
+      // «الوحدة الرئيسية»: تغيّر وحدات صنفٍ أو انتظار تحويله ⇒ ردّ الحارس (409/503) في sendImportError، لا «الدفاتر مشغولة»
+      if (e instanceof ProductUnitsChangedError || e instanceof ProductUnitsBusyError) throw e;
       // وانشغال طابور التشغيلات أو قفلها (LOT_BUSY، 55P03، 40P01) كانشغال الدفاتر: 409 القائم (§٣.٣) — والميزة مفعّلة وحدها،
       // لأن القفل يُؤخذ حينها ولو لم يكن في القراءة المسبقة متتبَّع
       const lotBusy = lotsOn ? asLotBusy(e) : null;

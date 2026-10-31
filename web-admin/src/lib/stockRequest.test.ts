@@ -169,8 +169,9 @@ test('مجموع المناديب بالأساس: «٢ كرتون» و«٣ حب�
 
 test('حفظ تعديل الإداري: unitId حين تغيّرت الوحدة وحدها (null = الأساس)، وغيابه = وحدة سطر المندوب', () => {
   const a = unitReq('a', 'كرتون', 24, 2);
-  assert.deepEqual(repEditItems(a, { w: '3' }), [{ productId: 'w', qty: 3 }], 'كميةٌ بوحدة السطر');
-  assert.deepEqual(repEditItems(a, { w: '48' }, { w: null }), [{ productId: 'w', qty: 48, unitId: null }]);
+  // و`baseUnitName` الأساس كما رآه الإداري (baseUnit من الخادم) — «الوحدة الرئيسية» §2.9
+  assert.deepEqual(repEditItems(a, { w: '3' }), [{ productId: 'w', qty: 3, baseUnitName: 'حبة' }], 'كميةٌ بوحدة السطر');
+  assert.deepEqual(repEditItems(a, { w: '48' }, { w: null }), [{ productId: 'w', qty: 48, unitId: null, baseUnitName: 'حبة' }]);
   assert.deepEqual(repEditItems(a, undefined, { w: 'u-ctn' }), [], 'اختيار وحدة السطر نفسها ليس تعديلاً');
   assert.equal(repRequestDirty(a, undefined, { w: null }), true, 'تبديل الوحدة وحده تعديل');
   assert.equal(repRequestDirty(a, undefined, { w: 'u-ctn' }), false);

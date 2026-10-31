@@ -23,7 +23,7 @@
  * في متوسّط يوم، ويُخزَّن المقترَح على بند التحميل بالأساس مهما كانت وحدة التحميل.
  * والتقريب لأعلى بحبّة الأساس؛ أمّا التقريب لمضاعفات الكرتون فقرار عملٍ لا يُفرض ضمناً.
  */
-import { formatQty, type UnitDef } from './units';
+import { formatQty, primaryUnitOf, type UnitDef } from './units';
 
 export interface SaleRow {
   productId: string;
@@ -41,6 +41,8 @@ export interface ProductRow {
   unit: string;
   /** وحدات الصنف — اختيارية، تُشرح بها الكمية المقترحة «٢ كرتون و٣ حبة» */
   units?: UnitDef[];
+  /** «الوحدة الرئيسية» (عرضٌ وحده) — الشرح يقف عندها «52 كرتون و2 قارورة» لا «1 طبلية و…» */
+  primaryUnitId?: string | null;
 }
 
 export interface SuggestInput {
@@ -225,8 +227,8 @@ export function suggestLoad(input: SuggestInput): SuggestResult {
 
     const bufferNote = bufferPct > 0 ? ` + هامش ${bufferPct}٪ ⇒ ${withBuffer}` : '';
     const vanNote = onVan > 0 ? ` − ${fmt(onVan)} في السيارة ⇒ ${suggested}` : '';
-    // الأرقام بالأساس؛ وصنفٌ له وحدةٌ أكبر يُشرح مقترحه بها — وبلا وحداتٍ يبقى النصّ كما كان حرفياً
-    const unitNote = suggested > 0 && hasBigUnit(p.units) ? ` والمقترح ${formatQty(suggested, p.units!, p.unit)}` : '';
+    // الأرقام بالأساس؛ وصنفٌ له وحدةٌ أكبر يُشرح مقترحه بها (وبالرئيسية حين له رئيسية) — وبلا وحداتٍ يبقى النصّ كما كان حرفياً
+    const unitNote = suggested > 0 && hasBigUnit(p.units) ? ` والمقترح ${formatQty(suggested, p.units!, p.unit, primaryUnitOf(p))}` : '';
 
     rows.push({
       ...p, expected, withBuffer, onVan, suggested,

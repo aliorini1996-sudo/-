@@ -41,7 +41,7 @@ import { mapBuyerParty, type DocumentKind, type InvoiceSubtype, type LineSource 
 import type { UblParty, ZatcaIssue } from './model';
 import { isPrintableMirror, type Subtype } from './status';
 import { computeInvoiceTotals, roundDecimal, type CalcResult } from '../../lib/invoiceCalc';
-import { baseQtyOf, factorOf, formatQty, refundAmount, toBase } from '../../services/units';
+import { baseQtyOf, factorOf, formatQty, productQtyText, refundAmount, toBase } from '../../services/units';
 
 // ─── الأنواع ───
 
@@ -83,6 +83,8 @@ export interface NoteOriginalItem {
   units?: readonly NoteUnitDef[] | null;
   /** اسم وحدة الأساس (Product.unit) — لرسالة التجاوز «١ كرتون و٣ حبة». */
   baseUnitName?: string | null;
+  /** «الوحدة الرئيسية» (Product.primaryUnitId): عرضٌ وحده — رسالة التجاوز بها («2 كرتون و3 قارورة»)، ولا تدخل حساباً (I2). */
+  primaryUnitId?: string | null;
   /**
    * صافي البند شاملاً خصومه وضريبته كما قُيِّد يوم البيع (InvoiceItem.lineTotal) — مرجعُ حصّة إشعارٍ بوحدةٍ غير وحدة
    * البند (حبّةٌ من كرتون). غائبٌ ⇒ يُعاد حسابه بالمحرّك من بنود الأصل (الحساب نفسه الذي قيّده).
@@ -320,6 +322,8 @@ export interface CreditableLine {
   unitFactor: number;
   /** اسم وحدة الأساس للعرض (Product.unit). */
   baseUnitName: string | null;
+  /** «الوحدة الرئيسية» للعرض وحده (رسالة التجاوز) — غائبةٌ أو null ⇒ النصّ القائم حرفياً. */
+  primaryUnitId?: string | null;
   /** وحدات الصنف — ما يجوز الإرجاع به غير وحدة البند نفسها ووحدة الأساس. */
   units: readonly NoteUnitDef[];
   /** أسماء الحقول الأربعة أعلاه الصريحة (بالأساس) — بها يعمل الحارس وعقد الواجهة الجديد. */
@@ -408,6 +412,7 @@ export function creditableLines(
       unitName: typeof it.unitName === 'string' && it.unitName.trim() !== '' ? it.unitName.trim() : null,
       unitFactor: factor,
       baseUnitName: typeof it.baseUnitName === 'string' && it.baseUnitName.trim() !== '' ? it.baseUnitName.trim() : null,
+      ...(it.primaryUnitId ? { primaryUnitId: it.primaryUnitId } : {}),
       units: Array.isArray(it.units) ? it.units : [],
       soldBase,
       creditedBase,
@@ -457,6 +462,14 @@ export interface CreditLineRequest {
   invoiceItemId: string;
   qty: number;
   unitId?: string | null;
+  /**
+   * «الوحدة الرئيسية» #8 (§2.13) — حقولٌ داخلية يملؤها الخادم وحده من resolveLineUnit (مرتجع POST /invoices بعد الربط)، ولا
+   * يقبلها مخطّط أيّ مسار من الجسم: لقطة وحدة البند كما حُلّت (ومعها إعادة أساس مستندٍ دون اتصال بعد تحويل)، والأساس الذي حُلّت
+   * عليه — يقارنه الإشعار تحت قفل الأصناف (invoicesNotes.ts stampNote).
+   */
+  unitFactor?: number | null;
+  unitName?: string | null;
+  expectedBase?: string | null;
 }
 
 export type CreditLinesRequest = 'FULL' | readonly CreditLineRequest[];
@@ -499,8 +512,19 @@ const lineUnitOf = (l: CreditableLine): CreditUnit => ({ name: l.unitName, facto
  *   • معرّفٌ ليس من وحدات الصنف (صنفٌ آخر، أو وحدةٌ حُذفت، أو كاشٌ قديم على الجهاز) ⇒ null فيُرفض الطلب UNIT_INVALID
  *     (DESIGN.md «قرارات أثناء التنفيذ»): قراءته أساساً بصمتٍ كانت تُرجع كرتوناً حبّةً في مستندٍ ضريبيّ لا يُمحى.
  */
-function creditUnitOf(l: CreditableLine, unitId: string | null | undefined): CreditUnit | null {
+function creditUnitOf(
+  l: CreditableLine, unitId: string | null | undefined, explicit?: { name: string | null; factor: number } | null,
+): CreditUnit | null {
   const wanted = typeof unitId === 'string' && unitId !== '' ? unitId : null;
+  /* #8: لقطةٌ حلّها الخادم بلا وحدةٍ تحملها اليوم (مستندٌ دون اتصال بوحدةٍ حُذفت أو تغيّر معاملها، أو أُعيد أساسه بعد تحويل) —
+   * معاملها هو الحكم لا الأساس: «٢ كرتون» من جهازٍ لم يرَ التحويل لا تصير قارورتين. رمزها رمز وحدة البند إن كانت هي، وإلا
+   * الرمز العامّ. وبلا لقطة (أو بمعامل ١) ⇒ القائم حرفياً */
+  const ef = explicit ? Number(explicit.factor) : NaN;
+  if (!wanted && explicit && Number.isInteger(ef) && ef > 1) {
+    const name = typeof explicit.name === 'string' && explicit.name.trim() !== '' ? explicit.name.trim() : null;
+    const sameAsLine = ef === l.unitFactor && name === l.unitName;
+    return { name, factor: ef, code: sameAsLine || (name !== null && name === l.unitName) ? l.unitCode : PHASE2_UNIT_CODE, sameAsLine };
+  }
   const u = wanted ? l.units.find(x => x?.id === wanted) : undefined;
   if (u) {
     if (l.unitName !== null && String(u.name ?? '').trim() === l.unitName) return lineUnitOf(l);
@@ -649,8 +673,12 @@ function fullCreditLine(l: CreditableLine): ResolvedCreditLine {
 const isMultiUnit = (l: CreditableLine, units: readonly CreditUnit[]): boolean =>
   l.unitFactor !== 1 || l.units.length > 0 || units.some(u => u.factor !== 1);
 
-/** كمية بالأساس كما يقرؤها المندوب: «١ كرتون و٣ حبة». */
+/** كمية بالأساس كما يقرؤها المندوب: «١ كرتون و٣ حبة». ولصنفٍ له وحدة رئيسية: بها («2 كرتون و3 قارورة»)، وبلاها القائم حرفياً */
 function qtyText(base: number, l: CreditableLine): string {
+  if (l.primaryUnitId) {
+    const units = l.units.map(u => ({ id: u.id, name: u.name, factor: Number(u.factor), isActive: u.isActive }));
+    return productQtyText(base, { primaryUnitId: l.primaryUnitId, units, unit: l.baseUnitName ?? '' }).trim();
+  }
   return formatQty(base, l.units.map(u => ({ name: u.name, factor: Number(u.factor), isActive: u.isActive })), l.baseUnitName ?? '').trim();
 }
 
@@ -686,7 +714,7 @@ export function resolveCreditLines(lines: readonly CreditableLine[], request: Cr
       issues.push(lineIssue(`lines[${i}].invoiceItemId`, `البند ${i + 1} ليس من بنود الفاتورة الأصلية`));
       return;
     }
-    const unit = creditUnitOf(l, r?.unitId);
+    const unit = creditUnitOf(l, r?.unitId, r?.unitFactor != null ? { name: r.unitName ?? null, factor: Number(r.unitFactor) } : null);
     if (!unit) {
       unitIssues.push({
         rule: 'CREDIT-UNIT', field: `lines[${i}].unitId`, severity: 'error',

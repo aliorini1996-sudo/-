@@ -8,8 +8,9 @@ import {
   LOT_BUCKET_LABELS, LOT_CERTAINTY_LABELS, LOT_EPS, LOT_EVENT_KIND_LABELS, LOT_PLACE_LABELS, LOT_ROW_FLAG_LABELS, LOT_SOURCE_LABELS,
   LOT_STATUS_LABELS, LOT_BLOCK_KIND_LABELS, isLotExpiredOn, lotDatesProblem, lotDay, normalizeLotNumber, roundLot,
   type BucketQty, type LotBlockKind, type LotBucket, type LotEventKind, type LotPlace, type LotRelabelReason, type LotSource,
-  type LotStatus, type LotTraceDto, type LotUnloadPlanDto, type PlaceLotViewDto, type ProductLotDto,
+  type LotRelabelRequest, type LotStatus, type LotTraceDto, type LotUnloadPlanDto, type PlaceLotViewDto, type ProductLotDto,
 } from './lots';
+import { baseNameKey, primaryUnitOf, productQtyText, type UnitDef } from './units';
 import type { ExcelSheet } from '../utils/excel';
 
 type Tr = (ar: string) => string;
@@ -26,20 +27,30 @@ export interface LotSummaryDto {
   warehouse: number; vans: BucketQty; held: number; vanCount: number; total: number;
   places?: LotPlaceBalanceDto[];
 }
-/** صفّ GET /lots */
+/**
+ * صفّ GET /lots — «الوحدة الرئيسية»: `productUnits` (بمعرّفاتها) و`productPrimaryUnitId` لعرض الكميات بالرئيسية،
+ * وغيابهما (خادمٌ أقدم) أو null ⇒ العرض القائم.
+ */
 export interface LotListRow extends ProductLotDto {
   productName: string; productCode: string | null; productUnit: string | null;
+  productUnits?: UnitDef[] | null; productPrimaryUnitId?: string | null;
   summary: LotSummaryDto | null;
 }
 /** GET /lots/:id — inUse: للبطاقة حركات (لا تُحذف، ومدّ انتهائها لغير المقيّد بسبب) */
 export interface LotDetailDto extends ProductLotDto {
-  product: { id: string; name: string; code: string | null; unit: string | null; lotTracked: boolean; shelfLifeOn: boolean };
+  product: {
+    id: string; name: string; code: string | null; unit: string | null; lotTracked: boolean; shelfLifeOn: boolean;
+    /** «الوحدة الرئيسية» (§2.11ب): وحدات الصنف بمعرّفاتها ورئيسيّه — الغائب أو null ⇒ العرض القائم */
+    units?: UnitDef[] | null; primaryUnitId?: string | null;
+  };
   expired: boolean; day: string; inUse: boolean; summary: LotSummaryDto | null; scoped: boolean;
 }
 /** عجزٌ في /lots/health — lotId: null = غير المسمّى */
 export interface LotDeficitRow {
   productId: string; productName: string | null; place: LotPlace; salesRepId: string | null; repName: string | null;
   lotId: string | null; lotNumber: string | null; bucket: LotBucket; qty: number;
+  /** «الوحدة الرئيسية» (اختيارية، بشكل صفّ GET /lots): غيابها ⇒ العجز رقماً كما كان */
+  productUnit?: string | null; productUnits?: UnitDef[] | null; productPrimaryUnitId?: string | null;
 }
 /** توافر المكان كما يحسبه splitAvailability في الخادم */
 export interface LotAvailabilityDto {
@@ -106,20 +117,74 @@ export const lotUnloadOn = (lot: { status: LotStatus; product?: { lotTracked?: b
 /**
  * جسم تنزيل التشغيلة من سيارة بعد إيقافها (POST /van-stock/loads): صالحها في «صالح للبيع» بلوطٍ صريح، والمحذوفة بـdeletedSalesRepId
  * (D30). الكمية أساسية (بلا وحدة ⇒ الأساس). لا صالح ⇒ null (المحجوز يُنزَّل بعد اعتماد إشعاره)، وصنفٌ غير متتبَّع ⇒ null (lotUnloadOn).
+ * «الوحدة الرئيسية» (§3، I6): البند يحمل `baseUnitName` أساس الصنف كما قرأته البطاقة — فإن حُوِّل الصنف بعد فتحها ردّ الخادم
+ * ٤٠٠/٤٠٩ بدل تنزيل كميةٍ بأساسٍ قديم. صنفٌ بلا اسم أساسٍ في اليد ⇒ بلا المفتاح (الجسم القائم حرفاً).
  */
-export function unloadBody(lot: { id: string; productId: string; product?: { lotTracked?: boolean | null } | null }, row: LotUnloadPlanDto, note: string): {
+export function unloadBody(lot: { id: string; productId: string; product?: { lotTracked?: boolean | null; unit?: string | null } | null }, row: LotUnloadPlanDto, note: string): {
   type: 'UNLOAD'; salesRepId?: string; deletedSalesRepId?: string; note: string;
-  items: { productId: string; qty: number; lots: { lotId: string; qty: number }[] }[];
+  items: { productId: string; qty: number; lots: { lotId: string; qty: number }[]; baseUnitName?: string }[];
 } | null {
   if (lot.product && lot.product.lotTracked !== true) return null;
   const qty = roundLot(row.usable?.SELLABLE ?? 0);
   if (!(qty > LOT_EPS)) return null;
+  const base = baseNameKey(lot.product?.unit);
   return {
     type: 'UNLOAD',
     ...(row.deleted ? { deletedSalesRepId: row.salesRepId } : { salesRepId: row.salesRepId }),
     note,
-    items: [{ productId: lot.productId, qty, lots: [{ lotId: lot.id, qty }] }],
+    items: [{ productId: lot.productId, qty, lots: [{ lotId: lot.id, qty }], ...(base && { baseUnitName: base }) }],
   };
+}
+
+// ─── الوحدة الرئيسية (R1 وR8): كل كمية هنا بالأساس، والعرض وحده يتغيّر ───
+
+/** صنف التشغيلة كما يحتاجه العرض: اسم الأساس، ووحداته بمعرّفاتها، ورئيسيّه */
+export interface LotUnitProduct { unit?: string | null; units?: UnitDef[] | null; primaryUnitId?: string | null }
+
+/** صنف صفّ القائمة (أو صفّ العجز) بشكل LotUnitProduct */
+export const lotRowProduct = (r: { productUnit?: string | null; productUnits?: UnitDef[] | null; productPrimaryUnitId?: string | null }): LotUnitProduct =>
+  ({ unit: r.productUnit ?? null, units: r.productUnits ?? null, primaryUnitId: r.productPrimaryUnitId ?? null });
+
+/**
+ * كمية بالأساس للعرض: لصنفٍ له وحدة رئيسية صالحة «2 كرتون و3 قارورة» (productQtyText، وأرقامها بمنسّق الشاشة `fmt`)،
+ * وإلا `fmt(n)` كما كان حرفاً (I1) — لا تفكيك بوحداتٍ لصنفٍ بلا رئيسية، فشاشة اللوط بلا رئيسية لا تتغيّر.
+ */
+export function lotQtyText(n: number, p: LotUnitProduct | null | undefined, fmt: (n: number) => string): string {
+  if (!primaryUnitOf(p)) return fmt(n);
+  return productQtyText(roundLot(Number(n) || 0), p).replace(/\d+(?:\.\d+)?/g, (m) => fmt(Number(m)));
+}
+
+/** الكمية ومعها وحدتها: بالرئيسية نصّها وحده (فيه أسماء الوحدات)، وإلا «الرقم اسم الأساس» كما كان */
+export function lotQtyUnitText(n: number, p: LotUnitProduct | null | undefined, fmt: (n: number) => string): string {
+  return primaryUnitOf(p) ? lotQtyText(n, p, fmt) : `${fmt(n)} ${p?.unit || ''}`;
+}
+
+/**
+ * اتجاه خانة كمية بإشارة (العجز «-2»، والأثر «+12») — `ltr` للرقم وحده كما كان. ونصّ الرئيسية عربيٌّ بأرقام («-1 كرتون و2 قارورة»):
+ * في خانة ltr تنتقل الإشارة والرقم الأول إلى يسار العبارة فتُقرأ «كرتون و2 قارورة -1» — فيرث اتجاه الصفحة (undefined).
+ */
+export const lotQtyDir = (p: LotUnitProduct | null | undefined): 'ltr' | undefined => (primaryUnitOf(p) ? undefined : 'ltr');
+
+/** اسم الأساس اللاحق بالرقم في الخانات: '' لصنفٍ له رئيسية (النص يحمل أسماءه)، وإلا اسم الأساس كما كان */
+export const lotUnitTag = (p: LotUnitProduct | null | undefined): string => (primaryUnitOf(p) ? '' : p?.unit || '');
+
+/**
+ * سطر «الكميات بـ…» في نافذة التسمية (R8): المدخلات بالأساس دائماً. لصنفٍ له رئيسية لا تُذكر كلمة «الأساس» (D21) بل
+ * «الوحدة الصغرى» باسمها، وإلا النص القائم حرفاً.
+ */
+export function lotsUnitNote(p: LotUnitProduct | null | undefined, tr: Tr): string {
+  const unit = p?.unit || '';
+  if (primaryUnitOf(p)) return `${tr('الكميات بالوحدة الصغرى')}${unit ? ` (${unit})` : ''}`;
+  return `${tr('الكميات بوحدة الأساس')} ${unit ? `(${unit})` : ''}`;
+}
+
+/**
+ * رفض الخادم لأن أساس الصنف تغيّر منذ فُتحت النافذة (§2.11ب: المقارنة الحيّة ⇒ ٤٠٠ UNIT_INVALID، والقفل ⇒ ٤٠٩
+ * PRODUCT_UNITS_CHANGED) — تُعاد قراءة التشغيلة وصنفها قبل المحاولة التالية.
+ */
+export function baseChangedError(err: unknown): boolean {
+  const r = (err as { response?: { status?: unknown; data?: { code?: unknown } } } | null)?.response;
+  return (r?.status === 400 || r?.status === 409) && (r?.data?.code === 'UNIT_INVALID' || r?.data?.code === 'PRODUCT_UNITS_CHANGED');
 }
 
 // ─── التسمية وإعادة التصنيف (§٤.٦، D27) ───
@@ -198,6 +263,28 @@ export function relabelProblem(input: {
   }
   if (roundLot(sum) > source.usable + LOT_EPS) return 'الكمية أكبر من المتاح في المصدر';
   return null;
+}
+
+/**
+ * جسم POST /lots/relabel من النموذج: الكميات بالأساس كما كُتبت (R8)، ومعها `baseUnitName` الأساس الذي رآه المستخدم حين فتح
+ * النافذة (§2.11ب) — فإن حُوِّل الصنف بينهما ردّ الخادم ٤٠٠/٤٠٩ بدل تسمية ٢٤ ضعفاً. اسمٌ غائب ⇒ بلا المفتاح.
+ */
+export function relabelBody(input: {
+  productId: string; place: LotPlace; vanKey: string | null; bucket: LotBucket; fromLotId: string | null; reason: LotRelabelReason;
+  note: string; lines: RelabelLineForm[]; baseUnitName: string | null | undefined;
+}): LotRelabelRequest & { baseUnitName?: string } {
+  const base = baseNameKey(input.baseUnitName);
+  return {
+    productId: input.productId, place: input.place, vanKey: input.vanKey, bucket: input.bucket, fromLotId: input.fromLotId, reason: input.reason,
+    note: input.note.trim() || null,
+    lines: input.lines.map((l) => ({
+      qty: roundLot(Number(l.qty)),
+      ...(l.mode === 'EXISTING' ? { toLotId: l.toLotId }
+        : l.mode === 'NEW' ? { lotNumber: l.lotNumber.trim(), productionDate: l.productionDate || null, expiryDate: l.expiryDate || null }
+        : { toLotId: null }),
+    })),
+    ...(base && { baseUnitName: base }),
+  };
 }
 
 // ─── سلامة الأرصدة ───

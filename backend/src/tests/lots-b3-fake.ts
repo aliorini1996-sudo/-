@@ -125,7 +125,8 @@ export class World {
     if (sql.includes('FOR KEY SHARE')) {
       const ids = new Set(arrays[0] ?? []);
       return this.products.filter((p) => p.tenantId === values[0] && ids.has(p.id)).sort((a, b) => (a.id < b.id ? -1 : 1))
-        .map((p) => ({ id: p.id, lotTracked: p.lotTracked, lotTrackedSince: p.lotTrackedSince }));
+        // وحدة الأساس حين يختارها الاستعلام (lockLotProducts وlockBases — «الوحدة الرئيسية» §2.6) لا في إعادة قراءة التتبّع وحدها
+        .map((p) => ({ id: p.id, ...(/\bunit\b/.test(sql) && { unit: p.unit }), lotTracked: p.lotTracked, lotTrackedSince: p.lotTrackedSince }));
     }
     if (sql.includes("current_setting('lock_timeout')")) return [{ lock_timeout: '5s' }];
     if (sql.includes('SELECT now()')) return [{ now: this.now() }];

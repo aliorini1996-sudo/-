@@ -12,8 +12,8 @@ import { backdropClose } from '../lib/backdropClose';
 import { filterFlat } from '../lib/reportSearch';
 import { localDay } from '../lib/paymentMethods';
 import {
-  LOCATION_NAME_MAX, assignOptions, bucketLabel, errorCode, fmtCoord, hasActivity, locationErrorMessage, locationFilterOptions,
-  locationLabel, locationsAccess, locationsPageAllowed, mapsLink, parseLatLng, pointProblem, summaryBuckets, summarySheets,
+  LOCATION_NAME_MAX, assignOptions, bucketLabel, errorCode, fmtCoord, hasActivity, loadProductPrimaryText, loadsQtySuffix, locationErrorMessage,
+  locationFilterOptions, locationLabel, locationsAccess, locationsPageAllowed, mapsLink, parseLatLng, pointProblem, summaryBuckets, summarySheets,
   type LatLng, type LocBucket, type LocationRep, type LocationsSummaryData, type SalesLocation,
 } from '../lib/locations';
 import { formatCurrency, activeLocale } from '../utils/format';
@@ -157,6 +157,8 @@ function SummaryTab() {
   const data = q.data;
   const range = data ? (data.range.from === data.range.to ? data.range.from : `${data.range.from} — ${data.range.to}`) : '';
   const buckets = useMemo(() => (data ? summaryBuckets(data) : []), [data]);
+  // R3: مجموع الكميات عبر الأصناف بالأساس — موسومٌ «بالوحدات الصغرى» حين فيه صنفٌ له وحدة رئيسية، وإلا '' (الوسم القائم)
+  const qtySuffix = loadsQtySuffix(data, tr);
   const pins: Pin[] = useMemo(() => buckets
     .filter(b => b.locationId && b.lat != null && b.lng != null)
     .map(b => ({
@@ -165,9 +167,9 @@ function SummaryTab() {
         `${tr('المبيعات')}: ${formatCurrency(b.sales.amount)} (${fmtCount(b.sales.count)})`,
         `${tr('المرتجعات')}: ${formatCurrency(b.returns.amount)} (${fmtCount(b.returns.count)})`,
         `${tr('صافي المبيعات')}: ${formatCurrency(b.net)}`,
-        `${tr('التحميلات')}: ${fmtCount(b.loads.count)} · ${tr('الكمية')} ${fmtQty(b.loads.qty)}`,
+        `${tr('التحميلات')}: ${fmtCount(b.loads.count)} · ${tr('الكمية')} ${fmtQty(b.loads.qty)}${qtySuffix}`,
       ],
-    })), [buckets, tr]);
+    })), [buckets, tr, qtySuffix]);
 
   const keyOf = (b: LocBucket) => b.locationId ?? 'none';
   const toggle = (k: string) => setOpen(s => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
@@ -228,7 +230,7 @@ function SummaryTab() {
             <div className="card text-center">
               <p className="text-xs text-gray-500">{tr('التحميلات')}</p>
               <p className="text-xl font-bold text-[#1E7A52] tabular-nums">{fmtCount(data.totals.loads.count)}</p>
-              <p className="text-[11px] text-gray-400 mt-0.5 tabular-nums">{tr('الكمية')} {fmtQty(data.totals.loads.qty)}</p>
+              <p className="text-[11px] text-gray-400 mt-0.5 tabular-nums">{tr('الكمية')} {fmtQty(data.totals.loads.qty)}{qtySuffix}</p>
             </div>
           </div>
 
@@ -246,7 +248,7 @@ function SummaryTab() {
                     <th>{tr('مبلغ المرتجعات')}</th>
                     <th>{tr('صافي المبيعات')}</th>
                     <th>{tr('عدد التحميلات')}</th>
-                    <th>{tr('كمية التحميل')}</th>
+                    <th>{tr('كمية التحميل')}{qtySuffix}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -282,11 +284,17 @@ function SummaryTab() {
                         <tr key={`${k}-products`} className="bg-[#FAF7F0]/50">
                           <td colSpan={8}>
                             <div className="flex flex-wrap gap-1.5">
-                              {b.loads.products.map(p => (
-                                <span key={p.productId} className="text-[11px] bg-white border border-[#F1EBDF] rounded-md px-2 py-0.5 text-[#1F1A13]">
-                                  {p.name || '—'} <b>{fmtQty(p.qty)}</b> {p.unit ?? ''}
-                                </span>
-                              ))}
+                              {b.loads.products.map(p => {
+                                // R1: صنفٌ له وحدة رئيسية «52 كرتون و2 قارورة»، وغيره «الرقم + اسم الأساس» كما كان
+                                const primaryText = loadProductPrimaryText(p, fmtQty);
+                                return (
+                                  <span key={p.productId} className="text-[11px] bg-white border border-[#F1EBDF] rounded-md px-2 py-0.5 text-[#1F1A13]">
+                                    {primaryText != null
+                                      ? <>{p.name || '—'} <b>{primaryText}</b></>
+                                      : <>{p.name || '—'} <b>{fmtQty(p.qty)}</b> {p.unit ?? ''}</>}
+                                  </span>
+                                );
+                              })}
                             </div>
                           </td>
                         </tr>

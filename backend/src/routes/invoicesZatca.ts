@@ -39,7 +39,7 @@ import { isOverdue, isPrintableMirror, mirrorQrOf, mirrorStatusOf, subtypeOfType
 import type { KeyedAsyncMutex } from '../compliance/zatca/unitMutex';
 // ZATCA المرحلة الثانية (Z5.8، نقد 3/4 D11): قرار الانتقال — مستندٌ دون اتصال من قبل التفعيل يُرفع بعده
 import { cutoverDecision, type CutoverReason, type CutoverRecordInput, type CutoverStatus } from '../compliance/zatca/goLive';
-import { unitFields } from '../services/units';
+import { baseNameKey, unitFields } from '../services/units';
 // «تتبّع اللوط» (§٤.٩): أنواع الخطة والتوزيع ودمج صفوفه في البند — services/lots.ts نقيّة (لا قاعدة ولا Prisma)
 import {
   asLockBusy, invoiceItemLotColumns, lotErr,
@@ -48,6 +48,9 @@ import {
 import { randomUUID } from 'node:crypto';
 // نوعٌ فقط (يُمحى وقت التشغيل): لقطة الوحدة التي يحلّها resolveLineUnit — الحلّ الوحيد للوحدة في المنصّة
 import type { LineUnit } from './invoices';
+// «الوحدة الرئيسية» I10 (§2.13): سجلّ «قيد التحويل» في ذاكرة العملية يردّ أصناف تحويلٍ جارٍ قبل الـmutex ورأس السلسلة — فلا
+// يحبس تحويلٌ طويل إصدار الشركة كلّها
+import { anyConverting } from '../services/baseGuard';
 
 // ─── ترويسات قدرات العميل (نقد 1، 2) ───
 
@@ -382,11 +385,29 @@ export class Phase2ProductUnitsChanged extends Error {
   constructor(readonly names: string[]) { super('تغيّرت وحدة الأساس لصنف أثناء الحفظ'); }
 }
 
+/**
+ * «الوحدة الرئيسية» I10: قفل الأصناف انتظر تحويلاً طويلاً أكثر من LOT_LOCK_TIMEOUT (55P03)، أو تعطّلٌ متبادل (40P01)، أو صنفٌ
+ * قيد التحويل الآن (anyConverting) — المعاملة تُلغى قبل الترقيم وICV، و503 PRODUCT_UNITS_BUSY يعيده الصندوق والواجهة.
+ */
+export class Phase2ProductUnitsBusy extends Error {
+  constructor() { super('PRODUCT_UNITS_BUSY'); }
+}
+
+/**
+ * I10: مهلة انتظار قفل الأصناف في إصدار المرحلة الثانية والإشعارات = LOT_LOCK_TIMEOUT (services/lotsDb.ts) حرفياً. نسخةٌ لا
+ * استيراد: الفرع لا يستورد خدمات اللوط ذات القاعدة (عزل D29، tests/lots-static-b6) — ويثبت تطابقهما اختبار primary-unit-notes.
+ */
+export const PRODUCT_LOCK_TIMEOUT = '5s';
+
+/** نصّ 503 PRODUCT_UNITS_BUSY — نصّ baseGuardReply نفسه (services/baseGuard.ts) بلا كلمة «الأساس» (D21)، ويتشاركه المسار القديم والإشعارات */
+export const PRODUCT_UNITS_BUSY_MESSAGE = 'وحدات الأصناف قيد التحديث الآن — أعد المحاولة بعد لحظات';
+
 /** أسماء الأصناف التي تبدّلت وحدة أساسها عمّا حُلّت عليه اللقطات (صفوفٌ مقفلة مقابل المتوقَّع). */
 export function movedBaseUnits(
   expected: ReadonlyMap<string, { name: string; unit: string }>, locked: ReadonlyArray<{ id: string; unit: string }>,
 ): string[] {
-  return locked.filter(r => expected.has(r.id) && expected.get(r.id)!.unit !== r.unit).map(r => expected.get(r.id)!.name);
+  // D20-أ: بمفتاح الاسم على الطرفين — اسم أساسٍ أطول من ٦٤ حرفاً (حدّ baseUnitName) لا يُرى «متحوّلاً» كذباً
+  return locked.filter(r => expected.has(r.id) && baseNameKey(expected.get(r.id)!.unit) !== baseNameKey(r.unit)).map(r => expected.get(r.id)!.name);
 }
 
 /**
@@ -402,8 +423,20 @@ async function lockProductBases(
   const raw = (tx as { $queryRaw?: unknown }).$queryRaw;
   if (typeof raw !== 'function' || expected.size === 0) return [];
   const ids = [...expected.keys()];
-  const rows = await tx.$queryRaw<Array<{ id: string; unit: string; lotTracked: boolean }>>`
+  // I10: الإصدار يمسك رأس سلسلة الشركة وهو ينتظر هنا — فالانتظار محدودٌ بمهلةٍ محلية تُحفظ وتُستعاد (نمط lotsDb.ts):
+  // 55P03 أو 40P01 ⇒ Phase2ProductUnitsBusy (503) والمعاملة تُلغى قبل الترقيم وICV، فأقصى حبسٍ لرأس السلسلة خمس ثوانٍ
+  const prevRows = await tx.$queryRaw<Array<{ lock_timeout: string }>>`SELECT current_setting('lock_timeout') AS lock_timeout`;
+  const prev = Array.isArray(prevRows) && typeof prevRows[0]?.lock_timeout === 'string' ? prevRows[0].lock_timeout : '0';
+  await tx.$queryRaw`SELECT set_config('lock_timeout', ${PRODUCT_LOCK_TIMEOUT}, true)`;
+  let rows: Array<{ id: string; unit: string; lotTracked: boolean }>;
+  try {
+    rows = await tx.$queryRaw<Array<{ id: string; unit: string; lotTracked: boolean }>>`
     SELECT id, unit, "lotTracked" FROM products WHERE id = ANY(${ids}) AND "tenantId" = ${tenantId} FOR KEY SHARE`;
+  } catch (e) {
+    if (asLockBusy(e)) throw new Phase2ProductUnitsBusy();
+    throw e;
+  }
+  await tx.$queryRaw`SELECT set_config('lock_timeout', ${prev}, true)`;
   const locked = Array.isArray(rows) ? rows : [];
   const moved = movedBaseUnits(expected, locked);
   if (moved.length) throw new Phase2ProductUnitsChanged(moved);
@@ -434,7 +467,7 @@ async function tenantLotsOnInTx(tx: Phase2Tx, tenantId: string): Promise<boolean
 }
 
 /** ردّ التحويل المتزامن كما يردّه المسار القديم حرفاً: إعادة الرفع 503 (يعيد الصندوق المحاولة ولا يُعدم المستند)، والحيّ 409. */
-function productUnitsChangedResult(caps: ClientCapsHeaders, names: readonly string[]): Phase2Result {
+export function productUnitsChangedResult(caps: ClientCapsHeaders, names: readonly string[]): Phase2Result {
   return {
     status: isReplayRequest(caps) ? 503 : 409,
     body: {
@@ -442,6 +475,11 @@ function productUnitsChangedResult(caps: ClientCapsHeaders, names: readonly stri
       message: `تغيّرت وحدة الأساس لـ«${names.join('، ')}» أثناء الحفظ — حدّث الأصناف ثم أعد المحاولة`,
     },
   };
+}
+
+/** I10: انتظار قفل تحويلٍ طويل، أو صنفٌ قيد التحويل — 503 للحيّ ولإعادة الرفع معاً (لا مستند ولا ICV؛ أعد المحاولة) */
+export function productUnitsBusyResult(): Phase2Result {
+  return { status: 503, body: { success: false, code: 'PRODUCT_UNITS_BUSY', message: PRODUCT_UNITS_BUSY_MESSAGE } };
 }
 
 export type Phase2Tx = Pick<Prisma.TransactionClient, '$queryRaw' | '$executeRaw' | 'zatcaDocument' | 'invoice' | 'notification'>;
@@ -707,11 +745,17 @@ export async function issuePhase2Invoice(ctx: Phase2IssuanceContext, deps: Phase
     return errorResult(new ZatcaHttpError('ZATCA_CLIENT_UPDATE_REQUIRED', { logDetail: { source: 'CAPS', code: 'NO_CLIENT_REF' } }));
   }
 
+  // I10 (§2.13): صنفٌ قيد التحويل الآن في هذه العملية ⇒ 503 فوراً، قبل الـmutex ورأس السلسلة (runIssuance) — فلا ينتظر إصدار
+  // الشركة خلف تحويلٍ طويل، والفواتير بأصنافٍ أخرى لا تمرّ بشيء. إسراعٌ لا ضمان: الضمان مهلة القفل في lockProductBases
+  if (anyConverting(ctx.tenantId, ctx.body.items.map(i => i.productId))) return productUnitsBusyResult();
+
   try {
     return await issueNow(ctx, deps, seller, regime.unit, now);
   } catch (e) {
     // تحويل وحدة أساسٍ التزم بين حلّ اللقطات والإصدار — المعاملة أُلغيت فلا مستند ولا ICV
     if (e instanceof Phase2ProductUnitsChanged) return productUnitsChangedResult(ctx.caps, e.names);
+    // I10: انتظر القفلُ تحويلاً أطول من مهلته — المعاملة أُلغيت قبل الترقيم وICV
+    if (e instanceof Phase2ProductUnitsBusy) return productUnitsBusyResult();
     const err = issuanceHttpError(e);
     if (!err) throw e; // P2002 على clientRef (سباق الرفع المكرّر) وما لا يخصّ الفوترة
     if (err.alert && deps.alert) {

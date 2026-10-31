@@ -3,7 +3,13 @@ import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import {
   toBase, factorOf, unitPriceOf, unitFields, refundPerBase, refundAmount, formatQty, baseQtyOf, QTY_EPS, MAX_UNIT_FACTOR,
+  baseNameKey, primaryUnitOf, productQtyText,
 } from '../services/units';
+// «الوحدة الرئيسية» D16: سجلّ تحويلات الأساس كما تقرؤه إعادة الرفع (نقيّ)، وD19: مفتاح API على صنفٍ محوَّل بلا أساسه
+import {
+  chainFrom, conversionsSince, pickByFactor, pickByPrice, rebaseCandidates, type BaseConversionRow,
+} from '../services/baseConversions';
+import { baseUnitRequiredReply, missingBaseForApi } from '../services/baseGuard';
 import { ReturnLinkError, SALE_TYPES, assertReturnLinks, returnableOf, returnedBySaleItem } from '../services/returnLinks';
 import { isExpiredOn, linkedReturnExpiry, returnRuleBlock, saleExpiryFor, stampExpiryAfterIssue, tenantTz } from '../services/invoiceExpiry';
 import { catalogTeamsFor, resolveDocTeam, supervisorViewerOf, teamCatalogProblem, teamMembershipSelectFor } from '../services/teams';
@@ -32,7 +38,7 @@ import { ALLOCATION_ALLOWED_WHERE } from '../compliance/zatca/status';
 import { ZatcaHttpError } from '../compliance/zatca/errors';
 import { issuanceHttpError } from '../compliance/zatca/issue';
 import {
-  assertLockedStillUntracked, capsFromHeaders, capsGate, isPhase2Invoice, issuePhase2Invoice, phase2ReadBody, phase2ReplayBody,
+  PRODUCT_UNITS_BUSY_MESSAGE, assertLockedStillUntracked, capsFromHeaders, capsGate, isPhase2Invoice, issuePhase2Invoice, phase2ReadBody, phase2ReplayBody,
   type Phase2IssuanceContext,
 } from './invoicesZatca';
 import { productionPhase2Deps } from './invoicesZatcaDeps';
@@ -55,11 +61,11 @@ import { CancelRefused, lockInvoiceForCancel } from '../services/docCancel';
 // «تتبّع اللوط»: توزيع البنود على التشغيلات داخل معاملة الإصدار، وحارسا إلغاء المرتجع وإطفاء عودته — للصنف المتتبَّع في شركةٍ
 // فعّلت الميزة وحده؛ وغيره مساره حرفياً كما كان (services/lotsInvoice.ts)
 import { randomUUID } from 'node:crypto';
-import { LotError, invoiceItemLotColumns, lotHttpError, type ItemExpiryStamp, type LotActor, type LotWarning } from '../services/lots';
-import { acquireLotQueue, companyDay } from '../services/lotsDb';
+import { LotError, asLotBusy, invoiceItemLotColumns, lotHttpError, type ItemExpiryStamp, type LotActor, type LotWarning } from '../services/lots';
+import { LOT_LOCK_TIMEOUT, acquireLotQueue, companyDay } from '../services/lotsDb';
 import {
   LOT_ALLOW_UNKNOWN, LOT_TX_OPTIONS, allocateInvoiceLotsInTx, assertRestockOffKeepsLots, assertReturnCancelKeepsLots, assertReturnStillUntracked,
-  freeReturnStamps, invoiceLotLines, invoiceLotMoment, recordReplayHeld, saleItemLots, type IssuanceLotPlan,
+  freeReturnStamps, invoiceLotLines, invoiceLotMoment, recordReplayHeld, saleItemLots, scaleLotHint, type IssuanceLotPlan,
 } from '../services/lotsInvoice';
 
 const router = Router();
@@ -226,12 +232,24 @@ const createInvoiceSchema = z.object({
 /** وحدة صنفٍ كما يقرؤها الإصدار (صفّ ProductUnit) */
 type ProductUnitRow = { id: string; name: string; factor: number; price: number | null; unitCode: string | null; isActive: boolean };
 
-/** لقطة وحدة البند كما تُكتب، ومعها الوحدة التي يُسعَّر بسعرها المحدَّد — حين يطابق معاملُها اللقطةَ وحده */
-export interface LineUnit { unitName: string | null; unitFactor: number; unitCode: string | null; priceUnit: ProductUnitRow | null }
+/**
+ * لقطة وحدة البند كما تُكتب، ومعها الوحدة التي يُسعَّر بسعرها المحدَّد — حين يطابق معاملُها اللقطةَ وحده. و`unitId` معرّف تلك
+ * الوحدة بالشرط نفسه (null للأساس، ولمعاملٍ لا يطابق وحدةً اليوم): به يحوّل الإشعار الدائن كمية المرتجع إلى الأساس (§2.12-6)
+ */
+export interface LineUnit { unitName: string | null; unitFactor: number; unitCode: string | null; unitId: string | null; priceUnit: ProductUnitRow | null }
 
-const BASE_LINE_UNIT: LineUnit = { unitName: null, unitFactor: 1, unitCode: null, priceUnit: null };
+const BASE_LINE_UNIT: LineUnit = { unitName: null, unitFactor: 1, unitCode: null, unitId: null, priceUnit: null };
 
-export type LineUnitResult = { ok: true; unit: LineUnit } | { ok: false; status: number; code: string; message: string };
+/**
+ * «الوحدة الرئيسية» D16: كيف فُسّرت كمية بندٍ أُعيد رفعه بعد تحويل أساس صنفه — تُبلَّغ الإدارة به بعد الالتزام، والمستند لا يُحجز.
+ * AMBIGUOUS: لا إشارة في الجسم فحكمت ساعة الجهاز. CLOCK_DISAGREES: حكم السعر وخالفته الساعة. NO_DEVICE_TIME: لا إشارة ولا ساعة.
+ */
+export type ReplayUnitNotice = 'AMBIGUOUS' | 'CLOCK_DISAGREES' | 'NO_DEVICE_TIME';
+
+/** `rebase`: معامل إعادة الأساس الذي ضُربت به لقطة الجهاز (١ = لا إعادة) — به تُضرب كميات تلميح LOT (I9) */
+export type LineUnitResult =
+  | { ok: true; unit: LineUnit; rebase: number; notice?: ReplayUnitNotice }
+  | { ok: false; status: number; code: string; message: string };
 
 /** معامل لقطة الجهاز إن صحّ (صحيحٌ موجبٌ ضمن الحدّ)، وإلّا null: تُهمل اللقطة التالفة ولا يُرفض بها مستند */
 function deviceFactorOf(v: unknown): number | null {
@@ -253,50 +271,165 @@ function deviceFactorOf(v: unknown): number | null {
  * بمعامل F (التحويل يخلقها باسمه — products.ts convert-base) فاللقطة تُضرب بـF فتصير ١٢٠٠ حبّة لا ٥٠.
  * وما لا يثبت لا يُكتب ولا يُردّ إلى الأساس: ٤٠٠ UNIT_INVALID ظاهرٌ في الصندوق، لا كرتونٌ مقيَّدٌ حبّةً بصمت.
  *
+ * ═══ إعادة الرفع بعد تحويلٍ مسجَّل (D16، `opts.conversions` لصنفٍ baseConvertedAt ≠ null وحده — I8) ═══
+ * سجلّ التحويلات شاهد الخادم، والإشارات بالترتيب: (A) لقطةٌ بأساسٍ قديم ⇒ معامل السلسلة منه إلى الأساس الحالي، ولو حُذفت
+ * وحدة التحويل أو أعيدت تسميتها. (B) جسمٌ بلا لقطة (بناء ما قبل الميزة) ⇒ إشارة السعر (مرشّحٌ واحد ضمن ±٢٥٪ من مرجعه)، وإلا
+ * ساعة الجهاز مقابل convertedAt. (C) لقطةٌ بمعامل بلا أساس ⇒ إشارة المعامل (يساوي معامل الوحدة بالاسم الآن ⇒ من بعد التحويل؛
+ * يساويه بعد ضربه بمرشّحٍ واحد ⇒ قبله)، وإلا الساعة. وكلّ ما حكمت فيه الساعة يحمل `notice` فتُبلَّغ الإدارة؛ والمستند لا يُحجز.
+ *
  * ═══ الإصدار الحيّ — قرار التنفيذ: وحدةٌ غير صالحة ⇒ 400 UNIT_INVALID ═══
  * معرّفٌ لا يخصّ الصنف (صنفٌ آخر أو شركةٌ أخرى: وحدات الصنف محمَّلة بشركته) أو لوحدةٍ موقوفة ⇒ رفض، وكذا لقطةٌ تخالف
  * ما يحلّه الخادم (كاشٌ قديم على الجهاز): لا بندٌ يُقيَّد بغير ما رآه المندوب. الصمت والقراءة بالأساس يحمّلان كرتوناً حبّة.
+ * وكل مقارنة اسم أساس بـbaseNameKey على الطرفين (D20-أ): اسمٌ أطول من ٦٤ حرفاً لا يُرى «قديماً» أبداً.
  */
 export async function resolveLineUnit(
-  product: { name: string; unit: string; units?: ProductUnitRow[] | null },
+  product: { name: string; unit: string; basePrice?: number | string | null; units?: ProductUnitRow[] | null },
   item: { unitId?: string | null; unitName?: string | null; unitFactor?: number | null; baseUnitName?: string | null },
-  opts: { replay: boolean; seenInHistory: (name: string, factor: number) => Promise<boolean>; allowInactive?: boolean },
+  opts: {
+    replay: boolean; seenInHistory: (name: string, factor: number) => Promise<boolean>; allowInactive?: boolean;
+    /** D16: سجلّ تحويلات الصنف — يُمرَّر في إعادة الرفع لصنفٍ حُوِّل وحده (I8) */
+    conversions?: readonly BaseConversionRow[];
+    /** لحظة المستند على الجهاز (clientCreatedAt المحلَّل)، أو null */
+    docAt?: Date | null;
+    /** صافي سعر البند قبل الضريبة كما يقيسه حارس السعر — إشارة الحالة B */
+    netUnitPrice?: number;
+    /** سعر العميل الحالي لوحدة الأساس، أو null */
+    custPrice?: number | null;
+  },
 ): Promise<LineUnitResult> {
   const units = product.units ?? [];
   const baseName = String(product.unit ?? '').trim();
-  const asUnit = (u: ProductUnitRow, factor = factorOf({ unitFactor: u.factor })): LineUnit => ({
-    unitName: u.name, unitFactor: factor, unitCode: u.unitCode ?? null,
-    priceUnit: Math.abs(factorOf({ unitFactor: u.factor }) - factor) < QTY_EPS ? u : null,
-  });
+  const baseKey = baseNameKey(baseName);
+  const factorMatches = (u: ProductUnitRow | undefined | null, factor: number): u is ProductUnitRow =>
+    !!u && Math.abs(factorOf({ unitFactor: u.factor }) - factor) < QTY_EPS;
+  const asUnit = (u: ProductUnitRow, factor = factorOf({ unitFactor: u.factor })): LineUnit => {
+    const same = factorMatches(u, factor);
+    return { unitName: u.name, unitFactor: factor, unitCode: u.unitCode ?? null, unitId: same ? u.id : null, priceUnit: same ? u : null };
+  };
+  const ok = (unit: LineUnit, rebase = 1, notice?: ReplayUnitNotice): LineUnitResult => ({ ok: true, unit, rebase, ...(notice && { notice }) });
   const invalid = (message: string): LineUnitResult => ({ ok: false, status: 400, code: 'UNIT_INVALID', message });
   const byName = (name: string | null) => (name ? units.find((u) => u.name.trim() === name) : undefined);
   const byId = item.unitId ? units.find((u) => u.id === item.unitId) : undefined;
   const devFactor = deviceFactorOf(item.unitFactor);
   const devName = item.unitName?.trim() || null;
   const devBase = item.baseUnitName?.trim() || null;
+  // معاملٌ فوق الحدّ بعد الضرب لا يكون لوحدةٍ حقيقية — ولو كُتب لرمى unitFields خطأً ٥٠٠ بعد كل التحقق
+  const tooBig = (name: string | null) => invalid(`معامل وحدة «${name ?? '؟'}» لصنف «${product.name}» غير صالح — راجع الإدارة`);
+
+  /** لقطة الجهاز بمعاملها (بعد إعادة الأساس إن وُجدت) — null ⇒ تُحلّ كالإصدار الحيّ (معامل ١ باسمٍ لا وحدة له) */
+  const fromSnapshot = async (factor: number, name: string | null, rebase: number, notice?: ReplayUnitNotice): Promise<LineUnitResult | null> => {
+    if (factor > MAX_UNIT_FACTOR) return tooBig(name);
+    if (factor === 1) {
+      if (!name || name === baseName) return ok(BASE_LINE_UNIT, rebase, notice);
+      // جهازٌ لا يرسل أساسه: معامل ١ باسم وحدةٍ للصنف = الأساس القديم قبل التحويل — وإعادة أساسه معامل تلك الوحدة (I9)
+      const was = byName(name);
+      if (was) return ok(asUnit(was), rebase * factorOf({ unitFactor: was.factor }), notice);
+      return null;
+    }
+    const known = byId ?? byName(name);
+    if (known) return ok({ ...asUnit(known, factor), unitName: name ?? known.name }, rebase, notice);
+    if (name && await opts.seenInHistory(name, factor)) {
+      return ok({ unitName: name, unitFactor: factor, unitCode: null, unitId: null, priceUnit: null }, rebase, notice);
+    }
+    return invalid(`وحدة «${name ?? '؟'}» لصنف «${product.name}» لم تعد معرّفة ولا أثر لها في تاريخه — راجع الإدارة قبل إعادة الرفع`);
+  };
+
+  /** وحدة ما قبل التحويل (صفّ السجلّ): بمعرّف وحدته، تشمل الموقوفة، ثم باسمها — حين يطابق معاملها وحده */
+  const unitOfConversion = (first: BaseConversionRow | null | undefined, factor: number, name: string | null): ProductUnitRow | null => {
+    const viaId = first?.fromUnitId ? units.find((u) => u.id === first.fromUnitId) : undefined;
+    if (factorMatches(viaId, factor)) return viaId;
+    const viaName = byName(name);
+    return factorMatches(viaName, factor) ? viaName : null;
+  };
+  /** البند بأساس الجهاز القديم نفسه (الوحدة التي صارها) بمعامل السجلّ — يُقبل ولو حُذفت الوحدة أو أعيدت تسميتها (#14) */
+  const convertedUnit = (factor: number, name: string, first: BaseConversionRow): LineUnit => {
+    const pu = unitOfConversion(first, factor, name);
+    const code = pu ?? (first.fromUnitId ? units.find((u) => u.id === first.fromUnitId) : undefined) ?? byName(name);
+    return { unitName: name, unitFactor: factor, unitCode: code?.unitCode ?? null, unitId: pu?.id ?? null, priceUnit: pu };
+  };
+  /** الساعة (D16-٢): ما وقع من التحويلات بعد لحظة المستند، مع إشعارٍ دائماً — الحكم بها لا بالجسم */
+  const byClock = (convs: readonly BaseConversionRow[]) => {
+    const since = conversionsSince(convs, opts.docAt ?? null, baseName);
+    const notice: ReplayUnitNotice = opts.docAt ? 'AMBIGUOUS' : 'NO_DEVICE_TIME';
+    return since.kind === 'rebase' ? { factor: since.factor, first: since.first as BaseConversionRow | null, notice } : { factor: 1, first: null, notice };
+  };
+
+  const convs = opts.replay ? (opts.conversions ?? []) : [];
+  if (convs.length) {
+    if (devBase && baseNameKey(devBase) !== baseKey) {
+      // (A) لقطةٌ بأساسٍ قديم: السلسلة من أساس الجهاز إلى الأساس الحالي بمعاملها (السجلّ شاهد الخادم)
+      const ch = chainFrom(convs, devBase, baseName);
+      if (ch) {
+        const factor = (devFactor ?? 1) * ch.factor;
+        // البند بأساس الجهاز نفسه (لقطة معامل ١ أو بلا لقطة): هو الوحدة التي صارها ذلك الأساس
+        const isDevBase = (devFactor == null || devFactor === 1) && !item.unitId && (!devName || baseNameKey(devName) === baseNameKey(devBase));
+        if (isDevBase) {
+          const name = devName ?? ch.first.fromUnit.trim();
+          if (factor > MAX_UNIT_FACTOR) return tooBig(name);
+          if (factor === 1) return ok(BASE_LINE_UNIT, 1);
+          return ok(convertedUnit(factor, name, ch.first), ch.factor);
+        }
+        // وحدةٌ أكبر على الجهاز («١ طبلية = ٥٠» بالأساس القديم): معاملها × السلسلة، وتثبت بمعرّفها أو اسمها أو تاريخها كما كان
+        if (devFactor != null) {
+          const r = await fromSnapshot(factor, devName, ch.factor);
+          if (r) return r;
+        }
+        // معرّفٌ بلا معامل لقطة: وحدات الصنف اليوم تحمل التحويل — الحلّ القائم أدناه
+      }
+      // بلا سلسلة (صنفٌ حُوّل قبل السجلّ): الاستدلال بالاسم أدناه كما كان
+    } else if (!devBase && !devName && !item.unitId && (devFactor == null || devFactor === 1)) {
+      // (B) جسمٌ بلا لقطة (أو معامل ١ بلا اسمٍ ولا أساس — لا يميّز أساساً قديماً من جديد): إشارة السعر ثم الساعة
+      const cands = rebaseCandidates(convs, baseName);
+      const basePrice = Number(product.basePrice);
+      const refOf = (c: { factor: number; first: BaseConversionRow | null }): number | null => {
+        if (opts.custPrice != null && Number.isFinite(Number(opts.custPrice))) return Number(opts.custPrice) * c.factor;
+        const u = c.first ? unitOfConversion(c.first, c.factor, null) : null;
+        if (u) return unitPriceOf(u, basePrice);
+        return Number.isFinite(basePrice) ? basePrice * c.factor : null;
+      };
+      const pick = opts.netUnitPrice != null ? pickByPrice(opts.netUnitPrice, cands, refOf) : null;
+      const clock = byClock(convs);
+      const chosen = pick ? { factor: pick.factor, first: pick.first } : clock;
+      const notice: ReplayUnitNotice | undefined = pick
+        ? (opts.docAt && clock.factor !== pick.factor ? 'CLOCK_DISAGREES' : undefined)
+        : clock.notice;
+      if (chosen.factor === 1 || !chosen.first) return ok(BASE_LINE_UNIT, 1, notice);
+      const name = chosen.first.fromUnit.trim();
+      if (chosen.factor > MAX_UNIT_FACTOR) return tooBig(name);
+      return ok(convertedUnit(chosen.factor, name, chosen.first), chosen.factor, notice);
+    } else if (!devBase && devFactor != null) {
+      // (C) لقطةٌ بمعامل بلا أساس (أبنية وسيطة): إشارة المعامل ثم الساعة
+      const sameAsBase = devFactor === 1 && (!devName || baseNameKey(devName) === baseKey);
+      if (!sameAsBase) {
+        const nowUnit = byName(devName) ?? byId;
+        const now = nowUnit ? factorOf({ unitFactor: nowUnit.factor }) : null;
+        // يساوي معامل الوحدة الآن ⇒ اللقطة من بعد كل تحويل: الحلّ القائم أدناه حرفياً (لا ضرب ثانٍ: كرتون ٢٤ لا يصير ٥٧٦)
+        if (now !== devFactor) {
+          const pick = pickByFactor(devFactor, now, rebaseCandidates(convs, baseName));
+          if (pick && pick.factor !== 1) {
+            const r = await fromSnapshot(devFactor * pick.factor, devName, pick.factor);
+            if (r) return r;
+          } else {
+            const clock = byClock(convs);
+            const name = devName ?? (clock.first && devFactor === 1 ? clock.first.fromUnit.trim() : null);
+            const r = await fromSnapshot(devFactor * clock.factor, name, clock.factor, clock.notice);
+            if (r) return r;
+          }
+        }
+      }
+    }
+  }
 
   if (opts.replay && devFactor != null) {
     // أساس الجهاز صار وحدةً للصنف ⇒ حُوّل بعد الإصدار، ومعاملها F يردّ اللقطة إلى الأساس الجديد. اسمٌ آخر بلا وحدةٍ تحمله
     // إعادةُ تسميةٍ للأساس لا تحويل: المعامل كما هو
-    const rebased = devBase && devBase !== baseName ? byName(devBase) : undefined;
-    const factor = rebased ? devFactor * factorOf({ unitFactor: rebased.factor }) : devFactor;
+    const rebased = devBase && baseNameKey(devBase) !== baseKey ? byName(devBase) : undefined;
+    const rebase = rebased ? factorOf({ unitFactor: rebased.factor }) : 1;
+    const factor = devFactor * rebase;
     // لقطة أساس الجهاز بلا اسم: هي الوحدة التي صارها ذلك الأساس
     const name = devName ?? (rebased && devFactor === 1 ? rebased.name.trim() : null);
-    // معاملٌ فوق الحدّ بعد الضرب لا يكون لوحدةٍ حقيقية — ولو كُتب لرمى unitFields خطأً ٥٠٠ بعد كل التحقق
-    if (factor > MAX_UNIT_FACTOR) return invalid(`معامل وحدة «${name ?? '؟'}» لصنف «${product.name}» غير صالح — راجع الإدارة`);
-    if (factor === 1) {
-      if (!name || name === baseName) return { ok: true, unit: BASE_LINE_UNIT };
-      // جهازٌ لا يرسل أساسه: معامل ١ باسم وحدةٍ للصنف = الأساس القديم قبل التحويل
-      const was = byName(name);
-      if (was) return { ok: true, unit: asUnit(was) };
-    } else {
-      const known = byId ?? byName(name);
-      if (known) return { ok: true, unit: { ...asUnit(known, factor), unitName: name ?? known.name } };
-      if (name && await opts.seenInHistory(name, factor)) {
-        return { ok: true, unit: { unitName: name, unitFactor: factor, unitCode: null, priceUnit: null } };
-      }
-      return invalid(`وحدة «${name ?? '؟'}» لصنف «${product.name}» لم تعد معرّفة ولا أثر لها في تاريخه — راجع الإدارة قبل إعادة الرفع`);
-    }
+    const r = await fromSnapshot(factor, name, rebase);
+    if (r) return r;
   }
 
   let unit = BASE_LINE_UNIT;
@@ -310,10 +443,10 @@ export async function resolveLineUnit(
   if (!opts.replay && (devFactor != null || devName || devBase)) {
     const stale = (devFactor != null && devFactor !== unit.unitFactor)
       || (devName != null && devName !== (unit.unitName ?? baseName).trim())
-      || (devBase != null && devBase !== baseName);
+      || (devBase != null && baseNameKey(devBase) !== baseKey);
     if (stale) return invalid(`تغيّرت وحدات «${product.name}» — حدّث قائمة الأصناف ثم أعد الحفظ`);
   }
-  return { ok: true, unit };
+  return ok(unit);
 }
 
 /** وحدةٌ حُذفت بعد إصدار مستندٍ أوف-لاين: يشهد لها صفٌّ في تاريخ الصنف بالاسم والمعامل نفسيهما (فاتورةٌ أو تحميل) */
@@ -326,6 +459,54 @@ async function unitSeenInHistory(tid: string, productId: string, unitName: strin
 /** تبدّلت وحدة أساس صنفٍ بين حلّ لقطات البنود وقفل صفوف الأصناف (تحويلٌ متزامن، products.ts convert-base) */
 class ProductUnitsChanged extends Error {
   constructor(readonly names: string[]) { super('تغيّرت وحدة الأساس لصنف أثناء الحفظ'); }
+}
+
+/**
+ * «الوحدة الرئيسية» I10: انتظار قفل الأصناف تجاوز LOT_LOCK_TIMEOUT (تحويلٌ طويل يمسك الصفّ FOR UPDATE)، أو تعطّلٌ متبادل، أو
+ * انقضت المعاملة وهي تنتظره — لا مستند ولا رقم: 503 PRODUCT_UNITS_BUSY يعيده الصندوق والواجهة بعد قليل
+ */
+class ProductUnitsBusy extends Error {
+  constructor() { super('PRODUCT_UNITS_BUSY'); }
+}
+
+/** رقم المستند من ردّ فرع المرحلة الثانية (data.number) — للإشعار وحده */
+function issuedNumberOf(body: Record<string, unknown>): string | null {
+  const n = (body?.data as { number?: unknown } | null | undefined)?.number;
+  return typeof n === 'string' ? n : null;
+}
+
+/**
+ * D16: إشعار إدارة واحد لكل clientRef لمستندٍ دون اتصال فُسّرت كميات بنوده بعد تحويل وحدات صنفه (بنمط LOT_REPLAY_HELD).
+ * بعد الالتزام وخارج المعاملة — لا يُفشل إصداراً التُزم. المستند لا يُرفض ولا يُحجز (§10-4 قرارٌ مفتوح للمالك)
+ */
+export async function recordReplayRebased(input: {
+  tenantId: string; clientRef: string; number: string | null; salesRepId: string | null; customerId: string | null;
+  lines: ReadonlyArray<{ productId: string; productName: string; unitName: string; rebase: number; notice: ReplayUnitNotice }>;
+}): Promise<void> {
+  try {
+    const prior = await prisma.notification.findFirst({
+      where: { tenantId: input.tenantId, type: 'REPLAY_UNITS_REBASED', data: { contains: input.clientRef } },
+      select: { id: true },
+    });
+    if (prior) return;
+    const parts = [...new Map(input.lines.map((l) => [l.productId, `«${l.productName}» بـ${l.unitName}`])).values()].join('، ');
+    await prisma.notification.create({
+      data: {
+        tenantId: input.tenantId,
+        type: 'REPLAY_UNITS_REBASED',
+        title: 'فاتورة دون اتصال بعد تحويل وحدات صنف',
+        body: `فاتورة دون اتصال رقم ${input.number ?? '—'} فُسّرت كميات ${parts} بعد تحويل وحداته — راجع كمياتها`,
+        salesRepId: input.salesRepId,
+        customerId: input.customerId,
+        data: JSON.stringify({
+          clientRef: input.clientRef, number: input.number,
+          lines: input.lines.map((l) => ({ productId: l.productId, unitName: l.unitName, rebase: l.rebase, notice: l.notice })),
+        }),
+      },
+    });
+  } catch (e) {
+    console.error('replay units-rebased notice failed:', input.clientRef, (e as Error)?.message);
+  }
 }
 
 /** بند البيع كما يحتاجه تسعير مرتجعه */
@@ -451,7 +632,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
           // «لوكيشن»: اسم الموقع المختوم (عمود القائمة وتصديرها) — null لما بلا ختم
           location: { select: { id: true, name: true } },
           _count: { select: { items: true } },
-          ...(withItems && { items: { include: { product: { select: { name: true, unit: true } } } } }),
+          ...(withItems && { items: { include: { product: { select: { name: true, unit: true, primaryUnitId: true } } } } }),
         },
         ...paginate(page, limit),
         orderBy: { createdAt: 'desc' },
@@ -564,7 +745,7 @@ router.get('/:id/returnable', async (req: AuthRequest, res: Response, next: Next
             unitName: true, unitFactor: true, baseQty: true,
             product: {
               select: {
-                id: true, name: true, code: true, unit: true,
+                id: true, name: true, code: true, unit: true, primaryUnitId: true,
                 shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true, shelfLifeBasis: true, shelfLifeFromDate: true,
                 returnRuleEnabled: true, returnRuleMode: true, returnRuleMetric: true, returnRuleValue: true,
                 repReturnAllowed: true, repReturnUnit: true,
@@ -617,7 +798,8 @@ router.get('/:id/returnable', async (req: AuthRequest, res: Response, next: Next
         lineTotal: Number(it.lineTotal),
         refundPerBase: perBase,
         // «قيود المندوب»: قيد وحدة المرتجع يصل المندوب وحده فيُقصر به اختيار الوحدة (الإدارة حرّة)
-        product: { unit: it.product!.unit, units: it.product!.units, ...(isRep ? { repReturnUnit: repUnitRuleOf(it.product!, 'RETURN') } : {}) },
+        // «الوحدة الرئيسية» (D18): المفتاح حاضرٌ دائماً (null بلا رئيسية) — عرضٌ وافتراضٌ لوحدة الإرجاع فقط
+        product: { unit: it.product!.unit, units: it.product!.units, primaryUnitId: it.product!.primaryUnitId ?? null, ...(isRep ? { repReturnUnit: repUnitRuleOf(it.product!, 'RETURN') } : {}) },
         taxPct: Number(it.taxPct),
         shelfLife: !!shelfLifeOf(it.product!),
         expiresAt: expiresAt ? expiresAt.toISOString().slice(0, 10) : null,
@@ -643,7 +825,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
         salesRep: { select: { id: true, name: true, phone: true } },
         installments: { orderBy: { seq: 'asc' } },
         // «تتبّع اللوط»: صفوف التوزيع وتشغيلتها بمعامل withLots=1 وحده (D11)
-        items: { include: { product: { select: { id: true, name: true, code: true, unit: true, units: { select: { id: true, isActive: true } } } }, ...((await wantsLots(req, tid)) && ITEM_LOTS_INCLUDE) } },
+        items: { include: { product: { select: { id: true, name: true, code: true, unit: true, primaryUnitId: true, units: { select: { id: true, isActive: true } } } }, ...((await wantsLots(req, tid)) && ITEM_LOTS_INCLUDE) } },
         receiptItems: { include: { receipt: true } },
         signature: { select: { image: true, repImage: true, createdAt: true } },
       },
@@ -774,9 +956,16 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         teams: { select: { teamId: true } },
         lotTracked: true,
         repSaleAllowed: true, repReturnAllowed: true, repSaleUnit: true, repReturnUnit: true, repRulesChangedAt: true,
+        // «الوحدة الرئيسية»: لحظة آخر تحويل (null ⇒ لا سؤال لسجلّ التحويلات أبداً، I8)، والرئيسية لرسالة المتاح وحدها (عرض)
+        baseConvertedAt: true, primaryUnitId: true,
       },
     });
     if (products.length !== productIds.length) { res.status(400).json({ success: false, message: 'أحد الأصناف غير موجود أو غير نشط' }); return; }
+    // D19: مفتاح API يكتب على صنفٍ حُوِّلت وحدته بلا baseUnitName صريح ⇒ رفضٌ ظاهر لا خطأ ×F صامت. الأصناف التي لم تُحوَّل
+    // والمندوب ولوحة الإدارة لا يمرّون بشيء
+    const noBase = missingBaseForApi(!!req.user?.apiKeyId, body.items,
+      new Map(products.map((p) => [p.id, { name: p.name, baseConvertedAt: p.baseConvertedAt ?? null }])));
+    if (noBase) { const g = baseUnitRequiredReply(noBase); res.status(g.status).json(g.body); return; }
     // «تتبّع اللوط»: الأصناف المتتبَّعة في القراءة المسبقة (مفاتيح الطابور) — والمرجع النهائي ما يُقرأ تحت القفل (D25)
     const preTracked = new Set(lotsOn ? products.filter((p) => p.lotTracked === true).map((p) => p.id) : []);
     const tracksLots = preTracked.size > 0;
@@ -789,18 +978,61 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
      * وثيقةٌ صدرت وسُلّمت بضاعتها، لا يُعاد حلّ وحدتها بما تغيّر بعدها.
      * (ومفتاح API عميلٌ حيّ: X-FS-Replay تُمحى له في middleware/auth.ts، فلا يكتب لقطةً أبداً.) */
     const isReplay = String(req.headers['x-fs-replay'] || '') === '1';
+    // لحظة الجهاز (clientCreatedAt) هي «يوم المرتجع» في قيد المرتجع للصنف ووسم صلاحيته (services/invoiceExpiry.ts) — لصندوق
+    // تطبيق المندوب الذي يرفع لاحقاً ما سجّله دون اتصال، فلا يُقاس مرتجعُ الأمس بيوم المزامنة. ومفتاح API عميلٌ حيّ لا صندوق
+    // (X-FS-Replay تُمحى له في middleware/auth.ts)، فلحظةٌ يكتبها في جسمه يومٌ يختاره بنفسه: يُرجع بيومٍ يمرّ به قيد «قرب
+    // الانتهاء» أو «ما زال صالحاً»، ويُوسَم المنتهي صالحاً فيعود متاحاً للبيع في السيارة. فلا تُقرأ له هنا ولا تُخزَّن، ويومُه
+    // invoiceDate وإلا الآن. ويبقى الحقل الخام من الجسم حيث لا يزيد القاعدة إلا تشدّداً: رفض التسليح (phase1ArmRefusal) وحارس
+    // clientRef في المرحلة الثانية (invoicesZatca.ts/invoicesNotes.ts offlineOrigin). والمندوب كما كان حرفاً بحرف.
+    const deviceAt = req.user?.apiKeyId ? undefined : body.clientCreatedAt;
+    /* D16: سجلّ التحويلات لإعادة الرفع وحدها، ولأصنافٍ حُوِّلت وحدها (baseConvertedAt ≠ null) — صنفٌ لم يُحوَّل لا يُسأل عنه
+     * السجلّ أبداً (I8). ومعه سعر العميل الحالي لتلك الأصناف: مرجع إشارة السعر لجسمٍ بلا لقطة (الحالة B) */
+    const convertedIds = isReplay ? products.filter((p) => p.baseConvertedAt).map((p) => p.id) : [];
+    const convsOf = new Map<string, BaseConversionRow[]>();
+    const replayCust = new Map<string, number>();
+    if (convertedIds.length) {
+      const [rows, cps] = await Promise.all([
+        prisma.productBaseConversion.findMany({
+          where: { tenantId: tid, productId: { in: convertedIds } },
+          orderBy: { convertedAt: 'asc' },
+          select: { productId: true, fromUnit: true, toUnit: true, factor: true, fromUnitId: true, convertedAt: true },
+        }),
+        prisma.customerPrice.findMany({ where: { customerId, productId: { in: convertedIds } }, select: { productId: true, price: true } }),
+      ]);
+      for (const r of rows ?? []) convsOf.set(r.productId, [...(convsOf.get(r.productId) ?? []), r]);
+      for (const c of cps ?? []) replayCust.set(c.productId, Number(c.price));
+    }
+    // لحظة المستند على الجهاز (deviceAt — لا لحظة لمفتاح API، ولا إعادة رفع له أصلاً)
+    const replayDocAt = isReplay && deviceAt && !Number.isNaN(new Date(deviceAt).getTime()) ? new Date(deviceAt) : null;
     const unitSnap: LineUnit[] = [];
+    // I9: معامل إعادة الأساس لكل بند — به تُضرب كميات تلميح LOT
+    const unitRebase: number[] = [];
+    const unitNotices: Array<{ productId: string; productName: string; unitName: string; rebase: number; notice: ReplayUnitNotice }> = [];
     for (const it of body.items) {
       const p = products.find(x => x.id === it.productId)!;
+      const convs = convsOf.get(p.id);
       const r = await resolveLineUnit(p, it, {
         replay: isReplay,
         seenInHistory: (name, factor) => unitSeenInHistory(tid, p.id, name, factor),
         allowInactive: body.type === 'RETURN' && !!body.originalInvoiceId,
+        ...(convs?.length && {
+          conversions: convs, docAt: replayDocAt,
+          // صافي السعر كما يقيسه حارس السعر أدناه (الشامل يُردّ إلى الصافي بنسبة البند)
+          netUnitPrice: body.pricesIncludeTax ? netFromInclusive(it.unitPrice, it.taxPct ?? p.taxPct ?? 0) : it.unitPrice,
+          custPrice: replayCust.has(p.id) ? replayCust.get(p.id)! : null,
+        }),
       });
       if (!r.ok) { res.status(r.status).json({ success: false, code: r.code, message: r.message }); return; }
       unitSnap.push(r.unit);
+      unitRebase.push(r.rebase);
+      if (r.notice) unitNotices.push({ productId: p.id, productName: p.name, unitName: r.unit.unitName ?? p.unit, rebase: r.rebase, notice: r.notice });
     }
     const snapOf = (idx: number): LineUnit => unitSnap[idx] ?? BASE_LINE_UNIT;
+    // D16: إشعار الإدارة بعد الالتزام وحده (best-effort) — لمستندٍ أُعيد رفعه فحسمت الساعة أو خالفت السعرَ في بندٍ منه
+    const noticeRebased = async (number: string | null): Promise<void> => {
+      if (!unitNotices.length || !body.clientRef) return;
+      await recordReplayRebased({ tenantId: tid, clientRef: body.clientRef, number, salesRepId, customerId: customerId ?? null, lines: unitNotices });
+    };
     // الفرق: أصناف الفريق تقيّد بيع المندوب (قرار المالك) — في إصداره الحيّ وحده: مستندٌ أوف-لاين يُعاد رفعه (X-FS-Replay)
     // لا يُرفض بها أبداً (يُعدم في صندوق الإرسال وقد سُلّمت البضاعة)، ولا فاتورة الإدارة نيابةً عنه (لا مبدّل فريقٍ لها).
     // والمرتجع من فاتورة بيعٍ يرث فريقها ولا يُفحص (صنفٌ أُزيل من الفريق بعد بيعه يبقى قابلاً للإرجاع)
@@ -878,9 +1110,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           const rem = remById.get(pid) ?? 0;
           if (want > rem + 1e-9) {
             const p = products.find(x => x.id === pid);
-            // المتاح بوحداته («١ كرتون و٦ حبة») لصنفٍ له وحدات أكبر — رقم الأساس الخام يُقرأ كراتين؛ وغيره كما كان
-            const left = p && (p.units ?? []).some(u => Number(u.factor) > 1 && u.isActive !== false)
-              ? formatQty(rem, p.units, p.unit) : String(Number(rem.toFixed(2)));
+            // المتاح بوحداته («١ كرتون و٦ حبة») لصنفٍ له وحدات أكبر — رقم الأساس الخام يُقرأ كراتين؛ وغيره كما كان.
+            // ولصنفٍ له وحدة رئيسية: بها («52 كرتون و2 قارورة») — وبلاها النص القائم حرفياً (I1)
+            const left = p && primaryUnitOf(p) ? productQtyText(rem, p)
+              : p && (p.units ?? []).some(u => Number(u.factor) > 1 && u.isActive !== false)
+                ? formatQty(rem, p.units, p.unit) : String(Number(rem.toFixed(2)));
             fail(`الكمية المطلوبة من «${p?.name || 'الصنف'}» تتجاوز مخزون سيارتك المتاح (${left})`);
             return;
           }
@@ -931,13 +1165,6 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       if (saleTeam) docTeamId = saleTeam.teamId ?? null;
     }
     const docDate = body.invoiceDate ? new Date(body.invoiceDate) : undefined;
-    // لحظة الجهاز (clientCreatedAt) هي «يوم المرتجع» في قيد المرتجع للصنف ووسم صلاحيته (services/invoiceExpiry.ts) — لصندوق
-    // تطبيق المندوب الذي يرفع لاحقاً ما سجّله دون اتصال، فلا يُقاس مرتجعُ الأمس بيوم المزامنة. ومفتاح API عميلٌ حيّ لا صندوق
-    // (X-FS-Replay تُمحى له في middleware/auth.ts)، فلحظةٌ يكتبها في جسمه يومٌ يختاره بنفسه: يُرجع بيومٍ يمرّ به قيد «قرب
-    // الانتهاء» أو «ما زال صالحاً»، ويُوسَم المنتهي صالحاً فيعود متاحاً للبيع في السيارة. فلا تُقرأ له هنا ولا تُخزَّن، ويومُه
-    // invoiceDate وإلا الآن. ويبقى الحقل الخام من الجسم حيث لا يزيد القاعدة إلا تشدّداً: رفض التسليح (phase1ArmRefusal) وحارس
-    // clientRef في المرحلة الثانية (invoicesZatca.ts/invoicesNotes.ts offlineOrigin). والمندوب كما كان حرفاً بحرف.
-    const deviceAt = req.user?.apiKeyId ? undefined : body.clientCreatedAt;
     // تاريخ التسليم: اختياري — القيمة غير المفهومة تُهمل بصمت (عرض لا محاسبة)
     const deliveryDate = body.deliveryDate ? new Date(body.deliveryDate) : undefined;
     const deliveryOk = deliveryDate && !Number.isNaN(deliveryDate.getTime()) ? deliveryDate : undefined;
@@ -1020,7 +1247,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         allowUnknown: LOT_ALLOW_UNKNOWN, clientRef: body.clientRef ?? null,
         lines: invoiceLotLines(body.items.map((it, idx) => ({
           productId: it.productId, productName: nameOf.get(it.productId) ?? '', qty: it.qty, unitFactor: snapOf(idx).unitFactor,
-          saleItemId: it.invoiceItemId ?? null, lots: it.lots,
+          // I9: تلميح الجهاز بأساسه هو — مستندٌ أُعيد أساسه (×F) تُضرب كميات تلميحه بالمعامل نفسه فيساوي مجموعُه baseQty البند
+          saleItemId: it.invoiceItemId ?? null, lots: (unitRebase[idx] ?? 1) !== 1 ? scaleLotHint(it.lots, unitRebase[idx]) : it.lots,
         }))),
         fallbackStamps: lotStamps,
         ...(stockCheckSkipped.length > 0 && { stockCheckSkipped }),
@@ -1080,8 +1308,13 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           tenantId: tid,
           caps: capsFromHeaders(req.headers),
           originalInvoiceId: body.originalInvoiceId ?? null,
-          // الكمية بوحدة الإرجاع ومعها وحدتها: حبّةٌ من بند كرتون يحوّلها الإشعار إلى الأساس (invoicesNotes.ts)
-          items: body.items.map(i => ({ productId: i.productId, invoiceItemId: i.invoiceItemId ?? null, qty: i.qty, unitId: i.unitId ?? null })),
+          // الكمية بوحدة الإرجاع ومعها وحدتها: حبّةٌ من بند كرتون يحوّلها الإشعار إلى الأساس (invoicesNotes.ts). و#8: اللقطة التي
+          // حلّها الخادم (ومعها إعادة الأساس في إعادة الرفع) لا الجسم الخام، والأساس الذي حُلّت عليه — يقارنه الإشعار تحت قفله
+          items: body.items.map((i, idx) => ({
+            productId: i.productId, invoiceItemId: i.invoiceItemId ?? null, qty: i.qty,
+            unitId: snapOf(idx).unitId, unitFactor: snapOf(idx).unitFactor, unitName: snapOf(idx).unitName,
+            expectedBase: products.find(p => p.id === i.productId)?.unit ?? null,
+          })),
           customer,
           salesRepId,
           decimals: dec,
@@ -1098,10 +1331,12 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           viaApiKey: !!req.user?.apiKeyId,
         }, productionPhase2Deps());
         if (note && tracksExpiry) await stampExpiryAfterIssue(tid, note.status, note.body);
+        if (note && note.status < 300) await noticeRebased(issuedNumberOf(note.body));
         if (note) { res.status(note.status).json(note.body); return; }
       } else {
         const phase2 = await issuePhase2Invoice(phase2Ctx, productionPhase2Deps());
         if (phase2 && tracksExpiry) await stampExpiryAfterIssue(tid, phase2.status, phase2.body);
+        if (phase2 && phase2.status < 300) await noticeRebased(issuedNumberOf(phase2.body));
         if (phase2) { res.status(phase2.status).json(phase2.body); return; }
       }
     }
@@ -1216,9 +1451,22 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
        * FOR KEY SHARE لا FOR SHARE: يتعارض مع FOR UPDATE وحده (وهو ما يأخذه التحويل)، ولا يحبس تعديلاً عادياً للصنف
        * (سعره أو صورته) خلف كل فاتورة تُصدر — وهو القفل نفسه الذي يأخذه المفتاح الأجنبيّ عند إدراج البند */
       // («تتبّع اللوط»: والصفوف نفسها تحمل علم التتبّع وحقبته فيُغني عن FOR KEY SHARE ثانٍ في lockLotProducts — D25)
-      const lockedUnits = await tx.$queryRaw<Array<{ id: string; unit: string; lotTracked: boolean; lotTrackedSince: Date | null }>>`
+      // «الوحدة الرئيسية» I10: انتظارٌ محدود بـLOT_LOCK_TIMEOUT محلياً (يُحفظ ويُستعاد، نمط lotsDb.ts) — تحويلٌ طويل يمسك الصفّ
+      // FOR UPDATE لا يحبس الإصدار: 55P03 أو 40P01 أو انقضاء المعاملة وهي تنتظر ⇒ 503 PRODUCT_UNITS_BUSY قبل أي رقم أو قيد
+      // (ومسار اللوط يبقى LOT_BUSY كما هو — lotReply)
+      const prevLock = await tx.$queryRaw<Array<{ lock_timeout: string }>>`SELECT current_setting('lock_timeout') AS lock_timeout`;
+      const prevTimeout = Array.isArray(prevLock) && typeof prevLock[0]?.lock_timeout === 'string' ? prevLock[0].lock_timeout : '0';
+      await tx.$executeRaw`SELECT set_config('lock_timeout', ${LOT_LOCK_TIMEOUT}, true)`;
+      let lockedUnits: Array<{ id: string; unit: string; lotTracked: boolean; lotTrackedSince: Date | null }>;
+      try {
+        lockedUnits = await tx.$queryRaw<Array<{ id: string; unit: string; lotTracked: boolean; lotTrackedSince: Date | null }>>`
         SELECT id, unit, "lotTracked", "lotTrackedSince" FROM products WHERE id IN (${Prisma.join(productIds)}) AND "tenantId" = ${tid} FOR KEY SHARE`;
-      const movedBase = (lockedUnits ?? []).filter(r => products.find(p => p.id === r.id)?.unit !== r.unit);
+      } catch (e) {
+        if (!lots && asLotBusy(e)) throw new ProductUnitsBusy();
+        throw e;
+      }
+      await tx.$executeRaw`SELECT set_config('lock_timeout', ${prevTimeout}, true)`;
+      const movedBase = (lockedUnits ?? []).filter(r => baseNameKey(products.find(p => p.id === r.id)?.unit) !== baseNameKey(r.unit));
       if (movedBase.length) throw new ProductUnitsChanged(movedBase.map(r => products.find(p => p.id === r.id)?.name ?? r.id));
       // «تتبّع اللوط» (D25): صنفٌ صار متتبَّعاً بين القراءة المسبقة وهذا القفل — لا يُصدر بلا توزيع (يُنقص غير المسمّى بلا فحص)؛
       // 503 يعيده الصندوق والواجهة فيُقرأ متتبَّعاً. من الصفوف المقفلة نفسها: لا استعلام بلا صفٍّ متتبَّع. وعلم الشركة المطفأ في
@@ -1343,6 +1591,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     releaseLots?.();
     releaseLots = null;
 
+    // D16: بندٌ أُعيد رفعه فحسمت الساعة كميته بعد تحويل وحدات صنفه ⇒ إشعار إدارة واحد لكل clientRef (المستند لا يُحجز)
+    await noticeRebased(invoice.number ?? null);
     // فاتورة جديدة (ونقدية مدفوعة معها) تظهر في قوائم الشاشات المفتوحة لحظتها
     publishInvoicesChanged(tid);
     // صلاحية الأصناف من تاريخ البيع، وللمرتجع: هل ما عاد منتهي الصلاحية (لا يُفشل الإصدار)
@@ -1361,6 +1611,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         success: false, code: 'PRODUCT_UNITS_CHANGED',
         message: `تغيّرت وحدة الأساس لـ«${err.names.join('، ')}» أثناء الحفظ — حدّث الأصناف ثم أعد المحاولة`,
       });
+      return;
+    }
+    // I10: انتظار قفل الأصناف تجاوز مهلته (تحويلٌ طويل) — لا مستند؛ 503 يعيده الصندوق والواجهة
+    if (err instanceof ProductUnitsBusy) {
+      res.status(503).json({ success: false, code: 'PRODUCT_UNITS_BUSY', message: PRODUCT_UNITS_BUSY_MESSAGE });
       return;
     }
     // مرتجعٌ من فاتورة بيع تجاوز المتاح بعد القفل (مرتجعٌ متزامن سبقه) — لا مستند
@@ -1546,7 +1801,12 @@ const creditNoteSchema = z.object({
     z.literal('FULL'),
     // unitId: وحدة الإشعار (حبّةٌ من بند كرتون — القاعدة ١٠)؛ الكمية بها، والحارس يحوّلها إلى الأساس (compliance/zatca/notes.ts).
     // وبلا هذا الحقل كان المخطّط يمحوه صامتاً فيُقرأ «١» من بند كرتون كرتوناً كاملاً
-    z.array(z.object({ invoiceItemId: z.string(), qty: z.number().positive(), unitId: z.string().nullish() })).min(1),
+    // baseUnitName (§2.12-7): وحدة أساس الصنف كما يعرفها المُرسِل — تختلف عن أساسه الآن ⇒ 400 UNIT_INVALID، وتُقارَن تحت قفل الإشعار.
+    // ولا unitFactor من الجسم أبداً: المخطّط يمحوه، والمعامل من وحدات الصنف وحدها
+    z.array(z.object({
+      invoiceItemId: z.string(), qty: z.number().positive(), unitId: z.string().nullish(),
+      baseUnitName: z.string().transform((v) => v.slice(0, 64)).nullish(),
+    })).min(1),
   ]),
 });
 
@@ -1687,6 +1947,35 @@ router.post('/:id/credit-note', async (req: AuthRequest, res: Response, next: Ne
     if (!target) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
     const perm = creditNotePermission(target.actor, creditScopeOf(body.lines));
     if (!perm.ok) { res.status(403).json({ success: false, message: perm.messageAr }); return; }
+    /* «الوحدة الرئيسية» §2.12-7 وD19: بنودٌ صريحة تحمل baseUnitName، أو طلبٌ بمفتاح API — يُقرأ صنف كل بند من الأصل (ولا استعلام
+     * لغيرهما: الواجهة والمندوب كما كانا). baseUnitName يخالف أساس الصنف الآن ⇒ 400 UNIT_INVALID (كاشٌ قديم)، والمفتاح على صنفٍ
+     * حُوِّل بلا baseUnitName ⇒ 400 BASE_UNIT_REQUIRED. والأساس المتوقَّع يُقارَن تحت قفل الإشعار (409 حين يسبقه تحويل). */
+    let lines: typeof body.lines | Array<{ invoiceItemId: string; qty: number; unitId: string | null; expectedBase: string | null }> = body.lines;
+    if (body.lines !== 'FULL' && (body.lines.some((l) => l.baseUnitName != null) || !!req.user?.apiKeyId)) {
+      const reqLines = body.lines;
+      const origItems = await prisma.invoiceItem.findMany({
+        where: { id: { in: [...new Set(reqLines.map((l) => l.invoiceItemId))] }, invoiceId: target.invoiceId, invoice: { tenantId: tid } },
+        select: { id: true, productId: true, product: { select: { name: true, unit: true, baseConvertedAt: true } } },
+      });
+      const prodOf = new Map((origItems ?? []).filter((i) => i.productId && i.product).map((i) => [i.id, { id: i.productId as string, ...i.product! }]));
+      const stale = reqLines.find((l) => {
+        const p = prodOf.get(l.invoiceItemId);
+        return !!p && l.baseUnitName != null && baseNameKey(l.baseUnitName) !== baseNameKey(p.unit);
+      });
+      if (stale) {
+        res.status(400).json({ success: false, code: 'UNIT_INVALID', message: `تغيّرت وحدات «${prodOf.get(stale.invoiceItemId)!.name}» — حدّث قائمة الأصناف ثم أعد المحاولة` });
+        return;
+      }
+      const noBase = missingBaseForApi(!!req.user?.apiKeyId,
+        reqLines.filter((l) => prodOf.has(l.invoiceItemId)).map((l) => ({ productId: prodOf.get(l.invoiceItemId)!.id, baseUnitName: l.baseUnitName ?? null })),
+        new Map([...prodOf.values()].map((p) => [p.id, { name: p.name, baseConvertedAt: p.baseConvertedAt ?? null }])));
+      if (noBase) { const g = baseUnitRequiredReply(noBase); res.status(g.status).json(g.body); return; }
+      // الأساس المتوقَّع = ما أرسله (وقد طابق) وإلا ما قُرئ الآن — والقفل في الإشعار يحكم
+      lines = reqLines.map((l) => ({
+        invoiceItemId: l.invoiceItemId, qty: l.qty, unitId: l.unitId ?? null,
+        expectedBase: prodOf.get(l.invoiceItemId)?.unit ?? l.baseUnitName ?? null,
+      }));
+    }
     const r = await issueCreditNote({
       tenantId: tid,
       caps: capsFromHeaders(req.headers),
@@ -1695,7 +1984,7 @@ router.post('/:id/credit-note', async (req: AuthRequest, res: Response, next: Ne
       salesRepId: req.user?.role === 'SALES_REP' ? req.user.id : null,
       actor: target.actor,
       reason: body.reason,
-      lines: body.lines,
+      lines,
       reasonCode: body.reasonCode ?? null,
       returnToStock: body.returnToStock ?? null,
       clientRef: body.clientRef ?? null,

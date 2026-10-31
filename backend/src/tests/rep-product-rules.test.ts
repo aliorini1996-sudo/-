@@ -113,8 +113,11 @@ test('حارس نصّي: الحفظ يختم التغيير ويتحقّق من 
   assert.match(products, /const repProblem = newlyLarge \? repRuleConfigProblem\(repRules\.merged, exists\.units\) : null;/);
   assert.match(products, /code: 'REP_UNIT_RULE_INVALID'/);
   assert.equal(products.split('refuseLargeRuleWithout(product,').length - 1, 2, 'تعديل الوحدة وحذفها');
+  // التحويل ومعاينته (dryRun) يرفضان بالحارس المشترك نفسه (الوحدة الرئيسية §2.2-ز): القيد قبل فحص المعامل والاسم، تحت القفل
   const convert = products.slice(products.indexOf("router.post('/:id/convert-base'"));
-  assert.ok(convert.indexOf("'REP_UNIT_RULE_SET'") > 0 && convert.indexOf("'REP_UNIT_RULE_SET'") < convert.indexOf('baseConversionProblem(product, body)'));
+  const refusalOn = products.slice(products.indexOf('async function convertBaseRefusalOn('), products.indexOf("router.post('/:id/convert-base'"));
+  assert.ok(refusalOn.indexOf("'REP_UNIT_RULE_SET'") > 0 && refusalOn.indexOf("'REP_UNIT_RULE_SET'") < refusalOn.indexOf('baseConversionProblem(product, body)'));
+  assert.ok(convert.indexOf('await convertBaseRefusalOn(tx, tid, product, body);') > convert.indexOf('const product = await lockProduct(tx, tid, req.params.id);'));
   // المزامنة: الأربعة معروضة، والختم سباكة داخلية
   const sync = read('services/apiSync.ts');
   assert.match(sync, /'repSaleAllowed', 'repReturnAllowed', 'repSaleUnit', 'repReturnUnit',/);

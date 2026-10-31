@@ -15,6 +15,7 @@ import {
   PENDING_ACTIVATION_PREFIX, isPendingActivationHash, resendActivationForSignup,
   activationPreview, activateCompany, ActivationError,
 } from '../services/trialCompany';
+import { convertBaseUiCode, type ConvertBaseUiCode } from '../services/convertBaseAccess';
 
 const router = Router();
 
@@ -111,7 +112,22 @@ export const LEDGER_PERMISSION_KEYS = new Set(['canViewLedger', 'canPostJournals
  * (isOwnerSession). أمر المالك (٢٩ سبتمبر ٢٠٢٦): «اجعل لي كمالك صلاحية تعديل كل شيء بلا استثناء».
  */
 export function ownerSessionPermissionFields() {
-  return { ...Object.fromEntries(Object.keys(adminPermissionSelect).map((key) => [key, true])), scopeEnabled: false };
+  return { ...Object.fromEntries(Object.keys(adminPermissionSelect).map((key) => [key, true])), scopeEnabled: false, canConvertBase: true, convertBaseRefusalCode: null };
+}
+
+/**
+ * «إضافة وحدة فرعية أصغر» (convert-base، الوحدة الرئيسية §2.4): هل يظهر الزرّ، ولماذا لا — من حارس الخادم نفسه
+ * (services/convertBaseAccess.ts)، فلا تحسبه الواجهة بمنطق موازٍ. العلم من الشركة المحمّلة مع المدير (الدخول include: tenant،
+ * و/me بـselect)، وغيابها (التسجيل) ⇒ مغلق، وهو الصحيح لشركة جديدة. يُحسب لحظة الدخول، والخادم يحكم في كل طلب على أي حال.
+ */
+function convertBaseFields(admin: Record<string, unknown>): { canConvertBase: boolean; convertBaseRefusalCode: ConvertBaseUiCode } {
+  const a = admin as any;
+  const ui = convertBaseUiCode({
+    role: a.role, isActive: a.isActive, scopeEnabled: a.scopeEnabled,
+    canManageProducts: a.canManageProducts, canManageVanStock: a.canManageVanStock, canManageInvoices: a.canManageInvoices,
+    tenantOpen: a.tenant?.convertBaseOpen === true,
+  });
+  return { canConvertBase: ui === null, convertBaseRefusalCode: ui };
 }
 
 export function adminPermissionFields(admin: Record<string, unknown>) {
@@ -119,6 +135,7 @@ export function adminPermissionFields(admin: Record<string, unknown>) {
     ...Object.fromEntries(Object.keys(adminPermissionSelect).map(key => [key, LEDGER_PERMISSION_KEYS.has(key) ? ((admin as any)[key] ?? false) : (admin as any)[key]])),
     // مقيّد النطاق لا يرى الدفاتر (LEDGER_SCOPED_ADMIN) — الواجهة تحتاجه لتطابق الخادم
     scopeEnabled: (admin as any).scopeEnabled ?? false,
+    ...convertBaseFields(admin),
   };
 }
 
@@ -520,10 +537,15 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response, next: Ne
         } : { role: 'SALES_REP' },
       });
     } else {
-      const admin = await prisma.admin.findUnique({
+      const row = await prisma.admin.findUnique({
         where: { id: req.user.id },
-        select: { id: true, name: true, email: true, role: true, tenantId: true, emailVerified: true, scopeEnabled: true, ...adminPermissionSelect }
+        select: {
+          id: true, name: true, email: true, role: true, tenantId: true, emailVerified: true, scopeEnabled: true, ...adminPermissionSelect,
+          // «إضافة وحدة فرعية أصغر»: النشاط وعلم الشركة يدخلان الحساب وحده ولا يخرجان في الردّ (الشكل كما كان + الحقلان)
+          isActive: true, tenant: { select: { convertBaseOpen: true } },
+        },
       });
+      const admin = row ? (({ isActive: _a, tenant: _t, ...rest }) => ({ ...rest, ...convertBaseFields(row) }))(row) : null;
       // جلسة مالك المنصة: كل الصلاحيات مفتوحة في الويب كما في الخادم
       res.json({ success: true, data: admin && req.user.impersonated === true ? { ...admin, ...ownerSessionPermissionFields() } : admin });
     }

@@ -639,7 +639,8 @@ test('«تتبّع LOT» (D9): حقول التشغيلة لصنفٍ غير مت�
     const src = routeFile(router);
     assert.ok(src.includes('lotOnUntrackedError('), `${router}: لا رفض NOT_TRACKED`);
     const at = src.lastIndexOf('assertStillUntracked(tx, tid, productIds)');
-    assert.ok(at > 0 && /\.catch\((busy|\(e: unknown\) => \{ throw asLotBusy\(e\) \?\? e; \})\)/.test(src.slice(at, at + 400)), `${router}: P2028 في المسار غير المتتبَّع ليس LOT_BUSY`);
+    // «الوحدة الرئيسية» (§2.8): المعاملة نفسها تقفل الأساس، فرفض ProductUnitsChangedError يمرّ برمزه قبل asLotBusy
+    assert.ok(at > 0 && /\.catch\((busy|\(e: unknown\) => \{ throw (asLotBusy\(e\)|\(e instanceof ProductUnitsChangedError \? null : asLotBusy\(e\)\)) \?\? e; \})\)/.test(src.slice(at, at + 400)), `${router}: P2028 في المسار غير المتتبَّع ليس LOT_BUSY`);
   }
   for (const [p, fields] of [
     ['/van-stock/loads', ['items[].lots', 'items[].lotNumber', 'items[].productionDate', 'items[].expiryDate', 'items[].lotReason']],
@@ -773,21 +774,42 @@ test('الاستيراد: عقد التاريخ dateContract برسالة الم
   assert.ok(!src.includes("'OPENING_STOCK_AFTER_CUTOVER'"));
 });
 
-test('دقّة المستند: كل رمز يرسله موجّه الأصناف موثّقٌ، وconvert-base مقيّد بجلسة الدعم للمفتاح، وأعمدة الصلاحية في الجسمين', () => {
+/** رموز رفض «إضافة وحدة فرعية أصغر» (convert-base) بالترتيب الملزم في الخادم: المفتاح، ثم البوابتان، ثم الدور، ثم النطاق، ثم الصلاحيات */
+const CONVERT_BASE_REFUSALS = ['CONVERT_BASE_INTERACTIVE_ONLY', 'CONVERT_BASE_OWNER_ONLY', 'CONVERT_BASE_ROLE_FORBIDDEN', 'CONVERT_BASE_SCOPED_USER', 'CONVERT_BASE_FORBIDDEN'];
+
+test('دقّة المستند: كل رمز يرسله موجّه الأصناف موثّقٌ، وconvert-base خلف حارس الصلاحية قبل الجسم ويرفض المفتاح دائماً، وأعمدة الصلاحية في الجسمين', () => {
   const products = routeFile('products');
   const all = JSON.stringify(API_DOC_GROUPS);
   const codes = [...new Set([...products.matchAll(/'([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)'/g)].map((m) => m[1]))];
   assert.ok(codes.length >= 6, `قُرئ ${codes.length} رمزاً فقط`);
   assert.deepEqual(codes.filter((c) => !new RegExp(`\\b${c}\\b`).test(all)), [], 'رموز موجّه الأصناف غائبة عن المستند');
-  // التقييد في الخادم قبل الجسم، والمستند يقوله في الحرّاس والرد ولا يدلّ المفتاح عليه كمسارٍ عادي
+  // الحارس في الخادم قبل الجسم (§2.2-ز حرفياً)، ورموزه الخمسة يرسلها convertBaseAccess.ts، ورمزا الإقرار يرسلهما المسار
   const h = products.slice(products.indexOf("router.post('/:id/convert-base'"));
-  const gate = h.indexOf("code: 'CONVERT_BASE_OWNER_ONLY'");
-  assert.ok(gate > 0 && gate < h.indexOf('convertBaseSchema.parse') && h.slice(0, gate).includes('if (!isOwnerSession(req))'), 'الحارس قبل الجسم');
+  const gate = h.indexOf('const refusal = await convertBaseRefusalFor(req);');
+  assert.ok(gate > 0 && gate < h.indexOf('convertBaseSchema.parse'), 'الحارس قبل الجسم');
+  assert.ok(!h.slice(0, h.indexOf('convertBaseSchema.parse')).includes('if (!isOwnerSession(req))'), 'حصر المالك القديم باقٍ قبل الجسم');
+  const access = read(path.join(BACKEND, 'services', 'convertBaseAccess.ts'));
+  for (const c of CONVERT_BASE_REFUSALS) assert.ok(access.includes(`'${c}'`), `${c} لا يرسله convertBaseAccess.ts`);
+  for (const c of ['CONVERT_BASE_ERP_ACK', 'CONVERT_BASE_API_ACK']) assert.ok(h.includes(`'${c}'`), `${c} لا يرسله convert-base`);
+  // والمستند: الرموز الخمسة في الحرّاس بترتيب الخادم (المفتاح أولاً)، والرد يبدأ برفض المفتاح فلا يدلّه على مسارٍ يُرفض له دائماً
   const cb = endpointOf('POST', '/products/:id/convert-base');
-  assert.ok(cb.gates.some((g) => g.includes('CONVERT_BASE_OWNER_ONLY')));
-  assert.match(cb.response, /^403 \{success:false, code:'CONVERT_BASE_OWNER_ONLY'/);
-  assert.match(fieldOf(endpointOf('PUT', '/products/:id'), 'unit').desc, /CONVERT_BASE_OWNER_ONLY/);
-  assert.match(API_DOC_GROUPS.find((g) => g.key === 'products')!.overview, /CONVERT_BASE_OWNER_ONLY/);
+  const gates = cb.gates.join(' | ');
+  const at = CONVERT_BASE_REFUSALS.map((c) => gates.indexOf(c));
+  assert.ok(at.every((i, k) => i >= 0 && (k === 0 || i > at[k - 1])), `رموز الرفض في الحرّاس بالترتيب: ${at}`);
+  assert.match(cb.response, /^403 \{success:false, code:'CONVERT_BASE_INTERACTIVE_ONLY'/);
+  for (const c of [...CONVERT_BASE_REFUSALS, 'CONVERT_BASE_ERP_ACK', 'CONVERT_BASE_API_ACK', 'BASE_NAME_RETIRED']) assert.match(cb.response, new RegExp(`\\b${c}\\b`), c);
+  assert.match(cb.response, /apiKeys:\{write, readOnly\}/);
+  assert.match(cb.response, /conversionId/);
+  assert.match(cb.purpose, /إضافة وحدة فرعية أصغر/);
+  // «قيود المندوب»: رفض التحويل لصنفٍ له قيد وحدة يبقى في الحرّاس والرد كما يرسله الموجّه، بعد حارس الصلاحية
+  assert.ok(/UnitsRefusal\(409, '[^']*تحويل[^']*', 'REP_UNIT_RULE_SET'\)/.test(products), 'convert-base لم يعد يرفض قيد وحدة المندوب: راجع المستند');
+  assert.ok(gates.indexOf('REP_UNIT_RULE_SET') > gates.indexOf('CONVERT_BASE_FORBIDDEN'), 'حارس قيود المندوب');
+  assert.match(cb.response, /REP_UNIT_RULE_SET/);
+  assert.match(fieldOf(endpointOf('PUT', '/products/:id'), 'unit').desc, /CONVERT_BASE_INTERACTIVE_ONLY/);
+  const overview = API_DOC_GROUPS.find((g) => g.key === 'products')!.overview;
+  assert.match(overview, /CONVERT_BASE_INTERACTIVE_ONLY/);
+  assert.match(overview, /CONVERT_BASE_OWNER_ONLY/);
+  assert.doesNotMatch(all, /يجريه الدعم الفني وحده مؤقتاً|مقيّد مؤقتاً بجلسة الدعم الفني/, 'وعد الحصر القديم باقٍ في المستند');
   // أعمدة الصلاحية وقيد المرتجع في الجسمين كما في المخطّط
   const schemaKeys = zodKeys(products, 'productSchema');
   for (const k of ['shelfLifeBasis', 'shelfLifeFromDate', 'returnRuleEnabled', 'returnRuleMode', 'returnRuleMetric', 'returnRuleValue',
@@ -817,4 +839,187 @@ test('«تتبّع LOT»: قيم detail.reason وdetail.mode في مقدمة م�
   const modes = [...modeUnion![1].matchAll(/'([A-Z_]+)'/g)].map((m) => m[1]);
   assert.deepEqual(modes, ['CANCEL', 'RESTOCK_OFF']);
   assert.match(overview, new RegExp(`mode = ${modes.join(' أو ')}`));
+});
+
+/* ═══ «الوحدة الرئيسية» وحماية «إضافة وحدة فرعية أصغر» (مواصفة الوحدة الرئيسية §7 وD18–D20) ═══ */
+
+/**
+ * الحقول العليا لمخطّط zod باسمه، سطراً واحداً كان أو أسطراً، وبـz.object أو .extend: يُقرأ القوس المتوازن بعد
+ * `const <name> =` ثم المفاتيح في عمقه الأول وحده (فحقول z.object متداخلة لا تُعدّ له). nested ⇒ مفاتيح ذلك الحقل المتداخل
+ */
+function schemaKeys(src: string, name: string, nested?: string): string[] {
+  const at = src.indexOf(`const ${name} = `);
+  assert.ok(at >= 0, `المخطّط ${name} غائب`);
+  let open = src.indexOf('({', at) + 1;
+  if (nested) {
+    const n = src.indexOf(`${nested}: z.object({`, open);
+    assert.ok(n > 0, `${name}.${nested} ليس z.object`);
+    open = src.indexOf('{', n);
+  }
+  let depth = 0;
+  let body = '';
+  for (let i = open; i < src.length; i++) {
+    const ch = src[i];
+    if (ch === '{' || ch === '(' || ch === '[') depth++;
+    if (ch === '}' || ch === ')' || ch === ']') depth--;
+    if (depth === 0) break;
+    body += depth === 1 ? ch : ' ';
+  }
+  return [...body.matchAll(/(?:^|[{,\s])(\w+):/g)].map((m) => m[1]);
+}
+
+test('الوحدة الرئيسية: أجسام POST /products وPUT /products/:id وprice-tiers وprimary-unit بحقول مخطّطاتها في الخادم حرفياً', () => {
+  const products = routeFile('products');
+  const names = (method: string, p: string) => endpointOf(method, p).body.map((f) => f.name);
+  // الإنشاء: الحقول الثلاثة الجديدة في الجسم، ووحدات الجسم بمفاتيح productCreateUnitSchema
+  const create = schemaKeys(products, 'productCreateSchema');
+  assert.deepEqual([...create].sort(), ['basePrice', 'primaryUnitName', 'units']);
+  for (const k of create) assert.ok(names('POST', '/products').includes(k), `POST /products: ${k}`);
+  assert.deepEqual(names('POST', '/products').filter((n) => n.startsWith('units[].')).map((n) => n.slice(8)).sort(), schemaKeys(products, 'productCreateUnitSchema').sort());
+  assert.equal((fieldOf(endpointOf('POST', '/products'), 'basePrice') as { required?: boolean }).required, false, 'basePrice اختياري مع primaryUnitName');
+  // I1: units بلا primaryUnitName يُتجاهل — والمستند يقوله، والخادم يتفرّع على primaryUnitName وحده
+  assert.match(fieldOf(endpointOf('POST', '/products'), 'units').desc, /بلا primaryUnitName[^.]*يُتجاهل/);
+  assert.ok(/req\.body\?\.primaryUnitName != null/.test(products), 'التفرّع على primaryUnitName وحده');
+  // التعديل المحروس
+  const guard = schemaKeys(products, 'productEditGuardSchema');
+  assert.deepEqual([...guard].sort(), ['expectedBaseName', 'primaryUnit']);
+  for (const k of guard) assert.ok(names('PUT', '/products/:id').includes(k), `PUT /products/:id: ${k}`);
+  assert.deepEqual(names('PUT', '/products/:id').filter((n) => n.startsWith('primaryUnit.')).map((n) => n.slice(12)).sort(), schemaKeys(products, 'productEditGuardSchema', 'primaryUnit').sort());
+  assert.ok(endpointOf('PUT', '/products/:id').rules.some((r) => /primaryUnitId في الجسم يُتجاهل/.test(r)));
+  // الشرائح: حارسها بجانب tiers (اسم مخطّطه للموجّه، فيُقرأ الحقل المتداخل أينما عُرِّف: expectedPrimary: z.object({…}))
+  const tierBody = names('PUT', '/products/:id/price-tiers');
+  for (const k of ['expectedBaseName', 'expectedPrimary']) {
+    assert.ok(tierBody.includes(k), `price-tiers: ${k}`);
+    assert.ok(new RegExp(`\\b${k}: z\\.`).test(products), `price-tiers: ${k} ليس في مخطّطات موجّه الأصناف`);
+  }
+  const ep = products.indexOf('expectedPrimary: z.object({');
+  assert.ok(ep > 0, 'expectedPrimary ليس z.object');
+  const epBody = products.slice(ep, products.indexOf('})', ep));
+  assert.deepEqual(tierBody.filter((n) => n.startsWith('expectedPrimary.')).map((n) => n.slice(16)).sort(), [...epBody.matchAll(/[{,\s](\w+):/g)].map((m) => m[1]).sort());
+  // المسار الجديد مدخلٌ كامل: جسمه = primaryUnitSchema، ومركَّبٌ في الموجّه (ويفحصه اختبار التركيب أيضاً)
+  assert.deepEqual(names('PUT', '/products/:id/primary-unit').sort(), schemaKeys(products, 'primaryUnitSchema').sort());
+  assert.ok(products.includes("router.put('/:id/primary-unit'"), 'PUT /:id/primary-unit غير مركّب');
+  const prim = endpointOf('PUT', '/products/:id/primary-unit');
+  for (const c of ['PRIMARY_UNIT_INVALID', 'PRIMARY_UNIT_CHANGED', 'PRODUCT_NOT_FOUND']) assert.match(prim.response + JSON.stringify(prim.body), new RegExp(`\\b${c}\\b`), c);
+  assert.ok(prim.rules.some((r) => /بلا unitId يبقى وحدة الأساس/.test(r)), 'D3 في المسار الجديد');
+  // والرئيسية لا تغيّر معنى BASE وLARGE في «قيود المندوب» (LARGE = units بمعامل > 1 أيّاً كانت الرئيسية)
+  assert.ok(prim.rules.some((r) => /قيود المندوب/.test(r) && /LARGE/.test(r) && /بمعامل > 1/.test(r)), 'الرئيسية و«قيود المندوب»');
+  // ترتيب الفهرس: المسار الجديد مع مسارات الوحدات قبل convert-base
+  const order = API_DOC_GROUPS.find((g) => g.key === 'products')!.endpoints.map((e) => `${e.method} ${e.path}`);
+  const i = order.indexOf('PUT /products/:id/primary-unit');
+  assert.ok(i > order.indexOf('DELETE /products/:id/units/:unitId') && i < order.indexOf('POST /products/:id/convert-base'), 'ترتيب المسار الجديد');
+});
+
+test('الوحدة الرئيسية: makePrimary وclearPrimary و?clearPrimary=1 وexpectedBaseName في مسارات الوحدات، وكل رمزٍ جديد موثّقٌ في صفّ حالته ويرسله الخادم', () => {
+  const uc = endpointOf('POST', '/products/:id/units');
+  const uu = endpointOf('PUT', '/products/:id/units/:unitId');
+  const ud = endpointOf('DELETE', '/products/:id/units/:unitId');
+  for (const k of ['makePrimary', 'expectedBaseName']) fieldOf(uc, k);
+  for (const k of ['clearPrimary', 'expectedBaseName']) fieldOf(uu, k);
+  assert.deepEqual(ud.query.map((q) => q.name), ['clearPrimary', 'expectedBaseName']);
+  for (const e of [uu, ud]) assert.match(e.response, /PRIMARY_UNIT_IN_USE/);
+  // الرموز الجديدة: في الفهرس، وفي جدول الأخطاء، ويرسلها الخادم حرفياً
+  const docs = read(path.join(process.cwd(), 'src', 'components', 'ApiDocs.tsx'));
+  const table = docs.slice(docs.indexOf("['400',"), docs.indexOf('].map(([c, d])', docs.indexOf("['400',")));
+  const all = JSON.stringify(API_DOC_GROUPS);
+  for (const c of ['PRIMARY_UNIT_INVALID', 'PRIMARY_UNIT_CHANGED', 'PRIMARY_UNIT_IN_USE', 'BASE_UNIT_CHANGED', 'BASE_UNIT_REQUIRED', 'BASE_NAME_RETIRED',
+    'PRODUCT_UNITS_CHANGED', 'PRODUCT_UNITS_BUSY', 'CONVERT_BASE_ERP_ACK', 'CONVERT_BASE_API_ACK', ...CONVERT_BASE_REFUSALS]) {
+    assert.match(all, new RegExp(`\\b${c}\\b`), `${c} غائب عن الفهرس`);
+    assert.match(table, new RegExp(`\\b${c}\\b`), `${c} غائب عن جدول الأخطاء`);
+    assert.ok(BACKEND_SRC.includes(`'${c}'`), `${c} لا يرسله الخادم`);
+  }
+  // وكلٌّ في صفّ حالته: 400 للمطلوب وغير الصالح، و403 للرفض، و409 للتعارض، و503 للانشغال
+  const row = (c: string) => new RegExp(`\\['${c}', '[^']*`).exec(table)![0];
+  for (const c of ['BASE_UNIT_REQUIRED', 'PRIMARY_UNIT_INVALID']) assert.match(row('400'), new RegExp(c));
+  for (const c of CONVERT_BASE_REFUSALS) assert.match(row('403'), new RegExp(c));
+  for (const c of ['PRIMARY_UNIT_CHANGED', 'PRIMARY_UNIT_IN_USE', 'BASE_UNIT_CHANGED', 'BASE_NAME_RETIRED', 'CONVERT_BASE_ERP_ACK', 'CONVERT_BASE_API_ACK', 'PRODUCT_UNITS_CHANGED']) {
+    assert.match(row('409'), new RegExp(c));
+  }
+  assert.match(row('503'), /PRODUCT_UNITS_BUSY/);
+});
+
+test('D18/D19: الحقلان في ردود الأصناف، وbaseUnitName لكل كاتب في المستند وفي مخطّطه في الخادم، وقاعدة «بلا unitId = الأساس» بارزة', () => {
+  const overview = API_DOC_GROUPS.find((g) => g.key === 'products')!.overview;
+  assert.match(overview, /بندٌ بلا unitId = وحدة الأساس دائماً، ولو كانت الوحدة الرئيسية كرتوناً/);
+  assert.match(overview, /baseConvertedAt: لحظة آخر/);
+  assert.match(overview, /بعد تحويل وحدة صنف \(baseConvertedAt غير فارغ\)/);
+  assert.match(overview, /حمولة ERP لا تحمل الحقلين/);
+  for (const [m, p] of [['GET', '/products'], ['GET', '/products/:id']]) {
+    for (const k of ['primaryUnitId', 'baseConvertedAt']) assert.match(endpointOf(m, p).response, new RegExp(k), `${p}: ${k}`);
+  }
+  assert.match(endpointOf('GET', '/products/customer-prices/:customerId').response, /\{productId, price, unit\}/);
+  // كل كاتب يعتمد على الأساس: حقله في المستند بشرطه ورمزه، ومذكورٌ في قائمة المقدمة، وفي مخطّط موجّهه
+  const writers: [string, string, string, string, string][] = [
+    ['POST', '/invoices', 'items[].baseUnitName', 'invoices', 'invoiceItemSchema'],
+    ['POST', '/invoices/:id/credit-note', 'lines[].baseUnitName', 'invoices', 'creditNoteSchema'],
+    ['POST', '/van-stock/loads', 'items[].baseUnitName', 'vanStock', 'loadSchema'],
+    ['POST', '/warehouse/entries', 'items[].baseUnitName', 'warehouse', 'entrySchema'],
+    ['PUT', '/rep-stock-requests/:id', 'items[].baseUnitName', 'repStockRequests', 'itemsSchema'],
+    ['PUT', '/customers/:id/prices', 'prices[].baseUnitName', 'customers', 'pricesSchema'],
+    ['POST', '/lots/relabel', 'baseUnitName', 'lots', 'relabelSchema'],
+  ];
+  for (const [method, p, field, router, schema] of writers) {
+    const f = fieldOf(endpointOf(method, p), field);
+    assert.match(f.desc, /BASE_UNIT_REQUIRED/, `${p}: D19`);
+    assert.match(f.desc, /baseConvertedAt/, `${p}: الشرط`);
+    assert.ok(overview.includes(p), `المقدمة لا تذكر ${p}`);
+    const src = routeFile(router);
+    const at = src.indexOf(`const ${schema} = `);
+    assert.ok(at >= 0, `${router}: ${schema} غائب`);
+    assert.ok(src.slice(at, src.indexOf('\n});', at) + 4).includes('baseUnitName:'), `${router}.${schema}: baseUnitName ليس في المخطّط`);
+  }
+  // وكتّاب إعداد الصنف: expectedBaseName في المستند مع BASE_UNIT_REQUIRED
+  for (const [m, p] of [['PUT', '/products/:id'], ['POST', '/products/:id/units'], ['PUT', '/products/:id/units/:unitId'], ['PUT', '/products/:id/price-tiers']]) {
+    assert.match(fieldOf(endpointOf(m, p), 'expectedBaseName').desc, /BASE_UNIT_REQUIRED/, `${p}: D19`);
+    assert.ok(overview.includes(p), `المقدمة لا تذكر ${p}`);
+  }
+  // الوصف القديم «لا ترسله من التكاملات» لـbaseUnitName صار كاذباً لصنفٍ محوَّل
+  assert.doesNotMatch(fieldOf(endpointOf('POST', '/invoices'), 'items[].baseUnitName').desc, /انظر unitName: لا ترسله من التكاملات/);
+  // الاستيراد: عمود الرئيسية ورمزا الفارغ (D17)
+  fieldOf(endpointOf('POST', '/import/products'), 'rows[].primaryUnit');
+  assert.match(fieldOf(endpointOf('POST', '/import/prices'), 'rows[].unit').desc, /PRICE_UNIT_REQUIRED/);
+  assert.match(fieldOf(endpointOf('POST', '/import/opening-stock'), 'rows[].unit').desc, /QTY_UNIT_REQUIRED/);
+});
+
+test('الوحدة الرئيسية: رسالة PRODUCT_UNITS_BUSY المقتبسة رسالةُ موجّهها حرفياً، ومسارات قفل الوحدات (FOR UPDATE بلا مهلة) لا تَعِد بها', () => {
+  const products = routeFile('products');
+  const productsMsg = /const PRODUCT_UNITS_BUSY_MSG = '([^']+)'/.exec(products)![1];
+  const guardMsg = /export const PRODUCT_UNITS_BUSY_MESSAGE = '([^']+)'/.exec(routeFile('invoicesZatca'))![1];
+  assert.ok(read(path.join(BACKEND, 'services', 'baseGuard.ts')).includes(`code: 'PRODUCT_UNITS_BUSY', message: '${guardMsg}'`), 'baseGuardReply برسالة الفواتير نفسها');
+  const group = API_DOC_GROUPS.flatMap((g) => g.endpoints);
+  for (const e of group) {
+    const text = JSON.stringify(e);
+    for (const m of text.matchAll(/code:'PRODUCT_UNITS_BUSY', message:'([^']+)'/g)) {
+      assert.equal(m[1], e.path.startsWith('/products') ? productsMsg : guardMsg, `${e.method} ${e.path}: رسالة الانشغال`);
+    }
+  }
+  // lockProduct يقفل FOR UPDATE بلا lock_timeout ولا ترجمة للانشغال: مسارات الوحدات والشرائح والرئيسية لا ترسل 503 PRODUCT_UNITS_BUSY
+  const lp = products.slice(products.indexOf('async function lockProduct('), products.indexOf('function readLockedProduct('));
+  assert.ok(lp.length > 0 && !lp.includes('PRODUCT_UNITS_BUSY'), 'lockProduct صار يردّ PRODUCT_UNITS_BUSY: وثّقه في مسارات الوحدات');
+  for (const [m, p] of [['POST', '/products/:id/units'], ['PUT', '/products/:id/units/:unitId'], ['DELETE', '/products/:id/units/:unitId'], ['PUT', '/products/:id/price-tiers'], ['PUT', '/products/:id/primary-unit']]) {
+    assert.doesNotMatch(endpointOf(m, p).response, /PRODUCT_UNITS_BUSY/, `${m} ${p}`);
+  }
+});
+
+test('الوحدة الرئيسية: حذف الوحدة يقرأ expectedBaseName من الاستعلام (D19)، والمستند يوثّقه مع رمزيه ويذكره في قائمة المقدمة', () => {
+  const products = routeFile('products');
+  const del = products.slice(products.indexOf("router.delete('/:id/units/:unitId'"), products.indexOf("router.put('/:id/primary-unit'"));
+  assert.match(del, /req\.query\.expectedBaseName/);
+  const ud = endpointOf('DELETE', '/products/:id/units/:unitId');
+  assert.deepEqual(ud.query.map((q) => q.name).sort(), ['clearPrimary', 'expectedBaseName']);
+  assert.match(fieldOf(ud, 'expectedBaseName').desc, /BASE_UNIT_REQUIRED/);
+  assert.match(fieldOf(ud, 'expectedBaseName').desc, /baseConvertedAt/);
+  for (const c of ['BASE_UNIT_CHANGED', 'BASE_UNIT_REQUIRED']) assert.match(ud.response, new RegExp(c));
+  // clearPrimary يقبل 1 وtrue كما يقرؤه الخادم
+  assert.ok(del.includes("req.query.clearPrimary === 'true'"));
+  assert.match(String(fieldOf(ud, 'clearPrimary').type), /true/);
+  assert.ok(API_DOC_GROUPS.find((g) => g.key === 'products')!.overview.includes('DELETE /products/:id/units/:unitId'));
+});
+
+test('D17: رسالتا PRICE_UNIT_REQUIRED وQTY_UNIT_REQUIRED المقتبستان في الاستيراد رسالتا الخادم حرفياً', () => {
+  const imp = routeFile('import');
+  const price = /export const PRICE_UNIT_REQUIRED_MESSAGE = '([^']+)'/.exec(imp)![1];
+  const qty = /export const QTY_UNIT_REQUIRED_MESSAGE = '([^']+)'/.exec(imp)![1];
+  assert.ok(fieldOf(endpointOf('POST', '/import/prices'), 'rows[].unit').desc.includes(`PRICE_UNIT_REQUIRED «${price}»`));
+  assert.ok(fieldOf(endpointOf('POST', '/import/opening-stock'), 'rows[].unit').desc.includes(`QTY_UNIT_REQUIRED «${qty}»`));
 });

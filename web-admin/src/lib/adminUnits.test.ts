@@ -5,6 +5,8 @@ import path from 'node:path';
 import {
   hasBigUnit, biggestUnit, baseQtyText, docQtyText, totalsByUnit, lineKey, unitTaken, suggestionChoice,
   unitFormProblem, unitFormPayload, unitFormOf, EMPTY_UNIT_FORM, convertFormProblem, convertPreview, convertPayload,
+  primaryOrBiggest, productUnitLabel, reverseFormProblem, reverseCreatePayload, reverseEditPatch, reverseFormOf, reverseSubPrice,
+  EMPTY_REVERSE_FORM, type ReverseForm,
 } from './adminUnits';
 
 /**
@@ -122,11 +124,14 @@ const read = (...p: string[]) => fs.readFileSync(path.resolve(process.cwd(), 'sr
 
 test('نافذة الصنف: الوحدات بمساراتها، والتحويل بالأساس المتوقَّع، و٤٠٩ برسالته', () => {
   const s = read('components', 'forms', 'ProductModal.tsx');
-  assert.match(s, /productApi\.addUnit\(productId, unitFormPayload\(adding\)\)/);
-  assert.match(s, /productApi\.updateUnit\(productId, u\.id, unitFormPayload\(editing\)\)/);
-  assert.match(s, /productApi\.updateUnit\(productId, u\.id, \{ isActive: u\.isActive === false \}\)/, 'الإيقاف والتفعيل');
+  // «الوحدة الرئيسية» §4.2: كل كتابة وحدةٍ ترسل الأساس كما رآه النموذج (expectedBaseName) فيُرفض نموذجٌ قديم بـ٤٠٩
+  assert.match(s, /productApi\.addUnit\(productId, \{ \.\.\.unitFormPayload\(adding\),[^\n]*expectedBaseName: baseUnit \}\)/);
+  assert.match(s, /productApi\.updateUnit\(productId, u\.id, \{ \.\.\.unitFormPayload\(editing\), expectedBaseName: baseUnit \}\)/);
+  assert.match(s, /\{ isActive: u\.isActive === false, expectedBaseName: baseUnit \}/, 'الإيقاف والتفعيل');
   assert.match(s, /productApi\.removeUnit\(productId, u\.id\)/);
-  assert.match(s, /productApi\.convertBase\(productId, convertPayload\(form, expected\)\)/);
+  // «إضافة وحدة فرعية أصغر»: الجسم من convertPayload بالأساس المتوقَّع، والمعاينة dryRun قبل التنفيذ (§4.3)
+  assert.match(s, /\.\.\.convertPayload\(form, expected\)/);
+  assert.match(s, /productApi\.convertBase\(productId, \{ \.\.\.body\(\), dryRun: true \}\)/);
   // الأساس المتوقَّع لحظة فتح النافذة لا ما يتغيّر بعدها
   assert.match(s, /const \[expected\] = useState\(baseUnit\);/);
   // الرفض (٤٠٩ «تغيّرت وحدة الأساس») يُعرض برسالة الخادم داخل النافذة
@@ -155,4 +160,125 @@ test('التحميل والوارد: unitId يُرسل مع البند، وال�
   const w = read('pages', 'CompanyWarehousePage.tsx');
   assert.match(w, /\.\.\.\(r\.unitId && \{ unitId: r\.unitId \}\),/);
   assert.match(w, /tr\('متوسط التكلفة لوحدة الأساس'\)/);
+});
+
+// ═══ «الوحدة الرئيسية» (B1): صنفٌ أساسه قارورة، كرتونه ٢٤ رئيسيّ، وفوقه طبلية ١٢٠٠ ═══
+const bottleUnits = [
+  { id: 'u-c', name: 'كرتون', factor: 24, price: 48, isActive: true, unitCode: 'CT' },
+  { id: 'u-pl', name: 'طبلية', factor: 1200, price: null, isActive: true },
+];
+const bottle = { unit: 'قارورة', basePrice: 2, unitCode: 'PCE', units: bottleUnits };
+const bottleP = { ...bottle, primaryUnitId: 'u-c' };
+
+test('baseQtyText بالرئيسية يقف عندها، وبلاها (غائبة/null/تالفة) القائم حرفاً', () => {
+  assert.equal(baseQtyText(1250, bottleP, plain), '52 كرتون و2 قارورة');
+  assert.equal(baseQtyText(0, bottleP, plain), '0 كرتون');
+  assert.equal(baseQtyText(5, bottleP, plain), '5 قارورة');
+  assert.equal(baseQtyText(-26, bottleP, plain), '-1 كرتون و2 قارورة');
+  assert.equal(baseQtyText(1250, bottle, plain), '1 طبلية و50 قارورة');
+  assert.equal(baseQtyText(1250, { ...bottle, primaryUnitId: null }, plain), '1 طبلية و50 قارورة');
+  assert.equal(baseQtyText(1250, { ...bottle, primaryUnitId: 'u-gone' }, plain), '1 طبلية و50 قارورة');
+  assert.equal(baseQtyText(1250, bottleP, n => `«${n}»`), '«52» كرتون و«2» قارورة');
+});
+
+test('primaryOrBiggest وproductUnitLabel: الرئيسية أولاً، وبلاها biggestUnit وp.unit حرفاً', () => {
+  assert.equal(primaryOrBiggest(bottleP)!.name, 'كرتون');
+  assert.equal(primaryOrBiggest(bottle)!.name, 'طبلية', 'بلا رئيسية = biggestUnit');
+  assert.deepEqual(primaryOrBiggest(bottle), biggestUnit(bottle.units));
+  assert.equal(primaryOrBiggest({ unit: 'كرتون' } as any), null);
+  assert.equal(productUnitLabel(bottleP), 'كرتون (24 قارورة)');
+  assert.equal(productUnitLabel(bottleP, n => n.toLocaleString('ar-SA')), 'كرتون (٢٤ قارورة)');
+  assert.equal(productUnitLabel(bottle), 'قارورة');
+  assert.equal(productUnitLabel({ ...bottle, primaryUnitId: null }), 'قارورة');
+  assert.equal(productUnitLabel(null), '');
+});
+
+test('suggestionChoice بالرئيسية: لا قفز إلى الطبلية — وبلا رئيسية القائم حرفاً', () => {
+  const s = suggestionChoice(bottleP, 1200);
+  assert.deepEqual([s.choice.id, s.qty], ['u-c', 50], '1200 قارورة ⇒ 50 كرتون لا 1 طبلية');
+  assert.deepEqual([suggestionChoice(bottle, 1200).choice.id, suggestionChoice(bottle, 1200).qty], ['u-pl', 1], 'بلا رئيسية: الأكبر كما اليوم');
+  assert.deepEqual([suggestionChoice(bottleP, 50).choice.id, suggestionChoice(bottleP, 50).qty], [null, 50], 'لا تنقسم ⇒ الأساس');
+  assert.deepEqual([suggestionChoice(bottleP, 48).choice.id, suggestionChoice(bottleP, 48).qty], ['u-c', 2]);
+});
+
+test('docQtyText: «×5 قارورة» مع الرئيسية (من البند أو من صنفه)، و«×5» بلاها ومع primaryUnitId: null (D18)', () => {
+  assert.equal(docQtyText({ qty: 5, unitName: null, unitFactor: 1, unit: 'قارورة', primaryUnitId: 'u-c' }, plain), '5 قارورة');
+  assert.equal(docQtyText({ qty: 5, unitName: null, unitFactor: 1, unit: 'قارورة', product: { primaryUnitId: 'u-c' } }, plain), '5 قارورة');
+  assert.equal(docQtyText({ qty: 5, unitName: null, unitFactor: 1, unit: 'قارورة' }, plain), '5');
+  assert.equal(docQtyText({ qty: 5, unitName: null, unitFactor: 1, unit: 'قارورة', primaryUnitId: null }, plain), '5');
+  assert.equal(docQtyText({ qty: 5, unitName: null, unitFactor: 1, unit: 'قارورة', product: { primaryUnitId: null } }, plain), '5');
+  assert.equal(docQtyText({ qty: 2, unitName: 'كرتون', unitFactor: 24, product: { primaryUnitId: 'u-c' } }, plain), '2 كرتون');
+  assert.equal(docQtyText({ qty: 5, unitFactor: 1, primaryUnitId: 'u-c' }, plain), '5', 'بلا اسم وحدة لا يُلحق شيء');
+});
+
+const rf = (o: Partial<ReverseForm> = {}): ReverseForm => ({ ...EMPTY_REVERSE_FORM, primaryName: 'كرتون', primaryPrice: '48', subName: 'قارورة', factor: '24', ...o });
+
+test('reverseFormProblem: الأسماء غير فارغة ومختلفة و≤ ٢٤، والعدد صحيح ٢..١٠٠٠٠٠، وسعر الرئيسية ≥ ٠ — وبلا «الأساس» في رسائله', () => {
+  assert.equal(reverseFormProblem(rf()), null);
+  assert.equal(reverseFormProblem(rf({ factor: '٢٤', primaryPrice: '٤٨٫٥' })), null, 'أرقام هندية وفاصلة عربية');
+  const bad: Array<[Partial<ReverseForm>, string]> = [
+    [{ primaryName: ' ' }, 'اسم الوحدة الرئيسية مطلوب'],
+    [{ subName: '' }, 'اسم الوحدة الفرعية مطلوب'],
+    [{ subName: 'ق'.repeat(25) }, 'اسم الوحدة طويل'],
+    [{ subName: ' كرتون ' }, 'الوحدة الرئيسية والفرعية باسمين مختلفين'],
+    [{ factor: '1' }, 'عدد الوحدات الفرعية في الرئيسية عدد صحيح من 2 إلى 100000'],
+    [{ factor: '2.5' }, 'عدد الوحدات الفرعية في الرئيسية عدد صحيح من 2 إلى 100000'],
+    [{ factor: '100001' }, 'عدد الوحدات الفرعية في الرئيسية عدد صحيح من 2 إلى 100000'],
+    [{ factor: '' }, 'عدد الوحدات الفرعية في الرئيسية عدد صحيح من 2 إلى 100000'],
+    [{ primaryPrice: '' }, 'سعر الوحدة الرئيسية مطلوب'],
+    [{ primaryPrice: '-1' }, 'سعر الوحدة رقم موجب'],
+    [{ subPrice: 'x' }, 'سعر الوحدة رقم موجب'],
+    [{ primaryUnitCode: 'X'.repeat(17) }, 'رمز الوحدة الضريبي 16 حرفا على الأكثر'],
+  ];
+  for (const [o, msg] of bad) {
+    const got = reverseFormProblem(rf(o));
+    assert.equal(got, msg, JSON.stringify(o));
+    assert.doesNotMatch(got!, /الأساس/, 'D21');
+  }
+  assert.equal(reverseFormProblem(rf({ factor: '100000', primaryPrice: '0' })), null, 'الحدّ الأعلى والسعر الصفري مقبولان');
+});
+
+test('reverseCreatePayload: الفرعية unit وسعرها (فارغ ⇒ null يشتقّه الخادم)، والرئيسية وحدةٌ بسعرها الصريح و primaryUnitName', () => {
+  assert.deepEqual(reverseCreatePayload(rf({ primaryUnitCode: ' CT ', subUnitCode: 'PCE' })), {
+    unit: 'قارورة', basePrice: null, unitCode: 'PCE',
+    units: [{ name: 'كرتون', factor: 24, price: 48, unitCode: 'CT' }],
+    primaryUnitName: 'كرتون',
+  });
+  const explicit = reverseCreatePayload(rf({ subPrice: '2.1', primaryName: ' كرتون ' }));
+  assert.equal(explicit.basePrice, 2.1);
+  assert.equal(explicit.primaryUnitName, 'كرتون', 'الاسم مقصوص كاسم الوحدة');
+  assert.equal(explicit.units[0].name, explicit.primaryUnitName);
+  assert.equal(explicit.unitCode, null);
+});
+
+test('reverseSubPrice وreverseEditPatch: الفارغ ⇒ derivedBasePrice صريحاً (16.33/8 = 2.0413)، والرقعة تحمل معرّف الرئيسية', () => {
+  assert.equal(reverseSubPrice(rf({ primaryPrice: '50' })), 2.0833);
+  assert.equal(reverseSubPrice(rf({ primaryPrice: '16.33', factor: '8' })), 2.0413);
+  assert.equal(reverseSubPrice(rf({ subPrice: '1.95' })), 1.95);
+  assert.deepEqual(reverseEditPatch(rf({ primaryPrice: '16.33', factor: '8', primaryUnitCode: 'CT' }), 'u-c'), {
+    unit: 'قارورة', basePrice: 2.0413, unitCode: null,
+    primaryUnit: { id: 'u-c', name: 'كرتون', factor: 8, price: 16.33, unitCode: 'CT' },
+  });
+  assert.equal(reverseEditPatch(rf({ subPrice: '2.5' }), 'u-c').basePrice, 2.5);
+});
+
+test('reverseFormOf: سعر مشتقّ ⇒ خانة الفرعية فارغة، وصريح ⇒ يُعرض، وصنفٌ حُوِّل بـ16.33/8 «مشتقّ» — وبلا رئيسية null', () => {
+  assert.deepEqual(reverseFormOf(bottleP), {
+    primaryName: 'كرتون', primaryPrice: '48', subName: 'قارورة', factor: '24', subPrice: '', primaryUnitCode: 'CT', subUnitCode: 'PCE',
+  }, '48 ÷ 24 = 2 = basePrice ⇒ مشتقّ');
+  assert.equal(reverseFormOf({ ...bottleP, basePrice: 1.9 })!.subPrice, '1.9', 'سعر صريح');
+  assert.equal(reverseFormOf({ ...bottleP, basePrice: '2' })!.subPrice, '', 'Decimal نصّاً من الخادم');
+  // صنفٌ حُوِّل: كرتونه 16.33 صريحٌ على وحدته وقارورته roundDecimal(16.33 ÷ 8, 4) = 2.0413 بخطوة التحويل الخامسة
+  const converted = { unit: 'قارورة', basePrice: '2.0413', units: [{ id: 'u-c8', name: 'كرتون', factor: 8, price: 16.33, isActive: true }], primaryUnitId: 'u-c8' };
+  assert.equal(reverseFormOf(converted)!.subPrice, '');
+  assert.equal(reverseFormOf(converted)!.primaryPrice, '16.33');
+  // كرتونٌ بلا سعرٍ صريح: سعره الفعلي القارورة × المعامل
+  assert.equal(reverseFormOf({ unit: 'قارورة', basePrice: 2, units: [{ id: 'u', name: 'كرتون', factor: 24, price: null }], primaryUnitId: 'u' })!.primaryPrice, '48');
+  assert.equal(reverseFormOf(bottle), null);
+  assert.equal(reverseFormOf({ ...bottle, primaryUnitId: null }), null);
+  assert.equal(reverseFormOf(null), null);
+  // والنموذج المملوء صالحٌ ويُرجع الرقعة نفسها بلا تغيير سعر
+  const f = reverseFormOf(converted)!;
+  assert.equal(reverseFormProblem(f), null);
+  assert.equal(reverseEditPatch(f, 'u-c8').basePrice, 2.0413);
 });

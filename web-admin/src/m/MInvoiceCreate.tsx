@@ -10,7 +10,8 @@ import { MHeader, MSpinner } from './mobileUi';
 import { expectArray, expectObject } from './shape';
 import { lineTotal, invoiceTotals, type Line } from './docMath';
 import { previewInstallments, defaultFirstDue, MAX_INSTALLMENTS, type InstallmentPeriod } from '../lib/installments';
-import { unitChoices, defaultChoice, choiceNet, invoiceItemUnit, type UnitChoice } from '../rep/repUnits';
+import { unitChoices, defaultChoice, primaryChoice, choiceNet, invoiceItemUnit, type UnitChoice } from '../rep/repUnits';
+import { refetchUnitsOn } from './mPrimaryUnit';
 import { lineKey, addInvoiceLine, setInvoiceLineUnit, stepInvoiceLine, refreshInvoiceLines, qtyText, type SalePick } from './mUnits';
 import {
   lotErrorOf, lotFlagsOf, lotWarningsOf, LOT_WARNING_LABELS, type LotWarning, type VanLotSnapshotDto,
@@ -133,7 +134,7 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
   );
   const customer = customersQ.data?.find(c => c.id === customerId);
 
-  /** إضافة الصنف بوحدة (الافتراض أكبر وحدة): بندٌ قائم بالوحدة نفسها يزيد واحداً — والسعر ⚠️ **قبل** الضريبة (mUnits.invoiceLine) */
+  /** إضافة الصنف بوحدة (الافتراض «الوحدة الرئيسية» وإلّا أكبر وحدة — defaultChoice): بندٌ قائم بالوحدة نفسها يزيد واحداً — والسعر ⚠️ **قبل** الضريبة (mUnits.invoiceLine) */
   const addProduct = (p: SalePick, c?: UnitChoice) => {
     setCatalog(m => (m[p.id] === p ? m : { ...m, [p.id]: p }));
     setLines(ls => addInvoiceLine(ls, p, c));
@@ -180,8 +181,9 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
     },
     onError: (e: unknown) => {
       const data = (e as { response?: { data?: { message?: string; code?: string } } })?.response?.data;
-      // وحدات صنفٍ تغيّرت منذ فُتحت القائمة: تُجلب من جديد فيتحدّث منتقي البند — ورسالة الخادم تسمّي الصنف
-      if (data?.code === 'UNIT_INVALID') qc.invalidateQueries({ queryKey: ['m-inv-products'] });
+      // وحدات صنفٍ تغيّرت منذ فُتحت القائمة: تُجلب من جديد فيتحدّث منتقي البند — ورسالة الخادم تسمّي الصنف. وسباقٌ مع «إضافة
+      // وحدة فرعية أصغر» (409 PRODUCT_UNITS_CHANGED) مثله؛ أمّا 503 PRODUCT_UNITS_BUSY فرسالته وحدها (الكتالوج لم يتغيّر بعد)
+      if (refetchUnitsOn(e)) qc.invalidateQueries({ queryKey: ['m-inv-products'] });
       // «تتبّع اللوط»: الرفض برمزه وتفاصيله بلغة الواجهة (النقص بالمطلوب والمتاح بوحدات الصنف، والانشغال) — واللقطة تُجدَّد
       const lot = lotErrorOf(e);
       if (lot) {
@@ -387,9 +389,11 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
                   const opts = unitChoices(p);
                   const multi = opts.length > 1;
                   const d = defaultChoice(p);
+                  // رقاقة «الوحدة الرئيسية» مبرزة (§5.3) — وصنفٌ بلا رئيسية رقائقه كما كانت حرفاً
+                  const prim = primaryChoice(p);
                   return (
                     <div key={p.id}>
-                      {/* النقرة على الصنف تضيفه بوحدته الافتراضية (الأكبر) كما يضيفه المندوب */}
+                      {/* النقرة على الصنف تضيفه بوحدته الافتراضية (الرئيسية، وإلّا الأكبر) كما يضيفه المندوب */}
                       <button onClick={() => addProduct(p)}
                         className="w-full text-start px-3 py-3 min-h-[52px] flex items-center gap-2 active:bg-[#FAF7F0]">
                         <span className="min-w-0 flex-1">
@@ -409,9 +413,11 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
                         <div className="flex flex-wrap gap-1.5 px-3 pb-3 -mt-1">
                           {opts.map(o => (
                             <button key={o.id ?? 'base'} type="button" onClick={() => addProduct(p, o)}
-                              className="min-h-[34px] px-3 rounded-full text-[12px] font-semibold border border-[#E9E1D3] bg-white text-[#6E6557] active:bg-[#FAF7F0]">
+                              className={`min-h-[34px] px-3 rounded-full text-[12px] font-semibold border active:bg-[#FAF7F0] ${prim && o.id === prim.id
+                                ? 'border-[#E15A30] bg-[#FBEBE2] text-[#C94E28]' : 'border-[#E9E1D3] bg-white text-[#6E6557]'}`}>
                               + {o.name}
                               {o.factor > 1 && <span className="opacity-75 font-normal"> {formatNumber(o.factor)}</span>}
+                              {prim && o.id === prim.id && <span className="ms-1 text-[9px] font-bold">· {tr('رئيسية')}</span>}
                             </button>
                           ))}
                         </div>

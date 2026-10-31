@@ -8,12 +8,16 @@
  *     لـ`splitVanMovement` وحدها (إشارة النوعين معكوسة، وقاعدةٌ ثانية للتقسيم تتباعد عنها بصمت).
  *  3. **بنود الفاتورة**: مفتاح البند (الصنف + الوحدة) وسعر الوحدة صافياً — بند الأساس كما قبل الميزة حرفاً.
  *  4. **الشرائح**: حدودها وسعرها **بوحدة الأساس** (القاعدتان ٤ و٥) — تُقرأ من عموديها بالأساس وتُكتب فيهما.
+ *     ولصنفٍ له «وحدة رئيسية» تُدخَل وتُعرض بالرئيسية (`tierToPrimary`/`tierFromPrimary`) وتُخزَّن بالأساس دائماً.
+ *  «الوحدة الرئيسية» (القاعدة ١٢) عرضٌ وافتراضٌ فقط: العرض يقف عندها، وصنفٌ بلا رئيسية (غائبة أو null أو تالفة) يبقى
+ *  كل ناتجٍ له حرفاً كما قبل الميزة (I1).
  *
  * ═══ الفخّ الحاكم ═══
  * رقمٌ بالأساس بجانب اسم وحدةٍ أكبر يُقرأ خطأً ٢٤ ضعفاً: «المتبقي ٤٨ كرتون» عن ٤٨ حبة تقود إلى تحميلٍ خاطئ. فكلّ رقمٍ
  * بالأساس يُعرض إمّا مفكَّكاً بوحداته وإمّا بجانب اسم الأساس — لا بجانب اسم وحدة السطر أبداً.
  */
-import { formatQty, factorOf, roundQty, unitProblem, QTY_EPS, MAX_UNIT_FACTOR, type UnitDef } from '../lib/units';
+import { formatQty, factorOf, primaryUnitOf, roundQty, unitProblem, QTY_EPS, MAX_UNIT_FACTOR, type UnitDef } from '../lib/units';
+import { suggestionChoice } from '../lib/adminUnits';
 import { splitVanMovement } from '../lib/vanMovement';
 import { qtyByUnit, unitTotalsText } from '../rep/warehouseNoticeFacts';
 import { unitChoices, defaultChoice, choiceNet, lineUnitOf, refreshLineUnit, type UnitChoice, type UnitProduct } from '../rep/repUnits';
@@ -30,20 +34,21 @@ export function hasBigUnit(units: UnitDef[] | null | undefined): boolean {
  */
 export function qtyText(
   baseQty: number,
-  p: { unit?: string | null; units?: UnitDef[] | null } | null | undefined,
+  p: { unit?: string | null; units?: UnitDef[] | null; primaryUnitId?: string | null } | null | undefined,
   num: (n: number) => string,
   opts: { withUnit?: boolean } = {},
 ): string {
   const n = Number(baseQty) || 0;
   const base = String(p?.unit ?? '');
   if (p && hasBigUnit(p.units)) {
-    return formatQty(n, p.units ?? [], base).replace(/\d+(?:\.\d+)?/g, m => num(Number(m)));
+    // وللصنف ذي الوحدة الرئيسية يقف عندها: «52 كرتون و2 قارورة»، والصفر «0 كرتون» (D4)
+    return formatQty(n, p.units ?? [], base, primaryUnitOf(p)).replace(/\d+(?:\.\d+)?/g, m => num(Number(m)));
   }
   return opts.withUnit && base ? `${num(n)} ${base}` : num(n);
 }
 
 /** كمية بالأساس بإشارةٍ صريحة (التسوية): «+٢ كرتون» و«−٣ حبة» — والصفر بلا إشارة */
-export function signedQtyText(baseQty: number, p: { unit?: string | null; units?: UnitDef[] | null } | null | undefined, num: (n: number) => string): string {
+export function signedQtyText(baseQty: number, p: { unit?: string | null; units?: UnitDef[] | null; primaryUnitId?: string | null } | null | undefined, num: (n: number) => string): string {
   const n = roundQty(Number(baseQty) || 0);
   if (n === 0) return qtyText(0, p, num);
   return `${n < 0 ? '−' : '+'}${qtyText(Math.abs(n), p, num)}`;
@@ -52,13 +57,16 @@ export function signedQtyText(baseQty: number, p: { unit?: string | null; units?
 /**
  * وحدات الصنف الأكبر مختصرةً لسطر القائمة: «كرتون ٢٤ · طبلية ١٢٠٠» — النشطة وحدها تصاعدياً، وفارغٌ لصنفٍ بلا وحدات
  * فيبقى سطره كما كان حرفاً. المعامل بجانب الاسم لأن «كرتون» عند صنفٍ ١٢ وعند آخر ٢٤.
+ * ومع `primaryUnitId` صالحٍ يبدأ بالرئيسية موسومةً: «رئيسية: كرتون 24 · طبلية 1200». `primaryLabel` وسمها مترجماً
+ * (tr('رئيسية') في الشاشة). وبلا رئيسية صالحة (`primaryUnitOf` = null) القائم حرفاً.
  */
-export function unitsBrief(units: UnitDef[] | null | undefined, num: (n: number) => string): string {
-  return (units ?? [])
-    .filter(u => u && Number(u.factor) > 1 && u.isActive !== false)
+export function unitsBrief(units: UnitDef[] | null | undefined, num: (n: number) => string, primaryUnitId?: string | null, primaryLabel = 'رئيسية'): string {
+  const prim = primaryUnitOf({ primaryUnitId, units });
+  const rest = (units ?? [])
+    .filter(u => u && Number(u.factor) > 1 && u.isActive !== false && u !== prim)
     .sort((a, b) => Number(a.factor) - Number(b.factor))
-    .map(u => `${u.name} ${num(Number(u.factor))}`)
-    .join(' · ');
+    .map(u => `${u.name} ${num(Number(u.factor))}`);
+  return (prim ? [`${primaryLabel}: ${prim.name} ${num(Number(prim.factor))}`, ...rest] : rest).join(' · ');
 }
 
 // ═══════════════ بنود الفاتورة: بندٌ لكل (صنف، وحدة) ═══════════════
@@ -204,21 +212,16 @@ export function splitLoadRows(rows: Array<{ productId: string; qty: number; unit
  * سطر الاقتراح: المحرّك يُخرج الكمية **بالأساس** (٤٨ حبة). فيُحمَّل بأكبر وحدةٍ تنقسم عليها الكمية تماماً (٢ كرتون)،
  * وإلّا بالأساس كما هي — لا تقريب إلى كرتونٍ كامل يغيّر الرقم المقترح بصمت. و`suggestedQty`/`expectedQty` بالأساس
  * دائماً مهما كانت وحدة السطر (DESIGN «قرارات أثناء التنفيذ»): قياس الدقّة في الخادم يقارنهما بالمحمَّل بالأساس.
+ * القاعدة نفسها في لوحة الويب (`suggestionChoice`، R7) لا نسخةٌ ثانية: ولصنفٍ له رئيسية (`r.primaryUnitId`) لا قفز إلى
+ * وحدةٍ أكبر منها («1200» ⇒ «50 كرتون» لا «1 طبلية»).
  */
-export function suggestionLine(r: { unit: string; units?: UnitDef[] | null; suggested: number; expected: number }): StockLineUnit & { qty: number; suggestedQty: number; expectedQty: number } {
-  const p: UnitProduct = { unit: r.unit, units: r.units ?? [] };
+export function suggestionLine(r: { unit: string; units?: UnitDef[] | null; primaryUnitId?: string | null; suggested: number; expected: number }): StockLineUnit & { qty: number; suggestedQty: number; expectedQty: number } {
+  const p: UnitProduct = { unit: r.unit, units: r.units ?? [], primaryUnitId: r.primaryUnitId ?? null };
   const base = Number(r.suggested) || 0;
-  const pick = unitChoices(p)
-    .filter(c => c.id && c.factor > 1)
-    .sort((a, b) => b.factor - a.factor)
-    .find(c => {
-      const n = base / c.factor;
-      return n >= 1 - QTY_EPS && Math.abs(n - Math.round(n)) < QTY_EPS;
-    });
-  const c = pick ?? unitChoices(p)[0];
+  const { choice, qty } = suggestionChoice(p, base);
   return {
-    ...stockLineUnit(p, c),
-    qty: pick ? Math.round(base / pick.factor) : base,
+    ...stockLineUnit(p, choice),
+    qty,
     suggestedQty: base,
     expectedQty: Number(r.expected) || 0,
   };
@@ -262,6 +265,22 @@ export function tierBaseBounds(t: TierIn): { min: number; max: number | null } {
  */
 export function tierPayload(min: number, max: number | null, price: number): { minQty: number; baseMinQty: number; price: number; maxQty?: number; baseMaxQty?: number } {
   return { minQty: min, baseMinQty: min, price, ...(max != null && { maxQty: max, baseMaxQty: max }) };
+}
+
+/**
+ * الشريحة بالوحدة الرئيسية للإدخال والعرض (§4.4): حدودها بالأساس ÷ F، وسعرها لوحدة الأساس × F — بلا تقريبٍ وسيط.
+ * لا يُستعمل إلّا حين كل حدود الشرائح مضاعفاتٌ صحيحة لـF (وإلّا يبقى الإدخال بالقارورة)، والتخزين بالأساس دائماً.
+ */
+export function tierToPrimary(t: TierIn, F: number): { min: number; max: number | null; price: number } {
+  const f = Number(F);
+  const b = tierBaseBounds(t);
+  return { min: b.min / f, max: b.max == null ? null : b.max / f, price: Number(t.price) * f };
+}
+
+/** عكس `tierToPrimary`: حدودٌ وسعرٌ بالرئيسية ⇒ الشريحة كما تُكتب بالأساس (`tierPayload(min×F, max×F, price÷F)`) */
+export function tierFromPrimary(min: number, max: number | null, price: number, F: number): ReturnType<typeof tierPayload> {
+  const f = Number(F);
+  return tierPayload(Number(min) * f, max == null ? null : Number(max) * f, Number(price) / f);
 }
 
 /** أكبر وحدةٍ نشطة للصنف — لتلميح «سعر الكرتون» بجانب سعر الأساس، أو null */
@@ -346,8 +365,13 @@ export function convertedBasePrice(oldBasePrice: number | string, factor: number
 
 // ═══════════════ بنود المستندات ═══════════════
 
-/** بند فاتورة في كشف الحساب: «الاسم ×٢ كرتون» حين بندُه بغير الأساس — كالكشف المطبوع (PrintableStatement) حرفاً */
-export function statementItemText(it: { qty: number | string; unitName?: string | null; unitFactor?: number | null; product?: { name?: string; unit?: string } | null }, num: (n: number) => string): string {
+/**
+ * بند فاتورة في كشف الحساب: «الاسم ×٢ كرتون» حين بندُه بغير الأساس — كالكشف المطبوع (PrintableStatement) حرفاً.
+ * ولصنفٍ له وحدة رئيسية يُلحق اسم الوحدة **دائماً** («ماء ×5 قارورة»: «×5» وحدها تُقرأ كراتين). الشرط قيمةٌ صادقة
+ * (`!!product.primaryUnitId`) لا حضور المفتاح — D18 يجعل `null` حاضراً في كل select، و`null` = القائم حرفاً.
+ */
+export function statementItemText(it: { qty: number | string; unitName?: string | null; unitFactor?: number | null; product?: { name?: string; unit?: string; primaryUnitId?: string | null } | null }, num: (n: number) => string): string {
   const unit = it.unitName || it.product?.unit || '';
-  return `${it.product?.name ?? '-'} ×${num(Number(it.qty))}${factorOf(it) !== 1 && unit ? ` ${unit}` : ''}`;
+  const always = !!it.product?.primaryUnitId;
+  return `${it.product?.name ?? '-'} ×${num(Number(it.qty))}${(always || factorOf(it) !== 1) && unit ? ` ${unit}` : ''}`;
 }

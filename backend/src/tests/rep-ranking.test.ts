@@ -74,5 +74,5 @@ test('الوحدات المتعددة: معيار «الصنف» يجمع الك
   assert.deepEqual(rankRows([{ repId: 'a', name: 'أ', value: m.get('a')! }, { repId: 'b', name: 'ب', value: m.get('b')! }]).map((r) => r.repId), ['a', 'b']);
   const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'reports.ts'), 'utf8').replace(/\r\n/g, '\n');
   assert.match(src, /select: \{ qty: true, unitFactor: true, baseQty: true, invoice: \{ select: \{ salesRepId: true, type: true \} \} \}/);
-  assert.match(src, /select: \{ id: true, name: true, unit: true, units: ACTIVE_UNITS_SELECT \}/, 'الصنف بوحداته للعرض');
+  assert.match(src, /select: \{ id: true, name: true, unit: true, primaryUnitId: true, units: ACTIVE_UNITS_SELECT \}/, 'الصنف بوحداته ورئيسيّته للعرض');
 });

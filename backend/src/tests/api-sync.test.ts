@@ -320,6 +320,23 @@ test('أعمدة الميزات الحديثة مكشوفة في المزامن�
   assert.equal(items.returnOfItemId, true);
 });
 
+test('«الوحدة الرئيسية» في المزامنة: primaryUnitId وbaseConvertedAt مكشوفان في الأصناف لا ممنوعان، ولكل الشركات بلا بوّابة عَلَم', () => {
+  // D18: المفتاحان في كل ردّ صنف — والمتكامل يعرف من baseConvertedAt أن كميات الصنف المخزَّنة عنده بالأساس القديم، ومن
+  // primaryUnitId أيّ وحدات units تُعرض افتراضاً. نقلهما إلى المنع يُسقط هذا الإعلان بصمت، فيُثبَّتان هنا
+  const def = sync.syncResource('products')!;
+  for (const c of ['primaryUnitId', 'baseConvertedAt']) {
+    assert.equal((def.select as Record<string, unknown>)[c], true, `products.${c}`);
+    assert.ok(!(c in def.denied), `products.${c} ممنوع`);
+    assert.ok(!(c in (def.lotSelect ?? {})), `products.${c} ليس عمود ميزة مشروطاً`);
+    // الشركة بلا «تتبّع اللوط» تراهما كالمفعّلة
+    assert.equal(sync.selectFor(def, false)[c], true, `products.${c} للمطفأة`);
+  }
+  // معرّف الوحدة الرئيسية يشير إلى units[].id — فالمعرّف مكشوف في الوحدات المتداخلة
+  assert.equal((sync.selectFor(def, false).units as { select: Record<string, unknown> }).select.id, true);
+  // سجلّ التحويلات (ProductBaseConversion) ليس موردَ مزامنة في هذه الجولة (§١٠)
+  assert.ok(!sync.SYNC_RESOURCES.some(r => r.model === 'productBaseConversion'));
+});
+
 /* ═══ «تتبّع اللوط» (المواصفة §٥.٣) ═══ */
 
 const LOT_RESOURCES: Record<string, { model: string; mode: string; permission: string; hardDeletes: boolean; exposed: string[]; denied: string[] }> = {

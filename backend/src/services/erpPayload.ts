@@ -25,6 +25,7 @@
 import { netFromInclusive, roundHalfUp } from '../lib/money';
 import { resolvePaymentMethod, type PaymentMethodsConfigV1 } from './paymentMethodsCore';
 import { baseQtyOf, factorOf } from './units';
+import { PRODUCT_DISPLAY_ONLY_KEYS } from './baseConversions';
 
 export type ErpResource = 'customers' | 'products' | 'invoices' | 'receipts';
 /** ترتيب التبعية: العميل قبل فاتورته وسنده، والمنتج قبل بند فاتورته */
@@ -75,14 +76,26 @@ function withoutLotKeys<T extends Rec>(r: T): T {
 }
 
 /**
+ * «الوحدة الرئيسية» (القاعدة الذهبية ١٢، D9/D18): مفتاحا العرض في صفّ الصنف — معرّف الوحدة الرئيسية ولحظة آخر تحويل أساس —
+ * لا يخرجان في حمولة ERP، فتبقى payloadVersion 3 حرفياً كما هي (موصل Odoo لم يُختبر بمفاتيح مجهولة). القائمة مستوردة
+ * من baseConversions.ts فلا يظهر الاسم نصاً هنا (فحص I2 الثابت). صفٌّ بلاهما ⇒ الكائن نفسه، كـwithoutLotKeys.
+ */
+const DISPLAY_ONLY_KEYS: ReadonlySet<string> = new Set(PRODUCT_DISPLAY_ONLY_KEYS);
+export function withoutDisplayOnlyKeys<T extends Rec>(r: T): T {
+  if (!Object.keys(r).some((k) => DISPLAY_ONLY_KEYS.has(k))) return r;
+  return Object.fromEntries(Object.entries(r).filter(([k]) => !DISPLAY_ONLY_KEYS.has(k))) as T;
+}
+
+/**
  * المنتج بلا صورته (base64): لا يلزم المستقبِل ويُضخّم الحمولة. ووحداته (`units`: الاسم والمعامل والسعر والرمز)
  * وشرائحه كما في القاعدة — `unit` و`basePrice` لوحدة الأساس، وهما ما تُقاس به كميات بنود الفواتير وأسعارها.
- * وبلا أعمدة «تتبّع اللوط» (withoutLotKeys).
+ * وبلا أعمدة «تتبّع اللوط» (withoutLotKeys)، ولا مفتاحَي العرض (withoutDisplayOnlyKeys).
  */
-export function productPayloadRow<T extends Rec>(p: T): Omit<T, 'image' | 'lotTracked' | 'lotTrackedSince' | 'lots'> {
-  const { image: _image, ...rest } = withoutLotKeys(p) as T & { image?: unknown };
+type ProductPayload<T> = Omit<T, 'image' | 'lotTracked' | 'lotTrackedSince' | 'lots' | (typeof PRODUCT_DISPLAY_ONLY_KEYS)[number]>;
+export function productPayloadRow<T extends Rec>(p: T): ProductPayload<T> {
+  const { image: _image, ...rest } = withoutDisplayOnlyKeys(withoutLotKeys(p)) as T & { image?: unknown };
   void _image;
-  return rest as Omit<T, 'image' | 'lotTracked' | 'lotTrackedSince' | 'lots'>;
+  return rest as ProductPayload<T>;
 }
 
 export function customerPayloadRow<T extends Rec>(c: T): T {

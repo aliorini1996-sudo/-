@@ -8,12 +8,15 @@
  *     «الأخريات» — فلا وحدة باسمه ولا بمعامل ١.
  *  3. **تحويل الأساس إلى وحدةٍ أصغر**: التحقق ومعاينة ما سيحدث، كما يحسبه الخادم (routes/products.ts convert-base).
  *  4. **سطر الاقتراح** في نافذة التحميل: الكمية المقترحة بالأساس تُحمَّل بأكبر وحدةٍ تنقسم عليها تماماً.
+ *  5. **«الوحدة الرئيسية»** (القاعدة ١٢، عرضٌ وتعريفٌ وإدخالٌ افتراضي فقط): العرض يقف عندها، ونموذج الصنف المعرَّف
+ *     بالكرتون (`ReverseForm`) يُتحقَّق منه ويُرسَل من هنا. وصنفٌ بلا رئيسية (`primaryUnitId` غائب أو null أو تالف)
+ *     يبقى كل ناتجٍ له حرفاً كما قبل الميزة (I1).
  *
  * ═══ الفخّ الحاكم ═══
  * رقمٌ بالأساس بجانب اسم وحدةٍ أكبر يُقرأ خطأً ٢٤ ضعفاً: «المتبقي ٤٨ كرتون» عن ٤٨ حبة. فكلّ رقمٍ بالأساس يُعرض إمّا
  * مفكَّكاً بوحداته وإمّا بجانب اسم الأساس — لا بجانب اسم وحدة السطر أبداً.
  */
-import { MAX_UNIT_FACTOR, QTY_EPS, factorOf, formatQty, unitProblem, type UnitDef } from './units';
+import { MAX_UNIT_FACTOR, QTY_EPS, derivedBasePrice, factorOf, formatQty, primaryPriceOf, primaryUnitOf, unitProblem, type UnitDef } from './units';
 import { unitChoices, type UnitChoice, type UnitProduct } from '../rep/repUnits';
 
 /** للصنف وحدةٌ نشطة أكبر من الأساس؟ — بلا شرط المعرّف: وحدات التقارير تصل بالاسم والمعامل وحدهما */
@@ -28,19 +31,40 @@ export function biggestUnit(units: UnitDef[] | null | undefined): UnitDef | null
 }
 
 /**
+ * الوحدة الرئيسية الصالحة، وإلّا أكبر وحدةٍ نشطة (`biggestUnit`) — لتلميحَي «سعر/تكلفة الكرتون» بجانب سعر القارورة:
+ * صنفٌ رئيسيّه كرتون وله طبلية يُلمَّح بسعر الكرتون لا الطبلية. وبلا رئيسية `biggestUnit` حرفاً.
+ */
+export function primaryOrBiggest(p: { units?: UnitDef[] | null; primaryUnitId?: string | null } | null | undefined): UnitDef | null {
+  return primaryUnitOf(p) ?? biggestUnit(p?.units);
+}
+
+/**
+ * وسم وحدة الصنف (R5): «كرتون (24 قارورة)» حين للصنف رئيسية، وإلّا `p.unit` كما هو. `fmt` منسّق أرقام الشاشة للمعامل.
+ */
+export function productUnitLabel(
+  p: { unit?: string | null; units?: UnitDef[] | null; primaryUnitId?: string | null } | null | undefined,
+  fmt: (n: number) => string = n => String(n),
+): string {
+  const base = String(p?.unit ?? '');
+  const u = primaryUnitOf(p);
+  return u ? `${u.name} (${fmt(Number(u.factor))} ${base})` : base;
+}
+
+/**
  * كمية بالأساس للعرض: «٢ كرتون و٣ حبة» لصنفٍ له وحدات، وإلّا الرقم كما كان (ومعه اسم الأساس إن طُلب).
  * `fmt` منسّق أرقام الشاشة — يُطبَّق على أرقام formatQty وحدها لا على أسماء الوحدات.
+ * وللصنف ذي الوحدة الرئيسية يقف عندها: «52 كرتون و2 قارورة»، والصفر «0 كرتون» (D4).
  */
 export function baseQtyText(
   baseQty: number,
-  p: { unit?: string | null; units?: UnitDef[] | null } | null | undefined,
+  p: { unit?: string | null; units?: UnitDef[] | null; primaryUnitId?: string | null } | null | undefined,
   fmt: (n: number) => string,
   opts: { withUnit?: boolean } = {},
 ): string {
   const n = Number(baseQty) || 0;
   const base = String(p?.unit ?? '');
   if (p && hasBigUnit(p.units)) {
-    return formatQty(n, p.units ?? [], base).replace(/\d+(?:\.\d+)?/g, m => fmt(Number(m)));
+    return formatQty(n, p.units ?? [], base, primaryUnitOf(p)).replace(/\d+(?:\.\d+)?/g, m => fmt(Number(m)));
   }
   return opts.withUnit && base ? `${fmt(n)} ${base}` : fmt(n);
 }
@@ -48,10 +72,21 @@ export function baseQtyText(
 /**
  * كمية بند مستندٍ بوحدته: «٢ كرتون» حين البند بغير الأساس، والرقم وحده لبند الأساس — كالكشف المطبوع
  * (PrintableStatement) حرفاً، فصنفٌ بلا وحدات يُعرض كما كان.
+ *
+ * ولصنفٍ له وحدة رئيسية (R2) يُلحق اسم الوحدة **دائماً** («×5 قارورة»): «×5» وحدها تُقرأ كراتين. الشرط قيمةٌ صادقة
+ * (`!!primaryUnitId`) لا حضور المفتاح — D18 يجعل `primaryUnitId: null` حاضراً في كل select، و`null` = القائم حرفاً.
+ * يُقرأ من البند (`it.primaryUnitId`) أو من صنفه (`it.product.primaryUnitId`)، أيّهما مرّره المستدعي.
  */
-export function docQtyText(it: { qty: number | string; unitName?: string | null; unitFactor?: number | null; unit?: string | null }, fmt: (n: number) => string): string {
+export function docQtyText(
+  it: {
+    qty: number | string; unitName?: string | null; unitFactor?: number | null; unit?: string | null;
+    primaryUnitId?: string | null; product?: { primaryUnitId?: string | null } | null;
+  },
+  fmt: (n: number) => string,
+): string {
   const unit = (it.unitName || it.unit || '').trim();
-  return `${fmt(Number(it.qty))}${factorOf(it) !== 1 && unit ? ` ${unit}` : ''}`;
+  const always = !!(it.primaryUnitId || it.product?.primaryUnitId);
+  return `${fmt(Number(it.qty))}${(always || factorOf(it) !== 1) && unit ? ` ${unit}` : ''}`;
 }
 
 /**
@@ -86,12 +121,16 @@ export function unitTaken(lines: Array<{ productId: string; unitId?: string | nu
  * سطر الاقتراح: المحرّك يُخرج الكمية **بالأساس** (٤٨ حبة). فيُحمَّل بأكبر وحدةٍ تنقسم عليها الكمية تماماً (٢ كرتون)،
  * وإلّا بالأساس كما هي — لا تقريب إلى كرتونٍ كامل يغيّر الرقم المقترح بصمت. (و`suggestedQty`/`expectedQty` تُرسل
  * بالأساس دائماً مهما كانت وحدة السطر — قياس الدقّة في الخادم يقارنهما بالمحمَّل بالأساس.)
+ * ولصنفٍ له وحدة رئيسية (R7): المرشّحات وحداتٌ معاملها ≤ معامل الرئيسية — فلا قفز إلى طبليةٍ أكبر منها
+ * («1200» تُحمَّل «50 كرتون» لا «1 طبلية»). وبلا رئيسية القائم حرفاً.
  */
 export function suggestionChoice(p: UnitProduct, baseQty: number): { choice: UnitChoice; qty: number } {
   const base = Number(baseQty) || 0;
   const all = unitChoices(p);
+  const prim = primaryUnitOf(p);
+  const cap = prim ? Number(prim.factor) : Infinity;
   const pick = all
-    .filter(c => c.id && c.factor > 1)
+    .filter(c => c.id && c.factor > 1 && c.factor <= cap)
     .sort((a, b) => b.factor - a.factor)
     .find(c => {
       const n = base / c.factor;
@@ -215,5 +254,121 @@ export function convertPayload(form: ConvertForm, expectedBaseName: string): { n
     factor: Math.round(Number(readNum(form.factor))),
     expectedBaseName,
     ...(bp !== null && !Number.isNaN(bp) && { basePrice: bp }),
+  };
+}
+
+// ═══════════════ «الوحدة الرئيسية»: صنفٌ يُعرَّف بالكرتون وفيه وحدةٌ أصغر ═══════════════
+// الحساب الداخلي لا ينقلب (القاعدة ١٢): الفرعية (قارورة) هي Product.unit/basePrice، والرئيسية (كرتون) وحدةٌ بمعامل F
+// وسعرٍ صريح على صفّها (فلا يزحف)، و`primaryUnitName` يجعلها رئيسية في طلب POST /products واحد ذرّي (D10).
+
+/** خانات نموذج «أعرّف الصنف بالكرتون» كما كُتبت — نصوصٌ من الخانات */
+export interface ReverseForm {
+  /** الوحدة الرئيسية (كرتون) */
+  primaryName: string;
+  /** سعر الرئيسية قبل الضريبة — إلزامي */
+  primaryPrice: string;
+  /** الوحدة الفرعية (قارورة) = Product.unit */
+  subName: string;
+  /** كم فرعية في الرئيسية */
+  factor: string;
+  /** سعر الفرعية الواحدة — فارغٌ ⇒ derivedBasePrice(سعر الرئيسية، المعامل) */
+  subPrice: string;
+  /** رمز الوحدة الضريبي للرئيسية (ProductUnit.unitCode) ثم للفرعية (Product.unitCode) */
+  primaryUnitCode: string;
+  subUnitCode: string;
+}
+
+export const EMPTY_REVERSE_FORM: ReverseForm = { primaryName: '', primaryPrice: '', subName: '', factor: '', subPrice: '', primaryUnitCode: '', subUnitCode: '' };
+
+/**
+ * سبب رفض النموذج قبل إرساله، أو null — والخادم يتحقّق ثانيةً (unitProblem وPRIMARY_UNIT_INVALID). الرسائل مفاتيح
+ * القاموس (tr في الشاشة)، وبلا كلمة «الأساس» (D21).
+ */
+export function reverseFormProblem(f: ReverseForm): string | null {
+  const pn = String(f.primaryName ?? '').trim();
+  const sn = String(f.subName ?? '').trim();
+  if (!pn) return 'اسم الوحدة الرئيسية مطلوب';
+  if (!sn) return 'اسم الوحدة الفرعية مطلوب';
+  if (pn.length > 24 || sn.length > 24) return 'اسم الوحدة طويل';
+  if (pn === sn) return 'الوحدة الرئيسية والفرعية باسمين مختلفين';
+  const F = readNum(f.factor);
+  if (F === null || Number.isNaN(F) || Math.abs(F - Math.round(F)) > QTY_EPS || Math.round(F) < 2 || Math.round(F) > MAX_UNIT_FACTOR) {
+    return 'عدد الوحدات الفرعية في الرئيسية عدد صحيح من 2 إلى 100000';
+  }
+  const pp = readNum(f.primaryPrice);
+  if (pp === null) return 'سعر الوحدة الرئيسية مطلوب';
+  if (Number.isNaN(pp) || pp < 0) return 'سعر الوحدة رقم موجب';
+  const sp = readNum(f.subPrice);
+  if (sp !== null && (Number.isNaN(sp) || sp < 0)) return 'سعر الوحدة رقم موجب';
+  if (String(f.primaryUnitCode ?? '').trim().length > 16 || String(f.subUnitCode ?? '').trim().length > 16) return 'رمز الوحدة الضريبي 16 حرفا على الأكثر';
+  return null;
+}
+
+/** سعر الفرعية كما سيُحفظ: المكتوب، وإلّا المشتقّ من سعر الرئيسية (D10) — للمعاينة الحيّة وplaceholder «≈ … محسوب» */
+export function reverseSubPrice(f: ReverseForm): number {
+  const sp = readNum(f.subPrice);
+  if (sp !== null && !Number.isNaN(sp)) return sp;
+  return derivedBasePrice(Number(readNum(f.primaryPrice)), Math.round(Number(readNum(f.factor))));
+}
+
+/**
+ * حقول الوحدة في جسم إنشاء الصنف (POST /products، §2.2-ب): الفرعية `unit` وسعرها `basePrice` (null ⇒ يشتقّه الخادم
+ * بـderivedBasePrice نفسها)، والرئيسية وحدةٌ بسعرها الصريح، و`primaryUnitName` اسمها. المستدعي يدمجها **فوق** بقية حقول
+ * النموذج (الاسم والرمز والضريبة…) فتغلب `unit`/`basePrice`/`unitCode` المخفيّة. يُستدعى بعد `reverseFormProblem` = null.
+ */
+export function reverseCreatePayload(f: ReverseForm): {
+  unit: string; basePrice: number | null; unitCode: string | null;
+  units: { name: string; factor: number; price: number; unitCode: string | null }[];
+  primaryUnitName: string;
+} {
+  const sp = readNum(f.subPrice);
+  const pn = f.primaryName.trim();
+  return {
+    unit: f.subName.trim(),
+    basePrice: sp === null || Number.isNaN(sp) ? null : sp,
+    unitCode: f.subUnitCode.trim() || null,
+    units: [{ name: pn, factor: Math.round(Number(readNum(f.factor))), price: Number(readNum(f.primaryPrice)), unitCode: f.primaryUnitCode.trim() || null }],
+    primaryUnitName: pn,
+  };
+}
+
+/**
+ * رقعة «حفظ التعديلات» لصنفٍ له رئيسية (PUT /products/:id، §2.2-هـ): الفرعية `unit`/`basePrice`/`unitCode`، والرئيسية
+ * `primaryUnit` بمعرّفها كما رآه النموذج (`primaryId` — رئيسيةٌ تغيّرت بعد فتحه ⇒ 409 PRIMARY_UNIT_CHANGED)، فيُحفظ الكلّ
+ * ذرّياً. سعر الفرعية الفارغ ⇒ `derivedBasePrice` صريحاً (§4.2). و`expectedBaseName` يضيفه المستدعي (الأساس المحفوظ).
+ */
+export function reverseEditPatch(f: ReverseForm, primaryId: string): {
+  unit: string; basePrice: number; unitCode: string | null;
+  primaryUnit: { id: string; name: string; factor: number; price: number; unitCode: string | null };
+} {
+  return {
+    unit: f.subName.trim(),
+    basePrice: reverseSubPrice(f),
+    unitCode: f.subUnitCode.trim() || null,
+    primaryUnit: {
+      id: primaryId, name: f.primaryName.trim(), factor: Math.round(Number(readNum(f.factor))),
+      price: Number(readNum(f.primaryPrice)), unitCode: f.primaryUnitCode.trim() || null,
+    },
+  };
+}
+
+/**
+ * النموذج من صنفٍ قائم له رئيسية صالحة (`primaryUnitOf`)، أو null بلاها. سعر الرئيسية سعرها الفعلي (`primaryPriceOf`:
+ * المحدَّد وإلّا القارورة × المعامل)، وسعر الفرعية **فارغٌ** حين يساوي المشتقّ منه — فصنفٌ حُوِّل بكرتونٍ 16.33 ÷ 8
+ * (سعر القارورة 2.0413 بخطوة التحويل الخامسة) يُعرض مشتقّاً لا صريحاً، ولا يتجمّد سعرٌ مشتقّ حين يُعدَّل سعر الكرتون.
+ */
+export function reverseFormOf(p: {
+  unit?: string | null; basePrice: number | string; unitCode?: string | null; units?: UnitDef[] | null; primaryUnitId?: string | null;
+} | null | undefined): ReverseForm | null {
+  if (!p) return null;
+  const u = primaryUnitOf(p);
+  if (!u) return null;
+  const F = Math.round(Number(u.factor));
+  const pp = primaryPriceOf(p) ?? 0;
+  const bp = Number(p.basePrice);
+  const derived = Number.isFinite(bp) && Math.abs(bp - derivedBasePrice(pp, F)) < 1e-9;
+  return {
+    primaryName: u.name, primaryPrice: String(pp), subName: String(p.unit ?? ''), factor: String(F),
+    subPrice: derived || !Number.isFinite(bp) ? '' : String(bp), primaryUnitCode: u.unitCode ?? '', subUnitCode: p.unitCode ?? '',
   };
 }

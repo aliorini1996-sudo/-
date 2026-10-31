@@ -1005,3 +1005,205 @@ test('مفتاح API: الإشعار الدائن والمدين لا يُخزَ
   assert.equal(s.status, 201, JSON.stringify(s.body));
   assert.equal((rig.created[2].clientCreatedAt as Date).toISOString(), at, 'الجلسة فقدت لحظة جهازها');
 });
+
+// ═══ (١١) «الوحدة الرئيسية» §3-2/§3-3 وI10: الإشعار الدائن والتحويل المتزامن، وانقطاع إصدار المرحلة الثانية خلف تحويلٍ طويل ═══
+//
+// #8: بنود الإشعار حُلّت على أساس الصنف كما قُرئ قبل المعاملة، فتحويلٌ التزم بين المعاينة وقفل الأصناف يجعل «٢» حبّتين بدل كرتونين
+// ⇒ 409 (503 لإعادة الرفع) قبل الترقيم وICV. ومرتجعٌ دون اتصال أُعيد أساسه لا تسقط لقطته في الإشعار. وI10: الإصدار يمسك رأس
+// سلسلة الشركة وهو ينتظر قفل الأصناف — فالمهلة محدودة (55P03 ⇒ 503 PRODUCT_UNITS_BUSY)، وصنفٌ قيد التحويل يُردّ قبل الـmutex.
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { markConverting, unmarkConverting } = require('../services/baseGuard') as typeof import('../services/baseGuard');
+
+/** معاملةٌ بـ$queryRaw: صفوف الأصناف المقفلة بأساسٍ تختاره (أو خطأ انتظار)، وكل ما عداها فارغ */
+function lockingTx(rig: Rig, locked: (sql: string) => Array<{ id: string; unit: string; lotTracked?: boolean }> | Error | null): string[] {
+  const sqls: string[] = [];
+  (phase2Deps as NoteIssuanceDeps).transaction = <T>(fn: (tx: Phase2Tx) => Promise<T>): Promise<T> => fn({
+    ...txAdapter(rig),
+    $queryRaw: async (strings: TemplateStringsArray) => {
+      const sql = strings.join('?').replace(/\s+/g, ' ').trim();
+      sqls.push(sql);
+      if (sql.includes('FROM products') && sql.includes('FOR KEY SHARE')) {
+        const out = locked(sql);
+        if (out instanceof Error) throw out;
+        if (out) return out;
+      }
+      return [];
+    },
+  } as unknown as Phase2Tx);
+  return sqls;
+}
+
+/** mutex مزيّف يسجّل كل طلبٍ له — «لم يُطلب» = لم يبدأ runIssuance */
+function mutexSpy(): string[] {
+  const used: string[] = [];
+  (phase2Deps as { mutex: unknown }).mutex = { runExclusive: async <T>(key: string, fn: () => Promise<T>) => { used.push(key); return fn(); } };
+  return used;
+}
+
+const noTrace = (rig: Rig, before = 0): void => {
+  assert.equal(rig.created.length, before, 'أُنشئ إشعار');
+  assert.equal(rig.h.docs.documents.size, before, 'استُهلك ICV');
+  assert.equal(rig.ledger.length, before, 'قُيِّد في الدفتر');
+};
+
+test('#8 (§3-2): تحويلٌ التزم بين المعاينة وقفل الأصناف ⇒ 409 PRODUCT_UNITS_CHANGED بلا صفّ ولا ICV، وإعادة الرفع 503، والأساس كما هو يمرّ', async () => {
+  const rig = buildRig();
+  const original = script(rig, { original: cartonOriginal() })!;
+  const sqls = lockingTx(rig, () => [{ id: 'p-water', unit: 'قارورة' }]);
+  const r = await call('POST', `/api/invoices/${original.id}/credit-note`, { body: creditBody({ lines: [{ invoiceItemId: 'it-1', qty: 2 }] }), headers: CAPS });
+  assert.equal(r.status, 409, JSON.stringify(r.body));
+  assert.equal(r.body.code, 'PRODUCT_UNITS_CHANGED');
+  noTrace(rig);
+  // القفل يقرأ وحدة الأساس، ومهلته المحلية تسبقه
+  const lock = sqls.findIndex(s => s.startsWith('SELECT p.id, p.unit FROM products p') && s.endsWith('FOR KEY SHARE'));
+  assert.ok(lock > 0, sqls.join(' | '));
+  assert.match(sqls[lock - 1], /set_config\('lock_timeout'/);
+  const replay = await call('POST', `/api/invoices/${original.id}/credit-note`, {
+    body: creditBody({ lines: [{ invoiceItemId: 'it-1', qty: 2 }] }), headers: { ...CAPS, 'X-FS-Replay': '1' },
+  });
+  assert.equal(replay.status, 503, JSON.stringify(replay.body));
+  assert.equal(replay.body.code, 'PRODUCT_UNITS_CHANGED');
+  noTrace(rig);
+  // الأساس تحت القفل كما قُرئ ⇒ الإشعار يصدر
+  lockingTx(rig, () => [{ id: 'p-water', unit: 'حبة' }]);
+  const ok = await call('POST', `/api/invoices/${original.id}/credit-note`, { body: creditBody({ lines: [{ invoiceItemId: 'it-1', qty: 2 }] }), headers: CAPS });
+  assert.equal(ok.status, 201, JSON.stringify(ok.body));
+  // والإشعار الكامل يُبنى من الصفوف المقفلة فلا يحتاج مقارنة
+  const rig2 = buildRig();
+  const o2 = script(rig2, { original: cartonOriginal() })!;
+  lockingTx(rig2, () => [{ id: 'p-water', unit: 'قارورة' }]);
+  assert.equal((await call('POST', `/api/invoices/${o2.id}/credit-note`, { body: creditBody({ lines: 'FULL' }), headers: CAPS })).status, 201);
+});
+
+test('#8 (§3-2): مرتجعٌ دون اتصال أُعيد أساسه بعد التحويل (وحدته حُذفت) ⇒ إشعارٌ بالكرتون بمعامل ٢٤ لا حبّة', async () => {
+  const rig = buildRig();
+  const original = script(rig, { original: cartonOriginal() })!;
+  // الكرتون كان أساساً ثم حُوِّل إلى حبة وحُذفت وحدته: لقطة الجهاز «١ كرتون» بأساسه القديم، والسجلّ شاهدها
+  scripted['product.findMany'] = (args: unknown) => {
+    const ids: string[] = (args as { where?: { id?: { in?: string[] } } }).where?.id?.in ?? [];
+    return PRODUCT_ROWS.filter(p => ids.includes(p.id)).map(p => ({ ...p, units: [], baseConvertedAt: new Date('2026-11-01T00:00:00Z') }));
+  };
+  scripted['productBaseConversion.findMany'] = () => [{ productId: 'p-water', fromUnit: 'كرتون', toUnit: 'حبة', factor: 24, fromUnitId: 'u-ct', convertedAt: new Date('2026-11-01T00:00:00Z') }];
+  scripted['customerPrice.findMany'] = () => [];
+  const r = await call('POST', '/api/invoices', {
+    body: returnBody({
+      originalInvoiceId: original.id, noteReason: 'إرجاع كرتون',
+      items: [{ productId: 'p-water', invoiceItemId: 'it-1', qty: 1, unitPrice: 10, discountPct: 0, taxPct: 15, unitName: 'كرتون', unitFactor: 1, baseUnitName: 'كرتون' }],
+    }),
+    headers: { ...CAPS, 'X-FS-Replay': '1' },
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const item = (noteOf(r).items as Record<string, unknown>[])[0];
+  assert.deepEqual([num(item.qty), item.unitName, num(item.unitFactor), num(item.baseQty), item.unitCode], [1, 'كرتون', 24, 24, 'CT'],
+    'لقطة المرتجع سقطت: كرتونٌ قُيِّد حبّة');
+});
+
+test('§3-3: POST /:id/credit-note — baseUnitName يخالف الأساس ⇒ 400، ومفتاح API على صنفٍ محوَّل بلاه ⇒ 400 BASE_UNIT_REQUIRED، وغيابه للجلسة سلوك اليوم، وunitFactor في الجسم يُتجاهل', async () => {
+  const rig = buildRig();
+  const original = script(rig, { original: cartonOriginal() })!;
+  const converted = (on: boolean) => () => [{ id: 'it-1', productId: 'p-water', product: { name: 'مياه', unit: 'حبة', baseConvertedAt: on ? new Date('2026-11-01T00:00:00Z') : null } }];
+  scripted['invoiceItem.findMany'] = converted(true);
+  // كاشٌ قديم
+  const stale = await call('POST', `/api/invoices/${original.id}/credit-note`, { body: creditBody({ lines: [{ invoiceItemId: 'it-1', qty: 1, baseUnitName: 'كرتون' }] }), headers: CAPS });
+  assert.deepEqual([stale.status, stale.body.code], [400, 'UNIT_INVALID'], JSON.stringify(stale.body));
+  assert.equal(rig.created.length, 0);
+  // الجلسة بلا الحقل: لا استعلام إضافي ولا رفض
+  calls = [];
+  const plain = await call('POST', `/api/invoices/${original.id}/credit-note`, { body: creditBody({ lines: [{ invoiceItemId: 'it-1', qty: 1 }] }), headers: CAPS });
+  assert.equal(plain.status, 201, JSON.stringify(plain.body));
+  assert.ok(!calls.includes('invoiceItem.findMany'), 'استعلامٌ جديد في مسار الجلسة');
+  // unitFactor من الجسم لا يُقرأ: «١» بلا وحدة حبّةٌ كما كانت
+  const forged = await call('POST', `/api/invoices/${original.id}/credit-note`, { body: creditBody({ lines: [{ invoiceItemId: 'it-1', qty: 1, unitFactor: 24, unitName: 'كرتون' }] }), headers: CAPS });
+  assert.equal(forged.status, 201, JSON.stringify(forged.body));
+  const fi = (noteOf(forged).items as Record<string, unknown>[])[0];
+  assert.deepEqual([num(fi.unitFactor), num(fi.baseQty)], [1, 1], 'معاملٌ من الجسم كُتب');
+  try {
+    currentUser = API_KEY_ADMIN;
+    const nobase = await call('POST', `/api/invoices/${original.id}/credit-note`, { body: creditBody({ lines: [{ invoiceItemId: 'it-1', qty: 1 }] }), headers: CAPS });
+    assert.deepEqual([nobase.status, nobase.body.code], [400, 'BASE_UNIT_REQUIRED'], JSON.stringify(nobase.body));
+    const before = rig.created.length;
+    const withBase = await call('POST', `/api/invoices/${original.id}/credit-note`, { body: creditBody({ lines: [{ invoiceItemId: 'it-1', qty: 1, baseUnitName: 'حبة' }] }), headers: CAPS });
+    assert.equal(withBase.status, 201, JSON.stringify(withBase.body));
+    assert.equal(rig.created.length, before + 1);
+    // سباقٌ بعد الفحص المسبق: الأساس المرسَل يُقارَن تحت القفل ⇒ 409 بلا صفّ
+    lockingTx(rig, () => [{ id: 'p-water', unit: 'قارورة' }]);
+    const raced = await call('POST', `/api/invoices/${original.id}/credit-note`, { body: creditBody({ lines: [{ invoiceItemId: 'it-1', qty: 1, baseUnitName: 'حبة' }] }), headers: CAPS });
+    assert.deepEqual([raced.status, raced.body.code], [409, 'PRODUCT_UNITS_CHANGED'], JSON.stringify(raced.body));
+    assert.equal(rig.created.length, before + 1);
+    // صنفٌ لم يُحوَّل: المفتاح كما كان
+    (phase2Deps as NoteIssuanceDeps).transaction = <T>(fn: (tx: Phase2Tx) => Promise<T>): Promise<T> => fn(txAdapter(rig) as unknown as Phase2Tx);
+    scripted['invoiceItem.findMany'] = converted(false);
+    assert.equal((await call('POST', `/api/invoices/${original.id}/credit-note`, { body: creditBody({ lines: [{ invoiceItemId: 'it-1', qty: 1 }] }), headers: CAPS })).status, 201);
+  } finally {
+    currentUser = SESSION_ADMIN;
+  }
+});
+
+test('I10 (§3-13ج): قفل الأصناف ينتظر تحويلاً طويلاً ⇒ 55P03 أو 40P01 ⇒ 503 PRODUCT_UNITS_BUSY للإشعار، بلا صفّ ولا ICV', async () => {
+  for (const code of ['55P03', '40P01']) {
+    const rig = buildRig();
+    const original = script(rig, { original: cartonOriginal() })!;
+    lockingTx(rig, () => Object.assign(new Error('canceling statement due to lock timeout'), { code }));
+    const r = await call('POST', `/api/invoices/${original.id}/credit-note`, { body: creditBody({ lines: [{ invoiceItemId: 'it-1', qty: 1 }] }), headers: CAPS });
+    assert.equal(r.status, 503, JSON.stringify(r.body));
+    assert.equal(r.body.code, 'PRODUCT_UNITS_BUSY');
+    noTrace(rig);
+  }
+});
+
+test('I10: صنفٌ قيد التحويل في هذه العملية ⇒ 503 قبل الـmutex ورأس السلسلة — للإشعار وللفاتورة، وأصنافٌ أخرى لا تنتظر شيئاً', async () => {
+  markConverting(Z5_TENANT, 'p-water');
+  try {
+    // الإشعار الدائن على صنف التحويل
+    const rig = buildRig();
+    const original = script(rig, { original: cartonOriginal() })!;
+    const used = mutexSpy();
+    const r = await call('POST', `/api/invoices/${original.id}/credit-note`, { body: creditBody({ lines: [{ invoiceItemId: 'it-1', qty: 1 }] }), headers: CAPS });
+    assert.equal(r.status, 503, JSON.stringify(r.body));
+    assert.equal(r.body.code, 'PRODUCT_UNITS_BUSY');
+    assert.deepEqual(used, [], 'طُلب الـmutex (runIssuance) لصنفٍ قيد التحويل');
+    noTrace(rig);
+    // إشعارٌ على فاتورةٍ بصنفٍ آخر يمرّ
+    const rig2 = buildRig();
+    const o2 = script(rig2)!;
+    const used2 = mutexSpy();
+    const other = await call('POST', `/api/invoices/${o2.id}/credit-note`, { body: creditBody(), headers: CAPS });
+    assert.equal(other.status, 201, JSON.stringify(other.body));
+    assert.equal(used2.length, 1);
+    // فاتورة مرحلة ثانية بصنف التحويل ⇒ 503 قبل الـmutex
+    const rig3 = buildRig();
+    script(rig3);
+    const used3 = mutexSpy();
+    const sale = { ...returnBody(), type: 'CASH', items: [{ productId: 'p-water', qty: 1, unitPrice: 10, discountPct: 0, taxPct: 15 }] };
+    const inv = await call('POST', '/api/invoices', { body: sale, headers: CAPS });
+    assert.equal(inv.status, 503, JSON.stringify(inv.body));
+    assert.equal(inv.body.code, 'PRODUCT_UNITS_BUSY');
+    assert.deepEqual(used3, []);
+    assert.equal(rig3.h.docs.documents.size, 0);
+    // وبصنفٍ آخر لا ينتظر
+    const rig4 = buildRig();
+    script(rig4);
+    const used4 = mutexSpy();
+    const inv2 = await call('POST', '/api/invoices', { body: { ...sale, items: [{ productId: 'p-rice', qty: 1, unitPrice: 10, discountPct: 0, taxPct: 15 }] }, headers: CAPS });
+    assert.notEqual(inv2.status, 503, JSON.stringify(inv2.body));
+    assert.equal(used4.length, 1);
+  } finally {
+    unmarkConverting(Z5_TENANT, 'p-water');
+  }
+});
+
+test('I10: فاتورة المرحلة الثانية — قفل الأصناف بمهلة محلية، و55P03 ⇒ 503 PRODUCT_UNITS_BUSY بلا مستند ولا ICV', async () => {
+  const rig = buildRig();
+  script(rig);
+  const sqls = lockingTx(rig, () => Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' }));
+  const sale = { ...returnBody(), type: 'CASH', items: [{ productId: 'p-water', qty: 1, unitPrice: 10, discountPct: 0, taxPct: 15 }] };
+  const r = await call('POST', '/api/invoices', { body: sale, headers: CAPS });
+  assert.equal(r.status, 503, JSON.stringify(r.body));
+  assert.equal(r.body.code, 'PRODUCT_UNITS_BUSY');
+  assert.equal(rig.h.docs.documents.size, 0, 'استُهلك ICV');
+  const lock = sqls.findIndex(s => s.startsWith('SELECT id, unit, "lotTracked" FROM products') && s.endsWith('FOR KEY SHARE'));
+  assert.ok(lock > 0, sqls.join(' | '));
+  assert.match(sqls[lock - 1], /set_config\('lock_timeout'/);
+  assert.match(sqls[lock - 2], /current_setting\('lock_timeout'\)/);
+});

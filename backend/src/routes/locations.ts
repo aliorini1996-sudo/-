@@ -90,14 +90,21 @@ router.get('/summary', requireAdminPermission('canViewReports'), async (req: Aut
     // أسماء الأصناف المحمَّلة وحدها (معرّفاتٌ من تحميلاتٍ مرّت بالنطاق)
     const productIds = [...new Set(loads.flatMap((l) => l.items.map((i) => i.productId)))];
     const products = productIds.length
-      ? await prisma.product.findMany({ where: { tenantId: tid, id: { in: productIds } }, select: { id: true, name: true, unit: true } })
+      ? await prisma.product.findMany({
+        where: { tenantId: tid, id: { in: productIds } },
+        // ووحداته و«الوحدة الرئيسية» للعرض وحده (R1) — السطر يحملهما حين للصنف رئيسية صالحة فقط (services/locations.ts)
+        select: { id: true, name: true, unit: true, primaryUnitId: true, units: { select: { id: true, name: true, factor: true, isActive: true } } },
+      })
       : [];
     const summary = buildLocationsSummary(
       invoiceGroups.map((g) => ({ locationId: g.locationId, type: g.type, amount: Number(g._sum.total ?? 0), count: g._count._all })),
       // بالأساس، ووحدتها المعروضة وحدة الأساس (product.unit) — فرقمٌ واحد لكل صنف يجمع تحميلاته بكل وحداتها
       loads.map((l) => ({ locationId: l.locationId, items: l.items.map((i) => ({ productId: i.productId, qty: baseQtyOf(i) })) })),
       locations,
-      new Map<string, ProductInfo>(products.map((p) => [p.id, { name: p.name, unit: p.unit ?? null }])),
+      new Map<string, ProductInfo>(products.map((p) => [p.id, {
+        name: p.name, unit: p.unit ?? null, primaryUnitId: p.primaryUnitId ?? null,
+        units: (p.units ?? []).map((u) => ({ id: u.id, name: u.name, factor: Number(u.factor), isActive: u.isActive })),
+      }])),
     );
     res.json({ success: true, data: { range: { from: range.from, to: range.to, timezone: tz }, ...summary } });
   } catch (err) { next(err); }

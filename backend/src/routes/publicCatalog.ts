@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../config/database';
-import { unitPriceOf } from '../services/units';
+import { primaryUnitOf, unitPriceOf } from '../services/units';
 
 /**
  * منيو المنتجات العام — رابط يشاركه المندوب مع عملائه:
@@ -14,6 +14,8 @@ import { unitPriceOf } from '../services/units';
  * الوحدات المتعددة: `unit` و`basePrice` لوحدة الأساس (الحبة)، و`units` وحدات البيع الأكبر النشطة بمعاملها
  * وسعرها (المحدَّد لها، وإلا سعر الأساس × المعامل) — فيرى العميل سعر الكرتون لا سعر الحبة وحده.
  * وصنفٌ بلا وحدات: `units` فارغة والباقي كما كان.
+ * «الوحدة الرئيسية» (القاعدة ١٢): الوحدة الرئيسية الصالحة وحدها تحمل `isPrimary: true` فيبرزها الكتالوج سعراً أوّل،
+ * والمفتاح غائبٌ في غيرها — فصنفٌ بلا رئيسية يبقى JSON العلن حرفاً كما كان. معرّف الوحدة يُقرأ للمطابقة ولا يُخرج.
  */
 const router = Router();
 
@@ -49,10 +51,10 @@ router.get('/catalog/:tenantId/:repId', async (req: Request, res: Response, next
       orderBy: [{ category: { name: 'asc' } }, { name: 'asc' }],
       take: 500,
       select: {
-        name: true, unit: true, basePrice: true, taxPct: true, image: true,
+        name: true, unit: true, basePrice: true, taxPct: true, image: true, primaryUnitId: true,
         category: { select: { name: true } },
-        // الموقوفة لا تُعرض للعلن — لا يُباع بها اليوم
-        units: { where: { isActive: true }, select: { name: true, factor: true, price: true }, orderBy: [{ sortOrder: 'asc' }, { factor: 'asc' }] },
+        // الموقوفة لا تُعرض للعلن — لا يُباع بها اليوم. والمعرّف لمطابقة الرئيسية وحدها (لا يُخرج)
+        units: { where: { isActive: true }, select: { id: true, name: true, factor: true, price: true }, orderBy: [{ sortOrder: 'asc' }, { factor: 'asc' }] },
       },
     });
 
@@ -66,13 +68,19 @@ router.get('/catalog/:tenantId/:repId', async (req: Request, res: Response, next
           currency: company.currency,
         },
         rep: { name: rep.name, contact: channel?.e164 ?? rep.phone ?? null },
-        products: products.map(p => ({
-          name: p.name, unit: p.unit, basePrice: p.basePrice, taxPct: p.taxPct,
-          image: p.image, category: p.category?.name ?? null,
-          // السعر صافٍ قبل الضريبة كسعر الأساس، والواجهة تضيف taxPct فوقه. والفارغ يُمرَّر undefined لا null:
-          // Number(null) = 0 «سعرٌ صالح» في unitPriceOf فيُعرض الكرتون مجاناً بدل الأساس × المعامل
-          units: p.units.map(u => ({ name: u.name, factor: u.factor, price: unitPriceOf({ name: u.name, factor: u.factor, price: u.price ?? undefined }, p.basePrice) })),
-        })),
+        products: products.map(p => {
+          const primaryId = primaryUnitOf({ primaryUnitId: p.primaryUnitId, units: p.units })?.id ?? null;
+          return {
+            name: p.name, unit: p.unit, basePrice: p.basePrice, taxPct: p.taxPct,
+            image: p.image, category: p.category?.name ?? null,
+            // السعر صافٍ قبل الضريبة كسعر الأساس، والواجهة تضيف taxPct فوقه. والفارغ يُمرَّر undefined لا null:
+            // Number(null) = 0 «سعرٌ صالح» في unitPriceOf فيُعرض الكرتون مجاناً بدل الأساس × المعامل
+            units: p.units.map(u => ({
+              name: u.name, factor: u.factor, price: unitPriceOf({ name: u.name, factor: u.factor, price: u.price ?? undefined }, p.basePrice),
+              ...(primaryId && u.id === primaryId && { isPrimary: true }),
+            })),
+          };
+        }),
       },
     });
   } catch (err) { next(err); }

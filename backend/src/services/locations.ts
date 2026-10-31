@@ -27,6 +27,8 @@
  * دوالٌ صافية بلا قاعدة بيانات (الاستعلام في routes/locations.ts والمسارات المُصدِرة) لتُختبر وحدها.
  */
 
+import { primaryUnitOf, type UnitDef } from './units';
+
 /** أقصى طول لاسم الموقع (كاسم الفريق) */
 export const LOCATION_NAME_MAX = 60;
 
@@ -86,7 +88,15 @@ export interface InvoiceLocationGroup { locationId: string | null; type: string;
 /** تحميلٌ (type LOAD) مع بنوده كما يُقرأ للملخّص */
 export interface LoadLocationRow { locationId: string | null; items: { productId: string; qty: number }[] }
 export interface LocationInfo { id: string; name: string; isActive: boolean; lat: number | null; lng: number | null }
-export interface ProductInfo { name: string; unit: string | null }
+/**
+ * الصنف للملخّص: اسمه ووحدة أساسه، ومعهما (اختيارياً) وحداته و«الوحدة الرئيسية» ليعرض العارض الكمية بالرئيسية
+ * («52 كرتون و2 قارورة»، R1). تمرّ إلى السطر حين للصنف رئيسية صالحة فقط (`primaryUnitOf`)، فسطر صنفٍ بلاها يبقى
+ * بشكله قبل الميزة حرفاً (I1).
+ */
+export interface ProductInfo { name: string; unit: string | null; units?: UnitDef[] | null; primaryUnitId?: string | null }
+
+/** سطر صنفٍ محمَّل: الكمية بالأساس، و`units`/`primaryUnitId` حاضران حين للصنف رئيسية صالحة فقط */
+export interface LocationLoadProduct { productId: string; name: string; unit: string | null; qty: number; units?: UnitDef[]; primaryUnitId?: string }
 
 export interface LocationBucket {
   /** null = «بلا موقع» */
@@ -101,7 +111,7 @@ export interface LocationBucket {
   returns: { count: number; amount: number };
   /** صافي المبيعات = البيع − المرتجع */
   net: number;
-  loads: { count: number; qty: number; products: { productId: string; name: string; unit: string | null; qty: number }[] };
+  loads: { count: number; qty: number; products: LocationLoadProduct[] };
 }
 
 export interface LocationsSummary {
@@ -185,7 +195,14 @@ export function buildLocationsSummary(
     b.net = round3(b.sales.amount - b.returns.amount);
     b.loads.qty = round4(b.loads.qty);
     b.loads.products = [...(productQty.get(b) ?? new Map<string, number>()).entries()]
-      .map(([productId, qty]) => ({ productId, name: products.get(productId)?.name ?? '', unit: products.get(productId)?.unit ?? null, qty: round4(qty) }))
+      .map(([productId, qty]): LocationLoadProduct => {
+        const info = products.get(productId);
+        const prim = primaryUnitOf(info);
+        return {
+          productId, name: info?.name ?? '', unit: info?.unit ?? null, qty: round4(qty),
+          ...(prim && info?.primaryUnitId ? { units: [...(info.units ?? [])], primaryUnitId: info.primaryUnitId } : {}),
+        };
+      })
       .sort((x, y) => y.qty - x.qty || x.name.localeCompare(y.name, 'ar'));
     return b;
   };

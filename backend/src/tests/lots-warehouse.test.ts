@@ -362,18 +362,25 @@ test('غير المتتبَّع والميزة مفعّلة: إنشاءٌ واح
   const r = await post({ type: 'ADJUST', items: [{ productId: 'P3', qty: -50 }] });
   assert.equal(r.status, 201, 'المستودع السالب جائزٌ لغير المتتبَّع كما كان');
   // D25 (البوابة B-d25-guards، lots-d25-warehouse.test.ts): FOR KEY SHARE على الأصناف في معاملة الإنشاء، لا غير
-  assert.deepEqual(world.calls.map((c) => c.op), ['product.findMany', 'tx.begin', 'query', 'warehouseEntry.create', 'tx.commit']);
+  // قفل الأساس («الوحدة الرئيسية» §2.8) ثم إعادة قراءة التتبّع (D25) — أيّاً كانت أوامر المهلة حولهما — ثم الإنشاء الوحيد
+  const seq = world.calls.map((c) => c.op);
+  assert.deepEqual([seq.slice(0, 2), seq.slice(-2)], [['product.findMany', 'tx.begin'], ['warehouseEntry.create', 'tx.commit']], seq.join(' '));
+  assert.ok(seq.slice(2, -2).every((x) => x === 'query' || x === 'exec'), seq.join(' '));
+  assert.deepEqual(world.calls.filter((c) => c.op === 'query' && String(c.sql ?? '').includes('FOR KEY SHARE'))
+    .map((c) => (/^SELECT id, unit, "lotTracked", "lotTrackedSince" FROM products /.test(String(c.sql)) ? 'BASE'
+      : /^SELECT id, "lotTracked" FROM products /.test(String(c.sql)) ? 'TRACK' : String(c.sql))), ['BASE', 'TRACK']);
   assert.equal(lastItems()[0].lotId, null);
 });
 
-test('الميزة مطفأة: الصنف «المتتبَّع» كغيره حرفياً — بلا معاملة ولا قفل، وأعمدة التشغيلة تُتجاهل، والـinclude بلا lot', async () => {
+test('الميزة مطفأة: الصنف «المتتبَّع» كغيره حرفياً — بلا قفل لوط (المعاملة لقفل الأساس وحده)، وأعمدة التشغيلة تُتجاهل، والـinclude بلا lot', async () => {
   fresh();
   world.lotsEnabled = false;
   world.calls.length = 0;
   const r = await post({ type: 'RECEIVE', items: [{ productId: 'P1', qty: 3, lotNumber: 'A', expiryDate: '2027-01-01' }] });
   assert.equal(r.status, 201);
-  assert.deepEqual(world.calls.map((c) => c.op), ['product.findMany', 'warehouseEntry.create']);
-  const create = world.calls[1].args as Row;
+  assert.deepEqual(world.calls.map((c) => c.op), ['product.findMany', 'tx.begin', 'query', 'exec', 'query', 'exec', 'warehouseEntry.create', 'tx.commit']);
+  assert.ok(!world.calls.some((c) => c.op === 'exec' && String(c.sql ?? '').includes('pg_advisory_xact_lock')), 'لا قفل لوط');
+  const create = world.calls.find((c) => c.op === 'warehouseEntry.create')!.args as Row;
   assert.deepEqual(Object.keys(create.include.items.include), ['product'], 'الردّ كما كان');
   assert.ok(!('lotId' in (create.data.items.create[0] as Row)), 'البند كما كان بلا عمود lotId');
   assert.equal(world.lots.length, 0);

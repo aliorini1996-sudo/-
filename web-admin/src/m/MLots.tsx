@@ -18,14 +18,16 @@ import {
 } from '../lib/lots';
 import {
   autoBroad, eventKindLabel, expiryState, lotStatusLabel, lotUnloadOn, originKindLabel, placeName, statusActions, traceSheets, traceTotals, unloadBody, vanName,
-  type LotDetailDto, type LotListRow, type LotStatusAction,
+  lotRowProduct, type LotDetailDto, type LotListRow, type LotStatusAction,
 } from '../lib/lotsPage';
 import { MCard, MRow, MHeader, MStat, MEmpty, MError, MSpinner } from './mobileUi';
 import { expectArray, expectObject } from './shape';
 import {
   lotListParams, nextLotsLimit, statusReasonProblem, scopedLotUser, unloadPlanRows, unloadPlanTotals, unloadPlanHasRemovals, customerLotTotals, telHref,
   LOT_CACHE_KEYS, STOCK_CACHE_KEYS, LOT_REASON_MAX, M_LOTS_PAGE, M_LOTS_MAX, M_LOTS_SOON_DAYS, type MLotsFilter,
+  lotCardQtyText, lotQtyBare,
 } from './mLotsLogic';
+import { primaryUnitOf } from '../lib/units';
 
 /**
  * «التشغيلات» في تطبيق الإدارة على الجوال (§٦.٢، والتدفّقات §٤.١٦–٤.١٧) — قسمٌ من الرئيسية لا تبويب (المقاعد خمسة وقد
@@ -260,9 +262,11 @@ function LotsList({ onBack, onOpen, warehouseOn }: { onBack: () => void; onOpen:
                   trailing={
                     <span className="flex items-center gap-1 flex-shrink-0">
                       <span className="text-end">
-                        <span className="block text-xs font-bold text-[#1F1A13] tabular-nums">{r.summary ? fmtQ(r.summary.total) : '—'}</span>
+                        {/* «الوحدة الرئيسية» (R1): «52 كرتون و2 قارورة» فلا يتكرّر اسم الوحدة تحته — وبلاها الرقم واسم الأساس كما كانا */}
+                        <span className="block text-xs font-bold text-[#1F1A13] tabular-nums">{r.summary ? lotQtyBare(r.summary.total, lotRowProduct(r), fmtQ) : '—'}</span>
                         <span className="block text-[9px] text-[#9A8F7E]">
-                          {r.summary && r.summary.vanCount > 0 ? `${formatNumber(r.summary.vanCount)} ${tr('سيارة')}` : (r.productUnit || '')}
+                          {r.summary && r.summary.vanCount > 0 ? `${formatNumber(r.summary.vanCount)} ${tr('سيارة')}`
+                            : primaryUnitOf(lotRowProduct(r)) ? '' : (r.productUnit || '')}
                         </span>
                       </span>
                       <ChevronLeft size={15} className="text-[#C9BFB0]" />
@@ -390,6 +394,12 @@ function LotCard({ id, warehouseOn, onBack }: { id: string; warehouseOn: boolean
   const trace = traceQ.data;
   const totals = trace ? traceTotals(trace) : null;
   const unit = lot.product.unit || '';
+  /* «الوحدة الرئيسية» (R1): الصنف بوحداته ورئيسيّه كما يردّه /lots/:id (routes/lots.ts §2.11ب) — أرصدة البطاقة بها
+   * («52 كرتون و2 قارورة»)، وبلا رئيسية صالحة الرقم واسم الأساس كما كان حرفاً (lotCardQtyText) */
+  const prod = lot.product;
+  const q = (n: number) => lotCardQtyText(n, prod, fmtQ);
+  // الأسطر الثانوية بجانب رصيدٍ صار بالرئيسية: بها أيضاً، وبلاها الرقم المجرّد كما كان (lotQtyBare)
+  const qb = (n: number) => lotQtyBare(n, prod, fmtQ);
   const actions = statusActions(lot);
   const vansQty = lot.summary ? lot.summary.vans.SELLABLE + lot.summary.vans.EXPIRED + lot.summary.vans.DAMAGED : 0;
   const plan = unloadPlanRows(planQ.data);
@@ -436,12 +446,12 @@ function LotCard({ id, warehouseOn, onBack }: { id: string; warehouseOn: boolean
         {/* ─────────── الأرصدة ─────────── */}
         {lot.summary && (
           <div className="grid grid-cols-2 gap-2.5">
-            {warehouseOn && <MStat label={tr('المستودع')} value={`${fmtQ(lot.summary.warehouse)} ${unit}`} compact />}
+            {warehouseOn && <MStat label={tr('المستودع')} value={q(lot.summary.warehouse)} compact />}
             <MStat label={lot.summary.vanCount > 0 ? `${tr('السيارات')} · ${formatNumber(lot.summary.vanCount)}` : tr('السيارات')}
-              value={`${fmtQ(vansQty)} ${unit}`} compact />
-            <MStat label={tr('محجوز')} value={lot.summary.held > LOT_EPS ? `${fmtQ(lot.summary.held)} ${unit}` : '—'}
+              value={q(vansQty)} compact />
+            <MStat label={tr('محجوز')} value={lot.summary.held > LOT_EPS ? q(lot.summary.held) : '—'}
               tone={lot.summary.held > LOT_EPS ? 'warn' : 'default'} compact />
-            <MStat label={tr('الإجمالي')} value={`${fmtQ(lot.summary.total)} ${unit}`} compact />
+            <MStat label={tr('الإجمالي')} value={q(lot.summary.total)} compact />
           </div>
         )}
 
@@ -477,10 +487,10 @@ function LotCard({ id, warehouseOn, onBack }: { id: string; warehouseOn: boolean
                       leading={<span className="w-9 h-9 rounded-lg bg-[#FBEBE2] text-[#C94E28] flex items-center justify-center flex-shrink-0"><Truck size={16} /></span>}
                       title={<span className="flex items-center gap-1.5"><span className={`truncate ${r.deleted ? 'text-[#8A6D1F]' : ''}`}>{vanName(r, tr)}</span></span>}
                       subtitle={[
-                        `${tr('الصالح للتنزيل')} ${fmtQ(r.usable.SELLABLE)} ${unit}`,
-                        r.held.SELLABLE > LOT_EPS ? `${tr('محجوز')} ${fmtQ(r.held.SELLABLE)}` : '',
-                        r.usable.EXPIRED > LOT_EPS ? `${tr('منتهي الصلاحية')} ${fmtQ(r.usable.EXPIRED)}` : '',
-                        r.usable.DAMAGED > LOT_EPS ? `${tr('تالف')} ${fmtQ(r.usable.DAMAGED)}` : '',
+                        `${tr('الصالح للتنزيل')} ${q(r.usable.SELLABLE)}`,
+                        r.held.SELLABLE > LOT_EPS ? `${tr('محجوز')} ${qb(r.held.SELLABLE)}` : '',
+                        r.usable.EXPIRED > LOT_EPS ? `${tr('منتهي الصلاحية')} ${qb(r.usable.EXPIRED)}` : '',
+                        r.usable.DAMAGED > LOT_EPS ? `${tr('تالف')} ${qb(r.usable.DAMAGED)}` : '',
                       ].filter(Boolean).join(' · ')}
                       trailing={r.usable.SELLABLE > LOT_EPS ? (
                         <button type="button" onClick={() => setUnloadRow(r)} disabled={unload.isPending}
@@ -493,8 +503,8 @@ function LotCard({ id, warehouseOn, onBack }: { id: string; warehouseOn: boolean
               )}
             {plan.length > 0 && (
               <p className="text-[11px] text-[#9A8F7E] px-1 tabular-nums">
-                {tr('الصالح للتنزيل')} {fmtQ(planTotals.usable)} {unit} · {formatNumber(planTotals.vans)} {tr('سيارة')}
-                {planTotals.held > LOT_EPS ? ` · ${tr('محجوز')} ${fmtQ(planTotals.held)}` : ''}
+                {tr('الصالح للتنزيل')} {q(planTotals.usable)} · {formatNumber(planTotals.vans)} {tr('سيارة')}
+                {planTotals.held > LOT_EPS ? ` · ${tr('محجوز')} ${qb(planTotals.held)}` : ''}
               </p>
             )}
             {/* ما لا يُنزَّل بزرّ «تنزيل»: المنتهي والتالف في السيارة يزالان من دلويهما (مخزون السيارات) — كاللوحة */}
@@ -558,19 +568,20 @@ function LotCard({ id, warehouseOn, onBack }: { id: string; warehouseOn: boolean
                       {p.approximate && <span className="text-[10px] font-normal text-[#8A6D1F]"> · {tr('تقريبي')}</span>}
                     </span>
                     <b className={`text-[13px] tabular-nums flex-shrink-0 ${p.raw.SELLABLE < -LOT_EPS ? 'text-[#C0392B]' : 'text-[#1F1A13]'}`}>
-                      {fmtQ(p.raw.SELLABLE)} <span className="text-[10px] font-normal text-[#9A8F7E]">{unit}</span>
+                      {primaryUnitOf(prod) ? q(p.raw.SELLABLE)
+                        : <>{fmtQ(p.raw.SELLABLE)} <span className="text-[10px] font-normal text-[#9A8F7E]">{unit}</span></>}
                     </b>
                   </div>
                   <p className="text-[10px] text-[#9A8F7E] tabular-nums leading-relaxed">
                     {[
-                      `${tr('الصالح للإنقاص')} ${fmtQ(p.usable.SELLABLE)}`,
-                      p.held.SELLABLE > LOT_EPS ? `${tr('محجوز')} ${fmtQ(p.held.SELLABLE)}` : '',
-                      Math.abs(p.raw.EXPIRED) > LOT_EPS ? `${tr('منتهي الصلاحية')} ${fmtQ(p.raw.EXPIRED)}` : '',
-                      Math.abs(p.raw.DAMAGED) > LOT_EPS ? `${tr('تالف')} ${fmtQ(p.raw.DAMAGED)}` : '',
+                      `${tr('الصالح للإنقاص')} ${qb(p.usable.SELLABLE)}`,
+                      p.held.SELLABLE > LOT_EPS ? `${tr('محجوز')} ${qb(p.held.SELLABLE)}` : '',
+                      Math.abs(p.raw.EXPIRED) > LOT_EPS ? `${tr('منتهي الصلاحية')} ${qb(p.raw.EXPIRED)}` : '',
+                      Math.abs(p.raw.DAMAGED) > LOT_EPS ? `${tr('تالف')} ${qb(p.raw.DAMAGED)}` : '',
                     ].filter(Boolean).join(' · ')}
                   </p>
                   <p className="text-[10px] text-[#9A8F7E] tabular-nums">
-                    {tr('المحمل')} {fmtQ(p.loaded)} · {tr('المنزل')} {fmtQ(p.unloaded)} · {tr('المباع')} {fmtQ(p.sold)} · {tr('المرتجع')} {fmtQ(p.returned)}
+                    {tr('المحمل')} {qb(p.loaded)} · {tr('المنزل')} {qb(p.unloaded)} · {tr('المباع')} {qb(p.sold)} · {tr('المرتجع')} {qb(p.returned)}
                   </p>
                 </div>
               ))}
@@ -585,7 +596,7 @@ function LotCard({ id, warehouseOn, onBack }: { id: string; warehouseOn: boolean
                     {originKindLabel(o.kind, tr)} · <span className="text-[#9A8F7E]">{formatDateTime(o.at)}</span>
                   </span>
                   <b className={`tabular-nums flex-shrink-0 ${o.qty < 0 ? 'text-[#C0392B]' : 'text-[#1E7A52]'}`} dir="ltr">
-                    {o.qty < 0 ? '−' : '+'}{fmtQ(Math.abs(o.qty))}
+                    {o.qty < 0 ? '−' : '+'}{qb(Math.abs(o.qty))}
                   </b>
                 </div>
               ))}
@@ -648,7 +659,7 @@ function LotCard({ id, warehouseOn, onBack }: { id: string; warehouseOn: boolean
       {unloadOn && unloadRow && (
         <Sheet title={tr('تنزيل التشغيلة من السيارة')} onClose={() => setUnloadRow(null)}>
           <p className="text-[12px] text-[#6E6557] leading-relaxed">
-            {vanName(unloadRow, tr)} — <b className="tabular-nums text-[#1F1A13]">{fmtQ(unloadRow.usable.SELLABLE)} {unit}</b>
+            {vanName(unloadRow, tr)} — <b className="tabular-nums text-[#1F1A13]">{q(unloadRow.usable.SELLABLE)}</b>
           </p>
           {warehouseOn && <p className="text-[11px] text-[#9A8F7E]">{tr('تعود الكمية إلى المستودع وتبقى التشغيلة موقوفة هناك')}</p>}
           <div className="flex gap-2">

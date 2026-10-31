@@ -19,7 +19,7 @@
  */
 import { createHash } from 'node:crypto';
 import { localDateIn } from './shelfLife';
-import { baseQtyOf } from './units';
+import { baseQtyOf, primaryUnitOf, productQtyText, type PrimaryHolder } from './units';
 
 // ═══ §٢.١ الثوابت والأنواع ═══
 
@@ -372,6 +372,16 @@ export interface PlaceLotView {
   deficits: { lotId: string | null; bucket: LotBucket; qty: number }[]; // كل خام أو صالح سالب — للشارة و/lots/health
   firstInAt: Map<string, Date>;     // أول دخول موجب لكل لوط إلى السيارة (لطبقة الإعادة ١)
   approximate: boolean;
+  /**
+   * وحدات الصنف و«الوحدة الرئيسية» لرسائل الكمية وحدها (R10، عرضٌ لا يدخل أي حساب) — يضعها المستدعي حين صفّ الصنف في
+   * يده (`withQtyProduct`)، فتقول رسالة النقص «(2 كرتون)» لا «(48)». غيابها أو صنفٌ بلا رئيسية ⇒ النص القائم حرفياً.
+   */
+  qtyProduct?: (PrimaryHolder & { unit?: string | null }) | null;
+}
+
+/** العرض نفسه ومعه صفّ الصنف لرسائل الكمية (`qtyProduct`) — نسخةٌ لا تمسّ الأصل، وصفٌّ غائب ⇒ العرض كما هو */
+export function withQtyProduct(view: PlaceLotView, product: (PrimaryHolder & { unit?: string | null }) | null | undefined): PlaceLotView {
+  return product ? { ...view, qtyProduct: product } : view;
 }
 
 /** لوطٌ بلا بطاقة في `metas` (لا يقع إلا بخلل): يُعرض موقوفاً فلا يُباع ولا يُحمَّل منه (فشلٌ مغلق) ويبقى في Σ الخام */
@@ -548,6 +558,9 @@ const REPLAY_NOTICE_FLAGS: ReadonlySet<LotRowFlag> = new Set(['REPLAY_BLOCKED', 
 
 const placeLabel = (p: LotPlace) => (p === 'WAREHOUSE' ? 'المستودع' : 'سيارة المندوب');
 const fmtQty = (n: number) => Number(Math.max(0, n).toFixed(3));
+/** المتاح في رسالة النقص: بالوحدة الرئيسية حين صفّ الصنف في العرض وله رئيسية صالحة («2 كرتون»)، وإلا الرقم كما كان */
+const availText = (view: PlaceLotView, n: number): number | string =>
+  (primaryUnitOf(view.qtyProduct) ? productQtyText(fmtQty(n), view.qtyProduct) : fmtQty(n));
 
 /** المصادر المادية في دلو: كل لوط صالحه > EPS أيّاً كانت حالته، وغير المسمّى إن كان صالحه > EPS */
 function physicalSources(view: PlaceLotView, bucket: LotBucket): number {
@@ -660,7 +673,7 @@ function namedOnGrid(rows: AllocRow[], flags: readonly LotRowFlag[]): AllocRow[]
 function insufficient(input: { productId: string; productName: string; qty: number; view: PlaceLotView; day: string; allowUnknown: boolean }): LotError {
   const { view } = input;
   const available = splitAvailability(view, input.day, { allowUnknown: input.allowUnknown }).available;
-  return lotErr('LOT_STOCK_INSUFFICIENT', { name: input.productName, place: placeLabel(view.place), available: fmtQty(available) }, {
+  return lotErr('LOT_STOCK_INSUFFICIENT', { name: input.productName, place: placeLabel(view.place), available: availText(view, available) }, {
     productId: input.productId, wanted: input.qty, available,
     byLot: view.lots.map((l) => ({ lotId: l.lotId, lotNumber: l.meta.lotNumber, usable: l.usable.SELLABLE, status: l.meta.status, expiryDate: l.meta.expiryDate })),
     unknownUsable: unknownUsableOf(view, 'SELLABLE'),
@@ -769,14 +782,14 @@ export function allocateOutLines(input: {
       }
       const usable = l ? l.usable.SELLABLE : 0;
       if (q > usable + LOT_EPS) {
-        return fail(lotErr('LOT_STOCK_INSUFFICIENT', { name: input.productName, place: placeLabel(view.place), available: fmtQty(usable) },
+        return fail(lotErr('LOT_STOCK_INSUFFICIENT', { name: input.productName, place: placeLabel(view.place), available: availText(view, usable) },
           { productId, lotId: k, lotNumber: m?.lotNumber ?? null, wanted: q, usable }));
       }
       metas.set(k, m);
     }
     const uq = want.get(LOT_UNKNOWN_KEY);
     if (uq != null && (!input.allowUnknown || uq > Math.max(0, uu) + LOT_EPS)) {
-      return fail(lotErr('LOT_STOCK_INSUFFICIENT', { name: input.productName, place: placeLabel(view.place), available: fmtQty(input.allowUnknown ? uu : 0) },
+      return fail(lotErr('LOT_STOCK_INSUFFICIENT', { name: input.productName, place: placeLabel(view.place), available: availText(view, input.allowUnknown ? uu : 0) },
         { productId, lotId: null, wanted: uq, unknownUsable: uu, allowUnknown: input.allowUnknown }));
     }
     for (const l of explicitLines) {
@@ -970,7 +983,7 @@ export function pickOutSources(view: PlaceLotView, bucket: LotBucket, qty: numbe
     ...(unknownSource ? [{ lotId: null, lotNumber: null, usable: uu, status: null, expiryDate: null }] : []),
   ];
   const short = (available: number, extra: Record<string, unknown>) =>
-    lotErr('LOT_STOCK_INSUFFICIENT', { place: placeLabel(view.place), available: fmtQty(available) }, { productId, bucket, wanted: qty, ...extra, sources: listSources() });
+    lotErr('LOT_STOCK_INSUFFICIENT', { place: placeLabel(view.place), available: availText(view, available) }, { productId, bucket, wanted: qty, ...extra, sources: listSources() });
 
   if (!explicit || !explicit.length) {
     const n = sources.length + (unknownSource ? 1 : 0);
@@ -1061,7 +1074,7 @@ export function removalKeepsLots(view: PlaceLotView, removals: LotRemoval[]): Lo
   const byId = new Map(view.lots.map((l) => [l.lotId, l]));
   for (const g of want.values()) {
     const fail = (usable: number | null, lotNumber: string | null) => lotErr('LOT_STOCK_INSUFFICIENT',
-      { place: placeLabel(view.place), available: fmtQty(usable ?? 0) },
+      { place: placeLabel(view.place), available: availText(view, usable ?? 0) },
       { productId: view.productId, lotId: g.lotId, lotNumber, bucket: g.bucket, wanted: roundLot(g.qty), usable, reason: 'REMOVAL' });
     if (g.lotId == null) {
       const uu = view.unknownUsable ? view.unknownUsable[g.bucket] : null;

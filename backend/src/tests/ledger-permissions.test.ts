@@ -80,7 +80,7 @@ test('جلسة مالك المنصة (الانتحال) تفتح كل صلاحي
   assert.ok(scope.slice(s0, scope.indexOf('\n}', s0)).includes('if (req.user?.impersonated === true) return false;'), 'النطاق يقيّد جلسة المالك');
   // الويب يرى كل المفاتيح مفتوحة: بدء الجلسة و/auth/me
   const a = read('src', 'routes', 'auth.ts');
-  assert.match(a, /export function ownerSessionPermissionFields\(\) \{\s*return \{ \.\.\.Object\.fromEntries\(Object\.keys\(adminPermissionSelect\)\.map\(\(key\) => \[key, true\]\)\), scopeEnabled: false \};/);
+  assert.match(a, /export function ownerSessionPermissionFields\(\) \{\s*return \{ \.\.\.Object\.fromEntries\(Object\.keys\(adminPermissionSelect\)\.map\(\(key\) => \[key, true\]\)\), scopeEnabled: false, canConvertBase: true, convertBaseRefusalCode: null \};/);
   const me = a.slice(a.indexOf("router.get('/me'"));
   assert.ok(me.slice(0, me.indexOf('\n});')).includes('req.user.impersonated === true ? { ...admin, ...ownerSessionPermissionFields() } : admin'));
   const t = read('src', 'routes', 'tenants.ts');

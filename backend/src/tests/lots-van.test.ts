@@ -119,7 +119,8 @@ function answerSql(sql: string, values: unknown[]): unknown[] {
   if (sql.includes('FOR KEY SHARE')) {
     const ids = values[1] as string[];
     S.log.push('q:FOR KEY SHARE');
-    return S.products.filter((p) => ids.includes(p.id)).map((p) => ({ id: p.id, lotTracked: p.lotTracked, lotTrackedSince: p.lotTrackedSince }));
+    // وحدة الأساس حين يختارها الاستعلام (lockLotProducts وlockBases — «الوحدة الرئيسية» §2.6) لا في إعادة قراءة التتبّع وحدها
+    return S.products.filter((p) => ids.includes(p.id)).map((p) => ({ id: p.id, ...(/\bunit\b/.test(sql) && { unit: p.unit }), lotTracked: p.lotTracked, lotTrackedSince: p.lotTrackedSince }));
   }
   if (sql.includes("current_setting('lock_timeout')")) return [{ lock_timeout: '0' }];
   if (sql.includes('FROM van_load_item_lots l')) {
@@ -808,14 +809,16 @@ test('withLots في السجل: items[].lots مع withLots=1 والميزة مف
   assert.ok(!('lots' in it0(await call('get', '/loads', { query: { salesRepId: 'r1', withLots: '1' } }))), 'الإطفاء يُخفي (D8)');
 });
 
-test('§١٠: الميزة المطفأة أو الصنف غير المتتبَّع ⇒ المسار حرفياً كما كان — العدّ أو القراءة الواحدة، ولا طابور ولا SQL لوط ولا مهلة، والردّ بلا warnings', async () => {
+// «الوحدة الرئيسية» §2.7: القراءة الواحدة للأصناف بأساسها بدل العدّ، وكل فرعٍ قائم معاملةٌ بقفل الأساس (lockBases: FOR KEY SHARE)
+// بمهلة BASE_GUARD_TX (I10) — والفرع المطفأ صار معاملةً لذلك وحده. لا طابور ولا SQL لوط ولا مهلة اللوط
+test('§١٠: الميزة المطفأة أو الصنف غير المتتبَّع ⇒ المسار كما كان مع قفل الأساس — القراءة الواحدة، ولا طابور ولا SQL لوط ولا مهلة اللوط، والردّ بلا warnings', async () => {
   reset({ lots: false });
   S.log = [];
   const off = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pB', qty: 5, lots: [{ lotId: 'zz', qty: 5 }], lotNumber: 'Q' }] });
   assert.equal(off.statusCode, 201);
   assert.ok(!('warnings' in off.body!));
-  assert.deepEqual(S.log, ['product.count', 'create:vanLoad'], 'الأجسام الجديدة تُهمَل ولا استعلام زائد');
-  assert.deepEqual(S.txOpts, []);
+  assert.deepEqual(S.log, ['product.findMany', 'q:FOR KEY SHARE', 'create:vanLoad'], 'الأجسام الجديدة تُهمَل ولا استعلام زائد — قفل الأساس وحده');
+  assert.deepEqual(S.txOpts, [{ maxWait: 10_000, timeout: 20_000 }]);
   assert.equal(S.vanItemLots.length, 0);
   reset();
   S.log = [];
@@ -823,8 +826,8 @@ test('§١٠: الميزة المطفأة أو الصنف غير المتتبَ�
   assert.equal(untracked.statusCode, 201);
   assert.ok(!('warnings' in untracked.body!));
   // D25: إعادة قراءة التتبّع تحت FOR KEY SHARE في معاملة الكتابة وحدها (البوابة B-d25-guards) — لا طابور ولا قفل لوط ولا تجميع
-  assert.deepEqual(S.log, ['product.findMany', 'q:FOR KEY SHARE', 'create:vanLoad'], 'القراءة بدل العدّ — وإعادة قراءة التتبّع وحدها');
-  assert.deepEqual(S.txOpts, [null], 'بلا مهلة جديدة');
+  assert.deepEqual(S.log, ['product.findMany', 'q:FOR KEY SHARE', 'q:FOR KEY SHARE', 'create:vanLoad'], 'قفل الأساس ثم إعادة قراءة التتبّع');
+  assert.deepEqual(S.txOpts, [{ maxWait: 10_000, timeout: 20_000 }], 'BASE_GUARD_TX لا مهلة اللوط');
   assert.equal(S.vanItemLots.length, 0);
 });
 
@@ -1015,16 +1018,16 @@ test('D25 (السيارة) §١٠.٢: بلا تبديل ⇒ الحركة كما 
   const r = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pU', qty: 3 }] });
   assert.equal(r.statusCode, 201, JSON.stringify(r.body));
   assert.ok(!('warnings' in r.body!));
-  assert.deepEqual(S.log, ['product.findMany', 'q:FOR KEY SHARE', 'create:vanLoad']);
-  assert.deepEqual(S.txOpts, [null], 'معاملةٌ بالخيارات الافتراضية (لا D13)');
+  assert.deepEqual(S.log, ['product.findMany', 'q:FOR KEY SHARE', 'q:FOR KEY SHARE', 'create:vanLoad'], 'قفل الأساس ثم إعادة قراءة التتبّع');
+  assert.deepEqual(S.txOpts, [{ maxWait: 10_000, timeout: 20_000 }], 'BASE_GUARD_TX (I10) لا مهلة اللوط (D13)');
   assert.equal(S.vanItemLots.length, 0);
   // الإزالة: قفل الدلو كما كان ثم القراءة ثم فحص الرصيد ثم الإنشاء
   seedInvoice('r1', 'RETURN', 'pU', 3, [], { returnExpired: true });
   S.log = []; S.txOpts = [];
   const out = await post({ salesRepId: 'r1', type: 'EXPIRED_OUT', items: [{ productId: 'pU', qty: 2 }] });
   assert.equal(out.statusCode, 201, JSON.stringify(out.body));
-  assert.deepEqual(S.log.filter((x) => x !== 'product.findMany'), ['exec:bucket:van-expired:r1', 'q:FOR KEY SHARE', 'computeStock', 'create:vanLoad']);
-  assert.deepEqual(S.txOpts, [null]);
+  assert.deepEqual(S.log.filter((x) => x !== 'product.findMany'), ['exec:bucket:van-expired:r1', 'q:FOR KEY SHARE', 'q:FOR KEY SHARE', 'computeStock', 'create:vanLoad']);
+  assert.deepEqual(S.txOpts, [{ maxWait: 10_000, timeout: 20_000 }]);
 });
 
 // ═══ البوابة B2 (الفاعل، والتنزيل باللوط لصنفٍ غير متتبَّع) ═══
@@ -1083,8 +1086,8 @@ test('B2 (§١٠.١): الميزة مطفأة — حقول اللوط في ال�
   S.log = []; S.txOpts = [];
   const res = await post({ salesRepId: 'r1', type: 'UNLOAD', items: [{ productId: 'pU', qty: 2, lots: [{ lotId: 'l1', qty: 2 }], lotNumber: 'X1', expiryDate: FAR1 }] });
   assert.equal(res.statusCode, 201, JSON.stringify(res.body));
-  assert.deepEqual(S.log, ['product.count', 'create:vanLoad']);
-  assert.deepEqual(S.txOpts, []);
+  assert.deepEqual(S.log, ['product.findMany', 'q:FOR KEY SHARE', 'create:vanLoad'], 'قفل الأساس وحده («الوحدة الرئيسية» §2.7)');
+  assert.deepEqual(S.txOpts, [{ maxWait: 10_000, timeout: 20_000 }]);
   assert.deepEqual(lotRowsOf(lastLoad().id), [[]]);
 });
 
@@ -1129,16 +1132,51 @@ test('F1 (ب): المسار غير المتتبَّع والميزة مفعّل�
   }
 });
 
-test('F1 (ب) §١٠.١: الميزة مطفأة — الإزالة بمعاملتها القائمة تُرجع P2028 إلى المعالج العام كما كانت، والتحميل بلا معاملة', async () => {
+// «الوحدة الرئيسية» §2.7: كل فرعٍ قائم صار معاملةً فيها قفل الأساس، فانقضاؤها (P2028) قد يكون انتظار تحويلٍ يمسك الصنف ⇒ 503
+// PRODUCT_UNITS_BUSY (baseGuardReply، صالح لإعادة الرفع) لا 500 — لا LOT_BUSY: الميزة مطفأة. والتحميل المطفأ معاملةٌ بـBASE_GUARD_TX
+test('F1 (ب) §١٠.١: الميزة مطفأة — P2028 في معاملة الإزالة أو التحميل ⇒ 503 PRODUCT_UNITS_BUSY بلا حركة، والتحميل معاملةٌ لقفل الأساس وحده', async () => {
   reset({ lots: false });
   seedInvoice('r1', 'RETURN', 'pU', 3, [], { returnExpired: true });
   S.txFail = Object.assign(new Error('Transaction API error: Transaction already closed'), { code: 'P2028' });
-  const out = await post({ salesRepId: 'r1', type: 'EXPIRED_OUT', items: [{ productId: 'pU', qty: 2 }] });
-  assert.equal(out.statusCode, 500, JSON.stringify(out.body));
-  assert.match(String(out.body?.unhandled), /Transaction already closed/);
+  for (const type of ['EXPIRED_OUT', 'LOAD'] as const) {
+    const before = S.vanLoads.length;
+    const r = await post({ salesRepId: 'r1', type, items: [{ productId: 'pU', qty: 2 }] });
+    assert.deepEqual([r.statusCode, codeOf(r)], [503, 'PRODUCT_UNITS_BUSY'], `${type}: ${JSON.stringify(r.body)}`);
+    assert.equal(S.vanLoads.length, before, type);
+  }
+  S.txFail = null;
   S.log = []; S.txOpts = [];
   const load = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pU', qty: 2 }] });
   assert.equal(load.statusCode, 201, JSON.stringify(load.body));
-  assert.deepEqual([S.log, S.txOpts], [['product.count', 'create:vanLoad'], []]);
-  S.txFail = null;
+  assert.deepEqual([S.log, S.txOpts], [['product.findMany', 'q:FOR KEY SHARE', 'create:vanLoad'], [{ maxWait: 10_000, timeout: 20_000 }]]);
+});
+
+// ═══ «الوحدة الرئيسية» §2.7 (B3a): الأساس تحت قفل lockLotProducts نفسه في مسار اللوط ═══
+// تحويلٌ (كرتون ⇒ قارورة) التزم بين القراءة المسبقة وقفل الأصناف: البنود حُلّت على الأساس القديم، فالكتابة ×F صامتة. الحارس
+// assertBasesUnchanged على خريطة الأساس من صفوف القفل — بلا قفلٍ ثانٍ، وقبل رصيد الإزالة والخطة والإنشاء — ولا تبتلعه asLotBusy.
+test('مسار اللوط: أساسٌ تغيّر بين القراءة المسبقة والقفل ⇒ 409 PRODUCT_UNITS_CHANGED بلا حركة ولا صفوف ولا خطة — للتحميل والإزالة', async () => {
+  for (const type of ['LOAD', 'EXPIRED_OUT'] as const) {
+    reset();
+    if (type === 'EXPIRED_OUT') seedInvoice('r1', 'RETURN', 'pB', 3, [], { returnExpired: true });
+    const before = [S.vanLoads.length, S.vanItemLots.length, S.events.length];
+    const pm = db.product as { findMany: (a: unknown) => Promise<unknown> };
+    const orig = pm.findMany;
+    pm.findMany = async (a: unknown) => {
+      const out = await orig(a);
+      pm.findMany = orig;
+      S.products.find((p) => p.id === 'pB')!.unit = 'كرتون'; // convert-base التزم هنا
+      return out;
+    };
+    try {
+      S.log = [];
+      const r = await post({ salesRepId: 'r1', type, items: [{ productId: 'pB', qty: 1 }] });
+      assert.deepEqual([r.statusCode, codeOf(r)], [409, 'PRODUCT_UNITS_CHANGED'], `${type}: ${JSON.stringify(r.body)}`);
+      assert.match(String(r.body?.message), /«عصير»/);
+      assert.deepEqual([S.vanLoads.length, S.vanItemLots.length, S.events.length], before, type);
+      assert.ok(!S.log.includes('computeStock'), `${type}: المقارنة قبل فحص رصيد الإزالة`);
+    } finally {
+      pm.findMany = orig;
+    }
+  }
+  // والأساس نفسه ⇒ مسار اللوط كما كان: بقية اختبارات هذا الملف تمرّ والحارس في مكانه (صفوف القفل تحمل unit مطابقاً)
 });

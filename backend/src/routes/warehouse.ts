@@ -7,7 +7,12 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
-import { computeWarehouseStock, tenantCurrencyDecimals, loadWarehouseInputs, composeWarehouse, summarizeVansStock, resolveLineUnits } from '../services/warehouseStock';
+import { computeWarehouseStock, tenantCurrencyDecimals, loadWarehouseInputs, composeWarehouse, summarizeVansStock, resolveLineUnits, UnitInvalidError } from '../services/warehouseStock';
+// «الوحدة الرئيسية» §3 (#5): الوارد والتسوية يكتبان كمية وتكلفةً بوحدة الأساس — تُقارَن بالأساس الذي يعرفه العميل حيّاً، ثم تحت القفل
+import {
+  BASE_GUARD_TX, ProductUnitsChangedError, assertBasesUnchanged, baseGuardReply, baseUnitRequiredReply, expectedBasesOf, lockBases,
+  missingBaseForApi, staleClientBase,
+} from '../services/baseGuard';
 import { unitFields } from '../services/units';
 import type { VanLayer } from '../services/warehouseCost';
 import { foldStock, bucketRemaining, type LoadRow, type InvRow } from './vanStock';
@@ -117,8 +122,10 @@ router.get('/vans', async (req: AuthRequest, res: Response, next: NextFunction) 
     }) : [];
 
     const layers = new Map<string, Map<string, VanLayer[]>>();
-    const rows = composeWarehouse(inputs.products, inputs.whItems, inputs.vanItems, dec, layers);
-    const avgCost = new Map(rows.map((r) => [r.productId, r.avgCost]));
+    // ما زاد على طبقات السيارة يُقيَّم بالمتوسّط **غير المقرَّب** (#13): المقرَّب لأربع خانات للعرض، وبه كان تحويل وحدة الأساس
+    // (كرتون 16.33 ⇒ ٨ قوارير 2.0413) يغيّر قيمة البطاقة نفسها. القيمة إلى خانات العملة في summarizeVansStock كما كانت
+    const avgCost = new Map<string, number>();
+    composeWarehouse(inputs.products, inputs.whItems, inputs.vanItems, dec, layers, avgCost);
 
     const repSet = new Set(repIds);
     const loadsByRep = new Map<string, LoadRow[]>();
@@ -185,6 +192,9 @@ const entrySchema = z.object({
     // موجبٌ فقط: سعرٌ سالب لا معنى له، وصفرٌ يعني «بلا سعر» فيُرسَل غائباً.
     // تكلفة **وحدة البند** كما في فاتورة المورّد (الكرتون) — والتقييم يقسمها على المعامل عند القراءة (unitCostPerBase)
     unitCost: z.number().positive().finite().max(1e9).optional(),
+    // «الوحدة الرئيسية» §3: وحدة الأساس التي حسب عليها العميل الكمية والتكلفة (Product.unit في كتالوجه). غائبة ⇒ مسار اليوم حرفياً،
+    // ومختلفة عن أساس الصنف الآن ⇒ 400 UNIT_INVALID فيعيد تحميل أصنافه. لمفتاح API على صنفٍ حُوِّل: إلزامية (D19)
+    baseUnitName: z.string().transform((v) => v.slice(0, 64)).nullish(),
     // «تتبّع اللوط» (§٤.٤): سطرٌ = تشغيلةٌ واحدة — قائمةٌ بمعرّفها، أو رقمٌ (وتاريخان YYYY-MM-DD) يُحلّ أو يُنشأ، أو null صريح
     // لغير المسمّى في التسوية. تُقرأ للصنف المتتبَّع والميزة مفعّلة وحدهما؛ وغيرهما كما كان
     lotId: z.string().min(1).max(128).nullable().optional(),
@@ -218,11 +228,19 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
     const productIds = [...new Set(items.map((i) => i.productId))];
     // نقرأ الضريبة مع التحقّق: الردّ من الشامل إلى الصافي يحتاج نسبة كل صنف
     // (ومعها أعمدة «تتبّع اللوط» في الاستعلام نفسه: العلم والاسم وما يلزم إلزام انتهاء التشغيلة)
+    // (ومعها وحدة الأساس وتاريخ تحويلها لحارس §3 في الاستعلام نفسه)
     const products = await prisma.product.findMany({
       where: { id: { in: productIds }, tenantId: tid },
-      select: { id: true, taxPct: true, name: true, ...LOT_PRODUCT_SELECT },
+      select: { id: true, taxPct: true, name: true, unit: true, baseConvertedAt: true, ...LOT_PRODUCT_SELECT },
     });
     if (products.length !== productIds.length) { res.status(400).json({ success: false, message: 'منتج غير صالح' }); return; }
+    // «الوحدة الرئيسية» §3: الأساس الذي حُلّت عليه البنود — يُقارَن بما يعرفه العميل الآن، ثم تحت القفل في معاملة الإنشاء.
+    // مفتاح API على صنفٍ حُوِّل بلا baseUnitName ⇒ 400 (D19) بدل خطأٍ ×٢٤ صامت في الكمية والتكلفة
+    const expected = expectedBasesOf(products);
+    const noBase = missingBaseForApi(!!req.user?.apiKeyId, items, new Map(products.map((p) => [p.id, p])));
+    if (noBase) { const r = baseUnitRequiredReply(noBase); res.status(r.status).json(r.body); return; }
+    const stale = staleClientBase(items, expected);
+    if (stale) throw new UnitInvalidError(`تغيّرت وحدات «${stale}» — حدّث قائمة الأصناف ثم أعد الحفظ`);
     // «تتبّع اللوط» (D9، كالسيارة) والميزة مفعّلة: سطرٌ يحمل تشغيلةً لصنفٍ غير متتبَّع ⇒ 422 LOT_PRODUCT_MISMATCH بسبب NOT_TRACKED
     // وموضعه (موضع السطر بعد حذف الصفرية كسائر أخطاء الحركة) لا إهمالٌ صامت — واجهةٌ قديمة لصنفٍ أُطفئ تتبّعه تُنقص الصنف وتُبقي رصيد
     // التشغيلة. بلا استعلام ولا معاملة؛ والمطفأة تُهملها كما كانت حرفياً (§١٠.١)
@@ -252,20 +270,26 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
         })),
       },
     });
-    const entryInclude = { items: { include: { product: { select: { id: true, name: true, unit: true } }, ...(withLots && { lot: ENTRY_LOT_SELECT }) } } };
+    const entryInclude = { items: { include: { product: { select: { id: true, name: true, unit: true, primaryUnitId: true } }, ...(withLots && { lot: ENTRY_LOT_SELECT }) } } };
 
     // الميزة مطفأة أو لا صنف متتبَّع في الحركة ⇒ المسار القائم: إنشاءٌ واحد بلا قفل لوط (§١٠). والميزة مفعّلة (D25): تُعاد قراءة تتبّع
     // الأصناف FOR KEY SHARE في معاملة الإنشاء — صنفٌ صار متتبَّعاً بين القراءتين ⇒ 503 LOT_BUSY TRACKING_CHANGED بلا حركة فيُعاد بمسار
     // اللوط، وإلا انتظر التبديلُ (FOR UPDATE) التزامنا. بلا طابور ولا مهلة جديدة (§١٠.٢)، والمطفأة كما كانت حرفياً (§١٠.١).
-    // ومهلة المعاملة الافتراضية (P2028) أو انتظار قفل التبديل تحت الضغط ⇒ 503 LOT_BUSY فيعيد العميل (asLotBusy كمسار اللوط) لا 500
+    // ومهلة المعاملة الافتراضية (P2028) أو انتظار قفل التبديل تحت الضغط ⇒ 503 LOT_BUSY فيعيد العميل (asLotBusy كمسار اللوط) لا 500.
+    // «الوحدة الرئيسية» §3: قفل الأصناف ومقارنة أساسها (lockBases) أول المعاملة في الفرعين — والمطفأ صار معاملةً لذلك وحده،
+    // بمهلة BASE_GUARD_TX (I10). تحويلٌ التزم بين القراءة والإنشاء ⇒ 409 PRODUCT_UNITS_CHANGED بلا حركة
     const preTracked = withLots ? products.filter((p) => p.lotTracked === true).map((p) => p.id) : [];
     if (!preTracked.length) {
       const entry = withLots
         ? await prisma.$transaction(async (tx) => {
+          await lockBases(tx, tid, expected);
           await assertStillUntracked(tx, tid, productIds);
           return tx.warehouseEntry.create({ data: entryData(null), include: entryInclude });
-        }).catch((e: unknown) => { throw asLotBusy(e) ?? e; })
-        : await prisma.warehouseEntry.create({ data: entryData(null), include: entryInclude });
+        }, BASE_GUARD_TX).catch((e: unknown) => { throw (e instanceof ProductUnitsChangedError ? null : asLotBusy(e)) ?? e; })
+        : await prisma.$transaction(async (tx) => {
+          await lockBases(tx, tid, expected);
+          return tx.warehouseEntry.create({ data: entryData(null), include: entryInclude });
+        }, BASE_GUARD_TX);
       res.status(201).json({ success: true, data: entry });
       return;
     }
@@ -279,6 +303,8 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
     try {
       const out = await prisma.$transaction(async (tx) => {
         const locked = await lockLotProducts(tx, tid, productIds);
+        // §3: الأساس تحت قفل lockLotProducts نفسه (صفوفه تحمل unit) — بلا قفلٍ ثانٍ، وقبل أي خطة أو كتابة
+        assertBasesUnchanged(expected, locked.units);
         const plan = await planWarehouseEntryInTx(tx, {
           tenantId: tid, type: data.type, actor: lotActorOf(req.user), createdBy: by?.name ?? null, day, allowUnknown: true,
           lines: warehousePlanLines(items, baseQtys, products), locked, eventActor: lotEventActorOf(req.user),
@@ -288,12 +314,20 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
       }, { maxWait: 10_000, timeout: 20_000 });
       res.status(201).json({ success: true, data: out.entry, ...(out.warnings.length > 0 && { warnings: out.warnings }) });
     } catch (e) {
-      // انشغال القفل أو مهلة المعاملة في مسار اللوط ⇒ 503 LOT_BUSY (D14) عبر معالج الموجّه أدناه
+      // تبدّل الأساس (§3) يُفحص قبل asLotBusy فيمرّ كما هو إلى baseGuardReply أدناه — لا يُقرأ انشغالاً من اسم صنفٍ في رسالته.
+      // وانشغال القفل أو مهلة المعاملة في مسار اللوط ⇒ 503 LOT_BUSY (D14) عبر معالج الموجّه أدناه
+      if (e instanceof ProductUnitsChangedError) throw e;
       throw asLotBusy(e) ?? e;
     } finally {
       release();
     }
-  } catch (err) { next(err); }
+  } catch (err) {
+    // §3: تبدّل الأساس أثناء الحفظ ⇒ 409 PRODUCT_UNITS_CHANGED، وانتظار قفل الأصناف أو مهلة معاملةٍ خارج مسار اللوط ⇒ 503
+    // PRODUCT_UNITS_BUSY. المستودع للوحة وحدها (لا صندوق أوف‑لاين) فلا إعادة رفع. LotError يمرّ إلى معالج الموجّه كما كان
+    const g = baseGuardReply(err, false);
+    if (g) { res.status(g.status).json(g.body); return; }
+    next(err);
+  }
 });
 
 // سجلّ حركات المستودع (الوارد/التسوية) — للعرض والتصدير
@@ -307,7 +341,7 @@ router.get('/entries', async (req: AuthRequest, res: Response, next: NextFunctio
         where: { tenantId: tid },
         orderBy: { createdAt: 'desc' },
         take: 100,
-        include: { items: { include: { product: { select: { name: true, unit: true } }, ...(lotsOn(req) && { lot: ENTRY_LOT_SELECT }) } } },
+        include: { items: { include: { product: { select: { name: true, unit: true, primaryUnitId: true } }, ...(lotsOn(req) && { lot: ENTRY_LOT_SELECT }) } } },
       }),
     ]);
     // الإجمالي يُحسب هنا بالدالّة المختبَرة لا في المتصفّح: حسابان لرقمٍ واحد

@@ -70,6 +70,22 @@ export function invoiceLotLines(items: { productId: string; productName: string;
   }));
 }
 
+/**
+ * «الوحدة الرئيسية» I9 (§2.15): تلميح لوط الجهاز بأساسه هو — مستندٌ دون اتصال أُعيد أساسه بعد تحويل وحدة صنفه (كرتون ⇒ قارورة،
+ * rebase = ٢٤) تُضرب كميات صفوف تلميحه بالمعامل نفسه، فيساوي مجموعها baseQty البند ولا يُرفض (LOT_HINT_REJECTED). يضرب حقل
+ * الكمية العددي وحده في كل صفٍّ ويترك ما سواه كما هو؛ وغير المفهوم (ليس مصفوفة، أو صفٌّ بلا كمية عددية) يعود كما هو فيرفضه
+ * parseLotHint كاليوم. k ليس صحيحاً موجباً > ١ ⇒ التلميح نفسه بلا نسخ.
+ */
+export function scaleLotHint(raw: unknown, k: number): unknown {
+  if (!Array.isArray(raw) || !Number.isInteger(k) || k <= 1) return raw;
+  return raw.map((x) => {
+    if (!x || typeof x !== 'object' || Array.isArray(x)) return x;
+    const q = (x as { qty?: unknown }).qty;
+    if (typeof q !== 'number' || !Number.isFinite(q)) return x;
+    return { ...(x as Record<string, unknown>), qty: Math.round(q * k * 10_000) / 10_000 };
+  });
+}
+
 /** عَلَم الشركة — لفرع المرحلة الثانية (الإشعار الدائن حين يحمل أصله صنفاً متتبَّعاً، §١٠.١ الاستثناء الموثَّق) */
 export async function lotTrackingEnabledFor(db: LotDb, tid: string): Promise<boolean> {
   const t = await db.tenant.findUnique({ where: { id: tid }, select: { lotTrackingEnabled: true } });

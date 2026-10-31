@@ -216,8 +216,9 @@ test('الدمج في السلّة بالصنف والوحدة، والتحمي�
   assert.match(repApp, /prev\.findIndex\(l => l\.productId === p\.id && !l\.saleItemId && sameUnit\(l, \{ unitId: c0\.id \}\)\)/);
   assert.match(repApp, /\.\.\.lineUnitOf\(c0, p\.unit\)/, 'بندٌ بلا أساسه: تحويل الأساس قبل رفعه يُقرأ على الأساس الجديد');
   assert.match(repApp, /\.\.\.lineUnitOf\(ch, p\.unit\), unitPrice: inclOf\(p, ch\)/);
-  assert.match(repApp, /rows\.map\(r => \(\{ productId: r\.productId, qty: Number\(r\.qty\), \.\.\.\(r\.unitId && \{ unitId: r\.unitId \}\) \}\)\)/);
-  assert.match(repApp, /return \{ productId, qty: Number\(raw\), \.\.\.\(u\.id && \{ unitId: u\.id \}\) \};/);
+  // و«الوحدة الرئيسية» §6.4: كل صفّ تحميلٍ أو طلبٍ يرسل أساس الصنف كما يعرفه كتالوج الجهاز (baseUnitName)
+  assert.match(repApp, /rows\.map\(r => \(\{ productId: r\.productId, qty: Number\(r\.qty\), \.\.\.\(r\.unitId && \{ unitId: r\.unitId \}\), \.\.\.\(r\.baseUnit && \{ baseUnitName: r\.baseUnit \}\) \}\)\)/);
+  assert.match(repApp, /return \{ productId, qty: Number\(raw\), \.\.\.\(u\.id && \{ unitId: u\.id \}\), \.\.\.\(base && \{ baseUnitName: base \}\) \};/);
 });
 
 // ═══ «الوحدة الرئيسية» (B1): الافتراض والعرض وأسعار العميل على أساس الكتالوج ═══

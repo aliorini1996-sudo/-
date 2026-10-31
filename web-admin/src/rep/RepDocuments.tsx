@@ -5,7 +5,7 @@ import { methodLabelFor } from '../lib/paymentMethodsConfig';
 import { currencyDecimals } from '../i18n/countries';
 import { periodShape, statementFinalBalance, statementZone } from './statementFacts';
 import { adjustTotals, receiveTotalQty, uncostedCount, isCosted, noticeRef, qtyByUnit, unitTotalsText } from './warehouseNoticeFacts';
-import { factorOf, formatQty, roundQty, type UnitDef } from '../lib/units';
+import { factorOf, formatQty, primaryUnitOf, roundQty, type UnitDef } from '../lib/units';
 import { stockRequestToLabel, stockRequestApproverLabel, stockRequestTotalQty, type StockRequestTo, type StockRequestLine } from '../lib/stockRequest';
 import { docLotsFrom, type DocLotLine } from '../lib/lots';
 import { docLotRows, invoiceLotsOf, lotCellText, lotLineText, noticeHasLots, warehouseLineLots } from './docLots';
@@ -185,7 +185,18 @@ export interface StatementEntry {
   credit: number;
   balance: number;
   type?: string; // نوع القيد (INVOICE_DEBIT بيع · RECEIPT_CREDIT تحصيل · INVOICE_CREDIT مرتجع)
-  items?: { name: string; qty: number; unit?: string; unitFactor?: number | null }[]; // أصناف الفاتورة (لعرضها في كشف الحساب)
+  items?: StatementItem[]; // أصناف الفاتورة (لعرضها في كشف الحساب)
+}
+
+/** صنفٌ في قيد كشف الحساب — بلقطة وحدة البند؛ و`primaryUnitId` حاضرٌ حين للصنف «وحدة رئيسية» وحدها (R2) */
+export interface StatementItem { name: string; qty: number; unit?: string; unitFactor?: number | null; primaryUnitId?: string | null }
+
+/**
+ * «ماء ×2 كرتون» في كشف الحساب: البند بلقطته، والوحدة تُلحق حين ليست الأساس — **أو حين للصنف وحدة رئيسية** (R2): «×5» وحدها
+ * لصنفٍ يُعرَّف بالكرتون تُقرأ كراتين وهي قوارير. الشرط قيمة صادقة (`!!`) لا حضور المفتاح، فـ`null` كغيابه حرفاً.
+ */
+export function statementItemLine(it: StatementItem): string {
+  return `${it.name} ×${it.qty}${(factorOf(it) !== 1 || !!it.primaryUnitId) && it.unit ? ` ${it.unit}` : ''}`;
 }
 
 export interface StatementDoc {
@@ -241,6 +252,8 @@ export interface SettlementLogDoc {
 
 export interface LoadNoticeItem {
   name: string; qty: number; unit?: string; /** معامل وحدة السطر — ≠١ ⇒ الإجمالي لكل وحدة */ unitFactor?: number | null;
+  /** «الوحدة الرئيسية» لصنف السطر إن كانت له ⇒ الإجمالي لكل وحدة دائماً (qtyByUnit) */
+  primaryUnitId?: string | null;
   /** «تتبّع اللوط»: تشغيلات البند (withLots=1 ← docLotsFrom) — سطرٌ لكل تشغيلة متى وُجدت، وكمّياتها بالأساس (D19) */
   lots?: DocLotLine[];
 }
@@ -263,6 +276,8 @@ export interface WarehouseNoticeItem {
   unit?: string;
   /** معامل وحدة السطر (لقطته) — الكمية وسعر الوحدة بها، و≠١ ⇒ الإجمالي لكل وحدة */
   unitFactor?: number | null;
+  /** «الوحدة الرئيسية» لصنف السطر إن كانت له ⇒ الإجمالي لكل وحدة دائماً (qtyByUnit) */
+  primaryUnitId?: string | null;
   /** موجبٌ للوارد، وموجبٌ أو سالبٌ للتسوية */
   qty: number;
   /** صافٍ قبل الضريبة بأربع خانات — `null` = بلا سعر معروف */
@@ -303,7 +318,18 @@ export interface WarehouseNoticeDoc {
  * «٢ كرتون و٣ حبة» بجانب طلبٍ بالكرتون لا رقماً يُقرأ كراتين، و`unitFactor` معامل وحدة الكمية المطلوبة (`unit`) فلا يُجمع
  * كرتونٌ وحبّةٌ في «إجمالي الكميات» رقماً واحداً. غيابها ⇒ الورقة كما كانت حرفاً.
  */
-export type StockRequestDocLine = StockRequestLine & { unitFactor?: number | null; units?: UnitDef[] | null; baseUnit?: string | null };
+export type StockRequestDocLine = StockRequestLine & { unitFactor?: number | null; units?: UnitDef[] | null; baseUnit?: string | null; primaryUnitId?: string | null };
+
+/**
+ * «الرصيد الحالي» في ورقة طلب المخزون: الرصيد بالأساس بوحدات الصنف «٢ كرتون و٣ حبة» حين تصل، وإلا الرقم كما كان؛ والعجز
+ * بإشارة الطرح نفسها. ولصنفٍ له «وحدة رئيسية» يقف التفكيك عندها (R1): «52 كرتون و2 قارورة» لا «طبلية»، والصفر «0 كرتون».
+ */
+export function stockRequestOnHandText(it: StockRequestDocLine): string {
+  const big = (it.units ?? []).some((u) => Number(u.factor) > 1 && u.isActive !== false);
+  const abs = Math.abs(it.onHand);
+  const txt = big ? formatQty(abs, it.units ?? [], String(it.baseUnit || it.unit || ''), primaryUnitOf(it)) : fmtNoticeQty(abs);
+  return it.onHand < 0 ? `−${txt}` : txt;
+}
 
 /**
  * طلب مخزون (زيادة المستودع) يُرسَل لإدارة المشتريات أو الإنتاج — انظر `lib/stockRequest.ts`.
@@ -936,7 +962,7 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
                 {e.description}
                 {e.items && e.items.length > 0 && (
                   <div style={{ fontSize: 10, color: '#6b7280', marginTop: 3, lineHeight: 1.5 }}>
-                    <b style={{ color: '#4b5563' }}>{e.items.length} {tr('صنف')}:</b> {e.items.map(it => `${it.name} ×${it.qty}${factorOf(it) !== 1 && it.unit ? ` ${it.unit}` : ''}`).join('، ')}
+                    <b style={{ color: '#4b5563' }}>{e.items.length} {tr('صنف')}:</b> {e.items.map(statementItemLine).join('، ')}
                   </div>
                 )}
               </td>
@@ -1323,13 +1349,8 @@ export const PrintableStockRequest = forwardRef<HTMLDivElement, { doc: StockRequ
   // وحداتٌ مختلطة في الكميات المطلوبة: الإجمالي لكل وحدة (qtyByUnit) — وإلا الرقم كما كان
   const byUnit = qtyByUnit(doc.items);
   const totalText = byUnit ? unitTotalsText(byUnit, fmtNoticeQty) : fmtNoticeQty(totalQty);
-  // الرصيد بالأساس بوحدات الصنف «٢ كرتون و٣ حبة» حين تصل؛ والعجز بإشارة الطرح نفسها كما كان
-  const onHandText = (it: StockRequestDocLine): string => {
-    const big = (it.units ?? []).some((u) => Number(u.factor) > 1 && u.isActive !== false);
-    const abs = Math.abs(it.onHand);
-    const txt = big ? formatQty(abs, it.units ?? [], String(it.baseUnit || it.unit || '')) : fmtNoticeQty(abs);
-    return it.onHand < 0 ? `−${txt}` : txt;
-  };
+  // الرصيد بالأساس بوحدات الصنف (ووحدته الرئيسية إن كانت له) — stockRequestOnHandText
+  const onHandText = stockRequestOnHandText;
 
   return (
     <div ref={ref} style={sheet.style} {...sheet.attrs}>
@@ -1585,6 +1606,8 @@ export function statementDocFromData(
     items: (e.type !== 'RECEIPT_CREDIT' ? (e.invoice?.items || []) : []).map((it: any) => ({
       name: it.product?.name ?? '-', qty: Number(it.qty), unit: it.unitName || it.product?.unit,
       ...(it.unitFactor != null && { unitFactor: factorOf(it) }),
+      // «الوحدة الرئيسية» (R2): المفتاح حاضرٌ بقيمته الصادقة وحدها — null (D18، كل select) كغيابه، فالقيد كما كان حرفاً
+      ...(!!it.product?.primaryUnitId && { primaryUnitId: String(it.product.primaryUnitId) }),
     })),
   }));
   const totalDebit = mapped.reduce((s, e) => s + e.debit, 0);
@@ -1644,7 +1667,7 @@ export function settlementLogDocFromData(
 export function loadNoticeDocFromData(
   repName: string,
   // lots («تتبّع اللوط»): صفوف توزيع البند كما يضمّها /van-stock/loads أو /movements بـwithLots=1 (VanLoadItemLotDto)
-  movement: { kind: string; date: string; ref?: string; by?: string | null; items: { name: string; qty: number; unit?: string; unitName?: string | null; unitFactor?: number | null; baseQty?: number | null; lots?: unknown }[] },
+  movement: { kind: string; date: string; ref?: string; by?: string | null; items: { name: string; qty: number; unit?: string; unitName?: string | null; unitFactor?: number | null; baseQty?: number | null; primaryUnitId?: string | null; lots?: unknown }[] },
   company?: Company | null,
 ): LoadNoticeDoc {
   return {
@@ -1660,7 +1683,10 @@ export function loadNoticeDocFromData(
     items: movement.items.map((i) => {
       const f = i.unitFactor != null ? factorOf(i)
         : i.baseQty != null && Number(i.qty) ? roundQty(Number(i.baseQty) / Number(i.qty)) : null;
-      return { name: i.name, qty: Number(i.qty), unit: i.unitName || i.unit || undefined, ...(f != null && { unitFactor: f }), ...lotsField(i.lots) };
+      return {
+        name: i.name, qty: Number(i.qty), unit: i.unitName || i.unit || undefined, ...(f != null && { unitFactor: f }),
+        ...(!!i.primaryUnitId && { primaryUnitId: String(i.primaryUnitId) }), ...lotsField(i.lots),
+      };
     }),
   };
 }
@@ -1677,7 +1703,8 @@ export function warehouseNoticeDocFromEntry(
     supplier?: string | null; note?: string | null; createdBy?: string | null;
     // lot («تتبّع اللوط»): تشغيلة السطر كما يضمّها السجل حين تكون الميزة مفعّلة — سطرٌ = تشغيلةٌ واحدة
     items: {
-      qty: number; unitName?: string | null; unitFactor?: number | null; unitCost?: number | null; lineCost?: number | null; product: { name: string; unit?: string };
+      qty: number; unitName?: string | null; unitFactor?: number | null; unitCost?: number | null; lineCost?: number | null;
+      product: { name: string; unit?: string; primaryUnitId?: string | null };
       lot?: { lotNumber?: string | null; productionDate?: string | null; expiryDate?: string | null } | null;
     }[];
     totalCost: number;
@@ -1700,6 +1727,8 @@ export function warehouseNoticeDocFromEntry(
         // لقطة وحدة السطر: الكمية وسعر الوحدة بها — وإلا طُبعت تكلفة الكرتون منسوبةً للحبّة
         unit: i.unitName || i.product.unit || undefined,
         ...(i.unitFactor != null && { unitFactor: factorOf(i) }),
+        // «الوحدة الرئيسية»: بقيمتها الصادقة وحدها — null كغيابه، فالإشعار كما كان حرفاً
+        ...(!!i.product.primaryUnitId && { primaryUnitId: String(i.product.primaryUnitId) }),
         qty: Number(i.qty),
         unitCost: i.unitCost == null ? null : Number(i.unitCost),
         lineCost: i.lineCost == null ? null : Number(i.lineCost),

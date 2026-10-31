@@ -20,10 +20,33 @@ interface CatalogData {
    * الوحدات المتعددة: `unit`/`basePrice` لوحدة الأساس (الحبة)، و`units` وحدات البيع الأكبر النشطة بمعاملها وسعرها
    * الصافي (المحدَّد لها، وإلا الأساس × المعامل — يحسبه الخادم). وصنفٌ بلا وحدات: `units` فارغة أو غائبة (خادمٌ أقدم).
    */
-  products: { name: string; unit: string; basePrice: number; taxPct: number; image?: string | null; category?: string | null; units?: { name: string; factor: number; price: number }[] }[];
+  products: CatalogProduct[];
 }
 
-const API = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
+/**
+ * صنف المنيو. «الوحدة الرئيسية» (routes/publicCatalog.ts): الوحدة الرئيسية وحدها تحمل `isPrimary: true` والمفتاح غائب في
+ * غيرها (فالمعرّف لا يُخرج للعامة) — صنفٌ بلا رئيسية يصل كما كان حرفاً.
+ */
+type CatalogUnit = { name: string; factor: number; price: number; isPrimary?: boolean };
+type CatalogProduct = { name: string; unit: string; basePrice: number; taxPct: number; image?: string | null; category?: string | null; units?: CatalogUnit[] };
+
+/** سطر سعرٍ في بطاقة الصنف: السعر الصافي (قبل الضريبة) ووسمه */
+export interface CatalogPriceLine { key: string; price: number; label: string }
+
+/**
+ * أسطر أسعار بطاقة الصنف بترتيب العرض: `main` السعر البارز، و`rest` الأسطر الصغيرة تحته.
+ * - بلا وحدة رئيسية: البارز سعر الأساس بوسمه (`unit`)، ثم الوحدات الأكبر «كرتون (24 حبة)» — كما كان حرفاً (I1).
+ * - بوحدة رئيسية (أول وحدة `isPrimary === true`): البارز سعرها بوسم «كرتون (24 قارورة)»، ثم سعر الوحدة الصغرى سطراً
+ *   تحته، ثم بقية الوحدات بترتيب الخادم — العميل يطلب بالكرتون، والقارورة معلومة لا عنوان.
+ */
+export function catalogPriceLines(p: CatalogProduct): { main: CatalogPriceLine; rest: CatalogPriceLine[] } {
+  const units = p.units ?? [];
+  const unitLine = (u: CatalogUnit): CatalogPriceLine => ({ key: u.name, price: u.price, label: `${u.name} (${u.factor} ${p.unit})` });
+  const baseLine: CatalogPriceLine = { key: p.unit, price: p.basePrice, label: p.unit };
+  const primary = units.find(u => u.isPrimary === true);
+  if (!primary) return { main: baseLine, rest: units.map(unitLine) };
+  return { main: unitLine(primary), rest: [baseLine, ...units.filter(u => u !== primary).map(unitLine)] };
+}
 
 export default function CatalogPage() {
   const { tenantId, repId } = useParams();
@@ -41,6 +64,8 @@ export default function CatalogPage() {
 
   useEffect(() => {
     let cancelled = false;
+    // عنوان الخادم داخل الأثر لا على مستوى الوحدة — فتُستورد الصفحة في الاختبار (node بلا import.meta.env) بلا خطأ
+    const API = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
     fetch(`${API}/public/catalog/${tenantId}/${repId}`)
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then(j => { if (!cancelled) { setData(j.data as CatalogData); document.title = `${j.data.company.name} — منيو المنتجات`; } })
@@ -51,9 +76,7 @@ export default function CatalogPage() {
   const brand = data?.company.primaryColor || '#E15A30';
   const dec = currencyDecimals(data?.company.currency || 'SAR');
   const sym = currencySymbol(data?.company.currency || 'SAR');
-  // السعر شامل الضريبة — مطابق لمعادلة تطبيق المندوب حرفياً
-  const gross = (p: { basePrice: number; taxPct: number }) =>
-    roundDecimal(Number(p.basePrice) * (1 + Number(p.taxPct) / 100), dec);
+  // السعر شامل الضريبة — مطابق لمعادلة تطبيق المندوب حرفياً (CatalogPrices أسفل الملف)
 
   const cats = useMemo(() => {
     const set = new Map<string, number>();
@@ -128,17 +151,7 @@ export default function CatalogPage() {
             </div>
             <div style={{ padding: '10px 12px' }}>
               <div style={{ fontWeight: 700, fontSize: 13.5, lineHeight: 1.45, minHeight: 38 }}>{p.name}</div>
-              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 6 }}>
-                <span style={{ color: brand, fontWeight: 800, fontSize: 15 }}>{gross(p).toLocaleString('ar-SA', { minimumFractionDigits: dec, maximumFractionDigits: dec })} <span style={{ fontSize: 11 }}>{sym}</span></span>
-                <span style={{ fontSize: 10.5, color: '#8A8178' }}>{p.unit}</span>
-              </div>
-              {/* وحدات البيع الأكبر (كرتون ٢٤) بسعرها شاملاً الضريبة بالمعادلة نفسها — العميل يطلب بالكرتون لا بالحبة */}
-              {(p.units ?? []).map(u => (
-                <div key={u.name} style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 3 }}>
-                  <span style={{ color: '#4A4239', fontWeight: 700, fontSize: 12.5 }}>{gross({ basePrice: u.price, taxPct: p.taxPct }).toLocaleString('ar-SA', { minimumFractionDigits: dec, maximumFractionDigits: dec })} <span style={{ fontSize: 10 }}>{sym}</span></span>
-                  <span style={{ fontSize: 10.5, color: '#8A8178' }}>{u.name} ({u.factor} {p.unit})</span>
-                </div>
-              ))}
+              <CatalogPrices p={p} brand={brand} dec={dec} sym={sym} />
             </div>
           </div>
         ))}
@@ -157,5 +170,30 @@ export default function CatalogPage() {
         مدعوم من <a href="/" style={{ color: '#8A8178', fontWeight: 700, textDecoration: 'none' }}>FieldSales</a>
       </footer>
     </div>
+  );
+}
+
+/**
+ * أسعار بطاقة الصنف شاملةً الضريبة بمعادلة تطبيق المندوب حرفياً: البارز ثم الأسطر الصغيرة (catalogPriceLines).
+ * بلا وحدة رئيسية الناتج هو ما كانت البطاقة تعرضه قبل الميزة حرفاً: سعر الأساس بارزاً ثم وحدات البيع الأكبر (كرتون ٢٤) —
+ * العميل يطلب بالكرتون لا بالحبة. وبوحدة رئيسية سعرها البارز وسعر الوحدة الصغرى سطرٌ تحته.
+ */
+export function CatalogPrices({ p, brand, dec, sym }: { p: CatalogProduct; brand: string; dec: number; sym: string }) {
+  const gross = (price: number) => roundDecimal(Number(price) * (1 + Number(p.taxPct) / 100), dec);
+  const money = (price: number) => gross(price).toLocaleString('ar-SA', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+  const { main, rest } = catalogPriceLines(p);
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 6 }}>
+        <span style={{ color: brand, fontWeight: 800, fontSize: 15 }}>{money(main.price)} <span style={{ fontSize: 11 }}>{sym}</span></span>
+        <span style={{ fontSize: 10.5, color: '#8A8178' }}>{main.label}</span>
+      </div>
+      {rest.map(l => (
+        <div key={l.key} style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 3 }}>
+          <span style={{ color: '#4A4239', fontWeight: 700, fontSize: 12.5 }}>{money(l.price)} <span style={{ fontSize: 10 }}>{sym}</span></span>
+          <span style={{ fontSize: 10.5, color: '#8A8178' }}>{l.label}</span>
+        </div>
+      ))}
+    </>
   );
 }

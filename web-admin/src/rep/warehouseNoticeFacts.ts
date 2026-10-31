@@ -26,15 +26,21 @@ export interface NoticeLine {
   unit?: string;
   /** معامل وحدة السطر (الوحدات المتعددة) — null/١ = وحدة الأساس كما قبل الميزة */
   unitFactor?: number | null;
+  /**
+   * «الوحدة الرئيسية» لصنف السطر إن كانت له (R2): الإجمالي يُطبع لكل وحدة **دائماً** ولو كانت الأسطر كلّها بالوحدة الصغرى —
+   * «١٠» وحدها على ورقة صنفٍ يُعرَّف بالكرتون تُقرأ كراتين. الغياب أو null ⇒ كما كان حرفاً.
+   */
+  primaryUnitId?: string | null;
 }
 
 /**
  * إجمالي كمّياتٍ **تختلط وحداتها**: مجموعٌ لكل وحدة («٢ كرتون · ٥ حبة») — لا «٧» على ورقةٍ تُوقَّع، فرقمٌ واحد
- * يجمع كراتين وحبّات يكذب بلا علامة. و`null` حين الأسطر كلّها بوحدة الأساس: يبقى الإجمالي الرقميّ كما كان حرفاً.
+ * يجمع كراتين وحبّات يكذب بلا علامة. و`null` حين الأسطر كلّها بوحدة الأساس ولا صنف فيها بوحدةٍ رئيسية: يبقى الإجمالي
+ * الرقميّ كما كان حرفاً.
  * `pick` يختار ما يُجمع من كمية السطر (المطلق للتحميل، والموجب وحده لزيادة التسوية…).
  */
 export function qtyByUnit(lines: NoticeLine[], pick: (q: number) => number = (q) => q): { unit: string; qty: number }[] | null {
-  if (!lines.some((l) => factorOf(l) !== 1)) return null;
+  if (!lines.some((l) => factorOf(l) !== 1 || !!l.primaryUnitId)) return null;
   const m = new Map<string, number>();
   for (const l of lines) {
     const q = pick(Number(l.qty));

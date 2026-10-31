@@ -10,13 +10,24 @@ import { formatCurrency, formatNumber } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { useAuthStore } from '../store/authStore';
 import { useBackClose } from '../lib/useBackClose';
-import { unitPriceOf } from '../lib/units';
+import { unitPriceOf, primaryUnitOf, primaryPriceOf, derivedBasePrice } from '../lib/units';
+import {
+  productUnitLabel, primaryOrBiggest, reverseFormProblem, reverseCreatePayload, reverseEditPatch, reverseFormOf, reverseSubPrice,
+  EMPTY_REVERSE_FORM, type ReverseForm,
+} from '../lib/adminUnits';
+import { defaultChoice } from '../rep/repUnits';
 import { MCard, MRow, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import { expectArray, expectObject } from './shape';
 import {
-  hasBigUnit, unitsBrief, qtyText, tierBaseBounds, tierPayload, biggestUnit,
-  unitDraftProblem, unitDraftPayload, unitDraftOf, convertDraftProblem, convertedBasePrice, type UnitDraft,
+  hasBigUnit, unitsBrief, qtyText, tierBaseBounds, tierPayload, tierToPrimary, tierFromPrimary,
+  unitDraftProblem, unitDraftPayload, unitDraftOf, type UnitDraft,
 } from './mUnits';
+import {
+  fill, errorCode, productUnitsChanged, readDefMode, writeDefMode, primaryCandidates, canAddSubUnit, convertRefusalHint,
+  emptySubUnitDraft, subUnitDraftProblem, subUnitPrice, subUnitDraftKey, subUnitBody, dryRunOf, dryRunItems, dryRunNeeds,
+  canRunSubUnit, defaultAfterLine, tiersFitPrimary,
+  type DefMode, type ConvertRefusalCode, type SubUnitDraft, type SubUnitDryRun,
+} from './mPrimaryUnit';
 import { lotErrorOf } from '../lib/lots';
 import { productLotNote, productLotPayload, trackingBalanceOf, type TrackingBalanceProduct } from '../lib/lotTrackingUi';
 import { shelfLifeOn, LOT_CACHE_KEYS } from './mLotsLogic';
@@ -35,7 +46,12 @@ import { shelfLifeOn, LOT_CACHE_KEYS } from './mLotsLogic';
  * وحدة الصنف هي **وحدة الأساس** (أصغر ما يُباع منه) وسعره سعرها، والوحدات الأكبر (كرتون = ٢٤ حبة) تُدار في شاشة
  * «وحدات البيع» بعقود الخادم نفسها (productApi.addUnit/updateUnit/removeUnit). وتغيير اسم الأساس **لا يحوّل**
  * الكميات: «٢» المسجّلة كرتوناً تُقرأ «٢ حبة» إن صار الاسم حبة — فالتقسيم إلى وحدةٍ أصغر طريقُه «تحويل وحدة الأساس»
- * (convertBase) الذي يوسم التاريخ بمعامله ويقسم أسعار الأساس، بنافذة تأكيدٍ تقول ذلك صراحةً.
+ * (convertBase) الذي يوسم التاريخ بمعامله ويقسم أسعار الأساس، بنافذة تأكيدٍ تقول ذلك صراحةً — واسمه في الواجهة
+ * «إضافة وحدة فرعية أصغر» (§4.3)، بمعاينة dryRun قبل التنفيذ.
+ *
+ * ═══ «الوحدة الرئيسية» (القاعدة ١٢) ═══
+ * صنفٌ يُعرَّف بالكرتون وفيه وحدة أصغر: القارورة تبقى `unit/basePrice` (الحساب لا ينقلب)، والكرتون وحدةٌ بمعامله و`primaryUnitId`
+ * يشير إليه — للعرض («كرتون (24 قارورة)» وسعر الكرتون بارزاً) والإدخال الافتراضي وحدهما. وبلا رئيسية كل شيءٍ كما كان حرفاً (I1).
  *
  * ═══ «تتبّع باللوط» ═══
  * للشركة المفعّلة لها الميزة وحدها (`lotOn` من القوقعة): مفتاحٌ في نموذج الصنف وشارة «لوط» في القائمة. والمفتاح يُرسل
@@ -51,11 +67,6 @@ interface Cat { id: string; name: string }
 /** رسالة الخادم لا «حدث خطأ» العمياء — سبب الرفض (كود مكرّر، صنف له حركات) يصل للمستخدم */
 function apiMessage(e: unknown, fallback: string): string {
   return (e as { response?: { data?: { message?: string } } })?.response?.data?.message || fallback;
-}
-
-/** رمز رفض الخادم (BASE_UNIT_CHANGED…) — يقرّر ما يُفعل بعده لا ما يُقال */
-function apiCode(e: unknown): string | undefined {
-  return (e as { response?: { data?: { code?: string } } })?.response?.data?.code;
 }
 
 /**
@@ -125,10 +136,13 @@ export default function MProducts({ onBack, lotOn = false }: {
   if (editing !== undefined) {
     return (
       <MProductForm
+        // الصنف بعد كتابةٍ فورية (رئيسيةٌ جُعلت أو أُلغيت) يُعاد فتحه بنموذجٍ جديد تُبذر خاناته منه
+        key={editing ? `${editing.id}:${editing.primaryUnitId ?? ''}:${editing.unit}` : 'new'}
         product={editing}
         categories={catsQ.data ?? []}
         lotOn={lotOn}
         onClose={() => setEditing(undefined)}
+        onReplace={p => setEditing(p)}
       />
     );
   }
@@ -199,6 +213,10 @@ function ProductRow({ p, onOpen, lotOn = false }: { p: Product; onOpen: () => vo
   const lot = lotOn && p.lotTracked === true;
   // وحداته الأكبر بمعاملاتها في سطره («كرتون ٢٤»)، والسعر يُسمّى بوحدته: سعرُ حبّةٍ بلا اسمها يُقرأ سعر كرتون
   const multi = hasBigUnit(p.units);
+  // «الوحدة الرئيسية» (R4، R5): الوسم «كرتون (24 قارورة)»، والسعر البارز سعر الكرتون بوسمه وسعر القارورة تحته صغيراً.
+  // وبلا رئيسية صالحة السطر كما كان حرفاً (I1)
+  const prim = primaryUnitOf(p);
+  const primPrice = prim ? primaryPriceOf(p) : null;
   return (
     <MRow
       onClick={onOpen}
@@ -224,14 +242,24 @@ function ProductRow({ p, onOpen, lotOn = false }: { p: Product; onOpen: () => vo
           )}
         </span>
       }
-      subtitle={[p.code, p.unit, unitsBrief(p.units, formatNumber), p.category?.name].filter(Boolean).join(' · ')}
+      subtitle={(prim
+        ? [p.code, productUnitLabel(p, formatNumber), unitsBrief((p.units ?? []).filter(u => u.id !== prim.id), formatNumber), p.category?.name]
+        : [p.code, p.unit, unitsBrief(p.units, formatNumber), p.category?.name]).filter(Boolean).join(' · ')}
       trailing={
         <span className="flex items-center gap-1 flex-shrink-0">
+          {prim && primPrice != null ? (
+            <span className="text-end">
+              <span className="block text-xs font-bold text-[#E15A30] whitespace-nowrap">{formatCurrency(primPrice)}</span>
+              <span className="block text-[9px] text-[#9A8F7E]">{prim.name} · {tr('قبل الضريبة')}</span>
+              <span className="block text-[9px] text-[#9A8F7E] whitespace-nowrap">{formatCurrency(p.basePrice, undefined, 4)} / {p.unit}</span>
+            </span>
+          ) : (
           <span className="text-end">
             <span className="block text-xs font-bold text-[#E15A30] whitespace-nowrap">{formatCurrency(p.basePrice)}</span>
             {/* الوسم تحت كل سعر معروض — لا يُترك للقارئ أن يخمّن أهو شاملٌ أم صافٍ */}
             <span className="block text-[9px] text-[#9A8F7E]">{multi && `${p.unit} · `}{tr('قبل الضريبة')}</span>
           </span>
+          )}
           <ChevronLeft size={15} className="text-[#C9BFB0]" />
         </span>
       } />
@@ -251,6 +279,11 @@ const emptyForm: FormState = {
   basePrice: '', taxPct: '', categoryId: '', status: 'ACTIVE',
 };
 
+/** تخزين المتصفّح أو null — الوصول نفسه قد يرمي (وضع خاص، بيانات محجوبة) فلا يُسقط النموذج */
+function safeStorage(): Storage | null {
+  try { return typeof window === 'undefined' ? null : window.localStorage; } catch { return null; }
+}
+
 /**
  * نموذج الصنف — طبقةٌ ملء الشاشة فوق القائمة.
  *
@@ -258,14 +291,26 @@ const emptyForm: FormState = {
  * الفارغة. وهنا نُرسل نصّاً فارغاً صريحاً للباركود والفئة — لأن الخادم يترجمه
  * `null` (`data.barcode || null`)، وهو **الطريق الوحيد لمحو** قيمة قديمة؛
  * وحذفُ المفتاح أصلاً كان سيعني «لا تغيّرها» فيبقى الباركود المشطوب مكانه.
+ *
+ * ═══ «الوحدة الرئيسية» (§4.1، §4.2، §4.4) ═══
+ * «طريقة تعريف الصنف»: بأصغر وحدة (النموذج القائم حرفاً) أو بالكرتون وفيه وحدة أصغر. الصنف الجديد بالكرتون يُرسَل في طلب
+ * POST واحد ذرّي (reverseCreatePayload: الفرعية `unit`، والكرتون وحدةٌ بسعره الصريح، و`primaryUnitName`)، والافتراض آخر
+ * طريقةٍ اختارها هذا المستخدم. والصنف القائم ذو الرئيسية تُعرض خاناته بالترتيب العكسي ويُحفظ برقعةٍ ذرّية (reverseEditPatch).
+ * والانتقال بين الطريقتين لصنفٍ قائم كتابةٌ فورية لا «حفظ التعديلات»: جعل وحدةٍ موجودة رئيسية (علمٌ، D11)، أو «إضافة وحدة
+ * فرعية أصغر» (convert-base، D12)، أو العودة إلى الافتراضي. وكل حفظٍ لصنفٍ قائم يرسل `expectedBaseName` (الأساس الذي فُتح
+ * عليه النموذج) فيُردّ 409 إن حُوِّل الصنف منذ فُتح — لا يُكتب سعر الكرتون سعراً للقارورة.
  */
-function MProductForm({ product, categories, onClose, lotOn = false }: {
+function MProductForm({ product, categories, onClose, onReplace, lotOn = false }: {
   product: Product | null; categories: Cat[]; onClose: () => void;
+  /** الصنف كما صار بعد كتابةٍ فورية (جعل وحدةٍ رئيسية أو العودة) — يُعاد فتح النموذج به فتُبذر خاناته من جديد */
+  onReplace: (p: Product) => void;
   /** «تتبّع اللوط» مفعّل للشركة — مطفأ ⇒ لا مفتاح ولا حقل في الحمولة */
   lotOn?: boolean;
 }) {
   const tr = useTr();
   const qc = useQueryClient();
+  const user = useAuthStore(x => x.user);
+  const ownerSession = useAuthStore(x => !!x.impersonating);
   const [form, setForm] = useState<FormState>(() => product ? {
     name: product.name || '',
     code: product.code || '',
@@ -276,6 +321,20 @@ function MProductForm({ product, categories, onClose, lotOn = false }: {
     categoryId: product.categoryId || product.category?.id || '',
     status: product.status || 'ACTIVE',
   } : emptyForm);
+  // «الوحدة الرئيسية» كما فُتح عليها النموذج — منها تُبذر الخانات العكسية، ويُرسَل معرّفها في الرقعة (409 إن تغيّرت)
+  const seedPrim = product ? primaryUnitOf(product) : null;
+  // طريقة تعريف الصنف الجديد: آخر ما اختاره هذا المستخدم (لكل مستخدم، بلا أثرٍ في الخادم)، وإلّا الأولى (§4.1)
+  const [defMode, setDefMode] = useState<DefMode>(() => (product ? 'base' : readDefMode(safeStorage(), user?.id)));
+  const rev = product ? !!seedPrim : defMode === 'primary';
+  const [rf, setRf] = useState<ReverseForm>(() => (product ? reverseFormOf(product) : null) ?? EMPTY_REVERSE_FORM);
+  const [rfTouched, setRfTouched] = useState(false);
+  const setR = (k: keyof ReverseForm, v: string) => { setRfTouched(true); setRf(f => ({ ...f, [k]: v })); };
+  const pickMode = (m: DefMode) => { setDefMode(m); writeDefMode(safeStorage(), user?.id, m); };
+  // الانتقال بين الطريقتين لصنفٍ قائم: ورقة الخيارات، وورقة «إضافة وحدة فرعية أصغر» منها
+  const [switching, setSwitching] = useState(false);
+  const [subUnitOpen, setSubUnitOpen] = useState(false);
+  // الأساس الذي فُتح عليه النموذج — يُرسَل expectedBaseName مع كل حفظ (409 BASE_UNIT_CHANGED إن حُوِّل الصنف منذ فُتح)
+  const savedBase = product?.unit ?? '';
   // الفئة المُنشأة للتوّ تُضاف محلياً: إبطالُ الكاش غير متزامن، ولولاها لظهرت
   // خانة الفئة فارغةً لحظةً بعد الإنشاء وكأن الاختيار ضاع
   const [extraCats, setExtraCats] = useState<Cat[]>([]);
@@ -291,6 +350,7 @@ function MProductForm({ product, categories, onClose, lotOn = false }: {
   });
   const units = liveQ.data?.units ?? product?.units;
   const multi = hasBigUnit(units);
+  const livePrimaryId = (liveQ.data ?? product)?.primaryUnitId ?? null;
 
   /* «تتبّع باللوط» — null = لم يلمسه المستخدم فيتبع الصنف كما هو على الخادم الآن (liveQ) لا لقطة القائمة: تبديلٌ من
    * اللوحة بعد تحميل القائمة يُقرأ هنا، فلا يُرسل «انتقالٌ» عن حالةٍ لم تعد قائمة. والإرسال حين يتغيّر وحده. */
@@ -307,6 +367,8 @@ function MProductForm({ product, categories, onClose, lotOn = false }: {
   useBackClose(newCat === null && confirming, () => setConfirming(false));
   useBackClose(lotBalances !== null, () => setLotBalances(null));
   useBackClose(unitsOpen, () => setUnitsOpen(false));
+  useBackClose(switching, () => setSwitching(false));
+  useBackClose(subUnitOpen, () => setSubUnitOpen(false));
 
   // الحقول النصّية وحدها — `status` له مُبدِّله الخاص أدناه كي لا يُكتب فيه نصّ حرّ
   type TextKey = 'name' | 'code' | 'barcode' | 'unit' | 'basePrice' | 'taxPct' | 'categoryId';
@@ -321,8 +383,19 @@ function MProductForm({ product, categories, onClose, lotOn = false }: {
   const price = Number(form.basePrice);
   const taxOk = form.taxPct.trim() === ''
     || (Number.isFinite(Number(form.taxPct)) && Number(form.taxPct) >= 0 && Number(form.taxPct) <= 100);
-  const valid = !!form.name.trim() && !!form.code.trim() && !!form.unit.trim()
-    && form.basePrice.trim() !== '' && Number.isFinite(price) && price >= 0 && taxOk;
+  // الوضع العكسي: الخانتان المخفيّتان (unit وbasePrice) لا تُشترطان — تحلّ محلّهما خانات الرئيسية والفرعية (reverseFormProblem)
+  const revProblem = rev ? reverseFormProblem(rf) : null;
+  const valid = rev
+    ? !!form.name.trim() && !!form.code.trim() && taxOk && revProblem === null
+    : !!form.name.trim() && !!form.code.trim() && !!form.unit.trim()
+      && form.basePrice.trim() !== '' && Number.isFinite(price) && price >= 0 && taxOk;
+
+  /** وحدات الصنف تغيّرت منذ فُتح النموذج (409 BASE_UNIT_CHANGED/PRIMARY_UNIT_CHANGED): يُقال ويُغلق، فيُفتح على الجديد */
+  const unitsChangedClose = () => {
+    toast.error(tr('تغيّرت وحدات الصنف — أعد فتحه'));
+    invalidateProducts(qc, product?.id);
+    onClose();
+  };
 
   const save = useMutation({
     /** confirmLot: إعادة الحفظ بعد تأكيد إطفاء التتبّع والصنف له أرصدة في تشغيلات (D9) — وإلا الحفظ العادي */
@@ -341,6 +414,10 @@ function MProductForm({ product, categories, onClose, lotOn = false }: {
       if (form.taxPct.trim() !== '') payload.taxPct = Number(form.taxPct);
       // الحقول غير المذكورة (الصورة، سياسة التالف، أكواد الفوترة) تبقى كما هي:
       // مسار التعديل `partial()` فلا يُصفّر ما لم يصله
+      // «الوحدة الرئيسية»: الفرعية والرئيسية تغلبان unit/basePrice المخفيّتين — إنشاءٌ ذرّي، أو رقعةٌ ذرّية لصنفٍ قائم
+      if (rev) Object.assign(payload, product && seedPrim?.id ? reverseEditPatch(rf, String(seedPrim.id)) : reverseCreatePayload(rf));
+      // الأساس الذي فُتح عليه النموذج — صنفٌ حُوِّل منذ فُتح يُردّ 409 بدل أن يُكتب سعر الكرتون سعراً للقارورة (§4.2)
+      if (product) payload.expectedBaseName = savedBase;
       // «تتبّع باللوط»: المفتاح حين يتغيّر وحده (والصنف الجديد حين يُفعَّل)، والمطفأة لا شيء — الحمولة كما كانت حرفاً
       const lot = productLotPayload(product ? (lotBase ?? null) : null, lotOn, lotValue);
       Object.assign(payload, lot);
@@ -352,20 +429,37 @@ function MProductForm({ product, categories, onClose, lotOn = false }: {
     onSuccess: (lotChanged) => {
       qc.invalidateQueries({ queryKey: ['m-products'] });
       if (product) qc.invalidateQueries({ queryKey: ['m-product', product.id] });
-      // تبدّل التتبّع: قوائم الأصناف في الفاتورة والتحميل والوارد تقرأ علمه (حقل التشغيلة واقتراحها)، وشاشة التشغيلات
-      if (lotChanged) {
-        invalidateProducts(qc, product?.id);
-        LOT_CACHE_KEYS.forEach(k => qc.invalidateQueries({ queryKey: [k] }));
-      }
+      // تبدّل التتبّع أو الوحدات: قوائم الأصناف في الفاتورة والتحميل والوارد تقرأ علمه ووحداته، وشاشة التشغيلات
+      if (lotChanged || rev) invalidateProducts(qc, product?.id);
+      if (lotChanged) LOT_CACHE_KEYS.forEach(k => qc.invalidateQueries({ queryKey: [k] }));
       setLotBalances(null);
       toast.success(product ? tr('تم التحديث') : tr('تم الإضافة'));
       onClose();
     },
     onError: (e: unknown, confirmLot) => {
+      if (productUnitsChanged(e)) { setLotBalances(null); unitsChangedClose(); return; }
       const bal = product && !confirmLot ? trackingBalanceOf(e) : null;
       if (bal) { setLotBalances(bal.products); return; }
       setLotBalances(null);
       toast.error(lotErrorOf(e)?.message || apiMessage(e, tr('تعذر الحفظ')));
+    },
+  });
+
+  /** جعل وحدةٍ موجودة رئيسية (الخيار «أ») أو العودة إلى الافتراضي (null) — علمٌ فوري (D11)، والنموذج يُعاد فتحه بالنتيجة */
+  const setPrimary = useMutation({
+    mutationFn: async (unitId: string | null) => {
+      const res = await productApi.setPrimaryUnit(product!.id, { unitId, expectedPrimaryUnitId: livePrimaryId });
+      return expectObject<Product>((res.data as { data?: unknown })?.data, tr('الصنف'));
+    },
+    onSuccess: (fresh) => {
+      invalidateProducts(qc, product?.id);
+      toast.success(tr('تم الحفظ'));
+      setSwitching(false);
+      onReplace(fresh);
+    },
+    onError: (e: unknown) => {
+      if (productUnitsChanged(e)) { setSwitching(false); unitsChangedClose(); return; }
+      toast.error(apiMessage(e, tr('تعذر الحفظ')));
     },
   });
 
@@ -409,14 +503,16 @@ function MProductForm({ product, categories, onClose, lotOn = false }: {
   if (tiersOpen && product) {
     return <MProductTiers product={product} onClose={() => setTiersOpen(false)} />;
   }
-  /* بعد تحويل الأساس يُغلق النموذج كلّه لا شاشة الوحدات وحدها: خاناته تحمل الاسم والسعر **القديمين**، وحفظُها بعده
-   * يكتب سعر الكرتون سعراً للحبّة — بيعٌ بأربعة وعشرين ضعفاً بلا خطأ */
+  /* بعد «إضافة وحدة فرعية أصغر» يُغلق النموذج كلّه لا شاشة الوحدات وحدها: خاناته تحمل الاسم والسعر **القديمين**، وحفظُها
+   * بعده يكتب سعر الكرتون سعراً للحبّة — بيعٌ بأربعة وعشرين ضعفاً بلا خطأ (والخادم يردّه الآن 409 بـexpectedBaseName) */
   if (unitsOpen && product) {
     return <MProductUnits product={product} onClose={() => setUnitsOpen(false)} onConverted={onClose} />;
   }
 
-  // تغيير اسم الأساس لصنفٍ قائم لا يحوّل كمياته — يُقال قبل الحفظ لا بعده
-  const renamingBase = !!product && form.unit.trim() !== '' && form.unit.trim() !== (product.unit || '').trim();
+  // تغيير اسم الأساس لصنفٍ قائم لا يحوّل كمياته — يُقال قبل الحفظ لا بعده (والفرعية في الوضع العكسي هي الأساس)
+  const shownBase = rev ? rf.subName : form.unit;
+  const renamingBase = !!product && shownBase.trim() !== '' && shownBase.trim() !== (product.unit || '').trim();
+  const liveProduct = liveQ.data ?? product;
 
   return (
     <div className="relative h-full flex flex-col bg-[#FAF7F0]">
@@ -432,10 +528,35 @@ function MProductForm({ product, categories, onClose, lotOn = false }: {
         ) : undefined} />
 
       <div className="flex-1 overflow-y-auto overscroll-contain p-3 space-y-4">
+        {/* «طريقة تعريف الصنف» — للجديد اختيارٌ يُتذكَّر، وللقائم حالته وزرّ الانتقال (كتابةٌ فورية بخياريها) */}
+        <Group title={tr('طريقة تعريف الصنف')}>
+          {!product ? (
+            <div className="space-y-2" role="radiogroup" aria-label={tr('طريقة تعريف الصنف')}>
+              <ModeOption on={defMode === 'base'} onClick={() => pickMode('base')}
+                text={tr('أعرّف الصنف بأصغر وحدة (مثل الحبة)، وأضيف الكرتون وحدةً أكبر')} />
+              <ModeOption on={defMode === 'primary'} onClick={() => pickMode('primary')}
+                text={tr('أعرّف الصنف بالكرتون، وفيه وحدة أصغر (مثل الحبة)')} />
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <p className="flex-1 min-w-0 text-[12px] text-[#1F1A13] leading-relaxed">
+                {rev
+                  ? tr('أعرّف الصنف بالكرتون، وفيه وحدة أصغر (مثل الحبة)')
+                  : tr('أعرّف الصنف بأصغر وحدة (مثل الحبة)، وأضيف الكرتون وحدةً أكبر')}
+              </p>
+              <button type="button" onClick={() => setSwitching(true)} disabled={!liveQ.data}
+                className="px-3 min-h-[40px] rounded-xl border border-[#E9E1D3] bg-white text-[12px] font-semibold text-[#E15A30] flex-shrink-0 disabled:opacity-50">
+                {tr('تغيير')}
+              </button>
+            </div>
+          )}
+        </Group>
+
         <Group title={tr('بيانات الصنف')}>
           <Field label={tr('اسم الصنف')} required value={form.name} onChange={v => set('name', v)} />
           <Field label={tr('كود الصنف')} required dir="ltr" value={form.code} onChange={v => set('code', v)} />
           <Field label={tr('باركود')} dir="ltr" value={form.barcode} onChange={v => set('barcode', v)} />
+          {!rev && (
           <div>
             {/* نصوص لوحة الويب نفسها (ProductModal) — المعنى واحدٌ فاللفظ واحد في الواجهتين */}
             <Field label={multi ? tr('وحدة الأساس') : tr('وحدة القياس')} required value={form.unit}
@@ -443,16 +564,17 @@ function MProductForm({ product, categories, onClose, lotOn = false }: {
             {!product && (
               <p className="text-[11px] text-[#9A8F7E] mt-1.5">{tr('احفظ الصنف أولا ثم أضف له وحدات بيع أكبر مثل الكرتون')}</p>
             )}
-            {renamingBase && (
-              <p className="text-[11px] text-[#B7791F] mt-1.5 flex items-start gap-1 leading-relaxed">
-                <AlertTriangle size={11} className="flex-shrink-0 mt-0.5" />
-                {tr('تغيير الاسم هنا إعادة تسمية فقط ولتصغير وحدة الأساس استخدم تحويل إلى وحدة أصغر')}
-              </p>
-            )}
+            {renamingBase && <RenameHint />}
           </div>
+          )}
         </Group>
 
-        <Group title={tr('السعر والضريبة')}>
+        {rev && (
+          <ReverseFields f={rf} set={setR} touched={rfTouched} problem={revProblem} renaming={renamingBase} />
+        )}
+
+        <Group title={rev ? tr('الضريبة') : tr('السعر والضريبة')}>
+          {!rev && (
           <div>
             <label className="label">{tr('السعر الأساسي')}{multi && product ? ` (${product.unit})` : ''} *</label>
             <input className="input min-h-[44px]" type="number" dir="ltr" step="any" min="0"
@@ -464,6 +586,7 @@ function MProductForm({ product, categories, onClose, lotOn = false }: {
               {tr('السعر قبل الضريبة تحسب الضريبة تلقائيا')}
             </p>
           </div>
+          )}
           <div>
             <label className="label">{tr('نسبة الضريبة %')}</label>
             <input className="input min-h-[44px]" type="number" dir="ltr" step="0.01" min="0" max="100"
@@ -539,7 +662,7 @@ function MProductForm({ product, categories, onClose, lotOn = false }: {
                 </span>
               }
               title={tr('وحدات البيع')}
-              subtitle={unitsBrief(units, formatNumber) || tr('لا وحدات إضافية والصنف يباع بوحدة الأساس وحدها')}
+              subtitle={unitsBrief(units, formatNumber, livePrimaryId, tr('رئيسية')) || tr('لا وحدات إضافية والصنف يباع بوحدة الأساس وحدها')}
               trailing={
                 <span className="flex items-center gap-1 flex-shrink-0">
                   <span className="text-xs font-bold text-[#1F1A13]">
@@ -579,7 +702,7 @@ function MProductForm({ product, categories, onClose, lotOn = false }: {
       {/* زرّ الحفظ ثابت أسفل — لا يُبحث عنه بالتمرير */}
       <div className="flex-shrink-0 border-t border-[#E9E1D3] bg-white p-3"
         style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
-        <button onClick={() => save.mutate(false)} disabled={!valid || save.isPending}
+        <button onClick={() => { setRfTouched(true); save.mutate(false); }} disabled={!valid || save.isPending}
           className="w-full bg-[#E15A30] text-white font-bold py-3.5 rounded-xl min-h-[50px] flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
           {save.isPending && <Loader2 size={16} className="animate-spin" />}
           {product ? tr('حفظ التعديلات') : tr('إضافة الصنف')}
@@ -653,7 +776,181 @@ function MProductForm({ product, categories, onClose, lotOn = false }: {
           </div>
         </Sheet>
       )}
+
+      {/* الانتقال بين طريقتي التعريف لصنفٍ قائم — كتابةٌ فورية، والنموذج يُعاد فتحه بالنتيجة */}
+      {switching && liveProduct && !subUnitOpen && (
+        <SwitchModeSheet product={liveProduct} toReverse={!rev} busy={setPrimary.isPending}
+          canSub={canAddSubUnit(user, ownerSession)} refusal={user?.convertBaseRefusalCode ?? null}
+          onClose={() => { if (!setPrimary.isPending) setSwitching(false); }}
+          onSetPrimary={unitId => setPrimary.mutate(unitId)}
+          onAddSub={() => { setSwitching(false); setSubUnitOpen(true); }} />
+      )}
+
+      {subUnitOpen && liveProduct && (
+        <SubUnitSheet product={liveProduct}
+          onClose={() => setSubUnitOpen(false)}
+          onConverted={() => { setSubUnitOpen(false); onClose(); }} />
+      )}
     </div>
+  );
+}
+
+/** خيار «طريقة تعريف الصنف» — زرّ راديو بنصّ مثالٍ لا مصطلح (D21) */
+function ModeOption({ on, onClick, text }: { on: boolean; onClick: () => void; text: string }) {
+  return (
+    <button type="button" role="radio" aria-checked={on} onClick={onClick}
+      className={`w-full text-start rounded-xl border px-3 py-2.5 min-h-[48px] text-[12px] leading-relaxed flex items-start gap-2
+        ${on ? 'border-[#E15A30] bg-[#FBEBE2] text-[#1F1A13] font-semibold' : 'border-[#E9E1D3] bg-white text-[#6E6557]'}`}>
+      <span className={`mt-0.5 w-4 h-4 rounded-full border-2 flex-shrink-0 ${on ? 'border-[#E15A30] bg-[#E15A30]' : 'border-[#C9BFB0]'}`} />
+      <span className="min-w-0 flex-1">{text}</span>
+    </button>
+  );
+}
+
+/** تلميح خانة الوحدة لصنفٍ قائم يُعاد تسمية أصغر وحداته — نصّ المواصفة (§4.2) لكل الأصناف، و`sub` لخانة الفرعية في العكسي */
+function RenameHint({ sub = false }: { sub?: boolean }) {
+  const tr = useTr();
+  return (
+    <p className="text-[11px] text-[#B7791F] mt-1.5 flex items-start gap-1 leading-relaxed">
+      <AlertTriangle size={11} className="flex-shrink-0 mt-0.5" />
+      {sub
+        ? tr('تغيير اسم الوحدة الفرعية هنا إعادة تسمية فقط — لإضافة وحدة أصغر استخدم «إضافة وحدة فرعية أصغر»')
+        : tr('تغيير الاسم هنا إعادة تسمية فقط — لإضافة وحدة أصغر استخدم «إضافة وحدة فرعية أصغر»')}
+    </p>
+  );
+}
+
+/**
+ * خانات «أعرّف الصنف بالكرتون، وفيه وحدة أصغر» (§4.1): الرئيسية وسعرها، ثم الفرعية والعدد وسعرها الاختياري، ورمزا الوحدتين
+ * الضريبيان في «متقدّم»، ومعاينةٌ حيّة بالأرقام. والتحقق reverseFormProblem (lib/adminUnits.ts) — والخادم الحَكَم.
+ */
+function ReverseFields({ f, set, touched, problem, renaming }: {
+  f: ReverseForm; set: (k: keyof ReverseForm, v: string) => void; touched: boolean; problem: string | null; renaming: boolean;
+}) {
+  const tr = useTr();
+  const pn = f.primaryName.trim() || tr('الوحدة الرئيسية');
+  const sn = f.subName.trim() || tr('الوحدة الفرعية');
+  const F = Math.round(Number(f.factor));
+  const fOk = Number.isFinite(F) && F >= 2;
+  const pp = Number(f.primaryPrice);
+  const ppOk = f.primaryPrice.trim() !== '' && Number.isFinite(pp) && pp >= 0;
+  const sub = fOk && ppOk ? reverseSubPrice(f) : null;
+  const derived = fOk && ppOk ? derivedBasePrice(pp, F) : null;
+  return (
+    <Group title={tr('الوحدة الرئيسية')}>
+      <Field label={tr('الوحدة الرئيسية')} required value={f.primaryName} onChange={v => set('primaryName', v)}
+        placeholder={tr('كرتون')} />
+      <div>
+        <NumField label={fill(tr('سعر {unit}'), { unit: pn })} required value={f.primaryPrice} onChange={v => set('primaryPrice', v)} />
+        <p className="text-[11px] text-[#B7791F] mt-1.5 flex items-center gap-1">
+          <AlertTriangle size={11} className="flex-shrink-0" />
+          {tr('السعر قبل الضريبة تحسب الضريبة تلقائيا')}
+        </p>
+      </div>
+      <div>
+        <Field label={tr('الوحدة الفرعية')} required value={f.subName} onChange={v => set('subName', v)} placeholder={tr('حبة')} />
+        {renaming && <RenameHint sub />}
+      </div>
+      <div>
+        <NumField label={fill(tr('كم {sub} في {primary}'), { sub: sn, primary: pn })} required integer value={f.factor}
+          onChange={v => set('factor', v)} placeholder="24" />
+        <p className="text-[11px] text-[#9A8F7E] mt-1.5">
+          {fill(tr('مثال: {unit} = 24 {sub}'), { unit: pn, sub: sn })}
+        </p>
+      </div>
+      <NumField label={`${fill(tr('سعر {unit} الواحدة'), { unit: sn })} (${tr('اختياري')})`} value={f.subPrice}
+        onChange={v => set('subPrice', v)}
+        placeholder={derived != null ? `≈ ${derived} ${tr('محسوب')}` : undefined} />
+      <details className="rounded-xl border border-[#F1EBDF] px-3 py-2">
+        <summary className="text-[12px] font-semibold text-[#6E6557] cursor-pointer min-h-[32px] flex items-center">{tr('متقدم')}</summary>
+        <div className="space-y-3 pt-2">
+          <Field label={`${tr('رمز الوحدة الضريبي')} — ${pn}`} dir="ltr" value={f.primaryUnitCode}
+            onChange={v => set('primaryUnitCode', v)} placeholder="CT" />
+          <Field label={`${tr('رمز الوحدة الضريبي')} — ${sn}`} dir="ltr" value={f.subUnitCode}
+            onChange={v => set('subUnitCode', v)} placeholder="PCE" />
+        </div>
+      </details>
+      {/* معاينة حيّة بالأرقام: «١ كرتون = ٢٤ قارورة · ٤٨٫٠٠ للكرتون · ٢٫٠٠ للقارورة» */}
+      {fOk && ppOk && sub != null && (
+        <p className="text-[12px] text-[#1F1A13] bg-[#FAF7F0] border border-[#F1EBDF] rounded-xl px-3 py-2 leading-relaxed tabular-nums">
+          1 {pn} = {formatNumber(F)} {sn} · {formatCurrency(pp)} / {pn} · {formatCurrency(sub, undefined, 4)} / {sn}
+        </p>
+      )}
+      {touched && problem && <p className="text-[11px] text-[#C0392B]">{tr(problem)}</p>}
+    </Group>
+  );
+}
+
+/**
+ * الانتقال بين طريقتي التعريف لصنفٍ قائم (§4.2):
+ *  - إلى العكسي خياران **بلا افتراض** (وحدات الصنف أكبر من أساسه دائماً، فلا يعرف النظام أكان الأساس قارورة أم كرتوناً له
+ *    طبلية): (أ) لكل وحدةٍ نشطة صالحة «اجعل «طبلية» رئيسية (يبقى «كرتون» أصغر وحدة)» — علمٌ فوري، و(ب) «اجعل «كرتون»
+ *    رئيسية وأضف وحدة أصغر منها» — «إضافة وحدة فرعية أصغر»، معطّلٌ بتلميح سببه لمن لا يملكها. وزرّ المتابعة معطّل حتى يختار.
+ *  - إلى الافتراضي: تأكيدٌ ثم إلغاء الرئيسية (`unitId: null`).
+ */
+function SwitchModeSheet({ product, toReverse, busy, canSub, refusal, onClose, onSetPrimary, onAddSub }: {
+  product: Product; toReverse: boolean; busy: boolean; canSub: boolean;
+  refusal: ConvertRefusalCode | null;
+  onClose: () => void; onSetPrimary: (unitId: string | null) => void; onAddSub: () => void;
+}) {
+  const tr = useTr();
+  const [choice, setChoice] = useState<string | null>(null); // معرّف وحدة (أ) أو 'SUB' (ب)
+  const cands = primaryCandidates(product.units);
+  const base = product.unit;
+
+  if (!toReverse) {
+    const cur = primaryUnitOf(product);
+    return (
+      <Sheet title={tr('طريقة تعريف الصنف')} onClose={onClose}>
+        <p className="text-[12px] text-[#6E6557] leading-relaxed">
+          {fill(tr('يعود الصنف إلى التعريف بأصغر وحدة «{base}» ولا تبقى «{unit}» الوحدة الرئيسية — لا يتغير أي رصيد أو سعر'), { base, unit: cur?.name ?? '' })}
+        </p>
+        <div className="flex gap-2">
+          <button onClick={() => onSetPrimary(null)} disabled={busy}
+            className="flex-1 bg-[#E15A30] text-white font-bold py-3 rounded-xl min-h-[48px] flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
+            {busy && <Loader2 size={16} className="animate-spin" />}
+            {tr('تأكيد')}
+          </button>
+          <button onClick={onClose} disabled={busy}
+            className="px-5 border border-[#E9E1D3] bg-white rounded-xl min-h-[48px] text-sm font-semibold text-[#1F1A13]">
+            {tr('إلغاء')}
+          </button>
+        </div>
+      </Sheet>
+    );
+  }
+
+  return (
+    <Sheet title={tr('أعرّف الصنف بالكرتون، وفيه وحدة أصغر (مثل الحبة)')} onClose={onClose}>
+      <div className="max-h-[58vh] overflow-y-auto overscroll-contain space-y-2 -mx-1 px-1" role="radiogroup">
+        {cands.map(u => (
+          <ModeOption key={u.id} on={choice === u.id} onClick={() => setChoice(u.id!)}
+            text={fill(tr('اجعل «{unit}» رئيسية (يبقى «{base}» أصغر وحدة)'), { unit: u.name, base })} />
+        ))}
+        <div>
+          <button type="button" role="radio" aria-checked={choice === 'SUB'} disabled={!canSub}
+            onClick={() => setChoice('SUB')}
+            className={`w-full text-start rounded-xl border px-3 py-2.5 min-h-[48px] text-[12px] leading-relaxed flex items-start gap-2 disabled:opacity-50
+              ${choice === 'SUB' ? 'border-[#E15A30] bg-[#FBEBE2] text-[#1F1A13] font-semibold' : 'border-[#E9E1D3] bg-white text-[#6E6557]'}`}>
+            <span className={`mt-0.5 w-4 h-4 rounded-full border-2 flex-shrink-0 ${choice === 'SUB' ? 'border-[#E15A30] bg-[#E15A30]' : 'border-[#C9BFB0]'}`} />
+            <span className="min-w-0 flex-1">{fill(tr('اجعل «{unit}» رئيسية وأضف وحدة أصغر منها'), { unit: base })}</span>
+          </button>
+          {!canSub && <p className="text-[11px] text-[#9A8F7E] mt-1 px-1">{tr(convertRefusalHint(refusal))}</p>}
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <button disabled={!choice || busy}
+          onClick={() => { if (choice === 'SUB') onAddSub(); else if (choice) onSetPrimary(choice); }}
+          className="flex-1 bg-[#E15A30] text-white font-bold py-3 rounded-xl min-h-[48px] flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
+          {busy && <Loader2 size={16} className="animate-spin" />}
+          {tr('متابعة')}
+        </button>
+        <button onClick={onClose} disabled={busy}
+          className="px-5 border border-[#E9E1D3] bg-white rounded-xl min-h-[48px] text-sm font-semibold text-[#1F1A13]">
+          {tr('إلغاء')}
+        </button>
+      </div>
+    </Sheet>
   );
 }
 
@@ -670,11 +967,17 @@ interface TierRow { uid: number; minQty: string; maxQty: string; price: string }
  *
  * والحدود والسعر **بوحدة الأساس** (القاعدتان ٤ و٥): تُقرأ من عموديها بالأساس (`baseMinQty`) لا من القديمين — بعد
  * تحويل الأساس صار القديم كراتين والجديد حبّات، وقراءة القديم تُسقط الشريحة إلى ١/٢٤ من حدّها — وتُكتب في الأربعة.
+ *
+ * و«الوحدة الرئيسية» (§4.4): لصنفٍ له رئيسية وكل حدود شرائحه القائمة مضاعفاتٌ صحيحة لمعاملها تُدخَل الشرائح وتُعرض **بالرئيسية**
+ * (tierToPrimary/tierFromPrimary) ويُرسَل `expectedPrimary` كما رآه النموذج — رئيسيةٌ تغيّر معاملها منذ فُتحت الشاشة ⇒ 409
+ * PRIMARY_UNIT_CHANGED بلا كتابة. وإلّا بالفرعية بوسمها. والتخزين بالأساس دائماً، و`expectedBaseName` مع كل حفظ.
  */
 function MProductTiers({ product, onClose }: { product: Product; onClose: () => void }) {
   const tr = useTr();
   const qc = useQueryClient();
   const [rows, setRows] = useState<TierRow[] | null>(null);
+  // ما بُذرت به الشاشة: الأساس، والرئيسية ومعاملها حين تُدخَل الشرائح بها (null = بالأساس) — ثابتان حتى الحفظ
+  const [seed, setSeed] = useState<{ base: string; primary: { id: string; name: string; factor: number } | null } | null>(null);
 
   const q = useQuery({
     queryKey: ['m-product', product.id],
@@ -684,8 +987,16 @@ function MProductTiers({ product, onClose }: { product: Product; onClose: () => 
   // البذرة مرّة واحدة: إعادةُ الجلب بعد الحفظ يجب ألّا تدهس تحريراً جارياً
   useEffect(() => {
     const data = q.data;
-    if (!data) return;
-    const seed: TierRow[] = (data.priceTiers ?? []).map(t => {
+    if (!data || rows !== null) return;
+    const prim = primaryUnitOf(data);
+    const F = prim ? Math.round(Number(prim.factor)) : 0;
+    const usePrim = !!prim && tiersFitPrimary(data.priceTiers ?? [], F);
+    setSeed({ base: data.unit, primary: usePrim && prim?.id ? { id: prim.id, name: prim.name, factor: F } : null });
+    setRows((data.priceTiers ?? []).map(t => {
+      if (usePrim) {
+        const v = tierToPrimary(t, F);
+        return { uid: ++tierUid, minQty: String(v.min), maxQty: v.max == null ? '' : String(v.max), price: String(v.price) };
+      }
       const b = tierBaseBounds(t);
       return {
         uid: ++tierUid,
@@ -693,9 +1004,8 @@ function MProductTiers({ product, onClose }: { product: Product; onClose: () => 
         maxQty: b.max == null ? '' : String(b.max),
         price: String(t.price),
       };
-    });
-    setRows(prev => prev ?? seed);
-  }, [q.data]);
+    }));
+  }, [q.data, rows]);
 
   const patch = (uid: number, k: 'minQty' | 'maxQty' | 'price', v: string) =>
     setRows(rs => (rs ?? []).map(r => (r.uid === uid ? { ...r, [k]: v } : r)));
@@ -709,13 +1019,17 @@ function MProductTiers({ product, onClose }: { product: Product; onClose: () => 
     return mx !== '' && (!Number.isFinite(Number(mx)) || Number(mx) < min);
   });
 
+  const pr = seed?.primary ?? null;
   const save = useMutation({
     mutationFn: async () => {
       // الحدود بالأساس في العمودين معاً، والحدّ الأعلى الفارغ بلا مفتاح (`maxQty` عند الخادم optional لا nullish:
-      // إرسال null يُسقط الطلب كلّه) — tierPayload في mUnits.ts
-      const tiers = (rows ?? []).map(r =>
-        tierPayload(Number(r.minQty), r.maxQty.trim() === '' ? null : Number(r.maxQty), Number(r.price)));
-      await productApi.updatePriceTiers(product.id, tiers);
+      // إرسال null يُسقط الطلب كلّه) — tierPayload في mUnits.ts، وtierFromPrimary للمُدخَل بالرئيسية
+      const tiers = (rows ?? []).map(r => {
+        const min = Number(r.minQty);
+        const max = r.maxQty.trim() === '' ? null : Number(r.maxQty);
+        return pr ? tierFromPrimary(min, max, Number(r.price), pr.factor) : tierPayload(min, max, Number(r.price));
+      });
+      await productApi.updatePriceTiers(product.id, tiers, seed?.base || undefined, pr ? { id: pr.id, factor: pr.factor } : undefined);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['m-products'] });
@@ -723,14 +1037,26 @@ function MProductTiers({ product, onClose }: { product: Product; onClose: () => 
       toast.success(tr('تم الحفظ'));
       onClose();
     },
-    onError: (e: unknown) => toast.error(apiMessage(e, tr('تعذر الحفظ'))),
+    onError: (e: unknown) => {
+      // وحدات الصنف تغيّرت منذ فُتحت الشاشة: لا تُكتب حدودٌ محسوبة على معاملٍ قديم — يُعاد جلب الصنف وبذر الحقول منه
+      if (productUnitsChanged(e)) {
+        toast.error(tr('تغيّرت وحدات الصنف — أعد فتحه'));
+        invalidateProducts(qc, product.id);
+        // البذر بعد وصول الصنف الجديد لا قبله: إعادة البذر من الكاش القديم تعيد المعامل القديم نفسه
+        void q.refetch().then(() => { setRows(null); setSeed(null); });
+        return;
+      }
+      toast.error(apiMessage(e, tr('تعذر الحفظ')));
+    },
   });
 
   const basePrice = q.data?.basePrice ?? product.basePrice;
-  // وحدات الصنف الآن (لا ما حُمِّل مع القائمة): الشريحة بالأساس، وتلميحها بأكبر وحدة («٢ كرتون» و«سعر الكرتون»)
+  // وحدات الصنف الآن (لا ما حُمِّل مع القائمة): الشريحة بالأساس، وتلميحها بالرئيسية وإلّا بأكبر وحدة («٢ كرتون» و«سعر الكرتون»)
   const cur = q.data ?? product;
   const multi = hasBigUnit(cur.units);
-  const big = biggestUnit(cur.units);
+  const big = primaryOrBiggest(cur);
+  const curPrim = primaryUnitOf(cur);
+  const curPrimPrice = primaryPriceOf(cur);
 
   return (
     <div className="h-full flex flex-col bg-[#FAF7F0]">
@@ -751,8 +1077,18 @@ function MProductTiers({ product, onClose }: { product: Product; onClose: () => 
           : (
             <>
               <MCard className="p-3.5">
-                <p className="text-[11px] text-[#9A8F7E] mb-1">{tr('السعر الأساسي')}{multi ? ` (${cur.unit})` : ''}</p>
-                <p className="text-lg font-bold text-[#1F1A13]">{formatCurrency(basePrice)}</p>
+                {curPrim && curPrimPrice != null ? (
+                  <>
+                    <p className="text-[11px] text-[#9A8F7E] mb-1">{fill(tr('سعر {unit}'), { unit: curPrim.name })}</p>
+                    <p className="text-lg font-bold text-[#1F1A13]">{formatCurrency(curPrimPrice)}</p>
+                    <p className="text-[11px] text-[#9A8F7E]">{fill(tr('سعر {unit} الواحدة'), { unit: cur.unit })} {formatCurrency(basePrice, undefined, 4)}</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-[11px] text-[#9A8F7E] mb-1">{tr('السعر الأساسي')}{multi ? ` (${cur.unit})` : ''}</p>
+                    <p className="text-lg font-bold text-[#1F1A13]">{formatCurrency(basePrice)}</p>
+                  </>
+                )}
                 <p className="text-[11px] text-[#B7791F] mt-1.5 flex items-center gap-1">
                   <AlertTriangle size={11} className="flex-shrink-0" />
                   {tr('السعر قبل الضريبة تحسب الضريبة تلقائيا')}
@@ -767,7 +1103,7 @@ function MProductTiers({ product, onClose }: { product: Product; onClose: () => 
                 <MCard>
                   {rows.map((r, i) => {
                     const min = Number(r.minQty);
-                    const pr = Number(r.price);
+                    const prc = Number(r.price);
                     return (
                     <div key={r.uid} className="p-3 space-y-2 border-b border-[#F1EBDF] last:border-0">
                       <div className="flex items-center gap-2">
@@ -786,11 +1122,18 @@ function MProductTiers({ product, onClose }: { product: Product; onClose: () => 
                           onChange={v => patch(r.uid, 'maxQty', v)} />
                         <TierField label={tr('السعر')} value={r.price} onChange={v => patch(r.uid, 'price', v)} />
                       </div>
+                      {/* بالرئيسية: معادلها بالفرعية («= ٤٨ قارورة · ٢٫٠٠ / قارورة») — التخزين بها */}
+                      {pr && r.minQty.trim() !== '' && Number.isFinite(min) && (
+                        <p className="text-[10px] text-[#9A8F7E]">
+                          = {formatNumber(min * pr.factor)} {cur.unit}
+                          {r.price.trim() !== '' && Number.isFinite(prc) && ` · ${formatCurrency(prc / pr.factor, undefined, 4)} / ${cur.unit}`}
+                        </p>
+                      )}
                       {/* الشريحة بالأساس مقروءةً بالوحدات: «من ٤٨» تُقرأ «من ٢ كرتون»، وسعر الحبّة يُرى سعرَ كرتون */}
-                      {multi && big && r.minQty.trim() !== '' && Number.isFinite(min) && (
+                      {!pr && multi && big && r.minQty.trim() !== '' && Number.isFinite(min) && (
                         <p className="text-[10px] text-[#9A8F7E]">
                           {tr('من')} {qtyText(min, cur, formatNumber)}
-                          {r.price.trim() !== '' && Number.isFinite(pr) && ` · ${formatCurrency(pr * Number(big.factor))} / ${big.name}`}
+                          {r.price.trim() !== '' && Number.isFinite(prc) && ` · ${formatCurrency(prc * Number(big.factor))} / ${big.name}`}
                         </p>
                       )}
                     </div>
@@ -805,7 +1148,16 @@ function MProductTiers({ product, onClose }: { product: Product; onClose: () => 
               <p className="text-[11px] text-[#9A8F7E] px-1 leading-relaxed">
                 {tr('سعر الشريحة يطبق عند بلوغ الكمية وهو أيضا قبل الضريبة')}
               </p>
-              {multi && (
+              {/* وسم وحدة الإدخال: بالرئيسية، أو بالفرعية باسمها لصنفٍ له رئيسية (D21)، أو «بوحدة الأساس» كما كان */}
+              {pr ? (
+                <p className="text-[11px] text-[#B7791F] px-1 leading-relaxed">
+                  {fill(tr('الحدود والأسعار بـ{unit}'), { unit: pr.name })}
+                </p>
+              ) : curPrim ? (
+                <p className="text-[11px] text-[#B7791F] px-1 leading-relaxed">
+                  {fill(tr('الحدود والأسعار بـ{unit}'), { unit: cur.unit })}
+                </p>
+              ) : multi && (
                 <p className="text-[11px] text-[#B7791F] px-1 leading-relaxed">
                   {tr('حدود الشرائح وأسعارها بوحدة الأساس')} ({cur.unit})
                 </p>
@@ -837,22 +1189,31 @@ function MProductTiers({ product, onClose }: { product: Product; onClose: () => 
  *
  * والمعامل يغيّر المستقبل وحده: كل مستندٍ يحمل لقطة معامل وحدته يوم صدوره، فكرتونٌ صار ١٢ لا يُنقص مخزون شهرٍ مضى.
  * والحذف فعليّ للسبب نفسه — والإيقاف بديلٌ يُعرض بجانبه: يحجب الوحدة عن البيع ويُبقيها لمستندٍ أوف‑لاين صدر بها.
+ *
+ * و«الوحدة الرئيسية» (§4.4): بطاقتا «الوحدة الرئيسية» ثم «الوحدة الفرعية» لصنفٍ له رئيسية (وبلاها بطاقة الأساس كما كانت)،
+ * وشارة «رئيسية» على وحدتها، و«اجعلها الرئيسية» في ورقة كل وحدةٍ نشطة غيرها، وإيقاف الرئيسية أو حذفها بتأكيدٍ صريح ثم
+ * `clearPrimary` (وإلّا 409 PRIMARY_UNIT_IN_USE). وكل كتابةٍ ترسل `expectedBaseName` من الصنف الحيّ.
  */
 function MProductUnits({ product, onClose, onConverted }: {
   product: Product; onClose: () => void;
-  /** التحويل تمّ — يُغلق نموذج الصنف كلّه (خاناته بالأساس القديم) */
+  /** «إضافة وحدة فرعية أصغر» تمّت — يُغلق نموذج الصنف كلّه (خاناته بالأساس القديم) */
   onConverted: () => void;
 }) {
   const tr = useTr();
   const qc = useQueryClient();
-  // تقييدٌ مؤقّت: التحويل بجلسة المالك وحدها (الخادم يفرضه) — docs/multi-unit/REVIEW.md
+  // «إضافة وحدة فرعية أصغر»: canConvertBase من ردّ الدخول، أو جلسة المالك — والخادم يفرض البوابتين (§3)
+  const user = useAuthStore(x => x.user);
   const ownerSession = useAuthStore(x => !!x.impersonating);
+  const canSub = canAddSubUnit(user, ownerSession);
   // undefined = مغلق · null = وحدة جديدة · ProductUnit = تعديل
   const [editing, setEditing] = useState<ProductUnit | null | undefined>(undefined);
   const [removing, setRemoving] = useState<ProductUnit | null>(null);
+  // إيقاف الوحدة الرئيسية — تأكيدٌ صريح قبل clearPrimary (D13)
+  const [stopping, setStopping] = useState<ProductUnit | null>(null);
   const [converting, setConverting] = useState(false);
   useBackClose(editing !== undefined, () => setEditing(undefined));
   useBackClose(!!removing, () => setRemoving(null));
+  useBackClose(!!stopping, () => setStopping(null));
   useBackClose(converting, () => setConverting(false));
 
   const q = useQuery({
@@ -862,27 +1223,58 @@ function MProductUnits({ product, onClose, onConverted }: {
   // الصنف كما هو على الخادم الآن — الأساس الذي يُرسَل expectedBaseName منه، لا من قائمةٍ حُمِّلت قبل دقائق
   const p = q.data ?? product;
   const units = p.units ?? [];
+  const prim = primaryUnitOf(p);
+  const primPrice = primaryPriceOf(p);
+
+  /** وحدات الصنف تغيّرت منذ فُتحت الشاشة: يُقال ويُعاد جلب الصنف — لا كتابة على أساسٍ قديم */
+  const onWriteError = (e: unknown) => {
+    if (productUnitsChanged(e)) {
+      toast.error(tr('تغيّرت وحدات الصنف — أعد فتحه'));
+      invalidateProducts(qc, product.id);
+      return;
+    }
+    toast.error(apiMessage(e, tr('تعذر الحفظ')));
+  };
+  const done = () => { setEditing(undefined); setRemoving(null); setStopping(null); };
 
   const toggle = useMutation({
-    mutationFn: async (u: ProductUnit) => productApi.updateUnit(product.id, u.id, { isActive: u.isActive === false }),
+    mutationFn: async (u: ProductUnit) => productApi.updateUnit(product.id, u.id, {
+      isActive: u.isActive === false, expectedBaseName: p.unit,
+      // إيقاف الرئيسية بعد تأكيدها وحده (stopping) — وإلّا يردّه الخادم 409 PRIMARY_UNIT_IN_USE
+      ...(u.isActive !== false && u.id === p.primaryUnitId && { clearPrimary: true }),
+    }),
     onSuccess: (_r, u) => {
       invalidateProducts(qc, product.id);
       toast.success(u.isActive === false ? tr('فعلت الوحدة') : tr('أوقفت الوحدة'));
-      setEditing(undefined);
-      setRemoving(null);
+      done();
     },
-    onError: (e: unknown) => toast.error(apiMessage(e, tr('تعذر الحفظ'))),
+    onError: (e: unknown) => { onWriteError(e); setStopping(null); },
   });
   const remove = useMutation({
-    mutationFn: async (u: ProductUnit) => productApi.removeUnit(product.id, u.id),
+    mutationFn: async (u: ProductUnit) =>
+      productApi.removeUnit(product.id, u.id, u.id === p.primaryUnitId ? { clearPrimary: true } : undefined),
     onSuccess: () => {
       invalidateProducts(qc, product.id);
       toast.success(tr('حذفت الوحدة'));
-      setRemoving(null);
-      setEditing(undefined);
+      done();
     },
-    onError: (e: unknown) => { toast.error(apiMessage(e, tr('تعذر الحفظ'))); setRemoving(null); },
+    onError: (e: unknown) => { onWriteError(e); setRemoving(null); },
   });
+  const makePrimary = useMutation({
+    mutationFn: async (u: ProductUnit) =>
+      productApi.setPrimaryUnit(product.id, { unitId: u.id, expectedPrimaryUnitId: p.primaryUnitId ?? null }),
+    onSuccess: () => {
+      invalidateProducts(qc, product.id);
+      toast.success(tr('تم الحفظ'));
+      done();
+    },
+    onError: onWriteError,
+  });
+  /** الإيقاف من الورقة أو من نافذة الحذف: الرئيسية النشطة تمرّ بتأكيدها أوّلاً */
+  const requestToggle = (u: ProductUnit) => {
+    if (u.isActive !== false && u.id === p.primaryUnitId) { setRemoving(null); setStopping(u); return; }
+    toggle.mutate(u);
+  };
 
   return (
     <div className="relative h-full flex flex-col bg-[#FAF7F0]">
@@ -900,6 +1292,36 @@ function MProductUnits({ product, onClose, onConverted }: {
           : q.isLoading ? <MSpinner />
           : (
             <>
+              {prim ? (
+                <>
+                  {/* «الوحدة الرئيسية» ثم «الوحدة الفرعية» (§4.4) — بلا كلمة «الأساس» (D21) */}
+                  <MCard className="p-3.5">
+                    <p className="text-[11px] text-[#9A8F7E] mb-1">{tr('الوحدة الرئيسية')}</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-lg font-bold text-[#1F1A13] truncate">
+                        {prim.name} <span className="text-[12px] font-normal text-[#6E6557]">= {formatNumber(prim.factor)} {p.unit}</span>
+                      </p>
+                      <span className="text-end flex-shrink-0">
+                        <span className="block text-sm font-bold text-[#E15A30] whitespace-nowrap">{formatCurrency(primPrice ?? 0)}</span>
+                        <span className="block text-[9px] text-[#9A8F7E]">{tr('قبل الضريبة')}</span>
+                      </span>
+                    </div>
+                  </MCard>
+                  <MCard className="p-3.5">
+                    <p className="text-[11px] text-[#9A8F7E] mb-1">{tr('الوحدة الفرعية')}</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-lg font-bold text-[#1F1A13] truncate">{p.unit}</p>
+                      <span className="text-end flex-shrink-0">
+                        <span className="block text-sm font-bold text-[#E15A30] whitespace-nowrap">{formatCurrency(p.basePrice, undefined, 4)}</span>
+                        <span className="block text-[9px] text-[#9A8F7E]">{tr('قبل الضريبة')}</span>
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-[#9A8F7E] mt-1.5 leading-relaxed">
+                      {fill(tr('الحساب الداخلي بوحدة {unit}'), { unit: p.unit })}
+                    </p>
+                  </MCard>
+                </>
+              ) : (
               <MCard className="p-3.5">
                 <p className="text-[11px] text-[#9A8F7E] mb-1">{tr('وحدة الأساس')}</p>
                 <div className="flex items-center justify-between gap-2">
@@ -913,6 +1335,7 @@ function MProductUnits({ product, onClose, onConverted }: {
                   {tr('أصغر ما يباع من الصنف وكل وحدة أكبر تعرف بعدد وحدات الأساس فيها')}
                 </p>
               </MCard>
+              )}
 
               {units.length === 0 ? (
                 <div className="min-h-[160px]">
@@ -922,11 +1345,17 @@ function MProductUnits({ product, onClose, onConverted }: {
                 <MCard>
                   {units.map(u => {
                     const off = u.isActive === false;
+                    const isPrim = !!prim && u.id === prim.id;
                     return (
                       <MRow key={u.id} onClick={() => setEditing(u)}
                         title={
                           <span className="flex items-center gap-1.5">
                             <span className="truncate">{u.name}</span>
+                            {isPrim && (
+                              <span className="flex-shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[#FBEBE2] text-[#C94E28]">
+                                {tr('رئيسية')}
+                              </span>
+                            )}
                             {off && (
                               <span className="flex-shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[#F1EBDF] text-[#6E6557]">
                                 {tr('موقوفة')}
@@ -944,7 +1373,9 @@ function MProductUnits({ product, onClose, onConverted }: {
                                 {formatCurrency(unitPriceOf({ ...u, price: u.price ?? undefined }, p.basePrice))}
                               </span>
                               <span className="block text-[9px] text-[#9A8F7E]">
-                                {u.price == null ? tr('محسوب من سعر الأساس') : tr('قبل الضريبة')}
+                                {u.price == null
+                                  ? (prim ? fill(tr('محسوب من سعر {unit}'), { unit: p.unit }) : tr('محسوب من سعر الأساس'))
+                                  : tr('قبل الضريبة')}
                               </span>
                             </span>
                             <ChevronLeft size={15} className="text-[#C9BFB0]" />
@@ -959,7 +1390,8 @@ function MProductUnits({ product, onClose, onConverted }: {
                 {tr('تحفظ الوحدات فور إضافتها أو تعديلها')}
               </p>
 
-{ownerSession && (
+              {/* «إضافة وحدة فرعية أصغر» (convert-base) — لمن يملكها وحده؛ والخادم يحكم في كل طلب */}
+              {canSub && (
               <MCard onClick={() => setConverting(true)}>
                 <MRow
                   leading={
@@ -967,7 +1399,7 @@ function MProductUnits({ product, onClose, onConverted }: {
                       <ArrowRightLeft size={16} />
                     </span>
                   }
-                  title={tr('تحويل إلى وحدة أصغر')}
+                  title={tr('إضافة وحدة فرعية أصغر')}
                   subtitle={tr('لصنف يباع بالكرتون ويرجع أو يباع بالحبة')}
                   trailing={<ChevronLeft size={15} className="text-[#C9BFB0] flex-shrink-0" />} />
               </MCard>
@@ -981,12 +1413,17 @@ function MProductUnits({ product, onClose, onConverted }: {
         <UnitSheet product={p} unit={editing}
           onClose={() => setEditing(undefined)}
           onSaved={msg => { invalidateProducts(qc, product.id); toast.success(msg); setEditing(undefined); }}
-          onToggle={u => toggle.mutate(u)} toggling={toggle.isPending}
+          onUnitsChanged={() => { toast.error(tr('تغيّرت وحدات الصنف — أعد فتحه')); invalidateProducts(qc, product.id); setEditing(undefined); }}
+          onToggle={requestToggle} toggling={toggle.isPending}
+          onMakePrimary={u => makePrimary.mutate(u)} makingPrimary={makePrimary.isPending}
           onRemove={u => setRemoving(u)} />
       )}
 
       {removing && (
         <Sheet title={tr('حذف الوحدة')} onClose={() => { if (!remove.isPending) setRemoving(null); }}>
+          {removing.id === p.primaryUnitId && (
+            <p className="text-[12px] font-semibold text-[#B7791F] leading-relaxed">{tr('هذه الوحدة الرئيسية — سيُلغى كونها رئيسية ثم تُحذف')}</p>
+          )}
           <p className="text-[12px] text-[#6E6557] leading-relaxed">
             «{removing.name}» — {tr('حذف الوحدة نهائيا؟ الفواتير والحركات السابقة بها تبقى كما هي وللإيقاف المؤقت استخدم إيقاف')}
           </p>
@@ -998,7 +1435,7 @@ function MProductUnits({ product, onClose, onConverted }: {
             </button>
             {/* الإيقاف بجانب الحذف: يحجبها عن البيع ويُبقيها لمستندٍ أوف‑لاين صدر بها — وهو غالباً المقصود */}
             {removing.isActive !== false && (
-              <button onClick={() => toggle.mutate(removing)} disabled={remove.isPending || toggle.isPending}
+              <button onClick={() => requestToggle(removing)} disabled={remove.isPending || toggle.isPending}
                 className="px-4 border border-[#E9E1D3] bg-white rounded-xl min-h-[48px] text-sm font-semibold text-[#1F1A13] flex items-center justify-center gap-2">
                 {toggle.isPending && <Loader2 size={14} className="animate-spin" />}
                 {tr('إيقاف')}
@@ -1012,8 +1449,28 @@ function MProductUnits({ product, onClose, onConverted }: {
         </Sheet>
       )}
 
+      {/* D13: إيقاف الوحدة الرئيسية — لا إلغاءٌ صامت يقلب افتراض المندوب من كرتونٍ إلى قارورة */}
+      {stopping && (
+        <Sheet title={tr('إيقاف')} onClose={() => { if (!toggle.isPending) setStopping(null); }}>
+          <p className="text-[12px] text-[#6E6557] leading-relaxed">
+            «{stopping.name}» — {tr('هذه الوحدة الرئيسية — سيُلغى كونها رئيسية ثم تُوقَف')}
+          </p>
+          <div className="flex gap-2">
+            <button onClick={() => toggle.mutate(stopping)} disabled={toggle.isPending}
+              className="flex-1 bg-[#C0392B] text-white font-bold py-3 rounded-xl min-h-[48px] flex items-center justify-center gap-2 disabled:opacity-60">
+              {toggle.isPending && <Loader2 size={16} className="animate-spin" />}
+              {tr('إيقاف')}
+            </button>
+            <button onClick={() => setStopping(null)} disabled={toggle.isPending}
+              className="px-5 border border-[#E9E1D3] bg-white rounded-xl min-h-[48px] text-sm font-semibold text-[#1F1A13]">
+              {tr('إلغاء')}
+            </button>
+          </div>
+        </Sheet>
+      )}
+
       {converting && q.data && (
-        <ConvertSheet product={p}
+        <SubUnitSheet product={p}
           onClose={() => setConverting(false)}
           onConverted={() => { setConverting(false); onConverted(); }} />
       )}
@@ -1021,19 +1478,25 @@ function MProductUnits({ product, onClose, onConverted }: {
   );
 }
 
-/** نموذج الوحدة — ورقةٌ سفلية: إضافةٌ أو تعديل، ومعها الإيقاف والحذف للوحدة القائمة */
-function UnitSheet({ product, unit, onClose, onSaved, onToggle, toggling, onRemove }: {
+/** نموذج الوحدة — ورقةٌ سفلية: إضافةٌ أو تعديل، ومعها الإيقاف والحذف و«اجعلها الرئيسية» للوحدة القائمة */
+function UnitSheet({ product, unit, onClose, onSaved, onUnitsChanged, onToggle, toggling, onMakePrimary, makingPrimary, onRemove }: {
   product: Product;
   /** null = وحدة جديدة */
   unit: ProductUnit | null;
   onClose: () => void;
   onSaved: (message: string) => void;
+  /** 409 BASE_UNIT_CHANGED/PRIMARY_UNIT_CHANGED — الشاشة تعيد جلب الصنف */
+  onUnitsChanged: () => void;
   onToggle: (u: ProductUnit) => void;
   toggling: boolean;
+  onMakePrimary: (u: ProductUnit) => void;
+  makingPrimary: boolean;
   onRemove: (u: ProductUnit) => void;
 }) {
   const tr = useTr();
   const [d, setD] = useState<UnitDraft>(() => unitDraftOf(unit));
+  // «وحدة رئيسية» للمضافة (makePrimary) — في المعاملة نفسها على الخادم
+  const [asPrimary, setAsPrimary] = useState(false);
   // الرسالة بعد أوّل كتابة لا قبلها: نموذجٌ فارغ يفتح بخطأٍ أحمر يُقرأ عطلاً
   const [touched, setTouched] = useState(false);
   const set = (k: keyof UnitDraft, v: string) => { setTouched(true); setD(x => ({ ...x, [k]: v })); };
@@ -1044,24 +1507,31 @@ function UnitSheet({ product, unit, onClose, onSaved, onToggle, toggling, onRemo
   const f = Math.round(Number(d.factor));
   const derived = Number.isFinite(f) && f > 1 ? unitPriceOf({ name: d.name, factor: f }, product.basePrice) : null;
   const factorChanged = !!unit && d.factor.trim() !== '' && Number(d.factor) !== Number(unit.factor);
+  // لصنفٍ له رئيسية: نصوص الوحدة الصغرى باسمها لا «الأساس» (D21) — وبلاها النصوص كما كانت حرفاً (I1)
+  const hasPrim = !!primaryUnitOf(product);
+  // «اجعلها الرئيسية»: لوحدةٍ قائمة نشطة بمعاملٍ صالح ليست الرئيسية الآن (شروط primaryUnitOf)
+  const canBePrimary = !!unit && unit.id !== product.primaryUnitId && primaryCandidates([unit]).length === 1;
 
   const save = useMutation({
     mutationFn: async () => {
       const body = unitDraftPayload(d);
-      if (unit) await productApi.updateUnit(product.id, unit.id, body);
-      else await productApi.addUnit(product.id, body);
+      if (unit) await productApi.updateUnit(product.id, unit.id, { ...body, expectedBaseName: product.unit });
+      else await productApi.addUnit(product.id, { ...body, expectedBaseName: product.unit, ...(asPrimary && { makePrimary: true }) });
     },
     onSuccess: () => onSaved(unit ? tr('حفظت الوحدة') : tr('أضيفت الوحدة')),
-    onError: (e: unknown) => toast.error(apiMessage(e, tr('تعذر الحفظ'))),
+    onError: (e: unknown) => {
+      if (productUnitsChanged(e)) { onUnitsChanged(); return; }
+      toast.error(apiMessage(e, tr('تعذر الحفظ')));
+    },
   });
-  const busy = save.isPending || toggling;
+  const busy = save.isPending || toggling || makingPrimary;
 
   return (
     <Sheet title={unit ? `${tr('تعديل')} «${unit.name}»` : tr('إضافة وحدة')} onClose={() => { if (!busy) onClose(); }}>
       {/* نصوص لوحة الويب نفسها (ProductModal) — المعنى واحدٌ فاللفظ واحد في الواجهتين */}
       <div className="max-h-[58vh] overflow-y-auto overscroll-contain space-y-3 -mx-1 px-1">
         <Field label={tr('اسم الوحدة')} required value={d.name} onChange={v => set('name', v)} />
-        <NumField label={`${tr('عدد وحدات الأساس فيها')} (${product.unit})`} required integer
+        <NumField label={hasPrim ? fill(tr('كم {unit} فيها'), { unit: product.unit }) : `${tr('عدد وحدات الأساس فيها')} (${product.unit})`} required integer
           value={d.factor} onChange={v => set('factor', v)} placeholder="24" />
         {factorChanged && (
           <p className="text-[11px] text-[#B7791F] flex items-start gap-1 leading-relaxed">
@@ -1073,7 +1543,7 @@ function UnitSheet({ product, unit, onClose, onSaved, onToggle, toggling, onRemo
           <NumField label={tr('السعر اختياري')} value={d.price} onChange={v => set('price', v)}
             placeholder={derived != null ? String(derived) : undefined} />
           <p className="text-[11px] text-[#9A8F7E] mt-1.5">
-            {tr('فارغ يعني سعر الأساس مضروبا في المعامل')}
+            {hasPrim ? fill(tr('فارغ يعني سعر {unit} مضروبا في المعامل'), { unit: product.unit }) : tr('فارغ يعني سعر الأساس مضروبا في المعامل')}
             {derived != null && ` = ${formatCurrency(derived)}`}
           </p>
           {/* السطر الحاكم كخانة سعر الصنف: رقمٌ شاملٌ مكتوبٌ هنا يبيع الكرتون أعلى من سعره */}
@@ -1084,6 +1554,13 @@ function UnitSheet({ product, unit, onClose, onSaved, onToggle, toggling, onRemo
         </div>
         <Field label={tr('رمز الوحدة الضريبي')} dir="ltr" value={d.unitCode}
           onChange={v => set('unitCode', v)} placeholder="CT" />
+        {!unit && (
+          <label className="flex items-center gap-2.5 min-h-[44px] cursor-pointer">
+            <input type="checkbox" checked={asPrimary} onChange={e => setAsPrimary(e.target.checked)}
+              className="w-5 h-5 accent-[#E15A30] flex-shrink-0" />
+            <span className="text-sm font-semibold text-[#1F1A13]">{tr('وحدة رئيسية')}</span>
+          </label>
+        )}
         {/* رسالة الحارس مفتاحٌ في القاموس كما يكتبها الخادم — والخادم يبقى الحَكَم */}
         {touched && problem && <p className="text-[11px] text-[#C0392B]">{tr(problem)}</p>}
       </div>
@@ -1099,6 +1576,13 @@ function UnitSheet({ product, unit, onClose, onSaved, onToggle, toggling, onRemo
           {tr('إلغاء')}
         </button>
       </div>
+      {unit && canBePrimary && (
+        <button onClick={() => onMakePrimary(unit)} disabled={busy}
+          className="w-full border border-[#E15A30] bg-[#FBEBE2] rounded-xl min-h-[44px] text-[13px] font-semibold text-[#C94E28] flex items-center justify-center gap-2 disabled:opacity-60">
+          {makingPrimary && <Loader2 size={14} className="animate-spin" />}
+          {tr('اجعلها الرئيسية')}
+        </button>
+      )}
       {unit && (
         <div className="flex gap-2">
           <button onClick={() => onToggle(unit)} disabled={busy}
@@ -1117,113 +1601,159 @@ function UnitSheet({ product, unit, onClose, onSaved, onToggle, toggling, onRemo
 }
 
 /**
- * تحويل وحدة الأساس إلى أصغر منها (كرتون ⇒ حبة) — خطوتان: النموذج ثم نافذة تأكيدٍ تقول ما سيحدث بالأرقام.
+ * «إضافة وحدة فرعية أصغر» (convert-base، §4.3) — كرتونٌ قائم له تاريخ تُضاف إليه القارورة: «الكرتون = 24 قارورة».
  *
- * التحويل لا تراجع عنه ويمسّ تاريخ الصنف كلّه في معاملةٍ واحدة على الخادم: الكرتون يصير وحدةً بمعاملها **بسعره**، وتُوسم
- * صفوفه القديمة بمعاملها فلا يتغيّر رقمٌ مطبوع، وتُقسم أسعار العملاء والشرائح على المعامل. فالتأكيد يسمّي الوحدتين
- * والمعامل والسعرين صراحةً — «هل أنت متأكد؟» وحدها تُنقر بلا قراءة. و`expectedBaseName` من الصنف الحيّ: نقرةٌ ثانية
- * أو مديرٌ آخر سبق ⇒ 409 BASE_UNIT_CHANGED فلا يُضرب التاريخ بالمعامل مرّتين.
+ * لا تراجع عنها، وتمسّ تاريخ الصنف كلّه في معاملةٍ واحدة على الخادم: الوحدة الحالية تصير وحدةً بمعاملها **بسعرها**، وتُوسم
+ * صفوفها القديمة بمعاملها فلا يتغيّر رقمٌ مطبوع، وتُقسم أسعار العملاء والشرائح على العدد. و«تبقى الحالية رئيسية» مفعّلٌ
+ * افتراضاً (D12) فلا يتغيّر عرض الصنف ولا افتراض المندوب.
+ *
+ * **المعاينة قبل التنفيذ:** `dryRun` بتأخير ٤٠٠ms بعد آخر تعديل حين تصحّ الخانتان (لا عند الفتح)، وزرّ التنفيذ معطّل حتى
+ * تنجح معاينةٌ **بالقيم الحالية نفسها** (subUnitDraftKey) ويُؤشَّر ما تطلبه من إقرار (ERP ومفاتيح API). و`expectedBaseName`
+ * من الصنف الحيّ: نقرةٌ ثانية أو مديرٌ آخر سبق ⇒ 409 BASE_UNIT_CHANGED فلا يُضرب التاريخ بالعدد مرّتين.
  */
-function ConvertSheet({ product, onClose, onConverted }: {
+function SubUnitSheet({ product, onClose, onConverted }: {
   product: Product; onClose: () => void; onConverted: () => void;
 }) {
   const tr = useTr();
   const qc = useQueryClient();
-  const [d, setD] = useState({ newBaseName: '', factor: '', basePrice: '' });
-  const [step, setStep] = useState<'form' | 'confirm'>('form');
+  const [d, setD] = useState<SubUnitDraft>(emptySubUnitDraft);
   const [touched, setTouched] = useState(false);
-  const set = (k: 'newBaseName' | 'factor' | 'basePrice', v: string) => { setTouched(true); setD(x => ({ ...x, [k]: v })); };
+  const [preview, setPreview] = useState<{ key: string; r: SubUnitDryRun } | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewErr, setPreviewErr] = useState<string | null>(null);
+  // 409 BASE_NAME_RETIRED تحت خانة الاسم — اسمٌ كان وحدة هذا الصنف قبل تحويلٍ سابق
+  const [nameErr, setNameErr] = useState<string | null>(null);
+  const [ackErp, setAckErp] = useState(false);
+  const [ackApi, setAckApi] = useState(false);
+  const set = (k: 'newBaseName' | 'factor' | 'basePrice', v: string) => { setTouched(true); setNameErr(null); setD(x => ({ ...x, [k]: v })); };
 
-  const problem = convertDraftProblem(d, product);
+  const problem = subUnitDraftProblem(d, product);
+  const key = subUnitDraftKey(d);
   const F = Math.round(Number(d.factor));
-  const auto = convertedBasePrice(product.basePrice, F);
-  const priceBad = d.basePrice.trim() !== '' && (!Number.isFinite(Number(d.basePrice)) || Number(d.basePrice) < 0);
-  const newPrice = d.basePrice.trim() === '' ? auto : Number(d.basePrice);
   const newName = d.newBaseName.trim();
-  const shownNew = newName || tr('الوحدة الجديدة');
+  const shownNew = newName || tr('الوحدة الفرعية');
+  const cur = product.unit;
+  const subPrice = F >= 2 ? subUnitPrice(d, product.basePrice) : null;
+
+  /** رسالة رفض الخادم وما يُفعل بها: الأساس تغيّر ⇒ إغلاقٌ وإعادة جلب، والاسم المتقاعد تحت خانته، وغيره رسالته */
+  const onServerError = (e: unknown): string | null => {
+    const code = errorCode(e);
+    if (code === 'BASE_UNIT_CHANGED') {
+      toast.error(tr('تغيّرت وحدات الصنف — أعد فتحه'));
+      invalidateProducts(qc, product.id);
+      onClose();
+      return null;
+    }
+    const msg = apiMessage(e, tr('تعذر الحفظ'));
+    if (code === 'BASE_NAME_RETIRED') { setNameErr(msg); return null; }
+    return msg;
+  };
+
+  // المعاينة: حين تصحّ الخانتان، بعد ٤٠٠ms من آخر تعديل — وكل تعديلٍ يُبطل ما قبله (البصمة)
+  useEffect(() => {
+    if (problem) { setPreviewing(false); return; }
+    let live = true;
+    const t = setTimeout(async () => {
+      setPreviewing(true);
+      setPreviewErr(null);
+      try {
+        const res = await productApi.convertBase(product.id, subUnitBody(d, cur, { dryRun: true }));
+        const r = dryRunOf(res.data);
+        if (live) setPreview(r ? { key, r } : null);
+      } catch (e) {
+        if (live) { setPreview(null); setPreviewErr(onServerError(e)); }
+      } finally {
+        if (live) setPreviewing(false);
+      }
+    }, 400);
+    return () => { live = false; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- البصمة تحمل القيم كلّها
+  }, [key, problem, product.id, cur]);
+
+  const shown = preview && preview.key === key ? preview.r : null;
+  const needs = dryRunNeeds(shown);
+  const runnable = !problem && canRunSubUnit({ previewKey: preview?.key ?? null, key, preview: preview?.r ?? null, ackErp, ackApi });
+  const afterLine = shown ? defaultAfterLine(shown.primaryAfter, defaultChoice(product).name) : null;
 
   const run = useMutation({
-    mutationFn: async () => productApi.convertBase(product.id, {
-      newBaseName: newName, factor: F, expectedBaseName: product.unit,
-      // الفارغ لا يُرسَل: الخادم يقسم السعر القديم على المعامل بأربع منازل (المعروض هنا نفسه)
-      ...(d.basePrice.trim() !== '' && { basePrice: Number(d.basePrice) }),
-    }),
+    mutationFn: async () => productApi.convertBase(product.id, subUnitBody(d, cur, { acknowledgeErp: ackErp, acknowledgeApi: ackApi })),
     onSuccess: () => {
       invalidateProducts(qc, product.id);
-      toast.success(tr('تم تحويل وحدة الأساس'));
+      toast.success(tr('أضيفت الوحدة الفرعية'));
       onConverted();
     },
     onError: (e: unknown) => {
-      // سبقه تحويلٌ أو تعديل: الصنف يُقرأ من جديد ولا يُعاد الطلب على أساسٍ لم يعد قائماً
-      if (apiCode(e) === 'BASE_UNIT_CHANGED') { invalidateProducts(qc, product.id); onClose(); }
-      else setStep('form');
-      toast.error(apiMessage(e, tr('تعذر الحفظ')));
+      const msg = onServerError(e);
+      if (msg) toast.error(msg);
     },
   });
 
-  if (step === 'confirm') {
-    return (
-      <Sheet title={tr('تأكيد التحويل')} onClose={() => { if (!run.isPending) setStep('form'); }}>
-        <div className="max-h-[58vh] overflow-y-auto overscroll-contain space-y-2.5 -mx-1 px-1">
-          {/* ما سيحدث بالأرقام: الوحدتان والمعامل والسعران — «هل أنت متأكد؟» وحدها تُنقر بلا قراءة */}
-          <div className="rounded-xl bg-[#FAF7F0] border border-[#F1EBDF] px-3 py-2.5 space-y-2 text-[12px] text-[#1F1A13] leading-relaxed">
-            <p>
-              <b>«{product.unit}» = {formatNumber(F)} {newName}</b> · {formatCurrency(product.basePrice)}
-            </p>
-            <p>
-              <span className="text-[#6E6557]">{tr('سعر وحدة الأساس الجديدة')}: </span>
-              <b>«{newName}»</b> · {formatCurrency(newPrice, undefined, 4)}
-            </p>
-            {(product.units?.length ?? 0) > 0 && (
-              <p>
-                <span className="text-[#6E6557]">{tr('الوحدات القائمة تضرب معاملاتها في')} </span>
-                <b>{formatNumber(F)}</b>
-              </p>
-            )}
-          </div>
-          <ConvertFacts product={product} />
-          <p className="text-[11px] font-bold text-[#C0392B] flex items-center gap-1">
-            <AlertTriangle size={12} className="flex-shrink-0" />
-            {tr('لا يمكن التراجع عن التحويل')}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={() => run.mutate()} disabled={run.isPending}
-            className="flex-1 bg-[#C0392B] text-white font-bold py-3 rounded-xl min-h-[48px] flex items-center justify-center gap-2 disabled:opacity-60">
-            {run.isPending && <Loader2 size={16} className="animate-spin" />}
-            {tr('تأكيد التحويل')}
-          </button>
-          <button onClick={() => setStep('form')} disabled={run.isPending}
-            className="px-5 border border-[#E9E1D3] bg-white rounded-xl min-h-[48px] text-sm font-semibold text-[#1F1A13]">
-            {tr('رجوع')}
-          </button>
-        </div>
-      </Sheet>
-    );
-  }
-
   return (
-    <Sheet title={tr('تحويل وحدة الأساس إلى وحدة أصغر')} onClose={onClose}>
-      <div className="max-h-[58vh] overflow-y-auto overscroll-contain space-y-3 -mx-1 px-1">
-        <ConvertFacts product={product} />
-        <Field label={tr('اسم وحدة الأساس الجديدة')} required value={d.newBaseName}
-          onChange={v => set('newBaseName', v)} placeholder={tr('حبة')} />
-        <NumField label={`${tr('عدد وحدات الأساس الجديدة في الوحدة الحالية')} (${shownNew} / ${product.unit})`} required integer
-          value={d.factor} onChange={v => set('factor', v)} placeholder="24" />
+    <Sheet title={tr('إضافة وحدة فرعية أصغر')} onClose={() => { if (!run.isPending) onClose(); }}>
+      <div className="max-h-[62vh] overflow-y-auto overscroll-contain space-y-3 -mx-1 px-1">
+        <SubUnitFacts product={product} />
         <div>
-          <NumField label={`${tr('سعر وحدة الأساس الجديدة')} (${tr('اختياري')})`} value={d.basePrice} onChange={v => set('basePrice', v)}
-            placeholder={F >= 2 ? String(auto) : undefined} />
-          <p className="text-[11px] text-[#9A8F7E] mt-1.5">{tr('فارغ يعني السعر الحالي مقسوما على المعامل')}</p>
-          {priceBad && <p className="text-[11px] text-[#C0392B] mt-1">{tr('سعر الوحدة رقم موجب')}</p>}
+          <Field label={tr('الوحدة الفرعية')} required value={d.newBaseName}
+            onChange={v => set('newBaseName', v)} placeholder={tr('حبة')} />
+          {nameErr && <p className="text-[11px] text-[#C0392B] mt-1">{nameErr}</p>}
         </div>
+        <NumField label={fill(tr('كم {sub} في {primary}'), { sub: shownNew, primary: cur })} required integer
+          value={d.factor} onChange={v => set('factor', v)} placeholder="24" />
+        <NumField label={`${fill(tr('سعر {unit} الواحدة'), { unit: shownNew })} (${tr('اختياري')})`} value={d.basePrice}
+          onChange={v => set('basePrice', v)}
+          placeholder={subPrice != null && d.basePrice.trim() === '' ? `≈ ${subPrice} ${tr('محسوب')}` : undefined} />
+        <label className="flex items-start gap-2.5 min-h-[44px] cursor-pointer">
+          <input type="checkbox" checked={d.keepPrimary} onChange={e => { setTouched(true); setD(x => ({ ...x, keepPrimary: e.target.checked })); }}
+            className="w-5 h-5 mt-0.5 accent-[#E15A30] flex-shrink-0" />
+          <span className="text-[12px] text-[#1F1A13] leading-relaxed">
+            {fill(tr('تبقى «{unit}» الوحدة الرئيسية في العرض والإدخال'), { unit: cur })}
+          </span>
+        </label>
         {touched && problem && <p className="text-[11px] text-[#C0392B]">{tr(problem)}</p>}
+
+        {/* المعاينة بالأرقام — ما يفعله الخادم لو نُفِّذ الآن بهذه القيم نفسها */}
+        {!problem && previewing && !shown && <p className="text-[11px] text-[#9A8F7E]">{tr('جاري التحميل')}</p>}
+        {!problem && previewErr && <p className="text-[11px] text-[#C0392B]">{previewErr}</p>}
+        {shown && (
+          <div className="rounded-xl bg-[#FAF7F0] border border-[#F1EBDF] px-3 py-2.5 space-y-1.5 text-[12px] text-[#1F1A13] leading-relaxed">
+            <p><b>1 {cur} = {formatNumber(F)} {newName}</b> · {formatCurrency(product.basePrice)} / {cur}
+              {subPrice != null && <> · {formatCurrency(subPrice, undefined, 4)} / {newName}</>}</p>
+            <p>{fill(tr('سيعاد وسم {n} بندا، والفواتير المطبوعة لا تتغير'), { n: formatNumber(dryRunItems(shown)) })}</p>
+            <p>{fill(tr('سعر العميل الخاص يبقى لـ«{unit}» كما هو'), { unit: cur })}</p>
+            {afterLine && <p className="font-semibold text-[#B7791F]">{fill(tr('الافتراض في البيع بعد الإضافة: {unit}'), { unit: afterLine })}</p>}
+            <p className="text-[11px] text-[#6E6557]">{tr('قد تستغرق حتى دقيقتين لصنف بتاريخ طويل، ومن يحفظ أثناءها يُطلب منه إعادة المحاولة')}</p>
+          </div>
+        )}
+        {shown && needs.erp && (
+          <label className="flex items-start gap-2.5 min-h-[44px] cursor-pointer">
+            <input type="checkbox" checked={ackErp} onChange={e => setAckErp(e.target.checked)}
+              className="w-5 h-5 mt-0.5 accent-[#E15A30] flex-shrink-0" />
+            <span className="text-[12px] text-[#1F1A13] leading-relaxed">
+              {fill(tr('الصنف مربوط بنظام ERP بوحدة واحدة: ما سبق الإضافة بـ{unit} وما بعدها بـ{sub} هناك — أؤكد المتابعة'), { unit: cur, sub: shownNew })}
+            </span>
+          </label>
+        )}
+        {shown && needs.apiKeys > 0 && (
+          <label className="flex items-start gap-2.5 min-h-[44px] cursor-pointer">
+            <input type="checkbox" checked={ackApi} onChange={e => setAckApi(e.target.checked)}
+              className="w-5 h-5 mt-0.5 accent-[#E15A30] flex-shrink-0" />
+            <span className="text-[12px] text-[#1F1A13] leading-relaxed">
+              {fill(tr('للشركة ربط برمجي نشط ({n} مفتاح) — بعد الإضافة تقرأ كمياته وأسعاره بـ{sub}، وأبلغت المتكامل'), { n: formatNumber(needs.apiKeys), sub: shownNew })}
+            </span>
+          </label>
+        )}
+        <p className="text-[11px] font-bold text-[#C0392B] flex items-center gap-1">
+          <AlertTriangle size={12} className="flex-shrink-0" />
+          {tr('لا يمكن التراجع عن التحويل')}
+        </p>
       </div>
       <div className="flex gap-2">
-        <button onClick={() => setStep('confirm')} disabled={!!problem || priceBad}
-          className="flex-1 bg-[#E15A30] text-white font-bold py-3 rounded-xl min-h-[48px] disabled:bg-[#E89B7E]">
-          {tr('متابعة')}
+        <button onClick={() => run.mutate()} disabled={!runnable || run.isPending}
+          className="flex-1 bg-[#C0392B] text-white font-bold py-3 rounded-xl min-h-[48px] flex items-center justify-center gap-2 disabled:opacity-50">
+          {(run.isPending || previewing) && <Loader2 size={16} className="animate-spin" />}
+          {tr('إضافة وحدة فرعية أصغر')}
         </button>
-        <button onClick={onClose}
+        <button onClick={onClose} disabled={run.isPending}
           className="px-5 border border-[#E9E1D3] bg-white rounded-xl min-h-[48px] text-sm font-semibold text-[#1F1A13]">
           {tr('إلغاء')}
         </button>
@@ -1233,15 +1763,15 @@ function ConvertSheet({ product, onClose, onConverted }: {
 }
 
 /**
- * ما يفعله التحويل — بنود نافذة لوحة الويب نفسها (ProductModal) حرفاً: المعنى واحدٌ فاللفظ واحد، ويقرؤها المدير قبل أن
- * يكتب المعامل وتعود في نافذة التأكيد بجانب الأرقام.
+ * ما تفعله «إضافة وحدة فرعية أصغر» — بلفظ D21 (لا «الأساس»): يقرؤها المدير قبل أن يكتب العدد.
  */
-function ConvertFacts({ product }: { product: Product }) {
+function SubUnitFacts({ product }: { product: Product }) {
   const tr = useTr();
   return (
     <ul className="text-[11px] text-[#6E6557] leading-relaxed space-y-1 list-disc ps-4">
       <li>
-        {tr('الصنف يباع اليوم بوحدة')} «<b>{product.unit}</b>». {tr('بعد التحويل تصير وحدة بيع بالمعامل الذي تكتبه وبسعرها الحالي')} ({formatCurrency(product.basePrice)})، {tr('وتصبح وحدة الأساس الجديدة هي الأصغر')}.
+        {fill(tr('الصنف يباع اليوم بـ«{unit}» بسعر {price}. بعد الإضافة يبقى «{unit}» بسعره وتصير الوحدة الفرعية أصغر وحدة له'),
+          { unit: product.unit, price: formatCurrency(product.basePrice) })}
       </li>
       <li>{tr('أرقام الفواتير والحركات السابقة لا تتغير: ما بيع بها يبقى مطبوعا كما هو وتحسب كميته بالوحدة الجديدة تلقائيا')}</li>
       <li>{tr('أسعار العملاء الخاصة وشرائح الأسعار تقسم على المعامل فيبقى سعر الوحدة الحالية لكل عميل كما هو')}</li>

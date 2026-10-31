@@ -379,5 +379,6 @@ test('حارس ثابت: بند الجرد يُكتب بلقطة وحدته وba
   const start = src.indexOf("router.post('/opening-stock'");
   const body = src.slice(start, src.indexOf('\nrouter.', start + 10));
   assert.match(body, /items: \{ create: checked\.lines\.map\(l => \(\{ productId: l\.productId, unitCost: l\.unitCost, \.\.\.unitFields\(l\.qty,/);
-  assert.match(body, /unit: true, units: \{ select: \{ name: true, factor: true, isActive: true \} \}/);
+  // ومعها «الوحدة الرئيسية» (D17): الرئيسية وتاريخ التحويل ومعرّفات الوحدات
+  assert.match(body, /unit: true, primaryUnitId: true, baseConvertedAt: true, units: \{ select: \{ id: true, name: true, factor: true, isActive: true \} \}/);
 });

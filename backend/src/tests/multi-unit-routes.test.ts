@@ -12,6 +12,7 @@ import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import express from 'express';
 import { formatQty, type UnitDef } from '../services/units';
+import { anyConverting } from '../services/baseGuard';
 
 // ═══ حقن البدائل قبل تحميل الموجّهات (كنمط invoices-arm-cutover-route.test.ts) ═══
 
@@ -69,7 +70,7 @@ const prismaFake: Record<string, unknown> = new Proxy({}, {
 });
 
 const TENANT = 'T1';
-let currentUser: { id: string; role: string; tenantId: string; impersonated?: boolean } = { id: 'admin-1', role: 'ADMIN', tenantId: TENANT };
+let currentUser: { id: string; role: string; tenantId: string; impersonated?: boolean; apiKeyId?: string; ownerIssuedKey?: boolean } = { id: 'admin-1', role: 'ADMIN', tenantId: TENANT };
 const pass = (_req: unknown, _res: unknown, next: () => void): void => next();
 
 stub('config/database', { default: prismaFake });
@@ -78,6 +79,7 @@ stub('middleware/auth', {
   requireAdmin: pass, requireAccounting: pass, requireAdminPermission: () => pass,
   tenantId: (req: { user?: { tenantId?: string } }) => req.user?.tenantId ?? '',
   isOwnerSession: (req: { user?: { impersonated?: boolean } }) => req.user?.impersonated === true,
+  actorOf: (req: { user?: { id?: string; impersonated?: boolean } }) => (req.user?.impersonated ? `OWNER:${req.user?.id}` : req.user?.id ?? ''),
 });
 stub('routes/invoicesZatcaDeps', { productionPhase2Deps: () => { throw new Error('لا مرحلة ثانية في هذه الاختبارات'); } });
 
@@ -148,7 +150,11 @@ type ItemRow = {
 
 /** صنفٌ بتاريخ: كرتون أساسٌ (٢٤ ريالاً) وطبليةٌ = ٥٠ كرتوناً، وصفوفٌ في الجداول الأربعة */
 function productWorld() {
-  const product = { id: 'p1', tenantId: TENANT, unit: 'كرتون', basePrice: 24, unitCode: 'CT', name: 'ماء' };
+  const product = {
+    id: 'p1', tenantId: TENANT, unit: 'كرتون', basePrice: 24, unitCode: 'CT', name: 'ماء',
+    // «الوحدة الرئيسية»: لم يُحوَّل قط وبلا رئيسية — ما يكتبه التحويل يُقرأ من هنا
+    primaryUnitId: null as string | null, baseConvertedAt: null as Date | null,
+  };
   const units: UnitRow[] = [{ id: 'u-pal', tenantId: TENANT, productId: 'p1', name: 'طبلية', factor: 50, price: 1000, unitCode: null, isActive: true, sortOrder: 0 }];
   const tables: Record<string, ItemRow[]> = {
     invoice_items: [
@@ -162,6 +168,7 @@ function productWorld() {
   };
   const tiers = [{ productId: 'p1', minQty: 10, maxQty: null as number | null, baseMinQty: 0, baseMaxQty: null as number | null, price: 22 }];
   const customerPriceUpdates: unknown[] = [];
+  const conversions: Array<Record<string, any>> = [];
 
   const view = () => ({ ...product, units: units.map(u => ({ ...u })) });
   scripted = {
@@ -175,6 +182,8 @@ function productWorld() {
       if (d.unit !== undefined) product.unit = d.unit;
       if (d.basePrice !== undefined) product.basePrice = d.basePrice;
       if (d.unitCode !== undefined) product.unitCode = d.unitCode;
+      if (d.primaryUnitId !== undefined) product.primaryUnitId = d.primaryUnitId;
+      if (d.baseConvertedAt !== undefined) product.baseConvertedAt = d.baseConvertedAt;
       return { count: 1 };
     },
     'productUnit.updateMany': (args) => {
@@ -199,6 +208,9 @@ function productWorld() {
       return { count: 1 };
     },
     'customerPrice.updateMany': (args) => { customerPriceUpdates.push(args); return { count: 2 }; },
+    'productBaseConversion.create': (args) => { const row = { id: `conv-${conversions.length + 1}`, ...args.data }; conversions.push(row); return row; },
+    'productBaseConversion.findMany': (args) => conversions.filter(c => c.tenantId === args?.where?.tenantId && c.productId === args?.where?.productId
+      && c.factor > (args?.where?.factor?.gt ?? 0)),
   };
   // جمل الصفوف الأربعة وجملة الشرائح: تُنفَّذ على الذاكرة بالقيم التي مرّرها الموجّه (لا بأرقام الاختبار)
   rawScript = (r) => {
@@ -210,6 +222,8 @@ function productWorld() {
         t.price = t.price / F;
         t.baseMinQty = (t.baseMinQty === 0 && t.minQty !== 0 ? t.minQty : t.baseMinQty) * F;
         t.baseMaxQty = (t.baseMaxQty ?? t.maxQty) == null ? null : (t.baseMaxQty ?? t.maxQty)! * F;
+        t.minQty = t.minQty * F;
+        t.maxQty = t.maxQty == null ? null : t.maxQty * F;
       }
       return tiers.length;
     }
@@ -239,19 +253,31 @@ function productWorld() {
   };
   // التحويل مقيَّدٌ بجلسة المالك (الدعم الفني) مؤقّتاً — docs/multi-unit/REVIEW.md
   currentUser = { id: 'admin-1', role: 'ADMIN', tenantId: TENANT, impersonated: true };
-  return { product, units, tables, tiers, customerPriceUpdates };
+  return { product, units, tables, tiers, customerPriceUpdates, conversions };
 }
 
 const CONVERT = { newBaseName: 'حبة', factor: 24, expectedBaseName: 'كرتون' };
 
-test('التحويل مقيَّدٌ بجلسة المالك: مدير الشركة يُرفض 403 ولا كتابة', async () => {
+test('«إضافة وحدة فرعية أصغر» وبوابة الإطلاق مغلقة: مدير الشركة ⇒ 403 OWNER_ONLY بلا قراءة صفّه، والمفتاح ⇒ INTERACTIVE_ONLY ولو أصدره المالك', async () => {
+  for (const [user, code] of [
+    [{ id: 'admin-1', role: 'ADMIN', tenantId: TENANT }, 'CONVERT_BASE_OWNER_ONLY'],
+    [{ id: 'admin-2', role: 'MANAGER', tenantId: TENANT }, 'CONVERT_BASE_OWNER_ONLY'],
+    [{ id: 'admin-1', role: 'ADMIN', tenantId: TENANT, apiKeyId: 'k1' }, 'CONVERT_BASE_INTERACTIVE_ONLY'],
+    [{ id: 'admin-1', role: 'ADMIN', tenantId: TENANT, apiKeyId: 'k1', ownerIssuedKey: true }, 'CONVERT_BASE_INTERACTIVE_ONLY'],
+  ] as const) {
+    reset();
+    productWorld();
+    currentUser = { ...user }; // لا impersonated
+    const r = await call('POST', '/api/products/p1/convert-base', { body: CONVERT });
+    assert.equal(r.status, 403, JSON.stringify(r.body));
+    assert.equal(r.body.code, code);
+    assert.equal(raws.length, 0, 'لا قفل ولا كتابة رغم الرفض');
+    assert.deepEqual(calls, [], 'الرفض قبل أي استعلام — والبوابة المغلقة لا تقرأ صفّ المدير');
+  }
+  // جلسة المالك تمرّ (البوابة لا تمسّها)
   reset();
   productWorld();
-  currentUser = { id: 'admin-1', role: 'ADMIN', tenantId: TENANT }; // لا impersonated
-  const r = await call('POST', '/api/products/p1/convert-base', { body: CONVERT });
-  assert.equal(r.status, 403, JSON.stringify(r.body));
-  assert.equal(r.body.code, 'CONVERT_BASE_OWNER_ONLY');
-  assert.equal(raws.some(x => x.kind === '$executeRaw'), false, 'كتابةٌ رغم الرفض');
+  assert.equal((await call('POST', '/api/products/p1/convert-base', { body: CONVERT })).status, 200);
 });
 
 test('التحويل: أرقام التاريخ المطبوعة لا تتغيّر، والمعاملات تُضرب، والأساس من جديد — في الجداول الأربعة', async () => {
@@ -322,9 +348,11 @@ test('التحويل: الوحدات تُضرب والقديمة وحدةٌ بس
   // سعر العميل ÷ F مقيّداً بالصنف والشركة
   assert.deepEqual(w.customerPriceUpdates, [{ where: { productId: 'p1', product: { tenantId: TENANT } }, data: { price: { divide: 24 } } }]);
   // الشريحة: السعر ÷ F، والحدّ الذي لم يملأه الترحيل يُحسب من القديم × F
-  assert.deepEqual(w.tiers[0], { productId: 'p1', minQty: 10, maxQty: null, baseMinQty: 240, baseMaxQty: null, price: 22 / 24 });
+  // والحدّان القديمان (للعرض القائم) بالأساس أيضاً × F — والطرف الأيمن يقرأ القيم القديمة فشرط CASE يرى minQty قبل ضربه
+  assert.deepEqual(w.tiers[0], { productId: 'p1', minQty: 240, maxQty: null, baseMinQty: 240, baseMaxQty: null, price: 22 / 24 });
   const tierStmt = raws.find(x => x.sql.includes('UPDATE "price_tiers"'))!;
-  assert.deepEqual(assignedColumns(tierStmt.sql), ['price', 'baseMinQty', 'baseMaxQty']);
+  assert.deepEqual(assignedColumns(tierStmt.sql), ['price', 'baseMinQty', 'baseMaxQty', 'minQty', 'maxQty']);
+  assert.ok(tierStmt.sql.includes('"minQty" = t."minQty" *') && tierStmt.sql.includes('"maxQty" = t."maxQty" *'), tierStmt.sql);
   assert.match(tierStmt.sql, /p\."tenantId" = \?/);
   // الردّ: الصنف بوحداته وعدّاد ما حُوّل
   assert.equal(r.body.data.unit, 'حبة');
@@ -374,6 +402,169 @@ test('التحويل: المعامل صحيحٌ ≥ ٢ ولا يتجاوز ال�
   // صرفةٌ: الحدّ بعد الضرب
   assert.equal(baseConversionProblem({ unit: 'كرتون', units: [] }, { newBaseName: 'حبة', factor: 100000 }), null);
   assert.match(String(baseConversionProblem({ unit: 'كرتون', units: [] }, { newBaseName: 'حبة', factor: 100001 })), /لا يتجاوز/);
+});
+
+// ═══ (١ب) التحويل و«الوحدة الرئيسية» (مواصفة الوحدة الرئيسية §2.2-ز، I7، D12، D19، D20) ═══
+
+test('التحويل يكتب صفّاً واحداً في السجلّ ويختم baseConvertedAt في المعاملة نفسها، والكرتون القديم يصير الرئيسية (D12)', async () => {
+  reset();
+  const w = productWorld();
+  currentUser = { id: 'admin-7', role: 'ADMIN', tenantId: TENANT, impersonated: true };
+  const before = Date.now();
+  const r = await call('POST', '/api/products/p1/convert-base', { body: CONVERT });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(w.conversions.length, 1, 'صفٌّ واحد (I7)');
+  const ct = w.units.find(u => u.name === 'كرتون')!;
+  const log = w.conversions[0];
+  assert.deepEqual({ ...log, convertedAt: undefined }, {
+    id: 'conv-1', tenantId: TENANT, productId: 'p1', fromUnit: 'كرتون', toUnit: 'حبة', factor: 24, fromUnitId: ct.id, convertedAt: undefined, convertedBy: 'OWNER:admin-7',
+  });
+  assert.ok(log.convertedAt instanceof Date && log.convertedAt.getTime() >= before);
+  assert.equal(w.product.baseConvertedAt?.getTime(), log.convertedAt.getTime(), 'اللحظة نفسها على الصنف وفي السجلّ');
+  assert.equal(w.product.primaryUnitId, ct.id, 'الكرتون رئيسيٌّ تلقائياً فلا يتغيّر عرض الصنف ولا افتراضه');
+  assert.equal(r.body.converted.conversionId, 'conv-1');
+  const logCall = calls.indexOf('productBaseConversion.create');
+  assert.ok(logCall > calls.indexOf('productUnit.create') && logCall > calls.indexOf('product.updateMany'), 'السجلّ بعد الوحدة القديمة وختم الصنف');
+  assert.equal(calls.includes('productBaseConversion.findMany'), false, 'صنفٌ لم يُحوَّل قبل ⇒ لا سؤال للسجلّ (I8)');
+});
+
+test('التحويل: الرئيسية القائمة (طبلية) تبقى بمعرّفها، وkeepOldBaseAsPrimary: false لا يضبط رئيسية', async () => {
+  reset();
+  const w = productWorld();
+  w.product.primaryUnitId = 'u-pal';
+  assert.equal((await call('POST', '/api/products/p1/convert-base', { body: CONVERT })).status, 200);
+  assert.equal(w.product.primaryUnitId, 'u-pal');
+  assert.equal(w.units.find(u => u.id === 'u-pal')!.factor, 1200, 'معاملها ضُرب بـF');
+
+  reset();
+  const w2 = productWorld();
+  const r = await call('POST', '/api/products/p1/convert-base', { body: { ...CONVERT, keepOldBaseAsPrimary: false } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(w2.product.primaryUnitId, null);
+  assert.equal(w2.conversions.length, 1);
+});
+
+test('التحويل dryRun: لا معاملة ولا قفل ولا كتابة، والعدّ بشروط الجمل، وapiKeys وerpLinked وprimaryAfter في الردّ', async () => {
+  reset();
+  const w = productWorld();
+  const counted: Record<string, any> = {};
+  for (const m of ['invoiceItem', 'vanLoadItem', 'warehouseEntryItem', 'repStockRequestItem', 'customerPrice', 'priceTier', 'vanLoadItemLot', 'invoiceItemLot', 'lotRelabel']) {
+    scripted[`${m}.count`] = (args) => { counted[m] = args.where; return m === 'invoiceItem' ? 3 : m === 'vanLoadItemLot' ? 2 : 1; };
+  }
+  scripted['apiKey.groupBy'] = () => [{ readOnly: true, _count: { _all: 2 } }];
+  const r = await call('POST', '/api/products/p1/convert-base', { body: { ...CONVERT, dryRun: true } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(calls.includes('$transaction'), false);
+  assert.equal(raws.length, 0, 'لا قفل ولا جملة خام');
+  assert.ok(!calls.some(c => /\.(create|update|updateMany|delete|deleteMany)$/.test(c)), calls.join(' → '));
+  assert.equal(w.conversions.length, 0);
+  assert.equal(w.product.unit, 'كرتون');
+  assert.deepEqual(r.body.apiKeys, { write: 0, readOnly: 2 }, 'المعاينة تعدّ المفاتيح ولا تطلب إقرارها');
+  assert.equal(r.body.dryRun, true);
+  assert.equal(r.body.erpLinked, false);
+  assert.equal(r.body.primaryAfter, 'كرتون');
+  assert.deepEqual(r.body.converted, {
+    factor: 24, from: 'كرتون', invoiceItems: 3, vanLoadItems: 1, warehouseEntryItems: 1, stockRequestItems: 1, customerPrices: 1, priceTiers: 1,
+    vanLoadItemLots: 2, invoiceItemLots: 1, lotRelabels: 1,
+  });
+  assert.deepEqual(counted.invoiceItem, { productId: 'p1', invoice: { tenantId: TENANT } });
+  assert.deepEqual(counted.vanLoadItem, { productId: 'p1', vanLoad: { tenantId: TENANT } });
+  assert.deepEqual(counted.customerPrice, { productId: 'p1', product: { tenantId: TENANT } });
+  assert.deepEqual(counted.vanLoadItemLot, { tenantId: TENANT, productId: 'p1' });
+  // والرفض البنيوي نفسه في المعاينة
+  reset();
+  productWorld();
+  const stale = await call('POST', '/api/products/p1/convert-base', { body: { ...CONVERT, expectedBaseName: 'علبة', dryRun: true } });
+  assert.equal(stale.status, 409);
+  assert.equal(stale.body.code, 'BASE_UNIT_CHANGED');
+  reset();
+  const w3 = productWorld();
+  w3.product.primaryUnitId = 'u-pal';
+  assert.equal((await call('POST', '/api/products/p1/convert-base', { body: { ...CONVERT, dryRun: true } })).body.primaryAfter, 'طبلية');
+});
+
+test('التحويل لشركةٍ مربوطة بـERP: بلا إقرار ⇒ 409 CONVERT_BASE_ERP_ACK بلا معاملة، وبالإقرار يمرّ', async () => {
+  reset();
+  productWorld();
+  scripted['tenant.findUnique'] = () => ({ erpEnabled: true });
+  scripted['erpIntegration.findFirst'] = (args) => (args?.where?.tenantId === TENANT && args?.where?.enabled === true ? { id: 'erp-1' } : null);
+  const r = await call('POST', '/api/products/p1/convert-base', { body: CONVERT });
+  assert.equal(r.status, 409, JSON.stringify(r.body));
+  assert.equal(r.body.code, 'CONVERT_BASE_ERP_ACK');
+  assert.equal(calls.includes('$transaction'), false);
+  assert.equal(raws.length, 0);
+  const ok = await call('POST', '/api/products/p1/convert-base', { body: { ...CONVERT, acknowledgeErp: true } });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  // العلم وحده بلا تكاملٍ مفعّل ليس ربطاً
+  reset();
+  productWorld();
+  scripted['tenant.findUnique'] = () => ({ erpEnabled: true });
+  assert.equal((await call('POST', '/api/products/p1/convert-base', { body: CONVERT })).status, 200);
+});
+
+test('التحويل ومفاتيح API نشطة (D19-أ): بلا إقرار ⇒ 409 CONVERT_BASE_API_ACK بالعدد، وبالإقرار يمرّ — والملغى والقديم لا يُعدّان', async () => {
+  reset();
+  productWorld();
+  let where: any = null;
+  scripted['apiKey.groupBy'] = (args) => { where = args.where; return [{ readOnly: false, _count: { _all: 2 } }, { readOnly: true, _count: { _all: 1 } }]; };
+  const r = await call('POST', '/api/products/p1/convert-base', { body: CONVERT });
+  assert.equal(r.status, 409, JSON.stringify(r.body));
+  assert.equal(r.body.code, 'CONVERT_BASE_API_ACK');
+  assert.deepEqual(r.body.apiKeys, { write: 2, readOnly: 1 });
+  assert.match(r.body.message, /\(3 مفتاح\)/);
+  assert.equal(calls.includes('$transaction'), false);
+  assert.equal(where.tenantId, TENANT);
+  assert.equal(where.revokedAt, null, 'الملغى لا يُعدّ');
+  const days = (Date.now() - new Date(where.lastUsedAt.gte).getTime()) / 86_400_000;
+  assert.ok(days > 29.99 && days < 30.01, `آخر ٣٠ يوماً وحدها: ${days}`);
+  const ok = await call('POST', '/api/products/p1/convert-base', { body: { ...CONVERT, acknowledgeApi: true } });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  // بلا مفاتيح نشطة ⇒ لا إقرار
+  reset();
+  productWorld();
+  scripted['apiKey.groupBy'] = () => [];
+  assert.equal((await call('POST', '/api/products/p1/convert-base', { body: CONVERT })).status, 200);
+});
+
+test('D20-ب: التحويل إلى اسمٍ كان أساس الصنف قبل تحويلٍ سابق ⇒ 409 BASE_NAME_RETIRED بلا كتابة', async () => {
+  reset();
+  const w = productWorld();
+  w.product.baseConvertedAt = new Date('2026-09-01T00:00:00Z');
+  w.conversions.push({ id: 'old', tenantId: TENANT, productId: 'p1', fromUnit: 'حبة ', toUnit: 'كرتون', factor: 6 });
+  const r = await call('POST', '/api/products/p1/convert-base', { body: CONVERT });
+  assert.equal(r.status, 409, JSON.stringify(r.body));
+  assert.equal(r.body.code, 'BASE_NAME_RETIRED');
+  assert.equal(raws.some(x => x.kind === '$executeRaw'), false, 'كتابةٌ رغم الرفض');
+  assert.equal(w.conversions.length, 1);
+  // اسمٌ آخر يمرّ ويُكتب صفٌّ ثانٍ
+  assert.equal((await call('POST', '/api/products/p1/convert-base', { body: { ...CONVERT, newBaseName: 'قطعة' } })).status, 200);
+  assert.equal(w.conversions.length, 2);
+});
+
+test('I10: «قيد التحويل» يُسجَّل قبل المعاملة ويُحرَّر في finally — ولو رمت المعاملة', async () => {
+  reset();
+  productWorld();
+  let during = false;
+  scripted['customerPrice.updateMany'] = () => { during = anyConverting(TENANT, ['p-other', 'p1']); return { count: 0 }; };
+  assert.equal(anyConverting(TENANT, ['p1']), false);
+  assert.equal((await call('POST', '/api/products/p1/convert-base', { body: CONVERT })).status, 200);
+  assert.equal(during, true, 'مُسجَّلٌ أثناء المعاملة');
+  assert.equal(anyConverting(TENANT, ['p1']), false, 'مُحرَّرٌ بعدها');
+
+  reset();
+  productWorld();
+  scripted['customerPrice.updateMany'] = () => { during = anyConverting(TENANT, ['p1']); throw new Error('boom'); };
+  during = false;
+  const r = await call('POST', '/api/products/p1/convert-base', { body: CONVERT });
+  assert.equal(r.status, 500);
+  assert.equal(during, true);
+  assert.equal(anyConverting(TENANT, ['p1']), false, 'مُحرَّرٌ في finally رغم الخطأ');
+  // والرفض قبل المعاملة لا يسجّل شيئاً
+  reset();
+  productWorld();
+  scripted['apiKey.groupBy'] = () => [{ readOnly: false, _count: { _all: 1 } }];
+  await call('POST', '/api/products/p1/convert-base', { body: CONVERT });
+  assert.equal(anyConverting(TENANT, ['p1']), false);
 });
 
 // ═══ (٢) وحدات الصنف ═══

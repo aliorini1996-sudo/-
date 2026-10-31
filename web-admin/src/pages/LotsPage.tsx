@@ -16,14 +16,16 @@ import { localDay } from '../lib/paymentMethods';
 import {
   LOT_BUCKET_LABELS, LOT_CERTAINTY_LABELS, LOT_EPS, LOT_NUMBER_MAX, LOT_ROW_FLAG_LABELS, LOT_SOURCE_LABELS, LOT_WARNING_LABELS,
   lotDatesProblem, lotDay, lotErrorOf, lotWarningsOf, normalizeLotNumber, roundLot,
-  type LotBucket, type LotCertainty, type LotPlace, type LotRelabelRequest, type LotTraceDto, type LotUnloadPlanDto, type ProductLotDto,
+  type LotBucket, type LotCertainty, type LotPlace, type LotTraceDto, type LotUnloadPlanDto, type ProductLotDto,
 } from '../lib/lots';
 import {
   autoBroad, defaultRelabelPlace, eventKindLabel, expiryState, extendsExpiry, healthByProduct, lotQtyOk, lotStatusLabel, originKindLabel, placeName,
   lotUnloadOn, relabelProblem, relabelReasonOf, relabelSources, statusActions, traceSheets, traceTotals, unloadBody, TRACE_PLACE_COLUMNS, vanName,
-  type LotBalancesResponse, type LotDeficitRow, type LotDetailDto, type LotListRow, type LotStatusAction, type PlaceViewWithAvailability,
-  type RelabelLineForm,
+  baseChangedError, lotQtyDir, lotQtyText, lotQtyUnitText, lotRowProduct, lotUnitTag, lotsUnitNote, relabelBody,
+  type LotBalancesResponse, type LotDeficitRow, type LotDetailDto, type LotListRow, type LotStatusAction, type LotUnitProduct,
+  type PlaceViewWithAvailability, type RelabelLineForm,
 } from '../lib/lotsPage';
+import { primaryUnitOf } from '../lib/units';
 import { activeLocale, formatDate, formatDateTime, formatDayOnly } from '../utils/format';
 import { shareOrDownloadExcel } from '../utils/excel';
 import { elementToPdfBlob, shareOrDownloadPdf } from '../rep/pdf';
@@ -39,7 +41,8 @@ import { Header, type Company } from '../rep/RepDocuments';
  * - **التتبّع**: المصدر، والأماكن بالخام والصالح والمحجوز، والعملاء بفواتيرهم وكمّياتهم ويقينهم؛ النطاق الموسّع تلقائيٌّ في السحب،
  *   وExcel وPDF. والمقيّد بنطاق يرى شريط «النتيجة مقيدة بنطاقك».
  * - **سلامة الأرصدة** من /lots/health، وإجراء يوم التفعيل.
- * كل كمية بوحدة الأساس (D22) — وحدة الصنف المعروضة هي الأساس.
+ * كل كمية بوحدة الأساس (D22) — وحدة الصنف المعروضة هي الأساس. و«الوحدة الرئيسية» عرضٌ وحده (R1): صنفٌ له رئيسية تُعرض
+ * كمياته «2 كرتون و3 قارورة» (lotQtyText)، ومدخلات التسمية تبقى بالأساس باسمه لاصقاً ومعادلٍ حيّ (R8)؛ وExcel بالأساس.
  */
 
 type Tr = (ar: string) => string;
@@ -61,10 +64,10 @@ const errText = (e: unknown, tr: Tr, fallback: string): string =>
 const fmtQ = (n: number | null | undefined) =>
   roundLot(Number(n) || 0).toLocaleString(activeLocale(), { maximumFractionDigits: 4 });
 
-/** خليّة كمية في «الأماكن» (الشاشة وورقة PDF): الصفر «—» في أعمدة dash (المحجوز والمنتهي والتالف) */
-const placeQtyText = (c: (typeof TRACE_PLACE_COLUMNS)[number], p: LotTraceDto['places'][number]) => {
+/** خليّة كمية في «الأماكن» (الشاشة وورقة PDF): الصفر «—» في أعمدة dash (المحجوز والمنتهي والتالف)، والكمية بالرئيسية إن وُجدت */
+const placeQtyText = (c: (typeof TRACE_PLACE_COLUMNS)[number], p: LotTraceDto['places'][number], prod: LotUnitProduct | null) => {
   const q = c.qty(p);
-  return c.dash && Math.abs(q) <= LOT_EPS ? '—' : fmtQ(q);
+  return c.dash && Math.abs(q) <= LOT_EPS ? '—' : lotQtyText(q, prod, fmtQ);
 };
 
 const dayText = (v: string | null | undefined) => (lotDay(v) ? formatDayOnly(lotDay(v)) : '—');
@@ -248,6 +251,7 @@ function LotsList({ onOpen }: { onOpen: (id: string) => void }) {
               <tbody>
                 {rows.map((r) => {
                   const vans = r.summary ? r.summary.vans.SELLABLE + r.summary.vans.EXPIRED + r.summary.vans.DAMAGED : 0;
+                  const prod = lotRowProduct(r);
                   return (
                     <tr key={r.id} className="cursor-pointer hover:bg-[#FAF7F0]" onClick={() => onOpen(r.id)}>
                       <td className="font-semibold text-[#1F1A13]"><bdi dir="ltr">{r.lotNumber}</bdi></td>
@@ -262,13 +266,13 @@ function LotsList({ onOpen }: { onOpen: (id: string) => void }) {
                         </div>
                       </td>
                       <td><StatusBadge lot={r} /></td>
-                      <td className="tabular-nums">{r.summary ? fmtQ(r.summary.warehouse) : '—'}</td>
+                      <td className="tabular-nums">{r.summary ? lotQtyText(r.summary.warehouse, prod, fmtQ) : '—'}</td>
                       <td className="tabular-nums">
-                        {r.summary ? fmtQ(vans) : '—'}
+                        {r.summary ? lotQtyText(vans, prod, fmtQ) : '—'}
                         {r.summary && r.summary.vanCount > 0 && <span className="text-[11px] text-gray-400"> · {r.summary.vanCount} {tr('سيارة')}</span>}
                       </td>
-                      <td className="tabular-nums">{r.summary && r.summary.held > LOT_EPS ? fmtQ(r.summary.held) : '—'}</td>
-                      <td className="tabular-nums font-semibold">{r.summary ? fmtQ(r.summary.total) : '—'} <span className="text-[11px] text-gray-400 font-normal">{r.productUnit || ''}</span></td>
+                      <td className="tabular-nums">{r.summary && r.summary.held > LOT_EPS ? lotQtyText(r.summary.held, prod, fmtQ) : '—'}</td>
+                      <td className="tabular-nums font-semibold">{r.summary ? lotQtyText(r.summary.total, prod, fmtQ) : '—'} <span className="text-[11px] text-gray-400 font-normal">{lotUnitTag(prod)}</span></td>
                     </tr>
                   );
                 })}
@@ -467,7 +471,12 @@ function LotDetail({ id, company, onBack, onOpen }: { id: string; company: Compa
       for (const w of lotWarningsOf((res as { warnings?: unknown })?.warnings)) toast(tr(LOT_WARNING_LABELS[w.code]));
       toast.success(tr('تم تنزيل التشغيلة من السيارة'));
     },
-    onError: (e) => { setUnloadRow(null); toast.error(errText(e, tr, 'تعذر الحفظ')); },
+    onError: (e) => {
+      setUnloadRow(null);
+      // أساس الصنف تغيّر منذ قُرئت البطاقة (baseUnitName في البند) ⇒ تُعاد قراءتها وخطّتها قبل المحاولة التالية
+      if (baseChangedError(e)) refresh();
+      toast.error(errText(e, tr, 'تعذر الحفظ'));
+    },
   });
 
   const exportExcel = async () => {
@@ -503,7 +512,8 @@ function LotDetail({ id, company, onBack, onOpen }: { id: string; company: Compa
 
   const trace = traceQ.data;
   const totals = trace ? traceTotals(trace) : null;
-  const unit = lot.product.unit || '';
+  // صنف البطاقة بوحداته ورئيسيّه — كل كمية في الشاشة وورقتها بالأساس، تُعرض بالرئيسية إن وُجدت (R1)
+  const prod: LotUnitProduct = lot.product;
   const actions = statusActions(lot);
 
   return (
@@ -574,10 +584,10 @@ function LotDetail({ id, company, onBack, onOpen }: { id: string; company: Compa
                   {(planQ.data ?? []).map((r) => (
                     <tr key={r.salesRepId}>
                       <td className={r.deleted ? 'text-amber-700' : ''}>{vanName(r, tr)}</td>
-                      <td className="tabular-nums font-semibold">{fmtQ(r.usable.SELLABLE)} <span className="text-[11px] text-gray-400 font-normal">{unit}</span></td>
-                      <td className="tabular-nums">{r.held.SELLABLE > LOT_EPS ? fmtQ(r.held.SELLABLE) : '—'}</td>
-                      <td className="tabular-nums">{r.usable.EXPIRED > LOT_EPS ? fmtQ(r.usable.EXPIRED) : '—'}</td>
-                      <td className="tabular-nums">{r.usable.DAMAGED > LOT_EPS ? fmtQ(r.usable.DAMAGED) : '—'}</td>
+                      <td className="tabular-nums font-semibold">{lotQtyText(r.usable.SELLABLE, prod, fmtQ)} <span className="text-[11px] text-gray-400 font-normal">{lotUnitTag(prod)}</span></td>
+                      <td className="tabular-nums">{r.held.SELLABLE > LOT_EPS ? lotQtyText(r.held.SELLABLE, prod, fmtQ) : '—'}</td>
+                      <td className="tabular-nums">{r.usable.EXPIRED > LOT_EPS ? lotQtyText(r.usable.EXPIRED, prod, fmtQ) : '—'}</td>
+                      <td className="tabular-nums">{r.usable.DAMAGED > LOT_EPS ? lotQtyText(r.usable.DAMAGED, prod, fmtQ) : '—'}</td>
                       <td>
                         {r.usable.SELLABLE > LOT_EPS && (
                           <button className="btn-secondary py-1.5 text-xs" disabled={unload.isPending} onClick={() => setUnloadRow(r)}>{tr('تنزيل')}</button>
@@ -627,7 +637,7 @@ function LotDetail({ id, company, onBack, onOpen }: { id: string; company: Compa
                       </td>
                       {TRACE_PLACE_COLUMNS.map((c) => (
                         <td key={c.label} className={`tabular-nums ${c.strong ? `font-semibold ${c.qty(p) < -LOT_EPS ? 'text-red-600' : ''}` : ''}`}>
-                          {placeQtyText(c, p)}
+                          {placeQtyText(c, p, prod)}
                         </td>
                       ))}
                     </tr>
@@ -643,7 +653,7 @@ function LotDetail({ id, company, onBack, onOpen }: { id: string; company: Compa
               {trace.origin.map((o, i) => (
                 <div key={i} className="flex items-center justify-between text-xs gap-3">
                   <span>{originKindLabel(o.kind, tr)} · <span className="text-gray-400">{formatDateTime(o.at)}</span></span>
-                  <span className={`tabular-nums font-semibold ${o.qty < 0 ? 'text-red-600' : 'text-[#1E7A52]'}`} dir="ltr">{o.qty < 0 ? '−' : '+'}{fmtQ(Math.abs(o.qty))}</span>
+                  <span className={`tabular-nums font-semibold ${o.qty < 0 ? 'text-red-600' : 'text-[#1E7A52]'}`} dir={lotQtyDir(prod)}>{o.qty < 0 ? '−' : '+'}{lotQtyText(Math.abs(o.qty), prod, fmtQ)}</span>
                 </div>
               ))}
             </div>
@@ -678,9 +688,9 @@ function LotDetail({ id, company, onBack, onOpen }: { id: string; company: Compa
             <>
               {totals && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-center">
-                  <MiniStat label={tr('المباع')} value={`${fmtQ(totals.sold)} ${unit}`} />
-                  <MiniStat label={tr('المرتجع')} value={`${fmtQ(totals.returned)} ${unit}`} />
-                  <MiniStat label={tr('الصافي')} value={`${fmtQ(totals.net)} ${unit}`} />
+                  <MiniStat label={tr('المباع')} value={lotQtyUnitText(totals.sold, prod, fmtQ)} />
+                  <MiniStat label={tr('المرتجع')} value={lotQtyUnitText(totals.returned, prod, fmtQ)} />
+                  <MiniStat label={tr('الصافي')} value={lotQtyUnitText(totals.net, prod, fmtQ)} />
                   <MiniStat label={tr('العملاء')} value={`${totals.customers} · ${totals.invoices} ${tr('فاتورة')}`} />
                 </div>
               )}
@@ -705,9 +715,9 @@ function LotDetail({ id, company, onBack, onOpen }: { id: string; company: Compa
                           {inv.flags.length > 0 && <div className="text-[10px] text-[#C94E28]">{inv.flags.map((f) => tr(LOT_ROW_FLAG_LABELS[f] ?? f)).join(' · ')}</div>}
                         </td>
                         <td className="tabular-nums">{formatDate(inv.date)}</td>
-                        <td className="tabular-nums">{fmtQ(inv.sold)}</td>
-                        <td className="tabular-nums">{inv.returned > LOT_EPS ? fmtQ(inv.returned) : '—'}</td>
-                        <td className="tabular-nums font-semibold">{fmtQ(inv.net)}</td>
+                        <td className="tabular-nums">{lotQtyText(inv.sold, prod, fmtQ)}</td>
+                        <td className="tabular-nums">{inv.returned > LOT_EPS ? lotQtyText(inv.returned, prod, fmtQ) : '—'}</td>
+                        <td className="tabular-nums font-semibold">{lotQtyText(inv.net, prod, fmtQ)}</td>
                         <td><CertaintyBadge c={inv.weakest} /></td>
                       </tr>
                     )))}
@@ -748,14 +758,14 @@ function LotDetail({ id, company, onBack, onOpen }: { id: string; company: Compa
       )}
       {unloadOn && unloadRow && (
         <ConfirmDialog title={tr('تنزيل التشغيلة من السيارة')}
-          message={`${vanName(unloadRow, tr)} — ${fmtQ(unloadRow.usable.SELLABLE)} ${unit}`}
+          message={`${vanName(unloadRow, tr)} — ${lotQtyUnitText(unloadRow.usable.SELLABLE, prod, fmtQ)}`}
           confirmLabel={tr('تنزيل')} loading={unload.isPending} onConfirm={() => unload.mutate(unloadRow)} onClose={() => setUnloadRow(null)} />
       )}
 
       {/* ورقة PDF (خارج الشاشة) — تُلتقط عند التصدير */}
       {trace && (
         <div style={{ position: 'fixed', top: 0, left: '-10000px', zIndex: -1 }} aria-hidden>
-          <LotTraceDoc ref={pdfRef} trace={trace} company={company} unit={unit} />
+          <LotTraceDoc ref={pdfRef} trace={trace} company={company} prod={prod} />
         </div>
       )}
     </div>
@@ -937,18 +947,17 @@ function RelabelModal({ lot, preset, onClose, onDone, onOpen }: {
   const toUnknown = lines.some((l) => l.mode === 'UNKNOWN');
   const reason = relabelReasonOf(source?.lotId ?? null, toUnknown);
 
+  const qc = useQueryClient();
+  // R8: المدخلات بالأساس دائماً — ولصنفٍ له وحدة رئيسية اسمُ الأساس لاصقٌ بالخانة ومعادلٌ حيّ تحتها
+  const prod: LotUnitProduct = lot.product;
+  const hasPrimary = !!primaryUnitOf(prod);
   const save = useMutation({
     mutationFn: async () => {
-      const body: LotRelabelRequest = {
+      // baseUnitName: الأساس كما قرأته البطاقة (§2.11ب) — تحويلٌ بينهما يُردّ ٤٠٠/٤٠٩ لا تسميةً بأساسٍ قديم
+      const body = relabelBody({
         productId, place: place!.place, vanKey: place!.vanKey, bucket: effBucket, fromLotId: source!.lotId, reason,
-        note: note.trim() || null,
-        lines: lines.map((l) => ({
-          qty: roundLot(Number(l.qty)),
-          ...(l.mode === 'EXISTING' ? { toLotId: l.toLotId }
-            : l.mode === 'NEW' ? { lotNumber: l.lotNumber.trim(), productionDate: l.productionDate || null, expiryDate: l.expiryDate || null }
-            : { toLotId: null }),
-        })),
-      };
+        note, lines, baseUnitName: lot.product.unit,
+      });
       return (await lotsApi.relabel(body)).data.data as { rows: number; warnings?: unknown };
     },
     onSuccess: (res) => {
@@ -956,7 +965,11 @@ function RelabelModal({ lot, preset, onClose, onDone, onOpen }: {
       toast.success(tr('تمت التسمية'));
       onDone();
     },
-    onError: (e) => toast.error(errText(e, tr, 'تعذر الحفظ')),
+    onError: (e) => {
+      // أساس الصنف تغيّر منذ فُتحت النافذة ⇒ تُعاد قراءة البطاقة والأرصدة (والاسم اللاصق معها)
+      if (baseChangedError(e)) qc.invalidateQueries({ queryKey: ['lots'] });
+      toast.error(errText(e, tr, 'تعذر الحفظ'));
+    },
   });
   const submit = () => {
     if (!place) { toast.error(tr('لا رصيد لهذا الصنف في المستودع أو السيارات')); return; }
@@ -965,7 +978,7 @@ function RelabelModal({ lot, preset, onClose, onDone, onOpen }: {
     save.mutate();
   };
   const srcLabel = (s: { lotId: string | null; lotNumber: string | null; usable: number; blockedWhy: string | null }) =>
-    `${s.lotId == null ? tr('غير مسمى') : s.lotNumber} — ${tr('المتاح')} ${fmtQ(s.usable)}${s.blockedWhy ? ` (${tr(s.blockedWhy)})` : ''}`;
+    `${s.lotId == null ? tr('غير مسمى') : s.lotNumber} — ${tr('المتاح')} ${lotQtyText(s.usable, prod, fmtQ)}${s.blockedWhy ? ` (${tr(s.blockedWhy)})` : ''}`;
 
   return (
     <Modal wide title={preset === 'LABEL' ? tr('تسمية الرصيد القائم') : tr('إعادة التصنيف')} icon={<Tags size={20} className="text-[#E15A30]" />} onClose={onClose}
@@ -1029,10 +1042,22 @@ function RelabelModal({ lot, preset, onClose, onDone, onOpen }: {
                       <input className="input flex-1 min-w-[140px]" dir="ltr" placeholder={tr('رقم التشغيلة')} value={l.lotNumber} maxLength={LOT_NUMBER_MAX}
                         onChange={(e) => setLine(i, { lotNumber: e.target.value })} />
                     )}
-                    <div className="w-28">
-                      <input className="input tabular-nums" inputMode="decimal" placeholder={tr('الكمية')} value={l.qty}
-                        onChange={(e) => setLine(i, { qty: e.target.value })} />
-                    </div>
+                    {hasPrimary ? (
+                      <div className="w-36">
+                        {/* R8: الخانة بالأساس واسمه لاصقٌ بها بخطٍّ بارز — «10» هنا قوارير لا كراتين */}
+                        <div className="flex items-stretch">
+                          <input className="input tabular-nums rounded-e-none" inputMode="decimal" placeholder={tr('الكمية')} value={l.qty}
+                            onChange={(e) => setLine(i, { qty: e.target.value })} />
+                          <span className="shrink-0 inline-flex items-center px-2 border border-s-0 border-[#E9E1D3] rounded-e-xl bg-[#FAF7F0] text-xs font-bold text-[#1F1A13]">{lot.product.unit}</span>
+                        </div>
+                        {lotQtyOk(l.qty) && <p className="text-[11px] text-[#6E6557] mt-0.5 tabular-nums">= {lotQtyText(Number(l.qty), prod, fmtQ)}</p>}
+                      </div>
+                    ) : (
+                      <div className="w-28">
+                        <input className="input tabular-nums" inputMode="decimal" placeholder={tr('الكمية')} value={l.qty}
+                          onChange={(e) => setLine(i, { qty: e.target.value })} />
+                      </div>
+                    )}
                     {lines.length > 1 && (
                       <button type="button" className="p-2 text-gray-400 hover:text-red-600" onClick={() => setLines((ls) => ls.filter((_, k) => k !== i))}><X size={16} /></button>
                     )}
@@ -1060,7 +1085,7 @@ function RelabelModal({ lot, preset, onClose, onDone, onOpen }: {
               <label className="label">{tr('ملاحظة')}{toUnknown ? ' *' : ''}</label>
               <input className="input" value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} />
             </div>
-            <p className="text-[11px] text-[#9A8F7E]">{tr('الكميات بوحدة الأساس')} {lot.product.unit ? `(${lot.product.unit})` : ''}</p>
+            <p className="text-[11px] text-[#9A8F7E]">{lotsUnitNote(prod, tr)}</p>
             {lines.some((l) => l.mode === 'EXISTING' && l.toLotId && l.toLotId !== lot.id) && (
               <button type="button" className="text-xs text-[#C94E28] font-semibold" onClick={() => { const t = lines.find((l) => l.toLotId && l.toLotId !== lot.id)?.toLotId; if (t) { onClose(); onOpen(t); } }}>
                 {tr('فتح التشغيلة المختارة')}
@@ -1121,7 +1146,7 @@ function HealthPanel({ onOpen }: { onOpen: (id: string) => void }) {
                       ) : tr('غير مسمى')}
                     </td>
                     <td>{tr(LOT_BUCKET_LABELS[r.bucket] ?? r.bucket)}</td>
-                    <td className="tabular-nums text-red-600 font-semibold" dir="ltr">{fmtQ(r.qty)}</td>
+                    <td className="tabular-nums text-red-600 font-semibold" dir={lotQtyDir(lotRowProduct(r))}>{lotQtyText(r.qty, lotRowProduct(r), fmtQ)}</td>
                   </tr>
                 )))}
               </tbody>
@@ -1141,7 +1166,7 @@ const SHEET: React.CSSProperties = {
 };
 
 /** «تتبّع التشغيلة» ورقةً A4: البطاقة، والمجاميع، والأماكن، والعملاء فاتورةً فاتورة، والسجل — من ردّ الشاشة نفسه بلا طلبٍ ثانٍ */
-const LotTraceDoc = forwardRef<HTMLDivElement, { trace: LotTraceDto; company: CompanyCfg; unit: string }>(({ trace, company, unit }, ref) => {
+const LotTraceDoc = forwardRef<HTMLDivElement, { trace: LotTraceDto; company: CompanyCfg; prod: LotUnitProduct | null }>(({ trace, company, prod }, ref) => {
   const tr = useTr();
   const brand = company?.primaryColor || '#1e3a8a';
   const t = traceTotals(trace);
@@ -1161,7 +1186,7 @@ const LotTraceDoc = forwardRef<HTMLDivElement, { trace: LotTraceDto; company: Co
         </div>
         <div style={box}>
           <div><b>{tr('النطاق')}:</b> {trace.scope === 'BROAD' ? tr('النطاق الموسع') : tr('النطاق الدقيق')}</div>
-          <div><b>{tr('المباع')}:</b> {fmtQ(t.sold)} {unit} · <b>{tr('المرتجع')}:</b> {fmtQ(t.returned)} · <b>{tr('الصافي')}:</b> {fmtQ(t.net)}</div>
+          <div><b>{tr('المباع')}:</b> {lotQtyUnitText(t.sold, prod, fmtQ)} · <b>{tr('المرتجع')}:</b> {lotQtyText(t.returned, prod, fmtQ)} · <b>{tr('الصافي')}:</b> {lotQtyText(t.net, prod, fmtQ)}</div>
           <div><b>{tr('عدد العملاء')}:</b> {t.customers} · <b>{tr('عدد الفواتير')}:</b> {t.invoices}</div>
           <div><b>{tr('تاريخ التقرير')}:</b> {formatDateTime(new Date())}</div>
         </div>
@@ -1178,7 +1203,7 @@ const LotTraceDoc = forwardRef<HTMLDivElement, { trace: LotTraceDto; company: Co
           {trace.places.map((p, i) => (
             <tr key={i}>
               <td style={{ ...td, textAlign: 'right' }}>{placeName(p, tr)}{p.approximate ? ` (${tr('تقريبي')})` : ''}</td>
-              {TRACE_PLACE_COLUMNS.map((c) => <td key={c.label} style={c.strong ? { ...td, fontWeight: 700 } : td}>{placeQtyText(c, p)}</td>)}
+              {TRACE_PLACE_COLUMNS.map((c) => <td key={c.label} style={c.strong ? { ...td, fontWeight: 700 } : td}>{placeQtyText(c, p, prod)}</td>)}
             </tr>
           ))}
         </tbody>
@@ -1199,7 +1224,7 @@ const LotTraceDoc = forwardRef<HTMLDivElement, { trace: LotTraceDto; company: Co
                   <td style={td} dir="ltr">{c.phone ?? ''}</td>
                   <td style={td}>{inv.number}{inv.broad ? ` (${tr('النطاق الموسع')})` : ''}</td>
                   <td style={td}>{formatDate(inv.date)}</td>
-                  <td style={td}>{fmtQ(inv.sold)}</td><td style={td}>{fmtQ(inv.returned)}</td><td style={{ ...td, fontWeight: 700 }}>{fmtQ(inv.net)}</td>
+                  <td style={td}>{lotQtyText(inv.sold, prod, fmtQ)}</td><td style={td}>{lotQtyText(inv.returned, prod, fmtQ)}</td><td style={{ ...td, fontWeight: 700 }}>{lotQtyText(inv.net, prod, fmtQ)}</td>
                   <td style={td}>{tr(LOT_CERTAINTY_LABELS[inv.weakest] ?? inv.weakest)}</td>
                 </tr>
               )))}

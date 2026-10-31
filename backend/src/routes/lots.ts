@@ -20,6 +20,8 @@ import {
   type LotEventActor, type LotTx,
 } from '../services/lotsDb';
 import { relabelInTx } from '../services/lotsRelabel';
+// «الوحدة الرئيسية» §2.11ب: كميات إعادة الوسم بوحدة الصنف الصغرى — حيّاً قبل المعاملة ثم تحت قفل الصنف في relabelInTx
+import { ProductUnitsBusyError, ProductUnitsChangedError, baseGuardReply, baseUnitRequiredReply, missingBaseForApi, staleClientBase } from '../services/baseGuard';
 import { lotEventActorOf } from '../services/lotsWarehouse';
 import {
   LOT_REP_GONE_NAME, lotEventVisible, lotHasReferences, lotHealth, lotSummaries, lotTrace, lotVanKeys, namedLotBalances, placeViewDto, trackingAttention,
@@ -74,6 +76,11 @@ const LOT_ROW_SELECT = {
 } as const;
 type LotRow = Prisma.ProductLotGetPayload<{ select: typeof LOT_ROW_SELECT }>;
 const SHELF_SELECT = { id: true, name: true, shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true } as const;
+/** «الوحدة الرئيسية» (§2.11ب، عرضٌ فقط): وحدات الصنف بمعرّفاتها ورئيسيّه — primaryUnitOf يحكم الصلاحية في الواجهة */
+const PRODUCT_UNITS_SELECT = {
+  primaryUnitId: true,
+  units: { select: { id: true, name: true, factor: true, isActive: true } },
+} as const;
 
 /** صفّ product_lots ⇒ ProductLotDto (بلا tenantId ولا sourceEntryId) */
 function lotDto(r: LotRow) {
@@ -164,7 +171,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       prisma.productLot.findMany({
         where, ...paginate(page, limit),
         orderBy: [{ expiryDate: { sort: 'asc', nulls: 'last' } }, { lotNumber: 'asc' }, { id: 'asc' }],
-        select: { ...LOT_ROW_SELECT, product: { select: { name: true, code: true, unit: true } } },
+        select: { ...LOT_ROW_SELECT, product: { select: { name: true, code: true, unit: true, ...PRODUCT_UNITS_SELECT } } },
       }),
     ]);
     const [wh, vis] = await Promise.all([warehouseOn(tid), visibleReps(req, tid)]);
@@ -172,7 +179,11 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const data = rows.map((r) => {
       const s = sums.get(r.id);
       const summary = s ? { warehouse: s.warehouse, vans: s.vans, held: s.held, vanCount: s.vanCount, total: s.total } : null;
-      return { ...lotDto(r), productName: r.product.name, productCode: r.product.code, productUnit: r.product.unit, summary };
+      return {
+        ...lotDto(r), productName: r.product.name, productCode: r.product.code, productUnit: r.product.unit,
+        // «الوحدة الرئيسية» (عرضٌ فقط، القاعدة ١٢): الواجهة تعرض الكميات بالرئيسية — null ⇒ العرض كما كان
+        productUnits: r.product.units, productPrimaryUnitId: r.product.primaryUnitId ?? null, summary,
+      };
     });
     res.json({ success: true, data, pagination: paginationMeta(total, page, limit), scoped: !!vis });
   } catch (err) { next(err); }
@@ -388,6 +399,11 @@ const relabelSchema = z.object({
     expiryDate: dateField,
     qty: z.number(),
   })).min(1).max(LOT_MAX_ROWS),
+  /**
+   * «الوحدة الرئيسية» (§2.11ب): اسم وحدة الصنف الصغرى التي كُتبت بها الكميات كما رآها العميل. يختلف عن الصنف الآن ⇒ 400 UNIT_INVALID
+   * (يعيد العميل جلب الصنف)، وغائبٌ ⇒ الحكم كما كان. يُقصّ إلى ٦٤ حرفاً (baseNameKey)
+   */
+  baseUnitName: z.string().transform((v) => v.slice(0, 64)).nullish(),
 });
 
 /**
@@ -417,9 +433,20 @@ router.post('/relabel', async (req: AuthRequest, res: Response, next: NextFuncti
       if (!vanKey) { res.status(400).json({ success: false, message: 'حدد سيارة المندوب' }); return; }
       if (!(await vanInScope(req, tid, vanKey, scoped))) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
     }
+    // «الوحدة الرئيسية» (§2.11ب): الصنف وأساسه قبل المعاملة — مفتاح API على صنفٍ حُوِّل بلا baseUnitName ⇒ 400 (D19)، وأساسٌ
+    // قديم من العميل ⇒ 400 UNIT_INVALID. وأساسه المقروء يُقارن تحت القفل في relabelInTx. صنفٌ غائب ⇒ 404 من relabelInTx كما كان
+    const prod = await prisma.product.findFirst({ where: { id: body.productId, tenantId: tid }, select: { name: true, unit: true, baseConvertedAt: true } });
+    if (prod) {
+      const line = [{ productId: body.productId, baseUnitName: body.baseUnitName }];
+      const apiMissing = missingBaseForApi(!!req.user?.apiKeyId, line, new Map([[body.productId, prod]]));
+      if (apiMissing) { const g = baseUnitRequiredReply(apiMissing); res.status(g.status).json(g.body); return; }
+      const stale = staleClientBase(line, new Map([[body.productId, { name: prod.name, unit: prod.unit }]]));
+      if (stale) { res.status(400).json({ success: false, code: 'UNIT_INVALID', message: `تغيّرت وحدات «${stale}» — حدّث الصنف ثم أعد الحفظ` }); return; }
+    }
     const { day } = await companyDay(prisma, tid);
     const actor = lotActor(req);
     const data = await inLotTx(tid, [body.productId], (tx) => relabelInTx(tx, {
+      ...(prod ? { expectedBase: prod.unit, expectedBaseOf: prod.name } : {}),
       tenantId: tid, productId: body.productId, place: body.place, vanKey, bucket: body.bucket ?? 'SELLABLE',
       fromLotId: body.fromLotId ?? null, reason: body.reason, note: body.note ?? null, day,
       actor: { type: actor.type, id: actor.id, name: actor.name, scoped },
@@ -534,7 +561,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const id = String(req.params.id);
     const lot = await prisma.productLot.findFirst({
       where: { id, tenantId: tid },
-      select: { ...LOT_ROW_SELECT, product: { select: { ...SHELF_SELECT, code: true, unit: true, lotTracked: true } } },
+      select: { ...LOT_ROW_SELECT, product: { select: { ...SHELF_SELECT, code: true, unit: true, lotTracked: true, ...PRODUCT_UNITS_SELECT } } },
     });
     if (!lot) throw lotGone(id);
     const [wh, vis, { day }] = await Promise.all([warehouseOn(tid), visibleReps(req, tid), companyDay(prisma, tid)]);
@@ -545,7 +572,11 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       success: true,
       data: {
         ...dto,
-        product: { id: lot.product.id, name: lot.product.name, code: lot.product.code, unit: lot.product.unit, lotTracked: lot.product.lotTracked, shelfLifeOn: shelfLifeOf(lot.product) != null },
+        product: {
+          id: lot.product.id, name: lot.product.name, code: lot.product.code, unit: lot.product.unit, lotTracked: lot.product.lotTracked, shelfLifeOn: shelfLifeOf(lot.product) != null,
+          // «الوحدة الرئيسية» (عرضٌ فقط): وحداته بمعرّفاتها ورئيسيّه — للعرض بـproductQtyText
+          units: lot.product.units, primaryUnitId: lot.product.primaryUnitId ?? null,
+        },
         expired: isLotExpiredOn(dto, day), day, inUse, summary: sums.get(lot.id) ?? null, scoped: !!vis,
       },
     });
@@ -763,6 +794,10 @@ router.get('/:id/events', async (req: AuthRequest, res: Response, next: NextFunc
 router.use((err: unknown, _req: AuthRequest, res: Response, next: NextFunction) => {
   // خطأ التحقق 400 من المعالج العام — ورسالته تحمل قيم الطلب فلا تُفحص بنمط الانشغال («lock timeout» في حقلٍ ليس 503)
   if (err instanceof ZodError) { next(err); return; }
+  // «الوحدة الرئيسية» (§2.11ب): تغيّر وحدات الصنف تحت القفل ⇒ 409 PRODUCT_UNITS_CHANGED، وانتظار تحويله ⇒ 503 — قبل فحص انشغال اللوط.
+  // صنفا خطأ الحارس وحدهما: الانشغال الخام في بقية المسارات يبقى LOT_BUSY كما كان
+  const guard = err instanceof ProductUnitsChangedError || err instanceof ProductUnitsBusyError ? baseGuardReply(err, false) : null;
+  if (guard) { res.status(guard.status).json(guard.body); return; }
   const lh = lotHttpError(err);
   if (lh) { res.status(lh.status).json(lh.body); return; }
   const status = (err as { status?: unknown })?.status;

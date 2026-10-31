@@ -36,7 +36,7 @@ import {
   type NoteEligible, type NoteKind, type NoteOriginalInvoice, type NoteOriginalItem, type PreparedNote, type PriorNote,
 } from '../compliance/zatca/notes';
 import { resolveInvoiceRegime } from '../compliance/zatca/regime';
-import { factorOf, unitFields } from '../services/units';
+import { baseNameKey, factorOf, unitFields } from '../services/units';
 import { REP_PRODUCT_RULE_CODE, replayPredatesRepRule, repLineProblem, type RepRuleProduct } from '../services/repProductRules';
 // «تتبّع اللوط» (§٤.٩): الخطة ودمج صفوف التوزيع — services/lots.ts نقيّة (لا قاعدة ولا Prisma)
 import {
@@ -46,8 +46,12 @@ import {
 import { randomUUID } from 'node:crypto';
 import {
   ITEM_LOTS_INCLUDE, allocateLotsInTx, assertLockedStillUntracked, capsGate, clearStandardInline, einvoiceView, isReplayRequest, lotPrecheck, regimeSettingsOf,
+  PRODUCT_LOCK_TIMEOUT, Phase2ProductUnitsBusy, Phase2ProductUnitsChanged, productUnitsBusyResult, productUnitsChangedResult,
   type ClientCapsHeaders, type EinvoiceView, type Phase2IssuanceDeps, type Phase2LedgerHooks, type Phase2LotHooks, type Phase2Result, type Phase2Tx,
 } from './invoicesZatca';
+// «الوحدة الرئيسية» I10 (§2.13): انتظار القفل وحده انشغالٌ (55P03/40P01)، وسجلّ «قيد التحويل» يردّ قبل الـmutex ورأس السلسلة
+import { asLockBusy } from '../services/lots';
+import { anyConverting } from '../services/baseGuard';
 
 // ─── الاعتماديات ───
 
@@ -80,6 +84,8 @@ const ORIGINAL_ITEM_SELECT = {
     select: {
       // «تتبّع اللوط» (§٤.٩): lotTracked من الصفّ المحمَّل أصلاً — علم الشركة لا يُقرأ إلا حين يحمل الأصل صنفاً متتبَّعاً (§١٠.١)
       name: true, unit: true, damagedReturnToStock: true, lotTracked: true,
+      // «الوحدة الرئيسية»: عرضٌ وحده — رسالة تجاوز المتاح بها (compliance/zatca/notes.ts qtyText)، ولا تدخل حساباً (I2)
+      primaryUnitId: true,
       // «قيود المندوب» على الصنف (services/repProductRules.ts) — الإشعار الدائن مرتجع
       repReturnAllowed: true, repReturnUnit: true, repRulesChangedAt: true,
       units: { select: { id: true, name: true, factor: true, unitCode: true, isActive: true }, orderBy: [{ sortOrder: 'asc' }, { factor: 'asc' }] },
@@ -104,6 +110,11 @@ export interface LoadedOriginal {
   lotTrackedProducts: ReadonlySet<string>;
   /** «قيود المندوب»: قيود المرتجع لأصناف بنود الأصل — غيابها (أصلٌ مبنيّ يدوياً) ⇒ بلا قيد. */
   repReturnRules?: ReadonlyMap<string, RepRuleProduct>;
+  /**
+   * «الوحدة الرئيسية» #8: وحدة أساس كل صنفٍ من بنود الأصل كما رآها قفلها المشترك (FOR KEY SHARE) — يملؤها lockNoteOriginal وحده
+   * (معاملةٌ بـ$queryRaw)، ويقارنها stampNote بالأساس الذي حُلّت عليه بنود الطلب قبل الترقيم وICV. غائبةٌ ⇒ لا مقارنة.
+   */
+  lockedBases?: ReadonlyMap<string, string>;
 }
 
 /** مشتري اللقطة إن كانت لقطةً مفهومة (v1)؛ وإلا null — اللقطة لا تُفشل إشعاراً. */
@@ -134,6 +145,7 @@ function originalOf(row: OriginalRow): LoadedOriginal {
     baseQty: it.baseQty == null ? null : Number(it.baseQty),
     units: (it.product?.units ?? []).map(u => ({ id: u.id, name: u.name, factor: Number(u.factor), unitCode: u.unitCode, isActive: u.isActive })),
     baseUnitName: it.product?.unit ?? null,
+    primaryUnitId: it.product?.primaryUnitId ?? null,
     lineTotal: it.lineTotal == null ? null : Number(it.lineTotal),
   }));
   return {
@@ -167,13 +179,59 @@ export async function loadNoteOriginal(db: NoteDb, tenantId: string, invoiceId: 
  */
 export async function lockNoteOriginal(tx: Phase2Tx, tenantId: string, invoiceId: string): Promise<LoadedOriginal | null> {
   const raw = (tx as { $queryRaw?: unknown }).$queryRaw;
+  let lockedBases: Map<string, string> | undefined;
   if (typeof raw === 'function') {
     await tx.$queryRaw`SELECT id FROM invoices WHERE id = ${invoiceId} AND "tenantId" = ${tenantId} FOR UPDATE`;
-    await tx.$queryRaw`SELECT p.id FROM products p WHERE p."tenantId" = ${tenantId}
+    /* «الوحدة الرئيسية» I10: الإشعار يمسك رأس سلسلة الشركة وهو ينتظر هنا — فالانتظار محدودٌ بمهلةٍ محلية تُحفظ وتُستعاد (نمط
+     * lotsDb.ts): 55P03 أو 40P01 ⇒ 503 PRODUCT_UNITS_BUSY قبل الترقيم وICV. والصفوف تحمل وحدة الأساس تحت القفل (#8) */
+    const prevRows = await tx.$queryRaw<Array<{ lock_timeout: string }>>`SELECT current_setting('lock_timeout') AS lock_timeout`;
+    const prev = Array.isArray(prevRows) && typeof prevRows[0]?.lock_timeout === 'string' ? prevRows[0].lock_timeout : '0';
+    await tx.$queryRaw`SELECT set_config('lock_timeout', ${PRODUCT_LOCK_TIMEOUT}, true)`;
+    let rows: Array<{ id: string; unit: string }>;
+    try {
+      rows = await tx.$queryRaw<Array<{ id: string; unit: string }>>`SELECT p.id, p.unit FROM products p WHERE p."tenantId" = ${tenantId}
       AND p.id IN (SELECT ii."productId" FROM invoice_items ii WHERE ii."invoiceId" = ${invoiceId}) FOR KEY SHARE`;
+    } catch (e) {
+      if (asLockBusy(e)) throw new Phase2ProductUnitsBusy();
+      throw e;
+    }
+    await tx.$queryRaw`SELECT set_config('lock_timeout', ${prev}, true)`;
+    lockedBases = new Map((Array.isArray(rows) ? rows : [])
+      .filter((r) => r && typeof r.id === 'string' && typeof r.unit === 'string')
+      .map((r) => [r.id, r.unit]));
   }
   const row = await tx.invoice.findFirst({ where: { id: invoiceId, tenantId }, select: ORIGINAL_SELECT });
-  return row ? originalOf(row) : null;
+  if (!row) return null;
+  const loaded = originalOf(row);
+  return lockedBases ? { ...loaded, lockedBases } : loaded;
+}
+
+/**
+ * «الوحدة الرئيسية» #8 (§2.13): بنود الطلب الصريحة حُلّت على أساس الصنف كما قُرئ قبل المعاملة (`expectedBase` من لقطة
+ * resolveLineUnit، وإلا أساس المعاينة) — تحويلٌ التزم قبل قفل الأصناف يغيّره، فتُقرأ كمية «٢» بأساسٍ آخر (حبّتين بدل كرتونين).
+ * يُرمى Phase2ProductUnitsChanged (409 حيّاً و503 لإعادة الرفع) قبل التحضير والترقيم وICV. 'FULL' يُبنى من الصفوف المقفلة نفسها
+ * فلا يحتاج مقارنة، والمدين بلا صنف. القفل غائبٌ (معاملةٌ مزيّفة) ⇒ لا مقارنة.
+ */
+export function assertNoteBasesUnchanged(lines: CreditLinesInput, preview: LoadedOriginal, locked: LoadedOriginal): void {
+  const lockedBases = locked.lockedBases;
+  if (!lockedBases || lines === 'FULL') return;
+  const list: ReadonlyArray<{ invoiceItemId?: string | null; productId?: string | null; expectedBase?: string | null }> = Array.isArray(lines)
+    ? (lines as readonly CreditLineRequest[])
+    : (lines as { fromReturnItems: readonly ReturnItemLine[] }).fromReturnItems;
+  const items = preview.original.items;
+  const moved: string[] = [];
+  for (const l of list) {
+    const item = l.invoiceItemId ? items.find(i => i.id === l.invoiceItemId) : items.find(i => !!l.productId && i.productId === l.productId);
+    const pid = item?.productId ?? l.productId ?? null;
+    if (!pid || !lockedBases.has(pid)) continue;
+    const expected = l.expectedBase ?? items.find(i => i.productId === pid)?.baseUnitName ?? null;
+    if (expected == null) continue;
+    if (baseNameKey(expected) !== baseNameKey(lockedBases.get(pid))) {
+      const name = item?.itemName ?? items.find(i => i.productId === pid)?.itemName ?? pid;
+      if (!moved.includes(name)) moved.push(name);
+    }
+  }
+  if (moved.length) throw new Phase2ProductUnitsChanged(moved);
 }
 
 /** إشعارات الأصل الملتزَمة (الدائنة تُنقص المتاح، والمدينة تُقرأ ولا تُنقص — countsTowardCredit). */
@@ -357,6 +415,13 @@ export interface ReturnItemLine {
   /** بوحدة الإرجاع `unitId` (غائبةٌ = وحدة الأساس بمعامل ١ — عقد التصميم §6) */
   qty: number;
   unitId?: string | null;
+  /**
+   * «الوحدة الرئيسية» #8 — داخليةٌ يملؤها routes/invoices.ts من لقطة resolveLineUnit وحدها (لا من الجسم): معامل وحدة البند
+   * واسمها (ومعهما إعادة أساس مستندٍ دون اتصال بعد تحويل)، والأساس الذي حُلّت عليه — يقارنه الإشعار تحت قفل الأصناف.
+   */
+  unitFactor?: number | null;
+  unitName?: string | null;
+  expectedBase?: string | null;
 }
 
 /** بنود الإشعار الدائن: 'FULL' كامل، أو قائمة ببنود الأصل، أو بنود مرتجعٍ تُحلّ إلى بنود الأصل. */
@@ -410,8 +475,13 @@ export function returnItemsToLines(items: readonly ReturnItemLine[], creditable:
   items.forEach((it, i) => {
     // الوحدة تنتقل كما هي: الكمية بوحدة الإرجاع، والحارس يحوّلها إلى الأساس (notes.ts resolveCreditLines)
     const unitId = typeof it.unitId === 'string' && it.unitId !== '' ? it.unitId : null;
+    // #8: لقطة الخادم ترافق البند فلا تسقط (حبّةٌ أو كرتونٌ من مستندٍ أُعيد أساسه) — وبلاها الطلب كما كان حرفياً
+    const snap = {
+      ...(it.unitFactor != null && { unitFactor: Number(it.unitFactor), unitName: it.unitName ?? null }),
+      ...(it.expectedBase != null && { expectedBase: it.expectedBase }),
+    };
     const explicit = typeof it.invoiceItemId === 'string' && it.invoiceItemId !== '' ? it.invoiceItemId : null;
-    if (explicit) { out.push({ invoiceItemId: explicit, qty: Number(it.qty), unitId }); return; }
+    if (explicit) { out.push({ invoiceItemId: explicit, qty: Number(it.qty), unitId, ...snap }); return; }
     const pid = typeof it.productId === 'string' && it.productId !== '' ? it.productId : null;
     const matches = pid ? creditable.filter(l => l.productId === pid) : [];
     if (matches.length === 0) {
@@ -422,7 +492,7 @@ export function returnItemsToLines(items: readonly ReturnItemLine[], creditable:
       issues.push(lineIssue(`items[${i}].invoiceItemId`, `الصنف «${matches[0].itemName || i + 1}» مكرَّر في الفاتورة الأصلية — حدّد بند الفاتورة المراد إرجاعه`));
       return;
     }
-    out.push({ invoiceItemId: matches[0].invoiceItemId, qty: Number(it.qty), unitId });
+    out.push({ invoiceItemId: matches[0].invoiceItemId, qty: Number(it.qty), unitId, ...snap });
   });
   if (issues.length) throw noteLinesError(issues);
   return out;
@@ -660,8 +730,14 @@ async function issueNote(
     // رفضٌ لطلبٍ صدر توأمه بالـclientRef لا يُرمى (lotPrecheck): يمضي فيلتقطه سباق P2002 داخل المعاملة
     const pre = lots && prePlan ? await lotPrecheck(lots.hooks, deps.db, prePlan) : null;
     if (pre) throw pre;
+    // «الوحدة الرئيسية» I10 (§2.13): صنفٌ في بنود الإشعار قيد التحويل الآن ⇒ 503 قبل الـmutex ورأس السلسلة (runIssuance)
+    const notePids = preview.prepared.lines.map(l => l.productId).filter((p): p is string => !!p);
+    if (notePids.length && anyConverting(ctx.tenantId, notePids)) return productUnitsBusyResult();
     return await stampNote(kind, ctx, deps, seller, regime.unit, loaded, now, lots);
   } catch (e) {
+    // #8 وI10: تحويلٌ التزم بين المعاينة وقفل الأصناف، أو انتظر القفلُ تحويلاً أطول من مهلته — لا مستند ولا ICV
+    if (e instanceof Phase2ProductUnitsChanged) return productUnitsChangedResult(ctx.caps, e.names);
+    if (e instanceof Phase2ProductUnitsBusy) return productUnitsBusyResult();
     const err = issuanceHttpError(e);
     if (!err) throw e; // P2002 على clientRef (سباق الرفع المكرّر) وما لا يخصّ الفوترة
     if (err.alert && deps.alert) {
@@ -693,6 +769,8 @@ async function stampNote(
       await deps.chain.lockChainHead(tx, unit.id);
       const locked = await lockNoteOriginal(tx, ctx.tenantId, ctx.originalInvoiceId);
       if (!locked) throw new ZatcaHttpError('ZATCA_ORIGINAL_NOT_CLEARED', { messageAr: 'الفاتورة الأصلية غير موجودة', reason: 'NOT_FOUND' });
+      // #8: أساس كل بندٍ صريح كما حُلّ قبل المعاملة مقابل أساسه تحت القفل — قبل التحضير الحاكم والترقيم وICV
+      if (kind === 'CREDIT_NOTE') assertNoteBasesUnchanged((ctx as CreditNoteContext).lines, preview, locked);
       const priorNotes = await loadPriorNotes(tx as unknown as NoteDb, ctx.tenantId, locked.original.id);
       const legacyReturns = await legacyReturnsFor(tx as unknown as NoteDb, ctx.tenantId, locked.original);
       // التحضير الحاكم: من الصفوف المقفلة وحدها (إشعارٌ التزم بيننا يُفشل هذا بحارس الكمية لا بازدواج صامت)

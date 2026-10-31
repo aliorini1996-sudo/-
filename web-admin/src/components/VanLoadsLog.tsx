@@ -9,9 +9,16 @@ import { shareOrDownloadExcel } from '../utils/excel';
 import { localDay } from '../lib/paymentMethods';
 import { loadByLabel, loadQty, loadsLogRows, locationFilterOptions, type SalesLocation, type VanLoadRow } from '../lib/locations';
 import { factorOf, sumBase } from '../lib/units';
+import { loadSumLabel } from '../lib/stockRequest';
 
-/** بند التحميل كما يردّه /van-stock/loads: الصفّ كاملاً، ومنه لقطة وحدته (unitName/unitFactor/baseQty) — الوحدات المتعددة */
-type LogItem = VanLoadRow['items'][number] & { unitName?: string | null; unitFactor?: number | null; baseQty?: number | null };
+/**
+ * بند التحميل كما يردّه /van-stock/loads: الصفّ كاملاً، ومنه لقطة وحدته (unitName/unitFactor/baseQty) — الوحدات المتعددة.
+ * و`product.primaryUnitId` «الوحدة الرئيسية» (عرضٌ فقط) — غيابها أو null: العمود كما كان حرفاً
+ */
+type LogItem = VanLoadRow['items'][number] & {
+  unitName?: string | null; unitFactor?: number | null; baseQty?: number | null;
+  product?: { primaryUnitId?: string | null } | null;
+};
 
 /**
  * «سجل التحميلات» في مخزون السيارات — ميزة «لوكيشن» (طلب المالك ٢١ أكتوبر ٢٠٢٦: «يظهر الموقع كعمود وتصفية في
@@ -137,7 +144,11 @@ export default function VanLoadsLog({ reps }: { reps: { salesRepId: string; repN
               </tr>
             </thead>
             <tbody>
-              {rows.map(l => (
+              {rows.map(l => {
+                const items = l.items as LogItem[];
+                // R3: وسم المجموع — «بالوحدات الصغرى» حين في البنود صنفٌ له رئيسية، وإلّا «مجموع بوحدات الأساس» كما كان
+                const sumLabel = loadSumLabel(items);
+                return (
                 <tr key={l.id} className="border-t border-[#F1EBDF] align-top">
                   <td className="px-5 py-2.5 text-xs text-[#6E6557] whitespace-nowrap">{formatDateTime(l.createdAt)}</td>
                   <td className="px-3 py-2.5 font-semibold text-[#1F1A13] whitespace-nowrap">{l.salesRep?.name ?? '—'}</td>
@@ -154,14 +165,17 @@ export default function VanLoadsLog({ reps }: { reps: { salesRepId: string; repN
                     </div>
                     {l.note && <p className="text-[11px] text-[#9A8F7E] mt-1">{l.note}</p>}
                   </td>
-                  {/* المجموع بالأساس (كملخّص المواقع في الخادم): كرتونٌ وثلاث حبّات = ٢٧ لا ٤ — وبلا وحداتٍ كما كان */}
+                  {/* المجموع بالأساس (كملخّص المواقع في الخادم): كرتونٌ وثلاث حبّات = ٢٧ لا ٤ — وبلا وحداتٍ كما كان.
+                      ومع صنفٍ له «وحدة رئيسية» الوسم ظاهرٌ تحت الرقم لا في التلميح وحده: «٤٨» بجانب «٢ كرتون» تُقرأ كراتين */}
                   <td className="text-center px-3 py-2.5 font-bold text-[#1E7A52] tabular-nums"
-                    title={(l.items as LogItem[]).some(it => factorOf(it) !== 1) ? tr('مجموع بوحدات الأساس') : undefined}>
-                    {fmtQty((l.items as LogItem[]).some(it => factorOf(it) !== 1) ? sumBase(l.items as LogItem[]) : loadQty(l))}
+                    title={sumLabel ? tr(sumLabel) : undefined}>
+                    {fmtQty(items.some(it => factorOf(it) !== 1) ? sumBase(items) : loadQty(l))}
+                    {sumLabel === 'بالوحدات الصغرى' && <span className="block text-[10px] font-normal text-[#9A8F7E]">{tr('بالوحدات الصغرى')}</span>}
                   </td>
                   <td className="text-center px-3 py-2.5 text-xs text-[#6E6557]">{loadByLabel(l.createdBy, tr)}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

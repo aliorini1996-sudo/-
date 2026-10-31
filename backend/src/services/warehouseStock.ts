@@ -27,6 +27,8 @@ export interface WarehouseRow {
   unit: string;
   /** وحدات الصنف بمعاملاتها — لعرض الرصيد «٢ كرتون و٣ حبة» (formatQty) لا لحسابه */
   units?: UnitDef[];
+  /** «الوحدة الرئيسية» (القاعدة ١٢): عرضٌ فقط — الواجهة تعرض الرصيد والتكلفة بها (productQtyText). لا يدخل الحساب هنا */
+  primaryUnitId?: string | null;
   received: number;        // الوارد للمستودع
   adjusted: number;        // تسويات المستودع (+/−)
   loadedToVans: number;    // خرج للسيارات
@@ -42,7 +44,7 @@ export interface WarehouseRow {
 /** حقول وحدات الصنف كما يحتاجها العرض (formatQty) — النشطة والموقوفة معاً، وformatQty يُسقط الموقوفة */
 export const UNIT_SELECT = { id: true, name: true, factor: true, isActive: true } as const;
 
-interface ProdMeta { id: string; name: string; code: string; unit: string; status?: string; units?: UnitDef[] }
+interface ProdMeta { id: string; name: string; code: string; unit: string; status?: string; units?: UnitDef[]; primaryUnitId?: string | null }
 // `at` لحظة الحركة — التقييم متوسّطٌ متحرّك فترتيبه الزمنيّ جزءٌ من صحّته:
 // المرور غير المرتَّب يعطي متوسّطاً خاطئاً بصمت. اختياريّ لتبقى الاختبارات
 // النقيّة تمرّر ترتيبها بترتيب المصفوفة.
@@ -80,6 +82,11 @@ export function composeWarehouse(
   decimals: number = DEFAULT_CURRENCY_DECIMALS,
   /** يُملأ بطبقات كل سيارة لكل صنف (صنف ← سيارة ← طبقات) — لتقييم ما في السيارات */
   layersOut?: Map<string, Map<string, VanLayer[]>>,
+  /**
+   * يُملأ بمتوسّط كل صنف **غير المقرَّب** (صنف ← تكلفة وحدة الأساس) — بديل ما زاد على طبقات السيارة في summarizeVansStock.
+   * المقرَّب (avgCost في الصفّ) للعرض وحده: به كان تحويل وحدة الأساس يغيّر قيمة «في مخزون السيارات» (#13)
+   */
+  rawAvgOut?: Map<string, number>,
 ): WarehouseRow[] {
   const acc = new Map<string, { received: number; adjusted: number; loadedToVans: number; returnedFromVans: number }>();
   const ensure = (pid: string) => {
@@ -126,11 +133,15 @@ export function composeWarehouse(
     const onHand = roundDecimal(m.received + m.adjusted + m.returnedFromVans - m.loadedToVans, 4);
     // الترتيب زمنيّ، وعند تساوي اللحظة يُحفظ ترتيب الورود (فرزٌ مستقرّ)
     const mv = (moves.get(p.id) || []).slice().sort((x, y) => x.t - y.t || x.i - y.i);
-    const out: { vanLayers?: Map<string, VanLayer[]> } | undefined = layersOut ? {} : undefined;
+    const out: { vanLayers?: Map<string, VanLayer[]>; rawAvgCost?: number } | undefined = layersOut || rawAvgOut ? {} : undefined;
     const val = valueStock(mv, decimals, out);
     if (layersOut && out?.vanLayers) layersOut.set(p.id, out.vanLayers);
+    if (rawAvgOut && out?.rawAvgCost !== undefined) rawAvgOut.set(p.id, out.rawAvgCost);
     return {
-      productId: p.id, name: p.name, code: p.code, unit: p.unit, ...(p.units && { units: p.units }), ...m, onHand,
+      productId: p.id, name: p.name, code: p.code, unit: p.unit, ...(p.units && { units: p.units }),
+      // عرضٌ فقط، ومن القراءة وحدها (loadWarehouseInputs) — مستدعٍ نقيّ لا يمرّره يبقى صفّه كما كان حرفياً
+      ...(p.primaryUnitId !== undefined && { primaryUnitId: p.primaryUnitId }),
+      ...m, onHand,
       avgCost: val.avgCost,
       stockValue: val.stockValue,
       costedQty: val.costedQty,
@@ -201,7 +212,7 @@ export async function loadWarehouseInputs(tid: string, opts: { includeInactive?:
   const [products, whItems, vanItems] = await Promise.all([
     prisma.product.findMany({
       where: { tenantId: tid, ...(!opts.includeInactive && { status: { not: 'INACTIVE' } }) },
-      select: { id: true, name: true, code: true, unit: true, status: true, units: { select: UNIT_SELECT } },
+      select: { id: true, name: true, code: true, unit: true, status: true, units: { select: UNIT_SELECT }, primaryUnitId: true },
     }),
     prisma.warehouseEntryItem.findMany({
       where: { entry: { tenantId: tid, ...(opts.before && { createdAt: { lt: opts.before } }) } },

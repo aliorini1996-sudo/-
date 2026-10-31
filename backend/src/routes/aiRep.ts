@@ -63,6 +63,7 @@ import { addUsage, refundUsage, reserveUsage, usageDay, usageToday } from '../ai
 import { getSession, noteShownExpected, patchSessionOutlet, peekSession, saveSession, SessionOutlet, type PendingScanGuide, type SessionDemand } from '../ai-rep/session';
 import { expectedFor, expectedView, shownOf, studyExpected, topExpected, typeBaselines, type Anchor, type DemandReview, type ExpectedShop, type TypeBaseline } from '../ai-rep/googleDemand';
 import { loadAnchors, loadDemandProducts } from '../ai-rep/googleDemandData';
+import { primaryIdOf } from '../ai-rep/baseQty';
 import { resolveGsigFactor } from '../ai-rep/learn/gsig';
 
 export { usageDay };
@@ -124,10 +125,15 @@ function summarize(r: EstimateResult) {
     peers: r.peers,
     ringKm: r.ringKm,
     monthlyTotalValue: r.monthlyTotalValue,
-    // الوسيط بوحدة الأساس `unit`، و`units` (لصنفٍ له وحدات) ليفكّكه الجهاز «٢ كرتون و٣ حبة»
-    top: r.products.filter(p => (p.buyers ?? 0) > 0 && p.penetration != null).slice(0, 3).map(p => ({
-      name: p.name, unit: p.unit, ...(p.units?.length ? { units: p.units } : {}), penetration: p.penetration, qtyMedian: p.monthlyQty?.median ?? null,
-    })),
+    // الوسيط بوحدة الأساس `unit`، و`units` (لصنفٍ له وحدات) ليفكّكه الجهاز «٢ كرتون و٣ حبة» — ويقف عند «الوحدة
+    // الرئيسية» حين للصنف رئيسية (`primaryUnitId` من الوحدة الموسومة، حاضرٌ معها وحدها)
+    top: r.products.filter(p => (p.buyers ?? 0) > 0 && p.penetration != null).slice(0, 3).map(p => {
+      const primaryUnitId = primaryIdOf(p.units);
+      return {
+        name: p.name, unit: p.unit, ...(p.units?.length ? { units: p.units, ...(primaryUnitId && { primaryUnitId }) } : {}),
+        penetration: p.penetration, qtyMedian: p.monthlyQty?.median ?? null,
+      };
+    }),
   };
 }
 

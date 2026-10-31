@@ -9,7 +9,7 @@
  */
 import { num, type ExcelSheet } from '../utils/excel';
 import { uniqueSheetNames } from './paymentMethods';
-import { baseQtyOf } from './units';
+import { baseQtyOf, primaryUnitOf, productQtyText, type UnitDef } from './units';
 
 type Tr = (ar: string) => string;
 
@@ -42,8 +42,13 @@ export interface LocBucket {
   sales: CountAmount;
   returns: CountAmount;
   net: number;
-  loads: { count: number; qty: number; products: { productId: string; name: string; unit: string | null; qty: number }[] };
+  loads: { count: number; qty: number; products: LocLoadProduct[] };
 }
+/**
+ * صنفٌ في تحميلات الموقع: `qty` **بالأساس** (`unit` اسمه). `units` (بمعرّفاتها) و`primaryUnitId` من الخادم لعرض
+ * «الوحدة الرئيسية» (services/locations.ts) — غيابهما (خادمٌ أقدم) أو null ⇒ العرض كما كان حرفاً.
+ */
+export interface LocLoadProduct { productId: string; name: string; unit: string | null; qty: number; units?: UnitDef[] | null; primaryUnitId?: string | null }
 export interface LocationsSummaryData {
   range: { from: string; to: string; timezone: string };
   rows: LocBucket[];
@@ -199,6 +204,28 @@ export const hasActivity = (b: LocBucket) => b.sales.count > 0 || b.returns.coun
 /** الكميات بمنزلتين كبقيّة مخزون السيارات (fmtQty) — رقمٌ لا نصّ في Excel */
 const qtyNum = (v: number) => Math.round((Number.isFinite(v) ? v : 0) * 100) / 100;
 
+// ─── الوحدة الرئيسية (R1 وR3 وR9) ───
+
+/**
+ * كمية صنفٍ محمَّل بوحدته الرئيسية «52 كرتون و2 قارورة» (productQtyText، وأرقامها بـ`fmt` منسّق الشاشة)، أو null لصنفٍ بلا
+ * رئيسية صالحة — فيعرضه المستدعي كما كان حرفاً («الرقم + اسم الأساس»، I1). الكمية نفسها بالأساس لا تتغيّر.
+ */
+export function loadProductPrimaryText(p: LocLoadProduct, fmt: (n: number) => string): string | null {
+  if (!primaryUnitOf(p)) return null;
+  return productQtyText(Number(p.qty) || 0, p).replace(/\d+(?:\.\d+)?/g, (m) => fmt(Number(m)));
+}
+
+/** في تحميلات الملخّص صنفٌ له وحدة رئيسية؟ (`!!primaryUnitId` كما في R3: المعرّف الصادق، لا `in` ولا `!== undefined`) */
+export const summaryHasPrimary = (data: LocationsSummaryData): boolean =>
+  summaryBuckets(data).some((b) => b.loads.products.some((p) => !!p.primaryUnitId));
+
+/**
+ * وسم مجموع كميات التحميل عبر الأصناف (R3): المجموع بالأساس دائماً، فحين فيه صنفٌ له وحدة رئيسية يُوسم «بالوحدات الصغرى» —
+ * فلا يُقرأ «٥٠٠» كراتين. وإلا '' فيبقى الوسم القائم حرفياً.
+ */
+export const loadsQtySuffix = (data: LocationsSummaryData | null | undefined, tr: Tr): string =>
+  data && summaryHasPrimary(data) ? ` (${tr('بالوحدات الصغرى')})` : '';
+
 /**
  * أوراق التصدير: ورقة المواقع (سطرٌ لكلّ موقع ثم «بلا موقع» ثم الإجمالي — أرقام الخادم كما هي)، وورقة أصناف التحميل
  * (لكل موقعٍ أصنافه بكمياتها). التحميل بالكمية وحدها: لا كلفةَ مخزّنة لكل تحميل (القرار ٧ في services/locations.ts).
@@ -208,7 +235,7 @@ export function summarySheets(data: LocationsSummaryData, tr: Tr): ExcelSheet[] 
   const cSalesN = tr('عدد فواتير البيع'), cSales = tr('مبلغ المبيعات');
   const cRetN = tr('عدد المرتجعات'), cRet = tr('مبلغ المرتجعات');
   const cNet = tr('صافي المبيعات');
-  const cLoadsN = tr('عدد التحميلات'), cLoadsQ = tr('كمية التحميل');
+  const cLoadsN = tr('عدد التحميلات'), cLoadsQ = `${tr('كمية التحميل')}${loadsQtySuffix(data, tr)}`;
   const line = (name: string, b: Pick<LocBucket, 'sales' | 'returns' | 'net'> & { loads: { count: number; qty: number } }): Record<string, unknown> => ({
     [cLoc]: name,
     [cSalesN]: b.sales.count,
@@ -223,16 +250,22 @@ export function summarySheets(data: LocationsSummaryData, tr: Tr): ExcelSheet[] 
   rows.push(line(tr('الإجمالي'), data.totals));
 
   const cProduct = tr('الصنف'), cUnit = tr('الوحدة'), cQty = tr('الكمية');
+  // R9: الكمية رقماً بالأساس كما كانت (للجمع في Excel)، ونصّها بالوحدة الرئيسية عمودٌ يُضاف حين في الملخّص صنفٌ له رئيسية
+  const withText = summaryHasPrimary(data);
+  const cText = tr('الكمية بوحداتها');
   const products: Record<string, unknown>[] = [];
   for (const b of summaryBuckets(data)) {
     for (const p of b.loads.products) {
-      products.push({ [cLoc]: bucketLabel(b, tr), [cProduct]: p.name || '—', [cUnit]: p.unit ?? '', [cQty]: qtyNum(p.qty) });
+      products.push({
+        [cLoc]: bucketLabel(b, tr), [cProduct]: p.name || '—', [cUnit]: p.unit ?? '', [cQty]: qtyNum(p.qty),
+        ...(withText && { [cText]: productQtyText(qtyNum(p.qty), p) }),
+      });
     }
   }
   const names = uniqueSheetNames([tr('المواقع'), tr('أصناف التحميل')]);
   return [
     { name: names[0], rows, colWidths: [24, 14, 16, 14, 16, 16, 14, 14] },
-    { name: names[1], rows: products, colWidths: [24, 28, 10, 14] },
+    { name: names[1], rows: products, colWidths: withText ? [24, 28, 10, 14, 24] : [24, 28, 10, 14] },
   ];
 }
 

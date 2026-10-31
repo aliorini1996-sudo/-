@@ -2847,6 +2847,230 @@
    "what": "تقرير المرتجعات يردّ items {name, unit, qty, lineTotal}",
    "change": "وحدة البند المرتجع ومعامله",
    "risk": "low"
+  },
+  {
+   "file": "backend/src/services/units.ts",
+   "line": 280,
+   "kind": "display",
+   "what": "«الوحدة الرئيسية» (القاعدة ١٢): primaryUnitOf(p) القارئ الوحيد لـprimaryUnitId (والمرآة web-admin/src/lib/units.ts حرفياً)",
+   "change": "معرّف غائب أو لا يطابق وحدة أو موقوف أو معامل خارج ٢..MAX_UNIT_FACTOR ⇒ null ⇒ سلوك ما قبل الميزة. لا تقرأ primaryUnitId خاماً في أي صفحة أو خدمة",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/services/units.ts",
+   "line": 180,
+   "kind": "display",
+   "what": "«الوحدة الرئيسية» (القاعدة ١٢): formatQty(baseQty, units, baseName, primary?) وproductQtyText(baseQty, p)",
+   "change": "مع الرئيسية يقف عندها («52 كرتون و2 قارورة»، «0 كرتون»)، وبلاها الناتج حرفياً كما كان (تكافؤ I1 باختبار null وundefined)",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/services/units.ts",
+   "line": 315,
+   "kind": "price",
+   "what": "«الوحدة الرئيسية» (القاعدة ١٢): derivedBasePrice(primaryPrice, factor) = roundHalfUp(p ÷ f, 4)",
+   "change": "الإنشاء العكسي والاستيراد والتحويل (الخطوة ٥) يعطون سعر القارورة نفسه للكرتون نفسه (16.33 ÷ 8 = 2.0413)",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/services/units.ts",
+   "line": 322,
+   "kind": "other",
+   "what": "حماية التحويل (القاعدة ١٣): baseNameKey(s) = String(s ?? '').trim().slice(0, 64)",
+   "change": "كل مقارنة أساس بالاسم تمرّ منه على الطرفين (staleClientBase وmovedBases وresolveLineUnit وchainFrom وكتّاب إعداد الصنف)، فاسمٌ أطول من ٦٤ حرفاً لا يُرى قديماً",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/rep/repUnits.ts",
+   "line": 73,
+   "kind": "display",
+   "what": "«الوحدة الرئيسية» (القاعدة ١٢): primaryChoice(p) والافتراض defaultChoice",
+   "change": "الافتراض = primaryChoice ?? الأكبر، وunitChoices(p)[0] يبقى الأساس (I4) لأن rebaseRow وrequestUnitOf وrefreshLineUnit تعتمد عليه. قيد الوحدة من «قيود المندوب» يغلب الرئيسية",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/products.ts",
+   "line": 651,
+   "kind": "schema",
+   "what": "«الوحدة الرئيسية» (القاعدة ١٢): POST /products الموسَّع: units[] وprimaryUnitName وbasePrice الاختياري",
+   "change": "التفرّع على primaryUnitName وحده: بلاه المسار القديم حرفياً ويُتجاهل units. ومعه الصنف ووحداته وprimaryUnitId في معاملة واحدة، وPRIMARY_UNIT_INVALID",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/products.ts",
+   "line": 708,
+   "kind": "price",
+   "what": "حماية التحويل (القاعدة ١٣): PUT /products/:id يكتب basePrice أو unit أو رقعة primaryUnit",
+   "change": "lockProductForEdit (FOR NO KEY UPDATE بمهلة) ومقارنة expectedBaseName ⇒ 409 BASE_UNIT_CHANGED، وD19 لمفتاح على صنف محوَّل ⇒ 400 BASE_UNIT_REQUIRED، والاسم المتقاعد ⇒ 409 BASE_NAME_RETIRED، وإعادة التسمية تكتب صفّ سجلّ بمعامل ١. primaryUnitId في الجسم يُتجاهل",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/products.ts",
+   "line": 1031,
+   "kind": "schema",
+   "what": "«الوحدة الرئيسية» (القاعدة ١٢): PUT /products/:id/primary-unit علمٌ لا مال (D11)",
+   "change": "تحت lockProduct: expectedPrimaryUnitId ⇒ 409 PRIMARY_UNIT_CHANGED، ووحدة غير نشطة أو لصنف آخر ⇒ 400 PRIMARY_UNIT_INVALID. إيقاف الرئيسية أو حذفها ⇒ 409 PRIMARY_UNIT_IN_USE إلا مع clearPrimary",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/products.ts",
+   "line": 865,
+   "kind": "price",
+   "what": "حماية التحويل (القاعدة ١٣): PUT /products/:id/price-tiers بحدود محسوبة على الرئيسية",
+   "change": "expectedBaseName ⇒ 409 BASE_UNIT_CHANGED، وexpectedPrimary {id, factor} بمعامل قديم ⇒ 409 PRIMARY_UNIT_CHANGED بلا كتابة",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/products.ts",
+   "line": 1153,
+   "kind": "other",
+   "what": "حماية التحويل (القاعدة ١٣): convert-base «إضافة وحدة فرعية أصغر»: الحارس convertBaseRefusalFor(req) قبل convertBaseSchema.parse",
+   "change": "بوابتان (CONVERT_BASE_OPEN_TO_COMPANY وTenant.convertBaseOpen)، ورموز الرفض الخمسة، وإقرارا ERP وAPI، وdryRun، وkeepOldBaseAsPrimary، وصفّ ProductBaseConversion وbaseConvertedAt في المعاملة، وminQty/maxQty × F، وmarkConverting/unmarkConverting",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/products.ts",
+   "line": 368,
+   "kind": "offline",
+   "what": "حماية التحويل (القاعدة ١٣): GET /products/customer-prices/:customerId يردّ unit",
+   "change": "أساس الصنف لحظة القراءة، فيعيد تطبيق المندوب أساس كاش أسعار العميل بعد تحويل (rebaseCustPrices) بدل ضرب سعر الكرتون ×٢٤",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/auth.ts",
+   "line": 133,
+   "kind": "other",
+   "what": "حماية التحويل (القاعدة ١٣): adminPermissionFields يحسب canConvertBase وconvertBaseRefusalCode",
+   "change": "مصدر واحد لردّ الدخول والانتحال والتسجيل و/me (convertBaseUiCode)، وownerSessionPermissionFields يعطي true. الزرّ في ProductModal وMProducts يقرأ user.canConvertBase لا impersonating",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/invoices.ts",
+   "line": 260,
+   "kind": "offline",
+   "what": "حماية التحويل (القاعدة ١٣): resolveLineUnit في إعادة الرفع لصنف baseConvertedAt ≠ null",
+   "change": "الحالات A (لقطة بأساس قديم ⇒ chainFrom) وB (بلا لقطة ⇒ السعر ثم الساعة) وC (معامل بلا أساس ⇒ pickByFactor ثم الساعة)، وrebase وnotice وإشعار إدارة لكل clientRef، وscaleLotHint. صنف لم يُحوَّل ⇒ لا استعلام على السجلّ (I8)",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/invoices.ts",
+   "line": 1216,
+   "kind": "qty_validation",
+   "what": "حماية التحويل (القاعدة ١٣): قفل الأصناف FOR KEY SHARE في الإصدار",
+   "change": "lock_timeout محلي = LOT_LOCK_TIMEOUT ثم استعادته (I10)، و55P03 ⇒ 503 PRODUCT_UNITS_BUSY. وD19: missingBaseForApi في POST / وcredit-note",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/invoicesZatca.ts",
+   "line": 364,
+   "kind": "einvoice",
+   "what": "حماية التحويل (القاعدة ١٣): lockProductBases في إصدار المرحلة الثانية خلف رأس السلسلة",
+   "change": "lock_timeout محلي، وanyConverting قبل runIssuance ⇒ 503 قبل الـmutex والترقيم وICV. فالتحويل الطويل لا يوقف فواتير الشركة كلها",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/invoicesNotes.ts",
+   "line": 115,
+   "kind": "einvoice",
+   "what": "حماية التحويل (القاعدة ١٣): lockNoteOriginal يقفل الأصناف بلا مقارنة أساس (#8)",
+   "change": "SELECT p.id, p.unit … FOR KEY SHARE بمهلة، وlockedBases، والمقارنة في stampNote قبل الترقيم ⇒ 409 حيّاً و503 للإعادة",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/vanStock.ts",
+   "line": 37,
+   "kind": "stock_balance",
+   "what": "حماية التحويل (القاعدة ١٣): loadSchema وPOST /van-stock/loads (#2، #4) ومنه EXPIRED_OUT وDAMAGED_OUT",
+   "change": "baseUnitName لكل بند ⇒ مقارنة حيّة 400 UNIT_INVALID، وlockBases أو assertBasesUnchanged تحت القفل ⇒ PRODUCT_UNITS_CHANGED، والفرع المطفأ صار معاملة BASE_GUARD_TX",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/warehouse.ts",
+   "line": 173,
+   "kind": "cost",
+   "what": "حماية التحويل (القاعدة ١٣): entrySchema والوارد والتسوية (#5) — unitCost يدخل المتوسّط",
+   "change": "baseUnitName ومقارنة حيّة وlockBases، وD19 لمفتاح على صنف محوَّل",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/repStockRequests.ts",
+   "line": 49,
+   "kind": "stock_balance",
+   "what": "حماية التحويل (القاعدة ١٣): itemsSchema وطلب البضاعة وتعديل الإدارة",
+   "change": "baseUnitName، وlockBases بعد lockTenant، وfail() يُبقي code في كل 4xx فلا يضيع PRODUCT_UNITS_CHANGED",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/customers.ts",
+   "line": 427,
+   "kind": "price",
+   "what": "حماية التحويل (القاعدة ١٣): PUT /customers/:id/prices بسعرٍ للأساس",
+   "change": "baseUnitName لكل صفّ، ومعاملة تفاعلية بـlockBases ⇒ 409 PRODUCT_UNITS_CHANGED، وD19",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/import.ts",
+   "line": 26,
+   "kind": "integration",
+   "what": "«الوحدة الرئيسية» (القاعدة ١٢): استيراد الأسعار والجرد الافتتاحي بعمود وحدة فارغ (D17)",
+   "change": "صنف له رئيسية صالحة أو baseConvertedAt ⇒ خطأ صفّ PRICE_UNIT_REQUIRED / QTY_UNIT_REQUIRED قبل أي كتابة. والصنف بلا الاثنين كما كان حرفياً. وlockBases لكل شريحة (قاتل 409)",
+   "risk": "high"
+  },
+  {
+   "file": "backend/src/routes/import.ts",
+   "line": 566,
+   "kind": "integration",
+   "what": "«الوحدة الرئيسية» (القاعدة ١٢): productRow في استيراد الأصناف: عمود «الوحدة الرئيسية»",
+   "change": "primaryUnit يطابق إحدى وحدات الصفّ وإلا PRIMARY_UNIT_INVALID، وbasePrice الغائب يُشتقّ من صافي الرئيسية، وبصمة الملف القديم بلا العمود كما كانت حرفاً",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/routes/lots.ts",
+   "line": 375,
+   "kind": "qty_validation",
+   "what": "حماية التحويل (القاعدة ١٣): relabelSchema — إعادة وسم LOT بكمية بالأساس",
+   "change": "baseUnitName ⇒ 400 UNIT_INVALID حيّاً، وassertBasesUnchanged بعد lockLotProducts ⇒ 409 PRODUCT_UNITS_CHANGED. نماذج LOT تبقى بالأساس مع اسم الوحدة لاصقاً ومعادل حيّ (D8)",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/services/erpPayload.ts",
+   "line": 95,
+   "kind": "integration",
+   "what": "«الوحدة الرئيسية» (القاعدة ١٢): productPayloadRow ينشر صفّ الصنف كاملاً",
+   "change": "يُسقط primaryUnitId وbaseConvertedAt بالقائمة PRODUCT_DISPLAY_ONLY_KEYS المستوردة من baseConversions.ts (فلا يظهر الاسم نصاً — I2)، فتبقى payloadVersion 3 حرفياً (D9)",
+   "risk": "medium"
+  },
+  {
+   "file": "backend/src/services/apiSync.ts",
+   "line": 85,
+   "kind": "integration",
+   "what": "«الوحدة الرئيسية» (القاعدة ١٢): PRODUCT_COLS في مزامنة /v1/sync/products",
+   "change": "primaryUnitId وbaseConvertedAt مكشوفان (D18). baseConvertedAt يعلن للمتكامل أن كميات الصنف المخزَّنة عنده بالأساس القديم. لا مورد لسجلّ التحويلات في هذه الجولة",
+   "risk": "medium"
+  },
+  {
+   "file": "web-admin/src/lib/apiDocsCatalog.ts",
+   "line": 1,
+   "kind": "integration",
+   "what": "«الوحدة الرئيسية» (القاعدة ١٢): مستند API: المسارات والحقول والرموز الجديدة",
+   "change": "مقدمة الأصناف («بلا unitId = الأساس» و«بعد تحويل وحدة صنف»)، وPUT /products/:id/primary-unit، وbaseUnitName لكل كاتب، ورموز الرفض. apiDocsCatalog.test.ts يفرض تطابق المخطّطات والتوثيق",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/pages/PlatformPage.tsx",
+   "line": 990,
+   "kind": "other",
+   "what": "حماية التحويل (القاعدة ١٣): خانة علم الشركة convertBaseOpen في صفحة المنصّة",
+   "change": "يقلبها المالك لكل شركة، ومعطّلة ما دامت convertBaseReleased = false. النص يذكر أن المدير يرى الزرّ في دخوله التالي",
+   "risk": "low"
+  },
+  {
+   "file": "web-admin/src/components/print/PrintSettingsPanel.tsx",
+   "line": 404,
+   "kind": "print",
+   "what": "«الوحدة الرئيسية» (القاعدة ١٢): showItemUnit = false يُخفي اسم الوحدة في الطباعة",
+   "change": "تنبيه في الإعداد حين للشركة أصناف لها رئيسية أو بنود بوحدات (لا فرض للوحدة، حفاظاً على طباعة المستندات القائمة)",
+   "risk": "low"
   }
  ],
  "gotchas": [
@@ -2954,6 +3178,10 @@
   "fmtQty في MRepLoad وMWarehouse يقرّب لخانتين، والكمية بالأساس قد تأتي من كسر كرتون (١/٣ كرتون = ٨ حبات بمعامل ٢٤، لكن ٠٫٣٣ × ٢٤ = ٧٫٩٢). يُفضَّل أن يُخزَّن الأساس ويُشتقّ منه، وأن تكون المعاملات أعداداً صحيحة.",
   "اختبار apiDocsCatalog.test.ts يفرض توثيق كل مسار جديد في موجّهات invoices وvanStock وwarehouse وreports وrepStockRequests وreceipts (قائمة COVERED_ROUTERS)، ويمنع أن يذكر المستند «src/» أو «.ts:رقم». أما products فليس في القائمة، فمسار وحدات جديد هناك لن يُكشف غيابه من الدليل آلياً.",
   "كل نصّ عربي جديد يمرّ عبر tr() يحتاج مفتاحاً في قاموس i18n للّغات الخمس، وإلا ظهر بالعربية في الواجهات الأخرى.",
-  "إن صار لكل وحدة نسبة أو فئة ضريبية خاصة («رمزها الضريبي»)، فـMInvoiceCreate (السطر 88) وMWarehouse (429 و441) يقرآن taxPct من الصنف لا من الوحدة."
+  "إن صار لكل وحدة نسبة أو فئة ضريبية خاصة («رمزها الضريبي»)، فـMInvoiceCreate (السطر 88) وMWarehouse (429 و441) يقرآن taxPct من الصنف لا من الوحدة.",
+  "فخّ «×5»: docQtyText وstatementItemText يُلحقان اسم الوحدة حين !!primaryUnitId (قيمة صادقة) — لا !== undefined ولا 'primaryUnitId' in، لأن D18 يجعل null حاضراً في كل select. وselects البنود (customers.ts كشف الحساب، invoices.ts القوائم، reports.ts المرتجعات، vanStock.ts البنود، warehouse.ts البنود) تحمل primaryUnitId وإلا عرضٌ ملتبس.",
+  "غياب unitId = الأساس دائماً ولو كانت الرئيسية كرتوناً (D3). تفسير الغائب بالرئيسية يجعل كل جسم {productId, qty} قديم — من تكامل API أو صندوق أوف‑لاين أو ملف استيراد — كراتين صامتة (خطأ ×٢٤).",
+  "هوية الأساس بالاسم: بعد «تحويل ثم حذف الوحدة ثم إعادة تسمية الأساس باسمها القديم» تلتقط السلسلة صفاً خاطئاً. لذلك الاسم المتقاعد يُرفض 409 BASE_NAME_RETIRED، وكل مقارنة بـbaseNameKey على الطرفين.",
+  "نشر كود «الوحدة الرئيسية» قبل db push يُسقط كل استعلام أصناف وشركات (Prisma Client الجديد يختار الأعمدة الجديدة): db push المأذون وفحص الأعمدة أولاً، ثم الدمج إلى فرع Render."
  ]
 }

@@ -18,6 +18,13 @@ import {
   type LotBucket, type LotMeta, type LotWarning, type PlaceLotView, type RelabelInput,
 } from './lots';
 import { loadLotMetas, lockLotProducts, placeViews, recordLotEvent, resolveOrCreateLot, type LotEventActor, type LotTx } from './lotsDb';
+import { assertBasesUnchanged } from './baseGuard';
+
+/**
+ * «الوحدة الرئيسية» (§2.11ب): كميات التسمية بوحدة الصنف الصغرى، و`expectedBase` اسمها كما قُرئ قبل المعاملة. يختلف عن الصنف تحت
+ * القفل ⇒ ProductUnitsChangedError (409 PRODUCT_UNITS_CHANGED) قبل أي قراءة رصيد. الغائب ⇒ لا مقارنة (السلوك القائم)
+ */
+export type RelabelTxInput = RelabelInput & { expectedBase?: string; expectedBaseOf?: string };
 
 const ACTOR_TYPES: readonly LotEventActor['type'][] = ['ADMIN', 'OWNER', 'STAFF', 'API_KEY', 'SYSTEM'];
 
@@ -96,11 +103,13 @@ export function relabelSourceProblem(view: PlaceLotView, src: { fromLotId: strin
  * مسمّى في طرفيه. from == to أو غياب الطرفين ⇒ LOT_RELABEL_INVALID. والتحذيرات (LOT_INTO_BLOCKED) في الردّ.
  * صنفٌ غير متتبَّع الآن يُرفض: تسميته قبل التفعيل تسقط عنده (الحقبة تبدأ بعدها، D25) فتُكتب بلا أثر.
  */
-export async function relabelInTx(tx: LotTx, input: RelabelInput): Promise<{ rows: number; warnings: LotWarning[] }> {
+export async function relabelInTx(tx: LotTx, input: RelabelTxInput): Promise<{ rows: number; warnings: LotWarning[] }> {
   const shape = relabelRequestProblem(input);
   if (shape) throw shape;
   const tid = input.tenantId;
-  const { tracked } = await lockLotProducts(tx, tid, [input.productId]);
+  const { tracked, units } = await lockLotProducts(tx, tid, [input.productId]);
+  // تحويل وحدات الصنف التزم بين قراءة المسار والقفل: كمية «١٠» كُتبت كراتين لا تُسمّى قوارير
+  if (input.expectedBase !== undefined) assertBasesUnchanged(new Map([[input.productId, { name: input.expectedBaseOf ?? input.productId, unit: input.expectedBase }]]), units);
   const product = await tx.product.findFirst({
     where: { id: input.productId, tenantId: tid },
     select: { id: true, name: true, shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true },

@@ -116,20 +116,23 @@ export async function acquireLotQueue(tenantId: string, productIds: Iterable<str
 // ═══ الأقفال داخل المعاملة ═══
 
 /**
- * داخل المعاملة: (١) SELECT id, "lotTracked", "lotTrackedSince" … FOR KEY SHARE لكل أصناف العملية (أو الصفوف المقفلة سلفاً)؛
+ * داخل المعاملة: (١) SELECT id, unit, "lotTracked", "lotTrackedSince" … FOR KEY SHARE لكل أصناف العملية (أو الصفوف المقفلة سلفاً)؛
  * (٢) حفظ lock_timeout ثم set_config('lock_timeout','5s',true)؛ (٣) pg_advisory_xact_lock(key) لكل صنف متتبَّع بترتيب المفتاح؛
  * (٤) استعادة lock_timeout السابقة. كلها على tx.$executeRaw/$queryRaw.
  * المجموعة المقروءة تحت القفل هي المرجع (D25): tracked منها لا من القراءة المسبقة. since = بداية حقبة الصنف.
+ * units = صنف ← وحدة أساسه تحت القفل (§2.6): يقارنها الكاتب بالأساس الذي حلّ عليه بنوده (baseGuard.assertBasesUnchanged)
+ * بلا قفلٍ ثانٍ. والصفوف المقفلة سلفاً بلا `unit` (convert-base والفاتورة) لا تدخلها.
  * لا استعادة عند الفشل: المعاملة الفاشلة مُجهَضة أصلاً، وset_config المحلي يزول بنهايتها.
  */
 export async function lockLotProducts(tx: LotTx, tenantId: string, productIds: string[],
-  opts?: { lockedRows?: { id: string; lotTracked: boolean; lotTrackedSince: Date | null }[] }): Promise<{ tracked: Set<string>; since: Map<string, Date | null> }> {
+  opts?: { lockedRows?: { id: string; lotTracked: boolean; lotTrackedSince: Date | null; unit?: string }[] }): Promise<{ tracked: Set<string>; since: Map<string, Date | null>; units: Map<string, string> }> {
   const ids = uniq(productIds).sort();
   const tracked = new Set<string>();
   const since = new Map<string, Date | null>();
-  if (!ids.length) return { tracked, since };
-  const rows = opts?.lockedRows ?? await tx.$queryRaw<{ id: string; lotTracked: boolean; lotTrackedSince: Date | null }[]>`
-    SELECT id, "lotTracked", "lotTrackedSince" FROM products
+  const units = new Map<string, string>();
+  if (!ids.length) return { tracked, since, units };
+  const rows = opts?.lockedRows ?? await tx.$queryRaw<{ id: string; unit: string; lotTracked: boolean; lotTrackedSince: Date | null }[]>`
+    SELECT id, unit, "lotTracked", "lotTrackedSince" FROM products
     WHERE "tenantId" = ${tenantId} AND id = ANY(${ids}::text[])
     ORDER BY id
     FOR KEY SHARE`;
@@ -137,9 +140,10 @@ export async function lockLotProducts(tx: LotTx, tenantId: string, productIds: s
   for (const r of rows) {
     if (!wanted.has(r.id)) continue;
     since.set(r.id, r.lotTrackedSince ?? null);
+    if (typeof r.unit === 'string') units.set(r.id, r.unit);
     if (r.lotTracked === true) tracked.add(r.id);
   }
-  if (!tracked.size) return { tracked, since };
+  if (!tracked.size) return { tracked, since, units };
   const prevRows = await tx.$queryRaw<{ lock_timeout: string }[]>`SELECT current_setting('lock_timeout') AS lock_timeout`;
   const prev = prevRows[0]?.lock_timeout ?? '0';
   await tx.$executeRaw`SELECT set_config('lock_timeout', ${LOT_LOCK_TIMEOUT}, true)`;
@@ -147,7 +151,7 @@ export async function lockLotProducts(tx: LotTx, tenantId: string, productIds: s
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(${k.key})`;
   }
   await tx.$executeRaw`SELECT set_config('lock_timeout', ${prev}, true)`;
-  return { tracked, since };
+  return { tracked, since, units };
 }
 
 // ═══ البطاقات ═══

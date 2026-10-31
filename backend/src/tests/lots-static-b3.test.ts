@@ -30,10 +30,14 @@ test('B3 الوارد: العلم من استعلام حارس التفعيل ن
   ordered(post, [
     'const withLots = lotsOn(req);',
     'const preTracked = withLots ? products.filter((p) => p.lotTracked === true)',
-    'if (!preTracked.length) {', 'prisma.warehouseEntry.create({ data: entryData(null), include: entryInclude });', 'return;',
+    // «الوحدة الرئيسية» §2.8: المسار القائم مطفأً صار معاملةً لقفل الأساس (lockBases) بمهلة BASE_GUARD_TX، ومسار اللوط يقارن
+    // الأساس من صفوف lockLotProducts نفسها (assertBasesUnchanged)، وتبدّل الأساس لا يمرّ من asLotBusy
+    'if (!preTracked.length) {', 'await lockBases(tx, tid, expected);', 'tx.warehouseEntry.create({ data: entryData(null), include: entryInclude });',
+    '}, BASE_GUARD_TX);', 'return;',
     'await companyDay(prisma, tid)', 'await acquireLotQueue(tid, preTracked)', 'prisma.$transaction(async (tx) => {',
-    'await lockLotProducts(tx, tid, productIds)', 'await planWarehouseEntryInTx(tx,', 'tx.warehouseEntry.create({ data: entryData(plan.lotIdByLine)',
-    '{ maxWait: 10_000, timeout: 20_000 }', 'throw asLotBusy(e) ?? e;', 'release();',
+    'await lockLotProducts(tx, tid, productIds)', 'assertBasesUnchanged(expected, locked.units);', 'await planWarehouseEntryInTx(tx,',
+    'tx.warehouseEntry.create({ data: entryData(plan.lotIdByLine)',
+    '{ maxWait: 10_000, timeout: 20_000 }', 'if (e instanceof ProductUnitsChangedError) throw e;', 'throw asLotBusy(e) ?? e;', 'release();',
   ], 'POST /entries');
   // لا دالّة لوط قبل مخرج المسار القائم
   const before = post.slice(0, post.indexOf('if (!preTracked.length) {'));

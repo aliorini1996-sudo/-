@@ -4,7 +4,7 @@ import {
   hasBigUnit, qtyText, signedQtyText, unitsBrief, lineKey, invoiceLine, addInvoiceLine, setInvoiceLineUnit,
   stepInvoiceLine, refreshInvoiceLines, stockLineUnit, freeChoices, nextStockLineUnit, splitLoadRows, suggestionLine, movementQtyText,
   tierBaseBounds, tierPayload, biggestUnit, unitDraftProblem, unitDraftPayload, unitDraftOf, convertDraftProblem,
-  convertedBasePrice, statementItemText, UNIT_FACTOR_HINT, type SalePick,
+  convertedBasePrice, statementItemText, UNIT_FACTOR_HINT, type SalePick, tierToPrimary, tierFromPrimary,
 } from './mUnits';
 import { unitChoices, invoiceItemUnit } from '../rep/repUnits';
 import { lineTotal } from './docMath';
@@ -319,4 +319,67 @@ test('statementItemText: الوحدة بجانب الكمية حين البند 
   assert.equal(statementItemText({ qty: 2, unitName: 'كرتون', unitFactor: 24, product: { name: 'ماء', unit: 'حبة' } }, num), 'ماء ×2 كرتون');
   assert.equal(statementItemText({ qty: 3, unitName: null, unitFactor: 1, product: { name: 'ماء', unit: 'حبة' } }, num), 'ماء ×3');
   assert.equal(statementItemText({ qty: '4', product: null }, num), '- ×4');
+});
+
+// ═══ «الوحدة الرئيسية» (B1): صنفٌ أساسه قارورة، كرتونه ٢٤ رئيسيّ، وفوقه طبلية ١٢٠٠ ═══
+const PU = [
+  { id: 'u-c', name: 'كرتون', factor: 24, price: 48, isActive: true },
+  { id: 'u-pl', name: 'طبلية', factor: 1200, price: null, isActive: true },
+];
+const bottleP = { unit: 'قارورة', units: PU, primaryUnitId: 'u-c' };
+
+test('qtyText وsignedQtyText بالرئيسية — وبلاها (null أو تالفة) القائم حرفاً', () => {
+  assert.equal(qtyText(1250, bottleP, num), '52 كرتون و2 قارورة');
+  assert.equal(qtyText(0, bottleP, num), '0 كرتون');
+  assert.equal(qtyText(1250, { ...bottleP, primaryUnitId: null }, num), '1 طبلية و50 قارورة');
+  assert.equal(qtyText(1250, { ...bottleP, primaryUnitId: 'u-x' }, num), '1 طبلية و50 قارورة');
+  assert.equal(signedQtyText(-26, bottleP, num), '−1 كرتون و2 قارورة');
+  assert.equal(signedQtyText(1200, bottleP, num), '+50 كرتون');
+  assert.equal(signedQtyText(1200, { ...bottleP, primaryUnitId: undefined }, num), '+1 طبلية');
+});
+
+test('unitsBrief بالرئيسية: «رئيسية: كرتون 24 · طبلية 1200»، والوسم مترجماً، وبلا رئيسية صالحة القائم حرفاً', () => {
+  assert.equal(unitsBrief(PU, num, 'u-c'), 'رئيسية: كرتون 24 · طبلية 1200');
+  assert.equal(unitsBrief(PU, num, 'u-pl'), 'رئيسية: طبلية 1200 · كرتون 24', 'الرئيسية أوّلاً ولو كانت الأكبر');
+  assert.equal(unitsBrief(PU, num, 'u-c', 'Main'), 'Main: كرتون 24 · طبلية 1200');
+  assert.equal(unitsBrief(PU, num), 'كرتون 24 · طبلية 1200');
+  assert.equal(unitsBrief(PU, num, null), 'كرتون 24 · طبلية 1200');
+  assert.equal(unitsBrief(PU, num, 'u-gone'), 'كرتون 24 · طبلية 1200');
+  assert.equal(unitsBrief([{ ...PU[0], isActive: false }, PU[1]], num, 'u-c'), 'طبلية 1200', 'رئيسية موقوفة ⇒ القائم');
+});
+
+test('suggestionLine بالرئيسية: لا قفز إلى الطبلية — والقاعدة نفسها في suggestionChoice', () => {
+  const r = suggestionLine({ unit: 'قارورة', units: PU, primaryUnitId: 'u-c', suggested: 1200, expected: 1100 });
+  assert.equal(r.unitId, 'u-c');
+  assert.equal(r.qty, 50);
+  assert.equal(r.suggestedQty, 1200, 'المقترح بالأساس');
+  assert.equal(r.expectedQty, 1100);
+  assert.equal(suggestionLine({ unit: 'قارورة', units: PU, suggested: 1200, expected: 0 }).unitId, 'u-pl', 'بلا رئيسية: القائم');
+  assert.equal(suggestionLine({ unit: 'قارورة', units: PU, primaryUnitId: null, suggested: 1200, expected: 0 }).unitId, 'u-pl');
+  const odd = suggestionLine({ unit: 'قارورة', units: PU, primaryUnitId: 'u-c', suggested: 50, expected: 0 });
+  assert.deepEqual([odd.unitId, odd.qty, odd.unit], [null, 50, 'قارورة']);
+});
+
+test('statementItemText: يلحق الوحدة دائماً حين للصنف رئيسية، و`primaryUnitId: null` = القائم حرفاً', () => {
+  assert.equal(statementItemText({ qty: 5, unitName: null, unitFactor: 1, product: { name: 'ماء', unit: 'قارورة', primaryUnitId: 'u-c' } }, num), 'ماء ×5 قارورة');
+  assert.equal(statementItemText({ qty: 5, unitName: null, unitFactor: 1, product: { name: 'ماء', unit: 'قارورة', primaryUnitId: null } }, num), 'ماء ×5');
+  assert.equal(statementItemText({ qty: 5, unitName: null, unitFactor: 1, product: { name: 'ماء', unit: 'قارورة' } }, num), 'ماء ×5');
+  assert.equal(statementItemText({ qty: 2, unitName: 'كرتون', unitFactor: 24, product: { name: 'ماء', unit: 'قارورة', primaryUnitId: 'u-c' } }, num), 'ماء ×2 كرتون');
+});
+
+test('tierToPrimary وtierFromPrimary: الحدّ ÷F أو ×F والسعر ×F أو ÷F، والذهاب والعودة يعيدان الأصل', () => {
+  const t = { minQty: 48, maxQty: 240, baseMinQty: 48, baseMaxQty: 240, price: 1.75 };
+  assert.deepEqual(tierToPrimary(t, 24), { min: 2, max: 10, price: 42 });
+  assert.deepEqual(tierFromPrimary(2, 10, 42, 24), tierPayload(48, 240, 1.75));
+  const back = tierToPrimary(t, 24);
+  assert.deepEqual(tierFromPrimary(back.min, back.max, back.price, 24), { minQty: 48, baseMinQty: 48, price: 1.75, maxQty: 240, baseMaxQty: 240 });
+  const open = { minQty: 0, baseMinQty: 24, price: 2 };
+  assert.deepEqual(tierToPrimary(open, 24), { min: 1, max: null, price: 48 });
+  const o = tierFromPrimary(1, null, 48, 24);
+  assert.deepEqual(o, { minQty: 24, baseMinQty: 24, price: 2 });
+  assert.ok(!('maxQty' in o), 'الحدّ الأعلى الفارغ بلا مفتاح');
+  // بلا تقريبٍ وسيط: سعر الكرتون 50 ⇒ القارورة 50/24 كما هي
+  assert.equal(tierFromPrimary(1, null, 50, 24).price, 50 / 24);
+  // شريحة غير مرحَّلة (baseMinQty = 0 وminQty ≠ 0) تُقرأ من القديمين كـtierBaseBounds
+  assert.deepEqual(tierToPrimary({ minQty: 48, baseMinQty: 0, price: 1 }, 24), { min: 2, max: null, price: 24 });
 });

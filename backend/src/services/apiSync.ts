@@ -80,6 +80,12 @@ const PRODUCT_COLS = [
   'returnRuleEnabled', 'returnRuleMode', 'returnRuleMetric', 'returnRuleValue', 'deletedAt', 'categoryId', 'createdAt',
   'repSaleAllowed', 'repReturnAllowed', 'repSaleUnit', 'repReturnUnit',
   'updatedAt', 'vatCategory', 'vatExemptionCode', 'vatExemptionReason',
+  // «الوحدة الرئيسية» (القاعدة ١٢): معرّف وحدةٍ من units للعرض والإدخال الافتراضي فقط — كل الكميات والأسعار بالأساس
+  // (unit/basePrice)، وnull = بلا رئيسية. تبديله يحرّك updatedAt فيصل مع صنفه
+  'primaryUnitId',
+  // لحظة آخر تحويل لوحدة الأساس (convert-base) — null = لم يُحوَّل قط. إن تغيّرت فكميات الصنف وأسعاره المخزَّنة عندك
+  // بالأساس القديم: اسحب تاريخه من جديد أو اضربه بمعامل الوحدة القديمة (التحويل لا يحرّك updatedAt بنود التاريخ)
+  'baseConvertedAt',
 ];
 const SALES_REP_COLS = [
   'id', 'name', 'phone', 'email', 'username', 'isActive', 'canCreateInvoice', 'canSellOnCredit', 'canSellOnInstallment',

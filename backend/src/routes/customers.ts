@@ -21,6 +21,11 @@ import { linkConvertedCustomer } from '../ai-rep/convert';
 import { aiRepForRep } from '../ai-rep/access';
 import { invalidateEstimateData } from '../ai-rep/estimateData';
 import { patchSessionOutlet } from '../ai-rep/session';
+import { UnitInvalidError } from '../services/warehouseStock';
+// «الوحدة الرئيسية» §2.10: أسعار العميل لوحدة الأساس تُكتب تحت قفل صفّ الصنف مقارنةً بالأساس الذي كُتبت له
+import {
+  ProductUnitsBusyError, ProductUnitsChangedError, baseGuardReply, lockBases, missingBaseForApi, staleClientBase, type ExpectedBases,
+} from '../services/baseGuard';
 
 const router = Router();
 router.use(authenticate);
@@ -344,7 +349,8 @@ router.get('/:id/statement', async (req: AuthRequest, res: Response, next: NextF
       include: {
         // نُضمّن بنود الفاتورة (الأصناف وكمياتها) لتظهر في كشف الحساب. البند يحمل لقطة وحدته (unitName/unitFactor/baseQty)
         // فيُعرض «qty unitName» — و`product.unit` (وحدة الأساس اليوم) لبندٍ سبق الميزة بلا لقطة. الأرصدة من القيود بالمبالغ فلا تمسّها الوحدة
-        invoice: { include: { items: { include: { product: { select: { name: true, unit: true } } } } } },
+        // و`primaryUnitId` (عرضٌ فقط): لصنفٍ له وحدة رئيسية يُلحق اسم الوحدة دائماً فلا يُقرأ «×5» كراتين (فخّ «×5»)
+        invoice: { include: { items: { include: { product: { select: { name: true, unit: true, primaryUnitId: true } } } } } },
         receipt: true,
       },
       // فاصل تعادل حاسم: الفاتورة النقدية تكتب قيديها بنفس `entryDate` **وبنفس
@@ -419,8 +425,22 @@ router.get('/:id/invoices', async (req: AuthRequest, res: Response, next: NextFu
 // السعر الخاص **لوحدة الأساس** (الحبة) — سعر الكرتون للعميل = السعر × معامل الكرتون، ويحرسه مسار الإصدار
 // بالمعامل نفسه (routes/invoices.ts). وتحويل وحدة الأساس يقسمه على المعامل فيبقى سعر الكرتون كما هو.
 const pricesSchema = z.object({
-  prices: z.array(z.object({ productId: z.string().min(1).max(64), price: z.coerce.number().finite().nonnegative() })).max(5000),
+  prices: z.array(z.object({
+    productId: z.string().min(1).max(64), price: z.coerce.number().finite().nonnegative(),
+    /**
+     * «الوحدة الرئيسية» §2.10: اسم وحدة الأساس التي كُتب لها السعر كما رآها العميل. يختلف عن الصنف الآن ⇒ 400 UNIT_INVALID
+     * (سعر الكرتون لا يُخزَّن سعرَ قارورة). يُقصّ إلى ٦٤ حرفاً كبقية الحقول نفسها (baseNameKey) فلا يُرفض اسمٌ قائم أطول
+     */
+    baseUnitName: z.string().transform(v => v.slice(0, 64)).nullish(),
+  })).max(5000),
 });
+
+/**
+ * I10: المعاملة تفاعلية بعد قفل الأصناف — upsert متتابعٌ صفاً صفاً لا تسبقه مهلة Prisma الافتراضية (٥ ثوانٍ). والمصفوفة القديمة
+ * كانت بلا مهلة: ٣٠ ثانية حدٌّ أدنى، وتكبر بـ١٢ms لكل صفّ (٥٠٠٠ صفّ ⇒ ٦٠ ثانية) فلا يصير حفظ قائمةٍ كبيرة 500 كان ينجح
+ */
+const PRICES_TX = { maxWait: 10_000, timeout: 30_000 } as const;
+const pricesTxOf = (rows: number) => ({ ...PRICES_TX, timeout: Math.max(PRICES_TX.timeout, rows * 12) });
 
 router.put('/:id/prices', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -428,21 +448,38 @@ router.put('/:id/prices', requireAdmin, async (req: AuthRequest, res: Response, 
     const exists = await prisma.customer.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
     if (!exists) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
     const { prices } = pricesSchema.parse(req.body);
-    // الصنف من الشركة نفسها: بلا هذا يُربط سعرٌ بصنف شركةٍ أخرى ثم يُقرأ صفّه كاملاً مع العميل
+    // الصنف من الشركة نفسها: بلا هذا يُربط سعرٌ بصنف شركةٍ أخرى ثم يُقرأ صفّه كاملاً مع العميل.
+    // ومعه أساسه (§2.10) في الاستعلام نفسه: الكلفة استعلامٌ واحد كما كانت
     const productIds = [...new Set(prices.map(p => p.productId))];
-    const owned = await prisma.product.count({ where: { id: { in: productIds }, tenantId: tid } });
-    if (owned !== productIds.length) { res.status(400).json({ success: false, message: 'صنف غير موجود في الشركة' }); return; }
-    await prisma.$transaction(
-      prices.map(p =>
-        prisma.customerPrice.upsert({
+    const owned = await prisma.product.findMany({ where: { id: { in: productIds }, tenantId: tid }, select: { id: true, name: true, unit: true, baseConvertedAt: true } });
+    if (owned.length !== productIds.length) { res.status(400).json({ success: false, message: 'صنف غير موجود في الشركة' }); return; }
+    // D19-ب: مفتاح API وصنفٌ حُوِّلت وحداته وصفٌّ بلا baseUnitName ⇒ رفضٌ ظاهر لا سعر كرتون يُقرأ سعرَ قارورة
+    const apiMissing = missingBaseForApi(!!req.user?.apiKeyId, prices, new Map(owned.map(p => [p.id, { name: p.name, baseConvertedAt: p.baseConvertedAt }])));
+    if (apiMissing) {
+      res.status(400).json({ success: false, code: 'BASE_UNIT_REQUIRED', message: `حُوِّلت وحدات «${apiMissing}» — أرسل baseUnitName (اسم وحدته الصغرى الحالية) مع كل صفّ سعرٍ له` });
+      return;
+    }
+    const expected: ExpectedBases = new Map(owned.map(p => [p.id, { name: p.name, unit: p.unit }]));
+    const stale = staleClientBase(prices, expected);
+    if (stale) throw new UnitInvalidError(`تغيّرت وحدات «${stale}» — حدّث قائمة الأصناف ثم أعد الحفظ`);
+    // تحت قفل صفّ الصنف (FOR KEY SHARE): تحويلٌ التزم بعد القراءة أعلاه ⇒ 409 PRODUCT_UNITS_CHANGED بلا أي upsert
+    await prisma.$transaction(async (tx) => {
+      await lockBases(tx, tid, expected);
+      for (const p of prices) {
+        await tx.customerPrice.upsert({
           where: { customerId_productId: { customerId: req.params.id, productId: p.productId } },
           create: { customerId: req.params.id, productId: p.productId, price: p.price },
           update: { price: p.price },
-        })
-      )
-    );
+        });
+      }
+    }, pricesTxOf(prices.length));
     res.json({ success: true });
-  } catch (err) { next(err); }
+  } catch (err) {
+    // صنفا خطأ الحارس وحدهما (لا انتظار قفلٍ خام من غير الحارس)
+    const guard = err instanceof ProductUnitsChangedError || err instanceof ProductUnitsBusyError ? baseGuardReply(err, false) : null;
+    if (guard) { res.status(guard.status).json(guard.body); return; }
+    next(err);
+  }
 });
 
 /**

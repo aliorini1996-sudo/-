@@ -12,9 +12,10 @@ import { loadNoticeDocFromData, Company } from '../rep/RepDocuments';
 import { splitVanMovement } from '../lib/vanMovement';
 import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
 import VanLoadsLog from '../components/VanLoadsLog';
-import { baseQtyText, hasBigUnit, suggestionChoice } from '../lib/adminUnits';
-import { choiceById, defaultChoice, unitChoices } from '../rep/repUnits';
-import type { UnitDef } from '../lib/units';
+import { baseQtyText, hasBigUnit, productUnitLabel, suggestionChoice } from '../lib/adminUnits';
+import { choiceById, defaultChoice, primaryChoice, rebaseRow, unitChoices } from '../rep/repUnits';
+import { primaryUnitOf, type UnitDef } from '../lib/units';
+import { anyPrimary, crossSumLabel, isStaleUnitsError, removalBaseQty, removalStart, suggestPrimarySource, withBaseUnitNames } from '../lib/stockRequest';
 import {
   LOT_BLOCK_KIND_LABELS, LOT_STATUS_LABELS, LOT_WARNING_LABELS, docLotsFrom, isLotExpiredOn, lotErrorOf, lotFlagsOf, lotWarningsOf, roundLot,
   type AllocRowDto, type LotBlockKind, type LotShortageDetail, type LotStatus, type LotWarning, type VanLoadItemLotDto, type VanLotSnapshotDto,
@@ -34,6 +35,13 @@ import { EntryLotFields, LotRowsEditor, draftProblemText, entryProblemText, fetc
  * «تتبّع اللوط» (W2، يفعّله المالك لكل شركة): التحميل باقتراح FEFO قابل للتعديل والتقسيم (بالأساس)، وتحذير اللوطين، والتنزيل
  * والإزالة بمصدرٍ صريح حين يتعدّد (D10)، وإتلاف التشغيلة المنتهية غير المباعة بتسوية نقص (lotReason)، وتوسيع صفّ السيارة
  * بتشغيلاته من /van-stock/lot-balances (ومن /lots/balances في «المخزون في تاريخ»). الميزة مطفأة ⇒ لا جلب ولا تغيير مرئي.
+ *
+ * «الوحدة الرئيسية» (القاعدة ١٢، primary_unit_spec §5.3): صنفٌ لها تُعرض كمياته بها («52 كرتون و2 قارورة»، وبطاقته «الوحدة
+ * الرئيسية كرتون (24 قارورة)» بلا كلمة «الأساس» — D21)، والتحميل بها افتراضاً (defaultChoice) واقتراحه لا يقفز إلى الطبلية
+ * (suggestionChoice). وكل بند تحميل/تنزيل/إزالة يحمل `baseUnitName` (الأساس كما رآه النموذج): 400/409 ⇒ تُجلب الأصناف أو
+ * الرصيد من جديد. وإزالة المنتهي/التالف بمنتقي وحدة (D8) والواجهة تحوّل إلى الأساس قبل الإرسال، فعقد الخادم لا يتغيّر.
+ * والمجاميع عبر الأصناف (ملخّص المناديب) بالأساس موسومةً «بالوحدات الصغرى» حين في الأصناف ما له رئيسية (R3).
+ * صنفٌ بلا رئيسية: كل نصٍّ ووحدةٍ افتراضية كما كان حرفاً (I1).
  */
 
 /** استجابة /van-stock/suggest — تطابق SuggestResult في الخادم */
@@ -41,6 +49,8 @@ interface SuggestRow {
   id: string; name: string; code: string; unit: string;
   /** وحدات الصنف — الكميات بالأساس، وتُحمَّل بأكبر وحدةٍ تنقسم عليها المقترَحة */
   units?: UnitDef[];
+  /** «الوحدة الرئيسية» (عرضٌ واقتراحٌ فقط، §5.1 suggestionChoice) — خادمٌ قبل الميزة لا يرسلها */
+  primaryUnitId?: string | null;
   expected: number; withBuffer: number; onVan: number; suggested: number;
   basis: 'weekday' | 'overall' | 'none';
   sampleDays: number; activeDays: number;
@@ -69,6 +79,8 @@ function ConfidenceTag({ c }: { c: SuggestRow['confidence'] }) {
 /** استجابة /van-stock/accuracy — تطابق AccuracyResult في الخادم */
 interface AccDay {
   day: string; productId: string; name: string; unit: string;
+  /** وحدات الصنف و«الوحدة الرئيسية» (§2.17) — الأرقام بالأساس، وتُعرض بالرئيسية حين لها وحدها */
+  units?: UnitDef[]; primaryUnitId?: string | null;
   expected: number; suggested: number; loaded: number; actual: number; error: number;
   adopted: boolean; outcome: string; open: boolean;
 }
@@ -99,6 +111,8 @@ interface StockRow {
   damaged?: number;
   /** وحدات الصنف (الوحدات المتعددة) — الأرصدة أعلاه بالأساس `unit` */
   units?: UnitDef[];
+  /** «الوحدة الرئيسية» — عرضٌ وافتراضٌ فقط (خادمٌ قبل الميزة لا يرسلها ⇒ بلا رئيسية) */
+  primaryUnitId?: string | null;
 }
 type OutKind = 'EXPIRED_OUT' | 'DAMAGED_OUT';
 interface Movement {
@@ -110,14 +124,23 @@ interface Movement {
 
 /** صنفٌ كما يردّه /products — علم اللوط وحقول الصلاحية لتحميل الصنف المتتبَّع */
 interface ProductPick {
-  id: string; name: string; unit: string; code: string; units?: UnitDef[];
+  id: string; name: string; unit: string; code: string; units?: UnitDef[]; primaryUnitId?: string | null;
   lotTracked?: boolean; shelfLifeEnabled?: boolean | null; shelfLifeValue?: number | null; shelfLifeUnit?: string | null;
 }
 
 /** إجراءٌ على تشغيلةٍ في السيارة من تفصيل الصفّ: إتلاف المنتهية غير المباعة، أو تنزيل الموقوفة للمستودع */
-interface LotAction { kind: 'DESTROY' | 'UNLOAD'; productId: string; productName: string; lotId: string; lotNumber: string; qty: number }
+interface LotAction {
+  kind: 'DESTROY' | 'UNLOAD'; productId: string; productName: string; lotId: string; lotNumber: string; qty: number;
+  /** أساس الصنف كما رآه صفّ السيارة — `baseUnitName` على البند (الكمية بالأساس من اللقطة، §2.7) */
+  baseUnit?: string;
+}
 
 const fmtQty = (n: number) => Number(n.toFixed(2)).toLocaleString(activeLocale());
+
+/** جسم حركةٍ بندُها بالأساس لصنفٍ واحد: كل بندٍ يحمل `baseUnitName` (أساس الصنف كما رآه صفّ السيارة) — والفارغ كما كان */
+function withItemsBase<B extends { items: { productId: string }[] }>(b: B, base: string | null | undefined): B {
+  return { ...b, items: withBaseUnitNames(b.items, () => base) };
+}
 
 /** تشغيلات كل بندٍ على إشعار الحركة (docLotsFrom) — الميزة مطفأة أو البند بلا تشغيلات ⇒ كما هو */
 function withMovementLots<D extends { items: object[] }>(doc: D, mv: Movement, lotOn: boolean): D {
@@ -191,7 +214,8 @@ export default function VanStockPage() {
   /* «تتبّع اللوط»: إجراءٌ على تشغيلةٍ في السيارة — إتلاف المنتهية غير المباعة تسويةُ نقصٍ بوسم EXPIRED_UNSOLD_DESTROY،
    * وتنزيل الموقوفة للمستودع بنوع UNLOAD. كلاهما بالأساس (بلا unitId) ومن تلك التشغيلة صراحةً */
   const runLotAction = useMutation({
-    mutationFn: (a: LotAction) => vanStockApi.createLoad(a.kind === 'DESTROY'
+    // أساس الصنف كما رآه صفّ السيارة على البند (baseUnitName، §2.7) — الكمية بالأساس من اللقطة
+    mutationFn: (a: LotAction) => vanStockApi.createLoad(withItemsBase(a.kind === 'DESTROY'
       ? {
         salesRepId: selected, type: 'ADJUST', note: tr('إتلاف تشغيلة منتهية لم تبع'),
         items: [{ productId: a.productId, qty: -a.qty, lots: [{ lotId: a.lotId, qty: a.qty }], lotReason: 'EXPIRED_UNSOLD_DESTROY' }],
@@ -199,7 +223,7 @@ export default function VanStockPage() {
       : {
         salesRepId: selected, type: 'UNLOAD', note: tr('تنزيل تشغيلة موقوفة للمستودع'),
         items: [{ productId: a.productId, qty: a.qty, lots: [{ lotId: a.lotId, qty: a.qty }] }],
-      }),
+      }, a.baseUnit)),
     onSuccess: (_d, a) => {
       toast.success(a.kind === 'DESTROY' ? tr('أتلفت التشغيلة المنتهية من السيارة') : tr('نزلت التشغيلة الموقوفة للمستودع'));
       setLotAction(null);
@@ -248,6 +272,16 @@ export default function VanStockPage() {
 
   const reps = summaryQ.data || [];
   const selectedRep = reps.find(r => r.salesRepId === selected);
+  /* R3: مجاميع الملخّص عبر الأصناف بالأساس — وفي أصناف الشركة ما له «وحدة رئيسية»؟ فتُوسم «بالوحدات الصغرى» ظاهرةً («٤٨»
+   * وحدها تُقرأ كراتين)، وإلا وسمها القائم حرفياً. الملخّص لا يحمل أصنافه، فالمرجع قائمة الأصناف نفسها (مفتاح نافذة التحميل) */
+  const catalogQ = useQuery({
+    queryKey: ['products-min'],
+    queryFn: async () => (await productApi.list({ limit: 1000 })).data.data as ProductPick[],
+    enabled: accountingReady && accountingOn,
+  });
+  const hasPrimary = anyPrimary(catalogQ.data ?? []);
+  const sumTitle = tr(crossSumLabel(hasPrimary));
+  const sumTag = hasPrimary ? <span className="block text-[9px] font-normal text-[#9A8F7E]">{tr('بالوحدات الصغرى')}</span> : null;
   // «لوكيشن» (ميزةٌ يفعّلها المالك): «سجل التحميلات» بعمود الموقع وتصفيته — مطفأةً لا جديد في الصفحة
   const locOn = companyFlags?.locationsEnabled === true;
 
@@ -310,10 +344,10 @@ export default function VanStockPage() {
                   {/* عهدةٌ قائمة الآن — لا تتبع المدّة */}
                   <th className="text-center font-semibold px-3 py-2.5">{tr('أدوات بالسيارة')}</th>
                   {/* مجاميعٌ عبر الأصناف بوحدات الأساس (الخادم) — حبّاتٌ لا كراتين لصنفٍ له وحدات، فيُقال ذلك في التلميح */}
-                  <th className="text-center font-semibold px-3 py-2.5" title={tr('مجموع بوحدات الأساس')}>{filtered ? tr('محمل بالمدة') : tr('إجمالي محمل')}</th>
-                  <th className="text-center font-semibold px-3 py-2.5" title={tr('مجموع بوحدات الأساس')}>{filtered ? tr('مباع بالمدة') : tr('إجمالي مباع')}</th>
-                  <th className="text-center font-semibold px-3 py-2.5" title={tr('مجموع بوحدات الأساس')}>{filtered ? tr('التالف بنهاية المدة') : tr('المرتجع التالف')}</th>
-                  <th className="text-center font-semibold px-3 py-2.5" title={tr('مجموع بوحدات الأساس')}>{filtered ? tr('المتبقي بنهاية المدة') : tr('المتبقي')}</th>
+                  <th className="text-center font-semibold px-3 py-2.5" title={sumTitle}>{filtered ? tr('محمل بالمدة') : tr('إجمالي محمل')}{sumTag}</th>
+                  <th className="text-center font-semibold px-3 py-2.5" title={sumTitle}>{filtered ? tr('مباع بالمدة') : tr('إجمالي مباع')}{sumTag}</th>
+                  <th className="text-center font-semibold px-3 py-2.5" title={sumTitle}>{filtered ? tr('التالف بنهاية المدة') : tr('المرتجع التالف')}{sumTag}</th>
+                  <th className="text-center font-semibold px-3 py-2.5" title={sumTitle}>{filtered ? tr('المتبقي بنهاية المدة') : tr('المتبقي')}{sumTag}</th>
                   <th className="text-center font-semibold px-3 py-2.5" title={lotOn ? tr('الأصناف المتتبعة بـLOT ممنوعة دائما من البيع بلا رصيد ولو سمح للمندوب') : undefined}>{tr('البيع بدون مخزون')}</th>
                   <th className="text-center font-semibold px-3 py-2.5">{tr('آخر تحميل')}</th>
                 </tr>
@@ -398,7 +432,8 @@ export default function VanStockPage() {
                       <tr className="border-t border-[#F1EBDF]">
                         <td className="px-5 py-2.5">
                           <p className="font-semibold text-[#1F1A13]">{row.name}</p>
-                          <p className="text-[10px] text-[#9A8F7E]">{row.code} · {hasBigUnit(row.units) ? `${tr('وحدة الأساس')} ${row.unit}` : row.unit}</p>
+                          {/* «الوحدة الرئيسية كرتون (24 قارورة)» لصنفٍ لها — بلا كلمة «الأساس» (D21)؛ وغيره كما كان */}
+                          <p className="text-[10px] text-[#9A8F7E]">{row.code} · {primaryUnitOf(row) ? `${tr('الوحدة الرئيسية')} ${productUnitLabel(row)}` : hasBigUnit(row.units) ? `${tr('وحدة الأساس')} ${row.unit}` : row.unit}</p>
                           {/* «تتبّع اللوط»: عدد التشغيلات والمعزول، ومفتاح توسيع الصفّ بها */}
                           {tracked && (
                             <button type="button" onClick={() => setOpenLot(open ? null : row.productId)}
@@ -744,22 +779,27 @@ function AccuracyModal({ preselectRep, onClose }: { preselectRep: string; onClos
                       </tr>
                     </thead>
                     <tbody>
-                      {d.days.map((r, i) => (
+                      {d.days.map((r, i) => {
+                        // الأرقام بالأساس: لصنفٍ له «وحدة رئيسية» تُعرض بها («2 كرتون»، R1) ووسمه «كرتون (24 قارورة)»؛ وغيره كما كان حرفاً
+                        const prim = !!primaryUnitOf(r);
+                        const q = (n: number) => (prim ? baseQtyText(n, r, fmtQty) : fmtQty(n));
+                        return (
                         <tr key={i} className={r.open ? 'opacity-50' : ''}>
                           <td className="text-xs text-gray-500 tabular-nums">{r.day}</td>
-                          <td className="font-medium text-gray-800">{r.name} <span className="text-[10px] text-gray-400">{r.unit}</span></td>
-                          <td className="tabular-nums">{fmtQty(r.expected)}</td>
-                          <td className="tabular-nums text-gray-600">{fmtQty(r.loaded)}</td>
-                          <td className="tabular-nums font-semibold">{fmtQty(r.actual)}</td>
+                          <td className="font-medium text-gray-800">{r.name} <span className="text-[10px] text-gray-400">{prim ? productUnitLabel(r) : r.unit}</span></td>
+                          <td className="tabular-nums">{q(r.expected)}</td>
+                          <td className="tabular-nums text-gray-600">{q(r.loaded)}</td>
+                          <td className="tabular-nums font-semibold">{q(r.actual)}</td>
                           <td>
                             {r.open
                               ? <span className="text-[10px] px-1.5 py-0.5 rounded border bg-gray-50 text-gray-500 border-gray-200 font-semibold">{tr('قيد البيع')}</span>
                               : <span className={`text-[10px] px-1.5 py-0.5 rounded border font-semibold ${r.outcome === 'دقيق' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : r.outcome === 'نقص' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-                                  {tr(r.outcome)} {r.error !== 0 && <span className="tabular-nums">{r.error > 0 ? `+${fmtQty(r.error)}` : `−${fmtQty(Math.abs(r.error))}`}</span>}
+                                  {tr(r.outcome)} {r.error !== 0 && <span className="tabular-nums">{r.error > 0 ? `+${q(r.error)}` : `−${q(Math.abs(r.error))}`}</span>}
                                 </span>}
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -775,9 +815,10 @@ function AccuracyModal({ preselectRep, onClose }: { preselectRep: string; onClos
 }
 
 /** سطر نافذة التحميل: مفتاحه rowId لا الصنف. lotEdit صفوف التشغيلات حين يعدّلها المستخدم (null = اقتراح الخادم أو مصدره
- * الوحيد)، وlotEntry تشغيلة التحميل المباشر في شركة بلا مستودع (D4) */
+ * الوحيد)، وlotEntry تشغيلة التحميل المباشر في شركة بلا مستودع (D4). و`baseUnit` أساس الصنف **كما رآه النموذج** لحظة إضافة السطر
+ * (product.unit) — يُرسل `baseUnitName` فيكشف الخادم قائمةً قديمة، ولا يتغيّر إلا بإعادة الأساس بعد ردّها (rebaseRows) */
 interface LoadRow {
-  rowId: string; productId: string; name: string; unit: string; unitId: string | null; qty: string;
+  rowId: string; productId: string; name: string; unit: string; unitId: string | null; baseUnit: string; qty: string;
   suggestedQty?: number; expectedQty?: number;
   lotEdit: LotRowDraft[] | null; lotEntry: EntryLotDraft;
 }
@@ -807,13 +848,32 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
   const factorOfRow = (r: LoadRow) => choiceById(productOf(r.productId), r.unitId)?.factor ?? 1;
   const baseOfRow = (r: LoadRow) => roundLot((Number(r.qty) || 0) * factorOfRow(r));
 
-  // الوحدة الافتراضية للتحميل = الأكبر (repUnits.defaultChoice): بعد تحويل الصنف إلى الحبّة يبقى «١» كرتوناً كما كان
+  // الوحدة الافتراضية للتحميل = الرئيسية، وإلّا الأكبر (repUnits.defaultChoice): بعد تحويل الصنف إلى الحبّة يبقى «١» كرتوناً
+  // كما كان — ولصنفٍ رئيسيّه كرتون لا تقفز إلى الطبلية
   const addProduct = (id: string, opt?: { label: string }) => {
     if (!id || rows.some(r => r.productId === id)) return;
     const p = productOf(id);
     if (!p) return;
     const c = defaultChoice(p);
-    setRows(rs => [...rs, { rowId: loadRowId(), productId: id, name: opt?.label || p.name, unit: c.name, unitId: c.id, qty: '1', lotEdit: null, lotEntry: emptyEntryLot() }]);
+    setRows(rs => [...rs, { rowId: loadRowId(), productId: id, name: opt?.label || p.name, unit: c.name, unitId: c.id, baseUnit: String(p.unit ?? ''), qty: '1', lotEdit: null, lotEntry: emptyEntryLot() }]);
+  };
+  /**
+   * ردّ «وحدات الصنف تغيّرت» (400 UNIT_INVALID أو 409 PRODUCT_UNITS_CHANGED): الأصناف من جديد، وكل سطرٍ بوحدته الآن
+   * (rebaseRow): الكرتون يبقى كرتوناً ولو صار وحدةً بعد تحويل الأساس، ووحدةٌ أُوقفت تصير قوارير بكميتها × معاملها ظاهرةً.
+   * والأساس المرسَل بعدها أساس الصنف الآن، وتوزيع التشغيلات يُعاد.
+   */
+  const rebaseRows = async () => {
+    const before = prodQ.data || [];
+    const fresh = await qc.fetchQuery({
+      queryKey: ['products-min'], staleTime: 0,
+      queryFn: async () => (await productApi.list({ limit: 1000 })).data.data as ProductPick[],
+    });
+    setRows(rs => rs.map(r => {
+      const p = fresh.find(x => x.id === r.productId);
+      const was = choiceById(before.find(x => x.id === r.productId), r.unitId);
+      const rb = rebaseRow({ unit: r.unit, unitId: r.unitId, unitFactor: was?.id ? was.factor : 1, qty: r.qty }, p);
+      return p && rb ? { ...r, unit: rb.choice.name, unitId: rb.choice.id, baseUnit: String(p.unit ?? ''), qty: String(rb.qty), lotEdit: null } : r;
+    }));
   };
   const patchRow = (rowId: string, p: Partial<LoadRow>) => setRows(rs => rs.map(x => x.rowId === rowId ? { ...x, ...p } : x));
   /** وحدة الصفّ: الكمية رقمها كما هو (يراها المستخدم بجانب الوحدة الجديدة)، ووحدةٌ لم تعد نشطة تُترك — وتوزيع تشغيلاته يُعاد */
@@ -836,15 +896,25 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
     queryFn: async () => (await vanStockApi.suggest({ salesRepId: repId, windowDays, bufferPct })).data.data as SuggestResponse,
   });
 
+  /**
+   * صنف سطر الاقتراح للوحدات (R7): صفّ الاقتراح نفسه حين يحمل «وحدة رئيسية» صالحة (الخادم يمرّر `primaryUnitId` ووحداته
+   * مع الكميات في الردّ نفسه، فالأساس واحدٌ بالبناء) — ولا ينتظر قائمة الأصناف. وخادمٌ لا يرسل المفتاح (undefined):
+   * صفّ الكتالوج حين له رئيسية وأساسه أساس الاقتراح نفسه. وإلّا صفّ الاقتراح كما كان (I1). `null` صريحاً = بلا رئيسية
+   */
+  const suggestPrimary = (r: SuggestRow) => suggestPrimarySource(r, productOf(r.id));
+  const suggestProduct = (r: SuggestRow) => suggestPrimary(r) ?? r;
   /** يملأ النموذج بما يستحقّ تحميلاً فقط — الأصفار ضجيج لا اقتراح */
   const applySuggestion = () => {
     const list = (suggestQ.data?.rows || []).filter(r => r.suggested > 0);
     if (!list.length) { toast.error(tr('لا يوجد ما يقترح تحميله')); return; }
     setRows(list.map(r => {
-      // المقترَح بالأساس (٤٨ حبة) يُحمَّل بأكبر وحدةٍ تنقسم عليه تماماً (٢ كرتون)، وإلّا بالأساس كما هو — لا تقريب صامت
-      const { choice, qty } = suggestionChoice({ unit: r.unit, units: r.units ?? [] }, r.suggested);
+      // المقترَح بالأساس (٤٨ حبة) يُحمَّل بأكبر وحدةٍ تنقسم عليه تماماً (٢ كرتون)، وإلّا بالأساس كما هو — لا تقريب صامت.
+      // ولصنفٍ له «وحدة رئيسية» (من صفّ الاقتراح، وإلّا من الكتالوج) لا يقفز فوقها إلى الطبلية (suggestionChoice) — وغيره كما كان.
+      // والأساس أساسُ الاقتراح (كميته به): كتالوجٌ بأساسٍ آخر قديمٌ فلا يُقرأ منه شيء، والخادم يحكم بـbaseUnitName
+      const p = suggestPrimary(r);
+      const { choice, qty } = p ? suggestionChoice(p, r.suggested) : suggestionChoice({ unit: r.unit, units: r.units ?? [] }, r.suggested);
       return {
-        rowId: loadRowId(), productId: r.id, name: r.name, unit: choice.name, unitId: choice.id,
+        rowId: loadRowId(), productId: r.id, name: r.name, unit: choice.name, unitId: choice.id, baseUnit: String(r.unit ?? ''),
         qty: String(qty), suggestedQty: r.suggested,
         // التنبّؤ اليومي — مرجعُ قياس الدقّة؛ suggestedQty كمية تعبئة تتأثر
         // بما في السيارة والهامش فقياسُها يعاقب المحرّك على ما ليس تنبّؤاً
@@ -873,7 +943,12 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
     const q = Number(r.qty);
     if (!q) return null;
     const base = baseOfRow(r);
-    if (!isFourDecimals(base)) return tr('كمية الصنف المتتبع بأربع خانات عشرية على الأكثر بوحدة الأساس');
+    if (!isFourDecimals(base)) {
+      // D21: لصنفٍ له «وحدة رئيسية» بلا كلمة «الأساس» — وغيره النص القائم حرفاً
+      return primaryUnitOf(productOf(r.productId))
+        ? tr('كمية الصنف المتتبع بأربع خانات عشرية على الأكثر بالوحدة الصغرى')
+        : tr('كمية الصنف المتتبع بأربع خانات عشرية على الأكثر بوحدة الأساس');
+    }
     if (q > 0 && !whOn) return entryProblemText(entryLotProblem(r.lotEntry, { kind: 'INCREASE', expiryRequired: shelfLifeOn(productOf(r.productId)) }), tr);
     if (q > 0) return r.lotEdit ? draftProblemText(draftProblem(r.lotEdit, base, loadSourcesOf(whViewOf(r.productId), day)), tr) : null;
     if (balQ.isLoading) return tr('جار التحميل');
@@ -897,9 +972,13 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
       // الإشارة عكسياً — ADJUST يجمع الكمّية كما وردت فالسالب ينقص الرصيد، أمّا UNLOAD
       // فيطرح «المُرجَع» فالسالب فيه **يزيد** رصيد السيارة بدل أن ينقصه. ولأنّ الوثيقة
       // الواحدة تحمل نوعاً واحداً، تُقسَّم الحركة المختلطة إلى وثيقتين. وتشغيلات السطر تتبعه (splitVanMovement).
+      // «الوحدة الرئيسية» §5.3: كل بندٍ يحمل أساس صنفه كما رآه النموذج (baseUnitName) — يمرّ مع بند التحميل كما هو،
+      // ويُعاد على بند التنزيل بعد التقسيم (splitVanMovement يبنيه من جديد). صفٌّ واحد لكل صنف هنا، فالأساس بالصنف
+      const baseOf = (pid: string) => rows.find(r => r.productId === pid)?.baseUnit;
       const { out, back } = splitVanMovement(
-        rows.map(r => ({ productId: r.productId, qty: Number(r.qty), unitId: r.unitId, suggestedQty: r.suggestedQty, expectedQty: r.expectedQty, ...lotFields(r) })),
+        withBaseUnitNames(rows.map(r => ({ productId: r.productId, qty: Number(r.qty), unitId: r.unitId, suggestedQty: r.suggestedQty, expectedQty: r.expectedQty, ...lotFields(r) })), baseOf),
       );
+      const backItems = withBaseUnitNames(back, baseOf);
       const trimmed = note.trim() || undefined;
       const warnings: LotWarning[] = [];
       if (out.length) {
@@ -910,7 +989,7 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
         setRows(rs => rs.filter(r => !(Number(r.qty) > 0)));
       }
       if (back.length) {
-        const res = await vanStockApi.createLoad({ salesRepId: repId, type: 'UNLOAD', note: trimmed, items: back });
+        const res = await vanStockApi.createLoad({ salesRepId: repId, type: 'UNLOAD', note: trimmed, items: backItems });
         warnings.push(...lotWarningsOf((res?.data as { warnings?: unknown } | undefined)?.warnings));
       }
       return warnings;
@@ -926,6 +1005,8 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
       // حتى الفشل يُبطِل المفاتيح: الشقّ الأوّل من الحركة المختلطة قد يكون كُتب
       invalidateAfterMove();
       toast.error(lotErrorOf(e)?.message || (e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الحفظ'));
+      // وحدات صنفٍ تغيّرت منذ فُتحت النافذة (400 UNIT_INVALID أو 409): لا يُعاد الحفظ بأساسٍ قديم — الأسطر بوحداتها الآن
+      if (isStaleUnitsError(e)) void rebaseRows().catch(() => qc.invalidateQueries({ queryKey: ['products-min'] }));
     },
   });
   function invalidateAfterMove() {
@@ -958,7 +1039,7 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
           <div>
             <label className="label">{tr('إضافة صنف')}</label>
             <SearchableSelect
-              options={(prodQ.data || []).filter(p => !rows.some(r => r.productId === p.id)).map(p => ({ value: p.id, label: p.name, hint: `${p.code} · ${p.unit}` }))}
+              options={(prodQ.data || []).filter(p => !rows.some(r => r.productId === p.id)).map(p => ({ value: p.id, label: p.name, hint: `${p.code} · ${productUnitLabel(p)}` }))}
               value="" onChange={addProduct} resetOnSelect placeholder={tr('ابحث وأضف صنفا')} searchPlaceholder={tr('اكتب اسم/كود الصنف')} />
           </div>
 
@@ -1023,7 +1104,7 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
                               <ConfidenceTag c={r.confidence} />
                               {/* بالأساس: لصنفٍ له وحدات مفكَّكاً «٢ كرتون» — رقم الأساس بجانب اسمه وحده لغيره كما كان */}
                               {hasBigUnit(r.units)
-                                ? <b className="text-sm text-[#E15A30]">{baseQtyText(r.suggested, r, fmtQty)}</b>
+                                ? <b className="text-sm text-[#E15A30]">{baseQtyText(r.suggested, suggestProduct(r), fmtQty)}</b>
                                 : <><b className="text-sm text-[#E15A30]">{r.suggested}</b><span className="text-[10px] text-[#9A8F7E]">{r.unit}</span></>}
                             </span>
                           </div>
@@ -1049,6 +1130,8 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
               {rows.map(r => {
                 const neg = Number(r.qty) < 0;
                 const choices = unitChoices(productOf(r.productId));
+                // رقاقة «الوحدة الرئيسية» موسومةٌ في المنتقي — وبلاها الخيارات كما كانت
+                const primId = primaryChoice(productOf(r.productId))?.id ?? null;
                 const tracked = isTracked(r.productId);
                 return (
                 <div key={r.rowId} className="p-2.5">
@@ -1061,7 +1144,7 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
                     {choices.length > 1 && (
                       <select className="input w-auto py-1.5 text-xs" value={r.unitId ?? ''} aria-label={tr('الوحدة')}
                         onChange={e => setRowUnit(r.rowId, e.target.value || null)}>
-                        {choices.map(c => <option key={c.id ?? 'base'} value={c.id ?? ''}>{c.name}{c.factor > 1 ? ` (${c.factor})` : ''}</option>)}
+                        {choices.map(c => <option key={c.id ?? 'base'} value={c.id ?? ''}>{c.name}{c.factor > 1 ? ` (${c.factor})` : ''}{primId && c.id === primId ? ` · ${tr('رئيسية')}` : ''}</option>)}
                       </select>
                     )}
                     <button type="button" title={tr('عكس الإشارة تحميل/تنقيص')}
@@ -1288,14 +1371,14 @@ function VanLotsDetail({ productId, productName, repId, row, snap, snapLoading, 
                     <td className="py-1 text-end whitespace-nowrap">
                       {l.usable > 1e-6 && !blocked && expired && (
                         <button type="button" disabled={busy}
-                          onClick={() => onAction({ kind: 'DESTROY', productId, productName, lotId: l.lotId, lotNumber: l.lotNumber, qty: roundLot(l.usable) })}
+                          onClick={() => onAction({ kind: 'DESTROY', productId, productName, lotId: l.lotId, lotNumber: l.lotNumber, qty: roundLot(l.usable), baseUnit: row.unit })}
                           className="text-[10px] font-semibold text-red-600 border border-red-200 rounded-md px-1.5 py-0.5 hover:bg-red-50 disabled:opacity-50">
                           {tr('إتلاف')}
                         </button>
                       )}
                       {l.usable > 1e-6 && blocked && (
                         <button type="button" disabled={busy}
-                          onClick={() => onAction({ kind: 'UNLOAD', productId, productName, lotId: l.lotId, lotNumber: l.lotNumber, qty: roundLot(l.usable) })}
+                          onClick={() => onAction({ kind: 'UNLOAD', productId, productName, lotId: l.lotId, lotNumber: l.lotNumber, qty: roundLot(l.usable), baseUnit: row.unit })}
                           className="text-[10px] font-semibold text-amber-700 border border-amber-200 rounded-md px-1.5 py-0.5 hover:bg-amber-50 disabled:opacity-50">
                           {tr('تنزيل')}
                         </button>
@@ -1332,14 +1415,26 @@ function VanLotsDetail({ productId, productName, repId, row, snap, snapLoading, 
 /**
  * إزالة المنتهي صلاحيته (EXPIRED_OUT) أو المرتجع التالف (DAMAGED_OUT) من سيارة المندوب — نافذةٌ بدل window.prompt. الكمية بالأساس
  * (بلا unitId)، والافتراضي كامل الرصيد. وللصنف المتتبَّع: المصدر الوحيد في الدلو تلقائي، والمتعدّد يلزمه اختيارٌ صريح (D10).
+ *
+ * «الوحدة الرئيسية» (D8): لصنفٍ لها منتقي وحدة، افتراضه الرئيسية حين ينقسم عليها الرصيد (removalStart)، والواجهة تحوّل
+ * الخانة إلى الأساس (`n = الكمية × المعامل`) قبل التحقق والإرسال — فعقد الخادم لا يتغيّر (البند بلا unitId). ومسوّدة
+ * التشغيلات تبقى بالقارورة بوسمٍ لاصق، ومجموعها يُقارن بـn. والبند يحمل `baseUnitName` (§2.7): 400/409 ⇒ يُعاد جلب الرصيد.
+ * صنفٌ بلا رئيسية: كما كان حرفاً (بالأساس، بلا منتقٍ).
  */
 function RemoveOutModal({ row, kind, repId, tracked, onDone, onClose }: {
   row: StockRow; kind: OutKind; repId: string; tracked: boolean; onDone: () => void; onClose: () => void;
 }) {
   const tr = useTr();
   const have = (kind === 'EXPIRED_OUT' ? row.expired : row.damaged) ?? 0;
-  const [qty, setQty] = useState(String(roundLot(have)));
+  // الوحدة الأولى وكميتها: كامل الرصيد — بالرئيسية حين ينقسم عليها، وإلّا بالأساس كما كان
+  const [start] = useState(() => removalStart(row, have));
+  const [unitId, setUnitId] = useState<string | null>(start.unitId);
+  const [qty, setQty] = useState(String(roundLot(start.qty)));
   const [draft, setDraft] = useState<LotRowDraft[] | null>(null);
+  // المنتقي لصنفٍ له «وحدة رئيسية» وحده (D8) — وغيره بلا منتقٍ والكمية بالأساس كما كانت (I1)
+  const prim = primaryUnitOf(row);
+  const choices = prim ? unitChoices(row) : [];
+  const factor = unitId ? (choiceById(row, unitId)?.factor ?? 1) : 1;
   const bucket = kind === 'EXPIRED_OUT' ? 'EXPIRED' : 'DAMAGED';
   const balQ = useQuery({
     queryKey: ['lot-balances-van', row.productId, ''],
@@ -1349,21 +1444,27 @@ function RemoveOutModal({ row, kind, repId, tracked, onDone, onClose }: {
   const view = balQ.data?.vans.find(v => v.salesRepId === repId)?.view;
   const sources = tracked ? outSourcesOf(view, bucket, balQ.data?.day ?? '') : [];
   const explicit = tracked && needsExplicitSource(sources);
-  const n = Number(qty);
+  // بالأساس دائماً: ما يُرسل وما يُقارن بالرصيد وبمجموع التشغيلات
+  const n = removalBaseQty(qty, factor);
   const qtyOk = n > 0 && n <= have + 1e-9 && (!tracked || isFourDecimals(n));
   const problem = explicit ? draftProblem(draft ?? [], n, sources) : null;
   const save = useMutation({
     mutationFn: () => vanStockApi.createLoad({
       salesRepId: repId, type: kind,
       note: kind === 'EXPIRED_OUT' ? tr('إزالة منتهي الصلاحية') : tr('إزالة مرتجع تالف'),
-      items: [{ productId: row.productId, qty: n, ...(explicit && draft ? { lots: draftRefs(draft) } : {}) }],
+      // الكمية بالأساس بلا unitId كما قبل الميزة، ومعها أساس الصنف كما رآه صفّ السيارة (baseUnitName)
+      items: withBaseUnitNames([{ productId: row.productId, qty: n, ...(explicit && draft ? { lots: draftRefs(draft) } : {}) }], () => row.unit),
     }),
     onSuccess: () => {
       toast.success(kind === 'EXPIRED_OUT' ? tr('أزيل المنتهي صلاحيته من السيارة') : tr('أزيل التالف من السيارة'));
       onDone();
       onClose();
     },
-    onError: (e: unknown) => toast.error(lotErrorOf(e)?.message || (e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الحفظ')),
+    onError: (e: unknown) => {
+      toast.error(lotErrorOf(e)?.message || (e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الحفظ'));
+      // وحدات الصنف تغيّرت منذ فُتح الرصيد (400 UNIT_INVALID أو 409): الرصيد من جديد والنافذة تُغلق — كميتها بأساسٍ قديم
+      if (isStaleUnitsError(e)) { onDone(); onClose(); }
+    },
   });
   return (
     <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
@@ -1379,15 +1480,33 @@ function RemoveOutModal({ row, kind, repId, tracked, onDone, onClose }: {
           <p className="text-xs text-[#6E6557]">{tr('الرصيد')}: <b>{baseQtyText(have, row, fmtQty)}</b></p>
           <div>
             <label className="label">{kind === 'EXPIRED_OUT' ? tr('كمية منتهي الصلاحية المراد إزالتها من السيارة') : tr('كمية التالف المراد إزالتها من السيارة')}</label>
-            <input type="number" step="any" min="0" inputMode="decimal" className="input" value={qty} onChange={e => { setQty(e.target.value); }} />
-            {/* الكمية بالأساس دائماً — «٢» لصنفٍ له كرتون حبّتان لا كرتونان */}
-            {hasBigUnit(row.units) && <p className="text-[10px] text-[#9A8F7E] mt-1">{tr('بوحدة الأساس')} {row.unit}</p>}
+            {choices.length > 1 ? (
+              <>
+                {/* «الوحدة الرئيسية» (D8): الكمية بالوحدة المختارة — رقمها كما هو عند تبديلها (يُرى بجانبها)، ومعادلها بالقارورة تحته */}
+                <div className="flex items-center gap-2">
+                  <input type="number" step="any" min="0" inputMode="decimal" className="input flex-1" value={qty} onChange={e => { setQty(e.target.value); }} />
+                  <select className="input w-auto py-1.5 text-xs" value={unitId ?? ''} aria-label={tr('الوحدة')}
+                    onChange={e => { setUnitId(e.target.value || null); }}>
+                    {choices.map(c => <option key={c.id ?? 'base'} value={c.id ?? ''}>{c.name}{c.factor > 1 ? ` (${c.factor})` : ''}{prim && c.id === String(prim.id) ? ` · ${tr('رئيسية')}` : ''}</option>)}
+                  </select>
+                </div>
+                {factor !== 1 && Number.isFinite(n) && n > 0 && <p className="text-[10px] text-[#9A8F7E] mt-1" dir="rtl">= {fmtQty(n)} {row.unit}</p>}
+              </>
+            ) : (
+              <>
+                <input type="number" step="any" min="0" inputMode="decimal" className="input" value={qty} onChange={e => { setQty(e.target.value); }} />
+                {/* الكمية بالأساس دائماً — «٢» لصنفٍ له كرتون حبّتان لا كرتونان */}
+                {hasBigUnit(row.units) && <p className="text-[10px] text-[#9A8F7E] mt-1">{tr('بوحدة الأساس')} {row.unit}</p>}
+              </>
+            )}
             {qty !== '' && !qtyOk && <p className="text-[10px] text-red-600 mt-1">{tr('الكمية غير صالحة')}</p>}
           </div>
           {tracked && (
             balQ.isLoading ? <p className="text-[10px] text-[#9A8F7E]">{tr('جار التحميل')}</p> : (
               <div className="rounded-lg border border-[#F1EBDF] bg-[#FAF7F0] px-2 py-1.5 space-y-1">
-                <p className="text-[10px] font-semibold text-[#6E6557] flex items-center gap-1"><Layers size={11} className="text-[#E15A30]" /> {tr('التشغيلات التي تزال منها')}</p>
+                <p className="text-[10px] font-semibold text-[#6E6557] flex items-center gap-1"><Layers size={11} className="text-[#E15A30]" /> {tr('التشغيلات التي تزال منها')}
+                  {/* R8: كميات التشغيلات بالقارورة دائماً — اسمها لاصقٌ بارز لصنفٍ له «وحدة رئيسية» فلا تُكتب كراتين */}
+                  {prim && <b className="text-[#1F1A13]">· {row.unit}</b>}</p>
                 {explicit ? (
                   <LotRowsEditor rows={draft ?? []} onChange={setDraft} sources={sources} lineBaseQty={n || 0} baseUnit={row.unit}
                     problem={qtyOk ? problem : null} />

@@ -31,3 +31,14 @@ test('حدّ الدقيقة وأقصى الصفحة والعنوان كما في
   assert.match(backend('services', 'apiKeys.ts'), new RegExp(`API_KEY_MAX_PAGE = ${API_MAX_PAGE};`));
   assert.equal(API_BASE_URL, 'https://api.fieldsa.net/api');
 });
+
+test('مورد المنتجات في المستند يصف primaryUnitId وbaseConvertedAt — وهما مكشوفان في قائمة سماح الخادم', () => {
+  const src = backend('services', 'apiSync.ts');
+  const cols = src.slice(src.indexOf('const PRODUCT_COLS = ['), src.indexOf('];', src.indexOf('const PRODUCT_COLS = [')));
+  const products = API_SYNC_RESOURCES.find(r => r.name === 'products')!;
+  for (const k of ['primaryUnitId', 'baseConvertedAt']) {
+    assert.ok(cols.includes(`'${k}'`), `${k} ليس في PRODUCT_COLS`);
+    assert.match(products.what, new RegExp(k), `وصف المورد لا يذكر ${k}`);
+  }
+  assert.match(products.what, /بوحدة الأساس/);
+});

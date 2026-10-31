@@ -273,8 +273,13 @@ test('حارس ثابت (البندان 43 و44): /prices يخطط بـplanPrice
   const src = read('routes/import.ts');
   const body = routeBody(src, "router.post('/prices'");
   // المؤرشف يُقرأ ليُميَّز عن «الصنف غير موجود» (البند 44)، وضريبته للبند 31
-  assert.match(body, /select: \{ id: true, code: true, deletedAt: true, taxPct: true, unit: true, units: \{ select: \{ name: true, factor: true, isActive: true \} \} \}/);
-  assert.match(body, /plan = planPriceImportRows\(rows, matcher, prods, body\.allowZeroPrice === true\);/);
+  // ومعه «الوحدة الرئيسية» (D17): الاسم والرئيسية وتاريخ التحويل ومعرّفات الوحدات، والخطة تمرّ بـplanPriceImportRows نفسه
+  assert.match(body, /id: true, code: true, name: true, deletedAt: true, taxPct: true, unit: true, primaryUnitId: true, baseConvertedAt: true,\s*units: \{ select: \{ id: true, name: true, factor: true, isActive: true \} \},/);
+  assert.match(body, /plan = planPriceRowsWithUnits\(rows, matcher, prods, body\.allowZeroPrice === true\);/);
+  const wrap = src.slice(src.indexOf('export function planPriceRowsWithUnits'), src.indexOf('export function openingStockUnitGuard'));
+  assert.ok(src.indexOf('export function planPriceRowsWithUnits') < src.indexOf("router.post('/prices'"), 'المساعد قبل المسار');
+  assert.equal(wrap.split('return planPriceImportRows(rows, matcher, products, allowZeroPrice);').length - 1, 1, 'بلا D17: الخطة القائمة حرفياً');
+  assert.match(wrap, /const plan = planPriceImportRows\(rows, \(r\) => \(required\.has\(r\) \? \{ error: 'NOT_FOUND' as const \} : matcher\(r\)\), products, allowZeroPrice\);/);
   assert.match(body, /result\.skipped = plan\.skippedRows\.length;/);
   assert.match(body, /skippedRows: plan\.skippedRows\.slice\(0, 500\)/);
   assert.match(body, /warnings: \{ duplicates: plan\.duplicates\.slice\(0, 500\) \}/);
@@ -319,8 +324,9 @@ test('حارس ثابت (البند 31): الخيار في جذر جسم /produc
   const prices = routeBody(src, "router.post('/prices'");
   assert.match(prices, /taxByProduct\.get\(w\.productId\) \?\? company\?\.defaultVatPct \?\? 0/);
   // (4) البصمة على الصفوف وحدها في الاثنين (كالمخزون الافتتاحي): تبديل الخيار تكرار لا دفعة ثانية
-  for (const [b, kind] of [[products, 'products'], [prices, 'prices']] as const) {
-    assert.match(b, new RegExp(`importContentHash\\('${kind}', rows\\)`), kind);
+  // و«الوحدة الرئيسية»: صفوف المنتجات تُطبَّع (hashRowsOf) فبصمة الملف القديم بلا عمود السعر كما كانت
+  for (const [b, kind, arg] of [[products, 'products', 'hashRowsOf\\(rows\\)'], [prices, 'prices', 'rows']] as const) {
+    assert.match(b, new RegExp(`importContentHash\\('${kind}', ${arg}\\)`), kind);
     assert.doesNotMatch(b, /importContentHash\([^)]*pricesIncludeTax/, `${kind}: الخيار دخل البصمة`);
   }
   // (5) العدد المحوَّل في الرد (الواجهة تقرأ netFromInclusive)

@@ -21,7 +21,7 @@
  * العارض «٢ كرتون و٣ حبة»، ونصّها (`qty_text`) يصل العقل حين للصنف وحدات.
  */
 import { normalizeDigits, scrubPii } from './advisor';
-import { qtyText, type QtyUnit } from './baseQty';
+import { primaryIdOf, qtyText, type QtyUnit } from './baseQty';
 import { cleanName } from './learn/lessons';
 import { normalizeAr as normalizeBase } from './learn/signals';
 import { GSIG_ENGINE, GSIG_F_MAX, GSIG_F_MIN } from './learn/types';
@@ -56,6 +56,8 @@ export interface ExpectedProduct {
   unit: string;
   /** وحدات الصنف الأكبر ليفكّك الجهاز الكمية (formatQty) — غائبة لصنفٍ بوحدة واحدة */
   units?: QtyUnit[];
+  /** «الوحدة الرئيسية» (عرضٌ وحده): التفكيك يقف عندها — حاضرٌ حين للصنف رئيسية فقط (الموسومة في `units`) */
+  primaryUnitId?: string;
   /** null = لا رقم (reason) */
   qty: number | null;
   low: number | null;
@@ -375,7 +377,8 @@ export function expectedFor(i: ExpectInput): ExpectedShop {
       mentioned: true, mentions: mt.reviews, ...(mt.complaint && !mt.plain && { complaint: mt.complaint }), ...(mt.quote && { quote: mt.quote }),
     } : { mentioned: false };
     const a = i.anchors.get(p.productId);
-    const units = p.units?.length ? { units: p.units } : {};
+    const primaryUnitId = primaryIdOf(p.units);
+    const units = p.units?.length ? { units: p.units, ...(primaryUnitId && { primaryUnitId }) } : {};
     if (!a || !(a.qty > 0)) return { productId: p.productId, name: p.name, unit: p.unit, ...units, qty: null, low: null, high: null, ...mention, reason: 'NO_ANCHOR' as const };
     const raw = a.qty * T * Q * talk.R * mentionFactor(mt);
     const v = raw * C;

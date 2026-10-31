@@ -51,5 +51,27 @@ test('المنيو العام: وحدات الصنف النشطة بمعامله
   const unitsSel = (productArgs!.select as { units: { where: unknown; orderBy: unknown; select: Record<string, unknown> } }).units;
   assert.deepEqual(unitsSel.where, { isActive: true });
   assert.deepEqual(unitsSel.orderBy, [{ sortOrder: 'asc' }, { factor: 'asc' }]);
-  assert.deepEqual(Object.keys(unitsSel.select).sort(), ['factor', 'name', 'price'], 'لا رمز ضريبي ولا معرّف للعلن');
+  assert.deepEqual(Object.keys(unitsSel.select).sort(), ['factor', 'id', 'name', 'price'], 'لا رمز ضريبي للعلن — والمعرّف لمطابقة الرئيسية وحدها');
+  for (const p of list) for (const u of p.units as Record<string, unknown>[]) assert.ok(!('id' in u), 'معرّف الوحدة لا يُخرج للعلن');
+  assert.equal((productArgs!.select as Record<string, unknown>).primaryUnitId, true);
+});
+
+test('المنيو العام و«الوحدة الرئيسية»: isPrimary على الرئيسية الصالحة وحدها، والمفتاح غائبٌ في غيرها وبلا رئيسية', async () => {
+  const base = { unit: 'قارورة', basePrice: 2, taxPct: 15, image: null, category: null };
+  const units = [{ id: 'u-c', name: 'كرتون', factor: 24, price: 48 }, { id: 'u-pl', name: 'طبلية', factor: 1200, price: null }];
+  products.splice(0, products.length,
+    { name: 'ماء رئيسي', ...base, primaryUnitId: 'u-c', units } as never,
+    { name: 'ماء بلا رئيسية', ...base, primaryUnitId: null, units } as never,
+    { name: 'ماء رئيسية تالفة', ...base, primaryUnitId: 'u-gone', units } as never,
+  );
+  const list = ((await get(T, R)).body!.data as { products: Record<string, unknown>[] }).products;
+  assert.deepEqual(list[0].units, [
+    { name: 'كرتون', factor: 24, price: 48, isPrimary: true },
+    { name: 'طبلية', factor: 1200, price: 2400 },
+  ]);
+  for (const i of [1, 2]) {
+    assert.deepEqual(list[i].units, [{ name: 'كرتون', factor: 24, price: 48 }, { name: 'طبلية', factor: 1200, price: 2400 }], 'JSON العلن كما كان');
+    assert.ok(!('primaryUnitId' in list[i]), 'معرّف الرئيسية لا يُخرج');
+  }
+  assert.ok(!('primaryUnitId' in list[0]));
 });

@@ -2,16 +2,18 @@
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import prisma from '../config/database';
-import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, tenantId, isOwnerSession } from '../middleware/auth';
+import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, tenantId, isOwnerSession, actorOf } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta, roundDecimal } from '../utils/helpers';
 import { canAccessCustomer } from '../services/customerScope';
 import { applyProductVatGate } from './productsZatca';
 import { RETURN_RULE_METRICS, RETURN_RULE_MODES, SHELF_LIFE_BASES, SHELF_LIFE_UNITS, returnRuleConfigProblem, shelfLifeProblem } from '../services/shelfLife';
-import { MAX_UNIT_FACTOR, QTY_EPS, unitProblem, factorOf, type UnitDef } from '../services/units';
+import { MAX_UNIT_FACTOR, QTY_EPS, unitProblem, factorOf, baseNameKey, derivedBasePrice, primaryUnitOf, type UnitDef } from '../services/units';
 import { REP_UNIT_RULES, hasRepRules, repRuleConfigProblem, repRulesChanged, repUnitRuleOf } from '../services/repProductRules';
 import { LOT_BUCKETS, LOT_EPS, LotError, asLockBusy, asLotBusy, lotErr, lotErrorBody, lotHttpError, roundLot, type BucketQty, type PlaceLotView } from '../services/lots';
 import { LOT_LOCK_TIMEOUT, acquireLotQueue, lockLotProducts, placeViews, recordLotEvent, type LotEventActor, type LotTx } from '../services/lotsDb';
+import { convertBaseRefusalFor } from '../services/convertBaseAccess';
+import { markConverting, unmarkConverting } from '../services/baseGuard';
 
 const router = Router();
 router.use(authenticate); // القراءة متاحة للمندوب (للبحث عند إصدار الفاتورة)؛ الكتابة للإدارة فقط
@@ -91,6 +93,10 @@ const unitCreateSchema = z.object({
   price: unitPriceField,
   unitCode: z.string().max(16).nullish().or(z.literal('')),
   sortOrder: z.number().int().optional(),
+  // «الوحدة الرئيسية» (§2.2-د): الوحدة الجديدة تصير رئيسية الصنف في المعاملة نفسها
+  makePrimary: z.boolean().optional(),
+  // الأساس كما رآه النموذج — وحدةٌ بمعاملٍ محسوب على أساسٍ حُوِّل بعده ⇒ 409 BASE_UNIT_CHANGED (ولمفتاح API على صنفٍ حُوِّل إلزامي، D19)
+  expectedBaseName: z.string().nullish(),
 });
 
 const unitUpdateSchema = z.object({
@@ -100,6 +106,9 @@ const unitUpdateSchema = z.object({
   unitCode: z.string().max(16).nullish().or(z.literal('')),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
+  // إيقاف الوحدة الرئيسية يلزمه إلغاء الرئيسية صراحةً معه (D13) — وإلا 409 PRIMARY_UNIT_IN_USE
+  clearPrimary: z.boolean().optional(),
+  expectedBaseName: z.string().nullish(),
 });
 
 const convertBaseSchema = z.object({
@@ -110,7 +119,49 @@ const convertBaseSchema = z.object({
   basePrice: z.number().min(0).nullish(),
   // اختياري: رمز وحدة الأساس الجديدة الضريبي. غيابه ⇒ رمز الصنف كما هو؛ والرمز القديم يرثه الكرتون (الخطوة ٣)
   baseUnitCode: z.string().max(16).nullish().or(z.literal('')),
+  // «الوحدة الرئيسية» (D12): الوحدة القديمة (الكرتون) تصير رئيسية الصنف ما لم تُرسل false — فلا يتغيّر عرضه ولا إدخاله الافتراضي
+  keepOldBaseAsPrimary: z.boolean().optional(),
+  // معاينة بلا معاملة ولا قفل ولا كتابة: ما سيُحوَّل، وما يلزم إقراره (ERP ومفاتيح API)
+  dryRun: z.boolean().optional(),
+  acknowledgeErp: z.boolean().optional(),
+  acknowledgeApi: z.boolean().optional(),
 });
+
+// ═══ «الوحدة الرئيسية» (مواصفة الوحدة الرئيسية §2.2) — عرضٌ وتعريفٌ وإدخالٌ افتراضي فقط (القاعدة الذهبية ١٢) ═══
+
+/** الإنشاء العكسي الذرّي (D10): وحدات الصنف ورئيسيّه باسمها مع إنشائه — مخطّطٌ منفصل، وproductSchema كما هو لأن PUT يستعمل .partial() منه */
+const productCreateUnitSchema = z.object({ name: z.string(), factor: z.number(), price: unitPriceField, unitCode: z.string().max(16).nullish().or(z.literal('')) });
+const productCreateSchema = productSchema.extend({
+  basePrice: z.number().min(0).nullish(),
+  units: z.array(productCreateUnitSchema).max(10).optional(),
+  primaryUnitName: z.string().trim().min(1).max(24).nullish(),
+});
+
+/** تبديل الرئيسية لصنفٍ قائم (D11): علمٌ لا مال. expectedPrimaryUnitId (إن حضر مفتاحه) يمنع نموذجاً قديماً */
+const primaryUnitSchema = z.object({ unitId: z.string().min(1).nullable(), expectedPrimaryUnitId: z.string().nullish() });
+
+/** حارس التعديل (§2.2-هـ): الأساس كما رآه النموذج، ورقعة الوحدة الرئيسية تُكتب مع الصنف في معاملةٍ واحدة */
+const productEditGuardSchema = z.object({
+  expectedBaseName: z.string().nullish(),
+  primaryUnit: z.object({ id: z.string().min(1), name: z.string().optional(), factor: z.number().optional(),
+    price: unitPriceField, unitCode: z.string().max(16).nullish().or(z.literal('')) }).nullish(),
+});
+
+/** حارس الشرائح (§2.2-د): الأساس، والرئيسية ومعاملها كما حُسبت عليهما الحدود حين تُدخل بالرئيسية (/m) */
+const tierGuardSchema = z.object({
+  expectedBaseName: z.string().nullish(),
+  expectedPrimary: z.object({ id: z.string().min(1), factor: z.number() }).nullish(),
+});
+
+const BASE_UNIT_REQUIRED_MSG = 'هذا الصنف حُوِّلت وحدته — أرسل expectedBaseName';
+const BASE_UNIT_STALE_MSG = 'تغيّرت وحدات الصنف — أعد فتحه قبل الحفظ';
+const PRIMARY_UNIT_INVALID_MSG = 'الوحدة الرئيسية يجب أن تكون إحدى وحدات الصنف';
+const PRIMARY_UNIT_CHANGED_MSG = 'تغيّرت الوحدة الرئيسية منذ فتحت الصنف — أعد فتحه';
+const PRIMARY_UNIT_IN_USE_MSG = 'هذه الوحدة الرئيسية للصنف — اجعل وحدة أخرى رئيسية أو ألغِ الرئيسية أولاً';
+const PRODUCT_UNITS_BUSY_MSG = 'يجري تحويل وحدات هذا الصنف — أعد المحاولة بعد قليل';
+const retiredBaseMsg = (name: string) => `اسم «${name}» كان وحدة هذا الصنف قبل تحويله — اختر اسماً آخر`;
+/** D19-أ: مفتاحٌ استُعمل في هذه المدة «نشط» — يلزم إقرار التحويل */
+const API_KEY_ACTIVE_DAYS = 30;
 
 /** وحدة الأساس كوحدةٍ بمعامل ١ — تدخل «الأخريات» في unitProblem فلا تُكرَّر باسمها ولا بمعاملها */
 const baseAsUnit = (unit: string): UnitDef => ({ name: unit, factor: 1 });
@@ -155,16 +206,125 @@ function refuseLargeRuleWithout(product: { repSaleUnit: string; repReturnUnit: s
  */
 async function lockProduct(tx: Prisma.TransactionClient, tid: string, productId: string) {
   await tx.$queryRaw`SELECT id FROM products WHERE id = ${productId} AND "tenantId" = ${tid} FOR UPDATE`;
+  return readLockedProduct(tx, tid, productId);
+}
+
+/** صفّ الصنف كما يقرؤه كل كاتبٍ بعد قفله — select واحد لقفلَي الوحدات والتعديل */
+function readLockedProduct(tx: Prisma.TransactionClient, tid: string, productId: string) {
   return tx.product.findFirst({
     where: { id: productId, tenantId: tid },
     select: {
       id: true, unit: true, basePrice: true, unitCode: true,
       // «تتبّع اللوط»: الصفّ المقفل يغني convert-base عن FOR KEY SHARE ثانٍ (lockLotProducts بـlockedRows)
       lotTracked: true, lotTrackedSince: true,
+      // «الوحدة الرئيسية»: الرئيسية ولحظة آخر تحويل تحت القفل نفسه (D2، D19، D20)
+      primaryUnitId: true, baseConvertedAt: true,
       units: { select: { id: true, name: true, factor: true, price: true, unitCode: true, isActive: true, sortOrder: true } },
       repSaleUnit: true, repReturnUnit: true, // «قيود المندوب»: الكبرى فقط تحرس آخر وحدةٍ كبرى، وتمنع تحويل الأساس
     },
   });
+}
+
+/**
+ * قفل التعديل (§2.2-أ): FOR NO KEY UPDATE — القفل الذي يأخذه UPDATE عادي. يتعارض مع FOR UPDATE الذي يأخذه التحويل وكتّاب
+ * الوحدات، ولا يتعارض مع FOR KEY SHARE الذي تأخذه الفواتير، فتعديل الصنف لا ينتظر كل فاتورة تصدر. والانتظار بمهلةٍ محلية تُحفظ
+ * وتُستعاد (نمط حذف الصنف): تحويلٌ طويل يمسك الصفّ ⇒ 503 PRODUCT_UNITS_BUSY مبكراً، لا انتظار مهلة المعاملة ثم 500.
+ */
+async function lockProductForEdit(tx: Prisma.TransactionClient, tid: string, productId: string) {
+  const prev = await tx.$queryRaw<{ lock_timeout: string }[]>`SELECT current_setting('lock_timeout') AS lock_timeout`;
+  await tx.$executeRaw`SELECT set_config('lock_timeout', ${LOT_LOCK_TIMEOUT}, true)`;
+  try {
+    await tx.$queryRaw`SELECT id FROM products WHERE id = ${productId} AND "tenantId" = ${tid} FOR NO KEY UPDATE`;
+  } catch (e) {
+    if (asLockBusy(e)) throw new UnitsRefusal(503, PRODUCT_UNITS_BUSY_MSG, 'PRODUCT_UNITS_BUSY');
+    throw e;
+  }
+  await tx.$executeRaw`SELECT set_config('lock_timeout', ${prev[0]?.lock_timeout ?? '0'}, true)`;
+  return readLockedProduct(tx, tid, productId);
+}
+
+/**
+ * كاتب إعداد الصنف (الوحدات والشرائح، §2.2-د) على الصفّ المقفل: الأساس الذي حُسب عليه الجسم هو أساسه الآن.
+ * D19: مفتاح API على صنفٍ حُوِّل يلزمه الأساس صراحةً — رفضٌ ظاهر بدل «طبلية = 50» محسوبة على الكرتون بعد تحويله (×٢٤ صامت).
+ */
+function assertExpectedBase(req: AuthRequest, locked: { unit?: string | null; baseConvertedAt?: Date | null }, expectedBaseName: string | null | undefined): void {
+  if (req.user?.apiKeyId && locked.baseConvertedAt != null && expectedBaseName == null) {
+    throw new UnitsRefusal(400, BASE_UNIT_REQUIRED_MSG, 'BASE_UNIT_REQUIRED');
+  }
+  if (expectedBaseName != null && baseNameKey(expectedBaseName) !== baseNameKey(locked.unit)) {
+    throw new UnitsRefusal(409, BASE_UNIT_STALE_MSG, 'BASE_UNIT_CHANGED');
+  }
+}
+
+/**
+ * D20-ب: اسمٌ ظهر fromUnit في تحويلٍ سابق بمعامل > ١ لهذا الصنف «متقاعد» — لا يعود أساساً، فلا تلتقط سلسلة إعادة الرفع صفاً
+ * خاطئاً. يُسأل السجلّ حين حُوِّل الصنف وحده (I8)، والمقارنة بـbaseNameKey على الطرفين (D20-أ).
+ */
+async function isRetiredBaseName(db: Prisma.TransactionClient, tid: string, productId: string, baseConvertedAt: Date | null | undefined, name: string): Promise<boolean> {
+  if (baseConvertedAt == null) return false;
+  const rows = await db.productBaseConversion.findMany({ where: { tenantId: tid, productId, factor: { gt: 1 } }, select: { fromUnit: true } });
+  const key = baseNameKey(name);
+  return (rows ?? []).some((r) => baseNameKey(r.fromUnit) === key);
+}
+
+/** صفّ الصنف المقفل كما يحتاجه التعديل المحروس — من lockProductForEdit، أو من صفّ «تتبّع اللوط» المقفل مع وحداته */
+interface LockedForEdit {
+  id: string; unit: string; primaryUnitId: string | null; baseConvertedAt: Date | null;
+  units: Array<{ id: string; name: string; factor: number; price: number | null; isActive?: boolean }>;
+}
+
+/**
+ * خطوات التعديل المحروس ٢–٦ (§2.2-هـ) على الصفّ المقفل، قبل product.update — مشتركة بين المسار العادي (lockProductForEdit)
+ * ومسار «تتبّع اللوط» (setProductLotTracking بعد FOR UPDATE). أي رفضٍ UnitsRefusal يُلغي المعاملة قبل أي كتابة على الصنف.
+ */
+async function guardProductEdit(tx: Prisma.TransactionClient, req: AuthRequest, tid: string, locked: LockedForEdit,
+  o: { guard: z.infer<typeof productEditGuardSchema>; newUnit: string | undefined; seenUnit: string }): Promise<void> {
+  // ٢. D19: مفتاحٌ يجهل التحويل يكتب سعراً أو وحدة لصنفٍ حُوِّل ⇒ 400، لا سعر كرتونٍ للقارورة
+  if (req.user?.apiKeyId && locked.baseConvertedAt != null && o.guard.expectedBaseName == null) {
+    throw new UnitsRefusal(400, BASE_UNIT_REQUIRED_MSG, 'BASE_UNIT_REQUIRED');
+  }
+  // ٣. الأساس الذي حُسب عليه الجسم ليس أساس الصفّ المقفل ⇒ حُوِّل بينهما: basePrice الكرتون فوق سعر القارورة مالٌ ×٢٤
+  if (baseNameKey(locked.unit) !== baseNameKey(o.guard.expectedBaseName || o.seenUnit)) {
+    throw new UnitsRefusal(409, BASE_UNIT_STALE_MSG, 'BASE_UNIT_CHANGED');
+  }
+  const newBase = o.newUnit !== undefined ? o.newUnit : locked.unit;
+  const renames = baseNameKey(newBase) !== baseNameKey(locked.unit);
+  const patch = o.guard.primaryUnit ?? null;
+  if (renames) {
+    // ٤. اسم الأساس الجديد لا يساوي اسم وحدةٍ للصنف — على الصفّ المقفل وبعد رقعة الرئيسية، ثم الاسم المتقاعد (D20-ب)
+    const names = locked.units.map((u) => (patch && u.id === patch.id && patch.name !== undefined ? patch.name : u.name).trim());
+    if (names.includes(newBase.trim())) throw new UnitsRefusal(400, 'اسم وحدة الأساس مستخدم لوحدة أخرى لهذا الصنف');
+    if (await isRetiredBaseName(tx, tid, locked.id, locked.baseConvertedAt, newBase)) {
+      throw new UnitsRefusal(409, retiredBaseMsg(newBase.trim()), 'BASE_NAME_RETIRED');
+    }
+  }
+  // ٥. رقعة الرئيسية: الوحدة التي رآها النموذج هي الرئيسية الآن، والمدموج صالحٌ بين وحدات الصنف والأساس الجديد
+  if (patch) {
+    const current = locked.units.find((u) => u.id === patch.id);
+    if (!current || patch.id !== locked.primaryUnitId) throw new UnitsRefusal(409, PRIMARY_UNIT_CHANGED_MSG, 'PRIMARY_UNIT_CHANGED');
+    const merged = {
+      name: patch.name ?? current.name,
+      factor: patch.factor ?? current.factor,
+      price: patch.price !== undefined ? patch.price : current.price,
+    };
+    const problem = unitProblem(merged, [baseAsUnit(newBase), ...locked.units.filter((u) => u.id !== current.id)]);
+    if (problem) throw new UnitsRefusal(400, problem);
+    await tx.productUnit.updateMany({
+      where: { id: current.id, productId: locked.id, tenantId: tid },
+      data: {
+        ...(patch.name !== undefined && { name: patch.name.trim() }),
+        ...(patch.factor !== undefined && { factor: Math.round(Number(patch.factor)) }),
+        ...(patch.price !== undefined && { price: priceOrNull(patch.price) }),
+        ...(patch.unitCode !== undefined && { unitCode: patch.unitCode || null }),
+      },
+    });
+  }
+  // ٦. إعادة تسمية الأساس: صفٌّ بمعامل ١ يُبقي سلسلة إعادة الرفع متّصلة (§2.12) — لكل صنفٍ حُوِّل أم لا، وbaseConvertedAt كما هو
+  if (renames) {
+    await tx.productBaseConversion.create({
+      data: { tenantId: tid, productId: locked.id, fromUnit: locked.unit, toUnit: newBase, factor: 1, fromUnitId: null, convertedBy: actorOf(req) },
+    });
+  }
 }
 
 /** وحدات الصنف بلا طابع تعديل في الصنف — فتغييرها تغييرٌ للصنف تراه مزامنة ERP و/api/v1/sync (كالشرائح) */
@@ -203,6 +363,8 @@ export function baseConversionProblem(
 // عليه مع هذا العميل. بدونها كان يعرض basePrice الأعلى فيرفضه حارس الصلاحية في الخادم
 // (سعر العميل هو السقف المرجعي) ⇒ «لا تملك صلاحية تغيير سعر البيع» على كل مستند لهذا العميل.
 // خفيفة عمداً (معرّف + سعر) لتُحمَّل وتُخزَّن في الكاش على الجوال بلا كلفة.
+// و«الوحدة الرئيسية» (§2.2-ح): `unit` أساس الصنف لحظة القراءة — فيعرف الجهاز على أي أساسٍ حُسب السعر المخزَّن في كاشه
+// (بعد تحويلٍ يُقسم سعر الكرتون على المعامل، فلا يُضرب ×٢٤ مرّتين)
 router.get('/customer-prices/:customerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
@@ -212,9 +374,9 @@ router.get('/customer-prices/:customerId', async (req: AuthRequest, res: Respons
     }
     const prices = await prisma.customerPrice.findMany({
       where: { customerId: req.params.customerId, product: { tenantId: tid, deletedAt: null } },
-      select: { productId: true, price: true },
+      select: { productId: true, price: true, product: { select: { unit: true } } },
     });
-    res.json({ success: true, data: prices });
+    res.json({ success: true, data: prices.map((p) => ({ productId: p.productId, price: p.price, unit: p.product?.unit ?? null })) });
   } catch (err) { next(err); }
 });
 
@@ -364,6 +526,11 @@ export function trackingBalanceDetail(productId: string, name: string | null, ba
   };
 }
 
+/** صفّ الصنف المقفل FOR UPDATE في تبديل «تتبّع اللوط» — ومعه ما يحتاجه التعديل المحروس (الأساس والرئيسية ولحظة التحويل) */
+interface LotLockedProductRow {
+  id: string; name: string; unit: string; lotTracked: boolean; lotTrackedSince: Date | null; primaryUnitId: string | null; baseConvertedAt: Date | null;
+}
+
 /**
  * تبديل «تتبّع باللوط» للصنف (§٤.٢، D25) مع بقية حقول التعديل في معاملةٍ واحدة: الطابور قبل المعاملة، ثم صفّ الصنف FOR UPDATE —
  * ينتظر كل عملية لوطٍ تمسكه FOR KEY SHARE (lockLotProducts) ويحجب ما بعدها حتى نلتزم — ثم قفل اللوط. الحالة المقروءة تحت القفل
@@ -373,16 +540,18 @@ export function trackingBalanceDetail(productId: string, name: string | null, ba
  * (الحقبة تكفي). LotEvent TRACKING_ON/OFF في المعاملة نفسها. null ⇒ الصنف غير موجود.
  */
 async function setProductLotTracking(tid: string, productId: string, on: boolean,
-  opts: { confirm: boolean; data: Record<string, unknown>; actor: LotEventActor }) {
+  opts: { confirm: boolean; data: Record<string, unknown>; actor: LotEventActor; guard?: (tx: Prisma.TransactionClient, row: LotLockedProductRow) => Promise<void> }) {
   const release = await acquireLotQueue(tid, [productId]);
   try {
     return await prisma.$transaction(async (tx) => {
-      const rows = await tx.$queryRaw<{ id: string; name: string; lotTracked: boolean; lotTrackedSince: Date | null }[]>`
-        SELECT id, name, "lotTracked", "lotTrackedSince" FROM products WHERE id = ${productId} AND "tenantId" = ${tid} FOR UPDATE`;
+      const rows = await tx.$queryRaw<LotLockedProductRow[]>`
+        SELECT id, name, unit, "lotTracked", "lotTrackedSince", "primaryUnitId", "baseConvertedAt" FROM products WHERE id = ${productId} AND "tenantId" = ${tid} FOR UPDATE`;
       const row = rows[0];
       if (!row) return null;
       // قفل اللوط في الاتجاهين — الصفّ مقفلٌ سلفاً فلا FOR KEY SHARE ثانية، والاستشاري يُؤخذ ولو لم يكن الصنف متتبَّعاً بعد
       await lockLotProducts(tx, tid, [productId], { lockedRows: [{ id: row.id, lotTracked: true, lotTrackedSince: row.lotTrackedSince ?? null }] });
+      // «الوحدة الرئيسية» (§2.2-هـ): التعديل المحروس (السعر أو الوحدة أو رقعة الرئيسية) على هذا الصفّ المقفل نفسه، قبل الكتابة
+      if (opts.guard) await opts.guard(tx, row);
       const moves = (row.lotTracked === true) !== on;
       const data: Record<string, unknown> = { ...opts.data };
       let balances: NamedLotBalance[] = [];
@@ -415,10 +584,78 @@ async function setProductLotTracking(tid: string, productId: string, on: boolean
   }
 }
 
+/** خطة الإنشاء العكسي بعد التحقق كله (D10) — data بشكل productSchema نفسه (basePrice محسوم)، فيمرّ بالفحوص القائمة كما هي */
+interface ReverseCreatePlan {
+  data: z.infer<typeof productSchema>;
+  units: Array<z.infer<typeof productCreateUnitSchema>>;
+  primaryName: string;
+}
+
+/**
+ * التحقق من الإنشاء العكسي قبل أي كتابة (§2.2-ب): كل وحدة بـunitProblem والأساس وما سبقها بين «الأخريات»، والرئيسية إحداها،
+ * وسعر الفرعية الغائب يُشتقّ من سعر الرئيسية الصريح بأربع منازل (derivedBasePrice = خطوة ٥ في convert-base) — فلا سعر صفرياً صامتاً.
+ */
+function reverseCreatePlan(body: z.infer<typeof productCreateSchema>): ReverseCreatePlan | UnitsRefusal {
+  const { units = [], primaryUnitName, basePrice, ...rest } = body;
+  const primaryName = String(primaryUnitName ?? '').trim();
+  const others: UnitDef[] = [baseAsUnit(rest.unit)];
+  for (const u of units) {
+    const problem = unitProblem(u, others);
+    if (problem) return new UnitsRefusal(400, problem);
+    others.push({ name: u.name.trim(), factor: Number(u.factor) });
+  }
+  const primary = units.find((u) => u.name.trim() === primaryName);
+  if (!primary) return new UnitsRefusal(400, PRIMARY_UNIT_INVALID_MSG, 'PRIMARY_UNIT_INVALID');
+  let price = basePrice;
+  if (price == null) {
+    const primaryPrice = priceOrNull(primary.price);
+    if (primaryPrice == null) return new UnitsRefusal(400, 'اكتب سعر الوحدة الرئيسية أو سعر الوحدة الفرعية');
+    price = derivedBasePrice(primaryPrice, Math.round(primary.factor));
+  }
+  return { data: { ...rest, basePrice: price }, units, primaryName };
+}
+
+/**
+ * الإنشاء العكسي الذرّي (D10): الصنف ووحداته ورئيسيّه — وTRACKING_ON حين يُنشأ متتبَّعاً — في معاملةٍ واحدة: فشل إدراج وحدةٍ
+ * ⇒ لا صنف. خطوتان لأن صفّ الأب يُدرج قبل أبنائه فلا يُعرف معرّف الرئيسية قبله. سعر الرئيسية يُحفظ صريحاً على وحدته فلا يزحف
+ * مع سعر الفرعية المشتقّ، والرئيسية أولى في الترتيب.
+ */
+async function createWithUnits(tid: string, args: { data: Record<string, unknown> }, plan: ReverseCreatePlan,
+  lotStart: { lotTrackedSince: Date } | null, actor: LotEventActor) {
+  return prisma.$transaction(async (tx) => {
+    const created = await tx.product.create({
+      data: {
+        ...(args.data as any),
+        units: {
+          create: plan.units.map((u, i) => ({
+            tenantId: tid, name: u.name.trim(), factor: Math.round(u.factor), price: priceOrNull(u.price), unitCode: u.unitCode || null,
+            sortOrder: u.name.trim() === plan.primaryName ? 0 : i + 1,
+          })),
+        },
+      },
+      include: { units: true },
+    });
+    const primary = created.units.find((u) => u.name === plan.primaryName);
+    if (!primary) throw new UnitsRefusal(400, PRIMARY_UNIT_INVALID_MSG, 'PRIMARY_UNIT_INVALID');
+    const product = await tx.product.update({ where: { id: created.id }, data: { primaryUnitId: primary.id }, include: { category: true, units: UNITS_ORDER } });
+    if (lotStart) {
+      await recordLotEvent(tx, {
+        tenantId: tid, lotId: null, productId: created.id, kind: 'TRACKING_ON',
+        after: { lotTracked: true, lotTrackedSince: lotStart.lotTrackedSince.toISOString(), created: true }, actor,
+      });
+    }
+    return product;
+  });
+}
+
 router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const data = productSchema.parse(req.body);
+    // «الوحدة الرئيسية» (D10): التفرّع على primaryUnitName وحده — جسمٌ بلاه يمرّ بالمسار القائم حرفياً (I1)، ومنه جسمٌ فيه units
+    // منسوخٌ من ردّ GET: يُتجاهل كما كان. والجسم الموسَّع يُتحقَّق منه كله قبل أي استعلام
+    const reverse = req.body?.primaryUnitName != null ? reverseCreatePlan(productCreateSchema.parse(req.body)) : null;
+    if (reverse instanceof UnitsRefusal) { res.status(reverse.status).json({ success: false, code: reverse.code, message: reverse.message }); return; }
+    const data = reverse ? reverse.data : productSchema.parse(req.body);
     // كود مكرر يفسر بوضوح (خاصة تصادم كود صنف مؤرشف) بدل خطأ unique غامض
     const dupe = await prisma.product.findFirst({ where: { tenantId: tid, code: data.code }, select: { deletedAt: true } });
     if (dupe) {
@@ -427,9 +664,9 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
     }
     const lifeProblem = shelfLifeProblem(data) ?? returnRuleConfigProblem(data);
     if (lifeProblem) { res.status(400).json({ success: false, message: lifeProblem }); return; }
-    // «قيود المندوب»: الصنف الجديد بلا وحدات بعد، فلا «كبرى فقط» عند إنشائه
+    // «قيود المندوب»: الصنف الجديد بلا وحدات بعد، فلا «كبرى فقط» عند إنشائه — إلا الإنشاء العكسي فوحداته معه (D10)
     const repRules = repRuleWrite(data, null);
-    const repProblem = repRuleConfigProblem(repRules.merged, null);
+    const repProblem = repRuleConfigProblem(repRules.merged, reverse ? reverse.units.map((u) => ({ factor: u.factor, isActive: true })) : null);
     if (repProblem) { res.status(400).json({ success: false, code: 'REP_UNIT_RULE_INVALID', message: repProblem }); return; }
     if (data.taxPct == null) { // وراثة ضريبة دولة الشركة عند عدم تحديدها
       const company = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { defaultVatPct: true } });
@@ -446,7 +683,7 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
     const lotStart = lot.lotTracked === true ? { lotTracked: true, lotTrackedSince: new Date() } : null;
     for (const k of REP_RULE_KEYS) delete (data as Record<string, unknown>)[k];
     const createArgs = { data: { ...data, ...vatGate.patch, barcode: data.barcode || null, shelfLifeFromDate: asDay(data.shelfLifeFromDate), categoryId: data.categoryId || null, image: data.image || null, itemCode: data.itemCode || null, unitCode: data.unitCode || null, ...repRules.write, tenantId: tid, ...lotStart } as any, include: { category: true, units: UNITS_ORDER } };
-    const product = !lotStart
+    const product = reverse ? await createWithUnits(tid, createArgs, reverse, lotStart, lotActorOf(req)) : !lotStart
       ? await prisma.product.create(createArgs)
       : await prisma.$transaction(async (tx) => {
         const created = await tx.product.create(createArgs);
@@ -457,11 +694,20 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
         return created;
       });
     res.status(201).json({ success: true, data: product });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err instanceof UnitsRefusal) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
+    if (reverseUniqueViolation(err)) { res.status(409).json({ success: false, message: 'اسم الوحدة مكرر لهذا الصنف' }); return; }
+    next(err);
+  }
 });
+
+/** تصادم اسم وحدةٍ في الإنشاء العكسي (productId+name) — لا يقع بعد unitProblem إلا بسباقٍ نظري، ورسالته كمسارات الوحدات */
+const reverseUniqueViolation = (err: unknown): boolean =>
+  isUniqueViolation(err) && JSON.stringify((err as { meta?: unknown })?.meta ?? '').includes('name');
 
 router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   let lotPath = false;
+  let guardPath = false;
   try {
     const tid = tenantId(req);
     const exists = await prisma.product.findFirst({
@@ -475,7 +721,11 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
       },
     });
     if (!exists) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
+    // productSchema.partial() يُسقط primaryUnitId من الجسم عمداً: رحلة GET ثم PUT لا تكتب قيمةً قديمة (PUT /:id/primary-unit وحده يكتبه)
     const data = productSchema.partial().parse(req.body);
+    // «الوحدة الرئيسية» (§2.2-هـ): ما يمسّ الأساس (سعره أو اسمه أو رقعة الرئيسية) يُكتب تحت قفل الصفّ بعد مقارنة الأساس الذي رآه النموذج
+    const guard = productEditGuardSchema.parse(req.body ?? {});
+    const touchesBase = data.basePrice !== undefined || data.unit !== undefined || guard.primaryUnit != null;
     // اسم الأساس لا يأخذ اسم وحدةٍ أكبر للصنف نفسه: «٢ كرتون» تصير ملتبسة بين الأساس والكرتون
     if (data.unit !== undefined && data.unit.trim() !== exists.unit.trim() && exists.units.some((u) => u.name.trim() === data.unit!.trim())) {
       res.status(400).json({ success: false, message: 'اسم وحدة الأساس مستخدم لوحدة أخرى لهذا الصنف' }); return;
@@ -522,9 +772,27 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
     if (lotTo !== null) {
       // الانتقال وبقية الحقول في معاملة القفل نفسها (setProductLotTracking) — والردّ بشكل التعديل العادي نفسه
       lotPath = true;
-      const tracked = await setProductLotTracking(tid, req.params.id, lotTo, { confirm: lot.confirmLotBalances === true, data: updateData, actor: lotActorOf(req) });
+      const editGuard = touchesBase
+        ? async (tx: Prisma.TransactionClient, row: LotLockedProductRow) => {
+          const units = await tx.productUnit.findMany({ where: { productId: row.id, tenantId: tid }, select: { id: true, name: true, factor: true, price: true, isActive: true } });
+          await guardProductEdit(tx, req, tid, { ...row, units }, { guard, newUnit: data.unit, seenUnit: exists.unit });
+        }
+        : undefined;
+      const tracked = await setProductLotTracking(tid, req.params.id, lotTo, { confirm: lot.confirmLotBalances === true, data: updateData, actor: lotActorOf(req), ...(editGuard && { guard: editGuard }) });
       if (!tracked) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
       res.json({ success: true, data: tracked });
+      return;
+    }
+    if (touchesBase) {
+      // التعديل المحروس (§2.2-هـ): قفل التعديل ثم الخطوات ٢–٦ ثم الكتابة، في معاملةٍ واحدة
+      guardPath = true;
+      const guarded = await prisma.$transaction(async (tx) => {
+        const locked = await lockProductForEdit(tx, tid, req.params.id);
+        if (!locked) throw new UnitsRefusal(404, 'الصنف غير موجود', 'PRODUCT_NOT_FOUND');
+        await guardProductEdit(tx, req, tid, locked, { guard, newUnit: data.unit, seenUnit: exists.unit });
+        return tx.product.update({ where: { id: req.params.id }, data: updateData, include: { category: true, units: UNITS_ORDER } });
+      }, { maxWait: 10_000, timeout: 20_000 });
+      res.json({ success: true, data: guarded });
       return;
     }
     const product = await prisma.product.update({
@@ -535,6 +803,9 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
     });
     res.json({ success: true, data: product });
   } catch (err) {
+    // التعديل المحروس في المسارين: الرفض برمزه، وانشغال القفل أو انقضاء المعاملة خلف تحويلٍ طويل ⇒ 503 PRODUCT_UNITS_BUSY
+    if (err instanceof UnitsRefusal) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
+    if (guardPath && asLotBusy(err)) { res.status(503).json({ success: false, code: 'PRODUCT_UNITS_BUSY', message: PRODUCT_UNITS_BUSY_MSG }); return; }
     // مسار الانتقال وحده: LotError (LOT_TRACKING_HAS_BALANCE…) والانشغال (55P03، 40P01، P2028، الطابور) ⇒ 503 LOT_BUSY
     const lh = lotPath ? lotHttpError(err) : null;
     if (lh) { res.status(lh.status).json(lh.body); return; }
@@ -597,9 +868,19 @@ router.put('/:id/price-tiers', requireAdmin, async (req: AuthRequest, res: Respo
     const exists = await prisma.product.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
     if (!exists) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
     const tiers = priceTierSchema.parse(req.body.tiers);
+    const tg = tierGuardSchema.parse(req.body ?? {});
     await prisma.$transaction(async (tx) => {
       // بقفل صفّ الصنف كالتحويل: شرائح بحدودٍ على الأساس القديم لا تلتزم بعد تحويله فتُقرأ على الجديد
-      if (!(await lockProduct(tx, tid, req.params.id))) throw new UnitsRefusal(404, 'الصنف غير موجود', 'PRODUCT_NOT_FOUND');
+      const locked = await lockProduct(tx, tid, req.params.id);
+      if (!locked) throw new UnitsRefusal(404, 'الصنف غير موجود', 'PRODUCT_NOT_FOUND');
+      assertExpectedBase(req, locked, tg.expectedBaseName);
+      // حدودٌ أُدخلت بالرئيسية (/m): الرئيسية ومعاملها الآن كما حُسبت عليهما — لا حدود على كرتون ٢٤ بعد أن صار ١٢
+      if (tg.expectedPrimary) {
+        const primary = primaryUnitOf(locked);
+        if (!primary || primary.id !== tg.expectedPrimary.id || Math.abs(Number(primary.factor) - tg.expectedPrimary.factor) > QTY_EPS) {
+          throw new UnitsRefusal(409, PRIMARY_UNIT_CHANGED_MSG, 'PRIMARY_UNIT_CHANGED');
+        }
+      }
       await tx.priceTier.deleteMany({ where: { productId: req.params.id } });
       // العمودان معاً (القاعدة ٥): الحدود بالأساس للحساب، والقديمان للعرض القائم. والكمية المرسلة بوحدة الأساس الحالية
       for (const t of tiers) {
@@ -630,6 +911,7 @@ router.post('/:id/units', requireAdmin, async (req: AuthRequest, res: Response, 
     const unit = await prisma.$transaction(async (tx) => {
       const product = await lockProduct(tx, tid, req.params.id);
       if (!product) throw new UnitsRefusal(404, 'الصنف غير موجود', 'PRODUCT_NOT_FOUND');
+      assertExpectedBase(req, product, data.expectedBaseName);
       // الأساس بين «الأخريات»: لا وحدة باسمه، ولا وحدة بمعامل ١ (هي الأساس نفسه)
       const problem = unitProblem(data, [baseAsUnit(product.unit), ...product.units]);
       if (problem) throw new UnitsRefusal(400, problem);
@@ -641,7 +923,12 @@ router.post('/:id/units', requireAdmin, async (req: AuthRequest, res: Response, 
           price: priceOrNull(data.price), unitCode: data.unitCode || null, sortOrder: data.sortOrder ?? 0,
         },
       });
-      await touchProduct(tx, tid, product.id);
+      // «اجعلها الرئيسية» مع الإضافة: المعامل صحيحٌ ≥ ٢ تحقّق منه unitProblem (الأساس بمعامل ١ بين الأخريات)، وطابع الصنف معه
+      if (data.makePrimary === true) {
+        await tx.product.updateMany({ where: { id: product.id, tenantId: tid }, data: { primaryUnitId: created.id, updatedAt: new Date() } });
+      } else {
+        await touchProduct(tx, tid, product.id);
+      }
       return created;
     });
     res.status(201).json({ success: true, data: unit });
@@ -667,6 +954,12 @@ router.put('/:id/units/:unitId', requireAdmin, async (req: AuthRequest, res: Res
       if (!product) throw new UnitsRefusal(404, 'الصنف غير موجود', 'PRODUCT_NOT_FOUND');
       const current = product.units.find((u) => u.id === req.params.unitId);
       if (!current) throw new UnitsRefusal(404, 'الوحدة غير موجودة', 'UNIT_NOT_FOUND');
+      assertExpectedBase(req, product, data.expectedBaseName);
+      // D13: إيقاف الرئيسية بصمتٍ يقلب افتراض المندوب من كرتون إلى قارورة دون أن يعلم أحد — إلا مع clearPrimary صريح
+      const isPrimary = product.primaryUnitId != null && product.primaryUnitId === current.id;
+      if (isPrimary && data.isActive === false && data.clearPrimary !== true) {
+        throw new UnitsRefusal(409, PRIMARY_UNIT_IN_USE_MSG, 'PRIMARY_UNIT_IN_USE');
+      }
       const merged = {
         name: data.name ?? current.name,
         factor: data.factor ?? current.factor,
@@ -687,7 +980,11 @@ router.put('/:id/units/:unitId', requireAdmin, async (req: AuthRequest, res: Res
           ...(data.sortOrder !== undefined && { sortOrder: data.sortOrder }),
         },
       });
-      await touchProduct(tx, tid, product.id);
+      if (isPrimary && data.clearPrimary === true) {
+        await tx.product.updateMany({ where: { id: product.id, tenantId: tid }, data: { primaryUnitId: null, updatedAt: new Date() } });
+      } else {
+        await touchProduct(tx, tid, product.id);
+      }
       return tx.productUnit.findFirst({ where: { id: current.id, productId: product.id, tenantId: tid } });
     });
     res.json({ success: true, data: unit });
@@ -705,10 +1002,20 @@ router.delete('/:id/units/:unitId', requireAdmin, async (req: AuthRequest, res: 
     await prisma.$transaction(async (tx) => {
       const product = await lockProduct(tx, tid, req.params.id);
       if (!product) throw new UnitsRefusal(404, 'الصنف غير موجود', 'PRODUCT_NOT_FOUND');
+      // الحذف بلا جسم: الأساس المتوقَّع (اختياري، وإلزامي لمفتاح API على صنفٍ حُوِّل — D19) من الاستعلام كإذن الرئيسية
+      assertExpectedBase(req, product, typeof req.query.expectedBaseName === 'string' ? req.query.expectedBaseName : undefined);
+      // D13: حذف الرئيسية كإيقافها — الإذن من الاستعلام ?clearPrimary=1
+      const isPrimary = product.primaryUnitId != null && product.primaryUnitId === req.params.unitId;
+      const clearPrimary = req.query.clearPrimary === '1' || req.query.clearPrimary === 'true';
+      if (isPrimary && !clearPrimary) throw new UnitsRefusal(409, PRIMARY_UNIT_IN_USE_MSG, 'PRIMARY_UNIT_IN_USE');
       refuseLargeRuleWithout(product, product.units.filter((u) => u.id !== req.params.unitId));
       const gone = await tx.productUnit.deleteMany({ where: { id: req.params.unitId, productId: product.id, tenantId: tid } });
       if (gone.count === 0) throw new UnitsRefusal(404, 'الوحدة غير موجودة', 'UNIT_NOT_FOUND');
-      await touchProduct(tx, tid, product.id);
+      if (isPrimary) {
+        await tx.product.updateMany({ where: { id: product.id, tenantId: tid }, data: { primaryUnitId: null, updatedAt: new Date() } });
+      } else {
+        await touchProduct(tx, tid, product.id);
+      }
     });
     res.json({ success: true });
   } catch (err) {
@@ -716,6 +1023,118 @@ router.delete('/:id/units/:unitId', requireAdmin, async (req: AuthRequest, res: 
     next(err);
   }
 });
+
+/**
+ * تبديل الوحدة الرئيسية لصنفٍ قائم (D11): مجرّد علم — لا قفل تاريخ ولا ترحيل ولا إعادة كتابة. القفل يرتّبه مع كتّاب الوحدات
+ * والتحويل فلا يُشار إلى وحدةٍ أُوقفت أو حُذفت للتوّ. unitId = null يلغي الرئيسية (سلوك ما قبل الميزة). مفاتيح API مسموح لها.
+ */
+router.put('/:id/primary-unit', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const body = primaryUnitSchema.parse(req.body);
+    // المفتاح حاضرٌ في الجسم (ولو null) ⇒ يُقارن: null المتوقَّعة تعني «لم تكن له رئيسية»
+    const checkExpected = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'expectedPrimaryUnitId');
+    const product = await prisma.$transaction(async (tx) => {
+      const locked = await lockProduct(tx, tid, req.params.id);
+      if (!locked) throw new UnitsRefusal(404, 'الصنف غير موجود', 'PRODUCT_NOT_FOUND');
+      if (checkExpected && (body.expectedPrimaryUnitId ?? null) !== (locked.primaryUnitId ?? null)) {
+        throw new UnitsRefusal(409, PRIMARY_UNIT_CHANGED_MSG, 'PRIMARY_UNIT_CHANGED');
+      }
+      // وحدةٌ نشطة من وحدات هذا الصنف بمعاملٍ صحيح ≥ ٢ — المعيار نفسه الذي يقرأ به كل مستهلكٍ الرئيسية (primaryUnitOf)
+      if (body.unitId !== null && !primaryUnitOf({ primaryUnitId: body.unitId, units: locked.units })) {
+        throw new UnitsRefusal(400, PRIMARY_UNIT_INVALID_MSG, 'PRIMARY_UNIT_INVALID');
+      }
+      return tx.product.update({
+        where: { id: locked.id },
+        data: { primaryUnitId: body.unitId }, // @updatedAt يتحرّك فتراه المزامنة وERP
+        include: { category: true, priceTiers: { orderBy: { minQty: 'asc' } }, units: UNITS_ORDER },
+      });
+    });
+    res.json({ success: true, data: product });
+  } catch (err) {
+    if (err instanceof UnitsRefusal) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
+    next(err);
+  }
+});
+
+/** D19-أ: مفاتيح API الشركة غير الملغاة المستعملة في آخر API_KEY_ACTIVE_DAYS يوماً — للكتابة وللقراءة */
+async function activeApiKeys(tid: string): Promise<{ write: number; readOnly: number }> {
+  const since = new Date(Date.now() - API_KEY_ACTIVE_DAYS * 86_400_000);
+  const groups = await prisma.apiKey.groupBy({ by: ['readOnly'], where: { tenantId: tid, revokedAt: null, lastUsedAt: { gte: since } }, _count: { _all: true } });
+  let write = 0;
+  let readOnly = 0;
+  for (const g of groups ?? []) {
+    const n = Number(g._count?._all) || 0;
+    if (g.readOnly) readOnly += n; else write += n;
+  }
+  return { write, readOnly };
+}
+
+/**
+ * رفض التحويل البنيوي على صفّ الصنف — مشتركٌ بين المعاينة (بلا قفل) والتحويل (تحت القفل)، بالترتيب نفسه: الأساس المتوقَّع،
+ * ثم «قيود المندوب»، ثم المعامل والاسم، ثم الاسم المتقاعد
+ */
+async function convertBaseRefusalOn(db: Prisma.TransactionClient, tid: string,
+  product: { id: string; unit: string; baseConvertedAt: Date | null; repSaleUnit: string; repReturnUnit: string; units: Array<{ name: string; factor: number }> },
+  body: z.infer<typeof convertBaseSchema>): Promise<void> {
+  // ١. التحويل المزدوج: ما رآه الطالب ليس الأساس الآن ⇒ حُوّل قبله (أو عُدّل) — لا يُضرب بـF ثانيةً
+  if (baseNameKey(product.unit) !== baseNameKey(body.expectedBaseName)) {
+    throw new UnitsRefusal(409, `وحدة الأساس الآن «${product.unit}» — تغيّرت منذ فتحت التحويل، أعد فتح الصنف`, 'BASE_UNIT_CHANGED');
+  }
+  // «قيود المندوب»: التحويل يقلب معنى «الصغرى» و«الكبرى» (الأساس القديم يصير وحدةً كبرى) — يُزال القيد قبله صراحةً
+  if (repUnitRuleOf(product, 'SALE') !== 'ANY' || repUnitRuleOf(product, 'RETURN') !== 'ANY') {
+    throw new UnitsRefusal(409, 'أزل قيد وحدة المندوب (البيع أو المرتجع) قبل تحويل وحدة الأساس — التحويل يغير معنى الصغرى والكبرى', 'REP_UNIT_RULE_SET');
+  }
+  const problem = baseConversionProblem(product, body);
+  if (problem) throw new UnitsRefusal(400, problem);
+  // D20-ب: الاسم المتقاعد لا يعود أساساً (يُسأل السجلّ لصنفٍ حُوِّل وحده، I8)
+  if (await isRetiredBaseName(db, tid, product.id, product.baseConvertedAt, body.newBaseName)) {
+    throw new UnitsRefusal(409, retiredBaseMsg(body.newBaseName.trim()), 'BASE_NAME_RETIRED');
+  }
+}
+
+/**
+ * الرئيسية بعد التحويل: القائمة الصالحة تبقى بمعرّفها (معاملها يُضرب بـF)، وإلا الوحدة القديمة ما لم يُطلب غير ذلك (D12).
+ * «صالحة» بـprimaryUnitOf: معرّفٌ معلَّق أو وحدةٌ تالفة لا تحجب جعل القديمة رئيسية.
+ */
+function primaryAfterConversion(product: { unit: string; primaryUnitId: string | null; units: UnitDef[] }, keep: boolean | undefined): string | null {
+  return primaryUnitOf(product)?.name ?? (keep !== false ? product.unit : null);
+}
+
+/**
+ * معاينة التحويل (dryRun): لا معاملة ولا قفل ولا كتابة. الرفض البنيوي نفسه، والعدّ بشروط WHERE التي تكتب بها جمل التحويل.
+ */
+async function convertBasePreview(tid: string, productId: string, body: z.infer<typeof convertBaseSchema>, erpLinked: boolean, apiKeys: { write: number; readOnly: number }) {
+  const product = await prisma.product.findFirst({
+    where: { id: productId, tenantId: tid },
+    select: {
+      id: true, unit: true, primaryUnitId: true, baseConvertedAt: true, repSaleUnit: true, repReturnUnit: true,
+      units: { select: { id: true, name: true, factor: true, isActive: true } },
+    },
+  });
+  if (!product) throw new UnitsRefusal(404, 'الصنف غير موجود', 'PRODUCT_NOT_FOUND');
+  await convertBaseRefusalOn(prisma, tid, product, body);
+  const pid = product.id;
+  const [invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices, priceTiers, vanLoadItemLots, invoiceItemLots, lotRelabels] = await Promise.all([
+    prisma.invoiceItem.count({ where: { productId: pid, invoice: { tenantId: tid } } }),
+    prisma.vanLoadItem.count({ where: { productId: pid, vanLoad: { tenantId: tid } } }),
+    prisma.warehouseEntryItem.count({ where: { productId: pid, entry: { tenantId: tid } } }),
+    prisma.repStockRequestItem.count({ where: { productId: pid, request: { tenantId: tid } } }),
+    prisma.customerPrice.count({ where: { productId: pid, product: { tenantId: tid } } }),
+    prisma.priceTier.count({ where: { productId: pid, product: { tenantId: tid } } }),
+    prisma.vanLoadItemLot.count({ where: { tenantId: tid, productId: pid } }),
+    prisma.invoiceItemLot.count({ where: { tenantId: tid, productId: pid } }),
+    prisma.lotRelabel.count({ where: { tenantId: tid, productId: pid } }),
+  ]);
+  return {
+    success: true, dryRun: true, erpLinked, apiKeys,
+    primaryAfter: primaryAfterConversion(product, body.keepOldBaseAsPrimary),
+    converted: {
+      factor: Math.round(body.factor), from: product.unit, invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices, priceTiers,
+      ...(vanLoadItemLots + invoiceItemLots + lotRelabels > 0 && { vanLoadItemLots, invoiceItemLots, lotRelabels }),
+    },
+  };
+}
 
 /**
  * تحويل وحدة الأساس إلى أصغر منها (كرتون ⇒ حبة، F = ٢٤) لصنفٍ له تاريخ — DESIGN.md «عقد الـAPI» بخطواته الخمس.
@@ -732,33 +1151,48 @@ router.delete('/:id/units/:unitId', requireAdmin, async (req: AuthRequest, res: 
  * الفواتير الذي يقفل صفوف أصنافه قفلاً مشتركاً (routes/invoices.ts).
  */
 router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  let marked: { tid: string; pid: string } | null = null;
   try {
-    /* تقييدٌ مؤقّت (قرار المالك ٣٠ أكتوبر): التحويل بجلسة المالك (الدعم الفني) وحدها.
+    /* «إضافة وحدة فرعية أصغر» (مواصفة الوحدة الرئيسية §3، D14، D15): من يُسمح له — قبل الجسم.
      *
-     * لماذا: العنقود الباقي من المراجعة العدائية (سباق «تحويل الأساس» — مسارات المخزون
-     * والإشعار الدائن والأوف‑لاين لا تكشف قائمة أصنافٍ قديمة على جهاز المندوب بعد التحويل)
-     * **لا ينشأ إلّا من هذا الزرّ**. وهو فعلٌ نادر مرّةً لكلّ صنف، والأصناف الجديدة تُنشأ
-     * بوحداتها من البداية فلا تحتاجه. فحصرُه بالمالك يُغلق الباب كلّه حتى تكتمل الحماية
-     * (docs/multi-unit/REVIEW.md)، ثم يُرفع القيد. والحارس في الخادم — المرجع — لا في الزرّ وحده. */
-    if (!isOwnerSession(req)) {
-      res.status(403).json({ success: false, code: 'CONVERT_BASE_OWNER_ONLY', message: 'تحويل وحدة الأساس متاح عبر الدعم الفني مؤقتا — تواصل معنا، أو أنشئ الصنف بوحداته من البداية' });
-      return;
-    }
+     * كان التحويل بجلسة المالك (الدعم الفني) وحدها (قرار المالك ٣٠ أكتوبر)، لأن العنقود الباقي من المراجعة العدائية (سباق
+     * «تحويل الأساس» في مسارات المخزون والإشعار الدائن والأوف‑لاين) لا ينشأ إلّا من هذا الزرّ. تُكمَل الحماية في §3، ثم يُفتح
+     * لمديري الشركة خلف بوابتين معاً: بوابة الإطلاق في الكود، وعلم الشركة يقلبه المالك. أيّهما مغلقة ⇒ جلسة المالك وحدها كما
+     * كان (OWNER_ONLY). والمفتاح لا يحوّل أبداً. والحارس في الخادم — المرجع — لا في الزرّ وحده (services/convertBaseAccess.ts). */
+    const refusal = await convertBaseRefusalFor(req);
+    if (refusal) { res.status(refusal.status).json({ success: false, code: refusal.code, message: refusal.message }); return; }
     const tid = tenantId(req);
     const body = convertBaseSchema.parse(req.body);
+    const newName = body.newBaseName.trim();
+    /* ERP بوحدة واحدة (§2.2-ز): ما سبق التحويل هناك بالوحدة القديمة وما بعده بالجديدة، ولا إعادة دفع — إقرارٌ صريح.
+     * ومفاتيح API النشطة (D19-أ): المتكامل يقرأ بعده الكميات والأسعار بالوحدة الجديدة — يُبلَّغ ثم يُقَرّ. والمعاينة تعيد الاثنين */
+    const erpLinked = (await prisma.tenant.findUnique({ where: { id: tid }, select: { erpEnabled: true } }))?.erpEnabled === true
+      && !!(await prisma.erpIntegration.findFirst({ where: { tenantId: tid, enabled: true }, select: { id: true } }));
+    if (erpLinked && !body.dryRun && body.acknowledgeErp !== true) {
+      res.status(409).json({
+        success: false, code: 'CONVERT_BASE_ERP_ACK', erpLinked,
+        message: `الصنف مربوط بنظام ERP بوحدة واحدة: ما سبق التحويل بـ«${body.expectedBaseName.trim()}» وما بعده بـ«${newName}» هناك — أكّد للمتابعة`,
+      });
+      return;
+    }
+    const apiKeys = await activeApiKeys(tid);
+    const keyCount = apiKeys.write + apiKeys.readOnly;
+    if (keyCount > 0 && !body.dryRun && body.acknowledgeApi !== true) {
+      res.status(409).json({
+        success: false, code: 'CONVERT_BASE_API_ACK', apiKeys,
+        message: `للشركة ربط برمجي نشط (${keyCount} مفتاح): بعد الإضافة تُقرأ كمياته وأسعاره بـ«${newName}» — أبلغ المتكامل ثم أكّد`,
+      });
+      return;
+    }
+    if (body.dryRun) { res.json(await convertBasePreview(tid, String(req.params.id), body, erpLinked, apiKeys)); return; }
+    // I10: سجلّ «قيد التحويل» في ذاكرة العملية — إسراعٌ يردّ به إصدار المرحلة الثانية قبل الـmutex، والقفل بمهلته هو الضامن
+    marked = { tid, pid: String(req.params.id) };
+    markConverting(marked.tid, marked.pid);
     const result = await prisma.$transaction(async (tx) => {
       const product = await lockProduct(tx, tid, req.params.id);
       if (!product) throw new UnitsRefusal(404, 'الصنف غير موجود', 'PRODUCT_NOT_FOUND');
-      // ١. التحويل المزدوج: ما رآه الطالب ليس الأساس الآن ⇒ حُوّل قبله (أو عُدّل) — لا يُضرب بـF ثانيةً
-      if (product.unit !== body.expectedBaseName) {
-        throw new UnitsRefusal(409, `وحدة الأساس الآن «${product.unit}» — تغيّرت منذ فتحت التحويل، أعد فتح الصنف`, 'BASE_UNIT_CHANGED');
-      }
-      // «قيود المندوب»: التحويل يقلب معنى «الصغرى» و«الكبرى» (الأساس القديم يصير وحدةً كبرى) — يُزال القيد قبله صراحةً
-      if (repUnitRuleOf(product, 'SALE') !== 'ANY' || repUnitRuleOf(product, 'RETURN') !== 'ANY') {
-        throw new UnitsRefusal(409, 'أزل قيد وحدة المندوب (البيع أو المرتجع) قبل تحويل وحدة الأساس — التحويل يغير معنى الصغرى والكبرى', 'REP_UNIT_RULE_SET');
-      }
-      const problem = baseConversionProblem(product, body);
-      if (problem) throw new UnitsRefusal(400, problem);
+      // ١. الأساس المتوقَّع، و«قيود المندوب»، والمعامل والاسم، والاسم المتقاعد — كالمعاينة حرفياً، تحت القفل
+      await convertBaseRefusalOn(tx, tid, product, body);
       const F = Math.round(body.factor);
       const oldUnit = product.unit;
       const pid = product.id;
@@ -847,7 +1281,7 @@ router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Res
         where: { productId: pid, tenantId: tid },
         data: { factor: { multiply: F }, sortOrder: { increment: 1 } },
       });
-      await tx.productUnit.create({
+      const oldBaseUnit = await tx.productUnit.create({
         data: {
           tenantId: tid, productId: pid, name: oldUnit, factor: F, price: Number(product.basePrice),
           unitCode: product.unitCode || null, isActive: true, sortOrder: 0,
@@ -855,7 +1289,9 @@ router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Res
       });
 
       // ٤. الأسعار المخزَّنة لوحدة الأساس تصير للحبة: ÷ F — بلا تقريب، فسعر العميل × ٢٤ يعود سعر كرتونه بالفلس.
-      // وحدود الشرائح بالأساس × F؛ والشريحة التي لم يملأها الترحيل بعد (baseMinQty = 0 وminQty ≠ 0) تُحسب من القديم
+      // وحدود الشرائح بالأساس × F؛ والشريحة التي لم يملأها الترحيل بعد (baseMinQty = 0 وminQty ≠ 0) تُحسب من القديم.
+      // والحدّان القديمان (minQty/maxQty، للعرض القائم) × F أيضاً — كلاهما بالأساس؛ والطرف الأيمن في SQL يقرأ القيم القديمة،
+      // فشرط CASE لـbaseMinQty يرى minQty قبل ضربه
       const customerPrices = await tx.customerPrice.updateMany({
         where: { productId: pid, product: { tenantId: tid } },
         data: { price: { divide: F } },
@@ -864,18 +1300,29 @@ router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Res
         UPDATE "price_tiers" AS t SET
           "price" = t."price" / ${F}::float8,
           "baseMinQty" = (CASE WHEN t."baseMinQty" = 0 AND t."minQty" <> 0 THEN t."minQty" ELSE t."baseMinQty" END) * ${F}::float8,
-          "baseMaxQty" = COALESCE(t."baseMaxQty", t."maxQty") * ${F}::float8
+          "baseMaxQty" = COALESCE(t."baseMaxQty", t."maxQty") * ${F}::float8,
+          "minQty" = t."minQty" * ${F}::float8,
+          "maxQty" = t."maxQty" * ${F}::float8
         FROM "products" AS p
         WHERE t."productId" = p.id AND p."tenantId" = ${tid} AND t."productId" = ${pid}`;
 
-      // ٥. الأساس الجديد وسعره: المُرسَل، وإلّا القديم ÷ F بأربع منازل (سعر الكرتون محفوظٌ على وحدته في الخطوة ٣)
+      // ٥. الأساس الجديد وسعره: المُرسَل، وإلّا القديم ÷ F بأربع منازل (سعر الكرتون محفوظٌ على وحدته في الخطوة ٣).
+      // و«الوحدة الرئيسية» (D12): بلا رئيسية صالحة تصير الوحدة القديمة رئيسية (ما لم يُطلب غير ذلك) فلا يتغيّر عرض الصنف ولا
+      // إدخاله الافتراضي؛ والرئيسية القائمة (طبلية مثلاً) تبقى بمعرّفها ومعاملها ضُرب بـF في الخطوة ٣. ولحظة التحويل تُختم (I7)
+      const now = new Date();
       await tx.product.updateMany({
         where: { id: pid, tenantId: tid },
         data: {
           unit: body.newBaseName.trim(),
           basePrice: body.basePrice ?? roundDecimal(Number(product.basePrice) / F, 4),
           ...(body.baseUnitCode !== undefined && { unitCode: body.baseUnitCode || null }),
+          baseConvertedAt: now,
+          ...(primaryUnitOf(product) == null && body.keepOldBaseAsPrimary !== false && { primaryUnitId: oldBaseUnit.id }),
         },
+      });
+      // I7: صفٌّ واحد في سجلّ التحويلات في المعاملة نفسها — شاهد الخادم في إعادة الرفع أوف‑لاين (§2.12)، وسجلّ تدقيق
+      const log = await tx.productBaseConversion.create({
+        data: { tenantId: tid, productId: pid, fromUnit: oldUnit, toUnit: body.newBaseName.trim(), factor: F, fromUnitId: oldBaseUnit.id, convertedAt: now, convertedBy: actorOf(req) },
       });
       const data = await tx.product.findFirst({
         where: { id: pid, tenantId: tid },
@@ -887,6 +1334,7 @@ router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Res
           factor: F, from: oldUnit, invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices: customerPrices.count, priceTiers,
           // عدّادات اللوط حين مسّ التحويل صفوفاً منها وحدها — فشكل الردّ لصنفٍ بلا لوط كما كان (§١٠.١)
           ...(vanLoadItemLots + invoiceItemLots + lotRelabels > 0 && { vanLoadItemLots, invoiceItemLots, lotRelabels }),
+          conversionId: log.id,
         },
       };
     }, { maxWait: 10_000, timeout: 120_000 }); // صنفٌ بتاريخ سنوات: آلاف الصفوف بالمُطلِق على قاعدةٍ صغيرة
@@ -896,6 +1344,8 @@ router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Res
     if (isUniqueViolation(err)) { res.status(409).json({ success: false, message: 'يوجد وحدة باسم وحدة الأساس الحالية لهذا الصنف' }); return; }
     if (err instanceof LotError) { res.status(err.status).json(lotErrorBody(err)); return; } // LOT_BUSY من قفل اللوط وحده
     next(err);
+  } finally {
+    if (marked) unmarkConverting(marked.tid, marked.pid);
   }
 });
 

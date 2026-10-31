@@ -22,7 +22,7 @@ import { elementsToPdfBlob, downloadPdf } from '../rep/pdf';
 import toast from 'react-hot-toast';
 import { useAccountingOn } from '../components/AccountingGate';
 import { baseQtyText, docQtyText, hasBigUnit } from '../lib/adminUnits';
-import { factorOf, type UnitDef } from '../lib/units';
+import { factorOf, primaryUnitOf, productQtyText, type UnitDef } from '../lib/units';
 import { LOT_BLOCK_KIND_LABELS, LOT_STATUS_LABELS, docLotsFrom, lotFlagsOf, type InvoiceItemLotDto } from '../lib/lots';
 import { docLotsText, groupLotSales, uncertainSold, type LotSalesReportDto, type LotSalesRowDto } from '../lib/invoiceLots';
 
@@ -74,12 +74,18 @@ interface ReturnRow {
   // الوحدات المتعددة: `unit` لقطة وحدة البند والكمية بها، و`unitFactor` معاملها و`baseQty`/`baseUnit` بالأساس (routes/reports returnLineView)
   items: {
     name: string; unit: string; qty: number; unitFactor?: number; baseQty?: number; baseUnit?: string; lineTotal: number; returnExpired: boolean | null; expiresAt: string | null;
+    // «الوحدة الرئيسية» (R2): رئيسيّ صنف البند — قيمةٌ صادقة ⇒ اسم الوحدة يُلحق بالكمية دائماً («×5 قارورة» لا «×5» تُقرأ كراتين).
+    // null أو غائب (خادمٌ أقدم) ⇒ العرض القائم حرفاً
+    primaryUnitId?: string | null;
     // «تتبّع اللوط»: صفوف توزيع البند بالأساس (withLots=1 والميزة مفعّلة) — lotId null «غير معروف»
     lots?: InvoiceItemLotDto[];
   }[];
 }
-/** صفّ «المبيعات حسب الصنف»: `qty` **بالأساس** (`unit` اسمها) و`units` وحدات الصنف — يُعرض «٢ كرتون و٣ حبة» */
-type SalesRow = { name: string; total: number; count?: number; qty?: number; code?: string; unit?: string; units?: UnitDef[] };
+/**
+ * صفّ «المبيعات حسب الصنف»: `qty` **بالأساس** (`unit` اسمها) و`units` وحدات الصنف — يُعرض «٢ كرتون و٣ حبة».
+ * و`primaryUnitId` (الوحدة الرئيسية) يجعل العرض يقف عندها «52 كرتون و2 قارورة» (baseQtyText، R1) — null أو غائب ⇒ القائم
+ */
+type SalesRow = { name: string; total: number; count?: number; qty?: number; code?: string; unit?: string; units?: UnitDef[]; primaryUnitId?: string | null };
 /** أرقام الكمية في التقارير كما كانت (بلا منسّق محلّي) — formatQty يُطبَّق عليها وحدها */
 const plainQty = (n: number) => String(Number(n.toFixed(3)));
 interface ReturnsSummary { count: number; total: number; salesTotal: number; returnRate: number | null; byReason: Record<string, { count: number; total: number }>; expiredLines: number }
@@ -396,12 +402,14 @@ export default function ReportsPage() {
   );
   const lotGroups = useMemo(() => groupLotSales(lotSalesRows, lotSalesQ.data?.products || []), [lotSalesRows, lotSalesQ.data]);
   // كمية تشغيلةٍ بالأساس بوحدات صنفها («٢ كرتون و٣ حبة»)
-  const lotQty = (r: Pick<LotSalesRowDto, 'unit' | 'units'>, n: number) => baseQtyText(n, r, plainQty, { withUnit: true });
+  // ولصنفٍ له وحدة رئيسية يقف عندها «2 كرتون و3 قارورة» (R1) — primaryUnitId من صفّ الخادم، وغيابه أو null ⇒ القائم
+  const lotQty = (r: Pick<LotSalesRowDto, 'unit' | 'units'> & { primaryUnitId?: string | null }, n: number) => baseQtyText(n, r, plainQty, { withUnit: true });
   // تشغيلات بند مرتجعٍ نصّاً: الكمية بوحدة الأساس (صفوف التوزيع بالأساس، D22)
   const returnLotsText = (it: ReturnRow['items'][number]) =>
     docLotsText(docLotsFrom(it.lots), tr('غير معروف'), n => `${plainQty(n)}${it.baseUnit ? ` ${it.baseUnit}` : ''}`);
-  // في المرتجعات بندٌ بغير وحدة الأساس (حبّةٌ من كرتون، كرتونٌ قديم بعد التحويل)؟ — تُكتب الوحدة بجانب الكمية حينها
-  const returnsMultiUnit = returnRows.some(r => r.items.some(i => factorOf(i) !== 1));
+  // في المرتجعات بندٌ بغير وحدة الأساس (حبّةٌ من كرتون، كرتونٌ قديم بعد التحويل)؟ — تُكتب الوحدة بجانب الكمية حينها.
+  // وكذلك بندٌ لصنفٍ له وحدة رئيسية (R2): «1» بلا وحدة تُقرأ كرتوناً وهي قارورة — `!!primaryUnitId` قيمةٌ صادقة لا حضور المفتاح
+  const returnsMultiUnit = returnRows.some(r => r.items.some(i => factorOf(i) !== 1 || !!i.primaryUnitId));
   const returnTotals = useMemo(() => ({
     count: returnRows.length,
     total: Math.round(returnRows.reduce((t, r) => t + Number(r.total || 0), 0) * 1e6) / 1e6,
@@ -623,10 +631,14 @@ export default function ReportsPage() {
       const unit = rankMetric === 'sales' ? '' : rankMetric === 'distance' ? ` (${tr('كم')})` : rankMetric === 'appTime' ? ` (${tr('دقيقة')})`
         : rankMetric === 'product' && rankingQ.data?.product ? ` (${rankingQ.data.product.unit})` : '';
       const label = `${tr(RANKING_LABELS[rankMetric])}${rankMetric === 'product' && rankingQ.data?.product ? ` — ${rankingQ.data.product.name}` : ''}${unit}`;
+      // «الوحدة الرئيسية» (R9): كمية الصنف رقماً بالأساس كما كانت (للجمع والفرز)، ونصّها بالرئيسية «52 كرتون و2 قارورة»
+      // عمودٌ يُضاف حين للصنف رئيسية صالحة — وبلاها الورقة كما كانت حرفاً
+      const rankProduct = rankMetric === 'product' && primaryUnitOf(rankingQ.data?.product) ? rankingQ.data!.product : null;
       sheets = [{ name: tr('تقييم الأداء'), rows: rankRowsShown.map(r => ({
         [tr('المرتبة')]: r.rank, [tr('المندوب')]: r.name,
         [label]: rankMetric === 'sales' ? num(r.value) : r.value,
-      })), colWidths: [10, 26, 30] }];
+        ...(rankProduct && { [tr('الكمية بوحداتها')]: productQtyText(r.value, rankProduct) }),
+      })), colWidths: rankProduct ? [10, 26, 30, 24] : [10, 26, 30] }];
       fname = tr('تقييم الأداء');
     } else if (tab === 'performance' && perfType === 'performance' && perfRows?.length) {
       sheets = [{ name: tr('أداء المناديب'), rows: perfRows.map(r => ({
@@ -1224,7 +1236,8 @@ export default function ReportsPage() {
                             {r.items.map((it, j) => (
                               <span key={j} className="block">
                                 {/* بوحدة البند حين بغير الأساس: «×١ حبة» من بند كرتون لا «×١» تُقرأ كرتوناً */}
-                                {it.name} ×{docQtyText({ qty: it.qty, unitName: it.unit, unitFactor: it.unitFactor }, plainQty)}
+                                {/* ولصنفٍ له وحدة رئيسية يُلحق اسم الوحدة دائماً «×5 قارورة» (R2) */}
+                                {it.name} ×{docQtyText({ qty: it.qty, unitName: it.unit, unitFactor: it.unitFactor, primaryUnitId: it.primaryUnitId }, plainQty)}
                                 {it.returnExpired === true && <span className="ms-1 text-[10px] font-semibold text-red-600">{tr('منتهي الصلاحية')}</span>}
                                 {/* «تتبّع اللوط»: تشغيلات البند بالأساس — والبند بلا صفوف (غير متتبَّع) بلا سطر */}
                                 {lotOn && returnLotsText(it) && <span className="block text-[10px] text-[#6E6557]">{tr('التشغيلة')}: {returnLotsText(it)}</span>}

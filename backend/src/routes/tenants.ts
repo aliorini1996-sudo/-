@@ -26,6 +26,7 @@ import { tenantDeleteArchiveBlock } from '../compliance/zatca/settingsGuards';
 import { lotErr, lotErrorBody, lotHttpError } from '../services/lots';
 import { listMerchants, nearpayConfigured } from '../services/nearpay';
 import { recordLotEvent, type LotEventActor } from '../services/lotsDb';
+import { CONVERT_BASE_OPEN_TO_COMPANY } from '../services/convertBaseAccess';
 
 // إدارة الشركات المشتركة — لمالك المنصّة (السوبر أدمن) فقط
 const router = Router();
@@ -78,6 +79,9 @@ const updateTenantSchema = z.object({
   locationsEnabled: z.boolean().optional(),
   // «تتبّع اللوط» (التشغيلات، services/lots.ts) — في التحديث وحده (مطفأ افتراضياً)؛ كل انتقالٍ إلى المفعّل يبدأ حقبةً جديدة (D25)
   lotTrackingEnabled: z.boolean().optional(),
+  // «إضافة وحدة فرعية أصغر» (convert-base) لمديري الشركة (الوحدة الرئيسية D14-ب) — في التحديث وحده (مطفأ افتراضياً)، ولمالك
+  // المنصّة وحده (PUT /:id). لا أثر له ما دامت بوابة الإطلاق في الكود مغلقة (CONVERT_BASE_OPEN_TO_COMPANY)
+  convertBaseOpen: z.boolean().optional(),
   // «التحصيل بالبطاقة» (NearPay SoftPOS) وتاجر الشركة لديهم — في التحديث وحده (مطفأ افتراضياً)
   cardPayEnabled: z.boolean().optional(),
   nearpayMerchantId: z.string().uuid().nullable().optional(),
@@ -228,6 +232,8 @@ router.get('/', async (req: PlatformRequest, res: Response, next: NextFunction) 
           stuckEvents: stuck.get(t.id) ?? 0,
         }),
         ledgerActivatedAt: t.glSettings?.activatedAt ?? null,
+        // بوابة الإطلاق (للقراءة فقط): مغلقة ⇒ خانة علم «إضافة وحدة فرعية أصغر» معطّلة في صفحة المنصّة
+        convertBaseReleased: CONVERT_BASE_OPEN_TO_COMPANY,
       })),
     });
   } catch (err) { next(err); }
@@ -244,7 +250,8 @@ router.get('/:id', async (req: PlatformRequest, res: Response, next: NextFunctio
       },
     });
     if (!tenant) { res.status(404).json({ success: false, message: 'الشركة غير موجودة' }); return; }
-    res.json({ success: true, data: tenant });
+    // convertBaseOpen من الصفّ نفسه، وبوابة الإطلاق للقراءة فقط (الوحدة الرئيسية §2.4)
+    res.json({ success: true, data: { ...tenant, convertBaseReleased: CONVERT_BASE_OPEN_TO_COMPANY } });
   } catch (err) { next(err); }
 });
 
@@ -320,6 +327,16 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       && (merchantChanged || (body.cardPayEnabled !== undefined && body.cardPayEnabled !== cardPayCur.cardPayEnabled))) {
       res.status(403).json({ success: false, code: 'STAFF_CARDPAY_FORBIDDEN', message: 'التحصيل بالبطاقة وتاجر NearPay يضبطهما مالك المنصة وحده' });
       return;
+    }
+    // «إضافة وحدة فرعية أصغر» (الوحدة الرئيسية D14-ب): يقلبه مالك المنصّة وحده — العلم يفتح إعادة كتابة تاريخ الأصناف لمديري
+    // الشركة، فلا يكفيه «تعديل الاشتراك» لموظف المنصّة (platformGate يسمح له بالمسار كله). الجسم الذي يعيد القيمة نفسها يمرّ
+    // (نموذج الحفظ قد يرسل الأعلام كلها) — كالتحصيل بالبطاقة أعلاه
+    if ((req as PlatformRequest).platformStaff && body.convertBaseOpen !== undefined) {
+      const cur = await prisma.tenant.findUnique({ where: { id: req.params.id }, select: { convertBaseOpen: true } });
+      if (cur && cur.convertBaseOpen !== body.convertBaseOpen) {
+        res.status(403).json({ success: false, code: 'CONVERT_BASE_FLAG_OWNER_ONLY', message: 'هذا الإعداد لمالك المنصة وحده' });
+        return;
+      }
     }
     // التاجر الجديد موجودٌ فعلاً بين تجّار حسابنا لدى NearPay — لا يُربط معرّفٌ مكتوب باليد، ويفشل مغلقاً إن تعذّر السؤال
     if (merchantChanged && body.nearpayMerchantId) {

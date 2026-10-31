@@ -9,11 +9,12 @@ import type { Company, StockRequestDoc } from '../rep/RepDocuments';
 import {
   stockRequestLines, stockRequestTotalText, stockRequestRef, stockRequestToLabel, isInvalidRequestQty, isShort,
   repItemQty, repRequestDirty, repRequestTotals, withRequestedProducts, requestedFirst, parseRequestQty,
-  requestUnitOf, defaultRequestUnit, prefillInUnit, repLineUnitId, repItemUnit, repEditItems, convertRepQty,
+  requestUnitOf, defaultRequestUnit, prefillInUnit, repLineUnitId, repItemUnit, repEditItems, convertRepQty, isStaleUnitsError,
   type StockRequestTo, type StockRequestSourceRow, type RepStockRequest, type RepRequestItem, type RepUnitEdits,
 } from '../lib/stockRequest';
-import { baseQtyText, hasBigUnit } from '../lib/adminUnits';
+import { baseQtyText, hasBigUnit, productUnitLabel } from '../lib/adminUnits';
 import { unitChoices } from '../rep/repUnits';
+import { primaryUnitOf } from '../lib/units';
 
 const fmtQty = (n: number) => Number(n.toFixed(2)).toLocaleString('en-US');
 /** قيمة خيار «وحدة سطر المندوب كما هي» في المنتقي — وحدةٌ لم تعد بين النشطة (أُوقفت أو تغيّر معاملها) */
@@ -42,6 +43,11 @@ const todayLocal = () => {
  * الوحدات المتعددة: الرصيد بالأساس مفكَّكاً، والطلب العام لكل صنف بوحدةٍ تُختار (الأكبر افتراضاً) — ومجموع المناديب
  * بالأساس يُعبَّر عنه بها. وبند المندوب بوحدة سطره، ويختار الإداري له وحدةً أخرى إن شاء: تبديلها يحفظ الكمية نفسها
  * («٢ كرتون» ⇒ «٤٨ حبة»)، والحفظ يرسل `unitId` حين تغيّرت وحدها (غيابه = وحدة السطر، null = الأساس).
+ *
+ * «الوحدة الرئيسية» (القاعدة ١٢): لصنفٍ لها الرصيد ومجموع المناديب بها («52 كرتون و2 قارورة»)، ووسمه «الوحدة الرئيسية
+ * كرتون (24 قارورة)» بلا كلمة «الأساس» (D21)، والطلب العام بها افتراضاً (defaultRequestUnit)، ورقاقتها موسومة «رئيسية».
+ * وحفظ التعديل يحمل `baseUnitName` (repEditItems): ردّ «وحدات الصنف تغيّرت» يُسقط تعديلات ذلك الطلب ويعيد جلبه.
+ * صنفٌ بلا رئيسية: كل نصٍّ كما كان حرفاً (I1).
  */
 export default function StockRequestModal({ rows, company, by, onClose }: {
   rows: StockRequestSourceRow[]; company: Company | null; by?: string; onClose: () => void;
@@ -139,7 +145,12 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
 
   const save = async (r: RepStockRequest) => {
     setError(''); setBusy(r.id);
-    try { await saveReq(r); } catch (e) { setError(errMsg(e, tr('تعذر الحفظ'))); qc.invalidateQueries({ queryKey: ['rep-stock-requests'] }); }
+    try { await saveReq(r); } catch (e) {
+      setError(errMsg(e, tr('تعذر الحفظ')));
+      // وحدات الصنف تغيّرت منذ فُتحت النافذة: كميات الإداري مكتوبةٌ على وحدةٍ لم تعد كما رآها — تُسقط ويُعاد الطلب من الخادم
+      if (isStaleUnitsError(e)) dropEdits(r.id);
+      qc.invalidateQueries({ queryKey: ['rep-stock-requests'] });
+    }
     setBusy(null);
   };
 
@@ -167,6 +178,8 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
         await repStockRequestApi.send({ ref, requests: versions });
       } catch (e) {
         setError(errMsg(e, tr('تعذر إرسال طلبات المناديب')));
+        // كالحفظ: تعديلاتٌ على وحداتٍ تغيّرت لا تُعاد كما هي — يُعاد جلب الطلبات بوحداتها الآن
+        if (isStaleUnitsError(e)) { setEdits({}); setUnitEdits({}); }
         qc.invalidateQueries({ queryKey: ['rep-stock-requests'] });
         setBusy(null);
         return;
@@ -252,6 +265,8 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
                     const multi = hasBigUnit(r.units);
                     const reqU = unitOfRow(r);
                     const choices = multi ? unitChoices({ unit: r.unit ?? '', units: r.units ?? [] }) : [];
+                    // «الوحدة الرئيسية» الصالحة (primaryUnitOf) — غيابها كل نصٍّ هنا كما كان
+                    const prim = primaryUnitOf(r);
                     // الإداري كتب غير ما جمعه المناديب — يبقى المجموع ظاهراً للمقارنة. والمقارنة بالأساس: «٢ كرتون» = ٤٨ حبة
                     const overridden = qty[r.productId] !== undefined
                       && Math.abs((parseRequestQty(qty[r.productId]) ?? 0) * (reqU.id ? reqU.factor : 1) - fromReps) > 1e-6;
@@ -259,7 +274,7 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
                       <div key={r.productId} className="flex items-center gap-2 px-3 py-2">
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-semibold text-[#1F1A13] truncate">{r.name}</p>
-                          <p className="text-[11px] text-[#9A8F7E]">{[r.code, multi ? `${tr('وحدة الأساس')} ${r.unit}` : r.unit].filter(Boolean).join(' · ')}</p>
+                          <p className="text-[11px] text-[#9A8F7E]">{[r.code, prim ? `${tr('الوحدة الرئيسية')} ${productUnitLabel(r)}` : multi ? `${tr('وحدة الأساس')} ${r.unit}` : r.unit].filter(Boolean).join(' · ')}</p>
                           {fromReps > 0 && (
                             <p className={`text-[11px] font-semibold flex items-center gap-1 ${overridden ? 'text-amber-700' : 'text-[#1E7A52]'}`}>
                               <Truck size={11} /> {tr('طلبات المناديب')}: <span dir={multi ? undefined : 'ltr'}>{baseQtyText(fromReps, r, fmtQty)}</span>
@@ -276,7 +291,7 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
                           {choices.length > 1 && (
                             <select className="input w-full py-0.5 text-[11px]" value={reqU.id ?? ''} aria-label={`${tr('الوحدة')} ${r.name}`}
                               onChange={e => setRowUnit(r.productId, e.target.value)}>
-                              {choices.map(c => <option key={c.id ?? 'base'} value={c.id ?? ''}>{c.name}{c.factor > 1 ? ` (${c.factor})` : ''}</option>)}
+                              {choices.map(c => <option key={c.id ?? 'base'} value={c.id ?? ''}>{c.name}{c.factor > 1 ? ` (${c.factor})` : ''}{prim && c.id === prim.id ? ` · ${tr('رئيسية')}` : ''}</option>)}
                             </select>
                           )}
                         </div>
@@ -322,6 +337,7 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
                             const bad = isInvalidRequestQty(edits[r.id]?.[i.productId]);
                             // وحدة البند: المختارة (unitEdits)، وإلا وحدة سطر المندوب — ووحدةٌ لم تعد نشطة خيارٌ باسمها
                             const choices = unitChoices({ unit: String(i.baseUnit ?? i.unit ?? ''), units: i.units ?? [] });
+                            const iPrim = primaryUnitOf(i);
                             const lineId = repLineUnitId(i);
                             const ue = unitEdits[r.id]?.[i.productId];
                             const value = ue !== undefined ? (ue ?? '') : (lineId === undefined ? LINE_UNIT : (lineId ?? ''));
@@ -341,7 +357,7 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
                                       aria-label={`${tr('الوحدة')} ${r.repName} ${i.name}`}
                                       onChange={e => setItemUnit(r, i, e.target.value)}>
                                       {lineId === undefined && <option value={LINE_UNIT}>{i.unit} ({factorText(i)})</option>}
-                                      {choices.map(c => <option key={c.id ?? 'base'} value={c.id ?? ''}>{c.name}{c.factor > 1 ? ` (${c.factor})` : ''}</option>)}
+                                      {choices.map(c => <option key={c.id ?? 'base'} value={c.id ?? ''}>{c.name}{c.factor > 1 ? ` (${c.factor})` : ''}{iPrim && c.id === iPrim.id ? ` · ${tr('رئيسية')}` : ''}</option>)}
                                     </select>
                                   )}
                                 </div>

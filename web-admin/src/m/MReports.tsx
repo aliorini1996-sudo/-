@@ -15,6 +15,7 @@ import { MCard, MRow, MStat, MHeader, MEmpty, MError, MSpinner } from './mobileU
 import { expectArray, expectObject } from './shape';
 import { useIsLive, livePoll } from './useLiveQuery';
 import { hasBigUnit, qtyText } from './mUnits';
+import { anyPrimary, qtyTotalLabel } from './mPrimaryUnit';
 import type { UnitDef } from '../lib/units';
 import { breakOf, compactMinutes, formatPeriods, hasPunchLocation, periodsOf, punchInUrl, punchOutUrl, periodOutside, type WorkPeriodLike } from '../lib/workPeriods';
 
@@ -45,6 +46,8 @@ import { breakOf, compactMinutes, formatPeriods, hasPunchLocation, periodsOf, pu
 interface SalesRow {
   name: string; total: number; count?: number; qty?: number; code?: string;
   baseQty?: number; unit?: string; units?: UnitDef[];
+  /** «الوحدة الرئيسية» للصنف (reports.ts §2.17) — الكمية «52 كرتون و2 قارورة» (R1)، والمجموع «بالوحدات الصغرى» (R3) */
+  primaryUnitId?: string | null;
 }
 
 interface ReceiptRow {
@@ -508,7 +511,9 @@ function SalesReport({ from, to, groupBy, onGroupBy }: {
         <div className="grid grid-cols-2 gap-2.5">
           <MStat label={tr('إجمالي المبيعات')} value={formatCurrency(sum.total)} icon={TrendingUp} />
           <MStat
-            label={byProduct ? (anyMulti ? tr('إجمالي الكمية بوحدات الأساس') : tr('إجمالي الكمية')) : tr('عدد الفواتير')}
+            label={byProduct
+              ? qtyTotalLabel(tr, 'إجمالي الكمية', 'إجمالي الكمية بوحدات الأساس', { primary: anyPrimary(rows), multi: anyMulti })
+              : tr('عدد الفواتير')}
             value={formatNumber(byProduct ? sum.qty : sum.count)}
             icon={byProduct ? Package : Receipt} />
           <MStat label={rowsLabel} value={formatNumber(rows.length)} icon={Users} />
