@@ -100,13 +100,19 @@ export function repRuleConfigProblem(
 }
 
 /**
- * مرتجعٌ من فاتورة بيع (/returnable): بندٌ بيع بوحدة الأساس لا يُرجع منه «بالكبرى فقط» شيء — وحدات الإرجاع لا تتجاوز وحدة
- * البيع (lib/returnInvoice returnUnitChoices). سبب الحجب للمندوب أو null.
+ * مرتجعٌ من فاتورة بيع (/returnable): وحدات الإرجاع لا تتجاوز وحدة البيع وهي النشطة وحدها (lib/returnInvoice
+ * returnUnitChoices) — فـ«الكبرى فقط» يلزمه وحدةٌ نشطة معاملها > ١ ولا يزيد على وحدة البيع: بندٌ بيع بالأساس، أو بوحدةٍ
+ * أُوقفت وكل الكبرى النشطة أكبر منها، لا يُرجع منه شيء. units غائبة (مستدعٍ قديم) ⇒ يُكتفى بمعامل البيع. سبب الحجب أو null.
  */
-export function repLinkedReturnProblem(p: RepRuleProduct, saleUnitFactor: number): string | null {
+export function repLinkedReturnProblem(
+  p: RepRuleProduct, saleUnitFactor: number,
+  units?: ReadonlyArray<{ factor: number | string; isActive?: boolean | null }> | null,
+): string | null {
   if (!repActionAllowed(p, 'RETURN')) return repLineProblem(p, 'RETURN', 1);
-  if (repUnitRuleOf(p, 'RETURN') === 'LARGE' && Number(saleUnitFactor) <= 1 + QTY_EPS) {
-    return repLineProblem(p, 'RETURN', 1);
-  }
-  return null;
+  if (repUnitRuleOf(p, 'RETURN') !== 'LARGE') return null;
+  const sale = Number(saleUnitFactor);
+  const usable = units
+    ? units.some((u) => u.isActive !== false && Number(u.factor) > 1 + QTY_EPS && Number(u.factor) <= sale + QTY_EPS)
+    : sale > 1 + QTY_EPS;
+  return usable ? null : repLineProblem(p, 'RETURN', 1);
 }

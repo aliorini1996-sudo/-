@@ -230,6 +230,19 @@ export function withReturnUnit(l: LinkedReturnLine, unitId: string | null): Link
 }
 
 /**
+ * كميةٌ **بالأساس** ⇒ البند بوحدة إرجاعٍ مسموحة: الأساس إن سُمح (كل البنود قبل «قيود المندوب»)، وإلّا — «الكبرى فقط» —
+ * أصغر وحدةٍ مسموحة بوحداتٍ كاملة منها (لا «١٫٩١٧ كرتون» يرفضها الخادم فوق المتاح، ولا «٣ حبّات» تُقرأ ٣ كراتين).
+ */
+function inAllowedUnit(l: LinkedReturnLine, baseQty: number): LinkedReturnLine {
+  const all = returnUnitChoices(l);
+  const base = all.find((c) => c.id === null);
+  if (base) { const next = expressIn(l, base); return { ...next, qty: clampReturnQty(baseQty, next) }; }
+  const c = all.reduce((a, b) => (b.factor < a.factor ? b : a));
+  const next = expressIn(l, c);
+  return { ...next, qty: clampReturnQty(Math.floor(baseQty / c.factor + QTY_EPS), next) };
+}
+
+/**
  * مبلغ استرداد الكمية المكتوبة كما يحسبه الخادم (`refundAmount`: فرق تراكميَّين مقرَّبين من إجمالي البند) —
  * فـ٢٤ حبّةً فرادى = قيمة الكرتون تماماً. null ⇒ خادمٌ لا يرسل إجمالي البند: السعر للوحدة كما قبل الميزة.
  */
@@ -291,8 +304,7 @@ export function fillLinkedQty(lines: LinkedReturnLine[], all: boolean): LinkedRe
     if (!all || !isLineReturnable(l)) return { ...l, qty: 0 };
     const whole = l.returnableBase / l.retUnitFactor;
     if (l.retUnitFactor === 1 || Math.abs(whole - Math.round(whole)) < QTY_EPS) return { ...l, qty: num(l.returnable) };
-    const base = withReturnUnit(l, null);
-    return { ...base, qty: num(base.returnable) };
+    return inAllowedUnit(l, l.returnableBase);
   });
 }
 
@@ -325,7 +337,7 @@ export function mergeRefreshedSale(prev: LinkedSale, fresh: LinkedSale): LinkedS
 export function refreshLinkedLine(prev: LinkedReturnLine, fresh: LinkedReturnLine): LinkedReturnLine {
   const same = returnUnitChoices(fresh).find((c) => c.id === prev.retUnitId && Math.abs(c.factor - prev.retUnitFactor) < QTY_EPS);
   if (same) return withReturnUnit({ ...fresh, qty: num(prev.qty) }, same.id);
-  return withReturnUnit({ ...fresh, qty: toBase(num(prev.qty), { unitFactor: prev.retUnitFactor }) }, null);
+  return inAllowedUnit(fresh, toBase(num(prev.qty), { unitFactor: prev.retUnitFactor }));
 }
 
 /** مدخلات المحرّك للمرتجع المرتبط — هي حرفياً ما يقرؤه الخادم من بنود الطلب (انظر رأس الملف) */

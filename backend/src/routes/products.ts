@@ -496,7 +496,8 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
     if (lifeProblem) { res.status(400).json({ success: false, message: lifeProblem }); return; }
     // «قيود المندوب»: مدمجةً مع المحفوظ — «الكبرى فقط» يلزمه وحدةٌ كبرى نشطة، وتغييرها يختم repRulesChangedAt
     const repRules = repRuleWrite(data, exists);
-    const repProblem = repRuleConfigProblem(repRules.merged, exists.units);
+    const newlyLarge = (['SALE', 'RETURN'] as const).some((a) => repUnitRuleOf(repRules.merged, a) === 'LARGE' && repUnitRuleOf(exists, a) !== 'LARGE');
+    const repProblem = newlyLarge ? repRuleConfigProblem(repRules.merged, exists.units) : null;
     if (repProblem) { res.status(400).json({ success: false, code: 'REP_UNIT_RULE_INVALID', message: repProblem }); return; }
     // «تتبّع اللوط» (§٤.٢): القيمة المرسلة المختلفة عن المحفوظ وحدها انتقال — وتفعيله وحده يقرأ علم الشركة (§١٠.١)
     const lot = productLotSchema.parse(req.body);

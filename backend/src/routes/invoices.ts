@@ -625,7 +625,7 @@ router.get('/:id/returnable', async (req: AuthRequest, res: Response, next: Next
         // قيد المرتجع للصنف اليوم: سبب الرفض فيُستبعد البند من الاختيار، والخادم يقرّر عند الإصدار
         returnBlocked: expiresAt ? returnRuleProblem(it.product!, expiresAt, today) : null,
         // وقيود المندوب على الصنف تتقدّمه (لا يرجعه، أو «الكبرى فقط» لبندٍ بيع بالصغرى) — للمندوب وحده
-        ...(isRep && repLinkedReturnProblem(it.product!, factorOf(it)) ? { returnBlocked: repLinkedReturnProblem(it.product!, factorOf(it)) } : {}),
+        ...(isRep && repLinkedReturnProblem(it.product!, factorOf(it), it.product!.units) ? { returnBlocked: repLinkedReturnProblem(it.product!, factorOf(it), it.product!.units) } : {}),
         ...(lotsByItem && { lots: lotsByItem.get(it.id) ?? [] }),
       };
     }));
@@ -980,7 +980,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       for (const [idx, it] of body.items.entries()) {
         const p = products.find(x => x.id === it.productId)!;
         if (replayPredatesRepRule(p, isReplay, deviceAt)) continue;
-        const why = repLineProblem(p, action, snapOf(idx).unitFactor);
+        // التصنيف بوحدة البند لا بمعاملها المرسَل: وحدةٌ معروفة للصنف كبرى دائماً (معاملها ≥ ٢)، فمعاملٌ يكتبه الجهاز في
+        // إعادة الرفع (لقطته) لا يجعل الكرتون «صغرى» ولا الحبّة «كبرى»
+        const snap = snapOf(idx);
+        const known = snap.unitName ? p.units.find((u) => u.name.trim() === snap.unitName!.trim()) : undefined;
+        const why = repLineProblem(p, action, known ? Number(known.factor) : snap.unitFactor);
         if (why) { res.status(422).json({ success: false, code: REP_PRODUCT_RULE_CODE, message: why }); return; }
       }
     }

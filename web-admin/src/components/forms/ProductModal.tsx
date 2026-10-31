@@ -262,6 +262,10 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
               setSavedBasePrice(Number(p.basePrice));
               setValue('unit', p.unit);
               setValue('basePrice', Number(p.basePrice));
+              // «قيود المندوب»: التحويل يقلب معنى الصغرى والكبرى، والخادم لا يقبله إلا والقيد المحفوظ «كل الوحدات» —
+              // فقيدُ وحدةٍ اختير قبله ولم يُحفظ يُعاد إليه كي لا يُحفظ بعده بمعنىً آخر
+              setValue('repSaleUnit', 'ANY');
+              setValue('repReturnUnit', 'ANY');
             }}
           />
 

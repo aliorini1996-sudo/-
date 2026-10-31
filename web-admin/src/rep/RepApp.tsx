@@ -2578,7 +2578,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                 {/* منتقي الوحدة: وحدات الصنف النشطة، وللمرتجع من فاتورة بيع ما لا يزيد على وحدة بيعه */}
                 {(() => {
                   const opts: UnitChoice[] = l.saleItemId && l.link ? returnUnitChoices(l.link) : repUnitChoices(products.find(x => x.id === l.productId), repAction);
-                  return opts.length > 1 ? (
+                  // وبندٌ وحدته لم تعد مسموحة (قيدٌ تغيّر بعد إضافته) يُعرض منتقيه ولو بقي خيارٌ واحد — به يُصحَّح
+                  return opts.length > 1 || !opts.some(o => sameUnit(l, { unitId: o.id })) ? (
                     <div className="flex flex-wrap items-center gap-1 mb-2" role="radiogroup" aria-label={tr('الوحدة')}>
                       {opts.map(o => (
                         <button key={o.id ?? 'base'} type="button" role="radio" aria-checked={sameUnit(l, { unitId: o.id })}

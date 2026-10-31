@@ -485,7 +485,8 @@ function buildNote(
     /* «قيود المندوب» على الصنف (services/repProductRules.ts، طلب المالك ٣١ أكتوبر ٢٠٢٦): الإشعار الدائن مرتجع — للمندوب
      * وحده، بوحدة كل بندٍ في الإشعار. يشمل POST /:id/credit-note مباشرةً (المرتجع عبر POST /invoices فُحص قبل الفرع).
      * ومستند الصندوق المُنشأ قبل آخر تغييرٍ للقيد يُقبل — ولحظة المفتاح لا تُقرأ (viaApiKey) */
-    if (ctx.actor?.role === 'SALES_REP') {
+    // والإشعار الكامل (FULL) بديل الإلغاء بعد الربط (D4) — يحكمه canCancelInvoice كإلغاء المرحلة الأولى، لا قيد المرتجع
+    if (ctx.actor?.role === 'SALES_REP' && effectiveCreditScope(prepared.creditable, prepared.lines) !== 'FULL') {
       const replay = isReplayRequest(ctx.caps);
       const deviceAt = ctx.viaApiKey ? null : ctx.clientCreatedAt ?? null;
       for (const l of prepared.lines) {

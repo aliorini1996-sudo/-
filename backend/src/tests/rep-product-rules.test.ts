@@ -48,6 +48,11 @@ test('المرتجع من فاتورة بيع: «الكبرى فقط» لبند�
   assert.equal(repLinkedReturnProblem({ ...P, repReturnUnit: 'LARGE' }, 24), null);
   assert.equal(repLinkedReturnProblem({ ...P, repReturnUnit: 'BASE' }, 24), null, 'الحبة من الكرتون متاحة دائماً');
   assert.match(repLinkedReturnProblem({ ...P, repReturnAllowed: false }, 24)!, /لا يرجعه/);
+  // بوحدات الصنف: بيع بالكرتون (١٢) وقد أُوقف، والباليت (١٢٠) أكبر منه ⇒ لا وحدة كبرى يُرجع بها
+  const units = [{ factor: 12, isActive: false }, { factor: 120, isActive: true }];
+  assert.match(repLinkedReturnProblem({ ...P, repReturnUnit: 'LARGE' }, 12, units)!, /الكبرى فقط/);
+  assert.equal(repLinkedReturnProblem({ ...P, repReturnUnit: 'LARGE' }, 120, units), null);
+  assert.equal(repLinkedReturnProblem({ ...P, repReturnUnit: 'LARGE' }, 12, [{ factor: 6, isActive: true }]), null, 'علبةٌ من كرتون');
 });
 
 test('تسامح صندوق الأوف-لاين: مستندٌ أُنشئ على الجهاز قبل آخر تغيير للقيد يُقبل، وبعده أو بلا لحظة يُرفض', () => {
@@ -79,20 +84,23 @@ test('حارس نصّي: الفحص للمندوب وحده قبل فرع الم
   assert.ok(gate > 0, 'حارس قيود المندوب غائب');
   assert.ok(gate < post.indexOf('regimeCandidate({'), 'قبل فرع المرحلة الثانية (يشمل المرتجع-إشعاراً)');
   assert.ok(gate > post.indexOf('const deviceAt ='), 'لحظة الجهاز من deviceAt (لا clientCreatedAt خام، ولا لحظة مفتاح)');
-  const block = post.slice(gate, gate + 700);
+  const block = post.slice(gate, gate + 1600);
   assert.match(block, /replayPredatesRepRule\(p, isReplay, deviceAt\)/);
-  assert.match(block, /repLineProblem\(p, action, snapOf\(idx\)\.unitFactor\)/);
+  // التصنيف بوحدة البند المعروفة (معاملها على الخادم) لا بمعاملٍ يرسله الجهاز في إعادة الرفع
+  assert.match(block, /const known = snap\.unitName \? p\.units\.find\(/);
+  assert.match(block, /repLineProblem\(p, action, known \? Number\(known\.factor\) : snap\.unitFactor\)/);
   assert.match(block, /code: REP_PRODUCT_RULE_CODE/);
   // الأعمدة من استعلام الأصناف القائم (لا استعلام جديد في مسار الإصدار)
   assert.match(post, /repSaleAllowed: true, repReturnAllowed: true, repSaleUnit: true, repReturnUnit: true, repRulesChangedAt: true,/);
   assert.equal(REP_PRODUCT_RULE_CODE, 'REP_PRODUCT_RULE');
   // /returnable: السبب للمندوب وحده ويتقدّم قيد الصلاحية، وقيد وحدة المرتجع يصله وحده
   const ret = inv.slice(inv.indexOf("router.get('/:id/returnable'"), inv.indexOf("router.get('/:id/returnable'") + 7000);
-  assert.match(ret, /\.\.\.\(isRep && repLinkedReturnProblem\(it\.product!, factorOf\(it\)\)/);
+  assert.match(ret, /\.\.\.\(isRep && repLinkedReturnProblem\(it\.product!, factorOf\(it\), it\.product!\.units\)/);
   assert.match(ret, /isRep \? \{ repReturnUnit: repUnitRuleOf\(it\.product!, 'RETURN'\) \} : \{\}/);
   // الإشعار الدائن المباشر (POST /:id/credit-note) للمندوب
   const notes = read('routes/invoicesNotes.ts');
-  assert.match(notes, /if \(ctx\.actor\?\.role === 'SALES_REP'\) \{\n      const replay = isReplayRequest\(ctx\.caps\);/);
+  // والإشعار الكامل (بديل الإلغاء بعد الربط) يحكمه canCancelInvoice لا قيد المرتجع — كإلغاء المرحلة الأولى
+  assert.match(notes, /if \(ctx\.actor\?\.role === 'SALES_REP' && effectiveCreditScope\(prepared\.creditable, prepared\.lines\) !== 'FULL'\) \{\n      const replay = isReplayRequest\(ctx\.caps\);/);
   assert.match(notes, /repLineProblem\(p, 'RETURN', l\.creditUnitFactor\)/);
   assert.match(notes, /repReturnAllowed: true, repReturnUnit: true, repRulesChangedAt: true,/);
 });
@@ -101,6 +109,8 @@ test('حارس نصّي: الحفظ يختم التغيير ويتحقّق من 
   const products = read('routes/products.ts');
   assert.equal(products.split('repRuleConfigProblem(repRules.merged').length - 1, 2, 'الإنشاء والتعديل كلاهما');
   assert.match(products, /const repRules = repRuleWrite\(data, exists\);/);
+  // «الكبرى فقط» يُفحص حين يُضبط من جديد وحده — قيدٌ قائم فقد وحدته الكبرى لا يحبس تعديلات الصنف الأخرى
+  assert.match(products, /const repProblem = newlyLarge \? repRuleConfigProblem\(repRules\.merged, exists\.units\) : null;/);
   assert.match(products, /code: 'REP_UNIT_RULE_INVALID'/);
   assert.equal(products.split('refuseLargeRuleWithout(product,').length - 1, 2, 'تعديل الوحدة وحذفها');
   const convert = products.slice(products.indexOf("router.post('/:id/convert-base'"));

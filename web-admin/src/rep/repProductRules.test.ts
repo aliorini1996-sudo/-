@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { repAllows, repBlockKey, repDefaultChoice, repLineBlockKey, repUnitChoices, repUnitRuleOf } from './repProductRules';
-import { returnUnitChoices } from '../lib/returnInvoice';
+import { fillLinkedQty, refreshLinkedLine, returnUnitChoices, toLinkedSale } from '../lib/returnInvoice';
 
 const water = { unit: 'حبة', units: [{ id: 'u-6', name: 'علبة', factor: 6, isActive: true }, { id: 'u-24', name: 'كرتون', factor: 24, isActive: true }] };
 
@@ -41,4 +41,29 @@ test('المرتجع من فاتورة بيع: قيد الخادم للمندو�
   assert.deepEqual(returnUnitChoices({ ...line, repReturnUnit: 'LARGE' }).map((c) => c.name), ['علبة', 'كرتون']);
   // بيع بالحبة و«الكبرى فقط»: الخادم يحجب البند (returnBlocked)، والمنتقي لا يفرغ
   assert.deepEqual(returnUnitChoices({ ...line, saleUnitFactor: 1, repReturnUnit: 'LARGE' }).map((c) => c.name), ['حبة']);
+});
+
+// بند بيع: ٢ كرتون (٢٤ حبة) أُرجعت منه حبّة، فالمتاح ٢٣ حبة — والمندوب يرى قيد «الكبرى فقط» من /returnable
+const saleDto = (repReturnUnit?: string) => ({
+  id: 's1', number: 'S-1', lines: [{
+    saleItemId: 'si', productId: 'p1', name: 'ماء', unit: 'حبة', sold: 24, returned: 1, returnable: 23, refundUnitPrice: 1,
+    qty: 2, unitName: 'كرتون', unitFactor: 12, soldBase: 24, returnedBase: 1, returnableBase: 23, lineTotal: 24, refundPerBase: 1,
+    product: { unit: 'حبة', units: [{ id: 'u-12', name: 'كرتون', factor: 12, isActive: true }], ...(repReturnUnit ? { repReturnUnit } : {}) },
+    taxPct: 15,
+  }],
+});
+
+test('«إرجاع كامل المتاح» تحت «الكبرى فقط»: كراتين كاملة لا كسر يرفضه الخادم — وبلا قيد كما كان (بالأساس)', () => {
+  const free = fillLinkedQty(toLinkedSale(saleDto()).lines, true)[0];
+  assert.deepEqual([free.qty, free.retUnitId], [23, null], 'بلا قيد: ٢٣ حبة كما قبل الميزة');
+  const large = fillLinkedQty(toLinkedSale(saleDto('LARGE')).lines, true)[0];
+  assert.deepEqual([large.qty, large.retUnitId], [1, 'u-12'], 'كرتونٌ كامل واحد لا ١٫٩١٧');
+});
+
+test('إعادة التحميل بعد قيدٍ جديد «الكبرى فقط»: «٣ حبات» لا تصير «٣ كراتين» صامتةً', () => {
+  const before = toLinkedSale(saleDto()).lines[0];
+  const typed = { ...before, retUnitId: null, retUnitName: null, retUnitFactor: 1, qty: 3 };
+  const after = refreshLinkedLine(typed, toLinkedSale(saleDto('LARGE')).lines[0]);
+  assert.equal(after.retUnitId, 'u-12');
+  assert.equal(after.qty, 0, '٣ حبات أقل من كرتون: لا شيء بالكبرى (لا ٣٦ حبة)');
 });
