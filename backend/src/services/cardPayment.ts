@@ -57,6 +57,15 @@ export function sandboxBlocked(tenantId: string): boolean {
 }
 const SANDBOX_MESSAGE = 'خادم الدفع على بيئة اختبار NearPay — التحصيل الحقيقي بالبطاقة غير متاح بعد';
 
+/**
+ * زرّ «تحصيل بالبطاقة» في تطبيق المندوب يظهر حين يمكن التحصيل فعلاً (مراجعة المالك ٣١ أكتوبر ٢٠٢٦): مفاتيح NearPay مضبوطة،
+ * والبيئة غير محجوبة عن الشركة، وتطبيق المندوب المنشور يحمل وحدة الدفع الأصلية — CARD_PAY_APP_READY=1 يضبطه المالك بعد نشرها.
+ * قبلها كان الزرّ يظهر فيعود الجوال إلى «حدّث التطبيق» ولا تحديث في المتجر.
+ */
+export function cardPayUsable(tenantId: string): boolean {
+  return nearpayConfigured() && !sandboxBlocked(tenantId) && process.env.CARD_PAY_APP_READY === '1';
+}
+
 // ═══ القرار — دالة صرفة تُختبر بلا قاعدة ولا شبكة ═══
 
 export type CardDecision =

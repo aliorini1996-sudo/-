@@ -400,3 +400,35 @@ test('حرّاس نصّية: «review» بعد الخصم يمنع تحصيلا�
   assert.match(tenants, /'STAFF_CARDPAY_FORBIDDEN'/);
   assert.match(tenants, /'NEARPAY_MERCHANT_UNKNOWN'/);
 });
+
+test('زرّ المندوب لا يظهر إلا والتحصيل ممكنٌ فعلاً: مفاتيح، وبيئةٌ غير محجوبة، وتطبيقٌ بوحدة الدفع (CARD_PAY_APP_READY)', async () => {
+  const { cardPayUsable } = await import('../services/cardPayment');
+  const keys = ['NEARPAY_ENV', 'NODE_ENV', 'NEARPAY_SANDBOX_TENANTS', 'NEARPAY_API_KEY', 'NEARPAY_API_BASE', 'CARD_PAY_APP_READY'] as const;
+  const prev = keys.map((k) => process.env[k]);
+  try {
+    process.env.NEARPAY_API_KEY = 'test-key';
+    process.env.NEARPAY_ENV = 'sandbox';
+    process.env.NODE_ENV = 'production';
+    delete process.env.NEARPAY_SANDBOX_TENANTS;
+    delete process.env.CARD_PAY_APP_READY;
+    assert.equal(cardPayUsable('t1'), false); // الحال اليوم: ساند بوكس محجوب ولا تطبيق
+    process.env.NEARPAY_SANDBOX_TENANTS = 't1';
+    assert.equal(cardPayUsable('t1'), false); // البيئة مسموحة والتطبيق بلا وحدة ⇒ لا زرّ يقود إلى «حدّث التطبيق»
+    process.env.CARD_PAY_APP_READY = '1';
+    assert.equal(cardPayUsable('t1'), true);
+    assert.equal(cardPayUsable('t2'), false);
+    process.env.NEARPAY_ENV = 'production';
+    delete process.env.NEARPAY_API_BASE;
+    assert.equal(cardPayUsable('t2'), false); // الإنتاج بلا عنوان API معلَن من NearPay ⇒ غير مهيأ
+    process.env.NEARPAY_API_BASE = 'https://api.example.test/v1';
+    assert.equal(cardPayUsable('t2'), true);
+    delete process.env.NEARPAY_API_KEY;
+    assert.equal(cardPayUsable('t2'), false);
+  } finally {
+    keys.forEach((k, i) => { if (prev[i] === undefined) delete process.env[k]; else process.env[k] = prev[i]; });
+  }
+  const fs = await import('fs');
+  const path = await import('path');
+  const company = fs.readFileSync(path.join(__dirname, '..', 'routes/company.ts'), 'utf8');
+  assert.match(company, /cardPayAvailable: tenant\?\.cardPayEnabled === true && cardPayUsable\(tid\)/);
+});

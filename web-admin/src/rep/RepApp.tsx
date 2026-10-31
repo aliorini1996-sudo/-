@@ -4991,7 +4991,7 @@ export default function RepApp() {
           ) : modal === 'customerDetail' && selectedCustomer ? (
             <CustomerDetail customer={selectedCustomer} repName={user.name} company={company} perms={user}
               paylinkOn={(company as any)?.paylinkEnabled === true}
-              cardPayOn={(company as any)?.cardPayEnabled === true}
+              cardPayOn={(company as any)?.cardPayAvailable === true} // المفتاح + خادمٌ جاهز + تطبيقٌ بوحدة الدفع (services/cardPayment.ts)
               accountingOn={accountingOn}
               // الخروج الحقيقي لقائمة العملاء يُنهي مؤقّت هذا العميل ويرفع الزيارة.
               // النوافذ الفرعية (فاتورة/سند) لا تمرّ من هنا فيبقى المؤقّت جارياً.

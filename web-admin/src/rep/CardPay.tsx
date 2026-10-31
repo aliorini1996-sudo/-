@@ -213,7 +213,7 @@ export function CardPayResult({ pending, unsupported, onClose, onDone }: {
           <>
             <XCircle size={44} className="mx-auto text-amber-500" />
             <p className="font-bold mt-3">{tr('حدث تطبيق المندوب')}</p>
-            <p className="text-sm text-gray-500 mt-2 leading-relaxed">{tr('التحصيل بالبطاقة يحتاج أحدث نسخة من تطبيق المندوب من متجر Google Play')}</p>
+            <p className="text-sm text-gray-500 mt-2 leading-relaxed">{tr('التحصيل بالبطاقة يعمل من تطبيق المندوب على أندرويد بأحدث نسخة من Google Play ولم يخصم أي مبلغ من العميل')}</p>
           </>
         ) : st === 'approved' ? (
           <>
