@@ -78,6 +78,7 @@ const PRODUCT_COLS = [
   'id', 'code', 'name', 'barcode', 'unit', 'basePrice', 'taxPct', 'itemCode', 'itemCodeType', 'unitCode', 'status',
   'damagedReturnToStock', 'shelfLifeEnabled', 'shelfLifeValue', 'shelfLifeUnit', 'shelfLifeBasis', 'shelfLifeFromDate',
   'returnRuleEnabled', 'returnRuleMode', 'returnRuleMetric', 'returnRuleValue', 'deletedAt', 'categoryId', 'createdAt',
+  'repSaleAllowed', 'repReturnAllowed', 'repSaleUnit', 'repReturnUnit',
   'updatedAt', 'vatCategory', 'vatExemptionCode', 'vatExemptionReason',
 ];
 const SALES_REP_COLS = [
@@ -158,6 +159,7 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
     denied: {
       tenantId: 'معروف من المفتاح', image: 'صورة base64 ثقيلة — تُقرأ من GET /api/products/:id',
       lotTrackedSince: 'سباكة داخلية: بداية حقبة «تتبّع اللوط» للصنف — صفوف التشغيلات قبلها خارج الأرصدة وتبقى في التتبّع',
+      repRulesChangedAt: 'سباكة داخلية: آخر تغييرٍ لقيود المندوب — مرجع قبول مستندات صندوق الأوف-لاين المُنشأة قبله',
     },
     nested: {
       // minQty/maxQty بوحدة الصنف وقت إنشاء الشريحة (للعرض القديم)، وbaseMinQty/baseMaxQty حدودها بالأساس — بها يُقارَن

@@ -3,6 +3,7 @@ import {
 } from 'lucide-react';
 import { computeInvoiceTotals, roundDecimal, priceFromLineTotal } from './invoiceCalc';
 import { cartBadge, cartCount, choiceById, choiceNet, defaultChoice, hasUnitChoice, invoiceItemUnit, lineUnitOf, linkedLineUnit, rebaseRow, refreshLineUnit, sameUnit, unitChoices, unitsText, type UnitChoice } from './repUnits';
+import { repBlockKey, repDefaultChoice, repLineBlockKey, repUnitChoices, type RepAction } from './repProductRules';
 import { fillLinkedQty, linkedUnitPrice, refreshLinkedLine, returnUnitChoices, toLinkedSale, withReturnUnit, type LinkedReturnLine } from '../lib/returnInvoice';
 import type { UnitDef } from '../lib/units';
 import { compressImage } from './imageCompress';
@@ -1729,7 +1730,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   /* «الفرق»: الفريق الذي يعمل له المندوب الآن — أصنافه الخاصة + العامة وحدها تُعرض وتُمسح، والفاتورة تُوسم به. ومنتقي
    * فاتورة البيع للمرتجع يأخذ القائمة كاملة (المرتجع من فاتورة بيعٍ يرث فريقها) */
   const activeTeam = useActiveTeam(perms);
-  const teamProducts = products.filter((p) => sellableNow(p, perms, activeTeam));
+  // «قيود المندوب» على الصنف (repProductRules): صنفٌ لا يبيعه المندوب لا يظهر في البيع، ولا يرجعه لا يظهر في المرتجع الحرّ
+  const repAction: RepAction = isReturn ? 'RETURN' : 'SALE';
+  const teamProducts = products.filter((p) => sellableNow(p, perms, activeTeam) && !repBlockKey(p, repAction));
   // تبديل الفريق أثناء الفاتورة: ما في السلة من غير أصناف الفريق الجديد يُحذف (وإلا رفضه الخادم PRODUCT_NOT_IN_TEAM)
   useEffect(() => {
     if (saleRef || !products.length) return;
@@ -1884,7 +1887,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const inclOf = (p: any, c: UnitChoice) => roundDecimal(choiceNet(c, Number(p.basePrice), custPrices[p.id]) * (1 + Number(p.taxPct) / 100), currencyDecimals(getActiveCurrency()));
   const inclPrice = (p: any) => inclOf(p, unitChoices(p)[0]); // السعر شامل الضريبة (وحدة الأساس)
   // سعر الوحدة الافتراضية مع اسمها حين للصنف وحدات — وإلا الرقم وحده كما كان
-  const priceHint = (p: any) => (hasUnitChoice(p) ? `${formatCurrency(inclOf(p, defaultChoice(p)))} / ${defaultChoice(p).name}` : formatCurrency(inclPrice(p)));
+  // الوحدة الافتراضية للمندوب: الأكبر بين ما يسمح به قيد الصنف (repDefaultChoice)، وإلا الأكبر كما كان
+  const startChoice = (p: any): UnitChoice => repDefaultChoice(p, repAction) ?? defaultChoice(p);
+  const priceHint = (p: any) => (hasUnitChoice(p) ? `${formatCurrency(inclOf(p, startChoice(p)))} / ${startChoice(p).name}` : formatCurrency(inclPrice(p)));
 
   // المرتجع المرتبط بفاتورة: أصنافه من الفاتورة وحدها؛ والمرتجع الحرّ لا يقبل صنفاً مفعّلة صلاحيته
   const returnBlock = (p: any): string | null => {
@@ -1928,8 +1933,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const addProduct = (p: any, scan = false): { ok: boolean; label: string; later?: Promise<{ ok: boolean; label: string }> } => {
     const blocked = returnBlock(p);
     if (blocked) { if (!scan) setMsg(blocked); return { ok: false, label: blocked }; }
-    // الوحدة الافتراضية = الأكبر (repUnits): بعد تحويل الصنف إلى الحبّة يبقى النقر المعتاد «+١ كرتون»
-    const c0 = defaultChoice(p);
+    // الوحدة الافتراضية = الأكبر (repUnits): بعد تحويل الصنف إلى الحبّة يبقى النقر المعتاد «+١ كرتون» — بين المسموح للمندوب
+    const c0 = startChoice(p);
     // «تتبّع اللوط» (§٦.٣): بلا لقطة دون اتصال لا يُباع المتتبَّع، وتجاوز المتاح المحلي يُمنع برسالةٍ واضحة
     if (!lotStored && lotTracks(p.id) && !navigator.onLine) {
       const text = tr('اتصل مرة لتحديث أرصدة السيارة');
@@ -1967,6 +1972,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     const p = products.find(x => x.id === l.productId);
     const ch = p ? choiceById(p, unitId) : null;
     if (!p || !ch) return;
+    // «قيود المندوب»: وحدةٌ لا يسمح بها قيد الصنف لهذا الفعل لا تُختار
+    const unitBlock = repLineBlockKey(p, repAction, ch.factor);
+    if (unitBlock) { setMsg(tr(unitBlock)); return; }
     if (rows.some((x, j) => j !== i && x.productId === l.productId && !x.saleItemId && sameUnit(x, { unitId: ch.id }))) {
       setMsg(tr('الصنف بهذه الوحدة موجود في السلة')); return;
     }
@@ -2005,6 +2013,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   // مسح باركود مستمرّ → إيجاد الصنف بحقل barcode وإضافته؛ يُعيد نتيجة للعرض داخل الماسح (يبقى مفتوحاً)
   const onScan = (code: string): { ok: boolean; label: string } => {
     const p = teamProducts.find((x) => x.barcode && String(x.barcode) === code);
+    // «قيود المندوب»: صنفٌ ممنوعٌ على المندوب في هذا الفعل يُقال سببه (قبل رسالة الفريق التي كانت ستلتقطه)
+    const repBlocked = p ? null : products.find((x) => x.barcode && String(x.barcode) === code && repBlockKey(x, repAction));
+    if (repBlocked) return { ok: false, label: tr(repBlockKey(repBlocked, repAction)!) };
     // صنفٌ مسجَّل لكنه ليس من أصناف الفريق الحالي: يُقال ذلك لا «لا يوجد صنف» (فيظنه المندوب باركوداً غير مسجّل)
     if (!p && products.some((x) => x.barcode && String(x.barcode) === code)) return { ok: false, label: tr('الصنف ليس من أصناف فريقك الحالي بدل الفريق') };
     // قيد المرتجع و«تتبّع اللوط» (المتاح في السيارة) يُقالان داخل الماسح، والإضافة على السلّة الأحدث
@@ -2122,7 +2133,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       link: l,
     })));
     setPickSale(false); setShowCart(true);
-    setMsg(blocked.length ? `${tr('استبعد حسب قيد الصلاحية')}: ${blocked.map(l => `${l.name} (${l.returnBlocked})`).join('، ')}` : '');
+    setMsg(blocked.length ? `${tr('استبعد حسب قيود الصنف')}: ${blocked.map(l => `${l.name} (${l.returnBlocked})`).join('، ')}` : '');
   };
   const clearSale = () => { setSaleRef(null); setLines([]); setShowCart(false); };
 
@@ -2182,6 +2193,14 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     if (perms.canCreateInvoice === false) { setMsg(tr('لا تملك صلاحية إنشاء فاتورة')); return; }
     if (!isReturn && !canSellAnyType) { setMsg(tr('لا تملك صلاحية البيع النقدي أو الآجل')); return; }
     if (!isReturn && type === 'CREDIT' && !canSellOnCredit) { setMsg(tr('لا تملك صلاحية البيع الآجل')); return; }
+    // «قيود المندوب»: سلّةٌ بُنيت قبل تحديث الكتالوج (قيدٌ أُضيف للصنف) تُقال الآن — لا تُصفّ دون اتصال ثم يرفضها الخادم.
+    // بند فاتورة البيع يحكمه الخادم في /returnable (returnBlocked) فلا يُعاد هنا
+    for (const l of lines) {
+      if (l.saleItemId) continue;
+      const lp = products.find((x) => x.id === l.productId);
+      const why = lp ? repLineBlockKey(lp, repAction, Number(l.unitFactor ?? 1)) : null;
+      if (why) { setMsg(`${l.name}: ${tr(why)}`); return; }
+    }
     if (!isReturn && type === 'CASH' && !canSellInCash) { setMsg(tr('لا تملك صلاحية البيع النقدي')); return; }
     if (!isReturn && plan === 'INSTALLMENT') {
       if (!canSellOnInstallment) { setMsg(tr('لا تملك صلاحية البيع بالتقسيط')); return; }
@@ -2344,6 +2363,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         // كاش الأصناف قديم (400 UNIT_INVALID: وحدةٌ أُوقفت أو تغيّر معاملها أو حُوِّل أساس صنف): رسالة الخادم تُعرض
         // («حدّث قائمة الأصناف»)، والكتالوج يُحدَّث وتُعاد وحدات السلّة إليه، ثم يعيد المندوب الإصدار وهو يرى ما تغيّر
         if (err?.response?.data?.code === 'UNIT_INVALID') void refreshUnits();
+        // «قيود المندوب»: قيدٌ تغيّر على الصنف بعد تحميل الكتالوج — يُحدَّث فتعكس القوائم والوحدات القيد الجديد
+        if (err?.response?.data?.code === 'REP_PRODUCT_RULE') void refreshUnits();
         // «تتبّع اللوط»: الخادم وجد المتاح أقلّ مما تعرفه اللقطة — رسالته تُعرض، واللقطة تُجلب للمحاولة التالية
         if (lotCapsOn && err?.response?.data?.code === 'LOT_STOCK_INSUFFICIENT') void lots?.refresh(VANLOTS_BLOCK_REFETCH_GAP_MS);
         setMsg(err?.response?.data?.message || tr('تعذر إصدار المستند حاول مجددا')); setLoading(false);
@@ -2556,7 +2577,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                 </div>
                 {/* منتقي الوحدة: وحدات الصنف النشطة، وللمرتجع من فاتورة بيع ما لا يزيد على وحدة بيعه */}
                 {(() => {
-                  const opts: UnitChoice[] = l.saleItemId && l.link ? returnUnitChoices(l.link) : unitChoices(products.find(x => x.id === l.productId));
+                  const opts: UnitChoice[] = l.saleItemId && l.link ? returnUnitChoices(l.link) : repUnitChoices(products.find(x => x.id === l.productId), repAction);
                   return opts.length > 1 ? (
                     <div className="flex flex-wrap items-center gap-1 mb-2" role="radiogroup" aria-label={tr('الوحدة')}>
                       {opts.map(o => (

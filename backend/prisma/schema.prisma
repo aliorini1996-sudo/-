@@ -800,6 +800,14 @@ model Product {
   returnRuleMetric     String? // DAYS | PERCENT
   returnRuleValue      Int?
   lotTracked           Boolean          @default(false) // «تتبّع باللوط» — لا أثر إلا مع Tenant.lotTrackingEnabled
+  // «قيود المندوب» (طلب المالك ٣١ أكتوبر ٢٠٢٦، services/repProductRules.ts): ما يفعله المندوب وحده بالصنف — مستخدمو الشركة
+  // ومفاتيح API وجلسة المالك أحرار. الافتراضي بلا قيد فلا يتغيّر صنفٌ بالنشر
+  repSaleAllowed       Boolean          @default(true)
+  repReturnAllowed     Boolean          @default(true)
+  repSaleUnit          String           @default("ANY") // ANY | BASE (وحدة الأساس، الصغرى) | LARGE (وحدة معاملها > ١)
+  repReturnUnit        String           @default("ANY") // ANY | BASE | LARGE
+  // آخر تغييرٍ لأيٍّ من الأربعة — مستند صندوق الأوف-لاين المُنشأ قبله يُقبل عند رفعه (لا تضيع بضاعة سُلّمت)
+  repRulesChangedAt    DateTime?
   lotTrackedSince      DateTime? // بداية حقبة الصنف (D25)
   deletedAt           DateTime? // أرشفة بدل الحذف حين يوجد تاريخ: يختفي من القوائم ويبقى صفه باسمه للفواتير والكشوف القديمة
   categoryId           String?

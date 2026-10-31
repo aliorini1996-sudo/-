@@ -757,3 +757,66 @@ test('returnable-sales بالأساس، والتفصيل والكشف بلقطة
   assert.equal(one.status, 200);
   assert.equal(one.body.data.items[0].unitName, 'حبة');
 });
+
+// ═══ «قيود المندوب» على الصنف (services/repProductRules.ts، طلب المالك ٣١ أكتوبر ٢٠٢٦) ═══
+
+test('قيود المندوب: البيع ووحدته للمندوب وحده — المدير حرّ، والمخالف ٤٢٢ REP_PRODUCT_RULE بلا مستند', async () => {
+  const sell = (items: Record<string, unknown>[], extra: Record<string, unknown> = {}) => ({ customerId: 'c1', type: 'CASH', pricesIncludeTax: false, discountPct: 0, items, ...extra });
+  const carton = { productId: 'p1', unitId: 'u-ct', qty: 1, unitPrice: 10, discountPct: 0 };
+  const piece = { productId: 'p1', qty: 1, unitPrice: 10 / 24, discountPct: 0 };
+  const asRep = () => { currentUser = { id: 'rep-1', role: 'SALES_REP', tenantId: TENANT }; };
+  const withRules = (o: Record<string, unknown>) => ({ ...PRODUCT, ...o }) as typeof PRODUCT;
+  // لا يبيعه المندوب
+  reset(); asRep(); let w = issueWorld({ product: withRules({ repSaleAllowed: false }) });
+  let r = await call('POST', '/api/invoices', { body: sell([carton]) });
+  assert.equal(r.status, 422, JSON.stringify(r.body)); assert.equal(r.body.code, 'REP_PRODUCT_RULE'); assert.equal(w.created.length, 0);
+  // المدير حرّ في الصنف نفسه
+  reset(); w = issueWorld({ product: withRules({ repSaleAllowed: false }) });
+  assert.equal((await call('POST', '/api/invoices', { body: sell([carton], { salesRepId: 'rep-1' }) })).status, 201);
+  // بالصغرى فقط: الكرتون يُرفض والحبة تُقبل
+  reset(); asRep(); issueWorld({ product: withRules({ repSaleUnit: 'BASE' }) });
+  r = await call('POST', '/api/invoices', { body: sell([carton]) });
+  assert.equal(r.status, 422); assert.match(r.body.message, /بالوحدة الصغرى \(حبة\) فقط/);
+  reset(); asRep(); issueWorld({ product: withRules({ repSaleUnit: 'BASE' }) });
+  assert.equal((await call('POST', '/api/invoices', { body: sell([piece]) })).status, 201);
+  // بالكبرى فقط: العكس
+  reset(); asRep(); issueWorld({ product: withRules({ repSaleUnit: 'LARGE' }) });
+  assert.equal((await call('POST', '/api/invoices', { body: sell([piece]) })).status, 422);
+  reset(); asRep(); issueWorld({ product: withRules({ repSaleUnit: 'LARGE' }) });
+  assert.equal((await call('POST', '/api/invoices', { body: sell([carton]) })).status, 201);
+});
+
+test('قيود المندوب: المرتجع (من فاتورة بيع وحرّاً) ووحدته — والبيع يبقى حرّاً لصنفٍ لا يُرجَع', async () => {
+  const asRep = () => { currentUser = { id: 'rep-1', role: 'SALES_REP', tenantId: TENANT }; };
+  const withRules = (o: Record<string, unknown>) => ({ ...PRODUCT, ...o }) as typeof PRODUCT;
+  const linkedPiece = { productId: 'p1', invoiceItemId: 'si-1', qty: 1, unitPrice: 10 / 24, discountPct: 0 };
+  const linkedCarton = { productId: 'p1', invoiceItemId: 'si-1', unitId: 'u-ct', qty: 1, unitPrice: 10, discountPct: 0 };
+  // لا يرجعه المندوب: المرتجع من فاتورة يُرفض، والحرّ كذلك
+  reset(); asRep(); let w = issueWorld({ product: withRules({ repReturnAllowed: false }) });
+  let r = await call('POST', '/api/invoices', { body: returnBody([linkedPiece]) });
+  assert.equal(r.status, 422, JSON.stringify(r.body)); assert.equal(r.body.code, 'REP_PRODUCT_RULE'); assert.equal(w.created.length, 0);
+  reset(); asRep(); issueWorld({ product: withRules({ repReturnAllowed: false }) });
+  r = await call('POST', '/api/invoices', { body: { customerId: 'c1', type: 'RETURN', pricesIncludeTax: false, discountPct: 0, items: [{ productId: 'p1', qty: 1, unitPrice: 10 / 24, discountPct: 0 }] } });
+  assert.equal(r.status, 422, JSON.stringify(r.body)); assert.equal(r.body.code, 'REP_PRODUCT_RULE');
+  // يُرجع بالكبرى فقط: الحبة من الكرتون تُرفض، والكرتون يُقبل
+  reset(); asRep(); issueWorld({ product: withRules({ repReturnUnit: 'LARGE' }) });
+  assert.equal((await call('POST', '/api/invoices', { body: returnBody([linkedPiece]) })).status, 422);
+  reset(); asRep(); w = issueWorld({ product: withRules({ repReturnUnit: 'LARGE' }) });
+  r = await call('POST', '/api/invoices', { body: returnBody([linkedCarton]) });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  // «بيعٌ فقط بلا إرجاع» لا يمنع البيع
+  reset(); asRep(); issueWorld({ product: withRules({ repReturnAllowed: false }) });
+  assert.equal((await call('POST', '/api/invoices', { body: { customerId: 'c1', type: 'CASH', pricesIncludeTax: false, discountPct: 0, items: [{ productId: 'p1', unitId: 'u-ct', qty: 1, unitPrice: 10, discountPct: 0 }] } })).status, 201);
+});
+
+test('قيود المندوب: مستند الصندوق المُنشأ قبل تغيير القيد يُقبل عند رفعه، وبعده يُرفض، والحيّ يُرفض دائماً', async () => {
+  const asRep = () => { currentUser = { id: 'rep-1', role: 'SALES_REP', tenantId: TENANT }; };
+  const blocked = { ...PRODUCT, repSaleAllowed: false, repRulesChangedAt: new Date('2026-10-31T10:00:00Z') } as typeof PRODUCT;
+  const body = (at: string) => ({ customerId: 'c1', type: 'CASH', pricesIncludeTax: false, discountPct: 0, clientCreatedAt: at, items: [{ productId: 'p1', unitId: 'u-ct', qty: 1, unitPrice: 10, discountPct: 0 }] });
+  reset(); asRep(); issueWorld({ product: blocked });
+  assert.equal((await call('POST', '/api/invoices', { body: body('2026-10-31T09:30:00Z'), headers: { 'X-FS-Replay': '1' } })).status, 201, 'صدر قبل القيد');
+  reset(); asRep(); issueWorld({ product: blocked });
+  assert.equal((await call('POST', '/api/invoices', { body: body('2026-10-31T10:30:00Z'), headers: { 'X-FS-Replay': '1' } })).status, 422, 'صدر بعد القيد');
+  reset(); asRep(); issueWorld({ product: blocked });
+  assert.equal((await call('POST', '/api/invoices', { body: body('2026-10-31T09:30:00Z') })).status, 422, 'الحيّ لا تسامح له');
+});

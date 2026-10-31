@@ -75,7 +75,7 @@ export interface ReturnableLineDto {
   refundPerBase?: number | null;
   /** وحدات الصنف (أو في `product.units`) */
   units?: UnitDef[] | null;
-  product?: { unit?: string | null; units?: UnitDef[] | null } | null;
+  product?: { unit?: string | null; units?: UnitDef[] | null; repReturnUnit?: string | null } | null;
 }
 
 /**
@@ -101,6 +101,8 @@ export interface LinkedReturnLine extends ReturnableLineDto {
   /** سعر الاسترداد لوحدة البيع كما أرسله الخادم — يُعرض حرفياً حين يُرجَع بوحدة البيع نفسها */
   saleRefundUnitPrice: number;
   units: UnitDef[];
+  /** «قيود المندوب»: قيد وحدة المرتجع كما أرسله الخادم للمندوب وحده (الإدارة بلا قيد ⇒ غائب) */
+  repReturnUnit?: 'ANY' | 'BASE' | 'LARGE';
   /** وحدة المرتجع: null = الأساس */
   retUnitId: string | null;
   retUnitName: string | null;
@@ -175,6 +177,7 @@ export function toLinkedSale(raw: unknown): LinkedSale {
         saleUnitFactor,
         soldBase, returnedBase, returnableBase, lineTotal, refundPerBase, saleRefundUnitPrice: saleUnitPrice,
         units: (Array.isArray(l.units) ? l.units : Array.isArray(l.product?.units) ? l.product!.units! : []) as UnitDef[],
+        ...(l.product?.repReturnUnit === 'BASE' || l.product?.repReturnUnit === 'LARGE' ? { repReturnUnit: l.product.repReturnUnit } : {}),
         retUnitId: null, retUnitName: null, retUnitFactor: 1,
       };
       return expressIn(line, saleUnitChoice(line));
@@ -186,8 +189,12 @@ export function toLinkedSale(raw: unknown): LinkedSale {
  * وحدات الإرجاع من بند بيع: الأساس ووحدات الصنف النشطة التي **لا تزيد** على وحدة البيع — حبّةٌ أو علبةٌ من كرتون،
  * لا كرتونٌ من حبّات (المتاح نفسه يحرسه الخادم بالأساس، والمنتقي لا يعرض وحدةً أكبر مما بِيع).
  */
-export function returnUnitChoices(l: Pick<LinkedReturnLine, 'baseUnit' | 'units' | 'saleUnitFactor'>): UnitChoice[] {
-  return unitChoices({ unit: l.baseUnit, units: l.units }).filter((c) => c.factor <= l.saleUnitFactor + QTY_EPS);
+export function returnUnitChoices(l: Pick<LinkedReturnLine, 'baseUnit' | 'units' | 'saleUnitFactor' | 'repReturnUnit'>): UnitChoice[] {
+  const all = unitChoices({ unit: l.baseUnit, units: l.units }).filter((c) => c.factor <= l.saleUnitFactor + QTY_EPS);
+  // «قيود المندوب»: الصغرى وحدها أو الكبرى وحدها — وإن لم يبقَ شيء عُرض الكل والخادم يقول السبب (لا منتقٍ فارغ)
+  const rule = l.repReturnUnit;
+  const ok = rule === 'BASE' ? all.filter((c) => c.factor <= 1 + QTY_EPS) : rule === 'LARGE' ? all.filter((c) => c.factor > 1 + QTY_EPS) : all;
+  return ok.length ? ok : all;
 }
 
 /** وحدة البيع نفسها بين وحدات الإرجاع (الاسم والمعامل، ثم المعامل وحده)، وإلّا الأساس — وحدةٌ أُوقفت بعد البيع لا تُعرض */

@@ -10,7 +10,7 @@ import toast from 'react-hot-toast';
 import { formatCurrency } from '../../utils/format';
 import { unitPriceOf } from '../../lib/units';
 import {
-  EMPTY_UNIT_FORM, unitFormOf, unitFormPayload, unitFormProblem, convertFormProblem, convertPreview, convertPayload,
+  EMPTY_UNIT_FORM, unitFormOf, unitFormPayload, unitFormProblem, convertFormProblem, convertPreview, convertPayload, hasBigUnit,
   type UnitForm, type ConvertForm,
 } from '../../lib/adminUnits';
 import { PRODUCT_VAT_CATEGORY_LABELS_AR, VATEX_LABELS_AR, productVatPayload, vatexCodesFor } from '../../lib/zatca/productVatForm';
@@ -65,10 +65,14 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
       ? {
         ...product, shelfLifeUnit: product.shelfLifeUnit || 'MONTH', shelfLifeBasis: product.shelfLifeBasis || 'SALE', shelfLifeFromDate: product.shelfLifeFromDate ? product.shelfLifeFromDate.slice(0, 10) : '',
         returnRuleMode: product.returnRuleMode || 'NEAR_EXPIRY', returnRuleMetric: product.returnRuleMetric || 'DAYS',
+        // «قيود المندوب»: صريحةً — خانةٌ بقيمة غائبة تُرسل false فيُمنع الصنف على المندوب بصمت
+        repSaleAllowed: product.repSaleAllowed !== false, repReturnAllowed: product.repReturnAllowed !== false,
+        repSaleUnit: product.repSaleUnit || 'ANY', repReturnUnit: product.repReturnUnit || 'ANY',
       }
       : {
         status: 'ACTIVE', taxPct: 15, basePrice: 0, shelfLifeEnabled: false, shelfLifeUnit: 'MONTH', shelfLifeBasis: 'SALE', shelfLifeFromDate: '',
         returnRuleEnabled: false, returnRuleMode: 'NEAR_EXPIRY', returnRuleMetric: 'DAYS',
+        repSaleAllowed: true, repReturnAllowed: true, repSaleUnit: 'ANY', repReturnUnit: 'ANY',
       },
   });
   // صورة الصنف تُدار بـ state ليتم ضغطها ودمجها يدوياً
@@ -147,11 +151,18 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
     const ruleVal = Number.isFinite(rest.returnRuleValue as number) ? rest.returnRuleValue : null;
     const ruleProblem = ruleEnabled ? returnRuleValueProblem(rest.returnRuleMetric, ruleVal) : null;
     if (ruleProblem) { toast.error(tr(ruleProblem)); return; }
+    // «قيود المندوب»: «الكبرى فقط» يلزمه وحدةٌ كبرى نشطة (والخادم يرفض بـREP_UNIT_RULE_INVALID)
+    const repSaleUnit = rest.repSaleUnit || 'ANY';
+    const repReturnUnit = rest.repReturnUnit || 'ANY';
+    if ((repSaleUnit === 'LARGE' || repReturnUnit === 'LARGE') && !hasBigUnit(units)) {
+      toast.error(tr('قيد الوحدة الكبرى فقط يحتاج وحدة كبرى نشطة لهذا الصنف')); return;
+    }
     onSave({
       ...rest, shelfLifeEnabled: !!rest.shelfLifeEnabled, shelfLifeValue: lifeValue,
       shelfLifeBasis: rest.shelfLifeBasis || 'SALE', shelfLifeFromDate: fromDate,
       returnRuleEnabled: ruleEnabled, returnRuleMode: rest.returnRuleMode || 'NEAR_EXPIRY', returnRuleMetric: rest.returnRuleMetric || 'DAYS',
       returnRuleValue: ruleVal,
+      repSaleAllowed: rest.repSaleAllowed !== false, repReturnAllowed: rest.repReturnAllowed !== false, repSaleUnit, repReturnUnit,
       image: image || null, ...(zatcaCollect ? productVatPayload({ vatCategory: cat, vatExemptionCode, vatExemptionReason }) : {}),
       ...productLotPayload(product, lotTrackingOn, lotTracked),
     } as Partial<Product>);
@@ -345,6 +356,39 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
                 </div>
               </div>
             )}
+          </div>
+
+          {/* «قيود المندوب» (طلب المالك ٣١ أكتوبر ٢٠٢٦، backend services/repProductRules.ts): ما يفعله المندوب وحده بهذا الصنف —
+              الإدارة حرّة، وتطبيق المندوب يُخفي الممنوع، والخادم يرفضه. «الصغرى» وحدة الأساس، و«الكبرى» كل وحدةٍ أكبر منها */}
+          <div className="rounded-xl border border-gray-200 p-3 space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-gray-700">{tr('قيود المندوب على الصنف')}</span>
+              <span className="text-[10px] text-gray-400 mr-auto">{tr('لا تقيد الإدارة')}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {([['repSaleAllowed', 'repSaleUnit', 'يبيعه المندوب', 'وحدة البيع'], ['repReturnAllowed', 'repReturnUnit', 'يرجعه المندوب', 'وحدة المرتجع']] as const).map(([allowKey, unitKey, allowLabel, unitLabel]) => {
+                const on = watch(allowKey) !== false;
+                const big = units.filter((u) => Number(u.factor) > 1 && u.isActive !== false).map((u) => u.name);
+                return (
+                  <div key={allowKey} className="space-y-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" {...register(allowKey)} className="w-4 h-4 accent-[#E15A30]" />
+                      <span className="text-sm text-gray-700">{tr(allowLabel)}</span>
+                    </label>
+                    <div className={on ? '' : 'opacity-50'}>
+                      <label className="label">{tr(unitLabel)}</label>
+                      <select className="input" {...register(unitKey)}>
+                        <option value="ANY">{tr('بكل الوحدات')}</option>
+                        <option value="BASE">{tr('بالوحدة الصغرى فقط')}{savedBase ? ` — ${savedBase}` : ''}</option>
+                        <option value="LARGE" disabled={!big.length && watch(unitKey) !== 'LARGE'}>
+                          {tr('بالوحدة الكبرى فقط')} — {big.length ? big.join('، ') : tr('أضف وحدة أكبر أولا')}
+                        </option>
+                      </select>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {/* «تتبّع باللوط» — للشركة المفعّلة لها الميزة وحدها: الصنف المتتبَّع يُسجَّل بتشغيلته في الوارد والتحميل والفواتير،

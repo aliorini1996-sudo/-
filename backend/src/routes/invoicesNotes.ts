@@ -37,6 +37,7 @@ import {
 } from '../compliance/zatca/notes';
 import { resolveInvoiceRegime } from '../compliance/zatca/regime';
 import { factorOf, unitFields } from '../services/units';
+import { REP_PRODUCT_RULE_CODE, replayPredatesRepRule, repLineProblem, type RepRuleProduct } from '../services/repProductRules';
 // «تتبّع اللوط» (§٤.٩): الخطة ودمج صفوف التوزيع — services/lots.ts نقيّة (لا قاعدة ولا Prisma)
 import {
   invoiceItemLotColumns, lotBaseQty, replayMoment,
@@ -79,6 +80,8 @@ const ORIGINAL_ITEM_SELECT = {
     select: {
       // «تتبّع اللوط» (§٤.٩): lotTracked من الصفّ المحمَّل أصلاً — علم الشركة لا يُقرأ إلا حين يحمل الأصل صنفاً متتبَّعاً (§١٠.١)
       name: true, unit: true, damagedReturnToStock: true, lotTracked: true,
+      // «قيود المندوب» على الصنف (services/repProductRules.ts) — الإشعار الدائن مرتجع
+      repReturnAllowed: true, repReturnUnit: true, repRulesChangedAt: true,
       units: { select: { id: true, name: true, factor: true, unitCode: true, isActive: true }, orderBy: [{ sortOrder: 'asc' }, { factor: 'asc' }] },
     },
   },
@@ -99,6 +102,8 @@ export interface LoadedOriginal {
   originalBuyer: UblParty | null;
   /** «تتبّع اللوط»: أصناف بنود الأصل المعلَّمة «تتبّع باللوط» الآن (Product.lotTracked) — فارغةٌ ⇒ لا أثر للّوط إطلاقاً. */
   lotTrackedProducts: ReadonlySet<string>;
+  /** «قيود المندوب»: قيود المرتجع لأصناف بنود الأصل — غيابها (أصلٌ مبنيّ يدوياً) ⇒ بلا قيد. */
+  repReturnRules?: ReadonlyMap<string, RepRuleProduct>;
 }
 
 /** مشتري اللقطة إن كانت لقطةً مفهومة (v1)؛ وإلا null — اللقطة لا تُفشل إشعاراً. */
@@ -142,6 +147,7 @@ function originalOf(row: OriginalRow): LoadedOriginal {
     },
     originalBuyer: buyerOfSnapshot(row.einvoiceSnapshot),
     lotTrackedProducts: new Set(row.items.filter(it => it.productId && it.product?.lotTracked === true).map(it => it.productId as string)),
+    repReturnRules: new Map(row.items.filter(it => it.productId && it.product).map(it => [it.productId as string, it.product as RepRuleProduct])),
   };
 }
 
@@ -475,6 +481,19 @@ function buildNote(
     if (ctx.actor) {
       const verdict = creditNotePermission(ctx.actor, effectiveCreditScope(prepared.creditable, prepared.lines));
       if (!verdict.ok) throw new ZatcaHttpError('ZATCA_NOTE_NOT_ALLOWED', { messageAr: verdict.messageAr, reason: 'CREDIT_SCOPE' });
+    }
+    /* «قيود المندوب» على الصنف (services/repProductRules.ts، طلب المالك ٣١ أكتوبر ٢٠٢٦): الإشعار الدائن مرتجع — للمندوب
+     * وحده، بوحدة كل بندٍ في الإشعار. يشمل POST /:id/credit-note مباشرةً (المرتجع عبر POST /invoices فُحص قبل الفرع).
+     * ومستند الصندوق المُنشأ قبل آخر تغييرٍ للقيد يُقبل — ولحظة المفتاح لا تُقرأ (viaApiKey) */
+    if (ctx.actor?.role === 'SALES_REP') {
+      const replay = isReplayRequest(ctx.caps);
+      const deviceAt = ctx.viaApiKey ? null : ctx.clientCreatedAt ?? null;
+      for (const l of prepared.lines) {
+        const p = l.productId ? loaded.repReturnRules?.get(l.productId) : undefined;
+        if (!p || replayPredatesRepRule(p, replay, deviceAt)) continue;
+        const why = repLineProblem(p, 'RETURN', l.creditUnitFactor);
+        if (why) throw new ZatcaHttpError('ZATCA_NOTE_NOT_ALLOWED', { messageAr: why, reason: REP_PRODUCT_RULE_CODE });
+      }
     }
     return { prepared, eligibility, loaded, priorNotes };
   }

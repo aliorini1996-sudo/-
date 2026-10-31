@@ -270,6 +270,11 @@ export interface Product {
   returnRuleValue?: number | null;
   // «تتبّع باللوط» — لا أثر إلا مع Tenant.lotTrackingEnabled؛ lotTrackedSince بداية حقبة الصنف (D25)
   lotTracked?: boolean;
+  // «قيود المندوب» (backend/src/services/repProductRules.ts): ما يفعله المندوب وحده بالصنف — الغياب بلا قيد
+  repSaleAllowed?: boolean;
+  repReturnAllowed?: boolean;
+  repSaleUnit?: 'ANY' | 'BASE' | 'LARGE';
+  repReturnUnit?: 'ANY' | 'BASE' | 'LARGE';
   lotTrackedSince?: string | null;
   categoryId?: string;
   category?: { id: string; name: string };
