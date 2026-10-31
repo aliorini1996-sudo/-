@@ -9,6 +9,7 @@ import { canAccessCustomer } from '../services/customerScope';
 import { applyProductVatGate } from './productsZatca';
 import { RETURN_RULE_METRICS, RETURN_RULE_MODES, SHELF_LIFE_BASES, SHELF_LIFE_UNITS, returnRuleConfigProblem, shelfLifeProblem } from '../services/shelfLife';
 import { MAX_UNIT_FACTOR, QTY_EPS, unitProblem, factorOf, type UnitDef } from '../services/units';
+import { REP_UNIT_RULES, hasRepRules, repRuleConfigProblem, repRulesChanged, repUnitRuleOf } from '../services/repProductRules';
 import { LOT_BUCKETS, LOT_EPS, LotError, asLockBusy, asLotBusy, lotErr, lotErrorBody, lotHttpError, roundLot, type BucketQty, type PlaceLotView } from '../services/lots';
 import { LOT_LOCK_TIMEOUT, acquireLotQueue, lockLotProducts, placeViews, recordLotEvent, type LotEventActor, type LotTx } from '../services/lotsDb';
 
@@ -40,6 +41,12 @@ const productSchema = z.object({
   returnRuleMode: z.enum(RETURN_RULE_MODES).nullish(),
   returnRuleMetric: z.enum(RETURN_RULE_METRICS).nullish(),
   returnRuleValue: z.number().int().positive().nullish(),
+  // «قيود المندوب» (services/repProductRules.ts): للمندوب وحده. null من النموذج ⇒ بلا تغيير (الأعمدة غير قابلة للفراغ)،
+  // و«الكبرى فقط» يُتحقَّق منه مع وحدات الصنف (repRuleConfigProblem)
+  repSaleAllowed: z.boolean().nullish(),
+  repReturnAllowed: z.boolean().nullish(),
+  repSaleUnit: z.enum(REP_UNIT_RULES).nullish(),
+  repReturnUnit: z.enum(REP_UNIT_RULES).nullish(),
   categoryId: z.string().nullish(),
   // أكواد الفوترة الإلكترونية
   itemCode: z.string().nullish().or(z.literal('')),     // كود الصنف (EGS/GS1)
@@ -117,6 +124,29 @@ class UnitsRefusal extends Error {
 
 const isUniqueViolation = (err: unknown): boolean => (err as { code?: string })?.code === 'P2002';
 
+type RepRuleKeys = 'repSaleAllowed' | 'repReturnAllowed' | 'repSaleUnit' | 'repReturnUnit';
+const REP_RULE_KEYS: readonly RepRuleKeys[] = ['repSaleAllowed', 'repReturnAllowed', 'repSaleUnit', 'repReturnUnit'];
+
+/**
+ * «قيود المندوب» كما تُكتب في الإنشاء والتعديل: null أو الغياب ⇒ بلا تغيير، وأيّ تغييرٍ عن المحفوظ (أو قيدٌ غير الافتراضي
+ * لصنفٍ جديد) يختم repRulesChangedAt — مرجع تسامح صندوق الأوف-لاين (services/repProductRules.ts replayPredatesRepRule).
+ * تُعيد الحقول للكتابة والحالة المدمجة للفحص.
+ */
+function repRuleWrite(data: Partial<Record<RepRuleKeys, unknown>>, before: Partial<Record<RepRuleKeys, unknown>> | null) {
+  const write: Record<string, unknown> = {};
+  for (const k of REP_RULE_KEYS) if (data[k] != null) write[k] = data[k];
+  const merged = { ...(before ?? {}), ...write } as Parameters<typeof hasRepRules>[0];
+  if (before ? repRulesChanged(before as Parameters<typeof hasRepRules>[0], merged) : hasRepRules(merged)) write.repRulesChangedAt = new Date();
+  return { write, merged };
+}
+
+/** قيد «الكبرى فقط» بلا وحدةٍ كبرى نشطة بعد تعديل الوحدات ⇒ يُمنع الصنف على المندوب بلا قصد — فيُرفض التعديل */
+function refuseLargeRuleWithout(product: { repSaleUnit: string; repReturnUnit: string }, units: ReadonlyArray<{ factor: number; isActive: boolean }>) {
+  if (repRuleConfigProblem(product, units)) {
+    throw new UnitsRefusal(409, 'الصنف مقيد للمندوب بالوحدة الكبرى فقط — غير قيد المندوب قبل إيقاف آخر وحدة كبرى أو حذفها', 'REP_UNIT_RULE_SET');
+  }
+}
+
 /**
  * قفل صفّ الصنف داخل المعاملة ثم قراءته — كل كتابةٍ على وحدات الصنف تمرّ من هنا.
  *
@@ -132,6 +162,7 @@ async function lockProduct(tx: Prisma.TransactionClient, tid: string, productId:
       // «تتبّع اللوط»: الصفّ المقفل يغني convert-base عن FOR KEY SHARE ثانٍ (lockLotProducts بـlockedRows)
       lotTracked: true, lotTrackedSince: true,
       units: { select: { id: true, name: true, factor: true, price: true, unitCode: true, isActive: true, sortOrder: true } },
+      repSaleUnit: true, repReturnUnit: true, // «قيود المندوب»: الكبرى فقط تحرس آخر وحدةٍ كبرى، وتمنع تحويل الأساس
     },
   });
 }
@@ -396,6 +427,10 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
     }
     const lifeProblem = shelfLifeProblem(data) ?? returnRuleConfigProblem(data);
     if (lifeProblem) { res.status(400).json({ success: false, message: lifeProblem }); return; }
+    // «قيود المندوب»: الصنف الجديد بلا وحدات بعد، فلا «كبرى فقط» عند إنشائه
+    const repRules = repRuleWrite(data, null);
+    const repProblem = repRuleConfigProblem(repRules.merged, null);
+    if (repProblem) { res.status(400).json({ success: false, code: 'REP_UNIT_RULE_INVALID', message: repProblem }); return; }
     if (data.taxPct == null) { // وراثة ضريبة دولة الشركة عند عدم تحديدها
       const company = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { defaultVatPct: true } });
       data.taxPct = company?.defaultVatPct ?? 15;
@@ -409,7 +444,8 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
     const lot = productLotSchema.parse(req.body);
     if (lot.lotTracked === true && !(await lotsAllowed(tid))) { res.status(403).json(lotErrorBody(lotErr('LOTS_NOT_ALLOWED'))); return; }
     const lotStart = lot.lotTracked === true ? { lotTracked: true, lotTrackedSince: new Date() } : null;
-    const createArgs = { data: { ...data, ...vatGate.patch, barcode: data.barcode || null, shelfLifeFromDate: asDay(data.shelfLifeFromDate), categoryId: data.categoryId || null, image: data.image || null, itemCode: data.itemCode || null, unitCode: data.unitCode || null, tenantId: tid, ...lotStart } as any, include: { category: true, units: UNITS_ORDER } };
+    for (const k of REP_RULE_KEYS) delete (data as Record<string, unknown>)[k];
+    const createArgs = { data: { ...data, ...vatGate.patch, barcode: data.barcode || null, shelfLifeFromDate: asDay(data.shelfLifeFromDate), categoryId: data.categoryId || null, image: data.image || null, itemCode: data.itemCode || null, unitCode: data.unitCode || null, ...repRules.write, tenantId: tid, ...lotStart } as any, include: { category: true, units: UNITS_ORDER } };
     const product = !lotStart
       ? await prisma.product.create(createArgs)
       : await prisma.$transaction(async (tx) => {
@@ -433,8 +469,9 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
       select: {
         id: true, shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true, shelfLifeBasis: true, shelfLifeFromDate: true,
         returnRuleEnabled: true, returnRuleMode: true, returnRuleMetric: true, returnRuleValue: true,
-        unit: true, units: { select: { name: true } },
+        unit: true, units: { select: { name: true, factor: true, isActive: true } },
         lotTracked: true, // «تتبّع اللوط»: الانتقال يُعرف من القراءة نفسها بلا استعلام
+        repSaleAllowed: true, repReturnAllowed: true, repSaleUnit: true, repReturnUnit: true,
       },
     });
     if (!exists) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
@@ -457,11 +494,18 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
     };
     const lifeProblem = shelfLifeProblem(merged) ?? returnRuleConfigProblem(merged);
     if (lifeProblem) { res.status(400).json({ success: false, message: lifeProblem }); return; }
+    // «قيود المندوب»: مدمجةً مع المحفوظ — «الكبرى فقط» يلزمه وحدةٌ كبرى نشطة، وتغييرها يختم repRulesChangedAt
+    const repRules = repRuleWrite(data, exists);
+    const newlyLarge = (['SALE', 'RETURN'] as const).some((a) => repUnitRuleOf(repRules.merged, a) === 'LARGE' && repUnitRuleOf(exists, a) !== 'LARGE');
+    const repProblem = newlyLarge ? repRuleConfigProblem(repRules.merged, exists.units) : null;
+    if (repProblem) { res.status(400).json({ success: false, code: 'REP_UNIT_RULE_INVALID', message: repProblem }); return; }
     // «تتبّع اللوط» (§٤.٢): القيمة المرسلة المختلفة عن المحفوظ وحدها انتقال — وتفعيله وحده يقرأ علم الشركة (§١٠.١)
     const lot = productLotSchema.parse(req.body);
     const lotTo = lot.lotTracked != null && lot.lotTracked !== exists.lotTracked ? lot.lotTracked : null;
     if (lotTo === true && !(await lotsAllowed(tid))) { res.status(403).json(lotErrorBody(lotErr('LOTS_NOT_ALLOWED'))); return; }
     const updateData: Record<string, unknown> = { ...data };
+    for (const k of REP_RULE_KEYS) delete updateData[k];
+    Object.assign(updateData, repRules.write);
     if ('barcode' in updateData) updateData.barcode = updateData.barcode || null;
     // taxPct الفارغ (حقل مُسح او null من النموذج) يعني «بلا تغيير» لا تصفير النسبة
     if (updateData.taxPct == null) delete updateData.taxPct;
@@ -630,6 +674,8 @@ router.put('/:id/units/:unitId', requireAdmin, async (req: AuthRequest, res: Res
       };
       const problem = unitProblem(merged, [baseAsUnit(product.unit), ...product.units.filter((u) => u.id !== current.id)]);
       if (problem) throw new UnitsRefusal(400, problem);
+      refuseLargeRuleWithout(product, product.units.map((u) => (u.id === current.id
+        ? { factor: Number(merged.factor), isActive: data.isActive ?? u.isActive } : u)));
       await tx.productUnit.updateMany({
         where: { id: current.id, productId: product.id, tenantId: tid },
         data: {
@@ -659,6 +705,7 @@ router.delete('/:id/units/:unitId', requireAdmin, async (req: AuthRequest, res: 
     await prisma.$transaction(async (tx) => {
       const product = await lockProduct(tx, tid, req.params.id);
       if (!product) throw new UnitsRefusal(404, 'الصنف غير موجود', 'PRODUCT_NOT_FOUND');
+      refuseLargeRuleWithout(product, product.units.filter((u) => u.id !== req.params.unitId));
       const gone = await tx.productUnit.deleteMany({ where: { id: req.params.unitId, productId: product.id, tenantId: tid } });
       if (gone.count === 0) throw new UnitsRefusal(404, 'الوحدة غير موجودة', 'UNIT_NOT_FOUND');
       await touchProduct(tx, tid, product.id);
@@ -705,6 +752,10 @@ router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Res
       // ١. التحويل المزدوج: ما رآه الطالب ليس الأساس الآن ⇒ حُوّل قبله (أو عُدّل) — لا يُضرب بـF ثانيةً
       if (product.unit !== body.expectedBaseName) {
         throw new UnitsRefusal(409, `وحدة الأساس الآن «${product.unit}» — تغيّرت منذ فتحت التحويل، أعد فتح الصنف`, 'BASE_UNIT_CHANGED');
+      }
+      // «قيود المندوب»: التحويل يقلب معنى «الصغرى» و«الكبرى» (الأساس القديم يصير وحدةً كبرى) — يُزال القيد قبله صراحةً
+      if (repUnitRuleOf(product, 'SALE') !== 'ANY' || repUnitRuleOf(product, 'RETURN') !== 'ANY') {
+        throw new UnitsRefusal(409, 'أزل قيد وحدة المندوب (البيع أو المرتجع) قبل تحويل وحدة الأساس — التحويل يغير معنى الصغرى والكبرى', 'REP_UNIT_RULE_SET');
       }
       const problem = baseConversionProblem(product, body);
       if (problem) throw new UnitsRefusal(400, problem);

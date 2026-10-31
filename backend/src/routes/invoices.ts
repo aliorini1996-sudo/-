@@ -10,6 +10,7 @@ import { catalogTeamsFor, resolveDocTeam, supervisorViewerOf, teamCatalogProblem
 // «لوكيشن»: ختم الفاتورة بموقع مندوبها وقت الإصدار، والمرتبط يرث ختم أصله (services/locations.ts)
 import { inheritedLocation, locationDocWhere, locationFilterOf, repStampLocation } from '../services/locations';
 import { expiryDateFor, localDateIn, returnRuleProblem, shelfLifeOf } from '../services/shelfLife';
+import { REP_PRODUCT_RULE_CODE, replayPredatesRepRule, repLineProblem, repLinkedReturnProblem, repUnitRuleOf } from '../services/repProductRules';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
 import { scopedRecordWhere, canAccessRep, existingInScope, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
@@ -566,6 +567,7 @@ router.get('/:id/returnable', async (req: AuthRequest, res: Response, next: Next
                 id: true, name: true, code: true, unit: true,
                 shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true, shelfLifeBasis: true, shelfLifeFromDate: true,
                 returnRuleEnabled: true, returnRuleMode: true, returnRuleMetric: true, returnRuleValue: true,
+                repReturnAllowed: true, repReturnUnit: true,
                 // وحدات الإرجاع: حبّةٌ من بند كرتون (الموقوفة معها — بِيع بها البند قبل إيقافها)
                 units: {
                   select: { id: true, name: true, factor: true, price: true, unitCode: true, isActive: true, sortOrder: true },
@@ -614,13 +616,16 @@ router.get('/:id/returnable', async (req: AuthRequest, res: Response, next: Next
         soldBase, returnedBase, returnableBase,
         lineTotal: Number(it.lineTotal),
         refundPerBase: perBase,
-        product: { unit: it.product!.unit, units: it.product!.units },
+        // «قيود المندوب»: قيد وحدة المرتجع يصل المندوب وحده فيُقصر به اختيار الوحدة (الإدارة حرّة)
+        product: { unit: it.product!.unit, units: it.product!.units, ...(isRep ? { repReturnUnit: repUnitRuleOf(it.product!, 'RETURN') } : {}) },
         taxPct: Number(it.taxPct),
         shelfLife: !!shelfLifeOf(it.product!),
         expiresAt: expiresAt ? expiresAt.toISOString().slice(0, 10) : null,
         expiredToday: expiresAt ? isExpiredOn(today, expiresAt) : null,
         // قيد المرتجع للصنف اليوم: سبب الرفض فيُستبعد البند من الاختيار، والخادم يقرّر عند الإصدار
         returnBlocked: expiresAt ? returnRuleProblem(it.product!, expiresAt, today) : null,
+        // وقيود المندوب على الصنف تتقدّمه (لا يرجعه، أو «الكبرى فقط» لبندٍ بيع بالصغرى) — للمندوب وحده
+        ...(isRep && repLinkedReturnProblem(it.product!, factorOf(it), it.product!.units) ? { returnBlocked: repLinkedReturnProblem(it.product!, factorOf(it), it.product!.units) } : {}),
         ...(lotsByItem && { lots: lotsByItem.get(it.id) ?? [] }),
       };
     }));
@@ -768,6 +773,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         returnRuleEnabled: true, returnRuleMode: true, returnRuleMetric: true, returnRuleValue: true,
         teams: { select: { teamId: true } },
         lotTracked: true,
+        repSaleAllowed: true, repReturnAllowed: true, repSaleUnit: true, repReturnUnit: true, repRulesChangedAt: true,
       },
     });
     if (products.length !== productIds.length) { res.status(400).json({ success: false, message: 'أحد الأصناف غير موجود أو غير نشط' }); return; }
@@ -963,6 +969,23 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       }
       if (installmentRows.length > MAX_INSTALLMENTS) {
         res.status(400).json({ success: false, message: `عدد الأقساط يتجاوز الحد المسموح (${MAX_INSTALLMENTS})` }); return;
+      }
+    }
+
+    // «قيود المندوب» على الصنف (services/repProductRules.ts، طلب المالك ٣١ أكتوبر ٢٠٢٦): بيعٌ أو مرتجعٌ — حرٌّ أو من فاتورة —
+    // بوحدة بنده (لقطة الخادم snapOf، معامل ١ = الصغرى). للمندوب وحده، وقبل فرع المرحلة الثانية فيشمل المرتجع-إشعاراً دائناً.
+    // مستند الصندوق المُنشأ على الجهاز قبل آخر تغييرٍ للقيد يُقبل (deviceAt — لا لحظة لمفتاح API، ولا مفتاح بدور المندوب)
+    if (req.user!.role === 'SALES_REP') {
+      const action = isReturn ? 'RETURN' : 'SALE';
+      for (const [idx, it] of body.items.entries()) {
+        const p = products.find(x => x.id === it.productId)!;
+        if (replayPredatesRepRule(p, isReplay, deviceAt)) continue;
+        // التصنيف بوحدة البند لا بمعاملها المرسَل: وحدةٌ معروفة للصنف كبرى دائماً (معاملها ≥ ٢)، فمعاملٌ يكتبه الجهاز في
+        // إعادة الرفع (لقطته) لا يجعل الكرتون «صغرى» ولا الحبّة «كبرى»
+        const snap = snapOf(idx);
+        const known = snap.unitName ? p.units.find((u) => u.name.trim() === snap.unitName!.trim()) : undefined;
+        const why = repLineProblem(p, action, known ? Number(known.factor) : snap.unitFactor);
+        if (why) { res.status(422).json({ success: false, code: REP_PRODUCT_RULE_CODE, message: why }); return; }
       }
     }
 

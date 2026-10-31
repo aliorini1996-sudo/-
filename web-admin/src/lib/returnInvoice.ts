@@ -75,7 +75,7 @@ export interface ReturnableLineDto {
   refundPerBase?: number | null;
   /** وحدات الصنف (أو في `product.units`) */
   units?: UnitDef[] | null;
-  product?: { unit?: string | null; units?: UnitDef[] | null } | null;
+  product?: { unit?: string | null; units?: UnitDef[] | null; repReturnUnit?: string | null } | null;
 }
 
 /**
@@ -101,6 +101,8 @@ export interface LinkedReturnLine extends ReturnableLineDto {
   /** سعر الاسترداد لوحدة البيع كما أرسله الخادم — يُعرض حرفياً حين يُرجَع بوحدة البيع نفسها */
   saleRefundUnitPrice: number;
   units: UnitDef[];
+  /** «قيود المندوب»: قيد وحدة المرتجع كما أرسله الخادم للمندوب وحده (الإدارة بلا قيد ⇒ غائب) */
+  repReturnUnit?: 'ANY' | 'BASE' | 'LARGE';
   /** وحدة المرتجع: null = الأساس */
   retUnitId: string | null;
   retUnitName: string | null;
@@ -175,6 +177,7 @@ export function toLinkedSale(raw: unknown): LinkedSale {
         saleUnitFactor,
         soldBase, returnedBase, returnableBase, lineTotal, refundPerBase, saleRefundUnitPrice: saleUnitPrice,
         units: (Array.isArray(l.units) ? l.units : Array.isArray(l.product?.units) ? l.product!.units! : []) as UnitDef[],
+        ...(l.product?.repReturnUnit === 'BASE' || l.product?.repReturnUnit === 'LARGE' ? { repReturnUnit: l.product.repReturnUnit } : {}),
         retUnitId: null, retUnitName: null, retUnitFactor: 1,
       };
       return expressIn(line, saleUnitChoice(line));
@@ -186,8 +189,12 @@ export function toLinkedSale(raw: unknown): LinkedSale {
  * وحدات الإرجاع من بند بيع: الأساس ووحدات الصنف النشطة التي **لا تزيد** على وحدة البيع — حبّةٌ أو علبةٌ من كرتون،
  * لا كرتونٌ من حبّات (المتاح نفسه يحرسه الخادم بالأساس، والمنتقي لا يعرض وحدةً أكبر مما بِيع).
  */
-export function returnUnitChoices(l: Pick<LinkedReturnLine, 'baseUnit' | 'units' | 'saleUnitFactor'>): UnitChoice[] {
-  return unitChoices({ unit: l.baseUnit, units: l.units }).filter((c) => c.factor <= l.saleUnitFactor + QTY_EPS);
+export function returnUnitChoices(l: Pick<LinkedReturnLine, 'baseUnit' | 'units' | 'saleUnitFactor' | 'repReturnUnit'>): UnitChoice[] {
+  const all = unitChoices({ unit: l.baseUnit, units: l.units }).filter((c) => c.factor <= l.saleUnitFactor + QTY_EPS);
+  // «قيود المندوب»: الصغرى وحدها أو الكبرى وحدها — وإن لم يبقَ شيء عُرض الكل والخادم يقول السبب (لا منتقٍ فارغ)
+  const rule = l.repReturnUnit;
+  const ok = rule === 'BASE' ? all.filter((c) => c.factor <= 1 + QTY_EPS) : rule === 'LARGE' ? all.filter((c) => c.factor > 1 + QTY_EPS) : all;
+  return ok.length ? ok : all;
 }
 
 /** وحدة البيع نفسها بين وحدات الإرجاع (الاسم والمعامل، ثم المعامل وحده)، وإلّا الأساس — وحدةٌ أُوقفت بعد البيع لا تُعرض */
@@ -220,6 +227,19 @@ export function withReturnUnit(l: LinkedReturnLine, unitId: string | null): Link
   const all = returnUnitChoices(l);
   const next = expressIn(l, all.find((c) => c.id === (unitId ?? null)) ?? all[0]);
   return { ...next, qty: clampReturnQty(l.qty, next) };
+}
+
+/**
+ * كميةٌ **بالأساس** ⇒ البند بوحدة إرجاعٍ مسموحة: الأساس إن سُمح (كل البنود قبل «قيود المندوب»)، وإلّا — «الكبرى فقط» —
+ * أصغر وحدةٍ مسموحة بوحداتٍ كاملة منها (لا «١٫٩١٧ كرتون» يرفضها الخادم فوق المتاح، ولا «٣ حبّات» تُقرأ ٣ كراتين).
+ */
+function inAllowedUnit(l: LinkedReturnLine, baseQty: number): LinkedReturnLine {
+  const all = returnUnitChoices(l);
+  const base = all.find((c) => c.id === null);
+  if (base) { const next = expressIn(l, base); return { ...next, qty: clampReturnQty(baseQty, next) }; }
+  const c = all.reduce((a, b) => (b.factor < a.factor ? b : a));
+  const next = expressIn(l, c);
+  return { ...next, qty: clampReturnQty(Math.floor(baseQty / c.factor + QTY_EPS), next) };
 }
 
 /**
@@ -284,8 +304,7 @@ export function fillLinkedQty(lines: LinkedReturnLine[], all: boolean): LinkedRe
     if (!all || !isLineReturnable(l)) return { ...l, qty: 0 };
     const whole = l.returnableBase / l.retUnitFactor;
     if (l.retUnitFactor === 1 || Math.abs(whole - Math.round(whole)) < QTY_EPS) return { ...l, qty: num(l.returnable) };
-    const base = withReturnUnit(l, null);
-    return { ...base, qty: num(base.returnable) };
+    return inAllowedUnit(l, l.returnableBase);
   });
 }
 
@@ -318,7 +337,7 @@ export function mergeRefreshedSale(prev: LinkedSale, fresh: LinkedSale): LinkedS
 export function refreshLinkedLine(prev: LinkedReturnLine, fresh: LinkedReturnLine): LinkedReturnLine {
   const same = returnUnitChoices(fresh).find((c) => c.id === prev.retUnitId && Math.abs(c.factor - prev.retUnitFactor) < QTY_EPS);
   if (same) return withReturnUnit({ ...fresh, qty: num(prev.qty) }, same.id);
-  return withReturnUnit({ ...fresh, qty: toBase(num(prev.qty), { unitFactor: prev.retUnitFactor }) }, null);
+  return inAllowedUnit(fresh, toBase(num(prev.qty), { unitFactor: prev.retUnitFactor }));
 }
 
 /** مدخلات المحرّك للمرتجع المرتبط — هي حرفياً ما يقرؤه الخادم من بنود الطلب (انظر رأس الملف) */

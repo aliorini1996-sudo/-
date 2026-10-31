@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, CreditCard, Loader2, X, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CreditCard, Loader2, RefreshCw, X, XCircle } from 'lucide-react';
 import repApi from './repApi';
 import DecimalInput from '../components/DecimalInput';
 import { formatCurrency, formatDate } from '../utils/format';
@@ -31,8 +31,12 @@ export function readPendingCardPay(): CardPayPending | null {
     return p;
   } catch { return null; }
 }
-export function clearPendingCardPay(): void {
-  try { localStorage.removeItem(PENDING_KEY); } catch { /* تخزينٌ محجوب */ }
+/** بمعرّف: تُمسح المحفوظة إن كانت هي نفسها فقط — عرضُ عمليةٍ أخرى لا يُسقط المعلّقة */
+export function clearPendingCardPay(id?: string): void {
+  try {
+    if (id && readPendingCardPay()?.id !== id) return;
+    localStorage.removeItem(PENDING_KEY);
+  } catch { /* تخزينٌ محجوب */ }
 }
 
 /** ورقة اختيار الفاتورة والمبلغ ثم فتح وحدة الدفع */
@@ -44,13 +48,19 @@ export function CardPaySheet({ customer, onClose }: { customer: { id: string; na
   const [amount, setAmount] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // عمليةٌ جارية أو موقوفة على الفاتورة (409 من الخادم بمعرّفها) — تُعرض نتيجتها بدل رسالةٍ بلا مخرج
+  const [blocking, setBlocking] = useState<CardPayPending | null>(null);
+  const [viewing, setViewing] = useState<CardPayPending | null>(null);
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
   useBackClose(!!picked, () => { setPicked(null); setError(null); });
 
   useEffect(() => {
     (async () => {
       try {
-        const res = await repApi.get('/invoices', { params: { customerId: customer.id, status: 'CONFIRMED', type: 'CREDIT', limit: 50 } });
-        setInvoices((res.data.data || []).filter((i: any) => Number(i.remainingAmt) > 0.004));
+        // فواتير العميل المفتوحة كلها (لا أحدث ٥٠ لهذا المندوب)، بلا المحجوبة لدى الهيئة — كنموذج سند القبض
+        const res = await repApi.get('/invoices/open', { params: { customerId: customer.id } });
+        setInvoices(res.data.data || []);
       } catch { setError(tr('تعذر تحميل الفواتير تحقق من الاتصال')); }
       setLoading(false);
     })();
@@ -58,22 +68,32 @@ export function CardPaySheet({ customer, onClose }: { customer: { id: string; na
 
   const start = async () => {
     if (!picked) return;
-    setBusy(true); setError(null);
+    setBusy(true); setError(null); setBlocking(null);
     try {
       const remaining = Number(picked.remainingAmt);
       const body: { invoiceId: string; amount?: number } = { invoiceId: picked.id };
       if (amount != null && amount > 0 && Math.abs(amount - remaining) > 0.004) body.amount = amount;
       const res = await repApi.post('/card-payments/issue', body);
+      // أُغلقت الورقة قبل الرد: لا تُفتح وحدة الدفع بمبلغ عميلٍ سابق أمام عميلٍ آخر
+      if (!alive.current) return;
       const d = res.data.data as { id: string; amount: number; launchUri: string };
       try { localStorage.setItem(PENDING_KEY, JSON.stringify({ id: d.id, invoiceNumber: picked.number, amount: d.amount, at: Date.now() } satisfies CardPayPending)); } catch { /* تخزينٌ محجوب */ }
       window.location.href = d.launchUri;
+      // الرجوع بزرّ الرجوع لا يُبقي الزرّ معطّلاً
+      setTimeout(() => { if (alive.current) setBusy(false); }, 3000);
     } catch (e: any) {
-      setError(e?.response?.data?.message || tr('تعذر بدء التحصيل بالبطاقة تحقق من الاتصال'));
+      if (!alive.current) return;
+      const data = e?.response?.data;
+      setError(data?.message || tr('تعذر بدء التحصيل بالبطاقة تحقق من الاتصال'));
+      if (data?.paymentId && (data.code === 'CARD_PAY_IN_PROGRESS' || data.code === 'CARD_PAY_REVIEW')) {
+        setBlocking({ id: data.paymentId, invoiceNumber: picked.number, amount: 0, at: Date.now() });
+      }
       setBusy(false);
     }
   };
 
   return (
+    <>
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={onClose}>
       <div className="bg-white rounded-t-3xl w-full max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="p-4 border-b border-gray-100 flex items-center gap-3">
@@ -86,6 +106,12 @@ export function CardPaySheet({ customer, onClose }: { customer: { id: string; na
         </div>
         <div className="p-4 overflow-y-auto flex-1">
           {error && <p className="bg-red-50 text-red-600 text-xs rounded-xl p-3 mb-3">{error}</p>}
+          {blocking && (
+            <button onClick={() => setViewing(blocking)}
+              className="w-full mb-3 border border-[#1F1A13] text-[#1F1A13] rounded-xl py-2.5 text-sm font-semibold flex items-center justify-center gap-2">
+              <RefreshCw size={15} /> {tr('اعرض حالة العملية السابقة')}
+            </button>
+          )}
           {picked ? (
             <div>
               <p className="text-sm text-gray-600 mb-1 text-center">{tr('فاتورة')} {picked.number}</p>
@@ -124,14 +150,19 @@ export function CardPaySheet({ customer, onClose }: { customer: { id: string; na
         </div>
       </div>
     </div>
+    {/* خارج غطاء الورقة: نقرةٌ في النتيجة لا تصعد إليه فتغلق الورقة */}
+    {viewing && <CardPayResult pending={viewing} onClose={() => setViewing(null)} />}
+    </>
   );
 }
 
-type CheckState = { status: string; receiptNumber?: string | null; detail?: string | null };
+type CheckState = { status: string; receiptNumber?: string | null; detail?: string | null; amount?: number; reference?: string };
 
 /**
  * نتيجة التحصيل بعد الرجوع من وحدة الدفع — نسأل الخادم كل ٣ ثوانٍ حتى تُحسم أو ٤٥ ثانية؛ وما لم يُحسم يُكمله مجدول الخادم
- * فيُسجَّل السند تلقائياً حين تؤكّد NearPay. «unsupported» = تطبيقٌ قديم بلا وحدة الدفع.
+ * فيُسجَّل السند تلقائياً حين تؤكّد NearPay، و«تحقّق الآن» يعيد السؤال. «unsupported» = تطبيقٌ قديم بلا وحدة الدفع.
+ * و«review» (مراجعة ٣١ أكتوبر ٢٠٢٦): خُصم المال لدى NearPay واختلف شيءٌ فلم يُقيَّد السند — تنبيهٌ كهرماني «لا تحصّل ثانية»
+ * لا «لم يتم التحصيل» الأحمر الذي كان يدعو المندوب إلى خصمٍ ثانٍ من العميل.
  */
 export function CardPayResult({ pending, unsupported, onClose, onDone }: {
   pending: CardPayPending | null; unsupported?: boolean; onClose: () => void; onDone?: () => void;
@@ -139,34 +170,42 @@ export function CardPayResult({ pending, unsupported, onClose, onDone }: {
   const tr = useTr();
   const [state, setState] = useState<CheckState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const stopped = useRef(false);
+  const [timedOut, setTimedOut] = useState(false);
+  const [round, setRound] = useState(0);
 
   useEffect(() => {
     if (unsupported || !pending) return;
-    stopped.current = false;
+    let live = true; // لكل جولة — «تحقّق الآن» لا يترك جولةً سابقة تدور معها
+    setTimedOut(false);
     const started = Date.now();
     const tick = async () => {
-      if (stopped.current) return;
+      if (!live) return;
       try {
         const r = await repApi.post(`/card-payments/${pending.id}/check`);
+        if (!live) return;
         const d = r.data.data as CheckState;
         setState(d);
         setError(null);
         if (d.status !== 'pending') {
-          clearPendingCardPay();
+          clearPendingCardPay(pending.id);
           if (d.status === 'approved') onDone?.();
           return;
         }
       } catch (e: any) {
+        if (!live) return;
         setError(e?.response?.data?.message || tr('تعذر الاتصال للتحقق من الدفع'));
       }
       if (Date.now() - started < 45_000) setTimeout(tick, 3000);
+      else setTimedOut(true);
     };
     void tick();
-    return () => { stopped.current = true; };
-  }, [pending?.id, unsupported]);
+    return () => { live = false; };
+  }, [pending?.id, unsupported, round]);
 
   const st = state?.status;
+  // المبلغ والفاتورة من الخادم أولاً: العملية المحفوظة على الجوال قد تغيب (رجوعٌ برابطٍ بعد مسحها)
+  const amount = state?.amount ?? pending?.amount ?? 0;
+  const invoiceNumber = state?.reference || pending?.invoiceNumber || '';
   return (
     <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-6" onClick={onClose}>
       <div className="bg-white rounded-3xl w-full max-w-sm p-6 text-center" onClick={e => e.stopPropagation()}>
@@ -180,8 +219,16 @@ export function CardPayResult({ pending, unsupported, onClose, onDone }: {
           <>
             <CheckCircle2 size={48} className="mx-auto text-green-600" />
             <p className="font-bold mt-3">{tr('تم التحصيل بالبطاقة')}</p>
-            {pending && <p className="text-2xl font-bold mt-2">{formatCurrency(pending.amount)}</p>}
+            {amount > 0 && <p className="text-2xl font-bold mt-2">{formatCurrency(amount)}</p>}
             {state?.receiptNumber && <p className="text-sm text-gray-500 mt-1">{tr('سند القبض')} {state.receiptNumber}</p>}
+          </>
+        ) : st === 'review' ? (
+          <>
+            <AlertTriangle size={48} className="mx-auto text-amber-500" />
+            <p className="font-bold mt-3">{tr('خصم المبلغ لدى NearPay ولم يسجل السند بعد')}</p>
+            {amount > 0 && <p className="text-sm text-gray-500 mt-1">{tr('فاتورة')} {invoiceNumber} — {formatCurrency(amount)}</p>}
+            <p className="text-sm text-amber-800 bg-amber-50 rounded-xl p-3 mt-3 leading-relaxed">{tr('لا تحصل من العميل مرة أخرى الإدارة تراجع العملية وتسجل السند أو تعيد المبلغ')}</p>
+            {state?.detail && <p className="text-[11px] text-gray-400 mt-2 leading-relaxed">{state.detail}</p>}
           </>
         ) : st && st !== 'pending' ? (
           <>
@@ -191,11 +238,17 @@ export function CardPayResult({ pending, unsupported, onClose, onDone }: {
           </>
         ) : (
           <>
-            <Loader2 size={44} className="mx-auto text-[#1F1A13] animate-spin" />
-            <p className="font-bold mt-3">{tr('جار التحقق من الدفع')}</p>
-            {pending && <p className="text-sm text-gray-500 mt-1">{tr('فاتورة')} {pending.invoiceNumber} — {formatCurrency(pending.amount)}</p>}
+            {timedOut ? <RefreshCw size={40} className="mx-auto text-[#1F1A13]" /> : <Loader2 size={44} className="mx-auto text-[#1F1A13] animate-spin" />}
+            <p className="font-bold mt-3">{timedOut ? tr('لم تحسم العملية بعد') : tr('جار التحقق من الدفع')}</p>
+            {(invoiceNumber || amount > 0) && <p className="text-sm text-gray-500 mt-1">{tr('فاتورة')} {invoiceNumber}{amount > 0 ? ` — ${formatCurrency(amount)}` : ''}</p>}
             <p className="text-[11px] text-gray-400 mt-3 leading-relaxed">{tr('إن أغلقت هذه النافذة يكمل الخادم التحقق ويسجل السند تلقائيا عند تأكيد الدفع')}</p>
             {error && <p className="text-[11px] text-amber-700 mt-2">{error}</p>}
+            {timedOut && (
+              <button onClick={() => setRound((r) => r + 1)}
+                className="w-full mt-4 border border-[#1F1A13] text-[#1F1A13] rounded-xl py-2.5 font-semibold text-sm flex items-center justify-center gap-2">
+                <RefreshCw size={15} /> {tr('تحقق الآن')}
+              </button>
+            )}
           </>
         )}
         <button onClick={onClose} className="w-full mt-5 bg-[#1F1A13] text-white rounded-xl py-3 font-semibold text-sm">{tr('إغلاق')}</button>

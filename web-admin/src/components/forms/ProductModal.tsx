@@ -10,7 +10,7 @@ import toast from 'react-hot-toast';
 import { formatCurrency } from '../../utils/format';
 import { unitPriceOf } from '../../lib/units';
 import {
-  EMPTY_UNIT_FORM, unitFormOf, unitFormPayload, unitFormProblem, convertFormProblem, convertPreview, convertPayload,
+  EMPTY_UNIT_FORM, unitFormOf, unitFormPayload, unitFormProblem, convertFormProblem, convertPreview, convertPayload, hasBigUnit,
   type UnitForm, type ConvertForm,
 } from '../../lib/adminUnits';
 import { PRODUCT_VAT_CATEGORY_LABELS_AR, VATEX_LABELS_AR, productVatPayload, vatexCodesFor } from '../../lib/zatca/productVatForm';
@@ -65,10 +65,14 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
       ? {
         ...product, shelfLifeUnit: product.shelfLifeUnit || 'MONTH', shelfLifeBasis: product.shelfLifeBasis || 'SALE', shelfLifeFromDate: product.shelfLifeFromDate ? product.shelfLifeFromDate.slice(0, 10) : '',
         returnRuleMode: product.returnRuleMode || 'NEAR_EXPIRY', returnRuleMetric: product.returnRuleMetric || 'DAYS',
+        // «قيود المندوب»: صريحةً — خانةٌ بقيمة غائبة تُرسل false فيُمنع الصنف على المندوب بصمت
+        repSaleAllowed: product.repSaleAllowed !== false, repReturnAllowed: product.repReturnAllowed !== false,
+        repSaleUnit: product.repSaleUnit || 'ANY', repReturnUnit: product.repReturnUnit || 'ANY',
       }
       : {
         status: 'ACTIVE', taxPct: 15, basePrice: 0, shelfLifeEnabled: false, shelfLifeUnit: 'MONTH', shelfLifeBasis: 'SALE', shelfLifeFromDate: '',
         returnRuleEnabled: false, returnRuleMode: 'NEAR_EXPIRY', returnRuleMetric: 'DAYS',
+        repSaleAllowed: true, repReturnAllowed: true, repSaleUnit: 'ANY', repReturnUnit: 'ANY',
       },
   });
   // صورة الصنف تُدار بـ state ليتم ضغطها ودمجها يدوياً
@@ -147,11 +151,18 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
     const ruleVal = Number.isFinite(rest.returnRuleValue as number) ? rest.returnRuleValue : null;
     const ruleProblem = ruleEnabled ? returnRuleValueProblem(rest.returnRuleMetric, ruleVal) : null;
     if (ruleProblem) { toast.error(tr(ruleProblem)); return; }
+    // «قيود المندوب»: «الكبرى فقط» يلزمه وحدةٌ كبرى نشطة (والخادم يرفض بـREP_UNIT_RULE_INVALID)
+    const repSaleUnit = rest.repSaleUnit || 'ANY';
+    const repReturnUnit = rest.repReturnUnit || 'ANY';
+    if ((repSaleUnit === 'LARGE' || repReturnUnit === 'LARGE') && !hasBigUnit(units)) {
+      toast.error(tr('قيد الوحدة الكبرى فقط يحتاج وحدة كبرى نشطة لهذا الصنف')); return;
+    }
     onSave({
       ...rest, shelfLifeEnabled: !!rest.shelfLifeEnabled, shelfLifeValue: lifeValue,
       shelfLifeBasis: rest.shelfLifeBasis || 'SALE', shelfLifeFromDate: fromDate,
       returnRuleEnabled: ruleEnabled, returnRuleMode: rest.returnRuleMode || 'NEAR_EXPIRY', returnRuleMetric: rest.returnRuleMetric || 'DAYS',
       returnRuleValue: ruleVal,
+      repSaleAllowed: rest.repSaleAllowed !== false, repReturnAllowed: rest.repReturnAllowed !== false, repSaleUnit, repReturnUnit,
       image: image || null, ...(zatcaCollect ? productVatPayload({ vatCategory: cat, vatExemptionCode, vatExemptionReason }) : {}),
       ...productLotPayload(product, lotTrackingOn, lotTracked),
     } as Partial<Product>);
@@ -244,6 +255,23 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
             basePrice={savedBasePrice}
             units={units}
             onUnits={setUnits}
+            syncRepUnitRules={async () => {
+              /* «قيود المندوب» تُحفظ مع «حفظ التعديلات» والوحدات فوراً: من غيّر القيد في النموذج ثم حذف آخر وحدةٍ كبرى رفضه
+               * الخادم (409 REP_UNIT_RULE_SET يقرأ القيد المحفوظ) وهو يرى القيد مُزالاً أمامه. فيُحفظ القيد كما في النموذج.
+               * و«الكبرى فقط» لفعلٍ ممنوعٍ على المندوب أصلاً لا أثر له (لا يبيعه/لا يرجعه بأي وحدة)، فيُعاد «كل الوحدات».
+               * ويبقى الرفض حين يطلب النموذج نفسه «الكبرى فقط» لفعلٍ مسموح — حذف آخر وحدةٍ كبرى يمنع الصنف عليه بلا قصد. */
+              if (!product?.id) return false;
+              const v = getValues();
+              const saleOn = v.repSaleAllowed !== false;
+              const returnOn = v.repReturnAllowed !== false;
+              const repSaleUnit = saleOn ? (v.repSaleUnit || 'ANY') : 'ANY';
+              const repReturnUnit = returnOn ? (v.repReturnUnit || 'ANY') : 'ANY';
+              if (repSaleUnit === 'LARGE' || repReturnUnit === 'LARGE') return false;
+              await productApi.update(product.id, { repSaleAllowed: saleOn, repReturnAllowed: returnOn, repSaleUnit, repReturnUnit });
+              setValue('repSaleUnit', repSaleUnit);
+              setValue('repReturnUnit', repReturnUnit);
+              return true;
+            }}
             onConverted={(p) => {
               // الأساس صار الجديد وسعره: الخانتان تتبعانه، وإلا أعاد «حفظ التعديلات» بعده الاسمَ القديم فرفضه الخادم
               setUnits(p.units ?? []);
@@ -251,6 +279,10 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
               setSavedBasePrice(Number(p.basePrice));
               setValue('unit', p.unit);
               setValue('basePrice', Number(p.basePrice));
+              // «قيود المندوب»: التحويل يقلب معنى الصغرى والكبرى، والخادم لا يقبله إلا والقيد المحفوظ «كل الوحدات» —
+              // فقيدُ وحدةٍ اختير قبله ولم يُحفظ يُعاد إليه كي لا يُحفظ بعده بمعنىً آخر
+              setValue('repSaleUnit', 'ANY');
+              setValue('repReturnUnit', 'ANY');
             }}
           />
 
@@ -345,6 +377,39 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
                 </div>
               </div>
             )}
+          </div>
+
+          {/* «قيود المندوب» (طلب المالك ٣١ أكتوبر ٢٠٢٦، backend services/repProductRules.ts): ما يفعله المندوب وحده بهذا الصنف —
+              الإدارة حرّة، وتطبيق المندوب يُخفي الممنوع، والخادم يرفضه. «الصغرى» وحدة الأساس، و«الكبرى» كل وحدةٍ أكبر منها */}
+          <div className="rounded-xl border border-gray-200 p-3 space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-gray-700">{tr('قيود المندوب على الصنف')}</span>
+              <span className="text-[10px] text-gray-400 mr-auto">{tr('لا تقيد الإدارة')}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {([['repSaleAllowed', 'repSaleUnit', 'يبيعه المندوب', 'وحدة البيع'], ['repReturnAllowed', 'repReturnUnit', 'يرجعه المندوب', 'وحدة المرتجع']] as const).map(([allowKey, unitKey, allowLabel, unitLabel]) => {
+                const on = watch(allowKey) !== false;
+                const big = units.filter((u) => Number(u.factor) > 1 && u.isActive !== false).map((u) => u.name);
+                return (
+                  <div key={allowKey} className="space-y-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" {...register(allowKey)} className="w-4 h-4 accent-[#E15A30]" />
+                      <span className="text-sm text-gray-700">{tr(allowLabel)}</span>
+                    </label>
+                    <div className={on ? '' : 'opacity-50'}>
+                      <label className="label">{tr(unitLabel)}</label>
+                      <select className="input" {...register(unitKey)}>
+                        <option value="ANY">{tr('بكل الوحدات')}</option>
+                        <option value="BASE">{tr('بالوحدة الصغرى فقط')}{savedBase ? ` — ${savedBase}` : ''}</option>
+                        <option value="LARGE" disabled={!big.length && watch(unitKey) !== 'LARGE'}>
+                          {tr('بالوحدة الكبرى فقط')} — {big.length ? big.join('، ') : tr('أضف وحدة أكبر أولا')}
+                        </option>
+                      </select>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {/* «تتبّع باللوط» — للشركة المفعّلة لها الميزة وحدها: الصنف المتتبَّع يُسجَّل بتشغيلته في الوارد والتحميل والفواتير،
@@ -462,12 +527,14 @@ const serverMessage = (err: unknown): string | undefined =>
  *
  * والحذف فعليّ (الصفوف تحمل لقطة وحدتها فلا ينكسر تاريخ)، والإيقاف يحجبها عن البيع الجديد ويُبقي رفع مستندٍ أوف‑لاين صدر بها.
  */
-function ProductUnitsSection({ productId, baseUnit, basePrice, units, onUnits, onConverted }: {
+function ProductUnitsSection({ productId, baseUnit, basePrice, units, onUnits, syncRepUnitRules, onConverted }: {
   productId: string | null;
   baseUnit: string;
   basePrice: number;
   units: ProductUnit[];
   onUnits: (u: ProductUnit[]) => void;
+  /** يحفظ «قيود المندوب» كما في النموذج — true إن حُفظت فتُعاد العملية، false إن بقي النموذج نفسه «الكبرى فقط» */
+  syncRepUnitRules?: () => Promise<boolean>;
   onConverted: (p: Product) => void;
 }) {
   const tr = useTr();
@@ -529,10 +596,21 @@ function ProductUnitsSection({ productId, baseUnit, basePrice, units, onUnits, o
     setBusy(null);
   };
 
+  /** رفضٌ بسبب «قيود المندوب» المحفوظة (409 REP_UNIT_RULE_SET) والنموذج أزالها ⇒ يُحفظ القيد ثم تُعاد العملية مرّةً واحدة */
+  const withRepRuleSync = async <T,>(op: () => Promise<T>): Promise<T> => {
+    try {
+      return await op();
+    } catch (err) {
+      const code = (err as { response?: { data?: { code?: string } } })?.response?.data?.code;
+      if (code !== 'REP_UNIT_RULE_SET' || !syncRepUnitRules || !(await syncRepUnitRules())) throw err;
+      return op();
+    }
+  };
+
   const toggle = async (u: ProductUnit) => {
     setBusy(u.id);
     try {
-      const { data } = await productApi.updateUnit(productId, u.id, { isActive: u.isActive === false });
+      const { data } = await withRepRuleSync(() => productApi.updateUnit(productId, u.id, { isActive: u.isActive === false }));
       onUnits(units.map(x => (x.id === u.id ? (data.data as ProductUnit) : x)));
       refresh();
       toast.success(u.isActive === false ? tr('فعلت الوحدة') : tr('أوقفت الوحدة'));
@@ -544,7 +622,7 @@ function ProductUnitsSection({ productId, baseUnit, basePrice, units, onUnits, o
     if (!window.confirm(`${tr('حذف الوحدة نهائيا؟ الفواتير والحركات السابقة بها تبقى كما هي وللإيقاف المؤقت استخدم إيقاف')} — ${u.name}`)) return;
     setBusy(u.id);
     try {
-      await productApi.removeUnit(productId, u.id);
+      await withRepRuleSync(() => productApi.removeUnit(productId, u.id));
       onUnits(units.filter(x => x.id !== u.id));
       if (editId === u.id) setEditId(null);
       refresh();

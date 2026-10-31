@@ -186,21 +186,23 @@ test('تراجع العملاء/المنتجات: المتبقّي يُبقي ا
 
 // ═══ salesReps.ts ═══
 
-test('حذف المندوب: assertRepDeletable أول ما في معاملة تفاعلية وقبل repSettlement.deleteMany، ولا SETTLEMENT:*:REVERSE', () => {
+test('حذف المندوب: assertRepDeletable أول ما في معاملة تفاعلية وقبل تفريغ الاستلامات، ولا SETTLEMENT:*:REVERSE', () => {
   const body = handler(read('routes/salesReps.ts'), "router.delete('/:id',");
   const { text: tx } = interactiveTx(body);
   const firstAwait = tx.indexOf('await ');
   assert.ok(firstAwait > 0);
   assert.match(tx.slice(firstAwait), /^await assertRepDeletable\(tx, tid, req\.params\.id\)/, 'أول await في المعاملة ليس assertRepDeletable');
-  ordered(tx, ['assertRepDeletable(tx', 'tx.invoice.updateMany(', 'tx.repSettlement.deleteMany(', 'tx.salesRep.delete('], 'ترتيب حذف المندوب');
+  ordered(tx, ['assertRepDeletable(tx', 'tx.invoice.updateMany(', 'tx.repSettlement.updateMany(', 'tx.salesRep.delete('], 'ترتيب حذف المندوب');
   // الاستدعاءات القائمة بترتيبها نفسه
   ordered(tx, [
     'tx.invoice.updateMany(', 'tx.receipt.updateMany(', 'tx.dailyReport.updateMany(', 'tx.dailyReportOwnerRep.deleteMany(',
     'tx.notification.deleteMany(', 'tx.vanLoad.updateMany(', 'tx.repLocation.deleteMany(',
-    'tx.repVisit.deleteMany(', 'tx.repSettlement.deleteMany(', 'tx.customerAssignment.deleteMany(', 'tx.salesRep.delete(',
+    'tx.repVisit.deleteMany(', 'tx.repSettlement.updateMany(', 'tx.customerAssignment.deleteMany(', 'tx.salesRep.delete(',
   ], 'ترتيب الاستدعاءات القائمة');
   // تحميلات السيارة حركات مخزون تُفرَّغ ولا تُمحى (حادثة ٢ أكتوبر ٢٠٢٦: المستودع قفز بما حُمّل وبيع)
   assert.doesNotMatch(tx, /tx\.vanLoad(?:Item)?\.delete(?:Many)?\(/, 'حذف المندوب يمحو تحميلات سيارته فيقفز رصيد المستودع');
+  // واستلامات التحصيل سجلٌّ في عهدة من استلم — تُفرَّغ ولا تُمحى (مراجعة ٣٠ أكتوبر ٢٠٢٦)
+  assert.doesNotMatch(tx, /tx\.repSettlement\.delete(?:Many)?\(/, 'حذف المندوب يمحو استلاماته فتفسد عهدة من استلم منه');
   // لا حذف قبل المعاملة
   assert.doesNotMatch(body.slice(0, body.indexOf('prisma.$transaction(')), /\b(?:prisma|tx)\.\w+\.(?:deleteMany|delete|updateMany)\(/);
   // لا أحداث عكس للاستلامات
@@ -224,7 +226,7 @@ test('assertRepDeletable مشروط بـactivatedAt لا بـinventoryMode، و�
 test('حذف الاستلام الواحد ما زال يكتب SETTLEMENT:<id>:REVERSE داخل معاملته وقبل الحذف', () => {
   const body = handler(read('routes/salesReps.ts'), "router.delete('/:id/settlements/:settlementId'");
   const { text: tx } = interactiveTx(body);
-  ordered(tx, ['settlementTombstones(tx, tid, row', 'tx.glSourceEvent.createMany(', 'skipDuplicates: true', 'tx.repSettlement.delete('], 'ترتيب خطاف حذف الاستلام');
+  ordered(tx, ['settlementTombstones(tx, tid, { ...row', 'tx.glSourceEvent.createMany(', 'skipDuplicates: true', 'tx.repSettlement.delete('], 'ترتيب خطاف حذف الاستلام');
   const s = read('services/gl/sync/tombstone.ts');
   const i = s.indexOf('export function settlementTombstoneEvents(');
   const fn = s.slice(i, s.indexOf('\n}', i));

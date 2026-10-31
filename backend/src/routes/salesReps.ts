@@ -11,6 +11,7 @@ import { noStaffCredentials, refuseStaffCredentials } from '../services/platform
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
 import { clean } from '../services/accounting';
+import { netSales } from '../services/netSales';
 import { userCustody, lockCustody, removalKeepsCustodySane, CustodyBlocked } from '../services/userCustody';
 import { isLedgerError } from '../services/gl/types';
 import { assertRepDeletable, settlementTombstones } from '../services/gl/sync/tombstone';
@@ -251,10 +252,16 @@ router.get('/:id/stats', async (req: AuthRequest, res: Response, next: NextFunct
       res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return;
     }
     const docScope = await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT);
-    const [invoices, receipts] = await Promise.all([
+    // «إجمالي المبيعات» صافٍ (طلب المالك ٢٩ أكتوبر ٢٠٢٦): كان المجموع بلا شرط نوعٍ فيُضيف المرتجع إلى مبيعات المندوب —
+    // صار البيع وحده ثم يُطرح منه المرتجع (services/netSales.ts)، والعدد عدد فواتير البيع
+    const [invoices, returns, receipts] = await Promise.all([
       prisma.invoice.aggregate({
-        where: { tenantId: tid, salesRepId: req.params.id, status: 'CONFIRMED', ...(dateFilter && { invoiceDate: dateFilter }), ...docScope },
+        where: { tenantId: tid, salesRepId: req.params.id, status: 'CONFIRMED', type: { not: 'RETURN' }, ...(dateFilter && { invoiceDate: dateFilter }), ...docScope },
         _count: { id: true }, _sum: { total: true },
+      }),
+      prisma.invoice.aggregate({
+        where: { tenantId: tid, salesRepId: req.params.id, status: 'CONFIRMED', type: 'RETURN', ...(dateFilter && { invoiceDate: dateFilter }), ...docScope },
+        _sum: { total: true },
       }),
       prisma.receipt.aggregate({
         where: { tenantId: tid, salesRepId: req.params.id, status: 'ACTIVE', ...(dateFilter && { receiptDate: dateFilter }), ...docScope },
@@ -266,7 +273,7 @@ router.get('/:id/stats', async (req: AuthRequest, res: Response, next: NextFunct
       success: true,
       data: {
         invoicesCount: invoices._count.id,
-        salesTotal: invoices._sum.total ?? 0,
+        salesTotal: netSales(invoices._sum.total, returns._sum.total),
         receiptsCount: receipts._count.id,
         collectionsTotal: receipts._sum.amount ?? 0,
       },
@@ -312,7 +319,10 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
       await tx.vanLoad.updateMany({ where: { tenantId: tid, salesRepId: req.params.id }, data: { salesRepId: null, deletedSalesRepId: req.params.id } });
       await tx.repLocation.deleteMany({ where: { salesRepId: req.params.id } });
       await tx.repVisit.deleteMany({ where: { salesRepId: req.params.id } }); // صورها تُحذف تعاقبياً
-      await tx.repSettlement.deleteMany({ where: { salesRepId: req.params.id } });
+      /* استلام التحصيل سجلٌّ مالي لا بيانات تشغيل: هو «المستلَم» في عهدة مستخدم الشركة الذي استلم (userCustody).
+       * محوُه (كما كان) يُصفّر عهدة مالٍ ما زال في يده أو يجعلها سالبة بعد توريده — ويتجاوز حارسَي حذف الاستلام الواحد
+       * (المدير الرئيسي، وألّا تصير العهدة سالبة). يبقى بمرجعٍ مفرَّغ ومعرّفه في deletedSalesRepId كتحميلات السيارة. */
+      await tx.repSettlement.updateMany({ where: { tenantId: tid, salesRepId: req.params.id }, data: { salesRepId: null, deletedSalesRepId: req.params.id } });
       await tx.customerAssignment.deleteMany({ where: { salesRepId: req.params.id } }); // إسنادات العملاء
       // «مناديب محدّدون» للمندوب الذكي: قائمة معرّفات بلا مفتاح أجنبي — مندوبٌ محذوف يبقى فيها فيرفض كل حفظٍ لاحق للإعدادات
       const ai = await tx.aiRepSettings.findUnique({ where: { tenantId: tid }, select: { repIds: true } });
@@ -679,7 +689,7 @@ router.delete('/:id/settlements/:settlementId', async (req: AuthRequest, res: Re
       }
       // خطاف الدفاتر (§5.3): قبل الحذف وفي معاملته، SETTLEMENT:<id>:POST وSETTLEMENT:<id>:REVERSE معاً بلقطة
       // كاملة للصف — لا شيء حين لم تُفعَّل الدفاتر يوماً (activatedAt فارغ)
-      const glTombstones = await settlementTombstones(tx, tid, row, { salesRepName: rep.name });
+      const glTombstones = await settlementTombstones(tx, tid, { ...row, salesRepId: rep.id }, { salesRepName: rep.name });
       if (glTombstones.length > 0) {
         await tx.glSourceEvent.createMany({ data: glTombstones as Prisma.GlSourceEventCreateManyInput[], skipDuplicates: true });
       }

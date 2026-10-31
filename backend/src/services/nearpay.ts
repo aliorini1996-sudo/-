@@ -108,12 +108,14 @@ export interface IntentSnapshot {
   authorizedHalalas: number | null;
   /** استردادٌ على المعاملة الفعّالة: none، أو full (بالمبلغ كله)، أو partial (أقل، أو مبلغه مجهول) */
   refund: 'none' | 'full' | 'partial';
+  /** إشارةُ مالٍ لا تُفسَّر (استردادٌ أو عكسٌ معلّق، أو مستقلٌّ لا يُنسب، أو استرجاع chargeback) — تُوقف القيد والإلغاء معاً */
+  anomaly: string | null;
 }
 
 const NOT_FOUND: IntentSnapshot = {
   found: false, id: null, status: null, amountHalalas: null, approved: false, reversed: false, tid: null,
   transactionUuid: null, rrn: null, stan: null, approvalCode: null, cardScheme: null, maskedPan: null, statusMessage: null,
-  effectiveCount: 0, authorizedHalalas: null, refund: 'none',
+  effectiveCount: 0, authorizedHalalas: null, refund: 'none', anomaly: null,
 };
 
 type Obj = Record<string, unknown>;
@@ -145,6 +147,11 @@ function sarToHalalasStrict(v: unknown): number | null {
 
 const REVERSAL_TYPE = /revers|void|cancel/;
 const REFUND_TYPE = /refund/;
+const PURCHASE_TYPE = /purchase|sale/;
+const CHARGEBACK_TYPE = /charge.?back|dispute/;
+// حال الحدث: موافَقٌ (أو منتهٍ بنجاح)، أو مرفوضٌ صراحة — وما سواهما معلّقٌ لا يُهمَل في الاسترداد والعكس
+const EVENT_OK = /approv|success|complet|accept/;
+const EVENT_REJECTED = /declin|reject|fail|denied|error/;
 
 /**
  * يطبّع ردّ GET /intents/{id}. الشكل الموثّق: { details: { intenet_id, reference_id, status, amount, transactions: [{ id, status,
@@ -152,7 +159,9 @@ const REFUND_TYPE = /refund/;
  * transaction_uuid, amount_authorized, retrieval_reference_number, system_trace_audit_number, status_message } } }] }] } }.
  *
  * كل معاملةٍ على حدة (مراجعة ٢٨ أكتوبر ٢٠٢٦): النيّة الواحدة قد تحمل معاملةً عُكست آلياً ثم إعادةً نجحت، أو خصماً مكرراً —
- * فالمعاملة «الفعّالة» شراءٌ موافَق عليه لم يُعكس داخل المعاملة نفسها، ومنها وحدها تُقرأ نقطة البيع والمراجع والمبلغ المأذون.
+ * فالمعاملة «الفعّالة» شراءٌ موافَق عليه لم يُعكس ولم يُسترد كاملاً، ومنها وحدها تُقرأ نقطة البيع والمراجع والمبلغ المأذون.
+ * ومراجعة ٣١ أكتوبر ٢٠٢٦: المستردّة كاملاً ليست فعّالة (فاستردادُ أحد خصمين لا يُلغي سند الآخر)، والاسترداد يُحسب لكل معاملة،
+ * و«reversed» دليل المعاملات وحده (حالة النيّة يقرؤها القرار)، وإشارة مالٍ لا تُفسَّر تصير anomaly لا تُهمَل.
  * دالة صرفة — تُختبر بلا شبكة.
  */
 export function parseIntent(raw: unknown): IntentSnapshot {
@@ -167,50 +176,84 @@ export function parseIntent(raw: unknown): IntentSnapshot {
     amountHalalas: halalasOf(d.amount),
   };
 
-  interface Effective { r: Obj; tx: Obj; authorized: number | null; refundAmt: number | null; refundUnknown: boolean; refunded: boolean }
+  interface Item { type: string; evStatus: string; data: Obj; rrn: unknown; stan: unknown }
+  interface Effective { r: Obj; tx: Obj; authorized: number | null; refundAmt: number; refundUnknown: boolean; refunded: boolean }
   const effective: Effective[] = [];
+  const anomalies: string[] = [];
   let approvedPurchases = 0;
+  let fullyRefunded = 0;
+  // استردادٌ في معاملةٍ مستقلة بلا شراء — يُنسب بعد الحلقة للشراء الفعّال الوحيد إن وُجد
+  const loose = { count: 0, halalas: 0, unknown: false };
+  const done = (it: Item) => truthy(it.data.is_approved) || EVENT_OK.test(it.evStatus);
+  const rejected = (it: Item) => it.data.is_approved === false || it.data.is_approved === 'false' || EVENT_REJECTED.test(it.evStatus);
+  const fullyCovers = (refund: number, unknown: boolean, base: number | null) => !unknown && base !== null && refund >= base;
+
   for (const t of arr(d.transactions)) {
     const tx = obj(t);
     if (!tx) continue;
     const events = arr(tx.events);
     // بنود المعاملة: أحداثها بإيصالاتها (Find Intent) أو المعاملة نفسها مسطّحة (List Intents)
-    const items = events.length
+    const items: Item[] = events.length
       ? events.map((e) => {
         const ev = obj(e) ?? {};
         const data = obj(obj(ev.receipt)?.data) ?? obj(ev.receipt) ?? {};
-        return { type: (str(ev.type) || str(data.transaction_type) || '').toLowerCase(), evApproved: (str(ev.status) || '').toLowerCase() === 'approved', data, rrn: ev.rrn, stan: ev.stan };
+        return { type: (str(ev.type) || str(data.transaction_type) || '').toLowerCase(), evStatus: (str(ev.status) || '').toLowerCase(), data, rrn: ev.rrn, stan: ev.stan };
       })
-      : [{ type: (str(tx.transaction_type) || 'purchase').toLowerCase(), evApproved: false, data: tx, rrn: tx.retrieval_reference_number, stan: undefined }];
-    const ok = (it: { evApproved: boolean; data: Obj }) => truthy(it.data.is_approved) || it.evApproved;
-    const purchase = items.find((it) => !REVERSAL_TYPE.test(it.type) && !REFUND_TYPE.test(it.type) && truthy(it.data.is_approved));
+      : [{ type: (str(tx.transaction_type) || 'purchase').toLowerCase(), evStatus: '', data: tx, rrn: tx.retrieval_reference_number, stan: undefined }];
+    // مبالغ الإيصالات بالريال؛ وفي الشكل المسطّح وحدة amount_authorized غير مؤكدة (هللات في القوائم) — فلا تُقرأ
+    const amountsOf = (xs: Item[]) => xs.map((it) => (events.length ? sarToHalalasStrict(it.data.amount_authorized) : null));
+    if (items.some((it) => CHARGEBACK_TYPE.test(it.type) && !rejected(it))) anomalies.push('استرجاع (chargeback) على العملية لدى NearPay');
+    const refundItems = items.filter((it) => REFUND_TYPE.test(it.type));
+    const refundsDone = refundItems.filter(done);
+    const refundsOpen = refundItems.filter((it) => !done(it) && !rejected(it));
+    // الشراء بنوعه صراحةً — حدثٌ بنوعٍ فارغ أو غريب لا يصير «شراءً موافَقاً» يُقيد به سند
+    const purchase = items.find((it) => PURCHASE_TYPE.test(it.type) && truthy(it.data.is_approved));
     if (!purchase) {
+      if (refundsDone.length || refundsOpen.length) {
+        const amts = amountsOf(refundsDone);
+        loose.count += 1;
+        loose.halalas += amts.reduce<number>((a, x) => a + (x ?? 0), 0);
+        if (refundsOpen.length || amts.some((x) => x === null)) loose.unknown = true;
+      }
       const msg = items.map((it) => str(it.data.status_message)).find(Boolean);
       if (msg && !out.statusMessage) out.statusMessage = msg;
       continue;
     }
     approvedPurchases += 1;
     const txStatus = (str(tx.status) || '').toLowerCase();
-    const reversedHere = truthy(tx.is_reversed) || truthy(purchase.data.is_reversed) || REVERSAL_TYPE.test(txStatus)
-      || items.some((it) => REVERSAL_TYPE.test(it.type) && ok(it));
+    const reversals = items.filter((it) => REVERSAL_TYPE.test(it.type));
+    const reversedHere = truthy(tx.is_reversed) || truthy(purchase.data.is_reversed) || REVERSAL_TYPE.test(txStatus) || reversals.some(done);
     if (reversedHere) continue;
-    const refunds = items.filter((it) => REFUND_TYPE.test(it.type) && ok(it));
-    const refundAmts = refunds.map((it) => sarToHalalasStrict(it.data.amount_authorized));
-    const refunded = refunds.length > 0 || truthy(tx.is_refunded) || truthy(purchase.data.is_refunded);
-    effective.push({
-      r: { ...purchase.data, _rrn: purchase.rrn, _stan: purchase.stan },
-      tx,
-      // الإيصال بالريال؛ وفي الشكل المسطّح وحدة amount_authorized غير مؤكدة (هللات في القوائم) — فلا يُقرأ
-      authorized: events.length ? sarToHalalasStrict(purchase.data.amount_authorized) : null,
-      refundAmt: refundAmts.every((x) => x !== null) ? refundAmts.reduce((a2, x) => a2 + (x as number), 0) : null,
-      refundUnknown: refunded && (refunds.length === 0 || refundAmts.some((x) => x === null)),
-      refunded,
-    });
+    // عكسٌ لم يُحسم (لا موافَق ولا مرفوض): قد يعود المال — لا قيد ولا إبقاءٌ صامت
+    if (reversals.some((it) => !rejected(it))) anomalies.push('عكس غير محسوم على العملية لدى NearPay');
+    const refundAmts = amountsOf(refundsDone);
+    const refunded = refundsDone.length > 0 || refundsOpen.length > 0 || truthy(tx.is_refunded) || truthy(purchase.data.is_refunded) || REFUND_TYPE.test(txStatus);
+    const refundUnknown = refunded && (refundsDone.length === 0 || refundsOpen.length > 0 || refundAmts.some((x) => x === null));
+    const refundAmt = refundAmts.reduce<number>((a, x) => a + (x ?? 0), 0);
+    const authorized = events.length ? sarToHalalasStrict(purchase.data.amount_authorized) : null;
+    // مستردّةٌ بالمبلغ كله: لا مال باقٍ منها عند التاجر — ليست «فعّالة»
+    if (refunded && fullyCovers(refundAmt, refundUnknown, authorized ?? out.amountHalalas)) { fullyRefunded += 1; continue; }
+    effective.push({ r: { ...purchase.data, _rrn: purchase.rrn, _stan: purchase.stan }, tx, authorized, refundAmt, refundUnknown, refunded });
+  }
+
+  if (loose.count > 0) {
+    if (effective.length === 1) {
+      const e = effective[0];
+      e.refunded = true;
+      e.refundAmt += loose.halalas;
+      e.refundUnknown = e.refundUnknown || loose.unknown;
+      if (fullyCovers(e.refundAmt, e.refundUnknown, e.authorized ?? out.amountHalalas)) { effective.pop(); fullyRefunded += 1; }
+    } else if (effective.length > 1 || approvedPurchases === 0) {
+      anomalies.push('استرداد في معاملة مستقلة لا يُنسب إلى شراء بعينه');
+    }
+    // لا فعّال بعد شراءٍ موافَق: عُكس كلّه أو استُرد — لا مال باقٍ يُنسب إليه الاسترداد
   }
 
   out.effectiveCount = effective.length;
-  // عُكس كل شراءٍ موافَق — أو حالة النيّة نفسها عكسٌ/إلغاء/استرداد (الحالة تحكم على الإيصال)
-  out.reversed = (approvedPurchases > 0 && effective.length === 0) || /revers|void|refund|cancel/.test(out.status || '');
+  out.anomaly = anomalies[0] ?? null;
+  // دليل المعاملات وحده: عُكس كل شراءٍ موافَق أو استُرد كاملاً — حالة النيّة نفسها يحكم بها القرار (cardPayment.ts)
+  out.reversed = approvedPurchases > 0 && effective.length === 0;
+  if (out.reversed && fullyRefunded > 0) out.refund = 'full';
   const e = effective[0];
   if (e) {
     const r = e.r;
@@ -223,10 +266,8 @@ export function parseIntent(raw: unknown): IntentSnapshot {
     out.cardScheme = str(r.card_scheme ?? r.scheme);
     out.maskedPan = str(r.pan) ?? str(obj(e.tx.card)?.pan);
     out.authorizedHalalas = e.authorized;
-    if (e.refunded) {
-      const base = e.authorized ?? out.amountHalalas;
-      out.refund = !e.refundUnknown && e.refundAmt !== null && base !== null && e.refundAmt >= base ? 'full' : 'partial';
-    }
+    // المستردّ كاملاً خرج من الفعّال — فما بقي عليه استردادٌ جزئي أو مجهول المبلغ
+    if (e.refunded) out.refund = 'partial';
   }
   return out;
 }
@@ -234,14 +275,22 @@ export function parseIntent(raw: unknown): IntentSnapshot {
 /**
  * النيّة بمعرّفها — null إن لم تُسجَّل بعد لدى NearPay: 404 برمز intent_not_found (4047) وحده. أيّ 404 آخر (عنوانٌ أو مسارٌ
  * خاطئ) يُرمى فيُسجَّل وتبقى العملية معلّقة — لا تُعدّ «غير مسجّلة» فتنتهي صامتة.
+ * وكذلك ردّ 200 بشكلٍ لا نعرفه (صفحة HTML، أو غلافٌ آخر، أو بلا حالة، أو نيّةٌ غير المطلوبة) — مراجعة ٣١ أكتوبر ٢٠٢٦:
+ * كان يُقرأ «غير مسجّلة» فتنتهي الدفعة المقبوضة بلا سند ولا تنبيه.
  */
 export async function fetchIntent(intentId: string): Promise<IntentSnapshot | null> {
+  let raw: unknown;
   try {
-    return parseIntent(await call<unknown>('GET', `/intents/${encodeURIComponent(intentId)}`));
+    raw = await call<unknown>('GET', `/intents/${encodeURIComponent(intentId)}`);
   } catch (e) {
     if (e instanceof NearpayError && e.status === 404 && (e.code === 4047 || e.code === '4047' || e.code === 'intent_not_found')) return null;
     throw e;
   }
+  const snap = parseIntent(raw);
+  if (!snap.found || !snap.status || (snap.id || '').toLowerCase() !== intentId.toLowerCase()) {
+    throw new NearpayError(`NearPay intent ${intentId}: unrecognized response shape`, 502);
+  }
+  return snap;
 }
 
 // ═══ نقاط البيع — لإسنادها للمناديب ═══

@@ -27,6 +27,7 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { createInvoice, moyasarConfigured } from '../services/moyasar';
 import { phoneKey } from '../services/phoneKey';
+import { netSales } from '../services/netSales';
 import { pendingActivationTenantIds, PENDING_ACTIVATION_PREFIX } from '../services/trialCompany';
 
 const router = Router();
@@ -261,9 +262,13 @@ router.get('/summary', async (req: Request, res: Response) => {
 
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const [invCount, invSum, recSum, custCount, overCredit, lastInv] = await Promise.all([
-      prisma.invoice.count({ where: { tenantId: tid, createdAt: { gte: monthStart } } }),
-      prisma.invoice.aggregate({ where: { tenantId: tid, createdAt: { gte: monthStart } }, _sum: { total: true } }),
+    // مبيعات الشهر للبوت صافية (طلب المالك ٢٩ أكتوبر ٢٠٢٦): فواتير البيع المؤكَّدة ناقص المرتجع المؤكَّد — كانت تجمع كل فاتورة
+    // أُنشئت (المسودة والملغاة والمرتجع موجباً). services/netSales.ts
+    const confirmedThisMonth = { tenantId: tid, status: 'CONFIRMED', createdAt: { gte: monthStart } };
+    const [invCount, invSum, retSum, recSum, custCount, overCredit, lastInv] = await Promise.all([
+      prisma.invoice.count({ where: { ...confirmedThisMonth, type: { not: 'RETURN' } } }),
+      prisma.invoice.aggregate({ where: { ...confirmedThisMonth, type: { not: 'RETURN' } }, _sum: { total: true } }),
+      prisma.invoice.aggregate({ where: { ...confirmedThisMonth, type: 'RETURN' }, _sum: { total: true } }),
       prisma.receipt.aggregate({ where: { tenantId: tid, createdAt: { gte: monthStart } }, _sum: { amount: true } }),
       prisma.customer.count({ where: { tenantId: tid } }),
       prisma.customer.count({ where: { tenantId: tid, creditLimit: { gt: 0 }, balance: { gt: 0 } } }),
@@ -274,7 +279,7 @@ router.get('/summary', async (req: Request, res: Response) => {
       success: true,
       data: {
         monthInvoices: invCount,
-        monthSalesSar: Number(invSum._sum.total ?? 0),
+        monthSalesSar: netSales(invSum._sum.total, retSum._sum.total),
         monthCollectedSar: Number(recSum._sum.amount ?? 0),
         customers: custCount,
         customersWithBalance: overCredit,

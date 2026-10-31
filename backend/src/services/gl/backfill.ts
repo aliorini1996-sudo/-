@@ -11,6 +11,7 @@
  *
  * الدوال الصرفة بلا قاعدة؛ دوال Prisma تأخذ العميل/المعاملة من المُستدعي.
  */
+import { SETTLEMENT_HAS_REP, settlementHasRep } from './settlementRep';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { fiscalYearStart, localDate } from './dates';
 import { activeSyncSources } from './locks';
@@ -142,10 +143,10 @@ export async function loadHistoryFacts(db: GlDb | PrismaClient, tenantId: string
   const where = { tenantId };
   const [accountEntries, repSettlements, settlementEntries, oldestEntry, oldestSettlement, oldestSe] = await Promise.all([
     db.accountEntry.count({ where }),
-    db.repSettlement.count({ where }),
+    db.repSettlement.count({ where: { ...where, ...SETTLEMENT_HAS_REP } }),
     db.settlementEntry.count({ where }),
     db.accountEntry.findFirst({ where, orderBy: { entryDate: 'asc' }, select: { entryDate: true } }),
-    db.repSettlement.findFirst({ where, orderBy: { settledAt: 'asc' }, select: { settledAt: true } }),
+    db.repSettlement.findFirst({ where: { ...where, ...SETTLEMENT_HAS_REP }, orderBy: { settledAt: 'asc' }, select: { settledAt: true } }),
     db.settlementEntry.findFirst({ where, orderBy: { createdAt: 'asc' }, select: { createdAt: true } }),
   ]);
   const candidates = [oldestEntry?.entryDate, oldestSettlement?.settledAt, oldestSe?.createdAt].filter((d): d is Date => d instanceof Date);
@@ -373,11 +374,11 @@ export async function freezeOpeningSettlementSplits(tx: GlDb, tenantId: string, 
   let inserted = 0;
   const CHUNK = 2000;
   for (let i = 0; i < ids.length; i += CHUNK) {
-    const rows = await tx.repSettlement.findMany({
-      where: { tenantId, id: { in: ids.slice(i, i + CHUNK) } },
+    const rows = (await tx.repSettlement.findMany({
+      where: { tenantId, id: { in: ids.slice(i, i + CHUNK) }, ...SETTLEMENT_HAS_REP },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select: { id: true, salesRepId: true, amount: true, method: true, note: true, settledAt: true, createdAt: true },
-    });
+    })).filter(settlementHasRep);
     if (rows.length === 0) continue;
     const facts = await store.loadFacts(tenantId, 'REP_SETTLEMENT', rows, input.settings);
     const data = openingSettlementEventRows(tenantId, deriveSourceEvents('REP_SETTLEMENT', rows, facts), input);
@@ -417,10 +418,10 @@ export async function scanFutureDatedRows(tx: GlDb, tenantId: string, input: Fut
       select: entrySelect,
     }),
     tx.repSettlement.findMany({
-      where: { tenantId, createdAt: created, settledAt: { gte: input.cutoverStart } },
+      where: { tenantId, createdAt: created, settledAt: { gte: input.cutoverStart }, ...SETTLEMENT_HAS_REP },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select: { id: true, salesRepId: true, amount: true, method: true, note: true, settledAt: true, createdAt: true },
-    }),
+    }).then((rows) => rows.filter(settlementHasRep)),
   ]);
   // صفوف إلغاء المستندات نفسها بتاريخ قبل البدء (entryDate = لحظة الإلغاء): أسقطها الافتتاح لغياب أثر مستندها،
   // فتُدمج هنا ليُنشأ REVERSE مع POST (وإلا رُحّل إيراد وضريبة فاتورة ملغاة بلا فحص يلتقطه)

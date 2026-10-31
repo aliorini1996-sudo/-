@@ -790,7 +790,8 @@ test('دقّة المستند: كل رمز يرسله موجّه الأصناف 
   assert.match(API_DOC_GROUPS.find((g) => g.key === 'products')!.overview, /CONVERT_BASE_OWNER_ONLY/);
   // أعمدة الصلاحية وقيد المرتجع في الجسمين كما في المخطّط
   const schemaKeys = zodKeys(products, 'productSchema');
-  for (const k of ['shelfLifeBasis', 'shelfLifeFromDate', 'returnRuleEnabled', 'returnRuleMode', 'returnRuleMetric', 'returnRuleValue']) {
+  for (const k of ['shelfLifeBasis', 'shelfLifeFromDate', 'returnRuleEnabled', 'returnRuleMode', 'returnRuleMetric', 'returnRuleValue',
+    'repSaleAllowed', 'repReturnAllowed', 'repSaleUnit', 'repReturnUnit']) {
     assert.ok(schemaKeys.includes(k), `${k} ليس في productSchema`);
     fieldOf(endpointOf('POST', '/products'), k);
     fieldOf(endpointOf('PUT', '/products/:id'), k);

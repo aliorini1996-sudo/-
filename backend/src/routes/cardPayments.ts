@@ -8,7 +8,7 @@ import { canAccessCustomer } from '../services/customerScope';
 import { adminRepFilter, scopedRecordWhere, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { cardPayLaunchLimiter } from '../middleware/rateLimits';
 import { CardPayError, checkCardPayment, createCardPayment, redeemLaunchToken } from '../services/cardPayment';
-import { listMerchantTerminals, listMerchants, nearpayConfigured, NearpayError } from '../services/nearpay';
+import { listMerchantTerminals, listMerchants, nearpayConfigured, nearpayEnv, NearpayError } from '../services/nearpay';
 
 /**
  * «التحصيل بالبطاقة» عبر NearPay — مسارات /api/card-payments (services/cardPayment.ts يشرح المسار كاملاً).
@@ -17,13 +17,14 @@ import { listMerchantTerminals, listMerchants, nearpayConfigured, NearpayError }
  *  - /owner/merchants        المالك: تجّار NearPay لربط كل شركة بتاجرها.
  *  - POST /issue             المندوب: عملية دفع لفاتورة على نقطة بيعه (محروسٌ بـ«اشتراط تفعيل الموقع» كروابط الدفع).
  *  - POST /:id/check         المندوب أو الإدارة: اسأل NearPay الآن (المجدول يسأل كل دقيقة على أي حال).
- *  - GET  /                  عمليات فاتورة أو آخر عمليات المندوب.
+ *  - GET  /                  عمليات فاتورة أو آخر عمليات المندوب (?status=review: الموقوف للمراجعة).
+ *  - POST /:id/close         الإدارة: حسم عمليةٍ موقوفة للمراجعة (خُصمت لدى NearPay ولم يُقيَّد سندها) بعد معالجتها يدوياً.
  *  - GET  /terminals, PUT /reps/:salesRepId   الإدارة: نقاط بيع تاجر الشركة وإسنادها للمناديب.
  */
 const router = Router();
 
 function sendError(res: Response, e: unknown, next: NextFunction): void {
-  if (e instanceof CardPayError) { res.status(e.status).json({ success: false, code: e.code, message: e.message }); return; }
+  if (e instanceof CardPayError) { res.status(e.status).json({ success: false, code: e.code, message: e.message, ...(e.paymentId ? { paymentId: e.paymentId } : {}) }); return; }
   if (e instanceof NearpayError) {
     console.error('cardpay nearpay:', e.message);
     res.status(502).json({ success: false, code: 'NEARPAY_UNAVAILABLE', message: 'تعذر الاتصال بخدمة الدفع حاول بعد لحظات' });
@@ -44,8 +45,9 @@ router.post('/launch', cardPayLaunchLimiter, async (req, res: Response, next: Ne
 router.use('/owner', platformGate);
 router.get('/owner/merchants', async (_req, res: Response, next: NextFunction) => {
   try {
-    if (!nearpayConfigured()) { res.json({ success: true, data: [], configured: false }); return; }
-    res.json({ success: true, data: await listMerchants(), configured: true });
+    // البيئة تُعرض للمالك عند التفعيل: الساند بوكس لا مال فيه — لا يُفعَّل لشركة عميلة عليه
+    if (!nearpayConfigured()) { res.json({ success: true, data: [], configured: false, env: nearpayEnv() }); return; }
+    res.json({ success: true, data: await listMerchants(), configured: true, env: nearpayEnv() });
   } catch (e) { sendError(res, e, next); }
 });
 
@@ -66,6 +68,9 @@ router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
 });
 
 const isRep = (req: AuthRequest) => req.user?.role === 'SALES_REP';
+// عمليات البطاقة سنداتُ قبضٍ قيد الإصدار: مستخدم الشركة بلا «إدارة السندات» لا يراها كما لا يرى السندات وروابط الدفع
+// (requireAdminPermission يمرّر المندوب — والمندوب مقيَّدٌ بعملياته في كل مسار)
+const receiptsGate = requireAdminPermission('canManageReceipts');
 
 /** المندوب يبدأ تحصيلاً بالبطاقة لفاتورة — بكامل المتبقّي أو بمبلغ أقل */
 router.post('/issue', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -86,11 +91,12 @@ router.post('/issue', async (req: AuthRequest, res: Response, next: NextFunction
 });
 
 /** عمليات فاتورة (?invoiceId=) أو آخر ٢٠ عملية — المندوب يرى عملياته وحده، والإدارة بنطاقها */
-router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/', receiptsGate, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
     const invoiceId = typeof req.query.invoiceId === 'string' ? req.query.invoiceId : undefined;
-    const where: Record<string, unknown> = { tenantId: tid, ...(invoiceId ? { invoiceId } : {}) };
+    const status = req.query.status === 'review' ? 'review' : undefined;
+    const where: Record<string, unknown> = { tenantId: tid, ...(invoiceId ? { invoiceId } : {}), ...(status ? { status } : {}) };
     if (isRep(req)) where.salesRepId = req.user!.id;
     else where.invoice = await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT);
     const rows = await prisma.cardPayment.findMany({
@@ -98,6 +104,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       select: {
         id: true, invoiceId: true, amount: true, reference: true, tid: true, status: true, statusDetail: true, rrn: true, approvalCode: true,
         cardScheme: true, maskedPan: true, receiptId: true, approvedAt: true, createdAt: true, salesRep: { select: { name: true } },
+        customer: { select: { name: true } },
       },
     });
     res.json({ success: true, data: rows });
@@ -105,7 +112,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 });
 
 /** اسأل NearPay الآن عن عملية — بعد رجوع المندوب من وحدة الدفع، أو من الإدارة */
-router.post('/:id/check', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/:id/check', receiptsGate, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
     const where: Record<string, unknown> = { id: String(req.params.id), tenantId: tid };
@@ -114,6 +121,29 @@ router.post('/:id/check', async (req: AuthRequest, res: Response, next: NextFunc
     const row = await prisma.cardPayment.findFirst({ where, select: { id: true } });
     if (!row) { res.status(404).json({ success: false, message: 'العملية غير موجودة' }); return; }
     res.json({ success: true, data: await checkCardPayment(row.id) });
+  } catch (e) { sendError(res, e, next); }
+});
+
+/**
+ * حسم عمليةٍ موقوفة للمراجعة — بعد أن تعالجها الإدارة يدوياً (سند قبضٍ يدوي بما بقي عند التاجر، أو استردادٌ لدى NearPay).
+ * تصير «failed» فلا يقيدها المجدول آلياً بعدها، وتعود الفاتورة قابلةً لتحصيلٍ جديد بالبطاقة. الملاحظة إلزامية: هي سجلّ ما فُعل.
+ */
+router.post('/:id/close', requireAdmin, receiptsGate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const { note } = z.object({ note: z.string().trim().min(3).max(200) }).parse(req.body);
+    const row = await prisma.cardPayment.findFirst({
+      where: { id: String(req.params.id), tenantId: tid, invoice: await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT) },
+      select: { id: true, statusDetail: true },
+    });
+    if (!row) { res.status(404).json({ success: false, message: 'العملية غير موجودة' }); return; }
+    const by = req.user?.name || 'الإدارة';
+    const closed = await prisma.cardPayment.updateMany({
+      where: { id: row.id, status: 'review' },
+      data: { status: 'failed', statusDetail: `أغلقت بعد المراجعة (${by}): ${note} — كان: ${row.statusDetail || ''}`.slice(0, 300) },
+    });
+    if (closed.count !== 1) { res.status(409).json({ success: false, code: 'CARD_PAY_NOT_IN_REVIEW', message: 'العملية ليست قيد المراجعة' }); return; }
+    res.json({ success: true });
   } catch (e) { sendError(res, e, next); }
 });
 

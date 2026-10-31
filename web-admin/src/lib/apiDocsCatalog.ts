@@ -758,7 +758,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[Product], pagination:{total, page, limit, pages}} — Product: id, tenantId, code, name, barcode, unit, basePrice, taxPct, image, itemCode, itemCodeType, unitCode, status, damagedReturnToStock, shelfLifeEnabled, shelfLifeValue, shelfLifeUnit, shelfLifeBasis, shelfLifeFromDate, returnRuleEnabled, returnRuleMode, returnRuleMetric, returnRuleValue, lotTracked, lotTrackedSince, vatCategory, vatExemptionCode, vatExemptionReason, categoryId, deletedAt(دائماً null هنا), createdAt, updatedAt, category:{id, tenantId, name, createdAt}|null, priceTiers:[{id, productId, minQty, maxQty, baseMinQty, baseMaxQty, price, createdAt}] مرتبة تصاعدياً بـminQty، units:[{id, tenantId, productId, name, factor, price, unitCode, isActive, sortOrder, createdAt, updatedAt}] مرتبة بـsortOrder ثم factor، وteams:[{teamId}] فرق الصنف (ميزة «الفرق»؛ فارغة = صنف عام)",
+    "response": "{success:true, data:[Product], pagination:{total, page, limit, pages}} — Product: id, tenantId, code, name, barcode, unit, basePrice, taxPct, image, itemCode, itemCodeType, unitCode, status, damagedReturnToStock, shelfLifeEnabled, shelfLifeValue, shelfLifeUnit, shelfLifeBasis, shelfLifeFromDate, returnRuleEnabled, returnRuleMode, returnRuleMetric, returnRuleValue, repSaleAllowed, repReturnAllowed, repSaleUnit, repReturnUnit, repRulesChangedAt (لحظة آخر تغيير لقيود المندوب أو null — داخلي، لا يظهر في /v1/sync), lotTracked, lotTrackedSince, vatCategory, vatExemptionCode, vatExemptionReason, categoryId, deletedAt(دائماً null هنا), createdAt, updatedAt, category:{id, tenantId, name, createdAt}|null, priceTiers:[{id, productId, minQty, maxQty, baseMinQty, baseMaxQty, price, createdAt}] مرتبة تصاعدياً بـminQty، units:[{id, tenantId, productId, name, factor, price, unitCode, isActive, sortOrder, createdAt, updatedAt}] مرتبة بـsortOrder ثم factor، وteams:[{teamId}] فرق الصنف (ميزة «الفرق»؛ فارغة = صنف عام)",
     "rules": [
      "الأصناف المؤرشفة (deletedAt غير فارغ) مستبعدة دائماً من القائمة",
      "pages = ceil(total / limit)",
@@ -916,6 +916,30 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "قيمة الحدّ: أيام حتى 36500، أو نسبة حتى 100"
      },
      {
+      "name": "repSaleAllowed",
+      "type": "boolean | null",
+      "required": false,
+      "desc": "«قيود المندوب»: هل يبيع المندوب هذا الصنف (الافتراضي true). القيد على دور المندوب وحده: مستخدمو الشركة والمفتاح وجلسة الدعم أحرار. null أو الغياب = بلا تغيير"
+     },
+     {
+      "name": "repReturnAllowed",
+      "type": "boolean | null",
+      "required": false,
+      "desc": "«قيود المندوب»: هل يرجع المندوب هذا الصنف (الافتراضي true) — المرتجع الحرّ والمرتجع من فاتورة بيع والإشعار الدائن"
+     },
+     {
+      "name": "repSaleUnit",
+      "type": "enum: ANY | BASE | LARGE | null",
+      "required": false,
+      "desc": "وحدة بيع المندوب: ANY كل الوحدات (الافتراضي)، BASE الصغرى وحدها (وحدة الأساس unit)، LARGE الكبرى وحدها (وحدات units بمعامل > 1). LARGE بلا وحدة كبرى نشطة يرجع 400 {success:false, code:'REP_UNIT_RULE_INVALID', message} — والصنف الجديد بلا وحدات بعد فأضف وحداته ثم القيد"
+     },
+     {
+      "name": "repReturnUnit",
+      "type": "enum: ANY | BASE | LARGE | null",
+      "required": false,
+      "desc": "وحدة مرتجع المندوب بالقيم نفسها، وLARGE يلزمه وحدة كبرى نشطة (400 REP_UNIT_RULE_INVALID)"
+     },
+     {
       "name": "itemCode",
       "type": "string | null",
       "required": false,
@@ -967,6 +991,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "حقول ZATCA الثلاثة ليست في مخطط zod بل تُقرأ من الجسم الخام وتُقص مسافاتها والنص الفارغ = null",
      "categoryId يجب أن يكون تصنيفاً من الشركة نفسها (GET /products/categories)، وإلا 400 {success:false, message:'التصنيف غير موجود'} — وكذلك في PUT /products/:id",
      "لا يُنشأ مخزون ولا قيود عند إنشاء الصنف",
+     "«قيود المندوب» (repSaleAllowed وrepReturnAllowed وrepSaleUnit وrepReturnUnit): تحكم ما يفعله دور المندوب وحده بالصنف في POST /invoices (بيعاً ومرتجعاً بمرحلتيه) وفي الإشعار الدائن — المفتاح ومستخدمو الشركة لا تمسّهم. LARGE يلزمه وحدة كبرى نشطة وإلا 400 REP_UNIT_RULE_INVALID، فلا يُنشأ صنفٌ جديد بها (أضف وحداته أولاً ثم عدّله)",
      "لبيعه بالكرتون أيضاً أضف بعد الإنشاء وحدة: POST /products/:id/units بالجسم {\"name\":\"كرتون\",\"factor\":40,\"price\":13.04}",
      "«تتبّع LOT»: الصنف المنشأ بـlotTracked=true يُسجَّل له حدث TRACKING_ON في سجل التدقيق في معاملة الإنشاء نفسها. وإن كانت صلاحيته مفعّلة (shelfLifeEnabled) صار تاريخ انتهاء كل تشغيلة له إلزامياً (LOT_EXPIRY_REQUIRED)"
     ],
@@ -1099,6 +1124,30 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "type": "integer > 0 | null",
       "required": false,
       "desc": "قيمة الحدّ: أيام حتى 36500، أو نسبة حتى 100"
+     },
+     {
+      "name": "repSaleAllowed",
+      "type": "boolean | null",
+      "required": false,
+      "desc": "«قيود المندوب»: هل يبيع المندوب هذا الصنف (الافتراضي true). القيد على دور المندوب وحده: مستخدمو الشركة والمفتاح وجلسة الدعم أحرار. null أو الغياب = بلا تغيير"
+     },
+     {
+      "name": "repReturnAllowed",
+      "type": "boolean | null",
+      "required": false,
+      "desc": "«قيود المندوب»: هل يرجع المندوب هذا الصنف (الافتراضي true) — المرتجع الحرّ والمرتجع من فاتورة بيع والإشعار الدائن"
+     },
+     {
+      "name": "repSaleUnit",
+      "type": "enum: ANY | BASE | LARGE | null",
+      "required": false,
+      "desc": "وحدة بيع المندوب: ANY كل الوحدات (الافتراضي)، BASE الصغرى وحدها (وحدة الأساس unit)، LARGE الكبرى وحدها (وحدات units بمعامل > 1). LARGE بلا وحدة كبرى نشطة يرجع 400 {success:false, code:'REP_UNIT_RULE_INVALID', message} — والصنف الجديد بلا وحدات بعد فأضف وحداته ثم القيد"
+     },
+     {
+      "name": "repReturnUnit",
+      "type": "enum: ANY | BASE | LARGE | null",
+      "required": false,
+      "desc": "وحدة مرتجع المندوب بالقيم نفسها، وLARGE يلزمه وحدة كبرى نشطة (400 REP_UNIT_RULE_INVALID)"
      },
      {
       "name": "itemCode",
@@ -1344,7 +1393,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "ترتيب العرض"
      }
     ],
-    "response": "{success:true, data:{id, tenantId, productId, name, factor, price, unitCode, isActive, sortOrder, createdAt, updatedAt}} — 404 PRODUCT_NOT_FOUND أو {code:'UNIT_NOT_FOUND', message:'الوحدة غير موجودة'} — 400 PRODUCT_UNITS_INVALID — 409 'اسم الوحدة مكرر لهذا الصنف'",
+    "response": "{success:true, data:{id, tenantId, productId, name, factor, price, unitCode, isActive, sortOrder, createdAt, updatedAt}} — 404 PRODUCT_NOT_FOUND أو {code:'UNIT_NOT_FOUND', message:'الوحدة غير موجودة'} — 400 PRODUCT_UNITS_INVALID — 409 'اسم الوحدة مكرر لهذا الصنف' — 409 {code:'REP_UNIT_RULE_SET'} حين يُوقف أو يُصغَّر آخر وحدة كبرى نشطة لصنفٍ قيد مندوبه «الكبرى فقط» (LARGE): غيّر القيد أولاً",
     "rules": [
      "تغيير factor لا يعيد كتابة الماضي: كل بند كُتب بالوحدة يحمل لقطة اسمها ومعاملها (unitName وunitFactor) وكميته بالأساس (baseQty) لحظة كتابته، فكرتونٌ صار 12 بعد أن كان 24 لا يُنقص مخزوناً مضى",
      "التحقق على الوحدة بعد دمج المرسل مع المحفوظ، مقابل وحدة الأساس وبقية وحدات الصنف",
@@ -1365,7 +1414,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true} — 404 PRODUCT_NOT_FOUND أو UNIT_NOT_FOUND",
+    "response": "{success:true} — 404 PRODUCT_NOT_FOUND أو UNIT_NOT_FOUND — 409 REP_UNIT_RULE_SET حين تُحذف آخر وحدة كبرى نشطة لصنفٍ قيد مندوبه LARGE",
     "rules": [
      "الحذف لا يكسر التاريخ: كل بند صدر بالوحدة يحمل لقطتها، والكمية بالأساس محفوظة في baseQty",
      "لإخفائها من البيع مع بقائها في units أوقفها بـPUT /products/:id/units/:unitId والجسم {\"isActive\":false} بدل الحذف",
@@ -1384,6 +1433,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "requireAdminPermission('canManageProducts')",
      "requireAdmin — الدور ADMIN أو MANAGER أو ACCOUNTANT",
      "مقيّد مؤقتاً بجلسة الدعم الفني (المالك): مفتاح الشركة ومستخدموها يُرفضون دائماً 403 {success:false, code:'CONVERT_BASE_OWNER_ONLY', message} قبل قراءة الجسم",
+     "صنفٌ له قيد وحدة مندوب (repSaleUnit أو repReturnUnit غير ANY) يُرفض 409 {code:'REP_UNIT_RULE_SET'}: التحويل يغيّر معنى الصغرى والكبرى، فيُزال القيد أولاً",
      "مفتاح قراءة فقط يُرفض 403 API_KEY_FORBIDDEN"
     ],
     "query": [],
@@ -1701,6 +1751,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "saleItemId هو ما يُرسل في items[].invoiceItemId عند POST /invoices. وsold وreturned وreturnable بوحدة الأساس (unit = وحدة أساس الصنف)، وهي soldBase وreturnedBase وreturnableBase نفسها: بند «2 كرتون» من 24 يعطي sold = 48. وqty وunitName وunitFactor البند كما بيع (unitName null = الأساس)",
      "refundUnitPrice هو refundPerBase بأربع منازل: ما دفعه العميل لوحدة الأساس شاملاً الضريبة بعد خصمي البند والفاتورة (lineTotal ÷ soldBase). للعرض وحده: مبلغ المرتجع المرتبط يحسبه الخادم عند الإصدار",
      "shelfLife وexpiresAt (YYYY-MM-DD) وexpiredToday لصنف مفعّلة صلاحيته: المنتهي يُقبل ويدخل مخزون السيارة «منتهي الصلاحية» فلا يُباع",
+     "للمندوب وحده: returnBlocked يحمل سبب «قيود المندوب» إن كان الصنف لا يرجعه المندوب أو قيده «الكبرى فقط» وقد بيع بالأساس، وproduct.repReturnUnit (ANY | BASE | LARGE) يقصر وحدات الإرجاع — المفتاح ومستخدمو الشركة لا يرون الحقل ولا يمسّهم القيد",
      "returnBlocked نص سبب الرفض إن كان قيد المرتجع للصنف يمنعه اليوم بتوقيت الشركة، وإلا null. للقيد وضعان (returnRuleMode) بحدٍّ بالأيام أو بنسبة من مدة الصلاحية (returnRuleMetric وreturnRuleValue): NEAR_EXPIRY «قرب الانتهاء» يقبل المرتجع إذا بقي من صلاحية ما بيع الحدُّ أو أقل والمنتهي يُقبل، وSTILL_VALID «ما زال صالحاً» يقبله إذا بقي الحدُّ أو أكثر والمنتهي يُرفض. وهو إرشاد للعرض: القرار للخادم عند الإصدار في POST /invoices، فيرجع 422 RETURN_RULE_BLOCKED برسالة «اسم الصنف: السبب»، ويوم المرتجع لطلب المفتاح invoiceDate إن أُرسل وإلا اليوم (clientCreatedAt لا يُقرأ للمفتاح)",
      "فاتورة غير موجودة أو خارج النطاق 404، وفاتورة ليست بيعاً مؤكداً (مرتجع أو ملغاة أو إشعار) 422",
      "الإرجاع بوحدة: أرسل الكمية بوحدة الأساس بلا unitId، أو بوحدة من product.units بمعرّفها unitId، ومجموع ما يُرجَع من البند بالأساس لا يتجاوز returnableBase (وإلا 422 RETURN_LINK_INVALID). حبةٌ من بند كرتون = {invoiceItemId, qty:1} بلا unitId. وصنفٌ بلا وحدات: الأرقام كما كانت قبل الميزة (المعامل 1)"
@@ -1994,6 +2045,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "مثال تقسيط: {\"customerId\":\"…\",\"salesRepId\":\"…\",\"type\":\"CREDIT\",\"paymentPlan\":\"INSTALLMENT\",\"installmentPlan\":{\"count\":3,\"firstDueDate\":\"2026-11-01\",\"period\":\"MONTHLY\"},\"items\":[{\"productId\":\"…\",\"qty\":10,\"unitPrice\":120}]}",
      "ختم الموقع (ميزة «لوكيشن»): الخادم يكتب locationId بموقع المندوب لحظة الإصدار إن كانت الميزة مفعّلة للشركة، والمرتجع من فاتورة بيع يرث ختمها. لا حقل له في الجسم",
      "المرتجع من فاتورة بيع (المرحلة الأولى): اختر الفاتورة من GET /invoices/returnable-sales?customerId=… ثم بنودها من GET /invoices/:id/returnable. أرسل لكل بند invoiceItemId = saleItemId والكمية بوحدة unitId (وبلا unitId بوحدة الأساس، فحبةٌ من بند كرتون تُرسل بلا unitId)، بحيث لا يتجاوز مجموع ما يُرجَع من البند بالأساس returnable. الخادم يسعّر المرتجع المرتبط بنفسه من بند البيع: ما دفعه العميل فعلاً شاملاً الضريبة بعد خصمي البند والفاتورة لما يُرجَع، والباقي لآخر حبة (فإرجاع 24 حبة فرادى من كرتون = قيمة الكرتون تماماً)، ويُكتب المستند شاملاً للضريبة بلا خصم فاتورة. لذلك يُهمل unitPrice وdiscountPct وpricesIncludeTax المرسلة للمرتجع المرتبط، ويبقى unitPrice إلزامياً في المخطط",
+     "«قيود المندوب» على الصنف (repSaleAllowed وrepReturnAllowed وrepSaleUnit وrepReturnUnit في /products): لدور المندوب وحده — بند بيعٍ لصنفٍ لا يبيعه المندوب، أو مرتجعٍ (حرّ أو من فاتورة بيع، وفي المرحلتين) لصنفٍ لا يرجعه، أو بوحدةٍ يمنعها القيد (BASE = وحدة الأساس وحدها، LARGE = وحدة بمعامل > 1 وحدها) يرجع 422 {success:false, code:'REP_PRODUCT_RULE', message}. المفتاح ومستخدمو الشركة وجلسة الدعم لا يمسّهم القيد. ومستند صندوق تطبيق المندوب المُعاد رفعه (X-FS-Replay، وهي تُمحى لطلب المفتاح) يُقبل إن أُنشئ على الجهاز (clientCreatedAt) قبل آخر تغيير للقيد",
      "قيد المرتجع للصنف (منتج مفعّلة صلاحيته وقيد إرجاعه returnRuleEnabled): مرتجع فيه صنف يمنع قيدُه إرجاعه يرجع 422 RETURN_RULE_BLOCKED برسالة «اسم الصنف: السبب»، لأي مُصدِر ومنه المفتاح وفي المرحلتين، مرتبطاً بفاتورة بيع كان أو حرّاً. للقيد وضعان (returnRuleMode) بحدٍّ بالأيام أو بنسبة من مدة الصلاحية: NEAR_EXPIRY «قرب الانتهاء» يقبل المرتجع إذا بقي من صلاحية ما بيع الحدُّ أو أقل والمنتهي يُقبل، وSTILL_VALID «ما زال صالحاً» يقبله إذا بقي الحدُّ أو أكثر والمنتهي يُرفض. يُقاس على بند البيع المرتبط، وإلا آخر بيع للصنف لهذا العميل حتى invoiceDate. ويوم المرتجع لطلب المفتاح invoiceDate إن أُرسل وإلا اليوم بتوقيت الشركة، وclientCreatedAt لا يُقرأ للمفتاح هنا ولا في وسم صلاحية البنود ولا يُخزَّن (هو لحظة جهاز تطبيق المندوب حين يرفع ما سجّله دون اتصال). وبيع لا يُعرف انتهاؤه لا يُرفض به",
      "أخطاء الربط: 422 RETURN_LINK_INVALID (بند ليس من الفاتورة، أو صنف مختلف، أو كمية فوق المتاح، أو فاتورة ليست بيعاً مؤكداً للعميل نفسه)، و409 بالرمز نفسه حين يسبقك مرتجع متزامن على الكمية نفسها، و404 «فاتورة البيع الأصلية غير موجودة» لفاتورة خارج نطاق صاحب المفتاح",
      "مثال مرتجع حرّ بلا فاتورة بيع (المرحلة الأولى): {\"customerId\":\"…\",\"salesRepId\":\"…\",\"type\":\"RETURN\",\"returnReason\":\"DAMAGED\",\"returnToStock\":false,\"items\":[{\"productId\":\"…\",\"qty\":2,\"unitPrice\":5}]}",
@@ -3223,7 +3275,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "response": "{success:true, data:{invoicesCount, salesTotal, receiptsCount, collectionsTotal}}",
     "rules": [
      "الفواتير بحالة CONFIRMED حسب invoiceDate ومجموع total، والسندات بحالة ACTIVE حسب receiptDate ومجموع amount",
-     "لا فلتر على نوع الفاتورة فتدخل فواتير المرتجع RETURN في العدد والمجموع",
+     "المبيعات صافية: فواتير البيع المؤكدة ناقص المرتجع المؤكَّد (RETURN) في المدى نفسه، والعدد عدد فواتير البيع وحدها",
      "لا يتحقق من وجود المندوب ولا من نطاق المستخدم: معرّف مجهول يرجع أصفاراً",
      "تاريخ غير صالح يُفشل الطلب بخطأ خادم"
     ],
@@ -3246,8 +3298,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "response": "{success:true} أو 404 'المندوب غير موجود' أو 409 {success:false, code:'LEDGER_HISTORY_LOCKED', message, salesRepId, footprint:{settlements, invoices, receipts, vanLoads, moveLines}}",
     "rules": [
      "معاملة واحدة لا رجعة فيها: الفواتير والسندات والإقرارات اليومية تبقى ويُفرَّغ salesRepId منها، وتحميلات السيارة تبقى مع deletedSalesRepId",
-     "تُحذف: المواقع والزيارات وصورها والإشعارات وتوجيه الإقرار اليومي وإسنادات العملاء واستلامات التحصيل (RepSettlement) ويُزال من قائمة المندوب الذكي",
-     "حذف استلامات التحصيل يُنقص ما احتُسب في عهدة مستخدمي الشركة الذين استلموها (userCustody يجمع repSettlement)",
+     "تُحذف: المواقع والزيارات وصورها والإشعارات وتوجيه الإقرار اليومي وإسنادات العملاء ويُزال من قائمة المندوب الذكي",
+     "استلامات التحصيل (RepSettlement) تبقى بصورها ويُفرَّغ salesRepId منها ويُحفظ معرّفه في deletedSalesRepId، فتبقى عهدة مستخدمي الشركة الذين استلموها كما هي (userCustody يجمع repSettlement بالمستلِم)",
      "إذا كانت الدفاتر مفعّلة (glSettings.activatedAt) وللمندوب أثر مالي يُرفض بـ 409، وفي وضع الدفاتر اليدوية CLEAN لا يمنع إلا سطور القيود",
      "البديل الآمن PUT بـ isActive:false"
     ],
@@ -6489,7 +6541,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
    {
     "method": "GET",
     "path": "/reports/sales",
-    "purpose": "تقرير المبيعات المؤكدة بدون المرتجعات، إما تفصيلياً بالفواتير وبنودها أو مجمّعاً حسب الصنف أو المندوب أو العميل أو القناة أو المدينة",
+    "purpose": "تقرير المبيعات المؤكدة صافيةً من المرتجع، إما تفصيلياً بالفواتير وبنودها أو مجمّعاً حسب الصنف أو المندوب أو العميل أو القناة أو المدينة",
     "permission": "canViewReports (الأدوار ADMIN وMANAGER وACCOUNTANT)",
     "gates": [
      "requireAdmin",
@@ -6537,9 +6589,9 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "بدون groupBy: {success:true, data:{invoices:[صف الفاتورة كاملاً بكل أعمدتها ومنها number وtype وinvoiceDate وsubtotal وdiscountAmt وtaxAmt وtotal وpaidAmt وremainingAmt وpricesIncludeTax، مع customer{id,name,channel,city} وsalesRep{id,name} أو null وitems[صف البند كاملاً ومنه qty وunitPrice وunitCost وdiscountAmt وtaxPct وtaxAmt وlineTotal وunitName وunitFactor وbaseQty مع product{id,name,code,unit} أو null]], summary:{total, count, taxTotal, discountTotal, defaultRangeDays?}}}. مع groupBy=product تكون data مصفوفة [{productId, name, code, qty, baseQty, unit, units:[{name, factor}], total}] حيث total مجموع lineTotal. ومع rep أو customer أو channel أو region تكون data مصفوفة [{name, count, total}]. كل التجميعات مرتبة تنازلياً حسب total",
+    "response": "بدون groupBy: {success:true, data:{invoices:[صف الفاتورة كاملاً بكل أعمدتها ومنها number وtype وinvoiceDate وsubtotal وdiscountAmt وtaxAmt وtotal وpaidAmt وremainingAmt وpricesIncludeTax، مع customer{id,name,channel,city} وsalesRep{id,name} أو null وitems[صف البند كاملاً ومنه qty وunitPrice وunitCost وdiscountAmt وtaxPct وtaxAmt وlineTotal وunitName وunitFactor وbaseQty مع product{id,name,code,unit} أو null]], summary:{total, count, taxTotal, discountTotal, returnsTotal, returnsCount, defaultRangeDays?}}}. مع groupBy=product تكون data مصفوفة [{productId, name, code, qty, baseQty, unit, units:[{name, factor}], total}] حيث total مجموع lineTotal. ومع rep أو customer أو channel أو region تكون data مصفوفة [{name, count, total}]. كل التجميعات مرتبة تنازلياً حسب total",
     "rules": [
-     "الحالة CONFIRMED وحدها، والنوع RETURN مستثنى",
+     "الحالة CONFIRMED وحدها. قائمة invoices فواتير بيع (RETURN مستثنى منها)، أما الإجماليات والتجميعات فصافية: يُطرح منها المرتجع المؤكَّد بالمدى والفلاتر نفسها (كميةً ومبلغاً في تجميع الصنف، وقد يظهر صفّ سالب)، وsummary.total وtaxTotal وdiscountTotal صافية، وsummary.returnsTotal وreturnsCount للمرتجع، وcount عدد فواتير البيع وحدها",
      "بلا from ولا to يُقصر التقرير على آخر 90 يوماً، ويُعلن ذلك بـ summary.defaultRangeDays=90 في الوضع التفصيلي وحده، أما مع groupBy فيُطبَّق السقف دون إعلان",
      "يكفي طرف واحد من المدى، والطرف الغائب يعني بلا حد من جهته",
      "لا ترقيم ولا حد أقصى للصفوف، والفواتير مرتبة تصاعدياً بـ invoiceDate",
@@ -6866,7 +6918,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "rules": [
      "فلتر التاريخ على المبيعات والتحصيل لا يُطبَّق إلا إذا أُرسل from وto معاً، وإلا تُحسب على كل السجل",
      "جلسات العمل والزيارات تستعمل from وحده (أو بداية الزمن) وto وحده (أو الآن) كلّاً على حدة",
-     "المبيعات فواتير CONFIRMED بلا RETURN، والتحصيل سندات ACTIVE، ومجاميع المندوب لا تُقيَّد بنطاق العملاء",
+     "المبيعات صافية: فواتير CONFIRMED ناقص مرتجعها (RETURN) في المدى، وكذلك الخصم، وعدد الفواتير ومتوسطها لفواتير البيع وحدها، والتحصيل سندات ACTIVE، ومجاميع المندوب لا تُقيَّد بنطاق العملاء",
      "workMinutes مجموع (lastBeatAt ناقص startedAt) لجلسات التطبيق RepSession",
      "visitsCount عدد الوقفات بعد دمج سجل المؤقت مع سجل الملاحظة أو الصورة لنفس العميل خلال 5 دقائق، لا عدد السجلات",
      "قائمة visits تضم الوقفات ذات الإحداثيات فقط بحد 300 لكل مندوب، وcreatedAt فيها بداية الوقفة، والصفوف الخام محدودة بـ 20000 الأقدم أولاً",
@@ -7051,7 +7103,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "الصفوف بالقيمة تنازلياً، والمتساويان يأخذان المرتبة نفسها (1، 2، 2، 4)",
      "distance مدى أقصاه 31 يوماً، وما زاد يُقصّ ويُعلن في clampedDays",
      "المبالغ والكميات بثلاث منازل، والكيلو بمنزلة واحدة، والدقائق صحيحة",
-     "مع metric=product: value الكمية المباعة بوحدة الأساس product.unit (كرتون من 24 = 24)، وunits وحدات الصنف النشطة للعرض"
+     "مع metric=product: value صافي الكمية المباعة بوحدة الأساس product.unit (كرتون من 24 = 24) بعد طرح المرتجع منه في المدى، وقد يكون سالباً، وunits وحدات الصنف النشطة للعرض. ومع metric=sales: value صافي المبيعات (البيع المؤكَّد ناقص المرتجع المؤكَّد)"
     ],
     "example": ""
    },
@@ -7072,7 +7124,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "body": [],
     "response": "{success:true, data:{accountingEnabled, today:{salesTotal, invoicesCount, collectionsTotal, receiptsCount}, warehouseEnabled, month:{salesTotal, invoicesCount, collectionsTotal, receiptsCount, purchasesTotal, purchaseEntriesCount}, customers:{total, withBalance, creditExceeded}, topReps:[{id, name, invoicesCount, salesTotal}], topCustomers:[{id, name, totalSales, balance}], recentInvoices:[صف الفاتورة كاملاً مع customer{name} وsalesRep{name}]}}",
     "rules": [
-     "المبيعات فواتير CONFIRMED بلا RETURN، والتحصيل سندات ACTIVE",
+     "المبيعات صافية: فواتير CONFIRMED ناقص المرتجع المؤكَّد في اليوم أو الشهر نفسه، والعدد فواتير البيع وحدها، والتحصيل سندات ACTIVE",
      "حدود اليوم والشهر محسوبة بتوقيت الخادم المحلي عبر new Date(y,m,d) وليس بتوقيت الرياض صراحةً",
      "purchasesTotal مجموع الكمية ضرب سعر التكلفة لحركات المستودع RECEIVE هذا الشهر على مستوى الشركة دون نطاق",
      "أعداد العملاء customers تُرجع دائماً حتى مع إطفاء المحاسبة: total للنشطين، وwithBalance رصيدهم أكبر من صفر، وcreditExceeded سقفهم أكبر من صفر ورصيدهم أكبر من السقف",
@@ -7106,7 +7158,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "rules": [
      "تظهر الأيام التي فيها مبيعات فقط دون ملء الأيام الخالية بأصفار",
      "date مأخوذ من invoiceDate بتوقيت UTC",
-     "فواتير CONFIRMED بلا RETURN"
+     "فواتير CONFIRMED صافيةً: المرتجع المؤكَّد يُطرح من يومه"
     ],
     "example": ""
    },

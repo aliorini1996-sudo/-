@@ -24,6 +24,7 @@ import {
 import { adminPermissionFields, ownerSessionPermissionFields } from './auth';
 import { tenantDeleteArchiveBlock } from '../compliance/zatca/settingsGuards';
 import { lotErr, lotErrorBody, lotHttpError } from '../services/lots';
+import { listMerchants, nearpayConfigured } from '../services/nearpay';
 import { recordLotEvent, type LotEventActor } from '../services/lotsDb';
 
 // إدارة الشركات المشتركة — لمالك المنصّة (السوبر أدمن) فقط
@@ -309,6 +310,25 @@ router.post('/', async (req: PlatformRequest, res: Response, next: NextFunction)
 router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const body = updateTenantSchema.parse(req.body);
+    // «التحصيل بالبطاقة» للمالك وحده (مراجعة ٣١ أكتوبر ٢٠٢٦): تاجر NearPay يحدّد إلى أين يذهب مال الشركة، فموظف المنصة — ولو بـ
+    // tenants.edit — لا يفعّله ولا يغيّر التاجر. الجسم الذي يعيد القيم نفسها يمرّ (نموذج الحفظ يرسلهما دائماً)
+    const cardPayCur = body.cardPayEnabled !== undefined || body.nearpayMerchantId !== undefined
+      ? await prisma.tenant.findUnique({ where: { id: req.params.id }, select: { cardPayEnabled: true, nearpayMerchantId: true } })
+      : null;
+    const merchantChanged = !!cardPayCur && body.nearpayMerchantId !== undefined && (body.nearpayMerchantId ?? null) !== cardPayCur.nearpayMerchantId;
+    if ((req as PlatformRequest).platformStaff && cardPayCur
+      && (merchantChanged || (body.cardPayEnabled !== undefined && body.cardPayEnabled !== cardPayCur.cardPayEnabled))) {
+      res.status(403).json({ success: false, code: 'STAFF_CARDPAY_FORBIDDEN', message: 'التحصيل بالبطاقة وتاجر NearPay يضبطهما مالك المنصة وحده' });
+      return;
+    }
+    // التاجر الجديد موجودٌ فعلاً بين تجّار حسابنا لدى NearPay — لا يُربط معرّفٌ مكتوب باليد، ويفشل مغلقاً إن تعذّر السؤال
+    if (merchantChanged && body.nearpayMerchantId) {
+      const known = nearpayConfigured() ? await listMerchants().catch(() => null) : null;
+      if (!known) { res.status(503).json({ success: false, code: 'NEARPAY_UNAVAILABLE', message: 'تعذر التحقق من التاجر لدى NearPay حاول بعد لحظات' }); return; }
+      if (!known.some((m) => m.id === body.nearpayMerchantId)) {
+        res.status(400).json({ success: false, code: 'NEARPAY_MERCHANT_UNKNOWN', message: 'التاجر غير موجود لدى NearPay' }); return;
+      }
+    }
     // «التحصيل بالبطاقة»: تاجرٌ واحد لشركة واحدة — لا تتقاسم شركتان نقاط بيعٍ ومالاً
     if (body.nearpayMerchantId) {
       const owner = await prisma.tenant.findFirst({ where: { nearpayMerchantId: body.nearpayMerchantId, id: { not: req.params.id } }, select: { name: true } });

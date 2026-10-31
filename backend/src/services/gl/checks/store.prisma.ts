@@ -4,6 +4,7 @@
  * يأخذ العميل أو معاملة من المُستدعي (المسار يمرّر prisma للتشغيل، ومعاملة قيد التصحيح تحت قفل gl-post)،
  * فلا يستورد config/database. كل استعلام معزول بـtenantId (§9.4). قراءة فقط — لا كتابة هنا.
  */
+import { SETTLEMENT_HAS_REP } from '../settlementRep';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { fromDbDate, toDbDate } from '../dates';
 import { toMilli } from '../money';
@@ -244,11 +245,11 @@ export function createPrismaCheckStore(db: Db): CheckStore {
       const after = opts.createdAfter ? { createdAt: { gt: opts.createdAfter } } : {};
       const [collected, settled] = await Promise.all([
         d.receipt.groupBy({ by: ['salesRepId'], where: { tenantId, status: 'ACTIVE', salesRepId: { not: null }, ...after }, _sum: { amount: true } }),
-        d.repSettlement.groupBy({ by: ['salesRepId'], where: { tenantId, ...after }, _sum: { amount: true } }),
+        d.repSettlement.groupBy({ by: ['salesRepId'], where: { tenantId, ...after, ...SETTLEMENT_HAS_REP }, _sum: { amount: true } }),
       ]);
       const out = new Map<string, Milli>();
       for (const r of collected) if (r.salesRepId) out.set(r.salesRepId, toMilli(r._sum.amount ?? 0, decimals));
-      for (const r of settled) out.set(r.salesRepId, (out.get(r.salesRepId) ?? 0n) - toMilli(r._sum.amount ?? 0, decimals));
+      for (const r of settled) if (r.salesRepId) out.set(r.salesRepId, (out.get(r.salesRepId) ?? 0n) - toMilli(r._sum.amount ?? 0, decimals));
       return out;
     },
 
@@ -335,7 +336,7 @@ export function createPrismaCheckStore(db: Db): CheckStore {
             where: { tenantId, createdAt: { gt: since } }, take: PENDING_SCAN_LIMIT,
             select: { customerId: true, invoice: { select: { salesRepId: true } }, receipt: { select: { salesRepId: true, paymentMethod: true } } },
           }),
-          d.repSettlement.findMany({ where: { tenantId, createdAt: { gt: since } }, select: { salesRepId: true }, take: PENDING_SCAN_LIMIT }),
+          d.repSettlement.findMany({ where: { tenantId, createdAt: { gt: since }, ...SETTLEMENT_HAS_REP }, select: { salesRepId: true }, take: PENDING_SCAN_LIMIT }),
           d.settlementEntry.count({ where: { tenantId, createdAt: { gt: since } } }),
         ]);
         if (entries.length >= PENDING_SCAN_LIMIT) out.unknown = true;
@@ -345,7 +346,7 @@ export function createPrismaCheckStore(db: Db): CheckStore {
           if (rep) out.salesRepIds.add(rep);
           if (e.receipt?.paymentMethod === 'ONLINE') out.settlement = true;
         }
-        for (const s of settlements) out.salesRepIds.add(s.salesRepId);
+        for (const s of settlements) if (s.salesRepId) out.salesRepIds.add(s.salesRepId);
         if (settlementEntries > 0) out.settlement = true;
       }
       return out;

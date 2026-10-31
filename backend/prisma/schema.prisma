@@ -661,7 +661,7 @@ model CardPayment {
   launchExpiresAt DateTime?
   launchedAt      DateTime?
 
-  status          String    @default("pending") // pending | approved | declined | reversed | expired | failed
+  status          String    @default("pending") // pending | approved | declined | reversed | expired | review (خُصم واختلف — للإدارة) | failed
   statusDetail    String? // سبب الرفض أو الفشل كما ورد — للعرض
   transactionUuid String?   @unique // transaction_uuid لدى NearPay — مفتاح عدم التكرار الثاني بعد المعرّف
   rrn             String?
@@ -680,6 +680,8 @@ model CardPayment {
   @@index([tenantId, status])
   @@index([tenantId, invoiceId])
   @@index([status, updatedAt])
+  @@index([status, approvedAt]) // نافذة العكس ومراقبة الاسترداد كل دقيقة
+  @@index([status, lastCheckedAt]) // كنس الميت والموقوف للمراجعة
   @@map("card_payments")
 }
 
@@ -803,6 +805,14 @@ model Product {
   returnRuleMetric     String? // DAYS | PERCENT
   returnRuleValue      Int?
   lotTracked           Boolean          @default(false) // «تتبّع باللوط» — لا أثر إلا مع Tenant.lotTrackingEnabled
+  // «قيود المندوب» (طلب المالك ٣١ أكتوبر ٢٠٢٦، services/repProductRules.ts): ما يفعله المندوب وحده بالصنف — مستخدمو الشركة
+  // ومفاتيح API وجلسة المالك أحرار. الافتراضي بلا قيد فلا يتغيّر صنفٌ بالنشر
+  repSaleAllowed       Boolean          @default(true)
+  repReturnAllowed     Boolean          @default(true)
+  repSaleUnit          String           @default("ANY") // ANY | BASE (وحدة الأساس، الصغرى) | LARGE (وحدة معاملها > ١)
+  repReturnUnit        String           @default("ANY") // ANY | BASE | LARGE
+  // آخر تغييرٍ لأيٍّ من الأربعة — مستند صندوق الأوف-لاين المُنشأ قبله يُقبل عند رفعه (لا تضيع بضاعة سُلّمت)
+  repRulesChangedAt    DateTime?
   lotTrackedSince      DateTime? // بداية حقبة الصنف (D25)
   deletedAt           DateTime? // أرشفة بدل الحذف حين يوجد تاريخ: يختفي من القوائم ويبقى صفه باسمه للفواتير والكشوف القديمة
   categoryId           String?
@@ -2051,8 +2061,12 @@ model RepSettlement {
   id         String   @id @default(uuid())
   tenantId   String
   tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  salesRepId String
-  salesRep   SalesRep @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+  // يقبل الفراغ (مراجعة ٣٠ أكتوبر ٢٠٢٦): كان حذف المندوب يمحو استلاماته (Cascade وdeleteMany)، فيسقط «المستلَم» من
+  // عهدة من استلم منه — تصفر عهدةُ مالٍ ما زال في يده، أو تصير سالبةً بعد توريده. الآن يبقى الصفّ بلا مندوب كتحميلات سيارته
+  salesRepId String?
+  salesRep   SalesRep? @relation(fields: [salesRepId], references: [id], onDelete: SetNull)
+  // معرّف المندوب بعد حذفه — يُكتب في معاملة الحذف حين يُفرَّغ salesRepId، بلا مفتاح أجنبيّ (كـVanLoad.deletedSalesRepId)
+  deletedSalesRepId String?
   amount     Float
   // كيف استُلم المبلغ من المندوب — نفس قاموس سند القبض حرفياً كي يقرأ المحاسب
   // مصطلحاً واحداً في المستندين. والافتراضي نقديّ: الاستلامات السابقة كلّها نقد.

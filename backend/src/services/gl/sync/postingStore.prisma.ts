@@ -7,6 +7,7 @@
  * - كل استعلام مقيّد بـtenantId (§9.4).
  * هذا الملف وحده (مع scheduler.ts) يعرف prisma؛ poster.ts وtick.ts يعملان على الواجهة.
  */
+import { SETTLEMENT_HAS_REP } from '../settlementRep';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { fromDbDate, localDate, maxLocalDate } from '../dates';
 import { formatMilli, toMilli } from '../money';
@@ -615,7 +616,7 @@ export class PrismaPostingTx implements PostingTx {
       const fromPayload = tombstoneOrigin(event.sourceType, event.payload);
       if (fromPayload) {
         const exists = event.sourceType === 'SETTLEMENT'
-          ? !!(await this.tx.repSettlement.findFirst({ where: { id: event.sourceId, tenantId: this.tenantId }, select: { id: true } }))
+          ? !!(await this.tx.repSettlement.findFirst({ where: { id: event.sourceId, tenantId: this.tenantId, ...SETTLEMENT_HAS_REP }, select: { id: true } }))
           : !!(await this.tx.accountEntry.findFirst({ where: { id: event.sourceId, tenantId: this.tenantId }, select: { id: true } }));
         return { ...fromPayload, sourceExists: exists };
       }
@@ -724,7 +725,7 @@ export class PrismaPostingTx implements PostingTx {
       }
       case 'SETTLEMENT': {
         const st = await this.tx.repSettlement.findFirst({
-          where: { id: sourceId, tenantId },
+          where: { id: sourceId, tenantId, ...SETTLEMENT_HAS_REP },
           select: { id: true, amount: true, method: true, salesRepId: true, settledAt: true, createdAt: true, note: true, salesRep: { select: { name: true } } },
         });
         if (!st) return { kind: 'MISSING' };

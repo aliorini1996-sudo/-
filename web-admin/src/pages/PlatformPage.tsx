@@ -958,7 +958,10 @@ function PlatformTotalsBox({ totals, failed }: { totals?: PlatformTotals; failed
 function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose: () => void; onSaved: () => void }) {
   const tr = useTr();
   // قسما الدفاتر أدناه (تاريخ فوترة عمولة الدفع وإعادة الضبط) مفتاحهما tenants.ledger — والأول يستعلم بمسار الكتابة نفسه
-  const canLedger = usePlatformAccess().can('tenants.ledger');
+  const access = usePlatformAccess();
+  const canLedger = access.can('tenants.ledger');
+  // «التحصيل بالبطاقة» وتاجره للمالك وحده (الخادم يرفض تغييرهما من موظف المنصة — routes/tenants.ts)
+  const cardPayOwnerOnly = access.isStaff;
   const [unlimitedReps, setUnlimitedReps] = useState(tenant.maxSalesReps == null);
   const [maxSalesReps, setMaxSalesReps] = useState(tenant.maxSalesReps != null ? String(tenant.maxSalesReps) : '');
   const [unlimitedUsers, setUnlimitedUsers] = useState(tenant.maxAdminUsers == null);
@@ -990,8 +993,8 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
   const [nearpayMerchantId, setNearpayMerchantId] = useState<string>(tenant.nearpayMerchantId || '');
   const merchantsQ = useQuery({
     queryKey: ['nearpay-merchants'],
-    queryFn: async () => (await cardPayApi.ownerMerchants()).data as { data: { id: string; name: string; referenceId: string | null }[]; configured: boolean },
-    enabled: cardPayEnabled,
+    queryFn: async () => (await cardPayApi.ownerMerchants()).data as { data: { id: string; name: string; referenceId: string | null }[]; configured: boolean; env?: string },
+    enabled: cardPayEnabled && !cardPayOwnerOnly,
     staleTime: 60_000,
   });
   const [accountingEnabled, setAccountingEnabled] = useState(tenant.accountingEnabled !== false);
@@ -1190,14 +1193,14 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
             </label>
             <p className="text-xs text-gray-400 mt-1">{tr('تعرف الشركة مواقعها (فرع أو مستودع أو مدينة على الخريطة) وتسند كل مندوب لموقع، فتختم كل فاتورة وتحميل بموقع مندوبها وقت الإصدار، مع عمود وتصفية الموقع في الفواتير وسجل التحميلات وملخص لكل موقع — تتطلب النظام المحاسبي')}</p>
             <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2">
-              <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={cardPayEnabled} onChange={e => setCardPayEnabled(e.target.checked)} />
+              <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={cardPayEnabled} disabled={cardPayOwnerOnly} onChange={e => setCardPayEnabled(e.target.checked)} />
               {tr('تفعيل التحصيل بالبطاقة (NearPay) لهذه الشركة')}
             </label>
             <p className="text-xs text-gray-400 mt-1">{tr('يلمس العميل بطاقته بجوال المندوب ويسجل سند القبض تلقائيا بعد تأكيد NearPay والمال يذهب من NearPay إلى حساب الشركة مباشرة — تتطلب النظام المحاسبي وتاجرا للشركة لدى NearPay')}</p>
             {cardPayEnabled && (
               <div className="mt-2">
                 <label className="label">{tr('تاجر الشركة لدى NearPay')}</label>
-                <select className="input" value={nearpayMerchantId} onChange={e => setNearpayMerchantId(e.target.value)} disabled={merchantsQ.isLoading}>
+                <select className="input" value={nearpayMerchantId} onChange={e => setNearpayMerchantId(e.target.value)} disabled={merchantsQ.isLoading || cardPayOwnerOnly}>
                   <option value="">{merchantsQ.isLoading ? tr('جاري التحميل') : tr('لم يربط بعد')}</option>
                   {(merchantsQ.data?.data || []).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                   {nearpayMerchantId && !(merchantsQ.data?.data || []).some(m => m.id === nearpayMerchantId) && <option value={nearpayMerchantId}>{nearpayMerchantId}</option>}
@@ -1205,6 +1208,11 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
                 {merchantsQ.data && merchantsQ.data.configured === false && (
                   <p className="text-xs text-amber-700 mt-1">{tr('مفاتيح NearPay غير مضبوطة على الخادم')}</p>
                 )}
+                {/* بيئة الاختبار لا مال فيها: الخادم يحجب التحصيل فيها إلا لشركاتٍ مسمّاة في NEARPAY_SANDBOX_TENANTS */}
+                {merchantsQ.data?.env === 'sandbox' && (
+                  <p className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-2 mt-1 leading-relaxed">{tr('الخادم على بيئة اختبار NearPay بلا مال حقيقي لا تفعله لشركة عميلة قبل الانتقال إلى الإنتاج')}</p>
+                )}
+                {cardPayOwnerOnly && <p className="text-xs text-gray-400 mt-1">{tr('يضبطه مالك المنصة وحده')}</p>}
                 <p className="text-xs text-gray-400 mt-1">{tr('تغيير التاجر يلغي إسناد نقاط البيع القديمة لمناديب الشركة')}</p>
               </div>
             )}

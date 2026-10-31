@@ -14,6 +14,7 @@ import { baseQtyOf, factorOf, roundQty, type UnitSnapshot } from '../services/un
 import { addDays, isLocalDate, zonedStartOfDay } from '../services/gl/dates';
 import { LOT_CERTAINTIES, LOT_EPS, fefoCompare, roundLot, type LotBlockKind, type LotCertainty, type LotMeta, type LotStatus } from '../services/lots';
 import { companyDay, loadLotMetas } from '../services/lotsDb';
+import { cleanMoney, isReturnInvoice, netSales, signedAmount } from '../services/netSales';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canViewReports'));
@@ -44,7 +45,8 @@ async function activeUnitsByProduct(tid: string, productIds: string[]): Promise<
 type SalesItemRow = { qty: number; lineTotal: number; product: { id: string; name: string; code: string; unit: string } | null } & UnitSnapshot & { baseQty?: number | null };
 
 /**
- * المبيعات حسب الصنف — الكمية **بالأساس**.
+ * المبيعات حسب الصنف — الكمية **بالأساس**، وصافيةٌ من المرتجع: بنود `returns` تُطرح كميةً ومبلغاً (طلب المالك
+ * ٢٩ أكتوبر ٢٠٢٦، services/netSales.ts) — صنفٌ أُرجع ولم يُبع في المدى يظهر سالباً صادقاً.
  *
  * كان يجمع `qty` خاماً، فكرتونان وثلاث حبّات من الصنف نفسه تُقرأ «٥». والجمع بالأساس
  * يعطي ٥١ حبّة، ويعرضها العارض «٢ كرتون و٣ حبة» من `units`. و`qty` يبقى في الردّ
@@ -55,23 +57,25 @@ type SalesItemRow = { qty: number; lineTotal: number; product: { id: string; nam
 export function salesByProduct(
   invoices: ReadonlyArray<{ items: ReadonlyArray<SalesItemRow> }>,
   unitsOf: ReadonlyMap<string, ReportUnit[]> = new Map(),
+  returns: ReadonlyArray<{ items: ReadonlyArray<SalesItemRow> }> = [],
 ): Array<{ productId: string | null; name: string; code: string; qty: number; baseQty: number; unit: string; units: ReportUnit[]; total: number }> {
   const byProduct: Record<string, { productId: string | null; name: string; code: string; unit: string; base: number; total: number }> = {};
-  invoices.forEach(inv => {
+  const signed = [...invoices.map((inv) => ({ inv, sign: 1 })), ...returns.map((inv) => ({ inv, sign: -1 }))];
+  signed.forEach(({ inv, sign }) => {
     inv.items.forEach(item => {
       // بندٌ بلا منتج يُجمَع تحت مفتاح واحد بدل أن يُسقِط التقرير —
       // الرقم الناقص أهون من صفحة لا تفتح.
       const ref = item.product;
       const key = ref?.id ?? 'unknown';
       if (!byProduct[key]) byProduct[key] = { productId: ref?.id ?? null, name: ref?.name ?? 'صنف محذوف', code: ref?.code ?? '—', unit: ref?.unit ?? '', base: 0, total: 0 };
-      byProduct[key].base += baseQtyOf(item);
-      byProduct[key].total += Number(item.lineTotal);
+      byProduct[key].base += sign * baseQtyOf(item);
+      byProduct[key].total += sign * Number(item.lineTotal);
     });
   });
   return Object.values(byProduct)
     .map(p => {
-      const base = roundQty(p.base);
-      return { productId: p.productId, name: p.name, code: p.code, qty: base, baseQty: base, unit: p.unit, units: (p.productId && unitsOf.get(p.productId)) || [], total: p.total };
+      const base = roundQty(p.base) || 0;
+      return { productId: p.productId, name: p.name, code: p.code, qty: base, baseQty: base, unit: p.unit, units: (p.productId && unitsOf.get(p.productId)) || [], total: cleanMoney(p.total) };
     })
     .sort((a, b) => b.total - a.total);
 }
@@ -100,12 +104,15 @@ export function returnLineView(i: {
   };
 }
 
-/** معيار «الصنف» في تقييم الأداء: الكمية المباعة لكل مندوب **بالأساس** — الترتيب قد يُبنى عليه حافز، فلا يُقارن كرتونٌ بحبّة. */
-export function productQtyByRep(rows: ReadonlyArray<{ qty: number; baseQty?: number | null; invoice: { salesRepId: string | null } } & UnitSnapshot>): Map<string, number> {
+/**
+ * معيار «الصنف» في تقييم الأداء: الكمية المباعة لكل مندوب **بالأساس** — الترتيب قد يُبنى عليه حافز، فلا يُقارن كرتونٌ بحبّة.
+ * وصافيةٌ من المرتجع: بندٌ من فاتورة إرجاع يُطرح (services/netSales.ts).
+ */
+export function productQtyByRep(rows: ReadonlyArray<{ qty: number; baseQty?: number | null; invoice: { salesRepId: string | null; type?: string | null } } & UnitSnapshot>): Map<string, number> {
   const out = new Map<string, number>();
   for (const r of rows) {
     const rep = r.invoice.salesRepId;
-    if (rep) out.set(rep, (out.get(rep) ?? 0) + baseQtyOf(r));
+    if (rep) out.set(rep, (out.get(rep) ?? 0) + (isReturnInvoice(r.invoice) ? -1 : 1) * baseQtyOf(r));
   }
   return out;
 }
@@ -255,6 +262,8 @@ export function lotSalesRows(
     },
   };
 }
+/** صفوف التجميع بعد الطرح: ضجيج الفاصلة العائمة يُنظَّف (services/netSales.ts) */
+const cleanRows = <T extends { total: number }>(rows: T[]): T[] => rows.map((r) => ({ ...r, total: cleanMoney(r.total) }));
 
 router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -282,108 +291,121 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
         }
       : { gte: new Date(Date.now() - DEFAULT_DAYS * 24 * 60 * 60 * 1000) };
 
-    const invoices = await prisma.invoice.findMany({
-      where: {
-        tenantId: tid,
-        // نطاق المستخدم: لا تدخل التقرير فاتورةٌ لعميل أو مندوب خارج نطاقه
-        ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)),
-        status: 'CONFIRMED',
-        type: { not: 'RETURN' }, // تقرير المبيعات لا يشمل المرتجعات
-        invoiceDate: dateFilter,
-        ...(salesRepId && { salesRepId }),
-        ...(customerId && { customerId }),
-        ...teamDocWhere(team),
+    // «إجمالي المبيعات» صافٍ (طلب المالك ٢٩ أكتوبر ٢٠٢٦): المرتجع المؤكَّد بالمدى والنطاق والفلاتر نفسها يُطرح من كل تجميع
+    // ومن الملخّص — كحساب العميل وتقرير المواقع والدفاتر. العدد يبقى عدد فواتير البيع، وقائمة الفواتير بلا مرتجعات
+    const baseWhere = {
+      tenantId: tid,
+      // نطاق المستخدم: لا تدخل التقرير فاتورةٌ لعميل أو مندوب خارج نطاقه
+      ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)),
+      status: 'CONFIRMED',
+      invoiceDate: dateFilter,
+      ...(salesRepId && { salesRepId }),
+      ...(customerId && { customerId }),
+      ...teamDocWhere(team),
+    };
+    const salesInclude = {
+      customer: { select: { id: true, name: true, channel: true, city: true } },
+      salesRep: { select: { id: true, name: true } },
+      team: TEAM_NAME_SELECT,
+      items: {
+        // البند كاملاً ومعه لقطة وحدته (unitName/unitFactor/baseQty) — ووحدة الصنف لبندٍ سبق الميزة بلا لقطة
+        include: { product: { select: { id: true, name: true, code: true, unit: true } } },
       },
-      include: {
-        customer: { select: { id: true, name: true, channel: true, city: true } },
-        salesRep: { select: { id: true, name: true } },
-        team: TEAM_NAME_SELECT,
-        items: {
-          // البند كاملاً ومعه لقطة وحدته (unitName/unitFactor/baseQty) — ووحدة الصنف لبندٍ سبق الميزة بلا لقطة
-          include: { product: { select: { id: true, name: true, code: true, unit: true } } },
-        },
-      },
-      orderBy: { invoiceDate: 'asc' },
-    });
+    } as const;
+    const [invoices, returns] = await Promise.all([
+      prisma.invoice.findMany({
+        where: { ...baseWhere, type: { not: 'RETURN' } }, // قائمة الفواتير فواتير بيع
+        include: salesInclude,
+        orderBy: { invoiceDate: 'asc' },
+      }),
+      prisma.invoice.findMany({ where: { ...baseWhere, type: 'RETURN' }, include: salesInclude }),
+    ]);
+    // البيع بإشارة موجبة والمرتجع سالبة — يُعدّ البيع وحده في «العدد»
+    const signed = [...invoices, ...returns].map((inv) => ({ inv, sign: isReturnInvoice(inv) ? -1 : 1 }));
 
     if (groupBy === 'product') {
-      const ids = [...new Set(invoices.flatMap(inv => inv.items.map(i => i.product?.id).filter((x): x is string => !!x)))];
-      res.json({ success: true, data: salesByProduct(invoices, await activeUnitsByProduct(tid, ids)) });
+      const ids = [...new Set([...invoices, ...returns].flatMap(inv => inv.items.map(i => i.product?.id).filter((x): x is string => !!x)))];
+      res.json({ success: true, data: salesByProduct(invoices, await activeUnitsByProduct(tid, ids), returns) });
       return;
     }
 
     if (groupBy === 'rep') {
       const byRep: Record<string, { name: string; count: number; total: number }> = {};
-      invoices.forEach(inv => {
+      signed.forEach(({ inv, sign }) => {
         // `Invoice.salesRepId` قابل للفراغ: حذفُ مندوب يُفرّغه من كل فواتيره
         // (salesReps.ts: updateMany → salesRepId: null) حفظاً للسجلّ المالي.
         // فقراءة `inv.salesRep.id` مباشرةً كانت **تُسقط التقرير بـ500** لأي
         // شركة حذفت مندوباً يوماً. مبيعاته تبقى محسوبة تحت مجموعة صريحة.
         const key = inv.salesRep?.id ?? '—';
         if (!byRep[key]) byRep[key] = { name: inv.salesRep?.name ?? 'بلا مندوب', count: 0, total: 0 };
-        byRep[key].count++;
-        byRep[key].total += Number(inv.total);
+        if (sign > 0) byRep[key].count++;
+        byRep[key].total += sign * Number(inv.total);
       });
-      res.json({ success: true, data: Object.values(byRep).sort((a, b) => b.total - a.total) });
+      res.json({ success: true, data: cleanRows(Object.values(byRep)).sort((a, b) => b.total - a.total) });
       return;
     }
 
     if (groupBy === 'customer') {
       const byCustomer: Record<string, { name: string; count: number; total: number }> = {};
-      invoices.forEach(inv => {
+      signed.forEach(({ inv, sign }) => {
         const key = inv.customer.id;
         if (!byCustomer[key]) byCustomer[key] = { name: inv.customer.name, count: 0, total: 0 };
-        byCustomer[key].count++;
-        byCustomer[key].total += Number(inv.total);
+        if (sign > 0) byCustomer[key].count++;
+        byCustomer[key].total += sign * Number(inv.total);
       });
-      res.json({ success: true, data: Object.values(byCustomer).sort((a, b) => b.total - a.total) });
+      res.json({ success: true, data: cleanRows(Object.values(byCustomer)).sort((a, b) => b.total - a.total) });
       return;
     }
 
     // تجميع حسب قناة البيع (تصنيف مؤسسي) — العملاء بلا قناة يُجمَّعون تحت "غير محدّد"
     if (groupBy === 'channel') {
       const byChannel: Record<string, { name: string; count: number; total: number }> = {};
-      invoices.forEach(inv => {
+      signed.forEach(({ inv, sign }) => {
         const key = inv.customer.channel || 'UNSET';
         if (!byChannel[key]) byChannel[key] = { name: key, count: 0, total: 0 };
-        byChannel[key].count++;
-        byChannel[key].total += Number(inv.total);
+        if (sign > 0) byChannel[key].count++;
+        byChannel[key].total += sign * Number(inv.total);
       });
-      res.json({ success: true, data: Object.values(byChannel).sort((a, b) => b.total - a.total) });
+      res.json({ success: true, data: cleanRows(Object.values(byChannel)).sort((a, b) => b.total - a.total) });
       return;
     }
 
     // تجميع حسب المنطقة الجغرافية (المدينة)
     if (groupBy === 'region') {
       const byRegion: Record<string, { name: string; count: number; total: number }> = {};
-      invoices.forEach(inv => {
+      signed.forEach(({ inv, sign }) => {
         const key = inv.customer.city || '—';
         if (!byRegion[key]) byRegion[key] = { name: key, count: 0, total: 0 };
-        byRegion[key].count++;
-        byRegion[key].total += Number(inv.total);
+        if (sign > 0) byRegion[key].count++;
+        byRegion[key].total += sign * Number(inv.total);
       });
-      res.json({ success: true, data: Object.values(byRegion).sort((a, b) => b.total - a.total) });
+      res.json({ success: true, data: cleanRows(Object.values(byRegion)).sort((a, b) => b.total - a.total) });
       return;
     }
 
     // «الفرق»: التجميع حسب الفريق — بوسم الفاتورة، ودلو «بلا فريق» للقديمة (قبل التفعيل) ولمن لم يُحسم فريقه
     if (groupBy === 'team') {
       const byTeam: Record<string, { name: string; count: number; total: number }> = {};
-      invoices.forEach(inv => {
+      signed.forEach(({ inv, sign }) => {
         const key = inv.team?.id ?? '__none';
         if (!byTeam[key]) byTeam[key] = { name: inv.team?.name ?? '', count: 0, total: 0 };
-        byTeam[key].count++;
-        byTeam[key].total += Number(inv.total);
+        if (sign > 0) byTeam[key].count++;
+        byTeam[key].total += sign * Number(inv.total);
       });
-      res.json({ success: true, data: Object.values(byTeam).sort((a, b) => b.total - a.total) });
+      res.json({ success: true, data: cleanRows(Object.values(byTeam)).sort((a, b) => b.total - a.total) });
       return;
     }
 
+    // الإجمالي والضريبة والخصم صافيةٌ من المرتجع (ضريبة المرتجع وخصمه يُعكسان معه)، والمرتجع ظاهرٌ في حقلين للشفافية
+    const sumOf = (rows: readonly { total: unknown; taxAmt: unknown; discountAmt: unknown }[], f: 'total' | 'taxAmt' | 'discountAmt') =>
+      rows.reduce((s, i) => s + Number(i[f]), 0);
     const summary = {
-      total: invoices.reduce((s, i) => s + Number(i.total), 0),
+      total: netSales(sumOf(invoices, 'total'), sumOf(returns, 'total')),
       count: invoices.length,
-      taxTotal: invoices.reduce((s, i) => s + Number(i.taxAmt), 0),
-      discountTotal: invoices.reduce((s, i) => s + Number(i.discountAmt), 0),
+      taxTotal: netSales(sumOf(invoices, 'taxAmt'), sumOf(returns, 'taxAmt')),
+      discountTotal: netSales(sumOf(invoices, 'discountAmt'), sumOf(returns, 'discountAmt')),
+      returnsTotal: cleanMoney(sumOf(returns, 'total')),
+      returnsCount: returns.length,
       // نُعلن السقف صراحةً: تقريرٌ مقصوصٌ صامتاً يُقرأ على أنه شامل، فتُبنى
       // عليه قرارات ناقصة. الواجهة تعرض التنبيه ويرفعه المستخدم بتحديد مدى.
       ...(rangeApplied ? {} : { defaultRangeDays: DEFAULT_DAYS }),
@@ -655,8 +677,9 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
         where: { tenantId: tid, isActive: true, AND: [await adminRepFilter(req), teamRepOrDocsWhere(team)] },
         select: {
           id: true, name: true,
+          // البيع والمرتجع معاً بنوعهما — المرتجع يُطرح من المبيعات والخصم (services/netSales.ts)
           invoices: {
-            where: { status: 'CONFIRMED', type: { not: 'RETURN' }, ...(dateFilter && { invoiceDate: dateFilter }), ...teamDocWhere(team), ...docScope },
+            where: { status: 'CONFIRMED', ...(dateFilter && { invoiceDate: dateFilter }), ...teamDocWhere(team), ...docScope },
             select: { total: true, discountAmt: true, type: true },
           },
           receipts: {
@@ -704,19 +727,20 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
     }
 
     const data = reps.map(r => {
-      const salesTotal = r.invoices.reduce((s, i) => s + Number(i.total), 0);
+      const salesCount = r.invoices.filter((i) => !isReturnInvoice(i)).length;
+      const salesTotal = cleanMoney(r.invoices.reduce((s, i) => s + signedAmount(i, i.total), 0));
       const collectionsTotal = r.receipts.reduce((s, rc) => s + Number(rc.amount), 0);
-      const discountTotal = r.invoices.reduce((s, i) => s + Number(i.discountAmt), 0);
+      const discountTotal = cleanMoney(r.invoices.reduce((s, i) => s + signedAmount(i, i.discountAmt), 0));
       const workMinutes = Math.round(minutesByRep.get(r.id) || 0);
       return {
         id: r.id,
         name: r.name,
-        invoicesCount: r.invoices.length,
+        invoicesCount: salesCount,
         salesTotal,
         collectionsTotal,
         discountTotal,
         collectionRate: salesTotal > 0 ? Math.round((collectionsTotal / salesTotal) * 100) : 0,
-        avgInvoice: r.invoices.length > 0 ? Math.round(salesTotal / r.invoices.length) : 0,
+        avgInvoice: salesCount > 0 ? Math.round(salesTotal / salesCount) : 0,
         workMinutes,
         workHours: Math.floor(workMinutes / 60),
         workMins: workMinutes % 60,
@@ -1046,19 +1070,21 @@ router.get('/rep-ranking', async (req: AuthRequest, res: Response, next: NextFun
     const add = (rep: string | null, v: number) => { if (rep) value.set(rep, (value.get(rep) ?? 0) + v); };
 
     if (ids.length && metric === 'sales') {
+      // صافي المبيعات: المرتجع بنوعه يُطرح (services/netSales.ts)
       const rows = await prisma.invoice.groupBy({
-        by: ['salesRepId'],
-        where: { tenantId: tid, salesRepId: { in: ids }, status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: start, lt: end }, ...teamDocWhere(team), ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) },
+        by: ['salesRepId', 'type'],
+        where: { tenantId: tid, salesRepId: { in: ids }, status: 'CONFIRMED', invoiceDate: { gte: start, lt: end }, ...teamDocWhere(team), ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) },
         _sum: { total: true },
       });
-      for (const r of rows) add(r.salesRepId, Number(r._sum.total ?? 0));
+      for (const r of rows) add(r.salesRepId, signedAmount(r, r._sum.total));
     } else if (ids.length && metric === 'product' && product) {
       const rows = await prisma.invoiceItem.findMany({
         where: {
           productId: product.id,
-          invoice: { tenantId: tid, salesRepId: { in: ids }, status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: start, lt: end }, ...teamDocWhere(team), ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) },
+          // البيع والمرتجع معاً — مرتجع الصنف يُطرح من كميته في productQtyByRep
+          invoice: { tenantId: tid, salesRepId: { in: ids }, status: 'CONFIRMED', invoiceDate: { gte: start, lt: end }, ...teamDocWhere(team), ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) },
         },
-        select: { qty: true, unitFactor: true, baseQty: true, invoice: { select: { salesRepId: true } } },
+        select: { qty: true, unitFactor: true, baseQty: true, invoice: { select: { salesRepId: true, type: true } } },
       });
       for (const [rep, v] of productQtyByRep(rows)) add(rep, v);
     } else if (ids.length && metric === 'visits') {

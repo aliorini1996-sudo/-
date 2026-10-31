@@ -8,6 +8,7 @@
  *   فلا يتراجع المؤشر حين تكتب نبضة انتهى عقدها.
  * - الحقائق بالمفتاح الأساسي لصفوف الصفحة فقط (invoice.findMany({where:{tenantId, id:{in}}})…).
  */
+import { SETTLEMENT_HAS_REP, settlementHasRep } from '../settlementRep';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { sourceEventCreateRow, factIdsForRows, type DeriveContext, type InvoiceFacts, type ReceiptFacts, type ReconciledSource, type SourceRow } from './desired';
 import type { CommitPageResult, PageQuery, ReconcileSettings, ReconcilerStore } from './reconciler';
@@ -73,10 +74,10 @@ export function createPrismaReconcilerStore(db: Db): ReconcilerStore {
             select: { id: true, customerId: true, invoiceId: true, receiptId: true, type: true, debit: true, credit: true, description: true, entryDate: true, createdAt: true },
           });
         case 'REP_SETTLEMENT':
-          return db.repSettlement.findMany({
-            where, orderBy: ORDER, take: q.limit,
+          return (await db.repSettlement.findMany({
+            where: { ...where, ...SETTLEMENT_HAS_REP }, orderBy: ORDER, take: q.limit,
             select: { id: true, salesRepId: true, amount: true, method: true, note: true, settledAt: true, createdAt: true },
-          });
+          })).filter(settlementHasRep);
         case 'SETTLEMENT_ENTRY':
           return db.settlementEntry.findMany({
             where, orderBy: ORDER, take: q.limit,
@@ -192,7 +193,7 @@ export function createPrismaReconcilerStore(db: Db): ReconcilerStore {
       const select = { id: true } as const;
       switch (source) {
         case 'ACCOUNT_ENTRY': return !!(await db.accountEntry.findFirst({ where, select }));
-        case 'REP_SETTLEMENT': return !!(await db.repSettlement.findFirst({ where, select }));
+        case 'REP_SETTLEMENT': return !!(await db.repSettlement.findFirst({ where: { ...where, ...SETTLEMENT_HAS_REP }, select }));
         case 'SETTLEMENT_ENTRY': return !!(await db.settlementEntry.findFirst({ where, select }));
       }
     },
