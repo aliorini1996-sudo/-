@@ -88,6 +88,7 @@ test('خريطة التركيب تعرف الموجّهات المتداخلة �
   assert.deepEqual([...(MOUNTS.get('/company/print-settings') ?? [])], ['printSettings']);
   assert.deepEqual([...(MOUNTS.get('/company/print-texts') ?? [])], ['printTexts']);
   assert.deepEqual([...(MOUNTS.get('/company/teams') ?? [])], ['teams']);
+  assert.deepEqual([...(MOUNTS.get('/company/buyer-relax') ?? [])], ['companyBuyerRelax']);
   assert.deepEqual([...(MOUNTS.get('/invoices') ?? [])].sort(), ['invoices', 'invoicesEinvoiceDocs']);
   assert.equal(ownerOf('/company/payment-methods')?.prefix, '/company/payment-methods', 'لا reports.ts ولا company.ts');
   assert.equal(ownerOf('/locations/reps/:salesRepId')?.prefix, '/locations');
@@ -113,13 +114,14 @@ test('كل مسار في المستند مركَّبٌ في الخادم بطر�
  */
 const COVERED_ROUTERS = [
   'locations', 'paymentMethodsConfig', 'printSettings', 'printTexts', 'attendanceAdmin', 'teams', 'reports', 'invoices', 'salesReps', 'vanStock', 'warehouse', 'receipts',
-  'repStockRequests', 'products', 'lots', 'import',
+  'repStockRequests', 'products', 'lots', 'import', 'companyBuyerRelax',
 ];
 const NOT_DOCUMENTED: Readonly<Record<string, string>> = {
   'PUT /company/teams/:id/supervisors': 'يرفض مفاتيح API دائماً بـ403 (API_KEY_FORBIDDEN بعد فحص صلاحيتي الإعدادات والمستخدمين) — نطاق مستخدمي الشركة من اللوحة وحدها، ومذكورٌ في مقدمة مجموعة الفرق',
   'GET /rep-stock-requests/mine': 'للمندوب وحده (repOnly) والمفتاح مستخدم شركة فيُرفض 403 — رفع الطلب من تطبيق المندوب، ومذكورٌ في GET /rep-stock-requests',
   'PUT /rep-stock-requests/mine': 'للمندوب وحده (repOnly) والمفتاح مستخدم شركة فيُرفض 403',
   'DELETE /rep-stock-requests/mine': 'للمندوب وحده (repOnly) والمفتاح مستخدم شركة فيُرفض 403',
+  'PATCH /company/buyer-relax': 'يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN — قرار ضريبي من لوحة التحكم بتحذيره، لمدير الشركة غير المقيّد',
 };
 
 test('كل مسار في موجّهات الميزات الحديثة موثّقٌ في المستند أو مستثنى بسبب مكتوب', () => {
@@ -1107,4 +1109,31 @@ test('D17: رسالتا PRICE_UNIT_REQUIRED وQTY_UNIT_REQUIRED المقتبست
   const qty = /export const QTY_UNIT_REQUIRED_MESSAGE = '([^']+)'/.exec(imp)![1];
   assert.ok(fieldOf(endpointOf('POST', '/import/prices'), 'rows[].unit').desc.includes(`PRICE_UNIT_REQUIRED «${price}»`));
   assert.ok(fieldOf(endpointOf('POST', '/import/opening-stock'), 'rows[].unit').desc.includes(`QTY_UNIT_REQUIRED «${qty}»`));
+});
+
+/**
+ * «فك قيد الرقم الضريبي والعنوان الوطني» (طلب المالك ٣١ أكتوبر ٢٠٢٦): القراءة موثّقة والتبديل لا (المفتاح يُرفض دائماً)، والحقل في
+ * GET /company، وكل رمزٍ يذكره المستند للميزة يرسله الخادم حرفياً — وقاعدة الإشعارات تقول إن القياسي يبقى قياسياً.
+ */
+test('فكّ القيد: GET /company/buyer-relax موثّق وPATCH مستثنى، وbuyerVatAddressRelaxed في GET /company، والرموز في الخادم', () => {
+  const ep = (method: string, p: string) => API_DOC_GROUPS.flatMap((g) => g.endpoints).find((e) => e.method === method && e.path === p);
+  const get = ep('GET', '/company/buyer-relax');
+  assert.ok(get, 'GET /company/buyer-relax غير موثّق');
+  assert.equal(get!.response, '{success:true, data:{enabled}}');
+  assert.ok(get!.gates.includes('مسموح لمفتاح القراءة فقط'));
+  assert.equal(ep('PATCH', '/company/buyer-relax'), undefined, 'التبديل موثّقٌ والمفتاح يُرفض فيه دائماً');
+  assert.match(ep('GET', '/company')!.response, /\bbuyerVatAddressRelaxed\b/);
+  const src = routeFile('companyBuyerRelax');
+  assert.match(src, /router\.patch\('\/'/);
+  for (const c of ['API_KEY_FORBIDDEN', 'BUYER_RELAX_ADMIN_ONLY', 'BUYER_RELAX_SCOPED']) assert.ok(src.includes(`'${c}'`), `companyBuyerRelax.ts لا يرسل ${c}`);
+  const all = JSON.stringify(API_DOC_GROUPS);
+  const backend = [path.join(BACKEND, 'compliance', 'zatca', 'issue.ts'), path.join(ROUTES, 'invoicesZatca.ts')].map(read).join('\n');
+  assert.ok(all.includes("code:'ZATCA_BUYER_SIMPLIFIED'") && backend.includes("'ZATCA_BUYER_SIMPLIFIED'"), 'ZATCA_BUYER_SIMPLIFIED');
+  // حفظ العميل: الصيغ الثلاث تنبيهات — في الإنشاء والتعديل ونقطة الفوترة الضيّقة، ومعها أن أخطاء المحارف والطول تبقى
+  for (const [m, p] of [['POST', '/customers'], ['PUT', '/customers/:id'], ['PATCH', '/customers/:id/buyer-data']] as const) {
+    const r = ep(m, p)!.rules.find((x) => x.includes('buyerVatAddressRelaxed'));
+    assert.ok(r && /تنبيهات في warnings لا 400/.test(r) && /المحارف والطول/.test(r), `${m} ${p}`);
+  }
+  // الإشعار على قياسية يبقى قياسياً ولو مع فكّ القيد
+  assert.ok(ep('POST', '/invoices/:id/credit-note')!.rules.some((r) => /ZATCA_BUYER_INCOMPLETE/.test(r) && /ولو فكّت الشركة القيد/.test(r)));
 });

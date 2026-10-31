@@ -16,6 +16,9 @@
 //     الضيّقة PATCH /:id/buyer-data (Q3) لمن يصدر الفواتير — حقول الفوترة وحدها، بلا مسح محفوظ، ولا مال ولا موقع ولا إسناد؛
 //     والمندوب بلا صلاحية تعديل العملاء يُكمل الفارغ من حقول Q3 وحدها (نوع العميل والمعرّف والعنوان الوطني والدولة).
 //   • القائمة: مرشّحات جديدة تُدمج في مصفوفة AND واحدة مع نطاق العملاء (نقد الخطة 22) — لا مفتاح أعلى يطغى على النطاق.
+//   • «فك قيد الرقم الضريبي والعنوان الوطني» (طلب المالك ٣١ أكتوبر ٢٠٢٦): loadBuyerGate يقرأ CompanySettings.buyerVatAddressRelaxed
+//     في استعلام البوابة نفسه، فتصير صيغ الرقم الضريبي ورقم المبنى والرمز البريدي للشركة الجامعة تنبيهات (warnings) لا 400 —
+//     في POST/PUT والاستيراد ونقطة المندوب الضيّقة. قواعد المندوب (Q3، لا مسح ولا تخفيض) والقائمة كما هي.
 // ============================================================================
 
 import { NextFunction, Response, Router } from 'express';
@@ -68,13 +71,22 @@ type BuyerRow = BuyerRowLike & { id: string; code?: string | null; phone?: strin
 
 // ─── البوابة ───
 
-/** هل تجمع الشركة بيانات الفوترة؟ استعلام واحد (Tenant + settings). */
-export async function loadBuyerCollect(db: Pick<PrismaClient, 'tenant'>, tid: string): Promise<boolean> {
+/**
+ * بوابة الكتابة في استعلام واحد (Tenant + settings): هل تجمع الشركة بيانات الفوترة؟ وهل فكّت قيد الرقم الضريبي والعنوان الوطني
+ * (طلب المالك ٣١ أكتوبر ٢٠٢٦)؟ الفكّ لا أثر له إلا للجامعة (غيرها بلا فحص أصلاً).
+ */
+export async function loadBuyerGate(db: Pick<PrismaClient, 'tenant'>, tid: string): Promise<{ collect: boolean; relaxed: boolean }> {
   const t = await db.tenant.findUnique({
     where: { id: tid },
-    select: { zatcaPhase2Enabled: true, settings: { select: { countryCode: true, zatcaPhase2StartedAt: true } } },
+    select: { zatcaPhase2Enabled: true, settings: { select: { countryCode: true, zatcaPhase2StartedAt: true, buyerVatAddressRelaxed: true } } },
   });
-  return zatcaCollectOn({ tenantFlag: t?.zatcaPhase2Enabled, settings: t?.settings ?? null });
+  const collect = zatcaCollectOn({ tenantFlag: t?.zatcaPhase2Enabled, settings: t?.settings ?? null });
+  return { collect, relaxed: collect && t?.settings?.buyerVatAddressRelaxed === true };
+}
+
+/** هل تجمع الشركة بيانات الفوترة؟ (loadBuyerGate نفسه — استعلام واحد) */
+export async function loadBuyerCollect(db: Pick<PrismaClient, 'tenant'>, tid: string): Promise<boolean> {
+  return (await loadBuyerGate(db, tid)).collect;
 }
 
 export function customerZatcaInvalidBody(errors: readonly BuyerFieldError[]): Record<string, unknown> {
@@ -117,13 +129,15 @@ export async function applyBuyerGateToWrite(
   deps: CustomerBuyerDataDeps, req: AuthRequest, tid: string, data: Record<string, unknown>, opts: { customerId: string | null; replay: boolean },
 ): Promise<BuyerGateResult> {
   if (!bodyTouchesBuyerGate(req.body)) return { ok: true, warnings: null };
-  if (!(await loadBuyerCollect(deps.db, tid))) return { ok: true, warnings: null };
+  const gate = await loadBuyerGate(deps.db, tid);
+  if (!gate.collect) return { ok: true, warnings: null };
 
   const stored = opts.customerId
     ? ((await deps.db.customer.findFirst({ where: { id: opts.customerId, tenantId: tid }, select: BUYER_ROW_SELECT })) as BuyerRow | null)
     : null;
   const { patch, errors: typeErrors } = normalizeBuyerFields(req.body);
-  const v = validateBuyerChanges(patch, stored);
+  // فكّ القيد: صيغ الرقم الضريبي والمبنى والرمز البريدي تنبيهات تعود في warnings (والرفع المؤجَّل كما هو)
+  const v = validateBuyerChanges(patch, stored, { relaxed: gate.relaxed });
   const errors = [...typeErrors, ...v.errors];
 
   const isRep = req.user?.role === 'SALES_REP';
@@ -167,12 +181,13 @@ export async function importBuyerRowsGate(
   db: Pick<PrismaClient, 'tenant'>, tid: string, rows: readonly object[],
 ): Promise<ImportBuyerRowError[]> {
   if (!rows.some(r => bodyTouchesBuyerGate(r))) return [];
-  if (!(await loadBuyerCollect(db, tid))) return [];
+  const gate = await loadBuyerGate(db, tid);
+  if (!gate.collect) return [];
   const out: ImportBuyerRowError[] = [];
   rows.forEach((r, i) => {
     if (!bodyTouchesBuyerGate(r)) return;
     const { patch, errors: typeErrors } = normalizeBuyerFields(r);
-    const errors = [...typeErrors, ...validateBuyerChanges(patch, null).errors];
+    const errors = [...typeErrors, ...validateBuyerChanges(patch, null, { relaxed: gate.relaxed }).errors];
     if (errors.length) {
       const raw = r as Record<string, unknown>;
       for (const e of errors) {
@@ -385,7 +400,8 @@ export function createCustomerBuyerDataRouter(deps: CustomerBuyerDataDeps): Rout
   router.patch('/:id/buyer-data', h(async (req, res) => {
     const tid = deps.tenantId(req);
     const id = typeof req.params.id === 'string' ? req.params.id : '';
-    if (!(await loadBuyerCollect(deps.db, tid))) { send(res, 404, 'ZATCA_BUYER_DATA_NOT_ENABLED'); return; }
+    const gate = await loadBuyerGate(deps.db, tid);
+    if (!gate.collect) { send(res, 404, 'ZATCA_BUYER_DATA_NOT_ENABLED'); return; }
     const isRep = req.user?.role === 'SALES_REP';
     let repCanEdit = false;
     if (isRep) {
@@ -408,7 +424,7 @@ export function createCustomerBuyerDataRouter(deps: CustomerBuyerDataDeps): Rout
         return;
       }
     }
-    const v = validateBuyerChanges(patch, stored);
+    const v = validateBuyerChanges(patch, stored, { relaxed: gate.relaxed });
     const errors = [...typeErrors, ...v.errors];
     if (errors.length > 0) { res.status(400).json(customerZatcaInvalidBody(errors)); return; }
 

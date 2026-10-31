@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { copyBody, readBackend, readWeb } from './copyGuard';
-import { customerBuyerStatus, normalizeBuyerFields, validateBuyerChanges } from './buyerData';
+import { buyerIssuanceDecision, customerBuyerStatus, normalizeBuyerFields, validateBuyerChanges } from './buyerData';
 
 /**
  * فوترة ZATCA (Z5.1a، D2) — حارس النسخة: web-admin/src/lib/zatca/buyerData.ts نسخة حرفية من الخادم (بعد رأس التعليق)، فتفحص
@@ -20,4 +20,15 @@ test('النسخة تعمل في الواجهة: التطبيع والفحص و�
   assert.deepEqual(patch, { addrBuildingNo: '1234', buyerType: 'BUSINESS' });
   assert.deepEqual(validateBuyerChanges({ addrPostalCode: '123' }, null).errors.map(e => e.field), ['addrPostalCode']);
   assert.equal(customerBuyerStatus({ name: 'x', channel: 'MT' }).classification, 'unclassified');
+});
+
+test('النسخة تعمل: فكّ قيد الرقم الضريبي والعنوان الوطني (طلب المالك ٣١ أكتوبر ٢٠٢٦) — الصيغة تنبيه لا خطأ، وقرار الإصدار مبسطة', () => {
+  const relaxed = validateBuyerChanges({ taxNumber: '123' }, null, { relaxed: true });
+  assert.deepEqual(relaxed.errors, []);
+  assert.deepEqual(relaxed.warnings.map(w => w.field), ['taxNumber']);
+  // بلا الخيار: الخطأ كما كان
+  assert.deepEqual(validateBuyerChanges({ taxNumber: '123' }, null).errors.map(e => e.field), ['taxNumber']);
+  const row = { name: 'مؤسسة', buyerType: 'BUSINESS', taxNumber: '123' };
+  assert.deepEqual([buyerIssuanceDecision(row, true).subtype, buyerIssuanceDecision(row, true).simplifiedByRelax], ['02', true]);
+  assert.equal(buyerIssuanceDecision(row, false).blocked, true);
 });

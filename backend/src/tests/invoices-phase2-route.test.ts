@@ -202,11 +202,15 @@ interface Rig {
   now: () => Date;
 }
 
-function buildRig(o: { environment?: string; status?: string; startedAt?: Date | null; vatNumber?: string; certNotAfter?: Date } = {}): Rig {
+function buildRig(o: { environment?: string; status?: string; startedAt?: Date | null; vatNumber?: string; certNotAfter?: Date; relaxed?: boolean } = {}): Rig {
   const keyring = createKeyring({ current: crypto.randomBytes(32) });
   const privateKey = crypto.generateKeyPairSync('ec', { namedCurve: 'secp256k1' }).privateKey;
   const cert = buildCsidCert({ subjectKey: privateKey, vatNumbers: [Z5_VAT], notBefore: CERT_NOT_BEFORE, notAfter: o.certNotAfter ?? CERT_NOT_AFTER });
-  const units = memoryEgsUnitStore({ settings: [sellerSettings({ zatcaPhase2StartedAt: o.startedAt === undefined ? LIVE_AT : o.startedAt })] });
+  const units = memoryEgsUnitStore({ settings: [sellerSettings({
+    zatcaPhase2StartedAt: o.startedAt === undefined ? LIVE_AT : o.startedAt,
+    // «فك قيد الرقم الضريبي والعنوان الوطني»: غيابه = الإعدادات قبل الميزة
+    ...(o.relaxed !== undefined && { buyerVatAddressRelaxed: o.relaxed }),
+  })] });
   const at = new Date('2026-10-01T00:00:00Z');
   const row: MemoryUnitRow = {
     id: Z5_UNIT, tenantId: Z5_TENANT, kind: 'SERVER', environment: o.environment ?? 'production', commonName: 'EGS-Z5',
@@ -947,4 +951,79 @@ test('الوحدات: تحويل وحدة أساسٍ التزم بين حلّ ا
   assert.equal(rig.sim.documents.size, 0, 'مستندٌ خُتم ببند لقطته على أساسٍ قديم');
   assert.equal(rig.sim.units.get(rig.unitRow.id)?.lastIcv ?? 0, before, 'استُهلك ICV');
   assert.ok(lockSql.some(q => /FROM products WHERE id = ANY\(\?\) AND "tenantId" = \? FOR KEY SHARE/.test(q)), lockSql.join(' | '));
+});
+
+// ═══ «فك قيد الرقم الضريبي والعنوان الوطني» (طلب المالك ٣١ أكتوبر ٢٠٢٦) ═══
+
+test('فك القيد: منشأة ناقصة ⇒ 201 مبسّطة (لا 422 ولا 202 ولا اعتماد حيّ) ومعها notice، وسطر تدقيق — وإعادة الرفع الصفّ نفسه بلا notice', async t => {
+  reset();
+  const rig = buildRig({ relaxed: true });
+  let inline = 0;
+  phase2Deps = { ...depsFor(rig), submitInline: (async () => { inline++; return { kind: 'done', status: 'CLEARED' }; }) as unknown as Phase2IssuanceDeps['submitInline'] };
+  const warn = t.mock.method(console, 'warn', () => undefined);
+  const ref = '33333333-3333-4333-8333-333333333333';
+  const customer = CUSTOMER_ROW(CUSTOMERS.b2bIncomplete as unknown as Record<string, unknown>);
+  const body = invoiceBody({ customerId: 'c-b2b-inc', clientRef: ref, type: 'CREDIT', pricesIncludeTax: false, items: [{ productId: 'p-rice', qty: 1, unitPrice: 45.5 }] });
+  scriptBase({ customer, units: [unitViewOf(rig)] });
+  const r = await call('POST', '/api/invoices', { body, headers: CAPS });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(inline, 0, 'لا اعتماد حيّ لمبسّطة');
+  const data = r.body.data as Record<string, unknown>;
+  const ein = data.einvoice as Record<string, unknown>;
+  assert.deepEqual([data.invoiceSubtype, ein.subtype, ein.typeName, ein.status, ein.printable], ['02', '02', '0200000', 'signed', true]);
+  assert.ok(typeof ein.qr === 'string' && (ein.qr as string).length > 40, 'ختمنا مفقود');
+  const notice = r.body.notice as { code: string; message: string; fields: string[] };
+  assert.equal(notice.code, 'ZATCA_BUYER_SIMPLIFIED');
+  assert.match(notice.message, /^صدرت فاتورة ضريبية مبسطة/);
+  assert.deepEqual(notice.fields, ['addrStreet', 'addrBuildingNo', 'district', 'addrPostalCode']);
+  assert.equal(rig.sim.units.get(Z5_UNIT)!.lastIcv, 1);
+  const lines = warn.mock.calls.map(c => String(c.arguments[0])).filter(l => l.includes('ZATCA_BUYER_SIMPLIFIED'));
+  assert.equal(lines.length, 1);
+  assert.deepEqual(JSON.parse(lines[0]), {
+    event: 'ZATCA_BUYER_SIMPLIFIED', tenantId: Z5_TENANT, customerId: 'c-b2b-inc', invoiceId: data.id, number: data.number, kind: 'INVOICE',
+    fields: ['addrStreet', 'addrBuildingNo', 'district', 'addrPostalCode'],
+  });
+  const xml = gunzipXml([...rig.sim.documents.values()][0].xmlGz);
+  assert.doesNotMatch(xml.slice(xml.indexOf('<cac:AccountingCustomerParty>'), xml.indexOf('</cac:AccountingCustomerParty>')), /311111111111113|PostalAddress/);
+
+  // إعادة الرفع بالـclientRef نفسه: الصفّ المحفوظ قبل أيّ قرار — لا مستند ثانٍ ولا ICV ولا notice
+  const issuedId = data.id as string;
+  scripted = {
+    'invoice.findUnique': () => ({ ...rig.invoiceRows.get(issuedId), zatcaPhase: 2 }),
+    'admin.findUnique': () => ({ scopeEnabled: false }),
+  };
+  const second = await call('POST', '/api/invoices', { body, headers: CAPS });
+  assert.equal(second.status, 200);
+  assert.equal(second.body.idempotent, true);
+  assert.equal('notice' in second.body, false);
+  assert.equal(rig.sim.documents.size, 1);
+  assert.equal(rig.sim.units.get(Z5_UNIT)!.lastIcv, 1);
+});
+
+test('فك القيد مطفأ (غائب أو false): منشأة ناقصة ⇒ 422 ZATCA_BUYER_INCOMPLETE كما كان، بلا ICV ولا notice', async () => {
+  for (const relaxed of [undefined, false]) {
+    reset();
+    const rig = buildRig({ relaxed });
+    const r = await issue(rig, {
+      customer: CUSTOMER_ROW(CUSTOMERS.b2bIncomplete as unknown as Record<string, unknown>),
+      body: invoiceBody({ customerId: 'c-b2b-inc', type: 'CREDIT', pricesIncludeTax: false, items: [{ productId: 'p-rice', qty: 1, unitPrice: 45.5 }] }),
+    });
+    assert.equal(r.status, 422, JSON.stringify(r.body));
+    assert.equal(r.body.code, 'ZATCA_BUYER_INCOMPLETE');
+    assert.match(String(r.body.message), /^بيانات العميل \(منشأة\) ناقصة للفاتورة الضريبية: /);
+    assert.equal('notice' in r.body, false);
+    assert.equal(rig.sim.units.get(Z5_UNIT)!.lastIcv, 0);
+  }
+});
+
+test('فك القيد مفعّل لا يمسّ المكتملة: منشأة مكتملة ⇒ 202 قياسية كما كانت بلا notice', async () => {
+  reset();
+  const rig = buildRig({ relaxed: true });
+  const r = await issue(rig, {
+    customer: CUSTOMER_ROW(CUSTOMERS.b2bComplete as unknown as Record<string, unknown>),
+    body: invoiceBody({ customerId: 'c-b2b', type: 'CREDIT', pricesIncludeTax: false, items: [{ productId: 'p-rice', qty: 10, unitPrice: 45.5, discountPct: 10, taxPct: 15 }] }),
+  });
+  assert.equal(r.status, 202, JSON.stringify(r.body));
+  assert.equal(((r.body.data as Record<string, unknown>).einvoice as Record<string, unknown>).subtype, '01');
+  assert.equal('notice' in r.body, false);
 });

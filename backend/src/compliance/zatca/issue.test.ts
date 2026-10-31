@@ -9,18 +9,20 @@ import fs from 'fs';
 import path from 'path';
 import { computeInvoiceTotals } from '../../lib/invoiceCalc';
 import { computeUblAmountsDetailed } from './amounts';
-import { customerBuyerStatus } from './buyerData';
+import { customerBuyerStatus, missingBuyerFormFields } from './buyerData';
 import { INITIAL_PIH } from './crypto';
 import { parseAmount } from './decimal';
 import { DocumentBytesError } from './documentStore';
-import { ZatcaHttpError, toZatcaHttpError } from './errors';
+import { ZatcaHttpError, buyerIncompleteError, toZatcaHttpError } from './errors';
 import {
-  PHASE2_UNIT_CODE, PLACEHOLDER_INVOICE_NUMBER, amountsFingerprintOf, buildInvoiceSource, classifyIssuanceUniqueViolation, currencyAllowed, effectiveIssuanceCurrency,
+  PHASE2_UNIT_CODE, PLACEHOLDER_INVOICE_NUMBER, ZATCA_BUYER_SIMPLIFIED, amountsFingerprintOf, buildInvoiceSource, buyerRelaxedOf, buyerSimplifiedAuditLine,
+  buyerSimplifiedNotice, issuanceSubtypeDecision, classifyIssuanceUniqueViolation, currencyAllowed, effectiveIssuanceCurrency,
   issuanceHttpError, issuanceSubtype, mapAndCheck, nextNumberAfter, phase2InvoiceColumns, phase2ItemColumns, phase2NumberPrefix, phase2UnitCode, prepareIssuance,
   signedInvoiceMirror, snapshotOf, storedAmounts, supplyDateIssues, supplyDateLowerBound, type EngineTotals, type IssuanceCustomer, type IssuanceRequest,
   type PrepareIssuanceInput,
 } from './issue';
 import { mapInvoiceToUbl } from './mapInvoice';
+import { preflightIssues } from './preflight';
 import { serializeUnsigned } from './ubl';
 import { SIMPLIFIED_INVOICE, STANDARD_INVOICE, chainFor } from './__fixtures__/z1-sources';
 import {
@@ -505,4 +507,134 @@ test('وحدات Z5.2 نقيّة: لا قاعدة بيانات وقت التشغ
     assert.doesNotMatch(src, /config\/database|services\/gl|process\.env|fetch\(|from ['"]fs['"]|require\(['"]fs['"]|FatooraClient|\.report\(|\.clear\(/, f);
     assert.doesNotMatch(src, /^import (?!type )[^;]*from '@prisma\/client'/m, `${f}: @prisma/client يُستورد نوعياً فقط`);
   }
+});
+
+// ─── «فك قيد الرقم الضريبي والعنوان الوطني» (طلب المالك ٣١ أكتوبر ٢٠٢٦) ───
+
+const RELAXED = sellerSettings({ buyerVatAddressRelaxed: true });
+const BAD_VAT_FULL_ADDRESS = {
+  id: 'c-badvat', name: 'أبو سعد', businessName: 'مؤسسة الرقم الخاطئ', taxNumber: '3123', buyerType: 'BUSINESS', addrStreet: 'شارع الملك فهد',
+  addrBuildingNo: '7788', addrPostalCode: '31952', district: 'الروضة', city: 'الدمام', countryCode: 'SA',
+} as IssuanceCustomer;
+const LEGACY_BAD_OTHER_ID = { id: 'c-legacy', name: 'فرد قديم', buyerType: 'INDIVIDUAL', buyerIdScheme: 'XYZ', buyerIdValue: 'a b' } as IssuanceCustomer;
+
+/** حجب D2 كما كان يُبنى قبل الميزة حرفياً (issue.ts في master 331d670). */
+function legacyIncompleteBody(c: IssuanceCustomer) {
+  const st = customerBuyerStatus(c);
+  const base = buyerIncompleteError(c.id, st.issues.filter(i => i.severity === 'error'));
+  return new ZatcaHttpError('ZATCA_BUYER_INCOMPLETE', { messageAr: base.messageAr, issues: base.issues, customerId: c.id, data: { fields: missingBuyerFormFields(st) } }).body();
+}
+
+test('فك القيد: منشأة ناقصة ⇒ مبسطة 02 (0200000) بطرفٍ بالاسم وحده، وإعلام ZATCA_BUYER_SIMPLIFIED بالحقول، ويتجاهل تاريخ التوريد — وبلا فكّه 422', () => {
+  const off = httpError(() => prepareIssuance(input({ customer: CUSTOMERS.b2bIncomplete, request: REQ_STANDARD_Z1, engine: engineOf(REQ_STANDARD_Z1) })));
+  assert.equal(off.code, 'ZATCA_BUYER_INCOMPLETE');
+  const p = prepareIssuance(input({ settings: RELAXED, customer: CUSTOMERS.b2bIncomplete, request: REQ_STANDARD_Z1, engine: engineOf(REQ_STANDARD_Z1) }));
+  assert.deepEqual([p.subtype, p.typeName, p.typeCode, p.stampKind, p.buyerSimplified], ['02', '0200000', '388', 'simplified', true]);
+  assert.equal(p.buyerNotice?.code, ZATCA_BUYER_SIMPLIFIED);
+  assert.equal(p.buyerNotice?.code, 'ZATCA_BUYER_SIMPLIFIED');
+  assert.deepEqual(p.buyerNotice?.fields, missingBuyerFormFields(customerBuyerStatus(CUSTOMERS.b2bIncomplete)));
+  assert.ok((p.buyerNotice?.fields.length ?? 0) > 0);
+  assert.match(p.buyerNotice!.message, /^صدرت فاتورة ضريبية مبسطة لأن بيانات العميل لا تكفي للفاتورة الضريبية .*\. الناقص: اسم الشارع، /);
+  const doc = mapInvoiceToUbl(p.src, chainFor(1));
+  assert.deepEqual(doc.customer, { registrationName: 'أسواق الحي' }, 'بلا رقم ضريبي ولا عنوان ولا معرّف');
+  assert.deepEqual(preflightIssues(doc, 'simplified').filter(i => i.severity === 'error'), []);
+  // تاريخ التوريد الذي طلبه المدير لا يدخل المبسّطة
+  assert.equal(p.src.supplyDate, null);
+  assert.equal(doc.supplyDate ?? doc.issueDate, doc.issueDate);
+  // مصدر المشتري متّسق: لا رقم ضريبي ولا سجل ولا نوع ولا عنوان
+  assert.equal(p.src.buyer.taxNumber, null);
+  assert.equal(p.src.buyer.addrStreet, null);
+  assert.equal(p.src.buyer.buyerType, null);
+});
+
+test('فك القيد لا يغيّر المبالغ ولا الضريبة: بصمة المبالغ والمخزَّن وضريبة كل بند = الفاتورة نفسها لعميل مكتمل (01)', () => {
+  for (const request of [REQ_STANDARD_Z1, REQ_SIMPLIFIED_Z1, REQ_TWO_BUCKETS_002, REQ_INCLUSIVE_2595]) {
+    const std = prepareIssuance(input({ customer: CUSTOMERS.b2bComplete, request, engine: engineOf(request) }));
+    const down = prepareIssuance(input({ settings: RELAXED, customer: CUSTOMERS.b2bIncomplete, request, engine: engineOf(request) }));
+    assert.equal(std.subtype, '01');
+    assert.equal(down.subtype, '02');
+    assert.equal(down.amountsFingerprint, std.amountsFingerprint);
+    assert.deepEqual(down.amounts, std.amounts);
+    assert.deepEqual(down.items.map(i => i.taxAmt), std.items.map(i => i.taxAmt));
+  }
+});
+
+test('فك القيد مطفأ (غائب أو false أو null): 422 ZATCA_BUYER_INCOMPLETE بجسم ما قبل الميزة حرفياً', () => {
+  for (const settings of [sellerSettings(), sellerSettings({ buyerVatAddressRelaxed: false }), sellerSettings({ buyerVatAddressRelaxed: null })]) {
+    for (const c of [CUSTOMERS.b2bIncomplete, CUSTOMERS.crOnlyIncomplete, BAD_VAT_FULL_ADDRESS]) {
+      const e = httpError(() => prepareIssuance(input({ settings, customer: c })));
+      assert.deepEqual(e.body(), legacyIncompleteBody(c));
+      assert.equal(e.status, 422);
+    }
+  }
+});
+
+test('فك القيد: رقم ضريبي خاطئ بعنوان كامل ⇒ مبسطة بلا الرقم في المستند؛ واسم أطول من 1000 ⇒ 422 كما كان', () => {
+  const p = prepareIssuance(input({ settings: RELAXED, customer: BAD_VAT_FULL_ADDRESS }));
+  assert.equal(p.subtype, '02');
+  assert.deepEqual(p.buyerNotice?.fields, ['taxNumber']);
+  const doc = mapInvoiceToUbl(p.src, chainFor(1));
+  assert.equal(doc.customer?.vatNumber, undefined);
+  assert.equal(doc.customer?.address, undefined);
+  const long = { ...CUSTOMERS.b2bIncomplete, businessName: 'م'.repeat(1001) } as IssuanceCustomer;
+  const e = httpError(() => prepareIssuance(input({ settings: RELAXED, customer: long })));
+  assert.equal(e.code, 'ZATCA_BUYER_INCOMPLETE');
+  assert.deepEqual(e.body(), legacyIncompleteBody(long));
+});
+
+test('فك القيد مفعّل لا يمسّ المكتمل ولا المبسّطة الصحيحة: deepEqual مع المطفأ وبلا مفتاحي buyerSimplified/buyerNotice', () => {
+  const cases: Array<[IssuanceCustomer, IssuanceRequest]> = [
+    [CUSTOMERS.b2bComplete, REQ_STANDARD_Z1], [CUSTOMERS.b2bArabicDigits, REQ_STANDARD_Z1], [CUSTOMERS.government, REQ_STANDARD_Z1],
+    [CUSTOMERS.individual, REQ_SIMPLIFIED_Z1], [CUSTOMERS.individualWithVat, REQ_SIMPLIFIED_Z1], [CUSTOMERS.unclassifiedChannel, REQ_SIMPLIFIED_Z1],
+    [CUSTOMERS.unclassifiedBusinessId, REQ_SIMPLIFIED_Z1],
+  ];
+  for (const [customer, request] of cases) {
+    const off = prepareIssuance(input({ customer, request, engine: engineOf(request) }));
+    const on = prepareIssuance(input({ settings: RELAXED, customer, request, engine: engineOf(request) }));
+    assert.deepEqual(on, off, customer.id);
+    assert.equal('buyerSimplified' in on, false);
+    assert.equal('buyerNotice' in on, false);
+  }
+});
+
+test('فك القيد: مبسّطة طبيعية بمعرّفٍ قديم خاطئ تصدر بلا المعرّف (مطفأ: 422 ZATCA_PREFLIGHT كما كان)', () => {
+  const off = httpError(() => prepareIssuance(input({ customer: LEGACY_BAD_OTHER_ID })));
+  assert.equal(off.code, 'ZATCA_PREFLIGHT');
+  const on = prepareIssuance(input({ settings: RELAXED, customer: LEGACY_BAD_OTHER_ID }));
+  assert.equal(on.subtype, '02');
+  assert.equal('buyerNotice' in on, false, 'ليست منشأة خُفّضت');
+  assert.deepEqual(mapInvoiceToUbl(on.src, chainFor(1)).customer, { registrationName: 'فرد قديم' });
+});
+
+test('issuanceSubtypeDecision مطفأ = issuanceSubtype + حجب D2 على كل التجهيزات، للفاتورة وللإشعار على أصلٍ 01/02', () => {
+  const all = [...Object.values(CUSTOMERS), BAD_VAT_FULL_ADDRESS, LEGACY_BAD_OTHER_ID] as IssuanceCustomer[];
+  const note = (originalSubtype: '01' | '02') => ({ originalNumber: 'INV-1', originalSubtype, originalPaymentType: 'CASH', reason: 'إرجاع' });
+  const kinds = [['INVOICE', null], ['CREDIT_NOTE', note('01')], ['CREDIT_NOTE', note('02')], ['DEBIT_NOTE', note('01')]] as const;
+  for (const c of all) {
+    for (const [kind, n] of kinds) {
+      const d = issuanceSubtypeDecision(c, kind, n, false);
+      assert.equal(d.subtype, issuanceSubtype(c, kind, n), c.id + ' ' + kind);
+      assert.equal(d.blocked, d.subtype === '01' && !customerBuyerStatus(c).complete);
+      assert.equal(d.buyerSimplified, false);
+    }
+  }
+  // الإشعار يرث نوع أصله ولو فُكّ القيد: على 01 لعميلٍ ناقص ⇒ محجوب بسبب «يتبع أصله»
+  const d = issuanceSubtypeDecision(CUSTOMERS.b2bIncomplete, 'CREDIT_NOTE', note('01'), true);
+  assert.deepEqual([d.subtype, d.blocked, d.noteOnStandard, d.buyerSimplified], ['01', true, true, false]);
+  // أصلٌ من المرحلة الأولى (النوع من التصنيف): الحجب برسالته العادية
+  const classified = issuanceSubtypeDecision(CUSTOMERS.b2bIncomplete, 'CREDIT_NOTE', { ...note('01'), originalClassified: true as const }, true);
+  assert.deepEqual([classified.blocked, classified.noteOnStandard], [true, false]);
+  assert.equal(buyerRelaxedOf(null), false);
+  assert.equal(buyerRelaxedOf({ buyerVatAddressRelaxed: null }), false);
+  assert.equal(buyerRelaxedOf({ buyerVatAddressRelaxed: true }), true);
+});
+
+test('إعلام التبسيط وسطر تدقيقه: نصّ الفاتورة والإشعار، وأسماء الحقول المعروفة وحدها بلا قيم', () => {
+  const inv = buyerSimplifiedNotice('INVOICE', ['taxNumber', 'addrBuildingNo']);
+  assert.deepEqual(inv.fields, ['taxNumber', 'addrBuildingNo']);
+  assert.match(inv.message, /^صدرت فاتورة ضريبية مبسطة .*\. الناقص: الرقم الضريبي، رقم المبنى$/);
+  assert.match(buyerSimplifiedNotice('CREDIT_NOTE', []).message, /^صدر الإشعار مبسطاً لأن /);
+  assert.doesNotMatch(buyerSimplifiedNotice('CREDIT_NOTE', []).message, /الناقص/);
+  const line = JSON.parse(buyerSimplifiedAuditLine({ tenantId: 't1', customerId: 'c1', invoiceId: 'i1', number: 'INV-2611-000001', fields: ['taxNumber', 'evil<script>'] }));
+  assert.deepEqual(line, { event: 'ZATCA_BUYER_SIMPLIFIED', tenantId: 't1', customerId: 'c1', invoiceId: 'i1', number: 'INV-2611-000001', kind: 'INVOICE', fields: ['taxNumber'] });
 });

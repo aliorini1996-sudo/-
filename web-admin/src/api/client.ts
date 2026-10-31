@@ -296,6 +296,13 @@ export const companyApi = {
     get: () => api.get('/company/payment-methods'),
     put: (data: PaymentMethodsConfigInput | null) => api.put('/company/payment-methods', data ?? { reset: true }),
   },
+  // «فك قيد الرقم الضريبي والعنوان الوطني» (طلب المالك ٣١ أكتوبر ٢٠٢٦) — /api/company/buyer-relax: القراءة لكل مستخدم شركة
+  // ({ enabled })، والتبديل لمدير الشركة غير المقيّد وحده (403 BUYER_RELAX_ADMIN_ONLY / BUYER_RELAX_SCOPED، والمفتاح 403 دائماً،
+  // و409 COMPANY_SETTINGS_MISSING بلا صفّ إعدادات). والقيمة نفسها تصل في GET /company باسم buyerVatAddressRelaxed
+  buyerRelax: {
+    get: () => api.get('/company/buyer-relax'),
+    set: (enabled: boolean) => api.patch('/company/buyer-relax', { enabled }),
+  },
 };
 
 // ربط فوترة ZATCA المرحلة الثانية (تبويب إعدادات الشركة) — OTP يُرسل في جسم الربط/التجديد وحدهما ولا يُحفظ في الواجهة

@@ -10,7 +10,7 @@ import { previewInstallments, defaultFirstDue, MAX_INSTALLMENTS, type Installmen
 import DecimalInput from '../DecimalInput';
 import { InvoiceDoc, Company } from '../../rep/RepDocuments';
 import { zatcaDocView } from '../../lib/zatca/docStatus';
-import { zatcaIssueOutcome } from '../../lib/zatca/issueOutcome';
+import { buyerNoticeOf, buyerNoticeText, zatcaIssueOutcome } from '../../lib/zatca/issueOutcome';
 import { zatcaRegimeOf } from '../../lib/zatcaRegime';
 import {
   RETURN_REASONS, type ReturnReason, type ReturnableSaleRow, type LinkedSale, type ReturnHead,
@@ -271,6 +271,9 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
           zatca: zatcaDocView(inv),
         };
         toast.success(tr('تم إنشاء المرتجع'));
+        // فكّ القيد (طلب المالك ٣١ أكتوبر ٢٠٢٦): صدر الإشعار مبسطاً لعميلٍ ناقص البيانات — يُقال ولا يُطبع
+        const retNotice = buyerNoticeOf(res.data, 'note');
+        if (retNotice) toast(buyerNoticeText(retNotice, tr), { duration: 10000 });
         onSaved(retDoc);
         return;
       }
@@ -293,6 +296,9 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
         zatca: zatcaDocView(inv),
       };
       toast.success(tr('تم إنشاء الفاتورة'));
+      // فكّ القيد (طلب المالك ٣١ أكتوبر ٢٠٢٦): منشأة ناقصة البيانات صدرت لها مبسطة لا ضريبية — يُقال ولا يُطبع
+      const notice = buyerNoticeOf(res.data);
+      if (notice) toast(buyerNoticeText(notice, tr), { duration: 10000 });
       onSaved(doc);
     },
     onError: (err: unknown, vars) => {

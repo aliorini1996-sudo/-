@@ -376,3 +376,19 @@ test('قوالب الرسم النقطيّ بلا تباعد حروف (التص�
     assert.doesNotMatch(read(f), /letterSpacing|letter-spacing/i, `${f}: تباعد حروف في قالب طباعة`);
   }
 });
+
+test('فكّ القيد (طلب المالك ٣١ أكتوبر ٢٠٢٦): إشعار «صدرت مبسطة» لا يقرؤه أيّ قالب طباعة — شاشة النتيجة وحدها', () => {
+  const s = read('rep/RepDocuments.tsx');
+  const a4 = s.slice(s.indexOf('export const PrintableInvoice = forwardRef'), s.indexOf("PrintableInvoice.displayName = 'PrintableInvoice';"));
+  assert.ok(a4.length > 1000, 'قالب A4 لم يُقتطع');
+  assert.ok(!a4.includes('buyerNotice'), 'قالب A4 يقرأ buyerNotice');
+  // شاشة النتيجة تقرؤه مرّة واحدة خارج المعاينة
+  const result = s.slice(s.indexOf('export function DocumentResult('));
+  assert.equal(result.split('doc.buyerNotice').length - 1, 2, 'الشرط والنصّ في شاشة النتيجة');
+  const callers = walk(SRC)
+    .filter(f => fs.readFileSync(f, 'utf8').includes('buyerNotice'))
+    .map(f => path.relative(SRC, f).replace(/\\/g, '/'))
+    .sort();
+  // الحراري (thermal/thermalHtml) والطباعة المباشرة (lib/print) لا تذكره أبداً
+  assert.deepEqual(callers, ['components/forms/InvoiceModal.tsx', 'lib/zatca/issueOutcome.ts', 'm/MInvoiceCreate.tsx', 'rep/RepApp.tsx', 'rep/RepDocuments.tsx']);
+});

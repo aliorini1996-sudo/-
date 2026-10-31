@@ -20,6 +20,8 @@ export interface ZatcaCompanyLike {
   zatcaPhase2Enabled?: boolean | null;
   zatcaPhase2StartedAt?: string | Date | null;
   zatcaRegime?: unknown;
+  /** «فك قيد الرقم الضريبي والعنوان الوطني» (CompanySettings.buyerVatAddressRelaxed) — يضبطه مدير الشركة؛ غيابه = القيد قائم */
+  buyerVatAddressRelaxed?: boolean | null;
 }
 
 const BLOCKED_RE = /^[A-Z_]{1,40}$/;
@@ -33,6 +35,14 @@ export function isZatcaPhase2Live(company: ZatcaCompanyLike | null | undefined):
 /** جمع بيانات المشتري وإظهار أقسامها: (العلم === true || مفعّلة) && SA. */
 export function zatcaCollectOn(company: ZatcaCompanyLike | null | undefined): boolean {
   return (company?.zatcaPhase2Enabled === true || isZatcaPhase2Live(company)) && company?.countryCode === 'SA';
+}
+
+/**
+ * طلب المالك ٣١ أكتوبر ٢٠٢٦: فكّ قيد الرقم الضريبي والعنوان الوطني — مفعّل للشركة الجامعة وحدها (=== true لا !== false):
+ * صيغ الرقم الضريبي ورقم المبنى والرمز البريدي تنبيهات لا تمنع الحفظ، والمنشأة الناقصة تصدر لها فاتورة مبسطة. غير الجامعة كما اليوم.
+ */
+export function buyerRelaxOn(company: ZatcaCompanyLike | null | undefined): boolean {
+  return zatcaCollectOn(company) && company?.buyerVatAddressRelaxed === true;
 }
 
 function parseServerRegime(raw: unknown): ZatcaRegimeView | null {

@@ -6,7 +6,7 @@ import { SALES_CHANNELS } from '../../lib/channels';
 import { X, MapPin } from 'lucide-react';
 import BuyerDataFields from '../BuyerDataFields';
 import { BUYER_BILLING_FIELDS, BUYER_PHASE2_FIELDS, BuyerField, BuyerRowLike } from '../../lib/zatca/buyerData';
-import { BuyerFormValues, buyerFormCheck, buyerFormValues } from '../../lib/zatca/buyerForm';
+import { BuyerFormValues, buyerFormCheck, buyerFormValues, buyerRelaxWarnings } from '../../lib/zatca/buyerForm';
 
 // locationUrl حقل إدخال فقط (يحلّه الخادم إلى lat/lng) — ليس حقلاً مخزّناً
 type CustomerForm = Partial<Customer> & { locationUrl?: string };
@@ -20,13 +20,15 @@ interface Props {
   accountingOn?: boolean;
   /** فوترة ZATCA (Z5.1a، D2): الشركة تجمع بيانات الفوترة؟ (zatcaCollectOn) — false ⇒ النموذج كما اليوم بلا قسم ولا فحص */
   zatcaCollect?: boolean;
+  /** فكّ قيد الرقم الضريبي والعنوان الوطني (buyerRelaxOn — طلب المالك ٣١ أكتوبر ٢٠٢٦): صيغها تنبيهات لا تمنع الحفظ. غيابه = القيد قائم */
+  buyerRelax?: boolean;
 }
 
 /** حقول المرحلة الثانية من الحالة المحكومة (الرقم الضريبي والسجل والمدينة والحي والاسم من حقول النموذج المسجّلة). */
 const pickPhase2 = (b: BuyerFormValues): Partial<BuyerFormValues> =>
   Object.fromEntries(BUYER_PHASE2_FIELDS.map(f => [f, b[f]])) as Partial<BuyerFormValues>;
 
-export default function CustomerModal({ customer, onClose, onSave, loading, accountingOn = true, zatcaCollect = false }: Props) {
+export default function CustomerModal({ customer, onClose, onSave, loading, accountingOn = true, buyerRelax = false, zatcaCollect = false }: Props) {
   const tr = useTr();
   const { register, handleSubmit, watch, formState: { errors } } = useForm<CustomerForm>({
     defaultValues: customer || { status: 'ACTIVE', creditLimit: 0, paymentDays: 30 },
@@ -40,7 +42,7 @@ export default function CustomerModal({ customer, onClose, onSave, loading, acco
   const submit = (data: CustomerForm) => {
     if (!zatcaCollect) { onSave(data); return; }
     const values = { ...buyerFormValues(data as BuyerRowLike), ...pickPhase2(buyer) };
-    const check = buyerFormCheck(values, customer as BuyerRowLike | null, BUYER_BILLING_FIELDS);
+    const check = buyerFormCheck(values, customer as BuyerRowLike | null, BUYER_BILLING_FIELDS, { relaxed: buyerRelax });
     setBuyerErrors(check.errors);
     if (!check.ok) return;
     onSave({ ...data, ...pickPhase2(buyer) } as CustomerForm);
@@ -137,6 +139,10 @@ export default function CustomerModal({ customer, onClose, onSave, loading, acco
               stored={customer as BuyerRowLike | null}
               errors={buyerErrors}
               onChange={(f, v) => setBuyer(b => ({ ...b, [f]: v }))}
+              {...(buyerRelax && {
+                relaxed: true,
+                warnings: buyerRelaxWarnings({ ...buyerFormValues(watched as BuyerRowLike), ...pickPhase2(buyer) }, customer as BuyerRowLike | null),
+              })}
             />
           )}
 

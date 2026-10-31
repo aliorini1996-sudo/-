@@ -2,11 +2,15 @@
  * فوترة ZATCA المرحلة الثانية (Z5.1a، D2) — أدوات نماذج بيانات المشتري في الواجهة (بلا React): القيم النصّية للنموذج، الحمولة
  * (للإنشاء: غير الفارغ فقط؛ للتعديل: المتغيّر فقط — والمُفرَّغ null)، الفحص قبل الإرسال بقواعد الخادم نفسها (buyerData.ts نسخة
  * حرفية)، والحالة الحيّة للعرض. تُستعمل في لوحة الإدارة و/m وتطبيق المندوب — وكلها لا تظهر إلا حين zatcaCollectOn(company).
+ *
+ * طلب المالك ٣١ أكتوبر ٢٠٢٦: فكّ قيد الرقم الضريبي والعنوان الوطني (buyerRelaxOn) — الفحص بـ{ relaxed: true } يحوّل أخطاء صيغ
+ * الرقم الضريبي ورقم المبنى والرمز البريدي إلى تنبيهات لا تمنع الحفظ، والشارة تقول «ناقصة تصدر مبسطة». بلا الخيار: كما اليوم حرفياً.
  */
 import { BUYER_ID_SCHEMES } from './validators';
 import {
-  BUYER_BILLING_FIELDS, BUYER_FIELD_LABELS_AR, BUYER_PHASE2_FIELDS, BUYER_REP_COMPLETE_FIELDS, BuyerField, BuyerFieldError, BuyerPatch, BuyerRowLike,
-  BuyerStatus, buyerFieldValue, clearedBuyerFields, customerBuyerStatus, normalizeBuyerFields, validateBuyerChanges,
+  BUYER_BILLING_FIELDS, BUYER_FIELD_LABELS_AR, BUYER_PHASE2_FIELDS, BUYER_RELAXABLE_FIELDS, BUYER_REP_COMPLETE_FIELDS, BuyerField, BuyerFieldError,
+  BuyerPatch, BuyerRowLike, BuyerStatus, buyerFieldValue, buyerIssuanceDecision, clearedBuyerFields, customerBuyerStatus, normalizeBuyerFields,
+  validateBuyerChanges,
 } from './buyerData';
 
 export type BuyerFormValues = Record<BuyerField, string>;
@@ -86,23 +90,48 @@ export interface BuyerFormCheck {
   ok: boolean;
 }
 
-/** الفحص قبل الإرسال — القواعد نفسها في الخادم (المتغيّر وحده؛ النقص لا يمنع). */
-export function buyerFormCheck(values: Partial<BuyerFormValues>, stored: BuyerRowLike | null | undefined, fields: readonly BuyerField[] = BUYER_PHASE2_FIELDS): BuyerFormCheck {
+/**
+ * الفحص قبل الإرسال — القواعد نفسها في الخادم (المتغيّر وحده؛ النقص لا يمنع). opts.relaxed (= buyerRelaxOn(company)): ما يفكّه
+ * القيد يصل في warnings فيبقى ok صادقاً؛ غيابه أو false = فحص اليوم حرفياً.
+ */
+export function buyerFormCheck(values: Partial<BuyerFormValues>, stored: BuyerRowLike | null | undefined, fields: readonly BuyerField[] = BUYER_PHASE2_FIELDS, opts: { relaxed?: boolean } = {}): BuyerFormCheck {
   const body: Record<string, string> = {};
   for (const f of fields) if (values[f] !== undefined) body[f] = values[f] as string;
   const { patch, errors: typeErrors } = normalizeBuyerFields(body, fields);
-  const v = validateBuyerChanges(patch, stored ?? null);
+  const v = validateBuyerChanges(patch, stored ?? null, { relaxed: opts.relaxed === true });
   const errors: Partial<Record<BuyerField, string>> = {};
   for (const e of [...typeErrors, ...v.errors]) if (!errors[e.field]) errors[e.field] = e.messageAr;
   const cleared = stored ? clearedBuyerFields(stored, patch) : [];
   return { patch, errors, warnings: v.warnings, cleared, ok: Object.keys(errors).length === 0 };
 }
 
-/** حالة العميل كما ستُحفظ (قيم النموذج فوق المحفوظ) — للعرض الحيّ في النموذج. */
-export function liveBuyerStatus(stored: BuyerRowLike | null | undefined, values: Partial<Record<BuyerField | 'name' | 'channel', string>>): BuyerStatus {
+/** صفّ العميل كما سيُحفظ (قيم النموذج فوق المحفوظ). */
+export function liveBuyerRow(stored: BuyerRowLike | null | undefined, values: Partial<Record<BuyerField | 'name' | 'channel', string>>): BuyerRowLike {
   const row: BuyerRowLike = { ...(stored ?? {}) };
   for (const [k, v] of Object.entries(values)) if (typeof v === 'string') (row as Record<string, string | null>)[k] = v;
-  return customerBuyerStatus(row);
+  return row;
+}
+
+/** حالة العميل كما ستُحفظ (قيم النموذج فوق المحفوظ) — للعرض الحيّ في النموذج. */
+export function liveBuyerStatus(stored: BuyerRowLike | null | undefined, values: Partial<Record<BuyerField | 'name' | 'channel', string>>): BuyerStatus {
+  return customerBuyerStatus(liveBuyerRow(stored, values));
+}
+
+/**
+ * فكّ القيد: منشأة (01) ناقصة تصدر لها الآن فاتورة مبسطة (02) — القرار نفسه الذي يتّخذه الإصدار في الخادم (buyerIssuanceDecision
+ * بنسخته الحرفية). للشركة التي فكّت القيد وحدها؛ ولغيرها لا يُسأل.
+ */
+export function buyerRelaxSimplified(row: BuyerRowLike): boolean {
+  return buyerIssuanceDecision(row, true).simplifiedByRelax;
+}
+
+/**
+ * تنبيهات فكّ القيد الحيّة في النموذج: ما صار تنبيهاً من صيغ الرقم الضريبي ورقم المبنى والرمز البريدي (BUYER_RELAXABLE_FIELDS) —
+ * لا تنبيهات التصنيف القائمة اليوم (لا تُعرض في النموذج اليوم ولا تتغيّر). للشركة التي فكّت القيد وحدها.
+ */
+export function buyerRelaxWarnings(values: Partial<BuyerFormValues>, stored: BuyerRowLike | null | undefined): BuyerFieldError[] {
+  return buyerFormCheck(values, stored, BUYER_BILLING_FIELDS, { relaxed: true }).warnings
+    .filter(w => (BUYER_RELAXABLE_FIELDS as readonly string[]).includes(w.field));
 }
 
 /**
@@ -113,8 +142,12 @@ export function repCompleteLocked(stored: BuyerRowLike | null | undefined, field
   return !(BUYER_REP_COMPLETE_FIELDS as readonly string[]).includes(field) || buyerFieldValue(field, stored?.[field] ?? null) !== null;
 }
 
-/** شارة القائمة: ناقص لضريبية، أو غير مصنّف، أو لا شيء. */
-export function buyerBadge(row: BuyerRowLike): 'incomplete' | 'unclassified' | null {
+/**
+ * شارة القائمة: ناقص لضريبية، أو غير مصنّف، أو لا شيء. relaxed (فكّ القيد): الناقص الذي تصدر له مبسطة ⇒ 'simplified'
+ * («ناقصة تصدر مبسطة») — وبلاه كما اليوم حرفياً.
+ */
+export function buyerBadge(row: BuyerRowLike, relaxed = false): 'incomplete' | 'unclassified' | 'simplified' | null {
   const b = customerBuyerStatus(row).bucket;
+  if (relaxed && b === 'incomplete' && buyerRelaxSimplified(row)) return 'simplified';
   return b === 'incomplete' || b === 'unclassified' ? b : null;
 }

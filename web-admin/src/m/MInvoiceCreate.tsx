@@ -17,6 +17,7 @@ import {
   lotErrorOf, lotFlagsOf, lotWarningsOf, LOT_WARNING_LABELS, type LotWarning, type VanLotSnapshotDto,
 } from '../lib/lots';
 import { lotErrorText } from '../lib/invoiceLots';
+import { buyerNoticeOf, buyerNoticeText, type BuyerNotice } from '../lib/zatca/issueOutcome';
 import { vanAvailableOf, vanLotShortages, LOT_CACHE_KEYS } from './mLotsLogic';
 import { can } from './perms';
 import MUnitChips from './MUnitChips';
@@ -168,15 +169,17 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
       });
       // «تتبّع اللوط»: تحذيرات التوزيع (تشغيلتان، وحدةٌ مقسومة، رصيدٌ غير مسمّى) — تأتي مع الميزة المفعّلة وحدها
       const body = res.data as { data: { id: string }; warnings?: unknown };
-      return { inv: body.data, warnings: lotWarningsOf(body.warnings) };
+      // فكّ القيد (طلب المالك ٣١ أكتوبر ٢٠٢٦): notice «صدرت مبسطة» لمنشأة ناقصة البيانات — بجانب التحذيرات لا بدلها
+      return { inv: body.data, warnings: lotWarningsOf(body.warnings), notice: buyerNoticeOf(body) };
     },
-    onSuccess: ({ inv, warnings }: { inv: { id: string }; warnings: LotWarning[] }) => {
+    onSuccess: ({ inv, warnings, notice }: { inv: { id: string }; warnings: LotWarning[]; notice: BuyerNotice | null }) => {
       qc.invalidateQueries({ queryKey: ['m-docs', 'invoice'] });
       qc.invalidateQueries({ queryKey: ['m-dashboard'] });
       // البيع غيّر أرصدة تشغيلات السيارة وشاشة التتبّع
       if (lotOn) LOT_CACHE_KEYS.forEach(k => qc.invalidateQueries({ queryKey: [k] }));
       toast.success(tr('تم إصدار الفاتورة'));
       [...new Set(warnings.map(w => w.code))].forEach(c => toast(tr(LOT_WARNING_LABELS[c])));
+      if (notice) toast(buyerNoticeText(notice, tr), { duration: 10000 });
       onCreated(inv.id);
     },
     onError: (e: unknown) => {

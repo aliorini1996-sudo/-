@@ -193,10 +193,17 @@ export function preflightHttpError(issues: readonly ZatcaIssue[]): ZatcaHttpErro
   return new ZatcaHttpError('ZATCA_PREFLIGHT', { messageAr: withList(ZATCA_ERROR_CATALOGUE.ZATCA_PREFLIGHT.messageAr, blocking), issues: all });
 }
 
-/** D2 بعد التفعيل: قياسية لعميل منشأة بيانات ناقصة (قبل أي قفل). */
-export function buyerIncompleteError(customerId: string, issues: readonly ZatcaIssue[]): ZatcaHttpError {
+/**
+ * فكّ قيد الرقم الضريبي والعنوان الوطني (طلب المالك ٣١ أكتوبر ٢٠٢٦): إشعارٌ على فاتورة ضريبية (01) يتبع نوع أصله فلا يصدر مبسطاً —
+ * رسالةٌ أوضح حين يكون القيد مفكوكاً (المستخدم يتوقّع التبسيط).
+ */
+export const BUYER_INCOMPLETE_NOTE_ON_STANDARD_AR = 'بيانات العميل ناقصة للإشعار على فاتورة ضريبية — الإشعار يتبع نوع فاتورته الأصلية فلا يصدر مبسطاً حتى مع فك القيد';
+
+/** D2 بعد التفعيل: قياسية لعميل منشأة بيانات ناقصة (قبل أي قفل). opts.noteOnStandard ⇒ رسالة الإشعار على أصلٍ ضريبي (فكّ القيد). */
+export function buyerIncompleteError(customerId: string, issues: readonly ZatcaIssue[], opts?: { noteOnStandard?: boolean }): ZatcaHttpError {
+  const base = opts?.noteOnStandard === true ? BUYER_INCOMPLETE_NOTE_ON_STANDARD_AR : ZATCA_ERROR_CATALOGUE.ZATCA_BUYER_INCOMPLETE.messageAr;
   return new ZatcaHttpError('ZATCA_BUYER_INCOMPLETE', {
-    messageAr: withList(ZATCA_ERROR_CATALOGUE.ZATCA_BUYER_INCOMPLETE.messageAr, issues, '. أكملها ثم أعد الإصدار'),
+    messageAr: withList(base, issues, '. أكملها ثم أعد الإصدار'),
     issues: [...issues], customerId,
   });
 }

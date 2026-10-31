@@ -13,6 +13,7 @@ import teamsRouter from './teams';
 import printSettingsRouter from './printSettings';
 import printTextsRouter from './printTexts';
 import paymentMethodsConfigRouter from './paymentMethodsConfig';
+import companyBuyerRelaxRouter from './companyBuyerRelax';
 
 const router = Router();
 router.use(authenticate);
@@ -27,6 +28,9 @@ router.use('/print-texts', printTextsRouter);
 // «إدارة طرق الدفع» — /api/company/payment-methods (routes/paymentMethodsConfig.ts): القراءة لكل مسجّل (المندوب يبني منها
 // اختيارات السند وأسماءه) والحفظ بصلاحية إعدادات الشركة وعَلَم صفحة «طرق الدفع». مسارٌ مستقلّ كإعدادات الطباعة — PUT /api/company كما هو
 router.use('/payment-methods', paymentMethodsConfigRouter);
+// «فك قيد الرقم الضريبي والعنوان الوطني» (طلب المالك ٣١ أكتوبر ٢٠٢٦) — /api/company/buyer-relax (routes/companyBuyerRelax.ts): القراءة
+// لكل مستخدم شركة والتغيير لمدير الشركة غير المقيّد وحده بلا مفتاح API. مسارٌ مستقلّ — PUT /api/company وcompanySchema كما هما
+router.use('/buyer-relax', companyBuyerRelaxRouter);
 
 const companySchema = z.object({
   name: z.string().min(1),

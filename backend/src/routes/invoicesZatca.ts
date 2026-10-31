@@ -15,6 +15,9 @@
 //   • الوحدات المتعددة (docs/multi-unit/DESIGN.md §6، §10): لقطة وحدة كلّ بند (اسمها ومعاملها والكمية بالأساس) تُكتب في صفّه
 //     كمسار المرحلة الأولى، ورمزها في سطر الـXML — والكمية والسعر بوحدة البند معاً كما دخلا المحرّك.
 //   • «تتبّع اللوط» (§٤.٩): فحصٌ بلا قفل قبل التوقيع، والتوزيع داخل createInvoice قبل إدراج الصفّ — خطّافٌ محقون (deps.lots).
+//   • «فك قيد الرقم الضريبي والعنوان الوطني» (طلب المالك ٣١ أكتوبر ٢٠٢٦): فاتورة منشأة ناقصة صدرت مبسطة (02) بفكّ القيد تُردّ 201
+//     (لا اعتماد حيّ ولا 202) ومعها notice{code:'ZATCA_BUYER_SIMPLIFIED'} وسطر تدقيق بعد الالتزام. إعادة الرفع بالـclientRef تعيد
+//     الصفّ المحفوظ قبل أيّ قرار (invoices.ts) فلا يُعاد التقرير ولا notice.
 // لا يستورد services/gl ولا config/database (الاعتماديات تُحقن — الإنتاج في invoicesZatcaDeps.ts، والاختبار مخزن ذاكرة).
 // ============================================================================
 
@@ -26,7 +29,7 @@ import {
 import type { DocumentProjection, ZatcaDocumentStore } from '../compliance/zatca/documentStore';
 import { ZatcaHttpError, unitUnavailableError } from '../compliance/zatca/errors';
 import {
-  issuanceHttpError, phase2InvoiceColumns, phase2ItemColumns, phase2NumberPrefix, prepareIssuance,
+  buyerSimplifiedAuditLine, issuanceHttpError, phase2InvoiceColumns, phase2ItemColumns, phase2NumberPrefix, prepareIssuance,
   type EngineTotals, type IssuanceCustomer, type IssuanceProduct, type IssuanceRequest, type PreparedIssuance,
 } from '../compliance/zatca/issue';
 import type { IssuanceChainStore } from '../compliance/zatca/issueChain';
@@ -925,7 +928,13 @@ async function issueNow(
       view, warnings: issued.warnings, issuedAt: issued.issuedAt, documentKind: prepared.kind,
     }, now), lotWarnings);
   }
-  return withLotWarnings({ status: 201, body: { success: true, data } }, lotWarnings);
+  // فكّ القيد: صدرت مبسطة بدل ضريبية ناقصة — سطر تدقيق (معرّفات وأسماء حقول) وإعلامٌ في الردّ بجانب success وdata
+  if (prepared.buyerNotice) {
+    console.warn(buyerSimplifiedAuditLine({
+      tenantId: ctx.tenantId, customerId: ctx.customerId, invoiceId: issued.invoiceId, number: issued.number, fields: prepared.buyerNotice.fields,
+    }));
+  }
+  return withLotWarnings({ status: 201, body: { success: true, data, ...(prepared.buyerNotice && { notice: prepared.buyerNotice }) } }, lotWarnings);
 }
 
 // ─── الاعتماد الحيّ قبل المشاركة (Z5.4، قرار المالك D5) ───

@@ -10,6 +10,9 @@
 //   • الأصل مقبول = ما يجوز تسليمه للمشتري (isPrintableMirror): المبسّطة بأي حالة عدا المُبطلة، والقياسية بعد الاعتماد (أو بعد
 //     الإبلاغ حين يوقف الاعتماد — نقد 10). وأصلٌ من المرحلة الأولى مسموح برقمه مرجعاً وبنوعٍ فرعيّ من تصنيف العميل الحيّ (حجب D2
 //     يسري عليه كما يسري على الفاتورة).
+//   • «فك قيد الرقم الضريبي والعنوان الوطني» (طلب المالك ٣١ أكتوبر ٢٠٢٦): الإشعار على أصلٍ من المرحلة الثانية يرث نوعه دائماً —
+//     على فاتورة ضريبية (01) لعميلٍ صارت بياناته ناقصة يبقى 422 ولو فُكّ القيد (381/383 يحمل نوع معاملة أصله، ومبسّطٌ على قياسيةٍ
+//     معتمدة يُبلَّغ ولا يُعتمد فلا تطابق تسوية ضريبة المشتري). وأصلٌ من المرحلة الأولى بلا نوعٍ يُتّبع: قاعدة الفاتورة (relaxBuyer).
 //   • البنود تُنسخ من **بنود الأصل** (سعرها وخصمها ونسبتها وفئتها وإعفاؤها كما صدرت) لا من بطاقة صنفٍ تغيّرت بعد البيع، ومعها
 //     `pricesIncludeTax` وخصم الفاتورة الكلّي — فالإشعار الجزئي يحمل حصّته من الخصم وضريبته على صافيها، وقواعد التقريب (D6)
 //     هي عينها قواعد Z5.2 لأنّ الطريق واحد: computeInvoiceTotals ⇒ prepareIssuance ⇒ storedAmounts.
@@ -25,8 +28,7 @@
 // لا قاعدة بيانات ولا شبكة ولا services/gl هنا: القيود والمخزون يكتبها المسار بالبُناة القائمة (postReturnEntries/postInvoiceEntries).
 // ============================================================================
 
-import { customerBuyerStatus, buyerSourceFromCustomer } from './buyerData';
-import { classifyBuyerSubtype } from './buyerParty';
+import { buyerIssuanceDecision, customerBuyerStatus } from './buyerData';
 import {
   ZatcaHttpError, creditAmountExceededError, creditQtyExceededError, noteLinesError, preflightHttpError,
 } from './errors';
@@ -206,6 +208,8 @@ export interface NoteEligible {
   /** BT-25 كما يُكتب في المستند. */
   billingReference: string;
   originalPhase: 1 | 2;
+  /** فكّ القيد: أصلٌ من المرحلة الأولى وعميلٌ منشأة ناقص ⇒ إشعار مبسّط بدل ضريبي محجوب — غائبٌ في غيره */
+  buyerSimplified?: true;
 }
 
 export type NoteEligibility = NoteEligible | { ok: false; refusal: NoteRefusal };
@@ -222,6 +226,8 @@ export function noteEligibility(input: {
   tenantId: string;
   original: NoteOriginalInvoice | null | undefined;
   customer: IssuanceCustomer;
+  /** فكّ قيد الرقم الضريبي والعنوان الوطني (CompanySettings.buyerVatAddressRelaxed) — لأصلٍ من المرحلة الأولى وحده */
+  relaxBuyer?: boolean;
 }): NoteEligibility {
   const o = input.original;
   if (!o) return refuse('NOT_FOUND');
@@ -241,6 +247,7 @@ export function noteEligibility(input: {
 
   let subtype: InvoiceSubtype;
   let subtypeSource: NoteEligible['subtypeSource'];
+  let buyerSimplified = false;
   if (phase2) {
     const s = o.invoiceSubtype;
     if (s !== '01' && s !== '02') return refuse('NO_SUBTYPE');
@@ -249,8 +256,11 @@ export function noteEligibility(input: {
     if (o.einvoiceStatus === 'cleared_no_xml') return refuse('ORIGINAL_NO_XML');
     if (!isPrintableMirror(o.einvoiceStatus, subtype as Subtype)) return refuse('ORIGINAL_PENDING');
   } else {
-    // أصل من المرحلة الأولى: لا مرآة تُفحص — والنوع من تصنيف العميل الحيّ (وحجب D2 يسري في prepareIssuance)
-    subtype = classifyBuyerSubtype(buyerSourceFromCustomer(input.customer));
+    // أصل من المرحلة الأولى: لا مرآة تُفحص — والنوع من تصنيف العميل الحيّ (وحجب D2 يسري في prepareIssuance)، وقاعدة الفاتورة
+    // نفسها مع فكّ القيد: منشأة ناقصة ⇒ مبسّط (بلا فكّه: classifyBuyerSubtype كما كان)
+    const d = buyerIssuanceDecision(input.customer, input.relaxBuyer === true);
+    subtype = d.subtype;
+    buyerSimplified = d.simplifiedByRelax;
     subtypeSource = 'classified';
   }
 
@@ -264,6 +274,7 @@ export function noteEligibility(input: {
     paymentType: o.paymentPlan === 'INSTALLMENT' ? 'INSTALLMENT' : o.type,
     billingReference,
     originalPhase: phase2 ? 2 : 1,
+    ...(buyerSimplified && { buyerSimplified: true as const }),
   };
 }
 
@@ -927,6 +938,8 @@ function noteContext(eligibility: NoteEligible, reason: string): IssuanceNoteCon
     originalSubtype: eligibility.subtype,
     originalPaymentType: eligibility.paymentType,
     reason,
+    ...(eligibility.buyerSimplified === true && { buyerSimplified: true as const }),
+    ...(eligibility.subtypeSource === 'classified' && { originalClassified: true as const }),
   };
 }
 

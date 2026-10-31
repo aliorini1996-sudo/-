@@ -18,12 +18,14 @@
 //     والمبسّط يُبلَّغ خلال ٢٤ ساعة. ورفض القياسيّ يُبطل الإشعار ويردّ متبقّي الأصل (services/invoiceVoid).
 //   • «تتبّع اللوط» (§٤.٩): الدائن يرث صفوف توزيع البيع من الأصل المقفل بسيارة مندوبه (فحصٌ قبل التوقيع، وتوزيعٌ في
 //     createInvoice)، والقياسيّ محجوزٌ بالبناء حتى اعتماده (D24). والمدين بلا صنف فلا توزيع.
+//   • «فك قيد الرقم الضريبي والعنوان الوطني» (طلب المالك ٣١ أكتوبر ٢٠٢٦): الأهليّة تقرأ الإعداد من البائع المحمَّل (relaxBuyer) —
+//     أصلٌ من المرحلة الأولى لمنشأة ناقصة ⇒ إشعار مبسّط بـ201 ومعه notice؛ والإشعار على فاتورة ضريبية (01) يبقى 422.
 // لا يستورد services/gl ولا config/database (الاعتماديات تُحقن — الإنتاج في invoicesZatcaDeps.ts).
 // ============================================================================
 
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { ZatcaHttpError, noteLinesError, unitUnavailableError } from '../compliance/zatca/errors';
-import { issuanceHttpError, type IssuanceCustomer, type IssuanceSellerSettings } from '../compliance/zatca/issue';
+import { buyerRelaxedOf, buyerSimplifiedAuditLine, issuanceHttpError, type IssuanceCustomer, type IssuanceSellerSettings } from '../compliance/zatca/issue';
 import { openIssuanceSigning } from '../compliance/zatca/issueSigner';
 import { runIssuance, type StampInTxResult } from '../compliance/zatca/issueTx';
 import type { InvoiceSubtype } from '../compliance/zatca/mapInvoice';
@@ -368,7 +370,7 @@ export async function creditableProjection(
 
   const loaded = await loadNoteOriginal(deps.db, input.tenantId, input.invoiceId);
   if (!loaded) return notFoundResult();
-  const eligibility = noteEligibility({ tenantId: input.tenantId, original: loaded.original, customer: input.customer });
+  const eligibility = noteEligibility({ tenantId: input.tenantId, original: loaded.original, customer: input.customer, relaxBuyer: buyerRelaxedOf(seller) });
   if (!eligibility.ok && noteRefusalError(eligibility.refusal) === null) return notFoundResult();
 
   const priorNotes = await loadPriorNotes(deps.db, input.tenantId, loaded.original.id);
@@ -527,7 +529,7 @@ function buildNote(
   kind: NoteKind, ctx: CreditNoteContext | DebitNoteContext, loaded: LoadedOriginal, priorNotes: readonly PriorNote[],
   seller: IssuanceSellerSettings, now: Date, legacyReturns: readonly LegacyReturnQty[] = [],
 ): NoteBuild {
-  const eligibility = noteEligibility({ tenantId: ctx.tenantId, original: loaded.original, customer: ctx.customer });
+  const eligibility = noteEligibility({ tenantId: ctx.tenantId, original: loaded.original, customer: ctx.customer, relaxBuyer: buyerRelaxedOf(seller) });
   if (!eligibility.ok) {
     const e = noteRefusalError(eligibility.refusal);
     throw e ?? new ZatcaHttpError('ZATCA_ORIGINAL_NOT_CLEARED', { reason: eligibility.refusal });
@@ -713,7 +715,7 @@ async function issueNote(
 
   const loaded = await loadNoteOriginal(deps.db, ctx.tenantId, ctx.originalInvoiceId);
   if (!loaded) return notFoundResult();
-  const first = noteEligibility({ tenantId: ctx.tenantId, original: loaded.original, customer: ctx.customer });
+  const first = noteEligibility({ tenantId: ctx.tenantId, original: loaded.original, customer: ctx.customer, relaxBuyer: buyerRelaxedOf(seller) });
   if (!first.ok && noteRefusalError(first.refusal) === null) return notFoundResult();
 
   try {
@@ -910,7 +912,14 @@ async function stampNote(
       view, warnings: issued.warnings, issuedAt: issued.issuedAt, documentKind: kind, restoreOnVoid: { original: originalBefore },
     }, now);
   }
-  return { status: 201, body: { success: true, data } };
+  // فكّ القيد: إشعارٌ مبسّط على أصلٍ من المرحلة الأولى لمنشأة ناقصة — سطر تدقيق وإعلامٌ في الردّ (القياسيّ لا يحمله أبداً)
+  const notice = build.prepared.prepared.buyerNotice;
+  if (notice) {
+    console.warn(buyerSimplifiedAuditLine({
+      tenantId: ctx.tenantId, customerId: build.loaded.original.customerId, invoiceId: issued.invoiceId, number: issued.number, kind, fields: notice.fields,
+    }));
+  }
+  return { status: 201, body: { success: true, data, ...(notice && { notice }) } };
 }
 
 /**

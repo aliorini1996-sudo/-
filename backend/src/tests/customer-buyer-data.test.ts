@@ -50,7 +50,7 @@ function matches(row: Row, where: any): boolean { // eslint-disable-line @typesc
 
 const selectOf = (row: Row, select?: Record<string, boolean>) => (select ? Object.fromEntries(Object.keys(select).map(k => [k, row[k] ?? null])) : { ...row });
 
-function fakeDb(o: { flag: boolean; country?: string | null; startedAt?: Date | null; customers?: Row[]; reps?: Row[]; products?: Row[] }) {
+function fakeDb(o: { flag: boolean; country?: string | null; startedAt?: Date | null; relaxed?: boolean; customers?: Row[]; reps?: Row[]; products?: Row[] }) {
   const calls: string[] = [];
   const customers = (o.customers ?? []).map(c => ({ ...c }));
   const reps = (o.reps ?? []).map(r => ({ ...r }));
@@ -59,7 +59,14 @@ function fakeDb(o: { flag: boolean; country?: string | null; startedAt?: Date | 
     tenant: {
       findUnique: async (_a: unknown) => {
         calls.push('tenant.findUnique');
-        return { zatcaPhase2Enabled: o.flag, settings: { countryCode: o.country === undefined ? 'SA' : o.country, zatcaPhase2StartedAt: o.startedAt ?? null } };
+        return {
+          zatcaPhase2Enabled: o.flag,
+          settings: {
+            countryCode: o.country === undefined ? 'SA' : o.country, zatcaPhase2StartedAt: o.startedAt ?? null,
+            // «فك قيد الرقم الضريبي والعنوان الوطني»: غيابه = عمود قبل الميزة (مطفأ)
+            ...(o.relaxed !== undefined && { buyerVatAddressRelaxed: o.relaxed }),
+          },
+        };
       },
     },
     customer: {
@@ -658,4 +665,117 @@ test('products.ts: المخطّط بلا حقول الفئة، والبوابة 
   const g2 = put.indexOf('const vatGate = await applyProductVatGate(prisma, req.body, tid, { productId: req.params.id, taxPct: updateData.taxPct as number | undefined });');
   assert.ok(g2 > put.indexOf('if (updateData.taxPct == null) delete updateData.taxPct;') && g2 < put.indexOf('prisma.product.update('));
   assert.ok(put.includes('Object.assign(updateData, vatGate.patch);'));
+});
+
+// ─── «فك قيد الرقم الضريبي والعنوان الوطني» (طلب المالك ٣١ أكتوبر ٢٠٢٦) ───
+
+test('فك القيد: POST/PUT — صيغة الرقم الضريبي ورقم المبنى تنبيه (warnings) ويُحفظ كما أُدخل؛ مطفأً 400 كما كان؛ واستعلام البوابة مرّة واحدة', async () => {
+  // إنشاء برقم ضريبي «123»
+  for (const relaxed of [undefined, false]) {
+    const f = fakeDb({ flag: true, relaxed });
+    const r = await applyBuyerGateToWrite(deps(f.db), reqOf(ADMIN, { name: 'x', phone: '0500000000', taxNumber: '123' }), TENANT, {}, { customerId: null, replay: false });
+    assert.equal(r.ok, false, String(relaxed));
+    if (r.ok) return;
+    assert.deepEqual([r.status, r.body.code], [400, 'CUSTOMER_ZATCA_INVALID']);
+  }
+  const on = fakeDb({ flag: true, relaxed: true, customers: [COMPLETE] });
+  const data: Record<string, unknown> = { name: 'x', phone: '0500000000', taxNumber: '123' };
+  const r = await applyBuyerGateToWrite(deps(on.db), reqOf(ADMIN, { name: 'x', phone: '0500000000', taxNumber: ' ١٢٣ ' }), TENANT, data, { customerId: null, replay: false });
+  assert.equal(r.ok, true);
+  if (!r.ok) return;
+  assert.equal(r.warnings?.[0].field, 'taxNumber');
+  assert.match(r.warnings![0].messageAr, /^تنبيه: الرقم الضريبي ليس بالصيغة المعتمدة/);
+  assert.equal(data.taxNumber, '123', 'يُحفظ مطبَّعاً كما أُدخل');
+  assert.deepEqual(on.calls, ['tenant.findUnique'], 'البوابة استعلام واحد');
+  // تعديل برقم مبنى من رقمين
+  const off = fakeDb({ flag: true, customers: [COMPLETE] });
+  const putOff = await applyBuyerGateToWrite(deps(off.db), reqOf(ADMIN, { addrBuildingNo: '12' }), TENANT, {}, { customerId: COMPLETE.id, replay: false });
+  assert.equal(putOff.ok, false);
+  const putData: Record<string, unknown> = {};
+  const before = on.calls.length;
+  const putOn = await applyBuyerGateToWrite(deps(on.db), reqOf(ADMIN, { addrBuildingNo: '12' }), TENANT, putData, { customerId: COMPLETE.id, replay: false });
+  assert.equal(putOn.ok, true);
+  if (!putOn.ok) return;
+  assert.deepEqual(putOn.warnings?.map(w => w.field), ['addrBuildingNo']);
+  assert.deepEqual(putData, { addrBuildingNo: '12' });
+  assert.deepEqual(on.calls.slice(before), ['tenant.findUnique', 'customer.findFirst'], 'البوابة مرّة واحدة ثم الصفّ المحفوظ');
+});
+
+test('فك القيد: الطول والمحارف غير المسموحة تبقى 400 — رقم ضريبي بمحرف تحكّم أو مبنى أطول من 16', async () => {
+  const f = fakeDb({ flag: true, relaxed: true });
+  for (const body of [{ taxNumber: '3000\u00010000000003' }, { addrBuildingNo: '1'.repeat(17) }, { countryCode: 'KSA' }]) {
+    const r = await applyBuyerGateToWrite(deps(f.db), reqOf(ADMIN, body), TENANT, {}, { customerId: null, replay: false });
+    assert.equal(r.ok, false, JSON.stringify(body));
+    if (r.ok) return;
+    assert.deepEqual([r.status, r.body.code], [400, 'CUSTOMER_ZATCA_INVALID']);
+  }
+});
+
+test('فك القيد لا أثر له لشركة غير جامعة: بلا فحص ولا تطبيع، وبلا حقول الفوترة لا استعلام', async () => {
+  for (const cfg of [{ flag: false, relaxed: true }, { flag: true, country: 'EG', relaxed: true }]) {
+    const f = fakeDb(cfg);
+    const data: Record<string, unknown> = { name: 'x', phone: '0500000000', taxNumber: '123' };
+    const r = await applyBuyerGateToWrite(deps(f.db), reqOf(ADMIN, { name: 'x', phone: '0500000000', taxNumber: '123', addrBuildingNo: '1' }), TENANT, data, { customerId: null, replay: false });
+    assert.deepEqual(r, { ok: true, warnings: null });
+    assert.deepEqual(data, { name: 'x', phone: '0500000000', taxNumber: '123' });
+    assert.deepEqual(f.calls, ['tenant.findUnique']);
+  }
+  const f = fakeDb({ flag: true, relaxed: true });
+  await applyBuyerGateToWrite(deps(f.db), reqOf(ADMIN, { name: 'x', phone: '0500000000', city: 'جدة' }), TENANT, {}, { customerId: null, replay: false });
+  assert.deepEqual(f.calls, []);
+});
+
+test('فك القيد: استيراد العملاء بمفتاح API — رقم ضريبي خاطئ الصيغة لا يُعدّ خطأ صفّ ويُطبَّع، والمحرف غير المسموح يبقى خطأ', async () => {
+  const rows: Record<string, unknown>[] = [
+    { name: 'ضريبي خاطئ', phone: '0500000012', taxNumber: '١٢٣' },
+    { name: 'محرف تحكّم', phone: '0500000013', taxNumber: '3\u00013' },
+  ];
+  const off = fakeDb({ flag: true });
+  assert.deepEqual((await importBuyerRowsGate(off.db, TENANT, rows.map(r => ({ ...r })))).map(e => [e.row, e.field]), [[2, 'taxNumber'], [3, 'taxNumber']]);
+  const on = fakeDb({ flag: true, relaxed: true });
+  const errs = await importBuyerRowsGate(on.db, TENANT, rows);
+  assert.deepEqual(errs.map(e => [e.row, e.code, e.field]), [[3, 'CUSTOMER_ZATCA_INVALID', 'taxNumber']]);
+  assert.equal(rows[0].taxNumber, '123');
+  assert.deepEqual(on.calls, ['tenant.findUnique']);
+});
+
+test('فك القيد: PATCH /:id/buyer-data — رمز بريدي من رقم واحد 400 مطفأً و200 بتنبيه مفعّلاً، وقواعد المندوب (Q3) كما هي', async () => {
+  const off = fakeDb({ flag: true, customers: ALL });
+  let s = await serve(deps(off.db), () => ADMIN);
+  try {
+    const res = await s.call('PATCH', '/c-vat/buyer-data', { addrPostalCode: '1' });
+    assert.deepEqual([res.status, res.body.code], [400, 'CUSTOMER_ZATCA_INVALID']);
+  } finally { await s.close(); }
+
+  const on = fakeDb({ flag: true, relaxed: true, customers: ALL, reps: [{ id: 'rep-1', canCreateInvoice: true, canEditCustomer: false }] });
+  let user: object = ADMIN;
+  s = await serve(deps(on.db), () => user);
+  try {
+    let res = await s.call('PATCH', '/c-vat/buyer-data', { addrPostalCode: '1' });
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.changed, ['addrPostalCode']);
+    assert.deepEqual(res.body.warnings.map((w: { field: string }) => w.field), ['addrPostalCode']);
+    assert.equal(on.customers.find(c => c.id === 'c-vat')!.addrPostalCode, '1');
+    // المندوب بلا صلاحية تعديل العملاء: الرقم الضريبي خارج Q3 — 403 ولو فُكّ القيد
+    user = REP1;
+    res = await s.call('PATCH', '/c-channel/buyer-data', { taxNumber: '123' });
+    assert.deepEqual([res.status, res.body.code, res.body.fields], [403, 'CUSTOMER_BUYER_REP_RESTRICTED', ['taxNumber']]);
+    // ويُكمل الفارغ من Q3 بصيغة خاطئة: تنبيه لا 400
+    res = await s.call('PATCH', '/c-channel/buyer-data', { addrBuildingNo: '12' });
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.warnings.map((w: { field: string }) => w.field), ['addrBuildingNo']);
+  } finally { await s.close(); }
+});
+
+test('loadBuyerGate: الإعداد يُقرأ في استعلام البوابة نفسه (لا استعلام ثانٍ)، وloadBuyerCollect غلافٌ له', () => {
+  const src = read('routes/customersZatca.ts');
+  const fn = src.slice(src.indexOf('export async function loadBuyerGate('), src.indexOf('export async function loadBuyerCollect('));
+  assert.equal(fn.split('db.tenant.findUnique(').length - 1, 1);
+  assert.match(fn, /settings: \{ select: \{ countryCode: true, zatcaPhase2StartedAt: true, buyerVatAddressRelaxed: true \} \}/);
+  assert.match(fn, /relaxed: collect && t\?\.settings\?\.buyerVatAddressRelaxed === true/);
+  const wrap = src.slice(src.indexOf('export async function loadBuyerCollect('), src.indexOf('export function customerZatcaInvalidBody('));
+  assert.match(wrap, /return \(await loadBuyerGate\(db, tid\)\)\.collect;/);
+  // كل نقاط الفحص تمرّر الإعداد
+  assert.equal(src.split('validateBuyerChanges(').length - 1, 3);
+  assert.equal(src.split('{ relaxed: gate.relaxed }').length - 1, 3);
 });

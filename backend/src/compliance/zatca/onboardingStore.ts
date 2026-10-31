@@ -50,6 +50,8 @@ export interface SellerSettingsRecord {
   currencyOverride: string | null;
   einvoiceProvider: string;
   zatcaPhase2StartedAt: Date | null;
+  /** «فك قيد الرقم الضريبي والعنوان الوطني» (طلب المالك ٣١ أكتوبر ٢٠٢٦) — غيابه أو null = مطفأ (الإصدار كما اليوم) */
+  buyerVatAddressRelaxed?: boolean | null;
 }
 
 /** صفّ الوحدة بلا مفتاح خاص ولا أسرار ولا رموز. updatedAt = رمز النسخة لـCAS. */
@@ -199,6 +201,8 @@ const SELLER_SELECT = {
   tenantId: true, legalName: true, taxNumber: true, commercialReg: true, sellerIdScheme: true, sellerIdValue: true,
   addrStreet: true, addrBuildingNo: true, addrAdditionalNo: true, addrDistrict: true, addrCity: true, addrPostalCode: true,
   vatGroupTin: true, countryCode: true, currency: true, currencyOverride: true, einvoiceProvider: true, zatcaPhase2StartedAt: true,
+  // فكّ القيد يُقرأ مع البائع في الاستعلام نفسه (issuePhase2Invoice/issueNote) — بلا استعلام إضافي
+  buyerVatAddressRelaxed: true,
 } satisfies Prisma.CompanySettingsSelect;
 
 /** كل أعمدة الوحدة العامة — privateKeyEnc والرموز والأسرار غائبة عمداً. */

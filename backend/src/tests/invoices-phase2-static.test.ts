@@ -174,3 +174,26 @@ test('فخّ NULL: لا مرشّح not على zatcaPhase، والمرآة تُق
   }
   assert.match(read('compliance/zatca/documentStore.prisma.ts'), /where: \{ id: invoiceId, zatcaPhase: 2 \}/);
 });
+
+test('فك قيد الرقم الضريبي والعنوان الوطني (طلب المالك ٣١ أكتوبر ٢٠٢٦): الإعداد مع البائع بلا استعلام، والقرار قبل القفل، والإعلام في ردّ 201 المبسّط وحده بعد الالتزام', () => {
+  const store = read('compliance/zatca/onboardingStore.ts');
+  const sel = store.slice(store.indexOf('const SELLER_SELECT = {'), store.indexOf('} satisfies Prisma.CompanySettingsSelect;'));
+  assert.match(sel, /buyerVatAddressRelaxed: true,/);
+  const issue = read('compliance/zatca/issue.ts');
+  const prep = issue.slice(issue.indexOf('export function prepareIssuance('), issue.indexOf('// ─── صفّ الفاتورة'));
+  // القرار (وحجب D2) قبل التحويل والفحص المسبق — أي قبل أيّ قفل أو ICV
+  assert.ok(prep.indexOf('issuanceSubtypeDecision(') > 0 && prep.indexOf('issuanceSubtypeDecision(') < prep.indexOf('mapAndCheck('));
+  assert.ok(prep.indexOf('if (d.blocked)') < prep.indexOf('buildInvoiceSource('));
+  const z = read('routes/invoicesZatca.ts');
+  const now = z.slice(z.indexOf('async function issueNow('), z.indexOf('// ─── الاعتماد الحيّ قبل المشاركة'));
+  // الإعلام في ردّ المبسّطة الأخير وحده (القياسية تمضي إلى الاعتماد الحيّ ولا تحمله)، والتدقيق بعد runIssuance (الالتزام)
+  const std = now.indexOf("if (prepared.subtype === '01') {");
+  const audit = now.indexOf('console.warn(buyerSimplifiedAuditLine(');
+  const reply = now.indexOf('...(prepared.buyerNotice && { notice: prepared.buyerNotice })');
+  assert.ok(now.indexOf('await runIssuance(') < std && std < audit && audit < reply, 'ترتيب الإعلام');
+  assert.equal(now.split('notice:').length - 1, 1);
+  const n = read('routes/invoicesNotes.ts');
+  assert.equal(n.split('relaxBuyer: buyerRelaxedOf(seller)').length - 1, 3, 'الأهليّة الثلاث تقرأ الإعداد من البائع المحمَّل');
+  const stamp = n.slice(n.indexOf('async function stampNote('));
+  assert.ok(stamp.indexOf("if (issued.subtype === '01') {") < stamp.indexOf('...(notice && { notice })'));
+});

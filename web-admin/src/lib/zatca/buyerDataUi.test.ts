@@ -54,7 +54,7 @@ test('الحمولة: الحقول الجديدة لا تُرسل إلا للج�
   assert.ok(app.includes('...(zatcaCollect ? buyerCreatePayload(buyer) : {}),'), 'إضافة عميل من المندوب');
   assert.ok(app.includes('if (zatcaCollect) Object.assign(payload, buyerUpdatePayload(buyer, customer));'), 'تعديل عميل من المندوب');
   const add = app.slice(app.indexOf('function AddCustomer('), app.indexOf('function EditCustomer('));
-  assert.match(add, /if \(zatcaCollect\) \{\n\s*const check = buyerFormCheck\(buyerView, null, BUYER_BILLING_FIELDS\);/);
+  assert.match(add, /if \(zatcaCollect\) \{\n\s*const check = buyerFormCheck\(buyerView, null, BUYER_BILLING_FIELDS, \{ relaxed: buyerRelax \}\);/);
   const form = read('m', 'MCustomerForm.tsx');
   assert.match(form, /if \(showBuyer\) \{\n\s*Object\.assign\(payload, customer \? buyerUpdatePayload\(buyer, customer as BuyerRowLike\) : buyerCreatePayload\(buyer\)\);/);
   const modal = read('components', 'forms', 'CustomerModal.tsx');
@@ -92,7 +92,7 @@ test('القوائم: الفلتر والشارات والملخّص والشر�
   assert.match(m, /const incompleteMode = zatcaCollect && onlyIncomplete;/);
   assert.match(m, /summary: '0' \}\)\)\.data\?\.data, 'العملاء'\),\n\s*enabled: incompleteMode,/);
   assert.match(m, /\.data\?\.summary \?\? null\) as \{ incomplete: number \} \| null,\n\s*enabled: zatcaCollect,/);
-  assert.ok(m.includes('const badge = zatcaCollect ? buyerBadge(c as BuyerRowLike) : null;'));
+  assert.ok(m.includes('const badge = zatcaCollect ? buyerBadge(c as BuyerRowLike, buyerRelax) : null;'));
   assert.ok(m.includes('{zatcaCollect && accountingOn && (() => {'));
 
   const app = read('rep', 'RepApp.tsx');
@@ -114,7 +114,7 @@ test('نقطة المندوب الضيّقة: PATCH لحقول الفوترة و
   assert.ok(form.includes('await repApi.patch(`/customers/${customer.id}/buyer-data`, payload);'));
   assert.ok(form.includes('const payload = buyerUpdatePayload(values, customer, fields);'));
   // Q3: بلا «تعديل بيانات العميل» — حقول Q3 وحدها، والمحفوظ وغير Q3 مقفل، والفحص قبل الإرسال بقاعدة الخادم نفسها
-  assert.ok(form.includes('export function RepBuyerDataForm({ customer, canEditCustomer = false, onClose, onSaved }: {'), 'الافتراض: إكمال فقط');
+  assert.ok(form.includes('export function RepBuyerDataForm({ customer, canEditCustomer = false, onClose, onSaved, buyerRelax = false }: {'), 'الافتراض: إكمال فقط (والقيد قائم)');
   assert.ok(form.includes('const fields = canEditCustomer ? BUYER_BILLING_FIELDS : BUYER_REP_COMPLETE_FIELDS;'));
   assert.ok(form.includes('const locked = canEditCustomer ? undefined : (f: BuyerField) => repCompleteLocked(customer, f);'));
   assert.ok(form.includes('const restricted = canEditCustomer ? check.cleared : repCompleteOnlyDenied(customer, check.patch);'));
@@ -128,4 +128,60 @@ test('نقطة المندوب الضيّقة: PATCH لحقول الفوترة و
   const app = read('rep', 'RepApp.tsx');
   const edit = app.slice(app.indexOf('function EditCustomer('), app.indexOf('\nfunction ', app.indexOf('function EditCustomer(') + 30));
   for (const f of ['creditLimit', 'paymentDays', 'status:']) assert.ok(!edit.includes(f), `EditCustomer يرسل ${f}`);
+});
+
+/**
+ * طلب المالك ٣١ أكتوبر ٢٠٢٦ (فكّ قيد الرقم الضريبي والعنوان الوطني): كل ما يضيفه للشاشات خلف buyerRelax (= buyerRelaxOn(company)
+ * الذي يشترط الجمع) — فالشركة التي لم تفكّ القيد ترسل الفحص نفسه وترى القسم نفسه والشارة نفسها.
+ */
+test('فكّ القيد: سطر المبسطة والتنبيهات تُمرَّر خلف buyerRelax وحده، والفحص بقيمته، والشارة بالشرط نفسه', () => {
+  const sources: Array<[string, string]> = [
+    ['components/forms/CustomerModal.tsx', read('components', 'forms', 'CustomerModal.tsx')],
+    ['m/MCustomerForm.tsx', read('m', 'MCustomerForm.tsx')],
+    ['rep/RepApp.tsx', read('rep', 'RepApp.tsx')],
+    ['rep/RepBuyerData.tsx', read('rep', 'RepBuyerData.tsx')],
+  ];
+  let passed = 0;
+  for (const [name, src] of sources) {
+    const n = src.split('relaxed: true, warnings: buyerRelaxWarnings(').length - 1 + src.split('relaxed: true,\n').length - 1;
+    assert.ok(n >= 1, `${name}: لا يمرّر فكّ القيد`);
+    guarded(src, 'buyerRelaxWarnings(', ['{...(buyerRelax && {'], 200);
+    // كل فحصٍ قبل الإرسال بقيمة الشركة — لا relaxed: true ثابتة
+    for (const m of src.matchAll(/buyerFormCheck\([^;]*\);/g)) assert.match(m[0], /\{ relaxed: buyerRelax \}\);$/, `${name}: ${m[0]}`);
+    passed += n;
+  }
+  assert.equal(passed, 5, 'الإدارة و/m وإضافة المندوب وتعديله ونموذجه الضيّق');
+  // المصدر الواحد: buyerRelaxOn (الجمع && === true) في كل مضيف
+  assert.match(read('pages', 'CustomersPage.tsx'), /const buyerRelax = buyerRelaxOn\(company\);/);
+  assert.match(read('m', 'MCustomers.tsx'), /const buyerRelax = zatcaCollect && buyerRelaxOn\(company as ZatcaCompanyLike \| null\);/);
+  const app = read('rep', 'RepApp.tsx');
+  assert.match(app, /const buyerRelax = buyerRelaxOn\(company\);/);
+  assert.ok(app.includes('relaxed={buyerRelaxOn(company)} />'), 'لافتة ملف العميل');
+  // الشارة في المندوب: الظهور بشرط اليوم حرفياً، وفكّ القيد يغيّر الصياغة وحدها
+  assert.ok(app.includes("{buyerBadge(c, buyerRelax) === 'simplified' ? tr('ناقصة تصدر مبسطة') : buyerBadge(c) === 'incomplete'"));
+});
+
+/**
+ * طلب المالك ٣١ أكتوبر ٢٠٢٦: بطاقة «فك قيد الرقم الضريبي والعنوان الوطني» في إعدادات الشركة — تظهر لمدير الشركة غير المقيّد في
+ * الشركة الجامعة وحدها (والخادم مرجع: 403 BUYER_RELAX_*)، والتحذير الضريبي ظاهر دائماً لا عند التفعيل وحده، والتفعيل وحده يُؤكَّد،
+ * والحفظ بمساره المستقلّ (PATCH /company/buyer-relax) لا مع زرّ حفظ الإعدادات.
+ */
+test('فكّ القيد — بطاقة الإعدادات: لمدير الشركة غير المقيّد في الجامعة، والتحذير دائم، والتأكيد للتفعيل وحده، وبمسارها المستقل', () => {
+  const s = read('pages', 'CompanySettingsPage.tsx');
+  assert.ok(s.includes("const buyerRelaxCardOn = accountingOn && zatcaCollectOn(data) && role === 'ADMIN' && !scopeEnabled;"));
+  assert.equal((s.match(/<BuyerRelaxCard\b/g) || []).length, 1);
+  const mount = s.indexOf('{buyerRelaxCardOn && <BuyerRelaxCard value={(data as { buyerVatAddressRelaxed?: unknown } | null | undefined)?.buyerVatAddressRelaxed === true} />}');
+  assert.ok(mount > 0, 'البطاقة خلف حارسها وبقيمة === true');
+  // بعد بطاقة طباعة التشغيلة وقبل بطاقة الفوترة الإلكترونية (الربط الحكومي)
+  assert.ok(s.indexOf('{lotCardOn && <LotOnInvoiceCard') < mount && mount < s.indexOf('{/* الفوترة الإلكترونية (الربط الحكومي)'));
+  const start = s.indexOf('function BuyerRelaxCard(');
+  const card = s.slice(start, s.indexOf('\n/**', start));
+  assert.ok(card.length > 500, 'البطاقة لم تُقتطع');
+  assert.ok(card.includes('mutationFn: (enabled: boolean) => companyApi.buyerRelax.set(enabled),'));
+  assert.ok(card.includes("if (on && !window.confirm(tr('تأكيد فك القيد ستصدر فواتير مبسطة لعملاء منشآت بياناتهم ناقصة ولا يستطيعون خصم ضريبتها هل تتابع'))) return;"));
+  assert.equal(card.split('window.confirm(').length - 1, 1, 'الإطفاء بلا تأكيد');
+  assert.ok(card.includes("<p>{tr('عند التفعيل يحفظ الرقم الضريبي ورقم المبنى والرمز البريدي ولو لم تكن بالصيغة المعتمدة وتصدر فاتورة ضريبية مبسطة بدل الفاتورة الضريبية لكل منشأة بياناتها ناقصة أو غير صحيحة فلا يستطيع العميل خصم ضريبة المدخلات بها والمسؤولية الضريبية على شركتك')}</p>"));
+  assert.ok(card.includes("<p>{tr('الإشعار الدائن أو المدين على فاتورة ضريبية سابقة يبقى ضريبيا ويحتاج بيانات العميل كاملة')}</p>"));
+  assert.doesNotMatch(card, /\{(checked|value|save\.\w+) && /, 'التحذير لا يُخفى خلف الحالة');
+  assert.ok(read('api', 'client.ts').includes("set: (enabled: boolean) => api.patch('/company/buyer-relax', { enabled }),"));
 });

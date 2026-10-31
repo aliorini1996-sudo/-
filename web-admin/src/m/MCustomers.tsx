@@ -13,9 +13,9 @@ import { MCard, MRow, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import MCustomerForm from './MCustomerForm';
 import { can } from './perms';
 import { expectArray, expectObject } from './shape';
-import { zatcaCollectOn, type ZatcaCompanyLike } from '../lib/zatcaRegime';
+import { buyerRelaxOn, zatcaCollectOn, type ZatcaCompanyLike } from '../lib/zatcaRegime';
 import { BuyerRowLike, customerBuyerStatus, missingBuyerFormFields } from '../lib/zatca/buyerData';
-import { BUYER_CLASSIFICATION_LABELS_AR, BUYER_FIELD_UI_LABELS_AR as BUYER_FIELD_LABELS_AR, buyerBadge } from '../lib/zatca/buyerForm';
+import { BUYER_CLASSIFICATION_LABELS_AR, BUYER_FIELD_UI_LABELS_AR as BUYER_FIELD_LABELS_AR, buyerBadge, buyerRelaxSimplified } from '../lib/zatca/buyerForm';
 
 const MInvoiceCreate = lazy(() => import('./MInvoiceCreate'));
 const MReceiptCreate = lazy(() => import('./MReceiptCreate'));
@@ -53,6 +53,8 @@ export default function MCustomers({ accountingOn = true, company }: {
   // فوترة ZATCA (Z5.1a، D2): شارة وفلتر «بيانات فوترة ناقصة» للشركة التي تجمع بيانات الفوترة وحدها — غيرها كما اليوم
   // والمحاسبة مفعّلة: بلاها لا فاتورة تُصدر من /m ولا قسم بيانات فوترة في نموذجه — فلا شريحة ولا شارة بلا حقول تُكملها
   const zatcaCollect = accountingOn && zatcaCollectOn(company as ZatcaCompanyLike | null);
+  // فكّ قيد الرقم الضريبي والعنوان الوطني (طلب المالك ٣١ أكتوبر ٢٠٢٦): خلف الجمع نفسه — الشارة والنص والتنبيهات وحدها تتغيّر
+  const buyerRelax = zatcaCollect && buyerRelaxOn(company as ZatcaCompanyLike | null);
   const [onlyIncomplete, setOnlyIncomplete] = useState(false);
   const incompleteMode = zatcaCollect && onlyIncomplete;
 
@@ -91,14 +93,14 @@ export default function MCustomers({ accountingOn = true, company }: {
 
   if (editing !== undefined) {
     return (
-      <MCustomerForm customer={editing} accountingOn={accountingOn} zatcaCollect={zatcaCollect} onClose={() => setEditing(undefined)}
+      <MCustomerForm customer={editing} accountingOn={accountingOn} zatcaCollect={zatcaCollect} buyerRelax={buyerRelax} onClose={() => setEditing(undefined)}
         onSaved={(c) => { setEditing(undefined); setDetail(c); }} />
     );
   }
 
   if (detail) {
     return (
-      <MCustomerDetail customer={detail} accountingOn={accountingOn} zatcaCollect={zatcaCollect} company={company}
+      <MCustomerDetail customer={detail} accountingOn={accountingOn} zatcaCollect={zatcaCollect} buyerRelax={buyerRelax} company={company}
         onClose={() => setDetail(null)} onEdit={() => setEditing(detail)} />
     );
   }
@@ -134,7 +136,7 @@ export default function MCustomers({ accountingOn = true, company }: {
           : (
             <MCard>
               {shownQ.data.map(c => (
-                <CustomerRow key={c.id} c={c} accountingOn={accountingOn && !incompleteMode} zatcaCollect={zatcaCollect} onOpen={() => openRow(c)} />
+                <CustomerRow key={c.id} c={c} accountingOn={accountingOn && !incompleteMode} zatcaCollect={zatcaCollect} buyerRelax={buyerRelax} onOpen={() => openRow(c)} />
               ))}
             </MCard>
           )}
@@ -146,12 +148,12 @@ export default function MCustomers({ accountingOn = true, company }: {
   );
 }
 
-function CustomerRow({ c, accountingOn, zatcaCollect = false, onOpen }: {
-  c: Customer; accountingOn: boolean; zatcaCollect?: boolean; onOpen: () => void;
+function CustomerRow({ c, accountingOn, zatcaCollect = false, buyerRelax = false, onOpen }: {
+  c: Customer; accountingOn: boolean; zatcaCollect?: boolean; buyerRelax?: boolean; onOpen: () => void;
 }) {
   const tr = useTr();
   const over = c.creditLimit > 0 && c.balance > c.creditLimit;
-  const badge = zatcaCollect ? buyerBadge(c as BuyerRowLike) : null;
+  const badge = zatcaCollect ? buyerBadge(c as BuyerRowLike, buyerRelax) : null;
   return (
     <MRow
       onClick={onOpen}
@@ -165,8 +167,8 @@ function CustomerRow({ c, accountingOn, zatcaCollect = false, onOpen }: {
       trailing={
         <span className="flex items-center gap-1 flex-shrink-0">
           {badge && (
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap ${badge === 'incomplete' ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>
-              {badge === 'incomplete' ? tr('بيانات فوترة ناقصة') : tr('غير مصنف')}
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap ${badge === 'incomplete' || badge === 'simplified' ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>
+              {badge === 'simplified' ? tr('ناقصة تصدر مبسطة') : badge === 'incomplete' ? tr('بيانات فوترة ناقصة') : tr('غير مصنف')}
             </span>
           )}
           {/* الرصيد يسقط كلّه مع المفتاح — لا صفراً ولا شرطةً مكانه */}
@@ -182,8 +184,8 @@ function CustomerRow({ c, accountingOn, zatcaCollect = false, onOpen }: {
 }
 
 /** تفاصيل العميل — ملء الشاشة، بقيّة الحقول وأزرار الإجراءات */
-function MCustomerDetail({ customer, accountingOn, zatcaCollect = false, company, onClose, onEdit }: {
-  customer: Customer; accountingOn: boolean; zatcaCollect?: boolean; company?: unknown; onClose: () => void; onEdit: () => void;
+function MCustomerDetail({ customer, accountingOn, zatcaCollect = false, buyerRelax = false, company, onClose, onEdit }: {
+  customer: Customer; accountingOn: boolean; zatcaCollect?: boolean; buyerRelax?: boolean; company?: unknown; onClose: () => void; onEdit: () => void;
 }) {
   const tr = useTr();
   const lang = useLang(s => s.lang);
@@ -297,8 +299,11 @@ function MCustomerDetail({ customer, accountingOn, zatcaCollect = false, company
           {zatcaCollect && accountingOn && (() => {
             const st = customerBuyerStatus(c as BuyerRowLike);
             const missing = missingBuyerFormFields(st);
+            // فكّ القيد: المنشأة الناقصة تصدر لها مبسطة — يُقال بعد النواقص (وبلا فكّ القيد النصّ كما اليوم)
+            const relaxLine = buyerRelax && st.subtypeIfIssuedNow === '01' && !st.complete && buyerRelaxSimplified(c as BuyerRowLike)
+              ? ` — ${tr('تصدر له فاتورة ضريبية مبسطة حتى تكتمل بياناته ولا يستطيع خصم ضريبتها')}` : '';
             const detailText = st.subtypeIfIssuedNow === '01'
-              ? (st.complete ? tr('بيانات الفاتورة الضريبية مكتملة') : `${tr('ناقص للفاتورة الضريبية')}: ${missing.map(f => tr(BUYER_FIELD_LABELS_AR[f])).join('، ')}`)
+              ? (st.complete ? tr('بيانات الفاتورة الضريبية مكتملة') : `${tr('ناقص للفاتورة الضريبية')}: ${missing.map(f => tr(BUYER_FIELD_LABELS_AR[f])).join('، ')}${relaxLine}`)
               : st.classification === 'unclassified' ? tr('حدد نوع العميل هل هو منشأة أم فرد') : tr('تصدر له فاتورة مبسطة');
             return <Info label={tr('الفوترة الإلكترونية')} value={`${tr(BUYER_CLASSIFICATION_LABELS_AR[st.classification])} — ${detailText}`} />;
           })()}

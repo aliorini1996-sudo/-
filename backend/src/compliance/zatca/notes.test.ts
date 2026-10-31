@@ -11,7 +11,8 @@ import path from 'path';
 import { parseCsidToken } from './cert';
 import { INITIAL_PIH } from './crypto';
 import { gunzipXml } from './documentStore';
-import { ZatcaHttpError } from './errors';
+import { ZatcaHttpError, buyerIncompleteError } from './errors';
+import { customerBuyerStatus, missingBuyerFormFields } from './buyerData';
 import { prepareIssuance, signedInvoiceMirror, snapshotOf, type IssuedInvoiceRecord } from './issue';
 import { runIssuance } from './issueTx';
 import { mapBuyerParty, mapInvoiceToUbl } from './mapInvoice';
@@ -846,4 +847,85 @@ test('fitCreditPrices: سطر البند بوحدته نفسها لا يُمسّ
   assert.equal(fitted[1].creditFitted, true);
   const full = fitCreditPrices(resolveCreditLines(creditableLines(original, []), 'FULL'), { discountPct: 0, pricesIncludeTax: false }, COMPANY_VAT);
   assert.deepEqual(full.map(l => [l.creditFitted, l.creditUnitPrice]), [[false, 10]]);
+});
+
+// ─── «فك قيد الرقم الضريبي والعنوان الوطني» (طلب المالك ٣١ أكتوبر ٢٠٢٦) ───
+
+const RELAXED_SELLER = sellerSettings({ buyerVatAddressRelaxed: true });
+
+function relaxCredit(original: NoteOriginalInvoice, customer: typeof CUSTOMERS.b2bComplete, relaxed: boolean, eligibility?: NoteEligible) {
+  const el = eligibility ?? (() => {
+    const e = noteEligibility({ tenantId: Z5_TENANT, original, customer, relaxBuyer: relaxed });
+    assert.ok(e.ok, `الأصل غير مؤهَّل: ${e.ok ? '' : e.refusal}`);
+    return e;
+  })();
+  return prepareCreditNote({
+    settings: relaxed ? RELAXED_SELLER : sellerSettings(), customer, original, priorNotes: [], request: 'FULL', reason: 'إرجاع بضاعة تالفة',
+    eligibility: el, companyVat: COMPANY_VAT, now: Z1_ISSUED_AT,
+  });
+}
+
+test('فك القيد والإشعارات: أصلٌ مبسّط (02) ⇒ إشعار 02 بفكّ القيد وبدونه، بلا إعلام تبسيط (النوع موروث لا مُخفَّض)', () => {
+  const simplified = originalInvoice({ request: REQ_SIMPLIFIED_Z1, subtype: '02', customerId: CUSTOMERS.b2bIncomplete.id, einvoiceStatus: 'reported' });
+  for (const relaxed of [false, true]) {
+    const note = relaxCredit(simplified, CUSTOMERS.b2bIncomplete, relaxed);
+    assert.deepEqual([note.prepared.subtype, note.prepared.typeName], ['02', '0200000']);
+    assert.equal('buyerNotice' in note.prepared, false);
+  }
+});
+
+test('فك القيد والإشعارات: أصلٌ ضريبي (01) وعميلٌ صارت بياناته ناقصة ⇒ 422 يبقى (الإشعار يتبع أصله) برسالة أوضح، ومطفأً بجسم اليوم حرفياً', () => {
+  const standard = originalInvoice({ request: REQ_SIMPLIFIED_Z1, subtype: '01', customerId: CUSTOMERS.b2bIncomplete.id, einvoiceStatus: 'cleared' });
+  const st = customerBuyerStatus(CUSTOMERS.b2bIncomplete);
+  const legacy = buyerIncompleteError(CUSTOMERS.b2bIncomplete.id, st.issues.filter(i => i.severity === 'error'));
+  const off = httpError(() => relaxCredit(standard, CUSTOMERS.b2bIncomplete, false));
+  assert.deepEqual(off.body(), new ZatcaHttpError('ZATCA_BUYER_INCOMPLETE', {
+    messageAr: legacy.messageAr, issues: legacy.issues, customerId: CUSTOMERS.b2bIncomplete.id, data: { fields: missingBuyerFormFields(st) },
+  }).body());
+  const on = httpError(() => relaxCredit(standard, CUSTOMERS.b2bIncomplete, true));
+  assert.equal(on.code, 'ZATCA_BUYER_INCOMPLETE');
+  assert.equal(on.status, 422);
+  assert.match(on.messageAr, /^بيانات العميل ناقصة للإشعار على فاتورة ضريبية — الإشعار يتبع نوع فاتورته الأصلية فلا يصدر مبسطاً حتى مع فك القيد: .+\. أكملها ثم أعد الإصدار$/);
+  assert.deepEqual(on.data, { fields: missingBuyerFormFields(st) });
+  assert.deepEqual(on.issues, off.issues);
+});
+
+test('فك القيد والإشعارات: أصلٌ من المرحلة الأولى لمنشأة ناقصة ⇒ قاعدة الفاتورة — إشعار مبسّط بإعلامه بفكّ القيد، و422 بدونه', () => {
+  const p1 = originalInvoice({ request: REQ_SIMPLIFIED_Z1, phase: 1, customerId: CUSTOMERS.b2bIncomplete.id, number: 'INV-2509-000901' });
+  const offEl = noteEligibility({ tenantId: Z5_TENANT, original: p1, customer: CUSTOMERS.b2bIncomplete });
+  assert.ok(offEl.ok);
+  assert.equal(offEl.subtype, '01');
+  assert.equal('buyerSimplified' in offEl, false);
+  assert.equal(httpError(() => relaxCredit(p1, CUSTOMERS.b2bIncomplete, false, offEl)).code, 'ZATCA_BUYER_INCOMPLETE');
+  const onEl = noteEligibility({ tenantId: Z5_TENANT, original: p1, customer: CUSTOMERS.b2bIncomplete, relaxBuyer: true });
+  assert.ok(onEl.ok);
+  assert.deepEqual([onEl.subtype, onEl.subtypeSource, onEl.buyerSimplified], ['02', 'classified', true]);
+  const note = relaxCredit(p1, CUSTOMERS.b2bIncomplete, true, onEl);
+  assert.deepEqual([note.prepared.subtype, note.prepared.typeName, note.prepared.typeCode, note.prepared.buyerSimplified], ['02', '0200000', '381', true]);
+  assert.equal(note.prepared.buyerNotice?.code, 'ZATCA_BUYER_SIMPLIFIED');
+  assert.match(note.prepared.buyerNotice!.message, /^صدر الإشعار مبسطاً لأن /);
+  assert.deepEqual(note.prepared.buyerNotice?.fields, missingBuyerFormFields(customerBuyerStatus(CUSTOMERS.b2bIncomplete)));
+  assert.deepEqual(mapInvoiceToUbl(note.prepared.src, chainFor(2)).customer, { registrationName: 'أسواق الحي' });
+  // اسمٌ لا تصحّ معه حتى المبسّطة ⇒ 422 برسالة الفاتورة العادية (لا «يتبع أصله»: لا أصل ضريبيّاً يُتّبع)
+  const long = { ...CUSTOMERS.b2bIncomplete, businessName: 'م'.repeat(1001) };
+  const e = httpError(() => relaxCredit(p1, long, true));
+  assert.match(e.messageAr, /^بيانات العميل \(منشأة\) ناقصة للفاتورة الضريبية: /);
+});
+
+test('فك القيد مطفأ: noteEligibility بلا relaxBuyer أو بـfalse = اليوم حرفياً على كل التجهيزات والمراحل، بلا مفتاح buyerSimplified', () => {
+  const all = Object.values(CUSTOMERS);
+  for (const c of all) {
+    for (const original of [
+      originalInvoice({ request: REQ_SIMPLIFIED_Z1, phase: 1, customerId: c.id }),
+      originalInvoice({ request: REQ_SIMPLIFIED_Z1, subtype: '01', customerId: c.id, einvoiceStatus: 'cleared' }),
+      originalInvoice({ request: REQ_SIMPLIFIED_Z1, subtype: '02', customerId: c.id, einvoiceStatus: 'reported' }),
+    ]) {
+      const base = noteEligibility({ tenantId: Z5_TENANT, original, customer: c });
+      assert.deepEqual(noteEligibility({ tenantId: Z5_TENANT, original, customer: c, relaxBuyer: false }), base);
+      assert.ok(base.ok);
+      assert.equal('buyerSimplified' in base, false);
+      // ومع فكّه: الأصل من المرحلة الثانية لا يتغيّر أبداً (النوع موروث)
+      if (base.originalPhase === 2) assert.deepEqual(noteEligibility({ tenantId: Z5_TENANT, original, customer: c, relaxBuyer: true }), base);
+    }
+  }
 });

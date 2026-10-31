@@ -12,10 +12,16 @@
  *    تقول «أغلق التطبيق وافتحه»، وهي في جوّال المندوب تعني إلغاء تسجيل عامل الخدمة وإعادة التحميل — زرٌّ واحد.
  *
  * وما عدا ذلك يبقى كما هو: 201 ⇒ الطباعة كما اليوم (والقرار في `docPrint` يختار العنوان والرمز).
+ *
+ * وطلب المالك ٣١ أكتوبر ٢٠٢٦ (فكّ قيد الرقم الضريبي والعنوان الوطني): 201 قد يحمل `notice` بجانب `data` —
+ * `ZATCA_BUYER_SIMPLIFIED`: صدرت لمنشأةٍ ناقصة البيانات مبسطةً (02) لا ضريبية. إعلاميّ لا يغيّر الورقة (عنوانها من الخادم)؛
+ * يُقال للمستخدم مرّة بعد الإصدار، ولا يُطبع على الورقة.
  */
 
 import { zatcaDocView, type ZatcaDocView } from './docStatus';
 import { zatcaPrintDecision } from './docPrint';
+import { BUYER_BILLING_FIELDS, type BuyerField } from './buyerData';
+import { BUYER_FIELD_UI_LABELS_AR } from './buyerForm';
 
 export const ZATCA_OUTDATED_CODE = 'ZATCA_CLIENT_UPDATE_REQUIRED';
 export const ZATCA_OFFLINE_CODE = 'ZATCA_OFFLINE_BLOCKED';
@@ -81,6 +87,42 @@ export async function zatcaReloadForUpdate(env: ReloadEnv): Promise<void> {
   env.reload();
 }
 
+// ─── فكّ القيد: إشعار «صدرت مبسطة» في ردّ 201 ───
+
+export const ZATCA_BUYER_SIMPLIFIED_CODE = 'ZATCA_BUYER_SIMPLIFIED';
+
+export interface BuyerNotice {
+  /** حقول البطاقة الناقصة كما أرسلها الخادم (المعروفة وحدها). */
+  fields: BuyerField[];
+  /** المستدعي يعرف ما أصدر: فاتورة بيع أو إشعار (مرتجع). */
+  kind: 'invoice' | 'note';
+}
+
+/**
+ * قراءة `notice` من جسم ردّ الإصدار (res.data). لا يُقبل إلا رمز ZATCA_BUYER_SIMPLIFIED، والحقول تُصفّى إلى حقول الفوترة المعروفة
+ * — فنصٌّ حرّ من الخادم لا يصل إلى قاموس الترجمة. غيابه أو شكلٌ غريب ⇒ null (والإصدار كما هو).
+ */
+export function buyerNoticeOf(body: unknown, kind: 'invoice' | 'note' = 'invoice'): BuyerNotice | null {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+  const n = (body as { notice?: unknown }).notice;
+  if (!n || typeof n !== 'object' || Array.isArray(n)) return null;
+  const { code, fields } = n as { code?: unknown; fields?: unknown };
+  if (code !== ZATCA_BUYER_SIMPLIFIED_CODE) return null;
+  const known = Array.isArray(fields)
+    ? fields.filter((f): f is BuyerField => typeof f === 'string' && (BUYER_BILLING_FIELDS as readonly string[]).includes(f))
+    : [];
+  return { fields: [...new Set(known)], kind };
+}
+
+/** نصّ الإشعار بلغة الواجهة: الجملة ثم «ناقص للفاتورة الضريبية: …» بأسماء الحقول المترجمة. */
+export function buyerNoticeText(n: BuyerNotice, tr: (key: string) => string): string {
+  const head = n.kind === 'note'
+    ? tr('صدر الإشعار مبسطا لأن بيانات العميل ناقصة للفاتورة الضريبية')
+    : tr('صدرت فاتورة ضريبية مبسطة لأن بيانات العميل ناقصة للفاتورة الضريبية');
+  if (n.fields.length === 0) return head;
+  return `${head} — ${tr('ناقص للفاتورة الضريبية')}: ${n.fields.map(f => tr(BUYER_FIELD_UI_LABELS_AR[f])).join('، ')}`;
+}
+
 /**
  * نصوص هذا المسار في واجهة المندوب — يحرس اختبار القاموس أنّ لكلّ نصّ ترجماته الأربع.
  * (رسالة 202 نفسها تأتي من الخادم، وعند غيابها يمرّر المستدعي نصّ Z5.2 المترجَم سلفاً.)
@@ -88,4 +130,6 @@ export async function zatcaReloadForUpdate(env: ReloadEnv): Promise<void> {
 export const ZATCA_ISSUE_PHRASES: readonly string[] = Object.freeze([
   'تحديث التطبيق وإعادة الفتح',
   'مستندات صدرت دون اتصال قبل تفعيل الفوترة الإلكترونية محجوزة لمراجعة الإدارة ولن تضيع ولا يلزمك شيء',
+  'صدرت فاتورة ضريبية مبسطة لأن بيانات العميل ناقصة للفاتورة الضريبية',
+  'صدر الإشعار مبسطا لأن بيانات العميل ناقصة للفاتورة الضريبية',
 ]);

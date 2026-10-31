@@ -278,6 +278,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "الحقل الغائب لا يتغير، وnull أو النص الفارغ يمسحه، والقيمة التي ليست نصاً تعطي خطأ 400",
      "تطبيع القيم: قص المسافات، وتحويل الأرقام العربية والفارسية إلى لاتينية في الحقول الرقمية، وأحرف كبيرة لـbuyerType وbuyerIdScheme وcountryCode",
      "الفحص يشمل الحقول المتغيرة فقط، والخطأ يعود 400 CUSTOMER_ZATCA_INVALID مع fieldErrors[{field, messageAr}]",
+     "وحين فكّت الشركة القيد (buyerVatAddressRelaxed في GET /company) تصير أخطاء صيغة الرقم الضريبي ورقم المبنى والرمز البريدي تنبيهات في warnings لا 400 — وتبقى أخطاء المحارف والطول والدولة والمعرّف أخطاء",
      "يُكتب ما تغيّر فعلاً فقط، وأي حقل آخر في الجسم يُتجاهل",
      "تحويل العميل من ضريبية إلى مبسطة مسموح للإدارة، ويُسجَّل له سطر تدقيق ZATCA_BUYER_DOWNGRADE"
     ],
@@ -495,6 +496,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "email وchannel وoutletType الفارغة تُحفظ null",
      "حقول زاتكا وفحصها تعمل فقط إذا كانت الشركة تجمع بيانات الفوترة ((zatcaPhase2Enabled أو zatcaPhase2StartedAt) مع countryCode=SA)، وإلا تُهمل حقول المرحلة الثانية بصمت ويُحفظ taxNumber كما هو",
      "في الشركة التي تجمع البيانات: القيمة غير الصالحة تعود 400 CUSTOMER_ZATCA_INVALID مع fieldErrors، ولطلب المفتاح دائماً ولو أرسلت clientRef. التسامح (إسقاط حقول المرحلة الثانية الخاطئة مع warnings بدل الرفض) خاص بصندوق تطبيق المندوب حين يعيد رفع ما سُجّل دون اتصال، ولا يرثه المفتاح. وwarnings قد تعود مع 201 لنقصٍ لا يمنع الحفظ",
+     "وحين فكّت الشركة القيد (buyerVatAddressRelaxed في GET /company) تصير أخطاء صيغة الرقم الضريبي ورقم المبنى والرمز البريدي تنبيهات في warnings لا 400 — وتبقى أخطاء المحارف والطول والدولة والمعرّف أخطاء",
      "الاستيراد الجماعي POST /import/customers بالمفتاح يمرّ بالفحص نفسه صفاً صفاً في الشركة التي تجمع البيانات: صفٌّ رقمه الضريبي أو سجله التجاري أو نصوصه غير صالحة يعود في data.errors بالشكل {row, code:'CUSTOMER_ZATCA_INVALID', field, value, message} (row = موضع الصف في rows + 2)، ولا يُكتب حينئذٍ أي صف من الدفعة كأخطاء المخطط. والسليم يُحفظ مطبَّعاً (أرقام لاتينية) كما في الإنشاء المفرد",
      "aiPlaceId المسجل لعميل آخر في الشركة يعود 409 AI_PLACE_ALREADY_CUSTOMER لطلب المفتاح دائماً. ترويسة X-FS-Replay تُمحى من طلبات المفتاح فلا ترسلها",
      "إنشاء العميل لا يكتب أي قيد مالي ولا يغيّر أي رصيد"
@@ -591,6 +593,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "الحقل الغائب لا يتغير",
      "clientRef وclientCreatedAt وaiPlaceId تُتجاهل في التعديل، لكن clientRef ما زال يجب أن يكون بصيغة UUID إذا أُرسل",
      "زاتكا: الفحص يشمل الحقول المتغيرة مقارنة بالمحفوظ فقط، والخطأ يعود دائماً 400 CUSTOMER_ZATCA_INVALID بلا استثناء",
+     "وحين فكّت الشركة القيد (buyerVatAddressRelaxed في GET /company) تصير أخطاء صيغة الرقم الضريبي ورقم المبنى والرمز البريدي تنبيهات في warnings لا 400 — وتبقى أخطاء المحارف والطول والدولة والمعرّف أخطاء",
      "تحويل العميل من ضريبية إلى مبسطة (بمسح الرقم الضريبي أو السجل، أو بضبط buyerType=INDIVIDUAL) مسموح للإدارة ويُسجَّل له سطر تدقيق",
      "التعديل لا يغيّر code ولا balance، ولا يكتب أي قيد"
     ],
@@ -2257,6 +2260,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "التقسيط: الخادم يبني الجدول من الإجمالي المحسوب، والفارق يحمله القسط الأخير، والمجموع يجب أن يساوي الإجمالي وإلا 400",
      "المرحلة الثانية: المرتجع يصبح إشعاراً دائناً مرتبطاً بالأصل. أسعاره وضريبته تؤخذ من بنود الأصل، ويُتجاهل unitPrice المرسل. البند يُطابَق بـinvoiceItemId أو بالصنف إذا لم يتكرر في الأصل، وإلا 422. والكمية محدودة بما لم يُرجَع بعد (المقارنة بوحدة الأساس، والكمية بوحدة unitId)",
      "المرحلة الثانية: العميل الذي لديه رقم ضريبي أو سجل تجاري أو نوع BUSINESS/GOVERNMENT تصدر له فاتورة قياسية (01) تحتاج بيانات مشترٍ كاملة، وإلا 422 ZATCA_BUYER_INCOMPLETE مع data.fields. وغيره تصدر له مبسّطة (02)",
+     "المرحلة الثانية وفكّ القيد (buyerVatAddressRelaxed = true في GET /company، يضبطه مدير الشركة من لوحة التحكم): فاتورة منشأة بياناتها لا تكفي للقياسية لا تُرفض 422 بل تصدر مبسّطة (02) بـ201 بلا انتظار اعتماد، وبالمبالغ والضريبة نفسها، وطرف المشتري فيها الاسم وحده (والمعرّف الآخر إن صحّ) بلا رقم ضريبي ولا سجل ولا عنوان، وتاريخ التوريد = تاريخ الإصدار. ويحمل الردّ بجانب data: notice:{code:'ZATCA_BUYER_SIMPLIFIED', message, fields:[حقول البطاقة الناقصة]} — والعميل لا يستطيع خصم ضريبتها. وتكرار clientRef يعيد المستند المحفوظ بلا notice",
      "المرحلة الثانية: إرسال clientCreatedAt دون clientRef يرجع 426. وخلال فترة تسليح التفعيل قد يرجع 409 ZATCA_GO_LIVE_ARMING لمستند يحمل clientCreatedAt",
      "أخطاء زاتكا الأخرى: 503 ZATCA_UNIT_UNAVAILABLE أو UNIT_BUSY أو STAMP_FAILED (أعد المحاولة بنفس clientRef)، و422 ZATCA_AMOUNTS أو PREFLIGHT أو CURRENCY",
      "مثال تقسيط: {\"customerId\":\"…\",\"salesRepId\":\"…\",\"type\":\"CREDIT\",\"paymentPlan\":\"INSTALLMENT\",\"installmentPlan\":{\"count\":3,\"firstDueDate\":\"2026-11-01\",\"period\":\"MONTHLY\"},\"items\":[{\"productId\":\"…\",\"qty\":10,\"unitPrice\":120}]}",
@@ -2407,6 +2411,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "الأصل يجب أن يكون فاتورة CASH أو CREDIT مؤكدة، وليس إشعاراً (وإلا 409 ZATCA_NOTE_ON_NOTE). وإذا كان من المرحلة الثانية فيجب أن يكون معتمداً أو مبلغاً (وإلا 409 ZATCA_ORIGINAL_NOT_CLEARED). الإشعار مسموح على أصل من المرحلة الأولى",
      "الأسعار والضريبة والخصم الكلي من الأصل، ولا تُرسل أسعاراً. وسعر وحدة غير وحدة البند (حبة من بند كرتون) حصّتها من قيمة البند، فإرجاع الكرتون حبةً حبةً في إشعارات متفرقة يساوي قيمته تماماً، ورمز وحدة بند الإشعار رمز الوحدة المُرجَع بها",
      "الكمية الزائدة ترجع 422 ZATCA_CREDIT_QTY_EXCEEDED، وإذا كانت كل الكميات مرتجعة سابقاً يرجع 409 ZATCA_NOTHING_TO_CREDIT",
+     "نوع الإشعار يتبع أصله: على فاتورة مبسّطة (02) مبسّط، وعلى فاتورة قياسية (01) قياسي يحتاج بيانات مشترٍ كاملة وإلا 422 ZATCA_BUYER_INCOMPLETE مع data.fields — ولو فكّت الشركة القيد (buyerVatAddressRelaxed). وعلى أصل من المرحلة الأولى يُقرَّر كفاتورة تصدر الآن: مع فكّ القيد تصدر للمنشأة الناقصة مبسّطاً بـ201 ومعه notice:{code:'ZATCA_BUYER_SIMPLIFIED', message, fields}",
      "الأثر: ينقص remainingAmt للأصل بفرق نسبي بقيمة min(الإجمالي، المتبقي)، والزائد يصبح رصيداً دائناً للعميل. يُسجَّل قيد مرتجع فينقص رصيد العميل، وتُبطل روابط دفع الأصل",
      "الإشعار يُنسب لمندوب الأصل لأن المفتاح لا يملك هوية مندوب، والكميات تعود لمخزون ذلك المندوب حسب returnToStock",
      "المستخدم الإداري مسموح له بالكامل والجزئي",
@@ -2501,6 +2506,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "الأثر: قيد فاتورة آجلة يرفع رصيد العميل بالإجمالي، ويصبح الإشعار مديونية قابلة للتحصيل",
      "يُنسب لمندوب الأصل",
      "شروط الأصل مثل الإشعار الدائن",
+     "نوع الإشعار يتبع أصله كالإشعار الدائن: على قياسية (01) يحتاج بيانات مشترٍ كاملة وإلا 422 ZATCA_BUYER_INCOMPLETE ولو مع فكّ القيد، وعلى أصل من المرحلة الأولى مع فكّ القيد يصدر للمنشأة الناقصة مبسّطاً ومعه notice:{code:'ZATCA_BUYER_SIMPLIFIED'}",
      "المرجع ،"
     ],
     "example": "{\"reason\":\"فرق سعر لم يحتسب في الفاتورة\",\"lines\":[{\"description\":\"فرق سعر كرتون مياه 330 مل\",\"qty\":10,\"unitPrice\":1.5,\"taxPct\":15}],\"clientRef\":\"9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a\"}"
@@ -5469,6 +5475,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "الصف بلا كود: جوالٌ موجود ⇒ يُتخطّى بالسبب PHONE_EXISTS، واسمٌ موجود بعد تطبيع الهمزات والتاء المربوطة والياء ⇒ NAME_EXISTS، وإلا يُنشأ. والصفوف المنشأة قبله في الملف نفسه تُحسب موجودة",
      "skippedRows وattachedRows وwarnings.similar مقصوصة على 500 صف",
      "لطلب المفتاح وحده، في الشركة التي تجمع بيانات المشتري لزاتكا: الرقم الضريبي والسجل التجاري واسم المنشأة تُفحص صفاً صفاً، والمخالف خطأ صف {row, code:'CUSTOMER_ZATCA_INVALID', field, value, message} ولا يُكتب حينئذٍ أي صف من الدفعة. والسليم يُحفظ مطبَّعاً (أرقام لاتينية)",
+     "وحين فكّت الشركة القيد (buyerVatAddressRelaxed في GET /company) لا يكون الرقم الضريبي بغير صيغته المعتمدة خطأ صف: يُحفظ مطبَّعاً كما أُرسل — وتبقى أخطاء المحارف والطول والسجل التجاري أخطاء صف",
      "خطأ في شكل أي صف (نوع خانة، أو خانة مطلوبة فارغة، أو قيمة خارج حدّها أو بغير صيغتها) أو صفوفٌ فوق حدّ الدفعة: 200 وcreated = 0 وأخطاء الشكل في errors بلا code، ولا يُكتب صفّ ولا تُحجز دفعة",
      "فشل كتابة صفٍّ بعينه: ROW_CONFLICT (سجل بالمفتاح نفسه أُنشئ في اللحظة نفسها، أعد الاستيراد لتخطيه) أو ROW_WRITE_FAILED، ويُكتب الباقي",
      "409 IMPORT_DUPLICATE_BATCH للصفوف نفسها ودفعتها السابقة غير متراجَع عنها ما لم ترسل force، و409 IMPORT_IN_PROGRESS إن كانت دفعة من النوع نفسه تُكتب الآن (ولو مع force)، و409 IMPORT_LEDGER_BUSY لانشغال القفل: أعد المحاولة",
@@ -7434,7 +7441,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:{كل أعمدة إعدادات الشركة ومنها name وaddress وtaxNumber وcommercialReg وphone وemail وlogo (base64) وprimaryColor وheaderStyle وnumerals وcountryCode وcurrency وcurrencyOverride وdefaultVatPct وeinvoiceProvider وeinvoiceEnabled وeinvoiceEnv وeinvoiceClientId وحقول بائع زاتكا وzatcaPhase2StartedAt، مع einvoiceHasSecret:boolean بدل السر، والأعلام erpEnabled وpetroappEnabled وhatifEnabled وcatalogEnabled وpaylinkEnabled وwarehouseEnabled وreceivablesSummaryEnabled وaccountingEnabled وdailyReportEnabled وattendanceEnabled وinvoiceSignatureEnabled وaccountingSuiteEnabled وzatcaPhase2Enabled وaiRepEnabled وapiEnabled وlocationsEnabled وpaymentMethodsEnabled وlotTrackingEnabled وlotOnInvoice}}. وفي أعمدة الإعدادات الخام: teamsEnabled وprintSettings وprintTexts وpaymentMethodsConfig (JSON أو null)",
+    "response": "{success:true, data:{كل أعمدة إعدادات الشركة ومنها name وaddress وtaxNumber وcommercialReg وphone وemail وlogo (base64) وprimaryColor وheaderStyle وnumerals وcountryCode وcurrency وcurrencyOverride وdefaultVatPct وeinvoiceProvider وeinvoiceEnabled وeinvoiceEnv وeinvoiceClientId وحقول بائع زاتكا وzatcaPhase2StartedAt، مع einvoiceHasSecret:boolean بدل السر، والأعلام erpEnabled وpetroappEnabled وhatifEnabled وcatalogEnabled وpaylinkEnabled وwarehouseEnabled وreceivablesSummaryEnabled وaccountingEnabled وdailyReportEnabled وattendanceEnabled وinvoiceSignatureEnabled وaccountingSuiteEnabled وzatcaPhase2Enabled وaiRepEnabled وapiEnabled وlocationsEnabled وpaymentMethodsEnabled وlotTrackingEnabled وlotOnInvoice}}. وفي أعمدة الإعدادات الخام: teamsEnabled وbuyerVatAddressRelaxed وprintSettings وprintTexts وpaymentMethodsConfig (JSON أو null)",
     "rules": [
      "einvoiceClientSecret لا يُعاد أبداً ويُستبدل بـ einvoiceHasSecret",
      "accountingEnabled يكون true ما لم يُطفأ صراحة، وبقية الأعلام false ما لم تُفعَّل",
@@ -7442,7 +7449,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "استعمل الأعلام لمعرفة الميزات المتاحة قبل استدعاء مساراتها مثل المستودع وروابط الدفع",
      "تحقّق من locationsEnabled قبل /locations، ومن paymentMethodsEnabled قبل /reports/payment-methods وPUT /company/payment-methods، ومن attendanceEnabled قبل /attendance-admin",
      "«تتبّع LOT»: lotTrackingEnabled يفعّله مزود الخدمة لكل شركة — تحقّق منه قبل /lots ومزامنة موارد التشغيلات وحقول التشغيلات في المسارات الأخرى. وlotOnInvoice (طباعة رقم التشغيلة على فاتورة العميل، يضبطه PUT /lots/settings) يصل true مع الميزة المفعّلة وحدها، ولا يمسّه PUT /company",
-     "اقرأ طرق الدفع من GET /company/payment-methods وإعدادات الطباعة من GET /company/print-settings ونصوص المطبوعات من GET /company/print-texts لا من الأعمدة الخام: المسارات تعيد الصورة المكتملة بالافتراضي، وتُهمل في الخام ما لا يصلح"
+     "اقرأ طرق الدفع من GET /company/payment-methods وإعدادات الطباعة من GET /company/print-settings ونصوص المطبوعات من GET /company/print-texts لا من الأعمدة الخام: المسارات تعيد الصورة المكتملة بالافتراضي، وتُهمل في الخام ما لا يصلح",
+     "buyerVatAddressRelaxed (فكّ قيد الرقم الضريبي والعنوان الوطني، false افتراضياً): يضبطه مدير الشركة من لوحة التحكم وحدها ولا يمسّه PUT /company — وأثره في GET /company/buyer-relax"
     ],
     "example": ""
    },
@@ -7586,6 +7594,26 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "حقول einvoice هنا لمزودات ETA وPeppol وTTN، أما ربط زاتكا المرحلة الثانية فله مسارات /zatca"
     ],
     "example": "{\"name\":\"شركة الريادة للتوزيع\",\"address\":\"الرياض، حي السلي\",\"taxNumber\":\"310123456700003\",\"commercialReg\":\"1010123456\",\"phone\":\"0112345678\",\"email\":\"info@alriyada.sa\",\"primaryColor\":\"#E15A30\",\"headerStyle\":\"classic\",\"numerals\":\"latin\",\"countryCode\":\"SA\"}"
+   },
+   {
+    "method": "GET",
+    "path": "/company/buyer-relax",
+    "purpose": "حال «فك قيد الرقم الضريبي والعنوان الوطني» للشركة: هل تُقبل صيغ بيانات المشتري غير المعتمدة تنبيهاً، وتصدر للمنشأة الناقصة فاتورة مبسّطة",
+    "permission": "أي مستخدم شركة",
+    "gates": [
+     "authenticate",
+     "requireAdmin",
+     "مسموح لمفتاح القراءة فقط"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:{enabled}}",
+    "rules": [
+     "عند التفعيل: صيغ الرقم الضريبي ورقم المبنى والرمز البريدي للعميل تنبيهات (warnings) لا 400، وفاتورة منشأة بياناتها لا تكفي للضريبية تصدر مبسطة 02 بـ201 ومعها notice{code:'ZATCA_BUYER_SIMPLIFIED'} بدل 422؛ والتعديل من لوحة التحكم وحدها",
+     "التبديل لمدير الشركة غير المقيّد بنطاق من لوحة التحكم، ولا يُغيَّر بالمفتاح",
+     "القيمة نفسها في GET /company باسم buyerVatAddressRelaxed، وغياب صفّ إعدادات الشركة = false"
+    ],
+    "example": ""
    },
    {
     "method": "GET",

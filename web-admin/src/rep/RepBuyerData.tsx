@@ -10,7 +10,8 @@ import {
   repCompleteOnlyDenied,
 } from '../lib/zatca/buyerData';
 import {
-  BUYER_FIELD_UI_LABELS_AR as BUYER_FIELD_LABELS_AR, BuyerFormValues, buyerFormCheck, buyerFormValues, buyerUpdatePayload, repCompleteLocked,
+  BUYER_FIELD_UI_LABELS_AR as BUYER_FIELD_LABELS_AR, BuyerFormValues, buyerFormCheck, buyerFormValues, buyerRelaxSimplified, buyerRelaxWarnings,
+  buyerUpdatePayload, repCompleteLocked,
 } from '../lib/zatca/buyerForm';
 
 /**
@@ -23,6 +24,9 @@ import {
  *    «تعديل بيانات العميل»: حقول الفوترة وحدها، بلا مال ولا موقع. المندوب يُكمل ولا يمسح ولا يحوّل منشأة إلى فرد (نقد الخطة 21)
  *    — يفحصه هنا قبل الإرسال والخادم مرجع. يلزمه اتصال (تعديل سجلّ قائم لا يُطابَق من طابور). وبلا «تعديل بيانات العميل» يُكمل
  *    الفارغ من نوع العميل والمعرّف والعنوان الوطني والدولة وحده: المحفوظ واسم المنشأة والرقم الضريبي والسجل للعرض فقط.
+ *
+ * طلب المالك ٣١ أكتوبر ٢٠٢٦ (فكّ قيد الرقم الضريبي والعنوان الوطني — buyerRelaxOn): اللافتة تقول إن المنشأة الناقصة تصدر لها مبسطة،
+ * والنموذج يقبل صيغ الرقم الضريبي ورقم المبنى والرمز البريدي تنبيهاتٍ — وقواعد Q3 (إكمال لا مسح ولا تخفيض) كما هي.
  */
 
 /**
@@ -46,13 +50,16 @@ export function invalidateIncompleteBuyers(): void {
   incompleteMemo = null;
 }
 
-export function RepBuyerBanner({ customer, canComplete, onComplete }: {
+export function RepBuyerBanner({ customer, canComplete, onComplete, relaxed = false }: {
   customer: BuyerRowLike; canComplete: boolean; onComplete: () => void;
+  /** فكّ القيد مفعّل للشركة (buyerRelaxOn) — غيابه = اللافتة كما اليوم */
+  relaxed?: boolean;
 }) {
   const tr = useTr();
   const st = customerBuyerStatus(customer);
   if (st.bucket !== 'incomplete' && st.bucket !== 'unclassified') return null;
   const missing = missingBuyerFormFields(st);
+  const relaxSimplified = relaxed && st.bucket === 'incomplete' && buyerRelaxSimplified(customer);
   return (
     <div className="mb-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-2xl p-3.5 text-sm leading-relaxed">
       <p className="font-bold mb-1 flex items-center gap-1.5">
@@ -64,6 +71,7 @@ export function RepBuyerBanner({ customer, canComplete, onComplete }: {
           ? `${tr('ناقص للفاتورة الضريبية')}: ${missing.map(f => tr(BUYER_FIELD_LABELS_AR[f])).join('، ')}`
           : tr('حدد نوع العميل هل هو منشأة أم فرد')}
       </p>
+      {relaxSimplified && <p className="text-xs mt-0.5">{tr('تصدر له فاتورة ضريبية مبسطة حتى تكتمل بياناته ولا يستطيع خصم ضريبتها')}</p>}
       <p className="text-[11px] opacity-80 mt-0.5">{tr('تجمع الآن استعدادا للربط مع هيئة الزكاة ولا تمنع الحفظ أو البيع')}</p>
       {canComplete && (
         <button onClick={onComplete}
@@ -75,10 +83,12 @@ export function RepBuyerBanner({ customer, canComplete, onComplete }: {
   );
 }
 
-export function RepBuyerDataForm({ customer, canEditCustomer = false, onClose, onSaved }: {
+export function RepBuyerDataForm({ customer, canEditCustomer = false, onClose, onSaved, buyerRelax = false }: {
   customer: BuyerRowLike & { id: string; name?: string | null; channel?: string | null };
   /** «تعديل بيانات العميل» (perms.canEditCustomer === true) — بدونها إكمال الفارغ من حقول Q3 وحدها. */
   canEditCustomer?: boolean;
+  /** فكّ قيد الرقم الضريبي والعنوان الوطني (buyerRelaxOn): الصيغ تنبيهات لا تمنع الحفظ. غيابه = القيد قائم */
+  buyerRelax?: boolean;
   onClose: () => void;
   /** حقول الفوترة كما حفظها الخادم (تُدمج في العميل المحدَّد والكاش). */
   onSaved: (patch: Partial<Record<BuyerField, string | null>>) => void;
@@ -93,7 +103,7 @@ export function RepBuyerDataForm({ customer, canEditCustomer = false, onClose, o
 
   const submit = async () => {
     setMsg('');
-    const check = buyerFormCheck(values, customer, BUYER_BILLING_FIELDS);
+    const check = buyerFormCheck(values, customer, BUYER_BILLING_FIELDS, { relaxed: buyerRelax });
     setErrors(check.errors);
     if (!check.ok) { setMsg(tr('صحح بيانات الفوترة الإلكترونية')); return; }
     const restricted = canEditCustomer ? check.cleared : repCompleteOnlyDenied(customer, check.patch);
@@ -133,7 +143,8 @@ export function RepBuyerDataForm({ customer, canEditCustomer = false, onClose, o
         <p className="text-sm font-bold text-gray-700 mb-3 truncate">{customer.name}</p>
         {!canEditCustomer && <p className="text-[11px] text-gray-500 mb-3 leading-relaxed">{tr('تكمل الحقول الفارغة فقط والمحفوظ واسم المنشأة والرقم الضريبي والسجل التجاري تعدلها الإدارة')}</p>}
         <BuyerDataFields include="all" title={false} values={{ ...values, name: customer.name ?? '', channel: customer.channel ?? '' }}
-          stored={customer} errors={errors} locked={locked} onChange={(f, v) => setValues(s => ({ ...s, [f]: v }))} />
+          stored={customer} errors={errors} locked={locked} onChange={(f, v) => setValues(s => ({ ...s, [f]: v }))}
+          {...(buyerRelax && { relaxed: true, warnings: buyerRelaxWarnings(values, customer) })} />
         {msg && <p className="text-red-500 text-xs text-center mt-3">{msg}</p>}
       </div>
       <div className="p-4 border-t bg-white">

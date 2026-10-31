@@ -9,7 +9,7 @@ import { useTr } from '../i18n/strings';
 import { MHeader } from './mobileUi';
 import BuyerDataFields from '../components/BuyerDataFields';
 import { BUYER_BILLING_FIELDS, BUYER_PHASE2_FIELDS, BuyerField, BuyerRowLike } from '../lib/zatca/buyerData';
-import { BuyerFormValues, buyerCreatePayload, buyerFormCheck, buyerFormValues, buyerUpdatePayload } from '../lib/zatca/buyerForm';
+import { BuyerFormValues, buyerCreatePayload, buyerFormCheck, buyerFormValues, buyerRelaxWarnings, buyerUpdatePayload } from '../lib/zatca/buyerForm';
 
 type Form = {
   name: string; phone: string; businessName: string; altPhone: string; email: string;
@@ -31,10 +31,12 @@ const empty: Form = {
  * الفارغة، ومخطّط الخادم يرفض `null` على حقل اختياريّ فيفشل التعديل صامتاً.
  * هنا نُرسل حالةً محكومة ونحذف الفارغ من الحمولة أصلاً — فلا `null` يُرسَل.
  */
-export default function MCustomerForm({ customer, accountingOn = true, zatcaCollect = false, onClose, onSaved }: {
+export default function MCustomerForm({ customer, accountingOn = true, zatcaCollect = false, buyerRelax = false, onClose, onSaved }: {
   customer: Customer | null;
   /** فوترة ZATCA (Z5.1a، D2): الشركة تجمع بيانات الفوترة؟ (zatcaCollectOn) — false ⇒ النموذج كما اليوم */
   zatcaCollect?: boolean;
+  /** فكّ قيد الرقم الضريبي والعنوان الوطني (buyerRelaxOn — طلب المالك ٣١ أكتوبر ٢٠٢٦): صيغها تنبيهات لا تمنع الحفظ */
+  buyerRelax?: boolean;
   /** «النظام المحاسبي» مفعّل للشركة؟ حين يكون false تُحذف حقول الائتمان
    *  والفوترة الضريبية من النموذج. وقيمها تبقى كما هي في الحالة المحكومة
    *  فتُرسَل بلا تغيير — الإخفاء لا يصفّر حدّ عميلٍ قائم. */
@@ -117,7 +119,7 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
   /** الحفظ: فحص بيانات الفوترة قبل الإرسال بقواعد الخادم نفسها (للشركة الجامعة وحدها) */
   const onSave = () => {
     if (showBuyer) {
-      const check = buyerFormCheck(buyerView, customer as BuyerRowLike | null, BUYER_BILLING_FIELDS);
+      const check = buyerFormCheck(buyerView, customer as BuyerRowLike | null, BUYER_BILLING_FIELDS, { relaxed: buyerRelax });
       setBuyerErrors(check.errors);
       if (!check.ok) { toast.error(tr('صحح بيانات الفوترة الإلكترونية')); return; }
     }
@@ -187,7 +189,8 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
         {showBuyer && (
           <Group title={tr('بيانات الفوترة الإلكترونية المشتري')}>
             <BuyerDataFields title={false} values={{ ...buyerView, name: form.name, channel: form.channel }} stored={customer as BuyerRowLike | null}
-              errors={buyerErrors} onChange={(f, v) => setBuyer(b => ({ ...b, [f]: v }))} />
+              errors={buyerErrors} onChange={(f, v) => setBuyer(b => ({ ...b, [f]: v }))}
+              {...(buyerRelax && { relaxed: true, warnings: buyerRelaxWarnings(buyerView, customer as BuyerRowLike | null) })} />
             {legacyBuyerErrors.map(([f, m]) => <p key={f} className="text-red-500 text-[11px]">{m}</p>)}
           </Group>
         )}

@@ -16,7 +16,7 @@ import CustomerStatementModal from '../components/forms/CustomerStatementModal';
 import DocumentModal from '../components/DocumentModal';
 import { useAccountingOn } from '../components/AccountingGate';
 import { StatementDoc, statementDocFromData, Company } from '../rep/RepDocuments';
-import { zatcaCollectOn } from '../lib/zatcaRegime';
+import { buyerRelaxOn, zatcaCollectOn } from '../lib/zatcaRegime';
 import { BuyerField, BuyerRowLike } from '../lib/zatca/buyerData';
 import { BUYER_FIELD_UI_LABELS_AR as BUYER_FIELD_LABELS_AR, buyerBadge } from '../lib/zatca/buyerForm';
 
@@ -61,6 +61,8 @@ export default function CustomersPage() {
   // فوترة ZATCA (Z5.1a، D2): الفلتر والشارات والملخّص للشركة التي تجمع بيانات الفوترة وحدها — غيرها كما اليوم
   const zatcaCollect = zatcaCollectOn(company);
   const bucketMode = zatcaCollect && buyerBucket !== '';
+  // فكّ قيد الرقم الضريبي والعنوان الوطني (طلب المالك ٣١ أكتوبر ٢٠٢٦): الشارة «ناقصة تصدر مبسطة» والصيغ تنبيهات في النموذج
+  const buyerRelax = buyerRelaxOn(company);
   const cols = bucketMode ? 9 : accountingOn ? 9 : 7;
   useEffect(() => {
     if (!zatcaCollect) return;
@@ -330,7 +332,11 @@ export default function CustomersPage() {
               ) : rows?.length === 0 ? (
                 <tr><td colSpan={cols} className="text-center py-12 text-gray-400">{tr('لا توجد نتائج')}</td></tr>
               ) : rows?.map(c => {
-                const badge = !zatcaCollect ? null : bucketMode ? (c.bucket === 'incomplete' || c.bucket === 'unclassified' ? c.bucket : null) : buyerBadge(c as BuyerRowLike);
+                const bucketBadge = c.bucket === 'incomplete' || c.bucket === 'unclassified' ? c.bucket : null;
+                // صفوف قائمة الفوترة تحمل حقول المشتري كلها: «ناقصة تصدر مبسطة» تُحسب من الصفّ نفسه (فكّ القيد وحده)
+                const badge = !zatcaCollect ? null : bucketMode
+                  ? (buyerRelax && bucketBadge === 'incomplete' && buyerBadge(c as BuyerRowLike, true) === 'simplified' ? 'simplified' : bucketBadge)
+                  : buyerBadge(c as BuyerRowLike, buyerRelax);
                 return (
                 <tr key={c.id}>
                   {bucketMode && (
@@ -346,8 +352,8 @@ export default function CustomersPage() {
                     <p className="font-medium text-gray-800">{c.name}</p>
                     {c.businessName && <p className="text-xs text-gray-400">{c.businessName}</p>}
                     {badge && (
-                      <span className={`inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded-full ${badge === 'incomplete' ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>
-                        {badge === 'incomplete' ? tr('بيانات فوترة ناقصة') : tr('غير مصنف')}
+                      <span className={`inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded-full ${badge === 'incomplete' || badge === 'simplified' ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>
+                        {badge === 'simplified' ? tr('ناقصة تصدر مبسطة') : badge === 'incomplete' ? tr('بيانات فوترة ناقصة') : tr('غير مصنف')}
                       </span>
                     )}
                   </td>
@@ -434,6 +440,7 @@ export default function CustomersPage() {
         <CustomerModal
           accountingOn={accountingOn}
           zatcaCollect={zatcaCollect}
+          buyerRelax={buyerRelax}
           customer={selected}
           onClose={() => { setShowModal(false); setSelected(null); }}
           onSave={saveMutation.mutate}

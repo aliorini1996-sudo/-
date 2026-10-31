@@ -2,14 +2,17 @@
 // الإصدار نفسه، التطبيع (الأرقام العربية)، قواعد الحفظ للمتغيّر وحده، التصنيف (Q2) والاقتراح، وقيود المندوب (نقد الخطة 21).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { classifySubtype, mapBuyerParty, BuyerSource } from './mapInvoice';
 import { buyerIssues } from './validators';
 import { classifyBuyerSubtype, mapBuyerPartyLike } from './buyerParty';
 import {
-  BUSINESS_ID_SCHEMES, BUYER_BILLING_FIELDS, BUYER_REP_COMPLETE_FIELDS, BuyerRowLike, buyerDowngrade, buyerFieldValue, buyerSourceFromCustomer,
-  changedBuyerFields, clearedBuyerFields, customerBuyerStatus, latinDigits, missingBuyerFormFields, normalizeBuyerFields, repCompleteOnlyDenied,
-  validateBuyerChanges, bodyTouchesBuyerGate,
+  BUSINESS_ID_SCHEMES, BUYER_BILLING_FIELDS, BUYER_RELAXABLE_FIELDS, BUYER_REP_COMPLETE_FIELDS, BuyerPatch, BuyerRowLike, buyerDowngrade, buyerFieldValue,
+  buyerIssuanceDecision, buyerSourceFromCustomer, changedBuyerFields, clearedBuyerFields, customerBuyerStatus, latinDigits, missingBuyerFormFields,
+  normalizeBuyerFields, repCompleteOnlyDenied, simplifiedBuyerSource, validateBuyerChanges, bodyTouchesBuyerGate,
 } from './buyerData';
+import { relaxParityCases } from './__fixtures__/buyer-relax-cases';
+import { CUSTOMERS } from './__fixtures__/z5-sources';
 import { BUYER_ID_SCHEMES } from './validators';
 import { BUSINESS_BUYER, WALK_IN_BUYER } from './__fixtures__/z1-sources';
 import { COMPLIANCE_STANDARD_BUYER, COMPLIANCE_WALK_IN_BUYER } from './complianceSamples';
@@ -256,5 +259,140 @@ test('Q3 — المندوب بلا صلاحية تعديل العملاء: يُ�
   for (const f of BUYER_BILLING_FIELDS) {
     const got = repCompleteOnlyDenied({}, { [f]: f === 'countryCode' ? 'AE' : 'V1' });
     assert.deepEqual(got, (BUYER_REP_COMPLETE_FIELDS as readonly string[]).includes(f) ? [] : [f], f);
+  }
+});
+
+// ─── «فك قيد الرقم الضريبي والعنوان الوطني» (طلب المالك ٣١ أكتوبر ٢٠٢٦) ───
+
+/** بصمة validateBuyerChanges بلا الخيار على تركيبات __fixtures__/buyer-relax-cases.ts — مسجّلة من master 331d670 قبل الميزة. */
+const PRE_RELAX_FINGERPRINT = 'b0cc67fdd2465334330ae82ffb44d44057e7c505e555694486fa3bf7bf2a5158';
+const fieldsOf = (xs: readonly { field: string }[]) => xs.map(x => x.field);
+
+test('فك القيد: صيغة الرقم الضريبي ورقم المبنى والرمز البريدي السعودية خطأ بلا الخيار، وتنبيه لا يمنع الحفظ مع relaxed', () => {
+  const cases: Array<[BuyerPatch, string]> = [[{ taxNumber: '30000000000000' }, 'taxNumber'], [{ addrBuildingNo: '123' }, 'addrBuildingNo'], [{ addrPostalCode: '1234' }, 'addrPostalCode']];
+  for (const [patch, field] of cases) {
+    const off = validateBuyerChanges(patch, null);
+    assert.deepEqual(fieldsOf(off.errors), [field], `${field}: خطأ كما اليوم`);
+    assert.deepEqual(fieldsOf(off.warnings), []);
+    const on = validateBuyerChanges(patch, null, { relaxed: true });
+    assert.deepEqual(on.errors, [], `${field}: لا خطأ مع فكّ القيد`);
+    assert.deepEqual(fieldsOf(on.warnings), [field]);
+    assert.match(on.warnings[0].messageAr, /^تنبيه: .*حُفظ كما أُدخل، وفواتير المنشأة تصدر مبسطة حتى يُصحَّح$/);
+    assert.deepEqual(on.changed, off.changed);
+  }
+  assert.match(validateBuyerChanges({ taxNumber: '123' }, null, { relaxed: true }).warnings[0].messageAr, /15 رقماً يبدأ وينتهي بالرقم 3/);
+  assert.equal([...BUYER_RELAXABLE_FIELDS].join(','), 'taxNumber,addrBuildingNo,addrPostalCode');
+});
+
+test('فك القيد: الطول والمحارف غير المسموحة والدولة والمعرّف والسجل تبقى أخطاء', () => {
+  const cases: Array<[BuyerPatch, BuyerRowLike | null, string, RegExp]> = [
+    [{ taxNumber: '3000\u00010000000003' }, null, 'taxNumber', /الرقم الضريبي يحتوي محارف غير مسموحة/],
+    [{ taxNumber: '3'.repeat(65) }, null, 'taxNumber', /الرقم الضريبي أطول من المسموح/],
+    [{ addrBuildingNo: '1'.repeat(17) }, null, 'addrBuildingNo', /رقم المبنى أطول من المسموح/],
+    [{ addrBuildingNo: '12\u00073' }, null, 'addrBuildingNo', /رقم المبنى يحتوي محارف غير مسموحة/],
+    [{ addrPostalCode: '1\u000734' }, null, 'addrPostalCode', /الرمز البريدي يحتوي محارف غير مسموحة/],
+    [{ addrPostalCode: '9'.repeat(17) }, null, 'addrPostalCode', /الرمز البريدي أطول من المسموح/],
+    [{ addrStreet: 'شارع\u0001' }, null, 'addrStreet', /محارف غير مسموحة/],
+    [{ city: 'م'.repeat(201) }, null, 'city', /أطول من المسموح/],
+    [{ countryCode: 'KSA' }, null, 'countryCode', /حرفين لاتينيين/],
+    [{ buyerIdScheme: 'XYZ', buyerIdValue: '123' }, null, 'buyerIdScheme', /غير مسموح/],
+    [{ buyerIdValue: 'ab-1' }, { buyerIdScheme: 'NAT' }, 'buyerIdValue', /أرقاماً أو حروفاً لاتينية/],
+    [{ buyerIdScheme: 'NAT' }, null, 'buyerIdValue', /أدخل رقم المعرّف/],
+    [{ commercialReg: '12-3' }, null, 'commercialReg', /أرقاماً أو حروفاً لاتينية/],
+  ];
+  for (const [patch, stored, field, re] of cases) {
+    const v = validateBuyerChanges(patch, stored, { relaxed: true });
+    assert.deepEqual(fieldsOf(v.errors), [field], JSON.stringify(patch));
+    assert.match(v.errors[0].messageAr, re);
+    // وبلا الخيار: خطأ للحقل نفسه أيضاً
+    assert.deepEqual(fieldsOf(validateBuyerChanges(patch, stored).errors), [field]);
+  }
+  // خارج السعودية: كما اليوم (الطول خطأ، والرقم الضريبي تنبيه)
+  for (const p of [{ taxNumber: '123', countryCode: 'AE' }, { addrBuildingNo: '1'.repeat(17), countryCode: 'AE' }]) {
+    assert.deepEqual(validateBuyerChanges(p, null, { relaxed: true }), validateBuyerChanges(p, null));
+  }
+});
+
+test('فك القيد: تغيّر الدولة إلى السعودية يُعيد فحص مبنى قديم من 3 أرقام — خطأ بلا الخيار، وتنبيه معه', () => {
+  const stored: BuyerRowLike = { countryCode: 'AE', addrBuildingNo: '123' };
+  assert.deepEqual(fieldsOf(validateBuyerChanges({ countryCode: 'SA' }, stored).errors), ['addrBuildingNo']);
+  const on = validateBuyerChanges({ countryCode: 'SA' }, stored, { relaxed: true });
+  assert.deepEqual(on.errors, []);
+  assert.deepEqual(fieldsOf(on.warnings), ['addrBuildingNo']);
+});
+
+test('فك القيد مطفأ = اليوم بايتاً ببايت: بلا الخيار و{} و{relaxed:false} متطابقة، وبصمتها بصمة ما قبل الميزة (441 تركيبة)', () => {
+  const cases = relaxParityCases();
+  assert.equal(cases.length, 441);
+  const runs = [undefined, {}, { relaxed: false }].map(o => JSON.stringify(cases.map(c => validateBuyerChanges(c.patch, c.stored, o))));
+  assert.equal(runs[1], runs[0]);
+  assert.equal(runs[2], runs[0]);
+  assert.equal(createHash('sha256').update(runs[0]).digest('hex'), PRE_RELAX_FINGERPRINT);
+  // ومع الخيار: لا خطأ لحقلٍ لم يكن فيه خطأ، والتنبيهات الجديدة في الحقول الثلاثة وحدها، والمتغيّر نفسه
+  for (const c of cases) {
+    const off = validateBuyerChanges(c.patch, c.stored);
+    const on = validateBuyerChanges(c.patch, c.stored, { relaxed: true });
+    const offErr = off.errors.map(e => JSON.stringify(e));
+    for (const e of on.errors) {
+      const same = offErr.includes(JSON.stringify(e));
+      // خطأ الصيغة صار خطأ طولٍ أو محارف للحقل نفسه — لا حقل جديد
+      assert.ok(same || ((BUYER_RELAXABLE_FIELDS as readonly string[]).includes(e.field) && fieldsOf(off.errors).includes(e.field)), JSON.stringify(c));
+    }
+    const extraWarn = on.warnings.filter(x => !off.warnings.some(y => JSON.stringify(y) === JSON.stringify(x)));
+    for (const x of extraWarn) assert.ok((BUYER_RELAXABLE_FIELDS as readonly string[]).includes(x.field), JSON.stringify(c));
+    assert.deepEqual(on.changed, off.changed);
+  }
+});
+
+test('simplifiedBuyerSource: طرف مبسّط آمن — بلا رقم ضريبي ولا سجل ولا نوع ولا عنوان، والمعرّف الصريح الصحيح وحده', () => {
+  const bad: BuyerRowLike = {
+    name: 'أبو خالد', businessName: 'مؤسسة الحي', taxNumber: '3123', commercialReg: '12-3', buyerType: 'BUSINESS', buyerIdScheme: 'XYZ', buyerIdValue: 'a b',
+    addrStreet: 'شارع\u0001', addrBuildingNo: '12', addrPostalCode: '1', district: 'الحي', city: 'الرياض', countryCode: 'KSA',
+  };
+  const r = simplifiedBuyerSource(buyerSourceFromCustomer(bad));
+  assert.equal(classifyBuyerSubtype(r), '02');
+  assert.deepEqual(buyerIssues('simplified', mapBuyerPartyLike(r, '02')).filter(i => i.severity === 'error'), []);
+  assert.deepEqual(mapBuyerPartyLike(r, '02'), { registrationName: 'مؤسسة الحي' });
+  for (const k of ['taxNumber', 'commercialReg', 'buyerType', 'buyerIdScheme', 'buyerIdValue', 'addrStreet', 'addrBuildingNo', 'addrAdditionalNo', 'addrPostalCode', 'district', 'city', 'countryCode'] as const) {
+    assert.equal(r[k], null, k);
+  }
+  // معرّف صريح صحيح يُبقى (بأحرف كبيرة وأرقام لاتينية) — والاسم يُبقى
+  const ok = simplifiedBuyerSource(buyerSourceFromCustomer({ name: 'سالم', buyerType: 'BUSINESS', taxNumber: '1', buyerIdScheme: ' nat ', buyerIdValue: '١٠٠٠٠٠٠٠٠١' }));
+  assert.deepEqual(mapBuyerPartyLike(ok, '02'), { registrationName: 'سالم', otherId: { scheme: 'NAT', value: '1000000001' } });
+  assert.equal(classifyBuyerSubtype(ok), '02');
+  // نوع بلا قيمة، أو قيمة أطول من 64: يُسقط المعرّف
+  assert.equal(simplifiedBuyerSource({ name: 'x', buyerIdScheme: 'NAT' }).buyerIdScheme, null);
+  assert.equal(simplifiedBuyerSource({ name: 'x', buyerIdScheme: 'OTH', buyerIdValue: 'A'.repeat(65) }).buyerIdValue, null);
+});
+
+test('buyerIssuanceDecision: مبسطة طبيعية، ضريبية مكتملة، ناقصة محجوبة بلا فكّ القيد، ومبسطة بفكّه — والاسم الأطول من 1000 يبقى محجوباً', () => {
+  assert.deepEqual(buyerIssuanceDecision(CUSTOMERS.individual, true), { subtype: '02', simplifiedByRelax: false, blocked: false, issues: [], fields: [] });
+  assert.deepEqual(buyerIssuanceDecision(CUSTOMERS.b2bComplete, true), { subtype: '01', simplifiedByRelax: false, blocked: false, issues: [], fields: [] });
+  const inc = CUSTOMERS.b2bIncomplete;
+  const st = customerBuyerStatus(inc);
+  const off = buyerIssuanceDecision(inc, false);
+  assert.deepEqual(off, { subtype: '01', simplifiedByRelax: false, blocked: true, issues: st.issues.filter(i => i.severity === 'error'), fields: missingBuyerFormFields(st) });
+  const on = buyerIssuanceDecision(inc, true);
+  assert.deepEqual([on.subtype, on.simplifiedByRelax, on.blocked], ['02', true, false]);
+  assert.deepEqual(on.fields, off.fields);
+  assert.ok(on.fields.length > 0);
+  // جهة حكومية ناقصة تُعامل كالمنشأة (المصنّف يعدّها 01)
+  assert.equal(buyerIssuanceDecision({ name: 'وزارة', buyerType: 'GOVERNMENT' }, true).simplifiedByRelax, true);
+  // حتى المبسطة لا تصحّ: اسم أطول من 1000، أو اسم من محارف تحكّم وحدها بلا معرّف
+  const long = { ...inc, businessName: 'م'.repeat(1001) };
+  assert.deepEqual([buyerIssuanceDecision(long, true).blocked, buyerIssuanceDecision(long, true).subtype], [true, '01']);
+  assert.equal(buyerIssuanceDecision({ name: '\u0001', businessName: null, buyerType: 'BUSINESS' }, true).blocked, true);
+});
+
+test('buyerIssuanceDecision(row, false).subtype = classifyBuyerSubtype كما اليوم على كل التجهيزات وألف تركيبة', () => {
+  const rows = [...Object.values(CUSTOMERS), ...buyerCombos(1000)] as BuyerRowLike[];
+  for (const row of rows) {
+    const d = buyerIssuanceDecision(row, false);
+    assert.equal(d.subtype, classifyBuyerSubtype(buyerSourceFromCustomer(row)), JSON.stringify(row));
+    assert.equal(d.simplifiedByRelax, false);
+    // مع فكّ القيد: لا يُحجب إلا ما حُجب بدونه، ولا تبسيط إلا لما كان محجوباً، وما لم يُحجب كما هو
+    const on = buyerIssuanceDecision(row, true);
+    if (on.blocked || on.simplifiedByRelax) assert.equal(d.blocked, true);
+    if (!d.blocked) assert.deepEqual(on, d);
   }
 });

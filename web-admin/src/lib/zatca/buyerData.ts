@@ -131,11 +131,19 @@ export interface BuyerValidation {
   changed: BuyerField[];
 }
 
+/** إعداد الشركة «فك قيد الرقم الضريبي والعنوان الوطني» (CompanySettings.buyerVatAddressRelaxed) — غيابه = القيد قائم كما اليوم */
+export interface BuyerValidateOptions { relaxed?: boolean }
+/** الحقول التي يحوّل فكُّ القيد أخطاءَ صيغتها السعودية إلى تنبيهات */
+export const BUYER_RELAXABLE_FIELDS = ['taxNumber', 'addrBuildingNo', 'addrPostalCode'] as const;
+
 /**
  * فحص الحفظ (الخادم مرجع؛ الواجهة تستعمل النسخة نفسها قبل الإرسال). patch مطبَّع (normalizeBuyerFields)، stored = الصفّ المحفوظ
  * (null لعميل جديد). تُفحص المتغيّرة وحدها — وتغيّر الدولة يُعيد فحص المبنى والرمز البريدي والرقم الضريبي بقيمها المدمجة.
+ * opts.relaxed (فكّ القيد، طلب المالك ٣١ أكتوبر ٢٠٢٦): صيغة BUYER_RELAXABLE_FIELDS السعودية الخاطئة تنبيهٌ يُحفظ معه كما أُدخل —
+ * والطول الزائد والمحارف غير المسموحة تبقى أخطاء (تكسر الـXML والطباعة)، وما سواها كما هو.
  */
-export function validateBuyerChanges(patch: BuyerPatch, stored: BuyerRowLike | null): BuyerValidation {
+export function validateBuyerChanges(patch: BuyerPatch, stored: BuyerRowLike | null, opts: BuyerValidateOptions = {}): BuyerValidation {
+  const relaxed = opts.relaxed === true;
   const errors: BuyerFieldError[] = [];
   const warnings: BuyerFieldError[] = [];
   const changed = changedBuyerFields(stored, patch);
@@ -147,6 +155,12 @@ export function validateBuyerChanges(patch: BuyerPatch, stored: BuyerRowLike | n
   const w = (field: BuyerField, messageAr: string) => warnings.push({ field, messageAr });
   const country = v('countryCode') ?? 'SA';
   const saudi = country === 'SA';
+  // فكّ القيد: الصيغة السعودية الخاطئة تنبيه — والطول والمحارف غير المسموحة أخطاء كما كانت
+  const loose = (f: BuyerField, s: string, max: number, warning: string) => {
+    if (s.length > max) e(f, `${BUYER_FIELD_LABELS_AR[f]} أطول من المسموح`);
+    else if (sanitizeText(s) !== s) e(f, `${BUYER_FIELD_LABELS_AR[f]} يحتوي محارف غير مسموحة`);
+    else w(f, warning);
+  };
 
   const buyerType = v('buyerType');
   if (check('buyerType') && buyerType !== null && !(BUYER_TYPES as readonly string[]).includes(buyerType)) {
@@ -176,7 +190,10 @@ export function validateBuyerChanges(patch: BuyerPatch, stored: BuyerRowLike | n
   const vat = v('taxNumber');
   if (check('taxNumber') && vat !== null) {
     if (saudi) {
-      if (!isSaudiVat(vat)) e('taxNumber', 'الرقم الضريبي للعميل يجب أن يكون 15 رقماً يبدأ وينتهي بالرقم 3');
+      if (!isSaudiVat(vat)) {
+        if (relaxed) loose('taxNumber', vat, 64, 'تنبيه: الرقم الضريبي ليس بالصيغة المعتمدة (15 رقماً يبدأ وينتهي بالرقم 3) — حُفظ كما أُدخل، وفواتير المنشأة تصدر مبسطة حتى يُصحَّح');
+        else e('taxNumber', 'الرقم الضريبي للعميل يجب أن يكون 15 رقماً يبدأ وينتهي بالرقم 3');
+      }
     } else if (vat.length > 64) {
       e('taxNumber', 'الرقم الضريبي أطول من المسموح');
     } else {
@@ -201,13 +218,17 @@ export function validateBuyerChanges(patch: BuyerPatch, stored: BuyerRowLike | n
 
   const building = v('addrBuildingNo');
   if (check('addrBuildingNo') && building !== null) {
-    if (saudi && !isBuildingNo(building)) e('addrBuildingNo', 'رقم المبنى يجب أن يكون 4 أرقام');
-    else if (!saudi && building.length > 16) e('addrBuildingNo', 'رقم المبنى أطول من المسموح');
+    if (saudi && !isBuildingNo(building)) {
+      if (relaxed) loose('addrBuildingNo', building, 16, 'تنبيه: رقم المبنى في العنوان الوطني 4 أرقام — حُفظ كما أُدخل، وفواتير المنشأة تصدر مبسطة حتى يُصحَّح');
+      else e('addrBuildingNo', 'رقم المبنى يجب أن يكون 4 أرقام');
+    } else if (!saudi && building.length > 16) e('addrBuildingNo', 'رقم المبنى أطول من المسموح');
   }
   const postal = v('addrPostalCode');
   if (check('addrPostalCode') && postal !== null) {
-    if (saudi && !isPostalCode(postal)) e('addrPostalCode', 'الرمز البريدي يجب أن يكون 5 أرقام');
-    else if (!saudi && postal.length > 16) e('addrPostalCode', 'الرمز البريدي أطول من المسموح');
+    if (saudi && !isPostalCode(postal)) {
+      if (relaxed) loose('addrPostalCode', postal, 16, 'تنبيه: الرمز البريدي في العنوان الوطني 5 أرقام — حُفظ كما أُدخل، وفواتير المنشأة تصدر مبسطة حتى يُصحَّح');
+      else e('addrPostalCode', 'الرمز البريدي يجب أن يكون 5 أرقام');
+    } else if (!saudi && postal.length > 16) e('addrPostalCode', 'الرمز البريدي أطول من المسموح');
   }
   const extra = v('addrAdditionalNo');
   if (check('addrAdditionalNo') && extra !== null) {
@@ -338,6 +359,65 @@ export function missingBuyerFormFields(status: Pick<BuyerStatus, 'issues'>): Buy
     if (f && !out.includes(f)) out.push(f);
   }
   return out;
+}
+
+// ─── فكّ القيد عند الإصدار (طلب المالك ٣١ أكتوبر ٢٠٢٦: فكّ قيد الرقم الضريبي والعنوان الوطني) ───
+
+/**
+ * مصدر طرف مشترٍ مبسّط آمن (02): الاسم واسم المنشأة، والمعرّف الآخر الصريح **إن صحّ** (نوعه من BUYER_ID_SCHEMES وقيمته
+ * isAlphanumericId بعد sanitizeText والقصّ) — بلا رقم ضريبي ولا سجل ولا نوع ولا عنوان. classifyBuyerSubtype(الناتج) === '02' دائماً.
+ */
+export function simplifiedBuyerSource(src: BuyerPartySource): BuyerPartySource {
+  const scheme = typeof src.buyerIdScheme === 'string' ? sanitizeText(src.buyerIdScheme).trim().toUpperCase() : '';
+  const value = typeof src.buyerIdValue === 'string' ? sanitizeText(src.buyerIdValue).trim() : '';
+  const idOk = (BUYER_ID_SCHEMES as readonly string[]).includes(scheme) && value !== '' && value.length <= 64 && isAlphanumericId(value);
+  return {
+    name: src.name ?? null,
+    businessName: src.businessName ?? null,
+    taxNumber: null,
+    commercialReg: null,
+    buyerType: null,
+    buyerIdScheme: idOk ? scheme : null,
+    buyerIdValue: idOk ? value : null,
+    addrStreet: null,
+    addrBuildingNo: null,
+    addrAdditionalNo: null,
+    addrPostalCode: null,
+    district: null,
+    city: null,
+    countryCode: null,
+  };
+}
+
+export interface BuyerIssuanceDecision {
+  /** النوع الذي يصدر به المستند الآن */
+  subtype: BuyerSubtype;
+  /** منشأة (01) ناقصة صارت مبسطة (02) بفكّ القيد */
+  simplifiedByRelax: boolean;
+  /** 01 ناقصة ولا مخرج (القيد قائم، أو حتى المبسطة لا تصحّ) ⇒ 422 ZATCA_BUYER_INCOMPLETE */
+  blocked: boolean;
+  /** مخالفات الضريبية (severity error) — سبب الحجب أو التبسيط؛ [] لغيرهما */
+  issues: IssueLike[];
+  /** حقول البطاقة الناقصة (missingBuyerFormFields) — [] لغيرهما */
+  fields: BuyerField[];
+}
+
+/**
+ * قرار الإصدار لعميل: مبسطة طبيعية (02)، أو ضريبية مكتملة (01)، أو ضريبية ناقصة ⇒ محجوبة (القيد قائم) أو مبسطة بفكّ القيد
+ * حين يصحّ طرفها المبسّط الآمن (buyerIssues('simplified')). relaxed = false ⇒ subtype = classifyBuyerSubtype كما اليوم.
+ */
+export function buyerIssuanceDecision(row: BuyerRowLike, relaxed: boolean): BuyerIssuanceDecision {
+  const st = customerBuyerStatus(row);
+  if (st.subtypeIfIssuedNow === '02') return { subtype: '02', simplifiedByRelax: false, blocked: false, issues: [], fields: [] };
+  if (st.complete) return { subtype: '01', simplifiedByRelax: false, blocked: false, issues: [], fields: [] };
+  const issues = st.issues.filter(i => i.severity === 'error');
+  const fields = missingBuyerFormFields(st);
+  if (!relaxed) return { subtype: '01', simplifiedByRelax: false, blocked: true, issues, fields };
+  const party = mapBuyerPartyLike(simplifiedBuyerSource(buyerSourceFromCustomer(row)), '02');
+  if (buyerIssues('simplified', party).some(i => i.severity === 'error')) {
+    return { subtype: '01', simplifiedByRelax: false, blocked: true, issues, fields };
+  }
+  return { subtype: '02', simplifiedByRelax: true, blocked: false, issues, fields };
 }
 
 /**

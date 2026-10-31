@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { companyApi, lotsApi } from '../api/client';
 import { supportedCountries, getCountry } from '../i18n/countries';
 import { useTr } from '../i18n/strings';
-import { Building2, Save, Upload, Trash2, Image as ImageIcon, ShieldCheck, Lock, Layers } from 'lucide-react';
+import { Building2, Save, Upload, Trash2, Image as ImageIcon, ShieldCheck, ShieldAlert, Lock, Layers } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Header } from '../rep/RepDocuments';
 import DataImportPanel from '../components/DataImportPanel';
@@ -225,6 +225,9 @@ export default function CompanySettingsPage() {
   // الشركة) — تُحفظ فوراً بمسارها المستقل (PUT /lots/settings) لا مع زرّ الحفظ، ولا تمسّ قوالب الطباعة (printSettingsCore)
   const lotFlags = lotFlagsOf(data as { lotTrackingEnabled?: unknown; lotOnInvoice?: unknown } | null | undefined);
   const lotCardOn = accountingOn && lotFlags.on && canManageVanStock;
+  // «فك قيد الرقم الضريبي والعنوان الوطني» (طلب المالك ٣١ أكتوبر ٢٠٢٦): للشركة التي تجمع بيانات الفوترة (zatcaCollectOn) ولمدير الشركة
+  // غير المقيَّد وحده (الخادم يرفض غيره 403 BUYER_RELAX_*) — يُحفظ فوراً بمساره المستقل (PATCH /company/buyer-relax) لا مع زرّ الحفظ
+  const buyerRelaxCardOn = accountingOn && zatcaCollectOn(data) && role === 'ADMIN' && !scopeEnabled;
   // الحقل المقفل يبدو مقفلاً (لا حقلاً يتجاهل الكتابة صامتاً) ويُقرأ معه سبب القفل
   const lockedProps = sellerLocked ? { 'aria-describedby': SELLER_LOCK_HINT_ID, title: tr(zatcaSellerLockHint(role, scopeEnabled)) } : {};
 
@@ -481,6 +484,8 @@ export default function CompanySettingsPage() {
 
           {lotCardOn && <LotOnInvoiceCard value={lotFlags.onInvoice} />}
 
+          {buyerRelaxCardOn && <BuyerRelaxCard value={(data as { buyerVatAddressRelaxed?: unknown } | null | undefined)?.buyerVatAddressRelaxed === true} />}
+
           {/* الفوترة الإلكترونية (الربط الحكومي) — بيانات الربط تُدخلها الشركة */}
           {accountingOn && (
           <div className="card">
@@ -586,6 +591,52 @@ export default function CompanySettingsPage() {
         </div>
       )}
       </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * «فك قيد الرقم الضريبي والعنوان الوطني» (طلب المالك ٣١ أكتوبر ٢٠٢٦) — مفتاحٌ لمدير الشركة يُحفظ فور تبديله بمساره
+ * (companyApi.buyerRelax.set)، ويقرؤه الجميع من ردّ /company (buyerVatAddressRelaxed). عند التفعيل: صيغ الرقم الضريبي ورقم المبنى
+ * والرمز البريدي تنبيهات لا تمنع حفظ العميل، والمنشأة التي لا تكفي بياناتها للفاتورة الضريبية تصدر لها فاتورة مبسطة (لا يخصم
+ * ضريبتها) — والتحذير ظاهر دائماً، والتفعيل يُؤكَّد. الإطفاء بلا تأكيد: يعيد القيد كما كان.
+ */
+function BuyerRelaxCard({ value }: { value: boolean }) {
+  const tr = useTr();
+  const qc = useQueryClient();
+  const save = useMutation({
+    mutationFn: (enabled: boolean) => companyApi.buyerRelax.set(enabled),
+    onSuccess: (_res, on) => {
+      qc.invalidateQueries({ queryKey: ['company'] });
+      toast.success(on ? tr('فك القيد مفعل تصدر فواتير مبسطة للعملاء ذوي البيانات الناقصة') : tr('أعيد القيد البيانات الناقصة تمنع الفاتورة الضريبية'));
+    },
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('حدث خطأ في الحفظ')),
+  });
+  const checked = save.isPending && save.variables !== undefined ? save.variables : value;
+  const toggle = (on: boolean) => {
+    if (on && !window.confirm(tr('تأكيد فك القيد ستصدر فواتير مبسطة لعملاء منشآت بياناتهم ناقصة ولا يستطيعون خصم ضريبتها هل تتابع'))) return;
+    save.mutate(on);
+  };
+  return (
+    <div className="card" data-buyer-relax="">
+      <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-100">
+        <div className="w-11 h-11 bg-[#FBEBE2] rounded-xl flex items-center justify-center">
+          <ShieldAlert size={22} className="text-[#E15A30]" />
+        </div>
+        <div>
+          <p className="font-semibold text-gray-800">{tr('فك قيد الرقم الضريبي والعنوان الوطني')}</p>
+          <p className="text-xs text-gray-400">{tr('عند فتح حساب عميل جديد أو تعديله')}</p>
+        </div>
+      </div>
+      <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5">
+        <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={checked} disabled={save.isPending}
+          onChange={e => toggle(e.target.checked)} />
+        {tr('السماح بحفظ العميل وإصدار فاتورته مبسطة حين تكون بياناته الضريبية ناقصة أو غير صحيحة')}
+      </label>
+      <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2 text-[11px] leading-relaxed space-y-1">
+        <p>{tr('عند التفعيل يحفظ الرقم الضريبي ورقم المبنى والرمز البريدي ولو لم تكن بالصيغة المعتمدة وتصدر فاتورة ضريبية مبسطة بدل الفاتورة الضريبية لكل منشأة بياناتها ناقصة أو غير صحيحة فلا يستطيع العميل خصم ضريبة المدخلات بها والمسؤولية الضريبية على شركتك')}</p>
+        <p>{tr('الإشعار الدائن أو المدين على فاتورة ضريبية سابقة يبقى ضريبيا ويحتاج بيانات العميل كاملة')}</p>
       </div>
     </div>
   );

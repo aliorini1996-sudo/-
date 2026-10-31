@@ -145,6 +145,11 @@ export interface InvoiceDoc {
    */
   zatca?: ZatcaDocView | null;
   offline?: boolean; // أُنشئت دون اتصال — رقم مؤقّت، ترتفع للخادم عند الاتصال
+  /**
+   * فكّ قيد الرقم الضريبي والعنوان الوطني (طلب المالك ٣١ أكتوبر ٢٠٢٦): نصّ «صدرت مبسطة لأن بيانات العميل ناقصة…» مترجَماً من
+   * notice ردّ الإصدار — يُعرض على **شاشة النتيجة وحدها**؛ قالبا الطباعة (PrintableInvoice والحراري) لا يقرآنه أبداً.
+   */
+  buyerNotice?: string | null;
 }
 
 /** مرفق سند قبض — صورة إيصال تحويل أو شيك بصيغة data URL */
@@ -2139,6 +2144,13 @@ export function DocumentResult({ doc, onClose, showLotsStrip = false }: {
         {(doc.kind === 'invoice' || doc.kind === 'receipt') && doc.offline && (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 mb-4 text-xs text-amber-800 leading-relaxed">
             <b>{tr('أنشئ دون اتصال')}</b> — {tr('الرقم مؤقت ويعتمد رقمه النهائي تلقائيا عند اتصالك بالإنترنت اطبع/سلم نسختك الآن بشكل طبيعي')}
+          </div>
+        )}
+
+        {/* فكّ القيد: صدرت لمنشأة ناقصة البيانات مبسطةً — تنبيهٌ للمندوب هنا وحده، لا على الورقة */}
+        {doc.kind === 'invoice' && doc.buyerNotice && (
+          <div data-buyer-notice="" className="bg-amber-50 border border-amber-200 rounded-2xl p-3 mb-4 text-xs text-amber-800 leading-relaxed">
+            {doc.buyerNotice}
           </div>
         )}
 

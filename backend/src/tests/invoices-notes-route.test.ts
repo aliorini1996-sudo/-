@@ -1207,3 +1207,66 @@ test('I10: فاتورة المرحلة الثانية — قفل الأصناف 
   assert.match(sqls[lock - 1], /set_config\('lock_timeout'/);
   assert.match(sqls[lock - 2], /current_setting\('lock_timeout'\)/);
 });
+
+// ═══ «فك قيد الرقم الضريبي والعنوان الوطني» (طلب المالك ٣١ أكتوبر ٢٠٢٦) ═══
+
+/** يفكّ القيد في صفّ إعدادات البائع نفسه الذي يقرؤه الإصدار (بعد script). */
+const relaxSeller = (rig: Rig, on: boolean): void => {
+  const seller = rig.h.units.settings.get(Z5_TENANT)!;
+  rig.h.units.settings.set(Z5_TENANT, { ...seller, buyerVatAddressRelaxed: on });
+};
+
+test('فك القيد: إشعار على أصلٍ من المرحلة الأولى لمنشأة ناقصة ⇒ 201 مبسّط (381/0200000) بلا اعتماد، ومعه notice وسطر تدقيق — ومطفأً 422', async t => {
+  const inc = CUSTOMER_ROW(CUSTOMERS.b2bIncomplete as unknown as Record<string, unknown>);
+  const p1 = originalInvoice({ request: REQ_STANDARD_NO_HEAD_DISCOUNT, phase: 1, number: 'INV-2509-000950', customerId: CUSTOMERS.b2bIncomplete.id });
+  {
+    const rig = buildRig();
+    script(rig, { original: p1, customer: inc });
+    const off = await call('POST', `/api/invoices/${p1.id}/credit-note`, { body: creditBody(), headers: CAPS });
+    assert.equal(off.status, 422, JSON.stringify(off.body));
+    assert.equal(off.body.code, 'ZATCA_BUYER_INCOMPLETE');
+    assert.match(String(off.body.message), /^بيانات العميل \(منشأة\) ناقصة للفاتورة الضريبية: /);
+    assert.equal(rig.created.length, 0);
+  }
+  const rig = buildRig();
+  script(rig, { original: p1, customer: inc });
+  relaxSeller(rig, true);
+  const warn = t.mock.method(console, 'warn', () => undefined);
+  // المعاينة تقول النوع الذي سيصدر به
+  const view = await call('GET', `/api/invoices/${p1.id}/creditable`, { headers: CAPS });
+  assert.equal(view.status, 200, JSON.stringify(view.body));
+  assert.equal((view.body.data as { subtype: string }).subtype, '02');
+  const r = await call('POST', `/api/invoices/${p1.id}/credit-note`, { body: creditBody(), headers: CAPS });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const ein = einvoiceOf(r);
+  assert.deepEqual([noteOf(r).invoiceSubtype, ein.subtype, ein.typeName, ein.status], ['02', '02', '0200000', 'signed']);
+  const notice = r.body.notice as { code: string; message: string; fields: string[] };
+  assert.equal(notice.code, 'ZATCA_BUYER_SIMPLIFIED');
+  assert.match(notice.message, /^صدر الإشعار مبسطاً لأن /);
+  assert.deepEqual(notice.fields, ['addrStreet', 'addrBuildingNo', 'district', 'addrPostalCode']);
+  const lines = warn.mock.calls.map(c => String(c.arguments[0])).filter(l => l.includes('"ZATCA_BUYER_SIMPLIFIED"'));
+  assert.equal(lines.length, 1);
+  assert.equal(JSON.parse(lines[0]).kind, 'CREDIT_NOTE');
+  assert.equal(rig.created.length, 1);
+});
+
+test('فك القيد: إشعار على فاتورة ضريبية (01) لعميلٍ صارت بياناته ناقصة ⇒ 422 يبقى (الإشعار يتبع أصله) برسالةٍ أوضح وحقول الإكمال', async () => {
+  const inc = CUSTOMER_ROW(CUSTOMERS.b2bIncomplete as unknown as Record<string, unknown>);
+  const original = originalInvoice({ request: REQ_STANDARD_NO_HEAD_DISCOUNT, subtype: '01', einvoiceStatus: 'cleared', customerId: CUSTOMERS.b2bIncomplete.id });
+  const bodies: Record<string, unknown>[] = [];
+  for (const on of [false, true]) {
+    const rig = buildRig();
+    script(rig, { original, customer: inc });
+    relaxSeller(rig, on);
+    const r = await call('POST', `/api/invoices/${original.id}/credit-note`, { body: creditBody(), headers: CAPS });
+    assert.equal(r.status, 422, JSON.stringify(r.body));
+    assert.equal(r.body.code, 'ZATCA_BUYER_INCOMPLETE');
+    assert.deepEqual((r.body.data as { fields: string[] }).fields, ['addrStreet', 'addrBuildingNo', 'district', 'addrPostalCode']);
+    assert.equal('notice' in r.body, false);
+    assert.equal(rig.created.length, 0);
+    bodies.push(r.body);
+  }
+  assert.match(String(bodies[0].message), /^بيانات العميل \(منشأة\) ناقصة للفاتورة الضريبية: /);
+  assert.match(String(bodies[1].message), /^بيانات العميل ناقصة للإشعار على فاتورة ضريبية — الإشعار يتبع نوع فاتورته الأصلية فلا يصدر مبسطاً حتى مع فك القيد: /);
+  assert.deepEqual(bodies[1].issues, bodies[0].issues);
+});

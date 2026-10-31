@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  isZatcaOutdatedClient, zatcaIssueOutcome, zatcaReloadForUpdate, ZATCA_OUTDATED_CODE,
+  buyerNoticeOf, buyerNoticeText, isZatcaOutdatedClient, zatcaIssueOutcome, zatcaReloadForUpdate, ZATCA_ISSUE_PHRASES, ZATCA_OUTDATED_CODE,
 } from './issueOutcome';
 
 const FALLBACK = 'رسالة احتياطية';
@@ -74,4 +74,36 @@ test('زرّ التحديث: يُلغي تسجيل عامل الخدمة ثمّ 
   const none: string[] = [];
   await zatcaReloadForUpdate({ sw: null, reload: () => none.push('reload') });
   assert.deepEqual(none, ['reload']);
+});
+
+// ─── طلب المالك ٣١ أكتوبر ٢٠٢٦: فكّ القيد — notice «صدرت مبسطة» في ردّ 201 ───
+
+test('buyerNoticeOf: الرمز ZATCA_BUYER_SIMPLIFIED وحده، والحقول المعروفة وحدها بلا تكرار — وغيره null', () => {
+  const body = { success: true, data: { id: 'i' }, notice: { code: 'ZATCA_BUYER_SIMPLIFIED', message: 'صدرت…', fields: ['taxNumber', 'addrBuildingNo', 'taxNumber', 'evil', 5, null] } };
+  assert.deepEqual(buyerNoticeOf(body), { fields: ['taxNumber', 'addrBuildingNo'], kind: 'invoice' });
+  assert.deepEqual(buyerNoticeOf(body, 'note'), { fields: ['taxNumber', 'addrBuildingNo'], kind: 'note' });
+  assert.deepEqual(buyerNoticeOf({ notice: { code: 'ZATCA_BUYER_SIMPLIFIED' } }), { fields: [], kind: 'invoice' }, 'بلا حقول');
+  assert.deepEqual(buyerNoticeOf({ notice: { code: 'ZATCA_BUYER_SIMPLIFIED', fields: 'taxNumber' } }), { fields: [], kind: 'invoice' }, 'حقول ليست مصفوفة');
+  for (const bad of [
+    undefined, null, 'x', [], { success: true, data: {} }, { notice: null }, { notice: [] }, { notice: 'ZATCA_BUYER_SIMPLIFIED' },
+    { notice: { code: 'ZATCA_BUYER_INCOMPLETE', fields: ['taxNumber'] } }, { notice: { code: 'zatca_buyer_simplified' } },
+  ]) assert.equal(buyerNoticeOf(bad), null, JSON.stringify(bad));
+});
+
+test('buyerNoticeText: الجملة بحسب نوع المستند، وأسماء الحقول مترجمة بعد «ناقص للفاتورة الضريبية»', () => {
+  const seen: string[] = [];
+  const tr = (k: string) => { seen.push(k); return `«${k}»`; };
+  assert.equal(buyerNoticeText({ fields: [], kind: 'invoice' }, tr), '«صدرت فاتورة ضريبية مبسطة لأن بيانات العميل ناقصة للفاتورة الضريبية»');
+  assert.equal(buyerNoticeText({ fields: [], kind: 'note' }, tr), '«صدر الإشعار مبسطا لأن بيانات العميل ناقصة للفاتورة الضريبية»');
+  assert.equal(
+    buyerNoticeText({ fields: ['taxNumber', 'addrPostalCode'], kind: 'invoice' }, tr),
+    '«صدرت فاتورة ضريبية مبسطة لأن بيانات العميل ناقصة للفاتورة الضريبية» — «ناقص للفاتورة الضريبية»: «الرقم الضريبي»، «الرمز البريدي (5 أرقام)»',
+  );
+  // الجملتان في قائمة نصوص الإصدار (يحرس opsGuards أن لكلٍّ ترجماته الأربع في قاموس واحد)
+  for (const p of ['صدرت فاتورة ضريبية مبسطة لأن بيانات العميل ناقصة للفاتورة الضريبية', 'صدر الإشعار مبسطا لأن بيانات العميل ناقصة للفاتورة الضريبية']) {
+    assert.ok(ZATCA_ISSUE_PHRASES.includes(p), p);
+    assert.ok(seen.includes(p), p);
+  }
+  // و201 بإشعارٍ يبقى «صدرت» — لا قرار طباعة جديد
+  assert.deepEqual(zatcaIssueOutcome({ status: 201, data: { data: pendingRow({ einvoiceStatus: 'reported', invoiceSubtype: '02' }) } }, FALLBACK), { kind: 'issued' });
 });

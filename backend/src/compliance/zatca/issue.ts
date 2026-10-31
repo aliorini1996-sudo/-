@@ -17,11 +17,18 @@
 //     = TaxExclusive (discountAmt قيمة المحرّك والفرق في subtotal)، وtotal = إجمالي المحرّك = PayableAmount (السعر المعلن، D6)،
 //     فيكون total − subtotal + discountAmt − taxAmt = PayableRoundingAmount («فرق تقريب») ∈ {0.00، 0.01، 0.02}.
 //   • تصنيف P2002 (نقد 26): clientRef ⇒ الفاتورة القائمة؛ number ⇒ إعادة الترقيم؛ قيود zatca_documents ⇒ تعارض سلسلة بلا إعادة.
+//   • «فك قيد الرقم الضريبي والعنوان الوطني» (طلب المالك ٣١ أكتوبر ٢٠٢٦، CompanySettings.buyerVatAddressRelaxed يُقرأ مع البائع):
+//     فاتورة منشأة/جهة حكومية بياناتها لا تكفي للضريبية (01) تصدر **مبسطة (02)** بطرف مشترٍ آمن (simplifiedBuyerSource: الاسم
+//     والمعرّف الصريح الصحيح وحده) بدل 422 — قبل أي قفل أو ICV، والمبالغ والضريبة لا تتغيّر (لا تعتمد على النوع الفرعي)، ومعها
+//     buyerNotice للردّ. والإشعار يرث نوع أصله دائماً: على فاتورة ضريبية (01) يبقى 422 حتى مع فكّ القيد. مطفأ ⇒ كما قبله حرفياً.
 // لا قاعدة بيانات ولا شبكة ولا services/gl. لا يستدعي الهيئة أبداً.
 // ============================================================================
 
-import { classifyBuyerSubtype } from './buyerParty';
-import { buyerSourceFromCustomer, customerBuyerStatus, missingBuyerFormFields, type BuyerRowLike } from './buyerData';
+import { classifyBuyerSubtype, mapBuyerPartyLike } from './buyerParty';
+import {
+  BUYER_BILLING_FIELDS, BUYER_FIELD_LABELS_AR, buyerIssuanceDecision, buyerSourceFromCustomer, customerBuyerStatus, missingBuyerFormFields,
+  simplifiedBuyerSource, type BuyerField, type BuyerRowLike,
+} from './buyerData';
 import { INITIAL_PIH, newInvoiceUuid } from './crypto';
 import { parseAmount } from './decimal';
 import { DocumentBytesError } from './documentStore';
@@ -38,6 +45,7 @@ import type { SellerSettingsRecord } from './onboardingStore';
 import { preflightIssues } from './preflight';
 import { mirrorQrOf, mirrorStatusOf, type InvoiceMirrorStatus } from './status';
 import { riyadhParts } from './time';
+import { buyerIssues } from './validators';
 
 // ─── المدخلات ───
 
@@ -105,6 +113,10 @@ export interface IssuanceNoteContext {
   originalSubtype: InvoiceSubtype;
   originalPaymentType: string;
   reason: string;
+  /** فكّ القيد: إشعارٌ على أصلٍ من المرحلة الأولى قرّرته الأهليّة مبسطاً بدل ضريبيٍّ ناقص (noteEligibility) — غيابه = لا */
+  buyerSimplified?: true;
+  /** النوع من تصنيف العميل الحيّ (أصلٌ من المرحلة الأولى) لا من أصلٍ ضريبيّ — فلا تُقال رسالة «يتبع نوع فاتورته الأصلية» */
+  originalClassified?: true;
 }
 
 export interface BuildInvoiceSourceInput {
@@ -141,10 +153,89 @@ export function currencyAllowed(settings: Pick<IssuanceSellerSettings, 'currency
   return base === ISSUANCE_CURRENCY && (o === '' || o === ISSUANCE_CURRENCY);
 }
 
-/** النوع الفرعي المجمَّد: الإشعار يرث أصله؛ الفاتورة من بيانات العميل الحالية (D2/Q2). */
+/** النوع الفرعي المجمَّد: الإشعار يرث أصله؛ الفاتورة من بيانات العميل الحالية (D2/Q2). دلالة القيد القائم (issuanceSubtypeDecision بلا فكّه). */
 export function issuanceSubtype(customer: BuyerRowLike, kind: DocumentKind = 'INVOICE', note?: IssuanceNoteContext | null): InvoiceSubtype {
   if (kind !== 'INVOICE' && note && (note.originalSubtype === '01' || note.originalSubtype === '02')) return note.originalSubtype;
   return classifyBuyerSubtype(buyerSourceFromCustomer(customer));
+}
+
+// ─── فكّ قيد الرقم الضريبي والعنوان الوطني (طلب المالك ٣١ أكتوبر ٢٠٢٦) ───
+
+/** إعداد الشركة كما حمّله الإصدار مع البائع (SELLER_SELECT) — غيابه أو null = مطفأ. */
+export function buyerRelaxedOf(s: { buyerVatAddressRelaxed?: boolean | null } | null | undefined): boolean {
+  return s?.buyerVatAddressRelaxed === true;
+}
+
+export const ZATCA_BUYER_SIMPLIFIED = 'ZATCA_BUYER_SIMPLIFIED';
+export const BUYER_SIMPLIFIED_AUDIT_EVENT = 'ZATCA_BUYER_SIMPLIFIED';
+
+export interface IssuanceSubtypeDecision {
+  subtype: InvoiceSubtype;
+  /** 01⇒02 بفكّ القيد (فاتورة)، أو إشعارٌ على أصلٍ من المرحلة الأولى قرّرته الأهليّة كذلك */
+  buyerSimplified: boolean;
+  /** ⇒ 422 ZATCA_BUYER_INCOMPLETE */
+  blocked: boolean;
+  /** الحجب سببه أنّ الإشعار يتبع أصلاً ضريبياً (01) — لرسالة أوضح حين يكون القيد مفكوكاً */
+  noteOnStandard: boolean;
+  issues: ZatcaIssue[];
+  fields: BuyerField[];
+}
+
+/**
+ * قرار النوع الفرعي قبل أي قفل: الإشعار يرث نوع أصله (لا يُغيَّر هنا) وحجبُ D2 لأصلٍ ضريبي قائمٌ أياً كان الإعداد؛ والفاتورة
+ * buyerIssuanceDecision (ضريبية مكتملة، مبسطة طبيعية، ناقصة ⇒ محجوبة أو مبسطة بفكّ القيد). relaxed = false ⇒ issuanceSubtype + D2 حرفياً.
+ */
+export function issuanceSubtypeDecision(
+  customer: BuyerRowLike, kind: DocumentKind, note: IssuanceNoteContext | null | undefined, relaxed: boolean,
+): IssuanceSubtypeDecision {
+  if (kind !== 'INVOICE' && note && (note.originalSubtype === '01' || note.originalSubtype === '02')) {
+    const subtype = note.originalSubtype;
+    const buyerSimplified = note.buyerSimplified === true;
+    const st = customerBuyerStatus(customer);
+    const blocked = subtype === '01' && !st.complete;
+    const explain = blocked || buyerSimplified;
+    return {
+      subtype, buyerSimplified, blocked, noteOnStandard: blocked && note.originalClassified !== true,
+      issues: explain ? st.issues.filter(i => i.severity === 'error') : [],
+      fields: explain ? missingBuyerFormFields(st) : [],
+    };
+  }
+  // فاتورة (أو إشعار بلا سياق أصلٍ صالح — يرفضه issuancePaymentType بعدها): قاعدة الفاتورة، وفكّ القيد للفاتورة وحدها
+  const d = buyerIssuanceDecision(customer, kind === 'INVOICE' && relaxed);
+  return { subtype: d.subtype, buyerSimplified: d.simplifiedByRelax, blocked: d.blocked, noteOnStandard: false, issues: d.issues, fields: d.fields };
+}
+
+/** إعلام الردّ (201) بأنّ المستند صدر مبسطاً بفكّ القيد — حقول البطاقة الناقصة أسماء أعمدة لا قيم. */
+export interface BuyerSimplifiedNotice {
+  code: typeof ZATCA_BUYER_SIMPLIFIED;
+  message: string;
+  fields: BuyerField[];
+}
+
+export function buyerSimplifiedNotice(kind: DocumentKind, fields: readonly BuyerField[]): BuyerSimplifiedNotice {
+  const list = fields.filter(f => (BUYER_BILLING_FIELDS as readonly string[]).includes(f));
+  const head = kind === 'INVOICE'
+    ? 'صدرت فاتورة ضريبية مبسطة لأن بيانات العميل لا تكفي للفاتورة الضريبية وفك القيد مفعّل في إعدادات الشركة — لا يستطيع العميل خصم ضريبتها'
+    : 'صدر الإشعار مبسطاً لأن بيانات العميل لا تكفي للفاتورة الضريبية وفك القيد مفعّل في إعدادات الشركة — لا يستطيع العميل خصم ضريبته';
+  const tail = list.length ? '. الناقص: ' + list.map(f => BUYER_FIELD_LABELS_AR[f]).join('، ') : '';
+  return { code: ZATCA_BUYER_SIMPLIFIED, message: head + tail, fields: [...list] };
+}
+
+const auditId = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v.slice(0, 128) : null);
+
+/** سطر تدقيق (JSON) لمستندٍ صدر مبسطاً بفكّ القيد — معرّفات وأسماء حقول فقط، لا قيم. */
+export function buyerSimplifiedAuditLine(f: {
+  tenantId: string; customerId: string; invoiceId: string; number: string; kind?: DocumentKind; fields: readonly string[];
+}): string {
+  return JSON.stringify({
+    event: BUYER_SIMPLIFIED_AUDIT_EVENT,
+    tenantId: auditId(f.tenantId),
+    customerId: auditId(f.customerId),
+    invoiceId: auditId(f.invoiceId),
+    number: auditId(f.number),
+    kind: f.kind ?? 'INVOICE',
+    fields: f.fields.filter(x => (BUYER_BILLING_FIELDS as readonly string[]).includes(x)),
+  });
 }
 
 /** CASH | CREDIT | INSTALLMENT للفاتورة؛ طريقة دفع الأصل للإشعار (BR-49). RETURN على فاتورة ⇒ 422 يلزم الأصل. */
@@ -162,7 +253,15 @@ export function issuancePaymentType(request: Pick<IssuanceRequest, 'type' | 'pay
 /** مصدر Z1 من فاتورة المنصّة (نقيّ، لا يفحص الاكتمال — ذاك prepareIssuance وpreflight). */
 export function buildInvoiceSource(input: BuildInvoiceSourceInput): InvoiceSource {
   const kind: DocumentKind = input.kind ?? 'INVOICE';
-  const subtype = issuanceSubtype(input.customer, kind, input.note);
+  // فكّ القيد (طلب المالك ٣١ أكتوبر ٢٠٢٦): القرار نفسه الذي تحجب به prepareIssuance — والختم داخل القفل يعيد src المحفوظ نفسه
+  const relaxed = buyerRelaxedOf(input.settings);
+  const decision = issuanceSubtypeDecision(input.customer, kind, input.note, relaxed);
+  const subtype = decision.subtype;
+  const rawBuyer = buyerSourceFromCustomer(input.customer);
+  // فكّ القيد: المبسّط بفكّه طرفُه آمنٌ دائماً؛ والمبسّط الطبيعي (أو الموروث) يُؤمَّن حين يفشل طرفه الخام قواعد المبسّطة وحدها
+  // (معرّفٌ قديم خاطئ) — والصحيح يبقى صفّ العميل نفسه بايتاً ببايت
+  const safeBuyer = relaxed && subtype === '02'
+    && (decision.buyerSimplified || buyerIssues('simplified', mapBuyerPartyLike(rawBuyer, '02')).some(i => i.severity === 'error'));
   const byId = new Map(input.products.map(p => [p.id, p]));
   const missing: ZatcaIssue[] = [];
   const items: LineSource[] = input.lines ? input.lines.map(l => ({ ...l })) : input.request.items.map((it, i) => {
@@ -194,7 +293,9 @@ export function buildInvoiceSource(input: BuildInvoiceSourceInput): InvoiceSourc
     supplyDate: subtype === '01' && typeof input.request.supplyDate === 'string' && input.request.supplyDate.trim() !== '' ? input.request.supplyDate.trim() : null,
     subtype,
     seller: sellerSourceFromSettings(input.settings),
-    buyer: buyerSourceFromCustomer(input.customer),
+    // فكّ القيد: الطرف المبسّط الآمن (بلا رقم ضريبي ولا سجل ولا عنوان، ومعرّفٌ صريح صحيح وحده) فلا يفشل buyerIssues('simplified')
+    // بسببها. مطفأ ⇒ صفّ العميل كما هو
+    buyer: safeBuyer ? simplifiedBuyerSource(rawBuyer) : rawBuyer,
     items,
   };
   if (kind !== 'INVOICE' && input.note) {
@@ -390,6 +491,10 @@ export interface PreparedIssuance {
   amountsFingerprint: string;
   warnings: ZatcaIssue[];
   qrMaxLength?: number;
+  /** فكّ القيد: صدر مبسطاً (02) بدل ضريبي ناقص — غائبٌ في غيره */
+  buyerSimplified?: true;
+  /** إعلام الردّ (notice) — مع buyerSimplified وحده */
+  buyerNotice?: BuyerSimplifiedNotice;
 }
 
 /** بصمة المبالغ والبنود كما ستُكتب (بلا الرقم والتواريخ وقيم السلسلة). */
@@ -419,14 +524,14 @@ function itemSnapshotsOf(doc: UblDocument, amounts: StoredAmounts): IssuanceItem
 export function prepareIssuance(input: PrepareIssuanceInput): PreparedIssuance {
   const kind: DocumentKind = input.kind ?? 'INVOICE';
   if (kind === 'INVOICE' && input.request.type === 'RETURN') throw new ZatcaHttpError('ZATCA_RETURN_NEEDS_ORIGINAL');
-  const subtype = issuanceSubtype(input.customer, kind, input.note);
-  if (subtype === '01') {
-    const status = customerBuyerStatus(input.customer);
-    if (!status.complete) {
-      // data.fields: حقول بطاقة العميل الناقصة لنافذة الإكمال (Z5.6b) — أسماء أعمدة لا نصوص
-      const base = buyerIncompleteError(input.customer.id, status.issues.filter(i => i.severity === 'error'));
-      throw new ZatcaHttpError('ZATCA_BUYER_INCOMPLETE', { messageAr: base.messageAr, issues: base.issues, customerId: input.customer.id, data: { fields: missingBuyerFormFields(status) } });
-    }
+  // D2 + فكّ القيد (طلب المالك ٣١ أكتوبر ٢٠٢٦): ضريبية ناقصة ⇒ 422، أو مبسطة حين يكون القيد مفكوكاً وطرفها المبسّط صحيحاً
+  const relaxed = buyerRelaxedOf(input.settings);
+  const d = issuanceSubtypeDecision(input.customer, kind, input.note, relaxed);
+  const subtype = d.subtype;
+  if (d.blocked) {
+    // data.fields: حقول بطاقة العميل الناقصة لنافذة الإكمال (Z5.6b) — أسماء أعمدة لا نصوص
+    const base = buyerIncompleteError(input.customer.id, d.issues, relaxed && d.noteOnStandard ? { noteOnStandard: true } : undefined);
+    throw new ZatcaHttpError('ZATCA_BUYER_INCOMPLETE', { messageAr: base.messageAr, issues: base.issues, customerId: input.customer.id, data: { fields: d.fields } });
   }
   if (!currencyAllowed(input.settings)) {
     throw new ZatcaHttpError('ZATCA_CURRENCY', {
@@ -455,6 +560,10 @@ export function prepareIssuance(input: PrepareIssuanceInput): PreparedIssuance {
     warnings,
   };
   if (input.qrMaxLength !== undefined) prepared.qrMaxLength = input.qrMaxLength;
+  if (d.buyerSimplified) {
+    prepared.buyerSimplified = true;
+    prepared.buyerNotice = buyerSimplifiedNotice(kind, d.fields);
+  }
   return prepared;
 }
 

@@ -1325,6 +1325,9 @@ model CompanySettings {
   // الشركات (طلب المالك)، ويفعّلها مدير الشركة من «إعدادات الشركة» — والإطفاء يعيد الشركة كما كانت وتبقى الفرق والوسوم محفوظة
   teamsEnabled             Boolean @default(false)
   lotOnInvoice             Boolean @default(false) // طباعة التشغيلة على فاتورة العميل — لا أثر إلا مع الميزة (D15)
+  // «فك قيد الرقم الضريبي والعنوان الوطني» (طلب المالك ٣١ أكتوبر ٢٠٢٦، routes/companyBuyerRelax.ts): صيغ العميل تنبيهات لا أخطاء،
+  // وفاتورة منشأة بياناتها لا تكفي للضريبية تصدر مبسطة (02). مطفأ افتراضياً — يفعّله مدير الشركة وحده فتبقى كل شركة قائمة كما هي
+  buyerVatAddressRelaxed   Boolean @default(false)
   // «إعدادات الطباعة» v1 (services/printSettingsCore.ts، routes/printSettings.ts): قوالب الطباعة وتوجيه المستندات إليها —
   // null = سلوك اليوم حرفياً (شريط 58 مم وPDF الـA4)، فعمود إضافي بلا افتراضي لا يغيّر شركة قائمة عند db push
   printSettings            Json?

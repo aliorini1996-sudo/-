@@ -520,3 +520,34 @@ test('الأنواع: محوّلا Prisma (السلسلة والترقيم + ا�
   }
   assert.equal(typeof wiring, 'function');
 });
+
+// ─── «فك قيد الرقم الضريبي والعنوان الوطني» (طلب المالك ٣١ أكتوبر ٢٠٢٦) ───
+
+test('فك القيد: فاتورة منشأة ناقصة تُختم مبسطة كاملة — 0200000 بختمنا وQR بوسوم البائع وحدها، وطرف المشتري بالاسم بلا رقم ضريبي ولا عنوان', async () => {
+  const hs = createHarness();
+  const prepared = hs.prepare({ customer: CUSTOMERS.b2bIncomplete, request: REQ_STANDARD_Z1, settingsOver: { buyerVatAddressRelaxed: true } });
+  assert.equal(prepared.buyerSimplified, true);
+  const r = await hs.issue({ prepared });
+  assert.deepEqual([r.subtype, r.typeName, r.flow], ['02', '0200000', 'REPORTING']);
+  const xml = gunzipXml([...hs.sim.documents.values()][0].xmlGz);
+  assert.match(xml, /<cbc:InvoiceTypeCode name="0200000">388<\/cbc:InvoiceTypeCode>/);
+  const party = xml.slice(xml.indexOf('<cac:AccountingCustomerParty>'), xml.indexOf('</cac:AccountingCustomerParty>'));
+  assert.ok(party.length > 0);
+  assert.match(party, /<cbc:RegistrationName>أسواق الحي<\/cbc:RegistrationName>/);
+  assert.doesNotMatch(party, /PartyTaxScheme|CompanyID|PostalAddress|311111111111113/);
+  verifyStampedXml(xml, parseCsidToken(hs.keys.token), 'simplified', { invoiceHash: r.invoiceHash, qr: r.qr });
+  // QR المرحلة الثانية: وسوم البائع والمبالغ والختم وحدها (لا وسم للمشتري أصلاً)
+  const qr = decodeQr(r.qr);
+  assert.deepEqual(qr.tags.map(t => t[0]), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  assert.equal(qr.vat, Z5_VAT);
+  assert.ok(!Buffer.from(r.qr, 'base64').toString('utf8').includes('أسواق الحي'));
+  const rec = hs.records[0];
+  assert.equal(rec.mirror.einvoiceStatus, 'signed');
+  assert.equal(rec.mirror.einvoiceQr, r.qr);
+  assert.deepEqual(rec.snapshot.customer, { registrationName: 'أسواق الحي' });
+  assert.equal(rec.snapshot.subtype, '02');
+  // تاريخ التوريد القديم (2026-09-13) لم يدخل المبسّطة فلم يُرفض — والمبالغ كما لو صدرت ضريبية لعميل مكتمل
+  assert.equal(rec.snapshot.supplyDate, r.issueDate);
+  const std = hs.prepare({ customer: CUSTOMERS.b2bComplete, request: { ...REQ_STANDARD_Z1, supplyDate: null } });
+  assert.deepEqual(rec.amounts, std.amounts);
+});

@@ -2,9 +2,10 @@ import { useTr } from '../i18n/strings';
 import { useLang } from '../i18n/lang';
 import { supportedCountries } from '../i18n/countries';
 import { BUYER_ID_SCHEMES } from '../lib/zatca/validators';
-import { BuyerField, BuyerRowLike, missingBuyerFormFields } from '../lib/zatca/buyerData';
+import { BuyerField, BuyerFieldError, BuyerRowLike, customerBuyerStatus, missingBuyerFormFields } from '../lib/zatca/buyerData';
 import {
-  BUYER_CLASSIFICATION_LABELS_AR, BUYER_FIELD_UI_LABELS_AR as BUYER_FIELD_LABELS_AR, BUYER_ID_SCHEME_LABELS_AR, BuyerFormValues, liveBuyerStatus,
+  BUYER_CLASSIFICATION_LABELS_AR, BUYER_FIELD_UI_LABELS_AR as BUYER_FIELD_LABELS_AR, BUYER_ID_SCHEME_LABELS_AR, BuyerFormValues, buyerRelaxSimplified,
+  liveBuyerRow,
 } from '../lib/zatca/buyerForm';
 
 /**
@@ -16,8 +17,11 @@ import {
  *
  * include='phase2': الحقول الجديدة وحدها (المضيف يعرض الاسم والرقم الضريبي والسجل والمدينة والحي في أقسامه).
  * include='all': كل حقول الفوترة (نموذج المندوب الضيّق — Q3).
+ *
+ * طلب المالك ٣١ أكتوبر ٢٠٢٦ (فكّ قيد الرقم الضريبي والعنوان الوطني): relaxed يضيف سطر «تصدر له فاتورة ضريبية مبسطة…» للمنشأة
+ * الناقصة، وwarnings قائمةُ «تنبيهات لا تمنع الحفظ» — يمرّرهما المضيف حين buyerRelaxOn(company) وحده، وغيابهما = الرسم كما اليوم.
  */
-export default function BuyerDataFields({ values, onChange, stored, include = 'phase2', errors, title = true, locked }: {
+export default function BuyerDataFields({ values, onChange, stored, include = 'phase2', errors, title = true, locked, relaxed = false, warnings }: {
   values: Partial<BuyerFormValues> & { name?: string; channel?: string };
   onChange: (field: BuyerField, value: string) => void;
   stored?: BuyerRowLike | null;
@@ -26,12 +30,18 @@ export default function BuyerDataFields({ values, onChange, stored, include = 'p
   title?: boolean;
   /** حقل للعرض فقط (نموذج المندوب بلا صلاحية تعديل العملاء — Q3: repCompleteLocked). غيابه = كل الحقول قابلة للتعديل كما كانت. */
   locked?: (field: BuyerField) => boolean;
+  /** فكّ القيد مفعّل للشركة (buyerRelaxOn) — المنشأة الناقصة تصدر لها مبسطة. غيابه = false. */
+  relaxed?: boolean;
+  /** تنبيهات صيغٍ لا تمنع الحفظ (buyerRelaxWarnings) — غيابها أو [] = لا قائمة. */
+  warnings?: readonly BuyerFieldError[];
 }) {
   const tr = useTr();
   const lang = useLang(s => s.lang);
-  const status = liveBuyerStatus(stored, values);
+  const liveRow = liveBuyerRow(stored, values);
+  const status = customerBuyerStatus(liveRow);
   const missing = missingBuyerFormFields(status);
   const b2b = status.subtypeIfIssuedNow === '01';
+  const relaxSimplified = b2b && !status.complete && relaxed && buyerRelaxSimplified(liveRow);
 
   const errorOf = (f: BuyerField) => {
     const m = errors?.[f];
@@ -64,6 +74,7 @@ export default function BuyerDataFields({ values, onChange, stored, include = 'p
         ) : (
           <p>{tr('تصدر له فاتورة مبسطة')}</p>
         )}
+        {relaxSimplified && <p data-buyer-relax-simplified="">{tr('تصدر له فاتورة ضريبية مبسطة حتى تكتمل بياناته ولا يستطيع خصم ضريبتها')}</p>}
         <p className="text-[11px] opacity-80">{tr('تجمع الآن استعدادا للربط مع هيئة الزكاة ولا تمنع الحفظ أو البيع')}</p>
       </div>
 
@@ -113,6 +124,16 @@ export default function BuyerDataFields({ values, onChange, stored, include = 'p
         {text('addrAdditionalNo', { ltr: true, numeric: true })}
         {text('addrPostalCode', { ltr: true, numeric: true })}
       </div>
+
+      {/* فكّ القيد: صيغٌ ليست المعتمدة حُفظت كما أُدخلت — تنبيهٌ لا يمنع الحفظ (رسائل القواعد عربية؛ وبغيرها اسم الحقل وعبارة عامة) */}
+      {warnings && warnings.length > 0 && (
+        <div data-buyer-relax-warnings="" className="rounded-xl border border-amber-200 bg-amber-50 text-amber-800 px-3 py-2 mt-3 text-[11px] leading-relaxed space-y-0.5">
+          <p className="font-semibold">{tr('تنبيهات لا تمنع الحفظ')}</p>
+          {warnings.map((w, i) => (
+            <p key={`${w.field}-${i}`}>{lang === 'ar' ? w.messageAr : `${tr(BUYER_FIELD_LABELS_AR[w.field])}: ${tr('القيمة ليست بالصيغة المعتمدة')}`}</p>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
