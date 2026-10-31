@@ -290,8 +290,11 @@ test('(a) البلوتوث وبديله محروسان بحال المستند �
   const fallback = s.indexOf("onClick={() => printWith('system')}");
   assert.ok(fallback > block && fallback < s.indexOf('{zBlocked ? (', block), 'زرّ البديل خارج كتلة canDirect');
   assert.equal(s.split('printWith(').length - 1, 2, 'printWith: نداء الزرّ الأساسيّ وزرّ البديل وحدهما');
-  // بلا إعدادات مخصّصة: نظام الطباعة دائماً
-  assert.match(s, /const directTransport: PrintTransport = customized \? transportFor\(directProfile, deviceChoice\) : 'system';/);
+  // الشريط الكلاسيكي (أو لا إعدادات) بلوتوثه بقالب الجهاز (طلب المالك ٣١ أكتوبر ٢٠٢٦)، وغيره بلا إعدادات مخصّصة: نظام الطباعة دائماً
+  // وطريقة قالب الجهاز rollVia مستقلةٌ عن transport قوالب الشركة (سندٌ كلاسيكي لا يرث بلوتوث فاتورةٍ نقطية)
+  assert.match(s, /const directTransport: PrintTransport = deviceRoll \? transportFor\(deviceRoll, \{ transport: deviceChoice\?\.rollVia \}\) : customized \? transportFor\(directProfile, deviceChoice\) : 'system';/);
+  // والبلوتوث وحده يأخذ قالب الجهاز — البديل (نظام الطباعة) يطبع الشريط الكلاسيكي كما كان
+  assert.match(s, /const jobProfile = via === 'bt-serial' && deviceRoll \? deviceRoll : directProfile;/);
 });
 
 /** المصدر بلا تعليقات — الشرح يذكر الدوالّ المحظورة بأسمائها */

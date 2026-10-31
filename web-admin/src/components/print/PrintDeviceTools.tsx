@@ -26,8 +26,10 @@ import { DirectPrintOverlay, useDirectPrint } from './DirectPrintUi';
  *
  * الطريقة لكل جهاز (localStorage): نظام الطباعة افتراضاً كما اليوم، والبلوتوث المباشر إن اختاره وكان Chrome يحمل Web Serial.
  */
-export default function PrintDeviceTools({ profile, name, company, renderSheet, choice, onChoice }: {
+export default function PrintDeviceTools({ profile, systemProfile, name, company, renderSheet, choice, onChoice }: {
   profile: PrintProfile;
+  /** ما يطبعه «نظام الطباعة» إن خالف profile (قالب الجهاز للبلوتوث والشريط الكلاسيكي بنظام الطباعة) — فتطابق التجربةُ الطباعة */
+  systemProfile?: PrintProfile;
   name: string;
   company: Company | null | undefined;
   /** القالب الحقيقيّ للمستند النموذجيّ (PrintableInvoice) — يُمرَّر كي لا تتشابك الوحدات */
@@ -47,7 +49,10 @@ export default function PrintDeviceTools({ profile, name, company, renderSheet, 
   const transport: PrintTransport = transportFor(profile, choice, available);
   const sample = useMemo(() => sampleInvoiceDoc(company, tr), [company, tr]);
   const look = useMemo(() => lookFor(profile), [profile]);
-  const classic = profile.template === 'roll_classic';
+  const sysProfile = systemProfile ?? profile;
+  const profileVia = (via: PrintTransport): PrintProfile => (via === 'bt-serial' ? profile : sysProfile);
+  const classic = profileVia(transport).template === 'roll_classic';
+  const sysClassic = sysProfile.template === 'roll_classic';
 
   useEffect(() => {
     let alive = true;
@@ -84,7 +89,7 @@ export default function PrintDeviceTools({ profile, name, company, renderSheet, 
 
   const calibrate = (via: PrintTransport) => guarded(via, async (port) => {
     if (port) return direct.run((ui) => printHtmlDirect(port, buildCalibrationDocument(profile, tr, { mode: 'raster', name }), profile, 'pages', ui), { slow: choice?.slow });
-    await printHtmlDocument(buildCalibrationDocument(profile, tr, { mode: 'system', name }), profile.paper.widthMm);
+    await printHtmlDocument(buildCalibrationDocument(sysProfile, tr, { mode: 'system', name }), sysProfile.paper.widthMm);
   });
 
   const testPrint = (via: PrintTransport) => guarded(via, async (port) => {
@@ -92,7 +97,7 @@ export default function PrintDeviceTools({ profile, name, company, renderSheet, 
     if (profile.printer === 'thermal') {
       let outcome: 'done' | 'cancelled' = 'done';
       await printThermalInvoice(sample, {
-        profile, tr, sampleBanner: banner,
+        profile: port ? profile : sysProfile, tr, sampleBanner: banner,
         raster: port ? async (html) => { outcome = await direct.run((ui) => printHtmlDirect(port, html, profile, 'copies', ui), { slow: choice?.slow }); } : null,
       });
       return outcome;
@@ -124,7 +129,7 @@ export default function PrintDeviceTools({ profile, name, company, renderSheet, 
         {capable ? (
           <>
             {radio('bt-serial', tr('بلوتوث مباشر (موصى به)'), available ? tr('يرسل للطابعة مباشرة بلا تطبيق وسيط') : tr('الطباعة المباشرة تتطلب Chrome 138 أو أحدث'), !available)}
-            {radio('system', tr('نظام الطباعة في الجهاز'), profile.printer === 'impact' ? tr(PRINT_NOTES.impactDesktop) : tr('خدمة الطباعة المثبتة في الجوال أو الكمبيوتر'))}
+            {radio('system', tr('نظام الطباعة في الجهاز'), profile.printer === 'impact' ? tr(PRINT_NOTES.impactDesktop) : sysClassic ? tr('الشريط الكلاسيكي يطبع كما اليوم بلا بلوتوث مباشر') : tr('خدمة الطباعة المثبتة في الجوال أو الكمبيوتر'))}
             {transport === 'bt-serial' && (
               <div className="pt-1 space-y-2">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -165,7 +170,7 @@ export default function PrintDeviceTools({ profile, name, company, renderSheet, 
               <p className="mt-1 text-[#6E6557]">{tr(DIRECT_PRINT_FALLBACK)}</p>
               <div className="flex gap-2 flex-wrap mt-2">
                 <button type="button" disabled={busy} onClick={() => calibrate('system')} className="btn-secondary !py-1 !px-3 text-xs"><Printer size={13} /> {tr('معايرة بنظام الطباعة')}</button>
-                {!classic && <button type="button" disabled={busy} onClick={() => testPrint('system')} className="btn-secondary !py-1 !px-3 text-xs"><Printer size={13} /> {tr('تجربة بنظام الطباعة')}</button>}
+                {!sysClassic && <button type="button" disabled={busy} onClick={() => testPrint('system')} className="btn-secondary !py-1 !px-3 text-xs"><Printer size={13} /> {tr('تجربة بنظام الطباعة')}</button>}
               </div>
             </>
           )}

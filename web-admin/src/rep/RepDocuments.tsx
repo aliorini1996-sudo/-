@@ -19,7 +19,7 @@ import { receiptInvoicesFrom, receiptLinkView, type ReceiptInvoiceLink } from '.
 import { backdropClose } from '../lib/backdropClose';
 import { useBackClose } from '../lib/useBackClose';
 import {
-  LEGACY_THERMAL_ID, PRINT_NOTES, deviceProfilesFor, pdfProfileOf, printKindOf, profileDisplayName, profileFor, readPrintSettings,
+  LEGACY_THERMAL_ID, PRINT_NOTES, deviceProfilesFor, deviceRollProfile, pdfProfileOf, printKindOf, profileDisplayName, profileFor, readPrintSettings,
 } from '../lib/print/printSettings';
 import { PRINT_LOOK_CSS, PrintLookContext, lookFor, lookNeedsCss, lookRootAttrs, qrSlotStyle, usePrintLook } from './printLook';
 import { makePrintTexts, normalizePrintTexts, type PrintTexts } from '../lib/print/printTexts';
@@ -1990,7 +1990,11 @@ export function DocumentResult({ doc, onClose, showLotsStrip = false }: {
   const directProfile = profileFor(settings, printKind, customized ? deviceChoice : null);
   // كل طباعةٍ مباشرة (حرارية أو صفحة أو نقطية) محروسةٌ بحال المستند كزرّ المشاركة: مستندٌ لا ورقة له لا يُطبع من أيّ قالب
   const canDirect = directProfile !== null && !zBlocked && (directProfile.printer !== 'thermal' || canThermal);
-  const legacyDirect = directProfile?.id === LEGACY_THERMAL_ID;
+  /* «خيار البلوتوث للمندوب دائماً» (طلب المالك ٣١ أكتوبر ٢٠٢٦): قالبٌ حراريّ لا يُرسل بالبلوتوث (الشريط الكلاسيكي، ومنه شركةٌ بلا
+   * إعدادات) يقابله قالب الجهاز deviceRollProfile — «المختصر» بعرض رول الجهاز — فيختار المندوب «بلوتوث مباشر» من «تغيير» بلا
+   * أيّ إعدادٍ من الشركة. وما لم يختره فالزرّ والورقة كاليوم حرفاً بحرف (نظام الطباعة والشريط الكلاسيكي) */
+  const deviceRoll = directProfile !== null && directProfile.printer === 'thermal' && !supportsDirect(directProfile)
+    ? deviceRollProfile(deviceChoice?.rollMm ?? 58) : null;
   const deviceChoices = customized && settings.repMayChoose ? deviceProfilesFor(settings, printKind) : [];
   const pdfProfile = pdfProfileOf(settings);
   const pdfLook = useMemo(() => lookFor(pdfProfile), [pdfProfile]);
@@ -2000,8 +2004,12 @@ export function DocumentResult({ doc, onClose, showLotsStrip = false }: {
   const separatePage = pageProfile !== null && pageProfile.id !== pdfProfile.id;
   const pageRef = useRef<HTMLDivElement>(null);
   /* «إعدادات الطباعة» M3: طريقة هذا الجهاز — البلوتوث المباشر إن اختاره من «تغيير» ودعمه المتصفح والقالب، وإلا نظام الطباعة.
-   * بلا إعدادات مخصّصة: نظام الطباعة دائماً (الزرّ كاليوم حرفاً بحرف). وتعذّر البلوتوث يعرض سببه وبديله (نظام الطباعة أو PDF). */
-  const directTransport: PrintTransport = customized ? transportFor(directProfile, deviceChoice) : 'system';
+   * والشريط الكلاسيكي (أو لا إعدادات) بلوتوثه بقالب الجهاز (deviceRoll)؛ وقالبٌ صفحيّ بلا إعدادات مخصّصة: نظام الطباعة دائماً.
+   * وتعذّر البلوتوث يعرض سببه وبديله (نظام الطباعة أو PDF). */
+  const directTransport: PrintTransport = deviceRoll ? transportFor(deviceRoll, { transport: deviceChoice?.rollVia }) : customized ? transportFor(directProfile, deviceChoice) : 'system';
+  // القالب الذي يُطبع به زرّ الطباعة: قالب الجهاز متى اختار البلوتوث للشريط الكلاسيكي، وإلا قالب المستند
+  const shownProfile = deviceRoll && directTransport === 'bt-serial' ? deviceRoll : directProfile;
+  const legacyDirect = shownProfile?.id === LEGACY_THERMAL_ID;
   const bt = useDirectPrint();
   const [directError, setDirectError] = useState<string | null>(null);
 
@@ -2014,15 +2022,17 @@ export function DocumentResult({ doc, onClose, showLotsStrip = false }: {
     if (!canDirect || !directProfile) return;
     setBusy(true); setStatus(''); setDirectError(null);
     try {
+      // قالب هذه الضغطة: البلوتوث للشريط الكلاسيكي بقالب الجهاز؛ والبديل (نظام الطباعة) بقالب المستند كما كان
+      const jobProfile = via === 'bt-serial' && deviceRoll ? deviceRoll : directProfile;
       // المنفذ أوّل الضغطة: نافذة اختيار الطابعة تحتاج إيماءة المستخدم قبل أيّ عملٍ طويل
-      const port = via === 'bt-serial' && supportsDirect(directProfile) ? await printerForJob() : null;
+      const port = via === 'bt-serial' && supportsDirect(jobProfile) ? await printerForJob() : null;
       // حصيلة البلوتوث (تُكتب من داخل مسار الشريط) — حاويةٌ لا متغيّر: التضييق لا يتبع الإسناد داخل الدوالّ
       const sent: { outcome: 'done' | 'cancelled' | null } = { outcome: null };
-      if (directProfile.printer === 'thermal') {
-        // الملف الافتراضي (legacy-58) يعود في thermal.ts إلى شريط اليوم حرفاً بحرف (ولا يُرسل بالبلوتوث أبداً)
+      if (jobProfile.printer === 'thermal') {
+        // الملف الافتراضي (legacy-58) يعود في thermal.ts إلى شريط اليوم حرفاً بحرف (ولا يُرسل بالبلوتوث أبداً — بلوتوثه قالب الجهاز)
         const opts = {
-          profile: directProfile, tr,
-          raster: port ? async (html: string) => { sent.outcome = await bt.run((ui) => printHtmlDirect(port, html, directProfile, 'copies', ui), { slow: deviceChoice?.slow }); } : null,
+          profile: jobProfile, tr,
+          raster: port ? async (html: string) => { sent.outcome = await bt.run((ui) => printHtmlDirect(port, html, jobProfile, 'copies', ui), { slow: deviceChoice?.slow }); } : null,
         };
         if (doc.kind === 'invoice') await printThermalInvoice(doc, opts);
         else if (doc.kind === 'receipt') await printThermalReceipt(doc, opts);
@@ -2155,13 +2165,14 @@ export function DocumentResult({ doc, onClose, showLotsStrip = false }: {
           <>
             <button onClick={printDirect} disabled={busy}
               className="w-full bg-white border-2 border-[#DED5C4] text-[#1F1A13] font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-60">
-              <Printer size={17} /> {legacyDirect ? tr('طباعة حرارية 58 مم') : `${tr('طباعة')} — ${profileDisplayName(directProfile, tr)}`}
+              <Printer size={17} /> {legacyDirect ? tr('طباعة حرارية 58 مم') : `${tr('طباعة')} — ${profileDisplayName(shownProfile ?? directProfile, tr)}`}
             </button>
-            {/* سطر الطابعة: لاختيار قالبٍ آخر (بإذن الشركة) أو للطريقة والمعايرة (قالبٌ يُرسل بالبلوتوث) — والإعداد الافتراضي بلا سطر */}
-            {(deviceChoices.length > 1 || (customized && supportsDirect(directProfile))) && (
+            {/* سطر الطابعة: لاختيار قالبٍ آخر (بإذن الشركة) أو للطريقة والمعايرة — ولكل شريطٍ حراريّ دائماً (البلوتوث بقالب الجهاز)،
+                ولو لم يدعم المتصفح البلوتوث: نافذة «تغيير» تقول السبب بدل أن يغيب الخيار بلا تفسير */}
+            {(deviceChoices.length > 1 || (customized && supportsDirect(directProfile)) || deviceRoll !== null) && (
               <p className="text-[11px] text-gray-500 text-center">
-                {tr('الطابعة')}: {profileDisplayName(directProfile, tr)}
-                {customized && supportsDirect(directProfile) && <> · {directTransport === 'bt-serial' ? tr('بلوتوث مباشر') : tr('نظام الطباعة في الجهاز')}</>}
+                {tr('الطابعة')}: {profileDisplayName(shownProfile ?? directProfile, tr)}
+                {((customized && supportsDirect(directProfile)) || deviceRoll !== null) && <> · {directTransport === 'bt-serial' ? tr('بلوتوث مباشر') : tr('نظام الطباعة في الجهاز')}</>}
                 {' '}·{' '}
                 <button type="button" onClick={() => setDeviceOpen(true)} className="text-[#C94E28] font-semibold">{tr('تغيير')}</button>
               </p>
@@ -2208,7 +2219,7 @@ export function DocumentResult({ doc, onClose, showLotsStrip = false }: {
 
       {deviceOpen && directProfile && (
         <PrintDeviceSheet
-          settings={settings} kind={printKind} current={directProfile}
+          settings={settings} kind={printKind} current={deviceRoll ?? directProfile} deviceRoll={deviceRoll !== null} systemProfile={directProfile} pickable={deviceChoices.length > 1}
           chosenId={deviceChoice?.byKind?.[printKind] ?? null}
           onPick={(id) => setDeviceChoice(withKindChoice(deviceChoice, printKind, id))}
           choice={deviceChoice} onChoice={setDeviceChoice}

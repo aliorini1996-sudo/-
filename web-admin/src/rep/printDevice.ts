@@ -60,13 +60,15 @@ export function parseDeviceChoice(raw: string | null): DevicePrintChoice | null 
   const hint = (o.portHint as { name?: unknown } | undefined)?.name;
   if (typeof hint === 'string' && hint.length <= 80) out.portHint = { name: hint };
   if (o.slow === true) out.slow = true;
+  if (o.rollMm === 80 || o.rollMm === 58) out.rollMm = o.rollMm;
+  if (o.rollVia === 'bt-serial') out.rollVia = 'bt-serial';
   return Object.keys(out).length ? out : null;
 }
 
 /**
  * طريقة الاتصال ورابطٌ بطيء (M3) — «نظام الطباعة» هو الافتراضي فلا يُحفظ صراحةً؛ والنتيجة الفارغة null (كما withKindChoice).
  */
-export function withConnection(choice: DevicePrintChoice | null, patch: { transport?: 'bt-serial' | 'system'; slow?: boolean }): DevicePrintChoice | null {
+export function withConnection(choice: DevicePrintChoice | null, patch: { transport?: 'bt-serial' | 'system'; slow?: boolean; rollMm?: 58 | 80 }): DevicePrintChoice | null {
   const next: DevicePrintChoice = { ...(choice ?? {}) };
   if (patch.transport !== undefined) {
     if (patch.transport === 'bt-serial') next.transport = 'bt-serial';
@@ -76,7 +78,32 @@ export function withConnection(choice: DevicePrintChoice | null, patch: { transp
     if (patch.slow) next.slow = true;
     else delete next.slow;
   }
+  // عرض رول الجهاز (deviceRollProfile): 58 الافتراضي فلا يُحفظ صراحةً
+  if (patch.rollMm !== undefined) {
+    if (patch.rollMm === 80) next.rollMm = 80;
+    else delete next.rollMm;
+  }
   return Object.keys(next).length ? next : null;
+}
+
+/**
+ * اختيار الجهاز كما تراه أدوات قالب الجهاز (deviceRoll): طريقتها rollVia لا transport قوالب الشركة — PrintDeviceTools تقرأ وتكتب
+ * transport فتُعرض لها هذه الصورة، وما تكتبه يعود بـfromRollView: transport الأصلي كما هو، والجديد في rollVia.
+ */
+export function rollViewOf(choice: DevicePrintChoice | null): DevicePrintChoice | null {
+  const v: DevicePrintChoice = { ...(choice ?? {}) };
+  delete v.transport;
+  if (choice?.rollVia === 'bt-serial') v.transport = 'bt-serial';
+  return Object.keys(v).length ? v : null;
+}
+
+export function fromRollView(original: DevicePrintChoice | null, next: DevicePrintChoice | null): DevicePrintChoice | null {
+  const out: DevicePrintChoice = { ...(next ?? {}) };
+  delete out.transport;
+  delete out.rollVia;
+  if (original?.transport) out.transport = original.transport;
+  if (next?.transport === 'bt-serial') out.rollVia = 'bt-serial';
+  return Object.keys(out).length ? out : null;
 }
 
 /** اختيار قالبٍ لنوع مستند — null يعيده لاختيار الشركة؛ والنتيجة الفارغة null */
