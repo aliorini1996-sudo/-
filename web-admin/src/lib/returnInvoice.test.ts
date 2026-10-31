@@ -6,7 +6,11 @@ import {
   linkedReturnTotals, buildLinkedReturnPayload, buildFreeReturnPayload, returnFormProblem, returnIssueError,
   returnDocItems, RETURN_INVOICE_PHRASES, RETURN_REASONS, type LinkedSale, type ReturnHead,
   returnUnitChoices, withReturnUnit, linkedRefundAmount, refreshLinkedLine,
+  returnSourceProblem, noteReasonProblem, returnReasonLabel, repReturnPolicyFields, withManualReturnRef, RETURN_POLICY_CODES,
+  RETURN_LINK_REQUIRED_TEXT, RETURN_NEEDS_ORIGINAL_TEXT, RETURN_CHOOSE_SOURCE_TEXT, RETURN_PAY_TYPE_TEXT, RETURN_REF_IN_SYSTEM_TEXT,
+  RETURN_REF_INVALID_TEXT,
 } from './returnInvoice';
+import { returnLinkRequired, manualReturnRefAllowed, returnRefProblem } from './returnPolicy';
 import { computeInvoiceTotals } from '../rep/invoiceCalc';
 import { PHRASES } from '../i18n/strings';
 
@@ -154,6 +158,112 @@ test('ما يمنع الإصدار قبل الإرسال: مرآة رفض الخ
   assert.equal(returnFormProblem({ ...base, phase2: true, linked: one, noteReason: 'تالف' }), null);
   // المرحلة الثانية لا تفحص التاريخ (لا يُرسل أصلاً)
   assert.equal(returnFormProblem({ ...base, phase2: true, linked: one, noteReason: 'تالف', invoiceDate: '2020-01-01' }), null);
+  // «اشتراط اختيار فاتورة البيع للمرتجع» null ⇒ linkRequired = افتراضيّ المرحلة: صريحاً أو غائباً النتيجة نفسها حرفياً
+  for (const phase2 of [false, true]) {
+    for (const over of [{}, { linked: one }, { freeLines: [] }, { noteReason: 'سبب كاف' }, { linked: one, noteReason: 'أب' }]) {
+      const i = { ...base, phase2, ...over };
+      assert.equal(returnFormProblem({ ...i, linkRequired: phase2 }), returnFormProblem(i), JSON.stringify({ phase2, over: Object.keys(over) }));
+    }
+  }
+});
+
+// ═══ «اشتراط اختيار فاتورة البيع للمرتجع» (طلب المالك ٣١ أكتوبر ٢٠٢٦، lib/returnPolicy.ts) — ثلاثة أوضاع ═══
+const co = (phase2: boolean, returnRequiresSaleInvoice?: boolean | null) => ({
+  ...(phase2 ? { zatcaRegime: { phase: 2 as const, mode: 'live' as const } } : {}), returnRequiresSaleInvoice,
+});
+
+test('القاعدة الفعّالة: null افتراضيّ المرحلة (الأولى حرّ والثانية مرتبط)، والصريح يغلب، والرقم اليدويّ للثانية المطفأة وحدها', () => {
+  assert.equal(returnLinkRequired(co(false)), false);
+  assert.equal(returnLinkRequired(co(false, null)), false);
+  assert.equal(returnLinkRequired(co(true, null)), true);
+  assert.equal(returnLinkRequired(co(false, true)), true, 'قيدٌ جديد للمرحلة الأولى');
+  assert.equal(returnLinkRequired(co(true, false)), false);
+  assert.equal(manualReturnRefAllowed(co(true, false)), true);
+  for (const c of [co(false), co(false, false), co(false, true), co(true), co(true, true)]) assert.equal(manualReturnRefAllowed(c), false);
+});
+
+test('مصدر المرتجع: الاشتراط في الأولى RETURN_LINK_REQUIRED، وفي الثانية ZATCA_RETURN_NEEDS_ORIGINAL، والمطفأ في الثانية رقمٌ وطريقة دفع', () => {
+  const src = (phase2: boolean, linkRequired: boolean, linked: boolean, manual: { number: string; paymentType: 'CASH' | 'CREDIT' | '' } | null = null) =>
+    returnSourceProblem({ phase2, linkRequired, linked, manual });
+  // الافتراض: الأولى حرّ، والثانية مرتبط
+  assert.equal(src(false, false, false), null);
+  assert.equal(src(true, true, false), RETURN_NEEDS_ORIGINAL_TEXT);
+  // المرحلة الأولى مع الاشتراط
+  assert.equal(src(false, true, false), RETURN_LINK_REQUIRED_TEXT);
+  assert.equal(src(false, true, true), null);
+  // المرحلة الثانية بلا اشتراط
+  assert.equal(src(true, false, true), null, 'من فاتورة بيع في النظام كما كان');
+  assert.equal(src(true, false, false), RETURN_CHOOSE_SOURCE_TEXT, 'لا مصدر بعد');
+  for (const bad of ['', '-', 'لا يوجد', 'AB', 'x'.repeat(58) + '12' + 'x']) {
+    assert.equal(src(true, false, false, { number: bad, paymentType: 'CASH' }), returnRefProblem(bad), `رقمٌ مرفوض: ${bad}`);
+    assert.ok(returnRefProblem(bad));
+  }
+  assert.equal(src(true, false, false, { number: 'INV-77', paymentType: '' }), RETURN_PAY_TYPE_TEXT, 'BR-49: طريقة الدفع إلزامية');
+  assert.equal(src(true, false, false, { number: ' INV-77 ', paymentType: 'CREDIT' }), null);
+  assert.equal(src(true, false, false, { number: '١٢٣', paymentType: 'CASH' }), returnRefProblem('١٢٣'), 'الحكم على الرقم لـreturnRefProblem وحدها');
+});
+
+test('نافذة المرتجع بالأوضاع الثلاثة: الأولى مع الاشتراط لا حرّ، والثانية المطفأة برقمٍ يدويّ وأسطرٍ حرّة وسبب', () => {
+  const sale = withQty(toLinkedSale(dto), { 'si-a': 1 });
+  const base = { phase2: false, linkRequired: false, linked: null as LinkedSale | null, freeLines: [{ qty: 1 }], noteReason: '', invoiceDate: '' };
+  // المرحلة الأولى مع الاشتراط
+  const p1on = { ...base, linkRequired: true };
+  assert.equal(returnFormProblem(p1on), RETURN_LINK_REQUIRED_TEXT);
+  assert.equal(returnFormProblem({ ...p1on, linked: sale }), null);
+  assert.equal(returnFormProblem({ ...p1on, linked: sale, invoiceDate: '2026-10-09' }), 'تاريخ المرتجع قبل تاريخ فاتورة البيع');
+  // المرحلة الثانية بلا اشتراط
+  const p2off = { ...base, phase2: true, noteReason: 'بضاعة تالفة' };
+  assert.equal(returnFormProblem(p2off), RETURN_CHOOSE_SOURCE_TEXT);
+  const manual = { number: 'OLD-2024-0042', paymentType: 'CREDIT' as const };
+  assert.equal(returnFormProblem({ ...p2off, manual }), null);
+  assert.equal(returnFormProblem({ ...p2off, manual, freeLines: [] }), 'أضف صنفا على الأقل');
+  assert.equal(returnFormProblem({ ...p2off, manual, freeLines: [{ qty: 0 }] }), 'الكمية يجب أن تكون أكبر من صفر');
+  assert.equal(returnFormProblem({ ...p2off, manual, noteReason: ' ' }), 'سبب الإشعار الدائن مطلوب من 3 إلى 1000 حرف');
+  assert.equal(returnFormProblem({ ...p2off, manual: { ...manual, paymentType: '' } }), RETURN_PAY_TYPE_TEXT);
+  assert.equal(returnFormProblem({ ...p2off, linked: sale }), null, 'فاتورة البيع في النظام تبقى الطريق الأول');
+  // والرقم اليدويّ لا معنى له في الأولى ولا مع الاشتراط: يُهمَل
+  assert.equal(returnFormProblem({ ...base, manual: { number: '-', paymentType: '' } }), null);
+  assert.equal(returnFormProblem({ ...base, phase2: true, linkRequired: true, manual, noteReason: 'سبب' }), RETURN_NEEDS_ORIGINAL_TEXT);
+});
+
+test('جسم «فاتورة من خارج النظام»: المرتجع الحرّ نفسه + الرقم مطبَّعاً وطريقة الدفع، ولا originalInvoiceId', () => {
+  const free = buildFreeReturnPayload(head({ phase2: true, noteReason: ' تلف ' }), [{ productId: 'p-a', qty: 2, unitPrice: 90, discountPct: 0, taxPct: 15 }], 0);
+  const body = withManualReturnRef({ ...free, originalInvoiceId: 'leak' }, { number: '  OLD‏-0042\n ', paymentType: 'CASH' });
+  assert.equal(body.originalInvoiceRef, 'OLD-0042', 'سطرٌ واحد بلا محارف اتجاه — كما يُطبع ويُبلَّغ');
+  assert.equal(body.originalPaymentType, 'CASH');
+  assert.equal(body.noteReason, 'تلف');
+  assert.ok(!('originalInvoiceId' in body));
+  assert.deepEqual(body.items, free.items);
+  assert.equal(body.type, 'RETURN');
+  assert.ok(!('invoiceDate' in body), 'الإشعار يصدر الآن على الخادم');
+});
+
+test('تطبيق المندوب: المرحلة الثانية ترسل سبب الإشعار مع كل مرتجع (إصلاح الرفض 422)، والأولى الجسم كما كان', () => {
+  assert.deepEqual(repReturnPolicyFields({ phase2: false, linked: false, manual: null, noteReason: 'مرتجع عادي' }), {});
+  assert.deepEqual(repReturnPolicyFields({ phase2: false, linked: true, manual: { number: 'X-1', paymentType: 'CASH' }, noteReason: 'x' }), {});
+  // مرتبطٌ بفاتورة بيع: السبب وحده (كان غائباً فيُردّ كل مرتجع مندوب)
+  assert.deepEqual(repReturnPolicyFields({ phase2: true, linked: true, manual: null, noteReason: '  بضاعة تالفة ' }), { noteReason: 'بضاعة تالفة' });
+  // ورقمٌ يدويّ مع فاتورة مختارة يُهمَل: الفاتورة المختارة هي المرجع
+  assert.deepEqual(repReturnPolicyFields({ phase2: true, linked: true, manual: { number: 'X-1', paymentType: 'CASH' }, noteReason: 'سبب' }), { noteReason: 'سبب' });
+  assert.deepEqual(repReturnPolicyFields({ phase2: true, linked: false, manual: { number: ' X-1 ', paymentType: 'CREDIT' }, noteReason: 'استبدال' }),
+    { noteReason: 'استبدال', originalInvoiceRef: 'X-1', originalPaymentType: 'CREDIT' });
+  // السبب يبدأ من نصّ الرقاقة بالعربية (لغة المستند)
+  assert.deepEqual((['NORMAL', 'DAMAGED', 'EXCHANGE'] as const).map(returnReasonLabel), ['مرتجع عادي', 'بضاعة تالفة', 'استبدال']);
+  for (const r of ['NORMAL', 'DAMAGED', 'EXCHANGE'] as const) assert.equal(noteReasonProblem(returnReasonLabel(r)), null, 'الافتراض يجتاز ٣–١٠٠٠');
+  assert.equal(noteReasonProblem(''), 'سبب الإشعار الدائن مطلوب من 3 إلى 1000 حرف');
+  assert.equal(noteReasonProblem('x'.repeat(1001)), 'سبب الإشعار الدائن مطلوب من 3 إلى 1000 حرف');
+});
+
+test('أخطاء «اشتراط اختيار فاتورة البيع للمرتجع» ورقم الأصل: رسالة الخادم أولاً، وعبارةٌ احتياطية لكل رمز', () => {
+  const e = (data: unknown) => ({ response: { status: 422, data } });
+  assert.deepEqual([...RETURN_POLICY_CODES].sort(), ['RETURN_LINK_REQUIRED', 'ZATCA_RETURN_REF_INVALID', 'ZATCA_RETURN_REF_IN_SYSTEM']);
+  assert.equal(returnIssueError(e({ code: 'RETURN_LINK_REQUIRED' })).message, RETURN_LINK_REQUIRED_TEXT);
+  assert.equal(returnIssueError(e({ code: 'ZATCA_RETURN_REF_IN_SYSTEM' })).message, RETURN_REF_IN_SYSTEM_TEXT);
+  assert.equal(returnIssueError(e({ code: 'ZATCA_RETURN_REF_INVALID' })).message, RETURN_REF_INVALID_TEXT);
+  // نصّ طريقة الدفع على الجهاز هو نصّ الخادم نفسه (services/returnPolicy.ts) — عبارةٌ واحدة في القاموس للاثنين
+  assert.equal(RETURN_PAY_TYPE_TEXT, 'اختر طريقة دفع الفاتورة الأصلية (نقدي أو آجل)');
+  assert.equal(returnIssueError(e({ code: 'ZATCA_RETURN_REF_INVALID', message: 'رسالة الخادم' })).message, 'رسالة الخادم');
+  for (const c of RETURN_POLICY_CODES) assert.equal(returnIssueError(e({ code: c })).refreshLines, false);
 });
 
 test('أخطاء الإصدار: رسالة الخادم أولاً، وأسباب البنود تُلحق، والتعارض على المتاح يطلب تحديث البنود', () => {
@@ -246,6 +356,27 @@ test('المرتجع: يُطبع مرتجعاً من ردّ الخادم، و202
   assert.match(modal, /setSelectedCustomer\(\(customers \|\| \[\]\)\.find\(c => c\.id === v\) \|\| null\); unlinkSale\(\);/);
   // مفتاح صفّ البند المرتبط بند البيع لا الصنف
   assert.match(modal, /<tr key=\{l\.saleItemId\}/);
+});
+
+test('النافذة و«اشتراط اختيار فاتورة البيع للمرتجع»: الافتراض كما كان، والأولى مع الاشتراط بلا حرّ، والثانية المطفأة برقمٍ يدويّ', () => {
+  assert.match(modal, /const linkRequired = returnLinkRequired\(company\);/);
+  assert.match(modal, /const manualOk = manualReturnRefAllowed\(company\);/);
+  // «بدون فاتورة بيع» لا يظهر في الثانية (كما كان) ولا مع الاشتراط في الأولى — و«فاتورة من خارج النظام» للثانية المطفأة وحدها
+  assert.match(modal, /\.\.\.\(phase2 \|\| linkRequired \? \[\] : \[\{ value: '', label: tr\('بدون فاتورة بيع \(مرتجع حر\)'\) \}\]\),/);
+  assert.match(modal, /\.\.\.\(manualOk \? \[\{ value: MANUAL_SALE, label: tr\('فاتورة من خارج النظام — اكتب رقمها'\) \}\] : \[\]\),/);
+  assert.match(modal, /\{tr\('فاتورة البيع الأصلية'\)\}\{phase2 \|\| linkRequired \? ' \*' : ''\}/, 'الحقل إلزاميّ مع الاشتراط');
+  // جدول «اختر الفاتورة» بدل محرّر الأسطر ما دام الاشتراط قائماً بلا رقمٍ يدويّ، والإجماليات أصفار
+  assert.match(modal, /const freeHidden = \(phase2 \|\| linkRequired\) && !manual;/);
+  assert.match(modal, /isReturn && \(linked \|\| loadingSaleId \|\| freeHidden\) \?/);
+  // الإصدار: الفحص بالقاعدة الفعّالة والرقم اليدويّ، والجسم الحرّ + المرجع
+  assert.match(modal, /returnFormProblem\(\{ phase2, linkRequired, manual: ref, linked, freeLines: lines, noteReason, invoiceDate \}\)/);
+  assert.match(modal, /const free = ref \? withManualReturnRef\(base, ref\) : base;/);
+  // الورقة: مرجع الأصل وسببه للإشعار الدائن وحده (جسمٌ يحمل noteReason)
+  const ret = modal.slice(modal.indexOf("if ((vars as { type?: string } | undefined)?.type === 'RETURN') {"), modal.indexOf('const doc: InvoiceDoc = {'));
+  assert.match(ret, /const noteFields = typeof sent\.noteReason === 'string'/);
+  assert.match(ret, /billingReference: txt\(inv\.billingReference\) \?\? txt\(sent\.originalInvoiceRef\) \?\? txt\(linked\?\.number\)/);
+  assert.match(ret, /noteReason: txt\(inv\.noteReason\) \?\? txt\(sent\.noteReason\)/);
+  assert.match(ret, /\.\.\.noteFields,/);
 });
 
 // ═══ الوحدات المتعددة: بيعٌ بالكرتون (٢٤ حبة) ومرتجعٌ بالحبّة — عقد /returnable في DESIGN.md ═══

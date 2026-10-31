@@ -102,6 +102,10 @@ export const PRINT_TEXT_CATALOG: readonly PrintTextEntry[] = Object.freeze([
   e('qr.caption', 'رمز الاستجابة السريعة للفاتورة الضريبية', 'invoice', 'footer', 'none', { hideOnly: true }),
   e('sig.recipient', 'توقيع المستلم', 'invoice', 'footer'),
   e('sig.rep', 'توقيع المندوب', 'invoice', 'footer'),
+  // الإشعار الدائن (المرتجع): مرجع الفاتورة الأصلية (BT-25، BR-KSA-56) وسببه (KSA-10، BR-KSA-17) — إلزاميان عليه فيُعاد صياغتهما
+  // ولا يُخفيان، ويُطبعان متى حملهما المستند وحده (مرتجعات المرحلة الأولى بلا مرجع ورقتها كما كانت)
+  e('inv.originalRef', 'الفاتورة الأصلية', 'invoice', 'info', 'zatca'),
+  e('inv.noteReason', 'سبب الإرجاع', 'invoice', 'info', 'zatca'),
 
   // ── سند القبض ──
   e('rcp.title', 'سند قبض', 'receipt', 'title'),

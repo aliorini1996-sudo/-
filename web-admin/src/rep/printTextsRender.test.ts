@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { printThermalInvoice, printThermalReceipt, thermalPreviewHtml, type ThermalPrintOptions } from './thermal';
-import { PrintableInvoice, PrintableLoadNotice, PrintableReceipt, type InvoiceDoc, type LoadNoticeDoc, type ReceiptDoc } from './RepDocuments';
+import { PrintableInvoice, PrintableLoadNotice, PrintableReceipt, invoiceDocFromDetail, type InvoiceDoc, type LoadNoticeDoc, type ReceiptDoc } from './RepDocuments';
 import { PrintTextsPreviewContext } from './printTextsContext';
 import { defaultPrintOptions, legacyThermalProfile, presetPaper, type PrintProfile } from '../lib/print/printSettings';
 import { sampleInvoiceDoc } from '../lib/print/calibration';
@@ -218,4 +218,66 @@ test('مراجعة: صياغة الشركة لسطر الشكر تسبق نصّ 
   assert.ok(r1.includes('نشكر زيارتكم') && !r1.includes('نص القالب'));
   const r2 = await thermal(invoice(plain), { profile: p, tr: same });
   assert.ok(r2.includes('نص القالب'));
+});
+
+test('الإشعار الدائن: مرجع الفاتورة الأصلية وسبب الإرجاع على A4 والكلاسيكي والجديدين — ومستندٌ بلا مرجع كما كان حرفاً بحرف', async () => {
+  const base = { ...company };
+  const ret = (c: InvoiceDoc['company'], extra?: Partial<InvoiceDoc>) => invoice(c, { isReturn: true, number: 'RET-2610-000007', ...extra });
+  const note = (c: InvoiceDoc['company']) => ret(c, { billingReference: 'OLD-2024/0115 <x>', noteReason: 'بضاعة تالفة & مكسورة' });
+  // A4: الصفّان في صندوق بيانات المرتجع، والمرجع باتجاهه اللاتينيّ، والقيمتان مُهرَّبتان
+  const page = a4(note(base));
+  assert.ok(page.includes('الفاتورة الأصلية: </span>') && page.includes('سبب الإرجاع: </span>'), 'التسميتان غائبتان');
+  assert.ok(page.includes('<span dir="ltr" style="unicode-bidi:isolate">OLD-2024/0115 &lt;x&gt;</span>'), 'المرجع ليس باتجاهه');
+  assert.ok(page.includes('بضاعة تالفة &amp; مكسورة') && !page.includes('<x>'));
+  assert.ok(page.indexOf('RET-2610-000007') < page.indexOf('الفاتورة الأصلية') && page.indexOf('الفاتورة الأصلية') < page.indexOf('سبب الإرجاع'));
+  // بلا مرجع (غياب، null، فراغ) ⇒ ورقة المرتجع كما كانت؛ وفاتورة البيع لا تطبعهما ولو حملتهما
+  const plainA4 = a4(ret(base));
+  for (const extra of [{ billingReference: null, noteReason: null }, { billingReference: '  ', noteReason: '' }]) {
+    assert.equal(a4(ret(base, extra)), plainA4, JSON.stringify(extra));
+  }
+  assert.equal(a4(invoice(base, { billingReference: 'X-1', noteReason: 'سبب' })), a4(invoice(base)), 'فاتورة البيع تغيّرت');
+  // الحرارية بلا نصوص: الكلاسيكي والجديدان
+  const renderers: [string, ThermalPrintOptions][] = [
+    ['الكلاسيكي', {}], ['المختصر 58', { profile: profile('roll_compact', 'roll58'), tr: same }],
+    ['المختصر 80', { profile: profile('roll_compact', 'roll80'), tr: same }], ['المفصّل 80', { profile: profile('roll_detailed', 'roll80'), tr: same }],
+  ];
+  for (const [name, opts] of renderers) {
+    const html = await thermal(note(base), opts);
+    assert.ok(html.includes('<span>الفاتورة الأصلية</span><span dir="ltr">OLD-2024/0115 &lt;x&gt;</span>'), `${name}: المرجع`);
+    assert.ok(html.includes('<span>سبب الإرجاع</span><span>بضاعة تالفة &amp; مكسورة</span>'), `${name}: السبب`);
+    assert.equal(await thermal(ret(base, { billingReference: null, noteReason: ' ' }), opts), await thermal(ret(base), opts), `${name}: المرتجع بلا مرجع تغيّر`);
+  }
+  // بنصوص الشركة: الصياغة واللغة الثانية تُطبَّقان، والإخفاء يُهمل (إلزاميٌّ على الإشعار الدائن ولو حمله كائنٌ خام)
+  const c = { ...company, printTexts: {
+    version: 1, secondLang: 'en', companyNameAlt: null, companyAddressAlt: null,
+    edits: {
+      'inv.originalRef': { text: 'رقم الفاتورة المرتجع منها', alt: 'Original invoice no.', hidden: true },
+      'inv.noteReason': { text: null, alt: null, hidden: true },
+    },
+  } };
+  for (const [name, html] of [
+    ['A4', a4(note(c))],
+    ['المختصر 58', await thermal(note(c))],
+    ['المفصّل 80', await thermal(note(c), { profile: profile('roll_detailed', 'roll80'), tr: same })],
+  ] as const) {
+    assert.ok(html.includes('رقم الفاتورة المرتجع منها') && html.includes('Original invoice no.'), `${name}: صياغة الشركة`);
+    assert.ok(html.includes('OLD-2024/0115 &lt;x&gt;'), `${name}: المرجع أُخفي`);
+    assert.ok(html.includes('سبب الإرجاع') && html.includes('بضاعة تالفة &amp; مكسورة'), `${name}: السبب أُخفي`);
+  }
+});
+
+test('invoiceDocFromDetail: مرجع الفاتورة الأصلية وسببه من صفّ الخادم إلى الورقة (إعادة الطباعة واللوحة و/m) — وغيابهما null', () => {
+  const row = (extra: Record<string, unknown>) => ({
+    number: 'RET-2610-000007', invoiceDate: '2026-10-31T10:30:00', type: 'RETURN', customer: { name: 'بقالة النور' },
+    subtotal: 10, discountAmt: 0, taxAmt: 1.3, total: 10, paidAmt: 0, remainingAmt: 0,
+    items: [{ product: { name: 'ماء', unit: 'كرتون' }, qty: 1, unitPrice: 10, discountPct: 0, taxPct: 15, lineTotal: 10 }], ...extra,
+  });
+  const doc = invoiceDocFromDetail(row({ billingReference: 'OLD-2024/0115', noteReason: 'بضاعة تالفة' }), 'أحمد', { ...company });
+  assert.deepEqual([doc.isReturn, doc.billingReference, doc.noteReason], [true, 'OLD-2024/0115', 'بضاعة تالفة']);
+  assert.ok(a4(doc).includes('OLD-2024/0115') && a4(doc).includes('بضاعة تالفة'));
+  for (const extra of [{}, { billingReference: null, noteReason: null }, { billingReference: 7, noteReason: {} }]) {
+    const d = invoiceDocFromDetail(row(extra), 'أحمد', { ...company });
+    assert.deepEqual([d.billingReference, d.noteReason], [null, null], JSON.stringify(extra));
+    assert.ok(!a4(d).includes('الفاتورة الأصلية'));
+  }
 });

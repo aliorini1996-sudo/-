@@ -186,7 +186,9 @@ export function invoicePayloadRow(inv: ErpInvoiceInput, timeZone: string): Rec {
     invoiceDateLocal: localDateIn(inv.invoiceDate, timeZone),
     // الوعاء الخاضع للضريبة — صحيح في الوضعين (الإجمالي ناقص الضريبة)
     taxableBase: roundHalfUp(inv.total - inv.taxAmt, 3),
-    originalInvoiceNumber: originalInvoice?.number ?? null,
+    // والإشعار الدائن «برقمٍ يدويّ» (فاتورة من نظامٍ سابق، لا أصل في المنصّة): مرجعه BT-25 كما كُتب (billingReference)
+    originalInvoiceNumber: originalInvoice?.number
+      ?? (typeof inv.billingReference === 'string' && inv.billingReference.trim() !== '' ? inv.billingReference : null),
     items: items.map((it) => invoiceItemPayloadRow(it, incl)),
   };
 }

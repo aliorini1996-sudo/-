@@ -93,7 +93,6 @@ test('R1: الإصدار لا يستدعي دوال اللوط إلا داخل �
     ['invoiceLotMoment(', 'if (tracksLots) {'],
     ['lotPlan = {', 'if (tracksLots) {'],
     ['linkedReturnExpiry(tid, lotLines', 'if (lots && isReturn) {'],
-    ['freeReturnStamps(prisma', 'if (lots && isReturn) {'],
   ];
   for (const [call, guard] of guarded) {
     const at = post.indexOf(call);
@@ -101,6 +100,15 @@ test('R1: الإصدار لا يستدعي دوال اللوط إلا داخل �
     const g = post.lastIndexOf(guard, at);
     assert.ok(g > 0 && !post.slice(g, at).includes('\n    }\n'), `${call} خارج ${guard}`);
   }
+  // لقطة المرتجع الحرّ: للإشعار الدائن «برقمٍ يدويّ» قبل فرع المرحلة الثانية («اشتراط اختيار فاتورة البيع» مطفأ)، وفي المرحلة
+  // الأولى — كلاهما بخطة اللوط شرطاً (lotPlan لا تُبنى إلا لمستندٍ متتبَّع)
+  const frGuards = ['if (manualReturn && lotPlan) {', 'if (lots && isReturn) {'];
+  const frAt = [...post.matchAll(/freeReturnStamps\(prisma/g)].map((m) => m.index ?? -1);
+  assert.equal(frAt.length, frGuards.length, 'موضع لقطة المرتجع الحرّ ناقص أو زائد');
+  frAt.forEach((at, i) => {
+    const g = post.lastIndexOf(frGuards[i], at);
+    assert.ok(g > 0 && !post.slice(g, at).includes('\n    }\n'), `freeReturnStamps(prisma خارج ${frGuards[i]}`);
+  });
   assert.equal(count(post, 'acquireLotQueue('), 1);
   assert.ok(post.includes('releaseLots = lots ? await acquireLotQueue(tid, preTracked) : null;'));
   assert.equal(count(post, 'allocateInvoiceLotsInTx('), 1);

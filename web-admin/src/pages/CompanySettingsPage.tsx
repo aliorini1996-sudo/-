@@ -15,6 +15,7 @@ import ZatcaTabBoundary from '../components/zatca/ZatcaTabBoundary';
 import TeamsTabBoundary from '../components/teams/TeamsTabBoundary';
 import PrintTabBoundary from '../components/print/PrintTabBoundary';
 import PrintTextsCard from '../components/print/PrintTextsCard';
+import ReturnPolicyCard from '../components/ReturnPolicyCard';
 import { isZatcaPhase2Live } from '../lib/zatcaRegime';
 import { zatcaCollectOn } from '../lib/zatcaRegime';
 import { useAuthStore } from '../store/authStore';
@@ -228,6 +229,9 @@ export default function CompanySettingsPage() {
   // «فك قيد الرقم الضريبي والعنوان الوطني» (طلب المالك ٣١ أكتوبر ٢٠٢٦): للشركة التي تجمع بيانات الفوترة (zatcaCollectOn) ولمدير الشركة
   // غير المقيَّد وحده (الخادم يرفض غيره 403 BUYER_RELAX_*) — يُحفظ فوراً بمساره المستقل (PATCH /company/buyer-relax) لا مع زرّ الحفظ
   const buyerRelaxCardOn = accountingOn && zatcaCollectOn(data) && role === 'ADMIN' && !scopeEnabled;
+  // «اشتراط اختيار فاتورة البيع للمرتجع» (طلب المالك ٣١ أكتوبر ٢٠٢٦): لمدير الشركة غير المقيَّد وحده كتبويب «الفرق» — في الإعدادات
+  // العامة لا تبويب الفوترة (شركات المرحلة الأولى تحتاجه أيضاً)، ويُحفظ فوراً بمساره المستقل (PUT /company/return-policy)
+  const returnPolicyCardOn = role === 'ADMIN' && !scopeEnabled;
   // الحقل المقفل يبدو مقفلاً (لا حقلاً يتجاهل الكتابة صامتاً) ويُقرأ معه سبب القفل
   const lockedProps = sellerLocked ? { 'aria-describedby': SELLER_LOCK_HINT_ID, title: tr(zatcaSellerLockHint(role, scopeEnabled)) } : {};
 
@@ -485,6 +489,7 @@ export default function CompanySettingsPage() {
           {lotCardOn && <LotOnInvoiceCard value={lotFlags.onInvoice} />}
 
           {buyerRelaxCardOn && <BuyerRelaxCard value={(data as { buyerVatAddressRelaxed?: unknown } | null | undefined)?.buyerVatAddressRelaxed === true} />}
+          {returnPolicyCardOn && <ReturnPolicyCard company={data} />}
 
           {/* الفوترة الإلكترونية (الربط الحكومي) — بيانات الربط تُدخلها الشركة */}
           {accountingOn && (

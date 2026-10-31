@@ -33,6 +33,8 @@ test('الكتالوج: كل رمز برسالة عربية وحالة HTTP مت
     // Z5.5 (الإشعارات): حارس القيمة، والإشعار على إشعار، وبنود لا تطابق الأصل
     ZATCA_CREDIT_AMOUNT_EXCEEDED: 422, ZATCA_NOTE_ON_NOTE: 409, ZATCA_NOTE_LINES_INVALID: 422, ZATCA_NOTE_NOT_ALLOWED: 403,
     ZATCA_CUTOVER_REVIEW: 409, CUSTOMER_ZATCA_INVALID: 400, TENANT_HAS_EINVOICE_ARCHIVE: 409,
+    // «اشتراط اختيار فاتورة البيع للمرتجع»: المرحلة الأولى تشترط الربط، والثانية المطفأة برقمٍ يدويّ صحيح وليس في النظام
+    RETURN_LINK_REQUIRED: 422, ZATCA_RETURN_REF_INVALID: 422, ZATCA_RETURN_REF_IN_SYSTEM: 409,
   };
   for (const [code, status] of Object.entries(statuses)) {
     const e = (ZATCA_ERROR_CATALOGUE as Record<string, { status: number; messageAr: string }>)[code];
@@ -47,6 +49,12 @@ test('الكتالوج: كل رمز برسالة عربية وحالة HTTP مت
   assert.equal(UNIT_UNAVAILABLE_MESSAGES.RENEWING, 'يجري تجديد شهادة الفوترة — أعد المحاولة بعد دقائق');
   assert.equal(UNIT_UNAVAILABLE_MESSAGES.AUTH_FAILED, 'توقّف إصدار الفواتير الضريبية — راجع مدير الشركة');
   assert.equal(UNIT_UNAVAILABLE_MESSAGES.EXPIRED, 'انتهت صلاحية شهادة الفوترة — يلزم التجديد');
+  // نصّا العقد كما تعرضهما الواجهة حرفياً
+  assert.equal(ZATCA_ERROR_CATALOGUE.RETURN_LINK_REQUIRED.messageAr, 'الشركة تشترط اختيار فاتورة البيع للمرتجع — اختر الفاتورة أولا');
+  assert.equal(ZATCA_ERROR_CATALOGUE.ZATCA_RETURN_REF_IN_SYSTEM.messageAr, 'هذه الفاتورة موجودة في النظام — اخترها من قائمة فواتير العميل');
+  assert.deepEqual(new ZatcaHttpError('RETURN_LINK_REQUIRED').body(), {
+    success: false, code: 'RETURN_LINK_REQUIRED', message: ZATCA_ERROR_CATALOGUE.RETURN_LINK_REQUIRED.messageAr,
+  });
 });
 
 test('ZatcaInputError من مصادره: INCLUSIVE_HEAD_DISCOUNT وAMOUNT_INPUT وMAPPING_INPUT وENGINE_ROUNDING_CONFLICT', () => {

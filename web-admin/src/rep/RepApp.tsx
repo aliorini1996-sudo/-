@@ -5,6 +5,8 @@ import { computeInvoiceTotals, roundDecimal, priceFromLineTotal } from './invoic
 import { cartBadge, cartCount, choiceById, choiceNet, defaultChoice, hasUnitChoice, invoiceItemUnit, lineUnitOf, linkedLineUnit, primaryChoice, rebaseCustPrices, rebaseRow, refreshLineUnit, sameUnit, unitChoices, unitsText, type UnitChoice, type UnitProduct } from './repUnits';
 import { repBlockKey, repDefaultChoice, repLineBlockKey, repUnitChoices, type RepAction, type RepRuleFields } from './repProductRules';
 import { fillLinkedQty, linkedUnitPrice, refreshLinkedLine, returnUnitChoices, toLinkedSale, withReturnUnit, type LinkedReturnLine } from '../lib/returnInvoice';
+import { RETURN_POLICY_CODES, noteReasonProblem, repReturnPolicyFields, returnIssueError, returnReasonLabel, returnSourceProblem, type OriginalPaymentType } from '../lib/returnInvoice';
+import { NOTE_REASON_MAX, RETURN_REF_MAX, isPhase2Company, manualReturnRefAllowed, normalizeReturnRef, returnLinkRequired } from '../lib/returnPolicy';
 import type { UnitDef } from '../lib/units';
 import { compressImage } from './imageCompress';
 import { previewInstallments, defaultFirstDue, MAX_INSTALLMENTS, type InstallmentPeriod } from '../lib/installments';
@@ -1770,6 +1772,25 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
    * saleItemId وmaxQty (المتاح) وسعر الاسترداد ثابتاً وحالة الصلاحية اليوم. */
   const [saleRef, setSaleRef] = useState<{ id: string; number: string } | null>(null);
   const [pickSale, setPickSale] = useState(false);
+  /* «اشتراط اختيار فاتورة البيع للمرتجع» (إعداد مدير الشركة، lib/returnPolicy.ts) — الإعداد null: كل ما يلي سلوك اليوم حرفياً.
+   *  • retLinkOnly: المرحلة الأولى والشركة تشترط الفاتورة ⇒ المنتقي يُفتح تلقائياً، ولا صنف قبل اختيارها، ولا «إلغاء الربط».
+   *  • retManualOk: المرحلة الثانية والاشتراط مطفأ ⇒ «من فاتورة بيع في النظام» أو «فاتورة من خارج النظام» برقمها وطريقة دفعها.
+   * والخادم الحَكَم (RETURN_LINK_REQUIRED، ZATCA_RETURN_REF_*): الإعداد هنا من /company المخبّأ وقد يتأخّر ٥ دقائق */
+  const retPhase2 = isReturn && isPhase2Company(company);
+  const retLinkRequired = isReturn && returnLinkRequired(company);
+  const retLinkOnly = retLinkRequired && !retPhase2;
+  const retManualOk = isReturn && manualReturnRefAllowed(company);
+  const [manualMode, setManualMode] = useState(false);
+  const [manualNo, setManualNo] = useState('');
+  const [manualPay, setManualPay] = useState<OriginalPaymentType | ''>('');
+  const retManual = retManualOk && manualMode && !saleRef;
+  // سبب الإشعار الدائن (KSA-10) لكل مرتجعٍ في المرحلة الثانية: نصّ رقاقة السبب ابتداءً ويُعدَّل — null = لم يكتب المندوب شيئاً
+  const [noteReasonTyped, setNoteReasonTyped] = useState<string | null>(null);
+  const noteReasonText = noteReasonTyped ?? returnReasonLabel(returnReason);
+  // لا صنف قبل مصدر الفاتورة: اختيارها (الأولى مع الاشتراط) أو أحد الخيارين (الثانية بلا اشتراط) — العبارة مكان شبكة الأصناف
+  const retSourceBlock = !isReturn || saleRef ? null
+    : retLinkOnly ? tr('الشركة تشترط اختيار فاتورة البيع للمرتجع — اختر الفاتورة أولا')
+    : retManualOk && !manualMode ? tr('اختر فاتورة البيع الأصلية أو فاتورة من خارج النظام') : null;
   const [showCart, setShowCart] = useState(false); // عرض الأصناف المختارة للمراجعة قبل الإصدار
   const [showScanner, setShowScanner] = useState(false); // ماسح الباركود
   const [loading, setLoading] = useState(false);
@@ -1926,6 +1947,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const returnBlock = (p: any): string | null => {
     if (!isReturn) return null;
     if (saleRef) return tr('المرتجع من فاتورة بيع أصنافه من الفاتورة المختارة وحدها');
+    if (retSourceBlock) return retSourceBlock; // «اشتراط اختيار فاتورة البيع للمرتجع»: الفاتورة أو مصدرها أولاً
+    // والمرتجع برقم فاتورةٍ يدويّ كالحرّ: الصنف المفعّلة صلاحيته من فاتورة بيعه وحدها
     if (p?.shelfLifeEnabled === true) return tr('هذا الصنف له تاريخ صلاحية اختر فاتورة البيع لإرجاعه');
     return null;
   };
@@ -2141,6 +2164,13 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     window.addEventListener('offline', down);
     return () => { window.removeEventListener('online', up); window.removeEventListener('offline', down); };
   }, []);
+  // المرحلة الأولى مع «اشتراط اختيار فاتورة البيع للمرتجع»: المنتقي يُفتح مرّةً تلقائياً متصلاً (يلزمه اتصال) — ودونه لافتة
+  const autoPicked = useRef(false);
+  useEffect(() => {
+    if (!retLinkOnly || autoPicked.current || saleRef || customer._offline || !navigator.onLine) return;
+    autoPicked.current = true;
+    setPickSale(true);
+  }, [retLinkOnly, online]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // معاينة جدول الأقساط من الإجمالي المحليّ — والخادم يكتب الجدول الحقيقي
   // من إجماليّه هو، فتتطابق المعاينة معه ما دام الإجمالي واحداً
@@ -2150,6 +2180,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
 
   // اختيار فاتورة البيع: بنودها المتاحة تملأ المرتجع (الكمية كاملة) ثم يُبقي المندوب ما يُرجَع منها
   const onPickSale = (sale: ReturnableSale) => {
+    setManualMode(false); // من فاتورة بيع في النظام — لا رقم يدويّ
     setSaleRef({ id: sale.id, number: sale.number });
     // بندٌ يمنعه قيد المرتجع للصنف لا يُضاف، ويُذكر للمندوب باسمه وسببه
     const blocked = sale.lines.filter(l => l.returnable > 0 && l.returnBlocked);
@@ -2167,6 +2198,14 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     setMsg(blocked.length ? `${tr('استبعد حسب قيود الصنف')}: ${blocked.map(l => `${l.name} (${l.returnBlocked})`).join('، ')}` : '');
   };
   const clearSale = () => { setSaleRef(null); setLines([]); setShowCart(false); };
+  /* المرحلة الثانية والاشتراط مطفأ: «فاتورة من خارج النظام» تفتح شبكة الأصناف كالمرتجع الحرّ (بنود فاتورة بيعٍ مختارة لا تصلح
+   * لها فتُفرَّغ)، و«من فاتورة بيع في النظام» تفتح المنتقي — والسلّة اليدويّة تبقى حتى تُختار فاتورة (onPickSale يستبدلها) */
+  const goManual = () => {
+    setPickSale(false);
+    if (saleRef) { setSaleRef(null); setLines([]); setShowCart(false); }
+    setManualMode(true); setMsg('');
+  };
+  const goSystem = () => { setManualMode(false); setMsg(''); setPickSale(true); };
 
   /** «تتبّع اللوط» — بيعٌ صدر متصلاً: يُسجَّل معلّقاً على اللقطة بتشغيلاته من ردّ الخادم (حتى تعرفه لقطةٌ أحدث)، ثم تُجلب اللقطة
    *  في الخلفية (§٧.١). المسجَّل قبل بدء جلب اللقطة يُقلَّم بها */
@@ -2216,6 +2255,18 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const submit = async () => {
     if (lines.length === 0) { setMsg(tr('أضف صنفا')); return; }
     if (saleRef && lines.some(l => !(Number(l.qty) > 0))) { setMsg(tr('احذف الصنف الذي لا يرجع بدل تصفير كميته')); return; }
+    /* «اشتراط اختيار فاتورة البيع للمرتجع»: مصدر المرتجع — الفاتورة المختارة (الأولى مع الاشتراط) أو رقم الأصل اليدويّ وطريقة
+     * دفعه (الثانية بلا اشتراط). للإعداد الصريح وحده: الافتراض كما كان والخادم يقول كلمته (ZATCA_RETURN_NEEDS_ORIGINAL) */
+    const manualRef = retManual ? { number: manualNo, paymentType: manualPay } : null;
+    if (retLinkOnly || retManualOk) {
+      const why = returnSourceProblem({ phase2: retPhase2, linkRequired: retLinkRequired, linked: !!saleRef, manual: manualRef });
+      if (why) { setMsg(tr(why)); return; }
+    }
+    // المرحلة الثانية: كل مرتجعٍ إشعارٌ دائن سببه إلزاميّ ٣–١٠٠٠ حرف (KSA-10) — كان لا يُرسل فيردّ الخادم كل مرتجع مندوب
+    if (retPhase2) {
+      const why = noteReasonProblem(noteReasonText);
+      if (why) { setMsg(tr(why)); return; }
+    }
     // «تتبّع اللوط»: سطرٌ متتبَّع كميته صفر يرفض الخادم به الفاتورة كلها — ودون اتصال بعد صفّها وطباعة ورقتها — فيُقال الآن
     if (lotCapsOn) {
       const z = zeroQtyLine(lotPlanLines());
@@ -2256,6 +2307,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       ...(activeTeam && { teamId: activeTeam }),
       // مرتجعٌ من فاتورة بيع: الفاتورة وبند البيع لكل صنف — الخادم يتحقّق من المتاح ويقيس الصلاحية عليه
       ...(isReturn && saleRef && { originalInvoiceId: saleRef.id }),
+      // المرحلة الثانية: سبب الإشعار الدائن (noteReason) مع كل مرتجع، و«فاتورة من خارج النظام» رقمها وطريقة دفعها
+      // (originalInvoiceRef/originalPaymentType) بلا originalInvoiceId — والمرحلة الأولى لا حقل: الجسم كما كان
+      ...(isReturn && repReturnPolicyFields({ phase2: retPhase2, linked: !!saleRef, manual: manualRef, noteReason: noteReasonText })),
       // الاسعار شاملة كما اعلنت للعميل — المحرك (عميلا وخادما) يشتق الضريبة داخليا
       pricesIncludeTax: true,
       items: lines.map(l => ({
@@ -2285,6 +2339,13 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       // المرتجع من فاتورة بيع: حالة الصلاحية كما عرضها الخادم (والخادم يقرّرها ويسجّلها عند الإصدار)
       ...(isReturn && l.shelfLife && l.expiresAt && { returnExpired: l.expiredToday ?? null, expiresAt: l.expiresAt }),
     }));
+    /* الإشعار الدائن (المرحلة الثانية): مرجع الفاتورة الأصلية (BT-25) وسببه (KSA-10) على الورقة — من ردّ الخادم، وإلا ممّا
+     * أُرسل (رقم فاتورة البيع المختارة أو الرقم اليدويّ). والمرحلة الأولى بلاهما: ورقتها كما كانت */
+    const txtOr = (v: unknown, f: string | null | undefined) => (typeof v === 'string' && v.trim() ? v.trim() : f || null);
+    const noteDoc = (r: any) => (retPhase2 ? {
+      billingReference: txtOr(r?.billingReference, manualRef ? normalizeReturnRef(manualRef.number) : saleRef?.number),
+      noteReason: txtOr(r?.noteReason, noteReasonText.trim()),
+    } : {});
     try {
       const res = await repApi.post('/invoices', payload);
       /* ZATCA المرحلة الثانية: الفاتورة القياسية تُصدَّق من الهيئة قبل تسليمها، فيردّ الخادم 202
@@ -2309,6 +2370,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           subtotal, discount, tax, total,
           paidAmt: Number(row.paidAmt ?? 0), remainingAmt: Number(row.remainingAmt ?? total),
           zatca: out.view,
+          ...noteDoc(row),
         });
         return;
       }
@@ -2324,11 +2386,20 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       /* المرتجع من فاتورة بيع يُسعَّر على الخادم من بند البيع (القاعدة ٩) — قد يفترق عن معاينة الجهاز بفلس (مرتجعٌ
        * متزامن قبله، أو خانات العملة). فالورقة من ردّه: مبلغ كل بندٍ بمطابقة بند البيع، والإجماليات منه — وإلا خرجت
        * بيد العميل ورقةٌ تخالف قيده. وما لا يُطابَق بنداً بنداً يبقى على المعاينة كما كان */
-      const srvRows: any[] = isReturn && saleRef && Array.isArray(inv.items) ? inv.items : [];
-      const srvOf = (l: any) => srvRows.find(r => r.returnOfItemId && r.returnOfItemId === l.saleItemId);
-      const fromServer = srvRows.length === lines.length && lines.every(l => l.saleItemId && srvOf(l));
+      /* والإشعار الدائن (المرحلة الثانية) يربط بند البيع في creditedItemId لا returnOfItemId (عمود المرحلة الأولى) ويحفظ سعر الأصل
+       * وخصمه — ورقته من ردّ الخادم كذلك، وإلا خالف مبلغُها المطبوع رمزَها وما بُلِّغت به الهيئة. والإشعار برقمٍ يدويّ (بلا فاتورة
+       * بيع) بنوده بترتيب الطلب نفسه: تُطابَق بالموضع والصنف */
+      const srvRows: any[] = isReturn && Array.isArray(inv.items) ? inv.items : [];
+      const linkOf = (r: any) => r.returnOfItemId ?? r.creditedItemId;
+      const srvOf = (l: any, i: number) => (saleRef
+        ? srvRows.find(r => linkOf(r) && linkOf(r) === l.saleItemId)
+        : (srvRows[i] && srvRows[i].productId === l.productId ? srvRows[i] : undefined));
+      const fromServer = srvRows.length === lines.length && lines.every((l, i) => (!saleRef || l.saleItemId) && srvOf(l, i));
       const priced = fromServer
-        ? printItems.map((it, i) => { const r = srvOf(lines[i]); return { ...it, unitPrice: Number(r.unitPrice), lineTotal: Number(r.lineTotal), taxAmt: Number(r.taxAmt ?? it.taxAmt) }; })
+        ? printItems.map((it, i) => {
+          const r = srvOf(lines[i], i);
+          return { ...it, unitPrice: Number(r.unitPrice), discountPct: Number(r.discountPct ?? it.discountPct), lineTotal: Number(r.lineTotal), taxAmt: Number(r.taxAmt ?? it.taxAmt) };
+        })
         : printItems;
       /* «تتبّع اللوط» (§٦.٣): الإصدار المتصل بلا تلميح — والورقة بتشغيلات كل بندٍ من ردّ الخادم (البيع بالصنف ولقطة وحدته،
        * والمرتجع المرتبط ببند بيعه)، تُطبع بشرط lotOnInvoice. والبيع يُسجَّل معلّقاً على اللقطة ثم تُجلب في الخلفية */
@@ -2356,6 +2427,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
          * `invoiceDocFromDetail`، فلولا هذا السطر لطُبع رمز المرحلة الأولى على أوّل فاتورة مختومة. */
         zatca: zatcaDocView(inv),
         ...(notice && { buyerNotice: buyerNoticeText(notice, tr) }),
+        ...noteDoc(inv),
       });
     } catch (err: any) {
       // انقطاع الشبكة ⇒ نلتقط الفاتورة في الصفّ الصادر ونطبع برقم مؤقّت (ترتفع عند الاتصال)
@@ -2404,6 +2476,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         if (err?.response?.data?.code === 'PRODUCT_UNITS_CHANGED') void refreshUnits();
         // «تتبّع اللوط»: الخادم وجد المتاح أقلّ مما تعرفه اللقطة — رسالته تُعرض، واللقطة تُجلب للمحاولة التالية
         if (lotCapsOn && err?.response?.data?.code === 'LOT_STOCK_INSUFFICIENT') void lots?.refresh(VANLOTS_BLOCK_REFETCH_GAP_MS);
+        // «اشتراط اختيار فاتورة البيع للمرتجع» ورقم الأصل اليدويّ (RETURN_LINK_REQUIRED، ZATCA_RETURN_REF_INVALID،
+        // ZATCA_RETURN_REF_IN_SYSTEM): عبارة القاموس بلغة المندوب — الإعداد تغيّر بعد تحميل الشاشة، أو رقمٌ يُردّ
+        if (isReturn && RETURN_POLICY_CODES.has(err?.response?.data?.code)) { setMsg(tr(returnIssueError(err).message)); setLoading(false); return; }
         setMsg(err?.response?.data?.message || tr('تعذر إصدار المستند حاول مجددا')); setLoading(false);
       }
     }
@@ -2456,7 +2531,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   return (
     <div className="h-full flex flex-col bg-gray-50">
       {pickSale && (
-        <SaleInvoicePicker customerId={customer.id} products={products} onPick={onPickSale} onClose={() => setPickSale(false)} />
+        <SaleInvoicePicker customerId={customer.id} products={products} onPick={onPickSale} onClose={() => setPickSale(false)}
+          onManual={retManualOk ? goManual : undefined} required={retLinkOnly} />
       )}
       {showScanner && (
         <BarcodeScanner
@@ -2500,18 +2576,58 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                     {tr('البضاعة التالفة تدخل سيارتك تالفة ولا تباع حتى تزيلها الإدارة')}
                   </div>
                 )}
-                {/* مرتجعٌ من فاتورة بيع — إلزامي للأصناف المفعّلة صلاحيتها */}
+                {/* مرتجعٌ من فاتورة بيع — إلزامي للأصناف المفعّلة صلاحيتها (ولكل صنفٍ مع «اشتراط اختيار فاتورة البيع للمرتجع») */}
                 {saleRef ? (
                   <div className="flex items-center gap-2 bg-white border border-amber-200 rounded-xl p-2 text-xs">
                     <span className="flex-1 text-gray-700">{tr('من فاتورة البيع')} <b>{saleRef.number}</b></span>
                     <button onClick={() => setPickSale(true)} className="text-amber-700 font-semibold">{tr('تغيير')}</button>
-                    <button onClick={clearSale} className="text-gray-400">{tr('إلغاء الربط')}</button>
+                    {/* مع الاشتراط في المرحلة الأولى لا مرتجع حرّ يُفكّ إليه */}
+                    {!retLinkOnly && <button onClick={clearSale} className="text-gray-400">{tr('إلغاء الربط')}</button>}
+                  </div>
+                ) : retManualOk ? (
+                  /* المرحلة الثانية والاشتراط مطفأ: الفاتورة الأصلية من النظام (المنتقي كما هو) أو من خارجه برقمها وطريقة دفعها */
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-1.5" role="radiogroup" aria-label={tr('الفاتورة الأصلية')}>
+                      <button type="button" role="radio" aria-checked={false} onClick={goSystem} disabled={!!customer._offline}
+                        className="border border-amber-300 text-amber-700 bg-white rounded-xl py-2 text-xs font-semibold disabled:opacity-50">
+                        {tr('من فاتورة بيع في النظام')}
+                      </button>
+                      <button type="button" role="radio" aria-checked={manualMode} onClick={goManual}
+                        className={`border rounded-xl py-2 text-xs font-semibold ${manualMode ? 'bg-amber-600 border-amber-600 text-white' : 'border-amber-300 text-amber-700 bg-white'}`}>
+                        {tr('فاتورة من خارج النظام')}
+                      </button>
+                    </div>
+                    {manualMode && (
+                      <div className="bg-white border border-amber-200 rounded-xl p-2 space-y-2">
+                        <div>
+                          <label className="text-[10px] text-gray-500 block mb-1">{tr('رقم الفاتورة الأصلية')} *</label>
+                          <input dir="ltr" maxLength={RETURN_REF_MAX} value={manualNo} onChange={e => setManualNo(e.target.value)}
+                            placeholder="INV-0001" className="input !py-1.5 text-sm" />
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[11px] text-gray-600">{tr('طريقة الدفع في الفاتورة الأصلية')} *:</span>
+                          {(['CASH', 'CREDIT'] as const).map(v => (
+                            <button key={v} type="button" onClick={() => setManualPay(v)}
+                              className={`px-2.5 py-1 rounded-full text-[11px] ${manualPay === v ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                              {v === 'CASH' ? tr('نقدي') : tr('آجل')}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-[10px] text-amber-800 leading-4">{tr('يرسل الإشعار الدائن للهيئة بهذا الرقم — اكتبه كما هو على الفاتورة الأصلية')}</p>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <button onClick={() => setPickSale(true)} disabled={!!customer._offline}
                     className="w-full border border-amber-300 text-amber-700 bg-white rounded-xl py-2 text-xs font-semibold disabled:opacity-50">
                     {tr('مرتجع من فاتورة بيع')}
                   </button>
+                )}
+                {/* المرحلة الأولى مع الاشتراط: منتقي فاتورة البيع يلزمه اتصال — يُقال قبل ملء أي شيء */}
+                {retLinkOnly && !saleRef && !online && (
+                  <p className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-2 text-[11px] leading-5 text-center">
+                    {tr('اختيار فاتورة البيع يتطلب اتصالا بالانترنت')}
+                  </p>
                 )}
                 {msg && <p className="text-red-500 text-[11px] text-center">{msg}</p>}
               </div>
@@ -2535,6 +2651,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                 <RepTeamSwitch user={perms} tone="light" />
               </div>
             )}
+            {/* «اشتراط اختيار فاتورة البيع للمرتجع»: لا بحث ولا ماسح قبل مصدر الفاتورة (returnBlock يمنع الإضافة أيضاً) */}
+            {!retSourceBlock && (
             <div className="mb-2 flex items-stretch gap-2">
               <div className="flex-1">
                 <SearchableSelect
@@ -2551,12 +2669,15 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                 <ScanLine size={18} />
               </button>
             </div>
+            )}
           </div>
 
           {/* شبكة المنتجات */}
           <div className="flex-1 overflow-y-auto px-3 pb-28">
             {loadingProducts ? (
               <div className="text-center text-gray-400 py-10 text-sm">{tr('جاري التحميل')}</div>
+            ) : retSourceBlock ? (
+              <div className="text-center text-amber-700 py-10 px-4 text-xs leading-5" role="status">{retSourceBlock}</div>
             ) : products.length === 0 ? (
               <div className="text-center text-gray-400 py-10 text-sm">{tr('لا توجد أصناف')}</div>
             ) : (
@@ -2698,6 +2819,26 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
               <div className="flex justify-between text-[#E15A30]"><span>{tr('الضريبة')} {(() => { const ps = [...new Set(lines.map(l => Number(l.taxPct)))]; return ps.length === 1 ? `${ps[0]}%` : tr('نسب متعددة'); })()}</span><span>{formatCurrency(tax)}</span></div>
               <div className="flex justify-between font-bold text-base border-t pt-2"><span>{tr('الإجمالي')}</span><span>{formatCurrency(total)}</span></div>
             </div>
+            {/* الإشعار الدائن (المرحلة الثانية): الفاتورة الأصلية وسبب الإشعار (KSA-10) — يُرسل noteReason مع كل مرتجعٍ مرتبطٍ أو يدويّ،
+              * ويُطبعان على الورقة. والرقم اليدويّ يُعدَّل من شاشة الأصناف («تعديل») */}
+            {retPhase2 && (
+              <div className="bg-white rounded-xl p-3 mt-2 border border-amber-100 space-y-2">
+                {(saleRef || retManual) && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="flex-1 text-gray-700">
+                      {tr('الفاتورة الأصلية')}: <b dir="ltr">{saleRef ? saleRef.number : normalizeReturnRef(manualNo)}</b>
+                      {retManual && manualPay && <> · {manualPay === 'CASH' ? tr('نقدي') : tr('آجل')}</>}
+                    </span>
+                    {retManual && <button type="button" onClick={() => setShowCart(false)} className="text-amber-700 font-semibold">{tr('تعديل')}</button>}
+                  </div>
+                )}
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">{tr('سبب الإشعار الدائن')} *</label>
+                  <input className="input !py-1.5 text-sm" maxLength={NOTE_REASON_MAX} value={noteReasonText}
+                    onChange={e => setNoteReasonTyped(e.target.value)} placeholder={tr('اكتب سبب الإرجاع كما يظهر في الإشعار الدائن')} />
+                </div>
+              </div>
+            )}
             {!isReturn && (
               <div className="bg-white rounded-xl p-3 mt-2 border border-gray-100">
                 <label className="text-[10px] text-gray-400 block mb-1">{tr('تاريخ التسليم (اختياري — لا يظهر بالفاتورة إن تُرك فارغاً)')}</label>

@@ -4,6 +4,9 @@
  *
  * الخادم يعرض فواتير البيع التي بقي فيها ما يُرجَع لعميلٍ يخدمه المندوب (ولو باعه غيره)، وبنود الفاتورة بمتاحها وسعر
  * استردادها وصلاحيتها (`GET /invoices/returnable-sales`، `GET /invoices/:id/returnable`). يلزمه اتصال.
+ *
+ * «اشتراط اختيار فاتورة البيع للمرتجع» (lib/returnPolicy.ts): مع الاشتراط في المرحلة الأولى (`required`) القائمة الفارغة تقول
+ * إن المرتجع لا يصدر بلا فاتورة، وفي المرحلة الثانية بلا اشتراط (`onManual`) زرٌّ ينقل المرتجع إلى «فاتورة من خارج النظام».
  */
 import { useEffect, useMemo, useState } from 'react';
 import { X, FileText, ArrowRight, Search } from 'lucide-react';
@@ -31,12 +34,16 @@ export interface ReturnableSale {
  */
 interface SaleRow { id: string; number: string; invoiceDate: string; total: number; type: string; itemsCount: number; returnableQty: number; returnableLines?: number; productIds?: string[] }
 
-export default function SaleInvoicePicker({ customerId, products, onPick, onClose }: {
+export default function SaleInvoicePicker({ customerId, products, onPick, onClose, onManual, required = false }: {
   customerId: string;
   /** أصناف الشركة للبحث بالصنف (المنتهي صلاحيته يُرجَع من بيعٍ قد يكون قديماً) */
   products: { id: string; name: string }[];
   onPick: (sale: ReturnableSale) => void;
   onClose: () => void;
+  /** المرحلة الثانية والاشتراط مطفأ: «الفاتورة غير موجودة — اكتب رقمها» ⇒ رقم فاتورةٍ من نظامٍ سابق. غائب ⇒ لا زرّ */
+  onManual?: () => void;
+  /** المرحلة الأولى والشركة تشترط فاتورة البيع: لا مرتجع لهذا العميل بلا فاتورة */
+  required?: boolean;
 }) {
   const tr = useTr();
   const [rows, setRows] = useState<SaleRow[] | null>(null);
@@ -110,7 +117,10 @@ export default function SaleInvoicePicker({ customerId, products, onPick, onClos
           {rows === null ? (
             <p className="text-center text-gray-400 py-8 text-sm">{tr('جاري التحميل')}</p>
           ) : shown.length === 0 && !msg ? (
-            <p className="text-center text-gray-400 py-8 text-sm">{tr('لا توجد فواتير بيع يمكن الإرجاع منها لهذا العميل')}</p>
+            <div className="text-center py-8">
+              <p className="text-gray-400 text-sm">{tr('لا توجد فواتير بيع يمكن الإرجاع منها لهذا العميل')}</p>
+              {required && <p className="text-amber-700 text-[11px] mt-1">{tr('لا يصدر مرتجع لهذا العميل دون فاتورة بيع — الشركة تشترط اختيارها')}</p>}
+            </div>
           ) : shown.map(row => (
             <button key={row.id} disabled={!!busy} onClick={() => pick(row)}
               className="w-full bg-white border border-gray-100 rounded-xl p-3 flex items-center gap-3 text-right disabled:opacity-60">
@@ -128,6 +138,15 @@ export default function SaleInvoicePicker({ customerId, products, onPick, onClos
           ))}
           {msg && <p className="text-center text-xs text-red-500 py-2">{msg}</p>}
         </div>
+        {/* فاتورةٌ من نظامٍ سابق لا تظهر هنا (القائمة أحدث ٣٠٠ فاتورة في النظام): رقمها يُكتب — والخادم يردّ رقماً لفاتورةٍ هنا */}
+        {onManual && (
+          <div className="p-3 border-t">
+            <button type="button" onClick={onManual} disabled={!!busy}
+              className="w-full border border-amber-300 text-amber-700 bg-white rounded-xl py-2 text-xs font-semibold disabled:opacity-50">
+              {tr('الفاتورة غير موجودة — اكتب رقمها')}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

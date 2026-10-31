@@ -16,8 +16,9 @@ import {
   RETURN_REASONS, type ReturnReason, type ReturnableSaleRow, type LinkedSale, type ReturnHead,
   toLinkedSale, linkedSaleProblem, clampReturnQty, fillLinkedQty, isLineReturnable, linkedReturnTotals,
   mergeRefreshedSale, buildLinkedReturnPayload, buildFreeReturnPayload, returnFormProblem, returnIssueError, returnDocItems,
-  NOTE_REASON_MAX, returnUnitChoices, withReturnUnit, maxReturnQty,
+  NOTE_REASON_MAX, returnUnitChoices, withReturnUnit, maxReturnQty, withManualReturnRef, type OriginalPaymentType,
 } from '../../lib/returnInvoice';
+import { RETURN_REF_MAX, manualReturnRefAllowed, returnLinkRequired } from '../../lib/returnPolicy';
 import { choiceById, choiceNet, defaultChoice, hasUnitChoice, invoiceItemUnit, primaryChoice, unitChoices, type UnitChoice } from '../../rep/repUnits';
 import { baseQtyText, lineKey, unitTaken } from '../../lib/adminUnits';
 import type { UnitDef } from '../../lib/units';
@@ -58,6 +59,9 @@ const lineUnitFields = (p: Product, c: UnitChoice) => ({
 });
 
 interface Props { onClose: () => void; onSaved: (doc: InvoiceDoc) => void; }
+
+/** قيمة «فاتورة من خارج النظام» في قائمة فواتير البيع — لا تطابق معرّف فاتورة */
+const MANUAL_SALE = '__manual_ref__';
 
 /** صافي البند — من المحرّك المشترك لا بصيغة ثانية تفترق عنه يوماً ما */
 function calcLine(qty: number, price: number, discPct: number, taxPct: number) {
@@ -128,6 +132,11 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
    * لا صنف من خارجها ولا سعر غير سعر استردادها (الخادم يرفض بنداً بلا invoiceItemId منها). */
   const [linked, setLinked] = useState<LinkedSale | null>(null);
   const [loadingSaleId, setLoadingSaleId] = useState<string | null>(null);
+  /* «فاتورة من خارج النظام» (المرحلة الثانية والاشتراط مطفأ — lib/returnPolicy.ts): رقمها كما عليها يُبلَّغ مرجعاً للإشعار
+   * الدائن (BT-25) مع طريقة دفعها (BR-49)، والبنود من محرّر الأسطر كالمرتجع الحرّ */
+  const [manualRef, setManualRef] = useState(false);
+  const [manualNo, setManualNo] = useState('');
+  const [manualPay, setManualPay] = useState<OriginalPaymentType | ''>('');
   // كل اختيار/فكّ/تغيير عميل يزيد العدّاد: ردٌّ وصل متأخراً عن فاتورةٍ تُركت لا يكتب فوق ما اختير بعده
   const pickSeq = useRef(0);
   const qc = useQueryClient();
@@ -166,6 +175,11 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
    * القرار من صفّ الشركة كما في صفحة الفواتير (zatcaRegimeOf). شركة «بروفة» يراها الويب مرحلةً أولى ويحسمها الخادم بـ422
    * مقروءة — والخادم هو الحَكَم في الحالين. */
   const phase2 = zatcaRegimeOf(company).phase === 2;
+  /* «اشتراط اختيار فاتورة البيع للمرتجع» (إعداد مدير الشركة — null = افتراضيّ المرحلة: هذا السلوك حرفياً): مع الاشتراط في
+   * الأولى لا «بدون فاتورة بيع»، وبلا اشتراطٍ في الثانية «فاتورة من خارج النظام» برقمها. والخادم الحَكَم في الحالين */
+  const linkRequired = returnLinkRequired(company);
+  const manualOk = manualReturnRefAllowed(company);
+  const manual = isReturn && manualOk && manualRef && !linked;
 
   /* «تتبّع اللوط» (ميزةٌ يفعّلها المالك): مطفأةً لا جلب ولا عمود ولا حقل (§١٠.١). مفعّلةً: لوطات بنود البيع على المرتجع
    * المرتبط (للعرض — الخادم يوزّعه بنفسه)، وتشغيلةٌ صريحة اختيارية لسطر المرتجع الحرّ (D5)، والورقة من ردّ الخادم */
@@ -183,11 +197,14 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
     queryFn: async () => (await invoiceApi.returnableSales(customerId)).data.data as ReturnableSaleRow[],
   });
 
-  const unlinkSale = () => { pickSeq.current++; setLinked(null); setLoadingSaleId(null); setSaleLots(new Map()); };
+  const unlinkSale = () => { pickSeq.current++; setLinked(null); setLoadingSaleId(null); setSaleLots(new Map()); setManualRef(false); };
 
   /** بنود فاتورة البيع المختارة (والمندوب منها إن لم يُختر بعد: المرتجع يدخل سيارة المندوب المحدَّد هنا) */
   const pickSale = async (saleId: string) => {
     if (!saleId) { unlinkSale(); return; }
+    // «فاتورة من خارج النظام»: لا بنود تُجلب — رقمها يُكتب ومحرّر الأسطر يُفتح
+    if (saleId === MANUAL_SALE) { unlinkSale(); setManualRef(true); return; }
+    setManualRef(false);
     const seq = ++pickSeq.current;
     setLoadingSaleId(saleId);
     try {
@@ -259,7 +276,15 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
           ...lines.map(l => ({ productId: l.productId, name: l.productName, unit: l.unit, baseUnit: l.baseUnit })),
           ...(products || []).map(p => ({ productId: p.id, name: p.name, unit: p.unit, baseUnit: p.unit })),
         ];
+        /* الإشعار الدائن (جسمٌ يحمل noteReason = المرحلة الثانية): مرجع الأصل (BT-25) وسببه (KSA-10) على الورقة — من ردّ الخادم،
+         * وإلا ممّا أُرسل (الرقم اليدويّ أو رقم فاتورة البيع). مرتجع المرحلة الأولى بلاهما: ورقته كما كانت */
+        const sent = (vars ?? {}) as { noteReason?: unknown; originalInvoiceRef?: unknown };
+        const txt = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+        const noteFields = typeof sent.noteReason === 'string'
+          ? { billingReference: txt(inv.billingReference) ?? txt(sent.originalInvoiceRef) ?? txt(linked?.number), noteReason: txt(inv.noteReason) ?? txt(sent.noteReason) }
+          : {};
         const retDoc: InvoiceDoc = {
+          ...noteFields,
           // InvoiceDoc.type بلا RETURN: المرتجع «آجل» بعلم isReturn كما تبنيه invoiceDocFromDetail
           kind: 'invoice', number: inv.number, date: inv.invoiceDate, type: 'CREDIT', isReturn: true,
           company: company ?? null, customer: selectedCustomer as Customer, repName,
@@ -400,20 +425,25 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
    * فإجماليّه هنا هو ما يُقيَّد في المرحلة الأولى. وفي الثانية تقديرٌ: الإشعار يُسعَّر من بنود الأصل على الخادم. */
   const retDec = currencyDecimals(getActiveCurrency());
   const linkedCalc = isReturn && linked ? linkedReturnTotals(linked.lines, retDec, Number((company as { defaultVatPct?: number } | null | undefined)?.defaultVatPct ?? 15)) : null;
-  // المرحلة الثانية بلا فاتورة مختارة: لا بنود تُرسل ⇒ أصفار (لا إجماليّ أسطرٍ حرّة مخفيّة لن تُصدر)
-  const shown = linkedCalc ?? (phase2 ? { subtotal: 0, discountAmt: 0, taxAmt: 0, total: 0 } : { subtotal, discountAmt: totalDiscount, taxAmt: taxTotal, total });
+  /* بلا فاتورة مختارة والاشتراط قائم (المرحلة الثانية افتراضاً، أو الأولى بالإعداد): لا بنود تُرسل ⇒ أصفار (لا إجماليّ أسطرٍ
+   * حرّة مخفيّة لن تُصدر). و«فاتورة من خارج النظام»: إجماليّ الأسطر الحرّة — هي ما يُرسل ويُسعَّر به الإشعار */
+  const freeHidden = (phase2 || linkRequired) && !manual;
+  const shown = linkedCalc ?? (freeHidden ? { subtotal: 0, discountAmt: 0, taxAmt: 0, total: 0 } : { subtotal, discountAmt: totalDiscount, taxAmt: taxTotal, total });
 
   const submitReturn = () => {
     if (!customerId) { toast.error(tr('اختر العميل')); return; }
     if (!salesRepId) { toast.error(tr('اختر المندوب')); return; }
     if (loadingSaleId) return; // بنود الفاتورة المختارة لم تصل بعد
-    const problem = returnFormProblem({ phase2, linked, freeLines: lines, noteReason, invoiceDate });
+    const ref = manual ? { number: manualNo, paymentType: manualPay } : null;
+    const problem = returnFormProblem({ phase2, linkRequired, manual: ref, linked, freeLines: lines, noteReason, invoiceDate });
     if (problem) { toast.error(tr(problem)); return; }
     const head: ReturnHead = { customerId, salesRepId, returnReason, notes, invoiceDate, phase2, noteReason };
     // خانات عملة الشركة: سعر وحدة المرتجع (حبّةٌ من كرتون) يُشتقّ من مبلغه بها كما يحسبه الخادم (linkedUnitPrice)
     if (linked) { mutation.mutate(buildLinkedReturnPayload(head, linked, retDec)); return; }
-    // «تتبّع اللوط» (D5): المرتجع الحرّ لصنفٍ متتبَّع بتشغيلته المختارة للسطر كله، وإلا «غير معروف» — والمطفأة الجسم كما كان
-    const free = buildFreeReturnPayload(head, lines, discountPct);
+    // «تتبّع اللوط» (D5): المرتجع الحرّ لصنفٍ متتبَّع بتشغيلته المختارة للسطر كله، وإلا «غير معروف» — والمطفأة الجسم كما كان.
+    // و«فاتورة من خارج النظام»: الجسم نفسه + رقم الأصل وطريقة دفعه (originalInvoiceRef/originalPaymentType)
+    const base = buildFreeReturnPayload(head, lines, discountPct);
+    const free = ref ? withManualReturnRef(base, ref) : base;
     mutation.mutate(lotOn ? withFreeReturnLots(free, lines, l => (trackedIds.has(l.productId) ? freeLots[lineKey(l)] : undefined)) : free);
   };
 
@@ -538,16 +568,19 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
             <div className="border border-amber-200 bg-amber-50/50 rounded-xl p-3 space-y-3">
               <div className="grid grid-cols-4 gap-4 items-end">
                 <div className="col-span-2">
-                  <label className="label">{tr('فاتورة البيع الأصلية')}{phase2 ? ' *' : ''}</label>
+                  <label className="label">{tr('فاتورة البيع الأصلية')}{phase2 || linkRequired ? ' *' : ''}</label>
                   <SearchableSelect
                     placeholder={!customerId ? tr('اختر العميل أولا') : tr('اختر فاتورة البيع')}
                     searchPlaceholder={tr('رقم الفاتورة')}
-                    value={linked?.id ?? loadingSaleId ?? ''}
+                    value={linked?.id ?? loadingSaleId ?? (manual ? MANUAL_SALE : '')}
                     disabled={!customerId || mutation.isPending}
                     loading={loadingSales || !!loadingSaleId}
                     options={!customerId ? [] : [
-                      // المرحلة الأولى: المرتجع الحرّ خيارٌ صريح — وفي الثانية لا وجود له (الإشعار يشير لفاتورته)
-                      ...(phase2 ? [] : [{ value: '', label: tr('بدون فاتورة بيع (مرتجع حر)') }]),
+                      // المرحلة الأولى: المرتجع الحرّ خيارٌ صريح — وفي الثانية لا وجود له (الإشعار يشير لفاتورته)، ولا مع «اشتراط
+                      // اختيار فاتورة البيع للمرتجع» في الأولى
+                      ...(phase2 || linkRequired ? [] : [{ value: '', label: tr('بدون فاتورة بيع (مرتجع حر)') }]),
+                      // المرحلة الثانية والاشتراط مطفأ: فاتورةٌ من نظامٍ سابق برقمها — والخادم يردّ رقماً لفاتورةٍ هنا (تُختار)
+                      ...(manualOk ? [{ value: MANUAL_SALE, label: tr('فاتورة من خارج النظام — اكتب رقمها') }] : []),
                       ...(returnableSales || []).map(s => ({
                         value: s.id,
                         label: s.number,
@@ -571,9 +604,29 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                   </div>
                 )}
               </div>
+              {/* «فاتورة من خارج النظام»: رقمها كما عليها (سطرٌ واحد، يُبلَّغ ويُطبع) وطريقة دفعها — إلزاميّان */}
+              {manual && (
+                <div className="grid grid-cols-4 gap-4 items-end">
+                  <div className="col-span-2">
+                    <label className="label">{tr('رقم الفاتورة الأصلية')} *</label>
+                    <input className="input" dir="ltr" maxLength={RETURN_REF_MAX} value={manualNo} disabled={mutation.isPending}
+                      onChange={e => setManualNo(e.target.value)} placeholder="INV-0001" />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="label">{tr('طريقة الدفع في الفاتورة الأصلية')} *</label>
+                    <select className="input" value={manualPay} disabled={mutation.isPending} onChange={e => setManualPay(e.target.value as OriginalPaymentType | '')}>
+                      <option value="">{tr('اختر')}</option>
+                      <option value="CASH">{tr('نقدي')}</option>
+                      <option value="CREDIT">{tr('آجل')}</option>
+                    </select>
+                  </div>
+                </div>
+              )}
               {phase2 && (
                 <>
-                  <p className="text-xs text-amber-800">{tr('الفوترة الإلكترونية المرحلة الثانية مفعلة: المرتجع يصدر إشعارا دائنا مرتبطا بفاتورة البيع الأصلية وأسعاره من أسعارها')}</p>
+                  <p className="text-xs text-amber-800">{manual
+                    ? tr('الفوترة الإلكترونية المرحلة الثانية مفعلة: المرتجع يصدر إشعارا دائنا برقم الفاتورة الأصلية الذي تكتبه وأسعاره كما تدخلها — صحة الرقم مسؤولية شركتك')
+                    : tr('الفوترة الإلكترونية المرحلة الثانية مفعلة: المرتجع يصدر إشعارا دائنا مرتبطا بفاتورة البيع الأصلية وأسعاره من أسعارها')}</p>
                   <div>
                     <label className="label">{tr('سبب الإشعار الدائن')} *</label>
                     <input className="input" maxLength={NOTE_REASON_MAX} value={noteReason} onChange={e => setNoteReason(e.target.value)}
@@ -626,8 +679,9 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
           )}
 
           {/* بنود فاتورة البيع المربوطة: المبيع والمُرجَع سابقاً والمتاح وسعر الاسترداد، والكمية وحدها تُكتب (٠ = لا يُرجَع) */}
-          {/* المرحلة الثانية بلا فاتورة مختارة: لا محرّر أسطر حرّ (لا مرتجع حرّ بعد الربط) بل دعوةٌ لاختيار الفاتورة */}
-          {isReturn && (linked || loadingSaleId || phase2) ? (
+          {/* المرحلة الثانية بلا فاتورة مختارة: لا محرّر أسطر حرّ (لا مرتجع حرّ بعد الربط) بل دعوةٌ لاختيار الفاتورة — ومثلها
+            * الأولى مع «اشتراط اختيار فاتورة البيع للمرتجع». و«فاتورة من خارج النظام» محرّر الأسطر الحرّ (freeHidden) */}
+          {isReturn && (linked || loadingSaleId || freeHidden) ? (
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="label mb-0">
@@ -646,7 +700,10 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                 <tbody>
                   {!linked && (
                     <tr><td colSpan={7} className="text-center py-8 text-gray-400 text-sm">
-                      {loadingSaleId ? tr('جاري التحميل') : tr('اختر فاتورة البيع الأصلية — المرتجع في المرحلة الثانية إشعار دائن مرتبط بها')}
+                      {loadingSaleId ? tr('جاري التحميل')
+                        : !phase2 ? tr('الشركة تشترط اختيار فاتورة البيع للمرتجع — اختر الفاتورة أولا')
+                        : linkRequired ? tr('اختر فاتورة البيع الأصلية — المرتجع في المرحلة الثانية إشعار دائن مرتبط بها')
+                        : tr('اختر فاتورة البيع الأصلية أو فاتورة من خارج النظام')}
                     </td></tr>
                   )}
                   {linked?.lines.map(l => {
@@ -800,7 +857,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
               <div className="w-72 space-y-2 text-sm">
                 <div className="flex justify-between"><span className="text-gray-500">{tr('المجموع قبل الخصم')}</span><span>{formatCurrency(shown.subtotal)}</span></div>
                 {/* المرتبط بلا خصم: سعر الاسترداد صافٍ بعد خصومات البيع، وخصمٌ فوقه يُنقص ما يستحقه العميل مرّتين */}
-                {!linked && !phase2 && (
+                {/* و«فاتورة من خارج النظام» كالمرتجع الحرّ: الخصم من الطلب (لا أصل يُسعَّر منه) */}
+                {!linked && !freeHidden && (
                   <div className="flex justify-between items-center">
                     <span className="text-gray-500">{tr('خصم عام %')}</span>
                     <input type="number" className="input w-20 text-center" min="0" max="100" step="any" value={discountPct} onChange={e => setDiscountPct(Number(e.target.value))} />

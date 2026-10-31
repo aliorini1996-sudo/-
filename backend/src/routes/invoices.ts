@@ -17,6 +17,8 @@ import { catalogTeamsFor, resolveDocTeam, supervisorViewerOf, teamCatalogProblem
 import { inheritedLocation, locationDocWhere, locationFilterOf, repStampLocation } from '../services/locations';
 import { expiryDateFor, localDateIn, returnRuleProblem, shelfLifeOf } from '../services/shelfLife';
 import { REP_PRODUCT_RULE_CODE, replayPredatesRepRule, repLineProblem, repLinkedReturnProblem, repUnitRuleOf } from '../services/repProductRules';
+// «اشتراط اختيار فاتورة البيع للمرتجع» (services/returnPolicy.ts): القاعدة الفعّالة بمرحلتيها وتسامح صندوق المندوب
+import { replayPredatesReturnPolicy, returnLinkRequired } from '../services/returnPolicy';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
 import { scopedRecordWhere, canAccessRep, existingInScope, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
@@ -193,6 +195,10 @@ const createInvoiceSchema = z.object({
   // في المرحلة الأولى لا يُقرأ الحقلان إطلاقاً ويبقى المرتجع مستنداً عادياً كما هو اليوم.
   originalInvoiceId: z.string().optional(),
   noteReason: z.string().max(1000).optional(),
+  // «اشتراط اختيار فاتورة البيع للمرتجع» مطفأ في المرحلة الثانية (services/returnPolicy.ts): رقم الفاتورة الأصلية من نظامٍ سابق
+  // (BT-25) وطريقة دفعها (BR-49) لإشعارٍ دائن بلا فاتورة في المنصّة — يُفحصان في routes/invoicesNotes.ts، وفي غير ذلك لا يُقرآن
+  originalInvoiceRef: z.string().max(200).optional(),
+  originalPaymentType: z.enum(['CASH', 'CREDIT']).optional(),
   // هل يعود المرتجع لمخزون السيارة؟ (اختياري — يُشتقّ من السبب إن غاب)
   returnToStock: z.boolean().optional(),
   dueDate: z.string().optional(),
@@ -1057,6 +1063,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // صلاحية الأصناف من تاريخ البيع (services/invoiceExpiry.ts): تُسجَّل بعد الإصدار لفاتورةٍ فيها صنفٌ فُعّلت صلاحيته
     // وحدها — فالشركة التي لا تستعمل الصلاحية مسارُها واستعلاماتها كما كانت حرفياً
     const tracksExpiry = products.some((p) => shelfLifeOf(p));
+    // الإشعار الدائن «برقمٍ يدويّ» (المرحلة الثانية والاشتراط مطفأ): رفض سعر مندوبٍ بلا «تغيير السعر» فوق مرجع حارس البيع — يُقرأ هناك وحده
+    let repReturnPriceProblem: string | null = null;
 
     if (req.user!.role === 'SALES_REP') {
       if (!rep.canCreateInvoice) { res.status(403).json({ success: false, message: 'لا تملك صلاحية إنشاء فاتورة' }); return; }
@@ -1109,6 +1117,20 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           fail('لا تملك صلاحية البيع بأقل من السعر المحدد'); return;
         }
       }
+      // المرتجع بلا فاتورة بيع: لا سعر أصلٍ يُسعَّر منه — فإن صار إشعاراً دائناً برقمٍ يدويّ (routes/invoicesNotes.ts) لم يتجاوز سعر
+      // المندوب بلا «تغيير السعر» مرجعَ حارس البيع لوحدة البند (الإشعار يُنقص ضريبة المخرجات). حسابٌ من القراءة نفسها بلا استعلام،
+      // والمرتجع الحرّ في المرحلة الأولى لا يقرؤه (معفى من الحارس كما كان)
+      if (isReturnDoc && !body.originalInvoiceId && !rep.canChangePrice) {
+        for (const [idx, it] of body.items.entries()) {
+          const p = products.find(x => x.id === it.productId)!;
+          const snap = snapOf(idx);
+          const ceiling = cpMap.has(it.productId)
+            ? cpMap.get(it.productId)! * snap.unitFactor
+            : snap.priceUnit ? unitPriceOf(snap.priceUnit, p.basePrice) : p.basePrice * snap.unitFactor;
+          const priceNet = body.pricesIncludeTax ? netFromInclusive(it.unitPrice, it.taxPct ?? p.taxPct ?? 0) : it.unitPrice;
+          if (priceNet > ceiling + TOL) { repReturnPriceProblem = 'لا تملك صلاحية تغيير سعر البيع'; break; }
+        }
+      }
 
       // فرض مخزون السيارة: من لا يملك «البيع بدون مخزون» لا يبيع أكثر من متبقّي سيارته
       if (rep.canSellWithoutStock === false && body.type !== 'RETURN') {
@@ -1140,7 +1162,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       where: { tenantId: tid },
       // zatcaPhase2StartedAt: قرار النظام الضريبي (Z5.2) يُقرأ من هذا الصفّ المحمَّل أصلاً — صفر استعلامات للمرحلة الأولى
       // zatcaGoLiveArmedAt (Z5.8، نقد 4): رفض إصدار المرحلة الأولى بعد التسليح — NULL لكلّ الشركات اليوم فلا أثر
-      select: { defaultVatPct: true, countryCode: true, currency: true, einvoiceProvider: true, zatcaPhase2StartedAt: true, zatcaGoLiveArmedAt: true },
+      // returnRequiresSaleInvoice/returnPolicyChangedAt: «اشتراط اختيار فاتورة البيع للمرتجع» من الصفّ نفسه — لا استعلام
+      select: {
+        defaultVatPct: true, countryCode: true, currency: true, einvoiceProvider: true, zatcaPhase2StartedAt: true, zatcaGoLiveArmedAt: true,
+        returnRequiresSaleInvoice: true, returnPolicyChangedAt: true,
+      },
     });
     const companyVat = company?.defaultVatPct ?? 15;
     // الخانات من العملة الفعلية (تجاوز الدولار/اليورو يغلب خانات الدولة — كويتية بالدولار: خانتان لا ثلاث)
@@ -1317,6 +1343,28 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
        * بنوده وأسعاره وضريبته من بنود الأصل، وكميّاته محروسةٌ بما لم يُرجَع منها بعد. وبلا أصلٍ في الطلب يُردّ 422
        * «اختر الفاتورة أولاً» كما هو اليوم. عودة null تعني مرحلةً أولى فعلاً فيكمل المسار القديم بلا أثر. */
       if (body.type === 'RETURN') {
+        /* «اشتراط اختيار فاتورة البيع للمرتجع» (services/returnPolicy.ts): الفعّال في المرحلة الثانية = الإعداد ?? مشترط (D3).
+         * مطفأً ومرتجعٌ بلا أصل ⇒ إشعارٌ دائن «برقم فاتورةٍ أصلية يدويّ» بعد فحوصه في routes/invoicesNotes.ts، بنواة الفاتورة نفسها
+         * (سياق الفرع أعلاه بلقطاته وفريق المندوب وموقعه وخطة اللوط الحرّة) — وما عداه كما هو حرفاً بحرف */
+        const linkRequired2 = returnLinkRequired(company?.returnRequiresSaleInvoice, true);
+        const manualReturn = !body.originalInvoiceId && !linkRequired2 ? {
+          invoice: phase2Ctx,
+          originalInvoiceRef: body.originalInvoiceRef ?? null,
+          originalPaymentType: body.originalPaymentType ?? null,
+          // قيد مخزونٍ لا ضريبة: المندوب يُرجع الصنف المفعّلة صلاحيته من فاتورة بيعه وحدها (كالمرحلة الأولى أدناه)
+          repNeedsSaleInvoice: req.user!.role === 'SALES_REP' && tracksExpiry,
+          repPriceProblem: repReturnPriceProblem,
+          damagedReturnToStock: products.map((p) => p.damagedReturnToStock === true),
+        } : null;
+        // «تتبّع اللوط»: الإشعار اليدويّ مرتجعٌ حرّ — لقطة الصلاحية القائمة لبنوده المتتبَّعة من آخر بيعٍ لهذا العميل (ن١-٣) كالمرحلة
+        // الأولى، تُكتب داخل المعاملة لبندٍ صفوفه «غير معروف» (الخطة تحمل الخريطة نفسها)
+        if (manualReturn && lotPlan) {
+          const lotLines = lotPlan.lines.filter((l) => preTracked.has(l.productId));
+          const fr = await freeReturnStamps(prisma, tid, {
+            customerId, invoiceDate: docDate ?? lotNow, returnAt: lotPlan.replay?.at ?? lotNow, items: lotLines.map((l) => ({ idx: l.idx, productId: l.productId })),
+          });
+          for (const [idx, st] of fr) lotStamps.set(idx, st);
+        }
         const note = await issueReturnAsCreditNote({
           tenantId: tid,
           caps: capsFromHeaders(req.headers),
@@ -1342,6 +1390,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           clientCreatedAt: body.clientCreatedAt ?? null,
           // مفتاح API: لحظة جهازه لا تُخزَّن على الإشعار (deviceAt أعلاه) — وتبقى أعلاه لحارس clientRef وحده
           viaApiKey: !!req.user?.apiKeyId,
+          returnLinkRequired: linkRequired2,
+          manualReturn,
         }, productionPhase2Deps());
         if (note && tracksExpiry) await stampExpiryAfterIssue(tid, note.status, note.body);
         if (note && note.status < 300) await noticeRebased(issuedNumberOf(note.body));
@@ -1391,6 +1441,13 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         success: false, code: 'RETURN_NEEDS_SALE_INVOICE',
         message: 'الأصناف المفعّلة صلاحيتها تُرجَع من فاتورة بيعها — اختر فاتورة البيع ثم الأصناف المرتجعة',
       });
+      return;
+    } else if (isReturn && returnLinkRequired(company?.returnRequiresSaleInvoice, false)
+      && !replayPredatesReturnPolicy({ replay: isReplay, viaApiKey: Boolean(req.user?.apiKeyId), deviceAt, changedAt: company?.returnPolicyChangedAt ?? null, now: new Date() })) {
+      // «اشتراط اختيار فاتورة البيع للمرتجع» (services/returnPolicy.ts): الشركة تشترطه في المرحلة الأولى (الإعداد true) — لكل مُصدِر،
+      // ومنه المفتاح. ومستند صندوق المندوب المُنشأ على الجهاز قبل آخر تغييرٍ للإعداد (ضمن ٧ أيام) يُقبل: سُلّمت ورقته حين كان حرّاً
+      const e = new ZatcaHttpError('RETURN_LINK_REQUIRED');
+      res.status(e.status).json(e.body());
       return;
     }
 

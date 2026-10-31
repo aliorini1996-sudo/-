@@ -9,9 +9,13 @@
  *    الكمية ≤ المتاح) **ولا يتحقّق من السعر** — فالسعر من الطلب. والصحيح ما دفعه العميل فعلاً: `refundUnitPrice` (إجمالي بند
  *    البيع ÷ كميته، شامل الضريبة بعد خصمَي البند والفاتورة) مع pricesIncludeTax=true وخصمٍ صفر للبند والفاتورة — كما يفعل
  *    تطبيق المندوب حرفياً. إرسال السعر الصافي الأساسي بلا pricesIncludeTax يُضيف الضريبة مرّةً ثانية على مبلغٍ شاملها.
- *  • **إشعار دائن (المرحلة الثانية، ZATCA)**: الفاتورة الأصلية **إلزامية** (وإلا 422 ZATCA_RETURN_NEEDS_ORIGINAL)، والسبب
+ *  • **إشعار دائن (المرحلة الثانية، ZATCA)**: الفاتورة الأصلية **إلزامية** افتراضاً (وإلا 422 ZATCA_RETURN_NEEDS_ORIGINAL)، والسبب
  *    ٣–١٠٠٠ حرف إلزامي (noteReason ?? notes، وإلا 422)، والأسعار والضريبة والخصم **من الأصل** والتاريخ «الآن» — فما يرسله
  *    الطلب من سعر يُهمَل (ويبقى unitPrice مطلوباً في المخطط فنرسل سعر الاسترداد نفسه). المعاينة هنا تقديرية لذلك.
+ *  • **إشعار دائن برقم فاتورةٍ يدويّ (المرحلة الثانية والاشتراط مطفأ — lib/returnPolicy.ts)**: «فاتورة من خارج النظام»
+ *    (نظامٌ سابق): رقمها كما عليها مرجعاً (originalInvoiceRef ⇒ BT-25) وطريقة دفعها (originalPaymentType ⇒ BR-49) والسبب،
+ *    والبنود والأسعار والخصم من الطلب كالمرتجع الحرّ. رقمٌ لفاتورةٍ في النظام يُردّ 409 ZATCA_RETURN_REF_IN_SYSTEM: تُختار.
+ *  • **«اشتراط اختيار فاتورة البيع للمرتجع» في المرحلة الأولى** (الإعداد true): لا مرتجع حرّ — 422 RETURN_LINK_REQUIRED.
  *
  * المعاينة تمرّ بالمحرّك المشترك (rep/invoiceCalc.ts — مرآة backend/src/lib/invoiceCalc.ts) بالمدخلات نفسها التي يحسب بها
  * الخادم، فإجماليّ المرتجع المرتبط المعروض قبل الإصدار هو ما يُقيَّد بعده خانةً بخانة. والورقة المطبوعة بعد الإصدار تُبنى من
@@ -21,6 +25,7 @@ import { computeInvoiceTotals, roundDecimal } from '../rep/invoiceCalc';
 import type { DocLotLine } from './lots';
 import { QTY_EPS, factorOf, fromBase, refundAmount, roundQty, toBase, type UnitDef } from './units';
 import { unitChoices, type UnitChoice } from '../rep/repUnits';
+import { NOTE_REASON_MAX, NOTE_REASON_MIN, normalizeReturnRef, returnRefProblem } from './returnPolicy';
 
 export type ReturnReason = 'NORMAL' | 'DAMAGED' | 'EXCHANGE';
 
@@ -440,23 +445,109 @@ export function buildFreeReturnPayload(head: ReturnHead, lines: FreeReturnLine[]
   };
 }
 
-export const NOTE_REASON_MIN = 3;
-export const NOTE_REASON_MAX = 1000;
+// حدود سبب الإشعار الدائن (KSA-10) — مصدرها الواحد lib/returnPolicy.ts (مرآة الخادم)، وتُصدَّر من هنا كما كانت
+export { NOTE_REASON_MIN, NOTE_REASON_MAX };
+
+/** طريقة دفع الفاتورة الأصلية خارج النظام — وسيلة الدفع في الإشعار الدائن (BR-49) تُؤخذ منها، فلا افتراض صامت */
+export type OriginalPaymentType = 'CASH' | 'CREDIT';
+
+/** «فاتورة من خارج النظام»: رقمها كما كُتب وطريقة دفعها (فارغة = لم تُختر بعد) */
+export interface ManualReturnRef {
+  number: string;
+  paymentType: OriginalPaymentType | '' | null;
+}
+
+/**
+ * جسم المرتجع الحرّ + مرجع الفاتورة الأصلية اليدويّ (المرحلة الثانية والاشتراط مطفأ): الرقم مطبَّعاً سطراً واحداً كما يُطبع
+ * ويُبلَّغ، وطريقة الدفع — ولا originalInvoiceId أبداً (الفاتورة ليست في النظام)
+ */
+export function withManualReturnRef(body: Record<string, unknown>, ref: ManualReturnRef): Record<string, unknown> {
+  const { originalInvoiceId: _drop, ...rest } = body;
+  return { ...rest, originalInvoiceRef: normalizeReturnRef(ref.number), originalPaymentType: ref.paymentType || undefined };
+}
+
+export const RETURN_LINK_REQUIRED_TEXT = 'الشركة تشترط اختيار فاتورة البيع للمرتجع — اختر الفاتورة أولا';
+export const RETURN_NEEDS_ORIGINAL_TEXT = 'اختر فاتورة البيع الأصلية — المرتجع في المرحلة الثانية إشعار دائن مرتبط بها';
+export const RETURN_CHOOSE_SOURCE_TEXT = 'اختر فاتورة البيع الأصلية أو فاتورة من خارج النظام';
+export const RETURN_PAY_TYPE_TEXT = 'اختر طريقة دفع الفاتورة الأصلية (نقدي أو آجل)'; // نصّ الخادم نفسه (RETURN_PAYMENT_PROBLEM_MESSAGE)
+export const RETURN_REF_IN_SYSTEM_TEXT = 'هذه الفاتورة موجودة في النظام — اخترها من قائمة فواتير العميل';
+/** رسالة الرمز العامة في الخادم (errors.ts) — والخادم يرسل عادةً سبب الحالة نفسها (الرقم أو طريقة الدفع) */
+export const RETURN_REF_INVALID_TEXT = 'رقم الفاتورة الأصلية أو طريقة دفعها غير صحيح — أكمله كما هو على الفاتورة';
+const NOTE_REASON_TEXT = 'سبب الإشعار الدائن مطلوب من 3 إلى 1000 حرف';
+
+/**
+ * مصدر المرتجع (فاتورة البيع أو رقم الفاتورة الأصلية) قبل إرساله — عبارة القاموس أو null. مشتركٌ بين اللوحة وتطبيق المندوب:
+ *  • مرتبطٌ بفاتورة بيع ⇒ لا شيء هنا.
+ *  • الاشتراط قائم ⇒ في الثانية ZATCA_RETURN_NEEDS_ORIGINAL، وفي الأولى RETURN_LINK_REQUIRED (الإعداد true).
+ *  • المرحلة الأولى بلا اشتراط ⇒ مرتجعٌ حرّ كما كان.
+ *  • المرحلة الثانية بلا اشتراط ⇒ «فاتورة من خارج النظام» برقمٍ صالح (returnRefProblem) وطريقة دفع.
+ */
+export function returnSourceProblem(input: {
+  phase2: boolean;
+  linkRequired: boolean;
+  linked: boolean;
+  manual: ManualReturnRef | null;
+}): string | null {
+  if (input.linked) return null;
+  if (input.linkRequired) return input.phase2 ? RETURN_NEEDS_ORIGINAL_TEXT : RETURN_LINK_REQUIRED_TEXT;
+  if (!input.phase2) return null;
+  if (!input.manual) return RETURN_CHOOSE_SOURCE_TEXT;
+  const refBad = returnRefProblem(input.manual.number);
+  if (refBad) return refBad;
+  return input.manual.paymentType === 'CASH' || input.manual.paymentType === 'CREDIT' ? null : RETURN_PAY_TYPE_TEXT;
+}
+
+/** سبب الإشعار الدائن ٣–١٠٠٠ حرف بعد القصّ (assertReason على الخادم) — عبارة القاموس أو null */
+export function noteReasonProblem(reason: string | null | undefined): string | null {
+  const len = String(reason ?? '').trim().length;
+  return len < NOTE_REASON_MIN || len > NOTE_REASON_MAX ? NOTE_REASON_TEXT : null;
+}
+
+/** نصّ رقاقة سبب الإرجاع بالعربية — به يُملأ سبب الإشعار الدائن ابتداءً (يُطبع ويُبلَّغ بلغة المستند) */
+export function returnReasonLabel(reason: ReturnReason): string {
+  return (RETURN_REASONS.find(([v]) => v === reason) ?? RETURN_REASONS[0])[1];
+}
+
+/**
+ * حقول سياسة المرتجع في جسم تطبيق المندوب. المرحلة الثانية: سبب الإشعار (KSA-10) **دائماً** — كان لا يُرسل فيُردّ كل مرتجع
+ * مندوبٍ مرتبطٍ أو حرّ 422 قبل قراءة أصله — ومعه المرجع اليدويّ وطريقة دفعه حين لا فاتورة مختارة. والمرحلة الأولى لا شيء:
+ * الجسم كما كان حرفياً.
+ */
+export function repReturnPolicyFields(input: {
+  phase2: boolean;
+  linked: boolean;
+  manual: ManualReturnRef | null;
+  noteReason: string;
+}): Record<string, unknown> {
+  if (!input.phase2) return {};
+  return {
+    noteReason: String(input.noteReason ?? '').trim(),
+    ...(!input.linked && input.manual && {
+      originalInvoiceRef: normalizeReturnRef(input.manual.number),
+      originalPaymentType: input.manual.paymentType || undefined,
+    }),
+  };
+}
 
 /**
  * ما يمنع إصدار المرتجع قبل إرساله — عبارة القاموس أو null. (العميل والمندوب يفحصهما المستدعي بعباراتهما القائمة.)
  * كل شرطٍ هنا مرآةُ رفضٍ على الخادم، يُقال بلغة المدير قبل أن يصله 422 بلغة المحاسبة.
+ * `linkRequired` القاعدة الفعّالة (returnLinkRequired) — غيابها افتراضيّ المرحلة (سلوك ما قبل الإعداد)، و`manual` رقم الفاتورة
+ * الأصلية حين اختار المدير «فاتورة من خارج النظام» (المرحلة الثانية والاشتراط مطفأ وحدها).
  */
 export function returnFormProblem(input: {
   phase2: boolean;
+  linkRequired?: boolean;
+  manual?: ManualReturnRef | null;
   linked: LinkedSale | null;
   freeLines: Pick<FreeReturnLine, 'qty'>[];
   noteReason: string;
   invoiceDate: string;
 }): string | null {
   const { phase2, linked } = input;
-  // ZATCA_RETURN_NEEDS_ORIGINAL: لا مرتجع حرّ بعد الربط — الإشعار الدائن يشير إلى فاتورته
-  if (phase2 && !linked) return 'اختر فاتورة البيع الأصلية — المرتجع في المرحلة الثانية إشعار دائن مرتبط بها';
+  // ZATCA_RETURN_NEEDS_ORIGINAL / RETURN_LINK_REQUIRED / رقم الفاتورة الأصلية اليدويّ — قبل البنود كما يحكم الخادم
+  const source = returnSourceProblem({ phase2, linkRequired: input.linkRequired ?? phase2, linked: !!linked, manual: input.manual ?? null });
+  if (source) return source;
   if (linked) {
     if (activeLinkedLines(linked.lines).length === 0) return 'أدخل كمية مرتجعة لصنف واحد على الأقل';
     // مرتجعٌ مؤرَّخ قبل بيعه يُقيَّد في فترةٍ لم يكن فيها البيع أصلاً
@@ -467,10 +558,7 @@ export function returnFormProblem(input: {
     if (input.freeLines.length === 0) return 'أضف صنفا على الأقل';
     if (input.freeLines.some((l) => !(num(l.qty) > 0))) return 'الكمية يجب أن تكون أكبر من صفر';
   }
-  if (phase2) {
-    const len = input.noteReason.trim().length;
-    if (len < NOTE_REASON_MIN || len > NOTE_REASON_MAX) return 'سبب الإشعار الدائن مطلوب من 3 إلى 1000 حرف';
-  }
+  if (phase2) return noteReasonProblem(input.noteReason);
   return null;
 }
 
@@ -482,11 +570,18 @@ const STALE_QTY_CODES = new Set(['RETURN_LINK_INVALID', 'ZATCA_CREDIT_QTY_EXCEED
 
 /** عبارة احتياطية حين يصل الرمز بلا رسالة (وسيطٌ ابتلع الجسم) — الخادم يرسل رسالته العربية عادةً وهي الأدقّ */
 const CODE_FALLBACK: Record<string, string> = {
-  ZATCA_RETURN_NEEDS_ORIGINAL: 'اختر فاتورة البيع الأصلية — المرتجع في المرحلة الثانية إشعار دائن مرتبط بها',
+  ZATCA_RETURN_NEEDS_ORIGINAL: RETURN_NEEDS_ORIGINAL_TEXT,
   ZATCA_CREDIT_QTY_EXCEEDED: 'الكمية المرتجعة أكبر من المتاح للإرجاع',
   ZATCA_NOTHING_TO_CREDIT: 'لا يوجد في هذه الفاتورة ما يمكن إرجاعه',
   RETURN_LINK_INVALID: 'الكمية المرتجعة أكبر من المتاح للإرجاع',
+  // «اشتراط اختيار فاتورة البيع للمرتجع» — الإعداد تغيّر بعد تحميل الشاشة، أو رقمٌ يدويّ يرفضه الخادم
+  RETURN_LINK_REQUIRED: RETURN_LINK_REQUIRED_TEXT,
+  ZATCA_RETURN_REF_INVALID: RETURN_REF_INVALID_TEXT,
+  ZATCA_RETURN_REF_IN_SYSTEM: RETURN_REF_IN_SYSTEM_TEXT,
 };
+
+/** رموز «اشتراط اختيار فاتورة البيع للمرتجع» ورقم الفاتورة اليدويّ: رسالتها تمرّ بـtr() (عبارات القاموس) لا خاماً */
+export const RETURN_POLICY_CODES: ReadonlySet<string> = new Set(['RETURN_LINK_REQUIRED', 'ZATCA_RETURN_REF_INVALID', 'ZATCA_RETURN_REF_IN_SYSTEM']);
 
 export interface ReturnIssueError {
   /** نصّ يُمرَّر إلى tr() — رسالة الخادم (قد تكون في القاموس) أو عبارة احتياطية */
@@ -596,7 +691,14 @@ export const RETURN_INVOICE_PHRASES: readonly string[] = Object.freeze([
   'تاريخ المرتجع قبل تاريخ فاتورة البيع',
   'أضف صنفا على الأقل',
   'الكمية يجب أن تكون أكبر من صفر',
-  'سبب الإشعار الدائن مطلوب من 3 إلى 1000 حرف',
+  NOTE_REASON_TEXT,
   'الكمية المرتجعة أكبر من المتاح للإرجاع',
   'تعذر إصدار المستند حاول مجددا',
+  RETURN_LINK_REQUIRED_TEXT,
+  RETURN_CHOOSE_SOURCE_TEXT,
+  RETURN_PAY_TYPE_TEXT,
+  RETURN_REF_IN_SYSTEM_TEXT,
+  RETURN_REF_INVALID_TEXT,
+  // returnRefProblem (lib/returnPolicy.ts)
+  'اكتب رقم الفاتورة الأصلية كما هو عليها (من 3 إلى 60 حرفا وفيه رقم)',
 ]);

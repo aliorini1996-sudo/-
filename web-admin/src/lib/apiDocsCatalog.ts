@@ -2212,13 +2212,25 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "originalInvoiceId",
       "type": "string",
       "required": false,
-      "desc": "للمرتجع (type=RETURN): فاتورة البيع التي يُرجَع منها، في المرحلتين. في المرحلة الأولى اختياري: معه يتحقق الخادم من كل بند (من الفاتورة نفسها، بالصنف نفسه، والكمية ضمن المتاح)، ويرث المرتجع ختم موقعها وفريقها. وفي المرحلة الثانية إجباري، وغيابه يرجع 422 ZATCA_RETURN_NEEDS_ORIGINAL"
+      "desc": "للمرتجع (type=RETURN): فاتورة البيع التي يُرجَع منها، في المرحلتين. معه يتحقق الخادم من كل بند (من الفاتورة نفسها، بالصنف نفسه، والكمية ضمن المتاح)، ويرث المرتجع ختم موقعها وفريقها. هل هو إجباري؟ يقرّره إعداد الشركة returnRequiresSaleInvoice (في GET /company): null الافتراضي = اختياري في المرحلة الأولى وإجباري في المرحلة الثانية (غيابه 422 ZATCA_RETURN_NEEDS_ORIGINAL)، وtrue = إجباري في المرحلتين (غيابه في المرحلة الأولى 422 RETURN_LINK_REQUIRED)، وfalse = اختياري في المرحلتين، وفي المرحلة الثانية يحلّ محلّه originalInvoiceRef"
      },
      {
       "name": "noteReason",
       "type": "string max 1000",
       "required": false,
-      "desc": "سبب الإشعار الدائن للمرتجع في المرحلة الثانية، من 3 أحرف على الأقل. إذا غاب يُستعمل notes"
+      "desc": "سبب الإشعار الدائن (KSA-10) للمرتجع في المرحلة الثانية، من 3 إلى 1000 حرف، مرتبطاً كان أو برقمٍ يدويّ، وإلا 422 ZATCA_NOTE_LINES_INVALID. إذا غاب يُستعمل notes"
+     },
+     {
+      "name": "originalInvoiceRef",
+      "type": "string max 200",
+      "required": false,
+      "desc": "للمرتجع في المرحلة الثانية حين returnRequiresSaleInvoice=false وبلا originalInvoiceId: رقم الفاتورة الأصلية كما هو عليها لفاتورةٍ من نظامٍ سابق خارج المنصّة، فيصدر إشعاراً دائناً (381) مرجعه BT-25 هذا الرقم. يُطبَّع (تُحذف محارف التحكّم والاتجاه وتُطوى المسافات) ويلزمه من 3 إلى 60 حرفاً وفيه رقم لاتيني واحد على الأقل، وإلا 422 ZATCA_RETURN_REF_INVALID (reason=REFERENCE). ورقمٌ يطابق أي فاتورة للشركة في المنصّة (بلا تمييز حالة الأحرف) يرجع 409 ZATCA_RETURN_REF_IN_SYSTEM: أرسلها بـoriginalInvoiceId. وفي غير هذه الحال لا يُقرأ"
+     },
+     {
+      "name": "originalPaymentType",
+      "type": "enum CASH | CREDIT",
+      "required": false,
+      "desc": "طريقة دفع الفاتورة الأصلية (BR-49) — إلزامية مع originalInvoiceRef، وغيابها 422 ZATCA_RETURN_REF_INVALID (reason=PAYMENT_TYPE). لا قيمة افتراضية"
      },
      {
       "name": "clientRef",
@@ -2272,6 +2284,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "مثال مرتجع حرّ بلا فاتورة بيع (المرحلة الأولى): {\"customerId\":\"…\",\"salesRepId\":\"…\",\"type\":\"RETURN\",\"returnReason\":\"DAMAGED\",\"returnToStock\":false,\"items\":[{\"productId\":\"…\",\"qty\":2,\"unitPrice\":5}]}",
      "مثال مرتجع من فاتورة بيع (المرحلة الأولى): {\"customerId\":\"…\",\"salesRepId\":\"…\",\"type\":\"RETURN\",\"returnReason\":\"NORMAL\",\"originalInvoiceId\":\"<id فاتورة البيع>\",\"pricesIncludeTax\":true,\"discountPct\":0,\"items\":[{\"productId\":\"…\",\"invoiceItemId\":\"<saleItemId>\",\"qty\":1,\"unitPrice\":103.5,\"discountPct\":0,\"taxPct\":15}]}. وحبّتان من بند بيع بالكرتون: البند نفسه بـ\"qty\":2 بلا unitId (والسعر يحسبه الخادم)",
      "مثال مرتجع في المرحلة الثانية: الجسم نفسه مع noteReason (3 أحرف على الأقل). الأسعار والضريبة تؤخذ من بنود الأصل ويُهمل unitPrice المرسل، لكنه يبقى إلزامياً في المخطط",
+     "«اشتراط اختيار فاتورة البيع للمرتجع» (returnRequiresSaleInvoice في GET /company، يضبطه مدير الشركة من لوحة التحكم وحدها): null الافتراضي = سلوك المرحلة كما هو (الأولى حرّ والثانية مرتبط). true = كل مرتجع بلا originalInvoiceId يرجع 422 {success:false, code:'RETURN_LINK_REQUIRED', message} لأي مُصدِر ومنه المفتاح، قبل أي كتابة (ومستند صندوق تطبيق المندوب المُنشأ على الجهاز قبل آخر تغيير للإعداد يُقبل ما دام التغيير خلال آخر سبعة أيام، والمفتاح لا ينال ذلك). false في المرحلة الثانية = المرتجع بلا originalInvoiceId يصدر إشعاراً دائناً (381) برقم الفاتورة الأصلية المكتوب originalInvoiceRef وطريقة دفعها originalPaymentType وسببه noteReason: البنود والأسعار والضريبة من الطلب كالفاتورة، والنوع الفرعي من بيانات العميل الحالية (قياسي 01 يُعتمد داخل الطلب)، وقيده قيد مرتجع (originalInvoiceId=null وbillingReference=الرقم)، ولا حارس كمية عليه لأنه لا أصل له في المنصّة. والأخطاء: 422 ZATCA_RETURN_REF_INVALID و409 ZATCA_RETURN_REF_IN_SYSTEM و422 ZATCA_NOTE_LINES_INVALID للسبب، والمندوب بأصناف مفعّلة صلاحيتها 422 RETURN_NEEDS_SALE_INVOICE، ومندوبٌ بلا canChangePrice بسعرٍ فوق سعر الصنف لوحدته 403 (لا ينطبق على المفتاح). الشركة مسؤولة نظاماً عن صحة الرقم المكتوب: الهيئة تشترط وجود المرجع ولا تتحقق منه",
+     "مثال مرتجع برقم فاتورة من نظام سابق (المرحلة الثانية وreturnRequiresSaleInvoice=false): {\"customerId\":\"…\",\"salesRepId\":\"…\",\"type\":\"RETURN\",\"returnReason\":\"DAMAGED\",\"originalInvoiceRef\":\"OLD-2024-1001\",\"originalPaymentType\":\"CREDIT\",\"noteReason\":\"بضاعة تالفة من فاتورة النظام السابق\",\"pricesIncludeTax\":false,\"items\":[{\"productId\":\"…\",\"qty\":2,\"unitPrice\":45.5,\"taxPct\":15}]}",
      "الوحدات: الخادم يحلّ وحدة كل بند من unitId ويكتب لقطتها (unitName وunitFactor وunitCode وbaseQty)، فبند {\"qty\":2,\"unitId\":\"<كرتون 24>\"} يخصم 48 حبة من مخزون السيارة. والكرتون والحبة من الصنف نفسه في فاتورة واحدة يُجمعان بالأساس",
      "رمز وحدة البند unitCode (للفوترة الإلكترونية): units[].unitCode للوحدة، وإلا رمز الصنف، وإلا PCE. والكمية والسعر في المستند الضريبي بوحدة البند",
      "سعر الوحدة الأكبر: units[].price المحدد، وإلا basePrice × factor. وفي حارس سعر المندوب (لا ينطبق على المفتاح) يُضرب سعر العميل الخاص وأقل سعر شريحة بمعامل البند",
@@ -7441,8 +7455,9 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:{كل أعمدة إعدادات الشركة ومنها name وaddress وtaxNumber وcommercialReg وphone وemail وlogo (base64) وprimaryColor وheaderStyle وnumerals وcountryCode وcurrency وcurrencyOverride وdefaultVatPct وeinvoiceProvider وeinvoiceEnabled وeinvoiceEnv وeinvoiceClientId وحقول بائع زاتكا وzatcaPhase2StartedAt، مع einvoiceHasSecret:boolean بدل السر، والأعلام erpEnabled وpetroappEnabled وhatifEnabled وcatalogEnabled وpaylinkEnabled وwarehouseEnabled وreceivablesSummaryEnabled وaccountingEnabled وdailyReportEnabled وattendanceEnabled وinvoiceSignatureEnabled وaccountingSuiteEnabled وzatcaPhase2Enabled وaiRepEnabled وapiEnabled وlocationsEnabled وpaymentMethodsEnabled وlotTrackingEnabled وlotOnInvoice}}. وفي أعمدة الإعدادات الخام: teamsEnabled وbuyerVatAddressRelaxed وprintSettings وprintTexts وpaymentMethodsConfig (JSON أو null)",
+    "response": "{success:true, data:{كل أعمدة إعدادات الشركة ومنها name وaddress وtaxNumber وcommercialReg وphone وemail وlogo (base64) وprimaryColor وheaderStyle وnumerals وcountryCode وcurrency وcurrencyOverride وdefaultVatPct وeinvoiceProvider وeinvoiceEnabled وeinvoiceEnv وeinvoiceClientId وحقول بائع زاتكا وzatcaPhase2StartedAt، مع einvoiceHasSecret:boolean بدل السر، والأعلام erpEnabled وpetroappEnabled وhatifEnabled وcatalogEnabled وpaylinkEnabled وwarehouseEnabled وreceivablesSummaryEnabled وaccountingEnabled وdailyReportEnabled وattendanceEnabled وinvoiceSignatureEnabled وaccountingSuiteEnabled وzatcaPhase2Enabled وaiRepEnabled وapiEnabled وlocationsEnabled وpaymentMethodsEnabled وlotTrackingEnabled وlotOnInvoice}}. وفي أعمدة الإعدادات الخام: teamsEnabled وbuyerVatAddressRelaxed وprintSettings وprintTexts وpaymentMethodsConfig (JSON أو null)، وreturnRequiresSaleInvoice (boolean أو null) وreturnPolicyChangedAt (date-time أو null)؛ ولا يعود returnPolicyChangedBy (معرّف من غيّر إعداد المرتجع، للتدقيق وحده)",
     "rules": [
+     "«اشتراط اختيار فاتورة البيع للمرتجع» returnRequiresSaleInvoice: null = افتراضيّ المرحلة (المرحلة الأولى لا تشترط، والثانية تشترط)، وtrue = كل مرتجع بفاتورة بيع (originalInvoiceId)، وfalse = لا اشتراط (وفي المرحلة الثانية مرتجعٌ برقم فاتورة من نظام سابق originalInvoiceRef). القاعدة الفعّالة = القيمة إن كانت true أو false، وإلا zatcaPhase2StartedAt مضبوط. يضبطه مدير الشركة من لوحة التحكم وحدها: مساره PUT /company/return-policy ممنوع على المفتاح دائماً بـ403 API_KEY_FORBIDDEN، ولا يمسّه PUT /company. التفاصيل في POST /invoices",
      "einvoiceClientSecret لا يُعاد أبداً ويُستبدل بـ einvoiceHasSecret",
      "accountingEnabled يكون true ما لم يُطفأ صراحة، وبقية الأعلام false ما لم تُفعَّل",
      "إذا لم يوجد صف إعدادات للشركة ترجع الأعلام وحدها",

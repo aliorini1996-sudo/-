@@ -647,7 +647,7 @@ export const OWNER_IMPERSONATION_AUDIT_EVENT = 'ZATCA_OWNER_IMPERSONATION_WRITE'
 
 export type OwnerImpersonationAction =
   | 'seller.update' | 'unit.create' | 'unit.onboard' | 'unit.renew' | 'unit.abort-renewal' | 'unit.retire' | 'go-live'
-  | 'company.seller-fields' | 'unknown';
+  | 'company.seller-fields' | 'company.return-policy' | 'unknown';
 
 export interface OwnerImpersonationAuditFields {
   tenantId: string | null | undefined;

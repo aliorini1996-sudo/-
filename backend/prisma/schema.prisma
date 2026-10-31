@@ -1337,6 +1337,12 @@ model CompanySettings {
   // «نصوص المطبوعات» v1 (services/printTextsCore.ts، routes/printTexts.ts): صياغة نصوص الفاتورة وسند القبض وإخفاء غير الإلزامي
   // منها ولغة ثانية على الورقة — null = نصوص اليوم حرفياً، فعمود إضافي بلا افتراضي لا يغيّر شركة قائمة عند db push
   printTexts               Json?
+  // «اشتراط اختيار فاتورة البيع للمرتجع» (services/returnPolicy.ts، routes/returnPolicy.ts) — يضبطه مدير الشركة: null = افتراضيّ
+  // المرحلة حرفياً (الأولى حرّ والثانية مرتبط)، true = كل مرتجع من فاتورة بيع، false = لا اشتراط (في الثانية: رقم فاتورة أصلية يدويّ).
+  // يُحفظ null حين يساوي الاختيار افتراضيّ المرحلة، فأعمدة إضافية بلا افتراضي لا تغيّر شركة قائمة عند db push
+  returnRequiresSaleInvoice Boolean?
+  returnPolicyChangedAt     DateTime? // آخر تغيير — مرجع تسامح إعادة رفع صندوق المندوب (مستندٌ أُنشئ قبله يُقبل)
+  returnPolicyChangedBy     String?   // من غيّره (actorOf: جلسة المالك OWNER:<id>)
 
   // --- التدويل (المرحلة 0): أعمدة إضافية بقيم افتراضية — لا فقد بيانات ---
   countryCode      String  @default("SA") // ISO alpha-2: دولة الشركة

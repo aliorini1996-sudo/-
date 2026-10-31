@@ -882,9 +882,12 @@ export function buyerIdentityDrift(before: UblParty | null | undefined, after: U
 
 // ─── بناء الإشعار (التحضير قبل القفل) ───
 
-/** رابط الإشعار بأصله كما يُكتب في صفّ الفاتورة. */
+/**
+ * رابط الإشعار بأصله كما يُكتب في صفّ الفاتورة. originalInvoiceId = null للإشعار الدائن «برقم فاتورةٍ أصلية يدويّ» (فاتورة من
+ * نظامٍ سابق، الإعداد مطفأ — services/returnPolicy.ts): المرجع BT-25 هو الرقم المكتوب ولا صفّ أصلٍ في المنصّة.
+ */
 export interface NoteLink {
-  originalInvoiceId: string;
+  originalInvoiceId: string | null;
   billingReference: string;
   noteReason: string;
 }
@@ -911,7 +914,8 @@ export function normalizeNoteReason(reason: string | null | undefined): string {
   return typeof reason === 'string' ? reason.trim() : '';
 }
 
-function assertReason(reason: string): string {
+/** سبب الإشعار مطبَّعاً، أو 422 ZATCA_NOTE_LINES_INVALID — ويستعمله الإشعار «برقمٍ يدويّ» (routes/invoicesNotes.ts) */
+export function assertReason(reason: string): string {
   const r = normalizeNoteReason(reason);
   if (r.length < NOTE_REASON_MIN || r.length > NOTE_REASON_MAX) {
     throw noteLinesError([lineIssue('reason', `سبب الإشعار مطلوب (من ${NOTE_REASON_MIN} إلى ${NOTE_REASON_MAX} حرفاً)`)]);

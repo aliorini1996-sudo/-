@@ -10,7 +10,7 @@ import { getActiveCurrency, getActiveNumerals } from '../utils/format';
 import { methodLabelFor } from '../lib/paymentMethodsConfig';
 import { currencyDecimals, currencySymbol } from '../i18n/countries';
 import type { InvoiceDoc, ReceiptDoc } from './RepDocuments';
-import { isSaudiDoc, isSignatureSrc, showsItemUnit } from './RepDocuments';
+import { creditNoteRefs, isSaudiDoc, isSignatureSrc, showsItemUnit } from './RepDocuments';
 import { zatcaPrintDecision, type ZatcaPrintDecision } from '../lib/zatca/docPrint';
 import { receiptLinkView } from './receiptLinks';
 import { PRINT_WARNINGS, dotsPerMm, geometry, legacyThermalProfile, presetPaper, qrPlan, type Paper, type PrintOptions, type PrintProfile, type PrinterDpi } from '../lib/print/printSettings';
@@ -252,6 +252,17 @@ function lotRows(doc: InvoiceDoc, it: InvoiceDoc['items'][number], tr: Tr): stri
     .join('');
 }
 
+/**
+ * الإشعار الدائن: صفّا مرجع الفاتورة الأصلية (BT-25، رقمٌ لاتينيّ باتجاهه) وسبب الإرجاع (KSA-10) — بقاعدة A4 نفسها (creditNoteRefs)
+ * ومُهرَّبين (نصٌّ حرّ في وثيقةٍ تُكتب بـdocument.write). `L` تسمية القالب: العربية كما هي للكلاسيكي، وlbl للقالبين الجديدين.
+ * مستندٌ لا يحملهما ⇒ '' بلا مسافةٍ ولا سطر، فيبقى الشريط حرفاً بحرف (الحارس الذهبيّ).
+ */
+function noteRows(doc: InvoiceDoc, L: (key: string, ar: string) => string): string {
+  const { ref, reason } = creditNoteRefs(doc);
+  return (ref ? `\n    <div class="row"><span>${L('inv.originalRef', 'الفاتورة الأصلية')}</span><span dir="ltr">${esc(ref)}</span></div>` : '')
+    + (reason ? `\n    <div class="row"><span>${L('inv.noteReason', 'سبب الإرجاع')}</span><span>${esc(reason)}</span></div>` : '');
+}
+
 function head(company: InvoiceDoc['company']): string {
   return `
     <div class="c b lg">${esc(company?.name || 'الشركة')}</div>
@@ -304,7 +315,7 @@ export async function printThermalInvoice(doc: InvoiceDoc, opts?: ThermalPrintOp
     ${d.notice ? `<div class="sep"></div><div class="c muted">${esc(d.notice)}</div>` : ''}
     <div class="sep"></div>
     <div class="row"><span>رقم</span><span class="b">${esc(doc.number)}</span></div>
-    <div class="row"><span>التاريخ</span><span>${dt(doc.date)}</span></div>
+    <div class="row"><span>التاريخ</span><span>${dt(doc.date)}</span></div>${noteRows(doc, (_key, ar) => ar)}
     ${doc.deliveryDate ? `<div class="row"><span>تاريخ التسليم</span><span>${dt(doc.deliveryDate).split(' ')[0]}</span></div>` : ''}
     <div class="row"><span>المندوب</span><span>${esc(doc.repName)}</span></div>
     <div class="row"><span>العميل</span><span>${esc(doc.customer.name)}</span></div>
@@ -513,7 +524,7 @@ function rollInvoiceBody(f: InvoiceFacts, r: Roll): string {
     ${d.notice ? `<div class="sep"></div><div class="c muted">${esc(tr(d.notice))}</div>` : ''}
     <div class="sep"></div>
     <div class="row"><span>${lbl(r, doc.isReturn ? 'inv.returnNumber' : 'inv.number', 'رقم')}</span><span class="b">${esc(doc.number)}</span></div>
-    <div class="row"><span>${lbl(r, 'inv.date', 'التاريخ')}</span><span>${dt(doc.date)}</span></div>
+    <div class="row"><span>${lbl(r, 'inv.date', 'التاريخ')}</span><span>${dt(doc.date)}</span></div>${noteRows(doc, (key, ar) => lbl(r, key, ar))}
     ${doc.deliveryDate ? `<div class="row"><span>${lbl(r, 'inv.deliveryDate', 'تاريخ التسليم')}</span><span>${dt(doc.deliveryDate).split(' ')[0]}</span></div>` : ''}
     ${o.showRepName && !r.pt.hidden('inv.rep') ? `<div class="row"><span>${lbl(r, 'inv.rep', 'المندوب')}</span><span>${esc(doc.repName)}</span></div>` : ''}
     ${r.pt.hidden('cust.name') ? '' : `<div class="row"><span>${lbl(r, 'cust.name', 'العميل')}</span><span>${esc(doc.customer.name)}</span></div>`}

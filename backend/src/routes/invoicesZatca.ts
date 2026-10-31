@@ -35,8 +35,11 @@ import {
 import type { IssuanceChainStore } from '../compliance/zatca/issueChain';
 import { openIssuanceSigning } from '../compliance/zatca/issueSigner';
 import { runIssuance, stampInTx, type StampInTxResult } from '../compliance/zatca/issueTx';
+// الإشعار الدائن «برقم فاتورةٍ أصلية يدويّ»: ختم الإشعار (حارس المرجع والسبب) وأعمدة صفّ المرتجع — النواة نفسها التي يختم بها الإشعار المرتبط
+import { creditNoteLegacyColumns, stampNoteInTx } from '../compliance/zatca/notes';
+import type { InvoiceSubtype } from '../compliance/zatca/mapInvoice';
 import type { EgsUnitStore } from '../compliance/zatca/onboardingStore';
-import { REHEARSAL_ENVIRONMENT, resolveInvoiceRegime, type RegimeDb, type RegimeMode, type RegimeSettings } from '../compliance/zatca/regime';
+import { REHEARSAL_ENVIRONMENT, resolveInvoiceRegime, type Regime, type RegimeDb, type RegimeMode, type RegimeSettings } from '../compliance/zatca/regime';
 import type { SecretKeyring } from '../compliance/zatca/secrets';
 import { isOverdue, isPrintableMirror, mirrorQrOf, mirrorStatusOf, subtypeOfTypeName, type DocumentStatus, type Subtype } from '../compliance/zatca/status';
 import type { KeyedAsyncMutex } from '../compliance/zatca/unitMutex';
@@ -501,6 +504,11 @@ export interface Phase2LedgerHooks {
   creditLimitNotice(tx: Phase2Tx, input: {
     tenantId: string; invoiceId: string; customerId: string; salesRepId: string; customerName: string; balance: number; limit: number;
   }): Promise<void>;
+  /**
+   * services/accounting.postReturnEntries — للإشعار الدائن «برقمٍ يدويّ» (manualNote) وحده. اعتماديات الإشعارات (NoteIssuanceDeps)
+   * تحمله دائماً، وغيابه هنا (اعتماديات فاتورةٍ فقط) ⇒ الإشعار اليدويّ يُرفض قبل أيّ مستند لا يُكتب بلا قيده.
+   */
+  postReturn?(tx: Phase2Tx, tenantId: string, invoiceId: string, customerId: string, total: number, at: Date): Promise<void>;
 }
 
 /**
@@ -629,6 +637,30 @@ export interface Phase2IssuanceContext {
   lots?: InvoiceLotPlan | null;
   /** «تتبّع اللوط» (D25): علم الشركة كما قرأه routes/invoices.ts من صفّ المندوب (غائب = مطفأ) — لحارس الصنف الذي صار متتبَّعاً */
   lotsOn?: boolean;
+  /**
+   * المرتجع «برقم فاتورةٍ أصلية يدويّ» (services/returnPolicy.ts — «اشتراط اختيار فاتورة البيع» مطفأ في المرحلة الثانية): يصدر
+   * **إشعاراً دائناً 381** على سلسلة الوحدة لا فاتورةً سالبة. يملؤه routes/invoicesNotes.ts وحده بعد فحوصه (الرقم وطريقة الدفع
+   * والسبب وأنه ليس في النظام)؛ وغيابه = الفاتورة كما هي، والمرتجع بلا أصل يبقى 422 ZATCA_RETURN_NEEDS_ORIGINAL.
+   */
+  manualNote?: Phase2ManualNote | null;
+}
+
+/** ما يحمله الإشعار الدائن اليدويّ إلى نواة الإصدار — BT-25 وKSA-10 وBR-49 ونوعه الفرعي من تصنيف العميل الحيّ */
+export interface Phase2ManualNote {
+  /** BT-25: رقم الفاتورة الأصلية كما كُتب مطبَّعاً (services/returnPolicy.ts normalizeReturnRef) */
+  originalNumber: string;
+  /** لا أصل يُورَث منه: تصنيف العميل الحيّ (classifyBuyerSubtype) كأصلٍ من المرحلة الأولى */
+  originalSubtype: InvoiceSubtype;
+  /** BR-49: طريقة دفع الأصل كما يختارها المُصدِر — بلا افتراضيّ صامت */
+  originalPaymentType: 'CASH' | 'CREDIT';
+  /** KSA-10 مطبَّعاً (3..1000) */
+  reason: string;
+  /** returnReason القديم (NORMAL/DAMAGED/EXCHANGE) */
+  reasonCode: string | null;
+  /** العودة لمخزون السيارة محسومةً (resolveReturnToStock) */
+  returnToStock: boolean;
+  /** مفتاح API: لحظة جهازه لا تُخزَّن على الإشعار (كالإشعار المرتبط) */
+  viaApiKey: boolean;
 }
 
 /** أعمدة البند كما يكتبها المسار القديم حرفياً (دالّة لا قيماً حرفية: أعمدة المرحلة الثانية تُكتب فوقها بالانتشار). */
@@ -697,7 +729,17 @@ export async function issuePhase2Invoice(ctx: Phase2IssuanceContext, deps: Phase
     ...(deps.env ? { env: deps.env } : {}), now, seller,
   });
   if (regime.phase === 1) return null; // ← المرحلة الأولى: المسار القديم يكمل بلا تغيير
+  return issuePhase2InRegime(ctx, deps, seller, regime, now);
+}
 
+/**
+ * الفرع بعد قرار النظام الضريبي (مرحلة ثانية) — ويستدعيه الإشعار الدائن اليدويّ (routes/invoicesNotes.ts) بالقرار الذي حسمه
+ * هو، فلا يُعاد حلّ النظام ولا تُقرأ الوحدات مرّتين. الحرّاس كلّها كما هي: الانتقال، والقدرات، والحجب، والبائع، والمفتاح، والتحويل.
+ */
+export async function issuePhase2InRegime(
+  ctx: Phase2IssuanceContext, deps: Phase2IssuanceDeps,
+  seller: Awaited<ReturnType<EgsUnitStore['loadSellerSettings']>>, regime: Exclude<Regime, { phase: 1 }>, now: Date,
+): Promise<Phase2Result | null> {
   // D11 cut-over (Z5.8، نقد 3/4): بعد التفعيل الحيّ، مستندٌ أُعيد رفعه (X-FS-Replay) بلحظة جهازٍ من قبل التفعيل يُقبل
   // مرحلةً أولى ضمن مهلة ٧٢ ساعة (بعودة null فيسجّله المسار القديم)، وإلا يُحفظ لمراجعة الإدارة (لا رفض صامت أبداً).
   // شرط X-FS-Replay ولحظة الجهاز مقصود (نقد 2): الطلب الحيّ الأوّل — ومنه رفع المندوب المتّصل — لا يمرّ من هنا.
@@ -731,8 +773,13 @@ export async function issuePhase2Invoice(ctx: Phase2IssuanceContext, deps: Phase
   const gate = capsGate(ctx.caps);
   if (gate) return errorResult(gate);
 
-  // المرتجع في المرحلة الثانية إشعارٌ دائن مرتبط بالأصل (Z5.5) لا فاتورة سالبة
-  if (ctx.body.type === 'RETURN') return errorResult(new ZatcaHttpError('ZATCA_RETURN_NEEDS_ORIGINAL'));
+  // المرتجع في المرحلة الثانية إشعارٌ دائن مرتبط بالأصل (Z5.5) لا فاتورة سالبة — أو إشعارٌ دائن برقمٍ يدويّ فحصه
+  // routes/invoicesNotes.ts (manualNote). وما عداهما لا يصل نواة الإصدار مرتجعاً أبداً
+  if (ctx.body.type === 'RETURN' && !ctx.manualNote) return errorResult(new ZatcaHttpError('ZATCA_RETURN_NEEDS_ORIGINAL'));
+  // والإشعار اليدويّ نوعه مرتجع وحده، ولا يُكتب بلا قيد مرتجعه (اعتماديات الإشعارات)
+  if (ctx.manualNote && (ctx.body.type !== 'RETURN' || !deps.ledger.postReturn)) {
+    return errorResult(new ZatcaHttpError('ZATCA_INTERNAL', { logDetail: { source: 'NOTE', code: 'MANUAL_NOTE_CONTEXT' } }));
+  }
 
   if ('blocked' in regime) return errorResult(unitUnavailableError(regime.blocked, { source: 'REGIME', code: regime.blocked }));
   if (!seller) return errorResult(unitUnavailableError('SELLER_NOT_READY', { source: 'REGIME', code: 'settings-missing' }));
@@ -791,9 +838,12 @@ async function issueNow(
     if (p && !expectedBases.has(p.id)) expectedBases.set(p.id, { name: p.name, unit: it.productUnit ?? p.unit });
   }
 
+  // الإشعار الدائن «برقمٍ يدويّ» (manualNote): البنود من الطلب بالمحرّك نفسه، ونوع المستند 381 بمرجعه وسببه وطريقة دفع أصله —
+  // لا تاريخ توريد (كالإشعار المرتبط) ولا خطة سداد
+  const manual = ctx.manualNote ?? null;
   const request: IssuanceRequest = {
-    type: ctx.body.type,
-    paymentPlan: ctx.body.paymentPlan ?? null,
+    type: manual ? manual.originalPaymentType : ctx.body.type,
+    paymentPlan: manual ? null : (ctx.body.paymentPlan ?? null),
     pricesIncludeTax: ctx.body.pricesIncludeTax,
     discountPct: ctx.body.discountPct ?? 0,
     // الكمية والسعر بوحدة البند كما دخلا المحرّك (D6: إجمالي المحرّك = PayableAmount)، ورمز الوحدة من لقطتها
@@ -801,11 +851,15 @@ async function issueNow(
       productId: i.productId, qty: i.qty, unitPrice: i.unitPrice, discountPct: i.discountPct ?? 0, taxPct: i.taxPct ?? null,
       unitCode: ctx.items[idx]?.unitCode ?? null,
     })),
-    supplyDate: ctx.body.invoiceDate ?? null,
+    supplyDate: manual ? null : (ctx.body.invoiceDate ?? null),
   };
   // كلّ رفض هنا قبل أيّ قفل أو ICV (D2/Q2، D9، الفحص المسبق، مبالغ D6)
   const prepared: PreparedIssuance = prepareIssuance({
     settings: seller, customer: ctx.customer, products, request, companyVat: ctx.companyVat, engine: ctx.engine, now,
+    ...(manual && {
+      kind: 'CREDIT_NOTE' as const,
+      note: { originalNumber: manual.originalNumber, originalSubtype: manual.originalSubtype, originalPaymentType: manual.originalPaymentType, reason: manual.reason },
+    }),
   });
 
   // «تتبّع اللوط» (§٤.٩، ن٢-٣): فحصٌ رخيص بلا قفل قبل التوقيع — والقرار الحاكم داخل المعاملة (createInvoice). LotError يُرمى
@@ -823,13 +877,17 @@ async function issueNow(
     ...(deps.mutex !== undefined ? { mutex: deps.mutex } : {}),
     transaction: () => deps.transaction(async tx => {
       created = null; // إعادة المعاملة (تصادم ترقيم) تبدأ من صفّ جديد
-      return stampInTx<Phase2Tx>(tx, { chain: deps.chain, documents: deps.documents, now: deps.now }, {
+      // الإشعار اليدويّ يُختم بختم الإشعارات (يحرس المرجع والسبب ثم stampInTx نفسه) — حلقةٌ في سلسلة الوحدة نفسها
+      return (manual ? stampNoteInTx<Phase2Tx> : stampInTx<Phase2Tx>)(tx, { chain: deps.chain, documents: deps.documents, now: deps.now }, {
         tenantId: ctx.tenantId,
         prepared,
         signing,
         sellerVat: seller.taxNumber,
         hooks: {
-          allocateNumber: (t, issuedAt) => deps.chain.nextNumberInTx(t, ctx.tenantId, phase2NumberPrefix('INV', issuedAt)),
+          // الإشعار الدائن بادئته RET كالمرتجع (notes.ts noteNumberPrefix)، والفاتورة INV
+          allocateNumber: (t, issuedAt) => (manual
+            ? deps.chain.nextNumberInTx(t, ctx.tenantId, phase2NumberPrefix('RET', issuedAt))
+            : deps.chain.nextNumberInTx(t, ctx.tenantId, phase2NumberPrefix('INV', issuedAt))),
           createInvoice: async (t, record) => {
             // قبل إدراج البنود (وقفلِ مفتاحها الأجنبيّ نفسه): لقطاتٌ حُلّت على أساسٍ حوّله تحويلٌ متزامن لا تُكتب
             const lockedBases = await lockProductBases(t, ctx.tenantId, expectedBases);
@@ -847,7 +905,8 @@ async function issueNow(
                 tenantId: ctx.tenantId,
                 number: record.number,
                 clientRef: ctx.body.clientRef ?? undefined,
-                clientCreatedAt: ctx.body.clientCreatedAt ? new Date(ctx.body.clientCreatedAt) : undefined,
+                // والإشعار اليدويّ بمفتاح API لا يخزّن لحظة جهازه (يومُ مرتجعٍ يختاره المُرسِل — كالإشعار المرتبط)
+                clientCreatedAt: ctx.body.clientCreatedAt && !manual?.viaApiKey ? new Date(ctx.body.clientCreatedAt) : undefined,
                 customerId: ctx.customerId,
                 salesRepId: ctx.salesRepId,
                 ...(ctx.teamId && { teamId: ctx.teamId }),
@@ -866,8 +925,12 @@ async function issueNow(
                 discountPct: ctx.body.discountPct ?? 0,
                 paidAmt: ctx.body.type === 'CASH' ? record.amounts.total : 0,
                 remainingAmt: ctx.body.type === 'CASH' ? 0 : record.amounts.total,
+                // الإشعار اليدويّ صفُّ مرتجعٍ كما يكتبه المسار القديم (السبب والعودة للمخزون، والمدفوع والمتبقّي صفران)
+                ...(manual && creditNoteLegacyColumns({ reasonCode: manual.reasonCode, returnToStock: manual.returnToStock })),
                 // أعمدة المرحلة الثانية والمرآة والمبالغ المخزَّنة (§2.4) — تغلب قيم المحرّك عمداً
                 ...phase2InvoiceColumns(record),
+                // ورابطه: لا أصل في المنصّة، وBT-25 الرقم المكتوب وKSA-10 السبب كما دخلا المستند
+                ...(manual && { originalInvoiceId: null, billingReference: manual.originalNumber, noteReason: manual.reason }),
                 einvoiceSnapshot: record.snapshot as unknown as Prisma.InputJsonObject,
                 items: {
                   // أعمدة البند القديمة (بلقطة وحدته)، ثمّ seq والاسم ورمز الوحدة والفئة والإعفاء وضريبة سطر الـXML فوقها،
@@ -889,6 +952,11 @@ async function issueNow(
           // نقد 38: قيود دفتر العميل (وقفل صفّه) **بعد** الختم وإدراج المستند وتقدّم السلسلة
           afterDocument: async (t, summary) => {
             const total = prepared.amounts.total;
+            if (manual) {
+              // الإشعار اليدويّ مرتجعٌ في الدفتر (postReturnEntries) — لا متبقّي أصلٍ يُنقص ولا تنبيه حدٍّ ائتماني
+              await deps.ledger.postReturn!(t, ctx.tenantId, summary.invoiceId, ctx.customerId, total, summary.issuedAt);
+              return;
+            }
             if (ctx.body.type === 'CASH') {
               await deps.ledger.postCashInvoice(t, ctx.tenantId, summary.invoiceId, ctx.customerId, total, summary.issuedAt);
             } else {

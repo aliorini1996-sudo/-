@@ -12,6 +12,7 @@ import { cardPayUsable } from '../services/cardPayment';
 import teamsRouter from './teams';
 import printSettingsRouter from './printSettings';
 import printTextsRouter from './printTexts';
+import returnPolicyRouter from './returnPolicy';
 import paymentMethodsConfigRouter from './paymentMethodsConfig';
 import companyBuyerRelaxRouter from './companyBuyerRelax';
 
@@ -25,6 +26,9 @@ router.use('/print-settings', printSettingsRouter);
 // «نصوص المطبوعات» — /api/company/print-texts (routes/printTexts.ts): صياغة نصوص الفاتورة والسند وإخفاؤها ولغتها الثانية.
 // مسارٌ مستقلّ كإعدادات الطباعة — PUT /api/company كما هو
 router.use('/print-texts', printTextsRouter);
+// «اشتراط اختيار فاتورة البيع للمرتجع» — /api/company/return-policy (routes/returnPolicy.ts): الحفظ لمدير الشركة وحده بلا مفتاح API،
+// والقراءة من GET /api/company (العمود خام). مسارٌ مستقلّ كنصوص المطبوعات — PUT /api/company كما هو
+router.use('/return-policy', returnPolicyRouter);
 // «إدارة طرق الدفع» — /api/company/payment-methods (routes/paymentMethodsConfig.ts): القراءة لكل مسجّل (المندوب يبني منها
 // اختيارات السند وأسماءه) والحفظ بصلاحية إعدادات الشركة وعَلَم صفحة «طرق الدفع». مسارٌ مستقلّ كإعدادات الطباعة — PUT /api/company كما هو
 router.use('/payment-methods', paymentMethodsConfigRouter);
@@ -60,8 +64,9 @@ const companySchema = z.object({
 // و«طباعة التشغيلة» (lotOnInvoice) لا تخرج خاماً: GET يعيدها مشروطةً بعلم «تتبّع اللوط» (D15)، وردّ الحفظ كما كان قبل الميزة
 function maskCompany<T extends Record<string, unknown> | null>(c: T): T {
   if (!c) return c;
-  const { einvoiceClientSecret, lotOnInvoice: _lotOnInvoice, ...rest } = c as Record<string, unknown>;
-  void _lotOnInvoice;
+  // returnPolicyChangedBy: معرّف من غيّر إعداد المرتجع (مديرٌ أو جلسة مالك) — للتدقيق لا لأجهزة المناديب
+  const { einvoiceClientSecret, lotOnInvoice: _lotOnInvoice, returnPolicyChangedBy: _changedBy, ...rest } = c as Record<string, unknown>;
+  void _lotOnInvoice; void _changedBy;
   return { ...rest, einvoiceHasSecret: !!einvoiceClientSecret } as unknown as T;
 }
 

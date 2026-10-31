@@ -480,3 +480,65 @@ test('الوحدات المتعددة: وحدة البند بغير الأساس
   const classic = await printOne(multi);
   assert.ok(classic.html.includes('ماء 330 مل <span class="muted">(كرتون)</span>') && classic.html.includes('(علبة)'));
 });
+
+// ═══ الإشعار الدائن (طلب المالك ٣١ أكتوبر ٢٠٢٦): مرجع الفاتورة الأصلية (BT-25) وسبب الإرجاع (KSA-10) — الهيئة تشترطهما على الورقة ═══
+
+const REF = 'OLD-2024/0115';
+const REASON = 'بضاعة تالفة <عند التسليم> & مكسورة';
+const ROWS_AR = `\n    <div class="row"><span>الفاتورة الأصلية</span><span dir="ltr">${REF}</span></div>`
+  + '\n    <div class="row"><span>سبب الإرجاع</span><span>بضاعة تالفة &lt;عند التسليم&gt; &amp; مكسورة</span></div>';
+/** الوثيقة نفسها وصفّا الإشعار مُدرجان بعد صفّ التاريخ وحده */
+const withRowsAfterDate = (html: string, rows: string, dateLabel: string): string => {
+  const at = html.indexOf('</div>', html.indexOf(`<span>${dateLabel}</span>`)) + '</div>'.length;
+  assert.ok(at > 10, 'صفّ التاريخ غائب');
+  return html.slice(0, at) + rows + html.slice(at);
+};
+
+test('الإشعار الدائن على الشريط الكلاسيكي: صفّا المرجع والسبب بعد التاريخ مُهرَّبين — وبقية الوثيقة كمرتجع الذهبيّ حرفاً بحرف', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const ret = FIX.ret as InvoiceDoc;
+  const plain = norm((await printOne(ret)).html);
+  assert.equal(sha(plain), GOLDEN_SHA.ret, 'المرتجع بلا مرجع تغيّر');
+  const note = norm((await printOne({ ...ret, billingReference: `  ${REF} `, noteReason: REASON })).html);
+  assert.equal(note, withRowsAfterDate(plain, ROWS_AR, 'التاريخ'));
+  assert.ok(!note.includes('<عند'), 'سبب الإرجاع غير مُهرَّب');
+  // المرجع وحده أو السبب وحده: صفّه وحده
+  const refOnly = norm((await printOne({ ...ret, billingReference: REF })).html);
+  assert.equal(refOnly, withRowsAfterDate(plain, ROWS_AR.slice(0, ROWS_AR.indexOf('\n', 1)), 'التاريخ'));
+  assert.ok(!refOnly.includes('سبب الإرجاع'));
+  // الفارغ والمسافات وnull ⇒ الذهبيّ كما هو؛ وفاتورة بيعٍ تحمل مرجعاً (ليست مرتجعاً) لا تطبعه
+  for (const extra of [{ billingReference: null, noteReason: null }, { billingReference: '   ', noteReason: '\n' }]) {
+    assert.equal(sha(norm((await printOne({ ...ret, ...extra })).html)), GOLDEN_SHA.ret, JSON.stringify(extra));
+  }
+  for (const name of ['simplified', 'standard', 'stamped', 'delivery'] as const) {
+    const f = await printOne({ ...(FIX[name] as InvoiceDoc), billingReference: REF, noteReason: 'سبب' });
+    assert.equal(sha(norm(f.html)), GOLDEN_SHA[name], `${name}: فاتورة البيع تغيّرت`);
+  }
+  t.mock.timers.tick(400);
+});
+
+test('الإشعار الدائن على القالبين الجديدين (58 و80): التسميتان بـlbl بعد التاريخ — ومرتجعٌ بلا مرجع كما كان حرفاً بحرف', async () => {
+  const ret = FIX.ret as InvoiceDoc;
+  for (const tpl of ['roll_compact', 'roll_detailed'] as const) {
+    for (const preset of ['roll58', 'roll80'] as const) {
+      const opts = { profile: profile(tpl, preset), tr: brackets };
+      const plain = norm((await printOne(ret, opts)).html);
+      for (const extra of [{ billingReference: null, noteReason: null }, { billingReference: ' ', noteReason: '' }]) {
+        assert.equal(norm((await printOne({ ...ret, ...extra }, opts)).html), plain, `${tpl}/${preset}: المرتجع بلا مرجع تغيّر`);
+      }
+      const note = norm((await printOne({ ...ret, billingReference: REF, noteReason: REASON }, opts)).html);
+      const rows = `\n    <div class="row"><span>[الفاتورة الأصلية]</span><span dir="ltr">${REF}</span></div>`
+        + '\n    <div class="row"><span>[سبب الإرجاع]</span><span>بضاعة تالفة &lt;عند التسليم&gt; &amp; مكسورة</span></div>';
+      assert.equal(note, withRowsAfterDate(plain, rows, '[التاريخ]'), `${tpl}/${preset}`);
+      // فاتورة بيعٍ تحمل مرجعاً لا تطبعه
+      const sale = { profile: profile(tpl, preset), tr: brackets };
+      assert.equal(norm((await printOne({ ...(FIX.simplified as InvoiceDoc), billingReference: REF, noteReason: 'سبب' }, sale)).html),
+        norm((await printOne(FIX.simplified, sale)).html), `${tpl}/${preset}: فاتورة البيع تغيّرت`);
+    }
+  }
+  // المختوم (المرحلة الثانية): الإشعار الدائن المبلَّغ يطبع مرجعه وسببه
+  const stampedNote: InvoiceDoc = { ...base, number: 'RET-2610-000007', isReturn: true, type: 'CREDIT', billingReference: REF, noteReason: 'إرجاع',
+    zatca: zatca({ documentKind: 'CREDIT_NOTE' }) };
+  const s = await printOne(stampedNote, { profile: profile('roll_compact', 'roll80') });
+  assert.ok(s.html.includes(`<span>الفاتورة الأصلية</span><span dir="ltr">${REF}</span>`) && s.html.includes('<span>سبب الإرجاع</span><span>إرجاع</span>'));
+});

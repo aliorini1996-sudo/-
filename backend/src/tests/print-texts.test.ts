@@ -408,12 +408,17 @@ test('القائمة: ما يقبل الإخفاء يساوي القائمة ا�
     'h.taxNumber', 'h.address', 'h.commercialReg', 'inv.number', 'inv.returnNumber', 'inv.date', 'inv.time', 'inv.deliveryDate',
     'cust.taxNumber', 'col.item', 'col.qty', 'col.price', 'col.priceIncl', 'col.total', 'tot.taxable', 'tot.vat', 'tot.vatIncl',
     'tot.grand', 'tot.returnGrand', 'rcp.number', 'rcp.date', 'rcp.amount', 'rcp.from',
+    // الإشعار الدائن: مرجع الفاتورة الأصلية (BT-25) وسببه (KSA-10)
+    'inv.originalRef', 'inv.noteReason',
   ]) {
     const x = printTextEntry(k);
     assert.ok(x, k);
     assert.equal(printTextHideable(x!), false, `${k} صار قابلاً للإخفاء`);
   }
-  assert.deepEqual(['h.taxNumber', 'h.address', 'h.commercialReg', 'inv.number', 'inv.date', 'tot.grand'].map((k) => printTextEntry(k)!.lock), Array(6).fill('zatca'));
+  assert.deepEqual(['h.taxNumber', 'h.address', 'h.commercialReg', 'inv.number', 'inv.date', 'tot.grand', 'inv.originalRef', 'inv.noteReason'].map((k) => printTextEntry(k)!.lock), Array(8).fill('zatca'));
+  // مضافان آخر قسم الفاتورة (المفتاح ثابت للأبد والإضافة آمنة) — في مجموعة بيانات المستند
+  assert.deepEqual(['inv.originalRef', 'inv.noteReason'].map((k) => [printTextEntry(k)!.doc, printTextEntry(k)!.group, printTextEntry(k)!.ar]),
+    [['invoice', 'info', 'الفاتورة الأصلية'], ['invoice', 'info', 'سبب الإرجاع']]);
   assert.equal(printTextEntry('tot.vat')!.lock, 'fixed');
 });
 

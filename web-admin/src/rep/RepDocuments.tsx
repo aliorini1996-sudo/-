@@ -79,6 +79,8 @@ export interface Company {
   // «تتبّع اللوط» — يصلان مع ردّ /company، وغيابهما (نسخة قديمة) إطفاء؛ lotOnInvoice يطبع التشغيلة على فاتورة العميل (lotFlagsOf)
   lotTrackingEnabled?: boolean;
   lotOnInvoice?: boolean;
+  // «اشتراط اختيار فاتورة البيع للمرتجع» — null = افتراضيّ المرحلة (lib/returnPolicy.ts)
+  returnRequiresSaleInvoice?: boolean | null;
   // «نصوص المطبوعات» v1 — خام كما في العمود (null = نصوص اليوم). لا يُقرأ إلا عبر normalizePrintTexts (lib/print/printTexts.ts):
   // صياغة نصوص الفاتورة والسند وإخفاء غير الإلزامي منها ولغةٌ ثانية على الورقة
   printTexts?: unknown;
@@ -150,6 +152,12 @@ export interface InvoiceDoc {
    * notice ردّ الإصدار — يُعرض على **شاشة النتيجة وحدها**؛ قالبا الطباعة (PrintableInvoice والحراري) لا يقرآنه أبداً.
    */
   buyerNotice?: string | null;
+  /**
+   * الإشعار الدائن (المرتجع في المرحلة الثانية): مرجع الفاتورة الأصلية (BT-25) كما بُلِّغ — رقم فاتورةٍ في المنصّة أو رقمٌ يدويّ
+   * لفاتورةٍ من نظامٍ سابق — وسببه (KSA-10). يُطبعان متى وُجدا: الهيئة تشترطهما على الإشعار الدائن.
+   */
+  billingReference?: string | null;
+  noteReason?: string | null;
 }
 
 /** مرفق سند قبض — صورة إيصال تحويل أو شيك بصيغة data URL */
@@ -370,6 +378,22 @@ export type AnyDoc = InvoiceDoc | ReceiptDoc | StatementDoc | SettlementLogDoc |
  */
 export function showsItemUnit(it: { unit?: string; unitFactor?: number | null; multiUnit?: boolean }, showItemUnit: boolean): boolean {
   return !!it.unit && (showItemUnit || it.multiUnit === true || factorOf(it) !== 1);
+}
+
+const noteLine = (v: unknown): string | null => {
+  if (typeof v !== 'string') return null;
+  const s = v.replace(/\s+/g, ' ').trim();
+  return s ? s : null;
+};
+
+/**
+ * ما يُطبع على الإشعار الدائن (المرتجع) من صفّه: مرجع الفاتورة الأصلية (BT-25 — رقمها في المنصّة أو رقمٌ يدويّ لفاتورةٍ من نظامٍ
+ * سابق) وسبب الإرجاع (KSA-10) — سطراً واحداً، والفارغ null. القاعدة الواحدة لقالب A4 والشريط الكلاسيكي والقالبين الجديدين؛
+ * وفاتورة البيع ومرتجع المرحلة الأولى بلا مرجع ⇒ لا صفّ، فورقتهما كما كانت حرفاً بحرف.
+ */
+export function creditNoteRefs(doc: Pick<InvoiceDoc, 'isReturn' | 'billingReference' | 'noteReason'>): { ref: string | null; reason: string | null } {
+  if (!doc.isReturn) return { ref: null, reason: null };
+  return { ref: noteLine(doc.billingReference), reason: noteLine(doc.noteReason) };
 }
 
 function fullAddress(c: { address?: string; district?: string; city?: string }): string {
@@ -604,6 +628,7 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
   // العلم الصريح هو المرجع؛ والاستدلال الحسابي احتياط للفواتير القليلة التي كُتبت
   // في نافذة الالتباس (بين نشر الاسعار الشاملة ورد العمودين الى الصافي) قبل وجود العمود
   const inclusiveDoc = doc.pricesIncludeTax ?? (doc.tax > 0 && Math.abs((doc.subtotal - doc.discount) - doc.total) < 0.005);
+  const noteRefs = creditNoteRefs(doc);
   return (
     <DocTextsContext.Provider value={pt}>
     <div ref={ref} style={sheet.style} {...sheet.attrs}>
@@ -628,6 +653,9 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
           <InfoBox label={doc.isReturn ? L('inv.returnNumber', 'رقم المرتجع') : L('inv.number', 'رقم الفاتورة')} value={doc.number} />
           <InfoBox label={L('inv.date', 'التاريخ')} value={formatDate(doc.date)} />
           <InfoBox label={L('inv.time', 'وقت الإصدار')} value={formatTime(doc.date)} />
+          {/* الإشعار الدائن: مرجع الفاتورة الأصلية (BT-25) وسببه (KSA-10) إلزاميان عليه — ومستندٌ لا يحملهما بلا صفّ (الورقة كما كانت) */}
+          {noteRefs.ref && <InfoBox label={L('inv.originalRef', 'الفاتورة الأصلية')} value={<span dir="ltr" style={{ unicodeBidi: 'isolate' }}>{noteRefs.ref}</span>} />}
+          {noteRefs.reason && <InfoBox label={L('inv.noteReason', 'سبب الإرجاع')} value={noteRefs.reason} />}
           {!doc.isReturn && !pt.hidden('inv.type') && <InfoBox label={L('inv.type', 'النوع')} value={
             doc.paymentPlan === 'INSTALLMENT' ? V('تقسيط') : (doc.type === 'CASH' ? V('نقدي') : V('آجل'))
           } />}
@@ -1657,6 +1685,9 @@ export function invoiceDocFromDetail(inv: any, repName: string, company?: Compan
     /* فوترة ZATCA المرحلة الثانية: البانية الواحدة تغذّي ثلاث واجهات (المندوب، اللوحة، /m) — فالقرار يُتّخذ مرّة
      * واحدة هنا ولا يُنسى في واحدةٍ منها. `null` لصفوف المرحلة الأولى وهي كلّ ما عدا المفعَّلين. */
     zatca: zatcaDocView(inv),
+    // الإشعار الدائن: مرجع الفاتورة الأصلية (BT-25) وسببه (KSA-10) من صفّه — null لفاتورة البيع ومرتجع المرحلة الأولى
+    billingReference: typeof inv.billingReference === 'string' ? inv.billingReference : null,
+    noteReason: typeof inv.noteReason === 'string' ? inv.noteReason : null,
   };
 }
 

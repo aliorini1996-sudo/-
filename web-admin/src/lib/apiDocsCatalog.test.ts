@@ -87,6 +87,7 @@ test('خريطة التركيب تعرف الموجّهات المتداخلة �
   assert.deepEqual([...(MOUNTS.get('/company/payment-methods') ?? [])], ['paymentMethodsConfig']);
   assert.deepEqual([...(MOUNTS.get('/company/print-settings') ?? [])], ['printSettings']);
   assert.deepEqual([...(MOUNTS.get('/company/print-texts') ?? [])], ['printTexts']);
+  assert.deepEqual([...(MOUNTS.get('/company/return-policy') ?? [])], ['returnPolicy']);
   assert.deepEqual([...(MOUNTS.get('/company/teams') ?? [])], ['teams']);
   assert.deepEqual([...(MOUNTS.get('/company/buyer-relax') ?? [])], ['companyBuyerRelax']);
   assert.deepEqual([...(MOUNTS.get('/invoices') ?? [])].sort(), ['invoices', 'invoicesEinvoiceDocs']);
@@ -114,7 +115,7 @@ test('كل مسار في المستند مركَّبٌ في الخادم بطر�
  */
 const COVERED_ROUTERS = [
   'locations', 'paymentMethodsConfig', 'printSettings', 'printTexts', 'attendanceAdmin', 'teams', 'reports', 'invoices', 'salesReps', 'vanStock', 'warehouse', 'receipts',
-  'repStockRequests', 'products', 'lots', 'import', 'companyBuyerRelax',
+  'repStockRequests', 'products', 'lots', 'import', 'companyBuyerRelax', 'returnPolicy',
 ];
 const NOT_DOCUMENTED: Readonly<Record<string, string>> = {
   'PUT /company/teams/:id/supervisors': 'يرفض مفاتيح API دائماً بـ403 (API_KEY_FORBIDDEN بعد فحص صلاحيتي الإعدادات والمستخدمين) — نطاق مستخدمي الشركة من اللوحة وحدها، ومذكورٌ في مقدمة مجموعة الفرق',
@@ -122,6 +123,7 @@ const NOT_DOCUMENTED: Readonly<Record<string, string>> = {
   'PUT /rep-stock-requests/mine': 'للمندوب وحده (repOnly) والمفتاح مستخدم شركة فيُرفض 403',
   'DELETE /rep-stock-requests/mine': 'للمندوب وحده (repOnly) والمفتاح مستخدم شركة فيُرفض 403',
   'PATCH /company/buyer-relax': 'يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN — قرار ضريبي من لوحة التحكم بتحذيره، لمدير الشركة غير المقيّد',
+  'PUT /company/return-policy': 'يرفض مفاتيح API دائماً بـ403 (API_KEY_FORBIDDEN بعد فحص صلاحية الإعدادات) — «اشتراط اختيار فاتورة البيع للمرتجع» لمدير الشركة من اللوحة وحدها، ومذكورٌ في GET /company وPOST /invoices',
 };
 
 test('كل مسار في موجّهات الميزات الحديثة موثّقٌ في المستند أو مستثنى بسبب مكتوب', () => {
@@ -307,6 +309,36 @@ test('دقّة المستند: وضعا قيد المرتجع كما في الخ
     for (const m of modes) assert.ok(text.includes(m), `${m} غائب: ${text.slice(0, 80)}`);
     assert.doesNotMatch(text, /مدة الإرجاع/);
   }
+});
+
+test('دقّة المستند: «اشتراط اختيار فاتورة البيع للمرتجع» — الحقلان والرموز والأعمدة كما في الخادم، ومسار الحفظ ممنوع على المفتاح', () => {
+  const post = endpointOf('POST', '/invoices');
+  const original = fieldOf(post, 'originalInvoiceId').desc;
+  assert.match(original, /returnRequiresSaleInvoice/);
+  assert.doesNotMatch(original, /وفي المرحلة الثانية إجباري، وغيابه/, 'الصيغة القديمة: الأصل إجباريٌّ في المرحلة الثانية دائماً');
+  assert.match(fieldOf(post, 'originalInvoiceRef').desc, /ZATCA_RETURN_REF_IN_SYSTEM/);
+  assert.match(fieldOf(post, 'originalPaymentType').desc, /BR-49/);
+  assert.ok(post.rules.some((r) => r.includes('RETURN_LINK_REQUIRED') && r.includes('originalInvoiceRef')), 'قاعدة الإعداد غائبة');
+  for (const c of ['RETURN_LINK_REQUIRED', 'ZATCA_RETURN_REF_INVALID', 'ZATCA_RETURN_REF_IN_SYSTEM', 'ZATCA_NOTE_LINES_INVALID', 'RETURN_NEEDS_SALE_INVOICE']) {
+    assert.ok(BACKEND_SRC.includes(`'${c}'`), `${c} لا يرسله الخادم`);
+  }
+  // الحقلان في مخطّط الخادم كما يصفهما المستند
+  const inv = routeFile('invoices');
+  assert.ok(inv.includes('originalInvoiceRef: z.string().max(200).optional(),'));
+  assert.ok(inv.includes("originalPaymentType: z.enum(['CASH', 'CREDIT']).optional(),"));
+  // والأعمدة الخام في GET /company (كل أعمدة CompanySettings)، والحفظ يرفض المفتاح في معالجه
+  const schema = read(path.join(BACKEND, '..', 'prisma', 'schema.prisma'));
+  const company = endpointOf('GET', '/company');
+  for (const k of ['returnRequiresSaleInvoice', 'returnPolicyChangedAt', 'returnPolicyChangedBy']) {
+    assert.match(company.response, new RegExp(`\\b${k}\\b`), `${k} غائب عن ردّ GET /company`);
+    assert.match(schema, new RegExp(`\\n\\s*${k}\\s`), `${k} ليس عموداً في الخادم`);
+  }
+  // معرّف من غيّر الإعداد لا يعود في GET /company (maskCompany) — والمستند يقول ذلك صراحة
+  assert.match(company.response, /لا يعود returnPolicyChangedBy/);
+  assert.ok(routeFile('company').includes('returnPolicyChangedBy: _changedBy'));
+  assert.ok(company.rules.some((r) => r.includes('PUT /company/return-policy') && r.includes('API_KEY_FORBIDDEN')));
+  assert.ok(routeFile('returnPolicy').includes("if (req.user?.apiKeyId) { res.status(403).json({ success: false, code: 'API_KEY_FORBIDDEN'"));
+  assert.ok(!documented.has('PUT /company/return-policy'));
 });
 
 test('دقّة المستند: clientCreatedAt لا يصنع يوم المرتجع لطلب المفتاح ولا يُخزَّن، والاستيراد يفحص بيانات المشتري صفاً صفاً', () => {

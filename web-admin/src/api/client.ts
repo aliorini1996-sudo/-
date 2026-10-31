@@ -289,6 +289,10 @@ export const companyApi = {
     get: () => api.get('/company/print-texts'),
     put: (data: PrintTextsV1 | null) => api.put('/company/print-texts', data ?? { reset: true }),
   },
+  // «اشتراط اختيار فاتورة البيع للمرتجع» — /api/company/return-policy: لمدير الشركة وحده؛ null = افتراضيّ المرحلة (lib/returnPolicy.ts)
+  returnPolicy: {
+    put: (requireSaleInvoice: boolean | null) => api.put('/company/return-policy', { requireSaleInvoice }),
+  },
   // «إدارة طرق الدفع» — /api/company/payment-methods: القراءة لكل مسجّل ({ data, methods, choices })، والحفظ بصلاحية إعدادات
   // الشركة وعَلَم صفحة «طرق الدفع» (400 بأسباب issues، 409 PAYMENT_METHODS_CONFLICT من تبويبٍ قديم). مسارٌ مستقلّ كالطباعة.
   // null = «استعادة الافتراضي»: { reset: true } — المضافة تبقى معطّلة بأسمائها (سنداتها القديمة تحتاجها)

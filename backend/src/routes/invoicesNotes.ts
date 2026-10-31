@@ -3,7 +3,9 @@
 // ----------------------------------------------------------------------------
 // z5_plan §3 «Z5.5» + §2.2 (معاملة الإصدار) + قرارات المالك D3/D4/Q1/Q5 + نقد الخطة (7، 11، 13، 20، 38):
 //   • D3: لا مرتجع بلا أصل بعد الربط — POST /invoices بنوع RETURN يمرّ من هنا إلى إشعارٍ دائن يشير إلى فاتورته
-//     (BT-25). وبلا أصلٍ في الطلب ⇒ 422 «اختر الفاتورة أولاً» كما كان.
+//     (BT-25). وبلا أصلٍ في الطلب ⇒ 422 «اختر الفاتورة أولاً» كما كان — ما لم يُطفئ مدير الشركة «اشتراط اختيار فاتورة
+//     البيع للمرتجع» (services/returnPolicy.ts): عندها إشعارٌ دائن «برقم فاتورةٍ أصلية يدويّ» (فاتورة من نظامٍ سابق) بعد فحوصه
+//     (issueReturnAsCreditNote)، يصدر بنواة الفاتورة نفسها (invoicesZatca.ts manualNote) — 381 لا فاتورة سالبة أبداً.
 //   • D4: الإلغاء بعد الربط ممنوع (409 قائم في PATCH /:id/cancel)، وبديله POST /:id/credit-note بـ`lines: 'FULL'`.
 //   • Q5: الإشعار الكامل لمدير الشركة أو لمندوبٍ يملك «إلغاء الفاتورة»؛ والجزئيّ يبقى على قاعدة المرتجع اليوم
 //     («إنشاء فاتورة»). والمدين لمدير الشركة وحده.
@@ -31,13 +33,18 @@ import { runIssuance, type StampInTxResult } from '../compliance/zatca/issueTx';
 import type { InvoiceSubtype } from '../compliance/zatca/mapInvoice';
 import type { UblParty } from '../compliance/zatca/model';
 import {
-  creditableLines, effectiveCreditScope, hasCreditableQty, noteEligibility, noteInvoiceColumns, noteItemColumns, noteNumberPrefix,
+  assertReason, creditableLines, effectiveCreditScope, hasCreditableQty, noteEligibility, noteInvoiceColumns, noteItemColumns, noteNumberPrefix,
   noteRefusalError, prepareCreditNote, prepareDebitNote, creditNoteLegacyColumns, creditedTotalOf, debitNoteLegacyColumns,
   remainingAfterCreditNote, resolveReturnToStock, stampNoteInTx,
   type CreditLineRequest, type CreditLinesRequest, type CreditScope, type CreditableLine, type DebitNoteLineInput, type LegacyReturnQty,
   type NoteEligible, type NoteKind, type NoteOriginalInvoice, type NoteOriginalItem, type PreparedNote, type PriorNote,
 } from '../compliance/zatca/notes';
-import { resolveInvoiceRegime } from '../compliance/zatca/regime';
+import { resolveInvoiceRegime, type Regime } from '../compliance/zatca/regime';
+import { classifyBuyerSubtype } from '../compliance/zatca/buyerParty';
+import { buyerSourceFromCustomer } from '../compliance/zatca/buyerData';
+import type { EgsUnitStore } from '../compliance/zatca/onboardingStore';
+// «اشتراط اختيار فاتورة البيع للمرتجع»: قواعد الرقم اليدويّ وطريقة الدفع — نقيّة
+import { RETURN_NEEDS_SALE_INVOICE_MESSAGE, RETURN_PAYMENT_PROBLEM_MESSAGE, normalizeReturnRef, returnPaymentTypeOf, returnRefProblem } from '../services/returnPolicy';
 import { baseNameKey, factorOf, unitFields } from '../services/units';
 import { REP_PRODUCT_RULE_CODE, replayPredatesRepRule, repLineProblem, type RepRuleProduct } from '../services/repProductRules';
 // «تتبّع اللوط» (§٤.٩): الخطة ودمج صفوف التوزيع — services/lots.ts نقيّة (لا قاعدة ولا Prisma)
@@ -47,9 +54,9 @@ import {
 } from '../services/lots';
 import { randomUUID } from 'node:crypto';
 import {
-  ITEM_LOTS_INCLUDE, allocateLotsInTx, assertLockedStillUntracked, capsGate, clearStandardInline, einvoiceView, isReplayRequest, lotPrecheck, regimeSettingsOf,
+  ITEM_LOTS_INCLUDE, allocateLotsInTx, assertLockedStillUntracked, capsGate, clearStandardInline, einvoiceView, isReplayRequest, issuePhase2InRegime, lotPrecheck, regimeSettingsOf,
   PRODUCT_LOCK_TIMEOUT, Phase2ProductUnitsBusy, Phase2ProductUnitsChanged, productUnitsBusyResult, productUnitsChangedResult,
-  type ClientCapsHeaders, type EinvoiceView, type Phase2IssuanceDeps, type Phase2LedgerHooks, type Phase2LotHooks, type Phase2Result, type Phase2Tx,
+  type ClientCapsHeaders, type EinvoiceView, type Phase2IssuanceContext, type Phase2IssuanceDeps, type Phase2LedgerHooks, type Phase2LotHooks, type Phase2Result, type Phase2Tx,
 } from './invoicesZatca';
 // «الوحدة الرئيسية» I10 (§2.13): انتظار القفل وحده انشغالٌ (55P03/40P01)، وسجلّ «قيد التحويل» يردّ قبل الـmutex ورأس السلسلة
 import { asLockBusy } from '../services/lots';
@@ -935,24 +942,104 @@ export function issueDebitNote(ctx: DebitNoteContext, deps: NoteIssuanceDeps): P
 }
 
 /**
+ * المرتجع «برقم فاتورةٍ أصلية يدويّ» كما حمّله routes/invoices.ts — يُقرأ حين يكون «اشتراط اختيار فاتورة البيع» مطفأً في
+ * المرحلة الثانية وحدها (services/returnPolicy.ts)، وغيابه ⇒ D3 كما هو.
+ */
+export interface ManualReturnInput {
+  /** سياق فرع المرحلة الثانية كما بناه المسار (البنود بلقطاتها والمحرّك والفريق والموقع وخطة اللوط الحرّة link NONE) */
+  invoice: Phase2IssuanceContext;
+  /** BT-25 كما كتبه المُصدِر (يُطبَّع ويُفحص هنا) */
+  originalInvoiceRef?: string | null;
+  /** BR-49: CASH | CREDIT — إلزاميّ مع الرقم */
+  originalPaymentType?: string | null;
+  /** مندوبٌ وفي المرتجع صنفٌ مفعّلة صلاحيته ⇒ RETURN_NEEDS_SALE_INVOICE كالمرحلة الأولى (قيد مخزونٍ لا ضريبة) */
+  repNeedsSaleInvoice?: boolean;
+  /** مندوبٌ بلا «تغيير السعر» سعّر بنداً فوق سعر الصنف لوحدته (حارس سعر البيع نفسه) — رسالة الرفض أو null */
+  repPriceProblem?: string | null;
+  /** سياسة «التالف يعود للمخزون» لأصناف المرتجع — للعودة الافتراضية (resolveReturnToStock) */
+  damagedReturnToStock: readonly (boolean | null)[];
+}
+
+/**
  * D3: مرتجع POST /invoices في شركةٍ مربوطة ⇒ إشعار دائن مرتبط بأصله. بلا أصلٍ في الطلب ⇒ 422 كما هو اليوم،
  * ولا يمرّ المرتجع السالب أبداً. يعيد null للمرحلة الأولى فيكمل المسار القديم حرفاً بحرف.
+ * والاشتراط مطفأ صراحةً (returnLinkRequired === false) ⇒ إشعارٌ دائن برقمٍ يدويّ (issueManualCreditNote).
  */
 export async function issueReturnAsCreditNote(
-  ctx: Omit<CreditNoteContext, 'lines' | 'originalInvoiceId'> & { originalInvoiceId: string | null; items: readonly ReturnItemLine[] },
+  ctx: Omit<CreditNoteContext, 'lines' | 'originalInvoiceId'> & {
+    originalInvoiceId: string | null; items: readonly ReturnItemLine[];
+    /** «اشتراط اختيار فاتورة البيع» الفعّال في المرحلة الثانية (الإعداد ?? true) — غيابه = مشترط (D3) */
+    returnLinkRequired?: boolean;
+    manualReturn?: ManualReturnInput | null;
+  },
   deps: NoteIssuanceDeps,
 ): Promise<Phase2Result | null> {
-  const { items, originalInvoiceId, ...rest } = ctx;
+  const { items, originalInvoiceId, returnLinkRequired, manualReturn, ...rest } = ctx;
   if (typeof originalInvoiceId !== 'string' || originalInvoiceId === '') {
     // مرتجعٌ بلا أصل: النظام الضريبي وحده يقرّر — والمرحلة الأولى تكمل مسارها القديم بلا أثر
+    const now = deps.now();
     const seller = await deps.units.loadSellerSettings(ctx.tenantId);
     const regime = await resolveInvoiceRegime(deps.db, ctx.tenantId, regimeSettingsOf(seller), {
-      ...(deps.env ? { env: deps.env } : {}), now: deps.now(), seller,
+      ...(deps.env ? { env: deps.env } : {}), now, seller,
     });
     if (regime.phase === 1) return null;
     const gate = capsGate(ctx.caps);
     if (gate) return errorResult(gate);
-    return errorResult(new ZatcaHttpError('ZATCA_RETURN_NEEDS_ORIGINAL'));
+    // الاشتراط قائم (افتراضيّ المرحلة الثانية، أو صريحاً) ⇒ D3 كما هو حرفاً بحرف
+    if (returnLinkRequired !== false || !manualReturn) return errorResult(new ZatcaHttpError('ZATCA_RETURN_NEEDS_ORIGINAL'));
+    return issueManualCreditNote({ ...rest, items }, manualReturn, deps, seller, regime, now);
   }
   return issueCreditNote({ ...rest, originalInvoiceId, lines: { fromReturnItems: items } }, deps);
+}
+
+const isInvoiceNumberTaken = async (db: NoteDb, tenantId: string, ref: string): Promise<boolean> =>
+  !!(await db.invoice.findFirst({ where: { tenantId, number: { equals: ref, mode: 'insensitive' } }, select: { id: true } }));
+
+/**
+ * الإشعار الدائن «برقم فاتورةٍ أصلية يدويّ» (الاشتراط مطفأ في المرحلة الثانية): الفاتورة الأصلية من نظامٍ سابق لا صفّ لها
+ * هنا، فيُفحص قبل أيّ قفل أو ICV ما كان يضمنه الربط بقدر الممكن:
+ *   ١) الرقم (٣..٦٠ وفيه رقم) وطريقة دفع الأصل (BR-49) ⇒ 422 ZATCA_RETURN_REF_INVALID — بلا افتراضيّ صامت
+ *   ٢) السبب KSA-10 (٣..١٠٠٠) ⇒ 422 ZATCA_NOTE_LINES_INVALID كالإشعار المرتبط
+ *   ٣) المندوب والأصناف المفعّلة صلاحيتها ⇒ RETURN_NEEDS_SALE_INVOICE (المنتهي لا يعود متاحاً للبيع في السيارة)
+ *   ٤) سعر المندوب بلا «تغيير السعر» لا يتجاوز سعر الصنف لوحدته (حارس سعر البيع) — الإشعار يُنقص ضريبة المخرجات
+ *   ٥) رقمٌ يطابق أيّ فاتورةٍ للشركة (بلا حساسية حالة) ⇒ 409 ZATCA_RETURN_REF_IN_SYSTEM: تُختار من القائمة فتسري حراسة
+ *      الكمية والقيمة — لا ائتمان مزدوج على فاتورةٍ معروفة
+ * ثم نواة الفاتورة نفسها (invoicesZatca.ts issuePhase2InRegime بـmanualNote): الانتقال والقدرات والحجب والبائع ومفتاح المنع من
+ * التكرار والتحويل، والبنود من الطلب بمحرّكه (buildInvoiceSource)، وprepareIssuance بنوع CREDIT_NOTE، وختم الإشعار ببادئة RET،
+ * وخطة اللوط الحرّة، وقيد المرتجع، واعتماد القياسيّ داخل الطلب. والنوع الفرعي من تصنيف العميل الحيّ (كأصلٍ من المرحلة الأولى).
+ */
+async function issueManualCreditNote(
+  ctx: Omit<CreditNoteContext, 'lines' | 'originalInvoiceId'> & { items: readonly ReturnItemLine[] },
+  manual: ManualReturnInput, deps: NoteIssuanceDeps,
+  seller: Awaited<ReturnType<EgsUnitStore['loadSellerSettings']>>, regime: Exclude<Regime, { phase: 1 }>, now: Date,
+): Promise<Phase2Result | null> {
+  const ref = normalizeReturnRef(manual.originalInvoiceRef);
+  const refProblem = returnRefProblem(ref);
+  if (refProblem) return errorResult(new ZatcaHttpError('ZATCA_RETURN_REF_INVALID', { messageAr: refProblem, reason: 'REFERENCE' }));
+  const paymentType = returnPaymentTypeOf(manual.originalPaymentType);
+  if (!paymentType) return errorResult(new ZatcaHttpError('ZATCA_RETURN_REF_INVALID', { messageAr: RETURN_PAYMENT_PROBLEM_MESSAGE, reason: 'PAYMENT_TYPE' }));
+  let reason: string;
+  try {
+    reason = assertReason(ctx.reason);
+  } catch (e) {
+    if (e instanceof ZatcaHttpError) return errorResult(e);
+    throw e;
+  }
+  if (manual.repNeedsSaleInvoice) {
+    return { status: 422, body: { success: false, code: 'RETURN_NEEDS_SALE_INVOICE', message: RETURN_NEEDS_SALE_INVOICE_MESSAGE } };
+  }
+  if (manual.repPriceProblem) return { status: 403, body: { success: false, message: manual.repPriceProblem } };
+  if (await isInvoiceNumberTaken(deps.db, ctx.tenantId, ref)) return errorResult(new ZatcaHttpError('ZATCA_RETURN_REF_IN_SYSTEM'));
+  return issuePhase2InRegime({
+    ...manual.invoice,
+    manualNote: {
+      originalNumber: ref,
+      originalSubtype: classifyBuyerSubtype(buyerSourceFromCustomer(ctx.customer)),
+      originalPaymentType: paymentType,
+      reason,
+      reasonCode: ctx.reasonCode ?? null,
+      returnToStock: resolveReturnToStock(ctx.returnToStock, ctx.reasonCode ?? null, manual.damagedReturnToStock.map(d => ({ damagedReturnToStock: d }))),
+      viaApiKey: ctx.viaApiKey === true,
+    },
+  }, deps, seller, regime, now);
 }

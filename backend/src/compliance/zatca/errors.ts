@@ -26,7 +26,7 @@ export type ZatcaErrorCode =
   | 'ZATCA_NOTE_ON_NOTE' | 'ZATCA_NOTE_LINES_INVALID' | 'ZATCA_NOTE_NOT_ALLOWED' | 'ZATCA_CLIENT_UPDATE_REQUIRED'
   | 'ZATCA_CLEARED_NO_XML' | 'ZATCA_ALLOCATION_BLOCKED' | 'ZATCA_WITHDRAW_NOT_ALLOWED' | 'ZATCA_REISSUE_NOT_ALLOWED'
   | 'ZATCA_RETRY_NOT_ALLOWED' | 'ZATCA_CANCEL_NOT_ALLOWED' | 'ZATCA_WITHDRAWN' | 'ZATCA_CUTOVER_REVIEW' | 'ZATCA_CUTOVER_REJECTED' | 'ZATCA_OFFLINE_BLOCKED' | 'ZATCA_INTERNAL' | 'CUSTOMER_ZATCA_INVALID' | 'TENANT_HAS_EINVOICE_ARCHIVE'
-  | 'UNIT_INVALID';
+  | 'UNIT_INVALID' | 'RETURN_LINK_REQUIRED' | 'ZATCA_RETURN_REF_INVALID' | 'ZATCA_RETURN_REF_IN_SYSTEM';
 
 export interface ZatcaCatalogueEntry {
   status: number;
@@ -90,6 +90,13 @@ export const ZATCA_ERROR_CATALOGUE: Readonly<Record<ZatcaErrorCode, Readonly<Zat
   // الوحدات المتعددة (DESIGN.md «قرارات أثناء التنفيذ»): unitId لصنفٍ آخر أو موقوف في طلبٍ حيّ — الرمز نفسه في مسار
   // المرحلة الأولى، لا رمزٌ ضريبيّ: الصمت والقراءة بالأساس كانا يقيّدان كرتوناً حبّةً في مستندٍ لا يُمحى
   UNIT_INVALID: { status: 400, messageAr: 'وحدة البيع المختارة لا تخصّ الصنف أو موقوفة — حدّث قائمة الأصناف ثم أعد المحاولة', alert: false },
+  // «اشتراط اختيار فاتورة البيع للمرتجع» (services/returnPolicy.ts، قرار المالك ٣١ أكتوبر ٢٠٢٦): الشركة تشترط الربط — المرحلة
+  // الأولى برمزٍ لا ضريبيّ (كـUNIT_INVALID)، والثانية تبقى ZATCA_RETURN_NEEDS_ORIGINAL بمعناها
+  RETURN_LINK_REQUIRED: { status: 422, messageAr: 'الشركة تشترط اختيار فاتورة البيع للمرتجع — اختر الفاتورة أولا', alert: false },
+  // والإعداد مطفأ في المرحلة الثانية: إشعارٌ دائن برقم فاتورةٍ أصلية يدويّ (BT-25) — الرقم وطريقة الدفع (BR-49) إلزاميان
+  ZATCA_RETURN_REF_INVALID: { status: 422, messageAr: 'رقم الفاتورة الأصلية أو طريقة دفعها غير صحيح — أكمله كما هو على الفاتورة', alert: false },
+  // رقمٌ يطابق فاتورةً في النظام: تُختار من القائمة فتسري حراسة الكمية والسعر (لا ائتمان مزدوج على فاتورةٍ معروفة)
+  ZATCA_RETURN_REF_IN_SYSTEM: { status: 409, messageAr: 'هذه الفاتورة موجودة في النظام — اخترها من قائمة فواتير العميل', alert: false },
 });
 
 /** سبب عدم توفّر الوحدة كما يصل العميل (reason) — أسباب النظام الضريبي + أعطال إعداد الوحدة والمفاتيح. */
