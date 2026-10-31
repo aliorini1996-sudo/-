@@ -3275,7 +3275,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "response": "{success:true, data:{invoicesCount, salesTotal, receiptsCount, collectionsTotal}}",
     "rules": [
      "الفواتير بحالة CONFIRMED حسب invoiceDate ومجموع total، والسندات بحالة ACTIVE حسب receiptDate ومجموع amount",
-     "لا فلتر على نوع الفاتورة فتدخل فواتير المرتجع RETURN في العدد والمجموع",
+     "المبيعات صافية: فواتير البيع المؤكدة ناقص المرتجع المؤكَّد (RETURN) في المدى نفسه، والعدد عدد فواتير البيع وحدها",
      "لا يتحقق من وجود المندوب ولا من نطاق المستخدم: معرّف مجهول يرجع أصفاراً",
      "تاريخ غير صالح يُفشل الطلب بخطأ خادم"
     ],
@@ -3298,8 +3298,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "response": "{success:true} أو 404 'المندوب غير موجود' أو 409 {success:false, code:'LEDGER_HISTORY_LOCKED', message, salesRepId, footprint:{settlements, invoices, receipts, vanLoads, moveLines}}",
     "rules": [
      "معاملة واحدة لا رجعة فيها: الفواتير والسندات والإقرارات اليومية تبقى ويُفرَّغ salesRepId منها، وتحميلات السيارة تبقى مع deletedSalesRepId",
-     "تُحذف: المواقع والزيارات وصورها والإشعارات وتوجيه الإقرار اليومي وإسنادات العملاء واستلامات التحصيل (RepSettlement) ويُزال من قائمة المندوب الذكي",
-     "حذف استلامات التحصيل يُنقص ما احتُسب في عهدة مستخدمي الشركة الذين استلموها (userCustody يجمع repSettlement)",
+     "تُحذف: المواقع والزيارات وصورها والإشعارات وتوجيه الإقرار اليومي وإسنادات العملاء ويُزال من قائمة المندوب الذكي",
+     "استلامات التحصيل (RepSettlement) تبقى بصورها ويُفرَّغ salesRepId منها ويُحفظ معرّفه في deletedSalesRepId، فتبقى عهدة مستخدمي الشركة الذين استلموها كما هي (userCustody يجمع repSettlement بالمستلِم)",
      "إذا كانت الدفاتر مفعّلة (glSettings.activatedAt) وللمندوب أثر مالي يُرفض بـ 409، وفي وضع الدفاتر اليدوية CLEAN لا يمنع إلا سطور القيود",
      "البديل الآمن PUT بـ isActive:false"
     ],
@@ -6541,7 +6541,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
    {
     "method": "GET",
     "path": "/reports/sales",
-    "purpose": "تقرير المبيعات المؤكدة بدون المرتجعات، إما تفصيلياً بالفواتير وبنودها أو مجمّعاً حسب الصنف أو المندوب أو العميل أو القناة أو المدينة",
+    "purpose": "تقرير المبيعات المؤكدة صافيةً من المرتجع، إما تفصيلياً بالفواتير وبنودها أو مجمّعاً حسب الصنف أو المندوب أو العميل أو القناة أو المدينة",
     "permission": "canViewReports (الأدوار ADMIN وMANAGER وACCOUNTANT)",
     "gates": [
      "requireAdmin",
@@ -6589,9 +6589,9 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "بدون groupBy: {success:true, data:{invoices:[صف الفاتورة كاملاً بكل أعمدتها ومنها number وtype وinvoiceDate وsubtotal وdiscountAmt وtaxAmt وtotal وpaidAmt وremainingAmt وpricesIncludeTax، مع customer{id,name,channel,city} وsalesRep{id,name} أو null وitems[صف البند كاملاً ومنه qty وunitPrice وunitCost وdiscountAmt وtaxPct وtaxAmt وlineTotal وunitName وunitFactor وbaseQty مع product{id,name,code,unit} أو null]], summary:{total, count, taxTotal, discountTotal, defaultRangeDays?}}}. مع groupBy=product تكون data مصفوفة [{productId, name, code, qty, baseQty, unit, units:[{name, factor}], total}] حيث total مجموع lineTotal. ومع rep أو customer أو channel أو region تكون data مصفوفة [{name, count, total}]. كل التجميعات مرتبة تنازلياً حسب total",
+    "response": "بدون groupBy: {success:true, data:{invoices:[صف الفاتورة كاملاً بكل أعمدتها ومنها number وtype وinvoiceDate وsubtotal وdiscountAmt وtaxAmt وtotal وpaidAmt وremainingAmt وpricesIncludeTax، مع customer{id,name,channel,city} وsalesRep{id,name} أو null وitems[صف البند كاملاً ومنه qty وunitPrice وunitCost وdiscountAmt وtaxPct وtaxAmt وlineTotal وunitName وunitFactor وbaseQty مع product{id,name,code,unit} أو null]], summary:{total, count, taxTotal, discountTotal, returnsTotal, returnsCount, defaultRangeDays?}}}. مع groupBy=product تكون data مصفوفة [{productId, name, code, qty, baseQty, unit, units:[{name, factor}], total}] حيث total مجموع lineTotal. ومع rep أو customer أو channel أو region تكون data مصفوفة [{name, count, total}]. كل التجميعات مرتبة تنازلياً حسب total",
     "rules": [
-     "الحالة CONFIRMED وحدها، والنوع RETURN مستثنى",
+     "الحالة CONFIRMED وحدها. قائمة invoices فواتير بيع (RETURN مستثنى منها)، أما الإجماليات والتجميعات فصافية: يُطرح منها المرتجع المؤكَّد بالمدى والفلاتر نفسها (كميةً ومبلغاً في تجميع الصنف، وقد يظهر صفّ سالب)، وsummary.total وtaxTotal وdiscountTotal صافية، وsummary.returnsTotal وreturnsCount للمرتجع، وcount عدد فواتير البيع وحدها",
      "بلا from ولا to يُقصر التقرير على آخر 90 يوماً، ويُعلن ذلك بـ summary.defaultRangeDays=90 في الوضع التفصيلي وحده، أما مع groupBy فيُطبَّق السقف دون إعلان",
      "يكفي طرف واحد من المدى، والطرف الغائب يعني بلا حد من جهته",
      "لا ترقيم ولا حد أقصى للصفوف، والفواتير مرتبة تصاعدياً بـ invoiceDate",
@@ -6918,7 +6918,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "rules": [
      "فلتر التاريخ على المبيعات والتحصيل لا يُطبَّق إلا إذا أُرسل from وto معاً، وإلا تُحسب على كل السجل",
      "جلسات العمل والزيارات تستعمل from وحده (أو بداية الزمن) وto وحده (أو الآن) كلّاً على حدة",
-     "المبيعات فواتير CONFIRMED بلا RETURN، والتحصيل سندات ACTIVE، ومجاميع المندوب لا تُقيَّد بنطاق العملاء",
+     "المبيعات صافية: فواتير CONFIRMED ناقص مرتجعها (RETURN) في المدى، وكذلك الخصم، وعدد الفواتير ومتوسطها لفواتير البيع وحدها، والتحصيل سندات ACTIVE، ومجاميع المندوب لا تُقيَّد بنطاق العملاء",
      "workMinutes مجموع (lastBeatAt ناقص startedAt) لجلسات التطبيق RepSession",
      "visitsCount عدد الوقفات بعد دمج سجل المؤقت مع سجل الملاحظة أو الصورة لنفس العميل خلال 5 دقائق، لا عدد السجلات",
      "قائمة visits تضم الوقفات ذات الإحداثيات فقط بحد 300 لكل مندوب، وcreatedAt فيها بداية الوقفة، والصفوف الخام محدودة بـ 20000 الأقدم أولاً",
@@ -7103,7 +7103,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "الصفوف بالقيمة تنازلياً، والمتساويان يأخذان المرتبة نفسها (1، 2، 2، 4)",
      "distance مدى أقصاه 31 يوماً، وما زاد يُقصّ ويُعلن في clampedDays",
      "المبالغ والكميات بثلاث منازل، والكيلو بمنزلة واحدة، والدقائق صحيحة",
-     "مع metric=product: value الكمية المباعة بوحدة الأساس product.unit (كرتون من 24 = 24)، وunits وحدات الصنف النشطة للعرض"
+     "مع metric=product: value صافي الكمية المباعة بوحدة الأساس product.unit (كرتون من 24 = 24) بعد طرح المرتجع منه في المدى، وقد يكون سالباً، وunits وحدات الصنف النشطة للعرض. ومع metric=sales: value صافي المبيعات (البيع المؤكَّد ناقص المرتجع المؤكَّد)"
     ],
     "example": ""
    },
@@ -7124,7 +7124,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "body": [],
     "response": "{success:true, data:{accountingEnabled, today:{salesTotal, invoicesCount, collectionsTotal, receiptsCount}, warehouseEnabled, month:{salesTotal, invoicesCount, collectionsTotal, receiptsCount, purchasesTotal, purchaseEntriesCount}, customers:{total, withBalance, creditExceeded}, topReps:[{id, name, invoicesCount, salesTotal}], topCustomers:[{id, name, totalSales, balance}], recentInvoices:[صف الفاتورة كاملاً مع customer{name} وsalesRep{name}]}}",
     "rules": [
-     "المبيعات فواتير CONFIRMED بلا RETURN، والتحصيل سندات ACTIVE",
+     "المبيعات صافية: فواتير CONFIRMED ناقص المرتجع المؤكَّد في اليوم أو الشهر نفسه، والعدد فواتير البيع وحدها، والتحصيل سندات ACTIVE",
      "حدود اليوم والشهر محسوبة بتوقيت الخادم المحلي عبر new Date(y,m,d) وليس بتوقيت الرياض صراحةً",
      "purchasesTotal مجموع الكمية ضرب سعر التكلفة لحركات المستودع RECEIVE هذا الشهر على مستوى الشركة دون نطاق",
      "أعداد العملاء customers تُرجع دائماً حتى مع إطفاء المحاسبة: total للنشطين، وwithBalance رصيدهم أكبر من صفر، وcreditExceeded سقفهم أكبر من صفر ورصيدهم أكبر من السقف",
@@ -7158,7 +7158,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "rules": [
      "تظهر الأيام التي فيها مبيعات فقط دون ملء الأيام الخالية بأصفار",
      "date مأخوذ من invoiceDate بتوقيت UTC",
-     "فواتير CONFIRMED بلا RETURN"
+     "فواتير CONFIRMED صافيةً: المرتجع المؤكَّد يُطرح من يومه"
     ],
     "example": ""
    },

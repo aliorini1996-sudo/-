@@ -63,7 +63,8 @@ test('حارس نصّي: كل قراءةٍ لاستلامات التحصيل ف�
     for (const m of s.matchAll(/repSettlement\.(findMany|findFirst|groupBy)\(/g)) {
       reads++;
       const call = s.slice(m.index!, m.index! + 400);
-      assert.match(call, /SETTLEMENT_HAS_REP|salesRepId[,:]/, `${path.relative(SRC, f)}: قراءة استلامات بلا مرشّح المندوب القائم`);
+      // في جملة where وحدها (لا حقل select اسمه salesRepId): المرشّح، أو مندوبٌ محدّد بمعرّفه
+      assert.match(call, /SETTLEMENT_HAS_REP|where: \{[^}]*\bsalesRepId\b[,}]/, `${path.relative(SRC, f)}: قراءة استلامات بلا مرشّح المندوب القائم`);
     }
   }
   assert.ok(reads >= 8, `عدد القراءات ${reads} — الماسح لم يجد ما يكفي`);
