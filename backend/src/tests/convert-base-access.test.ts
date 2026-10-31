@@ -128,7 +128,7 @@ test('المصفوفة والبوابتان مفتوحتان (open = true، tena
 });
 
 test('أيّ بوابةٍ مغلقة: كل مستخدم شركة ⇒ OWNER_ONLY بالرسالة القائمة حرفياً، والمالك ✓، والمفتاح ⇒ INTERACTIVE_ONLY', () => {
-  assert.equal(CONVERT_BASE_OPEN_TO_COMPANY, false, 'بوابة الإطلاق مغلقة حتى المرحلة ٥');
+  assert.equal(CONVERT_BASE_OPEN_TO_COMPANY, true, 'بوابة الإطلاق قُلبت في المرحلة ٥ (REVIEW.md «العنقود مغلق») — والمغلقة تُختبر بمعاملها الصريح');
   for (const [open, tenantOpen] of [[false, true], [true, false], [false, false]] as const) {
     for (const [name, actor] of MATRIX) {
       const a = { ...actor, ...(actor.impersonated ? {} : { tenantOpen }) };
@@ -137,7 +137,10 @@ test('أيّ بوابةٍ مغلقة: كل مستخدم شركة ⇒ OWNER_ONLY 
       assert.equal(r?.code ?? null, want, `${name} (open=${open}, tenantOpen=${tenantOpen})`);
     }
   }
-  assert.equal(convertBaseRefusal(FULL)?.code, 'CONVERT_BASE_OWNER_ONLY', 'الافتراض = بوابة الإطلاق');
+  // الافتراض = بوابة الإطلاق (مفتوحة): الحكم لعلم الشركة وحده
+  assert.equal(convertBaseRefusal(FULL)?.code ?? null, null, 'الافتراض = بوابة الإطلاق: المدير بعلم شركته المفتوح ✓');
+  assert.equal(convertBaseRefusal({ ...FULL, tenantOpen: false })?.code, 'CONVERT_BASE_OWNER_ONLY', 'وعلم الشركة المطفأ ⇒ OWNER_ONLY');
+  assert.equal(convertBaseRefusal({ ...FULL, tenantOpen: undefined })?.code, 'CONVERT_BASE_OWNER_ONLY', 'وعلمٌ غائب يُقرأ مطفأً');
   assert.equal(convertBaseRefusal(FULL, false)!.message, 'تحويل وحدة الأساس متاح عبر الدعم الفني مؤقتا — تواصل معنا، أو أنشئ الصنف بوحداته من البداية');
   assert.equal(convertBaseRefusal({ ...FULL, apiKeyId: 'k' }, true)!.message, 'إضافة وحدة فرعية أصغر تتم من لوحة الإدارة وحدها — لا عبر مفتاح API');
 });
@@ -153,14 +156,18 @@ test('convertBaseUiCode = رمز الحارس نفسه بلا البادئة (و
   assert.equal(convertBaseUiCode({ ...FULL, scopeEnabled: true }, true), 'SCOPED_USER');
   assert.equal(convertBaseUiCode({ ...FULL, canManageInvoices: false }, true), 'FORBIDDEN');
   assert.equal(convertBaseUiCode({ ...FULL, role: 'ACCOUNTANT' }, true), 'ROLE_FORBIDDEN');
-  assert.equal(convertBaseUiCode(FULL), 'OWNER_ONLY');
+  // الافتراض = بوابة الإطلاق (مفتوحة منذ المرحلة ٥)
+  assert.equal(convertBaseUiCode(FULL), null);
+  assert.equal(convertBaseUiCode({ ...FULL, tenantOpen: false }), 'OWNER_ONLY');
+  assert.equal(convertBaseUiCode(FULL, false), 'OWNER_ONLY');
 });
 
 test('convertBaseRefusalFor: البوابة المغلقة لا تقرأ شيئاً؛ والمفتوحة تقرأ صفّ المدير وعلم شركته من القاعدة لا من التوكن', async () => {
   reset();
   const req = (user: Record<string, unknown>) => ({ user: { tenantId: 'T1', ...user } }) as any;
-  assert.equal((await convertBaseRefusalFor(req({ id: 'a1', role: 'ADMIN' })))?.code, 'CONVERT_BASE_OWNER_ONLY');
-  assert.equal((await convertBaseRefusalFor(req({ id: 'a1', role: 'ADMIN', impersonated: true }))), null);
+  assert.equal((await convertBaseRefusalFor(req({ id: 'a1', role: 'ADMIN' }), false))?.code, 'CONVERT_BASE_OWNER_ONLY');
+  assert.equal((await convertBaseRefusalFor(req({ id: 'a1', role: 'ADMIN', impersonated: true }), false)), null);
+  assert.equal((await convertBaseRefusalFor(req({ id: 'a1', role: 'ADMIN', impersonated: true }))), null, 'المالك بالافتراض أيضاً بلا قراءة');
   assert.equal((await convertBaseRefusalFor(req({ id: 'a1', role: 'ADMIN', apiKeyId: 'k1', impersonated: true }), true))?.code, 'CONVERT_BASE_INTERACTIVE_ONLY');
   assert.deepEqual(calls, [], 'لا استعلام');
 
@@ -178,6 +185,15 @@ test('convertBaseRefusalFor: البوابة المغلقة لا تقرأ شيئ�
   }
   reset();
   assert.equal((await convertBaseRefusalFor(req({ id: 'gone', role: 'ADMIN' }), true))?.code, 'CONVERT_BASE_OWNER_ONLY', 'صفٌّ غائب ⇒ مغلق');
+
+  // المرحلة ٥: المسار يستدعيها بلا معامل، فالبوابة المفتوحة في الكود تُحيل الحكم إلى علم الشركة من القاعدة
+  reset();
+  scripted['admin.findFirst'] = () => ({ ...row, tenant: { convertBaseOpen: false } });
+  assert.equal((await convertBaseRefusalFor(req({ id: 'a1', role: 'ADMIN' })))?.code, 'CONVERT_BASE_OWNER_ONLY', 'الافتراض: علم الشركة المطفأ');
+  assert.deepEqual(calls.map((c) => c.op), ['admin.findFirst']);
+  reset();
+  scripted['admin.findFirst'] = () => row;
+  assert.equal(await convertBaseRefusalFor(req({ id: 'a1', role: 'ADMIN' })), null, 'الافتراض: علم الشركة مفتوح والصلاحيات تامّة');
 });
 
 test('حارس ثابت: convertBaseRefusalFor(req) قبل convertBaseSchema.parse حرفياً، ولا isOwnerSession في المسار', () => {
@@ -198,18 +214,22 @@ const adminRow = (o: Record<string, unknown> = {}) => ({
   tenant: { id: 'T1', name: 'شركة', isActive: true, subscriptionEndsAt: null, convertBaseOpen: true }, ...o,
 });
 
-test('POST /auth/login يحمل canConvertBase وconvertBaseRefusalCode من adminPermissionFields — والبوابة المغلقة ⇒ OWNER_ONLY', async () => {
-  for (const [o, code] of [[{}, 'OWNER_ONLY'], [{ scopeEnabled: true }, 'OWNER_ONLY'], [{ tenant: { id: 'T1', name: 'ش', isActive: true, subscriptionEndsAt: null, convertBaseOpen: false } }, 'OWNER_ONLY']] as const) {
+test('POST /auth/login يحمل canConvertBase وconvertBaseRefusalCode من adminPermissionFields — وعلم الشركة المطفأ ⇒ OWNER_ONLY', async () => {
+  // بوابة الإطلاق مفتوحة منذ المرحلة ٥: الحقلان يتبعان المصفوفة، وعلم الشركة من tenant المحمّل مع المدير (include: tenant)
+  for (const [o, code] of [
+    [{}, null], [{ scopeEnabled: true }, 'SCOPED_USER'], [{ role: 'ACCOUNTANT' }, 'ROLE_FORBIDDEN'], [{ canManageVanStock: false }, 'FORBIDDEN'],
+    [{ tenant: { id: 'T1', name: 'ش', isActive: true, subscriptionEndsAt: null, convertBaseOpen: false } }, 'OWNER_ONLY'],
+  ] as const) {
     reset();
     scripted['admin.findUnique'] = () => adminRow(o);
     const r = await call('POST', '/api/auth/login', { username: 'm@co.sa', password: 'Secret-123', role: 'admin' });
     assert.equal(r.status, 200, JSON.stringify(r.body));
-    assert.equal(r.body.data.user.canConvertBase, false);
-    assert.equal(r.body.data.user.convertBaseRefusalCode, code);
+    assert.equal(r.body.data.user.canConvertBase, code === null, JSON.stringify(o));
+    assert.equal(r.body.data.user.convertBaseRefusalCode, code, JSON.stringify(o));
   }
-  // والمصدر الواحد بالبوابة مفتوحة: الحقلان يتبعان المصفوفة (علم الشركة من tenant المحمّل مع المدير)
+  // والمصدر الواحد: الحقلان يتبعان المصفوفة
   const fields = authModule.adminPermissionFields(adminRow({ role: 'ACCOUNTANT' }));
-  assert.deepEqual([fields.canConvertBase, fields.convertBaseRefusalCode], [false, 'OWNER_ONLY']);
+  assert.deepEqual([fields.canConvertBase, fields.convertBaseRefusalCode], [false, 'ROLE_FORBIDDEN']);
   assert.deepEqual(convertBaseUiCode({ role: 'ACCOUNTANT', isActive: true, tenantOpen: true }, true), 'ROLE_FORBIDDEN');
   // التسجيل: لا شركة محمّلة ⇒ مغلق
   const signup = authModule.adminPermissionFields({ role: 'ADMIN', isActive: true });
@@ -237,12 +257,22 @@ test('/auth/me: الحقلان من المصدر نفسه، والنشاط وع�
   scripted['admin.findUnique'] = () => { const { passwordHash: _p, tenant: _t, ...rest } = adminRow(); return { ...rest, tenant: { convertBaseOpen: true } }; };
   const r = await call('GET', '/api/auth/me');
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.equal(r.body.data.canConvertBase, false);
-  assert.equal(r.body.data.convertBaseRefusalCode, 'OWNER_ONLY');
+  // بوابة الإطلاق مفتوحة (المرحلة ٥) وعلم الشركة مفتوح والصلاحيات تامّة ⇒ الزرّ
+  assert.equal(r.body.data.canConvertBase, true);
+  assert.equal(r.body.data.convertBaseRefusalCode, null);
   assert.ok(!('isActive' in r.body.data) && !('tenant' in r.body.data), 'شكل الردّ كما كان + الحقلان');
   const sel = calls.find((c) => c.op === 'admin.findUnique')!.args.select;
   assert.equal(sel.isActive, true);
   assert.deepEqual(sel.tenant, { select: { convertBaseOpen: true } });
+
+  // وعلم الشركة المطفأ أو الحساب الموقوف من الصفّ نفسه ⇒ لا زرّ ورمز سببه
+  for (const [patch, code] of [[{ tenant: { convertBaseOpen: false } }, 'OWNER_ONLY'], [{ isActive: false }, 'ROLE_FORBIDDEN']] as const) {
+    reset();
+    scripted['admin.findUnique'] = () => { const { passwordHash: _p, tenant: _t, ...rest } = adminRow(); return { ...rest, tenant: { convertBaseOpen: true }, ...patch }; };
+    const off = await call('GET', '/api/auth/me');
+    assert.equal(off.body.data.canConvertBase, false, JSON.stringify(patch));
+    assert.equal(off.body.data.convertBaseRefusalCode, code, JSON.stringify(patch));
+  }
 
   reset();
   meUser = { id: 'a1', role: 'ADMIN', tenantId: 'T1', impersonated: true };
@@ -275,15 +305,17 @@ test('علم الشركة: المالك يكتبه من PUT /tenants/:id، وا�
   const one = await call('GET', '/api/tenants/T1', undefined, ownerToken());
   assert.equal(one.status, 200, JSON.stringify(one.body));
   assert.equal(one.body.data.convertBaseOpen, true);
-  assert.equal(one.body.data.convertBaseReleased, false);
+  // convertBaseReleased مرآة بوابة الإطلاق (مفتوحة منذ المرحلة ٥) — تُفعَّل بها خانة العلم في صفحة المنصّة
+  assert.equal(one.body.data.convertBaseReleased, CONVERT_BASE_OPEN_TO_COMPANY);
+  assert.equal(one.body.data.convertBaseReleased, true);
 
   reset();
   scripted['superAdmin.findUnique'] = () => ({ isActive: true });
   scripted['tenant.findMany'] = () => [{ id: 'T1', name: 'شركة', convertBaseOpen: false, accountingSuiteEnabled: false, accountingEnabled: false, glSettings: null }];
   const list = await call('GET', '/api/tenants', undefined, ownerToken());
   assert.equal(list.status, 200, JSON.stringify(list.body));
-  assert.equal(list.body.data[0].convertBaseReleased, false);
-  assert.equal(list.body.data[0].convertBaseOpen, false);
+  assert.equal(list.body.data[0].convertBaseReleased, CONVERT_BASE_OPEN_TO_COMPANY);
+  assert.equal(list.body.data[0].convertBaseOpen, false, 'علم الشركة كما في صفّها (افتراضه false) — قلب البوابة لا يفتح شركة');
 });
 
 test('علم الشركة: موظف المنصّة بـtenants.edit لا يغيّره (403 بلا كتابة)، والجسم الذي يعيد القيمة نفسها يمرّ', async () => {

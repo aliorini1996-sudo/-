@@ -141,15 +141,15 @@ export function canAddSubUnit(user: { canConvertBase?: boolean } | null | undefi
 }
 
 /**
- * تلميح الزرّ المعطَّل بحسب `convertBaseRefusalCode` (§4.2) — مفاتيح كتلة WP0. جلسةٌ قديمة بلا الحقل (null) تُقرأ «متاحة
- * قريباً»: هو حال كل مستخدم شركة قبل فتح البوابتين، والخادم يحكم في كل طلب.
+ * تلميح الزرّ المعطَّل بحسب `convertBaseRefusalCode` (§4.2) — مفاتيح كتلة WP0. جلسةٌ قديمة بلا الحقل (null) تُقرأ «غير
+ * مفعّلة لشركتك»: هو حال كل مستخدم شركة لم يفتح مالك المنصّة علمها، والخادم يحكم في كل طلب.
  */
 export function convertRefusalHint(code: ConvertRefusalCode | null | undefined): string {
   switch (code) {
     case 'SCOPED_USER': return 'تخصّ الشركة كلها — لمستخدم غير مقيّد بنطاق';
     case 'ROLE_FORBIDDEN': return 'لمستخدم بدور مدير أو مشرف';
     case 'FORBIDDEN': return 'تتطلّب صلاحيات الأصناف والفواتير ومخزون السيارات معاً';
-    default: return 'متاحة قريباً لمديري الشركة — اطلبها من الدعم الآن';
+    default: return 'غير مفعّلة لشركتك — اطلب تفعيلها من الدعم الفني';
   }
 }
 

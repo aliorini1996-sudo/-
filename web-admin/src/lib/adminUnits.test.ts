@@ -128,14 +128,15 @@ test('نافذة الصنف: الوحدات بمساراتها، والتحوي�
   assert.match(s, /productApi\.addUnit\(productId, \{ \.\.\.unitFormPayload\(adding\),[^\n]*expectedBaseName: baseUnit \}\)/);
   assert.match(s, /productApi\.updateUnit\(productId, u\.id, \{ \.\.\.unitFormPayload\(editing\), expectedBaseName: baseUnit \}\)/);
   assert.match(s, /\{ isActive: u\.isActive === false, expectedBaseName: baseUnit \}/, 'الإيقاف والتفعيل');
-  assert.match(s, /productApi\.removeUnit\(productId, u\.id\)/);
+  assert.match(s, /productApi\.removeUnit\(productId, u\.id, \{ expectedBaseName: baseUnit \}\)/, 'الحذف بالأساس المتوقَّع كبقية كتابات الوحدات');
   // «إضافة وحدة فرعية أصغر»: الجسم من convertPayload بالأساس المتوقَّع، والمعاينة dryRun قبل التنفيذ (§4.3)
   assert.match(s, /\.\.\.convertPayload\(form, expected\)/);
   assert.match(s, /productApi\.convertBase\(productId, \{ \.\.\.body\(\), dryRun: true \}\)/);
   // الأساس المتوقَّع لحظة فتح النافذة لا ما يتغيّر بعدها
   assert.match(s, /const \[expected\] = useState\(baseUnit\);/);
   // الرفض (٤٠٩ «تغيّرت وحدة الأساس») يُعرض برسالة الخادم داخل النافذة
-  assert.match(s, /setError\(tr\(serverMessage\(err\) \|\| 'تعذر التحويل'\)\)/);
+  assert.match(s, /setError\(tr\(convertServerText\(err\)\)\)/);
+  assert.match(s, /return d21\(serverMessage\(err\) \|\| 'تعذر التحويل'\);/);
   // بعد التحويل تتبع خانتا الوحدة والسعر الأساس الجديد — وإلا أعاد «حفظ التعديلات» الاسم القديم
   assert.match(s, /setValue\('unit', p\.unit\);\s*setValue\('basePrice', Number\(p\.basePrice\)\);/);
   // الوحدات لا تُرسل مع حفظ الصنف

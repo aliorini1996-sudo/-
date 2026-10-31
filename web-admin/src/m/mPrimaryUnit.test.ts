@@ -127,8 +127,8 @@ test('canAddSubUnit: canConvertBase الصريح أو جلسة المالك — 
   assert.equal(canAddSubUnit(null, true), true, 'جلسة المالك يسمح لها الخادم دائماً');
 });
 
-test('convertRefusalHint: تلميحٌ لكل رمز، والغائب «متاحة قريباً» (D21: لا «الأساس»)', () => {
-  assert.equal(convertRefusalHint('OWNER_ONLY'), 'متاحة قريباً لمديري الشركة — اطلبها من الدعم الآن');
+test('convertRefusalHint: تلميحٌ لكل رمز، والغائب «غير مفعّلة لشركتك» (D21: لا «الأساس»)', () => {
+  assert.equal(convertRefusalHint('OWNER_ONLY'), 'غير مفعّلة لشركتك — اطلب تفعيلها من الدعم الفني');
   assert.equal(convertRefusalHint('SCOPED_USER'), 'تخصّ الشركة كلها — لمستخدم غير مقيّد بنطاق');
   assert.equal(convertRefusalHint('ROLE_FORBIDDEN'), 'لمستخدم بدور مدير أو مشرف');
   assert.equal(convertRefusalHint('FORBIDDEN'), 'تتطلّب صلاحيات الأصناف والفواتير ومخزون السيارات معاً');
@@ -271,11 +271,17 @@ test('MProducts: الإنشاء العكسي في طلب POST واحد بـrever
   assert.match(s, /: \[p\.code, p\.unit, unitsBrief\(p\.units, formatNumber\), p\.category\?\.name\]\)/);
 });
 
+test('MProducts: تعديل صنفٍ قائم لا يرسل حمولة الإنشاء (units/primaryUnitName) — مراجعة B1 ٥', () => {
+  const s = src('MProducts.tsx');
+  assert.match(s, /if \(rev\) Object\.assign\(payload, product \? \(seedPrim\?\.id \? reverseEditPatch\(rf, String\(seedPrim\.id\)\) : \{\}\) : reverseCreatePayload\(rf\)\);/);
+  assert.doesNotMatch(s, /product && seedPrim\?\.id \? reverseEditPatch\(rf, String\(seedPrim\.id\)\) : reverseCreatePayload\(rf\)/);
+});
+
 test('MProducts: الوحدات — رئيسية بتأكيد clearPrimary، و«اجعلها الرئيسية»، وexpectedBaseName في كل كتابة', () => {
   const s = src('MProducts.tsx');
   assert.match(s, /setPrimaryUnit\(product\.id, \{ unitId: u\.id, expectedPrimaryUnitId: p\.primaryUnitId \?\? null \}\)/);
   assert.match(s, /setPrimaryUnit\(product!\.id, \{ unitId, expectedPrimaryUnitId: livePrimaryId \}\)/);
-  assert.match(s, /removeUnit\(product\.id, u\.id, u\.id === p\.primaryUnitId \? \{ clearPrimary: true \} : undefined\)/);
+  assert.match(s, /removeUnit\(product\.id, u\.id, \{ \.\.\.\(u\.id === p\.primaryUnitId && \{ clearPrimary: true \}\), expectedBaseName: p\.unit \}\)/);
   assert.match(s, /clearPrimary: true \}\)/);
   assert.match(s, /addUnit\(product\.id, \{ \.\.\.body, expectedBaseName: product\.unit, \.\.\.\(asPrimary && \{ makePrimary: true \}\) \}\)/);
   assert.match(s, /updateUnit\(product\.id, unit\.id, \{ \.\.\.body, expectedBaseName: product\.unit \}\)/);

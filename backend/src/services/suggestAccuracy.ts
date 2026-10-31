@@ -90,11 +90,11 @@ export interface DayAccuracy {
   /** اليوم لم ينتهِ ⇒ خارج التجميع */
   open: boolean;
   /**
-   * وحدات الصنف و«الوحدة الرئيسية» ليعرض الجدول أرقامه بها («2 كرتون»، R1) — حاضران حين للصنف رئيسية صالحة فقط،
-   * فصفّ صنفٍ بلاها يبقى بشكله قبل الميزة حرفاً (I1)
+   * وحدات الصنف و«الوحدة الرئيسية» ليعرض الجدول أرقامه بها («2 كرتون»، R1) — `units` حاضرة حين للصنف رئيسية صالحة فقط،
+   * فلا تُفكَّك أرقام صنفٍ بلاها؛ و`primaryUnitId` حاضرٌ دائماً (D18): معرّف الرئيسية الصالحة أو null
    */
   units?: UnitDef[];
-  primaryUnitId?: string;
+  primaryUnitId: string | null;
 }
 
 export interface AccuracySummary {
@@ -232,7 +232,7 @@ export function computeAccuracy(input: AccuracyInput): AccuracyResult {
       adopted: s.adopted,
       outcome: error > 0 ? 'نقص' : error < 0 ? 'زيادة' : 'دقيق',
       open: day >= today, // اليوم الجاري (وأي تاريخ مستقبلي) لم يكتمل
-      ...(prim && p?.primaryUnitId ? { units: [...(p.units ?? [])], primaryUnitId: p.primaryUnitId } : {}),
+      ...(prim && p?.primaryUnitId ? { units: [...(p.units ?? [])], primaryUnitId: p.primaryUnitId } : { primaryUnitId: null }),
     });
   }
 

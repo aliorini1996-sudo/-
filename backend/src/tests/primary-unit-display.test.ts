@@ -1,6 +1,6 @@
 // «الوحدة الرئيسية» — عرض الخادم (primary_unit_spec §2.17، الحزمة B1): التقارير، والمندوب الذكي، ولوكيشن، ودقّة الاقتراح
 // (ومعها إصلاح #12)، وشرح الاقتراح، ورسائل نقص LOT. صنفٌ أساسه قارورة، كرتونه ٢٤ رئيسيّ، وفوقه طبلية ١٢٠٠ — وكل ناتجٍ
-// لصنفٍ بلا رئيسية (غائبة أو null أو تالفة) بشكله قبل الميزة حرفاً (I1). دوالّ صرفة بلا قاعدة.
+// لصنفٍ بلا رئيسية (غائبة أو null أو تالفة) بعرضه قبل الميزة حرفاً (I1)، ومفتاح primaryUnitId حاضرٌ فيه null (D18). دوالّ صرفة بلا قاعدة.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { lotSalesRows, primaryKey, reportUnit, returnLineView, salesByProduct } from '../routes/reports';
@@ -18,16 +18,17 @@ const UNITS = [
 
 // ═══ routes/reports.ts ═══
 
-test('التقارير: reportUnit يحفظ المعرّف حين حضر، وprimaryKey يحضر بالرئيسية وحدها', () => {
+test('التقارير: reportUnit يحفظ المعرّف حين حضر، وprimaryKey حاضرٌ دائماً (D18): المعرّف أو null', () => {
   assert.deepEqual(reportUnit({ id: 'u-c', name: 'كرتون', factor: '24' }), { id: 'u-c', name: 'كرتون', factor: 24 });
   assert.deepEqual(reportUnit({ name: 'كرتون', factor: 24 }), { name: 'كرتون', factor: 24 }, 'بلا معرّف كما كان');
   assert.deepEqual(primaryKey('u-c'), { primaryUnitId: 'u-c' });
-  assert.deepEqual(primaryKey(null), {});
-  assert.deepEqual(primaryKey(undefined), {});
+  assert.deepEqual(primaryKey(null), { primaryUnitId: null });
+  assert.deepEqual(primaryKey(undefined), { primaryUnitId: null });
+  assert.deepEqual(primaryKey(''), { primaryUnitId: null });
   assert.deepEqual(ACTIVE_UNITS_SELECT.select, { id: true, name: true, factor: true });
 });
 
-test('المبيعات حسب الصنف: صفّ الصنف ذي الرئيسية يحمل primaryUnitId، وبلاها (null) الصفّ كما كان حرفاً', () => {
+test('المبيعات حسب الصنف: صفّ الصنف ذي الرئيسية يحمل primaryUnitId، وبلاها الصفّ كما كان ومفتاحه null (D18)', () => {
   const item = (pid: string, primaryUnitId: string | null) => ({
     qty: 2, lineTotal: 96, unitName: 'كرتون', unitFactor: 24, baseQty: 48,
     product: { id: pid, name: 'ماء', code: pid, unit: 'قارورة', primaryUnitId },
@@ -38,11 +39,11 @@ test('المبيعات حسب الصنف: صفّ الصنف ذي الرئيسي�
   const p2 = rows.find((r) => r.productId === 'p2')!;
   assert.equal(p1.primaryUnitId, 'u-c');
   assert.equal(p1.baseQty, 48, 'الكمية بالأساس لا تتغيّر');
-  assert.deepEqual(p2, { productId: 'p2', name: 'ماء', code: 'p2', qty: 48, baseQty: 48, unit: 'قارورة', units: [{ id: 'u-c2', name: 'كرتون', factor: 24 }], total: 96 });
-  assert.ok(!('primaryUnitId' in p2));
+  assert.deepEqual(p2, { productId: 'p2', name: 'ماء', code: 'p2', qty: 48, baseQty: 48, unit: 'قارورة', units: [{ id: 'u-c2', name: 'كرتون', factor: 24 }], primaryUnitId: null, total: 96 });
+  assert.equal(p2.primaryUnitId, null, 'المفتاح حاضرٌ null لا غائب');
 });
 
-test('بند المرتجع: primaryUnitId حين للصنف رئيسية (فيُلحق العارض الوحدة)، وnull أو غائب ⇒ الشكل القائم', () => {
+test('بند المرتجع: primaryUnitId حين للصنف رئيسية (فيُلحق العارض الوحدة)، وnull أو غائب ⇒ الشكل القائم ومفتاحه null (D18)', () => {
   const base = { qty: 5, lineTotal: 10, returnExpired: null, expiresAt: null, itemName: null, unitName: null, unitFactor: 1, baseQty: 5 };
   const withP = returnLineView({ ...base, product: { name: 'ماء', unit: 'قارورة', primaryUnitId: 'u-c' } });
   assert.equal(withP.primaryUnitId, 'u-c');
@@ -50,7 +51,8 @@ test('بند المرتجع: primaryUnitId حين للصنف رئيسية (في�
   const nul = returnLineView({ ...base, product: { name: 'ماء', unit: 'قارورة', primaryUnitId: null } });
   const old = returnLineView({ ...base, product: { name: 'ماء', unit: 'قارورة' } });
   assert.deepEqual(nul, old);
-  assert.deepEqual(Object.keys(old), ['name', 'unit', 'qty', 'unitFactor', 'baseQty', 'baseUnit', 'lineTotal', 'returnExpired', 'expiresAt'], 'ترتيب المفاتيح كما كان');
+  assert.equal(old.primaryUnitId, null);
+  assert.deepEqual(Object.keys(old), ['name', 'unit', 'qty', 'unitFactor', 'baseQty', 'baseUnit', 'primaryUnitId', 'lineTotal', 'returnExpired', 'expiresAt'], 'ترتيب المفاتيح كما كان ومعها الرئيسية');
 });
 
 test('المبيع حسب التشغيلة: سطر الصنف ومجموعه يحملان primaryUnitId بالرئيسية وحدها', () => {
@@ -67,8 +69,8 @@ test('المبيع حسب التشغيلة: سطر الصنف ومجموعه ي�
   const row2 = r.rows.find((x) => x.productId === 'p2')!;
   assert.equal(row1.primaryUnitId, 'u-c');
   assert.equal(r.products.find((x) => x.productId === 'p1')!.primaryUnitId, 'u-c', 'مجموع الصنف أيضاً');
-  assert.ok(!('primaryUnitId' in row2));
-  assert.ok(!('primaryUnitId' in r.products.find((x) => x.productId === 'p2')!));
+  assert.equal(row2.primaryUnitId, null, 'حاضرٌ null (D18)');
+  assert.equal(r.products.find((x) => x.productId === 'p2')!.primaryUnitId, null);
 });
 
 // ═══ ai-rep/baseQty.ts وgoogleDemand.ts ═══
@@ -93,7 +95,7 @@ test('المندوب الذكي: displayUnits يحفظ المعرّف ويَسِ
   assert.deepEqual(unitSizes(marked, 'قارورة'), ['طبلية = 1200 قارورة', 'كرتون = 24 قارورة']);
 });
 
-test('الطلب المتوقع: الصنف ذو الرئيسية يحمل primaryUnitId مع وحداته، وبلاها لا مفتاح', () => {
+test('الطلب المتوقع: الصنف ذو الرئيسية يحمل primaryUnitId مع وحداته، وبلاها المفتاح null (D18) ووحداته كما كانت', () => {
   const marked = displayUnits(UNITS, 'u-c');
   const e = expectedFor({
     outletType: 'GROCERY', rating: null, ratingCount: null, source: 'VAN', showMoney: false,
@@ -106,13 +108,40 @@ test('الطلب المتوقع: الصنف ذو الرئيسية يحمل prima
   });
   const by = new Map(e.products.map((p) => [p.productId, p]));
   assert.equal(by.get('p1')!.primaryUnitId, 'u-c');
-  assert.ok(!('primaryUnitId' in by.get('p2')!));
-  assert.ok(!('primaryUnitId' in by.get('p3')!) && !('units' in by.get('p3')!));
+  assert.equal(by.get('p2')!.primaryUnitId, null);
+  assert.deepEqual(by.get('p2')!.units, displayUnits(UNITS), 'الوحدات كما كانت');
+  assert.ok(by.get('p3')!.primaryUnitId === null && !('units' in by.get('p3')!));
+});
+
+test('المندوب الذكي (aiRep.ts): أعلى أصناف التوقّع تحمل primaryUnitId دائماً — الموسومة أو null، والوحدات بلا تغيير (D18)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const fs = require('node:fs') as typeof import('node:fs');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const path = require('node:path') as typeof import('node:path');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'aiRep.ts'), 'utf8').replace(/\r\n/g, '\n');
+  const top = src.slice(src.indexOf('top: r.products.filter('), src.indexOf('penetration: p.penetration'));
+  assert.match(top, /const primaryUnitId = p\.units\?\.length \? primaryIdOf\(p\.units\) : null;/);
+  assert.match(top, /\.\.\.\(p\.units\?\.length \? \{ units: p\.units \} : \{\}\), primaryUnitId,/, 'المفتاح خارج الشرط: حاضرٌ دائماً');
+});
+
+test('المندوب الذكي: محمّلا البيانات يقرآن الرئيسية ويمرّرانها إلى displayUnits (estimateData وgoogleDemandData)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const fs = require('node:fs') as typeof import('node:fs');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const path = require('node:path') as typeof import('node:path');
+  const read = (f: string) => fs.readFileSync(path.join(__dirname, '..', 'ai-rep', f), 'utf8');
+  const est = read('estimateData.ts');
+  assert.match(est, /select: \{ id: true, name: true, unit: true, units: ACTIVE_UNITS_SELECT, primaryUnitId: true \}/);
+  assert.match(est, /displayUnits\(p\.units, p\.primaryUnitId\)/);
+  assert.doesNotMatch(est, /displayUnits\(p\.units\)/, 'بلا الرئيسية');
+  const gd = read('googleDemandData.ts');
+  assert.match(gd, /select: \{ id: true, name: true, unit: true, units: ACTIVE_UNITS_SELECT, primaryUnitId: true \}/);
+  assert.match(gd, /displayUnits\(r\.units, r\.primaryUnitId\)/);
 });
 
 // ═══ services/locations.ts ═══
 
-test('لوكيشن: سطر الصنف المحمَّل يحمل وحداته ورئيسيّه حين له رئيسية صالحة وحدها — وغيره بشكله القائم', () => {
+test('لوكيشن: سطر الصنف المحمَّل يحمل وحداته ورئيسيّه حين له رئيسية صالحة وحدها — وغيره بلا وحدات ومفتاحه null (D18)', () => {
   const products = new Map<string, ProductInfo>([
     ['P1', { name: 'ماء', unit: 'قارورة', units: UNITS, primaryUnitId: 'u-c' }],
     ['P2', { name: 'عصير', unit: 'علبة', units: UNITS, primaryUnitId: null }],
@@ -124,9 +153,9 @@ test('لوكيشن: سطر الصنف المحمَّل يحمل وحداته و�
   ] }], [], products);
   const by = new Map(s.none.loads.products.map((p) => [p.productId, p]));
   assert.deepEqual(by.get('P1'), { productId: 'P1', name: 'ماء', unit: 'قارورة', qty: 1250, units: UNITS, primaryUnitId: 'u-c' });
-  assert.deepEqual(by.get('P2'), { productId: 'P2', name: 'عصير', unit: 'علبة', qty: 30 });
-  assert.deepEqual(by.get('P3'), { productId: 'P3', name: 'لبن', unit: 'علبة', qty: 20 }, 'رئيسيةٌ تالفة ⇒ القائم');
-  assert.deepEqual(by.get('P4'), { productId: 'P4', name: 'سكر', unit: 'كيس', qty: 10 });
+  assert.deepEqual(by.get('P2'), { productId: 'P2', name: 'عصير', unit: 'علبة', qty: 30, primaryUnitId: null });
+  assert.deepEqual(by.get('P3'), { productId: 'P3', name: 'لبن', unit: 'علبة', qty: 20, primaryUnitId: null }, 'رئيسيةٌ تالفة ⇒ null لا المعرّف التالف');
+  assert.deepEqual(by.get('P4'), { productId: 'P4', name: 'سكر', unit: 'كيس', qty: 10, primaryUnitId: null });
 });
 
 // ═══ services/suggestAccuracy.ts ═══
@@ -171,7 +200,7 @@ test('#12 mergeLoadItems: بندٌ واحد لكل صنف كما هو حرفاً
     [{ productId: 'p1', qty: 2, suggestedQty: null, expectedQty: null }]);
 });
 
-test('دقّة الاقتراح: صفّ الصنف ذي الرئيسية يحمل وحداته ورئيسيّه، وبلاها الصفّ بشكله القائم', () => {
+test('دقّة الاقتراح: صفّ الصنف ذي الرئيسية يحمل وحداته ورئيسيّه، وبلاها الصفّ بلا وحدات ومفتاحه null (D18)', () => {
   const loads = [{ id: 'L1', at: at(2), items: [{ productId: 'p1', qty: 48, suggestedQty: 48, expectedQty: 40 }, { productId: 'p2', qty: 48, suggestedQty: 48, expectedQty: 40 }] }];
   const r = computeAccuracy({
     now: NOW, loads, sales: [],
@@ -183,8 +212,8 @@ test('دقّة الاقتراح: صفّ الصنف ذي الرئيسية يحم�
   const p1 = r.days.find((d) => d.productId === 'p1')!;
   const p2 = r.days.find((d) => d.productId === 'p2')!;
   assert.deepEqual([p1.units, p1.primaryUnitId], [UNITS, 'u-c']);
-  assert.ok(!('units' in p2) && !('primaryUnitId' in p2));
-  assert.deepEqual(Object.keys(p2), ['day', 'productId', 'name', 'unit', 'expected', 'suggested', 'loaded', 'actual', 'error', 'adopted', 'outcome', 'open']);
+  assert.ok(!('units' in p2) && p2.primaryUnitId === null);
+  assert.deepEqual(Object.keys(p2), ['day', 'productId', 'name', 'unit', 'expected', 'suggested', 'loaded', 'actual', 'error', 'adopted', 'outcome', 'open', 'primaryUnitId']);
 });
 
 // ═══ services/suggestLoad.ts ═══

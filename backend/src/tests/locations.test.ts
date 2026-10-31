@@ -112,13 +112,14 @@ test('الملخّص: التحميلات عدداً وكمياتٍ إجمالا�
   const l2 = s.rows.find((r) => r.locationId === 'L2')!;
   assert.equal(l2.loads.count, 2);
   assert.equal(l2.loads.qty, 22.5);
+  // «الوحدة الرئيسية» D18: مفتاح primaryUnitId حاضرٌ دائماً — null لصنفٍ بلا رئيسية (ولا units له)
   assert.deepEqual(l2.loads.products, [
-    { productId: 'P2', name: 'سكر', unit: 'كيس', qty: 12.5 },
-    { productId: 'P1', name: 'شاهي', unit: 'علبة', qty: 10 },
+    { productId: 'P2', name: 'سكر', unit: 'كيس', qty: 12.5, primaryUnitId: null },
+    { productId: 'P1', name: 'شاهي', unit: 'علبة', qty: 10, primaryUnitId: null },
   ]);
   assert.ok(!('value' in l2.loads), 'لا قيمة: لا كلفة مخزّنة لكل تحميل');
   assert.equal(s.none.loads.count, 1);
-  assert.deepEqual(s.rows.find((r) => r.locationId === 'L3')!.loads.products, [{ productId: 'X', name: '', unit: null, qty: 2 }], 'صنفٌ بلا اسمٍ مقروء لا يسقط');
+  assert.deepEqual(s.rows.find((r) => r.locationId === 'L3')!.loads.products, [{ productId: 'X', name: '', unit: null, qty: 2, primaryUnitId: null }], 'صنفٌ بلا اسمٍ مقروء لا يسقط');
   assert.deepEqual(s.totals.loads, { count: 4, qty: 25.5 });
   // موقعٌ فعّال بلا أيّ حركة: صفرٌ صريح لا غياب
   assert.deepEqual(s.rows.find((r) => r.locationId === 'L1')!.loads, { count: 0, qty: 0, products: [] });
@@ -516,6 +517,6 @@ test('الملخّص تشغيلاً: الفترة بأيام الشركة، وا
   assert.deepEqual(Object.keys(lw.createdAt), ['gte', 'lt']);
   const l1 = r.body.data.rows.find((x: Row) => x.locationId === 'L1');
   assert.deepEqual([l1.sales, l1.returns, l1.net], [{ count: 2, amount: 200 }, { count: 1, amount: 20 }, 180]);
-  assert.deepEqual(l1.loads, { count: 1, qty: 12, products: [{ productId: 'P1', name: 'شاهي', unit: 'علبة', qty: 12 }] });
+  assert.deepEqual(l1.loads, { count: 1, qty: 12, products: [{ productId: 'P1', name: 'شاهي', unit: 'علبة', qty: 12, primaryUnitId: null }] });
   assert.equal((await call(locationsRouter, 'get', '/summary', { query: { from: '2026-13-01' } })).status, 400, 'تاريخٌ غير صالح يُرفض لا يُسقَط');
 });

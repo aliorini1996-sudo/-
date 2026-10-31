@@ -211,13 +211,16 @@ const ref = (entryId: string) => {
 };
 const usedErr = (e: unknown) => e instanceof LotError && e.code === 'LOT_IN_USE' && e.status === 409 && e.message === 'استُعملت تشغيلات المخزون الافتتاحي بعد الاستيراد';
 
-test('assertOpeningRevertKeepsLots: يقفل أصناف الحركة قبل أي فحص (FOR KEY SHARE ثم القفل الاستشاري أولاً)، والحركة غير المستعملة تمرّ', async () => {
+test('assertOpeningRevertKeepsLots: يقفل أصناف الحركة قبل أي فحص (مهلة القفل ثم FOR KEY SHARE ثم القفل الاستشاري أولاً)، والحركة غير المستعملة تمرّ', async () => {
   fresh();
   const { entryId } = opening([{ productId: 'p1', qty: 2, unitFactor: 24, lotNumber: 'A' }, { productId: 'p3', qty: 5 }]);
   world.calls.length = 0;
   await lotsW.assertOpeningRevertKeepsLots(db as never, 't1', ref(entryId));
   const ops = world.calls.map((c) => c.sql ?? c.op);
-  assert.match(ops[0], /FOR KEY SHARE$/);
+  // «الوحدة الرئيسية» I10: lock_timeout محلية قبل FOR KEY SHARE على الأصناف، ثم القفل
+  const share = ops.findIndex((s) => /FOR KEY SHARE$/.test(s));
+  assert.ok(share > 0 && ops.slice(0, share).some((s) => s.includes("set_config('lock_timeout'")), ops.join('\n'));
+  assert.ok(ops.slice(0, share).every((s) => s.includes('lock_timeout')), 'لا فحص قبل القفل');
   const lockAt = ops.findIndex((s) => s.includes('pg_advisory_xact_lock'));
   const firstCheck = ops.findIndex((s) => s.endsWith('.count') || s === 'warehouseEntryItem.findMany' || s.includes('FROM warehouse_entry_items'));
   assert.ok(lockAt > 0 && lockAt < firstCheck, ops.join('\n'));

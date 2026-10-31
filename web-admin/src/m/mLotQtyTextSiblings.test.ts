@@ -31,7 +31,12 @@ test('MWarehouse: تفصيل تشغيلات المستودع بوحدات الص
   assert.match(b, /lotQtyText\(l\.usable\.SELLABLE, /);
   assert.match(b, /lotQtyText\(unknown, /);
   assert.match(s, /<WhLotBreakdown productId=\{r\.productId\} prod=\{r\} \/>/, 'التفصيل بلا وحدات الصفّ');
-  assert.match(s, /<MLotFields productId=\{r\.productId\} prod=\{\{ unit: r\.baseUnit, units: r\.units \}\} /, 'منتقي المستودع بلا وحدات الصنف');
+  // rep-offline-9: والرئيسية معها — وإلا فُكِّك «المتاح» بأكبر وحدة (الطبلية) لا بالكرتون
+  assert.match(s, /<MLotFields productId=\{r\.productId\} prod=\{\{ unit: r\.baseUnit, units: r\.units, primaryUnitId: r\.primaryUnitId \}\} /, 'منتقي المستودع بلا وحدات الصنف ورئيسيته');
+  const u: UnitDef[] = [{ id: 'u-c', name: 'كرتون', factor: 24, isActive: true }, { id: 'u-p', name: 'طبلية', factor: 1200, isActive: true }];
+  assert.equal(lotQtyText(1250, { unit: 'قارورة', units: u, primaryUnitId: 'u-c' }, String), '52 كرتون و2 قارورة');
+  assert.notEqual(lotQtyText(1250, { unit: 'قارورة', units: u }, String), '52 كرتون و2 قارورة', 'بلاها يُفكَّك بالطبلية');
+  assert.match(src('MLotFields.tsx'), /prod\?: \{ unit\?: string \| null; units\?: UnitDef\[\] \| null; primaryUnitId\?: string \| null \};/);
 });
 
 test('MLotFields: «المتاح» في المنتقي بوحدات الصنف — وMRepLoad يمرّرها', () => {

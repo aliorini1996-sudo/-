@@ -81,6 +81,26 @@ test('lotLineText وlotCellText: نصٌّ واحد للعارضات، والأر
   assert.equal(lotLineText({ lotNumber: 'A', qty: 1, expiryDate: '2026-01-02' }, { tr: brackets }), '[تشغيلة] A ×1 · [ينتهي] 02/01/2026', 'كل كلمةٍ مترجمة');
 });
 
+test('rep-offline-7 (D21): صنفٌ له رئيسية ⇒ الكمية التي لا تنقسم على الكرتون تُوسَم باسم القارورة لا «بوحدة الأساس»', () => {
+  const tr = (s: string) => s;
+  assert.equal(lotLineText({ lotNumber: 'B7', qty: 30 }, { tr, unitFactor: 24, primaryUnitId: 'u-c', baseUnitName: 'قارورة' }), 'تشغيلة B7 ×30 قارورة');
+  assert.equal(lotCellText({ lotNumber: 'B7', qty: 30 }, { tr, unitFactor: 24, withQty: true, primaryUnitId: 'u-c', baseUnitName: ' قارورة ' }), 'B7 · ×30 قارورة');
+  // بلا اسم الأساس في اليد (إشعار التحميل يحمل وحدة السطر وحدها): «بالوحدة الصغرى» — ولا «الأساس» في أيّهما
+  const noName = lotCellText({ lotNumber: 'B7', qty: 30 }, { tr, unitFactor: 24, withQty: true, primaryUnitId: 'u-c' });
+  assert.equal(noName, 'B7 · ×30 بالوحدة الصغرى');
+  assert.ok(!noName.includes('الأساس'));
+  // ما ينقسم يُطبع بوحدة السطر كما كان
+  assert.equal(lotLineText({ lotNumber: 'A12', qty: 48 }, { tr, unitFactor: 24, primaryUnitId: 'u-c', baseUnitName: 'قارورة' }), 'تشغيلة A12 ×2');
+  // I1: primaryUnitId null أو غائب ⇒ كما كان حرفاً ولو مُرِّر الاسم
+  assert.equal(lotLineText({ lotNumber: 'B7', qty: 30 }, { tr, unitFactor: 24, primaryUnitId: null, baseUnitName: 'قارورة' }), 'تشغيلة B7 ×30 بوحدة الأساس');
+  // إشعار التحميل يمرّر رئيسية سطره، وورقة الفاتورة لا (R11: الطباعة A4 والحرارية لا تتغيّر)
+  const docs = fs.readFileSync(path.join(process.cwd(), 'src', 'rep', 'RepDocuments.tsx'), 'utf8');
+  assert.match(docs, /lotCellText\(l, \{ tr, unitFactor: it\.unitFactor, withQty: lots\.length > 1, primaryUnitId: it\.primaryUnitId \}\)/);
+  assert.match(docs, /\{lotLineText\(l, \{ tr, unitFactor: it\.unitFactor \}\)\}<\/div>/);
+  const app = fs.readFileSync(path.join(process.cwd(), 'src', 'rep', 'RepApp.tsx'), 'utf8');
+  assert.match(app, /lotCellText\(l, \{ tr, withQty: true, unitFactor: it\.unitFactor, primaryUnitId, baseUnitName \}\)/);
+});
+
 test('noticeHasLots وwarehouseLineLots: العمود متى وُجدت تشغيلة، وسطر المستودع تشغيلةٌ واحدة بالأساس', () => {
   assert.equal(noticeHasLots([{}, { lots: [] }]), false);
   assert.equal(noticeHasLots([{}, { lots: [{ lotNumber: 'A', qty: 1 }] }]), true);

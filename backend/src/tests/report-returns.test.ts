@@ -29,7 +29,8 @@ test('الوحدات المتعددة: بند المرتجع بوحدته هو (
   assert.deepEqual([carton.qty, carton.unit, carton.baseQty, carton.baseUnit, carton.unitFactor], [1, 'كرتون', 24, 'حبة', 24]);
   // بندٌ سبق الميزة: بلا لقطة ⇒ وحدة الصنف كما كان، والأساس من الكمية (baseQty فارغ لم يملأه الترحيل)
   const legacy = returnLineView({ ...base, lineTotal: 5, qty: 3, unitName: null, unitFactor: 1, baseQty: null, product: { name: 'حليب', unit: 'كرتون' }, expiresAt: new Date('2026-10-01T00:00:00Z') });
-  assert.deepEqual(legacy, { name: 'حليب', unit: 'كرتون', qty: 3, unitFactor: 1, baseQty: 3, baseUnit: 'كرتون', lineTotal: 5, returnExpired: null, expiresAt: '2026-10-01' });
+  // ومفتاح «الوحدة الرئيسية» حاضرٌ null لصنفٍ بلاها (D18)
+  assert.deepEqual(legacy, { name: 'حليب', unit: 'كرتون', qty: 3, unitFactor: 1, baseQty: 3, baseUnit: 'كرتون', primaryUnitId: null, lineTotal: 5, returnExpired: null, expiresAt: '2026-10-01' });
   // صنفٌ محذوف: الاسم من لقطة البند
   assert.equal(returnLineView({ ...base, qty: 1, itemName: 'قديم', product: null }).name, 'قديم');
 });
@@ -46,10 +47,11 @@ test('الوحدات المتعددة: المبيعات حسب الصنف تُج
     { items: [{ qty: 1, unitFactor: 1, lineTotal: 2, product: null }] },
   ], new Map([['cans', [{ name: 'كرتون', factor: 24 }]]]));
   // كرتونان وثلاث حبّات = ٥١ حبة (لا «٥»)، وقيمته مجموع البنود
-  assert.deepEqual(rows[0], { productId: 'milk', name: 'حليب', code: 'P2', qty: 4, baseQty: 4, unit: 'كرتون', units: [], total: 40 });
-  assert.deepEqual(rows[1], { productId: 'cans', name: 'ببسي', code: 'P1', qty: 51, baseQty: 51, unit: 'حبة', units: [{ name: 'كرتون', factor: 24 }], total: 21.5 });
+  // ومفتاح «الوحدة الرئيسية» حاضرٌ null لصنفٍ بلاها (D18)
+  assert.deepEqual(rows[0], { productId: 'milk', name: 'حليب', code: 'P2', qty: 4, baseQty: 4, unit: 'كرتون', units: [], primaryUnitId: null, total: 40 });
+  assert.deepEqual(rows[1], { productId: 'cans', name: 'ببسي', code: 'P1', qty: 51, baseQty: 51, unit: 'حبة', units: [{ name: 'كرتون', factor: 24 }], primaryUnitId: null, total: 21.5 });
   // بندٌ بلا صنف يبقى في دلوه ولا يُسقط التقرير
-  assert.deepEqual(rows[2], { productId: null, name: 'صنف محذوف', code: '—', qty: 1, baseQty: 1, unit: '', units: [], total: 2 });
+  assert.deepEqual(rows[2], { productId: null, name: 'صنف محذوف', code: '—', qty: 1, baseQty: 1, unit: '', units: [], primaryUnitId: null, total: 2 });
 });
 
 test('حارس نصّي: تقرير المرتجع يقرأ لقطة الوحدة، وتقرير المبيعات يُرفق وحدة الصنف ويجمع بالأساس', () => {

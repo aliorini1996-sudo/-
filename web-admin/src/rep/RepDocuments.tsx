@@ -1164,7 +1164,7 @@ export const PrintableLoadNotice = forwardRef<HTMLDivElement, { doc: LoadNoticeD
                 {withLots && (
                   <td style={{ ...td, fontSize: 10.5, color: '#374151' }}>
                     {lots.length === 0 ? '-' : lots.map((l, k) => (
-                      <div key={k}>{lotCellText(l, { tr, unitFactor: it.unitFactor, withQty: lots.length > 1 })}</div>
+                      <div key={k}>{lotCellText(l, { tr, unitFactor: it.unitFactor, withQty: lots.length > 1, primaryUnitId: it.primaryUnitId })}</div>
                     ))}
                   </td>
                 )}

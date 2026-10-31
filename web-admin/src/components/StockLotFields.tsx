@@ -12,9 +12,13 @@ import { useTr } from '../i18n/strings';
 import { formatDayOnly } from '../utils/format';
 import { LOT_BLOCK_KIND_LABELS, LOT_STATUS_LABELS, normalizeLotNumber, roundLot, type ProductLotDto } from '../lib/lots';
 import {
-  draftRemaining, entryLotModes, sourceKey, splitDraft, withKnownLotDates,
+  draftRemaining, entryLotModes, lotRowEquivalent, lotSmallUnitOf, sourceKey, splitDraft, withKnownLotDates,
   type DraftProblem, type EntryLotDraft, type EntryLotKind, type EntryLotMode, type EntryLotProblem, type LotBalancesResponse, type LotRowDraft, type LotSource,
 } from '../lib/stockLots';
+import type { UnitDef } from '../lib/units';
+
+/** صنف السطر بوحداته ورئيسيته — لنصوص المحرّر بالوحدة الصغرى ومعادلها الحيّ (D21 وR8) */
+type LotUnitProd = { unit?: string | null; units?: UnitDef[] | null; primaryUnitId?: string | null };
 
 type Tr = (s: string) => string;
 export const fmtLotQty = (n: number) => Number(roundLot(n).toFixed(4)).toLocaleString('en-US');
@@ -42,11 +46,14 @@ export function sourceLabel(s: LotSource, tr: Tr): string {
   return `${name}${exp}${state} — ${tr('متاح')} ${fmtLotQty(s.usable)}`;
 }
 
-export function draftProblemText(p: DraftProblem | null, tr: Tr): string | null {
+/** `prod` صنف السطر: له رئيسية ⇒ «بـ{الوحدة الصغرى}» بدل «بوحدة الأساس» (D21)، وبلاها النصّ القائم حرفاً (I1) */
+export function draftProblemText(p: DraftProblem | null, tr: Tr, prod?: LotUnitProd | null): string | null {
   if (!p) return null;
   if (p === 'LOT_SOURCE_MISSING') return tr('اختر التشغيلة لكل صف');
   if (p === 'LOT_SOURCE_DUPLICATE') return tr('التشغيلة مكررة في صفين');
   if (p === 'LOT_OVER_SOURCE') return tr('الكمية أكبر من المتاح في التشغيلة');
+  const small = lotSmallUnitOf(prod);
+  if (small) return tr('مجموع كميات التشغيلات يجب أن يساوي كمية السطر بـ{unit}').split('{unit}').join(small);
   return tr('مجموع كميات التشغيلات يجب أن يساوي كمية السطر بوحدة الأساس');
 }
 
@@ -61,31 +68,41 @@ export function entryProblemText(p: EntryLotProblem | null, tr: Tr): string | nu
 /**
  * صفوف التوزيع على التشغيلات: مصدرٌ وكمية أساسية لكل صف، وتقسيمٌ على تشغيلة أخرى، وما بقي بلا توزيع. المصدر الغائب عن
  * القائمة (نفد بعد الاقتراح) يبقى ظاهراً موسوماً فلا يتبدّل بصمت.
+ * `prod` صنف السطر: له «وحدة رئيسية» ⇒ الكمية تبقى بالقارورة (D22) واسمها لاصقٌ بالخانة بخطٍّ بارز ومعادلها الحيّ تحتها
+ * («= 2 كرتون و3 قارورة»، R8)، والوسم بلا «الأساس» (D21). بلاها كل شيء كما كان حرفاً (I1).
  */
-export function LotRowsEditor({ rows, onChange, sources, lineBaseQty, baseUnit, problem }: {
+export function LotRowsEditor({ rows, onChange, sources, lineBaseQty, baseUnit, problem, prod }: {
   rows: LotRowDraft[]; onChange: (rows: LotRowDraft[]) => void; sources: LotSource[]; lineBaseQty: number;
-  baseUnit?: string; problem?: DraftProblem | null;
+  baseUnit?: string; problem?: DraftProblem | null; prod?: LotUnitProd | null;
 }) {
   const tr = useTr();
   const left = draftRemaining(rows, lineBaseQty);
   const known = new Set(sources.map((s) => sourceKey(s.lotId)));
+  const small = lotSmallUnitOf(prod);
   const patch = (key: string, p: Partial<LotRowDraft>) => onChange(rows.map((r) => (r.key === key ? { ...r, ...p } : r)));
   return (
     <div className="space-y-1.5">
-      {rows.map((r) => (
-        <div key={r.key} className="flex items-center gap-1.5">
-          <select className="input py-1 text-xs flex-1 min-w-0" value={r.source} aria-label={tr('التشغيلة')}
-            onChange={(e) => patch(r.key, { source: e.target.value })}>
-            <option value="">{tr('اختر التشغيلة')}</option>
-            {sources.map((s) => <option key={sourceKey(s.lotId)} value={sourceKey(s.lotId)}>{sourceLabel(s, tr)}</option>)}
-            {r.source && !known.has(r.source) && <option value={r.source}>{tr('تشغيلة لم تعد متاحة')}</option>}
-          </select>
-          <input type="number" step="any" min="0" inputMode="decimal" className="input w-20 py-1 text-center text-xs" value={r.qty}
-            aria-label={tr('الكمية بوحدة الأساس')} onChange={(e) => patch(r.key, { qty: e.target.value })} />
-          <button type="button" onClick={() => onChange(rows.filter((x) => x.key !== r.key))} title={tr('حذف')}
-            className="p-1 text-red-400 hover:text-red-600"><Trash2 size={14} /></button>
-        </div>
-      ))}
+      {rows.map((r) => {
+        const eq = lotRowEquivalent(r.qty, prod);
+        return (
+          <div key={r.key}>
+            <div className="flex items-center gap-1.5">
+              <select className="input py-1 text-xs flex-1 min-w-0" value={r.source} aria-label={tr('التشغيلة')}
+                onChange={(e) => patch(r.key, { source: e.target.value })}>
+                <option value="">{tr('اختر التشغيلة')}</option>
+                {sources.map((s) => <option key={sourceKey(s.lotId)} value={sourceKey(s.lotId)}>{sourceLabel(s, tr)}</option>)}
+                {r.source && !known.has(r.source) && <option value={r.source}>{tr('تشغيلة لم تعد متاحة')}</option>}
+              </select>
+              <input type="number" step="any" min="0" inputMode="decimal" className="input w-20 py-1 text-center text-xs" value={r.qty}
+                aria-label={small ? tr('الكمية بـ{unit}').split('{unit}').join(small) : tr('الكمية بوحدة الأساس')} onChange={(e) => patch(r.key, { qty: e.target.value })} />
+              {small && <b className="text-[11px] text-[#1F1A13] whitespace-nowrap">{small}</b>}
+              <button type="button" onClick={() => onChange(rows.filter((x) => x.key !== r.key))} title={tr('حذف')}
+                className="p-1 text-red-400 hover:text-red-600"><Trash2 size={14} /></button>
+            </div>
+            {eq && <p className="text-[10px] text-[#9A8F7E] mt-0.5 text-end">{eq}</p>}
+          </div>
+        );
+      })}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <button type="button" onClick={() => onChange(splitDraft(rows, lineBaseQty, sources))}
           disabled={rows.length >= sources.length && rows.every((r) => known.has(r.source))}
@@ -96,7 +113,7 @@ export function LotRowsEditor({ rows, onChange, sources, lineBaseQty, baseUnit, 
           {tr('المتبقي بلا توزيع')}: {fmtLotQty(left)}{baseUnit ? ` ${baseUnit}` : ''}
         </span>
       </div>
-      {problem && <p className="text-[10px] text-red-600">{draftProblemText(problem, tr)}</p>}
+      {problem && <p className="text-[10px] text-red-600">{draftProblemText(problem, tr, prod)}</p>}
     </div>
   );
 }

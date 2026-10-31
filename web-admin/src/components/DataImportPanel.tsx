@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import api, { companyApi, importApi } from '../api/client';
+import api, { companyApi, importApi, productApi } from '../api/client';
 import {
   parseImportFile, ImportFileError, IMPORT_TYPES, ImportKind, LEDGER_IMPORT_KINDS, classifyImportRowsByCutover, classifyImportFailure,
   openingStockGate, openingStockAckState, fileRowOf, localizedServerMessage, listSeparator, PRICE_INCL_TAX_SUGGESTED_NOTICE,
   OPENING_STOCK_LOT_HINT, type InvalidDateRow, type OpeningStockBlock, type OpeningStockServerBlock, type ImportNotice,
+  openingStockPrimaryPreview, openingStockUnitRequiredRows, QTY_UNIT_REQUIRED, type ImportPreviewProduct,
 } from '../lib/importData';
 import { useTr } from '../i18n/strings';
 import { useLang } from '../i18n/lang';
@@ -371,6 +372,21 @@ export default function DataImportPanel() {
   }, [preview, ledger, undatedDate, excludeAfter, forceUndated, serverActivated, lotTracking, zeroPriceAck, companyDecimals, priceInclTax]);
   // البند 31: قرار المالك إن لمس الخانة، وإلا ما يقوله عنوان العمود
   const pricesIncludeTax = view?.inclusiveChosen ?? priceInclTax ?? false;
+  /* «الوحدة الرئيسية» (§2.11، D17): معاينة الجرد الافتتاحي بأصناف الشركة (المفتاح المشترك ['products-min']) — المعادل بالرئيسية
+   * تحت الكمية («= 2 كرتون و3 قارورة»)، والصفوف التي خانة وحدتها فارغة لصنفٍ له رئيسية أو تغيّرت وحداته تُقال قبل الإرسال
+   * (سيرفضها الخادم QTY_UNIT_REQUIRED). تعذّر القائمة (صلاحية الأصناف) ⇒ لا عمود ولا تنبيه، والخادم يحكم كما كان */
+  const stockProdQ = useQuery({
+    queryKey: ['products-min'],
+    queryFn: async () => (await productApi.list({ limit: 1000 })).data.data as ImportPreviewProduct[],
+    enabled: preview?.kind === OPENING_STOCK,
+    staleTime: 60_000,
+    retry: false,
+  });
+  const stockPrimary = useMemo(
+    () => (preview?.kind === OPENING_STOCK && view && Array.isArray(stockProdQ.data) ? openingStockPrimaryPreview(view.rows, stockProdQ.data) : null),
+    [preview?.kind, view, stockProdQ.data],
+  );
+  const stockUnitRequired = stockPrimary ? openingStockUnitRequiredRows(stockPrimary, view?.sentFileRows) : [];
 
   const doImport = async (extra?: Preview['flags']) => {
     if (!preview || !view) return;
@@ -737,6 +753,13 @@ export default function DataImportPanel() {
                             })}
                           </tr>
                         ))}
+                        {stockPrimary && stockPrimary.slice(0, 3).some((x) => x.text) && (
+                          <tr className="border-t border-[#F1EBE0]">
+                            <td className="pe-2 py-0.5 text-gray-700 whitespace-nowrap">{tr('الكمية بوحداتها')}</td>
+                            <td className="pe-2 py-0.5 text-gray-400">—</td>
+                            {stockPrimary.slice(0, 3).map((x, i) => <td key={i} className="pe-2 py-0.5 text-gray-600 whitespace-nowrap">{x.text ?? '—'}</td>)}
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -751,6 +774,12 @@ export default function DataImportPanel() {
                     <span className="block mt-0.5 text-[#6E6557]">{tr('وإلا فاحذف هذه الصفوف من الملف أو صحّح أسعارها ثم أعد رفعه')}</span>
                   </span>
                 </label>
+              )}
+              {stockUnitRequired.length > 0 && (
+                <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3 text-[11px] text-amber-800" role="status">
+                  <p className="font-semibold flex items-start gap-1"><AlertTriangle size={12} className="shrink-0 mt-0.5" /> {tr(QTY_UNIT_REQUIRED)}</p>
+                  <p className="mt-0.5">{tr('صف')} <bdi className="tabular-nums">{stockUnitRequired.slice(0, 20).join(listSeparator(lang))}{stockUnitRequired.length > 20 ? ' …' : ''}</bdi></p>
+                </div>
               )}
               {view.errors.length > 0 && (
                 <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3 max-h-40 overflow-y-auto">

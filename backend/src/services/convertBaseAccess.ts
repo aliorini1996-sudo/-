@@ -8,8 +8,12 @@ import prisma from '../config/database';
 import { isOwnerSession, tenantId } from '../middleware/auth';
 import type { AuthRequest } from '../types';
 
-/** بوابة الإطلاق (D14-أ): false ⇒ جلسة المالك وحدها كما اليوم. تُقلب true في المرحلة ٥ بمعيار §9 */
-export const CONVERT_BASE_OPEN_TO_COMPANY = false;
+/**
+ * بوابة الإطلاق (D14-أ): false ⇒ جلسة المالك وحدها. قُلبت true في المرحلة ٥ بمعيار §9 (٣١ أكتوبر، docs/multi-unit/REVIEW.md
+ * «العنقود مغلق»): اختبارات §3 و§8 و`tsc` خضراء، وتعطيل كل حارس أفشل اختباره، ولا نتيجة حرجة أو عالية مفتوحة.
+ * ولا أثر لها وحدها: كل شركة مغلقة حتى يقلب مالك المنصّة علمها (Tenant.convertBaseOpen، افتراضه false) من صفحة المنصّة
+ */
+export const CONVERT_BASE_OPEN_TO_COMPANY = true;
 
 export interface ConvertBaseActor {
   impersonated?: boolean; apiKeyId?: string | null; role?: string; isActive?: boolean; scopeEnabled?: boolean;

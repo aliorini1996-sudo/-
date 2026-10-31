@@ -12,6 +12,7 @@
 // ============================================================================
 
 import type { OutboxDoc } from './offlineDb';
+import { baseNameKey, type UnitDef } from '../lib/units';
 import {
   LOT_EPS, LOT_MAX_ROWS, docLotsFrom, isLotExpiredOn, lotDay, roundLot, toBaseQty,
   type DocLotLine, type LotRef, type VanLotSnapshotDto,
@@ -175,23 +176,54 @@ function counts(d: OutboxDoc, fetchedAt: number): boolean {
   return Number.isFinite(at) && at >= fetchedAt;
 }
 
+/** صنف الكتالوج كما يحتاجه إعادة أساس المعلّق: أساسه الآن ووحداته (النشطة والموقوفة) */
+export interface PendingCatalogProduct { id: string; unit?: string | null; units?: UnitDef[] | null }
+
+/**
+ * «الوحدة الرئيسية» (I9 كما في الخادم: scaleLotHint): بندٌ صُفّ قبل «إضافة وحدة فرعية أصغر» لصنفه كمّيته وتلميحاته بالأساس
+ * القديم (`baseUnitName` لقطة الجهاز)، واللقطة بعد التحويل ضُربت كمياتها بـF — فيُضرب المعلّق بمعامل الأساس القديم وهو الآن وحدة.
+ * 1 حين الأساس نفسه (أو بلا لقطة أو صنفٌ غائب عن الكتالوج: كما كان)، و`null` حين الأساس القديم غير معروف بين وحداته: الكمية
+ * كما هي والتلميح يُسقط فيُطرح بالقاعدة (FEFO) — والخادم صاحب القرار عند الرفع.
+ */
+export function pendingRebaseFactor(baseUnitName: unknown, p: PendingCatalogProduct | null | undefined): number | null {
+  const seen = baseNameKey(typeof baseUnitName === 'string' ? baseUnitName : null);
+  if (!seen || !p || seen === baseNameKey(p.unit)) return 1;
+  const u = (Array.isArray(p.units) ? p.units : [])
+    .find((x) => x && baseNameKey(x.name) === seen && Number.isInteger(Number(x.factor)) && Number(x.factor) > 1);
+  return u ? Number(u.factor) : null;
+}
+
+/** تلميح التشغيلات بعد إعادة الأساس — كـscaleLotHint في الخادم (أربع خانات)، وما ليس صفاً صالحاً يبقى كما هو فيرفضه validLotRefs */
+function scaleRefs(raw: unknown, k: number): unknown {
+  if (!Array.isArray(raw) || k === 1) return raw;
+  return raw.map((x) => {
+    if (!x || typeof x !== 'object' || Array.isArray(x)) return x;
+    const q = (x as { qty?: unknown }).qty;
+    return typeof q === 'number' && Number.isFinite(q) ? { ...(x as Record<string, unknown>), qty: Math.round(q * k * 10_000) / 10_000 } : x;
+  });
+}
+
 /**
  * المعلّق على اللقطة لكل صنف: total = Σ الكميات الأساسية، وbyLot ما حمل تلميحاً (والباقي total − Σ byLot يُطرح بالقاعدة).
  * فواتير البيع وحدها، ولمستندات صاحب الجلسة (أو القديمة بلا repId — كما يرفعها الصندوق)؛ والمرتجع المعلّق لا يزيد.
+ * `catalog` (اختياري) كتالوج الأصناف الحالي: بندٌ صُفّ على أساسٍ قبل تحويله يُعاد إلى الأساس الحالي (pendingRebaseFactor)؛ بلاه كما كان.
  */
-export function pendingOut(outbox: readonly OutboxDoc[], posted: readonly PostedEntry[], fetchedAt: number, repId: string | null | undefined): PendingOut {
+export function pendingOut(outbox: readonly OutboxDoc[], posted: readonly PostedEntry[], fetchedAt: number, repId: string | null | undefined,
+  catalog?: readonly PendingCatalogProduct[] | null): PendingOut {
   const out: PendingOut = new Map();
+  const byId = new Map((catalog ?? []).filter((p) => p && typeof p.id === 'string').map((p) => [p.id, p] as const));
   for (const d of outbox) {
     if (d.kind !== 'invoice' || (d.repId && repId && d.repId !== repId) || !counts(d, fetchedAt)) continue;
     const p = d.payload as { type?: unknown; items?: unknown } | null;
     if (!p || typeof p !== 'object' || p.type === 'RETURN' || !Array.isArray(p.items)) continue;
     addDocItems(out, (p.items as Record<string, unknown>[])
       .filter((it) => it && typeof it.productId === 'string')
-      .map((it) => ({
-        productId: it.productId as string,
-        qty: toBaseQty({ qty: Number(it.qty), unitFactor: it.unitFactor as number | null, baseQty: it.baseQty as number | null }),
-        lots: it.lots,
-      })));
+      .map((it) => {
+        const qty = toBaseQty({ qty: Number(it.qty), unitFactor: it.unitFactor as number | null, baseQty: it.baseQty as number | null });
+        const k = byId.size ? pendingRebaseFactor(it.baseUnitName, byId.get(it.productId as string)) : 1;
+        if (k === null) return { productId: it.productId as string, qty, lots: undefined };
+        return { productId: it.productId as string, qty: k === 1 ? qty : roundLot(qty * k), lots: scaleRefs(it.lots, k) };
+      }));
   }
   for (const e of posted) if (e.at >= fetchedAt) addDocItems(out, e.items);
   return out;

@@ -143,6 +143,10 @@ test('vanLots: منطق التشغيلات لا يقرأ الوحدة الرئي
   const src = fs.readFileSync(path.join(process.cwd(), 'src', 'rep', 'vanLots.ts'), 'utf8');
   assert.ok(!/primaryUnit|primaryChoice|defaultChoice|productQtyText/.test(src), 'الرئيسية عرضٌ وافتراضٌ فقط، لا LOT');
   const docs = fs.readFileSync(path.join(process.cwd(), 'src', 'rep', 'RepDocuments.tsx'), 'utf8');
-  // خانات التشغيلة في الإشعارات تبقى بمعامل السطر (لقطته)، لا بالرئيسية
-  for (const m of docs.match(/lot(?:Cell|Line)Text\([^)]*\)/g) ?? []) assert.ok(!/primary/i.test(m), m);
+  // خانات التشغيلة في الإشعارات تبقى بمعامل السطر (لقطته)، لا بالرئيسية — والرئيسية لا تمرّ إلا وسماً (D21: «×30 قارورة» لا
+  // «بوحدة الأساس»، rep-offline-7) فلا تمسّ الكمية: lotQtyInLine لا يقرؤها
+  for (const m of docs.match(/lot(?:Cell|Line)Text\([^)]*\)/g) ?? []) assert.ok(!/primary/i.test(m.replace(/, primaryUnitId: it\.primaryUnitId/, '')), m);
+  const lots = fs.readFileSync(path.join(process.cwd(), 'src', 'rep', 'docLots.ts'), 'utf8');
+  const qtyFn = lots.slice(lots.indexOf('export function lotQtyInLine('), lots.indexOf('export function lotDayText('));
+  assert.ok(qtyFn.length > 0 && !/primary/i.test(qtyFn), 'كمية التشغيلة بمعامل السطر وحده');
 });

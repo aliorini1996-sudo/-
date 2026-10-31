@@ -273,6 +273,35 @@ test('I10: مهلة القفل تُضبط قبل FOR KEY SHARE على الأصن
   }
 });
 
+test('I10 (convert-base-4): قفلٌ مُنح بعد انتظارٍ طويل ثم انقضت معاملة الإصدار (P2028 بعد القفل) ⇒ 503 PRODUCT_UNITS_BUSY لا 500، وبلا انتظارٍ ⇒ كما كان', async () => {
+  const expired = () => Object.assign(new Error('Transaction already closed: A query cannot be executed on an expired transaction.'), { code: 'P2028' });
+  const script = (waitMs: number) => {
+    let locked = false;
+    rawScript = (r) => {
+      if (/FROM products WHERE id IN/.test(r.sql) && r.sql.includes('FOR KEY SHARE')) {
+        locked = true;
+        // التحويل يمسك الصفّ ثم يلتزم قبيل مهلة القفل: يُمنح القفل بعد انتظار
+        return new Promise((resolve) => setTimeout(() => resolve([]), waitMs));
+      }
+      // أول أمرٍ بعد القفل (استعادة المهلة) يجد المعاملة قد انقضت — خارج try القفل
+      if (locked && r.kind === '$executeRaw' && r.sql.includes("set_config('lock_timeout'")) throw expired();
+      return undefined;
+    };
+  };
+  world();
+  script(1100);
+  const r = await call('POST', '/api/invoices', { body: sale([{ productId: 'p1', qty: 1, unitPrice: 2, discountPct: 0 }]) });
+  assert.equal(r.status, 503, JSON.stringify(r.body));
+  assert.equal(r.body.code, 'PRODUCT_UNITS_BUSY');
+  assert.ok(!calls.includes('invoice.create'));
+  // انقضاءٌ بلا انتظارٍ على القفل ليس «وحدات الأصناف قيد التحديث» — يمرّ إلى المعالج العام كما كان
+  world();
+  script(0);
+  const plain = await call('POST', '/api/invoices', { body: sale([{ productId: 'p1', qty: 1, unitPrice: 2, discountPct: 0 }]) });
+  assert.equal(plain.status, 500, JSON.stringify(plain.body));
+  assert.notEqual(plain.body.code, 'PRODUCT_UNITS_BUSY');
+});
+
 // ═══ §2.12-9 ═══
 
 test('§2.12-9: تجاوز مخزون السيارة — المتاح بالوحدة الرئيسية لصنفٍ له رئيسية، وبلاها النصّ القائم حرفياً', async () => {

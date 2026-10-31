@@ -99,7 +99,8 @@ async function fetchData(tenantId: string, timezone: string, window: { from: str
       GROUP BY 1, 2`),
     prisma.product.findMany({
       where: { tenantId, status: 'ACTIVE', deletedAt: null },
-      select: { id: true, name: true, unit: true, units: ACTIVE_UNITS_SELECT },
+      // «الوحدة الرئيسية» (عرضٌ وحده): displayUnits يَسِم الرئيسية الصالحة فيقف عندها نصّ الكمية «52 كرتون و2 قارورة»
+      select: { id: true, name: true, unit: true, units: ACTIVE_UNITS_SELECT, primaryUnitId: true },
       orderBy: { name: 'asc' },
     }),
   ]);
@@ -121,7 +122,7 @@ async function fetchData(tenantId: string, timezone: string, window: { from: str
     monthly: monthlyRows.map(r => ({ customerId: r.customerId, productId: r.productId, ym: r.ym, qty: Number(r.qty) || 0, value: Number(r.value) || 0 })),
     firstOrders: firstRows.map(r => ({ customerId: r.customerId, productId: r.productId, qty: Number(r.qty) || 0 })),
     products: products.map(p => {
-      const units = displayUnits(p.units);
+      const units = displayUnits(p.units, p.primaryUnitId);
       return { id: p.id, name: p.name, unit: p.unit, ...(units.length ? { units } : {}) };
     }),
   };

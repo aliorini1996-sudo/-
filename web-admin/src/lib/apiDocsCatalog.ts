@@ -620,7 +620,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{customer, entries:[{id, type, debit, credit, balance, description, entryDate, createdAt, invoiceId, receiptId, invoice:{... items:[{... product:{name, unit}}]}|null, receipt|null}], openingBalance, closingBalance, timezone}}",
+    "response": "{success:true, data:{customer, entries:[{id, type, debit, credit, balance, description, entryDate, createdAt, invoiceId, receiptId, invoice:{... items:[{... product:{name, unit, primaryUnitId}}]}|null, receipt|null}], openingBalance, closingBalance, timezone}}",
     "rules": [
      "حدود الفترة تُحسب بتوقيت الشركة المضبوط في إعدادات الدفاتر، وإذا لم يُضبط فبمنتصف ليل UTC. القيمة التي ليست بصيغة YYYY-MM-DD تُحلَّل بـnew Date، فالتزم بالصيغة",
      "openingBalance = مجموع (المدين ناقص الدائن) قبل from، ويكون 0 إذا لم يُرسل from",
@@ -720,7 +720,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
  {
   "key": "products",
   "title": "المنتجات والتصنيفات وشرائح الأسعار",
-  "overview": "كل المسارات تحت /api/products وتعمل بمفتاح الشركة (Authorization: Bearer fsk_... أو X-API-Key) بهوية المستخدم الذي أصدره. على الموجّه كله ثلاثة حرّاس بالترتيب: authenticate ثم requireAccounting (403 ACCOUNTING_NOT_ALLOWED إن كان النظام المحاسبي مطفأ للشركة) ثم requireAdminPermission('canManageProducts') (403 «لا تملك صلاحية الوصول لهذا القسم» إن كانت صلاحية إدارة المنتجات false لصاحب المفتاح) وهذا يشمل القراءة أيضاً. الكتابة (POST/PUT/DELETE) تشترط requireAdmin (دور ADMIN أو MANAGER أو ACCOUNTANT) ولا تمر بمفتاح «قراءة فقط» (403 API_KEY_FORBIDDEN). كل الأسعار هنا (basePrice وشرائح الأسعار وأسعار العملاء) مخزنة صافية قبل الضريبة. الحذف أرشفة إن كان للصنف أثر (فواتير أو تحميل سيارة أو وارد مستودع) والمؤرشف يختفي من القوائم ويبقى قابلاً للقراءة بمعرّفه. الصنف غير النشط (INACTIVE) أو المؤرشف يُرفض في إنشاء الفواتير. أخطاء التحقق من zod تعود 400 بالشكل {success:false, message:'بيانات غير صحيحة <الحقول>', errors:{field:[...]}} والحقول غير المعروفة تُسقط بصمت. حد المفتاح 120 طلباً في الدقيقة (429 API_RATE_LIMIT مع Retry-After)\nالوحدات المتعددة للصنف: unit هي وحدة الأساس، أي أصغر ما يُباع من الصنف (حبة)، وbasePrice سعرها. والوحدات الأكبر في units[] بالشكل {id, name, factor, price, unitCode, isActive, sortOrder}: factor عدد صحيح من 2 فأكثر هو عدد وحدات الأساس فيها (كرتون = 24 حبة)، وprice سعرها صافياً قبل الضريبة أو null فيُشتق عند البيع basePrice × factor. وأسعار العملاء الخاصة وأسعار الشرائح كلها لوحدة الأساس، فسعر الكرتون للعميل = سعره الخاص × factor، وحدود الشرائح baseMinQty وbaseMaxQty بوحدة الأساس (وminQty وmaxQty للعرض القديم). تُدار الوحدات بـPOST وPUT وDELETE على /products/:id/units، والاستيراد الجماعي بوحداتها بـPOST /import/products. أما «إضافة وحدة فرعية أصغر» لصنفٍ قائم له تاريخ (POST /products/:id/convert-base: كان يُباع بالكرتون فصار يُباع بالكرتون والقارورة) فمن لوحة الإدارة وحدها: المفتاح يُرفض دائماً 403 CONVERT_BASE_INTERACTIVE_ONLY ولو أصدره مالك المنصّة، ومستخدمو الشركة يُرفضون 403 CONVERT_BASE_OWNER_ONLY ما لم يفتحها مالك المنصّة لشركتهم. فأنشئ الصنف الجديد بوحداته ووحدته الرئيسية من البداية. صنفٌ بلا وحدات: units فارغة وكل شيء كما كان قبل الميزة. ومورد المزامنة /api/v1/sync/products يحمل units (النشطة والموقوفة) وحدود الشرائح بالأساس\nالوحدة الرئيسية (primaryUnitId): كل صنف في كل ردّ (القوائم والتفاصيل والكتابة ومزامنة /v1/sync/products) يحمل دائماً primaryUnitId وbaseConvertedAt، وقيمتهما null حين لا شيء. primaryUnitId معرّف وحدةٍ من units[] يُعرّف بها الصنف ويُعرض ويُقترح أولاً في الإدخال (الكرتون)، وnull = بلا وحدة رئيسية، فكل شيء كما قبل الميزة. هو **للعرض والافتراض فقط**: كل الكميات والأسعار في الردود والمزامنة والفواتير والفوترة الإلكترونية وحمولة ERP وتتبّع LOT تبقى بوحدة الأساس unit (القارورة) وسعرها basePrice، وسعر الوحدة الرئيسية في units[] (price، وإلا basePrice × factor). وحدةٌ رئيسية موقوفة أو محذوفة أو بمعامل غير صالح لا تُعدّ، فيُعامل الصنف كأن primaryUnitId = null. وحمولة ERP لا تحمل الحقلين أصلاً\n**بندٌ بلا unitId = وحدة الأساس دائماً، ولو كانت الوحدة الرئيسية كرتوناً**: {\"productId\":\"…\",\"qty\":10} عشر قوارير لا عشرة كراتين، في كل مسار كتابة وفي الاستيراد. لبيع الكرتون أو تحميله أرسل unitId وحدته. وتعريف صنفٍ بالكرتون من البداية: POST /products بـunits[] وprimaryUnitName (basePrice يُشتقّ إن غاب). وجعل وحدةٍ قائمة رئيسية أو إلغاؤها: PUT /products/:id/primary-unit، أو makePrimary في POST /products/:id/units. وإيقاف الوحدة الرئيسية أو حذفها يُرفض 409 PRIMARY_UNIT_IN_USE إلا مع clearPrimary صريح\nbaseConvertedAt: لحظة آخر «إضافة وحدة فرعية أصغر» للصنف (null = لم يحدث قط). إن تغيّر عن آخر قيمة خزّنتها فقد صار unit وحدةً أصغر وصارت الوحدة السابقة إحدى units بمعامل F: كميات الصنف وأسعاره المخزَّنة عندك بالأساس القديم، فاسحب تاريخ الصنف من جديد (بلا since) أو اضرب كمياته المخزَّنة بـF واقسم أسعاره عليه. التحويل لا يحرّك updatedAt بنود الفواتير والتحميلات والوارد\nبعد تحويل وحدة صنف (baseConvertedAt غير فارغ) — قاعدة الكتابة بمفتاحك: كل كتابة تعتمد على وحدة الأساس لهذا الصنف تتطلّب الأساس صراحةً = unit كما قرأته الآن: expectedBaseName لإعدادات الصنف (PUT /products/:id حين يمسّ السعر أو الوحدة أو primaryUnit، وPOST /products/:id/units، وPUT /products/:id/units/:unitId، وDELETE /products/:id/units/:unitId في الاستعلام ?expectedBaseName=، وPUT /products/:id/price-tiers)، وbaseUnitName لكل بند وصفّ (POST /invoices، وPOST /invoices/:id/credit-note، وPOST /van-stock/loads، وPOST /warehouse/entries، وPUT /rep-stock-requests/:id، وPUT /customers/:id/prices، وPOST /lots/relabel). غيابه ⇒ 400 BASE_UNIT_REQUIRED بلا كتابة — رفضٌ ظاهر بدل خطأ بالمعامل صامت. واختلافه عن الأساس الحالي ⇒ 400 UNIT_INVALID للبنود و409 BASE_UNIT_CHANGED لإعدادات الصنف: اسحب الصنف من جديد واعتمد unit الجديد، وبندٌ بلا unitId يعني الأساس الجديد. والأصناف التي لم تُحوَّل لا يتغيّر لها شيء\nرموز سباق التحويل: 409 PRODUCT_UNITS_CHANGED حين يلتزم تحويلٌ بين قراءتك وكتابتك (لا يُكتب شيء، اسحب الأصناف ثم أعد الإرسال)، و503 PRODUCT_UNITS_BUSY حين يمسك تحويلٌ جارٍ صفّ الصنف أكثر من ٥ ثوانٍ في المستندات والمخزون وأسعار العملاء وتعديل الصنف PUT /products/:id (لا يُكتب شيء، أعد المحاولة بعد قليل وبنفس clientRef في الفواتير). أما مسارات الوحدات والشرائح والوحدة الرئيسية فتنتظر التحويل الجاري وقد تنقضي معاملتها 500 بلا كتابة: أعد المحاولة",
+  "overview": "كل المسارات تحت /api/products وتعمل بمفتاح الشركة (Authorization: Bearer fsk_... أو X-API-Key) بهوية المستخدم الذي أصدره. على الموجّه كله ثلاثة حرّاس بالترتيب: authenticate ثم requireAccounting (403 ACCOUNTING_NOT_ALLOWED إن كان النظام المحاسبي مطفأ للشركة) ثم requireAdminPermission('canManageProducts') (403 «لا تملك صلاحية الوصول لهذا القسم» إن كانت صلاحية إدارة المنتجات false لصاحب المفتاح) وهذا يشمل القراءة أيضاً. الكتابة (POST/PUT/DELETE) تشترط requireAdmin (دور ADMIN أو MANAGER أو ACCOUNTANT) ولا تمر بمفتاح «قراءة فقط» (403 API_KEY_FORBIDDEN). كل الأسعار هنا (basePrice وشرائح الأسعار وأسعار العملاء) مخزنة صافية قبل الضريبة. الحذف أرشفة إن كان للصنف أثر (فواتير أو تحميل سيارة أو وارد مستودع) والمؤرشف يختفي من القوائم ويبقى قابلاً للقراءة بمعرّفه. الصنف غير النشط (INACTIVE) أو المؤرشف يُرفض في إنشاء الفواتير. أخطاء التحقق من zod تعود 400 بالشكل {success:false, message:'بيانات غير صحيحة <الحقول>', errors:{field:[...]}} والحقول غير المعروفة تُسقط بصمت. حد المفتاح 120 طلباً في الدقيقة (429 API_RATE_LIMIT مع Retry-After)\nالوحدات المتعددة للصنف: unit هي وحدة الأساس، أي أصغر ما يُباع من الصنف (حبة)، وbasePrice سعرها. والوحدات الأكبر في units[] بالشكل {id, name, factor, price, unitCode, isActive, sortOrder}: factor عدد صحيح من 2 فأكثر هو عدد وحدات الأساس فيها (كرتون = 24 حبة)، وprice سعرها صافياً قبل الضريبة أو null فيُشتق عند البيع basePrice × factor. وأسعار العملاء الخاصة وأسعار الشرائح كلها لوحدة الأساس، فسعر الكرتون للعميل = سعره الخاص × factor، وحدود الشرائح baseMinQty وbaseMaxQty بوحدة الأساس (وminQty وmaxQty للعرض القديم). تُدار الوحدات بـPOST وPUT وDELETE على /products/:id/units، والاستيراد الجماعي بوحداتها بـPOST /import/products. أما «إضافة وحدة فرعية أصغر» لصنفٍ قائم له تاريخ (POST /products/:id/convert-base: كان يُباع بالكرتون فصار يُباع بالكرتون والقارورة) فمن لوحة الإدارة وحدها: المفتاح يُرفض دائماً 403 CONVERT_BASE_INTERACTIVE_ONLY ولو أصدره مالك المنصّة، ومستخدمو الشركة يُرفضون 403 CONVERT_BASE_OWNER_ONLY ما لم يفتحها مالك المنصّة لشركتهم (مطفأة افتراضياً لكل شركة، وتُطلب من الدعم الفني). فأنشئ الصنف الجديد بوحداته ووحدته الرئيسية من البداية. صنفٌ بلا وحدات: units فارغة وكل شيء كما كان قبل الميزة. ومورد المزامنة /api/v1/sync/products يحمل units (النشطة والموقوفة) وحدود الشرائح بالأساس\nالوحدة الرئيسية (primaryUnitId): كل صنف في كل ردّ (القوائم والتفاصيل والكتابة ومزامنة /v1/sync/products) يحمل دائماً primaryUnitId وbaseConvertedAt، وقيمتهما null حين لا شيء. primaryUnitId معرّف وحدةٍ من units[] يُعرّف بها الصنف ويُعرض ويُقترح أولاً في الإدخال (الكرتون)، وnull = بلا وحدة رئيسية، فكل شيء كما قبل الميزة. هو **للعرض والافتراض فقط**: كل الكميات والأسعار في الردود والمزامنة والفواتير والفوترة الإلكترونية وحمولة ERP وتتبّع LOT تبقى بوحدة الأساس unit (القارورة) وسعرها basePrice، وسعر الوحدة الرئيسية في units[] (price، وإلا basePrice × factor). وحدةٌ رئيسية موقوفة أو محذوفة أو بمعامل غير صالح لا تُعدّ، فيُعامل الصنف كأن primaryUnitId = null. وحمولة ERP لا تحمل الحقلين أصلاً\n**بندٌ بلا unitId = وحدة الأساس دائماً، ولو كانت الوحدة الرئيسية كرتوناً**: {\"productId\":\"…\",\"qty\":10} عشر قوارير لا عشرة كراتين، في كل مسار كتابة وفي الاستيراد. لبيع الكرتون أو تحميله أرسل unitId وحدته. وتعريف صنفٍ بالكرتون من البداية: POST /products بـunits[] وprimaryUnitName (basePrice يُشتقّ إن غاب). وجعل وحدةٍ قائمة رئيسية أو إلغاؤها: PUT /products/:id/primary-unit، أو makePrimary في POST /products/:id/units. وإيقاف الوحدة الرئيسية أو حذفها يُرفض 409 PRIMARY_UNIT_IN_USE إلا مع clearPrimary صريح\nbaseConvertedAt: لحظة آخر «إضافة وحدة فرعية أصغر» للصنف (null = لم يحدث قط). إن تغيّر عن آخر قيمة خزّنتها فقد صار unit وحدةً أصغر وصارت الوحدة السابقة إحدى units بمعامل F: كميات الصنف وأسعاره المخزَّنة عندك بالأساس القديم، فاسحب تاريخ الصنف من جديد (بلا since) أو اضرب كمياته المخزَّنة بـF واقسم أسعاره عليه. التحويل لا يحرّك updatedAt بنود الفواتير والتحميلات والوارد\nبعد تحويل وحدة صنف (baseConvertedAt غير فارغ) — قاعدة الكتابة بمفتاحك: كل كتابة تعتمد على وحدة الأساس لهذا الصنف تتطلّب الأساس صراحةً = unit كما قرأته الآن: expectedBaseName لإعدادات الصنف (PUT /products/:id حين يمسّ السعر أو الوحدة أو primaryUnit، وPOST /products/:id/units، وPUT /products/:id/units/:unitId، وDELETE /products/:id/units/:unitId في الاستعلام ?expectedBaseName=، وPUT /products/:id/price-tiers)، وbaseUnitName لكل بند وصفّ (POST /invoices، وPOST /invoices/:id/credit-note، وPOST /van-stock/loads، وPOST /warehouse/entries، وPUT /rep-stock-requests/:id، وPUT /customers/:id/prices، وPOST /lots/relabel). غيابه ⇒ 400 BASE_UNIT_REQUIRED بلا كتابة — رفضٌ ظاهر بدل خطأ بالمعامل صامت. واختلافه عن الأساس الحالي ⇒ 400 UNIT_INVALID للبنود و409 BASE_UNIT_CHANGED لإعدادات الصنف: اسحب الصنف من جديد واعتمد unit الجديد، وبندٌ بلا unitId يعني الأساس الجديد. والأصناف التي لم تُحوَّل لا يتغيّر لها شيء\nرموز سباق التحويل: 409 PRODUCT_UNITS_CHANGED حين يلتزم تحويلٌ بين قراءتك وكتابتك (لا يُكتب شيء، اسحب الأصناف ثم أعد الإرسال)، و503 PRODUCT_UNITS_BUSY حين يمسك تحويلٌ جارٍ صفّ الصنف أكثر من ٥ ثوانٍ في المستندات والمخزون وأسعار العملاء وتعديل الصنف PUT /products/:id ووحداته وشرائحه ووحدته الرئيسية (لا يُكتب شيء، أعد المحاولة بعد قليل وبنفس clientRef في الفواتير)",
   "endpoints": [
    {
     "method": "GET",
@@ -1072,7 +1072,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "unit",
       "type": "string",
       "required": false,
-      "desc": "اسم وحدة الأساس، وتغييره إعادة تسمية لا تحويل: الكميات المسجّلة لا تتغيّر، ويُسجَّل في سجلّ التحويلات صفّاً بمعامل 1. اسمٌ تحمله وحدة أكبر للصنف نفسه يرجع 400 «اسم وحدة الأساس مستخدم لوحدة أخرى لهذا الصنف»، واسمٌ كان وحدة أساس الصنف قبل تحويله يرجع 409 BASE_NAME_RETIRED. ولإضافة وحدة فرعية أصغر لصنفٍ قائم (الكرتون يصير وحدةً والقارورة أساساً) فذلك «إضافة وحدة فرعية أصغر» من لوحة الإدارة لا هذا الحقل (POST /products/:id/convert-base يرفض المفتاح 403 CONVERT_BASE_INTERACTIVE_ONLY، ومستخدمي الشركة 403 CONVERT_BASE_OWNER_ONLY ما لم تُفتح لها)"
+      "desc": "اسم وحدة الأساس، وتغييره إعادة تسمية لا تحويل: الكميات المسجّلة لا تتغيّر، ويُسجَّل في سجلّ التحويلات صفّاً بمعامل 1. اسمٌ تحمله وحدة أكبر للصنف نفسه يرجع 400 «اسم وحدة الأساس مستخدم لوحدة أخرى لهذا الصنف»، واسمٌ كان وحدة أساس الصنف قبل تحويله يرجع 409 BASE_NAME_RETIRED. ولإضافة وحدة فرعية أصغر لصنفٍ قائم (الكرتون يصير وحدةً والقارورة أساساً) فذلك «إضافة وحدة فرعية أصغر» من لوحة الإدارة لا هذا الحقل (POST /products/:id/convert-base يرفض المفتاح 403 CONVERT_BASE_INTERACTIVE_ONLY، ومستخدمي الشركة 403 CONVERT_BASE_OWNER_ONLY ما لم يفتحها مالك المنصّة لشركتهم)"
      },
      {
       "name": "basePrice",
@@ -1395,7 +1395,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "معامل تلك الوحدة كما قرأته — لا يساوي معاملها الآن ⇒ 409 {code:'PRIMARY_UNIT_CHANGED'}"
      }
     ],
-    "response": "{success:true} بدون data — 404 'الصنف غير موجود' — 400 'بيانات غير صحيحة' إن غاب tiers أو لم يكن مصفوفة — 409 {success:false, code:'BASE_UNIT_CHANGED' | 'PRIMARY_UNIT_CHANGED', message} بلا كتابة — 400 {success:false, code:'BASE_UNIT_REQUIRED', message} لمفتاحٍ على صنف محوَّل بلا expectedBaseName — 500 بلا كتابة إن طال انتظار قفل الصنف خلف «إضافة وحدة فرعية أصغر» جارية (تحويلٌ طويل): أعد المحاولة بعد قليل",
+    "response": "{success:true} بدون data — 404 'الصنف غير موجود' — 400 'بيانات غير صحيحة' إن غاب tiers أو لم يكن مصفوفة — 409 {success:false, code:'BASE_UNIT_CHANGED' | 'PRIMARY_UNIT_CHANGED', message} بلا كتابة — 400 {success:false, code:'BASE_UNIT_REQUIRED', message} لمفتاحٍ على صنف محوَّل بلا expectedBaseName — 503 {success:false, code:'PRODUCT_UNITS_BUSY', message:'يجري تحويل وحدات هذا الصنف — أعد المحاولة بعد قليل'} بلا كتابة حين تمسك «إضافة وحدة فرعية أصغر» جارية صفّ الصنف أكثر من ٥ ثوانٍ: أعد المحاولة بعد قليل",
     "rules": [
      "العملية استبدال كامل: تحذف الشرائح القديمة وتنشئ المرسلة وتحدّث updatedAt للصنف في معاملة واحدة",
      "لا يتحقق الخادم من تداخل الشرائح ولا من أن minQty ≤ maxQty",
@@ -1461,7 +1461,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "اسم وحدة الأساس كما قرأته (المعامل محسوب عليه). اختلافه تحت القفل ⇒ 409 {code:'BASE_UNIT_CHANGED'} بلا كتابة، فلا تُكتب «طبلية = 50» محسوبة على الكرتون بعد تحويله. لصنفٍ baseConvertedAt غير فارغ (أُضيفت له وحدة فرعية أصغر) إلزامي لطلب المفتاح، وغيابه 400 {success:false, code:'BASE_UNIT_REQUIRED', message} ولا يُكتب شيء. والأصناف التي لم تُحوَّل لا تحتاجه"
      }
     ],
-    "response": "201 {success:true, data:{id, tenantId, productId, name, factor, price, unitCode, isActive, sortOrder, createdAt, updatedAt}} — 404 {success:false, code:'PRODUCT_NOT_FOUND', message:'الصنف غير موجود'} — 400 {success:false, code:'PRODUCT_UNITS_INVALID', message} — 409 {success:false, message:'اسم الوحدة مكرر لهذا الصنف'} — 409 {code:'BASE_UNIT_CHANGED'} — 400 {success:false, code:'BASE_UNIT_REQUIRED', message} — 500 بلا كتابة إن طال انتظار قفل الصنف خلف «إضافة وحدة فرعية أصغر» جارية (تحويلٌ طويل): أعد المحاولة بعد قليل",
+    "response": "201 {success:true, data:{id, tenantId, productId, name, factor, price, unitCode, isActive, sortOrder, createdAt, updatedAt}} — 404 {success:false, code:'PRODUCT_NOT_FOUND', message:'الصنف غير موجود'} — 400 {success:false, code:'PRODUCT_UNITS_INVALID', message} — 409 {success:false, message:'اسم الوحدة مكرر لهذا الصنف'} — 409 {code:'BASE_UNIT_CHANGED'} — 400 {success:false, code:'BASE_UNIT_REQUIRED', message} — 503 {success:false, code:'PRODUCT_UNITS_BUSY', message:'يجري تحويل وحدات هذا الصنف — أعد المحاولة بعد قليل'} بلا كتابة حين تمسك «إضافة وحدة فرعية أصغر» جارية صفّ الصنف أكثر من ٥ ثوانٍ: أعد المحاولة بعد قليل",
     "rules": [
      "الكتابة داخل معاملة بقفل صفّ الصنف، وتحدّث updatedAt الصنف فيصل التغيير لمزامنة /api/v1/sync/products ولمزامنة ERP",
      "رسائل PRODUCT_UNITS_INVALID: «اسم الوحدة مطلوب»، «اسم الوحدة طويل»، «معامل التحويل رقم أكبر من صفر»، «معامل التحويل لا يتجاوز 100000»، «معامل التحويل عدد صحيح — وحدة الأساس هي الأصغر»، «سعر الوحدة رقم موجب»، «اسم الوحدة مكرر لهذا الصنف»، «يوجد وحدة بالمعامل نفسه لهذا الصنف»",
@@ -1531,7 +1531,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "اسم وحدة الأساس كما قرأته. اختلافه تحت القفل ⇒ 409 {code:'BASE_UNIT_CHANGED'} بلا كتابة. لصنفٍ baseConvertedAt غير فارغ (أُضيفت له وحدة فرعية أصغر) إلزامي لطلب المفتاح، وغيابه 400 {success:false, code:'BASE_UNIT_REQUIRED', message} ولا يُكتب شيء. والأصناف التي لم تُحوَّل لا تحتاجه"
      }
     ],
-    "response": "{success:true, data:{id, tenantId, productId, name, factor, price, unitCode, isActive, sortOrder, createdAt, updatedAt}} — 404 PRODUCT_NOT_FOUND أو {code:'UNIT_NOT_FOUND', message:'الوحدة غير موجودة'} — 400 PRODUCT_UNITS_INVALID — 409 'اسم الوحدة مكرر لهذا الصنف' — 409 {code:'REP_UNIT_RULE_SET'} حين يُوقف أو يُصغَّر آخر وحدة كبرى نشطة لصنفٍ قيد مندوبه «الكبرى فقط» (LARGE): غيّر القيد أولاً — 409 {code:'PRIMARY_UNIT_IN_USE'} — 409 {code:'BASE_UNIT_CHANGED'} — 400 {success:false, code:'BASE_UNIT_REQUIRED', message} — 500 بلا كتابة إن طال انتظار قفل الصنف خلف «إضافة وحدة فرعية أصغر» جارية (تحويلٌ طويل): أعد المحاولة بعد قليل",
+    "response": "{success:true, data:{id, tenantId, productId, name, factor, price, unitCode, isActive, sortOrder, createdAt, updatedAt}} — 404 PRODUCT_NOT_FOUND أو {code:'UNIT_NOT_FOUND', message:'الوحدة غير موجودة'} — 400 PRODUCT_UNITS_INVALID — 409 'اسم الوحدة مكرر لهذا الصنف' — 409 {code:'REP_UNIT_RULE_SET'} حين يُوقف أو يُصغَّر آخر وحدة كبرى نشطة لصنفٍ قيد مندوبه «الكبرى فقط» (LARGE): غيّر القيد أولاً — 409 {code:'PRIMARY_UNIT_IN_USE'} — 409 {code:'BASE_UNIT_CHANGED'} — 400 {success:false, code:'BASE_UNIT_REQUIRED', message} — 503 {success:false, code:'PRODUCT_UNITS_BUSY', message:'يجري تحويل وحدات هذا الصنف — أعد المحاولة بعد قليل'} بلا كتابة حين تمسك «إضافة وحدة فرعية أصغر» جارية صفّ الصنف أكثر من ٥ ثوانٍ: أعد المحاولة بعد قليل",
     "rules": [
      "تغيير factor لا يعيد كتابة الماضي: كل بند كُتب بالوحدة يحمل لقطة اسمها ومعاملها (unitName وunitFactor) وكميته بالأساس (baseQty) لحظة كتابته، فكرتونٌ صار 12 بعد أن كان 24 لا يُنقص مخزوناً مضى",
      "التحقق على الوحدة بعد دمج المرسل مع المحفوظ، مقابل وحدة الأساس وبقية وحدات الصنف",
@@ -1566,7 +1566,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true} — 404 PRODUCT_NOT_FOUND أو UNIT_NOT_FOUND — 409 REP_UNIT_RULE_SET حين تُحذف آخر وحدة كبرى نشطة لصنفٍ قيد مندوبه LARGE — 409 {success:false, code:'PRIMARY_UNIT_IN_USE', message} لحذف الوحدة الرئيسية بلا ?clearPrimary=1 — 409 {code:'BASE_UNIT_CHANGED'} — 400 {success:false, code:'BASE_UNIT_REQUIRED', message} — 500 بلا كتابة إن طال انتظار قفل الصنف خلف «إضافة وحدة فرعية أصغر» جارية (تحويلٌ طويل): أعد المحاولة بعد قليل",
+    "response": "{success:true} — 404 PRODUCT_NOT_FOUND أو UNIT_NOT_FOUND — 409 REP_UNIT_RULE_SET حين تُحذف آخر وحدة كبرى نشطة لصنفٍ قيد مندوبه LARGE — 409 {success:false, code:'PRIMARY_UNIT_IN_USE', message} لحذف الوحدة الرئيسية بلا ?clearPrimary=1 — 409 {code:'BASE_UNIT_CHANGED'} — 400 {success:false, code:'BASE_UNIT_REQUIRED', message} — 503 {success:false, code:'PRODUCT_UNITS_BUSY', message:'يجري تحويل وحدات هذا الصنف — أعد المحاولة بعد قليل'} بلا كتابة حين تمسك «إضافة وحدة فرعية أصغر» جارية صفّ الصنف أكثر من ٥ ثوانٍ: أعد المحاولة بعد قليل",
     "rules": [
      "الحذف لا يكسر التاريخ: كل بند صدر بالوحدة يحمل لقطتها، والكمية بالأساس محفوظة في baseQty",
      "لإخفائها من البيع مع بقائها في units أوقفها بـPUT /products/:id/units/:unitId والجسم {\"isActive\":false} بدل الحذف",
@@ -1601,7 +1601,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "primaryUnitId كما قرأته (null إن لم تكن رئيسية). إن أُرسل وخالف الحالي ⇒ 409 {success:false, code:'PRIMARY_UNIT_CHANGED', message:'تغيّرت الوحدة الرئيسية منذ فتحت الصنف — أعد فتحه'} بلا كتابة. غيابه = بلا مقارنة"
      }
     ],
-    "response": "{success:true, data:Product مع category وpriceTiers وunits وprimaryUnitId} — 404 {success:false, code:'PRODUCT_NOT_FOUND', message:'الصنف غير موجود'} — 400 {code:'PRIMARY_UNIT_INVALID'} — 409 {code:'PRIMARY_UNIT_CHANGED'} — 500 بلا كتابة إن طال انتظار قفل الصنف خلف «إضافة وحدة فرعية أصغر» جارية (تحويلٌ طويل): أعد المحاولة بعد قليل",
+    "response": "{success:true, data:Product مع category وpriceTiers وunits وprimaryUnitId} — 404 {success:false, code:'PRODUCT_NOT_FOUND', message:'الصنف غير موجود'} — 400 {code:'PRIMARY_UNIT_INVALID'} — 409 {code:'PRIMARY_UNIT_CHANGED'} — 503 {success:false, code:'PRODUCT_UNITS_BUSY', message:'يجري تحويل وحدات هذا الصنف — أعد المحاولة بعد قليل'} بلا كتابة حين تمسك «إضافة وحدة فرعية أصغر» جارية صفّ الصنف أكثر من ٥ ثوانٍ: أعد المحاولة بعد قليل",
     "rules": [
      "الكتابة بقفل صفّ الصنف، وتحرّك updatedAt فيصل التغيير لمزامنة /v1/sync/products ولـERP (وحمولة ERP بلا primaryUnitId)",
      "لا قفل تاريخ ولا ترحيل ولا إعادة كتابة: الكميات والأسعار والمستندات كما هي. يتغيّر العرض والإدخال الافتراضي وحدهما",
@@ -1620,7 +1620,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "requireAccounting",
      "requireAdminPermission('canManageProducts')",
      "requireAdmin — الدور ADMIN أو MANAGER أو ACCOUNTANT",
-     "حارس الصلاحية قبل قراءة الجسم، بالترتيب: (١) مفتاح API ⇒ 403 {success:false, code:'CONVERT_BASE_INTERACTIVE_ONLY', message:'إضافة وحدة فرعية أصغر تتم من لوحة الإدارة وحدها — لا عبر مفتاح API'} دائماً ولو أصدره مالك المنصّة. (٢) جلسة الدعم الفني (المالك) تمرّ. (٣) ما لم تُفتح لمستخدمي شركتك (يفتحها مالك المنصّة لكل شركة على حدة) ⇒ 403 CONVERT_BASE_OWNER_ONLY. (٤) دورٌ غير ADMIN وMANAGER أو حسابٌ موقوف ⇒ 403 CONVERT_BASE_ROLE_FORBIDDEN. (٥) مستخدمٌ مقيّد النطاق ⇒ 403 CONVERT_BASE_SCOPED_USER. (٦) صلاحية الأصناف أو الفواتير أو مخزون السيارات false ⇒ 403 CONVERT_BASE_FORBIDDEN",
+     "حارس الصلاحية قبل قراءة الجسم، بالترتيب: (١) مفتاح API ⇒ 403 {success:false, code:'CONVERT_BASE_INTERACTIVE_ONLY', message:'إضافة وحدة فرعية أصغر تتم من لوحة الإدارة وحدها — لا عبر مفتاح API'} دائماً ولو أصدره مالك المنصّة. (٢) جلسة الدعم الفني (المالك) تمرّ. (٣) مستخدمو شركةٍ لم يفتحها لها مالك المنصّة ⇒ 403 CONVERT_BASE_OWNER_ONLY (علم الشركة مطفأ افتراضياً ويُطلب من الدعم الفني، ويُقرأ من القاعدة في كل طلب). (٤) دورٌ غير ADMIN وMANAGER أو حسابٌ موقوف ⇒ 403 CONVERT_BASE_ROLE_FORBIDDEN. (٥) مستخدمٌ مقيّد النطاق ⇒ 403 CONVERT_BASE_SCOPED_USER. (٦) صلاحية الأصناف أو الفواتير أو مخزون السيارات false ⇒ 403 CONVERT_BASE_FORBIDDEN",
      "صنفٌ له قيد وحدة مندوب (repSaleUnit أو repReturnUnit غير ANY) يُرفض 409 {code:'REP_UNIT_RULE_SET'}: التحويل يغيّر معنى الصغرى والكبرى، فيُزال القيد أولاً",
      "مفتاح قراءة فقط يُرفض 403 API_KEY_FORBIDDEN"
     ],
@@ -1688,6 +1688,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "وحدات الصنف القائمة يُضرب معاملها بـfactor، وتُنشأ وحدة باسم الأساس القديم بمعامل factor وبسعره القديم ورمزه، أولى في الترتيب — فيبيع المندوب الكرتون بسعره كما كان",
      "أسعار العملاء الخاصة وأسعار الشرائح تُقسم على factor (فسعر الكرتون للعميل لا يتغيّر)، وحدود الشرائح بالأساس تُضرب بـfactor",
      "صنفٌ بلا تاريخ يكفيه تعديل unit بـPUT /products/:id ثم إضافة الوحدة بـPOST /products/:id/units",
+     "معاملٌ مخزَّن في تاريخ الصنف (لقطة unitFactor في بنود الفواتير والتحميلات والوارد وطلبات البضاعة، ولو لوحدةٍ حُذفت أو تغيّر معاملها) يتجاوز 100000 بعد ضربه بـfactor ⇒ 400 {code:'PRODUCT_UNITS_INVALID', message:'معامل وحدة «…» في تاريخ الصنف يتجاوز 100000 بعد الإضافة'} في المعاينة (dryRun) والتنفيذ معاً، بلا كتابة",
      "كل نجاح يكتب في معاملته صفاً واحداً في سجلّ التحويلات (من، إلى، المعامل، اللحظة، الفاعل) ويختم baseConvertedAt للصنف",
      "حدود الشرائح minQty وmaxQty تُضرب بـfactor مع baseMinQty وbaseMaxQty",
      "لنظامكم: التحويل لا يجريه مفتاحكم ولا يصلكم ردّه، فاكتشفوه من مزامنة /v1/sync/products: baseConvertedAt تغيّر، وunit صار الاسم الجديد، وظهرت في units وحدةٌ باسم وحدة الأساس السابقة معاملها F هو معامل التحويل (وتضاعفت معاملات بقية وحداته بـF). التحويل يحرّك updatedAt للصنف وحده لا للفواتير ولا للتحميلات ولا للوارد، فمزامنة invoices وvan-loads وwarehouse-entries لا تعيد إرسال البنود القديمة بلقطاتها الجديدة: اضربوا baseQty المخزَّن لبنود هذا الصنف فيها بـF، أو أعيدوا سحب تلك الموارد من البداية (بلا since). وكميات تشغيلات الصنف بالأساس كذلك وتُضرب بـF داخل التحويل نفسه، ومزامنة /v1/sync/van-load-item-lots و/v1/sync/invoice-item-lots و/v1/sync/lot-relabels بطابع الإنشاء فلا تعيد إرسال الصفوف المضروبة: اضربوا qty (أو quantity) لصفوف هذا الصنف بـF، أو أعيدوا سحب الموارد الثلاثة من البداية (بلا since). ومن بعدها كل كتابة بمفتاحكم على هذا الصنف تحمل expectedBaseName أو baseUnitName (انظر مقدمة المجموعة)، وإلا 400 BASE_UNIT_REQUIRED",
@@ -1751,14 +1752,14 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:[{productId, price, unit}]} — 403 {success:false, message:'هذا العميل غير مسند لك'}",
+    "response": "{success:true, data:[{productId, price, unit, baseConvertedAt}]} — 403 {success:false, message:'هذا العميل غير مسند لك'}",
     "rules": [
      "customerId في المسار = معرّف العميل",
      "price صافٍ قبل الضريبة ولوحدة الأساس، وهو السعر المرجعي للعميل بدل basePrice. سعر وحدة أكبر للعميل = price × factor",
      "تُستبعد أسعار الأصناف المؤرشفة",
      "عميل غير موجود يعيد قائمة فارغة لا 404 (للمستخدم غير المقيد)",
      "ضبط هذه الأسعار يتم عبر PUT /customers/:id/prices في مجموعة العملاء لا هنا",
-     "unit اسم وحدة أساس الصنف لحظة القراءة — السعر محسوب عليه. إن تغيّر عمّا خزّنته فقد أُضيفت للصنف وحدة فرعية أصغر: أعد سحب الأسعار"
+     "unit اسم وحدة أساس الصنف لحظة القراءة — السعر محسوب عليه. وbaseConvertedAt (null أو ISO، حاضرٌ دائماً) لحظة آخر «إضافة وحدة فرعية أصغر» للصنف، مقروءةٌ مع السعر وunit في جملةٍ واحدة: إن تغيّرت عمّا خزّنته فقد صار السعر لوحدةٍ أصغر (أعد سحب الأسعار)، وإن بقيت كما هي وتغيّر unit وحده فهي إعادة تسمية للأساس والسعر كما هو"
     ],
     "example": ""
    }
@@ -1962,7 +1963,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{id, number, invoiceDate, customerId, lines:[{saleItemId, productId, name, code, unit, sold, returned, returnable, refundUnitPrice, qty, unitName, unitFactor, soldBase, returnedBase, returnableBase, lineTotal, refundPerBase, product:{unit, units:[{id, name, factor, price, unitCode, isActive, sortOrder}]}, taxPct, shelfLife, expiresAt, expiredToday, returnBlocked, lots?}]}}",
+    "response": "{success:true, data:{id, number, invoiceDate, customerId, lines:[{saleItemId, productId, name, code, unit, sold, returned, returnable, refundUnitPrice, qty, unitName, unitFactor, soldBase, returnedBase, returnableBase, lineTotal, refundPerBase, product:{unit, units:[{id, name, factor, price, unitCode, isActive, sortOrder}], primaryUnitId(null أو معرّف من units — للعرض وحده)}, taxPct, shelfLife, expiresAt, expiredToday, returnBlocked, lots?}]}}",
     "rules": [
      "saleItemId هو ما يُرسل في items[].invoiceItemId عند POST /invoices. وsold وreturned وreturnable بوحدة الأساس (unit = وحدة أساس الصنف)، وهي soldBase وreturnedBase وreturnableBase نفسها: بند «2 كرتون» من 24 يعطي sold = 48. وqty وunitName وunitFactor البند كما بيع (unitName null = الأساس)",
      "refundUnitPrice هو refundPerBase بأربع منازل: ما دفعه العميل لوحدة الأساس شاملاً الضريبة بعد خصمي البند والفاتورة (lineTotal ÷ soldBase). للعرض وحده: مبلغ المرتجع المرتبط يحسبه الخادم عند الإصدار",
@@ -1994,7 +1995,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{...أعمدة الفاتورة, customer{...كامل}, salesRep{id,name,phone}, installments[{seq,dueDate,amount,...}], items[{..., qty, unitName, unitFactor, baseQty, unitCode, product{id,name,code,unit,units:[{id,isActive}]}, lots?}], receiptItems[{...,receipt{...}}], signature{image,repImage,createdAt}|null, einvoice? }}. الحقل einvoice يظهر لصفوف المرحلة الثانية فقط، وitems[].lots مع withLots=1",
+    "response": "{success:true, data:{...أعمدة الفاتورة, customer{...كامل}, salesRep{id,name,phone}, installments[{seq,dueDate,amount,...}], items[{..., qty, unitName, unitFactor, baseQty, unitCode, product{id,name,code,unit,primaryUnitId(null أو معرّف من units — للعرض وحده),units:[{id,isActive}]}, lots?}], receiptItems[{...,receipt{...}}], signature{image,repImage,createdAt}|null, einvoice? }}. الحقل einvoice يظهر لصفوف المرحلة الثانية فقط، وitems[].lots مع withLots=1",
     "rules": [
      "الحقل signature يحمل صور التوقيع PNG بصيغة base64 وقد يكون حجمها كبيراً",
      "الحقل einvoice.qr هو رمز QR الذي يُطبع، والحقل printable يبين هل يجوز تسليم المستند فاتورةً ضريبية. القياسية لا تُطبع قبل اعتماد الهيئة",
@@ -3870,7 +3871,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "«تتبّع LOT»: تنزيل بضاعة سيارة مندوب محذوف إلى المستودع (بدل salesRepId ولا معه، وإلا 400). لمستخدم غير مقيّد بنطاق (403 LOT_SCOPED_USER) والميزة مفعّلة (403 LOTS_NOT_ALLOWED)، وبالنوع UNLOAD وحده (400)، ولأصناف متتبَّعة وحدها (400) بتشغيلات مسمّاة صريحة في items[].lots أو items[].lotNumber (422 LOT_REQUIRED). المعرّف من deletedSalesRepId في سجل التحميلات أو من GET /lots/:id/unload-plan، ومعرّفٌ بلا أثر محفوظ 404"
      }
     ],
-    "response": "201 {success:true, data:{id, tenantId, salesRepId, deletedSalesRepId, type, note, createdBy:'ADMIN', createdAt, items:[{id, vanLoadId, productId, qty, unitName, unitFactor, baseQty, suggestedQty, expectedQty, product:{id,name,unit}, lots?}]}, warnings?}. «تتبّع LOT»: حركةٌ فيها صنف متتبَّع ترجع كل بند بـlots:[{id, vanLoadItemId, tenantId, productId, vanKey, moveType, viaWarehouse, lotId, qty, certainty, reason, createdAt, lot:{lotNumber, expiryDate}|null}] (qty بالأساس وبإشارة البند، فتسوية النقص سالبة)، ومعها warnings:[{code, productId, detail?}] (قد تكون فارغة): LOT_FROM_UNKNOWN تحميلٌ من الرصيد غير المسمّى، LOT_SPLIT_UNIT وحدة بند انقسمت بين مصدرين، LOT_INTO_BLOCKED زيادةٌ إلى تشغيلة موقوفة، LOT_MULTI_IN_VAN صار في السيارة أكثر من تشغيلة للصنف — 400 {success:false, code:'UNIT_INVALID', message} لوحدة بند غير صالحة (items[].unitId) — 400 {success:false, code:'BASE_UNIT_REQUIRED', message} لمفتاحٍ على صنف محوَّل بلا baseUnitName — 409 {success:false, code:'PRODUCT_UNITS_CHANGED', message} حين يلتزم تحويلُ صنفٍ بين القراءة والكتابة (لا يُكتب شيء) — 503 {success:false, code:'PRODUCT_UNITS_BUSY', message:'وحدات الأصناف قيد التحديث الآن — أعد المحاولة بعد لحظات'}",
+    "response": "201 {success:true, data:{id, tenantId, salesRepId, deletedSalesRepId, type, note, createdBy:'ADMIN', createdAt, items:[{id, vanLoadId, productId, qty, unitName, unitFactor, baseQty, suggestedQty, expectedQty, product:{id,name,unit,primaryUnitId}, lots?}]}, warnings?}. «تتبّع LOT»: حركةٌ فيها صنف متتبَّع ترجع كل بند بـlots:[{id, vanLoadItemId, tenantId, productId, vanKey, moveType, viaWarehouse, lotId, qty, certainty, reason, createdAt, lot:{lotNumber, expiryDate}|null}] (qty بالأساس وبإشارة البند، فتسوية النقص سالبة)، ومعها warnings:[{code, productId, detail?}] (قد تكون فارغة): LOT_FROM_UNKNOWN تحميلٌ من الرصيد غير المسمّى، LOT_SPLIT_UNIT وحدة بند انقسمت بين مصدرين، LOT_INTO_BLOCKED زيادةٌ إلى تشغيلة موقوفة، LOT_MULTI_IN_VAN صار في السيارة أكثر من تشغيلة للصنف — 400 {success:false, code:'UNIT_INVALID', message} لوحدة بند غير صالحة (items[].unitId) — 400 {success:false, code:'BASE_UNIT_REQUIRED', message} لمفتاحٍ على صنف محوَّل بلا baseUnitName — 409 {success:false, code:'PRODUCT_UNITS_CHANGED', message} حين يلتزم تحويلُ صنفٍ بين القراءة والكتابة (لا يُكتب شيء) — 503 {success:false, code:'PRODUCT_UNITS_BUSY', message:'وحدات الأصناف قيد التحديث الآن — أعد المحاولة بعد لحظات'}",
     "rules": [
      "البنود التي كميتها صفر تُحذف، فإن لم يبقَ بند يُرَدّ 400 «لا توجد كميات صالحة»",
      "أي صنف لا يتبع الشركة يعطي 400 «منتج غير صالح»",
@@ -3911,7 +3912,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{productId, name, code, unit, loaded, unloaded, adjusted, sold, returned, remaining, expired, damaged, units:[{id, name, factor, isActive}]}]}، مرتبة تنازلياً حسب remaining",
+    "response": "{success:true, data:[{productId, name, code, unit, loaded, unloaded, adjusted, sold, returned, remaining, expired, damaged, units:[{id, name, factor, isActive}], primaryUnitId(null أو معرّف من units — للعرض وحده، والكميات بالأساس)}]}، مرتبة تنازلياً حسب remaining",
     "rules": [
      "remaining = loaded − unloaded + adjusted − sold + returned، مقرّبة لأربع خانات، وتُحسب على كامل التاريخ",
      "sold هو بنود كل فاتورة مؤكدة (CONFIRMED) غير مرتجعة منسوبة لهذا المندوب، أياً كان من أنشأها",
@@ -3965,7 +3966,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{rows:[{id, name, code, unit, expected, withBuffer, onVan, suggested, basis:'weekday'|'overall'|'none', sampleDays, activeDays, confidence:'high'|'medium'|'low', why, units:[{id, name, factor, isActive}]}], meta:{targetDate, weekday, windowDays, bufferPct, dataDays, oldestSale, warning}, salesRep:{id,name}}}",
+    "response": "{success:true, data:{rows:[{id, name, code, unit, expected, withBuffer, onVan, suggested, basis:'weekday'|'overall'|'none', sampleDays, activeDays, confidence:'high'|'medium'|'low', why, units:[{id, name, factor, isActive}], primaryUnitId(null أو معرّف من units — للعرض وحده)}], meta:{targetDate, weekday, windowDays, bufferPct, dataDays, oldestSale, warning}, salesRep:{id,name}}}",
     "rules": [
      "معرّف الصنف في الصف يأتي باسم id لا productId",
      "الأصناف النشطة وحدها، وصنف بلا مبيعات في النافذة يأتي بقيمة صفر وbasis='none'",
@@ -4187,7 +4188,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{id, tenantId, salesRepId, deletedSalesRepId, locationId, type, note, createdBy:'REP'|'ADMIN'|null, createdAt, items:[{id, vanLoadId, productId, qty, unitName, unitFactor, baseQty, suggestedQty, expectedQty, product:{id,name,unit}, lots?}], salesRep:{id,name}, location:{id,name}|null}], pagination?:{total, page, limit, pages}}",
+    "response": "{success:true, data:[{id, tenantId, salesRepId, deletedSalesRepId, locationId, type, note, createdBy:'REP'|'ADMIN'|null, createdAt, items:[{id, vanLoadId, productId, qty, unitName, unitFactor, baseQty, suggestedQty, expectedQty, product:{id,name,unit,primaryUnitId}, lots?}], salesRep:{id,name}, location:{id,name}|null}], pagination?:{total, page, limit, pages}}",
     "rules": [
      "بلا page: آخر 100 حركة فقط، الأحدث أولاً، بلا pagination. ومع page: صفحات مرقّمة بحدّ 200. للتاريخ الكامل استعمل /v1/sync/van-loads",
      "location هو ختم موقع المندوب لحظة التحميل (حركات LOAD وحدها تُختم حين تفعّل الشركة ميزة «لوكيشن»)، ولا يتغيّر إن نُقل المندوب لاحقاً. وnull لما بلا ختم",
@@ -4222,7 +4223,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{kind:'LOAD'|'UNLOAD'|'ADJUST'|'EXPIRED_OUT'|'DAMAGED_OUT'|'SALE'|'RETURN'|'RETURN_DAMAGED', date, ref, by, items:[{name, unit, qty, baseQty, lots?}]}]}",
+    "response": "{success:true, data:[{kind:'LOAD'|'UNLOAD'|'ADJUST'|'EXPIRED_OUT'|'DAMAGED_OUT'|'SALE'|'RETURN'|'RETURN_DAMAGED', date, ref, by, items:[{name, unit, qty, baseQty, primaryUnitId(null أو معرّف الوحدة الرئيسية لصنف البند — للعرض وحده), lots?}]}]}",
     "rules": [
      "يدمج آخر 50 حركة سيارة مع آخر 50 فاتورة مؤكدة، ثم يرتبها تنازلياً حسب التاريخ ويقتطع أول 60",
      "ref في حركة السيارة هو الملاحظة، وفي الفاتورة «رقم الفاتورة · اسم العميل»",
@@ -4338,7 +4339,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{productId, name, code, unit, received, adjusted, loadedToVans, returnedFromVans, onHand, avgCost, stockValue, costedQty, uncostedQty, units:[{id, name, factor, isActive}]}]}، مرتبة تنازلياً حسب onHand",
+    "response": "{success:true, data:[{productId, name, code, unit, received, adjusted, loadedToVans, returnedFromVans, onHand, avgCost, stockValue, costedQty, uncostedQty, units:[{id, name, factor, isActive}], primaryUnitId(null أو معرّف من units — للعرض وحده، والكميات والتكلفة بالأساس)}]}، مرتبة تنازلياً حسب onHand",
     "rules": [
      "تظهر كل الأصناف النشطة حتى التي لا حركة لها",
      "onHand = received + adjusted + returnedFromVans − loadedToVans، مقرّبة لأربع خانات",
@@ -4479,7 +4480,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "تاريخ انتهاء التشغيلة، إلزامي للتشغيلة الجديدة لصنف صلاحيته مفعّلة وإلا 422 LOT_EXPIRY_REQUIRED. يوم الانتهاء نفسه آخر يوم صالح"
      }
     ],
-    "response": "201 {success:true, data:{id, tenantId, type, note, supplier, createdBy, createdAt, items:[{id, entryId, productId, qty, unitName, unitFactor, baseQty, unitCost, expiresAt, product:{id,name,unit}, lotId?, lot?}]}, warnings?}. «تتبّع LOT» (الميزة مفعّلة): كل بند يحمل lotId وlot:{lotNumber, productionDate, expiryDate}|null (null لصنف غير متتبَّع أو للرصيد غير المسمّى)، وwarnings:[{code:'LOT_INTO_BLOCKED', productId, detail:{idx, lotId, lotNumber, blockKind}}] حين يدخل الوارد تشغيلة موقوفة — 400 {success:false, code:'UNIT_INVALID', message} لوحدة بند غير صالحة — 400 {success:false, code:'BASE_UNIT_REQUIRED', message} لمفتاحٍ على صنف محوَّل بلا baseUnitName — 409 {success:false, code:'PRODUCT_UNITS_CHANGED', message} حين يلتزم تحويلُ صنفٍ بين القراءة والكتابة (لا يُكتب شيء) — 503 {success:false, code:'PRODUCT_UNITS_BUSY', message:'وحدات الأصناف قيد التحديث الآن — أعد المحاولة بعد لحظات'}",
+    "response": "201 {success:true, data:{id, tenantId, type, note, supplier, createdBy, createdAt, items:[{id, entryId, productId, qty, unitName, unitFactor, baseQty, unitCost, expiresAt, product:{id,name,unit,primaryUnitId}, lotId?, lot?}]}, warnings?}. «تتبّع LOT» (الميزة مفعّلة): كل بند يحمل lotId وlot:{lotNumber, productionDate, expiryDate}|null (null لصنف غير متتبَّع أو للرصيد غير المسمّى)، وwarnings:[{code:'LOT_INTO_BLOCKED', productId, detail:{idx, lotId, lotNumber, blockKind}}] حين يدخل الوارد تشغيلة موقوفة — 400 {success:false, code:'UNIT_INVALID', message} لوحدة بند غير صالحة — 400 {success:false, code:'BASE_UNIT_REQUIRED', message} لمفتاحٍ على صنف محوَّل بلا baseUnitName — 409 {success:false, code:'PRODUCT_UNITS_CHANGED', message} حين يلتزم تحويلُ صنفٍ بين القراءة والكتابة (لا يُكتب شيء) — 503 {success:false, code:'PRODUCT_UNITS_BUSY', message:'وحدات الأصناف قيد التحديث الآن — أعد المحاولة بعد لحظات'}",
     "rules": [
      "«تتبّع LOT»: سطر الصنف المتتبَّع تشغيلة واحدة بالكمية الأساسية (qty × factor) بأربع خانات عشرية على الأكثر (وإلا 422 LOT_QTY_INVALID). التسوية بالنقص لا تتجاوز رصيد التشغيلة أو الرصيد غير المسمّى في المستودع (409 LOT_STOCK_INSUFFICIENT)، وسطرٌ بالنقص بلا تشغيلة يأخذ المصدر الوحيد في المستودع وإلا 422 LOT_REQUIRED بقائمة detail.sources. والموقوفة والمنتهية تخرج بالتسوية بالنقص (الإتلاف). وأي رفض يلغي الحركة كلها، والانشغال 503 LOT_BUSY",
      "«تتبّع LOT» — صنفٌ غير متتبَّع والميزة مفعّلة للشركة: سطرٌ يحمل حقل تشغيلة (lotId غير null، أو lotNumber أو productionDate أو expiryDate غير فارغ) يُرفض 422 {code:'LOT_PRODUCT_MISMATCH', detail:{productId, idx, reason:'NOT_TRACKED'}} وتُلغى الحركة كلها، وidx موضع السطر بين البنود غير الصفرية كسائر أخطاء الحركة. أرسله بلا هذه الحقول (null والنص الفارغ غياب). والميزة مطفأة تُهمل هذه الحقول كما كانت",
@@ -4508,7 +4509,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:[{id, tenantId, type, note, supplier, createdBy, createdAt, items:[{id, entryId, productId, qty, unitName, unitFactor, baseQty, unitCost, expiresAt, product:{name,unit}, lineCost, lotId?, lot?}], totalCost}]}",
+    "response": "{success:true, data:[{id, tenantId, type, note, supplier, createdBy, createdAt, items:[{id, entryId, productId, qty, unitName, unitFactor, baseQty, unitCost, expiresAt, product:{name,unit,primaryUnitId}, lineCost, lotId?, lot?}], totalCost}]}",
     "rules": [
      "«تتبّع LOT» (حين تكون الميزة مفعّلة للشركة): كل بند يحمل lotId وlot:{lotNumber, productionDate, expiryDate}|null — تشغيلة السطر، وnull لصنف غير متتبَّع أو للرصيد غير المسمّى. والميزة مطفأة: الرد كما كان",
      "آخر 100 حركة فقط، الأحدث أولاً، بلا ترقيم صفحات. للتاريخ الكامل استعمل /v1/sync/warehouse-entries",
@@ -4534,7 +4535,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:[{id, status, note, createdAt, updatedAt, decidedAt, sentRef, items:[{productId, name, code, unit, requestedQty, qty, unitName, unitFactor, baseQty, requestedBaseQty, baseUnit, units:[{id, name, factor, isActive}]}], salesRepId, repName}]}، الأقدم أولاً",
+    "response": "{success:true, data:[{id, status, note, createdAt, updatedAt, decidedAt, sentRef, items:[{productId, name, code, unit, requestedQty, qty, unitName, unitFactor, baseQty, requestedBaseQty, baseUnit, units:[{id, name, factor, isActive}], primaryUnitId(null أو معرّف من units — للعرض وحده)}], salesRepId, repName}]}، الأقدم أولاً",
     "rules": [
      "المعلّقة (PENDING) وحدها، ولكل مندوب طلبٌ معلّق واحد على الأكثر",
      "requestedQty ما طلبه المندوب، وqty ما اعتمدته الإدارة بعد تعديلها (يساويه حتى تعدّله). الأصناف مرتبة بالاسم",
@@ -4740,7 +4741,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{id, productId, lotNumber, productionDate, expiryDate, status, blockKind, blockedAt, createdAt, blockReason, blockedBy, note, source, createdBy, updatedAt, productName, productCode, productUnit, summary:{warehouse, vans:{SELLABLE, EXPIRED, DAMAGED}, held, vanCount, total}}], pagination:{total, page, limit, pages}, scoped}",
+    "response": "{success:true, data:[{id, productId, lotNumber, productionDate, expiryDate, status, blockKind, blockedAt, createdAt, blockReason, blockedBy, note, source, createdBy, updatedAt, productName, productCode, productUnit, productUnits:[{id, name, factor, isActive}], productPrimaryUnitId(null أو معرّف من productUnits — للعرض وحده), summary:{warehouse, vans:{SELLABLE, EXPIRED, DAMAGED}, held, vanCount, total}}], pagination:{total, page, limit, pages}, scoped}",
     "rules": [
      "الترتيب بالأقرب انتهاءً (بلا انتهاء آخراً) ثم برقم التشغيلة",
      "summary خام التشغيلة بالأساس: warehouse في المستودع (صفر حين يكون مخزون الشركة مطفأً)، وvans مجموع دلاء السيارات المرئية، وheld المحجوز في السيارات، وvanCount عدد السيارات التي فيها، وtotal المجموع. للتفصيل لكل سيارة GET /lots/:id",
@@ -5131,7 +5132,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:{id, productId, lotNumber, productionDate, expiryDate, status, blockKind, blockedAt, createdAt, blockReason, blockedBy, note, source, createdBy, updatedAt, product:{id, name, code, unit, lotTracked, shelfLifeOn}, expired, day, inUse, summary:{warehouse, vans, held, vanCount, total, places:[{place, salesRepId, repName, deleted, raw, held, usable}]}, scoped}} — 404 {success:false, code:'LOT_NOT_FOUND', message, detail:{lotId}}",
+    "response": "{success:true, data:{id, productId, lotNumber, productionDate, expiryDate, status, blockKind, blockedAt, createdAt, blockReason, blockedBy, note, source, createdBy, updatedAt, product:{id, name, code, unit, lotTracked, shelfLifeOn, units:[{id, name, factor, isActive}], primaryUnitId(null أو معرّف من units — للعرض وحده)}, expired, day, inUse, summary:{warehouse, vans, held, vanCount, total, places:[{place, salesRepId, repName, deleted, raw, held, usable}]}, scoped}} — 404 {success:false, code:'LOT_NOT_FOUND', message, detail:{lotId}}",
     "rules": [
      "updatedAt نسخة البطاقة: أرسلها كما هي في PATCH /lots/:id وPATCH /lots/:id/status",
      "expired منتهية يوم الشركة day، وinUse لها حركات (فلا تُحذف، ومدّ انتهائها لغير المقيّد بسبب)",
@@ -5875,8 +5876,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "خطأ في شكل أي صف (نوع خانة، أو خانة مطلوبة فارغة، أو قيمة خارج حدّها أو بغير صيغتها) أو صفوفٌ فوق حدّ الدفعة: 200 وcreated = 0 وأخطاء الشكل في errors بلا code، ولا يُكتب صفّ ولا تُحجز دفعة",
      "فشل كتابة صفٍّ بعينه: ROW_CONFLICT (سجل بالمفتاح نفسه أُنشئ في اللحظة نفسها، أعد الاستيراد لتخطيه) أو ROW_WRITE_FAILED، ويُكتب الباقي",
      "409 IMPORT_DUPLICATE_BATCH للصفوف نفسها ودفعتها السابقة غير متراجَع عنها ما لم ترسل force، و409 IMPORT_IN_PROGRESS إن كانت دفعة من النوع نفسه تُكتب الآن (ولو مع force)، و409 IMPORT_LEDGER_BUSY لانشغال القفل: أعد المحاولة",
-     "التراجع يعيد السعر السابق (أو يحذف الجديد) ما لم يتغيّر السعر بعد الاستيراد، وإلا يبقى في blocked",
-     "PRICE_UNIT_REQUIRED: عمود الوحدة فارغ لصنفٍ له وحدة رئيسية أو تاريخ تحويل — خطأ صفّ في الخطة قبل أي كتابة وقبل حجز الدفعة. الصنف بلا الاثنين كما كان حرفياً",
+     "التراجع يعيد السعر السابق (أو يحذف الجديد) ما لم يتغيّر السعر بعد الاستيراد، وإلا يبقى في blocked. وصنفٌ أُضيفت له «وحدة فرعية أصغر» بعد الدفعة (baseConvertedAt بعد إنشائها) يبقى سعره في blocked بسبب «تغيّرت وحدات الصنف بعد الاستيراد فلم يُعد سعره»: سعره السابق بالوحدة القديمة",
+     "PRICE_UNIT_REQUIRED: عمود الوحدة فارغ لصنفٍ له وحدة رئيسية أو تاريخ تحويل — خطأ صفّ في الخطة قبل أي كتابة (بعد حجز الدفعة كبقية أخطاء الخطة: ملفٌ حُجزت دفعته أو يجري يُردّ 409 IMPORT_DUPLICATE_BATCH أو IMPORT_IN_PROGRESS قبل أخطاء صفوفه). الصنف بلا الاثنين كما كان حرفياً",
      "409 {success:false, code:'PRODUCT_UNITS_CHANGED', message} حين يلتزم تحويلُ وحدات صنفٍ في الملف أثناء الكتابة (قاتل للشريحة: ما التزم قبلها صحيح)"
     ],
     "example": "{\"rows\":[{\"customerCode\":\"C-1001\",\"productCode\":\"P-1001\",\"price\":12.5,\"unit\":\"كرتون\"}],\"pricesIncludeTax\":false}"
@@ -6849,7 +6850,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "بدون groupBy: {success:true, data:{invoices:[صف الفاتورة كاملاً بكل أعمدتها ومنها number وtype وinvoiceDate وsubtotal وdiscountAmt وtaxAmt وtotal وpaidAmt وremainingAmt وpricesIncludeTax، مع customer{id,name,channel,city} وsalesRep{id,name} أو null وitems[صف البند كاملاً ومنه qty وunitPrice وunitCost وdiscountAmt وtaxPct وtaxAmt وlineTotal وunitName وunitFactor وbaseQty مع product{id,name,code,unit} أو null]], summary:{total, count, taxTotal, discountTotal, returnsTotal, returnsCount, defaultRangeDays?}}}. مع groupBy=product تكون data مصفوفة [{productId, name, code, qty, baseQty, unit, units:[{name, factor}], total}] حيث total مجموع lineTotal. ومع rep أو customer أو channel أو region تكون data مصفوفة [{name, count, total}]. كل التجميعات مرتبة تنازلياً حسب total",
+    "response": "بدون groupBy: {success:true, data:{invoices:[صف الفاتورة كاملاً بكل أعمدتها ومنها number وtype وinvoiceDate وsubtotal وdiscountAmt وtaxAmt وtotal وpaidAmt وremainingAmt وpricesIncludeTax، مع customer{id,name,channel,city} وsalesRep{id,name} أو null وitems[صف البند كاملاً ومنه qty وunitPrice وunitCost وdiscountAmt وtaxPct وtaxAmt وlineTotal وunitName وunitFactor وbaseQty مع product{id,name,code,unit,primaryUnitId} أو null]], summary:{total, count, taxTotal, discountTotal, returnsTotal, returnsCount, defaultRangeDays?}}}. مع groupBy=product تكون data مصفوفة [{productId, name, code, qty, baseQty, unit, units:[{id, name, factor}], primaryUnitId(null أو معرّف من units — للعرض وحده), total}] حيث total مجموع lineTotal. ومع rep أو customer أو channel أو region تكون data مصفوفة [{name, count, total}]. كل التجميعات مرتبة تنازلياً حسب total",
     "rules": [
      "الحالة CONFIRMED وحدها. قائمة invoices فواتير بيع (RETURN مستثنى منها)، أما الإجماليات والتجميعات فصافية: يُطرح منها المرتجع المؤكَّد بالمدى والفلاتر نفسها (كميةً ومبلغاً في تجميع الصنف، وقد يظهر صفّ سالب)، وsummary.total وtaxTotal وdiscountTotal صافية، وsummary.returnsTotal وreturnsCount للمرتجع، وcount عدد فواتير البيع وحدها",
      "بلا from ولا to يُقصر التقرير على آخر 90 يوماً، ويُعلن ذلك بـ summary.defaultRangeDays=90 في الوضع التفصيلي وحده، أما مع groupBy فيُطبَّق السقف دون إعلان",
@@ -6940,7 +6941,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{returns:[{id, number, invoiceDate, total, taxAmt, reason, returnToStock, toDamagedStock, creditNote, notes, saleInvoices:[number], customer{id,name,phone,city}, salesRep{id,name}, items:[{name, unit, qty, unitFactor, baseQty, baseUnit, lineTotal, returnExpired, expiresAt}]}], summary:{count, total, salesTotal, returnRate, byReason:{NORMAL|DAMAGED|EXCHANGE:{count,total}}, expiredLines}, rangeApplied, defaultDays}}",
+    "response": "{success:true, data:{returns:[{id, number, invoiceDate, total, taxAmt, reason, returnToStock, toDamagedStock, creditNote, notes, saleInvoices:[number], customer{id,name,phone,city}, salesRep{id,name}, items:[{name, unit, qty, unitFactor, baseQty, baseUnit, primaryUnitId(null أو معرّف الوحدة الرئيسية لصنف البند — للعرض وحده), lineTotal, returnExpired, expiresAt}]}], summary:{count, total, salesTotal, returnRate, byReason:{NORMAL|DAMAGED|EXCHANGE:{count,total}}, expiredLines}, rangeApplied, defaultDays}}",
     "rules": [
      "returnRate نسبة المرتجع من مبيعات المدى نفسه بمنزلة عشرية واحدة، وnull بلا مبيعات",
      "saleInvoices أرقام فواتير البيع: الأصل للإشعار الدائن، أو فواتير البنود المرتبطة للمرتجع من فاتورة بيع في المرحلة الأولى",
@@ -6996,7 +6997,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{rows:[{productId, productName, productCode, unit, units:[{name, factor}], lotId, lotNumber, productionDate, expiryDate, status, blockKind, sold, returned, net, customers, invoices, returnInvoices, soldByCertainty:{CONFIRMED, ASSUMED, UNKNOWN}}], products:[{productId, productName, productCode, unit, units, lots, sold, returned, net, customers, invoices, returnInvoices, soldByCertainty}], summary:{lots, products, customers, invoices, returnInvoices}, range:{from, to, timezone}, rangeApplied, defaultDays, scoped, truncated, maxInvoices?}}. التاريخ غير الصالح أو المعامل المكرّر 400 «معامل غير صالح»",
+    "response": "{success:true, data:{rows:[{productId, productName, productCode, unit, units:[{id, name, factor}], primaryUnitId(null أو معرّف من units — للعرض وحده), lotId, lotNumber, productionDate, expiryDate, status, blockKind, sold, returned, net, customers, invoices, returnInvoices, soldByCertainty:{CONFIRMED, ASSUMED, UNKNOWN}}], products:[{productId, productName, productCode, unit, units, primaryUnitId, lots, sold, returned, net, customers, invoices, returnInvoices, soldByCertainty}], summary:{lots, products, customers, invoices, returnInvoices}, range:{from, to, timezone}, rangeApplied, defaultDays, scoped, truncated, maxInvoices?}}. التاريخ غير الصالح أو المعامل المكرّر 400 «معامل غير صالح»",
     "rules": [
      "الكميات بوحدة الأساس للصنف، ولا تُجمع كميات صنفين معاً: الملخّص عدّاتٌ بلا كمية",
      "lotId = null صفّ «غير معروف»: بيعٌ من رصيد بلا تشغيلة، أو مرتجع حرّ بلا تشغيلة",
@@ -7358,7 +7359,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{metric, product:{id,name,unit,units:[{name, factor}]}|null, rows:[{repId, name, value, rank}], range:{from, to}, clampedDays}}",
+    "response": "{success:true, data:{metric, product:{id,name,unit,primaryUnitId(null أو معرّف من units — للعرض وحده),units:[{id, name, factor}]}|null, rows:[{repId, name, value, rank}], range:{from, to}, clampedDays}}",
     "rules": [
      "الصفوف بالقيمة تنازلياً، والمتساويان يأخذان المرتبة نفسها (1، 2، 2، 4)",
      "distance مدى أقصاه 31 يوماً، وما زاد يُقصّ ويُعلن في clampedDays",
@@ -7648,7 +7649,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "response": "{success:true, data:[{id, tenantId, type, title, body, salesRepId, customerId, isRead, data (نص JSON أو null), createdAt}]} من الأحدث",
     "rules": [
      "الحد ثابت 50 بلا ترقيم ولا فلتر لحالة القراءة",
-     "type نص مفتوح، ومن قيمه في الكود CREDIT_LIMIT_EXCEEDED وINVOICE_CANCELLED وRECEIPT_CANCELLED وPAYLINK_PAID وPAYLINK_REFUNDED وZATCA_ISSUE_FAILED وأنواع LEDGER_*",
+     "type نص مفتوح، ومن قيمه في الكود CREDIT_LIMIT_EXCEEDED وINVOICE_CANCELLED وRECEIPT_CANCELLED وPAYLINK_PAID وPAYLINK_REFUNDED وZATCA_ISSUE_FAILED وأنواع LEDGER_*، وREPLAY_UNITS_REBASED (فاتورةٌ دون اتصال من تطبيق المندوب فُسِّرت كمياتها بعد «إضافة وحدة فرعية أصغر» لصنفها: data {clientRef, number, lines:[{productId, unitName, rebase, notice}]} — راجع كمياتها) وLOT_REPLAY_HELD (فاتورةٌ دون اتصال بانتظار تسجيل تحميلٍ ناقص: data {clientRef, detail})",
      "حقل data نص JSON يجب فكّه عند القراءة"
     ],
     "example": ""

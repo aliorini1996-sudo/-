@@ -50,8 +50,8 @@ export const whLotsQuery = (productId: string) => ({
  */
 export default function MLotFields({ productId, prod, mode, shelfOn, draft, onChange, day, groupProblem }: {
   productId: string;
-  /** وحدات الصنف: «المتاح» بالأساس بجانب سطرٍ بوحدته يُفكَّك بها (القاعدة ٨) */
-  prod?: { unit?: string | null; units?: UnitDef[] | null };
+  /** وحدات الصنف: «المتاح» بالأساس بجانب سطرٍ بوحدته يُفكَّك بها (القاعدة ٨)، ويقف عند الرئيسية إن كانت له («52 كرتون و2 قارورة») */
+  prod?: { unit?: string | null; units?: UnitDef[] | null; primaryUnitId?: string | null };
   mode: LotDraftMode;
   shelfOn: boolean;
   draft: LotDraft;

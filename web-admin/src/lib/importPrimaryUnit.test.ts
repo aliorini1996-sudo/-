@@ -5,8 +5,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  IMPORT_TYPES, PRIMARY_UNIT_INVALID, PRIMARY_PRICE_REQUIRED, QTY_UNIT_REQUIRED, openingStockPrimaryPreview, type ImportPreviewProduct,
+  IMPORT_TYPES, PRIMARY_UNIT_INVALID, PRIMARY_PRICE_REQUIRED, QTY_UNIT_REQUIRED, openingStockPrimaryPreview, openingStockUnitRequiredRows, type ImportPreviewProduct,
 } from './importData';
+import { importFieldLabel, importRowErrorFieldKey } from './importRevert';
 
 const prod = IMPORT_TYPES.products.transform;
 const stock = IMPORT_TYPES.opening_stock.transform;
@@ -84,4 +85,24 @@ test('معاينة الجرد: المعادل بالرئيسية للصنف ذي
   ]);
   // بلا أصناف في اليد ⇒ لا شيء (الخادم يحكم)
   assert.deepEqual(openingStockPrimaryPreview(valid.slice(0, 1), []), [{ text: null, unitRequired: false }]);
+});
+
+test('B3b ٢: عمود «الوحدة الرئيسية» موسومٌ بالعربية في المعاينة وخطأ الصفّ — لا اسم الحقل الخام primaryUnit', () => {
+  assert.equal(importFieldLabel('primaryUnit'), 'الوحدة الرئيسية');
+  // رسالة الخادم تذكر الخانة سلفاً فلا يُكرَّر وسمها، وغيرها يُلصق الوسم بقيمتها
+  assert.equal(importRowErrorFieldKey({ code: 'PRIMARY_UNIT_INVALID', message: PRIMARY_UNIT_INVALID, value: 'صندوق', field: 'primaryUnit' }), null);
+  assert.equal(importRowErrorFieldKey({ message: 'قيمة غير صالحة', value: 'صندوق', field: 'primaryUnit' }), 'الوحدة الرئيسية');
+});
+
+test('B3b ٣: صفوف الجرد التي سيرفضها الخادم QTY_UNIT_REQUIRED تُقال بأرقامها في الملف قبل الإرسال، والمعاينة موصولة بالشاشة', () => {
+  const previews = [{ text: '= 2 كرتون', unitRequired: false }, { text: null, unitRequired: true }, { text: null, unitRequired: true }];
+  assert.deepEqual(openingStockUnitRequiredRows(previews, [4, 7, 9]), [7, 9]);
+  assert.deepEqual(openingStockUnitRequiredRows(previews), [3, 4], 'بلا خريطة الصفوف: الموضع + ٢');
+  assert.deepEqual(openingStockUnitRequiredRows([]), []);
+  const panel = fs.readFileSync(path.resolve(process.cwd(), 'src', 'components', 'DataImportPanel.tsx'), 'utf8');
+  assert.match(panel, /queryKey: \['products-min'\],\s*queryFn: async \(\) => \(await productApi\.list\(\{ limit: 1000 \}\)\)\.data\.data as ImportPreviewProduct\[\],\s*enabled: preview\?\.kind === OPENING_STOCK,/);
+  assert.match(panel, /openingStockPrimaryPreview\(view\.rows, stockProdQ\.data\)/);
+  assert.match(panel, /openingStockUnitRequiredRows\(stockPrimary, view\?\.sentFileRows\)/);
+  assert.match(panel, /\{tr\(QTY_UNIT_REQUIRED\)\}/);
+  assert.match(panel, /\{tr\('الكمية بوحداتها'\)\}/);
 });

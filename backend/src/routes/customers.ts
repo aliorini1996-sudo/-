@@ -440,7 +440,6 @@ const pricesSchema = z.object({
  * كانت بلا مهلة: ٣٠ ثانية حدٌّ أدنى، وتكبر بـ١٢ms لكل صفّ (٥٠٠٠ صفّ ⇒ ٦٠ ثانية) فلا يصير حفظ قائمةٍ كبيرة 500 كان ينجح
  */
 const PRICES_TX = { maxWait: 10_000, timeout: 30_000 } as const;
-const pricesTxOf = (rows: number) => ({ ...PRICES_TX, timeout: Math.max(PRICES_TX.timeout, rows * 12) });
 
 router.put('/:id/prices', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -472,7 +471,7 @@ router.put('/:id/prices', requireAdmin, async (req: AuthRequest, res: Response, 
           update: { price: p.price },
         });
       }
-    }, pricesTxOf(prices.length));
+    }, { ...PRICES_TX, timeout: Math.max(PRICES_TX.timeout, prices.length * 12) }); // المهلة حرفياً في الاستدعاء: يراها فحص I10 الثابت
     res.json({ success: true });
   } catch (err) {
     // صنفا خطأ الحارس وحدهما (لا انتظار قفلٍ خام من غير الحارس)

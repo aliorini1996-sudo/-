@@ -8,6 +8,7 @@ import {
   repItemQty, repRequestDirty, repRequestTotals, withRequestedProducts, requestedFirst, type RepStockRequest,
   requestUnitOf, defaultRequestUnit, prefillInUnit, stockRequestTotalText, repLineUnitId, repItemUnit, repEditItems, convertRepQty,
 } from './stockRequest';
+import { qtyByUnit, unitTotalsText } from '../rep/warehouseNoticeFacts';
 
 /**
  * «طلب مخزون» (طلب المالك، ١١ أكتوبر ٢٠٢٦): من صفحة مخزون الشركة يصدر المسؤول ورقة PDF
@@ -145,6 +146,12 @@ test('وحدة الطلب الافتراضية: ما ينقسم عليه مجم�
 test('«إجمالي الكميات»: الرقم كما كان بوحدة الأساس، ولكل وحدة حين تختلط — كالورقة المطبوعة', () => {
   assert.equal(stockRequestTotalText([{ qty: 2, unit: 'كرتون' }, { qty: 3, unit: 'علبة' }], String), '5');
   assert.equal(stockRequestTotalText([{ qty: 2, unit: 'كرتون', unitFactor: 24 }, { qty: 5, unit: 'حبة', unitFactor: 1 }, { qty: 1, unit: 'كرتون', unitFactor: 24 }], String), '3 كرتون · 5 حبة');
+  // rep-offline-10: طلبٌ كلّه بقارورة صنفٍ رئيسيّه كرتون ⇒ «10 قارورة» كالورقة (qtyByUnit)، لا «10» تُقرأ كراتين؛ وnull كما كان
+  assert.equal(stockRequestTotalText([{ qty: 4, unit: 'قارورة', unitFactor: 1, primaryUnitId: 'u-c' }, { qty: 6, unit: 'قارورة', unitFactor: 1, primaryUnitId: 'u-c' }], String), '10 قارورة');
+  assert.equal(stockRequestTotalText([{ qty: 4, unit: 'قارورة', unitFactor: 1, primaryUnitId: null }, { qty: 6, unit: 'قارورة', unitFactor: 1 }], String), '10', 'I1');
+  const paper = (ls: Parameters<typeof qtyByUnit>[0]) => { const r = qtyByUnit(ls); return r ? unitTotalsText(r, String) : null; };
+  const lines = [{ qty: 10, unit: 'قارورة', unitFactor: 1, primaryUnitId: 'u-c' }];
+  assert.equal(stockRequestTotalText(lines, String), paper(lines), 'الشاشة = الورقة');
 });
 
 // طلب مندوب ببند كرتون (لقطته) وبند حبّات من الصنف نفسه عند مندوبٍ آخر

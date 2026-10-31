@@ -871,7 +871,7 @@ function MWarehouseEntry({ onClose, lotOn }: { onClose: () => void; lotOn: boole
                   {/* «تتبّع اللوط»: تشغيلة السطر للصنف المتتبَّع وحده — والنقص بلا اختيار يتركه الخادم للمصدر الوحيد، وما يُمنع
                       على مستوى الصنف (أكثر من مصدر، فوق الصالح، D26) يُقال على سطره */}
                   {r.tracked && !badQty && (
-                    <MLotFields productId={r.productId} prod={{ unit: r.baseUnit, units: r.units }} mode={lotMode(r)} shelfOn={r.shelfOn} draft={r.lot}
+                    <MLotFields productId={r.productId} prod={{ unit: r.baseUnit, units: r.units, primaryUnitId: r.primaryUnitId }} mode={lotMode(r)} shelfOn={r.shelfOn} draft={r.lot}
                       groupProblem={outProblems.get(k) ?? null} onChange={d => patchLot(k, d)} />
                   )}
                 </div>

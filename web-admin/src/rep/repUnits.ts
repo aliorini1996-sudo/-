@@ -218,25 +218,64 @@ export function unitsText(baseQty: number, p: UnitProduct | null | undefined, nu
  * السعر مخزَّنٌ لوحدة الأساس، والصفّ يحمل `unit` = أساس الصنف لحظة قراءته (§2.2-ح). فكاشُ أسعارٍ من قبل تحويل الأساس
  * (unit = كرتون) مع كتالوجٍ من بعده (الأساس قارورة، والكرتون وحدة ٢٤) يُقسم على ٢٤ — وإلّا صار سعر الكرتون للعميل
  * ٤٨ × ٢٤ = ١١٥٢. والقاعدة:
- *  • صفٌّ بلا `unit` (كاشٌ قديم) أو `unit` = أساس الصنف الآن (`baseNameKey` على الطرفين) ⇒ السعر كما هو حرفاً.
- *  • `unit` اسم وحدةٍ نشطة للصنف ⇒ السعر ÷ معاملها (بلا تقريبٍ وسيط، كاستيراد الأسعار).
- *  • وإلّا (اسمٌ مجهول: تحويلٌ في الاتجاه الآخر أو وحدةٌ حُذفت) ⇒ يُسقط السعر، فيعود البند إلى سعر الصنف ويحكم الخادم.
  *  • صنفٌ غائب عن الكتالوج ⇒ كما هو.
+ *  • صفٌّ يحمل `baseConvertedAt` (حقبة أساس الصنف لحظة قراءة السعر، من الصفّ نفسه على الخادم): مساوٍ لحقبة الكتالوج
+ *    (كلاهما null أو اللحظة نفسها) ⇒ كما هو حرفاً — بينهما إعادة تسمية للأساس فقط لا تحويل ×F، فلا يُسقط سعرٌ خاصّ لأن الاسم
+ *    تغيّر. وإن اختلفت الحقبتان فبالاسم: `unit` = أساس الكتالوج ⇒ كما هو، أو اسم وحدةٍ للصنف — **ولو موقوفة**، معاملها صالحٌ
+ *    للسعر — ⇒ ÷ معاملها، وإلّا يُسقط.
+ *  • صفٌّ بلا `unit` (كاش ما قبل «الوحدة الرئيسية»): صنفٌ لم يُحوَّل قطّ (`baseConvertedAt` فارغ) ⇒ كما هو حرفاً (I1). وصنفٌ
+ *    حُوِّل ⇒ كما هو فقط إن قُرئ السعر (`seenAt`، وقت الكاش) بعد آخر تحويلٍ بهامش ساعة الجهاز، وإلّا يُسقط: سعرٌ بلا وحدة من قبل
+ *    التحويل هو سعر الكرتون القديم، وإبقاؤه سعرَ قارورة يجعل الكرتون × المعامل (والخادم لا يحدّ سعر من يملك canChangePrice من أعلى).
+ *  • صفٌّ بـ`unit` بلا حقبة (خادمٌ لا يردّها): `unit` = أساس الصنف الآن (`baseNameKey` على الطرفين) ⇒ كما هو، أو اسم وحدةٍ نشطة
+ *    للصنف ⇒ ÷ معاملها (بلا تقريبٍ وسيط، كاستيراد الأسعار)، وإلّا (اسمٌ مجهول: تحويلٌ في الاتجاه الآخر أو وحدةٌ حُذفت) يُسقط.
+ * والمُسقَط يعود بنده إلى سعر الصنف ويحكم الخادم.
  */
+export interface CustPriceInput {
+  productId: string;
+  price: number | string;
+  unit?: string | null;
+  /** حقبة أساس الصنف لحظة قراءة السعر — حاضرٌ (ولو null) حين يردّه الخادم، وغائبٌ في الكاش الأقدم */
+  baseConvertedAt?: string | Date | null;
+  /** وقت قراءة الصفّ من الخادم (ms، وقت كتابة الكاش) — لا يُرسل، يختمه التطبيق */
+  seenAt?: number | null;
+}
+/** هامش ساعة الجهاز مقابل ساعة الخادم (كهامش ساعة الجهاز في إعادة الرفع، §3-9) */
+export const CUST_PRICE_CLOCK_MARGIN_MS = 10 * 60_000;
+/** لحظة التحويل بالـms، وnull لصنفٍ لم يُحوَّل (وقيمةٌ تالفة NaN: لا تساوي شيئاً فلا يُبقى بها سعر) */
+const epochOf = (v: unknown): number | null => {
+  if (v == null || v === '') return null;
+  const t = v instanceof Date ? v.getTime() : Date.parse(String(v));
+  return Number.isFinite(t) ? t : NaN;
+};
 export function rebaseCustPrices(
-  rows: Array<{ productId: string; price: number | string; unit?: string | null }> | null | undefined,
-  products: Array<UnitProduct & { id: string }> | null | undefined,
+  rows: Array<CustPriceInput> | null | undefined,
+  products: Array<UnitProduct & { id: string; baseConvertedAt?: string | Date | null }> | null | undefined,
 ): Record<string, number> {
   const byId = new Map((products ?? []).filter(p => p && p.id).map(p => [String(p.id), p] as const));
   const out: Record<string, number> = {};
+  const byName = (p: UnitProduct, seen: string, inactiveToo: boolean) => (Array.isArray(p.units) ? p.units : [])
+    .find(x => x && (inactiveToo || x.isActive !== false) && baseNameKey(x.name) === seen && Number.isFinite(Number(x.factor)) && Number(x.factor) > 0);
   for (const r of rows ?? []) {
     if (!r || r.productId == null) continue;
     const price = Number(r.price);
     const p = byId.get(String(r.productId));
+    if (!p) { out[r.productId] = price; continue; }
     const seen = baseNameKey(r.unit);
-    if (!p || !seen || seen === baseNameKey(p.unit)) { out[r.productId] = price; continue; }
-    const u = (Array.isArray(p.units) ? p.units : [])
-      .find(x => x && x.isActive !== false && baseNameKey(x.name) === seen && Number.isFinite(Number(x.factor)) && Number(x.factor) > 0);
+    const conv = epochOf(p.baseConvertedAt);
+    if (Object.prototype.hasOwnProperty.call(r, 'baseConvertedAt')) {
+      if (epochOf(r.baseConvertedAt) === conv) { out[r.productId] = price; continue; }
+      if (seen && seen === baseNameKey(p.unit)) { out[r.productId] = price; continue; }
+      const u = seen ? byName(p, seen, true) : undefined;
+      if (u) out[r.productId] = price / Number(u.factor);
+      continue;
+    }
+    if (!seen) {
+      const at = Number(r.seenAt);
+      if (conv == null || (Number.isFinite(conv) && r.seenAt != null && at > conv + CUST_PRICE_CLOCK_MARGIN_MS)) out[r.productId] = price;
+      continue;
+    }
+    if (seen === baseNameKey(p.unit)) { out[r.productId] = price; continue; }
+    const u = byName(p, seen, false);
     if (u) out[r.productId] = price / Number(u.factor);
   }
   return out;

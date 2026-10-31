@@ -11,8 +11,8 @@ import { customerScope } from '../services/customerScope';
 import { currencyDecimalsOf } from '../config/countries';
 import {
   ADJUSTMENT_TYPES, BALANCE_SKIP_MESSAGES, FK_BLOCK_REASON, IMPORT_BATCH_DONE, ImportHttpError, assertImportLedgerStateUnchanged, IMPORT_BATCH_RUNNING, IMPORT_ENTRY_KINDS, LEDGER_BUSY_MESSAGE,
-  OPENING_BALANCE_DESCRIPTION, PRICE_CHANGED_AFTER_IMPORT, YMD_RE, draftCategoryLinkIds, openingStockMovementConflicts, openingStockProductMatcher,
-  otherRunningEntryImport, planProductImportRows, priceRevertOutcome, explicitTimezone,
+  OPENING_BALANCE_DESCRIPTION, PRICE_CHANGED_AFTER_IMPORT, PRICE_UNITS_CHANGED_AFTER_IMPORT, YMD_RE, draftCategoryLinkIds, openingStockMovementConflicts, openingStockProductMatcher,
+  otherRunningEntryImport, planProductImportRows, priceRevertOutcome, priceUnitsChangedSince, explicitTimezone,
   assertBatchRevertible, assertNoRunningImport, assertNotDuplicateBatch, assertOverlapConfirmed, balanceSkipReason, categoryDeletable,
   customerBlockReason, detectLedgerOverlap, importBatchState, importContentHash, importErrorBody, importFlushDue, importTimezone,
   importedEntryIndex, isFkBlockError, isImportHttpError, isLockBusyError, parseBatchRecordIds, productBlockReason, resolveImportDates,
@@ -1671,8 +1671,8 @@ router.post('/batches/:id/revert', requireAdminPermission('canDelete'), async (r
           let chunkAlready = 0;
           const committed = await prisma.$transaction(async tx => {
             await tx.$executeRaw`SET LOCAL lock_timeout = '5s'`;
-            const locked = await tx.$queryRaw<{ id: string; price: number; name: string; code: string }[]>`
-              SELECT cp.id, cp.price, c.name, p.code FROM customer_prices cp
+            const locked = await tx.$queryRaw<{ id: string; price: number; name: string; code: string; baseConvertedAt: Date | null }[]>`
+              SELECT cp.id, cp.price, c.name, p.code, p."baseConvertedAt" FROM customer_prices cp
               JOIN customers c ON c.id = cp."customerId" JOIN products p ON p.id = cp."productId"
               WHERE cp.id IN (${Prisma.join(part.map(x => x.id))}) AND c."tenantId" = ${tid}
               ORDER BY cp.id FOR UPDATE OF cp`;
@@ -1682,6 +1682,12 @@ router.post('/batches/:id/revert', requireAdminPermission('canDelete'), async (r
             const chunkBlocked = delta.blocked as RevertBlocked[];
             for (const item of part) {
               const row = current.get(item.id);
+              // «الوحدة الرئيسية» (convert-base-6): أُضيفت للصنف وحدةٌ أصغر بعد الدفعة فقُسمت أسعاره على F — السابق بالوحدة القديمة لا
+              // يُستعاد (×F)، ولو كانت الدفعة بلا imported. يبقى ممنوعاً في الدفعة بسببه
+              if (row && priceUnitsChangedSince(row.baseConvertedAt, batch.createdAt)) {
+                chunkBlocked.push({ id: item.id, name: `${row.name ?? ''} — ${row.code ?? ''}`, reason: PRICE_UNITS_CHANGED_AFTER_IMPORT });
+                continue;
+              }
               // البند I: القرار في دالّة واحدة مصدَّرة (priceRevertOutcome) يختبرها الاختبار بعينها — التراجع متعادٍ:
               // سعر حالي = السابق يعني أن تراجعاً انقطع في منتصفه أعاده فعلاً، فيُعدّ منجزاً ('already') لا ممنوعاً أبداً
               const action = priceRevertOutcome(row ? Number(row.price) : null, item);

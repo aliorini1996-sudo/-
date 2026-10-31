@@ -13,6 +13,7 @@ import {
   type AllocRowDto, type LotBlockKind, type LotBucket, type LotRef, type LotStatus, type LotWarning,
   type PlaceLotViewDto, type VanLotSnapshotDto,
 } from './lots';
+import { primaryUnitOf, productQtyText, type PrimaryHolder } from './units';
 
 /** مصدرٌ يُنقص منه (أو يُحمَّل منه): تشغيلةٌ مسمّاة أو «غير مسمّى» (lotId: null) بصالحها في الدلو */
 export interface LotSource {
@@ -149,6 +150,23 @@ export function draftProblem(rows: readonly LotRowDraft[], lineBaseQty: number, 
     }
   }
   return null;
+}
+
+/**
+ * «الوحدة الرئيسية» (D21 وR8): اسم الوحدة الصغرى لصنفٍ له رئيسية صالحة — يحلّ محلّ «بوحدة الأساس» في نصوص محرّر التشغيلات،
+ * ويُلصق بالخانة بخطٍّ بارز. و`null` لصنفٍ بلا رئيسية: النصوص القائمة حرفاً (I1). الكميات بالأساس في الحالين (D22).
+ */
+export function lotSmallUnitOf(prod: (PrimaryHolder & { unit?: string | null }) | null | undefined): string | null {
+  if (!primaryUnitOf(prod)) return null;
+  return String(prod?.unit ?? '').trim() || null;
+}
+
+/** معادل كمية صفّ التشغيلة الحيّ تحته («= 2 كرتون و3 قارورة») لصنفٍ له رئيسية، و`null` لغيره أو لكميةٍ غير صالحة */
+export function lotRowEquivalent(qty: unknown, prod: (PrimaryHolder & { unit?: string | null }) | null | undefined): string | null {
+  if (!lotSmallUnitOf(prod)) return null;
+  const n = Number(qty);
+  if (qty === '' || qty == null || !Number.isFinite(n) || n <= 0) return null;
+  return `= ${productQtyText(roundLot(n), prod)}`;
 }
 
 /** ما بقي من السطر بلا توزيع في المسوّدة — موجبٌ ناقص وسالبٌ زائد */

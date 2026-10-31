@@ -536,7 +536,8 @@ test('lot-sales: سقف الفواتير يُعلَن truncated (الأحدث أ
 // ═══ /reports/returns بـwithLots ═══
 
 const RET_RANGE = { from: '2026-10-01', to: '2026-10-31' };
-const LINE_KEYS = ['name', 'unit', 'qty', 'unitFactor', 'baseQty', 'baseUnit', 'lineTotal', 'returnExpired', 'expiresAt'];
+// «الوحدة الرئيسية» D18: primaryUnitId حاضرٌ دائماً (null لصنفٍ بلا رئيسية) بعد baseUnit — وبقية الحقول كما كانت
+const LINE_KEYS = ['name', 'unit', 'qty', 'unitFactor', 'baseQty', 'baseUnit', 'primaryUnitId', 'lineTotal', 'returnExpired', 'expiresAt'];
 
 test('المرتجع بلا withLots: الردّ كما كان حرفياً — لا قراءة للعَلَم ولا لصفوف اللوط', async () => {
   for (const extra of [{}, { withLots: ['1'] }, { withLots: '0' }, { withLots: 'false' }]) {

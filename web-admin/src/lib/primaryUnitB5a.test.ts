@@ -117,7 +117,7 @@ test('الإذن: canConvertBase من ردّ الدخول بدل جلسة الم
   assert.doesNotMatch(s, /const ownerSession = useAuthStore/, 'لا إخفاء للزرّ بجلسة المالك وحدها');
   const hints = constValues(s, 'CONVERT_REFUSAL_HINTS');
   assert.deepEqual(hints, [
-    'متاحة قريباً لمديري الشركة — اطلبها من الدعم الآن',
+    'غير مفعّلة لشركتك — اطلب تفعيلها من الدعم الفني',
     'تخصّ الشركة كلها — لمستخدم غير مقيّد بنطاق',
     'لمستخدم بدور مدير أو مشرف',
     'تتطلّب صلاحيات الأصناف والفواتير ومخزون السيارات معاً',
@@ -144,7 +144,7 @@ test('قسم الوحدات: شارة «رئيسية» و«اجعلها الرئ
   assert.ok(sec.includes("window.confirm(`${tr('هذه الوحدة الرئيسية — سيُلغى كونها رئيسية ثم تُوقَف')} — ${u.name}`)"));
   assert.ok(sec.includes('{ isActive: false, clearPrimary: true, expectedBaseName: baseUnit }'));
   assert.ok(sec.includes("tr('هذه الوحدة الرئيسية — سيُلغى كونها رئيسية ثم تُحذف')"));
-  assert.ok(sec.includes('productApi.removeUnit(productId, u.id, { clearPrimary: true })'));
+  assert.ok(sec.includes('productApi.removeUnit(productId, u.id, { clearPrimary: true, expectedBaseName: baseUnit })'));
   // ٤٠٩ «تغيّرت وحدات الصنف» ⇒ «أعد فتحه» وإعادة الجلب لا رسالةٌ عمياء
   assert.ok(sec.includes('if (isUnitsStale(err)) void onStale();'));
   // ورسالة الخادم (unitProblem فيها «الأساس») ببديلها لصنفٍ له رئيسية — وبلاها كما هي (shown)

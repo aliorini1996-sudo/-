@@ -15,7 +15,7 @@ import { authenticate, requireAccounting, requireAdminPermission, isOwnerSession
 import { AuthRequest } from '../types';
 import { scopedRepRecordWhere } from '../services/adminScope';
 import { normalizeRepLines, mergeRepUpdate, applyAdminEdit, MAX_REQUEST_ITEMS, MAX_REQUEST_QTY, type OutLine } from '../services/repStockRequest';
-import { baseNameKey, baseQtyOf, toBase, unitFields } from '../services/units';
+import { baseQtyOf, toBase, unitFields } from '../services/units';
 import { resolveLineUnits, UNIT_SELECT, UnitInvalidError } from '../services/warehouseStock';
 // «الوحدة الرئيسية» §2.9: أساس كل صنفٍ كما رآه العميل يُقارن حيّاً، ثم تحت قفل صفّ الصنف (FOR KEY SHARE) في المعاملة
 import {
@@ -277,6 +277,15 @@ router.put('/:id', companyOnly, async (req: AuthRequest, res: Response, next: Ne
   try {
     const tid = tenantId(req);
     const data = versionSchema.extend({ items: itemsSchema }).parse(req.body);
+    const reqId = String(req.params.id);
+    // §2.9 كـPUT /mine: أساس كل صنفٍ يُقرأ **قبل** حلّ الوحدات، ثم يُقفل صفّه قبل قراءة الطلب في المعاملة. والأصناف كلها: المعدَّلة
+    // وأصناف أسطر الطلب الباقية — فالحلقة أدناه تعيد كتابة كل سطرٍ بلقطة وحدته، ولقطةٌ قُرئت قبل أن يلتزم تحويلٌ يعيد وسمها
+    // («٥ كرتون» ⇒ «٥ قارورة») كانت تُكتب فوق الوسم الجديد. استعلامٌ للأسطر (معرّفات أصنافها وحدها) والنطاق يحكمه pendingForEdit كما كان
+    const curItems = await prisma.repStockRequest.findFirst({ where: { id: reqId, tenantId: tid }, select: { items: { select: { productId: true } } } });
+    const prods = await prisma.product.findMany({
+      where: { id: { in: [...new Set([...data.items.map((i) => i.productId), ...(curItems?.items ?? []).map((i) => i.productId)])] }, tenantId: tid },
+      select: { id: true, name: true, unit: true, baseConvertedAt: true },
+    });
     // وحدة التعديل: غائبةٌ ⇒ وحدة سطر المندوب (لا تُحلّ ولا تُمرَّر)، وnull ⇒ الأساس، ومعرّفٌ ⇒ وحدته من الصنف.
     // وحلّها قبل المعاملة: إعداد الوحدات ليس ممّا يحرسه قفل الطلبات
     const units = await resolveLineUnits(tid, data.items);
@@ -284,26 +293,20 @@ router.put('/:id', companyOnly, async (req: AuthRequest, res: Response, next: Ne
       productId: i.productId, qty: i.qty,
       ...(i.unitId !== undefined && { unitName: units[idx].name, unitFactor: units[idx].factor }),
     }));
-    // §2.9: سطرٌ يحمل baseUnitName يُقارن بأساس صنفه حيّاً ثم تحت القفل، وبلاه يبقى الحكم كما كان (بلا استعلام).
-    // ومفتاح API على صنفٍ حُوِّل بسطرٍ بلا وحدة صريحة (الأساس أو وحدة سطر المندوب) يلزمه الاسم (D19-ب)
-    const isApi = !!req.user?.apiKeyId;
-    const guarded = data.items.filter((i) => baseNameKey(i.baseUnitName) !== '');
-    let expected: ExpectedBases | null = null;
-    if (guarded.length || isApi) {
-      const prods = await prisma.product.findMany({
-        where: { id: { in: [...new Set(data.items.map((i) => i.productId))] }, tenantId: tid }, select: { id: true, name: true, unit: true, baseConvertedAt: true },
-      });
-      const apiMissing = missingBaseForApi(isApi, data.items.filter((i) => !i.unitId), new Map(prods.map((p) => [p.id, { name: p.name, baseConvertedAt: p.baseConvertedAt }])));
-      if (apiMissing) throw baseUnitRequired(apiMissing);
-      const all: ExpectedBases = new Map(prods.map((p) => [p.id, { name: p.name, unit: p.unit }]));
-      const bad = staleClientBase(guarded, all);
-      if (bad) throw staleBase(bad);
-      expected = new Map(guarded.flatMap((i) => { const e = all.get(i.productId); return e ? [[i.productId, e] as const] : []; }));
-    }
+    // D19-ب كبقية الكتّاب: مفتاح API على صنفٍ حُوِّل يرسل baseUnitName مع كل سطرٍ له (بوحدةٍ صريحة أو بلاها)
+    const apiMissing = missingBaseForApi(!!req.user?.apiKeyId, data.items, new Map(prods.map((p) => [p.id, { name: p.name, baseConvertedAt: p.baseConvertedAt }])));
+    if (apiMissing) throw baseUnitRequired(apiMissing);
+    const expected: ExpectedBases = new Map(prods.map((p) => [p.id, { name: p.name, unit: p.unit }]));
+    // المقارنة الحيّة لسطرٍ يحمل baseUnitName وحده؛ وبلاه الحكم كما كان (I1)
+    const bad = staleClientBase(data.items, expected);
+    if (bad) throw staleBase(bad);
     const saved = await prisma.$transaction(async (tx) => {
       await lockTenant(tx, tid);
-      if (expected?.size) await lockBases(tx, tid, expected);
-      const cur = await pendingForEdit(tx, req, tid, String(req.params.id), data.updatedAt);
+      // بعد قفل الشركة وقبل قراءة الطلب: تحويلٌ التزم بعد القراءة أعلاه ⇒ 409 بلا كتابة، وتحويلٌ لم يلتزم ينتظرنا
+      await lockBases(tx, tid, expected);
+      const cur = await pendingForEdit(tx, req, tid, reqId, data.updatedAt);
+      // سطرٌ لصنفٍ لم يُقفل (رفعٌ من المندوب بين القراءة والقفل) ⇒ كتعديل المندوب طلبه: أعد فتح النافذة
+      if (cur.items.some((i) => !expected.has(i.productId))) throw conflict('عدل المندوب طلبه للتو أعد فتح النافذة');
       const edit = applyAdminEdit(cur.items, edits);
       if (!edit.ok) throw Object.assign(new Error('الصنف ليس في طلب المندوب'), { status: 400 });
       if (overCap(edit.lines)) throw Object.assign(new Error(OVER_CAP), { status: 400 });

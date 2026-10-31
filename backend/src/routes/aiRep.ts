@@ -126,11 +126,11 @@ function summarize(r: EstimateResult) {
     ringKm: r.ringKm,
     monthlyTotalValue: r.monthlyTotalValue,
     // الوسيط بوحدة الأساس `unit`، و`units` (لصنفٍ له وحدات) ليفكّكه الجهاز «٢ كرتون و٣ حبة» — ويقف عند «الوحدة
-    // الرئيسية» حين للصنف رئيسية (`primaryUnitId` من الوحدة الموسومة، حاضرٌ معها وحدها)
+    // الرئيسية» حين للصنف رئيسية (`primaryUnitId` من الوحدة الموسومة؛ حاضرٌ دائماً و null بلاها، D18)
     top: r.products.filter(p => (p.buyers ?? 0) > 0 && p.penetration != null).slice(0, 3).map(p => {
-      const primaryUnitId = primaryIdOf(p.units);
+      const primaryUnitId = p.units?.length ? primaryIdOf(p.units) : null;
       return {
-        name: p.name, unit: p.unit, ...(p.units?.length ? { units: p.units, ...(primaryUnitId && { primaryUnitId }) } : {}),
+        name: p.name, unit: p.unit, ...(p.units?.length ? { units: p.units } : {}), primaryUnitId,
         penetration: p.penetration, qtyMedian: p.monthlyQty?.median ?? null,
       };
     }),

@@ -98,7 +98,7 @@
   **وبعد «الوحدة الرئيسية»** (القاعدتان ١٢ و١٣) يُضاف إلى التحويل:
   - اسمه في الواجهة «إضافة وحدة فرعية أصغر». الحارس `convertBaseRefusalFor(req)` قبل `convertBaseSchema.parse` حرفياً
     (`services/convertBaseAccess.ts`)، بالترتيب: مفتاح API ⇒ `403 CONVERT_BASE_INTERACTIVE_ONLY` دائماً (ولو أصدره المالك)؛
-    جلسة المالك ✓؛ بوابة الإطلاق `CONVERT_BASE_OPEN_TO_COMPANY` (في الكود، `false` حتى المرحلة ٥) أو علم الشركة
+    جلسة المالك ✓؛ بوابة الإطلاق `CONVERT_BASE_OPEN_TO_COMPANY` (في الكود، `true` منذ المرحلة ٥) أو علم الشركة
     `Tenant.convertBaseOpen` (افتراضه `false`، يقلبه المالك لكل شركة) مغلقة ⇒ `OWNER_ONLY`؛ دور غير `ADMIN`/`MANAGER` أو حساب
     موقوف ⇒ `ROLE_FORBIDDEN`؛ مقيّد النطاق ⇒ `SCOPED_USER`؛ `false` في أيٍّ من `canManageProducts` و`canManageVanStock`
     و`canManageInvoices` ⇒ `FORBIDDEN`. بلا عمود صلاحية جديد (قرار المالك). والواجهة تقرأ `user.canConvertBase`
@@ -126,16 +126,22 @@
 - الوحدات: `POST /products/:id/units` + `makePrimary`؛ إيقاف الرئيسية (`PUT … {isActive:false}`) أو حذفها ⇒ `409 PRIMARY_UNIT_IN_USE`
   إلا مع `clearPrimary: true` (في الجسم) أو `?clearPrimary=1` (للحذف). وكتّاب الوحدات الثلاثة و`price-tiers` يقبلون
   `expectedBaseName` (`409 BASE_UNIT_CHANGED`؛ والحذف بلا جسم يقرؤه من الاستعلام `?expectedBaseName=`)، و`price-tiers` يقبل
-  `expectedPrimary: {id, factor}` (`409 PRIMARY_UNIT_CHANGED`). هذه المسارات و`primary-unit` تقفل بـ`lockProduct` (`FOR UPDATE`
-  بلا `lock_timeout`): خلف تحويلٍ طويل تنتظر حتى تنقضي معاملة Prisma (500 بلا كتابة)، لا `503 PRODUCT_UNITS_BUSY`.
+  `expectedPrimary: {id, factor}` (`409 PRIMARY_UNIT_CHANGED`). هذه المسارات و`primary-unit` تقفل بـ`lockProductForUnits`
+  (`FOR UPDATE` بمهلة `lock_timeout` محلية تُحفظ وتُستعاد، ومعاملتها `BASE_GUARD_TX`): خلف تحويلٍ طويل ⇒ `503 PRODUCT_UNITS_BUSY`
+  بعد ٥ ثوانٍ بلا كتابة. والتحويل نفسه يبقى على `lockProduct` بلا مهلة: ينتظر الفواتير الممسكة `FOR KEY SHARE`.
 - `PUT /products/:id`: `expectedBaseName` و`primaryUnit` (رقعة الرئيسية ذرّياً). `primaryUnitId` في الجسم يُتجاهل. جسمٌ يمسّ
   `basePrice` أو `unit` أو `primaryUnit` يُكتب تحت `lockProductForEdit` (`503 PRODUCT_UNITS_BUSY` بعد ٥ ثوانٍ)، وإعادة تسمية
   الأساس تكتب صفّ سجلٍّ بمعامل ١ (لا يحرّك `baseConvertedAt`) فتبقى سلسلة إعادة الرفع متّصلة.
 - **D19 — مفاتيح API بعد تحويل:** لصنف `baseConvertedAt ≠ null`، كل كتابة بمفتاح تعتمد على الأساس تتطلّب `expectedBaseName`
   (إعدادات الصنف) أو `baseUnitName` (بنود المستندات والمخزون وصفوف أسعار العميل وإعادة وسم LOT)، وإلا `400 BASE_UNIT_REQUIRED`.
   الأصناف التي لم تُحوَّل، وتطبيق المندوب ولوحة الإدارة، لا يتأثّرون.
-- `GET /products/customer-prices/:customerId` يردّ `{productId, price, unit}`: `unit` أساس الصنف لحظة القراءة، فيعيد الجهاز
-  أساس كاش الأسعار بعد تحويل (`rebaseCustPrices`).
+- `GET /products/customer-prices/:customerId` يردّ `{productId, price, unit, baseConvertedAt}` من جملة SQL واحدة: `unit` أساس
+  الصنف لحظة القراءة و`baseConvertedAt` لحظة آخر تحويل له، فيعيد الجهاز أساس كاش الأسعار بعد تحويل (`rebaseCustPrices`):
+  `baseConvertedAt` الصفّ = الكتالوج ⇒ السعر كما هو (إعادة تسمية وحدها)، ويختلفان ⇒ القسمة على معامل الوحدة بالاسم (ولو
+  موقوفة) وإلا يُسقط السعر. وصفٌّ قديم بلا `unit` لصنفٍ حُوِّل يُسقط ما لم يُكتب الكاش بعد التحويل بأكثر من عشر دقائق.
+- التحويل يُرفض `400` (في المعاينة والتنفيذ) حين لقطة معاملٍ مخزَّنة في تاريخ الصنف تتجاوز `MAX_UNIT_FACTOR` بعد ضربها بـF،
+  ولو كانت لوحدةٍ حُذفت أو تغيّر معاملها. والتراجع عن استيراد أسعار يُحجب لصنفٍ حُوِّل بعد الدفعة
+  (`PRICE_UNITS_CHANGED_AFTER_IMPORT`)، فلا يُعاد سعر كرتونٍ قديم سعراً للقارورة.
 - جسم البنود (`POST /invoices`، تحميل السيارة، وارد المستودع، طلب البضاعة): `unitId?` لكل بند، و`baseUnitName?`
   (أساس الصنف كما رآه العميل، يُقارن حيّاً ثم تحت القفل). وكذلك `POST /invoices/:id/credit-note` (`lines[].baseUnitName`، ولا
   يُقبل `unitFactor` من الجسم أبداً) و`PUT /customers/:id/prices` و`POST /lots/relabel`.
@@ -186,8 +192,9 @@
 3. **الدمج المركزي**: الترجمات، تسجيل الاختبارات، الفحص الكامل.
 4. **المراجعة العدائية** (مالٌ ومخزون) ثم الإصلاح ثم النشر بإذن المالك.
 5. **«الوحدة الرئيسية» وإكمال حماية التحويل** (فرع `feature/primary-unit`، المواصفة `primary_unit_spec.md`): القاعدتان ١٢ و١٣
-   وسجلّ التحويلات أعلاه. البوابة `CONVERT_BASE_OPEN_TO_COMPANY` تبقى `false` حتى معيار القلب كله: اختبارات §3 و§8 خضراء
-   مع `tsc` في الحزمتين، وتعطيل كل حارس يُفشل اختباره (مسجّلاً بنداً بنداً)، ولا نتيجة حرجة أو عالية مفتوحة، و`REVIEW.md` يسجّل
-   إغلاق العنقود. بعد النشر يقلب المالك `convertBaseOpen` لشركة واحدة أولاً من صفحة المنصّة.
+   وسجلّ التحويلات أعلاه. البوابة `CONVERT_BASE_OPEN_TO_COMPANY` **قُلبت `true` (٣١ أكتوبر)** بعد معيار القلب كله: اختبارات §3
+   و§8 خضراء مع `tsc` في الحزمتين، وتعطيل كل حارس أفشل اختباره (مسجّلاً بنداً بنداً في `REVIEW.md`)، ولا نتيجة حرجة أو عالية
+   مفتوحة، و`REVIEW.md` يسجّل إغلاق العنقود. وحدها لا تفتح شيئاً: `Tenant.convertBaseOpen` افتراضه `false`، وبعد النشر يقلبه
+   المالك لشركة واحدة أولاً من صفحة المنصّة.
    **ترتيب النشر الملزم:** `db push` إضافي بإذن المالك وفحص الأعمدة قبل دمج الكود إلى الفرع الذي يتتبّعه Render (أو إطفاء
    `autoDeploy` مؤقتاً بإذنه)، لأن Prisma Client الجديد يختار الأعمدة الجديدة في كل استعلام أصناف وشركات.

@@ -234,6 +234,26 @@ test('انتظار قفل تحويلٍ طويل (55P03 / 40P01 / P2028) ⇒ 503 
   }
 });
 
+test('parity-4: انشغالٌ خارج قفل الأصناف (P2028 أو تعطّلٌ متبادل عند الإنشاء، والميزة مطفأة) ليس PRODUCT_UNITS_BUSY — يمرّ إلى المعالج العام كما كان', async () => {
+  for (const w of WRITERS) {
+    for (const fail of [
+      Object.assign(new Error('Transaction already closed: A query cannot be executed on an expired transaction.'), { code: 'P2028' }),
+      Object.assign(new Error('deadlock detected'), { code: 'P2010', meta: { code: '40P01' } }),
+    ]) {
+      fresh(w);
+      const orig = { load: db.vanLoad.create, entry: db.warehouseEntry.create };
+      db.vanLoad.create = async () => { throw fail; };
+      db.warehouseEntry.create = async () => { throw fail; };
+      try {
+        await assert.rejects(w.post(w.body([{ productId: 'P1', qty: 1 }])), (e: unknown) => e === fail, `${w.name}: ردٌّ برمزٍ بدل المعالج العام`);
+      } finally {
+        db.vanLoad.create = orig.load;
+        db.warehouseEntry.create = orig.entry;
+      }
+    }
+  }
+});
+
 test('بلا baseUnitName ومع الأساس الصحيح ⇒ مسار اليوم (201)، والفرع المطفأ معاملةٌ بـBASE_GUARD_TX فيها قفل الأساس بمهلته المحلية', async () => {
   for (const w of WRITERS) {
     for (const items of [[{ productId: 'P1', qty: 2 }], [{ productId: 'P1', qty: 2, baseUnitName: ' قارورة ' }]]) {
@@ -315,7 +335,7 @@ test('العرض: ردّ الإنشاء يحمل primaryUnitId في صنف كل 
   assert.equal(st.createdEntries[0].include.items.include.product.select.primaryUnitId, true);
 });
 
-test('فخّ «×5» نصّاً (§10): selects العرض في vanStock.ts وwarehouse.ts تحمل primaryUnitId، وحركات السيارة تُلحقه للصنف ذي الرئيسية وحده', () => {
+test('فخّ «×5» نصّاً (§10): selects العرض في vanStock.ts وwarehouse.ts تحمل primaryUnitId، وحركات السيارة تُلحقه لكل بند (null بلا رئيسية، D18)', () => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const fs = require('node:fs') as typeof import('node:fs');
   const read = (rel: string) => fs.readFileSync(path.join(SRC, rel), 'utf8').replace(/\r\n/g, '\n');
@@ -325,7 +345,7 @@ test('فخّ «×5» نصّاً (§10): selects العرض في vanStock.ts وwa
   assert.ok(between(van, "router.get('/loads'", "router.get('/movements'").includes('product: { select: { id: true, name: true, unit: true, primaryUnitId: true } }'));
   const mv = between(van, "router.get('/movements'", "router.get('/tools'");
   assert.equal((mv.match(/product: \{ select: \{ name: true, unit: true, primaryUnitId: true \} \}/g) ?? []).length, 2, 'التحميلات والفواتير');
-  assert.ok(mv.includes("(p?.primaryUnitId ? { primaryUnitId: p.primaryUnitId } : {})"), 'المفتاح للصنف ذي الرئيسية وحده (I1)');
+  assert.ok(mv.includes('({ primaryUnitId: p?.primaryUnitId || null })'), 'المفتاح حاضرٌ دائماً: المعرّف أو null (D18)');
   assert.ok(van.includes('select: { id: true, name: true, unit: true, code: true, primaryUnitId: true } }'), 'computeStock (GET /current)');
   assert.ok(between(wh, "router.get('/entries'", 'export default router').includes('product: { select: { name: true, unit: true, primaryUnitId: true } }'));
   assert.ok(read('services/warehouseStock.ts').includes('units: { select: UNIT_SELECT }, primaryUnitId: true },'), 'loadWarehouseInputs');

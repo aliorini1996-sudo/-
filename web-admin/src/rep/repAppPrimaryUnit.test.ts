@@ -32,9 +32,10 @@ const repStartChoice = (p: P, a: RepAction): UnitChoice => compile<(p: P, a: Rep
   between(repApp, 'function repStartChoice(', '\n}\n'), 'repStartChoice',
   { primaryChoice, repUnitChoices, repDefaultChoice, defaultChoice },
 )(p, a);
-const custPriceRowsOf = (d: unknown) => compile<(d: unknown) => Array<{ productId: string; price: number; unit?: string | null }>>(
+type Row = { productId: string; price: number; unit?: string | null; baseConvertedAt?: string | null; seenAt?: number };
+const custPriceRowsOf = (d: unknown, seenAt?: number | null) => compile<(d: unknown, seenAt?: number | null) => Row[]>(
   between(repApp, 'const custPriceRowsOf = ', ';\n'), 'custPriceRowsOf', {},
-)(d);
+)(d, seenAt);
 
 // قارورة أساساً، وكرتون ٢٤ رئيسيّ، وطبلية ١٢٠٠ فوقه
 const units = [
@@ -83,6 +84,33 @@ test('custPriceRowsOf: يحفظ `unit` حين يردّه الخادم، وبلا
   assert.deepEqual(custPriceRowsOf({}), []);
 });
 
+test('custPriceRowsOf: حقبة الأساس (baseConvertedAt) تُحفظ حين يردّها الخادم ولو null، ووقت القراءة seenAt يُختم', () => {
+  assert.deepEqual(custPriceRowsOf([
+    { productId: 'p1', price: 2, unit: 'قارورة', baseConvertedAt: '2026-10-30T10:00:00.000Z' },
+    { productId: 'p2', price: 3, unit: 'حبة', baseConvertedAt: null },
+    { productId: 'p3', price: 4 },
+  ], 1_000), [
+    { productId: 'p1', price: 2, unit: 'قارورة', baseConvertedAt: '2026-10-30T10:00:00.000Z', seenAt: 1_000 },
+    { productId: 'p2', price: 3, unit: 'حبة', baseConvertedAt: null, seenAt: 1_000 },
+    { productId: 'p3', price: 4, seenAt: 1_000 },
+  ]);
+});
+
+test('money-1: كاشٌ بلا unit من قبل تحويلٍ لاحق ⇒ يُسقط (لا سعر كرتون ×٢٤)، ومن بعده أو لصنفٍ لم يُحوَّل ⇒ كما هو', () => {
+  const conv = '2026-10-30T10:00:00.000Z';
+  const after = { id: 'p', unit: 'قارورة', basePrice: 1.875, baseConvertedAt: conv, primaryUnitId: 'u1', units: [{ id: 'u1', name: 'كرتون', factor: 24, price: null, isActive: true }] };
+  const carton = repStartChoice(after, 'SALE');
+  // ما كان قبل الإصلاح: الصفّ بلا unit يبقى ٤٥ سعرَ قارورة ⇒ الكرتون ١٠٨٠
+  assert.equal(choiceNet(carton, after.basePrice, 45), 1080);
+  const before = Date.parse(conv) - 86_400_000;
+  assert.deepEqual(rebaseCustPrices(custPriceRowsOf([{ productId: 'p', price: 45 }], before), [after]), {}, 'يُسقط فيحكم سعر الصنف والخادم');
+  assert.deepEqual(rebaseCustPrices(custPriceRowsOf([{ productId: 'p', price: 45 }]), [after]), {}, 'بلا وقت قراءة ⇒ يُسقط');
+  assert.deepEqual(rebaseCustPrices(custPriceRowsOf([{ productId: 'p', price: 45 }], Date.parse(conv) + 60_000), [after]), {}, 'داخل هامش الساعة ⇒ يُسقط');
+  assert.deepEqual(rebaseCustPrices(custPriceRowsOf([{ productId: 'p', price: 1.8 }], Date.parse(conv) + 86_400_000), [after]), { p: 1.8 }, 'قُرئ بعد التحويل ⇒ سعر القارورة نفسه');
+  // I1: صنفٌ لم يُحوَّل قطّ ⇒ كاشٌ بلا unit كما كان حرفاً
+  assert.deepEqual(rebaseCustPrices(custPriceRowsOf([{ productId: 'p', price: 45 }], before), [{ ...after, baseConvertedAt: null }]), { p: 45 });
+});
+
 test('13ب: كاش أسعار العميل من قبل التحويل مع كتالوج بعده ⇒ سعر الكرتون للعميل ٤٨ كما كان لا ١١٥٢', () => {
   // صنفٌ كان أساسه كرتوناً بسعر عميلٍ ٤٨، ثم أُضيفت له القارورة (convert-base ×٢٤) فصار الكرتون رئيسياً
   const afterConvert = { id: 'p1', unit: 'قارورة', basePrice: 2, primaryUnitId: 'u-c', units: [{ id: 'u-c', name: 'كرتون', factor: 24, price: 50, isActive: true }] };
@@ -104,7 +132,8 @@ test('RepApp: أسعار العميل تمرّ من rebaseCustPrices ويُعا�
   assert.doesNotMatch(repApp, /setCustPrices\(/, 'الخريطة الخام تضرب سعر كرتونٍ قديماً × المعامل');
   const load = between(repApp, 'const [custRows, setCustRows]', '}, [customer?.id]);');
   assert.match(load, /fetchThenCache\(`custprices:\$\{customer\.id\}`/);
-  assert.match(load, /if \(data\) setCustRows\(custPriceRowsOf\(data\)\);/);
+  assert.match(load, /const \{ data, updatedAt \} = await fetchThenCache\(`custprices:/);
+  assert.match(load, /if \(data\) setCustRows\(custPriceRowsOf\(data, updatedAt\)\);/);
   // الافتراض في البيع والمرتجع الحرّ والماسح وتلميح السعر كلّه من repStartChoice
   assert.match(repApp, /const startChoice = \(p: any\): UnitChoice => repStartChoice\(p, repAction\);/);
   assert.match(repApp, /const c0 = startChoice\(p\);/);
@@ -117,6 +146,7 @@ test('RepApp refreshUnits: الكتالوج وأسعار العميل معاً،
   assert.match(refresh, /await Promise\.all\(\[\s*fetchThenCache\('products'/);
   assert.match(refresh, /customer\?\.id && !customer\._offline\s*\? fetchThenCache\(`custprices:\$\{customer\.id\}`/, 'العميل الأوف‑لاين بلا أسعار خادم');
   assert.match(refresh, /if \(!data \|\| offline\) return;/, 'كاش الكتالوج القديم لا يُعاد عليه شيء');
+  assert.match(refresh, /const freshRows = cust\?\.data \? custPriceRowsOf\(cust\.data, cust\.updatedAt\) : custRows;/);
   assert.match(refresh, /const freshCust = freshRows \? rebaseCustPrices\(freshRows, fresh\) : \{\};/);
   assert.match(refresh, /const ref = inclOf\(p, ch, freshCust\);/);
   assert.doesNotMatch(refresh, /inclOf\(p, ch\)/, 'الخريطة المغلقة في الـclosure قديمة');

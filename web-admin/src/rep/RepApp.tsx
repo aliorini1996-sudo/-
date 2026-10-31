@@ -58,7 +58,7 @@ import {
   VANLOTS_BLOCK_REFETCH_GAP_MS, VANLOTS_KEY, VANLOTS_POSTED_KEY, capLineQty, cartBaseOf, fitLineQty, hintDocLots, localAvailable,
   latestFlight, localLotView, matchServerItemLots, offlineLotPlan, pendingOut, postedItemsFromServer, postedListOf, prunePosted,
   returnRefreshesSnapshot, snapProductOf, storedVanLotsOf, trackedIds, underLotReplayHeld, vanLotsEntry, withPosted, zeroQtyLine,
-  type OfflineLotBlock, type PendingOut, type PlanLine, type PostedItem, type StoredVanLots,
+  type OfflineLotBlock, type PendingCatalogProduct, type PendingOut, type PlanLine, type PostedItem, type StoredVanLots,
 } from './vanLots';
 import { LOT_BLOCK_KIND_LABELS, LOT_EPS, docLotsFrom, isLotExpiredOn, lotFlagsOf, roundLot, toBaseQty } from '../lib/lots';
 import { lotCellText, lotDayText, repInvoiceGetConfig } from './docLots';
@@ -1673,8 +1673,9 @@ const NO_LOT_PENDING: PendingOut = new Map();
 
 /** المعلّق على لقطةٍ بعينها: فواتير الصفّ وما صدر متصلاً بعد بدء جلبها — قراءةٌ واحدة لكلٍّ من IndexedDB */
 async function loadVanLotPending(stored: StoredVanLots): Promise<PendingOut> {
-  const [docs, posted] = await Promise.all([outboxAll(), cacheGet<unknown>(VANLOTS_POSTED_KEY)]);
-  return pendingOut(docs, postedListOf(posted?.data), stored.fetchedAt, currentRepId());
+  const [docs, posted, cat] = await Promise.all([outboxAll(), cacheGet<unknown>(VANLOTS_POSTED_KEY), cacheGet<unknown>('products')]);
+  // كتالوج الجهاز: فاتورةٌ صُفّت قبل «إضافة وحدة فرعية أصغر» لصنفها تُطرح بالأساس الحالي لا القديم (I9، pendingRebaseFactor)
+  return pendingOut(docs, postedListOf(posted?.data), stored.fetchedAt, currentRepId(), Array.isArray(cat?.data) ? cat.data as PendingCatalogProduct[] : null);
 }
 
 /** المعلّق حيّاً: يُعاد مع كل لقطة وكل تغيّرٍ في الصفّ. بلا لقطة (والميزة مطفأة دائماً) لا قراءة أصلاً */
@@ -1710,11 +1711,16 @@ function repStartChoice(p: (UnitProduct & RepRuleFields) | null | undefined, act
 }
 
 /** صفّ سعر العميل كما يردّه /products/customer-prices (ويحفظه كاش custprices:<id>): السعر صافٍ لوحدة أساس الصنف `unit` لحظة
- *  قراءته على الخادم — غائبٌ في كاش ما قبل «الوحدة الرئيسية» (فيبقى السعر كما هو، rebaseCustPrices) */
-type CustPriceRow = { productId: string; price: number; unit?: string | null };
-const custPriceRowsOf = (data: unknown): CustPriceRow[] => (Array.isArray(data) ? data : [])
+ *  قراءته على الخادم، و`baseConvertedAt` حقبة ذلك الأساس حين يردّها الخادم — غائبان في كاش ما قبل «الوحدة الرئيسية». و`seenAt`
+ *  وقت قراءة الصفّ (updatedAt الكاش) يختمه التطبيق: به يُحكم على صفٍّ بلا `unit` لصنفٍ حُوِّل (rebaseCustPrices) */
+type CustPriceRow = { productId: string; price: number; unit?: string | null; baseConvertedAt?: string | null; seenAt?: number };
+const custPriceRowsOf = (data: unknown, seenAt?: number | null): CustPriceRow[] => (Array.isArray(data) ? data : [])
   .filter((r: { productId?: unknown } | null) => r && r.productId != null)
-  .map((r: { productId: string; price: unknown; unit?: string | null }) => ({ productId: r.productId, price: Number(r.price), ...(r.unit != null && { unit: r.unit }) }));
+  .map((r: { productId: string; price: unknown; unit?: string | null; baseConvertedAt?: string | null }) => ({
+    productId: r.productId, price: Number(r.price), ...(r.unit != null && { unit: r.unit }),
+    ...(Object.prototype.hasOwnProperty.call(r, 'baseConvertedAt') && { baseConvertedAt: r.baseConvertedAt ?? null }),
+    ...(seenAt != null && { seenAt }),
+  }));
 
 // ============ إنشاء فاتورة (بيع أو إرجاع) ============
 function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClose, onDone }: { customer: any; repName: string; company: Company | null; mode?: 'sale' | 'return'; perms: RepUser; onClose: () => void; onDone: (doc: InvoiceDoc) => void }) {
@@ -1869,15 +1875,16 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   // يسرب تسعير عميل الى اخر في الوضع الاوف-لاين. وغيابها لا يعطل شيئا (يسقط لـbasePrice).
   /* «الوحدة الرئيسية» (§6.5، §3 البند 13ب): صفّ السعر يحمل `unit` — أساس الصنف لحظة قراءته — فسعرٌ في الكاش من قبل تحويل
    * الصنف (كرتون ⇒ قارورة) يُعاد إلى أساس الكتالوج الحالي (rebaseCustPrices: ÷ معامل الوحدة بالاسم، أو يُسقط فيحكم الخادم) بدل
-   * أن يُضرب سعر الكرتون × ٢٤. ويُعاد الحساب كلما تغيّر الكتالوج. وكاشٌ بلا `unit` ⇒ السعر كما كان حرفاً */
+   * أن يُضرب سعر الكرتون × ٢٤. ويُعاد الحساب كلما تغيّر الكتالوج. وكاشٌ بلا `unit` ⇒ السعر كما كان حرفاً، إلا لصنفٍ حُوِّل بعد
+   * قراءة الكاش (`baseConvertedAt` بعد `seenAt`) فيُسقط: ذلك سعر الكرتون القديم لا سعر القارورة */
   const [custRows, setCustRows] = useState<CustPriceRow[] | null>(null);
   const custPrices = useMemo<Record<string, number>>(() => (custRows ? rebaseCustPrices(custRows, products) : {}), [custRows, products]);
   useEffect(() => {
     if (!customer?.id || customer._offline) return;
     (async () => {
-      const { data } = await fetchThenCache(`custprices:${customer.id}`, async () =>
+      const { data, updatedAt } = await fetchThenCache(`custprices:${customer.id}`, async () =>
         (await repApi.get(`/products/customer-prices/${customer.id}`)).data.data);
-      if (data) setCustRows(custPriceRowsOf(data));
+      if (data) setCustRows(custPriceRowsOf(data, updatedAt));
     })();
   }, [customer?.id]);
 
@@ -2416,7 +2423,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       ]);
       if (!data || offline) return;
       const fresh = data as any[];
-      const freshRows = cust?.data ? custPriceRowsOf(cust.data) : custRows;
+      const freshRows = cust?.data ? custPriceRowsOf(cust.data, cust.updatedAt) : custRows;
       const freshCust = freshRows ? rebaseCustPrices(freshRows, fresh) : {};
       setProducts(fresh);
       if (freshRows) setCustRows(freshRows);
@@ -3818,11 +3825,15 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
 
   /** «تتبّع اللوط»: تشغيلات التحميل من ردّ الخادم (items[].lots) — «صنف: تشغيلة · ينتهي … · ×كمية»، وبلا تشغيلات '' */
   const loadLotsText = (items: unknown): string => (Array.isArray(items) ? items : [])
-    .map((it: { product?: { name?: string }; productId?: string; unitFactor?: number | null; lots?: unknown }) => {
+    .map((it: { product?: { name?: string; unit?: string | null; primaryUnitId?: string | null }; productId?: string; unitFactor?: number | null; lots?: unknown }) => {
       const ls = docLotsFrom(it?.lots);
       if (!ls) return '';
-      const name = it.product?.name ?? products.find(p => p.id === it.productId)?.name ?? '';
-      return `${name}: ${ls.map(l => lotCellText(l, { tr, withQty: true, unitFactor: it.unitFactor })).join('، ')}`;
+      const p = products.find(x => x.id === it.productId);
+      const name = it.product?.name ?? p?.name ?? '';
+      // «الوحدة الرئيسية» (D21): الكمية التي لا تنقسم على الكرتون تُوسَم باسم القارورة لا «بوحدة الأساس»
+      const primaryUnitId = it.product?.primaryUnitId ?? p?.primaryUnitId ?? null;
+      const baseUnitName = it.product?.unit ?? p?.unit ?? null;
+      return `${name}: ${ls.map(l => lotCellText(l, { tr, withQty: true, unitFactor: it.unitFactor, primaryUnitId, baseUnitName })).join('، ')}`;
     })
     .filter(Boolean).join(' — ');
 

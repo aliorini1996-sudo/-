@@ -469,6 +469,17 @@ class ProductUnitsBusy extends Error {
   constructor() { super('PRODUCT_UNITS_BUSY'); }
 }
 
+/**
+ * I10 (convert-base-4): معاملة الإصدار بلا LOT تُبقي مهلة Prisma الافتراضية (٥ ثوانٍ، I1) وهي مهلة القفل نفسها. فإن مُنح قفل الأصناف
+ * بعد انتظارٍ طويل خلف تحويلٍ ثم انقضت المعاملة قبل الكتابة (P2028 خارج try القفل) — فذلك الانتظار نفسه، لا 500. والحدّ: انتظارٌ
+ * على FOR KEY SHARE لا يطول إلا خلف FOR UPDATE (التحويل أو كاتب الوحدات)، وانقضاءٌ بلا انتظارٍ عليه يمرّ كما كان
+ */
+const ISSUE_LOCK_WAIT_BUSY_MS = 1000;
+const isTxExpired = (e: unknown): boolean => {
+  const o = e as { code?: unknown; message?: unknown } | null | undefined;
+  return o?.code === 'P2028' || /Transaction already closed|expired transaction/i.test(typeof o?.message === 'string' ? o.message : '');
+};
+
 /** رقم المستند من ردّ فرع المرحلة الثانية (data.number) — للإشعار وحده */
 function issuedNumberOf(body: Record<string, unknown>): string | null {
   const n = (body?.data as { number?: unknown } | null | undefined)?.number;
@@ -854,6 +865,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
   // «تتبّع اللوط»: خطة المستند المتتبَّع (لإشعار الحجز في catch) وتحرير الطابور في finally — null لغير المتتبَّع
   let lotPlan: IssuanceLotPlan | null = null;
   let releaseLots: (() => void) | null = null;
+  // مدة انتظار قفل الأصناف في آخر محاولة إصدار (I10، ISSUE_LOCK_WAIT_BUSY_MS)
+  let issueLockWaitMs = 0;
   try {
     const tid = tenantId(req);
     const body = createInvoiceSchema.parse(req.body);
@@ -1458,9 +1471,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       const prevTimeout = Array.isArray(prevLock) && typeof prevLock[0]?.lock_timeout === 'string' ? prevLock[0].lock_timeout : '0';
       await tx.$executeRaw`SELECT set_config('lock_timeout', ${LOT_LOCK_TIMEOUT}, true)`;
       let lockedUnits: Array<{ id: string; unit: string; lotTracked: boolean; lotTrackedSince: Date | null }>;
+      const lockAt = Date.now();
       try {
         lockedUnits = await tx.$queryRaw<Array<{ id: string; unit: string; lotTracked: boolean; lotTrackedSince: Date | null }>>`
         SELECT id, unit, "lotTracked", "lotTrackedSince" FROM products WHERE id IN (${Prisma.join(productIds)}) AND "tenantId" = ${tid} FOR KEY SHARE`;
+        issueLockWaitMs = Date.now() - lockAt;
       } catch (e) {
         if (!lots && asLotBusy(e)) throw new ProductUnitsBusy();
         throw e;
@@ -1615,6 +1630,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     }
     // I10: انتظار قفل الأصناف تجاوز مهلته (تحويلٌ طويل) — لا مستند؛ 503 يعيده الصندوق والواجهة
     if (err instanceof ProductUnitsBusy) {
+      res.status(503).json({ success: false, code: 'PRODUCT_UNITS_BUSY', message: PRODUCT_UNITS_BUSY_MESSAGE });
+      return;
+    }
+    // والقفل مُنح بعد انتظارٍ طويل ثم انقضت المعاملة قبل الكتابة (بلا LOT، مهلتها ٥ ثوانٍ كما كانت) — لا مستند؛ 503 كالانتظار نفسه
+    if (lotPlan == null && issueLockWaitMs >= ISSUE_LOCK_WAIT_BUSY_MS && isTxExpired(err)) {
       res.status(503).json({ success: false, code: 'PRODUCT_UNITS_BUSY', message: PRODUCT_UNITS_BUSY_MESSAGE });
       return;
     }

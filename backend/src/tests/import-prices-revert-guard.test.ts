@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  PRICE_CHANGED_AFTER_IMPORT, isLockBusyError, newPricesRevertTotals, parseBatchRecordIds, priceRevertAction, priceRevertOutcome, pricesRevertPlan, revertOutcome,
+  PRICE_CHANGED_AFTER_IMPORT, PRICE_UNITS_CHANGED_AFTER_IMPORT, priceUnitsChangedSince,
+  isLockBusyError, newPricesRevertTotals, parseBatchRecordIds, priceRevertAction, priceRevertOutcome, pricesRevertPlan, revertOutcome,
   revertResponse, runPricesRevertChunks, serializeBatchRecordIds,
   type PriceRevertChunkDelta, type RevertBlocked,
 } from '../services/importLedger';
@@ -303,6 +304,36 @@ test('حارس ثابت (البند I): فرع «سبق التراجع عنه» 
   assert.ok(pr.indexOf('}, IMPORT_WRITE_TX);') < pr.indexOf('alreadyReverted += chunkAlready;'), 'العدّ قبل التزام الشريحة');
   const tail = rv.slice(rv.indexOf("if (batch.kind === 'prices') {"));
   assert.match(tail, /revertResponse\(batch\.kind, removed, blocked, out\.remainingIds\.length, \{ restored, deleted, alreadyReverted \}\)/);
+});
+
+// ═══ «الوحدة الرئيسية» (convert-base-6): التراجع بعد «إضافة وحدة فرعية أصغر» ═══
+
+test('convert-base-6: دفعة أسعار بالشكل القديم (بلا imported) ثم إضافة وحدة أصغر ⇒ لا يُستعاد سعر الكرتون سعراً للقارورة (×F)', () => {
+  // سعر الكرتون 45 قبل الاستيراد، والدفعة القديمة حفظت السابق وحده؛ الاستيراد كتب 50 للكرتون
+  const legacy = parseBatchRecordIds('{"records":["cp1"],"previous":{"cp1":45}}');
+  const [item] = pricesRevertPlan(legacy).items;
+  const batchAt = new Date('2026-10-01T08:00:00Z');
+  // التحويل (كرتون ⇒ قارورة ×٢٤) بعد الدفعة قسم السعر على ٢٤: priceRevertOutcome وحدها تستعيد 45 للقارورة
+  assert.deepEqual(priceRevertOutcome(50 / 24, item), { restore: 45 }, 'بلا الحارس: 45 تُكتب سعراً للقارورة (×٢٤)');
+  assert.equal(priceUnitsChangedSince(new Date('2026-10-30T10:00:00Z'), batchAt), true, 'حُوِّل بعد الدفعة ⇒ ممنوع');
+  // حُوِّل قبل الدفعة (السابق بالوحدة الجديدة نفسها) أو لم يُحوَّل قط ⇒ كما كان
+  assert.equal(priceUnitsChangedSince(new Date('2026-09-30T10:00:00Z'), batchAt), false);
+  assert.equal(priceUnitsChangedSince(null, batchAt), false);
+  assert.equal(priceUnitsChangedSince(batchAt, batchAt), false, 'اللحظة نفسها ليست «بعد»');
+  assert.equal(priceUnitsChangedSince('2026-10-30T10:00:00.000Z', '2026-10-01T08:00:00.000Z'), true, 'تاريخٌ نصّي');
+  assert.equal(priceUnitsChangedSince('ليس تاريخاً', batchAt), false);
+  assert.equal(PRICE_UNITS_CHANGED_AFTER_IMPORT, 'تغيّرت وحدات الصنف بعد الاستيراد فلم يُعد سعره');
+});
+
+test('حارس ثابت (convert-base-6): التراجع يقرأ baseConvertedAt تحت القفل نفسه ويمنع قبل priceRevertOutcome بتاريخ الدفعة', () => {
+  const src = read('routes/import.ts');
+  const rv = src.slice(src.indexOf("router.post('/batches/:id/revert'"));
+  const pr = rv.slice(rv.indexOf("} else if (batch.kind === 'prices') {"), rv.indexOf('} else if (batch.kind === OPENING_STOCK_KIND) {'));
+  assert.match(pr, /SELECT cp\.id, cp\.price, c\.name, p\.code, p\."baseConvertedAt" FROM customer_prices cp/);
+  const guard = pr.indexOf('if (row && priceUnitsChangedSince(row.baseConvertedAt, batch.createdAt)) {');
+  assert.ok(guard > pr.indexOf('FOR UPDATE OF cp'), 'الحكم على الصفّ المقفل');
+  assert.ok(guard < pr.indexOf('const action = priceRevertOutcome('), 'المنع قبل الاستعادة');
+  assert.match(pr.slice(guard, guard + 300), /reason: PRICE_UNITS_CHANGED_AFTER_IMPORT \}\);\n\s*continue;/, 'الممنوع لا يدخل done فيبقى في الدفعة');
 });
 
 test('حارس ثابت: فرع الأسعار بمهلة قفل ويجيب 409 عند المزاحمة ويثبّت المتبقّي داخل المعاملة', () => {

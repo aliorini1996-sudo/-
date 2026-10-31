@@ -120,7 +120,8 @@ test('حارس الحارس: الفحص يعضّ جسماً يقرأ الرئي�
 
 // ═══ I10 ═══
 
-const I10_LOCK_FILES = ['routes/invoices.ts', 'routes/invoicesZatca.ts', 'routes/invoicesNotes.ts', 'services/baseGuard.ts'];
+// ومسارات LOT (convert-base-2): lockLotProducts وassertReturnStillUntracked — المهلة قبل FOR KEY SHARE على الأصناف لا أقفال اللوط وحدها
+const I10_LOCK_FILES = ['routes/invoices.ts', 'routes/invoicesZatca.ts', 'routes/invoicesNotes.ts', 'services/baseGuard.ts', 'services/lotsDb.ts', 'services/lotsInvoice.ts'];
 
 /** بداية الدالة/المسار العلوي المحيط بالموضع: آخر سطرٍ في العمود صفر يبدأ دالةً أو مساراً أو ثابتاً قبله */
 function enclosingTopLevel(src: string, at: number): number {

@@ -216,12 +216,14 @@ const putEdit = (items: Row[], user: Row = ADMIN) => {
   return call(requestsRouter, 'put', '/:id', { user, params: { id: 'Q1' }, body: { updatedAt: '2026-10-31T08:00:00.000Z', items } });
 };
 
-test('تعديل الإدارة: سطرٌ بلا baseUnitName ⇒ الحكم كما كان بلا استعلام أصناف، وبأساسٍ قديم ⇒ 400، وبسباق ⇒ 409 بلا كتابة', async () => {
+test('تعديل الإدارة: سطرٌ بلا baseUnitName ⇒ الحكم كما كان (200) تحت قفل الأصناف، وبأساسٍ قديم ⇒ 400، وبسباق ⇒ 409 بلا كتابة', async () => {
   reset();
   let r = await putEdit([{ productId: 'P2', qty: 2, unitId: null }]);
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.equal(st.productQueries, 0, 'بلا الحقل: لا قراءة أصناف (مسار اليوم)');
-  assert.ok(!st.sql.some((s) => s.includes('FOR KEY SHARE')));
+  assert.deepEqual(st.updatedItems.map((u) => [u.data.qty, u.data.unitName, u.data.unitFactor]), [[2, null, 1]], 'بلا الحقل: الكتابة كما كانت');
+  // القفل FOR KEY SHARE بعد قفل الشركة وبمعاملة الحارس — يُقفل الصنف ولو لم يُرسَل baseUnitName (convert-base-1)
+  assert.ok(st.sql.some((s) => s.includes('FOR KEY SHARE')));
+  assert.deepEqual(st.txOpts, [BASE_GUARD_TX]);
   reset();
   r = await putEdit([{ productId: 'P2', qty: 2, unitId: null, baseUnitName: 'كرتون' }]);
   assert.deepEqual([r.status, r.body.code], [400, 'UNIT_INVALID']);
@@ -234,6 +236,80 @@ test('تعديل الإدارة: سطرٌ بلا baseUnitName ⇒ الحكم ك�
   reset();
   r = await putEdit([{ productId: 'P2', qty: 2, unitId: null }], KEY);
   assert.deepEqual([r.status, r.body.code], [400, 'BASE_UNIT_REQUIRED']);
+});
+
+test('تعديل الإدارة: تحويلٌ التزم على صنف سطرٍ **لم يُعدَّل** بعد قراءة الأصناف ⇒ 409 بلا كتابة (لا تُكتب لقطة «٥ كيس» القديمة فوق وسم التحويل)', async () => {
+  // الطلب فيه سطران: P2 (يُعدَّل) وP3 «٥» بالأساس «كيس». تحويل P3 (كيس ⇒ حبة ×٢٠) يعيد وسم سطره «٥ كيس» ×٢٠ ويلتزم بعد قراءتنا.
+  // كانت الحلقة تعيد كتابة كل سطرٍ بلقطته المقروءة بلا قفل، فيعود سطر P3 «٥» بمعامل ١ = ٥ حبّات بدل ١٠٠
+  reset();
+  lockedUnit = { P3: 'حبة' };
+  pending = {
+    id: 'Q1', updatedAt: new Date('2026-10-31T08:00:00.000Z'),
+    items: [{ productId: 'P2', requestedQty: 3, qty: 3, unitName: null, unitFactor: 1 }, { productId: 'P3', requestedQty: 5, qty: 5, unitName: null, unitFactor: 1 }],
+  };
+  const r = await call(requestsRouter, 'put', '/:id', { params: { id: 'Q1' }, body: { updatedAt: '2026-10-31T08:00:00.000Z', items: [{ productId: 'P2', qty: 2 }] } });
+  assert.deepEqual([r.status, r.body?.code], [409, 'PRODUCT_UNITS_CHANGED'], JSON.stringify(r.body));
+  assert.match(r.body.message, /سكر/);
+  assert.equal(st.updatedItems.length, 0);
+});
+
+test('تعديل الإدارة: قفل الأصناف يسبق قراءة الطلب في المعاملة — فلقطة كل سطرٍ تُقرأ بعد أي تحويلٍ التزم', async () => {
+  reset();
+  pending = {
+    id: 'Q1', updatedAt: new Date('2026-10-31T08:00:00.000Z'),
+    items: [{ productId: 'P2', requestedQty: 3, qty: 3, unitName: null, unitFactor: 1 }, { productId: 'P3', requestedQty: 5, qty: 5, unitName: null, unitFactor: 1 }],
+  };
+  const orig = db.repStockRequest.findFirst;
+  db.repStockRequest.findFirst = async () => { st.sql.push('#REQUEST_READ'); return pending; };
+  try {
+    const r = await call(requestsRouter, 'put', '/:id', { params: { id: 'Q1' }, body: { updatedAt: '2026-10-31T08:00:00.000Z', items: [{ productId: 'P2', qty: 2 }] } });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+  } finally {
+    db.repStockRequest.findFirst = orig;
+  }
+  const lock = st.sql.findIndex((s) => s.includes('FOR KEY SHARE'));
+  assert.ok(lock > st.sql.findIndex((s) => s.includes('pg_advisory_xact_lock')), 'بعد قفل الشركة');
+  assert.ok(st.sql.lastIndexOf('#REQUEST_READ') > lock, 'قراءة الطلب (pendingForEdit) بعد قفل الأصناف');
+  // والصنفان مقفلان: المعدَّل وصنف السطر الباقي
+  const ids = st.sql.filter((s) => s.includes('FOR KEY SHARE')).length;
+  assert.equal(ids, 1, 'قفلٌ واحد مرتّب لكل الأصناف');
+  assert.deepEqual(st.updatedItems.map((u) => u.where.requestId_productId.productId), ['P2', 'P3']);
+});
+
+test('تعديل الإدارة: وحدةٌ صريحة حُلّت ثم التزم تحويلٌ قبل القفل (بلا baseUnitName) ⇒ 409 لا «شوال» ×٥٠ حبّة', async () => {
+  reset();
+  pending = { id: 'Q1', updatedAt: new Date('2026-10-31T08:00:00.000Z'), items: [{ productId: 'P3', requestedQty: 3, qty: 3, unitName: null, unitFactor: 1 }] };
+  const origUnits = db.productUnit.findMany;
+  db.productUnit.findMany = async (a: Row) => {
+    const rows = [{ id: 'U-SH', productId: 'P3', name: 'شوال', factor: 50, isActive: true }].filter((u) => inIds(a.where?.id, u.id));
+    PRODUCTS = PRODUCTS.map((p) => (p.id === 'P3' ? { ...p, unit: 'حبة', baseConvertedAt: CONVERTED } : p));
+    return rows;
+  };
+  try {
+    const r = await call(requestsRouter, 'put', '/:id', { params: { id: 'Q1' }, body: { updatedAt: '2026-10-31T08:00:00.000Z', items: [{ productId: 'P3', qty: 2, unitId: 'U-SH' }] } });
+    assert.deepEqual([r.status, r.body?.code], [409, 'PRODUCT_UNITS_CHANGED'], JSON.stringify(r.body));
+    assert.equal(st.updatedItems.length, 0);
+  } finally {
+    db.productUnit.findMany = origUnits;
+  }
+});
+
+test('تعديل الإدارة: D19 كبقية الكتّاب — مفتاح API بسطرٍ بوحدةٍ صريحة على صنفٍ محوَّل بلا baseUnitName ⇒ 400 BASE_UNIT_REQUIRED', async () => {
+  reset();
+  const origUnits = db.productUnit.findMany;
+  db.productUnit.findMany = async (a: Row) => [{ id: 'U-P2', productId: 'P2', name: 'كرتون', factor: 24, isActive: true }].filter((u) => inIds(a.where?.id, u.id));
+  try {
+    let r = await putEdit([{ productId: 'P2', qty: 1, unitId: 'U-P2' }], KEY);
+    assert.deepEqual([r.status, r.body?.code], [400, 'BASE_UNIT_REQUIRED'], JSON.stringify(r.body));
+    assert.equal(st.txOpts.length, 0);
+    // مع الاسم الصحيح يمرّ، وبجلسة لوحة الإدارة بلاه يمرّ (D19 للمفتاح وحده)
+    r = await putEdit([{ productId: 'P2', qty: 1, unitId: 'U-P2', baseUnitName: 'قارورة' }], KEY);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    r = await putEdit([{ productId: 'P2', qty: 1, unitId: 'U-P2' }]);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+  } finally {
+    db.productUnit.findMany = origUnits;
+  }
 });
 
 test('fail(): الرمز يبقى في كل ردّ 4xx يحمله الخطأ (فلا يضيع رمزٌ تعيد به الواجهة جلب الأصناف)', async () => {

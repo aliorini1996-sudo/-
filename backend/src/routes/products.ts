@@ -13,7 +13,7 @@ import { REP_UNIT_RULES, hasRepRules, repRuleConfigProblem, repRulesChanged, rep
 import { LOT_BUCKETS, LOT_EPS, LotError, asLockBusy, asLotBusy, lotErr, lotErrorBody, lotHttpError, roundLot, type BucketQty, type PlaceLotView } from '../services/lots';
 import { LOT_LOCK_TIMEOUT, acquireLotQueue, lockLotProducts, placeViews, recordLotEvent, type LotEventActor, type LotTx } from '../services/lotsDb';
 import { convertBaseRefusalFor } from '../services/convertBaseAccess';
-import { markConverting, unmarkConverting } from '../services/baseGuard';
+import { BASE_GUARD_TX, markConverting, unmarkConverting } from '../services/baseGuard';
 
 const router = Router();
 router.use(authenticate); // القراءة متاحة للمندوب (للبحث عند إصدار الفاتورة)؛ الكتابة للإدارة فقط
@@ -209,6 +209,24 @@ async function lockProduct(tx: Prisma.TransactionClient, tid: string, productId:
   return readLockedProduct(tx, tid, productId);
 }
 
+/**
+ * قفل كتّاب الوحدات والشرائح والرئيسية: FOR UPDATE كـlockProduct، بمهلةٍ محلية تُحفظ وتُستعاد (نمط lockProductForEdit) — خلف
+ * تحويلٍ طويل يمسك الصفّ (حتى ١٢٠ ثانية) ⇒ 503 PRODUCT_UNITS_BUSY بعد ٥ ثوانٍ، لا P2028 ثم 500 ممسكاً اتصالاً. ويُحوَّل خطأ
+ * القفل وحده (لا خطأٌ من بقية المعاملة). والتحويل نفسه يبقى على lockProduct بلا مهلة: ينتظر الفواتير الممسكة FOR KEY SHARE كما كان
+ */
+async function lockProductForUnits(tx: Prisma.TransactionClient, tid: string, productId: string) {
+  const prev = await tx.$queryRaw<{ lock_timeout: string }[]>`SELECT current_setting('lock_timeout') AS lock_timeout`;
+  await tx.$executeRaw`SELECT set_config('lock_timeout', ${LOT_LOCK_TIMEOUT}, true)`;
+  try {
+    await tx.$queryRaw`SELECT id FROM products WHERE id = ${productId} AND "tenantId" = ${tid} FOR UPDATE`;
+  } catch (e) {
+    if (asLotBusy(e)) throw new UnitsRefusal(503, PRODUCT_UNITS_BUSY_MSG, 'PRODUCT_UNITS_BUSY');
+    throw e;
+  }
+  await tx.$executeRaw`SELECT set_config('lock_timeout', ${prev[0]?.lock_timeout ?? '0'}, true)`;
+  return readLockedProduct(tx, tid, productId);
+}
+
 /** صفّ الصنف كما يقرؤه كل كاتبٍ بعد قفله — select واحد لقفلَي الوحدات والتعديل */
 function readLockedProduct(tx: Prisma.TransactionClient, tid: string, productId: string) {
   return tx.product.findFirst({
@@ -229,6 +247,7 @@ function readLockedProduct(tx: Prisma.TransactionClient, tid: string, productId:
  * قفل التعديل (§2.2-أ): FOR NO KEY UPDATE — القفل الذي يأخذه UPDATE عادي. يتعارض مع FOR UPDATE الذي يأخذه التحويل وكتّاب
  * الوحدات، ولا يتعارض مع FOR KEY SHARE الذي تأخذه الفواتير، فتعديل الصنف لا ينتظر كل فاتورة تصدر. والانتظار بمهلةٍ محلية تُحفظ
  * وتُستعاد (نمط حذف الصنف): تحويلٌ طويل يمسك الصفّ ⇒ 503 PRODUCT_UNITS_BUSY مبكراً، لا انتظار مهلة المعاملة ثم 500.
+ * والانشغال المحوَّل هو انتظار هذا القفل وحده (55P03 و40P01، أو انقضاء المعاملة عنده P2028) — ما يقع في بقية المعاملة يمرّ كما هو
  */
 async function lockProductForEdit(tx: Prisma.TransactionClient, tid: string, productId: string) {
   const prev = await tx.$queryRaw<{ lock_timeout: string }[]>`SELECT current_setting('lock_timeout') AS lock_timeout`;
@@ -236,7 +255,7 @@ async function lockProductForEdit(tx: Prisma.TransactionClient, tid: string, pro
   try {
     await tx.$queryRaw`SELECT id FROM products WHERE id = ${productId} AND "tenantId" = ${tid} FOR NO KEY UPDATE`;
   } catch (e) {
-    if (asLockBusy(e)) throw new UnitsRefusal(503, PRODUCT_UNITS_BUSY_MSG, 'PRODUCT_UNITS_BUSY');
+    if (asLotBusy(e)) throw new UnitsRefusal(503, PRODUCT_UNITS_BUSY_MSG, 'PRODUCT_UNITS_BUSY');
     throw e;
   }
   await tx.$executeRaw`SELECT set_config('lock_timeout', ${prev[0]?.lock_timeout ?? '0'}, true)`;
@@ -372,11 +391,19 @@ router.get('/customer-prices/:customerId', async (req: AuthRequest, res: Respons
       res.status(403).json({ success: false, message: 'هذا العميل غير مسند لك' });
       return;
     }
-    const prices = await prisma.customerPrice.findMany({
-      where: { customerId: req.params.customerId, product: { tenantId: tid, deletedAt: null } },
-      select: { productId: true, price: true, product: { select: { unit: true } } },
+    /* «الوحدة الرئيسية»: السعر وأساس صنفه (`unit`) ولحظة آخر تحويلٍ له (`baseConvertedAt`، حاضرٌ دائماً null أو تاريخ) في جملةٍ
+     * واحدة — لقطةٌ واحدة تحت READ COMMITTED. بـfindMany وعلاقةٍ متداخلة يقرأ Prisma الصنف في استعلامٍ ثانٍ (بلا relationJoins)،
+     * فتحويلٌ يلتزم بينهما (يقسم أسعار العميل على F ويغيّر الأساس في معاملةٍ واحدة) يعطي {سعر الكرتون القديم، اسم القارورة}
+     * فيعدّه تطبيق المندوب سعر قارورة (×٢٤) ويحفظه في كاشه. و`baseConvertedAt` يفرّق به التطبيق إعادة التسمية (لا تغيّره) عن
+     * التحويل ×F. الشروط كما كانت: الشركة والصنف غير المؤرشف */
+    const prices = await prisma.$queryRaw<Array<{ productId: string; price: number; unit: string | null; baseConvertedAt: Date | null }>>`
+      SELECT cp."productId", cp.price, p.unit, p."baseConvertedAt"
+      FROM customer_prices cp JOIN products p ON p.id = cp."productId"
+      WHERE cp."customerId" = ${req.params.customerId} AND p."tenantId" = ${tid} AND p."deletedAt" IS NULL`;
+    res.json({
+      success: true,
+      data: prices.map((p) => ({ productId: p.productId, price: Number(p.price), unit: p.unit ?? null, baseConvertedAt: p.baseConvertedAt ?? null })),
     });
-    res.json({ success: true, data: prices.map((p) => ({ productId: p.productId, price: p.price, unit: p.product?.unit ?? null })) });
   } catch (err) { next(err); }
 });
 
@@ -707,7 +734,6 @@ const reverseUniqueViolation = (err: unknown): boolean =>
 
 router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   let lotPath = false;
-  let guardPath = false;
   try {
     const tid = tenantId(req);
     const exists = await prisma.product.findFirst({
@@ -785,7 +811,6 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
     }
     if (touchesBase) {
       // التعديل المحروس (§2.2-هـ): قفل التعديل ثم الخطوات ٢–٦ ثم الكتابة، في معاملةٍ واحدة
-      guardPath = true;
       const guarded = await prisma.$transaction(async (tx) => {
         const locked = await lockProductForEdit(tx, tid, req.params.id);
         if (!locked) throw new UnitsRefusal(404, 'الصنف غير موجود', 'PRODUCT_NOT_FOUND');
@@ -803,9 +828,9 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
     });
     res.json({ success: true, data: product });
   } catch (err) {
-    // التعديل المحروس في المسارين: الرفض برمزه، وانشغال القفل أو انقضاء المعاملة خلف تحويلٍ طويل ⇒ 503 PRODUCT_UNITS_BUSY
+    // التعديل المحروس في المسارين: الرفض برمزه، ومنه انتظار قفل الصنف خلف تحويلٍ طويل ⇒ 503 PRODUCT_UNITS_BUSY (من lockProductForEdit
+    // وحده). وانشغالٌ آخر في المعاملة (قاعدةٌ بطيئة، تعطّل متبادل) ليس «وحدات الصنف قيد التحويل»: يمرّ إلى المعالج العام كما كان
     if (err instanceof UnitsRefusal) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
-    if (guardPath && asLotBusy(err)) { res.status(503).json({ success: false, code: 'PRODUCT_UNITS_BUSY', message: PRODUCT_UNITS_BUSY_MSG }); return; }
     // مسار الانتقال وحده: LotError (LOT_TRACKING_HAS_BALANCE…) والانشغال (55P03، 40P01، P2028، الطابور) ⇒ 503 LOT_BUSY
     const lh = lotPath ? lotHttpError(err) : null;
     if (lh) { res.status(lh.status).json(lh.body); return; }
@@ -871,7 +896,7 @@ router.put('/:id/price-tiers', requireAdmin, async (req: AuthRequest, res: Respo
     const tg = tierGuardSchema.parse(req.body ?? {});
     await prisma.$transaction(async (tx) => {
       // بقفل صفّ الصنف كالتحويل: شرائح بحدودٍ على الأساس القديم لا تلتزم بعد تحويله فتُقرأ على الجديد
-      const locked = await lockProduct(tx, tid, req.params.id);
+      const locked = await lockProductForUnits(tx, tid, req.params.id);
       if (!locked) throw new UnitsRefusal(404, 'الصنف غير موجود', 'PRODUCT_NOT_FOUND');
       assertExpectedBase(req, locked, tg.expectedBaseName);
       // حدودٌ أُدخلت بالرئيسية (/m): الرئيسية ومعاملها الآن كما حُسبت عليهما — لا حدود على كرتون ٢٤ بعد أن صار ١٢
@@ -894,7 +919,7 @@ router.put('/:id/price-tiers', requireAdmin, async (req: AuthRequest, res: Respo
       }
       // الشرائح بلا طابع تعديل وتُضمَّن في الصنف — فتغييرها تغييرٌ للصنف تراه مزامنة ERP و/api/v1/sync
       await touchProduct(tx, tid, req.params.id);
-    });
+    }, BASE_GUARD_TX); // I10: مهلة المعاملة أطول من مهلة القفل
     res.json({ success: true });
   } catch (err) {
     if (err instanceof UnitsRefusal) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
@@ -909,7 +934,7 @@ router.post('/:id/units', requireAdmin, async (req: AuthRequest, res: Response, 
     const tid = tenantId(req);
     const data = unitCreateSchema.parse(req.body);
     const unit = await prisma.$transaction(async (tx) => {
-      const product = await lockProduct(tx, tid, req.params.id);
+      const product = await lockProductForUnits(tx, tid, req.params.id);
       if (!product) throw new UnitsRefusal(404, 'الصنف غير موجود', 'PRODUCT_NOT_FOUND');
       assertExpectedBase(req, product, data.expectedBaseName);
       // الأساس بين «الأخريات»: لا وحدة باسمه، ولا وحدة بمعامل ١ (هي الأساس نفسه)
@@ -930,7 +955,7 @@ router.post('/:id/units', requireAdmin, async (req: AuthRequest, res: Response, 
         await touchProduct(tx, tid, product.id);
       }
       return created;
-    });
+    }, BASE_GUARD_TX);
     res.status(201).json({ success: true, data: unit });
   } catch (err) {
     if (err instanceof UnitsRefusal) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
@@ -950,7 +975,7 @@ router.put('/:id/units/:unitId', requireAdmin, async (req: AuthRequest, res: Res
     const tid = tenantId(req);
     const data = unitUpdateSchema.parse(req.body);
     const unit = await prisma.$transaction(async (tx) => {
-      const product = await lockProduct(tx, tid, req.params.id);
+      const product = await lockProductForUnits(tx, tid, req.params.id);
       if (!product) throw new UnitsRefusal(404, 'الصنف غير موجود', 'PRODUCT_NOT_FOUND');
       const current = product.units.find((u) => u.id === req.params.unitId);
       if (!current) throw new UnitsRefusal(404, 'الوحدة غير موجودة', 'UNIT_NOT_FOUND');
@@ -986,7 +1011,7 @@ router.put('/:id/units/:unitId', requireAdmin, async (req: AuthRequest, res: Res
         await touchProduct(tx, tid, product.id);
       }
       return tx.productUnit.findFirst({ where: { id: current.id, productId: product.id, tenantId: tid } });
-    });
+    }, BASE_GUARD_TX);
     res.json({ success: true, data: unit });
   } catch (err) {
     if (err instanceof UnitsRefusal) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
@@ -1000,7 +1025,7 @@ router.delete('/:id/units/:unitId', requireAdmin, async (req: AuthRequest, res: 
   try {
     const tid = tenantId(req);
     await prisma.$transaction(async (tx) => {
-      const product = await lockProduct(tx, tid, req.params.id);
+      const product = await lockProductForUnits(tx, tid, req.params.id);
       if (!product) throw new UnitsRefusal(404, 'الصنف غير موجود', 'PRODUCT_NOT_FOUND');
       // الحذف بلا جسم: الأساس المتوقَّع (اختياري، وإلزامي لمفتاح API على صنفٍ حُوِّل — D19) من الاستعلام كإذن الرئيسية
       assertExpectedBase(req, product, typeof req.query.expectedBaseName === 'string' ? req.query.expectedBaseName : undefined);
@@ -1016,7 +1041,7 @@ router.delete('/:id/units/:unitId', requireAdmin, async (req: AuthRequest, res: 
       } else {
         await touchProduct(tx, tid, product.id);
       }
-    });
+    }, BASE_GUARD_TX);
     res.json({ success: true });
   } catch (err) {
     if (err instanceof UnitsRefusal) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
@@ -1035,7 +1060,7 @@ router.put('/:id/primary-unit', requireAdmin, async (req: AuthRequest, res: Resp
     // المفتاح حاضرٌ في الجسم (ولو null) ⇒ يُقارن: null المتوقَّعة تعني «لم تكن له رئيسية»
     const checkExpected = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'expectedPrimaryUnitId');
     const product = await prisma.$transaction(async (tx) => {
-      const locked = await lockProduct(tx, tid, req.params.id);
+      const locked = await lockProductForUnits(tx, tid, req.params.id);
       if (!locked) throw new UnitsRefusal(404, 'الصنف غير موجود', 'PRODUCT_NOT_FOUND');
       if (checkExpected && (body.expectedPrimaryUnitId ?? null) !== (locked.primaryUnitId ?? null)) {
         throw new UnitsRefusal(409, PRIMARY_UNIT_CHANGED_MSG, 'PRIMARY_UNIT_CHANGED');
@@ -1049,7 +1074,7 @@ router.put('/:id/primary-unit', requireAdmin, async (req: AuthRequest, res: Resp
         data: { primaryUnitId: body.unitId }, // @updatedAt يتحرّك فتراه المزامنة وERP
         include: { category: true, priceTiers: { orderBy: { minQty: 'asc' } }, units: UNITS_ORDER },
       });
-    });
+    }, BASE_GUARD_TX);
     res.json({ success: true, data: product });
   } catch (err) {
     if (err instanceof UnitsRefusal) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
@@ -1091,6 +1116,27 @@ async function convertBaseRefusalOn(db: Prisma.TransactionClient, tid: string,
   if (await isRetiredBaseName(db, tid, product.id, product.baseConvertedAt, body.newBaseName)) {
     throw new UnitsRefusal(409, retiredBaseMsg(body.newBaseName.trim()), 'BASE_NAME_RETIRED');
   }
+  // لقطات التاريخ تُضرب بـF كالوحدات القائمة، وbaseConversionProblem يحدّ القائمة وحدها: وحدةٌ حُذفت أو تغيّر معاملها تبقى لقطتها
+  // في الصفوف، فتتجاوز MAX_UNIT_FACTOR بعد الضرب ويرمي كل ما ينسخ اللقطة بعدها (إشعارٌ دائن بوحدة البند ⇒ 500 على فاتورةٍ قديمة)
+  const over = await historyFactorOver(db, tid, product.id, Math.round(Number(body.factor)));
+  if (over !== null) throw new UnitsRefusal(400, `معامل وحدة «${over}» في تاريخ الصنف يتجاوز ${MAX_UNIT_FACTOR} بعد الإضافة`);
+}
+
+/**
+ * أكبر لقطة معاملٍ في تاريخ الصنف (الجداول الأربعة التي يضربها التحويل، والشركة شرطٌ عبر رأس المستند كجمل التحويل نفسها)
+ * تتجاوز الحدّ بعد ضربها بـF ⇒ اسمها، وإلا null. قراءةٌ بلا كتابة ولا جملة خام — للمعاينة والتحويل تحت قفله معاً
+ */
+async function historyFactorOver(db: Prisma.TransactionClient, tid: string, pid: string, F: number): Promise<string | null> {
+  const over = { gt: MAX_UNIT_FACTOR / F };
+  const pick = { select: { unitName: true, unitFactor: true }, orderBy: { unitFactor: 'desc' as const } };
+  const rows = await Promise.all([
+    db.invoiceItem.findFirst({ where: { productId: pid, invoice: { tenantId: tid }, unitFactor: over }, ...pick }),
+    db.vanLoadItem.findFirst({ where: { productId: pid, vanLoad: { tenantId: tid }, unitFactor: over }, ...pick }),
+    db.warehouseEntryItem.findFirst({ where: { productId: pid, entry: { tenantId: tid }, unitFactor: over }, ...pick }),
+    db.repStockRequestItem.findFirst({ where: { productId: pid, request: { tenantId: tid }, unitFactor: over }, ...pick }),
+  ]);
+  const top = rows.filter((r): r is { unitName: string | null; unitFactor: number } => !!r).sort((a, b) => b.unitFactor - a.unitFactor)[0];
+  return top ? (top.unitName?.trim() || '؟') : null;
 }
 
 /**

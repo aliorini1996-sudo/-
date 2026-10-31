@@ -1,10 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   hasBigUnit, qtyText, signedQtyText, unitsBrief, lineKey, invoiceLine, addInvoiceLine, setInvoiceLineUnit,
   stepInvoiceLine, refreshInvoiceLines, stockLineUnit, freeChoices, nextStockLineUnit, splitLoadRows, suggestionLine, movementQtyText,
   tierBaseBounds, tierPayload, biggestUnit, unitDraftProblem, unitDraftPayload, unitDraftOf, convertDraftProblem,
-  convertedBasePrice, statementItemText, UNIT_FACTOR_HINT, type SalePick, tierToPrimary, tierFromPrimary,
+  convertedBasePrice, statementItemText, UNIT_FACTOR_HINT, type SalePick, tierToPrimary, tierFromPrimary, tierPrimaryDraft,
 } from './mUnits';
 import { unitChoices, invoiceItemUnit } from '../rep/repUnits';
 import { lineTotal } from './docMath';
@@ -245,6 +247,16 @@ test('movementQtyText: مجموعٌ لكل وحدة حين تختلط، وnull �
   assert.equal(movementQtyText([{ qty: 2, unit: 'كيس', baseQty: 2 }, { qty: 3, unit: 'حبة' }], num), null);
 });
 
+test('rep-offline-5: حركةٌ كلّها بالقارورة لصنفٍ له رئيسية ⇒ «10 قارورة» كالإشعار المطبوع، وprimaryUnitId null ⇒ كما كانت', () => {
+  assert.equal(movementQtyText([{ qty: 10, unit: 'قارورة', baseQty: 10, primaryUnitId: 'u-c' }], num), '10 قارورة');
+  assert.equal(movementQtyText([{ qty: 4, unit: 'قارورة', baseQty: 4, primaryUnitId: 'u-c' }, { qty: 2, unit: 'حبة', baseQty: 2 }], num), '4 قارورة · 2 حبة');
+  assert.equal(movementQtyText([{ qty: 10, unit: 'قارورة', baseQty: 10, primaryUnitId: null }], num), null, 'I1');
+  assert.equal(movementQtyText([{ qty: 10, unit: 'قارورة', baseQty: 10 }], num), null, 'I1: بلا المفتاح');
+  // النوع في MRepLoad يحمل الحقل كما يرسله الخادم (vanStock /movements: primaryOf(i.product))
+  const s = fs.readFileSync(path.resolve(process.cwd(), 'src', 'm', 'MRepLoad.tsx'), 'utf8');
+  assert.match(s, /items: \{ name: string; unit: string; qty: number; baseQty\?: number \| null; lots\?: unknown; primaryUnitId\?: string \| null \}\[\];/);
+});
+
 // ═══════════════ الشرائح ═══════════════
 
 test('tierBaseBounds: العمودان بالأساس أوّلاً، والشريحة غير المرحَّلة من القديمين', () => {
@@ -382,4 +394,21 @@ test('tierToPrimary وtierFromPrimary: الحدّ ÷F أو ×F والسعر ×F 
   assert.equal(tierFromPrimary(1, null, 50, 24).price, 50 / 24);
   // شريحة غير مرحَّلة (baseMinQty = 0 وminQty ≠ 0) تُقرأ من القديمين كـtierBaseBounds
   assert.deepEqual(tierToPrimary({ minQty: 48, baseMinQty: 0, price: 1 }, 24), { min: 2, max: null, price: 24 });
+});
+
+test('money-5: بذرة الشريحة بالرئيسية بلا ضجيج عائمة — سعرٌ مخزَّن 12.35/12 يظهر «12.35»، والحفظ بلا تعديل يعيده كما هو', () => {
+  const stored = { minQty: 24, baseMinQty: 24, maxQty: 120, baseMaxQty: 120, price: 12.35 / 12 };
+  assert.equal(String(tierToPrimary(stored, 12).price), '12.349999999999998', 'ما كانت تعرضه الخانة قبل الإصلاح');
+  const d = tierPrimaryDraft(stored, 12);
+  assert.deepEqual(d, { minQty: '2', maxQty: '10', price: '12.35' });
+  // الذهاب والعودة: المكتوب «12.35» ÷ 12 = المخزَّن حرفاً
+  assert.equal(tierFromPrimary(Number(d.minQty), Number(d.maxQty), Number(d.price), 12).price, stored.price);
+  assert.deepEqual(tierPrimaryDraft({ minQty: 0, baseMinQty: 24, price: 2 }, 24), { minQty: '1', maxQty: '', price: '48' }, 'بلا حدٍّ أعلى ⇒ خانةٌ فارغة');
+  assert.equal(tierPrimaryDraft({ minQty: 24, baseMinQty: 24, price: 1.75 }, 24).price, '42');
+});
+
+test('MProducts: الشرائح بالرئيسية تُبذر من tierPrimaryDraft لا String(tierToPrimary(…).price)', () => {
+  const s = fs.readFileSync(path.resolve(process.cwd(), 'src', 'm', 'MProducts.tsx'), 'utf8');
+  assert.match(s, /if \(usePrim\) return \{ uid: \+\+tierUid, \.\.\.tierPrimaryDraft\(t, F\) \};/);
+  assert.doesNotMatch(s, /price: String\(v\.price\)/);
 });

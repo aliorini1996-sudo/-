@@ -95,8 +95,11 @@ export interface LocationInfo { id: string; name: string; isActive: boolean; lat
  */
 export interface ProductInfo { name: string; unit: string | null; units?: UnitDef[] | null; primaryUnitId?: string | null }
 
-/** سطر صنفٍ محمَّل: الكمية بالأساس، و`units`/`primaryUnitId` حاضران حين للصنف رئيسية صالحة فقط */
-export interface LocationLoadProduct { productId: string; name: string; unit: string | null; qty: number; units?: UnitDef[]; primaryUnitId?: string }
+/**
+ * سطر صنفٍ محمَّل: الكمية بالأساس، و`units` حاضرة حين للصنف رئيسية صالحة فقط (فلا يُفكَّك بلاها مجموعٌ إلى كراتين)،
+ * و`primaryUnitId` حاضرٌ دائماً (D18): معرّف الرئيسية الصالحة أو null
+ */
+export interface LocationLoadProduct { productId: string; name: string; unit: string | null; qty: number; units?: UnitDef[]; primaryUnitId: string | null }
 
 export interface LocationBucket {
   /** null = «بلا موقع» */
@@ -200,7 +203,7 @@ export function buildLocationsSummary(
         const prim = primaryUnitOf(info);
         return {
           productId, name: info?.name ?? '', unit: info?.unit ?? null, qty: round4(qty),
-          ...(prim && info?.primaryUnitId ? { units: [...(info.units ?? [])], primaryUnitId: info.primaryUnitId } : {}),
+          ...(prim && info?.primaryUnitId ? { units: [...(info.units ?? [])], primaryUnitId: info.primaryUnitId } : { primaryUnitId: null }),
         };
       })
       .sort((x, y) => y.qty - x.qty || x.name.localeCompare(y.name, 'ar'));

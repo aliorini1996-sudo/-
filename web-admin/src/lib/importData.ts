@@ -1443,6 +1443,16 @@ export function openingStockPrimaryPreview(valid: readonly Record<string, unknow
   });
 }
 
+/**
+ * صفوف الملف (بأرقامها فيه) التي خانة وحدتها فارغة لصنفٍ له رئيسية أو تغيّرت وحداته — سيرفضها الخادم QTY_UNIT_REQUIRED (D17)،
+ * فتُقال قبل الإرسال. `fileRows` رقم صفّ الملف لكل صفٍّ مرسل (كـfileRowOf)، وبلاه رقم الصفّ المرسل + ٢.
+ */
+export function openingStockUnitRequiredRows(previews: readonly OpeningStockPrimaryPreview[], fileRows?: readonly number[]): number[] {
+  const out: number[] = [];
+  previews.forEach((p, i) => { if (p.unitRequired) out.push(fileRows?.[i] ?? i + 2); });
+  return out;
+}
+
 function toOpeningStock(rows: Record<string, unknown>[], opts?: TransformOpts): TransformOut {
   const lotOn = opts?.lotTracking === true;
   const c = makeCtx(rows, stockSpec(lotOn), opts);

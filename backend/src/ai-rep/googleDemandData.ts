@@ -83,12 +83,13 @@ export async function loadDemandProducts(tid: string, repId: string, priorityIds
     if (!ids.length) return [];
     const rows = await prisma.product.findMany({
       where: { tenantId: tid, id: { in: ids }, status: 'ACTIVE', deletedAt: null },
-      select: { id: true, name: true, unit: true, units: ACTIVE_UNITS_SELECT },
+      // «الوحدة الرئيسية» (عرضٌ وحده): الرئيسية الصالحة موسومةٌ في units فتصل الجهاز والتوقّع بلا حقلٍ جديد في الأنواع
+      select: { id: true, name: true, unit: true, units: ACTIVE_UNITS_SELECT, primaryUnitId: true },
     });
     const byId = new Map(rows.map(r => [r.id, r]));
     return ids.map(id => byId.get(id)).filter((r): r is NonNullable<typeof r> => !!r).slice(0, MAX_PRODUCTS)
       .map(r => {
-        const units = displayUnits(r.units);
+        const units = displayUnits(r.units, r.primaryUnitId);
         return { productId: r.id, name: r.name, unit: r.unit, ...(units.length ? { units } : {}) };
       });
   };

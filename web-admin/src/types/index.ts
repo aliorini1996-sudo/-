@@ -350,7 +350,8 @@ export interface SalesRep {
 export interface InvoiceItem {
   id: string;
   productId: string;
-  product: { id: string; name: string; code: string; unit: string };
+  /** primaryUnitId من select بنود الفواتير (D18: null حين لا وحدة رئيسية) — للعرض وحده (R2) */
+  product: { id: string; name: string; code: string; unit: string; primaryUnitId?: string | null };
   qty: number;
   /** لقطة وحدة البند: null ⇒ وحدة الأساس (product.unit) */
   unitName?: string | null;

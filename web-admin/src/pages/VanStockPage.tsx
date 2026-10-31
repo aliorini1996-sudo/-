@@ -950,10 +950,10 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
         : tr('كمية الصنف المتتبع بأربع خانات عشرية على الأكثر بوحدة الأساس');
     }
     if (q > 0 && !whOn) return entryProblemText(entryLotProblem(r.lotEntry, { kind: 'INCREASE', expiryRequired: shelfLifeOn(productOf(r.productId)) }), tr);
-    if (q > 0) return r.lotEdit ? draftProblemText(draftProblem(r.lotEdit, base, loadSourcesOf(whViewOf(r.productId), day)), tr) : null;
+    if (q > 0) return r.lotEdit ? draftProblemText(draftProblem(r.lotEdit, base, loadSourcesOf(whViewOf(r.productId), day)), tr, productOf(r.productId)) : null;
     if (balQ.isLoading) return tr('جار التحميل');
     const sources = outSourcesOf(vanViewOf(r.productId), 'SELLABLE', day);
-    if (r.lotEdit) return draftProblemText(draftProblem(r.lotEdit, base, sources), tr);
+    if (r.lotEdit) return draftProblemText(draftProblem(r.lotEdit, base, sources), tr, productOf(r.productId));
     return needsExplicitSource(sources) ? tr('للصنف أكثر من تشغيلة في السيارة حدد ما ينزل منه') : null;
   };
   /** حقول التشغيلات في بند الطلب (بالأساس): المعدَّلة صراحةً، أو تشغيلة التحميل المباشر (D4)، وإلا لا شيء فيوزّع الخادم */
@@ -1158,7 +1158,7 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
                   {/* «تتبّع اللوط»: اقتراح FEFO قابل للتعديل والتقسيم للتحميل، ومصدرٌ صريح للتنزيل، وتشغيلةٌ للتحميل المباشر */}
                   {tracked && Number(r.qty) !== 0 && !Number.isNaN(Number(r.qty)) && (
                     <LoadRowLots row={r} repId={repId} whOn={whOn} factor={factorOfRow(r)} baseQty={baseOfRow(r)}
-                      baseUnit={productOf(r.productId)?.unit} whView={whViewOf(r.productId)} vanView={vanViewOf(r.productId)} day={day}
+                      baseUnit={productOf(r.productId)?.unit} prod={productOf(r.productId)} whView={whViewOf(r.productId)} vanView={vanViewOf(r.productId)} day={day}
                       balLoading={balQ.isLoading} expiryRequired={shelfLifeOn(productOf(r.productId))} issue={lotIssue(r)}
                       onPatch={p => patchRow(r.rowId, p)} />
                   )}
@@ -1190,8 +1190,10 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
 interface FefoResponse { rows: AllocRowDto[]; shortage?: LotShortageDetail; warnings: LotWarning[]; warehouse?: boolean; tracked?: boolean }
 
 /** تشغيلات سطرٍ في نافذة التحميل — كل الكميات بالأساس */
-function LoadRowLots({ row, repId, whOn, factor, baseQty, baseUnit, whView, vanView, day, balLoading, expiryRequired, issue, onPatch }: {
+function LoadRowLots({ row, repId, whOn, factor, baseQty, baseUnit, prod, whView, vanView, day, balLoading, expiryRequired, issue, onPatch }: {
   row: LoadRow; repId: string; whOn: boolean; factor: number; baseQty: number; baseUnit?: string;
+  /** صنف السطر بوحداته ورئيسيته — محرّر التشغيلات بالقارورة لاصقةً ومعادلها بالكرتون (R8) */
+  prod?: { unit?: string | null; units?: UnitDef[] | null; primaryUnitId?: string | null } | null;
   whView?: PlaceViewWithAvailability; vanView?: PlaceViewWithAvailability; day: string; balLoading: boolean;
   expiryRequired: boolean; issue: string | null; onPatch: (p: Partial<LoadRow>) => void;
 }) {
@@ -1235,7 +1237,7 @@ function LoadRowLots({ row, repId, whOn, factor, baseQty, baseUnit, whView, vanV
             </button>
           )}
         </div>
-        <LotRowsEditor rows={row.lotEdit} onChange={rs => onPatch({ lotEdit: rs })} sources={sources} lineBaseQty={baseQty} baseUnit={baseUnit} />
+        <LotRowsEditor rows={row.lotEdit} onChange={rs => onPatch({ lotEdit: rs })} sources={sources} lineBaseQty={baseQty} baseUnit={baseUnit} prod={prod} />
         {issue && <p className="text-[10px] text-red-600">{issue}</p>}
       </div>
     );
@@ -1248,7 +1250,7 @@ function LoadRowLots({ row, repId, whOn, factor, baseQty, baseUnit, whView, vanV
         {needsExplicitSource(sources) ? (
           <>
             <p className="text-[10px] text-amber-700 font-semibold">{tr('للصنف أكثر من تشغيلة في السيارة حدد ما ينزل منه')}</p>
-            <LotRowsEditor rows={[]} onChange={rs => onPatch({ lotEdit: rs })} sources={sources} lineBaseQty={baseQty} baseUnit={baseUnit} />
+            <LotRowsEditor rows={[]} onChange={rs => onPatch({ lotEdit: rs })} sources={sources} lineBaseQty={baseQty} baseUnit={baseUnit} prod={prod} />
           </>
         ) : (
           <p className="text-[10px] text-[#6E6557]">
@@ -1508,7 +1510,7 @@ function RemoveOutModal({ row, kind, repId, tracked, onDone, onClose }: {
                   {/* R8: كميات التشغيلات بالقارورة دائماً — اسمها لاصقٌ بارز لصنفٍ له «وحدة رئيسية» فلا تُكتب كراتين */}
                   {prim && <b className="text-[#1F1A13]">· {row.unit}</b>}</p>
                 {explicit ? (
-                  <LotRowsEditor rows={draft ?? []} onChange={setDraft} sources={sources} lineBaseQty={n || 0} baseUnit={row.unit}
+                  <LotRowsEditor rows={draft ?? []} onChange={setDraft} sources={sources} lineBaseQty={n || 0} baseUnit={row.unit} prod={row}
                     problem={qtyOk ? problem : null} />
                 ) : (
                   <p className="text-[10px] text-[#6E6557]">{sources.length === 1 ? `${tr('من المصدر الوحيد')}: ${sourceLabel(sources[0], tr)}` : tr('لا رصيد تشغيلات في هذا الرصيد')}</p>

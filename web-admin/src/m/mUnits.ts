@@ -232,12 +232,14 @@ export function suggestionLine(r: { unit: string; units?: UnitDef[] | null; prim
 /**
  * إجمالي كميات حركة سيارة (/van-stock/movements) لكل وحدة: «٢ كرتون · ٥ حبة» — و`null` حين بنودها كلّها بالأساس
  * فيبقى المجموع الرقميّ كما كان حرفاً. معامل البند من كميته بالأساس التي يرسلها الخادم معه (`baseQty ÷ qty`).
+ * و`primaryUnitId` المسطَّح على البند (الخادم يرسله لصنفٍ له رئيسية): حركةٌ كلّها بالقارورة لصنفٍ يُعرَّف بالكرتون تُكتب
+ * «10 قارورة» كالإشعار المطبوع (qtyByUnit، R2)، لا «10» تُقرأ كراتين. الغياب أو null ⇒ كما كان حرفاً.
  */
-export function movementQtyText(items: Array<{ qty: number; unit?: string; baseQty?: number | null }>, num: (n: number) => string): string | null {
+export function movementQtyText(items: Array<{ qty: number; unit?: string; baseQty?: number | null; primaryUnitId?: string | null }>, num: (n: number) => string): string | null {
   const lines = items.map(i => {
     const q = Number(i.qty);
     const f = i.baseQty != null && q ? roundQty(Number(i.baseQty) / q) : 1;
-    return { qty: q, unit: i.unit, unitFactor: f };
+    return { qty: q, unit: i.unit, unitFactor: f, primaryUnitId: i.primaryUnitId ?? null };
   });
   const rows = qtyByUnit(lines, q => Math.abs(q));
   return rows ? unitTotalsText(rows, num) : null;
@@ -275,6 +277,19 @@ export function tierToPrimary(t: TierIn, F: number): { min: number; max: number 
   const f = Number(F);
   const b = tierBaseBounds(t);
   return { min: b.min / f, max: b.max == null ? null : b.max / f, price: Number(t.price) * f };
+}
+
+/** رقمٌ لخانة إدخال: يُقصّ ضجيج الفاصلة العائمة (12.35/12×12 = 12.349999999999998 ⇒ «12.35») بـtoPrecision(12) كـlib/money */
+const inputNum = (n: number): string => String(Number(Number(n).toPrecision(12)));
+
+/**
+ * بذرة خانات الشريحة بالرئيسية في /m — `tierToPrimary` نصوصاً للإدخال بلا ضجيج عائمة. سعرٌ مخزَّنٌ بالقسمة (خطوة ٤ في
+ * convert-base، أو حفظٌ سابق بالرئيسية عبر `tierFromPrimary`) يُعرض «12.35» لا «12.349999999999998»، والحفظ بلا تعديل يعيد
+ * القيمة المخزَّنة نفسها (`tierFromPrimary` يقسم المكتوب: 12.35÷12 هو ما خُزِّن).
+ */
+export function tierPrimaryDraft(t: TierIn, F: number): { minQty: string; maxQty: string; price: string } {
+  const v = tierToPrimary(t, F);
+  return { minQty: inputNum(v.min), maxQty: v.max == null ? '' : inputNum(v.max), price: inputNum(v.price) };
 }
 
 /** عكس `tierToPrimary`: حدودٌ وسعرٌ بالرئيسية ⇒ الشريحة كما تُكتب بالأساس (`tierPayload(min×F, max×F, price÷F)`) */

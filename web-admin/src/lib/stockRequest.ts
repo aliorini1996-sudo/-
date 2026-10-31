@@ -144,11 +144,12 @@ export const stockRequestTotalQty = (lines: { qty: number }[]): number =>
   Math.round(lines.reduce((s, l) => s + l.qty, 0) * 100) / 100;
 
 /**
- * نصّ «إجمالي الكميات»: الرقم كما كان ما دامت الأسطر كلّها بوحدة الأساس، وإلّا مجموعٌ لكل وحدة («٢ كرتون · ٥ حبة») —
- * كورقة الطلب المطبوعة (PrintableStockRequest: qtyByUnit) حرفاً، فلا تقول الشاشة رقماً والورقة غيره.
+ * نصّ «إجمالي الكميات»: الرقم كما كان ما دامت الأسطر كلّها بوحدة الأساس ولا صنف فيها بوحدةٍ رئيسية، وإلّا مجموعٌ لكل وحدة
+ * («٢ كرتون · ٥ حبة»، و«10 قارورة» لطلبٍ كلّه بقارورة صنفٍ يُعرَّف بالكرتون) — بشرط ورقة الطلب المطبوعة (PrintableStockRequest:
+ * qtyByUnit) نفسه حرفاً، فلا تقول الشاشة رقماً والورقة غيره.
  */
-export function stockRequestTotalText(lines: { qty: number; unit?: string; unitFactor?: number | null }[], fmt: (n: number) => string): string {
-  if (!lines.some(l => factorOf(l) !== 1)) return fmt(stockRequestTotalQty(lines));
+export function stockRequestTotalText(lines: { qty: number; unit?: string; unitFactor?: number | null; primaryUnitId?: string | null }[], fmt: (n: number) => string): string {
+  if (!lines.some(l => factorOf(l) !== 1 || !!l.primaryUnitId)) return fmt(stockRequestTotalQty(lines));
   const m = new Map<string, number>();
   for (const l of lines) {
     const u = (l.unit || '').trim();

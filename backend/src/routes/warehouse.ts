@@ -10,7 +10,7 @@ import { AuthRequest } from '../types';
 import { computeWarehouseStock, tenantCurrencyDecimals, loadWarehouseInputs, composeWarehouse, summarizeVansStock, resolveLineUnits, UnitInvalidError } from '../services/warehouseStock';
 // «الوحدة الرئيسية» §3 (#5): الوارد والتسوية يكتبان كمية وتكلفةً بوحدة الأساس — تُقارَن بالأساس الذي يعرفه العميل حيّاً، ثم تحت القفل
 import {
-  BASE_GUARD_TX, ProductUnitsChangedError, assertBasesUnchanged, baseGuardReply, baseUnitRequiredReply, expectedBasesOf, lockBases,
+  BASE_GUARD_TX, ProductUnitsBusyError, ProductUnitsChangedError, assertBasesUnchanged, baseGuardReply, baseUnitRequiredReply, expectedBasesOf, lockBases,
   missingBaseForApi, staleClientBase,
 } from '../services/baseGuard';
 import { unitFields } from '../services/units';
@@ -322,9 +322,10 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
       release();
     }
   } catch (err) {
-    // §3: تبدّل الأساس أثناء الحفظ ⇒ 409 PRODUCT_UNITS_CHANGED، وانتظار قفل الأصناف أو مهلة معاملةٍ خارج مسار اللوط ⇒ 503
-    // PRODUCT_UNITS_BUSY. المستودع للوحة وحدها (لا صندوق أوف‑لاين) فلا إعادة رفع. LotError يمرّ إلى معالج الموجّه كما كان
-    const g = baseGuardReply(err, false);
+    // §3: تبدّل الأساس أثناء الحفظ ⇒ 409 PRODUCT_UNITS_CHANGED، وانتظار قفل الأصناف (ProductUnitsBusyError من lockBases) ⇒ 503
+    // PRODUCT_UNITS_BUSY. صنفا خطأ الحارس وحدهما: مهلة معاملةٍ أو تعطّلٌ متبادل خارج قفل الأصناف يمرّ إلى المعالج العام كما كان.
+    // المستودع للوحة وحدها (لا صندوق أوف‑لاين) فلا إعادة رفع. LotError يمرّ إلى معالج الموجّه كما كان
+    const g = err instanceof ProductUnitsChangedError || err instanceof ProductUnitsBusyError ? baseGuardReply(err, false) : null;
     if (g) { res.status(g.status).json(g.body); return; }
     next(err);
   }

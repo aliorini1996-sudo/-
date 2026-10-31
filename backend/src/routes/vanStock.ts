@@ -18,7 +18,7 @@ import { baseQtyOf, primaryUnitOf, productQtyText, toBase, unitFields } from '..
 import { resolveLineUnits, unitsByProduct, UnitInvalidError, UNIT_SELECT } from '../services/warehouseStock';
 // «الوحدة الرئيسية» §3 (#2 و#4): كل حركة تُقارن الأساس الذي يعرفه العميل حيّاً، ثم الأساس الذي حُلّت عليه تحت قفل الأصناف
 import {
-  BASE_GUARD_TX, ProductUnitsChangedError, assertBasesUnchanged, baseGuardReply, baseUnitRequiredReply, expectedBasesOf, lockBases,
+  BASE_GUARD_TX, ProductUnitsBusyError, ProductUnitsChangedError, assertBasesUnchanged, baseGuardReply, baseUnitRequiredReply, expectedBasesOf, lockBases,
   missingBaseForApi, staleClientBase,
 } from '../services/baseGuard';
 // «تتبّع اللوط»: حركات السيارة بالتشغيلات (§٤.٧) — كلها خلف علم الشركة وعلم الصنف؛ المطفأ والصنف غير المتتبَّع كما كانا حرفياً
@@ -474,8 +474,11 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     res.status(201).json({ success: true, data: load });
   } catch (err) {
     // §3: تبدّل الأساس أثناء الحفظ ⇒ PRODUCT_UNITS_CHANGED، 409 حيّاً و503 لإعادة الرفع (الصندوق يعيد ولا يُعدم المستند)؛ وانتظار
-    // قفل الأصناف أو مهلة معاملةٍ خارج مسار اللوط ⇒ 503 PRODUCT_UNITS_BUSY. LotError (ومنه LOT_BUSY) يمرّ إلى معالج الموجّه كما كان
-    const g = baseGuardReply(err, String(req.headers['x-fs-replay'] || '') === '1');
+    // قفل الأصناف (lockBases يحوّله ProductUnitsBusyError) ⇒ 503 PRODUCT_UNITS_BUSY. صنفا خطأ الحارس وحدهما (كـcustomers.ts): مهلة
+    // معاملةٍ أو تعطّلٌ متبادل أو انتظار قفل الدلو ليست «وحدات الأصناف قيد التحديث» — تمرّ إلى المعالج العام كما كانت قبل الميزة.
+    // LotError (ومنه LOT_BUSY) يمرّ إلى معالج الموجّه كما كان
+    const g = err instanceof ProductUnitsChangedError || err instanceof ProductUnitsBusyError
+      ? baseGuardReply(err, String(req.headers['x-fs-replay'] || '') === '1') : null;
     if (g) { res.status(g.status).json(g.body); return; }
     next(err);
   }
@@ -804,8 +807,8 @@ router.get('/movements', async (req: AuthRequest, res: Response, next: NextFunct
       : null;
 
     // البند بلقطة وحدته: «٢ كرتون» تبقى كرتوناً لا «٢ حبة» (وحدة الصنف صارت الأساس)، و`baseQty` لمن يجمع الحركات.
-    // و«الوحدة الرئيسية»: primaryUnitId للبند حين لصنفه رئيسية وحدها (R2، فخّ «×5») — والصنف بلاها كما كان حرفياً (I1)
-    const primaryOf = (p: { primaryUnitId?: string | null } | null | undefined) => (p?.primaryUnitId ? { primaryUnitId: p.primaryUnitId } : {});
+    // و«الوحدة الرئيسية»: primaryUnitId للبند (R2، فخّ «×5») — حاضرٌ دائماً و null لصنفٍ بلا رئيسية (D18، كصفوف /current)
+    const primaryOf = (p: { primaryUnitId?: string | null } | null | undefined) => ({ primaryUnitId: p?.primaryUnitId || null });
     const movements = [
       ...loads.map(l => ({
         kind: l.type, date: l.createdAt, ref: l.note || '', by: l.createdBy,

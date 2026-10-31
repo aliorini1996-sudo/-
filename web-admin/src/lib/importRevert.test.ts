@@ -238,6 +238,18 @@ test('البند 7: دفعة أسعار حدّثت أسعاراً قائمة ب�
   assert.equal(revertConfirmKey(undefined, false), REVERT_CONFIRM_GENERIC);
 });
 
+test('convert-base-6: سبب منع «تغيّرت وحدات الصنف بعد الاستيراد» محميٌّ لا «أعد المحاولة»، ونصّه نصّ الخادم مترجماً', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const { PHRASES } = await import('../i18n/strings');
+  const ledger = fs.readFileSync(path.resolve(process.cwd(), '..', 'backend', 'src', 'services', 'importLedger.ts'), 'utf8');
+  const reason = /export const PRICE_UNITS_CHANGED_AFTER_IMPORT = '([^']+)'/.exec(ledger)?.[1];
+  assert.ok(reason, 'PRICE_UNITS_CHANGED_AFTER_IMPORT غائب من الخادم');
+  for (const lang of ['en', 'fr', 'tr', 'zh'] as const) assert.ok(PHRASES[reason!]?.[lang]?.trim(), `${lang} فارغة`);
+  const g = groupRevertBlocked([{ id: '1', name: 'مؤسسة النور — P1', reason: reason! }]);
+  assert.deepEqual(g.map((x) => [x.key, x.retry, x.count]), [[reason, false, 1]]);
+});
+
 test('البند 7: تغيّر السعر بعد الاستيراد سبب منع محمي لا «أعد المحاولة»', () => {
   const g = groupRevertBlocked([
     { id: '1', name: 'مؤسسة النور — P1', reason: 'تغيّر السعر بعد الاستيراد يدوياً أو بدفعة أحدث فلم يُعد' },

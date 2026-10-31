@@ -33,10 +33,11 @@ export const reportUnit = (u: { id?: string | null; name: string; factor: unknow
   ({ ...(u.id ? { id: u.id } : {}), name: u.name, factor: Number(u.factor) });
 
 /**
- * «الوحدة الرئيسية» على صفّ تقرير (القاعدة ١٢، عرضٌ وحده): المفتاح يحضر حين للصنف رئيسية فقط، فصفّ صنفٍ بلاها يبقى
- * بشكله قبل الميزة حرفاً (I1)، والعارض يقرأ `!!primaryUnitId` (docQtyText/baseQtyText).
+ * «الوحدة الرئيسية» على صفّ تقرير (القاعدة ١٢، عرضٌ وحده): المفتاح حاضرٌ دائماً (D18، كصفوف /van-stock/current والمستودع)
+ * — null لصنفٍ بلا رئيسية، فلا يحضر المفتاح في مسارٍ ويغيب في آخر. والعارض يقرأ `!!primaryUnitId` (docQtyText/baseQtyText)
+ * فلا يتغيّر عرض صنفٍ بلاها.
  */
-export const primaryKey = (id: string | null | undefined): { primaryUnitId?: string } => (id ? { primaryUnitId: id } : {});
+export const primaryKey = (id: string | null | undefined): { primaryUnitId: string | null } => ({ primaryUnitId: id || null });
 
 /** وحدات أصنافٍ بعينها دفعةً واحدة (صنف ← وحداته النشطة من الأكبر) — للتجميعات التي لا تمرّ بصفّ الصنف. */
 async function activeUnitsByProduct(tid: string, productIds: string[]): Promise<Map<string, ReportUnit[]>> {
@@ -71,7 +72,7 @@ export function salesByProduct(
   invoices: ReadonlyArray<{ items: ReadonlyArray<SalesItemRow> }>,
   unitsOf: ReadonlyMap<string, ReportUnit[]> = new Map(),
   returns: ReadonlyArray<{ items: ReadonlyArray<SalesItemRow> }> = [],
-): Array<{ productId: string | null; name: string; code: string; qty: number; baseQty: number; unit: string; units: ReportUnit[]; primaryUnitId?: string; total: number }> {
+): Array<{ productId: string | null; name: string; code: string; qty: number; baseQty: number; unit: string; units: ReportUnit[]; primaryUnitId: string | null; total: number }> {
   const byProduct: Record<string, { productId: string | null; name: string; code: string; unit: string; primaryUnitId: string | null; base: number; total: number }> = {};
   const signed = [...invoices.map((inv) => ({ inv, sign: 1 })), ...returns.map((inv) => ({ inv, sign: -1 }))];
   signed.forEach(({ inv, sign }) => {
@@ -174,8 +175,8 @@ export interface LotSaleProductIn { name: string; code: string | null; unit: str
 /** سطر تقرير «حسب التشغيلة» — lotId null = «غير معروف» (بيعٌ من غير المسمّى D17، أو مرتجعٌ حرّ بلا لوط). الكميات بالأساس */
 export interface LotSalesRow {
   productId: string; productName: string; productCode: string | null; unit: string; units: ReportUnit[];
-  /** «الوحدة الرئيسية» للعرض وحده — حاضرٌ حين للصنف رئيسية فقط */
-  primaryUnitId?: string;
+  /** «الوحدة الرئيسية» للعرض وحده — حاضرٌ دائماً و null لصنفٍ بلا رئيسية (D18) */
+  primaryUnitId: string | null;
   lotId: string | null; lotNumber: string | null; productionDate: string | null; expiryDate: string | null;
   status: LotStatus | null; blockKind: LotBlockKind | null;
   sold: number; returned: number; net: number;

@@ -36,21 +36,50 @@
 - **٣٠ أكتوبر: الخيار (ب).** نُشرت الميزة وإصلاحات المال، و`convert-base` بجلسة المالك (الدعم الفني) وحدها: المفتاح ومستخدمو
   الشركة يُرفضون `403 CONVERT_BASE_OWNER_ONLY` قبل قراءة الجسم.
 - **٣١ أكتوبر: الخيار (أ) فوق (ب)** مع «الوحدة الرئيسية» (فرع `feature/primary-unit`، `DESIGN.md` القاعدتان ١٢ و١٣ و«سجلّ
-  التحويلات وإعادة الرفع»). كل بندٍ أعلاه له إصلاحه واختباره، والتقييد **يبقى** حتى المرحلة ٥ من المواصفة:
+  التحويلات وإعادة الرفع»). كل بندٍ أعلاه له إصلاحه واختباره (ملفات `backend/src/tests/`)، والتقييد بقي حتى المرحلة ٥ من المواصفة:
 
 | البند | الإصلاح | الاختبار |
 |---|---|---|
-| #2، #4 التحميل وطلب البضاعة | `baseUnitName` لكل بند (ومنه إزالة المنتهي والتالف) ومقارنة حيّة ⇒ `400 UNIT_INVALID`، و`lockBases` تحت القفل ⇒ `409/503 PRODUCT_UNITS_CHANGED`، والمسار المطفأ صار معاملة | `base-guard-writers.test.ts` |
-| #5 الوارد | كما سبق، و`unitCost` يدخل المتوسّط فهو مال | `base-guard-writers.test.ts` |
-| #8 الإشعار الدائن | اللقطة المحلولة لا تسقط في فرع المرتجع، و`lockNoteOriginal` يقارن الأساس تحت القفل قبل الترقيم وICV، و`credit-note` المباشر يقبل `baseUnitName` ولا يقبل `unitFactor` | `credit-note-base-race.test.ts` |
+| #2، #4 التحميل وطلب البضاعة | `baseUnitName` لكل بند (ومنه إزالة المنتهي والتالف) ومقارنة حيّة ⇒ `400 UNIT_INVALID`، و`lockBases` تحت القفل ⇒ `409/503 PRODUCT_UNITS_CHANGED`، والمسار المطفأ صار معاملة | `base-guard-writers-stock.test.ts`، `base-guard-writers-b3b.test.ts`، `base-guard.test.ts` |
+| #5 الوارد | كما سبق، و`unitCost` يدخل المتوسّط فهو مال | `base-guard-writers-stock.test.ts`، `base-guard-warehouse-lots.test.ts`، `lots-f1-untracked-warehouse.test.ts` |
+| #8 الإشعار الدائن | اللقطة المحلولة لا تسقط في فرع المرتجع، و`lockNoteOriginal` يقارن الأساس تحت القفل قبل الترقيم وICV، و`credit-note` المباشر يقبل `baseUnitName` ولا يقبل `unitFactor` | `invoices-notes-route.test.ts` (بنود #8 و§3-3)، `primary-unit-notes.test.ts` |
 | #6، #9، #11 الأوف‑لاين بلا لقطة | سجلّ `ProductBaseConversion` + `baseConvertedAt`، وإعادة الأساس بإشارة السعر ثم المعامل ثم الساعة مع إشعار — بلا حجز (D16) | `base-conversions.test.ts`، `base-replay-rebase.test.ts` |
-| #12 دقّة الاقتراح | دمج سطري الصنف في التحميل الواحد بالأساس قبل القياس | اختبارات `services/suggestAccuracy.ts` |
-| #13 تقييم فائض السيارات | المتوسّط غير المقرَّب إلى `summarizeVansStock` | اختبارات `services/warehouseCost.ts` |
+| #12 دقّة الاقتراح | دمج سطري الصنف في التحميل الواحد بالأساس قبل القياس | `primary-unit-display.test.ts` (بندا #12) |
+| #13 تقييم فائض السيارات | المتوسّط غير المقرَّب إلى `summarizeVansStock` | `base-guard-warehouse-lots.test.ts` (بندا #13) |
 | #14 لقطة أساس قديم بلا وحدة مطابقة | السلسلة من السجلّ تقبلها بمعامله ولو حُذفت وحدة التحويل أو أعيدت تسميتها | `base-replay-rebase.test.ts` |
-| جديد: انقطاع إصدار المرحلة الثانية خلف تحويل طويل | `lock_timeout` محلي على كل `FOR KEY SHARE` للأصناف (≤ ٥ ثوانٍ ثم `503 PRODUCT_UNITS_BUSY`)، وسجلّ «قيد التحويل» يردّ قبل الـmutex | `phase2-convert-busy.test.ts`، `primary-unit-static.test.ts` |
-| جديد: مفاتيح API بعد تحويل يجريه مدير | إقرار `acknowledgeApi`، ثم `400 BASE_UNIT_REQUIRED` لكل كتابة تعتمد على الأساس بلا الأساس الصريح | `primary-unit-routes.test.ts`، `base-guard-writers.test.ts` |
+| جديد: انقطاع إصدار المرحلة الثانية خلف تحويل طويل | `lock_timeout` محلي على كل `FOR KEY SHARE` للأصناف (≤ ٥ ثوانٍ ثم `503 PRODUCT_UNITS_BUSY`)، وسجلّ «قيد التحويل» يردّ قبل الـmutex | `invoices-notes-route.test.ts` (بنود I10)، `base-replay-rebase.test.ts`، `base-replay-lots-route.test.ts`، `lots-db.test.ts`، `primary-unit-static.test.ts` |
+| جديد: مفاتيح API بعد تحويل يجريه مدير | إقرار `acknowledgeApi`، ثم `400 BASE_UNIT_REQUIRED` لكل كتابة تعتمد على الأساس بلا الأساس الصريح | `multi-unit-routes.test.ts` (`CONVERT_BASE_API_ACK`)، `primary-unit-routes.test.ts`، `base-guard-writers-stock.test.ts`، `base-guard-writers-b3b.test.ts`، `invoices-notes-route.test.ts` |
 | جديد: اسم أساس متقاعد | `409 BASE_NAME_RETIRED` في `PUT /products/:id` والتحويل | `primary-unit-routes.test.ts` |
+| جديد: صلاحية التحويل والبوابتان | `convertBaseRefusalFor` قبل الجسم، والصفّ وعلم الشركة من القاعدة في كل طلب، وعلم الشركة يكتبه المالك وحده | `convert-base-access.test.ts`، `multi-unit-routes.test.ts`، `lots-convert-base.test.ts` |
+| جديد: كتّاب الوحدات والشرائح والرئيسية خلف تحويل طويل | `lockProductForUnits` بمهلة محلية ⇒ `503 PRODUCT_UNITS_BUSY` | `primary-unit-routes.test.ts` |
+| جديد: معامل تاريخيّ يتجاوز الحدّ بعد ×F، والتراجع عن استيراد أسعار بعد تحويل | `400` في المعاينة والتنفيذ، و`PRICE_UNITS_CHANGED_AFTER_IMPORT` | `multi-unit-routes.test.ts`، `import-prices-revert-guard.test.ts` |
 
-- **⏳ لم يُغلق بعد.** يُكتب هنا «العنقود مغلق» ويُرفع الحلّ (ب) (`CONVERT_BASE_OPEN_TO_COMPANY = true`) في التزامٍ واحد، فقط
-  بعد معيار القلب كله: الاختبارات أعلاه و`tsc` خضراء، والمراجعة العدائية عطّلت كل حارس فأفشل اختباره (مسجّلاً بنداً بنداً)، ولا
-  نتيجة حرجة أو عالية مفتوحة. ثم يقلب المالك `Tenant.convertBaseOpen` لكل شركة من صفحة المنصّة، لشركة واحدة أولاً.
+- **✅ العنقود مغلق — ٣١ أكتوبر (المرحلة ٥).** رُفع الحلّ (ب): `CONVERT_BASE_OPEN_TO_COMPANY = true` (`services/convertBaseAccess.ts`)،
+  و`Tenant.convertBaseOpen` يبقى افتراضه `false`، فلا تُفتح «إضافة وحدة فرعية أصغر» لمديري أيّ شركة حتى يقلب المالك علمها من صفحة
+  المنصّة (لشركة واحدة أولاً). معيار القلب كله تحقّق:
+  - **(أ) الفحوص خضراء:** `tsc` الخادم والويب بلا أخطاء، واختبارات الخادم والويب كلها تمرّ، و`missing_keys` = ٠ (الأرقام في تقرير
+    الفاحص الأخير).
+  - **(ب) تعطيل كل حارس أفشل اختباره** — على الشجرة بعد المُدمِجَين، بنسخةٍ تُعاد بايتاً ببايت (فحص SHA) بعد كل طفرة:
+
+    | الحارس المعطَّل | النتيجة |
+    |---|---|
+    | علم الشركة في `convertBaseRefusal`، وقراءته من القاعدة في `convertBaseRefusalFor`، والصلاحيات الثلاث، والدور، والمفتاح | ✅ كلٌّ يُفشل `convert-base-access` أو مسارات التحويل |
+    | حارس الصلاحية قبل الجسم، و`expectedBaseName` تحت القفل، وحدّ المعامل التاريخي بعد ×F | ✅ `multi-unit-routes`، `lots-convert-base`، `primary-unit-routes` |
+    | `503 PRODUCT_UNITS_BUSY` في `lockProductForUnits` و`lockProductForEdit` | ✅ `primary-unit-routes` |
+    | `lockBases`: المقارنة، وتحويل الانشغال، و`staleClientBase`، و`missingBaseForApi` | ✅ `base-guard*` (٢–١٠ اختبارات لكلٍّ) |
+    | `lockBases` في التحميل، والوارد (الفرعان)، وطلب البضاعة (الإنشاء والتعديل)، وأسعار العميل | ✅ `base-guard-writers-*`، `lots-f1-untracked-warehouse` |
+    | الفاتورة: مقارنة الأساس تحت القفل، و`55P03` ⇒ 503، و`P2028` بعد انتظار القفل ⇒ 503 | ✅ `multi-unit-routes`، `base-replay-*`، `invoices-notes-route` |
+    | المرحلة الثانية: المقارنة والانشغال في `lockProductBases`؛ والإشعار: الانشغال و`assertNoteBasesUnchanged` | ✅ `invoices-notes-route`، `invoices-phase2-route` |
+    | `lock_timeout` قبل `FOR KEY SHARE` في `lockLotProducts`، وLOT_BUSY في `assertReturnStillUntracked` | ✅ `lots-db` |
+    | منع موظف المنصّة من قلب العلم | ✅ `convert-base-access` |
+    | الاستيراد: `PRICE_UNIT_REQUIRED` و`QTY_UNIT_REQUIRED`، وحجب التراجع بعد تحويل | ✅ `import-primary-unit*`، `import-prices-revert-guard` |
+    | البوابة نفسها (`true` ⇒ `false`) | ✅ ٩ اختبارات تفشل |
+
+    ٣٤ طفرة، كلها قُتلت. وقبلها سجّل مراجعو الحزم طفراتهم (B2: ٤٠ طفرة على `products.ts` و`auth.ts` و`tenants.ts`، وB4a وB3a وB3b
+    وB1 على ملفاتهم) في `pu_reports.json`.
+  - **(ج) لا نتيجة حرجة ولا عالية مفتوحة:** قائمة العالية المؤكَّدة من المراجعة العدائية فارغة، والمُدمِجان (الخادم والويب) لم يتركا
+    عالية ولا متوسطة مفتوحة؛ وما تركاه «للطرف الآخر» أُغلق هنا (ربط هذا الجدول بملفات الاختبار القائمة، وتوثيق `DESIGN.md`،
+    واستثناءات I1 في المواصفة). ux-9 قرارٌ للمالك لا عيب.
+  - **(د)** هذا البند.
+- **ما بقي للمالك (ليس من العنقود):** `db push` الإضافي وترتيب النشر في `DESIGN.md` (المرحلة ٥)، وقلب علم أول شركة بعد النشر، وقرارات
+  §10 من المواصفة (حجز الملتبس في المرحلة الثانية، والتفسير بالرئيسية في الاستيراد، والإجراء الجماعي، وفرض اسم الوحدة في الطباعة).

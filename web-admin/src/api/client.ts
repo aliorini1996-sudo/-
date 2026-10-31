@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { sessionSpace, expiredDestination, useAuthStore } from '../store/authStore';
 import { FS_CAPS_HEADER, FS_CAPS_VALUE } from './caps';
+import { removeUnitParams } from './unitParams';
 import type { PrintSettingsV1 } from '../lib/print/printSettingsCore';
 import type { PaymentMethodsConfigInput } from '../lib/paymentMethodsCore';
 import type {
@@ -103,8 +104,9 @@ export const productApi = {
     api.post(`/products/${id}/units`, data),
   updateUnit: (id: string, unitId: string, data: { name?: string; factor?: number; price?: number | null; unitCode?: string | null; isActive?: boolean; sortOrder?: number; clearPrimary?: boolean; expectedBaseName?: string }) =>
     api.put(`/products/${id}/units/${unitId}`, data),
-  removeUnit: (id: string, unitId: string, opts?: { clearPrimary?: boolean }) =>
-    api.delete(`/products/${id}/units/${unitId}`, { params: opts?.clearPrimary ? { clearPrimary: 1 } : undefined }),
+  // الحذف بلا جسم: clearPrimary وexpectedBaseName (الأساس كما رآه النموذج ⇒ 409 BASE_UNIT_CHANGED لنموذجٍ قديم) في الاستعلام
+  removeUnit: (id: string, unitId: string, opts?: { clearPrimary?: boolean; expectedBaseName?: string }) =>
+    api.delete(`/products/${id}/units/${unitId}`, { params: removeUnitParams(opts) }),
   /**
    * «إضافة وحدة فرعية أصغر» (convert-base): وحدته الحالية تصير وحدةً بمعامل `factor`
    * (بسعرها نفسه)، و`newBaseName` الوحدة الصغرى الجديدة. التاريخ لا تُعاد كتابة أرقامه —

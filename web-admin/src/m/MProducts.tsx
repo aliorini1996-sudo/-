@@ -19,7 +19,7 @@ import { defaultChoice } from '../rep/repUnits';
 import { MCard, MRow, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import { expectArray, expectObject } from './shape';
 import {
-  hasBigUnit, unitsBrief, qtyText, tierBaseBounds, tierPayload, tierToPrimary, tierFromPrimary,
+  hasBigUnit, unitsBrief, qtyText, tierBaseBounds, tierPayload, tierPrimaryDraft, tierFromPrimary,
   unitDraftProblem, unitDraftPayload, unitDraftOf, type UnitDraft,
 } from './mUnits';
 import {
@@ -415,7 +415,8 @@ function MProductForm({ product, categories, onClose, onReplace, lotOn = false }
       // الحقول غير المذكورة (الصورة، سياسة التالف، أكواد الفوترة) تبقى كما هي:
       // مسار التعديل `partial()` فلا يُصفّر ما لم يصله
       // «الوحدة الرئيسية»: الفرعية والرئيسية تغلبان unit/basePrice المخفيّتين — إنشاءٌ ذرّي، أو رقعةٌ ذرّية لصنفٍ قائم
-      if (rev) Object.assign(payload, product && seedPrim?.id ? reverseEditPatch(rf, String(seedPrim.id)) : reverseCreatePayload(rf));
+      // وصنفٌ قائم لا يُرسل أبداً حمولة الإنشاء (units وprimaryUnitName) — رئيسيته بلا معرّف ⇒ لا رقعة، فيُحفظ كما كان
+      if (rev) Object.assign(payload, product ? (seedPrim?.id ? reverseEditPatch(rf, String(seedPrim.id)) : {}) : reverseCreatePayload(rf));
       // الأساس الذي فُتح عليه النموذج — صنفٌ حُوِّل منذ فُتح يُردّ 409 بدل أن يُكتب سعر الكرتون سعراً للقارورة (§4.2)
       if (product) payload.expectedBaseName = savedBase;
       // «تتبّع باللوط»: المفتاح حين يتغيّر وحده (والصنف الجديد حين يُفعَّل)، والمطفأة لا شيء — الحمولة كما كانت حرفاً
@@ -839,7 +840,7 @@ function ReverseFields({ f, set, touched, problem, renaming }: {
   return (
     <Group title={tr('الوحدة الرئيسية')}>
       <Field label={tr('الوحدة الرئيسية')} required value={f.primaryName} onChange={v => set('primaryName', v)}
-        placeholder={tr('كرتون')} />
+        placeholder={tr('مثال: كرتون')} />
       <div>
         <NumField label={fill(tr('سعر {unit}'), { unit: pn })} required value={f.primaryPrice} onChange={v => set('primaryPrice', v)} />
         <p className="text-[11px] text-[#B7791F] mt-1.5 flex items-center gap-1">
@@ -993,10 +994,7 @@ function MProductTiers({ product, onClose }: { product: Product; onClose: () => 
     const usePrim = !!prim && tiersFitPrimary(data.priceTiers ?? [], F);
     setSeed({ base: data.unit, primary: usePrim && prim?.id ? { id: prim.id, name: prim.name, factor: F } : null });
     setRows((data.priceTiers ?? []).map(t => {
-      if (usePrim) {
-        const v = tierToPrimary(t, F);
-        return { uid: ++tierUid, minQty: String(v.min), maxQty: v.max == null ? '' : String(v.max), price: String(v.price) };
-      }
+      if (usePrim) return { uid: ++tierUid, ...tierPrimaryDraft(t, F) };
       const b = tierBaseBounds(t);
       return {
         uid: ++tierUid,
@@ -1252,7 +1250,7 @@ function MProductUnits({ product, onClose, onConverted }: {
   });
   const remove = useMutation({
     mutationFn: async (u: ProductUnit) =>
-      productApi.removeUnit(product.id, u.id, u.id === p.primaryUnitId ? { clearPrimary: true } : undefined),
+      productApi.removeUnit(product.id, u.id, { ...(u.id === p.primaryUnitId && { clearPrimary: true }), expectedBaseName: p.unit }),
     onSuccess: () => {
       invalidateProducts(qc, product.id);
       toast.success(tr('حذفت الوحدة'));

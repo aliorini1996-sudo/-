@@ -17,7 +17,7 @@ const stub = (rel: string, exports: Record<string, unknown>): void => {
 let rawCalls: Prisma.Sql[] = [];
 let rawRows: unknown[] = [];
 let rawFail = false;
-let productRows: { id: string; name: string; unit: string }[] = [];
+let productRows: { id: string; name: string; unit: string; primaryUnitId?: string | null }[] = [];
 let productWhere: Record<string, unknown>[] = [];
 stub('config/database', {
   default: {
@@ -392,6 +392,20 @@ test('أصناف المندوب: سيارته (المتبقّي > ٠ بترتي�
   const cat = await D.loadDemandProducts('T1', 'r1', [], anc, async () => [{ productId: 'eggs', remaining: 0 }]);
   assert.deepEqual([cat.source, cat.products.map(p => p.productId)], ['CATALOG', ['milk', 'water']]);
   assert.ok(van.products.every(p => !('units' in p)), 'صنفٌ بلا وحدات بلا حقلٍ جديد');
+});
+
+test('أصناف المندوب (الوحدة الرئيسية): الرئيسية الصالحة موسومة في وحداته فيقف عندها التوقّع، والتالفة أو null بلا وسم كما كان', async () => {
+  const units = [{ id: 'u-pl', name: 'طبلية', factor: 1200 }, { id: 'u-c', name: 'كرتون', factor: 24 }];
+  productRows = [
+    { id: 'w', name: 'مياه', unit: 'قارورة', units, primaryUnitId: 'u-c' },
+    { id: 'j', name: 'عصير', unit: 'علبة', units, primaryUnitId: null },
+    { id: 'g', name: 'لبن', unit: 'علبة', units, primaryUnitId: 'u-gone' },
+  ] as never;
+  const r = await D.loadDemandProducts('T1', 'r1', ['w', 'j', 'g'], new Map(), async () => []);
+  const by = new Map(r.products.map((p) => [p.productId, p]));
+  assert.deepEqual(by.get('w')!.units, [{ id: 'u-pl', name: 'طبلية', factor: 1200 }, { id: 'u-c', name: 'كرتون', factor: 24, primary: true }]);
+  assert.deepEqual(by.get('j')!.units, units, 'بلا رئيسية: الوحدات كما كانت');
+  assert.deepEqual(by.get('g')!.units, units, 'رئيسيةٌ تالفة ⇒ بلا وسم');
 });
 
 test('أصناف المندوب: وحداته النشطة الأكبر من الأساس تمرّ للعرض (من الأكبر)، والمعامل ١ يسقط', async () => {

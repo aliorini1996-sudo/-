@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { vanLeftover, fillVanLeft, REP_DELETE_VAN } from './repDeleteVan';
+import { vanLeftover, fillVanLeft, vanLeftText, REP_DELETE_VAN } from './repDeleteVan';
 import { PHRASES } from '../i18n/strings';
 
 test('الموجب وحده بضاعة في السيارة — السالب بيع بلا مخزون لا يُطرح ولا يُعد', () => {
@@ -23,6 +23,29 @@ test('شكل غير متوقع يعود صفرا — التحذير لا يُس�
   for (const bad of [undefined, null, {}, 'x', [null, { remaining: 'abc' }, { remaining: NaN }]]) {
     assert.deepEqual(vanLeftover(bad), { products: 0, qty: 0 });
   }
+});
+
+test('rep-offline-8 (R3): صنفٌ له رئيسية في المجموع ⇒ «بالوحدات الصغرى» لا «وحدة»، وبلاه الشكل والنصّ كما كانا', () => {
+  const rows = [
+    { productId: 'a', remaining: 48, primaryUnitId: 'u-c' },
+    { productId: 'b', remaining: 5, primaryUnitId: null },
+  ];
+  const left = vanLeftover(rows);
+  assert.deepEqual(left, { products: 2, qty: 53, anyPrimary: true });
+  assert.equal(vanLeftText(left), REP_DELETE_VAN.leftSmallest);
+  assert.match(fillVanLeft(vanLeftText(left), left), /^في سيارته الآن 53 بالوحدات الصغرى من 2 صنف/);
+  // الرئيسية على صفٍّ صفريّ أو سالب لا تدخل المجموع فلا توسمه
+  assert.deepEqual(vanLeftover([{ remaining: 0, primaryUnitId: 'u-c' }, { remaining: -3, primaryUnitId: 'u-c' }, { remaining: 4, primaryUnitId: null }]), { products: 1, qty: 4 });
+  // I1: بلا رئيسية ⇒ لا مفتاح ولا نصّ جديد
+  const plain = vanLeftover([{ remaining: 48, primaryUnitId: null }, { remaining: 5 }]);
+  assert.deepEqual(plain, { products: 2, qty: 53 });
+  assert.equal(vanLeftText(plain), REP_DELETE_VAN.left);
+  for (const lang of ['en', 'fr', 'tr', 'zh'] as const) {
+    const t = PHRASES[REP_DELETE_VAN.leftSmallest]?.[lang] ?? '';
+    assert.ok(t.includes('{qty}') && t.includes('{n}'), `ترجمة ${lang} تُسقط رقماً من التحذير`);
+  }
+  const note = fs.readFileSync(path.join(process.cwd(), 'src', 'components', 'RepVanStockNote.tsx'), 'utf8');
+  assert.match(note, /fillVanLeft\(tr\(vanLeftText\(left\)\), left, formatNumber\)/);
 });
 
 test('الأرقام تُملأ بعد الترجمة بالمنسّق الممرَّر', () => {

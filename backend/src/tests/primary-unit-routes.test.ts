@@ -464,6 +464,63 @@ test('PUT /:id: انشغال القفل خلف تحويلٍ طويل (55P03) أ�
   }
 });
 
+test('PUT /:id (parity-4): انشغالٌ خارج قفل الصنف (P2028 أو تعطّل متبادل عند الكتابة) ليس «وحدات الصنف قيد التحويل» — يمرّ إلى المعالج العام', async () => {
+  for (const err of [Object.assign(new Error('Transaction already closed: expired transaction'), { code: 'P2028' }),
+    Object.assign(new Error('deadlock detected'), { code: 'P2010', meta: { code: '40P01' } })]) {
+    reset();
+    world();
+    scripted['product.update'] = () => { throw err; };
+    const r = await call('PUT', '/api/products/p1', { basePrice: 3 });
+    assert.equal(r.status, 500, JSON.stringify(r.body));
+    assert.notEqual(r.body.code, 'PRODUCT_UNITS_BUSY');
+  }
+});
+
+// convert-base-3: كتّاب الوحدات والشرائح والرئيسية — FOR UPDATE بمهلةٍ محلية تُستعاد وBASE_GUARD_TX، وانتظار القفل ⇒ 503 PRODUCT_UNITS_BUSY
+const UNIT_WRITERS = [
+  ['PUT', '/api/products/p1/price-tiers', { tiers: [{ minQty: 48, price: 1.9 }] }],
+  ['POST', '/api/products/p1/units', { name: 'طبلية', factor: 1200 }],
+  ['PUT', '/api/products/p1/units/u-ct', { price: 50 }],
+  ['DELETE', '/api/products/p1/units/u-ct', undefined],
+  ['PUT', '/api/products/p1/primary-unit', { unitId: 'u-ct' }],
+] as const;
+
+test('كتّاب الوحدات والشرائح والرئيسية: مهلة قفلٍ محلية قبل FOR UPDATE تُستعاد بعده، والمعاملة بمهلة BASE_GUARD_TX (I10)', async () => {
+  for (const [method, url, body] of UNIT_WRITERS) {
+    reset();
+    world();
+    const r = await call(method, url, body);
+    assert.ok([200, 201].includes(r.status), `${method} ${url}: ${JSON.stringify(r.body)}`);
+    assert.deepEqual(first('$transaction').args, { maxWait: 10_000, timeout: 20_000 }, `${method} ${url}`);
+    const save = rawIdx("current_setting('lock_timeout')");
+    const set = rawIdx("set_config('lock_timeout'");
+    const lock = rawIdx('FOR UPDATE');
+    const restore = calls.findIndex((c, i) => i > lock && String(c.args?.sql ?? '').includes("set_config('lock_timeout'"));
+    assert.ok(save >= 0 && save < set && set < lock && lock < restore, `${method} ${url}: ${ops().join(' → ')}`);
+    assert.equal(calls[set].args.values[0], '5s');
+    assert.equal(calls[restore].args.values[0], '3s', 'المهلة السابقة تُستعاد');
+  }
+});
+
+test('كتّاب الوحدات والشرائح والرئيسية: انتظار القفل خلف تحويلٍ طويل (55P03، أو P2028 عنده) ⇒ 503 PRODUCT_UNITS_BUSY بلا كتابة — لا 500', async () => {
+  for (const [method, url, body] of UNIT_WRITERS) {
+    for (const err of [Object.assign(new Error('canceling statement due to lock timeout'), { code: 'P2010', meta: { code: '55P03' } }),
+      Object.assign(new Error('Transaction already closed'), { code: 'P2028' })]) {
+      reset();
+      world();
+      const base = rawScript;
+      rawScript = (sql, v) => {
+        if (sql.includes('FOR UPDATE')) throw err;
+        return base(sql, v);
+      };
+      const r = await call(method, url, body);
+      assert.equal(r.status, 503, `${method} ${url}: ${JSON.stringify(r.body)}`);
+      assert.equal(r.body.code, 'PRODUCT_UNITS_BUSY');
+      assert.ok(!ops().some((o) => /^(productUnit|priceTier|product)\.(create|update|updateMany|deleteMany)$/.test(o)), `${method} ${url}: كتابةٌ رغم الانشغال`);
+    }
+  }
+});
+
 test('PUT /:id: رقعة الرئيسية ذرّية مع الصنف، والرئيسية التي تغيّرت ⇒ 409 PRIMARY_UNIT_CHANGED بلا كتابة', async () => {
   reset();
   const w = world({ primaryUnitId: 'u-ct' });
@@ -586,13 +643,26 @@ test('مسار «تتبّع اللوط» مع الرقعة في طلبٍ واح�
 
 // ═══ أسعار العميل ═══
 
-test('GET /customer-prices/:id يردّ unit (أساس الصنف لحظة القراءة) لكل صفّ', async () => {
+test('GET /customer-prices/:id يردّ unit وbaseConvertedAt (أساس الصنف ولحظة تحويله) لكل صفّ — من جملةٍ واحدة مع السعر (rep-offline-3)', async () => {
   reset();
-  let seen: any = null;
-  scripted['customerPrice.findMany'] = (a) => { seen = a; return [{ productId: 'p1', price: 1.75, product: { unit: 'قارورة' } }, { productId: 'p2', price: 9, product: { unit: 'حبة' } }]; };
+  const T_CONV = new Date('2026-10-30T10:00:00.000Z');
+  let seen: { sql: string; values: unknown[] } | null = null;
+  rawScript = (sql, values) => {
+    if (!sql.includes('FROM customer_prices')) return undefined;
+    seen = { sql, values };
+    return [{ productId: 'p1', price: 1.75, unit: 'قارورة', baseConvertedAt: T_CONV }, { productId: 'p2', price: 9, unit: 'حبة', baseConvertedAt: null }];
+  };
   const r = await call('GET', '/api/products/customer-prices/c1');
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(r.body.data, [{ productId: 'p1', price: 1.75, unit: 'قارورة' }, { productId: 'p2', price: 9, unit: 'حبة' }]);
-  assert.deepEqual(seen.select, { productId: true, price: true, product: { select: { unit: true } } });
-  assert.deepEqual(seen.where, { customerId: 'c1', product: { tenantId: TENANT, deletedAt: null } });
+  assert.deepEqual(r.body.data, [
+    { productId: 'p1', price: 1.75, unit: 'قارورة', baseConvertedAt: T_CONV.toISOString() },
+    { productId: 'p2', price: 9, unit: 'حبة', baseConvertedAt: null },
+  ]);
+  // السعر والأساس ولحظة التحويل من جملةٍ واحدة (لقطةٌ واحدة): لا findMany بعلاقةٍ متداخلة تقرأ الصنف في استعلامٍ ثانٍ
+  assert.ok(seen, 'لا جملة أسعار');
+  assert.match(seen!.sql, /SELECT cp\."productId", cp\.price, p\.unit, p\."baseConvertedAt" FROM customer_prices cp JOIN products p ON p\.id = cp\."productId"/);
+  // الشروط كما كانت: العميل، وشركة الصنف، والصنف غير المؤرشف
+  assert.match(seen!.sql, /WHERE cp\."customerId" = \? AND p\."tenantId" = \? AND p\."deletedAt" IS NULL$/);
+  assert.deepEqual(seen!.values, ['c1', TENANT]);
+  assert.equal(opIdx('customerPrice.findMany'), -1);
 });

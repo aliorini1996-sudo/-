@@ -87,7 +87,6 @@ stub('routes/invoicesZatcaDeps', { productionPhase2Deps: () => { throw new Error
 const invoicesModule = require('../routes/invoices') as typeof import('../routes/invoices');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const productsModule = require('../routes/products') as typeof import('../routes/products');
-const { resolveLineUnit } = invoicesModule;
 const { baseConversionProblem } = productsModule;
 
 // ═══ العُدّة ═══
@@ -251,33 +250,73 @@ function productWorld() {
     }
     return mine.length;
   };
-  // التحويل مقيَّدٌ بجلسة المالك (الدعم الفني) مؤقّتاً — docs/multi-unit/REVIEW.md
+  // جلسة المالك افتراضاً: لا تحتاج علم الشركة. ومستخدمو الشركة بعد المرحلة ٥ يحكمهم علم شركتهم (اختبارا البوابة أدناه)
   currentUser = { id: 'admin-1', role: 'ADMIN', tenantId: TENANT, impersonated: true };
   return { product, units, tables, tiers, customerPriceUpdates, conversions };
 }
 
 const CONVERT = { newBaseName: 'حبة', factor: 24, expectedBaseName: 'كرتون' };
 
-test('«إضافة وحدة فرعية أصغر» وبوابة الإطلاق مغلقة: مدير الشركة ⇒ 403 OWNER_ONLY بلا قراءة صفّه، والمفتاح ⇒ INTERACTIVE_ONLY ولو أصدره المالك', async () => {
-  for (const [user, code] of [
-    [{ id: 'admin-1', role: 'ADMIN', tenantId: TENANT }, 'CONVERT_BASE_OWNER_ONLY'],
-    [{ id: 'admin-2', role: 'MANAGER', tenantId: TENANT }, 'CONVERT_BASE_OWNER_ONLY'],
-    [{ id: 'admin-1', role: 'ADMIN', tenantId: TENANT, apiKeyId: 'k1' }, 'CONVERT_BASE_INTERACTIVE_ONLY'],
-    [{ id: 'admin-1', role: 'ADMIN', tenantId: TENANT, apiKeyId: 'k1', ownerIssuedKey: true }, 'CONVERT_BASE_INTERACTIVE_ONLY'],
+/** صفّ المدير كما يقرؤه convertBaseRefusalFor من القاعدة (لا من التوكن)، وعلم شركته */
+const adminRowFor = (role: string, tenantOpen: boolean, o: Record<string, unknown> = {}) => ({
+  role, isActive: true, scopeEnabled: false, canManageProducts: true, canManageVanStock: true, canManageInvoices: true,
+  tenant: { convertBaseOpen: tenantOpen }, ...o,
+});
+
+test('«إضافة وحدة فرعية أصغر» وعلم الشركة مطفأ: مدير الشركة ⇒ 403 OWNER_ONLY بعد قراءة صفّه وحده، والمفتاح ⇒ INTERACTIVE_ONLY بلا استعلام ولو أصدره المالك', async () => {
+  // بوابة الإطلاق مفتوحة منذ المرحلة ٥ (convertBaseAccess.ts)، فيُحكم بعلم الشركة (افتراضه false) من القاعدة
+  for (const [user, code, rowRead] of [
+    [{ id: 'admin-1', role: 'ADMIN', tenantId: TENANT }, 'CONVERT_BASE_OWNER_ONLY', true],
+    [{ id: 'admin-2', role: 'MANAGER', tenantId: TENANT }, 'CONVERT_BASE_OWNER_ONLY', true],
+    [{ id: 'admin-1', role: 'ADMIN', tenantId: TENANT, apiKeyId: 'k1' }, 'CONVERT_BASE_INTERACTIVE_ONLY', false],
+    [{ id: 'admin-1', role: 'ADMIN', tenantId: TENANT, apiKeyId: 'k1', ownerIssuedKey: true }, 'CONVERT_BASE_INTERACTIVE_ONLY', false],
   ] as const) {
     reset();
     productWorld();
+    scripted['admin.findFirst'] = () => adminRowFor(user.role, false);
     currentUser = { ...user }; // لا impersonated
     const r = await call('POST', '/api/products/p1/convert-base', { body: CONVERT });
     assert.equal(r.status, 403, JSON.stringify(r.body));
     assert.equal(r.body.code, code);
     assert.equal(raws.length, 0, 'لا قفل ولا كتابة رغم الرفض');
-    assert.deepEqual(calls, [], 'الرفض قبل أي استعلام — والبوابة المغلقة لا تقرأ صفّ المدير');
+    assert.deepEqual(calls, rowRead ? ['admin.findFirst'] : [], 'الرفض قبل أي استعلامٍ غير صفّ المدير — والمفتاح لا يقرأ شيئاً');
   }
-  // جلسة المالك تمرّ (البوابة لا تمسّها)
+  // جلسة المالك تمرّ (البوابتان لا تمسّانها، ولا يُقرأ صفّ مدير)
   reset();
   productWorld();
   assert.equal((await call('POST', '/api/products/p1/convert-base', { body: CONVERT })).status, 200);
+  assert.ok(!calls.includes('admin.findFirst'));
+});
+
+test('«إضافة وحدة فرعية أصغر» وعلم الشركة مفتوح: المدير والمشرف بالصلاحيات الثلاث يحوّلان كالمالك والسجلّ باسمهما؛ والمحاسب والمقيّد والناقص يُرفضون بلا قفل', async () => {
+  for (const role of ['ADMIN', 'MANAGER']) {
+    reset();
+    const w = productWorld();
+    scripted['admin.findFirst'] = () => adminRowFor(role, true);
+    currentUser = { id: `${role}-1`, role, tenantId: TENANT };
+    const r = await call('POST', '/api/products/p1/convert-base', { body: CONVERT });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(w.product.unit, 'حبة');
+    assert.equal(w.conversions.length, 1);
+    assert.equal(w.conversions[0].convertedBy, `${role}-1`, 'السجلّ باسم المستخدم لا OWNER:');
+    assert.equal(anyConverting(TENANT, ['p1']), false, '«قيد التحويل» يُحرَّر');
+  }
+  for (const [row, code] of [
+    [adminRowFor('ACCOUNTANT', true), 'CONVERT_BASE_ROLE_FORBIDDEN'],
+    [adminRowFor('ADMIN', true, { isActive: false }), 'CONVERT_BASE_ROLE_FORBIDDEN'],
+    [adminRowFor('ADMIN', true, { scopeEnabled: true }), 'CONVERT_BASE_SCOPED_USER'],
+    [adminRowFor('ADMIN', true, { canManageInvoices: false }), 'CONVERT_BASE_FORBIDDEN'],
+  ] as const) {
+    reset();
+    const w = productWorld();
+    scripted['admin.findFirst'] = () => row;
+    currentUser = { id: 'admin-1', role: 'ADMIN', tenantId: TENANT }; // التوكن يقول ADMIN، والقاعدة تحكم
+    const r = await call('POST', '/api/products/p1/convert-base', { body: CONVERT });
+    assert.equal(r.status, 403, JSON.stringify(r.body));
+    assert.equal(r.body.code, code);
+    assert.equal(raws.length, 0, 'لا قفل ولا كتابة رغم الرفض');
+    assert.equal(w.product.unit, 'كرتون');
+  }
 });
 
 test('التحويل: أرقام التاريخ المطبوعة لا تتغيّر، والمعاملات تُضرب، والأساس من جديد — في الجداول الأربعة', async () => {
@@ -402,6 +441,41 @@ test('التحويل: المعامل صحيحٌ ≥ ٢ ولا يتجاوز ال�
   // صرفةٌ: الحدّ بعد الضرب
   assert.equal(baseConversionProblem({ unit: 'كرتون', units: [] }, { newBaseName: 'حبة', factor: 100000 }), null);
   assert.match(String(baseConversionProblem({ unit: 'كرتون', units: [] }, { newBaseName: 'حبة', factor: 100001 })), /لا يتجاوز/);
+});
+
+test('التحويل (convert-base-5): لقطة معاملٍ في التاريخ لوحدةٍ حُذفت تتجاوز الحدّ بعد الضرب ⇒ 400 بلا كتابة — في المعاينة والتحويل', async () => {
+  const historyWorld = () => {
+    const w = productWorld();
+    // «حاوية» = ٥٠٠٠ كرتون حُذفت من الوحدات، وبقيت لقطتها في بند فاتورة: ×٢٤ = ١٢٠٠٠٠ > الحدّ
+    w.tables.invoice_items.push({ productId: 'p1', qty: 1, unitName: 'حاوية', unitFactor: 5000, baseQty: 5000, unitPrice: 100000, lineTotal: 100000 });
+    const rel: Record<string, string> = { invoiceItem: 'invoice_items', vanLoadItem: 'van_load_items', warehouseEntryItem: 'warehouse_entry_items', repStockRequestItem: 'rep_stock_request_items' };
+    for (const [model, table] of Object.entries(rel)) {
+      scripted[`${model}.findFirst`] = (args) => {
+        const gt = Number(args?.where?.unitFactor?.gt);
+        const docTenant = Object.values(args?.where ?? {}).find((v: any) => v && typeof v === 'object' && 'tenantId' in v) as { tenantId?: string } | undefined;
+        if (docTenant?.tenantId !== TENANT || !Number.isFinite(gt)) return null;
+        const hit = w.tables[table].filter((x) => x.productId === args.where.productId && x.unitFactor > gt).sort((a, b) => b.unitFactor - a.unitFactor)[0];
+        return hit ? { unitName: hit.unitName, unitFactor: hit.unitFactor } : null;
+      };
+    }
+    return w;
+  };
+  for (const dryRun of [true, false]) {
+    reset();
+    const w = historyWorld();
+    const r = await call('POST', '/api/products/p1/convert-base', { body: { ...CONVERT, dryRun } });
+    assert.equal(r.status, 400, `dryRun=${dryRun}: ${JSON.stringify(r.body)}`);
+    assert.match(String(r.body.message), /«حاوية» في تاريخ الصنف يتجاوز 100000/);
+    assert.equal(raws.some(x => x.kind === '$executeRaw'), false, 'كتابةٌ رغم الرفض');
+    assert.equal(w.tables.invoice_items.at(-1)!.unitFactor, 5000);
+    assert.equal(w.product.unit, 'كرتون');
+  }
+  // F = ٢٠ ⇒ ٥٠٠٠ × ٢٠ = ١٠٠٠٠٠ لا يتجاوز: يمرّ
+  reset();
+  const ok = historyWorld();
+  const r = await call('POST', '/api/products/p1/convert-base', { body: { ...CONVERT, factor: 20 } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(ok.tables.invoice_items.at(-1)!.unitFactor, 100000);
 });
 
 // ═══ (١ب) التحويل و«الوحدة الرئيسية» (مواصفة الوحدة الرئيسية §2.2-ز، I7، D12، D19، D20) ═══
@@ -648,72 +722,8 @@ test('القائمة والتفصيل يُرفقان الوحدات مرتّبة
 
 // ═══ (٣) وحدة البند: لقطة الجهاز في إعادة الرفع والكاش القديم في الحيّ ═══
 
-const CONVERTED = {
-  name: 'ماء', unit: 'حبة',
-  units: [
-    { id: 'u-ct', name: 'كرتون', factor: 24, price: 10, unitCode: 'CT', isActive: true },
-    { id: 'u-sh', name: 'شدة', factor: 6, price: null, unitCode: null, isActive: false },
-  ],
-};
-const never = async () => false;
-
-test('إعادة الرفع: لقطة الجهاز تُكتب بعد التحقّق أنها للصنف — والأساس المحوَّل بعد الإصدار يُقرأ بمعامل وحدته', async () => {
-  const replay = { replay: true, seenInHistory: never };
-  const u = async (item: Record<string, unknown>, o = replay) => {
-    const r = await resolveLineUnit(CONVERTED, item, o);
-    assert.equal(r.ok, true, JSON.stringify(r));
-    return (r as { unit: { unitName: string | null; unitFactor: number; unitCode: string | null } }).unit;
-  };
-  // «٢ كرتون» صدرت والكرتون أساس (معامل ١)، ثم حُوّل الصنف إلى حبة: تُكتب كرتوناً بمعامل ٢٤ لا حبّتين
-  assert.deepEqual(await u({ unitName: 'كرتون', unitFactor: 1 }), { unitName: 'كرتون', unitFactor: 24, unitCode: 'CT', priceUnit: CONVERTED.units[0] });
-  // تغيّر معامل الكرتون بعد الإصدار: معامل الجهاز يغلب، ولا يُسعَّر بسعر الوحدة المحدَّد لمعاملٍ آخر
-  const changed = await u({ unitId: 'u-ct', unitName: 'كرتون', unitFactor: 12 });
-  assert.equal(changed.unitFactor, 12);
-  assert.equal((changed as { priceUnit: unknown }).priceUnit, null);
-  // وحدةٌ أُوقفت بعد الإصدار: لا يُرفض بها المستند
-  assert.equal((await u({ unitId: 'u-sh', unitName: 'شدة', unitFactor: 6 })).unitFactor, 6);
-  assert.equal((await u({ unitId: 'u-sh' })).unitFactor, 6, 'بلا لقطة: معامل الوحدة الموقوفة');
-  // وحدةٌ حُذفت: يشهد لها التاريخ وإلّا فلا
-  assert.equal((await u({ unitName: 'علبة', unitFactor: 4 }, { replay: true, seenInHistory: async (n, f) => n === 'علبة' && f === 4 })).unitFactor, 4);
-  // معاملٌ لا شاهد له لا يُكتب **ولا يُقيَّد بالأساس**: «٤ علب» حبّاتٍ أربعاً بدل ستّ عشرة خطأٌ ماليٌّ صامت.
-  // يُرفض ظاهراً في صندوق الإرسال (القرار المدوّن في DESIGN.md) فيراجعه المشرف ولا يضيع المستند
-  const gone = await resolveLineUnit(CONVERTED, { unitName: 'علبة', unitFactor: 4 }, replay);
-  assert.deepEqual(((r: unknown) => [(r as { ok: boolean }).ok, (r as { status?: number }).status, (r as { code?: string }).code])(gone), [false, 400, 'UNIT_INVALID'], 'معاملٌ لا شاهد له لا يُكتب ولا يُقيَّد بالأساس');
-  // لقطة تالفة تُهمل ولا تُرفض؛ ولقطة الأساس أساس
-  assert.equal((await u({ unitId: 'u-ct', unitFactor: 0 })).unitFactor, 24);
-  assert.equal((await u({ unitName: 'حبة', unitFactor: 1 })).unitFactor, 1);
-  assert.equal((await u({})).unitFactor, 1, 'جسم ما قبل الميزة');
-});
-
-/**
- * الحيّ: وحدةٌ غير صالحة بأيّ وجه ⇒ 400 UNIT_INVALID موحّداً (القرار المدوّن في DESIGN.md).
- * والمعرّف الذي لا يخصّ الصنف لا يُقرأ أساساً: الصمت يحمّل كرتوناً على أنه حبّة.
- */
-test('الإصدار الحيّ: الخادم يحلّ الوحدة، والموقوفة والكاش القديم ومعرّف صنفٍ آخر ٤٠٠ UNIT_INVALID', async () => {
-  const live = { replay: false, seenInHistory: async () => { throw new Error('التاريخ لا يُقرأ في الحيّ'); } };
-  const ok = await resolveLineUnit(CONVERTED, { unitId: 'u-ct' }, live);
-  assert.deepEqual(ok, { ok: true, unit: { unitName: 'كرتون', unitFactor: 24, unitCode: 'CT', priceUnit: CONVERTED.units[0] } });
-  assert.deepEqual(await resolveLineUnit(CONVERTED, { unitId: 'u-ct', unitName: 'كرتون', unitFactor: 24 }, live), ok, 'لقطةٌ مطابقة');
-  const off = await resolveLineUnit(CONVERTED, { unitId: 'u-sh' }, live);
-  assert.deepEqual(((r: unknown) => [(r as { ok: boolean }).ok, (r as { status?: number }).status, (r as { code?: string }).code])(off), [false, 400, 'UNIT_INVALID'], 'الموقوفة');
-  for (const stale of [
-    { unitId: 'u-ct', unitName: 'كرتون', unitFactor: 12 }, // المعامل تغيّر
-    { unitName: 'كرتون', unitFactor: 1 }, // يرى الكرتون أساساً — حُوّل الصنف بعد كاشه
-    { unitId: 'u-gone', unitName: 'علبة', unitFactor: 4 }, // وحدةٌ حُذفت
-  ]) {
-    const r = await resolveLineUnit(CONVERTED, stale, live);
-    assert.deepEqual(((r: unknown) => [(r as { ok: boolean }).ok, (r as { status?: number }).status, (r as { code?: string }).code])(r), [false, 400, 'UNIT_INVALID'], JSON.stringify(stale));
-    // والرسالة تقول للمندوب ما يفعل: حدّث قائمة الأصناف
-    assert.match(String((r as { message?: string }).message), /حدّث قائمة الأصناف/);
-  }
-  // المرتجع المرتبط بفاتورة بيع يقبل الوحدة الموقوفة: بيعت شِدّات ثم أُوقفت، فإرجاعها بوحدتها مشروع
-  const returned = await resolveLineUnit(CONVERTED, { unitId: 'u-sh' }, { ...live, allowInactive: true });
-  assert.equal(returned.ok, true, JSON.stringify(returned));
-  assert.equal((returned as { unit: { unitFactor: number } }).unit.unitFactor, 6);
-  const foreign = await resolveLineUnit(CONVERTED, { unitId: 'u-of-another-product' }, live);
-  assert.deepEqual(((r: unknown) => [(r as { ok: boolean }).ok, (r as { status?: number }).status, (r as { code?: string }).code])(foreign), [false, 400, 'UNIT_INVALID'], 'معرّف صنفٍ آخر لا يُقرأ أساساً');
-  assert.deepEqual(await resolveLineUnit({ name: 'x', unit: 'حبة' }, {}, live), { ok: true, unit: { unitName: null, unitFactor: 1, unitCode: null, priceUnit: null } }, 'صنفٌ بلا وحدات');
-});
+// حلّ وحدة البند (resolveLineUnit) — لقطة الجهاز في إعادة الرفع والكاش القديم في الحيّ — انتقل باختباريه إلى
+// multi-unit-invoice-lines.test.ts بالشكل الحاليّ للنتيجة (unitId وrebase، الحزمة B4a)؛ نسختاه القديمتان هنا حُذفتا
 
 // ═══ (٤) مسار الإصدار ═══
 
@@ -913,7 +923,8 @@ test('GET /:id/returnable بالأساس حسب العقد: لقطة البند 
   assert.ok(Math.abs(l.refundPerBase - 20 / 48) < 1e-12);
   // الحقول القديمة بالأساس — عميلٌ لا يعرف الوحدات يرسل الكمية أساساً
   assert.deepEqual([l.sold, l.returned, l.returnable, l.refundUnitPrice, l.unit], [48, 5, 43, 0.4167, 'حبة']);
-  assert.deepEqual(l.product, { unit: 'حبة', units: PRODUCT.units });
+  // «الوحدة الرئيسية» D18: مفتاح الرئيسية حاضرٌ دائماً في كائن الصنف — null لصنفٍ بلا رئيسية
+  assert.deepEqual(l.product, { unit: 'حبة', units: PRODUCT.units, primaryUnitId: null });
 });
 
 test('returnable-sales بالأساس، والتفصيل والكشف بلقطة وحدة البند', async () => {

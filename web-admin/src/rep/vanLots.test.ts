@@ -520,3 +520,37 @@ test('عبارات W6 تحت علامتها بالأربع', () => {
     for (const ph of ['{name}', '{n}']) if (phrase.includes(ph)) assert.equal(entry.split(ph).length - 1, 5, `${ph} في كل لغة`);
   }
 });
+
+// ─── «الوحدة الرئيسية»: معلّقٌ صُفّ قبل «إضافة وحدة فرعية أصغر» ───
+
+test('rep-offline-4 (I9): فاتورةٌ صُفّت بالكرتون أساساً ثم حُوِّل الصنف ⇒ المعلّق وتلميحاته × المعامل على لقطةٍ بعد التحويل', () => {
+  // الصنف كان أساسه «كرتون»، فصار «قارورة» والكرتون وحدة ٢٤ — واللقطة بعد التحويل كمياتها بالقارورة
+  const catalog = [{ id: 'P', unit: 'قارورة', units: [{ id: 'u-c', name: 'كرتون', factor: 24, isActive: true }] }];
+  const s = snapOf({}, [{
+    productId: 'P', available: 240, availableNamed: 240, unknownUsable: 0, quarantined: 0, held: 0, expiredUnsold: 0, expiredReturned: 0, damaged: 0,
+    lots: [lot('a', 120, { expiryDate: '2026-11-20' }), lot('b', 120, { expiryDate: '2026-12-31' })],
+  }]);
+  const held = invoiceDoc({ status: 'rejected', reviewCode: LOT_REPLAY_HELD_CODE, items: [{ productId: 'P', qty: 3, unitName: 'كرتون', unitFactor: 1, baseUnitName: 'كرتون', lots: [{ lotId: 'a', qty: 3 }] }] });
+  // ما كان قبل الإصلاح: يُطرح ٣ قوارير فقط فيبقى ٢٣٧ ويبيع المندوب ما ليس في السيارة
+  assert.equal(localAvailable(s, 'P', TODAY, pendingOut([held], [], FETCHED, ME)), 237);
+  const pend = pendingOut([held], [], FETCHED, ME, catalog);
+  assert.equal(pend.get('P')?.total, 72);
+  assert.equal(pend.get('P')?.byLot.get('a'), 72, 'التلميح × ٢٤ كـscaleLotHint');
+  assert.equal(localAvailable(s, 'P', TODAY, pend), 168);
+  // البند بأساسه الحالي (أو بلا لقطة أساس) كما كان حرفاً
+  const same = invoiceDoc({ items: [{ productId: 'P', qty: 3, unitName: 'قارورة', unitFactor: 1, baseUnitName: 'قارورة' }] });
+  assert.equal(pendingOut([same], [], FETCHED, ME, catalog).get('P')?.total, 3);
+  assert.equal(pendingOut([invoiceDoc({ items: [{ productId: 'P', qty: 3 }] })], [], FETCHED, ME, catalog).get('P')?.total, 3);
+  // أساسٌ قديم لا يعرفه الكتالوج ⇒ الكمية كما هي والتلميح يُسقط (يُطرح بالقاعدة FEFO)
+  const lost = pendingOut([invoiceDoc({ items: [{ productId: 'P', qty: 3, baseUnitName: 'علبة', lots: [{ lotId: 'b', qty: 3 }] }] })], [], FETCHED, ME, catalog);
+  assert.equal(lost.get('P')?.total, 3);
+  assert.equal(lost.get('P')?.byLot.size, 0);
+  // بلا كتالوج ⇒ كما كان حرفاً (I1)
+  assert.equal(pendingOut([held], [], FETCHED, ME, null).get('P')?.total, 3);
+});
+
+test('RepApp: المعلّق يُحسب بكتالوج الجهاز (كاش products)', () => {
+  const app = fs.readFileSync(path.join(process.cwd(), 'src', 'rep', 'RepApp.tsx'), 'utf8');
+  assert.match(app, /cacheGet<unknown>\('products'\)\]\);/);
+  assert.match(app, /pendingOut\(docs, postedListOf\(posted\?\.data\), stored\.fetchedAt, currentRepId\(\), Array\.isArray\(cat\?\.data\) \? cat\.data as PendingCatalogProduct\[\] : null\)/);
+});

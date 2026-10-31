@@ -5,7 +5,7 @@ import { useTr } from '../i18n/strings';
 import { useAuthStore } from '../store/authStore';
 import { useAccountingOn } from './AccountingGate';
 import { formatNumber } from '../utils/format';
-import { REP_DELETE_VAN, fillVanLeft, vanLeftover } from '../lib/repDeleteVan';
+import { REP_DELETE_VAN, fillVanLeft, vanLeftText, vanLeftover } from '../lib/repDeleteVan';
 
 /**
  * تحذير حوار حذف المندوب: كم بقي في سيارته، وأنّ سجلّ تحميلاتها يبقى.
@@ -37,7 +37,7 @@ export default function RepVanStockNote({ repId, compact = false }: { repId: str
         <>
           <p className="font-bold flex items-start gap-1.5">
             <Truck size={14} className="flex-shrink-0 mt-0.5" />
-            <span>{fillVanLeft(tr(REP_DELETE_VAN.left), left, formatNumber)}</span>
+            <span>{fillVanLeft(tr(vanLeftText(left)), left, formatNumber)}</span>
           </p>
           <p className="mt-1">{tr(REP_DELETE_VAN.unloadFirst)}</p>
         </>

@@ -4,7 +4,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { importContentHash } from '../services/importLedger';
+import fs from 'node:fs';
+import { IMPORT_ROW_MESSAGES, importContentHash, planProductImportRows } from '../services/importLedger';
 import { derivedBasePrice } from '../services/units';
 import { netFromInclusive, roundHalfUp } from '../lib/money';
 
@@ -195,6 +196,45 @@ test('/products: ملفٌّ قديم بلا عمود السعر ولا رئيس�
   await call('/products', { rows });
   assert.equal(st.batches[0].contentHash, importContentHash('products', [{ code: 'O1', name: 'قديم', unit: 'حبة', basePrice: 0 }]));
   assert.deepEqual([st.created[0].basePrice, st.productUpdates.length], [0, 0]);
+});
+
+test('/products (money-4): صفّان بالكود نفسه يختلفان في الرئيسية وحدها ⇒ خطأ صفّ PRODUCT_DUPLICATE_IN_FILE لا تخطٍّ صامت (كتوقيع الويب)', async () => {
+  reset();
+  const ct = [{ name: 'كرتون', factor: 24 }];
+  // الصفّان متطابقان إلا أن الثاني يجعل الكرتون رئيسية: كان يُتخطّى صامتاً DUPLICATE_IN_FILE فيُنشأ الصنف بلا رئيسية
+  const r = await call('/products', {
+    rows: [
+      { code: 'D1', name: 'مياه', unit: 'قارورة', units: ct, basePrice: 2 },
+      { code: 'D1', name: 'مياه', unit: 'قارورة', units: ct, basePrice: 2, primaryUnit: 'كرتون' },
+    ],
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body.data.errors.map((e: Row) => [e.row, e.code]), [[3, 'PRODUCT_DUPLICATE_IN_FILE']]);
+  assert.equal(r.body.data.skipped ?? 0, 0);
+  const same = (primaryUnit?: string) => ({ code: 'D2', name: 'مياه', unit: 'قارورة', basePrice: 2, units: ct, ...(primaryUnit !== undefined && { primaryUnit }) });
+  const plan = planProductImportRows([same(), same('كرتون')], [], 15);
+  assert.deepEqual(plan.errors.map((e) => [e.row, e.code]), [[3, 'PRODUCT_DUPLICATE_IN_FILE']], 'الرئيسية وحدها تفرّق الصفّين');
+  assert.deepEqual(plan.skippedRows, []);
+  // وما لا يفرّق كما كان: الرئيسية الفارغة أو باسم الوحدة نفسها (بعد التطبيع) = بلا رئيسية ⇒ تكرارٌ مطابق يُتخطّى
+  for (const p of ['', ' قارورة ', 'قاروره']) {
+    const again = planProductImportRows([same(), same(p)], [], 15);
+    assert.deepEqual([again.errors, again.skippedRows.map((s) => s.reason)], [[], ['DUPLICATE_IN_FILE']], JSON.stringify(p));
+  }
+  // والرئيسية نفسها في الصفّين (بتطبيعٍ مختلف) تكرارٌ مطابق
+  const twin = planProductImportRows([same('كرتون'), same(' كرتون ')], [], 15);
+  assert.deepEqual([twin.errors, twin.skippedRows.map((s) => s.reason)], [[], ['DUPLICATE_IN_FILE']]);
+});
+
+test('رموز الصفوف الأربعة الجديدة في ImportRowErrorCode ونصوصها حرفياً كما في routes/import.ts (parity-7)', () => {
+  const src = fs.readFileSync(path.join(SRC, 'routes', 'import.ts'), 'utf8');
+  for (const [code, name] of [
+    ['PRIMARY_UNIT_INVALID', 'PRIMARY_UNIT_INVALID_MESSAGE'], ['PRIMARY_PRICE_REQUIRED', 'PRIMARY_PRICE_REQUIRED_MESSAGE'],
+    ['PRICE_UNIT_REQUIRED', 'PRICE_UNIT_REQUIRED_MESSAGE'], ['QTY_UNIT_REQUIRED', 'QTY_UNIT_REQUIRED_MESSAGE'],
+  ] as const) {
+    const lit = new RegExp(`export const ${name} = '([^']+)';`).exec(src)?.[1];
+    assert.ok(lit, `${name} غائب`);
+    assert.equal(IMPORT_ROW_MESSAGES[code], lit, code);
+  }
 });
 
 // ═══ مسار استيراد الأسعار ═══

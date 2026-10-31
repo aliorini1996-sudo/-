@@ -87,7 +87,7 @@ const isUnitsStale = (err: unknown): boolean => UNITS_STALE_CODES.has(serverCode
 const UNITS_STALE_MSG = 'تغيّرت وحدات الصنف — أعد فتحه';
 /** تلميح «إضافة وحدة فرعية أصغر» المعطَّل بحسب سبب الخادم (convertBaseRefusalCode من ردّ الدخول — §4.2) */
 const CONVERT_REFUSAL_HINTS: Record<NonNullable<User['convertBaseRefusalCode']>, string> = {
-  OWNER_ONLY: 'متاحة قريباً لمديري الشركة — اطلبها من الدعم الآن',
+  OWNER_ONLY: 'غير مفعّلة لشركتك — اطلب تفعيلها من الدعم الفني',
   SCOPED_USER: 'تخصّ الشركة كلها — لمستخدم غير مقيّد بنطاق',
   ROLE_FORBIDDEN: 'لمستخدم بدور مدير أو مشرف',
   FORBIDDEN: 'تتطلّب صلاحيات الأصناف والفواتير ومخزون السيارات معاً',
@@ -510,7 +510,7 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="label">{tr('الوحدة الرئيسية')} *</label>
-                  <input className="input" maxLength={24} value={rev.primaryName} placeholder={tr('كرتون')} onChange={revSet('primaryName')} />
+                  <input className="input" maxLength={24} value={rev.primaryName} placeholder={tr('مثال: كرتون')} onChange={revSet('primaryName')} />
                 </div>
                 <div>
                   <label className="label">{fill(tr('سعر {unit}'), { unit: revPrimaryName })} *</label>
@@ -519,7 +519,7 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
                 </div>
                 <div>
                   <label className="label">{tr('الوحدة الفرعية')} *</label>
-                  <input className="input" maxLength={24} value={rev.subName} placeholder={tr('قارورة')} onChange={revSet('subName')} />
+                  <input className="input" maxLength={24} value={rev.subName} placeholder={tr('مثال: قارورة')} onChange={revSet('subName')} />
                 </div>
                 <div>
                   <label className="label">{fill(tr('كم {sub} في {primary}'), { sub: revSubName, primary: revPrimaryName })} *</label>
@@ -990,7 +990,7 @@ function ProductUnitsSection({
     if (!window.confirm(`${ask} — ${u.name}`)) return;
     setBusy(u.id);
     try {
-      await withRepRuleSync(() => (clearing ? productApi.removeUnit(productId, u.id, { clearPrimary: true }) : productApi.removeUnit(productId, u.id)));
+      await withRepRuleSync(() => (clearing ? productApi.removeUnit(productId, u.id, { clearPrimary: true, expectedBaseName: baseUnit }) : productApi.removeUnit(productId, u.id, { expectedBaseName: baseUnit })));
       const next = units.filter(x => x.id !== u.id);
       if (clearing) onPrimaryChanged(next, null);
       else onUnits(next);
@@ -1274,7 +1274,7 @@ function ConvertBaseDialog({ productId, baseUnit, basePrice, units, primaryUnitI
 
           <div>
             <label className="label">{tr('اسم الوحدة الفرعية')} *</label>
-            <input className="input" maxLength={24} value={form.newBaseName} placeholder={tr('قارورة')}
+            <input className="input" maxLength={24} value={form.newBaseName} placeholder={tr('مثال: قارورة')}
               onChange={e => setForm(f => ({ ...f, newBaseName: e.target.value }))} />
             {nameError && <p className="text-xs text-red-600 mt-1" data-base-name-retired="">{nameError}</p>}
           </div>

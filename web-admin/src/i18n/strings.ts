@@ -5626,7 +5626,7 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'أعرّف الصنف بأصغر وحدة (مثل الحبة)، وأضيف الكرتون وحدةً أكبر': { en: 'I define the item by its smallest unit (e.g. a piece) and add the carton as a larger unit', fr: 'Je définis l’article par sa plus petite unité (par ex. la pièce) et j’ajoute le carton comme unité plus grande', tr: 'Ürünü en küçük birimiyle (ör. adet) tanımlarım ve koliyi daha büyük bir birim olarak eklerim', zh: '按最小单位（如单件）定义商品，并将整箱添加为更大单位' },
   'أعرّف الصنف بالكرتون، وفيه وحدة أصغر (مثل الحبة)': { en: 'I define the item by the carton, with a smaller unit inside it (e.g. a piece)', fr: 'Je définis l’article par le carton, avec une unité plus petite à l’intérieur (par ex. la pièce)', tr: 'Ürünü koliyle tanımlarım, içinde daha küçük bir birim vardır (ör. adet)', zh: '按整箱定义商品，箱内含更小单位（如单件）' },
   'اجعل وحدة موجودة رئيسية': { en: 'Make an existing unit the main unit', fr: 'Faire d’une unité existante l’unité principale', tr: 'Mevcut bir birimi ana birim yap', zh: '将现有单位设为主单位' },
-  'متاحة قريباً لمديري الشركة — اطلبها من الدعم الآن': { en: 'Coming soon for company managers — request it from support for now', fr: 'Bientôt disponible pour les responsables de l’entreprise — demandez-la au support pour l’instant', tr: 'Yakında şirket yöneticilerine açılacak — şimdilik destekten talep edin', zh: '即将向公司管理员开放——目前请联系客服开通' },
+  'غير مفعّلة لشركتك — اطلب تفعيلها من الدعم الفني': { en: 'Not enabled for your company — ask support to enable it', fr: 'Non activée pour votre entreprise — demandez son activation au support', tr: 'Şirketiniz için etkin değil — etkinleştirmesi için destekle iletişime geçin', zh: '贵公司尚未开通——请联系客服开通' },
   'تخصّ الشركة كلها — لمستخدم غير مقيّد بنطاق': { en: 'Affects the whole company — for a user without a restricted scope', fr: 'Concerne toute l’entreprise — pour un utilisateur sans périmètre restreint', tr: 'Tüm şirketi etkiler — kapsamı kısıtlanmamış bir kullanıcı için', zh: '影响整个公司——仅限不受范围限制的用户' },
   'لمستخدم بدور مدير أو مشرف': { en: 'For a user with the manager or supervisor role', fr: 'Pour un utilisateur ayant le rôle de directeur ou de superviseur', tr: 'Müdür veya süpervizör rolündeki bir kullanıcı için', zh: '仅限经理或主管角色的用户' },
   'تتطلّب صلاحيات الأصناف والفواتير ومخزون السيارات معاً': { en: 'Requires the products, invoices and van stock permissions together', fr: 'Nécessite à la fois les permissions articles, factures et stock des véhicules', tr: 'Ürün, fatura ve araç stoku yetkilerinin birlikte olmasını gerektirir', zh: '需同时具备商品、发票和车辆库存权限' },
@@ -5676,9 +5676,10 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'مثال: «{unit}» فيه 24 قارورة': { en: 'Example: a “{unit}” holds 24 bottles', fr: 'Exemple : un « {unit} » contient 24 bouteilles', tr: 'Örnek: bir “{unit}” içinde 24 şişe', zh: '例如：一个“{unit}”含 24 瓶' },
   'يعود الصنف إلى التعريف بأصغر وحدة «{base}» ولا تبقى «{unit}» الوحدة الرئيسية — لا يتغير أي رصيد أو سعر': { en: 'The item goes back to being defined by its smallest unit “{base}” and “{unit}” is no longer the main unit — no stock or price changes', fr: 'L’article redevient défini par sa plus petite unité « {base} » et « {unit} » n’est plus l’unité principale — aucun stock ni prix ne change', tr: 'Ürün yeniden en küçük birimi “{base}” ile tanımlanır ve “{unit}” artık ana birim değildir — hiçbir stok veya fiyat değişmez', zh: '商品恢复为按最小单位“{base}”定义，“{unit}”不再是主单位——库存和价格均不变' },
   'سعر {unit} الواحدة': { en: 'Price per {unit}', fr: 'Prix par {unit}', tr: '{unit} başına fiyat', zh: '每{unit}价格' },
-  'كرتون': { en: 'Carton', fr: 'Carton', tr: 'Koli', zh: '箱' },
+  // اسما الوحدتين لا يدخلان القاموس مجرّدين: اسم وحدة الشركة بياناتٌ لا تُترجم (I1 — سطر المندوب الذكي يمرّرها على tr)
+  'مثال: كرتون': { en: 'e.g. Carton', fr: 'ex. Carton', tr: 'örn. Koli', zh: '例如：箱' },
   'سعر {unit}': { en: '{unit} price', fr: 'Prix ({unit})', tr: '{unit} fiyatı', zh: '{unit}价格' },
-  'قارورة': { en: 'Bottle', fr: 'Bouteille', tr: 'Şişe', zh: '瓶' },
+  'مثال: قارورة': { en: 'e.g. Bottle', fr: 'ex. Bouteille', tr: 'örn. Şişe', zh: '例如：瓶' },
   'كم {sub} في {primary}': { en: 'How many {sub} in a {primary}', fr: 'Combien de {sub} dans un {primary}', tr: 'Bir {primary} içinde kaç {sub}', zh: '每{primary}含多少{sub}' },
   'مثال: كرتون فيه 24 قارورة': { en: 'Example: a carton holds 24 bottles', fr: 'Exemple : un carton contient 24 bouteilles', tr: 'Örnek: bir kolide 24 şişe', zh: '例如：一箱含 24 瓶' },
   'محسوب': { en: 'calculated', fr: 'calculé', tr: 'hesaplanan', zh: '计算值' },
@@ -5720,6 +5721,15 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'متوسط تكلفة {unit}': { en: 'Average cost per {unit}', fr: 'Coût moyen par {unit}', tr: '{unit} başına ortalama maliyet', zh: '每{unit}平均成本' },
   'متوسط تكلفة {unit} الواحدة': { en: 'Average cost of one {unit}', fr: 'Coût moyen d’un(e) {unit}', tr: 'Bir {unit} ortalama maliyeti', zh: '单个{unit}平均成本' },
   'من أي تشغيلة ينزل بـ{unit}': { en: 'Which lot it is taken from, in {unit}', fr: 'De quel lot il est prélevé, en {unit}', tr: 'Hangi partiden düşüleceği, {unit} cinsinden', zh: '从哪个批次扣减（按{unit}）' },
+  // — المُدمِج (الويب): R3 في تحذير حذف المندوب، وD21 في حقول التشغيلات ونصوصها، وإشعار الإدارة D16 —
+  'إعادة رفع بعد تحويل وحدات': { en: 'Re-upload after a unit change', fr: 'Renvoi après changement d’unités', tr: 'Birim değişikliği sonrası yeniden yükleme', zh: '单位变更后重新上传' },
+  'بانتظار تحميل ناقص': { en: 'Awaiting a missing load', fr: 'En attente d’un chargement manquant', tr: 'Eksik yükleme bekleniyor', zh: '等待补录装车' },
+  'مجموع كميات التشغيلات يجب أن يساوي كمية السطر بـ{unit}': { en: 'The lot quantities must add up to the line quantity in {unit}', fr: 'La somme des quantités des lots doit égaler la quantité de la ligne en {unit}', tr: 'Parti miktarlarının toplamı {unit} cinsinden satır miktarına eşit olmalıdır', zh: '各批次数量之和必须等于该行按{unit}计的数量' },
+  'الكمية بـ{unit}': { en: 'Quantity in {unit}', fr: 'Quantité en {unit}', tr: '{unit} cinsinden miktar', zh: '数量（按{unit}）' },
+  // سبب منع التراجع عن دفعة أسعارٍ لصنفٍ أُضيفت له وحدةٌ أصغر بعدها (convert-base-6) — نصّ الخادم PRICE_UNITS_CHANGED_AFTER_IMPORT حرفياً
+  'تغيّرت وحدات الصنف بعد الاستيراد فلم يُعد سعره': { en: 'The item’s units changed after the import, so its price was not restored', fr: 'Les unités de l’article ont changé après l’import ; son prix n’a donc pas été rétabli', tr: 'Ürünün birimleri içe aktarmadan sonra değişti, bu yüzden fiyatı geri yüklenmedi', zh: '导入后商品单位已变更，因此未恢复其价格' },
+  'بالوحدة الصغرى': { en: 'in the smallest unit', fr: 'en plus petite unité', tr: 'en küçük birimle', zh: '按最小单位' },
+  'في سيارته الآن {qty} بالوحدات الصغرى من {n} صنف وتبقى محسوبة خارج المستودع بعد حذفه': { en: 'His van currently holds {qty} in smallest units across {n} items, and they will remain counted outside the warehouse after deletion', fr: 'Son véhicule contient actuellement {qty} en plus petites unités réparties sur {n} articles, qui resteront comptées hors de l’entrepôt après la suppression', tr: 'Aracında şu anda {n} üründe en küçük birimlerle toplam {qty} var ve silindikten sonra depo dışında sayılmaya devam edecek', zh: '其车辆中目前有 {n} 种商品共 {qty}（按最小单位），删除后这些货物仍将计为仓库外库存' },
 };
 
 // ثابتة الهوية ما لم تتغيّر اللغة — كـuseT (انظر سببه هناك)

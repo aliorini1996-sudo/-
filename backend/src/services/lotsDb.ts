@@ -116,9 +116,12 @@ export async function acquireLotQueue(tenantId: string, productIds: Iterable<str
 // ═══ الأقفال داخل المعاملة ═══
 
 /**
- * داخل المعاملة: (١) SELECT id, unit, "lotTracked", "lotTrackedSince" … FOR KEY SHARE لكل أصناف العملية (أو الصفوف المقفلة سلفاً)؛
- * (٢) حفظ lock_timeout ثم set_config('lock_timeout','5s',true)؛ (٣) pg_advisory_xact_lock(key) لكل صنف متتبَّع بترتيب المفتاح؛
+ * داخل المعاملة: (١) حفظ lock_timeout ثم set_config('lock_timeout','5s',true)؛ (٢) SELECT id, unit, "lotTracked", "lotTrackedSince"
+ * … FOR KEY SHARE لكل أصناف العملية (أو الصفوف المقفلة سلفاً)؛ (٣) pg_advisory_xact_lock(key) لكل صنف متتبَّع بترتيب المفتاح؛
  * (٤) استعادة lock_timeout السابقة. كلها على tx.$executeRaw/$queryRaw.
+ * «الوحدة الرئيسية» I10: المهلة تسبق FOR KEY SHARE على الأصناف لا أقفال اللوط وحدها — تحويل وحدات طويل يمسك صفّ الصنف FOR UPDATE
+ * (حتى ١٢٠ ثانية)، فيعود الكاتب بعد ٥ ثوانٍ بـ55P03 (⇒ LOT_BUSY عند معالجه كما كان) بدل انتظار مهلة معاملته كلها ممسكاً الطابور
+ * والاتصال. لا صنف متتبَّع ⇒ تُستعاد بعد الاستعلام مباشرة. والصفوف المقفلة سلفاً (lockedRows) بلا استعلام: المهلة لأقفال اللوط كما كانت.
  * المجموعة المقروءة تحت القفل هي المرجع (D25): tracked منها لا من القراءة المسبقة. since = بداية حقبة الصنف.
  * units = صنف ← وحدة أساسه تحت القفل (§2.6): يقارنها الكاتب بالأساس الذي حلّ عليه بنوده (baseGuard.assertBasesUnchanged)
  * بلا قفلٍ ثانٍ. والصفوف المقفلة سلفاً بلا `unit` (convert-base والفاتورة) لا تدخلها.
@@ -131,6 +134,13 @@ export async function lockLotProducts(tx: LotTx, tenantId: string, productIds: s
   const since = new Map<string, Date | null>();
   const units = new Map<string, string>();
   if (!ids.length) return { tracked, since, units };
+  // المهلة المحلية قبل أول قفل (I10): قبل FOR KEY SHARE حين نقفل الصفوف هنا، وإلا قبل أقفال اللوط وحدها كما كانت
+  let prev: string | null = null;
+  if (!opts?.lockedRows) {
+    const prevRows = await tx.$queryRaw<{ lock_timeout: string }[]>`SELECT current_setting('lock_timeout') AS lock_timeout`;
+    prev = prevRows[0]?.lock_timeout ?? '0';
+    await tx.$executeRaw`SELECT set_config('lock_timeout', ${LOT_LOCK_TIMEOUT}, true)`;
+  }
   const rows = opts?.lockedRows ?? await tx.$queryRaw<{ id: string; unit: string; lotTracked: boolean; lotTrackedSince: Date | null }[]>`
     SELECT id, unit, "lotTracked", "lotTrackedSince" FROM products
     WHERE "tenantId" = ${tenantId} AND id = ANY(${ids}::text[])
@@ -143,10 +153,15 @@ export async function lockLotProducts(tx: LotTx, tenantId: string, productIds: s
     if (typeof r.unit === 'string') units.set(r.id, r.unit);
     if (r.lotTracked === true) tracked.add(r.id);
   }
-  if (!tracked.size) return { tracked, since, units };
-  const prevRows = await tx.$queryRaw<{ lock_timeout: string }[]>`SELECT current_setting('lock_timeout') AS lock_timeout`;
-  const prev = prevRows[0]?.lock_timeout ?? '0';
-  await tx.$executeRaw`SELECT set_config('lock_timeout', ${LOT_LOCK_TIMEOUT}, true)`;
+  if (!tracked.size) {
+    if (prev !== null) await tx.$executeRaw`SELECT set_config('lock_timeout', ${prev}, true)`;
+    return { tracked, since, units };
+  }
+  if (prev === null) {
+    const prevRows = await tx.$queryRaw<{ lock_timeout: string }[]>`SELECT current_setting('lock_timeout') AS lock_timeout`;
+    prev = prevRows[0]?.lock_timeout ?? '0';
+    await tx.$executeRaw`SELECT set_config('lock_timeout', ${LOT_LOCK_TIMEOUT}, true)`;
+  }
   for (const k of sortedLockKeys(tenantId, tracked)) {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(${k.key})`;
   }

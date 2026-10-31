@@ -65,6 +65,20 @@ export interface LotTextOpts {
   unitFactor?: number | null;
   /** أرقام العارض (localizeDigits في الشريط) — رقم التشغيلة معرّفٌ لا يُترجم */
   digits?: (s: string) => string;
+  /**
+   * «الوحدة الرئيسية» لصنف السطر (قيمةٌ صادقة وحدها، R2): الكمية التي لا تنقسم على معامل السطر تُوسَم باسم الوحدة الصغرى
+   * (`baseUnitName`، «×30 قارورة») أو «بالوحدة الصغرى» إن غاب — لا «بوحدة الأساس» (D21: المالك يسمّي الكرتون «المنتج الأساسي»).
+   * الغياب أو null ⇒ النصّ كما كان حرفاً (I1). لا يُمرَّر لورقة الفاتورة (R11: الطباعة A4 والحرارية لا تتغيّر).
+   */
+  primaryUnitId?: string | null;
+  baseUnitName?: string | null;
+}
+
+/** وسم الكمية التي بقيت بالأساس لأنها لا تنقسم على معامل السطر */
+function baseQtyTag(o: LotTextOpts): string {
+  if (!o.primaryUnitId) return o.tr('بوحدة الأساس');
+  const name = String(o.baseUnitName ?? '').trim();
+  return name || o.tr('بالوحدة الصغرى');
 }
 
 /** «تشغيلة {رقم} ×{كمية} · ينتهي {يوم}» — نصٌّ واحد للعارضات الأربعة. lotNumber: null = صفٌّ بلا تشغيلة معروفة */
@@ -73,7 +87,7 @@ export function lotLineText(l: DocLotLine, o: LotTextOpts): string {
   const q = lotQtyInLine(l.qty, o.unitFactor);
   const exp = lotDayText(l.expiryDate);
   const name = l.lotNumber ? `${o.tr('تشغيلة')} ${l.lotNumber}` : o.tr('تشغيلة غير معروفة');
-  return `${name} ×${d(String(q.qty))}${q.base ? ` ${o.tr('بوحدة الأساس')}` : ''}${exp ? ` · ${o.tr('ينتهي')} ${d(exp)}` : ''}`;
+  return `${name} ×${d(String(q.qty))}${q.base ? ` ${baseQtyTag(o)}` : ''}${exp ? ` · ${o.tr('ينتهي')} ${d(exp)}` : ''}`;
 }
 
 /** خانة «التشغيلة / الانتهاء» في الإشعارين: «{رقم} · ينتهي {يوم}» ومعها الكمية حين يتوزّع السطر على أكثر من تشغيلة */
@@ -84,7 +98,7 @@ export function lotCellText(l: DocLotLine, o: LotTextOpts & { withQty: boolean }
   return [
     l.lotNumber ?? o.tr('غير مسمى'),
     exp ? `${o.tr('ينتهي')} ${d(exp)}` : '',
-    o.withQty ? `×${d(String(q.qty))}${q.base ? ` ${o.tr('بوحدة الأساس')}` : ''}` : '',
+    o.withQty ? `×${d(String(q.qty))}${q.base ? ` ${baseQtyTag(o)}` : ''}` : '',
   ].filter(Boolean).join(' · ');
 }
 

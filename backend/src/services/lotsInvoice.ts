@@ -11,7 +11,7 @@
  * كل كمية بوحدة الأساس (D22) وبأربع خانات (isLotQty) عدا الإعادة (R6).
  */
 import type { LotDb, LotTx } from './lotsDb';
-import { companyDay, loadLotMetas, lockLotProducts, placeViews } from './lotsDb';
+import { LOT_LOCK_TIMEOUT, companyDay, loadLotMetas, lockLotProducts, placeViews } from './lotsDb';
 import {
   ClientRefRace, LOT_HOLD_MIRRORS, LotError,
   allocateOutLines, allocateReturnFromSale, asLockBusy, invEffect, isLotQty, lotBaseQty, lotErr, lotRemovalsOf,
@@ -478,8 +478,19 @@ export async function assertRestockOffKeepsLots(tx: LotTx, tid: string, invoiceI
 export async function assertReturnStillUntracked(tx: LotTx, tid: string, productIds: string[]): Promise<void> {
   const ids = uniq(productIds).sort();
   if (!ids.length) return;
-  const rows = await tx.$queryRaw<{ id: string; lotTracked: boolean }[]>`
-    SELECT id, "lotTracked" FROM products WHERE "tenantId" = ${tid} AND id = ANY(${ids}::text[]) ORDER BY id FOR KEY SHARE`;
+  // «الوحدة الرئيسية» I10: مهلة قفلٍ محلية تُحفظ وتُستعاد حول FOR KEY SHARE — خلف تحويل وحداتٍ طويل (FOR UPDATE) يعود الكاتب
+  // بعد ٥ ثوانٍ بـLOT_BUSY (55P03 ⇒ asLockBusy) بدل انتظار مهلة معاملته كلها ممسكاً الاتصال
+  const prevRows = await tx.$queryRaw<{ lock_timeout: string }[]>`SELECT current_setting('lock_timeout') AS lock_timeout`;
+  const prev = prevRows[0]?.lock_timeout ?? '0';
+  await tx.$executeRaw`SELECT set_config('lock_timeout', ${LOT_LOCK_TIMEOUT}, true)`;
+  let rows: { id: string; lotTracked: boolean }[];
+  try {
+    rows = await tx.$queryRaw<{ id: string; lotTracked: boolean }[]>`
+      SELECT id, "lotTracked" FROM products WHERE "tenantId" = ${tid} AND id = ANY(${ids}::text[]) ORDER BY id FOR KEY SHARE`;
+  } catch (e) {
+    throw asLockBusy(e) ?? e;
+  }
+  await tx.$executeRaw`SELECT set_config('lock_timeout', ${prev}, true)`;
   const now = rows.filter((r) => r.lotTracked === true).map((r) => r.id);
   if (now.length) throw lotErr('LOT_BUSY', {}, { reason: 'TRACKING_CHANGED', productIds: now });
 }

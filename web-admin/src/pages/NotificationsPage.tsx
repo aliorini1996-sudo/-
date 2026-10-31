@@ -25,12 +25,18 @@ const typeLabels: Record<string, string> = {
   INVOICE_CANCELLED: 'إلغاء فاتورة',
   PRICE_MODIFIED: 'تعديل سعر',
   RECEIPT_CANCELLED: 'إلغاء سند',
+  // إعادة رفع فاتورةٍ دون اتصال: فُسِّرت كمياتها بعد «إضافة وحدة فرعية أصغر» لصنفها (D16)، أو حُجزت لتحميلٍ ناقص («تتبّع اللوط»)
+  // — ميدانيّان لا محاسبيّان، فلا يدخلان ACCOUNTING_TYPES
+  REPLAY_UNITS_REBASED: 'إعادة رفع بعد تحويل وحدات',
+  LOT_REPLAY_HELD: 'بانتظار تحميل ناقص',
 };
 
 const typeColors: Record<string, string> = {
   CREDIT_LIMIT_EXCEEDED: 'bg-red-100 text-red-700',
   INVOICE_CANCELLED: 'bg-orange-100 text-orange-700',
   OVERDUE_PAYMENT: 'bg-yellow-100 text-yellow-700',
+  REPLAY_UNITS_REBASED: 'bg-amber-100 text-amber-800',
+  LOT_REPLAY_HELD: 'bg-amber-100 text-amber-800',
 };
 
 interface Notification {

@@ -280,3 +280,24 @@ test('rebaseCustPrices: نفس الأساس كما هو، أساسٌ قديم ص
   assert.deepEqual(rebaseCustPrices(null, catalog), {});
   assert.deepEqual(rebaseCustPrices([{ productId: 'p-b', price: 3, unit: 'كرتون' }], undefined), { 'p-b': 3 }, 'بلا كتالوج: كما هو');
 });
+
+test('rebaseCustPrices بحقبة الأساس: إعادة تسمية فقط ⇒ كما هو، وتحويلٌ بين القراءتين ⇒ ÷F ولو أُوقفت الوحدة', () => {
+  const t1 = '2026-10-30T10:00:00.000Z';
+  // rep-offline-1: أُعيدت تسمية الأساس (قارورة ⇒ علبة) بلا تحويل — الحقبة نفسها ⇒ السعر الخاصّ يبقى (كان يُسقط فيُرفض البيع)
+  const renamed = { id: 'p', unit: 'علبة', baseConvertedAt: t1, units: [{ id: 'u1', name: 'كرتون', factor: 24, price: null, isActive: true }] };
+  assert.deepEqual(rebaseCustPrices([{ productId: 'p', price: 1.9, unit: 'قارورة', baseConvertedAt: t1 }], [renamed]), { p: 1.9 });
+  assert.deepEqual(rebaseCustPrices([{ productId: 'p', price: 1.9, unit: 'قارورة', baseConvertedAt: new Date(t1) as unknown as string }], [renamed]), { p: 1.9 }, 'Date أو نصّ ISO');
+  // صنفٌ لم يُحوَّل قطّ وأُعيدت تسميته: الحقبتان null ⇒ كما هو
+  assert.deepEqual(rebaseCustPrices([{ productId: 'p', price: 5, unit: 'كرتون', baseConvertedAt: null }], [{ ...plain, id: 'p', unit: 'صندوق', baseConvertedAt: null }]), { p: 5 });
+  // بلا الحقل (كاشٌ أقدم): القاعدة القائمة — الاسم المجهول يُسقط
+  assert.deepEqual(rebaseCustPrices([{ productId: 'p', price: 1.9, unit: 'قارورة' }], [renamed]), {});
+  // تحويلٌ بين القراءتين (الصفّ قبل t1 والكتالوج بعده)، وكرتون التحويل أُوقف بعدها: معامله صالحٌ للسعر ⇒ ÷٢٤
+  const stopped = { id: 'p', unit: 'قارورة', baseConvertedAt: t1, units: [{ id: 'u1', name: 'كرتون', factor: 24, price: null, isActive: false }] };
+  assert.deepEqual(rebaseCustPrices([{ productId: 'p', price: 48, unit: 'كرتون', baseConvertedAt: null }], [stopped]), { p: 2 });
+  assert.deepEqual(rebaseCustPrices([{ productId: 'p', price: 48, unit: 'كرتون', baseConvertedAt: null }], [{ ...stopped, units: [{ ...stopped.units[0], isActive: true }] }]), { p: 2 });
+  // والعكس (صفٌّ بعد تحويلٍ لا يعرفه الكتالوج) ⇒ اسمه مجهول ⇒ يُسقط
+  assert.deepEqual(rebaseCustPrices([{ productId: 'p', price: 2, unit: 'قارورة', baseConvertedAt: t1 }], [{ id: 'p', unit: 'كرتون', baseConvertedAt: null, units: [] }]), {});
+  // حقبتان مختلفتان والاسم = أساس الكتالوج ⇒ كما هو؛ وحقبةٌ تالفة لا تساوي شيئاً
+  assert.deepEqual(rebaseCustPrices([{ productId: 'p', price: 2, unit: 'قارورة', baseConvertedAt: null }], [stopped]), { p: 2 });
+  assert.deepEqual(rebaseCustPrices([{ productId: 'p', price: 7, unit: 'حبة', baseConvertedAt: 'x' }], [{ id: 'p', unit: 'علبة', baseConvertedAt: 'x', units: [] }]), {});
+});

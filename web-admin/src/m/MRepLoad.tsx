@@ -96,7 +96,7 @@ interface Movement {
   kind: string; date: string; ref: string; by: string | null;
   /** `unit` لقطة وحدة البند و`qty` بها، و`baseQty` كميته بالأساس — لمن يجمع بنوداً تختلف وحداتها.
    *  و`lots` صفوف تشغيلات البند (withLots=1 والميزة مفعّلة وحدها) — للإشعار المطبوع */
-  items: { name: string; unit: string; qty: number; baseQty?: number | null; lots?: unknown }[];
+  items: { name: string; unit: string; qty: number; baseQty?: number | null; lots?: unknown; primaryUnitId?: string | null }[];
 }
 
 /**

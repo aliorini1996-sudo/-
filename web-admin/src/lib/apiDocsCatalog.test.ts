@@ -947,7 +947,10 @@ test('D18/D19: الحقلان في ردود الأصناف، وbaseUnitName لك
   for (const [m, p] of [['GET', '/products'], ['GET', '/products/:id']]) {
     for (const k of ['primaryUnitId', 'baseConvertedAt']) assert.match(endpointOf(m, p).response, new RegExp(k), `${p}: ${k}`);
   }
-  assert.match(endpointOf('GET', '/products/customer-prices/:customerId').response, /\{productId, price, unit\}/);
+  // rep-offline-1/3: السعر وأساسه وحقبته في جملةٍ واحدة — الخادم يردّ baseConvertedAt مع كل صفّ (تطبيق المندوب يفرّق به التسمية عن التحويل)
+  assert.match(endpointOf('GET', '/products/customer-prices/:customerId').response, /\{productId, price, unit, baseConvertedAt\}/);
+  const cpRoute = routeFile('products').slice(routeFile('products').indexOf("router.get('/customer-prices/:customerId'"));
+  assert.match(cpRoute.slice(0, 3000), /baseConvertedAt: p\.baseConvertedAt \?\? null/);
   // كل كاتب يعتمد على الأساس: حقله في المستند بشرطه ورمزه، ومذكورٌ في قائمة المقدمة، وفي مخطّط موجّهه
   const writers: [string, string, string, string, string][] = [
     ['POST', '/invoices', 'items[].baseUnitName', 'invoices', 'invoiceItemSchema'],
@@ -981,7 +984,7 @@ test('D18/D19: الحقلان في ردود الأصناف، وbaseUnitName لك
   assert.match(fieldOf(endpointOf('POST', '/import/opening-stock'), 'rows[].unit').desc, /QTY_UNIT_REQUIRED/);
 });
 
-test('الوحدة الرئيسية: رسالة PRODUCT_UNITS_BUSY المقتبسة رسالةُ موجّهها حرفياً، ومسارات قفل الوحدات (FOR UPDATE بلا مهلة) لا تَعِد بها', () => {
+test('الوحدة الرئيسية: رسالة PRODUCT_UNITS_BUSY المقتبسة رسالةُ موجّهها حرفياً، ومسارات قفل الوحدات (lockProductForUnits بمهلة) تَعِد بها', () => {
   const products = routeFile('products');
   const productsMsg = /const PRODUCT_UNITS_BUSY_MSG = '([^']+)'/.exec(products)![1];
   const guardMsg = /export const PRODUCT_UNITS_BUSY_MESSAGE = '([^']+)'/.exec(routeFile('invoicesZatca'))![1];
@@ -993,11 +996,92 @@ test('الوحدة الرئيسية: رسالة PRODUCT_UNITS_BUSY المقتب�
       assert.equal(m[1], e.path.startsWith('/products') ? productsMsg : guardMsg, `${e.method} ${e.path}: رسالة الانشغال`);
     }
   }
-  // lockProduct يقفل FOR UPDATE بلا lock_timeout ولا ترجمة للانشغال: مسارات الوحدات والشرائح والرئيسية لا ترسل 503 PRODUCT_UNITS_BUSY
-  const lp = products.slice(products.indexOf('async function lockProduct('), products.indexOf('function readLockedProduct('));
-  assert.ok(lp.length > 0 && !lp.includes('PRODUCT_UNITS_BUSY'), 'lockProduct صار يردّ PRODUCT_UNITS_BUSY: وثّقه في مسارات الوحدات');
-  for (const [m, p] of [['POST', '/products/:id/units'], ['PUT', '/products/:id/units/:unitId'], ['DELETE', '/products/:id/units/:unitId'], ['PUT', '/products/:id/price-tiers'], ['PUT', '/products/:id/primary-unit']]) {
-    assert.doesNotMatch(endpointOf(m, p).response, /PRODUCT_UNITS_BUSY/, `${m} ${p}`);
+  // convert-base-3: الوحدات والشرائح والرئيسية تقفل بـlockProductForUnits (FOR UPDATE بمهلةٍ محلية) فتردّ 503 PRODUCT_UNITS_BUSY
+  // خلف تحويلٍ طويل لا 500 — والمستند يعد بها في الخمسة، ولا يبقى فيه وعد «500 بلا كتابة» القديم
+  const lu = products.slice(products.indexOf('async function lockProductForUnits('));
+  assert.ok(products.includes('async function lockProductForUnits(') && /UnitsRefusal\(503, PRODUCT_UNITS_BUSY_MSG, 'PRODUCT_UNITS_BUSY'\)/.test(lu.slice(0, 1200)),
+    'lockProductForUnits لم يعد يردّ PRODUCT_UNITS_BUSY: أعد وعد المستند إلى ما يرسله الخادم');
+  for (const [route, m, p] of [
+    ["router.post('/:id/units'", 'POST', '/products/:id/units'], ["router.put('/:id/units/:unitId'", 'PUT', '/products/:id/units/:unitId'],
+    ["router.delete('/:id/units/:unitId'", 'DELETE', '/products/:id/units/:unitId'], ["router.put('/:id/price-tiers'", 'PUT', '/products/:id/price-tiers'],
+    ["router.put('/:id/primary-unit'", 'PUT', '/products/:id/primary-unit'],
+  ] as const) {
+    const at = products.indexOf(route);
+    assert.ok(at > 0, route);
+    const next = products.indexOf('router.', at + route.length);
+    assert.match(products.slice(at, next > 0 ? next : undefined), /lockProductForUnits\(tx, tid, req\.params\.id\)/, `${route}: القفل بمهلة`);
+    assert.match(endpointOf(m, p).response, /503 \{success:false, code:'PRODUCT_UNITS_BUSY', message:'[^']+'\}/, `${m} ${p}`);
+  }
+  assert.doesNotMatch(JSON.stringify(API_DOC_GROUPS), /500 بلا كتابة إن طال انتظار قفل الصنف|قد تنقضي معاملتها 500 بلا كتابة/, 'وعد الـ500 القديم باقٍ');
+});
+
+test('parity-schema-api-10: المستند يتبع بوابة الإطلاق — مغلقةً «الدعم الفني وحده»، ومفتوحةً «ما لم يفتحها مالك المنصّة لشركتهم» في المواضع الأربعة', () => {
+  const access = read(path.join(BACKEND, 'services', 'convertBaseAccess.ts'));
+  const open = /export const CONVERT_BASE_OPEN_TO_COMPANY = (true|false);/.exec(access)?.[1];
+  assert.ok(open, 'CONVERT_BASE_OPEN_TO_COMPANY غائب');
+  const docs = JSON.stringify(API_DOC_GROUPS) + read(path.join(process.cwd(), 'src', 'components', 'ApiDocs.tsx'));
+  if (open === 'false') {
+    // الخادم يرفض كل مستخدم شركة أيّاً كان Tenant.convertBaseOpen (convertBaseAccess.ts)، فصياغة «ما لم يفتحها» تَعِد بما لا يقع
+    assert.doesNotMatch(docs, /ما لم يفتحها مالك المنصّة|ما لم تُفتح ل/, 'صياغة الفتح لكل شركة والبوابة مغلقة');
+    assert.match(docs, /متاحة حالياً عبر الدعم الفني وحده/);
+  } else {
+    // المرحلة ٥ (البوابة مفتوحة): الخادم يقرأ Tenant.convertBaseOpen لكل طلب، فالمستند يَعِد بالفتح لكل شركة لا «لاحقاً»
+    assert.doesNotMatch(docs, /متاحة حالياً عبر الدعم الفني وحده|وتُفتح ل(مستخدمي الشركة|هم) لاحقاً/, 'وعد «لاحقاً» باقٍ والبوابة مفتوحة');
+    const perCompany = [...docs.matchAll(/يفتحها (لها )?مالك المنصّة/g)].length;
+    assert.ok(perCompany >= 4, `صياغة الفتح لكل شركة في المواضع الأربعة (وُجد ${perCompany})`);
+  }
+});
+
+test('convert-base-5: المستند يذكر رفض 400 لمعاملٍ تاريخيّ يتجاوز الحدّ بعد ×F ما دام الخادم يرفضه، وبنصّ رسالته', () => {
+  const products = read(path.join(BACKEND, 'routes', 'products.ts'));
+  assert.ok(products.includes('historyFactorOver('), 'الخادم لم يعد يفحص المعامل التاريخي: راجع المستند');
+  assert.ok(products.includes('في تاريخ الصنف يتجاوز ${MAX_UNIT_FACTOR} بعد الإضافة'), 'رسالة الخادم تغيّرت: راجع المستند');
+  const rules = endpointOf('POST', '/products/:id/convert-base').rules.join('\n');
+  assert.match(rules, /400 \{code:'PRODUCT_UNITS_INVALID', message:'معامل وحدة «…» في تاريخ الصنف يتجاوز 100000 بعد الإضافة'\}/);
+  assert.match(rules, /المعاينة \(dryRun\) والتنفيذ معاً/);
+});
+
+test('parity-schema-api-3: primaryUnitId (D18، للعرض وحده) في ردود المسارات التي يرسله الخادم فيها', () => {
+  const has = (m: string, p: string, re: RegExp) => assert.match(endpointOf(m, p).response, re, `${m} ${p}`);
+  has('GET', '/invoices/:id/returnable', /product:\{unit, units:\[[^\]]*\], primaryUnitId/);
+  has('GET', '/invoices/:id', /product\{id,name,code,unit,primaryUnitId/);
+  has('POST', '/van-stock/loads', /product:\{id,name,unit,primaryUnitId\}/);
+  has('GET', '/van-stock/loads', /product:\{id,name,unit,primaryUnitId\}/);
+  has('GET', '/van-stock/current', /primaryUnitId\(null أو معرّف من units/);
+  has('GET', '/van-stock/suggest', /primaryUnitId\(null أو معرّف من units/);
+  has('GET', '/van-stock/movements', /items:\[\{name, unit, qty, baseQty, primaryUnitId/);
+  has('GET', '/warehouse', /primaryUnitId\(null أو معرّف من units/);
+  has('POST', '/warehouse/entries', /product:\{id,name,unit,primaryUnitId\}/);
+  has('GET', '/warehouse/entries', /product:\{name,unit,primaryUnitId\}/);
+  has('GET', '/rep-stock-requests', /primaryUnitId\(null أو معرّف من units/);
+  has('GET', '/lots', /productUnits:\[\{id, name, factor, isActive\}\], productPrimaryUnitId/);
+  has('GET', '/lots/:id', /product:\{id, name, code, unit, lotTracked, shelfLifeOn, units:\[\{id, name, factor, isActive\}\], primaryUnitId/);
+  has('GET', '/reports/sales', /units:\[\{id, name, factor\}\], primaryUnitId/);
+  has('GET', '/reports/sales', /product\{id,name,code,unit,primaryUnitId\}/);
+  has('GET', '/reports/returns', /baseUnit, primaryUnitId/);
+  has('GET', '/reports/lot-sales', /units:\[\{id, name, factor\}\], primaryUnitId/);
+  has('GET', '/reports/rep-ranking', /product:\{id,name,unit,primaryUnitId/);
+  // والخادم يرسله حاضراً دائماً (null بلا رئيسية) في التقارير وحركات السيارة — لا مفتاحٌ يغيب في مسارٍ ويحضر في آخر
+  assert.match(routeFile('reports'), /export const primaryKey = \([^)]*\)[^=]*=> \(\{ primaryUnitId: id \|\| null \}\)/);
+  assert.match(routeFile('vanStock'), /const primaryOf = \([^)]*\) => \(\{ primaryUnitId: p\?\.primaryUnitId \|\| null \}\)/);
+});
+
+test('rep-offline-6 / B4a: نوعا إشعار إعادة الرفع (REPLAY_UNITS_REBASED وLOT_REPLAY_HELD) في قيم type الموثّقة كما يكتبهما الخادم', () => {
+  const rules = endpointOf('GET', '/notifications').rules.join(' ');
+  assert.match(rules, /REPLAY_UNITS_REBASED/);
+  assert.match(rules, /LOT_REPLAY_HELD/);
+  assert.ok(routeFile('invoices').includes("type: 'REPLAY_UNITS_REBASED'"));
+});
+
+test('parity-schema-api-5: PRICE_UNIT_REQUIRED يُقال بعد حجز الدفعة ما دام الخادم يحجزها قبل الخطة', () => {
+  const imp = routeFile('import');
+  const reserve = imp.indexOf("reserveMasterBatch(tid, 'prices'");
+  const plan = imp.indexOf('planPriceRowsWithUnits(rows');
+  assert.ok(reserve > 0 && plan > 0);
+  const rule = endpointOf('POST', '/import/prices').rules.find((r) => r.startsWith('PRICE_UNIT_REQUIRED'))!;
+  if (reserve < plan) {
+    assert.doesNotMatch(rule, /قبل حجز الدفعة/);
+    assert.match(rule, /بعد حجز الدفعة/);
   }
 });
 

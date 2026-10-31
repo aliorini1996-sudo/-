@@ -322,7 +322,7 @@ test('التسوية بالزيادة: لوط، أو رقمٌ جديد بمصد�
   assert.equal(world.warehouseRaw(A), 7);
 });
 
-test('ترتيب الأقفال: الطابور ثم المعاملة بمهلة {10s, 20s}، وFOR KEY SHARE ثم lock_timeout ثم القفل الاستشاري قبل أول قراءة رصيد وأول إنشاء', async () => {
+test('ترتيب الأقفال: الطابور ثم المعاملة بمهلة {10s, 20s}، وlock_timeout ثم FOR KEY SHARE (I10) ثم القفل الاستشاري قبل أول قراءة رصيد وأول إنشاء', async () => {
   fresh();
   stock('P1', 'A', 10);
   world.calls.length = 0;
@@ -337,7 +337,7 @@ test('ترتيب الأقفال: الطابور ثم المعاملة بمهلة
   const lock = at((s) => s.includes('pg_advisory_xact_lock'));
   const firstRead = at((s) => s.includes('FROM warehouse_entry_items') || s.includes('FROM van_load_item_lots') || s.includes('FROM lot_relabels') || s === 'productLot.findMany');
   const create = at((s) => s === 'warehouseEntry.create');
-  assert.ok(begin >= 0 && begin < share && share < timeout && timeout < lock && lock < firstRead && firstRead < create, ops.join('\n'));
+  assert.ok(begin >= 0 && begin < timeout && timeout < share && share < lock && lock < firstRead && firstRead < create, ops.join('\n'));
   // P3 غير متتبَّع: قفلٌ استشاري واحد (لـP1 وحده)
   assert.equal(world.calls.filter((c) => c.sql?.includes('pg_advisory_xact_lock')).length, 1);
 });

@@ -56,7 +56,8 @@ const prismaFake: Record<string, unknown> = new Proxy({}, {
 const TENANT = 'T1';
 const pass = (_req: unknown, _res: unknown, next: () => void): void => next();
 stub('config/database', { default: prismaFake });
-// التحويل بجلسة المالك (قرار المالك ٣٠ أكتوبر) — وبوابة الإطلاق مغلقة: مدير الشركة يُرفض قبل أي قفل (الوحدة الرئيسية D14)
+// التحويل بجلسة المالك (قرار المالك ٣٠ أكتوبر) افتراضاً هنا — ومدير الشركة بعد المرحلة ٥ يحكمه علم شركته: مطفأ ⇒ يُرفض قبل أي
+// قفل، ومفتوح ⇒ يحوّل كالمالك (الوحدة الرئيسية D14)
 const OWNER = { id: 'owner', role: 'ADMIN', tenantId: TENANT, impersonated: true };
 let user: Record<string, unknown> = OWNER;
 stub('middleware/auth', {
@@ -225,9 +226,11 @@ test('convert-base لصنفٍ متتبَّع: مهلة المعاملة (P2028،
   }
 });
 
-test('convert-base لمدير الشركة (لا جلسة المالك) والبوابة مغلقة ⇒ 403 OWNER_ONLY قبل أي قفلٍ أو كتابة، وصفوف اللوط كما هي', async () => {
+test('convert-base لمدير الشركة (لا جلسة المالك) وعلم شركته مطفأ ⇒ 403 OWNER_ONLY قبل أي قفلٍ أو كتابة، وصفوف اللوط كما هي', async () => {
+  // بوابة الإطلاق مفتوحة منذ المرحلة ٥: الحكم لعلم الشركة (افتراضه false) يُقرأ من القاعدة مع صفّ المدير
   for (const role of ['ADMIN', 'MANAGER']) {
     const { lots } = world(true);
+    scripted['admin.findFirst'] = () => ({ role, isActive: true, scopeEnabled: false, canManageProducts: true, canManageVanStock: true, canManageInvoices: true, tenant: { convertBaseOpen: false } });
     user = { id: 'admin-1', role, tenantId: TENANT };
     const r = await convert(CONVERT);
     assert.equal(r.status, 403, JSON.stringify(r.body));
@@ -235,6 +238,18 @@ test('convert-base لمدير الشركة (لا جلسة المالك) والب
     assert.equal(raws.length, 0, 'لا FOR UPDATE ولا قفل لوط ولا كتابة');
     assert.deepEqual(lots.van_load_item_lots.map((x) => x.qty), [10, -2, 3, 5]);
   }
+});
+
+test('convert-base لمدير الشركة وعلم شركته مفتوح (§3 البند ١٤): صفوف اللوط × F كجلسة المالك، والسجلّ باسم المدير لا OWNER', async () => {
+  const { lots } = world(true);
+  scripted['admin.findFirst'] = () => ({ role: 'MANAGER', isActive: true, scopeEnabled: false, canManageProducts: true, canManageVanStock: true, canManageInvoices: true, tenant: { convertBaseOpen: true } });
+  let logged: Record<string, unknown> | null = null;
+  scripted['productBaseConversion.create'] = (args) => { logged = args.data; return { id: 'conv-1', ...args.data }; };
+  user = { id: 'admin-2', role: 'MANAGER', tenantId: TENANT };
+  const r = await convert(CONVERT);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(lots.van_load_item_lots.map((x) => x.qty), [240, -48, 3, 5], 'صفوف الصنف × ٢٤، وصنفٌ آخر وشركةٌ أخرى كما هما');
+  assert.equal((logged as Record<string, unknown> | null)?.convertedBy, 'admin-2');
 });
 
 test('convert-base بجلسة المالك: صفّ السجلّ بعد جمل اللوط في المعاملة نفسها، ومعرّفه في الردّ', async () => {

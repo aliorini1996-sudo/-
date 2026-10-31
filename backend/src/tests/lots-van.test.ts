@@ -1134,14 +1134,17 @@ test('F1 (ب): المسار غير المتتبَّع والميزة مفعّل�
 
 // «الوحدة الرئيسية» §2.7: كل فرعٍ قائم صار معاملةً فيها قفل الأساس، فانقضاؤها (P2028) قد يكون انتظار تحويلٍ يمسك الصنف ⇒ 503
 // PRODUCT_UNITS_BUSY (baseGuardReply، صالح لإعادة الرفع) لا 500 — لا LOT_BUSY: الميزة مطفأة. والتحميل المطفأ معاملةٌ بـBASE_GUARD_TX
-test('F1 (ب) §١٠.١: الميزة مطفأة — P2028 في معاملة الإزالة أو التحميل ⇒ 503 PRODUCT_UNITS_BUSY بلا حركة، والتحميل معاملةٌ لقفل الأساس وحده', async () => {
+test('F1 (ب) §١٠.١: الميزة مطفأة — P2028 في معاملة الإزالة أو التحميل يمرّ إلى المعالج العام كما كان (لا PRODUCT_UNITS_BUSY، parity-4) بلا حركة، والتحميل معاملةٌ لقفل الأساس وحده', async () => {
   reset({ lots: false });
   seedInvoice('r1', 'RETURN', 'pU', 3, [], { returnExpired: true });
   S.txFail = Object.assign(new Error('Transaction API error: Transaction already closed'), { code: 'P2028' });
   for (const type of ['EXPIRED_OUT', 'LOAD'] as const) {
     const before = S.vanLoads.length;
     const r = await post({ salesRepId: 'r1', type, items: [{ productId: 'pU', qty: 2 }] });
-    assert.deepEqual([r.statusCode, codeOf(r)], [503, 'PRODUCT_UNITS_BUSY'], `${type}: ${JSON.stringify(r.body)}`);
+    // انقضاء معاملةٍ خارج قفل الأصناف ليس «وحدات الأصناف قيد التحديث»: 500 بالمعالج العام كما قبل الميزة
+    assert.equal(r.statusCode, 500, `${type}: ${JSON.stringify(r.body)}`);
+    assert.match(String(r.body?.unhandled), /Transaction already closed/, type);
+    assert.notEqual(codeOf(r), 'PRODUCT_UNITS_BUSY', type);
     assert.equal(S.vanLoads.length, before, type);
   }
   S.txFail = null;

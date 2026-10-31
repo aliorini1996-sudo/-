@@ -508,6 +508,21 @@ export function pricesRevertPlan(parsed: Pick<BatchRecordIds, 'records' | 'previ
 export const PRICE_CHANGED_AFTER_IMPORT = 'تغيّر السعر بعد الاستيراد يدوياً أو بدفعة أحدث فلم يُعد';
 
 /**
+ * «الوحدة الرئيسية» (convert-base-6): أُضيفت للصنف وحدةٌ فرعية أصغر بعد الاستيراد (convert-base يقسم أسعار العميل على F)، فاستعادة
+ * السعر السابق — وهو بالوحدة القديمة — تكتب سعر الكرتون سعراً للقارورة (×F). يُمنع ولو كانت الدفعة بالشكل القديم بلا imported
+ * (لا يكشفها priceRevertAction)، ومنعه يبقيه في الدفعة كبقية الممنوع
+ */
+export const PRICE_UNITS_CHANGED_AFTER_IMPORT = 'تغيّرت وحدات الصنف بعد الاستيراد فلم يُعد سعره';
+
+/** هل أُضيفت للصنف وحدةٌ أصغر بعد إنشاء الدفعة (baseConvertedAt > createdAt) — صنفٌ لم يُحوَّل قط (null) لا يُمنع: كما كان */
+export function priceUnitsChangedSince(baseConvertedAt: Date | string | null | undefined, batchCreatedAt: Date | string | null | undefined): boolean {
+  if (baseConvertedAt == null || batchCreatedAt == null) return false;
+  const converted = new Date(baseConvertedAt).getTime();
+  const created = new Date(batchCreatedAt).getTime();
+  return Number.isFinite(converted) && Number.isFinite(created) && converted > created;
+}
+
+/**
  * البند 7: قرار التراجع لسعر واحد بالسعر الحالي (مقفول): الصف غير موجود ⇒ gone؛ تغيّر بعد الاستيراد ⇒ blocked؛
  * سابق رقمي ⇒ استعادته؛ وإلا ⇒ حذف.
  */
@@ -1093,7 +1108,9 @@ export type ImportRowErrorCode =
   // الوحدات المتعددة: وحدة إضافية تالفة في ملف المنتجات، ووحدة مجهولة في المخزون الافتتاحي والأسعار
   | 'PRODUCT_UNIT_INVALID' | 'UNIT_NOT_FOUND'
   // «تتبّع اللوط» (§٣.٣، §٤.٥): تشغيلة صفّ المخزون الافتتاحي لصنفٍ متتبَّع
-  | 'LOT_REQUIRED' | 'LOT_DATES_INVALID' | 'LOT_EXPIRY_REQUIRED' | 'LOT_DATES_MISMATCH' | 'LOT_QTY_INVALID';
+  | 'LOT_REQUIRED' | 'LOT_DATES_INVALID' | 'LOT_EXPIRY_REQUIRED' | 'LOT_DATES_MISMATCH' | 'LOT_QTY_INVALID'
+  // «الوحدة الرئيسية» (§2.11، D17): الرئيسية في ملف المنتجات، وخانة الوحدة الفارغة لصنفٍ له رئيسية أو تغيّرت وحداته
+  | 'PRIMARY_UNIT_INVALID' | 'PRIMARY_PRICE_REQUIRED' | 'PRICE_UNIT_REQUIRED' | 'QTY_UNIT_REQUIRED';
 
 /** خطأ صف في ردود الاستيراد: row = موضع الصف المرسل + 2، وvalue القيمة التي أوقعت الخطأ، وfield عمودها */
 export interface ImportRowError { row: number; message: string; code?: string; value?: string; field?: string }
@@ -1123,6 +1140,11 @@ export const IMPORT_ROW_MESSAGES: Record<Exclude<ImportRowErrorCode, 'ROW_WRITE_
   LOT_EXPIRY_REQUIRED: 'تاريخ انتهاء التشغيلة إلزامي لصنف صلاحيته مفعّلة',
   LOT_DATES_MISMATCH: 'التشغيلة مسجلة لهذا الصنف بتواريخ مختلفة، صحّح التاريخين أو اتركهما فارغين',
   LOT_QTY_INVALID: 'كمية الصنف المتتبّع بالتشغيلة بأربع خانات عشرية على الأكثر بوحدة الأساس',
+  // نصوص routes/import.ts حرفياً (PRIMARY_UNIT_INVALID_MESSAGE وأخواتها، يقرؤها الويب والتوثيق من هناك) — اختبار يطابقها
+  PRIMARY_UNIT_INVALID: 'الوحدة الرئيسية يجب أن تكون إحدى وحدات الصف الإضافية (مثل الكرتون)',
+  PRIMARY_PRICE_REQUIRED: 'اكتب سعر الوحدة الرئيسية أو سعر الوحدة الفرعية',
+  PRICE_UNIT_REQUIRED: 'اكتب وحدة السعر لهذا الصنف: له وحدة رئيسية أو تغيّرت وحداته، فلا تُقرأ الخانة الفارغة بوحدة دون أخرى',
+  QTY_UNIT_REQUIRED: 'اكتب وحدة الكمية لهذا الصنف: له وحدة رئيسية أو تغيّرت وحداته، فلا تُقرأ الخانة الفارغة بوحدة دون أخرى',
 };
 
 export function importRowError(
@@ -1156,6 +1178,8 @@ export interface ProductImportRowInput {
   code: string; name: string; unit?: string | null; basePrice?: number | null; taxPct?: number | null; barcode?: string | null; category?: string | null;
   /** اختياري: وحدات البيع الأكبر من الأساس (`unit`) — الملف القديم بلا هذا العمود كما كان */
   units?: readonly ImportUnitInput[] | null;
+  /** «الوحدة الرئيسية» (§2.11): اسم إحدى وحدات الصفّ — يدخل التوقيع حين كُتب وحده (لا فارغاً ولا باسم `unit`) */
+  primaryUnit?: string | null;
 }
 export type ProductSkipReason = 'CODE_EXISTS' | 'DUPLICATE_IN_FILE';
 export interface ProductSkippedRow { row: number; reason: ProductSkipReason; code?: string }
@@ -1168,7 +1192,11 @@ export interface ProductSkippedRow { row: number; reason: ProductSkipReason; cod
 function productRowSignature(r: ProductImportRowInput, defaultVat: number | null): string {
   // الوحدات تدخل التوقيع حين وُجدت وحدها: صفوف الملفات القديمة توقيعها كما كان حرفياً
   const units = r.units?.length ? [importUnitsSignature(r.units)] : [];
-  return JSON.stringify([normImportName(r.name), r.unit || 'حبة', r.basePrice ?? 0, r.taxPct ?? defaultVat ?? null, r.barcode || '', normImportName(r.category || ''), ...units]);
+  // و«الوحدة الرئيسية» حين كُتبت وحدها (كتوقيع الويب importData.ts): صفّان بالكود نفسه يختلفان في رئيسيّهما خطأ صفّ
+  // PRODUCT_DUPLICATE_IN_FILE لا تخطٍّ صامت للثاني — وملفٌ بلا عمودها (أو باسم الوحدة نفسها) توقيعه كما كان حرفياً
+  const primary = normImportName(r.primaryUnit ?? '');
+  const primarySig = primary && primary !== normImportName(r.unit || 'حبة') ? [['primary', primary]] : [];
+  return JSON.stringify([normImportName(r.name), r.unit || 'حبة', r.basePrice ?? 0, r.taxPct ?? defaultVat ?? null, r.barcode || '', normImportName(r.category || ''), ...units, ...primarySig]);
 }
 
 /**
