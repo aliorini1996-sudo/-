@@ -5,8 +5,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  cartBadge, cartCount, choiceById, choiceNet, defaultChoice, hasUnitChoice, invoiceItemUnit, lineUnitOf, linkedLineUnit, rebaseRow, refreshLineUnit,
-  unitChoices, unitsText,
+  cartBadge, cartCount, choiceById, choiceNet, defaultChoice, hasUnitChoice, invoiceItemUnit, lineUnitOf, linkedLineUnit, primaryChoice, rebaseRow, refreshLineUnit,
+  rebaseCustPrices, unitChoices, unitsText,
 } from './repUnits';
 import { invoiceDocFromDetail, loadNoticeDocFromData, showsItemUnit, statementDocFromData, warehouseNoticeDocFromEntry } from './RepDocuments';
 
@@ -29,6 +29,20 @@ test('وحدات البند: الأساس أوّلاً ثم النشطة تصا�
   assert.equal(hasUnitChoice(undefined), false);
   assert.equal(choiceById(water, 'u-old'), null, 'وحدةٌ موقوفة لا تُختار');
   assert.equal(choiceById(water, null)!.name, 'حبة');
+});
+
+test('رقاقة «الوحدة الرئيسية» (primaryChoice): رقاقة الرئيسية الصالحة من unitChoices، وإلا null — والأساس يبقى أوّل الرقاقات (I4)', () => {
+  const withPrimary = { ...water, primaryUnitId: 'u-pack' };
+  assert.deepEqual(primaryChoice(withPrimary), unitChoices(withPrimary)[1]);
+  assert.equal(primaryChoice(withPrimary)!.name, 'شدّة');
+  assert.equal(unitChoices(withPrimary)[0].id, null, 'الأساس أوّلاً ولو كانت للصنف رئيسية');
+  assert.deepEqual(unitChoices(withPrimary), unitChoices(water), 'الرئيسية لا تغيّر الرقاقات ولا ترتيبها');
+  assert.equal(primaryChoice(water), null, 'بلا رئيسية');
+  assert.equal(primaryChoice({ ...water, primaryUnitId: null }), null);
+  assert.equal(primaryChoice({ ...water, primaryUnitId: 'u-old' }), null, 'الرئيسية الموقوفة ⇒ null (primaryUnitOf)');
+  assert.equal(primaryChoice({ ...water, primaryUnitId: 'u-gone' }), null, 'معرّف لا يطابق وحدة (كاش قديم) ⇒ null');
+  assert.equal(primaryChoice({ ...plain, primaryUnitId: 'u-ctn' }), null, 'صنف بلا وحدات');
+  assert.equal(primaryChoice(undefined), null);
 });
 
 test('الافتراض في البيع = أكبر وحدة: بعد التحويل إلى الحبّة يبقى نقر المندوب «+١ كرتون»', () => {
@@ -204,4 +218,64 @@ test('الدمج في السلّة بالصنف والوحدة، والتحمي�
   assert.match(repApp, /\.\.\.lineUnitOf\(ch, p\.unit\), unitPrice: inclOf\(p, ch\)/);
   assert.match(repApp, /rows\.map\(r => \(\{ productId: r\.productId, qty: Number\(r\.qty\), \.\.\.\(r\.unitId && \{ unitId: r\.unitId \}\) \}\)\)/);
   assert.match(repApp, /return \{ productId, qty: Number\(raw\), \.\.\.\(u\.id && \{ unitId: u\.id \}\) \};/);
+});
+
+// ═══ «الوحدة الرئيسية» (B1): الافتراض والعرض وأسعار العميل على أساس الكتالوج ═══
+// صنفٌ أساسه قارورة، وكرتونه ٢٤ رئيسيّ، وفوقه طبلية ١٢٠٠ — الافتراض الكرتون لا الطبلية، والعرض يقف عند الكرتون
+const bottle = {
+  id: 'p-b', unit: 'قارورة', basePrice: 2,
+  units: [
+    { id: 'u-c', name: 'كرتون', factor: 24, price: 48, isActive: true },
+    { id: 'u-pl', name: 'طبلية', factor: 1200, price: null, isActive: true },
+  ],
+};
+const bottleP = { ...bottle, primaryUnitId: 'u-c' };
+
+test('defaultChoice: الرئيسية تغلب الأكبر، وبلا رئيسية (أو رئيسية تالفة/null/كاش قديم) الأكبر حرفاً كما قبل الميزة', () => {
+  assert.equal(defaultChoice(bottleP).id, 'u-c', 'كرتون رئيسي مع طبلية ⇒ الكرتون');
+  assert.equal(defaultChoice(bottle).id, 'u-pl', 'بلا رئيسية ⇒ الأكبر (تكافؤ I1)');
+  assert.equal(defaultChoice({ ...bottle, primaryUnitId: null }).id, 'u-pl');
+  assert.equal(defaultChoice({ ...bottle, primaryUnitId: 'u-gone' }).id, 'u-pl', 'معرّف لا يطابق ⇒ الأكبر');
+  assert.equal(defaultChoice({ ...water, primaryUnitId: 'u-old' }).id, 'u-ctn', 'رئيسية موقوفة ⇒ الأكبر النشط');
+  assert.equal(defaultChoice({ ...plain, primaryUnitId: 'x' }).id, null, 'صنف بلا وحدات ⇒ الأساس');
+  assert.equal(unitChoices(bottleP)[0].id, null, 'I4: الأساس أوّل الرقاقات ولو للصنف رئيسية');
+});
+
+test('unitsText وcartBadge بالرئيسية: «52 كرتون و2 قارورة» لا «1 طبلية و…»، والصفر «0 كرتون» — وبلاها القائم حرفاً', () => {
+  const n = (x: number) => String(x);
+  assert.equal(unitsText(1250, bottleP, n), '52 كرتون و2 قارورة');
+  assert.equal(unitsText(1250, bottle, n), '1 طبلية و50 قارورة', 'بلا رئيسية: الأكبر كما اليوم');
+  assert.equal(unitsText(1250, { ...bottle, primaryUnitId: null }, n), '1 طبلية و50 قارورة');
+  assert.equal(unitsText(0, bottleP, n), '0 كرتون');
+  assert.equal(unitsText(5, bottleP, n), '5 قارورة');
+  assert.equal(unitsText(-26, bottleP, n), '-1 كرتون و2 قارورة');
+  assert.equal(unitsText(1250, bottleP, x => x.toLocaleString('ar-SA')), '٥٢ كرتون و٢ قارورة');
+  const lines = [
+    { productId: 'p-b', qty: 1, unitId: 'u-pl', unitFactor: 1200 },
+    { productId: 'p-b', qty: 2, unitId: 'u-c', unitFactor: 24 },
+    { productId: 'p-b', qty: 2, unitId: null, unitFactor: 1 },
+  ];
+  assert.equal(cartBadge(lines, 'p-b', bottleP), '52 كرتون و2 قارورة');
+  assert.equal(cartBadge(lines, 'p-b', bottle), '1 طبلية و50 قارورة', 'بلا رئيسية كما اليوم');
+  assert.equal(cartCount(lines), 3, 'cartCount لا يتغيّر');
+});
+
+test('rebaseCustPrices: نفس الأساس كما هو، أساسٌ قديم صار وحدة ٢٤ ⇒ ÷٢٤، اسم مجهول يُسقط، وبلا unit أو صنف غائب كما هو', () => {
+  const catalog = [bottleP, plain];
+  const out = rebaseCustPrices([
+    { productId: 'p-b', price: 1.9, unit: 'قارورة' },
+    { productId: 'p-j', price: '22.5' },
+    { productId: 'p-x', price: 7, unit: 'علبة' },
+  ], catalog);
+  assert.deepEqual(out, { 'p-b': 1.9, 'p-j': 22.5, 'p-x': 7 });
+  // كاشٌ من قبل التحويل: السعر ٤٨ للكرتون (كان الأساس)، والكتالوج الآن أساسه قارورة والكرتون ٢٤
+  assert.deepEqual(rebaseCustPrices([{ productId: 'p-b', price: 48, unit: 'كرتون' }], catalog), { 'p-b': 2 });
+  assert.deepEqual(rebaseCustPrices([{ productId: 'p-b', price: 48, unit: ' كرتون ' }], catalog), { 'p-b': 2 }, 'baseNameKey: القصّ');
+  assert.equal(rebaseCustPrices([{ productId: 'p-b', price: 50, unit: 'كرتون' }], catalog)['p-b'], 50 / 24, 'بلا تقريبٍ وسيط');
+  // والعكس (كاش بعد التحويل وكتالوج قبله) أو اسم لا يعرفه الكتالوج ⇒ يُسقط فيحكم سعر الصنف والخادم
+  assert.deepEqual(rebaseCustPrices([{ productId: 'p-b', price: 2, unit: 'حبة' }], catalog), {});
+  assert.deepEqual(rebaseCustPrices([{ productId: 'p-w', price: 0.4, unit: 'صندوق' }], [water]), {}, 'وحدة موقوفة لا يُقسم عليها');
+  assert.deepEqual(rebaseCustPrices([{ productId: 'p-b', price: 2, unit: null }, { productId: 'p-j', price: 23, unit: '' }], catalog), { 'p-b': 2, 'p-j': 23 }, 'بلا unit: كما هو');
+  assert.deepEqual(rebaseCustPrices(null, catalog), {});
+  assert.deepEqual(rebaseCustPrices([{ productId: 'p-b', price: 3, unit: 'كرتون' }], undefined), { 'p-b': 3 }, 'بلا كتالوج: كما هو');
 });

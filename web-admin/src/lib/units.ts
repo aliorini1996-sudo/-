@@ -172,8 +172,24 @@ export function refundAmount(
  *
  * يختار أكبر وحدةٍ تنقسم عليها الكمية ثمّ ما بقي، ويتوقّف عند وحدتين فالمزيد
  * يُقرأ لغزاً. وما لا ينقسم (نصف حبّة) يُعرض كسراً على وحدة الأساس.
+ *
+ * ومع `primary` («الوحدة الرئيسية»، D4) يقف عندها ولا يذكر الأكبر منها: «52 كرتون و2 قارورة» لا «1 طبلية و…»،
+ * والصفر «0 كرتون»، وما دون الكرتون «5 قارورة». غيابه أو null ⇒ الجسم القائم حرفياً (I1). ومرّرها من
+ * `primaryUnitOf` (أو `productQtyText`) لا من المعرّف مباشرة: التالف هناك يعود null.
  */
-export function formatQty(baseQty: number, units: UnitDef[], baseName: string): string {
+export function formatQty(baseQty: number, units: UnitDef[], baseName: string, primary?: UnitDef | null): string {
+  const pf = primary ? Number(primary.factor) : NaN;
+  if (primary && primary.isActive !== false && Number.isFinite(pf) && pf > 1) {
+    const q = roundQty(Number(baseQty) || 0);
+    if (q === 0) return `0 ${primary.name}`;
+    const sign = q < 0 ? '-' : '';
+    const abs = Math.abs(q);
+    const whole = Math.floor(abs / pf + QTY_EPS);
+    if (whole < 1) return `${sign}${trim(abs)} ${baseName}`;
+    const rest = roundQty(abs - whole * pf);
+    if (rest <= QTY_EPS) return `${sign}${trim(whole)} ${primary.name}`;
+    return `${sign}${trim(whole)} ${primary.name} و${trim(rest)} ${baseName}`;
+  }
   const q = roundQty(Number(baseQty) || 0);
   if (q === 0) return `0 ${baseName}`;
   const sign = q < 0 ? '-' : '';
@@ -248,3 +264,59 @@ export function unitFields(qty: number | string, unit?: { name?: string | null; 
     baseQty: toBase(q, { unitFactor: factor }),
   };
 }
+
+// ═══════════════ «الوحدة الرئيسية» (القاعدة ١٢) — عرضٌ وتعريفٌ وإدخالٌ افتراضي فقط ═══════════════
+// الحساب الداخلي لا ينقلب: القارورة هي الأساس (Product.unit/basePrice)، والكرتون صفّ ProductUnit بمعامل ٢٤، و
+// primaryUnitId يشير إليه. فلا شيء هنا يدخل جمعاً أو تقريب مالٍ مخزَّن أو XML أو حمولة ERP أو LOT (I2): toBase وbaseQtyOf
+// وunitFields وunitPriceOf وrefundAmount وunitProblem أعلاه لا تعرف الرئيسية.
+
+/** الصنف كما تحتاجه «الوحدة الرئيسية»: معرّفها ووحداته بمعرّفاتها */
+export interface PrimaryHolder { primaryUnitId?: string | null; units?: UnitDef[] | null }
+
+/**
+ * الوحدة الرئيسية الصالحة أو null (= سلوك ما قبل الميزة). كل مستهلكٍ يمرّ من هنا: معرّفٌ لا يطابق وحدةً من وحدات الصنف
+ * (كاشٌ قديم، وحدةٌ حُذفت، صنفٌ آخر)، أو موقوفة، أو بمعاملٍ غير صحيح ≥ ٢ ⇒ null — فكلّ حالٍ تالف يعود إلى سلوك اليوم (I5).
+ */
+export function primaryUnitOf(p: PrimaryHolder | null | undefined): UnitDef | null {
+  const id = p?.primaryUnitId;
+  if (!id) return null;
+  const u = (p?.units ?? []).find(x => x && x.id === id);
+  if (!u || u.isActive === false) return null;
+  const f = Number(u.factor);
+  if (!Number.isFinite(f) || f < 2 || f > MAX_UNIT_FACTOR || Math.abs(f - Math.round(f)) > QTY_EPS) return null;
+  return u;
+}
+
+/** كمية بالأساس لصنفٍ بوحداته ورئيسيّه — الاختصار المشترك لكل عرض (R1). بلا رئيسية ⇒ formatQty القائم حرفياً */
+export function productQtyText(baseQty: number, p: (PrimaryHolder & { unit?: string | null }) | null | undefined): string {
+  return formatQty(baseQty, p?.units ?? [], String(p?.unit ?? ''), primaryUnitOf(p));
+}
+
+/** سعر الوحدة الرئيسية (المحدَّد، وإلّا الأساس × المعامل)، أو null بلا رئيسية */
+export function primaryPriceOf(p: PrimaryHolder & { basePrice: number | string }): number | null {
+  const u = primaryUnitOf(p);
+  return u ? unitPriceOf(u, p.basePrice) : null;
+}
+
+/** نسخة حرفية من roundHalfUp في lib/money.ts (الملف بلا استيراد لأنه مرآة) — خاصّة، لا تُصدَّر، ولا تمسّ money() أعلاه */
+function halfUp(value: number, decimals: number): number {
+  if (!Number.isFinite(value)) return value;
+  const f = Math.pow(10, decimals);
+  const scaled = Number((value * f).toPrecision(12));
+  const sign = scaled < 0 ? -1 : 1;
+  return (sign * Math.round(Math.abs(scaled))) / f;
+}
+
+/**
+ * سعر الفرعية (الأساس) المشتقّ من سعر الرئيسية — roundHalfUp لأربع منازل، كالخطوة ٥ في convert-base (roundDecimal(…, 4)).
+ * فالإنشاء العكسي والتحويل والاستيراد يعطون سعر القارورة نفسه للكرتون نفسه (16.33 ÷ 8 = 2.0413 في الثلاثة، D10).
+ * مدخلٌ غير رقم أو معاملٌ ≤ ٠ ⇒ 0.
+ */
+export function derivedBasePrice(primaryPrice: number, factor: number): number {
+  const p = Number(primaryPrice), f = Number(factor);
+  if (!Number.isFinite(p) || !Number.isFinite(f) || f <= 0) return 0;
+  return halfUp(p / f, 4);
+}
+
+/** D20-أ: مفتاح المقارنة الوحيد لاسم وحدة الأساس — قصّ الأطراف ثم أول ٦٤ حرفاً (حدّ baseUnitName في كل مخطّط) */
+export function baseNameKey(s: string | null | undefined): string { return String(s ?? '').trim().slice(0, 64); }

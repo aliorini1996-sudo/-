@@ -112,6 +112,9 @@ model Tenant {
   // تاجرٌ واحد لشركة واحدة — تُفرض في PUT /api/tenants/:id لا بـ@unique: قيدٌ فريد على جدولٍ يحمل بيانات يُفشل db push
   // بلا --accept-data-loss (درس ١٧ يوليو ٢٠٢٦)
   nearpayMerchantId         String?
+  /// D14-ب: «إضافة وحدة فرعية أصغر» لمديري هذه الشركة — يقلبه مالك المنصّة وحده. لا أثر له ما دامت بوابة الإطلاق مغلقة
+  /// (CONVERT_BASE_OPEN_TO_COMPANY في services/convertBaseAccess.ts)
+  convertBaseOpen           Boolean   @default(false)
   subscriptionEndsAt       DateTime? // تاريخ انتهاء الاشتراك (null = غير محدود)
   notes                     String?
   createdAt                 DateTime  @default(now())
@@ -809,6 +812,12 @@ model Product {
 
   /// وحداتُ البيع الأكبر من الأساس (كرتون = ٢٤ حبة). فارغةٌ ⇒ صنفٌ بوحدةٍ واحدة كما كان.
   units               ProductUnit[]
+  /// «الوحدة الرئيسية» (القاعدة ١٢): عرضٌ وتعريفٌ وإدخالٌ افتراضي فقط — معرّف ProductUnit لهذا الصنف، أو null = سلوك
+  /// ما قبل الميزة. بلا مفتاح أجنبي عمداً: تحرسه الكتابة تحت lockProduct، والقراءة عبر primaryUnitOf (تالفٌ ⇒ null).
+  primaryUnitId       String?
+  /// لحظة آخر تحويل أساس (convert-base). null ⇒ لم يُحوَّل قط، فلا يُسأل سجلّ التحويلات أبداً (I8)
+  baseConvertedAt     DateTime?
+  baseConversions     ProductBaseConversion[]
   priceTiers          PriceTier[]
   // فرق الصنف: بلا صفوف = صنفٌ عام لكل الفرق؛ وإلا لا يبيعه إلا من يعمل لأحد فرقه
   teams               ProductTeam[]
@@ -856,6 +865,25 @@ model ProductUnit {
   @@unique([productId, name])
   @@index([tenantId, productId])
   @@map("product_units")
+}
+
+/// سجلّ تحويلات وحدة أساس الصنف وإعادات تسميتها — شاهد الخادم في إعادة الرفع أوف‑لاين، وسجلّ تدقيق.
+/// صفٌّ بمعامل F > 1 تحويلٌ (كرتون ⇒ قارورة)، وبمعامل 1 إعادة تسمية للأساس (تُبقي السلسلة متّصلة).
+/// بلا @@unique عمداً (درس db push)، ويُحذف مع صنفه بالتسلسل (التطهير والتراجع عن الاستيراد بلا تعديل).
+model ProductBaseConversion {
+  id          String   @id @default(uuid())
+  tenantId    String
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  fromUnit    String // اسم الأساس قبل
+  toUnit      String // اسم الأساس بعد
+  factor      Int // كم toUnit في fromUnit — ١ لإعادة التسمية
+  fromUnitId  String? // الوحدة التي أنشأها التحويل باسم fromUnit — بلا FK: يبقى شاهداً ولو حُذفت أو أعيدت تسميتها
+  convertedAt DateTime @default(now())
+  convertedBy String? // actorOf(req): جلسة المالك تُسجَّل OWNER:<id>
+
+  @@index([tenantId, productId, convertedAt])
+  @@map("product_base_conversions")
 }
 
 model PriceTier {

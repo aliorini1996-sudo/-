@@ -38,6 +38,11 @@ export interface User {
   canCloseLedgerPeriods?: boolean;
   canConfigureLedger?: boolean;
   scopeEnabled?: boolean; // مقيّد النطاق لا يرى الدفاتر (LEDGER_SCOPED_ADMIN)
+  /** «إضافة وحدة فرعية أصغر» (convert-base) — من ردّ الدخول والانتحال والتسجيل و/me، يحسبه adminPermissionFields في الخادم.
+   * يُحسب لحظة الدخول، والخادم يحكم في كل طلب */
+  canConvertBase?: boolean;
+  /** سبب المنع حين canConvertBase !== true — لتلميح الزرّ المعطَّل (null حين يُسمح) */
+  convertBaseRefusalCode?: 'OWNER_ONLY' | 'SCOPED_USER' | 'FORBIDDEN' | 'ROLE_FORBIDDEN' | null;
 }
 
 export interface Tenant {
@@ -64,6 +69,8 @@ export interface Tenant {
   locationsEnabled?: boolean;     // «لوكيشن» (مواقع الشركة وختم الفواتير والتحميلات بموقع المندوب) — مطفأة افتراضياً، يُفعّلها المالك لكل شركة
   lotTrackingEnabled?: boolean;   // «تتبّع اللوط» (التشغيلات) — مطفأ افتراضياً، يُفعّله المالك لكل شركة (lib/lots.ts)
   lotTrackingSince?: string | null; // بداية الحقبة — مضبوطٌ والعلم مطفأ ⇒ إعادة التفعيل تبدأ حقبة جديدة (D8)
+  convertBaseOpen?: boolean;      // «إضافة وحدة فرعية أصغر» لمديري الشركة (D14-ب) — مطفأ افتراضياً، يقلبه المالك لكل شركة
+  convertBaseReleased?: boolean;  // بوابة الإطلاق في الخادم (للقراءة فقط) — false ⇒ تُعطَّل خانة العلم
   receivablesSummaryEnabled?: boolean; // سطر «إجمالي مديونية العملاء المُسنَدين» — يُفعّله المالك لكل شركة
   accountingEnabled?: boolean;   // النظام المحاسبي (منتجات · مخزون · فواتير · سندات) — مفعّل افتراضياً، وغيابه يعني مفعّل
   accountingSuiteEnabled?: boolean; // النظام المحاسبي المتكامل (الدفاتر) — مطفأ افتراضياً، وغيابه يعني مطفأ
@@ -252,6 +259,11 @@ export interface Product {
   basePrice: number;
   /** وحدات البيع الأكبر (الوحدات المتعددة) — فارغةٌ ⇒ صنفٌ بوحدةٍ واحدة */
   units?: ProductUnit[];
+  /** «الوحدة الرئيسية» (القاعدة ١٢): معرّف إحدى `units` — عرضٌ وافتراض فقط، والحساب بالأساس دائماً. اقرأها بـprimaryUnitOf
+   * (lib/units.ts) لا مباشرة: معرّفٌ تالف أو وحدةٌ موقوفة ⇒ null = سلوك ما قبل الميزة */
+  primaryUnitId?: string | null;
+  /** لحظة آخر «إضافة وحدة فرعية أصغر» (convert-base) — null ⇒ لم يُحوَّل قط */
+  baseConvertedAt?: string | null;
   taxPct: number;
   image?: string | null;
   status: 'ACTIVE' | 'INACTIVE';

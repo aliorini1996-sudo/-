@@ -5573,6 +5573,54 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'يوجد وحدة باسم وحدة الأساس الحالية لهذا الصنف': { en: 'This item already has a unit named like the current base unit', fr: 'Cet article a déjà une unité portant le nom de l unité de base actuelle', tr: 'Bu ürünün mevcut temel birimle aynı adda bir birimi zaten var', zh: '该商品已有与当前基本单位同名的单位' },
   'معامل إحدى الوحدات يتجاوز الحد بعد التحويل': { en: 'One unit factor would exceed the limit after conversion', fr: 'Le facteur d une des unités dépasserait la limite après la conversion', tr: 'Dönüştürmeden sonra birimlerden birinin çarpanı sınırı aşar', zh: '转换后某个单位的系数将超出上限' },
   'تعذر التحويل': { en: 'Could not convert', fr: 'Conversion impossible', tr: 'Dönüştürülemedi', zh: '无法转换' },
+
+  // ═══ الوحدة الرئيسية — WP0 ═══
+  // المفردات المشتركة بنصّ المواصفة حرفياً (primary_unit_spec §4 و§5) — يستعملها B1 وB5 وB6 من هنا ولا تُكرَّر في كتلهم.
+  // D21: لا كلمة «الأساس» في أي نص جديد؛ يحلّ محلها اسم الوحدة نفسه أو «الوحدة الصغرى»
+  'الوحدة الرئيسية': { en: 'Main unit', fr: 'Unité principale', tr: 'Ana birim', zh: '主单位' },
+  'الوحدة الفرعية': { en: 'Sub-unit', fr: 'Sous-unité', tr: 'Alt birim', zh: '子单位' },
+  'إضافة وحدة فرعية أصغر': { en: 'Add a smaller sub-unit', fr: 'Ajouter une sous-unité plus petite', tr: 'Daha küçük bir alt birim ekle', zh: '添加更小的子单位' },
+  'رئيسية': { en: 'Main', fr: 'Principale', tr: 'Ana', zh: '主' },
+  'اجعلها الرئيسية': { en: 'Make it the main unit', fr: 'En faire l’unité principale', tr: 'Ana birim yap', zh: '设为主单位' },
+  'وحدة رئيسية': { en: 'Main unit', fr: 'Unité principale', tr: 'Ana birim', zh: '主单位' },
+  'بالوحدات الصغرى': { en: 'in smallest units', fr: 'en plus petites unités', tr: 'en küçük birimlerle', zh: '按最小单位' },
+  'طريقة تعريف الصنف': { en: 'How the item is defined', fr: 'Mode de définition de l’article', tr: 'Ürünün tanımlanma şekli', zh: '商品定义方式' },
+  'أعرّف الصنف بأصغر وحدة (مثل الحبة)، وأضيف الكرتون وحدةً أكبر': { en: 'I define the item by its smallest unit (e.g. a piece) and add the carton as a larger unit', fr: 'Je définis l’article par sa plus petite unité (par ex. la pièce) et j’ajoute le carton comme unité plus grande', tr: 'Ürünü en küçük birimiyle (ör. adet) tanımlarım ve koliyi daha büyük bir birim olarak eklerim', zh: '按最小单位（如单件）定义商品，并将整箱添加为更大单位' },
+  'أعرّف الصنف بالكرتون، وفيه وحدة أصغر (مثل الحبة)': { en: 'I define the item by the carton, with a smaller unit inside it (e.g. a piece)', fr: 'Je définis l’article par le carton, avec une unité plus petite à l’intérieur (par ex. la pièce)', tr: 'Ürünü koliyle tanımlarım, içinde daha küçük bir birim vardır (ör. adet)', zh: '按整箱定义商品，箱内含更小单位（如单件）' },
+  'اجعل وحدة موجودة رئيسية': { en: 'Make an existing unit the main unit', fr: 'Faire d’une unité existante l’unité principale', tr: 'Mevcut bir birimi ana birim yap', zh: '将现有单位设为主单位' },
+  'متاحة قريباً لمديري الشركة — اطلبها من الدعم الآن': { en: 'Coming soon for company managers — request it from support for now', fr: 'Bientôt disponible pour les responsables de l’entreprise — demandez-la au support pour l’instant', tr: 'Yakında şirket yöneticilerine açılacak — şimdilik destekten talep edin', zh: '即将向公司管理员开放——目前请联系客服开通' },
+  'تخصّ الشركة كلها — لمستخدم غير مقيّد بنطاق': { en: 'Affects the whole company — for a user without a restricted scope', fr: 'Concerne toute l’entreprise — pour un utilisateur sans périmètre restreint', tr: 'Tüm şirketi etkiler — kapsamı kısıtlanmamış bir kullanıcı için', zh: '影响整个公司——仅限不受范围限制的用户' },
+  'لمستخدم بدور مدير أو مشرف': { en: 'For a user with the manager or supervisor role', fr: 'Pour un utilisateur ayant le rôle de directeur ou de superviseur', tr: 'Müdür veya süpervizör rolündeki bir kullanıcı için', zh: '仅限经理或主管角色的用户' },
+  'تتطلّب صلاحيات الأصناف والفواتير ومخزون السيارات معاً': { en: 'Requires the products, invoices and van stock permissions together', fr: 'Nécessite à la fois les permissions articles, factures et stock des véhicules', tr: 'Ürün, fatura ve araç stoku yetkilerinin birlikte olmasını gerektirir', zh: '需同时具备商品、发票和车辆库存权限' },
+  'تغيّرت وحدات الصنف — أعد فتحه': { en: 'The item’s units have changed — reopen it', fr: 'Les unités de l’article ont changé — rouvrez-le', tr: 'Ürünün birimleri değişti — yeniden açın', zh: '商品单位已更改——请重新打开' },
+  'تغيير الاسم هنا إعادة تسمية فقط — لإضافة وحدة أصغر استخدم «إضافة وحدة فرعية أصغر»': { en: 'Changing the name here only renames it — to add a smaller unit use “Add a smaller sub-unit”', fr: 'Modifier le nom ici ne fait que le renommer — pour ajouter une unité plus petite, utilisez « Ajouter une sous-unité plus petite »', tr: 'Buradaki adı değiştirmek yalnızca yeniden adlandırır — daha küçük bir birim eklemek için “Daha küçük bir alt birim ekle” seçeneğini kullanın', zh: '在此修改名称仅为重命名——如需添加更小单位，请使用“添加更小的子单位”' },
+  'قد تستغرق حتى دقيقتين لصنف بتاريخ طويل، ومن يحفظ أثناءها يُطلب منه إعادة المحاولة': { en: 'This can take up to two minutes for an item with a long history; anyone saving meanwhile is asked to retry', fr: 'Cela peut prendre jusqu’à deux minutes pour un article avec un long historique ; quiconque enregistre pendant ce temps devra réessayer', tr: 'Uzun geçmişi olan bir ürün için iki dakikaya kadar sürebilir; bu sırada kaydeden kişiden yeniden denemesi istenir', zh: '对于历史记录较长的商品，最多可能需要两分钟；期间保存的用户将被要求重试' },
+  'إطفاؤه مع أصناف بأكثر من وحدة يطبع «×5» بلا وحدة، فلا يُعرف أكراتين أم حبّات': { en: 'Turning this off with multi-unit items prints “×5” without a unit, so no one can tell cartons from pieces', fr: 'Le désactiver avec des articles à plusieurs unités imprime « ×5 » sans unité : impossible de savoir s’il s’agit de cartons ou de pièces', tr: 'Birden çok birimli ürünlerde kapatılırsa birimsiz “×5” yazdırılır; koli mi adet mi olduğu anlaşılmaz', zh: '若商品有多个单位而关闭此项，将只打印“×5”而不带单位，无法分辨是整箱还是单件' },
+  'إضافة وحدة فرعية أصغر لمديري الشركة': { en: 'Adding a smaller sub-unit for company managers', fr: 'Ajout d’une sous-unité plus petite pour les responsables de l’entreprise', tr: 'Şirket yöneticileri için daha küçük alt birim ekleme', zh: '允许公司管理员添加更小的子单位' },
+  'متاحة بعد اكتمال المراجعة': { en: 'Available once the review is complete', fr: 'Disponible une fois la revue terminée', tr: 'İnceleme tamamlandıktan sonra kullanılabilir', zh: '审核完成后可用' },
+  'هذه الوحدة الرئيسية — سيُلغى كونها رئيسية ثم تُوقَف': { en: 'This is the main unit — it will stop being the main unit, then be deactivated', fr: 'C’est l’unité principale — elle cessera d’être principale, puis sera désactivée', tr: 'Bu ana birimdir — ana birim olmaktan çıkarılacak, ardından devre dışı bırakılacak', zh: '这是主单位——将先取消其主单位身份，然后停用' },
+  'هذه الوحدة الرئيسية — سيُلغى كونها رئيسية ثم تُحذف': { en: 'This is the main unit — it will stop being the main unit, then be deleted', fr: 'C’est l’unité principale — elle cessera d’être principale, puis sera supprimée', tr: 'Bu ana birimdir — ana birim olmaktan çıkarılacak, ardından silinecek', zh: '这是主单位——将先取消其主单位身份，然后删除' },
+
+  // ═══ الوحدة الرئيسية — B1 ═══
+  // (lib/adminUnits.ts وm/mUnits.ts وrep/repUnits.ts) — كل مفتاح بلغاته الأربع، وراجع كتلة WP0 أعلاه قبل الإضافة
+  // رسائل reverseFormProblem (نموذج «أعرّف الصنف بالكرتون») — و«اسم الوحدة طويل» و«سعر الوحدة رقم موجب» و«رمز الوحدة الضريبي…» قائمة
+  'اسم الوحدة الرئيسية مطلوب': { en: 'The main unit name is required', fr: 'Le nom de l’unité principale est requis', tr: 'Ana birim adı gereklidir', zh: '主单位名称为必填项' },
+  'اسم الوحدة الفرعية مطلوب': { en: 'The sub-unit name is required', fr: 'Le nom de la sous-unité est requis', tr: 'Alt birim adı gereklidir', zh: '子单位名称为必填项' },
+  'الوحدة الرئيسية والفرعية باسمين مختلفين': { en: 'The main unit and the sub-unit must have different names', fr: 'L’unité principale et la sous-unité doivent avoir des noms différents', tr: 'Ana birim ile alt birimin adları farklı olmalıdır', zh: '主单位与子单位的名称必须不同' },
+  'عدد الوحدات الفرعية في الرئيسية عدد صحيح من 2 إلى 100000': { en: 'The number of sub-units in the main unit must be a whole number from 2 to 100000', fr: 'Le nombre de sous-unités dans l’unité principale doit être un entier de 2 à 100000', tr: 'Ana birimdeki alt birim sayısı 2 ile 100000 arasında bir tam sayı olmalıdır', zh: '主单位所含子单位数须为2至100000之间的整数' },
+  'سعر الوحدة الرئيسية مطلوب': { en: 'The main unit price is required', fr: 'Le prix de l’unité principale est requis', tr: 'Ana birim fiyatı gereklidir', zh: '主单位价格为必填项' },
+
+  // ═══ الوحدة الرئيسية — B3 ═══
+  // (lib/importData.ts وcontent/templates.ts)
+
+  // ═══ الوحدة الرئيسية — B4 ═══
+  // (components/ApiDocs.tsx وlib/apiDocsCatalog.ts وlib/apiDocsData.ts)
+
+  // ═══ الوحدة الرئيسية — B5 ═══
+  // (لوحة الويب: ProductModal وProductsPage وInvoiceModal وVanStockPage والمستودع والتقارير وPlatformPage …)
+
+  // ═══ الوحدة الرئيسية — B6 ═══
+  // (الجوال /m وتطبيق المندوب)
 };
 
 // ثابتة الهوية ما لم تتغيّر اللغة — كـuseT (انظر سببه هناك)

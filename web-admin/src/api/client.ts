@@ -81,24 +81,41 @@ export const customerApi = {
 export const productApi = {
   list: (params?: Record<string, string | number>) => api.get('/products', { params }),
   get: (id: string) => api.get(`/products/${id}`),
+  // «الوحدة الرئيسية»: الجسم يقبل units[] وprimaryUnitName للإنشاء العكسي الذرّي (الصنف ووحداته ورئيسيّه في معاملة واحدة)،
+  // وbasePrice اختيارياً حينها (يُشتقّ من سعر الرئيسية: derivedBasePrice). وunits بلا primaryUnitName يُتجاهل كما قبل الميزة
   create: (data: unknown) => api.post('/products', data),
+  // ومعه expectedBaseName (409 BASE_UNIT_CHANGED) وprimaryUnit (رقعة الرئيسية ذرّياً)؛ primaryUnitId في الجسم يُتجاهل
   update: (id: string, data: unknown) => api.put(`/products/${id}`, data),
   categories: () => api.get('/products/categories'),
   createCategory: (data: unknown) => api.post('/products/categories', data),
-  updatePriceTiers: (id: string, tiers: unknown) => api.put(`/products/${id}/price-tiers`, { tiers }),
+  // expectedBaseName: الأساس كما رآه النموذج (409 BASE_UNIT_CHANGED)؛ expectedPrimary: الرئيسية ومعاملها حين أُدخلت الحدود بها
+  // (409 PRIMARY_UNIT_CHANGED) — والحدود تُخزَّن بالأساس دائماً
+  updatePriceTiers: (id: string, tiers: unknown, expectedBaseName?: string, expectedPrimary?: { id: string; factor: number }) =>
+    api.put(`/products/${id}/price-tiers`, { tiers, ...(expectedBaseName && { expectedBaseName }), ...(expectedPrimary && { expectedPrimary }) }),
   remove: (id: string) => api.delete(`/products/${id}`),
-  // الوحدات المتعددة: وحدات البيع الأكبر من وحدة الأساس (كرتون = ٢٤ حبة)
-  addUnit: (id: string, data: { name: string; factor: number; price?: number | null; unitCode?: string | null }) =>
+  // «الوحدة الرئيسية» (D11): مجرّد علم — unitId: null يعيد الصنف إلى الافتراضي. expectedPrimaryUnitId (حين يُرسل) ما رآه
+  // النموذج، فيُردّ 409 PRIMARY_UNIT_CHANGED إن تغيّرت منذ فُتح الصنف، و400 PRIMARY_UNIT_INVALID لوحدة موقوفة أو لصنف آخر
+  setPrimaryUnit: (id: string, data: { unitId: string | null; expectedPrimaryUnitId?: string | null }) =>
+    api.put(`/products/${id}/primary-unit`, data),
+  // الوحدات المتعددة: وحدات البيع الأكبر من وحدة الأساس (كرتون = ٢٤ حبة). makePrimary يجعل المضافة رئيسية في المعاملة نفسها؛
+  // وإيقاف الرئيسية أو حذفها يُردّ 409 PRIMARY_UNIT_IN_USE إلا مع clearPrimary صريح (في الجسم للتعديل، وفي الاستعلام للحذف)
+  addUnit: (id: string, data: { name: string; factor: number; price?: number | null; unitCode?: string | null; makePrimary?: boolean; expectedBaseName?: string }) =>
     api.post(`/products/${id}/units`, data),
-  updateUnit: (id: string, unitId: string, data: { name?: string; factor?: number; price?: number | null; unitCode?: string | null; isActive?: boolean; sortOrder?: number }) =>
+  updateUnit: (id: string, unitId: string, data: { name?: string; factor?: number; price?: number | null; unitCode?: string | null; isActive?: boolean; sortOrder?: number; clearPrimary?: boolean; expectedBaseName?: string }) =>
     api.put(`/products/${id}/units/${unitId}`, data),
-  removeUnit: (id: string, unitId: string) => api.delete(`/products/${id}/units/${unitId}`),
+  removeUnit: (id: string, unitId: string, opts?: { clearPrimary?: boolean }) =>
+    api.delete(`/products/${id}/units/${unitId}`, { params: opts?.clearPrimary ? { clearPrimary: 1 } : undefined }),
   /**
-   * تحويل صنفٍ قائم إلى وحدة أساس أصغر: وحدته الحالية تصير وحدةً بمعامل `factor`
-   * (بسعرها نفسه)، و`newBaseName` الأساس الجديد. التاريخ لا تُعاد كتابة أرقامه —
+   * «إضافة وحدة فرعية أصغر» (convert-base): وحدته الحالية تصير وحدةً بمعامل `factor`
+   * (بسعرها نفسه)، و`newBaseName` الوحدة الصغرى الجديدة. التاريخ لا تُعاد كتابة أرقامه —
    * تُوسَم صفوفه بمعاملها فقط. `expectedBaseName` يمنع تحويلاً مزدوجاً بنقرتين.
+   * keepOldBaseAsPrimary (افتراضه true في الخادم) يُبقي الوحدة الحالية «الوحدة الرئيسية»؛ dryRun معاينةٌ بلا كتابة
+   * (عدّاداتٌ وerpLinked وapiKeys وprimaryAfter)؛ acknowledgeErp وacknowledgeApi إقرارا 409 CONVERT_BASE_ERP_ACK / CONVERT_BASE_API_ACK.
    */
-  convertBase: (id: string, data: { newBaseName: string; factor: number; expectedBaseName: string; basePrice?: number }) =>
+  convertBase: (id: string, data: {
+    newBaseName: string; factor: number; expectedBaseName: string; basePrice?: number; baseUnitCode?: string | null;
+    keepOldBaseAsPrimary?: boolean; dryRun?: boolean; acknowledgeErp?: boolean; acknowledgeApi?: boolean;
+  }) =>
     api.post(`/products/${id}/convert-base`, data),
 };
 
@@ -564,10 +581,12 @@ export const vanStockApi = {
   // «تتبّع اللوط» (§٤.٧، للصنف المتتبَّع وحده): lots صفوف صريحة بالكمية الأساسية (lotId: null = غير مسمّى)؛ lotNumber
   // والتاريخان لإنشاء تشغيلة مع التحميل في شركة بلا مستودع (D4)؛ lotReason لإتلاف منتهٍ لم يُبع بتسوية نقص؛
   // deletedSalesRepId تنزيلٌ إداري من سيارة مندوب محذوف (D30، UNLOAD وحده). والردّ يحمل warnings
+  // baseUnitName («الوحدة الرئيسية» §2.7): الأساس كما يعرفه كتالوج الشاشة (product.unit) — يختلف عن أساس الصنف الآن ⇒
+  // 400 UNIT_INVALID (أعد جلب الأصناف)، وسباقٌ مع تحويل ⇒ 409 PRODUCT_UNITS_CHANGED أو 503 PRODUCT_UNITS_BUSY
   createLoad: (data: {
     salesRepId?: string; type?: string; note?: string; deletedSalesRepId?: string;
     items: {
-      productId: string; qty: number; suggestedQty?: number; expectedQty?: number;
+      productId: string; qty: number; unitId?: string | null; baseUnitName?: string | null; suggestedQty?: number; expectedQty?: number;
       lots?: LotRef[]; lotNumber?: string; productionDate?: string | null; expiryDate?: string | null; lotReason?: 'EXPIRED_UNSOLD_DESTROY';
     }[];
   }) =>
@@ -596,7 +615,8 @@ export const warehouseApi = {
     costsIncludeTax?: boolean;                                  // هل الأسعار المكتوبة شاملة الضريبة
     // unitCost للوارد فقط. «تتبّع اللوط» (§٤.٤): سطرٌ = تشغيلةٌ واحدة — lotId لقائمة، أو lotNumber وتاريخاها لجديدة
     // (الانتهاء إلزامي مع الصلاحية)، وnull صريح لغير المسمّى في التسوية بالزيادة. والردّ 201 يحمل lot وwarnings
-    items: { productId: string; qty: number; unitCost?: number; lotId?: string | null; lotNumber?: string; productionDate?: string | null; expiryDate?: string | null }[];
+    // baseUnitName («الوحدة الرئيسية» §2.8): الأساس كما رآه النموذج — كما في vanStockApi.createLoad
+    items: { productId: string; qty: number; unitId?: string | null; baseUnitName?: string | null; unitCost?: number; lotId?: string | null; lotNumber?: string; productionDate?: string | null; expiryDate?: string | null }[];
   }) => api.post('/warehouse/entries', data),
 };
 
@@ -652,7 +672,8 @@ export const attendanceAdminApi = {
 // «طلب بضاعة» المناديب — المعلّق منها يظهر في نافذة «طلب مخزون»؛ updatedAt نسخةٌ يرفض الخادم ما يخالفها (409)
 export const repStockRequestApi = {
   pending: () => api.get('/rep-stock-requests'),
-  update: (id: string, data: { updatedAt: string; items: { productId: string; qty: number }[] }) => api.put(`/rep-stock-requests/${id}`, data),
+  // unitId حين غيّر الإداري الوحدة (null للأساس)؛ baseUnitName («الوحدة الرئيسية» §2.9) الأساس كما رآه النموذج لسطرٍ بالأساس
+  update: (id: string, data: { updatedAt: string; items: { productId: string; qty: number; unitId?: string | null; baseUnitName?: string | null }[] }) => api.put(`/rep-stock-requests/${id}`, data),
   reject: (id: string, updatedAt: string) => api.post(`/rep-stock-requests/${id}/reject`, { updatedAt }),
   send: (data: { ref: string; requests: { id: string; updatedAt: string }[] }) => api.post('/rep-stock-requests/send', data),
 };

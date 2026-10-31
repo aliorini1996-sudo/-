@@ -8,11 +8,12 @@
  * (يقبلها الخادم في إعادة الرفع X-FS-Replay، القاعدة ٧). والبند بلا وحدة = وحدة الأساس بمعامل ١،
  * فجسم الصنف الذي لا وحدات له يُرسَل حرفياً كما قبل الميزة.
  *
- * ═══ الافتراض في البيع = أكبر وحدة ═══
+ * ═══ الافتراض في البيع = الوحدة الرئيسية، وإلّا أكبر وحدة ═══
  * بعد تحويل الصنف إلى أساسٍ أصغر (حبة) تصير وحدته القديمة (كرتون) وحدةً بمعامل؛ ولو بقي الافتراض
  * الأساسَ لصار نقر المندوب المعتاد «+١ حبة» بعد أن كان «+١ كرتون» — خطأٌ صامت ٢٤ ضعفاً.
+ * والصنف ذو «الوحدة الرئيسية» (القاعدة ١٢) افتراضه رئيسيّته (كرتون) ولو كانت له طبلية أكبر منها.
  */
-import { factorOf, formatQty, roundQty, sumBase, toBase, unitPriceOf, type UnitDef } from '../lib/units';
+import { baseNameKey, factorOf, formatQty, primaryUnitOf, roundQty, sumBase, toBase, unitPriceOf, type UnitDef } from '../lib/units';
 
 /** وحدة بيعٍ يختارها المندوب للبند */
 export interface UnitChoice {
@@ -25,8 +26,11 @@ export interface UnitChoice {
   price: number | null;
 }
 
-/** الصنف كما يصل من الكتالوج — الكاش القديم بلا `units` يُقرأ صنفاً بوحدةٍ واحدة لا يُخمَّن له */
-export interface UnitProduct { unit?: string | null; units?: UnitDef[] | null }
+/**
+ * الصنف كما يصل من الكتالوج — الكاش القديم بلا `units` يُقرأ صنفاً بوحدةٍ واحدة لا يُخمَّن له. و`primaryUnitId`
+ * («الوحدة الرئيسية»، القاعدة ١٢) عرضٌ وافتراضٌ فقط: لا يدخل جسم بندٍ أبداً، وغيابه (كاشٌ قديم) = سلوك ما قبل الميزة
+ */
+export interface UnitProduct { unit?: string | null; units?: UnitDef[] | null; primaryUnitId?: string | null }
 
 /** لقطة الوحدة على بند السلّة/التحميل/الطلب */
 export interface LineUnit {
@@ -62,14 +66,27 @@ export function unitChoices(p: UnitProduct | null | undefined): UnitChoice[] {
   return [baseChoice(p), ...extra];
 }
 
+/**
+ * رقاقة «الوحدة الرئيسية» من `unitChoices(p)` (معرّفها = `primaryUnitOf(p)?.id`)، أو null بلا رئيسية صالحة. لا تغيّر
+ * ترتيب الرقاقات: `unitChoices(p)[0]` يبقى الأساس دائماً (D5، I4) لأن rebaseRow وrefreshLineUnit يعتمدان عليه
+ */
+export function primaryChoice(p: UnitProduct | null | undefined): UnitChoice | null {
+  const id = primaryUnitOf(p)?.id;
+  if (!id) return null;
+  return unitChoices(p).find(c => c.id === String(id)) ?? null;
+}
+
 /** للصنف أكثر من وحدة؟ — وإلّا لا منتقي ولا تغيّر في الشاشة */
 export function hasUnitChoice(p: UnitProduct | null | undefined): boolean {
   return unitChoices(p).length > 1;
 }
 
-/** وحدة البيع الافتراضية: الأكبر (انظر رأس الملف) */
+/**
+ * وحدة البيع الافتراضية: الوحدة الرئيسية الصالحة (`primaryChoice`)، وإلّا الأكبر كما قبل الميزة حرفاً (انظر رأس الملف).
+ * كاشٌ قديم بلا `primaryUnitId` أو رئيسيةٌ تالفة/موقوفة ⇒ الأكبر — وهو الكرتون في الحالة الشائعة (§6.5)
+ */
 export function defaultChoice(p: UnitProduct | null | undefined): UnitChoice {
-  return unitChoices(p).reduce((a, b) => (b.factor > a.factor ? b : a));
+  return primaryChoice(p) ?? unitChoices(p).reduce((a, b) => (b.factor > a.factor ? b : a));
 }
 
 /** الوحدة بمعرّفها (null = الأساس)؛ معرّفٌ لم يعد بين النشطة ⇒ null فيقرّر المستدعي */
@@ -176,7 +193,7 @@ export function cartBadge(lines: QtyLine[], productId: string, p: UnitProduct | 
   if (mine.length === 0) return 0;
   if (mine.length === 1) return mine[0].qty || 0;
   if (new Set(mine.map(l => factorOf(l))).size === 1) return roundQty(mine.reduce((s, l) => s + (Number(l.qty) || 0), 0));
-  return formatQty(sumBase(mine), p?.units ?? [], String(p?.unit ?? ''));
+  return formatQty(sumBase(mine), p?.units ?? [], String(p?.unit ?? ''), primaryUnitOf(p));
 }
 
 /** عدد الشريط السفلي: مجموع الكميات كما كان ما دامت البنود كلّها بوحدة الأساس، وإلّا عدد البنود */
@@ -189,8 +206,38 @@ export function cartCount(lines: QtyLine[]): number {
 /**
  * كمية بالأساس للعرض: «٢ كرتون و٣ حبة» لصنفٍ له وحدات، و`null` لغيره فيعرض المستدعي رقمه كما كان.
  * `num` منسّق أرقام الشاشة (خيار الشركة في شكل الأرقام) — يُطبَّق على أرقام `formatQty` وحدها.
+ * وللصنف ذي الوحدة الرئيسية يقف عندها («52 كرتون و2 قارورة» لا «1 طبلية و…»، والصفر «0 كرتون»).
  */
 export function unitsText(baseQty: number, p: UnitProduct | null | undefined, num: (n: number) => string): string | null {
   if (!p || !hasUnitChoice(p)) return null;
-  return formatQty(Number(baseQty) || 0, p.units ?? [], String(p.unit ?? '')).replace(/\d+(?:\.\d+)?/g, m => num(Number(m)));
+  return formatQty(Number(baseQty) || 0, p.units ?? [], String(p.unit ?? ''), primaryUnitOf(p)).replace(/\d+(?:\.\d+)?/g, m => num(Number(m)));
+}
+
+/**
+ * أسعار العميل الخاصّة (`/products/customer-prices/:id` أو كاشها `custprices:<id>`) **على أساس الكتالوج الحالي** —
+ * السعر مخزَّنٌ لوحدة الأساس، والصفّ يحمل `unit` = أساس الصنف لحظة قراءته (§2.2-ح). فكاشُ أسعارٍ من قبل تحويل الأساس
+ * (unit = كرتون) مع كتالوجٍ من بعده (الأساس قارورة، والكرتون وحدة ٢٤) يُقسم على ٢٤ — وإلّا صار سعر الكرتون للعميل
+ * ٤٨ × ٢٤ = ١١٥٢. والقاعدة:
+ *  • صفٌّ بلا `unit` (كاشٌ قديم) أو `unit` = أساس الصنف الآن (`baseNameKey` على الطرفين) ⇒ السعر كما هو حرفاً.
+ *  • `unit` اسم وحدةٍ نشطة للصنف ⇒ السعر ÷ معاملها (بلا تقريبٍ وسيط، كاستيراد الأسعار).
+ *  • وإلّا (اسمٌ مجهول: تحويلٌ في الاتجاه الآخر أو وحدةٌ حُذفت) ⇒ يُسقط السعر، فيعود البند إلى سعر الصنف ويحكم الخادم.
+ *  • صنفٌ غائب عن الكتالوج ⇒ كما هو.
+ */
+export function rebaseCustPrices(
+  rows: Array<{ productId: string; price: number | string; unit?: string | null }> | null | undefined,
+  products: Array<UnitProduct & { id: string }> | null | undefined,
+): Record<string, number> {
+  const byId = new Map((products ?? []).filter(p => p && p.id).map(p => [String(p.id), p] as const));
+  const out: Record<string, number> = {};
+  for (const r of rows ?? []) {
+    if (!r || r.productId == null) continue;
+    const price = Number(r.price);
+    const p = byId.get(String(r.productId));
+    const seen = baseNameKey(r.unit);
+    if (!p || !seen || seen === baseNameKey(p.unit)) { out[r.productId] = price; continue; }
+    const u = (Array.isArray(p.units) ? p.units : [])
+      .find(x => x && x.isActive !== false && baseNameKey(x.name) === seen && Number.isFinite(Number(x.factor)) && Number(x.factor) > 0);
+    if (u) out[r.productId] = price / Number(u.factor);
+  }
+  return out;
 }
