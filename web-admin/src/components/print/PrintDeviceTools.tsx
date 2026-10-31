@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from '
 import { AlertTriangle, Bluetooth, Check, FlaskConical, Info, Link2, Printer, Ruler } from 'lucide-react';
 import { useTr } from '../../i18n/strings';
 import {
-  PRINT_NOTES, PRINT_SAMPLE_WATERMARK, type DevicePrintChoice, type PrintProfile,
+  PRINT_NOTES, PRINT_SAMPLE_WATERMARK, geometry, type DevicePrintChoice, type PrintProfile,
 } from '../../lib/print/printSettings';
 import { DIRECT_PRINT_FALLBACK, DirectPrintError, PrintRefusedError } from '../../lib/print/printErrors';
 import { buildCalibrationDocument, sampleBannerHtml, sampleInvoiceDoc } from '../../lib/print/calibration';
@@ -11,7 +11,7 @@ import { printHtmlDirect, printNodeDirect, supportsDirect, transportFor, type Pr
 import { printHtmlDocument, printPageNode } from '../../rep/printPage';
 import { printThermalInvoice } from '../../rep/thermal';
 import { PrintLookContext, lookFor } from '../../rep/printLook';
-import { withConnection } from '../../rep/printDevice';
+import { directOpts, withConnection } from '../../rep/printDevice';
 import type { Company, InvoiceDoc } from '../../rep/RepDocuments';
 import { DirectPrintOverlay, useDirectPrint } from './DirectPrintUi';
 
@@ -88,7 +88,7 @@ export default function PrintDeviceTools({ profile, systemProfile, name, company
   };
 
   const calibrate = (via: PrintTransport) => guarded(via, async (port) => {
-    if (port) return direct.run((ui) => printHtmlDirect(port, buildCalibrationDocument(profile, tr, { mode: 'raster', name }), profile, 'pages', ui), { slow: choice?.slow });
+    if (port) return direct.run((ui) => printHtmlDirect(port, buildCalibrationDocument(profile, tr, { mode: 'raster', name }), profile, 'pages', ui), directOpts(choice));
     await printHtmlDocument(buildCalibrationDocument(sysProfile, tr, { mode: 'system', name }), sysProfile.paper.widthMm);
   });
 
@@ -98,13 +98,13 @@ export default function PrintDeviceTools({ profile, systemProfile, name, company
       let outcome: 'done' | 'cancelled' = 'done';
       await printThermalInvoice(sample, {
         profile: port ? profile : sysProfile, tr, sampleBanner: banner,
-        raster: port ? async (html) => { outcome = await direct.run((ui) => printHtmlDirect(port, html, profile, 'copies', ui), { slow: choice?.slow }); } : null,
+        raster: port ? async (html) => { outcome = await direct.run((ui) => printHtmlDirect(port, html, profile, 'copies', ui), directOpts(choice)); } : null,
       });
       return outcome;
     }
     const node = sheetRef.current;
     if (!node) throw new Error('sample sheet');
-    if (port) return direct.run((ui) => printNodeDirect(port, node, profile, [tr('الأصل'), tr('نسخة')], ui, banner), { slow: choice?.slow });
+    if (port) return direct.run((ui) => printNodeDirect(port, node, profile, [tr('الأصل'), tr('نسخة')], ui, banner), directOpts(choice));
     await printPageNode(node, profile, [tr('الأصل'), tr('نسخة')], banner);
   });
 
@@ -139,6 +139,30 @@ export default function PrintDeviceTools({ profile, systemProfile, name, company
                   <button type="button" onClick={link} className="btn-secondary !py-1 !px-3 text-xs"><Link2 size={13} /> {linked ? tr('ربط طابعة أخرى') : tr('ربط الطابعة')}</button>
                 </div>
                 <p className="text-[11px] text-[#6E6557] flex items-start gap-1.5"><Info size={12} className="mt-0.5 shrink-0" />{tr('اقرن الطابعة أولا من إعدادات البلوتوث في الجوال')}</p>
+                {/* لغة أوامر الطابعة الحرارية — صفة الطابعة المربوطة: ورقة الفحص الذاتي تقولها («Instruction Set») */}
+                {profile.printer === 'thermal' && geometry(profile).feed === 'roll' && (
+                  <div className="space-y-1.5" data-printer-lang="">
+                    <p className="text-xs font-semibold text-[#44403a]">{tr('لغة أوامر الطابعة')}</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {([['escpos', tr('إيصالات ESC/POS (الأغلب)')], ['tspl', tr('ملصقات TSPL')]] as const).map(([v, label]) => {
+                        const on = (choice?.lang ?? 'escpos') === v;
+                        return (
+                          <button key={v} type="button" aria-pressed={on} onClick={() => { setMsg(null); onChoice(withConnection(choice, { lang: v })); }}
+                            className={`rounded-lg border-2 px-2 py-1.5 text-xs font-semibold ${on ? 'border-[#E15A30] bg-[#FBEBE2] text-[#C94E28]' : 'border-[#E9E1D3] bg-white text-[#44403a]'}`}>
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[11px] text-[#6E6557]">{tr('من ورقة الفحص الذاتي للطابعة سطر Instruction Set')}</p>
+                    {choice?.lang === 'tspl' && (
+                      <label className="flex items-start gap-2 cursor-pointer">
+                        <input type="checkbox" className="w-4 h-4 mt-0.5 accent-[#E15A30]" checked={!!choice?.tsplFlip} onChange={(e) => onChoice(withConnection(choice, { tsplFlip: e.target.checked }))} />
+                        <span className="text-xs text-[#44403a]">{tr('اقلب اتجاه الطباعة — إن خرجت الورقة مقلوبة')}</span>
+                      </label>
+                    )}
+                  </div>
+                )}
                 <label className="flex items-start gap-2 cursor-pointer">
                   <input type="checkbox" className="w-4 h-4 mt-0.5 accent-[#E15A30]" checked={!!choice?.slow} onChange={(e) => onChoice(withConnection(choice, { slow: e.target.checked }))} />
                   <span className="text-xs text-[#44403a]">{tr('رابط بطيء — لطابعة تفقد أجزاء من الورقة')}</span>

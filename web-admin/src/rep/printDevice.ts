@@ -11,7 +11,7 @@
  */
 import { useEffect, useState } from 'react';
 import { tokenTenantId } from './jwt';
-import { DOC_KINDS, PROFILE_ID_RE, type DevicePrintChoice, type PrintDocKind } from '../lib/print/printSettings';
+import { DEVICE_ROLL_WIDTHS, DOC_KINDS, PROFILE_ID_RE, type DeviceRollMm, type DevicePrintChoice, type PrintDocKind } from '../lib/print/printSettings';
 
 export interface PrintIdentity { tenantId: string; userId: string }
 
@@ -60,15 +60,20 @@ export function parseDeviceChoice(raw: string | null): DevicePrintChoice | null 
   const hint = (o.portHint as { name?: unknown } | undefined)?.name;
   if (typeof hint === 'string' && hint.length <= 80) out.portHint = { name: hint };
   if (o.slow === true) out.slow = true;
-  if (o.rollMm === 80 || o.rollMm === 58) out.rollMm = o.rollMm;
+  if ((DEVICE_ROLL_WIDTHS as readonly unknown[]).includes(o.rollMm)) out.rollMm = o.rollMm as DeviceRollMm;
   if (o.rollVia === 'bt-serial') out.rollVia = 'bt-serial';
+  if (o.lang === 'tspl') out.lang = 'tspl';
+  if (o.tsplFlip === true) out.tsplFlip = true;
   return Object.keys(out).length ? out : null;
 }
 
 /**
  * طريقة الاتصال ورابطٌ بطيء (M3) — «نظام الطباعة» هو الافتراضي فلا يُحفظ صراحةً؛ والنتيجة الفارغة null (كما withKindChoice).
  */
-export function withConnection(choice: DevicePrintChoice | null, patch: { transport?: 'bt-serial' | 'system'; slow?: boolean; rollMm?: 58 | 80 }): DevicePrintChoice | null {
+export function withConnection(
+  choice: DevicePrintChoice | null,
+  patch: { transport?: 'bt-serial' | 'system'; slow?: boolean; rollMm?: DeviceRollMm; lang?: 'escpos' | 'tspl'; tsplFlip?: boolean },
+): DevicePrintChoice | null {
   const next: DevicePrintChoice = { ...(choice ?? {}) };
   if (patch.transport !== undefined) {
     if (patch.transport === 'bt-serial') next.transport = 'bt-serial';
@@ -80,8 +85,17 @@ export function withConnection(choice: DevicePrintChoice | null, patch: { transp
   }
   // عرض رول الجهاز (deviceRollProfile): 58 الافتراضي فلا يُحفظ صراحةً
   if (patch.rollMm !== undefined) {
-    if (patch.rollMm === 80) next.rollMm = 80;
+    if (patch.rollMm !== 58) next.rollMm = patch.rollMm;
     else delete next.rollMm;
+  }
+  // لغة الطابعة: ESC/POS الافتراضي فلا يُحفظ؛ والعودة إليه تُسقط قلب اتجاه TSPL معه
+  if (patch.lang !== undefined) {
+    if (patch.lang === 'tspl') next.lang = 'tspl';
+    else { delete next.lang; delete next.tsplFlip; }
+  }
+  if (patch.tsplFlip !== undefined) {
+    if (patch.tsplFlip) next.tsplFlip = true;
+    else delete next.tsplFlip;
   }
   return Object.keys(next).length ? next : null;
 }
@@ -104,6 +118,11 @@ export function fromRollView(original: DevicePrintChoice | null, next: DevicePri
   if (original?.transport) out.transport = original.transport;
   if (next?.transport === 'bt-serial') out.rollVia = 'bt-serial';
   return Object.keys(out).length ? out : null;
+}
+
+/** خيارات الإرسال المباشر من اختيار الجهاز (useDirectPrint().run): الرابط البطيء ولغة الطابعة واتجاه TSPL */
+export function directOpts(choice: DevicePrintChoice | null | undefined): { slow?: boolean; lang?: 'tspl'; tsplFlip?: boolean } {
+  return { slow: choice?.slow, lang: choice?.lang, tsplFlip: choice?.tsplFlip };
 }
 
 /** اختيار قالبٍ لنوع مستند — null يعيده لاختيار الشركة؛ والنتيجة الفارغة null */

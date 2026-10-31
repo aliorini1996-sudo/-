@@ -4,7 +4,7 @@ import { useTr } from '../i18n/strings';
 import { backdropClose } from '../lib/backdropClose';
 import { useBackClose } from '../lib/useBackClose';
 import {
-  DOC_KIND_LABELS, PRESET_LABELS, PRINTER_SHORT, TEMPLATE_LABELS, deviceProfilesFor, profileDisplayName,
+  DEVICE_ROLL_WIDTHS, DOC_KIND_LABELS, PRESET_LABELS, PRINTER_SHORT, TEMPLATE_LABELS, deviceProfilesFor, profileDisplayName,
   type DevicePrintChoice, type PrintDocKind, type PrintProfile, type PrintSettingsV1,
 } from '../lib/print/printSettings';
 import PrintDeviceTools from '../components/print/PrintDeviceTools';
@@ -96,13 +96,13 @@ export default function PrintDeviceSheet({ settings, kind, current, deviceRoll =
         {deviceRoll && (
           <div className="rounded-xl bg-[#FAF7F0] border border-[#E9E1D3] p-3 mb-3 space-y-2" data-device-roll="">
             <p className="text-xs font-bold text-[#44403a]">{tr('عرض ورق الطابعة')}</p>
-            <div className="grid grid-cols-2 gap-2">
-              {([58, 80] as const).map((mm) => {
+            <div className="grid grid-cols-3 gap-2">
+              {DEVICE_ROLL_WIDTHS.map((mm) => {
                 const on = (choice?.rollMm ?? 58) === mm;
                 return (
                   <button key={mm} type="button" aria-pressed={on} onClick={() => onChoice(withConnection(choice, { rollMm: mm }))}
                     className={`rounded-xl border-2 px-3 py-2 text-sm font-semibold transition-colors ${on ? 'border-[#E15A30] bg-[#FBEBE2] text-[#C94E28]' : 'border-[#E9E1D3] bg-white text-[#44403a]'}`}>
-                    {tr(mm === 80 ? 'رول 80 مم' : 'رول 58 مم')}
+                    {tr(mm === 112 ? 'رول 112 مم' : mm === 80 ? 'رول 80 مم' : 'رول 58 مم')}
                   </button>
                 );
               })}
