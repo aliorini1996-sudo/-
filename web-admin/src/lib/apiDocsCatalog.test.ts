@@ -86,6 +86,7 @@ const documented = new Set(API_DOC_GROUPS.flatMap((g) => g.endpoints.map((e) => 
 test('خريطة التركيب تعرف الموجّهات المتداخلة تحت /company — ولا تنسب مساراً لملف غيره', () => {
   assert.deepEqual([...(MOUNTS.get('/company/payment-methods') ?? [])], ['paymentMethodsConfig']);
   assert.deepEqual([...(MOUNTS.get('/company/print-settings') ?? [])], ['printSettings']);
+  assert.deepEqual([...(MOUNTS.get('/company/print-texts') ?? [])], ['printTexts']);
   assert.deepEqual([...(MOUNTS.get('/company/teams') ?? [])], ['teams']);
   assert.deepEqual([...(MOUNTS.get('/invoices') ?? [])].sort(), ['invoices', 'invoicesEinvoiceDocs']);
   assert.equal(ownerOf('/company/payment-methods')?.prefix, '/company/payment-methods', 'لا reports.ts ولا company.ts');
@@ -111,7 +112,7 @@ test('كل مسار في المستند مركَّبٌ في الخادم بطر�
  * تُضاف لموجّهٍ منها لا تسقط من دليل الربط بصمت (كما سقطت لوكيشن وطرق الدفع قبل هذا).
  */
 const COVERED_ROUTERS = [
-  'locations', 'paymentMethodsConfig', 'printSettings', 'attendanceAdmin', 'teams', 'reports', 'invoices', 'salesReps', 'vanStock', 'warehouse', 'receipts',
+  'locations', 'paymentMethodsConfig', 'printSettings', 'printTexts', 'attendanceAdmin', 'teams', 'reports', 'invoices', 'salesReps', 'vanStock', 'warehouse', 'receipts',
   'repStockRequests', 'products', 'lots', 'import',
 ];
 const NOT_DOCUMENTED: Readonly<Record<string, string>> = {

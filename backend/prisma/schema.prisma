@@ -1303,6 +1303,9 @@ model CompanySettings {
   // «إدارة طرق الدفع» v1 (services/paymentMethodsCore.ts، routes/paymentMethodsConfig.ts): أسماء الطرق المدمجة وتعطيلها والطرق
   // المخصّصة بأساسها — null = سلوك اليوم حرفياً (الطرق الخمس بأسمائها الافتراضية مفعّلة)، فعمود إضافي بلا افتراضي لا يغيّر شركة قائمة
   paymentMethodsConfig     Json?
+  // «نصوص المطبوعات» v1 (services/printTextsCore.ts، routes/printTexts.ts): صياغة نصوص الفاتورة وسند القبض وإخفاء غير الإلزامي
+  // منها ولغة ثانية على الورقة — null = نصوص اليوم حرفياً، فعمود إضافي بلا افتراضي لا يغيّر شركة قائمة عند db push
+  printTexts               Json?
 
   // --- التدويل (المرحلة 0): أعمدة إضافية بقيم افتراضية — لا فقد بيانات ---
   countryCode      String  @default("SA") // ISO alpha-2: دولة الشركة

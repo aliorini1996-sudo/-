@@ -4,7 +4,7 @@
 // نفسها. فالخطر أن يقرأ حارسٌ جديد شيئاً لا تحمله تلك الهوية (حقل جلسة، أو صلاحية من التوكن، أو impersonated) فيُحجب المفتاح
 // بصمت عن ميزةٍ يَعِد بها المستند. هنا: Prisma مزيّف في ذاكرة الوحدات، والمصادقة **الحقيقية** تحوّل المفتاح إلى هوية، ثم تُشغَّل
 // وسائط كل موجّه وحرّاس كل مسارٍ جديد بالترتيب حتى المعالج (لا المعالج نفسه: منطقه مختبرٌ في اختبار ميزته) — لوكيشن،
-// طرق الدفع وإدارتها، إعدادات الطباعة، المرتجع من الويب، تعديل البصمات، الفرق، فكّ جهاز البصمة. والأعلام المطفأة والصلاحيات
+// طرق الدفع وإدارتها، إعدادات الطباعة ونصوص المطبوعات، المرتجع من الويب، تعديل البصمات، الفرق، فكّ جهاز البصمة. والأعلام المطفأة والصلاحيات
 // المسحوبة و«قراءة فقط» تمنع المفتاح برموزها نفسها كما تمنع الجلسة. و«تتبّع اللوط» (/api/lots، المواصفة §٥.٢ «وصول المفتاح»):
 // المفتاح هوية مستخدم شركة فيمرّ بحرّاس الموجّه كلها، و«قراءة فقط» لا يتجاوز GET، والعَلَم المطفأ LOTS_NOT_ALLOWED. لا قاعدة ولا شبكة.
 import { test } from 'node:test';
@@ -65,6 +65,7 @@ const R = {
   reports: require('../routes/reports').default,
   paymentMethods: require('../routes/paymentMethodsConfig').default,
   printSettings: require('../routes/printSettings').default,
+  printTexts: require('../routes/printTexts').default,
   teams: require('../routes/teams').default,
   attendance: require('../routes/attendanceAdmin').default,
   invoices: require('../routes/invoices').default,
@@ -177,6 +178,9 @@ const OTHERS: Case[] = [
   C('teams', 'delete', '/:id', '/api/company/teams/t9', true),
   C('teams', 'put', '/:id/members', '/api/company/teams/t9/members', true),
   C('teams', 'put', '/:id/products', '/api/company/teams/t9/products', true),
+  // «نصوص المطبوعات»: القراءة لكل مسجّل والحفظ بصلاحية إعدادات الشركة — بلا عَلَم
+  C('printTexts', 'get', '/', '/api/company/print-texts', true),
+  C('printTexts', 'put', '/', '/api/company/print-texts', true),
 ];
 // «تتبّع اللوط»: كل مسارات الموجّه — الثابتة قبل /:id (المواصفة §٥.١)
 const LOTS: Case[] = [
@@ -272,6 +276,7 @@ test('الصلاحية المسحوبة من مُصدِر المفتاح تسر�
   await denied('canManageCompanySettings', PAYMENT_METHODS[3]);
   await denied('canManageReceipts', PAYMENT_METHODS[4]);
   await denied('canManageCompanySettings', OTHERS[1]); // حفظ إعدادات الطباعة
+  await denied('canManageCompanySettings', OTHERS.find((x) => x.router === 'printTexts' && x.method === 'put')!); // حفظ نصوص المطبوعات
   await denied('canManageInvoices', OTHERS[3]); // المرتجع من الويب
   await denied('canManageTracking', OTHERS.find((c) => c.router === 'attendance')!);
   // «تتبّع اللوط»: إدارة مخزون السيارات لكل الموجّه، والمنتجات للتفعيل الجماعي، والإعدادات لطباعة التشغيلة

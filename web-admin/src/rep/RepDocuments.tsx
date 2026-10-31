@@ -22,6 +22,8 @@ import {
   LEGACY_THERMAL_ID, PRINT_NOTES, deviceProfilesFor, pdfProfileOf, printKindOf, profileDisplayName, profileFor, readPrintSettings,
 } from '../lib/print/printSettings';
 import { PRINT_LOOK_CSS, PrintLookContext, lookFor, lookNeedsCss, lookRootAttrs, qrSlotStyle, usePrintLook } from './printLook';
+import { makePrintTexts, normalizePrintTexts, type PrintTexts } from '../lib/print/printTexts';
+import { DocTextsContext, useDocTexts, usePrintTextsPreview } from './printTextsContext';
 import { printPageNode } from './printPage';
 import { currentPrintIdentity, usePrintDeviceChoice, withKindChoice } from './printDevice';
 import PrintDeviceSheet from './PrintDeviceSheet';
@@ -77,6 +79,9 @@ export interface Company {
   // «تتبّع اللوط» — يصلان مع ردّ /company، وغيابهما (نسخة قديمة) إطفاء؛ lotOnInvoice يطبع التشغيلة على فاتورة العميل (lotFlagsOf)
   lotTrackingEnabled?: boolean;
   lotOnInvoice?: boolean;
+  // «نصوص المطبوعات» v1 — خام كما في العمود (null = نصوص اليوم). لا يُقرأ إلا عبر normalizePrintTexts (lib/print/printTexts.ts):
+  // صياغة نصوص الفاتورة والسند وإخفاء غير الإلزامي منها ولغةٌ ثانية على الورقة
+  printTexts?: unknown;
 }
 
 /**
@@ -358,6 +363,63 @@ export function brandColor(company?: Company | null): string {
   return company?.primaryColor || BRAND;
 }
 
+// ─── «نصوص المطبوعات» (lib/print/printTexts.ts): صياغة الشركة وإخفاؤها ولغتها الثانية — للفاتورة والسند وحدهما ───
+
+/** محلِّل نصوص الفاتورة/السند من صفّ الشركة (ومعاينة المحرّر إن لفّته) — و`standard` من قرار الطباعة لا من التخمين */
+function useTextsFor(company: Company | null | undefined, standard: boolean, uiTr: (ar: string) => string): PrintTexts {
+  const preview = usePrintTextsPreview();
+  const raw = company?.printTexts;
+  const texts = useMemo(() => normalizePrintTexts(raw), [raw]);
+  return useMemo(() => makePrintTexts(texts, uiTr, { standard, preview }), [texts, uiTr, standard, preview]);
+}
+
+/** سطر اللغة الثانية بجانب العربي (A4 عريضة) أو تحته (رؤوس الأعمدة والعنوان) — معزولٌ اتجاهاً كي لا تنقلب علاماته */
+// الهامش يمينٌ صريح: الورقة RTL دائماً والسطر اللاتيني على يسار العربي — وinline-start لعنصرٍ ltr يقع يساره فيلتصق النصّان
+const ALT_INLINE: React.CSSProperties = { fontSize: '0.8em', fontWeight: 400, opacity: 0.72, marginRight: 6, unicodeBidi: 'isolate' };
+const ALT_STACK: React.CSSProperties = { display: 'block', fontSize: '0.78em', fontWeight: 400, opacity: 0.85, unicodeBidi: 'isolate' };
+
+/** نصٌّ قابلٌ للنقر في معاينة المحرّر (والمخفيُّ في الإعداد باهتٌ مشطوب) — وخارج المعاينة محتواه كما هو */
+function Pick({ pt, k, children }: { pt: PrintTexts; k: string; children: React.ReactNode }) {
+  const p = pt.preview;
+  if (!p) return <>{children}</>;
+  const off = pt.hiddenInSettings(k);
+  return (
+    <span data-pt-key={k} onClick={(e) => { e.preventDefault(); e.stopPropagation(); p.onPick(k); }}
+      style={{ cursor: 'pointer', borderRadius: 3, outline: p.active === k ? '2px solid #E15A30' : '1px dashed rgba(225,90,48,0.55)', outlineOffset: 1, ...(off ? { textDecoration: 'line-through', opacity: 0.35 } : null) }}>
+      {children}
+    </span>
+  );
+}
+
+/**
+ * مُنشئ التسميات `L(key, ar)`: صياغة الشركة (أو `tr(ar)` كاليوم) ومعها سطر اللغة الثانية بجانبها أو تحتها (stack). بلا لغةٍ ثانية
+ * ولا معاينة يعيد السلسلة نفسها — فلا يتغيّر DOM شركةٍ بلا نصوص حرفاً. `suffix` (نسبة الضريبة) يُلحق بالعربي وحده — مرّةً واحدة.
+ */
+function labeler(pt: PrintTexts) {
+  return (key: string, ar: string, o?: { suffix?: string; stack?: boolean }): React.ReactNode => {
+    const text = o?.suffix ? `${pt.text(key, ar)} ${o.suffix}` : pt.text(key, ar);
+    const alt0 = pt.alt(key, ar);
+    if (!alt0 && !pt.preview) return text;
+    const alt = alt0 ? <span dir="ltr" style={o?.stack ? ALT_STACK : ALT_INLINE}>{alt0}</span> : null;
+    return <Pick pt={pt} k={key}>{text}{alt}</Pick>;
+  };
+}
+
+/** قيمةٌ ثابتة من القاموس (نقدي/آجل/تقسيط وعبارات القرار) بلغة القالب، وبجانبها اللغة الثانية — لا تُعاد صياغتها */
+function valuer(pt: PrintTexts) {
+  return (ar: string): React.ReactNode => {
+    const text = pt.tr(ar);
+    const alt = pt.valueAlt(ar, text);
+    return alt ? <>{text}<span dir="ltr" style={ALT_INLINE}>{alt}</span></> : text;
+  };
+}
+
+/** عنوان المستند للترويسة: العربي وتحته اللغة الثانية — وفي المعاينة قابلٌ للنقر */
+function titleNode(pt: PrintTexts, key: string, t: { text: string; alt: string | null }): React.ReactNode {
+  if (!t.alt && !pt.preview) return t.text;
+  return <Pick pt={pt} k={key}>{t.text}{t.alt ? <span dir="ltr" style={{ display: 'block', fontSize: '0.62em', fontWeight: 600, opacity: 0.85, unicodeBidi: 'isolate' }}>{t.alt}</span> : null}</Pick>;
+}
+
 /**
  * جذر الورقة بمظهر الطباعة (rep/printLook.ts): حشوته، وسماته (أحادي اللون/خط عريض/مقاس الـPDF)، وأسلوبه المحصور آخرَ
  * عنصرٍ فيه (فتبقى الترويسة أولاً — بعدها يُدرج سطر «الأصل/نسخة» في rep/printPage.ts). المظهر الافتراضي يعيد PAGE نفسه
@@ -372,29 +434,38 @@ function useSheet(): { style: React.CSSProperties; attrs: ReturnType<typeof look
   };
 }
 
-export function Header({ title, company }: { title: string; company?: Company | null }) {
-  const tr = useTr();
+export function Header({ title, company }: { title: React.ReactNode; company?: Company | null }) {
+  const uiTr = useTr();
   /* مظهر الطباعة (rep/printLook.ts): الإبرية ترويستها «بسيط» إجباراً، والشعار والعنوان والهاتف والبريد خيارات القالب —
    * واسم الشركة ورقمها الضريبي وسجلّها والعنوان (title) لا تُخفى بأيّ مظهر. والمظهر الافتراضي = ترويسة اليوم حرفياً. */
   const look = usePrintLook();
+  /* «نصوص المطبوعات»: الفاتورة والسند يوفّران محلِّلهما (DocTextsContext) — صياغة التسميات ولغةٌ ثانية واسم الشركة بها، والهاتف
+   * والبريد يُخفيان؛ والرقم الضريبي والسجل والعنوان إلزامية لا تُخفى. بقية المستندات بلا محلِّل فتطبع ترويستها كاليوم. */
+  const docPt = useDocTexts();
+  const pt = useMemo(() => docPt ?? makePrintTexts(null, uiTr), [docPt, uiTr]);
+  const tr = pt.tr;
+  const L = labeler(pt);
+  const nameAlt = pt.companyNameAlt
+    ? <span dir="ltr" style={{ display: 'block', fontSize: '0.62em', fontWeight: 600, opacity: 0.8, unicodeBidi: 'isolate' }}>{pt.companyNameAlt}</span>
+    : null;
   const brand = brandColor(company);
   const style = look.minimalHeader ? 'minimal' : (company?.headerStyle || 'classic');
   const logo = look.showLogo ? (company?.logo || null) : null;
 
-  const line = (label: string, value?: string, light?: boolean) =>
+  const line = (label: React.ReactNode, value?: string, light?: boolean, valueAlt?: string | null) =>
     value ? <div style={{ fontSize: 11.5, color: light ? 'rgba(255,255,255,0.9)' : '#4b5563' }}>
-      <span style={{ color: light ? 'rgba(255,255,255,0.65)' : '#9ca3af' }}>{label}: </span>{value}</div> : null;
+      <span style={{ color: light ? 'rgba(255,255,255,0.65)' : '#9ca3af' }}>{label}: </span>{value}{valueAlt ? <span dir="ltr" style={ALT_INLINE}>{valueAlt}</span> : null}</div> : null;
 
   const Logo = ({ size }: { size: number }) =>
     logo ? <img src={logo} alt="" style={{ width: size, height: size, objectFit: 'contain', borderRadius: 6 }} /> : null;
 
   const infoLines = (light?: boolean) => (
     <>
-      {look.showContact && line(tr('العنوان'), company?.address, light)}
-      {line(tr('الرقم الضريبي'), company?.taxNumber, light)}
-      {line(tr('السجل التجاري'), company?.commercialReg, light)}
-      {look.showContact && line(tr('هاتف'), company?.phone, light)}
-      {look.showContact && line(tr('البريد'), company?.email, light)}
+      {look.showContact && line(L('h.address', 'العنوان'), company?.address, light, pt.companyAddressAlt)}
+      {line(L('h.taxNumber', 'الرقم الضريبي'), company?.taxNumber, light)}
+      {line(L('h.commercialReg', 'السجل التجاري'), company?.commercialReg, light)}
+      {look.showContact && !pt.hidden('h.phone') && line(L('h.phone', 'هاتف'), company?.phone, light)}
+      {look.showContact && !pt.hidden('h.email') && line(L('h.email', 'البريد'), company?.email, light)}
     </>
   );
 
@@ -405,7 +476,7 @@ export function Header({ title, company }: { title: string; company?: Company | 
         <div style={{ background: brand, borderRadius: 12, padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <Logo size={46} />
-            <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>{company?.name || tr('اسم الشركة')}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>{company?.name || tr('اسم الشركة')}{nameAlt}</div>
           </div>
           <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>{title}</div>
         </div>
@@ -421,7 +492,7 @@ export function Header({ title, company }: { title: string; company?: Company | 
         <div style={{ maxWidth: 440 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
             <Logo size={34} />
-            <div style={{ fontSize: 19, fontWeight: 700, color: '#1f2937' }}>{company?.name || tr('اسم الشركة')}</div>
+            <div style={{ fontSize: 19, fontWeight: 700, color: '#1f2937' }}>{company?.name || tr('اسم الشركة')}{nameAlt}</div>
           </div>
           {infoLines(false)}
         </div>
@@ -436,7 +507,7 @@ export function Header({ title, company }: { title: string; company?: Company | 
       <div style={{ maxWidth: 440 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
           <Logo size={42} />
-          <div style={{ fontSize: 20, fontWeight: 700, color: brand }}>{company?.name || tr('اسم الشركة')}</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: brand }}>{company?.name || tr('اسم الشركة')}{nameAlt}</div>
         </div>
         {infoLines(false)}
       </div>
@@ -447,7 +518,7 @@ export function Header({ title, company }: { title: string; company?: Company | 
   );
 }
 
-function InfoBox({ label, value }: { label: string; value: string }) {
+function InfoBox({ label, value }: { label: React.ReactNode; value: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 6 }}>
       <span style={{ color: '#6b7280', fontSize: 13 }}>{label}: </span>
@@ -458,7 +529,7 @@ function InfoBox({ label, value }: { label: string; value: string }) {
 
 // ============ قالب الفاتورة ============
 export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(({ doc }, ref) => {
-  const tr = useTr();
+  const uiTr = useTr();
   const sheet = useSheet();
   // خيارات القالب: اسم المندوب ووحدة الصنف والتوقيعات والتذييل — ولا خيار يمسّ العنوان أو الرمز أو الضريبة (§1.6)
   const look = usePrintLook();
@@ -475,7 +546,16 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
     { isReturn: !!doc.isReturn, buyerHasTaxNumber: !isSimplified, saudi: isSaudiDoc(doc.company) },
     doc.zatca,
   );
-  const docTitle = tr(zDecision.title);
+  /* «نصوص المطبوعات»: صياغة الشركة وإخفاؤها ولغتها الثانية (L للتسميات، V للقيم الثابتة) — و`tr` لما ليس في القائمة: لغة
+   * الواجهة كاليوم، أو العربية لشركةٍ لها نصوص. العنوان من القرار دائماً، وصياغة الشركة له لمستندات المرحلة الأولى وحدها. */
+  const pt = useTextsFor(doc.company, zDecision.standardLayout, uiTr);
+  const tr = pt.tr;
+  const L = labeler(pt);
+  const V = valuer(pt);
+  const docTitle = pt.title(zDecision.title, { isReturn: !!doc.isReturn, phase2: !!doc.zatca });
+  const custBoxShown = !pt.hidden('cust.heading') || !pt.hidden('cust.name') || !!doc.customer.taxNumber
+    || (!!doc.customer.businessName && !pt.hidden('cust.business')) || (!!doc.customer.commercialReg && !pt.hidden('cust.commercialReg'))
+    || (!!doc.customer.phone && !pt.hidden('cust.phone')) || (!!fullAddress(doc.customer) && !pt.hidden('cust.address'));
   /* رمز QR للمرحلة الأولى — يُبنى محلياً من إعدادات الشركة. لا يُبنى أبداً لصفٍّ من المرحلة الثانية:
    * رمزه مختومٌ من الخادم، ورمزٌ من صنعنا فوق عنوان «فاتورة ضريبية» ورقةٌ كاذبة. */
   const qrValue = zDecision.qr.source === 'phase1' && doc.company?.taxNumber
@@ -494,8 +574,9 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
   // في نافذة الالتباس (بين نشر الاسعار الشاملة ورد العمودين الى الصافي) قبل وجود العمود
   const inclusiveDoc = doc.pricesIncludeTax ?? (doc.tax > 0 && Math.abs((doc.subtotal - doc.discount) - doc.total) < 0.005);
   return (
+    <DocTextsContext.Provider value={pt}>
     <div ref={ref} style={sheet.style} {...sheet.attrs}>
-      <Header title={docTitle} company={doc.company} />
+      <Header title={titleNode(pt, doc.isReturn ? 'inv.returnTitle' : 'inv.title', docTitle)} company={doc.company} />
 
       {/* المرحلة الثانية: بيئة المحاكاة تُوسَم على الورقة نفسها — ورقة بروفة لا تُقرأ فاتورةً حقيقية */}
       {zDecision.watermark && (
@@ -512,38 +593,39 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
 
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, marginBottom: 20 }}>
         <div style={{ flex: 1, background: doc.isReturn ? '#fffbeb' : '#eff6ff', borderRadius: 10, padding: 14 }}>
-          <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{doc.isReturn ? tr('بيانات المرتجع') : tr('بيانات الفاتورة')}</div>
-          <InfoBox label={doc.isReturn ? tr('رقم المرتجع') : tr('رقم الفاتورة')} value={doc.number} />
-          <InfoBox label={tr('التاريخ')} value={formatDate(doc.date)} />
-          <InfoBox label={tr('وقت الإصدار')} value={formatTime(doc.date)} />
-          {!doc.isReturn && <InfoBox label={tr('النوع')} value={
-            doc.paymentPlan === 'INSTALLMENT' ? tr('تقسيط') : (doc.type === 'CASH' ? tr('نقدي') : tr('آجل'))
+          {!pt.hidden(doc.isReturn ? 'inv.returnInfoHeading' : 'inv.infoHeading') && <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{doc.isReturn ? L('inv.returnInfoHeading', 'بيانات المرتجع') : L('inv.infoHeading', 'بيانات الفاتورة')}</div>}
+          <InfoBox label={doc.isReturn ? L('inv.returnNumber', 'رقم المرتجع') : L('inv.number', 'رقم الفاتورة')} value={doc.number} />
+          <InfoBox label={L('inv.date', 'التاريخ')} value={formatDate(doc.date)} />
+          <InfoBox label={L('inv.time', 'وقت الإصدار')} value={formatTime(doc.date)} />
+          {!doc.isReturn && !pt.hidden('inv.type') && <InfoBox label={L('inv.type', 'النوع')} value={
+            doc.paymentPlan === 'INSTALLMENT' ? V('تقسيط') : (doc.type === 'CASH' ? V('نقدي') : V('آجل'))
           } />}
-          {doc.deliveryDate && <InfoBox label={tr('تاريخ التسليم')} value={formatDate(doc.deliveryDate)} />}
-          {look.showRepName && <InfoBox label={tr('المندوب')} value={doc.repName} />}
+          {doc.deliveryDate && <InfoBox label={L('inv.deliveryDate', 'تاريخ التسليم')} value={formatDate(doc.deliveryDate)} />}
+          {look.showRepName && !pt.hidden('inv.rep') && <InfoBox label={L('inv.rep', 'المندوب')} value={doc.repName} />}
         </div>
-        <div style={{ flex: 1, background: '#f8fafc', borderRadius: 10, padding: 14 }}>
-          <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{tr('بيانات العميل')}</div>
-          <InfoBox label={tr('الاسم')} value={doc.customer.name} />
-          {doc.customer.businessName && <InfoBox label={tr('المنشأة')} value={doc.customer.businessName} />}
-          {doc.customer.commercialReg && <InfoBox label={tr('السجل التجاري')} value={doc.customer.commercialReg} />}
-          {doc.customer.taxNumber && <InfoBox label={tr('الرقم الضريبي')} value={doc.customer.taxNumber} />}
-          {doc.customer.phone && <InfoBox label={tr('الجوال')} value={doc.customer.phone} />}
-          {addr && <InfoBox label={tr('العنوان')} value={addr} />}
-        </div>
+        {/* صندوق العميل كلّه حين تُخفي الشركة كل صفوفه (المبسّطة) — لا مستطيلاً رمادياً فارغاً؛ ويأخذ صندوق الفاتورة العرض */}
+        {custBoxShown && <div style={{ flex: 1, background: '#f8fafc', borderRadius: 10, padding: 14 }}>
+          {!pt.hidden('cust.heading') && <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{L('cust.heading', 'بيانات العميل')}</div>}
+          {!pt.hidden('cust.name') && <InfoBox label={L('cust.name', 'الاسم')} value={doc.customer.name} />}
+          {doc.customer.businessName && !pt.hidden('cust.business') && <InfoBox label={L('cust.business', 'المنشأة')} value={doc.customer.businessName} />}
+          {doc.customer.commercialReg && !pt.hidden('cust.commercialReg') && <InfoBox label={L('cust.commercialReg', 'السجل التجاري')} value={doc.customer.commercialReg} />}
+          {doc.customer.taxNumber && <InfoBox label={L('cust.taxNumber', 'الرقم الضريبي')} value={doc.customer.taxNumber} />}
+          {doc.customer.phone && !pt.hidden('cust.phone') && <InfoBox label={L('cust.phone', 'الجوال')} value={doc.customer.phone} />}
+          {addr && !pt.hidden('cust.address') && <InfoBox label={L('cust.address', 'العنوان')} value={addr} />}
+        </div>}
       </div>
 
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 20 }}>
         <thead>
           <tr>
             <th style={{ ...th, borderRadius: '0 8px 0 0' }}>#</th>
-            <th style={{ ...th, textAlign: 'right' }}>{tr('الصنف')}</th>
-            <th style={th}>{tr('الكمية')}</th>
+            <th style={{ ...th, textAlign: 'right' }}>{L('col.item', 'الصنف', { stack: true })}</th>
+            <th style={th}>{L('col.qty', 'الكمية', { stack: true })}</th>
             {/* سند التسليم ينفي عن نفسه الصفة الضريبية، فلا يصرّح عمودُه بأنّ سعره شامل ضريبة القيمة المضافة */}
-            <th style={th}>{zDecision.showTaxBreakdown && inclusiveDoc ? tr('السعر شامل الضريبة') : tr('السعر')}</th>
-            <th style={th}>{tr('الخصم')}</th>
-            {zDecision.showTaxBreakdown && <th style={th}>{tr('الضريبة')}</th>}
-            <th style={{ ...th, borderRadius: '8px 0 0 0' }}>{tr('الإجمالي')}</th>
+            <th style={th}>{zDecision.showTaxBreakdown && inclusiveDoc ? L('col.priceIncl', 'السعر شامل الضريبة', { stack: true }) : L('col.price', 'السعر', { stack: true })}</th>
+            {!pt.hidden('col.discount') && <th style={th}>{L('col.discount', 'الخصم', { stack: true })}</th>}
+            {zDecision.showTaxBreakdown && !pt.hidden('col.tax') && <th style={th}>{L('col.tax', 'الضريبة', { stack: true })}</th>}
+            <th style={{ ...th, borderRadius: '8px 0 0 0' }}>{L('col.total', 'الإجمالي', { stack: true })}</th>
           </tr>
         </thead>
         <tbody>
@@ -573,12 +655,12 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
                     (مصدره الخادم في المرحلة الثانية) لا من رقم المشتري الضريبي، وإلا خالف الجسمُ العنوان */}
                 {zDecision.showTaxBreakdown && inclusiveDoc && zDecision.standardLayout && it.taxPct > 0 && (
                   <div style={{ color: '#9ca3af', fontSize: 10.5, marginTop: 2 }}>
-                    {tr('قبل الضريبة')}: {formatCurrency((it.unitPrice * 100) / (100 + Number(it.taxPct)))}
+                    {L('item.beforeTax', 'قبل الضريبة')}: {formatCurrency((it.unitPrice * 100) / (100 + Number(it.taxPct)))}
                   </div>
                 )}
               </td>
-              <td style={td}>{it.discountPct > 0 ? `${it.discountPct}%` : '-'}</td>
-              {zDecision.showTaxBreakdown && <td style={td}>{it.taxPct}%</td>}
+              {!pt.hidden('col.discount') && <td style={td}>{it.discountPct > 0 ? `${it.discountPct}%` : '-'}</td>}
+              {zDecision.showTaxBreakdown && !pt.hidden('col.tax') && <td style={td}>{it.taxPct}%</td>}
               <td style={{ ...td, fontWeight: 700 }}>{formatCurrency(it.lineTotal)}</td>
             </tr>
           ))}
@@ -586,7 +668,7 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
       </table>
       {zDecision.showTaxBreakdown && inclusiveDoc && (
         <div style={{ fontSize: 10.5, color: '#9ca3af', marginBottom: 10 }}>
-          {tr('الأسعار المعروضة شاملة ضريبة القيمة المضافة')}
+          {L('note.pricesIncl', 'الأسعار المعروضة شاملة ضريبة القيمة المضافة')}
         </div>
       )}
 
@@ -636,7 +718,7 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
               <div style={{ textAlign: 'center' }}>
                 {/* display:block (لا inline-block) — html2canvas يُسقط inline-block المحاط بحدّ فيختفي الرمز في الـPDF */}
                 <div style={slotBox} data-qr-value={look.qrSlotPx ? qrValue : undefined} data-qr-ec={look.qrSlotPx ? 'M' : undefined}><QrImage value={qrValue} size={108} /></div>
-                <div style={{ fontSize: 10, color: '#6b7280', marginTop: 6, maxWidth: 130 }}>{tr('رمز الاستجابة السريعة للفاتورة الضريبية')}</div>
+                {!pt.hidden('qr.caption') && <div style={{ fontSize: 10, color: '#6b7280', marginTop: 6, maxWidth: 130 }}>{L('qr.caption', 'رمز الاستجابة السريعة للفاتورة الضريبية')}</div>}
               </div>
             );
           }
@@ -655,24 +737,26 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
           );
         })()}
 
-        <div style={{ width: 300, fontSize: 14 }}>
-          <Row label={tr('المجموع قبل الخصم')} value={formatCurrency(doc.subtotal)} />
-          {doc.discount > 0 && <Row label={tr('الخصم')} value={`- ${formatCurrency(doc.discount)}`} color="#dc2626" />}
+        <div style={{ width: pt.lang ? 340 : 300, fontSize: 14 }}>
+          {!pt.hidden('tot.subtotal') && <Row label={L('tot.subtotal', 'المجموع قبل الخصم')} value={formatCurrency(doc.subtotal)} />}
+          {doc.discount > 0 && !pt.hidden('tot.discount') && <Row label={L('tot.discount', 'الخصم')} value={`- ${formatCurrency(doc.discount)}`} color="#dc2626" />}
           {/* سند التسليم ورقةٌ غير ضريبية: لا وعاء ولا نسبة ولا مبلغ ضريبة عليها — وإلا قُرئت فاتورةً ضريبية */}
-          {zDecision.showTaxBreakdown && doc.tax > 0 && <Row label={tr('الوعاء الخاضع للضريبة')} value={formatCurrency(doc.total - doc.tax)} />}
-          {zDecision.showTaxBreakdown && <Row label={`${inclusiveDoc ? tr('منها ضريبة القيمة المضافة') : tr('ضريبة القيمة المضافة')} ${vatRate}`} value={formatCurrency(doc.tax)} color="#1E7A52" />}
+          {zDecision.showTaxBreakdown && doc.tax > 0 && <Row label={L('tot.taxable', 'الوعاء الخاضع للضريبة')} value={formatCurrency(doc.total - doc.tax)} />}
+          {zDecision.showTaxBreakdown && <Row label={inclusiveDoc
+            ? L('tot.vatIncl', 'منها ضريبة القيمة المضافة', { suffix: vatRate })
+            : L('tot.vat', 'ضريبة القيمة المضافة', { suffix: vatRate })} value={formatCurrency(doc.tax)} color="#1E7A52" />}
           {/* ورقةٌ بلا تفصيل ضريبة وأسعارها غير شاملة: «المجموع − الخصم» لا يساوي الإجمالي، والفرق بلا سطر يفسّره.
               فيقوله عنوانُ السطر نفسه — بلا نسبة ولا وعاء، فتبقى الورقة غير ضريبية */}
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderTop: `2px solid ${brand}`, marginTop: 6, fontWeight: 700, fontSize: 18, color: doc.isReturn ? '#b45309' : brand }}>
-            <span>{doc.isReturn ? tr('إجمالي المرتجع دائن')
-              : !zDecision.showTaxBreakdown && !inclusiveDoc && doc.tax > 0 ? tr('المبلغ المستحق شامل الضرائب')
-              : tr('الإجمالي النهائي')}</span>
+            <span>{doc.isReturn ? L('tot.returnGrand', 'إجمالي المرتجع دائن')
+              : !zDecision.showTaxBreakdown && !inclusiveDoc && doc.tax > 0 ? V('المبلغ المستحق شامل الضرائب')
+              : L('tot.grand', 'الإجمالي النهائي')}</span>
             <span>{formatCurrency(doc.total)}</span>
           </div>
           {!doc.isReturn && doc.type === 'CREDIT' && doc.remainingAmt !== undefined && (
             <>
-              <Row label={tr('المدفوع')} value={formatCurrency(doc.paidAmt ?? 0)} color="#16a34a" />
-              <Row label={tr('المتبقي')} value={formatCurrency(doc.remainingAmt)} color="#dc2626" />
+              {!pt.hidden('tot.paid') && <Row label={L('tot.paid', 'المدفوع')} value={formatCurrency(doc.paidAmt ?? 0)} color="#16a34a" />}
+              {!pt.hidden('tot.remaining') && <Row label={L('tot.remaining', 'المتبقي')} value={formatCurrency(doc.remainingAmt)} color="#dc2626" />}
             </>
           )}
         </div>
@@ -681,13 +765,13 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
       {/* جدول الأقساط — الورقة تُثبت صحّتها للعميل: سطر المجموع يقابل الإجمالي */}
       {!doc.isReturn && doc.paymentPlan === 'INSTALLMENT' && (doc.installments?.length ?? 0) > 0 && (
         <div style={{ marginTop: 24 }}>
-          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8, color: '#1F1A13' }}>{tr('جدول الأقساط')}</div>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8, color: '#1F1A13' }}>{L('inst.heading', 'جدول الأقساط')}</div>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr>
                 <th style={{ ...th, borderRadius: '8px 0 0 0' }}>#</th>
-                <th style={th}>{tr('تاريخ الاستحقاق')}</th>
-                <th style={{ ...th, borderRadius: '0 8px 0 0' }}>{tr('المبلغ')}</th>
+                <th style={th}>{L('inst.dueDate', 'تاريخ الاستحقاق', { stack: true })}</th>
+                <th style={{ ...th, borderRadius: '0 8px 0 0' }}>{L('inst.amount', 'المبلغ', { stack: true })}</th>
               </tr>
             </thead>
             <tbody>
@@ -699,28 +783,28 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
                 </tr>
               ))}
               <tr>
-                <td style={{ ...td, borderTop: '2px solid #E15A30', fontWeight: 700 }} colSpan={2}>{tr('مجموع الأقساط')}</td>
+                <td style={{ ...td, borderTop: '2px solid #E15A30', fontWeight: 700 }} colSpan={2}>{L('inst.sum', 'مجموع الأقساط')}</td>
                 <td style={{ ...td, borderTop: '2px solid #E15A30', textAlign: 'center', fontWeight: 700 }}>
                   {formatCurrency(doc.installments!.reduce((s, r) => s + Number(r.amount), 0))}
                 </td>
               </tr>
             </tbody>
           </table>
-          <p style={{ fontSize: 11, color: '#6E6557', marginTop: 6 }}>
-            {tr('الضريبة مستحقة بالكامل على هذه الفاتورة عند التوريد والأقساط جدول سداد لا تجزئة ضريبية')}
-          </p>
+          {!pt.hidden('inst.note') && <p style={{ fontSize: 11, color: '#6E6557', marginTop: 6 }}>
+            {L('inst.note', 'الضريبة مستحقة بالكامل على هذه الفاتورة عند التوريد والأقساط جدول سداد لا تجزئة ضريبية')}
+          </p>}
         </div>
       )}
 
-      {look.showSignatures && (
+      {look.showSignatures && (!pt.hidden('sig.recipient') || !pt.hidden('sig.rep')) && (
         <div style={{ marginTop: isSignatureSrc(doc.recipientSignature) || isSignatureSrc(doc.repSignature) ? 28 : 60, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', color: '#6b7280', fontSize: 13 }}>
-          <SignatureSlot src={doc.recipientSignature} label={tr('توقيع المستلم')} />
-          <SignatureSlot src={doc.repSignature} label={tr('توقيع المندوب')} />
+          {!pt.hidden('sig.recipient') && <SignatureSlot src={doc.recipientSignature} label={L('sig.recipient', 'توقيع المستلم')} />}
+          {!pt.hidden('sig.rep') && <SignatureSlot src={doc.repSignature} label={L('sig.rep', 'توقيع المندوب')} />}
         </div>
       )}
 
       <div style={{ marginTop: 30, textAlign: 'center', color: '#9ca3af', fontSize: 12, borderTop: '1px solid #eef2f7', paddingTop: 12 }}>
-        {look.footerText ?? tr('شكرا لتعاملكم معنا')} — {doc.company?.name || ''}
+        <FooterLine pt={pt} thanks={look.footerText !== null && !thanksReworded(pt) ? look.footerText : L('foot.thanks', 'شكرا لتعاملكم معنا')} name={doc.company?.name || ''} />
         {/* بصمة المنصّة: كل فاتورة مطبوعة تسوّق للمنصّة لدى تجّار الجملة والتجزئة (حلقة فيروسية) */}
         <div style={{ marginTop: 6, fontSize: 10, color: '#c3bcae' }}>
           {tr('صدرت عبر منصة')} Field Sales · fieldsa.net
@@ -728,26 +812,46 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
       </div>
       {sheet.css}
     </div>
+    </DocTextsContext.Provider>
   );
 });
 PrintableInvoice.displayName = 'PrintableInvoice';
 
+/** أعادت الشركة صياغة سطر الشكر في «نصوص المطبوعات» — فتسبق صياغتُها نصّ التذييل في قالب الطباعة (ما تراه في المعاينة يُطبع) */
+const thanksReworded = (pt: PrintTexts): boolean => pt.on && pt.text('foot.thanks', '') !== '';
+
+/**
+ * سطر الشكر واسم الشركة في التذييل — كلٌّ يُخفى وحده («نصوص المطبوعات»). بلا نصوص: «الشكر — الاسم» كاليوم حرفياً.
+ * الإخفاء يسبق كل شيء، ثم صياغة الشركة للشكر، ثم نصّ التذييل في قالب الطباعة (footerText)، ثم الافتراضي.
+ */
+function FooterLine({ pt, thanks, name }: { pt: PrintTexts; thanks: React.ReactNode | null; name: string }) {
+  const t = pt.hidden('foot.thanks') ? null : thanks;
+  const n = pt.hidden('foot.company') ? null : <Pick pt={pt} k="foot.company">{name}</Pick>;
+  return <>{t}{t !== null && n !== null ? ' — ' : null}{n}</>;
+}
+
 // ============ قالب سند القبض ============
 export const PrintableReceipt = forwardRef<HTMLDivElement, { doc: ReceiptDoc }>(({ doc }, ref) => {
-  const tr = useTr();
+  const uiTr = useTr();
   const sheet = useSheet();
   const look = usePrintLook();
   const brand = brandColor(doc.company);
   const addr = fullAddress(doc.customer);
+  // «نصوص المطبوعات» كقالب الفاتورة — والسند لا تصنيف ضريبيّ له (standard: false)
+  const pt = useTextsFor(doc.company, false, uiTr);
+  const tr = pt.tr;
+  const L = labeler(pt);
+  const receiptTitle = pt.hidden('rcp.title') ? '' : titleNode(pt, 'rcp.title', { text: pt.text('rcp.title', 'سند قبض'), alt: pt.alt('rcp.title', 'سند قبض') });
   return (
+    <DocTextsContext.Provider value={pt}>
     <div ref={ref} style={sheet.style} {...sheet.attrs}>
-      <Header title={tr('سند قبض')} company={doc.company} />
+      <Header title={receiptTitle} company={doc.company} />
 
       <div style={{ marginBottom: 20 }}>
-        <InfoBox label={tr('رقم السند')} value={doc.number} />
-        <InfoBox label={tr('التاريخ')} value={formatDate(doc.date)} />
-        <InfoBox label={tr('وقت الإصدار')} value={formatTime(doc.date)} />
-        {look.showRepName && <InfoBox label={tr('المندوب')} value={doc.repName} />}
+        <InfoBox label={L('rcp.number', 'رقم السند')} value={doc.number} />
+        <InfoBox label={L('rcp.date', 'التاريخ')} value={formatDate(doc.date)} />
+        {!pt.hidden('rcp.time') && <InfoBox label={L('rcp.time', 'وقت الإصدار')} value={formatTime(doc.date)} />}
+        {look.showRepName && !pt.hidden('rcp.rep') && <InfoBox label={L('rcp.rep', 'المندوب')} value={doc.repName} />}
       </div>
 
       {doc.cancelled && (
@@ -757,39 +861,40 @@ export const PrintableReceipt = forwardRef<HTMLDivElement, { doc: ReceiptDoc }>(
       )}
 
       <div style={{ background: '#f0fdf4', border: '2px solid #16a34a', borderRadius: 14, padding: 24, textAlign: 'center', marginBottom: 20 }}>
-        <div style={{ color: '#15803d', fontSize: 14, marginBottom: 8 }}>{tr('المبلغ المستلم')}</div>
+        <div style={{ color: '#15803d', fontSize: 14, marginBottom: 8 }}>{L('rcp.amount', 'المبلغ المستلم')}</div>
         <div style={{ fontSize: 38, fontWeight: 700, color: '#15803d' }}>{formatCurrency(doc.amount)}</div>
       </div>
 
       <ReceiptInvoicesBox doc={doc} />
 
       <div style={{ background: '#f8fafc', borderRadius: 10, padding: 16, marginBottom: 20 }}>
-        <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{tr('بيانات العميل')}</div>
-        <InfoBox label={tr('استلمنا من السيد')} value={doc.customer.name} />
-        {doc.customer.businessName && <InfoBox label={tr('المنشأة')} value={doc.customer.businessName} />}
-        {doc.customer.commercialReg && <InfoBox label={tr('السجل التجاري')} value={doc.customer.commercialReg} />}
-        {doc.customer.taxNumber && <InfoBox label={tr('الرقم الضريبي')} value={doc.customer.taxNumber} />}
-        {doc.customer.phone && <InfoBox label={tr('الجوال')} value={doc.customer.phone} />}
-        {addr && <InfoBox label={tr('العنوان')} value={addr} />}
+        {!pt.hidden('rcp.customerHeading') && <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{L('rcp.customerHeading', 'بيانات العميل')}</div>}
+        <InfoBox label={L('rcp.from', 'استلمنا من السيد')} value={doc.customer.name} />
+        {doc.customer.businessName && !pt.hidden('rcp.business') && <InfoBox label={L('rcp.business', 'المنشأة')} value={doc.customer.businessName} />}
+        {doc.customer.commercialReg && !pt.hidden('rcp.commercialReg') && <InfoBox label={L('rcp.commercialReg', 'السجل التجاري')} value={doc.customer.commercialReg} />}
+        {doc.customer.taxNumber && !pt.hidden('rcp.taxNumber') && <InfoBox label={L('rcp.taxNumber', 'الرقم الضريبي')} value={doc.customer.taxNumber} />}
+        {doc.customer.phone && !pt.hidden('rcp.phone') && <InfoBox label={L('rcp.phone', 'الجوال')} value={doc.customer.phone} />}
+        {addr && !pt.hidden('rcp.address') && <InfoBox label={L('rcp.address', 'العنوان')} value={addr} />}
         <div style={{ height: 8 }} />
         {/* «إدارة طرق الدفع»: اسم الشركة للطريقة (مخصّصة أو مدمجة سُمّيت) كما كتبته، وإلا الافتراضي مترجماً كما اليوم */}
-        <InfoBox label={tr('طريقة الدفع')} value={methodLabelFor(doc.company, doc.paymentMethod, doc.paymentMethodKey, tr)} />
-        {doc.notes && <InfoBox label={tr('ملاحظات')} value={doc.notes} />}
+        {!pt.hidden('rcp.method') && <InfoBox label={L('rcp.method', 'طريقة الدفع')} value={methodLabelFor(doc.company, doc.paymentMethod, doc.paymentMethodKey, tr)} />}
+        {doc.notes && !pt.hidden('rcp.notes') && <InfoBox label={L('rcp.notes', 'ملاحظات')} value={doc.notes} />}
       </div>
 
       <div style={{ marginTop: 80, display: 'flex', justifyContent: 'space-between', color: '#6b7280', fontSize: 13 }}>
-        <div>{tr('توقيع الدافع')}: ........................</div>
-        <div>{tr('توقيع المستلم المندوب')}: ........................</div>
+        {!pt.hidden('rcp.sigPayer') && <div>{L('rcp.sigPayer', 'توقيع الدافع')}: ........................</div>}
+        {!pt.hidden('rcp.sigCollector') && <div>{L('rcp.sigCollector', 'توقيع المستلم المندوب')}: ........................</div>}
       </div>
 
       <div style={{ marginTop: 30, textAlign: 'center', color: '#9ca3af', fontSize: 12, borderTop: '1px solid #eef2f7', paddingTop: 12 }}>
-        {doc.company?.name || ''}
+        {pt.hidden('foot.company') ? null : <Pick pt={pt} k="foot.company">{doc.company?.name || ''}</Pick>}
         <div style={{ marginTop: 6, fontSize: 10, color: '#c3bcae' }}>
           {tr('صدرت عبر منصة')} Field Sales · fieldsa.net
         </div>
       </div>
       {sheet.css}
     </div>
+    </DocTextsContext.Provider>
   );
 });
 PrintableReceipt.displayName = 'PrintableReceipt';
@@ -800,7 +905,12 @@ PrintableReceipt.displayName = 'PrintableReceipt';
  * بمبلغه. والفائض عن الفواتير يُسمّى رصيداً دائناً لا يُترك صامتاً.
  */
 function ReceiptInvoicesBox({ doc }: { doc: ReceiptDoc }) {
-  const tr = useTr();
+  const uiTr = useTr();
+  // «نصوص المطبوعات»: محلِّل السند من سياقه (لا يُرسم هذا الصندوق خارج السند)
+  const docPt = useDocTexts();
+  const pt = useMemo(() => docPt ?? makePrintTexts(null, uiTr), [docPt, uiTr]);
+  const tr = pt.tr;
+  const L = labeler(pt);
   const view = receiptLinkView(doc, currencyDecimals(getActiveCurrency()));
   if (view.kind === 'unknown') return null;
   const box: React.CSSProperties = { border: '1.5px solid #cbd5e1', borderRadius: 12, padding: '14px 18px', marginBottom: 20 };
@@ -815,23 +925,24 @@ function ReceiptInvoicesBox({ doc }: { doc: ReceiptDoc }) {
   const showAmounts = !single || view.unallocated > 0;
   return (
     <div style={box}>
+      {/* «نصوص المطبوعات»: التسمية المخفية تسقط ويبقى رقم الفاتورة ومبلغها — ربط السند بفاتورته لا يُخفى */}
       {single ? (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
-          <span style={{ color: '#475569', fontSize: 14 }}>{tr('مقابل الفاتورة رقم')}</span>
+        <div style={{ display: 'flex', justifyContent: pt.hidden('rcp.forInvoice') ? 'center' : 'space-between', alignItems: 'baseline', gap: 12 }}>
+          {!pt.hidden('rcp.forInvoice') && <span style={{ color: '#475569', fontSize: 14 }}>{L('rcp.forInvoice', 'مقابل الفاتورة رقم')}</span>}
           <span style={{ fontSize: 22, fontWeight: 700, color: '#0f172a', direction: 'ltr' }}>{view.links[0].number}</span>
         </div>
       ) : (
-        <div style={{ color: '#475569', fontSize: 14, marginBottom: 8 }}>{tr('مقابل الفواتير')}</div>
+        !pt.hidden('rcp.forInvoices') && <div style={{ color: '#475569', fontSize: 14, marginBottom: 8 }}>{L('rcp.forInvoices', 'مقابل الفواتير')}</div>
       )}
       {showAmounts && view.links.map((l) => (
         <div key={l.number} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 14, padding: '5px 0', borderTop: single ? 'none' : '1px solid #eef2f7' }}>
-          <span>{tr('فاتورة رقم')} <b style={{ direction: 'ltr', unicodeBidi: 'embed' }}>{l.number}</b></span>
+          <span>{pt.hidden('rcp.invoiceNo') ? null : <>{L('rcp.invoiceNo', 'فاتورة رقم')} </>}<b style={{ direction: 'ltr', unicodeBidi: 'embed' }}>{l.number}</b></span>
           <span style={{ fontWeight: 700 }}>{formatCurrency(l.amount)}</span>
         </div>
       ))}
-      {view.unallocated > 0 && (
+      {view.unallocated > 0 && !pt.hidden('rcp.credit') && (
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13, padding: '5px 0', borderTop: '1px solid #eef2f7', color: '#475569' }}>
-          <span>{tr('رصيد دائن للعميل غير مخصص لفاتورة')}</span>
+          <span>{L('rcp.credit', 'رصيد دائن للعميل غير مخصص لفاتورة')}</span>
           <span style={{ fontWeight: 700 }}>{formatCurrency(view.unallocated)}</span>
         </div>
       )}
@@ -1440,7 +1551,7 @@ export const PrintableStockRequest = forwardRef<HTMLDivElement, { doc: StockRequ
 });
 PrintableStockRequest.displayName = 'PrintableStockRequest';
 
-function Row({ label, value, color }: { label: string; value: string; color?: string }) {
+function Row({ label, value, color }: { label: React.ReactNode; value: string; color?: string }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', color: color || '#374151' }}>
       <span>{label}</span>
@@ -1450,7 +1561,7 @@ function Row({ label, value, color }: { label: string; value: string; color?: st
 }
 
 /** خانة توقيع آخر الفاتورة: الصورة فوق خطٍّ وتسمية، أو سطر نقاطٍ للتوقيع باليد على الورق */
-function SignatureSlot({ src, label }: { src?: string | null; label: string }) {
+function SignatureSlot({ src, label }: { src?: string | null; label: React.ReactNode }) {
   if (!isSignatureSrc(src)) return <div>{label}: ........................</div>;
   return (
     <div style={{ textAlign: 'center', minWidth: 170 }}>
