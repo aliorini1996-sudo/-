@@ -31,6 +31,8 @@ export function isCardPayId(v: unknown): v is string {
 // Chrome لا يفتح تطبيقاً من رابط intent:// إلا بإيماءة مستخدم، والإيماءة تنقضي بعد ثوانٍ قليلة من النقر (نحو ٥ في Chromium).
 // الرابط يصل بعد طلبٍ شبكي: إن تأخر أكثر من هذا يُفتح من نقرةٍ جديدة لا تلقائياً
 const LAUNCH_GESTURE_MS = 3000;
+// صلاحية رمز التسليم على الخادم (LAUNCH_TTL_MS)
+const LAUNCH_TOKEN_TTL_MS = 10 * 60_000;
 
 /** عمليةٌ أُصدرت ولم يُفتح رابطها بعد — المعلّقة تُحفظ لحظة الفتح، والرمز لا يُفتح بعد انتهائه */
 interface PreparedLaunch { uri: string; expiresAt: number; pending: CardPayPending }
@@ -116,10 +118,11 @@ export function CardPaySheet({ customer, onClose }: { customer: { id: string; na
       if (!alive.current) return;
       // وتغيّرت الفاتورة أو المبلغ أثناء الطلب: الرد لما لم يعد على الشاشة — يُهمل (رمزه لم يُستبدل فلا يحجز شيئاً)
       if (seq !== reqSeq.current) { setBusy(false); return; }
-      const d = res.data.data as { id: string; amount: number; launchUri: string; launchExpiresAt: string };
+      const d = res.data.data as { id: string; amount: number; launchUri: string };
       const prepared: PreparedLaunch = {
         uri: d.launchUri,
-        expiresAt: Date.parse(d.launchExpiresAt) || clickedAt + 10 * 60_000,
+        // بساعة الجوال من لحظة النقر (قبل إنشاء الرمز على الخادم) — لا بوقت انتهاء الخادم: ساعة الجوال قد تنحرف دقائق
+        expiresAt: clickedAt + LAUNCH_TOKEN_TTL_MS,
         pending: { id: d.id, invoiceNumber: picked.number, amount: d.amount, at: 0, repId: currentRepId() },
       };
       if (Date.now() - clickedAt <= LAUNCH_GESTURE_MS) { openLaunch(prepared); return; }

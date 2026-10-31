@@ -4890,7 +4890,9 @@ export default function RepApp() {
     if (prev && prev !== u.id) { await refClear(); clearAiSession(); vanLotsRef.current = null; setVanLots(null); }
     // عملية بطاقةٍ معلّقة لمندوبٍ آخر (خرج قسراً فلم تُمسح) لا تُعرض لمن دخل بعده — فاتورتها ومبلغها ليسا له
     const pendingCard = readPendingCardPay();
-    if (pendingCard?.repId && pendingCard.repId !== u.id) { clearPendingCardPay(); setCardPayView(null); }
+    if (pendingCard?.repId && pendingCard.repId !== u.id) clearPendingCardPay();
+    // والمعروضة في الذاكرة من تحميلٍ سابق (قد انقضت مهلتها في التخزين): نافذةٌ مخفية لغيره تحجب عرض عمليته هو عند الرجوع
+    setCardPayView((cur) => (cur?.pending?.repId && cur.pending.repId !== u.id ? null : cur));
     await forgetForeignPush(u.id); // اشتراك تنبيهاتٍ على الجهاز لحسابٍ خرج قسراً لا يبقى لمن دخل
     localStorage.setItem('rep_token', t);
     localStorage.setItem('rep_user', JSON.stringify(u));

@@ -99,6 +99,7 @@ class CardPayActivity : AppCompatActivity() {
     private var escapeAllowed = false
     private var returned = false
     private var resumed = false
+    private var superseded = false // وصل رابط تحصيلٍ أحدث: لا شراء على هذه إلا بتأكيدٍ من شاشة التنبيه
     // رجوعٌ تلقائي (بعد النتيجة أو المهلة) وقع والشاشة في الخلفية: يُؤجَّل إلى عودتها — لا يمحو (CLEAR_TASK) صفحةً يستعملها المندوب
     private var returnOnResume = false
 
@@ -161,8 +162,8 @@ class CardPayActivity : AppCompatActivity() {
                     startActivity(
                         Intent(this, CardPayActivity::class.java)
                             .putExtra(EXTRA_FOCUS, true)
-                            // الرابط نفسه مرتين (نقرةٌ مزدوجة) لا يُسقط الأولى؛ رابطٌ آخر يُسقطها إن لم يكن شراءٌ جارياً
-                            .putExtra(EXTRA_NEW_LINK, intent.data != null && intent.data != other.intent?.data)
+                            // رابطٌ آخر برمزٍ صالح الشكل وحده «جديد» — الرابط نفسه مرتين (نقرةٌ مزدوجة) أو رابطٌ تالف لا يمسّ الأولى
+                            .putExtra(EXTRA_NEW_LINK, isNewLink(intent, other.intent))
                             .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
                     )
                 } catch (e: ActivityNotFoundException) {
@@ -209,16 +210,38 @@ class CardPayActivity : AppCompatActivity() {
         if (returned) return
         val newLink =
             if (intent.getBooleanExtra(EXTRA_FOCUS, false)) intent.getBooleanExtra(EXTRA_NEW_LINK, false)
-            else intent.data != null && intent.data != this.intent?.data
+            else isNewLink(intent, this.intent)
         if (!newLink) return
-        when (stage) {
+        when {
             // الرمز في طريقه إلى الخادم، أو القارئ حيّ، أو النتيجة قادمة: لا تُترك هذه
-            Stage.REDEEMING, Stage.PAYING, Stage.CAPTURED, Stage.SETTLED, Stage.RETURNING ->
+            stage == Stage.REDEEMING || stage == Stage.PAYING || stage == Stage.CAPTURED ||
+                stage == Stage.SETTLED || stage == Stage.RETURNING ->
                 toast("عملية تحصيل جارية — أكملها أو ارجع أولاً")
-            // لا شراء جارٍ: المندوب طلب عمليةً أحدث، فلا تُعرض عليه عمليةٌ قديمة جاهزة للخصم بفاتورةٍ ومبلغٍ آخرين (مراجعة
-            // ٣١ أكتوبر). ترجع هذه إلى الصفحة، ويبدأ المندوب الجديدة من صفحة العميل — رمزها لم يُستبدل فلا يحجز فاتورتها
-            else -> returnToWeb(payload?.intentId, aborted = !redeemSent)
+            // لم يُرسل رمز هذه بعد: لا شيء على الخادم — ترجع إلى الصفحة، ويبدأ المندوب الجديدة من صفحة العميل
+            payload == null && !redeemSent -> returnToWeb(null, aborted = true)
+            // استُبدل رمز هذه ولم يبدأ شراء: المندوب طلب عمليةً أحدث، فلا تُعرض عليه القديمة للخصم بلا تأكيد (مراجعة ٣١ أكتوبر).
+            // ولا رجوع تلقائي: رابطٌ يطلقه أي موقع أو تطبيق لا يُسقط عمليةً تحجز فاتورتها عشر دقائق — المندوب يختار
+            else -> {
+                superseded = true
+                if (stage == Stage.READY || stage == Stage.RETRYABLE) showSuperseded()
+                else toast("وصل طلب تحصيل آخر — ارجع لتبدأه من صفحة العميل")
+            }
         }
+    }
+
+    /** رابط دفعٍ برمزٍ صالح الشكل غير رابط هذه الشاشة — ما سواه (تالف أو مكرر) لا يمسّ العملية القائمة */
+    private fun isNewLink(incoming: Intent?, current: Intent?): Boolean =
+        readToken(incoming) != null && incoming?.data != current?.data
+
+    private fun showSuperseded() {
+        render(
+            "وصل طلب تحصيل آخر. هذه العملية للعميل والفاتورة والمبلغ المعروضة أعلاه — إن لم تكن المقصودة فارجع وابدأ الجديدة من صفحة العميل",
+            primary = Action("رجوع") { onLeaveRequested() },
+            secondary = Action("أكمل هذه العملية") {
+                superseded = false
+                startPurchase()
+            },
+        )
     }
 
     override fun onResume() {
@@ -549,6 +572,7 @@ class CardPayActivity : AppCompatActivity() {
         if (stage != Stage.READY && stage != Stage.RETRYABLE) return
         if (cardTouched) return // لا يقع: لمس البطاقة يُخرج من READY وRETRYABLE — حارسٌ احتياطي لنيّةٍ لمسها قارئ
         if (deadlinePassed()) return expire()
+        if (superseded) return showSuperseded()
         if (!s.nfcEnabled()) return checkNfc() // قد يُطفأ NFC بين الشاشتين
         stage = Stage.PAYING
         // قبل النداء: حدثٌ يصل من وحدةٍ رمت بعد أن بدأت يُعامَل كأي حدث قارئ
