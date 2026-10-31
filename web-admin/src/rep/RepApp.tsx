@@ -1093,9 +1093,9 @@ function PayLinkSheet({ customer, onClose }: { customer: any; onClose: () => voi
   useEffect(() => {
     (async () => {
       try {
-        const res = await repApi.get('/invoices', { params: { customerId: customer.id, status: 'CONFIRMED', type: 'CREDIT', limit: 50 } });
-        // غير المسددة فقط — الرابط بكامل المتبقي فلا معنى لفاتورة صفرية
-        setInvoices((res.data.data || []).filter((i: any) => Number(i.remainingAmt) > 0.004));
+        // فواتير العميل المفتوحة كلها (لا أحدث ٥٠ لهذا المندوب)، بلا المحجوبة لدى الهيئة — الخادم يصفّي غير المسددة
+        const res = await repApi.get('/invoices/open', { params: { customerId: customer.id } });
+        setInvoices(res.data.data || []);
       } catch { setError(tr('تعذر تحميل الفواتير تحقق من الاتصال')); }
       setLoading(false);
     })();
@@ -4905,6 +4905,7 @@ export default function RepApp() {
     await dropPush(); // الجهاز لا يتلقّى تنبيهات حضورِ حسابٍ خرج منه
     setPresence(null); answeredPresence.current.clear(); attemptedPresence.current.clear(); // طلب تحققه لا يراه من يدخل بعده
     vanLotsRef.current = null; setVanLots(null); // «تتبّع اللوط»: لقطة سيارته لا يراها من يدخل بعده (والمخزّنة مُسحت بـrefClear)
+    clearPendingCardPay(); setCardPayView(null); // عملية بطاقته المعلّقة (فاتورةٌ ومبلغ) لا يراها من يدخل بعده على الجوال نفسه
     localStorage.removeItem('rep_token'); localStorage.removeItem('rep_user');
     setToken(null); setUser(null);
   };

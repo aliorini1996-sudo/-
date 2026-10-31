@@ -135,6 +135,8 @@ export const cardPayApi = {
   terminals: () => api.get('/card-payments/terminals'),
   assignRep: (salesRepId: string, tid: string | null) => api.put(`/card-payments/reps/${salesRepId}`, { tid }),
   ownerMerchants: () => api.get('/card-payments/owner/merchants'),
+  review: () => api.get('/card-payments', { params: { status: 'review' } }),
+  closeReview: (id: string, note: string) => api.post(`/card-payments/${id}/close`, { note }),
 };
 
 export const salesRepApi = {

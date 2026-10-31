@@ -658,7 +658,7 @@ model CardPayment {
   launchExpiresAt DateTime?
   launchedAt      DateTime?
 
-  status          String    @default("pending") // pending | approved | declined | reversed | expired | failed
+  status          String    @default("pending") // pending | approved | declined | reversed | expired | review (خُصم واختلف — للإدارة) | failed
   statusDetail    String? // سبب الرفض أو الفشل كما ورد — للعرض
   transactionUuid String?   @unique // transaction_uuid لدى NearPay — مفتاح عدم التكرار الثاني بعد المعرّف
   rrn             String?
@@ -677,6 +677,8 @@ model CardPayment {
   @@index([tenantId, status])
   @@index([tenantId, invoiceId])
   @@index([status, updatedAt])
+  @@index([status, approvedAt]) // نافذة العكس ومراقبة الاسترداد كل دقيقة
+  @@index([status, lastCheckedAt]) // كنس الميت والموقوف للمراجعة
   @@map("card_payments")
 }
 

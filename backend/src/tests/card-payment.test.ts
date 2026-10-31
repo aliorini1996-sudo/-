@@ -192,12 +192,16 @@ test('يفشل مغلقاً: مبلغٌ أو نقطة بيعٍ غير مقروء
   assert.deepEqual(decideCardPayment(row(), parseIntent(intent([tx()])), NOW), { action: 'approve' });
 });
 
-test('حالة النيّة السالبة تحكم على أي إيصال موافَق: معكوسة/مستردة/ملغاة', () => {
-  for (const st of ['reversed', 'refunded', 'cancelled', 'voided']) {
+test('حالة النيّة «عكس/إلغاء» تحكم على أي إيصال موافَق: معكوسة/ملغاة', () => {
+  for (const st of ['reversed', 'cancelled', 'voided']) {
     const snap = parseIntent(intent([tx()], { status: st }));
     assert.equal(decideCardPayment(row(), snap, NOW).action, 'decline', st);
     assert.equal(decideCardPayment(row({ status: 'approved' }), snap, NOW).action, 'reverse', st);
   }
+  // «refunded» بلا استردادٍ مقروء على المعاملة: كاملٌ أم جزئي؟ لا يُخمَّن (مراجعة ٣١ أكتوبر ٢٠٢٦) — وقفٌ للمراجعة لا إلغاء
+  const refunded = parseIntent(intent([tx()], { status: 'refunded' }));
+  assert.equal(decideCardPayment(row(), refunded, NOW).action, 'mismatch');
+  assert.equal(decideCardPayment(row({ status: 'approved' }), refunded, NOW).action, 'mismatch');
 });
 
 test('كل معاملة على حدة: إعادةٌ ناجحة بعد عكسٍ آلي تُقيد ببياناتها، وخصمٌ مكرر يُوقف القيد', () => {
@@ -241,4 +245,158 @@ test('إسناد نقاط البيع إداريٌّ وحده: requireAdmin قب�
   // البدء للمندوب وحده وبصلاحية السندات
   assert.match(src, /if \(!isRep\(req\)\) \{ res\.status\(403\)/);
   assert.match(src, /canCreateReceipt/);
+});
+
+// ═══ مراجعة ٣١ أكتوبر ٢٠٢٦: الخطأ في الاتجاهين مالٌ ضائع — ما لا يُحسم بدليلٍ يُوقَف للمراجعة ═══
+
+const booked = (uuid = 'uuid-1') => ({ ...row({ status: 'approved' }), transactionUuid: uuid });
+
+test('رفضٌ/فشل في حالة النيّة لا يُسقط شراءً موافَقاً قائماً: وقفٌ للمراجعة لا «مرفوضة» ولا إلغاء سند', () => {
+  for (const st of ['declined', 'failed', 'rejected']) {
+    const snap = parseIntent(intent([tx()], { status: st }));
+    assert.equal(snap.approved, true, st);
+    assert.equal(decideCardPayment(row(), snap, NOW).action, 'mismatch', st);
+    assert.equal(decideCardPayment(booked(), snap, NOW).action, 'mismatch', st);
+    assert.equal(decideCardPayment(row({ status: 'declined' }), snap, NOW).action, 'mismatch', st); // كنس الميت يراه
+  }
+  // رفضٌ بلا شراء موافَق = رفضٌ حقيقي
+  assert.equal(decideCardPayment(row(), parseIntent(intent([tx({ approved: false })], { status: 'declined' })), NOW).action, 'decline');
+});
+
+test('الاسترداد الجزئي لا يُلغي السند ولو كانت حالة النيّة refunded أو partially_refunded', () => {
+  for (const st of ['refunded', 'partially_refunded', 'approved']) {
+    const snap = parseIntent(intent([tx({ extraEvents: [refundEvent('15.00')] })], { status: st }));
+    assert.equal(snap.refund, 'partial', st);
+    assert.equal(decideCardPayment(booked(), snap, NOW).action, 'mismatch', st);
+  }
+  // الكامل بحالة refunded يلغي كما كان
+  const full = parseIntent(intent([tx({ extraEvents: [refundEvent('115.00')] })], { status: 'refunded' }));
+  assert.equal(full.reversed, true);
+  assert.equal(full.refund, 'full');
+  assert.equal(decideCardPayment(booked(), full, NOW).action, 'reverse');
+});
+
+test('خصمٌ مكرر ثم استرداد أحدهما كاملاً: لا يُلغى السند — والمستردّ ليس «فعّالاً»', () => {
+  const firstRefunded = parseIntent(intent([tx({ uuid: 'a', extraEvents: [refundEvent('115.00')] }), tx({ uuid: 'b' })]));
+  assert.equal(firstRefunded.effectiveCount, 1);
+  assert.equal(firstRefunded.reversed, false);
+  assert.equal(firstRefunded.refund, 'none');
+  assert.equal(firstRefunded.transactionUuid, 'b');
+  // السند على المستردّة: المال الباقي من معاملةٍ أخرى — وقفٌ بتنبيه لا إلغاء
+  assert.equal(decideCardPayment(booked('a'), firstRefunded, NOW).action, 'mismatch');
+  // السند على الباقية: سليم
+  assert.deepEqual(decideCardPayment(booked('b'), firstRefunded, NOW), { action: 'wait' });
+  // معلّقٌ: يُقيد بالباقية
+  assert.deepEqual(decideCardPayment(row(), firstRefunded, NOW), { action: 'approve' });
+  // والخصمان قائمان: وقفٌ لا إلغاء ولو حملت الحالة refunded
+  const both = parseIntent(intent([tx({ uuid: 'a' }), tx({ uuid: 'b', extraEvents: [refundEvent('15.00')] })], { status: 'refunded' }));
+  assert.equal(decideCardPayment(booked('a'), both, NOW).action, 'mismatch');
+});
+
+test('إشارات الاسترداد غير الموافَقة صراحةً لا تُهمَل: معلّق، أو منتهٍ بلا is_approved، أو على حالة المعاملة، أو مستقل', () => {
+  const pendingRefund = { type: 'refund', status: 'pending', receipt: { data: { amount_authorized: { value: '115.00' } } } };
+  assert.equal(decideCardPayment(booked(), parseIntent(intent([tx({ extraEvents: [pendingRefund] })])), NOW).action, 'mismatch');
+  assert.equal(decideCardPayment(row(), parseIntent(intent([tx({ extraEvents: [pendingRefund] })])), NOW).action, 'mismatch');
+  // «completed» بلا is_approved: استردادٌ تمّ
+  const completed = { type: 'refund', status: 'completed', receipt: { data: { amount_authorized: { value: '115.00' } } } };
+  assert.equal(decideCardPayment(booked(), parseIntent(intent([tx({ extraEvents: [completed] })])), NOW).action, 'reverse');
+  // مرفوضٌ صراحةً: لا أثر
+  const rejectedRefund = { type: 'refund', status: 'declined', receipt: { data: { is_approved: false, amount_authorized: { value: '115.00' } } } };
+  assert.deepEqual(decideCardPayment(booked(), parseIntent(intent([tx({ extraEvents: [rejectedRefund] })])), NOW), { action: 'wait' });
+  // حالة المعاملة refunded بلا حدث: مبلغٌ مجهول ⇒ جزئي ⇒ وقف
+  const txRefunded = { ...tx(), status: 'refunded' };
+  assert.equal(parseIntent(intent([txRefunded])).refund, 'partial');
+  assert.equal(decideCardPayment(booked(), parseIntent(intent([txRefunded])), NOW).action, 'mismatch');
+  // استردادٌ في معاملةٍ مستقلة يُنسب للشراء الوحيد: كاملٌ يلغي، وجزئيٌّ يوقف
+  const standalone = (sar: string) => ({ status: 'approved', events: [refundEvent(sar)] });
+  assert.equal(decideCardPayment(booked(), parseIntent(intent([tx(), standalone('115.00')])), NOW).action, 'reverse');
+  assert.equal(decideCardPayment(booked(), parseIntent(intent([tx(), standalone('15.00')])), NOW).action, 'mismatch');
+  // ولا شراء يُنسب إليه ⇒ وقف
+  assert.equal(decideCardPayment(row(), parseIntent(intent([standalone('115.00')])), NOW).action, 'mismatch');
+});
+
+test('عكسٌ غير محسوم واسترجاع chargeback يوقفان القيد والسند — وحدثٌ بنوعٍ غريب لا يصير «شراءً»', () => {
+  const openReversal = { type: 'reversal', status: 'pending', receipt: { data: {} } };
+  assert.equal(decideCardPayment(row(), parseIntent(intent([tx({ extraEvents: [openReversal] })])), NOW).action, 'mismatch');
+  const chargeback = { type: 'chargeback', status: 'approved', receipt: { data: { is_approved: true } } };
+  assert.equal(decideCardPayment(booked(), parseIntent(intent([tx({ extraEvents: [chargeback] })])), NOW).action, 'mismatch');
+  const odd = parseIntent(intent([tx({ type: '' })]));
+  assert.equal(odd.approved, false);
+  assert.deepEqual(decideCardPayment(row(), odd, NOW), { action: 'wait' }); // ثم وقفٌ بعد المهلة — لا قيد
+  assert.equal(decideCardPayment(row(), odd, new Date('2026-10-28T11:00:00Z')).action, 'mismatch');
+});
+
+test('fetchIntent: ردّ 200 بشكلٍ غير معروف يُرمى (لا «غير مسجّلة» فتنتهي الدفعة صامتة)، و404 4047 وحده null', async () => {
+  const { fetchIntent, NearpayError } = await import('../services/nearpay');
+  const prevFetch = globalThis.fetch;
+  const prevKey = process.env.NEARPAY_API_KEY;
+  const id = 'c1b2a3d4-0000-4000-8000-000000000001';
+  const reply = (status: number, body: string) => { globalThis.fetch = (async () => new Response(body, { status })) as typeof fetch; };
+  const is502 = (e: unknown) => e instanceof NearpayError && e.status === 502;
+  try {
+    process.env.NEARPAY_API_KEY = 'test-key';
+    reply(200, '<html>maintenance</html>');
+    await assert.rejects(fetchIntent(id), is502);
+    reply(200, JSON.stringify({ data: approvedIntent().details })); // غلافٌ آخر
+    await assert.rejects(fetchIntent(id), is502);
+    reply(200, JSON.stringify(approvedIntent({ intenet_id: 'another-intent' }))); // نيّةٌ غير المطلوبة
+    await assert.rejects(fetchIntent(id), is502);
+    reply(200, JSON.stringify(approvedIntent({ status: undefined }))); // بلا حالة
+    await assert.rejects(fetchIntent(id), is502);
+    reply(200, JSON.stringify(approvedIntent({ intenet_id: id.toUpperCase() })));
+    assert.equal((await fetchIntent(id))?.approved, true);
+    reply(404, JSON.stringify({ code: 4047, code_text: 'intent_not_found' }));
+    assert.equal(await fetchIntent(id), null);
+  } finally {
+    globalThis.fetch = prevFetch;
+    if (prevKey === undefined) delete process.env.NEARPAY_API_KEY; else process.env.NEARPAY_API_KEY = prevKey;
+  }
+});
+
+test('الساند بوكس على خادم الإنتاج: محجوبٌ إلا لشركاتٍ مسمّاة في NEARPAY_SANDBOX_TENANTS', async () => {
+  const { sandboxBlocked } = await import('../services/cardPayment');
+  const keys = ['NEARPAY_ENV', 'NODE_ENV', 'NEARPAY_SANDBOX_TENANTS'] as const;
+  const prev = keys.map((k) => process.env[k]);
+  try {
+    process.env.NEARPAY_ENV = 'sandbox';
+    process.env.NODE_ENV = 'production';
+    delete process.env.NEARPAY_SANDBOX_TENANTS;
+    assert.equal(sandboxBlocked('t1'), true);
+    process.env.NEARPAY_SANDBOX_TENANTS = ' t0 , t1 ';
+    assert.equal(sandboxBlocked('t1'), false);
+    assert.equal(sandboxBlocked('t2'), true);
+    process.env.NEARPAY_ENV = 'production';
+    assert.equal(sandboxBlocked('t2'), false);
+    process.env.NEARPAY_ENV = 'sandbox';
+    process.env.NODE_ENV = 'development';
+    assert.equal(sandboxBlocked('t2'), false);
+  } finally {
+    keys.forEach((k, i) => { if (prev[i] === undefined) delete process.env[k]; else process.env[k] = prev[i]; });
+  }
+});
+
+test('حرّاس نصّية: «review» بعد الخصم يمنع تحصيلاً ثانياً، والحسم إداريٌّ بصلاحية السندات، والتاجر للمالك وحده', async () => {
+  const fs = await import('fs');
+  const path = await import('path');
+  const read = (rel: string) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8').replace(/\r\n/g, '\n');
+  const svc = read('services/cardPayment.ts');
+  // الاختلاف بعد الخصم يصير review لا failed
+  assert.match(svc, /data: \{ status: 'review', statusDetail: detail \}/);
+  assert.doesNotMatch(svc, /data: \{ status: 'failed', statusDetail: detail \}/);
+  // الإنشاء يرفض فاتورةً عليها عملية review، والجارية تعيد معرّفها
+  assert.match(svc, /invoiceId: invoice\.id, status: 'review' \}/);
+  assert.match(svc, /'CARD_PAY_REVIEW', held\.id\)/);
+  assert.match(svc, /'CARD_PAY_IN_PROGRESS', f\.id\)/);
+  // الساند بوكس محروس عند الإنشاء والتسليم
+  assert.equal((svc.match(/sandboxBlocked\((params\.tenantId|row\.tenantId)\)/g) || []).length, 2);
+  // التوقيع قبل استهلاك الرمز
+  assert.ok(svc.indexOf('const terminalJwt =') < svc.indexOf('data: { launchedAt: now }'));
+  const routes = read('routes/cardPayments.ts');
+  assert.match(routes, /router\.post\('\/:id\/close', requireAdmin, receiptsGate,/);
+  assert.match(routes, /router\.get\('\/', receiptsGate,/);
+  assert.match(routes, /router\.post\('\/:id\/check', receiptsGate,/);
+  const tenants = read('routes/tenants.ts');
+  assert.match(tenants, /platformStaff && cardPayCur/);
+  assert.match(tenants, /'STAFF_CARDPAY_FORBIDDEN'/);
+  assert.match(tenants, /'NEARPAY_MERCHANT_UNKNOWN'/);
 });
