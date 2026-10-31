@@ -25,7 +25,7 @@ import { PRINT_LOOK_CSS, PrintLookContext, lookFor, lookNeedsCss, lookRootAttrs,
 import { makePrintTexts, normalizePrintTexts, type PrintTexts } from '../lib/print/printTexts';
 import { DocTextsContext, useDocTexts, usePrintTextsPreview } from './printTextsContext';
 import { printPageNode } from './printPage';
-import { currentPrintIdentity, usePrintDeviceChoice, withKindChoice } from './printDevice';
+import { currentPrintIdentity, directOpts, usePrintDeviceChoice, withKindChoice } from './printDevice';
 import PrintDeviceSheet from './PrintDeviceSheet';
 import { printHtmlDirect, printNodeDirect, supportsDirect, transportFor, type PrintTransport } from './printDirect';
 import { DIRECT_PRINT_FALLBACK, DirectPrintError } from '../lib/print/printErrors';
@@ -2037,14 +2037,14 @@ export function DocumentResult({ doc, onClose, showLotsStrip = false }: {
         // الملف الافتراضي (legacy-58) يعود في thermal.ts إلى شريط اليوم حرفاً بحرف (ولا يُرسل بالبلوتوث أبداً — بلوتوثه قالب الجهاز)
         const opts = {
           profile: jobProfile, tr,
-          raster: port ? async (html: string) => { sent.outcome = await bt.run((ui) => printHtmlDirect(port, html, jobProfile, 'copies', ui), { slow: deviceChoice?.slow }); } : null,
+          raster: port ? async (html: string) => { sent.outcome = await bt.run((ui) => printHtmlDirect(port, html, jobProfile, 'copies', ui), directOpts(deviceChoice)); } : null,
         };
         if (doc.kind === 'invoice') await printThermalInvoice(doc, opts);
         else if (doc.kind === 'receipt') await printThermalReceipt(doc, opts);
       } else {
         const node = separatePage ? pageRef.current : printRef.current;
         if (!node) throw new Error('print sheet');
-        if (port) sent.outcome = await bt.run((ui) => printNodeDirect(port, node, directProfile, [tr('الأصل'), tr('نسخة')], ui), { slow: deviceChoice?.slow });
+        if (port) sent.outcome = await bt.run((ui) => printNodeDirect(port, node, directProfile, [tr('الأصل'), tr('نسخة')], ui), directOpts(deviceChoice));
         else await printPageNode(node, directProfile, [tr('الأصل'), tr('نسخة')]);
       }
       if (sent.outcome) setStatus(sent.outcome === 'cancelled' ? tr('ألغيت الطباعة') : tr('✓ تم الإرسال إلى الطابعة'));

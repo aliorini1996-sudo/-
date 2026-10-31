@@ -21,6 +21,7 @@ import {
 } from '../lib/print/raster';
 import { ESCPOS_CANCEL, encodeEscPos } from '../lib/print/escpos';
 import { ESCP24_LINE_DOTS, encodeEscP24, escp24Cancel } from '../lib/print/escp24';
+import { TSPL_CANCEL, encodeTspl } from '../lib/print/tspl';
 import type { EncodedJob } from '../lib/print/byteSink';
 import { directPrintAvailable, sendJob, type SerialPortLike } from '../lib/print/transport/btSerial';
 import { cloneWithLabel, copiesOf, sheetReady } from './printPage';
@@ -45,6 +46,10 @@ export interface DirectUi {
   pageLabel: (n: number, m: number) => string;
   /** مهلة بين الدفعات (خيار الجهاز) */
   slow?: boolean;
+  /** لغة الطابعة الحرارية المربوطة (خيار الجهاز) — TSPL لطابعات الملصقات كـRongta RPP04، وغيابها ESC/POS */
+  lang?: 'tspl';
+  /** TSPL: DIRECTION 0 */
+  tsplFlip?: boolean;
 }
 
 const dpiOf = (p: PrintProfile): PrinterDpi => p.paper.dpi as PrinterDpi;
@@ -74,8 +79,13 @@ export function impactLeftDots(offsetDots: number, bitmapWidth: number): number 
   return Math.round(off / 3) * 3 <= room ? off : Math.floor(room / 3) * 3;
 }
 
-/** بايتات المهمة وأمر إلغائها بحسب نوع الطابعة — الهامش العلوي والإزاحة وطول الصفحة والقصّ من القالب */
-export function encodeForProfile(p: PrintProfile, copies: RasterPage[][]): { job: EncodedJob; cancel: readonly number[] } {
+/**
+ * بايتات المهمة وأمر إلغائها بحسب نوع الطابعة — الهامش العلوي والإزاحة وطول الصفحة والقصّ من القالب. والحرارية بلغة جهازها:
+ * ESC/POS افتراضاً، أو TSPL (`lang`) لطابعات الملصقات — الصورة نفسها بأوامرٍ أخرى.
+ */
+export function encodeForProfile(
+  p: PrintProfile, copies: RasterPage[][], device: { lang?: 'tspl'; tsplFlip?: boolean } = {},
+): { job: EncodedJob; cancel: readonly number[] } {
   const g = geometry(p);
   const dpm = dotsPerMm(dpiOf(p));
   const offsetDots = Math.max(0, Math.round(p.paper.offsetXmm * dpm)); // لا يسار قبل أوّل نقطة في الرأس
@@ -96,6 +106,19 @@ export function encodeForProfile(p: PrintProfile, copies: RasterPage[][]): { job
     };
   }
   const maxDots = maxPrintableDots('thermal', p.paper.widthMm, dpiOf(p));
+  if (device.lang === 'tspl' && g.feed === 'roll') {
+    // الرول وحده: يحمل هامشه وتغذيته في حشوة القالب كـESC/POS، وصفوف رموزه تمرّ فلا يُقطع «ملصق» داخلها. والورق المقطع
+    // (طول الصفحة والهامش العلوي والقاطع) لا يُعرض لـTSPL — يبقى على ESC/POS كما كان
+    return {
+      job: encodeTspl({
+        copies: copies.map((pages) => pages.map((pg) => ({ bitmap: shiftRight(pg.bitmap, offsetDots, maxDots, 8), qrRows: pg.qrRows }))),
+        dotsPerMm: dpm,
+        afterDots: 0,
+        flip: device.tsplFlip === true,
+      }),
+      cancel: TSPL_CANCEL,
+    };
+  }
   const sheet = g.feed !== 'roll' && g.paperLengthMm !== null;
   return {
     job: encodeEscPos({
@@ -112,7 +135,7 @@ export function encodeForProfile(p: PrintProfile, copies: RasterPage[][]): { job
 
 async function send(port: SerialPortLike, p: PrintProfile, copies: RasterPage[][], ui: DirectUi): Promise<'done' | 'cancelled'> {
   if (ui.signal?.aborted) return 'cancelled';
-  const { job, cancel } = encodeForProfile(p, copies);
+  const { job, cancel } = encodeForProfile(p, copies, { lang: ui.lang, tsplFlip: ui.tsplFlip });
   return sendJob(port, job, { signal: ui.signal, cancelBytes: cancel, slow: ui.slow, onProgress: (f) => ui.onProgress?.('send', f) });
 }
 

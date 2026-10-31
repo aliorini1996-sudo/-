@@ -22,7 +22,7 @@ export function useDirectPrint() {
   useEffect(() => () => ctrl.current?.abort(), []);
 
   /** يشغّل مهمةً بالغطاء — والنتيجة 'cancelled' إن ألغاها المستخدم */
-  const run = useCallback(async (fn: (ui: DirectUi) => Promise<'done' | 'cancelled'>, opts?: { slow?: boolean }): Promise<'done' | 'cancelled'> => {
+  const run = useCallback(async (fn: (ui: DirectUi) => Promise<'done' | 'cancelled'>, opts?: { slow?: boolean; lang?: 'tspl'; tsplFlip?: boolean }): Promise<'done' | 'cancelled'> => {
     const c = new AbortController();
     ctrl.current = c;
     last.current = '';
@@ -31,6 +31,8 @@ export function useDirectPrint() {
       return await fn({
         signal: c.signal,
         slow: opts?.slow,
+        lang: opts?.lang,
+        tsplFlip: opts?.tsplFlip,
         pageLabel: pageLabelOf(tr),
         onProgress: (phase, f) => {
           const pct = Math.max(0, Math.min(100, Math.round(f * 100)));

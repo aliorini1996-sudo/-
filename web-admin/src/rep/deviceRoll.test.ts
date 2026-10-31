@@ -16,12 +16,12 @@ import { DocumentResult, type InvoiceDoc } from './RepDocuments';
 const same = (s: string) => s;
 
 test('قالب الجهاز: المختصر بعرض الرول، يُرسل بالبلوتوث، ومعرّفه لا يلتبس بقالبٍ للشركة', () => {
-  for (const mm of [58, 80] as const) {
+  for (const mm of [58, 80, 112] as const) {
     const p = deviceRollProfile(mm);
     assert.equal(p.printer, 'thermal');
     assert.equal(p.template, 'roll_compact');
     assert.equal(p.paper.widthMm, mm);
-    assert.equal(p.paper.printableDots, mm === 80 ? 576 : 384);
+    assert.equal(p.paper.printableDots, mm === 112 ? 832 : mm === 80 ? 576 : 384);
     assert.equal(supportsDirect(p), true, 'لا يُرسل بالبلوتوث');
     assert.equal(isDeviceRollId(p.id), true);
     assert.equal(PROFILE_ID_RE.test(p.id), false, 'معرّفٌ قد يلتبس بقالبٍ للشركة');
@@ -45,7 +45,8 @@ test('عرض الرول يُحفظ على الجهاز: 80 صراحةً و58 ا�
   assert.equal(withConnection({ rollMm: 80 }, { rollMm: 58 }), null);
   assert.deepEqual(withConnection({ transport: 'bt-serial' }, { rollMm: 80 }), { transport: 'bt-serial', rollMm: 80 });
   assert.deepEqual(parseDeviceChoice('{"transport":"bt-serial","rollMm":80}'), { transport: 'bt-serial', rollMm: 80 });
-  assert.deepEqual(parseDeviceChoice('{"transport":"bt-serial","rollMm":112}'), { transport: 'bt-serial' }, 'عرضٌ مجهول يُسقط');
+  assert.deepEqual(parseDeviceChoice('{"transport":"bt-serial","rollMm":100}'), { transport: 'bt-serial' }, 'عرضٌ مجهول يُسقط');
+  assert.deepEqual(parseDeviceChoice('{"rollMm":112}'), { rollMm: 112 }, '112 لطابعات 4 إنش');
 });
 
 test('شركةٌ بلا إعدادات طباعة: سطر «تغيير» تحت زرّ الطباعة — والزرّ بنصّ اليوم', () => {

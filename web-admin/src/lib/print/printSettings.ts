@@ -66,22 +66,28 @@ export interface PrintSettingsResponse { success?: boolean; data?: unknown; stor
 
 export const isLegacyProfileId = (id: string): boolean => id === LEGACY_THERMAL_ID || id === LEGACY_PAGE_ID;
 
-/** معرّفا قالب الجهاز — بعلامة @ خارج PROFILE_ID_RE: لا يلتبسان بقالبٍ للشركة، ولا يُحفظان في الخادم ولا في اختيار byKind */
-export const DEVICE_ROLL_IDS = Object.freeze({ 58: '@device-58', 80: '@device-80' } as const);
-export const isDeviceRollId = (id: string): boolean => id === DEVICE_ROLL_IDS[58] || id === DEVICE_ROLL_IDS[80];
+/** عروض رول قالب الجهاز — 112 لطابعات 4 إنش (Rongta RPP04) */
+export const DEVICE_ROLL_WIDTHS = Object.freeze([58, 80, 112] as const);
+export type DeviceRollMm = (typeof DEVICE_ROLL_WIDTHS)[number];
+
+/** معرّفات قالب الجهاز — بعلامة @ خارج PROFILE_ID_RE: لا تلتبس بقالبٍ للشركة، ولا تُحفظ في الخادم ولا في اختيار byKind */
+export const DEVICE_ROLL_IDS = Object.freeze({ 58: '@device-58', 80: '@device-80', 112: '@device-112' } as const);
+export const isDeviceRollId = (id: string): boolean => (Object.values(DEVICE_ROLL_IDS) as string[]).includes(id);
+/** اسم قالب الجهاز (يُترجم في profileDisplayName) */
+const DEVICE_ROLL_NAMES: Readonly<Record<DeviceRollMm, string>> = Object.freeze({ 58: LEGACY_NAMES.thermal, 80: 'حرارية 80 مم', 112: 'حرارية 112 مم' });
 
 /**
  * قالب البلوتوث المباشر على الجهاز (طلب المالك ٣١ أكتوبر ٢٠٢٦: «خيار البلوتوث للمندوب دائماً، بلا إعدادات طباعة»). الشريط
  * الكلاسيكي لا يُرسل بالبلوتوث (مجمَّدٌ على نظام الطباعة) — فجهازٌ يوجّهه قالب شركته إليه، أو شركته بلا إعدادات، ثم يختار
  * «بلوتوث مباشر» يطبع «الشريط المختصر» بعرض رولِه (58 أو 80 مم من اختياره) وخيارات الحرارية الافتراضية.
  */
-export function deviceRollProfile(rollMm: 58 | 80 = 58): PrintProfile {
+export function deviceRollProfile(rollMm: DeviceRollMm = 58): PrintProfile {
   return {
     ...legacyThermalProfile(),
     id: DEVICE_ROLL_IDS[rollMm],
-    name: rollMm === 80 ? 'حرارية 80 مم' : LEGACY_NAMES.thermal,
+    name: DEVICE_ROLL_NAMES[rollMm],
     template: 'roll_compact',
-    paper: presetPaper(rollMm === 80 ? 'roll80' : 'roll58') as Paper,
+    paper: presetPaper(rollMm === 112 ? 'roll112' : rollMm === 80 ? 'roll80' : 'roll58') as Paper,
   };
 }
 
@@ -92,7 +98,14 @@ export interface DevicePrintChoice {
   portHint?: { name?: string };
   slow?: boolean;
   /** عرض رول الجهاز للبلوتوث المباشر حين قالب الشركة كلاسيكيّ أو لا إعدادات لها (deviceRollProfile) — الغياب 58 */
-  rollMm?: 58 | 80;
+  rollMm?: DeviceRollMm;
+  /**
+   * لغة أوامر الطابعة المربوطة بهذا الجهاز للبلوتوث المباشر (الغياب = ESC/POS، لغة طابعات الإيصالات) — صفة الطابعة نفسها لا
+   * القالب: Rongta RPP04 تفهم TSPL (لغة الملصقات) فتُرسم لها الصورة بأوامرها (lib/print/tspl.ts). للحرارية وحدها.
+   */
+  lang?: 'tspl';
+  /** TSPL: اتجاه طباعةٍ معكوس (DIRECTION 0) لطابعةٍ تخرج عندها الورقة مقلوبة */
+  tsplFlip?: boolean;
   /**
    * طريقة قالب الجهاز وحده (الغياب = نظام الطباعة) — مستقلةٌ عن transport قوالب الشركة: جهازٌ يطبع فاتورته بالبلوتوث على نقطية
    * وسنده الكلاسيكي بنظام الطباعة لا يُحوَّل سنده إلى البلوتوث، وشركةٌ أعادت إعداداتها للافتراضي لا يرث مندوبها بلوتوث قالبٍ زال
