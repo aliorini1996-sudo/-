@@ -14,6 +14,7 @@ import { LOCKED_INPUT_CLASS, SELLER_LOCK_HINT_ID, companySaveErrorMessage, compa
 import ZatcaTabBoundary from '../components/zatca/ZatcaTabBoundary';
 import TeamsTabBoundary from '../components/teams/TeamsTabBoundary';
 import PrintTabBoundary from '../components/print/PrintTabBoundary';
+import PrintTextsCard from '../components/print/PrintTextsCard';
 import { isZatcaPhase2Live } from '../lib/zatcaRegime';
 import { zatcaCollectOn } from '../lib/zatcaRegime';
 import { useAuthStore } from '../store/authStore';
@@ -473,6 +474,9 @@ export default function CompanySettingsPage() {
                 ))}
               </div>
             </div>
+
+            {/* «نصوص المطبوعات»: صياغة نصوص الفاتورة والسند وإخفاؤها ولغتها الثانية — محرّرٌ كسول يُحفظ بمساره المستقل لا بزرّ هذا النموذج */}
+            <PrintTextsCard company={data} />
           </div>
 
           {lotCardOn && <LotOnInvoiceCard value={lotFlags.onInvoice} />}

@@ -1,0 +1,20 @@
+# مخرجات البناء والأسرار — المفتاح وكلمات مروره ورمز NearPay لا تدخل المستودع أبداً
+.gradle/
+build/
+app/build/
+local.properties
+*.keystore
+*.jks
+*.aab
+*.apk
+*.idsig
+# شهادات NearPay ومفاتيحها (pos_key.pem مفتاح خاص) لا تدخل المستودع
+*.pem
+*.der
+# ملفات Kotlin Gradle Plugin 2.x وAndroid Studio — محلية لكل جهاز
+.kotlin/
+.idea/
+*.iml
+captures/
+# «Generate Signed Bundle» في Android Studio يكتب الحزمة وoutput-metadata.json هنا
+app/release/

@@ -54,7 +54,8 @@ test('تصنيف ZATCA مشروط بالسعودية في الدالّة الو�
 test('مستند الشاشة يأخذ عنوانه من القرار ويمرّر له الدولة', () => {
   const s = read('src', 'rep', 'RepDocuments.tsx');
   assert.match(s, /saudi: isSaudiDoc\(doc\.company\)/, 'القالب لا يمرّر الدولة إلى قرار الطباعة');
-  assert.match(s, /const docTitle = tr\(zDecision\.title\)/, 'العنوان يُكتب في القالب بدل أن يأتي من القرار');
+  // «نصوص المطبوعات»: العنوان من القرار، وصياغة الشركة له تمرّ بمحلِّلٍ يتجاهلها للمستند المختوم (printTexts.test.ts)
+  assert.match(s, /const docTitle = pt\.title\(zDecision\.title, \{ isReturn: !!doc\.isReturn, phase2: !!doc\.zatca \}\)/, 'العنوان يُكتب في القالب بدل أن يأتي من القرار');
 });
 
 test('الطباعة الحرارية تحمل الشرط نفسه — لا يكفي إصلاح الشاشة', () => {

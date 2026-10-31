@@ -1212,7 +1212,7 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
               <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={cardPayEnabled} disabled={cardPayOwnerOnly} onChange={e => setCardPayEnabled(e.target.checked)} />
               {tr('تفعيل التحصيل بالبطاقة (NearPay) لهذه الشركة')}
             </label>
-            <p className="text-xs text-gray-400 mt-1">{tr('يلمس العميل بطاقته بجوال المندوب ويسجل سند القبض تلقائيا بعد تأكيد NearPay والمال يذهب من NearPay إلى حساب الشركة مباشرة — تتطلب النظام المحاسبي وتاجرا للشركة لدى NearPay')}</p>
+            <p className="text-xs text-gray-400 mt-1">{tr('يلمس العميل بطاقته بجوال المندوب ويسجل سند القبض تلقائيا بعد تأكيد العملية والمال يودعه البنك المحصل في حساب الشركة مباشرة (NearPay بنية الدفع بالجوال فقط) — تتطلب النظام المحاسبي وتاجرا للشركة مربوطا عبر NearPay')}</p>
             {cardPayEnabled && (
               <div className="mt-2">
                 <label className="label">{tr('تاجر الشركة لدى NearPay')}</label>

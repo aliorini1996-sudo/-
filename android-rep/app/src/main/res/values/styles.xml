@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- شاشة التحصيل بالبطاقة: سمة Material غير شفافة، لأن واجهة NearPay (نافذة سفلية وأجزاء) تُعرض فوقها وقد تشترط سمة
+         AppCompat/Material. الألوان من هوية التطبيق (colorPrimary وbackgroundColor يولّدهما app/build.gradle) -->
+    <style name="Theme.FieldSales.CardPay" parent="Theme.MaterialComponents.Light.NoActionBar">
+        <item name="colorPrimary">@color/colorPrimary</item>
+        <item name="colorPrimaryVariant">@color/colorPrimary</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorSecondary">@color/colorPrimary</item>
+        <item name="colorOnSecondary">#FFFFFF</item>
+        <item name="android:windowBackground">@color/backgroundColor</item>
+    </style>
+</resources>

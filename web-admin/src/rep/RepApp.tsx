@@ -11,7 +11,7 @@ import { previewInstallments, defaultFirstDue, MAX_INSTALLMENTS, type Installmen
 import { useBackClose } from '../lib/useBackClose';
 import { getVisitTimer, setVisitTimer, clearVisitTimer, elapsedSec, fmtElapsed, type VisitTimer } from './visitTimer';
 import RepTeamSwitch from './RepTeamSwitch';
-import { CardPaySheet, CardPayResult, cardPayDeviceSupported, readPendingCardPay, clearPendingCardPay, type CardPayPending } from './CardPay';
+import { CardPaySheet, CardPayResult, cardPayDeviceSupported, readPendingCardPay, clearPendingCardPay, isCardPayId, type CardPayPending } from './CardPay';
 import { currentActiveTeam, sellableNow, storedUserActiveTeam, useActiveTeam, type RepTeam } from './repTeam';
 import { toGeoFix, isGeoFix, attachFix, fixCoords, visitGate, planFinalize, visitFailure, isFinalVisitRejection, MIN_VISIT_SEC, type GeoFix } from './visitLocation';
 import { precisePunchFix } from './punchFix';
@@ -4364,22 +4364,29 @@ export default function RepApp() {
     navigator.serviceWorker?.addEventListener('message', onMsg);
     return () => navigator.serviceWorker?.removeEventListener('message', onMsg);
   }, [fetchPresence]);
-  // «التحصيل بالبطاقة»: نتيجة الرجوع من وحدة الدفع الأصلية — من الرابط (/rep?cardpay=<المعرّف>|unsupported) أو من عملية
-  // معلّقة محفوظة حين يعود المندوب بزرّ الرجوع. الخادم يحسم ويُصدر السند؛ النافذة تعرض فقط
+  // «التحصيل بالبطاقة»: نتيجة الرجوع من وحدة الدفع الأصلية — من الرابط (/rep?cardpay=<المعرّف>|unsupported|aborted) أو من
+  // عملية معلّقة محفوظة (عند التحميل بلا وسيط، أو حين يعود المندوب بزرّ الرجوع). الخادم يحسم ويُصدر السند؛ النافذة تعرض فقط
   const [cardPayView, setCardPayView] = useState<{ pending: CardPayPending | null; unsupported?: boolean } | null>(null);
   useEffect(() => {
     try {
       const sp = new URLSearchParams(window.location.search);
       const c = sp.get('cardpay');
-      if (c) {
+      if (c !== null) {
+        // أي رابطٍ إلى fieldsa.net/rep يفتح التطبيق، فالوسيط غير موثوق: معرّفٌ بشكل UUID وحده يصير مساراً في طلبٍ بجلسة المندوب
         if (c === 'unsupported') { clearPendingCardPay(); setCardPayView({ pending: null, unsupported: true }); }
-        else {
+        // الوحدة رجعت قبل أن ترسل رمزها (أذونات أو NFC أو رجوع): لم تُفتح العملية على الخادم — لا نتيجة تُنتظر
+        else if (c === 'aborted') clearPendingCardPay();
+        else if (isCardPayId(c)) {
           const saved = readPendingCardPay();
           setCardPayView({ pending: saved && saved.id === c ? saved : { id: c, invoiceNumber: '', amount: 0, at: Date.now() } });
         }
         sp.delete('cardpay');
         const q = sp.toString();
         window.history.replaceState(null, '', window.location.pathname + (q ? `?${q}` : '') + window.location.hash);
+      } else {
+        // رجوع الوحدة بلا وسيط (أُرسل رمزها ولا حمولة) يحمّل الصفحة من جديد ولا يُطلق visibilitychange — فتُعرض المحفوظة هنا
+        const saved = readPendingCardPay();
+        if (saved) setCardPayView({ pending: saved });
       }
     } catch { /* رابطٌ غريب */ }
     const onVisible = () => {
@@ -4948,6 +4955,11 @@ export default function RepApp() {
   const login = async (t: string, u: RepUser) => {
     const prev = currentRepId();
     if (prev && prev !== u.id) { await refClear(); clearAiSession(); vanLotsRef.current = null; setVanLots(null); }
+    // عملية بطاقةٍ معلّقة لمندوبٍ آخر (خرج قسراً فلم تُمسح) لا تُعرض لمن دخل بعده — فاتورتها ومبلغها ليسا له
+    const pendingCard = readPendingCardPay();
+    if (pendingCard?.repId && pendingCard.repId !== u.id) clearPendingCardPay();
+    // والمعروضة في الذاكرة من تحميلٍ سابق (قد انقضت مهلتها في التخزين): نافذةٌ مخفية لغيره تحجب عرض عمليته هو عند الرجوع
+    setCardPayView((cur) => (cur?.pending?.repId && cur.pending.repId !== u.id ? null : cur));
     await forgetForeignPush(u.id); // اشتراك تنبيهاتٍ على الجهاز لحسابٍ خرج قسراً لا يبقى لمن دخل
     localStorage.setItem('rep_token', t);
     localStorage.setItem('rep_user', JSON.stringify(u));
@@ -5029,7 +5041,7 @@ export default function RepApp() {
               onDismiss={() => setPresence(null)} />
           )}
           {/* نتيجة التحصيل بالبطاقة بعد الرجوع من وحدة الدفع — فوق الشاشات، والخادم يحسم ويُصدر السند */}
-          {cardPayView && token && user && (
+          {cardPayView && token && user && (!cardPayView.pending?.repId || cardPayView.pending.repId === user.id) && (
             <CardPayResult pending={cardPayView.pending} unsupported={cardPayView.unsupported}
               onClose={() => { if (!cardPayView.unsupported) clearPendingCardPay(); setCardPayView(null); }}
               onDone={() => setRefreshKey((k) => k + 1)} />
@@ -5058,7 +5070,7 @@ export default function RepApp() {
           ) : modal === 'customerDetail' && selectedCustomer ? (
             <CustomerDetail customer={selectedCustomer} repName={user.name} company={company} perms={user}
               paylinkOn={(company as any)?.paylinkEnabled === true}
-              cardPayOn={(company as any)?.cardPayEnabled === true}
+              cardPayOn={(company as any)?.cardPayAvailable === true} // المفتاح + خادمٌ جاهز + تطبيقٌ بوحدة الدفع (services/cardPayment.ts)
               accountingOn={accountingOn}
               // الخروج الحقيقي لقائمة العملاء يُنهي مؤقّت هذا العميل ويرفع الزيارة.
               // النوافذ الفرعية (فاتورة/سند) لا تمرّ من هنا فيبقى المؤقّت جارياً.

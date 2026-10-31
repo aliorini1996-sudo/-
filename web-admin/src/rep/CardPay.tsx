@@ -5,6 +5,7 @@ import DecimalInput from '../components/DecimalInput';
 import { formatCurrency, formatDate } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { useBackClose } from '../lib/useBackClose';
+import { currentRepId } from './offlineDb';
 
 /**
  * «التحصيل بالبطاقة» عبر NearPay (طلب المالك ٢٨ أكتوبر ٢٠٢٦): العميل يلمس بطاقته بجوال المندوب.
@@ -17,7 +18,24 @@ import { useBackClose } from '../lib/useBackClose';
 const PENDING_KEY = 'rep_cardpay_pending';
 const PENDING_TTL_MS = 20 * 60_000;
 
-export interface CardPayPending { id: string; invoiceNumber: string; amount: number; at: number }
+// repId: صاحب العملية — جهازٌ مشترك لا يعرض لمندوبٍ عمليةَ من خرج قبله (الإخراج القسري لا يمسحها)
+export interface CardPayPending { id: string; invoiceNumber: string; amount: number; at: number; repId?: string }
+
+// معرّف العملية (= intentUUID لدى NearPay) UUID دائماً. يصير جزءاً من مسار طلبٍ بجلسة المندوب، و?cardpay= يأتي من أي رابط
+// إلى fieldsa.net/rep يفتح التطبيق — فلا يُقبل غيره («..» أو «?» كانا يحوّلان الطلب إلى مسارٍ آخر)
+const CARD_PAY_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function isCardPayId(v: unknown): v is string {
+  return typeof v === 'string' && CARD_PAY_ID_RE.test(v);
+}
+
+// Chrome لا يفتح تطبيقاً من رابط intent:// إلا بإيماءة مستخدم، والإيماءة تنقضي بعد ثوانٍ قليلة من النقر (نحو ٥ في Chromium).
+// الرابط يصل بعد طلبٍ شبكي: إن تأخر أكثر من هذا يُفتح من نقرةٍ جديدة لا تلقائياً
+const LAUNCH_GESTURE_MS = 3000;
+// صلاحية رمز التسليم على الخادم (LAUNCH_TTL_MS)
+const LAUNCH_TOKEN_TTL_MS = 10 * 60_000;
+
+/** عمليةٌ أُصدرت ولم يُفتح رابطها بعد — المعلّقة تُحفظ لحظة الفتح، والرمز لا يُفتح بعد انتهائه */
+interface PreparedLaunch { uri: string; expiresAt: number; pending: CardPayPending }
 
 /** وحدة الدفع الأصلية في تطبيق أندرويد وحده — لا معنى للزرّ على آيفون أو متصفح حاسوب */
 export function cardPayDeviceSupported(): boolean {
@@ -27,7 +45,7 @@ export function cardPayDeviceSupported(): boolean {
 export function readPendingCardPay(): CardPayPending | null {
   try {
     const p = JSON.parse(localStorage.getItem(PENDING_KEY) || 'null') as CardPayPending | null;
-    if (!p || typeof p.id !== 'string' || Date.now() - Number(p.at) > PENDING_TTL_MS) return null;
+    if (!p || !isCardPayId(p.id) || Date.now() - Number(p.at) > PENDING_TTL_MS) return null;
     return p;
   } catch { return null; }
 }
@@ -51,9 +69,14 @@ export function CardPaySheet({ customer, onClose }: { customer: { id: string; na
   // عمليةٌ جارية أو موقوفة على الفاتورة (409 من الخادم بمعرّفها) — تُعرض نتيجتها بدل رسالةٍ بلا مخرج
   const [blocking, setBlocking] = useState<CardPayPending | null>(null);
   const [viewing, setViewing] = useState<CardPayPending | null>(null);
+  // رابط وحدة الدفع لعمليةٍ أُنشئت بعد أن انقضت إيماءة النقر — يُفتح من النقرة التالية على الزرّ نفسه (لا عملية ثانية)
+  const [launch, setLaunch] = useState<PreparedLaunch | null>(null);
   const alive = useRef(true);
+  // يزيد مع كل تغييرٍ للفاتورة أو المبلغ: ردُّ إصدارٍ وصل بعد التغيير يُهمل فلا يُفتح الجهاز بفاتورةٍ أو مبلغٍ لم يعودا على الشاشة
+  const reqSeq = useRef(0);
+  const resetLaunch = () => { reqSeq.current++; setLaunch(null); };
   useEffect(() => () => { alive.current = false; }, []);
-  useBackClose(!!picked, () => { setPicked(null); setError(null); });
+  useBackClose(!!picked, () => { setPicked(null); setError(null); resetLaunch(); });
 
   useEffect(() => {
     (async () => {
@@ -66,8 +89,25 @@ export function CardPaySheet({ customer, onClose }: { customer: { id: string; na
     })();
   }, [customer.id]);
 
+  // المعلّقة تُحفظ لحظة فتح الرابط لا لحظة الإصدار: عمليةٌ لم تُفتح وحدتها لا تُعرض «جارٍ التحقق» عند الرجوع
+  const openLaunch = (l: PreparedLaunch) => {
+    try { localStorage.setItem(PENDING_KEY, JSON.stringify({ ...l.pending, at: Date.now() } satisfies CardPayPending)); } catch { /* تخزينٌ محجوب */ }
+    window.location.href = l.uri;
+    // الرجوع بزرّ الرجوع لا يُبقي الزرّ معطّلاً
+    setBusy(true);
+    setTimeout(() => { if (alive.current) setBusy(false); }, 3000);
+  };
+
   const start = async () => {
     if (!picked) return;
+    // عمليةٌ أُنشئت ولم يُفتح رابطها (تأخر الخادم): هذه النقرة إيماءةٌ جديدة تفتحه — لا إصدار ثانٍ. ورمزٌ قارب الانتهاء
+    // لا يُفتح (ترفضه الوحدة) — يُصدر غيره، والقديم لم يُستبدل فلا يحجز الفاتورة
+    if (launch) {
+      setLaunch(null);
+      if (Date.now() < launch.expiresAt - 30_000) { openLaunch(launch); return; }
+    }
+    const clickedAt = Date.now();
+    const seq = ++reqSeq.current;
     setBusy(true); setError(null); setBlocking(null);
     try {
       const remaining = Number(picked.remainingAmt);
@@ -76,13 +116,22 @@ export function CardPaySheet({ customer, onClose }: { customer: { id: string; na
       const res = await repApi.post('/card-payments/issue', body);
       // أُغلقت الورقة قبل الرد: لا تُفتح وحدة الدفع بمبلغ عميلٍ سابق أمام عميلٍ آخر
       if (!alive.current) return;
+      // وتغيّرت الفاتورة أو المبلغ أثناء الطلب: الرد لما لم يعد على الشاشة — يُهمل (رمزه لم يُستبدل فلا يحجز شيئاً)
+      if (seq !== reqSeq.current) { setBusy(false); return; }
       const d = res.data.data as { id: string; amount: number; launchUri: string };
-      try { localStorage.setItem(PENDING_KEY, JSON.stringify({ id: d.id, invoiceNumber: picked.number, amount: d.amount, at: Date.now() } satisfies CardPayPending)); } catch { /* تخزينٌ محجوب */ }
-      window.location.href = d.launchUri;
-      // الرجوع بزرّ الرجوع لا يُبقي الزرّ معطّلاً
-      setTimeout(() => { if (alive.current) setBusy(false); }, 3000);
+      const prepared: PreparedLaunch = {
+        uri: d.launchUri,
+        // بساعة الجوال من لحظة النقر (قبل إنشاء الرمز على الخادم) — لا بوقت انتهاء الخادم: ساعة الجوال قد تنحرف دقائق
+        expiresAt: clickedAt + LAUNCH_TOKEN_TTL_MS,
+        pending: { id: d.id, invoiceNumber: picked.number, amount: d.amount, at: 0, repId: currentRepId() },
+      };
+      if (Date.now() - clickedAt <= LAUNCH_GESTURE_MS) { openLaunch(prepared); return; }
+      // انقضت إيماءة النقر فيحجب Chrome الرابط صامتاً: النقرة التالية على الزرّ تفتحه (الرمز صالح عشر دقائق)
+      setLaunch(prepared);
+      setBusy(false);
     } catch (e: any) {
       if (!alive.current) return;
+      if (seq !== reqSeq.current) { setBusy(false); return; }
       const data = e?.response?.data;
       setError(data?.message || tr('تعذر بدء التحصيل بالبطاقة تحقق من الاتصال'));
       if (data?.paymentId && (data.code === 'CARD_PAY_IN_PROGRESS' || data.code === 'CARD_PAY_REVIEW')) {
@@ -117,12 +166,13 @@ export function CardPaySheet({ customer, onClose }: { customer: { id: string; na
               <p className="text-sm text-gray-600 mb-1 text-center">{tr('فاتورة')} {picked.number}</p>
               <p className="text-[11px] text-gray-400 text-center mb-3">{tr('المتبقي')} {formatCurrency(picked.remainingAmt)}</p>
               <label className="block text-xs text-gray-500 mb-1">{tr('المبلغ المحصل بالبطاقة')}</label>
-              <DecimalInput value={amount ?? Number(picked.remainingAmt)} onCommit={(v: number) => setAmount(v)} min={0}
+              <DecimalInput value={amount ?? Number(picked.remainingAmt)} onCommit={(v: number) => { if (v !== amount) resetLaunch(); setAmount(v); }} min={0} readOnly={busy}
                 className="w-full border border-gray-200 rounded-xl p-3 text-lg font-bold text-center" />
               <button onClick={start} disabled={busy || !(amount == null || amount > 0)}
                 className="w-full mt-4 bg-[#1F1A13] disabled:bg-gray-300 text-white rounded-xl py-3.5 font-semibold text-sm flex items-center justify-center gap-2">
                 {busy ? <Loader2 size={16} className="animate-spin" /> : <CreditCard size={16} />} {tr('افتح جهاز الدفع')}
               </button>
+              {launch && <p className="text-xs text-[#1F1A13] font-semibold mt-2 text-center">{tr('العملية جاهزة اضغط الزر مرة أخرى لفتح جهاز الدفع')}</p>}
               <p className="text-[11px] text-gray-400 mt-3 leading-relaxed text-center">{tr('يلمس العميل بطاقته بظهر الجوال وعند الموافقة يسجل سند القبض تلقائيا باسمك وتسدد الفاتورة')}</p>
             </div>
           ) : (
@@ -133,7 +183,7 @@ export function CardPaySheet({ customer, onClose }: { customer: { id: string; na
               ) : invoices.length === 0 ? (
                 <p className="text-center text-gray-400 py-8 text-sm">{tr('لا توجد فواتير غير مسددة لهذا العميل')}</p>
               ) : invoices.map(inv => (
-                <button key={inv.id} onClick={() => { setPicked(inv); setAmount(Number(inv.remainingAmt)); setError(null); }}
+                <button key={inv.id} onClick={() => { setPicked(inv); setAmount(Number(inv.remainingAmt)); setError(null); resetLaunch(); }}
                   className="w-full bg-white border border-gray-200 hover:border-[#1F1A13] rounded-xl p-3.5 mb-2 flex items-center justify-between">
                   <div className="text-right">
                     <p className="text-sm font-bold text-gray-800">{inv.number}</p>
@@ -181,7 +231,7 @@ export function CardPayResult({ pending, unsupported, onClose, onDone }: {
     const tick = async () => {
       if (!live) return;
       try {
-        const r = await repApi.post(`/card-payments/${pending.id}/check`);
+        const r = await repApi.post(`/card-payments/${encodeURIComponent(pending.id)}/check`);
         if (!live) return;
         const d = r.data.data as CheckState;
         setState(d);
@@ -213,7 +263,7 @@ export function CardPayResult({ pending, unsupported, onClose, onDone }: {
           <>
             <XCircle size={44} className="mx-auto text-amber-500" />
             <p className="font-bold mt-3">{tr('حدث تطبيق المندوب')}</p>
-            <p className="text-sm text-gray-500 mt-2 leading-relaxed">{tr('التحصيل بالبطاقة يحتاج أحدث نسخة من تطبيق المندوب من متجر Google Play')}</p>
+            <p className="text-sm text-gray-500 mt-2 leading-relaxed">{tr('التحصيل بالبطاقة يعمل من تطبيق المندوب على أندرويد بأحدث نسخة من Google Play ولم يخصم أي مبلغ من العميل')}</p>
           </>
         ) : st === 'approved' ? (
           <>

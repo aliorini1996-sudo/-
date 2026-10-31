@@ -39,7 +39,10 @@ export function nearpayConfigured(): boolean {
   return !!(process.env.NEARPAY_API_KEY || '').trim() && !!apiBase();
 }
 
-/** دخول JWT مهيأ (المفتاح الخاص + معرّف العميل) — بدونه يدخل المندوب برمز التحقق من وحدة الدفع نفسها */
+/**
+ * دخول JWT مهيأ (المفتاح الخاص + معرّف العميل). وحدة الدفع في تطبيق المندوب لا تنفّذ دخول OTP، فبدونه لا تحصيل بالبطاقة
+ * (cardPayLaunchConfigured في cardPayment.ts)
+ */
 export function nearpayJwtConfigured(): boolean {
   return !!privateKey() && !!(process.env.NEARPAY_CLIENT_UUID || '').trim();
 }

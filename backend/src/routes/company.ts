@@ -8,8 +8,10 @@ import { getCountryTax, OVERRIDE_CURRENCIES } from '../config/countries';
 import { ZATCA_ROUTE_CODES, auditOwnerImpersonationWrite, companyZatcaFieldChanges } from './zatca';
 import { phase2LockedSettingChanges, phase2SettingsLockedBody } from '../compliance/zatca/settingsGuards';
 import { aiRepForRep } from '../ai-rep/access';
+import { cardPayUsable } from '../services/cardPayment';
 import teamsRouter from './teams';
 import printSettingsRouter from './printSettings';
+import printTextsRouter from './printTexts';
 import paymentMethodsConfigRouter from './paymentMethodsConfig';
 
 const router = Router();
@@ -19,6 +21,9 @@ router.use('/teams', teamsRouter);
 // «إعدادات الطباعة» — /api/company/print-settings (routes/printSettings.ts): القراءة لكل مسجّل والحفظ بصلاحية إعدادات الشركة.
 // مسارٌ مستقلّ لا حقلٌ في PUT /api/company — companySchema وقراءتا قفل ZATCA كما هي
 router.use('/print-settings', printSettingsRouter);
+// «نصوص المطبوعات» — /api/company/print-texts (routes/printTexts.ts): صياغة نصوص الفاتورة والسند وإخفاؤها ولغتها الثانية.
+// مسارٌ مستقلّ كإعدادات الطباعة — PUT /api/company كما هو
+router.use('/print-texts', printTextsRouter);
 // «إدارة طرق الدفع» — /api/company/payment-methods (routes/paymentMethodsConfig.ts): القراءة لكل مسجّل (المندوب يبني منها
 // اختيارات السند وأسماءه) والحفظ بصلاحية إعدادات الشركة وعَلَم صفحة «طرق الدفع». مسارٌ مستقلّ كإعدادات الطباعة — PUT /api/company كما هو
 router.use('/payment-methods', paymentMethodsConfigRouter);
@@ -64,7 +69,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     // نُرفق أعلام الاشتراك التي يتحكّم بها المالك (لإظهار/إخفاء الميزات في الواجهة).
     // «تتبّع اللوط»: العلم من الـselect نفسه (لا استعلام إضافي)، وlotOnInvoice (طباعة التشغيلة) لا يصل مفعّلاً إلا مع العلم (D15)
     const tenant = await prisma.tenant.findUnique({ where: { id: tid }, select: { erpEnabled: true, petroappEnabled: true, hatifEnabled: true, catalogEnabled: true, paylinkEnabled: true, warehouseEnabled: true, receivablesSummaryEnabled: true, accountingEnabled: true, dailyReportEnabled: true, attendanceEnabled: true, invoiceSignatureEnabled: true, accountingSuiteEnabled: true, zatcaPhase2Enabled: true, aiRepEnabled: true, apiEnabled: true, cardPayEnabled: true, lotTrackingEnabled: true, locationsEnabled: true, paymentMethodsEnabled: true } });
-    const data = { ...(maskCompany(company as Record<string, unknown> | null) as object), erpEnabled: !!tenant?.erpEnabled, petroappEnabled: !!tenant?.petroappEnabled, hatifEnabled: !!tenant?.hatifEnabled, catalogEnabled: !!tenant?.catalogEnabled, paylinkEnabled: !!tenant?.paylinkEnabled, warehouseEnabled: !!tenant?.warehouseEnabled, receivablesSummaryEnabled: !!tenant?.receivablesSummaryEnabled, accountingEnabled: tenant?.accountingEnabled !== false, dailyReportEnabled: tenant?.dailyReportEnabled === true, attendanceEnabled: tenant?.attendanceEnabled === true, invoiceSignatureEnabled: tenant?.invoiceSignatureEnabled === true, accountingSuiteEnabled: tenant?.accountingSuiteEnabled === true, zatcaPhase2Enabled: tenant?.zatcaPhase2Enabled === true, aiRepEnabled: tenant?.aiRepEnabled === true && (req.user?.role !== 'SALES_REP' || await aiRepForRep(tid, req.user.id)), apiEnabled: tenant?.apiEnabled === true, cardPayEnabled: tenant?.cardPayEnabled === true, locationsEnabled: tenant?.locationsEnabled === true, paymentMethodsEnabled: tenant?.paymentMethodsEnabled === true, lotTrackingEnabled: tenant?.lotTrackingEnabled === true, lotOnInvoice: company?.lotOnInvoice === true && tenant?.lotTrackingEnabled === true };
+    const data = { ...(maskCompany(company as Record<string, unknown> | null) as object), erpEnabled: !!tenant?.erpEnabled, petroappEnabled: !!tenant?.petroappEnabled, hatifEnabled: !!tenant?.hatifEnabled, catalogEnabled: !!tenant?.catalogEnabled, paylinkEnabled: !!tenant?.paylinkEnabled, warehouseEnabled: !!tenant?.warehouseEnabled, receivablesSummaryEnabled: !!tenant?.receivablesSummaryEnabled, accountingEnabled: tenant?.accountingEnabled !== false, dailyReportEnabled: tenant?.dailyReportEnabled === true, attendanceEnabled: tenant?.attendanceEnabled === true, invoiceSignatureEnabled: tenant?.invoiceSignatureEnabled === true, accountingSuiteEnabled: tenant?.accountingSuiteEnabled === true, zatcaPhase2Enabled: tenant?.zatcaPhase2Enabled === true, aiRepEnabled: tenant?.aiRepEnabled === true && (req.user?.role !== 'SALES_REP' || await aiRepForRep(tid, req.user.id)), apiEnabled: tenant?.apiEnabled === true, cardPayEnabled: tenant?.cardPayEnabled === true, cardPayAvailable: tenant?.cardPayEnabled === true && cardPayUsable(tid), locationsEnabled: tenant?.locationsEnabled === true, paymentMethodsEnabled: tenant?.paymentMethodsEnabled === true, lotTrackingEnabled: tenant?.lotTrackingEnabled === true, lotOnInvoice: company?.lotOnInvoice === true && tenant?.lotTrackingEnabled === true };
     res.json({ success: true, data });
   } catch (err) { next(err); }
 });

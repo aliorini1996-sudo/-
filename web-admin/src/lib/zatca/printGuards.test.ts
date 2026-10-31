@@ -45,7 +45,8 @@ test('قالب A4: الرمز المحليّ لا يُبنى إلا بقرارٍ
   const s = read('rep/RepDocuments.tsx');
   // القرار يُتّخذ قبل العنوان والرمز
   assert.match(s, /const zDecision = zatcaPrintDecision\(/, 'القالب لا يستدعي قرار الطباعة');
-  assert.match(s, /const docTitle = tr\(zDecision\.title\)/, 'العنوان لا يأتي من القرار');
+  // «نصوص المطبوعات»: صياغة الشركة للعنوان لمستندات المرحلة الأولى وحدها — المحلِّل يتجاهلها متى وُجد doc.zatca
+  assert.match(s, /const docTitle = pt\.title\(zDecision\.title, \{ isReturn: !!doc\.isReturn, phase2: !!doc\.zatca \}\)/, 'العنوان لا يأتي من القرار');
   // الشرط حرفياً على سطر البناء
   assert.match(
     s,
@@ -59,9 +60,9 @@ test('قالب A4: الرمز المحليّ لا يُبنى إلا بقرارٍ
   const local = s.indexOf('if (qrValue) {', block);
   assert.ok(p2 > block && p2 < govBranch && p2 < local, 'فرع المرحلة الثانية لا يسبق فرعي الرمز الآخرين');
   // ولا تفصيل ضريبة على ورقةٍ غير ضريبية — ولا عنوانَ عمودٍ يقول إنّ السعر شامل ضريبة القيمة المضافة
-  assert.match(s, /\{zDecision\.showTaxBreakdown && doc\.tax > 0 && <Row label=\{tr\('الوعاء الخاضع للضريبة'\)/);
-  assert.match(s, /\{zDecision\.showTaxBreakdown && <th style=\{th\}>\{tr\('الضريبة'\)\}<\/th>\}/);
-  assert.match(s, /\{zDecision\.showTaxBreakdown && inclusiveDoc \? tr\('السعر شامل الضريبة'\) : tr\('السعر'\)\}/);
+  assert.match(s, /\{zDecision\.showTaxBreakdown && doc\.tax > 0 && <Row label=\{L\('tot\.taxable', 'الوعاء الخاضع للضريبة'\)/);
+  assert.match(s, /\{zDecision\.showTaxBreakdown && !pt\.hidden\('col\.tax'\) && <th style=\{th\}>\{L\('col\.tax', 'الضريبة', \{ stack: true \}\)\}<\/th>\}/);
+  assert.match(s, /\{zDecision\.showTaxBreakdown && inclusiveDoc \? L\('col\.priceIncl', 'السعر شامل الضريبة', \{ stack: true \}\) : L\('col\.price', 'السعر', \{ stack: true \}\)\}/);
   // وتصنيف الورقة (سعر الوحدة قبل الضريبة) من القرار لا من رقم المشتري الضريبي
   assert.match(s, /inclusiveDoc && zDecision\.standardLayout && it\.taxPct > 0/);
   assert.doesNotMatch(s, /&& !isSimplified &&/, 'القالب يعود إلى تخمين المبسّطة/القياسية بدل تصنيف الخادم');
@@ -135,7 +136,7 @@ test('شاشة النتيجة: مستندٌ لا ورقة له لا زرّ مش�
 test('ورقةٌ بلا تفصيل ضريبة وأسعارها غير شاملة: عنوان الإجمالي يفسّر الفرق (A4 والحراريّ)', () => {
   assert.match(
     read('rep/RepDocuments.tsx'),
-    /: !zDecision\.showTaxBreakdown && !inclusiveDoc && doc\.tax > 0 \? tr\('المبلغ المستحق شامل الضرائب'\)/,
+    /: !zDecision\.showTaxBreakdown && !inclusiveDoc && doc\.tax > 0 \? V\('المبلغ المستحق شامل الضرائب'\)/,
     'سند التسليم يعرض مجموعاً لا يساوي الفرق بين سطريه بلا سطرٍ يفسّره',
   );
   const t = read('rep/thermal.ts');
@@ -218,10 +219,12 @@ test('القالبان الحراريان الجديدان من القرار ن�
   const t = read('rep/thermal.ts');
   assert.equal((t.match(/zatcaPrintDecision\(/g) || []).length, 1, 'قرارٌ ثانٍ في الشريط');
   const body = between(t, 'function rollInvoiceBody', 'function rollReceiptBody', 'rep/thermal.ts');
-  assert.match(body, /<div class="c b">\$\{esc\(tr\(title\)\)\}<\/div>/, 'العنوان لا يأتي من القرار');
-  assert.match(body, /: !d\.showTaxBreakdown && !inclusiveDoc && doc\.tax > 0 \? tr\('المبلغ المستحق شامل الضرائب'\)/);
-  assert.match(body, /\$\{d\.showTaxBreakdown \? `<div class="row"><span>\$\{inclusiveDoc \? tr\('منها ضريبة القيمة المضافة'\)/, 'سطر الضريبة غير محروس');
-  assert.match(body, /\$\{d\.showTaxBreakdown \? `<div class="row"><span>\$\{tr\('المجموع قبل الضريبة'\)\}/);
+  // «نصوص المطبوعات»: العنوان من القرار عبر المحلِّل (يتجاهل صياغة الشركة للمختوم)، وسطرا الضريبة بعبارتهما الثابتة (fixed)
+  assert.match(body, /const tt = r\.pt\.title\(title, \{ isReturn: !!doc\.isReturn, phase2: !!doc\.zatca \}\);/, 'العنوان لا يأتي من القرار');
+  assert.match(body, /<div class="c b">\$\{titleHtml\}<\/div>/);
+  assert.match(body, /: !d\.showTaxBreakdown && !inclusiveDoc && doc\.tax > 0 \? val\(r, 'المبلغ المستحق شامل الضرائب'\)/);
+  assert.match(body, /\$\{d\.showTaxBreakdown \? `<div class="row"><span>\$\{inclusiveDoc\s*\? lbl\(r, 'tot\.vatIncl', 'منها ضريبة القيمة المضافة'/, 'سطر الضريبة غير محروس');
+  assert.match(body, /\$\{d\.showTaxBreakdown \? `<div class="row"><span>\$\{lbl\(r, 'tot\.taxable', 'المجموع قبل الضريبة'\)\}/);
   assert.match(body, /inclusiveDoc && d\.standardLayout && it\.taxPct > 0/, 'سعر الوحدة قبل الضريبة بتخمينٍ لا بالقرار');
   assert.match(body, /\$\{d\.watermark \? /);
   assert.match(body, /\$\{d\.notice \? /);
@@ -236,8 +239,10 @@ test('القالبان الحراريان الجديدان من القرار ن�
 test('مظهر الطباعة لا يُخفي محتوىً إلزامياً: الاسم والرقم الضريبي والسجل والعنوان في كل ترويسة', () => {
   const s = read('rep/RepDocuments.tsx');
   const header = between(s, 'export function Header', 'function InfoBox', 'rep/RepDocuments.tsx');
-  assert.match(header, /\n\s*\{line\(tr\('الرقم الضريبي'\), company\?\.taxNumber, light\)\}/, 'الرقم الضريبي صار خياراً');
-  assert.match(header, /\n\s*\{line\(tr\('السجل التجاري'\), company\?\.commercialReg, light\)\}/);
+  // «نصوص المطبوعات» تعيد صياغة التسميات (L) ولا تخفي هذه الثلاثة — قفلها zatca في printTextsCore.ts
+  assert.match(header, /\n\s*\{line\(L\('h\.taxNumber', 'الرقم الضريبي'\), company\?\.taxNumber, light\)\}/, 'الرقم الضريبي صار خياراً');
+  assert.match(header, /\n\s*\{line\(L\('h\.commercialReg', 'السجل التجاري'\), company\?\.commercialReg, light\)\}/);
+  assert.doesNotMatch(header, /pt\.hidden\('h\.(taxNumber|commercialReg|address)'\)/, 'نصٌّ إلزاميّ في الترويسة صار يُخفى');
   assert.equal((header.match(/\{company\?\.name \|\| tr\('اسم الشركة'\)\}/g) || []).length, 3, 'اسم الشركة في الأشكال الثلاثة');
   assert.equal((header.match(/>\{title\}</g) || []).length, 3, 'العنوان في الأشكال الثلاثة');
   assert.doesNotMatch(header, /look\.\w+ && line\(tr\('الرقم الضريبي'\)/);

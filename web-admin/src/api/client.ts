@@ -3,6 +3,7 @@ import { sessionSpace, expiredDestination, useAuthStore } from '../store/authSto
 import { FS_CAPS_HEADER, FS_CAPS_VALUE } from './caps';
 import { removeUnitParams } from './unitParams';
 import type { PrintSettingsV1 } from '../lib/print/printSettingsCore';
+import type { PrintTextsV1 } from '../lib/print/printTextsCore';
 import type { PaymentMethodsConfigInput } from '../lib/paymentMethodsCore';
 import type {
   LotCreateRequest, LotListParams, LotRef, LotRelabelRequest, LotStatusRequest, LotTrackingRequest, LotUpdateRequest,
@@ -280,6 +281,13 @@ export const companyApi = {
   printSettings: {
     get: () => api.get('/company/print-settings'),
     put: (data: PrintSettingsV1 | null) => api.put('/company/print-settings', data ?? { reset: true }),
+  },
+  // «نصوص المطبوعات» — /api/company/print-texts: صياغة نصوص الفاتورة وسند القبض وإخفاؤها ولغتها الثانية. القراءة لكل مسجّل
+  // (data خام تُقرأ عبر normalizePrintTexts)، والحفظ بصلاحية إعدادات الشركة (400 PRINT_TEXTS_INVALID بأسباب issues، 413، 409).
+  // مسارٌ مستقلّ كالطباعة لا حقلٌ في update. null = «استعادة النصوص الافتراضية»: { reset: true } فيُكتب العمود null
+  printTexts: {
+    get: () => api.get('/company/print-texts'),
+    put: (data: PrintTextsV1 | null) => api.put('/company/print-texts', data ?? { reset: true }),
   },
   // «إدارة طرق الدفع» — /api/company/payment-methods: القراءة لكل مسجّل ({ data, methods, choices })، والحفظ بصلاحية إعدادات
   // الشركة وعَلَم صفحة «طرق الدفع» (400 بأسباب issues، 409 PAYMENT_METHODS_CONFLICT من تبويبٍ قديم). مسارٌ مستقلّ كالطباعة.

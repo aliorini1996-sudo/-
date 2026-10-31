@@ -7434,7 +7434,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:{كل أعمدة إعدادات الشركة ومنها name وaddress وtaxNumber وcommercialReg وphone وemail وlogo (base64) وprimaryColor وheaderStyle وnumerals وcountryCode وcurrency وcurrencyOverride وdefaultVatPct وeinvoiceProvider وeinvoiceEnabled وeinvoiceEnv وeinvoiceClientId وحقول بائع زاتكا وzatcaPhase2StartedAt، مع einvoiceHasSecret:boolean بدل السر، والأعلام erpEnabled وpetroappEnabled وhatifEnabled وcatalogEnabled وpaylinkEnabled وwarehouseEnabled وreceivablesSummaryEnabled وaccountingEnabled وdailyReportEnabled وattendanceEnabled وinvoiceSignatureEnabled وaccountingSuiteEnabled وzatcaPhase2Enabled وaiRepEnabled وapiEnabled وlocationsEnabled وpaymentMethodsEnabled وlotTrackingEnabled وlotOnInvoice}}. وفي أعمدة الإعدادات الخام: teamsEnabled وprintSettings وpaymentMethodsConfig (JSON أو null)",
+    "response": "{success:true, data:{كل أعمدة إعدادات الشركة ومنها name وaddress وtaxNumber وcommercialReg وphone وemail وlogo (base64) وprimaryColor وheaderStyle وnumerals وcountryCode وcurrency وcurrencyOverride وdefaultVatPct وeinvoiceProvider وeinvoiceEnabled وeinvoiceEnv وeinvoiceClientId وحقول بائع زاتكا وzatcaPhase2StartedAt، مع einvoiceHasSecret:boolean بدل السر، والأعلام erpEnabled وpetroappEnabled وhatifEnabled وcatalogEnabled وpaylinkEnabled وwarehouseEnabled وreceivablesSummaryEnabled وaccountingEnabled وdailyReportEnabled وattendanceEnabled وinvoiceSignatureEnabled وaccountingSuiteEnabled وzatcaPhase2Enabled وaiRepEnabled وapiEnabled وlocationsEnabled وpaymentMethodsEnabled وlotTrackingEnabled وlotOnInvoice}}. وفي أعمدة الإعدادات الخام: teamsEnabled وprintSettings وprintTexts وpaymentMethodsConfig (JSON أو null)",
     "rules": [
      "einvoiceClientSecret لا يُعاد أبداً ويُستبدل بـ einvoiceHasSecret",
      "accountingEnabled يكون true ما لم يُطفأ صراحة، وبقية الأعلام false ما لم تُفعَّل",
@@ -7442,7 +7442,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "استعمل الأعلام لمعرفة الميزات المتاحة قبل استدعاء مساراتها مثل المستودع وروابط الدفع",
      "تحقّق من locationsEnabled قبل /locations، ومن paymentMethodsEnabled قبل /reports/payment-methods وPUT /company/payment-methods، ومن attendanceEnabled قبل /attendance-admin",
      "«تتبّع LOT»: lotTrackingEnabled يفعّله مزود الخدمة لكل شركة — تحقّق منه قبل /lots ومزامنة موارد التشغيلات وحقول التشغيلات في المسارات الأخرى. وlotOnInvoice (طباعة رقم التشغيلة على فاتورة العميل، يضبطه PUT /lots/settings) يصل true مع الميزة المفعّلة وحدها، ولا يمسّه PUT /company",
-     "اقرأ طرق الدفع من GET /company/payment-methods وإعدادات الطباعة من GET /company/print-settings لا من العمودين الخام: المساران يعيدان الصورة المكتملة بالافتراضي"
+     "اقرأ طرق الدفع من GET /company/payment-methods وإعدادات الطباعة من GET /company/print-settings ونصوص المطبوعات من GET /company/print-texts لا من الأعمدة الخام: المسارات تعيد الصورة المكتملة بالافتراضي، وتُهمل في الخام ما لا يصلح"
     ],
     "example": ""
    },
@@ -7633,6 +7633,62 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "اقرأ GET أولاً وعدّل ثم أرسل الكل"
     ],
     "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/company/print-texts",
+    "purpose": "نصوص المطبوعات للشركة: صياغة نصوص الفاتورة (والمرتجع) وسند القبض، وما أُخفي منها، واللغة الثانية على الورقة",
+    "permission": "لا تتطلب صلاحية خاصة (أي مستخدم مصادق)",
+    "gates": [
+     "authenticate فقط",
+     "مسموح لمفتاح القراءة فقط"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:PrintTextsV1, stored, hasCompany}. PrintTextsV1 = {version:1, secondLang:'en'|'fr'|'tr'|'zh'|null, companyNameAlt:string|null (اسم الشركة باللغة الثانية حتى 80 حرفاً), companyAddressAlt:string|null (العنوان بها حتى 160), edits:{مفتاح النص: {text:string|null (الصياغة العربية البديلة), alt:string|null (نصه باللغة الثانية), hidden:boolean}}}",
+    "rules": [
+     "stored = false يعني نصوص اليوم كما هي، وdata يحمل حينها {version:1, secondLang:null, companyNameAlt:null, companyAddressAlt:null, edits:{}}",
+     "مفاتيح edits من قائمة مغلقة ثابتة لا تتغير (مثل h.phone وinv.title وcust.phone وtot.paid وrcp.title)، ولا يرد فيها إلا ما عدّلته الشركة، بترتيب القائمة",
+     "المحفوظ يُقرأ متسامحاً: مفتاح لا تعرفه هذه النسخة يُهمل، وإخفاء نص صار إلزامياً يسقط وحده ويبقى بقية الإعداد",
+     "مع لغة ثانية تُطبع العربية أولاً أياً كانت لغة الواجهة، وتحتها أو بجانبها نص alt، وإلا ترجمة المنصة للنص العربي",
+     "hasCompany = false: لا صف لبيانات الشركة بعد، فالحفظ يرجع 409 COMPANY_SETTINGS_MISSING"
+    ],
+    "example": ""
+   },
+   {
+    "method": "PUT",
+    "path": "/company/print-texts",
+    "purpose": "حفظ نصوص المطبوعات كاملة، أو استعادة النصوص الافتراضية",
+    "permission": "canManageCompanySettings",
+    "gates": [
+     "requireAdmin",
+     "requireAdminPermission('canManageCompanySettings')",
+     "بلا عَلَم اشتراك",
+     "يُرفض لمفتاح القراءة فقط (403 API_KEY_FORBIDDEN)"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "(الجسم كله)",
+      "type": "PrintTextsV1 | {reset:true}",
+      "required": true,
+      "desc": "الإعداد كاملاً بصيغة GET نفسها (لا PATCH)، أو {\"reset\":true} وحده لاستعادة النصوص الافتراضية"
+     }
+    ],
+    "response": "{success:true, data:PrintTextsV1, stored, hasCompany:true}",
+    "rules": [
+     "البنية صارمة: حقل غير معروف في أي مستوى، أو مفتاح نص خارج القائمة، أو نسخة غير 1، أو لغة غير en وfr وtr وzh يُرفض 400 PRINT_TEXTS_INVALID مع issues:[{path, message}]",
+     "الإلزامي في الفاتورة الضريبية (مثل الرقم الضريبي للبائع وسجله وعنوانه، رقم المستند وتاريخه ووقته، الصنف والكمية والسعر والإجمالي، الرقم الضريبي للعميل، الإجمالي النهائي) وهيكل السند وجدول الأقساط تُعاد صياغتها ولا تُخفى: hidden:true عليها 400",
+     "العبارات الضريبية (السعر شامل الضريبة، قبل الضريبة، الأسعار المعروضة شاملة الضريبة، الوعاء الخاضع للضريبة، ضريبة القيمة المضافة، منها ضريبة القيمة المضافة) لا تُعاد صياغتها بالعربية ولا تُخفى، ويُكتب نصها باللغة الثانية في alt وحده",
+     "اسم العميل ومنشأته وسجله وعنوانه، وعمودا الخصم والضريبة، وسطر الخصم: إخفاؤها يسري على الفاتورة المبسطة وحدها وتبقى على القياسية",
+     "عنوان الفاتورة والمرتجع (inv.title وinv.returnTitle) يُعاد صياغته أو يُخفى لمستندات المرحلة الأولى وحدها، والمستند المختوم من المرحلة الثانية يطبع عنوانه المقرر كما هو",
+     "نص رمز QR واسم الشركة في التذييل وملاحظة الأقساط (qr.caption وfoot.company وinst.note) تُخفى ولا يُكتب لها نص. وسطر «صدرت عبر منصة Field Sales» ليس في القائمة ولا يُعدَّل",
+     "كل نص سطر واحد حتى 60 حرفاً، إلا foot.thanks حتى 160 وnote.pricesIncl حتى 120 وrcp.credit حتى 80. المسافات المكررة تُطوى والفارغ null، والإعداد الذي لا أثر له يُحفظ كالاستعادة (stored = false)",
+     "فوق 32 كيلوبايت 413 PRINT_TEXTS_TOO_LARGE، وبلا صف بيانات شركة 409 COMPANY_SETTINGS_MISSING",
+     "الاستعادة بـ{\"reset\":true} لا بـnull: محلّل JSON في الخادم يرفض null خاماً في أعلى الجسم",
+     "اقرأ GET أولاً وعدّل ثم أرسل الكل"
+    ],
+    "example": "{\"version\":1,\"secondLang\":\"en\",\"companyNameAlt\":\"Al Riyada Distribution\",\"companyAddressAlt\":null,\"edits\":{\"h.phone\":{\"text\":\"الهاتف\",\"alt\":\"Tel\",\"hidden\":false},\"inv.title\":{\"text\":\"فاتورة مبيعات\",\"alt\":\"Sales invoice\",\"hidden\":false},\"cust.phone\":{\"text\":null,\"alt\":null,\"hidden\":true}}}"
    },
    {
     "method": "GET",
