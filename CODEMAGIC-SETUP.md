@@ -71,4 +71,8 @@ App Store Connect → **Apps** → **+** → **New App**:
 - `WKAppBoundDomains = fieldsa.net, api.fieldsa.net` → يُفعّل Service Worker والعمل دون اتصال.
 - Firebase مُضمّن ومُهيّأ لكنه خامل (بلا تسجيل إشعارات) — لا يطلب إذناً ولا ينهار.
 - Entitlements فارغة (لا صلاحيات خاصة) → توقيع تلقائي بلا احتكاك. الكاميرا/الموقع تكفيها أوصاف `Info.plist`.
-- الإصدار: `1.0.0` (build يتزايد تلقائياً في كل تشغيل Codemagic).
+- الإصدار: `1.1.0` (build يتزايد تلقائياً في كل تشغيل Codemagic). 1.1.0 = الطباعة المباشرة عبر BLE + إصلاح نظام الطباعة.
+- **أول خطوة في البناء: «فحص عقد الطباعة (متجهات ذهبية) وحراس الإصدار».** تُترجم `ci/fsp-check` مع `FieldSales/PrintPayload.swift` لماك وتفكّ المتجهات الذهبية الـ42 (`ci/print_payload_vectors.json`، نسخة مطابقة بايتاً لملف أندرويد، sha256 `afa7cbd5…03ef` يُتحقّق منه في الخطوة)، ثم تتحقّق من: نص إذن البلوتوث في `Info.plist`، وغياب وضع خلفية للبلوتوث، وغياب `CODE_SIGN_ENTITLEMENTS`، وغياب اسم أي مزوّد في `FieldSales/`، وغياب واجهات «السبب المطلوب» (UserDefaults وsystemUptime وطوابع الملفات…) من كود التطبيق لأنه بلا Privacy Manifest (وإلا يرفض App Store Connect الرفع بـITMS-91053)، و`MARKETING_VERSION = 1.1.0` في الإعدادين. أي فشل يوقف البناء قبل التوقيع وقبل TestFlight.
+- البلوتوث لا يحتاج Entitlements ولا قدرة على الـApp ID: نص `NSBluetoothAlwaysUsageDescription` وحده. لا تُضِف `UIBackgroundModes bluetooth-central` ولا `UIRequiredDeviceCapabilities bluetooth-le`.
+- **MIP480 غير مدعومة على iOS** (بلوتوث كلاسيكي بلا BLE، وآبل لا تسمح به إلا لأجهزة MFi).
+- لبناء 1.1.0: البناء من الفرع الذي يحوي هذا الكود (`feature/ios-print` ثم يُدمج في `ios-app`)، بإذن المالك الصريح.

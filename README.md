@@ -36,6 +36,10 @@
 | **GPS الزيارات + التتبّع** | يعمل على iOS 15+ (وصف الموقع موجود) | ✅ |
 | كشوف الحساب/المرتجعات/مخزون السيارة | منطق ويب بحت | ✅ |
 | **ماسح الباركود المباشر** | أُضيف **ZXing** عبر `getUserMedia` كبديل لـiOS (يبقى `BarcodeDetector` الأصلي لأندرويد) | ✅ (بانتظار نشر الـPWA) |
+| **الطباعة المباشرة عبر BLE (1.1.0)** | جسر أصلي `fsPrint` + CoreBluetooth: الحرارية ESC/POS والملصقات TSPL بنفس بايتات أندرويد (حمولة FSP v1)، شاشة ربط عربية تبحث عن الطابعة بلا إقران من الإعدادات، تقدّم وإلغاء عند نهاية سطر | ✅ في الكود (بانتظار البناء والتجربة) |
+| **نظام الطباعة (AirPrint)** | `window.print()` لا يعمل داخل WKWebView ⇒ الويب يرسل الـHTML للتطبيق فيطبعه بـ`UIPrintInteractionController` (`systemPrint`) | ✅ 1.1.0 |
+| **Tally Dascom MIP480** | بلوتوث كلاسيكي 1.2 بلا BLE وليست MFi ⇒ **غير مدعومة على iOS** (الويب يعطّل «بلوتوث مباشر» لقالبها على الآيفون بتلميح بسيط) | ❌ بقرار آبل |
+| الدفع بالبطاقة | غير متاح على الآيفون؛ الزرّ يبقى مخفياً على iOS | — |
 
 > **تطابق كامل الآن.** أُصلح ماسح الباركود في الـPWA (`web-admin/src/rep/BarcodeScanner.tsx`): أندرويد يستمرّ على `BarcodeDetector` الأصلي، وiOS يستخدم **ZXing** (تحميل ديناميكي مقسّم عبر `getUserMedia` — الغلاف يمنح إذن الكاميرا). بديل يدوي في كلا المسارين. **يتفعّل بعد نشر الـPWA على fieldsa.net** (تعديل ويب، لا يخصّ مشروع iOS).
 
@@ -48,6 +52,11 @@ ios-app/
 ├── FieldSales.xcworkspace/   ← يُبنى هذا (بعد pod install)
 ├── FieldSales.xcodeproj/     ← السكيم: FieldSales
 ├── FieldSales/               ← كود الغلاف (WKWebView) + Info.plist + الأيقونات
+│   ├── PrintPayload.swift    ← فكّ حمولة FSP v1 (نظير bridgePayload.ts وPrintPayload.kt) + WritePlan
+│   ├── PrintBridge.swift     ← معالج fsPrint (hello/pick/print/cancel/systemPrint) + الطابعة المحفوظة
+│   ├── BlePrinter.swift      ← CoreBluetooth: بحث وربط وكتابة بتنظيم التدفّق والإلغاء عند العلامات
+│   └── PrinterPicker.swift   ← شاشة «اختيار الطابعة» العربية
+├── ci/                       ← fsp-check (فحص Swift للمتجهات الذهبية) + print_payload_vectors.json
 ├── Podfile                   ← Firebase/Messaging ~> 11.0
 ├── assets/AppIcon-1024.png   ← أيقونة المتجر
 └── metadata/                 ← بيانات المتجر

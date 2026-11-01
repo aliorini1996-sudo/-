@@ -12,6 +12,10 @@
 	<string>يتيح التطبيق اختيار صور من مكتبتك لإرفاقها بزيارات العملاء.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>يحفظ التطبيق المستندات والصور في مكتبتك عند طلبك.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>يتصل التطبيق بطابعة البلوتوث التي تختارها لطباعة الفواتير والسندات والملصقات مباشرة.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>يتصل التطبيق بطابعة البلوتوث التي تختارها لطباعة الفواتير والسندات والملصقات مباشرة.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

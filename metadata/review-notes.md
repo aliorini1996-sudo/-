@@ -51,7 +51,18 @@ Core native/substantive functionality (beyond a website):
 Permissions:
 • Location — to log visit locations and track the rep's field route.
 • Camera / Photos — to attach visit photos and (optionally) scan product barcodes.
+• Bluetooth — only to connect to the rep's own portable receipt/label printer (version 1.1).
 These are requested only in context, with clear purpose strings.
+
+Version 1.1 — Bluetooth printing:
+Sales reps can print invoices, receipts and shelf labels directly to their own portable Bluetooth Low Energy
+receipt/label printer (ESC/POS and TSPL thermal printers). In the document screen: "Change" → "Direct Bluetooth" →
+"Connect printer" opens a list of nearby printers; the rep picks theirs and prints. Bluetooth is used only for
+this, only in the foreground, and only after the rep chooses a printer (purpose string shown at first use).
+No data is collected over Bluetooth, and the printer identifier never leaves the phone. Without a printer
+nearby the list simply shows a hint, and the rest of the app works exactly as before.
+A short video of the feature on a real printer: <owner's unlisted link>.
+The app still does not process payments.
 
 The app has no user-generated public content, no social features, and no in-app
 purchases. It is distributed to a company's own field staff.
@@ -68,6 +79,13 @@ Contact for questions: help@fieldsa.net
 - لا معالجة مدفوعات، لا تحويل أموال، لا حفظ أرصدة مستخدمين، لا منتج مالي للمستهلك.
 - «الفواتير/السندات» = مستندات أعمال داخلية (مثل ERP/CRM) لموظفي شركة التوزيع.
 - طابِق هذا مع: وصف المتجر + استبيان الخصوصية (لا Financial Info) + الفئة = **Business**.
+
+## الإصدار 1.1.0 — الطباعة بالبلوتوث (للمرجع الداخلي)
+- الفقرة الإنجليزية «Version 1.1 — Bluetooth printing» أعلاه تُلصق مع الملاحظات، مع رابط فيديو قصير (٢٠–٤٠ ثانية) للطباعة من الآيفون على طابعة حقيقية، لأن المراجع لا يملك طابعتنا (البند 2.1).
+- نص الإذن (`NSBluetoothAlwaysUsageDescription`) محدّد بالعربية ويذكر الاستعمال نفسه (البند 5.1.1).
+- لا وضع خلفية للبلوتوث (`bluetooth-central`) ولا Entitlements جديدة: حارس في codemagic.yaml (البند 2.5.4 ودرس انهيار البناء 4).
+- «ما الجديد» بلا ذكر أي مزوّد. ما زال التطبيق لا يعالج مدفوعات، فجملة "does not process payments" صحيحة.
+- App Privacy بلا تغيير: معرّف الطابعة يبقى على الجوال ولا يُجمع.
 
 ## تذكيرات قبل الإرسال
 - [ ] حساب المراجعة يعمل (اختبره بنفسك على fieldsa.net/rep).

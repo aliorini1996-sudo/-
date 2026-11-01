@@ -16,6 +16,10 @@
 		595F23AD25CEFBFE0053416C /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 595F23A225CEFBFE0053416C /* AppDelegate.swift */; };
 		595F23AE25CEFBFE0053416C /* Printer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 595F23A325CEFBFE0053416C /* Printer.swift */; };
 		595F23AF25CEFBFE0053416C /* WebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 595F23A425CEFBFE0053416C /* WebView.swift */; };
+		FA51A0F1C0DE000000000012 /* PrintPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA51A0F1C0DE000000000011 /* PrintPayload.swift */; };
+		FA51A0F1C0DE000000000022 /* PrintBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA51A0F1C0DE000000000021 /* PrintBridge.swift */; };
+		FA51A0F1C0DE000000000032 /* BlePrinter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA51A0F1C0DE000000000031 /* BlePrinter.swift */; };
+		FA51A0F1C0DE000000000042 /* PrinterPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA51A0F1C0DE000000000041 /* PrinterPicker.swift */; };
 		CDC0FE292388222C002C8D56 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = CDC0FE252388222B002C8D56 /* Main.storyboard */; };
 		CDC0FE2A2388222C002C8D56 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = CDC0FE272388222B002C8D56 /* LaunchScreen.storyboard */; };
 		E1E260C850014D6B34B487B0 /* Pods_FieldSales.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BE9D7FFB2FBE6EEBCA807B6A /* Pods_FieldSales.framework */; };
@@ -34,6 +38,10 @@
 		595F23A225CEFBFE0053416C /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = "FieldSales/AppDelegate.swift"; sourceTree = "<group>"; };
 		595F23A325CEFBFE0053416C /* Printer.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = Printer.swift; path = "FieldSales/Printer.swift"; sourceTree = "<group>"; };
 		595F23A425CEFBFE0053416C /* WebView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = WebView.swift; path = "FieldSales/WebView.swift"; sourceTree = "<group>"; };
+		FA51A0F1C0DE000000000011 /* PrintPayload.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = PrintPayload.swift; path = "FieldSales/PrintPayload.swift"; sourceTree = "<group>"; };
+		FA51A0F1C0DE000000000021 /* PrintBridge.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = PrintBridge.swift; path = "FieldSales/PrintBridge.swift"; sourceTree = "<group>"; };
+		FA51A0F1C0DE000000000031 /* BlePrinter.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = BlePrinter.swift; path = "FieldSales/BlePrinter.swift"; sourceTree = "<group>"; };
+		FA51A0F1C0DE000000000041 /* PrinterPicker.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = PrinterPicker.swift; path = "FieldSales/PrinterPicker.swift"; sourceTree = "<group>"; };
 		BE9D7FFB2FBE6EEBCA807B6A /* Pods_FieldSales.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = "Pods_FieldSales.framework"; sourceTree = BUILT_PRODUCTS_DIR; };
 		BEE8E5C625AE96C07F8AADED /* Pods-FieldSales.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-FieldSales.debug.xcconfig"; path = "Target Support Files/Pods-FieldSales/Pods-FieldSales.debug.xcconfig"; sourceTree = "<group>"; };
 		CDC0FE262388222B002C8D56 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = "FieldSales/Base.lproj/Main.storyboard"; sourceTree = "<group>"; };
@@ -84,6 +92,10 @@
 				CDC0FE272388222B002C8D56 /* LaunchScreen.storyboard */,
 				CDC0FE252388222B002C8D56 /* Main.storyboard */,
 				595F23A425CEFBFE0053416C /* WebView.swift */,
+				FA51A0F1C0DE000000000011 /* PrintPayload.swift */,
+				FA51A0F1C0DE000000000021 /* PrintBridge.swift */,
+				FA51A0F1C0DE000000000031 /* BlePrinter.swift */,
+				FA51A0F1C0DE000000000041 /* PrinterPicker.swift */,
 				30FCACC6A7BF53CD6D9CF6C0 /* Pods */,
 				90E46E861CB86F5FAF46BED9 /* Frameworks */,
 				59333BAA25CFF706003392A4 /* FieldSales.app */,
@@ -214,6 +226,10 @@
 				595F23AC25CEFBFE0053416C /* ViewController.swift in Sources */,
 				595F23AA25CEFBFE0053416C /* PushNotifications.swift in Sources */,
 				595F23AF25CEFBFE0053416C /* WebView.swift in Sources */,
+				FA51A0F1C0DE000000000012 /* PrintPayload.swift in Sources */,
+				FA51A0F1C0DE000000000022 /* PrintBridge.swift in Sources */,
+				FA51A0F1C0DE000000000032 /* BlePrinter.swift in Sources */,
+				FA51A0F1C0DE000000000042 /* PrinterPicker.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -375,7 +391,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.1.0;
 				CURRENT_PROJECT_VERSION = 1;
 				PRODUCT_BUNDLE_IDENTIFIER = "net.fieldsa.rep";
 				PRODUCT_NAME = "FieldSales";
@@ -402,7 +418,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.1.0;
 				CURRENT_PROJECT_VERSION = 1;
 				PRODUCT_BUNDLE_IDENTIFIER = "net.fieldsa.rep";
 				PRODUCT_NAME = "FieldSales";

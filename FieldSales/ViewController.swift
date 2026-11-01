@@ -43,6 +43,8 @@ class ViewController: UIViewController, WKNavigationDelegate, UIDocumentInteract
         loadRootUrl()
     
         NotificationCenter.default.addObserver(self, selector: #selector(self.keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification , object: nil)
+        // Direct Bluetooth printing: a job in progress is ended cleanly when the app leaves the foreground.
+        NotificationCenter.default.addObserver(self, selector: #selector(self.appDidEnterBackground(_:)), name: UIApplication.didEnterBackgroundNotification, object: nil)
         
     }
 
@@ -54,9 +56,15 @@ class ViewController: UIViewController, WKNavigationDelegate, UIDocumentInteract
     @objc func keyboardWillHide(_ notification: NSNotification) {
         FieldSales.webView.setNeedsLayout()
     }
+
+    @objc func appDidEnterBackground(_ notification: NSNotification) {
+        PrintBridge.shared.didEnterBackground()
+    }
     
     func initWebView() {
         FieldSales.webView = createWebView(container: webviewView, WKSMH: self, WKND: self, NSO: self, VC: self)
+        // fsPrint bridge (WKScriptMessageHandlerWithReply, .page world) + window.__fsIosBridge marker script.
+        PrintBridge.shared.install(webView: FieldSales.webView, presenter: self)
         webviewView.addSubview(FieldSales.webView);
         
         FieldSales.webView.uiDelegate = self;

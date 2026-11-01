@@ -22,6 +22,25 @@ workflows:
       xcode: latest
       cocoapods: default
     scripts:
+      # أولاً وقبل أي توقيع أو بناء: فكّ حمولة الطباعة في Swift يطابق الويب وأندرويد بايتاً ببايت
+      # (المتجهات الذهبية الـ42)، وحرّاس الإصدار. أي فشل هنا يوقف البناء قبل TestFlight.
+      - name: فحص عقد الطباعة (متجهات ذهبية) وحراس الإصدار
+        script: |
+          set -euo pipefail
+          echo "afa7cbd5a15dd7383565b1efb86e43074114c5ab0bf5cd8ffb3afd09259d03ef  ci/print_payload_vectors.json" | shasum -a 256 -c -
+          xcrun --sdk macosx swiftc -O -o /tmp/fsp-check FieldSales/PrintPayload.swift ci/fsp-check/main.swift
+          /tmp/fsp-check ci/print_payload_vectors.json
+          plutil -lint FieldSales/Info.plist
+          /usr/libexec/PlistBuddy -c "Print :NSBluetoothAlwaysUsageDescription" FieldSales/Info.plist
+          if /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" FieldSales/Info.plist | grep -qi bluetooth; then echo "✗ وضع خلفية للبلوتوث"; exit 1; fi
+          if grep -q CODE_SIGN_ENTITLEMENTS FieldSales.xcodeproj/project.pbxproj; then echo "✗ Entitlements"; exit 1; fi
+          if grep -RniE "nearpay|near pay|نيرباي|نير باي" FieldSales; then echo "✗ اسم المزوّد"; exit 1; fi
+          # لا Privacy Manifest في التطبيق: أي واجهة «سبب مطلوب» في كوده يرفضها App Store Connect (ITMS-91053)
+          if grep -RnE --include='*.swift' "UserDefaults|systemUptime|mach_absolute_time|creationDate|modificationDate|ModificationDate|volumeAvailableCapacity|systemFreeSize|activeInputModes" FieldSales; then echo "✗ واجهة تتطلب Privacy Manifest"; exit 1; fi
+          # الإصدار في الإعدادين (Debug وRelease) كلاهما 1.1.0
+          test "$(grep -c 'MARKETING_VERSION = ' FieldSales.xcodeproj/project.pbxproj)" -eq "$(grep -c 'MARKETING_VERSION = 1.1.0;' FieldSales.xcodeproj/project.pbxproj)"
+          grep -q "MARKETING_VERSION = 1.1.0;" FieldSales.xcodeproj/project.pbxproj
+
       - name: تهيئة سلسلة المفاتيح
         script: |
           keychain initialize
