@@ -74,7 +74,7 @@ platform :ios do
     # كما في خط Codemagic السابق: رقم البناء يُكتب في Info.plist مباشرة
     sh("/usr/libexec/PlistBuddy", "-c", "Set :CFBundleVersion #{build_number}", FS_INFO_PLIST)
 
-    cocoapods(podfile: File.join(FS_ROOT, "Podfile"), try_repo_update_on_error: true, use_bundle_exec: false)
+    cocoapods(podfile: File.join(FS_ROOT, "Podfile"), try_repo_update_on_error: true)
 
     update_code_signing_settings(
       path: FS_PROJECT,
