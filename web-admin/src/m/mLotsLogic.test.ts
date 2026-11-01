@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   newRowId, lineBaseQty, shelfLifeOn, resolveShelfOn, isTracked, fefoLinesParam, emptyLotDraft, lotDraftProblem, entryLotFields, loadLotFields,
-  lotPickChoices, stalePick, vanOutSources, prefillOut, prefillOutLines, sourcesLeftFor, setOutQty, outGroupProblems, whOutSources, whOutRows,
+  lotPickChoices, stalePick, vanOutSources, prefillOut, prefillOutLines, sourcesLeftFor, setOutQty, outAutoRows, outGroupProblems, whOutSources, whOutRows,
   lotLineLabel, lotListParams, nextLotsLimit, statusReasonProblem, scopedLotUser,
   unloadPlanRows, unloadPlanTotals, unloadPlanHasRemovals, weakestCertainty, customerLotTotals, telHref, trackedDemand, vanAvailableOf, vanLotShortages,
   LOT_DRAFT_PROBLEMS, VAN_OUT_PROBLEMS, WH_OUT_PROBLEMS, STATUS_REASON_PROBLEMS, LOT_CACHE_KEYS, STOCK_CACHE_KEYS, M_LOTS_PAGE, M_LOTS_MAX, M_LOTS_SOON_DAYS,
@@ -79,7 +79,7 @@ const draft = (p: Partial<LotDraft>): LotDraft => ({ ...emptyLotDraft(), ...p })
 
 test('lotDraftProblem: كل فرعٍ برسالته — مرآة الوارد والتسوية والتحميل بلا مستودع', () => {
   const P = LOT_DRAFT_PROBLEMS;
-  // بلا اختيار: الزيادة تلزمها تشغيلة، والنقص يختار الخادم مصدره الوحيد (D10)
+  // بلا اختيار: الزيادة تلزمها تشغيلة، والنقص يُسحب تلقائياً بالأقرب انتهاءً أولاً أيّاً كان عدد المصادر (pickOutFefoLines)
   assert.equal(lotDraftProblem(draft({}), 'IN_STRICT', { shelfOn: false }), P.PICK);
   assert.equal(lotDraftProblem(draft({}), 'IN', { shelfOn: false }), P.PICK);
   assert.equal(lotDraftProblem(draft({}), 'OUT', { shelfOn: false }), null);
@@ -149,6 +149,8 @@ test('vanOutSources: المسحوب ثم الموقوف ثم المنتهي ثم
   assert.equal(s[s.length - 1].usable, 7);
   assert.deepEqual(vanOutSources(null, DAY), []);
   assert.deepEqual(vanOutSources({ ...snapProduct(), unknownUsable: 0 }, DAY).map(x => x.lotId).includes(null), false);
+  // 'FEFO': ترتيب اللقطة كما هو (الخادم رتّبها) — ترتيب السحب التلقائي، بلا تقديم المسحوب والموقوف
+  assert.deepEqual(vanOutSources(snapProduct(), DAY, 'FEFO').map(x => x.lotId), ['A', 'B', 'C', 'D', 'E', 'G', null]);
 });
 
 test('prefillOut وsetOutQty: التوزيع الأوّلي بترتيب المصادر، والتعديل يحفظ الترتيب ويحذف الصفر', () => {
@@ -169,15 +171,17 @@ test('prefillOut وsetOutQty: التوزيع الأوّلي بترتيب الم�
 const one1 = (sources: readonly OutSource[], rows: LotRef[] | null, base: number, loaded = true) =>
   outGroupProblems(sources, [{ key: 'k', base, rows }], { loaded }).get('k') ?? null;
 
-test('outGroupProblems لسطرٍ واحد: مرآة pickOutSources قبل الإرسال (D10، I1)', () => {
+test('outGroupProblems لسطرٍ واحد: مرآة pickOutSources وpickOutFefoLines قبل الإرسال (I1)', () => {
   const s = vanOutSources(snapProduct(), DAY);
   const single: OutSource[] = [s[0]];
   assert.equal(one1(s, [], 5, false), null, 'بلا لقطة لا حكم');
   assert.equal(one1([], null, 5), 'NO_BALANCE');
   assert.equal(one1(s, prefillOut(s, 30), 30), 'OVER');
-  assert.equal(one1(single, null, 1), null, 'المصدر الوحيد يختاره الخادم');
+  assert.equal(one1(single, null, 1), null, 'مصدرٌ واحد بلا صريح: سحبٌ تلقائي');
   assert.equal(one1(single, null, 2), 'OVER');
-  assert.equal(one1(s, null, 3), 'PICK', 'أكثر من مصدر بلا صريح: LOT_REQUIRED');
+  assert.equal(one1(s, null, 3), null, 'أكثر من مصدر بلا صريح: سحبٌ تلقائي (كان LOT_REQUIRED في D10)');
+  assert.equal(one1(s, null, 23), null, 'حتى مجموع المصادر كلها');
+  assert.equal(one1(s, null, 24), 'OVER');
   assert.equal(one1(s, [], 3), 'DISTRIBUTE', 'صريحٌ فارغ');
   assert.equal(one1(s, [{ lotId: 'C', qty: 1 }], 3), 'DISTRIBUTE', 'مجموعٌ ناقص');
   assert.equal(one1(s, [{ lotId: 'C', qty: 2 }, { lotId: 'B', qty: 1 }], 3), 'ROW_OVER');
@@ -234,9 +238,11 @@ test('نقص المستودع (التسوية السالبة): مصادر الع
   assert.deepEqual(whOutRows(draft({ pick: 'A' }), 2.5), [{ lotId: 'A', qty: 2.5 }]);
   const probs = (vw: PlaceLotViewDto, ls: [string, LotDraft, number][]) =>
     outGroupProblems(whOutSources(vw), ls.map(([key, d, base]) => ({ key, base, rows: whOutRows(d, base) })), { loaded: true });
-  // (١) بلا اختيار وأكثر من مصدر ⇒ يُمنع (الخادم: LOT_REQUIRED، D10) — كان تنبيهاً كهرمانياً وحده
-  assert.equal(probs(v, [['x', draft({}), 1]]).get('x'), 'PICK');
-  assert.equal(probs(view([['A', 10]], 0), [['x', draft({}), 4]]).size, 0, 'المصدر الوحيد يختاره الخادم');
+  // (١) بلا اختيار: سحبٌ تلقائي بالأقرب انتهاءً أولاً من أي عدد مصادر (كان PICK — LOT_REQUIRED في D10)، والممنوع فوق المجموع وحده
+  assert.equal(probs(v, [['x', draft({}), 1]]).size, 0);
+  assert.equal(probs(v, [['x', draft({}), 17]]).size, 0, 'A:10 + C:4 + غير المسمّى 3');
+  assert.equal(probs(v, [['x', draft({}), 18]]).get('x'), 'OVER');
+  assert.equal(probs(view([['A', 10]], 0), [['x', draft({}), 4]]).size, 0);
   assert.equal(probs(view([['A', 3]], 0), [['x', draft({}), 4]]).get('x'), 'OVER');
   assert.equal(probs(view([], 0), [['x', draft({}), 1]]).get('x'), 'NO_BALANCE');
   // (٢) صالح التشغيلة المختارة دون كمية السطر ⇒ يُمنع

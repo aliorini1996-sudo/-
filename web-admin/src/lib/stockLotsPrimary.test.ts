@@ -39,7 +39,7 @@ test('LotRowsEditor ورسالة المجموع: بالوحدة الصغرى ل�
   assert.match(s, /const eq = lotRowEquivalent\(r\.qty, prod\);/);
   assert.match(s, /draftProblemText\(problem, tr, prod\)/);
   const v = read('pages', 'VanStockPage.tsx');
-  assert.equal((v.match(/<LotRowsEditor [^\n]*prod=\{prod\} \/>/g) || []).length, 2, 'نافذة التحميل');
+  assert.equal((v.match(/<LotRowsEditor [^\n]*prod=\{prod\} \/>/g) || []).length, 1, 'نافذة التحميل (والتنزيل التلقائي بلا محرّرٍ إلزامي — التحديد اليدوي يفتح المحرّر نفسه)');
   assert.match(v, /<LotRowsEditor rows=\{draft \?\? \[\]\} [^\n]*prod=\{row\}/, 'إزالة المنتهي والتالف');
   assert.equal((v.match(/draftProblemText\([^\n]*, tr, productOf\(r\.productId\)\)/g) || []).length, 2);
   for (const k of ['مجموع كميات التشغيلات يجب أن يساوي كمية السطر بـ{unit}', 'الكمية بـ{unit}']) {

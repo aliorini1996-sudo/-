@@ -36,7 +36,7 @@ test('B3 الوارد: العلم من استعلام حارس التفعيل ن
     '}, BASE_GUARD_TX);', 'return;',
     'await companyDay(prisma, tid)', 'await acquireLotQueue(tid, preTracked)', 'prisma.$transaction(async (tx) => {',
     'await lockLotProducts(tx, tid, productIds)', 'assertBasesUnchanged(expected, locked.units);', 'await planWarehouseEntryInTx(tx,',
-    'tx.warehouseEntry.create({ data: entryData(plan.lotIdByLine)',
+    'tx.warehouseEntry.create({ data: entryData(plan.lotIdByLine, plan.splitByLine)',
     '{ maxWait: 10_000, timeout: 20_000 }', 'if (e instanceof ProductUnitsChangedError) throw e;', 'throw asLotBusy(e) ?? e;', 'release();',
   ], 'POST /entries');
   // لا دالّة لوط قبل مخرج المسار القائم

@@ -1747,12 +1747,13 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   // ═══ تتبّع اللوط — W3 ═══
   // عبارات حزم الواجهات W2 وW3 وW5 وW6 (جردٌ آليّ بنداءات tr() كما يجمعها langs.test.ts)
   // حقول تشغيلات الحركة (StockLotFields وMLotFields)
-  'للصنف أكثر من تشغيلة حدد ما ينقص منه': { en: 'This product has more than one lot — choose which to reduce', fr: 'Ce produit a plusieurs lots — choisissez celui à diminuer', tr: 'Ürünün birden fazla partisi var — hangisinden düşüleceğini seçin', zh: '该商品有多个批次，请选择从哪个批次扣减' },
-  'ينقص من المصدر الوحيد': { en: 'Reduced from the only source', fr: 'Diminué de la seule source', tr: 'Tek kaynaktan düşülür', zh: '从唯一来源扣减' },
-  'تلقائي حين يكون للصنف مصدر واحد': { en: 'Automatic when the product has a single source', fr: 'Automatique lorsque le produit a une seule source', tr: 'Ürünün tek kaynağı olduğunda otomatik', zh: '商品只有一个来源时自动处理' },
+  // السحب التلقائي للإنقاص بلا تحديد (طلب المالك ١ نوفمبر ٢٠٢٦): الأقرب انتهاءً أولاً، والتحديد اليدوي اختياري
+  'تلقائي: الأقرب انتهاءً أولاً': { en: 'Automatic: earliest expiry first', fr: 'Automatique : la plus proche péremption d abord', tr: 'Otomatik: son kullanma tarihi en yakın önce', zh: '自动：先到期先出' },
+  'تحديد التشغيلة يدوياً': { en: 'Choose lots manually', fr: 'Choisir les lots manuellement', tr: 'Partileri elle seç', zh: '手动选择批次' },
+  'الكمية أكبر من رصيد التشغيلات في هذا الرصيد': { en: 'The quantity exceeds the lot balance in this stock', fr: 'La quantité dépasse le solde des lots de ce stock', tr: 'Miktar bu stoktaki parti bakiyesini aşıyor', zh: '数量超过该库存中的批次余额' },
+  'تلقائي من مبيعات العميل السابقة': { en: 'Automatic from the customer previous sales', fr: 'Automatique d après les ventes précédentes du client', tr: 'Müşterinin önceki satışlarından otomatik', zh: '根据客户以往销售自动确定' },
   'المتاح': { en: 'Available', fr: 'Disponible', tr: 'Mevcut', zh: '可用量' },
   'تشغيلة جديدة': { en: 'New lot', fr: 'Nouveau lot', tr: 'Yeni parti', zh: '新批次' },
-  'للصنف أكثر من مصدر في المستودع فاختر التشغيلة': { en: 'This product has more than one source in the warehouse — choose the lot', fr: 'Ce produit a plusieurs sources dans l entrepôt — choisissez le lot', tr: 'Ürünün depoda birden fazla kaynağı var — partiyi seçin', zh: '该商品在仓库中有多个来源，请选择批次' },
   // تحميل السيارة من الجوال (MRepLoad)
   'جاري حساب التشغيلات المقترحة': { en: 'Calculating suggested lots', fr: 'Calcul des lots suggérés', tr: 'Önerilen partiler hesaplanıyor', zh: '正在计算建议批次' },
   'التشغيلات المقترحة الأقرب انتهاء أولا': { en: 'Suggested lots, nearest expiry first', fr: 'Lots suggérés, péremption la plus proche d abord', tr: 'Önerilen partiler, son kullanma tarihi en yakın olan önce', zh: '建议批次，最近到期的优先' },
@@ -1760,7 +1761,6 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'المتاح في المستودع': { en: 'Available in the warehouse', fr: 'Disponible dans l entrepôt', tr: 'Depoda mevcut', zh: '仓库可用量' },
   'لن يحفظ التحميل بأكثر منه': { en: 'The load will not be saved above it', fr: 'Le chargement ne sera pas enregistré au-delà', tr: 'Yükleme bundan fazlasıyla kaydedilmez', zh: '装车数量不能超过此值' },
   'يؤكد التوزيع عند الحفظ': { en: 'The allocation is confirmed on save', fr: 'La répartition est confirmée à l enregistrement', tr: 'Dağıtım kaydederken onaylanır', zh: '保存时确认分配' },
-  'ينزل من': { en: 'Taken from', fr: 'Prélevé de', tr: 'Şuradan düşülür', zh: '扣自' },
   'من أي تشغيلة ينزل بوحدة الأساس': { en: 'Which lot it is taken from, in the base unit', fr: 'De quel lot il est prélevé, en unité de base', tr: 'Hangi partiden düşüleceği, temel birimde', zh: '从哪个批次扣减（基本单位）' },
   'باقي بلا توزيع': { en: 'Remaining unallocated', fr: 'Reste non réparti', tr: 'Dağıtılmamış kalan', zh: '剩余未分配' },
   'زائد عن كمية السطر': { en: 'Exceeds the line quantity', fr: 'Dépasse la quantité de la ligne', tr: 'Satır miktarını aşıyor', zh: '超过该行数量' },
@@ -1782,11 +1782,9 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'تعود الكمية إلى المستودع وتبقى التشغيلة موقوفة هناك': { en: 'The quantity returns to the warehouse and the lot stays held there', fr: 'La quantité retourne à l entrepôt et le lot y reste bloqué', tr: 'Miktar depoya döner ve parti orada bekletilmeye devam eder', zh: '数量退回仓库，批次在仓库中保持暂停' },
   'إتلاف': { en: 'Destroy', fr: 'Détruire', tr: 'İmha', zh: '销毁' },
   'كمية الصنف المتتبع بأربع خانات عشرية على الأكثر بوحدة الأساس': { en: 'A tracked product quantity has at most four decimal places in the base unit', fr: 'La quantité d un produit suivi a au plus quatre décimales en unité de base', tr: 'Takip edilen ürün miktarı temel birimde en fazla dört ondalık basamaklıdır', zh: '追踪商品的数量以基本单位计，最多四位小数' },
-  'للصنف أكثر من تشغيلة في السيارة حدد ما ينزل منه': { en: 'This product has more than one lot in the van — choose which to unload from', fr: 'Ce produit a plusieurs lots dans le véhicule — choisissez celui à décharger', tr: 'Ürünün araçta birden fazla partisi var — hangisinden indirileceğini seçin', zh: '该商品在车上有多个批次，请选择从哪个批次卸货' },
   'توزيع التحميل على التشغيلات': { en: 'Load allocation across lots', fr: 'Répartition du chargement par lot', tr: 'Yüklemenin partilere dağıtımı', zh: '装车按批次分配' },
   'التشغيلات التي ينزل منها': { en: 'Lots it is unloaded from', fr: 'Lots d où il est déchargé', tr: 'İndirildiği partiler', zh: '卸货来源批次' },
   'العودة إلى الاقتراح': { en: 'Back to the suggestion', fr: 'Revenir à la suggestion', tr: 'Öneriye dön', zh: '恢复建议' },
-  'ينزل من المصدر الوحيد': { en: 'Unloaded from the only source', fr: 'Déchargé de la seule source', tr: 'Tek kaynaktan indirilir', zh: '从唯一来源卸货' },
   'لا رصيد تشغيلات لهذا الصنف في السيارة': { en: 'No lot balance for this product in the van', fr: 'Aucun solde de lot pour ce produit dans le véhicule', tr: 'Bu ürün için araçta parti bakiyesi yok', zh: '该商品在车上没有批次余量' },
   'اقتراح التشغيلات الأقرب انتهاء أولا': { en: 'Suggest lots with the nearest expiry first', fr: 'Suggérer les lots à péremption la plus proche d abord', tr: 'Son kullanma tarihi en yakın partileri önce öner', zh: '优先建议最近到期的批次' },
   'تعديل التوزيع': { en: 'Edit the allocation', fr: 'Modifier la répartition', tr: 'Dağıtımı düzenle', zh: '修改分配' },
@@ -1794,7 +1792,6 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'منتهية لم تبع': { en: 'Expired unsold', fr: 'Périmé invendu', tr: 'Süresi dolmuş satılmamış', zh: '过期未售' },
   'ضمن المتبقي ولا يباع': { en: 'Counted in the remaining stock but not for sale', fr: 'Inclus dans le restant mais non vendable', tr: 'Kalan stokta sayılır ama satılmaz', zh: '计入剩余但不可销售' },
   'التشغيلات التي تزال منها': { en: 'Lots it is removed from', fr: 'Lots d où il est retiré', tr: 'Düşüldüğü partiler', zh: '扣减来源批次' },
-  'من المصدر الوحيد': { en: 'From the only source', fr: 'De la seule source', tr: 'Tek kaynaktan', zh: '来自唯一来源' },
   'لا رصيد تشغيلات في هذا الرصيد': { en: 'No lot balance in this stock', fr: 'Aucun solde de lot dans ce stock', tr: 'Bu bakiyede parti bakiyesi yok', zh: '该余量中没有批次余量' },
   // شاشة التشغيلات (LotsPage وlib/lotsPage.ts)
   'النطاق': { en: 'Scope', fr: 'Portée', tr: 'Kapsam', zh: '范围' },

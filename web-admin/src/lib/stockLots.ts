@@ -3,13 +3,13 @@
 // ----------------------------------------------------------------------------
 // منطقٌ صرف بلا React ولا شبكة: مصادر الإنقاص من عرض المكان، ومسوّدات الصفوف
 // التي يحرّرها المستخدم، وحقول تشغيلة سطر الوارد والتسوية، وملخّص صفّ الرصيد.
-// الخادم صاحب القرار (I1/I2 وD10 وD27)، وهذه للتحقق المسبق والعرض وحدهما.
+// الخادم صاحب القرار (I1/I2 وD27، والسحب التلقائي للإنقاص بلا صريح pickOutFefoLines)، وهذه للتحقق المسبق والعرض وحدهما.
 //
 // كل كمية هنا **بوحدة الأساس** (D22)، و`lotId: null` = «غير مسمّى» صراحةً.
 // ============================================================================
 
 import {
-  LOT_EPS, isLotExpiredOn, lotDatesProblem, lotRowsProblem, normalizeLotNumber, roundLot,
+  LOT_EPS, fefoAutoPull, isLotExpiredOn, lotDatesProblem, lotRowsProblem, normalizeLotNumber, roundLot,
   type AllocRowDto, type LotBlockKind, type LotBucket, type LotRef, type LotStatus, type LotWarning,
   type PlaceLotViewDto, type VanLotSnapshotDto,
 } from './lots';
@@ -43,8 +43,9 @@ export interface LotBalancesResponse {
 }
 
 /**
- * مصادر الإنقاص في دلوٍ (D10، pickOutSources في الخادم): كل تشغيلة صالحها في الدلو > EPS **أيّاً كانت حالتها** —
- * الموقوفة والمنتهية تخرج من هنا — مضافاً إليها غير المسمّى إن كان صالحه > EPS. بترتيب العرض (FEFO) وغير المسمّى آخراً.
+ * مصادر الإنقاص في دلوٍ (pickOutSources وpickOutFefoLines في الخادم): كل تشغيلة صالحها في الدلو > EPS **أيّاً كانت حالتها** —
+ * الموقوفة والمنتهية تخرج من هنا — مضافاً إليها غير المسمّى إن كان صالحه > EPS. بترتيب العرض (FEFO) وغير المسمّى آخراً:
+ * ترتيب السحب التلقائي نفسه، ومنها يختار من يحدّد التشغيلة يدوياً.
  */
 export function outSourcesOf(view: PlaceLotViewDto | null | undefined, bucket: LotBucket, day: string): LotSource[] {
   if (!view) return [];
@@ -87,8 +88,6 @@ export function snapshotSourcesOf(snap: VanLotSnapshotDto | null | undefined, pr
   return out;
 }
 
-/** D10: أكثر من مصدرٍ في الدلو ⇒ الإنقاص يتطلب اختياراً صريحاً، والمصدر الوحيد يأخذه الخادم تلقائياً */
-export const needsExplicitSource = (sources: readonly LotSource[]): boolean => sources.length > 1;
 
 /** مفتاح المصدر في منتقي الواجهة — '∅' لغير المسمّى ('' = لم يُختر بعد) */
 export const UNKNOWN_KEY = '∅';
@@ -186,7 +185,7 @@ export function splitDraft(rows: readonly LotRowDraft[], lineBaseQty: number, so
 
 // ─── تشغيلة سطر الوارد أو التسوية (سطرٌ = تشغيلةٌ واحدة، §٤.٤) ───
 
-/** NEW رقمٌ يُحلّ أو يُنشأ بتاريخيه؛ EXISTING تشغيلة قائمة؛ UNKNOWN غير مسمّى صراحةً؛ AUTO بلا تحديد (المصدر الوحيد للنقص) */
+/** NEW رقمٌ يُحلّ أو يُنشأ بتاريخيه؛ EXISTING تشغيلة قائمة؛ UNKNOWN غير مسمّى صراحةً؛ AUTO بلا تحديد (سحبٌ تلقائي للنقص بالأقرب انتهاءً أولاً) */
 export type EntryLotMode = 'NEW' | 'EXISTING' | 'UNKNOWN' | 'AUTO';
 export interface EntryLotDraft { mode: EntryLotMode; lotId: string; lotNumber: string; productionDate: string; expiryDate: string }
 export const emptyEntryLot = (mode: EntryLotMode = 'NEW'): EntryLotDraft => ({ mode, lotId: '', lotNumber: '', productionDate: '', expiryDate: '' });
@@ -209,69 +208,121 @@ export function normalizeEntryLot(d: EntryLotDraft, kind: EntryLotKind): EntryLo
   return modes.includes(d.mode) ? d : { ...d, mode: modes[0] };
 }
 
-export type EntryLotProblem = 'LOT_REQUIRED' | 'LOT_DATES_INVALID' | 'LOT_EXPIRY_REQUIRED' | 'LOT_OVER_SOURCE';
+/** LOT_OVER_SOURCE: سطر نقصٍ صريح فوق مصدره (LOT_STOCK_INSUFFICIENT في الخادم على تشغيلته لا على رصيد الصنف) */
+export type EntryLotProblem = 'LOT_REQUIRED' | 'LOT_DATES_INVALID' | 'LOT_EXPIRY_REQUIRED' | 'LOT_STOCK_INSUFFICIENT' | 'LOT_OVER_SOURCE' | 'LOT_QTY_INVALID';
 
 /**
- * مشكلة تشغيلة السطر قبل الإرسال (مرآة planWarehouseEntryInTx وD4) — sourcesCount لنقصٍ بلا تحديد (D10)، وautoOver
- * (autoDecreaseOver) لتلقائيٍّ فوق مصدره الوحيد الباقي (LOT_STOCK_INSUFFICIENT في الخادم)
+ * مشكلة تشغيلة السطر قبل الإرسال (مرآة planWarehouseEntryInTx وD4). النقص «التلقائي» لا يلزمه اختيارٌ أيّاً كان عدد المصادر
+ * (يُسحب بالأقرب انتهاءً أولاً — طلب المالك ١ نوفمبر ٢٠٢٦ بدل LOT_REQUIRED في D10)، ومشكلته الوحيدة autoOver (autoDecreaseOver):
+ * أسطره فوق مجموع ما بقي بعد الصريح ⇒ LOT_STOCK_INSUFFICIENT كما يردّه الخادم. والنقص الصريح (قائمة مختارة أو «غير مسمّى»)
+ * مشكلته sourceOver (explicitDecreaseOver): أسطر مصدره مجموعةً فوق صالحه ⇒ LOT_OVER_SOURCE.
  */
-export function entryLotProblem(draft: EntryLotDraft, opts: { kind: EntryLotKind; expiryRequired: boolean; sourcesCount?: number; autoOver?: boolean }): EntryLotProblem | null {
+export function entryLotProblem(draft: EntryLotDraft, opts: { kind: EntryLotKind; expiryRequired: boolean; autoOver?: boolean; sourceOver?: boolean }): EntryLotProblem | null {
   const d = normalizeEntryLot(draft, opts.kind);
+  const over = opts.kind === 'DECREASE' && opts.sourceOver ? 'LOT_OVER_SOURCE' : null;
   if (d.mode === 'NEW') {
     if (!normalizeLotNumber(d.lotNumber)) return 'LOT_REQUIRED';
     return lotDatesProblem(d.productionDate || null, d.expiryDate || null, { expiryRequired: opts.expiryRequired });
   }
-  if (d.mode === 'EXISTING') return d.lotId ? null : 'LOT_REQUIRED';
-  if (d.mode === 'AUTO') return (opts.sourcesCount ?? 0) > 1 ? 'LOT_REQUIRED' : opts.autoOver ? 'LOT_OVER_SOURCE' : null;
-  return null;
+  if (d.mode === 'EXISTING') return d.lotId ? over : 'LOT_REQUIRED';
+  if (d.mode === 'AUTO') return opts.autoOver ? 'LOT_STOCK_INSUFFICIENT' : null;
+  return over;
 }
 
 /**
- * مصادر سطر النقص «التلقائي» مما بقي بعد صريح صنفه (D10) — مرآة planWarehouseEntryInTx (withoutRows، وpickPlan في السيارة):
+ * مفتاح مصدر كل سطر نقصٍ صريح (sourceKey: تشغيلة قائمة مختارة، أو «غير مسمّى») — null لـ«التلقائي» ولقائمةٍ لم تُختر ولكميةٍ غير
+ * رقمية أو صفر — ومجموع الأسطر الصريحة لكل مصدر (D26: الخادم يجمع أسطر الصنف قبل الفحص، aggregateRequest)
+ */
+function explicitDecreaseUse(lines: readonly { draft: EntryLotDraft; baseQty: number }[]): { keys: (string | null)[]; used: Map<string, number> } {
+  const used = new Map<string, number>();
+  const keys = lines.map((l) => {
+    const dr = normalizeEntryLot(l.draft, 'DECREASE');
+    const q = roundLot(Math.abs(Number(l.baseQty)));
+    if (!Number.isFinite(q) || q <= LOT_EPS) return null;
+    const key = dr.mode === 'EXISTING' && dr.lotId ? dr.lotId : dr.mode === 'UNKNOWN' ? UNKNOWN_KEY : null;
+    if (key !== null) used.set(key, roundLot((used.get(key) ?? 0) + q));
+    return key;
+  });
+  return { keys, used };
+}
+
+/**
+ * أسطر النقص الصريحة لصنفٍ فوق مصدرها **مجموعةً** (D26) — مرآة pickOutSources بعد aggregateRequest في planWarehouseEntryInTx،
+ * وROW_OVER في الجوال (outGroupProblems): مجموع الأسطر الصريحة لكل مصدر فوق صالحه، أو مصدرٌ غائب عن المصادر المعروفة (تشغيلةٌ
+ * نفدت، أو «غير مسمّى» بلا صالح: I2) ⇒ كل سطرٍ صريح يأخذ منه true — فـ[A −١٢، تلقائي −٢] و[A −٦، A −٦] مع A:10 يردّهما الخادم
+ * LOT_STOCK_INSUFFICIENT. والتلقائي false دائماً (حكمه autoDecreaseOver). `sources` null = المصادر لم تصل أو تعذّر جلبها ⇒ كلّه
+ * false: لا يُمنع على ظنّ؛ و[] بعد وصولها = لا مصدر صالحاً فكل صريحٍ فوقه.
+ */
+export function explicitDecreaseOver(sources: readonly LotSource[] | null | undefined, lines: readonly { draft: EntryLotDraft; baseQty: number }[]): boolean[] {
+  if (!sources) return lines.map(() => false);
+  const { keys, used } = explicitDecreaseUse(lines);
+  const cap = new Map(sources.map((s) => [sourceKey(s.lotId), s.usable]));
+  const over = new Set([...used].filter(([k, q]) => q > (cap.get(k) ?? 0) + LOT_EPS).map(([k]) => k));
+  return keys.map((k) => k !== null && over.has(k));
+}
+
+/**
+ * مصادر أسطر النقص «التلقائية» مما بقي بعد صريح صنفها — مرآة planWarehouseEntryInTx (withoutRows، وpickPlan في السيارة):
  * أسطر نقص الصنف الصريحة (تشغيلة قائمة مختارة، أو «غير مسمّى») تُجمع لكل مصدر وتُطرح كمياتها الأساسية من صالحه، والمصدر الذي
- * لم يبقَ له صالحٌ > EPS لا ينافس — فـ[A −١٠ صريحة، تلقائي −٥] مع A:10 وB:5 مصدره B وحده.
- * والخادم يفحص الصريح مجمَّعاً قبل الطرح: صريحٌ فوق صالح مصدره (أو على غير مصدر)، أو صريحٌ يصفّي كل المصادر، يُرفض
- * (LOT_STOCK_INSUFFICIENT) — فلا يُطرح شيءٌ حينها ويبقى الحكم على المصادر كاملةً كما كان: الطرح لا يفتح طلباً سيُرفض.
+ * لم يبقَ له صالحٌ > EPS يسقط — فـ[A −١٠ صريحة، تلقائي −٥] مع A:10 وB:5 يُسحب من B، وصريحٌ يصفّي كل المصادر لا يُبقي شيئاً.
+ * وصريحٌ فوق صالح مصدره (أو على غير مصدر) يرفضه الخادم قبل التلقائي (LOT_STOCK_INSUFFICIENT) — فلا يُطرح شيءٌ حينها ويبقى
+ * الحكم على المصادر كاملةً: الطرح لا يمنع على ظنّ.
  * `lines` أسطر النقص لصنفٍ واحد (المسوّدة كما هي، والكمية بالأساس بإشارتها)، و«التلقائي» منها لا يُطرح.
  */
 export function autoDecreaseSources(sources: readonly LotSource[], lines: readonly { draft: EntryLotDraft; baseQty: number }[]): LotSource[] {
-  const used = new Map<string, number>();
-  for (const l of lines) {
-    const dr = normalizeEntryLot(l.draft, 'DECREASE');
-    const q = roundLot(Math.abs(Number(l.baseQty)));
-    if (!Number.isFinite(q) || q <= LOT_EPS) continue;
-    const key = dr.mode === 'EXISTING' && dr.lotId ? dr.lotId : dr.mode === 'UNKNOWN' ? UNKNOWN_KEY : null;
-    if (key !== null) used.set(key, roundLot((used.get(key) ?? 0) + q));
-  }
+  const { used } = explicitDecreaseUse(lines);
   if (!used.size) return [...sources];
   const cap = new Map(sources.map((s) => [sourceKey(s.lotId), s.usable]));
   for (const [k, q] of used) {
     const have = cap.get(k);
     if (have === undefined || q > have + LOT_EPS) return [...sources];
   }
-  const rest = sources
+  return sources
     .map((s) => ({ ...s, usable: roundLot(s.usable - (used.get(sourceKey(s.lotId)) ?? 0)) }))
     .filter((s) => s.usable > LOT_EPS);
-  return rest.length ? rest : [...sources];
 }
 
 /**
- * أسطر «التلقائي» لصنفٍ مجموعُها (D26) فوق صالح مصدرها الوحيد الباقي بعد صريحه (autoDecreaseSources) — مرآة pickOutSources على
- * العرض بعد withoutRows: الخادم يردّها LOT_STOCK_INSUFFICIENT. فـ[A −١٠ صريحة، تلقائي −٨] مع A:10 وB:5 لا يُفتح بعد أن صار
- * العدّ مما بقي. وأكثر من مصدرٍ باقٍ (LOT_REQUIRED يسبق) أو لا مصدر معروف (لم تصل المصادر) ⇒ false: لا يُمنع على ظنّ.
+ * أسطر «التلقائي» لصنفٍ مجموعُها (D26) فوق **مجموع** ما بقي بعد صريحه (autoDecreaseSources) أيّاً كان عدد المصادر — مرآة
+ * pickOutFefoLines على العرض بعد withoutRows: الخادم يردّها LOT_STOCK_INSUFFICIENT. فـ[A −١٠ صريحة، تلقائي −٨] مع A:10 وB:5
+ * ممنوع (B:5 < ٨)، و[تلقائي −١٤] مع A:10 وB:5 مقبول (يُسحب من الاثنتين). ولا مصدر معروف (لم تصل المصادر أو تعذّر جلبها) ⇒
+ * false: لا يُمنع على ظنّ.
  */
 export function autoDecreaseOver(sources: readonly LotSource[], lines: readonly { draft: EntryLotDraft; baseQty: number }[]): boolean {
+  if (!sources.length) return false;
   let want = 0;
   for (const l of lines) {
     const q = roundLot(Math.abs(Number(l.baseQty)));
     if (normalizeEntryLot(l.draft, 'DECREASE').mode === 'AUTO' && Number.isFinite(q) && q > LOT_EPS) want = roundLot(want + q);
   }
   if (want <= LOT_EPS) return false;
-  const rest = autoDecreaseSources(sources, lines);
-  return rest.length === 1 && want > rest[0].usable + LOT_EPS;
+  const total = roundLot(autoDecreaseSources(sources, lines).reduce((t, s) => t + s.usable, 0));
+  return want > total + LOT_EPS;
 }
 
-/** حقول التشغيلة في بند الطلب — AUTO لا يُرسل شيئاً (الخادم يأخذ المصدر الوحيد) */
+/**
+ * معاينة السحب التلقائي لأسطر نقص صنفٍ واحد (fefoAutoPull على ما بقي بعد صريحه): لكل سطرٍ «تلقائي» صفوفه (الكرتون يُخدم أولاً
+ * وبقاعدة كرتون معامله)، ولغيره null. فوق المتاح (autoDecreaseOver)، أو بلا مصادر معروفة، أو صريحٌ فوق مصدره
+ * (explicitDecreaseOver: الخادم يرفض الحركة قبل التلقائي فمعاينته من مصدرٍ مُستنفَد تضليل) ⇒ null للجميع — لا معاينة على ظنّ.
+ */
+export function autoDecreasePreview(
+  sources: readonly LotSource[], lines: readonly { draft: EntryLotDraft; baseQty: number; unitFactor?: number | null }[],
+): (LotRef[] | null)[] {
+  const isAuto = lines.map((l) => normalizeEntryLot(l.draft, 'DECREASE').mode === 'AUTO');
+  if (!sources.length || explicitDecreaseOver(sources, lines).some(Boolean)) return lines.map(() => null);
+  const plan = fefoAutoPull(
+    autoDecreaseSources(sources, lines),
+    lines.filter((_, i) => isAuto[i]).map((l) => ({ qty: Number(l.baseQty), unitFactor: l.unitFactor })),
+  );
+  let k = 0;
+  return lines.map((_, i) => {
+    if (!isAuto[i]) return null;
+    const rows = plan.rows[k++];
+    return plan.short || plan.qtyInvalid ? null : rows;
+  });
+}
+
+/** حقول التشغيلة في بند الطلب — AUTO لا يُرسل شيئاً (الخادم يسحب بالأقرب انتهاءً أولاً) */
 export function entryLotFields(d: EntryLotDraft): { lotId?: string | null; lotNumber?: string; productionDate?: string | null; expiryDate?: string | null } {
   if (d.mode === 'NEW') {
     return { lotNumber: normalizeLotNumber(d.lotNumber) ?? d.lotNumber.trim(), productionDate: d.productionDate || null, expiryDate: d.expiryDate || null };

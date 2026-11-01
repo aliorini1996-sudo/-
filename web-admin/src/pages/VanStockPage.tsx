@@ -19,15 +19,15 @@ import { choiceById, defaultChoice, primaryChoice, rebaseRow, unitChoices } from
 import { primaryUnitOf, type UnitDef } from '../lib/units';
 import { anyPrimary, crossSumLabel, isStaleUnitsError, removalBaseQty, removalStart, suggestPrimarySource, withBaseUnitNames } from '../lib/stockRequest';
 import {
-  LOT_BLOCK_KIND_LABELS, LOT_STATUS_LABELS, LOT_WARNING_LABELS, docLotsFrom, isLotExpiredOn, lotErrorOf, lotFlagsOf, lotWarningsOf, roundLot,
+  LOT_BLOCK_KIND_LABELS, LOT_STATUS_LABELS, LOT_WARNING_LABELS, docLotsFrom, fefoAutoPull, isLotExpiredOn, lotErrorOf, lotFlagsOf, lotWarningsOf, roundLot,
   type AllocRowDto, type LotBlockKind, type LotShortageDetail, type LotStatus, type LotWarning, type VanLoadItemLotDto, type VanLotSnapshotDto,
 } from '../lib/lots';
 import {
   directLoadLotFields, draftFromRows, draftProblem, draftRefs, emptyEntryLot, entryLotProblem, hasMultiLotWarning, isFourDecimals,
-  loadSourcesOf, needsExplicitSource, outSourcesOf, shelfLifeOn,
+  loadSourcesOf, outSourcesOf, shelfLifeOn,
   type EntryLotDraft, type LotBalancesResponse, type LotRowDraft, type PlaceViewWithAvailability,
 } from '../lib/stockLots';
-import { EntryLotFields, LotRowsEditor, draftProblemText, entryProblemText, fetchLotBalances, fmtLotQty, sourceLabel } from '../components/StockLotFields';
+import { AutoPullPreview, EntryLotFields, LotRowsEditor, draftProblemText, entryProblemText, fetchLotBalances, fmtLotQty } from '../components/StockLotFields';
 
 /*
  * الوحدات المتعددة: كل كمية تأتي من الخادم هنا **بوحدة الأساس** (`unit` اسمها) — الرصيد والمحمّل والمباع والاقتراح —
@@ -35,7 +35,8 @@ import { EntryLotFields, LotRowsEditor, draftProblemText, entryProblemText, fetc
  * فتُعرض بها كما سُجّلت. ونموذج التحميل صفٌّ لكل صنف بوحدةٍ تُختار عليه، و`unitId` يحلّه الخادم إلى معامله.
  *
  * «تتبّع اللوط» (W2، يفعّله المالك لكل شركة): التحميل باقتراح FEFO قابل للتعديل والتقسيم (بالأساس)، وتحذير اللوطين، والتنزيل
- * والإزالة بمصدرٍ صريح حين يتعدّد (D10)، وإتلاف التشغيلة المنتهية غير المباعة بتسوية نقص (lotReason)، وتوسيع صفّ السيارة
+ * والإزالة بسحبٍ تلقائي بالأقرب انتهاءً أولاً أيّاً كان عدد المصادر (طلب المالك ١ نوفمبر ٢٠٢٦ بدل الصريح الإلزامي في D10) وتحديدٍ
+ * يدوي اختياري، وإتلاف التشغيلة المنتهية غير المباعة بتسوية نقص (lotReason)، وتوسيع صفّ السيارة
  * بتشغيلاته من /van-stock/lot-balances (ومن /lots/balances في «المخزون في تاريخ»). الميزة مطفأة ⇒ لا جلب ولا تغيير مرئي.
  *
  * «الوحدة الرئيسية» (القاعدة ١٢، primary_unit_spec §5.3): صنفٌ لها تُعرض كمياته بها («52 كرتون و2 قارورة»، وبطاقته «الوحدة
@@ -975,9 +976,12 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
     if (balQ.isLoading) return tr('جار التحميل');
     const sources = outSourcesOf(vanViewOf(r.productId), 'SELLABLE', day);
     if (r.lotEdit) return draftProblemText(draftProblem(r.lotEdit, base, sources), tr, productOf(r.productId));
-    return needsExplicitSource(sources) ? tr('للصنف أكثر من تشغيلة في السيارة حدد ما ينزل منه') : null;
+    // بلا تحديد: سحبٌ تلقائي بالأقرب انتهاءً أولاً أيّاً كان عدد المصادر — يُمنع ما فوق مجموعها وحده (LOT_STOCK_INSUFFICIENT
+    // في الخادم)، وبلا مصادر معروفة لا حكم (لا يُمنع على ظنّ)
+    return sources.length > 0 && fefoAutoPull(sources, [{ qty: base, unitFactor: factorOfRow(r) }]).short
+      ? tr('كمية التنزيل أكبر من رصيد تشغيلات الصنف في السيارة') : null;
   };
-  /** حقول التشغيلات في بند الطلب (بالأساس): المعدَّلة صراحةً، أو تشغيلة التحميل المباشر (D4)، وإلا لا شيء فيوزّع الخادم */
+  /** حقول التشغيلات في بند الطلب (بالأساس): المعدَّلة صراحةً، أو تشغيلة التحميل المباشر (D4)، وإلا لا شيء فيوزّع الخادم (FEFO للتحميل، والسحب التلقائي للتنزيل) */
   const lotFields = (r: LoadRow) => {
     if (!isTracked(r.productId)) return {};
     const q = Number(r.qty);
@@ -1252,32 +1256,31 @@ function LoadRowLots({ row, repId, whOn, factor, baseQty, baseUnit, prod, whView
         <div className="flex items-center justify-between gap-2">
           <span className="text-[10px] font-semibold text-[#6E6557] flex items-center gap-1"><Layers size={11} className="text-[#E15A30]" />
             {load ? tr('توزيع التحميل على التشغيلات') : tr('التشغيلات التي ينزل منها')}</span>
-          {(load || !needsExplicitSource(sources)) && (
-            <button type="button" onClick={() => onPatch({ lotEdit: null })} className="text-[10px] font-semibold text-[#E15A30]">
-              {load ? tr('العودة إلى الاقتراح') : tr('تلقائي')}
-            </button>
-          )}
+          <button type="button" onClick={() => onPatch({ lotEdit: null })} className="text-[10px] font-semibold text-[#E15A30]">
+            {load ? tr('العودة إلى الاقتراح') : tr('تلقائي')}
+          </button>
         </div>
         <LotRowsEditor rows={row.lotEdit} onChange={rs => onPatch({ lotEdit: rs })} sources={sources} lineBaseQty={baseQty} baseUnit={baseUnit} prod={prod} />
         {issue && <p className="text-[10px] text-red-600">{issue}</p>}
       </div>
     );
   }
-  // التنزيل بلا مسوّدة: المصدر الوحيد تلقائياً، والمتعدّد يلزمه اختيارٌ صريح (D10)
+  // التنزيل بلا مسوّدة: سحبٌ تلقائي بالأقرب انتهاءً أولاً أيّاً كان عدد المصادر (لا يُرسل lots، والخادم يحسم بقاعدة الكرتون)،
+  // ومعاينته هنا بمعامل السطر — والتحديد اليدوي اختياري يبدأ من المعاينة نفسها
   if (!load) {
     if (balLoading) return <p className="mt-1 text-[10px] text-[#9A8F7E]">{tr('جار التحميل')}</p>;
+    const plan = fefoAutoPull(sources, [{ qty: baseQty, unitFactor: factor }]);
     return (
       <div className={box}>
-        {needsExplicitSource(sources) ? (
-          <>
-            <p className="text-[10px] text-amber-700 font-semibold">{tr('للصنف أكثر من تشغيلة في السيارة حدد ما ينزل منه')}</p>
-            <LotRowsEditor rows={[]} onChange={rs => onPatch({ lotEdit: rs })} sources={sources} lineBaseQty={baseQty} baseUnit={baseUnit} prod={prod} />
-          </>
-        ) : (
-          <p className="text-[10px] text-[#6E6557]">
-            {sources.length === 1 ? `${tr('ينزل من المصدر الوحيد')}: ${sourceLabel(sources[0], tr)}` : tr('لا رصيد تشغيلات لهذا الصنف في السيارة')}
-          </p>
-        )}
+        <div className="flex items-start justify-between gap-2">
+          {sources.length ? <AutoPullPreview rows={plan.rows[0]} sources={sources} />
+            : <p className="text-[10px] text-[#6E6557]">{tr('لا رصيد تشغيلات لهذا الصنف في السيارة')}</p>}
+          {sources.length > 1 && (
+            <button type="button" onClick={() => onPatch({ lotEdit: draftFromRows(plan.rows[0]) })}
+              className="text-[10px] font-semibold text-[#E15A30] whitespace-nowrap">{tr('تحديد التشغيلة يدوياً')}</button>
+          )}
+        </div>
+        {issue && <p className="text-[10px] text-red-600">{issue}</p>}
       </div>
     );
   }
@@ -1437,7 +1440,8 @@ function VanLotsDetail({ productId, productName, repId, row, snap, snapLoading, 
 
 /**
  * إزالة المنتهي صلاحيته (EXPIRED_OUT) أو المرتجع التالف (DAMAGED_OUT) من سيارة المندوب — نافذةٌ بدل window.prompt. الكمية بالأساس
- * (بلا unitId)، والافتراضي كامل الرصيد. وللصنف المتتبَّع: المصدر الوحيد في الدلو تلقائي، والمتعدّد يلزمه اختيارٌ صريح (D10).
+ * (بلا unitId)، والافتراضي كامل الرصيد. وللصنف المتتبَّع: سحبٌ تلقائي من الدلو بالأقرب انتهاءً أولاً أيّاً كان عدد المصادر (بلا
+ * lots، والبند بلا unitId فمعامله ١)، وتحديدٌ يدوي اختياري يبدأ من المعاينة.
  *
  * «الوحدة الرئيسية» (D8): لصنفٍ لها منتقي وحدة، افتراضه الرئيسية حين ينقسم عليها الرصيد (removalStart)، والواجهة تحوّل
  * الخانة إلى الأساس (`n = الكمية × المعامل`) قبل التحقق والإرسال — فعقد الخادم لا يتغيّر (البند بلا unitId). ومسوّدة
@@ -1453,6 +1457,7 @@ function RemoveOutModal({ row, kind, repId, tracked, onDone, onClose }: {
   const [start] = useState(() => removalStart(row, have));
   const [unitId, setUnitId] = useState<string | null>(start.unitId);
   const [qty, setQty] = useState(String(roundLot(start.qty)));
+  // null = تلقائي (الافتراضي)، ومصفوفةٌ = تحديدٌ يدوي
   const [draft, setDraft] = useState<LotRowDraft[] | null>(null);
   // المنتقي لصنفٍ له «وحدة رئيسية» وحده (D8) — وغيره بلا منتقٍ والكمية بالأساس كما كانت (I1)
   const prim = primaryUnitOf(row);
@@ -1466,17 +1471,20 @@ function RemoveOutModal({ row, kind, repId, tracked, onDone, onClose }: {
   });
   const view = balQ.data?.vans.find(v => v.salesRepId === repId)?.view;
   const sources = tracked ? outSourcesOf(view, bucket, balQ.data?.day ?? '') : [];
-  const explicit = tracked && needsExplicitSource(sources);
+  const manual = tracked && draft !== null;
   // بالأساس دائماً: ما يُرسل وما يُقارن بالرصيد وبمجموع التشغيلات
   const n = removalBaseQty(qty, factor);
   const qtyOk = n > 0 && n <= have + 1e-9 && (!tracked || isFourDecimals(n));
-  const problem = explicit ? draftProblem(draft ?? [], n, sources) : null;
+  const plan = fefoAutoPull(sources, [{ qty: qtyOk ? n : 0 }]);
+  const problem = manual ? draftProblem(draft ?? [], n, sources) : null;
+  // التلقائي فوق مجموع مصادر الدلو يردّه الخادم LOT_STOCK_INSUFFICIENT — وبلا مصادر معروفة لا حكم
+  const autoShort = tracked && !manual && sources.length > 0 && plan.short;
   const save = useMutation({
     mutationFn: () => vanStockApi.createLoad({
       salesRepId: repId, type: kind,
       note: kind === 'EXPIRED_OUT' ? tr('إزالة منتهي الصلاحية') : tr('إزالة مرتجع تالف'),
       // الكمية بالأساس بلا unitId كما قبل الميزة، ومعها أساس الصنف كما رآه صفّ السيارة (baseUnitName)
-      items: withBaseUnitNames([{ productId: row.productId, qty: n, ...(explicit && draft ? { lots: draftRefs(draft) } : {}) }], () => row.unit),
+      items: withBaseUnitNames([{ productId: row.productId, qty: n, ...(manual && draft ? { lots: draftRefs(draft) } : {}) }], () => row.unit),
     }),
     onSuccess: () => {
       toast.success(kind === 'EXPIRED_OUT' ? tr('أزيل المنتهي صلاحيته من السيارة') : tr('أزيل التالف من السيارة'));
@@ -1527,21 +1535,32 @@ function RemoveOutModal({ row, kind, repId, tracked, onDone, onClose }: {
           {tracked && (
             balQ.isLoading ? <p className="text-[10px] text-[#9A8F7E]">{tr('جار التحميل')}</p> : (
               <div className="rounded-lg border border-[#F1EBDF] bg-[#FAF7F0] px-2 py-1.5 space-y-1">
-                <p className="text-[10px] font-semibold text-[#6E6557] flex items-center gap-1"><Layers size={11} className="text-[#E15A30]" /> {tr('التشغيلات التي تزال منها')}
-                  {/* R8: كميات التشغيلات بالقارورة دائماً — اسمها لاصقٌ بارز لصنفٍ له «وحدة رئيسية» فلا تُكتب كراتين */}
-                  {prim && <b className="text-[#1F1A13]">· {row.unit}</b>}</p>
-                {explicit ? (
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-semibold text-[#6E6557] flex items-center gap-1"><Layers size={11} className="text-[#E15A30]" /> {tr('التشغيلات التي تزال منها')}
+                    {/* R8: كميات التشغيلات بالقارورة دائماً — اسمها لاصقٌ بارز لصنفٍ له «وحدة رئيسية» فلا تُكتب كراتين */}
+                    {prim && <b className="text-[#1F1A13]">· {row.unit}</b>}</p>
+                  {manual ? (
+                    <button type="button" onClick={() => setDraft(null)} className="text-[10px] font-semibold text-[#E15A30]">{tr('تلقائي')}</button>
+                  ) : sources.length > 1 && (
+                    <button type="button" onClick={() => setDraft(draftFromRows(plan.rows[0]))}
+                      className="text-[10px] font-semibold text-[#E15A30] whitespace-nowrap">{tr('تحديد التشغيلة يدوياً')}</button>
+                  )}
+                </div>
+                {manual ? (
                   <LotRowsEditor rows={draft ?? []} onChange={setDraft} sources={sources} lineBaseQty={n || 0} baseUnit={row.unit} prod={row}
                     problem={qtyOk ? problem : null} />
+                ) : sources.length ? (
+                  <AutoPullPreview rows={plan.rows[0]} sources={sources} />
                 ) : (
-                  <p className="text-[10px] text-[#6E6557]">{sources.length === 1 ? `${tr('من المصدر الوحيد')}: ${sourceLabel(sources[0], tr)}` : tr('لا رصيد تشغيلات في هذا الرصيد')}</p>
+                  <p className="text-[10px] text-[#6E6557]">{tr('لا رصيد تشغيلات في هذا الرصيد')}</p>
                 )}
+                {autoShort && <p className="text-[10px] text-red-600">{tr('الكمية أكبر من رصيد التشغيلات في هذا الرصيد')}</p>}
               </div>
             )
           )}
         </div>
         <div className="flex gap-3 p-5 border-t border-[#E9E1D3]">
-          <button onClick={() => save.mutate()} disabled={!qtyOk || !!problem || (tracked && balQ.isLoading) || save.isPending}
+          <button onClick={() => save.mutate()} disabled={!qtyOk || !!problem || autoShort || (tracked && balQ.isLoading) || save.isPending}
             className="btn-primary flex-1 justify-center py-2.5 disabled:opacity-60">
             {save.isPending ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Trash2 size={16} />}
             {tr('إزالة')}

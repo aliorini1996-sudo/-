@@ -113,15 +113,15 @@ test('المعالج: LotError بحالته ورمزه (lotHttpError) قبل ف�
   assert.ok(code.includes('throw (lotsOn && !(e instanceof ProductUnitsChangedError) ? asLotBusy(e) : null) ?? e;'), 'تحويل غير المتتبَّع مشروط بعلم الشركة');
 });
 
-test('lotsVan: التحميل من المستودع بـallocateOutLines لكل سطر (D22) لا التجميع ثم distributeToLines، والإنقاص من السيارة بـpickOutSources بعد aggregateRequest (D26)', () => {
+test('lotsVan: التحميل من المستودع بـallocateOutLines لكل سطر (D22) لا التجميع ثم distributeToLines، والإنقاص من السيارة بـpickOutSources بعد aggregateRequest (D26) ثم السحب التلقائي بـpickOutFefoLines', () => {
   const svc = stripComments(read('services/lotsVan.ts'));
   assert.match(svc, /allocateOutLines\(\{/);
   assert.doesNotMatch(svc, /\ballocateOut\(/, 'allocateOut على المجموع يشقّ الكرتون بلا وسم');
   const pick = between(svc, 'function pickPlan(', '\n}\n');
   assert.ok(pick.indexOf('aggregateRequest(') < pick.indexOf('pickOutSources('));
-  // distributeToLines للمصدر الوحيد من pickOutSources وحده
-  assert.equal((svc.match(/distributeToLines\(/g) ?? []).length, 1);
-  assert.ok(pick.includes('distributeToLines(res.rows'));
+  // الأسطر بلا صريح: سحبٌ تلقائي لكل سطرٍ بمعامله (قاعدة الكرتون) — لا distributeToLines على مجموعٍ يشقّ الكرتون بلا وسم
+  assert.equal((svc.match(/distributeToLines\(/g) ?? []).length, 0);
+  assert.ok(pick.indexOf('pickOutSources(') < pick.indexOf('pickOutFefoLines('), 'الصريح أولاً ثم التلقائي مما بقي');
   // I7 وisLotQty قبل أي قراءة، وI3 قبل الكتابة
   const plan = between(svc, 'export async function planVanMovementInTx(', '\nexport function vanItemLotColumns(');
   assert.ok(plan.indexOf('parseLine(') < plan.indexOf('placeViews('));

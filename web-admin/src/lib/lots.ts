@@ -264,6 +264,81 @@ export function fefoCompare(
 }
 const cmp = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
 
+/** مصدرٌ للسحب التلقائي بصالحه بالأساس — lotId: null = «غير مسمّى» */
+export interface FefoPullSource { lotId: string | null; expiryDate?: string | null; usable: number }
+export interface FefoPullResult {
+  /** صفوف كل سطرٍ بترتيب الأسطر (موجبة بالأساس، المسمّاة بترتيب السحب ثم غير المسمّى) — فارغةٌ كلها مع short */
+  rows: LotRef[][];
+  /** مجموع الأسطر فوق المتاح ⇒ الخادم يردّ LOT_STOCK_INSUFFICIENT */
+  short: boolean;
+  /** سطرٌ بكميةٍ أدقّ من أربع خانات ⇒ الخادم يردّه LOT_QTY_INVALID (isLotQty) — لا معاينة بتقريبه */
+  qtyInvalid?: boolean;
+  wanted: number;
+  available: number;
+}
+
+/**
+ * مرآة pickOutFefoLines في الخادم — السحب التلقائي لإنقاصٍ بلا صريح (طلب المالك ١ نوفمبر ٢٠٢٦ بدل «المصدر الوحيد وإلا
+ * LOT_REQUIRED» في D10): التنزيل، وتسوية النقص في المستودع والسيارة، وإزالة المنتهي والتالف. المسمّاة بالأقرب انتهاءً أولاً
+ * (بلا انتهاء آخرها، والموقوفة والمنتهية منها) ثم غير المسمّى آخراً (D17). والتعادل بترتيب `sources` كما وصلت: العرض مرتّبٌ
+ * في الخادم بـfefoCompare كاملاً (الإنتاج والإنشاء لا يصلان هنا) فالفرز المستقرّ لا يقلبه. متاحٌ مشترك بين الأسطر (D26) **بترتيب
+ * الخدمة** (D22، cartonRank كـallocateOutLines): الوحدة الأكبر أولاً (رتبة F إن كان > 1 وإلا ١) تنازلياً والتعادل بترتيب الأسطر —
+ * فيأخذ الكرتون كراتينه كاملةً قبل أن تقتطع الحبّات منها — والصفوف تعود بترتيب الأسطر كما دخلت. ولكل سطرٍ قاعدة الكرتون:
+ * مضاعفات معامله كاملةً من تشغيلةٍ واحدة بالترتيب أولاً، ثم الباقي قِطعاً بالترتيب، ثم غير المسمّى. للمعاينة وحدها — الخادم يحسم.
+ */
+export function fefoAutoPull(sources: readonly FefoPullSource[], lines: readonly { qty: number; unitFactor?: number | null }[]): FefoPullResult {
+  const nullsLast = (x: string | null, y: string | null) => (x === y ? 0 : x === null ? 1 : y === null ? -1 : x < y ? -1 : 1);
+  const named = sources.map((s, i) => ({ s, i }))
+    .filter((x) => x.s.lotId !== null && x.s.usable > LOT_EPS)
+    .sort((a, b) => nullsLast(lotDay(a.s.expiryDate), lotDay(b.s.expiryDate)) || a.i - b.i)
+    .map((x) => x.s);
+  const uu = Math.max(0, sources.filter((s) => s.lotId === null).reduce((t, s) => t + s.usable, 0));
+  const raw = lines.map((l) => (Number.isFinite(Number(l.qty)) ? Math.abs(Number(l.qty)) : 0));
+  const qtys = raw.map((q) => roundLot(q));
+  if (raw.some((q, i) => Math.abs(qtys[i] - q) > 1e-9 * Math.max(1, q))) {
+    return { rows: lines.map(() => []), short: false, qtyInvalid: true, wanted: roundLot(qtys.reduce((t, q) => t + q, 0)), available: 0 };
+  }
+  const wanted = roundLot(qtys.reduce((t, q) => t + q, 0));
+  const available = roundLot(named.reduce((t, s) => t + s.usable, 0) + uu);
+  if (wanted > available + LOT_EPS) return { rows: lines.map(() => []), short: true, wanted, available };
+  const pool = new Map(named.map((s) => [s.lotId as string, s.usable]));
+  /** صفوف سطرٍ واحد مما تركه ما خُدم قبله */
+  const pullLine = (l: { qty: number; unitFactor?: number | null }, i: number): LotRef[] => {
+    let left = qtys[i];
+    if (left <= LOT_EPS) return [];
+    const taken = new Map<string, number>();
+    const take = (id: string, t: number) => {
+      taken.set(id, (taken.get(id) ?? 0) + t);
+      pool.set(id, (pool.get(id) ?? 0) - t);
+      left = t === left ? 0 : left - t;
+    };
+    const F = Number(l.unitFactor);
+    if (Number.isFinite(F) && F > 1) {
+      for (const s of named) {
+        if (left <= LOT_EPS) break;
+        const k = Math.floor((Math.min(pool.get(s.lotId as string) ?? 0, left) + LOT_EPS) / F);
+        if (k > 0) take(s.lotId as string, Math.abs(k * F - left) <= LOT_EPS ? left : k * F);
+      }
+    }
+    for (const s of named) {
+      if (left <= LOT_EPS) break;
+      const a = pool.get(s.lotId as string) ?? 0;
+      if (a > LOT_EPS) take(s.lotId as string, a >= left - LOT_EPS ? left : a);
+    }
+    const out: LotRef[] = named.filter((s) => taken.has(s.lotId as string)).map((s) => ({ lotId: s.lotId, qty: roundLot(taken.get(s.lotId as string)!) }));
+    // المجموع ≤ المتاح فما بقي من السطر في غير المسمّى
+    if (left > LOT_EPS) out.push({ lotId: null, qty: roundLot(left) });
+    return out;
+  };
+  // ترتيب الخدمة (cartonRank في الخادم): الوحدة الأكبر أولاً والأساس (والمعامل التالف) آخراً، والتعادل بترتيب الأسطر
+  const cartonRank = (f: number | null | undefined) => (Number.isFinite(Number(f)) && Number(f) > 1 ? Number(f) : 1);
+  const rows: LotRef[][] = lines.map(() => []);
+  lines.map((l, i) => ({ l, i }))
+    .sort((a, b) => cartonRank(b.l.unitFactor) - cartonRank(a.l.unitFactor) || a.i - b.i)
+    .forEach(({ l, i }) => { rows[i] = pullLine(l, i); });
+  return { rows, short: false, wanted, available };
+}
+
 /** محارف الاتجاه غير المرئية (نسخٌ من نصّ عربي) — يحذفها الخادم قبل التطبيع */
 const INVISIBLE_RE = /[​-‏‪-‮⁦-⁩﻿؜]/g;
 

@@ -7,8 +7,9 @@
 //  - هويّة السطر (rowId): صنفٌ متتبَّع قد يحتاج سطرين بالوحدة نفسها (تشغيلتان في وارد واحد)، فمفتاح (الصنف، الوحدة)
 //    لا يكفي — والصنف غير المتتبَّع يبقى على منع التكرار القائم حرفاً.
 //  - مسودّة تشغيلة السطر (اختيار قائمة، أو جديدة برقمٍ وتاريخين، أو «غير مسمى») وخيارات منتقيها لكل وضع وتحقّقها وحقول جسمها.
-//  - مصادر التنزيل من السيارة وتوزيعها الأوّلي (الموقوف والمنتهي أولاً: هو ما يُنزَّل في السحب)، وأسطر إنقاص الصنف الواحد
-//    على متاحٍ مشترك (D26) — في السيارة والمستودع.
+//  - مصادر التنزيل من السيارة وتوزيعها الأوّلي للتحديد اليدوي (الموقوف والمنتهي أولاً: هو ما يُنزَّل في السحب)، ومعاينة السحب
+//    التلقائي للإنقاص بلا تحديد (الأقرب انتهاءً أولاً، fefoAutoPull)، وأسطر إنقاص الصنف الواحد على متاحٍ مشترك (D26) — في
+//    السيارة والمستودع.
 //  - شاشة التشغيلات (MLots): معاملات البحث، وسبب الإيقاف، وخطة التنزيل، وأضعف يقين للعميل، ورابط الاتصال.
 //  - متاح الأصناف المتتبَّعة في سيارة المندوب لفاتورة الإدارة (تنبيهٌ قبل الإصدار، والخادم يمنع).
 // تشغيلات البنود على الأوراق يضمّها بانيها نفسه (rep/RepDocuments.tsx: invoiceDocFromDetail وloadNoticeDocFromData
@@ -17,7 +18,7 @@
 // ============================================================================
 
 import {
-  LOT_EPS, LOT_BUCKETS, roundLot, normalizeLotNumber, lotDatesProblem, isLotExpiredOn, fefoCompare, lotDay, lotRowsProblem,
+  LOT_EPS, LOT_BUCKETS, roundLot, normalizeLotNumber, lotDatesProblem, isLotExpiredOn, fefoAutoPull, fefoCompare, lotDay, lotRowsProblem,
   type LotRef, type VanLotSnapshotDto, type LotStatus, type LotBlockKind, type LotCertainty, type LotListParams,
   type LotUnloadPlanDto, type LotTraceDto, type LotBucket, type PlaceLotViewDto,
 } from '../lib/lots';
@@ -71,7 +72,7 @@ export function fefoLinesParam(lines: readonly { qty: number; unitFactor?: numbe
 
 // ═══════════════ مسودّة تشغيلة السطر (الوارد والتسوية والتحميل بلا مستودع) ═══════════════
 
-/** pick: '' لم يُختر (الخادم يختار المصدر الوحيد في النقص) · 'NEW' تشغيلة جديدة · 'UNNAMED' غير مسمّى صراحةً · وإلا معرّف لوط */
+/** pick: '' لم يُختر (النقص يُسحب تلقائياً بالأقرب انتهاءً أولاً) · 'NEW' تشغيلة جديدة · 'UNNAMED' غير مسمّى صراحةً · وإلا معرّف لوط */
 export interface LotDraft { pick: string; lotNumber: string; productionDate: string; expiryDate: string }
 export const emptyLotDraft = (): LotDraft => ({ pick: '', lotNumber: '', productionDate: '', expiryDate: '' });
 
@@ -80,7 +81,8 @@ export const emptyLotDraft = (): LotDraft => ({ pick: '', lotNumber: '', product
  *  - IN_STRICT: وارد المستودع — تشغيلةٌ قائمة أو جديدة، لا «غير مسمّى» (§٤.٤ RECEIVE: LOT_REQUIRED). الموقوفة تُقبل بتحذير.
  *  - IN: تسويةٌ بالزيادة — قائمة أو جديدة أو «غير مسمّى» صريح. الموقوفة تُقبل بتحذير LOT_INTO_BLOCKED.
  *  - LOAD: تحميلٌ في شركة بلا مستودع (D4) — كـIN، إلا أن الموقوفة والمنتهية يوم الشركة لا تُحمَّل (I4: LOT_BLOCKED، LOT_EXPIRED).
- *  - OUT: تسوية نقص — قائمة (من المصادر) أو «غير مسمّى» أو بلا اختيار فيختار الخادم المصدر الوحيد (D10).
+ *  - OUT: تسوية نقص — بلا اختيار يُسحب تلقائياً بالأقرب انتهاءً أولاً أيّاً كان عدد المصادر (pickOutFefoLines، طلب المالك
+ *    ١ نوفمبر ٢٠٢٦ بدل «المصدر الوحيد وإلا LOT_REQUIRED» في D10)، أو قائمة (من المصادر) أو «غير مسمّى» تحديداً يدوياً اختيارياً.
  */
 export type LotDraftMode = 'IN_STRICT' | 'IN' | 'LOAD' | 'OUT';
 
@@ -199,7 +201,7 @@ export function stalePick(pick: string, choices: readonly LotPickChoice[]): bool
   return pick !== '' && !choices.some(c => c.value === pick && !c.disabled);
 }
 
-// ═══════════════ مصادر التنزيل من السيارة (UNLOAD، D10) ═══════════════
+// ═══════════════ مصادر التنزيل من السيارة (UNLOAD) ═══════════════
 
 export interface OutSource {
   lotId: string | null; lotNumber: string | null; expiryDate: string | null;
@@ -208,9 +210,10 @@ export interface OutSource {
 
 /**
  * مصادر صالح «صالح للبيع» في السيارة من لقطتها: كل تشغيلة صالحها > EPS أيّاً كانت حالتها، ثم غير المسمّى إن كان له صالح.
- * الترتيب: المسحوبة، ثم الموقوفة، ثم المنتهية، ثم FEFO — ما يجب إخراجه أولاً في الأعلى.
+ * الترتيب للتحديد اليدوي ('OUT'): المسحوبة، ثم الموقوفة، ثم المنتهية، ثم FEFO — ما يجب إخراجه أولاً في الأعلى. و'FEFO' ترتيب
+ * اللقطة كما هو (الخادم رتّبها بـfefoCompare كاملاً) — ترتيب السحب التلقائي نفسه، لمعاينته (outAutoRows).
  */
-export function vanOutSources(p: VanLotSnapshotDto['products'][number] | null | undefined, day: string): OutSource[] {
+export function vanOutSources(p: VanLotSnapshotDto['products'][number] | null | undefined, day: string, order: 'OUT' | 'FEFO' = 'OUT'): OutSource[] {
   if (!p) return [];
   const rank = (s: OutSource) => (s.status === 'BLOCKED' ? (s.blockKind === 'RECALL' ? 0 : 1) : s.expired ? 2 : 3);
   const named: OutSource[] = (p.lots ?? [])
@@ -218,8 +221,8 @@ export function vanOutSources(p: VanLotSnapshotDto['products'][number] | null | 
     .map(l => ({
       lotId: l.lotId, lotNumber: l.lotNumber, expiryDate: lotDay(l.expiryDate), status: l.status, blockKind: l.blockKind ?? null,
       usable: roundLot(Number(l.usable)), expired: isLotExpiredOn(l, day),
-    }))
-    .sort((a, b) => rank(a) - rank(b) || fefoCompare(a, b));
+    }));
+  if (order === 'OUT') named.sort((a, b) => rank(a) - rank(b) || fefoCompare(a, b));
   const uu = Number(p.unknownUsable);
   return uu > LOT_EPS
     ? [...named, { lotId: null, lotNumber: null, expiryDate: null, status: null, blockKind: null, usable: roundLot(uu), expired: false }]
@@ -286,19 +289,19 @@ export function sourcesLeftFor<S extends OutSourceQty>(sources: readonly S[], ot
   return sources.map(s => ({ ...s, usable: Math.max(0, roundLot(s.usable - (used.get(s.lotId) ?? 0))) }));
 }
 
-/** سطر إنقاصٍ لصنف: key هويّته، وbase كميته الأساسية، وrows صفوفه الصريحة — null ⇒ بلا صريح (الخادم يختار المصدر الوحيد، D10) */
+/** سطر إنقاصٍ لصنف: key هويّته، وbase كميته الأساسية، وrows صفوفه الصريحة — null ⇒ بلا صريح (سحبٌ تلقائي بالأقرب انتهاءً أولاً) */
 export interface OutLine { key: string; base: number; rows: readonly LotRef[] | null }
-export type OutProblem = 'NO_BALANCE' | 'OVER' | 'PICK' | 'DISTRIBUTE' | 'ROW_OVER';
+export type OutProblem = 'NO_BALANCE' | 'OVER' | 'DISTRIBUTE' | 'ROW_OVER';
 
 /**
- * مشكلات أسطر إنقاص صنفٍ واحد (لكل سطرٍ واحدةٌ على الأكثر) — مرآة الخادم قبل الإرسال (D10، D26، I1، I2):
+ * مشكلات أسطر إنقاص صنفٍ واحد (لكل سطرٍ واحدةٌ على الأكثر) — مرآة الخادم قبل الإرسال (D26، I1، I2، pickOutFefoLines):
  *  - المصادر لم تصل بعد ⇒ لا حكم (لا يُمنع الحفظ على ظنّ).
  *  - لا مصدر صالح ⇒ NO_BALANCE على كل سطر (LOT_STOCK_INSUFFICIENT).
  *  - مجموع أسطر الصنف فوق مجموع مصادره ⇒ OVER على أول سطر (السبب الجذري: لا يُصلحه توزيع).
- *  - سطرٌ بلا صريح والمصادر الباقية بعد صريح أسطر صنفه أكثر من واحد ⇒ PICK (LOT_REQUIRED)؛ وصريحٌ فارغ أو مجموعه غير كميته
- *    ⇒ DISTRIBUTE.
- *  - مجموع كل تشغيلة عبر الأسطر (والسطر بلا صريح على المصدر الباقي الوحيد) فوق صالحها ⇒ ROW_OVER على كل سطرٍ يأخذ منها. وتشغيلةٌ
- *    ليست مصدراً صالحها صفر (مصدرٌ نفد، أو «غير مسمى» بلا صالح: I2).
+ *  - السطر بلا صريح لا يلزمه اختيارٌ أيّاً كان عدد المصادر: يُسحب مما بقي بعد الصريح، ومجموعه لا يتجاوز الباقي ما لم يقع OVER
+ *    أو ROW_OVER (الكلّ ≤ المصادر والصريح ≤ صالحه ⇒ التلقائي ≤ الباقي). وصريحٌ فارغ أو مجموعه غير كميته ⇒ DISTRIBUTE.
+ *  - مجموع كل تشغيلة عبر الصفوف الصريحة فوق صالحها ⇒ ROW_OVER على كل سطرٍ يأخذ منها. وتشغيلةٌ ليست مصدراً صالحها صفر (مصدرٌ
+ *    نفد، أو «غير مسمى» بلا صالح: I2).
  */
 export function outGroupProblems(
   sources: readonly OutSourceQty[], lines: readonly OutLine[], opts: { loaded: boolean },
@@ -316,20 +319,16 @@ export function outGroupProblems(
   const total = roundLot(sources.reduce((s, x) => s + x.usable, 0));
   const over = want > total + LOT_EPS;
   if (over) set(live[0].key, 'OVER');
-  // السطر بلا صريح يأخذ المصدر الوحيد **مما بقي بعد صريح أسطر صنفه** (D10، withoutRows في الخادم)
-  const autoSrc = autoSourcesLeft(sources, live);
   for (const l of live) {
-    if (l.rows === null) { if (autoSrc.length > 1) set(l.key, 'PICK'); }
     // صفوفٌ فارغة ليست «الخادم يوزّع» هنا كما في lotRowsProblem: الإنقاص الصريح يلزمه مجموعٌ يساوي كمية السطر
-    else if (!l.rows.length || lotRowsProblem(l.rows, roundLot(l.base))) set(l.key, 'DISTRIBUTE');
+    if (l.rows !== null && (!l.rows.length || lotRowsProblem(l.rows, roundLot(l.base)))) set(l.key, 'DISTRIBUTE');
   }
   if (over) return out;
   const usableOf = new Map(sources.map(s => [s.lotId, s.usable] as const));
   const sum = new Map<string | null, number>();
   const who = new Map<string | null, string[]>();
   for (const l of live) {
-    const rows = l.rows ?? (autoSrc.length === 1 ? [{ lotId: autoSrc[0].lotId, qty: l.base }] : []);
-    for (const r of rows) {
+    for (const r of l.rows ?? []) {
       sum.set(r.lotId, roundLot((sum.get(r.lotId) ?? 0) + r.qty));
       who.set(r.lotId, [...(who.get(r.lotId) ?? []), l.key]);
     }
@@ -342,28 +341,43 @@ export function outGroupProblems(
 
 /**
  * مصادر الأسطر بلا صريح مما بقي بعد صريح الصنف — مرآة planWarehouseEntryInTx (withoutRows) وpickPlan في السيارة: صفوف الأسطر
- * الصريحة تُجمع لكل مصدر وتُطرح من صالحه، والمصدر الذي لم يبقَ له صالحٌ > EPS لا ينافس. صريحٌ فوق صالح مصدره (أو على غير مصدر)
- * أو يصفّي كل المصادر يرفضه الخادم قبل ذلك — فلا طرح حينها ويبقى الحكم على المصادر كاملةً كما كان.
+ * الصريحة تُجمع لكل مصدر وتُطرح من صالحه، والمصدر الذي لم يبقَ له صالحٌ > EPS يسقط (وصريحٌ يصفّي كل المصادر لا يُبقي شيئاً).
+ * صريحٌ فوق صالح مصدره (أو على غير مصدر) يرفضه الخادم قبل ذلك — فلا طرح حينها وتبقى المصادر كاملةً.
  */
-function autoSourcesLeft(sources: readonly OutSourceQty[], lines: readonly OutLine[]): readonly OutSourceQty[] {
+function autoSourcesLeft<S extends OutSourceQty>(sources: readonly S[], lines: readonly OutLine[]): S[] {
   const used = new Map<string | null, number>();
   for (const l of lines) for (const r of l.rows ?? []) used.set(r.lotId, roundLot((used.get(r.lotId) ?? 0) + r.qty));
-  if (!used.size) return sources;
+  if (!used.size) return [...sources];
   const cap = new Map(sources.map(s => [s.lotId, s.usable] as const));
   for (const [k, q] of used) {
     const have = cap.get(k);
-    if (have === undefined || q > have + LOT_EPS) return sources;
+    if (have === undefined || q > have + LOT_EPS) return [...sources];
   }
-  const rest = sources.map(s => ({ ...s, usable: roundLot(s.usable - (used.get(s.lotId) ?? 0)) })).filter(s => s.usable > LOT_EPS);
-  return rest.length ? rest : sources;
+  return sources.map(s => ({ ...s, usable: roundLot(s.usable - (used.get(s.lotId) ?? 0)) })).filter(s => s.usable > LOT_EPS);
 }
 
-/** رسائل مشكلة سطر التنزيل من السيارة — مفاتيح قاموسٍ تمرّ إلى tr(متغيّر)، ويحرس ترجمتها mLotsLogic.test.ts.
- *  وPICK لا يقع في التنزيل (أكثر من مصدرٍ ⇒ صفوفٌ صريحة دائماً)، فرسالته رسالة التوزيع */
+/**
+ * معاينة السحب التلقائي لأسطر إنقاص صنفٍ بلا صريح (fefoAutoPull، مرآة pickOutFefoLines): مما بقي بعد صفوف الأسطر الصريحة،
+ * الكرتون أولاً (الأكبر معاملاً، والتعادل بترتيب الأسطر) وقاعدة كرتون معامل كلٍّ (D22). `sources` بترتيب السحب (FEFO: whOutSources، أو vanOutSources بـ'FEFO'). فوق
+ * المتاح أو بلا مصادر ⇒ خريطةٌ فارغة (OVER وNO_BALANCE يقولهما outGroupProblems). للعرض وحده — الخادم يحسم عند الحفظ.
+ */
+export function outAutoRows(
+  sources: readonly (OutSourceQty & { expiryDate?: string | null })[],
+  lines: readonly (OutLine & { factor?: number | null })[],
+): Map<string, LotRef[]> {
+  const out = new Map<string, LotRef[]>();
+  const live = lines.filter(l => l.base > LOT_EPS);
+  const auto = live.filter(l => l.rows === null);
+  if (!sources.length || !auto.length) return out;
+  const plan = fefoAutoPull(autoSourcesLeft(sources, live), auto.map(l => ({ qty: l.base, unitFactor: l.factor })));
+  if (!plan.short) auto.forEach((l, i) => out.set(l.key, plan.rows[i]));
+  return out;
+}
+
+/** رسائل مشكلة سطر التنزيل من السيارة — مفاتيح قاموسٍ تمرّ إلى tr(متغيّر)، ويحرس ترجمتها mLotsLogic.test.ts */
 export const VAN_OUT_PROBLEMS: Record<OutProblem, string> = {
   NO_BALANCE: 'لا رصيد صالحا لهذا الصنف في السيارة',
   OVER: 'كمية التنزيل أكبر من رصيد تشغيلات الصنف في السيارة',
-  PICK: 'وزع كمية التنزيل على التشغيلات',
   DISTRIBUTE: 'وزع كمية التنزيل على التشغيلات',
   ROW_OVER: 'كمية تشغيلة أكبر من المتاح فيها',
 };
@@ -372,12 +386,14 @@ export const VAN_OUT_PROBLEMS: Record<OutProblem, string> = {
 export const WH_OUT_PROBLEMS: Record<OutProblem, string> = {
   NO_BALANCE: 'لا رصيد صالحا لهذا الصنف في المستودع',
   OVER: 'الكمية أكبر من رصيد تشغيلات الصنف في المستودع',
-  PICK: 'للصنف أكثر من مصدر في المستودع فاختر التشغيلة',
   DISTRIBUTE: 'اختر التشغيلة التي ينقص منها الرصيد',
   ROW_OVER: 'كمية تشغيلة أكبر من المتاح فيها',
 };
 
-/** مصادر نقص المستودع من عرضه (GET /lots/balances): كل تشغيلة صالحها > EPS، ثم غير المسمّى بصالحه الموجب — مرآة pickOutSources */
+/**
+ * مصادر نقص المستودع من عرضه (GET /lots/balances): كل تشغيلة صالحها > EPS، ثم غير المسمّى بصالحه الموجب — مرآة pickOutSources،
+ * وبترتيب العرض (FEFO الخادم) فهي ترتيب السحب التلقائي نفسه (outAutoRows)
+ */
 export function whOutSources(view: PlaceLotViewDto | null | undefined): OutSourceQty[] {
   if (!view) return [];
   const named = (view.lots ?? []).filter(l => l.usable.SELLABLE > LOT_EPS).map(l => ({ lotId: l.lotId, usable: roundLot(l.usable.SELLABLE) }));
@@ -385,7 +401,7 @@ export function whOutSources(view: PlaceLotViewDto | null | undefined): OutSourc
   return uu > LOT_EPS ? [...named, { lotId: null, usable: uu }] : named;
 }
 
-/** صفوف سطر نقص المستودع من مسودّته (سطرٌ = تشغيلة): الاختيار صفٌّ بكمية السطر، وبلا اختيار null — المصدر الوحيد للخادم */
+/** صفوف سطر نقص المستودع من مسودّته (سطرٌ = تشغيلة): الاختيار صفٌّ بكمية السطر، وبلا اختيار null — سحبٌ تلقائي في الخادم */
 export function whOutRows(d: LotDraft, base: number): LotRef[] | null {
   if (d.pick === '') return null;
   if (d.pick === 'NEW') return [];

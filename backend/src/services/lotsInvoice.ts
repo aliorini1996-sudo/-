@@ -6,7 +6,8 @@
  *   أو تلميحه (D22، D16، D26): FEFO من المؤهَّل ثم غير المسمّى (D17)، والصريح للإدارة والمفتاح، والطبقات للإعادة دون اتصال
  *   (R6). لا بيع فوق صالح تشغيلة (I1) ولا تحت min(0, غير المسمّى) (I2) لأي فاعل، ومنه من يملك «البيع بدون مخزون».
  * - **المرتجع المرتبط والإشعار الدائن** (§٤.١٠، §٤.٩): وراثة صفوف البيع بالترتيب الهجين (allocateReturnFromSale).
- * - **المرتجع الحرّ** (§٤.١١): «غير معروف» للمندوب، وصريحٌ اختياري للإدارة والمفتاح بلا فحص رصيد (زيادة).
+ * - **المرتجع الحرّ** (§٤.١١): يحدّد النظام تشغيلته من مبيعات العميل السابقة للصنف، آخر فاتورةٍ أولاً (allocateReturnFromHistory)،
+ *   وصريحٌ اختياري للإدارة والمفتاح بلا فحص رصيد (زيادة).
  * - **الإزالة** (§٤.١٢–٤.١٣): إلغاء مرتجع أو إطفاء عودته لا يُبقي تشغيلةً سالبة ولا يُنقص غير المسمّى دون min(0, قبله).
  * كل كمية بوحدة الأساس (D22) وبأربع خانات (isLotQty) عدا الإعادة (R6).
  */
@@ -14,7 +15,7 @@ import type { LotDb, LotTx } from './lotsDb';
 import { LOT_LOCK_TIMEOUT, companyDay, loadLotMetas, lockLotProducts, placeViews } from './lotsDb';
 import {
   ClientRefRace, LOT_HOLD_MIRRORS, LotError,
-  allocateOutLines, allocateReturnFromSale, asLockBusy, invEffect, isLotQty, lotBaseQty, lotErr, lotRemovalsOf,
+  allocateOutLines, allocateReturnFromHistory, allocateReturnFromSale, asLockBusy, invEffect, isLotQty, lotBaseQty, lotErr, lotRemovalsOf,
   parseLotHint, parseLotRefsStrict, removalKeepsLots, replayMoment, stampFromRows,
   type AllocRow, type InvoiceLotAllocation, type InvoiceLotLine, type InvoiceLotPlan, type ItemExpiryStamp, type LotActor,
   type LotCertainty, type LotMeta, type LotRef, type LotRemovalItem, type LotWarning, type SaleLotRow,
@@ -147,13 +148,21 @@ async function allocateSale(db: LotDb, plan: InvoiceLotPlan, lines: InvoiceLotLi
 
 /**
  * ما أُرجع من كل صفّ توزيع بيع في مرتجعاتٍ وإشعاراتٍ غير ملغاة (sourceItemLotId) — مرآة returnedBySaleItem (returnLinks.ts)
- * بصفوف اللوط.
+ * بصفوف اللوط. `linkedOnly`: المرتجع المرتبط والإشعار الدائن وحدهما (بندٌ له returnOfItemId أو creditedItemId) — فاستنتاج المرتجع
+ * الحرّ (افتراضٌ من مبيعات العميل) لا يُنقص ما يرثه المرتبط من بيعه ولا «المتاح للإرجاع» في شاشته، فيبقى لوط البيع المؤكَّد له.
+ * والاستنتاج نفسه يعدّ الكل: لا يُفترض الإرجاع من صفٍّ أرجعه مرتبطٌ أو حرٌّ قبله.
  */
-async function returnedBySource(db: LotDb, tid: string, rowIds: string[]): Promise<Map<string, number>> {
+async function returnedBySource(db: LotDb, tid: string, rowIds: string[], opts?: { linkedOnly?: boolean }): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   if (!rowIds.length) return out;
   const prior = await db.invoiceItemLot.findMany({
-    where: { tenantId: tid, sourceItemLotId: { in: rowIds }, invoiceItem: { invoice: { tenantId: tid, status: { not: 'CANCELLED' } } } },
+    where: {
+      tenantId: tid, sourceItemLotId: { in: rowIds },
+      invoiceItem: {
+        invoice: { tenantId: tid, status: { not: 'CANCELLED' } },
+        ...(opts?.linkedOnly && { OR: [{ returnOfItemId: { not: null } }, { creditedItemId: { not: null } }] }),
+      },
+    },
     select: { sourceItemLotId: true, quantity: true },
   });
   for (const p of prior) if (p.sourceItemLotId) out.set(p.sourceItemLotId, (out.get(p.sourceItemLotId) ?? 0) + Number(p.quantity));
@@ -187,7 +196,7 @@ async function allocateLinkedReturn(db: LotDb, plan: InvoiceLotPlan, lines: Invo
     list.push({ id: r.id, lotId: r.lotId ?? null, quantity: Number(r.quantity), certainty: certaintyOf(r.certainty), expiryDate: isoDay(r.expiryDate) });
     rowsByItem.set(r.invoiceItemId, list);
   }
-  const returned = await returnedBySource(db, tid, saleRowsRaw.map((r) => r.id));
+  const returned = await returnedBySource(db, tid, saleRowsRaw.map((r) => r.id), { linkedOnly: true });
   for (const l of lines) {
     const saleRows = l.saleItemId ? rowsByItem.get(l.saleItemId) ?? [] : [];
     const rows = allocateReturnFromSale({ qty: l.qty, returnDay, saleRows, returnedBySource: returned });
@@ -205,10 +214,86 @@ async function allocateLinkedReturn(db: LotDb, plan: InvoiceLotPlan, lines: Invo
 
 // ═══ المرتجع الحرّ (§٤.١١) ═══
 
+/** إزاحة المنطقة عن UTC لحظة `at` بالملّي ثانية (Intl وحده — المسار لا يستورد وحدة الدفاتر) */
+function zoneOffsetMs(at: Date, tz: string): number {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(at).map((x) => [x.type, x.value]));
+  return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - Math.floor(at.getTime() / 1000) * 1000;
+}
+
 /**
- * المندوب: صفٌّ واحد «غير معروف» بلا نقرة (D5). الإدارة والمفتاح: صريحٌ اختياري — التشغيلة من الشركة والصنف، Σ = الكمية
- * الأساسية، بلا فحص رصيد (زيادة)، والموقوفة تُقبل فتدخل معزولةً مع تحذير LOT_INTO_BLOCKED، واليقين CONFIRMED. الختم من الصفوف
- * المسمّاة، وإلا لقطة «آخر بيع» المحسوبة قبل المعاملة (fallbackStamps، ن١-٣).
+ * حدّ «آخر بيع» للمرتجع الحرّ (لقطة صلاحيته ووراثة تشغيلته): تاريخ المستند ولا يتجاوز `now`. والتاريخ بلا وقت (YYYY-MM-DD من نموذج
+ * الويب والمفتاح) **نهاية يوم الشركة** بمنطقتها لا منتصف ليل UTC — فمبيعات اليوم نفسه قبله. بلا تاريخٍ صالح ⇒ `now`.
+ */
+export function returnHistoryBound(rawInvoiceDate: unknown, docDate: Date | null | undefined, now: Date, tz: string): Date {
+  if (!docDate || !Number.isFinite(docDate.getTime())) return now;
+  const raw = typeof rawInvoiceDate === 'string' ? rawInvoiceDate.trim() : '';
+  let t = docDate.getTime();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const next = Date.parse(`${raw}T00:00:00.000Z`) + 86_400_000;   // منتصف ليل اليوم التالي بساعة الجدار
+    const guess = next - zoneOffsetMs(new Date(next), tz);
+    t = next - zoneOffsetMs(new Date(guess), tz) - 1;                 // تصحيحٌ واحد لإزاحة تلك اللحظة (التوقيت الصيفي)
+  }
+  return new Date(Math.min(t, now.getTime()));
+}
+
+/** حدّ صفوف توزيع البيع المقروءة لكل صنف من سجلّ العميل — الأحدث أولاً، فما قبله لا يُرجَع منه عملياً */
+export const FREE_RETURN_HISTORY_ROWS = 200;
+const SALE_DOC_TYPES = ['CASH', 'CREDIT'];
+
+/**
+ * صفوف توزيع مبيعات العميل السابقة لأصنافٍ، لكل صنفٍ فواتيره من الأحدث (تاريخ الفاتورة ثم إنشاؤها) وصفوف كلٍّ بترتيب إنشائها —
+ * بيعٌ نقدي أو آجل غير ملغى وليس إشعاراً، **لحظته حتى حدّ المرتجع** (`asOf`: تاريخ مستنده أو نهاية يومه، ولحظة جهازه في الإعادة؛
+ * ولحظة البيع لحظة جهازه إن صدر دون اتصال وإلا تاريخه — لا يُرجَع من بيعٍ بعده)، وصفوفه **في الحقبة الحالية** (D25: بعد max(حقبة الشركة،
+ * حقبة الصنف) كشرط الطيّ — صفوف ما قبل إعادة التفعيل لا تُعاد لوطاً مسمّى، ومبيعات فترة الإطفاء قبلها أصلاً). داخل معاملة
+ * الإصدار بعد قفل الأصناف.
+ */
+async function customerSaleHistory(db: LotDb, tid: string, customerId: string, productIds: string[], asOf: Date | null):
+  Promise<Map<string, { invoiceId: string; rows: SaleLotRow[] }[]>> {
+  const out = new Map<string, { invoiceId: string; rows: SaleLotRow[] }[]>();
+  const [tenant, products] = await Promise.all([
+    db.tenant.findUnique({ where: { id: tid }, select: { lotTrackingSince: true } }),
+    db.product.findMany({ where: { tenantId: tid, id: { in: productIds } }, select: { id: true, lotTrackedSince: true } }),
+  ]);
+  const sinceOf = new Map(products.map((p) => [p.id, later(tenant?.lotTrackingSince ?? null, p.lotTrackedSince ?? null)]));
+  const all = await Promise.all(productIds.map((pid) => db.invoiceItemLot.findMany({
+    where: {
+      tenantId: tid, productId: pid,
+      ...(sinceOf.get(pid) && { createdAt: { gte: sinceOf.get(pid)! } }),
+      invoiceItem: {
+        invoice: {
+          tenantId: tid, customerId, type: { in: SALE_DOC_TYPES }, status: { not: 'CANCELLED' },
+          OR: [{ documentKind: null }, { documentKind: { notIn: ['CREDIT_NOTE', 'DEBIT_NOTE'] } }],
+          // لحظة البيع الفعلية: لحظة جهازه إن صدر دون اتصال (تاريخ فاتورته لحظة رفعه)، وإلا تاريخه — كلحظة المرتجع في الإعادة
+          ...(asOf && { AND: [{ OR: [{ clientCreatedAt: { lte: asOf } }, { clientCreatedAt: null, invoiceDate: { lte: asOf } }] }] }),
+        },
+      },
+    },
+    select: { id: true, invoiceId: true, productId: true, lotId: true, quantity: true, certainty: true, expiryDate: true },
+    orderBy: [{ invoiceItem: { invoice: { invoiceDate: 'desc' } } }, { invoiceItem: { invoice: { createdAt: 'desc' } } }, { createdAt: 'asc' }, { id: 'asc' }],
+    take: FREE_RETURN_HISTORY_ROWS,
+  })));
+  productIds.forEach((pid, i) => {
+    const groups: { invoiceId: string; rows: SaleLotRow[] }[] = [];
+    for (const r of all[i]) {
+      if (r.productId !== pid) continue;
+      let g = groups.find((x) => x.invoiceId === r.invoiceId);
+      if (!g) { g = { invoiceId: r.invoiceId, rows: [] }; groups.push(g); }
+      g.rows.push({ id: r.id, lotId: r.lotId ?? null, quantity: Number(r.quantity), certainty: certaintyOf(r.certainty), expiryDate: isoDay(r.expiryDate) });
+    }
+    out.set(pid, groups);
+  });
+  return out;
+}
+
+/**
+ * بلا صريح (المندوب دائماً، والإدارة والمفتاح حين لا يرسلان تشغيلة): يحدّد النظام التشغيلة من مبيعات العميل السابقة للصنف —
+ * آخر فاتورة بيعٍ أولاً وفيها الترتيب الهجين، والمتاح كمية الصفّ − ما أُرجع منه، فالمسمّى ASSUMED، وما فاق المبيعات «غير معروف»
+ * (allocateReturnFromHistory، طلب المالك ١ نوفمبر ٢٠٢٦ بدل «غير معروف بلا نقرة» في D5). سطران للصنف يتتابعان على المتاح.
+ * والموروثة الموقوفة تدخل معزولةً بتحذير LOT_INTO_BLOCKED. الإدارة والمفتاح: صريحٌ اختياري — التشغيلة من الشركة والصنف، Σ =
+ * الكمية الأساسية، بلا فحص رصيد (زيادة)، والموقوفة تُقبل بالتحذير نفسه، واليقين CONFIRMED. الختم من الصفوف المسمّاة، وإلا لقطة
+ * «آخر بيع» المحسوبة قبل المعاملة (fallbackStamps، ن١-٣) — ومعها فاتورة البيع الموروث منها.
  */
 async function allocateFreeReturn(db: LotDb, plan: InvoiceLotPlan, lines: InvoiceLotLine[]): Promise<Allocated> {
   const out = new Map<number, LineAlloc>();
@@ -222,13 +307,51 @@ async function allocateFreeReturn(db: LotDb, plan: InvoiceLotPlan, lines: Invoic
       if (r.length) refs.set(l.idx, r);
     }
   }
-  const lotIds = uniq([...refs.values()].flatMap((rs) => rs.map((r) => r.lotId)));
+  // الأسطر بلا صريح: سجلّ مبيعات العميل لأصنافها وما أُرجع من صفوفه
+  const inferred = lines.filter((l) => !refs.has(l.idx));
+  const history = inferred.length
+    ? await customerSaleHistory(db, plan.tenantId, plan.customerId, uniq(inferred.map((l) => l.productId)), plan.historyAsOf ?? null)
+    : new Map<string, { invoiceId: string; rows: SaleLotRow[] }[]>();
+  const historyRowIds = [...history.values()].flatMap((gs) => gs.flatMap((g) => g.rows.map((r) => r.id)));
+  const returned = await returnedBySource(db, plan.tenantId, historyRowIds);
+  const invoiceOfRow = new Map([...history.values()].flatMap((gs) => gs.flatMap((g) => g.rows.map((r) => [r.id, g.invoiceId] as const))));
+  const inferredRows = new Map<number, AllocRow[]>();
+  for (const l of inferred) {
+    const rows = allocateReturnFromHistory({ qty: l.qty, returnDay, sales: (history.get(l.productId) ?? []).map((g) => g.rows), returnedBySource: returned });
+    for (const r of rows) if (r.sourceItemLotId) returned.set(r.sourceItemLotId, (returned.get(r.sourceItemLotId) ?? 0) + r.qty);
+    inferredRows.set(l.idx, rows);
+  }
+
+  const lotIds = uniq([...[...refs.values()].flatMap((rs) => rs.map((r) => r.lotId)), ...[...inferredRows.values()].flatMap((rs) => rs.map((r) => r.lotId))]);
   const metas: Map<string, LotMeta> = lotIds.length ? await loadLotMetas(db, plan.tenantId, { lotIds }) : new Map();
   const intoBlocked = new Set<string>();
+  const warnBlocked = (m: LotMeta, l: InvoiceLotLine) => {
+    if (m.status === 'ACTIVE' || intoBlocked.has(m.id)) return;
+    intoBlocked.add(m.id);
+    warnings.push({ code: 'LOT_INTO_BLOCKED', productId: l.productId, detail: { lotId: m.id, lotNumber: m.lotNumber, blockKind: m.blockKind, line: l.idx } });
+  };
   for (const l of lines) {
+    const fromHistory = inferredRows.get(l.idx);
+    if (fromHistory) {
+      for (const r of fromHistory) {
+        const m = r.lotId ? metas.get(r.lotId) : undefined;
+        if (m) warnBlocked(m, l);
+      }
+      const s = stampFromRows(fromHistory, returnDay);
+      const fallback = plan.fallbackStamps.get(l.idx) ?? null;
+      // فاتورة البيع التي قاس عليها الختم: صفّ الانتهاء المختار نفسه (الأقرب انتهاءً، stampFromRows) لا أول صفٍّ مسمّى
+      const src = (s && fromHistory.find((r) => r.lotId != null && r.sourceItemLotId && r.expiryDate === s.expiresAt))
+        || fromHistory.find((r) => r.lotId != null && r.sourceItemLotId);
+      const saleInvoiceId = (src?.sourceItemLotId && invoiceOfRow.get(src.sourceItemLotId)) || fallback?.expirySaleInvoiceId || null;
+      out.set(l.idx, {
+        rows: fromHistory,
+        stamp: s ? { expiresAt: dayDate(s.expiresAt), returnExpired: s.returnExpired, expirySaleInvoiceId: saleInvoiceId } : fallback,
+      });
+      continue;
+    }
     const lineRefs = refs.get(l.idx);
     const merged = new Map<string, { lotId: string | null; qty: number }>();
-    for (const ref of lineRefs ?? [{ lotId: null, qty: l.qty }]) {
+    for (const ref of lineRefs!) {
       const k = ref.lotId ?? '';
       const prev = merged.get(k);
       if (prev) prev.qty += ref.qty; else merged.set(k, { lotId: ref.lotId, qty: ref.qty });
@@ -240,10 +363,7 @@ async function allocateFreeReturn(db: LotDb, plan: InvoiceLotPlan, lines: Invoic
       if (m.productId !== l.productId) {
         throw lotErr('LOT_PRODUCT_MISMATCH', { lot: m.lotNumber, name: l.productName }, { productId: l.productId, lotId: m.id, lotProductId: m.productId, line: l.idx });
       }
-      if (m.status !== 'ACTIVE' && !intoBlocked.has(m.id)) {
-        intoBlocked.add(m.id);
-        warnings.push({ code: 'LOT_INTO_BLOCKED', productId: l.productId, detail: { lotId: m.id, lotNumber: m.lotNumber, blockKind: m.blockKind, line: l.idx } });
-      }
+      warnBlocked(m, l);
       return { lotId: m.id, qty: ref.qty, certainty: 'CONFIRMED', flags: [], expiryDate: m.expiryDate };
     });
     const s = stampFromRows(rows, returnDay);
@@ -545,7 +665,7 @@ export async function saleItemLots(db: LotDb, tid: string, saleItemIds: string[]
     select: { id: true, invoiceItemId: true, lotId: true, quantity: true, certainty: true, expiryDate: true, lot: { select: { lotNumber: true } } },
     orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
   });
-  const returned = await returnedBySource(db, tid, rows.map((r) => r.id));
+  const returned = await returnedBySource(db, tid, rows.map((r) => r.id), { linkedOnly: true });
   for (const r of rows) {
     const sold = Number(r.quantity);
     const back = returned.get(r.id) ?? 0;

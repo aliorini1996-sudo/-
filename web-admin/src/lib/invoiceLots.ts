@@ -90,8 +90,8 @@ export function returnableLotsOf(raw: unknown): Map<string, SaleLotRow[]> {
 }
 
 /**
- * المرتجع الحرّ من الإدارة (D5): تشغيلةٌ صريحة للسطر كله بكميته الأساسية — والفارغ «غير معروف» فلا يُرسل شيء (الخادم
- * يكتبه UNKNOWN). سطرٌ بلا كمية لا صفّ له (الخادم يرفض الصفر أصلاً).
+ * المرتجع الحرّ من الإدارة (D5): تشغيلةٌ صريحة للسطر كله بكميته الأساسية — والفارغ «تلقائي» فلا يُرسل شيء (الخادم يحدّدها من
+ * مبيعات العميل السابقة للصنف ASSUMED، وما فاقها UNKNOWN). سطرٌ بلا كمية لا صفّ له (الخادم يرفض الصفر أصلاً).
  */
 export function freeReturnLotRows(line: { qty: number; unitFactor?: number | null }, lotId: string | null | undefined): LotRef[] | undefined {
   if (!lotId) return undefined;

@@ -67,7 +67,7 @@ import { LotError, asLotBusy, invoiceItemLotColumns, lotHttpError, type ItemExpi
 import { LOT_LOCK_TIMEOUT, acquireLotQueue, companyDay } from '../services/lotsDb';
 import {
   LOT_ALLOW_UNKNOWN, LOT_TX_OPTIONS, allocateInvoiceLotsInTx, assertRestockOffKeepsLots, assertReturnCancelKeepsLots, assertReturnStillUntracked,
-  freeReturnStamps, invoiceLotLines, invoiceLotMoment, recordReplayHeld, saleItemLots, scaleLotHint, type IssuanceLotPlan,
+  freeReturnStamps, invoiceLotLines, invoiceLotMoment, recordReplayHeld, returnHistoryBound, saleItemLots, scaleLotHint, type IssuanceLotPlan,
 } from '../services/lotsInvoice';
 
 const router = Router();
@@ -1272,8 +1272,12 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // وموسومة. الأسطر بالكمية الأساسية ومعامل لقطة وحدتها (D22)، ولقطة المرتجع القائمة تُملأ أدناه قبل المعاملة
     const lotNow = new Date();
     const lotStamps = new Map<number, ItemExpiryStamp>();
+    // حدّ «آخر بيع» للمرتجع الحرّ (لقطة صلاحيته ووراثة تشغيلته): تاريخ المستند ولا يتجاوز الآن، وتاريخٌ بلا وقت (YYYY-MM-DD من نموذج
+    // الويب والمفتاح) نهايةُ يوم الشركة لا منتصف ليل UTC — فمبيعات اليوم نفسه قبله
+    let lotDocBound = lotNow;
     if (tracksLots) {
       const { tz: lotTz, day: serverDay } = await companyDay(prisma, tid, lotNow);
+      lotDocBound = returnHistoryBound(body.invoiceDate, docDate, lotNow, lotTz);
       const actor: LotActor = req.user!.role === 'SALES_REP' ? 'REP' : req.user?.apiKeyId ? 'API_KEY' : 'ADMIN';
       // لحظة الجهاز من deviceAt (= لحظة الجلسة كما أُرسلت؛ والمفتاح لا لحظة له)
       const moment = invoiceLotMoment({
@@ -1292,6 +1296,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           saleItemId: it.invoiceItemId ?? null, lots: (unitRebase[idx] ?? 1) !== 1 ? scaleLotHint(it.lots, unitRebase[idx]) : it.lots,
         }))),
         fallbackStamps: lotStamps,
+        // المرتجع الحرّ يرث من مبيعات العميل حتى حدّ مستنده، ولحظة الجهاز في الإعادة (تُقارن بلحظة جهاز البيع إن كان دون اتصال)
+        ...(isReturn && { historyAsOf: new Date(Math.min(lotDocBound.getTime(), (moment.replay?.at ?? lotNow).getTime())) }),
         ...(stockCheckSkipped.length > 0 && { stockCheckSkipped }),
       };
     }
@@ -1363,7 +1369,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         if (manualReturn && lotPlan) {
           const lotLines = lotPlan.lines.filter((l) => preTracked.has(l.productId));
           const fr = await freeReturnStamps(prisma, tid, {
-            customerId, invoiceDate: docDate ?? lotNow, returnAt: lotPlan.replay?.at ?? lotNow, items: lotLines.map((l) => ({ idx: l.idx, productId: l.productId })),
+            customerId, invoiceDate: lotDocBound, returnAt: lotPlan.replay?.at ?? lotNow, items: lotLines.map((l) => ({ idx: l.idx, productId: l.productId })),
           });
           for (const [idx, st] of fr) lotStamps.set(idx, st);
         }
@@ -1499,7 +1505,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         }
       } else {
         const fr = await freeReturnStamps(prisma, tid, {
-          customerId, invoiceDate: docDate ?? lotNow, returnAt: lotReturnAt, items: lotLines.map((l) => ({ idx: l.idx, productId: l.productId })),
+          customerId, invoiceDate: lotDocBound, returnAt: lotReturnAt, items: lotLines.map((l) => ({ idx: l.idx, productId: l.productId })),
         });
         for (const [idx, s] of fr) lotStamps.set(idx, s);
       }

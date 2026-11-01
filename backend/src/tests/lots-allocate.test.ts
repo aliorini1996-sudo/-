@@ -7,7 +7,7 @@ import {
   ClientRefRace, LOT_EPS, LotError, aggregateRequest, allocateOut, allocateOutLines, allocateReturnFromSale, asLockBusy, asLotBusy, buildPlaceView,
   distributeToLines, fefoCompare, foldVanLots, heldUnknownOf, invoiceItemLotColumns, isLotExpiredOn, isLotQty, lotBaseQty, lotDatesProblem, lotErr,
   lotErrorBody, lotHttpError, lotLockKey, lotRemovalsOf, multiLotWarning, normalizeLotNumber, parseLotHint, parseLotRefsStrict,
-  pickOutSources, refsOfByLot, removalKeepsLots, replayMoment, roundLot, sortedLockKeys, splitAvailability, stampFromRows, zeroBuckets,
+  allocateReturnFromHistory, pickOutFefoLines, pickOutSources, refsOfByLot, removalKeepsLots, replayMoment, roundLot, sortedLockKeys, splitAvailability, stampFromRows, zeroBuckets,
   type AllocResult, type AllocRow, type BucketQty, type LotMeta, type LotRaw, type LotRemovalItem, type OutLine, type PlaceLotView, type SaleLotRow,
 } from '../services/lots';
 
@@ -426,6 +426,69 @@ test('pickOutSources: المصدر الوحيد تلقائي، وأكثر من �
   err(pickOutSources(two, 'SELLABLE', 3, [{ lotId: 'A', qty: 2 }]), 'LOT_QTY_INVALID');
   const zero = view({ lots: [] , total: { SELLABLE: 0 } });
   err(pickOutSources(zero, 'SELLABLE', 1), 'LOT_STOCK_INSUFFICIENT');
+});
+
+test('pickOutFefoLines: الإنقاص التلقائي بالأقرب انتهاءً من كل المصادر الماديّة (الموقوف والمنتهي منها) ثم غير المسمّى، ومتاحٌ مشترك وقاعدة الكرتون', () => {
+  const v = view({ lots: [
+    { id: 'LATE', s: 5, expiry: '2027-09-01' }, { id: 'SOON', s: 3, expiry: '2027-01-01' },
+    { id: 'REC', s: 2, status: 'BLOCKED', blockKind: 'RECALL', expiry: '2027-03-01' }, { id: 'NOEXP', s: 4, expiry: null },
+  ], total: { SELLABLE: 16 } });
+  const rows = (r: ReturnType<typeof pickOutFefoLines>, idx: number) => {
+    assert.ok(r.ok, JSON.stringify(r));
+    return (r.lines.get(idx) ?? []).map((x) => [x.lotId, x.qty, x.certainty]);
+  };
+  // مصدرٌ واحد يكفي ⇒ الأقرب انتهاءً
+  assert.deepEqual(rows(pickOutFefoLines(v, 'SELLABLE', [{ idx: 0, qty: 2, unitFactor: 1 }]), 0), [['SOON', 2, 'ASSUMED']]);
+  // سطرٌ يعبر التشغيلات بترتيب الانتهاء، والموقوف بموضعه، وبلا انتهاء آخر المسمّى ثم غير المسمّى (٢)
+  assert.deepEqual(rows(pickOutFefoLines(v, 'SELLABLE', [{ idx: 0, qty: 16, unitFactor: 1 }]), 0),
+    [['SOON', 3, 'ASSUMED'], ['REC', 2, 'ASSUMED'], ['LATE', 5, 'ASSUMED'], ['NOEXP', 4, 'ASSUMED'], [null, 2, 'UNKNOWN']]);
+  const over = pickOutFefoLines(v, 'SELLABLE', [{ idx: 0, qty: 10, unitFactor: 1 }, { idx: 1, qty: 7, unitFactor: 1 }]);
+  assert.ok(!over.ok && over.error.code === 'LOT_STOCK_INSUFFICIENT' && over.error.status === 409, 'المجموع فوق المتاح (D26)');
+  // متاحٌ مشترك: السطر الثاني يبدأ مما ترك الأول
+  const two = pickOutFefoLines(v, 'SELLABLE', [{ idx: 3, qty: 4, unitFactor: 1 }, { idx: 7, qty: 2, unitFactor: 1 }]);
+  assert.deepEqual([rows(two, 3), rows(two, 7)], [[['SOON', 3, 'ASSUMED'], ['REC', 1, 'ASSUMED']], [['REC', 1, 'ASSUMED'], ['LATE', 1, 'ASSUMED']]]);
+  // الكرتون أولاً (كـallocateOutLines): سطر قطعٍ قبل سطر كرتون لا يكسر كرتوناً يخرج كاملاً — A (الأقرب) ١٢ وB ٥
+  const firstCtn = view({ lots: [{ id: 'A', s: 12, expiry: '2027-01-01' }, { id: 'B', s: 5, expiry: '2027-06-01' }] });
+  const fc = pickOutFefoLines(firstCtn, 'SELLABLE', [{ idx: 0, qty: 5, unitFactor: 1 }, { idx: 1, qty: 12, unitFactor: 12 }]);
+  assert.deepEqual([rows(fc, 0), rows(fc, 1)], [[['B', 5, 'ASSUMED']], [['A', 12, 'ASSUMED']]]);
+  assert.ok(fc.ok && fc.warnings.length === 0, 'بلا تقسيم');
+  // والتقسيم المحتوم موسومٌ SPLIT_UNIT بتحذيرٍ لسطره {unitFactor, idx}
+  const forced = pickOutFefoLines(view({ lots: [{ id: 'A', s: 7, expiry: '2027-01-01' }, { id: 'B', s: 5, expiry: '2027-06-01' }] }), 'SELLABLE', [{ idx: 3, qty: 12, unitFactor: 12 }]);
+  assert.ok(forced.ok);
+  assert.deepEqual(forced.lines.get(3)!.map((r) => [r.lotId, r.qty, r.flags]), [['A', 7, ['SPLIT_UNIT']], ['B', 5, ['SPLIT_UNIT']]]);
+  assert.deepEqual(forced.warnings, [{ code: 'LOT_SPLIT_UNIT', productId: 'p', detail: { unitFactor: 12, idx: 3 } }]);
+  // قاعدة الكرتون (D22): كرتون ٤ من تشغيلةٍ واحدة قبل التقسيم — SOON (٣) لا تكفي كرتوناً فيأخذه LATE
+  const ctn = view({ lots: [{ id: 'SOON', s: 3, expiry: '2027-01-01' }, { id: 'LATE', s: 8, expiry: '2027-09-01' }] });
+  assert.deepEqual(rows(pickOutFefoLines(ctn, 'SELLABLE', [{ idx: 0, qty: 4, unitFactor: 4 }]), 0), [['LATE', 4, 'ASSUMED']]);
+  // مصدرٌ ماديٌّ وحيد ⇒ CONFIRMED، و`only` يحصر المسمّى ويُسقط غير المسمّى
+  assert.deepEqual(rows(pickOutFefoLines(view({ lots: [{ id: 'A', s: 4 }] }), 'SELLABLE', [{ idx: 0, qty: 4, unitFactor: 1 }]), 0), [['A', 4, 'CONFIRMED']]);
+  const exp = pickOutFefoLines(v, 'SELLABLE', [{ idx: 0, qty: 3, unitFactor: 1 }], { only: (m) => isLotExpiredOn(m, '2027-02-01') });
+  assert.deepEqual(rows(exp, 0), [['SOON', 3, 'CONFIRMED']]);
+  const noExp = pickOutFefoLines(v, 'SELLABLE', [{ idx: 0, qty: 4, unitFactor: 1 }], { only: (m) => isLotExpiredOn(m, '2027-02-01') });
+  assert.ok(!noExp.ok && noExp.error.code === 'LOT_STOCK_INSUFFICIENT');
+  // I2: غير المسمّى السالب تاريخياً لا يُصرف منه
+  const neg = view({ lots: [{ id: 'A', s: 2 }], total: { SELLABLE: -1 } });
+  assert.ok(!pickOutFefoLines(neg, 'SELLABLE', [{ idx: 0, qty: 3, unitFactor: 1 }]).ok);
+  // الكسر الخامس يُرفض كالصريح (isLotQty)
+  const frac = pickOutFefoLines(v, 'SELLABLE', [{ idx: 0, qty: 1.00005, unitFactor: 1 }]);
+  assert.ok(!frac.ok && frac.error.code === 'LOT_QTY_INVALID');
+});
+
+test('allocateReturnFromHistory: آخر فاتورةٍ أولاً ثم التي قبلها، والمسمّى ASSUMED دائماً، وما أُرجع يُطرح، وما فاق المبيعات صفٌّ غير معروف بلا مصدر', () => {
+  const sale = (id: string, lotId: string | null, quantity: number, expiryDate: string | null = '2027-06-01', certainty: SaleLotRow['certainty'] = 'CONFIRMED'): SaleLotRow =>
+    ({ id, lotId, quantity, certainty, expiryDate });
+  const newest = [sale('n1', 'B', 4)];
+  const older = [sale('o1', 'A', 3), sale('o2', null, 2, null, 'UNKNOWN')];
+  const brief2 = (rs: AllocRow[]) => rs.map((r) => [r.lotId, r.qty, r.certainty, r.sourceItemLotId ?? null]);
+  assert.deepEqual(brief2(allocateReturnFromHistory({ qty: 3, returnDay: DAY, sales: [newest, older], returnedBySource: new Map() })), [['B', 3, 'ASSUMED', 'n1']],
+    'صفّ بيعٍ وحيد CONFIRMED يُورَث ASSUMED: استنتاجٌ لا ربط');
+  assert.deepEqual(brief2(allocateReturnFromHistory({ qty: 9, returnDay: DAY, sales: [newest, older], returnedBySource: new Map([['n1', 1]]) })),
+    [['B', 3, 'ASSUMED', 'n1'], ['A', 3, 'ASSUMED', 'o1'], [null, 2, 'UNKNOWN', 'o2'], [null, 1, 'UNKNOWN', null]]);
+  assert.deepEqual(brief2(allocateReturnFromHistory({ qty: 2, returnDay: DAY, sales: [], returnedBySource: new Map() })), [[null, 2, 'UNKNOWN', null]]);
+  assert.deepEqual(allocateReturnFromHistory({ qty: 0, returnDay: DAY, sales: [newest], returnedBySource: new Map() }), []);
+  // Σ الصفوف = الكمية (I3)
+  const rs = allocateReturnFromHistory({ qty: 0.3, returnDay: DAY, sales: [[sale('x', 'A', 0.1)], [sale('y', 'B', 0.2)]], returnedBySource: new Map() });
+  assert.ok(Math.abs(rs.reduce((s, r) => s + r.qty, 0) - 0.3) < LOT_EPS);
 });
 
 test('pickOutSources: I2 مع غير المسمّى السالب تاريخياً، ودلو المنتهي، والسيارة المحذوفة بلا غير مسمّى', () => {

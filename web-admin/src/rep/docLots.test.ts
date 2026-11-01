@@ -18,7 +18,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { docLotRows, invoiceLotsOf, lotCellText, lotDayText, lotLineText, lotQtyInLine, noticeHasLots, warehouseLineLots } from './docLots';
 import { localizeDigits, printThermalInvoice } from './thermal';
 import {
-  DocumentResult, PrintableInvoice, PrintableLoadNotice, PrintableWarehouseNotice, invoiceDocFromDetail, loadNoticeDocFromData, warehouseNoticeDocFromEntry,
+  DocumentResult, PrintableInvoice, PrintableLoadNotice, PrintableWarehouseNotice, invoiceDocFromDetail, loadNoticeDocFromData, warehouseNoticeDocFromEntry, warehouseNoticeProductCount,
   type InvoiceDoc, type LoadNoticeDoc, type WarehouseNoticeDoc,
 } from './RepDocuments';
 import { defaultPrintOptions, presetPaper, type PaperPresetId, type PrintProfile, type TemplateId } from '../lib/print/printSettings';
@@ -303,6 +303,34 @@ test('إشعار حركة المستودع: تشغيلة كل سطرٍ من ال
   const plain = render(entry(false));
   assert.ok(!plain.includes('التشغيلة / الانتهاء'));
   assert.ok(/colSpan="5"|colspan="5"/.test(plain), 'بلا تشغيلات: كما كان');
+});
+
+test('إشعار المستودع: «عدد الأصناف» أصناف الحركة لا بنودها — نقصٌ تلقائي سُحب من تشغيلتين بندان لصنفٍ واحد (كسجلّ الجوال)', () => {
+  const doc = warehouseNoticeDocFromEntry({
+    id: 'e2', type: 'ADJUST', createdAt: '2026-11-01T08:00:00.000Z', totalCost: 0,
+    items: [
+      { productId: 'p1', qty: -10, product: { name: 'ماء', unit: 'حبة' }, lot: { lotNumber: 'A', productionDate: null, expiryDate: '2026-12-01T00:00:00.000Z' } },
+      { productId: 'p1', qty: -4, product: { name: 'ماء', unit: 'حبة' }, lot: { lotNumber: 'B', productionDate: null, expiryDate: '2027-01-01T00:00:00.000Z' } },
+      { productId: 'p2', qty: 3, product: { name: 'عصير', unit: 'علبة' }, lot: null },
+    ],
+  }, { ...companyBase });
+  assert.deepEqual(doc.items.map((i) => i.productId), ['p1', 'p1', 'p2'], 'صنف كل بندٍ من السجل');
+  assert.equal(warehouseNoticeProductCount(doc.items), 2);
+  const html = renderToStaticMarkup(createElement(PrintableWarehouseNotice, { doc }));
+  assert.match(html, /عدد الأصناف: <\/span><span[^>]*>2<\/span>/);
+  assert.doesNotMatch(html, /عدد الأصناف: <\/span><span[^>]*>3<\/span>/);
+  // سجلٌ أقدم بلا معرّف: بالاسم، وبلا productId لا حقل جديد في البند
+  const old = warehouseNoticeDocFromEntry({ id: 'e3', type: 'RECEIVE', createdAt: '2026-11-01', totalCost: 0, items: [
+    { qty: 1, product: { name: 'ماء' } }, { qty: 2, product: { name: 'ماء' } }, { qty: 1, product: { name: 'عصير' } },
+  ] }, null);
+  assert.equal('productId' in old.items[0], false);
+  assert.equal(warehouseNoticeProductCount(old.items), 2);
+  assert.equal(warehouseNoticeProductCount([]), 0);
+  // القالب يعدّ بالدالة لا بطول البنود
+  const s = src('rep', 'RepDocuments.tsx');
+  const body = s.slice(s.indexOf('export const PrintableWarehouseNotice'), s.indexOf('PrintableWarehouseNotice.displayName'));
+  assert.match(body, /value=\{String\(warehouseNoticeProductCount\(doc\.items\)\)\}/);
+  assert.doesNotMatch(body, /value=\{String\(doc\.items\.length\)\}/);
 });
 
 test('invoiceDocFromDetail: تشغيلات البند من صفوف الخادم (withLots)، وغيابها لا يضيف حقلاً', () => {

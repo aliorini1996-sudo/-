@@ -4,7 +4,7 @@ import { lotsApi } from '../api/client';
 import { useTr } from '../i18n/strings';
 import { activeLocale } from '../utils/format';
 import { localDay } from '../lib/paymentMethods';
-import { LOT_STATUS_LABELS, roundLot, type ProductLotDto, type LotBalancesDto } from '../lib/lots';
+import { LOT_STATUS_LABELS, roundLot, type ProductLotDto, type LotBalancesDto, type LotRef } from '../lib/lots';
 import type { UnitDef } from '../lib/units';
 import { lotDraftProblem, lotPickChoices, lotQtyText, stalePick, type LotDraft, type LotDraftMode, type LotPickChoice } from './mLotsLogic';
 
@@ -42,13 +42,14 @@ export const whLotsQuery = (productId: string) => ({
  *  - الوارد والتسوية بالزيادة: تشغيلات الصنف القائمة بوسم الموقوفة والمنتهية (الموقوفة تُقبل بتحذير وتبقى معزولة)، أو
  *    «تشغيلة جديدة» برقمٍ وتاريخين، أو «غير مسمى» حيث يجوز (التسوية والتحميل، لا الوارد).
  *  - تحميل السيارة بلا مستودع (LOAD): كذلك، إلا أن الموقوفة والمنتهية يوم الشركة معروضةٌ معطّلة — الخادم يرفضهما (I4).
- *  - النقص: مصادر المستودع بصالحها، أو «غير مسمى»، أو بلا اختيار فيختار الخادم المصدر الوحيد. وما يُمنع على مستوى الصنف
- *    (أكثر من مصدر بلا اختيار، أو فوق الصالح، أو سطران على تشغيلةٍ واحدة — D26) يحسبه النموذج ويمرّره groupProblem.
+ *  - النقص: بلا اختيار (الافتراضي) يُسحب تلقائياً بالأقرب انتهاءً أولاً أيّاً كان عدد المصادر، ومعاينته تحته (`autoRows`،
+ *    outAutoRows يحسبها النموذج) — أو مصادر المستودع بصالحها، أو «غير مسمى»، تحديداً يدوياً اختيارياً. وما يُمنع على مستوى
+ *    الصنف (فوق الصالح، أو سطران على تشغيلةٍ واحدة — D26) يحسبه النموذج ويمرّره groupProblem.
  * والاختيار الذي خرج من الخيارات (قلب الإشارة، تشغيلةٌ أُوقفت، مصدرٌ نفد) يُصفَّر حين تصل، فلا يُعرض غير ما يُرسل.
  *
  * الجلب لصنف السطر وحده وحين يُرسم — والسطر لا يُرسم إلا لصنفٍ متتبَّع والميزة مفعّلة.
  */
-export default function MLotFields({ productId, prod, mode, shelfOn, draft, onChange, day, groupProblem }: {
+export default function MLotFields({ productId, prod, mode, shelfOn, draft, onChange, day, groupProblem, autoRows }: {
   productId: string;
   /** وحدات الصنف: «المتاح» بالأساس بجانب سطرٍ بوحدته يُفكَّك بها (القاعدة ٨)، ويقف عند الرئيسية إن كانت له («52 كرتون و2 قارورة») */
   prod?: { unit?: string | null; units?: UnitDef[] | null; primaryUnitId?: string | null };
@@ -60,6 +61,8 @@ export default function MLotFields({ productId, prod, mode, shelfOn, draft, onCh
   day?: string;
   /** مشكلة السطر على مستوى الصنف (مفتاح قاموس) — النقص من المستودع */
   groupProblem?: string | null;
+  /** النقص بلا اختيار: ما سيُسحب لهذا السطر بالأساس (معاينة، والخادم يحسم) */
+  autoRows?: LotRef[] | null;
 }) {
   const tr = useTr();
   const out = mode === 'OUT';
@@ -94,10 +97,29 @@ export default function MLotFields({ productId, prod, mode, shelfOn, draft, onCh
         <span className="block text-[10px] font-semibold text-[#6E6557] mb-1">{tr('التشغيلة')}</span>
         <select className="input min-h-[44px]" value={stale ? '' : draft.pick} disabled={loading}
           onChange={e => set({ pick: e.target.value })}>
-          <option value="">{out ? tr('تلقائي حين يكون للصنف مصدر واحد') : tr('اختر التشغيلة')}</option>
+          <option value="">{out ? tr('تلقائي: الأقرب انتهاءً أولاً') : tr('اختر التشغيلة')}</option>
           {choices.map(c => <option key={c.value} value={c.value} disabled={c.disabled}>{label(c)}</option>)}
         </select>
       </label>
+
+      {/* النقص بلا اختيار: ما سيُسحب من كل تشغيلة — وسطرٌ من أكثر من تشغيلة يُكتب بنداً لكلٍّ بعد الحفظ */}
+      {out && !stale && draft.pick === '' && !!autoRows?.length && (
+        <div className="space-y-0.5">
+          {autoRows.map(r => {
+            const c = choices.find(x => x.value === (r.lotId ?? 'UNNAMED'));
+            const name = c && c.kind === 'LOT'
+              ? [c.lotNumber, c.expiryDate, c.blocked ? tr(LOT_STATUS_LABELS.BLOCKED) : '', c.expired ? tr('منتهي الصلاحية') : ''].filter(Boolean).join(' · ')
+              : tr('غير مسمى');
+            return (
+              <div key={r.lotId ?? 'u'} className="flex items-center justify-between gap-2 text-[11px]">
+                <span className="min-w-0 truncate text-[#1F1A13]">{name}</span>
+                <b className="tabular-nums flex-shrink-0">{lotQtyText(r.qty, prod, fmtLotQ)}</b>
+              </div>
+            );
+          })}
+          <p className="text-[9px] text-[#9A8F7E]">{tr('يؤكد التوزيع عند الحفظ')}</p>
+        </div>
+      )}
 
       {draft.pick === 'NEW' && (
         <div className="space-y-2">
