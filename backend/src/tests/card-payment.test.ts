@@ -353,23 +353,31 @@ test('fetchIntent: ردّ 200 بشكلٍ غير معروف يُرمى (لا «غ
   }
 });
 
-test('الساند بوكس على خادم الإنتاج: محجوبٌ إلا لشركاتٍ مسمّاة في NEARPAY_SANDBOX_TENANTS', async () => {
+test('الساند بوكس على خادم الإنتاج: «لوحة المالك تكفي» — المفعّلة بتاجرها مسموحة، وNEARPAY_SANDBOX_TENANTS سماحٌ إضافي اختياري', async () => {
   const { sandboxBlocked } = await import('../services/cardPayment');
   const keys = ['NEARPAY_ENV', 'NODE_ENV', 'NEARPAY_SANDBOX_TENANTS'] as const;
   const prev = keys.map((k) => process.env[k]);
+  const on = (id: string) => ({ id, cardPayEnabled: true, nearpayMerchantId: 'm-1' });
   try {
     process.env.NEARPAY_ENV = 'sandbox';
     process.env.NODE_ENV = 'production';
     delete process.env.NEARPAY_SANDBOX_TENANTS;
-    assert.equal(sandboxBlocked('t1'), true);
+    // تفعيل المالك وتاجر الشركة يكفيان بلا قائمة (طلب المالك ١ نوفمبر ٢٠٢٦)
+    assert.equal(sandboxBlocked(on('t1')), false);
+    // وما ينقصه أحدهما محجوب
+    assert.equal(sandboxBlocked({ id: 't1' }), true);
+    assert.equal(sandboxBlocked({ id: 't1', cardPayEnabled: true, nearpayMerchantId: null }), true);
+    assert.equal(sandboxBlocked({ id: 't1', cardPayEnabled: false, nearpayMerchantId: 'm-1' }), true);
+    // القائمة القديمة تبقى سماحاً (توافق)
     process.env.NEARPAY_SANDBOX_TENANTS = ' t0 , t1 ';
-    assert.equal(sandboxBlocked('t1'), false);
-    assert.equal(sandboxBlocked('t2'), true);
+    assert.equal(sandboxBlocked({ id: 't1' }), false);
+    assert.equal(sandboxBlocked({ id: 't2' }), true);
+    assert.equal(sandboxBlocked(on('t2')), false);
     process.env.NEARPAY_ENV = 'production';
-    assert.equal(sandboxBlocked('t2'), false);
+    assert.equal(sandboxBlocked({ id: 't2' }), false);
     process.env.NEARPAY_ENV = 'sandbox';
     process.env.NODE_ENV = 'development';
-    assert.equal(sandboxBlocked('t2'), false);
+    assert.equal(sandboxBlocked({ id: 't2' }), false);
   } finally {
     keys.forEach((k, i) => { if (prev[i] === undefined) delete process.env[k]; else process.env[k] = prev[i]; });
   }
@@ -387,8 +395,9 @@ test('حرّاس نصّية: «review» بعد الخصم يمنع تحصيلا�
   assert.match(svc, /invoiceId: invoice\.id, status: 'review' \}/);
   assert.match(svc, /'CARD_PAY_REVIEW', held\.id\)/);
   assert.match(svc, /'CARD_PAY_IN_PROGRESS', f\.id\)/);
-  // الساند بوكس محروس عند الإنشاء والتسليم
-  assert.equal((svc.match(/sandboxBlocked\((params\.tenantId|row\.tenantId)\)/g) || []).length, 2);
+  // الساند بوكس محروس عند الإنشاء والتسليم — بالشركة وتفعيلها وتاجرها
+  assert.equal((svc.match(/sandboxBlocked\(\{ id: (params\.tenantId, \.\.\.tenant|row\.tenantId, \.\.\.row\.tenant) \}\)/g) || []).length, 2);
+  assert.match(svc, /select: \{ cardPayEnabled: true, nearpayMerchantId: true \} \}\);\n  if \(!tenant\?\.nearpayMerchantId\)/);
   // التوقيع قبل استهلاك الرمز، وكذلك رفض الضبط الناقص (503 يُبقي الرمز صالحاً)
   assert.ok(svc.indexOf('const terminalJwt =') < svc.indexOf('data: { launchedAt: now }'));
   assert.ok(svc.indexOf("if (!nearpayJwtConfigured() || !gcp) throw") > -1);
@@ -411,6 +420,9 @@ test('زرّ المندوب لا يظهر إلا والتحصيل ممكنٌ ف�
     'NEARPAY_JWT_PRIVATE_KEY', 'NEARPAY_CLIENT_UUID', 'NEARPAY_GCP_PROJECT_NUMBER',
   ] as const;
   const prev = keys.map((k) => process.env[k]);
+  const T1 = { id: 't1' };
+  const T2 = { id: 't2' };
+  const ON2 = { id: 't2', cardPayEnabled: true, nearpayMerchantId: 'm-2' };
   try {
     process.env.NEARPAY_API_KEY = 'test-key';
     // دخول الوحدة: مفتاح JWT ومعرّف العميل ورقم المشروع — تُفحص في آخر الاختبار
@@ -421,44 +433,50 @@ test('زرّ المندوب لا يظهر إلا والتحصيل ممكنٌ ف�
     process.env.NODE_ENV = 'production';
     delete process.env.NEARPAY_SANDBOX_TENANTS;
     delete process.env.CARD_PAY_APP_READY;
-    assert.equal(cardPayUsable('t1'), false); // الحال اليوم: ساند بوكس محجوب ولا تطبيق
+    assert.equal(cardPayUsable(T1), false); // ساند بوكس بلا تفعيل ولا تطبيق
     process.env.NEARPAY_SANDBOX_TENANTS = 't1';
-    assert.equal(cardPayUsable('t1'), false); // البيئة مسموحة والتطبيق بلا وحدة ⇒ لا زرّ يقود إلى «حدّث التطبيق»
+    assert.equal(cardPayUsable(T1), false); // البيئة مسموحة والتطبيق بلا وحدة ⇒ لا زرّ يقود إلى «حدّث التطبيق»
     process.env.CARD_PAY_APP_READY = '1';
-    assert.equal(cardPayUsable('t1'), true);
-    assert.equal(cardPayUsable('t2'), false);
+    assert.equal(cardPayUsable(T1), true);
+    assert.equal(cardPayUsable(T2), false);
+    // «لوحة المالك تكفي»: المفعّلة بتاجرها متاحة على الساند بوكس بلا قائمة (الحال على Render اليوم)
+    delete process.env.NEARPAY_SANDBOX_TENANTS;
+    assert.equal(cardPayUsable(ON2), true);
+    assert.equal(cardPayUsable({ ...ON2, nearpayMerchantId: null }), false);
+    assert.equal(cardPayUsable({ ...ON2, cardPayEnabled: false }), false);
     process.env.NEARPAY_ENV = 'production';
     delete process.env.NEARPAY_API_BASE;
-    assert.equal(cardPayUsable('t2'), false); // الإنتاج بلا عنوان API معلَن من NearPay ⇒ غير مهيأ
+    assert.equal(cardPayUsable(T2), false); // الإنتاج بلا عنوان API معلَن من NearPay ⇒ غير مهيأ
     process.env.NEARPAY_API_BASE = 'https://api.example.test/v1';
-    assert.equal(cardPayUsable('t2'), true);
+    assert.equal(cardPayUsable(T2), true);
     // الوحدة لا تنفّذ OTP: بلا مفتاح JWT أو بلا رقم مشروع (أو برقمٍ غير رقمي) لا زرّ — كان كل نقرٍ يحرق رمزاً ويحجز الفاتورة
     delete process.env.NEARPAY_JWT_PRIVATE_KEY;
-    assert.equal(cardPayUsable('t2'), false);
+    assert.equal(cardPayUsable(T2), false);
     process.env.NEARPAY_JWT_PRIVATE_KEY = 'test-private-key';
     delete process.env.NEARPAY_CLIENT_UUID;
-    assert.equal(cardPayUsable('t2'), false);
+    assert.equal(cardPayUsable(T2), false);
     process.env.NEARPAY_CLIENT_UUID = 'test-client';
     delete process.env.NEARPAY_GCP_PROJECT_NUMBER;
-    assert.equal(cardPayUsable('t2'), false);
+    assert.equal(cardPayUsable(T2), false);
     process.env.NEARPAY_GCP_PROJECT_NUMBER = 'my-project-id';
-    assert.equal(cardPayUsable('t2'), false);
+    assert.equal(cardPayUsable(T2), false);
     // بما تقبله الوحدة (Long موجب): صفرٌ أو رقمٌ يفيض عن Long كغيابه
     for (const bad of ['0', '000', '12345678901234567890']) {
       process.env.NEARPAY_GCP_PROJECT_NUMBER = bad;
-      assert.equal(cardPayUsable('t2'), false, bad);
+      assert.equal(cardPayUsable(T2), false, bad);
     }
     process.env.NEARPAY_GCP_PROJECT_NUMBER = '00123456789012'; // الأصفار البادئة تُحذف
-    assert.equal(cardPayUsable('t2'), true);
+    assert.equal(cardPayUsable(T2), true);
     process.env.NEARPAY_GCP_PROJECT_NUMBER = '123456789012';
-    assert.equal(cardPayUsable('t2'), true);
+    assert.equal(cardPayUsable(T2), true);
     delete process.env.NEARPAY_API_KEY;
-    assert.equal(cardPayUsable('t2'), false);
+    assert.equal(cardPayUsable(T2), false);
   } finally {
     keys.forEach((k, i) => { if (prev[i] === undefined) delete process.env[k]; else process.env[k] = prev[i]; });
   }
   const fs = await import('fs');
   const path = await import('path');
   const company = fs.readFileSync(path.join(__dirname, '..', 'routes/company.ts'), 'utf8');
-  assert.match(company, /cardPayAvailable: tenant\?\.cardPayEnabled === true && cardPayUsable\(tid\)/);
+  assert.match(company, /const cardPayAvailable = tenant\?\.cardPayEnabled === true && cardPayUsable\(\{ id: tid, cardPayEnabled: tenant\.cardPayEnabled, nearpayMerchantId: tenant\.nearpayMerchantId \}\);/);
+  assert.match(company, /cardPayAvailable, cardPayTest: cardPayAvailable && cardPayTestMode\(\),/);
 });

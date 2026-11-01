@@ -27,9 +27,9 @@ import { DocTextsContext, useDocTexts, usePrintTextsPreview } from './printTexts
 import { printPageNode } from './printPage';
 import { currentPrintIdentity, directOpts, usePrintDeviceChoice, withKindChoice } from './printDevice';
 import PrintDeviceSheet from './PrintDeviceSheet';
-import { printHtmlDirect, printNodeDirect, supportsDirect, transportFor, type DirectOutcome, type PrintTransport } from './printDirect';
+import { directAvailableFor, printHtmlDirect, printNodeDirect, supportsDirect, transportFor, type DirectOutcome, type PrintTransport } from './printDirect';
 import { DIRECT_PRINT_FALLBACK, DirectPrintError } from '../lib/print/printErrors';
-import { directPrintAvailable, onLateHandoff, printerForJob } from '../lib/print/transport/direct';
+import { onLateHandoff, printerForJob } from '../lib/print/transport/direct';
 import { DirectPrintOverlay, useDirectPrint } from '../components/print/DirectPrintUi';
 import { AppUpdateButton, AppUpdateHint } from '../components/print/AppUpdatePrompt';
 import { Share2, Download, Check, ArrowRight, Printer, X, AlertTriangle } from 'lucide-react';
@@ -85,6 +85,8 @@ export interface Company {
   // «نصوص المطبوعات» v1 — خام كما في العمود (null = نصوص اليوم). لا يُقرأ إلا عبر normalizePrintTexts (lib/print/printTexts.ts):
   // صياغة نصوص الفاتورة والسند وإخفاء غير الإلزامي منها ولغةٌ ثانية على الورقة
   printTexts?: unknown;
+  // «التحصيل بالبطاقة» على بيئة الاختبار — يصل مع ردّ /company: لافتة «وضع تجريبي» على الزرّ والورقة والنتيجة (rep/CardPay.tsx)
+  cardPayTest?: boolean;
 }
 
 /**
@@ -2063,6 +2065,7 @@ export function DocumentResult({ doc, onClose, showLotsStrip = false }: {
   const bt = useDirectPrint();
   const [directError, setDirectError] = useState<string | null>(null);
   // تطبيق فيلد سيلز على أندرويد: 'hard' لم يُفتح (زرّ التحديث مكان البديل)، 'soft' سُلّم بلا مفتاح ثقة (تلميحٌ هادئ)
+  // وعلى الآيفون 'hard' وحده: جسرٌ أقدم من الصفحة (appUpdateIos) — والتسليم المتأخّر لا يقع هناك
   const [appPrompt, setAppPrompt] = useState<'hard' | 'soft' | null>(null);
   // فُتح التطبيق بعد المهلة والدعوة معروضة: تُستبدل بحصيلة التسليم — لا «حدّث التطبيق» بعد طباعةٍ تمّت
   useEffect(() => {
@@ -2109,7 +2112,7 @@ export function DocumentResult({ doc, onClose, showLotsStrip = false }: {
     } catch (e) {
       if (e instanceof DirectPrintError) {
         setDirectError(tr(e.message));
-        if (e.kind === 'appUpdate') setAppPrompt('hard');
+        if (e.kind === 'appUpdate' || e.kind === 'appUpdateIos') setAppPrompt('hard');
       } else setStatus(tr(e instanceof PrintRefusedError ? e.message : 'تعذرت الطباعة تأكد من إعداد الطابعة'));
     }
     setBusy(false);
@@ -2264,7 +2267,7 @@ export function DocumentResult({ doc, onClose, showLotsStrip = false }: {
             {customized && directProfile.printer === 'impact' && directTransport === 'system' && (
               <p className="text-[11px] text-gray-400 text-center leading-relaxed">
                 {tr(PRINT_NOTES.impactDesktop)}
-                {directPrintAvailable() && <> — {tr('للطباعة من الجوال اختر البلوتوث المباشر من تغيير')}</>}
+                {directAvailableFor(directProfile) && <> — {tr('للطباعة من الجوال اختر البلوتوث المباشر من تغيير')}</>}
               </p>
             )}
           </>

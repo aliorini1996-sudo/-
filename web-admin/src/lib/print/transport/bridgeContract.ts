@@ -42,3 +42,27 @@ export const HANDOFF_TIMEOUT_MS = 3000;
 export const LATE_HANDOFF_MS = 12000;
 /** Chrome لا يفتح intent إلا بإيماءةٍ حديثة — بعد هذه المدة من اللمسة تُطلب لمسةٌ ثانية (كالتحصيل بالبطاقة) */
 export const LAUNCH_GESTURE_MS = 3000;
+
+// ─── تطبيق فيلد سيلز على الآيفون (1.1.0) ───
+// نظير كل قيمةٍ أدناه في تطبيق الآيفون: FieldSales/PrintPayload.swift (`enum FSP`، فرع ios-app). الجسر هناك معالجُ رسائل
+// بردّ (WKScriptMessageHandlerWithReply) لا رابط intent: الصفحة تنادي window.webkit.messageHandlers.fsPrint.postMessage فيعود
+// وعدٌ بالنتيجة — بلا مفتاح ثقة ولا مهلة تسليم (WebKit يعرف إطار المُرسل وأصله). والحمولة هي نفسها FSP v1 أعلاه.
+
+/** اسم معالج الرسائل، والعلامة العامة التي يضعها التطبيق قبل تحميل الصفحة ({v, caps})، وإصدار البروتوكول */
+export const IOS_HANDLER = 'fsPrint';
+export const IOS_MARKER = '__fsIosBridge';
+export const IOS_BRIDGE_VERSION = 1;
+/** حدث التقدّم الذي يطلقه التطبيق في الصفحة: detail = {job, sent, total} */
+export const IOS_PROGRESS_EVENT = 'fs-ios-print';
+/**
+ * سقفا الآيفون: لا حدّ Binder في WKWebView، لكن BLE بطيء (3–20 ك.ب/ث) — فالمهمة 1 م.ب، والحمولة الخام تتسع لها مع الرأس
+ * والعلامات. الآيفون يرسل خاماً دائماً (CompressionStream غائبٌ قبل iOS 16.4).
+ */
+export const IOS_MAX_PAYLOAD_CHARS = 1_572_864;
+export const IOS_MAX_JOB_BYTES = 1_048_576;
+/** معرّف المهمة في رسائل print/cancel والتقدّم */
+export const IOS_JOB_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
+/** صفحة التطبيق في App Store — زرّ «تحديث التطبيق» على الآيفون */
+export const APP_STORE_URL = 'https://apps.apple.com/app/id6797991968';
+/** «نظام الطباعة» داخل تطبيق الآيفون عبر الجسر (AirPrint أصليّ) — false يعيده إلى print() في الإطار بلا تحديث للتطبيق */
+export const IOS_SYSTEM_PRINT_VIA_APP = true;

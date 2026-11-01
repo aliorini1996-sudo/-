@@ -637,7 +637,7 @@ class CardPayActivity : AppCompatActivity() {
                 armWatchdog()
                 renderPaying("خلل في القارئ — بانتظار نتيجة العملية…", detail)
             }
-            cardTouched -> settle("خلل في القارئ بعد لمس البطاقة — يتحقق الخادم من العملية لدى NearPay", detail)
+            cardTouched -> settle("خلل في القارئ بعد لمس البطاقة — يتحقق الخادم من العملية لدى مزوّد الدفع", detail)
             else -> retryable("تعذر تشغيل قارئ البطاقة", detail)
         }
     }
@@ -650,7 +650,7 @@ class CardPayActivity : AppCompatActivity() {
                 armWatchdog()
                 renderPaying("أُغلق القارئ — بانتظار نتيجة العملية…")
             }
-            cardTouched -> settle("أُغلق القارئ بعد لمس البطاقة — يتحقق الخادم من العملية لدى NearPay", null)
+            cardTouched -> settle("أُغلق القارئ بعد لمس البطاقة — يتحقق الخادم من العملية لدى مزوّد الدفع", null)
             else -> retryable("أُغلق القارئ قبل قراءة البطاقة", null)
         }
     }
@@ -683,7 +683,7 @@ class CardPayActivity : AppCompatActivity() {
         // تلميحٌ للمندوب فقط — القرار والسند من الخادم بعد سؤاله NearPay
         settle(
             when {
-                status.equals("approved", ignoreCase = true) -> "وافقت NearPay على العملية — يتحقق الخادم منها الآن ويُصدر السند"
+                status.equals("approved", ignoreCase = true) -> "قُبلت العملية — يتحقق الخادم منها الآن ويُصدر السند"
                 status.equals("declined", ignoreCase = true) -> "رُفضت البطاقة — لم يتم التحصيل"
                 else -> "انتهت العملية — يتحقق الخادم من نتيجتها"
             },
@@ -697,7 +697,7 @@ class CardPayActivity : AppCompatActivity() {
      */
     private fun onSendFailed(detail: String?) {
         if (!purchaseLive()) return
-        settle("تعذر إكمال العملية على الجوال — يتحقق الخادم منها لدى NearPay", detail)
+        settle("تعذر إكمال العملية على الجوال — يتحقق الخادم منها لدى مزوّد الدفع", detail)
     }
 
     private fun settle(message: String, detail: String?) {
@@ -867,7 +867,7 @@ class CardPayActivity : AppCompatActivity() {
             append("الفاتورة: ${p.invoiceNumber.ifEmpty { p.reference }}")
         }
         if (!p.production) {
-            envView.text = "بيئة اختبار NearPay — لا يُخصم مال حقيقي"
+            envView.text = "عملية تجريبية (بيئة اختبار) — لا يُخصم مال حقيقي"
             envView.visibility = View.VISIBLE
         }
         detailsCard.visibility = View.VISIBLE
@@ -893,8 +893,8 @@ class CardPayActivity : AppCompatActivity() {
     ) {
         val hint = nearpayHint(detail)
         statusView.text = if (hint != null) "$status\n$hint" else status
-        // نص الوحدة الخام صغيراً للدعم الفني — لا سرّ فيه (الرمز وJWT لا يمرّان بالوحدة نصّاً معروضاً)
-        detailView.text = detail?.take(300).orEmpty()
+        // نص الوحدة الخام صغيراً للدعم الفني — لا سرّ فيه (الرمز وJWT لا يمرّان بالوحدة نصّاً معروضاً)، ولا اسم المزوّد
+        detailView.text = detail?.let(::providerNeutral)?.take(300).orEmpty()
         detailView.visibility = if (detail.isNullOrBlank()) View.GONE else View.VISIBLE
         progress.visibility = if (busy) View.VISIBLE else View.GONE
         bind(primaryButton, primary, true)
@@ -970,7 +970,7 @@ class CardPayActivity : AppCompatActivity() {
         // الإفصاح الظاهر قبل حوار الأذونات: ما يُجمع، ومن يجمعه (طرفٌ ثالث)، ولماذا. لا غاية أبعد مما في توثيق NearPay
         // (الوحدة تشترط الإذنين وتفشل تهيئتها بلا إذن الموقع) — فلا يُدّعى هنا «منع احتيال» لم يوثَّق
         const val PERMISSION_DISCLOSURE =
-            "لقبول البطاقة تشترط NearPay، مزوّد خدمة الدفع، إذنَي الموقع الدقيق وحالة الهاتف. حين تمنحهما تصل وحدة NearPay " +
+            "لقبول البطاقة يشترط مزوّد خدمة الدفع إذنَي الموقع الدقيق وحالة الهاتف. حين تمنحهما تصل وحدة مزوّد الدفع " +
                 "داخل هذا التطبيق إلى موقع الجوال وبيانات الجهاز والشريحة أثناء التحصيل بالبطاقة لتشغيل الدفع. " +
                 "اضغط «متابعة» ثم اسمح بالإذنين، واختر «الموقع الدقيق»."
 

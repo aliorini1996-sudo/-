@@ -6,6 +6,8 @@
  *   صفحة المعايرة (lib/print/calibration.ts في إطار)              ┘
  *        ⇒ escpos.ts (الحرارية) أو escp24.ts (MIP480) ⇒ transport/btSerial.ts (دفعات 512، تقدّم، إلغاء، إغلاق المنفذ)
  *        أو أندرويد بلا Web Serial ⇒ transport/appBridge.ts: البايتات نفسها حمولةً لتطبيق فيلد سيلز يطبعها بالبلوتوث
+ *        أو تطبيق فيلد سيلز على الآيفون ⇒ transport/iosBridge.ts: البايتات نفسها حمولةً خاماً يطبعها التطبيق بـBLE (والنقطية لا:
+ *        بلوتوثها كلاسيكيّ لا يصله الآيفون — directAvailableFor)
  *
  * المصدر واحدٌ للمسارين: ما يطبعه نظام الطباعة هو ما يُرسم هنا (القالب نفسه، النسخة نفسها، الوسم نفسه) — فلا قالبٌ ثانٍ
  * للبلوتوث يفترق عن الأوّل. والقرار الضريبيّ لا يُتّخذ هنا: القالب أخذ عنوانه ورمزه وضريبته من zatcaPrintDecision، وخانة
@@ -25,8 +27,10 @@ import { ESCP24_LINE_DOTS, encodeEscP24, escp24Cancel } from '../lib/print/escp2
 import { TSPL_CANCEL, encodeTspl } from '../lib/print/tspl';
 import type { EncodedJob } from '../lib/print/byteSink';
 import { sendJob } from '../lib/print/transport/btSerial';
-import { directPrintAvailable, isAppLink, type DirectLink } from '../lib/print/transport/direct';
+import { currentPlatformInput, directPath, isAppLink, isIosLink, type DirectLink } from '../lib/print/transport/direct';
 import { sendViaApp } from '../lib/print/transport/appBridge';
+import { sendViaIos } from '../lib/print/transport/iosBridge';
+import { IOS_IMPACT_DIRECT, classifyPrintPlatform, directHint, type DirectHint, type DirectPath, type PlatformInput } from '../lib/print/transport/platform';
 import { cloneWithLabel, copiesOf, sheetReady } from './printPage';
 
 export type PrintTransport = 'system' | 'bt-serial';
@@ -38,8 +42,24 @@ export function supportsDirect(p: PrintProfile | null | undefined): p is PrintPr
   return !!p && p.printer !== 'page' && p.template !== 'roll_classic' && p.paper.dpi !== null && p.paper.printableDots !== null;
 }
 
-/** طريقة هذا الجهاز للقالب: البلوتوث إن اختاره ودعمه الجهاز (Web Serial أو تطبيق أندرويد) والقالب، وإلا نظام الطباعة (الافتراضي — كاليوم) */
-export function transportFor(p: PrintProfile | null | undefined, choice: DevicePrintChoice | null | undefined, available: boolean = directPrintAvailable()): PrintTransport {
+/**
+ * البلوتوث المباشر ممكنٌ لهذا القالب على هذا الجهاز: طريقٌ موجود — إلا النقطية (MIP480) في تطبيق الآيفون: بلوتوثها كلاسيكيّ بلا
+ * BLE فلا يصلها (ما دام IOS_IMPACT_DIRECT مطفأً)
+ */
+export function directAvailableFor(p: PrintProfile | null | undefined, path: DirectPath = directPath()): boolean {
+  if (path === 'none') return false;
+  if (path === 'ios-app' && p?.printer === 'impact' && !IOS_IMPACT_DIRECT) return false;
+  return true;
+}
+
+/** تلميح «بلوتوث مباشر» للقالب: النقطية على الآيفون impactIos (أيّاً كان المتصفح أو التطبيق)، وإلا تلميح الجهاز (platform.ts) */
+export function directHintFor(p: PrintProfile | null | undefined, input: PlatformInput = currentPlatformInput()): DirectHint | 'impactIos' {
+  if (p?.printer === 'impact' && !IOS_IMPACT_DIRECT && classifyPrintPlatform(input).os === 'ios') return 'impactIos';
+  return directHint(input);
+}
+
+/** طريقة هذا الجهاز للقالب: البلوتوث إن اختاره ودعمه الجهاز (Web Serial أو تطبيق أندرويد أو الآيفون) والقالب، وإلا نظام الطباعة (الافتراضي — كاليوم) */
+export function transportFor(p: PrintProfile | null | undefined, choice: DevicePrintChoice | null | undefined, available: boolean = directAvailableFor(p)): PrintTransport {
   return supportsDirect(p) && choice?.transport === 'bt-serial' && available ? 'bt-serial' : 'system';
 }
 
@@ -55,7 +75,7 @@ export interface DirectUi {
   lang?: 'tspl';
   /** TSPL: DIRECTION 0 */
   tsplFlip?: boolean;
-  /** وسمٌ قصير للمستند تعرضه شاشة التطبيق (مسار أندرويد) */
+  /** وسمٌ قصير للمستند تعرضه شاشة التطبيق (مسار أندرويد؛ ويحمله الآيفون في الحمولة) */
   docLabel?: string;
   /** لمسةٌ ثانية حين انقضت صلاحية الإيماءة قبل فتح التطبيق — ترفض إن أُلغيت */
   requestTap?: () => Promise<void>;
@@ -147,9 +167,11 @@ export function encodeForProfile(
   };
 }
 
-async function send(port: DirectLink, p: PrintProfile, copies: RasterPage[][], ui: DirectUi): Promise<DirectOutcome> {
+/** صفحات النسخ إلى الطابعة بطريقها — مُصدَّرة لاختبار التوزيع (printDirect.test.ts) */
+export async function send(port: DirectLink, p: PrintProfile, copies: RasterPage[][], ui: DirectUi): Promise<DirectOutcome> {
   if (ui.signal?.aborted) return 'cancelled';
   const { job, cancel, kind } = encodeForProfile(p, copies, { lang: ui.lang, tsplFlip: ui.tsplFlip });
+  if (isIosLink(port)) return sendViaIos(port, { kind, bytes: job.bytes, marks: job.marks, cancel, slow: !!ui.slow, label: ui.docLabel ?? '' }, ui);
   if (isAppLink(port)) return sendViaApp(port, { kind, bytes: job.bytes, marks: job.marks, cancel, slow: !!ui.slow, label: ui.docLabel ?? '' }, ui);
   return sendJob(port, job, { signal: ui.signal, cancelBytes: cancel, slow: ui.slow, onProgress: (f) => ui.onProgress?.('send', f) });
 }

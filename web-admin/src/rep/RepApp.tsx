@@ -1244,6 +1244,8 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
   const [payLinkOpen, setPayLinkOpen] = useState(false);
   useBackClose(payLinkOpen, () => setPayLinkOpen(false));
   const [cardPayOpen, setCardPayOpen] = useState(false);
+  // الشركة على بيئة الاختبار: «تجريبي» على الزرّ ولافتةٌ في الورقة — لا مال حقيقي
+  const cardPayTest = company?.cardPayTest === true;
   useBackClose(cardPayOpen, () => setCardPayOpen(false));
 
   // فتح مستند الحركة (فاتورة/سند) من كشف الحساب
@@ -1438,9 +1440,10 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
           <button onClick={() => setCardPayOpen(true)} disabled={unassigned || !canCreateReceipt || !!customer._offline}
             className="w-full mt-3 bg-[#1F1A13] hover:bg-black disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
             <CreditCard size={16} /> {tr('تحصيل بالبطاقة')}
+            {cardPayTest && <span className="text-[10px] font-bold bg-amber-400 text-[#1F1A13] rounded px-1.5 py-0.5">{tr('تجريبي')}</span>}
           </button>
         )}
-        {cardPayOpen && <CardPaySheet customer={customer} onClose={() => setCardPayOpen(false)} />}
+        {cardPayOpen && <CardPaySheet customer={customer} test={cardPayTest} onClose={() => setCardPayOpen(false)} />}
 
         {/* Statement — القسم كلّه (عنوانه ولافتاته وحركاته) يُحذف عند الإطفاء */}
         {accountingOn && <>
@@ -5193,7 +5196,7 @@ export default function RepApp() {
           )}
           {/* نتيجة التحصيل بالبطاقة بعد الرجوع من وحدة الدفع — فوق الشاشات، والخادم يحسم ويُصدر السند */}
           {cardPayView && token && user && (!cardPayView.pending?.repId || cardPayView.pending.repId === user.id) && (
-            <CardPayResult pending={cardPayView.pending} unsupported={cardPayView.unsupported}
+            <CardPayResult pending={cardPayView.pending} unsupported={cardPayView.unsupported} test={company?.cardPayTest === true}
               onClose={() => { if (!cardPayView.unsupported) clearPendingCardPay(); setCardPayView(null); }}
               onDone={() => setRefreshKey((k) => k + 1)} />
           )}
