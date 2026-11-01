@@ -268,15 +268,26 @@ internal fun nearpayHint(detail: String?): String? {
     val d = detail ?: return null
     fun has(vararg codes: String) = codes.any { Regex("\\b$it\\b").containsMatchIn(d) }
     return when {
-        has("4035", "5010") -> "نقطة البيع مربوطة بجوالٍ آخر — تُفصل من لوحة NearPay (الطرفية ← الوصول ← فصل الجهاز)"
+        has("4035", "5010") -> "نقطة البيع مربوطة بجوالٍ آخر — أبلغ مدير النظام ليفصلها عن الجوال السابق"
         // الرمز استُهلك: الخادم يحجز الفاتورة عشر دقائق من فتح هذه الشاشة (IN_PROGRESS_MS) — «ابدأ من جديد» الآن يُرفض بـ409
         has("4031") -> "انتهت صلاحية دخول نقطة البيع — ارجع إلى التطبيق، وتُتاح محاولة جديدة على الفاتورة بعد دقائق"
         has("4036", "4037", "4038") -> "بيانات دخول نقطة البيع على الخادم غير صحيحة — أبلغ مدير النظام"
-        has("4012") -> "التطبيق غير مسجّل لدى NearPay بعد"
-        has("4029", "4030") -> "هذا الجوال محجوب أو غير مسجّل لدى NearPay"
+        has("4012") -> "التطبيق غير مسجّل لدى مزوّد الدفع بعد"
+        has("4029", "4030") -> "هذا الجوال محجوب أو غير مسجّل لدى مزوّد الدفع"
         has("5002") -> "انقطع الاتصال بالإنترنت"
         has("5012") -> "أُلغيت العملية"
         has("5017") -> "نسخة وحدة الدفع لم تعد مدعومة — حدّث التطبيق"
         else -> null
     }
 }
+
+// Throwable.toString() يبدأ باسم صنف الاستثناء كاملاً (io.nearpay.terminalsdk.…) — بادئة الحزمة تُحذف
+private val PROVIDER_PACKAGE = Regex("\\b[\\w.]*near\\s*[-_]?\\s*pay[\\w.]*\\.(?=[A-Za-z])", RegexOption.IGNORE_CASE)
+private val PROVIDER_NAME = Regex("near\\s*[-_]?\\s*pay|نير\\s*با[يى]", RegexOption.IGNORE_CASE)
+
+/**
+ * نص الوحدة الخام كما يُعرض للمندوب (سطر الدعم الفني الصغير): بلا اسم مزوّد الدفع (طلب المالك، ١ نوفمبر) — بادئة الحزمة
+ * تُحذف وما بقي من الاسم يصير «provider». للعرض وحده: nearpayHint يقرأ النص الخام كما هو.
+ */
+internal fun providerNeutral(detail: String): String =
+    detail.replace(PROVIDER_PACKAGE, "").replace(PROVIDER_NAME, "provider")

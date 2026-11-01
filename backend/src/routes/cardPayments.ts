@@ -7,7 +7,7 @@ import { AuthRequest } from '../types';
 import { canAccessCustomer } from '../services/customerScope';
 import { adminRepFilter, scopedRecordWhere, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { cardPayLaunchLimiter } from '../middleware/rateLimits';
-import { CardPayError, checkCardPayment, createCardPayment, redeemLaunchToken } from '../services/cardPayment';
+import { CardPayError, checkCardPayment, createCardPayment, neutralProviderText, redeemLaunchToken } from '../services/cardPayment';
 import { listMerchantTerminals, listMerchants, nearpayConfigured, nearpayEnv, NearpayError } from '../services/nearpay';
 
 /**
@@ -27,7 +27,8 @@ function sendError(res: Response, e: unknown, next: NextFunction): void {
   if (e instanceof CardPayError) { res.status(e.status).json({ success: false, code: e.code, message: e.message, ...(e.paymentId ? { paymentId: e.paymentId } : {}) }); return; }
   if (e instanceof NearpayError) {
     console.error('cardpay nearpay:', e.message);
-    res.status(502).json({ success: false, code: 'NEARPAY_UNAVAILABLE', message: 'تعذر الاتصال بخدمة الدفع حاول بعد لحظات' });
+    // رمزٌ ورسالة بلا اسم مزوّد الدفع — المندوب ومستخدم الشركة يرونهما (طلب المالك ١ نوفمبر ٢٠٢٦)
+    res.status(502).json({ success: false, code: 'CARD_PAY_PROVIDER_UNAVAILABLE', message: 'تعذر الاتصال بخدمة الدفع حاول بعد لحظات' });
     return;
   }
   next(e);
@@ -107,7 +108,8 @@ router.get('/', receiptsGate, async (req: AuthRequest, res: Response, next: Next
         customer: { select: { name: true } },
       },
     });
-    res.json({ success: true, data: rows });
+    // تفصيلٌ قديم محفوظ باسم مزوّد الدفع يُعرض بعبارة محايدة
+    res.json({ success: true, data: rows.map((r) => ({ ...r, statusDetail: neutralProviderText(r.statusDetail) })) });
   } catch (e) { sendError(res, e, next); }
 });
 
@@ -140,7 +142,7 @@ router.post('/:id/close', requireAdmin, receiptsGate, async (req: AuthRequest, r
     const by = req.user?.name || 'الإدارة';
     const closed = await prisma.cardPayment.updateMany({
       where: { id: row.id, status: 'review' },
-      data: { status: 'failed', statusDetail: `أغلقت بعد المراجعة (${by}): ${note} — كان: ${row.statusDetail || ''}`.slice(0, 300) },
+      data: { status: 'failed', statusDetail: `أغلقت بعد المراجعة (${by}): ${note} — كان: ${neutralProviderText(row.statusDetail) || ''}`.slice(0, 300) },
     });
     if (closed.count !== 1) { res.status(409).json({ success: false, code: 'CARD_PAY_NOT_IN_REVIEW', message: 'العملية ليست قيد المراجعة' }); return; }
     res.json({ success: true });
@@ -165,7 +167,8 @@ router.get('/terminals', manageReps, async (req: AuthRequest, res: Response, nex
       success: true,
       data: {
         merchantLinked: true,
-        terminals: terminals.map((t) => ({ tid: t.tid, connected: t.connected, merchantName: t.merchantName })),
+        // اسم التاجر كما سُجّل لدى المزوّد — تاجر بيئة الاختبار قد يحمل اسم المزوّد نفسه
+        terminals: terminals.map((t) => ({ tid: t.tid, connected: t.connected, merchantName: neutralProviderText(t.merchantName) })),
         reps,
       },
     });
@@ -182,7 +185,7 @@ router.put('/reps/:salesRepId', manageReps, async (req: AuthRequest, res: Respon
     if (terminalTid) {
       const tenant = await prisma.tenant.findUnique({ where: { id: tid }, select: { nearpayMerchantId: true } });
       if (!tenant?.nearpayMerchantId) {
-        res.status(409).json({ success: false, code: 'CARD_PAY_NO_MERCHANT', message: 'لم يُربط تاجر الشركة لدى NearPay بعد تواصل مع مزود الخدمة' }); return;
+        res.status(409).json({ success: false, code: 'CARD_PAY_NO_MERCHANT', message: 'لم يُفعَّل حساب التاجر لشركتك لدى مزوّد الدفع بعد — تواصل مع مزود الخدمة' }); return;
       }
       // نقطة البيع لتاجر هذه الشركة وحده — وإلا ذهب مالها لتاجرٍ آخر
       const terminals = await listMerchantTerminals(tenant.nearpayMerchantId);

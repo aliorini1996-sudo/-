@@ -1,6 +1,6 @@
 // حارس عقد جسر الطباعة: ملفات تطبيق أندرويد (android-rep، قراءةً فقط) تحمل الثوابت نفسها وتعلن ما يعتمده الويب —
 // PrintActivity بمخطّط fieldsaprint ومضيفَيه وأذونات البلوتوث، ووحدة التحصيل بالبطاقة في مكانها كما هي (main) يُزيلها
-// src/printonly من البناء بلا رمز NearPay، وLauncherActivity يضيف fsbridge، والإصدار 6 / 1.2.0. وعقد التحصيل بالبطاقة
+// src/printonly من البناء بلا رمز NearPay، وLauncherActivity يضيف fsbridge، والإصدار 7 / 1.2.1 (نصوص التحصيل بالبطاقة بلا اسم المزوّد — ١ نوفمبر ٢٠٢٦). وعقد التحصيل بالبطاقة
 // في الخادم لم يتغيّر. افتراقُ أيٍّ منها يكسر الطباعة بصمت على الجوال — فيُكسر هنا أوّلاً.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -102,10 +102,10 @@ test('LauncherActivity يضيف علامة الجسر بعد تنظيف cardpay'
   assert.ok(java.includes('BridgeContract.PROTOCOL_VERSION'));
 });
 
-test('app/build.gradle: الإصدار 6 / 1.2.0، ويُبنى بلا رمز NearPay — واعتمادا NearPay داخل if (cardPayBuild) وحدها', () => {
+test('app/build.gradle: الإصدار 7 / 1.2.1، ويُبنى بلا رمز NearPay — واعتمادا NearPay داخل if (cardPayBuild) وحدها', () => {
   const g = noGroovyComments(read(APP, 'build.gradle'));
-  assert.match(g, /\bversionCode 6\b/);
-  assert.ok(g.includes('versionName "1.2.0"'));
+  assert.match(g, /\bversionCode 7\b/);
+  assert.ok(g.includes('versionName "1.2.1"'));
   assert.ok(!g.includes('throw new GradleException'), 'البناء بلا الرمز يفشل');
   assert.match(g, /def cardPayBuild = rootProject\.ext\.nearpayTokenPresent/);
   // مدى كل كتلة «رأس { … }» بموازنة الأقواس
@@ -136,8 +136,8 @@ test('app/build.gradle: الإصدار 6 / 1.2.0، ويُبنى بلا رمز Ne
 
 test('twa-manifest.json بالإصدار نفسه، وعقد التحصيل بالبطاقة في الخادم لم يتغيّر', () => {
   const twa = JSON.parse(read(ROOT, 'android-rep', 'twa-manifest.json')) as Record<string, unknown>;
-  assert.equal(twa.appVersionCode, 6);
-  assert.equal(twa.appVersionName, '1.2.0');
-  assert.equal(twa.appVersion, '1.2.0');
+  assert.equal(twa.appVersionCode, 7);
+  assert.equal(twa.appVersionName, '1.2.1');
+  assert.equal(twa.appVersion, '1.2.1');
   assert.ok(read(ROOT, 'backend', 'src', 'services', 'cardPayment.ts').includes('scheme=fieldsapay;package=net.fieldsa.twa'));
 });

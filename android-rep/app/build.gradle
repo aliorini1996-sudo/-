@@ -85,8 +85,8 @@ android {
         applicationId "net.fieldsa.twa"
         minSdkVersion 26
         targetSdkVersion 36
-        versionCode 6
-        versionName "1.2.0"
+        versionCode 7
+        versionName "1.2.1"
 
         // The name for the application
         resValue "string", "appName", twaManifest.name

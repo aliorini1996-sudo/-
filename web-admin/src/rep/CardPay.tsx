@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, CreditCard, Loader2, RefreshCw, X, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CreditCard, FlaskConical, Loader2, RefreshCw, X, XCircle } from 'lucide-react';
 import repApi from './repApi';
 import DecimalInput from '../components/DecimalInput';
 import { formatCurrency, formatDate } from '../utils/format';
@@ -13,7 +13,20 @@ import { currentRepId } from './offlineDb';
  * الصفحة لا تلمس البطاقة: تطلب من الخادم عملية دفع (POST /card-payments/issue) فيعيد رابط intent:// يحمل رمز تسليمٍ لمرة واحدة،
  * فتفتح وحدة الدفع الأصلية داخل تطبيق أندرويد (net.fieldsa.twa). تعود الوحدة إلى /rep?cardpay=<المعرّف> فنسأل الخادم عن النتيجة —
  * والخادم يسأل NearPay لا الجوال، ويُصدر سند القبض بنفسه. تطبيقٌ لم يُحدَّث بعد يعود إلى /rep?cardpay=unsupported.
+ *
+ * اسم المزوّد لا يظهر للمندوب في أي نص (طلب المالك ١ نوفمبر ٢٠٢٦ — lib/cardPayBrand.test.ts)، و«test» = الشركة على
+ * بيئة الاختبار (cardPayTest من GET /company): لافتة «وضع تجريبي» كي لا يظنّ المندوب أن مالاً خُصم من العميل.
  */
+
+/** لافتة بيئة الاختبار — لا مال حقيقي في العملية */
+function TestModeNote({ className = '' }: { className?: string }) {
+  const tr = useTr();
+  return (
+    <p className={`bg-amber-50 border border-amber-300 text-amber-900 text-xs font-semibold rounded-xl p-2.5 flex items-center justify-center gap-2 ${className}`}>
+      <FlaskConical size={14} className="shrink-0" /> {tr('وضع تجريبي — لا يخصم مال من البطاقة')}
+    </p>
+  );
+}
 
 const PENDING_KEY = 'rep_cardpay_pending';
 const PENDING_TTL_MS = 20 * 60_000;
@@ -58,7 +71,7 @@ export function clearPendingCardPay(id?: string): void {
 }
 
 /** ورقة اختيار الفاتورة والمبلغ ثم فتح وحدة الدفع */
-export function CardPaySheet({ customer, onClose }: { customer: { id: string; name: string }; onClose: () => void }) {
+export function CardPaySheet({ customer, test = false, onClose }: { customer: { id: string; name: string }; test?: boolean; onClose: () => void }) {
   const tr = useTr();
   const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -154,6 +167,7 @@ export function CardPaySheet({ customer, onClose }: { customer: { id: string; na
           <button onClick={onClose} className="text-gray-400"><X size={20} /></button>
         </div>
         <div className="p-4 overflow-y-auto flex-1">
+          {test && <TestModeNote className="mb-3" />}
           {error && <p className="bg-red-50 text-red-600 text-xs rounded-xl p-3 mb-3">{error}</p>}
           {blocking && (
             <button onClick={() => setViewing(blocking)}
@@ -201,7 +215,7 @@ export function CardPaySheet({ customer, onClose }: { customer: { id: string; na
       </div>
     </div>
     {/* خارج غطاء الورقة: نقرةٌ في النتيجة لا تصعد إليه فتغلق الورقة */}
-    {viewing && <CardPayResult pending={viewing} onClose={() => setViewing(null)} />}
+    {viewing && <CardPayResult pending={viewing} test={test} onClose={() => setViewing(null)} />}
     </>
   );
 }
@@ -214,8 +228,8 @@ type CheckState = { status: string; receiptNumber?: string | null; detail?: stri
  * و«review» (مراجعة ٣١ أكتوبر ٢٠٢٦): خُصم المال لدى NearPay واختلف شيءٌ فلم يُقيَّد السند — تنبيهٌ كهرماني «لا تحصّل ثانية»
  * لا «لم يتم التحصيل» الأحمر الذي كان يدعو المندوب إلى خصمٍ ثانٍ من العميل.
  */
-export function CardPayResult({ pending, unsupported, onClose, onDone }: {
-  pending: CardPayPending | null; unsupported?: boolean; onClose: () => void; onDone?: () => void;
+export function CardPayResult({ pending, unsupported, test = false, onClose, onDone }: {
+  pending: CardPayPending | null; unsupported?: boolean; test?: boolean; onClose: () => void; onDone?: () => void;
 }) {
   const tr = useTr();
   const [state, setState] = useState<CheckState | null>(null);
@@ -275,7 +289,7 @@ export function CardPayResult({ pending, unsupported, onClose, onDone }: {
         ) : st === 'review' ? (
           <>
             <AlertTriangle size={48} className="mx-auto text-amber-500" />
-            <p className="font-bold mt-3">{tr('خصم المبلغ لدى NearPay ولم يسجل السند بعد')}</p>
+            <p className="font-bold mt-3">{tr('خصم المبلغ من البطاقة ولم يسجل السند بعد')}</p>
             {amount > 0 && <p className="text-sm text-gray-500 mt-1">{tr('فاتورة')} {invoiceNumber} — {formatCurrency(amount)}</p>}
             <p className="text-sm text-amber-800 bg-amber-50 rounded-xl p-3 mt-3 leading-relaxed">{tr('لا تحصل من العميل مرة أخرى الإدارة تراجع العملية وتسجل السند أو تعيد المبلغ')}</p>
             {state?.detail && <p className="text-[11px] text-gray-400 mt-2 leading-relaxed">{state.detail}</p>}
@@ -301,6 +315,7 @@ export function CardPayResult({ pending, unsupported, onClose, onDone }: {
             )}
           </>
         )}
+        {test && !unsupported && <TestModeNote className="mt-4" />}
         <button onClick={onClose} className="w-full mt-5 bg-[#1F1A13] text-white rounded-xl py-3 font-semibold text-sm">{tr('إغلاق')}</button>
       </div>
     </div>

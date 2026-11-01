@@ -1224,9 +1224,9 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
                 {merchantsQ.data && merchantsQ.data.configured === false && (
                   <p className="text-xs text-amber-700 mt-1">{tr('مفاتيح NearPay غير مضبوطة على الخادم')}</p>
                 )}
-                {/* بيئة الاختبار لا مال فيها: الخادم يحجب التحصيل فيها إلا لشركاتٍ مسمّاة في NEARPAY_SANDBOX_TENANTS */}
+                {/* بيئة الاختبار لا مال فيها: التفعيل هنا يكفي (لا قائمة شركاتٍ على الخادم)، ومندوبو الشركة يرون «وضع تجريبي» (cardPayTest) */}
                 {merchantsQ.data?.env === 'sandbox' && (
-                  <p className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-2 mt-1 leading-relaxed">{tr('الخادم على بيئة اختبار NearPay بلا مال حقيقي لا تفعله لشركة عميلة قبل الانتقال إلى الإنتاج')}</p>
+                  <p className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-2 mt-1 leading-relaxed">{tr('الخادم على بيئة اختبار NearPay — التفعيل هنا يكفي وكل تحصيل بالبطاقة لهذه الشركة تجريبي بلا مال حقيقي ويراه المندوب تجريبيا فلا تفعله لشركة عميلة تدفع قبل الانتقال إلى الإنتاج')}</p>
                 )}
                 {cardPayOwnerOnly && <p className="text-xs text-gray-400 mt-1">{tr('يضبطه مالك المنصة وحده')}</p>}
                 <p className="text-xs text-gray-400 mt-1">{tr('تغيير التاجر يلغي إسناد نقاط البيع القديمة لمناديب الشركة')}</p>

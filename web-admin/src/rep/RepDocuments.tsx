@@ -85,6 +85,8 @@ export interface Company {
   // «نصوص المطبوعات» v1 — خام كما في العمود (null = نصوص اليوم). لا يُقرأ إلا عبر normalizePrintTexts (lib/print/printTexts.ts):
   // صياغة نصوص الفاتورة والسند وإخفاء غير الإلزامي منها ولغةٌ ثانية على الورقة
   printTexts?: unknown;
+  // «التحصيل بالبطاقة» على بيئة الاختبار — يصل مع ردّ /company: لافتة «وضع تجريبي» على الزرّ والورقة والنتيجة (rep/CardPay.tsx)
+  cardPayTest?: boolean;
 }
 
 /**

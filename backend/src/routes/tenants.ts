@@ -325,7 +325,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const merchantChanged = !!cardPayCur && body.nearpayMerchantId !== undefined && (body.nearpayMerchantId ?? null) !== cardPayCur.nearpayMerchantId;
     if ((req as PlatformRequest).platformStaff && cardPayCur
       && (merchantChanged || (body.cardPayEnabled !== undefined && body.cardPayEnabled !== cardPayCur.cardPayEnabled))) {
-      res.status(403).json({ success: false, code: 'STAFF_CARDPAY_FORBIDDEN', message: 'التحصيل بالبطاقة وتاجر NearPay يضبطهما مالك المنصة وحده' });
+      res.status(403).json({ success: false, code: 'STAFF_CARDPAY_FORBIDDEN', message: 'التحصيل بالبطاقة وحساب التاجر لدى مزوّد الدفع يضبطهما مالك المنصة وحده' });
       return;
     }
     // «إضافة وحدة فرعية أصغر» (الوحدة الرئيسية D14-ب): يقلبه مالك المنصّة وحده — العلم يفتح إعادة كتابة تاريخ الأصناف لمديري

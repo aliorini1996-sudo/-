@@ -46,24 +46,45 @@ export class CardPayError extends Error {
   constructor(message: string, readonly status = 400, readonly code = 'CARD_PAY_INVALID', readonly paymentId?: string) { super(message); }
 }
 
+/** ما تحتاجه بوابة البيئة من الشركة: تفعيل المالك لها وتاجرها المربوط */
+export interface CardPayTenant { id: string; cardPayEnabled?: boolean | null; nearpayMerchantId?: string | null }
+
 /**
  * بيئة الاختبار لدى NearPay لا مال فيها — فسندٌ منها على خادم الإنتاج يُسقط ديناً حقيقياً ببطاقة اختبار (مراجعة ٣١ أكتوبر ٢٠٢٦).
- * على الإنتاج لا تُستعمل إلا لشركاتٍ مسمّاة في NEARPAY_SANDBOX_TENANTS (معرّفات بفواصل)؛ خارج الإنتاج حرّة للتطوير.
+ * «لوحة المالك تكفي» (طلب المالك ١ نوفمبر ٢٠٢٦): الشركة التي فعّلها المالك وربط تاجرها تُحصّل على بيئة الاختبار بلا تعديل
+ * متغيّرات الخادم — وتُوسم كل عملية فيها «اختبار» (cardPayTestMode) في شاشة المندوب والسند. NEARPAY_SANDBOX_TENANTS (معرّفات
+ * بفواصل) يبقى سماحاً إضافياً اختيارياً للتوافق؛ خارج الإنتاج حرّة للتطوير.
  */
-export function sandboxBlocked(tenantId: string): boolean {
+export function sandboxBlocked(t: CardPayTenant): boolean {
   if (nearpayEnv() !== 'sandbox' || process.env.NODE_ENV !== 'production') return false;
+  if (t.cardPayEnabled === true && !!t.nearpayMerchantId) return false;
   const allowed = (process.env.NEARPAY_SANDBOX_TENANTS || '').split(',').map((s) => s.trim()).filter(Boolean);
-  return !allowed.includes(tenantId);
+  return !allowed.includes(t.id);
 }
-const SANDBOX_MESSAGE = 'خادم الدفع على بيئة اختبار NearPay — التحصيل الحقيقي بالبطاقة غير متاح بعد';
+const SANDBOX_MESSAGE = 'التحصيل بالبطاقة على بيئة الاختبار غير متاح لشركتك بعد — تواصل مع مزود الخدمة';
+
+/** بيئة الاختبار: لا مال حقيقي — تعرضه الواجهة للمندوب والإدارة (cardPayTest) بلا اسم مزوّد الدفع */
+export function cardPayTestMode(): boolean {
+  return nearpayEnv() === 'sandbox';
+}
+
+/**
+ * اسم مزوّد الدفع لا يظهر لمستخدمي الشركة ولا للمندوب (طلب المالك ١ نوفمبر ٢٠٢٦): نصٌّ يأتي من المزوّد نفسه (رسالة الحالة)
+ * أو تفصيلٌ قديم محفوظ يُعرض بعبارة محايدة
+ */
+export function neutralProviderText(s: string): string;
+export function neutralProviderText(s: string | null): string | null;
+export function neutralProviderText(s: string | null): string | null {
+  return s === null ? null : s.replace(/near[\s_-]*pay|نير[\s_-]*باي/gi, 'مزوّد الدفع');
+}
 
 /**
  * زرّ «تحصيل بالبطاقة» في تطبيق المندوب يظهر حين يمكن التحصيل فعلاً (مراجعة المالك ٣١ أكتوبر ٢٠٢٦): مفاتيح NearPay مضبوطة،
  * والبيئة غير محجوبة عن الشركة، وتطبيق المندوب المنشور يحمل وحدة الدفع الأصلية — CARD_PAY_APP_READY=1 يضبطه المالك بعد نشرها.
  * قبلها كان الزرّ يظهر فيعود الجوال إلى «حدّث التطبيق» ولا تحديث في المتجر.
  */
-export function cardPayUsable(tenantId: string): boolean {
-  return nearpayConfigured() && cardPayLaunchConfigured() && !sandboxBlocked(tenantId) && process.env.CARD_PAY_APP_READY === '1';
+export function cardPayUsable(t: CardPayTenant): boolean {
+  return nearpayConfigured() && cardPayLaunchConfigured() && !sandboxBlocked(t) && process.env.CARD_PAY_APP_READY === '1';
 }
 
 /**
@@ -124,44 +145,44 @@ export function decideCardPayment(
 
   if (snap.effectiveCount > 1) return hold(`${snap.effectiveCount} عمليات موافَقة على النيّة نفسها — خصم مكرر محتمل`);
   if (snap.anomaly) return hold(snap.anomaly);
-  if (snap.refund === 'partial') return hold('استرداد جزئي لدى NearPay — يحتاج معالجة يدوية');
+  if (snap.refund === 'partial') return hold('استرداد جزئي لدى مزوّد الدفع — يحتاج معالجة يدوية');
   // دليل المعاملات: عُكس كل شراءٍ موافَق أو استُرد كاملاً — لا مال باقٍ عند التاجر
   if (snap.reversed) {
-    const why = snap.refund === 'full' ? 'استُرد المبلغ لدى NearPay' : 'عُكست العملية لدى NearPay';
+    const why = snap.refund === 'full' ? 'استُرد المبلغ لدى مزوّد الدفع' : 'عُكست العملية لدى مزوّد الدفع';
     return booked ? { action: 'reverse', detail: why } : { action: 'decline', detail: why };
   }
   if (REVERSED_STATUS.test(st)) {
-    if (otherTx) return hold(`الحالة لدى NearPay ${st} والمعاملة الباقية غير المقيّدة`);
-    const why = `الحالة لدى NearPay ${st}`;
+    if (otherTx) return hold(`الحالة لدى مزوّد الدفع ${st} والمعاملة الباقية غير المقيّدة`);
+    const why = `الحالة لدى مزوّد الدفع ${st}`;
     return booked ? { action: 'reverse', detail: why } : { action: 'decline', detail: snap.statusMessage || why };
   }
   if (REFUND_STATUS.test(st)) {
-    if (!booked && !snap.approved) return { action: 'decline', detail: snap.statusMessage || `الحالة لدى NearPay ${st}` };
-    return hold(`الحالة لدى NearPay ${st} بلا استرداد كامل مقروء على المعاملة`);
+    if (!booked && !snap.approved) return { action: 'decline', detail: snap.statusMessage || `الحالة لدى مزوّد الدفع ${st}` };
+    return hold(`الحالة لدى مزوّد الدفع ${st} بلا استرداد كامل مقروء على المعاملة`);
   }
   if (DECLINED_STATUS.test(st)) {
-    if (snap.approved) return hold(`الحالة لدى NearPay ${st} وعليها شراء موافَق غير معكوس`);
-    return booked ? hold(`الحالة لدى NearPay ${st} والسند مقيّد`) : { action: 'decline', detail: snap.statusMessage || `الحالة لدى NearPay ${st}` };
+    if (snap.approved) return hold(`الحالة لدى مزوّد الدفع ${st} وعليها شراء موافَق غير معكوس`);
+    return booked ? hold(`الحالة لدى مزوّد الدفع ${st} والسند مقيّد`) : { action: 'decline', detail: snap.statusMessage || `الحالة لدى مزوّد الدفع ${st}` };
   }
   if (st === 'approved') {
     if (!snap.approved) {
-      return late ? hold('النيّة موافَقة لدى NearPay بلا إيصال موافَق مقروء') : { action: 'wait' };
+      return late ? hold('النيّة موافَقة لدى مزوّد الدفع بلا إيصال موافَق مقروء') : { action: 'wait' };
     }
     if (snap.amountHalalas === null || snap.amountHalalas !== row.amountHalalas) {
-      return { action: 'mismatch', detail: `المبلغ لدى NearPay ${snap.amountHalalas ?? 'غير مقروء'} هللة لا ${row.amountHalalas}` };
+      return { action: 'mismatch', detail: `المبلغ لدى مزوّد الدفع ${snap.amountHalalas ?? 'غير مقروء'} هللة لا ${row.amountHalalas}` };
     }
     if (snap.authorizedHalalas !== null && snap.authorizedHalalas !== row.amountHalalas) {
-      return { action: 'mismatch', detail: `المأذون لدى NearPay ${snap.authorizedHalalas} هللة لا ${row.amountHalalas}` };
+      return { action: 'mismatch', detail: `المأذون لدى مزوّد الدفع ${snap.authorizedHalalas} هللة لا ${row.amountHalalas}` };
     }
     if (!snap.tid || snap.tid !== row.tid) {
-      return { action: 'mismatch', detail: `نقطة البيع لدى NearPay ${snap.tid ?? 'غير مقروءة'} لا ${row.tid}` };
+      return { action: 'mismatch', detail: `نقطة البيع لدى مزوّد الدفع ${snap.tid ?? 'غير مقروءة'} لا ${row.tid}` };
     }
-    if (otherTx) return hold('المعاملة الباقية لدى NearPay غير المعاملة المقيّد سندها');
+    if (otherTx) return hold('المعاملة الباقية لدى مزوّد الدفع غير المعاملة المقيّد سندها');
     return booked ? { action: 'wait' } : { action: 'approve' };
   }
   // إيصالٌ موافَق تحت حالةٍ أخرى أو مجهولة: لا قيد — انتظارٌ ثم صوت
   if (snap.approved) {
-    return late && !booked ? hold(`إيصال موافَق والحالة لدى NearPay ${st || 'مجهولة'}`) : { action: 'wait' };
+    return late && !booked ? hold(`إيصال موافَق والحالة لدى مزوّد الدفع ${st || 'مجهولة'}`) : { action: 'wait' };
   }
   return late && row.status === 'pending' ? { action: 'expire' } : { action: 'wait' };
 }
@@ -171,6 +192,7 @@ export function decideCardPayment(
 export interface CreatedCardPayment {
   id: string; amount: number; amountHalalas: number; reference: string; tid: string;
   launchToken: string; launchExpiresAt: Date; launchUri: string;
+  test: boolean; // بيئة الاختبار: لا مال حقيقي — شاشة المندوب تقولها صراحة
 }
 
 /** رابط فتح وحدة الدفع الأصلية في تطبيق المندوب — رمز التسليم وحده فيه، والرجوع إلى الويب إن لم تكن الوحدة مثبّتة */
@@ -187,7 +209,6 @@ export async function createCardPayment(params: {
   tenantId: string; invoiceId: string; salesRepId: string; createdById?: string; amount?: number;
 }): Promise<CreatedCardPayment> {
   if (!nearpayConfigured() || !cardPayLaunchConfigured()) throw new CardPayError('التحصيل بالبطاقة غير مهيأ على الخادم', 503, 'CARD_PAY_NOT_CONFIGURED');
-  if (sandboxBlocked(params.tenantId)) throw new CardPayError(SANDBOX_MESSAGE, 403, 'CARD_PAY_SANDBOX');
   const [invoice, rep, company] = await Promise.all([
     prisma.invoice.findFirst({
       where: { id: params.invoiceId, tenantId: params.tenantId },
@@ -196,8 +217,9 @@ export async function createCardPayment(params: {
     prisma.salesRep.findFirst({ where: { id: params.salesRepId, tenantId: params.tenantId }, select: { id: true, isActive: true, nearpayTid: true } }),
     prisma.companySettings.findUnique({ where: { tenantId: params.tenantId }, select: { currency: true } }),
   ]);
-  const tenant = await prisma.tenant.findUnique({ where: { id: params.tenantId }, select: { nearpayMerchantId: true } });
-  if (!tenant?.nearpayMerchantId) throw new CardPayError('لم يُربط تاجر الشركة لدى NearPay بعد — تواصل مع مزود الخدمة', 409, 'CARD_PAY_NO_MERCHANT');
+  const tenant = await prisma.tenant.findUnique({ where: { id: params.tenantId }, select: { cardPayEnabled: true, nearpayMerchantId: true } });
+  if (!tenant?.nearpayMerchantId) throw new CardPayError('لم يُفعَّل حساب التاجر لشركتك لدى مزوّد الدفع بعد — تواصل مع مزود الخدمة', 409, 'CARD_PAY_NO_MERCHANT');
+  if (sandboxBlocked({ id: params.tenantId, ...tenant })) throw new CardPayError(SANDBOX_MESSAGE, 403, 'CARD_PAY_SANDBOX');
   if (!invoice) throw new CardPayError('الفاتورة غير موجودة', 404);
   if (invoice.status !== 'CONFIRMED' || invoice.type === 'RETURN') throw new CardPayError('التحصيل بالبطاقة من فاتورة معتمدة غير مرتجعة فقط');
   if (invoice.einvoiceStatus !== null && (ALLOCATION_BLOCKED_MIRRORS as readonly string[]).includes(invoice.einvoiceStatus)) {
@@ -221,7 +243,7 @@ export async function createCardPayment(params: {
   // عمليةٌ خُصمت لدى NearPay ولم يُقيَّد سندها (اختلافٌ قيد المراجعة): تحصيلٌ جديد خصمٌ ثانٍ من العميل — حتى تحسمها الإدارة
   const held = await prisma.cardPayment.findFirst({ where: { tenantId: params.tenantId, invoiceId: invoice.id, status: 'review' }, select: { id: true } });
   if (held) {
-    throw new CardPayError('عملية بطاقة سابقة على هذه الفاتورة خصمت لدى NearPay ولم يسجل سندها — لا تحصل مرة أخرى حتى تراجعها الإدارة', 409, 'CARD_PAY_REVIEW', held.id);
+    throw new CardPayError('عملية بطاقة سابقة على هذه الفاتورة خصمت من البطاقة ولم يسجل سندها — لا تحصل مرة أخرى حتى تراجعها الإدارة', 409, 'CARD_PAY_REVIEW', held.id);
   }
   const fresh = inFlight.length
     ? await prisma.invoice.findUnique({ where: { id: invoice.id }, select: { remainingAmt: true } })
@@ -252,7 +274,7 @@ export async function createCardPayment(params: {
   });
   return {
     id: row.id, amount, amountHalalas: row.amountHalalas, reference: row.reference, tid: row.tid,
-    launchToken, launchExpiresAt, launchUri: launchUriFor(launchToken),
+    launchToken, launchExpiresAt, launchUri: launchUriFor(launchToken), test: cardPayTestMode(),
   };
 }
 
@@ -291,7 +313,7 @@ export async function redeemLaunchToken(token: string): Promise<LaunchPayload> {
   const inv = row.invoice;
   const stale = !row.tenant.cardPayEnabled ? 'أُطفئ التحصيل بالبطاقة للشركة'
     : !row.tenant.nearpayMerchantId || !row.salesRep?.isActive || row.salesRep.nearpayTid !== row.tid ? 'تغيّر إسناد نقطة البيع — ابدأ التحصيل من جديد'
-      : sandboxBlocked(row.tenantId) ? SANDBOX_MESSAGE
+      : sandboxBlocked({ id: row.tenantId, ...row.tenant }) ? SANDBOX_MESSAGE
         : inv.status !== 'CONFIRMED' || inv.type === 'RETURN' ? 'الفاتورة لم تعد قائمة'
           : inv.einvoiceStatus !== null && (ALLOCATION_BLOCKED_MIRRORS as readonly string[]).includes(inv.einvoiceStatus) ? 'الفاتورة محجوبة لدى الهيئة'
             : roundHalfUp(Number(inv.remainingAmt), 2) + 0.004 < row.amount ? 'تغيّر متبقي الفاتورة — ابدأ التحصيل من جديد'
@@ -336,7 +358,7 @@ async function view(id: string): Promise<CheckResult> {
   const r = await prisma.cardPayment.findUnique({ where: { id }, select: { id: true, status: true, receiptId: true, statusDetail: true, amount: true, reference: true } });
   if (!r) throw new CardPayError('العملية غير موجودة', 404);
   const receipt = r.receiptId ? await prisma.receipt.findUnique({ where: { id: r.receiptId }, select: { number: true } }) : null;
-  return { id: r.id, status: r.status, receiptId: r.receiptId, receiptNumber: receipt?.number ?? null, detail: r.statusDetail, amount: r.amount, reference: r.reference };
+  return { id: r.id, status: r.status, receiptId: r.receiptId, receiptNumber: receipt?.number ?? null, detail: neutralProviderText(r.statusDetail), amount: r.amount, reference: r.reference };
 }
 
 /**
@@ -363,14 +385,14 @@ export async function checkCardPayment(id: string): Promise<CheckResult> {
     case 'wait':
       return view(id);
     case 'expire':
-      await prisma.cardPayment.updateMany({ where: { id, status: 'pending' }, data: { status: 'expired', statusDetail: 'لم تُسجَّل العملية لدى NearPay' } });
+      await prisma.cardPayment.updateMany({ where: { id, status: 'pending' }, data: { status: 'expired', statusDetail: 'لم تُسجَّل العملية لدى مزوّد الدفع' } });
       return view(id);
     case 'decline':
-      await prisma.cardPayment.updateMany({ where: { id, status: { in: ['pending', 'expired'] } }, data: { status: 'declined', statusDetail: d.detail.slice(0, 300) } });
+      await prisma.cardPayment.updateMany({ where: { id, status: { in: ['pending', 'expired'] } }, data: { status: 'declined', statusDetail: neutralProviderText(d.detail).slice(0, 300) } });
       return view(id);
     case 'mismatch': {
       console.error(`CRITICAL cardpay ${id}: ${d.detail} — booking refused`);
-      const detail = d.detail.slice(0, 300);
+      const detail = neutralProviderText(d.detail).slice(0, 300);
       // «review» لا «failed» (مراجعة ٣١ أكتوبر ٢٠٢٦): المال قد خُصم لدى NearPay — شاشة المندوب تقول «لا تحصّل ثانية»، والإنشاء
       // يُرفض على الفاتورة حتى تحسمه الإدارة؛ و«failed» يبقى لما لم يتحرّك فيه مال
       const held = await prisma.cardPayment.updateMany({ where: { id, status: { in: ['pending', 'expired', 'declined'] } }, data: { status: 'review', statusDetail: detail } });
@@ -380,7 +402,7 @@ export async function checkCardPayment(id: string): Promise<CheckResult> {
       // إشعارٌ واحد لمن بدّل الحالة أو السبب — لا يتكرر مع كل دورة للمجدول
       if (held.count === 1 || noted === 1) {
         await prisma.notification.create({
-          data: { tenantId: row.tenantId, type: 'CARDPAY_MISMATCH', title: 'تحصيل بالبطاقة يحتاج مراجعة', body: `فاتورة ${row.reference}: ${d.detail}` },
+          data: { tenantId: row.tenantId, type: 'CARDPAY_MISMATCH', title: 'تحصيل بالبطاقة يحتاج مراجعة', body: `فاتورة ${row.reference}: ${detail}` },
         }).catch(() => { /* كمالي */ });
       }
       return view(id);
@@ -393,6 +415,9 @@ export async function checkCardPayment(id: string): Promise<CheckResult> {
       return view(id);
   }
 }
+
+/** وسم عمليات بيئة الاختبار على السند والإشعار — بطاقة اختبار لا مال حقيقي */
+const TEST_NOTE = ' [عملية اختبار — بلا مال حقيقي]';
 
 /** معاملة القيد الواحدة: سند قبض بالمبلغ المؤكَّد + تخصيصه بقدر المتبقّي + قيود العميل + تبديل العملية */
 async function bookApproved(id: string, snap: IntentSnapshot): Promise<void> {
@@ -439,10 +464,10 @@ async function bookApproved(id: string, snap: IntentSnapshot): Promise<void> {
             ...(row.invoice?.teamId && { teamId: row.invoice.teamId }),
             amount: collected,
             paymentMethod: 'POS',
-            bankName: 'NearPay',
+            bankName: 'نقطة البيع', // لا اسم مزوّد الدفع على السند (طلب المالك ١ نوفمبر ٢٠٢٦)
             notes: `تحصيل بالبطاقة${scheme}${pan} — فاتورة ${row.reference}${snap.rrn ? ` — RRN ${snap.rrn}` : ''}`
               + (alloc < collected ? ' (الفائض رصيد دائن للعميل)' : '')
-              + (nearpayEnv() === 'sandbox' ? ' [SANDBOX]' : ''),
+              + (cardPayTestMode() ? TEST_NOTE : ''),
           },
         });
         if (alloc > 0) {
@@ -455,7 +480,7 @@ async function bookApproved(id: string, snap: IntentSnapshot): Promise<void> {
         await postReceiptEntries(tx as never, row.tenantId, rcp.id, row.customerId, collected);
         await tx.cardPayment.update({ where: { id: row.id }, data: { receiptId: rcp.id } });
         await tx.notification.create({
-          data: { tenantId: row.tenantId, type: 'CARDPAY_PAID', title: 'تحصيل بالبطاقة', body: `تحصيل ${collected} بالبطاقة لفاتورة ${row.reference} — سند ${number}` },
+          data: { tenantId: row.tenantId, type: 'CARDPAY_PAID', title: 'تحصيل بالبطاقة', body: `تحصيل ${collected} بالبطاقة لفاتورة ${row.reference} — سند ${number}${cardPayTestMode() ? TEST_NOTE : ''}` },
         }).catch(() => { /* كمالي */ });
         return rcp;
       });
@@ -471,7 +496,8 @@ async function bookApproved(id: string, snap: IntentSnapshot): Promise<void> {
 }
 
 /** عكسٌ لدى NearPay بعد القيد: إلغاء السند وإعادة الفاتورة وعكس قيود العميل — لمن يفوز بالتبديل وحده */
-export async function reverseCardPayment(id: string, reason: string): Promise<void> {
+export async function reverseCardPayment(id: string, rawReason: string): Promise<void> {
+  const reason = neutralProviderText(rawReason);
   const row = await prisma.cardPayment.findUnique({ where: { id }, include: { invoice: { select: { number: true } } } });
   if (!row) return;
   if (row.status !== 'approved' || !row.receiptId) {

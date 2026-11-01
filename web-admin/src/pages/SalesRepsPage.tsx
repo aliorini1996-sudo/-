@@ -136,7 +136,7 @@ export default function SalesRepsPage() {
    * حقيقيّ لا تجميل — والخادم يحرس على كل حال. */
   const { data: companyCfg } = useQuery({
     queryKey: ['company'],
-    queryFn: async () => (await companyApi.get()).data.data as { dailyReportEnabled?: boolean; cardPayEnabled?: boolean } | null,
+    queryFn: async () => (await companyApi.get()).data.data as { dailyReportEnabled?: boolean; cardPayEnabled?: boolean; cardPayTest?: boolean } | null,
     staleTime: 300_000,
   });
   const dailyReportOn = companyCfg?.dailyReportEnabled === true && user?.canViewReports !== false;
@@ -166,7 +166,7 @@ export default function SalesRepsPage() {
           <button className="btn-primary" onClick={() => { setSelected(null); setShowModal(true); }}><Plus size={16} />{tr('إضافة مندوب')}</button>
         </div>
       </div>
-      {cardTerminalsOpen && <CardTerminalsModal onClose={() => setCardTerminalsOpen(false)} />}
+      {cardTerminalsOpen && <CardTerminalsModal test={companyCfg?.cardPayTest === true} onClose={() => setCardTerminalsOpen(false)} />}
 
       {/* عزل العملاء — عند التفعيل لا يرى المندوب إلا العملاء المُسنَدين له */}
       <div className="card mb-4">

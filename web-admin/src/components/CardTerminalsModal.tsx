@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { AlertTriangle, CreditCard, X } from 'lucide-react';
+import { AlertTriangle, CreditCard, FlaskConical, X } from 'lucide-react';
 import { cardPayApi } from '../api/client';
 import { useTr } from '../i18n/strings';
 import { backdropClose } from '../lib/backdropClose';
@@ -20,8 +20,9 @@ interface TerminalsData {
 /**
  * «التحصيل بالبطاقة» (NearPay): إسناد نقطة بيعٍ لكل مندوب — النقاط من تاجر الشركة لدى NearPay وحده (يربطه مزوّد الخدمة)،
  * والنقطة الواحدة لمندوبٍ واحد. الخادم يحرس الشرطين (routes/cardPayments.ts) — هنا العرض والاختيار فقط.
+ * لا يظهر اسم المزوّد لمدير الشركة (طلب المالك ١ نوفمبر ٢٠٢٦)، و«test» = بيئة الاختبار (cardPayTest من GET /company).
  */
-export default function CardTerminalsModal({ onClose }: { onClose: () => void }) {
+export default function CardTerminalsModal({ test = false, onClose }: { test?: boolean; onClose: () => void }) {
   const tr = useTr();
   const qc = useQueryClient();
   const q = useQuery({
@@ -53,7 +54,7 @@ export default function CardTerminalsModal({ onClose }: { onClose: () => void })
     },
   });
   const askClose = (r: ReviewRow) => {
-    const note = window.prompt(tr('كيف عولجت العملية؟ (مثلا: سند قبض يدوي رقم كذا أو استرداد من NearPay)'))?.trim();
+    const note = window.prompt(tr('كيف عولجت العملية؟ (مثلا: سند قبض يدوي رقم كذا أو استرداد عبر مزود الدفع)'))?.trim();
     if (note && note.length >= 3) close.mutate({ id: r.id, note });
   };
 
@@ -67,15 +68,21 @@ export default function CardTerminalsModal({ onClose }: { onClose: () => void })
           <span className="w-10 h-10 rounded-xl bg-[#FBEBE2] flex items-center justify-center"><CreditCard size={20} className="text-[#E15A30]" /></span>
           <div className="flex-1">
             <h2 className="font-bold text-[#1F1A13]">{tr('نقاط البيع للتحصيل بالبطاقة')}</h2>
-            <p className="text-xs text-[#6E6557] mt-0.5">{tr('أسند لكل مندوب نقطة بيع من نقاط شركتك لدى NearPay ليحصل بالبطاقة من جواله')}</p>
+            <p className="text-xs text-[#6E6557] mt-0.5">{tr('أسند لكل مندوب نقطة بيع من نقاط شركتك ليحصل بالبطاقة من جواله')}</p>
           </div>
           <button onClick={onClose} className="text-gray-400"><X size={20} /></button>
         </div>
         <div className="p-5 overflow-y-auto flex-1">
+          {test && (
+            <p className="bg-amber-50 border border-amber-300 text-amber-900 text-xs rounded-xl p-3 mb-4 leading-relaxed flex items-start gap-2">
+              <FlaskConical size={16} className="shrink-0 mt-0.5" />
+              <span><b>{tr('وضع تجريبي — لا يخصم مال من البطاقة')}</b> · {tr('التحصيل بالبطاقة في شركتك تجريبي الآن فلا يخصم مال حقيقي من بطاقات العملاء حتى ينقله مزود الخدمة إلى التشغيل الفعلي')}</span>
+            </p>
+          )}
           {(reviewQ.data || []).length > 0 && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4">
               <p className="text-sm font-bold text-amber-900 flex items-center gap-2"><AlertTriangle size={16} /> {tr('عمليات بطاقة تحتاج مراجعة')}</p>
-              <p className="text-[11px] text-amber-800 mt-1 leading-relaxed">{tr('خصمت لدى NearPay ولم يسجل سندها فلا يحصل المندوب على فاتورتها مرة أخرى عالجها يدويا ثم أغلقها')}</p>
+              <p className="text-[11px] text-amber-800 mt-1 leading-relaxed">{tr('خصمت من البطاقة ولم يسجل سندها فلا يحصل المندوب على فاتورتها مرة أخرى عالجها يدويا ثم أغلقها')}</p>
               <div className="space-y-2 mt-3">
                 {reviewQ.data!.map(r => (
                   <div key={r.id} className="bg-white border border-amber-200 rounded-lg p-2.5 flex items-start gap-3">
@@ -99,12 +106,12 @@ export default function CardTerminalsModal({ onClose }: { onClose: () => void })
             </p>
           ) : !data?.merchantLinked ? (
             <p className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-xl p-3 leading-relaxed">
-              {tr('لم يربط مزود الخدمة تاجر شركتك لدى NearPay بعد تواصل معه لإكمال الربط')}
+              {tr('لم يربط مزود الخدمة حساب التاجر لشركتك بعد تواصل معه لإكمال الربط')}
             </p>
           ) : (
             <>
               {data.terminals.length === 0 && (
-                <p className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-xl p-3 mb-3">{tr('لا توجد نقاط بيع لتاجر شركتك لدى NearPay بعد')}</p>
+                <p className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-xl p-3 mb-3">{tr('لا توجد نقاط بيع لحساب التاجر لشركتك بعد')}</p>
               )}
               <div className="space-y-2">
                 {data.reps.map(rep => (

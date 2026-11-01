@@ -221,8 +221,9 @@ NEARPAY_GCP_PROJECT_NUMBER=<رقم المشروع من الخطوة ١ — أر�
 - Android SDK فيه platform 36.
 - إما `ANDROID_HOME`، أو `local.properties` فيه `sdk.dir` (مستثنى من المستودع).
 
-النسخة الحالية `versionCode 6` و`versionName "1.2.0"` (في `app/build.gradle`، و`twa-manifest.json` للمرجع):
-- 3 هو المنشور في Play، و4 بُني ثم حُذف، و5 لم يُنشر قط.
+النسخة الحالية `versionCode 7` و`versionName "1.2.1"` (في `app/build.gradle`، و`twa-manifest.json` للمرجع):
+- 3 هو المنشور في Play، و4 بُني ثم حُذف، و5 لم يُنشر قط، و6 (1.2.0: جسر الطباعة) سبقها.
+- 1.2.1: نصوص شاشة التحصيل بلا اسم مزوّد الدفع (طلب المالك) — «مزوّد الدفع» و«نقطة البيع»، وبيئة الاختبار «عملية تجريبية»؛ يحرسها `ProviderNameGuardTest`. شاشات حزمة المزوّد نفسها خارج سيطرتنا.
 - كل رفعٍ لاحق يرفع `versionCode`.
 
 **تحقّق التصحيح** (ترجمة واختبارات JVM وحزمة debug فقط — لا توقيع إصدار، ولا keystore، ولا aab، ولا رفع). من Git Bash في `android-rep`:

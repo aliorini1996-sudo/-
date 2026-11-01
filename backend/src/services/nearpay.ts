@@ -205,7 +205,7 @@ export function parseIntent(raw: unknown): IntentSnapshot {
       : [{ type: (str(tx.transaction_type) || 'purchase').toLowerCase(), evStatus: '', data: tx, rrn: tx.retrieval_reference_number, stan: undefined }];
     // مبالغ الإيصالات بالريال؛ وفي الشكل المسطّح وحدة amount_authorized غير مؤكدة (هللات في القوائم) — فلا تُقرأ
     const amountsOf = (xs: Item[]) => xs.map((it) => (events.length ? sarToHalalasStrict(it.data.amount_authorized) : null));
-    if (items.some((it) => CHARGEBACK_TYPE.test(it.type) && !rejected(it))) anomalies.push('استرجاع (chargeback) على العملية لدى NearPay');
+    if (items.some((it) => CHARGEBACK_TYPE.test(it.type) && !rejected(it))) anomalies.push('استرجاع (chargeback) على العملية لدى مزوّد الدفع');
     const refundItems = items.filter((it) => REFUND_TYPE.test(it.type));
     const refundsDone = refundItems.filter(done);
     const refundsOpen = refundItems.filter((it) => !done(it) && !rejected(it));
@@ -228,7 +228,7 @@ export function parseIntent(raw: unknown): IntentSnapshot {
     const reversedHere = truthy(tx.is_reversed) || truthy(purchase.data.is_reversed) || REVERSAL_TYPE.test(txStatus) || reversals.some(done);
     if (reversedHere) continue;
     // عكسٌ لم يُحسم (لا موافَق ولا مرفوض): قد يعود المال — لا قيد ولا إبقاءٌ صامت
-    if (reversals.some((it) => !rejected(it))) anomalies.push('عكس غير محسوم على العملية لدى NearPay');
+    if (reversals.some((it) => !rejected(it))) anomalies.push('عكس غير محسوم على العملية لدى مزوّد الدفع');
     const refundAmts = amountsOf(refundsDone);
     const refunded = refundsDone.length > 0 || refundsOpen.length > 0 || truthy(tx.is_refunded) || truthy(purchase.data.is_refunded) || REFUND_TYPE.test(txStatus);
     const refundUnknown = refunded && (refundsDone.length === 0 || refundsOpen.length > 0 || refundAmts.some((x) => x === null));
