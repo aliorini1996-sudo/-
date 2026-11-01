@@ -11,7 +11,8 @@ const ANDROID_SAMSUNG = 'Mozilla/5.0 (Linux; Android 14; SAMSUNG SM-S918B) Apple
 
 test('directPath يلفّ التصنيف', () => {
   assert.equal(directPath({ ua: ANDROID_SAMSUNG, hasSerial: false, bridgeForAll: true }), 'app');
-  assert.equal(directPath({ ua: ANDROID_SAMSUNG, hasSerial: false }), 'none', 'بوّابة النشر مغلقة: بلا علامة الجسر');
+  assert.equal(directPath({ ua: ANDROID_SAMSUNG, hasSerial: false }), 'app', 'بوّابة النشر مفتوحة: بلا علامة الجسر');
+  assert.equal(directPath({ ua: ANDROID_SAMSUNG, hasSerial: false, bridgeForAll: false }), 'none', 'لو أُطفئت البوّابة: بلا علامة الجسر');
   assert.equal(directPath({ ua: ANDROID_SAMSUNG, hasSerial: false, bridgeFlag: true }), 'app');
   assert.equal(directOnAndroid({ ua: ANDROID_SAMSUNG, hasSerial: false }), true);
   assert.equal(directOnAndroid({ ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0', hasSerial: false }), false);
@@ -81,8 +82,8 @@ test('currentPlatformInput يجمع إشارات أندرويد من الصفح�
     ['referrer', { navigator: { userAgent: LINUX }, document: { referrer: 'android-app://net.fieldsa.twa/' } }],
     ['flag', { navigator: { userAgent: LINUX }, window: { localStorage: store({ fs_print_bridge: FLAG }) } }],
   ] as const) {
-    // بوّابة النشر مغلقة: علامة الجسر وحدها تفتح مسار التطبيق؛ userAgentData والمُحيل يعرّفان أندرويد فقط
-    withPage(page, () => { assert.equal(directPath(), name === 'flag' ? 'app' : 'none', name); assert.equal(directOnAndroid(), true, name); });
+    // بوّابة النشر مفتوحة: كل إشارة أندرويد وحدها تفتح مسار التطبيق
+    withPage(page, () => { assert.equal(directPath(), 'app', name); assert.equal(directOnAndroid(), true, name); });
   }
   withPage({ navigator: { userAgent: LINUX }, document: { referrer: '' }, window: { localStorage: store({}) } }, () => {
     assert.equal(directPath(), 'none');
