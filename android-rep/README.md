@@ -135,23 +135,21 @@ NEARPAY_GCP_PROJECT_NUMBER=<رقم المشروع من الخطوة ١ — أر�
 
 ### ٥. قبل أول بناء: مطابقة الوحدة مع حزمة NearPay
 
-حزمة NearPay لم تكن متاحة حين كُتبت الوحدة، فالرموز منقولة من أمثلة التوثيق حرفياً. عند وصول الرمز افتح مشروعك في Android Studio، ثم:
+✅ **تمّت المطابقة (١ نوفمبر ٢٠٢٦)** بعد وصول الرمز، على `terminalsdk-release-0.2.6.aar` نفسه من مستودع NearPay:
+- صار `:app:compileReleaseKotlin` يترجم الوحدة بلا خطأ. هذه ترجمة Kotlin فقط، لا apk ولا aab.
+- **أسطر الاستيراد** مكتوبة في رأس `NearpaySession.kt`. الأصناف في `io.nearpay.terminalsdk` وفروعها: `data.dto` و`listeners` و`listeners.failures`.
+- **قاعدة `proguard-rules.pro`** (`io.nearpay.**`) صحيحة، والحزمة تحمل `proguard.txt` خاصاً بها.
+- **التوقيعات الفعلية:**
+  - `onSendTransactionCompleted(PurchaseResponse)`.
+  - مبلغ `purchase` من نوع `long`.
+  - `JWTLoginData(jwt)` موجود.
+  - `ReadCardListener` بطرائقه الاثنتي عشرة، و`onVasCaptured` اختياري.
+- **نسخة Kotlin:** بيانات Kotlin في الحزمة يقرؤها Kotlin 2.2.20 بلا شكوى.
+- **في الحزمة نفسها** فشلٌ اسمه `DuplicateInFlightIntent` في `ReadCardFailure` و`SendTransactionFailure`. الوحدة تحرس عمليةً جارية بالـintentUUID نفسه، ويبقى سؤال الإعادة بعد إغلاق القارئ (أدناه) قائماً.
+- **مستودع NearPay فيه نسخ أحدث:** 0.2.7 و0.2.8. نبقى على 0.2.6 الموثّقة حتى تقول NearPay غير ذلك.
+- **أذونات تضيفها الحزمة إلى التطبيق:** الموقع و`READ_PHONE_STATE` وNFC. تدخل في بيانات «أمان البيانات» على Play.
 
-1. **أسطر الاستيراد في `NearpaySession.kt`**: التوثيق لا يذكر حزمة (package) أي صنف.
-   - ضع المؤشر على كل اسم أحمر واضغط Alt+Enter ← Import.
-   - القائمة مكتوبة في رأس الملف.
-2. **الحزمة في `proguard-rules.pro`**: القاعدة تفترض `io.nearpay.**`.
-   - افتح `terminalsdk-release-0.2.6.aar` (ملف zip)، ثم `classes.jar`، وصحّحها إن اختلفت.
-   - وانظر إن كان في الحزمة `proguard.txt`.
-3. كل تعليق يبدأ بـ «تحقّق عند وصول الحزمة» في ملفات `cardpay` يذكر موضع شكٍّ واحد. أهمها:
-   - نوع وسيط `onSendTransactionCompleted`: الأمثلة تقول `PurchaseResponse`، وجدول الردود يقول `TransactionResponse`.
-   - نوع المبلغ في `purchase`: مثال Kotlin يمرّر `Int` ومثال Java يمرّر `Long`. المكتوب `Long`؛ إن قال المترجم «type mismatch» فمرّر `amountHalalas.toInt()` (آمن: الحد مليون ريال = ١٠٠ مليون هللة).
-   - `purchase` يُنادى بالوسائط المسمّاة كأمثلة Kotlin، لأن الدليل الأمريكي للحزمة نفسها يضع `withTokenization` قبل `readCardListener`. إن اختلف اسم وسيط فصحّحه من توقيع الدالة في Android Studio.
-4. **نسخة Kotlin في الحزمة**: المشروع على Kotlin 2.2.20، ومترجمه يقرأ بيانات Kotlin حتى 2.3 فقط. توثيق NearPay لا يذكر نسختها.
-   - بعد أول مزامنة شغّل `.\gradlew.bat :app:dependencies --configuration releaseRuntimeClasspath` وانظر نسخة `kotlin-stdlib` المحلولة.
-   - وافتح `terminalsdk-release-0.2.6.aar` ← `classes.jar` ← `META-INF/*.kotlin_module`.
-   - إن كانت 2.4 أو أحدث فارفع `kotlin_version` في `build.gradle` إلى أحدث نسخة يذكر جدول توافقها AGP 8.9.1، أو ارفع AGP. `-Xskip-metadata-version-check` آخر الحلول.
-5. **أسئلة لـ NearPay قبل الإنتاج** (التوثيق لا يجيب عنها):
+**أسئلة لـ NearPay قبل الإنتاج** (التوثيق لا يجيب عنها):
    - هل يُقبل `purchase` ثانٍ بالـ intentUUID نفسه بعد أن أغلق المستخدم القارئ قبل تقريب أي بطاقة؟ أم تصير النيّة «ملغاة» (5012)؟ وإن قُبل ووافق، فهل تصير حالة النيّة في Accounts API «approved» (حالة آخر معاملة) أم تبقى «cancelled»؟
      - التطبيق يعيد على النيّة نفسها عمداً: خصمٌ ثانٍ خفيّ يقع حينها على النيّة نفسها فيوقفه الخادم للمراجعة، أما نيّة جديدة فكانت ستُقيَّد سنداً ثانياً.
      - إن رفضت NearPay الإعادة عاد التطبيق إلى الويب والخادم يحكم، ولا يُحبس المندوب.

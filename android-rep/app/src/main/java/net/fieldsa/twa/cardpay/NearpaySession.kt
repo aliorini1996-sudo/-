@@ -4,15 +4,21 @@ import android.nfc.NfcAdapter
 import android.os.Handler
 import android.os.Looper
 import androidx.appcompat.app.AppCompatActivity
+// الحزم من classes.jar في terminalsdk-release-0.2.6.aar نفسه (لا من التوثيق، فهو لا يذكرها)
+import io.nearpay.terminalsdk.SdkEnvironment
+import io.nearpay.terminalsdk.Terminal
+import io.nearpay.terminalsdk.TerminalSDK
+import io.nearpay.terminalsdk.data.dto.Country
+import io.nearpay.terminalsdk.data.dto.JWTLoginData
+import io.nearpay.terminalsdk.data.dto.PurchaseResponse
+import io.nearpay.terminalsdk.listeners.JWTLoginListener
+import io.nearpay.terminalsdk.listeners.ReadCardListener
+import io.nearpay.terminalsdk.listeners.SendTransactionListener
+import io.nearpay.terminalsdk.listeners.TerminalSDKInitializationListener
+import io.nearpay.terminalsdk.listeners.failures.JWTLoginFailure
+import io.nearpay.terminalsdk.listeners.failures.ReadCardFailure
+import io.nearpay.terminalsdk.listeners.failures.SendTransactionFailure
 
-// ═══ تحقّق عند وصول الحزمة: أسطر الاستيراد ═══
-// توثيق NearPay لا يذكر حزمة (package) أي صنفٍ على أندرويد: مجموعة Maven هي io.nearpay، وهذا لا يعني أنها حزمة الأصناف.
-// عند وصول الرمز افتح terminalsdk-release-0.2.6.aar ← classes.jar، واكتب هنا import لكل اسمٍ مما يلي
-// (في Android Studio: ضع المؤشر على الاسم الأحمر ثم Alt+Enter ← Import):
-//   TerminalSDK, SdkEnvironment, Country, TerminalSDKInitializationListener, PermissionStatus,
-//   JWTLoginData, JWTLoginListener, JWTLoginFailure, Terminal,
-//   ReadCardListener, ReadCardFailure, SendTransactionListener, SendTransactionFailure, PurchaseResponse
-// لم تُخمَّن الحزمة عمداً: ملفٌ لا يُترجَم حتى تُكتب الأسطر أوضحُ من استيرادٍ مخمَّن.
 // هذا الملف وحده يمسّ رموز NearPay؛ كل رمزٍ فيه منقول من أمثلة التوثيق (Kotlin/Java) ومشار إلى موضعه.
 
 /** أحداث وحدة NearPay بلغتنا — تصل دائماً على الخيط الرئيسي، ولا يصل شيء بعد close() */
