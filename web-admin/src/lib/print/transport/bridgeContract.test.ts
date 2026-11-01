@@ -44,6 +44,25 @@ test('BridgeContract.kt = bridgeContract.ts قيمةً بقيمة', () => {
   assert.ok(C.BRIDGE_KEY_RE.test('A'.repeat(C.BRIDGE_KEY_LENGTH)) && !C.BRIDGE_KEY_RE.test('A'.repeat(C.BRIDGE_KEY_LENGTH + 1)));
 });
 
+test('عقد تطبيق الآيفون (FieldSales/PrintPayload.swift enum FSP): القيم المثبّتة في المواصفة §C.1', () => {
+  assert.equal(C.IOS_HANDLER, 'fsPrint');
+  assert.equal(C.IOS_MARKER, '__fsIosBridge');
+  assert.equal(C.IOS_BRIDGE_VERSION, 1);
+  assert.equal(C.IOS_PROGRESS_EVENT, 'fs-ios-print');
+  assert.equal(C.IOS_MAX_PAYLOAD_CHARS, 1_572_864);
+  assert.equal(C.IOS_MAX_JOB_BYTES, 1_048_576);
+  assert.equal(C.APP_STORE_URL, 'https://apps.apple.com/app/id6797991968');
+  assert.equal(C.IOS_SYSTEM_PRINT_VIA_APP, true);
+  assert.equal(C.IOS_JOB_ID_RE.source, '^[A-Za-z0-9_-]{8,64}$');
+  for (const ok of ['A'.repeat(8), 'a_b-C9'.padEnd(64, 'x')]) assert.ok(C.IOS_JOB_ID_RE.test(ok), ok);
+  for (const bad of ['A'.repeat(7), 'A'.repeat(65), 'abc def12', 'abcdefg+', 'abcdefg=']) assert.ok(!C.IOS_JOB_ID_RE.test(bad), bad);
+  // الحمولة الخام تتسع لأكبر مهمة آيفون مع الرأس وحاشية الداخل (علامات ووسمٌ وإلغاء) — والسقفان فوق أندرويد وتحت حدود الصيغة
+  assert.ok(C.IOS_MAX_PAYLOAD_CHARS >= Math.ceil(((C.IOS_MAX_JOB_BYTES + 200 + C.PAYLOAD_HEADER_BYTES) * 4) / 3));
+  assert.ok(C.IOS_MAX_PAYLOAD_CHARS > C.MAX_PAYLOAD_CHARS);
+  assert.ok(C.IOS_MAX_JOB_BYTES <= C.MAX_JOB_BYTES);
+  assert.ok(Math.floor((C.IOS_MAX_PAYLOAD_CHARS * 3) / 4) <= C.MAX_INNER_BYTES + C.PAYLOAD_HEADER_BYTES);
+});
+
 test('AndroidManifest (main): PrintActivity بمخطّط fieldsaprint، وأذونات البلوتوث بلا بحثٍ ولا إدارة', () => {
   const xml = noXmlComments(read(APP, 'src', 'main', 'AndroidManifest.xml'));
   const block = /<activity\b[^>]*android:name="net\.fieldsa\.twa\.print\.PrintActivity"[^>]*>[\s\S]*?<\/activity>/.exec(xml)?.[0];

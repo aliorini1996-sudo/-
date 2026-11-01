@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Bluetooth, Printer, X } from 'lucide-react';
 import { useTr } from '../../i18n/strings';
 import type { DirectOutcome, DirectUi } from '../../rep/printDirect';
+import { directOnIos } from '../../lib/print/transport/direct';
 
 /**
  * الطباعة المباشرة بالبلوتوث في الواجهة — «إعدادات الطباعة» M3 (التصميم §5.2 «أثناء الطباعة»): غطاءٌ بنسبة التقدّم وزرّ
@@ -10,6 +11,9 @@ import type { DirectOutcome, DirectUi } from '../../rep/printDirect';
  *
  * مسار تطبيق فيلد سيلز (أندرويد بلا Web Serial): «الطباعة جاهزة» بزرّ «اطبع الآن» إن انقضت صلاحية اللمسة قبل فتح التطبيق
  * (tap)، ثم «جار الإرسال إلى الطابعة» بشريطٍ كامل بلا إلغاء (handoff) — التقدّم والإلغاء بعدها في شاشة التطبيق.
+ *
+ * تطبيق الآيفون: الغطاء الأصليّ نفسه — التقدّم من التطبيق والإلغاء يصله — ومعه أثناء الإرسال «لا تقفل الشاشة» (BLE يتوقّف إن
+ * قُفلت أو غادر المندوب التطبيق).
  */
 export interface DirectJobState { phase: 'prepare' | 'send' | 'tap' | 'handoff'; pct: number; onTap?: () => void }
 
@@ -102,6 +106,7 @@ export function DirectPrintOverlay({ job, onCancel }: { job: DirectJobState | nu
           <div className="h-full bg-[#E15A30] transition-[width] duration-200" style={{ width: `${sending ? job.pct : Math.max(4, job.pct)}%` }} />
         </div>
         <p className="text-sm text-[#6E6557] mt-2" dir="ltr">{job.pct}%</p>
+        {sending && directOnIos() && <p className="text-xs text-[#6E6557] mt-1">{tr('لا تقفل الشاشة حتى تنتهي الطباعة')}</p>}
         <button type="button" onClick={onCancel} className="mt-4 w-full bg-gray-100 text-gray-700 font-semibold py-2.5 rounded-xl flex items-center justify-center gap-2">
           <X size={16} /> {tr('إلغاء الطباعة')}
         </button>

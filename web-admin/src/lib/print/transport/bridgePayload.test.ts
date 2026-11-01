@@ -6,7 +6,7 @@ import {
   BridgePayloadError, buildInner, crc32, decodeBridgePayload, encodeBridgePayload, fromBase64Url, streamCompressor, toBase64Url,
   utf8Truncate, type BridgeJob,
 } from './bridgePayload';
-import { MAX_JOB_BYTES, MAX_LABEL_BYTES, MAX_PAYLOAD_CHARS } from './bridgeContract';
+import { IOS_MAX_PAYLOAD_CHARS, MAX_INNER_BYTES, MAX_JOB_BYTES, MAX_LABEL_BYTES, MAX_MARKS, MAX_PAYLOAD_CHARS } from './bridgeContract';
 import { CHUNK_BYTES, CLOSE_GRACE_MS, SLOW_LINK_PAUSE_MS } from './btSerial';
 
 const enc = new TextEncoder();
@@ -109,6 +109,28 @@ test('TOO_LARGE: مهمةٌ فوق MAX_JOB_BYTES، وحمولةٌ فوق MAX_PAY
   // والحدّ نفسه مقبول: 147421 صفراً خاماً = 196608 محرفاً بالضبط (متّجه payload_at_cap_raw)
   const atCap = await encodeBridgePayload({ ...job(), bytes: new Uint8Array(147_421), marks: [147_421], cancel: [], label: '' }, { encoding: 'raw' });
   assert.equal(atCap.length, MAX_PAYLOAD_CHARS);
+});
+
+test('maxChars (تطبيق الآيفون): الغياب = MAX_PAYLOAD_CHARS كما كان، وسقفٌ أكبر يقبل إطاراً خاماً أكبر — وحدّا المهمة والداخل باقيان', async () => {
+  const zeros = (n: number) => ({ ...job(), bytes: new Uint8Array(n), marks: [n], cancel: [], label: '' });
+  // الحدّ الافتراضيّ بالضبط: بلا maxChars ومعه = MAX_PAYLOAD_CHARS سواء، وبايتٌ واحد فوقه يُرفض
+  assert.equal((await encodeBridgePayload(zeros(147_421), { encoding: 'raw' })).length, MAX_PAYLOAD_CHARS);
+  assert.equal((await encodeBridgePayload(zeros(147_421), { encoding: 'raw', maxChars: MAX_PAYLOAD_CHARS })).length, MAX_PAYLOAD_CHARS);
+  assert.equal(await codeOf(encodeBridgePayload(zeros(147_422), { encoding: 'raw' })), 'TOO_LARGE');
+  // سقف الآيفون: 300 ألف بايت عشوائية خاماً تمرّ، وما فوق السقف يُرفض
+  const rnd = noise(300_000);
+  const big = await encodeBridgePayload(job({ bytes: rnd, marks: [rnd.length] }), { encoding: 'raw', maxChars: IOS_MAX_PAYLOAD_CHARS });
+  assert.ok(big.length > MAX_PAYLOAD_CHARS && big.length <= IOS_MAX_PAYLOAD_CHARS, String(big.length));
+  assert.equal(fromBase64Url(big)[4], 0, 'خام');
+  assert.equal(await codeOf(encodeBridgePayload(job({ bytes: rnd, marks: [rnd.length] }), { encoding: 'raw' })), 'TOO_LARGE');
+  assert.equal(await codeOf(encodeBridgePayload(job({ bytes: rnd, marks: [rnd.length] }), { encoding: 'raw', maxChars: 100_000 })), 'TOO_LARGE');
+  // MAX_JOB_BYTES وMAX_INNER_BYTES لا يرفعهما maxChars
+  const huge = new Uint8Array(MAX_JOB_BYTES + 1);
+  assert.equal(await codeOf(encodeBridgePayload(job({ bytes: huge, marks: [huge.length] }), { encoding: 'raw', maxChars: 1e9 })), 'TOO_LARGE');
+  const maxJob = new Uint8Array(MAX_JOB_BYTES);
+  const marks = Array.from({ length: MAX_MARKS }, (_, i) => Math.round(((i + 1) * MAX_JOB_BYTES) / MAX_MARKS));
+  assert.ok(MAX_JOB_BYTES + MAX_MARKS * 3 + 40 <= MAX_INNER_BYTES, 'الداخل يتسع لأكبر مهمة');
+  assert.equal(typeof (await encodeBridgePayload({ ...job(), bytes: maxJob, marks, cancel: [], label: '' }, { encoding: 'raw', maxChars: 1e9 })), 'string');
 });
 
 test('BAD_INPUT: علامات فارغة أو غير تصاعدية أو آخرها ليس الطول، وإلغاءٌ فوق 16، ومهمةٌ فارغة', () => {

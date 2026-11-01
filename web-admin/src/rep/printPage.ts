@@ -11,6 +11,7 @@
  */
 import { geometry, type Paper, type PrintProfile } from '../lib/print/printSettings';
 import { SHEET_WIDTH_PX } from './printLook';
+import { iosSystemPrint, iosSystemPrintAvailable } from '../lib/print/transport/iosBridge';
 
 /** عرض القالب الطبيعيّ (PAGE في RepDocuments.tsx) */
 export const TEMPLATE_WIDTH_PX = SHEET_WIDTH_PX;
@@ -146,12 +147,14 @@ export function cloneWithLabel(node: HTMLElement, label: string | null, bannerHt
 /**
  * يطبع عقدة القالب المرسومة خارج الشاشة بمقاس قالب الطباعة. الوسمان مترجمان من الشاشة (null = بلا وسم).
  * يرمي إن تعذّر إنشاء الإطار — والشاشة تعرض «تعذرت الطباعة» وملف الـPDF يبقى.
+ * وفي تطبيق الآيفون (iosSystemPrintAvailable) الوثيقة نفسها إلى نافذة الطباعة في التطبيق: print() في WKWebView لا يفتحها.
  */
 export async function printPageNode(node: HTMLElement, p: PrintProfile, labels: readonly [string, string] | null, bannerHtml?: string | null): Promise<void> {
   if (!(await sheetReady(node))) throw new Error('sheet images');
   const g = pagePrintGeom(p);
   const html = (label: string | null): string => cloneWithLabel(node, label, bannerHtml).outerHTML;
   const doc = buildPageDocument(copiesOf(html, p.options.copies, p.options.copyLabels ? labels : null), g, headStyles());
+  if (iosSystemPrintAvailable()) { await iosSystemPrint(doc, p.paper.widthMm, ''); return; }
 
   const iframe = document.createElement('iframe');
   iframe.setAttribute('aria-hidden', 'true');
@@ -173,9 +176,10 @@ export async function printPageNode(node: HTMLElement, p: PrintProfile, labels: 
 
 /**
  * يطبع وثيقة HTML كاملة (بقاعدة @page فيها) عبر نظام الطباعة — صفحة المعايرة (lib/print/calibration.ts). الإطار بعرض الورق
- * فيُخطَّط المحتوى بعرضه الفعليّ.
+ * فيُخطَّط المحتوى بعرضه الفعليّ. وفي تطبيق الآيفون إلى نافذة الطباعة في التطبيق (كـprintPageNode).
  */
 export async function printHtmlDocument(html: string, paperWidthMm: number): Promise<void> {
+  if (iosSystemPrintAvailable()) { await iosSystemPrint(html, paperWidthMm, ''); return; }
   const iframe = document.createElement('iframe');
   iframe.setAttribute('aria-hidden', 'true');
   iframe.style.cssText = `position:fixed;right:-9999px;bottom:0;width:${r1(paperWidthMm)}mm;height:0;border:0;`;

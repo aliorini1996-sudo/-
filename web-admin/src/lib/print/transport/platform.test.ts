@@ -2,7 +2,9 @@
 // Samsung Internet ولو بوضع سطح المكتب، WebView، Firefox) ⇒ app؛ iOS وسطح المكتب بلا Web Serial ⇒ none كاليوم.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { APP_BRIDGE_FOR_ALL, classifyPrintPlatform, type PlatformInput } from './platform';
+import {
+  APP_BRIDGE_FOR_ALL, IOS_BRIDGE_RELEASED, IOS_IMPACT_DIRECT, classifyPrintPlatform, directHint, type DirectHint, type PlatformInput,
+} from './platform';
 
 const UA = {
   chrome140Android: 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36',
@@ -17,6 +19,7 @@ const UA = {
   windowsFirefox: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0',
   linuxChrome: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
 };
+const IOS_APP = `${UA.iphone} FieldSales`;
 
 // المصفوفة أدناه بعد فتح الجسر للجميع (bridgeForAll)؛ وبوّابة ما قبل النشر في اختبارها الأخير
 const at = (i: Partial<PlatformInput> & { ua: string }) => classifyPrintPlatform({ hasSerial: false, bridgeForAll: true, ...i });
@@ -70,4 +73,55 @@ test('بوّابة النشر: قبل وصول التحديث إلى الإنت�
   assert.deepEqual(gated({ ua: UA.chrome140Android, hasSerial: true }), { os: 'android', path: 'serial' }, 'Web Serial كاليوم');
   assert.deepEqual(gated({ ua: UA.samsung, bridgeForAll: true }), { os: 'android', path: 'app' });
   assert.deepEqual(gated({ ua: UA.iphone, maxTouchPoints: 5, bridgeForAll: true }), { os: 'ios', path: 'none' });
+});
+
+// ─── تطبيق فيلد سيلز على الآيفون (1.1.0) ───
+
+test('iOS بجسر التطبيق (v ≥ 1) ⇒ ios-app — وتطبيق 1.0 وسفاري والإصدار الناقص ⇒ none كاليوم', () => {
+  assert.deepEqual(at({ ua: IOS_APP, maxTouchPoints: 5, iosBridge: 1, iosWrapper: true }), { os: 'ios', path: 'ios-app' });
+  assert.deepEqual(at({ ua: IOS_APP, maxTouchPoints: 5, iosBridge: 2 }), { os: 'ios', path: 'ios-app' }, 'إصدارٌ أحدث');
+  assert.deepEqual(at({ ua: IOS_APP, maxTouchPoints: 5, iosWrapper: true }), { os: 'ios', path: 'none' }, 'تطبيق 1.0 بلا جسر');
+  assert.deepEqual(at({ ua: UA.iphone, maxTouchPoints: 5 }), { os: 'ios', path: 'none' }, 'سفاري');
+  for (const v of [0, null, NaN, -1, 0.5]) {
+    assert.deepEqual(at({ ua: IOS_APP, maxTouchPoints: 5, iosBridge: v }), { os: 'ios', path: 'none' }, String(v));
+  }
+  assert.deepEqual(at({ ua: UA.ipadDesktop, maxTouchPoints: 5, iosBridge: 1 }), { os: 'ios', path: 'ios-app' }, 'iPad بوكيل Macintosh');
+  assert.deepEqual(at({ ua: UA.ipadDesktop, maxTouchPoints: 0, iosBridge: 1 }), { os: 'other', path: 'none' }, 'Mac حقيقي لا جسر له');
+});
+
+test('علامة الآيفون لا تمسّ أندرويد ولا سطح المكتب', () => {
+  assert.deepEqual(at({ ua: UA.samsung, iosBridge: 1 }), { os: 'android', path: 'app' });
+  assert.deepEqual(classifyPrintPlatform({ ua: UA.samsung, hasSerial: false, bridgeForAll: false, iosBridge: 1 }), { os: 'android', path: 'none' }, 'بوّابة أندرويد كما هي');
+  assert.deepEqual(at({ ua: UA.chrome140Android, hasSerial: true, iosBridge: 1 }), { os: 'android', path: 'serial' });
+  assert.deepEqual(at({ ua: UA.windowsFirefox, iosBridge: 1 }), { os: 'other', path: 'none' });
+});
+
+test('تلميح الخيار المعطّل (directHint): لا «Chrome 138» على جوالٍ أبداً — والآيفون «تصل مع التحديث» حتى النشر', () => {
+  const hint = (i: Partial<PlatformInput> & { ua: string }, released: boolean): DirectHint => directHint({ hasSerial: false, ...i }, released);
+  for (const released of [false, true]) {
+    for (const wrapper of [false, true]) {
+      // أندرويد: الجسر مغلق ⇒ soon، ومفتوح (للجميع أو بعلامته) ⇒ ready، وWeb Serial ⇒ ready
+      assert.equal(hint({ ua: UA.samsung, bridgeForAll: false, iosWrapper: wrapper }, released), 'soon');
+      assert.equal(hint({ ua: UA.samsung, bridgeForAll: true, iosWrapper: wrapper }, released), 'ready');
+      assert.equal(hint({ ua: UA.samsung, bridgeForAll: false, bridgeFlag: true, iosWrapper: wrapper }, released), 'ready');
+      assert.equal(hint({ ua: UA.chrome140Android, hasSerial: true }, released), 'ready');
+      // الآيفون بجسره ⇒ ready دائماً
+      assert.equal(hint({ ua: IOS_APP, maxTouchPoints: 5, iosBridge: 1, iosWrapper: wrapper }, released), 'ready');
+      // سطح المكتب بلا Web Serial ⇒ نصّ المتصفح وحده
+      assert.equal(hint({ ua: UA.windowsFirefox, iosWrapper: wrapper }, released), 'browser');
+      assert.equal(hint({ ua: UA.windowsChrome, hasSerial: true }, released), 'ready');
+    }
+    // الآيفون بلا جسر: قبل النشر soon للجميع؛ بعده تطبيق 1.0 ⇒ updateIos، وسفاري ⇒ iosApp
+    assert.equal(hint({ ua: IOS_APP, maxTouchPoints: 5, iosWrapper: true }, released), released ? 'updateIos' : 'soon');
+    assert.equal(hint({ ua: UA.iphone, maxTouchPoints: 5, iosWrapper: false }, released), released ? 'iosApp' : 'soon');
+    assert.equal(hint({ ua: UA.ipadDesktop, maxTouchPoints: 5 }, released), released ? 'iosApp' : 'soon');
+  }
+  // iosReleased في المدخلات يحلّ محلّ الثابت، وغيابه = IOS_BRIDGE_RELEASED
+  assert.equal(directHint({ ua: IOS_APP, maxTouchPoints: 5, hasSerial: false, iosWrapper: true, iosReleased: true }), 'updateIos');
+  assert.equal(directHint({ ua: IOS_APP, maxTouchPoints: 5, hasSerial: false, iosWrapper: true }), IOS_BRIDGE_RELEASED ? 'updateIos' : 'soon');
+});
+
+test('بوّابتا الآيفون: IOS_BRIDGE_RELEASED مطفأ حتى يضغط المالك Release على 1.1.0، والنقطية على الآيفون مطفأة', () => {
+  assert.equal(IOS_BRIDGE_RELEASED, false, 'يُقلب true بعد نشر تطبيق الآيفون 1.1.0 في App Store');
+  assert.equal(IOS_IMPACT_DIRECT, false, 'MIP480 بلوتوثها كلاسيكيّ بلا BLE — لا يصلها الآيفون');
 });

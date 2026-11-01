@@ -13,19 +13,25 @@ const SRC = fileURLToPath(new URL('../', import.meta.url));
 const read = (rel: string) => fs.readFileSync(path.join(SRC, rel), 'utf8').replace(/\r\n/g, '\n');
 const TECH = /Chrome|Samsung|WebView|Serial/i;
 
-test('PrintDeviceTools وRepDocuments يستوردان printerForJob وdirectPrintAvailable من transport/direct — لا من btSerial', () => {
+test('PrintDeviceTools وRepDocuments يستوردان printerForJob من transport/direct وdirectAvailableFor من printDirect — لا من btSerial', () => {
   for (const f of ['components/print/PrintDeviceTools.tsx', 'rep/RepDocuments.tsx']) {
     const s = read(f);
     const imp = /import \{([^}]*)\} from '(?:\.\.\/)+lib\/print\/transport\/direct';/.exec(s);
     assert.ok(imp, `${f}: لا استيراد من transport/direct`);
-    for (const name of ['printerForJob', 'directPrintAvailable']) assert.match(imp[1], new RegExp(`\\b${name}\\b`), `${f}: ${name}`);
+    assert.match(imp[1], /\bprinterForJob\b/, `${f}: printerForJob`);
+    // التوفّر لكل قالب (النقطية لا تُرسل من تطبيق الآيفون) — لا directPrintAvailable للجهاز كلّه
+    const pdImp = /import \{([^}]*)\} from '(?:\.\/|(?:\.\.\/)+rep\/)printDirect';/.exec(s);
+    assert.ok(pdImp, `${f}: لا استيراد من printDirect`);
+    assert.match(pdImp[1], /\bdirectAvailableFor\b/, `${f}: directAvailableFor`);
+    assert.doesNotMatch(s, /directPrintAvailable\(/, `${f}: directPrintAvailable`);
     assert.doesNotMatch(s, /from '[./]*lib\/print\/transport\/btSerial'/, `${f} يستورد btSerial`);
   }
-  // والنقل نفسه: مسار التطبيق قبل Web Serial في send() — والبايتات نفسها
+  // والنقل نفسه: مسار الآيفون ثم مسار أندرويد قبل Web Serial في send() — والبايتات نفسها
   const pd = read('rep/printDirect.ts');
   const send = pd.slice(pd.indexOf('async function send('), pd.indexOf('async function settleFrame('));
   assert.ok(send.indexOf('if (isAppLink(port)) return sendViaApp(') > 0 && send.indexOf('if (isAppLink(port))') < send.indexOf('return sendJob(port, job,'));
-  assert.match(send, /bytes: job\.bytes, marks: job\.marks, cancel,/);
+  assert.ok(send.indexOf('if (isIosLink(port)) return sendViaIos(') > 0 && send.indexOf('if (isIosLink(port))') < send.indexOf('return sendJob(port, job,'));
+  assert.equal((send.match(/bytes: job\.bytes, marks: job\.marks, cancel, slow: !!ui\.slow, label: ui\.docLabel \?\? ''/g) || []).length, 2);
 });
 
 test('RepDocuments: دعوة التحديث داخل كتلة الطباعة المباشرة قبل {zBlocked ? (، والوسم عنوان المستند', () => {
@@ -43,7 +49,7 @@ test('RepDocuments: دعوة التحديث داخل كتلة الطباعة ا�
   }
   assert.equal((result.match(/\{ \.\.\.directOpts\(deviceChoice\), label: title \}/g) || []).length, 2);
   assert.match(result, /if \(sent\.outcome === 'handed'\) setAppPrompt\('soft'\);/);
-  assert.match(result, /if \(e\.kind === 'appUpdate'\) setAppPrompt\('hard'\);/);
+  assert.match(result, /if \(e\.kind === 'appUpdate' \|\| e\.kind === 'appUpdateIos'\) setAppPrompt\('hard'\);/);
 });
 
 test('appBridge.ts: إسنادٌ واحد لـlocation.href ولا إعادة تحميل ولا تبديل ولا رابط بديل', () => {
@@ -53,11 +59,12 @@ test('appBridge.ts: إسنادٌ واحد لـlocation.href ولا إعادة ت
   assert.doesNotMatch(s, /market:\/\//);
 });
 
-test('AppUpdatePrompt.tsx: رابط Google Play في نافذةٍ جديدة — بلا market:// ولا رمز QR ولا طباعة', () => {
+test('AppUpdatePrompt.tsx: رابط المتجر في نافذةٍ جديدة (Google Play، وApp Store على الآيفون) — بلا market:// ولا itms-apps ولا رمز QR ولا طباعة', () => {
   const s = read('components/print/AppUpdatePrompt.tsx');
-  assert.match(s, /<a href=\{PLAY_STORE_URL\} target="_blank" rel="noopener noreferrer"/);
-  assert.match(s, /import \{ PLAY_STORE_URL \} from '\.\.\/\.\.\/lib\/print\/transport\/bridgeContract';/);
-  assert.doesNotMatch(s, /market:|QRCode|buildZatcaQr|toDataURL|printWith\(/);
+  assert.match(s, /<a href=\{storeUrl\} target="_blank" rel="noopener noreferrer"/);
+  assert.match(s, /const storeUrl = classifyPrintPlatform\(currentPlatformInput\(\)\)\.os === 'ios' \? APP_STORE_URL : PLAY_STORE_URL;/);
+  assert.match(s, /import \{ APP_STORE_URL, PLAY_STORE_URL \} from '\.\.\/\.\.\/lib\/print\/transport\/bridgeContract';/);
+  assert.doesNotMatch(s, /market:|itms-apps:|QRCode|buildZatcaQr|toDataURL|printWith\(/);
 });
 
 test('main.tsx يلتقط علامة الجسر قبل ReactDOM.createRoot', () => {
@@ -94,8 +101,8 @@ test('PrintDeviceTools: التسليم بلا مفتاح ⇒ تلميح التح
   const s = read('components/print/PrintDeviceTools.tsx');
   assert.match(s, /const appPath = directPath\(\) === 'app';/);
   assert.match(s, /if \(port && r === 'handed'\) setMsg\(\{ tone: 'ok', text: '', app: 'soft' \}\);\n\s*else if \(port\) setMsg\(/);
-  assert.match(s, /fallback: true, app: e\.kind === 'appUpdate' \? 'hard' : undefined \}/);
-  assert.match(s, /app: e instanceof DirectPrintError && e\.kind === 'appUpdate' \? 'hard' : undefined,/);
+  assert.match(s, /fallback: true, app: e\.kind === 'appUpdate' \|\| e\.kind === 'appUpdateIos' \? 'hard' : undefined \}/);
+  assert.match(s, /app: e instanceof DirectPrintError && \(e\.kind === 'appUpdate' \|\| e\.kind === 'appUpdateIos'\) \? 'hard' : undefined,/);
   assert.match(s, /\{msg && msg\.app === 'soft' && <AppUpdateHint \/>\}\n\s*\{msg && msg\.app !== 'soft' && \(/);
   assert.match(s, /\{msg\.app === 'hard' \? <AppUpdateButton \/> : <p className="mt-1 text-\[#6E6557\]">\{tr\(DIRECT_PRINT_FALLBACK\)\}<\/p>\}/);
   assert.match(s, /\{msg\.app === 'hard' && !msg\.fallback && <AppUpdateButton \/>\}/);
@@ -120,7 +127,7 @@ test('DirectPrintUi: لمسة «اطبع الآن» تُحلّ داخل النق
 
 test('التسليم المتأخّر يستبدل دعوة التحديث بحصيلته — في المستند وفي أدوات الطباعة، والاشتراك ما دامت الدعوة معروضة', () => {
   const rd = read('rep/RepDocuments.tsx');
-  assert.match(rd, /import \{ directPrintAvailable, onLateHandoff, printerForJob \} from '\.\.\/lib\/print\/transport\/direct';/);
+  assert.match(rd, /import \{ onLateHandoff, printerForJob \} from '\.\.\/lib\/print\/transport\/direct';/);
   assert.match(rd, /useEffect\(\(\) => \{\n\s*if \(appPrompt !== 'hard'\) return undefined;\n\s*return onLateHandoff\(\(outcome\) => \{\n\s*setDirectError\(null\);\n\s*setAppPrompt\(outcome === 'handed' \? 'soft' : null\);\n\s*if \(outcome === 'done'\) setStatus\(tr\('✓ تم الإرسال إلى الطابعة'\)\);\n\s*\}\);\n\s*\}, \[appPrompt, tr\]\);/);
   const pt = read('components/print/PrintDeviceTools.tsx');
   assert.match(pt, /const appHard = msg\?\.app === 'hard';\n\s*useEffect\(\(\) => \{\n\s*if \(!appHard\) return undefined;\n\s*return onLateHandoff\(/);
@@ -135,7 +142,47 @@ test('appBridge.ts: WebView وحده يفتح من إطارٍ مخفيّ — و�
   assert.match(s, /if \(env\.frame\) \{[\s\S]*?\} else \{\n\s*env\.win\.location\.href = url;\n\s*\}/);
 });
 
-test('الخيار المعطّل على أندرويد يلمّح للتحديث القادم بلا سبب تقني، والنصّ القديم لغير أندرويد وحده', () => {
+test('الخيار المعطّل يلمّح بلا سبب تقني على الجوال (أندرويد والآيفون) — ونصّ المتصفح القديم لسطح المكتب وحده (directHint)', () => {
   const s = read('components/print/PrintDeviceTools.tsx');
-  assert.ok(s.includes("available ? tr('يرسل للطابعة مباشرة بلا تطبيق وسيط') : directOnAndroid() ? tr('تصل مع التحديث القادم لتطبيق فيلد سيلز') : tr('الطباعة المباشرة تتطلب Chrome 138 أو أحدث')"));
+  assert.ok(s.includes("available ? tr('يرسل للطابعة مباشرة بلا تطبيق وسيط') : directHintText()"));
+  assert.match(s, /const hint = directHintFor\(profile\);/);
+  const sw = s.slice(s.indexOf('const directHintText = (): string => {'), s.indexOf('const radio = ('));
+  assert.ok(sw.length > 0);
+  assert.ok(sw.includes("case 'soon': return tr('تصل مع التحديث القادم لتطبيق فيلد سيلز');"));
+  assert.ok(sw.includes("case 'updateIos': return tr('حدث تطبيق فيلد سيلز من App Store لتفعيلها');"));
+  assert.ok(sw.includes("case 'iosApp': return tr('متاحة في تطبيق فيلد سيلز على الآيفون');"));
+  assert.ok(sw.includes("case 'impactIos': return tr('الطابعة النقطية لا تطبع من الآيفون — اطبعها من جوال أندرويد أو شارك ملف PDF');"));
+  // «Chrome 138» في الفرع الافتراضي وحده ('browser' = سطح المكتب — مصفوفة directHint في platform.test.ts)
+  assert.equal(s.split('Chrome 138').length - 1, 1);
+  assert.ok(sw.includes("default: return tr('الطباعة المباشرة تتطلب Chrome 138 أو أحدث');"));
+  const mobile = [...sw.matchAll(/case '(?:soon|updateIos|iosApp|impactIos)': return tr\('([^']+)'\)/g)].map((m) => m[1]);
+  assert.equal(mobile.length, 4);
+  for (const l of mobile) {
+    assert.doesNotMatch(l, TECH, l);
+    assert.ok(PHRASES[l] && !/['’]/.test(PHRASES[l].fr), l);
+  }
+  // دعوة التحديث تحت الخيارين بعد نشر الآيفون (1.0)، وتلميح الإقران على الآيفون: من شاشة التطبيق لا من الإعدادات
+  assert.ok(s.includes("{!available && hint === 'updateIos' && <AppUpdateButton />}"));
+  assert.ok(s.includes("{iosPath ? tr('شغل الطابعة وقربها من الجوال ثم اضغط ربط الطابعة — لا تقرنها من إعدادات البلوتوث في الآيفون') : tr('اقرن الطابعة أولا من إعدادات البلوتوث في الجوال')}"));
+});
+
+test('تطبيق الآيفون في أدوات الطباعة: كتلة الربط كـWeb Serial باسم الطابعة، وإغلاق شاشة الاختيار بلا رسالة، ولا تقفل الشاشة أثناء الإرسال', () => {
+  const s = read('components/print/PrintDeviceTools.tsx');
+  assert.match(s, /const iosPath = directPath\(\) === 'ios-app';/);
+  assert.match(s, /const available = directAvailableFor\(profile\);/);
+  assert.ok(s.includes("{linked ? (linkedName ? `${tr('الطابعة مربوطة')}: ${linkedName}` : tr('الطابعة مربوطة')) : tr('لم تربط طابعة بعد')}"));
+  assert.match(s, /if \(iosPath && e instanceof DirectPrintError && e\.kind === 'pickPrinter'\) return;/);
+  const ui = read('components/print/DirectPrintUi.tsx');
+  assert.ok(ui.includes("{sending && directOnIos() && <p className=\"text-xs text-[#6E6557] mt-1\">{tr('لا تقفل الشاشة حتى تنتهي الطباعة')}</p>}"));
+  // «نظام الطباعة» في تطبيق الآيفون: قبل إنشاء الإطار في المسارات الثلاثة
+  const page = read('rep/printPage.ts');
+  for (const fn of ['export async function printPageNode(', 'export async function printHtmlDocument(']) {
+    const body = page.slice(page.indexOf(fn));
+    assert.ok(body.indexOf('if (iosSystemPrintAvailable())') > 0 && body.indexOf('if (iosSystemPrintAvailable())') < body.indexOf("document.createElement('iframe')"), fn);
+  }
+  const th = read('rep/thermal.ts');
+  const ph = th.slice(th.indexOf('function printHTML('));
+  assert.ok(ph.indexOf('if (iosSystemPrintAvailable()) return iosSystemPrint(html, geom.paperWidthMm, \'\');') > 0);
+  assert.ok(ph.indexOf('if (iosSystemPrintAvailable())') < ph.indexOf("document.createElement('iframe')"));
+  assert.equal(th.split('await classicOut(opts, `').length - 1, 2, 'تعذّر الآيفون يصل الشاشة من الشريط الكلاسيكي');
 });

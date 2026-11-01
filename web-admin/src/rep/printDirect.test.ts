@@ -2,7 +2,9 @@
 // (نظام الطباعة افتراضاً)، والمُرمِّز لكل طابعة بهامشها وإزاحتها وطول صفحتها وقصّها، وخانة الرمز الأكبر للنقطية.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { encodeForProfile, impactLeftDots, supportsDirect, transportFor } from './printDirect';
+import { directAvailableFor, directHintFor, encodeForProfile, impactLeftDots, send, supportsDirect, transportFor } from './printDirect';
+import { decodeBridgePayload } from '../lib/print/transport/bridgePayload';
+import { TSPL_CANCEL } from '../lib/print/tspl';
 import { DEFAULT_PRINT_LOOK, impactQrSlotPx, lookFor, qrSlotStyle } from './printLook';
 import {
   STAMPED_QR_CELLS, defaultPrintOptions, legacyPageProfile, legacyThermalProfile, presetPaper,
@@ -97,4 +99,117 @@ test('خانة رمز QR الأكبر للنقطية وحدها: (93 + 4) × 5 +
   assert.equal(DEFAULT_PRINT_LOOK.qrSlotPx, null);
   assert.deepEqual(qrSlotStyle(DEFAULT_PRINT_LOOK), {}, 'صندوق اليوم كما هو');
   assert.deepEqual(qrSlotStyle(lookFor(imp)), { width: 269, height: 269, padding: 0, boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center' });
+});
+
+// ─── تطبيق فيلد سيلز على الآيفون ───
+
+test('directAvailableFor: النقطية لا تُرسل من تطبيق الآيفون — والحرارية تُرسل، وserial/app كما هما، وnone لا شيء', () => {
+  const imp = profile('impact', 'impact_plain', 'ff_a4');
+  const th = profile('thermal', 'roll_compact', 'roll80');
+  assert.equal(directAvailableFor(imp, 'ios-app'), false, 'MIP480 بلوتوث كلاسيكيّ بلا BLE');
+  assert.equal(directAvailableFor(th, 'ios-app'), true);
+  assert.equal(directAvailableFor(legacyPageProfile(), 'ios-app'), true, 'supportsDirect يحكم بعدها');
+  for (const path of ['serial', 'app'] as const) {
+    assert.equal(directAvailableFor(imp, path), true, path);
+    assert.equal(directAvailableFor(th, path), true, path);
+  }
+  assert.equal(directAvailableFor(imp, 'none'), false);
+  assert.equal(directAvailableFor(th, 'none'), false);
+  assert.equal(directAvailableFor(null, 'ios-app'), true);
+  // اختيار البلوتوث للنقطية على الآيفون ⇒ نظام الطباعة؛ والحرارية بلوتوث
+  assert.equal(transportFor(imp, { transport: 'bt-serial' }, directAvailableFor(imp, 'ios-app')), 'system');
+  assert.equal(transportFor(th, { transport: 'bt-serial' }, directAvailableFor(th, 'ios-app')), 'bt-serial');
+  // الافتراضيّ في Node (لا طريق) = نظام الطباعة كاليوم
+  assert.equal(directAvailableFor(th), false);
+  assert.equal(transportFor(th, { transport: 'bt-serial' }), 'system');
+});
+
+test('directHintFor: النقطية على الآيفون impactIos (التطبيق وسفاري) — وغيرها تلميح الجهاز', () => {
+  const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1';
+  const imp = profile('impact', 'impact_plain', 'ff_a4');
+  const th = profile('thermal', 'roll_compact', 'roll80');
+  const app = { ua: `${IPHONE} FieldSales`, maxTouchPoints: 5, hasSerial: false, iosBridge: 1, iosWrapper: true };
+  const safari = { ua: IPHONE, maxTouchPoints: 5, hasSerial: false };
+  assert.equal(directHintFor(imp, app), 'impactIos');
+  assert.equal(directHintFor(imp, safari), 'impactIos');
+  assert.equal(directHintFor(th, app), 'ready');
+  assert.equal(directHintFor(th, safari), 'soon');
+  // بوّابة أندرويد صريحةً (أيّاً كان APP_BRIDGE_FOR_ALL): مغلقة ⇒ soon، وبعلامة الجسر أو مفتوحة ⇒ ready
+  const samsung = { ua: 'Mozilla/5.0 (Linux; Android 14; SAMSUNG SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/28.0 Chrome/130.0.0.0 Mobile Safari/537.36', hasSerial: false, bridgeForAll: false };
+  assert.equal(directHintFor(imp, samsung), 'soon');
+  assert.equal(directHintFor(imp, { ...samsung, bridgeFlag: true }), 'ready');
+  assert.equal(directHintFor(imp, { ...samsung, bridgeForAll: true }), 'ready');
+  assert.equal(directHintFor(imp, { ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0', hasSerial: false }), 'browser');
+});
+
+/** نافذة تطبيق الآيفون المزيّفة لـsend(): المعالج يلتقط الرسالة ويجيب done */
+async function withIosWindow<T>(run: (posted: Array<Record<string, unknown>>) => Promise<T>): Promise<T> {
+  const g = globalThis as Record<string, unknown>;
+  const saved = Object.getOwnPropertyDescriptor(g, 'window');
+  const posted: Array<Record<string, unknown>> = [];
+  const w = {
+    webkit: { messageHandlers: { fsPrint: { postMessage(msg: Record<string, unknown>) { posted.push(msg); return Promise.resolve({ ok: true, outcome: 'done' }); } } } },
+    __fsIosBridge: { v: 1, caps: ['print', 'pick', 'cancel', 'systemPrint'] },
+    addEventListener() {}, removeEventListener() {},
+  };
+  Object.defineProperty(g, 'window', { value: w, configurable: true, writable: true });
+  try { return await run(posted); } finally { if (saved) Object.defineProperty(g, 'window', saved); else delete g.window; }
+}
+
+test('send() بطابعة الآيفون ⇒ sendViaIos: البايتات والعلامات والإلغاء ونوع الطابعة والرابط البطيء والوسم كما رمّزها encodeForProfile', async () => {
+  const th = profile('thermal', 'roll_compact', 'roll80');
+  const copies = [[page(576, 48)]];
+  await withIosWindow(async (posted) => {
+    const outcome = await send({ via: 'fs-ios', name: 'RPP04' }, th, copies, { pageLabel: () => '', slow: true, lang: 'tspl', docLabel: 'فاتورة INV-9' });
+    assert.equal(outcome, 'done');
+    assert.equal(posted.length, 1);
+    assert.equal(posted[0].op, 'print');
+    const d = await decodeBridgePayload(posted[0].payload as string);
+    const want = encodeForProfile(th, copies, { lang: 'tspl' });
+    assert.equal(want.kind, 'tspl');
+    assert.equal(d.kind, 'tspl');
+    assert.deepEqual(d.bytes, want.job.bytes);
+    assert.deepEqual(d.marks, want.job.marks);
+    assert.deepEqual(d.cancel, [...TSPL_CANCEL]);
+    assert.equal(d.slow, true);
+    assert.equal(d.label, 'فاتورة INV-9');
+  });
+  // ESC/POS بلا وسمٍ ولا بطء
+  await withIosWindow(async (posted) => {
+    assert.equal(await send({ via: 'fs-ios', name: null }, th, copies, { pageLabel: () => '' }), 'done');
+    const d = await decodeBridgePayload(posted[0].payload as string);
+    assert.equal(d.kind, 'escpos');
+    assert.deepEqual(d.cancel, [...ESCPOS_CANCEL]);
+    assert.equal(d.slow, false);
+    assert.equal(d.label, '');
+  });
+});
+
+/** صفحة تطبيق الآيفون بجسره (وكيلٌ وعلامةٌ ومعالج) — للقيم الافتراضية التي تقرأ الجهاز (directPath) */
+async function withIosAppPage<T>(run: () => Promise<T> | T): Promise<T> {
+  const g = globalThis as Record<string, unknown>;
+  const keys = ['navigator', 'window'] as const;
+  const saved = keys.map((k) => [k, Object.getOwnPropertyDescriptor(g, k)] as const);
+  const nav = { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1 FieldSales', maxTouchPoints: 5 };
+  const win = {
+    webkit: { messageHandlers: { fsPrint: { postMessage: () => Promise.resolve({ ok: true, outcome: 'done' }) } } },
+    __fsIosBridge: { v: 1, caps: ['print', 'pick', 'cancel', 'systemPrint'] },
+    addEventListener() {}, removeEventListener() {},
+  };
+  Object.defineProperty(g, 'navigator', { value: nav, configurable: true, writable: true });
+  Object.defineProperty(g, 'window', { value: win, configurable: true, writable: true });
+  try { return await run(); } finally { for (const [k, d] of saved) { if (d) Object.defineProperty(g, k, d); else delete g[k]; } }
+}
+
+test('القيم الافتراضية في تطبيق الآيفون (ما تستعمله RepDocuments): البلوتوث للحرارية، والنقطية إلى نظام الطباعة', async () => {
+  const imp = profile('impact', 'impact_plain', 'ff_a4');
+  const th = profile('thermal', 'roll_compact', 'roll80');
+  await withIosAppPage(() => {
+    assert.equal(directAvailableFor(imp), false, 'النقطية لا تُرسل من الآيفون');
+    assert.equal(directAvailableFor(th), true);
+    // transportFor بلا وسيطٍ ثالث = directAvailableFor(القالب) — RepDocuments يناديها هكذا
+    assert.equal(transportFor(imp, { transport: 'bt-serial' }), 'system');
+    assert.equal(transportFor(th, { transport: 'bt-serial' }), 'bt-serial');
+    assert.equal(transportFor(th, { transport: 'system' }), 'system');
+  });
 });

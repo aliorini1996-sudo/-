@@ -1,15 +1,19 @@
 import { Download } from 'lucide-react';
 import { useTr } from '../../i18n/strings';
-import { PLAY_STORE_URL } from '../../lib/print/transport/bridgeContract';
+import { APP_STORE_URL, PLAY_STORE_URL } from '../../lib/print/transport/bridgeContract';
+import { currentPlatformInput } from '../../lib/print/transport/direct';
+import { classifyPrintPlatform } from '../../lib/print/transport/platform';
 
 /**
  * دعوة تحديث تطبيق فيلد سيلز من Google Play — الرسالة الوحيدة على أندرويد حين لا تصل الطباعة المباشرة، بلا أيّ سببٍ تقنيّ.
  * الزرّ رابطٌ في نافذةٍ جديدة: Chrome يسلّم play.google.com لتطبيق المتجر، وإلا فتبويبٌ آخر — والصفحة لا تُغادَر أبداً.
+ * وعلى الآيفون صفحة التطبيق في App Store (رابط https: تطبيق الآيفون يفتحه في متصفحٍ داخله — لا itms-apps).
  */
 export function AppUpdateButton() {
   const tr = useTr();
+  const storeUrl = classifyPrintPlatform(currentPlatformInput()).os === 'ios' ? APP_STORE_URL : PLAY_STORE_URL;
   return (
-    <a href={PLAY_STORE_URL} target="_blank" rel="noopener noreferrer"
+    <a href={storeUrl} target="_blank" rel="noopener noreferrer"
       className="mt-2 w-full bg-white border border-[#DED5C4] text-[#1F1A13] font-semibold py-2 rounded-lg flex items-center justify-center gap-2">
       <Download size={15} className="shrink-0" /> {tr('تحديث التطبيق')}
     </a>
