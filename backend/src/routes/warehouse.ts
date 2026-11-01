@@ -358,6 +358,9 @@ router.get('/entries', async (req: AuthRequest, res: Response, next: NextFunctio
       success: true,
       data: entries.map((e) => ({
         ...e,
+        // «تصفير المخزون»: معرّف التشغيلة لتسوية التصفير (null لكل حركة أخرى) — صريحٌ في الردّ فتوسمها الواجهة «تصفير» بالوسم
+        // لا بنصّ الملاحظة (يُكتب يدوياً في أي تسوية)
+        zeroRunId: e.zeroRunId ?? null,
         items: e.items.map((i) => ({ ...i, lineCost: lineCost(i.qty, i.unitCost, dec) })),
         totalCost: entryTotalCost(e.items, dec),
       })),

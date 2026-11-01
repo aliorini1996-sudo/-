@@ -19,6 +19,8 @@ import {
   revertOutcome, revertResponse, roundImportAmount, serializeBatchRecordIds, type RevertBlocked,
   OPENING_STOCK_ENTRY_TYPE, OPENING_STOCK_KIND, OPENING_STOCK_NOTE, assertOpeningStockAllowed, assertOpeningStockRevertAllowed,
   openingStockContentHash, openingStockRevertBlockReason, resolveOpeningStockRows, type OpeningStockPriorBatch,
+  // «تصفير المخزون»: حدّ آخر تصفير في فحص الجرد الافتتاحي وفي التراجع عنه
+  STOCK_ZERO_DURING_IMPORT_MESSAGE, coveredByStockZero, stockZeroMovedWhere,
   assertMasterBatchReservable, customerMatchError, groupLedgerRows, importRowError, importWriteFailure, mergeBalanceRows, normImportName,
   priceRowIssue, pricesRevertPlan, taxPctIssue, type BalanceSkipReason, type ImportMasterKind, type ImportRowError, type OpeningStockLine, type ResolvedBalanceRow,
   newPricesRevertTotals, runPricesRevertChunks, type PriceRevertChunkDelta,
@@ -128,6 +130,23 @@ function idChunks(ids: readonly string[], size: number = STOCK_CHECK_CHUNK): str
   const out: string[][] = [];
   for (let i = 0; i < ids.length; i += size) out.push(ids.slice(i, i + size));
   return out;
+}
+
+/**
+ * «تصفير المخزون»: createdAt آخر تشغيلة تصفير للشركة (null = لم تُصفَّر قط) — حدّ ما لا يمنع الجرد الافتتاحي ولا يُتراجع عنه.
+ * تُقرأ داخل المعاملة **بعد** قفل أصناف الملف (FOR KEY SHARE يتعارض مع FOR UPDATE التصفير)، فتصفيرٌ التزم ونحن ننتظر يُرى هنا.
+ * المعاملة المزيّفة في اختبارات المسارات بلا stockZeroRun ⇒ null (كتخطّي lockBases لمعاملةٍ بلا $queryRaw).
+ * warehouseOnly: آخر تصفيرٍ **صفّر المستودع** وحده (warehouseZeroed) — حدّ الاستيراد: تصفيرٌ والمستودع مطفأ لم يكتب تسوية مستودع،
+ * فرصيده المخفي (−٥٠٠ من تحميلات السيارات، أو +٧٠ من فترة تفعيلٍ سابقة) باقٍ، وجعله حدّاً يُضيف الجرد الجديد فوقه. والتراجع
+ * يقرأ آخر تصفيرٍ أيّاً كان (بلا الخيار): منعه هو الاتجاه المحافظ.
+ */
+async function latestStockZeroAt(tx: Prisma.TransactionClient, tid: string, opts?: { warehouseOnly?: boolean }): Promise<Date | null> {
+  const model = (tx as { stockZeroRun?: { findFirst?: unknown } }).stockZeroRun;
+  if (typeof model?.findFirst !== 'function') return null;
+  const run = await tx.stockZeroRun.findFirst({
+    where: { tenantId: tid, ...(opts?.warehouseOnly ? { warehouseZeroed: true } : {}) }, orderBy: { createdAt: 'desc' }, select: { createdAt: true },
+  });
+  return run?.createdAt instanceof Date ? run.createdAt : null;
 }
 
 const importedBy = (req: AuthRequest): string | null => (req.user as { name?: string } | undefined)?.name || null;
@@ -1316,6 +1335,13 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
         }));
         if (lotLocks) assertBasesUnchanged(expectedBases, lotLocks.units);
         else await lockBases(tx, tid, expectedBases);
+        // «تصفير المخزون»: ما أُنشئ حتى آخر تصفير (حركاتٌ ودفعات جرد) أُلغي رصيده، فلا يمنع جرداً جديداً — بعد قفل الأصناف أعلاه
+        // فتصفيرٌ التزم ونحن ننتظره يُرى. وإن التزم بعد بدء معاملتنا فحركتنا ستحمل dbNow (بدء المعاملة) قبله فتبدو مُصفَّرة وهي لم
+        // تُصفَّر ⇒ 409 وإعادة الرفع. بلا تصفير ⇒ null والفحص أدناه كما كان حرفياً. والحدّ تصفيرٌ صفّر المستودع وحده (warehouseOnly):
+        // تصفيرٌ والمستودع مطفأ لم يمسّ رصيده، فحركاته ودفعاته قبله ما زالت قائمة وتمنع كما كانت
+        const zeroedAt = await latestStockZeroAt(tx, tid, { warehouseOnly: true });
+        if (zeroedAt && zeroedAt.getTime() >= dbNow.getTime()) throw new ImportHttpError(409, 'OPENING_STOCK_LEDGER_BUSY', STOCK_ZERO_DURING_IMPORT_MESSAGE);
+        const afterZero = stockZeroMovedWhere(zeroedAt);
         // دفعات الجرد الافتتاحي أولاً: معرّفات حركاتها تُستثنى من فحص «الحركات السابقة» وتُقرأ وحدها بالتفصيل
         const openingBatches = await tx.importBatch.findMany({
           where: { tenantId: tid, kind: OPENING_STOCK_KIND, reverted: false }, select: { id: true, recordIds: true, createdAt: true },
@@ -1332,7 +1358,7 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
           const movedRows = await tx.warehouseEntryItem.groupBy({
             by: ['productId'],
             where: {
-              productId: { in: part }, entry: { tenantId: tid },
+              productId: { in: part }, entry: { tenantId: tid, ...afterZero },
               ...(openingEntryIds.length ? { entryId: { notIn: openingEntryIds } } : {}),
             },
             _count: { _all: true },
@@ -1343,7 +1369,7 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
         for (const part of idChunks(productIds.filter(id => !movedProductIds.has(id)))) {
           const vanRows = await tx.vanLoadItem.groupBy({
             by: ['productId'],
-            where: { productId: { in: part }, vanLoad: { tenantId: tid, type: { in: ['LOAD', 'UNLOAD'] } } },
+            where: { productId: { in: part }, vanLoad: { tenantId: tid, type: { in: ['LOAD', 'UNLOAD'] }, ...afterZero } },
             _count: { _all: true },
           });
           for (const v of vanRows) movedProductIds.add(v.productId);
@@ -1356,7 +1382,8 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
             });
             for (const it of openingItems) {
               const b = openingEntryBatch.get(it.entryId);
-              if (b && !openingBatchOf.has(it.productId)) openingBatchOf.set(it.productId, b);
+              // «تصفير المخزون»: دفعةٌ حتى آخر تصفير لا تمنع (حركاتها مستثناة من فحص الحركات أعلاه كما كانت)، والتراجع عنها ممنوع
+              if (b && !coveredByStockZero(b.createdAt, zeroedAt) && !openingBatchOf.has(it.productId)) openingBatchOf.set(it.productId, b);
             }
           }
         }
@@ -1754,8 +1781,19 @@ router.post('/batches/:id/revert', requireAdminPermission('canDelete'), async (r
             // «تتبّع اللوط» (ن١-١١): أصناف الحركة كلها تُقفل **قبل أي فحص** — المتتبَّع منها بقفل اللوط، فلا يُصرف منها شيء
             // بين الفحص والحذف (بعد صفّ الحركة FOR UPDATE في ترتيب الأقفال §٣.١)
             const lotLocks = lotsOn && productIds.length ? await lockLotProducts(tx, tid, productIds) : null;
+            // «تصفير المخزون»: والتتبّع مطفأ لا قفل على الأصناف أعلاه، فتصفيرٌ جارٍ (أقفل الأصناف FOR UPDATE وكتب تسويته −١٠٠ ولم
+            // يلتزم بعد) لا نراه، فنحذف الدفعة ويلتزمان معاً ⇒ مستودع −١٠٠. FOR KEY SHARE يتعارض مع FOR UPDATE التصفير فننتظر التزامه،
+            // ثم latestStockZeroAt أدناه (READ COMMITTED: لقطةٌ جديدة لكل استعلام) يرى تشغيلته فيمنع. المهلة 5s أعلاه ⇒ 409 القائم
+            if (!lotLocks && productIds.length) {
+              const sortedIds = [...productIds].sort();
+              await tx.$queryRaw`SELECT id FROM products WHERE "tenantId" = ${tid} AND id = ANY(${sortedIds}::text[]) ORDER BY id FOR KEY SHARE`;
+            }
             const since = { gte: entry.createdAt };
+            // «تصفير المخزون»: دفعةٌ حتى آخر تصفير أُلغيت كمياتها بتسويته، فطرحها ثانيةً يُنقص المخزون المُدخل بعده — ممنوعة
+            // ولو كان المستودع مطفأً (لا تسوية مستودع تمنعها حينها). بلا تصفير ⇒ false والأسباب كما كانت
+            const zeroedAfter = coveredByStockZero(entry.createdAt, await latestStockZeroAt(tx, tid));
             const reason = productIds.length ? openingStockRevertBlockReason({
+              zeroedAfter,
               vanLoads: await tx.vanLoadItem.count({ where: { productId: { in: productIds }, vanLoad: { tenantId: tid, type: 'LOAD', createdAt: since } } }),
               // البند 34: الفاتورة لا تمسّ رصيد المستودع (composeWarehouse لا يقرأ الفواتير أصلاً — تُخصم من مخزون
               // السيارة) فبيعٌ بعد الجرد لا يمنع التراجع عنه؛ المانع ما يمسّ المستودع: التحميل والتسوية بالنقص

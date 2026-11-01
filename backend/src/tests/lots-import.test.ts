@@ -499,7 +499,9 @@ test('التراجع عن opening_stock والميزة مطفأة: تشغيلا�
   assert.equal(world.entries.length, 0);
   assert.equal(world.lotByNumber('p2', 'M'), undefined, 'لا تشغيلة يتيمة بلا حركة');
   assert.ok(world.events.some((e) => e.kind === 'DELETE' && e.lotId === M && e.before.sourceEntryId === imp.body.data.entryId));
-  assert.ok(!world.calls.some((c) => c.sql?.includes('FOR KEY SHARE') || c.sql === 'SELECT pg_advisory_xact_lock($1)'), 'الميزة مطفأة: لا قفل لوط ولا حارس I1/I2');
+  // «تصفير المخزون»: والميزة مطفأة قفلٌ مشترك على أصناف الحركة وحده (SELECT id — يتسلسل مع تصفيرٍ جارٍ) لا قفل lockLotProducts
+  assert.ok(!world.calls.some((c) => (c.sql?.includes('FOR KEY SHARE') && c.sql.includes('"lotTracked"')) || c.sql === 'SELECT pg_advisory_xact_lock($1)'), 'الميزة مطفأة: لا قفل لوط ولا حارس I1/I2');
+  assert.equal(world.calls.filter((c) => c.sql?.startsWith('SELECT id FROM products') && c.sql.endsWith('FOR KEY SHARE')).length, 1, 'الميزة مطفأة: قفل أصناف الحركة للتسلسل مع التصفير');
   // بعد إعادة التفعيل: الرقم نفسه بانتهاءٍ مصحَّح يُنشأ من جديد لا LOT_DATES_MISMATCH مع تشغيلةٍ لم تحمل رصيداً
   world.lotsEnabled = true;
   const again = await importFile([{ productCode: 'B-2', qty: 10, unitCost: 2, lotNumber: 'M', expiryDate: '2027-02-01' }]);

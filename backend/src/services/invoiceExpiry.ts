@@ -49,7 +49,7 @@ export async function tenantTz(tenantId: string): Promise<string> {
 const LIFE = { shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true, shelfLifeBasis: true, shelfLifeFromDate: true } as const;
 
 /** عميل قراءات الصلاحية: prisma افتراضاً، أو قاعدةٌ يمرّرها المستدعي (lotsInvoice.freeReturnStamps قبل معاملة الإصدار) */
-export type ExpiryDb = Pick<Prisma.TransactionClient, 'invoiceItem' | 'vanLoadItem'>;
+export type ExpiryDb = Pick<Prisma.TransactionClient, 'invoiceItem' | 'vanLoadItem' | 'vanLoad'>;
 
 /**
  * صلاحية ما بيع في بند بيعٍ حسب **أساس الصنف** (services/shelfLife.ts): البيع ⇒ يوم الفاتورة؛ الشراء ⇒ التاريخ المكتوب
@@ -58,7 +58,7 @@ export type ExpiryDb = Pick<Prisma.TransactionClient, 'invoiceItem' | 'vanLoadIt
  */
 export async function saleExpiryFor(
   tenantId: string, tz: string, product: ShelfLifeSettings,
-  sale: { invoiceId: string; invoiceDate: Date; salesRepId: string | null; productId: string },
+  sale: { invoiceId: string; invoiceDate: Date; salesRepId: string | null; productId: string; clientCreatedAt?: Date | null },
   db: ExpiryDb = prisma,
 ): Promise<Date | null> {
   if (!shelfLifeOf(product)) return null;
@@ -66,7 +66,7 @@ export async function saleExpiryFor(
   if (basis === 'PURCHASE') return purchaseExpiry(product);
   if (basis === 'VAN_LOAD') {
     if (!sale.salesRepId) return null;
-    const at = await vanLoadBatchAt(tenantId, sale.salesRepId, sale.productId, sale.invoiceId, sale.invoiceDate, db);
+    const at = await vanLoadBatchAt(tenantId, sale.salesRepId, sale.productId, sale.invoiceId, sale.invoiceDate, db, sale.clientCreatedAt);
     return at ? expiryDateFor(product, at, tz) : null;
   }
   return expiryDateFor(product, sale.invoiceDate, tz);
@@ -78,22 +78,46 @@ export async function saleExpiryFor(
  *
  * الدفعات والمصروف كلّها **بالأساس** (الوحدات المتعددة): `_sum.qty` يجمع كراتين وحبّات رقماً واحداً فتُختار دفعةٌ
  * خاطئة، فتاريخ انتهاءٍ خاطئ، فيدخل المرتجع الدلو الخطأ (منتهي/متاح). و`baseQty` عمودٌ يحرسه مُطلِق القاعدة.
+ *
+ * «تصفير المخزون» (طلب المالك ١ نوفمبر ٢٠٢٦): آخر حركة تصفيرٍ لسيارة هذا المندوب حتى لحظة البيع (`zeroRunId` غير فارغ)
+ * **بدايةٌ جديدة** — ما قبلها من دفعات ومصروف لا يُحسب. التصفير يُسقط الرصيد بحركة ADJUST لا يراها هذا الحساب، فلولا
+ * الحدّ لبقيت دفعات ما قبل التصفير «غير مستنفدة» وطابق البيعُ الجديد دفعةً صُفّرت: انتهاءٌ أبكر من الحقيقي، فمرتجعٌ يدخل
+ * الدلو الخطأ. بلا تصفيرٍ للمندوب: الاستعلامات الثلاثة كما كانت حرفاً بحرف.
+ *
+ * والحدّ يُقاس على **لحظة البيع على الجهاز** (`clientCreatedAt`) لا يوم المزامنة: بيعٌ دون اتصال قبل التصفير رُفع بعده
+ * يحمل `invoiceDate` = لحظة الرفع، فلو قيس عليها لطابق دفعات ما بعد التصفير (انتهاءٌ أبعد من الحقيقي) وهو خرج من بضاعةٍ
+ * قبله. ولحظة الجهاز بعد لحظة الرفع (ساعةٌ متقدّمة) لا تُعتمد — لا تصفير بعد الرفع يصير حدّاً لبيعٍ قبله.
  */
-async function vanLoadBatchAt(tenantId: string, repId: string, productId: string, invoiceId: string, saleAt: Date, db: ExpiryDb): Promise<Date | null> {
+async function vanLoadBatchAt(
+  tenantId: string, repId: string, productId: string, invoiceId: string, saleAt: Date, db: ExpiryDb, clientCreatedAt?: Date | null,
+): Promise<Date | null> {
+  const deviceAt = clientCreatedAt && clientCreatedAt < saleAt ? clientCreatedAt : saleAt;
+  const cut = await zeroCutoffAt(tenantId, repId, deviceAt, db);
+  // بعد الحدّ وحده — شرطٌ إضافي في AND فيبقى شرط لحظة البيع كما هو، وبلا حدٍّ لا شيء يُضاف
+  const loadAfter = cut ? { AND: [{ createdAt: { gt: cut } }] } : {};
+  // والبيع السابق مصروفٌ بعد الحدّ إن كانت لحظته على الجهاز بعده: بيعٌ دون اتصال قبل التصفير رُفع بعده خرج من بضاعةٍ صُفّرت،
+  // فلو عُدّ مصروفاً من دفعات ما بعده لدفع البيع الحقيقي التالي إلى دفعةٍ أحدث من دفعته. ورفعُه بعد الحدّ شرطٌ قائم: ما رُفع
+  // قبل التصفير خرج قبله وإن تقدّمت ساعة جهازه
+  const saleAfter = cut
+    ? { AND: [{ invoiceDate: { gt: cut } }, { OR: [{ clientCreatedAt: null }, { clientCreatedAt: { gt: cut } }] }] }
+    : {};
   const [loads, sold, unloaded] = await Promise.all([
     db.vanLoadItem.findMany({
-      where: { productId, vanLoad: { tenantId, salesRepId: repId, type: 'LOAD', createdAt: { lte: saleAt } } },
+      where: { productId, vanLoad: { tenantId, salesRepId: repId, type: 'LOAD', createdAt: { lte: saleAt }, ...loadAfter } },
       select: { qty: true, unitFactor: true, baseQty: true, vanLoad: { select: { createdAt: true } } },
     }),
     db.invoiceItem.aggregate({
       where: {
         productId,
-        invoice: { tenantId, salesRepId: repId, status: 'CONFIRMED', type: { not: 'RETURN' }, id: { not: invoiceId }, invoiceDate: { lt: saleAt } },
+        invoice: {
+          tenantId, salesRepId: repId, status: 'CONFIRMED', type: { not: 'RETURN' }, id: { not: invoiceId }, invoiceDate: { lt: saleAt },
+          ...saleAfter,
+        },
       },
       _sum: { baseQty: true },
     }),
     db.vanLoadItem.aggregate({
-      where: { productId, vanLoad: { tenantId, salesRepId: repId, type: 'UNLOAD', createdAt: { lt: saleAt } } },
+      where: { productId, vanLoad: { tenantId, salesRepId: repId, type: 'UNLOAD', createdAt: { lt: saleAt }, ...loadAfter } },
       _sum: { baseQty: true },
     }),
   ]);
@@ -101,6 +125,20 @@ async function vanLoadBatchAt(tenantId: string, repId: string, productId: string
     loads.map((l) => ({ qty: baseQtyOf(l), at: l.vanLoad.createdAt })),
     Number(sold._sum.baseQty ?? 0) + Number(unloaded._sum.baseQty ?? 0),
   );
+}
+
+/**
+ * لحظة آخر تصفيرٍ لسيارة المندوب حتى لحظة البيع، أو null. «حتى لحظة البيع» لا «آخر تصفيرٍ مطلقاً»: بيعٌ قديم بلا لقطة
+ * يُحسب لاحقاً (المرتجع المرتبط أو الحرّ) يُقاس على دفعاته هو قبل التصفير الذي جاء بعده. حركات التصفير الواحد (تسوية
+ * وتالف ومنتهي) متقاربةُ اللحظة فأحدثها هو الحدّ.
+ */
+async function zeroCutoffAt(tenantId: string, repId: string, saleAt: Date, db: ExpiryDb): Promise<Date | null> {
+  const z = await db.vanLoad.findFirst({
+    where: { tenantId, salesRepId: repId, zeroRunId: { not: null }, createdAt: { lte: saleAt } },
+    orderBy: { createdAt: 'desc' },
+    select: { createdAt: true },
+  });
+  return z?.createdAt ?? null;
 }
 
 /** يحسب ويسجّل صلاحية بنود فاتورةٍ أو مرتجع صدر للتوّ */
@@ -126,6 +164,8 @@ export async function stampInvoiceExpiry(tenantId: string, invoiceId: string): P
       id: it.id,
       expiresAt: await saleExpiryFor(tenantId, tz, it.product!, {
         invoiceId: inv.id, invoiceDate: inv.invoiceDate, salesRepId: inv.salesRepId, productId: it.productId!,
+        // بيعٌ دون اتصال: لحظته على الجهاز هي ما يُقاس عليه حدّ التصفير، لا لحظة الرفع
+        clientCreatedAt: inv.clientCreatedAt,
       }),
     })));
     await prisma.$transaction([
@@ -151,12 +191,13 @@ export async function stampInvoiceExpiry(tenantId: string, invoiceId: string): P
     if (linkedSaleItem) {
       const sale = await prisma.invoiceItem.findFirst({
         where: { id: linkedSaleItem, invoice: { tenantId } },
-        select: { invoiceId: true, expiresAt: true, invoice: { select: { invoiceDate: true, salesRepId: true } } },
+        select: { invoiceId: true, expiresAt: true, invoice: { select: { invoiceDate: true, clientCreatedAt: true, salesRepId: true } } },
       });
       if (!sale) continue;
       // بيعٌ قبل الميزة بلا لقطة: يُحسب بأساس الصنف الحالي وصلاحيته
       const expiresAt = sale.expiresAt ?? await saleExpiryFor(tenantId, tz, it.product!, {
         invoiceId: sale.invoiceId, invoiceDate: sale.invoice.invoiceDate, salesRepId: sale.invoice.salesRepId, productId: it.productId!,
+        clientCreatedAt: sale.invoice.clientCreatedAt,
       });
       stamp = expiresAt ? { expiresAt, returnExpired: isExpiredOn(returnDay, expiresAt), expirySaleInvoiceId: sale.invoiceId } : null;
     }
@@ -199,12 +240,13 @@ export async function freeReturnStamps<K>(
         },
       },
       orderBy: [{ invoice: { invoiceDate: 'desc' } }, { invoice: { createdAt: 'desc' } }],
-      select: { invoiceId: true, expiresAt: true, invoice: { select: { invoiceDate: true, salesRepId: true } } },
+      select: { invoiceId: true, expiresAt: true, invoice: { select: { invoiceDate: true, clientCreatedAt: true, salesRepId: true } } },
     });
     if (!sale) continue;
     // بيعٌ قبل الميزة بلا لقطة: يُحسب بأساس الصنف الحالي وصلاحيته
     const expiresAt = sale.expiresAt ?? await saleExpiryFor(tenantId, tz, it.product, {
       invoiceId: sale.invoiceId, invoiceDate: sale.invoice.invoiceDate, salesRepId: sale.invoice.salesRepId, productId: it.productId,
+      clientCreatedAt: sale.invoice.clientCreatedAt,
     }, db);
     if (!expiresAt) continue;
     out.set(it.key, { expiresAt, returnExpired: isExpiredOn(returnDay, expiresAt), expirySaleInvoiceId: sale.invoiceId });
@@ -229,7 +271,7 @@ export async function returnRuleBlock(
   if (!todo.length) return null;
   const tz = await tenantTz(tenantId);
   const returnDay = localDateIn(ret.returnAt, tz);
-  const pick = { invoiceId: true, expiresAt: true, invoice: { select: { invoiceDate: true, salesRepId: true } } } as const;
+  const pick = { invoiceId: true, expiresAt: true, invoice: { select: { invoiceDate: true, clientCreatedAt: true, salesRepId: true } } } as const;
   for (const l of todo) {
     const p = ruled.get(l.productId)!;
     const sale = l.saleItemId
@@ -252,6 +294,7 @@ export async function returnRuleBlock(
     if (!sale) continue;
     const expiresAt = sale.expiresAt ?? await saleExpiryFor(tenantId, tz, p, {
       invoiceId: sale.invoiceId, invoiceDate: sale.invoice.invoiceDate, salesRepId: sale.invoice.salesRepId, productId: l.productId,
+      clientCreatedAt: sale.invoice.clientCreatedAt,
     });
     if (!expiresAt) continue;
     const why = returnRuleProblem(p, expiresAt, returnDay);
@@ -278,7 +321,7 @@ export async function linkedReturnExpiry(
   const [rows, tz] = await Promise.all([
     prisma.invoiceItem.findMany({
       where: { id: { in: saleItemIds }, invoice: { tenantId } },
-      select: { id: true, invoiceId: true, productId: true, expiresAt: true, invoice: { select: { invoiceDate: true, salesRepId: true } }, product: { select: LIFE } },
+      select: { id: true, invoiceId: true, productId: true, expiresAt: true, invoice: { select: { invoiceDate: true, clientCreatedAt: true, salesRepId: true } }, product: { select: LIFE } },
     }),
     tenantTz(tenantId),
   ]);
@@ -286,6 +329,7 @@ export async function linkedReturnExpiry(
   for (const r of rows) {
     const expiresAt = r.expiresAt ?? (r.product && r.productId ? await saleExpiryFor(tenantId, tz, r.product, {
       invoiceId: r.invoiceId, invoiceDate: r.invoice.invoiceDate, salesRepId: r.invoice.salesRepId, productId: r.productId,
+      clientCreatedAt: r.invoice.clientCreatedAt,
     }) : null);
     if (expiresAt) out.set(r.id, { expiresAt, returnExpired: isExpiredOn(returnDay, expiresAt), expirySaleInvoiceId: r.invoiceId });
   }

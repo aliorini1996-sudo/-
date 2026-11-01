@@ -144,6 +144,7 @@ model Tenant {
   teams                Team[]
   salesLocations       SalesLocation[]
   warehouseEntries     WarehouseEntry[]
+  stockZeroRuns        StockZeroRun[]
   repLocations         RepLocation[]
   repSettlements       RepSettlement[]
   importBatches        ImportBatch[]
@@ -1691,6 +1692,9 @@ model VanLoad {
   type       String   @default("LOAD") // LOAD | UNLOAD | ADJUST
   note       String?
   createdBy  String? // "REP" | "ADMIN" — من سجّل الحركة
+  /// «تصفير المخزون» (طلب المالك ١ نوفمبر ٢٠٢٦): معرّف StockZeroRun لحركة التصفير — null لكل حركة أخرى. وسمٌ لا يُزوَّر
+  /// بنصّ ملاحظة، وهو حدّ دفعات الصلاحية (VAN_LOAD) للمندوب بعد التصفير. بلا مفتاح أجنبي: سجلٌّ تدقيقيّ لا علاقة تُحذف
+  zeroRunId  String?
   createdAt  DateTime @default(now())
   /// طابع التعديل — للمزامنة (/api/v1/sync): حذف المندوب يغيّر salesRepId/deletedSalesRepId بعد الإنشاء.
   /// @default(now()) يجعله إضافياً على جدولٍ مأهول
@@ -1817,6 +1821,9 @@ model WarehouseEntry {
   tenant    Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   type      String               @default("RECEIVE") // RECEIVE (وارد/شراء) | ADJUST (تسوية)
   note      String?
+  /// «تصفير المخزون»: معرّف StockZeroRun لتسوية التصفير (ADJUST) — null لكل حركة أخرى. يميّزها في السجلّ وفي حارس استيراد
+  /// المخزون الافتتاحي (الحركات حتى آخر تصفير لا تمنع استيراداً جديداً)
+  zeroRunId String?
   supplier  String? // المورّد (اختياري، للوارد)
   createdBy String? // اسم المستخدم الذي سجّل الحركة
   items     WarehouseEntryItem[]
@@ -1824,6 +1831,33 @@ model WarehouseEntry {
 
   @@index([tenantId, createdAt])
   @@map("warehouse_entries")
+}
+
+/// «تصفير المخزون» (طلب المالك ١ نوفمبر ٢٠٢٦): تشغيلةٌ واحدة تصفّر مستودع الشركة وكل سيارات المناديب بحركات تسوية
+/// (لا حذف تاريخ). السجلّ التدقيقيّ: من وبأيّ جلسة ومتى، والأرصدة والقيم قبل التصفير في summary
+model StockZeroRun {
+  id               String   @id @default(uuid())
+  tenantId         String
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// معرّف يولّده العميل لكل محاولة — إعادة الطلب نفسه (انقطاع الشبكة) تردّ التشغيلة القائمة بلا حركة ثانية
+  zeroRef          String
+  /// actorOf(req): معرّف المدير، أو OWNER:<id> لجلسة المالك
+  actorId          String
+  /// الاسم المعروض: اسم المدير أو «الدعم الفني» لجلسة المالك
+  actorName        String
+  impersonated     Boolean  @default(false)
+  warehouseEntryId String?
+  vanLoadCount     Int      @default(0)
+  /// صفّرت المستودعَ نفسه (warehouseEnabled لحظتها) — وحدها حدُّ حارس استيراد المخزون الافتتاحي: تشغيلةٌ صفّرت السيارات
+  /// والمستودع مطفأ تركت رصيده المخفيّ (الوارد − المحمَّل) كما هو، فلا تفتح الاستيراد فوقه
+  warehouseZeroed  Boolean  @default(false)
+  /// الأرصدة قبل التصفير لكل نطاق وصنف (الكمية بالأساس والقيمة بتكلفة الشراء) والإجماليات وما تُرك ولماذا
+  summary          Json
+  createdAt        DateTime @default(now())
+
+  @@unique([tenantId, zeroRef])
+  @@index([tenantId, createdAt])
+  @@map("stock_zero_runs")
 }
 
 model WarehouseEntryItem {

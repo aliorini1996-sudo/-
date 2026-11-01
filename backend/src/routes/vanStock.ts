@@ -772,7 +772,8 @@ router.get('/loads', async (req: AuthRequest, res: Response, next: NextFunction)
     // والمستخدم المقيَّد لا يراها أصلاً: قيد النطاق علاقةٌ بمندوب، والمفرَّغ لا يطابقها.
     res.json({
       success: true,
-      data: loads.map(l => ({ ...l, salesRep: l.salesRep ?? { id: null, name: REP_GONE_NAME }, location: l.location ?? null })),
+      // «تصفير المخزون»: zeroRunId صريحٌ لكل حركة (null لغير التصفير) — الواجهة توسم حركة التصفير بالوسم لا بنصّ الملاحظة
+      data: loads.map(l => ({ ...l, zeroRunId: l.zeroRunId ?? null, salesRep: l.salesRep ?? { id: null, name: REP_GONE_NAME }, location: l.location ?? null })),
       ...(total !== null && { pagination: { total, page, limit, pages: Math.ceil(total / limit) } }),
     });
   } catch (err) { next(err); }
@@ -811,13 +812,14 @@ router.get('/movements', async (req: AuthRequest, res: Response, next: NextFunct
     const primaryOf = (p: { primaryUnitId?: string | null } | null | undefined) => ({ primaryUnitId: p?.primaryUnitId || null });
     const movements = [
       ...loads.map(l => ({
-        kind: l.type, date: l.createdAt, ref: l.note || '', by: l.createdBy,
+        // «تصفير المخزون»: معرّف التشغيلة لحركة التصفير (null لغيرها؛ والفواتير أدناه null دائماً)
+        kind: l.type, date: l.createdAt, ref: l.note || '', by: l.createdBy, zeroRunId: l.zeroRunId ?? null,
         items: l.items.map(i => ({ name: i.product.name, unit: i.unitName ?? i.product.unit, qty: i.qty, baseQty: baseQtyOf(i), ...primaryOf(i.product), ...(withLots && { lots: (i as { lots?: unknown }).lots ?? [] }) })),
       })),
       ...invoices.map(inv => ({
         // المرتجع التالف (منذ DAMAGED_VAN_SINCE) يدخل رصيد «المرتجع التالف» لا المتاح — فيُوسم بذلك في الحركة
         kind: inv.type === 'RETURN' ? (isDamagedVanReturn(inv) ? 'RETURN_DAMAGED' : 'RETURN') : 'SALE', date: inv.invoiceDate,
-        ref: !visible || visible.has(inv.id) ? `${inv.number} · ${inv.customer.name}` : 'مستند خارج نطاقك', by: 'REP',
+        ref: !visible || visible.has(inv.id) ? `${inv.number} · ${inv.customer.name}` : 'مستند خارج نطاقك', by: 'REP', zeroRunId: null,
         items: inv.items.map(i => ({ name: i.product?.name ?? 'صنف محذوف', unit: i.unitName ?? i.product?.unit ?? '', qty: i.qty, baseQty: baseQtyOf(i), ...primaryOf(i.product), ...(withLots && { lots: (i as { lots?: unknown }).lots ?? [] }) })),
       })),
     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 60);

@@ -5,13 +5,14 @@ import { warehouseApi, productApi, companyApi, repStockRequestApi } from '../api
 import { formatDate, formatCurrency, formatDayOnly } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import SearchableSelect from '../components/SearchableSelect';
-import { Warehouse, PackagePlus, X, Trash2, TrendingUp, TrendingDown, AlertTriangle, Calendar, ArrowRightLeft, Wallet, Info, FileDown, ClipboardList, Truck, Layers, ChevronDown, ChevronUp, CopyPlus } from 'lucide-react';
+import { Warehouse, PackagePlus, X, Trash2, TrendingUp, TrendingDown, AlertTriangle, Calendar, ArrowRightLeft, Wallet, Info, FileDown, ClipboardList, Truck, Layers, ChevronDown, ChevronUp, CopyPlus, Eraser } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
 import DocumentModal from '../components/DocumentModal';
 import StockRequestModal from '../components/StockRequestModal';
+import StockZeroModal from '../components/StockZeroModal';
 import { warehouseNoticeDocFromEntry, Company } from '../rep/RepDocuments';
-import { useAuthStore } from '../store/authStore';
+import { useAuthStore, isStaffImpersonationClient } from '../store/authStore';
 import { baseQtyText, biggestUnit, hasBigUnit, productUnitLabel } from '../lib/adminUnits';
 import { choiceById, defaultChoice, rebaseRow, unitChoices } from '../rep/repUnits';
 import { primaryUnitOf, type UnitDef } from '../lib/units';
@@ -56,6 +57,8 @@ interface WhRow {
 }
 interface WhEntry {
   id: string; type: string; note: string | null; supplier: string | null; createdBy: string | null; createdAt: string;
+  /** «تصفير المخزون»: معرّف التصفير الذي كتب هذه التسوية — null (أو غائبٌ من خادمٍ أقدم) لكل حركةٍ عادية */
+  zeroRunId?: string | null;
   // lineCost: قيمة السطر كما قرّبها الخادم — للإشعار المطبوع، مجموعها = totalCost.
   // unitName/unitFactor لقطة وحدة السطر: الكمية وتكلفة الوحدة بها (الكرتون كرتوناً)
   // lot: تشغيلة السطر («تتبّع اللوط»، والميزة مفعّلة وحدها)
@@ -95,6 +98,19 @@ export default function CompanyWarehousePage() {
   // نافذة «طلب مخزون» لإدارة المشتريات أو الإنتاج
   const [showRequest, setShowRequest] = useState(false);
   const me = useAuthStore(s => s.user);
+  /* «تصفير المخزون» (طلب المالك ١ نوفمبر ٢٠٢٦): لمدير الشركة غير المقيَّد بنطاق ولجلسة المالك وحدهما — إظهارٌ فقط،
+   * والخادم هو الحَكَم (يرفض المقيَّد ومفتاح API وانتحال الموظف) */
+  const impersonating = useAuthStore(s => s.impersonating);
+  // «دخول» موظف المنصة دوره ADMIN و`impersonating` قائم — يُستثنى من الفرعين فالخادم يرفضه دائماً (٤٠٣)، ومديرٌ نُزعت منه «تحميل مخزون السيارة» يرفضه كذلك
+  const canZeroStock = !isStaffImpersonationClient() && ((me?.role === 'ADMIN' && !me?.scopeEnabled && me?.canManageVanStock !== false) || !!impersonating);
+  const [showZero, setShowZero] = useState(false);
+  // تسويات التصفير المفتوحة أصنافها في السجلّ — مطويّةٌ افتراضاً («N صنف») فلا يغرق السجلّ بمئات الأسطر
+  const [openZeroEntries, setOpenZeroEntries] = useState<Set<string>>(() => new Set());
+  const toggleZeroEntry = (id: string) => setOpenZeroEntries(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
   // الحركة المعروض إشعارها الآن
   const [noticeOf, setNoticeOf] = useState<WhEntry | null>(null);
   // صفّ الرصيد الموسَّع بتشغيلاته
@@ -197,6 +213,11 @@ export default function CompanyWarehousePage() {
               <span title={tr('طلبات المناديب')} className="absolute -top-2 -start-2 min-w-[20px] h-5 px-1 rounded-full bg-[#E15A30] text-white text-[11px] font-bold flex items-center justify-center">{pendingRepRequests}</span>
             )}
           </button>
+          {canZeroStock && (
+            <button type="button" onClick={() => setShowZero(true)} className="btn-secondary text-[#C0392B] border-red-200 hover:bg-red-50">
+              <Eraser size={17} /> {tr('تصفير المخزون')}
+            </button>
+          )}
           <button onClick={() => setShowEntry(true)} className="btn-primary"><PackagePlus size={17} /> {tr('استلام / تسوية')}</button>
         </div>
       </div>
@@ -391,12 +412,16 @@ export default function CompanyWarehousePage() {
           <div className="p-8 text-center text-gray-400 text-sm">{tr('لا توجد حركات وارد بعد')}</div>
         ) : (
           <div className="max-h-[360px] overflow-y-auto divide-y divide-[#F1EBDF]">
-            {(entriesQ.data || []).map(e => (
+            {(entriesQ.data || []).map(e => {
+              // تسوية «تصفير المخزون»: شارةٌ حمراء بدل «تسوية»، وأصنافها مطويّة بعددها حتى تُفتح
+              const isZero = !!e.zeroRunId;
+              const itemsOpen = !isZero || openZeroEntries.has(e.id);
+              return (
               <div key={e.id} className="px-5 py-3">
                 <div className="flex items-center justify-between gap-2">
-                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 ${e.type === 'RECEIVE' ? 'text-[#1E7A52] bg-green-50' : 'text-purple-600 bg-purple-50'}`}>
-                    {e.type === 'RECEIVE' ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                    {e.type === 'RECEIVE' ? tr('وارد') : tr('تسوية')}
+                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 ${isZero ? 'text-red-700 bg-red-50 border border-red-200' : e.type === 'RECEIVE' ? 'text-[#1E7A52] bg-green-50' : 'text-purple-600 bg-purple-50'}`}>
+                    {isZero ? <Eraser size={12} /> : e.type === 'RECEIVE' ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                    {isZero ? tr('تصفير المخزون') : e.type === 'RECEIVE' ? tr('وارد') : tr('تسوية')}
                   </span>
                   <span className="flex items-center gap-2">
                     <span className="text-[11px] text-[#9A8F7E] flex items-center gap-1"><Calendar size={11} /> {formatDate(e.createdAt)}</span>
@@ -409,6 +434,14 @@ export default function CompanyWarehousePage() {
                   </span>
                 </div>
                 {(e.supplier || e.note) && <p className="text-xs text-[#6E6557] mt-1.5">{[e.supplier, e.note].filter(Boolean).join(' · ')}</p>}
+                {isZero && (
+                  <button type="button" onClick={() => toggleZeroEntry(e.id)} aria-expanded={itemsOpen}
+                    className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-[#6E6557] hover:text-[#E15A30]">
+                    {e.items.length} {tr('صنف')} · {itemsOpen ? tr('إخفاء الأصناف') : tr('إظهار الأصناف')}
+                    {itemsOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                  </button>
+                )}
+                {itemsOpen && (
                 <div className="flex flex-wrap gap-1.5 mt-1.5">
                   {e.items.map(it => {
                     // لقطة وحدة السطر: «١٠ كرتون · ٤٨/كرتون» — وحدة الصنف اليوم (الأساس بعد التحويل) تنسب سعر الكرتون للحبة
@@ -430,6 +463,7 @@ export default function CompanyWarehousePage() {
                     );
                   })}
                 </div>
+                )}
                 {e.totalCost > 0 && (
                   <p className="text-[11px] text-[#6E6557] mt-1.5">
                     {tr('قيمة البضاعة قبل الضريبة')}: <b className="text-[#1F1A13]">{formatCurrency(e.totalCost)}</b>
@@ -437,12 +471,14 @@ export default function CompanyWarehousePage() {
                 )}
                 {e.createdBy && <p className="text-[11px] text-[#9A8F7E] mt-1">{tr('سجلها')}: {e.createdBy}</p>}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
 
       {showEntry && <WarehouseEntryModal lotOn={lotOn} onClose={() => setShowEntry(false)} />}
+      {showZero && canZeroStock && <StockZeroModal onClose={() => setShowZero(false)} />}
 
       {showRequest && (
         <StockRequestModal rows={rows} company={companyQ.data ?? null} by={me?.name}

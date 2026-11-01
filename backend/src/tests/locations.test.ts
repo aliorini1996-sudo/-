@@ -179,7 +179,8 @@ test('جرد: الفواتير تُنشأ في ثلاثة مواضع والتح�
   }
   assert.deepEqual([...inv.entries()].sort(), [['routes/invoices.ts', 1], ['routes/invoicesNotes.ts', 1], ['routes/invoicesZatca.ts', 1]],
     'مسار إنشاء فاتورة جديد: اختمه بموقع المندوب (repStampLocation) أو أورثه من أصله ثم حدّث هذا الجرد');
-  assert.deepEqual([...van.entries()], [['routes/vanStock.ts', 1]], 'مسار إنشاء تحميل جديد: اختمه ثم حدّث هذا الجرد');
+  // «تصفير المخزون» (services/stockZero.ts) يكتب تسوية/إزالة لا تحميلاً — الختم للتحميل (LOAD) وحده فلا ختم له
+  assert.deepEqual([...van.entries()].sort(), [['routes/vanStock.ts', 1], ['services/stockZero.ts', 1]], 'مسار إنشاء تحميل جديد: اختمه ثم حدّث هذا الجرد');
 });
 
 test('المرحلة الأولى: الختم من صفّ المندوب القائم (العَلَم في include نفسه)، والمرتجع المرتبط يرث من صفّ بيعه المقفل', () => {

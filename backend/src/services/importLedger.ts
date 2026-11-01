@@ -1081,6 +1081,31 @@ export function openingStockMovementConflicts(
   return { lines: accepted, errors };
 }
 
+// ═══ «تصفير المخزون» (طلب المالك ١ نوفمبر ٢٠٢٦): ما قبل آخر تصفير لا يمنع جرداً افتتاحياً جديداً ═══
+
+/**
+ * التصفير يُنزل كل رصيد المستودع والسيارات إلى الصفر بتسويات، ثم تُدخل الشركة مخزونها من جديد — فالحركات ودفعات الجرد
+ * التي أُنشئت **حتى** آخر تصفير لم يبقَ منها رصيدٌ يُضاف الجرد فوقه. الحدّ createdAt آخر StockZeroRun للشركة.
+ * بلا تصفير (null/undefined) ⇒ false دائماً، فالسلوك قبل الميزة كما هو حرفياً.
+ */
+export function coveredByStockZero(at: unknown, zeroedAt: Date | null | undefined): boolean {
+  if (!(zeroedAt instanceof Date) || Number.isNaN(zeroedAt.getTime())) return false;
+  return at instanceof Date && !Number.isNaN(at.getTime()) && at.getTime() <= zeroedAt.getTime();
+}
+
+/**
+ * شرط الحركة (warehouseEntry أو vanLoad) التي ما زالت تمنع الجرد الافتتاحي: بعد آخر تصفير، وليست حركة تصفير (zeroRunId) —
+ * حركات التشغيلة نفسها تُكتب في معاملتها بعد صفّ التشغيلة فقد يزيد createdAt لها عليه بأجزاء من الثانية، ولا رصيد يبقى منها.
+ * بلا تصفير ⇒ {} فلا يتغيّر الاستعلام عمّا كان.
+ */
+export function stockZeroMovedWhere(zeroedAt: Date | null | undefined): { createdAt?: { gt: Date }; zeroRunId?: null } {
+  if (!(zeroedAt instanceof Date) || Number.isNaN(zeroedAt.getTime())) return {};
+  return { createdAt: { gt: zeroedAt }, zeroRunId: null };
+}
+
+/** تصفيرٌ التزم أثناء معاملة الجرد (انتظرنا قفل أصنافه): حركتنا ستحمل ساعة بدء المعاملة قبله فتبدو «مُصفَّرة» وهي لم تُصفَّر */
+export const STOCK_ZERO_DURING_IMPORT_MESSAGE = 'صُفّر المخزون أثناء الاستيراد، أعد رفع الملف';
+
 /** آثار استهلاك أصناف الحركة بعد إنشائها */
 export interface OpeningStockFootprint {
   /** بنود تحميل سيارات (LOAD) لأصناف الحركة منذ إنشائها */
@@ -1089,9 +1114,15 @@ export interface OpeningStockFootprint {
   invoiceItems: number;
   /** تسويات مستودع بالنقص لأصناف الحركة منذ إنشائها */
   warehouseOut: number;
+  /**
+   * «تصفير المخزون»: أُنشئت الحركة حتى آخر تصفير — كمياتها أُلغيت بتسوية التصفير، فطرحها ثانيةً يُنقص المخزون المُدخل بعده.
+   * اختياري: غيابه (أو false) يُبقي الأسباب كما كانت
+   */
+  zeroedAfter?: boolean;
 }
 
 export function openingStockRevertBlockReason(f: OpeningStockFootprint): string | null {
+  if (f.zeroedAfter === true) return 'صُفّر المخزون بعد هذا الاستيراد';
   if (f.vanLoads > 0) return 'حُمّل من أصناف المخزون الافتتاحي إلى السيارات';
   if (f.invoiceItems > 0) return 'بيعت أصناف المخزون الافتتاحي في فواتير';
   if (f.warehouseOut > 0) return 'سُوّي مخزون الأصناف بالنقص بعد الاستيراد';

@@ -38,6 +38,7 @@ import profileDeckRouter from './routes/profileDeck';
 import contactRouter from './routes/contact';
 import vanStockRouter from './routes/vanStock';
 import warehouseRouter from './routes/warehouse';
+import stockZeroRouter from './routes/stockZero';
 import repStockRequestsRouter from './routes/repStockRequests';
 import locationsRouter from './routes/locations';
 import lotsRouter from './routes/lots';
@@ -230,6 +231,7 @@ app.use('/api/profile-deck', profileDeckRouter);
 app.use('/api/contact', contactRouter);
 app.use('/api/van-stock', vanStockRouter);
 app.use('/api/warehouse', warehouseRouter);
+app.use('/api/stock-zero', stockZeroRouter); // «تصفير المخزون» — المستودع وكل السيارات بحركات تسوية لمدير الشركة أو جلسة المالك (routes/stockZero.ts)
 app.use('/api/rep-stock-requests', repStockRequestsRouter); // «طلب بضاعة» المندوب ← «طلب مخزون» في مخزون الشركة
 app.use('/api/locations', locationsRouter); // «لوكيشن» — مواقع الشركة وملخّص الفواتير والتحميلات لكل موقع؛ يفعّلها المالك لكل شركة
 app.use('/api/lots', lotsRouter); // «تتبّع اللوط» — البطاقات والأرصدة والتسمية والتتبّع والسحب؛ يفعّلها المالك لكل شركة (services/lots.ts)

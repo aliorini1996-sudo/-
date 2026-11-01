@@ -755,7 +755,7 @@ router.get('/:id/returnable', async (req: AuthRequest, res: Response, next: Next
     const sale = await prisma.invoice.findFirst({
       where: { id: req.params.id, tenantId: tid, ...(isRep ? {} : await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) },
       select: {
-        id: true, number: true, invoiceDate: true, customerId: true, salesRepId: true, type: true, status: true, documentKind: true,
+        id: true, number: true, invoiceDate: true, clientCreatedAt: true, customerId: true, salesRepId: true, type: true, status: true, documentKind: true,
         items: {
           select: {
             id: true, productId: true, qty: true, lineTotal: true, taxPct: true, expiresAt: true,
@@ -793,6 +793,8 @@ router.get('/:id/returnable', async (req: AuthRequest, res: Response, next: Next
       // بيعٌ قبل الميزة بلا لقطة: بأساس الصنف الحالي (البيع أو الشراء أو تحميل السيارة)
       const expiresAt = it.expiresAt ?? await saleExpiryFor(tid, tz, it.product!, {
         invoiceId: sale.id, invoiceDate: sale.invoiceDate, salesRepId: sale.salesRepId, productId: it.productId!,
+        // بيعٌ دون اتصال: حدّ «تصفير المخزون» بلحظته على الجهاز (invoiceExpiry.vanLoadBatchAt)
+        clientCreatedAt: sale.clientCreatedAt,
       });
       // الكميات بالأساس (القاعدة ٩): المبيع والمرتجَع (حبّةٌ من كرتون تُنقص حبّة) والمتاح
       const soldBase = baseQtyOf(it);

@@ -86,6 +86,8 @@ const db: Row = {
     },
   },
   vanLoad: {
+    // حدّ «تصفير المخزون» لدفعات الصلاحية (invoiceExpiry zeroCutoffAt): لا تصفير في هذا الاختبار
+    async findFirst() { return null; },
     async create(a: Row) {
       const items = (a.data.items.create as Row[]).map(withTrigger);
       st.createdLoads.push({ ...a.data, items });

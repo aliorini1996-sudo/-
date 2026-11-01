@@ -4,7 +4,7 @@ import { vanStockApi, productApi, salesRepApi, companyApi, lotsApi } from '../ap
 import { formatDate, activeLocale, formatDayOnly } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import SearchableSelect from '../components/SearchableSelect';
-import { Truck, Package, TrendingDown, Plus, X, Trash2, ArrowDownToLine, Boxes, Calendar, Sparkles, AlertTriangle, Target, Download, Wrench, Layers, ChevronDown, ChevronUp, Info } from 'lucide-react';
+import { Truck, Package, TrendingDown, Plus, X, Trash2, ArrowDownToLine, Boxes, Calendar, Sparkles, AlertTriangle, Target, Download, Wrench, Layers, ChevronDown, ChevronUp, Info, Eraser } from 'lucide-react';
 import toast from 'react-hot-toast';
 import DocumentModal from '../components/DocumentModal';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -12,6 +12,8 @@ import { loadNoticeDocFromData, Company } from '../rep/RepDocuments';
 import { splitVanMovement } from '../lib/vanMovement';
 import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
 import VanLoadsLog from '../components/VanLoadsLog';
+import StockZeroModal from '../components/StockZeroModal';
+import { useAuthStore, isStaffImpersonationClient } from '../store/authStore';
 import { baseQtyText, hasBigUnit, productUnitLabel, suggestionChoice } from '../lib/adminUnits';
 import { choiceById, defaultChoice, primaryChoice, rebaseRow, unitChoices } from '../rep/repUnits';
 import { primaryUnitOf, type UnitDef } from '../lib/units';
@@ -120,6 +122,8 @@ interface Movement {
   // unit لقطة وحدة البند كما سُجّل (الكرتون كرتوناً)، وbaseQty كميته بالأساس — بها يعرف الإشعار أنّ وحداته اختلطت.
   // lots: تشغيلات البند («تتبّع اللوط»، withLots=1 والميزة مفعّلة وحدهما) — بالأساس
   items: { name: string; unit: string; qty: number; baseQty?: number | null; lots?: VanLoadItemLotDto[] }[];
+  /** «تصفير المخزون»: معرّف التصفير الذي كتب هذه الحركة — null (أو غائبٌ: بيعٌ أو مرتجع أو خادمٌ أقدم) لكل حركةٍ عادية */
+  zeroRunId?: string | null;
 }
 
 /** صنفٌ كما يردّه /products — علم اللوط وحقول الصلاحية لتحميل الصنف المتتبَّع */
@@ -171,6 +175,13 @@ export default function VanStockPage() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const filtered = !!(from || to);
+  /* «تصفير المخزون» (طلب المالك ١ نوفمبر ٢٠٢٦): لمدير الشركة غير المقيَّد بنطاق ولجلسة المالك وحدهما — إظهارٌ فقط،
+   * والخادم هو الحَكَم. النافذة نفسها في «مخزون الشركة»: تصفّر المستودع والسيارات معاً */
+  const me = useAuthStore(s => s.user);
+  const impersonating = useAuthStore(s => s.impersonating);
+  // «دخول» موظف المنصة دوره ADMIN و`impersonating` قائم — يُستثنى من الفرعين فالخادم يرفضه دائماً (٤٠٣)، ومديرٌ نُزعت منه «تحميل مخزون السيارة» يرفضه كذلك
+  const canZeroStock = !isStaffImpersonationClient() && ((me?.role === 'ADMIN' && !me?.scopeEnabled && me?.canManageVanStock !== false) || !!impersonating);
+  const [showZero, setShowZero] = useState(false);
 
   // مخزون السيارة بضاعةٌ وقيمة: صفحته تُمنع مع المحاسبة، ومسار /van-stock
   // محروسٌ بالخادم فكلّ طلبٍ هنا كان سيعود ٤٠٣ بلافتة خطأ.
@@ -297,8 +308,15 @@ export default function VanStockPage() {
           </h1>
           <p className="text-[#6E6557] text-sm mt-1">{tr('متابعة ما حمله كل مندوب في سيارته وما تبقى بعد المبيعات لحظيا')}</p>
         </div>
-        <button onClick={() => setShowAccuracy(true)} className="btn-secondary"><Target size={16} /> {tr('دقة الاقتراح')}</button>
-        <button onClick={() => setShowLoad(true)} className="btn-primary"><Plus size={17} /> {tr('تسجيل تحميل')}</button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {canZeroStock && (
+            <button type="button" onClick={() => setShowZero(true)} className="btn-secondary text-[#C0392B] border-red-200 hover:bg-red-50">
+              <Eraser size={16} /> {tr('تصفير المخزون')}
+            </button>
+          )}
+          <button onClick={() => setShowAccuracy(true)} className="btn-secondary"><Target size={16} /> {tr('دقة الاقتراح')}</button>
+          <button onClick={() => setShowLoad(true)} className="btn-primary"><Plus size={17} /> {tr('تسجيل تحميل')}</button>
+        </div>
       </div>
 
       {/* تصفية بالمدّة */}
@@ -496,6 +514,7 @@ export default function VanStockPage() {
 
       {showLoad && <LoadModal preselectRep={selected} lotOn={lotOn} whOn={whOn} onClose={() => setShowLoad(false)} />}
       {showAccuracy && <AccuracyModal preselectRep={selected} onClose={() => setShowAccuracy(false)} />}
+      {showZero && canZeroStock && <StockZeroModal onClose={() => setShowZero(false)} />}
       {noticeMv && <DocumentModal doc={withMovementLots(loadNoticeDocFromData(repName, noticeMv, companyQ.data ?? null), noticeMv, lotOn)} onClose={() => setNoticeMv(null)} />}
       {toolsRep && <ToolsModal repId={toolsRep.salesRepId} repName={toolsRep.repName} onClose={() => setToolsRep(null)} />}
       {removing && (
@@ -660,7 +679,9 @@ const KIND_META: Record<string, { label: string; color: string; sign: string }> 
 
 function MovementRow({ m, onExport }: { m: Movement; onExport?: (m: Movement) => void }) {
   const tr = useTr();
-  const meta = KIND_META[m.kind] || KIND_META.ADJUST;
+  // حركة «تصفير المخزون» (تسوية أو إزالة تالف/منتهٍ كتبها التصفير) تُوسم بالتصفير وبلونه الأحمر، وإشارة كل بندٍ من نوعها كما كانت
+  const base = KIND_META[m.kind] || KIND_META.ADJUST;
+  const meta = m.zeroRunId ? { ...base, label: 'تصفير المخزون', color: 'text-red-700 bg-red-50 border border-red-200' } : base;
   const canExport = ['LOAD', 'UNLOAD', 'ADJUST'].includes(m.kind); // حركات السيارة (لا المبيعات) تُصدَّر إشعاراً
   return (
     <div className="px-5 py-3">

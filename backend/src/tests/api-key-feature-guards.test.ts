@@ -74,6 +74,7 @@ const R = {
   receipts: require('../routes/receipts').default,
   warehouse: require('../routes/warehouse').default,
   lots: require('../routes/lots').default,
+  stockZero: require('../routes/stockZero').default,
 };
 /* eslint-enable @typescript-eslint/no-var-requires */
 
@@ -293,5 +294,16 @@ test('الصلاحية المسحوبة من مُصدِر المفتاح تسر�
 test('تعيين مشرفي الفريق ممنوعٌ على المفتاح دائماً (نطاق مستخدمي الشركة) — بعد الحرّاس وقبل أي قراءة', async () => {
   reset();
   const r = await runCase(C('teams', 'put', '/:id/supervisors', '/api/company/teams/t9/supervisors', true), { handler: true });
+  assert.deepEqual([r.passed, r.status, r.code], [false, 403, 'API_KEY_FORBIDDEN']);
+});
+
+test('«تصفير المخزون» ممنوعٌ على المفتاح دائماً — المعاينة والتنفيذ بمفتاحٍ كامل 403 API_KEY_FORBIDDEN بعد حرّاس الموجّه، و«قراءة فقط» يُرفض تنفيذه قبل الموجّه', async () => {
+  reset();
+  for (const c of [C('stockZero', 'get', '/preview', '/api/stock-zero/preview'), C('stockZero', 'post', '/', '/api/stock-zero')]) {
+    const r = await runCase(c, { handler: true });
+    assert.deepEqual([r.passed, r.status, r.code], [false, 403, 'API_KEY_FORBIDDEN'], label(c));
+  }
+  keyRow = keyRowOf(true);
+  const r = await runCase(C('stockZero', 'post', '/', '/api/stock-zero'));
   assert.deepEqual([r.passed, r.status, r.code], [false, 403, 'API_KEY_FORBIDDEN']);
 });

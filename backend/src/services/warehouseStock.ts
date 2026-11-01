@@ -13,6 +13,7 @@
 // يقع مرّةً واحدة عند حدّ القراءة (`loadWarehouseInputs`: baseQtyOf وunitCostPerBase)،
 // فيبقى الحساب النقيّ (composeWarehouse/valueStock) صرفاً بالأساس واختباراته صالحة.
 // ============================================================================
+import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { currencyDecimalsOf } from '../config/countries';
 import { roundDecimal } from '../utils/helpers';
@@ -43,6 +44,9 @@ export interface WarehouseRow {
 
 /** حقول وحدات الصنف كما يحتاجها العرض (formatQty) — النشطة والموقوفة معاً، وformatQty يُسقط الموقوفة */
 export const UNIT_SELECT = { id: true, name: true, factor: true, isActive: true } as const;
+
+/** ما تقرؤه loadWarehouseInputs من القاعدة — prisma أو معاملة أو قاعدةٌ مزيّفة في الاختبار */
+export type WarehouseInputsDb = Pick<Prisma.TransactionClient, 'product' | 'warehouseEntryItem' | 'vanLoadItem'>;
 
 interface ProdMeta { id: string; name: string; code: string; unit: string; status?: string; units?: UnitDef[]; primaryUnitId?: string | null }
 // `at` لحظة الحركة — التقييم متوسّطٌ متحرّك فترتيبه الزمنيّ جزءٌ من صحّته:
@@ -203,22 +207,24 @@ export function visibleWarehouseRows(rows: WarehouseRow[], inactive: ReadonlySet
  * مدخلات تقييم المستودع للشركة: الأصناف وحركات المستودع وحركات السيارات (كل الأنواع — composeWarehouse يأخذ LOAD وUNLOAD،
  * وطيّ رصيد السيارة يأخذ الباقي). `includeInactive`: الأصناف المعطّلة أيضاً — بضاعتها قد تبقى في السيارات.
  * `before`: الحركات قبل هذه اللحظة وحدها — المخزون كما كان في تاريخٍ مضى (نهاية يومه بتوقيت الشركة: warehouseAsOf).
+ * `db`: عميل القاعدة — الافتراضي prisma كما كان؛ و«تصفير المخزون» (services/stockZero.ts) يمرّر عميله المحقون فيُختبر تقييمه
+ * بقاعدةٍ مزيّفة كمسار الإنتاج حرفياً.
  */
-export async function loadWarehouseInputs(tid: string, opts: { includeInactive?: boolean; before?: Date } = {}): Promise<{
+export async function loadWarehouseInputs(tid: string, opts: { includeInactive?: boolean; before?: Date } = {}, db: WarehouseInputsDb = prisma): Promise<{
   products: ProdMeta[];
   whItems: WhItem[];
   vanItems: (VanItem & { at: Date })[];
 }> {
   const [products, whItems, vanItems] = await Promise.all([
-    prisma.product.findMany({
+    db.product.findMany({
       where: { tenantId: tid, ...(!opts.includeInactive && { status: { not: 'INACTIVE' } }) },
       select: { id: true, name: true, code: true, unit: true, status: true, units: { select: UNIT_SELECT }, primaryUnitId: true },
     }),
-    prisma.warehouseEntryItem.findMany({
+    db.warehouseEntryItem.findMany({
       where: { entry: { tenantId: tid, ...(opts.before && { createdAt: { lt: opts.before } }) } },
       select: { productId: true, qty: true, unitFactor: true, baseQty: true, unitCost: true, entry: { select: { type: true, createdAt: true } } },
     }),
-    prisma.vanLoadItem.findMany({
+    db.vanLoadItem.findMany({
       // تحميلات المناديب المحذوفين داخلة عمداً (salesRepId فارغ): خرجت من المستودع فعلاً
       where: { vanLoad: { tenantId: tid, ...(opts.before && { createdAt: { lt: opts.before } }) } },
       select: { productId: true, qty: true, unitFactor: true, baseQty: true, vanLoad: { select: { type: true, createdAt: true, salesRepId: true, deletedSalesRepId: true } } },

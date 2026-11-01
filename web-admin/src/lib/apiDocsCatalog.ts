@@ -4208,13 +4208,15 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{id, tenantId, salesRepId, deletedSalesRepId, locationId, type, note, createdBy:'REP'|'ADMIN'|null, createdAt, items:[{id, vanLoadId, productId, qty, unitName, unitFactor, baseQty, suggestedQty, expectedQty, product:{id,name,unit,primaryUnitId}, lots?}], salesRep:{id,name}, location:{id,name}|null}], pagination?:{total, page, limit, pages}}",
+    "response": "{success:true, data:[{id, tenantId, salesRepId, deletedSalesRepId, locationId, type, note, createdBy:'REP'|'ADMIN'|null, createdAt, zeroRunId, items:[{id, vanLoadId, productId, qty, unitName, unitFactor, baseQty, suggestedQty, expectedQty, product:{id,name,unit,primaryUnitId}, lots?}], salesRep:{id,name}, location:{id,name}|null}], pagination?:{total, page, limit, pages}}",
     "rules": [
      "بلا page: آخر 100 حركة فقط، الأحدث أولاً، بلا pagination. ومع page: صفحات مرقّمة بحدّ 200. للتاريخ الكامل استعمل /v1/sync/van-loads",
      "location هو ختم موقع المندوب لحظة التحميل (حركات LOAD وحدها تُختم حين تفعّل الشركة ميزة «لوكيشن»)، ولا يتغيّر إن نُقل المندوب لاحقاً. وnull لما بلا ختم",
      "حركات مندوب محذوف تبقى وتظهر بـsalesRep={id:null, name:'مندوب محذوف'}، ولا يراها صاحب مفتاح مقيّد النطاق",
      "salesRepId خارج النطاق يعطي 404 «المندوب غير موجود»",
-     "qty بوحدة البند ولقطتها unitName (null = الأساس) وunitFactor، وbaseQty بالأساس لمن يجمع. وsuggestedQty وexpectedQty بالأساس دائماً"
+     "qty بوحدة البند ولقطتها unitName (null = الأساس) وunitFactor، وbaseQty بالأساس لمن يجمع. وsuggestedQty وexpectedQty بالأساس دائماً",
+     "zeroRunId (string أو null): معرّف عملية «تصفير المخزون» التي كتبت الحركة، وnull لكل حركة غيرها. التصفير يكتب لكل سيارة مندوب قائم (ولو موقوفاً) فيها رصيد: ADJUST يُعيد الرصيد القابل للبيع إلى الصفر (والسالب بسطر موجب)، وDAMAGED_OUT لرصيد التالف، وEXPIRED_OUT لرصيد المنتهي، كلها بالملاحظة «تصفير المخزون» وcreatedBy='ADMIN' وبنود بوحدة الأساس، ومعها حركة ADJUST واحدة للمستودع بالمعرّف نفسه (GET /warehouse/entries). وسيارات المناديب المحذوفين لا تُمسّ. فاعرف حركات التصفير بـzeroRunId لا بنص الملاحظة",
+     "التصفير نفسه (POST /stock-zero) من لوحة التحكم وحدها: يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN"
     ],
     "example": ""
    },
@@ -4243,13 +4245,14 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{kind:'LOAD'|'UNLOAD'|'ADJUST'|'EXPIRED_OUT'|'DAMAGED_OUT'|'SALE'|'RETURN'|'RETURN_DAMAGED', date, ref, by, items:[{name, unit, qty, baseQty, primaryUnitId(null أو معرّف الوحدة الرئيسية لصنف البند — للعرض وحده), lots?}]}]}",
+    "response": "{success:true, data:[{kind:'LOAD'|'UNLOAD'|'ADJUST'|'EXPIRED_OUT'|'DAMAGED_OUT'|'SALE'|'RETURN'|'RETURN_DAMAGED', date, ref, by, zeroRunId, items:[{name, unit, qty, baseQty, primaryUnitId(null أو معرّف الوحدة الرئيسية لصنف البند — للعرض وحده), lots?}]}]}",
     "rules": [
      "يدمج آخر 50 حركة سيارة مع آخر 50 فاتورة مؤكدة، ثم يرتبها تنازلياً حسب التاريخ ويقتطع أول 60",
      "ref في حركة السيارة هو الملاحظة، وفي الفاتورة «رقم الفاتورة · اسم العميل»",
      "by في الفواتير دائماً 'REP' حتى لو أنشأتها الإدارة، وفي حركات السيارة REP أو ADMIN",
      "المرتجع يظهر هنا حتى لو لم يُعَد للمخزون (returnToStock=false)، والمرتجع التالف الداخل رصيد «المرتجع التالف» يظهر RETURN_DAMAGED، وبند بلا صنف يظهر باسم «صنف محذوف»",
-     "لا تُعاد معرّفات للبنود أو الأصناف، فقط الاسم والوحدة والكمية: unit وحدة البند كما كُتب (لقطته، وإلا وحدة الصنف) وqty بها، وbaseQty الكمية بوحدة الأساس لمن يجمع"
+     "لا تُعاد معرّفات للبنود أو الأصناف، فقط الاسم والوحدة والكمية: unit وحدة البند كما كُتب (لقطته، وإلا وحدة الصنف) وqty بها، وbaseQty الكمية بوحدة الأساس لمن يجمع",
+     "zeroRunId (string أو null): في حركة السيارة معرّف عملية «تصفير المخزون» إن كتبتها (ADJUST وDAMAGED_OUT وEXPIRED_OUT بالملاحظة «تصفير المخزون» فيظهر ref «تصفير المخزون»)، وnull لكل حركة غيرها وللفواتير والمرتجعات دائماً. والتصفير يُطلق من لوحة التحكم وحدها (POST /stock-zero يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN)"
     ],
     "example": ""
    },
@@ -4529,9 +4532,11 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:[{id, tenantId, type, note, supplier, createdBy, createdAt, items:[{id, entryId, productId, qty, unitName, unitFactor, baseQty, unitCost, expiresAt, product:{name,unit,primaryUnitId}, lineCost, lotId?, lot?}], totalCost}]}",
+    "response": "{success:true, data:[{id, tenantId, type, note, supplier, createdBy, createdAt, zeroRunId, items:[{id, entryId, productId, qty, unitName, unitFactor, baseQty, unitCost, expiresAt, product:{name,unit,primaryUnitId}, lineCost, lotId?, lot?}], totalCost}]}",
     "rules": [
      "«تتبّع LOT» (حين تكون الميزة مفعّلة للشركة): كل بند يحمل lotId وlot:{lotNumber, productionDate, expiryDate}|null — تشغيلة السطر، وnull لصنف غير متتبَّع أو للرصيد غير المسمّى. والميزة مطفأة: الرد كما كان",
+     "zeroRunId (string أو null): معرّف عملية «تصفير المخزون» التي كتبت الحركة، وnull لكل حركة غيرها. التصفير يكتب للمستودع حركة تسوية ADJUST واحدة بالملاحظة «تصفير المخزون» تُعيد كل رصيد إلى الصفر (بنودها بوحدة الأساس بلا unitCost، والسالب يُعاد بسطر موجب)، ولكل سيارة مندوب حركات ADJUST وDAMAGED_OUT وEXPIRED_OUT بالمعرّف نفسه (GET /van-stock/loads). هي تسويات عادية تدخل الأرصدة كغيرها، فاعرفها بـzeroRunId لا بنص الملاحظة",
+     "التصفير نفسه (POST /stock-zero) من لوحة التحكم وحدها: يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN، ويُنفّذه مدير الشركة غير المقيّد بنطاق بكلمة تأكيد. لا مسار له في هذا المستند",
      "آخر 100 حركة فقط، الأحدث أولاً، بلا ترقيم صفحات. للتاريخ الكامل استعمل /v1/sync/warehouse-entries",
      "unitCost صافٍ قبل الضريبة، ويكون null إن لم يُسعَّر",
      "lineCost = qty × unitCost بوحدة السطر (كراتين × تكلفة الكرتون) مقرّبة بخانات عملة الشركة، وتكون 0 حين لا يوجد سعر. وtotalCost هو مجموع قيم lineCost بعد تقريب كل منها. وbaseQty كمية السطر بالأساس",
@@ -6005,12 +6010,14 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "الكمية ≤ 0 ⇒ STOCK_QTY_INVALID. والتكلفة ≤ 0 أو فوق الحد ⇒ STOCK_COST_INVALID. وصافيها صفري بعد التقريب ⇒ STOCK_NET_COST_ZERO",
      "الوحدات المتعددة: البند يُكتب بكمية الصف وتكلفته ولقطة وحدته unitName وunitFactor وbaseQty = qty × unitFactor، والتقييم يقسم التكلفة على المعامل. واسم وحدة غير معرّف لصنفٍ له وحدات، أو لوحدة موقوفة ⇒ خطأ صف UNIT_NOT_FOUND بالحقل field = unit",
      "صنفٌ له حركات مستودع أو تحميل سيارات سابقة ⇒ PRODUCT_HAS_STOCK_MOVEMENTS (صحّح رصيده بتسوية). وصنفٌ له جرد في دفعة افتتاحية غير متراجَع عنها ⇒ OPENING_STOCK_ALREADY_IMPORTED، وvalue = تاريخ تلك الدفعة YYYY-MM-DD",
+     "«تصفير المخزون»: الحركات ودفعات الجرد الافتتاحي المُنشأة في لحظة آخر «تصفير المخزون» للشركة صفّر المستودع أو قبلها لا تمنع (لا PRODUCT_HAS_STOCK_MOVEMENTS ولا OPENING_STOCK_ALREADY_IMPORTED)، ولا حركات التصفير نفسها (zeroRunId غير null في GET /warehouse/entries وGET /van-stock/loads). وتصفيرٌ جرى والمستودع مطفأ لا يفتح الاستيراد. والتصفير من لوحة التحكم وحدها (POST /stock-zero يرفض المفتاح بـ403 API_KEY_FORBIDDEN)",
+     "تصفيرٌ يلتزم أثناء الاستيراد ⇒ 409 {success:false, code:'OPENING_STOCK_LEDGER_BUSY', message:'صُفّر المخزون أثناء الاستيراد، أعد رفع الملف'} ولا يُكتب شيء: أعد رفع الملف",
      "«تتبّع LOT» (lotTrackingEnabled للشركة وlotTracked للصنف): أخطاء الصف LOT_REQUIRED (رقم غائب أو أطول من 64 بعد التطبيع، أو صار الصنف متتبَّعاً أثناء الطلب)، وLOT_DATES_INVALID (صيغة خاطئة أو إنتاج بعد الانتهاء)، وLOT_QTY_INVALID (الكمية بالأساس بأكثر من أربع خانات عشرية)، وLOT_DATES_MISMATCH (رقمٌ مسجَّل للصنف أو مكرر في الملف بتواريخ أخرى؛ الفارغ يطابق أيّاً كان)، وLOT_EXPIRY_REQUIRED (تشغيلة جديدة بلا انتهاء لصنف صلاحيته مفعّلة). الصف المرفوض لا يُنشئ تشغيلة",
      "«تتبّع LOT»: التشغيلة الجديدة تُنشأ بالمصدر OPENING_IMPORT ومعها حدث CREATE في lot-events، والقائمة تُحلّ برقمها المطبَّع. والوارد إلى تشغيلة قائمة موقوفة يُقبل بتحذير LOT_INTO_BLOCKED (detail.row = سطر الصف). وصفّان للصنف بتشغيلتين يبقيان بندين، وبند الصنف المتتبَّع يحمل lotId في GET /warehouse/entries ومزامنة warehouse-entries",
      "«تتبّع LOT»: والميزة مطفأة تُتجاهل أعمدة التشغيلة والمسار كما كان حرفياً",
      "الصف الخاطئ لا يُلغي الباقي (عدا أخطاء الشكل)، وإن لم يبقَ صف صالح يعود batchId وentryId فارغين ولا تُكتب حركة",
      "انشغال قفل الدفاتر أو طابور تشغيلات الأصناف ⇒ 409 OPENING_STOCK_LEDGER_BUSY: أعد المحاولة. و409 IMPORT_DUPLICATE_BATCH للصفوف نفسها ما لم ترسل force",
-     "التراجع (POST /import/batches/:id/revert) قبل تفعيل الدفاتر المرتبطة وحده، ويُمنع إن حُمّلت أصنافه إلى السيارات أو سُوّيت بالنقص بعده، أو استُعملت تشغيلاته بعده",
+     "التراجع (POST /import/batches/:id/revert) قبل تفعيل الدفاتر المرتبطة وحده، ويُمنع إن حُمّلت أصنافه إلى السيارات أو سُوّيت بالنقص بعده، أو استُعملت تشغيلاته بعده، أو أُنشئت دفعته في لحظة آخر «تصفير المخزون» أو قبلها (السبب «صُفّر المخزون بعد هذا الاستيراد»)",
      "QTY_UNIT_REQUIRED: عمود الوحدة فارغ لصنفٍ له وحدة رئيسية أو تاريخ تحويل — خطأ صفّ في الخطة قبل أي كتابة وقبل حجز الدفعة. الصنف بلا الاثنين كما كان حرفياً",
      "409 {success:false, code:'PRODUCT_UNITS_CHANGED', message} حين يلتزم تحويلُ وحدات صنفٍ في الملف أثناء الكتابة (يُرفض الملف كله، والمعاملة واحدة)"
     ],
@@ -6076,6 +6083,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "الأسعار: يُستعاد السعر السابق أو يُحذف الجديد، ما لم يتغيّر السعر بعد الاستيراد فيبقى في blocked",
      "الأرصدة والكشوف: حذفٌ كامل في معاملة واحدة وإعادة حساب الأرصدة المتحرّكة وbalance العملاء، وblocked = 0 دائماً. ودفعة أخرى منها تُكتب ⇒ 409 IMPORT_IN_PROGRESS، وتراجعٌ متزامن سبقك ⇒ 404 IMPORT_BATCH_GONE",
      "المخزون الافتتاحي: قبل تفعيل الدفاتر المرتبطة وحده (وإلا 409 OPENING_STOCK_REVERT_LEDGER_ACTIVE). ويُمنع إن حُمّلت أصنافه إلى السيارات أو سُوّيت بالنقص بعده",
+     "«تصفير المخزون»: دفعة مخزون افتتاحي أُنشئت في لحظة آخر تصفير أو قبلها لا يُتراجع عنها أبداً — كمياتها أُلغيت بتسوية التصفير، فطرحها ثانيةً يُنقص المخزون المُدخل بعده. تبقى في blocked بالسبب «صُفّر المخزون بعد هذا الاستيراد» وفي remaining، وreverted = false",
      "«تتبّع LOT»: ويُمنع التراجع عن المخزون الافتتاحي إن استُعملت تشغيلاته بعده (تحميل أو تسمية أو تسوية بالنقص، أو صار رصيد تشغيلة سالباً بطرحه)، فيبقى في blocked بالسبب «استُعملت تشغيلات المخزون الافتتاحي بعد الاستيراد». وعند الحذف تُحذف التشغيلات التي أنشأها ولم يبقَ لها مرجع: تغيب من /v1/sync/product-lots/ids ويُكتب لها حدث DELETE في lot-events. ويجري هذا الحذف كذلك إن أُطفئت الميزة بعد الاستيراد وكانت بنود الحركة تحمل تشغيلات من فترة تفعيلها (يظهر في المزامنة حين تُفعَّل الميزة ثانية)، أما فحص الاستعمال فوالميزة مفعّلة وحدها",
      "انشغال قفل الدفاتر أو طابور التشغيلات ⇒ 409 IMPORT_REVERT_LEDGER_BUSY: أعد المحاولة. وفي العملاء يُردّ 409 حين لم يُحذف أحد بعد، وإلا 200 بما حُذف والعميل المزاحَم في blocked برسالة الانشغال وما بعده في remaining. وفي المنتجات يبقى الصنف المزاحَم في blocked بلا 409"
     ],
@@ -8595,6 +8603,7 @@ export const API_DOC_GUIDES: DocGuide[] = [
         method: 'GET', path: '/warehouse/entries',
         text: [
           'آخر 100 حركة (الوارد والتسويات)، الأحدث أولاً، ولكل سطر lineCost ولكل حركة totalCost. التحميل والتنزيل لا يظهران هنا بل في GET /api/van-stock/loads.',
+          '- zeroRunId غير فارغ = حركة كتبها «تصفير المخزون» من لوحة التحكم (تسوية ADJUST بالملاحظة «تصفير المخزون»، ومثلها لكل سيارة في GET /api/van-stock/loads). التصفير لا يُطلق بالمفتاح (403 API_KEY_FORBIDDEN).',
           'للتاريخ الكامل استعمل مورد المزامنة warehouse-entries (الخطوة الأخيرة).',
         ].join('\n'),
         curl: get('/warehouse/entries'),

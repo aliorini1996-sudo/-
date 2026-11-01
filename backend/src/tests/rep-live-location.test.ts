@@ -389,10 +389,11 @@ test('كل بادئةٍ تُركَّب بعد الحارس مصنَّفة: مح�
   // '/api-keys' و'/v1' (الربط البرمجي API): إداريّان لا يبلغهما المندوب — الأول requireAdmin والثاني لمفاتيح API وحدها
   // '/locations' («لوكيشن»): إداريٌّ (requireAdmin) — المواقع وإسناد المناديب وملخّصها، لا عمل على عميل
   // '/lots' («تتبّع اللوط»): إداريٌّ يرفض المندوب صراحةً (routes/lots.ts) — بطاقات وأرصدة وتسمية وسحب، لا عمل على عميل
+  // '/stock-zero' («تصفير المخزون»): إداريٌّ (requireAdmin ثم مدير غير مقيّد أو جلسة المالك) — لا عمل على عميل
   const OPEN = ['/affiliate', '/affiliate-admin', '/ai-rep', '/analytics', '/api-keys', '/attendance-admin', '/auth', '/company', '/company-users', '/contact', '/daily-reports',
     '/dashboard', '/erp', '/finance', '/hunter', '/import', '/leads', '/leads-cron', '/ledger', '/live', '/locations', '/lots', '/notifications', '/payments',
     '/petroapp', '/platform-staff', '/products', '/profile-deck', '/promo-videos', '/public', '/quotes', '/rep-routes', '/rep-stock-requests', '/reports', '/sales-reps',
-    '/site-content', '/staff-auth', '/support', '/tenants', '/tracking', '/v1', '/van-stock', '/wa-inbox', '/warehouse', '/work-numbers', '/zatca'];
+    '/site-content', '/staff-auth', '/stock-zero', '/support', '/tenants', '/tracking', '/v1', '/van-stock', '/wa-inbox', '/warehouse', '/work-numbers', '/zatca'];
   const unclassified = mounted.filter((p) => !GUARDED.includes(p) && !OPEN.includes(p));
   assert.deepEqual(unclassified, [], 'بادئةٌ جديدة: إن كانت تعمل على عميل أضفها إلى LIVE_GUARDED_PREFIXES (الخادم والتطبيق)، وإلا إلى OPEN هنا');
   for (const g of GUARDED) assert.ok(live.LIVE_GUARDED_PREFIXES.some((x) => x === g || x.startsWith(g + '/')), g);

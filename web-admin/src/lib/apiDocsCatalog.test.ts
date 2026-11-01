@@ -115,7 +115,7 @@ test('كل مسار في المستند مركَّبٌ في الخادم بطر�
  */
 const COVERED_ROUTERS = [
   'locations', 'paymentMethodsConfig', 'printSettings', 'printTexts', 'attendanceAdmin', 'teams', 'reports', 'invoices', 'salesReps', 'vanStock', 'warehouse', 'receipts',
-  'repStockRequests', 'products', 'lots', 'import', 'companyBuyerRelax', 'returnPolicy',
+  'repStockRequests', 'products', 'lots', 'import', 'companyBuyerRelax', 'returnPolicy', 'stockZero',
 ];
 const NOT_DOCUMENTED: Readonly<Record<string, string>> = {
   'PUT /company/teams/:id/supervisors': 'يرفض مفاتيح API دائماً بـ403 (API_KEY_FORBIDDEN بعد فحص صلاحيتي الإعدادات والمستخدمين) — نطاق مستخدمي الشركة من اللوحة وحدها، ومذكورٌ في مقدمة مجموعة الفرق',
@@ -124,6 +124,8 @@ const NOT_DOCUMENTED: Readonly<Record<string, string>> = {
   'DELETE /rep-stock-requests/mine': 'للمندوب وحده (repOnly) والمفتاح مستخدم شركة فيُرفض 403',
   'PATCH /company/buyer-relax': 'يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN — قرار ضريبي من لوحة التحكم بتحذيره، لمدير الشركة غير المقيّد',
   'PUT /company/return-policy': 'يرفض مفاتيح API دائماً بـ403 (API_KEY_FORBIDDEN بعد فحص صلاحية الإعدادات) — «اشتراط اختيار فاتورة البيع للمرتجع» لمدير الشركة من اللوحة وحدها، ومذكورٌ في GET /company وPOST /invoices',
+  'GET /stock-zero/preview': 'يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN — معاينة «تصفير المخزون» لمدير الشركة غير المقيّد بصلاحية المخزون (canManageVanStock) أو جلسة المالك (بلا صلاحية) من لوحة التحكم وحدها، ومذكورةٌ في GET /warehouse/entries وGET /van-stock/loads',
+  'POST /stock-zero': 'يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN — «تصفير المخزون» بكلمة تأكيد لمدير الشركة غير المقيّد بصلاحية المخزون (canManageVanStock) أو جلسة المالك (بلا صلاحية) من لوحة التحكم وحدها، وحركاته (zeroRunId) موثّقةٌ في GET /warehouse/entries وGET /van-stock/loads وGET /van-stock/movements',
 };
 
 test('كل مسار في موجّهات الميزات الحديثة موثّقٌ في المستند أو مستثنى بسبب مكتوب', () => {
@@ -339,6 +341,60 @@ test('دقّة المستند: «اشتراط اختيار فاتورة البي
   assert.ok(company.rules.some((r) => r.includes('PUT /company/return-policy') && r.includes('API_KEY_FORBIDDEN')));
   assert.ok(routeFile('returnPolicy').includes("if (req.user?.apiKeyId) { res.status(403).json({ success: false, code: 'API_KEY_FORBIDDEN'"));
   assert.ok(!documented.has('PUT /company/return-policy'));
+});
+
+test('دقّة المستند: «تصفير المخزون» — zeroRunId في سجلّي المستودع والسيارات وخطّها الزمني، والتصفير ممنوع على المفتاح', () => {
+  // العمود في الخادم على الجدولين كما يصفه المستند (null لكل حركة غير التصفير)
+  const schema = read(path.join(BACKEND, '..', 'prisma', 'schema.prisma'));
+  for (const model of ['WarehouseEntry', 'VanLoad']) {
+    const body = schema.slice(schema.indexOf(`model ${model} {`), schema.indexOf('\n}', schema.indexOf(`model ${model} {`)));
+    assert.match(body, /\n\s*zeroRunId\s+String\?/, `zeroRunId ليس عموداً في ${model}`);
+  }
+  const entries = endpointOf('GET', '/warehouse/entries');
+  const loads = endpointOf('GET', '/van-stock/loads');
+  const moves = endpointOf('GET', '/van-stock/movements');
+  for (const e of [entries, loads, moves]) {
+    assert.match(e.response, /\bzeroRunId\b/, `zeroRunId غائب عن ردّ ${e.path}`);
+    const rule = e.rules.find((r) => r.startsWith('zeroRunId'));
+    assert.ok(rule, `قاعدة zeroRunId غائبة عن ${e.path}`);
+    assert.match(rule!, /string أو null/);
+    assert.match(rule!, /«تصفير المخزون»/);
+    // التصفير من اللوحة وحدها: يُذكر رفض المفتاح في كل نقطة تعرض حركاته
+    assert.ok(e.rules.some((r) => r.includes('POST /stock-zero') && r.includes('API_KEY_FORBIDDEN')), `رفض المفتاح غائب عن ${e.path}`);
+  }
+  // ما يكتبه التصفير: تسوية مستودع واحدة، ولكل سيارة الأنواع الثلاثة بالمعرّف نفسه
+  const all = [entries, loads].flatMap((e) => e.rules).join('\n');
+  for (const t of ['ADJUST', 'DAMAGED_OUT', 'EXPIRED_OUT']) assert.match(all, new RegExp(`\\b${t}\\b`), `${t} غائب عن وصف التصفير`);
+  assert.match(entries.rules.find((r) => r.startsWith('zeroRunId'))!, /حركة تسوية ADJUST واحدة/);
+  // والمساران لا يدخلان المستند: مستثنيان بسببهما، والموجّه يرفض المفتاح فعلاً
+  assert.ok(!documented.has('GET /stock-zero/preview') && !documented.has('POST /stock-zero'));
+  assert.ok('POST /stock-zero' in NOT_DOCUMENTED && 'GET /stock-zero/preview' in NOT_DOCUMENTED);
+  assert.ok(routeFile('stockZero').includes("'API_KEY_FORBIDDEN'"), 'موجّه التصفير لا يرفض المفتاح');
+  // ودليل ربط المستودع يذكره عند قراءة السجل
+  const guideStep = API_DOC_GUIDES.flatMap((g) => g.steps).find((s) => s.method === 'GET' && s.path === '/warehouse/entries');
+  assert.match(guideStep!.text, /zeroRunId/);
+});
+
+test('دقّة المستند: «تصفير المخزون» يفتح الجرد الافتتاحي بعده ويمنع التراجع عمّا قبله، ورسائله حرفية من الخادم', () => {
+  const ledger = read(path.join(BACKEND, 'services', 'importLedger.ts'));
+  const busyMsg = 'صُفّر المخزون أثناء الاستيراد، أعد رفع الملف';
+  const revertReason = 'صُفّر المخزون بعد هذا الاستيراد';
+  // النصّان في الخادم كما ينقلهما المستند (رسالة الانشغال وسبب blocked)
+  assert.ok(ledger.includes(`STOCK_ZERO_DURING_IMPORT_MESSAGE = '${busyMsg}'`), 'رسالة التصفير أثناء الاستيراد تغيّرت في الخادم');
+  assert.ok(ledger.includes(`return '${revertReason}'`), 'سبب منع التراجع بعد التصفير تغيّر في الخادم');
+  assert.ok(routeFile('import').includes("'OPENING_STOCK_LEDGER_BUSY', STOCK_ZERO_DURING_IMPORT_MESSAGE"), 'الاستيراد لا يردّ 409 OPENING_STOCK_LEDGER_BUSY عند التصفير');
+  const opening = endpointOf('POST', '/import/opening-stock');
+  // الحركات ودفعات الجرد حتى آخر تصفير لا تمنع، ولا حركات التصفير، وتصفيرٌ والمستودع مطفأ لا يفتحه
+  const zeroRule = opening.rules.find((r) => r.startsWith('«تصفير المخزون»'));
+  assert.ok(zeroRule, 'قاعدة التصفير غائبة عن POST /import/opening-stock');
+  for (const needle of ['PRODUCT_HAS_STOCK_MOVEMENTS', 'OPENING_STOCK_ALREADY_IMPORTED', 'zeroRunId', 'المستودع مطفأ']) assert.ok(zeroRule!.includes(needle), `${needle} غائب عن قاعدة التصفير`);
+  assert.ok(opening.rules.some((r) => r.includes('OPENING_STOCK_LEDGER_BUSY') && r.includes(busyMsg)), 'انشغال التصفير غائب عن POST /import/opening-stock');
+  assert.ok(opening.rules.some((r) => r.startsWith('التراجع (POST /import/batches/:id/revert)') && r.includes('تصفير') && r.includes(revertReason)));
+  // والتراجع: الدفعة حتى آخر تصفير تبقى في blocked بسببها
+  const revert = endpointOf('POST', '/import/batches/:id/revert');
+  const revertRule = revert.rules.find((r) => r.includes('تصفير'));
+  assert.ok(revertRule, 'قاعدة التصفير غائبة عن POST /import/batches/:id/revert');
+  assert.ok(revertRule!.includes('blocked') && revertRule!.includes(revertReason));
 });
 
 test('دقّة المستند: clientCreatedAt لا يصنع يوم المرتجع لطلب المفتاح ولا يُخزَّن، والاستيراد يفحص بيانات المشتري صفاً صفاً', () => {

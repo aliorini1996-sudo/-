@@ -13,6 +13,7 @@
 
 import { isLiveGuardedKind, liveRefusalError, strictRepNow } from './liveGate';
 import { withSentAt } from './vanLots';
+import { newUuid } from '../lib/uuid';
 
 const DB_NAME = 'fieldsa-rep';
 // «تتبّع اللوط» (§٦.٣): مفتاحا ref جديدان — 'vanlots' (لقطة أرصدة السيارة) و'vanlots:posted' (ما صدر متصلاً بعد بدء جلبها) —
@@ -185,13 +186,9 @@ export async function refClear(): Promise<void> {
 
 // ------------------------------- أدوات ------------------------------- //
 
-// UUID v4 (crypto.randomUUID مدعوم في المتصفّحات الحديثة؛ احتياط يدوي)
+// UUID v4 — المولّد المحروس نفسه في lib/uuid.ts (randomUUID ثم getRandomValues ثم Math.random)، يشاركه zeroRef في تصفير المخزون
 export function newClientRef(): string {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-  });
+  return newUuid();
 }
 
 // يطلب تخزيناً دائماً (يقلّل طرد iOS/Safari للبيانات) — أفضل جهد لا ضمان

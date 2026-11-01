@@ -70,6 +70,15 @@ export function expiredDestination(code: unknown, pathname = window.location.pat
   return space.loginPath;
 }
 
+/**
+ * جلسة «دخول» موظف المنصة إلى شركة — بالعلامة نفسها التي تقرأ بها MainLayout وexpiredDestination وجهة «العودة».
+ * فدوره فيها ADMIN و`impersonating` قائمٌ كدخول المالك، فلا يفرّقهما غيرها؛ وما يرفضه الخادم للموظف (isStaffImpersonation)
+ * يُخفى عنه بها — إظهارٌ فقط، والخادم هو الحَكَم. وlocalStorage قد يرمي (وضع خاص/محجوب) فالغياب «ليس موظفاً».
+ */
+export function isStaffImpersonationClient(): boolean {
+  try { return localStorage.getItem('impersonating_from') === '/staff'; } catch { return false; }
+}
+
 /** نسخةٌ تبنّاها `/m` من توكن «دخول» شركة (قبل منع تبنّيه) تسقط معه — وإلا بقيت جلسة الشركة في التطبيق بعد «العودة» */
 function dropAppCopyOf(token: string | null) {
   if (token && localStorage.getItem('m_token') === token) {

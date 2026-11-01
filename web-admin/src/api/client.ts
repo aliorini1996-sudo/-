@@ -643,6 +643,14 @@ export const warehouseApi = {
   }) => api.post('/warehouse/entries', data),
 };
 
+// «تصفير المخزون» (طلب المالك ١ نوفمبر ٢٠٢٦) — لمدير الشركة غير المقيَّد ولجلسة المالك وحدهما، والخادم هو الحَكَم.
+// المعاينة أرقامٌ تُعرض قبل الكتابة؛ والتنفيذ بكلمة التأكيد «تصفير» وzeroRef (uuid) يُولَّد مرةً لكل فتحٍ للنافذة ويُعاد مع
+// كل محاولة — فإعادة الإرسال بعد انقطاعٍ تعود بنتيجة التصفير نفسه (idempotent) لا بتصفيرٍ ثانٍ
+export const stockZeroApi = {
+  preview: () => api.get('/stock-zero/preview'),
+  run: (confirm: string, zeroRef: string) => api.post('/stock-zero', { confirm, zeroRef }),
+};
+
 // «تتبّع اللوط» — /api/lots (ميزة يفعّلها المالك لكل شركة؛ ٤٠٣ LOTS_NOT_ALLOWED دونها، والمسارات بصلاحية مخزون السيارات).
 // الكميات كلها بوحدة الأساس، وlotId: null = «غير مسمّى». أشكال الأجسام والردود في lib/lots.ts (مرآة عقود الخادم)
 export const lotsApi = {

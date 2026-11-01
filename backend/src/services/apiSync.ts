@@ -245,7 +245,8 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
     // بطابع التعديل: حذف المندوب يفرّغ salesRepId ويملأ deletedSalesRepId بعد الإنشاء
     name: 'van-loads', model: 'vanLoad', mode: 'updated', permission: 'canManageVanStock', accounting: true, tenantPath: 'direct', hardDeletes: false,
     // suggestedQty وexpectedQty (اقتراح التحميل وتنبّؤه) بالأساس دائماً — المحرّك يقترح حبّاتٍ لا كراتين
-    select: { ...pick('id', 'salesRepId', 'deletedSalesRepId', 'locationId', 'type', 'note', 'createdBy', 'createdAt', 'updatedAt'), items: { select: pick('productId', 'qty', ...UNIT_SNAPSHOT_COLS, 'suggestedQty', 'expectedQty') } },
+    // zeroRunId: حركة «تصفير المخزون» (معرّف تشغيلته، null لغيرها) — يميّزها المُزامِن بلا اعتمادٍ على نصّ الملاحظة
+    select: { ...pick('id', 'salesRepId', 'deletedSalesRepId', 'locationId', 'type', 'note', 'createdBy', 'createdAt', 'updatedAt', 'zeroRunId'), items: { select: pick('productId', 'qty', ...UNIT_SNAPSHOT_COLS, 'suggestedQty', 'expectedQty') } },
     // «تتبّع اللوط»: معرّف البند للشركة المفعّلة — به تُربط صفوف van-load-item-lots (vanLoadItemId) ببندها. والمطفأة بلا تغيير (§١٠.١):
     // البند يُعرَّف عندها بحركته وصنفه كما كان
     lotSelect: { items: { select: pick('id') } },
@@ -255,7 +256,8 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
   {
     name: 'warehouse-entries', model: 'warehouseEntry', mode: 'created', permission: 'canManageVanStock', accounting: true, warehouse: true, tenantPath: 'direct', hardDeletes: true,
     // unitCost لوحدة البند (تكلفة الكرتون لبندٍ بالكرتون) — تكلفة الأساس = unitCost ÷ unitFactor
-    select: { ...pick('id', 'type', 'note', 'supplier', 'createdBy', 'createdAt'), items: { select: pick('productId', 'qty', ...UNIT_SNAPSHOT_COLS, 'unitCost') } },
+    // zeroRunId: تسوية «تصفير المخزون» (null لغيرها)
+    select: { ...pick('id', 'type', 'note', 'supplier', 'createdBy', 'createdAt', 'zeroRunId'), items: { select: pick('productId', 'qty', ...UNIT_SNAPSHOT_COLS, 'unitCost') } },
     // «تتبّع اللوط»: للشركة المفعّلة معرّف البند وتشغيلته (سطرٌ = لوطٌ واحد؛ null = غير مسمّى أو صنفٌ غير متتبَّع) — تُترجم من
     // product-lots. والمطفأة بلا تغيير (§١٠.١)
     lotSelect: { items: { select: pick('id', 'lotId') } },
