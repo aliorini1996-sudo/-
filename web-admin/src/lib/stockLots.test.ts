@@ -1,12 +1,13 @@
 // «تتبّع اللوط» — W2: منطق شاشتي المخزون الصرف (stockLots.ts) وحرّاس الصفحتين: مخزون الشركة ومخزون السيارات.
-// الخادم صاحب القرار (I1/I2 وD10 وD27)، وهذه مرآته للتحقق المسبق والعرض — والقاعدة الحاكمة: الميزة المطفأة لا تغيّر شيئاً (§١٠.١)
+// الخادم صاحب القرار (I1/I2 وD27، والسحب التلقائي pickOutFefoLines)، وهذه مرآته للتحقق المسبق والعرض — والقاعدة الحاكمة: الميزة
+// المطفأة لا تغيّر شيئاً (§١٠.١)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
   UNKNOWN_KEY, directLoadLotFields, draftFromRows, draftProblem, draftRefs, draftRemaining, emptyEntryLot, entryLotFields,
-  entryLotModes, entryLotProblem, hasMultiLotWarning, isFourDecimals, keyLotId, loadSourcesOf, lotRowSummary, needsExplicitSource,
+  entryLotModes, entryLotProblem, hasMultiLotWarning, isFourDecimals, keyLotId, loadSourcesOf, lotRowSummary,
   normalizeEntryLot, outSourcesOf, shelfLifeOn, snapshotSourcesOf, sourceKey, splitDraft, withKnownLotDates,
   type LotRowDraft, type PlaceViewWithAvailability,
 } from './stockLots';
@@ -29,7 +30,7 @@ const DAY = '2026-10-30';
 
 // ─── مصادر الإنقاص والتحميل ───
 
-test('مصادر الإنقاص (D10): كل تشغيلة صالحها موجب أيّاً كانت حالتها، ثم غير المسمّى — والصفر والسالب لا مصدر', () => {
+test('مصادر الإنقاص (السحب التلقائي والتحديد اليدوي): كل تشغيلة صالحها موجب أيّاً كانت حالتها، ثم غير المسمّى — والصفر والسالب لا مصدر', () => {
   const v = view([
     lot('a', '2026-11-01', b(5)),
     lot('blk', '2026-12-01', b(2), { status: 'BLOCKED' }),
@@ -75,15 +76,16 @@ test('لقطة السيارة: المصادر من SELLABLE بيوم اللقط�
   assert.deepEqual(snapshotSourcesOf(null, 'p1'), []);
 });
 
-test('مفتاح المصدر في المنتقي: «∅» لغير المسمّى و«» لما لم يُختر — ومصدرٌ واحد لا يلزمه اختيار', () => {
+test('مفتاح المصدر في المنتقي: «∅» لغير المسمّى و«» لما لم يُختر — ولا اختيار يلزم الإنقاص أيّاً كان عدد المصادر', () => {
   assert.equal(sourceKey(null), UNKNOWN_KEY);
   assert.equal(sourceKey('l1'), 'l1');
   assert.equal(keyLotId(''), undefined);
   assert.equal(keyLotId(UNKNOWN_KEY), null);
   assert.equal(keyLotId('l1'), 'l1');
-  const one = outSourcesOf(view([lot('a', null, b(2))], null), 'SELLABLE', DAY);
-  assert.equal(needsExplicitSource(one), false);
-  assert.equal(needsExplicitSource(outSourcesOf(view([lot('a', null, b(2))], b(1)), 'SELLABLE', DAY)), true);
+  // كان D10: أكثر من مصدر ⇒ صريحٌ إلزامي. الآن «التلقائي» يُسحب بالأقرب انتهاءً أولاً من أي عدد مصادر
+  const two = outSourcesOf(view([lot('a', null, b(2))], b(1)), 'SELLABLE', DAY);
+  assert.equal(two.length, 2);
+  assert.equal(entryLotProblem(emptyEntryLot('AUTO'), { kind: 'DECREASE', expiryRequired: false }), null);
 });
 
 // ─── مسوّدة صفوف التوزيع ───
@@ -144,7 +146,7 @@ test('أوضاع تشغيلة السطر: الوارد بلا «غير مسمّ�
   assert.equal(normalizeEntryLot(emptyEntryLot('EXISTING'), 'DECREASE').mode, 'EXISTING');
 });
 
-test('مشكلة تشغيلة السطر: الرقم إلزامي، والتاريخان صالحان، والانتهاء مع الصلاحية، والنقص المتعدّد المصادر صريح', () => {
+test('مشكلة تشغيلة السطر: الرقم إلزامي، والتاريخان صالحان، والانتهاء مع الصلاحية، والنقص التلقائي لا يلزمه اختيار', () => {
   const d = (p: Partial<ReturnType<typeof emptyEntryLot>>) => ({ ...emptyEntryLot(), ...p });
   assert.equal(entryLotProblem(d({ lotNumber: '  ' }), { kind: 'RECEIVE', expiryRequired: false }), 'LOT_REQUIRED');
   assert.equal(entryLotProblem(d({ lotNumber: 'x'.repeat(65) }), { kind: 'RECEIVE', expiryRequired: false }), 'LOT_REQUIRED', 'فوق ٦٤ حرفاً');
@@ -155,8 +157,11 @@ test('مشكلة تشغيلة السطر: الرقم إلزامي، والتار
   assert.equal(entryLotProblem(d({ mode: 'EXISTING' }), { kind: 'INCREASE', expiryRequired: true }), 'LOT_REQUIRED');
   assert.equal(entryLotProblem(d({ mode: 'EXISTING', lotId: 'l1' }), { kind: 'INCREASE', expiryRequired: true }), null, 'القائمة لا تُطلب تواريخها');
   assert.equal(entryLotProblem(d({ mode: 'UNKNOWN' }), { kind: 'INCREASE', expiryRequired: true }), null);
-  assert.equal(entryLotProblem(d({ mode: 'AUTO' }), { kind: 'DECREASE', expiryRequired: false, sourcesCount: 2 }), 'LOT_REQUIRED', 'D10');
-  assert.equal(entryLotProblem(d({ mode: 'AUTO' }), { kind: 'DECREASE', expiryRequired: false, sourcesCount: 1 }), null);
+  // النقص «التلقائي»: لا LOT_REQUIRED أبداً (يُسحب بالأقرب انتهاءً أولاً)، ومشكلته الوحيدة فوق الرصيد (autoOver)
+  assert.equal(entryLotProblem(d({ mode: 'AUTO' }), { kind: 'DECREASE', expiryRequired: false }), null);
+  assert.equal(entryLotProblem(d({ mode: 'AUTO' }), { kind: 'DECREASE', expiryRequired: true }), null, 'الصلاحية لا تخصّ النقص');
+  assert.equal(entryLotProblem(d({ mode: 'AUTO' }), { kind: 'DECREASE', expiryRequired: false, autoOver: true }), 'LOT_STOCK_INSUFFICIENT');
+  assert.equal(entryLotProblem(d({ mode: 'NEW', lotNumber: '' }), { kind: 'DECREASE', expiryRequired: false }), null, '«رقم جديد» في النقص يُطبَّع تلقائياً');
   // الوارد لا يقبل «غير مسمّى»: يُقرأ رقماً جديداً فيلزمه الرقم
   assert.equal(entryLotProblem(d({ mode: 'UNKNOWN' }), { kind: 'RECEIVE', expiryRequired: false }), 'LOT_REQUIRED');
 });
@@ -243,7 +248,7 @@ test('مخزون الشركة: كل جلبٍ للتشغيلات خلف علم ا
   assert.ok(s.includes('if (!id || (rows.some(r => r.productId === id) && !isTracked(id))) return;'));
   assert.ok(s.includes('doc={withEntryLots(warehouseNoticeDocFromEntry(noticeOf, companyQ.data ?? null), noticeOf, lotOn)}'));
   assert.match(s, /const vansLotUnsellable = lotOn \? roundLot\(/, 'المعزول والمحجوز في بطاقة السيارات خلف العلم');
-  // D10: الحفظ ينتظر مصادر النقص — لا يُحكم على «التلقائي» قبل أن يُعرف أهو مصدرٌ وحيد
+  // الحفظ ينتظر مصادر النقص — لا يُحكم على «التلقائي» قبل أن يُعرف أيكفيه رصيد التشغيلات
   assert.ok(s.includes('const srcPending = decIds.length > 0 && srcQ.isLoading;'));
   assert.match(s, /const valid = !srcPending && rows\.length > 0 && rows\.every\(/);
 });
@@ -267,4 +272,33 @@ test('مخزون السيارات: لا window.prompt، والإتلاف تسو�
   assert.match(s, /const lotFields = \(r: LoadRow\) => \{\r?\n\s*if \(!isTracked\(r\.productId\)\) return \{\};/, 'غير المتتبَّع بلا حقلٍ جديد');
   assert.ok(s.includes('{lotOn && reps.length > 0 && ('), 'تنبيه «المتتبَّعة ممنوعة دائماً» خلف العلم');
   assert.ok(s.includes("unitFactor: factor"), 'الاقتراح بقاعدة الكرتون (D22)');
+});
+
+test('مخزون السيارات: التنزيل والإزالة بسحبٍ تلقائي من أي عدد مصادر (لا صريح إلزامي)، والتحديد اليدوي اختياري يبدأ من المعاينة', () => {
+  const s = read('pages', 'VanStockPage.tsx');
+  assert.ok(!s.includes('needsExplicitSource'), 'مرآة D10 الملغاة');
+  assert.ok(!s.includes('المصدر الوحيد') && !s.includes('حدد ما ينزل منه'));
+  // التنزيل بلا مسوّدة: معاينة fefoAutoPull بمعامل السطر، وزرّ اليدوي يملأ المسوّدة منها — والتلقائي بلا lots (lotEdit null)
+  assert.ok(s.includes('const plan = fefoAutoPull(sources, [{ qty: baseQty, unitFactor: factor }]);'));
+  assert.ok(s.includes("onClick={() => onPatch({ lotEdit: draftFromRows(plan.rows[0]) })}"));
+  assert.ok(s.includes("return r.lotEdit ? { lots: draftRefs(r.lotEdit) } : {};"));
+  // الممنوع في التلقائي ما فوق مجموع المصادر وحده
+  assert.match(s, /sources\.length > 0 && fefoAutoPull\(sources, \[\{ qty: base, unitFactor: factorOfRow\(r\) \}\]\)\.short/);
+  // نافذة الإزالة: null = تلقائي، والمصفوفة تحديدٌ يدوي يُرسل lots
+  assert.ok(s.includes('const manual = tracked && draft !== null;'));
+  assert.ok(s.includes('...(manual && draft ? { lots: draftRefs(draft) } : {})'));
+  assert.match(s, /disabled=\{!qtyOk \|\| !!problem \|\| autoShort \|\|/);
+});
+
+test('fefoAutoPull: كميةٌ أدقّ من أربع خانات لا تُعاين بتقريبها (الخادم يردّها LOT_QTY_INVALID)، ونموذج المستودع يمنعها قبل الحفظ', async () => {
+  const { fefoAutoPull } = await import('./lots');
+  const src = [{ lotId: 'A', usable: 5, expiryDate: '2027-01-01' }, { lotId: 'B', usable: 5, expiryDate: '2027-02-01' }] as Parameters<typeof fefoAutoPull>[0];
+  const bad = fefoAutoPull(src, [{ qty: 5.00005, unitFactor: 1 }]);
+  assert.equal(bad.qtyInvalid, true);
+  assert.deepEqual(bad.rows, [[]]);
+  const fine = fefoAutoPull(src, [{ qty: 5.0001, unitFactor: 1 }]);
+  assert.ok(!fine.qtyInvalid && !fine.short);
+  assert.deepEqual(fine.rows, [[{ lotId: 'A', qty: 5 }, { lotId: 'B', qty: 0.0001 }]]);
+  const page = read('pages', 'CompanyWarehousePage.tsx');
+  assert.ok(page.includes("if (q && !isFourDecimals(Math.abs(q) * (choiceById(productOf(r.productId), r.unitId)?.factor ?? 1))) return 'LOT_QTY_INVALID' as const;"));
 });

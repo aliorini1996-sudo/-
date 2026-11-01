@@ -3,8 +3,9 @@
  *
  * planVanMovementInTx تقرّر صفوف التوزيع لكل سطرٍ متتبَّع داخل معاملة الحركة بعد lockLotProducts، وتمنع السالب على مستوى
  * اللوط بلا استثناء (I1، I2):
- * - كل إنقاصٍ من السيارة (التنزيل، وتسوية النقص، وإزالة المنتهي والتالف) من مصدرٍ صريح أو وحيدٍ في دلوه (pickOutSources، D10)،
- *   بعد تجميع الطلب لكل (صنف، لوط أو فارغ) قبل أي مقارنة (D26).
+ * - كل إنقاصٍ من السيارة (التنزيل، وتسوية النقص، وإزالة المنتهي والتالف) من مصدرٍ صريح (pickOutSources) بعد تجميع الطلب لكل
+ *   (صنف، لوط أو فارغ) قبل أي مقارنة (D26)، وبلا صريح سحبٌ تلقائي من دلوه بالأقرب انتهاءً أولاً ثم غير المسمّى (pickOutFefoLines،
+ *   طلب المالك ١ نوفمبر ٢٠٢٦ بدل LOT_REQUIRED لأكثر من مصدر في D10).
  * - التحميل في شركة المستودع إنقاصٌ من لوطات المستودع: allocateOutLines لكل صنفٍ بأسطره ومعامل وحدة كلٍّ (D22) — FEFO من
  *   المؤهَّل ثم غير المسمّى (D17)، والكرتون من لوطٍ واحد ما أمكن، والنقص 409 (D18).
  * - الزيادة بلا مصدر (التحميل بلا مستودع D4، والتسوية بالزيادة) بلوطٍ صريح أو رقمٍ يُحلّ أو يُنشأ بمصدر LOAD أو null صريح.
@@ -13,8 +14,8 @@
  */
 import type { Prisma } from '@prisma/client';
 import {
-  LOT_BUCKETS, LOT_EPS, LOT_UNKNOWN_KEY, LOT_VAN_REASONS, LotError, aggregateRequest, allocateOutLines, distributeToLines, isLotExpiredOn,
-  isLotQty, lotErr, lotMessage, multiLotWarning, normalizeLotNumber, parseLotRefsStrict, pickOutSources, refsOfByLot, roundLot,
+  LOT_BUCKETS, LOT_EPS, LOT_UNKNOWN_KEY, LOT_VAN_REASONS, LotError, aggregateRequest, allocateOutLines, isLotExpiredOn,
+  isLotQty, lotErr, lotMessage, multiLotWarning, normalizeLotNumber, parseLotRefsStrict, pickOutFefoLines, pickOutSources, refsOfByLot, roundLot,
   splitAvailability, zeroBuckets,
   type AllocRow, type LotActor, type LotBalance, type LotBucket, type LotMeta, type LotRef, type LotWarning, type PlaceLotView,
   type VanLotSnapshotDto, type VanMoveType, type VanMovementPlan, type VanMovementPlanInput,
@@ -158,11 +159,13 @@ function parseLine(l: VanMovementPlanInput['lines'][number], type: VanMoveType, 
 }
 
 /**
- * إنقاصٌ لصنفٍ واحد من دلوٍ في السيارة (D10، D26): الأسطر الصريحة تُجمع لكل (لوط أو فارغ) وتُفحص معاً بـpickOutSources (I1،
- * I2)، وصفوف كل سطرٍ صريحه كما هو. ثم الأسطر بلا صريح من العرض بعد ما صرفته الصريحة: مصدرٌ وحيد وإلا LOT_REQUIRED بالقائمة،
- * يُوزَّع على أسطرها بالترتيب (distributeToLines — مصدرٌ واحد فلا كرتون يُشقّ بين مصدرين).
+ * إنقاصٌ لصنفٍ واحد من دلوٍ في السيارة (D26): الأسطر الصريحة تُجمع لكل (لوط أو فارغ) وتُفحص معاً بـpickOutSources (I1، I2)،
+ * وصفوف كل سطرٍ صريحه كما هو. ثم الأسطر بلا صريح من العرض بعد ما صرفته الصريحة: سحبٌ تلقائي بالأقرب انتهاءً أولاً ثم غير
+ * المسمّى، ولكل سطرٍ قاعدة الكرتون (pickOutFefoLines). وإتلاف المنتهي غير المباع (EXPIRED_UNSOLD_DESTROY) أولاً من التشغيلات
+ * المنتهية يوم العملية وحدها، ثم البقية مما ترك.
  */
-function pickPlan(view: PlaceLotView, bucket: LotBucket, pl: Line[], lookup: ReadonlyMap<string, LotMeta> | null): Map<number, AllocRow[]> {
+function pickPlan(view: PlaceLotView, bucket: LotBucket, pl: Line[], lookup: ReadonlyMap<string, LotMeta> | null, day: string,
+  warnings: LotWarning[]): Map<number, AllocRow[]> {
   const rows = new Map<number, AllocRow[]>();
   const name = pl[0].productName;
   const fail = (e: LotError, lines: Line[]) => withLine(e, name, { productId: view.productId, lines: lines.map((l) => l.idx) });
@@ -186,10 +189,15 @@ function pickPlan(view: PlaceLotView, bucket: LotBucket, pl: Line[], lookup: Rea
     }
     v = applyRows(v, bucket, res.rows, -1);
   }
-  if (auto.length) {
-    const res = pickOutSources(v, bucket, auto.reduce((s, l) => s + l.abs, 0), null, lookup);
-    if (!res.ok) throw fail(res.error, auto);
-    for (const [idx, r] of distributeToLines(res.rows, auto.map((l) => ({ idx: l.idx, qty: l.abs })))) rows.set(idx, r);
+  const destroy = auto.filter((l) => l.reason === 'EXPIRED_UNSOLD_DESTROY');
+  const rest = auto.filter((l) => l.reason !== 'EXPIRED_UNSOLD_DESTROY');
+  for (const [group, only] of [[destroy, (m: LotMeta) => isLotExpiredOn(m, day)], [rest, undefined]] as const) {
+    if (!group.length) continue;
+    const res = pickOutFefoLines(v, bucket, group.map((l) => ({ idx: l.idx, qty: l.abs, unitFactor: l.unitFactor })), only ? { only } : undefined);
+    if (!res.ok) throw fail(res.error, group);
+    warnings.push(...res.warnings);
+    for (const [idx, r] of res.lines) rows.set(idx, r);
+    v = applyRows(v, bucket, [...res.lines.values()].flat(), -1);
   }
   return rows;
 }
@@ -296,7 +304,7 @@ export async function planVanMovementInTx(tx: LotTx, input: VanMovementPlanInput
         warnings.push(...res.warnings);
         for (const [idx, r] of res.lines) rowsByLine.set(idx, r);
       } else {
-        for (const [idx, r] of pickPlan(view, bucket, pl, lookup)) rowsByLine.set(idx, r);
+        for (const [idx, r] of pickPlan(view, bucket, pl, lookup, day, warnings)) rowsByLine.set(idx, r);
       }
     }
     // إتلاف المنتهي غير المباع: وسمٌ صادق في التقارير — كل صفّ من تشغيلةٍ منتهية يوم العملية

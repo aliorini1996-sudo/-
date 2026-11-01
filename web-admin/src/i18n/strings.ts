@@ -1747,12 +1747,13 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   // ═══ تتبّع اللوط — W3 ═══
   // عبارات حزم الواجهات W2 وW3 وW5 وW6 (جردٌ آليّ بنداءات tr() كما يجمعها langs.test.ts)
   // حقول تشغيلات الحركة (StockLotFields وMLotFields)
-  'للصنف أكثر من تشغيلة حدد ما ينقص منه': { en: 'This product has more than one lot — choose which to reduce', fr: 'Ce produit a plusieurs lots — choisissez celui à diminuer', tr: 'Ürünün birden fazla partisi var — hangisinden düşüleceğini seçin', zh: '该商品有多个批次，请选择从哪个批次扣减' },
-  'ينقص من المصدر الوحيد': { en: 'Reduced from the only source', fr: 'Diminué de la seule source', tr: 'Tek kaynaktan düşülür', zh: '从唯一来源扣减' },
-  'تلقائي حين يكون للصنف مصدر واحد': { en: 'Automatic when the product has a single source', fr: 'Automatique lorsque le produit a une seule source', tr: 'Ürünün tek kaynağı olduğunda otomatik', zh: '商品只有一个来源时自动处理' },
+  // السحب التلقائي للإنقاص بلا تحديد (طلب المالك ١ نوفمبر ٢٠٢٦): الأقرب انتهاءً أولاً، والتحديد اليدوي اختياري
+  'تلقائي: الأقرب انتهاءً أولاً': { en: 'Automatic: earliest expiry first', fr: 'Automatique : la plus proche péremption d abord', tr: 'Otomatik: son kullanma tarihi en yakın önce', zh: '自动：先到期先出' },
+  'تحديد التشغيلة يدوياً': { en: 'Choose lots manually', fr: 'Choisir les lots manuellement', tr: 'Partileri elle seç', zh: '手动选择批次' },
+  'الكمية أكبر من رصيد التشغيلات في هذا الرصيد': { en: 'The quantity exceeds the lot balance in this stock', fr: 'La quantité dépasse le solde des lots de ce stock', tr: 'Miktar bu stoktaki parti bakiyesini aşıyor', zh: '数量超过该库存中的批次余额' },
+  'تلقائي من مبيعات العميل السابقة': { en: 'Automatic from the customer previous sales', fr: 'Automatique d après les ventes précédentes du client', tr: 'Müşterinin önceki satışlarından otomatik', zh: '根据客户以往销售自动确定' },
   'المتاح': { en: 'Available', fr: 'Disponible', tr: 'Mevcut', zh: '可用量' },
   'تشغيلة جديدة': { en: 'New lot', fr: 'Nouveau lot', tr: 'Yeni parti', zh: '新批次' },
-  'للصنف أكثر من مصدر في المستودع فاختر التشغيلة': { en: 'This product has more than one source in the warehouse — choose the lot', fr: 'Ce produit a plusieurs sources dans l entrepôt — choisissez le lot', tr: 'Ürünün depoda birden fazla kaynağı var — partiyi seçin', zh: '该商品在仓库中有多个来源，请选择批次' },
   // تحميل السيارة من الجوال (MRepLoad)
   'جاري حساب التشغيلات المقترحة': { en: 'Calculating suggested lots', fr: 'Calcul des lots suggérés', tr: 'Önerilen partiler hesaplanıyor', zh: '正在计算建议批次' },
   'التشغيلات المقترحة الأقرب انتهاء أولا': { en: 'Suggested lots, nearest expiry first', fr: 'Lots suggérés, péremption la plus proche d abord', tr: 'Önerilen partiler, son kullanma tarihi en yakın olan önce', zh: '建议批次，最近到期的优先' },
@@ -1760,7 +1761,6 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'المتاح في المستودع': { en: 'Available in the warehouse', fr: 'Disponible dans l entrepôt', tr: 'Depoda mevcut', zh: '仓库可用量' },
   'لن يحفظ التحميل بأكثر منه': { en: 'The load will not be saved above it', fr: 'Le chargement ne sera pas enregistré au-delà', tr: 'Yükleme bundan fazlasıyla kaydedilmez', zh: '装车数量不能超过此值' },
   'يؤكد التوزيع عند الحفظ': { en: 'The allocation is confirmed on save', fr: 'La répartition est confirmée à l enregistrement', tr: 'Dağıtım kaydederken onaylanır', zh: '保存时确认分配' },
-  'ينزل من': { en: 'Taken from', fr: 'Prélevé de', tr: 'Şuradan düşülür', zh: '扣自' },
   'من أي تشغيلة ينزل بوحدة الأساس': { en: 'Which lot it is taken from, in the base unit', fr: 'De quel lot il est prélevé, en unité de base', tr: 'Hangi partiden düşüleceği, temel birimde', zh: '从哪个批次扣减（基本单位）' },
   'باقي بلا توزيع': { en: 'Remaining unallocated', fr: 'Reste non réparti', tr: 'Dağıtılmamış kalan', zh: '剩余未分配' },
   'زائد عن كمية السطر': { en: 'Exceeds the line quantity', fr: 'Dépasse la quantité de la ligne', tr: 'Satır miktarını aşıyor', zh: '超过该行数量' },
@@ -1782,11 +1782,9 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'تعود الكمية إلى المستودع وتبقى التشغيلة موقوفة هناك': { en: 'The quantity returns to the warehouse and the lot stays held there', fr: 'La quantité retourne à l entrepôt et le lot y reste bloqué', tr: 'Miktar depoya döner ve parti orada bekletilmeye devam eder', zh: '数量退回仓库，批次在仓库中保持暂停' },
   'إتلاف': { en: 'Destroy', fr: 'Détruire', tr: 'İmha', zh: '销毁' },
   'كمية الصنف المتتبع بأربع خانات عشرية على الأكثر بوحدة الأساس': { en: 'A tracked product quantity has at most four decimal places in the base unit', fr: 'La quantité d un produit suivi a au plus quatre décimales en unité de base', tr: 'Takip edilen ürün miktarı temel birimde en fazla dört ondalık basamaklıdır', zh: '追踪商品的数量以基本单位计，最多四位小数' },
-  'للصنف أكثر من تشغيلة في السيارة حدد ما ينزل منه': { en: 'This product has more than one lot in the van — choose which to unload from', fr: 'Ce produit a plusieurs lots dans le véhicule — choisissez celui à décharger', tr: 'Ürünün araçta birden fazla partisi var — hangisinden indirileceğini seçin', zh: '该商品在车上有多个批次，请选择从哪个批次卸货' },
   'توزيع التحميل على التشغيلات': { en: 'Load allocation across lots', fr: 'Répartition du chargement par lot', tr: 'Yüklemenin partilere dağıtımı', zh: '装车按批次分配' },
   'التشغيلات التي ينزل منها': { en: 'Lots it is unloaded from', fr: 'Lots d où il est déchargé', tr: 'İndirildiği partiler', zh: '卸货来源批次' },
   'العودة إلى الاقتراح': { en: 'Back to the suggestion', fr: 'Revenir à la suggestion', tr: 'Öneriye dön', zh: '恢复建议' },
-  'ينزل من المصدر الوحيد': { en: 'Unloaded from the only source', fr: 'Déchargé de la seule source', tr: 'Tek kaynaktan indirilir', zh: '从唯一来源卸货' },
   'لا رصيد تشغيلات لهذا الصنف في السيارة': { en: 'No lot balance for this product in the van', fr: 'Aucun solde de lot pour ce produit dans le véhicule', tr: 'Bu ürün için araçta parti bakiyesi yok', zh: '该商品在车上没有批次余量' },
   'اقتراح التشغيلات الأقرب انتهاء أولا': { en: 'Suggest lots with the nearest expiry first', fr: 'Suggérer les lots à péremption la plus proche d abord', tr: 'Son kullanma tarihi en yakın partileri önce öner', zh: '优先建议最近到期的批次' },
   'تعديل التوزيع': { en: 'Edit the allocation', fr: 'Modifier la répartition', tr: 'Dağıtımı düzenle', zh: '修改分配' },
@@ -1794,7 +1792,6 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'منتهية لم تبع': { en: 'Expired unsold', fr: 'Périmé invendu', tr: 'Süresi dolmuş satılmamış', zh: '过期未售' },
   'ضمن المتبقي ولا يباع': { en: 'Counted in the remaining stock but not for sale', fr: 'Inclus dans le restant mais non vendable', tr: 'Kalan stokta sayılır ama satılmaz', zh: '计入剩余但不可销售' },
   'التشغيلات التي تزال منها': { en: 'Lots it is removed from', fr: 'Lots d où il est retiré', tr: 'Düşüldüğü partiler', zh: '扣减来源批次' },
-  'من المصدر الوحيد': { en: 'From the only source', fr: 'De la seule source', tr: 'Tek kaynaktan', zh: '来自唯一来源' },
   'لا رصيد تشغيلات في هذا الرصيد': { en: 'No lot balance in this stock', fr: 'Aucun solde de lot dans ce stock', tr: 'Bu bakiyede parti bakiyesi yok', zh: '该余量中没有批次余量' },
   // شاشة التشغيلات (LotsPage وlib/lotsPage.ts)
   'النطاق': { en: 'Scope', fr: 'Portée', tr: 'Kapsam', zh: '范围' },
@@ -5487,6 +5484,18 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'الطباعة جاهزة': { en: 'Ready to print', fr: 'Prêt à imprimer', tr: 'Yazdırmaya hazır', zh: '可以打印' },
   'اطبع الآن': { en: 'Print now', fr: 'Imprimer maintenant', tr: 'Şimdi yazdır', zh: '立即打印' },
   'المستند أكبر من أن يرسل للطابعة مباشرة — اطبعه بنظام الطباعة في الجهاز': { en: 'This document is too large to send to the printer directly — print it with the device print system', fr: 'Ce document est trop volumineux pour un envoi direct à l imprimante — imprimez-le avec le système d impression de l appareil', tr: 'Bu belge doğrudan yazıcıya gönderilemeyecek kadar büyük — cihazın yazdırma sistemiyle yazdırın', zh: '该文档太大，无法直接发送到打印机——请使用设备打印系统打印' },
+  // جسر الطباعة إلى تطبيق فيلد سيلز على الآيفون (1.1.0) — رسائل بلا سببٍ تقنيّ، وتلميحات الخيار المعطّل
+  'لتفعيل الطباعة المباشرة حدث تطبيق فيلد سيلز من App Store': { en: 'To enable direct printing, update the Field Sales app from the App Store', fr: 'Pour activer l impression directe, mettez à jour l application Field Sales depuis l App Store', tr: 'Doğrudan yazdırmayı etkinleştirmek için Field Sales uygulamasını App Store üzerinden güncelleyin', zh: '要启用直接打印，请从 App Store 更新 Field Sales 应用' },
+  'البلوتوث مطفأ في الجوال — شغله ثم أعد الطباعة': { en: 'Bluetooth is off on the phone — turn it on, then print again', fr: 'Le Bluetooth est désactivé sur le téléphone — activez-le puis relancez l impression', tr: 'Telefonda Bluetooth kapalı — açın ve yeniden yazdırın', zh: '手机蓝牙已关闭 — 请打开后重新打印' },
+  'اسمح لتطبيق فيلد سيلز باستخدام البلوتوث من إعدادات الجوال ثم أعد الطباعة': { en: 'Allow the Field Sales app to use Bluetooth in the phone settings, then print again', fr: 'Autorisez l application Field Sales à utiliser le Bluetooth dans les réglages du téléphone puis relancez l impression', tr: 'Telefon ayarlarından Field Sales uygulamasının Bluetooth kullanmasına izin verin ve yeniden yazdırın', zh: '请在手机设置中允许 Field Sales 应用使用蓝牙，然后重新打印' },
+  'لم تربط طابعة — اضغط ربط الطابعة واختر طابعتك': { en: 'No printer linked — tap Link printer and choose your printer', fr: 'Aucune imprimante liée — appuyez sur Lier l imprimante et choisissez la vôtre', tr: 'Bağlı yazıcı yok — Yazıcıyı bağla düğmesine dokunun ve yazıcınızı seçin', zh: '尚未连接打印机 — 请点击“连接打印机”并选择您的打印机' },
+  'توقفت الطباعة قبل أن تكتمل — أعد الطباعة': { en: 'Printing stopped before it finished — print again', fr: 'L impression s est arrêtée avant la fin — relancez l impression', tr: 'Yazdırma tamamlanmadan durdu — yeniden yazdırın', zh: '打印未完成即已停止 — 请重新打印' },
+  'طباعة جارية — انتظر حتى تنتهي ثم أعد الطباعة': { en: 'A print is in progress — wait for it to finish, then print again', fr: 'Une impression est en cours — attendez la fin puis relancez l impression', tr: 'Devam eden bir yazdırma var — bitmesini bekleyin ve yeniden yazdırın', zh: '正在打印 — 请等待完成后再重新打印' },
+  'حدث تطبيق فيلد سيلز من App Store لتفعيلها': { en: 'Update the Field Sales app from the App Store to enable it', fr: 'Mettez à jour l application Field Sales depuis l App Store pour l activer', tr: 'Etkinleştirmek için Field Sales uygulamasını App Store üzerinden güncelleyin', zh: '请从 App Store 更新 Field Sales 应用以启用此功能' },
+  'متاحة في تطبيق فيلد سيلز على الآيفون': { en: 'Available in the Field Sales app on iPhone', fr: 'Disponible dans l application Field Sales sur iPhone', tr: 'iPhone için Field Sales uygulamasında kullanılabilir', zh: '可在 iPhone 上的 Field Sales 应用中使用' },
+  'الطابعة النقطية لا تطبع من الآيفون — اطبعها من جوال أندرويد أو شارك ملف PDF': { en: 'The dot-matrix printer cannot print from an iPhone — print from an Android phone or share a PDF file', fr: 'L imprimante matricielle n imprime pas depuis un iPhone — imprimez depuis un téléphone Android ou partagez un fichier PDF', tr: 'Nokta vuruşlu yazıcı iPhone üzerinden yazdıramaz — bir Android telefondan yazdırın veya PDF dosyası paylaşın', zh: '针式打印机无法从 iPhone 打印 — 请用 Android 手机打印或分享 PDF 文件' },
+  'شغل الطابعة وقربها من الجوال ثم اضغط ربط الطابعة — لا تقرنها من إعدادات البلوتوث في الآيفون': { en: 'Turn the printer on and bring it close to the phone, then tap Link printer — do not pair it in the iPhone Bluetooth settings', fr: 'Allumez l imprimante et approchez-la du téléphone, puis appuyez sur Lier l imprimante — ne l appairez pas dans les réglages Bluetooth de l iPhone', tr: 'Yazıcıyı açıp telefona yaklaştırın, ardından Yazıcıyı bağla düğmesine dokunun — iPhone Bluetooth ayarlarından eşleştirmeyin', zh: '打开打印机并靠近手机，然后点击“连接打印机” — 不要在 iPhone 蓝牙设置中配对' },
+  'لا تقفل الشاشة حتى تنتهي الطباعة': { en: 'Do not lock the screen until printing finishes', fr: 'Ne verrouillez pas l écran avant la fin de l impression', tr: 'Yazdırma bitene kadar ekranı kilitlemeyin', zh: '打印完成前请勿锁屏' },
   // ——— موظفو المنصة — اللوحة: لوحة المالك نفسها للموظف بما مُنح له (PlatformPage ومحررا المحتوى) ———
   'لوحة المنصة': { en: 'Platform panel', fr: 'Panneau de la plateforme', tr: 'Platform paneli', zh: '平台面板' },
   'الموظفون': { en: 'Staff', fr: 'Personnel', tr: 'Personel', zh: '员工' },

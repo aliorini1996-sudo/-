@@ -94,7 +94,7 @@ test('تشغيلات التنزيل تقلب الى قيمتها المطلقة 
   assert.deepEqual(b2[0].lots, [{ lotId: 'l1', qty: 5 }]);
 });
 
-test('تنزيل بلا تشغيلات او بمصفوفة فارغة لا يحمل lots — الخادم يختار المصدر الوحيد', () => {
+test('تنزيل بلا تشغيلات او بمصفوفة فارغة لا يحمل lots — الخادم يسحب تلقائياً بالأقرب انتهاءً أولاً (pickOutFefoLines)', () => {
   const { back } = splitVanMovement([{ productId: 'a', qty: -2 }, { productId: 'b', qty: -3, lots: [] }]);
   assert.deepEqual(back, [{ productId: 'a', qty: 2 }, { productId: 'b', qty: 3 }]);
   assert.ok(!('lots' in back[1]));

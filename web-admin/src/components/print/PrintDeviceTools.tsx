@@ -6,8 +6,10 @@ import {
 } from '../../lib/print/printSettings';
 import { DIRECT_PRINT_FALLBACK, DirectPrintError, PrintRefusedError } from '../../lib/print/printErrors';
 import { buildCalibrationDocument, sampleBannerHtml, sampleInvoiceDoc } from '../../lib/print/calibration';
-import { directOnAndroid, directPath, directPrintAvailable, linkPrinter, linkedPrinter, onLateHandoff, printerForJob, type DirectLink } from '../../lib/print/transport/direct';
-import { printHtmlDirect, printNodeDirect, supportsDirect, transportFor, type DirectOutcome, type PrintTransport } from '../../rep/printDirect';
+import { directPath, isIosLink, linkPrinter, linkedPrinter, onLateHandoff, printerForJob, type DirectLink } from '../../lib/print/transport/direct';
+import {
+  directAvailableFor, directHintFor, printHtmlDirect, printNodeDirect, supportsDirect, transportFor, type DirectOutcome, type PrintTransport,
+} from '../../rep/printDirect';
 import { printHtmlDocument, printPageNode } from '../../rep/printPage';
 import { printThermalInvoice } from '../../rep/thermal';
 import { PrintLookContext, lookFor } from '../../rep/printLook';
@@ -26,7 +28,8 @@ import { AppUpdateButton, AppUpdateHint } from './AppUpdatePrompt';
  * «نموذج اختبار — ليس مستندا ضريبيا» (§4.14).
  *
  * الطريقة لكل جهاز (localStorage): نظام الطباعة افتراضاً كما اليوم، والبلوتوث المباشر إن اختاره وكان Chrome يحمل Web Serial —
- * أو على أندرويد بلا Web Serial عبر تطبيق فيلد سيلز (جسر الطباعة: «ربط الطابعة» شاشة اختيارٍ في التطبيق نفسه).
+ * أو على أندرويد بلا Web Serial عبر تطبيق فيلد سيلز (جسر الطباعة: «ربط الطابعة» شاشة اختيارٍ في التطبيق نفسه)، أو في تطبيق
+ * فيلد سيلز على الآيفون (الطابعة تُختار من شاشة التطبيق بلا إقرانٍ من الإعدادات وتُحفظ فيه، والصفحة تعرض اسمها).
  */
 export default function PrintDeviceTools({ profile, systemProfile, name, company, renderSheet, choice, onChoice }: {
   profile: PrintProfile;
@@ -45,10 +48,15 @@ export default function PrintDeviceTools({ profile, systemProfile, name, company
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tone: 'ok' | 'error'; text: string; fallback?: boolean; app?: 'hard' | 'soft' } | null>(null);
   const [linked, setLinked] = useState<boolean | null>(null);
+  // اسم الطابعة المحفوظة في تطبيق الآيفون — Web Serial بلا اسم
+  const [linkedName, setLinkedName] = useState<string | null>(null);
 
-  const available = directPrintAvailable();
+  const available = directAvailableFor(profile);
   // أندرويد بلا Web Serial: الطابعة تُختار وتُحفظ في التطبيق — الصفحة لا تعرف أهي مربوطة
   const appPath = directPath() === 'app';
+  // تطبيق الآيفون: الطابعة تُختار في شاشته وتُحفظ فيه — والصفحة تعرف أهي مربوطة واسمها (كـWeb Serial)
+  const iosPath = directPath() === 'ios-app';
+  const hint = directHintFor(profile);
   const capable = supportsDirect(profile);
   const transport: PrintTransport = transportFor(profile, choice, available);
   const sample = useMemo(() => sampleInvoiceDoc(company, tr), [company, tr]);
@@ -58,9 +66,10 @@ export default function PrintDeviceTools({ profile, systemProfile, name, company
   const classic = profileVia(transport).template === 'roll_classic';
   const sysClassic = sysProfile.template === 'roll_classic';
 
+  const refreshLinked = () => linkedPrinter().then((p) => { setLinked(!!p); setLinkedName(p && isIosLink(p) ? p.name : null); });
   useEffect(() => {
     let alive = true;
-    if (available && capable) linkedPrinter().then((p) => { if (alive) setLinked(!!p); });
+    if (available && capable) linkedPrinter().then((p) => { if (alive) { setLinked(!!p); setLinkedName(p && isIosLink(p) ? p.name : null); } });
     return () => { alive = false; };
   }, [available, capable]);
 
@@ -83,11 +92,14 @@ export default function PrintDeviceTools({ profile, systemProfile, name, company
       if (r === 'linked') {
         setLinked(true);
         setMsg({ tone: 'ok', text: tr('تم ربط الطابعة') });
+        if (iosPath) void refreshLinked();
       }
     } catch (e) {
+      // أُغلقت شاشة الاختيار في تطبيق الآيفون بلا طابعة: اختيار المندوب نفسه — لا رسالة
+      if (iosPath && e instanceof DirectPrintError && e.kind === 'pickPrinter') return;
       setMsg({
         tone: 'error', text: tr(e instanceof DirectPrintError ? e.message : 'تعذرت الطباعة المباشرة'),
-        app: e instanceof DirectPrintError && e.kind === 'appUpdate' ? 'hard' : undefined,
+        app: e instanceof DirectPrintError && (e.kind === 'appUpdate' || e.kind === 'appUpdateIos') ? 'hard' : undefined,
       });
     }
   };
@@ -98,12 +110,13 @@ export default function PrintDeviceTools({ profile, systemProfile, name, company
     try {
       const port = via === 'bt-serial' ? await printerForJob() : null;
       if (port) setLinked(true);
+      if (port && isIosLink(port) && port.name) setLinkedName(port.name);
       const r = await job(port);
       // سُلّمت للتطبيق بلا مفتاح ثقة: لا علامة نجاح — تلميح التحديث الهادئ
       if (port && r === 'handed') setMsg({ tone: 'ok', text: '', app: 'soft' });
       else if (port) setMsg({ tone: 'ok', text: tr(r === 'cancelled' ? 'ألغيت الطباعة' : '✓ تم الإرسال إلى الطابعة') });
     } catch (e) {
-      if (e instanceof DirectPrintError) setMsg({ tone: 'error', text: tr(e.message), fallback: true, app: e.kind === 'appUpdate' ? 'hard' : undefined });
+      if (e instanceof DirectPrintError) setMsg({ tone: 'error', text: tr(e.message), fallback: true, app: e.kind === 'appUpdate' || e.kind === 'appUpdateIos' ? 'hard' : undefined });
       else setMsg({ tone: 'error', text: tr(e instanceof PrintRefusedError ? e.message : 'تعذرت الطباعة تأكد من إعداد الطابعة') });
     }
     setBusy(false);
@@ -130,6 +143,18 @@ export default function PrintDeviceTools({ profile, systemProfile, name, company
     await printPageNode(node, profile, [tr('الأصل'), tr('نسخة')], banner);
   });
 
+  /** تلميح «بلوتوث مباشر» — بلا سببٍ تقنيّ على الجوال؛ نصّ المتصفح لسطح المكتب وحده (platform.ts directHint) */
+  const directHintText = (): string => {
+    switch (hint) {
+      case 'ready': return tr('يرسل للطابعة مباشرة بلا تطبيق وسيط');
+      case 'soon': return tr('تصل مع التحديث القادم لتطبيق فيلد سيلز');
+      case 'updateIos': return tr('حدث تطبيق فيلد سيلز من App Store لتفعيلها');
+      case 'iosApp': return tr('متاحة في تطبيق فيلد سيلز على الآيفون');
+      case 'impactIos': return tr('الطابعة النقطية لا تطبع من الآيفون — اطبعها من جوال أندرويد أو شارك ملف PDF');
+      default: return tr('الطباعة المباشرة تتطلب Chrome 138 أو أحدث');
+    }
+  };
+
   const radio = (t: PrintTransport, title: string, hint: string, disabled?: boolean) => {
     const on = transport === t;
     return (
@@ -150,7 +175,8 @@ export default function PrintDeviceTools({ profile, systemProfile, name, company
         <p className="text-xs font-bold text-[#44403a]">{tr('طريقة الاتصال')}</p>
         {capable ? (
           <>
-            {radio('bt-serial', tr('بلوتوث مباشر (موصى به)'), available ? tr('يرسل للطابعة مباشرة بلا تطبيق وسيط') : directOnAndroid() ? tr('تصل مع التحديث القادم لتطبيق فيلد سيلز') : tr('الطباعة المباشرة تتطلب Chrome 138 أو أحدث'), !available)}
+            {radio('bt-serial', tr('بلوتوث مباشر (موصى به)'), available ? tr('يرسل للطابعة مباشرة بلا تطبيق وسيط') : directHintText(), !available)}
+            {!available && hint === 'updateIos' && <AppUpdateButton />}
             {radio('system', tr('نظام الطباعة في الجهاز'), profile.printer === 'impact' ? tr(PRINT_NOTES.impactDesktop) : sysClassic ? tr('الشريط الكلاسيكي يطبع كما اليوم بلا بلوتوث مباشر') : tr('خدمة الطباعة المثبتة في الجوال أو الكمبيوتر'))}
             {transport === 'bt-serial' && (
               <div className="pt-1 space-y-2">
@@ -160,13 +186,13 @@ export default function PrintDeviceTools({ profile, systemProfile, name, company
                   ) : (
                     <>
                       <span className={`text-xs font-semibold flex items-center gap-1 ${linked ? 'text-[#1E7A52]' : 'text-[#9A8F7E]'}`}>
-                        <Bluetooth size={13} /> {linked ? tr('الطابعة مربوطة') : tr('لم تربط طابعة بعد')}
+                        <Bluetooth size={13} /> {linked ? (linkedName ? `${tr('الطابعة مربوطة')}: ${linkedName}` : tr('الطابعة مربوطة')) : tr('لم تربط طابعة بعد')}
                       </span>
                       <button type="button" onClick={link} className="btn-secondary !py-1 !px-3 text-xs"><Link2 size={13} /> {linked ? tr('ربط طابعة أخرى') : tr('ربط الطابعة')}</button>
                     </>
                   )}
                 </div>
-                <p className="text-[11px] text-[#6E6557] flex items-start gap-1.5"><Info size={12} className="mt-0.5 shrink-0" />{tr('اقرن الطابعة أولا من إعدادات البلوتوث في الجوال')}</p>
+                <p className="text-[11px] text-[#6E6557] flex items-start gap-1.5"><Info size={12} className="mt-0.5 shrink-0" />{iosPath ? tr('شغل الطابعة وقربها من الجوال ثم اضغط ربط الطابعة — لا تقرنها من إعدادات البلوتوث في الآيفون') : tr('اقرن الطابعة أولا من إعدادات البلوتوث في الجوال')}</p>
                 {/* لغة أوامر الطابعة الحرارية — صفة الطابعة المربوطة: ورقة الفحص الذاتي تقولها («Instruction Set») */}
                 {profile.printer === 'thermal' && geometry(profile).feed === 'roll' && (
                   <div className="space-y-1.5" data-printer-lang="">

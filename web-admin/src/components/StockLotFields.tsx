@@ -1,7 +1,8 @@
 // ============================================================================
 // «تتبّع اللوط» في شاشتي المخزون (W2): حقول التشغيلة المشتركة بين مخزون الشركة
-// ومخزون السيارات — محرّر صفوف التوزيع (اقتراح FEFO قابل للتعديل والتقسيم،
-// ومصدر الإنقاص الصريح D10)، وحقول تشغيلة سطر الوارد والتسوية والتحميل المباشر.
+// ومخزون السيارات — محرّر صفوف التوزيع (اقتراح FEFO قابل للتعديل والتقسيم، والتحديد
+// اليدوي الاختياري لمصدر الإنقاص)، ومعاينة السحب التلقائي للإنقاص بلا تحديد (الأقرب
+// انتهاءً أولاً ثم غير المسمّى)، وحقول تشغيلة سطر الوارد والتسوية والتحميل المباشر.
 // المنطق الصرف في lib/stockLots.ts، والكميات كلها بوحدة الأساس (D22).
 // ============================================================================
 
@@ -10,7 +11,7 @@ import { Plus, Trash2, Layers } from 'lucide-react';
 import { lotsApi } from '../api/client';
 import { useTr } from '../i18n/strings';
 import { formatDayOnly } from '../utils/format';
-import { LOT_BLOCK_KIND_LABELS, LOT_STATUS_LABELS, normalizeLotNumber, roundLot, type ProductLotDto } from '../lib/lots';
+import { LOT_BLOCK_KIND_LABELS, LOT_STATUS_LABELS, normalizeLotNumber, roundLot, type LotRef, type ProductLotDto } from '../lib/lots';
 import {
   draftRemaining, entryLotModes, lotRowEquivalent, lotSmallUnitOf, sourceKey, splitDraft, withKnownLotDates,
   type DraftProblem, type EntryLotDraft, type EntryLotKind, type EntryLotMode, type EntryLotProblem, type LotBalancesResponse, type LotRowDraft, type LotSource,
@@ -61,8 +62,43 @@ export function entryProblemText(p: EntryLotProblem | null, tr: Tr): string | nu
   if (!p) return null;
   if (p === 'LOT_EXPIRY_REQUIRED') return tr('تاريخ انتهاء التشغيلة إلزامي لصنف صلاحيته مفعلة');
   if (p === 'LOT_DATES_INVALID') return tr('تاريخ الإنتاج بعد تاريخ الانتهاء أو تاريخ غير صالح');
-  if (p === 'LOT_OVER_SOURCE') return tr('الكمية أكبر من المتاح في التشغيلة');
+  if (p === 'LOT_STOCK_INSUFFICIENT') return tr('الكمية أكبر من رصيد تشغيلات الصنف في المستودع');
+  // صريحٌ (تشغيلة أو «غير مسمى») مجموع أسطره فوق صالح مصدره — «المصدر» يصدق على الاثنين
+  if (p === 'LOT_OVER_SOURCE') return tr('الكمية أكبر من المتاح في المصدر');
+  // كمية الصنف المتتبَّع بالأساس أدقّ من أربع خانات (isLotQty) — الخادم يردّها LOT_QTY_INVALID
+  if (p === 'LOT_QTY_INVALID') return tr('كمية الصنف المتتبع بأربع خانات عشرية على الأكثر بوحدة الأساس');
   return tr('حدد التشغيلة لهذا السطر');
+}
+
+/**
+ * معاينة السحب التلقائي لإنقاصٍ بلا تحديد (fefoAutoPull، مرآة pickOutFefoLines): «تلقائي: الأقرب انتهاءً أولاً» ثم ما سيُسحب من
+ * كل تشغيلة بالأساس (الموقوفة والمنتهية موسومتان، و«غير مسمى» آخراً بلونه). `rows` صفوف السطر، و`sources` مصادر المكان لأسمائها.
+ * المعاينة تقدير: الخادم يحسم عند الحفظ تحت القفل.
+ */
+export function AutoPullPreview({ rows, sources }: { rows: readonly LotRef[] | null | undefined; sources: readonly LotSource[] }) {
+  const tr = useTr();
+  const byKey = new Map(sources.map((s) => [sourceKey(s.lotId), s]));
+  return (
+    <div className="space-y-1">
+      <p className="text-[10px] text-[#6E6557]">{tr('تلقائي: الأقرب انتهاءً أولاً')}</p>
+      {!!rows?.length && (
+        <div className="flex flex-wrap gap-1">
+          {rows.map((a) => {
+            const s = byKey.get(sourceKey(a.lotId));
+            const exp = s?.expiryDate ? ` · ${tr('ينتهي')} ${formatDayOnly(s.expiryDate)}` : '';
+            const state = s?.status === 'BLOCKED'
+              ? ` · ${tr(s.blockKind ? LOT_BLOCK_KIND_LABELS[s.blockKind] : LOT_STATUS_LABELS.BLOCKED)}`
+              : s?.expired ? ` · ${tr('منتهية')}` : '';
+            return (
+              <span key={sourceKey(a.lotId)} className={`text-[10px] rounded border px-1.5 py-0.5 ${a.lotId === null ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-white border-[#E9E1D3] text-[#1F1A13]'}`}>
+                {s?.lotNumber ?? tr('غير مسمى')}{exp}{state} ×<b>{fmtLotQty(a.qty)}</b>
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -124,12 +160,13 @@ const MODE_LABELS: Record<EntryLotMode, string> = {
 
 /**
  * تشغيلة سطرٍ واحد (§٤.٤، وD4 للتحميل بلا مستودع): رقمٌ وتاريخان (يُحلّ القائم برقمه أو يُنشأ)، أو تشغيلة قائمة، أو «غير مسمّى»
- * صراحةً، أو «تلقائي» للنقص من مصدرٍ وحيد. والنقص يختار من مصادر المكان (`sources`) لا من بطاقات الصنف، و«التلقائي» يُوصف
- * بمصادره الباقية بعد صريح أسطر صنفه (`autoSources`، autoDecreaseSources) إن مُرِّرت.
+ * صراحةً، أو «تلقائي» للنقص — الافتراضي، يُسحب بالأقرب انتهاءً أولاً من أي عدد مصادر، والقائمة و«غير مسمّى» تحديدٌ يدوي اختياري.
+ * والنقص يختار من مصادر المكان (`sources`) لا من بطاقات الصنف، و«التلقائي» يعرض ما سيُسحب لهذا السطر (`autoRows`،
+ * autoDecreasePreview مما بقي بعد صريح أسطر صنفه) إن مُرِّر.
  */
-export function EntryLotFields({ productId, kind, value, onChange, expiryRequired, sources, autoSources, problem }: {
+export function EntryLotFields({ productId, kind, value, onChange, expiryRequired, sources, autoRows, problem }: {
   productId: string; kind: EntryLotKind; value: EntryLotDraft; onChange: (d: EntryLotDraft) => void;
-  expiryRequired: boolean; sources?: LotSource[]; autoSources?: LotSource[]; problem?: EntryLotProblem | null;
+  expiryRequired: boolean; sources?: LotSource[]; autoRows?: LotRef[] | null; problem?: EntryLotProblem | null;
 }) {
   const tr = useTr();
   const modes = entryLotModes(kind);
@@ -145,7 +182,6 @@ export function EntryLotFields({ productId, kind, value, onChange, expiryRequire
   const known = lotsQ.data ?? [];
   const listId = `lot-numbers-${productId}`;
   const named = (sources ?? []).filter((s) => s.lotId !== null);
-  const auto = autoSources ?? sources;
   return (
     <div className="mt-1.5 rounded-lg border border-[#F1EBDF] bg-[#FAF7F0] px-2 py-1.5 space-y-1.5">
       <div className="flex items-center gap-1 flex-wrap">
@@ -187,12 +223,7 @@ export function EntryLotFields({ productId, kind, value, onChange, expiryRequire
         </select>
       )}
       {mode === 'UNKNOWN' && <p className="text-[10px] text-[#6E6557]">{tr('تسجل الكمية رصيدا غير مسمى يمكن تسميته لاحقا')}</p>}
-      {mode === 'AUTO' && (
-        <p className="text-[10px] text-[#6E6557]">
-          {(auto?.length ?? 0) > 1 ? tr('للصنف أكثر من تشغيلة حدد ما ينقص منه')
-            : auto?.length === 1 ? `${tr('ينقص من المصدر الوحيد')}: ${sourceLabel(auto[0], tr)}` : tr('ينقص من المصدر الوحيد')}
-        </p>
-      )}
+      {mode === 'AUTO' && <AutoPullPreview rows={autoRows} sources={sources ?? []} />}
       {problem && <p className="text-[10px] text-red-600">{entryProblemText(problem, tr)}</p>}
     </div>
   );

@@ -21,7 +21,8 @@ import {
   LOT_BLOCK_KIND_LABELS, LOT_STATUS_LABELS, LOT_WARNING_LABELS, isLotExpiredOn, lotDay, lotErrorOf, lotFlagsOf, lotWarningsOf, roundLot, toBaseQty,
 } from '../lib/lots';
 import {
-  autoDecreaseOver, autoDecreaseSources, emptyEntryLot, entryLotFields, entryLotProblem, lotRowSummary, newRowId, normalizeEntryLot, outSourcesOf, shelfLifeOn,
+  autoDecreaseOver, autoDecreasePreview, emptyEntryLot, entryLotFields, entryLotProblem, explicitDecreaseOver, isFourDecimals, lotRowSummary, newRowId, normalizeEntryLot,
+  outSourcesOf, shelfLifeOn,
   type EntryLotDraft, type EntryLotKind, type PlaceViewWithAvailability,
 } from '../lib/stockLots';
 import { EntryLotFields, fetchLotBalances, fmtLotQty } from '../components/StockLotFields';
@@ -32,7 +33,7 @@ import { EntryLotFields, fetchLotBalances, fmtLotQty } from '../components/Stock
  * الخادم يحلّ `unitId` إلى معامله ويقسم التكلفة عليه عند التقييم. وسجلّ الوارد يقرأ لقطة وحدة كل سطر.
  *
  * «تتبّع اللوط» (W2، يفعّله المالك لكل شركة): سطر الوارد لصنفٍ متتبَّع بتشغيلته (الرقم وتاريخا الإنتاج والانتهاء)، وللصنف
- * أكثر من سطرٍ لدفعتين؛ والتسوية بمصدرٍ صريح؛ وصفّ الرصيد يتوسّع بتشغيلاته والمعزول والعجز (ومع «المخزون في تاريخ»).
+ * أكثر من سطرٍ لدفعتين؛ ونقص التسوية سحبٌ تلقائي بالأقرب انتهاءً أولاً (أو تحديدٌ يدوي)؛ وصفّ الرصيد يتوسّع بتشغيلاته والمعزول والعجز (ومع «المخزون في تاريخ»).
  * الميزة مطفأة ⇒ لا جلب ولا عمود ولا تغيير مرئي (§١٠.١).
  *
  * «الوحدة الرئيسية» (القاعدة ١٢، primary_unit_spec §5.3): صنفٌ لها تُعرض أرصدته بها («52 كرتون و2 قارورة») ووسمه «الوحدة
@@ -61,9 +62,9 @@ interface WhEntry {
   zeroRunId?: string | null;
   // lineCost: قيمة السطر كما قرّبها الخادم — للإشعار المطبوع، مجموعها = totalCost.
   // unitName/unitFactor لقطة وحدة السطر: الكمية وتكلفة الوحدة بها (الكرتون كرتوناً)
-  // lot: تشغيلة السطر («تتبّع اللوط»، والميزة مفعّلة وحدها)
+  // lot: تشغيلة السطر («تتبّع اللوط»، والميزة مفعّلة وحدها)، وproductId لعدّ أصناف الإشعار لا بنوده (نقصٌ تلقائي من تشغيلتين = بندان)
   items: {
-    id: string; qty: number; unitName?: string | null; unitFactor?: number | null; baseQty?: number | null; unitCost: number | null; lineCost?: number | null;
+    id: string; productId?: string; qty: number; unitName?: string | null; unitFactor?: number | null; baseQty?: number | null; unitCost: number | null; lineCost?: number | null;
     product: { name: string; unit: string };
     lot?: { lotNumber: string; productionDate: string | null; expiryDate: string | null } | null;
   }[];
@@ -444,7 +445,8 @@ export default function CompanyWarehousePage() {
                 {itemsOpen && (
                 <div className="flex flex-wrap gap-1.5 mt-1.5">
                   {e.items.map(it => {
-                    // لقطة وحدة السطر: «١٠ كرتون · ٤٨/كرتون» — وحدة الصنف اليوم (الأساس بعد التحويل) تنسب سعر الكرتون للحبة
+                    // لقطة وحدة السطر: «١٠ كرتون · ٤٨/كرتون» — وحدة الصنف اليوم (الأساس بعد التحويل) تنسب سعر الكرتون للحبة.
+                    // ونقصٌ «تلقائي» سُحب من أكثر من تشغيلة بنودٌ للصنف نفسه بتشغيلاتها (المفتاح معرّف البند لا الصنف)
                     const u = it.unitName || it.product.unit;
                     return (
                     <span key={it.id} className="text-[11px] bg-[#FAF7F0] border border-[#F1EBDF] rounded-md px-2 py-0.5 text-[#1F1A13]">
@@ -644,7 +646,7 @@ function WarehouseEntryModal({ onClose, lotOn }: { onClose: () => void; lotOn: b
   // «تتبّع اللوط»: اتجاه تشغيلة السطر، وصلاحية صنفه (الانتهاء إلزامي معها)
   const lotKind = (r: EntryRow): EntryLotKind => (type === 'RECEIVE' ? 'RECEIVE' : Number(r.qty) < 0 ? 'DECREASE' : 'INCREASE');
   const trackedRows = rows.filter(r => isTracked(r.productId));
-  // مصادر النقص في المستودع (D10): تُجلب لتسويةٍ فيها نقصٌ لصنفٍ متتبَّع وحدها
+  // مصادر النقص في المستودع: تُجلب لتسويةٍ فيها نقصٌ لصنفٍ متتبَّع وحدها — لمعاينة السحب التلقائي، وللتحديد اليدوي، ولمنع ما فوق الرصيد
   const decIds = [...new Set(trackedRows.filter(r => lotKind(r) === 'DECREASE').map(r => r.productId))].sort();
   const srcQ = useQuery({
     queryKey: ['lot-balances-wh', '', decIds.join(',')],
@@ -652,19 +654,33 @@ function WarehouseEntryModal({ onClose, lotOn }: { onClose: () => void; lotOn: b
     enabled: lotOn && decIds.length > 0,
   });
   const sourcesOf = (productId: string) => outSourcesOf(srcQ.data?.views.get(productId), 'SELLABLE', srcQ.data?.day ?? '');
-  // «التلقائي» يأخذ المصدر الوحيد **مما بقي بعد صريح أسطر صنفه** كما يحكم الخادم (D10، withoutRows): [A −١٠ صريحة، تلقائي −٥]
-  // يصفّي A فمصدره B وحده — والكمية بالأساس بمعامل وحدة السطر (D22)
-  const decLinesOf = (productId: string) => trackedRows
-    .filter(x => x.productId === productId && lotKind(x) === 'DECREASE')
-    .map(x => ({ draft: x.lot, baseQty: Number(x.qty) * (choiceById(productOf(x.productId), x.unitId)?.factor ?? 1) }));
-  const autoSourcesOf = (productId: string) => autoDecreaseSources(sourcesOf(productId), decLinesOf(productId));
-  // والتلقائي فوق مصدره الوحيد الباقي يردّه الخادم LOT_STOCK_INSUFFICIENT — يُمنع هنا لا بعد الإرسال
-  const lotProblem = (r: EntryRow) => (isTracked(r.productId)
-    ? entryLotProblem(r.lot, {
-      kind: lotKind(r), expiryRequired: shelfLifeOn(productOf(r.productId)), sourcesCount: autoSourcesOf(r.productId).length,
+  // «التلقائي» يُسحب بالأقرب انتهاءً أولاً **مما بقي بعد صريح أسطر صنفه** كما يحكم الخادم (pickOutFefoLines بعد withoutRows) أيّاً
+  // كان عدد المصادر: [A −١٠ صريحة، تلقائي −٥] يصفّي A فيُسحب من B — والكمية بالأساس بمعامل وحدة السطر، والمعامل لقاعدة الكرتون (D22)
+  const decRowsOf = (productId: string) => trackedRows.filter(x => x.productId === productId && lotKind(x) === 'DECREASE');
+  const decLinesOf = (productId: string) => decRowsOf(productId).map(x => {
+    const factor = choiceById(productOf(x.productId), x.unitId)?.factor ?? 1;
+    return { draft: x.lot, baseQty: Number(x.qty) * factor, unitFactor: factor };
+  });
+  /** ما سيُسحب لهذا السطر «التلقائي» (معاينة، والخادم يحسم): سطرٌ تلقائي من أكثر من تشغيلة يُكتب بنداً لكلٍّ بعد الحفظ */
+  const autoRowsOf = (r: EntryRow) => {
+    const at = decRowsOf(r.productId).findIndex(x => x.rowId === r.rowId);
+    return at < 0 ? null : autoDecreasePreview(sourcesOf(r.productId), decLinesOf(r.productId))[at] ?? null;
+  };
+  // والتلقائي فوق مجموع ما بقي يردّه الخادم LOT_STOCK_INSUFFICIENT — يُمنع هنا لا بعد الإرسال. وكذلك الصريح مجموعاً لكل مصدر
+  // (D26، ROW_OVER في الجوال): [A −١٢، تلقائي −٢] و[A −٦، A −٦] مع A:10 — والمصادر لم تصل (null) لا تمنع
+  const lotProblem = (r: EntryRow) => {
+    if (!isTracked(r.productId)) return null;
+    // كمية الصنف المتتبَّع بالأساس بأربع خانات (isLotQty في الخادم) — وإلا لا معاينة ولا حفظ
+    const q = Number(r.qty);
+    if (q && !isFourDecimals(Math.abs(q) * (choiceById(productOf(r.productId), r.unitId)?.factor ?? 1))) return 'LOT_QTY_INVALID' as const;
+    const kind = lotKind(r);
+    const at = kind === 'DECREASE' ? decRowsOf(r.productId).findIndex(x => x.rowId === r.rowId) : -1;
+    return entryLotProblem(r.lot, {
+      kind, expiryRequired: shelfLifeOn(productOf(r.productId)),
       autoOver: autoDecreaseOver(sourcesOf(r.productId), decLinesOf(r.productId)),
-    })
-    : null);
+      sourceOver: at >= 0 && explicitDecreaseOver(srcQ.isSuccess ? sourcesOf(r.productId) : null, decLinesOf(r.productId))[at],
+    });
+  };
 
   const save = useMutation({
     mutationFn: () => {
@@ -721,7 +737,7 @@ function WarehouseEntryModal({ onClose, lotOn }: { onClose: () => void; lotOn: b
   }, 0);
 
   // الوارد يتطلّب كميات موجبة؛ التسوية تقبل ± (لكن لا صفر) — وتشغيلة كل سطرٍ متتبَّع مكتملة
-  // ومصادر النقص قيد الجلب: لا يُحكم على «التلقائي» قبل أن يُعرف أهو مصدرٌ وحيد (D10)
+  // ومصادر النقص قيد الجلب: لا يُحكم على «التلقائي» قبل أن يُعرف أيكفيه رصيد التشغيلات
   const srcPending = decIds.length > 0 && srcQ.isLoading;
   const valid = !srcPending && rows.length > 0 && rows.every(r => {
     const q = Number(r.qty);
@@ -813,13 +829,13 @@ function WarehouseEntryModal({ onClose, lotOn }: { onClose: () => void; lotOn: b
                       {line !== null && (
                         <p className="text-[11px] text-[#6E6557] mt-1">{tr('قيمة السطر قبل الضريبة')}: <b className="text-[#1F1A13]">{formatCurrency(line)}</b></p>
                       )}
-                      {/* «تتبّع اللوط»: تشغيلة السطر — الرقم وتاريخاه للوارد، ومصدرٌ صريح للنقص، ودفعةٌ ثانية بسطرٍ جديد */}
+                      {/* «تتبّع اللوط»: تشغيلة السطر — الرقم وتاريخاه للوارد، وللنقص سحبٌ تلقائي بالأقرب انتهاءً أولاً (أو تحديدٌ يدوي)، ودفعةٌ ثانية بسطرٍ جديد */}
                       {tracked && (
                         <>
                           <EntryLotFields productId={r.productId} kind={kind} value={r.lot} onChange={d => patchRow(r.rowId, { lot: d })}
                             expiryRequired={shelfLifeOn(productOf(r.productId))}
                             sources={kind === 'DECREASE' ? sourcesOf(r.productId) : undefined}
-                            autoSources={kind === 'DECREASE' ? autoSourcesOf(r.productId) : undefined}
+                            autoRows={kind === 'DECREASE' ? autoRowsOf(r) : undefined}
                             problem={Number(r.qty) ? lotProblem(r) : null} />
                           <button type="button" onClick={() => addBatch(r)}
                             className="mt-1 text-[11px] font-semibold text-[#E15A30] inline-flex items-center gap-1">

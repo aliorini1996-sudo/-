@@ -9,7 +9,7 @@
 import type { LotDb, LotEventActor, LotTx } from './lotsDb';
 import { companyDay, loadLotMetas, lockLotProducts, placeViews, resolveOrCreateLot } from './lotsDb';
 import {
-  LOT_EPS, LOT_UNKNOWN_KEY, LotError, aggregateRequest, isLotQty, lotDatesProblem, lotErr, lotRemovalsOf, normalizeLotNumber, pickOutSources,
+  LOT_EPS, LOT_UNKNOWN_KEY, LotError, aggregateRequest, isLotQty, lotDatesProblem, lotErr, lotRemovalsOf, normalizeLotNumber, pickOutFefoLines, pickOutSources,
   refsOfByLot, removalKeepsLots, roundLot, splitAvailability,
   type LotActor, type LotMeta, type LotRef, type LotRemovalItem, type LotSource, type LotWarning, type PlaceLotView, type WarehouseEntryPlan, type WarehouseEntryPlanInput,
 } from './lots';
@@ -64,12 +64,14 @@ export function warehousePlanLines(
   items: readonly { productId: string; lotId?: string | null; lotNumber?: string | null; productionDate?: string | null; expiryDate?: string | null }[],
   baseQtys: readonly number[],
   products: readonly ({ id: string; name?: string | null } & ShelfLifeSettings)[],
+  unitFactors?: readonly number[],
 ): WarehouseEntryPlanInput['lines'] {
   const byId = new Map(products.map((p) => [p.id, p]));
   return items.map((i, idx) => {
     const p = byId.get(i.productId);
     return {
       idx, productId: i.productId, productName: p?.name ?? '', shelfLifeOn: lotShelfLifeOn(p), qty: baseQtys[idx],
+      ...(unitFactors?.[idx] != null && { unitFactor: unitFactors[idx] }),
       ...(i.lotId !== undefined && { lotId: i.lotId }),
       ...(i.lotNumber != null && { lotNumber: i.lotNumber }),
       productionDate: i.productionDate ?? null, expiryDate: i.expiryDate ?? null,
@@ -132,7 +134,8 @@ function withoutRows(view: PlaceLotView, rows: readonly { lotId: string | null; 
  *   يُعرض صالحه أكبر من خامه فيُصرف فوقه (I1).
  * - **النقص أولاً** (ADJUST سالب)، على عرض المستودع تحت القفل قبل إنشاء أي لوط في الحركة — فزيادةٌ في الحركة نفسها لا تغطّي
  *   نقصها: يُجمع الطلب لكل صنف ولوط (D26) ثم pickOutSources: الصريح (لوط، أو رقمٌ قائم، أو null لغير المسمّى) ≤ صالحه (I1)،
- *   وغير المسمّى لا ينزل دون min(0, قبله) (I2)؛ والسطر بلا لوط يأخذ المصدر الوحيد في المستودع وإلا LOT_REQUIRED بقائمتها (D10).
+ *   وغير المسمّى لا ينزل دون min(0, قبله) (I2)؛ والسطر بلا لوط يُسحب تلقائياً بالأقرب انتهاءً أولاً ثم غير المسمّى (pickOutFefoLines)،
+ *   وسطرٌ من أكثر من تشغيلة في splitByLine.
  *   الموقوف والمنتهي يخرجان من هنا (الإتلاف في المستودع تسوية نقص باللوط، §٤.١٦).
  * - **ثم الزيادة:** RECEIVE ⇒ lotId أو lotNumber إلزامي (LOT_REQUIRED) وresolveOrCreateLot بمصدر RECEIVE والانتهاء إلزامي مع
  *   الصلاحية؛ ADJUST موجب ⇒ لوط، أو رقمٌ يُنشأ بمصدر MANUAL، أو null صريح لغير المسمّى. لوطٌ بمعرّفه وتواريخ مخالفة
@@ -144,6 +147,7 @@ export async function planWarehouseEntryInTx(tx: LotTx, input: WarehouseEntryPla
   const locked = input.locked ?? await lockLotProducts(tx, tid, pids);
   const tracked = new Set(pids.filter((p) => locked.tracked.has(p)));
   const lotIdByLine = new Map<number, string | null>();
+  const splitByLine = new Map<number, { lotId: string | null; qty: number }[]>();
   const warnings: LotWarning[] = [];
   const actor: LotEventActor = input.eventActor
     ?? { type: input.actor === 'API_KEY' ? 'API_KEY' : 'ADMIN', id: null, name: input.createdBy ?? null };
@@ -204,8 +208,9 @@ export async function planWarehouseEntryInTx(tx: LotTx, input: WarehouseEntryPla
       const lines = outs.filter((l) => l.productId === pid);
       const name = lines[0]?.productName ?? '';
       if (!view) throw lotErr('LOT_STOCK_INSUFFICIENT', { name, place: 'المستودع', available: 0 }, { productId: pid, wanted: g.qty });
-      // الأسطر بلا لوط: المصدر الوحيد في المستودع **مما بقي بعد صريح الصنف** (D10، كـpickPlan في السيارة)، وأكثر من مصدر ⇒
-      // LOT_REQUIRED بقائمتها. الصريح يُفحص مجمَّعاً أولاً ثم يُطرح من العرض — صريحٌ يصفّي لوطاً لا يُبقيه مصدراً منافساً
+      // الأسطر بلا لوط: سحبٌ تلقائي **مما بقي بعد صريح الصنف** (كـpickPlan في السيارة) بالأقرب انتهاءً أولاً ثم غير المسمّى
+      // (pickOutFefoLines، طلب المالك ١ نوفمبر ٢٠٢٦ بدل LOT_REQUIRED لأكثر من مصدر). الصريح يُفحص مجمَّعاً أولاً ثم يُطرح من العرض،
+      // وسطرٌ سُحب من أكثر من تشغيلة يُكتب بنداً لكلٍّ (splitByLine)
       const auto = lines.filter((l) => !refOf.has(l.idx));
       if (auto.length) {
         let rest = view;
@@ -214,21 +219,25 @@ export async function planWarehouseEntryInTx(tx: LotTx, input: WarehouseEntryPla
           if (!ex.ok) throw named(ex.error, name);
           rest = withoutRows(view, ex.rows);
         }
-        const pick = pickOutSources(rest, 'SELLABLE', auto.reduce((s, l) => s + Math.abs(l.qty), 0));
+        const pick = pickOutFefoLines(rest, 'SELLABLE', auto.map((l) => ({ idx: l.idx, qty: Math.abs(l.qty), unitFactor: l.unitFactor ?? 1 })));
         if (!pick.ok) throw named(pick.error, name);
-        const src = pick.rows[0]?.lotId ?? null;
-        if (src == null && !input.allowUnknown) throw lotErr('LOT_REQUIRED', { name }, { productId: pid });
+        warnings.push(...pick.warnings);
         for (const l of auto) {
-          refOf.set(l.idx, { lotId: src, qty: Math.abs(l.qty) });
-          const k = src ?? LOT_UNKNOWN_KEY;
-          g.byLot.set(k, (g.byLot.get(k) ?? 0) + Math.abs(l.qty));
+          const rows = pick.lines.get(l.idx) ?? [];
+          if (!input.allowUnknown && rows.some((r) => r.lotId == null)) throw lotErr('LOT_REQUIRED', { name }, { productId: pid, idx: l.idx });
+          if (rows.length > 1) splitByLine.set(l.idx, rows.map((r) => ({ lotId: r.lotId, qty: r.qty })));
+          else refOf.set(l.idx, { lotId: rows[0]?.lotId ?? null, qty: Math.abs(l.qty) });
+          for (const r of rows) {
+            const k = r.lotId ?? LOT_UNKNOWN_KEY;
+            g.byLot.set(k, (g.byLot.get(k) ?? 0) + r.qty);
+          }
         }
       }
       // الطلب مجمَّعاً على كل (لوط أو غير المسمّى) قبل المقارنة (D26): سطران على لوطٍ واحد يُفحصان معاً لا كلٌّ وحده
       const all = pickOutSources(view, 'SELLABLE', g.qty, refsOfByLot(g.byLot), lookup);
       if (!all.ok) throw named(all.error, name);
     }
-    for (const l of outs) lotIdByLine.set(l.idx, refOf.get(l.idx)?.lotId ?? null);
+    for (const l of outs) lotIdByLine.set(l.idx, splitByLine.has(l.idx) ? null : refOf.get(l.idx)?.lotId ?? null);
   }
 
   // ── الزيادة: الوارد والتسوية الموجبة ──
@@ -259,7 +268,7 @@ export async function planWarehouseEntryInTx(tx: LotTx, input: WarehouseEntryPla
     lotIdByLine.set(l.idx, r.meta.id);
   }
 
-  return { tracked, lotIdByLine, warnings };
+  return { tracked, lotIdByLine, warnings, ...(splitByLine.size > 0 && { splitByLine }) };
 }
 
 // ═══ ما لا يُباع من السيارات في بطاقة المستودع (§٤.٤ البند ٧) ═══

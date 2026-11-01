@@ -192,17 +192,27 @@ test('النقص بالوحدات: كرتونٌ (٢٤) وسبع حبّات من 
   assert.equal(world.warehouseRaw(A), 0);
 });
 
-test('النقص بلا تشغيلة: مصدرٌ واحد يُستعمل تلقائياً، ومصدران ⇒ 422 LOT_REQUIRED بقائمة المصادر (D10)', async () => {
+test('النقص بلا تشغيلة: سحبٌ تلقائي بالأقرب انتهاءً أولاً (طلب المالك ١ نوفمبر ٢٠٢٦)، وسطرٌ فوق تشغيلته بنودٌ لكل تشغيلة بمجموعه', async () => {
   fresh();
   const A = stock('P1', 'A', 10);
   const auto = await post({ type: 'ADJUST', items: [{ productId: 'P1', qty: -3 }] });
   assert.equal(auto.status, 201, JSON.stringify(auto.body));
   assert.equal(lastItems()[0].lotId, A);
-  const B = stock('P1', 'B', 5);
+  // B تنتهي قبل A (A بلا انتهاء = الأبعد): النقص منها أولاً
+  const B = stock('P1', 'B', 5, { expiryDate: dateOf('2027-01-01') });
   const two = await post({ type: 'ADJUST', items: [{ productId: 'P1', qty: -1 }] });
-  assert.equal(two.status, 422);
-  assert.equal(two.body.code, 'LOT_REQUIRED');
-  assert.deepEqual(two.body.detail.sources.map((s: Row) => s.lotId).sort(), [A, B].sort());
+  assert.equal(two.status, 201, JSON.stringify(two.body));
+  assert.deepEqual(lastItems().map((i) => [i.lotId, i.baseQty]), [[B, -1]]);
+  // ٦ من B (٤) ثم A: سطرٌ واحد في الطلب ⇒ بندان في الحركة، مجموعهما الأساس
+  const spill = await post({ type: 'ADJUST', items: [{ productId: 'P1', qty: -6 }] });
+  assert.equal(spill.status, 201, JSON.stringify(spill.body));
+  assert.deepEqual(lastItems().map((i) => [i.lotId, i.baseQty]), [[B, -4], [A, -2]]);
+  assert.deepEqual([world.warehouseRaw(A), world.warehouseRaw(B)], [5, 0]);
+  // وفوق المجموع ⇒ 409 بلا كتابة
+  const n = world.entries.length;
+  const over = await post({ type: 'ADJUST', items: [{ productId: 'P1', qty: -6 }] });
+  assert.deepEqual([over.status, over.body.code], [409, 'LOT_STOCK_INSUFFICIENT']);
+  assert.equal(world.entries.length, n);
   // سطرٌ صريح وسطرٌ تلقائي: التلقائي يأخذ المصدر الوحيد ثم يُفحص المجموع معاً
   fresh();
   const C = stock('P1', 'C', 4);
@@ -239,13 +249,14 @@ test('النقص بلا تشغيلة مع صريحٍ للصنف نفسه: الت
   assert.equal(over.body.code, 'LOT_STOCK_INSUFFICIENT');
   assert.equal(world.entries.length, n);
   assert.equal(world.warehouseRaw(C), 10);
-  // والصريح لا يصفّي مصدراً: يبقى مصدران للتلقائي ⇒ LOT_REQUIRED كما كان (D10)
+  // والصريح لا يصفّي مصدراً: يبقى مصدران للتلقائي ⇒ المسمّى أولاً ثم غير المسمّى (D17)
   fresh();
   const D = stock('P1', 'D', 10);
   world.entry('ADJUST', [{ productId: 'P1', qty: 5, lotId: null }]);
   const still = await post({ type: 'ADJUST', items: [{ productId: 'P1', qty: -4, lotId: D }, { productId: 'P1', qty: -1 }] });
-  assert.equal(still.status, 422, JSON.stringify(still.body));
-  assert.equal(still.body.code, 'LOT_REQUIRED');
+  assert.equal(still.status, 201, JSON.stringify(still.body));
+  assert.deepEqual(lastItems().map((i) => i.lotId), [D, D]);
+  assert.equal(world.warehouseUnknown('P1'), 5);
 });
 
 test('النقص من غير المسمّى (null صريح): لا ينزل دون min(0, قبله) — السالب التاريخي لا يُنقص، والزيادة غير المسمّاة تسدّه (I2)', async () => {
@@ -475,9 +486,12 @@ test('خاصية: تسلسلات عشوائية من الوارد والتسوي
       const r = await post({ type: op === 'RECEIVE' ? 'RECEIVE' : 'ADJUST', items: [{ productId: 'P1', qty: signed, ...(unit && { unitId: unit }), ...ref }] });
       if (r.status === 201) {
         accepted++;
-        const it = lastItems()[0];
-        if (it.lotId) model.set(it.lotId, (model.get(it.lotId) ?? 0) + it.baseQty!);
-        assert.equal(it.baseQty, op === 'ADJUST-' ? -base : base, `seed ${seed} step ${step}: الأساس`);
+        // سطر النقص التلقائي قد يُكتب بنداً لكل تشغيلة (splitByLine): المجموع أساس السطر
+        const its = lastItems();
+        for (const it of its) if (it.lotId) model.set(it.lotId, (model.get(it.lotId) ?? 0) + it.baseQty!);
+        const sum = its.reduce((s, it) => s + it.baseQty!, 0);
+        assert.ok(Math.abs(sum - (op === 'ADJUST-' ? -base : base)) < 1e-9, `seed ${seed} step ${step}: الأساس ${sum}`);
+        for (const it of its) assert.ok(Math.abs(it.qty * it.unitFactor - it.baseQty!) < 1e-9, `seed ${seed} step ${step}: لقطة الوحدة`);
       } else {
         rejected++;
         assert.ok([409, 422].includes(r.status), `seed ${seed} step ${step}: ${r.status} ${JSON.stringify(r.body)}`);

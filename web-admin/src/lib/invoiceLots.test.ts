@@ -64,7 +64,7 @@ test('returnableLotsOf: صفوف كل بند بيعٍ من شاشة القابل
   assert.equal(returnableLotsOf(null).size, 0);
 });
 
-test('المرتجع الحرّ: تشغيلةٌ للسطر كله بالكمية الأساسية، والفارغ «غير معروف» لا يُرسل شيئاً', () => {
+test('المرتجع الحرّ: تشغيلةٌ للسطر كله بالكمية الأساسية، والفارغ «تلقائي» لا يُرسل شيئاً (الخادم يحدّدها من مبيعات العميل السابقة)', () => {
   assert.deepEqual(freeReturnLotRows({ qty: 2, unitFactor: 12 }, 'L1'), [{ lotId: 'L1', qty: 24 }]);
   assert.equal(freeReturnLotRows({ qty: 2, unitFactor: 12 }, ''), undefined);
   assert.equal(freeReturnLotRows({ qty: 2, unitFactor: 12 }, null), undefined);

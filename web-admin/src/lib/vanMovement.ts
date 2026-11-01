@@ -63,7 +63,7 @@ export function splitVanMovement<T extends MovementItem>(items: T[]): SplitMovem
     // المُرجَع يُجرَّد من المقترَح والتنبّؤ: يُقاس بهما التحميل وحده، وحملُهما
     // على المرتجع يلوّث قياس دقّة الاقتراح ببياناتٍ ليست قراراً تنبّؤياً.
     // والوحدة **تبقى**: هي معنى الكمية لا قرارٌ تنبّؤي.
-    // وتشغيلاته تُقلب مطلقةً معه (UNLOAD يطرح الموجب)، والمصفوفة الفارغة غياب: الخادم يختار المصدر
+    // وتشغيلاته تُقلب مطلقةً معه (UNLOAD يطرح الموجب)، والمصفوفة الفارغة غياب: الخادم يسحب تلقائياً بالأقرب انتهاءً أولاً
     back: clean.filter((i) => i.qty < 0).map((i): BackItem => ({
       productId: i.productId, qty: -i.qty, ...unitField(i.unitId),
       ...(i.lots?.length ? { lots: i.lots.map((r) => ({ lotId: r.lotId, qty: Math.abs(r.qty) })) } : {}),

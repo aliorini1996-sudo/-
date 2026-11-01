@@ -234,9 +234,11 @@ function frameOf(inner: Uint8Array, body: Uint8Array, encoding: BridgeEncoding):
 /**
  * الحمولة النصّية لمهمة. 'auto' (الإنتاج): deflate-raw، فإن رُفض فـdeflate، فإن غابا فخام — والمضغوط لا يُستعمل إلا إن قصُر
  * عن الداخل. ما جاوز MAX_PAYLOAD_CHARS ⇒ TOO_LARGE (يُطبع بنظام الطباعة). والترميز المفروض للاختبارات والمتّجهات.
+ * maxChars: سقف المحارف لغير أندرويد (تطبيق الآيفون: IOS_MAX_PAYLOAD_CHARS) — غيابه = MAX_PAYLOAD_CHARS كما كان، وحدود المهمة
+ * والداخل (MAX_JOB_BYTES وMAX_INNER_BYTES) باقيةٌ أيّاً كان.
  */
 export async function encodeBridgePayload(
-  job: BridgeJob, opts: { encoding?: BridgeEncoding | 'auto'; compress?: Compressor | null } = {},
+  job: BridgeJob, opts: { encoding?: BridgeEncoding | 'auto'; compress?: Compressor | null; maxChars?: number } = {},
 ): Promise<string> {
   const inner = buildInner(job);
   const compress = opts.compress === undefined ? streamCompressor() : opts.compress;
@@ -257,7 +259,7 @@ export async function encodeBridgePayload(
     body = await compress(inner, want);
     encoding = want;
   }
-  if (b64Length(PAYLOAD_HEADER_BYTES + body.length) > MAX_PAYLOAD_CHARS) throw new BridgePayloadError('TOO_LARGE');
+  if (b64Length(PAYLOAD_HEADER_BYTES + body.length) > (opts.maxChars ?? MAX_PAYLOAD_CHARS)) throw new BridgePayloadError('TOO_LARGE');
   return toBase64Url(frameOf(inner, body, encoding));
 }
 

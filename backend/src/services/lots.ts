@@ -1019,6 +1019,64 @@ export function pickOutSources(view: PlaceLotView, bucket: LotBucket, qty: numbe
   return { ok: true, rows, warnings };
 }
 
+export interface FefoOutLine { idx: number; qty: number /*أساسية موجبة*/; unitFactor: number }
+export type FefoOutResult = { ok: true; lines: Map<number, AllocRow[]>; warnings: LotWarning[] } | { ok: false; error: LotError };
+
+/**
+ * السحب التلقائي لإنقاصٍ بلا بيع (طلب المالك ١ نوفمبر ٢٠٢٦ — يحلّ محل «المصدر الوحيد وإلا LOT_REQUIRED» في D10): التنزيل،
+ * وتسوية النقص في المستودع والسيارة، وإزالة المنتهي والتالف. المصادر كل ما صالحه في الدلو > EPS أيّاً كانت حالته (الموقوف
+ * والمنتهي يخرجان من هنا): المسمّاة بـFEFO (الأقرب انتهاءً أولاً، fefoCompare)، ثم غير المسمّى آخراً (D17) بحدّ I2. متاحٌ مشترك
+ * بين أسطر الصنف (D26) بترتيب allocateOutLines: أسطر الكرتون الأكبر أولاً ثم ترتيب الطلب، ولكل سطرٍ قاعدة الكرتون (D22):
+ * مضاعفات معامله كاملةً من تشغيلةٍ واحدة أولاً، والتقسيم المحتوم يُوسَم SPLIT_UNIT بتحذير LOT_SPLIT_UNIT {unitFactor, idx}.
+ * `only` يحصر المسمّاة (إتلاف المنتهي غير المباع: المنتهية يوم العملية) ويُسقط غير المسمّى. مصدرٌ واحد ⇒ CONFIRMED، وأكثر ⇒
+ * ASSUMED. المجموع فوق المتاح ⇒ LOT_STOCK_INSUFFICIENT بقائمة المصادر.
+ */
+export function pickOutFefoLines(view: PlaceLotView, bucket: LotBucket, input: FefoOutLine[],
+  opts?: { only?: (m: LotMeta) => boolean }): FefoOutResult {
+  const productId = view.productId;
+  const lines = new Map<number, AllocRow[]>();
+  for (const l of input) {
+    if (!Number.isFinite(l.qty) || l.qty < 0) return { ok: false, error: lotErr('LOT_QTY_INVALID', {}, { productId, wanted: l.qty }) };
+    if (l.qty > LOT_EPS && !isLotQty(l.qty)) return { ok: false, error: lotErr('LOT_QTY_INVALID', {}, { productId, wanted: l.qty, decimals: 4 }) };
+    lines.set(l.idx, []);
+  }
+  const warnings: LotWarning[] = [];
+  const live = input.filter((l) => l.qty > LOT_EPS);
+  if (!live.length) return { ok: true, lines, warnings };
+  const only = opts?.only;
+  const named = view.lots.filter((l) => l.usable[bucket] > LOT_EPS && (!only || only(l.meta))).sort((a, b) => fefoCompare(a.meta, b.meta));
+  const uu = only ? 0 : Math.max(0, unknownUsableOf(view, bucket));
+  const total = live.reduce((s, l) => s + l.qty, 0);
+  const available = named.reduce((s, l) => s + l.usable[bucket], 0) + uu;
+  if (total > available + LOT_EPS) {
+    const sources = [
+      ...named.map((l) => ({ lotId: l.lotId, lotNumber: l.meta.lotNumber, usable: l.usable[bucket], status: l.meta.status, expiryDate: l.meta.expiryDate })),
+      ...(uu > LOT_EPS ? [{ lotId: null, lotNumber: null, usable: uu, status: null, expiryDate: null }] : []),
+    ];
+    return { ok: false, error: lotErr('LOT_STOCK_INSUFFICIENT', { place: placeLabel(view.place), available: availText(view, available) },
+      { productId, bucket, wanted: total, sources }) };
+  }
+  const certainty: LotCertainty = named.length + (uu > LOT_EPS ? 1 : 0) === 1 ? 'CONFIRMED' : 'ASSUMED';
+  const cands: Cand[] = named.map((lot) => ({ lot, flags: [], certainty }));
+  const pool = new Map<string, number>(named.map((l) => [l.lotId, l.usable[bucket]]));
+  let uuLeft = uu;
+  // الكرتون أولاً (كـallocateOutLines): سطر قطعٍ قبله لا يكسر كرتوناً كان يخرج كاملاً من تشغيلته
+  const order = live.map((l, i) => ({ l, i })).sort((a, b) => cartonRank(b.l.unitFactor) - cartonRank(a.l.unitFactor) || a.i - b.i).map((x) => x.l);
+  for (const l of order) {
+    const t = takeOrdered(cands, pool, l.qty, l.unitFactor, true);
+    const pieces = [...t.pieces];
+    // المجموع ≤ المتاح فما بقي من السطر في غير المسمّى
+    if (t.left > LOT_EPS) { pieces.push({ src: null, qty: t.left }); uuLeft -= t.left; }
+    const split = splitSources(pieces, l.unitFactor);
+    const rows = rowsOf(cands, t.taken, split, []);
+    if (t.left > LOT_EPS) rows.push(unknownRow(t.left, split.has(null) ? ['SPLIT_UNIT'] : []));
+    lines.set(l.idx, rows);
+    if (split.size) warnings.push({ code: 'LOT_SPLIT_UNIT', productId, detail: { unitFactor: l.unitFactor, idx: l.idx } });
+  }
+  if (uuLeft < -LOT_EPS) throw new Error('LOT_FEFO_OVERDRAW');
+  return { ok: true, lines, warnings };
+}
+
 /** بند مستندٍ يُزال أثره من المكان: إلغاء مرتجع (§٤.١٢)، أو إطفاء عودته للمخزون (§٤.١٣) */
 export interface LotRemovalItem {
   productId: string;
@@ -1143,6 +1201,34 @@ export function allocateReturnFromSale(input: {
       });
     }
     if (tn !== t) rows.push({ lotId: null, qty: t - tn, certainty: 'UNKNOWN', flags: [], expiryDate: null, sourceItemLotId: c.r.id });
+  }
+  if (left > LOT_EPS) rows.push({ lotId: null, qty: left, certainty: 'UNKNOWN', flags: [], expiryDate: null, sourceItemLotId: null });
+  return rows;
+}
+
+/**
+ * المرتجع الحرّ يحدّد النظامُ تشغيلته (طلب المالك ١ نوفمبر ٢٠٢٦ — يحلّ محل «غير معروف بلا نقرة» في D5): يرث صفوف توزيع
+ * مبيعات العميل السابقة للصنف، **آخر فاتورة بيع أولاً** (قاعدة «آخر بيع» نفسها في ختم صلاحية المرتجع الحرّ، invoiceExpiry.ts)،
+ * وفي كل فاتورةٍ الترتيب الهجين (allocateReturnFromSale). المتاح لكل صفّ = كميته − ما أُرجع منه (returnedBySource)، والمأخوذ
+ * يُستهلك منه فلا يُرجَع مرتين. الصفّ المسمّى الموروث ASSUMED دائماً (استنتاج لا ربط)، وصفّ بيعٍ غير معروف يبقى UNKNOWN بمصدره،
+ * وما فاق مبيعات العميل صفٌّ UNKNOWN بلا مصدر. `sales` فواتير العميل مرتّبةً من الأحدث، وصفوف كلٍّ بترتيب إنشائها.
+ */
+export function allocateReturnFromHistory(input: {
+  qty: number; returnDay: string; sales: SaleLotRow[][];
+  returnedBySource: ReadonlyMap<string, number>;
+}): AllocRow[] {
+  const rows: AllocRow[] = [];
+  const returned = new Map(input.returnedBySource);
+  let left = input.qty;
+  for (const saleRows of input.sales) {
+    if (left <= LOT_EPS) break;
+    const got = allocateReturnFromSale({ qty: left, returnDay: input.returnDay, saleRows, returnedBySource: returned })
+      .filter((r) => r.sourceItemLotId != null);
+    for (const r of got) {
+      rows.push(r.lotId != null ? { ...r, certainty: 'ASSUMED' } : r);
+      returned.set(r.sourceItemLotId!, (returned.get(r.sourceItemLotId!) ?? 0) + r.qty);
+      left -= r.qty;
+    }
   }
   if (left > LOT_EPS) rows.push({ lotId: null, qty: left, certainty: 'UNKNOWN', flags: [], expiryDate: null, sourceItemLotId: null });
   return rows;
@@ -1369,6 +1455,8 @@ export interface InvoiceLotPlan {
   allowUnknown: boolean; clientRef: string | null;
   lines: InvoiceLotLine[];
   fallbackStamps: ReadonlyMap<number, ItemExpiryStamp>; // اللقطة القائمة (linkedExpiry أو «آخر بيع») محسوبة قبل المعاملة
+  /** المرتجع الحرّ: يرث من مبيعات العميل المؤرَّخة حتى هذه اللحظة وحدها (تاريخ المستند، ولحظة الجهاز في الإعادة) — الغائب بلا حدّ */
+  historyAsOf?: Date | null;
 }
 export interface InvoiceLotAllocation {
   tracked: ReadonlySet<string>;                         // من FOR KEY SHARE داخل المعاملة (D25)
@@ -1383,9 +1471,13 @@ export interface VanMovementPlanInput {
 export interface VanMovementPlan { tracked: ReadonlySet<string>; lines: Map<number, (AllocRow & { viaWarehouse: boolean; reason: string | null })[]>; warnings: LotWarning[] }
 export interface WarehouseEntryPlanInput {
   tenantId: string; type: 'RECEIVE' | 'ADJUST'; actor: LotActor; createdBy: string | null; day: string; allowUnknown: boolean; sourceEntryId?: string | null;
-  lines: { idx: number; productId: string; productName: string; shelfLifeOn: boolean; qty: number; lotId?: string | null; lotNumber?: string; productionDate?: string | null; expiryDate?: string | null }[];
+  lines: { idx: number; productId: string; productName: string; shelfLifeOn: boolean; qty: number; unitFactor?: number; lotId?: string | null; lotNumber?: string; productionDate?: string | null; expiryDate?: string | null }[];
 }
-export interface WarehouseEntryPlan { tracked: ReadonlySet<string>; lotIdByLine: Map<number, string | null>; warnings: LotWarning[] }
+export interface WarehouseEntryPlan {
+  tracked: ReadonlySet<string>; lotIdByLine: Map<number, string | null>; warnings: LotWarning[];
+  /** سطر نقصٍ «تلقائي» سُحب من أكثر من تشغيلة (FEFO): صفوفه بالأساس موجبة — يُكتب بنداً لكل تشغيلة (سطرٌ = لوطٌ واحد) */
+  splitByLine?: Map<number, { lotId: string | null; qty: number }[]>;
+}
 export interface RelabelInput {
   tenantId: string; productId: string; place: LotPlace; vanKey: string | null; bucket: LotBucket;
   fromLotId: string | null; reason: 'LABEL_EXISTING' | 'RECLASSIFY' | 'CORRECTION'; note: string | null; day: string;

@@ -27,9 +27,9 @@ import { DocTextsContext, useDocTexts, usePrintTextsPreview } from './printTexts
 import { printPageNode } from './printPage';
 import { currentPrintIdentity, directOpts, usePrintDeviceChoice, withKindChoice } from './printDevice';
 import PrintDeviceSheet from './PrintDeviceSheet';
-import { printHtmlDirect, printNodeDirect, supportsDirect, transportFor, type DirectOutcome, type PrintTransport } from './printDirect';
+import { directAvailableFor, printHtmlDirect, printNodeDirect, supportsDirect, transportFor, type DirectOutcome, type PrintTransport } from './printDirect';
 import { DIRECT_PRINT_FALLBACK, DirectPrintError } from '../lib/print/printErrors';
-import { directPrintAvailable, onLateHandoff, printerForJob } from '../lib/print/transport/direct';
+import { onLateHandoff, printerForJob } from '../lib/print/transport/direct';
 import { DirectPrintOverlay, useDirectPrint } from '../components/print/DirectPrintUi';
 import { AppUpdateButton, AppUpdateHint } from '../components/print/AppUpdatePrompt';
 import { Share2, Download, Check, ArrowRight, Printer, X, AlertTriangle } from 'lucide-react';
@@ -294,6 +294,8 @@ export interface LoadNoticeDoc {
 /** سطر إشعار المستودع — القيمة من الخادم (`lineCost`) لا تُحسب هنا */
 export interface WarehouseNoticeItem {
   name: string;
+  /** صنف السطر — نقصٌ «تلقائي» سُحب من أكثر من تشغيلة يُكتب بنداً لكل تشغيلة للصنف نفسه، فـ«عدد الأصناف» يعدّ الأصناف لا البنود */
+  productId?: string | null;
   unit?: string;
   /** معامل وحدة السطر (لقطته) — الكمية وسعر الوحدة بها، و≠١ ⇒ الإجمالي لكل وحدة */
   unitFactor?: number | null;
@@ -1351,6 +1353,13 @@ PrintableLoadNotice.displayName = 'PrintableLoadNotice';
 /** كمّية بلا أصفارٍ زائدة — الوحدات الموزونة قد تحمل كسوراً */
 const fmtNoticeQty = (n: number) => String(Number(Number(n).toFixed(2)));
 
+/**
+ * «عدد الأصناف» في إشعار المستودع: أصناف الحركة لا بنودها — نقصٌ «تلقائي» سُحب من أكثر من تشغيلة يُكتب بنداً لكل تشغيلة للصنف
+ * نفسه (splitByLine في الخادم). القاعدة نفسها في سجلّ الجوال (MWarehouse): بالمعرّف، وبنودٌ بلا معرّف (سجلٌ أقدم) بالاسم.
+ */
+export const warehouseNoticeProductCount = (items: readonly Pick<WarehouseNoticeItem, 'productId' | 'name'>[]): number =>
+  new Set(items.map((i) => i.productId ?? i.name)).size;
+
 export const PrintableWarehouseNotice = forwardRef<HTMLDivElement, { doc: WarehouseNoticeDoc }>(({ doc }, ref) => {
   const tr = useTr();
   const sheet = useSheet();
@@ -1391,7 +1400,8 @@ export const PrintableWarehouseNotice = forwardRef<HTMLDivElement, { doc: Wareho
         <div style={{ flex: 1, background: receive ? '#f0fdf4' : '#faf5ff', borderRadius: 10, padding: 14 }}>
           <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{tr('ملخص الحركة')}</div>
           {receive && doc.supplier && <InfoBox label={tr('المورد')} value={doc.supplier} />}
-          <InfoBox label={tr('عدد الأصناف')} value={String(doc.items.length)} />
+          {/* أصناف الحركة لا بنودها (warehouseNoticeProductCount) — كسجلّ الجوال (MWarehouse) */}
+          <InfoBox label={tr('عدد الأصناف')} value={String(warehouseNoticeProductCount(doc.items))} />
           {/* التسوية تُطبع زيادتها ونقصها منفصلين: صافيها يخفي حركةً نقلت كمّيات */}
           {receive
             ? <InfoBox label={tr('إجمالي الكميات')} value={unitTotal((q) => q, receiveTotalQty(doc.items))} />
@@ -1853,6 +1863,7 @@ export function warehouseNoticeDocFromEntry(
     supplier?: string | null; note?: string | null; createdBy?: string | null;
     // lot («تتبّع اللوط»): تشغيلة السطر كما يضمّها السجل حين تكون الميزة مفعّلة — سطرٌ = تشغيلةٌ واحدة
     items: {
+      productId?: string | null;
       qty: number; unitName?: string | null; unitFactor?: number | null; unitCost?: number | null; lineCost?: number | null;
       product: { name: string; unit?: string; primaryUnitId?: string | null };
       lot?: { lotNumber?: string | null; productionDate?: string | null; expiryDate?: string | null } | null;
@@ -1874,6 +1885,8 @@ export function warehouseNoticeDocFromEntry(
       const lots = warehouseLineLots(i.lot, Number(i.qty) * factorOf(i));
       return {
         name: i.product.name,
+        // صنف السطر لعدّ الأصناف لا البنود — والسجل يرسله مع كل بند (...i في GET /warehouse/entries)
+        ...(!!i.productId && { productId: String(i.productId) }),
         // لقطة وحدة السطر: الكمية وسعر الوحدة بها — وإلا طُبعت تكلفة الكرتون منسوبةً للحبّة
         unit: i.unitName || i.product.unit || undefined,
         ...(i.unitFactor != null && { unitFactor: factorOf(i) }),
@@ -2052,6 +2065,7 @@ export function DocumentResult({ doc, onClose, showLotsStrip = false }: {
   const bt = useDirectPrint();
   const [directError, setDirectError] = useState<string | null>(null);
   // تطبيق فيلد سيلز على أندرويد: 'hard' لم يُفتح (زرّ التحديث مكان البديل)، 'soft' سُلّم بلا مفتاح ثقة (تلميحٌ هادئ)
+  // وعلى الآيفون 'hard' وحده: جسرٌ أقدم من الصفحة (appUpdateIos) — والتسليم المتأخّر لا يقع هناك
   const [appPrompt, setAppPrompt] = useState<'hard' | 'soft' | null>(null);
   // فُتح التطبيق بعد المهلة والدعوة معروضة: تُستبدل بحصيلة التسليم — لا «حدّث التطبيق» بعد طباعةٍ تمّت
   useEffect(() => {
@@ -2098,7 +2112,7 @@ export function DocumentResult({ doc, onClose, showLotsStrip = false }: {
     } catch (e) {
       if (e instanceof DirectPrintError) {
         setDirectError(tr(e.message));
-        if (e.kind === 'appUpdate') setAppPrompt('hard');
+        if (e.kind === 'appUpdate' || e.kind === 'appUpdateIos') setAppPrompt('hard');
       } else setStatus(tr(e instanceof PrintRefusedError ? e.message : 'تعذرت الطباعة تأكد من إعداد الطابعة'));
     }
     setBusy(false);
@@ -2253,7 +2267,7 @@ export function DocumentResult({ doc, onClose, showLotsStrip = false }: {
             {customized && directProfile.printer === 'impact' && directTransport === 'system' && (
               <p className="text-[11px] text-gray-400 text-center leading-relaxed">
                 {tr(PRINT_NOTES.impactDesktop)}
-                {directPrintAvailable() && <> — {tr('للطباعة من الجوال اختر البلوتوث المباشر من تغيير')}</>}
+                {directAvailableFor(directProfile) && <> — {tr('للطباعة من الجوال اختر البلوتوث المباشر من تغيير')}</>}
               </p>
             )}
           </>

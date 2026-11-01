@@ -14,7 +14,7 @@ import { primaryUnitOf, type UnitDef } from '../lib/units';
 import { unitChoices, defaultChoice, rebaseRow } from '../rep/repUnits';
 import { productUnitLabel } from '../lib/adminUnits';
 import {
-  lotFlagsOf, lotWarningsOf, lotDay, roundLot, LOT_EPS, LOT_WARNING_LABELS, LOT_STATUS_LABELS,
+  lotFlagsOf, lotWarningsOf, lotDay, roundLot, LOT_EPS, LOT_WARNING_LABELS, LOT_STATUS_LABELS, type LotRef,
 } from '../lib/lots';
 import { MScreen, MCard, MRow, MStat, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import { expectArray } from './shape';
@@ -22,7 +22,7 @@ import {
   qtyText, signedQtyText, hasBigUnit, biggestUnit, nextStockLineUnit, stockLineUnit, type StockLineUnit,
 } from './mUnits';
 import {
-  newRowId, isTracked, shelfLifeOn, emptyLotDraft, lotDraftProblem, entryLotFields, lineBaseQty, outGroupProblems, whOutSources, whOutRows,
+  newRowId, isTracked, shelfLifeOn, emptyLotDraft, lotDraftProblem, entryLotFields, lineBaseQty, outAutoRows, outGroupProblems, whOutSources, whOutRows,
   lotQtyText, LOT_CACHE_KEYS, WH_OUT_PROBLEMS, type LotDraft,
 } from './mLotsLogic';
 import MUnitChips from './MUnitChips';
@@ -81,7 +81,7 @@ interface WhEntry {
   // lineCost: قيمة السطر كما قرّبها الخادم — للإشعار المطبوع، مجموعها = totalCost
   // والسطر بلقطة وحدته (unitName/unitFactor) وكميته بالأساس — فالإشعار يطبع «٥ كرتون» لا «٥ حبة»
   items: {
-    id: string; qty: number; unitCost: number | null; lineCost?: number | null;
+    id: string; productId?: string; qty: number; unitCost: number | null; lineCost?: number | null;
     unitName?: string | null; unitFactor?: number | null; baseQty?: number | null;
     product: { name: string; unit: string };
     /** «تتبّع اللوط»: تشغيلة السطر — يضمّها الخادم حين الميزة مفعّلة وحدها */
@@ -473,6 +473,8 @@ function EntryRow({ e, onNotice }: { e: WhEntry; onNotice: () => void }) {
   const receive = e.type === 'RECEIVE';
   // «تتبّع اللوط»: أرقام تشغيلات الحركة — لا تظهر إلا حين يضمّها الخادم (الميزة مفعّلة)
   const lotNos = [...new Set(e.items.map(i => i.lot?.lotNumber).filter((n): n is string => !!n))];
+  // أصناف الحركة لا بنودها: نقصٌ «تلقائي» سُحب من أكثر من تشغيلة يُكتب بنداً لكل تشغيلة للصنف نفسه
+  const products = new Set(e.items.map(i => i.productId ?? i.id)).size;
   return (
     <MRow
       leading={
@@ -481,7 +483,7 @@ function EntryRow({ e, onNotice }: { e: WhEntry; onNotice: () => void }) {
           {receive ? tr('وارد') : tr('تسوية')}
         </span>
       }
-      title={`${formatNumber(e.items.length)} ${tr('صنف')}`}
+      title={`${formatNumber(products)} ${tr('صنف')}`}
       subtitle={[e.supplier, e.note, e.createdBy, lotNos.length ? `${tr('التشغيلة')} ${lotNos.slice(0, 3).join('، ')}${lotNos.length > 3 ? '…' : ''}` : '']
         .filter(Boolean).join(' · ') || undefined}
       note={formatDate(e.createdAt)}
@@ -662,19 +664,23 @@ function MWarehouseEntry({ onClose, lotOn }: { onClose: () => void; lotOn: boole
   const lotMode = (r: FormRow) => (type === 'RECEIVE' ? 'IN_STRICT' as const : Number(r.qty) < 0 ? 'OUT' as const : 'IN' as const);
   const draftOk = (r: FormRow) => lotDraftProblem(r.lot, lotMode(r), { shelfOn: r.shelfOn }) === null;
 
-  /* نقص المستودع على مستوى الصنف (D10، D26، I1، I2) — الخادم يجمع أسطر الصنف قبل الفحص: بلا اختيار وأكثر من مصدر، أو فوق
-   * صالح التشغيلة المختارة، أو سطران على تشغيلةٍ واحدة. والأرصدة بمفتاح المنتقي نفسه (whLotsQuery) فلا طلبٌ زائد */
+  /* نقص المستودع على مستوى الصنف (D26، I1، I2) — الخادم يجمع أسطر الصنف قبل الفحص: فوق رصيد تشغيلاته، أو فوق صالح التشغيلة
+   * المختارة، أو سطران على تشغيلةٍ واحدة. وبلا اختيار يُسحب تلقائياً بالأقرب انتهاءً أولاً أيّاً كان عدد المصادر (pickOutFefoLines)،
+   * ومعاينته لكل سطرٍ (outAutoRows) مما بقي بعد صريح صنفه. والأرصدة بمفتاح المنتقي نفسه (whLotsQuery) فلا طلبٌ زائد */
   const outLines = rows.filter(r => r.tracked && lotMode(r) === 'OUT' && !qtyBad(r) && draftOk(r));
   const outPids = [...new Set(outLines.map(r => r.productId))];
   const outBalQs = useQueries({ queries: outPids.map(pid => whLotsQuery(pid)) });
   const outProblems = new Map<string, string>();
+  const outAuto = new Map<string, LotRef[]>();
   outPids.forEach((pid, i) => {
     const q = outBalQs[i];
-    outGroupProblems(
-      whOutSources(q?.data?.warehouse?.[0]),
-      outLines.filter(r => r.productId === pid).map(r => ({ key: r.rowId, base: lineBaseQty(Number(r.qty), r.unitFactor), rows: whOutRows(r.lot, lineBaseQty(Number(r.qty), r.unitFactor)) })),
-      { loaded: !!q?.isSuccess },
-    ).forEach((p, k) => outProblems.set(k, WH_OUT_PROBLEMS[p]));
+    const sources = whOutSources(q?.data?.warehouse?.[0]);
+    const lines = outLines.filter(r => r.productId === pid).map(r => {
+      const base = lineBaseQty(Number(r.qty), r.unitFactor);
+      return { key: r.rowId, base, factor: r.unitFactor, rows: whOutRows(r.lot, base) };
+    });
+    outGroupProblems(sources, lines, { loaded: !!q?.isSuccess }).forEach((p, k) => outProblems.set(k, WH_OUT_PROBLEMS[p]));
+    if (q?.isSuccess) outAutoRows(sources, lines).forEach((v, k) => outAuto.set(k, v));
   });
   const lotBad = (r: FormRow) => r.tracked && (!draftOk(r) || outProblems.has(r.rowId));
 
@@ -868,11 +874,11 @@ function MWarehouseEntry({ onClose, lotOn }: { onClose: () => void; lotOn: boole
                       {tr('قيمة السطر قبل الضريبة')}: <b className="text-[#1F1A13] tabular-nums">{formatCurrency(line)}</b>
                     </p>
                   )}
-                  {/* «تتبّع اللوط»: تشغيلة السطر للصنف المتتبَّع وحده — والنقص بلا اختيار يتركه الخادم للمصدر الوحيد، وما يُمنع
-                      على مستوى الصنف (أكثر من مصدر، فوق الصالح، D26) يُقال على سطره */}
+                  {/* «تتبّع اللوط»: تشغيلة السطر للصنف المتتبَّع وحده — والنقص بلا اختيار يُسحب تلقائياً بالأقرب انتهاءً أولاً
+                      (معاينته تحت المنتقي)، وما يُمنع على مستوى الصنف (فوق الرصيد، فوق الصالح، D26) يُقال على سطره */}
                   {r.tracked && !badQty && (
                     <MLotFields productId={r.productId} prod={{ unit: r.baseUnit, units: r.units, primaryUnitId: r.primaryUnitId }} mode={lotMode(r)} shelfOn={r.shelfOn} draft={r.lot}
-                      groupProblem={outProblems.get(k) ?? null} onChange={d => patchLot(k, d)} />
+                      groupProblem={outProblems.get(k) ?? null} autoRows={outAuto.get(k) ?? null} onChange={d => patchLot(k, d)} />
                   )}
                 </div>
               );

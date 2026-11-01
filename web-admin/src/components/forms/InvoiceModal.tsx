@@ -77,8 +77,10 @@ function calcLine(qty: number, price: number, discPct: number, taxPct: number) {
 }
 
 /**
- * «تتبّع اللوط» — تشغيلة سطر المرتجع الحرّ من الإدارة (D5): صريحةٌ اختيارية للسطر كله، والفارغ «غير معروف» (لا يُرسل شيء).
- * الموقوفة مقبولة وتدخل معزولة (LOT_INTO_BLOCKED). القائمة بصلاحية مخزون السيارات: تعذّرها يُبقي «غير معروف» وحده.
+ * «تتبّع اللوط» — تشغيلة سطر المرتجع الحرّ من الإدارة (D5): صريحةٌ اختيارية للسطر كله، والفارغ «تلقائي» (لا يُرسل شيء): يحدّدها
+ * الخادم من مبيعات العميل السابقة للصنف، آخر فاتورةٍ أولاً (allocateReturnFromHistory — طلب المالك ١ نوفمبر ٢٠٢٦ بدل «غير معروف»
+ * دائماً)، وما فاق مبيعاته «غير معروف». الموقوفة مقبولة وتدخل معزولة (LOT_INTO_BLOCKED). القائمة بصلاحية مخزون السيارات: تعذّرها
+ * يُبقي «تلقائي» وحده.
  */
 function FreeReturnLotPicker({ productId, value, onChange, disabled, lotOn }: {
   productId: string; value: string; onChange: (lotId: string) => void; disabled?: boolean; lotOn: boolean;
@@ -88,7 +90,7 @@ function FreeReturnLotPicker({ productId, value, onChange, disabled, lotOn }: {
     queryKey: ['lots-of-product', productId],
     enabled: lotOn && !!productId,
     staleTime: 60_000,
-    // بلا صلاحية مخزون السيارات ٤٠٣ لا تتغيّر بالإعادة — يبقى «غير معروف» وحده فوراً
+    // بلا صلاحية مخزون السيارات ٤٠٣ لا تتغيّر بالإعادة — يبقى «تلقائي» وحده فوراً
     retry: false,
     queryFn: async () => (await lotsApi.list({ productId, limit: 200 })).data.data as ProductLotDto[],
   });
@@ -97,7 +99,7 @@ function FreeReturnLotPicker({ productId, value, onChange, disabled, lotOn }: {
     <div className="mt-1">
       <select className="input py-1 text-xs w-auto max-w-[14rem]" value={value} disabled={disabled} aria-label={tr('تشغيلة الصنف المرتجع')}
         title={tr('تشغيلة الصنف المرتجع')} onChange={e => onChange(e.target.value)}>
-        <option value="">{tr('التشغيلة')}: {tr('غير معروف')}</option>
+        <option value="">{tr('التشغيلة')}: {tr('تلقائي من مبيعات العميل السابقة')}</option>
         {(lots ?? []).map(l => (
           <option key={l.id} value={l.id}>
             {l.lotNumber}{l.expiryDate ? ` · ${formatDayOnly(l.expiryDate)}` : ''}{l.status === 'BLOCKED' ? ` · ${tr(LOT_STATUS_LABELS.BLOCKED)}` : ''}
@@ -209,7 +211,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
    * المرتبط (للعرض — الخادم يوزّعه بنفسه)، وتشغيلةٌ صريحة اختيارية لسطر المرتجع الحرّ (D5)، والورقة من ردّ الخادم */
   const lotOn = lotFlagsOf(company).on;
   const [saleLots, setSaleLots] = useState<Map<string, SaleLotRow[]>>(() => new Map());
-  // تشغيلة كل سطر مرتجعٍ حرّ بمفتاح السطر (الصنف ووحدته) — الفارغ «غير معروف»
+  // تشغيلة كل سطر مرتجعٍ حرّ بمفتاح السطر (الصنف ووحدته) — الفارغ «تلقائي» من مبيعات العميل السابقة (يحدّدها الخادم)
   const [freeLots, setFreeLots] = useState<Record<string, string>>({});
   const trackedIds = new Set(lotOn ? (products || []).filter(p => p.lotTracked === true).map(p => p.id) : []);
 
@@ -474,7 +476,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
     const head: ReturnHead = { customerId, salesRepId, returnReason, notes, invoiceDate, phase2, noteReason };
     // خانات عملة الشركة: سعر وحدة المرتجع (حبّةٌ من كرتون) يُشتقّ من مبلغه بها كما يحسبه الخادم (linkedUnitPrice)
     if (linked) { mutation.mutate(buildLinkedReturnPayload(head, linked, retDec)); return; }
-    // «تتبّع اللوط» (D5): المرتجع الحرّ لصنفٍ متتبَّع بتشغيلته المختارة للسطر كله، وإلا «غير معروف» — والمطفأة الجسم كما كان.
+    // «تتبّع اللوط» (D5): المرتجع الحرّ لصنفٍ متتبَّع بتشغيلته المختارة للسطر كله، وإلا يحدّدها الخادم من مبيعات العميل السابقة —
+    // والمطفأة الجسم كما كان.
     // و«فاتورة من خارج النظام»: الجسم نفسه + رقم الأصل وطريقة دفعه (originalInvoiceRef/originalPaymentType)
     // «أنواع الأسعار»: النوع الذي اقتُرحت به أسعار الأسطر الحرّة (المرتبط بأسعار فاتورته فلا مفتاح له)
     const base = { ...buildFreeReturnPayload(head, lines, discountPct), ...(priceListOn && { priceListId }) };

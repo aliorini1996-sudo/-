@@ -255,19 +255,33 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
 
     const by = req.user as { name?: string } | undefined;
     const withLots = lotsOn(req);
-    // البنود كما كانت، و«تتبّع اللوط» يضيف lotId لكل سطر من خطة المعاملة وحدها
-    const entryData = (lotIdByLine: ReadonlyMap<number, string | null> | null) => ({
+    // البنود كما كانت، و«تتبّع اللوط» يضيف lotId لكل سطر من خطة المعاملة وحدها — وسطر نقصٍ سُحب تلقائياً من أكثر من تشغيلة
+    // (splitByLine) بندٌ لكلٍّ بإشارته: بوحدة السطر إن كانت حصّته وحداتٍ كاملة، وإلا بوحدة الأساس (Σ الأساس = أساس السطر)
+    const entryData = (lotIdByLine: ReadonlyMap<number, string | null> | null, splitByLine?: ReadonlyMap<number, { lotId: string | null; qty: number }[]>) => ({
       tenantId: tid, type: data.type, note: data.note, supplier: data.supplier, createdBy: by?.name,
       items: {
-        create: items.map((i, idx) => ({
-          productId: i.productId,
-          // الكمية بوحدة البند كما في فاتورة المورّد، ولقطة وحدتها، والكمية بالأساس للرصيد والتقييم
-          ...unitFields(i.qty, units[idx]),
-          unitCost: i.unitCost == null
+        create: items.flatMap((i, idx) => {
+          const unitCost = i.unitCost == null
             ? null
-            : netUnitCost(i.unitCost, taxOf.get(i.productId) ?? 0, data.costsIncludeTax),
-          ...(lotIdByLine && { lotId: lotIdByLine.get(idx) ?? null }),
-        })),
+            : netUnitCost(i.unitCost, taxOf.get(i.productId) ?? 0, data.costsIncludeTax);
+          const split = splitByLine?.get(idx);
+          if (split) {
+            const sign = Number(i.qty) < 0 ? -1 : 1;
+            const F = units[idx]?.factor ?? 1;
+            return split.map((r) => {
+              const inUnits = r.qty / F;
+              const whole = F > 1 && Math.abs(inUnits - Math.round(inUnits)) <= 1e-9;
+              return { productId: i.productId, ...unitFields(sign * (whole ? Math.round(inUnits) : r.qty), whole ? units[idx] : null), unitCost, lotId: r.lotId };
+            });
+          }
+          return [{
+            productId: i.productId,
+            // الكمية بوحدة البند كما في فاتورة المورّد، ولقطة وحدتها، والكمية بالأساس للرصيد والتقييم
+            ...unitFields(i.qty, units[idx]),
+            unitCost,
+            ...(lotIdByLine && { lotId: lotIdByLine.get(idx) ?? null }),
+          }];
+        }),
       },
     });
     const entryInclude = { items: { include: { product: { select: { id: true, name: true, unit: true, primaryUnitId: true } }, ...(withLots && { lot: ENTRY_LOT_SELECT }) } } };
@@ -307,9 +321,9 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
         assertBasesUnchanged(expected, locked.units);
         const plan = await planWarehouseEntryInTx(tx, {
           tenantId: tid, type: data.type, actor: lotActorOf(req.user), createdBy: by?.name ?? null, day, allowUnknown: true,
-          lines: warehousePlanLines(items, baseQtys, products), locked, eventActor: lotEventActorOf(req.user),
+          lines: warehousePlanLines(items, baseQtys, products, units.map((u) => u?.factor ?? 1)), locked, eventActor: lotEventActorOf(req.user),
         });
-        const entry = await tx.warehouseEntry.create({ data: entryData(plan.lotIdByLine), include: entryInclude });
+        const entry = await tx.warehouseEntry.create({ data: entryData(plan.lotIdByLine, plan.splitByLine), include: entryInclude });
         return { entry, warnings: plan.warnings };
       }, { maxWait: 10_000, timeout: 20_000 });
       res.status(201).json({ success: true, data: out.entry, ...(out.warnings.length > 0 && { warnings: out.warnings }) });

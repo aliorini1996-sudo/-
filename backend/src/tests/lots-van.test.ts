@@ -520,7 +520,7 @@ test('المندوب: في شركة بلا مستودع LOT_REQUIRED «تحمي�
 
 // ═══ التنزيل والتسوية والإزالة ═══
 
-test('التنزيل: المصدر الوحيد تلقائياً (CONFIRMED) ويعود للمستودع، وأكثر من مصدر LOT_REQUIRED بالقائمة، والصريح بعد التجميع (D26) ثم التلقائي مما بقي', async () => {
+test('التنزيل: المصدر الوحيد تلقائياً (CONFIRMED) ويعود للمستودع، وأكثر من مصدر سحبٌ بالأقرب انتهاءً (ASSUMED)، والصريح بعد التجميع (D26) ثم التلقائي مما بقي', async () => {
   reset();
   lot('l1', 'pB', FAR1); lot('l2', 'pB', FAR2);
   receive('pB', 5, 'l1'); receive('pB', 4, 'l2');
@@ -530,10 +530,10 @@ test('التنزيل: المصدر الوحيد تلقائياً (CONFIRMED) و�
   assert.deepEqual(lotRowsOf(lastLoad().id)[0].map((r) => [r.lotId, r.qty, r.certainty, r.viaWarehouse]), [['l1', 2, 'CONFIRMED', true]]);
   assert.equal(usableOf((await views('pB')).wh, 'l1'), 2, 'التنزيل يعيد التشغيلة للمستودع (D28)');
   assert.equal((await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pB', qty: 4, lots: [{ lotId: 'l2', qty: 4 }] }] })).statusCode, 201);
+  // مصدران: لا اختيار يدوي — الأقرب انتهاءً (l1) تلقائياً (طلب المالك ١ نوفمبر ٢٠٢٦)
   const two = await post({ salesRepId: 'r1', type: 'UNLOAD', items: [{ productId: 'pB', qty: 1 }] });
-  assert.deepEqual([two.statusCode, codeOf(two)], [422, 'LOT_REQUIRED']);
-  assert.match(String(two.body!.message), /«عصير»/);
-  assert.deepEqual(((two.body!.detail as { sources: { lotId: string }[] }).sources).map((s) => s.lotId), ['l1', 'l2']);
+  assert.equal(two.statusCode, 201, JSON.stringify(two.body));
+  assert.deepEqual(lotRowsOf(lastLoad().id)[0].map((r) => [r.lotId, r.qty, r.certainty, r.viaWarehouse]), [['l1', 1, 'ASSUMED', true]]);
   const n0 = S.vanLoads.length;
   const agg = await post({ salesRepId: 'r1', type: 'UNLOAD', items: [
     { productId: 'pB', qty: 2, lots: [{ lotId: 'l2', qty: 2 }] }, { productId: 'pB', qty: 3, lots: [{ lotId: 'l2', qty: 3 }] },
@@ -546,7 +546,12 @@ test('التنزيل: المصدر الوحيد تلقائياً (CONFIRMED) و�
   assert.equal(mixed.statusCode, 201, JSON.stringify(mixed.body));
   assert.deepEqual(lotRowsOf(lastLoad().id).map((rs) => rs.map((r) => [r.lotId, r.qty])), [[['l2', 4]], [['l1', 1]]], 'بعد الصريح يبقى مصدرٌ واحد');
   const v = await views('pB');
-  assert.deepEqual([usableOf(v.van, 'l1'), usableOf(v.van, 'l2'), usableOf(v.wh, 'l1'), usableOf(v.wh, 'l2')], [2, 0, 3, 4]);
+  assert.deepEqual([usableOf(v.van, 'l1'), usableOf(v.van, 'l2'), usableOf(v.wh, 'l1'), usableOf(v.wh, 'l2')], [1, 0, 4, 4]);
+  // وسطرٌ فوق التشغيلة الأقرب يُكمل من التالية: l1 ١ ثم l2
+  assert.equal((await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pB', qty: 3, lots: [{ lotId: 'l2', qty: 3 }] }] })).statusCode, 201);
+  const spill = await post({ salesRepId: 'r1', type: 'UNLOAD', items: [{ productId: 'pB', qty: 3 }] });
+  assert.equal(spill.statusCode, 201, JSON.stringify(spill.body));
+  assert.deepEqual(lotRowsOf(lastLoad().id)[0].map((r) => [r.lotId, r.qty]), [['l1', 1], ['l2', 2]]);
 });
 
 test('التنزيل يُخرج الموقوف والمنتهي (مسار السحب)، والسالب لأي نوعٍ غير التسوية يُرفض (I7)، والكسر الخامس يُرفض (isLotQty)', async () => {
@@ -587,8 +592,16 @@ test('تسوية النقص: من مصدرٍ صريح بإشارة البند، 
   assert.equal(unknownReason.statusCode, 400);
   const over = await post({ salesRepId: 'r1', type: 'ADJUST', items: [{ productId: 'pB', qty: -3, lots: [{ lotId: 'le', qty: 3 }] }] });
   assert.deepEqual([over.statusCode, codeOf(over)], [409, 'LOT_STOCK_INSUFFICIENT'], 'الباقي ٢');
+  // مصدران (l1 ٣ وle المنتهية ٢): تلقائياً بالأقرب انتهاءً — المنتهية أولاً
   const two = await post({ salesRepId: 'r1', type: 'ADJUST', items: [{ productId: 'pB', qty: -1 }] });
-  assert.deepEqual([two.statusCode, codeOf(two)], [422, 'LOT_REQUIRED'], 'D10: مصدران ⇒ صريح');
+  assert.equal(two.statusCode, 201, JSON.stringify(two.body));
+  assert.deepEqual(lotRowsOf(lastLoad().id)[0].map((r) => [r.lotId, r.qty, r.certainty]), [['le', -1, 'ASSUMED']]);
+  // وإتلاف المنتهي بلا صريح: من المنتهية يوم العملية وحدها، ونفادها 409 لا سحبٌ من الصالحة
+  const autoDestroy = await post({ salesRepId: 'r1', type: 'ADJUST', items: [{ productId: 'pB', qty: -1, lotReason: 'EXPIRED_UNSOLD_DESTROY' }] });
+  assert.equal(autoDestroy.statusCode, 201, JSON.stringify(autoDestroy.body));
+  assert.deepEqual(lotRowsOf(lastLoad().id)[0].map((r) => [r.lotId, r.qty, r.reason]), [['le', -1, 'EXPIRED_UNSOLD_DESTROY']]);
+  const noExpired = await post({ salesRepId: 'r1', type: 'ADJUST', items: [{ productId: 'pB', qty: -1, lotReason: 'EXPIRED_UNSOLD_DESTROY' }] });
+  assert.deepEqual([noExpired.statusCode, codeOf(noExpired)], [409, 'LOT_STOCK_INSUFFICIENT']);
   // الإنقاص برقم تشغيلةٍ قائمة (المفتاح): يُحلّ إلى صفّها الصريح، ولا يُنشئ تشغيلة
   const byNum = await post({ salesRepId: 'r1', type: 'ADJUST', items: [{ productId: 'pB', qty: -1, lotNumber: 'l1' }] });
   assert.equal(byNum.statusCode, 201, JSON.stringify(byNum.body));
@@ -597,7 +610,7 @@ test('تسوية النقص: من مصدرٍ صريح بإشارة البند، 
   assert.deepEqual([noNum.statusCode, codeOf(noNum)], [422, 'LOT_NOT_FOUND']);
   assert.ok(!S.lots.some((l) => l.lotNumber === 'NOPE'));
   const v = (await views('pB')).van;
-  assert.deepEqual([usableOf(v, 'l1'), usableOf(v, 'le')], [2, 2]);
+  assert.deepEqual([usableOf(v, 'l1'), usableOf(v, 'le')], [2, 0]);
 });
 
 test('التسوية بالزيادة: تشغيلةٌ قائمة أو رقمٌ جديد بمصدر LOAD أو null صريح، والموقوفة تُقبل بتحذير LOT_INTO_BLOCKED، وبلا شيء LOT_REQUIRED', async () => {
@@ -635,10 +648,11 @@ test('الإزالة (EXPIRED_OUT): قفل الدلو ثم قفل الأصناف
   // فوق رصيد الدلو: حارس الإزالة القائم (400) قبل الخطة
   const over = await post({ salesRepId: 'r1', type: 'EXPIRED_OUT', items: [{ productId: 'pB', qty: 2 }] });
   assert.equal(over.statusCode, 400);
-  // مرتجعٌ منتهٍ بلا صفوف لوط (قبل التتبّع) ⇒ مصدران في الدلو: صريحٌ لازم
+  // مرتجعٌ منتهٍ بلا صفوف لوط (قبل التتبّع) ⇒ مصدران في الدلو: المسمّى أولاً ثم غير المسمّى (D17)
   seedInvoice('r1', 'RETURN', 'pB', 2, [], { returnExpired: true });
   const two = await post({ salesRepId: 'r1', type: 'EXPIRED_OUT', items: [{ productId: 'pB', qty: 1 }] });
-  assert.deepEqual([two.statusCode, codeOf(two)], [422, 'LOT_REQUIRED']);
+  assert.equal(two.statusCode, 201, JSON.stringify(two.body));
+  assert.deepEqual(lotRowsOf(lastLoad().id)[0].map((x) => [x.lotId, x.qty, x.certainty]), [['le', 1, 'ASSUMED']]);
   const unk = await post({ salesRepId: 'r1', type: 'EXPIRED_OUT', items: [{ productId: 'pB', qty: 2, lots: [{ lotId: null, qty: 2 }] }] });
   assert.equal(unk.statusCode, 201);
   const unk2 = await post({ salesRepId: 'r1', type: 'DAMAGED_OUT', items: [{ productId: 'pB', qty: 1, lots: [{ lotId: null, qty: 1 }] }] });
@@ -694,9 +708,9 @@ test('idx في التحذير والخطأ موضع السطر في طلب ال�
   // والخطأ بسطره: كسرٌ بخمس خانات (isLotQty) في السطر الثاني من الطلب
   const frac = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pU', qty: 0 }, { productId: 'pB', qty: 1.00005 }] });
   assert.deepEqual([frac.statusCode, codeOf(frac), (frac.body!.detail as { idx?: number }).idx], [422, 'LOT_QTY_INVALID', 1]);
-  // وبقائمة أسطره (detail.lines): تنزيلٌ بلا صريح من مصدرين في السيارة
-  const two = await post({ salesRepId: 'r1', type: 'UNLOAD', items: [{ productId: 'pU', qty: 0 }, { productId: 'pC', qty: 1 }] });
-  assert.deepEqual([two.statusCode, codeOf(two), (two.body!.detail as { lines?: number[] }).lines], [422, 'LOT_REQUIRED', [1]]);
+  // وبقائمة أسطره (detail.lines): تنزيلٌ صريح فوق صالح تشغيلته في السيارة
+  const two = await post({ salesRepId: 'r1', type: 'UNLOAD', items: [{ productId: 'pU', qty: 0 }, { productId: 'pC', qty: 13, lots: [{ lotId: 'c4', qty: 13 }] }] });
+  assert.deepEqual([two.statusCode, codeOf(two), (two.body!.detail as { lines?: number[] }).lines], [409, 'LOT_STOCK_INSUFFICIENT', [1]]);
 });
 
 // ═══ D30: سيارة المندوب المحذوف ═══

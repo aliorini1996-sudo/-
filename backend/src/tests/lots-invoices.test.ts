@@ -211,6 +211,14 @@ function matchInvoice(inv: Row | null, w: Row | undefined): boolean {
   if (w.id?.not && inv.id === w.id.not) return false;
   if (w.invoiceDate?.lte && inv.invoiceDate > w.invoiceDate.lte) return false;
   if (w.invoiceDate?.lt && !(inv.invoiceDate < w.invoiceDate.lt)) return false;
+  // حدّ المرتجع الحرّ: لحظة جهاز البيع إن وُجدت وإلا تاريخه
+  for (const c of (w.AND ?? []) as Row[]) {
+    if (!c.OR) continue;
+    const t = (v: unknown) => new Date(v as string).getTime();
+    const ok = (c.OR as Row[]).some((o) => (o.clientCreatedAt?.lte != null && inv.clientCreatedAt != null && t(inv.clientCreatedAt) <= t(o.clientCreatedAt.lte))
+      || (o.clientCreatedAt === null && inv.clientCreatedAt == null && t(inv.invoiceDate) <= t(o.invoiceDate.lte)));
+    if (!ok) return false;
+  }
   return true;
 }
 function itemsWhere(w: Row = {}): Row[] {
@@ -276,11 +284,21 @@ const scripted: Record<string, (args: any) => unknown> = {
   },
   'invoiceItem.update': ({ where, data }) => { const it = db.invoiceItems.find((x) => x.id === where.id)!; Object.assign(it, data); return it; },
   'invoiceItem.aggregate': () => ({ _sum: { baseQty: 0, qty: 0 } }),
-  'invoiceItemLot.findMany': ({ where }) => db.invoiceItemLots
-    .filter((r) => (!where.invoiceItemId?.in || where.invoiceItemId.in.includes(r.invoiceItemId))
-      && (!where.sourceItemLotId?.in || where.sourceItemLotId.in.includes(r.sourceItemLotId))
-      && (!where.invoiceItem?.invoice || matchInvoice(invoiceOf(r.invoiceId), where.invoiceItem.invoice)))
-    .map((r) => ({ ...r, lot: r.lotId ? { lotNumber: lotOf(r.lotId)!.lotNumber } : null })),
+  'invoiceItemLot.findMany': ({ where, orderBy }) => {
+    const rows = db.invoiceItemLots
+      .filter((r) => (!where.invoiceItemId?.in || where.invoiceItemId.in.includes(r.invoiceItemId))
+        && (!where.sourceItemLotId?.in || where.sourceItemLotId.in.includes(r.sourceItemLotId))
+        && (typeof where.productId !== 'string' || r.productId === where.productId)
+        && (!where.createdAt?.gte || new Date(r.createdAt).getTime() >= new Date(where.createdAt.gte).getTime())
+        && (!where.invoiceItem?.OR || ((it) => it?.returnOfItemId != null || it?.creditedItemId != null)(db.invoiceItems.find((x) => x.id === r.invoiceItemId)))
+        && (!where.invoiceItem?.invoice || matchInvoice(invoiceOf(r.invoiceId), where.invoiceItem.invoice)));
+    // سجلّ المرتجع الحرّ: فواتير البيع من الأحدث (تاريخها ثم إنشاؤها ثم موضعها)، وصفوف كلٍّ بترتيب إنشائها
+    if (Array.isArray(orderBy) && orderBy[0]?.invoiceItem?.invoice?.invoiceDate === 'desc') {
+      const at = (r: Row) => { const i = db.invoices.findIndex((x) => x.id === r.invoiceId); const inv = db.invoices[i]; return [new Date(inv.invoiceDate).getTime(), new Date(inv.createdAt).getTime(), i]; };
+      rows.sort((a, b) => { const x = at(a), y = at(b); return (y[0] - x[0]) || (y[1] - x[1]) || (y[2] - x[2]); });
+    }
+    return rows.map((r) => ({ ...r, lot: r.lotId ? { lotNumber: lotOf(r.lotId)!.lotNumber } : null }));
+  },
   'productLot.findMany': ({ where }) => db.lots.filter((l) => l.tenantId === where.tenantId
     && (!where.id?.in || where.id.in.includes(l.id)) && (!where.productId?.in || where.productId.in.includes(l.productId))),
   'salesRep.findFirst': ({ where }) => {
@@ -774,17 +792,17 @@ test('المرتجع المرتبط الهجين: صفٌّ منتهٍ يوم ا�
   assert.equal(item.returnExpired, true, 'المنتهي يدخل دلو المنتهي لا المتاح');
 });
 
-test('المرتجع الحرّ: المندوب «غير معروف» وختمه من آخر بيعٍ مختومٍ بالتشغيلة (D21)، والإدارة صريحٌ إلى موقوفة بتحذير', async () => {
+test('المرتجع الحرّ: المندوب يرث تشغيلة آخر بيعٍ للعميل وختمه منها، والإدارة صريحٌ إلى موقوفة بتحذير', async () => {
   reset(); VAN();
   const s = await post(sale([{ productId: 'pM', qty: 3 }]));
   assert.equal(s.status, 201);
   currentUser = REP;
   const r = await post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', items: [{ productId: 'pM', qty: 2, unitPrice: 10, lots: [{ lotId: 'l2', qty: 2 }] }] });
   assert.equal(r.status, 201, JSON.stringify(r.body));
-  assert.deepEqual(rowsOf(r), [[null, 2, 'UNKNOWN', null]], 'المندوب: غير معروف بلا نقرة (D5) — صفوفه مُهملة');
+  assert.deepEqual(rowsOf(r), [['l1', 2, 'ASSUMED', null]], 'المندوب: النظام يحدّد التشغيلة من البيع السابق (طلب المالك ١ نوفمبر ٢٠٢٦) — صفوفه مُهملة');
   const item = db.invoiceItems.find((it) => it.invoiceId === r.body.data.id)!;
   assert.deepEqual([new Date(item.expiresAt).toISOString().slice(0, 10), item.returnExpired, item.expirySaleInvoiceId],
-    [addDays(TODAY, 10), false, s.body.data.id], 'لقطة آخر بيع محسوبةً قبل المعاملة ومكتوبةً داخلها');
+    [addDays(TODAY, 10), false, s.body.data.id], 'الختم من التشغيلة الموروثة بفاتورة بيعها');
   currentUser = ADMIN;
   const a = await post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', items: [{ productId: 'pM', qty: 2, unitPrice: 10, lots: [{ lotId: 'lb', qty: 2 }] }] });
   assert.equal(a.status, 201, JSON.stringify(a.body));
@@ -800,6 +818,103 @@ test('المرتجع الحرّ: المندوب «غير معروف» وختمه
   const fine = await post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', items: [{ productId: 'pM', qty: 1.00005, unitPrice: 10 }] });
   assert.deepEqual([fine.status, fine.body.code], [422, 'LOT_QTY_INVALID']);
   assert.equal(db.invoices.filter((i) => i.type === 'RETURN').length, 2, 'المرفوضة بلا مستند');
+});
+
+test('المرتجع الحرّ يحدّد النظام تشغيلته من مبيعات العميل: آخر فاتورةٍ أولاً ثم التي قبلها، والمُرجَع لا يُرجَع مرتين، وما فاق المبيعات «غير معروف»', async () => {
+  reset();
+  load('pM', [{ lotId: 'l1', qty: 3 }, { lotId: 'l2', qty: 10 }]);
+  const s1 = await post(sale([{ productId: 'pM', qty: 3 }]));
+  assert.equal(s1.status, 201, JSON.stringify(s1.body));
+  assert.deepEqual(rowsOf(s1).map((x) => [x[0], x[1]]), [['l1', 3]], 'البيع بالأقرب انتهاءً');
+  const s2 = await post(sale([{ productId: 'pM', qty: 4 }]));
+  assert.deepEqual(rowsOf(s2).map((x) => [x[0], x[1]]), [['l2', 4]]);
+  currentUser = REP;
+  const ret = (qty: number) => post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', items: [{ productId: 'pM', qty, unitPrice: 10 }] });
+  const r1 = await ret(5);
+  assert.equal(r1.status, 201, JSON.stringify(r1.body));
+  assert.deepEqual(rowsOf(r1), [['l2', 4, 'ASSUMED', null], ['l1', 1, 'ASSUMED', null]], 'آخر فاتورة (l2) ثم التي قبلها (l1)');
+  const r2 = await ret(3);
+  assert.deepEqual(rowsOf(r2), [['l1', 2, 'ASSUMED', null], [null, 1, 'UNKNOWN', null]], 'ما بقي من المبيعات ثم «غير معروف»');
+  const src = new Map(db.invoiceItemLots.filter((r) => r.invoiceId === s1.body.data.id || r.invoiceId === s2.body.data.id).map((r) => [r.lotId, r.id]));
+  assert.deepEqual(db.invoiceItemLots.filter((r) => r.invoiceId === r1.body.data.id).map((r) => r.sourceItemLotId), [src.get('l2'), src.get('l1')], 'يُستهلك من صفّ البيع');
+  // والمرتجع المرتبط بعدها يرث لوط بيعه المؤكَّد كما هو: استنتاج الحرّ لا يُنقص ما يرثه المرتبط (linkedOnly)
+  currentUser = ADMIN;
+  const linked = await post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', originalInvoiceId: s1.body.data.id, items: [{ productId: 'pM', invoiceItemId: s1.body.data.items[0].id, qty: 1, unitPrice: 10 }] });
+  assert.equal(linked.status, 201, JSON.stringify(linked.body));
+  assert.deepEqual(rowsOf(linked), [['l1', 1, 'ASSUMED', null]], 'يقين صفّ البيع نفسه (البيع من سيارةٍ فيها لوطان)');
+  // والحرّ بعده يرى كل ما أُرجع (مرتبطاً وحرّاً): لا شيء باقٍ من صفوف العميل ⇒ «غير معروف»
+  currentUser = REP;
+  assert.deepEqual(rowsOf(await ret(1)), [[null, 1, 'UNKNOWN', null]]);
+  // والإدارة بلا صريح ترث كذلك، وعميلٌ بلا مبيعات «غير معروف»
+  currentUser = ADMIN;
+  db.customers.push({ id: 'c2', tenantId: 't1', name: 'محل', status: 'ACTIVE', balance: 0, creditLimit: 0 });
+  const fresh = await post({ customerId: 'c2', salesRepId: 'r1', type: 'RETURN', items: [{ productId: 'pM', qty: 2, unitPrice: 10 }] });
+  assert.equal(fresh.status, 201, JSON.stringify(fresh.body));
+  assert.deepEqual(rowsOf(fresh), [[null, 2, 'UNKNOWN', null]]);
+  // والبيع الملغى لا يُورَث منه
+  const s3 = await post(sale([{ productId: 'pM', qty: 2 }]));
+  assert.equal((await call('PATCH', `/api/invoices/${s3.body.data.id}/cancel`, { body: {} })).status, 200);
+  const r3 = await post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', items: [{ productId: 'pM', qty: 1, unitPrice: 10 }] });
+  assert.deepEqual(rowsOf(r3), [[null, 1, 'UNKNOWN', null]], 'لا بيع غير ملغى باقٍ للعميل');
+});
+
+test('المرتجع الحرّ: لا يرث من بيعٍ بعد تاريخ مستنده، ولا من صفوف حقبةٍ سابقة (D25)، والختم بفاتورة صفّ الانتهاء المختار', async () => {
+  reset();
+  load('pM', [{ lotId: 'l1', qty: 3 }, { lotId: 'l2', qty: 10 }]);
+  const d = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString();
+  const s1 = await post(sale([{ productId: 'pM', qty: 3 }], { invoiceDate: d(-5) }));
+  assert.equal(s1.status, 201, JSON.stringify(s1.body));
+  const s2 = await post(sale([{ productId: 'pM', qty: 4 }], { invoiceDate: d(-1) }));
+  assert.equal(s2.status, 201, JSON.stringify(s2.body));
+  // مرتجعٌ ورقيّ بتاريخٍ قبل البيع الثاني: من البيع الأول وحده (l1)، والزائد «غير معروف»
+  const back = await post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', invoiceDate: d(-3), items: [{ productId: 'pM', qty: 4, unitPrice: 10 }] });
+  assert.equal(back.status, 201, JSON.stringify(back.body));
+  assert.deepEqual(rowsOf(back), [['l1', 3, 'ASSUMED', null], [null, 1, 'UNKNOWN', null]], 'لا يُرجَع من بيعٍ بعد المرتجع');
+  // الختم: الأقرب انتهاءً (l1 من البيع الأول) وفاتورته — لا أول صفٍّ مسمّى
+  const now = await post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', items: [{ productId: 'pM', qty: 2, unitPrice: 10 }] });
+  assert.deepEqual(rowsOf(now), [['l2', 2, 'ASSUMED', null]]);
+  reset();
+  load('pM', [{ lotId: 'l2', qty: 10 }, { lotId: 'l1', qty: 1 }]);
+  const a = await post(sale([{ productId: 'pM', qty: 1 }], { invoiceDate: d(-4) }));   // l1 (+10)
+  const b = await post(sale([{ productId: 'pM', qty: 4 }], { invoiceDate: d(-2) }));   // l2 (+40)
+  assert.deepEqual([rowsOf(a)[0][0], rowsOf(b)[0][0]], ['l1', 'l2']);
+  const mix = await post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', items: [{ productId: 'pM', qty: 5, unitPrice: 10 }] });
+  assert.deepEqual(rowsOf(mix).map((x) => x[0]), ['l2', 'l1']);
+  const mixItem = db.invoiceItems.find((it) => it.invoiceId === mix.body.data.id)!;
+  assert.deepEqual([new Date(mixItem.expiresAt).toISOString().slice(0, 10), mixItem.expirySaleInvoiceId], [addDays(TODAY, 10), a.body.data.id],
+    'الانتهاء من l1 فالفاتورة فاتورة l1');
+  // إعادة تفعيل تتبّع الصنف تبدأ حقبة: صفوف ما قبلها لا تُورَث لوطاً مسمّى
+  reset();
+  load('pM', [{ lotId: 'l1', qty: 3 }]);
+  assert.equal((await post(sale([{ productId: 'pM', qty: 3 }]))).status, 201);
+  await new Promise((r) => setTimeout(r, 5));
+  productOf('pM')!.lotTrackedSince = new Date();
+  const after = await post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', items: [{ productId: 'pM', qty: 2, unitPrice: 10 }] });
+  assert.equal(after.status, 201, JSON.stringify(after.body));
+  assert.deepEqual(rowsOf(after), [[null, 2, 'UNKNOWN', null]]);
+});
+
+test('المرتجع الحرّ دون اتصال: البيع يُقاس بلحظة جهازه لا لحظة رفعه، والتاريخ بلا وقت نهاية يوم الشركة لا منتصف ليل UTC', async () => {
+  reset(REP);
+  load('pM', [{ lotId: 'l1', qty: 3 }, { lotId: 'l2', qty: 10 }]);
+  const replay = { 'X-FS-Replay': '1' };
+  const ago = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
+  const off = (body: Row, h: number) => post({ ...body, clientRef: crypto.randomUUID(), clientCreatedAt: ago(h) }, replay);
+  // بيعان دون اتصال يُرفعان الآن (تاريخ فاتورتيهما لحظة الرفع): قبل ٥ ساعات (l1) وقبل ساعتين (l2)
+  assert.deepEqual(rowsOf(await off(sale([{ productId: 'pM', qty: 3 }]), 5)).map((x) => x[0]), ['l1']);
+  assert.deepEqual(rowsOf(await off(sale([{ productId: 'pM', qty: 4 }]), 2)).map((x) => x[0]), ['l2']);
+  const ret = (h: number) => off({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', items: [{ productId: 'pM', qty: 2, unitPrice: 10 }] }, h);
+  const between = await ret(3);
+  assert.equal(between.status, 201, JSON.stringify(between.body));
+  assert.deepEqual(rowsOf(between).map((x) => [x[0], x[1], x[2]]), [['l1', 2, 'ASSUMED']], 'قبل البيع الثاني على الجهاز: من الأول');
+  assert.deepEqual(rowsOf(await ret(1)).map((x) => [x[0], x[1], x[2]]), [['l2', 2, 'ASSUMED']], 'بعده: من الثاني وإن رُفع بعد لحظة المرتجع');
+  // الإدارة بتاريخ اليوم بلا وقت: بيعٌ حيّ قبل لحظات داخلٌ في الحدّ
+  reset();
+  load('pM', [{ lotId: 'l1', qty: 3 }]);
+  assert.equal((await post(sale([{ productId: 'pM', qty: 3 }]))).status, 201);
+  const dated = await post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', invoiceDate: TODAY, items: [{ productId: 'pM', qty: 1, unitPrice: 10 }] });
+  assert.equal(dated.status, 201, JSON.stringify(dated.body));
+  assert.deepEqual(rowsOf(dated).map((x) => [x[0], x[1]]), [['l1', 1]]);
 });
 
 /** مرتجعٌ حرّ من الإدارة إلى تشغيلةٍ صريحة (أو غير معروف) — يزيد السيارة */
@@ -1019,4 +1134,18 @@ test('D25 (علم الشركة) §١٠.١: ما زال مطفأً ⇒ كما ك�
   const plain = await post(sale([{ productId: 'pW', qty: 2 }]));
   assert.equal(plain.status, 201, JSON.stringify(plain.body));
   assert.equal(tenantReadsInTx(), 0, 'لا صفّ مقفل متتبَّع ⇒ لا استعلام زائد');
+});
+
+test('returnHistoryBound: التاريخ بلا وقت نهاية يوم الشركة بمنطقتها، والوقت كما هو، ولا يتجاوز الآن، وبلا تاريخٍ صالح الآن', async () => {
+  const { returnHistoryBound } = await import('../services/lotsInvoice');
+  const far = new Date('2030-01-01T00:00:00Z');
+  assert.equal(returnHistoryBound('2026-11-01', new Date('2026-11-01'), far, 'Asia/Riyadh').toISOString(), '2026-11-01T20:59:59.999Z');
+  assert.equal(returnHistoryBound('2026-11-01', new Date('2026-11-01'), far, 'UTC').toISOString(), '2026-11-01T23:59:59.999Z');
+  assert.equal(returnHistoryBound('2026-11-01T10:00:00Z', new Date('2026-11-01T10:00:00Z'), far, 'Asia/Riyadh').toISOString(), '2026-11-01T10:00:00.000Z');
+  const now = new Date('2026-11-01T12:00:00Z');
+  assert.equal(returnHistoryBound('2026-11-01', new Date('2026-11-01'), now, 'Asia/Riyadh').getTime(), now.getTime(), 'اليوم نفسه حتى الآن');
+  assert.equal(returnHistoryBound(undefined, undefined, now, 'Asia/Riyadh').getTime(), now.getTime());
+  assert.equal(returnHistoryBound('bad', new Date('bad'), now, 'Asia/Riyadh').getTime(), now.getTime());
+  // توقيتٌ صيفي: نهاية يوم ٢٩ مارس ٢٠٢٦ في برلين (+2 بعد القفزة)
+  assert.equal(returnHistoryBound('2026-03-29', new Date('2026-03-29'), far, 'Europe/Berlin').toISOString(), '2026-03-29T21:59:59.999Z');
 });

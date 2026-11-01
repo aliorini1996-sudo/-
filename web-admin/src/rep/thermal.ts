@@ -16,6 +16,7 @@ import { receiptLinkView } from './receiptLinks';
 import { PRINT_WARNINGS, dotsPerMm, geometry, legacyThermalProfile, presetPaper, qrPlan, type Paper, type PrintOptions, type PrintProfile, type PrinterDpi } from '../lib/print/printSettings';
 import { makePrintTexts, normalizePrintTexts, type PrintTexts } from '../lib/print/printTexts';
 import { PrintRefusedError } from '../lib/print/printErrors';
+import { iosSystemPrint, iosSystemPrintAvailable } from '../lib/print/transport/iosBridge';
 import { COPY_SLOT, LEGACY_THERMAL_GEOM, buildThermalDocument, rollHeightMm, thermalGeom, thermalPageRule, type ThermalGeom } from './thermalHtml';
 import { invoiceLotsOf, lotLineText } from './docLots';
 
@@ -128,9 +129,12 @@ function dt(d: string): string {
  * يطبع محتوى HTML في إطار مخفي — الشريط الكلاسيكي بمقاس 58 مم كما اليوم حرفاً بحرف (الوثيقة والإطار والمهلة)، والقوالب
  * الجديدة بمقاس ورقها: الإطار بعرض الورق كي يُخطَّط المحتوى بعرضه الفعليّ، ثم تُقاس النسخة الأطول وتُكتب قاعدة @page بطولها
  * (Chrome يُسقط `58mm auto` فيقع على مقاسٍ افتراضيّ) — ولا طباعة قبل تحميل الصور والخطوط.
+ * وفي تطبيق الآيفون (iosSystemPrintAvailable) الوثيقة نفسها إلى نافذة الطباعة في التطبيق: print() في WKWebView لا يفتحها،
+ * والتطبيق يقسّم الصفحات بمقاس الورق المختار هناك.
  */
 function printHTML(body: string, geom: ThermalGeom = LEGACY_THERMAL_GEOM): void | Promise<void> {
   const html = buildThermalDocument(body, geom);
+  if (iosSystemPrintAvailable()) return iosSystemPrint(html, geom.paperWidthMm, '');
 
   const iframe = document.createElement('iframe');
   iframe.setAttribute('aria-hidden', 'true');
@@ -307,7 +311,7 @@ export async function printThermalInvoice(doc: InvoiceDoc, opts?: ThermalPrintOp
     return;
   }
 
-  classicOut(opts, `
+  await classicOut(opts, `
     ${head(doc.company)}
     <div class="sep"></div>
     <div class="c b">${esc(title)}</div>
@@ -345,9 +349,9 @@ export async function printThermalInvoice(doc: InvoiceDoc, opts?: ThermalPrintOp
 }
 
 /** الشريط الكلاسيكي إلى نظام الطباعة كما اليوم — أو إلى معاينة المحرّر (capture) بالوثيقة نفسها */
-function classicOut(opts: ThermalPrintOptions | undefined, body: string): void {
+function classicOut(opts: ThermalPrintOptions | undefined, body: string): void | Promise<void> {
   if (opts?.capture) { opts.capture(buildThermalDocument(body)); return; }
-  printHTML(body);
+  return printHTML(body);
 }
 
 /**
@@ -381,7 +385,7 @@ function receiptInvoiceRows(doc: ReceiptDoc, tr: Tr = asIs, L?: (key: string, ar
 export async function printThermalReceipt(doc: ReceiptDoc, opts?: ThermalPrintOptions): Promise<void> {
   const roll = rollOf(opts, doc.company, false);
   if (roll) { await deliverRoll(rollReceiptBody(doc, roll), roll); return; }
-  classicOut(opts, `
+  await classicOut(opts, `
     ${head(doc.company)}
     <div class="sep"></div>
     <div class="c b">سند قبض</div>

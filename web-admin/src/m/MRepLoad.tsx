@@ -26,7 +26,7 @@ import {
 } from './mUnits';
 import {
   newRowId, shelfLifeOn, resolveShelfOn, emptyLotDraft, lotDraftProblem, loadLotFields, lineBaseQty, fefoLinesParam,
-  vanOutSources, prefillOutLines, sourcesLeftFor, outGroupProblems, setOutQty, lotLineLabel, lotQtyText, LOT_CACHE_KEYS, VAN_OUT_PROBLEMS,
+  vanOutSources, prefillOutLines, sourcesLeftFor, outAutoRows, outGroupProblems, setOutQty, lotLineLabel, lotQtyText, LOT_CACHE_KEYS, VAN_OUT_PROBLEMS,
   type LotDraft, type OutSource,
 } from './mLotsLogic';
 import MUnitChips from './MUnitChips';
@@ -113,11 +113,20 @@ interface Row extends StockLineUnit {
   shelfOn?: boolean;
   /** تشغيلة التحميل في شركة بلا مستودع (D4) — سطرٌ = تشغيلة */
   lot?: LotDraft;
-  /** توزيع التنزيل على مصادر السيارة بالأساس — غائبٌ ⇒ التوزيع الأوّلي (prefillOut) */
+  /** التنزيل بتحديدٍ يدوي للتشغيلات — غائبٌ أو false ⇒ سحبٌ تلقائي بالأقرب انتهاءً أولاً (لا يُرسل lots، والخادم يحسم) */
+  outManual?: boolean;
+  /** توزيع التنزيل اليدوي على مصادر السيارة بالأساس — غائبٌ ⇒ التوزيع الأوّلي (prefillOutLines) */
   outLots?: LotRef[];
   /** «الوحدة الرئيسية» للصنف كما عرفها كتالوج الشاشة حين أُضيف السطر — عرض الرصيد بها وحده، لا يدخل الجسم (D1) */
   primaryUnitId?: string | null;
 }
+
+/**
+ * تغيّر كمية السطر أو إشارته أو وحدته (أو أساسه بعد تحويل الصنف) يُسقط التحديد اليدوي للتنزيل كلّه ويعيد السطر «تلقائياً» — كما
+ * يصفّر LoadModal في اللوحة lotEdit. فإسقاط outLots وحده مع بقاء outManual كان يعيد ملأه بترتيب الإخراج ('OUT': المسحوبة والموقوفة
+ * أولاً، prefillOutLines) فيُرسل lots صريحةً تخالف خطة الأقرب انتهاءً التي بدأ منها التحديد (مراجعة C7).
+ */
+const AUTO_OUT: Pick<Row, 'outManual' | 'outLots'> = { outManual: false, outLots: undefined };
 
 /** ردّ GET /lots/fefo — لكل سطرٍ صفوفه بترتيب الأسطر المرسلة */
 interface FefoResp {
@@ -243,6 +252,9 @@ export default function MRepLoad({ rep, company, onClose }: {
   const trackedOf = (productId: string) => lotOn && (snapQ.data ? trackedSet.has(productId) : pickTracked.has(productId));
   const sourcesOf = (productId: string): OutSource[] =>
     vanOutSources(snapQ.data?.products.find(p => p.productId === productId), snapQ.data?.day ?? '');
+  /** المصادر بترتيب السحب التلقائي (ترتيب اللقطة: FEFO الخادم) — لمعاينته وحدها */
+  const fefoSourcesOf = (productId: string): OutSource[] =>
+    vanOutSources(snapQ.data?.products.find(p => p.productId === productId), snapQ.data?.day ?? '', 'FEFO');
 
   /** رصيد الصنف في السيارة الآن (بالأساس) — يُعرض على سطره فلا يُحمَّل ما لم ينفد */
   const remainingOf = useMemo(() => {
@@ -259,13 +271,16 @@ export default function MRepLoad({ rep, company, onClose }: {
 
   /* «تتبّع اللوط» لكل سطرٍ متتبَّع (والمطفأ لا شيء):
    *  - تحميلٌ في شركة بلا مستودع (D4): تشغيلةٌ صريحة (قائمة مؤهَّلة، أو جديدة، أو «غير مسمى»).
-   *  - تنزيل: صفوفٌ صريحة حين للصنف في السيارة أكثر من مصدر (D10)، والمصدر الوحيد يختاره الخادم.
+   *  - تنزيل: بلا تحديد سحبٌ تلقائي بالأقرب انتهاءً أولاً أيّاً كان عدد المصادر (لا يُرسل lots — طلب المالك ١ نوفمبر ٢٠٢٦ بدل
+   *    الصريح الإلزامي لأكثر من مصدر في D10) ومعاينته على السطر، والتحديد اليدوي اختياري (outManual) يبدأ من المعاينة.
    *  - تحميلٌ من المستودع: لا شيء — الخادم يوزّع بـFEFO عند الحفظ، والمعاينة أدناه اقتراحه نفسه. */
 
   /* أسطر التنزيل على مستوى الصنف (D26): صنفٌ متتبَّع يجوز له سطران بوحدتين («−١ كرتون» و«−٥ حبّات»)، والخادم يجمعهما قبل
-   * الفحص. فالتوزيع الأوّلي من متاحٍ مشترك (ما أخذه سطرٌ لا يأخذه آخر)، والتحقق بمجموع الأسطر ومجموع كل تشغيلةٍ عبرها */
+   * الفحص. الأسطر اليدوية تُوزَّع أوّلياً من متاحٍ مشترك (ما أخذه سطرٌ لا يأخذه آخر)، والتلقائية تُعايَن مما بقي بعدها بترتيب
+   * السحب (vanOutSources بـ'FEFO'، outAutoRows) — والتحقق بمجموع الأسطر ومجموع كل تشغيلةٍ صريحة عبرها */
   const outPlan = useMemo(() => {
     const rowsOf = new Map<string, LotRef[]>();
+    const autoOf = new Map<string, LotRef[]>();
     const problems = new Map<string, string>();
     const byProduct = new Map<string, { r: Row; base: number }[]>();
     for (const r of rows) {
@@ -275,20 +290,24 @@ export default function MRepLoad({ rep, company, onClose }: {
     }
     for (const [pid, ls] of byProduct) {
       const sources = sourcesOf(pid);
-      const filled = prefillOutLines(sources, ls.map(({ r, base }) => ({ key: r.rowId, base, factor: r.unitFactor, rows: r.outLots })));
+      const manual = ls.filter(({ r }) => r.outManual);
+      const filled = prefillOutLines(sources, manual.map(({ r, base }) => ({ key: r.rowId, base, factor: r.unitFactor, rows: r.outLots })));
       filled.forEach((v, k) => rowsOf.set(k, v));
-      const multi = sources.length > 1;
-      outGroupProblems(sources, ls.map(({ r, base }) => ({ key: r.rowId, base, rows: multi ? filled.get(r.rowId) ?? [] : null })), { loaded: !!snapQ.data })
+      const lines = ls.map(({ r, base }) => ({ key: r.rowId, base, factor: r.unitFactor, rows: r.outManual ? filled.get(r.rowId) ?? [] : null }));
+      outGroupProblems(sources, lines, { loaded: !!snapQ.data })
         .forEach((p, k) => problems.set(k, VAN_OUT_PROBLEMS[p]));
+      outAutoRows(fefoSourcesOf(pid), lines).forEach((v, k) => autoOf.set(k, v));
     }
-    return { rowsOf, problems, byProduct };
+    return { rowsOf, autoOf, problems, byProduct };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- trackedOf وsourcesOf تقرآن اللقطة والعلم وحدهما
   }, [rows, snapQ.data, lotOn, pickTracked]);
   const outRowsOf = (r: Row): LotRef[] => outPlan.rowsOf.get(r.rowId) ?? [];
-  /** مصادر السطر بما يبقى له بعد أسطر صنفه الأخرى — «المتاح» المعروض عليه */
+  /** معاينة السحب التلقائي لسطر تنزيلٍ بلا تحديد — null حين لا معاينة (لا مصادر، أو فوق المتاح) */
+  const autoRowsOf = (r: Row): LotRef[] | null => outPlan.autoOf.get(r.rowId) ?? null;
+  /** مصادر السطر اليدوي بما يبقى له بعد الأسطر اليدوية الأخرى لصنفه (التلقائي يُسحب بعدها) — «المتاح» المعروض عليه */
   const outSourcesOf = (r: Row): OutSource[] => sourcesLeftFor(
     sourcesOf(r.productId),
-    (outPlan.byProduct.get(r.productId) ?? []).filter(x => x.r.rowId !== r.rowId).map(x => outRowsOf(x.r)),
+    (outPlan.byProduct.get(r.productId) ?? []).filter(x => x.r.rowId !== r.rowId && x.r.outManual).map(x => outRowsOf(x.r)),
   );
 
   /* صلاحية الصنف لتشغيلة التحميل الجديدة (D4): المضاف من قائمة الأصناف يحملها، وأسطر مخزون السيارة والاقتراح لا تحملها —
@@ -312,14 +331,16 @@ export default function MRepLoad({ rep, company, onClose }: {
     const n = Number(r.qty);
     if (!trackedOf(r.productId) || !Number.isFinite(n) || n === 0) return {};
     if (n > 0) return warehouseOn ? {} : loadLotFields(r.lot ?? emptyLotDraft(), lineBaseQty(n, r.unitFactor));
-    return sourcesOf(r.productId).length > 1 ? { lots: outRowsOf(r) } : {};
+    // التنزيل: اليدوي بصفوفه، والتلقائي بلا lots فيسحب الخادم بالأقرب انتهاءً أولاً
+    return r.outManual ? { lots: outRowsOf(r) } : {};
   };
   /** مشكلة تشغيلة السطر (مفتاح قاموس) أو null — تمنع الحفظ قبل أن يرفضه الخادم */
   const lotProblemOf = (r: Row): string | null => {
     const n = Number(r.qty);
     if (!trackedOf(r.productId) || !Number.isFinite(n) || n === 0) return null;
     if (n > 0) return warehouseOn ? null : lotDraftProblem(r.lot ?? emptyLotDraft(), 'LOAD', { shelfOn: shelfOf(r), day: snapQ.data?.day });
-    // التنزيل: مرآة pickPlan (D10، D26، I1) على مستوى الصنف — بلا مصدر، أو فوق مجموع المصادر، أو توزيعٌ ناقص، أو تشغيلةٌ فوق صالحها
+    // التنزيل: مرآة pickPlan (D26، I1، pickOutFefoLines) على مستوى الصنف — بلا مصدر، أو فوق مجموع المصادر، أو توزيعٌ يدوي ناقص،
+    // أو تشغيلةٌ صريحة فوق صالحها
     return outPlan.problems.get(r.rowId) ?? null;
   };
 
@@ -397,12 +418,12 @@ export default function MRepLoad({ rep, company, onClose }: {
     });
   const addProduct = (p: ProductPick) => addLine(p, p.id, p.name, lotOn ? { shelfOn: shelfLifeOn(p) } : {});
   const addFromStock = (s: StockRow) => addLine(s, s.productId, s.name);
-  // تغيّر الكمية أو إشارتها أو وحدتها يُسقط توزيع التنزيل اليدوي: كميته لم تعد كمية السطر
-  const patchQty = (key: string, v: string) => setRows(rs => rs.map(r => r.rowId === key ? { ...r, qty: v, outLots: undefined } : r));
+  // تغيّر الكمية أو إشارتها أو وحدتها يُعيد التنزيل «تلقائياً» (AUTO_OUT): التحديد اليدوي كان لكميةٍ لم تعد كمية السطر
+  const patchQty = (key: string, v: string) => setRows(rs => rs.map(r => r.rowId === key ? { ...r, qty: v, ...AUTO_OUT } : r));
   const flipSign = (key: string) => setRows(rs => rs.map(r => {
     if (r.rowId !== key) return r;
     const n = Number(r.qty);
-    return { ...r, qty: Number.isFinite(n) ? String(-n) : r.qty, outLots: undefined };
+    return { ...r, qty: Number.isFinite(n) ? String(-n) : r.qty, ...AUTO_OUT };
   }));
   const dropRow = (key: string) => setRows(rs => rs.filter(r => r.rowId !== key));
   const patchRow = (key: string, patch: Partial<Row>) => setRows(rs => rs.map(r => (r.rowId === key ? { ...r, ...patch } : r)));
@@ -411,7 +432,7 @@ export default function MRepLoad({ rep, company, onClose }: {
     if (r.rowId !== key) return r;
     const p = { unit: r.baseUnit, units: r.units, primaryUnitId: r.primaryUnitId };
     const c = unitChoices(p).find(o => o.id === unitId);
-    return c ? { ...r, ...stockLineUnit(p, c), outLots: undefined } : r;
+    return c ? { ...r, ...stockLineUnit(p, c), ...AUTO_OUT } : r;
   }));
 
   /** يملأ النموذج بما يستحقّ تحميلاً فقط — الأصفار ضجيجٌ لا اقتراح */
@@ -490,7 +511,7 @@ export default function MRepLoad({ rep, company, onClose }: {
       const p = fresh.get(r.productId);
       const next = p ? rebaseRow(r, p) : null;
       if (!p || !next) return r;
-      return { ...r, ...stockLineUnit(p, next.choice), qty: String(next.qty), primaryUnitId: p.primaryUnitId ?? null, outLots: undefined };
+      return { ...r, ...stockLineUnit(p, next.choice), qty: String(next.qty), primaryUnitId: p.primaryUnitId ?? null, ...AUTO_OUT };
     }));
   }
 
@@ -799,11 +820,16 @@ export default function MRepLoad({ rep, company, onClose }: {
                     <MLotFields productId={r.productId} mode="LOAD" shelfOn={shelfOf(r)} draft={r.lot ?? emptyLotDraft()}
                       prod={prod} day={snapQ.data?.day} onChange={d => patchRow(k, { lot: d })} />
                   )}
-                  {/* «المتاح» لكل مصدر ما يبقى لهذا السطر بعد أسطر صنفه الأخرى (D26) */}
-                  {tracked && neg && (
+                  {/* التنزيل: سحبٌ تلقائي بمعاينته (الافتراضي)، أو تحديدٌ يدوي يبدأ منها — و«المتاح» لكل مصدر في اليدوي ما يبقى لهذا
+                      السطر بعد أسطر صنفه اليدوية الأخرى (D26) */}
+                  {tracked && neg && !r.outManual && (
+                    <OutAutoPreview sources={sourcesOf(r.productId)} rows={autoRowsOf(r)} prod={prod} loading={snapQ.isLoading}
+                      onManual={sourcesOf(r.productId).length > 1 ? () => patchRow(k, { outManual: true, outLots: autoRowsOf(r) ?? undefined }) : undefined} />
+                  )}
+                  {tracked && neg && r.outManual && (
                     <OutLotsEditor sources={outSourcesOf(r)} prod={prod} loading={snapQ.isLoading}
                       base={lineBaseQty(n, r.unitFactor)} rows={outRowsOf(r)}
-                      onChange={lots => patchRow(k, { outLots: lots })} />
+                      onChange={lots => patchRow(k, { outLots: lots })} onAuto={() => patchRow(k, AUTO_OUT)} />
                   )}
                   {tracked && (() => {
                     const p = lotProblemOf(r);
@@ -963,33 +989,68 @@ function FefoPreview({ productId, prod, f }: {
 }
 
 /**
- * «تتبّع اللوط»: توزيع سطر التنزيل على مصادر السيارة (D10) — المصدر الوحيد يُنزَّل منه تلقائياً، وأكثر من مصدرٍ يلزمه
- * توزيعٌ صريح مجموعه كمية السطر بالأساس. الموقوف والمنتهي في الأعلى: هو ما يُخرج أولاً في السحب.
+ * «تتبّع اللوط»: سطر التنزيل بلا تحديد يُسحب تلقائياً بالأقرب انتهاءً أولاً ثم غير المسمّى (pickOutFefoLines) أيّاً كان عدد
+ * المصادر، ولا يُرسل lots. هنا معاينته (outAutoRows بمعامل السطر) وزرّ التحديد اليدوي الاختياري حين للصنف أكثر من مصدر.
  */
-function OutLotsEditor({ sources, prod, loading, base, rows, onChange }: {
-  sources: OutSource[]; prod: { unit?: string | null; units?: UnitDef[] | null; primaryUnitId?: string | null };
-  loading: boolean; base: number; rows: LotRef[]; onChange: (rows: LotRef[]) => void;
+function OutAutoPreview({ sources, rows, prod, loading, onManual }: {
+  sources: OutSource[]; rows: LotRef[] | null; prod: { unit?: string | null; units?: UnitDef[] | null; primaryUnitId?: string | null };
+  loading: boolean; onManual?: () => void;
 }) {
   const tr = useTr();
-  // التوزيع يُدخَل بالأساس: أرقامه بجانب اسم الأساس بلا تفكيك، والمصدر الوحيد مفكَّكاً بوحدات الصنف (القاعدة ٨)
+  if (loading) return <p className="text-[10px] text-[#9A8F7E] px-0.5">{tr('جاري التحميل')}</p>;
+  if (sources.length === 0) return null;
+  return (
+    <div className="rounded-xl bg-[#FAF7F0] border border-[#F1EBDF] px-2.5 py-2 space-y-1">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[10px] font-semibold text-[#6E6557]">{tr('تلقائي: الأقرب انتهاءً أولاً')}</p>
+        {onManual && (
+          <button type="button" onClick={onManual} className="text-[10px] font-semibold text-[#E15A30] min-h-[32px] px-1.5 flex-shrink-0">
+            {tr('تحديد التشغيلة يدوياً')}
+          </button>
+        )}
+      </div>
+      {(rows ?? []).map(r => {
+        const s = sources.find(x => x.lotId === r.lotId);
+        return (
+          <div key={r.lotId ?? 'u'} className="flex items-center justify-between gap-2 text-[11px]">
+            <span className="min-w-0 truncate text-[#1F1A13]">
+              {s ? lotLineLabel(s, tr('غير مسمى'), tr('ينتهي')) : tr('غير مسمى')}
+              {s?.status === 'BLOCKED' && <b className="text-[#C0392B]"> · {tr(LOT_STATUS_LABELS.BLOCKED)}</b>}
+              {s && s.status !== 'BLOCKED' && s.expired && <b className="text-[#C0392B]"> · {tr('منتهي الصلاحية')}</b>}
+            </span>
+            <b className="tabular-nums flex-shrink-0">{lotQtyText(r.qty, prod, fmtLotQ)}</b>
+          </div>
+        );
+      })}
+      <p className="text-[9px] text-[#9A8F7E]">{tr('يؤكد التوزيع عند الحفظ')}</p>
+    </div>
+  );
+}
+
+/**
+ * «تتبّع اللوط»: التحديد اليدوي الاختياري لسطر التنزيل على مصادر السيارة — توزيعٌ صريح مجموعه كمية السطر بالأساس، و«تلقائي»
+ * يعيده إلى السحب التلقائي. الموقوف والمنتهي في الأعلى: هو ما يُخرج أولاً في السحب.
+ */
+function OutLotsEditor({ sources, prod, loading, base, rows, onChange, onAuto }: {
+  sources: OutSource[]; prod: { unit?: string | null; units?: UnitDef[] | null; primaryUnitId?: string | null };
+  loading: boolean; base: number; rows: LotRef[]; onChange: (rows: LotRef[]) => void; onAuto: () => void;
+}) {
+  const tr = useTr();
+  // التوزيع يُدخَل بالأساس: أرقامه بجانب اسم الأساس بلا تفكيك (القاعدة ٨)
   const baseOnly = { unit: prod.unit };
   const label = (s: OutSource) => lotLineLabel(s, tr('غير مسمى'), tr('ينتهي'));
   if (loading) return <p className="text-[10px] text-[#9A8F7E] px-0.5">{tr('جاري التحميل')}</p>;
   if (sources.length === 0) return null;
-  if (sources.length === 1) {
-    return (
-      <p className="text-[10px] text-[#6E6557] px-0.5">
-        {tr('ينزل من')} {label(sources[0])} · {tr('المتاح')} {lotQtyText(sources[0].usable, prod, fmtLotQ)}
-      </p>
-    );
-  }
   const left = lotRowsRemaining(rows, base);
   return (
     <div className="rounded-xl bg-[#FAF7F0] border border-[#F1EBDF] px-2.5 py-2 space-y-1.5">
-      {/* التوزيع بالأساس (R8) — ولصنفٍ له «وحدة رئيسية» يُسمّى الأساس باسمه لا «وحدة الأساس» (D21)، وبلاها النصّ كما كان */}
-      <p className="text-[10px] font-semibold text-[#6E6557]">
-        {primaryUnitOf(prod) ? fill(tr('من أي تشغيلة ينزل بـ{unit}'), { unit: String(prod.unit ?? '') }) : tr('من أي تشغيلة ينزل بوحدة الأساس')}
-      </p>
+      <div className="flex items-center justify-between gap-2">
+        {/* التوزيع بالأساس (R8) — ولصنفٍ له «وحدة رئيسية» يُسمّى الأساس باسمه لا «وحدة الأساس» (D21)، وبلاها النصّ كما كان */}
+        <p className="text-[10px] font-semibold text-[#6E6557]">
+          {primaryUnitOf(prod) ? fill(tr('من أي تشغيلة ينزل بـ{unit}'), { unit: String(prod.unit ?? '') }) : tr('من أي تشغيلة ينزل بوحدة الأساس')}
+        </p>
+        <button type="button" onClick={onAuto} className="text-[10px] font-semibold text-[#E15A30] min-h-[32px] px-1.5 flex-shrink-0">{tr('تلقائي')}</button>
+      </div>
       {sources.map(s => {
         const v = rows.find(r => r.lotId === s.lotId)?.qty;
         return (
