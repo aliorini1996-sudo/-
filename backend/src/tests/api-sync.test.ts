@@ -156,6 +156,8 @@ test('الأسرار والثقيل لا تُختار أبداً — ولا في
   assert.ok(!JSON.stringify(sync.syncResource('visits')!.select).includes('"data"'), 'صور الزيارة لا تُضمَّن');
   // الموقع اللحظي للمندوب تحرسه صلاحية التتبّع في اللوحة لا صلاحية المناديب
   for (const f of ['lastLat', 'lastLng', 'lastSeenAt']) assert.ok(!(f in sync.syncResource('sales-reps')!.select), f);
+  // اسم مزوّد التحصيل بالبطاقة لا يصل الشركات: nearpayTid ممنوع في المزامنة (قرار المالك ١ نوفمبر ٢٠٢٦)
+  assert.ok(!('nearpayTid' in sync.syncResource('sales-reps')!.select), 'nearpayTid');
 });
 
 test('المؤشّر: ذهاباً وإياباً، ولا يصلح لمورد آخر، والتالف يُرفض', () => {

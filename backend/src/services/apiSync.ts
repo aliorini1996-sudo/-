@@ -99,8 +99,6 @@ const SALES_REP_COLS = [
   'requirePresenceCheck', 'showRouteOnMap',
   // «لوكيشن»: موقع المندوب الحاليّ (معرّف SalesLocation — null = بلا موقع)
   'locationId',
-  // «التحصيل بالبطاقة»: نقطة بيع NearPay المسندة (TID — null = لا تحصيل بالبطاقة)
-  'nearpayTid',
 ];
 const INVOICE_COLS = [
   'id', 'number', 'customerId', 'salesRepId', 'type', 'status', 'returnReason', 'returnToStock', 'invoiceDate',
@@ -194,6 +192,8 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
       // معرّف جهاز البصمة المربوط سرٌّ يمنع البصمة بالنيابة — من يعرفه يستطيع انتحال الجهاز
       boundDeviceId: 'معرّف جهاز البصمة المربوط — كشفه يتيح انتحال الجهاز',
       tzOffsetMin: 'قياس داخلي لتوقيت جوال المندوب (التنبيهات)',
+      // «التحصيل بالبطاقة»: نقطة البيع المسندة — اسم العمود يكشف مزوّد التحصيل، والشركات لا ترى اسمه (قرار المالك ١ نوفمبر ٢٠٢٦)
+      nearpayTid: 'داخلي: نقطة التحصيل بالبطاقة المسندة للمندوب',
     },
   },
   {
