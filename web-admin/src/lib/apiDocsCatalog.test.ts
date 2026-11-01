@@ -171,6 +171,13 @@ test('المستند لا يكشف مسارات ملفات الخادم الدا
   assert.ok(!all.includes('src/'), 'مسار شيفرة داخلي');
 });
 
+/** المستند يُسلَّم لمبرمج الشركة: اسم مزوّد التحصيل بالبطاقة لا يظهر للشركات (قرار المالك ١ نوفمبر ٢٠٢٦) */
+test('المستند لا يذكر اسم مزوّد الدفع بالبطاقة', () => {
+  const docs = read(path.join(process.cwd(), 'src', 'components', 'ApiDocs.tsx'));
+  const all = JSON.stringify([API_DOC_GROUPS, API_DOC_GUIDES, API_SYNC_RESOURCES, API_DENIED]) + docs;
+  assert.ok(!/near\s*pay/i.test(all), 'اسم مزوّد الدفع في المستند');
+});
+
 /**
  * المفتاح عميلٌ حيّ لا صندوق إرسال: الخادم يمحو X-FS-Replay من طلبه ولا يشتقّ تسامحاً من جسمه (clientRef). فمستندٌ يَعِده
  * بتسامح الصندوق (إسقاطٌ بدل 409/422/400) يكذب عليه — وقد وقع هذا في قواعد POST /customers فناقض مقدمة الفواتير.
@@ -213,8 +220,8 @@ function backendSources(dir: string): string {
 const BACKEND_SRC = backendSources(BACKEND);
 const CODE_RE = /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g;
 
-test('أدلّة الربط: صفحة اللوكيشن وصفحة طرق الدفع وصفحة مخزون الشركة وتتبّع اللوط، بخطوات مرقّمة لكلٍّ منها', () => {
-  assert.deepEqual(API_DOC_GUIDES.map((g) => g.title), ['ربط صفحة اللوكيشن', 'ربط صفحة طرق الدفع', 'ربط صفحة مخزون الشركة', 'ربط تتبّع LOT']);
+test('أدلّة الربط: صفحة اللوكيشن وصفحة طرق الدفع وصفحة مخزون الشركة وتتبّع اللوط وأنواع الأسعار، بخطوات مرقّمة لكلٍّ منها', () => {
+  assert.deepEqual(API_DOC_GUIDES.map((g) => g.title), ['ربط صفحة اللوكيشن', 'ربط صفحة طرق الدفع', 'ربط صفحة مخزون الشركة', 'ربط تتبّع LOT', 'ربط أنواع الأسعار']);
   for (const g of API_DOC_GUIDES) {
     assert.ok(g.intro.length > 50, g.key);
     assert.ok(g.steps.length >= 5, `${g.key}: خطوات قليلة`);
@@ -225,7 +232,10 @@ test('أدلّة الربط: صفحة اللوكيشن وصفحة طرق الد�
   for (const k of ['GET /locations', 'PUT /locations/reps/:salesRepId', 'GET /locations/summary', 'GET /company/payment-methods', 'PUT /company/payment-methods', 'POST /receipts', 'GET /reports/payment-methods',
     'GET /warehouse', 'POST /warehouse/entries', 'GET /warehouse/entries', 'POST /van-stock/loads', 'GET /rep-stock-requests', 'PUT /rep-stock-requests/:id', 'POST /rep-stock-requests/send',
     // دليل «تتبّع اللوط» (المواصفة §٥.٤): الشركة، ثم التفعيل الجماعي، ثم الوارد، ثم التسمية، ثم FEFO والتحميل، ثم الأرصدة، ثم التتبّع، ثم الإيقاف
-    'POST /lots/products/tracking', 'POST /lots/relabel', 'GET /lots/fefo', 'GET /lots/balances', 'GET /lots/:id/trace', 'PATCH /lots/:id/status']) {
+    'POST /lots/products/tracking', 'POST /lots/relabel', 'GET /lots/fefo', 'GET /lots/balances', 'GET /lots/:id/trace', 'PATCH /lots/:id/status',
+    // دليل «أنواع الأسعار»: الأنواع، ثم أسعار الصنف، ثم الأسعار مجمّعة، ثم نوع العميل، ثم صلاحية المندوب، ثم الفاتورة، ثم الحذف
+    'GET /price-lists', 'POST /price-lists', 'PUT /products/:id/list-prices', 'GET /price-lists/prices', 'PUT /customers/:id', 'PUT /sales-reps/:id',
+    'POST /invoices', 'DELETE /price-lists/:id']) {
     assert.ok(stepPaths.has(k), `الدليل لا يذكر ${k}`);
   }
 });
@@ -273,7 +283,8 @@ test('كل رمز خطأ في الدليلين وجدول الأخطاء يرس�
   assert.ok(table.length > 200 && table.includes("['503',"), 'جدول الأخطاء');
   const codes = new Set([...guides.matchAll(CODE_RE), ...table.matchAll(CODE_RE)].map((m) => m[0]));
   for (const must of ['LOCATIONS_NOT_ALLOWED', 'PAYMENT_METHODS_NOT_ALLOWED', 'PAYMENT_METHOD_UNKNOWN', 'LOCATION_ARCHIVED', 'PAYMENT_METHODS_CONFLICT',
-    'LOTS_NOT_ALLOWED', 'LOTS_DISABLED', 'LOT_STOCK_INSUFFICIENT', 'LOT_REQUIRED', 'LOT_BUSY', 'LOT_SCOPED_USER', 'LOT_CHANGED']) {
+    'LOTS_NOT_ALLOWED', 'LOTS_DISABLED', 'LOT_STOCK_INSUFFICIENT', 'LOT_REQUIRED', 'LOT_BUSY', 'LOT_SCOPED_USER', 'LOT_CHANGED',
+    'PRICE_LIST_INVALID', 'PRICE_LIST_FORBIDDEN', 'PRICE_LIST_IN_USE', 'PRICE_LIST_NAME_TAKEN', 'DELETE_NOT_ALLOWED', 'RETURN_LINK_REQUIRED']) {
     assert.ok(codes.has(must), `الدليل لا يذكر ${must}`);
   }
   const unknown = [...codes].filter((c) => !BACKEND_SRC.includes(`'${c}'`));
@@ -966,6 +977,8 @@ test('الوحدة الرئيسية: أجسام POST /products وPUT /products/:
   const create = schemaKeys(products, 'productCreateSchema');
   assert.deepEqual([...create].sort(), ['basePrice', 'primaryUnitName', 'units']);
   for (const k of create) assert.ok(names('POST', '/products').includes(k), `POST /products: ${k}`);
+  // «أنواع الأسعار»: listPrices في جسم الإنشاء كما في مخطّطه المنفصل
+  assert.ok(/productListPricesSchema = z\.object\(\{ listPrices:/.test(products) && names('POST', '/products').includes('listPrices'), 'POST /products: listPrices');
   assert.deepEqual(names('POST', '/products').filter((n) => n.startsWith('units[].')).map((n) => n.slice(8)).sort(), schemaKeys(products, 'productCreateUnitSchema').sort());
   assert.equal((fieldOf(endpointOf('POST', '/products'), 'basePrice') as { required?: boolean }).required, false, 'basePrice اختياري مع primaryUnitName');
   // I1: units بلا primaryUnitName يُتجاهل — والمستند يقوله، والخادم يتفرّع على primaryUnitName وحده
