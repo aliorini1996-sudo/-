@@ -64,9 +64,17 @@ test('iOS يبقى iOS ولو حمل علامة الجسر أو مُحيل ال�
   assert.deepEqual(at({ ua: UA.samsung, hasSerial: true }), { os: 'android', path: 'serial' }, 'Web Serial حيث وُجد هو الطريق دائماً');
 });
 
-test('بوّابة النشر: قبل وصول التحديث إلى الإنتاج لا يُجرَّب التطبيق إلا بعلامة الجسر — والمُحيل وحده لا يكفي (النسخة 3 تضعه)', () => {
-  assert.equal(APP_BRIDGE_FOR_ALL, false, 'يُقلب true حين يصل versionCode 6 فأحدث إلى الإنتاج في Google Play');
-  const gated = (i: Partial<PlatformInput> & { ua: string }) => classifyPrintPlatform({ hasSerial: false, ...i });
+test('بوّابة النشر مفتوحة منذ نشر 1.2.0 في الإنتاج: أندرويد بلا Web Serial ⇒ app بلا علامة الجسر', () => {
+  assert.equal(APP_BRIDGE_FOR_ALL, true, 'قُلب true في ١ نوفمبر ٢٠٢٦ بعد نشر الإصدار 6 للجميع');
+  const open = (i: Partial<PlatformInput> & { ua: string }) => classifyPrintPlatform({ hasSerial: false, ...i });
+  assert.deepEqual(open({ ua: UA.samsung }), { os: 'android', path: 'app' });
+  assert.deepEqual(open({ ua: UA.chrome120Android, referrer: 'android-app://net.fieldsa.twa/' }), { os: 'android', path: 'app' });
+  assert.deepEqual(open({ ua: UA.iphone, maxTouchPoints: 5 }), { os: 'ios', path: 'none' }, 'الآيفون كما هو');
+  assert.deepEqual(open({ ua: UA.windowsFirefox }), { os: 'other', path: 'none' }, 'سطح المكتب كما هو');
+});
+
+test('منطق البوّابة إن أُطفئت: علامة الجسر وحدها تفتح التطبيق — والمُحيل وحده لا يكفي (النسخة 3 تضعه)', () => {
+  const gated = (i: Partial<PlatformInput> & { ua: string }) => classifyPrintPlatform({ hasSerial: false, bridgeForAll: false, ...i });
   assert.deepEqual(gated({ ua: UA.samsung }), { os: 'android', path: 'none' });
   assert.deepEqual(gated({ ua: UA.chrome120Android, referrer: 'android-app://net.fieldsa.twa/' }), { os: 'android', path: 'none' });
   assert.deepEqual(gated({ ua: UA.samsung, bridgeFlag: true }), { os: 'android', path: 'app' });
