@@ -450,7 +450,7 @@ final class BlePrinter: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate
 
     /// CBUUID(string:) raises an Objective-C exception on a malformed string; only well-formed ones pass.
     static func uuid(_ s: String) -> CBUUID? {
-        let parts = s.split(separator: "-", omittingEmptySubsequences: false).map { $0.count }
+        let parts = s.components(separatedBy: "-").map { $0.count }
         guard parts == [4] || parts == [8] || parts == [8, 4, 4, 4, 12] else { return nil }
         let hex = CharacterSet(charactersIn: "0123456789abcdefABCDEF-")
         guard s.unicodeScalars.allSatisfy({ hex.contains($0) }) else { return nil }
