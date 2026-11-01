@@ -1,0 +1,92 @@
+# تطبيق المندوب على الآيفون (FieldSales): فحص، ثم توقيع وبناء ورفع إلى TestFlight — بطريقة تطبيق «بدر» نفسها
+# (GitHub Actions + fastlane match)، بلا موقع خارجي. يعمل عند الدفع إلى فرع ios-app، أو يدوياً.
+# الأسرار: أسرار هذا المستودع (Settings → Secrets and variables → Actions). لا يُرفع الـIPA مرفقاً (المستودع عام).
+name: ios-testflight
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ios-app
+    paths-ignore:
+      - "**.md"
+      - "metadata/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-testflight
+  cancel-in-progress: false
+
+env:
+  RUBY_VERSION: "3.3"
+  FASTLANE_SKIP_UPDATE_CHECK: "1"
+  FASTLANE_HIDE_CHANGELOG: "1"
+  FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "180"
+  FASTLANE_XCODEBUILD_SETTINGS_RETRIES: "4"
+
+jobs:
+  testflight:
+    runs-on: macos-26
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # أولاً وقبل أي توقيع أو بناء: فكّ حمولة الطباعة في Swift يطابق الويب وأندرويد بايتاً ببايت
+      # (المتجهات الذهبية الـ42)، وحرّاس الإصدار. أي فشل هنا يوقف البناء قبل TestFlight.
+      - name: فحص عقد الطباعة (متجهات ذهبية) وحراس الإصدار
+        run: |
+          set -euo pipefail
+          echo "afa7cbd5a15dd7383565b1efb86e43074114c5ab0bf5cd8ffb3afd09259d03ef  ci/print_payload_vectors.json" | shasum -a 256 -c -
+          xcrun --sdk macosx swiftc -O -o /tmp/fsp-check FieldSales/PrintPayload.swift ci/fsp-check/main.swift
+          /tmp/fsp-check ci/print_payload_vectors.json
+          plutil -lint FieldSales/Info.plist
+          /usr/libexec/PlistBuddy -c "Print :NSBluetoothAlwaysUsageDescription" FieldSales/Info.plist
+          if /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" FieldSales/Info.plist 2>/dev/null | grep -qi bluetooth; then echo "✗ وضع خلفية للبلوتوث"; exit 1; fi
+          if grep -q CODE_SIGN_ENTITLEMENTS FieldSales.xcodeproj/project.pbxproj; then echo "✗ Entitlements"; exit 1; fi
+          if grep -RniE "nearpay|near pay|نيرباي|نير باي" FieldSales; then echo "✗ اسم المزوّد"; exit 1; fi
+          # لا Privacy Manifest في التطبيق: أي واجهة «سبب مطلوب» في كوده يرفضها App Store Connect (ITMS-91053)
+          if grep -RnE --include='*.swift' "UserDefaults|systemUptime|mach_absolute_time|creationDate|modificationDate|ModificationDate|volumeAvailableCapacity|systemFreeSize|activeInputModes" FieldSales; then echo "✗ واجهة تتطلب Privacy Manifest"; exit 1; fi
+          # الإصدار في الإعدادين (Debug وRelease) كلاهما 1.1.0
+          test "$(grep -c 'MARKETING_VERSION = ' FieldSales.xcodeproj/project.pbxproj)" -eq "$(grep -c 'MARKETING_VERSION = 1.1.0;' FieldSales.xcodeproj/project.pbxproj)"
+          grep -q "MARKETING_VERSION = 1.1.0;" FieldSales.xcodeproj/project.pbxproj
+
+      - name: نسخة Xcode
+        run: xcodebuild -version
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ env.RUBY_VERSION }}
+
+      - name: تثبيت fastlane
+        run: bundle install --jobs 4 --retry 3
+
+      - name: تحميل مفتاح مستودع التوقيع
+        env:
+          MATCH_GIT_SSH_KEY: ${{ secrets.MATCH_GIT_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          # مفتاح GitHub المنشور ed25519 (مثبّت لا مُستكشَف)
+          echo "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl" >> ~/.ssh/known_hosts
+          eval "$(ssh-agent -s)" >/dev/null
+          echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> "$GITHUB_ENV"
+          echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> "$GITHUB_ENV"
+          ssh-add - <<< "$MATCH_GIT_SSH_KEY" >/dev/null 2>&1
+
+      - name: التوقيع والبناء والرفع إلى TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          FS_RUN_NUMBER: ${{ github.run_number }}
+        run: bundle exec fastlane ios beta

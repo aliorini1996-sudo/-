@@ -1,0 +1,8 @@
+# fastlane match: شهادة التوزيع الوحيدة للحساب وملف تعريف net.fieldsa.rep، مشفّرةً (MATCH_PASSWORD) في مستودع التوقيع
+# الخاص نفسه الذي يستعمله تطبيق «بدر» (MATCH_GIT_URL عبر مفتاح النشر MATCH_GIT_SSH_KEY). شهادةٌ واحدة لكل تطبيقات الحساب
+# (آبل تسمح بشهادتين فقط)، وملف التعريف وحده يخصّ كل تطبيق.
+git_url(ENV["MATCH_GIT_URL"]) if ENV["MATCH_GIT_URL"].to_s != ""
+git_branch("main")
+storage_mode("git")
+type("appstore")
+app_identifier(["net.fieldsa.rep"])

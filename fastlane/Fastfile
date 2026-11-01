@@ -1,0 +1,106 @@
+# frozen_string_literal: true
+
+# تطبيق المندوب على الآيفون (FieldSales): التوقيع والبناء والرفع إلى TestFlight على GitHub Actions، بطريقة تطبيق «بدر» نفسها.
+#
+#   bundle exec fastlane ios beta     .github/workflows/ios-testflight.yml
+#
+# الأسرار من البيئة وحدها (أسرار مستودع GitHub): ASC_KEY_ID وASC_ISSUER_ID وASC_KEY_P8_BASE64 وMATCH_PASSWORD
+# وMATCH_GIT_URL وAPPLE_TEAM_ID، ومفتاح مستودع التوقيع يحمّله الوورك فلو في ssh-agent.
+
+default_platform(:ios)
+
+FS_BUNDLE_ID = "net.fieldsa.rep"
+FS_TARGET = "FieldSales"
+FS_ROOT = File.expand_path("..", FastlaneCore::FastlaneFolder.path)
+FS_PROJECT = File.join(FS_ROOT, "FieldSales.xcodeproj")
+FS_WORKSPACE = File.join(FS_ROOT, "FieldSales.xcworkspace")
+FS_INFO_PLIST = File.join(FS_ROOT, "FieldSales", "Info.plist")
+FS_OUTPUT_DIR = File.join(FS_ROOT, "build")
+
+def fs_env(name)
+  value = ENV[name].to_s.strip
+  UI.user_error!("#{name} غير مضبوط (سرٌّ في مستودع GitHub)") if value.empty?
+  value
+end
+
+def fs_team_id
+  team_id = fs_env("APPLE_TEAM_ID")
+  UI.user_error!("APPLE_TEAM_ID يجب أن يكون رقم الفريق بعشرة محارف") unless team_id.match?(/\A[A-Z0-9]{10}\z/)
+  team_id
+end
+
+def fs_api_key
+  app_store_connect_api_key(
+    key_id: fs_env("ASC_KEY_ID"),
+    issuer_id: fs_env("ASC_ISSUER_ID"),
+    key_content: fs_env("ASC_KEY_P8_BASE64"),
+    is_key_content_base64: true,
+    duration: 1200,
+    in_house: false
+  )
+end
+
+# أعلى من كل بناءٍ في TestFlight لهذا التطبيق (أي إصدار)، ورقم تشغيل الوورك فلو حدٌّ أدنى
+def fs_next_build_number(api_key)
+  floor = ENV["FS_RUN_NUMBER"].to_i
+  latest =
+    begin
+      latest_testflight_build_number(api_key: api_key, app_identifier: FS_BUNDLE_ID, initial_build_number: 0).to_i
+    rescue StandardError => e
+      UI.important("تعذّر قراءة آخر رقم بناء في TestFlight (#{e.message}) — يُستعمل رقم التشغيل")
+      0
+    end
+  [floor, latest + 1, 1].max
+end
+
+platform :ios do
+  before_all do
+    # سرٌّ مُلصَق من ملف قد ينتهي بسطر جديد
+    %w[MATCH_PASSWORD MATCH_GIT_URL].each do |name|
+      ENV[name] = ENV[name].strip if ENV[name]
+    end
+  end
+
+  desc "التوقيع (match بالشهادة القائمة في مستودع التوقيع) ثم البناء والرفع إلى TestFlight"
+  lane :beta do
+    setup_ci
+    api_key = fs_api_key
+    team_id = fs_team_id
+    # readonly: false — في أول تشغيل يُنشئ ملف تعريف net.fieldsa.rep بالشهادة الموجودة نفسها (لا شهادة جديدة)، ثم يقرؤه بعدها
+    match(type: "appstore", app_identifier: [FS_BUNDLE_ID], readonly: false, api_key: api_key, team_id: team_id)
+    profile = ENV.fetch("sigh_#{FS_BUNDLE_ID}_appstore_profile-name")
+
+    build_number = fs_next_build_number(api_key)
+    # كما في خط Codemagic السابق: رقم البناء يُكتب في Info.plist مباشرة
+    sh("/usr/libexec/PlistBuddy", "-c", "Set :CFBundleVersion #{build_number}", FS_INFO_PLIST)
+
+    cocoapods(podfile: File.join(FS_ROOT, "Podfile"), try_repo_update_on_error: true, use_bundle_exec: false)
+
+    update_code_signing_settings(
+      path: FS_PROJECT,
+      use_automatic_signing: false,
+      targets: [FS_TARGET],
+      build_configurations: ["Release"],
+      team_id: team_id,
+      code_sign_identity: "Apple Distribution",
+      profile_name: profile,
+      bundle_identifier: FS_BUNDLE_ID
+    )
+    ipa = build_app(
+      workspace: FS_WORKSPACE,
+      scheme: FS_TARGET,
+      configuration: "Release",
+      clean: true,
+      export_method: "app-store",
+      output_directory: FS_OUTPUT_DIR,
+      output_name: "FieldSales-#{build_number}.ipa",
+      export_options: {
+        provisioningProfiles: { FS_BUNDLE_ID => profile },
+        signingStyle: "manual",
+        manageAppVersionAndBuildNumber: false
+      }
+    )
+    upload_to_testflight(api_key: api_key, ipa: ipa, skip_waiting_for_build_processing: true)
+    UI.success("تطبيق المندوب (#{build_number}) رُفع إلى TestFlight — تعالجه آبل خلال دقائق")
+  end
+end
