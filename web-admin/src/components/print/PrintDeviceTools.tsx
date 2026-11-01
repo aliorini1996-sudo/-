@@ -6,14 +6,15 @@ import {
 } from '../../lib/print/printSettings';
 import { DIRECT_PRINT_FALLBACK, DirectPrintError, PrintRefusedError } from '../../lib/print/printErrors';
 import { buildCalibrationDocument, sampleBannerHtml, sampleInvoiceDoc } from '../../lib/print/calibration';
-import { directPrintAvailable, linkPrinter, linkedPrinter, printerForJob, type SerialPortLike } from '../../lib/print/transport/btSerial';
-import { printHtmlDirect, printNodeDirect, supportsDirect, transportFor, type PrintTransport } from '../../rep/printDirect';
+import { directOnAndroid, directPath, directPrintAvailable, linkPrinter, linkedPrinter, onLateHandoff, printerForJob, type DirectLink } from '../../lib/print/transport/direct';
+import { printHtmlDirect, printNodeDirect, supportsDirect, transportFor, type DirectOutcome, type PrintTransport } from '../../rep/printDirect';
 import { printHtmlDocument, printPageNode } from '../../rep/printPage';
 import { printThermalInvoice } from '../../rep/thermal';
 import { PrintLookContext, lookFor } from '../../rep/printLook';
 import { directOpts, withConnection } from '../../rep/printDevice';
 import type { Company, InvoiceDoc } from '../../rep/RepDocuments';
 import { DirectPrintOverlay, useDirectPrint } from './DirectPrintUi';
+import { AppUpdateButton, AppUpdateHint } from './AppUpdatePrompt';
 
 /**
  * أدوات الطباعة على هذا الجهاز — «إعدادات الطباعة» M3 (التصميم §5.1 E و§5.2): طريقة الاتصال، و«ربط الطابعة»، وصفحة المعايرة،
@@ -24,7 +25,8 @@ import { DirectPrintOverlay, useDirectPrint } from './DirectPrintUi';
  * الرمز. والطباعة التجريبية تمرّ بالقوالب الحقيقية بمستندٍ نموذجيّ: قراره بيئة محاكاة ورمزه تجريبيّ (لا buildZatcaQr) وعليه
  * «نموذج اختبار — ليس مستندا ضريبيا» (§4.14).
  *
- * الطريقة لكل جهاز (localStorage): نظام الطباعة افتراضاً كما اليوم، والبلوتوث المباشر إن اختاره وكان Chrome يحمل Web Serial.
+ * الطريقة لكل جهاز (localStorage): نظام الطباعة افتراضاً كما اليوم، والبلوتوث المباشر إن اختاره وكان Chrome يحمل Web Serial —
+ * أو على أندرويد بلا Web Serial عبر تطبيق فيلد سيلز (جسر الطباعة: «ربط الطابعة» شاشة اختيارٍ في التطبيق نفسه).
  */
 export default function PrintDeviceTools({ profile, systemProfile, name, company, renderSheet, choice, onChoice }: {
   profile: PrintProfile;
@@ -41,10 +43,12 @@ export default function PrintDeviceTools({ profile, systemProfile, name, company
   const direct = useDirectPrint();
   const sheetRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<{ tone: 'ok' | 'error'; text: string; fallback?: boolean } | null>(null);
+  const [msg, setMsg] = useState<{ tone: 'ok' | 'error'; text: string; fallback?: boolean; app?: 'hard' | 'soft' } | null>(null);
   const [linked, setLinked] = useState<boolean | null>(null);
 
   const available = directPrintAvailable();
+  // أندرويد بلا Web Serial: الطابعة تُختار وتُحفظ في التطبيق — الصفحة لا تعرف أهي مربوطة
+  const appPath = directPath() === 'app';
   const capable = supportsDirect(profile);
   const transport: PrintTransport = transportFor(profile, choice, available);
   const sample = useMemo(() => sampleInvoiceDoc(company, tr), [company, tr]);
@@ -60,51 +64,69 @@ export default function PrintDeviceTools({ profile, systemProfile, name, company
     return () => { alive = false; };
   }, [available, capable]);
 
+  // فُتح التطبيق بعد المهلة والدعوة معروضة: الطباعة ⇒ حصيلة التسليم، و«ربط الطابعة» ⇒ لا رسالة
+  const appHard = msg?.app === 'hard';
+  useEffect(() => {
+    if (!appHard) return undefined;
+    return onLateHandoff((outcome) => setMsg((m) => {
+      if (m?.app !== 'hard') return m;
+      if (!m.fallback) return null;
+      return outcome === 'done' ? { tone: 'ok', text: tr('✓ تم الإرسال إلى الطابعة') } : { tone: 'ok', text: '', app: 'soft' };
+    }));
+  }, [appHard, tr]);
+
   const setTransport = (t: PrintTransport) => { setMsg(null); onChoice(withConnection(choice, { transport: t })); };
   const link = async () => {
     setMsg(null);
     try {
-      await linkPrinter();
-      setLinked(true);
-      setMsg({ tone: 'ok', text: tr('تم ربط الطابعة') });
+      const r = await linkPrinter();
+      if (r === 'linked') {
+        setLinked(true);
+        setMsg({ tone: 'ok', text: tr('تم ربط الطابعة') });
+      }
     } catch (e) {
-      setMsg({ tone: 'error', text: tr(e instanceof DirectPrintError ? e.message : 'تعذرت الطباعة المباشرة') });
+      setMsg({
+        tone: 'error', text: tr(e instanceof DirectPrintError ? e.message : 'تعذرت الطباعة المباشرة'),
+        app: e instanceof DirectPrintError && e.kind === 'appUpdate' ? 'hard' : undefined,
+      });
     }
   };
 
   /** المهمة بطريقتها: المنفذ يُطلب أوّل الضغطة (الإيماءة صالحة) ثم الرسم والإرسال — وأخطاؤها رسائل بديلُها نظام الطباعة */
-  const guarded = async (via: PrintTransport, job: (port: SerialPortLike | null) => Promise<'done' | 'cancelled' | void>) => {
+  const guarded = async (via: PrintTransport, job: (port: DirectLink | null) => Promise<DirectOutcome | void>) => {
     setBusy(true); setMsg(null);
     try {
       const port = via === 'bt-serial' ? await printerForJob() : null;
       if (port) setLinked(true);
       const r = await job(port);
-      if (port) setMsg({ tone: 'ok', text: tr(r === 'cancelled' ? 'ألغيت الطباعة' : '✓ تم الإرسال إلى الطابعة') });
+      // سُلّمت للتطبيق بلا مفتاح ثقة: لا علامة نجاح — تلميح التحديث الهادئ
+      if (port && r === 'handed') setMsg({ tone: 'ok', text: '', app: 'soft' });
+      else if (port) setMsg({ tone: 'ok', text: tr(r === 'cancelled' ? 'ألغيت الطباعة' : '✓ تم الإرسال إلى الطابعة') });
     } catch (e) {
-      if (e instanceof DirectPrintError) setMsg({ tone: 'error', text: tr(e.message), fallback: true });
+      if (e instanceof DirectPrintError) setMsg({ tone: 'error', text: tr(e.message), fallback: true, app: e.kind === 'appUpdate' ? 'hard' : undefined });
       else setMsg({ tone: 'error', text: tr(e instanceof PrintRefusedError ? e.message : 'تعذرت الطباعة تأكد من إعداد الطابعة') });
     }
     setBusy(false);
   };
 
   const calibrate = (via: PrintTransport) => guarded(via, async (port) => {
-    if (port) return direct.run((ui) => printHtmlDirect(port, buildCalibrationDocument(profile, tr, { mode: 'raster', name }), profile, 'pages', ui), directOpts(choice));
+    if (port) return direct.run((ui) => printHtmlDirect(port, buildCalibrationDocument(profile, tr, { mode: 'raster', name }), profile, 'pages', ui), { ...directOpts(choice), label: tr('طباعة صفحة معايرة') });
     await printHtmlDocument(buildCalibrationDocument(sysProfile, tr, { mode: 'system', name }), sysProfile.paper.widthMm);
   });
 
   const testPrint = (via: PrintTransport) => guarded(via, async (port) => {
     const banner = sampleBannerHtml(tr(PRINT_SAMPLE_WATERMARK));
     if (profile.printer === 'thermal') {
-      let outcome: 'done' | 'cancelled' = 'done';
+      let outcome: DirectOutcome = 'done';
       await printThermalInvoice(sample, {
         profile: port ? profile : sysProfile, tr, sampleBanner: banner,
-        raster: port ? async (html) => { outcome = await direct.run((ui) => printHtmlDirect(port, html, profile, 'copies', ui), directOpts(choice)); } : null,
+        raster: port ? async (html) => { outcome = await direct.run((ui) => printHtmlDirect(port, html, profile, 'copies', ui), { ...directOpts(choice), label: tr('طباعة تجريبية') }); } : null,
       });
       return outcome;
     }
     const node = sheetRef.current;
     if (!node) throw new Error('sample sheet');
-    if (port) return direct.run((ui) => printNodeDirect(port, node, profile, [tr('الأصل'), tr('نسخة')], ui, banner), directOpts(choice));
+    if (port) return direct.run((ui) => printNodeDirect(port, node, profile, [tr('الأصل'), tr('نسخة')], ui, banner), { ...directOpts(choice), label: tr('طباعة تجريبية') });
     await printPageNode(node, profile, [tr('الأصل'), tr('نسخة')], banner);
   });
 
@@ -128,15 +150,21 @@ export default function PrintDeviceTools({ profile, systemProfile, name, company
         <p className="text-xs font-bold text-[#44403a]">{tr('طريقة الاتصال')}</p>
         {capable ? (
           <>
-            {radio('bt-serial', tr('بلوتوث مباشر (موصى به)'), available ? tr('يرسل للطابعة مباشرة بلا تطبيق وسيط') : tr('الطباعة المباشرة تتطلب Chrome 138 أو أحدث'), !available)}
+            {radio('bt-serial', tr('بلوتوث مباشر (موصى به)'), available ? tr('يرسل للطابعة مباشرة بلا تطبيق وسيط') : directOnAndroid() ? tr('تصل مع التحديث القادم لتطبيق فيلد سيلز') : tr('الطباعة المباشرة تتطلب Chrome 138 أو أحدث'), !available)}
             {radio('system', tr('نظام الطباعة في الجهاز'), profile.printer === 'impact' ? tr(PRINT_NOTES.impactDesktop) : sysClassic ? tr('الشريط الكلاسيكي يطبع كما اليوم بلا بلوتوث مباشر') : tr('خدمة الطباعة المثبتة في الجوال أو الكمبيوتر'))}
             {transport === 'bt-serial' && (
               <div className="pt-1 space-y-2">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className={`text-xs font-semibold flex items-center gap-1 ${linked ? 'text-[#1E7A52]' : 'text-[#9A8F7E]'}`}>
-                    <Bluetooth size={13} /> {linked ? tr('الطابعة مربوطة') : tr('لم تربط طابعة بعد')}
-                  </span>
-                  <button type="button" onClick={link} className="btn-secondary !py-1 !px-3 text-xs"><Link2 size={13} /> {linked ? tr('ربط طابعة أخرى') : tr('ربط الطابعة')}</button>
+                  {appPath ? (
+                    <button type="button" onClick={link} className="btn-secondary !py-1 !px-3 text-xs"><Link2 size={13} /> {tr('ربط الطابعة')}</button>
+                  ) : (
+                    <>
+                      <span className={`text-xs font-semibold flex items-center gap-1 ${linked ? 'text-[#1E7A52]' : 'text-[#9A8F7E]'}`}>
+                        <Bluetooth size={13} /> {linked ? tr('الطابعة مربوطة') : tr('لم تربط طابعة بعد')}
+                      </span>
+                      <button type="button" onClick={link} className="btn-secondary !py-1 !px-3 text-xs"><Link2 size={13} /> {linked ? tr('ربط طابعة أخرى') : tr('ربط الطابعة')}</button>
+                    </>
+                  )}
                 </div>
                 <p className="text-[11px] text-[#6E6557] flex items-start gap-1.5"><Info size={12} className="mt-0.5 shrink-0" />{tr('اقرن الطابعة أولا من إعدادات البلوتوث في الجوال')}</p>
                 {/* لغة أوامر الطابعة الحرارية — صفة الطابعة المربوطة: ورقة الفحص الذاتي تقولها («Instruction Set») */}
@@ -186,12 +214,14 @@ export default function PrintDeviceTools({ profile, systemProfile, name, company
       </div>
       <p className="text-[11px] text-[#9A8F7E]">{tr('المعاينة والاختبار يحملان «نموذج اختبار — ليس مستندا ضريبيا» ورمزا تجريبيا')}</p>
 
-      {msg && (
+      {msg && msg.app === 'soft' && <AppUpdateHint />}
+      {msg && msg.app !== 'soft' && (
         <div className={`rounded-xl border px-3 py-2 text-xs leading-relaxed ${msg.tone === 'ok' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`} role={msg.tone === 'error' ? 'alert' : 'status'}>
           <p className="flex items-start gap-1.5">{msg.tone === 'error' && <AlertTriangle size={13} className="mt-0.5 shrink-0" />}{msg.text}</p>
+          {msg.app === 'hard' && !msg.fallback && <AppUpdateButton />}
           {msg.fallback && (
             <>
-              <p className="mt-1 text-[#6E6557]">{tr(DIRECT_PRINT_FALLBACK)}</p>
+              {msg.app === 'hard' ? <AppUpdateButton /> : <p className="mt-1 text-[#6E6557]">{tr(DIRECT_PRINT_FALLBACK)}</p>}
               <div className="flex gap-2 flex-wrap mt-2">
                 <button type="button" disabled={busy} onClick={() => calibrate('system')} className="btn-secondary !py-1 !px-3 text-xs"><Printer size={13} /> {tr('معايرة بنظام الطباعة')}</button>
                 {!sysClassic && <button type="button" disabled={busy} onClick={() => testPrint('system')} className="btn-secondary !py-1 !px-3 text-xs"><Printer size={13} /> {tr('تجربة بنظام الطباعة')}</button>}

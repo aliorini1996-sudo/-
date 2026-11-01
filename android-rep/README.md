@@ -3,7 +3,9 @@
 ## ما هذا المشروع
 
 هذا المجلد هو **المصدر الدائم** لتطبيق «FieldSales - فيلد سيلز» للمندوب على Google Play (المعرّف `net.fieldsa.twa`).
-التطبيق غلاف TWA (Trusted Web Activity) يفتح `https://fieldsa.net/rep`، ومعه وحدة أصلية واحدة: **التحصيل بالبطاقة** عبر NearPay (SoftPOS)، أي يلمس العميل بطاقته بجوال المندوب.
+التطبيق غلاف TWA (Trusted Web Activity) يفتح `https://fieldsa.net/rep`، ومعه وحدتان أصليتان:
+- **الطباعة المباشرة بالبلوتوث** (جسر الطباعة): تطبع صفحة المندوب على طابعة البلوتوث المقترنة حين لا يتيح المتصفح Web Serial.
+- **التحصيل بالبطاقة** عبر NearPay (SoftPOS)، أي يلمس العميل بطاقته بجوال المندوب. تُبنى مع رمز NearPay وحده (الخطوة ٣).
 
 - وُلّد المشروع مرة واحدة بـ Bubblewrap 1.25.0، ثم صار يُعدَّل هنا يدوياً. **لا يُعاد توليده بـ Bubblewrap بعد اليوم**، لأن `bubblewrap update` يكتب فوق `build.gradle` و`AndroidManifest.xml` فيمحو وحدة الدفع.
 - `twa-manifest.json` باقٍ للمرجع فقط.
@@ -12,13 +14,21 @@
 | الملف | ما فيه |
 |---|---|
 | `build.gradle` | Kotlin، ومستودع NearPay الخاص (يقرأ الرمز من `nearpayToken`) |
-| `app/build.gradle` | الحِزم، وBuildConfig (`API_BASE` و`WEB_BASE`)، والتوقيع من متغيرات البيئة، وR8 |
+| `app/build.gradle` | الحِزم، وBuildConfig (`API_BASE` و`WEB_BASE`)، والتوقيع من متغيرات البيئة، وR8، و`cardPayBuild` (الوحدة مع الرمز وحده) |
 | `app/proguard-rules.pro` | قواعد R8 لوحدة NearPay |
-| `app/src/main/AndroidManifest.xml` | أذونات NearPay، ونشاط `CardPayActivity` على الرابط `fieldsapay://cardpay` |
+| `app/src/main/AndroidManifest.xml` | أذونات NearPay، ونشاط `CardPayActivity` على الرابط `fieldsapay://cardpay`، وأذونات البلوتوث ونشاط `PrintActivity` على `fieldsaprint://print` و`fieldsaprint://printer` |
+| `app/src/printonly/AndroidManifest.xml` | بلا رمز NearPay وحده: يُزيل من البيان المدمج نشاط التحصيل وأذوناته الستّ وميزة NFC (`tools:node="remove"`) |
 | `app/src/main/java/net/fieldsa/twa/cardpay/CardPayActivity.kt` | شاشة الدفع ومسارها |
 | `app/src/main/java/net/fieldsa/twa/cardpay/LaunchApi.kt` | استبدال رمز التسليم: `POST https://api.fieldsa.net/api/card-payments/launch` |
 | `app/src/main/java/net/fieldsa/twa/cardpay/NearpaySession.kt` | **الملف الوحيد** الذي يستعمل رموز NearPay |
-| `app/src/main/java/net/fieldsa/twa/LauncherActivity.java` | من Bubblewrap، ومعدّل: يُسقط `?cardpay=` من العنوان حين تُفتح المهمّة من قائمة التطبيقات الأخيرة، فلا تُعرض نتيجة دفعٍ قديم |
+| `app/src/main/java/net/fieldsa/twa/LauncherActivity.java` | من Bubblewrap، ومعدّل: يُسقط `?cardpay=` من العنوان حين تُفتح المهمّة من قائمة التطبيقات الأخيرة، فلا تُعرض نتيجة دفعٍ قديم؛ ويضيف `fsbridge=1.<المفتاح>` لجسر الطباعة |
+| `app/src/main/java/net/fieldsa/twa/print/BridgeContract.kt` | ثوابت العقد مع الويب، حرفياً كـ`web-admin/src/lib/print/transport/bridgeContract.ts` (يحرسها `bridgeContract.test.ts`) |
+| `app/src/main/java/net/fieldsa/twa/print/PrintPayload.kt` | فكّ حمولة الطباعة v1 وفحصها (JVM خالص) |
+| `app/src/main/java/net/fieldsa/twa/print/PrintWriteLoop.kt` | حلقة الكتابة بالدفعات والإلغاء الآمن، نظير `sendJob` في الويب |
+| `app/src/main/java/net/fieldsa/twa/print/BluetoothPrinter.kt` | الاتصال بالطابعة (RFCOMM/SPP) والكتابة والإغلاق |
+| `app/src/main/java/net/fieldsa/twa/print/PrinterStore.kt` | الطابعة المختارة ومفتاح الثقة لهذا التثبيت |
+| `app/src/main/java/net/fieldsa/twa/print/PrintActivity.kt` | شاشة الطباعة ومسارها |
+| `app/src/test/…/print/*Test.kt` و`app/src/test/resources/print_payload_vectors.json` | اختبارات JVM على المتجهات الذهبية نفسها التي يختبر بها الويب مُرمِّزه |
 
 ## كيف تعمل وحدة التحصيل بالبطاقة
 
@@ -41,6 +51,51 @@
    - إن ماتت العملية في منتصف الدفع لا يُستبدل الرمز ثانية: يعود التطبيق إلى الويب ليحكم الخادم.
    - شاشة دفعٍ واحدة في كل مرة: رابطٌ ثانٍ أثناء شراءٍ جارٍ يُظهر الأولى ولا يُستبدل رمزه. وإن لم يُرسل رمز الأولى بعد ترجع إلى الويب. وإن استُبدل ولم يبدأ شراء فلا تُخصم إلا بتأكيد من شاشة تنبيه («أكمل هذه العملية» أو «رجوع»). الرابط التالف أو المكرر لا يمسّها.
    - الرجوع التلقائي بعد النتيجة أو المهلة لا يقع والشاشة في الخلفية: يُؤجَّل حتى تعود إلى الواجهة.
+
+## الطباعة المباشرة عبر التطبيق
+
+حين يختار المندوب «بلوتوث مباشر» على أندرويد:
+- إن أتاح المتصفح Web Serial (Chrome 138 فأحدث) تطبع الصفحة بنفسها كما كانت.
+- وإلا تسلّم الصفحة الأمر إلى هذا التطبيق، فيطبعه `PrintActivity` على الطابعة المقترنة، ثم ينتهي ويعود المندوب إلى صفحته كما تركها. لا إعادة تحميل.
+
+كيف يصل الأمر:
+1. كل إطلاقٍ للتطبيق يضيف إلى عنوان الصفحة `fsbridge=1.<المفتاح>` (`LauncherActivity.appendPrintBridge`).
+   - المفتاح سرٌّ عشوائي لهذا التثبيت (١٢٨ بتّاً)، يُنشأ أول مرة ويُحفظ في `PrinterStore`.
+   - الصفحة تحفظه عندها وتحذفه من العنوان فوراً.
+2. ترمّز الصفحة بايتات الطباعة نفسها (التي كان Web Serial سيرسلها) في **حمولة v1**: base64url لإطار `FSP` فيه الطول وCRC32، مضغوطاً deflate إن صغر به.
+3. تفتح الصفحة `intent://print?k=<المفتاح>&p=<الحمولة>#Intent;scheme=fieldsaprint;package=net.fieldsa.twa;end` بنقرة المندوب.
+   - بلا `S.browser_fallback_url`: الصفحة لا تُنقل أبداً. ونسخة قديمة من التطبيق أو تطبيقٌ غير مثبّت ⇒ يفتح Chrome صفحته في Google Play.
+   - حدّ الحمولة ١٩٦٬٦٠٨ حرفاً (حدّ Binder). ما فوقه ترفضه الصفحة قبل الإرسال وتقترح «نظام الطباعة في الجهاز».
+4. يفكّ التطبيق الحمولة ويفحصها كلها (`PrintPayload`)، ثم:
+   - مفتاحٌ يطابق مفتاح التثبيت ⇒ يطبع بلا نقرة.
+   - بلا مفتاح أو بمفتاحٍ آخر (تبويب متصفح، أو أول طباعة بعد التحديث قبل فتح التطبيق، أو أي موقعٍ آخر) ⇒ شاشة تأكيد فيها اسم المستند والطابعة و«اطبع».
+5. الطابعة: المقترنة وحدها (لا بحث عن أجهزة جديدة). أول مرة يختارها المندوب من قائمة، وتُحفظ.
+   - «تغيير الطابعة» في التطبيق، أو «ربط الطابعة» في الصفحة (`fieldsaprint://printer`).
+6. أندرويد 12 فأحدث يطلب إذن «الأجهزة القريبة» (`BLUETOOTH_CONNECT`) بعد شاشة إفصاح ونقرة «متابعة».
+   - لا `BLUETOOTH_SCAN` ولا موقع للطباعة.
+   - أندرويد 11 فأقدم: `BLUETOOTH` يُمنح مع التثبيت.
+7. أمرٌ واحد في كل مرة. الرجوع أثناء الطباعة يوقفها عند نهاية أمرٍ مكتمل ثم يرسل أمر الإلغاء.
+   - لا طباعة تلقائية بعد موت العملية ولا من قائمة التطبيقات الأخيرة: تظهر «توقفت الطباعة قبل أن تكتمل» و«إعادة الطباعة».
+   - شاشة الطباعة مهمّةٌ مستقلة لا تظهر في القائمة الأخيرة ولا تُحفظ على القرص.
+
+الحمولة والعقد: `BridgeContract.kt` نظير `bridgeContract.ts` في الويب. والمتجهات الذهبية `app/src/test/resources/print_payload_vectors.json` يختبرها الطرفان:
+- `PrintPayloadTest` هنا.
+- `bridgeVectors.test.ts` في الويب.
+- إعادة توليدها عملٌ مقصود: سكربت المرجع ثم اختبارات الطرفين معاً.
+
+### تجربة بطابعة مقترنة
+
+1. اقرن الطابعة من إعدادات البلوتوث في الجوال.
+2. ثبّت نسخة التصحيح `app/build/outputs/apk/debug/app-debug.apk` (الخطوة ٦، «تحقّق التصحيح»).
+3. افتح تطبيق المندوب ← «تغيير» ← «بلوتوث مباشر» ← اطبع فاتورة.
+   - المتوقَّع: إذن «الأجهزة القريبة» مرةً، ثم اختيار الطابعة مرةً، ثم «جارٍ الطباعة» بالنسبة، ثم «تمت الطباعة»، ثم تعود الصفحة كما هي.
+4. جرّب أيضاً:
+   - من تبويب Samsung Internet أو Chrome (لا من التطبيق): تظهر شاشة التأكيد قبل الطباعة.
+   - البلوتوث مطفأ: «تشغيل البلوتوث».
+   - رفض الإذن، ثم رفضه نهائياً: «منح الإذن» ثم «فتح إعدادات التطبيق».
+   - «تغيير الطابعة».
+   - الرجوع في منتصف طباعة A4 طويلة على MIP480: تتوقف الورقة عند نهاية أمر وتُخرج.
+   - فاتورة MIP480 من صفحتين أو ثلاث على جوال سامسونج متوسط (حدّ الحمولة).
 
 ## قائمة التفعيل بالترتيب
 
@@ -116,9 +171,12 @@ Remove-Variable s, t
 - إن حرّرته بالمفكرة فاحفظه «UTF-8» لا «UTF-8 with BOM».
 - البديل: متغير البيئة `ORG_GRADLE_PROJECT_nearpayToken`.
 - لا يُكتب الرمز في `gradle.properties` الذي داخل المشروع، ولا في أي ملف يُلتزم به.
-- بلا هذا الرمز يتوقف **البناء** وحده (`preBuild`) برسالة `Missing Gradle property 'nearpayToken'`.
-  - `clean` و`tasks` و`signingReport` ومزامنة Android Studio تعمل بلا رمز؛ تظهر فيها تبعية NearPay غير محلولة فقط.
-  - لا يُبنى من المشروع أي إصدار، ولو كان TWA وحدها، قبل وصول الرمز: وحدة الدفع جزء من التطبيق.
+- الرمز اختياري للبناء:
+  - **مع الرمز**: التطبيق بجسر الطباعة **ووحدة التحصيل بالبطاقة** كما كانت حرفياً (البيان والمصادر والتبعيات نفسها).
+  - **بلا رمز**: يُبنى التطبيق بجسر الطباعة **بلا** وحدة التحصيل، ويطبع Gradle السطر `nearpayToken not set: building WITHOUT the card-pay module …`.
+    - تُستثنى مصادر `net.fieldsa.twa.cardpay` من الترجمة وتبعيتا NearPay، ويُزال نشاطها وأذوناتها من البيان المدمج (`app/src/printonly/AndroidManifest.xml`).
+    - رابط `fieldsapay://cardpay` حينها لا يجد نشاطاً، فيتبع Chrome بديل الخادم (`?cardpay=unsupported`).
+    - إصدارٌ بلا رمز في Play يعني أن `CARD_PAY_APP_READY` يبقى غير مضبوط (الخطوة ٨) حتى يُنشر إصدارٌ بالرمز.
 
 ### ٤. رقم مشروع Google Cloud على Render
 
@@ -163,7 +221,24 @@ NEARPAY_GCP_PROJECT_NUMBER=<رقم المشروع من الخطوة ١ — أر�
 - Android SDK فيه platform 36.
 - إما `ANDROID_HOME`، أو `local.properties` فيه `sdk.dir` (مستثنى من المستودع).
 
-إن كان الإصدار 5 مستعملاً في Play فارفع `versionCode` و`versionName` في `app/build.gradle`.
+النسخة الحالية `versionCode 6` و`versionName "1.2.0"` (في `app/build.gradle`، و`twa-manifest.json` للمرجع):
+- 3 هو المنشور في Play، و4 بُني ثم حُذف، و5 لم يُنشر قط.
+- كل رفعٍ لاحق يرفع `versionCode`.
+
+**تحقّق التصحيح** (ترجمة واختبارات JVM وحزمة debug فقط — لا توقيع إصدار، ولا keystore، ولا aab، ولا رفع). من Git Bash في `android-rep`:
+
+```
+printf 'sdk.dir=C:/Users/ali_h/Android/sdk\n' > local.properties   # مستثنى من المستودع
+export JAVA_HOME="<مسار JDK 17>"
+./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug                  # مع الرمز: الطباعة + التحصيل
+./gradlew --no-daemon -PnearpayToken= :app:testDebugUnitTest :app:assembleDebug  # بلا رمز: الطباعة وحدها
+./gradlew --no-daemon :app:lintDebug
+```
+
+- `-PnearpayToken=` (فارغاً) يغلب ما في `~/.gradle/gradle.properties`، فيحاكي جهازاً بلا رمز.
+- `preBuild` يعيد توليد `app/src/main/res/xml/shortcuts.xml` فيُسقط ترويسة الترخيص منه. لا تلتزم بهذا التغيير: أعد الملف من git بعد البناء.
+- بناء الإصدار (`bundleRelease` أدناه) بإذن المالك وحده.
+
 
 **مسار البناء**: ابنِ من نسخة للمستودع في مسار ASCII بلا مسافات وخارج OneDrive، مثل `C:\Users\ali_h\fieldsa-android`، على الإيداع الذي فيه `android-rep`.
 - AGP يوقف البناء على ويندوز إن كان في مسار المشروع حروف غير ASCII، والمستودع الرئيسي في مسار عربي فيه مسافات.
@@ -255,8 +330,11 @@ CARD_PAY_APP_READY=1
 
 ## ملاحظات
 
-- **minSdk 26 (أندرويد 8.0 فما فوق)**: النسخة المنشورة سابقاً كانت تعمل من أندرويد 5 (minSdk 21)، وNearPay تشترط 26.
-  - الجوالات بأندرويد 5 إلى 7.1 تحتفظ بالنسخة القديمة ولا تصلها التحديثات.
+- **minSdk 26 (أندرويد 8.0 فما فوق)** في البناءين: النسخة المنشورة سابقاً كانت تعمل من أندرويد 5 (minSdk 21)، وNearPay تشترط 26.
+  - الجوالات بأندرويد 5 إلى 7.1 تحتفظ بالنسخة القديمة ولا تصلها التحديثات (ولا جسر الطباعة).
+- **جسر الطباعة في Play**: قائمة أذونات التطبيق ستُظهر «الأجهزة القريبة» (`BLUETOOTH_CONNECT`).
+  - «أمان البيانات» لا يتغير بسببه: الطباعة تبقى على الجوال، ولا يُرسل منها شيء إلينا.
+  - البلوتوث غير لازم لتثبيت التطبيق (`android.hardware.bluetooth` بـ`required="false"`)، فلا يحجب Play التحديث عن جوالٍ بلا بلوتوث. حزمة NearPay كانت تجعله «مطلوباً» ضمناً بإذنَي BLUETOOTH وBLUETOOTH_ADMIN.
 - الوحدة تحتاج **NFC** وخدمات Google Play، لأن Play Integrity إلزامي. جوال بلا NFC يثبّت التطبيق ويعمل في كل شيء عدا التحصيل بالبطاقة.
 - نقطة البيع الواحدة تعمل على جوال واحد في وقت واحد.
   - إن ظهر أنها مربوطة بجوال آخر (الخطأ 4035 أو 5010): تُفصل من لوحة NearPay ← الطرفية ← الوصول ← فصل الجهاز.

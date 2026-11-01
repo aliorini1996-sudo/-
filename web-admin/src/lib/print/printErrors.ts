@@ -11,8 +11,11 @@
 /** طباعةٌ تُرفض بسبب يقرؤه المندوب (عربيٌّ يُترجم): الرمز لا يتسع، أو مستندٌ لا ورقة له — وملف PDF يبقى */
 export class PrintRefusedError extends Error {}
 
-/** أسباب تعذّر الطباعة المباشرة بالبلوتوث — لكلٍّ رسالته وبديله */
-export type DirectPrintFailure = 'unsupported' | 'notChosen' | 'busy' | 'disconnected' | 'security' | 'failed';
+/**
+ * أسباب تعذّر الطباعة المباشرة بالبلوتوث — لكلٍّ رسالته وبديله. appUpdate وtooLarge لمسار تطبيق فيلد سيلز على أندرويد:
+ * لا سبب تقنيّاً يُذكر للمندوب — دعوةٌ واحدة لتحديث التطبيق، أو نظام الطباعة لمستندٍ أكبر من الرابط.
+ */
+export type DirectPrintFailure = 'unsupported' | 'notChosen' | 'busy' | 'disconnected' | 'security' | 'failed' | 'appUpdate' | 'tooLarge';
 
 export const DIRECT_PRINT_MESSAGES: Readonly<Record<DirectPrintFailure, string>> = Object.freeze({
   unsupported: 'الطباعة المباشرة تتطلب Chrome 138 أو أحدث',
@@ -21,6 +24,8 @@ export const DIRECT_PRINT_MESSAGES: Readonly<Record<DirectPrintFailure, string>>
   disconnected: 'انقطع الاتصال بالطابعة — أعد تشغيل الطابعة وحاول',
   security: 'منع المتصفح الوصول إلى الطابعة',
   failed: 'تعذرت الطباعة المباشرة',
+  appUpdate: 'لتفعيل الطباعة المباشرة حدث تطبيق فيلد سيلز من Google Play',
+  tooLarge: 'المستند أكبر من أن يرسل للطابعة مباشرة — اطبعه بنظام الطباعة في الجهاز',
 });
 
 /** بديل كل خطأ مباشر — يُعرض تحت الرسالة مع زرّي نظام الطباعة وPDF */

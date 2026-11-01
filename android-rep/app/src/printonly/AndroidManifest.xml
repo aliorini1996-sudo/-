@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- بناءٌ بلا رمز NearPay (nearpayToken غائب): app/build.gradle يجعل هذا الملف بيان debug وrelease فوق البيان الرئيسي،
+     فيُزال من البيان المدمج ما يخصّ وحدة التحصيل بالبطاقة وحدها — نشاطها وأذوناتها الستّ وميزة NFC — وتُستثنى مصادرها من
+     الترجمة. يبقى جسر الطباعة وكل ما سواه كما في البيان الرئيسي. مع الرمز لا يُقرأ هذا الملف أصلاً: البيان والمصادر كما هي -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" tools:node="remove"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" tools:node="remove"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove"/>
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove"/>
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" tools:node="remove"/>
+    <uses-permission android:name="android.permission.NFC" tools:node="remove"/>
+    <uses-feature android:name="android.hardware.nfc" android:required="false" tools:node="remove"/>
+
+    <application>
+        <activity android:name="net.fieldsa.twa.cardpay.CardPayActivity" tools:node="remove"/>
+    </application>
+</manifest>

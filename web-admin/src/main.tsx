@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'react-hot-toast';
 import App from './App';
 import { useDir } from './i18n/lang';
+import { captureBridgeLaunch } from './lib/print/transport/appBridge';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -37,6 +38,9 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   });
 }
+
+// جسر الطباعة: علامة تطبيق أندرويد (fsbridge) تُحفظ ويُحذف معاملها من العنوان قبل أوّل رسم — بلا إعادة تحميل
+captureBridgeLaunch();
 
 // E2: المحتوى المُصيَّر ظاهر منذ أول رسم في صفحته وحدها (سكربت الرأس في index.html يضيف الفئة ssr).
 // createRoot يمسحه عند أول رسم، فيُحفظ نصّه هنا لتعرضه صفحة تنتظر بياناتها (BlogPostPage أثناء جلب CMS)

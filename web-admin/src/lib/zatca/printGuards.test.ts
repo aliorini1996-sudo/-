@@ -353,7 +353,9 @@ test('(e) raster.ts لا يستدعي QRCode.toDataURL أبداً ولا يرس�
   assert.ok(calls.length >= 1 && calls.every((c) => c === 'create'), `QRCode.${calls.join(', ')}`);
   assert.match(r, /export const MONO_THRESHOLD = 160;/);
   // ولا مسار طباعةٍ جديد يبني رمزاً: المُرمِّزان والنقل والمنسّق بلا QRCode ولا buildZatcaQr
-  for (const f of ['lib/print/escpos.ts', 'lib/print/escp24.ts', 'lib/print/transport/btSerial.ts', 'rep/printDirect.ts', 'components/print/PrintDeviceTools.tsx']) {
+  for (const f of ['lib/print/escpos.ts', 'lib/print/escp24.ts', 'lib/print/transport/btSerial.ts', 'rep/printDirect.ts', 'components/print/PrintDeviceTools.tsx',
+    'lib/print/transport/bridgeContract.ts', 'lib/print/transport/bridgePayload.ts', 'lib/print/transport/platform.ts',
+    'lib/print/transport/appBridge.ts', 'lib/print/transport/direct.ts', 'components/print/DirectPrintUi.tsx', 'components/print/AppUpdatePrompt.tsx']) {
     assert.doesNotMatch(stripComments(read(f)), /QRCode\.|buildZatcaQr|toDataURL/, f);
   }
   // والطباعة التجريبية لا تمرّ بالمرحلة الأولى: مستندها مختومٌ بالرمز التجريبيّ في بيئة محاكاة

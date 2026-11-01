@@ -10,4 +10,15 @@
         <item name="colorOnSecondary">#FFFFFF</item>
         <item name="android:windowBackground">@color/backgroundColor</item>
     </style>
+
+    <!-- شاشة جسر الطباعة (PrintActivity): السمة نفسها غير شفافة عمداً — تغطي المتصفح فيتوقف ويطلق visibilitychange،
+         وبه تعرف الصفحة أن الأمر سُلِّم إلى التطبيق -->
+    <style name="Theme.FieldSales.Print" parent="Theme.MaterialComponents.Light.NoActionBar">
+        <item name="colorPrimary">@color/colorPrimary</item>
+        <item name="colorPrimaryVariant">@color/colorPrimary</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorSecondary">@color/colorPrimary</item>
+        <item name="colorOnSecondary">#FFFFFF</item>
+        <item name="android:windowBackground">@color/backgroundColor</item>
+    </style>
 </resources>

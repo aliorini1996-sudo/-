@@ -37,14 +37,13 @@ buildscript {
 
 // رمز مستودع NearPay الخاص (Private-Token) يعطيه فريق NearPay. مكانه ~/.gradle/gradle.properties على جهاز البناء وحده
 // (السطر: nearpayToken=...)، أو متغير البيئة ORG_GRADLE_PROJECT_nearpayToken — لا يُكتب في أي ملف داخل المستودع.
-// بلا رمز لا يُضاف مستودع NearPay، ويتوقف البناء وحده (preBuild في app/build.gradle) برسالة واضحة بدل خطأ تنزيلٍ غامض —
-// أما clean وtasks وhelp وsigningReport ومزامنة Android Studio فتعمل بلا رمز (التبعية تظهر فيها غير محلولة فقط)
+// بلا رمز لا يُضاف مستودع NearPay، ويُبنى التطبيق بلا وحدة التحصيل بالبطاقة (net.fieldsa.twa.cardpay) وبجسر الطباعة —
+// app/build.gradle يقرأ nearpayTokenPresent فيُسقط تبعياتها ومصادرها ونشاطها وأذوناتها، ويطبع nearpayTokenMissingMessage
 def nearpayToken = (findProperty('nearpayToken') ?: '').toString().trim()
 ext.nearpayTokenPresent = !nearpayToken.isEmpty()
 ext.nearpayTokenMissingMessage =
-    "Missing Gradle property 'nearpayToken' (NearPay Maven Private-Token). " +
-    "Add the line nearpayToken=<token from NearPay> to ~/.gradle/gradle.properties (outside the repository, " +
-    "plain ASCII without BOM). Never commit the token. See android-rep/README.md."
+    "nearpayToken not set: building WITHOUT the card-pay module (net.fieldsa.twa.cardpay); " +
+    "the Bluetooth print bridge is included. See android-rep/README.md."
 
 allprojects {
     repositories {

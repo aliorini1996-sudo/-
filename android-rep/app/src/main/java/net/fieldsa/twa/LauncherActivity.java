@@ -21,6 +21,8 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 
+import net.fieldsa.twa.print.BridgeContract;
+import net.fieldsa.twa.print.PrinterStore;
 
 
 public class LauncherActivity
@@ -51,7 +53,34 @@ public class LauncherActivity
         // وحدة التحصيل بالبطاقة: رجوعها (CardPayActivity.returnToWeb بـNEW_TASK|CLEAR_TASK) يجعل /rep?cardpay=<المعرّف>
         // «النيّة الأساس» للمهمّة. فتح المهمّة لاحقاً من قائمة التطبيقات الأخيرة يعيد تسليمها بـFLAG_ACTIVITY_LAUNCHED_FROM_HISTORY،
         // فتعرض الصفحة نتيجة دفعٍ قديم كأنه تحصيلٌ جديد. من القائمة الأخيرة يُسقط cardpay ويبقى ما سواه
-        return stripStaleCardPay(uri);
+        // ثم وسيط جسر الطباعة (fsbridge) على كل إطلاق
+        return appendPrintBridge(stripStaleCardPay(uri));
+    }
+
+    /**
+     * جسر الطباعة: كل إطلاقٍ يمرّ من هنا (تشغيلٌ بارد، رابط fieldsa.net، اختصار، رجوع التحصيل بالبطاقة، القائمة الأخيرة) يقول
+     * للصفحة إن هذه النسخة فيها PrintActivity، ويعطيها مفتاح الثقة لهذا التثبيت (fsbridge=<الإصدار>.<المفتاح>) فتطبع بلا نقرة
+     * تأكيد. الصفحة تحفظه وتحذفه من العنوان فوراً (captureBridgeLaunch). على عناوين https لمضيفنا وحدها، ولا يتكرر
+     */
+    private Uri appendPrintBridge(Uri uri) {
+        if (uri == null || !uri.isHierarchical()) return uri;
+        if (!"https".equals(uri.getScheme()) || !getString(R.string.hostName).equals(uri.getHost())) return uri;
+        try {
+            String value = BridgeContract.PROTOCOL_VERSION + "." + PrinterStore.bridgeKey(this);
+            if (uri.getQueryParameter(BridgeContract.LAUNCH_PARAM) == null) {
+                return uri.buildUpon().appendQueryParameter(BridgeContract.LAUNCH_PARAM, value).build();
+            }
+            Uri.Builder clean = uri.buildUpon().clearQuery();
+            for (String name : uri.getQueryParameterNames()) {
+                if (BridgeContract.LAUNCH_PARAM.equals(name)) continue;
+                for (String v : uri.getQueryParameters(name)) {
+                    clean.appendQueryParameter(name, v);
+                }
+            }
+            return clean.appendQueryParameter(BridgeContract.LAUNCH_PARAM, value).build();
+        } catch (RuntimeException e) {
+            return uri; // عنوانٌ لا يُحلَّل أو تعذّر المفتاح: يُترك كما هو، والطباعة تمرّ بشاشة التأكيد
+        }
     }
 
     private Uri stripStaleCardPay(Uri uri) {

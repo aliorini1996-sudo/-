@@ -27,10 +27,11 @@ import { DocTextsContext, useDocTexts, usePrintTextsPreview } from './printTexts
 import { printPageNode } from './printPage';
 import { currentPrintIdentity, directOpts, usePrintDeviceChoice, withKindChoice } from './printDevice';
 import PrintDeviceSheet from './PrintDeviceSheet';
-import { printHtmlDirect, printNodeDirect, supportsDirect, transportFor, type PrintTransport } from './printDirect';
+import { printHtmlDirect, printNodeDirect, supportsDirect, transportFor, type DirectOutcome, type PrintTransport } from './printDirect';
 import { DIRECT_PRINT_FALLBACK, DirectPrintError } from '../lib/print/printErrors';
-import { directPrintAvailable, printerForJob } from '../lib/print/transport/btSerial';
+import { directPrintAvailable, onLateHandoff, printerForJob } from '../lib/print/transport/direct';
 import { DirectPrintOverlay, useDirectPrint } from '../components/print/DirectPrintUi';
+import { AppUpdateButton, AppUpdateHint } from '../components/print/AppUpdatePrompt';
 import { Share2, Download, Check, ArrowRight, Printer, X, AlertTriangle } from 'lucide-react';
 
 // رمز QR كصورة PNG (data URL) بدل <canvas> — لأن html2canvas لا يلتقط محتوى الـcanvas
@@ -2048,6 +2049,17 @@ export function DocumentResult({ doc, onClose, showLotsStrip = false }: {
   const legacyDirect = shownProfile?.id === LEGACY_THERMAL_ID;
   const bt = useDirectPrint();
   const [directError, setDirectError] = useState<string | null>(null);
+  // تطبيق فيلد سيلز على أندرويد: 'hard' لم يُفتح (زرّ التحديث مكان البديل)، 'soft' سُلّم بلا مفتاح ثقة (تلميحٌ هادئ)
+  const [appPrompt, setAppPrompt] = useState<'hard' | 'soft' | null>(null);
+  // فُتح التطبيق بعد المهلة والدعوة معروضة: تُستبدل بحصيلة التسليم — لا «حدّث التطبيق» بعد طباعةٍ تمّت
+  useEffect(() => {
+    if (appPrompt !== 'hard') return undefined;
+    return onLateHandoff((outcome) => {
+      setDirectError(null);
+      setAppPrompt(outcome === 'handed' ? 'soft' : null);
+      if (outcome === 'done') setStatus(tr('✓ تم الإرسال إلى الطابعة'));
+    });
+  }, [appPrompt, tr]);
 
   const printDirect = async () => {
     if (!canDirect || !directProfile) return;
@@ -2057,31 +2069,35 @@ export function DocumentResult({ doc, onClose, showLotsStrip = false }: {
   const printWith = async (via: PrintTransport) => {
     if (!canDirect || !directProfile) return;
     setBusy(true); setStatus(''); setDirectError(null);
+    setAppPrompt(null);
     try {
       // قالب هذه الضغطة: البلوتوث للشريط الكلاسيكي بقالب الجهاز؛ والبديل (نظام الطباعة) بقالب المستند كما كان
       const jobProfile = via === 'bt-serial' && deviceRoll ? deviceRoll : directProfile;
       // المنفذ أوّل الضغطة: نافذة اختيار الطابعة تحتاج إيماءة المستخدم قبل أيّ عملٍ طويل
       const port = via === 'bt-serial' && supportsDirect(jobProfile) ? await printerForJob() : null;
       // حصيلة البلوتوث (تُكتب من داخل مسار الشريط) — حاويةٌ لا متغيّر: التضييق لا يتبع الإسناد داخل الدوالّ
-      const sent: { outcome: 'done' | 'cancelled' | null } = { outcome: null };
+      const sent: { outcome: DirectOutcome | null } = { outcome: null };
       if (jobProfile.printer === 'thermal') {
         // الملف الافتراضي (legacy-58) يعود في thermal.ts إلى شريط اليوم حرفاً بحرف (ولا يُرسل بالبلوتوث أبداً — بلوتوثه قالب الجهاز)
         const opts = {
           profile: jobProfile, tr,
-          raster: port ? async (html: string) => { sent.outcome = await bt.run((ui) => printHtmlDirect(port, html, jobProfile, 'copies', ui), directOpts(deviceChoice)); } : null,
+          raster: port ? async (html: string) => { sent.outcome = await bt.run((ui) => printHtmlDirect(port, html, jobProfile, 'copies', ui), { ...directOpts(deviceChoice), label: title }); } : null,
         };
         if (doc.kind === 'invoice') await printThermalInvoice(doc, opts);
         else if (doc.kind === 'receipt') await printThermalReceipt(doc, opts);
       } else {
         const node = separatePage ? pageRef.current : printRef.current;
         if (!node) throw new Error('print sheet');
-        if (port) sent.outcome = await bt.run((ui) => printNodeDirect(port, node, directProfile, [tr('الأصل'), tr('نسخة')], ui), directOpts(deviceChoice));
+        if (port) sent.outcome = await bt.run((ui) => printNodeDirect(port, node, directProfile, [tr('الأصل'), tr('نسخة')], ui), { ...directOpts(deviceChoice), label: title });
         else await printPageNode(node, directProfile, [tr('الأصل'), tr('نسخة')]);
       }
-      if (sent.outcome) setStatus(sent.outcome === 'cancelled' ? tr('ألغيت الطباعة') : tr('✓ تم الإرسال إلى الطابعة'));
+      if (sent.outcome === 'handed') setAppPrompt('soft');
+      else if (sent.outcome) setStatus(sent.outcome === 'cancelled' ? tr('ألغيت الطباعة') : tr('✓ تم الإرسال إلى الطابعة'));
     } catch (e) {
-      if (e instanceof DirectPrintError) setDirectError(tr(e.message));
-      else setStatus(tr(e instanceof PrintRefusedError ? e.message : 'تعذرت الطباعة تأكد من إعداد الطابعة'));
+      if (e instanceof DirectPrintError) {
+        setDirectError(tr(e.message));
+        if (e.kind === 'appUpdate') setAppPrompt('hard');
+      } else setStatus(tr(e instanceof PrintRefusedError ? e.message : 'تعذرت الطباعة تأكد من إعداد الطابعة'));
     }
     setBusy(false);
   };
@@ -2224,13 +2240,14 @@ export function DocumentResult({ doc, onClose, showLotsStrip = false }: {
             {directError && (
               <div className="bg-red-50 border border-red-200 text-red-800 text-xs leading-relaxed rounded-xl p-3 text-center" role="alert">
                 <p className="font-semibold">{directError}</p>
-                <p className="mt-1 text-red-700/80">{tr(DIRECT_PRINT_FALLBACK)}</p>
+                {appPrompt === 'hard' ? <AppUpdateButton /> : <p className="mt-1 text-red-700/80">{tr(DIRECT_PRINT_FALLBACK)}</p>}
                 <button type="button" onClick={() => printWith('system')} disabled={busy}
                   className="mt-2 w-full bg-white border border-red-200 text-[#1F1A13] font-semibold py-2 rounded-lg flex items-center justify-center gap-2 disabled:opacity-60">
                   <Printer size={15} /> {tr('اطبع بنظام الطباعة في الجهاز')}
                 </button>
               </div>
             )}
+            {appPrompt === 'soft' && <AppUpdateHint />}
             {customized && directProfile.printer === 'impact' && directTransport === 'system' && (
               <p className="text-[11px] text-gray-400 text-center leading-relaxed">
                 {tr(PRINT_NOTES.impactDesktop)}

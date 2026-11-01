@@ -5,6 +5,7 @@
  *   الشريط الحراريّ الجديد (وثيقة thermalHtml.ts في إطار)         ├─ raster.ts: التقاط ⇒ أبيض وأسود ⇒ رمز QR بنقاط صحيحة ⇒ صفحات
  *   صفحة المعايرة (lib/print/calibration.ts في إطار)              ┘
  *        ⇒ escpos.ts (الحرارية) أو escp24.ts (MIP480) ⇒ transport/btSerial.ts (دفعات 512، تقدّم، إلغاء، إغلاق المنفذ)
+ *        أو أندرويد بلا Web Serial ⇒ transport/appBridge.ts: البايتات نفسها حمولةً لتطبيق فيلد سيلز يطبعها بالبلوتوث
  *
  * المصدر واحدٌ للمسارين: ما يطبعه نظام الطباعة هو ما يُرسم هنا (القالب نفسه، النسخة نفسها، الوسم نفسه) — فلا قالبٌ ثانٍ
  * للبلوتوث يفترق عن الأوّل. والقرار الضريبيّ لا يُتّخذ هنا: القالب أخذ عنوانه ورمزه وضريبته من zatcaPrintDecision، وخانة
@@ -23,17 +24,21 @@ import { ESCPOS_CANCEL, encodeEscPos } from '../lib/print/escpos';
 import { ESCP24_LINE_DOTS, encodeEscP24, escp24Cancel } from '../lib/print/escp24';
 import { TSPL_CANCEL, encodeTspl } from '../lib/print/tspl';
 import type { EncodedJob } from '../lib/print/byteSink';
-import { directPrintAvailable, sendJob, type SerialPortLike } from '../lib/print/transport/btSerial';
+import { sendJob } from '../lib/print/transport/btSerial';
+import { directPrintAvailable, isAppLink, type DirectLink } from '../lib/print/transport/direct';
+import { sendViaApp } from '../lib/print/transport/appBridge';
 import { cloneWithLabel, copiesOf, sheetReady } from './printPage';
 
 export type PrintTransport = 'system' | 'bt-serial';
+/** حصيلة الطباعة المباشرة: 'handed' = سُلّمت لتطبيق فيلد سيلز بلا مفتاح ثقة (لا يُعلم أطُبعت) */
+export type DirectOutcome = 'done' | 'cancelled' | 'handed';
 
 /** قالبٌ يُرسل للطابعة مباشرةً: حرارية بقالبٍ جديد أو نقطية، ولها دقة ونقاط — لا الكلاسيكي ولا العادية */
 export function supportsDirect(p: PrintProfile | null | undefined): p is PrintProfile {
   return !!p && p.printer !== 'page' && p.template !== 'roll_classic' && p.paper.dpi !== null && p.paper.printableDots !== null;
 }
 
-/** طريقة هذا الجهاز للقالب: البلوتوث إن اختاره ودعمه المتصفح والقالب، وإلا نظام الطباعة (الافتراضي — كاليوم) */
+/** طريقة هذا الجهاز للقالب: البلوتوث إن اختاره ودعمه الجهاز (Web Serial أو تطبيق أندرويد) والقالب، وإلا نظام الطباعة (الافتراضي — كاليوم) */
 export function transportFor(p: PrintProfile | null | undefined, choice: DevicePrintChoice | null | undefined, available: boolean = directPrintAvailable()): PrintTransport {
   return supportsDirect(p) && choice?.transport === 'bt-serial' && available ? 'bt-serial' : 'system';
 }
@@ -50,6 +55,12 @@ export interface DirectUi {
   lang?: 'tspl';
   /** TSPL: DIRECTION 0 */
   tsplFlip?: boolean;
+  /** وسمٌ قصير للمستند تعرضه شاشة التطبيق (مسار أندرويد) */
+  docLabel?: string;
+  /** لمسةٌ ثانية حين انقضت صلاحية الإيماءة قبل فتح التطبيق — ترفض إن أُلغيت */
+  requestTap?: () => Promise<void>;
+  /** لحظة التسليم للتطبيق */
+  onHandoff?: () => void;
 }
 
 const dpiOf = (p: PrintProfile): PrinterDpi => p.paper.dpi as PrinterDpi;
@@ -85,7 +96,7 @@ export function impactLeftDots(offsetDots: number, bitmapWidth: number): number 
  */
 export function encodeForProfile(
   p: PrintProfile, copies: RasterPage[][], device: { lang?: 'tspl'; tsplFlip?: boolean } = {},
-): { job: EncodedJob; cancel: readonly number[] } {
+): { job: EncodedJob; cancel: readonly number[]; kind: 'escpos' | 'escp24' | 'tspl' } {
   const g = geometry(p);
   const dpm = dotsPerMm(dpiOf(p));
   const offsetDots = Math.max(0, Math.round(p.paper.offsetXmm * dpm)); // لا يسار قبل أوّل نقطة في الرأس
@@ -103,6 +114,7 @@ export function encodeForProfile(
       }),
       // المتصل: لا ESC @ يمحو طول الصفحة فتنزاح النماذج التالية (escp24.ts)
       cancel: escp24Cancel(continuous, continuous ? g.paperLengthMm : null),
+      kind: 'escp24',
     };
   }
   const maxDots = maxPrintableDots('thermal', p.paper.widthMm, dpiOf(p));
@@ -117,6 +129,7 @@ export function encodeForProfile(
         flip: device.tsplFlip === true,
       }),
       cancel: TSPL_CANCEL,
+      kind: 'tspl',
     };
   }
   const sheet = g.feed !== 'roll' && g.paperLengthMm !== null;
@@ -130,12 +143,14 @@ export function encodeForProfile(
       cut: p.options.cutAfter,
     }),
     cancel: ESCPOS_CANCEL,
+    kind: 'escpos',
   };
 }
 
-async function send(port: SerialPortLike, p: PrintProfile, copies: RasterPage[][], ui: DirectUi): Promise<'done' | 'cancelled'> {
+async function send(port: DirectLink, p: PrintProfile, copies: RasterPage[][], ui: DirectUi): Promise<DirectOutcome> {
   if (ui.signal?.aborted) return 'cancelled';
-  const { job, cancel } = encodeForProfile(p, copies, { lang: ui.lang, tsplFlip: ui.tsplFlip });
+  const { job, cancel, kind } = encodeForProfile(p, copies, { lang: ui.lang, tsplFlip: ui.tsplFlip });
+  if (isAppLink(port)) return sendViaApp(port, { kind, bytes: job.bytes, marks: job.marks, cancel, slow: !!ui.slow, label: ui.docLabel ?? '' }, ui);
   return sendJob(port, job, { signal: ui.signal, cancelBytes: cancel, slow: ui.slow, onProgress: (f) => ui.onProgress?.('send', f) });
 }
 
@@ -156,7 +171,7 @@ async function settleFrame(idoc: Document): Promise<void> {
  * وثيقة HTML كاملة (الشريط الحراريّ الجديد أو صفحة المعايرة) في إطارٍ خارج الشاشة بعرض الورق، ثم كل `section.copy` نسخةً
  * (الشريط) أو كل `section.cal` صفحةً من نسخةٍ واحدة (المعايرة).
  */
-export async function printHtmlDirect(port: SerialPortLike, html: string, p: PrintProfile, kind: 'copies' | 'pages', ui: DirectUi): Promise<'done' | 'cancelled'> {
+export async function printHtmlDirect(port: DirectLink, html: string, p: PrintProfile, kind: 'copies' | 'pages', ui: DirectUi): Promise<DirectOutcome> {
   ui.onProgress?.('prepare', 0);
   const iframe = document.createElement('iframe');
   iframe.setAttribute('aria-hidden', 'true');
@@ -187,8 +202,8 @@ export async function printHtmlDirect(port: SerialPortLike, html: string, p: Pri
  * فتُلتقط بأنماطها، ثم تُزال. الوسمان مترجمان (null بلا وسم)، وbannerHtml للطباعة التجريبية.
  */
 export async function printNodeDirect(
-  port: SerialPortLike, node: HTMLElement, p: PrintProfile, labels: readonly [string, string] | null, ui: DirectUi, bannerHtml?: string | null,
-): Promise<'done' | 'cancelled'> {
+  port: DirectLink, node: HTMLElement, p: PrintProfile, labels: readonly [string, string] | null, ui: DirectUi, bannerHtml?: string | null,
+): Promise<DirectOutcome> {
   ui.onProgress?.('prepare', 0);
   // الشعار والتوقيع قبل الالتقاط؛ صورة الرمز لا تلزم (تُعاد رسمته من خانته)
   await sheetReady(node);

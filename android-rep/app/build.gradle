@@ -73,6 +73,11 @@ def twaManifest = [
     orientation: 'portrait',
 ]
 
+// وحدة التحصيل بالبطاقة (NearPay) تُبنى مع رمز مستودعها وحده (build.gradle الجذري يقرؤه). بلا رمز يُبنى التطبيق نفسه بجسر
+// الطباعة وبلا الوحدة: لا تبعياتها، ولا مصادر net.fieldsa.twa.cardpay في الترجمة، ولا نشاطها وأذوناتها في البيان المدمج
+// (src/printonly/AndroidManifest.xml). مع الرمز: البيان والمصادر والتبعيات كما هي حرفياً
+def cardPayBuild = rootProject.ext.nearpayTokenPresent
+
 android {
     compileSdkVersion 36
     namespace "net.fieldsa.twa"
@@ -80,8 +85,8 @@ android {
         applicationId "net.fieldsa.twa"
         minSdkVersion 26
         targetSdkVersion 36
-        versionCode 5
-        versionName "1.1.0"
+        versionCode 6
+        versionName "1.2.0"
 
         // The name for the application
         resValue "string", "appName", twaManifest.name
@@ -206,11 +211,26 @@ android {
     lintOptions {
         checkReleaseBuilds false
     }
+    sourceSets {
+        if (!cardPayBuild) {
+            // يُزيل من البيان المدمج نشاط التحصيل وأذوناته (tools:node="remove") — البيان الرئيسي لا يُمسّ
+            debug.manifest.srcFile 'src/printonly/AndroidManifest.xml'
+            release.manifest.srcFile 'src/printonly/AndroidManifest.xml'
+        }
+    }
 }
 
 kotlin {
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_17)
+    }
+}
+
+if (!cardPayBuild) {
+    // مصادر الوحدة تبقى في مكانها (app/src/main/java/net/fieldsa/twa/cardpay) وتُستثنى من ترجمة Kotlin وحدها: لا Java فيها،
+    // ولا شيء خارجها يستوردها
+    tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+        exclude 'net/fieldsa/twa/cardpay/**'
     }
 }
 
@@ -251,14 +271,9 @@ task generateShorcutsFile {
 
 preBuild.dependsOn(generateShorcutsFile)
 
-// بلا رمز NearPay يتوقف البناء وحده (كل تجميعٍ وترجمةٍ وفحصٍ يمرّ بـpreBuild) برسالةٍ واضحة — لا عند تهيئة المشروع،
-// فتبقى clean وtasks وsigningReport ومزامنة Android Studio تعمل (build.gradle الجذري يقرأ الرمز ويضبط nearpayTokenPresent)
-def nearpayTokenPresent = rootProject.ext.nearpayTokenPresent
-def nearpayTokenMissingMessage = rootProject.ext.nearpayTokenMissingMessage
-preBuild.doFirst {
-    if (!nearpayTokenPresent) {
-        throw new GradleException(nearpayTokenMissingMessage)
-    }
+// بلا رمز NearPay لا يتوقف البناء: يُبنى بلا وحدة التحصيل (cardPayBuild أعلاه) ويقول ذلك سطرٌ في كل تشغيل
+if (!cardPayBuild) {
+    logger.lifecycle(rootProject.ext.nearpayTokenMissingMessage)
 }
 
 repositories {
@@ -271,10 +286,17 @@ dependencies {
         implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.6.2'
 
     // وحدة التحصيل بالبطاقة — الحزمتان حرفياً من توثيق NearPay (أحدث نسخة في سجل التغييرات: 0.2.6)
-    implementation 'io.nearpay:terminalsdk-release:0.2.6'
-    implementation 'com.google.android.gms:play-services-location:20.0.0'
-    // شاشة الوحدة: AppCompat/Material لأن واجهة NearPay (نافذة سفلية وأجزاء) تُعرض فوق نشاطنا، وenableEdgeToEdge من activity
+    if (cardPayBuild) {
+        implementation 'io.nearpay:terminalsdk-release:0.2.6'
+        implementation 'com.google.android.gms:play-services-location:20.0.0'
+    }
+    // شاشة الوحدة: AppCompat/Material لأن واجهة NearPay (نافذة سفلية وأجزاء) تُعرض فوق نشاطنا، وenableEdgeToEdge من activity.
+    // وشاشة جسر الطباعة (PrintActivity) عليها أيضاً، فهي في البناءين
     implementation 'androidx.appcompat:appcompat:1.7.1'
     implementation 'androidx.activity:activity:1.9.3'
     implementation 'com.google.android.material:material:1.12.0'
+
+    // اختبارات JVM لجسر الطباعة (PrintPayloadTest على المتجهات الذهبية، PrintWriteLoopTest). org.json الحقيقية: نسخة android.jar بذور فارغة
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
 }

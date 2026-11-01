@@ -43,6 +43,13 @@
         android:required="false"
         tools:replace="android:required"/>
 
+    <!-- جسر الطباعة (PrintActivity): الطابعات المقترنة وحدها — لا بحث عن أجهزة، فلا إذن بحثٍ ولا إدارةٍ للبلوتوث ولا موقع.
+         BLUETOOTH لأندرويد 11 فأقدم (يُمنح مع التثبيت)، وBLUETOOTH_CONNECT («الأجهزة القريبة») لأندرويد 12+ يُطلب بعد شاشة إفصاح.
+         البلوتوث غير لازم لتثبيت التطبيق: tools:replace يمنع إذناً أو مكتبةً تجعله «مطلوباً» فيحجب Play التحديث عن جوالٍ بلا بلوتوث -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" tools:replace="android:required"/>
+
     
 
     
@@ -199,6 +206,35 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="fieldsapay" android:host="cardpay" />
+            </intent-filter>
+        </activity>
+
+        <!-- جسر الطباعة المباشرة. تفتحه صفحة المندوب (أو أي صفحة من fieldsa.net في متصفح أندرويد بلا Web Serial) بالرابط
+             intent://print?k=<المفتاح>&p=<الحمولة>#Intent;scheme=fieldsaprint;package=net.fieldsa.twa;end أي fieldsaprint://print?…
+             واختيار الطابعة بـ fieldsaprint://printer (web-admin/src/lib/print/transport/appBridge.ts). أي موقع يستطيع إطلاقه،
+             فالنشاط يعامله مدخلاً غير موثوق (PrintActivity.kt).
+             - مهمّةٌ مستقلة (taskAffinity) بنسخةٍ واحدة (singleTask): finish() يعيد المندوب إلى صفحته كما تركها، ورابطٌ ثانٍ
+               أثناء طباعة جارية يصل إلى onNewIntent فيُهمل.
+             - excludeFromRecents وautoRemoveFromRecents وpersistNever: لا تبقى في القائمة الأخيرة، ولا يُكتب الرابط الكبير على القرص.
+             - configChanges: التدوير ونحوه لا يقطع طباعةً جارية.
+             - السمة غير شفافة (Material): المتصفح يتوقف خلفها فتعرف الصفحة أن الأمر سُلِّم -->
+        <activity
+            android:name="net.fieldsa.twa.print.PrintActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="net.fieldsa.twa.print"
+            android:excludeFromRecents="true"
+            android:autoRemoveFromRecents="true"
+            android:persistableMode="persistNever"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|locale|layoutDirection"
+            android:theme="@style/Theme.FieldSales.Print">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="fieldsaprint" android:host="print" />
+                <data android:scheme="fieldsaprint" android:host="printer" />
             </intent-filter>
         </activity>
 
