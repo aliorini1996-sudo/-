@@ -549,6 +549,9 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
         await tx.invoice.deleteMany({ where: { tenantId: tid } });
         await tx.customerPrice.deleteMany({ where: { customer: { tenantId: tid } } });
         await tx.priceTier.deleteMany({ where: { product: { tenantId: tid } } });
+        // «أنواع الأسعار»: أسعارها ثم الأنواع (لا تعاقب من الشركة) — قبل الأصناف والعملاء وصفّ الشركة
+        await tx.priceListItem.deleteMany({ where: { tenantId: tid } });
+        await tx.priceList.deleteMany({ where: { tenantId: tid } });
         await tx.notification.deleteMany({ where: { tenantId: tid } });
         await tx.customer.deleteMany({ where: { tenantId: tid } });
         // «تتبّع اللوط» (§٤.١٩): ما يشير إلى اللوطات بلا تعاقب (NoAction) قبلها، واللوطات قبل الأصناف (Restrict). صفوف

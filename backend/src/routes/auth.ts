@@ -517,6 +517,7 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response, next: Ne
           canCreateInvoice: true, canEditInvoice: true, canDeleteInvoice: true, canCancelInvoice: true,
           canSellOnCredit: true, canSellOnInstallment: true, canSellInCash: true,
           canChangePrice: true, maxDiscountPct: true, canSellBelowPrice: true,
+          canChangePriceList: true, // «أنواع الأسعار»: مبدّل نوع السعر في فاتورة التطبيق
           canCreateReceipt: true, canEditReceipt: true, canCancelReceipt: true,
           canManageVanStock: true,
           canAddCustomer: true, canEditCustomer: true, canViewStatement: true,

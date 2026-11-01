@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MapPin, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { customerApi } from '../api/client';
+import { customerApi, priceListApi } from '../api/client';
 import { Customer } from '../types';
 import { SALES_CHANNELS } from '../lib/channels';
+import { baseLabelOf, priceListsOf } from '../lib/priceLists';
 import { useTr } from '../i18n/strings';
 import { MHeader } from './mobileUi';
 import BuyerDataFields from '../components/BuyerDataFields';
@@ -16,12 +17,14 @@ type Form = {
   city: string; district: string; address: string; commercialReg: string; taxNumber: string;
   channel: string; status: 'ACTIVE' | 'INACTIVE' | 'BLOCKED';
   creditLimit: string; paymentDays: string; locationUrl: string;
+  /** «أنواع الأسعار»: معرّف نوع سعر العميل — '' = السعر الأساسي */
+  priceListId: string;
 };
 
 const empty: Form = {
   name: '', phone: '', businessName: '', altPhone: '', email: '',
   city: '', district: '', address: '', commercialReg: '', taxNumber: '',
-  channel: '', status: 'ACTIVE', creditLimit: '0', paymentDays: '30', locationUrl: '',
+  channel: '', status: 'ACTIVE', creditLimit: '0', paymentDays: '30', locationUrl: '', priceListId: '',
 };
 
 /**
@@ -30,6 +33,8 @@ const empty: Form = {
  * **بلا `react-hook-form` عمداً:** نماذجها في هذا المشروع ترسل `null` للحقول
  * الفارغة، ومخطّط الخادم يرفض `null` على حقل اختياريّ فيفشل التعديل صامتاً.
  * هنا نُرسل حالةً محكومة ونحذف الفارغ من الحمولة أصلاً — فلا `null` يُرسَل.
+ * والاستثناء الوحيد «نوع السعر» (أنواع الأسعار): مخطّطه nullish، وnull صريحاً يعيد العميل إلى السعر الأساسي — وحذفه من الحمولة
+ * كان يُبقي نوعاً أزاله المستخدم.
  */
 export default function MCustomerForm({ customer, accountingOn = true, zatcaCollect = false, buyerRelax = false, onClose, onSaved }: {
   customer: Customer | null;
@@ -55,8 +60,18 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
     taxNumber: customer.taxNumber || '', channel: customer.channel || '',
     status: customer.status || 'ACTIVE',
     creditLimit: String(customer.creditLimit ?? 0), paymentDays: String(customer.paymentDays ?? 30),
-    locationUrl: '',
+    locationUrl: '', priceListId: customer.priceListId ?? '',
   } : empty);
+  /* «أنواع الأسعار»: نوع سعر العميل تُسعَّر به فواتيره — لشركةٍ عرّفت أنواعاً والمحاسبة مفعّلة (المسار محروسٌ بها). وصفّ عميلٍ بلا
+   * المفتاح أصلاً (خادمٌ قبل الميزة) لا تُعرض له الخانة — وإلا أرسل حفظه null فوق نوعه */
+  const priceInfoQ = useQuery({
+    queryKey: ['m-price-lists'],
+    queryFn: async () => priceListsOf((await priceListApi.list()).data?.data),
+    enabled: accountingOn,
+    staleTime: 60_000,
+  });
+  const priceLists = accountingOn && (!customer || customer.priceListId !== undefined) ? priceInfoQ.data?.lists ?? [] : [];
+  const showPriceList = priceLists.length > 0;
 
   const set = (k: keyof Form, v: string) => setForm(f => ({ ...f, [k]: v }));
   // بيانات المشتري (Z5.1a): مع قسم «بيانات ضريبية» نفسه (المحاسبة) — والحقول الجديدة وحدها تُرسل null حين تُفرَّغ قيمة محفوظة
@@ -85,6 +100,8 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
       if (showBuyer) {
         Object.assign(payload, customer ? buyerUpdatePayload(buyer, customer as BuyerRowLike) : buyerCreatePayload(buyer));
       }
+      // «أنواع الأسعار»: الخانة الظاهرة وحدها تُرسل — والسعر الأساسي null صريحاً (انظر تعليق الرأس)
+      if (showPriceList) payload.priceListId = form.priceListId || null;
       const res = customer
         ? await customerApi.update(customer.id, payload)
         : await customerApi.create(payload);
@@ -175,6 +192,16 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
           )}
           {accountingOn && (
             <Field label={tr('مدة السداد يوم')} dir="ltr" type="number" value={form.paymentDays} onChange={v => set('paymentDays', v)} />
+          )}
+          {showPriceList && (
+            <div data-m-customer-price-list="">
+              <label className="label">{tr('نوع السعر')}</label>
+              <select className="input" value={form.priceListId} onChange={e => set('priceListId', e.target.value)}>
+                <option value="">{baseLabelOf(priceInfoQ.data, tr)}</option>
+                {priceLists.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+              <p className="text-[11px] text-[#9A8F7E] mt-1 px-1">{tr('تسعر به فواتير العميل تلقائيا')}</p>
+            </div>
           )}
         </Group>
 

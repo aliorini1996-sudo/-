@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { productApi } from '../../api/client';
+import { productApi, priceListApi } from '../../api/client';
 import { Product, ProductUnit, User } from '../../types';
 import { useTr } from '../../i18n/strings';
 import { useAuthStore } from '../../store/authStore';
@@ -21,9 +21,15 @@ import {
 } from '../../lib/shelfLife';
 import { formatDayOnly } from '../../utils/format';
 import { productLotNote, productLotPayload } from '../../lib/lotTrackingUi';
+import PriceTypeChips from '../PriceTypeChips';
+import {
+  baseLabelOf, listBaseMap, listEntryFactor, listPriceEditsOf, listPriceInput, listShownPrice, priceListsOf, type ListPriceEdits,
+} from '../../lib/priceLists';
+import { roundHalfUp } from '../../lib/money';
 
 interface Props {
-  product: Product | null; onClose: () => void; onSave: (data: Partial<Product>) => void; loading: boolean;
+  /** onSave: الصنف كما كان، ومعه listPriceEdits («أنواع الأسعار») حين تغيّر سعر نوعٍ — تحفظه الصفحة بمساره بعد الصنف */
+  product: Product | null; onClose: () => void; onSave: (data: Partial<Product> & { listPriceEdits?: ListPriceEdits }) => void; loading: boolean;
   /** فوترة ZATCA (Z5.1a): الشركة تجمع بيانات الفوترة؟ (zatcaCollectOn) — false ⇒ النموذج والحمولة كما اليوم */
   zatcaCollect?: boolean;
   /** «تتبّع اللوط» مفعّل للشركة؟ (lotFlagsOf(company).on) — false ⇒ لا قسم ولا حقل في الحمولة (§١٠.١) */
@@ -85,6 +91,8 @@ const serverCode = (err: unknown): string | undefined =>
 const UNITS_STALE_CODES = new Set(['BASE_UNIT_CHANGED', 'PRIMARY_UNIT_CHANGED', 'PRIMARY_UNIT_IN_USE']);
 const isUnitsStale = (err: unknown): boolean => UNITS_STALE_CODES.has(serverCode(err) ?? '');
 const UNITS_STALE_MSG = 'تغيّرت وحدات الصنف — أعد فتحه';
+/** أخطاء reverseFormProblem في خانتي السعر الافتراضي — تخفيهما رقاقة «نوع سعر» فيعيد الخطأ الرقاقة الأولى */
+const REVERSE_PRICE_PROBLEMS = new Set(['سعر الوحدة الرئيسية مطلوب', 'سعر الوحدة رقم موجب']);
 /** تلميح «إضافة وحدة فرعية أصغر» المعطَّل بحسب سبب الخادم (convertBaseRefusalCode من ردّ الدخول — §4.2) */
 const CONVERT_REFUSAL_HINTS: Record<NonNullable<User['convertBaseRefusalCode']>, string> = {
   OWNER_ONLY: 'غير مفعّلة لشركتك — اطلب تفعيلها من الدعم الفني',
@@ -167,14 +175,43 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
   const [convertOpen, setConvertOpen] = useState(false);
   const [modeBusy, setModeBusy] = useState(false);
 
+  /* «أنواع الأسعار» (رسم المالك): رقاقاتٌ فوق خانة السعر — الأولى السعر الافتراضي (basePrice كما كان حرفاً) باسمه الذي تختاره
+   * الشركة، وبعدها نوعٌ لكل قائمة تحرّر الخانة سعره بالوحدة الرئيسية صافياً (الصغرى بلاها). المحفوظ لوحدة الأساس (listBase)
+   * ويُعرض × معامل الرئيسية، والمسودّة (listDraft) ما كُتب وحده — فلا يُعاد حفظ نوعٍ لم يُلمس بقيمةٍ مقرَّبة */
+  const { data: priceInfo } = useQuery({
+    queryKey: ['price-lists'],
+    queryFn: async () => priceListsOf((await priceListApi.list()).data.data),
+  });
+  const lists = priceInfo?.lists ?? [];
+  const baseLabel = baseLabelOf(priceInfo, tr);
+  const [priceTab, setPriceTab] = useState<string | null>(null);
+  const activeList = lists.find(l => l.id === priceTab) ?? null;
+  const [listBase, setListBase] = useState<Record<string, number>>(() => listBaseMap(product?.listPrices));
+  const [listDraft, setListDraft] = useState<Record<string, string>>({});
+  const listFactor = listEntryFactor({ primaryUnitId, units });
+  const shownList = (id: string) => listShownPrice(listBase[id], listFactor);
+  const listValue = (id: string) => listDraft[id] ?? shownList(id);
+
   // قوائم الأصناف في الصفحات الأخرى (الفاتورة والتحميل والوارد) تقرأ الوحدات — تتبع كل تغيير
   const refreshLists = () => {
     qc.invalidateQueries({ queryKey: ['products'] });
     qc.invalidateQueries({ queryKey: ['products-all'] });
     qc.invalidateQueries({ queryKey: ['products-min'] });
   };
+  /** أسعار الأنواع من الصنف كما ردّه الخادم: المسودّة كُتبت على وحداتٍ تغيّرت فتُمسح، والمحفوظ من الردّ — وردٌّ بلاها بعد تحويل
+   * الأساس (التحويل يقسمها على المعامل) يُعاد جلبه، وإلا عُرض سعر الكرتون مضروباً في المعامل مرّةً ثانية */
+  const adoptListPrices = (p: Product) => {
+    setListDraft({});
+    if (Array.isArray(p.listPrices)) { setListBase(listBaseMap(p.listPrices)); return; }
+    if (!product || p.unit === savedBase) return;
+    setListBase({});
+    productApi.get(product.id)
+      .then(r => setListBase(listBaseMap((r.data.data as Product).listPrices)))
+      .catch(() => { /* تبقى الخانات فارغة — والحفظ لا يمسّ نوعاً لم يُكتب */ });
+  };
   /** يأخذ الصنف كما ردّه الخادم (تحويلٌ، تبديل رئيسية، إعادة جلبٍ بعد ٤٠٩): الوحدات والأساس وسعره والرئيسية وخانات النموذج */
   const adopt = (p: Product) => {
+    adoptListPrices(p);
     setUnits(p.units ?? []);
     setSavedBase(p.unit);
     setSavedBasePrice(Number(p.basePrice));
@@ -196,6 +233,7 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
   const primaryChanged = (nextUnits: ProductUnit[], id: string | null) => {
     setUnits(nextUnits);
     setPrimaryUnitId(id);
+    setListDraft({}); // أسعار الأنواع المكتوبة كانت بالرئيسية السابقة
     const saved = { unit: savedBase, basePrice: savedBasePrice, unitCode: getValues('unitCode') ?? null, units: nextUnits, primaryUnitId: id };
     setRev(reverseFormOf(saved) ?? EMPTY_REVERSE_FORM);
     // العودة إلى التعريف بأصغر وحدة: الخانتان بقيمتيهما المحفوظتين — لا ما بقي فيهما من قبل
@@ -231,7 +269,12 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
   };
   const currentMode: DefMode = product ? (primary ? 'PRIMARY' : 'SMALL') : defMode;
   const pickMode = (m: DefMode) => {
-    if (!product) { setDefMode(m); writeDefMode(userId, m); return; }
+    // صنفٌ جديد: أسعار الأنواع المكتوبة كانت بوحدة الطريقة السابقة (القارورة ↔ الكرتون) — تبقى فيُقرأ سعر القارورة سعرَ كرتون
+    // (×٢٤ أقلّ) أو العكس، فتُمسح كما يمسحها تغيّر الرئيسية لصنفٍ قائم (primaryChanged)
+    if (!product) {
+      if (m !== defMode) { setListDraft({}); setPriceTab(null); }
+      setDefMode(m); writeDefMode(userId, m); return;
+    }
     if (m === currentMode) { closeSwitch(); return; }
     setSwitchChoice(null);
     setSwitchAsk(m === 'PRIMARY' ? 'TO_PRIMARY' : 'TO_SMALL');
@@ -249,6 +292,19 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
     queryKey: ['product-categories'],
     queryFn: async () => { const res = await productApi.categories(); return res.data.data as { id: string; name: string }[]; },
   });
+
+  /** رقاقة «+»: نوعٌ جديد في مكانه (POST /price-lists) ثم تُختار رقاقته — والقائمة تُحدَّث قبلها فتظهر */
+  const addPriceList = async (name: string): Promise<string | null> => {
+    try {
+      const { data } = await priceListApi.create(name);
+      await qc.invalidateQueries({ queryKey: ['price-lists'] });
+      toast.success(tr('أضيف نوع السعر'));
+      return String((data?.data as { id?: string } | undefined)?.id ?? '') || null;
+    } catch (err) {
+      toast.error(tr(serverMessage(err) || 'تعذر الحفظ'));
+      return null;
+    }
+  };
 
   const onImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -287,7 +343,10 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
   const bigNames = newReverse
     ? (reverseFormProblem(rev) === null ? [rev.primaryName.trim()] : [])
     : units.filter((u) => Number(u.factor) > 1 && u.isActive !== false).map((u) => u.name);
-  const submit = (data: Partial<Product>) => {
+  const submit = (form: Partial<Product>) => {
+    // «أنواع الأسعار»: لقطة listPrices من فتح النافذة (أسعار الأساس) لا تُعاد مع الصنف — المتغيّر وحده يُحفظ بمساره بعد الصنف
+    const { listPrices: _listPrices, ...data } = form;
+    void _listPrices;
     // units تُحفظ بمساراتها لا مع الصنف — وإرسال لقطتها القديمة (من فتح النافذة) لا معنى له فتُنزع من الحمولة
     // وعلما اللوط من الصنف المحمَّل (lotTracked وحقبته) لا يُعادان كما هما: الانتقال وحده يُرسل (productLotPayload أدناه)
     // و«الوحدة الرئيسية» المحمّلة (primaryUnitId وbaseConvertedAt) لا تُعاد: الخادم يتجاهلها، وتبديلها بمسارها وحده
@@ -296,7 +355,8 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
     // الطريقة العكسية (صنفٌ جديد بالكرتون، أو قائمٌ له رئيسية): الخانات من نموذجها، والتحقق قبل الإرسال بقاعدة الخادم
     if (reverseLayout) {
       const problem = reverseFormProblem(rev);
-      if (problem) { toast.error(tr(problem)); return; }
+      // خانتا السعر الافتراضي (الرئيسية والفرعية) خلف رقاقة نوعٍ آخر: خطأ سعرٍ يعيد الرقاقة الأولى فيرى المستخدم ما يُطلب منه
+      if (problem) { if (activeList && REVERSE_PRICE_PROBLEMS.has(problem)) setPriceTab(null); toast.error(tr(problem)); return; }
     }
     // اسم الأساس لا يأخذ اسم وحدةٍ أكبر للصنف نفسه (والخادم يرفضه) — «٢ كرتون» تصير ملتبسة بين الأساس والكرتون
     const newBase = reverseLayout ? rev.subName.trim() : String(rest.unit ?? '').trim();
@@ -327,6 +387,26 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
     if ((repSaleUnit === 'LARGE' || repReturnUnit === 'LARGE') && !(newReverse ? bigNames.length > 0 : hasBigUnit(units))) {
       toast.error(tr('قيد الوحدة الكبرى فقط يحتاج وحدة كبرى نشطة لهذا الصنف')); return;
     }
+    // «أنواع الأسعار»: ما تغيّر من خانات الأنواع وحده — سعر الوحدة الرئيسية صافياً، والفارغ يحذف سعر النوع فيعود إلى الافتراضي.
+    // والرئيسية كما أُدخل بها (معاملها بعد هذا الحفظ نفسه في الطريقة العكسية)، وnull بلا رئيسية: سعرٌ للوحدة الصغرى
+    // وعدد الفرعية في الرئيسية يتغيّر في هذا الحفظ: المخزَّن للأساس فيقلب سعر الكرتون في كل نوعٍ لم يُلمس — فتُرسل الأنواع كلها
+    // بسعر الكرتون المعروض ويقسمها الخادم على المعامل الجديد (expectedPrimary أدناه)، كسعر الكرتون الافتراضي الذي يبقى
+    const factorChanged = reverseLayout && !!product && !!primary && Math.round(fieldNum(rev.factor)) !== Math.round(Number(primary.factor));
+    const listEdits = listPriceEditsOf(lists, listDraft, shownList, factorChanged);
+    if (listEdits.problem) {
+      setPriceTab(listEdits.problem.listId);
+      toast.error(fill(tr('سعر «{name}» رقم موجب'), { name: listEdits.problem.name }));
+      return;
+    }
+    // صنفٌ جديد بأسعار أنواعٍ وحدها: خانة السعر الافتراضي مخفيّةٌ خلف رقاقتها و0 فيها يجتاز required — وبه تُسعَّر فواتير كل
+    // عميلٍ بلا نوع (ومنهم كل عميلٍ يضيفه المندوب). فالرقاقة الأولى وسؤالٌ قبل الحفظ (صفرٌ مقصود يُحفظ بعد التأكيد)
+    if (!product && !reverseLayout && listEdits.items.some(i => i.price != null) && !(Number(rest.basePrice) > 0)) {
+      setPriceTab(null);
+      if (!window.confirm(fill(tr('{label} صفر وبه تسعر فواتير العميل الذي لا نوع له — أتحفظ الصنف هكذا؟'), { label: baseLabel }))) return;
+    }
+    const listPriceEdits: ListPriceEdits | null = listEdits.items.length
+      ? { items: listEdits.items, expectedPrimary: reverseLayout && product && primary?.id ? { id: primary.id, factor: Math.round(fieldNum(rev.factor)) } : null }
+      : null;
     onSave({
       ...rest, shelfLifeEnabled: !!rest.shelfLifeEnabled, shelfLifeValue: lifeValue,
       shelfLifeBasis: rest.shelfLifeBasis || 'SALE', shelfLifeFromDate: fromDate,
@@ -340,7 +420,8 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
       ...(newReverse ? reverseCreatePayload(rev) : {}),
       ...(reverseLayout && product && primary?.id ? reverseEditPatch(rev, primary.id) : {}),
       ...(product ? { expectedBaseName: savedBase } : {}),
-    } as Partial<Product>);
+      ...(listPriceEdits ? { listPriceEdits } : {}),
+    } as Partial<Product> & { listPriceEdits?: ListPriceEdits });
   };
   const revSet = (k: keyof ReverseForm) => (e: React.ChangeEvent<HTMLInputElement>) => { const v = e.target.value; setRev(r => ({ ...r, [k]: v })); };
   const revPrimaryName = rev.primaryName.trim() || tr('الوحدة الرئيسية');
@@ -351,6 +432,24 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
   const revPrimaryPrice = fieldNum(rev.primaryPrice);
   const revDerivedHint = Number.isFinite(revPrimaryPrice) && revPrimaryPrice >= 0 && Number.isInteger(revFactor) && revFactor >= 2
     ? reverseSubPrice({ ...rev, subPrice: '' }) : null;
+  // «أنواع الأسعار»: الرقاقات ظاهرةٌ متى قُرئت الأنواع ولو لم تُعرَّف بعد (قرار المالك) — رقاقة السعر الافتراضي ورقاقة «+» تضيف
+  // نوعاً في مكانه (النافذة لمن يملك صلاحية الأصناف أصلاً). وخانة النوع المختار بالوحدة الرئيسية
+  const chipsOn = !!priceInfo;
+  const priceChips = chipsOn && (
+    <PriceTypeChips baseLabel={baseLabel} lists={lists} value={activeList?.id ?? null} onChange={setPriceTab}
+      marked={id => listValue(id).trim() !== ''} onAdd={addPriceList} />
+  );
+  const listInput = activeList && (
+    <input type="number" className="input" min="0" step="any" inputMode="decimal" data-list-price="" value={listValue(activeList.id)}
+      placeholder={baseLabel} onChange={e => { const v = e.target.value; const id = activeList.id; setListDraft(d => ({ ...d, [id]: v })); }} />
+  );
+  const listHint = <p className="text-[10px] text-gray-400 mt-1">{tr('قبل الضريبة')} · {fill(tr('فارغ يعني {label}'), { label: baseLabel })}</p>;
+  // سعر الوحدة الفرعية في النوع المختار مشتقٌّ دائماً: سعر الرئيسية ÷ العدد (لا خانة له)
+  const listSubDerived = (() => {
+    if (!activeList) return '';
+    const lp = listPriceInput(listValue(activeList.id));
+    return lp != null && !Number.isNaN(lp) && lp >= 0 && Number.isInteger(revFactor) && revFactor >= 2 ? String(roundHalfUp(lp / revFactor, 4)) : '';
+  })();
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl">
@@ -359,7 +458,8 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
           <h2 className="text-lg font-bold text-gray-800">{product ? tr('تعديل صنف') : tr('إضافة صنف جديد')}</h2>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
         </div>
-        <form onSubmit={handleSubmit(submit)} className="p-5 space-y-4">
+        {/* خانة السعر الافتراضي مخفيّةٌ خلف رقاقة نوعٍ آخر: خطأ تحقّقها يعيد الرقاقة الأولى فيراها المستخدم */}
+        <form onSubmit={handleSubmit(submit, errs => { if (errs.basePrice) setPriceTab(null); })} className="p-5 space-y-4">
           {/* صورة الصنف */}
           <div>
             <label className="label">{tr('صورة الصنف')}</label>
@@ -460,10 +560,12 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
               <input className="input" {...register('name', { required: true })} />
               {errors.name && <p className="text-red-500 text-xs mt-1">{tr('مطلوب')}</p>}
             </div>
-            <div>
+            <div className={!reverseLayout && chipsOn ? 'col-span-2' : undefined}>
               <label className="label">{tr('باركود')}</label>
               <input className="input" dir="ltr" {...register('barcode')} />
             </div>
+            {/* «أنواع الأسعار»: الرقاقات فوق خانتي الوحدة والسعر (رسم المالك) */}
+            {!reverseLayout && chipsOn && <div className="col-span-2" data-price-types="">{priceChips}</div>}
             {/* الطريقة العكسية: الخانتان مخفيّتان وrequired مشروطٌ بها — الوحدة والسعر من نموذج الكرتون أدناه */}
             {!reverseLayout && (
               <div>
@@ -476,11 +578,20 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
               </div>
             )}
             {!reverseLayout && (
-              <div>
-                {/* D21: لصنفٍ له رئيسية «سعر {الوحدة} الواحدة» بلا تلميح — وبلاها «السعر الأساسي» وتلميحه كما كانا (I1) */}
-                <label className="label">{primary ? fill(tr('سعر {unit} الواحدة'), { unit: savedBase }) : tr('السعر الأساسي')} *</label>
+              <div className={activeList ? 'hidden' : undefined}>
+                {/* D21: لصنفٍ له رئيسية «سعر {الوحدة} الواحدة» بلا تلميح — وبلاها اسم الرقاقة الأولى («السعر الأساسي» ما لم تسمّه
+                    الشركة، فاسمٌ واحد للسعر نفسه في الرقاقة والخانة وتلميح النوع) وتلميحه كما كانا (I1) */}
+                <label className="label">{primary ? fill(tr('سعر {unit} الواحدة'), { unit: savedBase }) : baseLabel} *</label>
                 <input type="number" className="input" min="0" step="any" inputMode="decimal" {...register('basePrice', { required: !reverseLayout, valueAsNumber: true })} />
                 {units.length > 0 && !primary && <p className="text-[10px] text-gray-400 mt-1">{tr('سعر وحدة الأساس')}</p>}
+              </div>
+            )}
+            {/* سعر النوع المختار مكان السعر الافتراضي — بالوحدة الصغرى هنا (لا رئيسية في هذه الطريقة) */}
+            {!reverseLayout && activeList && (
+              <div>
+                <label className="label">{fill(tr('سعر {unit}'), { unit: String(watch('unit') ?? '').trim() || savedBase || tr('الوحدة') })}</label>
+                {listInput}
+                {listHint}
               </div>
             )}
             <div>
@@ -507,15 +618,19 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
               ورمزا الوحدة الضريبيان في «متقدّم». الحساب الداخلي بالفرعية (القاعدة ١٢) */}
           {reverseLayout && (
             <div className="rounded-xl border border-gray-200 p-3 space-y-3" data-reverse-form="">
+              {/* «أنواع الأسعار»: الرقاقات فوق «الوحدة الرئيسية / سعر الكرتون» (رسم المالك) */}
+              {chipsOn && <div data-price-types="">{priceChips}</div>}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="label">{tr('الوحدة الرئيسية')} *</label>
                   <input className="input" maxLength={24} value={rev.primaryName} placeholder={tr('مثال: كرتون')} onChange={revSet('primaryName')} />
                 </div>
                 <div>
-                  <label className="label">{fill(tr('سعر {unit}'), { unit: revPrimaryName })} *</label>
-                  <input type="number" className="input" min="0" step="any" inputMode="decimal" value={rev.primaryPrice} onChange={revSet('primaryPrice')} />
-                  <p className="text-[10px] text-gray-400 mt-1">{tr('قبل الضريبة')}</p>
+                  <label className="label">{fill(tr('سعر {unit}'), { unit: revPrimaryName })}{activeList ? '' : ' *'}</label>
+                  {activeList ? listInput : (
+                    <input type="number" className="input" min="0" step="any" inputMode="decimal" value={rev.primaryPrice} onChange={revSet('primaryPrice')} />
+                  )}
+                  {activeList ? listHint : <p className="text-[10px] text-gray-400 mt-1">{tr('قبل الضريبة')}</p>}
                 </div>
                 <div>
                   <label className="label">{tr('الوحدة الفرعية')} *</label>
@@ -527,9 +642,13 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
                   <p className="text-[10px] text-gray-400 mt-1">{tr('مثال: كرتون فيه 24 قارورة')}</p>
                 </div>
                 <div className="col-span-2">
-                  <label className="label">{fill(tr('سعر {unit} الواحدة'), { unit: revSubName })} ({tr('اختياري')})</label>
-                  <input type="number" className="input" min="0" step="any" inputMode="decimal" value={rev.subPrice} onChange={revSet('subPrice')}
-                    placeholder={revDerivedHint != null ? `≈ ${revDerivedHint} ${tr('محسوب')}` : ''} />
+                  <label className="label">{fill(tr('سعر {unit} الواحدة'), { unit: revSubName })}{activeList ? '' : ` (${tr('اختياري')})`}</label>
+                  {activeList ? (
+                    <input className="input bg-gray-50" disabled value={listSubDerived ? `≈ ${listSubDerived} ${tr('محسوب')}` : ''} aria-label={tr('محسوب')} />
+                  ) : (
+                    <input type="number" className="input" min="0" step="any" inputMode="decimal" value={rev.subPrice} onChange={revSet('subPrice')}
+                      placeholder={revDerivedHint != null ? `≈ ${revDerivedHint} ${tr('محسوب')}` : ''} />
+                  )}
                   <p className="text-[10px] text-gray-400 mt-1">{fill(tr('فارغ يعني سعر {unit} مقسوما على العدد'), { unit: revPrimaryName })}</p>
                 </div>
               </div>
@@ -546,7 +665,7 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
                   </div>
                 </div>
               </details>
-              {revOk && (
+              {revOk && !activeList && (
                 <p className="rounded-lg bg-[#FAF7F0] border border-[#F1EBDF] px-3 py-2 text-xs text-gray-700" data-reverse-preview="">
                   <b>1 {rev.primaryName.trim()}</b> = {revFactor} {rev.subName.trim()} · {formatCurrency(revPrimaryPrice)} / {rev.primaryName.trim()} · {formatCurrency(reverseSubPrice(rev), undefined, 4)} / {rev.subName.trim()}
                 </p>
@@ -595,6 +714,7 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
           {convertOpen && product && (
             <ConvertBaseDialog
               productId={product.id} baseUnit={savedBase} basePrice={savedBasePrice} units={units} primaryUnitId={primary?.id ?? null}
+              listPriced={Object.keys(listBase).length > 0}
               onClose={() => setConvertOpen(false)}
               onStale={() => { setConvertOpen(false); void reloadStale(); }}
               onDone={(p) => {
@@ -1150,8 +1270,10 @@ const convertServerText = (err: unknown): string => {
  * بالقيم الحالية نفسها (مفتاحها formKey)، وأيّ تعديلٍ بعدها يعيده معطّلاً حتى معاينةٍ جديدة. وإقرارا ERP والربط البرمجي
  * يظهران حين تقولهما المعاينة.
  */
-function ConvertBaseDialog({ productId, baseUnit, basePrice, units, primaryUnitId, onClose, onDone, onStale }: {
+function ConvertBaseDialog({ productId, baseUnit, basePrice, units, primaryUnitId, listPriced = false, onClose, onDone, onStale }: {
   productId: string; baseUnit: string; basePrice: number; units: ProductUnit[]; primaryUnitId: string | null;
+  /** للصنف أسعارٌ في «أنواع الأسعار» — تُقسم على المعامل كأسعار العملاء */
+  listPriced?: boolean;
   onClose: () => void; onDone: (p: Product) => void; onStale: () => void;
 }) {
   const tr = useTr();
@@ -1269,6 +1391,7 @@ function ConvertBaseDialog({ productId, baseUnit, basePrice, units, primaryUnitI
             <li>{fill(tr('الصنف يباع اليوم بـ«{unit}» بسعر {price}. بعد الإضافة يبقى «{unit}» بسعره وتصير الوحدة الفرعية أصغر وحدة له'), { unit: expected, price: formatCurrency(basePrice) })}</li>
             <li>{tr('أرقام الفواتير والحركات السابقة لا تتغير: ما بيع بها يبقى مطبوعا كما هو وتحسب كميته بالوحدة الجديدة تلقائيا')}</li>
             <li>{tr('أسعار العملاء الخاصة وشرائح الأسعار تقسم على المعامل فيبقى سعر الوحدة الحالية لكل عميل كما هو')}</li>
+            {listPriced && <li>{tr('وأسعار أنواع الأسعار تقسم على المعامل كذلك فيبقى سعر الوحدة الحالية في كل نوع كما هو')}</li>}
             {defaultAfter === defaultNow && <li>{tr('المندوب يستمر في البيع بالوحدة الحالية افتراضيا')}</li>}
           </ul>
 

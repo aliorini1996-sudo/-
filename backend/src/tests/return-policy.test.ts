@@ -775,6 +775,46 @@ test('المرحلة الثانية والإعداد false: المندوب بأ�
   }
 });
 
+test('المرحلة الثانية والإعداد false: سقف المندوب بلا «تغيير السعر» لعميلٍ على «سعر الجملة» = سعر النوع × معامل وحدة البند لا السعر الأساسي', async () => {
+  asRep();
+  try {
+    /** الأرز: الأساس ١٠٠٠، والكيس (٤) بلا سعرٍ محدَّد — وسعر الجملة ٨٠٠ لوحدة الأساس، وعميلٌ عليه */
+    const rice = { ...PRODUCT_ROWS.find(p => p.id === 'p-rice')!, units: [{ id: 'u-bag', name: 'كيس', factor: 4, price: null, unitCode: null, isActive: true }] };
+    const run = async (items: Row[]) => {
+      const rig = buildRig();
+      const listQueries: unknown[] = [];
+      script({ rig, stored: false, rep: REP({ canChangePrice: false }), products: [rice], customer: { ...CUSTOMER_ROW(CUSTOMERS.individual as unknown as Row), priceListId: 'L-W' } });
+      scripted['priceListItem.findMany'] = (args: unknown) => {
+        listQueries.push(args);
+        const w = (args as { where?: { tenantId?: string; priceListId?: string; productId?: { in?: string[] } } }).where;
+        return w?.tenantId === Z5_TENANT && w.priceListId === 'L-W' && w.productId?.in?.includes('p-rice') ? [{ productId: 'p-rice', price: 800 }] : [];
+      };
+      const r = await call('POST', '/api/invoices', {
+        body: returnBody({ customerId: 'c-walkin', originalInvoiceRef: 'OLD-1001', originalPaymentType: 'CASH', noteReason: 'بضاعة تالفة', items }),
+        headers: CAPS,
+      });
+      return { r, rig, listQueries };
+    };
+    // ٩٠٠ تحت الأساس (١٠٠٠) لكنها فوق الجملة (٨٠٠) ⇒ 403 — السقف سعر النوع لا الأساس
+    const over = await run([{ productId: 'p-rice', qty: 1, unitPrice: 900, discountPct: 0, taxPct: 15 }]);
+    assert.equal(over.r.status, 403, JSON.stringify(over.r.body));
+    assert.equal(over.r.body.message, 'لا تملك صلاحية تغيير سعر البيع');
+    assert.equal(over.rig.created.length, 0);
+    assert.equal(over.listQueries.length, 1, 'أسعار نوع العميل تُقرأ مرّةً لأصناف المستند');
+    // بسعر الجملة يمرّ
+    const atList = await run([{ productId: 'p-rice', qty: 1, unitPrice: 800, discountPct: 0, taxPct: 15 }]);
+    assert.equal(atList.r.status, 201, JSON.stringify(atList.r.body));
+    // الكيس (٤): السقف ٨٠٠ × ٤ = ٣٢٠٠ بمعامل وحدة البند — ٣٢٠٠ يمرّ و٣٣٠٠ يُرفض
+    const bag = await run([{ productId: 'p-rice', unitId: 'u-bag', qty: 1, unitPrice: 3200, discountPct: 0, taxPct: 15 }]);
+    assert.equal(bag.r.status, 201, JSON.stringify(bag.r.body));
+    const bagOver = await run([{ productId: 'p-rice', unitId: 'u-bag', qty: 1, unitPrice: 3300, discountPct: 0, taxPct: 15 }]);
+    assert.equal(bagOver.r.status, 403, JSON.stringify(bagOver.r.body));
+    assert.equal(bagOver.r.body.message, 'لا تملك صلاحية تغيير سعر البيع');
+  } finally {
+    asAdmin();
+  }
+});
+
 test('المرحلة الثانية والإعداد false: إشعار دائن 381 قياسيّ معتمد برقمٍ يدويّ — BT-25 وKSA-10 بلا أصل في المنصّة، وقيد مرتجع', async () => {
   asAdmin();
   const rig = buildRig();

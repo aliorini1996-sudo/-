@@ -277,14 +277,15 @@ test('كل تسمية ورسالة وتنبيه مترجم إلى اللغات �
 test('التوصيل: تبويب «إعدادات الطباعة» كسول في إعدادات الشركة بـ?tab=print، والعميل، ونوع الشركة', () => {
   const page = read('src', 'pages', 'CompanySettingsPage.tsx');
   assert.ok(page.includes("const loadPrintPanel = () => import('../components/print/PrintSettingsPanel');"));
-  assert.ok(page.includes("useState<'general' | 'print' | 'zatca' | 'api' | 'teams'>"));
-  assert.ok(page.includes("t === 'api' || t === 'teams' || t === 'print' ? t : 'general'"));
+  // «أنواع الأسعار» تبويبٌ سادس بـ?tab=prices (طلب المالك) — والطباعة كما كانت
+  assert.ok(page.includes("useState<'general' | 'print' | 'zatca' | 'api' | 'teams' | 'prices'>"));
+  assert.ok(page.includes("t === 'api' || t === 'teams' || t === 'print' || t === 'prices' ? t : 'general'"));
   assert.ok(page.includes("tr('إعدادات الطباعة')"));
   assert.ok(page.includes('<PrintSettingsPanel phase2={zatcaCollectOn(data)} />'));
   // ليس مشروطاً بالمحاسبة ولا بالمدير غير المقيّد: كل من بلغ الصفحة (صلاحية إعدادات الشركة)
   assert.match(page, /const printTabOn = true;/);
   // الإعدادات العامة مخفيّة لا مُزالة خلف التبويب
-  assert.ok(page.includes('<div hidden={showApi || showTeams || showPrint}>'));
+  assert.ok(page.includes('<div hidden={showApi || showTeams || showPrint || showPrices}>'));
   const client = read('src', 'api', 'client.ts');
   assert.ok(client.includes("get: () => api.get('/company/print-settings'),"));
   assert.ok(client.includes("put: (data: PrintSettingsV1 | null) => api.put('/company/print-settings', data ?? { reset: true }),"), 'null = استعادة الافتراضي (العمود null)');

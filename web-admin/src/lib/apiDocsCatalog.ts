@@ -1,6 +1,6 @@
 /**
  * فهرس مسارات المنصة في مستند «الربط البرمجي API» — مستخرجٌ من مخططات zod ومعالجات كل موجّه
- * (العملاء، المنتجات، الفواتير، السندات، المناديب، المخزون، تتبّع LOT، الاستيراد، الميدان، التقارير، لوكيشن، طرق الدفع، الفرق). يُرسم في
+ * (العملاء، المنتجات، أنواع الأسعار، الفواتير، السندات، المناديب، المخزون، تتبّع LOT، الاستيراد، الميدان، التقارير، لوكيشن، طرق الدفع، الفرق). يُرسم في
  * components/ApiDocs.tsx، ومعه في آخر الملف أدلّة ربط صفحات «لوكيشن» و«طرق الدفع» و«مخزون الشركة» خطوةً بخطوة (API_DOC_GUIDES).
  * يُحدَّث حين يتغيّر عقد مسار؛ واختبار apiDocsCatalog.test.ts يتحقّق أن كل مسار مذكور هنا مركَّب فعلاً في الخادم **في ملف
  * موجّهه** (ومنها الموجّهات المتداخلة تحت /company)، وأن كل مسار في موجّهات الميزات الحديثة موثّقٌ هنا أو مستثنى بسببه.
@@ -416,6 +416,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "الحالة، والافتراضي ACTIVE"
      },
      {
+      "name": "priceListId",
+      "type": "string | null",
+      "required": false,
+      "desc": "نوع سعر العميل من GET /price-lists فتُسعَّر فواتيره به، وnull أو الفارغ = السعر الأساسي. نوع ليس من الشركة ⇒ 400 {code:'PRICE_LIST_INVALID'}"
+     },
+     {
       "name": "creditLimit",
       "type": "number >= 0",
       "required": false,
@@ -568,6 +574,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "type": "enum: ACTIVE | INACTIVE | BLOCKED",
       "required": false,
       "desc": "حالة العميل، ولا يمكن ضبطها على DELETED من هنا"
+     },
+     {
+      "name": "priceListId",
+      "type": "string | null",
+      "required": false,
+      "desc": "نوع سعر العميل من GET /price-lists، وnull أو الفارغ = السعر الأساسي، وغيابه لا يغيّر النوع. نوع ليس من الشركة ⇒ 400 {code:'PRICE_LIST_INVALID'}. فواتيره القديمة تبقى على نوعها المختوم"
      },
      {
       "name": "creditLimit",
@@ -1409,6 +1421,60 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "example": "{\"tiers\":[{\"minQty\":1,\"maxQty\":49,\"price\":13.04},{\"minQty\":50,\"price\":12.5}]}"
    },
    {
+    "method": "PUT",
+    "path": "/products/:id/list-prices",
+    "purpose": "سعر الصنف في أنواع الأسعار المسمّاة (سعر الجملة، سعر التجزئة…) — بالوحدة الرئيسية",
+    "permission": "canManageProducts",
+    "gates": [
+     "requireAccounting",
+     "requireAdmin — الدور ADMIN أو MANAGER أو ACCOUNTANT",
+     "requireAdminPermission('canManageProducts')",
+     "مفتاح قراءة فقط يُرفض 403 API_KEY_FORBIDDEN"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "expectedBaseName",
+      "type": "string",
+      "required": true,
+      "desc": "اسم وحدة الأساس كما قرأته (unit). اختلافه تحت القفل ⇒ 409 {code:'BASE_UNIT_CHANGED'} بلا كتابة"
+     },
+     {
+      "name": "expectedPrimary",
+      "type": "object | null",
+      "required": false,
+      "desc": "الوحدة الرئيسية التي أدخلت بها الأسعار كما قرأتها {id, factor}، وnull إن قرأت الصنف بلا رئيسية (الأسعار لوحدة الأساس). اختلافها ⇒ 409 {code:'PRIMARY_UNIT_CHANGED'} بلا كتابة. غياب المفتاح = رئيسية الصنف الآن"
+     },
+     {
+      "name": "items",
+      "type": "array (حتى 200)",
+      "required": true,
+      "desc": "الأنواع المراد ضبطها، وما لا يُرسل يبقى كما هو"
+     },
+     {
+      "name": "items[].priceListId",
+      "type": "string",
+      "required": true,
+      "desc": "معرّف النوع من GET /price-lists — نوع ليس من الشركة ⇒ 400 {code:'PRICE_LIST_INVALID'} بلا كتابة"
+     },
+     {
+      "name": "items[].price",
+      "type": "number ≥ 0 | null",
+      "required": false,
+      "desc": "سعر الوحدة الرئيسية (أو وحدة الأساس لصنف بلا رئيسية) صافياً قبل الضريبة. null أو الغياب يحذف سعر الصنف في هذا النوع فيعود لسعره الأساسي"
+     }
+    ],
+    "response": "{success:true, data:{listPrices:[{priceListId, price}]}} — price لوحدة الأساس كما خُزِّن — 404 'الصنف غير موجود' — 409 BASE_UNIT_CHANGED | PRIMARY_UNIT_CHANGED — 400 PRICE_LIST_INVALID — 503 PRODUCT_UNITS_BUSY بلا كتابة: أعد المحاولة بعد قليل",
+    "rules": [
+     "يُخزَّن لوحدة الأساس = سعر الرئيسية ÷ معاملها بست منازل (كرتون 24 بعشرة ⇒ 0.416667)، فتُشتق بقية الوحدات بمعاملها",
+     "الترتيب في الفاتورة: سعر العميل الخاص يغلب نوعه، والنوع يغلب سعر الوحدة المحدَّد وbasePrice",
+     "«إضافة وحدة فرعية أصغر» تقسم أسعار الأنواع على المعامل مع أسعار العملاء فيبقى سعر الكرتون في كل نوع كما هو",
+     "يتحرّك updatedAt للصنف فيظهر متغيّراً في مزامنة ERP و/api/v1/sync/products، لكن أسعار الأنواع ليست في حمولتهما: اقرأ قيمها من GET /price-lists/prices (كل نوع ببنوده) أو listPrices في GET /products",
+     "GET /products وGET /products/:id يعيدان لكل صنف listPrices:[{priceListId, price}] بالسعر لوحدة الأساس. وPOST /products يقبل listPrices بالشكل نفسه بسعر الوحدة الرئيسية (الأساس في الإنشاء بلا وحدات) فيُكتب مع الصنف"
+    ],
+    "example": "{\"expectedBaseName\":\"حبة\",\"expectedPrimary\":{\"id\":\"<unitId>\",\"factor\":24},\"items\":[{\"priceListId\":\"<id>\",\"price\":10},{\"priceListId\":\"<id2>\",\"price\":null}]}"
+   },
+   {
     "method": "POST",
     "path": "/products/:id/units",
     "purpose": "إضافة وحدة بيع أكبر من وحدة الأساس لصنف (كرتون = 24 حبة)",
@@ -1684,12 +1750,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "إقرار بإبلاغ المتكامل: يلزم حين للشركة مفتاح API نشط استُعمل في آخر 30 يوماً، وإلا 409 CONVERT_BASE_API_ACK (يُفحص بعد إقرار ERP)"
      }
     ],
-    "response": "403 {success:false, code:'CONVERT_BASE_INTERACTIVE_ONLY', message} لكل طلب مفتاح. ولجلسة لوحة الإدارة المسموح لها: {success:true, data:Product مع category وpriceTiers وunits وprimaryUnitId وbaseConvertedAt، converted:{factor, from, invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices, priceTiers, vanLoadItemLots?, invoiceItemLots?, lotRelabels?, conversionId}} وأعداد converted هي الصفوف المعاد كتابتها في كل جدول، والثلاثة الاختيارية (صفوف تشغيلات الصنف) تظهر حين يمسّ التحويل صفوفاً منها وحدها، وconversionId معرّف صفّ سجلّ التحويلات. ومع dryRun: {success:true, dryRun:true, erpLinked, apiKeys:{write, readOnly}, primaryAfter:<اسم الوحدة الرئيسية بعد التحويل>|null, converted:{factor, from, invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices, priceTiers, …}} بلا كتابة — 403 {code:'CONVERT_BASE_OWNER_ONLY' | 'CONVERT_BASE_ROLE_FORBIDDEN' | 'CONVERT_BASE_SCOPED_USER' | 'CONVERT_BASE_FORBIDDEN'} — 409 {success:false, code:'CONVERT_BASE_ERP_ACK', erpLinked:true, message} و409 {success:false, code:'CONVERT_BASE_API_ACK', apiKeys:{write, readOnly}, message} بلا إقرارهما (ولا يُطلبان مع dryRun) — 409 {code:'REP_UNIT_RULE_SET'} لصنفٍ له قيد وحدة مندوب — 409 {success:false, code:'BASE_UNIT_CHANGED', message} — 409 {code:'BASE_NAME_RETIRED'} — 400 {code:'PRODUCT_UNITS_INVALID', message} — 404 PRODUCT_NOT_FOUND — 503 {code:'LOT_BUSY'} لصنفٍ متتبَّع التشغيلات مشغولٍ بعملية أخرى: أعد المحاولة",
+    "response": "403 {success:false, code:'CONVERT_BASE_INTERACTIVE_ONLY', message} لكل طلب مفتاح. ولجلسة لوحة الإدارة المسموح لها: {success:true, data:Product مع category وpriceTiers وunits وprimaryUnitId وbaseConvertedAt، converted:{factor, from, invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices, priceTiers, priceListItems?, vanLoadItemLots?, invoiceItemLots?, lotRelabels?, conversionId}} وأعداد converted هي الصفوف المعاد كتابتها في كل جدول، وpriceListItems (أسعار الصنف في «أنواع الأسعار») تظهر حين يكون للصنف سعرٌ في نوعٍ منها وحدها، والثلاثة الاختيارية الأخرى (صفوف تشغيلات الصنف) تظهر حين يمسّ التحويل صفوفاً منها وحدها، وconversionId معرّف صفّ سجلّ التحويلات. ومع dryRun: {success:true, dryRun:true, erpLinked, apiKeys:{write, readOnly}, primaryAfter:<اسم الوحدة الرئيسية بعد التحويل>|null, converted:{factor, from, invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices, priceTiers, priceListItems?, …}} بلا كتابة — 403 {code:'CONVERT_BASE_OWNER_ONLY' | 'CONVERT_BASE_ROLE_FORBIDDEN' | 'CONVERT_BASE_SCOPED_USER' | 'CONVERT_BASE_FORBIDDEN'} — 409 {success:false, code:'CONVERT_BASE_ERP_ACK', erpLinked:true, message} و409 {success:false, code:'CONVERT_BASE_API_ACK', apiKeys:{write, readOnly}, message} بلا إقرارهما (ولا يُطلبان مع dryRun) — 409 {code:'REP_UNIT_RULE_SET'} لصنفٍ له قيد وحدة مندوب — 409 {success:false, code:'BASE_UNIT_CHANGED', message} — 409 {code:'BASE_NAME_RETIRED'} — 400 {code:'PRODUCT_UNITS_INVALID', message} — 404 PRODUCT_NOT_FOUND — 503 {code:'LOT_BUSY'} لصنفٍ متتبَّع التشغيلات مشغولٍ بعملية أخرى: أعد المحاولة",
     "rules": [
      "كل الخطوات في معاملة واحدة بقفل صفّ الصنف: يتحوّل تاريخ الصنف كله أو لا شيء",
      "بنود الصنف في الفواتير والتحميلات والوارد وطلبات البضاعة: unitName يأخذ اسم الأساس القديم إن كان فارغاً، وunitFactor يُضرب بـfactor، وbaseQty يُعاد حسابه. أما qty وunitPrice وunitCost وlineTotal فلا تتغيّر: «2 كرتون» تبقى مطبوعة كما هي وأساسها 48 حبة. وsuggestedQty وexpectedQty في التحميلات تُضرب بـfactor (بالأساس دائماً)",
      "وحدات الصنف القائمة يُضرب معاملها بـfactor، وتُنشأ وحدة باسم الأساس القديم بمعامل factor وبسعره القديم ورمزه، أولى في الترتيب — فيبيع المندوب الكرتون بسعره كما كان",
-     "أسعار العملاء الخاصة وأسعار الشرائح تُقسم على factor (فسعر الكرتون للعميل لا يتغيّر)، وحدود الشرائح بالأساس تُضرب بـfactor",
+     "أسعار العملاء الخاصة وأسعار الشرائح وأسعار «أنواع الأسعار» تُقسم على factor (فسعر الكرتون للعميل وفي كل نوع لا يتغيّر)، وحدود الشرائح بالأساس تُضرب بـfactor",
      "صنفٌ بلا تاريخ يكفيه تعديل unit بـPUT /products/:id ثم إضافة الوحدة بـPOST /products/:id/units",
      "معاملٌ مخزَّن في تاريخ الصنف (لقطة unitFactor في بنود الفواتير والتحميلات والوارد وطلبات البضاعة، ولو لوحدةٍ حُذفت أو تغيّر معاملها) يتجاوز 100000 بعد ضربه بـfactor ⇒ 400 {code:'PRODUCT_UNITS_INVALID', message:'معامل وحدة «…» في تاريخ الصنف يتجاوز 100000 بعد الإضافة'} في المعاينة (dryRun) والتنفيذ معاً، بلا كتابة",
      "كل نجاح يكتب في معاملته صفاً واحداً في سجلّ التحويلات (من، إلى، المعامل، اللحظة، الفاعل) ويختم baseConvertedAt للصنف",
@@ -1763,6 +1829,158 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "عميل غير موجود يعيد قائمة فارغة لا 404 (للمستخدم غير المقيد)",
      "ضبط هذه الأسعار يتم عبر PUT /customers/:id/prices في مجموعة العملاء لا هنا",
      "unit اسم وحدة أساس الصنف لحظة القراءة — السعر محسوب عليه. وbaseConvertedAt (null أو ISO، حاضرٌ دائماً) لحظة آخر «إضافة وحدة فرعية أصغر» للصنف، مقروءةٌ مع السعر وunit في جملةٍ واحدة: إن تغيّرت عمّا خزّنته فقد صار السعر لوحدةٍ أصغر (أعد سحب الأسعار)، وإن بقيت كما هي وتغيّر unit وحده فهي إعادة تسمية للأساس والسعر كما هو"
+    ],
+    "example": ""
+   }
+  ]
+ },
+ {
+  "key": "price-lists",
+  "title": "أنواع الأسعار",
+  "overview": "«أنواع الأسعار»: أسعارٌ مسمّاة تحدّدها الشركة بحرّية (سعر الجملة، سعر التجزئة…). لكل عميل نوعه (priceListId في GET /customers، ويُضبط بـPOST/PUT /customers)، فتُسعَّر فواتيره به تلقائياً. المسارات تحت https://api.fieldsa.net/api/price-lists وتعمل بمفتاح الشركة بهوية من أصدره.\nالبوّابة: النظام المحاسبي (403 ACCOUNTING_NOT_ALLOWED إن كان مطفأً). أسماء الأنواع (GET /price-lists) لأي مستخدم شركة، وأسعارها (GET /price-lists/prices) والكتابة لصلاحية الأصناف canManageProducts كـ/products. والمفتاح «قراءة فقط» يمرّ بطلبات GET وحدها.\nالسعر في كل نوع صافٍ قبل الضريبة لوحدة الأساس، ويُكتب لكل صنف بالوحدة الرئيسية بـPUT /products/:id/list-prices. والصنف بلا سعر في النوع يُسعَّر بسعره الأساسي. وسعر العميل الخاص (PUT /customers/:id/prices) يغلب نوعه.\nالفاتورة: POST /invoices يقبل priceListId (null = السعر الأساسي)، وغيابه = نوع العميل، ويُختم المستند بالنوع المستعمل في priceListId. المفتاح حرّ في اختيار النوع والسعر كالإدارة؛ أما مندوب التطبيق فلا يبدّل نوع عميله إلا بصلاحية canChangePriceList.",
+  "endpoints": [
+   {
+    "method": "GET",
+    "path": "/price-lists",
+    "purpose": "أنواع الأسعار المسمّاة للشركة واسم زرّ السعر الأساسي وعدد العملاء على كل نوع",
+    "permission": "أي مستخدم شركة (لا صلاحية خاصة)",
+    "gates": [
+     "requireAccounting",
+     "أي مستخدم شركة (لا صلاحية خاصة) — ومسموح لمفتاح القراءة فقط"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:{basePriceLabel: string|null, lists:[{id, name, sortOrder, customersCount}]}}",
+    "rules": [
+     "الترتيب sortOrder ثم الاسم",
+     "basePriceLabel اسم السعر الافتراضي (basePrice) كما سمّته الشركة، وnull = «السعر الأساسي»",
+     "customersCount عدد العملاء غير المحذوفين على النوع",
+     "id هو القيمة التي تأتي في priceListId للعملاء والفواتير (GET /customers وGET /invoices والمزامنة)"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/price-lists/prices",
+    "purpose": "أسعار الأصناف في كل نوع — صافية قبل الضريبة لوحدة الأساس",
+    "permission": "canManageProducts",
+    "gates": [
+     "requireAccounting",
+     "requireAdminPermission('canManageProducts') — 403 «لا تملك صلاحية الوصول لهذا القسم» كـGET /products — ومسموح لمفتاح القراءة فقط"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:[{id, name, items:[{productId, price, unit, baseConvertedAt}]}]}",
+    "rules": [
+     "price صافٍ قبل الضريبة لوحدة الأساس بست منازل: سعر وحدة أكبر في النوع = price × factor",
+     "unit اسم وحدة أساس الصنف لحظة القراءة وbaseConvertedAt لحظة آخر «إضافة وحدة فرعية أصغر» — مقروءان مع السعر في جملة واحدة كـGET /products/customer-prices/:customerId",
+     "تُستبعد أسعار الأصناف المؤرشفة، والنوع بلا أسعار يعود بقائمة items فارغة",
+     "الصنف الذي لا سعر له في النوع يُسعَّر بسعره الأساسي (سعر الوحدة المحدَّد أو basePrice × factor)"
+    ],
+    "example": ""
+   },
+   {
+    "method": "POST",
+    "path": "/price-lists",
+    "purpose": "إضافة نوع سعر مسمّى (سعر الجملة، سعر التجزئة…) في آخر الترتيب",
+    "permission": "canManageProducts",
+    "gates": [
+     "requireAccounting",
+     "requireAdmin — الدور ADMIN أو MANAGER أو ACCOUNTANT",
+     "requireAdminPermission('canManageProducts')",
+     "مفتاح قراءة فقط يُرفض 403 API_KEY_FORBIDDEN"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "name",
+      "type": "string",
+      "required": true,
+      "desc": "اسم النوع، يُقص من الطرفين ومن 1 إلى 40 حرفاً، وفريد في الشركة"
+     }
+    ],
+    "response": "201 {success:true, data:{id, name, sortOrder, customersCount}} — 400 {success:false, code:'PRICE_LIST_NAME_INVALID', message} — 409 {success:false, code:'PRICE_LIST_NAME_TAKEN', message}",
+    "rules": [
+     "sortOrder = آخر ترتيب + 1",
+     "النوع الجديد بلا أسعار: كل أصنافه بسعرها الأساسي حتى تُكتب بـPUT /products/:id/list-prices"
+    ],
+    "example": "{\"name\":\"سعر الجملة\"}"
+   },
+   {
+    "method": "PUT",
+    "path": "/price-lists/base-label",
+    "purpose": "تسمية زرّ السعر الافتراضي (basePrice) في شاشات الأصناف والفواتير",
+    "permission": "canManageProducts",
+    "gates": [
+     "requireAccounting",
+     "requireAdmin — الدور ADMIN أو MANAGER أو ACCOUNTANT",
+     "requireAdminPermission('canManageProducts')",
+     "مفتاح قراءة فقط يُرفض 403 API_KEY_FORBIDDEN"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "label",
+      "type": "string | null",
+      "required": true,
+      "desc": "الاسم من 1 إلى 40 حرفاً بعد القص، وnull أو النص الفارغ يعيد «السعر الأساسي»"
+     }
+    ],
+    "response": "{success:true, data:{basePriceLabel: string|null}} — 400 PRICE_LIST_NAME_INVALID — 409 {success:false, code:'COMPANY_SETTINGS_MISSING'} إن لم تُحفظ إعدادات الشركة بعد",
+    "rules": [
+     "تسمية للعرض وحدها: لا تغيّر basePrice ولا أي سعر"
+    ],
+    "example": "{\"label\":\"سعر المستهلك\"}"
+   },
+   {
+    "method": "PUT",
+    "path": "/price-lists/:id",
+    "purpose": "إعادة تسمية نوع سعر أو تغيير ترتيبه",
+    "permission": "canManageProducts",
+    "gates": [
+     "requireAccounting",
+     "requireAdmin — الدور ADMIN أو MANAGER أو ACCOUNTANT",
+     "requireAdminPermission('canManageProducts')",
+     "مفتاح قراءة فقط يُرفض 403 API_KEY_FORBIDDEN"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "name",
+      "type": "string",
+      "required": false,
+      "desc": "الاسم الجديد من 1 إلى 40 حرفاً بعد القص، وفريد في الشركة"
+     },
+     {
+      "name": "sortOrder",
+      "type": "integer 0..100000",
+      "required": false,
+      "desc": "الترتيب، الأصغر أولاً"
+     }
+    ],
+    "response": "{success:true, data:{id, name, sortOrder, customersCount}} — 404 {success:false, code:'PRICE_LIST_INVALID'} لنوع ليس من الشركة — 409 PRICE_LIST_NAME_TAKEN",
+    "rules": [
+     "العملاء والفواتير تشير إلى النوع بمعرّفه، فإعادة التسمية تظهر فيها كلها"
+    ],
+    "example": "{\"name\":\"سعر الجملة الكبرى\"}"
+   },
+   {
+    "method": "DELETE",
+    "path": "/price-lists/:id",
+    "purpose": "حذف نوع سعر لا عملاء عليه، مع أسعاره",
+    "permission": "canManageProducts",
+    "gates": [
+     "requireAccounting",
+     "requireAdmin — الدور ADMIN أو MANAGER أو ACCOUNTANT",
+     "requireAdminPermission('canManageProducts')",
+     "مفتاح قراءة فقط يُرفض 403 API_KEY_FORBIDDEN"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true} — 404 {success:false, code:'PRICE_LIST_INVALID'} — 409 {success:false, code:'PRICE_LIST_IN_USE', message, customersCount}",
+    "rules": [
+     "النوع الذي عليه عملاء غير محذوفين لا يُحذف: انقلهم إلى نوع آخر أولاً بـPUT /customers/:id {priceListId}",
+     "أسعار النوع تُحذف معه، والفواتير التي سُعّرت به (والعملاء المحذوفون عليه) يصير priceListId فيها null ويتحرّك updatedAt لها فتلتقطها مزامنة /api/v1/sync"
     ],
     "example": ""
    }
@@ -2231,6 +2449,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "type": "enum CASH | CREDIT",
       "required": false,
       "desc": "طريقة دفع الفاتورة الأصلية (BR-49) — إلزامية مع originalInvoiceRef، وغيابها 422 ZATCA_RETURN_REF_INVALID (reason=PAYMENT_TYPE). لا قيمة افتراضية"
+     },
+     {
+      "name": "priceListId",
+      "type": "string | null",
+      "required": false,
+      "desc": "«أنواع الأسعار»: النوع الذي سعّرت به المستند من GET /price-lists، وnull = السعر الأساسي، وغيابه = نوع العميل. نوع ليس من الشركة ⇒ 400 {code:'PRICE_LIST_INVALID'}. لا يغيّر الخادم أسعارك به (السعر من unitPrice كما هو)، ويُختم المستند به في priceListId"
      },
      {
       "name": "clientRef",
@@ -3275,6 +3499,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "type": "boolean",
       "required": false,
       "desc": "البيع بأقل من السعر، الافتراضي false"
+     },
+     {
+      "name": "canChangePriceList",
+      "type": "boolean",
+      "required": false,
+      "desc": "«تبديل نوع السعر»: يسعّر فاتورته بنوع غير نوع العميل (أنواع الأسعار)، الافتراضي false — وبلاها يُرفض تبديله 403 PRICE_LIST_FORBIDDEN"
      },
      {
       "name": "canCreateReceipt",

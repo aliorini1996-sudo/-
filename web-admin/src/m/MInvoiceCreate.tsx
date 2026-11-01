@@ -1,8 +1,8 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Search, Plus, Minus, Trash2, ShoppingCart, Loader2, Check, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { customerApi, productApi, salesRepApi, invoiceApi, lotsApi } from '../api/client';
+import { customerApi, productApi, salesRepApi, invoiceApi, lotsApi, priceListApi } from '../api/client';
 import { formatCurrency, formatDate, formatNumber } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { useAuthStore } from '../store/authStore';
@@ -10,9 +10,13 @@ import { MHeader, MSpinner } from './mobileUi';
 import { expectArray, expectObject } from './shape';
 import { lineTotal, invoiceTotals, type Line } from './docMath';
 import { previewInstallments, defaultFirstDue, MAX_INSTALLMENTS, type InstallmentPeriod } from '../lib/installments';
-import { unitChoices, defaultChoice, primaryChoice, choiceNet, invoiceItemUnit, type UnitChoice } from '../rep/repUnits';
+import { unitChoices, defaultChoice, primaryChoice, invoiceItemUnit, type CustPriceInput, type UnitChoice } from '../rep/repUnits';
 import { refetchUnitsOn } from './mPrimaryUnit';
-import { lineKey, addInvoiceLine, setInvoiceLineUnit, stepInvoiceLine, refreshInvoiceLines, qtyText, type SalePick } from './mUnits';
+import {
+  lineKey, addInvoiceLine, setInvoiceLineUnit, stepInvoiceLine, refreshInvoiceLines, repriceInvoiceLines, priceOverrideOf, suggestedNet, qtyText,
+  type SalePick,
+} from './mUnits';
+import { baseLabelOf, priceListsOf } from '../lib/priceLists';
 import {
   lotErrorOf, lotFlagsOf, lotWarningsOf, LOT_WARNING_LABELS, type LotWarning, type VanLotSnapshotDto,
 } from '../lib/lots';
@@ -22,7 +26,11 @@ import { vanAvailableOf, vanLotShortages, LOT_CACHE_KEYS } from './mLotsLogic';
 import { can } from './perms';
 import MUnitChips from './MUnitChips';
 
-interface Pick { id: string; name: string; code?: string; phone?: string; basePrice?: number; taxPct?: number; unit?: string }
+interface Pick {
+  id: string; name: string; code?: string; phone?: string; basePrice?: number; taxPct?: number; unit?: string;
+  /** «أنواع الأسعار»: نوع سعر العميل من ملفه (null = السعر الأساسي) — يردّه الخادم مع صفّ العميل */
+  priceListId?: string | null;
+}
 
 /**
  * إنشاء فاتورة من الجوال — على نمط شاشة المندوب بصرياً، **وبدلالة الأدمن حسابياً**.
@@ -46,6 +54,12 @@ interface Pick { id: string; name: string; code?: string; phone?: string; basePr
  * في البنود صنفٌ متتبَّع وللمستخدم صلاحية مخزون السيارات وحدهما. والردّ يحمل تحذيرات التوزيع (warnings) فتُقال، والرفض
  * برمزه (LOT_STOCK_INSUFFICIENT وLOT_BUSY) يُشرح بلغة الواجهة (lotErrorText). والورقة بعد الإصدار تُجلب بتشغيلاتها
  * (MDocScreen، withLots).
+ *
+ * ═══ «أنواع الأسعار» (طلب المالك: رقاقات تبديلٍ بأسماء تختارها الشركة) ═══
+ * الفاتورة تبدأ بنوع سعر العميل من ملفه، ورقاقاتٌ فوق الأصناف تبدّله (الإدارة حرّة دائماً) — والبند يُقترح سعره بالقاعدة الواحدة:
+ * `choiceNet(c, basePrice, سعر العميل الخاص ?? سعر النوع)` ⚠️ **صافياً قبل الضريبة** كبقية هذه الشاشة (mUnits.suggestedNet). وتبديل
+ * العميل أو النوع يعيد تسعير البنود التي لم يمسّها المستخدم وحدها، والجسم يحمل `priceListId` (null = السعر الأساسي). شركةٌ بلا
+ * أنواع: لا رقاقة ولا مفتاح — وأسعار العميل الخاصة تُقترح على كل حال كتطبيق المندوب ولوحة الإدارة.
  */
 type Step = 'head' | 'items' | 'review';
 
@@ -80,6 +94,10 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
   const [catalog, setCatalog] = useState<Record<string, SalePick>>({});
   const [pq, setPq] = useState('');
   const [cq, setCq] = useState('');
+  // العميل كما نُقر صفّه — نتيجة البحث تتبدّل مع كل حرف فلا يُقرأ منها نوع سعره (ولا اسمه في المراجعة) بعد ذلك
+  const [pickedCustomer, setPickedCustomer] = useState<Pick | null>(null);
+  // «أنواع الأسعار»: undefined = نوع العميل؛ والرقاقة المختارة (null = السعر الأساسي) حتى يتبدّل العميل
+  const [listChoice, setListChoice] = useState<string | null | undefined>(undefined);
 
   const customersQ = useQuery({
     queryKey: ['m-inv-customers', cq],
@@ -96,6 +114,50 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
     queryFn: async () => expectArray<SalePick>((await productApi.list({ search: pq, limit: 60 })).data?.data, tr('الأصناف')),
     enabled: step === 'items',
   });
+  const customer = customersQ.data?.find(c => c.id === customerId) ?? (pickedCustomer?.id === customerId ? pickedCustomer : undefined);
+
+  /* ─── «أنواع الأسعار» — الأنواع وأسماؤها (للشركة كلها)، ونوع العميل من صفّه (أو من ملفه حين جاء من شاشته ولم يكن في نتيجة البحث)،
+   * وأسعاره الخاصة (/products/customer-prices: سعر العميل يغلب النوع). أسعار الأنواع نفسها مع كل صنف (listPrices في GET /products) ─── */
+  const priceInfoQ = useQuery({
+    queryKey: ['m-price-lists'],
+    queryFn: async () => priceListsOf((await priceListApi.list()).data?.data),
+    // مرّةً كل ٥ دقائق لا مع كل فاتورة (القاعدة هي العنق الضيّق، كإعدادات الشركة في تطبيق المندوب) — ونوع عميلٍ لا تعرفه يعيدها أدناه
+    staleTime: 5 * 60_000,
+  });
+  const priceLists = priceInfoQ.data?.lists ?? [];
+  const listsOn = priceLists.length > 0;
+  const custFileQ = useQuery({
+    queryKey: ['m-inv-customer', customerId],
+    queryFn: async () => expectObject<Pick>((await customerApi.get(customerId)).data?.data, tr('العميل')),
+    enabled: listsOn && !!customerId && !customer,
+  });
+  const custRow = customer ?? custFileQ.data;
+  // undefined = لم يُعرف بعد (فالفاتورة بالسعر الأساسي حتى يصل، ثم تُعاد البنود غير المعدَّلة بنوعه)
+  const custListId: string | null | undefined = custRow ? (custRow.priceListId ?? null) : undefined;
+  const listId: string | null = !listsOn ? null : listChoice !== undefined ? listChoice : (custListId ?? null);
+  // نوع العميل غائبٌ عن الأسماء المخبّأة (أُنشئ بعدها): تُقرأ من جديد مرّةً لكل نوع — وإلا لا رقاقة ولا مفتاح، فيسعّر الخادم بنوع
+  // العميل (المفتاح غائب) والبنود مقترحةٌ بالسعر الأساسي
+  const namesRetried = useRef<string | null>(null);
+  useEffect(() => {
+    if (!custListId || priceLists.some(l => l.id === custListId) || priceInfoQ.isFetching || namesRetried.current === custListId) return;
+    namesRetried.current = custListId;
+    void priceInfoQ.refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- نوع العميل وردّ الأسماء وحدهما
+  }, [custListId, priceInfoQ.data, priceInfoQ.isFetching]);
+  const custPricesQ = useQuery({
+    queryKey: ['m-inv-cust-prices', customerId],
+    queryFn: async () => expectArray<CustPriceInput>((await productApi.customerPrices(customerId)).data?.data, tr('أسعار العميل الخاصة')),
+    enabled: !!customerId,
+    staleTime: 30_000,
+  });
+  const custRows = custPricesQ.data ?? null;
+  /** ثالث choiceNet للصنف: سعر العميل الخاص ?? سعر نوع الفاتورة (لوحدة الأساس) — أو null فسلسلة اليوم */
+  const overrideOf = (p: SalePick) => priceOverrideOf(p, listId, custRows);
+  // تبديل العميل أو النوع، أو وصول أسعار العميل بعد البنود: البنود التي لم يمسّها المستخدم تُعاد بالمقترح الجديد، والمعدَّلة تبقى
+  useEffect(() => {
+    setLines(ls => repriceInvoiceLines(ls, catalog, overrideOf));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- النوع وأسعار العميل وحدهما يُطلقان إعادة التسعير، لا كل بندٍ يُضاف
+  }, [listId, custRows]);
 
   // صنفٌ في البنود يعود في قائمةٍ أحدث (بعد 400 UNIT_INVALID مثلاً) ⇒ تُحدَّث وحداته في منتقي بنده، ولقطة بنوده تُحلّ
   // من جديد (refreshInvoiceLines): بلاها يبقى البند بأساسٍ لم يعد قائماً فيرفضه الخادم مرّةً بعد مرّة
@@ -106,7 +168,7 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
     const hit = fresh.filter(p => inLines.has(p.id) && catalog[p.id] !== p);
     if (!hit.length) return;
     setCatalog(c => ({ ...c, ...Object.fromEntries(hit.map(p => [p.id, p])) }));
-    setLines(ls => hit.reduce((acc, p) => refreshInvoiceLines(acc, p), ls));
+    setLines(ls => hit.reduce((acc, p) => refreshInvoiceLines(acc, p, overrideOf(p)), ls));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- القائمة الجديدة وحدها تُطلق التحديث، لا كل تعديلٍ في البنود
   }, [productsQ.data]);
 
@@ -133,12 +195,11 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
     () => (plan === 'INSTALLMENT' ? previewInstallments(totals.total, insCount, insFirst, insPeriod) : []),
     [plan, totals.total, insCount, insFirst, insPeriod],
   );
-  const customer = customersQ.data?.find(c => c.id === customerId);
 
-  /** إضافة الصنف بوحدة (الافتراض «الوحدة الرئيسية» وإلّا أكبر وحدة — defaultChoice): بندٌ قائم بالوحدة نفسها يزيد واحداً — والسعر ⚠️ **قبل** الضريبة (mUnits.invoiceLine) */
+  /** إضافة الصنف بوحدة (الافتراض «الوحدة الرئيسية» وإلّا أكبر وحدة — defaultChoice): بندٌ قائم بالوحدة نفسها يزيد واحداً — والسعر ⚠️ **قبل** الضريبة (mUnits.invoiceLine) بسعر العميل أو النوع */
   const addProduct = (p: SalePick, c?: UnitChoice) => {
     setCatalog(m => (m[p.id] === p ? m : { ...m, [p.id]: p }));
-    setLines(ls => addInvoiceLine(ls, p, c));
+    setLines(ls => addInvoiceLine(ls, p, c, overrideOf(p)));
   };
   // البند بمفتاحه (الصنف + الوحدة) لا بالصنف وحده: بندا الكرتون والحبّة يُعدَّلان ويُحذفان كلٌّ وحده
   const setQty = (key: string, d: number) => setLines(ls => stepInvoiceLine(ls, key, d));
@@ -147,13 +208,15 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
   /** تبديل وحدة البند يعيد تسعيره بسعر الوحدة الجديدة — سعر الحبّة على بندٍ صار كرتوناً خسارةٌ صامتة */
   const switchUnit = (key: string, p: SalePick, unitId: string | null) => {
     const c = unitChoices(p).find(o => o.id === unitId);
-    if (c) setLines(ls => setInvoiceLineUnit(ls, key, p, c));
+    if (c) setLines(ls => setInvoiceLineUnit(ls, key, p, c, overrideOf(p)));
   };
 
   const save = useMutation({
     mutationFn: async () => {
       const res = await invoiceApi.create({
         customerId, salesRepId, type, discountPct,
+        // «أنواع الأسعار»: النوع الذي سُعّرت به البنود (null = السعر الأساسي) — والشركة بلا أنواع بلا مفتاح كما كان الجسم
+        ...(listsOn && { priceListId: listId }),
         ...(notes.trim() && { notes: notes.trim() }),
         ...(invoiceDate && { invoiceDate }),
         ...(plan === 'INSTALLMENT' && {
@@ -285,7 +348,8 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
                 {customersQ.isLoading ? <p className="text-center text-xs text-[#9A8F7E] py-5">{tr('جاري التحميل')}</p>
                   : !customersQ.data?.length ? <p className="text-center text-xs text-[#9A8F7E] py-5">{tr('لا نتائج')}</p>
                   : customersQ.data.map(c => (
-                    <button key={c.id} onClick={() => setCustomerId(c.id)}
+                    // عميلٌ آخر: الفاتورة بنوع سعره هو (الرقاقة المختارة كانت للسابق)
+                    <button key={c.id} onClick={() => { if (c.id !== customerId) setListChoice(undefined); setCustomerId(c.id); setPickedCustomer(c); }}
                       className={`w-full text-start px-3 py-3 min-h-[52px] flex items-center gap-2 ${customerId === c.id ? 'bg-[#FBEBE2]' : 'active:bg-[#FAF7F0]'}`}>
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm font-semibold text-[#1F1A13] truncate">{c.name}</span>
@@ -306,6 +370,26 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
 
         {step === 'items' && (
           <>
+            {/* «أنواع الأسعار»: نوع سعر الفاتورة — نوع العميل مختاراً ابتداءً، والنقر يبدّله ويعيد تسعير البنود التي لم تُعدَّل. الأسماء
+                بيانات الشركة لا tr، والرقاقة الأولى السعر الأساسي باسمه عند الشركة */}
+            {listsOn && (
+              <div className="rounded-2xl border border-[#F1EBDF] bg-white p-3 space-y-2" data-m-price-type="">
+                <p className="text-[11px] font-bold text-[#9A8F7E]">{tr('نوع السعر')}</p>
+                <div className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label={tr('نوع السعر')}>
+                  {[{ id: null as string | null, name: baseLabelOf(priceInfoQ.data, tr) }, ...priceLists].map(o => (
+                    <button key={o.id ?? 'base'} type="button" role="radio" aria-checked={o.id === listId} onClick={() => setListChoice(o.id)}
+                      className={`min-h-[34px] px-3 rounded-full text-[12px] font-semibold border transition-colors ${o.id === listId
+                        ? 'bg-[#E15A30] text-white border-[#E15A30]' : 'bg-white text-[#6E6557] border-[#E9E1D3] active:bg-[#FAF7F0]'}`}>
+                      {o.name}
+                    </button>
+                  ))}
+                </div>
+                {custListId !== undefined && listId !== custListId && (
+                  <p className="text-[10px] text-[#8A6D1F]">{tr('ليس نوع سعر العميل')}</p>
+                )}
+              </div>
+            )}
+
             <div className="relative">
               <Search size={15} className="absolute top-1/2 -translate-y-1/2 start-3 text-[#9A8F7E]" />
               <input value={pq} onChange={e => setPq(e.target.value)} className="input ps-9" placeholder={tr('ابحث عن صنف')} />
@@ -402,10 +486,10 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
                         <span className="min-w-0 flex-1">
                           <span className="block text-sm font-semibold text-[#1F1A13] truncate">{p.name}</span>
                           <span className="block text-[11px] text-[#9A8F7E]">
-                            {/* السعر بوحدته: سعر الكرتون بلا «/ كرتون» يُقرأ سعر حبّة */}
+                            {/* السعر بوحدته: سعر الكرتون بلا «/ كرتون» يُقرأ سعر حبّة — وبسعر العميل أو نوع الفاتورة كما سيُضاف */}
                             {multi
-                              ? `${formatCurrency(choiceNet(d, p.basePrice ?? 0))} / ${d.name}`
-                              : formatCurrency(Number(p.basePrice ?? 0))} · {tr('ضريبة')} {Number(p.taxPct ?? 15)}%
+                              ? `${formatCurrency(suggestedNet(p, d, overrideOf(p)))} / ${d.name}`
+                              : formatCurrency(suggestedNet(p, opts[0], overrideOf(p)))} · {tr('ضريبة')} {Number(p.taxPct ?? 15)}%
                             {lotOn && lotTrackedOf(p) && <> · {tr('LOT')}</>}
                           </span>
                         </span>
@@ -438,6 +522,9 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
               <Row k={tr('العميل')} v={customer?.name || '—'} />
               <Row k={tr('المندوب')} v={repsQ.data?.find(r => r.id === salesRepId)?.name || '—'} />
               <Row k={tr('النوع')} v={plan === 'INSTALLMENT' ? tr('تقسيط') : (type === 'CASH' ? tr('نقدي') : tr('آجل'))} />
+              {listsOn && (
+                <Row k={tr('نوع السعر')} v={priceLists.find(l => l.id === listId)?.name ?? baseLabelOf(priceInfoQ.data, tr)} />
+              )}
               <Row k={tr('الأصناف')} v={String(lines.length)} />
             </div>
 

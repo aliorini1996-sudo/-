@@ -73,6 +73,8 @@ const CUSTOMER_COLS = [
   'address', 'lat', 'lng', 'channel', 'outletType', 'aiPlaceId', 'status', 'creditLimit', 'paymentDays', 'balance',
   'totalSales', 'totalCollected', 'createdBySalesRepId', 'createdAt', 'updatedAt', 'buyerType', 'buyerIdScheme',
   'buyerIdValue', 'addrStreet', 'addrBuildingNo', 'addrAdditionalNo', 'addrPostalCode', 'countryCode',
+  // «أنواع الأسعار»: نوع سعر العميل (null = السعر الأساسي) — أسماء الأنواع من GET /api/price-lists
+  'priceListId',
 ];
 const PRODUCT_COLS = [
   'id', 'code', 'name', 'barcode', 'unit', 'basePrice', 'taxPct', 'itemCode', 'itemCodeType', 'unitCode', 'status',
@@ -90,7 +92,7 @@ const PRODUCT_COLS = [
 const SALES_REP_COLS = [
   'id', 'name', 'phone', 'email', 'username', 'isActive', 'canCreateInvoice', 'canSellOnCredit', 'canSellOnInstallment',
   'canSellInCash', 'canEditInvoice', 'canDeleteInvoice', 'canCancelInvoice', 'canChangePrice', 'maxDiscountPct',
-  'canSellBelowPrice', 'canCreateReceipt', 'canEditReceipt', 'canCancelReceipt', 'canAddCustomer', 'canEditCustomer',
+  'canSellBelowPrice', 'canChangePriceList', 'canCreateReceipt', 'canEditReceipt', 'canCancelReceipt', 'canAddCustomer', 'canEditCustomer',
   'canViewStatement', 'requireCustomerProximity', 'requireLocationOn', 'requirePunchAtCustomer', 'showCollectionBalance', 'createdAt', 'updatedAt',
   'canManageVanStock', 'canSellWithoutStock', 'canBeTracked', 'proximityRadiusM', 'punchRadiusM',
   'punchOutsideAction', 'requireBoundDevice', 'boundDeviceName', 'boundDeviceAt', 'shiftStart', 'shiftEnd', 'shiftDays',
@@ -106,6 +108,8 @@ const INVOICE_COLS = [
   'taxAmt', 'total', 'paidAmt', 'remainingAmt', 'einvoiceProvider', 'einvoiceStatus', 'einvoiceUuid', 'einvoiceQr',
   'einvoiceSubmittedAt', 'einvoiceHash', 'einvoicePih', 'einvoiceIcv', 'einvoiceWarnings', 'createdAt', 'updatedAt',
   'zatcaPhase', 'documentKind', 'invoiceSubtype', 'issuedAt', 'originalInvoiceId', 'billingReference', 'noteReason',
+  // «أنواع الأسعار»: النوع الذي سُعّر به المستند وقت الإصدار (null = السعر الأساسي)
+  'priceListId',
   'teamId',
   // «لوكيشن»: ختم موقع المندوب وقت الإصدار (لقطة لا تتحرّك بنقله)
   'locationId',

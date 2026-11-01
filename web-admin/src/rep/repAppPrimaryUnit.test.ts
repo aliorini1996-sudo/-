@@ -141,15 +141,18 @@ test('RepApp: أسعار العميل تمرّ من rebaseCustPrices ويُعا�
 });
 
 test('RepApp refreshUnits: الكتالوج وأسعار العميل معاً، والمرجع بالخريطة الطازجة لا المغلقة', () => {
-  assert.match(repApp, /const inclOf = \(p: any, c: UnitChoice, cust: Record<string, number> = custPrices\) => roundDecimal\(choiceNet\(c, Number\(p\.basePrice\), cust\[p\.id\]\)/);
+  // «أنواع الأسعار»: الخريطة الثانية (سعر نوع الفاتورة) بعد سعر العميل — العميل يغلب النوع (priceLists.test وrepPriceLists.test)
+  assert.match(repApp, /const inclOf = \(p: any, c: UnitChoice, cust: Record<string, number> = custPrices, list: Record<string, number> = listPrices\) => roundDecimal\(choiceNet\(c, Number\(p\.basePrice\), cust\[p\.id\] \?\? list\[p\.id\]\)/);
   const refresh = between(repApp, 'const refreshUnits = async', '\n  return (');
   assert.match(refresh, /await Promise\.all\(\[\s*fetchThenCache\('products'/);
   assert.match(refresh, /customer\?\.id && !customer\._offline\s*\? fetchThenCache\(`custprices:\$\{customer\.id\}`/, 'العميل الأوف‑لاين بلا أسعار خادم');
   assert.match(refresh, /if \(!data \|\| offline\) return;/, 'كاش الكتالوج القديم لا يُعاد عليه شيء');
   assert.match(refresh, /const freshRows = cust\?\.data \? custPriceRowsOf\(cust\.data, cust\.updatedAt\) : custRows;/);
   assert.match(refresh, /const freshCust = freshRows \? rebaseCustPrices\(freshRows, fresh\) : \{\};/);
-  assert.match(refresh, /const ref = inclOf\(p, ch, freshCust\);/);
+  assert.match(refresh, /const freshList = listPricesOf\(freshListRows, listId, fresh\);/, 'أسعار النوع على الأساس الجديد كأسعار العميل');
+  assert.match(refresh, /const ref = inclOf\(p, ch, freshCust, freshList\);/);
   assert.doesNotMatch(refresh, /inclOf\(p, ch\)/, 'الخريطة المغلقة في الـclosure قديمة');
+  assert.doesNotMatch(refresh, /inclOf\(p, ch, freshCust\)/, 'خريطة النوع المغلقة قديمة كذلك');
   assert.match(refresh, /if \(freshRows\) setCustRows\(freshRows\);/);
 });
 

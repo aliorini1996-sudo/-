@@ -308,6 +308,8 @@ test('أعمدة الميزات الحديثة مكشوفة في المزامن�
     ['van-loads', 'locationId'], ['receipts', 'paymentMethodKey'], ['receipts', 'paymentMethod'], ['receipts', 'teamId'],
     ['visits', 'teamId'], ['settlements', 'teamId'],
     ['locations', 'name'], ['locations', 'isActive'], ['teams', 'name'], ['teams', 'isActive'],
+    // «أنواع الأسعار»: نوع سعر العميل وختم المستند به، وصلاحية المندوب في تبديله
+    ['customers', 'priceListId'], ['invoices', 'priceListId'], ['sales-reps', 'canChangePriceList'],
   ];
   for (const [r, c] of exposed) {
     const def = sync.syncResource(r);

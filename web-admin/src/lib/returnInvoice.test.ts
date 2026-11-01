@@ -319,10 +319,13 @@ const modal = readFileSync(new URL('../components/forms/InvoiceModal.tsx', impor
 
 test('مسار البيع لم يتغيّر: الجسم المرسل نفسه حرفياً — والوحدات المتعددة تضيف حقول وحدة البند وحدها', () => {
   // الجسم نفسه حرفياً حتى حقول البند القديمة؛ وبعدها (الوحدات المتعددة) لقطة وحدة البند لا غير — صنفٌ بلا وحدات يبقى
-  // بالأساس بمعامل ١ على الخادم كما كان
+  // بالأساس بمعامل ١ على الخادم كما كان. و«أنواع الأسعار» (طلب المالك) سطرٌ واحد مشروطٌ بأنواعٍ عرّفتها الشركة: بلاها لا مفتاح
+  // فالجسم كما كان حرفياً ويأخذ الخادم نوع العميل
   const eol = modal.includes('\r\n') ? '\r\n' : '\n';
   const head = `    mutation.mutate({
       customerId, salesRepId, type, discountPct, notes,
+      // «أنواع الأسعار»: النوع المختار (null = الافتراضي) — شركةٌ بلا أنواع بلا مفتاح فيأخذ الخادم نوع العميل كما كان
+      ...(priceListOn && { priceListId }),
       ...(invoiceDate && { invoiceDate }),
       ...(deliveryDate && { deliveryDate }),
       ...(plan === 'INSTALLMENT' && {

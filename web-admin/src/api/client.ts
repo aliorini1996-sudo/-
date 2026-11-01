@@ -120,6 +120,27 @@ export const productApi = {
     keepOldBaseAsPrimary?: boolean; dryRun?: boolean; acknowledgeErp?: boolean; acknowledgeApi?: boolean;
   }) =>
     api.post(`/products/${id}/convert-base`, data),
+  /* «أنواع الأسعار»: أسعار الصنف في الأنواع — price سعر **الوحدة الرئيسية** صافياً (الأساس بلاها) يقسمه الخادم على معاملها
+   * لوحدة الأساس بست منازل، وnull يحذف سعر النوع فيعود الصنف فيه إلى السعر الافتراضي. وككتابة الشرائح: expectedBaseName
+   * (409 BASE_UNIT_CHANGED) وexpectedPrimary الرئيسية ومعاملها كما أُدخل بهما السعر (409 PRIMARY_UNIT_CHANGED) */
+  updateListPrices: (id: string, data: {
+    expectedBaseName: string; expectedPrimary?: { id: string; factor: number } | null; items: { priceListId: string; price: number | null }[];
+  }) =>
+    api.put(`/products/${id}/list-prices`, data),
+  // أسعار العميل الخاصّة (صافية لوحدة الأساس، وكل صفٍّ بأساس صنفه لحظة قراءته — rebaseCustPrices) — المسار الذي يقرؤه المندوب
+  customerPrices: (customerId: string) => api.get(`/products/customer-prices/${customerId}`),
+};
+
+/* «أنواع الأسعار» — /api/price-lists: أنواعٌ تسمّيها الشركة (سعر الجملة، سعر التجزئة…) ولكل عميلٍ نوعه في ملفه. القراءة لكل
+ * مستخدم ({ basePriceLabel, lists }) والكتابة لمن يملك صلاحية الأصناف: الاسم ١–٤٠ حرفاً فريدٌ في الشركة (409
+ * PRICE_LIST_NAME_TAKEN)، والحذف يُردّ 409 PRICE_LIST_IN_USE ما دام عليه عملاء. setBaseLabel اسم الرقاقة الأولى (null = «السعر
+ * الأساسي»). وأسعار الأنواع للإدارة في GET /products (listPrices)؛ و/price-lists/prices للمندوب يناديه تطبيقه بعميله (repApi) */
+export const priceListApi = {
+  list: () => api.get('/price-lists'),
+  create: (name: string) => api.post('/price-lists', { name }),
+  update: (id: string, data: { name?: string; sortOrder?: number }) => api.put(`/price-lists/${id}`, data),
+  remove: (id: string) => api.delete(`/price-lists/${id}`),
+  setBaseLabel: (label: string | null) => api.put('/price-lists/base-label', { label }),
 };
 
 // «الفرق» داخل الشركة — /api/company/teams (مطفأة افتراضياً، يفعّلها مدير الشركة من إعدادات الشركة)

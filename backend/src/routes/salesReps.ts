@@ -43,6 +43,8 @@ const repSchema = z.object({
   canChangePrice: z.boolean().optional(),
   maxDiscountPct: z.number().min(0).max(100).optional(),
   canSellBelowPrice: z.boolean().optional(),
+  // «تبديل نوع السعر» (أنواع الأسعار): يسعّر فاتورته بنوعٍ غير نوع العميل — يحرسه POST /api/invoices
+  canChangePriceList: z.boolean().optional(),
   canCreateReceipt: z.boolean().optional(),
   canEditReceipt: z.boolean().optional(),
   canCancelReceipt: z.boolean().optional(),
@@ -75,7 +77,7 @@ const repSelect = {
   id: true, name: true, phone: true, email: true, username: true, isActive: true,
   canCreateInvoice: true, canSellOnCredit: true, canSellOnInstallment: true, canSellInCash: true,
   canEditInvoice: true, canDeleteInvoice: true, canCancelInvoice: true,
-  canChangePrice: true, maxDiscountPct: true, canSellBelowPrice: true,
+  canChangePrice: true, maxDiscountPct: true, canSellBelowPrice: true, canChangePriceList: true,
   canCreateReceipt: true, canEditReceipt: true, canCancelReceipt: true,
   canManageVanStock: true,
   canAddCustomer: true, canEditCustomer: true, canViewStatement: true,

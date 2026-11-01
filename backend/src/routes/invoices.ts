@@ -69,6 +69,8 @@ import {
   LOT_ALLOW_UNKNOWN, LOT_TX_OPTIONS, allocateInvoiceLotsInTx, assertRestockOffKeepsLots, assertReturnCancelKeepsLots, assertReturnStillUntracked,
   freeReturnStamps, invoiceLotLines, invoiceLotMoment, recordReplayHeld, saleItemLots, scaleLotHint, type IssuanceLotPlan,
 } from '../services/lotsInvoice';
+// «أنواع الأسعار»: نوع سعر المستند وحارس تبديله، و«سعر العميل» في مرجع الحارس = سعر العميل ?? سعر النوع
+import { PRICE_LIST_MESSAGES, docPriceListOf, refOverrideOf } from '../services/priceLists';
 
 const router = Router();
 router.use(authenticate);
@@ -199,6 +201,9 @@ const createInvoiceSchema = z.object({
   // (BT-25) وطريقة دفعها (BR-49) لإشعارٍ دائن بلا فاتورة في المنصّة — يُفحصان في routes/invoicesNotes.ts، وفي غير ذلك لا يُقرآن
   originalInvoiceRef: z.string().max(200).optional(),
   originalPaymentType: z.enum(['CASH', 'CREDIT']).optional(),
+  // «أنواع الأسعار»: نوع سعر المستند — غائبٌ ⇒ نوع العميل المحفوظ (العملاء والصناديق القديمة)، وnull ⇒ السعر الأساسي صراحةً.
+  // المندوب لا يرسل غير نوع عميله إلا بـ«تبديل نوع السعر» (403 PRICE_LIST_FORBIDDEN)
+  priceListId: z.string().min(1).nullish(),
   // هل يعود المرتجع لمخزون السيارة؟ (اختياري — يُشتقّ من السبب إن غاب)
   returnToStock: z.boolean().optional(),
   dueDate: z.string().optional(),
@@ -299,7 +304,7 @@ export async function resolveLineUnit(
     docAt?: Date | null;
     /** صافي سعر البند قبل الضريبة كما يقيسه حارس السعر — إشارة الحالة B */
     netUnitPrice?: number;
-    /** سعر العميل الحالي لوحدة الأساس، أو null */
+    /** سعر العميل الحالي لوحدة الأساس (وبلاه سعر نوع المستند — «أنواع الأسعار»)، أو null */
     custPrice?: number | null;
   },
 ): Promise<LineUnitResult> {
@@ -987,6 +992,38 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const noBase = missingBaseForApi(!!req.user?.apiKeyId, body.items,
       new Map(products.map((p) => [p.id, { name: p.name, baseConvertedAt: p.baseConvertedAt ?? null }])));
     if (noBase) { const g = baseUnitRequiredReply(noBase); res.status(g.status).json(g.body); return; }
+    /* «أنواع الأسعار» (services/priceLists.ts): نوع سعر المستند — المرسل إن حضر مفتاحه (null = السعر الأساسي)، وإلا نوع العميل
+     * المحفوظ (عميلٌ قديم وصندوق أوف-لاين قديم بلا المفتاح كما كانا). المندوب لا يسعّر بغير نوع عميله إلا بـ«تبديل نوع السعر»،
+     * والإدارة ومفتاح API أحرار (النوع عندهم تعبئةٌ افتراضية كالسعر). ونوعٌ غير نوع العميل من الشركة نفسها وإلا 400 — ونوع العميل
+     * محروسٌ عند كتابته (routes/customers.ts). وأسعار النوع لأصناف المستند وحدها وحين يوجد نوعٌ فقط: بلا نوعٍ لا استعلام زائد.
+     * وإعادة رفع الصندوق (X-FS-Replay — تُمحى لمفتاح API في middleware/auth.ts) لا تُرفض بنوعٍ حُذف قبل المزامنة ولا بـ«تبديل نوع
+     * السعر» نُزعت بعد الإصدار: مستندٌ سُلّمت بضاعته يُعدَم في الصندوق بأي 4xx. فيُسعَّر بنوع العميل الحالي كأن المفتاح غائب، وحارس
+     * السعر أدناه يحكم كالمعتاد — فالترويسة (يكتبها الجهاز) لا تفتح نوعاً أرخص بلا صلاحية، ولا يُختم المستند بمعرّفٍ لا وجود له */
+    const listReplay = String(req.headers['x-fs-replay'] || '') === '1' && !req.user?.apiKeyId;
+    const custListId = customer.priceListId ?? null;
+    let docListId = docPriceListOf(body.priceListId, custListId);
+    if (docListId !== custListId) {
+      if (req.user!.role === 'SALES_REP' && rep.canChangePriceList !== true) {
+        if (!listReplay) {
+          res.status(403).json({ success: false, code: 'PRICE_LIST_FORBIDDEN', message: PRICE_LIST_MESSAGES.PRICE_LIST_FORBIDDEN }); return;
+        }
+        docListId = custListId;
+      } else if (docListId && !(await prisma.priceList.count({ where: { id: docListId, tenantId: tid } }))) {
+        if (!listReplay) {
+          res.status(400).json({ success: false, code: 'PRICE_LIST_INVALID', message: PRICE_LIST_MESSAGES.PRICE_LIST_INVALID }); return;
+        }
+        docListId = custListId;
+      }
+    }
+    // سعر النوع لوحدة الأساس (صافٍ) لكل صنفٍ له سعرٌ فيه — وغيره يُسعَّر بسلسلة اليوم كما هي
+    const listPriceOf = new Map<string, number>();
+    if (docListId) {
+      const rows = await prisma.priceListItem.findMany({
+        where: { tenantId: tid, priceListId: docListId, productId: { in: productIds } },
+        select: { productId: true, price: true },
+      });
+      for (const r of rows ?? []) listPriceOf.set(r.productId, Number(r.price));
+    }
     // «تتبّع اللوط»: الأصناف المتتبَّعة في القراءة المسبقة (مفاتيح الطابور) — والمرجع النهائي ما يُقرأ تحت القفل (D25)
     const preTracked = new Set(lotsOn ? products.filter((p) => p.lotTracked === true).map((p) => p.id) : []);
     const tracksLots = preTracked.size > 0;
@@ -1007,7 +1044,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // clientRef في المرحلة الثانية (invoicesZatca.ts/invoicesNotes.ts offlineOrigin). والمندوب كما كان حرفاً بحرف.
     const deviceAt = req.user?.apiKeyId ? undefined : body.clientCreatedAt;
     /* D16: سجلّ التحويلات لإعادة الرفع وحدها، ولأصنافٍ حُوِّلت وحدها (baseConvertedAt ≠ null) — صنفٌ لم يُحوَّل لا يُسأل عنه
-     * السجلّ أبداً (I8). ومعه سعر العميل الحالي لتلك الأصناف: مرجع إشارة السعر لجسمٍ بلا لقطة (الحالة B) */
+     * السجلّ أبداً (I8). ومعه سعر العميل الحالي لتلك الأصناف: مرجع إشارة السعر لجسمٍ بلا لقطة (الحالة B) — وبلاه سعر نوع
+     * المستند (listPriceOf أعلاه، مقسومٌ على F مع أسعار العميل): الجملة والتجزئة يفترقان أكثر من ٢٥٪ فلا يلتقط الأساسُ أحدهما */
     const convertedIds = isReplay ? products.filter((p) => p.baseConvertedAt).map((p) => p.id) : [];
     const convsOf = new Map<string, BaseConversionRow[]>();
     const replayCust = new Map<string, number>();
@@ -1040,7 +1078,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           conversions: convs, docAt: replayDocAt,
           // صافي السعر كما يقيسه حارس السعر أدناه (الشامل يُردّ إلى الصافي بنسبة البند)
           netUnitPrice: body.pricesIncludeTax ? netFromInclusive(it.unitPrice, it.taxPct ?? p.taxPct ?? 0) : it.unitPrice,
-          custPrice: replayCust.has(p.id) ? replayCust.get(p.id)! : null,
+          custPrice: refOverrideOf(replayCust.get(p.id), listPriceOf.get(p.id)),
         }),
       });
       if (!r.ok) { res.status(r.status).json({ success: false, code: r.code, message: r.message }); return; }
@@ -1068,6 +1106,21 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // الإشعار الدائن «برقمٍ يدويّ» (المرحلة الثانية والاشتراط مطفأ): رفض سعر مندوبٍ بلا «تغيير السعر» فوق مرجع حارس البيع — يُقرأ هناك وحده
     let repReturnPriceProblem: string | null = null;
 
+    // ضريبة وعملة دولة الشركة — تُطبَّق على البنود التي لم تُحدَّد ضريبتها، وتضبط خانات التقريب (وهامش حارس سعر المندوب أدناه)
+    const company = await prisma.companySettings.findUnique({
+      where: { tenantId: tid },
+      // zatcaPhase2StartedAt: قرار النظام الضريبي (Z5.2) يُقرأ من هذا الصفّ المحمَّل أصلاً — صفر استعلامات للمرحلة الأولى
+      // zatcaGoLiveArmedAt (Z5.8، نقد 4): رفض إصدار المرحلة الأولى بعد التسليح — NULL لكلّ الشركات اليوم فلا أثر
+      // returnRequiresSaleInvoice/returnPolicyChangedAt: «اشتراط اختيار فاتورة البيع للمرتجع» من الصفّ نفسه — لا استعلام
+      select: {
+        defaultVatPct: true, countryCode: true, currency: true, einvoiceProvider: true, zatcaPhase2StartedAt: true, zatcaGoLiveArmedAt: true,
+        returnRequiresSaleInvoice: true, returnPolicyChangedAt: true,
+      },
+    });
+    const companyVat = company?.defaultVatPct ?? 15;
+    // الخانات من العملة الفعلية (تجاوز الدولار/اليورو يغلب خانات الدولة — كويتية بالدولار: خانتان لا ثلاث)
+    const dec = currencyDecimalsOf(company?.currency ?? getCountryTax(company?.countryCode).currency);
+
     if (req.user!.role === 'SALES_REP') {
       if (!rep.canCreateInvoice) { res.status(403).json({ success: false, message: 'لا تملك صلاحية إنشاء فاتورة' }); return; }
       if (body.type === 'CREDIT' && !rep.canSellOnCredit) { res.status(403).json({ success: false, message: 'لا تملك صلاحية البيع الآجل' }); return; }
@@ -1084,7 +1137,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       const cpMap = new Map(cps.map(c => [c.productId, c.price]));
       const isReturnDoc = body.type === 'RETURN';
       const maxD = rep.maxDiscountPct || 0;
-      const TOL = 0.01;
+      // هامش المقارنة: ٠٫٠١ كما كان — وفي عملةٍ بلا كسور (الدينار العراقي، الليرة) نصف وحدتها: التطبيق يقرّب السعر الشامل لخانات
+      // العملة، ومرجعٌ لوحدة الأساس بستّ منازل (سعر نوعٍ أو سعر عميلٍ من سعر كرتون ÷ ٢٤ = ٤١٫٦٦٦٦٦٧) يصله ٤٢ — هامش تقريبٍ لا
+      // حرّية سعر (فرق الصافي ≤ نصف وحدة ÷ (١ + الضريبة)). الخانتان والثلاث: نصف الوحدة دون ٠٫٠١ فالهامش كما كان حرفياً
+      const TOL = Math.max(0.01, 0.5 / 10 ** dec + 1e-9);
       const fail = (msg: string) => { res.status(403).json({ success: false, message: msg }); };
 
       if (!isReturnDoc && body.discountPct > maxD + 1e-9) { fail(`لا تملك صلاحية منح خصم يتجاوز ${maxD}%`); return; }
@@ -1101,10 +1157,12 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         /* المرجع بوحدة البند (القاعدة ٤): سعر العميل والأساس والشرائح مخزَّنة لوحدة الأساس فتُضرب بالمعامل، وإلّا مرّ
          * بيع كرتون بسعر حبّة. وسعر العميل يغلب سعر الوحدة المحدَّد: هو السقف المتّفق عليه معه، والتحويل يقسمه على F
          * لئلّا يتغيّر سعر كرتونه — فلو غلبه سعر الوحدة (= سعر الكرتون القديم العامّ) لضاع على العميل سعره بعد التحويل.
-         * وبلا سعر عميل: سعر الوحدة المحدَّد (جملة) وإلّا الأساس × المعامل (unitPriceOf). ولقطة جهازٍ بمعاملٍ غير معامل
-         * الوحدة اليوم (إعادة رفع) تُسعَّر بالاشتقاق: سعر الوحدة المحدَّد اليوم لمعاملٍ آخر. */
-        const ref = cpMap.has(it.productId)
-          ? cpMap.get(it.productId)! * factor
+         * وبلا سعر عميل: سعر نوع المستند («أنواع الأسعار»، لوحدة الأساس ويقسمه التحويل كذلك)، وإلا سعر الوحدة المحدَّد (جملة)
+         * وإلّا الأساس × المعامل (unitPriceOf). ولقطة جهازٍ بمعاملٍ غير معامل الوحدة اليوم (إعادة رفع) تُسعَّر بالاشتقاق: سعر
+         * الوحدة المحدَّد اليوم لمعاملٍ آخر. */
+        const override = refOverrideOf(cpMap.get(it.productId), listPriceOf.get(it.productId));
+        const ref = override != null
+          ? override * factor
           : snap.priceUnit ? unitPriceOf(snap.priceUnit, p.basePrice) : p.basePrice * factor;
         const minTier = p.priceTiers.length ? Math.min(...p.priceTiers.map(t => t.price)) * factor : ref;
         const minAllowed = Math.min(ref, minTier);
@@ -1126,8 +1184,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         for (const [idx, it] of body.items.entries()) {
           const p = products.find(x => x.id === it.productId)!;
           const snap = snapOf(idx);
-          const ceiling = cpMap.has(it.productId)
-            ? cpMap.get(it.productId)! * snap.unitFactor
+          // مرجع البيع نفسه: سعر العميل، ثم سعر نوع المستند، ثم سعر الوحدة المحدَّد أو الأساس
+          const override = refOverrideOf(cpMap.get(it.productId), listPriceOf.get(it.productId));
+          const ceiling = override != null
+            ? override * snap.unitFactor
             : snap.priceUnit ? unitPriceOf(snap.priceUnit, p.basePrice) : p.basePrice * snap.unitFactor;
           const priceNet = body.pricesIncludeTax ? netFromInclusive(it.unitPrice, it.taxPct ?? p.taxPct ?? 0) : it.unitPrice;
           if (priceNet > ceiling + TOL) { repReturnPriceProblem = 'لا تملك صلاحية تغيير سعر البيع'; break; }
@@ -1159,20 +1219,6 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       }
     }
 
-    // ضريبة وعملة دولة الشركة — تُطبَّق على البنود التي لم تُحدَّد ضريبتها، وتضبط خانات التقريب
-    const company = await prisma.companySettings.findUnique({
-      where: { tenantId: tid },
-      // zatcaPhase2StartedAt: قرار النظام الضريبي (Z5.2) يُقرأ من هذا الصفّ المحمَّل أصلاً — صفر استعلامات للمرحلة الأولى
-      // zatcaGoLiveArmedAt (Z5.8، نقد 4): رفض إصدار المرحلة الأولى بعد التسليح — NULL لكلّ الشركات اليوم فلا أثر
-      // returnRequiresSaleInvoice/returnPolicyChangedAt: «اشتراط اختيار فاتورة البيع للمرتجع» من الصفّ نفسه — لا استعلام
-      select: {
-        defaultVatPct: true, countryCode: true, currency: true, einvoiceProvider: true, zatcaPhase2StartedAt: true, zatcaGoLiveArmedAt: true,
-        returnRequiresSaleInvoice: true, returnPolicyChangedAt: true,
-      },
-    });
-    const companyVat = company?.defaultVatPct ?? 15;
-    // الخانات من العملة الفعلية (تجاوز الدولار/اليورو يغلب خانات الدولة — كويتية بالدولار: خانتان لا ثلاث)
-    const dec = currencyDecimalsOf(company?.currency ?? getCountryTax(company?.countryCode).currency);
     // مزوّد الفوترة الإلكترونية وحالتها المبدئية: ZATCA/none = جاهزة (QR محلي)؛ ETA/Peppol/TTN = بانتظار الإرسال الحكومي
     const einvoiceProvider = (company as { einvoiceProvider?: string } | null)?.einvoiceProvider || getCountryTax(company?.countryCode).provider;
     const einvoiceStatus = ['eta', 'peppol', 'ttn'].includes(einvoiceProvider) ? 'pending' : 'generated';
@@ -1328,6 +1374,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         salesRepId,
         teamId: docTeamId,
         locationId: docLocationId,
+        priceListId: docListId,
         companyVat,
         engine: calc,
         items: finalItems,
@@ -1575,6 +1622,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           salesRepId,
           ...(docTeamId && { teamId: docTeamId }),
           ...(invLocationId && { locationId: invLocationId }),
+          // «أنواع الأسعار»: النوع الذي سُعّر به المستند وقت الإصدار (null = السعر الأساسي)
+          ...(docListId && { priceListId: docListId }),
           type: body.type,
           ...(isReturn && {
             returnReason: body.returnReason || 'NORMAL',

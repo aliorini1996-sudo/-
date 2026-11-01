@@ -51,7 +51,8 @@ test('نافذة الصنف: طريقتا التعريف بنصّ مثالٍ، �
   assert.match(s, /function writeDefMode\([^)]*\): void \{\n\s*try \{ localStorage\.setItem\(defModeKey\(userId\), m\); \} catch/);
   // صنفٌ جديد يبدأ بآخر طريقة، والقائم من رئيسيّه — والاختيار يُحفظ للصنف الجديد وحده
   assert.ok(s.includes("useState<DefMode>(() => (product ? 'SMALL' : readDefMode(userId)))"));
-  assert.ok(s.includes('if (!product) { setDefMode(m); writeDefMode(userId, m); return; }'));
+  // («أنواع الأسعار»: تبديل الطريقة يمسح مسودّة أسعار الأنواع المكتوبة بوحدة الطريقة السابقة — priceLists.test.ts)
+  assert.match(s, /if \(!product\) \{\s*if \(m !== defMode\) \{ setListDraft\(\{\}\); setPriceTab\(null\); \}\s*setDefMode\(m\); writeDefMode\(userId, m\); return;\s*\}/);
   assert.ok(s.includes("const reverseLayout = product ? !!primary : defMode === 'PRIMARY';"));
   // التحكّم فوق خانتي الوحدة والسعر
   assert.ok(s.indexOf('data-def-mode=""') > 0 && s.indexOf('data-def-mode=""') < s.indexOf("register('unit'"));
@@ -247,8 +248,9 @@ test('D21: لا «الأساس» في أي نصٍّ جديد — والنصوص 
   for (const v of alt) { assert.doesNotMatch(v, /الأساس/); translated(v); }
   assert.ok(d.includes('setError(tr(d21(problem)))'));
   assert.ok(s.includes('const shown = (msg: string) => (primary ? d21(msg) : msg);'));
-  // تسمية السعر للصنف ذي الرئيسية بلا «الأساس»، وبلاها كما كانت
-  assert.ok(s.includes("{primary ? fill(tr('سعر {unit} الواحدة'), { unit: savedBase }) : tr('السعر الأساسي')} *"));
+  // تسمية السعر للصنف ذي الرئيسية بلا «الأساس»، وبلاها كما كانت: اسم الرقاقة الأولى («السعر الأساسي» ما لم تسمّه الشركة)
+  assert.ok(s.includes("{primary ? fill(tr('سعر {unit} الواحدة'), { unit: savedBase }) : baseLabel} *"));
+  assert.ok(s.includes('const baseLabel = baseLabelOf(priceInfo, tr);'));
   assert.ok(s.includes("{units.length > 0 && !primary && <p className=\"text-[10px] text-gray-400 mt-1\">{tr('سعر وحدة الأساس')}</p>}"));
   // تلميح خانة الوحدة يسمّي الزرّ الجديد (الاستثناء الوحيد في §4.2)
   assert.ok(s.includes("{tr('تغيير الاسم هنا إعادة تسمية فقط — لإضافة وحدة أصغر استخدم «إضافة وحدة فرعية أصغر»')}"));

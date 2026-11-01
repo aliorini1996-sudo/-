@@ -98,8 +98,21 @@ export function productPayloadRow<T extends Rec>(p: T): ProductPayload<T> {
   return rest as ProductPayload<T>;
 }
 
-export function customerPayloadRow<T extends Rec>(c: T): T {
-  return c;
+/**
+ * «أنواع الأسعار»: نوع السعر (priceListId) على العميل والفاتورة لا يخرج في حمولة ERP — معرّفٌ لا اسم معه في الحمولة يترجمه،
+ * ويبقى payloadVersion 3 حرفياً كما هي (موصل Odoo لم يُختبر بمفاتيح مجهولة). صفٌّ بلاه ⇒ الكائن نفسه، كـwithoutLotKeys.
+ */
+const PRICE_LIST_KEY = 'priceListId';
+export function withoutPriceList<T extends Rec>(r: T): Omit<T, 'priceListId'> {
+  if (!(PRICE_LIST_KEY in r)) return r;
+  const { [PRICE_LIST_KEY]: _list, ...rest } = r;
+  void _list;
+  return rest as Omit<T, 'priceListId'>;
+}
+
+/** العميل كما في القاعدة — بلا نوع سعره (withoutPriceList) */
+export function customerPayloadRow<T extends Rec>(c: T): Omit<T, 'priceListId'> {
+  return withoutPriceList(c);
 }
 
 export interface ErpInvoiceItemInput extends Rec {
@@ -174,10 +187,11 @@ export interface ErpInvoiceInput extends Rec {
  *    وفواتير تطبيق المندوب تخزّنه شاملاً.
  *  - `netAmount`: صافي البند بعد خصم البند **وحصّته من خصم الفاتورة الكلّي** قبل الضريبة (lineTotal − taxAmt).
  *  - `invoiceDateLocal`: تاريخ الفاتورة بمنطقة الشركة. `originalInvoiceNumber`: مرجع الإشعار.
- * وبلا لقطة الفوترة الإلكترونية ورمز QR (لا يلزمان المستقبِل) وبلا صور منتجات البنود، ولا شيء من «تتبّع اللوط» (withoutLotKeys).
+ * وبلا لقطة الفوترة الإلكترونية ورمز QR (لا يلزمان المستقبِل) وبلا صور منتجات البنود، ولا شيء من «تتبّع اللوط» (withoutLotKeys)،
+ * ولا نوع السعر (withoutPriceList).
  */
 export function invoicePayloadRow(inv: ErpInvoiceInput, timeZone: string): Rec {
-  const { einvoiceSnapshot: _snap, einvoiceQr: _qr, originalInvoice, items, ...rest } = withoutLotKeys(inv) as ErpInvoiceInput & { einvoiceSnapshot?: unknown; einvoiceQr?: unknown };
+  const { einvoiceSnapshot: _snap, einvoiceQr: _qr, originalInvoice, items, ...rest } = withoutPriceList(withoutLotKeys(inv)) as ErpInvoiceInput & { einvoiceSnapshot?: unknown; einvoiceQr?: unknown };
   void _snap; void _qr;
   const incl = inv.pricesIncludeTax === true;
   return {

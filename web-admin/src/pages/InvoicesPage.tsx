@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { invoiceApi, companyApi, salesRepApi, locationsApi } from '../api/client';
+import { invoiceApi, companyApi, salesRepApi, locationsApi, priceListApi } from '../api/client';
 import { Invoice, SalesRep } from '../types';
 import { formatCurrency, formatDate, formatTime, formatDateTime, statusLabels, formatDayOnly } from '../utils/format';
 import { useTr } from '../i18n/strings';
@@ -23,6 +23,7 @@ import { isDamagedVanReturn } from '../lib/vanDamaged';
 import { locationFilterOptions, type SalesLocation } from '../lib/locations';
 import { lotErrorOf, lotFlagsOf } from '../lib/lots';
 import { lotErrorText, withDocLots } from '../lib/invoiceLots';
+import { priceListsOf } from '../lib/priceLists';
 
 /** ألوان شارة حالة الفوترة الإلكترونية (المرحلة الثانية) — مفتاحها `ZatcaChipTone`. */
 const ADMIN_CHIP_TONE: Record<string, string> = {
@@ -101,6 +102,17 @@ export default function InvoicesPage() {
     },
     enabled: accountingReady && accountingOn,
   });
+
+  /* «أنواع الأسعار»: اسم النوع الذي سُعّرت به الفاتورة تحت شارة نوعها (قراءةٌ فقط). الأسماء من GET /price-lists بمفتاح النوافذ
+   * نفسه (مخبّأ)، ولا طلب ما دامت الصفحة بلا فاتورةٍ لها نوع. ونوعٌ يُحذف يُفرَغ من فواتيره (SetNull) فلا اسم معلّق */
+  const pricedRows = !!data?.data.some(inv => inv.priceListId);
+  const { data: priceInfo } = useQuery({
+    queryKey: ['price-lists'],
+    queryFn: async () => priceListsOf((await priceListApi.list()).data.data),
+    enabled: accountingReady && accountingOn && pricedRows,
+  });
+  const priceListName = (id: string | null | undefined): string | null =>
+    (id ? priceInfo?.lists.find(l => l.id === id)?.name ?? null : null);
 
   // فتح مستند PDF لفاتورة موجودة (جديدة أو قديمة) بنفس شكل المندوب
   const openInvoicePdf = async (id: string) => {
@@ -306,7 +318,14 @@ export default function InvoicesPage() {
                   <td className="text-gray-600 text-sm">{inv.salesRep?.name ?? '—'}</td>
                   {/* null لمندوبٍ بلا موقع ولكل فاتورةٍ قبل التفعيل — شرطةٌ لا انهيار */}
                   {locOn && <td className="text-gray-600 text-sm whitespace-nowrap">{inv.location?.name ?? <span className="text-gray-300">—</span>}</td>}
-                  <td>{typeBadge(inv.type)}</td>
+                  <td>
+                    {typeBadge(inv.type)}
+                    {priceListName(inv.priceListId) && (
+                      <span className="block text-[10px] text-gray-400 mt-0.5 whitespace-nowrap" title={tr('نوع السعر')} data-invoice-price-type="">
+                        {priceListName(inv.priceListId)}
+                      </span>
+                    )}
+                  </td>
                   <td className="font-semibold text-gray-800">{formatCurrency(inv.total)}</td>
                   <td className="text-green-600">{formatCurrency(inv.paidAmt)}</td>
                   <td className={Number(inv.remainingAmt) > 1e-6 ? 'text-red-600 font-medium' : 'text-gray-400'}>

@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { invoiceApi, customerApi, productApi, salesRepApi, companyApi, lotsApi } from '../../api/client';
+import { invoiceApi, customerApi, productApi, salesRepApi, companyApi, lotsApi, priceListApi } from '../../api/client';
 import { Customer, Product, SalesRep } from '../../types';
 import { formatCurrency, formatDate, formatDayOnly, getActiveCurrency } from '../../utils/format';
 import { currencyDecimals } from '../../i18n/countries';
@@ -19,7 +19,7 @@ import {
   NOTE_REASON_MAX, returnUnitChoices, withReturnUnit, maxReturnQty, withManualReturnRef, type OriginalPaymentType,
 } from '../../lib/returnInvoice';
 import { RETURN_REF_MAX, manualReturnRefAllowed, returnLinkRequired } from '../../lib/returnPolicy';
-import { choiceById, choiceNet, defaultChoice, hasUnitChoice, invoiceItemUnit, primaryChoice, unitChoices, type UnitChoice } from '../../rep/repUnits';
+import { choiceById, defaultChoice, hasUnitChoice, invoiceItemUnit, primaryChoice, unitChoices, type CustPriceInput, type UnitChoice } from '../../rep/repUnits';
 import { baseQtyText, lineKey, unitTaken } from '../../lib/adminUnits';
 import type { UnitDef } from '../../lib/units';
 import {
@@ -29,6 +29,8 @@ import { lotErrorText, returnableLotsOf, saleLineLots, withDocLots, withFreeRetu
 import { X, Trash2, Plus, Undo2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SearchableSelect from '../SearchableSelect';
+import PriceTypeChips from '../PriceTypeChips';
+import { baseLabelOf, priceListsOf, priceOverrides, repriceUntouched, suggestedNetOf } from '../../lib/priceLists';
 
 /**
  * بند الفاتورة في المحرّر. الوحدات المتعددة: `unit` اسم وحدة البند كما يُطبع، والكمية والسعر بها؛ و`unitId` وحدتها
@@ -48,6 +50,9 @@ interface LineItem {
   units: UnitDef[];
   qty: number;
   unitPrice: number;
+  /** «أنواع الأسعار»: السعر المقترح للبند لحظة إضافته (نوع السعر وسعر العميل) — البند الذي ما زال سعره هو يُعاد تسعيره حين يتغيّر
+   * العميل أو النوع، والمعدَّل يدويّاً لا يُمسّ. لا يُرسل */
+  refPrice: number;
   discountPct: number;
   taxPct: number;
   lineTotal: number;
@@ -171,6 +176,25 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
     },
   });
 
+  /* «أنواع الأسعار»: الفاتورة تُسعَّر بنوع سعر العميل (من ملفه) ويبدّله المدير برقاقة — بلا حارسٍ له (الخادم يحرس المندوب وحده).
+   * والسعر المقترح للبند: سعر العميل الخاص يغلب سعر النوع، والنوع يغلب سعر الوحدة والأساس (suggestedNetOf ← choiceNet بثالثه، كحارس الخادم).
+   * وشركةٌ بلا أنواع: لا رقاقات ولا مفتاح في الجسم — والخادم يأخذ نوع العميل (null) كما قبل الميزة */
+  const { data: priceInfo } = useQuery({
+    queryKey: ['price-lists'],
+    queryFn: async () => priceListsOf((await priceListApi.list()).data.data),
+  });
+  const priceLists = priceInfo?.lists ?? [];
+  const priceListOn = priceLists.length > 0;
+  const [priceListId, setPriceListId] = useState<string | null>(null);
+  // أسعار العميل الخاصة — كانت النافذة تقترح سعر الصنف لعميلٍ له سعرٌ متّفق عليه
+  const { data: custRows } = useQuery({
+    queryKey: ['customer-prices', customerId],
+    enabled: !!customerId,
+    queryFn: async () => (await productApi.customerPrices(customerId)).data.data as CustPriceInput[],
+  });
+  const overrides = useMemo(() => priceOverrides(products, priceListId, custRows), [products, priceListId, custRows]);
+  const suggestedNet = (p: Product, c: UnitChoice) => suggestedNetOf(c, p.basePrice, overrides[p.id]);
+
   /* ZATCA المرحلة الثانية: المرتجع إشعارٌ دائن على فاتورته الأصلية — لا مرتجع حرّ، والسبب إلزاميّ، والتاريخ «الآن».
    * القرار من صفّ الشركة كما في صفحة الفواتير (zatcaRegimeOf). شركة «بروفة» يراها الويب مرحلةً أولى ويحسمها الخادم بـ422
    * مقروءة — والخادم هو الحَكَم في الحالين. */
@@ -243,6 +267,16 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
   };
 
   const changeKind = (k: 'SALE' | 'RETURN') => { setDocKind(k); unlinkSale(); };
+  // العميل أو النوع تغيّر أو وصلت أسعار العميل: البنود التي لم يُعدَّل سعرها تأخذ المقترح الجديد (repriceUntouched)
+  useEffect(() => {
+    setLines(ls => repriceUntouched(ls, l => {
+      const p = (products || []).find(x => x.id === l.productId);
+      const c = p ? choiceById(p, l.unitId) : null;
+      return p && c ? suggestedNet(p, c) : null;
+    }, (l, price) => ({ ...l, unitPrice: price, lineTotal: calcLine(l.qty, price, l.discountPct, l.taxPct) })));
+  }, [overrides]); // eslint-disable-line react-hooks/exhaustive-deps
+  /** العميل المختار: نوع سعره من ملفه هو نوع الفاتورة (والمدير يبدّله برقاقة) */
+  const pickCustomerList = (id: string) => setPriceListId((customers || []).find(c => c.id === id)?.priceListId ?? null);
   const setLinkedQty = (saleItemId: string, v: number) =>
     setLinked(s => s && { ...s, lines: s.lines.map(l => (l.saleItemId === saleItemId ? { ...l, qty: clampReturnQty(v, l) } : l)) });
 
@@ -365,10 +399,10 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
         : l
       ));
     } else {
-      const price = choiceNet(c, p.basePrice);
+      const price = suggestedNet(p, c);
       setLines(ls => [...ls, {
         productId: p.id, productName: p.name, productCode: p.code,
-        ...lineUnitFields(p, c), qty: 1, unitPrice: price,
+        ...lineUnitFields(p, c), qty: 1, unitPrice: price, refPrice: price,
         discountPct: 0, taxPct: Number(p.taxPct),
         lineTotal: calcLine(1, price, 0, Number(p.taxPct)),
       }]);
@@ -381,9 +415,9 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
     const p = (products || []).find(x => x.id === l?.productId);
     const c = p ? choiceById(p, unitId) : null;
     if (!l || !p || !c || unitTaken(lines, l.productId, c.id, lineKey(l))) return;
-    const price = choiceNet(c, p.basePrice);
+    const price = suggestedNet(p, c);
     setLines(ls => ls.map((x, i) => (i !== idx ? x : {
-      ...x, ...lineUnitFields(p, c), unitPrice: price, lineTotal: calcLine(x.qty, price, x.discountPct, x.taxPct),
+      ...x, ...lineUnitFields(p, c), unitPrice: price, refPrice: price, lineTotal: calcLine(x.qty, price, x.discountPct, x.taxPct),
     })));
   };
 
@@ -442,7 +476,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
     if (linked) { mutation.mutate(buildLinkedReturnPayload(head, linked, retDec)); return; }
     // «تتبّع اللوط» (D5): المرتجع الحرّ لصنفٍ متتبَّع بتشغيلته المختارة للسطر كله، وإلا «غير معروف» — والمطفأة الجسم كما كان.
     // و«فاتورة من خارج النظام»: الجسم نفسه + رقم الأصل وطريقة دفعه (originalInvoiceRef/originalPaymentType)
-    const base = buildFreeReturnPayload(head, lines, discountPct);
+    // «أنواع الأسعار»: النوع الذي اقتُرحت به أسعار الأسطر الحرّة (المرتبط بأسعار فاتورته فلا مفتاح له)
+    const base = { ...buildFreeReturnPayload(head, lines, discountPct), ...(priceListOn && { priceListId }) };
     const free = ref ? withManualReturnRef(base, ref) : base;
     mutation.mutate(lotOn ? withFreeReturnLots(free, lines, l => (trackedIds.has(l.productId) ? freeLots[lineKey(l)] : undefined)) : free);
   };
@@ -457,6 +492,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
     }
     mutation.mutate({
       customerId, salesRepId, type, discountPct, notes,
+      // «أنواع الأسعار»: النوع المختار (null = الافتراضي) — شركةٌ بلا أنواع بلا مفتاح فيأخذ الخادم نوع العميل كما كان
+      ...(priceListOn && { priceListId }),
       ...(invoiceDate && { invoiceDate }),
       ...(deliveryDate && { deliveryDate }),
       ...(plan === 'INSTALLMENT' && {
@@ -516,7 +553,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                   hintColor: Number(c.balance) > 0 ? 'text-red-500' : undefined,
                 }))}
                 // فاتورة البيع المربوطة لعميلٍ آخر يرفضها الخادم («فاتورة البيع لعميلٍ آخر») — تُفكّ مع تغيير العميل
-                onChange={(v) => { setCustomerId(v); setSelectedCustomer((customers || []).find(c => c.id === v) || null); unlinkSale(); }}
+                onChange={(v) => { setCustomerId(v); setSelectedCustomer((customers || []).find(c => c.id === v) || null); unlinkSale(); pickCustomerList(v); }}
               />
             </div>
             <div>
@@ -771,6 +808,17 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
           </div>
           ) : (
           <div>
+            {/* «أنواع الأسعار»: نوع العميل مختارٌ افتراضاً، والرقاقة تبدّله فتُعاد أسعار البنود التي لم تُعدَّل */}
+            {priceListOn && (
+              <div className="flex items-center gap-2 flex-wrap mb-3" data-invoice-price-type="">
+                <span className="text-xs font-semibold text-gray-500">{tr('نوع السعر')}</span>
+                <PriceTypeChips baseLabel={baseLabelOf(priceInfo, tr)} lists={priceLists} value={priceListId} onChange={setPriceListId}
+                  disabled={mutation.isPending} />
+                {selectedCustomer && priceListId !== (selectedCustomer.priceListId ?? null) && (
+                  <span className="text-[11px] text-amber-700">{tr('ليس نوع سعر العميل')}</span>
+                )}
+              </div>
+            )}
             <div className="flex items-center justify-between mb-2">
               <label className="label mb-0">{tr('الأصناف')}</label>
               <div className="w-72">
@@ -783,8 +831,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                   options={(products || []).map(p => ({
                     value: p.id, label: p.name,
                     hint: hasUnitChoice(p)
-                      ? `${p.code} • ${formatCurrency(choiceNet(defaultChoice(p), p.basePrice))} / ${defaultChoice(p).name}`
-                      : `${p.code} • ${formatCurrency(p.basePrice)}`,
+                      ? `${p.code} • ${formatCurrency(suggestedNet(p, defaultChoice(p)))} / ${defaultChoice(p).name}`
+                      : `${p.code} • ${formatCurrency(suggestedNet(p, unitChoices(p)[0]))}`,
                   }))}
                   onChange={(v) => { const p = (products || []).find(x => x.id === v); if (p) addProduct(p); }}
                 />

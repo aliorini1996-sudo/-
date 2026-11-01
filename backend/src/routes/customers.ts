@@ -22,6 +22,7 @@ import { aiRepForRep } from '../ai-rep/access';
 import { invalidateEstimateData } from '../ai-rep/estimateData';
 import { patchSessionOutlet } from '../ai-rep/session';
 import { UnitInvalidError } from '../services/warehouseStock';
+import { PRICE_LIST_MESSAGES } from '../services/priceLists';
 // «الوحدة الرئيسية» §2.10: أسعار العميل لوحدة الأساس تُكتب تحت قفل صفّ الصنف مقارنةً بالأساس الذي كُتبت له
 import {
   ProductUnitsBusyError, ProductUnitsChangedError, baseGuardReply, lockBases, missingBaseForApi, staleClientBase, type ExpectedBases,
@@ -65,11 +66,33 @@ const customerSchema = z.object({
   status: z.enum(['ACTIVE', 'INACTIVE', 'BLOCKED']).optional(),
   creditLimit: z.number().min(0).optional(),
   paymentDays: z.number().int().min(0).optional(),
+  // «أنواع الأسعار»: نوع سعر العميل — null أو الفارغ = السعر الأساسي. للإدارة وحدها (يُسقط من جسم المندوب في الإنشاء والتعديل)،
+  // والمعرّف من الشركة نفسها وإلا 400 PRICE_LIST_INVALID (priceListOwned)
+  priceListId: z.string().nullish(),
   // العمل دون اتصال: idempotency + لحظة الإنشاء على الجهاز — nullish لأن نموذج التحرير
   // يرسلهما null لعملاء لوحة الإدارة (لا تُحرَّر؛ تُستبعد من التحديث)
   clientRef: z.string().uuid().nullish(),
   clientCreatedAt: z.string().nullish(),
 });
+
+/**
+ * «أنواع الأسعار»: نوع العميل من الشركة نفسها — أو بلا نوع. المفتاح الأجنبي لا يعرف الشركة، فبلا الفحص يُربط عميلٌ بنوع شركةٍ
+ * أخرى فتُقرأ أسعارها في فواتيره (نظير categoryOwned في الأصناف)
+ */
+async function priceListOwned(tid: string, priceListId: string | null | undefined): Promise<boolean> {
+  if (!priceListId) return true;
+  return (await prisma.priceList.count({ where: { id: priceListId, tenantId: tid } })) > 0;
+}
+const priceListInvalid = (res: Response) =>
+  res.status(400).json({ success: false, code: 'PRICE_LIST_INVALID', message: PRICE_LIST_MESSAGES.PRICE_LIST_INVALID });
+/**
+ * نوعٌ حُذف بين priceListOwned والكتابة: حذفه يقفل صفّه (routes/priceLists.ts) فيفشل مفتاح العميل الأجنبي بعده (P2003) — رفضٌ
+ * مفهوم لا عطل 500. وP2003 على مفتاحٍ آخر يبقى كما كان
+ */
+const isPriceListFkFail = (err: unknown): boolean => {
+  const e = err as { code?: unknown; meta?: { field_name?: unknown } } | null;
+  return e?.code === 'P2003' && String(e.meta?.field_name ?? '').includes('priceListId');
+};
 
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -161,6 +184,9 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
     // المندوب الذي ينشئ العميل (إن كان الطالب مندوباً) — يُوثَّق ويُسنَد له العميل تلقائياً
     const creatorRepId = req.user?.role === 'SALES_REP' ? req.user.id : null;
+    // «أنواع الأسعار»: نوع سعر العميل قرار الإدارة — المندوب لا يضعه لعميلٍ يفتحه (وإلا سعّر بأرخص نوعٍ بلا «تبديل نوع السعر»)
+    if (creatorRepId) delete data.priceListId;
+    else if (!(await priceListOwned(tid, data.priceListId))) { priceListInvalid(res); return; }
 
     // idempotency: عميل سبق رفعه (نفس clientRef) يُعاد بدل إنشاء مكرّر
     if (data.clientRef) {
@@ -215,6 +241,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const customer = await prisma.customer.create({
       data: {
         ...rest, email: data.email || null, channel: data.channel || null, outletType: data.outletType || null, aiPlaceId: data.aiPlaceId || null, tenantId: tid,
+        ...(data.priceListId !== undefined && { priceListId: data.priceListId || null }),
         clientCreatedAt: clientCreatedAt ? new Date(clientCreatedAt) : undefined,
         ...(creatorRepId && { createdBySalesRepId: creatorRepId }),
       } as any,
@@ -231,7 +258,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       catch (e) { console.error('[ai-rep] ربط التحويل تعذّر:', (e as Error)?.message); }
     }
     res.status(201).json({ success: true, data: customer, ...(buyerGate.warnings && { warnings: buyerGate.warnings }) });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (isPriceListFkFail(err)) { priceListInvalid(res); return; }
+    next(err);
+  }
 });
 
 router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -262,7 +292,9 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     // وفترة السداد وحالة العميل قرارُ الإدارة — وإلا رفع المندوب حدّ عميله ليتجاوز ضابط الائتمان
     if (req.user?.role === 'SALES_REP') {
       delete data.creditLimit; delete data.paymentDays; delete data.status;
-    }
+      // «أنواع الأسعار»: ونوع سعره كذلك — نقلُ عميلٍ إلى نوعٍ أرخص يمرّر سعره من حارس الفاتورة
+      delete data.priceListId;
+    } else if (!(await priceListOwned(tid, data.priceListId))) { priceListInvalid(res); return; }
     if (repPinsLocked && (data.lat !== undefined || data.lng !== undefined || locationUrl)) {
       res.status(403).json({ success: false, code: 'PIN_LOCKED', message: 'لا يمكنك تعديل موقع العميل اطلب من الادارة ضبطه' });
       return;
@@ -278,12 +310,15 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const customer = await prisma.customer.update({
       where: { id: req.params.id },
       // البريد والقناة يُكتبان فقط إن أُرسلا: تعديلٌ جزئيّ (كتطبيق المندوب) لا يمحو بريد العميل
-      data: { ...data, ...(data.email !== undefined && { email: data.email || null }), ...(data.channel !== undefined && { channel: data.channel || null }), ...(data.outletType !== undefined && { outletType: data.outletType || null }) },
+      data: { ...data, ...(data.email !== undefined && { email: data.email || null }), ...(data.channel !== undefined && { channel: data.channel || null }), ...(data.outletType !== undefined && { outletType: data.outletType || null }), ...(data.priceListId !== undefined && { priceListId: data.priceListId || null }) },
     });
     // نوع المنفذ أو الموقع تغيّر ⇒ توقّعات المحلات المشابهة تُعاد من القاعدة
     if (data.outletType !== undefined || data.lat !== undefined || data.lng !== undefined) invalidateEstimateData(tid);
     res.json({ success: true, data: customer, ...(buyerGate.warnings && { warnings: buyerGate.warnings }) });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (isPriceListFkFail(err)) { priceListInvalid(res); return; }
+    next(err);
+  }
 });
 
 router.get('/:id/statement', async (req: AuthRequest, res: Response, next: NextFunction) => {

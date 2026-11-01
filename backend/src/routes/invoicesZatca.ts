@@ -625,6 +625,8 @@ export interface Phase2IssuanceContext {
   teamId?: string | null;
   /** «لوكيشن»: ختم موقع المندوب وقت الإصدار المحسوم في routes/invoices.ts (null = بلا موقع، أو الميزة مطفأة) */
   locationId?: string | null;
+  /** «أنواع الأسعار»: نوع السعر الذي سُعّر به المستند، المحسوم والمحروس في routes/invoices.ts (null = السعر الأساسي) */
+  priceListId?: string | null;
   companyVat: number;
   engine: EngineTotals;
   items: readonly Phase2LegacyItem[];
@@ -918,6 +920,8 @@ async function issueNow(
                 ...(ctx.teamId && { teamId: ctx.teamId }),
                 // «لوكيشن»: ختم الموقع من السياق (لا استعلام هنا — القاعدة محقونة، والمسار القديم حسمه)
                 ...(ctx.locationId && { locationId: ctx.locationId }),
+                // «أنواع الأسعار»: ختم النوع من السياق كذلك
+                ...(ctx.priceListId && { priceListId: ctx.priceListId }),
                 type: ctx.body.type,
                 ...(ctx.deliveryDate && { deliveryDate: ctx.deliveryDate }),
                 dueDate: ctx.installments.length ? ctx.installments[ctx.installments.length - 1].dueDate : ctx.dueDate,

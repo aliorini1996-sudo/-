@@ -233,6 +233,8 @@ export interface Customer {
   addrAdditionalNo?: string | null;
   addrPostalCode?: string | null;
   countryCode?: string | null;
+  /** «أنواع الأسعار»: نوع سعر العميل تُسعَّر به فواتيره — null ⇒ السعر الافتراضي (basePrice). يكتبه مستخدمو الشركة وحدهم */
+  priceListId?: string | null;
 }
 
 /** وحدة بيعٍ للصنف أكبر من وحدة الأساس (كرتون = ٢٤ حبة). الصفوف تحمل لقطتها لا مرجعاً إليها. */
@@ -292,6 +294,9 @@ export interface Product {
   categoryId?: string;
   category?: { id: string; name: string };
   priceTiers?: PriceTier[];
+  /** «أنواع الأسعار» (لمستخدمي الشركة وحدهم في GET /products): سعر كل نوعٍ صافياً **لوحدة الأساس** بست منازل — ويُدخَل ويُعرض
+   * بالوحدة الرئيسية (× معاملها). نوعٌ غائب ⇒ الصنف يُباع به بالسعر الافتراضي */
+  listPrices?: ProductListPrice[];
   itemCode?: string | null;     // كود الصنف للفوترة الإلكترونية (EGS/GS1)
   itemCodeType?: 'EGS' | 'GS1' | null;
   unitCode?: string | null;     // كود الوحدة حسب جدول المزوّد
@@ -299,6 +304,27 @@ export interface Product {
   vatCategory?: 'S' | 'Z' | 'E' | 'O' | null;
   vatExemptionCode?: string | null;
   vatExemptionReason?: string | null;
+}
+
+/** سعر الصنف في «نوع سعر» — صافٍ قبل الضريبة لوحدة الأساس (كسعر العميل الخاص) */
+export interface ProductListPrice {
+  priceListId: string;
+  price: number;
+}
+
+/** «نوع سعر» تعرّفه الشركة (سعر الجملة، سعر التجزئة…) — الاسم بيانات الشركة لا يمرّ بـtr */
+export interface PriceList {
+  id: string;
+  name: string;
+  sortOrder: number;
+  /** عملاء نوعهم هذا — الحذف يُردّ 409 PRICE_LIST_IN_USE ما دام فوق الصفر */
+  customersCount?: number;
+}
+
+/** ردّ GET /price-lists: اسم الرقاقة الأولى (null ⇒ «السعر الأساسي») والأنواع بترتيبها */
+export interface PriceListsInfo {
+  basePriceLabel: string | null;
+  lists: PriceList[];
 }
 
 export interface PriceTier {
@@ -323,6 +349,8 @@ export interface SalesRep {
   canDeleteInvoice: boolean;
   canCancelInvoice: boolean;
   canChangePrice: boolean;
+  /** «تبديل نوع السعر» على الفاتورة — بلاها يبيع بنوع سعر العميل وحده (403 PRICE_LIST_FORBIDDEN) */
+  canChangePriceList?: boolean;
   maxDiscountPct: number;
   canSellBelowPrice: boolean;
   canCreateReceipt: boolean;
@@ -418,6 +446,8 @@ export interface Invoice {
   // «لوكيشن»: ختم موقع المندوب وقت الإصدار — null لمندوبٍ بلا موقع ولكل فاتورة قبل تفعيل الميزة
   locationId?: string | null;
   location?: { id: string; name: string } | null;
+  /** «أنواع الأسعار»: النوع الذي سُعّرت به الفاتورة لحظة إصدارها — null ⇒ السعر الافتراضي */
+  priceListId?: string | null;
   einvoiceSnapshot?: unknown;
 }
 

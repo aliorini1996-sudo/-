@@ -143,6 +143,7 @@ model Tenant {
   vanToolMoves         VanToolMove[]
   teams                Team[]
   salesLocations       SalesLocation[]
+  priceLists           PriceList[]
   warehouseEntries     WarehouseEntry[]
   stockZeroRuns        StockZeroRun[]
   repLocations         RepLocation[]
@@ -460,6 +461,8 @@ model SalesRep {
   canChangePrice    Boolean @default(false)
   maxDiscountPct    Float   @default(0)
   canSellBelowPrice Boolean @default(false)
+  // «تبديل نوع السعر» (أنواع الأسعار): يسعّر فاتورته بنوعٍ غير نوع العميل المحفوظ في ملفّه — مطفأ ⇒ نوع العميل وحده
+  canChangePriceList Boolean @default(false)
 
   // Collection permissions
   canCreateReceipt Boolean @default(true)
@@ -833,6 +836,7 @@ model Product {
   // فرق الصنف: بلا صفوف = صنفٌ عام لكل الفرق؛ وإلا لا يبيعه إلا من يعمل لأحد فرقه
   teams               ProductTeam[]
   customerPrices      CustomerPrice[]
+  priceListItems      PriceListItem[]
   invoiceItems        InvoiceItem[]
   vanLoadItems        VanLoadItem[]
   stockRequestItems   RepStockRequestItem[]
@@ -934,6 +938,10 @@ model Customer {
   outletType    String? // نوع المنفذ للمندوب الذكي: GROCERY | MINIMARKET | SUPERMARKET | … (ai-rep/taxonomy.ts) — أساس مقارنة المحلات المتشابهة
   aiPlaceId     String? // معرّف المكان في Google (مسموح تخزينه بلا حدّ) — يربط العميل بمحلٍّ اقترحه المندوب الذكي ويمنع تكراره
   status        String  @default("ACTIVE") // ACTIVE | INACTIVE | BLOCKED
+  // «نوع السعر» (أنواع الأسعار): تُسعَّر فواتيره به تلقائياً؛ null = السعر الأساسي. SetNull: حذف النوع لا يحذف العميل
+  // (والحذف نفسه يُرفض ما دام عليه عملاء — routes/priceLists.ts)
+  priceListId   String?
+  priceList     PriceList? @relation(fields: [priceListId], references: [id], onDelete: SetNull)
 
   creditLimit    Float @default(0)
   paymentDays    Int   @default(30)
@@ -1023,6 +1031,48 @@ model CustomerPrice {
   @@map("customer_prices")
 }
 
+/// «أنواع الأسعار» (طلب المالك، ١ نوفمبر ٢٠٢٦): أسعارٌ مسمّاة تحدّدها الشركة بحرّية («سعر الجملة»، «سعر التجزئة»…).
+/// لكلّ عميل نوعه (Customer.priceListId) فتُسعَّر فواتيره به تلقائياً، ولا يبدّله المندوب على فاتورةٍ إلا بصلاحية
+/// «تبديل نوع السعر» (SalesRep.canChangePriceList). شركةٌ بلا أنواع = سلوك اليوم حرفياً (basePrice وحده بلا استعلام زائد).
+/// الترتيب: سعر العميل الخاص يغلب النوع، والنوع يغلب سعر الوحدة المحدَّد والأساس (routes/invoices.ts).
+model PriceList {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  name      String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items     PriceListItem[]
+  customers Customer[]
+  invoices  Invoice[]
+
+  @@unique([tenantId, name]) // جدولٌ جديد فارغ ⇒ القيد الفريد آمن مع db push
+  @@index([tenantId])
+  @@map("price_lists")
+}
+
+/// سعر صنفٍ في نوع سعر — صفٌّ واحد لكلّ (نوع، صنف). يُدخَل بالوحدة الرئيسية ويُخزَّن لوحدة الأساس كـCustomerPrice تماماً،
+/// فتُشتقّ بقية الوحدات بمعاملها، ويقسمه convert-base على F مع أسعار العملاء.
+model PriceListItem {
+  id          String    @id @default(uuid())
+  tenantId    String
+  priceListId String
+  priceList   PriceList @relation(fields: [priceListId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  /// السعر **الصافي** (قبل الضريبة) لوحدة **أساس** واحدة بستّ منازل (= سعر الوحدة الرئيسية ÷ معاملها)، كـCustomerPrice
+  price       Float
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([priceListId, productId])
+  @@index([tenantId])
+  @@index([productId])
+  @@map("price_list_items")
+}
+
 // محتوى الصفحة التعريفية التسويقية والصفحات التابعة (CMS) — صف واحد بمعرّف ثابت "main"
 model SiteContent {
   id        String   @id @default("main")
@@ -1049,6 +1099,10 @@ model Invoice {
   // ختم أصلهم (services/locations.ts). null = بلا موقع. لا يُطبع على الفاتورة
   locationId    String?
   location      SalesLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  // «أنواع الأسعار»: النوع الذي سُعّرت به الفاتورة/المرتجع **وقت الإصدار** (لقطة — تغيير نوع العميل لاحقاً لا يحرّكه).
+  // null = السعر الأساسي. لا يُطبع ولا يدخل حمولة ERP
+  priceListId   String?
+  priceList     PriceList? @relation(fields: [priceListId], references: [id], onDelete: SetNull)
   type          String    @default("CREDIT") // CASH | CREDIT | RETURN
   status        String    @default("CONFIRMED") // DRAFT | CONFIRMED | CANCELLED
   returnReason  String? // سبب الإرجاع (للمرتجعات): NORMAL | DAMAGED | EXCHANGE
@@ -1344,6 +1398,8 @@ model CompanySettings {
   returnRequiresSaleInvoice Boolean?
   returnPolicyChangedAt     DateTime? // آخر تغيير — مرجع تسامح إعادة رفع صندوق المندوب (مستندٌ أُنشئ قبله يُقبل)
   returnPolicyChangedBy     String?   // من غيّره (actorOf: جلسة المالك OWNER:<id>)
+  // «أنواع الأسعار»: اسم زرّ السعر الافتراضي (Product.basePrice) — null = «السعر الأساسي». يغيّره مدير الشركة
+  basePriceLabel            String?
 
   // --- التدويل (المرحلة 0): أعمدة إضافية بقيم افتراضية — لا فقد بيانات ---
   countryCode      String  @default("SA") // ISO alpha-2: دولة الشركة

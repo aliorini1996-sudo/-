@@ -14,6 +14,7 @@ import { LOT_BUCKETS, LOT_EPS, LotError, asLockBusy, asLotBusy, lotErr, lotError
 import { LOT_LOCK_TIMEOUT, acquireLotQueue, lockLotProducts, placeViews, recordLotEvent, type LotEventActor, type LotTx } from '../services/lotsDb';
 import { convertBaseRefusalFor } from '../services/convertBaseAccess';
 import { BASE_GUARD_TX, markConverting, unmarkConverting } from '../services/baseGuard';
+import { PRICE_LIST_MESSAGES, listBasePriceOf } from '../services/priceLists';
 
 const router = Router();
 router.use(authenticate); // القراءة متاحة للمندوب (للبحث عند إصدار الفاتورة)؛ الكتابة للإدارة فقط
@@ -151,6 +152,23 @@ const productEditGuardSchema = z.object({
 const tierGuardSchema = z.object({
   expectedBaseName: z.string().nullish(),
   expectedPrimary: z.object({ id: z.string().min(1), factor: z.number() }).nullish(),
+});
+
+/**
+ * «أنواع الأسعار» (services/priceLists.ts): سعر الصنف في نوع — **صافٍ بالوحدة الرئيسية** (الأساس لصنفٍ بلا رئيسية)، يُقسم على
+ * معاملها لوحدة الأساس بستّ منازل. null أو الغياب يحذف صفّه فيعود الصنف لهذا النوع إلى سعره الأساسي.
+ */
+const listPriceItemSchema = z.object({ priceListId: z.string().min(1), price: z.number().min(0).nullish() });
+/** الإنشاء: أسعار الأنواع مع الصنف في معاملة إنشائه — مخطّطٌ منفصل فلا تمرّ في { ...data } */
+const productListPricesSchema = z.object({ listPrices: z.array(listPriceItemSchema).max(200).nullish() });
+/**
+ * PUT /:id/list-prices — الأساس الذي رآه النموذج (كالشرائح)، والرئيسية ومعاملها كما حُسبت عليهما الأسعار: مفتاحٌ غائب ⇒ رئيسية
+ * الصنف الآن، وnull صريحة ⇒ رآه بلا رئيسية (الأسعار للأساس) — رئيسيةٌ تغيّرت بينهما تقلب سعر كرتونٍ سعرَ حبّة
+ */
+const listPricesSchema = z.object({
+  expectedBaseName: z.string().min(1),
+  expectedPrimary: z.object({ id: z.string().min(1), factor: z.number() }).nullish(),
+  items: z.array(listPriceItemSchema).max(200),
 });
 
 const BASE_UNIT_REQUIRED_MSG = 'هذا الصنف حُوِّلت وحدته — أرسل expectedBaseName';
@@ -351,6 +369,47 @@ const touchProduct = (tx: Prisma.TransactionClient, tid: string, productId: stri
   tx.product.updateMany({ where: { id: productId, tenantId: tid }, data: { updatedAt: new Date() } });
 
 /**
+ * «أنواع الأسعار»: أسعار الصنف في الأنواع داخل معاملة كاتبها — السعر الصافي بالوحدة الرئيسية ÷ معاملها (`primaryFactor`، ١ للأساس)
+ * لوحدة الأساس بستّ منازل (listBasePriceOf)، وnull يحذف الصفّ. الأنواع من الشركة نفسها وإلا 400 PRICE_LIST_INVALID: المفتاح
+ * الأجنبي لا يعرف الشركة، فبلا الفحص يُكتب سعرٌ في نوع شركةٍ أخرى. والمعرّف المكرَّر: الأخير يغلب.
+ */
+async function writeListPrices(tx: Prisma.TransactionClient, tid: string, productId: string,
+  items: ReadonlyArray<z.infer<typeof listPriceItemSchema>>, primaryFactor: number): Promise<void> {
+  const last = new Map(items.map((i) => [i.priceListId, i.price ?? null]));
+  if (!last.size) return;
+  const owned = await tx.priceList.count({ where: { id: { in: [...last.keys()] }, tenantId: tid } });
+  if (owned !== last.size) throw new UnitsRefusal(400, PRICE_LIST_MESSAGES.PRICE_LIST_INVALID, 'PRICE_LIST_INVALID');
+  for (const [priceListId, price] of last) {
+    const base = price == null ? null : listBasePriceOf(price, primaryFactor);
+    if (base == null) {
+      await tx.priceListItem.deleteMany({ where: { priceListId, productId, tenantId: tid } });
+      continue;
+    }
+    await tx.priceListItem.upsert({
+      where: { priceListId_productId: { priceListId, productId } },
+      create: { tenantId: tid, priceListId, productId, price: base },
+      update: { price: base },
+    });
+  }
+}
+
+/**
+ * «أنواع الأسعار» في قراءة الإدارة للأصناف: `listPrices` [{ priceListId, price }] لكل صنف (السعر لوحدة الأساس كما خُزِّن) —
+ * null للمندوب: لا قائمة جملةٍ كاملة في كاش جواله، وأسعاره من /api/price-lists/prices بأنواع عملائه.
+ */
+async function adminListPrices(req: AuthRequest, tid: string, productIds: string[]): Promise<Map<string, Array<{ priceListId: string; price: number }>> | null> {
+  if (req.user?.role === 'SALES_REP') return null;
+  const out = new Map<string, Array<{ priceListId: string; price: number }>>();
+  if (!productIds.length) return out;
+  const rows = await prisma.priceListItem.findMany({
+    where: { tenantId: tid, productId: { in: productIds } },
+    select: { productId: true, priceListId: true, price: true },
+  });
+  for (const r of rows ?? []) out.set(r.productId, [...(out.get(r.productId) ?? []), { priceListId: r.priceListId, price: Number(r.price) }]);
+  return out;
+}
+
+/**
  * سبب رفض تحويل وحدة الأساس، أو null — صرفةٌ على صفّ الصنف المقفل.
  *
  * المعامل صحيحٌ ≥ ٢: الأساس الجديد أصغر من القديم (كرتون ⇒ حبة)، والمعامل ١ تحويلٌ بلا معنى، والكسر نقضٌ للمبدأ.
@@ -458,8 +517,11 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
         orderBy: { name: 'asc' },
       }),
     ]);
+    // «أنواع الأسعار»: أسعار الأنواع للإدارة وحدها (adminListPrices)
+    const lists = await adminListPrices(req, tid, products.map((p) => p.id));
+    const data = lists ? products.map((p) => ({ ...p, listPrices: lists.get(p.id) ?? [] })) : products;
 
-    res.json({ success: true, data: products, pagination: paginationMeta(total, page, limit) });
+    res.json({ success: true, data, pagination: paginationMeta(total, page, limit) });
   } catch (err) { next(err); }
 });
 
@@ -471,7 +533,8 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       include: { category: true, priceTiers: { orderBy: { minQty: 'asc' } }, units: UNITS_ORDER },
     });
     if (!product) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
-    res.json({ success: true, data: product });
+    const lists = await adminListPrices(req, tid, [product.id]);
+    res.json({ success: true, data: lists ? { ...product, listPrices: lists.get(product.id) ?? [] } : product });
   } catch (err) { next(err); }
 });
 
@@ -648,7 +711,8 @@ function reverseCreatePlan(body: z.infer<typeof productCreateSchema>): ReverseCr
  * مع سعر الفرعية المشتقّ، والرئيسية أولى في الترتيب.
  */
 async function createWithUnits(tid: string, args: { data: Record<string, unknown> }, plan: ReverseCreatePlan,
-  lotStart: { lotTrackedSince: Date } | null, actor: LotEventActor) {
+  lotStart: { lotTrackedSince: Date } | null, actor: LotEventActor,
+  afterCreate?: (tx: Prisma.TransactionClient, created: { id: string }, primaryFactor: number) => Promise<void>) {
   return prisma.$transaction(async (tx) => {
     const created = await tx.product.create({
       data: {
@@ -665,6 +729,8 @@ async function createWithUnits(tid: string, args: { data: Record<string, unknown
     const primary = created.units.find((u) => u.name === plan.primaryName);
     if (!primary) throw new UnitsRefusal(400, PRIMARY_UNIT_INVALID_MSG, 'PRIMARY_UNIT_INVALID');
     const product = await tx.product.update({ where: { id: created.id }, data: { primaryUnitId: primary.id }, include: { category: true, units: UNITS_ORDER } });
+    // «أنواع الأسعار»: أسعار الأنواع بالرئيسية الجديدة ومعاملها — في المعاملة نفسها
+    if (afterCreate) await afterCreate(tx, product, Number(primary.factor));
     if (lotStart) {
       await recordLotEvent(tx, {
         tenantId: tid, lotId: null, productId: created.id, kind: 'TRACKING_ON',
@@ -708,19 +774,29 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
     const lot = productLotSchema.parse(req.body);
     if (lot.lotTracked === true && !(await lotsAllowed(tid))) { res.status(403).json(lotErrorBody(lotErr('LOTS_NOT_ALLOWED'))); return; }
     const lotStart = lot.lotTracked === true ? { lotTracked: true, lotTrackedSince: new Date() } : null;
+    // «أنواع الأسعار»: أسعار الأنواع (صافية بالرئيسية — الأساس في الإنشاء العادي) في معاملة الإنشاء نفسها؛ بلاها الإنشاء كما كان
+    const listItems = (productListPricesSchema.parse(req.body ?? {}).listPrices ?? []).filter((i) => i.price != null);
+    const writeLists = listItems.length
+      ? (tx: Prisma.TransactionClient, created: { id: string }, primaryFactor: number) => writeListPrices(tx, tid, created.id, listItems, primaryFactor)
+      : undefined;
     for (const k of REP_RULE_KEYS) delete (data as Record<string, unknown>)[k];
     const createArgs = { data: { ...data, ...vatGate.patch, barcode: data.barcode || null, shelfLifeFromDate: asDay(data.shelfLifeFromDate), categoryId: data.categoryId || null, image: data.image || null, itemCode: data.itemCode || null, unitCode: data.unitCode || null, ...repRules.write, tenantId: tid, ...lotStart } as any, include: { category: true, units: UNITS_ORDER } };
-    const product = reverse ? await createWithUnits(tid, createArgs, reverse, lotStart, lotActorOf(req)) : !lotStart
+    const product = reverse ? await createWithUnits(tid, createArgs, reverse, lotStart, lotActorOf(req), writeLists) : !lotStart && !writeLists
       ? await prisma.product.create(createArgs)
       : await prisma.$transaction(async (tx) => {
         const created = await tx.product.create(createArgs);
-        await recordLotEvent(tx, {
-          tenantId: tid, lotId: null, productId: created.id, kind: 'TRACKING_ON',
-          after: { lotTracked: true, lotTrackedSince: lotStart.lotTrackedSince.toISOString(), created: true }, actor: lotActorOf(req),
-        });
+        if (lotStart) {
+          await recordLotEvent(tx, {
+            tenantId: tid, lotId: null, productId: created.id, kind: 'TRACKING_ON',
+            after: { lotTracked: true, lotTrackedSince: lotStart.lotTrackedSince.toISOString(), created: true }, actor: lotActorOf(req),
+          });
+        }
+        if (writeLists) await writeLists(tx, created, 1);
         return created;
       });
-    res.status(201).json({ success: true, data: product });
+    if (!writeLists) { res.status(201).json({ success: true, data: product }); return; }
+    const lists = await adminListPrices(req, tid, [product.id]);
+    res.status(201).json({ success: true, data: { ...product, listPrices: lists?.get(product.id) ?? [] } });
   } catch (err) {
     if (err instanceof UnitsRefusal) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
     if (reverseUniqueViolation(err)) { res.status(409).json({ success: false, message: 'اسم الوحدة مكرر لهذا الصنف' }); return; }
@@ -878,6 +954,7 @@ async function deleteOrArchiveLocked(prisma: Prisma.TransactionClient, req: Auth
   const lots = await prisma.productLot.count({ where: { productId: req.params.id } });
   await prisma.priceTier.deleteMany({ where: { productId: req.params.id } });
   await prisma.customerPrice.deleteMany({ where: { productId: req.params.id } });
+  await prisma.priceListItem.deleteMany({ where: { productId: req.params.id } }); // «أنواع الأسعار» — والحذف الفعلي يسلسلها أيضاً
   if (invoiceItems > 0 || loadItems > 0 || warehouseItems > 0 || lots > 0) {
     await prisma.product.update({ where: { id: req.params.id }, data: { deletedAt: new Date(), status: 'INACTIVE' } });
     return true;
@@ -921,6 +998,40 @@ router.put('/:id/price-tiers', requireAdmin, async (req: AuthRequest, res: Respo
       await touchProduct(tx, tid, req.params.id);
     }, BASE_GUARD_TX); // I10: مهلة المعاملة أطول من مهلة القفل
     res.json({ success: true });
+  } catch (err) {
+    if (err instanceof UnitsRefusal) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
+    next(err);
+  }
+});
+
+/**
+ * «أنواع الأسعار»: أسعار الصنف في الأنواع — `items` [{ priceListId, price }] السعر الصافي **بالوحدة الرئيسية** (الأساس بلاها)،
+ * وnull يحذف صفّه. يُكتب لوحدة الأساس بستّ منازل تحت قفل صفّ الصنف كالشرائح: سعرٌ حُسب على أساسٍ أو رئيسيةٍ تغيّرا بعد فتح
+ * النموذج ⇒ 409 (BASE_UNIT_CHANGED / PRIMARY_UNIT_CHANGED) لا سعر كرتونٍ يُقرأ سعرَ حبّة. والأنواع غير المرسلة كما هي.
+ */
+router.put('/:id/list-prices', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const body = listPricesSchema.parse(req.body ?? {});
+    const seenPrimary = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'expectedPrimary');
+    const listPrices = await prisma.$transaction(async (tx) => {
+      const locked = await lockProductForUnits(tx, tid, req.params.id);
+      if (!locked) throw new UnitsRefusal(404, 'الصنف غير موجود', 'PRODUCT_NOT_FOUND');
+      assertExpectedBase(req, locked, body.expectedBaseName);
+      const primary = primaryUnitOf(locked);
+      if (seenPrimary) {
+        const want = body.expectedPrimary ?? null;
+        const same = want
+          ? !!primary && primary.id === want.id && Math.abs(Number(primary.factor) - want.factor) <= QTY_EPS
+          : primary == null;
+        if (!same) throw new UnitsRefusal(409, PRIMARY_UNIT_CHANGED_MSG, 'PRIMARY_UNIT_CHANGED');
+      }
+      await writeListPrices(tx, tid, locked.id, body.items, primary ? Number(primary.factor) : 1);
+      // أسعار الأنواع بلا طابع تعديل في الصنف — فتغييرها تغييرٌ للصنف تراه مزامنة ERP و/api/v1/sync (كالشرائح)
+      await touchProduct(tx, tid, locked.id);
+      return tx.priceListItem.findMany({ where: { tenantId: tid, productId: locked.id }, select: { priceListId: true, price: true } });
+    }, BASE_GUARD_TX); // I10: مهلة المعاملة أطول من مهلة القفل
+    res.json({ success: true, data: { listPrices: (listPrices ?? []).map((r) => ({ priceListId: r.priceListId, price: Number(r.price) })) } });
   } catch (err) {
     if (err instanceof UnitsRefusal) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
     next(err);
@@ -1161,7 +1272,7 @@ async function convertBasePreview(tid: string, productId: string, body: z.infer<
   if (!product) throw new UnitsRefusal(404, 'الصنف غير موجود', 'PRODUCT_NOT_FOUND');
   await convertBaseRefusalOn(prisma, tid, product, body);
   const pid = product.id;
-  const [invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices, priceTiers, vanLoadItemLots, invoiceItemLots, lotRelabels] = await Promise.all([
+  const [invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices, priceTiers, vanLoadItemLots, invoiceItemLots, lotRelabels, priceListItems] = await Promise.all([
     prisma.invoiceItem.count({ where: { productId: pid, invoice: { tenantId: tid } } }),
     prisma.vanLoadItem.count({ where: { productId: pid, vanLoad: { tenantId: tid } } }),
     prisma.warehouseEntryItem.count({ where: { productId: pid, entry: { tenantId: tid } } }),
@@ -1171,6 +1282,7 @@ async function convertBasePreview(tid: string, productId: string, body: z.infer<
     prisma.vanLoadItemLot.count({ where: { tenantId: tid, productId: pid } }),
     prisma.invoiceItemLot.count({ where: { tenantId: tid, productId: pid } }),
     prisma.lotRelabel.count({ where: { tenantId: tid, productId: pid } }),
+    prisma.priceListItem.count({ where: { tenantId: tid, productId: pid } }),
   ]);
   return {
     success: true, dryRun: true, erpLinked, apiKeys,
@@ -1178,6 +1290,8 @@ async function convertBasePreview(tid: string, productId: string, body: z.infer<
     converted: {
       factor: Math.round(body.factor), from: product.unit, invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices, priceTiers,
       ...(vanLoadItemLots + invoiceItemLots + lotRelabels > 0 && { vanLoadItemLots, invoiceItemLots, lotRelabels }),
+      // «أنواع الأسعار»: حين للصنف أسعارٌ في الأنواع وحدها — فشكل المعاينة لصنفٍ بلاها كما كان
+      ...(priceListItems > 0 && { priceListItems }),
     },
   };
 }
@@ -1342,6 +1456,11 @@ router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Res
         where: { productId: pid, product: { tenantId: tid } },
         data: { price: { divide: F } },
       });
+      // «أنواع الأسعار»: سعر الصنف في كل نوعٍ لوحدة الأساس كسعر العميل — ÷ F بلا تقريب فيبقى سعر كرتونه في النوع كما هو
+      const priceListItems = await tx.priceListItem.updateMany({
+        where: { productId: pid, tenantId: tid },
+        data: { price: { divide: F } },
+      });
       const priceTiers = await tx.$executeRaw`
         UPDATE "price_tiers" AS t SET
           "price" = t."price" / ${F}::float8,
@@ -1380,6 +1499,8 @@ router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Res
           factor: F, from: oldUnit, invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices: customerPrices.count, priceTiers,
           // عدّادات اللوط حين مسّ التحويل صفوفاً منها وحدها — فشكل الردّ لصنفٍ بلا لوط كما كان (§١٠.١)
           ...(vanLoadItemLots + invoiceItemLots + lotRelabels > 0 && { vanLoadItemLots, invoiceItemLots, lotRelabels }),
+          // «أنواع الأسعار»: حين مسّ التحويل أسعاراً في الأنواع وحدها (كعدّادات اللوط)
+          ...(priceListItems.count > 0 && { priceListItems: priceListItems.count }),
           conversionId: log.id,
         },
       };

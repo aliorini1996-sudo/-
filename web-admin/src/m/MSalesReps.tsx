@@ -659,11 +659,11 @@ function RepForm({ rep, onClose, onSaved }: {
 
 /* ═══════════════════════ الصلاحيات ═══════════════════════ */
 
-/** الصلاحيات المانحة — سبع عشرة، ومعها القيد المعكوس أدناه = ثماني عشرة */
+/** الصلاحيات المانحة — ثماني عشرة (منها «تبديل نوع السعر» لأنواع الأسعار)، والقيود المعكوسة أدناه خارجها */
 const GRANTS = [
   'canCreateInvoice', 'canSellOnCredit', 'canSellOnInstallment', 'canSellInCash',
   'canEditInvoice', 'canCancelInvoice', 'canDeleteInvoice',
-  'canChangePrice', 'canSellBelowPrice',
+  'canChangePrice', 'canSellBelowPrice', 'canChangePriceList',
   'canCreateReceipt', 'canEditReceipt', 'canCancelReceipt',
   'canManageVanStock',
   'canAddCustomer', 'canEditCustomer', 'canViewStatement',
@@ -689,7 +689,7 @@ const M_WEEK_DAYS: { label: string; bit: number }[] = [
 const PERM_DEFAULTS: PermState = {
   canCreateInvoice: true, canSellOnCredit: true, canSellOnInstallment: false, canSellInCash: true,
   canEditInvoice: false, canCancelInvoice: false, canDeleteInvoice: false,
-  canChangePrice: false, canSellBelowPrice: false,
+  canChangePrice: false, canSellBelowPrice: false, canChangePriceList: false,
   canCreateReceipt: true, canEditReceipt: false, canCancelReceipt: false,
   canManageVanStock: true,
   canAddCustomer: false, canEditCustomer: false, canViewStatement: true,
@@ -712,6 +712,7 @@ const PERM_LABELS: Record<PermKey, string> = {
   canDeleteInvoice: 'حذف فاتورة',
   canChangePrice: 'تغيير السعر',
   canSellBelowPrice: 'البيع أقل من السعر',
+  canChangePriceList: 'تبديل نوع السعر',
   canCreateReceipt: 'إصدار سند قبض',
   canEditReceipt: 'تعديل سند قبض',
   canCancelReceipt: 'إلغاء سند قبض',
@@ -730,7 +731,8 @@ const PERM_LABELS: Record<PermKey, string> = {
 
 const PERM_GROUPS: { title: string; keys: Grant[] }[] = [
   { title: 'صلاحيات المبيعات', keys: ['canCreateInvoice', 'canSellOnCredit', 'canSellOnInstallment', 'canSellInCash', 'canEditInvoice', 'canCancelInvoice', 'canDeleteInvoice'] },
-  { title: 'صلاحيات التسعير', keys: ['canChangePrice', 'canSellBelowPrice'] },
+  // «تبديل نوع السعر» (أنواع الأسعار): بلاها يبيع المندوب بنوع سعر العميل وحده، ومعها يبدّل رقاقة النوع على فاتورته
+  { title: 'صلاحيات التسعير', keys: ['canChangePrice', 'canSellBelowPrice', 'canChangePriceList'] },
   { title: 'صلاحيات التحصيل', keys: ['canCreateReceipt', 'canEditReceipt', 'canCancelReceipt', 'showCollectionBalance'] },
   { title: 'مخزون السيارة', keys: ['canManageVanStock'] },
   { title: 'صلاحيات العملاء', keys: ['canAddCustomer', 'canEditCustomer', 'canViewStatement'] },
@@ -747,7 +749,7 @@ const PERM_GROUPS: { title: string; keys: Grant[] }[] = [
 const ACCOUNTING_PERMS = new Set<PermKey>([
   'canCreateInvoice', 'canSellOnCredit', 'canSellOnInstallment', 'canSellInCash',
   'canEditInvoice', 'canCancelInvoice', 'canDeleteInvoice',
-  'canChangePrice', 'canSellBelowPrice',
+  'canChangePrice', 'canSellBelowPrice', 'canChangePriceList',
   'canCreateReceipt', 'canEditReceipt', 'canCancelReceipt', 'showCollectionBalance',
   'canManageVanStock', 'canViewStatement',
 ]);

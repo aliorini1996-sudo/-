@@ -16,9 +16,10 @@ import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGa
 import { useAuthStore } from '../store/authStore';
 import { lotFlagsOf, type LotTrackingRequest, type LotTrackingResultDto } from '../lib/lots';
 import { attentionRows, trackingBalanceOf, trackingRequest, type AttentionRow, type TrackingBalanceProduct } from '../lib/lotTrackingUi';
+import { listPricesCreateBody, type ListPriceEdits } from '../lib/priceLists';
 
-/** حمولة حفظ الصنف — والتأكيد بعد 409 LOT_TRACKING_HAS_BALANCE (D9) */
-type ProductSave = Partial<Product> & { confirmLotBalances?: boolean };
+/** حمولة حفظ الصنف — والتأكيد بعد 409 LOT_TRACKING_HAS_BALANCE (D9)، وأسعار «أنواع الأسعار» المتغيّرة من النافذة */
+type ProductSave = Partial<Product> & { confirmLotBalances?: boolean; listPriceEdits?: ListPriceEdits };
 /** تأكيد إطفاء التتبّع بأرصدة مسمّاة (D9): لصنفٍ من نافذته، أو للتفعيل الجماعي */
 type BalanceConfirm =
   | { kind: 'product'; values: ProductSave; products: TrackingBalanceProduct[] }
@@ -74,8 +75,18 @@ export default function ProductsPage() {
   });
 
   const saveMutation = useMutation({
-    mutationFn: (values: ProductSave) =>
-      selected ? productApi.update(selected.id, values) : productApi.create(values),
+    /* «أنواع الأسعار»: أسعار الأنواع المتغيّرة (listPriceEdits) ليست حقل صنف — للجديد تُرسل في جسم إنشائه (listPrices)، وللقائم
+     * بمسارها بعد نجاح حفظه وبأساسه كما ردّه الخادم (إعادة تسمية الأساس في الحفظ نفسه). فشلها يبقي النافذة برسالة الخادم */
+    mutationFn: async ({ listPriceEdits, ...values }: ProductSave) => {
+      if (!selected) return productApi.create({ ...values, ...listPricesCreateBody(listPriceEdits) });
+      const res = await productApi.update(selected.id, values);
+      if (listPriceEdits?.items.length) {
+        const saved = res.data.data as Product;
+        await productApi.updateListPrices(selected.id, { expectedBaseName: saved.unit, expectedPrimary: listPriceEdits.expectedPrimary, items: listPriceEdits.items });
+        qc.invalidateQueries({ queryKey: ['products-all'] });
+      }
+      return res;
+    },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['products'] }); if (lotOn) qc.invalidateQueries({ queryKey: ['products-min'] }); toast.success(selected ? tr('تم التحديث') : tr('تم الإضافة')); setShowModal(false); setSelected(null); setBalanceConfirm(null); },
     // رسالة الخادم لا «حدث خطأ» العمياء — سبب الرفض (تحقق/تكرار كود) يصل للمستخدم
     onError: (err: unknown, values) => {

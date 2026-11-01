@@ -115,7 +115,7 @@ test('كل مسار في المستند مركَّبٌ في الخادم بطر�
  */
 const COVERED_ROUTERS = [
   'locations', 'paymentMethodsConfig', 'printSettings', 'printTexts', 'attendanceAdmin', 'teams', 'reports', 'invoices', 'salesReps', 'vanStock', 'warehouse', 'receipts',
-  'repStockRequests', 'products', 'lots', 'import', 'companyBuyerRelax', 'returnPolicy', 'stockZero',
+  'repStockRequests', 'products', 'lots', 'import', 'companyBuyerRelax', 'returnPolicy', 'stockZero', 'priceLists',
 ];
 const NOT_DOCUMENTED: Readonly<Record<string, string>> = {
   'PUT /company/teams/:id/supervisors': 'يرفض مفاتيح API دائماً بـ403 (API_KEY_FORBIDDEN بعد فحص صلاحيتي الإعدادات والمستخدمين) — نطاق مستخدمي الشركة من اللوحة وحدها، ومذكورٌ في مقدمة مجموعة الفرق',

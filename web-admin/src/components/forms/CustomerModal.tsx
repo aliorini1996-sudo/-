@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
+import { useQuery } from '@tanstack/react-query';
 import { Customer } from '../../types';
 import { useTr } from '../../i18n/strings';
+import { priceListApi } from '../../api/client';
+import { baseLabelOf, priceListsOf } from '../../lib/priceLists';
 import { SALES_CHANNELS } from '../../lib/channels';
 import { X, MapPin } from 'lucide-react';
 import BuyerDataFields from '../BuyerDataFields';
@@ -48,6 +51,15 @@ export default function CustomerModal({ customer, onClose, onSave, loading, acco
     onSave({ ...data, ...pickPhase2(buyer) } as CustomerForm);
   };
   const legacyBuyerErrors = Object.entries(buyerErrors).filter(([f]) => !(BUYER_PHASE2_FIELDS as readonly string[]).includes(f));
+  /* «أنواع الأسعار»: نوع سعر العميل تُسعَّر به فواتيره — يظهر لشركةٍ عرّفت أنواعاً (والمسار محروسٌ بالمحاسبة). والفارغ يُرسل null
+   * صريحاً (setValueAs) فيعود العميل إلى السعر الافتراضي؛ وشركةٌ بلا أنواع: لا خانة ولا طلبٌ آخر، والمحفوظ يُعاد كما هو */
+  const { data: priceInfo } = useQuery({
+    queryKey: ['price-lists'],
+    queryFn: async () => priceListsOf((await priceListApi.list()).data.data),
+    enabled: accountingOn,
+  });
+  // صفّ عميلٍ بلا المفتاح أصلاً (خادمٌ قبل الميزة) لا تُعرض له الخانة — وإلا أرسل حفظه null فوق نوعه
+  const priceLists = accountingOn && (!customer || customer.priceListId !== undefined) ? priceInfo?.lists ?? [] : [];
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl">
@@ -182,6 +194,16 @@ export default function CustomerModal({ customer, onClose, onSave, loading, acco
                 <label className="label">{tr('فترة السداد يوم')}</label>
                 <input className="input" type="number" min="0" {...register('paymentDays', { valueAsNumber: true })} />
               </div>
+              {priceLists.length > 0 && (
+                <div data-customer-price-list="">
+                  <label className="label">{tr('نوع السعر')}</label>
+                  <select className="input" {...register('priceListId', { setValueAs: (v: unknown) => (v ? String(v) : null) })}>
+                    <option value="">{baseLabelOf(priceInfo, tr)}</option>
+                    {priceLists.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                  </select>
+                  <p className="text-[11px] text-gray-400 mt-1">{tr('تسعر به فواتير العميل تلقائيا')}</p>
+                </div>
+              )}
             </div>
           </div>
           )}

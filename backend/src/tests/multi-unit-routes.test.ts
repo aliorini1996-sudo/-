@@ -557,6 +557,33 @@ test('التحويل dryRun: لا معاملة ولا قفل ولا كتابة،
   assert.equal((await call('POST', '/api/products/p1/convert-base', { body: { ...CONVERT, dryRun: true } })).body.primaryAfter, 'طبلية');
 });
 
+test('«أنواع الأسعار»: التحويل يقسم أسعار الصنف في الأنواع على F بشرط الشركة في المعاملة نفسها، ويعدّها في الردّ والمعاينة حين وُجدت وحدها', async () => {
+  reset();
+  productWorld();
+  const divided: any[] = [];
+  scripted['priceListItem.updateMany'] = (args) => { divided.push({ args, inTx }); return { count: 2 }; };
+  const r = await call('POST', '/api/products/p1/convert-base', { body: CONVERT });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  // ÷ F بلا تقريب كسعر العميل: سعر كرتونه في النوع (السعر × ٢٤) كما كان بالفلس
+  assert.deepEqual(divided, [{ args: { where: { productId: 'p1', tenantId: TENANT }, data: { price: { divide: 24 } } }, inTx: true }]);
+  assert.equal(r.body.converted.priceListItems, 2);
+  // صنفٌ بلا أسعارٍ في الأنواع: شكل الردّ كما كان (لا مفتاح)
+  reset();
+  productWorld();
+  const plain = await call('POST', '/api/products/p1/convert-base', { body: CONVERT });
+  assert.equal(plain.status, 200, JSON.stringify(plain.body));
+  assert.equal('priceListItems' in plain.body.converted, false);
+  // المعاينة تعدّها بشرط الشركة
+  reset();
+  productWorld();
+  let countedWhere: unknown = null;
+  scripted['priceListItem.count'] = (args) => { countedWhere = args.where; return 3; };
+  const dry = await call('POST', '/api/products/p1/convert-base', { body: { ...CONVERT, dryRun: true } });
+  assert.equal(dry.status, 200, JSON.stringify(dry.body));
+  assert.equal(dry.body.converted.priceListItems, 3);
+  assert.deepEqual(countedWhere, { tenantId: TENANT, productId: 'p1' });
+});
+
 test('التحويل لشركةٍ مربوطة بـERP: بلا إقرار ⇒ 409 CONVERT_BASE_ERP_ACK بلا معاملة، وبالإقرار يمرّ', async () => {
   reset();
   productWorld();

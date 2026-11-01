@@ -3,6 +3,9 @@ import {
 } from 'lucide-react';
 import { computeInvoiceTotals, roundDecimal, priceFromLineTotal } from './invoiceCalc';
 import { cartBadge, cartCount, choiceById, choiceNet, defaultChoice, hasUnitChoice, invoiceItemUnit, lineUnitOf, linkedLineUnit, primaryChoice, rebaseCustPrices, rebaseRow, refreshLineUnit, sameUnit, unitChoices, unitsText, type UnitChoice, type UnitProduct } from './repUnits';
+import { baseLabelOf, priceListsOf, repriceUntouched } from '../lib/priceLists';
+import { listIdOf, repCachedNamesOf, repCustomerListOf, repListChipsOf, repListMissing } from './repPriceLists';
+import type { PriceListsInfo } from '../types';
 import { repBlockKey, repDefaultChoice, repLineBlockKey, repUnitChoices, type RepAction, type RepRuleFields } from './repProductRules';
 import { fillLinkedQty, linkedUnitPrice, refreshLinkedLine, returnUnitChoices, toLinkedSale, withReturnUnit, type LinkedReturnLine } from '../lib/returnInvoice';
 import { RETURN_POLICY_CODES, noteReasonProblem, repReturnPolicyFields, returnIssueError, returnReasonLabel, returnSourceProblem, type OriginalPaymentType } from '../lib/returnInvoice';
@@ -121,6 +124,8 @@ interface RepUser {
   canManageVanStock?: boolean;
   canChangePrice?: boolean;
   canSellBelowPrice?: boolean;
+  /** «تبديل نوع السعر» (أنواع الأسعار، من /auth/me) — بلاها تُسعَّر الفاتورة بنوع سعر العميل وحده ويُعرض اسمه للعلم */
+  canChangePriceList?: boolean;
   maxDiscountPct?: number;
   /** «الفرق»: مفعّلة للشركة، وفرق المندوب الفعّالة (من /auth/me) — يختار منها الفريق الذي يعمل له (repTeam.ts) */
   teamsEnabled?: boolean;
@@ -1728,6 +1733,55 @@ const custPriceRowsOf = (data: unknown, seenAt?: number | null): CustPriceRow[] 
     ...(seenAt != null && { seenAt }),
   }));
 
+/* «أنواع الأسعار» (طلب المالك): ردّ /price-lists/prices (كاش 'pricelists') — كل نوعٍ ببنوده بصفّ أسعار العميل نفسه (السعر صافٍ
+ * لوحدة الأساس ومعه أساس الصنف وحقبته لحظة القراءة)، فيُعاد أساسها بعد تحويلٍ بـrebaseCustPrices كأسعار العميل تماماً. والمندوب
+ * بلا «تبديل نوع السعر» لا يصله إلا أنواع عملائه */
+type ListPriceRows = { id: string; name: string; rows: CustPriceRow[] };
+const listPriceRowsOf = (data: unknown, seenAt?: number | null): ListPriceRows[] => (Array.isArray(data) ? data : [])
+  .filter((l: { id?: unknown } | null) => l && typeof l.id === 'string')
+  .map((l: { id: string; name?: unknown; items?: unknown }) => ({ id: l.id, name: String(l.name ?? ''), rows: custPriceRowsOf(l.items, seenAt) }));
+
+/** أسعار نوعٍ لوحدة أساس الكتالوج المعطى (بمعرّف الصنف) — null (السعر الأساسي) أو نوعٌ لم تصل أسعاره: لا شيء فيُسعَّر بسلسلة اليوم */
+function listPricesOf(lists: ListPriceRows[] | null, listId: string | null, products: Array<UnitProduct & { id: string; baseConvertedAt?: string | Date | null }>): Record<string, number> {
+  const rows = listId ? lists?.find((l) => l.id === listId)?.rows : null;
+  return rows ? rebaseCustPrices(rows, products) : {};
+}
+
+/**
+ * نوع سعر الفاتورة: نوع العميل من ملفه (null = السعر الأساسي)، أو ما اختاره المندوب من الرقاقات — بصلاحية «تبديل نوع السعر»
+ * وحدها (`picked` undefined = لم يختر). فصلاحيةٌ سُحبت بعد الاختيار تعيده إلى نوع العميل كما يحكم الخادم (403 PRICE_LIST_FORBIDDEN)
+ */
+function repInvoiceListOf(customerListId: unknown, picked: string | null | undefined, canSwitch: boolean): string | null {
+  if (canSwitch && picked !== undefined) return picked;
+  return typeof customerListId === 'string' && customerListId ? customerListId : null;
+}
+
+/**
+ * نوع سعر العميل كما يعرفه الخادم الآن (repCustomerListOf يقدّمه على صفّ قائمة العملاء الممرَّر): متصلاً من ملفه (GET /customers/:id —
+ * يحترم عزل العملاء) ويُكتب في صفّه المخبّأ فيعرفه الجهاز دون اتصال بعدها، وإلا من صفّه المخبّأ (آخر ما كتبته قائمة العملاء أو قراءةٌ
+ * سابقة كهذه). خادمٌ أقدم بلا الحقل أو صفٌّ غائب ⇒ undefined (يبقى صفّ القائمة)
+ */
+async function customerListNow(id: string, online: boolean): Promise<string | null | undefined> {
+  if (online) {
+    try {
+      const c = (await repApi.get(`/customers/${id}`)).data?.data;
+      if (c && typeof c === 'object' && 'priceListId' in c) {
+        const fresh = listIdOf(c.priceListId);
+        try {
+          const hit = await cacheGet<any[]>('customers');
+          if (Array.isArray(hit?.data) && hit!.data.some(x => x?.id === id && listIdOf(x.priceListId) !== fresh)) {
+            await cacheUpdate<any[] | undefined>('customers', cur => (Array.isArray(cur) ? cur.map(x => (x?.id === id ? { ...x, priceListId: fresh } : x)) : cur));
+          }
+        } catch { /* الكاش اختياري: النوع الطازج يكفي هذه الفاتورة */ }
+        return fresh;
+      }
+    } catch { /* دون اتصال أو تعذّر: الصفّ المخبّأ */ }
+  }
+  const hit = await cacheGet<any[]>('customers');
+  const row = Array.isArray(hit?.data) ? hit!.data.find(x => x?.id === id) : null;
+  return row && typeof row === 'object' && 'priceListId' in row ? listIdOf(row.priceListId) : undefined;
+}
+
 // ============ إنشاء فاتورة (بيع أو إرجاع) ============
 function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClose, onDone }: { customer: any; repName: string; company: Company | null; mode?: 'sale' | 'return'; perms: RepUser; onClose: () => void; onDone: (doc: InvoiceDoc) => void }) {
   const tr = useTr();
@@ -1913,23 +1967,91 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     })();
   }, [customer?.id]);
 
-  // سباق تحميل: بند اضيف قبل وصول اسعار العميل يبقى بالسعر الاساسي. نصحح فقط الاسطر
-  // التي لم يمسها المندوب (unitPrice ما زال يساوي refPrice) فلا نطمس تعديلا يدويا.
+  /* ─── «أنواع الأسعار» (طلب المالك: رقاقات تبديلٍ بأسماء تختارها الشركة) — أسماء الأنواع (GET /price-lists، كاش 'pricelists:names')
+   * ثم أسعارها (GET /price-lists/prices، كاش 'pricelists') للعمل دون اتصال. الفاتورة تُسعَّر بنوع سعر العميل من ملفه، والمندوب
+   * يبدّله برقاقةٍ بصلاحية «تبديل نوع السعر» وحدها (وبلاها يرى اسمه للعلم). والقرارات الصرفة في repPriceLists.ts:
+   *  • الأسماء من كاش الجهاز إن عرفت نوع العميل (repCachedNamesOf): شركةٌ بلا أنواع ومندوبٌ لا يبدّل وعميلٌ بلا نوع ⇒ لا طلب أبداً
+   *    بعد أول قراءة (لا رقاقة ولا مفتاح في الجسم كما قبل الميزة)، وإلا ما قُرئ من الخادم خلال ٥ دقائق.
+   *  • لشركةٍ لها أنواع: نوع العميل **الآن** من ملفه (customerListNow) مع الأسعار — صفّ قائمة العملاء قد يسبق نقل المدير للعميل إلى
+   *    نوعٍ آخر، والخادم يسعّر بالحالي فيردّ الفاتورة 403 كلما أُعيدت (كأسعار العميل الخاصة التي تُجلب مع كل فتح لهذا السبب).
+   *  • نوع الفاتورة بلا أسعارٍ في الجهاز (repListMissing): متصلاً تُجلب مرّةً، ولا إصدار حتى تصل — لا تسعير بالأساس صامتاً ─── */
+  const [listInfo, setListInfo] = useState<PriceListsInfo | null>(null);
+  // الأسماء قُرئت من الخادم الآن لا من كاش الجهاز: بها وحدها يُعدّ نوعٌ غائبٌ عنها محذوفاً (repCustomerListOf)
+  const [namesFromServer, setNamesFromServer] = useState(false);
+  const [listRows, setListRows] = useState<ListPriceRows[] | null>(null);
+  // نوع العميل من ملفه على الخادم أو صفّه المخبّأ (customerListNow) — undefined = لم يُقرأ فصفّ قائمة العملاء الممرَّر
+  const [custListLive, setCustListLive] = useState<string | null | undefined>(undefined);
+  const [listsLoading, setListsLoading] = useState(true);
+  // undefined = نوع العميل؛ وما يختاره المندوب (null = السعر الأساسي) لا يُقرأ إلا بالصلاحية (repInvoiceListOf)
+  const [pickedList, setPickedList] = useState<string | null | undefined>(undefined);
+  // الخادم قال إن «تبديل نوع السعر» سُحبت (403 PRICE_LIST_FORBIDDEN) قبل أن تصل refreshUser: لا رقاقة ولا مفتاح في هذه الفاتورة بعدها
+  const [switchRevoked, setSwitchRevoked] = useState(false);
+  const canSwitchList = perms.canChangePriceList === true && !switchRevoked;
+  const listsOn = (listInfo?.lists.length ?? 0) > 0;
+  // نوع العميل في صفّ قائمة العملاء (GET /customers يردّ priceListId) — والعميل المُنشأ دون اتصال بلا نوع (الخادم يُسقطه من جسم المندوب)
+  const custListCached = listIdOf(customer?.priceListId);
+  const custListId = repCustomerListOf(custListCached, custListLive, listInfo, namesFromServer);
+  const listId = repInvoiceListOf(custListId, pickedList, canSwitchList);
+  const listMissing = repListMissing(listId, listRows);
+  const listPrices = useMemo<Record<string, number>>(() => listPricesOf(listRows, listId, products), [listRows, listId, products]);
+  // آخر تحميلٍ بدأ: ردٌّ أبطأ من تحميلٍ أحدث (إعادةٌ بعد رفض) لا يكتب فوقه
+  const listsSeq = useRef(0);
+  const namesFromNet = async () => {
+    const { data, offline } = await fetchThenCache('pricelists:names', async () => (await repApi.get('/price-lists')).data.data);
+    return { info: priceListsOf(data), fromServer: !offline };
+  };
+  /** الأنواع وأسعارها ونوع العميل الآن — `force` يتجاوز كاش الأسماء (بعد رفضٍ سعريّ، أو نوعٍ بلا أسعار في الجهاز) */
+  const loadPriceLists = async (force = false) => {
+    const seq = ++listsSeq.current;
+    const mine = () => seq === listsSeq.current;
+    setListsLoading(true);
+    try {
+      const cachedNames = force ? null : repCachedNamesOf(await cacheGet<unknown>('pricelists:names'), Date.now(), custListCached, canSwitchList);
+      let names = cachedNames ? { info: cachedNames, fromServer: false } : await namesFromNet();
+      if (!mine()) return;
+      setListInfo(names.info); setNamesFromServer(names.fromServer);
+      if (!names.info.lists.length) return;
+      const [prices, live] = await Promise.all([
+        fetchThenCache('pricelists', async () => (await repApi.get('/price-lists/prices')).data.data),
+        customer?.id && !customer._offline ? customerListNow(customer.id, navigator.onLine) : Promise.resolve(undefined),
+      ]);
+      if (!mine()) return;
+      if (prices.data) setListRows(listPriceRowsOf(prices.data, prices.updatedAt));
+      if (live === undefined) return;
+      setCustListLive(live);
+      // نوع العميل أحدث من الأسماء المخبّأة (أُنشئ بعدها): تُقرأ من الخادم فيُعرف اسمه ورقاقته
+      if (live && !names.fromServer && !names.info.lists.some(l => l.id === live) && navigator.onLine) {
+        names = await namesFromNet();
+        if (!mine()) return;
+        setListInfo(names.info); setNamesFromServer(names.fromServer);
+      }
+    } catch { /* كاش الجهاز غير متاح: يبقى ما عُرف، وحارس الإصدار (listMissing) يمنع التسعير بالأساس صامتاً */ } finally {
+      if (mine()) setListsLoading(false);
+    }
+  };
+  // عند الفتح، ومن جديد إن تبدّلت «تبديل نوع السعر» أثناءه (refreshUser): المندوب بلاها لا تصله إلا أسعار أنواع عملائه
+  useEffect(() => { void loadPriceLists(); }, [canSwitchList]); // eslint-disable-line react-hooks/exhaustive-deps
+  // نوع الفاتورة بلا أسعارٍ في الجهاز والجهاز متصل: تُجلب من الخادم مرّةً لكل نوع (لا حلقة إن بقي غائباً — الإصدار ممنوع حينها)
+  const listRetried = useRef<string | null>(null);
   useEffect(() => {
-    if (!Object.keys(custPrices).length) return;
-    setLines(prev => prev.map(l => {
-      // بند فاتورة بيع (مرتجعٌ مرتبط): سعره سعر الاسترداد ثابتاً — لا يُستبدل بسعر العميل الحالي
-      if (l.saleItemId) return l;
-      const cp = custPrices[l.productId];
-      if (cp === undefined) return l;
-      // بوحدة البند: سعر العميل للحبّة × معامل الكرتون (يغلب سعر الكرتون المحدَّد كحارس الخادم) — وإلا بِيع الكرتون بسعر الحبّة صامتاً
+    if (!listMissing || listsLoading || !navigator.onLine || listRetried.current === listId) return;
+    listRetried.current = listId;
+    void loadPriceLists(true);
+  }, [listMissing, listsLoading, listId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // سباق تحميل: بند اضيف قبل وصول اسعار العميل (او اسعار نوعه) يبقى بالسعر الاساسي، وتبديل نوع السعر يغيّر مرجع كل بند.
+  // نصحح فقط الاسطر التي لم يمسها المندوب (unitPrice ما زال يساوي refPrice) فلا نطمس تعديلا يدويا — والمعدَّل يتبع مرجعه وحده.
+  useEffect(() => {
+    setLines(prev => repriceUntouched(prev, (l) => {
+      // بند فاتورة بيع (مرتجعٌ مرتبط): سعره سعر الاسترداد ثابتاً — لا يُستبدل بسعر العميل أو النوع الحالي
+      if (l.saleItemId) return null;
+      const p = products.find(x => x.id === l.productId);
+      if (!p) return null;
+      // بوحدة البند: سعر العميل/النوع للحبّة × معامل الكرتون (يغلب سعر الكرتون المحدَّد كحارس الخادم) — وإلا بِيع الكرتون بسعر الحبّة صامتاً
       const unit: UnitChoice = l.unitId ? { id: l.unitId, name: l.unitName, factor: l.unitFactor, price: l.unitDefPrice ?? null } : { id: null, name: l.unit, factor: 1, price: null };
-      const fresh = roundDecimal(choiceNet(unit, cp, cp) * (1 + Number(l.taxPct) / 100), currencyDecimals(getActiveCurrency()));
-      if (fresh === l.refPrice) return l;
-      const untouched = Math.abs(Number(l.unitPrice) - Number(l.refPrice)) < 1e-9;
-      return { ...l, refPrice: fresh, ...(untouched ? { unitPrice: fresh } : {}) };
-    }));
-  }, [custPrices]);
+      return inclOf(p, unit);
+    }, (l, price) => ({ ...l, unitPrice: price })));
+  }, [custPrices, listPrices]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // السعر الذي يُدخله المندوب شامل الضريبة؛ نشتقّ السعر قبل الضريبة للنظام
   const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -1938,8 +2060,10 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   // السعر المتفق مع هذا العميل ان وجد، وإلا السعر الاساسي — وكلاهما صافٍ فيحول لشامل
   /* الوحدات المتعددة: السعر لوحدة البند كمرجع حارس الخادم (choiceNet) — سعر العميل/الصنف مخزَّنان لوحدة الأساس فيُضربان
    * بالمعامل، وسعر العميل يغلب سعر الوحدة المحدَّد، وبلاه المحدَّد ثم الأساس × المعامل. ويُقرَّب الشامل من صافي الوحدة لا
-   * ×المعامل من شامل الحبّة، فيطابق أرضيته. و`cust` خريطة أسعار العميل (افتراضها الحالية): refreshUnits يمرّر الطازجة لا المغلقة */
-  const inclOf = (p: any, c: UnitChoice, cust: Record<string, number> = custPrices) => roundDecimal(choiceNet(c, Number(p.basePrice), cust[p.id]) * (1 + Number(p.taxPct) / 100), currencyDecimals(getActiveCurrency()));
+   * ×المعامل من شامل الحبّة، فيطابق أرضيته. و`cust` خريطة أسعار العميل (افتراضها الحالية): refreshUnits يمرّر الطازجة لا المغلقة.
+   * «أنواع الأسعار»: سعر نوع الفاتورة (`list`، لوحدة الأساس) يحلّ محلّ سعر العميل حين لا سعر خاصّ — سعر العميل يغلب النوع، والنوع يغلب
+   * سعر الوحدة المحدَّد والأساس، كمرجع الخادم حرفاً (cpMap ?? listMap) — والتقريب مرّةً واحدة على الشامل كما كان */
+  const inclOf = (p: any, c: UnitChoice, cust: Record<string, number> = custPrices, list: Record<string, number> = listPrices) => roundDecimal(choiceNet(c, Number(p.basePrice), cust[p.id] ?? list[p.id]) * (1 + Number(p.taxPct) / 100), currencyDecimals(getActiveCurrency()));
   const inclPrice = (p: any) => inclOf(p, unitChoices(p)[0]); // السعر شامل الضريبة (وحدة الأساس)
   // سعر الوحدة الافتراضية مع اسمها حين للصنف وحدات — وإلا الرقم وحده كما كان
   // الوحدة الافتراضية للمندوب: الرئيسية إن سمح بها قيد الصنف، وإلا الأكبر بين المسموح (repStartChoice)، وإلا الأكبر كما كان
@@ -2258,6 +2382,15 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const submit = async () => {
     if (lines.length === 0) { setMsg(tr('أضف صنفا')); return; }
     if (saleRef && lines.some(l => !(Number(l.qty) > 0))) { setMsg(tr('احذف الصنف الذي لا يرجع بدل تصفير كميته')); return; }
+    /* «أنواع الأسعار»: نوع الفاتورة بلا أسعارٍ في الجهاز (repListMissing) — البنود بالسعر الأساسي والخادم يسعّر بالنوع فيردّها
+     * («لا تملك صلاحية تغيير سعر البيع»)، ودون اتصال بعد صفّها وطباعة ورقتها وتسليم البضاعة، أو يقبلها بسعرٍ غير نوع العميل لمن
+     * يغيّر السعر. فلا إصدار حتى تصل (متصلاً تُجلب الآن)، ومن يملك «تبديل نوع السعر» يختار رقاقةً وصلت أسعارها. والمرتجع من فاتورة
+     * بيع سعره سعرها */
+    if (!saleRef && listMissing) {
+      setMsg(listsLoading ? tr('جاري التحميل') : tr('اتصل مرة لتحديث أسعار نوع السعر'));
+      if (!listsLoading && navigator.onLine) void loadPriceLists(true);
+      return;
+    }
     /* «اشتراط اختيار فاتورة البيع للمرتجع»: مصدر المرتجع — الفاتورة المختارة (الأولى مع الاشتراط) أو رقم الأصل اليدويّ وطريقة
      * دفعه (الثانية بلا اشتراط). للإعداد الصريح وحده: الافتراض كما كان والخادم يقول كلمته (ZATCA_RETURN_NEEDS_ORIGINAL) */
     const manualRef = retManual ? { number: manualNo, paymentType: manualPay } : null;
@@ -2313,6 +2446,12 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       // المرحلة الثانية: سبب الإشعار الدائن (noteReason) مع كل مرتجع، و«فاتورة من خارج النظام» رقمها وطريقة دفعها
       // (originalInvoiceRef/originalPaymentType) بلا originalInvoiceId — والمرحلة الأولى لا حقل: الجسم كما كان
       ...(isReturn && repReturnPolicyFields({ phase2: retPhase2, linked: !!saleRef, manual: manualRef, noteReason: noteReasonText })),
+      /* «أنواع الأسعار»: نوع السعر الذي سُعّرت به الفاتورة (null = السعر الأساسي) — لمن يملك «تبديل نوع السعر» وحده. وبلاها لا
+       * مفتاح فيطبّق الخادم نوع العميل المحفوظ (هو الذي سعّر به التطبيق، أو الأحدث منه إن تغيّر بعد كاش الجهاز) بدل أن يردّ
+       * الفاتورة 403 PRICE_LIST_FORBIDDEN على نوعٍ لم يبدّله المندوب أصلاً. والمرتجع من فاتورة بيع سعره سعرها: بلا مفتاح.
+       * وعميلٌ بنوعٍ لا تعرفه أسماء الجهاز (listsOn مطفأ) واختار المبدِّل له «السعر الأساسي» كي يصدر: null صريحاً — غيابه يعني نوع
+       * العميل فيسعّر الخادم بنوعٍ غير الذي سُعّرت به البنود. وشركةٌ بلا أنواع وعميلٌ بلا نوع: لا مفتاح كما قبل الميزة */
+      ...(canSwitchList && !saleRef && (listsOn || custListId != null) && { priceListId: listId }),
       // الاسعار شاملة كما اعلنت للعميل — المحرك (عميلا وخادما) يشتق الضريبة داخليا
       pricesIncludeTax: true,
       items: lines.map(l => ({
@@ -2479,6 +2618,12 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         if (err?.response?.data?.code === 'PRODUCT_UNITS_CHANGED') void refreshUnits();
         // «تتبّع اللوط»: الخادم وجد المتاح أقلّ مما تعرفه اللقطة — رسالته تُعرض، واللقطة تُجلب للمحاولة التالية
         if (lotCapsOn && err?.response?.data?.code === 'LOT_STOCK_INSUFFICIENT') void lots?.refresh(VANLOTS_BLOCK_REFETCH_GAP_MS);
+        // «أنواع الأسعار»: «تبديل نوع السعر» سُحبت بعد فتح التطبيق — رسالة الخادم تُعرض، والفاتورة تعود إلى نوع العميل (وبنودها غير
+        // المعدَّلة تُعاد بأسعاره) فيعيد المندوب الإصدار بلا رقاقة: الصلاحية تُطفأ هنا حتى تصل refreshUser فلا يختار نوعاً يُردّ ثانية
+        if (err?.response?.data?.code === 'PRICE_LIST_FORBIDDEN') { setPickedList(undefined); setSwitchRevoked(true); }
+        // ورفضٌ سعريّ (403 بلا رمز: «لا تملك صلاحية تغيير سعر البيع»): لعلّ المدير نقل العميل إلى نوعٍ آخر بعد فتح الفاتورة، أو أنشأ أول
+        // نوعٍ للشركة بعد كاش الأسماء — نوعه وأسعاره من الخادم الآن فتُعاد البنود غير المعدَّلة، ويعيد المندوب الإصدار
+        if (err?.response?.status === 403 && !saleRef && (!err?.response?.data?.code || err.response.data.code === 'PRICE_LIST_FORBIDDEN')) void loadPriceLists(true);
         // «اشتراط اختيار فاتورة البيع للمرتجع» ورقم الأصل اليدويّ (RETURN_LINK_REQUIRED، ZATCA_RETURN_REF_INVALID،
         // ZATCA_RETURN_REF_IN_SYSTEM): عبارة القاموس بلغة المندوب — الإعداد تغيّر بعد تحميل الشاشة، أو رقمٌ يُردّ
         if (isReturn && RETURN_POLICY_CODES.has(err?.response?.data?.code)) { setMsg(tr(returnIssueError(err).message)); setLoading(false); return; }
@@ -2493,28 +2638,35 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
    * والمرتجع من فاتورة بيع: بنودها تُقرأ من جديد (وحدات الإرجاع من ردّ /returnable)، والكمية بوحدتها إن بقيت وإلا
    * بالأساس (refreshLinkedLine). وكاشٌ يعود بدل الخادم (انقطاعٌ بين الرفض والتحديث) لا يُعاد عليه شيء: هو القديم نفسه.
    * «الوحدة الرئيسية» (§6.5، البند 13ب): أسعار هذا العميل تُجلب مع الكتالوج (والعميل غير الأوف‑لاين وحده) وتُعاد إلى أساسه
-   * الجديد، والمرجع يُحسب بالخريطة الطازجة لا بالمغلقة في الـclosure — وإلا صار سعر كرتونه بعد التحويل سعرَ قارورته × ٢٤ */
+   * الجديد، والمرجع يُحسب بالخريطة الطازجة لا بالمغلقة في الـclosure — وإلا صار سعر كرتونه بعد التحويل سعرَ قارورته × ٢٤.
+   * و«أنواع الأسعار» كذلك: أسعار الأنواع تُجلب معهما (التحويل يقسمها على F كأسعار العميل) لشركةٍ وصلتها أنواعٌ وحدها */
   const refreshUnits = async () => {
     try {
-      const [{ data, offline }, cust] = await Promise.all([
+      const [{ data, offline }, cust, lists] = await Promise.all([
         fetchThenCache('products', async () =>
           (await repApi.get('/products', { params: { status: 'ACTIVE', limit: 1000 } })).data.data),
         customer?.id && !customer._offline
           ? fetchThenCache(`custprices:${customer.id}`, async () => (await repApi.get(`/products/customer-prices/${customer.id}`)).data.data)
+          : Promise.resolve(null),
+        listRows
+          ? fetchThenCache('pricelists', async () => (await repApi.get('/price-lists/prices')).data.data)
           : Promise.resolve(null),
       ]);
       if (!data || offline) return;
       const fresh = data as any[];
       const freshRows = cust?.data ? custPriceRowsOf(cust.data, cust.updatedAt) : custRows;
       const freshCust = freshRows ? rebaseCustPrices(freshRows, fresh) : {};
+      const freshListRows = lists?.data ? listPriceRowsOf(lists.data, lists.updatedAt) : listRows;
+      const freshList = listPricesOf(freshListRows, listId, fresh);
       setProducts(fresh);
       if (freshRows) setCustRows(freshRows);
+      if (lists?.data) setListRows(freshListRows);
       setLines(prev => prev.map(l => {
         if (l.saleItemId) return l;
         const p = fresh.find(x => x.id === l.productId);
         const ch = refreshLineUnit(l, p);
         if (!p || !ch) return l;
-        const ref = inclOf(p, ch, freshCust);
+        const ref = inclOf(p, ch, freshCust, freshList);
         const keep = Math.abs(Number(l.unitPrice) - Number(l.refPrice)) > 1e-9 && Number(l.unitFactor ?? 1) === (ch.id ? ch.factor : 1);
         return { ...l, ...lineUnitOf(ch, p.unit), refPrice: ref, unitPrice: keep ? l.unitPrice : ref };
       }));
@@ -2646,6 +2798,39 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
             {!isReturn && !canSellAnyType && <p className="text-[11px] text-red-500 mb-2">{tr('لا تملك صلاحية البيع النقدي أو الآجل')}.</p>}
             {/* «تتبّع اللوط»: منع الإضافة فوق المتاح في السيارة يُقال على الشبكة نفسها */}
             {!isReturn && lotNote && <p className="text-[11px] text-red-500 mb-2 text-center" role="status">{lotNote}</p>}
+
+            {/* «أنواع الأسعار»: نوع سعر الفاتورة — نوع العميل افتراضاً، ورقاقاتٌ يبدّل بها المندوب بصلاحية «تبديل نوع السعر» (البنود
+              * التي لم يعدّلها تُعاد بأسعار النوع)، وبلاها اسم النوع للعلم. الأسماء بيانات الشركة لا tr. شركةٌ بلا أنواع والمرتجع من
+              * فاتورة بيع (سعره سعرها): لا سطر */}
+            {(listsOn || (listMissing && !listsLoading)) && !saleRef && (() => {
+              // الرقاقات: السعر الأساسي ثم الأنواع التي وصلت أسعارها (repListChipsOf) — نوعٌ بلا أسعارٍ في الجهاز يُسعَّر بالأساس صامتاً
+              const opts = [{ id: null as string | null, name: baseLabelOf(listInfo, tr) }, ...repListChipsOf(listInfo?.lists, listRows, listId)];
+              const current = opts.find(o => o.id === listId);
+              return (
+                <div className="mb-2" data-rep-price-type="">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-xs text-gray-600">{tr('نوع السعر')}:</span>
+                    {canSwitchList ? (
+                      <>
+                        <span className="contents" role="radiogroup" aria-label={tr('نوع السعر')}>
+                          {opts.map(o => (
+                            <button key={o.id ?? 'base'} type="button" role="radio" aria-checked={o.id === listId} onClick={() => setPickedList(o.id)}
+                              className={`px-2.5 py-1 rounded-full text-[11px] font-semibold ${o.id === listId ? (isReturn ? 'bg-amber-600 text-white' : 'bg-[#E15A30] text-white') : 'bg-gray-100 text-gray-600'}`}>
+                              {o.name}
+                            </button>
+                          ))}
+                        </span>
+                        {listId !== custListId && <span className="text-[10px] text-amber-700">{tr('ليس نوع سعر العميل')}</span>}
+                      </>
+                    ) : (
+                      <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-700">{current?.name ?? '—'}</span>
+                    )}
+                  </div>
+                  {/* أسعار نوع الفاتورة لم تصل الجهاز: الإصدار ممنوع حتى تصل (متصلاً تُجلب تلقائياً) */}
+                  {listMissing && !listsLoading && <p className="text-[11px] text-red-500 mt-1" role="status">{tr('اتصل مرة لتحديث أسعار نوع السعر')}</p>}
+                </div>
+              );
+            })()}
 
             {/* «الفرق»: الفريق الحالي — تبديله يصفّي الأصناف ويحذف من السلة ما ليس من أصنافه */}
             {!saleRef && (perms.teams?.length ?? 0) > 0 && perms.teamsEnabled && (

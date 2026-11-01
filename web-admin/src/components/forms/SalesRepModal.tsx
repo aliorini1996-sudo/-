@@ -204,6 +204,8 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
             <div className="grid grid-cols-2 gap-3">
               <PermToggle label={tr('تغيير السعر')} {...register('canChangePrice')} />
               <PermToggle label={tr('البيع أقل من السعر')} {...register('canSellBelowPrice')} />
+              {/* «أنواع الأسعار»: بلاها يبيع المندوب بنوع سعر العميل وحده، ومعها يبدّل رقاقة النوع على الفاتورة */}
+              <PermToggle label={tr('تبديل نوع السعر')} {...register('canChangePriceList')} />
             </div>
             <div className="mt-3 max-w-xs">
               <label className="label">{tr('أقصى نسبة خصم %')}</label>
