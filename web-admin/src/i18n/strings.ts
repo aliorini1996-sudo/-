@@ -5950,6 +5950,24 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   // تطبيق المندوب: نوع الفاتورة بلا أسعارٍ في الجهاز (كاشٌ أقدم من النوع) — يحتاج اتصالاً واحداً قبل البيع به
   'اتصل مرة لتحديث أسعار نوع السعر': { en: 'Connect once to update the prices of this price type', fr: 'Connectez-vous une fois pour mettre à jour les prix de ce type de prix', tr: 'Bu fiyat türünün fiyatlarını güncellemek için bir kez bağlanın', zh: '请联网一次以更新此价格类型的价格' },
   'وأسعار أنواع الأسعار تقسم على المعامل كذلك فيبقى سعر الوحدة الحالية في كل نوع كما هو': { en: 'Price type prices are divided by the factor too, so the current unit price in each type stays the same', fr: 'Les prix des types de prix sont aussi divisés par le facteur, donc le prix de l unité actuelle dans chaque type reste le même', tr: 'Fiyat türlerindeki fiyatlar da katsayıya bölünür; böylece her türde mevcut birimin fiyatı aynı kalır', zh: '各价格类型中的价格也按系数相除，因此每种类型中当前单位的价格保持不变' },
+  // «تتبّع اللوط»: تشغيلة سطر البيع في نافذة «إنشاء فاتورة جديدة» (طلب المالك ٢ نوفمبر ٢٠٢٦)
+  'تلقائي — الأقرب انتهاءً': { en: 'Automatic — earliest expiry first', fr: 'Automatique — expiration la plus proche d abord', tr: 'Otomatik — en yakın son kullanma önce', zh: '自动 — 最早到期优先' },
+  'تشغيلة الصنف': { en: 'Item lot', fr: 'Lot de l article', tr: 'Ürün partisi', zh: '商品批次' },
+  'تقسيم على أكثر من تشغيلة': { en: 'Split across several lots', fr: 'Répartir sur plusieurs lots', tr: 'Birden fazla partiye böl', zh: '拆分到多个批次' },
+  'كمية السطر': { en: 'Line quantity', fr: 'Quantité de la ligne', tr: 'Satır miktarı', zh: '行数量' },
+  'تشغيلة السطر': { en: 'Line lot', fr: 'Lot de la ligne', tr: 'Satır partisi', zh: '行批次' },
+  'لا تشغيلات مسماة لهذا الصنف في سيارة المندوب': { en: 'No named lots of this item in the rep van', fr: 'Aucun lot nommé de cet article dans le véhicule du commercial', tr: 'Temsilcinin aracında bu ürünün adlandırılmış partisi yok', zh: '销售代表车辆中没有此商品的命名批次' },
+  'اختر المندوب لاختيار التشغيلة من سيارته': { en: 'Choose the rep to pick the lot from their van', fr: 'Choisissez le commercial pour choisir le lot dans son véhicule', tr: 'Partiyi aracından seçmek için temsilciyi seçin', zh: '选择销售代表以从其车辆中选择批次' },
+  'اختيار التشغيلة يحتاج صلاحية مخزون السيارات': { en: 'Picking the lot requires the van stock permission', fr: 'Le choix du lot nécessite la permission stock des véhicules', tr: 'Parti seçimi araç stoku yetkisi gerektirir', zh: '选择批次需要车辆库存权限' },
+  'تعذر تحميل تشغيلات سيارة المندوب': { en: 'Could not load the rep van lots', fr: 'Impossible de charger les lots du véhicule du commercial', tr: 'Temsilci aracının partileri yüklenemedi', zh: '无法加载销售代表车辆的批次' },
+  'تشغيلة مختارة': { en: 'Lot selected', fr: 'Lot choisi', tr: 'Parti seçildi', zh: '已选批次' },
+  'أعيدت تشغيلات الأسطر إلى تلقائي لأن المندوب تغير': { en: 'Line lots were reset to automatic because the rep changed', fr: 'Les lots des lignes sont revenus en automatique car le commercial a changé', tr: 'Temsilci değiştiği için satır partileri otomatiğe döndü', zh: '因销售代表已更改，行批次已重置为自动' },
+  // مراجعة تشغيلة سطر البيع: نقص التشغيلة الصريحة بمتاحها هي، ورموز الخادم بلغة الواجهة، والمختارة التي أوقفت أو انتهت
+  'المتاح فيها': { en: 'Available in it', fr: 'Disponible dans celui-ci', tr: 'İçinde mevcut', zh: '该批次可用' },
+  'التشغيلة موقوفة لا تباع': { en: 'The lot is blocked and cannot be sold', fr: 'Le lot est bloqué et ne peut pas être vendu', tr: 'Parti durdurulmuş, satılamaz', zh: '该批次已冻结，不能销售' },
+  'التشغيلة منتهية لا تباع': { en: 'The lot has expired and cannot be sold', fr: 'Le lot est périmé et ne peut pas être vendu', tr: 'Partinin süresi dolmuş, satılamaz', zh: '该批次已过期，不能销售' },
+  'التشغيلة غير موجودة لهذا الصنف': { en: 'The lot does not exist for this item', fr: 'Le lot n existe pas pour cet article', tr: 'Bu ürün için parti bulunamadı', zh: '此商品不存在该批次' },
+  'التشغيلة المختارة موقوفة أو منتهية لا تباع': { en: 'The selected lot is blocked or expired and cannot be sold', fr: 'Le lot choisi est bloqué ou périmé et ne peut pas être vendu', tr: 'Seçilen parti durdurulmuş veya süresi dolmuş, satılamaz', zh: '所选批次已冻结或已过期，不能销售' },
 };
 
 // ثابتة الهوية ما لم تتغيّر اللغة — كـuseT (انظر سببه هناك)

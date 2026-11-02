@@ -128,6 +128,8 @@ export interface LotErrorCtx {
   nameOf?: (productId: string) => string | null | undefined;
   /** نصّ كميةٍ أساسية للصنف («٢ كرتون و٣ حبة») */
   qtyText?: (productId: string | null, baseQty: number) => string;
+  /** رقم التشغيلة من معرّفها (لقطة السيارة) — حين لا يحمله الخطأ */
+  lotNumberOf?: (lotId: string) => string | null | undefined;
 }
 
 /**
@@ -145,6 +147,17 @@ export function lotErrorText(info: LotErrorInfo, tr: (ar: string) => string, ctx
       return `${what}: ${from}`;
     }
     const name = pid ? ctx.nameOf?.(pid) : null;
+    // تشغيلةٌ صريحة (بيع الإدارة بتشغيلة مختارة، lots.ts allocateOutLines): المطلوب منها على كل الأسطر ومتاحها هي لا السيارة —
+    // «المتاح في السيارة» كان يُظهر متاح التشغيلة وحدها والسيارة فيها أكثر (مراجعة D2)
+    if (typeof d.lotId === 'string') {
+      const num = (typeof d.lotNumber === 'string' && d.lotNumber) || ctx.lotNumberOf?.(d.lotId) || '';
+      const lotParts = [`${tr('الكمية أكبر من المتاح في التشغيلة')}${num ? ` ${num}` : ''}${name ? ` «${name}»` : ''}`];
+      const w = Number(d.wanted);
+      const u = Number(d.usable);
+      if (Number.isFinite(w)) lotParts.push(`${tr('الكمية')} ${qty(w)}`);
+      if (Number.isFinite(u)) lotParts.push(`${tr('المتاح فيها')} ${qty(Math.max(0, u))}`);
+      return lotParts.join(' · ');
+    }
     const parts = [`${tr('الكمية أكبر من المتاح في تشغيلات سيارة المندوب')}${name ? ` «${name}»` : ''}`];
     const wanted = Number(d.wanted);
     const avail = Number(d.available ?? d.usable);
