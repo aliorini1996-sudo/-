@@ -6,6 +6,7 @@ import { currentPlatformInput, directOnAndroid, directOnIos, directPath, directP
 import { appPrinterLink } from './appBridge';
 import type { SerialPortLike } from './btSerial';
 import { DIRECT_PRINT_MESSAGES, DirectPrintError } from '../printErrors';
+import { ANDROID_PICKER_FIX_RELEASED } from './platform';
 
 const ANDROID_SAMSUNG = 'Mozilla/5.0 (Linux; Android 14; SAMSUNG SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/28.0 Chrome/130.0.0.0 Mobile Safari/537.36';
 
@@ -72,6 +73,16 @@ test('currentPlatformInput يجمع إشارات أندرويد من الصفح�
     assert.equal(directPath(), 'app');
     assert.equal(directPrintAvailable(), true);
     assert.equal(await linkedPrinter(), null, 'مسار التطبيق لا يعرف طابعته في الصفحة');
+    // 1.2.0 (الجسر 1): شاشة الاختيار فيه لا تُظهر الطابعات — «تعذرت» وبديلها قبل نشر 1.2.1، ودعوة التحديث بعده
+    const want = ANDROID_PICKER_FIX_RELEASED ? 'appUpdate' : 'failed';
+    await assert.rejects(printerForJob(), (e: unknown) => e instanceof DirectPrintError && e.kind === want);
+    await assert.rejects(linkPrinter(), (e: unknown) => e instanceof DirectPrintError && e.kind === want);
+  });
+  // 1.2.1+ (الجسر 2): التطبيق كما صُمّم — وقت اللمسة الآن
+  await withPage({
+    navigator: { userAgent: LINUX, userAgentData: { platform: 'Android' }, maxTouchPoints: 5 },
+    window: { localStorage: store({ fs_print_bridge: JSON.stringify({ v: 2, k: 'Ab3_Cd4-Ef5Gh6Ij7Kl8Mn', at: 1 }) }), isSecureContext: true },
+  }, async () => {
     const before = Date.now();
     const link = await printerForJob();
     assert.ok(isAppLink(link));

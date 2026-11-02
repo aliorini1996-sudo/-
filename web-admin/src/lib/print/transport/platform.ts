@@ -41,6 +41,12 @@ export const IOS_BRIDGE_RELEASED = false;
 export const APP_FIRST_BRIDGE_VERSION = 2;
 
 /**
+ * نُشر تطبيق أندرويد 1.2.1 (إصلاح شاشة الاختيار) في الإنتاج — يُقلب true بعد موافقة Google. قبله يُعرض لمندوب 1.2.0 «تعذرت»
+ * وبديلها نظام الطباعة بدل شاشة الاختيار الفارغة؛ وبعده دعوة التحديث (direct.ts brokenPickerError)
+ */
+export const ANDROID_PICKER_FIX_RELEASED = false;
+
+/**
  * النقطية (MIP480) على الآيفون: بلوتوثها كلاسيكيٌّ بلا BLE فلا يصلها تطبيق آيفون — الخيار معطّل بتلميحٍ بسيط. يُقلب true
  * إن جُرّب محوّل RS-232↔BLE على الطابعة.
  */

@@ -11,7 +11,7 @@ import * as btSerial from './btSerial';
 import type { SerialPortLike } from './btSerial';
 import { appPrinterLink, openAppPicker, readBridgeFlag, type AppPrinterLink } from './appBridge';
 import { iosLinkedPrinter, iosPick, iosPrinterForJob, isIosWrapper, readIosBridgeVersion, type IosPrinterLink } from './iosBridge';
-import { classifyPrintPlatform, type DirectPath, type PlatformInput } from './platform';
+import { ANDROID_PICKER_FIX_RELEASED, classifyPrintPlatform, type DirectPath, type PlatformInput } from './platform';
 
 export type DirectLink = SerialPortLike | AppPrinterLink | IosPrinterLink;
 /** تسليمٌ متأخّر إلى التطبيق بعد دعوة التحديث (appBridge.ts) — تشترك فيه الواجهة ما دامت الدعوة معروضة */
@@ -72,10 +72,26 @@ export async function linkedPrinter(): Promise<SerialPortLike | IosPrinterLink |
   return null;
 }
 
+/**
+ * تطبيق فيلد سيلز 1.2.0 (الجسر 1): شاشة الاختيار فيه تُنشئ أزرار الطابعات مخفيّة، فلا تُختار طابعةٌ فيه أبداً (بلاغ المالك
+ * ٢ نوفمبر ٢٠٢٦، أُصلح في 1.2.1). قبل نشر 1.2.1: «تعذرت» وبديلها نظام الطباعة بدل شاشةٍ فارغة؛ وبعده دعوة التحديث — ونافذة
+ * Chrome لمندوب 1.2.0 لا تُفتح بعده إلا لمنفذٍ مربوطٍ يطبع اليوم
+ */
+function brokenPickerError(): DirectPrintError {
+  return new DirectPrintError(ANDROID_PICKER_FIX_RELEASED ? 'appUpdate' : 'failed');
+}
+
+function onBrokenPicker(input: PlatformInput): boolean {
+  return input.bridgeVersion === 1 && classifyPrintPlatform(input).os === 'android';
+}
+
 /** «ربط الطابعة»: نافذة Chrome (serial) أو شاشة الاختيار في التطبيق (app على أندرويد، ios-app على الآيفون) */
 export async function linkPrinter(): Promise<'linked' | 'handed'> {
-  const path = directPath();
+  const input = currentPlatformInput();
+  const path = directPath(input);
+  if (path === 'serial' && onBrokenPicker(input) && ANDROID_PICKER_FIX_RELEASED) throw brokenPickerError();
   if (path === 'serial') { await btSerial.linkPrinter(); return 'linked'; }
+  if (path === 'app' && onBrokenPicker(input)) throw brokenPickerError();
   if (path === 'app') return openAppPicker();
   if (path === 'ios-app') { await iosPick(); return 'linked'; }
   throw new DirectPrintError('unsupported');
@@ -86,8 +102,15 @@ export async function linkPrinter(): Promise<'linked' | 'handed'> {
  * تطبيق الآيفون (وإلا شاشة الاختيار فيه)
  */
 export async function printerForJob(): Promise<DirectLink> {
-  const path = directPath();
+  const input = currentPlatformInput();
+  const path = directPath(input);
+  if (path === 'serial' && onBrokenPicker(input) && ANDROID_PICKER_FIX_RELEASED) {
+    const linked = await btSerial.linkedPrinter();
+    if (linked) return linked;
+    throw brokenPickerError();
+  }
   if (path === 'serial') return btSerial.printerForJob();
+  if (path === 'app' && onBrokenPicker(input)) throw brokenPickerError();
   if (path === 'app') return appPrinterLink(Date.now());
   if (path === 'ios-app') return iosPrinterForJob();
   throw new DirectPrintError('unsupported');
