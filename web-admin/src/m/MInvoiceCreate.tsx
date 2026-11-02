@@ -16,7 +16,8 @@ import {
   lineKey, addInvoiceLine, setInvoiceLineUnit, stepInvoiceLine, refreshInvoiceLines, repriceInvoiceLines, priceOverrideOf, suggestedNet, qtyText,
   type SalePick,
 } from './mUnits';
-import { baseLabelOf, priceListsOf } from '../lib/priceLists';
+import { baseLabelOf, priceListsOf, defaultPriceTypeOf } from '../lib/priceLists';
+import { adminListHintOf } from '../lib/invoiceModalRepPrice';
 import {
   lotErrorOf, lotFlagsOf, lotWarningsOf, LOT_WARNING_LABELS, type LotWarning, type VanLotSnapshotDto,
 } from '../lib/lots';
@@ -30,6 +31,8 @@ interface Pick {
   id: string; name: string; code?: string; phone?: string; basePrice?: number; taxPct?: number; unit?: string;
   /** «أنواع الأسعار»: نوع سعر العميل من ملفه (null = السعر الأساسي) — يردّه الخادم مع صفّ العميل */
   priceListId?: string | null;
+  /** ولصفّ المندوب: نوعه الافتراضي لعميلٍ بلا نوع (null = السعر الأساسي) — يردّه الخادم مع قائمة المناديب */
+  defaultPriceListId?: string | null;
 }
 
 /**
@@ -60,6 +63,10 @@ interface Pick {
  * `choiceNet(c, basePrice, سعر العميل الخاص ?? سعر النوع)` ⚠️ **صافياً قبل الضريبة** كبقية هذه الشاشة (mUnits.suggestedNet). وتبديل
  * العميل أو النوع يعيد تسعير البنود التي لم يمسّها المستخدم وحدها، والجسم يحمل `priceListId` (null = السعر الأساسي). شركةٌ بلا
  * أنواع: لا رقاقة ولا مفتاح — وأسعار العميل الخاصة تُقترح على كل حال كتطبيق المندوب ولوحة الإدارة.
+ * ونوع المندوب (طلب المالك ٢ نوفمبر ٢٠٢٦): افتراضيّ الفاتورة نوع العميل، وإلا النوع الافتراضي للمندوب المختار، وإلا السعر
+ * الأساسي — القاعدة الواحدة مع الخادم (defaultPriceTypeOf). وتبديل المندوب يغيّر الافتراضي وحده كفاتورة اللوحة (InvoiceModal):
+ * النوع يتبعه ما لم يختر المستخدم رقاقة، والبنود التي لم تُمسّ تُعاد بالنوع الجديد. والإدارة حرّة بين الأنواع كلها (لا قيد «الأنواع
+ * المسموحة» عليها، فهو للمندوب وحده).
  */
 type Step = 'head' | 'items' | 'review';
 
@@ -134,16 +141,21 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
   const custRow = customer ?? custFileQ.data;
   // undefined = لم يُعرف بعد (فالفاتورة بالسعر الأساسي حتى يصل، ثم تُعاد البنود غير المعدَّلة بنوعه)
   const custListId: string | null | undefined = custRow ? (custRow.priceListId ?? null) : undefined;
-  const listId: string | null = !listsOn ? null : listChoice !== undefined ? listChoice : (custListId ?? null);
-  // نوع العميل غائبٌ عن الأسماء المخبّأة (أُنشئ بعدها): تُقرأ من جديد مرّةً لكل نوع — وإلا لا رقاقة ولا مفتاح، فيسعّر الخادم بنوع
-  // العميل (المفتاح غائب) والبنود مقترحةٌ بالسعر الأساسي
+  // النوع الافتراضي للمندوب المختار (null = السعر الأساسي) — من صفّه في قائمة المناديب
+  const repListId: string | null = repsQ.data?.find(r => r.id === salesRepId)?.defaultPriceListId ?? null;
+  // افتراضيّ الفاتورة: نوع العميل ?? نوع المندوب ?? السعر الأساسي — والعميل لم يُعرف بعد ⇒ نوع المندوب حتى يصل
+  const docDefault: string | null = defaultPriceTypeOf(custListId, repListId);
+  const listId: string | null = !listsOn ? null : listChoice !== undefined ? listChoice : docDefault;
+  const listHint = adminListHintOf(listId, custListId, repListId, custListId !== undefined);
+  // افتراضيّ الفاتورة (نوع العميل أو المندوب) غائبٌ عن الأسماء المخبّأة (أُنشئ بعدها): تُقرأ من جديد مرّةً لكل نوع — وإلا لا رقاقة
+  // ولا مفتاح، فيسعّر الخادم بالافتراضي (المفتاح غائب) والبنود مقترحةٌ بالسعر الأساسي
   const namesRetried = useRef<string | null>(null);
   useEffect(() => {
-    if (!custListId || priceLists.some(l => l.id === custListId) || priceInfoQ.isFetching || namesRetried.current === custListId) return;
-    namesRetried.current = custListId;
+    if (!docDefault || priceLists.some(l => l.id === docDefault) || priceInfoQ.isFetching || namesRetried.current === docDefault) return;
+    namesRetried.current = docDefault;
     void priceInfoQ.refetch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- نوع العميل وردّ الأسماء وحدهما
-  }, [custListId, priceInfoQ.data, priceInfoQ.isFetching]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- افتراضيّ الفاتورة وردّ الأسماء وحدهما
+  }, [docDefault, priceInfoQ.data, priceInfoQ.isFetching]);
   const custPricesQ = useQuery({
     queryKey: ['m-inv-cust-prices', customerId],
     queryFn: async () => expectArray<CustPriceInput>((await productApi.customerPrices(customerId)).data?.data, tr('أسعار العميل الخاصة')),
@@ -332,6 +344,7 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
 
             <Field label={tr('المندوب')} required>
               {repsQ.isLoading ? <MSpinner /> : (
+                // مندوبٌ آخر يغيّر افتراضيّ الفاتورة وحده (نوعه حين لا نوع للعميل) — والرقاقة التي اختارها المستخدم تبقى كاللوحة
                 <select className="input" value={salesRepId} onChange={e => setSalesRepId(e.target.value)}>
                   <option value="">{tr('اختر المندوب')}</option>
                   {(repsQ.data ?? []).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
@@ -384,8 +397,9 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
                     </button>
                   ))}
                 </div>
-                {custListId !== undefined && listId !== custListId && (
-                  <p className="text-[10px] text-[#8A6D1F]">{tr('ليس نوع سعر العميل')}</p>
+                {/* تنبيه الخروج عن الافتراضي بقاعدة اللوحة نفسها: نوع المندوب حين يأتي الافتراضي منه (العميل بلا نوع)، وإلا نوع العميل */}
+                {listHint && (
+                  <p className="text-[10px] text-[#8A6D1F]">{tr(listHint === 'rep' ? 'ليس نوع سعر المندوب' : 'ليس نوع سعر العميل')}</p>
                 )}
               </div>
             )}

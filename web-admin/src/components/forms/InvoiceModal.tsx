@@ -31,6 +31,7 @@ import toast from 'react-hot-toast';
 import SearchableSelect from '../SearchableSelect';
 import PriceTypeChips from '../PriceTypeChips';
 import { baseLabelOf, priceListsOf, priceOverrides, repriceUntouched, suggestedNetOf } from '../../lib/priceLists';
+import { adminInvoiceListOf, adminListHintOf, type AdminListChoice } from '../../lib/invoiceModalRepPrice';
 
 /**
  * بند الفاتورة في المحرّر. الوحدات المتعددة: `unit` اسم وحدة البند كما يُطبع، والكمية والسعر بها؛ و`unitId` وحدتها
@@ -178,7 +179,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
     },
   });
 
-  /* «أنواع الأسعار»: الفاتورة تُسعَّر بنوع سعر العميل (من ملفه) ويبدّله المدير برقاقة — بلا حارسٍ له (الخادم يحرس المندوب وحده).
+  /* «أنواع الأسعار»: الفاتورة تُسعَّر بنوع سعر العميل (من ملفه)، وإلا بالنوع الافتراضي للمندوب المختار، ويبدّله المدير برقاقة —
+   * بلا حارسٍ له ولا قيد «الأنواع المسموحة» (الخادم يحرس المندوب وحده).
    * والسعر المقترح للبند: سعر العميل الخاص يغلب سعر النوع، والنوع يغلب سعر الوحدة والأساس (suggestedNetOf ← choiceNet بثالثه، كحارس الخادم).
    * وشركةٌ بلا أنواع: لا رقاقات ولا مفتاح في الجسم — والخادم يأخذ نوع العميل (null) كما قبل الميزة */
   const { data: priceInfo } = useQuery({
@@ -187,7 +189,14 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
   });
   const priceLists = priceInfo?.lists ?? [];
   const priceListOn = priceLists.length > 0;
-  const [priceListId, setPriceListId] = useState<string | null>(null);
+  /* «نوع سعر المندوب» (طلب المالك ٢ نوفمبر ٢٠٢٦): الافتراضي نوع العميل ?? النوع الافتراضي للمندوب المختار ?? الأساسي (كالخادم —
+   * lib/invoiceModalRepPrice.ts). رقاقة المدير تغلبه (undefined = لم يختر)؛ تغيير العميل يعيده إلى الافتراضي، وتغيير المندوب يغيّر
+   * الافتراضي فيتبعه النوع ما لم يختر المدير — والبنود التي لم يُعدَّل سعرها تُعاد به (overrides أدناه) */
+  const [listChoice, setListChoice] = useState<AdminListChoice>(undefined);
+  const custListId = selectedCustomer?.priceListId ?? null;
+  const repDefaultListId = salesReps?.find(r => r.id === salesRepId)?.defaultPriceListId ?? null;
+  const priceListId = adminInvoiceListOf(priceListOn, listChoice, custListId, repDefaultListId);
+  const listHint = adminListHintOf(priceListId, custListId, repDefaultListId, !!selectedCustomer);
   // أسعار العميل الخاصة — كانت النافذة تقترح سعر الصنف لعميلٍ له سعرٌ متّفق عليه
   const { data: custRows } = useQuery({
     queryKey: ['customer-prices', customerId],
@@ -269,7 +278,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
   };
 
   const changeKind = (k: 'SALE' | 'RETURN') => { setDocKind(k); unlinkSale(); };
-  // العميل أو النوع تغيّر أو وصلت أسعار العميل: البنود التي لم يُعدَّل سعرها تأخذ المقترح الجديد (repriceUntouched)
+  // العميل أو المندوب أو النوع تغيّر أو وصلت أسعار العميل: البنود التي لم يُعدَّل سعرها تأخذ المقترح الجديد (repriceUntouched)
   useEffect(() => {
     setLines(ls => repriceUntouched(ls, l => {
       const p = (products || []).find(x => x.id === l.productId);
@@ -277,8 +286,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
       return p && c ? suggestedNet(p, c) : null;
     }, (l, price) => ({ ...l, unitPrice: price, lineTotal: calcLine(l.qty, price, l.discountPct, l.taxPct) })));
   }, [overrides]); // eslint-disable-line react-hooks/exhaustive-deps
-  /** العميل المختار: نوع سعره من ملفه هو نوع الفاتورة (والمدير يبدّله برقاقة) */
-  const pickCustomerList = (id: string) => setPriceListId((customers || []).find(c => c.id === id)?.priceListId ?? null);
+  /** عميلٌ آخر: الفاتورة تعود إلى نوعها الافتراضي (نوع سعره من ملفه ?? نوع المندوب) — والمدير يبدّله برقاقة */
+  const pickCustomerList = (id: string) => { if (id !== customerId) setListChoice(undefined); };
   const setLinkedQty = (saleItemId: string, v: number) =>
     setLinked(s => s && { ...s, lines: s.lines.map(l => (l.saleItemId === saleItemId ? { ...l, qty: clampReturnQty(v, l) } : l)) });
 
@@ -811,15 +820,14 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
           </div>
           ) : (
           <div>
-            {/* «أنواع الأسعار»: نوع العميل مختارٌ افتراضاً، والرقاقة تبدّله فتُعاد أسعار البنود التي لم تُعدَّل */}
+            {/* «أنواع الأسعار»: نوع العميل (وإلا نوع المندوب) مختارٌ افتراضاً، والرقاقة تبدّله فتُعاد أسعار البنود التي لم تُعدَّل */}
             {priceListOn && (
               <div className="flex items-center gap-2 flex-wrap mb-3" data-invoice-price-type="">
                 <span className="text-xs font-semibold text-gray-500">{tr('نوع السعر')}</span>
-                <PriceTypeChips baseLabel={baseLabelOf(priceInfo, tr)} lists={priceLists} value={priceListId} onChange={setPriceListId}
+                <PriceTypeChips baseLabel={baseLabelOf(priceInfo, tr)} lists={priceLists} value={priceListId} onChange={setListChoice}
                   disabled={mutation.isPending} />
-                {selectedCustomer && priceListId !== (selectedCustomer.priceListId ?? null) && (
-                  <span className="text-[11px] text-amber-700">{tr('ليس نوع سعر العميل')}</span>
-                )}
+                {listHint === 'customer' && <span className="text-[11px] text-amber-700">{tr('ليس نوع سعر العميل')}</span>}
+                {listHint === 'rep' && <span className="text-[11px] text-amber-700">{tr('ليس نوع سعر المندوب')}</span>}
               </div>
             )}
             <div className="flex items-center justify-between mb-2">

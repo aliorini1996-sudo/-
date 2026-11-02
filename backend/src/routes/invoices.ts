@@ -69,8 +69,11 @@ import {
   LOT_ALLOW_UNKNOWN, LOT_TX_OPTIONS, allocateInvoiceLotsInTx, assertRestockOffKeepsLots, assertReturnCancelKeepsLots, assertReturnStillUntracked,
   freeReturnStamps, invoiceLotLines, invoiceLotMoment, recordReplayHeld, returnHistoryBound, saleItemLots, scaleLotHint, type IssuanceLotPlan,
 } from '../services/lotsInvoice';
-// «أنواع الأسعار»: نوع سعر المستند وحارس تبديله، و«سعر العميل» في مرجع الحارس = سعر العميل ?? سعر النوع
-import { PRICE_LIST_MESSAGES, docPriceListOf, refOverrideOf } from '../services/priceLists';
+// «أنواع الأسعار»: نوع سعر المستند وحارس تبديله، و«سعر العميل» في مرجع الحارس = سعر العميل ?? سعر النوع — و«نوع سعر المندوب»:
+// افتراضيّ المستند (نوع العميل ?? نوع المندوب الافتراضي) والأنواع المسموح له التبديل إليها
+import {
+  PRICE_LIST_MESSAGES, PRICE_TYPE_NOT_ALLOWED_REASON, allowedPriceTypesOf, defaultPriceTypeOf, docPriceListOf, priceTypeAllowed, refOverrideOf,
+} from '../services/priceLists';
 
 const router = Router();
 router.use(authenticate);
@@ -201,8 +204,9 @@ const createInvoiceSchema = z.object({
   // (BT-25) وطريقة دفعها (BR-49) لإشعارٍ دائن بلا فاتورة في المنصّة — يُفحصان في routes/invoicesNotes.ts، وفي غير ذلك لا يُقرآن
   originalInvoiceRef: z.string().max(200).optional(),
   originalPaymentType: z.enum(['CASH', 'CREDIT']).optional(),
-  // «أنواع الأسعار»: نوع سعر المستند — غائبٌ ⇒ نوع العميل المحفوظ (العملاء والصناديق القديمة)، وnull ⇒ السعر الأساسي صراحةً.
-  // المندوب لا يرسل غير نوع عميله إلا بـ«تبديل نوع السعر» (403 PRICE_LIST_FORBIDDEN)
+  // «أنواع الأسعار»: نوع سعر المستند — غائبٌ ⇒ الافتراضيّ: نوع العميل المحفوظ، وإلا النوع الافتراضي لمندوب المستند (العملاء
+  // والصناديق القديمة)، وnull ⇒ السعر الأساسي صراحةً. المندوب لا يرسل غير الافتراضيّ إلا بـ«تبديل نوع السعر» وضمن أنواعه
+  // المسموحة (403 PRICE_LIST_FORBIDDEN)
   priceListId: z.string().min(1).nullish(),
   // هل يعود المرتجع لمخزون السيارة؟ (اختياري — يُشتقّ من السبب إن غاب)
   returnToStock: z.boolean().optional(),
@@ -992,27 +996,39 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const noBase = missingBaseForApi(!!req.user?.apiKeyId, body.items,
       new Map(products.map((p) => [p.id, { name: p.name, baseConvertedAt: p.baseConvertedAt ?? null }])));
     if (noBase) { const g = baseUnitRequiredReply(noBase); res.status(g.status).json(g.body); return; }
-    /* «أنواع الأسعار» (services/priceLists.ts): نوع سعر المستند — المرسل إن حضر مفتاحه (null = السعر الأساسي)، وإلا نوع العميل
-     * المحفوظ (عميلٌ قديم وصندوق أوف-لاين قديم بلا المفتاح كما كانا). المندوب لا يسعّر بغير نوع عميله إلا بـ«تبديل نوع السعر»،
-     * والإدارة ومفتاح API أحرار (النوع عندهم تعبئةٌ افتراضية كالسعر). ونوعٌ غير نوع العميل من الشركة نفسها وإلا 400 — ونوع العميل
-     * محروسٌ عند كتابته (routes/customers.ts). وأسعار النوع لأصناف المستند وحدها وحين يوجد نوعٌ فقط: بلا نوعٍ لا استعلام زائد.
+    /* «أنواع الأسعار» (services/priceLists.ts): نوع سعر المستند — المرسل إن حضر مفتاحه (null = السعر الأساسي)، وإلا افتراضيّه
+     * (defaultPriceTypeOf): نوع العميل، وإلا النوع الافتراضي لمندوب المستند («نوع سعر المندوب»، طلب المالك ٢ نوفمبر ٢٠٢٦ — المندوب
+     * نفسه، أو salesRepId الذي تُصدر له الإدارة ومفتاح API)، وإلا السعر الأساسي. فعميلٌ قديم وصندوق أوف-لاين قديم بلا المفتاح يُسعَّران
+     * بالافتراضيّ. عمودا المندوب من صفّه المقروء أعلاه (لا استعلام جديد)، وغيابهما = اليوم حرفياً (نوع العميل، وكل الأنواع).
+     * المندوب لا يسعّر بغير الافتراضيّ إلا بـ«تبديل نوع السعر» وضمن أنواعه المسموحة (allowedPriceTypes: null = بلا قيد كاليوم، والافتراضيّ
+     * مسموحٌ دائماً — priceTypeAllowed)، والإدارة ومفتاح API أحرار (النوع عندهم تعبئةٌ افتراضية كالسعر). ونوعٌ غير الافتراضيّ من الشركة
+     * نفسها وإلا 400 — ونوعا العميل والمندوب الافتراضيّان محروسان عند كتابتهما (routes/customers.ts وroutes/salesReps.ts). وأسعار النوع
+     * لأصناف المستند وحدها وحين يوجد نوعٌ فقط: بلا نوعٍ لا استعلام زائد.
      * وإعادة رفع الصندوق (X-FS-Replay — تُمحى لمفتاح API في middleware/auth.ts) لا تُرفض بنوعٍ حُذف قبل المزامنة ولا بـ«تبديل نوع
-     * السعر» نُزعت بعد الإصدار: مستندٌ سُلّمت بضاعته يُعدَم في الصندوق بأي 4xx. فيُسعَّر بنوع العميل الحالي كأن المفتاح غائب، وحارس
-     * السعر أدناه يحكم كالمعتاد — فالترويسة (يكتبها الجهاز) لا تفتح نوعاً أرخص بلا صلاحية، ولا يُختم المستند بمعرّفٍ لا وجود له */
+     * السعر» أو نوعٍ مسموح نُزعا بعد الإصدار: مستندٌ سُلّمت بضاعته يُعدَم في الصندوق بأي 4xx. فيُسعَّر بالافتراضيّ الحالي كأن المفتاح
+     * غائب، وحارس السعر أدناه يحكم كالمعتاد — فالترويسة (يكتبها الجهاز) لا تفتح نوعاً أرخص بلا صلاحية، ولا يُختم المستند بمعرّفٍ لا وجود له */
     const listReplay = String(req.headers['x-fs-replay'] || '') === '1' && !req.user?.apiKeyId;
     const custListId = customer.priceListId ?? null;
-    let docListId = docPriceListOf(body.priceListId, custListId);
-    if (docListId !== custListId) {
-      if (req.user!.role === 'SALES_REP' && rep.canChangePriceList !== true) {
+    const defaultListId = defaultPriceTypeOf(custListId, rep.defaultPriceListId);
+    let docListId = docPriceListOf(body.priceListId, defaultListId);
+    if (docListId !== defaultListId) {
+      if (req.user!.role === 'SALES_REP' && (rep.canChangePriceList !== true
+        || !priceTypeAllowed(docListId, allowedPriceTypesOf(rep.allowedPriceTypes), defaultListId))) {
         if (!listReplay) {
-          res.status(403).json({ success: false, code: 'PRICE_LIST_FORBIDDEN', message: PRICE_LIST_MESSAGES.PRICE_LIST_FORBIDDEN }); return;
+          // الرمز واحد والرسالة بالسبب: بالصلاحية والنوع خارج أنواعه المسموحة ⇒ «نوع السعر غير مسموح لك» ووسم reason (التطبيق
+          // لا يحسب صلاحيته سُحبت فيطفئ رقائقه)، وبلاها «لا تملك صلاحية تبديل نوع السعر» كما كان
+          const notAllowed = rep.canChangePriceList === true;
+          res.status(403).json({
+            success: false, code: 'PRICE_LIST_FORBIDDEN', ...(notAllowed && { reason: PRICE_TYPE_NOT_ALLOWED_REASON }),
+            message: notAllowed ? PRICE_LIST_MESSAGES.PRICE_TYPE_NOT_ALLOWED : PRICE_LIST_MESSAGES.PRICE_LIST_FORBIDDEN,
+          }); return;
         }
-        docListId = custListId;
+        docListId = defaultListId;
       } else if (docListId && !(await prisma.priceList.count({ where: { id: docListId, tenantId: tid } }))) {
         if (!listReplay) {
           res.status(400).json({ success: false, code: 'PRICE_LIST_INVALID', message: PRICE_LIST_MESSAGES.PRICE_LIST_INVALID }); return;
         }
-        docListId = custListId;
+        docListId = defaultListId;
       }
     }
     // سعر النوع لوحدة الأساس (صافٍ) لكل صنفٍ له سعرٌ فيه — وغيره يُسعَّر بسلسلة اليوم كما هي

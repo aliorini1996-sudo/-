@@ -5,7 +5,9 @@ import prisma from '../config/database';
 import { authenticate, requireAccounting, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { customerScope } from '../services/customerScope';
-import { PRICE_LIST_MESSAGES, PRICE_LIST_NAME_MAX, priceListName, type PriceListCode } from '../services/priceLists';
+import {
+  PRICE_LIST_IN_USE_BY, PRICE_LIST_MESSAGES, PRICE_LIST_NAME_MAX, priceListName, type PriceListCode,
+} from '../services/priceLists';
 
 /**
  * «أنواع الأسعار» (طلب المالك، ١ نوفمبر ٢٠٢٦) — /api/price-lists: أسعارٌ مسمّاة تحدّدها الشركة («سعر الجملة»، «سعر التجزئة»…)،
@@ -14,8 +16,9 @@ import { PRICE_LIST_MESSAGES, PRICE_LIST_NAME_MAX, priceListName, type PriceList
  * - **القراءة** لكل مستخدم شركة ومندوب (الأسماء ليست سرّاً): نموذج العميل والفاتورة وتطبيق المندوب تحتاجها.
  * - **الكتابة** (الأنواع واسم زرّ الأساس) لمدير الأصناف: requireAdmin + صلاحية الأصناف، كبقيّة كتابات الأسعار.
  * - **أسعار الأنواع** (/prices) بشكل /products/customer-prices نفسه فيعيد تطبيق المندوب أساسها بعد تحويلٍ كأسعار العميل —
- *   والمندوب بلا «تبديل نوع السعر» لا يرى إلا أنواع عملائه (لا قائمة جملةٍ كاملة في كاش جواله).
+ *   والمندوب بلا «تبديل نوع السعر» لا يرى إلا أنواع عملائه ونوعه الافتراضي (لا قائمة جملةٍ كاملة في كاش جواله).
  * - **النوع الذي عليه عملاء لا يُحذف** (409 PRICE_LIST_IN_USE): الحذف يفرّغ نوعهم (SetNull) فيسقط سعرهم إلى الأساس بصمت.
+ *   ولا الذي هو افتراضيّ مندوبٍ أو ضمن أنواعه المسموحة (طلب المالك ٢ نوفمبر ٢٠٢٦، repsCount في الردّ).
  *   وأسعاره تُحذف معه (Cascade)، والفواتير المختومة به يُفرَّغ ختمها.
  */
 const router = Router();
@@ -36,6 +39,11 @@ const LIST_SELECT = { id: true, name: true, sortOrder: true } as const;
 const LIST_ORDER = [{ sortOrder: 'asc' as const }, { name: 'asc' as const }];
 /** العملاء الأحياء — المحذوف (status DELETED) صفٌّ باقٍ لأسماء فواتيره لا يُحسب «مستخدماً» ولا يمنع الحذف */
 const LIVE_CUSTOMER = { status: { not: 'DELETED' } } as const;
+/**
+ * مناديب على النوع: افتراضيّهم، أو ضمن أنواعهم المسموحة (مصفوفة JSON تحويه — `@>` في PostgreSQL). والمندوب المعطَّل يُحسب:
+ * إعداده باقٍ ويعود بتفعيله. والمحذوف لا صفّ له
+ */
+const repsOnList = (id: string) => ({ OR: [{ defaultPriceListId: id }, { allowedPriceTypes: { array_contains: [id] } }] });
 
 /** عدد العملاء الأحياء على كل نوع — groupBy واحد للشركة */
 async function customersCountOf(tid: string): Promise<Map<string, number>> {
@@ -74,14 +82,19 @@ router.get('/prices', requireAdminPermission('canManageProducts'), async (req: A
     const tid = tenantId(req);
     let lists = await prisma.priceList.findMany({ where: { tenantId: tid }, orderBy: LIST_ORDER, select: { id: true, name: true } });
     if (lists.length && req.user?.role === 'SALES_REP') {
-      const rep = await prisma.salesRep.findFirst({ where: { id: req.user.id, tenantId: tid }, select: { canChangePriceList: true } });
+      const rep = await prisma.salesRep.findFirst({
+        where: { id: req.user.id, tenantId: tid }, select: { canChangePriceList: true, defaultPriceListId: true },
+      });
       if (rep?.canChangePriceList !== true) {
-        // بلا «تبديل نوع السعر»: أنواع عملائه وحدها (بنطاق عزل العملاء) — لا يسعّر إلا بنوع العميل أصلاً
+        // بلا «تبديل نوع السعر»: أنواع عملائه وحدها (بنطاق عزل العملاء) — لا يسعّر إلا بنوع العميل أصلاً — ونوعه الافتراضي
+        // لعميلٍ بلا نوع (طلب المالك ٢ نوفمبر ٢٠٢٦) يكون في كاش جواله دون اتصال. لا أنواعه المسموحة: لا يبدّل إليها بلا الصلاحية
+        // (403 PRICE_LIST_FORBIDDEN)، فلا قائمة جملةٍ كاملة في كاشه لا يسعّر بها
         const used = await prisma.customer.findMany({
           where: { tenantId: tid, priceListId: { not: null }, ...LIVE_CUSTOMER, ...(await customerScope(req, tid)) },
           distinct: ['priceListId'], select: { priceListId: true },
         });
-        const mine = new Set((used ?? []).map((c) => c.priceListId));
+        const mine = new Set<string | null>((used ?? []).map((c) => c.priceListId));
+        if (rep?.defaultPriceListId) mine.add(rep.defaultPriceListId);
         lists = lists.filter((l) => mine.has(l.id));
       }
     }
@@ -160,6 +173,7 @@ router.put('/:id', ...manage, async (req: AuthRequest, res: Response, next: Next
  * حذف نوعٍ لا عملاء أحياء عليه — أسعاره تُحذف معه (Cascade). كلّه في معاملةٍ واحدة بعد قفل صفّ النوع (FOR UPDATE، كقفل حذف
  * الصنف): إسناد عميلٍ إليه يأخذ FOR KEY SHARE لمفتاحه الأجنبي فيتعارض مع القفل — إمّا التزم قبله فعُدَّ هنا (409)، وإمّا انتظر
  * ففشل مفتاحه بعد الحذف (400 PRICE_LIST_INVALID في routes/customers.ts)، ولا يسقط عميلٌ إلى السعر الأساسي بصمت (SetNull).
+ * والمناديب كذلك: كتابة أنواع المندوب تقفل صفوف أنواعها FOR KEY SHARE في معاملتها (routes/salesReps.ts) فتُعدّ هنا أو تُردّ 400.
  * وختم الفواتير والعملاء المحذوفين يُفرَّغ هنا صراحةً بطابع تعديل: SetNull في القاعدة لا يحرّك updatedAt، فتبقى مزامنة
  * /api/v1/sync عند مكامِلٍ على معرّفٍ لا يُترجم (كـtouchInvoice في services/invoiceExpiry.ts)
  */
@@ -171,7 +185,13 @@ router.delete('/:id', ...manage, async (req: AuthRequest, res: Response, next: N
       const locked = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM price_lists WHERE id = ${id} AND "tenantId" = ${tid} FOR UPDATE`;
       if (!locked?.length) return { status: 404, code: 'PRICE_LIST_INVALID' as const };
       const customersCount = await tx.customer.count({ where: { tenantId: tid, priceListId: id, ...LIVE_CUSTOMER } });
-      if (customersCount > 0) return { status: 409, code: 'PRICE_LIST_IN_USE' as const, customersCount };
+      // ومناديب هو افتراضيّهم أو ضمن أنواعهم المسموحة (أنواع الأسعار على مستوى المندوب): الحذف يُسقط افتراضيّهم إلى الأساس
+      // بصمت (SetNull) ويترك في allowedPriceTypes معرّفاً ميتاً. وكتابة المندوب تقفل الصفّ نفسه FOR KEY SHARE (routes/salesReps.ts)
+      const repsCount = await tx.salesRep.count({ where: { tenantId: tid, ...repsOnList(id) } });
+      if (customersCount > 0 || repsCount > 0) {
+        const message = PRICE_LIST_IN_USE_BY[customersCount > 0 ? (repsCount > 0 ? 'both' : 'customers') : 'reps'];
+        return { status: 409, code: 'PRICE_LIST_IN_USE' as const, customersCount, repsCount, message };
+      }
       const unstamp = { priceListId: null, updatedAt: new Date() };
       await tx.invoice.updateMany({ where: { tenantId: tid, priceListId: id }, data: unstamp });
       await tx.customer.updateMany({ where: { tenantId: tid, priceListId: id }, data: unstamp });

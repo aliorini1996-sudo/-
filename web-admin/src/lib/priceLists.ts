@@ -174,3 +174,129 @@ export function repriceUntouched<L extends { unitPrice: number; refPrice: number
   });
   return changed ? next : lines;
 }
+
+// ─── نافذة المندوب: «أنواع الأسعار» (النوع الافتراضي والمسموح) — عرضٌ وحده، والقواعد في النسخة المشتركة أسفل الملف ───
+
+/** رموز خانات «أنواع الأسعار المسموحة» بترتيب الشركة: 'base' (السعر الأساسي) أولاً ثم معرّفات الأنواع */
+export function repPriceTypeTokens(allLists: readonly string[]): string[] {
+  return [BASE_PRICE_TYPE, ...allLists];
+}
+
+/**
+ * المحدَّد من allowedPriceTypes المحفوظ رموزاً بترتيب الشركة — ورمزٌ لم يعد في أنواعها يُسقط. لا تحديد ⇒ null (كل الأنواع):
+ * فالخانات الفارغة تعني «بلا قيد» كما كانت قبل الميزة
+ */
+export function repAllowedTokensOf(raw: unknown, allLists: readonly string[]): string[] | null {
+  const allowed = allowedPriceTypesOf(raw);
+  if (allowed === null) return null;
+  const out = repPriceTypeTokens(allLists).filter((tok) => allowed.includes(tok === BASE_PRICE_TYPE ? null : tok));
+  return out.length ? out : null;
+}
+
+/**
+ * تبديل خانة نوعٍ مسموح: المحدَّد يبقى بترتيب الشركة، والنوع الافتراضي يبقى ما دام محدَّداً وإلا صار أوّل المحدَّد (الخادم يردّ
+ * افتراضياً خارج المسموح 400 PRICE_TYPE_DEFAULT_NOT_ALLOWED). وآخر خانةٍ تُلغى ⇒ null (كل الأنواع) والافتراضي كما هو.
+ * وأوّل خانةٍ من «كل الأنواع» تُحدِّد معها الافتراضي المحفوظ: فلا يتبدّل نوع المندوب الافتراضي في الخفاء بنقرة تقييد.
+ * `defaultId` معرّف نوعٍ أو null للسعر الأساسي (كعمود defaultPriceListId)
+ */
+export function repToggleAllowedType(
+  cur: { allowed: string[] | null; defaultId: string | null },
+  token: string,
+  on: boolean,
+  allLists: readonly string[],
+): { allowed: string[] | null; defaultId: string | null } {
+  const set = new Set(cur.allowed ?? (on ? [cur.defaultId ?? BASE_PRICE_TYPE] : []));
+  if (on) set.add(token); else set.delete(token);
+  const allowed = repPriceTypeTokens(allLists).filter((t) => set.has(t));
+  if (!allowed.length) return { allowed: null, defaultId: cur.defaultId };
+  const curTok = cur.defaultId ?? BASE_PRICE_TYPE;
+  const defTok = allowed.includes(curTok) ? curTok : allowed[0];
+  return { allowed, defaultId: defTok === BASE_PRICE_TYPE ? null : defTok };
+}
+
+/** خيارات «النوع الافتراضي»: المحدَّد وحده، أو السعر الأساسي وكل الأنواع بلا تحديد — null = السعر الأساسي */
+export function repDefaultChoices(allowed: string[] | null, allLists: readonly string[]): Array<string | null> {
+  return (allowed ?? repPriceTypeTokens(allLists)).map((t) => (t === BASE_PRICE_TYPE ? null : t));
+}
+
+/**
+ * سطر «نوع السعر» في جدول المناديب: الافتراضي باسمه، ثم ما يبدّل بينه — كل الأنواع، أو المحدَّد بأسمائه، أو «بلا تبديل» بلا
+ * صلاحية. الأسماء بيانات الشركة (لا tr)، ونوعٌ لم يعد موجوداً يُسقط
+ */
+export function repPriceTypesSummary(
+  rep: { defaultPriceListId?: string | null; allowedPriceTypes?: unknown; canChangePriceList?: boolean },
+  info: PriceListsInfo,
+  tr: (s: string) => string,
+): { defaultName: string; switchable: string } {
+  const nameOf = (t: string | null) => (t === null ? baseLabelOf(info, tr) : info.lists.find((l) => l.id === t)?.name ?? null);
+  const defaultName = nameOf(rep.defaultPriceListId ?? null) ?? baseLabelOf(info, tr);
+  if (!rep.canChangePriceList) return { defaultName, switchable: tr('بلا تبديل') };
+  const allowed = repAllowedTokensOf(rep.allowedPriceTypes, info.lists.map((l) => l.id));
+  if (allowed === null) return { defaultName, switchable: tr('كل الأنواع') };
+  const names = allowed.map((t) => nameOf(t === BASE_PRICE_TYPE ? null : t)).filter((n): n is string => !!n);
+  return { defaultName, switchable: names.join('، ') };
+}
+
+/**
+ * رسالة ٤٠٩ PRICE_LIST_IN_USE عند حذف نوع: بعدد العملاء والمناديب الذين عليه (customersCount · repsCount) مترجمةً — وغيرها null
+ * (فتُعرض رسالة الخادم كما هي)
+ */
+export function priceListInUseMessage(data: unknown, tr: (s: string) => string): string | null {
+  const d = (data ?? {}) as { code?: unknown; customersCount?: unknown; repsCount?: unknown };
+  if (d.code !== 'PRICE_LIST_IN_USE') return null;
+  const customers = Math.max(0, Number(d.customersCount) || 0);
+  const reps = Math.max(0, Number(d.repsCount) || 0);
+  const fill = (s: string) => s.replace('{customers}', String(customers)).replace('{reps}', String(reps));
+  if (customers > 0 && reps > 0) return fill(tr('نوع السعر مستخدم لعملاء ({customers}) ومناديب ({reps}) انقلهم إلى نوع آخر أولا'));
+  if (reps > 0) return fill(tr('نوع السعر مستخدم لمناديب ({reps}) أزله من نوعهم الافتراضي وأنواعهم المسموحة أولا'));
+  if (customers > 0) return fill(tr('نوع السعر مستخدم لعملاء ({customers}) انقلهم إلى نوع آخر من ملفاتهم أولا'));
+  return null;
+}
+
+
+// ═══ نوع سعر المندوب (طلب المالك ٢ نوفمبر ٢٠٢٦) — نسختان متطابقتان: backend/src/services/priceLists.ts وweb-admin/src/lib/priceLists.ts ═══
+
+/** «السعر الأساسي» في allowedPriceTypes — يقابله null في نوع المستند */
+export const BASE_PRICE_TYPE = 'base';
+
+/** نوع المستند الافتراضي: نوع العميل، وإلا نوع المندوب الافتراضي، وإلا السعر الأساسي (null) */
+export function defaultPriceTypeOf(customerListId: string | null | undefined, repDefaultListId: string | null | undefined): string | null {
+  return customerListId || repDefaultListId || null;
+}
+
+/**
+ * الأنواع المسموحة للمندوب من عمود JSON: null = بلا قيد (كل الأنواع والأساسي، كاليوم)؛ وإلا مصفوفة أنواعٍ بلا تكرار بترتيبها،
+ * 'base' فيها = null. ما ليس نصّاً يُهمل، ومصفوفةٌ فارغة تبقى فارغة (لا مسموح إلا الافتراضي)
+ */
+export function allowedPriceTypesOf(raw: unknown): Array<string | null> | null {
+  if (!Array.isArray(raw)) return null;
+  const out: Array<string | null> = [];
+  for (const v of raw) {
+    if (typeof v !== 'string' || !v) continue;
+    const t = v === BASE_PRICE_TYPE ? null : v;
+    if (!out.includes(t)) out.push(t);
+  }
+  return out;
+}
+
+/** هل يبدّل المندوب (بصلاحية التبديل) إلى هذا النوع: بلا قيد ⇒ نعم؛ وإلا إن كان افتراضيَّ المستند أو ضمن المسموح */
+export function priceTypeAllowed(type: string | null, allowed: Array<string | null> | null, docDefault: string | null): boolean {
+  if (allowed === null) return true;
+  return type === docDefault || allowed.includes(type);
+}
+
+/**
+ * الأنواع التي يبدّل بينها المندوب بالترتيب: افتراضيّ المستند أولاً، ثم المسموح (أو الأساسي وكل الأنواع بلا قيد) — بلا تكرار،
+ * ومعرّفٌ لم يعد في أنواع الشركة يُسقط (allLists = معرّفات الأنواع الموجودة)
+ */
+export function switchablePriceTypesOf(
+  allowed: Array<string | null> | null, docDefault: string | null, allLists: readonly string[],
+): Array<string | null> {
+  const pool: Array<string | null> = allowed === null ? [null, ...allLists] : allowed;
+  const out: Array<string | null> = [docDefault];
+  for (const t of pool) {
+    if (t !== null && !allLists.includes(t)) continue;
+    if (!out.includes(t)) out.push(t);
+  }
+  return out;
+}

@@ -351,6 +351,10 @@ export interface SalesRep {
   canChangePrice: boolean;
   /** «تبديل نوع السعر» على الفاتورة — بلاها يبيع بنوع سعر العميل وحده (403 PRICE_LIST_FORBIDDEN) */
   canChangePriceList?: boolean;
+  /** نوع السعر الافتراضي للمندوب — null = السعر الأساسي */
+  defaultPriceListId?: string | null;
+  /** الأنواع المسموح أن يبدّل بينها: null = كلها؛ وإلا مصفوفة 'base' ومعرّفات أنواع */
+  allowedPriceTypes?: string[] | null;
   maxDiscountPct: number;
   canSellBelowPrice: boolean;
   canCreateReceipt: boolean;

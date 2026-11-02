@@ -5,15 +5,16 @@ import { Tags, Plus, Pencil, Trash2, ArrowUp, ArrowDown, Check, X } from 'lucide
 import { priceListApi } from '../../api/client';
 import type { PriceList } from '../../types';
 import { useTr } from '../../i18n/strings';
-import { DEFAULT_BASE_PRICE_LABEL, PRICE_LIST_NAME_MAX, priceListNameProblem, priceListsOf } from '../../lib/priceLists';
+import { DEFAULT_BASE_PRICE_LABEL, PRICE_LIST_NAME_MAX, priceListInUseMessage, priceListNameProblem, priceListsOf } from '../../lib/priceLists';
 
 /**
  * تبويب «أنواع الأسعار» في إعدادات الشركة (طلب المالك: رقاقات تبديلٍ بأسماء تختارها الشركة — سعر الجملة، سعر التجزئة…).
  * لكل نوعٍ سعرٌ في بطاقة الصنف (بالوحدة الرئيسية)، ولكل عميلٍ نوعه في ملفه تُسعَّر به فواتيره، والمندوب يبدّله على الفاتورة
  * بصلاحية «تبديل نوع السعر». الرقاقة الأولى السعر الافتراضي نفسه (سعر الصنف) باسمٍ يُغيَّر هنا. والكتابة لمن يملك صلاحية الأصناف
- * (الخادم يحكم)، والنوع الذي عليه عملاء لا يُحذف (409 PRICE_LIST_IN_USE) حتى يُنقلوا إلى نوعٍ آخر.
+ * (الخادم يحكم)، والنوع الذي عليه عملاء لا يُحذف (409 PRICE_LIST_IN_USE) حتى يُنقلوا إلى نوعٍ آخر — ولا الذي هو نوعُ مندوبٍ
+ * افتراضيٌّ أو من أنواعه المسموحة (repsCount في الردّ نفسه).
  */
-type Err = { response?: { data?: { message?: string } } };
+type Err = { response?: { data?: { message?: string; code?: string; customersCount?: number; repsCount?: number } } };
 const errMsg = (e: unknown, fallback: string) => (e as Err)?.response?.data?.message || fallback;
 
 export default function PriceListsPanel() {
@@ -51,8 +52,11 @@ export default function PriceListsPanel() {
   const remove = useMutation({
     mutationFn: (id: string) => priceListApi.remove(id),
     onSuccess: () => { refresh(); toast.success(tr('تم حذف نوع السعر')); },
-    // ٤٠٩ PRICE_LIST_IN_USE: رسالة الخادم بعدد العملاء — يُنقلون إلى نوعٍ آخر من ملفاتهم أولاً
-    onError: (e) => { refresh(); toast.error(errMsg(e, tr('تعذر الحذف')), { duration: 7000 }); },
+    // ٤٠٩ PRICE_LIST_IN_USE: بعدد العملاء والمناديب الذين عليه مترجماً — يُنقلون إلى نوعٍ آخر أولاً (وغيرها رسالة الخادم)
+    onError: (e) => {
+      refresh();
+      toast.error(priceListInUseMessage((e as Err)?.response?.data, tr) ?? errMsg(e, tr('تعذر الحذف')), { duration: 7000 });
+    },
   });
   const saveLabel = useMutation({
     mutationFn: (v: string | null) => priceListApi.setBaseLabel(v),
@@ -144,7 +148,8 @@ export default function PriceListsPanel() {
                     <button type="button" onClick={() => move(i, 1)} disabled={i === lists.length - 1 || reorder.isPending} title={tr('تحريك لأسفل')}
                       className="p-2 rounded-lg text-[#6E6557] hover:bg-[#FAF7F0] disabled:opacity-30"><ArrowDown size={15} /></button>
                     <button type="button" onClick={() => setEditing({ id: l.id, name: l.name })} className="btn-secondary !py-1.5 !px-3 text-xs"><Pencil size={13} /> {tr('تعديل')}</button>
-                    {/* نوعٌ عليه عملاء لا يُحذف (كالفريق الذي عليه مستندات) — والخادم يردّه 409 لو سبقه عميلٌ أُسند بعد التحميل */}
+                    {/* نوعٌ عليه عملاء لا يُحذف (كالفريق الذي عليه مستندات) — والخادم يردّه 409 لو سبقه عميلٌ أُسند بعد التحميل،
+                        أو كان نوع مندوبٍ (افتراضيّه أو من المسموح له) فتقول رسالته عددهم */}
                     {(l.customersCount ?? 0) === 0 && (
                       <button type="button" disabled={remove.isPending} title={tr('حذف')}
                         onClick={() => { if (window.confirm(`${tr('حذف نوع السعر')} «${l.name}»؟`)) remove.mutate(l.id); }}
@@ -156,7 +161,7 @@ export default function PriceListsPanel() {
             ))}
           </div>
         )}
-        <p className="text-xs text-[#9A8F7E]">{tr('نوع السعر الذي عليه عملاء لا يحذف حتى تنقلهم إلى نوع آخر من ملفاتهم وسعر الصنف في النوع يكتب من بطاقة الصنف')}</p>
+        <p className="text-xs text-[#9A8F7E]">{tr('نوع السعر الذي عليه عملاء أو مناديب لا يحذف حتى تنقلهم إلى نوع آخر من ملفاتهم وسعر الصنف في النوع يكتب من بطاقة الصنف')}</p>
       </div>
     </div>
   );

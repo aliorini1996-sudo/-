@@ -1,7 +1,7 @@
 ﻿import { Router, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId, actorOf } from '../middleware/auth';
 import { auditActorName } from '../services/attendanceEdit';
@@ -15,6 +15,7 @@ import { netSales } from '../services/netSales';
 import { userCustody, lockCustody, removalKeepsCustodySane, CustodyBlocked } from '../services/userCustody';
 import { isLedgerError } from '../services/gl/types';
 import { assertRepDeletable, settlementTombstones } from '../services/gl/sync/tombstone';
+import { BASE_PRICE_TYPE, PRICE_LIST_MESSAGES, allowedPriceTypesOf } from '../services/priceLists';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canManageSalesReps'));
@@ -45,6 +46,11 @@ const repSchema = z.object({
   canSellBelowPrice: z.boolean().optional(),
   // «تبديل نوع السعر» (أنواع الأسعار): يسعّر فاتورته بنوعٍ غير نوع العميل — يحرسه POST /api/invoices
   canChangePriceList: z.boolean().optional(),
+  // «أنواع الأسعار على مستوى المندوب» (طلب المالك ٢ نوفمبر ٢٠٢٦): نوعه الافتراضي لعميلٍ بلا نوع (null أو الفارغ = السعر الأساسي)،
+  // والأنواع التي يبدّل بينها بـcanChangePriceList (null أو [] = كلها كاليوم؛ وإلا 'base' ومعرّفات أنواع الشركة) — للإدارة وحدها
+  // (الموجّه كله requireAdmin)، ويفحصهما priceTypeWrite وpriceListsLocked أدناه
+  defaultPriceListId: z.string().max(64).nullable().optional(),
+  allowedPriceTypes: z.array(z.string().max(64)).max(500).nullable().optional(),
   canCreateReceipt: z.boolean().optional(),
   canEditReceipt: z.boolean().optional(),
   canCancelReceipt: z.boolean().optional(),
@@ -78,6 +84,8 @@ const repSelect = {
   canCreateInvoice: true, canSellOnCredit: true, canSellOnInstallment: true, canSellInCash: true,
   canEditInvoice: true, canDeleteInvoice: true, canCancelInvoice: true,
   canChangePrice: true, maxDiscountPct: true, canSellBelowPrice: true, canChangePriceList: true,
+  // «أنواع الأسعار على مستوى المندوب»: الافتراضي (null = السعر الأساسي) والمسموح (null = كلها) — نافذة التعديل وفاتورة الإدارة
+  defaultPriceListId: true, allowedPriceTypes: true,
   canCreateReceipt: true, canEditReceipt: true, canCancelReceipt: true,
   canManageVanStock: true,
   canAddCustomer: true, canEditCustomer: true, canViewStatement: true,
@@ -97,6 +105,74 @@ const repSelect = {
   locationId: true,
   createdAt: true,
 } as const;
+
+// ═══ «أنواع الأسعار على مستوى المندوب» — القواعد الصرفة في services/priceLists.ts (نسخةٌ مطابقة في الويب) ═══
+
+type PriceTypeCode = 'PRICE_LIST_INVALID' | 'PRICE_TYPE_DEFAULT_NOT_ALLOWED';
+const refusePriceType = (res: Response, code: PriceTypeCode): void => {
+  res.status(400).json({ success: false, code, message: PRICE_LIST_MESSAGES[code] });
+};
+type PriceTypeBody = { defaultPriceListId?: string | null; allowedPriceTypes?: string[] | null };
+type PriceTypeData = { defaultPriceListId?: string | null; allowedPriceTypes?: string[] | typeof Prisma.DbNull };
+
+/**
+ * حقلا نوع السعر من الجسم إلى صفّ المندوب — غيابهما معاً ⇒ لا شيء ولا استعلام (مسار اليوم حرفياً):
+ * - الافتراضي: معرّف نوع، والفارغ و'base' ⇒ null (السعر الأساسي).
+ * - المسموح: بلا تكرار بترتيبه، و'base' فيه رمزاً كما يُخزَّن؛ والفارغ أو null ⇒ عمودٌ فارغ (DbNull) = بلا قيد كاليوم.
+ * - والافتراضي (المرسل وإلا المحفوظ) داخل المسموح (المرسل وإلا المحفوظ) حين يُقيَّد ⇒ وإلا PRICE_TYPE_DEFAULT_NOT_ALLOWED.
+ * `lockIds` معرّفات الأنواع المرسلة: شركتها تُفحص تحت القفل في معاملة الكتابة (priceListsLocked)
+ */
+function priceTypeWrite(
+  body: PriceTypeBody, current?: { defaultPriceListId: string | null; allowedPriceTypes: unknown },
+): { error: PriceTypeCode } | { data: PriceTypeData; lockIds: string[] } {
+  const sentDefault = body.defaultPriceListId !== undefined;
+  const sentAllowed = body.allowedPriceTypes !== undefined;
+  if (!sentDefault && !sentAllowed) return { data: {}, lockIds: [] };
+  const raw = body.defaultPriceListId;
+  const def = sentDefault ? (raw && raw !== BASE_PRICE_TYPE ? raw : null) : (current?.defaultPriceListId ?? null);
+  const parsed = allowedPriceTypesOf(sentAllowed ? body.allowedPriceTypes : current?.allowedPriceTypes);
+  const allowed = parsed?.length ? parsed : null;
+  if (allowed && !allowed.includes(def)) return { error: 'PRICE_TYPE_DEFAULT_NOT_ALLOWED' };
+  const data: PriceTypeData = {};
+  if (sentDefault) data.defaultPriceListId = def;
+  if (sentAllowed) data.allowedPriceTypes = allowed ? allowed.map((t) => t ?? BASE_PRICE_TYPE) : Prisma.DbNull;
+  const ids = [...(sentDefault && def ? [def] : []), ...(sentAllowed && allowed ? allowed.filter((t): t is string => t !== null) : [])];
+  return { data, lockIds: [...new Set(ids)] };
+}
+
+/**
+ * أنواع المندوب المرسلة كلها من الشركة؟ في معاملة كتابته وبقفل FOR KEY SHARE على صفوفها حتى الالتزام: حذف النوع يقفل صفّه
+ * FOR UPDATE ثم يعدّ مناديبه (routes/priceLists.ts) — فإمّا انتظر هذه الكتابة فعدّها (409)، وإمّا سبقها فلا يعود صفّه هنا (400).
+ * فلا يبقى في allowedPriceTypes (JSON بلا مفتاح أجنبي) معرّفٌ محذوف، ولا يسقط الافتراضي إلى الأساس بصمت (SetNull)
+ */
+async function priceListsLocked(tx: Prisma.TransactionClient, tid: string, ids: string[]): Promise<boolean> {
+  const rows = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT id FROM price_lists WHERE "tenantId" = ${tid} AND id IN (${Prisma.join(ids)}) FOR KEY SHARE`;
+  return (rows ?? []).length === ids.length;
+}
+
+/**
+ * حقلا نوع السعر المحفوظان للمندوب تحت قفل صفّه (FOR UPDATE) في معاملة التعديل: الفحص الأوّل على صفٍّ قُرئ قبل المعاملة،
+ * فتعديلان جزئيان متزامنان (المسموح وحده ثم الافتراضي وحده) يمرّ كلٌّ منهما على المحفوظ القديم من الآخر فيُخزَّن افتراضيٌّ خارج
+ * المسموح — وتردّ بعده كلُّ حفظةٍ لنافذته 400 PRICE_TYPE_DEFAULT_NOT_ALLOWED. فالثاني ينتظر الأوّل هنا ثم يُفحص على ما التزم.
+ * null = لم يعد الصفّ (حُذف المندوب بين القراءتين)
+ */
+async function lockedRepPriceTypes(
+  tx: Prisma.TransactionClient, tid: string, id: string,
+): Promise<{ defaultPriceListId: string | null; allowedPriceTypes: unknown } | null> {
+  const rows = await tx.$queryRaw<Array<{ defaultPriceListId: string | null; allowedPriceTypes: unknown }>>`
+    SELECT "defaultPriceListId", "allowedPriceTypes" FROM sales_reps WHERE id = ${id} AND "tenantId" = ${tid} FOR UPDATE`;
+  return rows?.[0] ?? null;
+}
+
+/** مهلة معاملة الأنواع: القفل قد ينتظر حذف نوعٍ يفرّغ ختم آلاف الفواتير (مهلته ٣٠ ثانية في routes/priceLists.ts) لا خمس ثوانٍ */
+const PRICE_TYPES_TX = { maxWait: 10_000, timeout: 30_000 };
+
+/** مفتاح الافتراضي الأجنبي (P2003) — نوعٌ حُذف قبل الكتابة: رفضٌ مفهوم لا عطل 500 (كـisPriceListFkFail في routes/customers.ts) */
+const isRepDefaultFkFail = (err: unknown): boolean => {
+  const e = err as { code?: unknown; meta?: { field_name?: unknown } } | null;
+  return e?.code === 'P2003' && String(e.meta?.field_name ?? '').includes('defaultPriceListId');
+};
 
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -134,9 +210,11 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 router.post('/', noStaffCredentials, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const { password, ...rest } = repSchema.parse(req.body);
+    const { password, defaultPriceListId, allowedPriceTypes, ...rest } = repSchema.parse(req.body);
     if (!password) { res.status(400).json({ success: false, message: 'كلمة المرور مطلوبة' }); return; }
     if (password.length < 8) { res.status(400).json({ success: false, message: 'كلمة المرور 8 أحرف على الأقل' }); return; }
+    const priced = priceTypeWrite({ defaultPriceListId, allowedPriceTypes });
+    if ('error' in priced) { refusePriceType(res, priced.error); return; }
 
     // فرض الحد الأقصى لعدد المناديب المسموح للشركة (إن وُجد)
     const tenant = await prisma.tenant.findUnique({ where: { id: tid }, select: { maxSalesReps: true } });
@@ -152,12 +230,20 @@ router.post('/', noStaffCredentials, async (req: AuthRequest, res: Response, nex
     if (dup) { res.status(409).json({ success: false, message: dup }); return; }
 
     const passwordHash = await bcrypt.hash(password, 10);
-    const rep = await prisma.salesRep.create({
-      data: { ...rest, passwordHash, email: rest.email || null, tenantId: tid } as any,
+    const created = {
+      data: { ...rest, ...priced.data, passwordHash, email: rest.email || null, tenantId: tid } as any,
       select: { id: true, name: true, phone: true, username: true, isActive: true },
-    });
+    };
+    // بأنواع أسعارٍ مرسلة: فحص شركتها وقفلها والإنشاء في معاملةٍ واحدة (priceListsLocked)، وإلا كتابةٌ واحدة كما كانت
+    const rep = priced.lockIds.length
+      ? await prisma.$transaction(async (tx) => ((await priceListsLocked(tx, tid, priced.lockIds)) ? tx.salesRep.create(created) : null), PRICE_TYPES_TX)
+      : await prisma.salesRep.create(created);
+    if (!rep) { refusePriceType(res, 'PRICE_LIST_INVALID'); return; }
     res.status(201).json({ success: true, data: rep });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (isRepDefaultFkFail(err)) { refusePriceType(res, 'PRICE_LIST_INVALID'); return; }
+    next(err);
+  }
 });
 
 // تفرّد اسم المستخدم عالمي (للدخول)، والجوال/البريد ضمن الشركة
@@ -175,10 +261,13 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const current = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid, ...(await adminRepFilter(req)) } });
     if (!current) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
 
-    const { password, ...rest } = repSchema.partial().parse(req.body);
+    const { password, defaultPriceListId, allowedPriceTypes, ...rest } = repSchema.partial().parse(req.body);
     // ولا تضع كلمة مرور مندوبٍ قائم
     if (refuseStaffCredentials(req, res, !!password)) return;
     if (password && password.length < 8) { res.status(400).json({ success: false, message: 'كلمة المرور 8 أحرف على الأقل' }); return; }
+    // «أنواع الأسعار على مستوى المندوب»: المرسل منهما يُفحص مع المحفوظ من الآخر (الافتراضي داخل المسموح)
+    const priced = priceTypeWrite({ defaultPriceListId, allowedPriceTypes }, current);
+    if ('error' in priced) { refusePriceType(res, priced.error); return; }
     if (rest.username || rest.phone || rest.email) {
       const dup = await checkRepDuplicates(
         tid,
@@ -190,26 +279,47 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       if (dup) { res.status(409).json({ success: false, message: dup }); return; }
     }
     const updateData: Record<string, unknown> = { ...rest, email: rest.email || null };
+    Object.assign(updateData, priced.data);
     if (password) updateData.passwordHash = await bcrypt.hash(password, 10);
     // إطفاء «ربط البصمة بجهاز واحد» يفكّ الجهاز المربوط: ربطٌ نائم يبقى بعد الإطفاء يتيح ربط الجوال نفسه بمندوبٍ آخر،
     // فإذا أُعيد القيد بصم الجوال الواحد لاثنين. وإعادة القيد تربط من جديد أوّل جهازٍ يبصم
     const unbind = rest.requireBoundDevice === false && current.boundDeviceId != null;
     if (unbind) Object.assign(updateData, { boundDeviceId: null, boundDeviceName: null, boundDeviceAt: null });
     const select = { id: true, name: true, phone: true, username: true, isActive: true } as const;
-    const rep = unbind
-      ? (await prisma.$transaction([
-        prisma.salesRep.update({ where: { id: current.id }, data: updateData, select }),
-        prisma.attendanceAudit.create({
-          data: {
-            tenantId: tid, salesRepId: current.id, action: 'UNBIND_DEVICE', reason: 'أُطفئ قيد ربط البصمة بجهاز واحد',
-            before: { deviceName: current.boundDeviceName, boundAt: current.boundDeviceAt?.toISOString() ?? null },
-            actorId: actorOf(req), actorName: auditActorName(req),
-          },
-        }),
-      ]))[0]
-      : await prisma.salesRep.update({ where: { id: req.params.id }, data: updateData, select });
+    const unbindAudit = {
+      data: {
+        tenantId: tid, salesRepId: current.id, action: 'UNBIND_DEVICE', reason: 'أُطفئ قيد ربط البصمة بجهاز واحد',
+        before: { deviceName: current.boundDeviceName, boundAt: current.boundDeviceAt?.toISOString() ?? null },
+        actorId: actorOf(req), actorName: auditActorName(req),
+      },
+    };
+    // بأيٍّ من حقلي الأنواع مرسلاً: قفل صفّ المندوب وإعادة فحص الافتراضي داخل المسموح على المحفوظ تحته (lockedRepPriceTypes)،
+    // ثم فحص شركة الأنواع وقفلها (priceListsLocked)، فالتعديل وسطر فكّ الجهاز إن وُجد — كلها في معاملةٍ واحدة
+    const sentPriceTypes = Object.keys(priced.data).length > 0;
+    const rep = sentPriceTypes
+      ? await prisma.$transaction(async (tx) => {
+        const stored = await lockedRepPriceTypes(tx, tid, current.id);
+        if (!stored) return 'REP_GONE' as const;
+        const fresh = priceTypeWrite({ defaultPriceListId, allowedPriceTypes }, stored);
+        if ('error' in fresh) return fresh.error;
+        if (fresh.lockIds.length && !(await priceListsLocked(tx, tid, fresh.lockIds))) return 'PRICE_LIST_INVALID' as const;
+        const row = await tx.salesRep.update({ where: { id: current.id }, data: { ...updateData, ...fresh.data }, select });
+        if (unbind) await tx.attendanceAudit.create(unbindAudit);
+        return row;
+      }, PRICE_TYPES_TX)
+      : unbind
+        ? (await prisma.$transaction([
+          prisma.salesRep.update({ where: { id: current.id }, data: updateData, select }),
+          prisma.attendanceAudit.create(unbindAudit),
+        ]))[0]
+        : await prisma.salesRep.update({ where: { id: req.params.id }, data: updateData, select });
+    if (rep === 'REP_GONE') { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+    if (typeof rep === 'string') { refusePriceType(res, rep); return; }
     res.json({ success: true, data: rep });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (isRepDefaultFkFail(err)) { refusePriceType(res, 'PRICE_LIST_INVALID'); return; }
+    next(err);
+  }
 });
 
 /**

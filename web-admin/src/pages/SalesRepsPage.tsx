@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { salesRepApi, invoiceApi, receiptApi, customerApi, companyApi, dailyReportApi } from '../api/client';
+import { salesRepApi, invoiceApi, receiptApi, customerApi, companyApi, dailyReportApi, priceListApi } from '../api/client';
 import { SalesRep, Invoice, Receipt, Customer } from '../types';
 import { Plus, Search, Edit, Check, X as XIcon, Copy, KeyRound, UserCheck, FileBarChart2, Download, Printer, X, Trash2, Banknote, Users, ShieldCheck, Image as ImageIcon, ClipboardList, UserX, CreditCard } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -13,6 +13,7 @@ import CardTerminalsModal from '../components/CardTerminalsModal';
 import { formatCurrency, formatDate, formatDayOnly, formatTime, formatNumber, statusLabels, paymentMethodLabels, getActiveCurrency } from '../utils/format';
 import { totalsByUnit, docQtyText } from '../lib/adminUnits';
 import { methodLabelFor, type CompanyWithMethods } from '../lib/paymentMethodsConfig';
+import { priceListsOf, repPriceTypesSummary } from '../lib/priceLists';
 import { currencyDecimals } from '../i18n/countries';
 import { useTr } from '../i18n/strings';
 import { shareOrDownloadExcel, num } from '../utils/excel';
@@ -57,6 +58,9 @@ export default function SalesRepsPage() {
     onSuccess: (_data, variables) => {
       const wasCreate = !selected;
       qc.invalidateQueries({ queryKey: ['sales-reps'] });
+      /* نافذة الفاتورة تقرأ «النوع الافتراضي» للمندوب من ['sales-reps-all'] (مفتاحٌ غير هذا، وstaleTime ٣٠ ثانية): بلا إبطالٍ
+       * تُسعَّر فاتورةٌ بعد الحفظ مباشرةً بنوعه القديم وتُختم به بصمت */
+      qc.invalidateQueries({ queryKey: ['sales-reps-all'] });
       setShowModal(false);
       setSelected(null);
       if (wasCreate) {
@@ -153,7 +157,14 @@ export default function SalesRepsPage() {
    * الافتراضية «مفعّل» ولا تُحجب الأرقام عمّن تعذّرت قراءة إعداداته. */
   const { on: accountingFlag, ready: accountingReady } = useAccountingOn();
   const accountingOn = accountingReady && accountingFlag;
-  const repCols = accountingOn ? 13 : 6;
+  // «أنواع الأسعار»: عمود نوع سعر المندوب (الافتراضي وما يبدّل بينه) لشركةٍ عرّفت أنواعاً وحدها — والمسار محروسٌ بالمحاسبة
+  const { data: priceInfo } = useQuery({
+    queryKey: ['price-lists'],
+    queryFn: async () => priceListsOf((await priceListApi.list()).data.data),
+    enabled: accountingOn,
+  });
+  const priceTypesCol = accountingOn && (priceInfo?.lists.length ?? 0) > 0 ? priceInfo : null;
+  const repCols = (accountingOn ? 13 : 6) + (priceTypesCol ? 1 : 0);
 
   return (
     <div>
@@ -217,6 +228,7 @@ export default function SalesRepsPage() {
                 {accountingOn && <th className="text-center">{tr('تحصيل')}</th>}
                 {accountingOn && <th className="text-center">{tr('تغيير سعر')}</th>}
                 {accountingOn && <th className="text-center">{tr('خصم أقصى')}</th>}
+                {priceTypesCol && <th>{tr('نوع السعر')}</th>}
                 {accountingOn && <th className="text-center">{tr('مخزون السيارة')}</th>}
                 <th className="text-center">{tr('إضافة عميل')}</th>
                 <th>{tr('الحالة')}</th>
@@ -240,6 +252,10 @@ export default function SalesRepsPage() {
                   {accountingOn && <td className="text-center">{perm(r.canCreateReceipt)}</td>}
                   {accountingOn && <td className="text-center">{perm(r.canChangePrice)}</td>}
                   {accountingOn && <td className="text-center text-sm text-gray-600">{r.maxDiscountPct}%</td>}
+                  {priceTypesCol && (() => {
+                    const pt = repPriceTypesSummary(r, priceTypesCol, tr);
+                    return <td><p className="text-sm text-gray-700">{pt.defaultName}</p><p className="text-xs text-gray-400">{pt.switchable}</p></td>;
+                  })()}
                   {accountingOn && <td className="text-center">{perm(r.canManageVanStock)}</td>}
                   <td className="text-center">{perm(r.canAddCustomer)}</td>
                   <td><span className={r.isActive ? 'badge-active' : 'badge-inactive'}>{r.isActive ? tr('نشط') : tr('غير نشط')}</span></td>
