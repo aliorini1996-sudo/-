@@ -201,12 +201,17 @@ test('دليل «ربط تتبّع LOT»: خطوة «اقرأ التشغيلة �
   assert.ok(docs.includes('{s.sample && <Code>{s.sample}</Code>}'), 'ApiDocs لا يرسم sample');
 });
 
-test('«ما الجديد»: أول بندٍ بتاريخ ٢ نوفمبر يذكر lineRef والتشغيلات المضمّنة وبقاء الموارد المنفصلة، والعنوان يشمله', () => {
+test('«ما الجديد»: بند ٢ نوفمبر للتشغيلات على مستوى السطر يذكر lineRef والتشغيلات المضمّنة وبقاء الموارد المنفصلة، والعنوان يشمله', () => {
   const docs = fs.readFileSync(path.join(process.cwd(), 'src', 'components', 'ApiDocs.tsx'), 'utf8').replace(/\r\n/g, '\n');
   assert.ok(docs.includes('title="ما الجديد (٢٩ أكتوبر – ٢ نوفمبر ٢٠٢٦)"'), 'العنوان');
   const list = docs.slice(docs.indexOf('title="ما الجديد'), docs.indexOf('</ul>', docs.indexOf('title="ما الجديد')));
-  const first = /<li>([^]*?)<\/li>/.exec(list)![1];
-  assert.ok(first.startsWith('٢ نوفمبر — '), 'أول بند');
+  // أول البنود دليل «حركات المخزون من نظامكم» (٢ نوفمبر)، وبعده بند التشغيلات على مستوى السطر بالتاريخ نفسه
+  const bullets = [...list.matchAll(/<li>([^]*?)<\/li>/g)].map((m) => m[1]);
+  assert.ok(bullets[0].startsWith('٢ نوفمبر — '), 'أول بند');
+  const first = bullets.find((b) => b.includes('items[].lineRef'))!;
+  assert.ok(first, 'بند lineRef غائب');
+  assert.ok(first.startsWith('٢ نوفمبر — '), 'بند lineRef بتاريخ ٢ نوفمبر');
+  assert.ok(bullets.slice(0, bullets.indexOf(first)).every((b) => b.startsWith('٢ نوفمبر — ')), 'لا بند أقدم قبله');
   for (const k of ['items[].lineRef', 'lines[].lineRef', 'invoices', 'van-loads', 'warehouse-entries', 'withLots=1', 'invoice-item-lots', 'باقية كما هي']) {
     assert.ok(first.includes(k), `البند لا يذكر ${k}`);
   }

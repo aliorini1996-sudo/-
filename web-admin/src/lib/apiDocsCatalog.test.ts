@@ -220,8 +220,8 @@ function backendSources(dir: string): string {
 const BACKEND_SRC = backendSources(BACKEND);
 const CODE_RE = /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g;
 
-test('أدلّة الربط: صفحة اللوكيشن وصفحة طرق الدفع وصفحة مخزون الشركة وتتبّع اللوط وأنواع الأسعار، بخطوات مرقّمة لكلٍّ منها', () => {
-  assert.deepEqual(API_DOC_GUIDES.map((g) => g.title), ['ربط صفحة اللوكيشن', 'ربط صفحة طرق الدفع', 'ربط صفحة مخزون الشركة', 'ربط تتبّع LOT', 'ربط أنواع الأسعار']);
+test('أدلّة الربط: صفحة اللوكيشن وصفحة طرق الدفع وصفحة مخزون الشركة وتتبّع اللوط وحركات المخزون من نظامكم وأنواع الأسعار، بخطوات مرقّمة لكلٍّ منها', () => {
+  assert.deepEqual(API_DOC_GUIDES.map((g) => g.title), ['ربط صفحة اللوكيشن', 'ربط صفحة طرق الدفع', 'ربط صفحة مخزون الشركة', 'ربط تتبّع LOT', 'ربط حركات المخزون من نظامكم إلى Field Sales', 'ربط أنواع الأسعار']);
   for (const g of API_DOC_GUIDES) {
     assert.ok(g.intro.length > 50, g.key);
     assert.ok(g.steps.length >= 5, `${g.key}: خطوات قليلة`);
@@ -233,6 +233,8 @@ test('أدلّة الربط: صفحة اللوكيشن وصفحة طرق الد�
     'GET /warehouse', 'POST /warehouse/entries', 'GET /warehouse/entries', 'POST /van-stock/loads', 'GET /rep-stock-requests', 'PUT /rep-stock-requests/:id', 'POST /rep-stock-requests/send',
     // دليل «تتبّع اللوط» (المواصفة §٥.٤): الشركة، ثم التفعيل الجماعي، ثم الوارد، ثم التسمية، ثم FEFO والتحميل، ثم الأرصدة، ثم التتبّع، ثم الإيقاف
     'POST /lots/products/tracking', 'POST /lots/relabel', 'GET /lots/fefo', 'GET /lots/balances', 'GET /lots/:id/trace', 'PATCH /lots/:id/status',
+    // دليل «حركات المخزون من نظامكم»: المناديب (السيارات)، ثم التشغيلة بالبحث، ثم التحقّق قبل الإعادة، ثم رصيد السيارة
+    'GET /van-stock/summary', 'GET /lots', 'GET /van-stock/loads', 'GET /van-stock/current',
     // دليل «أنواع الأسعار»: الأنواع، ثم أسعار الصنف، ثم الأسعار مجمّعة، ثم نوع العميل، ثم صلاحية المندوب، ثم الفاتورة، ثم الحذف
     'GET /price-lists', 'POST /price-lists', 'PUT /products/:id/list-prices', 'GET /price-lists/prices', 'PUT /customers/:id', 'PUT /sales-reps/:id',
     'POST /invoices', 'DELETE /price-lists/:id']) {
@@ -781,6 +783,74 @@ test('أرقام أقسام الأدلّة وأيقوناتها تكفي كل د
   assert.ok(nums.length >= API_DOC_GUIDES.length + 1, `GUIDE_NUMBERS ${nums.length} لـ${API_DOC_GUIDES.length} أدلّة والفهرس`);
   const icons = docs.slice(docs.indexOf('const GUIDE_ICONS'), docs.indexOf('};', docs.indexOf('const GUIDE_ICONS')));
   for (const g of API_DOC_GUIDES) assert.ok(icons.includes(`'${g.key}':`), `${g.key} بلا أيقونة`);
+});
+
+/**
+ * دليل «ربط حركات المخزون من نظامكم» (٢ نوفمبر ٢٠٢٦): مشتركٌ يسحب المزامنة ولم يرسل حركة مخزون قط. الدليل يقول إن المنصة لا تسحب،
+ * ويعطي لكل عملية جسمها، والنقل بين سيارتين تنزيلاً ثم تحميلاً، ولا يَعِد بمنع تكرار لا يملكه الخادم.
+ */
+test('دليل «حركات المخزون من نظامكم»: لا سحب من نظامهم، ولكل عملية جسمها، والنقل بين سيارتين طلبان، ولا clientRef — كما في الخادم', () => {
+  const guide = API_DOC_GUIDES.find((g) => g.key === 'stock-push-guide');
+  assert.ok(guide, 'الدليل غائب');
+  assert.match(guide!.intro, /لا يسحب شيئاً من نظامكم/);
+  assert.match(guide!.intro, /مسارات \/api\/v1 كلها GET/);
+  // والخادم كذلك: /api/v1 قراءةٌ وحدها
+  const v1 = [...routeFile('apiV1').matchAll(/router\.(get|post|put|patch|delete)\(/g)].map((m) => m[1]);
+  assert.ok(v1.length >= 3 && v1.every((m) => m === 'get'), '/api/v1 فيه كتابة');
+  // لكل نوع حركة مثالٌ بمساره، وكل مثال برقم المستند في note ومرجع السطر وأساس الصنف في كل بند
+  const bodies = guide!.steps.filter((s) => s.method === 'POST' && s.curl)
+    .map((s) => ({ path: s.path!, body: JSON.parse(/-d '([^']+)'/.exec(s.curl!)![1]) as { type: string; note?: string; items: { lineRef?: string; baseUnitName?: string }[] } }));
+  const typesAt = (p: string) => new Set(bodies.filter((b) => b.path === p).map((b) => b.body.type));
+  assert.deepEqual([...typesAt('/warehouse/entries')].sort(), ['ADJUST', 'RECEIVE']);
+  for (const t of ['LOAD', 'UNLOAD', 'ADJUST']) assert.ok(typesAt('/van-stock/loads').has(t), `لا مثال ${t}`);
+  for (const b of bodies) {
+    assert.ok(b.body.note, `${b.path} ${b.body.type}: بلا note`);
+    for (const it of b.body.items) assert.ok(it.lineRef && it.baseUnitName, `${b.path} ${b.body.type}: بند بلا lineRef أو baseUnitName`);
+  }
+  // الأنواع كما في مخطّطي الخادم، ولا نوع نقل بين سيارتين ولا مفتاح منع تكرار
+  const wh = routeFile('warehouse');
+  const entrySchema = wh.slice(wh.indexOf('const entrySchema'), wh.indexOf("router.post('/entries'"));
+  const vs = routeFile('vanStock');
+  const loadSchema = vs.slice(vs.indexOf('const loadSchema'), vs.indexOf('function resolveRep'));
+  assert.match(entrySchema, /z\.enum\(\['RECEIVE', 'ADJUST'\]\)/);
+  assert.match(loadSchema, /z\.enum\(\['LOAD', 'UNLOAD', 'ADJUST', 'EXPIRED_OUT', 'DAMAGED_OUT'\]\)/);
+  for (const s of [entrySchema, loadSchema]) assert.ok(s.length > 500 && !/clientRef|idempot/i.test(s), 'صار للحركة مفتاح منع تكرار: حدّث خطوة إعادة المحاولة');
+  const all = guide!.steps.map((s) => s.text).join('\n');
+  for (const k of ['لا يوجد clientRef', 'json=body', '"lotId": None', 'Retry-After', 'serverTime', 'EXPIRED_OUT', 'DAMAGED_OUT', 'EXPIRED_UNSOLD_DESTROY']) {
+    assert.ok(all.includes(k), `الدليل لا يذكر ${k}`);
+  }
+  // baseUnitName يُقارَن بوحدة أساس الصنف حرفياً بعد القصّ: الأمثلة بقالبٍ لا بوحدةٍ ثابتة تُرفض لصنفٍ وحدته غيرها
+  for (const b of bodies) for (const it of b.body.items) assert.equal(it.baseUnitName, '<unit>', `${b.path} ${b.body.type}: وحدة حرفية في المثال`);
+  // سطر المستودع: نوع حقول التشغيلة يُفحص في المخطّط قبل علم LOT، فـlotId "" وlotNumber null يرجعان 400 والميزة مطفأة
+  assert.match(entrySchema, /lotId: z\.string\(\)\.min\(1\)\.max\(128\)\.nullable\(\)\.optional\(\)/);
+  assert.match(entrySchema, /lotNumber: z\.string\(\)\.max\(LOT_NUMBER_MAX\)\.optional\(\),/);
+  assert.match(entrySchema, /unitCost: z\.number\(\)\.positive\(\)\.finite\(\)\.max\(1e9\)\.optional\(\),/);
+  for (const k of ['"lotId": ""', '"lotNumber": null', '"unitCost": null', '"lineRef": 1']) assert.ok(all.includes(k), `الدليل لا يحذّر من ${k}`);
+  // سطر السيارة بلا lotId مسطّح (zod يحذف المفتاح المجهول بصمت)، وتحذيراتها في جذر الرد بجوار data
+  assert.doesNotMatch(loadSchema, /^\s+lotId:/m);
+  assert.ok(all.includes('لا يوجد حقل lotId مسطّح في سطر السيارة'));
+  assert.ok(vs.includes('data: out.load, warnings: out.warnings'));
+  assert.ok(all.includes('في جذر الرد بجوار data'));
+  // hint = RECEIVE_FIRST من التحميل من المستودع وحده: تسوية المستودع لا تعرفه
+  assert.ok(!read(path.join(BACKEND, 'services', 'lotsWarehouse.ts')).includes('RECEIVE_FIRST'));
+  assert.ok(all.includes('في التحميل LOAD من المستودع وحده'));
+  // النقل بين سيارتين: تنزيل ثم تحميل بتشغيلات رد التنزيل، والمثال صالح
+  const vv = guide!.steps.find((s) => s.title.includes('من سيارة إلى سيارة'))!;
+  assert.match(vv.text, /UNLOAD من A/);
+  assert.match(vv.text, /انسخ items\[\]\.lots من رد التنزيل/);
+  const load = JSON.parse(/-d '([^']+)'/.exec(vv.curl!)![1]);
+  assert.equal(load.type, 'LOAD');
+  assert.ok(Array.isArray(load.items[0].lots), 'التحميل بلا lots');
+  assert.ok(vv.sample!.startsWith('// '), 'سطر التعليق');
+  assert.equal(JSON.parse(vv.sample!.split('\n').slice(1).join('\n')).lots[0].moveType, 'UNLOAD');
+  // تنزيلٌ بلا unitId ⇒ وحدة الأساس BASE_UNIT {name: null}، فالبند يعود unitName: null
+  assert.equal(JSON.parse(vv.sample!.split('\n').slice(1).join('\n')).unitName, null);
+  assert.match(vv.text, /unitId وbaseUnitName وlineRef/);
+  // «ما الجديد»: أول بند يذكر الدليل باسمه
+  const docs = read(path.join(process.cwd(), 'src', 'components', 'ApiDocs.tsx'));
+  const list = docs.slice(docs.indexOf('title="ما الجديد'), docs.indexOf('</ul>', docs.indexOf('title="ما الجديد')));
+  const first = /<li>([^]*?)<\/li>/.exec(list)![1];
+  assert.ok(first.startsWith('٢ نوفمبر — ') && first.includes(`«${guide!.title}»`), 'أول بند في «ما الجديد»');
 });
 
 /* ═══ «استيراد البيانات» (/api/import): مفتوحٌ للمفتاح ومدخل الوحدات والتشغيلات بالجملة ═══ */

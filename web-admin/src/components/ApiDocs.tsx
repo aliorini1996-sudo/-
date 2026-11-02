@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { Download, KeyRound, RefreshCw, ShieldAlert, Gauge, AlertTriangle, ListTree, Code2, MapPin, Wallet, Warehouse, Layers, Tags, History } from 'lucide-react';
+import { Download, KeyRound, RefreshCw, ShieldAlert, Gauge, AlertTriangle, ListTree, Code2, MapPin, Wallet, Warehouse, Layers, Tags, History, Truck } from 'lucide-react';
 import { useTr } from '../i18n/strings';
 import {
   API_BASE_URL, API_DENIED, API_SYNC_RESOURCES, SYNC_MODE_DOC, CURL_EXAMPLE, JS_SYNC_EXAMPLE, PY_SYNC_EXAMPLE, DELETE_RECONCILE_NOTE,
@@ -104,6 +104,7 @@ const GUIDE_ICONS: Record<string, React.ReactNode> = {
   'payment-methods-guide': <Wallet size={18} className="text-[#E15A30]" />,
   'warehouse-guide': <Warehouse size={18} className="text-[#E15A30]" />,
   'lots-guide': <Layers size={18} className="text-[#E15A30]" />,
+  'stock-push-guide': <Truck size={18} className="text-[#E15A30]" />,
   'price-lists-guide': <Tags size={18} className="text-[#E15A30]" />,
 };
 
@@ -143,6 +144,7 @@ button{display:none}`;
       <div ref={ref} className="space-y-4" dir="rtl">
         <Section icon={<History size={18} className="text-[#E15A30]" />} title="ما الجديد (٢٩ أكتوبر – ٢ نوفمبر ٢٠٢٦)">
           <ul className="text-xs text-[#6E6557] list-disc ps-5 space-y-1">
+            <li>٢ نوفمبر — دليل جديد «ربط حركات المخزون من نظامكم إلى Field Sales» (القسم ٩): المنصة لا تسحب شيئاً من نظامكم، والمزامنة /api/v1/sync قراءة فقط، فكل استلام وتسوية وتحميل وتنزيل يُرسل لحظة وقوعه بـPOST /api/warehouse/entries أو POST /api/van-stock/loads. فيه لكل عملية جسمها الأدنى، والنقل من سيارة إلى سيارة (UNLOAD ثم LOAD بالتشغيلات نفسها)، والتشغيلة ومرجع السطر لكل سطر، وكيف تتحقّق قبل إعادة الإرسال لأن المسارين بلا clientRef.</li>
             <li>٢ نوفمبر — التشغيلات على مستوى السطر: «مرجع السطر» items[].lineRef (نصٌّ اختياري حتى 100 حرف، يُقصّ طرفاه والفارغ null) في POST /api/invoices (كل الأنواع ومنها المرتجع، في المرحلتين) وPOST /api/van-stock/loads وPOST /api/warehouse/entries، وlines[].lineRef في الإشعارين الدائن والمدين، يُحفظ على البند ويعود كما هو في الردود وفي مزامنة invoices وvan-loads وwarehouse-entries لكل الشركات، وبنود سطر تسوية النقص في المستودع الذي توزّع على أكثر من تشغيلة تحمل lineRef نفسه. ومع «تتبّع LOT»: كل بند في مزامنتي invoices وvan-loads يحمل توزيعه lots مضمّناً مع بطاقة تشغيلته lot {"{lotNumber, productionDate, expiryDate}"}، وبنود warehouse-entries تحمل lot، وGET /api/invoices?withItems=1&amp;withLots=1 يضمّ lots لكل بند. والموارد المنفصلة (invoice-item-lots وvan-load-item-lots وproduct-lots) باقية كما هي. الخطوات في دليل «ربط تتبّع LOT».</li>
             <li>١ نوفمبر — «أنواع الأسعار» (سعر الجملة، سعر التجزئة…): مسارات /api/price-lists وPUT /api/products/:id/list-prices، والحقل priceListId في العملاء والفواتير ومزامنتهما، وlistPrices في الأصناف، وصلاحية المندوب canChangePriceList (بدونها 403 PRICE_LIST_FORBIDDEN لمندوب التطبيق وحده). الخادم لا يسعّر طلب المفتاح بنوع السعر. الخطوات في دليل «ربط أنواع الأسعار».</li>
             <li>١ نوفمبر — «تتبّع LOT»: كل إنقاص بلا تشغيلات صريحة (تنزيل السيارة، وتسوية النقص في السيارة والمستودع، وEXPIRED_OUT وDAMAGED_OUT) يسحبه الخادم تلقائياً بالأقرب انتهاءً، ومنها الموقوفة والمنتهية، ثم من غير المسمّى. وإتلاف المنتهي غير المباع (lotReason = EXPIRED_UNSOLD_DESTROY) يُسحب من التشغيلات المنتهية يوم الشركة وحدها، وتسوية نقص المستودع التي تتوزّع على أكثر من تشغيلة تُكتب بنداً لكل تشغيلة. وصار 422 LOT_REQUIRED للزيادة بلا تشغيلة ولتنزيل سيارة مندوب محذوف (ولرقم تشغيلة غير صالح).</li>
