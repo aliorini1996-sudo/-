@@ -370,6 +370,16 @@ export interface Phase2LegacyItem {
    * غائبةٌ ⇒ كما يقرؤها الفرع قبل معاملته (نافذةٌ أضيق لا تُغلق السباق كلّه).
    */
   productUnit?: string | null;
+  /** «مرجع السطر» كما قبله مخطّط routes/invoices.ts (مقصوصاً ≤١٠٠) — يُكتب على البند كما هو (lineRefColumn) */
+  lineRef?: string | null;
+}
+
+/**
+ * «مرجع السطر» (lineRef) في بيانات إنشاء بند الفاتورة أو الإشعار: {} لما لم يُرسَل أو فرغ بعد القصّ — فيبقى العمود null وصفّ ما قبل
+ * الميزة حرفاً كما كان. لا تحقّق آخر (غير فريد ولا مفهرس)، والطول حرسه المخطّط قبل الوصول هنا
+ */
+export function lineRefColumn(v: unknown): { lineRef?: string } {
+  return typeof v === 'string' && v !== '' ? { lineRef: v } : {};
 }
 
 /**
@@ -676,6 +686,8 @@ export function legacyItemColumns(i: Phase2LegacyItem) {
     ...unitFields(i.qty, { name: i.unitName ?? null, factor: i.unitFactor ?? 1 }),
     unitPrice: i.unitPrice, discountPct: i.discountPct, discountAmt: i.discountAmt,
     taxPct: i.taxPct, taxAmt: i.taxAmt, lineTotal: i.lineTotal,
+    // «مرجع السطر»: كما في المرحلة الأولى — للفاتورة وللإشعار الدائن «برقمٍ يدويّ» (البنود من الطلب نفسه). لا يدخل الـXML
+    ...lineRefColumn(i.lineRef),
   };
 }
 

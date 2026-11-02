@@ -100,7 +100,9 @@ router.get('/sync/:resource', async (req: AuthRequest, res: Response, next: Next
     if (since === 'invalid') { res.status(400).json({ success: false, code: 'BAD_SINCE', message: 'since يجب أن يكون تاريخا بصيغة ISO-8601' }); return; }
     const cursor = decodeCursor(req.query.cursor, def.name);
     if (cursor === 'invalid') { res.status(400).json({ success: false, code: 'BAD_CURSOR', message: 'cursor غير صالح لهذا المورد' }); return; }
-    const limit = clampLimit(req.query.limit, SYNC_DEFAULT_LIMIT, SYNC_MAX_LIMIT);
+    // بنودٌ تحمل تشغيلاتها (الشركة المفعّلة) ⇒ سقفٌ أصغر للصفحة (lotMaxLimit)، والافتراضي ١٠٠ تحته فلا يتغيّر
+    const maxLimit = lotsOn && def.lotMaxLimit ? Math.min(SYNC_MAX_LIMIT, def.lotMaxLimit) : SYNC_MAX_LIMIT;
+    const limit = clampLimit(req.query.limit, SYNC_DEFAULT_LIMIT, maxLimit);
 
     // وقت الخادم قبل القراءة — هو ما يُبنى عليه since التالي (لا وقت انتهاء القراءة)
     const serverTime = new Date().toISOString();

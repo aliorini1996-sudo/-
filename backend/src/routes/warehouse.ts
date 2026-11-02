@@ -201,6 +201,9 @@ const entrySchema = z.object({
     lotNumber: z.string().max(LOT_NUMBER_MAX).optional(),
     productionDate: z.string().max(10).nullable().optional(),
     expiryDate: z.string().max(10).nullable().optional(),
+    // «مرجع السطر»: معرّف سطر نظام المُكامِل (الربط البرمجي) يُحفظ على البند ويعود معه كما هو. بعد القصّ: فارغ ⇒ null، وفوق ١٠٠ ⇒ 400.
+    // لا تفرّد ولا فهرس، ومستقلٌّ عن «تتبّع اللوط» (الواجهة لا ترسله فيبقى null)
+    lineRef: z.string().trim().max(100).nullish().transform((v) => v || null),
   })).min(1),
 });
 
@@ -257,6 +260,7 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
     const withLots = lotsOn(req);
     // البنود كما كانت، و«تتبّع اللوط» يضيف lotId لكل سطر من خطة المعاملة وحدها — وسطر نقصٍ سُحب تلقائياً من أكثر من تشغيلة
     // (splitByLine) بندٌ لكلٍّ بإشارته: بوحدة السطر إن كانت حصّته وحداتٍ كاملة، وإلا بوحدة الأساس (Σ الأساس = أساس السطر)
+    // و«مرجع السطر» على كل بندٍ من سطره — والمقسوم على تشغيلات يحمله كلُّ بندٍ منه فيجمعها المُكامِل إلى سطره. غائبٌ ⇒ البند كما كان
     const entryData = (lotIdByLine: ReadonlyMap<number, string | null> | null, splitByLine?: ReadonlyMap<number, { lotId: string | null; qty: number }[]>) => ({
       tenantId: tid, type: data.type, note: data.note, supplier: data.supplier, createdBy: by?.name,
       items: {
@@ -264,6 +268,7 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
           const unitCost = i.unitCost == null
             ? null
             : netUnitCost(i.unitCost, taxOf.get(i.productId) ?? 0, data.costsIncludeTax);
+          const lineRef = i.lineRef != null ? { lineRef: i.lineRef } : null;
           const split = splitByLine?.get(idx);
           if (split) {
             const sign = Number(i.qty) < 0 ? -1 : 1;
@@ -271,7 +276,7 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
             return split.map((r) => {
               const inUnits = r.qty / F;
               const whole = F > 1 && Math.abs(inUnits - Math.round(inUnits)) <= 1e-9;
-              return { productId: i.productId, ...unitFields(sign * (whole ? Math.round(inUnits) : r.qty), whole ? units[idx] : null), unitCost, lotId: r.lotId };
+              return { productId: i.productId, ...unitFields(sign * (whole ? Math.round(inUnits) : r.qty), whole ? units[idx] : null), unitCost, lotId: r.lotId, ...lineRef };
             });
           }
           return [{
@@ -280,6 +285,7 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
             ...unitFields(i.qty, units[idx]),
             unitCost,
             ...(lotIdByLine && { lotId: lotIdByLine.get(idx) ?? null }),
+            ...lineRef,
           }];
         }),
       },

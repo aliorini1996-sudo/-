@@ -48,6 +48,11 @@ export interface SyncResource {
    * والمتداخل بشكل select نفسه: `{ items: { select: {...} } }` يُدمج في select البنود ويُبقي ترتيبها.
    */
   lotSelect?: Readonly<Record<string, unknown>>;
+  /**
+   * سقف الصفحة حين تُضمّ تشغيلات البنود (lotSelect) للشركة المفعّلة: توزيع كل بند وبطاقته يضاعفان حجم الصفحة ٢–٤ مرات، وذروة
+   * ذاكرة الطلب أضعاف حجمه على نسخةٍ واحدة بـ٥١٢ ميغابايت — فـ٢٠٠ تُبقي الهامش كما كان قبل الميزة. والمطفأة بسقفها العام
+   */
+  lotMaxLimit?: number;
   /** عزل الشركة — مباشرة بعمود tenantId، أو عبر العميل والصنف معاً (أسعار العملاء بلا عمود شركة) */
   tenantPath: 'direct' | 'customerAndProduct';
   /** عمود الطابع إن خالف افتراض النمط — الزيارات بطابع الاستلام لا بطابع الجهاز */
@@ -58,8 +63,10 @@ export interface SyncResource {
   /**
    * القوائم المتداخلة في select (بنود الفاتورة والحركة، شرائح الصنف ووحداته) بنموذجها وممنوعها — فيفحص اختبار التغطية
    * أعمدتها كما يفحص أعمدة المورد. بلا هذا كان عمودٌ جديد في البنود (لقطة الوحدة) يسقط من المزامنة بصمت.
+   * وما تحت البند مسارٌ بالنقطة ('items.lots' توزيع البند على التشغيلات، و'items.lots.lot' بطاقة تشغيلته)، و`lots`
+   * علاقةٌ من lotSelect تصل للشركة المفعّلة وحدها — فيفحص الاختبار غيابها عن ردّ المطفأة كما يفحص تغطيتها للمفعّلة.
    */
-  nested?: Readonly<Record<string, { model: string; denied: Readonly<Record<string, string>> }>>;
+  nested?: Readonly<Record<string, { model: string; lots?: boolean; denied: Readonly<Record<string, string>> }>>;
   /** يُحذف حذفاً فعلياً في بعض المسارات — فيُذكر في المستند أن يُطابَق بـ /ids */
   hardDeletes: boolean;
 }
@@ -89,6 +96,9 @@ const PRODUCT_COLS = [
   // بالأساس القديم: اسحب تاريخه من جديد أو اضربه بمعامل الوحدة القديمة (التحويل لا يحرّك updatedAt بنود التاريخ)
   'baseConvertedAt',
 ];
+/** سقف صفحة مورد بنودُه تحمل تشغيلاتها (lotMaxLimit) — انظر SyncResource.lotMaxLimit */
+export const LOT_SYNC_MAX_LIMIT = 200;
+
 const SALES_REP_COLS = [
   'id', 'name', 'phone', 'email', 'username', 'isActive', 'canCreateInvoice', 'canSellOnCredit', 'canSellOnInstallment',
   'canSellInCash', 'canEditInvoice', 'canDeleteInvoice', 'canCancelInvoice', 'canChangePrice', 'maxDiscountPct',
@@ -118,11 +128,49 @@ const INVOICE_COLS = [
  * نظامٌ يجمع qty يعدّ كرتوناً من ٢٤ حبة حبّةً واحدة. والأسعار على الصفّ (unitPrice وunitCost) لوحدة الصفّ.
  */
 const UNIT_SNAPSHOT_COLS = ['unitName', 'unitFactor', 'baseQty'] as const;
+/**
+ * «مرجع السطر»: معرّفٌ يرسله نظام الشركة مع كل بند (items[].lineRef) فيعود معه كما هو — به يُطابق سطره دون الاعتماد على
+ * الترتيب، ومنه سطر التسوية الذي انقسم على عدّة تشغيلات (كل بنوده بالمرجع نفسه). لكل الشركات بلا بوّابة عَلَم، وnull لما
+ * لم يُرسَل (الواجهات وتطبيق المندوب). في بنود الموارد الثلاثة: الفاتورة والتحميل والوارد
+ */
 const INVOICE_ITEM_COLS = [
   'id', 'productId', 'unitCost', 'qty', 'unitPrice', 'discountPct', 'discountAmt', 'taxPct', 'taxAmt', 'lineTotal', 'seq',
   'itemName', 'unitCode', 'vatCategory', 'vatExemptionCode', 'vatExemptionReason', 'creditedItemId', 'expiresAt',
-  'returnExpired', 'expirySaleInvoiceId', 'returnOfItemId', ...UNIT_SNAPSHOT_COLS,
+  'returnExpired', 'expirySaleInvoiceId', 'returnOfItemId', ...UNIT_SNAPSHOT_COLS, 'lineRef',
 ];
+/**
+ * «تتبّع اللوط» على مستوى السطر: كل بندٍ يحمل توزيعه على التشغيلات (lots) مضمّناً، وكل صفّ توزيعٍ بطاقةَ تشغيلته (lot:
+ * رقمها وتاريخاها، null = غير مسمّى/غير معروف) — فيُطابق نظام الشركة اللوط بالسطر الذي أرسله لا بالمستند، ولا يترجم lotId
+ * من product-lots. للشركة المفعّلة وحدها (lotSelect)، والموارد المستقلّة (invoice-item-lots وvan-load-item-lots) باقية كما هي.
+ * الترتيب بالإنشاء ثم المعرّف: ترتيب الكتابة، ثابتٌ بين قراءتين.
+ */
+const LOT_CARD = { select: pick('lotNumber', 'productionDate', 'expiryDate') };
+const LINE_LOTS_ORDER = [{ createdAt: 'asc' }, { id: 'asc' }];
+const INVOICE_ITEM_LOTS = {
+  select: { ...pick('id', 'lotId', 'quantity', 'certainty', 'expiryDate', 'sourceItemLotId', 'flags'), lot: LOT_CARD },
+  orderBy: LINE_LOTS_ORDER,
+};
+const VAN_ITEM_LOTS = {
+  select: { ...pick('id', 'lotId', 'qty', 'certainty', 'reason', 'moveType', 'viaWarehouse'), lot: LOT_CARD },
+  orderBy: LINE_LOTS_ORDER,
+};
+/**
+ * البطاقة في السطر ترجمةٌ لـlotId لا مرآةٌ لها: تُقرأ كما هي لحظة السحب، وتعديلها أو إيقافها لاحقاً لا يحرّك طابع المستند —
+ * فحالتها وسجلّها (والرقم والتاريخان الحيّان) من product-lots بطابع تعديلها
+ */
+const LOT_CARD_LIVE = 'حالة البطاقة وسجلّها من product-lots — تتغيّر بعد الحركة دون أن تحرّك طابع المستند';
+const LOT_CARD_DENIED = {
+  id: 'هو lotId في الصفّ الأب', tenantId: 'معروف من المفتاح', productId: 'معروف من البند',
+  status: LOT_CARD_LIVE, blockKind: LOT_CARD_LIVE, blockReason: LOT_CARD_LIVE, blockedAt: LOT_CARD_LIVE, blockedBy: LOT_CARD_LIVE,
+  note: LOT_CARD_LIVE, source: LOT_CARD_LIVE, createdBy: LOT_CARD_LIVE, createdAt: LOT_CARD_LIVE, updatedAt: LOT_CARD_LIVE,
+  sourceEntryId: 'سباكة داخلية: حركة الاستيراد الافتتاحي المنشئة — للتراجع عنها',
+};
+/** ما لا يتكرّر في صفّ التوزيع المضمّن: معروفٌ من بنده أو مستنده — والصفّ كاملاً في موارد التوزيع المستقلّة */
+const LINE_LOT_DENIED = {
+  tenantId: 'معروف من المفتاح', productId: 'معروف من البند الأب',
+  vanKey: 'سيارة المندوب وقت الحركة — من مندوب المستند، وكاملاً في مورد التوزيع المستقلّ',
+  createdAt: 'طابع الكتابة — به يُرتَّب التوزيع، وكاملاً في مورد التوزيع المستقلّ',
+};
 /** وحدات الصنف الأكبر من الأساس: factor عدد وحدات الأساس فيها، وprice فارغاً ⇒ سعر الأساس × المعامل */
 const PRODUCT_UNIT_COLS = ['id', 'name', 'factor', 'price', 'unitCode', 'isActive', 'sortOrder', 'createdAt', 'updatedAt'];
 const PARENT = 'معروف من الصفّ الأب';
@@ -219,12 +267,15 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
     denied: { tenantId: 'معروف من المفتاح' },
   },
   {
-    name: 'invoices', model: 'invoice', mode: 'updated', permission: 'canManageInvoices', accounting: true, tenantPath: 'direct', hardDeletes: false,
+    name: 'invoices', model: 'invoice', mode: 'updated', permission: 'canManageInvoices', accounting: true, tenantPath: 'direct', hardDeletes: false, lotMaxLimit: LOT_SYNC_MAX_LIMIT,
     select: {
       ...pick(...INVOICE_COLS),
       items: { select: pick(...INVOICE_ITEM_COLS), orderBy: [{ seq: 'asc' }, { id: 'asc' }] },
       installments: { select: pick('seq', 'dueDate', 'amount'), orderBy: { seq: 'asc' } },
     },
+    // «تتبّع اللوط» على مستوى السطر: توزيع كل بند على تشغيلاته مضمّناً فيه ببطاقتها — للشركة المفعّلة وحدها، والمطفأة بلا
+    // تغيير (§١٠.١). Σ quantity لبندٍ = baseQty البند (موجبة؛ الاتجاه من نوع الفاتورة) كمورد invoice-item-lots
+    lotSelect: { items: { select: { lots: INVOICE_ITEM_LOTS } } },
     denied: {
       tenantId: 'معروف من المفتاح', clientRef: OFFLINE, clientCreatedAt: OFFLINE,
       orderType: 'بقايا وحدة المطاعم المحذوفة', serviceChargeAmt: 'بقايا وحدة المطاعم المحذوفة', tipAmt: 'بقايا وحدة المطاعم المحذوفة', shiftId: 'بقايا وحدة المطاعم المحذوفة',
@@ -232,6 +283,11 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
     },
     nested: {
       items: { model: 'invoiceItem', denied: { invoiceId: PARENT, menuItemId: 'بقايا وحدة المطاعم المحذوفة', orderItemId: 'بقايا وحدة المطاعم المحذوفة' } },
+      'items.lots': {
+        model: 'invoiceItemLot', lots: true,
+        denied: { ...LINE_LOT_DENIED, invoiceItemId: PARENT, invoiceId: 'معروف من الفاتورة الأم' },
+      },
+      'items.lots.lot': { model: 'productLot', lots: true, denied: LOT_CARD_DENIED },
     },
   },
   {
@@ -247,30 +303,35 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
   },
   {
     // بطابع التعديل: حذف المندوب يفرّغ salesRepId ويملأ deletedSalesRepId بعد الإنشاء
-    name: 'van-loads', model: 'vanLoad', mode: 'updated', permission: 'canManageVanStock', accounting: true, tenantPath: 'direct', hardDeletes: false,
+    name: 'van-loads', model: 'vanLoad', mode: 'updated', permission: 'canManageVanStock', accounting: true, tenantPath: 'direct', hardDeletes: false, lotMaxLimit: LOT_SYNC_MAX_LIMIT,
     // suggestedQty وexpectedQty (اقتراح التحميل وتنبّؤه) بالأساس دائماً — المحرّك يقترح حبّاتٍ لا كراتين
     // zeroRunId: حركة «تصفير المخزون» (معرّف تشغيلته، null لغيرها) — يميّزها المُزامِن بلا اعتمادٍ على نصّ الملاحظة
-    select: { ...pick('id', 'salesRepId', 'deletedSalesRepId', 'locationId', 'type', 'note', 'createdBy', 'createdAt', 'updatedAt', 'zeroRunId'), items: { select: pick('productId', 'qty', ...UNIT_SNAPSHOT_COLS, 'suggestedQty', 'expectedQty') } },
-    // «تتبّع اللوط»: معرّف البند للشركة المفعّلة — به تُربط صفوف van-load-item-lots (vanLoadItemId) ببندها. والمطفأة بلا تغيير (§١٠.١):
-    // البند يُعرَّف عندها بحركته وصنفه كما كان
-    lotSelect: { items: { select: pick('id') } },
+    select: { ...pick('id', 'salesRepId', 'deletedSalesRepId', 'locationId', 'type', 'note', 'createdBy', 'createdAt', 'updatedAt', 'zeroRunId'), items: { select: pick('productId', 'qty', ...UNIT_SNAPSHOT_COLS, 'suggestedQty', 'expectedQty', 'lineRef') } },
+    // «تتبّع اللوط»: معرّف البند للشركة المفعّلة — به تُربط صفوف van-load-item-lots (vanLoadItemId) ببندها — وتوزيعه على التشغيلات
+    // مضمّناً فيه ببطاقتها (Σ qty لبندٍ = baseQty البند بإشارته). والمطفأة بلا تغيير (§١٠.١): البند يُعرَّف عندها بحركته وصنفه كما كان
+    lotSelect: { items: { select: { ...pick('id'), lots: VAN_ITEM_LOTS } } },
     denied: { tenantId: 'معروف من المفتاح' },
-    nested: { items: { model: 'vanLoadItem', denied: { vanLoadId: PARENT } } },
+    nested: {
+      items: { model: 'vanLoadItem', denied: { vanLoadId: PARENT } },
+      'items.lots': { model: 'vanLoadItemLot', lots: true, denied: { ...LINE_LOT_DENIED, vanLoadItemId: PARENT } },
+      'items.lots.lot': { model: 'productLot', lots: true, denied: LOT_CARD_DENIED },
+    },
   },
   {
     name: 'warehouse-entries', model: 'warehouseEntry', mode: 'created', permission: 'canManageVanStock', accounting: true, warehouse: true, tenantPath: 'direct', hardDeletes: true,
     // unitCost لوحدة البند (تكلفة الكرتون لبندٍ بالكرتون) — تكلفة الأساس = unitCost ÷ unitFactor
     // zeroRunId: تسوية «تصفير المخزون» (null لغيرها)
-    select: { ...pick('id', 'type', 'note', 'supplier', 'createdBy', 'createdAt', 'zeroRunId'), items: { select: pick('productId', 'qty', ...UNIT_SNAPSHOT_COLS, 'unitCost') } },
-    // «تتبّع اللوط»: للشركة المفعّلة معرّف البند وتشغيلته (سطرٌ = لوطٌ واحد؛ null = غير مسمّى أو صنفٌ غير متتبَّع) — تُترجم من
-    // product-lots. والمطفأة بلا تغيير (§١٠.١)
-    lotSelect: { items: { select: pick('id', 'lotId') } },
+    select: { ...pick('id', 'type', 'note', 'supplier', 'createdBy', 'createdAt', 'zeroRunId'), items: { select: pick('productId', 'qty', ...UNIT_SNAPSHOT_COLS, 'unitCost', 'lineRef') } },
+    // «تتبّع اللوط»: للشركة المفعّلة معرّف البند وتشغيلته (سطرٌ = لوطٌ واحد؛ null = غير مسمّى أو صنفٌ غير متتبَّع) وبطاقتها مضمّنة
+    // (lot: null حين lotId فارغ). وسطر التسوية المنقسم على عدّة تشغيلات بنودٌ بالمرجع نفسه (lineRef). والمطفأة بلا تغيير (§١٠.١)
+    lotSelect: { items: { select: { ...pick('id', 'lotId'), lot: LOT_CARD } } },
     denied: { tenantId: 'معروف من المفتاح' },
     nested: {
       items: {
         model: 'warehouseEntryItem',
         denied: { entryId: PARENT, expiresAt: 'مهجور: الصلاحية تُحسب من تاريخ البيع لا التوريد' },
       },
+      'items.lot': { model: 'productLot', lots: true, denied: LOT_CARD_DENIED },
     },
   },
   /*

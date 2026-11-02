@@ -724,10 +724,14 @@ test('«تتبّع LOT»: موارد المزامنة الخمسة في المس
   assert.match(what('products'), /lotTracked/);
   assert.match(what('van-loads'), /\bid\b/);
   assert.match(what('warehouse-entries'), /lotId/);
+  // التشغيلات على مستوى السطر (٢ نوفمبر): بنود invoices وvan-loads توزيعها lots مضمّناً، وبنود warehouse-entries بطاقة lot
+  for (const n of ['invoices', 'van-loads']) assert.match(what(n), /\blots:\[\{/, `${n}: items[].lots`);
+  assert.match(what('warehouse-entries'), /\blot:\{lotNumber, productionDate, expiryDate\}\|null/);
   const sync = read(path.join(BACKEND, 'services', 'apiSync.ts'));
   assert.ok(sync.includes("lotSelect: { lotTracked: true }"), 'products.lotSelect');
-  assert.ok(sync.includes("lotSelect: { items: { select: pick('id') } }"), 'van-loads.lotSelect');
-  assert.ok(sync.includes("lotSelect: { items: { select: pick('id', 'lotId') } }"), 'warehouse-entries.lotSelect');
+  assert.ok(sync.includes('lotSelect: { items: { select: { lots: INVOICE_ITEM_LOTS } } }'), 'invoices.lotSelect');
+  assert.ok(sync.includes("lotSelect: { items: { select: { ...pick('id'), lots: VAN_ITEM_LOTS } } }"), 'van-loads.lotSelect');
+  assert.ok(sync.includes("lotSelect: { items: { select: { ...pick('id', 'lotId'), lot: LOT_CARD } } }"), 'warehouse-entries.lotSelect');
   // ونصيحة التحويل تشمل موارد التشغيلات بطابع الإنشاء
   const convert = endpointOf('POST', '/products/:id/convert-base').rules.join('\n');
   for (const r of ['van-load-item-lots', 'invoice-item-lots', 'lot-relabels']) assert.ok(convert.includes(`/v1/sync/${r}`), `convert-base لا يذكر ${r}`);

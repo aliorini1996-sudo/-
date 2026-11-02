@@ -41,7 +41,7 @@ import { ZatcaHttpError } from '../compliance/zatca/errors';
 import { issuanceHttpError } from '../compliance/zatca/issue';
 import {
   PRODUCT_UNITS_BUSY_MESSAGE, assertLockedStillUntracked, capsFromHeaders, capsGate, isPhase2Invoice, issuePhase2Invoice, phase2ReadBody, phase2ReplayBody,
-  type Phase2IssuanceContext,
+  lineRefColumn, type Phase2IssuanceContext,
 } from './invoicesZatca';
 import { productionPhase2Deps } from './invoicesZatcaDeps';
 // ZATCA المرحلة الثانية (Z5.5): الإشعارات الدائنة والمدينة — المرتجع بعد الربط إشعارٌ مرتبط بأصله (D3/D4/Q5)
@@ -133,6 +133,13 @@ router.get('/open', requireAdminPermission('canManageReceipts'), async (req: Aut
 // بقيّة مسارات الفواتير تبقى على صلاحية الفواتير
 router.use(requireAdminPermission('canManageInvoices'));
 
+/**
+ * «مرجع السطر» (lineRef) لبنود الفاتورة والمرتجع والإشعارين: نصٌّ حرّ يُقصّ فراغه ولا يتجاوز ١٠٠ (وإلا 400 المخطّط المعتاد)،
+ * غير فريد ولا مفهرس ولا تحقّق آخر. والفارغ بعد القصّ لا يُكتب فيبقى العمود null (lineRefColumn في invoicesZatca.ts) — والواجهات
+ * وتطبيق المندوب لا ترسله
+ */
+export const lineRefField = z.string().trim().max(100).nullish();
+
 const invoiceItemSchema = z.object({
   productId: z.string(),
   // ZATCA المرحلة الثانية (Z5.5): بند الفاتورة الأصلية الذي يُرجَع هذا البند منه — للمرتجع في شركةٍ مربوطة وحده،
@@ -157,6 +164,8 @@ const invoiceItemSchema = z.object({
   // «تتبّع اللوط»: صفوف التشغيلات [{lotId|null, qty}] بالكمية الأساسية — تُستقبل بلا صرامة (تلميح الإعادة متسامح، ن٢-٩) وتُحلَّل
   // بحسب الفاعل داخل التوزيع: الإدارة والمفتاح بصرامة، والمندوب مع الإعادة تلميحاً، والمندوب حيّاً تُهمَل. ولغير المتتبَّع لا تُقرأ
   lots: z.unknown().optional(),
+  // «مرجع السطر»: معرّف سطر نظام المُكامِل (الربط البرمجي) يُحفظ على البند ويعود معه كما هو في الردّ والقراءة والمزامنة
+  lineRef: lineRefField,
 });
 
 /** «تتبّع اللوط»: صفوف التوزيع وتشغيلتها في بنود الردّ (withLots=1، D11؛ وردّ إصدار المستند المتتبَّع) */
@@ -614,6 +623,9 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const from = req.query.from as string | undefined;
     const to = req.query.to as string | undefined;
     const withItems = req.query.withItems === '1' || req.query.withItems === 'true'; // تضمين بنود الفاتورة (لكشوف المندوب)
+    // «تتبّع اللوط»: صفوف توزيع كل بندٍ وتشغيلتها بالتضمين نفسه في GET /:id?withLots=1 — مع withItems وحده والميزة مفعّلة
+    // (عَلَم الشركة يُقرأ حين يُطلب المعاملان معاً فقط: غيرهما لا استعلام زائد والردّ كما كان)
+    const withLots = withItems && (await wantsLots(req, tid));
     const isSalesRep = req.user?.role === 'SALES_REP';
     // «لوكيشن»: فلتر الموقع بختم الفاتورة (معرّف، أو none = «بلا موقع») — نصٌّ وحده، فكائن qs لا يصير شرطاً
     const location = locationFilterOf(req.query.locationId);
@@ -654,7 +666,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
           // «لوكيشن»: اسم الموقع المختوم (عمود القائمة وتصديرها) — null لما بلا ختم
           location: { select: { id: true, name: true } },
           _count: { select: { items: true } },
-          ...(withItems && { items: { include: { product: { select: { name: true, unit: true, primaryUnitId: true } } } } }),
+          ...(withItems && { items: { include: { product: { select: { name: true, unit: true, primaryUnitId: true } }, ...(withLots && ITEM_LOTS_INCLUDE) } } }),
         },
         ...paginate(page, limit),
         orderBy: { createdAt: 'desc' },
@@ -764,7 +776,7 @@ router.get('/:id/returnable', async (req: AuthRequest, res: Response, next: Next
         items: {
           select: {
             id: true, productId: true, qty: true, lineTotal: true, taxPct: true, expiresAt: true,
-            unitName: true, unitFactor: true, baseQty: true,
+            unitName: true, unitFactor: true, baseQty: true, lineRef: true,
             product: {
               select: {
                 id: true, name: true, code: true, unit: true, primaryUnitId: true,
@@ -808,6 +820,8 @@ router.get('/:id/returnable', async (req: AuthRequest, res: Response, next: Next
       const perBase = refundPerBase({ lineTotal: Number(it.lineTotal), qty: Number(it.qty), unitFactor: it.unitFactor });
       return {
         saleItemId: it.id, productId: it.productId, name: it.product!.name, code: it.product!.code,
+        // «مرجع السطر» لبند البيع كما حُفظ (null لما لم يُرسَل) — يطابق به المُكامِل سطره الذي يُرجِع منه
+        lineRef: it.lineRef ?? null,
         /* الحقول القديمة **بوحدة الأساس**: عميلٌ لا يعرف الوحدات (تطبيقٌ قديم، مفتاح API) يرسل الكمية بلا unitId فيقرؤها
          * الخادم أساساً — فيجب أن يرى المتاح والسعر بها، وإلّا أرجع «١» من «٢ كرتون» فقُيّدت حبّة. لصنفٍ بلا وحدات هي
          * أرقام ما قبل الميزة نفسها (المعامل ١) */
@@ -1430,6 +1444,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
             productId: i.productId, invoiceItemId: i.invoiceItemId ?? null, qty: i.qty,
             unitId: snapOf(idx).unitId, unitFactor: snapOf(idx).unitFactor, unitName: snapOf(idx).unitName,
             expectedBase: products.find(p => p.id === i.productId)?.unit ?? null,
+            // «مرجع السطر»: يرافق بند المرتجع إلى بند الإشعار الذي يُحلّ إليه (invoicesNotes.ts noteLineRefs)
+            lineRef: i.lineRef ?? null,
           })),
           customer,
           salesRepId,
@@ -1685,6 +1701,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
               taxPct: i.taxPct,
               taxAmt: i.taxAmt,
               lineTotal: i.lineTotal,
+              // «مرجع السطر» من بند الجسم نفسه (priced يحمله من finalItems) — والمرتجع المرتبط كذلك
+              ...lineRefColumn(i.lineRef),
             })),
           },
         },
@@ -1940,6 +1958,8 @@ const creditNoteSchema = z.object({
     z.array(z.object({
       invoiceItemId: z.string(), qty: z.number().positive(), unitId: z.string().nullish(),
       baseUnitName: z.string().transform((v) => v.slice(0, 64)).nullish(),
+      // «مرجع السطر»: يُكتب على بند الإشعار الذي يُحلّ إليه هذا السطر (بترتيب الأصل — invoicesNotes.ts noteLineRefs)
+      lineRef: lineRefField,
     })).min(1),
   ]),
 });
@@ -1957,6 +1977,8 @@ const debitNoteSchema = z.object({
     vatCategory: z.string().max(4).optional(),
     vatExemptionCode: z.string().max(16).optional(),
     vatExemptionReason: z.string().max(300).optional(),
+    // «مرجع السطر»: بنود المدين بترتيب الطلب نفسه، فيُكتب كلٌّ على بنده
+    lineRef: lineRefField,
   })).min(1),
 });
 
@@ -2084,7 +2106,7 @@ router.post('/:id/credit-note', async (req: AuthRequest, res: Response, next: Ne
     /* «الوحدة الرئيسية» §2.12-7 وD19: بنودٌ صريحة تحمل baseUnitName، أو طلبٌ بمفتاح API — يُقرأ صنف كل بند من الأصل (ولا استعلام
      * لغيرهما: الواجهة والمندوب كما كانا). baseUnitName يخالف أساس الصنف الآن ⇒ 400 UNIT_INVALID (كاشٌ قديم)، والمفتاح على صنفٍ
      * حُوِّل بلا baseUnitName ⇒ 400 BASE_UNIT_REQUIRED. والأساس المتوقَّع يُقارَن تحت قفل الإشعار (409 حين يسبقه تحويل). */
-    let lines: typeof body.lines | Array<{ invoiceItemId: string; qty: number; unitId: string | null; expectedBase: string | null }> = body.lines;
+    let lines: typeof body.lines | Array<{ invoiceItemId: string; qty: number; unitId: string | null; expectedBase: string | null; lineRef: string | null }> = body.lines;
     if (body.lines !== 'FULL' && (body.lines.some((l) => l.baseUnitName != null) || !!req.user?.apiKeyId)) {
       const reqLines = body.lines;
       const origItems = await prisma.invoiceItem.findMany({
@@ -2108,6 +2130,7 @@ router.post('/:id/credit-note', async (req: AuthRequest, res: Response, next: Ne
       lines = reqLines.map((l) => ({
         invoiceItemId: l.invoiceItemId, qty: l.qty, unitId: l.unitId ?? null,
         expectedBase: prodOf.get(l.invoiceItemId)?.unit ?? l.baseUnitName ?? null,
+        lineRef: l.lineRef ?? null,
       }));
     }
     const r = await issueCreditNote({
@@ -2166,6 +2189,7 @@ router.post('/:id/debit-note', async (req: AuthRequest, res: Response, next: Nex
         vatCategory: l.vatCategory ?? null,
         vatExemptionCode: l.vatExemptionCode ?? null,
         vatExemptionReason: l.vatExemptionReason ?? null,
+        lineRef: l.lineRef ?? null,
       })),
       clientRef: body.clientRef ?? null,
       clientCreatedAt: body.clientCreatedAt ?? null,

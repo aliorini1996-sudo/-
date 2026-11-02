@@ -53,7 +53,7 @@ import {
 } from '../services/lots';
 import { randomUUID } from 'node:crypto';
 import {
-  ITEM_LOTS_INCLUDE, allocateLotsInTx, assertLockedStillUntracked, capsGate, clearStandardInline, einvoiceView, isReplayRequest, issuePhase2InRegime, lotPrecheck, regimeSettingsOf,
+  ITEM_LOTS_INCLUDE, allocateLotsInTx, assertLockedStillUntracked, capsGate, clearStandardInline, einvoiceView, isReplayRequest, issuePhase2InRegime, lineRefColumn, lotPrecheck, regimeSettingsOf,
   PRODUCT_LOCK_TIMEOUT, Phase2ProductUnitsBusy, Phase2ProductUnitsChanged, productUnitsBusyResult, productUnitsChangedResult,
   type ClientCapsHeaders, type EinvoiceView, type Phase2IssuanceContext, type Phase2IssuanceDeps, type Phase2LedgerHooks, type Phase2LotHooks, type Phase2Result, type Phase2Tx,
 } from './invoicesZatca';
@@ -430,10 +430,15 @@ export interface ReturnItemLine {
   unitFactor?: number | null;
   unitName?: string | null;
   expectedBase?: string | null;
+  /** «مرجع السطر» كما قبله مخطّط POST /invoices — يُكتب على بند الإشعار الذي يُحلّ إليه هذا البند (noteLineRefs) */
+  lineRef?: string | null;
 }
 
+/** «مرجع السطر» يرافق سطر الطلب (POST /:id/credit-note وdebit-note) — لا يقرؤه compliance/zatca/notes.ts، بل noteLineRefs هنا */
+interface LineRefField { lineRef?: string | null }
+
 /** بنود الإشعار الدائن: 'FULL' كامل، أو قائمة ببنود الأصل، أو بنود مرتجعٍ تُحلّ إلى بنود الأصل. */
-export type CreditLinesInput = CreditLinesRequest | { fromReturnItems: readonly ReturnItemLine[] };
+export type CreditLinesInput = 'FULL' | readonly (CreditLineRequest & LineRefField)[] | { fromReturnItems: readonly ReturnItemLine[] };
 
 export interface NoteContextBase {
   tenantId: string;
@@ -463,7 +468,7 @@ export interface CreditNoteContext extends NoteContextBase {
 }
 
 export interface DebitNoteContext extends NoteContextBase {
-  lines: readonly DebitNoteLineInput[];
+  lines: readonly (DebitNoteLineInput & LineRefField)[];
 }
 
 const errorResult = (e: ZatcaHttpError): Phase2Result => ({ status: e.status, body: e.body() });
@@ -529,6 +534,8 @@ interface NoteBuild {
   eligibility: NoteEligible;
   loaded: LoadedOriginal;
   priorNotes: readonly PriorNote[];
+  /** الإشعار الدائن: سطور الطلب بعد حلّ بنود المرتجع إلى بنود الأصل — بها يُقابَل «مرجع السطر» ببند الإشعار (noteLineRefs) */
+  request?: CreditLinesRequest;
 }
 
 function buildNote(
@@ -574,9 +581,35 @@ function buildNote(
         if (why) throw new ZatcaHttpError('ZATCA_NOTE_NOT_ALLOWED', { messageAr: why, reason: REP_PRODUCT_RULE_CODE });
       }
     }
-    return { prepared, eligibility, loaded, priorNotes };
+    return { prepared, eligibility, loaded, priorNotes, request };
   }
   return { prepared: prepareDebitNote({ ...base, lines: (ctx as DebitNoteContext).lines }), eligibility, loaded, priorNotes };
+}
+
+const refOf = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
+
+/**
+ * «مرجع السطر» (lineRef) لكل بند إشعارٍ بموضعه في المستند (فهرس engine.items). المدين: بنوده بترتيب الطلب نفسه. والدائن: بنوده
+ * بترتيب **الأصل** لا الطلب (resolveCreditLines)، وسطور بند الأصل الواحد (وحدتان: «١ كرتون و٣ حبة») تخرج بترتيب طلبها — فيُزوَّج
+ * كل بندٍ بسطر الطلب التالي لبند أصله نفسه. وسطور الطلب: القائمة الصريحة كما أُرسلت، أو بنود المرتجع (fromReturnItems) وقد حُلّت
+ * سطراً بسطر (returnItemsToLines لا تُسقط ولا تُعيد الترتيب). و'FULL' بلا سطور طلب ⇒ لا مرجع.
+ */
+export function noteLineRefs(
+  kind: NoteKind, input: CreditLinesInput | readonly (DebitNoteLineInput & LineRefField)[], request: CreditLinesRequest | undefined,
+  note: Pick<PreparedNote, 'lines' | 'engine'>,
+): (string | null)[] {
+  if (kind === 'DEBIT_NOTE') {
+    const debit = Array.isArray(input) ? (input as readonly LineRefField[]) : [];
+    return note.engine.items.map((_c, idx) => refOf(debit[idx]?.lineRef));
+  }
+  const lines = note.lines;
+  if (!Array.isArray(request) || input === 'FULL') return lines.map(() => null);
+  const src: readonly LineRefField[] = Array.isArray(input)
+    ? (input as readonly LineRefField[])
+    : (input as { fromReturnItems: readonly ReturnItemLine[] }).fromReturnItems;
+  const byItem = new Map<string, (string | null)[]>();
+  request.forEach((r, i) => byItem.set(r.invoiceItemId, [...(byItem.get(r.invoiceItemId) ?? []), refOf(src[i]?.lineRef)]));
+  return lines.map((l) => (l.invoiceItemId ? byItem.get(l.invoiceItemId)?.shift() ?? null : null));
 }
 
 /** أعمدة بند الإشعار القديمة (ما يكتبه المسار القديم لكل بند) — مأخوذة من ناتج المحرّك. */
@@ -786,6 +819,8 @@ async function stampNote(
       built = build;
       const prepared = build.prepared;
       const link = prepared.link;
+      // «مرجع السطر» لكل بند إشعار من البناء الحاكم نفسه (بنوده وترتيبها)
+      const lineRefs = noteLineRefs(kind, ctx.lines, build.request, prepared);
       // «تتبّع اللوط» (D25): بلا خطة، صنفٌ صار متتبَّعاً بين المعاينة وقفل الأصل ⇒ 503 TRACKING_CHANGED قبل الترقيم والمستند وICV
       if (kind === 'CREDIT_NOTE' && !lots && deps.lots) await assertNoteStillUntracked(tx, ctx.tenantId, locked, prepared.lines);
 
@@ -845,6 +880,7 @@ async function stampNote(
                     ...invoiceItemLotColumns(alloc?.lines ?? null, idx, {
                       tenantId: ctx.tenantId, invoiceId: lotInvoiceId ?? '', productId: prepared.lines[idx]?.productId ?? '', vanKey: lotVan,
                     }),
+                    ...lineRefColumn(lineRefs[idx]),
                   })),
                 },
               },

@@ -55,6 +55,9 @@ const loadSchema = z.object({
     // المحرّك يُخرجها بالأساس وقياس الدقّة يقارنها بالمحمَّل بالأساس (services/suggestAccuracy)
     suggestedQty: z.number().optional(),
     expectedQty: z.number().optional(),
+    // «مرجع السطر»: معرّف السطر في نظام المُكامِل (الربط البرمجي) — يُحفظ على البند ويعود معه كما هو في الردّ والسجلّ والحركات
+    // والمزامنة. لا تفرّد ولا تحقق سوى الطول (فوق ١٠٠ ⇒ 400)، والفراغ بعد القصّ ⇒ null. الواجهات وتطبيق المندوب لا ترسله
+    lineRef: z.string().trim().max(100).nullish(),
     // «الوحدة الرئيسية» §3: وحدة الأساس التي حسب عليها العميل الكمية (Product.unit في كتالوجه) — ومنها بنود إزالة المنتهي والتالف.
     // غائبة ⇒ مسار اليوم حرفياً؛ ومختلفة عن أساس الصنف الآن ⇒ 400 UNIT_INVALID فيعيد تحميل أصنافه. لمفتاح API على صنفٍ حُوِّل: إلزامية (D19)
     baseUnitName: z.string().transform(v => v.slice(0, 64)).nullish(),
@@ -393,6 +396,9 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
         items: {
           create: items.map((i, idx) => ({
             productId: i.productId, ...unitFields(i.qty, units[idx]), suggestedQty: i.suggestedQty ?? null, expectedQty: i.expectedQty ?? null,
+            // «مرجع السطر» بالنشر الشرطيّ: غائبٌ أو فارغٌ بعد القصّ ⇒ لا مفتاح فيبقى العمود null والبند كما كان حرفياً. في كل الأنواع
+            // ومنها تنزيل سيارة المندوب المحذوف (D30)، وتوزيع البند على تشغيلاته لا يشطره (D2) فالمرجع على البند الواحد
+            ...(i.lineRef && { lineRef: i.lineRef }),
             ...(plan && vanItemLotColumns(plan, i.at, { tenantId: tid, productId: i.productId, vanKey: salesRepId, moveType: data.type })),
           })),
         },
@@ -760,6 +766,7 @@ router.get('/loads', async (req: AuthRequest, res: Response, next: NextFunction)
         skip: paged ? (page - 1) * limit : undefined,
         take: paged ? limit : 100,
         include: {
+          // البند بكل أعمدته — ومنها «مرجع السطر» lineRef كما حُفظ (null لما لم يُرسَل)، كردّ الإنشاء
           items: { include: { product: { select: { id: true, name: true, unit: true, primaryUnitId: true } }, ...(withLots && { lots: ITEM_LOTS_INCLUDE }) } },
           salesRep: { select: { id: true, name: true } },
           // «لوكيشن»: اسم الموقع المختوم (عمود السجلّ) — null لما بلا ختم
@@ -809,18 +816,20 @@ router.get('/movements', async (req: AuthRequest, res: Response, next: NextFunct
 
     // البند بلقطة وحدته: «٢ كرتون» تبقى كرتوناً لا «٢ حبة» (وحدة الصنف صارت الأساس)، و`baseQty` لمن يجمع الحركات.
     // و«الوحدة الرئيسية»: primaryUnitId للبند (R2، فخّ «×5») — حاضرٌ دائماً و null لصنفٍ بلا رئيسية (D18، كصفوف /current)
+    // و«مرجع السطر» (lineRef) كذلك: حاضرٌ دائماً بقيمته المحفوظة على البند (حركةً وفاتورة) و null لما لم يُرسَل —
+    // إلا بند فاتورةٍ خارج النطاق: null كرقمها وعميلها (مرجع المُدمِج مثل «SO-…/CUST-…» يعرّف المستند)
     const primaryOf = (p: { primaryUnitId?: string | null } | null | undefined) => ({ primaryUnitId: p?.primaryUnitId || null });
     const movements = [
       ...loads.map(l => ({
         // «تصفير المخزون»: معرّف التشغيلة لحركة التصفير (null لغيرها؛ والفواتير أدناه null دائماً)
         kind: l.type, date: l.createdAt, ref: l.note || '', by: l.createdBy, zeroRunId: l.zeroRunId ?? null,
-        items: l.items.map(i => ({ name: i.product.name, unit: i.unitName ?? i.product.unit, qty: i.qty, baseQty: baseQtyOf(i), ...primaryOf(i.product), ...(withLots && { lots: (i as { lots?: unknown }).lots ?? [] }) })),
+        items: l.items.map(i => ({ name: i.product.name, unit: i.unitName ?? i.product.unit, qty: i.qty, baseQty: baseQtyOf(i), ...primaryOf(i.product), lineRef: i.lineRef ?? null, ...(withLots && { lots: (i as { lots?: unknown }).lots ?? [] }) })),
       })),
       ...invoices.map(inv => ({
         // المرتجع التالف (منذ DAMAGED_VAN_SINCE) يدخل رصيد «المرتجع التالف» لا المتاح — فيُوسم بذلك في الحركة
         kind: inv.type === 'RETURN' ? (isDamagedVanReturn(inv) ? 'RETURN_DAMAGED' : 'RETURN') : 'SALE', date: inv.invoiceDate,
         ref: !visible || visible.has(inv.id) ? `${inv.number} · ${inv.customer.name}` : 'مستند خارج نطاقك', by: 'REP', zeroRunId: null,
-        items: inv.items.map(i => ({ name: i.product?.name ?? 'صنف محذوف', unit: i.unitName ?? i.product?.unit ?? '', qty: i.qty, baseQty: baseQtyOf(i), ...primaryOf(i.product), ...(withLots && { lots: (i as { lots?: unknown }).lots ?? [] }) })),
+        items: inv.items.map(i => ({ name: i.product?.name ?? 'صنف محذوف', unit: i.unitName ?? i.product?.unit ?? '', qty: i.qty, baseQty: baseQtyOf(i), ...primaryOf(i.product), lineRef: !visible || visible.has(inv.id) ? (i.lineRef ?? null) : null, ...(withLots && { lots: (i as { lots?: unknown }).lots ?? [] }) })),
       })),
     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 60);
 

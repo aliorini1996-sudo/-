@@ -277,10 +277,10 @@ test('حركات السيارة بلقطة وحدة البند — «٢ كرتو
   db.invoice = { async findMany() { return []; } };
   const r = await call(vanRouter, 'get', '/movements', { query: { salesRepId: 'R1' } });
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  // ومفتاح «الوحدة الرئيسية» حاضرٌ null لصنفٍ بلاها (D18)
+  // ومفتاح «الوحدة الرئيسية» حاضرٌ null لصنفٍ بلاها (D18)، و«مرجع السطر» كذلك null لبندٍ لم يُرسَل له (line-ref-van.test.ts)
   assert.deepEqual(r.body.data[0].items, [
-    { name: 'ماء', unit: 'كرتون', qty: 2, baseQty: 48, primaryUnitId: null },
-    { name: 'ماء', unit: 'حبة', qty: 3, baseQty: 3, primaryUnitId: null },
+    { name: 'ماء', unit: 'كرتون', qty: 2, baseQty: 48, primaryUnitId: null, lineRef: null },
+    { name: 'ماء', unit: 'حبة', qty: 3, baseQty: 3, primaryUnitId: null, lineRef: null },
   ]);
   delete db.vanLoad.findMany;
   delete db.invoice;

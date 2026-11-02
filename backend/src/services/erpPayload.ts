@@ -110,6 +110,18 @@ export function withoutPriceList<T extends Rec>(r: T): Omit<T, 'priceListId'> {
   return rest as Omit<T, 'priceListId'>;
 }
 
+/**
+ * «مرجع السطر» (lineRef) على بند الفاتورة: معرّف سطر نظام المُكامِل عبر الربط البرمجي (API والمزامنة) لا يخرج في حمولة ERP — فتبقى
+ * payloadVersion 3 حرفياً كما هي (موصل Odoo لم يُختبر بمفاتيح مجهولة). صفٌّ بلاه ⇒ الكائن نفسه، كـwithoutPriceList.
+ */
+const LINE_REF_KEY = 'lineRef';
+export function withoutLineRef<T extends Rec>(r: T): Omit<T, 'lineRef'> {
+  if (!(LINE_REF_KEY in r)) return r;
+  const { [LINE_REF_KEY]: _ref, ...rest } = r;
+  void _ref;
+  return rest as Omit<T, 'lineRef'>;
+}
+
 /** العميل كما في القاعدة — بلا نوع سعره (withoutPriceList) */
 export function customerPayloadRow<T extends Rec>(c: T): Omit<T, 'priceListId'> {
   return withoutPriceList(c);
@@ -139,10 +151,11 @@ export function centsUp(n: number): number {
 
 /**
  * بند الفاتورة في الحمولة (payloadVersion 3) — بوحدة الأساس، والمطبوع في `lineUnit` (انظر رأس الملف).
- * بندٌ معامله ١: حرفياً كما في الإصدار الثاني، ومعه baseQty وlineUnit فقط. وبلا توزيع اللوط (withoutLotKeys).
+ * بندٌ معامله ١: حرفياً كما في الإصدار الثاني، ومعه baseQty وlineUnit فقط. وبلا توزيع اللوط (withoutLotKeys) ولا «مرجع السطر»
+ * (withoutLineRef).
  */
 export function invoiceItemPayloadRow(item: ErpInvoiceItemInput, incl: boolean): Rec {
-  const it = withoutLotKeys(item);
+  const it = withoutLineRef(withoutLotKeys(item)) as ErpInvoiceItemInput;
   const product = it.product ? productPayloadRow(it.product) : null;
   const netLine = incl ? roundHalfUp(netFromInclusive(it.unitPrice, it.taxPct), 4) : it.unitPrice;
   const netAmount = roundHalfUp(it.lineTotal - it.taxAmt, 3);

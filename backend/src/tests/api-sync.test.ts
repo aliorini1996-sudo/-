@@ -104,19 +104,33 @@ test('كل عمود في جداول المزامنة مصنَّف: مسموح ف
   }
 });
 
+/** select العلاقة في مسارٍ بالنقطة ('items.lots.lot') داخل select المورد — أو null إن غابت */
+const selectAt = (root: Record<string, unknown>, rel: string): Record<string, unknown> | null =>
+  rel.split('.').reduce<Record<string, unknown> | null>((s, k) => (s?.[k] as { select?: Record<string, unknown> } | undefined)?.select ?? null, root);
+
 test('القوائم المتداخلة مصنَّفة كالمورد: كل عمود في بنود الفاتورة والحركة وشرائح الصنف ووحداته مسموح أو ممنوع بسبب', () => {
   // لقطة الوحدة (unitName/unitFactor/baseQty) أُضيفت للبنود لا للمورد — والفحص أعلاه لا يرى إلا أعمدة المورد، فكانت تسقط بصمت
-  const mustCover: [string, string][] = [['invoices', 'items'], ['van-loads', 'items'], ['warehouse-entries', 'items'], ['products', 'priceTiers'], ['products', 'units']];
+  const mustCover: [string, string][] = [['invoices', 'items'], ['van-loads', 'items'], ['warehouse-entries', 'items'], ['products', 'priceTiers'], ['products', 'units'],
+    // «تتبّع اللوط» على مستوى السطر: توزيع البند على التشغيلات وبطاقة التشغيلة تحت البند (للشركة المفعّلة وحدها)
+    ['invoices', 'items.lots'], ['invoices', 'items.lots.lot'], ['van-loads', 'items.lots'], ['van-loads', 'items.lots.lot'], ['warehouse-entries', 'items.lot']];
   for (const [r, rel] of mustCover) assert.ok(sync.syncResource(r)?.nested?.[rel], `${r}.${rel} بلا تصنيف متداخل`);
   for (const def of sync.SYNC_RESOURCES) {
-    for (const [rel, n] of Object.entries(def.nested ?? {})) {
-      const sel = (sync.selectFor(def, true)[rel] as { select?: Record<string, unknown> } | undefined)?.select;
+    const nested: NonNullable<typeof def.nested> = def.nested ?? {};
+    for (const [rel, n] of Object.entries(nested)) {
+      const sel = selectAt(sync.selectFor(def, true), rel);
       assert.ok(sel, `${def.name}.${rel}: مصنَّف وليس في select`);
       const cols = schemaScalars(n.model);
       const unclassified = cols.filter(c => !(c in sel!) && !(c in n.denied));
       assert.deepEqual(unclassified, [], `${def.name}.${rel}: أعمدة غير مصنّفة`);
       for (const d of Object.keys(n.denied)) assert.ok(!(d in sel!), `${def.name}.${rel}: ${d} ممنوع ومسموح معاً`);
-      for (const k of Object.keys(sel!)) assert.ok(cols.includes(k), `${def.name}.${rel}: ${k} ليس عموداً في ${n.model}`);
+      // والعلاقة تحتها مصنَّفةٌ بمسارها — فلا علاقةٌ متداخلة (توزيع البند، بطاقة التشغيلة) تمرّ بلا فحص أعمدتها
+      for (const k of Object.keys(sel!)) assert.ok(cols.includes(k) || `${rel}.${k}` in nested, `${def.name}.${rel}: ${k} ليس عموداً في ${n.model} ولا علاقةً مصنَّفة`);
+      const parent = rel.split('.').slice(0, -1).join('.');
+      if (parent) assert.ok(parent in nested, `${def.name}.${rel}: أبوه ${parent} غير مصنَّف`);
+      // بوّابة العَلَم: علاقة lotSelect غائبةٌ عن ردّ المطفأة (§١٠.١) — وغيرها في الردّين؛ وتحت علاقة لوطٍ لا يكون إلا لوطاً
+      assert.equal(selectAt(sync.selectFor(def, false), rel) !== null, !n.lots, `${def.name}.${rel}: ${n.lots ? 'علاقة لوط في ردّ المطفأة' : 'غائبة عن ردّ المطفأة'}`);
+      if (parent && nested[parent].lots) assert.equal(n.lots, true, `${def.name}.${rel}: تحت علاقة لوط`);
+      for (const reason of Object.values(n.denied)) assert.ok(reason.length > 5, `${def.name}.${rel}: منعٌ بلا سبب`);
     }
   }
 });
@@ -442,12 +456,18 @@ test('موارد اللوط للشركة المفعّلة: معزولة بالش
 });
 
 test('أعمدة اللوط على الموارد القائمة للشركة المفعّلة وحدها: lotTracked في الأصناف، ومعرّف البند في التحميلات، والمعرّف والتشغيلة في الوارد — والمطفأة بشكلها القديم حرفياً (§١٠.١)', async () => {
-  // البيان: الأعمدة الشرطية هي ما تَعِد به المواصفة وحده
+  // البيان: الأعمدة الشرطية هي ما تَعِد به المواصفة وحده — وتوزيع البند المضمّن وبطاقة التشغيلة (حقولهما وترتيبهما) في lot-line-sync.test.ts
   assert.deepEqual(sync.syncResource('products')!.lotSelect, { lotTracked: true });
-  assert.deepEqual(sync.syncResource('van-loads')!.lotSelect, { items: { select: { id: true } } });
-  assert.deepEqual(sync.syncResource('warehouse-entries')!.lotSelect, { items: { select: { id: true, lotId: true } } });
+  const lotItemKeys = (r: string) => Object.keys((sync.syncResource(r)!.lotSelect as { items: { select: object } }).items.select);
+  assert.deepEqual(Object.keys(sync.syncResource('van-loads')!.lotSelect!), ['items']);
+  assert.deepEqual(lotItemKeys('van-loads'), ['id', 'lots']);
+  assert.deepEqual(Object.keys(sync.syncResource('warehouse-entries')!.lotSelect!), ['items']);
+  assert.deepEqual(lotItemKeys('warehouse-entries'), ['id', 'lotId', 'lot']);
+  // بنود الفاتورة: التوزيع المضمّن وحده — معرّف البند مكشوفٌ لكل الشركات أصلاً
+  assert.deepEqual(Object.keys(sync.syncResource('invoices')!.lotSelect!), ['items']);
+  assert.deepEqual(lotItemKeys('invoices'), ['lots']);
   for (const r of sync.SYNC_RESOURCES) {
-    if (!['products', 'van-loads', 'warehouse-entries'].includes(r.name)) assert.equal(r.lotSelect, undefined, `${r.name}: لا عمود لوط (ولا على بنود الفاتورة)`);
+    if (!['products', 'van-loads', 'warehouse-entries', 'invoices'].includes(r.name)) assert.equal(r.lotSelect, undefined, `${r.name}: لا عمود لوط`);
   }
   assert.ok('lotTrackedSince' in sync.syncResource('products')!.denied, 'حقبة الصنف سباكة داخلية');
   // المطفأة: المرجع نفسه — لا عمود يُضاف ولا يُنسخ الكائن

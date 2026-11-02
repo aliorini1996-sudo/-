@@ -69,7 +69,8 @@ function Endpoint({ e }: { e: DocEndpoint }) {
 }
 
 /**
- * دليل ربط صفحة خطوةً بخطوة (لوكيشن، طرق الدفع): تمهيدٌ ثم خطواتٌ مرقّمة لكلٍّ منها مسارها ومثال curl بالمفتاح الوهمي.
+ * دليل ربط صفحة خطوةً بخطوة (لوكيشن، طرق الدفع): تمهيدٌ ثم خطواتٌ مرقّمة لكلٍّ منها مسارها ومثال curl بالمفتاح الوهمي،
+ * ومثال ردٍّ (sample) حيث يلزم رؤية شكل الصفّ (بند فاتورة بتشغيلاته ومرجع سطره).
  * داخل div المستند نفسه فيدخل الملف المحمَّل كما يُرى هنا.
  */
 function Guide({ guide }: { guide: DocGuide }) {
@@ -88,6 +89,7 @@ function Guide({ guide }: { guide: DocGuide }) {
             )}
             <p className="api-text text-xs text-[#6E6557] whitespace-pre-line">{s.text}</p>
             {s.curl && <Code>{s.curl}</Code>}
+            {s.sample && <Code>{s.sample}</Code>}
           </li>
         ))}
       </ol>
@@ -139,8 +141,9 @@ button{display:none}`;
       </div>
 
       <div ref={ref} className="space-y-4" dir="rtl">
-        <Section icon={<History size={18} className="text-[#E15A30]" />} title="ما الجديد (٢٩ أكتوبر – ١ نوفمبر ٢٠٢٦)">
+        <Section icon={<History size={18} className="text-[#E15A30]" />} title="ما الجديد (٢٩ أكتوبر – ٢ نوفمبر ٢٠٢٦)">
           <ul className="text-xs text-[#6E6557] list-disc ps-5 space-y-1">
+            <li>٢ نوفمبر — التشغيلات على مستوى السطر: «مرجع السطر» items[].lineRef (نصٌّ اختياري حتى 100 حرف، يُقصّ طرفاه والفارغ null) في POST /api/invoices (كل الأنواع ومنها المرتجع، في المرحلتين) وPOST /api/van-stock/loads وPOST /api/warehouse/entries، وlines[].lineRef في الإشعارين الدائن والمدين، يُحفظ على البند ويعود كما هو في الردود وفي مزامنة invoices وvan-loads وwarehouse-entries لكل الشركات، وبنود سطر تسوية النقص في المستودع الذي توزّع على أكثر من تشغيلة تحمل lineRef نفسه. ومع «تتبّع LOT»: كل بند في مزامنتي invoices وvan-loads يحمل توزيعه lots مضمّناً مع بطاقة تشغيلته lot {"{lotNumber, productionDate, expiryDate}"}، وبنود warehouse-entries تحمل lot، وGET /api/invoices?withItems=1&amp;withLots=1 يضمّ lots لكل بند. والموارد المنفصلة (invoice-item-lots وvan-load-item-lots وproduct-lots) باقية كما هي. الخطوات في دليل «ربط تتبّع LOT».</li>
             <li>١ نوفمبر — «أنواع الأسعار» (سعر الجملة، سعر التجزئة…): مسارات /api/price-lists وPUT /api/products/:id/list-prices، والحقل priceListId في العملاء والفواتير ومزامنتهما، وlistPrices في الأصناف، وصلاحية المندوب canChangePriceList (بدونها 403 PRICE_LIST_FORBIDDEN لمندوب التطبيق وحده). الخادم لا يسعّر طلب المفتاح بنوع السعر. الخطوات في دليل «ربط أنواع الأسعار».</li>
             <li>١ نوفمبر — «تتبّع LOT»: كل إنقاص بلا تشغيلات صريحة (تنزيل السيارة، وتسوية النقص في السيارة والمستودع، وEXPIRED_OUT وDAMAGED_OUT) يسحبه الخادم تلقائياً بالأقرب انتهاءً، ومنها الموقوفة والمنتهية، ثم من غير المسمّى. وإتلاف المنتهي غير المباع (lotReason = EXPIRED_UNSOLD_DESTROY) يُسحب من التشغيلات المنتهية يوم الشركة وحدها، وتسوية نقص المستودع التي تتوزّع على أكثر من تشغيلة تُكتب بنداً لكل تشغيلة. وصار 422 LOT_REQUIRED للزيادة بلا تشغيلة ولتنزيل سيارة مندوب محذوف (ولرقم تشغيلة غير صالح).</li>
             <li>١ نوفمبر — «تتبّع LOT»: المرتجع الحرّ بلا items[].lots يُنسب إلى تشغيلات مبيعات العميل السابقة للصنف بيقين ASSUMED ومعه sourceItemLotId، والزائد عنها «غير معروف».</li>
@@ -204,7 +207,7 @@ button{display:none}`;
 GET /api/v1/sync/{resource}?since=ISO&limit=500&cursor=...  # created/changed since
 GET /api/v1/sync/{resource}/ids?limit=5000&cursor=...       # all current ids`}</Code>
           <ol className="text-xs text-[#6E6557] list-decimal ps-5 space-y-1">
-            <li>أول مرة بلا since: تصلك كل السجلات صفحةً صفحة (حتى ٥٠٠ في الصفحة).</li>
+            <li>أول مرة بلا since: تصلك كل السجلات صفحةً صفحة (حتى ٥٠٠ في الصفحة). ومع «تتبّع LOT» مفعّلاً تحمل بنود invoices وvan-loads تشغيلاتها، فسقف صفحتهما ٢٠٠: limit أكبر منه يُعامَل ٢٠٠ بلا خطأ، فتابع nextCursor كالعادة.</li>
             <li>تابع nextCursor حتى يصير null، وأدرج كل صف في نظامك أو حدّثه حسب id.</li>
             <li>احفظ serverTime من أول صفحة، وفي المرة التالية أرسل since = serverTime ناقص ٣ دقائق. التداخل مقصود لئلا يفوتك شيء، والتكرار يُعالَج بالـ id.</li>
             <li>{DELETE_RECONCILE_NOTE}</li>
@@ -237,7 +240,8 @@ GET /api/v1/sync/{resource}/ids?limit=5000&cursor=...       # all current ids`}<
             <li>المبالغ أرقام عشرية والتواريخ ISO-8601 بتوقيت UTC. أسعار بنود الفاتورة شاملة الضريبة حين pricesIncludeTax = true، وsubtotal وdiscountAmt صافيان قبل الضريبة دائماً.</li>
             <li>الوحدات: كل كمية وسعر في المزامنة بوحدة الأساس (unit للصنف وbaseQty للبنود). وفي products الحقل primaryUnitId (الوحدة الرئيسية من units للعرض وحده، وnull = بلا) وbaseConvertedAt (لحظة آخر إضافة وحدة فرعية أصغر، وnull = لم تحدث): إن تغيّر baseConvertedAt لصنفٍ فكمياته وأسعاره المخزَّنة عندكم بالأساس القديم — اضربوها بمعامل الوحدة التي صارها الأساس القديم أو أعيدوا سحب الموارد بلا since، ثم أرسلوا مع كل كتابة على هذا الصنف expectedBaseName أو baseUnitName (وإلا 400 BASE_UNIT_REQUIRED).</li>
             <li>رصيد مخزون السيارات والمستودع محسوب لا مخزَّن: اقرأه من مسارات المخزون أدناه، أو احسبه من van-loads وwarehouse-entries والفواتير.</li>
-            <li>«تتبّع LOT» (للشركة التي فعّلته وحدها): موارده الخمسة product-lots وvan-load-item-lots وinvoice-item-lots وlot-relabels وlot-events ترجع 403 LOTS_DISABLED والميزة مطفأة ولا تُذكر في resources من /v1/me ولا في قائمة UNKNOWN_RESOURCE، ومع تفعيلها تظهر فيهما ويحمل مورد products الحقل lotTracked وبنود van-loads المعرّف id وبنود warehouse-entries المعرّف id وlotId. هذه الأعمدة لا تحرّك updatedAt الصفوف القديمة، فأعد سحب الموارد الثلاثة بلا since مرةً بعد التفعيل. وكميات التشغيلات بوحدة الأساس دائماً. وسطر تسوية النقص في المستودع الذي سحبه الخادم تلقائياً من أكثر من تشغيلة يصل في warehouse-entries بنوداً متعددة للصنف نفسه، لكلٍّ lotId: اجمع baseQty البنود لا أسطر الطلب.</li>
+            <li>«تتبّع LOT» (للشركة التي فعّلته وحدها): موارده الخمسة product-lots وvan-load-item-lots وinvoice-item-lots وlot-relabels وlot-events ترجع 403 LOTS_DISABLED والميزة مطفأة ولا تُذكر في resources من /v1/me ولا في قائمة UNKNOWN_RESOURCE، ومع تفعيلها تظهر فيهما ويحمل مورد products الحقل lotTracked، وبنود invoices توزيعها lots، وبنود van-loads المعرّف id وتوزيعها lots، وبنود warehouse-entries المعرّف id وlotId وlot — والتوزيع المضمّن هو صفوف invoice-item-lots وvan-load-item-lots نفسها ومعه بطاقة التشغيلة lot {"{lotNumber, productionDate, expiryDate}"} كما هي لحظة السحب (تعديل تاريخيها لاحقاً لا يعيد إرسال المستند، فالتاريخان الحيّان والحالة من product-lots بـlotId)، والموارد المنفصلة باقية كما هي. هذه الأعمدة لا تحرّك updatedAt الصفوف القديمة، فأعد سحب الموارد الأربعة بلا since مرةً بعد التفعيل. وكميات التشغيلات بوحدة الأساس دائماً. وسطر تسوية النقص في المستودع الذي سحبه الخادم تلقائياً من أكثر من تشغيلة يصل في warehouse-entries بنوداً متعددة للصنف نفسه، لكلٍّ lotId وكلها بـlineRef السطر: اجمع baseQty البنود لا أسطر الطلب.</li>
+            <li>«مرجع السطر» lineRef (لكل الشركات): أرسل مع كل بند في POST /api/invoices وPOST /api/van-stock/loads وPOST /api/warehouse/entries معرّف سطره في نظامكم items[].lineRef (وlines[].lineRef في POST /api/invoices/:id/credit-note و/debit-note) (نصٌّ حتى 100 حرف بعد قصّ طرفيه، والفارغ null، والأطول 400) فيعود كما هو على البند في الردود وفي مزامنة invoices وvan-loads وwarehouse-entries — به تطابق كل بند وتوزيع تشغيلاته على سطرك بلا اعتماد على الترتيب. لا فرادة ولا فحص غير الطول، وnull لما لم يُرسَل (شاشات المنصة وتطبيق المندوب لا ترسله)، ولا يدخل حمولة ERP.</li>
           </ul>
         </Section>
 
