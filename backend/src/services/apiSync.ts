@@ -270,7 +270,7 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
     denied: { tenantId: 'معروف من المفتاح' },
   },
   {
-    name: 'invoices', model: 'invoice', mode: 'updated', permission: 'canManageInvoices', accounting: true, tenantPath: 'direct', hardDeletes: false, lotMaxLimit: LOT_SYNC_MAX_LIMIT,
+    name: 'invoices', model: 'invoice', mode: 'updated', permission: 'canManageInvoices', accounting: true, tenantPath: 'direct', lotMaxLimit: LOT_SYNC_MAX_LIMIT, hardDeletes: false,
     select: {
       ...pick(...INVOICE_COLS),
       items: { select: pick(...INVOICE_ITEM_COLS), orderBy: [{ seq: 'asc' }, { id: 'asc' }] },
@@ -306,7 +306,7 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
   },
   {
     // بطابع التعديل: حذف المندوب يفرّغ salesRepId ويملأ deletedSalesRepId بعد الإنشاء
-    name: 'van-loads', model: 'vanLoad', mode: 'updated', permission: 'canManageVanStock', accounting: true, tenantPath: 'direct', hardDeletes: false, lotMaxLimit: LOT_SYNC_MAX_LIMIT,
+    name: 'van-loads', model: 'vanLoad', mode: 'updated', permission: 'canManageVanStock', accounting: true, tenantPath: 'direct', lotMaxLimit: LOT_SYNC_MAX_LIMIT, hardDeletes: false,
     // suggestedQty وexpectedQty (اقتراح التحميل وتنبّؤه) بالأساس دائماً — المحرّك يقترح حبّاتٍ لا كراتين
     // zeroRunId: حركة «تصفير المخزون» (معرّف تشغيلته، null لغيرها) — يميّزها المُزامِن بلا اعتمادٍ على نصّ الملاحظة
     select: { ...pick('id', 'salesRepId', 'deletedSalesRepId', 'locationId', 'type', 'note', 'createdBy', 'createdAt', 'updatedAt', 'zeroRunId'), items: { select: pick('productId', 'qty', ...UNIT_SNAPSHOT_COLS, 'suggestedQty', 'expectedQty', 'lineRef') } },
