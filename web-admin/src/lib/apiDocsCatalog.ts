@@ -63,7 +63,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[Customer], pagination:{total, page, limit, pages}}. صف العميل كامل ويشمل: id وcode وname وbusinessName وphone وaltPhone وemail وtaxNumber وcommercialReg وcity وdistrict وaddress وlat وlng وchannel وoutletType وaiPlaceId وstatus وpriceListId (نوع سعره في «أنواع الأسعار» من GET /price-lists، وnull = السعر الأساسي) وcreditLimit وpaymentDays وbalance وtotalSales وtotalCollected وclientRef وclientCreatedAt وcreatedBySalesRepId وbuyerType وbuyerIdScheme وbuyerIdValue وaddrStreet وaddrBuildingNo وaddrAdditionalNo وaddrPostalCode وcountryCode وcreatedAt وupdatedAt",
+    "response": "{success:true, data:[Customer], pagination:{total, page, limit, pages}}. صف العميل كامل ويشمل: id وcode وname وbusinessName وphone وaltPhone وemail وtaxNumber وcommercialReg وcity وdistrict وaddress وlat وlng وchannel وoutletType وaiPlaceId وstatus وpriceListId (نوع سعره في «أنواع الأسعار» من GET /price-lists، وnull = بلا نوع: فواتيره بالنوع الافتراضي لمندوب الفاتورة، وإلا بالسعر الأساسي) وcreditLimit وpaymentDays وbalance وtotalSales وtotalCollected وclientRef وclientCreatedAt وcreatedBySalesRepId وbuyerType وbuyerIdScheme وbuyerIdValue وaddrStreet وaddrBuildingNo وaddrAdditionalNo وaddrPostalCode وcountryCode وcreatedAt وupdatedAt",
     "rules": [
      "الترتيب حسب createdAt من الأحدث إلى الأقدم",
      "العملاء المؤرشفون (status=DELETED) مستبعدون ما لم تطلبهم صراحة عبر status",
@@ -299,7 +299,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "rules": [
      "يعيد العميل حتى لو كانت حالته DELETED (مؤرشف)",
      "price في customerPrices صافٍ قبل الضريبة ولوحدة الأساس مثل basePrice للمنتج، وproduct يحمل units فسعر الكرتون للعميل = price × factor",
-     "priceListId في العميل نوع سعره («أنواع الأسعار»)، وnull = السعر الأساسي. أسعار نوعه ليست في هذا الرد: اقرأها من GET /price-lists/prices. وسعره الخاص في customerPrices يغلب سعر نوعه للصنف نفسه"
+     "priceListId في العميل نوع سعره («أنواع الأسعار»)، وnull = بلا نوع: تُسعَّر فواتيره بالنوع الافتراضي لمندوب الفاتورة (defaultPriceListId في GET /sales-reps)، وإلا بالسعر الأساسي. أسعار نوعه ليست في هذا الرد: اقرأها من GET /price-lists/prices. وسعره الخاص في customerPrices يغلب سعر نوعه للصنف نفسه"
     ],
     "example": ""
    },
@@ -420,7 +420,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "priceListId",
       "type": "string | null",
       "required": false,
-      "desc": "نوع سعر العميل من GET /price-lists: تُعبّأ به أسعار فواتيره في لوحة التحكم وتطبيق المندوب، ويُختم به كل مستند يصدر له بلا priceListId في الجسم، أما فاتورة المفتاح فبسعر unitPrice الذي ترسله. وnull أو الفارغ = السعر الأساسي. نوع ليس من الشركة (أو حُذف أثناء الطلب) ⇒ 400 {success:false, code:'PRICE_LIST_INVALID', message:'نوع السعر غير موجود'}، ويُفحص قبل clientRef فيُرفض ولو وُجد عميل بنفس clientRef. والاستيراد الجماعي POST /import/customers لا يكتبه"
+      "desc": "نوع سعر العميل من GET /price-lists: تُعبّأ به أسعار فواتيره في لوحة التحكم وتطبيق المندوب، ويُختم به كل مستند يصدر له بلا priceListId في الجسم، أما فاتورة المفتاح فبسعر unitPrice الذي ترسله. وnull أو الفارغ = بلا نوع: تُعبّأ فواتيره وتُختم مستنداته بالنوع الافتراضي لمندوب الفاتورة (defaultPriceListId في GET /sales-reps)، وإلا بالسعر الأساسي. نوع ليس من الشركة (أو حُذف أثناء الطلب) ⇒ 400 {success:false, code:'PRICE_LIST_INVALID', message:'نوع السعر غير موجود'}، ويُفحص قبل clientRef فيُرفض ولو وُجد عميل بنفس clientRef. والاستيراد الجماعي POST /import/customers لا يكتبه"
      },
      {
       "name": "creditLimit",
@@ -580,7 +580,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "priceListId",
       "type": "string | null",
       "required": false,
-      "desc": "نوع سعر العميل من GET /price-lists، وnull أو الفارغ = السعر الأساسي، وغيابه لا يغيّر النوع. نوع ليس من الشركة ⇒ 400 {code:'PRICE_LIST_INVALID'}. فواتيره القديمة تبقى على نوعها المختوم"
+      "desc": "نوع سعر العميل من GET /price-lists، وnull أو الفارغ = بلا نوع (فواتيره بالنوع الافتراضي لمندوب الفاتورة، وإلا بالسعر الأساسي)، وغيابه لا يغيّر النوع. نوع ليس من الشركة ⇒ 400 {code:'PRICE_LIST_INVALID'}. فواتيره القديمة تبقى على نوعها المختوم"
      },
      {
       "name": "creditLimit",
@@ -1474,7 +1474,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "response": "{success:true, data:{listPrices:[{priceListId, price}]}} — كل أسعار الصنف في الأنواع بعد الحفظ (لا المرسلة وحدها)، وprice لوحدة الأساس كما خُزِّن — 400 'بيانات غير صحيحة' لغياب expectedBaseName أو items — 404 {success:false, code:'PRODUCT_NOT_FOUND', message:'الصنف غير موجود'} — 409 BASE_UNIT_CHANGED | PRIMARY_UNIT_CHANGED — 400 PRICE_LIST_INVALID — 503 PRODUCT_UNITS_BUSY بلا كتابة: أعد المحاولة بعد قليل",
     "rules": [
      "يُخزَّن لوحدة الأساس = سعر الرئيسية ÷ معاملها بست منازل (كرتون 24 بعشرة ⇒ 0.416667)، فتُشتق بقية الوحدات بمعاملها",
-     "الترتيب في الفاتورة: سعر العميل الخاص يغلب نوعه، والنوع يغلب سعر الوحدة المحدَّد وbasePrice",
+     "الترتيب في الفاتورة: سعر العميل الخاص يغلب نوع المستند (المرسل في الفاتورة، وإلا نوع العميل، وإلا نوع المندوب الافتراضي، وإلا السعر الأساسي)، والنوع يغلب سعر الوحدة المحدَّد وbasePrice",
      "«إضافة وحدة فرعية أصغر» تقسم أسعار الأنواع على المعامل مع أسعار العملاء فيبقى سعر الكرتون في كل نوع كما هو",
      "يتحرّك updatedAt للصنف فيظهر متغيّراً في مزامنة ERP و/api/v1/sync/products، لكن أسعار الأنواع ليست في حمولتهما: اقرأ قيمها من GET /price-lists/prices (كل نوع ببنوده) أو listPrices في GET /products",
      "GET /products وGET /products/:id يعيدان لكل صنف listPrices:[{priceListId, price}] بالسعر لوحدة الأساس. وPOST /products يقبل listPrices بالشكل نفسه بسعر الوحدة الرئيسية (وبوحدة الأساس في الإنشاء بلا primaryUnitName) فيُكتب مع الصنف ويعود في ردّه. أما PUT /products/:id فيُسقط listPrices من الجسم بصمت"
@@ -1845,7 +1845,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
  {
   "key": "price-lists",
   "title": "أنواع الأسعار",
-  "overview": "«أنواع الأسعار»: أسعارٌ مسمّاة تحدّدها الشركة بحرّية (سعر الجملة، سعر التجزئة…). لكل عميل نوعه (priceListId في GET /customers، ويُضبط بـPOST/PUT /customers)، فتُسعَّر به فواتيره تلقائياً في لوحة التحكم وتطبيق المندوب، أما المفتاح فيرسل unitPrice بنفسه والخادم لا يسعّره بالنوع (والمرتجع المرتبط بفاتورة بيع يُسعَّر من بنودها كما كان). المسارات تحت https://api.fieldsa.net/api/price-lists وتعمل بمفتاح الشركة بهوية من أصدره.\nالبوّابة: النظام المحاسبي (403 ACCOUNTING_NOT_ALLOWED إن كان مطفأً). أسماء الأنواع (GET /price-lists) لأي مستخدم شركة، وأسعارها (GET /price-lists/prices) والكتابة لصلاحية الأصناف canManageProducts كـ/products. والمفتاح «قراءة فقط» يمرّ بطلبات GET وحدها.\nالسعر في كل نوع صافٍ قبل الضريبة ويُخزَّن لوحدة الأساس بست منازل. يُكتب لكل صنف بالوحدة الرئيسية (أو بوحدة الأساس لصنف بلا رئيسية) بـPUT /products/:id/list-prices، أو مع إنشاء الصنف في listPrices بـPOST /products، ويُقرأ في listPrices من GET /products وGET /products/:id أو مجمّعاً من GET /price-lists/prices. سعر أي وحدة في النوع = سعره لوحدة الأساس × factor تلك الوحدة، وهو يغلب سعر الوحدة المحدَّد units[].price. والصنف بلا سعر في النوع يُسعَّر بسعره الأساسي (units[].price وإلا basePrice × factor). وسعر العميل الخاص (PUT /customers/:id/prices) يغلب نوعه.\nالسعر المرجعي لبند الفاتورة بالترتيب: سعر العميل الخاص × factor، ثم سعر نوع المستند × factor، ثم units[].price، ثم basePrice × factor، وكلها صافية قبل الضريبة. الخادم لا يسعّر طلب المفتاح: احسب unitPrice بهذا الترتيب وأرسله (شاملاً الضريبة إن أرسلت pricesIncludeTax=true).\nالاستيراد الجماعي (POST /import/customers وPOST /import/products) لا يكتب نوع العميل ولا أسعار الأنواع، ومزامنة /v1/sync/products لا تحمل أسعار الأنواع (تعديلها يحرّك updatedAt الصنف فقط)، وحمولة ERP لا تحمل priceListId.\nالفاتورة: POST /invoices يقبل priceListId (null = السعر الأساسي)، وغيابه = النوع الافتراضي: نوع العميل، وإلا نوع مندوب المستند الافتراضي (defaultPriceListId في GET /sales-reps)، وإلا السعر الأساسي. ويُختم المستند بالنوع المستعمل في priceListId. المفتاح حرّ في اختيار النوع والسعر كالإدارة؛ أما مندوب التطبيق فلا يبدّل النوع الافتراضي إلا بصلاحية canChangePriceList، وإلى أنواعه المسموحة allowedPriceTypes وحدها حين تُضبط.",
+  "overview": "«أنواع الأسعار»: أسعارٌ مسمّاة تحدّدها الشركة بحرّية (سعر الجملة، سعر التجزئة…). لكل عميل نوعه (priceListId في GET /customers، ويُضبط بـPOST/PUT /customers)، ولكل مندوب نوعٌ افتراضي لعملائه بلا نوع (defaultPriceListId) وأنواعٌ يبدّل بينها (allowedPriceTypes) يُضبطان بـPOST/PUT /sales-reps، فتُسعَّر الفواتير تلقائياً بنوع العميل وإلا بافتراضي المندوب في لوحة التحكم وتطبيق المندوب، أما المفتاح فيرسل unitPrice بنفسه والخادم لا يسعّره بالنوع (والمرتجع المرتبط بفاتورة بيع يُسعَّر من بنودها كما كان). المسارات تحت https://api.fieldsa.net/api/price-lists وتعمل بمفتاح الشركة بهوية من أصدره.\nالبوّابة: النظام المحاسبي (403 ACCOUNTING_NOT_ALLOWED إن كان مطفأً). أسماء الأنواع (GET /price-lists) لأي مستخدم شركة، وأسعارها (GET /price-lists/prices) والكتابة لصلاحية الأصناف canManageProducts كـ/products. والمفتاح «قراءة فقط» يمرّ بطلبات GET وحدها.\nالسعر في كل نوع صافٍ قبل الضريبة ويُخزَّن لوحدة الأساس بست منازل. يُكتب لكل صنف بالوحدة الرئيسية (أو بوحدة الأساس لصنف بلا رئيسية) بـPUT /products/:id/list-prices، أو مع إنشاء الصنف في listPrices بـPOST /products، ويُقرأ في listPrices من GET /products وGET /products/:id أو مجمّعاً من GET /price-lists/prices. سعر أي وحدة في النوع = سعره لوحدة الأساس × factor تلك الوحدة، وهو يغلب سعر الوحدة المحدَّد units[].price. والصنف بلا سعر في النوع يُسعَّر بسعره الأساسي (units[].price وإلا basePrice × factor). وسعر العميل الخاص (PUT /customers/:id/prices) يغلب نوعه.\nالسعر المرجعي لبند الفاتورة بالترتيب: سعر العميل الخاص × factor، ثم سعر نوع المستند (المرسل، وإلا نوع العميل، وإلا نوع المندوب الافتراضي) × factor، ثم units[].price، ثم basePrice × factor، وكلها صافية قبل الضريبة. الخادم لا يسعّر طلب المفتاح: احسب unitPrice بهذا الترتيب وأرسله (شاملاً الضريبة إن أرسلت pricesIncludeTax=true).\nالاستيراد الجماعي (POST /import/customers وPOST /import/products) لا يكتب نوع العميل ولا أسعار الأنواع، ومزامنة /v1/sync/products لا تحمل أسعار الأنواع (تعديلها يحرّك updatedAt الصنف فقط)، وحمولة ERP لا تحمل priceListId.\nالفاتورة: POST /invoices يقبل priceListId (null = السعر الأساسي)، وغيابه = النوع الافتراضي: نوع العميل، وإلا نوع مندوب المستند الافتراضي (defaultPriceListId في GET /sales-reps)، وإلا السعر الأساسي. ويُختم المستند بالنوع المستعمل في priceListId. المفتاح حرّ في اختيار النوع والسعر كالإدارة؛ أما مندوب التطبيق فلا يبدّل النوع الافتراضي إلا بصلاحية canChangePriceList، وإلى أنواعه المسموحة allowedPriceTypes (والنوع الافتراضي) وحدها حين تُقيَّد، وإلا 403 PRICE_LIST_FORBIDDEN.",
   "endpoints": [
    {
     "method": "GET",
@@ -1862,8 +1862,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "rules": [
      "الترتيب sortOrder ثم الاسم",
      "basePriceLabel اسم السعر الافتراضي (basePrice) كما سمّته الشركة، وnull = «السعر الأساسي»",
-     "customersCount عدد العملاء غير المحذوفين على النوع",
-     "id هو القيمة التي تأتي في priceListId للعملاء والفواتير (GET /customers وGET /invoices والمزامنة)"
+     "customersCount عدد العملاء غير المحذوفين على النوع (المناديب لا يُعدّون فيه: عددهم repsCount يأتي في رفض الحذف وحده)",
+     "id هو القيمة التي تأتي في priceListId للعملاء والفواتير (GET /customers وGET /invoices والمزامنة)، وفي defaultPriceListId وallowedPriceTypes للمناديب (GET /sales-reps ومزامنة sales-reps)"
     ],
     "example": ""
    },
@@ -1998,7 +1998,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
  {
   "key": "invoices",
   "title": "الفواتير والمرتجعات والإشعارات",
-  "overview": "كل المسارات تحت /api/invoices وتعمل بمفتاح الشركة (Authorization: Bearer fsk_… أو X-API-Key) بهوية المستخدم الذي أصدره. كل طلب يمر أولاً بحارس النظام المحاسبي: إذا كان accountingEnabled=false للشركة يرجع 403 بالرمز ACCOUNTING_NOT_ALLOWED. بعده كل المسارات تحتاج صلاحية canManageInvoices ما عدا GET /invoices/open الذي يحتاج canManageReceipts. الصلاحية ترفض فقط إذا كانت قيمتها false في حساب المستخدم، والرفض يرجع 403. ولأن مسارات الفوترة الإلكترونية (/einvoice/*) مركبة على نفس البادئة بعد موجّه الفواتير، فهي تمر بنفس الحارسين وتضيف requireAdmin، أي أن الدور يجب أن يكون ADMIN أو MANAGER أو ACCOUNTANT. نطاق المستخدم المقيّد (قوائم عملاء ومناديب) يُطبَّق على كل قراءة وكتابة، وما يقع خارج النطاق يرجع 404 أو 403. المفتاح المحدد «قراءة فقط» لا يقبل إلا GET وHEAD، وأي طريقة أخرى ترجع 403 بالرمز API_KEY_FORBIDDEN. حد الطلبات 120 طلباً في الدقيقة لكل مفتاح، ويرجع 429 بالرمز API_RATE_LIMIT مع ترويسة Retry-After. المفتاح معفى من الحد العام لـ/api. الترقيم يتم تلقائياً: الفاتورة INV-YYMM-000001 والمرتجع أو الإشعار الدائن RET-YYMM-000001، والتسلسل منفصل لكل شركة. الشركات المربوطة بالمرحلة الثانية من زاتكا (zatcaPhase2StartedAt مضبوط): يجب أن ترسل الترويسة X-FS-Caps: zatca2 في الإصدار وفي قراءة أي صف zatcaPhase=2 وفي الإشعارات وفي إعادة الإصدار، وبدونها يرجع 426 بالرمز ZATCA_CLIENT_UPDATE_REQUIRED. الترويسة تعني أن نظامك يطبع QR المرحلة الثانية من data.einvoice.qr ويحترم الحقل printable. لا ترسل X-FS-Replay، فهي خاصة بصندوق تطبيق المندوب حين يعمل دون اتصال، والخادم يمحوها من طلبات المفتاح فيُحكم عليها حكم الطلب الحيّ دائماً. شكل الأخطاء: أخطاء التحقق ترجع 400 بالشكل {success:false, message, errors:{field:[...]}}. أخطاء زاتكا ترجع {success, code, message, issues?, errors?, data?, reason?, customerId?}، وsuccess=true فيها فقط عندما يكون الرمز 202. الأخطاء العامة ترجع {success:false, message}. ردود النجاح شكلها {success:true, data}، وتضاف pagination في القوائم المرقّمة\nالوحدات المتعددة: كمية كل بند qty بوحدة البند وunitPrice لوحدة البند، ووحدته items[].unitId من units[].id للصنف (GET /products). غياب unitId أو null = وحدة الأساس بمعامل 1، فالتكامل الذي لا يعرف الوحدات يبقى كما هو ويرسل الكمية بوحدة الأساس. وكل بند في الردود والمزامنة يحمل لقطة وحدته لحظة كتابته: unitName (null = وحدة الأساس) وunitFactor (عدد وحدات الأساس فيها، 1 للأساس) وbaseQty = qty × unitFactor، والجمع والمقارنة والمخزون بـbaseQty وحده. وحدةٌ لا تخصّ الصنف أو موقوفة ترجع 400 UNIT_INVALID، إلا في المرتجع المرتبط بفاتورة بيع (originalInvoiceId) فتُقبل الوحدة الموقوفة لإرجاع ما بيع بها قبل إيقافها. وتحويل وحدة أساس صنفٍ أثناء الحفظ يرجع 409 PRODUCT_UNITS_CHANGED\n«تتبّع LOT» (حين lotTrackingEnabled للشركة وlotTracked للصنف، وإلا لا شيء مما يلي): الخادم يوزّع كل بند بيعٍ لصنف متتبَّع على تشغيلات سيارة المندوب تلقائياً بالأقرب انتهاءً (FEFO)، ثم من الرصيد «غير المسمّى» بعد نفاد التشغيلات الصالحة، ويحفظ التوزيع صفوفاً لكل بند بالكمية الأساسية. المنع دائم على مستوى التشغيلة لكل مُصدِر ومنه المفتاح: لا يُباع من تشغيلة موقوفة أو منتهية يوم الشركة، ولا فوق رصيدها، ولا يصير غير المسمّى سالباً، ولا يُعفي إذن canSellWithoutStock من ذلك (409 LOT_STOCK_INSUFFICIENT). المفتاح يجوز له تحديد التشغيلات بنفسه في items[].lots، والمرتجع المرتبط بفاتورة بيع يرث تشغيلاتها، والمرتجع الحرّ (بلا فاتورة بيع) يحدّد الخادم تشغيلاته من مبيعات العميل السابقة للصنف (آخر فاتورة بيع أولاً، بيقين ASSUMED، والزائد على مبيعاته «غير معروف») ما لم ترسل تشغيلاته. اقرأ التوزيع بـwithLots=1 في GET /invoices/:id وby-client-ref وreturnable وفي القائمة GET /invoices مع withItems=1 (بدونه الردود كما كانت)، أو من مزامنة /v1/sync/invoices (items[].lots مضمّنة في كل بند مع بطاقة التشغيلة lot) أو /v1/sync/invoice-item-lots الباقي كما هو. أخطاء LOT بالشكل {success:false, code, message, detail} ومنها 503 LOT_BUSY: أعد الإرسال بنفس clientRef. التفاصيل في مجموعة «تتبّع LOT»\n«أنواع الأسعار»: الخادم لا يسعّر بنود المفتاح بنوع السعر، فالسعر unitPrice كما ترسله (إلا المرتجع المرتبط بفاتورة بيع: مبلغه من بنودها في المرحلتين). ويُختم المستند بنوع السعر في priceListId: المرسل في الجسم إن حضر (null = السعر الأساسي)، وإلا نوع العميل المحفوظ، وإلا نوع مندوب المستند الافتراضي (defaultPriceListId). ولسعرٍ يطابق ما تعبّئه شاشات المنصة وتطبيق المندوب: سعر العميل الخاص × factor، وإلا سعر نوع المستند × factor، وإلا سعر الوحدة المحدَّد units[].price، وإلا basePrice × factor (كلها صافية قبل الضريبة). التفاصيل في priceListId أدناه وفي مجموعة «أنواع الأسعار»\n«مرجع السطر» lineRef (لكل الشركات): أرسل مع كل بند معرّف سطره في نظامك items[].lineRef — اختياري، نصٌّ حتى 100 حرف بعد قصّ طرفيه، والفارغ بعد القصّ = null، والأطول 400 كأخطاء التحقق — فيُحفظ على البند ويعود كما هو في ردّ الإصدار وGET /invoices/:id وby-client-ref والقائمة مع withItems=1 ومزامنة invoices وأسطر GET /invoices/:id/returnable (لبند البيع؛ وGET /invoices/:id/creditable لا يحمله)، في كل الأنواع ومنها المرتجع في المرحلتين، وlines[].lineRef في POST /invoices/:id/credit-note و/debit-note. به تطابق كل بند وتوزيع تشغيلاته (items[].lots) على سطرك بلا اعتماد على الترتيب. لا فرادة ولا فحص غير الطول (سطران بالمرجع نفسه مقبولان)، وnull لما لم يُرسَل (شاشات المنصة وتطبيق المندوب لا ترسله)، ولا يدخل حمولة ERP",
+  "overview": "كل المسارات تحت /api/invoices وتعمل بمفتاح الشركة (Authorization: Bearer fsk_… أو X-API-Key) بهوية المستخدم الذي أصدره. كل طلب يمر أولاً بحارس النظام المحاسبي: إذا كان accountingEnabled=false للشركة يرجع 403 بالرمز ACCOUNTING_NOT_ALLOWED. بعده كل المسارات تحتاج صلاحية canManageInvoices ما عدا GET /invoices/open الذي يحتاج canManageReceipts. الصلاحية ترفض فقط إذا كانت قيمتها false في حساب المستخدم، والرفض يرجع 403. ولأن مسارات الفوترة الإلكترونية (/einvoice/*) مركبة على نفس البادئة بعد موجّه الفواتير، فهي تمر بنفس الحارسين وتضيف requireAdmin، أي أن الدور يجب أن يكون ADMIN أو MANAGER أو ACCOUNTANT. نطاق المستخدم المقيّد (قوائم عملاء ومناديب) يُطبَّق على كل قراءة وكتابة، وما يقع خارج النطاق يرجع 404 أو 403. المفتاح المحدد «قراءة فقط» لا يقبل إلا GET وHEAD، وأي طريقة أخرى ترجع 403 بالرمز API_KEY_FORBIDDEN. حد الطلبات 120 طلباً في الدقيقة لكل مفتاح، ويرجع 429 بالرمز API_RATE_LIMIT مع ترويسة Retry-After. المفتاح معفى من الحد العام لـ/api. الترقيم يتم تلقائياً: الفاتورة INV-YYMM-000001 والمرتجع أو الإشعار الدائن RET-YYMM-000001، والتسلسل منفصل لكل شركة. الشركات المربوطة بالمرحلة الثانية من زاتكا (zatcaPhase2StartedAt مضبوط): يجب أن ترسل الترويسة X-FS-Caps: zatca2 في الإصدار وفي قراءة أي صف zatcaPhase=2 وفي الإشعارات وفي إعادة الإصدار، وبدونها يرجع 426 بالرمز ZATCA_CLIENT_UPDATE_REQUIRED. الترويسة تعني أن نظامك يطبع QR المرحلة الثانية من data.einvoice.qr ويحترم الحقل printable. لا ترسل X-FS-Replay، فهي خاصة بصندوق تطبيق المندوب حين يعمل دون اتصال، والخادم يمحوها من طلبات المفتاح فيُحكم عليها حكم الطلب الحيّ دائماً. شكل الأخطاء: أخطاء التحقق ترجع 400 بالشكل {success:false, message, errors:{field:[...]}}. أخطاء زاتكا ترجع {success, code, message, issues?, errors?, data?, reason?, customerId?}، وsuccess=true فيها فقط عندما يكون الرمز 202. الأخطاء العامة ترجع {success:false, message}. ردود النجاح شكلها {success:true, data}، وتضاف pagination في القوائم المرقّمة\nالوحدات المتعددة: كمية كل بند qty بوحدة البند وunitPrice لوحدة البند، ووحدته items[].unitId من units[].id للصنف (GET /products). غياب unitId أو null = وحدة الأساس بمعامل 1، فالتكامل الذي لا يعرف الوحدات يبقى كما هو ويرسل الكمية بوحدة الأساس. وكل بند في الردود والمزامنة يحمل لقطة وحدته لحظة كتابته: unitName (null = وحدة الأساس) وunitFactor (عدد وحدات الأساس فيها، 1 للأساس) وbaseQty = qty × unitFactor، والجمع والمقارنة والمخزون بـbaseQty وحده. وحدةٌ لا تخصّ الصنف أو موقوفة ترجع 400 UNIT_INVALID، إلا في المرتجع المرتبط بفاتورة بيع (originalInvoiceId) فتُقبل الوحدة الموقوفة لإرجاع ما بيع بها قبل إيقافها. وتحويل وحدة أساس صنفٍ أثناء الحفظ يرجع 409 PRODUCT_UNITS_CHANGED\n«تتبّع LOT» (حين lotTrackingEnabled للشركة وlotTracked للصنف، وإلا لا شيء مما يلي): الخادم يوزّع كل بند بيعٍ لصنف متتبَّع على تشغيلات سيارة المندوب تلقائياً بالأقرب انتهاءً (FEFO)، ثم من الرصيد «غير المسمّى» بعد نفاد التشغيلات الصالحة، ويحفظ التوزيع صفوفاً لكل بند بالكمية الأساسية. المنع دائم على مستوى التشغيلة لكل مُصدِر ومنه المفتاح: لا يُباع من تشغيلة موقوفة أو منتهية يوم الشركة، ولا فوق رصيدها، ولا يصير غير المسمّى سالباً، ولا يُعفي إذن canSellWithoutStock من ذلك (409 LOT_STOCK_INSUFFICIENT). المفتاح يجوز له تحديد التشغيلات بنفسه في items[].lots، والمرتجع المرتبط بفاتورة بيع يرث تشغيلاتها، والمرتجع الحرّ (بلا فاتورة بيع) يحدّد الخادم تشغيلاته من مبيعات العميل السابقة للصنف (آخر فاتورة بيع أولاً، بيقين ASSUMED، والزائد على مبيعاته «غير معروف») ما لم ترسل تشغيلاته. اقرأ التوزيع بـwithLots=1 في GET /invoices/:id وby-client-ref وreturnable وفي القائمة GET /invoices مع withItems=1 (بدونه الردود كما كانت)، أو من مزامنة /v1/sync/invoices (items[].lots مضمّنة في كل بند مع بطاقة التشغيلة lot) أو /v1/sync/invoice-item-lots الباقي كما هو. أخطاء LOT بالشكل {success:false, code, message, detail} ومنها 503 LOT_BUSY: أعد الإرسال بنفس clientRef. التفاصيل في مجموعة «تتبّع LOT»\n«أنواع الأسعار»: الخادم لا يسعّر بنود المفتاح بنوع السعر، فالسعر unitPrice كما ترسله (إلا المرتجع المرتبط بفاتورة بيع: مبلغه من بنودها في المرحلتين). ويُختم المستند بنوع السعر في priceListId: المرسل في الجسم إن حضر (null = السعر الأساسي)، وإلا نوع العميل المحفوظ، وإلا نوع مندوب المستند الافتراضي (defaultPriceListId)، وإلا null للسعر الأساسي. ولسعرٍ يطابق ما تعبّئه شاشات المنصة وتطبيق المندوب: سعر العميل الخاص × factor، وإلا سعر نوع المستند × factor، وإلا سعر الوحدة المحدَّد units[].price، وإلا basePrice × factor (كلها صافية قبل الضريبة). التفاصيل في priceListId أدناه وفي مجموعة «أنواع الأسعار»\n«مرجع السطر» lineRef (لكل الشركات): أرسل مع كل بند معرّف سطره في نظامك items[].lineRef — اختياري، نصٌّ حتى 100 حرف بعد قصّ طرفيه، والفارغ بعد القصّ = null، والأطول 400 كأخطاء التحقق — فيُحفظ على البند ويعود كما هو في ردّ الإصدار وGET /invoices/:id وby-client-ref والقائمة مع withItems=1 ومزامنة invoices وأسطر GET /invoices/:id/returnable (لبند البيع؛ وGET /invoices/:id/creditable لا يحمله)، في كل الأنواع ومنها المرتجع في المرحلتين، وlines[].lineRef في POST /invoices/:id/credit-note و/debit-note. به تطابق كل بند وتوزيع تشغيلاته (items[].lots) على سطرك بلا اعتماد على الترتيب. لا فرادة ولا فحص غير الطول (سطران بالمرجع نفسه مقبولان)، وnull لما لم يُرسَل (شاشات المنصة وتطبيق المندوب لا ترسله)، ولا يدخل حمولة ERP",
   "endpoints": [
    {
     "method": "GET",
@@ -2085,7 +2085,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[...], pagination:{total, page, limit, pages}}. كل صف فيه أعمدة الفاتورة: id وnumber وtype وstatus وinvoiceDate وdueDate وdeliveryDate وpaymentPlan وpricesIncludeTax وsubtotal وdiscountPct وdiscountAmt وtaxAmt وtotal وpaidAmt وremainingAmt وreturnReason وreturnToStock وeinvoiceProvider وeinvoiceStatus وeinvoiceQr وclientRef وzatcaPhase وdocumentKind وinvoiceSubtype وissuedAt وoriginalInvoiceId وcreatedAt وlocationId وteamId وpriceListId (نوع السعر الذي سُعّر به المستند، وnull = السعر الأساسي). ومعها customer{id,name,phone} وsalesRep{id,name} وlocation{id,name} (ختم موقع المندوب وقت الإصدار، أو null) و_count{items}، وitems عند طلب withItems (كل بند بـlineRef، ومعه lots مع withLots=1 والميزة مفعّلة). الحقل einvoiceSnapshot محذوف من صفوف القائمة",
+    "response": "{success:true, data:[...], pagination:{total, page, limit, pages}}. كل صف فيه أعمدة الفاتورة: id وnumber وtype وstatus وinvoiceDate وdueDate وdeliveryDate وpaymentPlan وpricesIncludeTax وsubtotal وdiscountPct وdiscountAmt وtaxAmt وtotal وpaidAmt وremainingAmt وreturnReason وreturnToStock وeinvoiceProvider وeinvoiceStatus وeinvoiceQr وclientRef وzatcaPhase وdocumentKind وinvoiceSubtype وissuedAt وoriginalInvoiceId وcreatedAt وlocationId وteamId وpriceListId (نوع السعر الذي سُعّر به المستند، وnull = السعر الأساسي، أو نوعٌ حُذف بعدها، أو مستندٌ لا يُختم: الإشعار الدائن المرتبط بفاتورة والإشعار المدين — انظر قاعدة priceListId أدناه). ومعها customer{id,name,phone} وsalesRep{id,name} وlocation{id,name} (ختم موقع المندوب وقت الإصدار، أو null) و_count{items}، وitems عند طلب withItems (كل بند بـlineRef، ومعه lots مع withLots=1 والميزة مفعّلة). الحقل einvoiceSnapshot محذوف من صفوف القائمة",
     "rules": [
      "الترتيب حسب createdAt تنازلياً، والترقيم بالأسلوب skip=(page-1)*limit",
      "هذه القائمة لا تشترط X-FS-Caps حتى للصفوف المربوطة بالمرحلة الثانية، بخلاف GET /invoices/:id",
@@ -2093,7 +2093,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "لا ترسل قيماً سالبة لـpage أو limit، لأنها لا تُصحَّح وقد تسبب خطأ 500",
      "from وto هنا بمنتصف ليل UTC، بخلاف ملخّص لوكيشن وسجل التحميلات وتقرير طرق الدفع التي تُحسب بأيام الشركة المحلية — فقد يختلف مجموع يومٍ واحد بينهما بما وقع بين منتصف الليل والثالثة فجراً بتوقيت الرياض",
      "teamId (ميزة «الفرق») عمود في كل صف: الفريق الذي وُسمت به الفاتورة أو null، وأسماء الفرق من GET /company/teams",
-     "priceListId («أنواع الأسعار») عمود في كل صف: نوع السعر الذي سُعّر به المستند وقت الإصدار، وnull = السعر الأساسي أو نوعٌ حُذف بعدها، وأسماء الأنواع من GET /price-lists. المرتجع في المرحلة الأولى يُختم كالبيع (المرسل أو نوع العميل) ولو ارتبط بفاتورة بيع، وكذلك الإشعار الدائن برقم فاتورة أصلية يدوي (مرتجع بلا originalInvoiceId في المرحلة الثانية). أما الإشعار الدائن المرتبط بفاتورة (ومنه المرتجع المرتبط في المرحلة الثانية) والإشعار المدين فلا يُختمان (null)"
+     "priceListId («أنواع الأسعار») عمود في كل صف: نوع السعر الذي سُعّر به المستند وقت الإصدار، وnull = السعر الأساسي أو نوعٌ حُذف بعدها، وأسماء الأنواع من GET /price-lists. المرتجع في المرحلة الأولى يُختم كالبيع (المرسل، وإلا النوع الافتراضي: نوع العميل، وإلا نوع مندوب المستند الافتراضي، وإلا السعر الأساسي) ولو ارتبط بفاتورة بيع، وكذلك الإشعار الدائن برقم فاتورة أصلية يدوي (مرتجع بلا originalInvoiceId في المرحلة الثانية). أما الإشعار الدائن المرتبط بفاتورة (ومنه المرتجع المرتبط في المرحلة الثانية) والإشعار المدين فلا يُختمان (null)"
     ],
     "example": ""
    },
@@ -2475,7 +2475,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "priceListId",
       "type": "string | null",
       "required": false,
-      "desc": "«أنواع الأسعار»: نوع السعر الذي سعّرت به المستند (id من GET /price-lists). null = السعر الأساسي، وغيابه = النوع الافتراضي: نوع العميل المحفوظ (priceListId في GET /customers)، وإلا نوع المندوب salesRepId الافتراضي (defaultPriceListId في GET /sales-reps)، وإلا السعر الأساسي. والنص الفارغ مرفوض 400. نوعٌ ليس من الشركة ⇒ 400 {success:false, code:'PRICE_LIST_INVALID', message:'نوع السعر غير موجود'}. المفتاح حرّ في اختيار النوع كالإدارة، أما مندوب التطبيق فلا يسعّر بغير النوع الافتراضي إلا بصلاحية canChangePriceList، وحين تُضبط له allowedPriceTypes فإلى أحدها وحده، وإلا 403 PRICE_LIST_FORBIDDEN (بلا الصلاحية message:'لا تملك صلاحية تبديل نوع السعر'، ومعها والنوع خارج أنواعه المسموحة reason:'NOT_ALLOWED' وmessage:'نوع السعر غير مسموح لك'). الخادم لا يغيّر أسعارك به (السعر unitPrice كما هو)، ويُختم المستند بالنوع في priceListId (ويظهر في GET /invoices والمزامنة)"
+      "desc": "«أنواع الأسعار»: نوع السعر الذي سعّرت به المستند (id من GET /price-lists). null = السعر الأساسي، وغيابه = النوع الافتراضي: نوع العميل المحفوظ (priceListId في GET /customers)، وإلا نوع المندوب salesRepId الافتراضي (defaultPriceListId في GET /sales-reps)، وإلا السعر الأساسي. والنص الفارغ مرفوض 400. نوعٌ ليس من الشركة ⇒ 400 {success:false, code:'PRICE_LIST_INVALID', message:'نوع السعر غير موجود'}. المفتاح حرّ في اختيار النوع كالإدارة، أما مندوب التطبيق فلا يسعّر بغير النوع الافتراضي إلا بصلاحية canChangePriceList، وحين تُقيَّد له allowedPriceTypes فإلى أحدها أو إلى النوع الافتراضي وحده، وإلا 403 PRICE_LIST_FORBIDDEN (بلا الصلاحية message:'لا تملك صلاحية تبديل نوع السعر'، ومعها والنوع خارج أنواعه المسموحة reason:'NOT_ALLOWED' وmessage:'نوع السعر غير مسموح لك'). الخادم لا يغيّر أسعارك به (السعر unitPrice كما هو)، ويُختم المستند بالنوع في priceListId (ويظهر في GET /invoices والمزامنة)"
      },
      {
       "name": "clientRef",
@@ -2533,7 +2533,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "مثال مرتجع برقم فاتورة من نظام سابق (المرحلة الثانية وreturnRequiresSaleInvoice=false): {\"customerId\":\"…\",\"salesRepId\":\"…\",\"type\":\"RETURN\",\"returnReason\":\"DAMAGED\",\"originalInvoiceRef\":\"OLD-2024-1001\",\"originalPaymentType\":\"CREDIT\",\"noteReason\":\"بضاعة تالفة من فاتورة النظام السابق\",\"pricesIncludeTax\":false,\"items\":[{\"productId\":\"…\",\"qty\":2,\"unitPrice\":45.5,\"taxPct\":15}]}",
      "الوحدات: الخادم يحلّ وحدة كل بند من unitId ويكتب لقطتها (unitName وunitFactor وunitCode وbaseQty)، فبند {\"qty\":2,\"unitId\":\"<كرتون 24>\"} يخصم 48 حبة من مخزون السيارة. والكرتون والحبة من الصنف نفسه في فاتورة واحدة يُجمعان بالأساس",
      "رمز وحدة البند unitCode (للفوترة الإلكترونية): units[].unitCode للوحدة، وإلا رمز الصنف، وإلا PCE. والكمية والسعر في المستند الضريبي بوحدة البند",
-     "مرجع سعر البند لوحدته (صافٍ قبل الضريبة، وهو ما تعبّئه شاشات المنصة وتطبيق المندوب): سعر العميل الخاص (GET /products/customer-prices/:customerId) × معامل البند، وإلا سعر نوع المستند («أنواع الأسعار»: price من GET /price-lists/prices) × المعامل، وإلا units[].price المحدد للوحدة، وإلا basePrice × factor. الخادم لا يفرضه على المفتاح: unitPrice كما ترسله. وحارس سعر المندوب (لا ينطبق على المفتاح) يقيس به: بلا canChangePrice لا يتجاوزه ولا ينزل عن الأقل منه ومن أقل سعر شريحة × المعامل، ومع canChangePrice وبلا canSellBelowPrice لا ينزل عن ذلك الحدّ الأدنى",
+     "مرجع سعر البند لوحدته (صافٍ قبل الضريبة، وهو ما تعبّئه شاشات المنصة وتطبيق المندوب): سعر العميل الخاص (GET /products/customer-prices/:customerId) × معامل البند، وإلا سعر نوع المستند («أنواع الأسعار»: المرسل، وإلا نوع العميل، وإلا نوع المندوب الافتراضي؛ price من GET /price-lists/prices) × المعامل، وإلا units[].price المحدد للوحدة، وإلا basePrice × factor. الخادم لا يفرضه على المفتاح: unitPrice كما ترسله. وحارس سعر المندوب (لا ينطبق على المفتاح) يقيس به: بلا canChangePrice لا يتجاوزه ولا ينزل عن الأقل منه ومن أقل سعر شريحة × المعامل، ومع canChangePrice وبلا canSellBelowPrice لا ينزل عن ذلك الحدّ الأدنى",
      "400 {success:false, code:'UNIT_INVALID', message}: وحدة لا تخصّ الصنف، أو موقوفة (إلا في المرتجع المرتبط بفاتورة بيع)، أو لقطة تخالف الخادم. لا يُكتب شيء، فأعد سحب الأصناف وصحّح البند ثم أعد الإرسال بنفس clientRef",
      "409 {success:false, code:'PRODUCT_UNITS_CHANGED', message} إن حُوّلت وحدة أساس صنفٍ في المستند أثناء الحفظ (المرحلتان): لا يُكتب شيء، أعد سحب الأصناف ثم أعد الإرسال بنفس clientRef",
      "400 {success:false, code:'BASE_UNIT_REQUIRED', message}: بندٌ لصنفٍ حُوِّل (baseConvertedAt غير فارغ) بلا items[].baseUnitName من مفتاحك — قبل أي كتابة. أرسل unit الصنف كما قرأته",
@@ -3400,7 +3400,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "pages = ceil(total/limit) من utils/helpers.ts",
      "لطلب المفتاح سقف الصفحة 200 صف. للسحب الكامل استعمل /v1/sync/sales-reps",
      "locationId موقع المندوب الحالي في ميزة «لوكيشن» (أو null) للقراءة وحدها — الإسناد من PUT /locations/reps/:salesRepId، واسم الموقع من GET /locations",
-     "«أنواع الأسعار»: defaultPriceListId نوع المندوب الافتراضي (null = السعر الأساسي)، وallowedPriceTypes الأنواع التي يبدّل بينها بـcanChangePriceList (null = كل الأنواع، وإلا مصفوفة فيها 'base' للسعر الأساسي ومعرّفات من GET /price-lists)"
+     "«أنواع الأسعار»: defaultPriceListId نوع المندوب الافتراضي لعملائه بلا نوع (null = السعر الأساسي)، وallowedPriceTypes الأنواع التي يبدّل بينها بـcanChangePriceList (null = بلا قيد: كل الأنواع والسعر الأساسي، وإلا مصفوفة معرّفات من GET /price-lists فيها 'base' إن أدرجت الشركة السعر الأساسي)"
     ],
     "example": ""
    },
@@ -3542,13 +3542,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "defaultPriceListId",
       "type": "string | null",
       "required": false,
-      "desc": "«أنواع الأسعار»: نوع السعر الافتراضي للمندوب (id من GET /price-lists). تُسعَّر به فواتيره لعميل بلا نوع، ونوع العميل يغلبه. null أو النص الفارغ أو 'base' = السعر الأساسي (الافتراضي). نوع ليس من الشركة ⇒ 400 {success:false, code:'PRICE_LIST_INVALID'} بلا كتابة. وإن ضُبط allowedPriceTypes فيجب أن يكون الافتراضي منها ⇒ وإلا 400 {success:false, code:'PRICE_TYPE_DEFAULT_NOT_ALLOWED'}"
+      "desc": "«أنواع الأسعار»: نوع السعر الافتراضي للمندوب (id من GET /price-lists). تُسعَّر به فواتيره لعميل بلا نوع، ونوع العميل يغلبه. null أو النص الفارغ أو 'base' = السعر الأساسي (الافتراضي). نوع ليس من الشركة ⇒ 400 {success:false, code:'PRICE_LIST_INVALID'} بلا كتابة. وإن قُيّدت allowedPriceTypes (غير null ولا []) فيجب أن يكون الافتراضي منها، والافتراضي السعر الأساسي (null أو الفارغ أو 'base' أو الغياب) يحتاج 'base' فيها، وإلا 400 {success:false, code:'PRICE_TYPE_DEFAULT_NOT_ALLOWED'} بلا كتابة"
      },
      {
       "name": "allowedPriceTypes",
       "type": "string[] | null",
       "required": false,
-      "desc": "«أنواع الأسعار»: الأنواع التي يبدّل المندوب بينها في فاتورته (بصلاحية canChangePriceList وحدها)، و'base' فيها = السعر الأساسي. null أو [] = كل الأنواع والسعر الأساسي (الافتراضي). يُحفظ بلا تكرار وبترتيبك، ونوع ليس من الشركة ⇒ 400 PRICE_LIST_INVALID. والنوع الافتراضي للفاتورة (نوع العميل، وإلا defaultPriceListId) مسموح دائماً. لا يقيّد المفتاح ولا مستخدمي الشركة"
+      "desc": "«أنواع الأسعار»: الأنواع التي يبدّل المندوب بينها في فاتورته (بصلاحية canChangePriceList وحدها)، و'base' فيها = السعر الأساسي، فلا يبدّل إليه إلا إن أدرجته. null أو [] = بلا قيد: كل الأنواع والسعر الأساسي (الافتراضي، ويُحفظ null). يُحفظ بلا تكرار وبترتيبك (والنص الفارغ يُهمل)، ونوع ليس من الشركة ⇒ 400 PRICE_LIST_INVALID. ومع القيد يجب أن يكون defaultPriceListId منها، و'base' فيها إن كان الافتراضي السعر الأساسي، وإلا 400 PRICE_TYPE_DEFAULT_NOT_ALLOWED. والنوع الافتراضي للفاتورة (نوع العميل، وإلا defaultPriceListId) مسموح دائماً. لا يقيّد المفتاح ولا مستخدمي الشركة"
      },
      {
       "name": "canCreateReceipt",
@@ -3676,7 +3676,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "بلوغ حد maxSalesReps للشركة يرجع 403 برسالة الحد",
      "التكرار يرجع 409: اسم المستخدم عالمياً ثم الجوال ثم البريد داخل الشركة",
      "كلمة مرور أقل من 8 أحرف ترجع 400",
-     "defaultPriceListId وallowedPriceTypes: نوع ليس من الشركة 400 PRICE_LIST_INVALID، وافتراضي خارج الأنواع المسموحة 400 PRICE_TYPE_DEFAULT_NOT_ALLOWED، وكلاهما بلا كتابة. وهما للإدارة وحدها: المندوب لا يصل هذه المسارات",
+     "defaultPriceListId وallowedPriceTypes: نوع ليس من الشركة 400 PRICE_LIST_INVALID، وافتراضي خارج الأنواع المسموحة حين تُقيَّد 400 PRICE_TYPE_DEFAULT_NOT_ALLOWED (وغياب defaultPriceListId = السعر الأساسي، فأدرج 'base' في allowedPriceTypes أو أرسل افتراضياً منها)، وكلاهما بلا كتابة. وهما للإدارة وحدها: المندوب لا يصل هذه المسارات",
      "الحقول غير المعرّفة في المخطط تُتجاهل بصمت، فلا يمكن ضبط canSellWithoutStock أو canBeTracked من هنا",
      "الافتراضات من prisma/schema.prisma model SalesRep",
      "locationId لا يُقبل هنا: إسناد الموقع من PUT /locations/reps/:salesRepId وحده"
@@ -3736,7 +3736,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "canCreateInvoice ... shiftDays",
       "type": "boolean / number",
       "required": false,
-      "desc": "نفس حقول POST وكلها اختيارية: الصلاحيات (ومنها canChangePriceList «تبديل نوع السعر»)، وdefaultPriceListId وallowedPriceTypes (المرسل منهما يُفحص مع المحفوظ من الآخر: الافتراضي من الأنواع المسموحة حين تُضبط، وإلا 400 PRICE_TYPE_DEFAULT_NOT_ALLOWED)، وmaxDiscountPct من 0 إلى 100، وproximityRadiusM وpunchRadiusM أعداد صحيحة من 10 إلى 5000، وpunchOutsideAction وrequireBoundDevice وrequirePresenceCheck وshowRouteOnMap وshiftStart وshiftEnd وshiftDays"
+      "desc": "نفس حقول POST وكلها اختيارية: الصلاحيات (ومنها canChangePriceList «تبديل نوع السعر»)، وdefaultPriceListId وallowedPriceTypes (المرسل منهما يُفحص مع المحفوظ من الآخر: الافتراضي من الأنواع المسموحة حين تُقيَّد، و'base' فيها إن كان الافتراضي السعر الأساسي، وإلا 400 PRICE_TYPE_DEFAULT_NOT_ALLOWED)، وmaxDiscountPct من 0 إلى 100، وproximityRadiusM وpunchRadiusM أعداد صحيحة من 10 إلى 5000، وpunchOutsideAction وrequireBoundDevice وrequirePresenceCheck وshowRouteOnMap وshiftStart وshiftEnd وshiftDays"
      }
     ],
     "response": "{success:true, data:{id, name, phone, username, isActive}} أو 404 'المندوب غير موجود'",
@@ -9372,8 +9372,8 @@ export const API_DOC_GUIDES: DocGuide[] = [
     key: 'price-lists-guide',
     title: 'ربط أنواع الأسعار',
     intro: [
-      '«أنواع الأسعار» أسعارٌ مسمّاة تحدّدها الشركة بحرّية (سعر الجملة، سعر التجزئة…). لكل عميل نوعٌ واحد أو لا نوع (السعر الأساسي)، ولكل مندوب نوعٌ افتراضي لعملائه بلا نوع وأنواعٌ يبدّل بينها، ولكل صنف سعرٌ في كل نوع أو لا سعر، ويُختم كل فاتورة بيع ومرتجع بالنوع الذي سُعّر به في priceListId (والإشعار الدائن المرتبط بفاتورة والإشعار المدين بلا ختم).',
-      'سعر الصنف في النوع صافٍ قبل الضريبة ومخزَّن لوحدة الأساس، ويُكتب بالوحدة الرئيسية. والصنف بلا سعر في النوع يُسعَّر بسعره الأساسي. وترتيب التسعير: سعر العميل الخاص، ثم سعر نوع المستند، ثم سعر الوحدة المحدَّد، ثم basePrice × معامل الوحدة.',
+      '«أنواع الأسعار» أسعارٌ مسمّاة تحدّدها الشركة بحرّية (سعر الجملة، سعر التجزئة…). لكل عميل نوعٌ واحد أو لا نوع، ولكل مندوب نوعٌ افتراضي لعملائه بلا نوع (أو السعر الأساسي) وأنواعٌ يبدّل بينها، ولكل صنف سعرٌ في كل نوع أو لا سعر. وتُختم كل فاتورة بيع وكل مرتجع بالنوع الذي سُعّر به في priceListId (أما الإشعار الدائن المرتبط بفاتورة، ومنه المرتجع المرتبط بفاتورة في المرحلة الثانية، والإشعار المدين فبلا ختم).',
+      'سعر الصنف في النوع صافٍ قبل الضريبة ومخزَّن لوحدة الأساس، ويُكتب بالوحدة الرئيسية. والصنف بلا سعر في النوع يُسعَّر بسعره الأساسي. ونوع المستند: المرسل في الفاتورة، وإلا نوع العميل، وإلا نوع المندوب الافتراضي، وإلا السعر الأساسي. وترتيب التسعير: سعر العميل الخاص، ثم سعر نوع المستند، ثم سعر الوحدة المحدَّد، ثم basePrice × معامل الوحدة.',
       'الخطوات أدناه: الأنواع، ثم أسعار الأصناف، ثم نوع كل عميل وأنواع المندوب وصلاحيته، ثم الفاتورة، ثم المزامنة.',
     ].join('\n'),
     steps: [
@@ -9383,7 +9383,7 @@ export const API_DOC_GUIDES: DocGuide[] = [
         text: [
           'الميزة لا تحتاج تفعيلاً من مزوّد الخدمة: يكفي ألا يكون النظام المحاسبي مطفأً (data.accountingEnabled في GET /api/company)، وإلا ترجع كل مسارات /api/price-lists الرمز 403 ACCOUNTING_NOT_ALLOWED.',
           'الرد {basePriceLabel, lists:[{id, name, sortOrder, customersCount}]} مرتباً بـsortOrder ثم الاسم.',
-          '- id هو القيمة التي تأتي في priceListId للعملاء والفواتير، فاحفظه في نظامكم.',
+          '- id هو القيمة التي تأتي في priceListId للعملاء والفواتير، وفي defaultPriceListId وallowedPriceTypes للمناديب، فاحفظه في نظامكم.',
           '- basePriceLabel اسم السعر الأساسي (basePrice) كما سمّته الشركة، وnull = «السعر الأساسي».',
           '- customersCount عدد العملاء غير المحذوفين على النوع. وlists الفارغة = شركة بلا أنواع، فتُسعَّر الفواتير كما كانت.',
         ].join('\n'),
@@ -9418,6 +9418,7 @@ export const API_DOC_GUIDES: DocGuide[] = [
           'اقرأ الصنف أولاً من GET /api/products/:id: unit (وحدة الأساس) وprimaryUnitId ومعامل تلك الوحدة في units وlistPrices الحالية. ثم أرسل {expectedBaseName, expectedPrimary, items:[{priceListId, price}]}.',
           '- expectedBaseName = unit كما قرأته، وهو إلزامي.',
           '- price سعر الوحدة الرئيسية صافياً قبل الضريبة (أو سعر وحدة الأساس لصنف بلا رئيسية). وexpectedPrimary {id, factor} كما قرأتها، أو null لصنف بلا رئيسية.',
+          '- الوحدة الرئيسية الموقوفة (isActive = false في units) أو التي ليست من units تُعدّ غائبة: أرسل price لوحدة الأساس وexpectedPrimary = null، فإرسال {id, factor} لها يرجع 409 PRIMARY_UNIT_CHANGED.',
           '- الخادم يخزّنه لوحدة الأساس = price ÷ المعامل بست منازل (كرتون من 24 بعشرة = 0.416667)، فتُشتق بقية الوحدات بمعاملها.',
           '- price = null يحذف سعر الصنف في هذا النوع فيعود لسعره الأساسي. والأنواع التي لا ترسلها تبقى كما هي، وحتى 200 بند في الطلب.',
           '- الأخطاء بلا كتابة: 409 BASE_UNIT_CHANGED أو PRIMARY_UNIT_CHANGED إن تغيّرت الوحدة منذ قراءتك (أعد القراءة واحسب السعر من جديد)، و400 PRICE_LIST_INVALID لنوع ليس من الشركة، و503 PRODUCT_UNITS_BUSY (أعد المحاولة بعد قليل).',
@@ -9429,7 +9430,7 @@ export const API_DOC_GUIDES: DocGuide[] = [
         title: 'اقرأ أسعار كل الأنواع دفعة واحدة',
         method: 'GET', path: '/price-lists/prices',
         text: [
-          'الرد [{id, name, items:[{productId, price, unit, baseConvertedAt}]}]: price صافٍ قبل الضريبة لوحدة الأساس بست منازل، وسعر أي وحدة في النوع = price × factor تلك الوحدة من units الصنف، ويغلب سعر الوحدة المحدَّد.',
+          'الرد [{id, name, items:[{productId, price, unit, baseConvertedAt}]}]: price صافٍ قبل الضريبة لوحدة الأساس بست منازل، وسعر أي وحدة في النوع = price × factor تلك الوحدة من units الصنف، وهو يغلب سعر الوحدة المحدَّد units[].price.',
           '- الصنف الغائب من items لا سعر له في النوع: يُسعَّر بسعره الأساسي. والأصناف المؤرشفة خارج الرد.',
           '- unit وbaseConvertedAt أساس الصنف لحظة القراءة: إن تغيّر baseConvertedAt عمّا خزّنته فقد صار السعر لوحدة أصغر، فأعد سحب الأسعار.',
           '- لصنف واحد: listPrices:[{priceListId, price}] في GET /api/products/:id (وفي GET /api/products لكل صنف).',
@@ -9440,7 +9441,7 @@ export const API_DOC_GUIDES: DocGuide[] = [
         title: 'أسند لكل عميل نوعه',
         method: 'PUT', path: '/customers/:id',
         text: [
-          'الجسم {"priceListId":"<id>"}، وnull أو النص الفارغ = السعر الأساسي، وغياب الحقل لا يغيّر النوع. والعميل الجديد يقبل الحقل نفسه في POST /api/customers (والاستيراد الجماعي لا يكتبه).',
+          'الجسم {"priceListId":"<id>"}، وnull أو النص الفارغ = بلا نوع: تُسعَّر فواتيره بالنوع الافتراضي لمندوب الفاتورة (الخطوة التالية)، وإلا بالسعر الأساسي، وغياب الحقل لا يغيّر النوع. والعميل الجديد يقبل الحقل نفسه في POST /api/customers (والاستيراد الجماعي لا يكتبه).',
           '- 400 PRICE_LIST_INVALID لنوع ليس من الشركة.',
           '- النوع يسري على الفواتير الجديدة وحدها: القديمة تبقى على النوع المختوم فيها.',
           '- سعر العميل الخاص (PUT /api/customers/:id/prices) يغلب نوعه للصنف نفسه.',
@@ -9452,11 +9453,11 @@ export const API_DOC_GUIDES: DocGuide[] = [
         title: 'اضبط أنواع المندوب وصلاحية التبديل (اختياري)',
         method: 'PUT', path: '/sales-reps/:id',
         text: [
-          'النوع الافتراضي للفاتورة: نوع العميل، وإلا defaultPriceListId للمندوب (null = السعر الأساسي)، وإلا السعر الأساسي.',
+          'النوع الافتراضي للفاتورة: نوع العميل، وإلا defaultPriceListId لمندوب الفاتورة، وإلا السعر الأساسي. وسعر العميل الخاص يغلب هذا كله للصنف نفسه.',
           '- defaultPriceListId: نوع المندوب الافتراضي لعملائه بلا نوع، وnull أو "base" = السعر الأساسي.',
-          '- allowedPriceTypes: الأنواع التي يبدّل بينها، و"base" فيها = السعر الأساسي. null أو [] = كل الأنواع. والافتراضي يجب أن يكون منها حين تُضبط، وإلا 400 PRICE_TYPE_DEFAULT_NOT_ALLOWED.',
+          '- allowedPriceTypes: الأنواع التي يبدّل بينها، و"base" فيها = السعر الأساسي. null أو [] = بلا قيد (كل الأنواع والسعر الأساسي)، ويُحفظ null. وحين تُقيَّد يجب أن يكون defaultPriceListId منها: فإن كان الافتراضي السعر الأساسي (null، أو غائباً لمندوب جديد) فأدرج "base"، وإلا 400 PRICE_TYPE_DEFAULT_NOT_ALLOWED. والمرسل من الحقلين يُفحص مع المحفوظ من الآخر.',
           '- نوع ليس من الشركة في أيٍّ منهما 400 PRICE_LIST_INVALID، وكلا الخطأين بلا كتابة.',
-          'canChangePriceList («تبديل نوع السعر») مطفأة افتراضاً. بدونها يسعّر المندوب في تطبيقه بالنوع الافتراضي وحده، وفاتورته بنوع آخر ترجع 403 PRICE_LIST_FORBIDDEN، ولا يرى في تطبيقه إلا أنواع عملائه ونوعه الافتراضي. وبها يبدّل إلى allowedPriceTypes وحدها حين تُضبط (والنوع الافتراضي مسموح دائماً)، وإلا 403 PRICE_LIST_FORBIDDEN مع reason:"NOT_ALLOWED" والرسالة «نوع السعر غير مسموح لك».',
+          'canChangePriceList («تبديل نوع السعر») مطفأة افتراضاً. بدونها يسعّر المندوب في تطبيقه بالنوع الافتراضي وحده، وفاتورته بنوع آخر ترجع 403 PRICE_LIST_FORBIDDEN، ولا يرى في تطبيقه إلا أنواع عملائه ونوعه الافتراضي. وبها يبدّل إلى allowedPriceTypes وحدها حين تُقيَّد (والنوع الافتراضي مسموح دائماً)، وإلا 403 PRICE_LIST_FORBIDDEN مع reason:"NOT_ALLOWED" والرسالة «نوع السعر غير مسموح لك».',
           '- أرسل البريد الحالي للمندوب مع الجسم: غيابه يمسح البريد المخزَّن.',
           '- رد التعديل لا يحمل الصلاحيات: اقرأها من GET /api/sales-reps/:id أو من مزامنة sales-reps.',
           '- الصلاحية والأنواع المسموحة قيود على المندوب وحده: المفتاح ومستخدمو الشركة يسعّرون بأي نوع.',
@@ -9469,11 +9470,11 @@ export const API_DOC_GUIDES: DocGuide[] = [
         text: [
           'الخادم لا يحسب السعر من النوع لطلب المفتاح: أرسل unitPrice لكل بند محسوباً بهذا الترتيب، وكلها لوحدة الأساس × factor وحدة البند:',
           '- سعر العميل الخاص (GET /api/products/customer-prices/:customerId).',
-          '- وإلا سعر نوع المستند (GET /api/price-lists/prices).',
+          '- وإلا سعر نوع المستند (المرسل، وإلا نوع العميل، وإلا نوع المندوب الافتراضي) من GET /api/price-lists/prices.',
           '- وإلا سعر الوحدة المحدَّد units[].price، وإلا basePrice × factor.',
           '- هذه المراجع صافية قبل الضريبة: مع pricesIncludeTax = true أرسل unitPrice شاملاً الضريبة، وقرّبه لخانات العملة (0.416667 × 24 = 10).',
-          'priceListId في الجسم اختياري: غيابه = النوع الافتراضي (نوع العميل، وإلا defaultPriceListId لمندوب المستند)، وnull = السعر الأساسي، ومعرّف نوع آخر من الشركة = تبديل (المفتاح حرّ فيه كالإدارة). والمعرّف الذي ليس من الشركة 400 PRICE_LIST_INVALID. ويُختم المستند بالنوع المستعمل في priceListId: في الرد وفي GET /api/invoices ومزامنة invoices.',
-          '- مندوب التطبيق يُحرس سعره بالمرجع نفسه، ولا يبدّل النوع إلا بـcanChangePriceList وإلى allowedPriceTypes وحدها حين تُضبط.',
+          'priceListId في الجسم اختياري: غيابه = النوع الافتراضي (نوع العميل، وإلا defaultPriceListId لمندوب المستند، وإلا السعر الأساسي)، وnull = السعر الأساسي، ومعرّف نوع آخر من الشركة = تبديل (المفتاح حرّ فيه كالإدارة). والمعرّف الذي ليس من الشركة 400 PRICE_LIST_INVALID. ويُختم المستند بالنوع المستعمل في priceListId: في الرد وفي GET /api/invoices ومزامنة invoices.',
+          '- مندوب التطبيق يُحرس سعره بالمرجع نفسه، ولا يبدّل النوع إلا بـcanChangePriceList وإلى allowedPriceTypes (والنوع الافتراضي) وحدها حين تُقيَّد، وإلا 403 PRICE_LIST_FORBIDDEN.',
         ].join('\n'),
         curl: send('POST', '/invoices', '{"customerId":"<customerId>","salesRepId":"<salesRepId>","type":"CREDIT","priceListId":"<priceListId>","clientRef":"<uuid>","items":[{"productId":"<productId>","unitId":"<unitId>","qty":2,"unitPrice":10}]}'),
       },
@@ -9481,9 +9482,9 @@ export const API_DOC_GUIDES: DocGuide[] = [
         title: 'أبقِ نظامكم متزامناً',
         text: [
           'لا مورد مزامنة لأنواع الأسعار نفسها: اقرأ GET /api/price-lists وGET /api/price-lists/prices دورياً. أما الحقول المرتبطة بها ففي المزامنة (القسم ٣):',
-          '- customers: priceListId نوع العميل. وinvoices: priceListId النوع الذي سُعّر به المستند (null = السعر الأساسي). وsales-reps: canChangePriceList وdefaultPriceListId وallowedPriceTypes.',
+          '- customers: priceListId نوع العميل (null = بلا نوع). وinvoices: priceListId النوع الذي سُعّر به المستند (null = السعر الأساسي). وsales-reps: canChangePriceList وdefaultPriceListId وallowedPriceTypes.',
           '- products لا تحمل أسعار الأنواع، لكن كتابتها تحرّك updatedAt الصنف: الصنف المتغيّر إشارةٌ لإعادة قراءة أسعاره.',
-          '- حذف نوع يجعل priceListId في فواتيره وعملائه المحذوفين null ويحرّك updatedAt لها فتلتقطها المزامنة، ويغيب النوع من GET /api/price-lists. وإعادة التسمية والترتيب لا تظهران إلا في GET /api/price-lists.',
+          '- حذف نوع (لا يُقبل ما دام عليه عملاء غير محذوفين أو مناديب) يجعل priceListId في فواتيره وعملائه المحذوفين null ويحرّك updatedAt لها فتلتقطها المزامنة، ويغيب النوع من GET /api/price-lists. وإعادة التسمية والترتيب لا تظهران إلا في GET /api/price-lists.',
           '- حمولة ربط ERP لا تحمل priceListId.',
         ].join('\n'),
         curl: get('/v1/sync/customers?since=2026-11-01T00:00:00Z&limit=200'),
