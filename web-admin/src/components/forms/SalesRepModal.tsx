@@ -1,12 +1,13 @@
 import { useState, forwardRef } from 'react';
 import { useForm } from 'react-hook-form';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SalesRep } from '../../types';
 import { useTr } from '../../i18n/strings';
 import { X, Eye, EyeOff, RefreshCw, Smartphone } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { salesRepApi } from '../../api/client';
+import { priceListApi, salesRepApi } from '../../api/client';
 import { formatDate } from '../../utils/format';
+import { BASE_PRICE_TYPE, baseLabelOf, priceListsOf, repAllowedTokensOf, repDefaultChoices, repPriceTypeTokens, repToggleAllowedType } from '../../lib/priceLists';
 
 interface FormData extends Partial<SalesRep> { password?: string; }
 interface Props {
@@ -101,8 +102,28 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
     defaultValues: {
       ...defaults, proximityRadiusM: defaults.proximityRadiusM ?? RADIUS_DEFAULT_M, punchRadiusM: defaults.punchRadiusM ?? RADIUS_DEFAULT_M,
       punchOutsideAction: defaults.punchOutsideAction ?? 'REJECT', shiftDays: defaults.shiftDays ?? SHIFT_DAYS_DEFAULT,
+      defaultPriceListId: defaults.defaultPriceListId ?? null, allowedPriceTypes: defaults.allowedPriceTypes ?? null,
     },
   });
+  /* «أنواع الأسعار» للمندوب (طلب المالك ٢ نوفمبر ٢٠٢٦): نوعه الافتراضي تُسعَّر به فواتير العميل الذي لا نوع له، والأنواع التي
+   * يبدّل بينها بصلاحية «تبديل نوع السعر» (لا تحديد = كل الأنواع = null). القسم لشركةٍ عرّفت أنواعاً وحدها والمحاسبة مفعّلة،
+   * وصفّ مندوبٍ بلا المفتاح (خادمٌ قبل الميزة) بلا قسم — والمخفيّ يُرسل محفوظه كما هو */
+  const { data: priceInfo } = useQuery({
+    queryKey: ['price-lists'],
+    queryFn: async () => priceListsOf((await priceListApi.list()).data.data),
+    enabled: accountingOn,
+  });
+  const priceLists = accountingOn && (!rep || rep.defaultPriceListId !== undefined) ? priceInfo?.lists ?? [] : [];
+  const listIds = priceLists.map(l => l.id);
+  const allowedTok = repAllowedTokensOf(watch('allowedPriceTypes'), listIds);
+  const defaultTypeId = watch('defaultPriceListId') ?? null;
+  const typeName = (t: string | null) => (t === null ? baseLabelOf(priceInfo, tr) : priceLists.find(l => l.id === t)?.name ?? '');
+  // الافتراضي يتبع المحدَّد (يصير أوّله إن أُلغي) — فلا يُرسل افتراضيٌّ خارج المسموح (400 PRICE_TYPE_DEFAULT_NOT_ALLOWED)
+  const toggleType = (token: string, on: boolean) => {
+    const next = repToggleAllowedType({ allowed: allowedTok, defaultId: defaultTypeId }, token, on, listIds);
+    setValue('allowedPriceTypes', next.allowed, { shouldDirty: true });
+    setValue('defaultPriceListId', next.defaultId, { shouldDirty: true });
+  };
   // المسافة تُطلب حين يُفعَّل قيدها وحده — والمخفيّة تبقى بقيمتها فلا تضيع إن أُطفئ القيد ثم أُعيد
   const radiusRules = {
     valueAsNumber: true,
@@ -204,7 +225,7 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
             <div className="grid grid-cols-2 gap-3">
               <PermToggle label={tr('تغيير السعر')} {...register('canChangePrice')} />
               <PermToggle label={tr('البيع أقل من السعر')} {...register('canSellBelowPrice')} />
-              {/* «أنواع الأسعار»: بلاها يبيع المندوب بنوع سعر العميل وحده، ومعها يبدّل رقاقة النوع على الفاتورة */}
+              {/* «أنواع الأسعار»: بلاها يبيع المندوب بنوع سعر العميل (أو نوعه الافتراضي) وحده، ومعها يبدّل رقاقة النوع على الفاتورة */}
               <PermToggle label={tr('تبديل نوع السعر')} {...register('canChangePriceList')} />
             </div>
             <div className="mt-3 max-w-xs">
@@ -212,6 +233,33 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
               <input type="number" className="input" min="0" max="100" step="any" {...register('maxDiscountPct', { valueAsNumber: true })} />
             </div>
           </div>
+
+          {priceLists.length > 0 && (
+          <div data-rep-price-types="">
+            <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">{tr('أنواع الأسعار')}</h3>
+            <label className="label">{tr('أنواع الأسعار المسموحة')}</label>
+            <div className="grid grid-cols-2 gap-3">
+              {repPriceTypeTokens(listIds).map(tok => (
+                <PermToggle key={tok} label={typeName(tok === BASE_PRICE_TYPE ? null : tok)} checked={!!allowedTok?.includes(tok)}
+                  onChange={e => toggleType(tok, e.target.checked)} />
+              ))}
+            </div>
+            <p className="text-xs text-gray-400 mt-2 leading-relaxed">
+              {!watch('canChangePriceList')
+                ? tr('بلا صلاحية تبديل نوع السعر يبيع المندوب بنوع سعر العميل أو بنوعه الافتراضي وحده')
+                : allowedTok
+                  ? tr('يبدل المندوب بين الأنواع المحددة وحدها بصلاحية تبديل نوع السعر ونوع سعر العميل متاح له دائما')
+                  : tr('بلا تحديد يبدل المندوب بين كل الأنواع بصلاحية تبديل نوع السعر')}
+            </p>
+            <div className="mt-3 max-w-xs">
+              <label className="label">{tr('النوع الافتراضي')}</label>
+              <select className="input" value={defaultTypeId ?? ''} onChange={e => setValue('defaultPriceListId', e.target.value || null, { shouldDirty: true })}>
+                {repDefaultChoices(allowedTok, listIds).map(t => <option key={t ?? ''} value={t ?? ''}>{typeName(t)}</option>)}
+              </select>
+            </div>
+            <p className="text-xs text-gray-400 mt-2 leading-relaxed">{tr('تسعر به فواتير المندوب للعميل الذي لا نوع له ونوع سعر العميل يغلبه')}</p>
+          </div>
+          )}
 
           <div>
             <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">{tr('صلاحيات التحصيل')}</h3>

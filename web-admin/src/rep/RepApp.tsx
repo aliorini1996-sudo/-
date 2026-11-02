@@ -3,8 +3,8 @@ import {
 } from 'lucide-react';
 import { computeInvoiceTotals, roundDecimal, priceFromLineTotal } from './invoiceCalc';
 import { cartBadge, cartCount, choiceById, choiceNet, defaultChoice, hasUnitChoice, invoiceItemUnit, lineUnitOf, linkedLineUnit, primaryChoice, rebaseCustPrices, rebaseRow, refreshLineUnit, sameUnit, unitChoices, unitsText, type UnitChoice, type UnitProduct } from './repUnits';
-import { baseLabelOf, priceListsOf, repriceUntouched } from '../lib/priceLists';
-import { listIdOf, repCachedNamesOf, repCustomerListOf, repListChipsOf, repListMissing } from './repPriceLists';
+import { allowedPriceTypesOf, baseLabelOf, defaultPriceTypeOf, priceListsOf, repriceUntouched } from '../lib/priceLists';
+import { listIdOf, repCachedNamesOf, repCustomerListOf, repDefaultListOf, repInvoiceListOf, repListMissing, repPriceCacheStale, repSwitchChipsOf } from './repPriceLists';
 import type { PriceListsInfo } from '../types';
 import { repBlockKey, repDefaultChoice, repLineBlockKey, repUnitChoices, type RepAction, type RepRuleFields } from './repProductRules';
 import { fillLinkedQty, linkedUnitPrice, refreshLinkedLine, returnUnitChoices, toLinkedSale, withReturnUnit, type LinkedReturnLine } from '../lib/returnInvoice';
@@ -126,6 +126,10 @@ interface RepUser {
   canSellBelowPrice?: boolean;
   /** «تبديل نوع السعر» (أنواع الأسعار، من /auth/me) — بلاها تُسعَّر الفاتورة بنوع سعر العميل وحده ويُعرض اسمه للعلم */
   canChangePriceList?: boolean;
+  /** «نوع سعر المندوب» (من /auth/me): نوعه الافتراضي (null = السعر الأساسي) — به تُسعَّر فاتورة عميلٍ بلا نوع */
+  defaultPriceListId?: string | null;
+  /** الأنواع التي يبدّل بينها بـ«تبديل نوع السعر»: null = كلها (كاليوم)؛ وإلا 'base' ومعرّفات أنواع (allowedPriceTypesOf) */
+  allowedPriceTypes?: string[] | null;
   maxDiscountPct?: number;
   /** «الفرق»: مفعّلة للشركة، وفرق المندوب الفعّالة (من /auth/me) — يختار منها الفريق الذي يعمل له (repTeam.ts) */
   teamsEnabled?: boolean;
@@ -1748,15 +1752,6 @@ function listPricesOf(lists: ListPriceRows[] | null, listId: string | null, prod
 }
 
 /**
- * نوع سعر الفاتورة: نوع العميل من ملفه (null = السعر الأساسي)، أو ما اختاره المندوب من الرقاقات — بصلاحية «تبديل نوع السعر»
- * وحدها (`picked` undefined = لم يختر). فصلاحيةٌ سُحبت بعد الاختيار تعيده إلى نوع العميل كما يحكم الخادم (403 PRICE_LIST_FORBIDDEN)
- */
-function repInvoiceListOf(customerListId: unknown, picked: string | null | undefined, canSwitch: boolean): string | null {
-  if (canSwitch && picked !== undefined) return picked;
-  return typeof customerListId === 'string' && customerListId ? customerListId : null;
-}
-
-/**
  * نوع سعر العميل كما يعرفه الخادم الآن (repCustomerListOf يقدّمه على صفّ قائمة العملاء الممرَّر): متصلاً من ملفه (GET /customers/:id —
  * يحترم عزل العملاء) ويُكتب في صفّه المخبّأ فيعرفه الجهاز دون اتصال بعدها، وإلا من صفّه المخبّأ (آخر ما كتبته قائمة العملاء أو قراءةٌ
  * سابقة كهذه). خادمٌ أقدم بلا الحقل أو صفٌّ غائب ⇒ undefined (يبقى صفّ القائمة)
@@ -1782,8 +1777,21 @@ async function customerListNow(id: string, online: boolean): Promise<string | nu
   return row && typeof row === 'object' && 'priceListId' in row ? listIdOf(row.priceListId) : undefined;
 }
 
+/**
+ * كاش الأنواع وأسعارها من الخادم الآن (refreshUser بعد أن تبدّل نوع المندوب الافتراضي أو أنواعه المسموحة أو «تبديل نوع السعر» —
+ * repPriceCacheStale): المندوب الذي ينقطع قبل أن يفتح فاتورةً متصلاً يجد أسعار افتراضيّه الجديد في الجهاز. الأسماء أولاً، والأسعار
+ * لشركةٍ لها أنواع وحدها (كـloadPriceLists). خلفيّ: فشله صامت ولا يُخرج المندوب، ويبقى المخبّأ
+ */
+async function warmRepPriceCache(): Promise<void> {
+  try {
+    const names = await fetchThenCache('pricelists:names', async () => (await repApi.get('/price-lists', { background: true })).data.data);
+    if (names.offline || !priceListsOf(names.data).lists.length) return;
+    await fetchThenCache('pricelists', async () => (await repApi.get('/price-lists/prices', { background: true })).data.data);
+  } catch { /* كاش الجهاز غير متاح: تجلبها الفاتورة حين تُفتح متصلةً */ }
+}
+
 // ============ إنشاء فاتورة (بيع أو إرجاع) ============
-function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClose, onDone }: { customer: any; repName: string; company: Company | null; mode?: 'sale' | 'return'; perms: RepUser; onClose: () => void; onDone: (doc: InvoiceDoc) => void }) {
+function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClose, onDone, onPermsStale }: { customer: any; repName: string; company: Company | null; mode?: 'sale' | 'return'; perms: RepUser; onClose: () => void; onDone: (doc: InvoiceDoc) => void; /** صلاحيات المندوب ونوعه الافتراضي وأنواعه المسموحة من /auth/me الآن (refreshUser) — بعد رفضٍ سعريّ */ onPermsStale?: () => void }) {
   const tr = useTr();
   const lots = useContext(RepLotsContext); // «تتبّع اللوط» (§٦.٣)
   const isReturn = mode === 'return';
@@ -1968,10 +1976,12 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   }, [customer?.id]);
 
   /* ─── «أنواع الأسعار» (طلب المالك: رقاقات تبديلٍ بأسماء تختارها الشركة) — أسماء الأنواع (GET /price-lists، كاش 'pricelists:names')
-   * ثم أسعارها (GET /price-lists/prices، كاش 'pricelists') للعمل دون اتصال. الفاتورة تُسعَّر بنوع سعر العميل من ملفه، والمندوب
-   * يبدّله برقاقةٍ بصلاحية «تبديل نوع السعر» وحدها (وبلاها يرى اسمه للعلم). والقرارات الصرفة في repPriceLists.ts:
-   *  • الأسماء من كاش الجهاز إن عرفت نوع العميل (repCachedNamesOf): شركةٌ بلا أنواع ومندوبٌ لا يبدّل وعميلٌ بلا نوع ⇒ لا طلب أبداً
-   *    بعد أول قراءة (لا رقاقة ولا مفتاح في الجسم كما قبل الميزة)، وإلا ما قُرئ من الخادم خلال ٥ دقائق.
+   * ثم أسعارها (GET /price-lists/prices، كاش 'pricelists') للعمل دون اتصال. الفاتورة تُسعَّر بنوع سعر العميل من ملفه، وإلا بنوع
+   * المندوب الافتراضي («نوع سعر المندوب»، طلب المالك ٢ نوفمبر ٢٠٢٦ — من rep_user، والخادم يضمّ أسعاره لكاش المندوب بلا الصلاحية)،
+   * وإلا السعر الأساسي (defaultPriceTypeOf). والمندوب يبدّله برقاقةٍ بصلاحية «تبديل نوع السعر» وحدها وبين أنواعه المسموحة
+   * (allowedPriceTypes؛ بلا قيدٍ كلها كاليوم)، وبلاها يرى اسمه للعلم. والقرارات الصرفة في repPriceLists.ts:
+   *  • الأسماء من كاش الجهاز إن عرفت نوعي العميل والمندوب (repCachedNamesOf): شركةٌ بلا أنواع ومندوبٌ لا يبدّل ولا نوع له وعميلٌ بلا
+   *    نوع ⇒ لا طلب أبداً بعد أول قراءة (لا رقاقة ولا مفتاح في الجسم كما قبل الميزة)، وإلا ما قُرئ من الخادم خلال ٥ دقائق.
    *  • لشركةٍ لها أنواع: نوع العميل **الآن** من ملفه (customerListNow) مع الأسعار — صفّ قائمة العملاء قد يسبق نقل المدير للعميل إلى
    *    نوعٍ آخر، والخادم يسعّر بالحالي فيردّ الفاتورة 403 كلما أُعيدت (كأسعار العميل الخاصة التي تُجلب مع كل فتح لهذا السبب).
    *  • نوع الفاتورة بلا أسعارٍ في الجهاز (repListMissing): متصلاً تُجلب مرّةً، ولا إصدار حتى تصل — لا تسعير بالأساس صامتاً ─── */
@@ -1982,16 +1992,24 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   // نوع العميل من ملفه على الخادم أو صفّه المخبّأ (customerListNow) — undefined = لم يُقرأ فصفّ قائمة العملاء الممرَّر
   const [custListLive, setCustListLive] = useState<string | null | undefined>(undefined);
   const [listsLoading, setListsLoading] = useState(true);
-  // undefined = نوع العميل؛ وما يختاره المندوب (null = السعر الأساسي) لا يُقرأ إلا بالصلاحية (repInvoiceListOf)
+  // undefined = افتراضيّ الفاتورة؛ وما يختاره المندوب (null = السعر الأساسي) لا يُقرأ إلا بالصلاحية وضمن المسموح (repInvoiceListOf)
   const [pickedList, setPickedList] = useState<string | null | undefined>(undefined);
-  // الخادم قال إن «تبديل نوع السعر» سُحبت (403 PRICE_LIST_FORBIDDEN) قبل أن تصل refreshUser: لا رقاقة ولا مفتاح في هذه الفاتورة بعدها
-  const [switchRevoked, setSwitchRevoked] = useState(false);
+  // الخادم قال إن «تبديل نوع السعر» سُحبت أو إن النوع المرسَل خارج المسموح (403 PRICE_LIST_FORBIDDEN) قبل أن تصل refreshUser: لا رقاقة
+  // ولا مفتاح بصلاحيات تلك اللحظة (`revokedFor`). وصلاحياتٌ طازجة من /auth/me (refreshUser يبدّل كائنها — onPermsStale بعد الرفض) تحكم
+  // بعدها: مبدِّلٌ ما زال يملكها وتبدّلت أنواعه المسموحة أو افتراضيّه يرى رقاقاته الجديدة في الفاتورة نفسها، لا إقفالاً حتى يغلقها
+  const [revokedFor, setRevokedFor] = useState<RepUser | null>(null);
+  const switchRevoked = revokedFor === perms;
   const canSwitchList = perms.canChangePriceList === true && !switchRevoked;
   const listsOn = (listInfo?.lists.length ?? 0) > 0;
   // نوع العميل في صفّ قائمة العملاء (GET /customers يردّ priceListId) — والعميل المُنشأ دون اتصال بلا نوع (الخادم يُسقطه من جسم المندوب)
   const custListCached = listIdOf(customer?.priceListId);
   const custListId = repCustomerListOf(custListCached, custListLive, listInfo, namesFromServer);
-  const listId = repInvoiceListOf(custListId, pickedList, canSwitchList);
+  // «نوع سعر المندوب»: نوعه الافتراضي (rep_user من /auth/me) لعميلٍ بلا نوع، وأنواعه المسموحة (null = بلا قيد)
+  const repListCached = listIdOf(perms.defaultPriceListId);
+  const repListId = repDefaultListOf(repListCached, listInfo, namesFromServer);
+  const docDefault = defaultPriceTypeOf(custListId, repListId);
+  const allowedTypes = allowedPriceTypesOf(perms.allowedPriceTypes);
+  const listId = repInvoiceListOf(docDefault, pickedList, canSwitchList, allowedTypes);
   const listMissing = repListMissing(listId, listRows);
   const listPrices = useMemo<Record<string, number>>(() => listPricesOf(listRows, listId, products), [listRows, listId, products]);
   // آخر تحميلٍ بدأ: ردٌّ أبطأ من تحميلٍ أحدث (إعادةٌ بعد رفض) لا يكتب فوقه
@@ -2006,7 +2024,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     const mine = () => seq === listsSeq.current;
     setListsLoading(true);
     try {
-      const cachedNames = force ? null : repCachedNamesOf(await cacheGet<unknown>('pricelists:names'), Date.now(), custListCached, canSwitchList);
+      const cachedNames = force ? null : repCachedNamesOf(await cacheGet<unknown>('pricelists:names'), Date.now(), [custListCached, repListCached], canSwitchList);
       let names = cachedNames ? { info: cachedNames, fromServer: false } : await namesFromNet();
       if (!mine()) return;
       setListInfo(names.info); setNamesFromServer(names.fromServer);
@@ -2029,8 +2047,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       if (mine()) setListsLoading(false);
     }
   };
-  // عند الفتح، ومن جديد إن تبدّلت «تبديل نوع السعر» أثناءه (refreshUser): المندوب بلاها لا تصله إلا أسعار أنواع عملائه
-  useEffect(() => { void loadPriceLists(); }, [canSwitchList]); // eslint-disable-line react-hooks/exhaustive-deps
+  // عند الفتح، ومن جديد إن تبدّلت «تبديل نوع السعر» أو نوع المندوب الافتراضي أثناءه (refreshUser): المندوب بلاها لا تصله إلا أسعار
+  // أنواع عملائه ونوعه، ونوعٌ افتراضيّ جديد قد لا تعرفه الأسماء المخبّأة
+  useEffect(() => { void loadPriceLists(); }, [canSwitchList, repListCached]); // eslint-disable-line react-hooks/exhaustive-deps
   // نوع الفاتورة بلا أسعارٍ في الجهاز والجهاز متصل: تُجلب من الخادم مرّةً لكل نوع (لا حلقة إن بقي غائباً — الإصدار ممنوع حينها)
   const listRetried = useRef<string | null>(null);
   useEffect(() => {
@@ -2447,11 +2466,13 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       // (originalInvoiceRef/originalPaymentType) بلا originalInvoiceId — والمرحلة الأولى لا حقل: الجسم كما كان
       ...(isReturn && repReturnPolicyFields({ phase2: retPhase2, linked: !!saleRef, manual: manualRef, noteReason: noteReasonText })),
       /* «أنواع الأسعار»: نوع السعر الذي سُعّرت به الفاتورة (null = السعر الأساسي) — لمن يملك «تبديل نوع السعر» وحده. وبلاها لا
-       * مفتاح فيطبّق الخادم نوع العميل المحفوظ (هو الذي سعّر به التطبيق، أو الأحدث منه إن تغيّر بعد كاش الجهاز) بدل أن يردّ
-       * الفاتورة 403 PRICE_LIST_FORBIDDEN على نوعٍ لم يبدّله المندوب أصلاً. والمرتجع من فاتورة بيع سعره سعرها: بلا مفتاح.
-       * وعميلٌ بنوعٍ لا تعرفه أسماء الجهاز (listsOn مطفأ) واختار المبدِّل له «السعر الأساسي» كي يصدر: null صريحاً — غيابه يعني نوع
-       * العميل فيسعّر الخادم بنوعٍ غير الذي سُعّرت به البنود. وشركةٌ بلا أنواع وعميلٌ بلا نوع: لا مفتاح كما قبل الميزة */
-      ...(canSwitchList && !saleRef && (listsOn || custListId != null) && { priceListId: listId }),
+       * مفتاح فيطبّق الخادم افتراضيّه المحفوظ (نوع العميل ?? نوع المندوب — هو الذي سعّر به التطبيق، أو الأحدث منه إن تغيّر بعد
+       * كاش الجهاز) بدل أن يردّ الفاتورة 403 PRICE_LIST_FORBIDDEN على نوعٍ لم يبدّله المندوب أصلاً. والمرتجع من فاتورة بيع سعره
+       * سعرها: بلا مفتاح. وللمبدِّل يُرسل ولو كان الافتراضيّ («نوع سعر المندوب»): افتراضيٌّ تغيّر في الخادم بعد كاش الجهاز (أو في
+       * صندوقٍ أوف‑لاين قبل رفعه) يُسعَّر بالنوع الذي سُعّرت به البنود إن كان مسموحاً له، لا بنوعٍ آخر يردّه حارس السعر.
+       * وعميلٌ بنوعٍ لا تعرفه أسماء الجهاز (listsOn مطفأ) واختار المبدِّل له «السعر الأساسي» كي يصدر: null صريحاً — غيابه يعني
+       * الافتراضيّ فيسعّر الخادم بنوعٍ غير الذي سُعّرت به البنود. وشركةٌ بلا أنواع وافتراضيٌّ أساسيّ: لا مفتاح كما قبل الميزة */
+      ...(canSwitchList && !saleRef && (listsOn || docDefault != null) && { priceListId: listId }),
       // الاسعار شاملة كما اعلنت للعميل — المحرك (عميلا وخادما) يشتق الضريبة داخليا
       pricesIncludeTax: true,
       items: lines.map(l => ({
@@ -2618,12 +2639,14 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         if (err?.response?.data?.code === 'PRODUCT_UNITS_CHANGED') void refreshUnits();
         // «تتبّع اللوط»: الخادم وجد المتاح أقلّ مما تعرفه اللقطة — رسالته تُعرض، واللقطة تُجلب للمحاولة التالية
         if (lotCapsOn && err?.response?.data?.code === 'LOT_STOCK_INSUFFICIENT') void lots?.refresh(VANLOTS_BLOCK_REFETCH_GAP_MS);
-        // «أنواع الأسعار»: «تبديل نوع السعر» سُحبت بعد فتح التطبيق — رسالة الخادم تُعرض، والفاتورة تعود إلى نوع العميل (وبنودها غير
-        // المعدَّلة تُعاد بأسعاره) فيعيد المندوب الإصدار بلا رقاقة: الصلاحية تُطفأ هنا حتى تصل refreshUser فلا يختار نوعاً يُردّ ثانية
-        if (err?.response?.data?.code === 'PRICE_LIST_FORBIDDEN') { setPickedList(undefined); setSwitchRevoked(true); }
+        // «أنواع الأسعار»: «تبديل نوع السعر» أو النوع المسموح سُحبا بعد فتح التطبيق — رسالة الخادم تُعرض، والفاتورة تعود إلى افتراضيّها
+        // (وبنودها غير المعدَّلة تُعاد بأسعاره) فيعيد المندوب الإصدار بلا رقاقة: الصلاحية تُطفأ هنا بصلاحيات هذه اللحظة فلا يختار نوعاً يُردّ
+        // ثانية — حتى تصل الطازجة (onPermsStale أدناه) فتحكم هي: مبدِّلٌ تبدّلت أنواعه وحدها يعود يبدّل بين الجديدة
+        if (err?.response?.data?.code === 'PRICE_LIST_FORBIDDEN') { setPickedList(undefined); setRevokedFor(perms); }
         // ورفضٌ سعريّ (403 بلا رمز: «لا تملك صلاحية تغيير سعر البيع»): لعلّ المدير نقل العميل إلى نوعٍ آخر بعد فتح الفاتورة، أو أنشأ أول
-        // نوعٍ للشركة بعد كاش الأسماء — نوعه وأسعاره من الخادم الآن فتُعاد البنود غير المعدَّلة، ويعيد المندوب الإصدار
-        if (err?.response?.status === 403 && !saleRef && (!err?.response?.data?.code || err.response.data.code === 'PRICE_LIST_FORBIDDEN')) void loadPriceLists(true);
+        // نوعٍ للشركة بعد كاش الأسماء، أو بدّل نوع المندوب الافتراضي وأنواعه المسموحة — نوع العميل وأسعاره من الخادم الآن، وصلاحيات
+        // المندوب من /auth/me (onPermsStale)، فتُعاد البنود غير المعدَّلة ويعيد المندوب الإصدار
+        if (err?.response?.status === 403 && !saleRef && (!err?.response?.data?.code || err.response.data.code === 'PRICE_LIST_FORBIDDEN')) { void loadPriceLists(true); onPermsStale?.(); }
         // «اشتراط اختيار فاتورة البيع للمرتجع» ورقم الأصل اليدويّ (RETURN_LINK_REQUIRED، ZATCA_RETURN_REF_INVALID،
         // ZATCA_RETURN_REF_IN_SYSTEM): عبارة القاموس بلغة المندوب — الإعداد تغيّر بعد تحميل الشاشة، أو رقمٌ يُردّ
         if (isReturn && RETURN_POLICY_CODES.has(err?.response?.data?.code)) { setMsg(tr(returnIssueError(err).message)); setLoading(false); return; }
@@ -2799,18 +2822,20 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
             {/* «تتبّع اللوط»: منع الإضافة فوق المتاح في السيارة يُقال على الشبكة نفسها */}
             {!isReturn && lotNote && <p className="text-[11px] text-red-500 mb-2 text-center" role="status">{lotNote}</p>}
 
-            {/* «أنواع الأسعار»: نوع سعر الفاتورة — نوع العميل افتراضاً، ورقاقاتٌ يبدّل بها المندوب بصلاحية «تبديل نوع السعر» (البنود
-              * التي لم يعدّلها تُعاد بأسعار النوع)، وبلاها اسم النوع للعلم. الأسماء بيانات الشركة لا tr. شركةٌ بلا أنواع والمرتجع من
-              * فاتورة بيع (سعره سعرها): لا سطر */}
+            {/* «أنواع الأسعار»: نوع سعر الفاتورة — نوع العميل وإلا نوع المندوب الافتراضي، ورقاقاتٌ يبدّل بها المندوب بصلاحية «تبديل
+              * نوع السعر» بين أنواعه المسموحة (البنود التي لم يعدّلها تُعاد بأسعار النوع)، وبلاها — أو بلا بديلٍ — اسم النوع للعلم.
+              * الأسماء بيانات الشركة لا tr. شركةٌ بلا أنواع والمرتجع من فاتورة بيع (سعره سعرها): لا سطر */}
             {(listsOn || (listMissing && !listsLoading)) && !saleRef && (() => {
-              // الرقاقات: السعر الأساسي ثم الأنواع التي وصلت أسعارها (repListChipsOf) — نوعٌ بلا أسعارٍ في الجهاز يُسعَّر بالأساس صامتاً
-              const opts = [{ id: null as string | null, name: baseLabelOf(listInfo, tr) }, ...repListChipsOf(listInfo?.lists, listRows, listId)];
+              // الرقاقات: المسموح للمندوب (repSwitchChipsOf: السعر الأساسي ثم الأنواع بترتيب الشركة) مما وصلت أسعاره — نوعٌ بلا أسعارٍ في
+              // الجهاز يُسعَّر بالأساس صامتاً — ونوع الفاتورة الحالي ظاهرٌ دائماً
+              const chips = repSwitchChipsOf(listInfo?.lists, listRows, listId, allowedTypes, docDefault);
+              const opts = [...(chips.base ? [{ id: null as string | null, name: baseLabelOf(listInfo, tr) }] : []), ...chips.lists];
               const current = opts.find(o => o.id === listId);
               return (
                 <div className="mb-2" data-rep-price-type="">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <span className="text-xs text-gray-600">{tr('نوع السعر')}:</span>
-                    {canSwitchList ? (
+                    {canSwitchList && (opts.length > 1 || listId !== docDefault) ? (
                       <>
                         <span className="contents" role="radiogroup" aria-label={tr('نوع السعر')}>
                           {opts.map(o => (
@@ -2820,7 +2845,10 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                             </button>
                           ))}
                         </span>
-                        {listId !== custListId && <span className="text-[10px] text-amber-700">{tr('ليس نوع سعر العميل')}</span>}
+                        {/* غير افتراضيّ الفاتورة: نوع العميل إن كان له نوع (أو لا نوع للمندوب كاليوم)، وإلا نوع المندوب */}
+                        {listId !== docDefault && (custListId == null && repListId != null
+                          ? <span className="text-[10px] text-amber-700">{tr('ليس نوع سعرك الافتراضي')}</span>
+                          : <span className="text-[10px] text-amber-700">{tr('ليس نوع سعر العميل')}</span>)}
                       </>
                     ) : (
                       <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-700">{current?.name ?? '—'}</span>
@@ -5168,12 +5196,18 @@ export default function RepApp() {
       const { data } = await repApi.get('/auth/me', { background: true });
       const fresh = data?.data;
       if (!fresh?.id) return;
+      // المخزَّن قبل الدمج (rep_user يتبع الحالة دائماً) — به يُعرف أن «نوع سعر المندوب» تبدّل
+      let before: RepUser | null = null;
+      try { before = JSON.parse(localStorage.getItem('rep_user') || 'null'); } catch { /* تالف: كأن لا سابق */ }
       setUser(prev => {
         if (!prev || prev.id !== fresh.id) return prev;
         const merged = { ...prev, ...fresh } as RepUser;
         localStorage.setItem('rep_user', JSON.stringify(merged));
         return merged;
       });
+      // نوعه الافتراضي أو أنواعه المسموحة أو «تبديل نوع السعر» تبدّلت: كاش الأنواع وأسعارها الآن والجهاز متصل — وإلا انقطع قبل فتح
+      // فاتورةٍ فمُنع الإصدار دون اتصال لكل عميلٍ بلا نوع (repListMissing). ولا تغيير ⇒ لا طلب
+      if (before?.id === fresh.id && repPriceCacheStale(before, { ...before, ...fresh })) void warmRepPriceCache();
     } catch { /* أوف‑لاين أو عطل عابر: تبقى الصلاحيات المخزَّنة */ }
   }, []);
 
@@ -5427,10 +5461,10 @@ export default function RepApp() {
               onStatement={(doc) => { setDocBack('customerDetail'); setModal(null); setDocResult(doc); }}
               onOpenDoc={(doc) => { setDocBack('customerDetail'); setModal(null); setDocResult(doc); }} />
           ) : modal === 'createInvoice' && selectedCustomer ? (
-            <CreateInvoice customer={selectedCustomer} repName={user.name} company={company} perms={user} onClose={() => setModal('customerDetail')}
+            <CreateInvoice customer={selectedCustomer} repName={user.name} company={company} perms={user} onPermsStale={() => { void refreshUser(); }} onClose={() => setModal('customerDetail')}
               onDone={(doc) => { setModal(null); setRefreshKey(k => k + 1); setDocResult(doc); }} />
           ) : modal === 'createReturn' && selectedCustomer ? (
-            <CreateInvoice customer={selectedCustomer} repName={user.name} company={company} mode="return" perms={user} onClose={() => setModal('customerDetail')}
+            <CreateInvoice customer={selectedCustomer} repName={user.name} company={company} mode="return" perms={user} onPermsStale={() => { void refreshUser(); }} onClose={() => setModal('customerDetail')}
               onDone={(doc) => { setModal(null); setRefreshKey(k => k + 1); setDocResult(doc); }} />
           ) : modal === 'createReceipt' && selectedCustomer ? (
             <CreateReceipt customer={selectedCustomer} repName={user.name} company={company} perms={user} onClose={() => setModal('customerDetail')}

@@ -463,6 +463,11 @@ model SalesRep {
   canSellBelowPrice Boolean @default(false)
   // «تبديل نوع السعر» (أنواع الأسعار): يسعّر فاتورته بنوعٍ غير نوع العميل المحفوظ في ملفّه — مطفأ ⇒ نوع العميل وحده
   canChangePriceList Boolean @default(false)
+  /// نوع السعر الافتراضي للمندوب (طلب المالك ٢ نوفمبر ٢٠٢٦): يُسعَّر به عميلٌ بلا نوع — null = السعر الأساسي
+  defaultPriceListId String?
+  defaultPriceList   PriceList? @relation("RepDefaultPriceList", fields: [defaultPriceListId], references: [id], onDelete: SetNull)
+  /// الأنواع المسموح للمندوب أن يبدّل بينها (بصلاحية canChangePriceList): null = كلّها كاليوم؛ وإلا مصفوفة 'base' ومعرّفات أنواع
+  allowedPriceTypes  Json?
 
   // Collection permissions
   canCreateReceipt Boolean @default(true)
@@ -1047,6 +1052,7 @@ model PriceList {
   items     PriceListItem[]
   customers Customer[]
   invoices  Invoice[]
+  repsDefault SalesRep[] @relation("RepDefaultPriceList")
 
   @@unique([tenantId, name]) // جدولٌ جديد فارغ ⇒ القيد الفريد آمن مع db push
   @@index([tenantId])

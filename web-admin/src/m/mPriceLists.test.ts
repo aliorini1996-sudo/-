@@ -8,6 +8,10 @@ import {
 } from './mUnits';
 import { unitChoices } from '../rep/repUnits';
 import { invoiceTotals } from './docMath';
+import { defaultPriceTypeOf } from '../lib/priceLists';
+import {
+  repPriceTypesOf, priceTypesWithin, togglePriceType, setDefaultPriceType, defaultOptionsOf, repPriceTypesBody, repPriceTypesDirty,
+} from './mRepPriceTypes';
 
 /**
  * «أنواع الأسعار» في تطبيق الإدارة على الجوال: رقاقات نوع السعر في الفاتورة ونوع السعر في ملف العميل و«تبديل نوع السعر» للمندوب.
@@ -95,7 +99,15 @@ const read = (...p: string[]) => fs.readFileSync(path.resolve(process.cwd(), 'sr
 
 test('MInvoiceCreate: النوع من ملف العميل، والرقاقات تبدّله، وكل اقتراح سعرٍ بالقاعدة الواحدة صافياً — والجسم يحمل priceListId', () => {
   const s = read('m', 'MInvoiceCreate.tsx');
-  assert.ok(s.includes("const listId: string | null = !listsOn ? null : listChoice !== undefined ? listChoice : (custListId ?? null);"));
+  // افتراضيّ الفاتورة بالقاعدة الواحدة مع الخادم: نوع العميل ?? نوع المندوب المختار ?? الأساسي
+  assert.ok(s.includes("const repListId: string | null = repsQ.data?.find(r => r.id === salesRepId)?.defaultPriceListId ?? null;"));
+  assert.ok(s.includes('const docDefault: string | null = defaultPriceTypeOf(custListId, repListId);'));
+  assert.ok(s.includes("const listId: string | null = !listsOn ? null : listChoice !== undefined ? listChoice : docDefault;"));
+  // مندوبٌ آخر يغيّر الافتراضي وحده (رقاقةٌ اختارها المستخدم تبقى كاللوحة) — والتنبيه بقاعدة اللوحة نفسها
+  assert.ok(s.includes('onChange={e => setSalesRepId(e.target.value)}'));
+  assert.ok(s.includes('const listHint = adminListHintOf(listId, custListId, repListId, custListId !== undefined);'));
+  assert.ok(s.includes("tr(listHint === 'rep' ? 'ليس نوع سعر المندوب' : 'ليس نوع سعر العميل')"));
+  assert.doesNotMatch(s, /pricesIncludeTax/, 'الجوال يرسل أسعاراً صافية بلا مفتاح الشمول');
   assert.ok(s.includes('const overrideOf = (p: SalePick) => priceOverrideOf(p, listId, custRows);'));
   assert.ok(s.includes('productApi.customerPrices(customerId)'), 'أسعار العميل الخاصة تغلب النوع');
   assert.ok(s.includes('setLines(ls => addInvoiceLine(ls, p, c, overrideOf(p)));'));
@@ -112,8 +124,10 @@ test('MInvoiceCreate: النوع من ملف العميل، والرقاقات �
   // أسماء الأنواع مرّةً كل ٥ دقائق لا مع كل فاتورة — ونوع عميلٍ لا تعرفه (أُنشئ بعدها) يعيد قراءتها مرّةً، وإلا لا مفتاح فيسعّر
   // الخادم بنوع العميل والبنود مقترحةٌ بالأساس
   assert.match(s, /queryKey: \['m-price-lists'\],[\s\S]{0,400}staleTime: 5 \* 60_000,/);
+  // والافتراضي نوع العميل أو المندوب — كلاهما قد يكون أحدث من الأسماء المخبّأة
   const retry = s.slice(s.indexOf('const namesRetried = useRef<string | null>(null);'));
-  assert.match(retry, /^const namesRetried[\s\S]{0,120}if \(!custListId \|\| priceLists\.some\(l => l\.id === custListId\) \|\| priceInfoQ\.isFetching \|\| namesRetried\.current === custListId\) return;\s*namesRetried\.current = custListId;\s*void priceInfoQ\.refetch\(\);/);
+  assert.match(retry, /^const namesRetried[\s\S]{0,120}if \(!docDefault \|\| priceLists\.some\(l => l\.id === docDefault\) \|\| priceInfoQ\.isFetching \|\| namesRetried\.current === docDefault\) return;\s*namesRetried\.current = docDefault;\s*void priceInfoQ\.refetch\(\);/);
+  assert.match(retry, /\}, \[docDefault, priceInfoQ\.data, priceInfoQ\.isFetching\]\);/);
 });
 
 test('MCustomerForm وMSalesReps: «نوع السعر» يُرسل null صريحاً للسعر الأساسي والخانة الظاهرة وحدها، و«تبديل نوع السعر» بين صلاحيات التسعير', () => {
@@ -131,4 +145,101 @@ test('MCustomerForm وMSalesReps: «نوع السعر» يُرسل null صريح
   assert.match(grants, /'canChangePriceList'/);
   const acc = r.slice(r.indexOf('const ACCOUNTING_PERMS = new Set<PermKey>(['), r.indexOf(']);', r.indexOf('const ACCOUNTING_PERMS')));
   assert.match(acc, /'canChangePriceList'/);
+});
+
+// ═══ نوع سعر المندوب (طلب المالك ٢ نوفمبر ٢٠٢٦) ═══
+
+test('افتراضيّ فاتورة الجوال مع المندوب المختار: نوع العميل ثم نوع المندوب ثم الأساسي — وتبديل المندوب يعيد تسعير ما لم يُمسّ صافياً', () => {
+  assert.equal(defaultPriceTypeOf('l-retail', 'l-whole'), 'l-retail', 'نوع العميل يغلب نوع المندوب');
+  assert.equal(defaultPriceTypeOf(null, 'l-whole'), 'l-whole', 'عميلٌ بلا نوع ⇒ نوع المندوب');
+  assert.equal(defaultPriceTypeOf(undefined, 'l-whole'), 'l-whole', 'والعميل لم يُعرف بعد ⇒ نوع المندوب حتى يصل');
+  assert.equal(defaultPriceTypeOf(null, null), null, 'ولا هذا ولا ذاك ⇒ السعر الأساسي');
+  // مندوبٌ بلا نوع ⇒ بنودٌ بالأساس (الكرتون ٤٥)، ثم مندوبٌ بنوع الجملة ⇒ الكرتون ١٠٠ صافياً، والمعدَّل يدويّاً يبقى
+  const catalog = { p1: water, p2: sugar };
+  const by = (repDefault: string | null) => (p: SalePick) => priceOverrideOf(p, defaultPriceTypeOf(null, repDefault), null);
+  const lines = [invoiceLine(water, carton, by(null)(water)), { ...invoiceLine(water, bottle, by(null)(water)), unitPrice: 1.8 }];
+  assert.equal(lines[0].unitPrice, 45);
+  const whole = repriceInvoiceLines(lines, catalog, by('l-whole'));
+  assert.equal(whole[0].unitPrice, 100, 'سعر الجملة صافياً لا شاملاً');
+  assert.equal(whole[1].unitPrice, 1.8, 'المعدَّل يبقى');
+  assert.equal(whole[1].refPrice, 4.1667, 'ومرجعه يتبع النوع');
+  assert.equal(invoiceTotals([whole[0]], 0).total, 115);
+  // عميلٌ بنوع التجزئة بعده: نوعه يغلب نوع المندوب
+  const retail = repriceInvoiceLines(whole, catalog, p => priceOverrideOf(p, defaultPriceTypeOf('l-retail', 'l-whole'), null));
+  assert.equal(retail[0].unitPrice, 60);
+});
+
+test('mRepPriceTypes: خانات أنواع المندوب — لا اختيار = كل الأنواع (null)، والافتراضي داخل المختارة دائماً', () => {
+  const ids = ['l-whole', 'l-retail'];
+  // مندوبٌ قبل الضبط (الحقلان null): لا خانة مختارة، والافتراضي الأساسي، والخيارات كلها
+  const fresh = repPriceTypesOf({ defaultPriceListId: null, allowedPriceTypes: null }, ids);
+  assert.deepEqual(fresh, { checked: [], def: null });
+  assert.deepEqual(defaultOptionsOf(fresh.checked, ids), [null, 'l-whole', 'l-retail']);
+  assert.deepEqual(repPriceTypesBody(fresh), { defaultPriceListId: null, allowedPriceTypes: null });
+  // صفٌّ مضبوط: 'base' = null، بترتيب العرض (الأساسي ثم أنواع الشركة) أيّاً كان ترتيب المخزَّن، وبلا نوعٍ لم يعد للشركة
+  const set = repPriceTypesOf({ defaultPriceListId: 'l-retail', allowedPriceTypes: ['l-retail', 'l-gone', 'base', 'base'] }, ids);
+  assert.deepEqual(set, { checked: [null, 'l-retail'], def: 'l-retail' });
+  assert.deepEqual(defaultOptionsOf(set.checked, ids), [null, 'l-retail'], 'الافتراضي من المختارة وحدها');
+  assert.deepEqual(repPriceTypesBody(set), { defaultPriceListId: 'l-retail', allowedPriceTypes: ['base', 'l-retail'] });
+  // نوعٌ افتراضيٌّ لم يعد للشركة ⇒ أول الخيارات
+  assert.equal(repPriceTypesOf({ defaultPriceListId: 'l-gone', allowedPriceTypes: null }, ids).def, null);
+  // أول خانةٍ من «كل الأنواع»: تُضاف بترتيب العرض ومعها الافتراضيّ الحالي مختاراً — لا ينتقل الافتراضيّ إليها في الخفاء.
+  // بلاغ المراجعة: افتراضيّ X بلا اختيار، نقر Y ثم X ⇒ كانت [X، Y] بافتراضيّ Y فيُحفظ Y ويتبدّل تسعير عملاء المندوب بلا نوع
+  const a = togglePriceType({ checked: [], def: 'l-whole' }, 'l-retail', ids);
+  assert.deepEqual(a, { checked: ['l-whole', 'l-retail'], def: 'l-whole' });
+  assert.deepEqual(repPriceTypesBody(a), { defaultPriceListId: 'l-whole', allowedPriceTypes: ['l-whole', 'l-retail'] }, 'الحفظ بالافتراضيّ نفسه');
+  assert.deepEqual(togglePriceType({ checked: [], def: null }, 'l-retail', ids), { checked: [null, 'l-retail'], def: null }, 'والسعر الأساسي افتراضياً كذلك');
+  assert.deepEqual(togglePriceType({ checked: [], def: 'l-retail' }, 'l-retail', ids), { checked: ['l-retail'], def: 'l-retail' }, 'خانة الافتراضيّ نفسه: بلا تكرار');
+  assert.deepEqual(togglePriceType({ checked: [], def: 'l-gone' }, 'l-retail', ids), { checked: ['l-retail'], def: 'l-retail' }, 'افتراضيٌّ لم يعد للشركة لا يُضاف');
+  // ثم إزالة خانة الافتراضيّ القديم بيد المدير تنقله أمام العين إلى أول الباقية
+  assert.deepEqual(togglePriceType(a, 'l-whole', ids), { checked: ['l-retail'], def: 'l-retail' });
+  // وإضافةٌ إلى اختيارٍ قائم: بترتيب العرض والافتراضيّ داخلها يبقى
+  const b = togglePriceType({ checked: ['l-retail'], def: 'l-retail' }, null, ids);
+  assert.deepEqual(b, { checked: [null, 'l-retail'], def: 'l-retail' }, 'افتراضيٌّ داخلها يبقى');
+  // إزالة خانة الافتراضي تنقله إلى أول الباقية، وإزالة الكل تعيد «كل الأنواع» بالافتراضي كما هو
+  const c = togglePriceType(b, 'l-retail', ids);
+  assert.deepEqual(c, { checked: [null], def: null });
+  const none = togglePriceType({ checked: ['l-whole'], def: 'l-whole' }, 'l-whole', ids);
+  assert.deepEqual(none, { checked: [], def: 'l-whole' });
+  assert.deepEqual(repPriceTypesBody(none), { defaultPriceListId: 'l-whole', allowedPriceTypes: null });
+  // اختيار الافتراضي من الخيارات وحدها
+  assert.equal(setDefaultPriceType(b, null, ids).def, null);
+  assert.equal(setDefaultPriceType(b, 'l-whole', ids), b, 'نوعٌ غير مختار لا يصير افتراضياً');
+  // نوعٌ حُذف بعد التعديل (ردّ PRICE_LIST_INVALID ثم أنواعٌ أحدث): تسقط خانته والافتراضي إلى أول الباقية
+  assert.deepEqual(priceTypesWithin({ checked: [null, 'l-retail'], def: 'l-retail' }, ['l-whole']), { checked: [null], def: null });
+  assert.deepEqual(priceTypesWithin(b, ids), b);
+  // «لم يُمسّ» يُقاس بالجسم: الحالة نفسها ⇒ لا يُرسل شيء، وأي تغيير ⇒ يُرسلان
+  assert.equal(repPriceTypesDirty(set, { ...set }), false);
+  assert.equal(repPriceTypesDirty(set, togglePriceType(set, 'l-whole', ids)), true);
+  assert.equal(repPriceTypesDirty(fresh, setDefaultPriceType(fresh, 'l-whole', ids)), true);
+});
+
+test('MSalesReps: قسم «أنواع الأسعار» في الصلاحيات — والشركة لها أنواع والمحاسبة مفعّلة والصفّ يحمل الحقل، والحقلان يُرسلان معدَّلين وحدهما', () => {
+  const r = read('m', 'MSalesReps.tsx');
+  assert.ok(r.includes('const typesShown = accountingOn && priceLists.length > 0 && rep.defaultPriceListId !== undefined;'),
+    'خادمٌ قبل الميزة (الحقل غائب) لا يُكتب فوقه');
+  assert.ok(r.includes("queryKey: ['m-price-lists'],"), 'مفتاح الأنواع نفسه في الفاتورة وملف العميل');
+  assert.ok(r.includes('const typesBody = typesShown && repPriceTypesDirty(typesInitial, types) ? repPriceTypesBody(types) : null;'));
+  assert.ok(r.includes('...(typesBody ?? {}),'));
+  assert.ok(r.includes('const types = typesEdited ? priceTypesWithin(typesEdited, listIds) : typesInitial;'));
+  assert.match(r, /queryKey: \['m-price-lists'\],[\s\S]{0,300}refetchOnMount: 'always',/, 'نوعٌ أحدث من الأسماء المخبّأة لا يسقط من الحفظ');
+  assert.ok(r.includes('{typesShown && ('));
+  assert.ok(r.includes('onClick={() => setTypesEdited(togglePriceType(types, o.id, listIds))}'));
+  assert.ok(r.includes('defaultOptionsOf(types.checked, listIds).map('), 'الافتراضي من المختارة وحدها');
+  assert.ok(r.includes("baseLabelOf(priceInfoQ.data, tr)"), 'السعر الأساسي باسمه عند الشركة');
+  assert.doesNotMatch(r, /tr\(o\.name\)|tr\(l\.name\)/, 'أسماء الأنواع بيانات لا تمرّ بـtr');
+  // عنوان الخانات كنسخة اللوحة: هي ما يبدّل بينه المندوب لا «نوع سعره»
+  assert.match(r, /\{typesShown && \([\s\S]{0,400}<p className="label px-3\.5 pt-3">\{tr\('أنواع الأسعار المسموحة'\)\}<\/p>\s*<div data-m-rep-price-types=""/);
+});
+
+test('MSalesReps: حفظ الصلاحيات يُبطل قائمة مناديب فاتورة الجوال — نوع المندوب الافتراضي منها، والمخبّأ قبل الحفظ يسعّر بالقديم', () => {
+  const r = read('m', 'MSalesReps.tsx');
+  const inv = read('m', 'MInvoiceCreate.tsx');
+  // المفتاح نفسه الذي تقرأ منه الفاتورة نوع المندوب (staleTime العامّ ٣٠ ثانية)
+  assert.ok(inv.includes("queryKey: ['m-inv-reps'],"));
+  assert.match(inv, /const repListId: string \| null = repsQ\.data\?\.find\(r => r\.id === salesRepId\)\?\.defaultPriceListId \?\? null;/);
+  const perms = r.slice(r.indexOf('...(typesBody ?? {}),'), r.indexOf("toast.success(tr('تم حفظ الصلاحيات'));"));
+  assert.ok(perms.length > 0 && perms.includes("qc.invalidateQueries({ queryKey: ['m-inv-reps'] });"), 'الصلاحيات (النوع الافتراضي والمسموح)');
+  const form = r.slice(r.indexOf('onSuccess: (saved) => {'), r.indexOf("tr('تم إنشاء حساب المندوب')"));
+  assert.ok(form.length > 0 && form.includes("qc.invalidateQueries({ queryKey: ['m-inv-reps'] });"), 'ونموذج المندوب (جديدٌ أو اسمٌ/حالة)');
 });

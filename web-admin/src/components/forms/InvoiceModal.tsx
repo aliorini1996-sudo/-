@@ -23,14 +23,20 @@ import { choiceById, defaultChoice, hasUnitChoice, invoiceItemUnit, primaryChoic
 import { baseQtyText, lineKey, unitTaken } from '../../lib/adminUnits';
 import type { UnitDef } from '../../lib/units';
 import {
-  LOT_CERTAINTY_LABELS, LOT_STATUS_LABELS, LOT_WARNING_LABELS, lotErrorOf, lotFlagsOf, lotWarningsOf, type ProductLotDto,
+  LOT_CERTAINTY_LABELS, LOT_STATUS_LABELS, LOT_WARNING_LABELS, lotErrorOf, lotFlagsOf, lotWarningsOf, type ProductLotDto, type VanLotSnapshotDto,
 } from '../../lib/lots';
 import { lotErrorText, returnableLotsOf, saleLineLots, withDocLots, withFreeReturnLots, type SaleLotRow } from '../../lib/invoiceLots';
+import {
+  clearSaleLotPicks, lotErrorLineIdx, saleLotErrorText, saleLotProblems, saleLotSources, withSaleLots, type SaleLotPick,
+} from '../../lib/saleLots';
+import SaleLotPicker, { saleLotProblemText, type SaleLotState } from '../SaleLotPicker';
+import { useAuthStore } from '../../store/authStore';
 import { X, Trash2, Plus, Undo2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SearchableSelect from '../SearchableSelect';
 import PriceTypeChips from '../PriceTypeChips';
 import { baseLabelOf, priceListsOf, priceOverrides, repriceUntouched, suggestedNetOf } from '../../lib/priceLists';
+import { adminInvoiceListOf, adminListHintOf, type AdminListChoice } from '../../lib/invoiceModalRepPrice';
 
 /**
  * بند الفاتورة في المحرّر. الوحدات المتعددة: `unit` اسم وحدة البند كما يُطبع، والكمية والسعر بها؛ و`unitId` وحدتها
@@ -56,6 +62,9 @@ interface LineItem {
   discountPct: number;
   taxPct: number;
   lineTotal: number;
+  /** «تتبّع اللوط» — تشغيلة سطر البيع (lib/saleLots.ts): غائب = «تلقائي — الأقرب انتهاءً» فلا يُرسل شيء (FEFO كما اليوم).
+   * يبقى مع السطر حين تتغيّر كميته أو وحدته: الواحدة تتبعها، والتقسيم يُظهر الفرق ويمنع الإصدار */
+  lotPick?: SaleLotPick | null;
 }
 
 /** وحدة البند من اختيارٍ من وحدات الصنف */
@@ -178,7 +187,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
     },
   });
 
-  /* «أنواع الأسعار»: الفاتورة تُسعَّر بنوع سعر العميل (من ملفه) ويبدّله المدير برقاقة — بلا حارسٍ له (الخادم يحرس المندوب وحده).
+  /* «أنواع الأسعار»: الفاتورة تُسعَّر بنوع سعر العميل (من ملفه)، وإلا بالنوع الافتراضي للمندوب المختار، ويبدّله المدير برقاقة —
+   * بلا حارسٍ له ولا قيد «الأنواع المسموحة» (الخادم يحرس المندوب وحده).
    * والسعر المقترح للبند: سعر العميل الخاص يغلب سعر النوع، والنوع يغلب سعر الوحدة والأساس (suggestedNetOf ← choiceNet بثالثه، كحارس الخادم).
    * وشركةٌ بلا أنواع: لا رقاقات ولا مفتاح في الجسم — والخادم يأخذ نوع العميل (null) كما قبل الميزة */
   const { data: priceInfo } = useQuery({
@@ -187,7 +197,14 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
   });
   const priceLists = priceInfo?.lists ?? [];
   const priceListOn = priceLists.length > 0;
-  const [priceListId, setPriceListId] = useState<string | null>(null);
+  /* «نوع سعر المندوب» (طلب المالك ٢ نوفمبر ٢٠٢٦): الافتراضي نوع العميل ?? النوع الافتراضي للمندوب المختار ?? الأساسي (كالخادم —
+   * lib/invoiceModalRepPrice.ts). رقاقة المدير تغلبه (undefined = لم يختر)؛ تغيير العميل يعيده إلى الافتراضي، وتغيير المندوب يغيّر
+   * الافتراضي فيتبعه النوع ما لم يختر المدير — والبنود التي لم يُعدَّل سعرها تُعاد به (overrides أدناه) */
+  const [listChoice, setListChoice] = useState<AdminListChoice>(undefined);
+  const custListId = selectedCustomer?.priceListId ?? null;
+  const repDefaultListId = salesReps?.find(r => r.id === salesRepId)?.defaultPriceListId ?? null;
+  const priceListId = adminInvoiceListOf(priceListOn, listChoice, custListId, repDefaultListId);
+  const listHint = adminListHintOf(priceListId, custListId, repDefaultListId, !!selectedCustomer);
   // أسعار العميل الخاصة — كانت النافذة تقترح سعر الصنف لعميلٍ له سعرٌ متّفق عليه
   const { data: custRows } = useQuery({
     queryKey: ['customer-prices', customerId],
@@ -214,6 +231,43 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
   // تشغيلة كل سطر مرتجعٍ حرّ بمفتاح السطر (الصنف ووحدته) — الفارغ «تلقائي» من مبيعات العميل السابقة (يحدّدها الخادم)
   const [freeLots, setFreeLots] = useState<Record<string, string>>({});
   const trackedIds = new Set(lotOn ? (products || []).filter(p => p.lotTracked === true).map(p => p.id) : []);
+  /* تشغيلة سطر البيع (طلب المالك ٢ نوفمبر ٢٠٢٦): المصادر من لقطة سيارة المندوب المختار — تُجلب حين الميزة مفعّلة وفي البيع
+   * سطرٌ متتبَّع وللمستخدم صلاحية مخزون السيارات (مسار /van-stock خلفها)، وتُعاد بتغيّر المندوب (المفتاح). مطفأةً أو بلا سطرٍ
+   * متتبَّع: لا طلب (§١٠.١). وتعذّرها يُبقي «تلقائي» وحده — الخادم يوزّع كما اليوم */
+  // جلسة المالك (الانتحال) تمرّ بكل صلاحية على الخادم (requireAdminPermission ← isOwnerSession) — لا «يحتاج صلاحية» لها (مراجعة D9)
+  const canVanStock = useAuthStore(s => s.user?.canManageVanStock !== false || !!s.impersonating);
+  const hasSaleLotLine = lotOn && !isReturn && lines.some(l => trackedIds.has(l.productId));
+  const vanLotsQ = useQuery({
+    queryKey: ['invoice-van-lots', salesRepId],
+    enabled: hasSaleLotLine && !!salesRepId && canVanStock,
+    staleTime: 15_000,
+    // رفضٌ صريح (٤٠٣ صلاحية أو علم أو النظام المحاسبي، ٤٠٤ مندوب) لا يتغيّر بالإعادة
+    retry: false,
+    queryFn: async () => (await lotsApi.vanLotBalances(salesRepId)).data.data as VanLotSnapshotDto,
+  });
+  const vanLots = hasSaleLotLine && salesRepId ? vanLotsQ.data ?? null : null;
+  const saleLotState: SaleLotState = !salesRepId ? 'NO_REP' : !canVanStock ? 'NO_PERM'
+    : vanLots ? 'READY' : vanLotsQ.isError ? 'FAILED' : 'LOADING';
+  const saleLotIssues = isReturn ? [] : saleLotProblems(lines, vanLots, pid => trackedIds.has(pid));
+  // خطأ لوطٍ من الخادم على أسطره (بمفتاح السطر — الحذف يزيح الفهارس): يُمحى بأي تعديلٍ لاختيار السطر أو بإصدارٍ جديد
+  const [lotLineErr, setLotLineErr] = useState<{ keys: string[]; text: string } | null>(null);
+  // أسطر البيع كما أُرسلت: فهارس خطأ الخادم فهارس **الجسم المرسل** — سطرٌ حُذف أثناء الإرسال لا يزيح الخطأ إلى سطرٍ آخر
+  const sentLines = useRef<LineItem[]>([]);
+  const setLinePick = (idx: number, pick: SaleLotPick | null) => {
+    setLotLineErr(null);
+    setLines(ls => ls.map((l, i) => (i === idx ? { ...l, lotPick: pick ?? undefined } : l)));
+  };
+  /** تغيّر المندوب: تشغيلات سيارة الآخر لا معنى لها — تعود الأسطر «تلقائي» ويُقال ذلك */
+  const changeRep = (id: string) => {
+    if (id === salesRepId) return;
+    setSalesRepId(id);
+    setLotLineErr(null);
+    const r = clearSaleLotPicks(lines);
+    if (r.cleared) {
+      setLines(r.lines);
+      toast(tr('أعيدت تشغيلات الأسطر إلى تلقائي لأن المندوب تغير'));
+    }
+  };
 
   // فواتير بيع العميل التي بقي فيها ما يُرجَع — طازجة دائماً (staleTime 0): المتاح يتغيّر بكل مرتجع
   const { data: returnableSales, isFetching: loadingSales, isError: salesFailed } = useQuery({
@@ -269,7 +323,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
   };
 
   const changeKind = (k: 'SALE' | 'RETURN') => { setDocKind(k); unlinkSale(); };
-  // العميل أو النوع تغيّر أو وصلت أسعار العميل: البنود التي لم يُعدَّل سعرها تأخذ المقترح الجديد (repriceUntouched)
+  // العميل أو المندوب أو النوع تغيّر أو وصلت أسعار العميل: البنود التي لم يُعدَّل سعرها تأخذ المقترح الجديد (repriceUntouched)
   useEffect(() => {
     setLines(ls => repriceUntouched(ls, l => {
       const p = (products || []).find(x => x.id === l.productId);
@@ -277,8 +331,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
       return p && c ? suggestedNet(p, c) : null;
     }, (l, price) => ({ ...l, unitPrice: price, lineTotal: calcLine(l.qty, price, l.discountPct, l.taxPct) })));
   }, [overrides]); // eslint-disable-line react-hooks/exhaustive-deps
-  /** العميل المختار: نوع سعره من ملفه هو نوع الفاتورة (والمدير يبدّله برقاقة) */
-  const pickCustomerList = (id: string) => setPriceListId((customers || []).find(c => c.id === id)?.priceListId ?? null);
+  /** عميلٌ آخر: الفاتورة تعود إلى نوعها الافتراضي (نوع سعره من ملفه ?? نوع المندوب) — والمدير يبدّله برقاقة */
+  const pickCustomerList = (id: string) => { if (id !== customerId) setListChoice(undefined); };
   const setLinkedQty = (saleItemId: string, v: number) =>
     setLinked(s => s && { ...s, lines: s.lines.map(l => (l.saleItemId === saleItemId ? { ...l, qty: clampReturnQty(v, l) } : l)) });
 
@@ -340,6 +394,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
       }
       // «تتبّع اللوط»: تشغيلات كل سطر كما وزّعها الخادم (بنود الردّ بالصنف والمعامل) — والصنف غير المتتبَّع بلا شيء
       const soldLots = saleLineLots(lines, inv.items);
+      // متاح تشغيلات السيارة نقص بالبيع — الفاتورة التالية لا تختار من لقطةٍ قديمة
+      if (lotOn) qc.invalidateQueries({ queryKey: ['invoice-van-lots'] });
       const doc: InvoiceDoc = {
         kind: 'invoice', number: inv.number, date: inv.invoiceDate, type, isReturn: false,
         company: company ?? null, customer: selectedCustomer as Customer, repName,
@@ -368,10 +424,23 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
       const le = lotErrorOf(err);
       if (le) {
         const prod = (id: string | null) => (id ? (products || []).find(p => p.id === id) : undefined);
-        toast.error(lotErrorText(le, tr, {
-          nameOf: id => prod(id)?.name,
-          qtyText: (id, n) => baseQtyText(n, prod(id) ?? null, x => String(Number(x.toFixed(3))), { withUnit: true }),
-        }), { duration: 8000 });
+        const ctx = {
+          nameOf: (id: string) => prod(id)?.name,
+          qtyText: (id: string | null, n: number) => baseQtyText(n, prod(id) ?? null, x => String(Number(x.toFixed(3))), { withUnit: true }),
+          // رقم التشغيلة من لقطة السيارة (LOT_BLOCKED وLOT_EXPIRED لا يحملانه)
+          lotNumberOf: (lotId: string) => vanLots?.products.flatMap(p => p.lots).find(x => x.lotId === lotId)?.lotNumber,
+        };
+        // البيع بتشغيلةٍ صريحة: رموزها (موقوفة/منتهية/غير موجودة/كمية السطر) بلغة الواجهة لا رسالة الخادم العربية (مراجعة D4)
+        const text = (vars as { type?: string } | undefined)?.type !== 'RETURN' ? saleLotErrorText(le, tr, ctx) : lotErrorText(le, tr, ctx);
+        toast.error(text, { duration: 8000 });
+        // البيع: الخطأ على سطره (فهرس البند = موضع السطر؛ وتشغيلةٌ مسمّاة تضيّقه إلى من اختارها) — المرتجع رسالته وحدها
+        if ((vars as { type?: string } | undefined)?.type !== 'RETURN') {
+          const sent = sentLines.current;
+          const keys = lotErrorLineIdx(le, sent).map(i => lineKey(sent[i]));
+          setLotLineErr(keys.length ? { keys, text } : null);
+          // المتاح تغيّر على الخادم (بيعٌ أو تحميلٌ سبق): تُعاد اللقطة فيرى المدير المتاح الجديد بجانب سطره
+          qc.invalidateQueries({ queryKey: ['invoice-van-lots'] });
+        }
         return;
       }
       // المرتجع: رسالة الخادم بأسباب بنوده، وتعارض المتاح (مرتجعٌ آخر سبق) يعيد قراءة بنود الفاتورة فيرى المدير الجديد
@@ -493,6 +562,15 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
     if (plan === 'INSTALLMENT' && insPreview.length === 0) {
       toast.error(tr('المبلغ لا يكفي لتقسيمه على هذا العدد من الأقساط')); return;
     }
+    // «تتبّع اللوط»: تشغيلةٌ مختارة لا تطابق كمية سطرها (تقسيمٌ تغيّرت كميته أو وحدته، أو فوق المتاح) — لا إصدار ولا تحجيم صامت
+    const badLot = saleLotIssues.findIndex(p => p !== null);
+    if (badLot >= 0) {
+      const bl = lines[badLot];
+      toast.error(`${tr('تشغيلة السطر')} «${bl.productName}»: ${saleLotProblemText(saleLotIssues[badLot], tr, (products || []).find(p => p.id === bl.productId) ?? null)}`, { duration: 7000 });
+      return;
+    }
+    setLotLineErr(null);
+    sentLines.current = lines;
     mutation.mutate({
       customerId, salesRepId, type, discountPct, notes,
       // «أنواع الأسعار»: النوع المختار (null = الافتراضي) — شركةٌ بلا أنواع بلا مفتاح فيأخذ الخادم نوع العميل كما كان
@@ -503,13 +581,14 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
         paymentPlan: 'INSTALLMENT',
         installmentPlan: { count: insCount, firstDueDate: insFirst, period: insPeriod },
       }),
-      items: lines.map(l => ({
+      // «تتبّع اللوط»: سطرٌ بتشغيلةٍ مختارة يحمل lots بالكمية الأساسية (withSaleLots)؛ و«تلقائي» بنده كما كان حرفاً
+      items: withSaleLots(lines.map(l => ({
         productId: l.productId, qty: l.qty, unitPrice: l.unitPrice,
         discountPct: l.discountPct, taxPct: l.taxPct,
         // الوحدات المتعددة: معرّف الوحدة يحلّه الخادم، ولقطتها كما رآها المدير (الاسم والمعامل ووحدة الأساس) تكشف
         // قائمةً قديمة — صنفٌ حُوّل أساسه بعد فتح النافذة يُردّ 400 UNIT_INVALID لا يُقيَّد «٢» حبّتين وقد قصد كرتونين
         ...invoiceItemUnit({ unit: l.unit, unitId: l.unitId, unitName: l.unitId ? l.unit : null, unitFactor: l.unitFactor, baseUnit: l.baseUnit }),
-      })),
+      })), lines, pid => trackedIds.has(pid)),
     });
   };
 
@@ -561,7 +640,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
             </div>
             <div>
               <label className="label">{tr('المندوب')} *</label>
-              <select className="input" value={salesRepId} onChange={e => setSalesRepId(e.target.value)}>
+              <select className="input" value={salesRepId} onChange={e => changeRep(e.target.value)}>
                 <option value="">{tr('اختر المندوب')}</option>
                 {salesReps?.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
               </select>
@@ -811,15 +890,14 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
           </div>
           ) : (
           <div>
-            {/* «أنواع الأسعار»: نوع العميل مختارٌ افتراضاً، والرقاقة تبدّله فتُعاد أسعار البنود التي لم تُعدَّل */}
+            {/* «أنواع الأسعار»: نوع العميل (وإلا نوع المندوب) مختارٌ افتراضاً، والرقاقة تبدّله فتُعاد أسعار البنود التي لم تُعدَّل */}
             {priceListOn && (
               <div className="flex items-center gap-2 flex-wrap mb-3" data-invoice-price-type="">
                 <span className="text-xs font-semibold text-gray-500">{tr('نوع السعر')}</span>
-                <PriceTypeChips baseLabel={baseLabelOf(priceInfo, tr)} lists={priceLists} value={priceListId} onChange={setPriceListId}
+                <PriceTypeChips baseLabel={baseLabelOf(priceInfo, tr)} lists={priceLists} value={priceListId} onChange={setListChoice}
                   disabled={mutation.isPending} />
-                {selectedCustomer && priceListId !== (selectedCustomer.priceListId ?? null) && (
-                  <span className="text-[11px] text-amber-700">{tr('ليس نوع سعر العميل')}</span>
-                )}
+                {listHint === 'customer' && <span className="text-[11px] text-amber-700">{tr('ليس نوع سعر العميل')}</span>}
+                {listHint === 'rep' && <span className="text-[11px] text-amber-700">{tr('ليس نوع سعر المندوب')}</span>}
               </div>
             )}
             <div className="flex items-center justify-between mb-2">
@@ -842,7 +920,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
               </div>
             </div>
 
-            <div className="border border-gray-200 rounded-xl overflow-hidden">
+            {/* الشاشة الضيّقة: الجدول يتمرّر أفقياً داخل إطاره (منتقي تشغيلة السطر يوسّع عمود الصنف) بدل أن يُقصّ */}
+            <div className="border border-gray-200 rounded-xl overflow-x-auto">
               <table className="table">
                 <thead>
                   <tr>
@@ -882,10 +961,19 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                         ) : (
                           <p className="text-xs text-gray-400">{l.unit}</p>
                         )}
-                        {/* «تتبّع اللوط» (D5): المرتجع الحرّ من الإدارة بتشغيلة صريحة اختيارية — البيع يوزّعه الخادم FEFO بلا حقل */}
+                        {/* «تتبّع اللوط» (D5): المرتجع الحرّ من الإدارة بتشغيلة صريحة اختيارية — والبيع بمنتقيه أدناه (SaleLotPicker) */}
                         {isReturn && trackedIds.has(l.productId) && (
                           <FreeReturnLotPicker productId={l.productId} lotOn={lotOn} disabled={mutation.isPending}
                             value={freeLots[lineKey(l)] ?? ''} onChange={v => setFreeLots(m => ({ ...m, [lineKey(l)]: v }))} />
+                        )}
+                        {/* «تتبّع اللوط» (طلب المالك ٢ نوفمبر ٢٠٢٦): تشغيلة سطر البيع — «تلقائي — الأقرب انتهاءً» افتراضاً (الجسم كما كان)،
+                          * أو تشغيلةٌ واحدة، أو تقسيم؛ من سيارة المندوب المختار والمتاح بعد أسطر الصنف الأخرى */}
+                        {!isReturn && trackedIds.has(l.productId) && (
+                          <SaleLotPicker line={l} prod={p ?? null} state={saleLotState} disabled={mutation.isPending}
+                            sources={saleLotState === 'READY' ? saleLotSources(vanLots, lines, i) : null}
+                            problem={saleLotIssues[i] ?? null}
+                            serverError={lotLineErr?.keys.includes(lineKey(l)) ? lotLineErr.text : null}
+                            onChange={pick => setLinePick(i, pick)} />
                         )}
                       </td>
                       <td><input type="number" className="input w-20 text-center" min="0.001" step="any" inputMode="decimal" value={l.qty} onChange={e => updateLine(i, 'qty', Number(e.target.value))} /></td>

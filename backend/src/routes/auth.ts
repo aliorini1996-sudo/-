@@ -518,6 +518,8 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response, next: Ne
           canSellOnCredit: true, canSellOnInstallment: true, canSellInCash: true,
           canChangePrice: true, maxDiscountPct: true, canSellBelowPrice: true,
           canChangePriceList: true, // «أنواع الأسعار»: مبدّل نوع السعر في فاتورة التطبيق
+          // ونوعه الافتراضي لعميلٍ بلا نوع (null = السعر الأساسي) والأنواع التي يبدّل بينها (null = كلها) — يدخلان rep_user
+          defaultPriceListId: true, allowedPriceTypes: true,
           canCreateReceipt: true, canEditReceipt: true, canCancelReceipt: true,
           canManageVanStock: true,
           canAddCustomer: true, canEditCustomer: true, canViewStatement: true,

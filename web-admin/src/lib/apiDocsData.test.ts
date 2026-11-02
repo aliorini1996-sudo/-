@@ -42,3 +42,14 @@ test('مورد المنتجات في المستند يصف primaryUnitId وbaseC
   }
   assert.match(products.what, /بوحدة الأساس/);
 });
+
+test('مورد المناديب في المستند يصف defaultPriceListId وallowedPriceTypes — وهما مكشوفان في قائمة سماح الخادم', () => {
+  const src = backend('services', 'apiSync.ts');
+  const cols = src.slice(src.indexOf('const SALES_REP_COLS = ['), src.indexOf('];', src.indexOf('const SALES_REP_COLS = [')));
+  const reps = API_SYNC_RESOURCES.find(r => r.name === 'sales-reps')!;
+  for (const k of ['defaultPriceListId', 'allowedPriceTypes']) {
+    assert.ok(cols.includes(`'${k}'`), `${k} ليس في SALES_REP_COLS`);
+    assert.match(reps.what, new RegExp(k), `وصف المورد لا يذكر ${k}`);
+  }
+  assert.match(reps.what, /'base'/);
+});

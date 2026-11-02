@@ -286,7 +286,7 @@ test('كل رمز خطأ في الدليلين وجدول الأخطاء يرس�
   const codes = new Set([...guides.matchAll(CODE_RE), ...table.matchAll(CODE_RE)].map((m) => m[0]));
   for (const must of ['LOCATIONS_NOT_ALLOWED', 'PAYMENT_METHODS_NOT_ALLOWED', 'PAYMENT_METHOD_UNKNOWN', 'LOCATION_ARCHIVED', 'PAYMENT_METHODS_CONFLICT',
     'LOTS_NOT_ALLOWED', 'LOTS_DISABLED', 'LOT_STOCK_INSUFFICIENT', 'LOT_REQUIRED', 'LOT_BUSY', 'LOT_SCOPED_USER', 'LOT_CHANGED',
-    'PRICE_LIST_INVALID', 'PRICE_LIST_FORBIDDEN', 'PRICE_LIST_IN_USE', 'PRICE_LIST_NAME_TAKEN', 'DELETE_NOT_ALLOWED', 'RETURN_LINK_REQUIRED']) {
+    'PRICE_LIST_INVALID', 'PRICE_LIST_FORBIDDEN', 'PRICE_LIST_IN_USE', 'PRICE_LIST_NAME_TAKEN', 'PRICE_TYPE_DEFAULT_NOT_ALLOWED', 'DELETE_NOT_ALLOWED', 'RETURN_LINK_REQUIRED']) {
     assert.ok(codes.has(must), `الدليل لا يذكر ${must}`);
   }
   const unknown = [...codes].filter((c) => !BACKEND_SRC.includes(`'${c}'`));
@@ -1311,4 +1311,30 @@ test('فكّ القيد: GET /company/buyer-relax موثّق وPATCH مستثن�
   }
   // الإشعار على قياسية يبقى قياسياً ولو مع فكّ القيد
   assert.ok(ep('POST', '/invoices/:id/credit-note')!.rules.some((r) => /ZATCA_BUYER_INCOMPLETE/.test(r) && /ولو فكّت الشركة القيد/.test(r)));
+});
+
+/**
+ * «أنواع الأسعار على مستوى المندوب» (طلب المالك ٢ نوفمبر ٢٠٢٦): الحقلان في جسمَي إنشاء المندوب وتعديله وفي قائمته كما في مخطّط
+ * الخادم واختياره، ورمز الافتراضي خارج المسموح يرسله الخادم، وrepsCount في ردّ حذف النوع كما يرسله، والدليل يذكرهما.
+ */
+test('دقّة المستند: defaultPriceListId وallowedPriceTypes للمندوب كما في salesReps.ts، وrepsCount في حذف النوع', () => {
+  const ep = (method: string, p: string) => API_DOC_GROUPS.flatMap((g) => g.endpoints).find((e) => e.method === method && e.path === p)!;
+  const reps = routeFile('salesReps');
+  const schema = reps.slice(reps.indexOf('const repSchema = z.object({'), reps.indexOf('});', reps.indexOf('const repSchema = z.object({')));
+  const select = reps.slice(reps.indexOf('const repSelect = {'), reps.indexOf('} as const;', reps.indexOf('const repSelect = {')));
+  for (const k of ['defaultPriceListId', 'allowedPriceTypes']) {
+    assert.match(schema, new RegExp(`\\b${k}: z\\.`), `${k} ليس في repSchema`);
+    assert.match(select, new RegExp(`\\b${k}: true`), `${k} ليس في repSelect`);
+    assert.ok(ep('POST', '/sales-reps').body.some((f) => f.name === k), `POST /sales-reps بلا ${k}`);
+    assert.ok(ep('PUT', '/sales-reps/:id').body.some((f) => f.desc.includes(k)), `PUT /sales-reps/:id بلا ${k}`);
+    assert.match(ep('GET', '/sales-reps').response, new RegExp(`\\b${k}\\b`));
+  }
+  assert.ok(reps.includes("'PRICE_TYPE_DEFAULT_NOT_ALLOWED'") && reps.includes("'PRICE_LIST_INVALID'"));
+  assert.match(ep('POST', '/sales-reps').body.find((f) => f.name === 'defaultPriceListId')!.desc, /PRICE_TYPE_DEFAULT_NOT_ALLOWED/);
+  // حذف النوع: repsCount في الردّ كما يرسله الخادم
+  const lists = routeFile('priceLists');
+  assert.match(lists, /code: 'PRICE_LIST_IN_USE' as const, customersCount, repsCount/);
+  assert.match(ep('DELETE', '/price-lists/:id').response, /customersCount, repsCount/);
+  const guide = JSON.stringify(API_DOC_GUIDES.find((g) => g.title === 'ربط أنواع الأسعار'));
+  for (const k of ['defaultPriceListId', 'allowedPriceTypes', 'PRICE_TYPE_DEFAULT_NOT_ALLOWED', 'repsCount']) assert.ok(guide.includes(k), `الدليل لا يذكر ${k}`);
 });

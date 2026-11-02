@@ -326,6 +326,8 @@ test('أعمدة الميزات الحديثة مكشوفة في المزامن�
     ['locations', 'name'], ['locations', 'isActive'], ['teams', 'name'], ['teams', 'isActive'],
     // «أنواع الأسعار»: نوع سعر العميل وختم المستند به، وصلاحية المندوب في تبديله
     ['customers', 'priceListId'], ['invoices', 'priceListId'], ['sales-reps', 'canChangePriceList'],
+    // وعلى مستوى المندوب: نوعه الافتراضي والأنواع التي يبدّل بينها
+    ['sales-reps', 'defaultPriceListId'], ['sales-reps', 'allowedPriceTypes'],
   ];
   for (const [r, c] of exposed) {
     const def = sync.syncResource(r);

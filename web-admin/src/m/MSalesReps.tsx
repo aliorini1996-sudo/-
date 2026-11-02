@@ -7,7 +7,7 @@ import {
   ClipboardList, UserX,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { salesRepApi } from '../api/client';
+import { salesRepApi, priceListApi } from '../api/client';
 import { ledgerConfigApi, ledgerKeys } from '../api/ledgerConfig';
 import { SalesRep } from '../types';
 import { formatCurrency, formatDate, formatTime, getActiveCurrency } from '../utils/format';
@@ -20,6 +20,11 @@ import RepVanStockNote from '../components/RepVanStockNote';
 import { MCard, MRow, MStat, MScreen, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import { can } from './perms';
 import { expectArray, expectObject } from './shape';
+import { baseLabelOf, priceListsOf } from '../lib/priceLists';
+import {
+  repPriceTypesOf, priceTypesWithin, togglePriceType, setDefaultPriceType, defaultOptionsOf, repPriceTypesBody, repPriceTypesDirty,
+  type RepPriceTypesState,
+} from './mRepPriceTypes';
 
 /* سند الاستلام في حزمة مستقلّة — يجرّ jspdf وhtml2canvas وqrcode معه */
 const MSettlementDoc = lazy(() => import('./MSettlementDoc'));
@@ -578,6 +583,7 @@ function RepForm({ rep, onClose, onSaved }: {
     onSuccess: (saved) => {
       qc.invalidateQueries({ queryKey: ['m-sales-reps'] });
       if (rep) qc.invalidateQueries({ queryKey: ['m-rep', rep.id] });
+      qc.invalidateQueries({ queryKey: ['m-inv-reps'] }); // مندوبٌ جديد أو اسمٌ/حالةٌ تغيّرا يظهران في منتقي الفاتورة الآن
       toast.success(rep
         ? (password ? tr('تم تحديث البيانات وكلمة المرور') : tr('تم تحديث بيانات المندوب'))
         : tr('تم إنشاء حساب المندوب'));
@@ -779,6 +785,29 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
   const [shiftStart, setShiftStart] = useState(rep.shiftStart ?? '');
   const [shiftEnd, setShiftEnd] = useState(rep.shiftEnd ?? '');
   const [shiftDays, setShiftDays] = useState(rep.shiftDays ?? 31);
+
+  /* «أنواع الأسعار على مستوى المندوب» (طلب المالك ٢ نوفمبر ٢٠٢٦): الأنواع التي يبدّل بينها (بصلاحية «تبديل نوع السعر») ونوعه
+   * الافتراضي لعميلٍ بلا نوع — كنسخة اللوحة (SalesRepModal). القسم يظهر والشركة لها أنواع والمحاسبة مفعّلة (صلاحيات التسعير
+   * محاسبية)، وصفّ المندوب يحمل الحقل (خادمٌ قبل الميزة لا يُكتب فوقه). والمنطق صرفاً في mRepPriceTypes.ts (مختبَر) */
+  const priceInfoQ = useQuery({
+    queryKey: ['m-price-lists'],
+    queryFn: async () => priceListsOf((await priceListApi.list()).data?.data),
+    enabled: accountingOn,
+    staleTime: 60_000,
+    // تُقرأ من جديد مع كل فتحٍ للصلاحيات (نادر): نوعٌ في صفّ المندوب أحدث من الأسماء المخبّأة كانت ستسقط خانته من الحفظ
+    refetchOnMount: 'always',
+  });
+  const priceLists = priceInfoQ.data?.lists ?? [];
+  const listIds = useMemo(() => (priceInfoQ.data?.lists ?? []).map(l => l.id), [priceInfoQ.data]);
+  const typesShown = accountingOn && priceLists.length > 0 && rep.defaultPriceListId !== undefined;
+  // حالة الخادم محسوبةً من صفّه وأنواع الشركة، وما عدّله المستخدم فوقها (null = لم يُمسّ) — فوصول الأنواع بعد الفتح لا يحتاج مزامنة
+  const typesInitial = useMemo(() => repPriceTypesOf(rep, listIds), [rep, listIds]);
+  const [typesEdited, setTypesEdited] = useState<RepPriceTypesState | null>(null);
+  const types = typesEdited ? priceTypesWithin(typesEdited, listIds) : typesInitial;
+  const typeName = (t: string | null) => (t === null ? baseLabelOf(priceInfoQ.data, tr) : priceLists.find(l => l.id === t)?.name ?? '—');
+  // الحقلان يُرسلان حين عُدِّلا وحدهما — حفظ الصلاحيات لا يعيد كتابة ما لم يُمسّ
+  const typesBody = typesShown && repPriceTypesDirty(typesInitial, types) ? repPriceTypesBody(types) : null;
+
   const unbind = useMutation({
     mutationFn: () => salesRepApi.unbindDevice(rep.id),
     onSuccess: ({ data }) => {
@@ -823,15 +852,24 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
       ...(perms.requireCustomerProximity ? { proximityRadiusM: proxNum } : {}),
       ...(perms.requirePunchAtCustomer ? { punchRadiusM: punchNum, punchOutsideAction: outsideAction } : {}),
       shiftStart: shiftStart || null, shiftEnd: shiftEnd || null, shiftDays,
+      ...(typesBody ?? {}),
       email: rep.email ?? '', // وإلا مسحه الخادم (انظر تعليق نموذج البيانات)
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['m-sales-reps'] });
       qc.invalidateQueries({ queryKey: ['m-rep', rep.id] });
+      // وقائمة مناديب الفاتورة (MInvoiceCreate): نوعه الافتراضي منها — صفٌّ مخبّأ قبل الحفظ يسعّر فاتورة عميلٍ بلا نوع بالقديم
+      qc.invalidateQueries({ queryKey: ['m-inv-reps'] });
       toast.success(tr('تم حفظ الصلاحيات'));
       onSaved();
     },
-    onError: (e: unknown) => toast.error(errMsg(e, tr('تعذر حفظ الصلاحيات'))),
+    onError: (e: unknown) => {
+      // نوعٌ حُذف منذ فُتحت الشاشة: تُقرأ الأنواع من جديد فتسقط خانته — ورسالة الخادم تشرح
+      if ((e as { response?: { data?: { code?: string } } })?.response?.data?.code === 'PRICE_LIST_INVALID') {
+        qc.invalidateQueries({ queryKey: ['m-price-lists'] });
+      }
+      toast.error(errMsg(e, tr('تعذر حفظ الصلاحيات')));
+    },
   });
 
   return (
@@ -857,6 +895,44 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
             ))}
           </Group>
         ))}
+
+        {/* «أنواع الأسعار»: خانة لكل نوع والسعر الأساسي باسمه عند الشركة (الأسماء بيانات لا tr) — لا اختيار = كل الأنواع (null)،
+            و«النوع الافتراضي» من المختارة وحدها */}
+        {typesShown && (
+          <Group title={tr('أنواع الأسعار')} flush>
+            {/* عنوان الخانات كنسخة اللوحة (SalesRepModal): هي ما يبدّل بينه المندوب، لا «نوع سعر المندوب» (ذاك «النوع الافتراضي» تحتها) */}
+            <p className="label px-3.5 pt-3">{tr('أنواع الأسعار المسموحة')}</p>
+            <div data-m-rep-price-types="" role="group" aria-label={tr('أنواع الأسعار المسموحة')}>
+              {[{ id: null as string | null, name: baseLabelOf(priceInfoQ.data, tr) }, ...priceLists].map(o => {
+                const on = types.checked.includes(o.id);
+                return (
+                  <button key={o.id ?? 'base'} type="button" role="checkbox" aria-checked={on}
+                    onClick={() => setTypesEdited(togglePriceType(types, o.id, listIds))}
+                    className="w-full flex items-center gap-3 px-3.5 py-2.5 min-h-[48px] text-start border-b border-[#F1EBDF] active:bg-[#FAF7F0]">
+                    <span className={`h-5 w-5 flex-shrink-0 rounded-md border flex items-center justify-center ${on ? 'bg-[#E15A30] border-[#E15A30]' : 'bg-white border-[#CFC5B3]'}`}>
+                      {on && <Check size={13} className="text-white" />}
+                    </span>
+                    <span className="min-w-0 flex-1 text-sm text-[#1F1A13] truncate">{o.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="px-3.5 py-3 space-y-1">
+              {/* عبارات نسخة اللوحة نفسها (SalesRepModal) — وبلا «تبديل نوع السعر» لا تبديل أصلاً أيّاً كانت الخانات */}
+              <Hint text={!perms.canChangePriceList
+                ? tr('بلا صلاحية تبديل نوع السعر يبيع المندوب بنوع سعر العميل أو بنوعه الافتراضي وحده')
+                : types.checked.length
+                  ? tr('يبدل المندوب بين الأنواع المحددة وحدها بصلاحية تبديل نوع السعر ونوع سعر العميل متاح له دائما')
+                  : tr('بلا تحديد يبدل المندوب بين كل الأنواع بصلاحية تبديل نوع السعر')} />
+              <label className="label pt-2">{tr('النوع الافتراضي')}</label>
+              <select className="input" value={types.def ?? ''}
+                onChange={e => setTypesEdited(setDefaultPriceType(types, e.target.value || null, listIds))}>
+                {defaultOptionsOf(types.checked, listIds).map(t => <option key={t ?? 'base'} value={t ?? ''}>{typeName(t)}</option>)}
+              </select>
+              <Hint text={tr('تسعر به فواتير المندوب للعميل الذي لا نوع له ونوع سعر العميل يغلبه')} />
+            </div>
+          </Group>
+        )}
 
         {accountingOn && (
           <Group title={tr('أقصى نسبة خصم')}>

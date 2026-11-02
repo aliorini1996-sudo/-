@@ -1,6 +1,7 @@
 // «أنواع الأسعار» في تطبيق المندوب (طلب المالك: رقاقات تبديلٍ بأسماء تختارها الشركة، وللمندوب صلاحية التبديل) — المكوّن يعتمد
-// IndexedDB والكاميرا فلا يُرسم هنا: الدوالّ الصرفة في رأس RepApp.tsx (listPriceRowsOf وlistPricesOf وrepInvoiceListOf) تُستخرج من
-// المصدر وتُترجم وتُشغَّل على مساعدات repUnits الحقيقية، والتوصيل داخل CreateInvoice بحرّاسٍ نصّية.
+// IndexedDB والكاميرا فلا يُرسم هنا: الدوالّ الصرفة في رأس RepApp.tsx (listPriceRowsOf وlistPricesOf) تُستخرج من المصدر وتُترجم
+// وتُشغَّل على مساعدات repUnits الحقيقية، وقرارات repPriceLists.ts تُستورد، والتوصيل داخل CreateInvoice بحرّاسٍ نصّية.
+// و«نوع سعر المندوب» (طلب المالك ٢ نوفمبر ٢٠٢٦): افتراضيّ الفاتورة نوع العميل ?? نوع المندوب، والتبديل بين أنواعه المسموحة.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -8,7 +9,11 @@ import path from 'node:path';
 import ts from 'typescript';
 import { choiceNet, rebaseCustPrices, unitChoices } from './repUnits';
 import { roundDecimal } from './invoiceCalc';
-import { listIdOf, repCachedNamesOf, repCustomerListOf, repListChipsOf, repListMissing } from './repPriceLists';
+import {
+  listIdOf, repCachedNamesOf, repCustomerListOf, repDefaultListOf, repInvoiceListOf, repListChipsOf, repListMissing, repPriceCacheStale,
+  repSwitchChipsOf,
+} from './repPriceLists';
+import { allowedPriceTypesOf, defaultPriceTypeOf } from '../lib/priceLists';
 import { COMPANY_REFRESH_MIN_GAP_MS } from './companyRefresh';
 
 const read = (...p: string[]) => fs.readFileSync(path.join(process.cwd(), 'src', ...p), 'utf8').replace(/\r\n/g, '\n');
@@ -39,9 +44,6 @@ const listPriceRowsOf = (d: unknown, seenAt?: number | null) => compile<(d: unkn
 const listPricesOf = (lists: Lists | null, listId: string | null, products: Prod[]) => compile<(l: Lists | null, id: string | null, p: Prod[]) => Record<string, number>>(
   between(repApp, 'function listPricesOf(', '\n}\n'), 'listPricesOf', { rebaseCustPrices },
 )(lists, listId, products);
-const repInvoiceListOf = (cust: unknown, picked: string | null | undefined, can: boolean) => compile<(c: unknown, p: string | null | undefined, k: boolean) => string | null>(
-  between(repApp, 'function repInvoiceListOf(', '\n}\n'), 'repInvoiceListOf', {},
-)(cust, picked, can);
 
 // ماء: القارورة أساسٌ بسعر ٢، والكرتون ٢٤ رئيسيٌّ بسعرٍ محدَّد ٤٥ — و«سعر الجملة» للكرتون ١٠٠ (مخزَّنٌ للأساس 4.166667 بست منازل)
 const water = {
@@ -80,14 +82,16 @@ test('listPricesOf: أسعار نوع الفاتورة وحده على أساس 
   assert.ok(Math.abs(m['p-w'] - 100 / 24) < 1e-12);
 });
 
-test('repInvoiceListOf: نوع العميل افتراضاً، واختيار المندوب يُقرأ بصلاحية «تبديل نوع السعر» وحدها', () => {
+test('repInvoiceListOf: افتراضيّ الفاتورة، واختيار المندوب يُقرأ بصلاحية «تبديل نوع السعر» وحدها', () => {
   assert.equal(repInvoiceListOf('l-whole', undefined, false), 'l-whole');
   assert.equal(repInvoiceListOf('l-whole', 'l-retail', false), 'l-whole', 'بلا الصلاحية لا تبديل ولو بقي اختيارٌ قديم');
   assert.equal(repInvoiceListOf('l-whole', null, false), 'l-whole');
-  assert.equal(repInvoiceListOf('l-whole', undefined, true), 'l-whole', 'لم يختر ⇒ نوع العميل');
+  assert.equal(repInvoiceListOf('l-whole', undefined, true), 'l-whole', 'لم يختر ⇒ الافتراضيّ');
   assert.equal(repInvoiceListOf('l-whole', 'l-retail', true), 'l-retail');
   assert.equal(repInvoiceListOf('l-whole', null, true), null, 'السعر الأساسي صراحةً');
-  for (const none of [null, undefined, '', 7]) assert.equal(repInvoiceListOf(none, undefined, false), null, `عميلٌ بلا نوع (${String(none)})`);
+  assert.equal(repInvoiceListOf(null, undefined, false), null, 'لا نوع للعميل ولا للمندوب');
+  // الافتراضيّ يُطبَّع في defaultPriceTypeOf (النسخة المشتركة مع الخادم): الفارغ = السعر الأساسي
+  for (const none of [null, undefined, '']) assert.equal(repInvoiceListOf(defaultPriceTypeOf(none, none), undefined, false), null, `بلا نوع (${String(none)})`);
 });
 
 test('القاعدة الواحدة في الشامل: سعر العميل يغلب النوع، والنوع يغلب سعر الكرتون المحدَّد والأساس — ومرجع الخادم يقبله بلا canChangePrice', () => {
@@ -110,10 +114,11 @@ test('القاعدة الواحدة في الشامل: سعر العميل يغ�
 });
 
 test('CreateInvoice: الأنواع وأسعارها بكاشٍ للعمل دون اتصال — والأسعار ونوع العميل الحالي بعد الأسماء لشركةٍ لها أنواع وحدها', () => {
-  const load = between(repApp, 'const [listInfo, setListInfo] = useState<PriceListsInfo | null>(null);', 'useEffect(() => { void loadPriceLists(); }, [canSwitchList]);');
+  const load = between(repApp, 'const [listInfo, setListInfo] = useState<PriceListsInfo | null>(null);', 'useEffect(() => { void loadPriceLists(); }, [canSwitchList, repListCached]);');
   assert.match(load, /fetchThenCache\('pricelists:names', async \(\) => \(await repApi\.get\('\/price-lists'\)\)\.data\.data\);/);
   // الأسماء من كاش الجهاز بحكم repCachedNamesOf (نوع العميل المخبّأ والصلاحية) إلا بعد رفضٍ أو نوعٍ بلا أسعار (force)
-  assert.match(load, /const cachedNames = force \? null : repCachedNamesOf\(await cacheGet<unknown>\('pricelists:names'\), Date\.now\(\), custListCached, canSwitchList\);/);
+  // …ونوع المندوب الافتراضي كذلك: كاش أسماءٍ لا يعرفه (أُنشئ أو أُسند بعده) يُجلب
+  assert.match(load, /const cachedNames = force \? null : repCachedNamesOf\(await cacheGet<unknown>\('pricelists:names'\), Date\.now\(\), \[custListCached, repListCached\], canSwitchList\);/);
   assert.match(load, /if \(!names\.info\.lists\.length\) return;/, 'شركةٌ بلا أنواع: لا أسعار ولا ملف عميل');
   assert.match(load, /fetchThenCache\('pricelists', async \(\) => \(await repApi\.get\('\/price-lists\/prices'\)\)\.data\.data\),/);
   // نوع العميل **الآن** (لا صفّ قائمة العملاء من الصباح) مع الأسعار — والعميل المُنشأ دون اتصال بلا ملفٍ على الخادم
@@ -122,7 +127,12 @@ test('CreateInvoice: الأنواع وأسعارها بكاشٍ للعمل دو�
   assert.match(load, /setCustListLive\(live\);/);
   assert.match(load, /const custListId = repCustomerListOf\(custListCached, custListLive, listInfo, namesFromServer\);/);
   assert.match(load, /const canSwitchList = perms\.canChangePriceList === true && !switchRevoked;/);
-  assert.match(load, /const listId = repInvoiceListOf\(custListId, pickedList, canSwitchList\);/);
+  // «نوع سعر المندوب»: الافتراضيّ نوع العميل ?? نوع المندوب (rep_user) بالمساعد المشترك مع الخادم، والتبديل ضمن المسموح
+  assert.match(load, /const repListCached = listIdOf\(perms\.defaultPriceListId\);/);
+  assert.match(load, /const repListId = repDefaultListOf\(repListCached, listInfo, namesFromServer\);/);
+  assert.match(load, /const docDefault = defaultPriceTypeOf\(custListId, repListId\);/);
+  assert.match(load, /const allowedTypes = allowedPriceTypesOf\(perms\.allowedPriceTypes\);/);
+  assert.match(load, /const listId = repInvoiceListOf\(docDefault, pickedList, canSwitchList, allowedTypes\);/);
   assert.match(load, /const listMissing = repListMissing\(listId, listRows\);/);
   assert.match(load, /const listPrices = useMemo<Record<string, number>>\(\(\) => listPricesOf\(listRows, listId, products\), \[listRows, listId, products\]\);/);
   assert.match(load, /if \(!mine\(\)\) return;/, 'ردٌّ أبطأ من تحميلٍ أحدث لا يكتب فوقه');
@@ -130,8 +140,10 @@ test('CreateInvoice: الأنواع وأسعارها بكاشٍ للعمل دو�
   const retry = between(repApp, 'const listRetried = useRef<string | null>(null);', '}, [listMissing, listsLoading, listId]);');
   assert.match(retry, /if \(!listMissing \|\| listsLoading \|\| !navigator\.onLine \|\| listRetried\.current === listId\) return;/);
   assert.match(retry, /void loadPriceLists\(true\);/);
-  // صلاحية المندوب من /auth/me (يُدمج الردّ كاملاً فوق rep_user)
+  // صلاحية المندوب ونوعه الافتراضي وأنواعه المسموحة من /auth/me (يُدمج الردّ كاملاً فوق rep_user فلا يُسقط حقلٌ جديد)
   assert.match(repApp, /canChangePriceList\?: boolean;/);
+  assert.match(repApp, /defaultPriceListId\?: string \| null;/);
+  assert.match(repApp, /allowedPriceTypes\?: string\[\] \| null;/);
   assert.match(repApp, /const merged = \{ \.\.\.prev, \.\.\.fresh \} as RepUser;/);
 });
 
@@ -221,21 +233,152 @@ test('CreateInvoice: تبديل النوع ووصول أسعاره يعيدان 
 test('CreateInvoice: الرقاقات بالصلاحية والاسم للعلم بلاها، والجسم يحمل priceListId لمن يبدّل وحده — والمرتجع المرتبط بلا شيء', () => {
   const ui = between(repApp, '{(listsOn || (listMissing && !listsLoading)) && !saleRef && (() => {', '})()}');
   assert.match(ui, /baseLabelOf\(listInfo, tr\)/, 'اسم الرقاقة الأولى كما سمّته الشركة');
-  assert.match(ui, /\.\.\.repListChipsOf\(listInfo\?\.lists, listRows, listId\)/, 'رقاقات الأنواع التي وصلت أسعارها وحدها');
-  assert.match(ui, /\{canSwitchList \? \(/);
+  // المسموح للمندوب مما وصلت أسعاره (repSwitchChipsOf)، ورقاقة السعر الأساسي حين يُسمح بها
+  assert.match(ui, /const chips = repSwitchChipsOf\(listInfo\?\.lists, listRows, listId, allowedTypes, docDefault\);/);
+  assert.match(ui, /const opts = \[\.\.\.\(chips\.base \? \[\{ id: null as string \| null, name: baseLabelOf\(listInfo, tr\) \}\] : \[\]\), \.\.\.chips\.lists\];/);
+  // رقاقةٌ واحدة (لا بديل مسموح) = اسم النوع للعلم
+  assert.match(ui, /\{canSwitchList && \(opts\.length > 1 \|\| listId !== docDefault\) \? \(/);
   assert.match(ui, /onClick=\{\(\) => setPickedList\(o\.id\)\}/);
-  assert.match(ui, /\{listId !== custListId && <span[^>]*>\{tr\('ليس نوع سعر العميل'\)\}<\/span>\}/);
+  // التنبيه على غير الافتراضيّ: «نوع سعر العميل» كاليوم، و«نوعك الافتراضي» حين جاء الافتراضيّ من المندوب لعميلٍ بلا نوع
+  assert.match(ui, /\{listId !== docDefault && \(custListId == null && repListId != null\s*\? <span[^>]*>\{tr\('ليس نوع سعرك الافتراضي'\)\}<\/span>\s*: <span[^>]*>\{tr\('ليس نوع سعر العميل'\)\}<\/span>\)\}/);
   assert.match(ui, /\{current\?\.name \?\? '—'\}/, 'بلا الصلاحية: اسم النوع وحده');
   assert.match(ui, /\{listMissing && !listsLoading && <p[^>]*>\{tr\('اتصل مرة لتحديث أسعار نوع السعر'\)\}<\/p>\}/);
   assert.doesNotMatch(ui, /tr\(o\.name\)|tr\(current\??\.name\)/, 'أسماء الأنواع بيانات الشركة لا تمرّ بـtr');
   const body = between(repApp, 'const body = {', 'attempt.current = attemptClientRef(');
-  // لمن يبدّل وحده — ولعميلٍ بنوعٍ لا تعرفه أسماء الجهاز اختار له المبدِّل السعر الأساسي: null صريحاً لا غياب المفتاح (= نوع العميل)
-  assert.match(body, /\.\.\.\(canSwitchList && !saleRef && \(listsOn \|\| custListId != null\) && \{ priceListId: listId \}\),/);
+  // لمن يبدّل وحده — ولعميلٍ بنوعٍ لا تعرفه أسماء الجهاز اختار له المبدِّل السعر الأساسي: null صريحاً لا غياب المفتاح (= الافتراضيّ).
+  // ويُرسل للمبدِّل ولو كان الافتراضيّ: افتراضيٌّ تغيّر في الخادم بعد كاش الجهاز يُسعَّر بما سُعّرت به البنود إن كان مسموحاً
+  assert.match(body, /\.\.\.\(canSwitchList && !saleRef && \(listsOn \|\| docDefault != null\) && \{ priceListId: listId \}\),/);
   assert.equal((repApp.match(/priceListId: listId/g) ?? []).length, 1, 'لا مسار آخر يرسل النوع');
   // سحب الصلاحية بعد الفتح (403 PRICE_LIST_FORBIDDEN): رسالة الخادم ثم العودة إلى نوع العميل وإطفاء الرقاقات محلياً حتى refreshUser
   const fail = between(repApp, 'if (isZatcaOutdatedClient(err)) setNeedsUpdate(true);', 'const refreshUnits = async');
-  assert.match(fail, /if \(err\?\.response\?\.data\?\.code === 'PRICE_LIST_FORBIDDEN'\) \{ setPickedList\(undefined\); setSwitchRevoked\(true\); \}/);
+  assert.match(fail, /if \(err\?\.response\?\.data\?\.code === 'PRICE_LIST_FORBIDDEN'\) \{ setPickedList\(undefined\); setRevokedFor\(perms\); \}/);
   // ورفضٌ سعريّ بلا رمز: نوع العميل وأسعاره من الخادم الآن (لعلّ المدير نقله بعد الفتح) فتُعاد البنود غير المعدَّلة
-  assert.match(fail, /if \(err\?\.response\?\.status === 403 && !saleRef && \(!err\?\.response\?\.data\?\.code \|\| err\.response\.data\.code === 'PRICE_LIST_FORBIDDEN'\)\) void loadPriceLists\(true\);/);
+  // …وصلاحيات المندوب ونوعه الافتراضي وأنواعه المسموحة من /auth/me الآن (refreshUser) لا بعد خمس دقائق
+  assert.match(fail, /if \(err\?\.response\?\.status === 403 && !saleRef && \(!err\?\.response\?\.data\?\.code \|\| err\.response\.data\.code === 'PRICE_LIST_FORBIDDEN'\)\) \{ void loadPriceLists\(true\); onPermsStale\?\.\(\); \}/);
+  assert.equal((repApp.match(/<CreateInvoice [^\n]*perms=\{user\} onPermsStale=\{\(\) => \{ void refreshUser\(\); \}\}/g) ?? []).length, 2, 'البيع والمرتجع');
   assert.match(fail, /setMsg\(err\?\.response\?\.data\?\.message/);
+});
+
+// ═══ «نوع سعر المندوب» (طلب المالك ٢ نوفمبر ٢٠٢٦): افتراضيّ الفاتورة نوع العميل ?? نوع المندوب، والتبديل بين أنواعه المسموحة ═══
+
+test('نوع سعر المندوب: افتراضيّ الفاتورة نوع العميل ?? نوع المندوب ?? السعر الأساسي — والمبلغ كمرجع الخادم', () => {
+  const names = { lists: [{ id: 'l-whole', name: 'سعر الجملة', sortOrder: 0 }, { id: 'l-retail', name: 'سعر التجزئة', sortOrder: 1 }] };
+  // عميلٌ بلا نوع ومندوبٌ نوعه «سعر الجملة»: تُسعَّر بالجملة
+  const rep = repDefaultListOf('l-whole', names, true);
+  assert.equal(rep, 'l-whole');
+  assert.equal(defaultPriceTypeOf(null, rep), 'l-whole');
+  // نوع العميل يغلب نوع المندوب
+  assert.equal(defaultPriceTypeOf('l-retail', rep), 'l-retail');
+  // لا نوع للمندوب (لم تضبطه الشركة: اليوم حرفاً) ⇒ نوع العميل وإلا الأساسي
+  assert.equal(defaultPriceTypeOf('l-retail', repDefaultListOf(undefined, names, true)), 'l-retail');
+  assert.equal(defaultPriceTypeOf(null, repDefaultListOf(null, names, true)), null);
+  // rep_user أقدم من تبديل المدير ثم حذف النوع القديم (الحذف ممنوعٌ ما دام لمندوب): أسماء الخادم الطازجة تحكم ⇒ الأساسي؛ وأسماء الكاش لا
+  assert.equal(repDefaultListOf('l-gone', names, true), null);
+  assert.equal(repDefaultListOf('l-new', names, false), 'l-new');
+  assert.equal(repDefaultListOf('l-new', null, true), 'l-new', 'الأسماء لم تصل بعد');
+  for (const bad of ['', 7, {}, null, undefined]) assert.equal(repDefaultListOf(bad, names, true), null);
+  // المال: الكرتون بسعر الجملة ١١٥ شاملاً لعميلٍ بلا نوع (٤٥ × ١٫١٥ = 51.75 كان يُردّ وقد سعّر الخادم بنوع المندوب)
+  const lists = listPriceRowsOf(pricesResponse, 1_000);
+  const listId = repInvoiceListOf(defaultPriceTypeOf(repCustomerListOf(null, undefined, names, true), rep), undefined, false);
+  assert.equal(listId, 'l-whole');
+  assert.equal(incl(water, 1, {}, listPricesOf(lists, listId, [water, sugar])), 115);
+  assert.ok(Math.abs(115 / 1.15 - listPricesOf(lists, listId, [water])['p-w'] * 24) <= 0.01, 'ضمن TOL حارس الخادم');
+  // وسعر العميل الخاص يغلب نوع المندوب كما يغلب نوع العميل
+  assert.equal(incl(water, 1, { 'p-w': 3 }, listPricesOf(lists, listId, [water])), 82.8);
+});
+
+test('repInvoiceListOf بأنواع المندوب المسموحة: الاختيار يُقرأ ضمنها وإلا الافتراضيّ — وبلا قيدٍ كاليوم', () => {
+  const allowed = allowedPriceTypesOf(['base', 'l-retail']);
+  assert.deepEqual(allowed, [null, 'l-retail']);
+  assert.equal(repInvoiceListOf('l-whole', 'l-retail', true, allowed), 'l-retail');
+  assert.equal(repInvoiceListOf('l-whole', null, true, allowed), null, 'السعر الأساسي مسموح');
+  assert.equal(repInvoiceListOf('l-whole', 'l-vip', true, allowed), 'l-whole', 'غير مسموح (سُحب بعد الاختيار) ⇒ الافتراضيّ لا 403');
+  assert.equal(repInvoiceListOf('l-whole', 'l-whole', true, allowedPriceTypesOf([])), 'l-whole', 'الافتراضيّ مسموحٌ دائماً');
+  assert.equal(repInvoiceListOf('l-whole', null, true, allowedPriceTypesOf([])), 'l-whole');
+  assert.equal(repInvoiceListOf('l-whole', 'l-vip', true, allowedPriceTypesOf(null)), 'l-vip', 'null = بلا قيد (اليوم)');
+  assert.equal(repInvoiceListOf('l-whole', 'l-vip', true, allowedPriceTypesOf(undefined)), 'l-vip', 'rep_user قديم بلا الحقل = بلا قيد');
+  assert.equal(repInvoiceListOf('l-whole', 'l-retail', false, allowed), 'l-whole', 'بلا الصلاحية لا تبديل ولو مسموحاً');
+});
+
+test('repSwitchChipsOf: بلا قيدٍ رقاقات اليوم، وبقيدٍ المسموح ∪ الافتراضيّ مما وصلت أسعاره — بترتيب الشركة، والحالي ظاهر', () => {
+  const lists = [{ id: 'l-whole', name: 'جملة' }, { id: 'l-retail', name: 'تجزئة' }, { id: 'l-vip', name: 'خاص' }];
+  const rows = [{ id: 'l-whole' }, { id: 'l-retail' }, { id: 'l-vip' }];
+  const ids = (c: { base: boolean; lists: Array<{ id: string }> }) => [...(c.base ? ['base'] : []), ...c.lists.map((l) => l.id)];
+  // بلا قيد (allowedPriceTypes null): كما كانت repListChipsOf حرفاً — والترتيب لا يتبع الافتراضيّ فلا تتنقّل الرقاقات بين العملاء
+  for (const def of [null, 'l-retail']) {
+    assert.deepEqual(ids(repSwitchChipsOf(lists, rows, def, null, def)), ['base', 'l-whole', 'l-retail', 'l-vip']);
+  }
+  assert.deepEqual(ids(repSwitchChipsOf(lists, [{ id: 'l-whole' }], null, null, null)), ['base', 'l-whole'], 'بلا أسعار في الجهاز: لا رقاقة كاليوم');
+  // مسموحٌ «تجزئة» والأساسي، والافتراضيّ «جملة» (نوع العميل) ⇒ ثلاث رقاقات بترتيب الشركة بلا «خاص»
+  const allowed = allowedPriceTypesOf(['l-retail', 'base']);
+  assert.deepEqual(ids(repSwitchChipsOf(lists, rows, 'l-whole', allowed, 'l-whole')), ['base', 'l-whole', 'l-retail']);
+  // الأساسي ليس في المسموح ⇒ لا رقاقة له، إلا أن يكون الافتراضيّ أو الحالي
+  const noBase = allowedPriceTypesOf(['l-retail']);
+  assert.deepEqual(ids(repSwitchChipsOf(lists, rows, 'l-whole', noBase, 'l-whole')), ['l-whole', 'l-retail']);
+  assert.deepEqual(ids(repSwitchChipsOf(lists, rows, null, noBase, null)), ['base', 'l-retail'], 'افتراضيّ أساسيّ (لا نوع للعميل ولا للمندوب)');
+  // مسموحٌ فارغ: الافتراضيّ وحده (رقاقةٌ واحدة ⇒ المكوّن يعرض الاسم للعلم)
+  assert.deepEqual(ids(repSwitchChipsOf(lists, rows, 'l-whole', [], 'l-whole')), ['l-whole']);
+  // مسموحٌ لم تصل أسعاره في الجهاز: لا رقاقة؛ ونوع الفاتورة الحالي بلا أسعار يبقى ظاهراً مع تنبيه غيابه
+  assert.deepEqual(ids(repSwitchChipsOf(lists, [{ id: 'l-whole' }], 'l-whole', allowed, 'l-whole')), ['base', 'l-whole']);
+  assert.deepEqual(ids(repSwitchChipsOf(lists, [], 'l-vip', noBase, 'l-vip')), ['l-vip']);
+  // نوعٌ مسموحٌ حُذف من الشركة لا يظهر (ليس في الأسماء)
+  assert.deepEqual(ids(repSwitchChipsOf(lists, rows, null, allowedPriceTypesOf(['l-gone', 'base']), null)), ['base']);
+  assert.deepEqual(ids(repSwitchChipsOf(null, rows, null, null, null)), ['base']);
+  // repListChipsOf باقٍ أساساً لها
+  assert.deepEqual(repListChipsOf(lists, rows, null).map((l) => l.id), ['l-whole', 'l-retail', 'l-vip']);
+});
+
+test('repCachedNamesOf بنوع المندوب: كاشٌ لا يعرف نوعه الافتراضي يُجلب ولو لشركةٍ «بلا أنواع» — والمعروف يكفي كاليوم', () => {
+  const t0 = 1_000_000_000_000;
+  const none = { data: { basePriceLabel: null, lists: [] }, updatedAt: t0 };
+  const some = { data: { basePriceLabel: null, lists: [{ id: 'l-whole', name: 'جملة', sortOrder: 0 }] }, updatedAt: t0 };
+  assert.deepEqual(repCachedNamesOf(none, t0 + 24 * 3600_000, [null, null])?.lists, [], 'لا نوع للعميل ولا للمندوب: لا طلب أبداً كاليوم');
+  assert.equal(repCachedNamesOf(none, t0, [null, 'l-whole']), null, 'نوع المندوب أحدث من الكاش');
+  assert.equal(repCachedNamesOf(some, t0, ['l-whole', 'l-retail']), null);
+  assert.equal(repCachedNamesOf(some, t0 + 1, [null, 'l-whole'])?.lists.length, 1);
+  assert.equal(repCachedNamesOf(some, t0 + 1, ['l-whole', 'l-whole'])?.lists.length, 1);
+});
+
+// ═══ مراجعة المرحلة الثانية: كاش أسعار المندوب يُجدَّد حين تتبدّل حقوله، وإقفال الرقاقات بعد 403 لا يبقى مع صلاحياتٍ طازجة ═══
+
+test('repPriceCacheStale: نوع المندوب أو أنواعه المسموحة أو «تبديل نوع السعر» تبدّلت ⇒ يُجدَّد الكاش؛ والمعنى لا الحرف', () => {
+  const base = { defaultPriceListId: null, allowedPriceTypes: null, canChangePriceList: false };
+  // بلاغ المراجعة: المدير جعل افتراضيّ المندوب «جملة» — rep_user يتبدّل والكاش أقدم ⇒ يُجلب (وإلا مُنع الإصدار دون اتصال لعميلٍ بلا نوع)
+  assert.equal(repPriceCacheStale(base, { ...base, defaultPriceListId: 'l-whole' }), true);
+  assert.equal(repPriceCacheStale({ ...base, defaultPriceListId: 'l-whole' }, { ...base, defaultPriceListId: 'l-retail' }), true);
+  assert.equal(repPriceCacheStale(base, { ...base, allowedPriceTypes: ['base', 'l-retail'] }), true);
+  assert.equal(repPriceCacheStale({ ...base, allowedPriceTypes: ['l-retail'] }, { ...base, allowedPriceTypes: ['l-retail', 'l-vip'] }), true);
+  assert.equal(repPriceCacheStale(base, { ...base, canChangePriceList: true }), true, 'صلاحيةٌ مُنحت: أسعار كل الأنواع');
+  // لا تغيير ⇒ لا طلب — ومندوبٌ لم تُضبط أنواعه (صفٌّ قديم بلا الحقول) كـnull: لا طلب زائد لشركةٍ بلا أنواع
+  assert.equal(repPriceCacheStale(base, { ...base }), false);
+  assert.equal(repPriceCacheStale({}, base), false, 'rep_user قبل الميزة = الأساسي وبلا قيد وبلا صلاحية');
+  assert.equal(repPriceCacheStale({ canChangePriceList: undefined }, { canChangePriceList: false }), false);
+  assert.equal(repPriceCacheStale({ defaultPriceListId: '' }, { defaultPriceListId: null }), false);
+  assert.equal(repPriceCacheStale({ allowedPriceTypes: ['base', 'base', 'l-x'] }, { allowedPriceTypes: ['base', 'l-x'] }), false, 'المكرّر بالمعنى نفسه');
+  assert.equal(repPriceCacheStale({ allowedPriceTypes: [] }, { allowedPriceTypes: null }), true, 'لا شيء مسموح ≠ بلا قيد');
+  assert.equal(repPriceCacheStale(null, undefined), false);
+});
+
+test('refreshUser: حقول «نوع سعر المندوب» تبدّلت ⇒ كاش الأنواع وأسعارها من الخادم الآن (خلفياً)، وإلا لا طلب', () => {
+  const refresh = between(repApp, 'const refreshUser = useCallback(async (): Promise<void> => {', '}, []);');
+  // المخزَّن قبل الدمج يُقرأ قبل setUser، والمقارنة بما سيُدمج ({...قبل, ...الطازج}: خادمٌ قديم بلا الحقول لا يبدّل شيئاً)
+  assert.ok(refresh.indexOf("before = JSON.parse(localStorage.getItem('rep_user') || 'null')") < refresh.indexOf('setUser(prev => {'));
+  assert.match(refresh, /if \(before\?\.id === fresh\.id && repPriceCacheStale\(before, \{ \.\.\.before, \.\.\.fresh \}\)\) void warmRepPriceCache\(\);/);
+  const warm = between(repApp, 'async function warmRepPriceCache(): Promise<void> {', '\n}\n');
+  // المفاتيح نفسها التي تقرأ منها الفاتورة (loadPriceLists) — والأسعار لشركةٍ لها أنواع وحدها، وطلبٌ خلفيّ لا يُخرج المندوب
+  assert.match(warm, /fetchThenCache\('pricelists:names', async \(\) => \(await repApi\.get\('\/price-lists', \{ background: true \}\)\)\.data\.data\);/);
+  assert.match(warm, /if \(names\.offline \|\| !priceListsOf\(names\.data\)\.lists\.length\) return;/);
+  assert.match(warm, /fetchThenCache\('pricelists', async \(\) => \(await repApi\.get\('\/price-lists\/prices', \{ background: true \}\)\)\.data\.data\);/);
+  assert.match(warm, /catch \{/, 'فشله صامت');
+  assert.equal((repApp.match(/warmRepPriceCache\(\)/g) ?? []).length, 2, 'تعريفه ونداءٌ واحد في refreshUser');
+});
+
+test('CreateInvoice: إقفال الرقاقات بعد 403 PRICE_LIST_FORBIDDEN مربوطٌ بصلاحيات تلك اللحظة — الطازجة من refreshUser تحكم بعدها', () => {
+  // بلاغ المراجعة: مبدِّلٌ ما زال يملك الصلاحية وتبدّلت أنواعه المسموحة (rep_user قديم أرسل الافتراضيّ القديم) — كان الإقفال يبقى
+  // فلا يختار نوعاً مسموحاً جديداً حتى يغلق الفاتورة
+  assert.match(repApp, /const \[revokedFor, setRevokedFor\] = useState<RepUser \| null>\(null\);\n\s*const switchRevoked = revokedFor === perms;\n\s*const canSwitchList = perms\.canChangePriceList === true && !switchRevoked;/);
+  assert.doesNotMatch(repApp, /setSwitchRevoked/, 'لا إقفالٌ لا يُفكّ');
+  // refreshUser يبدّل كائن المندوب دائماً (دمجٌ جديد)، ولا مسار آخر يبدّله والجلسة قائمة — فتبدّل الكائن = صلاحياتٌ طازجة
+  assert.match(repApp, /const merged = \{ \.\.\.prev, \.\.\.fresh \} as RepUser;/);
+  assert.equal((repApp.match(/setUser\(/g) ?? []).length, 3, 'refreshUser والدخول والخروج وحدها');
 });

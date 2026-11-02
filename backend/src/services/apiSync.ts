@@ -109,6 +109,9 @@ const SALES_REP_COLS = [
   'requirePresenceCheck', 'showRouteOnMap',
   // «لوكيشن»: موقع المندوب الحاليّ (معرّف SalesLocation — null = بلا موقع)
   'locationId',
+  // «أنواع الأسعار على مستوى المندوب»: نوعه الافتراضي (null = السعر الأساسي) والأنواع التي يبدّل بينها (null = كلها؛ وإلا
+  // مصفوفة 'base' ومعرّفات أنواع) — أسماء الأنواع من GET /api/price-lists
+  'defaultPriceListId', 'allowedPriceTypes',
 ];
 const INVOICE_COLS = [
   'id', 'number', 'customerId', 'salesRepId', 'type', 'status', 'returnReason', 'returnToStock', 'invoiceDate',

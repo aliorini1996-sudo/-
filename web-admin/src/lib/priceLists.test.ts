@@ -5,6 +5,8 @@ import path from 'node:path';
 import {
   DEFAULT_BASE_PRICE_LABEL, baseLabelOf, listBaseMap, listEntryFactor, listPriceEditsOf, listPriceInput, listPriceMap, listPricesCreateBody,
   listShownPrice, priceListNameProblem, priceListsOf, priceOverrides, repriceUntouched, suggestedNetOf,
+  BASE_PRICE_TYPE, allowedPriceTypesOf, defaultPriceTypeOf, priceTypeAllowed, switchablePriceTypesOf,
+  priceListInUseMessage, repAllowedTokensOf, repDefaultChoices, repPriceTypeTokens, repPriceTypesSummary, repToggleAllowedType,
 } from './priceLists';
 import { choiceNet, unitChoices } from '../rep/repUnits';
 import { PHRASES } from '../i18n/strings';
@@ -140,9 +142,10 @@ test('قائمة الفواتير تُظهر نوع السعر تحت شارة �
   const inv = read('components', 'forms', 'InvoiceModal.tsx');
   assert.ok(inv.includes("{tr('ليس نوع سعر العميل')}"));
   assert.ok(!inv.includes("tr('غير نوع سعر العميل')"));
-  // والمندوب و/m بالعبارة نفسها، وحُذف المفتاح القديم من القاموس
+  // والمندوب و/m بالعبارة نفسها (و/m قد يختار بينها و«ليس نوع سعر المندوب» حين يأتي الافتراضي من المندوب)، وحُذف
+  // المفتاح القديم من القاموس
   for (const src of [read('rep', 'RepApp.tsx'), read('m', 'MInvoiceCreate.tsx')]) {
-    assert.ok(src.includes("{tr('ليس نوع سعر العميل')}"));
+    assert.match(src, /\{tr\([^)]*'ليس نوع سعر العميل'/);
     assert.ok(!src.includes("tr('غير نوع سعر العميل')"));
   }
   assert.ok(!('غير نوع سعر العميل' in PHRASES));
@@ -234,4 +237,134 @@ test('عبارات «أنواع الأسعار» مترجمةٌ بلغاتها �
     }
   }
   for (const f of files) assert.ok(!f.includes("tr('قوائم الأسعار')"), 'الاسم محجوزٌ لاستيراد أسعار العملاء');
+});
+
+// ═══ نوع سعر المندوب (طلب المالك ٢ نوفمبر ٢٠٢٦): الافتراضي = نوع العميل ?? نوع المندوب ?? الأساسي، والمسموح بلا قيد = كل الأنواع ═══
+const BACKEND_PRICE_LISTS = path.resolve(process.cwd(), '..', 'backend', 'src', 'services', 'priceLists.ts');
+const SHARED_MARK = '// ═══ نوع سعر المندوب (طلب المالك ٢ نوفمبر ٢٠٢٦)';
+const sharedBlock = (src: string) => src.replace(/\r\n/g, '\n').slice(src.replace(/\r\n/g, '\n').indexOf(SHARED_MARK)).trimEnd();
+
+test('نوع سعر المندوب: النسخة المشتركة مطابقةٌ لنسخة الخادم حرفاً (من علامتها إلى آخر الملف)', () => {
+  const web = read('lib', 'priceLists.ts');
+  const server = fs.readFileSync(BACKEND_PRICE_LISTS, 'utf8');
+  assert.ok(web.includes(SHARED_MARK) && server.includes(SHARED_MARK), 'العلامة في النسختين');
+  assert.equal(sharedBlock(web), sharedBlock(server));
+});
+
+test('نوع الفاتورة الافتراضي: نوع العميل يغلب نوع المندوب، والمندوب يغلب السعر الأساسي (null)', () => {
+  assert.equal(defaultPriceTypeOf('l-cust', 'l-rep'), 'l-cust');
+  assert.equal(defaultPriceTypeOf(null, 'l-rep'), 'l-rep');
+  assert.equal(defaultPriceTypeOf(undefined, 'l-rep'), 'l-rep');
+  assert.equal(defaultPriceTypeOf('l-cust', null), 'l-cust');
+  assert.equal(defaultPriceTypeOf(null, null), null, 'لا نوع للعميل ولا للمندوب ⇒ الأساسي كاليوم');
+  assert.equal(defaultPriceTypeOf('', ''), null, 'النصّ الفارغ لا نوع');
+});
+
+test('الأنواع المسموحة من عمود JSON: null بلا قيد، و«base» = null، بلا تكرار بترتيبها، وما ليس نصّاً يُهمل', () => {
+  assert.equal(BASE_PRICE_TYPE, 'base');
+  assert.equal(allowedPriceTypesOf(null), null);
+  assert.equal(allowedPriceTypesOf(undefined), null);
+  assert.equal(allowedPriceTypesOf({ a: 1 }), null, 'ليس مصفوفة ⇒ بلا قيد');
+  assert.deepEqual(allowedPriceTypesOf(['l-b', 'base', 'l-b', 7, '', null, 'l-a']), ['l-b', null, 'l-a']);
+  assert.deepEqual(allowedPriceTypesOf([]), [], 'المصفوفة الفارغة تبقى فارغة');
+});
+
+test('التبديل: بلا قيد كل شيء، وبالقيد افتراضيّ الفاتورة (نوع العميل) دائماً والمسموح وحده', () => {
+  assert.equal(priceTypeAllowed('l-x', null, null), true);
+  assert.equal(priceTypeAllowed(null, null, 'l-a'), true);
+  const allowed = allowedPriceTypesOf(['base', 'l-whole']);
+  assert.equal(priceTypeAllowed(null, allowed, 'l-whole'), true, 'الأساسي مسموح');
+  assert.equal(priceTypeAllowed('l-whole', allowed, null), true);
+  assert.equal(priceTypeAllowed('l-retail', allowed, null), false, 'غير المسموح ⇒ 403 في الخادم');
+  assert.equal(priceTypeAllowed('l-vip', allowed, 'l-vip'), true, 'نوع العميل نفسه متاحٌ دائماً');
+  assert.equal(priceTypeAllowed(null, ['l-whole'], 'l-whole'), false, 'الأساسي خارج المسموح');
+});
+
+test('الأنواع التي يبدّل بينها المندوب: الافتراضي أولاً ثم المسموح (أو الأساسي وكل الأنواع) بلا تكرار، والمحذوف يُسقط', () => {
+  const all = ['l-whole', 'l-retail', 'l-vip'];
+  assert.deepEqual(switchablePriceTypesOf(null, null, all), [null, 'l-whole', 'l-retail', 'l-vip'], 'بلا قيد = اليوم');
+  assert.deepEqual(switchablePriceTypesOf(null, 'l-retail', all), ['l-retail', null, 'l-whole', 'l-vip']);
+  assert.deepEqual(switchablePriceTypesOf(['l-whole', null], 'l-vip', all), ['l-vip', 'l-whole', null], 'نوع العميل مع المسموح');
+  assert.deepEqual(switchablePriceTypesOf(['l-whole', 'l-gone'], 'l-whole', all), ['l-whole'], 'معرّفٌ لم يعد في الشركة يُسقط');
+  assert.deepEqual(switchablePriceTypesOf([], null, all), [null], 'لا مسموح إلا الافتراضي');
+  // المسموح بعد allowedPriceTypesOf: «base» صار null — فالأساسي يلحق بنوع العميل
+  assert.deepEqual(switchablePriceTypesOf(allowedPriceTypesOf(['base']), 'l-whole', all), ['l-whole', null]);
+});
+
+test('نافذة المندوب: الخانات بترتيب الشركة، والافتراضي يتبع المحدَّد، وآخر خانةٍ تُلغى ⇒ كل الأنواع (null)', () => {
+  const all = ['l-whole', 'l-retail'];
+  assert.deepEqual(repPriceTypeTokens(all), ['base', 'l-whole', 'l-retail']);
+  assert.equal(repAllowedTokensOf(null, all), null);
+  assert.deepEqual(repAllowedTokensOf(['l-retail', 'base', 'l-gone'], all), ['base', 'l-retail'], 'بترتيب الشركة والمحذوف يُسقط');
+  assert.equal(repAllowedTokensOf(['l-gone'], all), null, 'لا شيء صالح ⇒ لا تحديد');
+  // من «كل الأنواع» إلى أوّل خانة: الافتراضي المحفوظ يُحدَّد معها ويبقى — لا يصير «التجزئة» في الخفاء (فواتير عملاءٍ بلا نوع)
+  let st = repToggleAllowedType({ allowed: null, defaultId: 'l-whole' }, 'l-retail', true, all);
+  assert.deepEqual(st, { allowed: ['l-whole', 'l-retail'], defaultId: 'l-whole' }, 'الافتراضي باقٍ ومحدَّد');
+  assert.deepEqual(repToggleAllowedType({ allowed: null, defaultId: null }, 'l-retail', true, all), { allowed: ['base', 'l-retail'], defaultId: null },
+    'الافتراضي الأساسي يُحدَّد معها كذلك');
+  assert.deepEqual(repToggleAllowedType({ allowed: null, defaultId: 'l-whole' }, 'l-whole', true, all), { allowed: ['l-whole'], defaultId: 'l-whole' });
+  // إلغاء الافتراضي بيد المدير ⇒ أوّل المحدَّد — فلا يُرسل افتراضيٌّ خارج المسموح
+  st = repToggleAllowedType(st, 'l-whole', false, all);
+  assert.deepEqual(st, { allowed: ['l-retail'], defaultId: 'l-retail' });
+  st = repToggleAllowedType(st, 'base', true, all);
+  assert.deepEqual(st, { allowed: ['base', 'l-retail'], defaultId: 'l-retail' }, 'الافتراضي باقٍ ما دام محدَّداً');
+  st = repToggleAllowedType(st, 'l-retail', false, all);
+  assert.deepEqual(st, { allowed: ['base'], defaultId: null }, 'إلغاء الافتراضي ⇒ أوّل المحدَّد (الأساسي = null)');
+  st = repToggleAllowedType(st, 'base', false, all);
+  assert.deepEqual(st, { allowed: null, defaultId: null }, 'لا تحديد = كل الأنواع');
+  assert.deepEqual(repToggleAllowedType({ allowed: null, defaultId: null }, 'base', true, all), { allowed: ['base'], defaultId: null });
+  // خيارات «النوع الافتراضي»: المحدَّد وحده، أو الأساسي وكل الأنواع
+  assert.deepEqual(repDefaultChoices(null, all), [null, 'l-whole', 'l-retail']);
+  assert.deepEqual(repDefaultChoices(['base', 'l-retail'], all), [null, 'l-retail']);
+  // والحمولة رموزٌ يقبلها الخادم كما هي: allowedPriceTypesOf يعيدها إلى قاعدة التبديل
+  assert.deepEqual(allowedPriceTypesOf(['base', 'l-retail']), [null, 'l-retail']);
+});
+
+test('جدول المناديب ورسالة الحذف: الافتراضي باسمه وما يبدّل بينه، وعدد العملاء والمناديب على النوع مترجماً', () => {
+  const info = { basePriceLabel: null, lists: [{ id: 'l-whole', name: 'سعر الجملة', sortOrder: 0 }, { id: 'l-retail', name: 'سعر التجزئة', sortOrder: 1 }] };
+  assert.deepEqual(repPriceTypesSummary({ defaultPriceListId: 'l-whole', allowedPriceTypes: null, canChangePriceList: true }, info, tr),
+    { defaultName: 'سعر الجملة', switchable: tr('كل الأنواع') });
+  assert.deepEqual(repPriceTypesSummary({ defaultPriceListId: null, allowedPriceTypes: ['l-retail', 'base'], canChangePriceList: true }, info, tr),
+    { defaultName: tr(DEFAULT_BASE_PRICE_LABEL), switchable: `${tr(DEFAULT_BASE_PRICE_LABEL)}، سعر التجزئة` });
+  assert.deepEqual(repPriceTypesSummary({ defaultPriceListId: 'l-retail', allowedPriceTypes: ['l-retail'], canChangePriceList: false }, { ...info, basePriceLabel: 'سعر المستهلك' }, tr),
+    { defaultName: 'سعر التجزئة', switchable: tr('بلا تبديل') });
+  assert.equal(repPriceTypesSummary({}, { ...info, basePriceLabel: 'سعر المستهلك' }, tr).defaultName, 'سعر المستهلك', 'صفٌّ بلا المفتاح ⇒ الأساسي باسم الشركة');
+  const id = (s: string) => s;
+  assert.equal(priceListInUseMessage({ code: 'PRICE_LIST_IN_USE', customersCount: 3, repsCount: 2 }, id), 'نوع السعر مستخدم لعملاء (3) ومناديب (2) انقلهم إلى نوع آخر أولا');
+  assert.equal(priceListInUseMessage({ code: 'PRICE_LIST_IN_USE', customersCount: 0, repsCount: 1 }, id), 'نوع السعر مستخدم لمناديب (1) أزله من نوعهم الافتراضي وأنواعهم المسموحة أولا');
+  assert.equal(priceListInUseMessage({ code: 'PRICE_LIST_IN_USE', customersCount: 4 }, id), 'نوع السعر مستخدم لعملاء (4) انقلهم إلى نوع آخر من ملفاتهم أولا', 'خادمٌ بلا repsCount');
+  assert.equal(priceListInUseMessage({ code: 'PRICE_LIST_INVALID' }, id), null, 'غيرها ⇒ رسالة الخادم');
+  assert.equal(priceListInUseMessage(undefined, id), null);
+});
+
+test('نافذة المندوب والجدول والإعدادات: القسم خلف أنواعٍ عرّفتها الشركة، والحقلان يُرسلان مع النموذج، والحذف يقول المناديب', () => {
+  const m = read('components', 'forms', 'SalesRepModal.tsx');
+  assert.ok(m.includes('const priceLists = accountingOn && (!rep || rep.defaultPriceListId !== undefined) ? priceInfo?.lists ?? [] : [];'), 'صفٌّ بلا المفتاح بلا قسم');
+  assert.ok(m.includes('enabled: accountingOn,'), 'لا طلب والمحاسبة مطفأة');
+  assert.ok(m.includes('{priceLists.length > 0 && ('), 'القسم لشركةٍ عرّفت أنواعاً');
+  assert.ok(m.includes('defaultPriceListId: defaults.defaultPriceListId ?? null, allowedPriceTypes: defaults.allowedPriceTypes ?? null,'));
+  assert.ok(m.includes("setValue('allowedPriceTypes', next.allowed, { shouldDirty: true });"));
+  assert.ok(m.includes("setValue('defaultPriceListId', next.defaultId, { shouldDirty: true });"));
+  assert.ok(m.includes("onChange={e => setValue('defaultPriceListId', e.target.value || null, { shouldDirty: true })}"), 'الأساسي = null صريحاً');
+  assert.ok(m.includes('{repDefaultChoices(allowedTok, listIds).map('), 'الافتراضي من المحدَّد وحده');
+  assert.ok(m.indexOf('data-rep-price-types=""') > m.indexOf("register('canChangePriceList')"), 'بعد صلاحيات التسعير');
+  const page = read('pages', 'SalesRepsPage.tsx');
+  assert.ok(page.includes('const priceTypesCol = accountingOn && (priceInfo?.lists.length ?? 0) > 0 ? priceInfo : null;'));
+  assert.ok(page.includes('const repCols = (accountingOn ? 13 : 6) + (priceTypesCol ? 1 : 0);'), 'عرض صفّ التحميل يتبع العمود');
+  const panel = read('components', 'priceLists', 'PriceListsPanel.tsx');
+  assert.ok(panel.includes('toast.error(priceListInUseMessage((e as Err)?.response?.data, tr) ?? errMsg(e, tr(\'تعذر الحذف\')), { duration: 7000 });'));
+  for (const f of [m, page, panel, read('lib', 'priceLists.ts')]) {
+    for (const k of f.matchAll(/\btr\('((?:[^'\\]|\\.)*)'\)/g)) {
+      const e = PHRASES[k[1]];
+      assert.ok(e, `غير موجودة في القاموس: ${k[1]}`);
+      for (const lang of ['en', 'fr', 'tr', 'zh'] as const) {
+        assert.ok(e[lang]?.trim(), `${k[1]} بلا ${lang}`);
+        for (const ph of k[1].match(/\{\w+\}/g) ?? []) assert.ok(e[lang].includes(ph), `${k[1]} (${lang}) بلا ${ph}`);
+      }
+    }
+  }
+  // عبارات الشاشات الأخرى (تطبيق المندوب وفاتورة الإدارة و/m) جاهزةٌ في القاموس
+  for (const k of ['نوع المندوب', 'نوع سعر العميل', 'نوع السعر الافتراضي', 'الأنواع المسموحة', 'كل الأنواع', 'نوع السعر غير مسموح لك', 'لا تملك صلاحية تبديل نوع السعر']) {
+    assert.ok(PHRASES[k]?.zh, k);
+  }
 });
