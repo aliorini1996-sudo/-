@@ -70,7 +70,9 @@ test('النافذة: النوع من المندوب المختار، ورقاق
   // تغيير العميل يعيد الاختيار إلى الافتراضي، وتغيير المندوب لا يمسّ اختيار المدير (الافتراضي وحده يتغيّر)
   assert.ok(modal.includes('unlinkSale(); pickCustomerList(v); }}'));
   assert.ok(modal.includes('if (id !== customerId) setListChoice(undefined);'));
-  assert.ok(modal.includes('<select className="input" value={salesRepId} onChange={e => setSalesRepId(e.target.value)}>'));
+  // اختيار المندوب يمرّ بـchangeRep (تشغيلات LOT، ٢ نوفمبر) وهو يضبط salesRepId، فيتبعه نوعه الافتراضي من المشتقّ أعلاه
+  assert.ok(modal.includes('<select className="input" value={salesRepId} onChange={e => changeRep(e.target.value)}>'));
+  assert.ok(modal.includes('    setSalesRepId(id);'));
   // المدير حرّ: لا قيد أنواع المندوب المسموحة في النافذة (الخادم يحرس المندوب وحده)
   assert.doesNotMatch(modal, /switchablePriceTypesOf|priceTypeAllowed|allowedPriceTypes/);
   assert.equal(modal.split('...(priceListOn && { priceListId })').length - 1, 2, 'البيع والمرتجع الحرّ كما كانا');
