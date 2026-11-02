@@ -447,13 +447,13 @@ export function lotQtyBare(baseQty: number, p: { unit?: string | null; units?: U
  * بعينه، ويحرسها اختبارٌ يستخرج مفاتيح queryKey من m/ وpages/ وcomponents/:
  *  - الجوال: القائمة والبطاقة وتتبّعها (m-lots/m-lot)، وخيارات المنتقي، ولقطة السيارة واقتراح FEFO، وتفصيل المستودع.
  *  - اللوحة: صفحة التشغيلات، وأرصدة المستودع والسيارة والتحميل، ولقطة السيارة، واقتراح FEFO، وتشغيلات الصنف للمنتقي،
- *    وتشغيلات سيارة المندوب المحذوف، وتقرير مبيعات التشغيلات.
+ *    وتشغيلات سيارة المندوب المحذوف، وتقرير مبيعات التشغيلات، ومصادر تشغيلة سطر البيع في نافذة الفاتورة (invoice-van-lots).
  * تُبطَل حين الميزة مفعّلة وحدها (§١٠.١).
  */
 export const LOT_CACHE_KEYS = [
   'm-lots', 'm-lot', 'm-lot-opts', 'm-van-lots', 'm-van-fefo', 'm-wh-lots',
   'lots', 'lot-balances-wh', 'lot-balances-van', 'lot-balances-load', 'van-lot-balances', 'lot-fefo', 'lots-of-product',
-  'rep-delete-van-lots', 'report-lot-sales',
+  'rep-delete-van-lots', 'report-lot-sales', 'invoice-van-lots',
 ] as const;
 
 /** مفاتيح أرصدة السيارات والمستودع (الجوال واللوحة) — تتبدّل بتنزيلٍ من شاشة التشغيلات */

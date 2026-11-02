@@ -5979,6 +5979,24 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'نوع السعر الذي عليه عملاء أو مناديب لا يحذف حتى تنقلهم إلى نوع آخر من ملفاتهم وسعر الصنف في النوع يكتب من بطاقة الصنف': { en: 'A price type used by customers or reps cannot be deleted until you move them to another type from their files. The item price in a type is entered on the item card', fr: 'Un type de prix utilisé par des clients ou des représentants ne peut pas être supprimé avant de les déplacer vers un autre type depuis leurs fiches. Le prix de l article dans un type se saisit sur la fiche article', tr: 'Müşterilerin veya temsilcilerin kullandığı fiyat türü, onları dosyalarından başka bir türe taşıyana kadar silinemez. Ürünün türdeki fiyatı ürün kartından girilir', zh: '有客户或业务代表使用的价格类型在您从其档案将其改为其他类型之前无法删除；商品在该类型中的价格在商品卡片中填写' },
   'ليس نوع سعر المندوب': { en: 'Not the price type of the sales rep', fr: 'Pas le type de prix du représentant', tr: 'Temsilcinin fiyat türü değil', zh: '非该业务代表的价格类型' },
   'ليس نوع سعرك الافتراضي': { en: 'Not your default price type', fr: 'Pas votre type de prix par défaut', tr: 'Varsayılan fiyat türünüz değil', zh: '非您的默认价格类型' },
+  // «تتبّع اللوط»: تشغيلة سطر البيع في نافذة «إنشاء فاتورة جديدة» (طلب المالك ٢ نوفمبر ٢٠٢٦)
+  'تلقائي — الأقرب انتهاءً': { en: 'Automatic — earliest expiry first', fr: 'Automatique — expiration la plus proche d abord', tr: 'Otomatik — en yakın son kullanma önce', zh: '自动 — 最早到期优先' },
+  'تشغيلة الصنف': { en: 'Item lot', fr: 'Lot de l article', tr: 'Ürün partisi', zh: '商品批次' },
+  'تقسيم على أكثر من تشغيلة': { en: 'Split across several lots', fr: 'Répartir sur plusieurs lots', tr: 'Birden fazla partiye böl', zh: '拆分到多个批次' },
+  'كمية السطر': { en: 'Line quantity', fr: 'Quantité de la ligne', tr: 'Satır miktarı', zh: '行数量' },
+  'تشغيلة السطر': { en: 'Line lot', fr: 'Lot de la ligne', tr: 'Satır partisi', zh: '行批次' },
+  'لا تشغيلات مسماة لهذا الصنف في سيارة المندوب': { en: 'No named lots of this item in the rep van', fr: 'Aucun lot nommé de cet article dans le véhicule du commercial', tr: 'Temsilcinin aracında bu ürünün adlandırılmış partisi yok', zh: '销售代表车辆中没有此商品的命名批次' },
+  'اختر المندوب لاختيار التشغيلة من سيارته': { en: 'Choose the rep to pick the lot from their van', fr: 'Choisissez le commercial pour choisir le lot dans son véhicule', tr: 'Partiyi aracından seçmek için temsilciyi seçin', zh: '选择销售代表以从其车辆中选择批次' },
+  'اختيار التشغيلة يحتاج صلاحية مخزون السيارات': { en: 'Picking the lot requires the van stock permission', fr: 'Le choix du lot nécessite la permission stock des véhicules', tr: 'Parti seçimi araç stoku yetkisi gerektirir', zh: '选择批次需要车辆库存权限' },
+  'تعذر تحميل تشغيلات سيارة المندوب': { en: 'Could not load the rep van lots', fr: 'Impossible de charger les lots du véhicule du commercial', tr: 'Temsilci aracının partileri yüklenemedi', zh: '无法加载销售代表车辆的批次' },
+  'تشغيلة مختارة': { en: 'Lot selected', fr: 'Lot choisi', tr: 'Parti seçildi', zh: '已选批次' },
+  'أعيدت تشغيلات الأسطر إلى تلقائي لأن المندوب تغير': { en: 'Line lots were reset to automatic because the rep changed', fr: 'Les lots des lignes sont revenus en automatique car le commercial a changé', tr: 'Temsilci değiştiği için satır partileri otomatiğe döndü', zh: '因销售代表已更改，行批次已重置为自动' },
+  // مراجعة تشغيلة سطر البيع: نقص التشغيلة الصريحة بمتاحها هي، ورموز الخادم بلغة الواجهة، والمختارة التي أوقفت أو انتهت
+  'المتاح فيها': { en: 'Available in it', fr: 'Disponible dans celui-ci', tr: 'İçinde mevcut', zh: '该批次可用' },
+  'التشغيلة موقوفة لا تباع': { en: 'The lot is blocked and cannot be sold', fr: 'Le lot est bloqué et ne peut pas être vendu', tr: 'Parti durdurulmuş, satılamaz', zh: '该批次已冻结，不能销售' },
+  'التشغيلة منتهية لا تباع': { en: 'The lot has expired and cannot be sold', fr: 'Le lot est périmé et ne peut pas être vendu', tr: 'Partinin süresi dolmuş, satılamaz', zh: '该批次已过期，不能销售' },
+  'التشغيلة غير موجودة لهذا الصنف': { en: 'The lot does not exist for this item', fr: 'Le lot n existe pas pour cet article', tr: 'Bu ürün için parti bulunamadı', zh: '此商品不存在该批次' },
+  'التشغيلة المختارة موقوفة أو منتهية لا تباع': { en: 'The selected lot is blocked or expired and cannot be sold', fr: 'Le lot choisi est bloqué ou périmé et ne peut pas être vendu', tr: 'Seçilen parti durdurulmuş veya süresi dolmuş, satılamaz', zh: '所选批次已冻结或已过期，不能销售' },
 };
 
 // ثابتة الهوية ما لم تتغيّر اللغة — كـuseT (انظر سببه هناك)

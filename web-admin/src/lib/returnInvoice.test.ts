@@ -321,6 +321,8 @@ test('مسار البيع لم يتغيّر: الجسم المرسل نفسه ح
   // الجسم نفسه حرفياً حتى حقول البند القديمة؛ وبعدها (الوحدات المتعددة) لقطة وحدة البند لا غير — صنفٌ بلا وحدات يبقى
   // بالأساس بمعامل ١ على الخادم كما كان. و«أنواع الأسعار» (طلب المالك) سطرٌ واحد مشروطٌ بأنواعٍ عرّفتها الشركة: بلاها لا مفتاح
   // فالجسم كما كان حرفياً ويأخذ الخادم نوع العميل
+  // و«تتبّع اللوط» (طلب المالك ٢ نوفمبر ٢٠٢٦): البنود ملفوفةٌ بـwithSaleLots — بلا تشغيلةٍ مختارة يعيد المصفوفة نفسها
+  // (lib/saleLots.test.ts) فالجسم كما كان حرفاً، وبها lots للسطر المختار وحده
   const eol = modal.includes('\r\n') ? '\r\n' : '\n';
   const head = `    mutation.mutate({
       customerId, salesRepId, type, discountPct, notes,
@@ -332,7 +334,8 @@ test('مسار البيع لم يتغيّر: الجسم المرسل نفسه ح
         paymentPlan: 'INSTALLMENT',
         installmentPlan: { count: insCount, firstDueDate: insFirst, period: insPeriod },
       }),
-      items: lines.map(l => ({
+      // «تتبّع اللوط»: سطرٌ بتشغيلةٍ مختارة يحمل lots بالكمية الأساسية (withSaleLots)؛ و«تلقائي» بنده كما كان حرفاً
+      items: withSaleLots(lines.map(l => ({
         productId: l.productId, qty: l.qty, unitPrice: l.unitPrice,
         discountPct: l.discountPct, taxPct: l.taxPct,`.replace(/\n/g, eol);
   const at = modal.indexOf(head);
@@ -340,7 +343,7 @@ test('مسار البيع لم يتغيّر: الجسم المرسل نفسه ح
   const rest = modal.slice(at + head.length, modal.indexOf('    });', at + head.length));
   // ما بعد حقول البند: تعليقٌ أو حقول وحدة البند (unitId/لقطتها) وحدها، ثم إغلاق البند والقائمة
   const extra = rest.split(eol).map(s => s.trim()).filter(s => s && !s.startsWith('//'));
-  assert.equal(extra[extra.length - 1], '})),', 'إغلاق البنود');
+  assert.equal(extra[extra.length - 1], '})), lines, pid => trackedIds.has(pid)),', 'إغلاق البنود');
   for (const s of extra.slice(0, -1)) assert.match(s, /unit/i, `حقلٌ غير وحدة البند في جسم البيع: ${s}`);
   // المرتجع يتفرّع قبل فحوص البيع ولا يمرّ بها
   assert.match(modal, /const handleSubmit = \(\) => \{\s*if \(isReturn\) \{ submitReturn\(\); return; \}/);
