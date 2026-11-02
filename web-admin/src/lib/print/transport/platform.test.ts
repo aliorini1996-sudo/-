@@ -61,7 +61,14 @@ test('iOS يبقى iOS ولو حمل علامة الجسر أو مُحيل ال�
   assert.deepEqual(at({ ua: UA.ipadDesktop, maxTouchPoints: 5, bridgeFlag: true }), { os: 'ios', path: 'none' });
   assert.deepEqual(at({ ua: edge, hasSerial: true, uaDataPlatform: 'Windows' }), { os: 'other', path: 'serial' });
   assert.deepEqual(at({ ua: edge }), { os: 'other', path: 'none' });
-  assert.deepEqual(at({ ua: UA.samsung, hasSerial: true }), { os: 'android', path: 'serial' }, 'Web Serial حيث وُجد هو الطريق دائماً');
+  assert.deepEqual(at({ ua: UA.samsung, hasSerial: true }), { os: 'android', path: 'serial' }, 'Web Serial خارج التطبيق');
+});
+
+test('داخل تطبيق فيلد سيلز (علامة الجسر) ⇒ app ولو وُجد Web Serial — نافذة Chrome تبدو فارغة (بلاغ ٢ نوفمبر ٢٠٢٦)', () => {
+  assert.deepEqual(at({ ua: UA.chrome140Android, hasSerial: true, bridgeFlag: true }), { os: 'android', path: 'app' });
+  assert.deepEqual(at({ ua: UA.chrome140Android, hasSerial: true, referrer: 'android-app://net.fieldsa.twa/' }), { os: 'android', path: 'serial' },
+    'المُحيل وحده لا يكفي: النسخة 3 تضعه بلا جسر');
+  assert.deepEqual(at({ ua: UA.iphone, maxTouchPoints: 5, hasSerial: true, bridgeFlag: true }), { os: 'ios', path: 'serial' }, 'الآيفون لا يتأثر');
 });
 
 test('بوّابة النشر مفتوحة منذ نشر 1.2.0 في الإنتاج: أندرويد بلا Web Serial ⇒ app بلا علامة الجسر', () => {
@@ -79,6 +86,7 @@ test('منطق البوّابة إن أُطفئت: علامة الجسر وحد�
   assert.deepEqual(gated({ ua: UA.chrome120Android, referrer: 'android-app://net.fieldsa.twa/' }), { os: 'android', path: 'none' });
   assert.deepEqual(gated({ ua: UA.samsung, bridgeFlag: true }), { os: 'android', path: 'app' });
   assert.deepEqual(gated({ ua: UA.chrome140Android, hasSerial: true }), { os: 'android', path: 'serial' }, 'Web Serial كاليوم');
+  assert.deepEqual(gated({ ua: UA.chrome140Android, hasSerial: true, bridgeFlag: true }), { os: 'android', path: 'app' }, 'داخل التطبيق ولو أُطفئت البوّابة');
   assert.deepEqual(gated({ ua: UA.samsung, bridgeForAll: true }), { os: 'android', path: 'app' });
   assert.deepEqual(gated({ ua: UA.iphone, maxTouchPoints: 5, bridgeForAll: true }), { os: 'ios', path: 'none' });
 });

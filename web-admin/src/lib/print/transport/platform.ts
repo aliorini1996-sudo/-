@@ -1,7 +1,8 @@
 /**
  * طريق الطباعة المباشرة لهذا الجهاز — يختار النقل وحده ولا يُخرج نصّاً للمندوب أبداً (لا اسم متصفح ولا إصدار).
  *
- *   Web Serial موجود            ⇒ 'serial' (مسار اليوم كما هو)
+ *   داخل تطبيق فيلد سيلز        ⇒ 'app'   (علامة الجسر: شاشة الطابعة في التطبيق ولو وُجد Web Serial)
+ *   Web Serial موجود            ⇒ 'serial' (Chrome خارج التطبيق وسطح المكتب كما اليوم)
  *   أندرويد بلا Web Serial      ⇒ 'app'   (تطبيق فيلد سيلز بالبلوتوث — WebView وFirefox وSamsung Internet وChrome القديم سواء)
  *                                 (APP_BRIDGE_FOR_ALL مفعّل منذ نشر 1.2.0 في الإنتاج؛ لو أُطفئ: علامة الجسر وحدها، وإلا 'none')
  *   iOS بجسر تطبيق الآيفون      ⇒ 'ios-app' (فيلد سيلز 1.1.0 فأحدث: معالج fsPrint وعلامة __fsIosBridge بإصدارٍ ≥ IOS_BRIDGE_VERSION —
@@ -65,7 +66,11 @@ export function classifyPrintPlatform(i: PlatformInput): PrintPlatform {
     : 'other';
   const appOpen = (i.bridgeForAll ?? APP_BRIDGE_FOR_ALL) || i.bridgeFlag === true;
   const iosOpen = os === 'ios' && typeof i.iosBridge === 'number' && i.iosBridge >= IOS_BRIDGE_VERSION;
-  const path: DirectPath = i.hasSerial ? 'serial' : os === 'android' && appOpen ? 'app' : iosOpen ? 'ios-app' : 'none';
+  // داخل تطبيق فيلد سيلز (علامة الجسر) يُقدَّم التطبيق على Web Serial: نافذة Chrome لا تعرض إلا مقترناً يعلن SPP وبإذن
+  // «الأجهزة القريبة» لـChrome نفسه، فيراها المندوب فارغة («No compatible devices found»، بلاغ المالك ٢ نوفمبر ٢٠٢٦)، وشاشة
+  // التطبيق تطلب الإذن وتشغّل البلوتوث وتعرض كل المقترن وتفتح إعداداته للاقتران
+  const path: DirectPath = os === 'android' && i.bridgeFlag === true ? 'app'
+    : i.hasSerial ? 'serial' : os === 'android' && appOpen ? 'app' : iosOpen ? 'ios-app' : 'none';
   return { os, path };
 }
 

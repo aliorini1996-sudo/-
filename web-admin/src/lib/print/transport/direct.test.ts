@@ -89,9 +89,13 @@ test('currentPlatformInput يجمع إشارات أندرويد من الصفح�
   withPage({ navigator: { userAgent: LINUX }, document: { referrer: '' }, window: { localStorage: store({}) } }, () => {
     assert.equal(directPath(), 'none');
   });
-  // Web Serial حيث وُجد ⇒ serial ولو على أندرويد بعلامة الجسر
+  // داخل التطبيق (علامة الجسر) ⇒ app ولو وُجد Web Serial — نافذة Chrome تبدو فارغة للمندوب (بلاغ ٢ نوفمبر ٢٠٢٦)؛
+  // وخارجه (Chrome بلا علامة) ⇒ serial كما كان
   const serial = { requestPort: async () => { throw new Error('x'); }, getPorts: async () => [] };
   withPage({ navigator: { userAgent: LINUX, userAgentData: { platform: 'Android' }, serial }, window: { localStorage: store({ fs_print_bridge: FLAG }), isSecureContext: true } }, () => {
+    assert.equal(directPath(), 'app');
+  });
+  withPage({ navigator: { userAgent: LINUX, userAgentData: { platform: 'Android' }, serial }, window: { localStorage: store({}), isSecureContext: true } }, () => {
     assert.equal(directPath(), 'serial');
   });
 });
