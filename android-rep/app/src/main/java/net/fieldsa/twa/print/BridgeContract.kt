@@ -8,7 +8,8 @@ object BridgeContract {
     const val PARAM_PAYLOAD = "p"
     const val PARAM_KEY = "k"
     const val LAUNCH_PARAM = "fsbridge"
-    const val PROTOCOL_VERSION = 1
+    /** 2 منذ 1.2.1: شاشة الاختيار تُظهر الطابعات المقترنة، فتُقدّمها الصفحة على نافذة Chrome (platform.ts) */
+    const val PROTOCOL_VERSION = 2
     const val PACKAGE = "net.fieldsa.twa"
     const val FORMAT_VERSION = 1
     const val HEADER_BYTES = 14

@@ -1,7 +1,7 @@
 /**
  * طريق الطباعة المباشرة لهذا الجهاز — يختار النقل وحده ولا يُخرج نصّاً للمندوب أبداً (لا اسم متصفح ولا إصدار).
  *
- *   داخل تطبيق فيلد سيلز        ⇒ 'app'   (علامة الجسر: شاشة الطابعة في التطبيق ولو وُجد Web Serial)
+ *   داخل تطبيق فيلد سيلز 1.2.1+  ⇒ 'app'   (علامة الجسر بإصدار ≥ APP_FIRST_BRIDGE_VERSION: شاشة الطابعة في التطبيق ولو وُجد Web Serial)
  *   Web Serial موجود            ⇒ 'serial' (Chrome خارج التطبيق وسطح المكتب كما اليوم)
  *   أندرويد بلا Web Serial      ⇒ 'app'   (تطبيق فيلد سيلز بالبلوتوث — WebView وFirefox وSamsung Internet وChrome القديم سواء)
  *                                 (APP_BRIDGE_FOR_ALL مفعّل منذ نشر 1.2.0 في الإنتاج؛ لو أُطفئ: علامة الجسر وحدها، وإلا 'none')
@@ -34,6 +34,13 @@ export const APP_BRIDGE_FOR_ALL = true;
 export const IOS_BRIDGE_RELEASED = false;
 
 /**
+ * إصدار الجسر الذي يُقدَّم فيه التطبيق على Web Serial داخل التطبيق. شاشة الاختيار في 1.2.0 (الجسر 1) تُنشئ أزرار الطابعات مخفيّة
+ * فلا يرى المندوب طابعته المقترنة (بلاغ المالك ٢ نوفمبر ٢٠٢٦)، فيبقى مندوبها على نافذة Chrome حيث وُجد Web Serial. أُصلحت في
+ * 1.2.1 (الجسر 2)، ومنه تُقدَّم شاشة التطبيق: نافذة Chrome لا تعرض إلا مقترناً يعلن SPP وبإذن «الأجهزة القريبة» لـChrome نفسه
+ */
+export const APP_FIRST_BRIDGE_VERSION = 2;
+
+/**
  * النقطية (MIP480) على الآيفون: بلوتوثها كلاسيكيٌّ بلا BLE فلا يصلها تطبيق آيفون — الخيار معطّل بتلميحٍ بسيط. يُقلب true
  * إن جُرّب محوّل RS-232↔BLE على الطابعة.
  */
@@ -46,6 +53,8 @@ export interface PlatformInput {
   hasSerial: boolean;
   referrer?: string;
   bridgeFlag?: boolean;
+  /** إصدار علامة الجسر (fsbridge=<الإصدار>.<المفتاح>) — null بلا علامة */
+  bridgeVersion?: number | null;
   /** للاختبار — غيابه = APP_BRIDGE_FOR_ALL */
   bridgeForAll?: boolean;
   /** إصدار جسر تطبيق الآيفون (window.__fsIosBridge.v) — يُقرأ فقط إن وُجد معالج fsPrint، وإلا null */
@@ -66,10 +75,10 @@ export function classifyPrintPlatform(i: PlatformInput): PrintPlatform {
     : 'other';
   const appOpen = (i.bridgeForAll ?? APP_BRIDGE_FOR_ALL) || i.bridgeFlag === true;
   const iosOpen = os === 'ios' && typeof i.iosBridge === 'number' && i.iosBridge >= IOS_BRIDGE_VERSION;
-  // داخل تطبيق فيلد سيلز (علامة الجسر) يُقدَّم التطبيق على Web Serial: نافذة Chrome لا تعرض إلا مقترناً يعلن SPP وبإذن
-  // «الأجهزة القريبة» لـChrome نفسه، فيراها المندوب فارغة («No compatible devices found»، بلاغ المالك ٢ نوفمبر ٢٠٢٦)، وشاشة
-  // التطبيق تطلب الإذن وتشغّل البلوتوث وتعرض كل المقترن وتفتح إعداداته للاقتران
-  const path: DirectPath = os === 'android' && i.bridgeFlag === true ? 'app'
+  // داخل تطبيق فيلد سيلز 1.2.1+ يُقدَّم التطبيق على Web Serial (APP_FIRST_BRIDGE_VERSION): نافذة Chrome تبدو فارغة للمندوب
+  // («No compatible devices found»)، وشاشة التطبيق تطلب الإذن وتشغّل البلوتوث وتعرض كل المقترن وتفتح إعداداته للاقتران
+  const appFirst = os === 'android' && (i.bridgeVersion ?? 0) >= APP_FIRST_BRIDGE_VERSION;
+  const path: DirectPath = appFirst ? 'app'
     : i.hasSerial ? 'serial' : os === 'android' && appOpen ? 'app' : iosOpen ? 'ios-app' : 'none';
   return { os, path };
 }

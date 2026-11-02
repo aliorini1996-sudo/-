@@ -15,7 +15,8 @@ export const BRIDGE_PARAM_PAYLOAD = 'p';
 export const BRIDGE_PARAM_KEY = 'k';
 /** معامل يضيفه LauncherActivity لرابط الإقلاع: «<إصدار البروتوكول>.<المفتاح>» — تقرؤه الصفحة وتحذفه فوراً */
 export const BRIDGE_LAUNCH_PARAM = 'fsbridge';
-export const BRIDGE_PROTOCOL_VERSION = 1;
+/** 2 منذ 1.2.1: شاشة الاختيار تُظهر الطابعات المقترنة — ومنه يُقدَّم التطبيق على Web Serial (platform.ts APP_FIRST_BRIDGE_VERSION) */
+export const BRIDGE_PROTOCOL_VERSION = 2;
 export const BRIDGE_PACKAGE = 'net.fieldsa.twa';
 
 /** صيغة الحمولة v1: رأس 14 بايتاً ثم الجسم (خام أو deflate) */

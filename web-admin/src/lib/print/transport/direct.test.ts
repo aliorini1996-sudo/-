@@ -67,7 +67,7 @@ test('currentPlatformInput يجمع إشارات أندرويد من الصفح�
   }, async () => {
     assert.deepEqual(currentPlatformInput(), {
       ua: LINUX, uaDataPlatform: 'Android', maxTouchPoints: 5, hasSerial: false, referrer: 'android-app://net.fieldsa.twa/', bridgeFlag: true,
-      iosBridge: null, iosWrapper: false,
+      bridgeVersion: 1, iosBridge: null, iosWrapper: false,
     });
     assert.equal(directPath(), 'app');
     assert.equal(directPrintAvailable(), true);
@@ -89,11 +89,16 @@ test('currentPlatformInput يجمع إشارات أندرويد من الصفح�
   withPage({ navigator: { userAgent: LINUX }, document: { referrer: '' }, window: { localStorage: store({}) } }, () => {
     assert.equal(directPath(), 'none');
   });
-  // داخل التطبيق (علامة الجسر) ⇒ app ولو وُجد Web Serial — نافذة Chrome تبدو فارغة للمندوب (بلاغ ٢ نوفمبر ٢٠٢٦)؛
-  // وخارجه (Chrome بلا علامة) ⇒ serial كما كان
+  // داخل التطبيق 1.2.1+ (الجسر 2) ⇒ app ولو وُجد Web Serial — نافذة Chrome تبدو فارغة للمندوب (بلاغ ٢ نوفمبر ٢٠٢٦)؛
+  // و1.2.0 (الجسر 1: أزرار الاختيار مخفيّة فيه) وChrome بلا علامة ⇒ serial كما كان
   const serial = { requestPort: async () => { throw new Error('x'); }, getPorts: async () => [] };
-  withPage({ navigator: { userAgent: LINUX, userAgentData: { platform: 'Android' }, serial }, window: { localStorage: store({ fs_print_bridge: FLAG }), isSecureContext: true } }, () => {
+  const FLAG2 = JSON.stringify({ v: 2, k: 'Ab3_Cd4-Ef5Gh6Ij7Kl8Mn', at: 1 });
+  withPage({ navigator: { userAgent: LINUX, userAgentData: { platform: 'Android' }, serial }, window: { localStorage: store({ fs_print_bridge: FLAG2 }), isSecureContext: true } }, () => {
+    assert.equal(currentPlatformInput().bridgeVersion, 2);
     assert.equal(directPath(), 'app');
+  });
+  withPage({ navigator: { userAgent: LINUX, userAgentData: { platform: 'Android' }, serial }, window: { localStorage: store({ fs_print_bridge: FLAG }), isSecureContext: true } }, () => {
+    assert.equal(directPath(), 'serial');
   });
   withPage({ navigator: { userAgent: LINUX, userAgentData: { platform: 'Android' }, serial }, window: { localStorage: store({}), isSecureContext: true } }, () => {
     assert.equal(directPath(), 'serial');

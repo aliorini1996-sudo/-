@@ -3,7 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  APP_BRIDGE_FOR_ALL, IOS_BRIDGE_RELEASED, IOS_IMPACT_DIRECT, classifyPrintPlatform, directHint, type DirectHint, type PlatformInput,
+  APP_BRIDGE_FOR_ALL, APP_FIRST_BRIDGE_VERSION, IOS_BRIDGE_RELEASED, IOS_IMPACT_DIRECT, classifyPrintPlatform, directHint, type DirectHint,
+  type PlatformInput,
 } from './platform';
 
 const UA = {
@@ -64,11 +65,16 @@ test('iOS يبقى iOS ولو حمل علامة الجسر أو مُحيل ال�
   assert.deepEqual(at({ ua: UA.samsung, hasSerial: true }), { os: 'android', path: 'serial' }, 'Web Serial خارج التطبيق');
 });
 
-test('داخل تطبيق فيلد سيلز (علامة الجسر) ⇒ app ولو وُجد Web Serial — نافذة Chrome تبدو فارغة (بلاغ ٢ نوفمبر ٢٠٢٦)', () => {
-  assert.deepEqual(at({ ua: UA.chrome140Android, hasSerial: true, bridgeFlag: true }), { os: 'android', path: 'app' });
+test('داخل تطبيق فيلد سيلز 1.2.1+ (الجسر ≥ 2) ⇒ app ولو وُجد Web Serial — و1.2.0 (الجسر 1، أزرار الاختيار مخفيّة) ⇒ serial (بلاغ ٢ نوفمبر ٢٠٢٦)', () => {
+  assert.equal(APP_FIRST_BRIDGE_VERSION, 2);
+  assert.deepEqual(at({ ua: UA.chrome140Android, hasSerial: true, bridgeFlag: true, bridgeVersion: 2 }), { os: 'android', path: 'app' });
+  assert.deepEqual(at({ ua: UA.chrome140Android, hasSerial: true, bridgeFlag: true, bridgeVersion: 3 }), { os: 'android', path: 'app' }, 'إصدارٌ أحدث');
+  assert.deepEqual(at({ ua: UA.chrome140Android, hasSerial: true, bridgeFlag: true, bridgeVersion: 1 }), { os: 'android', path: 'serial' }, '1.2.0: نافذة Chrome كما كانت');
+  assert.deepEqual(at({ ua: UA.chrome140Android, hasSerial: true, bridgeFlag: true }), { os: 'android', path: 'serial' }, 'بلا إصدار ⇒ كالقديم');
+  assert.deepEqual(at({ ua: UA.samsung, bridgeFlag: true, bridgeVersion: 1 }), { os: 'android', path: 'app' }, 'بلا Web Serial: التطبيق كما كان');
   assert.deepEqual(at({ ua: UA.chrome140Android, hasSerial: true, referrer: 'android-app://net.fieldsa.twa/' }), { os: 'android', path: 'serial' },
     'المُحيل وحده لا يكفي: النسخة 3 تضعه بلا جسر');
-  assert.deepEqual(at({ ua: UA.iphone, maxTouchPoints: 5, hasSerial: true, bridgeFlag: true }), { os: 'ios', path: 'serial' }, 'الآيفون لا يتأثر');
+  assert.deepEqual(at({ ua: UA.iphone, maxTouchPoints: 5, hasSerial: true, bridgeFlag: true, bridgeVersion: 2 }), { os: 'ios', path: 'serial' }, 'الآيفون لا يتأثر');
 });
 
 test('بوّابة النشر مفتوحة منذ نشر 1.2.0 في الإنتاج: أندرويد بلا Web Serial ⇒ app بلا علامة الجسر', () => {
@@ -86,7 +92,7 @@ test('منطق البوّابة إن أُطفئت: علامة الجسر وحد�
   assert.deepEqual(gated({ ua: UA.chrome120Android, referrer: 'android-app://net.fieldsa.twa/' }), { os: 'android', path: 'none' });
   assert.deepEqual(gated({ ua: UA.samsung, bridgeFlag: true }), { os: 'android', path: 'app' });
   assert.deepEqual(gated({ ua: UA.chrome140Android, hasSerial: true }), { os: 'android', path: 'serial' }, 'Web Serial كاليوم');
-  assert.deepEqual(gated({ ua: UA.chrome140Android, hasSerial: true, bridgeFlag: true }), { os: 'android', path: 'app' }, 'داخل التطبيق ولو أُطفئت البوّابة');
+  assert.deepEqual(gated({ ua: UA.chrome140Android, hasSerial: true, bridgeFlag: true, bridgeVersion: 2 }), { os: 'android', path: 'app' }, 'داخل 1.2.1+ ولو أُطفئت البوّابة');
   assert.deepEqual(gated({ ua: UA.samsung, bridgeForAll: true }), { os: 'android', path: 'app' });
   assert.deepEqual(gated({ ua: UA.iphone, maxTouchPoints: 5, bridgeForAll: true }), { os: 'ios', path: 'none' });
 });

@@ -441,6 +441,8 @@ class PrintActivity : AppCompatActivity() {
         )
         for (row in rows) {
             val b = outlinedButton().apply {
+                // outlinedButton() يبدأ مخفيّاً (لأزرار bind) — كان صفّ الطابعة لا يظهر في 1.2.0 فبدت القائمة فارغة
+                visibility = View.VISIBLE
                 text = "${displayName(row)} …${row.address.takeLast(5)}"
                 setOnClickListener { onPicked(row) }
             }

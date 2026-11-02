@@ -33,13 +33,15 @@ export function currentPlatformInput(): PlatformInput {
   let cookie = '';
   try { cookie = typeof document === 'undefined' ? '' : String(document.cookie ?? ''); } catch { /* كعكاتٌ محجوبة */ }
   const ua = typeof nav?.userAgent === 'string' ? nav.userAgent : '';
+  const flag = readBridgeFlag();
   return {
     ua,
     uaDataPlatform: nav?.userAgentData?.platform ?? null,
     maxTouchPoints: typeof nav?.maxTouchPoints === 'number' ? nav.maxTouchPoints : 0,
     hasSerial: btSerial.serialApi() !== null,
     referrer,
-    bridgeFlag: readBridgeFlag() !== null,
+    bridgeFlag: flag !== null,
+    bridgeVersion: flag?.v ?? null,
     iosBridge: readIosBridgeVersion(),
     iosWrapper: isIosWrapper(ua, cookie),
   };
