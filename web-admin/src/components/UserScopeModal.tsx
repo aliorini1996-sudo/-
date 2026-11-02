@@ -135,7 +135,7 @@ export default function UserScopeModal({ userId, userName, onClose }: {
             </span>
           </label>
 
-          {/* «الفرق»: مشرف فرق — نطاقه فرقه (من إعدادات الشركة ← فرق العمل)، لا القوائم أدناه */}
+          {/* «الفرق»: مشرف فرق — نطاقه فرقه (من صفحة المناديب ← فرق العمل)، لا القوائم أدناه */}
           {enabled && scopeQ.data?.scopeEnabled && scopeQ.data.scopeMode === 'TEAMS' && (
             <div className="p-3 rounded-xl border border-amber-200 bg-amber-50 text-[12px] text-amber-800 leading-relaxed">
               <b>{tr('مشرف فرق')}</b>: {(scopeQ.data.supervisedTeams ?? []).map(t => t.name).join('، ') || tr('بلا فرق لا يرى شيئا')}

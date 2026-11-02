@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { salesRepApi, invoiceApi, receiptApi, customerApi, companyApi, dailyReportApi, priceListApi } from '../api/client';
 import { SalesRep, Invoice, Receipt, Customer } from '../types';
-import { Plus, Search, Edit, Check, X as XIcon, Copy, KeyRound, UserCheck, FileBarChart2, Download, Printer, X, Trash2, Banknote, Users, ShieldCheck, Image as ImageIcon, ClipboardList, UserX, CreditCard } from 'lucide-react';
+import { Plus, Search, Edit, Check, X as XIcon, Copy, KeyRound, UserCheck, FileBarChart2, Download, Printer, X, Trash2, Banknote, Users, ShieldCheck, Image as ImageIcon, ClipboardList, UserX, CreditCard, UsersRound } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SalesRepModal from '../components/forms/SalesRepModal';
 import ResetPasswordModal from '../components/ResetPasswordModal';
@@ -10,6 +11,8 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import RepVanStockNote from '../components/RepVanStockNote';
 import RepVanLotsNote from '../components/RepVanLotsNote';
 import CardTerminalsModal from '../components/CardTerminalsModal';
+import PagePanelModal from '../components/PagePanelModal';
+import TeamsTabBoundary from '../components/teams/TeamsTabBoundary';
 import { formatCurrency, formatDate, formatDayOnly, formatTime, formatNumber, statusLabels, paymentMethodLabels, getActiveCurrency } from '../utils/format';
 import { totalsByUnit, docQtyText } from '../lib/adminUnits';
 import { methodLabelFor, type CompanyWithMethods } from '../lib/paymentMethodsConfig';
@@ -27,6 +30,8 @@ import { useLedgerOn } from '../components/LedgerGate';
 import { ledgerConfigApi, ledgerKeys } from '../api/ledgerConfig';
 
 interface Creds { name: string; username: string; password: string; }
+
+const loadTeamsPanel = () => import('../components/teams/TeamsPanel');
 
 export default function SalesRepsPage() {
   const qc = useQueryClient();
@@ -147,6 +152,14 @@ export default function SalesRepsPage() {
   // «التحصيل بالبطاقة» (NearPay): ميزة يفعّلها المالك — إسناد نقاط البيع إداريٌّ بصلاحية المناديب (والخادم يحرس)
   const cardPayOn = companyCfg?.cardPayEnabled === true && user?.role !== 'SALES_REP' && user?.canManageSalesReps !== false;
   const [cardTerminalsOpen, setCardTerminalsOpen] = useState(false);
+  // «فرق العمل» (نُقلت من إعدادات الشركة إلى هنا، طلب المالك ٢ نوفمبر ٢٠٢٦): لمدير الشركة غير المقيَّد كما كانت — والخادم يشترط
+  // صلاحية إعدادات الشركة. ‎?panel=teams يفتحها (رابط التبويب القديم في الإعدادات يحوّل هنا)
+  const [searchParams] = useSearchParams();
+  const teamsOn = user?.role === 'ADMIN' && user?.scopeEnabled !== true;
+  const [teamsOpen, setTeamsOpen] = useState(() => searchParams.get('panel') === 'teams');
+  // «إعادة المحاولة» بعد فشل تحميل حزمة اللوحة: مكوّن كسول جديد لكل محاولة (React.lazy يحفظ الوعد المرفوض)
+  const [teamsAttempt, setTeamsAttempt] = useState(0);
+  const TeamsPanel = useMemo(() => lazy(loadTeamsPanel), [teamsAttempt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // المحاسبة مطفأة ⇒ تختفي صلاحيات الفوترة والتسعير والتحصيل ومخزون السيارة
   // من الجدول ومن نافذة المندوب، ويختفي زرّا «استلام تحصيل» و«كشف الأداء
@@ -171,12 +184,24 @@ export default function SalesRepsPage() {
       <div className="page-header">
         <h1 className="page-title">{tr('إدارة المناديب')}</h1>
         <div className="flex items-center gap-2">
+          {teamsOn && (
+            <button className="btn-secondary" onClick={() => setTeamsOpen(true)}><UsersRound size={16} />{tr('فرق العمل')}</button>
+          )}
           {cardPayOn && (
             <button className="btn-secondary" onClick={() => setCardTerminalsOpen(true)}><CreditCard size={16} />{tr('نقاط البيع بالبطاقة')}</button>
           )}
           <button className="btn-primary" onClick={() => { setSelected(null); setShowModal(true); }}><Plus size={16} />{tr('إضافة مندوب')}</button>
         </div>
       </div>
+      {teamsOn && teamsOpen && (
+        <PagePanelModal title={tr('فرق العمل')} icon={<UsersRound size={20} />} onClose={() => setTeamsOpen(false)}>
+          <TeamsTabBoundary onRetry={() => setTeamsAttempt(n => n + 1)}>
+            <Suspense fallback={<div className="flex items-center justify-center h-48"><div className="w-8 h-8 border-4 border-[#E15A30] border-t-transparent rounded-full animate-spin" /></div>}>
+              <TeamsPanel />
+            </Suspense>
+          </TeamsTabBoundary>
+        </PagePanelModal>
+      )}
       {cardTerminalsOpen && <CardTerminalsModal test={companyCfg?.cardPayTest === true} onClose={() => setCardTerminalsOpen(false)} />}
 
       {/* عزل العملاء — عند التفعيل لا يرى المندوب إلا العملاء المُسنَدين له */}

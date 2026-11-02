@@ -212,10 +212,20 @@ test('ملف العميل والمندوب وإعدادات الشركة: «نو
   assert.ok(c.includes("{...register('priceListId', { setValueAs: (v: unknown) => (v ? String(v) : null) })}"));
   assert.ok(c.includes('enabled: accountingOn,'), 'لا طلب والمحاسبة مطفأة');
   assert.ok(read('components', 'forms', 'SalesRepModal.tsx').includes("<PermToggle label={tr('تبديل نوع السعر')} {...register('canChangePriceList')} />"));
+  // «أنواع الأسعار» في صفحة المنتجات (نُقلت من إعدادات الشركة، طلب المالك ٢ نوفمبر ٢٠٢٦): مع المحاسبة ولصلاحية الأصناف،
+  // و?panel=prices يفتحها، ورابط التبويب القديم يحوّل إليها؛ و«فرق العمل» إلى المناديب بالطريقة نفسها
+  const products = read('pages', 'ProductsPage.tsx');
+  assert.ok(products.includes("const priceTypesOn = accountingOn && user?.canManageProducts !== false;"));
+  assert.ok(products.includes("useState(() => searchParams.get('panel') === 'prices')"));
+  assert.ok(products.includes('<PriceListsPanel />'));
+  const reps = read('pages', 'SalesRepsPage.tsx');
+  assert.ok(reps.includes("const teamsOn = user?.role === 'ADMIN' && user?.scopeEnabled !== true;"));
+  assert.ok(reps.includes("useState(() => searchParams.get('panel') === 'teams')"));
+  assert.ok(reps.includes('<TeamsPanel />'));
   const page = read('pages', 'CompanySettingsPage.tsx');
-  assert.ok(page.includes('const pricesTabOn = accountingOn && canManageProducts;'));
-  assert.ok(page.includes("(tab === 'prices' && !pricesTabOn) ? 'general' : tab;"));
-  assert.ok(page.includes('<PriceListsPanel />'));
+  assert.ok(page.includes("params.get('tab') === 'prices' ? '/app/products?panel=prices' : params.get('tab') === 'teams' ? '/app/sales-reps?panel=teams' : null"));
+  assert.ok(page.includes('if (movedPanel) return <Navigate to={movedPanel} replace />;'));
+  assert.doesNotMatch(page, /<PriceListsPanel \/>|<TeamsPanel \/>/);
   const client = read('api', 'client.ts');
   for (const k of ["list: () => api.get('/price-lists'),", "setBaseLabel: (label: string | null) => api.put('/price-lists/base-label', { label }),",
     'api.put(`/products/${id}/list-prices`, data),', 'customerPrices: (customerId: string) => api.get(`/products/customer-prices/${customerId}`),']) {

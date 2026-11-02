@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { productApi, companyApi, lotsApi } from '../api/client';
 import { zatcaCollectOn, type ZatcaCompanyLike } from '../lib/zatcaRegime';
@@ -8,7 +8,7 @@ import { formatCurrency, formatNumber, statusLabels } from '../utils/format';
 import { primaryPriceOf, primaryUnitOf, unitPriceOf } from '../lib/units';
 import { baseQtyText, productUnitLabel } from '../lib/adminUnits';
 import { useTr } from '../i18n/strings';
-import { Plus, Search, Edit, Trash2, ChevronLeft, ChevronRight, Layers, X, AlertTriangle } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, ChevronLeft, ChevronRight, Layers, X, AlertTriangle, Tags } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ProductModal from '../components/forms/ProductModal';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -17,6 +17,8 @@ import { useAuthStore } from '../store/authStore';
 import { lotFlagsOf, type LotTrackingRequest, type LotTrackingResultDto } from '../lib/lots';
 import { attentionRows, trackingBalanceOf, trackingRequest, type AttentionRow, type TrackingBalanceProduct } from '../lib/lotTrackingUi';
 import { listPricesCreateBody, type ListPriceEdits } from '../lib/priceLists';
+import PagePanelModal from '../components/PagePanelModal';
+import PriceListsPanel from '../components/priceLists/PriceListsPanel';
 
 /** حمولة حفظ الصنف — والتأكيد بعد 409 LOT_TRACKING_HAS_BALANCE (D9)، وأسعار «أنواع الأسعار» المتغيّرة من النافذة */
 type ProductSave = Partial<Product> & { confirmLotBalances?: boolean; listPriceEdits?: ListPriceEdits };
@@ -57,6 +59,11 @@ export default function ProductsPage() {
   const lotOn = lotFlagsOf(company).on;
   const user = useAuthStore(s => s.user);
   const canBulk = lotOn && user?.canManageVanStock !== false;
+  // «أنواع الأسعار» (نُقلت من إعدادات الشركة إلى هنا، طلب المالك ٢ نوفمبر ٢٠٢٦): مع المحاسبة ولمن يدير الأصناف — والخادم يشترطها
+  // للكتابة. ‎?panel=prices يفتحها (رابط التبويب القديم في الإعدادات يحوّل هنا)
+  const [searchParams] = useSearchParams();
+  const priceTypesOn = accountingOn && user?.canManageProducts !== false;
+  const [priceTypesOpen, setPriceTypesOpen] = useState(() => searchParams.get('panel') === 'prices');
   const catFilter = lotOn ? categoryId : '';
 
   const { data: categories } = useQuery({
@@ -185,8 +192,18 @@ export default function ProductsPage() {
     <div>
       <div className="page-header">
         <h1 className="page-title">{tr('إدارة المنتجات')}</h1>
-        <button className="btn-primary" onClick={() => { setSelected(null); setShowModal(true); }}><Plus size={16} />{tr('إضافة صنف')}</button>
+        <div className="flex items-center gap-2">
+          {priceTypesOn && (
+            <button className="btn-secondary" onClick={() => setPriceTypesOpen(true)}><Tags size={16} />{tr('أنواع الأسعار')}</button>
+          )}
+          <button className="btn-primary" onClick={() => { setSelected(null); setShowModal(true); }}><Plus size={16} />{tr('إضافة صنف')}</button>
+        </div>
       </div>
+      {priceTypesOn && priceTypesOpen && (
+        <PagePanelModal title={tr('أنواع الأسعار')} icon={<Tags size={20} />} onClose={() => setPriceTypesOpen(false)}>
+          <PriceListsPanel />
+        </PagePanelModal>
+      )}
 
       <div className="card mb-4">
         <div className={lotOn ? 'flex flex-wrap items-center gap-2' : undefined}>

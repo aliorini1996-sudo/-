@@ -12,22 +12,19 @@ import { useAccountingOn } from '../components/AccountingGate';
 import { keepLocalEdits } from '../components/zatca/settingsMerge';
 import { LOCKED_INPUT_CLASS, SELLER_LOCK_HINT_ID, companySaveErrorMessage, companySaveNeedsRefetch, withoutLockedSellerFields, zatcaCountryChoiceAllowed, zatcaSellerFieldsLocked, zatcaSellerLockHint, zatcaTabVisible } from '../components/zatca/zatcaAccess';
 import ZatcaTabBoundary from '../components/zatca/ZatcaTabBoundary';
-import TeamsTabBoundary from '../components/teams/TeamsTabBoundary';
 import PrintTabBoundary from '../components/print/PrintTabBoundary';
 import PrintTextsCard from '../components/print/PrintTextsCard';
 import ReturnPolicyCard from '../components/ReturnPolicyCard';
-import PriceListsPanel from '../components/priceLists/PriceListsPanel';
 import { isZatcaPhase2Live } from '../lib/zatcaRegime';
 import { zatcaCollectOn } from '../lib/zatcaRegime';
 import { useAuthStore } from '../store/authStore';
-import { useSearchParams } from 'react-router-dom';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import { lotFlagsOf } from '../lib/lots';
 
 // تبويب ربط فوترة المرحلة الثانية كسول: لا يُحمَّل (ولا عباراته) إلا لشركة فعّل لها المالك العلم وفتحت التبويب
 const loadZatcaPhase2Tab = () => import('../components/zatca/ZatcaPhase2Tab');
 // تبويب «الربط البرمجي API» — حزمةٌ مستقلّة لا تُحمَّل إلا عند فتحه
 const ApiKeysPanel = lazy(() => import('./ApiKeysPage'));
-const loadTeamsPanel = () => import('../components/teams/TeamsPanel');
 // «إعدادات الطباعة» — حزمةٌ كسولة (المحرّر والمعاينة) لا تُحمَّل إلا عند فتح التبويب
 const loadPrintPanel = () => import('../components/print/PrintSettingsPanel');
 
@@ -77,24 +74,18 @@ export default function CompanySettingsPage() {
   const role = useAuthStore(s => s.user?.role);
   const scopeEnabled = useAuthStore(s => s.user?.scopeEnabled === true);
   const canManageVanStock = useAuthStore(s => s.user?.canManageVanStock !== false);
-  const canManageProducts = useAuthStore(s => s.user?.canManageProducts !== false);
   // `?tab=api`: الرابط القديم للربط البرمجي (/app/api) يحوّل هنا ويفتح تبويبه
   const [params] = useSearchParams();
-  const [tab, setTab] = useState<'general' | 'print' | 'zatca' | 'api' | 'teams' | 'prices'>(() => {
+  const [tab, setTab] = useState<'general' | 'print' | 'zatca' | 'api'>(() => {
     const t = params.get('tab');
-    return t === 'api' || t === 'teams' || t === 'print' || t === 'prices' ? t : 'general';
+    return t === 'api' || t === 'print' ? t : 'general';
   });
-  // تبويب «أنواع الأسعار» يُركَّب عند أول فتح ثم يبقى مخفيّاً — كتبويب الفرق
-  const [pricesMounted, setPricesMounted] = useState(() => params.get('tab') === 'prices');
+  // «أنواع الأسعار» و«فرق العمل» نُقلتا إلى صفحتي المنتجات والمناديب (طلب المالك ٢ نوفمبر ٢٠٢٦): رابط التبويب القديم يحوّل هناك
+  const movedPanel = params.get('tab') === 'prices' ? '/app/products?panel=prices' : params.get('tab') === 'teams' ? '/app/sales-reps?panel=teams' : null;
   // تبويب «إعدادات الطباعة» يُركَّب عند أول فتح ثم يبقى مخفيّاً — فلا تضيع مسودة قوالبه بالتنقّل بين التبويبات
   const [printMounted, setPrintMounted] = useState(() => params.get('tab') === 'print');
   const [printAttempt, setPrintAttempt] = useState(0);
   const PrintSettingsPanel = useMemo(() => lazy(loadPrintPanel), [printAttempt]); // eslint-disable-line react-hooks/exhaustive-deps
-  // تبويب «الفرق» يُركَّب عند أول فتح ثم يبقى مخفيّاً — كتبويب الربط البرمجي
-  const [teamsMounted, setTeamsMounted] = useState(() => params.get('tab') === 'teams');
-  // «إعادة المحاولة» بعد فشل تحميل حزمة التبويب: مكوّن كسول جديد لكل محاولة (React.lazy يحفظ الوعد المرفوض)
-  const [teamsAttempt, setTeamsAttempt] = useState(0);
-  const TeamsPanel = useMemo(() => lazy(loadTeamsPanel), [teamsAttempt]); // eslint-disable-line react-hooks/exhaustive-deps
   // تبويب الربط البرمجي يُركَّب عند أول فتح ثم يبقى مخفيّاً — كتبويب الفوترة
   const [apiMounted, setApiMounted] = useState(() => params.get('tab') === 'api');
   // يُركَّب عند أول فتح ثم يبقى مخفيّاً لا مُزالاً: التنقّل بين التبويبين لا يمحو ما لم يُحفظ في أيٍّ منهما
@@ -210,20 +201,14 @@ export default function CompanySettingsPage() {
   // الربط البرمجي API (كان صفحةً مستقلّة): يفعّله المالك لكل شركة؛ ولمدير الشركة غير المقيَّد وحده — وجلسة دخول المالك
   // تعمل كالحساب الذي تمثّله كبقية الصفحة (قرار المالك 17 سبتمبر 2026)، والخادم يحكم بالدور من القاعدة
   const apiTabOn = (data as { apiEnabled?: boolean } | null | undefined)?.apiEnabled === true && role === 'ADMIN' && !scopeEnabled;
-  // «الفرق» (مطفأة افتراضياً، يفعّلها مدير الشركة هنا): لمدير الشركة غير المقيَّد — والخادم يشترط صلاحية إعدادات الشركة
-  const teamsTabOn = role === 'ADMIN' && !scopeEnabled;
   // «إعدادات الطباعة»: لكل من بلغ الصفحة (المسار نفسه بصلاحية إعدادات الشركة، والخادم يشترطها للحفظ) — لا ADMIN ولا نطاق،
   // ولا يُخفى مع المحاسبة: سند القبض والتحميل يُطبعان بلا محاسبة أيضاً
   const printTabOn = true;
-  // «أنواع الأسعار» (لكل شركة بلا علم مالك): أسعارٌ ومحاسبة — مع المحاسبة ولمن يملك صلاحية الأصناف (الخادم يشترطها للكتابة)
-  const pricesTabOn = accountingOn && canManageProducts;
   // تبويبٌ غير متاح (أُطفئ أو رابطٌ قديم) يعود للإعدادات العامة
-  const activeTab = (tab === 'zatca' && !zatcaTabOn) || (tab === 'api' && !apiTabOn) || (tab === 'teams' && !teamsTabOn) || (tab === 'prices' && !pricesTabOn) ? 'general' : tab;
+  const activeTab = (tab === 'zatca' && !zatcaTabOn) || (tab === 'api' && !apiTabOn) ? 'general' : tab;
   const showZatca = zatcaTabOn && tab === 'zatca';
   const showApi = apiTabOn && activeTab === 'api';
-  const showTeams = teamsTabOn && activeTab === 'teams';
   const showPrint = printTabOn && activeTab === 'print';
-  const showPrices = pricesTabOn && activeTab === 'prices';
   // فوترة ZATCA (Z5.0، D9): بعد التفعيل الحيّ يرفض الخادم تغيير العملة (409 ZATCA_SETTINGS_LOCKED) — فلا يُعرض اختيارها
   const zatcaLive = isZatcaPhase2Live(data);
   // شركة سعودية (أو بلا دولة محفوظة) بعلم المالك: الرقم الضريبي والسجل والدولة لمدير الشركة غير المقيّد وحده (الخادم يرفض غيره
@@ -242,6 +227,8 @@ export default function CompanySettingsPage() {
   // الحقل المقفل يبدو مقفلاً (لا حقلاً يتجاهل الكتابة صامتاً) ويُقرأ معه سبب القفل
   const lockedProps = sellerLocked ? { 'aria-describedby': SELLER_LOCK_HINT_ID, title: tr(zatcaSellerLockHint(role, scopeEnabled)) } : {};
 
+  if (movedPanel) return <Navigate to={movedPanel} replace />;
+
   return (
     <div>
       <div className="page-header">
@@ -249,7 +236,7 @@ export default function CompanySettingsPage() {
       </div>
 
       {/* شريط التبويبات: الفوترة الإلكترونية محكومة بـzatcaTabOn وحده، والربط البرمجي بـapiTabOn */}
-      {(printTabOn || zatcaTabOn || apiTabOn || teamsTabOn || pricesTabOn) && (
+      {(printTabOn || zatcaTabOn || apiTabOn) && (
         <div className="flex gap-2 mb-5 overflow-x-auto pb-1" role="tablist">
           <button type="button" role="tab" aria-selected={activeTab === 'general'} onClick={() => setTab('general')}
             className={`shrink-0 whitespace-nowrap rounded-xl border-2 px-4 py-2 text-sm font-semibold transition-colors ${activeTab === 'general' ? 'border-[#E15A30] bg-[#FBEBE2] text-[#C94E28]' : 'border-[#E9E1D3] bg-white text-[#44403a] hover:border-[#D8CDB9]'}`}>
@@ -271,18 +258,6 @@ export default function CompanySettingsPage() {
             <button type="button" role="tab" aria-selected={activeTab === 'api'} onClick={() => { setTab('api'); setApiMounted(true); }}
               className={`shrink-0 whitespace-nowrap rounded-xl border-2 px-4 py-2 text-sm font-semibold transition-colors ${activeTab === 'api' ? 'border-[#E15A30] bg-[#FBEBE2] text-[#C94E28]' : 'border-[#E9E1D3] bg-white text-[#44403a] hover:border-[#D8CDB9]'}`}>
               {tr('الربط البرمجي API')}
-            </button>
-          )}
-          {teamsTabOn && (
-            <button type="button" role="tab" aria-selected={activeTab === 'teams'} onClick={() => { setTab('teams'); setTeamsMounted(true); }}
-              className={`shrink-0 whitespace-nowrap rounded-xl border-2 px-4 py-2 text-sm font-semibold transition-colors ${activeTab === 'teams' ? 'border-[#E15A30] bg-[#FBEBE2] text-[#C94E28]' : 'border-[#E9E1D3] bg-white text-[#44403a] hover:border-[#D8CDB9]'}`}>
-              {tr('فرق العمل')}
-            </button>
-          )}
-          {pricesTabOn && (
-            <button type="button" role="tab" aria-selected={activeTab === 'prices'} onClick={() => { setTab('prices'); setPricesMounted(true); }}
-              className={`shrink-0 whitespace-nowrap rounded-xl border-2 px-4 py-2 text-sm font-semibold transition-colors ${activeTab === 'prices' ? 'border-[#E15A30] bg-[#FBEBE2] text-[#C94E28]' : 'border-[#E9E1D3] bg-white text-[#44403a] hover:border-[#D8CDB9]'}`}>
-              {tr('أنواع الأسعار')}
             </button>
           )}
         </div>
@@ -311,22 +286,6 @@ export default function CompanySettingsPage() {
         </div>
       )}
 
-      {teamsTabOn && teamsMounted && (
-        <div hidden={!showTeams}>
-          <TeamsTabBoundary onRetry={() => setTeamsAttempt(n => n + 1)}>
-            <Suspense fallback={<div className="flex items-center justify-center h-48"><div className="w-8 h-8 border-4 border-[#E15A30] border-t-transparent rounded-full animate-spin" /></div>}>
-              <TeamsPanel />
-            </Suspense>
-          </TeamsTabBoundary>
-        </div>
-      )}
-
-      {pricesTabOn && pricesMounted && (
-        <div hidden={!showPrices}>
-          <PriceListsPanel />
-        </div>
-      )}
-
       {printTabOn && printMounted && (
         <div hidden={!showPrint}>
           <PrintTabBoundary onRetry={() => setPrintAttempt(n => n + 1)}>
@@ -338,7 +297,7 @@ export default function CompanySettingsPage() {
       )}
 
       {/* الإعدادات العامة: مخفيّة لا مُزالة خلف أيّ تبويبٍ آخر — فلا يضيع ما لم يُحفظ */}
-      <div hidden={showApi || showTeams || showPrint || showPrices}>
+      <div hidden={showApi || showPrint}>
       <div hidden={showZatca}>
       <form onSubmit={handleSubmit(values => mutation.mutate({
         form: values, state: { logo, primaryColor, headerStyle, countryCode, currencyOverride, numerals }, einv, sellerLocked,
