@@ -12,10 +12,11 @@
  * zatcaPrintDecision في كل قالب، والحدّ الأدنى لكل دقة لا ينزل أبداً (حارس في الاختبار).
  */
 import {
-  DOC_KINDS, LEGACY_NAMES, LEGACY_PAGE_ID, LEGACY_THERMAL_ID, PRINT_ISSUES, TEMPLATES_BY_PRINTER, checkPrintSettings, defaultPrintOptions, dotsPerMm,
-  isLegacyPrintSettings, legacyPrintSettings, legacyThermalProfile, maxPrintableDots, presetPaper, routingAllowsPrinter,
-  type Paper, type PaperFeed, type PaperPresetId, type PrintDocKind, type PrintProfile, type PrintSettingsV1, type PrinterDpi,
-  type PrinterType, type QrSize, type TemplateId,
+  DOC_KINDS, LEGACY_NAMES, LEGACY_PAGE_ID, LEGACY_THERMAL_ID, PRINT_ISSUES, TEMPLATES_BY_PRINTER, checkPrintSettings, defaultPrintLayout, defaultPrintOptions,
+  dotsPerMm, isLegacyPrintSettings, legacyPrintSettings, legacyThermalProfile, maxPrintableDots, normalizeSectionOrder, presetPaper, routingAllowsPrinter,
+  type LayoutDesign, type LogoPosition, type LogoSize, type Paper, type PaperFeed, type PaperPresetId, type PrintDocKind, type PrintLayout,
+  type PrintOptions, type PrintProfile, type PrintSettingsV1, type PrinterDpi, type PrinterType, type QrSize, type SectionId, type TableStyle,
+  type TemplateId,
 } from './printSettingsCore';
 
 export * from './printSettingsCore';
@@ -466,4 +467,98 @@ export function printSaveErrorMessage(err: unknown): string {
   const m = r?.data?.message;
   if (typeof m === 'string' && (Object.values(PRINT_ISSUES) as string[]).includes(m)) return m;
   return 'حدث خطأ في الحفظ';
+}
+
+// ─── التخطيط (طلب المالك ٣ نوفمبر ٢٠٢٦): التصميم ثنائي اللغة، ومكان الشعار وحجمه، واللون، والجدول، وترتيب الأقسام ───
+
+export const DESIGN_LABELS: Readonly<Record<LayoutDesign, string>> = Object.freeze({
+  standard: 'التصميم الحالي',
+  grid_bilingual: 'كلاسيكي بإطارات — ثنائي اللغة',
+});
+export const DESIGN_HINTS: Readonly<Partial<Record<LayoutDesign, string>>> = Object.freeze({
+  grid_bilingual: 'إطارات كاملة وعناوين عربية وإنجليزية مثل فواتير أنظمة ERP',
+});
+export const SECTION_LABELS: Readonly<Record<SectionId, string>> = Object.freeze({
+  header: 'الترويسة',
+  info: 'بيانات المستند',
+  parties: 'البائع والمشتري',
+  customer: 'العميل',
+  items: 'الأصناف',
+  note: 'ملاحظة الأسعار',
+  totals: 'الإجماليات',
+  installments: 'الأقساط',
+  qr: 'رمز QR',
+  signatures: 'التواقيع',
+  footer: 'التذييل',
+});
+/** start = يمين الورقة في العربية (مكان اليوم) */
+export const LOGO_POSITION_LABELS: Readonly<Record<LogoPosition, string>> = Object.freeze({ start: 'يمين', center: 'وسط', end: 'يسار', none: 'بلا شعار' });
+export const LOGO_SIZE_LABELS: Readonly<Record<LogoSize, string>> = Object.freeze({ s: 'صغير', m: 'متوسط', l: 'كبير' });
+export const TABLE_STYLE_LABELS: Readonly<Record<TableStyle, string>> = Object.freeze({ lines: 'خطوط', grid: 'شبكة', striped: 'مخطط' });
+
+/** التصاميم التي تُختار لنوع الطابعة — ثنائي اللغة للصفحة والنقطية وحدهما */
+export const designsFor = (printer: PrinterType): readonly LayoutDesign[] => (printer === 'thermal' ? ['standard'] : ['standard', 'grid_bilingual']);
+
+/** تخطيط القالب الفعّال للتحرير — المحفوظ أو الافتراضي لتصميم اليوم (الغياب = مطبوعة اليوم) */
+export const layoutOf = (p: PrintProfile): PrintLayout => p.options.layout ?? defaultPrintLayout(p.printer);
+
+/**
+ * تعديل التخطيط: null يزيله (مطبوعة اليوم حرفياً)، وغيره يُدمج فوق المحفوظ أو الافتراضي — والترتيب يُطبَّع لأقسام التصميم
+ * الناتج (تغيير التصميم يضيف «البائع والمشتري» أو يحذفه في موضعه). الملفّان الافتراضيان والكلاسيكي لا يحملان تخطيطاً.
+ */
+export function withLayout(p: PrintProfile, patch: Partial<PrintLayout> | null): PrintProfile {
+  if (patch === null) {
+    if (!p.options.layout) return p;
+    const options: PrintOptions = { ...p.options };
+    delete options.layout;
+    return { ...p, options };
+  }
+  if (isLegacyProfileId(p.id) || p.template === 'roll_classic') return p;
+  const merged: PrintLayout = { ...layoutOf(p), ...patch };
+  const design: LayoutDesign = p.printer === 'thermal' ? 'standard' : merged.design;
+  const layout: PrintLayout = { ...merged, design, order: normalizeSectionOrder(merged.order, p.printer, design) };
+  return { ...p, options: { ...p.options, layout } };
+}
+
+/**
+ * اختيار التصميم: ثنائي اللغة يضع التصميم الأساسي للطابعة (page_plain أو impact_plain) وتخطيطه الافتراضي (شعار في الوسط وشبكة)؛
+ * والعودة للتصميم الحالي تُبقي القالب ولونه وحجم شعاره بتخطيط اليوم. الرول تصميمٌ واحد فلا يتغيّر.
+ */
+export function withDesign(p: PrintProfile, design: LayoutDesign): PrintProfile {
+  if (!designsFor(p.printer).includes(design) || isLegacyProfileId(p.id) || p.template === 'roll_classic') return p;
+  const cur = p.options.layout;
+  if (design === 'grid_bilingual') {
+    const template: TemplateId = p.printer === 'impact' ? 'impact_plain' : 'page_plain';
+    const layout: PrintLayout = { ...defaultPrintLayout(p.printer, 'grid_bilingual'), ...(cur ? { accent: cur.accent, logoSize: cur.logoSize } : {}) };
+    return { ...p, template, options: { ...p.options, layout } };
+  }
+  if (!cur || cur.design === 'standard') return p;
+  return { ...p, options: { ...p.options, layout: { ...defaultPrintLayout(p.printer, 'standard'), accent: cur.accent, logoSize: cur.logoSize } } };
+}
+
+const sameOrder = (a: readonly SectionId[], b: readonly SectionId[]): boolean => a.length === b.length && a.every((x, i) => x === b[i]);
+
+/** الترتيب بعد نقل قسمٍ إلى موضع — null إن لم يتحرّك أو كسر قاعدة (الترويسة أولاً، التواقيع ثم التذييل آخراً، الإجماليات بعد الأصناف…) */
+function movedOrder(p: PrintProfile, id: SectionId, toIndex: number): SectionId[] | null {
+  const l = layoutOf(p);
+  const order = normalizeSectionOrder(l.order, p.printer, l.design);
+  const from = order.indexOf(id);
+  if (from < 0 || !Number.isInteger(toIndex)) return null;
+  const to = Math.max(0, Math.min(order.length - 1, toIndex));
+  if (to === from) return null;
+  const next = order.slice();
+  next.splice(from, 1);
+  next.splice(to, 0, id);
+  return sameOrder(normalizeSectionOrder(next, p.printer, l.design), next) ? next : null;
+}
+
+/** هل يصحّ نقل القسم إلى هذا الموضع (لتعطيل ▲▼ والإفلات حيث تمنع القاعدة) */
+export function canMoveSection(p: PrintProfile, id: SectionId, toIndex: number): boolean {
+  return !isLegacyProfileId(p.id) && p.template !== 'roll_classic' && movedOrder(p, id, toIndex) !== null;
+}
+
+/** نقل قسمٍ في الترتيب — القالب كما هو إن لم يتحرّك أو كسر قاعدة */
+export function moveSection(p: PrintProfile, id: SectionId, toIndex: number): PrintProfile {
+  if (!canMoveSection(p, id, toIndex)) return p;
+  return withLayout(p, { order: movedOrder(p, id, toIndex) as SectionId[] });
 }

@@ -1,16 +1,17 @@
 // «نصوص المطبوعات» v1 (services/printTextsCore.ts + services/printTexts.ts + routes/printTexts.ts) — طلب المالك ٣١ أكتوبر
-// ٢٠٢٦. البنية الصارمة والأقفال والأطوال والصورة القانونية والقراءة المتسامحة، ثم سلامة القائمة المغلقة (ما يُخفى قائمةٌ مكتوبة
-// هنا حرفاً — نصٌّ إلزاميٌّ يصير قابلاً للإخفاء يُفشلها بصوتٍ عالٍ)، ثم المعالجات الحقيقية فوق Prisma مزيّف في الذاكرة، ثم
-// حرّاس نصّية على التركيب وعلى بقاء PUT /api/company كما هو.
+// ٢٠٢٦، ثم طلبه ٣ نوفمبر ٢٠٢٦ («لا يوجد عبارة لا يمكن تحريرها أو حذفها»). البنية الصارمة والأطوال والصورة القانونية والقراءة
+// المتسامحة، ثم سلامة القائمة المغلقة (كل مفتاح يُحرَّر ويُحذف، ووحدة حذفه، وصنف تنبيهه قائمةٌ مكتوبة هنا حرفاً — إلزاميٌّ سابقٌ
+// يفقد تنبيهه يُفشلها بصوتٍ عالٍ)، ثم المعالجات الحقيقية فوق Prisma مزيّف في الذاكرة، ثم حرّاس نصّية على التركيب وعلى بقاء
+// PUT /api/company كما هو.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Prisma } from '@prisma/client';
 import {
-  PRINT_SECOND_LANGS, PRINT_TEXT_CATALOG, PRINT_TEXT_LOCKS, PRINT_TEXTS_ISSUES, PRINT_TEXTS_LIMITS, PRINT_TEXTS_VERSION,
-  canonicalPrintTexts, checkPrintTexts, emptyPrintTexts, isEmptyPrintTexts, isPrintTextsReset, parsePrintTexts, printTextAltEditable,
-  printTextEntry, printTextHideable, printTextRewordable, printTextsBytes, storedPrintTexts,
+  PRINT_SECOND_LANGS, PRINT_TEXT_CATALOG, PRINT_TEXT_LINE, PRINT_TEXT_LOCKS, PRINT_TEXT_WARNINGS, PRINT_TEXTS_ISSUES, PRINT_TEXTS_LIMITS,
+  PRINT_TEXTS_VERSION, canonicalPrintTexts, checkPrintTexts, emptyPrintTexts, isEmptyPrintTexts, isPrintTextsReset, parsePrintTexts,
+  printTextAltEditable, printTextEntry, printTextHideable, printTextRewordable, printTextWarning, printTextsBytes, storedPrintTexts,
   type PrintTextEdit, type PrintTextsV1,
 } from '../services/printTexts';
 
@@ -80,10 +81,11 @@ test('البنية الصارمة: حقلٌ مجهول في الأعلى أو ف
   ]) assert.deepEqual(issuesOf(s), [PRINT_TEXTS_ISSUES.unknownKey], JSON.stringify(s).slice(0, 90));
   const ghost = add((s) => { s.edits['h.fax'] = { text: 'فاكس', alt: null, hidden: false }; });
   assert.deepEqual(fullIssues(ghost), [{ path: 'edits.h.fax', message: PRINT_TEXTS_ISSUES.unknownText }]);
-  // سطر المنصّة وتنبيه قرار الطباعة ورمز QR نفسه ليست مفاتيح؛ والمفتاح حسّاسٌ لحالة الأحرف وللمسافات
-  for (const k of ['foot.platform', 'footer.platform', 'zatca.notice', 'qr.code', 'INV.TITLE', 'inv.title ', 'constructor', 'toString']) {
+  // تنبيه قرار الطباعة ورمز QR نفسه ليسا مفاتيح (وسطر المنصّة مفتاحٌ باسمه foot.platform وحده)؛ والمفتاح حسّاسٌ لحالة الأحرف وللمسافات
+  for (const k of ['footer.platform', 'foot.Platform', 'zatca.notice', 'qr.code', 'INV.TITLE', 'inv.title ', 'constructor', 'toString']) {
     assert.deepEqual(issuesOf(withEdits({ [k]: { text: 'نص' } })), [PRINT_TEXTS_ISSUES.unknownText], k);
   }
+  assert.deepEqual(issuesOf(withEdits({ 'foot.platform': { text: 'نص' } })), [], 'سطر المنصّة صار مفتاحاً (طلب المالك ٣ نوفمبر)');
   // __proto__ (من JSON.parse) لا يبلغ الصورة المحفوظة ولا يلوّث Object.prototype
   const proto = JSON.parse('{"version":1,"secondLang":null,"companyNameAlt":null,"companyAddressAlt":null,"edits":{"__proto__":{"text":"x","alt":null,"hidden":true}}}');
   const p = check(proto);
@@ -109,31 +111,32 @@ test('البنية الصارمة: نسخة غير 1، ولغة ثانية غي�
   for (const bad of [null, undefined, '{}', [], 42, true]) assert.deepEqual(issuesOf(bad), [PRINT_TEXTS_ISSUES.shape], String(bad));
 });
 
-test('الأقفال: الإخفاء يُرفض على zatca وfixed وshape بمسار .hidden، ويُقبل على none وstandard وtitle', () => {
-  const locked = byLock('zatca', 'fixed', 'shape');
-  assert.ok(locked.length >= 25, `${locked.length}`);
-  for (const x of locked) {
-    assert.deepEqual(fullIssues(withEdits({ [x.key]: { hidden: true } })), [{ path: `edits.${x.key}.hidden`, message: PRINT_TEXTS_ISSUES.locked }], x.key);
+test('لا قفل (طلب المالك ٣ نوفمبر ٢٠٢٦): الحذف والصياغة العربية ونصّ اللغة الثانية تُقبل لكل مفتاح بكل قفلٍ قديم — ومعاً', () => {
+  const formerlyLocked = byLock('zatca', 'fixed', 'shape');
+  assert.ok(formerlyLocked.length >= 25, `${formerlyLocked.length}`);
+  for (const x of PRINT_TEXT_CATALOG) {
+    const hide = check(withEdits({ [x.key]: { hidden: true } }));
+    assert.ok(hide.ok, `${x.key}: ${JSON.stringify(hide)}`);
+    if (hide.ok) assert.deepEqual(hide.value.edits, { [x.key]: { text: null, alt: null, hidden: true } }, x.key);
+    const all = check(withEdits({ [x.key]: { text: 'صياغة الشركة', alt: 'Company wording', hidden: true } }, { secondLang: 'en' }));
+    assert.ok(all.ok, x.key);
+    if (all.ok) assert.deepEqual(all.value.edits, { [x.key]: { text: 'صياغة الشركة', alt: 'Company wording', hidden: true } }, x.key);
+    assert.deepEqual(parsePrintTexts(withEdits({ [x.key]: { text: 'صياغة الشركة', hidden: true } })),
+      { ok: true, value: withEdits({ [x.key]: { text: 'صياغة الشركة', hidden: true } }) }, `${x.key}: الحفظ الصارم`);
   }
-  for (const x of byLock('none', 'standard', 'title')) {
-    const r = check(withEdits({ [x.key]: { hidden: true } }));
-    assert.ok(r.ok, x.key);
-    if (r.ok) assert.deepEqual(r.value.edits, { [x.key]: { text: null, alt: null, hidden: true } }, x.key);
-  }
-  // الإلزامي يُعاد صياغته (ما ليس fixed ولا يُخفى فقط) — بالعربية وباللغة الثانية
-  for (const x of PRINT_TEXT_CATALOG.filter((y) => y.lock !== 'fixed' && !y.hideOnly)) {
-    const r = check(withEdits({ [x.key]: { text: 'صياغة الشركة', alt: 'Company wording' } }, { secondLang: 'en' }));
-    assert.ok(r.ok, x.key);
-  }
-  // إخفاءان مقفلان ⇒ مشكلتان بمساريهما
-  assert.deepEqual(fullIssues(withEdits({ 'tot.grand': { hidden: true }, 'rcp.number': { hidden: true } })).map((i) => i.path), ['edits.tot.grand.hidden', 'edits.rcp.number.hidden']);
+  // حذف كل السطور معاً يُقبل (والصورة القانونية بترتيب القائمة)
+  const every = check(withEdits(Object.fromEntries([...PRINT_TEXT_CATALOG].reverse().map((x) => [x.key, { hidden: true }]))));
+  assert.ok(every.ok);
+  if (every.ok) assert.deepEqual(Object.keys(every.value.edits), PRINT_TEXT_CATALOG.map((x) => x.key));
 });
 
-test('fixed: العبارة الضريبية لا تُعاد صياغتها بالعربية (fixed بمسار .text) — ونصّها باللغة الثانية يُقبل، والمسافات وحدها لا أثر لها', () => {
+test('fixed سابقاً: العبارة الضريبية بصياغتها تُعاد صياغتها بالعربية الآن (بتنبيه tax) — ونصّها باللغة الثانية يُقبل، والمسافات وحدها لا أثر لها', () => {
   const fixed = byLock('fixed');
-  assert.deepEqual(fixed.map((x) => x.key), ['col.priceIncl', 'item.beforeTax', 'note.pricesIncl', 'tot.taxable', 'tot.vat', 'tot.vatIncl']);
+  assert.deepEqual(fixed.map((x) => x.key), ['col.priceIncl', 'item.beforeTax', 'note.pricesIncl', 'tot.taxable', 'tot.vat', 'tot.vatIncl', 'tot.exclVat', 'foot.platform']);
   for (const x of fixed) {
-    assert.deepEqual(fullIssues(withEdits({ [x.key]: { text: 'صياغة أخرى' } })), [{ path: `edits.${x.key}.text`, message: PRINT_TEXTS_ISSUES.fixed }], x.key);
+    const ar = check(withEdits({ [x.key]: { text: 'صياغة أخرى' } }));
+    assert.ok(ar.ok, x.key);
+    if (ar.ok) assert.deepEqual(ar.value.edits, { [x.key]: { text: 'صياغة أخرى', alt: null, hidden: false } }, x.key);
     const alt = check(withEdits({ [x.key]: { alt: 'VAT wording' } }));
     assert.ok(alt.ok, x.key);
     if (alt.ok) assert.deepEqual(alt.value.edits, { [x.key]: { text: null, alt: 'VAT wording', hidden: false } });
@@ -141,16 +144,18 @@ test('fixed: العبارة الضريبية لا تُعاد صياغتها با
     assert.ok(blank.ok, x.key);
     if (blank.ok) assert.deepEqual(blank.value.edits, {}, 'تعديلٌ بلا أثر يُحذف');
   }
-  // صياغةٌ وإخفاء معاً ⇒ المشكلتان
-  assert.deepEqual(issuesOf(withEdits({ 'tot.vat': { text: 'الضريبة', hidden: true } })), [PRINT_TEXTS_ISSUES.locked, PRINT_TEXTS_ISSUES.fixed]);
+  // صياغةٌ وحذف معاً ⇒ يُقبلان
+  assert.deepEqual(issuesOf(withEdits({ 'tot.vat': { text: 'الضريبة', hidden: true } })), []);
 });
 
-test('hideOnly: يُخفى ولا يُكتب له نصٌّ بأيّ لغة (hideOnly بمسار المفتاح) — نصّ الرمز لا يُصاغ فلا يدّعي «اعتماد الهيئة»', () => {
+test('hideOnly سابقاً: يُكتب له نصٌّ بأيّ لغة ويُحذف (بتنبيه tax) — والفارغ وحده لا أثر له', () => {
   const only = PRINT_TEXT_CATALOG.filter((x) => x.hideOnly);
   assert.deepEqual(only.map((x) => x.key), ['foot.company', 'inst.note', 'qr.caption']);
   for (const x of only) {
     for (const e of [{ text: 'نص' }, { alt: 'Text' }, { text: 'نص', alt: 'Text' }, { text: 'نص', hidden: true }]) {
-      assert.deepEqual(fullIssues(withEdits({ [x.key]: e })), [{ path: `edits.${x.key}`, message: PRINT_TEXTS_ISSUES.hideOnly }], `${x.key} ${JSON.stringify(e)}`);
+      const r = check(withEdits({ [x.key]: e }, { secondLang: 'en' }));
+      assert.ok(r.ok, `${x.key} ${JSON.stringify(e)}`);
+      if (r.ok) assert.deepEqual(r.value.edits, { [x.key]: ed(e) }, `${x.key} ${JSON.stringify(e)}`);
     }
     const r = check(withEdits({ [x.key]: { hidden: true, text: '   ', alt: '' } }));
     assert.ok(r.ok, x.key);
@@ -208,22 +213,26 @@ test('الصورة القانونية: سطرٌ واحد بلا محارف تح�
   const order = PRINT_TEXT_CATALOG.map((x) => x.key);
   const keys = Object.keys(r.value.edits);
   assert.deepEqual(keys, [...keys].sort((a, b) => order.indexOf(a) - order.indexOf(b)));
-  // canonicalPrintTexts وحدها (بلا القواعد): تحذف المجهول، والعربية عن fixed، وكل نصٍّ عمّا يُخفى فقط
+  // canonicalPrintTexts وحدها (بلا القواعد): تحذف المجهول وحده — وتُبقي كل نصٍّ وحذف لكل مفتاح (لا قفل)، بترتيب القائمة
   const c = canonicalPrintTexts(withEdits({
     'h.fax': { text: 'فاكس' }, 'qr.caption': { text: 'x', alt: 'y', hidden: true }, 'tot.vat': { text: 'الضريبة', alt: 'VAT' }, 'foot.company': { text: 'x' },
+    'foot.platform': { hidden: true },
   }));
-  assert.deepEqual(c.edits, { 'tot.vat': { text: null, alt: 'VAT', hidden: false }, 'qr.caption': { text: null, alt: null, hidden: true } });
+  assert.equal(JSON.stringify(c.edits), JSON.stringify({
+    'foot.company': { text: 'x', alt: null, hidden: false }, 'tot.vat': { text: 'الضريبة', alt: 'VAT', hidden: false },
+    'qr.caption': { text: 'x', alt: 'y', hidden: true }, 'foot.platform': { text: null, alt: null, hidden: true },
+  }));
 });
 
-test('القراءة المتسامحة (الجهاز): المجهول يُهمل، والإخفاء المقفل يسقط وحده، والأطول يُقصّ — ونسخة غير 1 تُرفض', () => {
+test('القراءة المتسامحة (الجهاز): المجهول يُهمل، والحذف يبقى لكل مفتاح، والأطول يُقصّ — ونسخة غير 1 تُرفض', () => {
   const raw = clone(sample()) as Record<string, any>;
   raw.futureField = 1;
   raw.companyNameAlt = 'N'.repeat(100);
   raw.companyAddressAlt = 'A'.repeat(200);
   Object.assign(raw.edits, {
-    'h.taxNumber': { text: 'الرقم الضريبي للمنشأة', alt: null, hidden: true, futureFlag: true }, // الصياغة تبقى والإخفاء يسقط
-    'tot.vat': { text: null, alt: null, hidden: true }, // لا يبقى شيء ⇒ يُحذف
-    'col.priceIncl': { text: 'صياغة', alt: 'Unit price incl. VAT', hidden: false }, // العربية الثابتة تسقط
+    'h.taxNumber': { text: 'الرقم الضريبي للمنشأة', alt: null, hidden: true, futureFlag: true }, // الصياغة والحذف يبقيان
+    'tot.vat': { text: null, alt: null, hidden: true }, // حذف سطرٍ كان مقفلاً يبقى
+    'col.priceIncl': { text: 'صياغة', alt: 'Unit price incl. VAT', hidden: false }, // العربية تبقى (لا fixed)
     'inv.number': { text: 'ق'.repeat(100), alt: 'a'.repeat(100), hidden: false }, // يُقصّ لحدّه
     'h.fax': { text: 'فاكس', alt: null, hidden: false }, // أضافه خادمٌ أحدث
   });
@@ -231,10 +240,10 @@ test('القراءة المتسامحة (الجهاز): المجهول يُهم�
   const r = checkPrintTexts(raw, false);
   assert.ok(r.ok, JSON.stringify(r));
   if (!r.ok) return;
-  assert.deepEqual(r.value.edits['h.taxNumber'], { text: 'الرقم الضريبي للمنشأة', alt: null, hidden: false });
-  assert.ok(!('tot.vat' in r.value.edits));
+  assert.deepEqual(r.value.edits['h.taxNumber'], { text: 'الرقم الضريبي للمنشأة', alt: null, hidden: true });
+  assert.deepEqual(r.value.edits['tot.vat'], { text: null, alt: null, hidden: true });
   assert.ok(!('h.fax' in r.value.edits));
-  assert.deepEqual(r.value.edits['col.priceIncl'], { text: null, alt: 'Unit price incl. VAT', hidden: false });
+  assert.deepEqual(r.value.edits['col.priceIncl'], { text: 'صياغة', alt: 'Unit price incl. VAT', hidden: false });
   const max = printTextEntry('inv.number')!.max;
   assert.deepEqual([chars(r.value.edits['inv.number'].text), chars(r.value.edits['inv.number'].alt)], [max, max]);
   assert.deepEqual([chars(r.value.companyNameAlt), chars(r.value.companyAddressAlt)], [80, 160]);
@@ -254,8 +263,6 @@ test('isEmptyPrintTexts: ما لا أثر له فارغ — ونصوص اللغ�
     emptyPrintTexts(),
     withEdits({ 'h.phone': { text: '  ', alt: '' } }),
     withEdits({ 'h.fax': { text: 'فاكس' } }), // مجهول يُحذف
-    withEdits({ 'qr.caption': { text: 'x' } }), // يُخفى فقط: النصّ يسقط
-    withEdits({ 'tot.vat': { text: 'الضريبة' } }), // fixed: العربية تسقط
     { ...emptyPrintTexts(), companyNameAlt: '   ', companyAddressAlt: '\n' },
     // إطفاء «بلغتين» بعد كتابة الاسم والعنوان ونصوص alt: لا يُطبع شيءٌ منها فلا يُخزَّن (ولا «العربية أولاً» بلا سبب)
     { ...emptyPrintTexts(), companyNameAlt: 'Al Riyada' },
@@ -267,6 +274,11 @@ test('isEmptyPrintTexts: ما لا أثر له فارغ — ونصوص اللغ�
     { ...emptyPrintTexts(), secondLang: 'en' as const, companyNameAlt: 'Al Riyada' },
     withEdits({ 'cust.phone': { hidden: true } }),
     withEdits({ 'inv.title': { text: 'فاتورة' } }),
+    // طلب المالك ٣ نوفمبر: ما كان يُخفى فقط أو بصياغته الثابتة يُصاغ الآن، وحذف سطر المنصّة أثرٌ
+    withEdits({ 'qr.caption': { text: 'x' } }),
+    withEdits({ 'tot.vat': { text: 'الضريبة' } }),
+    withEdits({ 'foot.platform': { hidden: true } }),
+    withEdits({ 'h.taxNumber': { hidden: true } }),
   ]) assert.equal(isEmptyPrintTexts(s), false, JSON.stringify(s));
 });
 
@@ -299,21 +311,18 @@ test('parsePrintTexts: بلا أثر ⇒ value null (يُكتب NULL)، والص
     assert.deepEqual([r.status, r.code, r.message], [413, 'PRINT_TEXTS_TOO_LARGE', PRINT_TEXTS_ISSUES.tooLarge], 'الحجم قبل البنية (pad حقل مجهول)');
     assert.deepEqual(r.issues, [{ path: '', message: PRINT_TEXTS_ISSUES.tooLarge }]);
   }
-  const bad = parsePrintTexts(withEdits({ 'h.taxNumber': { hidden: true } }));
-  assert.equal(bad.ok, false);
-  if (!bad.ok) {
-    assert.deepEqual([bad.status, bad.code, bad.message], [400, 'PRINT_TEXTS_INVALID', PRINT_TEXTS_ISSUES.locked]);
-    assert.deepEqual(bad.issues, [{ path: 'edits.h.taxNumber.hidden', message: PRINT_TEXTS_ISSUES.locked }]);
-  }
-  const two = parsePrintTexts(withEdits({ 'h.fax': { text: 'x' }, 'tot.vat': { hidden: true } }));
-  assert.ok(!two.ok && two.message === PRINT_TEXTS_ISSUES.unknownText && two.issues.length === 2);
+  // حذف سطرٍ كان مقفلاً يُحفظ (طلب المالك ٣ نوفمبر) — ورسائل القفل لا تصدر أبداً
+  assert.deepEqual(parsePrintTexts(withEdits({ 'h.taxNumber': { hidden: true } })), { ok: true, value: withEdits({ 'h.taxNumber': { hidden: true } }) });
+  const two = parsePrintTexts(withEdits({ 'h.fax': { text: 'x' }, 'tot.vat': { hidden: true }, 'inv.number': { text: 'ق'.repeat(61) } }));
+  assert.ok(!two.ok && two.message === PRINT_TEXTS_ISSUES.unknownText);
+  if (!two.ok) assert.deepEqual(two.issues, [{ path: 'edits.h.fax', message: PRINT_TEXTS_ISSUES.unknownText }, { path: 'edits.inv.number.text', message: PRINT_TEXTS_ISSUES.tooLong }]);
   const shape = parsePrintTexts({ ...sample(), version: 3 });
   assert.ok(!shape.ok && shape.status === 400 && shape.code === 'PRINT_TEXTS_INVALID' && shape.message === PRINT_TEXTS_ISSUES.shape);
   // البايتات: UTF-8 بين علامتي تنصيص
   assert.deepEqual([printTextsBytes('a'), printTextsBytes('ق'), printTextsBytes('中'), printTextsBytes('😀')], [3, 4, 5, 6]);
 });
 
-test('الحجم: كل تسمية بأطول نصٍّ عربيّ ونصٍّ لاتينيّ بحدّها، والاسم والعنوان بحدّيهما، تبقى تحت حدّ الحجم — ولو كانت اللغة الثانية صينية (ثلاثة بايتات للمحرف)', () => {
+test('الحجم: كل تسمية بأطول نصٍّ عربيّ ونصٍّ لاتينيّ بحدّها، والاسم والعنوان بحدّيهما، تبقى تحت حدّ الحجم — وبالصينية (ثلاثة بايتات للمحرف) كل نصٍّ ثانٍ بحدّه، وأقصاها مع كل صياغةٍ عربية 413', () => {
   const edits: Record<string, PrintTextEdit> = {};
   for (const x of PRINT_TEXT_CATALOG) {
     edits[x.key] = { text: printTextRewordable(x) ? 'ق'.repeat(x.max) : null, alt: printTextAltEditable(x) ? 'a'.repeat(x.max) : null, hidden: false };
@@ -326,8 +335,13 @@ test('الحجم: كل تسمية بأطول نصٍّ عربيّ ونصٍّ لا
   const zhEdits: Record<string, PrintTextEdit> = {};
   for (const [k, v] of Object.entries(edits)) zhEdits[k] = { ...v, alt: v.alt === null ? null : '中'.repeat(v.alt.length) };
   const zh: PrintTextsV1 = { ...full, secondLang: 'zh', companyNameAlt: '中'.repeat(80), companyAddressAlt: '中'.repeat(160), edits: zhEdits };
-  assert.ok(printTextsBytes(zh) <= PRINT_TEXTS_LIMITS.maxBytes, `${printTextsBytes(zh)} بايت بالصينية`);
-  assert.ok(parsePrintTexts(zh).ok);
+  // الصينية: كل نصٍّ ثانٍ بحدّه وبلا صياغة عربية يتّسع — وأقصى الحالات (كل صياغةٍ عربية وكل نصٍّ صينيّ بحدّهما معاً على المفاتيح
+  // الاثنين والتسعين، وقد صار كل مفتاحٍ يُصاغ منذ طلب المالك ٣ نوفمبر) تتجاوز الحدّ (٣٢ كيلوبايت لم يتغيّر) فتُرفض 413 لا تُقصّ
+  const zhAlt: PrintTextsV1 = { ...zh, edits: Object.fromEntries(Object.entries(zhEdits).map(([k, v]) => [k, { ...v, text: null }])) };
+  assert.ok(printTextsBytes(zhAlt) <= PRINT_TEXTS_LIMITS.maxBytes, `${printTextsBytes(zhAlt)} بايت بالصينية`);
+  assert.ok(parsePrintTexts(zhAlt).ok);
+  const worst = parsePrintTexts(zh);
+  assert.ok(printTextsBytes(zh) > PRINT_TEXTS_LIMITS.maxBytes && !worst.ok && worst.status === 413, `${printTextsBytes(zh)} بايت`);
 });
 
 test('«استعادة النصوص الافتراضية»: جسم الإعادة null أو { reset: true } وحده', () => {
@@ -354,24 +368,28 @@ test('storedPrintTexts: null ⇒ نصوص اليوم غير محفوظة، وا�
 // ═══ سلامة القائمة المغلقة ═══
 
 /**
- * ما يقبل الإخفاء حرفاً — نصٌّ إلزاميٌّ (رقم البائع الضريبي، رقم الفاتورة وتاريخها، الضريبة والإجمالي…) يُضاف هنا بتعديلٍ في
- * القائمة يُفشل هذا الاختبار، فلا يصير قابلاً للإخفاء بصمت. الإضافة الصحيحة لنصٍّ غير إلزاميّ تُضاف هنا عمداً.
+ * طلب المالك ٣ نوفمبر ٢٠٢٦ حلّ محلّ قائمة «ما يقبل الإخفاء» (HIDEABLE): كل مفتاح يُحذف. والحارس صار صنف التنبيه — ما كان إلزامياً في
+ * الفاتورة الضريبية (zatca/fixed/shape/title أو يُخفى فقط) تنبيه 'tax' وتأكيدٌ مرةً واحدة، وstandard تنبيه 'standard'، وسطر المنصّة
+ * 'platform'. نصٌّ إلزاميٌّ يفقد تنبيهه بتعديلٍ في القائمة يُفشل هذا الاختبار؛ والإضافة الصحيحة تُضاف هنا عمداً.
  */
-const HIDEABLE = [
+const WARN_TAX = [
   // مشترك
-  'h.phone', 'h.email', 'foot.thanks', 'foot.company',
-  // الفاتورة: العنوانان (المرحلة الأولى وحدها) والتسميات غير الإلزامية
-  'inv.title', 'inv.returnTitle', 'inv.infoHeading', 'inv.returnInfoHeading', 'inv.type', 'inv.rep',
-  'cust.heading', 'cust.name', 'cust.business', 'cust.commercialReg', 'cust.phone', 'cust.address',
-  'col.discount', 'col.tax',
-  'tot.subtotal', 'tot.discount', 'tot.paid', 'tot.remaining',
-  'inst.note', 'qr.caption', 'sig.recipient', 'sig.rep',
-  // سند القبض (ليس فاتورة ضريبية)
-  'rcp.title', 'rcp.time', 'rcp.rep', 'rcp.forInvoice', 'rcp.forInvoices', 'rcp.invoiceNo', 'rcp.credit', 'rcp.customerHeading',
-  'rcp.business', 'rcp.commercialReg', 'rcp.taxNumber', 'rcp.phone', 'rcp.address', 'rcp.method', 'rcp.notes', 'rcp.sigPayer', 'rcp.sigCollector',
+  'h.taxNumber', 'h.commercialReg', 'h.address', 'foot.company',
+  // الفاتورة
+  'inv.title', 'inv.returnTitle', 'inv.number', 'inv.returnNumber', 'inv.date', 'inv.time', 'inv.deliveryDate', 'cust.taxNumber',
+  'col.item', 'col.qty', 'col.price', 'col.priceIncl', 'col.total', 'item.beforeTax', 'note.pricesIncl',
+  'tot.taxable', 'tot.vat', 'tot.vatIncl', 'tot.grand', 'tot.returnGrand',
+  'inst.heading', 'inst.dueDate', 'inst.amount', 'inst.sum', 'inst.note', 'qr.caption', 'inv.originalRef', 'inv.noteReason',
+  // سند القبض (هيكلٌ قديم shape)
+  'rcp.number', 'rcp.date', 'rcp.amount', 'rcp.from',
+  // القالب ثنائي اللغة
+  'sel.name', 'sel.address', 'sel.taxNumber', 'tot.exclVat', 'tot.due',
 ];
-/** ما يُخفى من المبسّطة ويبقى على القياسية (B2B) مهما حُفظ */
-const STANDARD_ONLY = ['cust.name', 'cust.business', 'cust.commercialReg', 'cust.address', 'col.discount', 'col.tax', 'tot.discount'];
+/** إلزاميٌّ في الفاتورة القياسية (B2B) — تنبيه 'standard' (ولم يعد يُطبع رغم الحذف على القياسية) */
+const STANDARD_ONLY = [
+  'cust.name', 'cust.business', 'cust.commercialReg', 'cust.address', 'col.discount', 'col.tax', 'tot.discount',
+  'col.vatAmount', 'sel.city', 'sel.postalCode', 'cust.city', 'cust.postalCode',
+];
 
 test('القائمة: مفاتيح فريدة بصيغة group.name، وكل حدٍّ موجب صحيح يتّسع لنصّه الافتراضي، وأقفالٌ ومستنداتٌ معروفة، ومجمّدة', () => {
   const keys = PRINT_TEXT_CATALOG.map((x) => x.key);
@@ -392,18 +410,27 @@ test('القائمة: مفاتيح فريدة بصيغة group.name، وكل ح�
   assert.equal(printTextEntry('h.fax'), undefined);
   assert.equal(printTextEntry('__proto__'), undefined);
   assert.equal(printTextEntry('constructor'), undefined);
-  // سطر المنصّة ثابتٌ بقرار المالك: ليس في القائمة
-  assert.ok(!PRINT_TEXT_CATALOG.some((x) => /Field Sales|صدرت عبر|منصة/.test(x.ar)), 'سطر «صدرت عبر منصة Field Sales» لا يُعدَّل');
+  // سطر المنصّة صار مفتاحاً واحداً يُحرَّر ويُحذف (طلب المالك ٣ نوفمبر ٢٠٢٦ يعلو قراره السابق «ثابت»): نصّه الافتراضي تعبير A4
+  // اليوم حرفاً، ولا مدخل آخر يذكر المنصّة
+  assert.deepEqual(PRINT_TEXT_CATALOG.filter((x) => /Field Sales|صدرت عبر|منصة/.test(x.ar)).map((x) => [x.key, x.ar, x.doc, x.group]),
+    [['foot.platform', 'صدرت عبر منصة Field Sales · fieldsa.net', 'shared', 'footer']]);
+  assert.ok(printTextEntry('foot.platform')!.max >= chars(printTextEntry('foot.platform')!.ar));
   // العنوانان وحدهما بقفل title
   assert.deepEqual(byLock('title').map((x) => x.key), ['inv.title', 'inv.returnTitle']);
 });
 
-test('القائمة: ما يقبل الإخفاء يساوي القائمة المكتوبة حرفاً — والإلزامي (zatca وfixed وshape) لا يُخفى', () => {
-  const hideable = PRINT_TEXT_CATALOG.filter((x) => printTextHideable(x)).map((x) => x.key);
-  assert.deepEqual([...hideable].sort(), [...HIDEABLE].sort());
+test('القائمة: كل مفتاح يُحذف، وصنف التنبيه يساوي القوائم المكتوبة حرفاً — والإلزامي سابقاً (zatca وfixed وshape) تنبيه tax', () => {
+  assert.deepEqual(PRINT_TEXT_CATALOG.filter((x) => printTextHideable(x)).map((x) => x.key), PRINT_TEXT_CATALOG.map((x) => x.key), 'كل مفتاح يُحذف');
+  const cls = (w: string | null) => PRINT_TEXT_CATALOG.filter((x) => printTextWarning(x) === w).map((x) => x.key).sort();
+  assert.deepEqual(cls('tax'), [...WARN_TAX].sort());
+  assert.deepEqual(cls('standard'), [...STANDARD_ONLY].sort());
+  assert.deepEqual(cls('platform'), ['foot.platform']);
   assert.deepEqual(byLock('standard').map((x) => x.key).sort(), [...STANDARD_ONLY].sort());
-  for (const x of byLock('zatca', 'fixed', 'shape')) assert.equal(printTextHideable(x), false, x.key);
-  // بيانات البائع والمستند والضريبة والإجمالي بالاسم — لا تُخفى
+  for (const x of byLock('zatca', 'fixed', 'shape', 'title')) assert.equal(printTextWarning(x), x.key === 'foot.platform' ? 'platform' : 'tax', x.key);
+  for (const x of PRINT_TEXT_CATALOG.filter((y) => y.lock === 'none' && !y.hideOnly)) assert.equal(printTextWarning(x), null, x.key);
+  assert.equal(Object.keys(PRINT_TEXT_WARNINGS).length, 3);
+  for (const m of Object.values(PRINT_TEXT_WARNINGS)) assert.match(m, /^[؀-ۿ]/, `تنبيه غير عربي: ${m}`);
+  // بيانات البائع والمستند والضريبة والإجمالي بالاسم — تنبيه tax
   for (const k of [
     'h.taxNumber', 'h.address', 'h.commercialReg', 'inv.number', 'inv.returnNumber', 'inv.date', 'inv.time', 'inv.deliveryDate',
     'cust.taxNumber', 'col.item', 'col.qty', 'col.price', 'col.priceIncl', 'col.total', 'tot.taxable', 'tot.vat', 'tot.vatIncl',
@@ -413,7 +440,7 @@ test('القائمة: ما يقبل الإخفاء يساوي القائمة ا�
   ]) {
     const x = printTextEntry(k);
     assert.ok(x, k);
-    assert.equal(printTextHideable(x!), false, `${k} صار قابلاً للإخفاء`);
+    assert.equal(printTextWarning(x!), 'tax', `${k} فقد تنبيهه`);
   }
   assert.deepEqual(['h.taxNumber', 'h.address', 'h.commercialReg', 'inv.number', 'inv.date', 'tot.grand', 'inv.originalRef', 'inv.noteReason'].map((k) => printTextEntry(k)!.lock), Array(8).fill('zatca'));
   // مضافان آخر قسم الفاتورة (المفتاح ثابت للأبد والإضافة آمنة) — في مجموعة بيانات المستند
@@ -422,12 +449,24 @@ test('القائمة: ما يقبل الإخفاء يساوي القائمة ا�
   assert.equal(printTextEntry('tot.vat')!.lock, 'fixed');
 });
 
-test('القائمة: إعادة الصياغة لكل ما ليس fixed ولا يُخفى فقط، واللغة الثانية لكل ما ليس يُخفى فقط', () => {
+test('القائمة: إعادة الصياغة واللغة الثانية لكل مفتاح — ووحدة حذفٍ واحدة لكل مفتاح (PRINT_TEXT_LINE)', () => {
   for (const x of PRINT_TEXT_CATALOG) {
-    assert.equal(printTextRewordable(x), x.lock !== 'fixed' && !x.hideOnly, x.key);
-    assert.equal(printTextAltEditable(x), !x.hideOnly, x.key);
+    assert.equal(printTextRewordable(x), true, x.key);
+    assert.equal(printTextAltEditable(x), true, x.key);
+    assert.equal(printTextHideable(x), true, x.key);
   }
   for (const m of Object.values(PRINT_TEXTS_ISSUES)) assert.match(m, /^[؀-ۿ]/, `رسالة غير عربية: ${m}`);
+  assert.deepEqual(Object.keys(PRINT_TEXT_LINE).sort(), PRINT_TEXT_CATALOG.map((x) => x.key).sort(), 'مدخلٌ لكل مفتاح ولا زائد');
+  const scopes = ['row', 'column', 'totalsRow', 'block', 'title', 'slot', 'line', 'part'];
+  for (const [k, v] of Object.entries(PRINT_TEXT_LINE)) assert.ok(scopes.includes(v), `${k}: ${v}`);
+  assert.ok(Object.isFrozen(PRINT_TEXT_LINE));
+  // المجموعة الجديدة seller، والمفاتيح الجديدة مضافةٌ آخر القائمة (صورة المحفوظ القانونية لا تتغيّر لشركةٍ قائمة)
+  assert.deepEqual(PRINT_TEXT_CATALOG.filter((x) => x.group === 'seller').map((x) => x.key), ['sel.heading', 'sel.name', 'sel.address', 'sel.city', 'sel.postalCode', 'sel.taxNumber']);
+  assert.deepEqual(PRINT_TEXT_CATALOG.slice(74).map((x) => x.key), [
+    'col.seq', 'col.code', 'col.unit', 'col.vatAmount', 'sel.heading', 'sel.name', 'sel.address', 'sel.city', 'sel.postalCode', 'sel.taxNumber',
+    'cust.city', 'cust.postalCode', 'inv.paymentType', 'sig.warehouse', 'sig.remarks', 'tot.exclVat', 'tot.due', 'foot.platform',
+  ]);
+  assert.equal(PRINT_TEXT_CATALOG[73].key, 'rcp.sigCollector', 'آخر مفتاحٍ قديم في مكانه');
 });
 
 test('نظافة النواة: الملف يبدأ برأس «// ====» ولا يستورد إلا zod (تُنسخ حرفياً للواجهة)', () => {
@@ -553,11 +592,15 @@ test('الحفظ تشغيلاً: إعدادٌ بلا أثر يُكتب NULL (ل�
   assert.equal(writes[0].data.printTexts, Prisma.DbNull, 'NULL حرفياً');
   assert.equal(st.settings!.printTexts, null);
 
+  // طلب المالك ٣ نوفمبر ٢٠٢٦: حذف الإجمالي النهائي وصياغة الضريبة وحذف سطر المنصّة تُحفظ (كانت 400)
   reset();
-  const locked = await call('put', { body: withEdits({ 'tot.grand': { hidden: true } }) });
-  assert.deepEqual([locked.status, locked.body.success, locked.body.code, locked.body.message], [400, false, 'PRINT_TEXTS_INVALID', PRINT_TEXTS_ISSUES.locked]);
-  assert.deepEqual(locked.body.issues, [{ path: 'edits.tot.grand.hidden', message: PRINT_TEXTS_ISSUES.locked }]);
-  assert.equal((await call('put', { body: withEdits({ 'tot.vat': { text: 'الضريبة' } }) })).body.message, PRINT_TEXTS_ISSUES.fixed);
+  const deleted = withEdits({ 'tot.grand': { hidden: true }, 'tot.vat': { text: 'الضريبة' }, 'foot.platform': { text: 'منصة', hidden: true } });
+  const ok = await call('put', { body: deleted });
+  assert.deepEqual([ok.status, ok.body], [200, { success: true, data: deleted, stored: true, hasCompany: true }]);
+  assert.deepEqual(writes, [{ where: { tenantId: T }, data: { printTexts: deleted } }]);
+
+  reset();
+  assert.equal((await call('put', { body: withEdits({ 'inv.number': { text: 'ق'.repeat(61) } }) })).body.message, PRINT_TEXTS_ISSUES.tooLong);
   assert.equal((await call('put', { body: { ...sample(), extra: 1 } })).body.message, PRINT_TEXTS_ISSUES.unknownKey);
   const big = await call('put', { body: { ...sample(), pad: 'x'.repeat(PRINT_TEXTS_LIMITS.maxBytes + 1000) } });
   assert.deepEqual([big.status, big.body.code], [413, 'PRINT_TEXTS_TOO_LARGE']);
@@ -636,4 +679,27 @@ test('حارس نصّي: PUT /api/company وcompanySchema لم يُمسّا — 
   const block = schema.slice(i, schema.indexOf('\n}', i));
   assert.match(block, /\n\s*printTexts\s+Json\?\s*\n/, 'printTexts Json? بلا افتراضي (null = نصوص اليوم)');
   assert.equal(schema.split(/\n\s*printTexts\s+Json\?/).length - 1, 1, 'في CompanySettings وحده');
+});
+
+test('وسم phase2 لعنواني الفاتورة/الإشعار: الصارم يقبله ويحفظه لهما وحدهما (true فقط)، وغيابه = التعديل المحفوظ قبل ٣ نوفمبر ٢٠٢٦ كما كان', () => {
+  const doc = {
+    version: 1, secondLang: null, companyNameAlt: null, companyAddressAlt: null,
+    edits: {
+      'inv.title': { text: 'فاتورة مبيعات', alt: null, hidden: false, phase2: true },
+      'inv.returnTitle': { text: null, alt: null, hidden: true, phase2: false },
+      'h.phone': { text: 'الهاتف', alt: null, hidden: false, phase2: true },
+    },
+  };
+  const r = checkPrintTexts(doc, true);
+  assert.ok(r.ok, JSON.stringify(!r.ok && r.issues));
+  assert.equal(JSON.stringify(r.ok && r.value.edits), JSON.stringify({
+    'h.phone': { text: 'الهاتف', alt: null, hidden: false },
+    'inv.title': { text: 'فاتورة مبيعات', alt: null, hidden: false, phase2: true },
+    'inv.returnTitle': { text: null, alt: null, hidden: true },
+  }));
+  // بلا وسم: الصورة القانونية بحقولها الثلاثة كاليوم حرفاً
+  const legacy = canonicalPrintTexts({ ...emptyPrintTexts(), edits: { 'inv.title': { text: 'فاتورة مبيعات', alt: null, hidden: false } } });
+  assert.equal(JSON.stringify(legacy.edits), '{"inv.title":{"text":"فاتورة مبيعات","alt":null,"hidden":false}}');
+  // نوعٌ غير منطقي مرفوض في الصارم
+  assert.equal(checkPrintTexts({ ...doc, edits: { 'inv.title': { text: null, alt: null, hidden: true, phase2: 'yes' } } }, true).ok, false);
 });

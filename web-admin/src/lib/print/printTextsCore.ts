@@ -1,5 +1,5 @@
 // ============================================================================
-// نسخة حرفية من backend/src/services/printTextsCore.ts (بعد رأسه) — «نصوص المطبوعات» v1: القائمة المغلقة والأقفال والبنية
+// نسخة حرفية من backend/src/services/printTextsCore.ts (بعد رأسه) — «نصوص المطبوعات» v1: القائمة المغلقة ووحدات الحذف والتنبيهات والبنية
 // والصورة القانونية — فيقرأ الجهاز ما يحفظه الخادم بالقواعد نفسها، ومتسامحاً مع ما أضافه خادمٌ أحدث.
 // لا تعدّل هنا: عدّل ملف الخادم ثم انسخه. الحارس lib/print/printTexts.test.ts يفشل عند أي فرق.
 // ============================================================================
@@ -13,12 +13,16 @@ export const PRINT_TEXTS_VERSION = 1;
 export const PRINT_SECOND_LANGS = ['en', 'fr', 'tr', 'zh'] as const;
 export type PrintSecondLang = (typeof PRINT_SECOND_LANGS)[number];
 
+/**
+ * القفل القديم — وصفٌ لا يمنع شيئاً منذ طلب المالك ٣ نوفمبر ٢٠٢٦ (كل نصٍّ يُعاد صياغته ويُحذف). يبقى لأنه يحدّد تنبيه المحرّر:
+ * zatca/fixed/shape/title (وما كان يُخفى فقط) ⇒ 'tax'، وstandard ⇒ 'standard'، وnone ⇒ بلا تنبيه — printTextWarning.
+ */
 export const PRINT_TEXT_LOCKS = ['none', 'standard', 'zatca', 'fixed', 'shape', 'title'] as const;
 export type PrintTextLock = (typeof PRINT_TEXT_LOCKS)[number];
 
 /** shared = ترويسة وتذييل الورقتين معاً */
 export type PrintTextDoc = 'invoice' | 'receipt' | 'shared';
-export type PrintTextGroup = 'header' | 'title' | 'info' | 'customer' | 'items' | 'totals' | 'installments' | 'footer' | 'amount';
+export type PrintTextGroup = 'header' | 'title' | 'info' | 'customer' | 'items' | 'totals' | 'installments' | 'footer' | 'amount' | 'seller';
 
 export interface PrintTextEntry {
   key: string;
@@ -29,7 +33,7 @@ export interface PrintTextEntry {
   lock: PrintTextLock;
   /** أطول نصّ (بالمحارف) — 60 للتسميات */
   max: number;
-  /** يُخفى ولا يُعاد صياغته (قيمةٌ من بيانات الشركة لا تسمية) */
+  /** كان يُخفى ولا يُعاد صياغته (قيمةٌ من بيانات الشركة لا تسمية) — وصفٌ تاريخيّ لا يمنع شيئاً اليوم (تنبيه 'tax') */
   hideOnly?: boolean;
 }
 
@@ -129,6 +133,27 @@ export const PRINT_TEXT_CATALOG: readonly PrintTextEntry[] = Object.freeze([
   e('rcp.notes', 'ملاحظات', 'receipt', 'customer'),
   e('rcp.sigPayer', 'توقيع الدافع', 'receipt', 'footer'),
   e('rcp.sigCollector', 'توقيع المستلم المندوب', 'receipt', 'footer'),
+
+  // ── طلب المالك ٣ نوفمبر ٢٠٢٦: القالب «كلاسيكي بإطارات — ثنائي اللغة» وما كان مكتوباً في القوالب خارج القائمة ──
+  e('col.seq', 'رقم', 'invoice', 'items'),
+  e('col.code', 'رقم الصنف', 'invoice', 'items'),
+  e('col.unit', 'الوحدة', 'invoice', 'items'),
+  e('col.vatAmount', 'ضريبة القيمة المضافة', 'invoice', 'items', 'standard'),
+  e('sel.heading', 'بيانات البائع', 'invoice', 'seller'),
+  e('sel.name', 'الاسم', 'invoice', 'seller', 'zatca'),
+  e('sel.address', 'العنوان', 'invoice', 'seller', 'zatca'),
+  e('sel.city', 'المدينة', 'invoice', 'seller', 'standard'),
+  e('sel.postalCode', 'الرمز البريدي', 'invoice', 'seller', 'standard'),
+  e('sel.taxNumber', 'الرقم الضريبي', 'invoice', 'seller', 'zatca'),
+  e('cust.city', 'المدينة', 'shared', 'customer', 'standard'),
+  e('cust.postalCode', 'الرمز البريدي', 'shared', 'customer', 'standard'),
+  e('inv.paymentType', 'طريقة الدفع', 'invoice', 'info'),
+  e('sig.warehouse', 'المستودع', 'invoice', 'footer'),
+  e('sig.remarks', 'ملاحظات وتعليمات', 'invoice', 'footer'),
+  e('tot.exclVat', 'الإجمالي الخاضع للضريبة (غير شامل الضريبة)', 'invoice', 'totals', 'fixed'),
+  e('tot.due', 'إجمالي المبلغ المستحق', 'invoice', 'totals', 'zatca'),
+  // سطر المنصّة في تذييل المطبوعات — كان ثابتاً خارج القائمة؛ بلا تعديل يُطبع بتعبير القالب نفسه (حرفاً كاليوم)
+  e('foot.platform', 'صدرت عبر منصة Field Sales · fieldsa.net', 'shared', 'footer', 'fixed', { max: 80 }),
 ] as PrintTextEntry[]);
 
 const BY_KEY: ReadonlyMap<string, PrintTextEntry> = new Map(PRINT_TEXT_CATALOG.map((x) => [x.key, x] as const));
@@ -138,26 +163,97 @@ export function printTextEntry(key: string): PrintTextEntry | undefined {
   return BY_KEY.get(key);
 }
 
-/** هل يقبل المفتاح الإخفاء في الإعداد المحفوظ — standard يُقبل (يُطبَّق على المبسّطة وحدها عند الطباعة) */
-export function printTextHideable(entry: PrintTextEntry): boolean {
-  return entry.lock === 'none' || entry.lock === 'standard' || entry.lock === 'title';
+/** كل مفتاحٍ يُحذف سطره (طلب المالك ٣ نوفمبر ٢٠٢٦) — باقيةٌ للمستدعين، والجواب true دائماً */
+export function printTextHideable(_e: PrintTextEntry): true {
+  return true;
 }
 
-/** هل تُعاد صياغته العربية — لا للعبارات الضريبية بصياغتها (fixed) ولا لما يُخفى فقط */
-export function printTextRewordable(entry: PrintTextEntry): boolean {
-  return entry.lock !== 'fixed' && !entry.hideOnly;
+/** كل مفتاحٍ تُعاد صياغته العربية — والإلزامي سابقاً بتنبيهٍ لا يمنع */
+export function printTextRewordable(_e: PrintTextEntry): true {
+  return true;
 }
 
-/** هل يُكتب له نصٌّ باللغة الثانية — كل ما يُطبع تسميةً (ما يُخفى فقط قيمةٌ أو عبارةٌ لا تُصاغ) */
-export function printTextAltEditable(entry: PrintTextEntry): boolean {
-  return !entry.hideOnly;
+/** كل مفتاحٍ يُكتب له نصٌّ باللغة الثانية */
+export function printTextAltEditable(_e: PrintTextEntry): true {
+  return true;
 }
 
-/** تعديل نصٍّ واحد: text = صياغة عربية بديلة، alt = نصّ اللغة الثانية، hidden = لا يُطبع (ولا صفّه) */
+/**
+ * وحدة «حذف السطر» لكل مفتاح — ما يزيله القالب كاملاً متى حُذف:
+ *   row       التسمية وقيمتها              column    رأس العمود وكل خلاياه (وعرضه)
+ *   totalsRow صفّ الإجمالي                  block     العنوان وصندوقه/قسمه كلّه بصفوفه
+ *   title     عنوان المستند                 slot      خانة توقيع
+ *   line      جملة/ملاحظة قائمة بذاتها     part      مقطع اللاحقة وحده
+ * وفي القالب ثنائي اللغة يُحذف العربي والإنجليزي والقيمة معاً.
+ */
+export type PrintLineScope = 'row' | 'column' | 'totalsRow' | 'block' | 'title' | 'slot' | 'line' | 'part';
+
+/** مدخلٌ واحد لكل مفتاح في القائمة (حارسٌ في الاختبار) */
+export const PRINT_TEXT_LINE: Readonly<Record<string, PrintLineScope>> = Object.freeze({
+  'h.taxNumber': 'row', 'h.commercialReg': 'row', 'h.address': 'row', 'h.phone': 'row', 'h.email': 'row',
+  'foot.thanks': 'line', 'foot.company': 'line',
+  'inv.title': 'title', 'inv.returnTitle': 'title',
+  'inv.infoHeading': 'block', 'inv.returnInfoHeading': 'block',
+  'inv.number': 'row', 'inv.returnNumber': 'row', 'inv.date': 'row', 'inv.time': 'row', 'inv.type': 'row',
+  'inv.deliveryDate': 'row', 'inv.rep': 'row',
+  'cust.heading': 'block', 'cust.name': 'row', 'cust.business': 'row', 'cust.commercialReg': 'row', 'cust.taxNumber': 'row',
+  'cust.phone': 'row', 'cust.address': 'row',
+  'col.item': 'column', 'col.qty': 'column', 'col.price': 'column', 'col.priceIncl': 'column', 'col.discount': 'column',
+  'col.tax': 'column', 'col.total': 'column', 'item.beforeTax': 'row', 'note.pricesIncl': 'line',
+  'tot.subtotal': 'totalsRow', 'tot.discount': 'totalsRow', 'tot.taxable': 'totalsRow', 'tot.vat': 'totalsRow',
+  'tot.vatIncl': 'totalsRow', 'tot.grand': 'totalsRow', 'tot.returnGrand': 'totalsRow', 'tot.paid': 'totalsRow',
+  'tot.remaining': 'totalsRow',
+  'inst.heading': 'block', 'inst.dueDate': 'column', 'inst.amount': 'column', 'inst.sum': 'totalsRow', 'inst.note': 'line',
+  'qr.caption': 'line', 'sig.recipient': 'slot', 'sig.rep': 'slot',
+  'inv.originalRef': 'row', 'inv.noteReason': 'row',
+  'rcp.title': 'title', 'rcp.number': 'row', 'rcp.date': 'row', 'rcp.time': 'row', 'rcp.rep': 'row', 'rcp.amount': 'block',
+  'rcp.forInvoice': 'row', 'rcp.forInvoices': 'block', 'rcp.invoiceNo': 'row', 'rcp.credit': 'row',
+  'rcp.customerHeading': 'block', 'rcp.from': 'row', 'rcp.business': 'row', 'rcp.commercialReg': 'row', 'rcp.taxNumber': 'row',
+  'rcp.phone': 'row', 'rcp.address': 'row', 'rcp.method': 'row', 'rcp.notes': 'row', 'rcp.sigPayer': 'slot', 'rcp.sigCollector': 'slot',
+  'col.seq': 'column', 'col.code': 'column', 'col.unit': 'column', 'col.vatAmount': 'column',
+  'sel.heading': 'block', 'sel.name': 'row', 'sel.address': 'row', 'sel.city': 'row', 'sel.postalCode': 'row', 'sel.taxNumber': 'row',
+  'cust.city': 'row', 'cust.postalCode': 'row', 'inv.paymentType': 'row', 'sig.warehouse': 'slot', 'sig.remarks': 'slot',
+  'tot.exclVat': 'totalsRow', 'tot.due': 'totalsRow', 'foot.platform': 'line',
+});
+
+/** تنبيه المحرّر بجانب السطر — لا يمنع شيئاً؛ و'tax' و'standard' يطلبان تأكيد الحذف مرةً واحدة */
+export type PrintTextWarning = 'tax' | 'standard' | 'platform';
+
+export const PRINT_TEXT_WARNINGS: Readonly<Record<PrintTextWarning, string>> = Object.freeze({
+  tax: 'حذف هذا قد يجعل الفاتورة الضريبية غير مطابقة لمتطلبات هيئة الزكاة والضريبة والجمارك',
+  standard: 'إلزامي في الفاتورة الضريبية للمنشآت — حذفه قد يجعلها غير مطابقة لمتطلبات هيئة الزكاة والضريبة والجمارك',
+  platform: 'سطر المنصة في تذييل المطبوعات',
+});
+
+/** صنف التنبيه من القفل القديم: سطر المنصّة 'platform'، وstandard 'standard'، وzatca/fixed/shape/title وما كان يُخفى فقط 'tax' */
+export function printTextWarning(entry: PrintTextEntry): PrintTextWarning | null {
+  if (entry.key === 'foot.platform') return 'platform';
+  if (entry.lock === 'standard') return 'standard';
+  if (entry.lock !== 'none' || entry.hideOnly) return 'tax';
+  return null;
+}
+
+/** تعديل نصٍّ واحد: text = صياغة عربية بديلة، alt = نصّ اللغة الثانية، hidden = «حذف السطر» (لا يُطبع هو ولا وحدته كاملة) */
 export interface PrintTextEdit {
   text: string | null;
   alt: string | null;
   hidden: boolean;
+  /**
+   * لعنواني الفاتورة والإشعار الدائن وحدهما (قفل 'title'): true = صاغته الشركة أو حذفته بعد طلب المالك ٣ نوفمبر ٢٠٢٦ فيسري على
+   * مستندات المرحلة الثانية أيضاً. غيابه = تعديلٌ محفوظٌ قبله كان للمرحلة الأولى وحدها — فيبقى كذلك (ورقة الشركة كما اليوم حتى تعدّله
+   * هي). لا يُكتب لغير مفتاحي العنوان، ولا يُكتب false (الصورة القانونية بلا الحقل = بايتات اليوم).
+   */
+  phase2?: boolean;
+}
+
+/** هل يسري تعديل هذا المفتاح على مستند المرحلة الثانية — كل مفتاحٍ إلا عنوانَي الفاتورة/الإشعار المحفوظين قبل ٣ نوفمبر ٢٠٢٦ */
+export function printTextEditOnPhase2(entry: PrintTextEntry, edit: PrintTextEdit): boolean {
+  return entry.lock !== 'title' || edit.phase2 === true;
+}
+
+/** التعديل بصورته القانونية: phase2 لمفتاحي العنوان وحدهما ومتى كان true — وإلا فالحقول الثلاثة كاليوم */
+function shapedEdit(entry: PrintTextEntry, text: string | null, alt: string | null, hidden: boolean, phase2: unknown): PrintTextEdit {
+  return entry.lock === 'title' && phase2 === true ? { text, alt, hidden, phase2: true } : { text, alt, hidden };
 }
 
 export interface PrintTextsV1 {
@@ -182,8 +278,8 @@ export const PRINT_TEXTS_LIMITS = Object.freeze({
 
 function makePrintTextsSchema(strict: boolean) {
   const edit = strict
-    ? z.object({ text: z.string().nullable(), alt: z.string().nullable(), hidden: z.boolean() }).strict()
-    : z.object({ text: z.string().nullable(), alt: z.string().nullable(), hidden: z.boolean() });
+    ? z.object({ text: z.string().nullable(), alt: z.string().nullable(), hidden: z.boolean(), phase2: z.boolean().optional() }).strict()
+    : z.object({ text: z.string().nullable(), alt: z.string().nullable(), hidden: z.boolean(), phase2: z.boolean().optional() });
   const shape = {
     version: z.literal(1),
     secondLang: z.enum(PRINT_SECOND_LANGS).nullable(),
@@ -205,6 +301,7 @@ export const PRINT_TEXTS_ISSUES = Object.freeze({
   unknownKey: 'حقل غير معروف في نصوص المطبوعات',
   tooLarge: 'نصوص المطبوعات أكبر من الحد المسموح 32 كيلوبايت',
   unknownText: 'نص غير معروف في نصوص المطبوعات',
+  // الثلاث التالية لم تعد تصدر (طلب المالك ٣ نوفمبر ٢٠٢٦: لا قفل) — باقيةٌ لأنها مترجمةٌ ومرجعٌ لرسائل محفوظة
   locked: 'هذا النص إلزامي في الفاتورة الضريبية ولا يخفى',
   hideOnly: 'هذا السطر يخفى ولا يعاد صياغته',
   fixed: 'هذه العبارة الضريبية لا تعاد صياغتها بالعربية',
@@ -254,11 +351,11 @@ export function canonicalPrintTexts(s: PrintTextsV1): PrintTextsV1 {
   for (const entry of PRINT_TEXT_CATALOG) {
     const raw = Object.prototype.hasOwnProperty.call(s.edits, entry.key) ? s.edits[entry.key] : undefined;
     if (!raw) continue;
-    const text = printTextRewordable(entry) ? oneLineOrNull(raw.text) : null;
-    const alt = printTextAltEditable(entry) ? oneLineOrNull(raw.alt) : null;
+    const text = oneLineOrNull(raw.text);
+    const alt = oneLineOrNull(raw.alt);
     const hidden = raw.hidden === true;
     if (text === null && alt === null && !hidden) continue;
-    edits[entry.key] = { text, alt, hidden };
+    edits[entry.key] = shapedEdit(entry, text, alt, hidden, (raw as { phase2?: unknown }).phase2);
   }
   return {
     version: 1,
@@ -269,16 +366,13 @@ export function canonicalPrintTexts(s: PrintTextsV1): PrintTextsV1 {
   };
 }
 
-/** قواعد ما قبل الصورة القانونية (المفاتيح المجهولة والإخفاء المقفل والأطوال) — تُشغَّل على المُحلَّل */
+/** قواعد ما قبل الصورة القانونية (المفاتيح المجهولة والأطوال — لا قفل) — تُشغَّل على المُحلَّل */
 function printTextsIssuesRaw(s: PrintTextsV1): PrintTextsIssue[] {
   const out: PrintTextsIssue[] = [];
   for (const [key, edit] of Object.entries(s.edits)) {
     const entry = BY_KEY.get(key);
     const at = `edits.${key}`;
     if (!entry) { out.push({ path: at, message: PRINT_TEXTS_ISSUES.unknownText }); continue; }
-    if (edit.hidden && !printTextHideable(entry)) out.push({ path: `${at}.hidden`, message: PRINT_TEXTS_ISSUES.locked });
-    if (entry.hideOnly && (oneLineOrNull(edit.text) !== null || oneLineOrNull(edit.alt) !== null)) out.push({ path: at, message: PRINT_TEXTS_ISSUES.hideOnly });
-    else if (entry.lock === 'fixed' && oneLineOrNull(edit.text) !== null) out.push({ path: `${at}.text`, message: PRINT_TEXTS_ISSUES.fixed });
     const text = oneLineOrNull(edit.text);
     const alt = oneLineOrNull(edit.alt);
     if (text !== null && charLen(text) > entry.max) out.push({ path: `${at}.text`, message: PRINT_TEXTS_ISSUES.tooLong });
@@ -304,9 +398,9 @@ export function isEmptyPrintTexts(s: PrintTextsV1): boolean {
 export type PrintTextsCheck = { ok: true; value: PrintTextsV1 } | { ok: false; issues: PrintTextsIssue[] };
 
 /**
- * البنية ثم القواعد ثم الصورة القانونية — strict للحفظ في الخادم (مفتاح مجهول أو إخفاءٌ مقفل ⇒ رفض)، وغير strict لقراءة الجهاز:
- * ما لا يصلح من التعديلات يُهمل وحده (إخفاء نصٍّ صار مقفلاً في نسخةٍ أحدث يُطبع النصّ؛ والأطول من حدّه يُقصّ للحدّ)، فلا يفقد
- * الجهاز إعداد الشركة كلّه لسطرٍ واحد. نسخة غير 1 ترفض في الحالتين.
+ * البنية ثم القواعد ثم الصورة القانونية — strict للحفظ في الخادم (مفتاح مجهول أو نصٌّ أطول من حدّه ⇒ رفض)، وغير strict لقراءة
+ * الجهاز: ما لا يصلح من التعديلات يُهمل وحده (مفتاحٌ أضافه خادمٌ أحدث يُهمل، والأطول من حدّه يُقصّ للحدّ)، فلا يفقد الجهاز
+ * إعداد الشركة كلّه لسطرٍ واحد. والحذف (hidden) يُقبل لكل مفتاح في الحالتين. نسخة غير 1 ترفض في الحالتين.
  */
 export function checkPrintTexts(raw: unknown, strict: boolean): PrintTextsCheck {
   const parsed = (strict ? printTextsV1Schema : lenientSchema).safeParse(raw);
@@ -329,11 +423,11 @@ export function checkPrintTexts(raw: unknown, strict: boolean): PrintTextsCheck 
   const clip = (s: string | null, max: number): string | null => (s === null ? null : Array.from(s).slice(0, max).join('').trimEnd() || null);
   for (const [key, edit] of Object.entries(value.edits)) {
     const entry = BY_KEY.get(key) as PrintTextEntry;
-    const hidden = edit.hidden && printTextHideable(entry);
+    const hidden = edit.hidden;
     const text = clip(edit.text, entry.max);
     const alt = clip(edit.alt, entry.max);
     if (text === null && alt === null && !hidden) delete value.edits[key];
-    else value.edits[key] = { text, alt, hidden };
+    else value.edits[key] = shapedEdit(entry, text, alt, hidden, edit.phase2);
   }
   value.companyNameAlt = clip(value.companyNameAlt, PRINT_TEXTS_LIMITS.companyNameAltMax);
   value.companyAddressAlt = clip(value.companyAddressAlt, PRINT_TEXTS_LIMITS.companyAddressAltMax);

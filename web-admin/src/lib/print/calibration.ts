@@ -281,9 +281,10 @@ export function sampleBannerHtml(text: string): string {
  */
 export function sampleInvoiceDoc(company: Company | null | undefined, tr: Tr, now: Date = new Date()): InvoiceDoc {
   // صنفان: الفاتورة الحقيقية القصيرة — وورقة A4 النموذجية بعلامتي التجربة لا تفيض إلى صفحةٍ ثانية على MIP480
+  // رمز الصنف وضريبة السطر: يملآن عمودي «رقم الصنف» و«ضريبة القيمة المضافة» في القالب ثنائي اللغة (والقالب الحالي والرول لا يقرآنهما)
   const items = [
-    { name: `${tr('صنف تجريبي')} 1`, unit: tr('الوحدة'), qty: 2, unitPrice: 28.75, discountPct: 0, taxPct: 15, lineTotal: 57.5 },
-    { name: `${tr('صنف تجريبي')} 2`, unit: tr('الوحدة'), qty: 1, unitPrice: 57.5, discountPct: 0, taxPct: 15, lineTotal: 57.5 },
+    { name: `${tr('صنف تجريبي')} 1`, unit: tr('الوحدة'), qty: 2, unitPrice: 28.75, discountPct: 0, taxPct: 15, lineTotal: 57.5, code: 'TST-001', taxAmt: 7.5 },
+    { name: `${tr('صنف تجريبي')} 2`, unit: tr('الوحدة'), qty: 1, unitPrice: 57.5, discountPct: 0, taxPct: 15, lineTotal: 57.5, code: 'TST-002', taxAmt: 7.5 },
   ];
   return {
     kind: 'invoice',

@@ -11,6 +11,7 @@ import {
   LEGACY_PAGE_ID, LEGACY_THERMAL_ID, PAPER_PRESETS, PRINT_ISSUES, PRINT_LIMITS, canonicalPrintSettings, checkPrintSettings,
   defaultPrintOptions, dotsPerMm, impactRightDots, isLegacyPrintSettings, isPrintSettingsReset, legacyPrintSettings, maxPrintableDots,
   parsePrintSettings, presetPaper, printSettingsBytes, storedPrintSettings, type PrintProfile, type PrintSettingsV1,
+  ACCENT_PALETTE, accentContrastOk, defaultPrintLayout, normalizeSectionOrder, sectionsFor, type LayoutDesign, type PrintLayout,
 } from '../services/printSettings';
 
 const SRC = path.join(__dirname, '..');
@@ -283,6 +284,138 @@ test('الحجم: أكبر من 16 كيلوبايت ⇒ 413 قبل التحلي�
   const bad = parsePrintSettings({ ...fleet(), version: 3 });
   assert.equal(bad.ok, false);
   if (!bad.ok) assert.deepEqual([bad.status, bad.code], [400, 'PRINT_SETTINGS_INVALID']);
+});
+
+// ═══ التخطيط (طلب المالك ٣ نوفمبر ٢٠٢٦): الشعار واللون والجدول وترتيب الأقسام والتصميم ثنائي اللغة ═══
+
+const withLayoutOf = (p: PrintProfile, layout: Partial<PrintLayout> = {}, design: LayoutDesign = 'standard'): PrintProfile =>
+  ({ ...p, options: { ...p.options, layout: { ...defaultPrintLayout(p.printer, design), ...layout } } });
+const fleetWith = (p: PrintProfile): PrintSettingsV1 => ({ ...fleet(), profiles: [...fleet().profiles, p] });
+const LAYOUT_MSGS: ReadonlySet<string> = new Set(Object.entries(PRINT_ISSUES).filter(([k]) => k.startsWith('layout')).map(([, v]) => v));
+const layoutIssuesOf = (p: PrintProfile) => issuesOf(fleetWith(p)).filter((m) => LAYOUT_MSGS.has(m));
+
+test('التخطيط: صالحٌ لكل طابعة، ويُحفظ بترتيب مفاتيح ثابت في آخر الخيارات — والغياب مطبوعة اليوم بلا مفتاح', () => {
+  const page = withLayoutOf(profile({ id: 'office-grid', printer: 'page', template: 'page_plain' }, 'a4'), { accent: '#0f766e' }, 'grid_bilingual');
+  const impact = withLayoutOf(profile({ id: 'mip-grid', printer: 'impact', template: 'impact_plain' }, 'ff_a4'), {}, 'grid_bilingual');
+  const impactStd = withLayoutOf(profile({ id: 'mip-std', printer: 'impact', template: 'impact_preprinted' }, 'ff_a4'), { logo: 'end', logoSize: 's', tableStyle: 'striped' });
+  const roll = withLayoutOf(profile({ id: 'van-std', printer: 'thermal', template: 'roll_compact' }, 'roll80'), { logo: 'none', logoSize: 'l' });
+  const s: PrintSettingsV1 = { ...fleet(), profiles: [...fleet().profiles, page, impact, impactStd, roll] };
+  const r = checkPrintSettings(s, true);
+  assert.ok(r.ok, JSON.stringify(r));
+  const v = r.value.profiles.slice(3);
+  for (const p of v) {
+    assert.equal(Object.keys(p.options).slice(-1)[0], 'layout');
+    assert.deepEqual(Object.keys(p.options.layout!), ['design', 'logo', 'logoSize', 'accent', 'tableStyle', 'order']);
+  }
+  assert.equal(v[0].options.layout!.accent, '#0F766E', 'اللون بأحرف كبيرة');
+  assert.deepEqual(v[0].options.layout!.order, [...sectionsFor('page', 'grid_bilingual')]);
+  assert.deepEqual(v[3].options.layout!.order, ['header', 'info', 'customer', 'items', 'totals', 'signatures', 'qr', 'footer']);
+  assert.equal(JSON.stringify(canonicalPrintSettings(r.value)), JSON.stringify(r.value), 'الصورة القانونية تعيد نفسها');
+  // بلا تخطيط: لا مفتاح layout في أيّ قالب (ولا undefined) — بالصارم والمتسامح
+  for (const strict of [true, false]) {
+    const plain = checkPrintSettings(fleet(), strict);
+    assert.ok(plain.ok);
+    if (plain.ok) for (const p of plain.value.profiles) assert.ok(!('layout' in p.options));
+    if (plain.ok) assert.equal(JSON.stringify(plain.value), JSON.stringify(canonicalPrintSettings(fleet())), 'صفٌّ قديم بلا تخطيط يُقرأ كما هو');
+  }
+  for (const printer of ['thermal', 'impact', 'page'] as const) assert.ok(!('layout' in defaultPrintOptions(printer)), 'الافتراضي بلا تخطيط');
+  for (const p of legacyPrintSettings().profiles) assert.ok(!('layout' in p.options));
+});
+
+test('التخطيط: كل قاعدة تُبلَغ برسالتها في الحفظ', () => {
+  const pagep = profile({ id: 'office-2', printer: 'page', template: 'page_branded' }, 'a4');
+  const rollp = profile({ id: 'van-2', printer: 'thermal', template: 'roll_compact' }, 'roll80');
+  const cases: Array<[string, PrintProfile]> = [
+    [PRINT_ISSUES.layoutClassic, withLayoutOf({ ...rollp, template: 'roll_classic' })],
+    [PRINT_ISSUES.layoutDesignPrinter, { ...rollp, options: { ...rollp.options, layout: { ...defaultPrintLayout('thermal'), design: 'grid_bilingual' } } }],
+    [PRINT_ISSUES.layoutRoll, withLayoutOf(rollp, { logo: 'start' })],
+    [PRINT_ISSUES.layoutRoll, withLayoutOf(rollp, { tableStyle: 'grid' })],
+    [PRINT_ISSUES.layoutOrder, withLayoutOf(pagep, { order: ['header', 'info', 'items', 'totals', 'signatures', 'footer'] })],
+    [PRINT_ISSUES.layoutOrder, withLayoutOf(pagep, { order: ['header', 'info', 'info', 'items', 'note', 'totals', 'signatures', 'footer'] })],
+    [PRINT_ISSUES.layoutOrder, withLayoutOf(pagep, { order: ['header', 'info', 'parties', 'items', 'note', 'totals', 'installments', 'signatures', 'footer'] })],
+    [PRINT_ISSUES.layoutHeaderFirst, withLayoutOf(pagep, { order: ['info', 'header', 'items', 'note', 'totals', 'installments', 'signatures', 'footer'] })],
+    [PRINT_ISSUES.layoutFooterLast, withLayoutOf(pagep, { order: ['header', 'info', 'items', 'note', 'totals', 'signatures', 'installments', 'footer'] })],
+    [PRINT_ISSUES.layoutFooterLast, withLayoutOf(pagep, { order: ['header', 'info', 'items', 'note', 'totals', 'installments', 'footer', 'signatures'] })],
+    [PRINT_ISSUES.layoutItemsTotals, withLayoutOf(pagep, { order: ['header', 'info', 'totals', 'items', 'note', 'installments', 'signatures', 'footer'] })],
+    [PRINT_ISSUES.layoutQrAfterItems, withLayoutOf(rollp, { order: ['header', 'qr', 'info', 'customer', 'items', 'totals', 'signatures', 'footer'] })],
+    [PRINT_ISSUES.layoutAccent, withLayoutOf(pagep, { accent: '#FFEE58' })],
+  ];
+  const reached = new Set<string>();
+  for (const [message, p] of cases) {
+    const got = layoutIssuesOf(p);
+    assert.ok(got.includes(message), `${message} ⇐ ${JSON.stringify(p.options.layout)} ⇒ ${JSON.stringify(got)}`);
+    const parsed = parsePrintSettings(fleetWith(p));
+    assert.equal(parsed.ok, false);
+    if (!parsed.ok) assert.equal(parsed.status, 400);
+    reached.add(message);
+  }
+  const all = Object.entries(PRINT_ISSUES).filter(([k]) => k.startsWith('layout')).map(([, v]) => v);
+  assert.equal(all.length, 9);
+  assert.deepEqual([...reached].sort(), [...all].sort(), 'كل قاعدة تخطيط مبلوغة');
+  // الرول: QR بعد الأصناف مقبول (مبكراً)، وبين التواقيع والتذييل (اليوم) مقبول
+  assert.deepEqual(layoutIssuesOf(withLayoutOf(rollp, { order: ['header', 'info', 'customer', 'items', 'qr', 'totals', 'signatures', 'footer'] })), []);
+  // والصفحة: الملاحظة بعد الإجماليات مقبولة
+  assert.deepEqual(layoutIssuesOf(withLayoutOf(pagep, { order: ['header', 'info', 'items', 'totals', 'note', 'installments', 'signatures', 'footer'] })), []);
+  assert.ok(accentContrastOk('#E15A30') && !accentContrastOk('#FFFFFF'));
+  for (const c of ACCENT_PALETTE) assert.ok(accentContrastOk(c), c);
+});
+
+test('التخطيط: البنية الصارمة (مفتاح مجهول 400)، والقراءة المتسامحة تُسقط التخطيط التالف وحده', () => {
+  const p = withLayoutOf(profile({ id: 'office-2', printer: 'page', template: 'page_plain' }, 'a4'), {}, 'grid_bilingual');
+  const unknown = clone(fleetWith(p)) as unknown as { profiles: Array<{ options: { layout: Record<string, unknown> } }> };
+  unknown.profiles[3].options.layout.watermarkOff = true;
+  const r = parsePrintSettings(unknown);
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.deepEqual([r.status, r.code, r.message], [400, 'PRINT_SETTINGS_INVALID', PRINT_ISSUES.unknownKey]);
+  // تصميم مجهول (خادم أحدث) أو لون بصيغة خاطئة: يسقط التخطيط وحده في القراءة ويبقى القالب والتوجيه
+  for (const patch of [{ design: 'magazine' }, { accent: 'red' }, { order: 'header' }, { logo: 'top' }]) {
+    const raw = clone(fleetWith(p)) as unknown as { profiles: Array<{ options: Record<string, unknown> }> };
+    raw.profiles[3].options.layout = { ...(raw.profiles[3].options.layout as object), ...patch };
+    assert.equal(checkPrintSettings(raw, true).ok, false, JSON.stringify(patch));
+    const read = storedPrintSettings(raw);
+    assert.equal(read.stored, true, JSON.stringify(patch));
+    assert.equal(read.settings.profiles.length, 4);
+    assert.ok(!('layout' in read.settings.profiles[3].options), JSON.stringify(patch));
+    assert.equal(read.settings.profiles[3].template, 'page_plain');
+  }
+  // ترتيبٌ ناقص أو بقسمٍ لا تعرفه هذه النسخة ⇒ يُصلح في القراءة (والحفظ يرفضه)
+  const partial = clone(fleetWith(p));
+  partial.profiles[3].options.layout!.order = ['footer', 'items', 'header'];
+  assert.equal(parsePrintSettings(partial).ok, false);
+  assert.deepEqual(storedPrintSettings(partial).settings.profiles[3].options.layout!.order, [...sectionsFor('page', 'grid_bilingual')]);
+  // قاعدةٌ لا يُصلحها الترتيب (لون فاتح) ⇒ يسقط التخطيط وحده
+  const pale = clone(fleetWith(p));
+  pale.profiles[3].options.layout!.accent = '#FFFFFF';
+  assert.ok(!('layout' in storedPrintSettings(pale).settings.profiles[3].options));
+  // التطبيع متساوي القوى، والترتيب الصالح يعود كما هو
+  for (const [printer, design] of [['page', 'standard'], ['page', 'grid_bilingual'], ['impact', 'grid_bilingual'], ['thermal', 'standard']] as const) {
+    const def = sectionsFor(printer, design);
+    assert.deepEqual(normalizeSectionOrder(def, printer, design), [...def]);
+    const rev = normalizeSectionOrder([...def].reverse(), printer, design);
+    assert.deepEqual(normalizeSectionOrder(rev, printer, design), rev);
+  }
+});
+
+test('التخطيط: الملفّان الافتراضيان لا يحملانه (يُستبدلان بالمجمَّد)، والإعادة للافتراضي ما زالت null في الأثر', () => {
+  const s = legacyPrintSettings();
+  s.profiles = s.profiles.map((p) => withLayoutOf(p, { logo: p.printer === 'thermal' ? 'none' : 'end' }));
+  const r = checkPrintSettings(s, true);
+  assert.ok(r.ok, JSON.stringify(r));
+  if (r.ok) {
+    for (const p of r.value.profiles) assert.ok(!('layout' in p.options), p.id);
+    assert.equal(isLegacyPrintSettings(r.value), true);
+  }
+});
+
+test('الحجم: اثنا عشر قالباً بأطول اسم وتذييل وتخطيطٍ كامل تبقى تحت 16 كيلوبايت', () => {
+  const full = legacyPrintSettings();
+  for (let i = 0; full.profiles.length < 12; i++) {
+    const p = withLayoutOf(profile({ id: `long-name-${i}`, name: `${i}`.padEnd(40, 'ق'), printer: 'impact', template: 'impact_plain' }, 'ff_a4'), { accent: '#1D4ED8' }, 'grid_bilingual');
+    p.options.footerText = 'ذ'.repeat(160);
+    full.profiles.push(p);
+  }
+  assert.ok(printSettingsBytes(full) < PRINT_LIMITS.maxBytes, `${printSettingsBytes(full)}`);
+  assert.ok(parsePrintSettings(full).ok);
 });
 
 // ═══ المعالجات الحقيقية فوق Prisma مزيّف ═══

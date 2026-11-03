@@ -7,11 +7,14 @@
  *
  * والثانية: شركةٌ لها نصوص تطبع فاتورتها وسندها **بالعربية أولاً** أيّاً كانت لغة واجهة الجهاز، ومعها اللغة الثانية إن اختارتها —
  * العربية إلزامية في الفاتورة الضريبية واللغة الأخرى ترجمةٌ بجانبها (اللائحة التنفيذية م٦٦). فـ`tr` في المحلِّل هويّة حينها.
+ *
+ * والثالثة (طلب المالك ٣ نوفمبر ٢٠٢٦): كل نصٍّ يُعاد صياغته ويُحذف — `hidden(key)` = «حذف السطر»: القالب يزيل وحدة المفتاح كاملة
+ * (PRINT_TEXT_LINE) على كل مستند، قياسياً كان أو مبسّطاً، ومن المرحلة الأولى أو الثانية؛ والإلزامي سابقاً تنبيهٌ في المحرّر لا منع.
  */
 import { PHRASES } from '../../i18n/strings';
 import {
-  PRINT_TEXT_CATALOG, checkPrintTexts, isEmptyPrintTexts, printTextEntry, printTextHideable,
-  type PrintSecondLang, type PrintTextEdit, type PrintTextsV1,
+  PRINT_TEXT_CATALOG, checkPrintTexts, isEmptyPrintTexts, printTextEditOnPhase2, printTextEntry, printTextWarning,
+  type PrintSecondLang, type PrintTextEdit, type PrintTextWarning, type PrintTextsV1,
 } from './printTextsCore';
 
 export * from './printTextsCore';
@@ -54,7 +57,36 @@ const PRINT_PHRASES: Readonly<Record<string, Partial<Record<PrintSecondLang, str
   'المندوب': { en: 'Sales Rep', fr: 'Représentant', tr: 'Temsilci', zh: '销售代表' },
   'المجموع قبل الضريبة': { en: 'Total excl. VAT', fr: 'Total HT', tr: 'KDV hariç toplam', zh: '不含税合计' },
   'توقيع المستلم المندوب': { en: 'Collector signature (rep)', fr: 'Signature du représentant encaisseur', tr: 'Tahsilatçı temsilci imzası', zh: '收款代表签名' },
+  // مفاتيح طلب المالك ٣ نوفمبر ٢٠٢٦ (القالب ثنائي اللغة وسطر المنصّة) — نصوصٌ جديدة لا يمسّ أيٌّ منها ترجمةً قائمة
+  'رقم الصنف': { en: 'Item Code', fr: 'Code article', tr: 'Ürün kodu', zh: '商品编码' },
+  'بيانات البائع': { en: 'Seller', fr: 'Vendeur', tr: 'Satıcı', zh: '卖方' },
+  'الرمز البريدي': { en: 'Postal Code', fr: 'Code postal', tr: 'Posta kodu', zh: '邮政编码' },
+  'ملاحظات وتعليمات': { en: 'Instructions / Remarks', fr: 'Instructions / Remarques', tr: 'Talimatlar / Notlar', zh: '说明 / 备注' },
+  'الإجمالي الخاضع للضريبة (غير شامل الضريبة)': {
+    en: 'Total Taxable Amount (Excluding VAT)', fr: 'Montant total imposable (hors TVA)', tr: 'Vergiye tabi toplam tutar (KDV hariç)', zh: '应税总额（不含增值税）',
+  },
+  'إجمالي المبلغ المستحق': { en: 'Total Amount Due', fr: 'Montant total dû', tr: 'Ödenecek toplam tutar', zh: '应付总额' },
+  'صدرت عبر منصة Field Sales · fieldsa.net': {
+    en: 'Issued via Field Sales · fieldsa.net', fr: 'Émis via Field Sales · fieldsa.net', tr: 'Field Sales · fieldsa.net üzerinden düzenlendi', zh: '通过 Field Sales · fieldsa.net 开具',
+  },
 });
+
+/**
+ * ترجمة المفتاح لا النصّ — لمفاتيح جديدة يشترك نصّها العربيّ الافتراضي مع نصٍّ له ترجمةٌ أخرى قائمة («رقم» = No.، و«طريقة الدفع»
+ * = Payment method): تُستعمل حين يُطبع افتراضي القائمة نفسه بلا صياغة، فلا تتغيّر ترجمةٌ يطبعها قالبٌ اليوم.
+ */
+const PRINT_KEY_PHRASES: Readonly<Record<string, Partial<Record<PrintSecondLang, string>>>> = Object.freeze({
+  'col.seq': { en: 'Sr.', fr: 'N°', tr: 'Sıra', zh: '序号' },
+  'inv.paymentType': { en: 'Payment Type Name', fr: 'Mode de paiement', tr: 'Ödeme türü', zh: '付款方式' },
+  'sel.taxNumber': { en: 'VAT Number', fr: 'N° de TVA', tr: 'Vergi No', zh: '税号' },
+});
+
+/** ترجمة نصّ مفتاحٍ للورقة: ترجمة المفتاح متى كان النصّ افتراضيَّ القائمة نفسه، ثم phraseIn */
+function keyPhraseIn(key: string, ar: string, lang: PrintSecondLang): string | null {
+  const entry = printTextEntry(key);
+  const own = entry && ar === entry.ar ? PRINT_KEY_PHRASES[key]?.[lang] : undefined;
+  return own ?? phraseIn(ar, lang);
+}
 
 /** نصّ اللغة الثانية للورقة — ترجمة الطباعة ثم القاموس؛ null لنصٍّ خارجهما */
 export function phraseIn(ar: string, lang: PrintSecondLang): string | null {
@@ -77,9 +109,12 @@ export interface PrintTexts {
   tr: Tr;
   /** اللغة الثانية على الورقة أو null */
   lang: PrintSecondLang | null;
-  /** يُخفى النصّ (وصفّه) على هذا المستند — الإلزامي لا يُخفى مهما حُفظ، و«القياسي» يبقى على الفاتورة القياسية */
+  /**
+   * «حذف السطر»: true ⇒ القالب يزيل وحدة المفتاح كاملة (PRINT_TEXT_LINE: التسمية وقيمتها، العمود، صفّ الإجمالي، الصندوق…) —
+   * لكل مفتاح وعلى كل مستند (طلب المالك ٣ نوفمبر ٢٠٢٦). false بلا نصوص وفي المعاينة (هناك hiddenInSettings).
+   */
   hidden: (key: string) => boolean;
-  /** النصّ مخفيٌّ في الإعداد (للمعاينة: يُرسم مشطوباً لأن hidden يعيد false فيها) */
+  /** السطر محذوفٌ في الإعداد (للمعاينة: يُرسم مشطوباً قابلاً للنقر لأن hidden يعيد false فيها) — أيّ مفتاح */
   hiddenInSettings: (key: string) => boolean;
   /** النصّ الأساسيّ: صياغة الشركة، وإلا الافتراضي (ar افتراضي القالب نفسه — «رقم» في الشريط و«رقم الفاتورة» في A4) — مترجماً كاليوم بلا نصوص */
   text: (key: string, ar: string) => string;
@@ -88,8 +123,16 @@ export interface PrintTexts {
   /** قيمةٌ ثابتة من القاموس (نقدي/آجل/تقسيط…) باللغة الثانية — لا تُعاد صياغتها */
   valueAlt: (ar: string, primary: string) => string | null;
   /**
-   * عنوان الفاتورة/المرتجع: صياغة الشركة لمستندات المرحلة الأولى وحدها — المختوم (phase2) يطبع عنوان قرار الطباعة كما هو.
-   * '' = أخفته الشركة. `decided` عنوان القرار (عربي) — مترجماً بـtr كما اليوم للشركة بلا نصوص.
+   * التسمية الإنجليزية للقالب ثنائي اللغة أيّاً كانت اللغة الثانية: المحذوف null؛ ونصّ الشركة الإنجليزي (secondLang 'en')؛ وإلا
+   * ترجمة صياغتها العربية ثم ترجمة الافتراضي. بلا نصوص: ترجمة `ar`.
+   */
+  en: (key: string, ar: string) => string | null;
+  /** تنبيه المحرّر للمفتاح (printTextWarning) أو null — لا يمنع شيئاً */
+  warning: (key: string) => PrintTextWarning | null;
+  /**
+   * عنوان الفاتورة/المرتجع بصياغة الشركة — في المرحلتين (طلب المالك ٣ نوفمبر ٢٠٢٦). '' = حذفته الشركة. `decided` عنوان القرار
+   * (عربي) — مترجماً بـtr كما اليوم للشركة بلا نصوص. عناوين قرار الطباعة التي ليست عنوان فاتورة (سند التسليم، الملغى، بانتظار
+   * الاعتماد) وعنوان الإشعار المدين تُطبع كما قرّرها القرار: inv.title يصوغ عناوين الفاتورة وinv.returnTitle عناوين الإشعار الدائن.
    */
   title: (decided: string, f: { isReturn: boolean; phase2: boolean }) => { text: string; alt: string | null };
   companyNameAlt: string | null;
@@ -102,9 +145,19 @@ const arabic: Tr = (ar) => ar;
 
 const NO_EDIT: PrintTextEdit = Object.freeze({ text: null, alt: null, hidden: false });
 
+/** ما يصوغه inv.title (عناوين الفاتورة) وinv.returnTitle (عناوين الإشعار الدائن) من عناوين القرار — وما سواها كما قرّره القرار */
+const INVOICE_TITLES: ReadonlySet<string> = new Set(['فاتورة ضريبية مبسطة', 'فاتورة ضريبية', 'فاتورة']);
+const RETURN_TITLES: ReadonlySet<string> = new Set(['إشعار دائن مرتجع', 'إشعار دائن']);
+
+/** تنبيه المفتاح أو null لمفتاحٍ مجهول */
+const warningOf = (key: string): PrintTextWarning | null => {
+  const entry = printTextEntry(key);
+  return entry ? printTextWarning(entry) : null;
+};
+
 /**
- * محلِّل نصوص مستندٍ واحد. `standard` = الفاتورة قياسية (B2B — من قرار الطباعة لا من التخمين) فيبقى ما قفله «القياسي».
- * `texts` = الإعداد المطبَّع (normalizePrintTexts) أو null.
+ * محلِّل نصوص مستندٍ واحد. `texts` = الإعداد المطبَّع (normalizePrintTexts) أو null. `standard` (الفاتورة قياسية B2B) باقٍ في
+ * التوقيع للمستدعين ولا يغيّر شيئاً اليوم: الحذف يسري على القياسية أيضاً (والتنبيه في المحرّر).
  */
 export function makePrintTexts(
   texts: PrintTextsV1 | null,
@@ -119,6 +172,8 @@ export function makePrintTexts(
       text: (_k, ar) => tr(ar),
       alt: () => null,
       valueAlt: () => null,
+      en: (key, ar) => keyPhraseIn(key, ar, 'en'),
+      warning: warningOf,
       title: (decided) => ({ text: tr(decided), alt: null }),
       companyNameAlt: null, companyAddressAlt: null,
       preview,
@@ -126,20 +181,22 @@ export function makePrintTexts(
   }
   const lang = texts.secondLang;
   const edit = (key: string): PrintTextEdit => (Object.prototype.hasOwnProperty.call(texts.edits, key) ? texts.edits[key] : NO_EDIT);
-  const hiddenInSettings = (key: string): boolean => {
-    const entry = printTextEntry(key);
-    return !!entry && printTextHideable(entry) && edit(key).hidden;
-  };
-  const hidden = (key: string): boolean => {
-    if (preview || !hiddenInSettings(key)) return false;
-    return !(printTextEntry(key)?.lock === 'standard' && f.standard);
-  };
+  const hiddenInSettings = (key: string): boolean => !!printTextEntry(key) && edit(key).hidden;
+  const hidden = (key: string): boolean => !preview && hiddenInSettings(key);
   const altOf = (key: string, ar: string, primary: string): string | null => {
     if (!lang) return null;
     const e = edit(key);
     const entry = printTextEntry(key);
-    const v = e.alt ?? (e.text !== null ? phraseIn(e.text, lang) : (phraseIn(ar, lang) ?? (entry ? phraseIn(entry.ar, lang) : null)));
+    const v = e.alt ?? (e.text !== null ? phraseIn(e.text, lang) : (keyPhraseIn(key, ar, lang) ?? (entry ? keyPhraseIn(key, entry.ar, lang) : null)));
     return v && v !== primary ? v : null;
+  };
+  const en = (key: string, ar: string): string | null => {
+    if (hidden(key)) return null;
+    const e = edit(key);
+    if (lang === 'en' && e.alt !== null) return e.alt;
+    const entry = printTextEntry(key);
+    return (e.text !== null ? phraseIn(e.text, 'en') : keyPhraseIn(key, ar, 'en'))
+      ?? (entry ? keyPhraseIn(key, entry.ar, 'en') : null);
   };
   const text = (key: string, ar: string): string => edit(key).text ?? ar;
   return {
@@ -155,12 +212,19 @@ export function makePrintTexts(
       const v = phraseIn(ar, lang);
       return v && v !== primary ? v : null;
     },
+    en,
+    warning: warningOf,
     title: (decided, t) => {
-      if (t.phase2) {
+      // عنوانٌ ليس عنوان فاتورة/إشعار دائن (سند التسليم، الملغى، بانتظار الاعتماد، الإشعار المدين) ⇒ كما قرّره القرار
+      // وتعديل عنوانٍ محفوظٌ قبل ٣ نوفمبر ٢٠٢٦ (بلا phase2) كان للمرحلة الأولى وحدها ⇒ مستند المرحلة الثانية يطبع عنوان القرار كاليوم
+      const titleKey = t.isReturn ? 'inv.returnTitle' : 'inv.title';
+      const titleEntry = printTextEntry(titleKey);
+      if (!(t.isReturn ? RETURN_TITLES : INVOICE_TITLES).has(decided)
+        || (t.phase2 && titleEntry !== undefined && !printTextEditOnPhase2(titleEntry, edit(titleKey)))) {
         const v = lang ? phraseIn(decided, lang) : null;
         return { text: decided, alt: v && v !== decided ? v : null };
       }
-      const key = t.isReturn ? 'inv.returnTitle' : 'inv.title';
+      const key = titleKey;
       if (hidden(key)) return { text: '', alt: null };
       const primary = text(key, decided);
       const e = edit(key);
@@ -178,7 +242,12 @@ export function makePrintTexts(
   };
 }
 
-/** عدد التعديلات للبطاقة: نصوصٌ أعيدت صياغتها وأخرى أُخفيت */
+/** «حذف السطر» لمحلِّل مستند — للقوالب النصّية (thermal.ts) والـJSX سواء: = pt.hidden(key) */
+export function isLineDeleted(pt: PrintTexts, key: string): boolean {
+  return pt.hidden(key);
+}
+
+/** عدد التعديلات للبطاقة: نصوصٌ أعيدت صياغتها وأخرى حُذفت سطورها */
 export function printTextsSummary(t: PrintTextsV1 | null): { reworded: number; hidden: number } {
   if (!t) return { reworded: 0, hidden: 0 };
   let reworded = 0;
@@ -186,7 +255,7 @@ export function printTextsSummary(t: PrintTextsV1 | null): { reworded: number; h
   for (const entry of PRINT_TEXT_CATALOG) {
     const e = t.edits[entry.key];
     if (!e) continue;
-    if (e.hidden && printTextHideable(entry)) hiddenCount++;
+    if (e.hidden) hiddenCount++;
     // نصّ اللغة الثانية بلا لغةٍ ثانية لا يُطبع (isEmptyPrintTexts) فلا يُعدّ
     else if (e.text !== null || (e.alt !== null && t.secondLang !== null)) reworded++;
   }

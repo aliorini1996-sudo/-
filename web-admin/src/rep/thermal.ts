@@ -19,6 +19,9 @@ import { PrintRefusedError } from '../lib/print/printErrors';
 import { iosSystemPrint, iosSystemPrintAvailable } from '../lib/print/transport/iosBridge';
 import { COPY_SLOT, LEGACY_THERMAL_GEOM, buildThermalDocument, rollHeightMm, thermalGeom, thermalPageRule, type ThermalGeom } from './thermalHtml';
 import { invoiceLotsOf, lotLineText } from './docLots';
+// «تخطيط المطبوعات» (pl_spec v2 — B2/C(iii)): الشعار في الوسط أو بلا شعار وحجمه، وترتيب الأقسام — null ⇒ رول اليوم حرفاً بحرف
+import { logoBox, orderedSections, resolveLayout, rollSectionsHtml, type ResolvedLayout } from '../lib/print/layout';
+import type { SectionId } from '../lib/print/printSettingsCore';
 
 type Tr = (ar: string) => string;
 /** الشريط الكلاسيكي عربيٌّ وحده كما اليوم — فمترجمه الهويّة */
@@ -50,7 +53,15 @@ interface Roll {
   pt: PrintTexts;
   /** 72 مم مطبوعة فأعرض: اللغة الثانية بجانب العربي؛ والأضيق تحته */
   wide: boolean;
+  /** تخطيط القالب (options.layout) — null ⇒ الشعار والترتيب كاليوم حرفاً بحرف (بلا تخطيط، أو الملف الافتراضي المستبدَل) */
+  layout: ResolvedLayout | null;
 }
+
+/**
+ * «حذف السطر» (طلب المالك ٣، pl_spec B3): عبارةٌ حذفتها الشركة تُسقط وحدتها كاملةً — التسمية وقيمتها، أو عمود الجدول، أو صفّ
+ * الإجمالي، أو الخانة — ولا قفل على أي مفتاح. يساوي isLineDeleted(pt, key) في lib/print/printTexts (= pt.hidden). بلا نصوص: false دائماً.
+ */
+const gone = (r: Roll, key: string): boolean => r.pt.hidden(key);
 
 /**
  * قالب رول جديد أو null للشريط الكلاسيكي (غياب القالب، أو roll_classic، أو قالبٌ لغير الحرارية).
@@ -70,6 +81,7 @@ function rollOf(opts: ThermalPrintOptions | undefined, company: InvoiceDoc['comp
     profile: p, o: p.options, tr: pt.tr, detailed: p.template === 'roll_detailed',
     raster: opts?.raster ?? null, banner: opts?.sampleBanner ?? null, capture: opts?.capture ?? null,
     pt, wide: geometry(p).printableWidthMm >= 70,
+    layout: resolveLayout(p),
   };
 }
 
@@ -261,10 +273,10 @@ function lotRows(doc: InvoiceDoc, it: InvoiceDoc['items'][number], tr: Tr): stri
  * ومُهرَّبين (نصٌّ حرّ في وثيقةٍ تُكتب بـdocument.write). `L` تسمية القالب: العربية كما هي للكلاسيكي، وlbl للقالبين الجديدين.
  * مستندٌ لا يحملهما ⇒ '' بلا مسافةٍ ولا سطر، فيبقى الشريط حرفاً بحرف (الحارس الذهبيّ).
  */
-function noteRows(doc: InvoiceDoc, L: (key: string, ar: string) => string): string {
+function noteRows(doc: InvoiceDoc, L: (key: string, ar: string) => string, del: (key: string) => boolean = () => false): string {
   const { ref, reason } = creditNoteRefs(doc);
-  return (ref ? `\n    <div class="row"><span>${L('inv.originalRef', 'الفاتورة الأصلية')}</span><span dir="ltr">${esc(ref)}</span></div>` : '')
-    + (reason ? `\n    <div class="row"><span>${L('inv.noteReason', 'سبب الإرجاع')}</span><span>${esc(reason)}</span></div>` : '');
+  return (ref && !del('inv.originalRef') ?`\n    <div class="row"><span>${L('inv.originalRef', 'الفاتورة الأصلية')}</span><span dir="ltr">${esc(ref)}</span></div>` : '')
+    + (reason && !del('inv.noteReason') ? `\n    <div class="row"><span>${L('inv.noteReason', 'سبب الإرجاع')}</span><span>${esc(reason)}</span></div>` : '');
 }
 
 function head(company: InvoiceDoc['company']): string {
@@ -357,7 +369,7 @@ function classicOut(opts: ThermalPrintOptions | undefined, body: string): void |
 /**
  * «مقابل الفاتورة رقم …» بنفس قرار قالب A4 (`receiptLinkView`) — سطورٌ لا جدول. والمترجم للقالبين الجديدين؛ الكلاسيكي عربيّ.
  * `L` تسميات «نصوص المطبوعات» للقالبين الجديدين (lbl) و`hidden` إخفاؤها — غيابهما ⇒ tr كما كان ولا إخفاء (الكلاسيكي حرفاً بحرف).
- * التسمية المخفية تسقط ويبقى رقم الفاتورة ومبلغها: ربط السند بفاتورته لا يُخفى.
+ * والمحذوفة تُسقط سطرها كاملاً (طلب المالك ٣): «مقابل الفاتورة رقم» بصفّه، و«مقابل الفواتير» بكتلته.
  */
 function receiptInvoiceRows(doc: ReceiptDoc, tr: Tr = asIs, L?: (key: string, ar: string) => string, hidden: (key: string) => boolean = () => false): string {
   const t = (key: string, ar: string): string => (L ? L(key, ar) : tr(ar));
@@ -368,12 +380,15 @@ function receiptInvoiceRows(doc: ReceiptDoc, tr: Tr = asIs, L?: (key: string, ar
   // المفرد والجمع بعدد الفواتير وحده كقالب A4 — والمبالغ تُفصَّل حين تتعدّد أو يفيض رصيد
   const single = view.links.length === 1;
   const showAmounts = !single || view.unallocated > 0;
+  /* «حذف السطر» (طلب المالك ٣ — يحلّ محلّ «ربط السند بفاتورته لا يُخفى»): حذف «مقابل الفاتورة رقم» يُسقط صفّه بتسميته ورقمه،
+   * وحذف «مقابل الفواتير» يُسقط كتلته كلّها (العنوان وصفوف الفواتير). الكلاسيكي لا يمرّر hidden فلا يتغيّر */
+  const blockGone = !single && hidden('rcp.forInvoices');
   const heading = single
     ? (hidden('rcp.forInvoice')
-      ? `<div class="c b">${esc(view.links[0].number)}</div>`
+      ? ''
       : `<div class="row"><span>${t('rcp.forInvoice', 'مقابل الفاتورة رقم')}</span><span class="b">${esc(view.links[0].number)}</span></div>`)
-    : (hidden('rcp.forInvoices') ? '' : `<div class="c muted">${t('rcp.forInvoices', 'مقابل الفواتير')}</div>`);
-  const rows = heading + (showAmounts
+    : (blockGone ? '' : `<div class="c muted">${t('rcp.forInvoices', 'مقابل الفواتير')}</div>`);
+  const rows = heading + (showAmounts && !blockGone
     ? view.links.map(l => `<div class="row"><span>${esc(l.number)}</span><span>${money(l.amount)}</span></div>`).join('')
     : '');
   const rest = view.unallocated > 0 && !hidden('rcp.credit')
@@ -441,14 +456,29 @@ function rollQr(d: ZatcaPrintDecision, qr: string, profile: PrintProfile): strin
   return `<div class="qrbox" style="--qr:${Math.round(plan.sizeMm * 100) / 100}mm">${qr}</div>`;
 }
 
-/** رأس الشركة: اسمها ورقمها الضريبي دائماً (إلزاميان)، والشعار والعنوان والهاتف بخيارات القالب */
+/**
+ * صورة الشعار: بلا تخطيط كما اليوم حرفاً بحرف (أسلوب `.logo img` في الوثيقة)؛ وبتخطيطٍ «بلا شعار» لا صورة، وحجمه نسبةٌ من عرض
+ * اليوم (logoBox: px = max-width المئوية — 36/48/60) والارتفاع بالنسبة نفسها من 16 مم. الرول في الوسط دائماً.
+ */
+function rollLogo(logo: string, r: Roll): string {
+  if (!r.layout) return `<div class="c logo"><img src="${logo}" alt=""/></div>`;
+  const box = logoBox(r.layout, 'classic', 'roll');
+  if (!box.show) return '';
+  const style = box.px === 60 ? '' : ` style="max-width:${box.px}%;max-height:${Math.round((16 * box.px) / 60 * 10) / 10}mm"`;
+  return `<div class="c logo"><img src="${logo}" alt=""${style}/></div>`;
+}
+
+/**
+ * رأس الشركة: اسمها دائماً، والشعار والعنوان والهاتف بخيارات القالب. «حذف السطر»: الرقم الضريبي (h.taxNumber) والعنوان
+ * (h.address — سطره بلا تسمية ومعه سطر اللغة الثانية) والهاتف تُحذف بوحدتها كاملة.
+ */
 function rollHead(company: InvoiceDoc['company'], r: Roll): string {
   const logo = company?.logo;
   return `
-    ${r.o.showLogo && isRasterSrc(logo) ? `<div class="c logo"><img src="${logo}" alt=""/></div>` : ''}
+    ${r.o.showLogo && isRasterSrc(logo) ? rollLogo(logo, r) : ''}
     <div class="c b lg">${esc(company?.name || r.tr('اسم الشركة'))}</div>${r.pt.companyNameAlt ? `<div class="c b" dir="ltr">${esc(r.pt.companyNameAlt)}</div>` : ''}
-    ${company?.taxNumber ? `<div class="c muted">${lbl(r, 'h.taxNumber', 'الرقم الضريبي')} ${esc(company.taxNumber)}</div>` : ''}
-    ${r.o.showContact && company?.address ? `<div class="c muted">${esc(company.address)}</div>${r.pt.companyAddressAlt ? `<div class="c muted" dir="ltr">${esc(r.pt.companyAddressAlt)}</div>` : ''}` : ''}
+    ${company?.taxNumber && !gone(r, 'h.taxNumber') ? `<div class="c muted">${lbl(r, 'h.taxNumber', 'الرقم الضريبي')} ${esc(company.taxNumber)}</div>` : ''}
+    ${r.o.showContact && company?.address && !gone(r, 'h.address') ? `<div class="c muted">${esc(company.address)}</div>${r.pt.companyAddressAlt ? `<div class="c muted" dir="ltr">${esc(r.pt.companyAddressAlt)}</div>` : ''}` : ''}
     ${r.o.showContact && company?.phone && !r.pt.hidden('h.phone') ? `<div class="c muted">${lbl(r, 'h.phone', 'هاتف')} ${esc(company.phone)}</div>` : ''}`;
 }
 
@@ -458,7 +488,7 @@ function rollHead(company: InvoiceDoc['company'], r: Roll): string {
  */
 function rollFoot(company: InvoiceDoc['company'], r: Roll): string {
   return `
-    ${r.pt.hidden('foot.company') ? '' : `<div class="c muted">${esc(company?.name || '')}</div>`}
+    ${r.pt.hidden('foot.company') ? '' : `<div class="c muted">${esc(r.pt.on && r.pt.text('foot.company', '') !== '' ? r.pt.text('foot.company', '') : company?.name || '')}</div>`}
     ${r.pt.hidden('foot.thanks') ? '' : `<div class="c muted">${r.o.footerText !== null && !(r.pt.on && r.pt.text('foot.thanks', '') !== '') ? esc(r.o.footerText) : r.pt.on ? lbl(r, 'foot.thanks', 'شكرا لتعاملكم معنا') : esc(r.tr('شكرا لتعاملكم معنا'))}</div>`}`;
 }
 
@@ -474,42 +504,75 @@ interface InvoiceFacts {
   inclusiveDoc: boolean;
 }
 
+/**
+ * أقسام الرول بترتيبها (pl_spec B2): بلا تخطيط ⇒ الترتيب الافتراضي (orderedSections(null)) والأقسام نفسها مقطوعةً من قالب اليوم
+ * بمسافاتها، فوصلها = وثيقة اليوم حرفاً بحرف (حارس rollThermal.baseline). وبتخطيطٍ ترتيب الشركة؛ و«بيانات المستند» إن لم يلِها
+ * «العميل» تأخذ فاصلها كي لا تلتصق بما بعدها. الرمز قسمٌ قائم يُطبع في أيّ ترتيب، ولا يتعلّق بأيّ عبارة.
+ */
+function rollSections(r: Roll, parts: Partial<Record<SectionId, string>>): string {
+  const order = orderedSections(r.layout, 'thermal');
+  if (r.layout && parts.info) {
+    const present = order.filter((id) => parts[id]);
+    const next = present[present.indexOf('info') + 1];
+    if (next && next !== 'customer') parts = { ...parts, info: `${parts.info}\n    <div class="sep"></div>` };
+  }
+  // الرمز قبل الإجماليات أو التواقيع (ترتيبٌ يقبله الخادم) يأخذ فاصله كي لا يلتصق ICV/UUID بما بعده؛ وقبل التذييل كاليوم بلا فاصل
+  if (r.layout && parts.qr && parts.qr.trim() !== '') {
+    const present = order.filter((id) => (parts[id] ?? '').trim() !== '');
+    const next = present[present.indexOf('qr') + 1];
+    if (next && next !== 'footer') parts = { ...parts, qr: `${parts.qr}\n    <div class="sep"></div>` };
+  }
+  return rollSectionsHtml(order, parts);
+}
+
 function rollInvoiceBody(f: InvoiceFacts, r: Roll): string {
   const { doc, d, title, qr, vatPcts, inclusiveDoc } = f;
   const { o, tr } = r;
   type Item = InvoiceDoc['items'][number];
   const rate = vatPcts.length === 1 ? `${vatPcts[0]}%` : tr('نسب متعددة');
-  // «نصوص المطبوعات»: العنوان من القرار، وصياغة الشركة له لمستندات المرحلة الأولى وحدها (المختوم كما هو)
+  // «نصوص المطبوعات»: العنوان من القرار، وصياغة الشركة له وحذفها عبر المحلِّل (المحذوف ⇒ نصٌّ فارغ فلا سطر)
   const tt = r.pt.title(title, { isReturn: !!doc.isReturn, phase2: !!doc.zatca });
   const titleHtml = `${esc(tt.text)}${tt.alt ? altSpan(r, esc(tt.alt), true) : ''}`;
   // الوحدة بخيار القالب، وإجباراً لبندٍ بغير الأساس أو لصنفٍ له وحدات (showsItemUnit — قاعدة A4 نفسها، ويرثها البلوتوث)
   const unit = (it: Item) => (showsItemUnit(it, o.showItemUnit) ? ` <span class="muted">(${esc(it.unit!)})</span>` : '');
   /* الفاتورة القياسية توجب سعر الوحدة غير شامل الضريبة — والتصنيف من القرار (مصدره الخادم في المرحلة الثانية) لا من رقم
    * المشتري الضريبي، كقالب A4 حرفاً بحرف؛ وسند التسليم (بلا تفصيل ضريبة) لا يذكر ضريبةً أصلاً */
-  const beforeVat = (it: Item) => (d.showTaxBreakdown && inclusiveDoc && d.standardLayout && it.taxPct > 0
+  const beforeVat = (it: Item) => (d.showTaxBreakdown && inclusiveDoc && d.standardLayout && it.taxPct > 0 && !gone(r, 'item.beforeTax')
     ? `<div class="muted">${lbl(r, 'item.beforeTax', 'قبل الضريبة')}: ${money((it.unitPrice * 100) / (100 + Number(it.taxPct)))}</div>`
     : '');
   // عمود النسبة حين تختلط النسب وحدها: نسبةٌ واحدة تكفيها خانة الملخّص، والمختلطة لا تُطبع مدمجةً أبداً
   const rateCol = r.detailed && d.showTaxBreakdown && vatPcts.length > 1 && !r.pt.hidden('col.tax');
   const discountShown = !r.pt.hidden('col.discount');
+  /* «حذف السطر» في جدول الأصناف: العمود كلّه (رأسه وكل خلاياه) في المفصّل، وجزؤه من سطر البند في المختصر (بلا تسميات).
+   * السعر عمودٌ واحد بتسميتين — يُحذف بحذف التسمية الظاهرة على هذا المستند */
+  const priceKey = d.showTaxBreakdown && inclusiveDoc ? 'col.priceIncl' : 'col.price';
+  const showItem = !gone(r, 'col.item');
+  const showQty = !gone(r, 'col.qty');
+  const showPrice = !gone(r, priceKey);
+  const showTotal = !gone(r, 'col.total');
+  const compactRow = (it: Item): string => {
+    const left = [showQty ? localizeDigits(String(it.qty)) : '', showPrice ? money(it.unitPrice) : ''].filter(Boolean).join(' × ')
+      + (it.discountPct > 0 && discountShown ? ` -${localizeDigits(String(it.discountPct))}%` : '');
+    return left || showTotal ? `<div class="row"><span>${left}</span>${showTotal ? `<span class="b">${money(it.lineTotal)}</span>` : ''}</div>` : '';
+  };
   const items = r.detailed
     ? `<table class="t"><thead><tr>
-        <th class="l">${lbl(r, 'col.item', 'الصنف', { stack: true })}</th><th>${lbl(r, 'col.qty', 'الكمية', { stack: true })}</th>
-        <th>${d.showTaxBreakdown && inclusiveDoc ? lbl(r, 'col.priceIncl', 'السعر شامل الضريبة', { stack: true }) : lbl(r, 'col.price', 'السعر', { stack: true })}</th>
+        ${showItem ? `<th class="l">${lbl(r, 'col.item', 'الصنف', { stack: true })}</th>` : ''}${showQty ? `<th>${lbl(r, 'col.qty', 'الكمية', { stack: true })}</th>` : ''}
+        ${showPrice ? `<th>${d.showTaxBreakdown && inclusiveDoc ? lbl(r, 'col.priceIncl', 'السعر شامل الضريبة', { stack: true }) : lbl(r, 'col.price', 'السعر', { stack: true })}</th>` : ''}
         ${rateCol ? `<th>${lbl(r, 'col.tax', 'الضريبة', { stack: true })}</th>` : ''}
-        <th class="e">${lbl(r, 'col.total', 'الإجمالي', { stack: true })}</th>
+        ${showTotal ? `<th class="e">${lbl(r, 'col.total', 'الإجمالي', { stack: true })}</th>` : ''}
       </tr></thead><tbody>${doc.items.map(it => `
         <tr>
-          <td class="l">${esc(it.name)}${unit(it)}${it.discountPct > 0 && discountShown ? `<div class="muted">${lbl(r, 'col.discount', 'الخصم')} ${localizeDigits(String(it.discountPct))}%</div>` : ''}${lotRows(doc, it, tr)}</td>
-          <td class="n">${localizeDigits(String(it.qty))}</td>
-          <td class="n">${money(it.unitPrice)}${beforeVat(it)}</td>
+          ${showItem ? `<td class="l">${esc(it.name)}${unit(it)}${it.discountPct > 0 && discountShown ? `<div class="muted">${lbl(r, 'col.discount', 'الخصم')} ${localizeDigits(String(it.discountPct))}%</div>` : ''}${lotRows(doc, it, tr)}</td>` : ''}
+          ${showQty ? `<td class="n">${localizeDigits(String(it.qty))}</td>` : ''}
+          ${showPrice ? `<td class="n">${money(it.unitPrice)}${beforeVat(it)}</td>` : ''}
           ${rateCol ? `<td class="n">${localizeDigits(String(it.taxPct))}%</td>` : ''}
-          <td class="n e b">${money(it.lineTotal)}</td>
+          ${showTotal ? `<td class="n e b">${money(it.lineTotal)}</td>` : ''}
         </tr>`).join('')}</tbody></table>`
     : doc.items.map(it => `
       <div class="item">
-        <div class="iname">${esc(it.name)}${unit(it)}</div>
-        <div class="row"><span>${localizeDigits(String(it.qty))} × ${money(it.unitPrice)}${it.discountPct > 0 && discountShown ? ` -${localizeDigits(String(it.discountPct))}%` : ''}</span><span class="b">${money(it.lineTotal)}</span></div>
+        ${showItem ? `<div class="iname">${esc(it.name)}${unit(it)}</div>` : ''}
+        ${compactRow(it)}
         ${beforeVat(it)}${lotRows(doc, it, tr)}
       </div>`).join('');
   const addr = buyerAddress(doc.customer);
@@ -518,78 +581,100 @@ function rollInvoiceBody(f: InvoiceFacts, r: Roll): string {
       ? `<div class="c"><img src="${esc(src)}" alt="" style="max-width:70%;max-height:60px"><div class="muted">${lbl(r, key, ar)}</div></div><div class="sep"></div>`
       : '').join('')
     : '';
+  const numberKey = doc.isReturn ? 'inv.returnNumber' : 'inv.number';
+  const vatKey = inclusiveDoc ? 'tot.vatIncl' : 'tot.vat';
+  // صفّ الإجمالي النهائي بتسمياته الثلاث صفٌّ واحد: يُحذف بحذف tot.returnGrand للمرتجع، وإلا بحذف tot.grand
+  const grandKey = doc.isReturn ? 'tot.returnGrand' : 'tot.grand';
 
-  return `
+  return rollSections(r, {
+    header: `
     ${rollHead(doc.company, r)}
     <div class="sep"></div>
     ${titleHtml ? `<div class="c b">${titleHtml}</div>` : ''}
     ${COPY_SLOT}
     ${d.watermark ? `<div class="c b muted">${esc(tr(d.watermark))}</div>` : ''}
     ${d.notice ? `<div class="sep"></div><div class="c muted">${esc(tr(d.notice))}</div>` : ''}
-    <div class="sep"></div>
-    <div class="row"><span>${lbl(r, doc.isReturn ? 'inv.returnNumber' : 'inv.number', 'رقم')}</span><span class="b">${esc(doc.number)}</span></div>
-    <div class="row"><span>${lbl(r, 'inv.date', 'التاريخ')}</span><span>${dt(doc.date)}</span></div>${noteRows(doc, (key, ar) => lbl(r, key, ar))}
-    ${doc.deliveryDate ? `<div class="row"><span>${lbl(r, 'inv.deliveryDate', 'تاريخ التسليم')}</span><span>${dt(doc.deliveryDate).split(' ')[0]}</span></div>` : ''}
-    ${o.showRepName && !r.pt.hidden('inv.rep') ? `<div class="row"><span>${lbl(r, 'inv.rep', 'المندوب')}</span><span>${esc(doc.repName)}</span></div>` : ''}
+    <div class="sep"></div>`,
+    info: `
+    ${gone(r, numberKey) ? '' : `<div class="row"><span>${lbl(r, numberKey, 'رقم')}</span><span class="b">${esc(doc.number)}</span></div>`}
+    ${gone(r, 'inv.date') ? '' : `<div class="row"><span>${lbl(r, 'inv.date', 'التاريخ')}</span><span>${dt(doc.date)}</span></div>`}${noteRows(doc, (key, ar) => lbl(r, key, ar), (key) => gone(r, key))}
+    ${doc.deliveryDate && !gone(r, 'inv.deliveryDate') ? `<div class="row"><span>${lbl(r, 'inv.deliveryDate', 'تاريخ التسليم')}</span><span>${dt(doc.deliveryDate).split(' ')[0]}</span></div>` : ''}
+    ${o.showRepName && !r.pt.hidden('inv.rep') ? `<div class="row"><span>${lbl(r, 'inv.rep', 'المندوب')}</span><span>${esc(doc.repName)}</span></div>` : ''}`,
+    customer: `
     ${r.pt.hidden('cust.name') ? '' : `<div class="row"><span>${lbl(r, 'cust.name', 'العميل')}</span><span>${esc(doc.customer.name)}</span></div>`}
     ${r.detailed && doc.customer.businessName && !r.pt.hidden('cust.business') ? `<div class="row"><span>${lbl(r, 'cust.business', 'المنشأة')}</span><span>${esc(doc.customer.businessName)}</span></div>` : ''}
-    ${doc.customer.taxNumber ? `<div class="row"><span>${lbl(r, 'cust.taxNumber', 'الرقم الضريبي')}</span><span>${esc(doc.customer.taxNumber)}</span></div>` : ''}
+    ${doc.customer.taxNumber && !gone(r, 'cust.taxNumber') ? `<div class="row"><span>${lbl(r, 'cust.taxNumber', 'الرقم الضريبي')}</span><span>${esc(doc.customer.taxNumber)}</span></div>` : ''}
     ${r.detailed && addr && !r.pt.hidden('cust.address') ? `<div class="row"><span>${lbl(r, 'cust.address', 'العنوان')}</span><span>${esc(addr)}</span></div>` : ''}
-    <div class="sep"></div>
+    <div class="sep"></div>`,
+    items: `
     ${items}
-    <div class="sep"></div>
-    ${d.showTaxBreakdown ? `<div class="row"><span>${lbl(r, 'tot.taxable', 'المجموع قبل الضريبة')}</span><span>${money(doc.total - doc.tax)}</span></div>` : ''}
+    <div class="sep"></div>`,
+    totals: `
+    ${gone(r, 'tot.taxable') ? '' : `${d.showTaxBreakdown ? `<div class="row"><span>${lbl(r, 'tot.taxable', 'المجموع قبل الضريبة')}</span><span>${money(doc.total - doc.tax)}</span></div>` : ''}`}
     ${doc.discount > 0 && !r.pt.hidden('tot.discount') ? `<div class="row"><span>${lbl(r, 'tot.discount', 'الخصم')}</span><span>${money(doc.discount)}</span></div>` : ''}
-    ${d.showTaxBreakdown ? `<div class="row"><span>${inclusiveDoc
+    ${gone(r, vatKey) ? '' : `${d.showTaxBreakdown ? `<div class="row"><span>${inclusiveDoc
       ? lbl(r, 'tot.vatIncl', 'منها ضريبة القيمة المضافة', { suffix: rate })
-      : lbl(r, 'tot.vat', 'ضريبة القيمة المضافة', { suffix: rate })}</span><span>${money(doc.tax)}</span></div>` : ''}
-    <div class="row b lg"><span>${doc.isReturn ? lbl(r, 'tot.returnGrand', 'إجمالي المرتجع دائن')
+      : lbl(r, 'tot.vat', 'ضريبة القيمة المضافة', { suffix: rate })}</span><span>${money(doc.tax)}</span></div>` : ''}`}
+    ${gone(r, grandKey) ? '' : `<div class="row b lg"><span>${doc.isReturn ? lbl(r, 'tot.returnGrand', 'إجمالي المرتجع دائن')
       : !d.showTaxBreakdown && !inclusiveDoc && doc.tax > 0 ? val(r, 'المبلغ المستحق شامل الضرائب')
-      : lbl(r, 'tot.grand', 'الإجمالي')}</span><span>${money(doc.total)}</span></div>
+      : lbl(r, 'tot.grand', 'الإجمالي')}</span><span>${money(doc.total)}</span></div>`}
     ${!doc.isReturn && doc.type === 'CREDIT' && doc.remainingAmt !== undefined ? `
       ${r.pt.hidden('tot.paid') ? '' : `<div class="row muted"><span>${lbl(r, 'tot.paid', 'المدفوع')}</span><span>${money(doc.paidAmt ?? 0)}</span></div>`}
       ${r.pt.hidden('tot.remaining') ? '' : `<div class="row muted"><span>${lbl(r, 'tot.remaining', 'المتبقي')}</span><span>${money(doc.remainingAmt)}</span></div>`}` : ''}
-    <div class="sep"></div>
-    ${sigs}
+    <div class="sep"></div>`,
+    signatures: `
+    ${sigs}`,
+    qr: `
     ${qr}
     ${doc.zatca && doc.zatca.icv !== null ? `<div class="c muted">ICV ${localizeDigits(String(doc.zatca.icv))}</div>` : ''}
-    ${doc.zatca?.uuid ? `<div class="c muted" style="word-break:break-all;direction:ltr">${esc(doc.zatca.uuid)}</div>` : ''}
-    ${rollFoot(doc.company, r)}`;
+    ${doc.zatca?.uuid ? `<div class="c muted" style="word-break:break-all;direction:ltr">${esc(doc.zatca.uuid)}</div>` : ''}`,
+    footer: `
+    ${rollFoot(doc.company, r)}`,
+  });
 }
 
+/** السند: الأقسام نفسها بلا أصناف ولا تواقيع ولا رمز — والمبلغ وفواتيره قسم «الإجماليات» */
 function rollReceiptBody(doc: ReceiptDoc, r: Roll): string {
   const { o, tr } = r;
   const addr = buyerAddress(doc.customer);
-  return `
+  return rollSections(r, {
+    header: `
     ${rollHead(doc.company, r)}
     <div class="sep"></div>
     ${r.pt.hidden('rcp.title') ? '' : `<div class="c b">${lbl(r, 'rcp.title', 'سند قبض', { stack: true })}</div>`}
     ${COPY_SLOT}
     ${doc.cancelled ? `<div class="c b">— ${tr('سند ملغى')} —</div>` : ''}
-    <div class="sep"></div>
-    <div class="row"><span>${lbl(r, 'rcp.number', 'رقم')}</span><span class="b">${esc(doc.number)}</span></div>
-    <div class="row"><span>${lbl(r, 'rcp.date', 'التاريخ')}</span><span>${dt(doc.date)}</span></div>
+    <div class="sep"></div>`,
+    info: `
+    ${gone(r, 'rcp.number') ? '' : `<div class="row"><span>${lbl(r, 'rcp.number', 'رقم')}</span><span class="b">${esc(doc.number)}</span></div>`}
+    ${gone(r, 'rcp.date') ? '' : `<div class="row"><span>${lbl(r, 'rcp.date', 'التاريخ')}</span><span>${dt(doc.date)}</span></div>`}
     ${o.showRepName && !r.pt.hidden('rcp.rep') ? `<div class="row"><span>${lbl(r, 'rcp.rep', 'المندوب')}</span><span>${esc(doc.repName)}</span></div>` : ''}
-    <div class="sep"></div>
-    <div class="row"><span>${lbl(r, 'rcp.from', 'استلمنا من')}</span><span>${esc(doc.customer.name)}</span></div>
+    <div class="sep"></div>`,
+    customer: `
+    ${gone(r, 'rcp.from') ? '' : `<div class="row"><span>${lbl(r, 'rcp.from', 'استلمنا من')}</span><span>${esc(doc.customer.name)}</span></div>`}
     ${doc.customer.taxNumber && !r.pt.hidden('rcp.taxNumber') ? `<div class="row"><span>${lbl(r, 'rcp.taxNumber', 'الرقم الضريبي')}</span><span>${esc(doc.customer.taxNumber)}</span></div>` : ''}
     ${r.detailed && addr && !r.pt.hidden('rcp.address') ? `<div class="row"><span>${lbl(r, 'rcp.address', 'العنوان')}</span><span>${esc(addr)}</span></div>` : ''}
     ${r.pt.hidden('rcp.method') ? '' : `<div class="row"><span>${lbl(r, 'rcp.method', 'طريقة الدفع')}</span><span>${esc(methodLabelFor(doc.company, doc.paymentMethod, doc.paymentMethodKey, tr))}</span></div>`}
     ${doc.notes && !r.pt.hidden('rcp.notes') ? `<div class="row"><span>${lbl(r, 'rcp.notes', 'ملاحظات')}</span><span>${esc(doc.notes)}</span></div>` : ''}
-    <div class="sep"></div>
-    <div class="c muted">${lbl(r, 'rcp.amount', 'المبلغ المستلم')}</div>
-    <div class="c b xl">${money(doc.amount)} ${curSym()}</div>
+    <div class="sep"></div>`,
+    totals: `
+    ${gone(r, 'rcp.amount') ? '' : `<div class="c muted">${lbl(r, 'rcp.amount', 'المبلغ المستلم')}</div>
+    <div class="c b xl">${money(doc.amount)} ${curSym()}</div>`}
     ${receiptInvoiceRows(doc, tr, (key, ar) => lbl(r, key, ar), (key) => r.pt.hidden(key))}
-    <div class="sep"></div>
-    ${rollFoot(doc.company, r)}`;
+    <div class="sep"></div>`,
+    footer: `
+    ${rollFoot(doc.company, r)}`,
+  });
 }
 
 /**
  * معاينة محرّر «نصوص المطبوعات» (components/print/PrintTextsEditor.tsx): وثيقة الشريط كما تُطبع لهذه الشركة — 58 مم بالملف الافتراضي
  * (الكلاسيكي، أو المختصر متى حفظت نصوصاً) و80 مم بالمختصر — لتُعرض في <iframe srcDoc>. لا طباعة ولا بلوتوث.
+ * `profile` (اختياري — معاينة «التخطيط» الحيّة في إعدادات الطباعة): قالبٌ حراريّ بعينه بتخطيطه بدل الافتراضي؛ وغيابه كما كان.
  */
-export async function thermalPreviewHtml(doc: InvoiceDoc | ReceiptDoc, opts: { tr: Tr; paperMm: 58 | 80 }): Promise<string> {
-  const profile: PrintProfile = opts.paperMm === 58
+export async function thermalPreviewHtml(doc: InvoiceDoc | ReceiptDoc, opts: { tr: Tr; paperMm: 58 | 80; profile?: PrintProfile | null }): Promise<string> {
+  const profile: PrintProfile = opts.profile && opts.profile.printer === 'thermal' ? opts.profile
+    : opts.paperMm === 58
     ? legacyThermalProfile()
     : { ...legacyThermalProfile(), id: 'preview-80', template: 'roll_compact', paper: presetPaper('roll80') as Paper };
   let html = '';

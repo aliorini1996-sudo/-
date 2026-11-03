@@ -70,6 +70,24 @@ export function pagePrintGeom(p: PrintProfile): PagePrintGeom {
   };
 }
 
+/**
+ * ارتفاع ورقة القالب ثنائي اللغة (بكسل القالب) ليملأ صفحةً واحدة بلا فيضٍ إلى ثانية — «تخطيط المطبوعات» (pl_spec v2 B1).
+ * الورقة مرنة بحدٍّ أدنى 1123 بكسل (A4 بعرض 794) فيستقرّ التذييل أسفلها؛ لكن هوامش @page أعلى وأسفل، وعرض حزمة النقطية (1440
+ * نقطة = 768 بكسل لا 794) تجعل صفحة الطباعة الفعلية أقصر بالبكسل — فيفيض الحدّ الأدنى ذاته صفحةً بيضاء بشريط. هنا طول الصفحة
+ * المتاح (الطول − الهامشين) بمقياس القالب بعد zoom، ناقص بكسلين احتياطاً للتقريب. ورقٌ متصل بلا طول ⇒ null (الحدّ كما هو).
+ */
+export function gridSheetHeightPx(p: PrintProfile): number | null {
+  if (p.printer === 'thermal' || p.paper.lengthMm === null) return null;
+  const g = pagePrintGeom(p);
+  const usableMm = p.paper.lengthMm - g.marginTopMm - g.marginBottomMm;
+  if (!(usableMm > 0) || !(g.zoom > 0)) return null;
+  return Math.max(200, Math.floor((usableMm * PX_PER_MM) / g.zoom) - 2);
+}
+
+/** سمة جذر القالب ثنائي اللغة (lookRootAttrs) — الورقة الوحيدة التي تُضبط على طول الصفحة */
+const GRID_SHEET_ATTR = 'data-print-layout';
+const isGridSheet = (el: Element): boolean => el.getAttribute(GRID_SHEET_ATTR) === 'grid_bilingual';
+
 export const pageRule = (g: PagePrintGeom): string =>
   `@page { size: ${g.size}; margin: ${r1(g.marginTopMm)}mm 0 ${r1(g.marginBottomMm)}mm 0; }`;
 
@@ -79,11 +97,19 @@ const escText = (s: string): string => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;
 export const copyLabelHtml = (label: string): string =>
   `<div data-copy-label="" style="text-align:center;font-weight:700;font-size:13px;margin:-10px 0 12px">${escText(label)}</div>`;
 
+/**
+ * ورقةٌ بتخطيطٍ مخصّص (data-print-layout): صفّ الجدول وصندوق القسم لا يُقصّان بين صفحتين ما اتّسعت لهما الصفحة. قاعدةٌ تُضاف
+ * لتلك الأوراق وحدها — فوثيقة كل ورقةٍ بلا تخطيط كما هي حرفاً.
+ */
+export const LAYOUT_BREAK_CSS = '[data-print-layout] tr, [data-print-layout] [data-section="totals"], [data-print-layout] [data-section="signatures"] { break-inside: avoid; page-break-inside: avoid; }';
+
 /** نصّ الوثيقة (نقيّ): الأنماط المنسوخة من الصفحة ثم @page ثم النسخ — كلٌّ في صفحته */
 export function buildPageDocument(copies: readonly string[], g: PagePrintGeom, headHtml = ''): string {
+  const layoutCss = copies.some((c) => c.includes(`${GRID_SHEET_ATTR}=`)) ? `
+    ${LAYOUT_BREAK_CSS}` : '';
   return `<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"/>${headHtml}
   <style>
-    ${pageRule(g)}
+    ${pageRule(g)}${layoutCss}
     * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     html, body { margin: 0; padding: 0; background: #fff; }
     .fs-band { width: ${g.widthMm}mm; margin: 0 auto 0 ${g.leftMm}mm; }
@@ -134,9 +160,11 @@ export async function sheetReady(node: HTMLElement, timeoutMs = 4000): Promise<b
 /**
  * نسخة العقدة بوسمها (M3: مشتركةٌ بين نظام الطباعة والبلوتوث المباشر — النسخة نفسها تُطبع أو تُرسم): سطر «الأصل/نسخة» بعد
  * الترويسة، وفي الطباعة التجريبية شريط «نموذج اختبار» أوّلها (sampleBannerHtml من lib/print/calibration.ts).
+ * `sheetHeightPx` (gridSheetHeightPx): ورقة القالب ثنائي اللغة تُضبط على طول صفحة الطابعة — وغيرها لا يُمسّ.
  */
-export function cloneWithLabel(node: HTMLElement, label: string | null, bannerHtml?: string | null): HTMLElement {
+export function cloneWithLabel(node: HTMLElement, label: string | null, bannerHtml?: string | null, sheetHeightPx?: number | null): HTMLElement {
   const clone = node.cloneNode(true) as HTMLElement;
+  if (sheetHeightPx && isGridSheet(clone)) clone.style.minHeight = `${sheetHeightPx}px`;
   // بعد الترويسة: أوّل عنصرٍ ليس أسلوب المظهر المحصور
   if (label) Array.from(clone.children).find((c) => c.tagName !== 'STYLE')?.insertAdjacentHTML('afterend', copyLabelHtml(label));
   // شريط التجربة أوّل الورقة وحده: الثاني آخرها كان يدفع ورقة A4 النموذجية إلى صفحةٍ ثانية فلا تشبه الفاتورة الحقيقية
@@ -152,7 +180,8 @@ export function cloneWithLabel(node: HTMLElement, label: string | null, bannerHt
 export async function printPageNode(node: HTMLElement, p: PrintProfile, labels: readonly [string, string] | null, bannerHtml?: string | null): Promise<void> {
   if (!(await sheetReady(node))) throw new Error('sheet images');
   const g = pagePrintGeom(p);
-  const html = (label: string | null): string => cloneWithLabel(node, label, bannerHtml).outerHTML;
+  const sheetPx = gridSheetHeightPx(p);
+  const html = (label: string | null): string => cloneWithLabel(node, label, bannerHtml, sheetPx).outerHTML;
   const doc = buildPageDocument(copiesOf(html, p.options.copies, p.options.copyLabels ? labels : null), g, headStyles());
   if (iosSystemPrintAvailable()) { await iosSystemPrint(doc, p.paper.widthMm, ''); return; }
 

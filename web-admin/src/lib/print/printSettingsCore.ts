@@ -83,6 +83,40 @@ export type PrintCopies = (typeof PRINT_COPIES)[number];
 export const GRAPHICS_QUALITIES = ['quality', 'draft'] as const;
 export type GraphicsQuality = (typeof GRAPHICS_QUALITIES)[number];
 
+// ─── التخطيط (طلب المالك ٣ نوفمبر ٢٠٢٦): مكان الشعار وحجمه، ولون التمييز، وشكل الجدول، وترتيب الأقسام، والتصميم ثنائي اللغة ───
+// اختياريٌّ في كل قالب (options.layout): غيابه = مطبوعة اليوم حرفياً، وليس في defaultPrintOptions عمداً. لا يُخفي شيئاً:
+// الترتيب تبديلٌ لأقسامٍ ثابتة (sectionsFor)، ورمز QR يُطبع على مستند المرحلة الثانية في كل ترتيب (داخل الإجماليات أو بيانات
+// المستند في الصفحة، وقسماً مستقلاً بعد الأصناف في الرول). والتصميم ثنائي اللغة ليس TemplateId: هاتفٌ قديم يُهمل المفتاح
+// المجهول فيطبع تصميم اليوم، بينما تصميمٌ مجهول في z.enum كان يُسقط إعداد الشركة كله إلى الافتراضي.
+
+export const LAYOUT_DESIGNS = ['standard', 'grid_bilingual'] as const;
+/** standard = تصميم القالب اليوم · grid_bilingual = «كلاسيكي بإطارات — ثنائي اللغة» (للصفحة والنقطية وحدهما) */
+export type LayoutDesign = (typeof LAYOUT_DESIGNS)[number];
+export const LOGO_POSITIONS = ['start', 'center', 'end', 'none'] as const;
+/** start = يمين الورقة (اتجاه RTL) وهو مكان اليوم · none = بلا شعار */
+export type LogoPosition = (typeof LOGO_POSITIONS)[number];
+export const LOGO_SIZES = ['s', 'm', 'l'] as const;
+export type LogoSize = (typeof LOGO_SIZES)[number];
+export const TABLE_STYLES = ['lines', 'grid', 'striped'] as const;
+/** lines = خطوط اليوم · grid = شبكة كاملة · striped = صفوف متناوبة (خطوط سوداء رفيعة على الأحادي) */
+export type TableStyle = (typeof TABLE_STYLES)[number];
+export const SECTION_IDS = ['header', 'info', 'parties', 'customer', 'items', 'note', 'totals', 'installments', 'qr', 'signatures', 'footer'] as const;
+export type SectionId = (typeof SECTION_IDS)[number];
+/** ألوان التمييز الجاهزة — كلها بتباين 3:1 على الأقل مع الأبيض (حارس في الاختبار) */
+export const ACCENT_PALETTE = ['#E15A30', '#1F2937', '#0F766E', '#1D4ED8', '#7C3AED', '#B91C1C', '#047857', '#92400E'] as const;
+export const ACCENT_RE = /^#[0-9A-Fa-f]{6}$/;
+
+export interface PrintLayout {
+  design: LayoutDesign;
+  logo: LogoPosition;
+  logoSize: LogoSize;
+  /** #RRGGBB بتباين ≥ 3:1 مع الأبيض — null = لون الشركة (company.primaryColor) كاليوم. لا أثر له على الأحادي */
+  accent: string | null;
+  tableStyle: TableStyle;
+  /** تبديلٌ لـsectionsFor(printer, design) — لا يُحذف به قسم */
+  order: SectionId[];
+}
+
 /** تفاصيل الطباعة — لا مفتاح هنا يمسّ محتوى ZATCA الإلزامي (حارس المفاتيح المحظورة في اختبار الواجهة) */
 export interface PrintOptions {
   showLogo: boolean; // افتراضياً مطفأ على الحرارية والنقطية (كاليوم) ومفعّل على العادية
@@ -101,6 +135,8 @@ export interface PrintOptions {
   cutAfter: boolean; // حرارية بقاطع (GS V)
   feedAfterMm: number; // 0–30
   graphicsQuality: GraphicsQuality; // النقطية: 180×180 أو مسودة 120×180
+  /** التخطيط — غيابه = مطبوعة اليوم حرفياً (ومنه fontScale لا يُطبَّق على الصفحة والنقطية إلا معه) */
+  layout?: PrintLayout;
 }
 
 export interface PrintProfile {
@@ -291,6 +327,14 @@ function makePrintSettingsSchema(strict: boolean) {
     marginTopMm: z.number().finite(),
     marginBottomMm: z.number().finite(),
   }, strict);
+  const layout = objectOf({
+    design: z.enum(LAYOUT_DESIGNS),
+    logo: z.enum(LOGO_POSITIONS),
+    logoSize: z.enum(LOGO_SIZES),
+    accent: z.string().regex(ACCENT_RE).nullable(),
+    tableStyle: z.enum(TABLE_STYLES),
+    order: z.array(z.enum(SECTION_IDS)).min(1).max(12),
+  }, strict);
   const options = objectOf({
     showLogo: z.boolean(),
     showContact: z.boolean(),
@@ -308,6 +352,8 @@ function makePrintSettingsSchema(strict: boolean) {
     cutAfter: z.boolean(),
     feedAfterMm: z.number().finite(),
     graphicsQuality: z.enum(GRAPHICS_QUALITIES),
+    // الحفظ: تخطيطٌ تالف ⇒ 400. القراءة: تخطيطٌ لا تفهمه هذه النسخة يسقط وحده ويبقى القالب (لا يرجع الجهاز للافتراضي)
+    layout: strict ? layout.optional() : layout.optional().catch(undefined),
   }, strict);
   const profile = objectOf({
     id: z.string(),
@@ -372,9 +418,134 @@ export const PRINT_ISSUES = Object.freeze({
   routeThermal: 'كشوف الحساب ومستندات المخزون لا تطبع على الطابعة الحرارية بعد',
   pdfMissing: 'قالب ملف PDF غير موجود',
   pdfNotPage: 'ملف PDF يحتاج قالبا لطابعة عادية',
+  layoutClassic: 'الرول الكلاسيكي لا يقبل تخطيطاً مخصصاً',
+  layoutDesignPrinter: 'التصميم ثنائي اللغة لطابعات A4 والنقطية فقط',
+  layoutRoll: 'في الرول: الشعار في الوسط أو بلا شعار وشكل الجدول خطوط فقط',
+  layoutOrder: 'ترتيب الأقسام ناقص أو مكرر',
+  layoutHeaderFirst: 'الترويسة أول المطبوعة دائماً',
+  layoutFooterLast: 'التواقيع ثم التذييل في آخر المطبوعة دائماً',
+  layoutItemsTotals: 'الإجماليات بعد جدول الأصناف',
+  layoutQrAfterItems: 'رمز QR بعد جدول الأصناف',
+  layoutAccent: 'لون التمييز فاتح جداً لا يقرأ على الورق — اختر لوناً أغمق',
 });
 
 export interface PrintIssue { path: string; message: string }
+/** اسمٌ آخر لـPrintIssue (عقد التخطيط) */
+export type PrintSettingsIssue = PrintIssue;
+
+// ─── أقسام المطبوعة وترتيبها ───
+
+const SECTIONS_PAGE: readonly SectionId[] = Object.freeze(['header', 'info', 'items', 'note', 'totals', 'installments', 'signatures', 'footer'] as SectionId[]);
+const SECTIONS_GRID: readonly SectionId[] = Object.freeze(['header', 'info', 'parties', 'items', 'note', 'totals', 'installments', 'signatures', 'footer'] as SectionId[]);
+const SECTIONS_ROLL: readonly SectionId[] = Object.freeze(['header', 'info', 'customer', 'items', 'totals', 'signatures', 'qr', 'footer'] as SectionId[]);
+
+/** أقسام المطبوعة بترتيب اليوم — الرول تصميمٌ واحد (ثنائي اللغة للصفحة والنقطية وحدهما) */
+export function sectionsFor(printer: PrinterType, design: LayoutDesign): readonly SectionId[] {
+  if (printer === 'thermal') return SECTIONS_ROLL;
+  return design === 'grid_bilingual' ? SECTIONS_GRID : SECTIONS_PAGE;
+}
+
+/** التخطيط الافتراضي لتصميم — هو مطبوعة اليوم بترتيبها (والثنائي بشعارٍ في الوسط وشبكة) */
+export function defaultPrintLayout(printer: PrinterType, design: LayoutDesign = 'standard'): PrintLayout {
+  const d: LayoutDesign = printer === 'thermal' ? 'standard' : design;
+  const grid = d === 'grid_bilingual';
+  return {
+    design: d,
+    logo: grid || printer === 'thermal' ? 'center' : 'start',
+    logoSize: 'm',
+    accent: null,
+    tableStyle: grid ? 'grid' : 'lines',
+    order: [...sectionsFor(printer, d)],
+  };
+}
+
+/** ما يُسمح أن يلي التواقيع: التذييل وحده، وفي الرول رمز QR ثم التذييل (ترتيب اليوم) */
+const tailAfterSignaturesOk = (tail: readonly SectionId[], printer: PrinterType): boolean =>
+  (tail.length === 1 && tail[0] === 'footer') || (printer === 'thermal' && tail.length === 2 && tail[0] === 'qr' && tail[1] === 'footer');
+
+/**
+ * ترتيبٌ صالح دائماً من أي مدخل: المعروف لهذا التصميم مرةً واحدة بترتيبه، والناقص في موضعه الافتراضي (بعد أقرب سابقٍ له)، ثم
+ * الترويسة أولاً، والتواقيع ثم التذييل آخراً (وفي الرول رمز QR بينهما إن كان بعد التواقيع)، والإجماليات بعد الأصناف، وفي الرول
+ * رمز QR بعد الأصناف. متساوي القوى: normalize(normalize(x)) = normalize(x)، والترتيب الصالح يعود كما هو.
+ */
+export function normalizeSectionOrder(order: readonly string[], printer: PrinterType, design: LayoutDesign): SectionId[] {
+  const def = sectionsFor(printer, design);
+  const seen: SectionId[] = [];
+  for (const id of order) if ((def as readonly string[]).includes(id) && !seen.includes(id as SectionId)) seen.push(id as SectionId);
+  const roll = printer === 'thermal';
+  // رمز QR الرول في ذيله (بين التواقيع والتذييل كاليوم) إن جاء بعد التواقيع أو غاب، وإلا فبعد الأصناف
+  const qi = seen.indexOf('qr');
+  const si = seen.indexOf('signatures');
+  const qrTail = roll && (qi < 0 || (si >= 0 && qi > si));
+  const pinned = (id: SectionId): boolean => id === 'header' || id === 'signatures' || id === 'footer' || (qrTail && id === 'qr');
+  const body = seen.filter((id) => !pinned(id));
+  def.forEach((id, di) => {
+    if (pinned(id) || body.includes(id)) return;
+    let at = 0;
+    for (let k = di - 1; k >= 0; k--) {
+      const j = body.indexOf(def[k]);
+      if (j >= 0) { at = j + 1; break; }
+    }
+    body.splice(at, 0, id);
+  });
+  const after = (id: SectionId, anchor: SectionId): void => {
+    const i = body.indexOf(id);
+    const a = body.indexOf(anchor);
+    if (i >= 0 && a >= 0 && i < a) { body.splice(i, 1); body.splice(body.indexOf(anchor) + 1, 0, id); }
+  };
+  after('totals', 'items');
+  if (roll && !qrTail) after('qr', 'items');
+  return ['header', ...body, 'signatures', ...(qrTail ? (['qr'] as SectionId[]) : []), 'footer'];
+}
+
+/** تباين اللون مع الأبيض بمعيار WCAG (الإضاءة النسبية) ≥ 3:1 — أفتح منه لا يُقرأ عنواناً ولا خطاً على الورق */
+export function accentContrastOk(hex: string): boolean {
+  if (!ACCENT_RE.test(hex)) return false;
+  const ch = (i: number): number => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  };
+  const lum = 0.2126 * ch(1) + 0.7152 * ch(3) + 0.0722 * ch(5);
+  return 1.05 / (lum + 0.05) >= 3;
+}
+
+/** قواعد تخطيط القالب (المسار يبدأ بـat) — لا شيء بلا تخطيط. تُستدعى من profileIssues */
+export function layoutIssues(p: PrintProfile, at: string): PrintIssue[] {
+  const l = p.options.layout;
+  if (!l) return [];
+  const out: PrintIssue[] = [];
+  const add = (path: string, message: string): void => { out.push({ path: `${at}.options.layout.${path}`, message }); };
+  if (p.template === 'roll_classic' || p.id === LEGACY_THERMAL_ID) add('design', PRINT_ISSUES.layoutClassic);
+  const roll = p.printer === 'thermal';
+  if (roll && l.design !== 'standard') add('design', PRINT_ISSUES.layoutDesignPrinter);
+  if (roll && ((l.logo !== 'center' && l.logo !== 'none') || l.tableStyle !== 'lines')) add(l.tableStyle !== 'lines' ? 'tableStyle' : 'logo', PRINT_ISSUES.layoutRoll);
+  if (l.accent !== null && !accentContrastOk(l.accent)) add('accent', PRINT_ISSUES.layoutAccent);
+  const def = sectionsFor(p.printer, l.design);
+  const o = l.order;
+  if (o.length !== def.length || new Set(o).size !== o.length || o.some((id) => !def.includes(id))) {
+    add('order', PRINT_ISSUES.layoutOrder);
+    return out;
+  }
+  if (o[0] !== 'header') add('order', PRINT_ISSUES.layoutHeaderFirst);
+  if (!tailAfterSignaturesOk(o.slice(o.indexOf('signatures') + 1), p.printer)) add('order', PRINT_ISSUES.layoutFooterLast);
+  if (o.indexOf('totals') < o.indexOf('items')) add('order', PRINT_ISSUES.layoutItemsTotals);
+  if (roll && o.indexOf('qr') < o.indexOf('items')) add('order', PRINT_ISSUES.layoutQrAfterItems);
+  return out;
+}
+
+/**
+ * قراءة الجهاز (المتسامحة): ترتيبٌ ناقص أو أقدم من أقسام هذه النسخة يُصلَح بـnormalizeSectionOrder، وتخطيطٌ يبقى بعدها غير صالح
+ * يسقط وحده — القالب يطبع تصميم اليوم ولا يرجع الإعداد كله للافتراضي. (الحفظ الصارم يرفض الترتيب المكسور 400 ولا يُصلحه.)
+ */
+function repairLayout(p: PrintProfile): PrintProfile {
+  const l = p.options.layout;
+  if (!l) return p;
+  const fixed: PrintProfile = { ...p, options: { ...p.options, layout: { ...l, order: normalizeSectionOrder(l.order, p.printer, l.design) } } };
+  if (layoutIssues(fixed, '').length === 0) return fixed;
+  const options: PrintOptions = { ...p.options };
+  delete options.layout;
+  return { ...p, options };
+}
 
 const charLen = (s: string): number => Array.from(s).length;
 const inRange = (n: number, [lo, hi]: readonly [number, number]): boolean => Number.isFinite(n) && n >= lo && n <= hi;
@@ -442,6 +613,7 @@ export function profileIssues(p: PrintProfile, at: string): PrintIssue[] {
   const o = p.options;
   if (o.footerText !== null && charLen(o.footerText) > L.footerMax) add('options.footerText', PRINT_ISSUES.footer);
   if (!inRange(o.feedAfterMm, L.feedAfterMm)) add('options.feedAfterMm', PRINT_ISSUES.feedAfter);
+  out.push(...layoutIssues(p, at));
   return out;
 }
 
@@ -515,6 +687,11 @@ export function canonicalPrintSettings(s: PrintSettingsV1): PrintSettingsV1 {
       feedAfterMm: round1(o.feedAfterMm),
       graphicsQuality: o.graphicsQuality,
     };
+    // التخطيط بترتيب مفاتيح ثابت حين يوجد وحده — لا layout: undefined أبداً (الغياب = مطبوعة اليوم)
+    if (o.layout) {
+      const l = o.layout;
+      options.layout = { design: l.design, logo: l.logo, logoSize: l.logoSize, accent: l.accent === null ? null : l.accent.toUpperCase(), tableStyle: l.tableStyle, order: [...l.order] };
+    }
     return { id: p.id, name: oneLine(p.name), printer: p.printer, template: p.template, paper, options };
   });
   return {
@@ -552,7 +729,9 @@ export function checkPrintSettings(raw: unknown, strict: boolean): PrintSettings
     };
   }
   const shaped: PrintSettingsV1 = parsed.data; // فحص تصريف: مخرج zod يطابق الواجهات أعلاه
-  const value = canonicalPrintSettings(shaped);
+  const canon = canonicalPrintSettings(shaped);
+  // القراءة المتسامحة تُصلح الترتيب أو تُسقط التخطيط وحده (repairLayout)؛ والحفظ يفحصه كما أُرسل
+  const value = strict ? canon : { ...canon, profiles: canon.profiles.map(repairLayout) };
   const issues = printSettingsIssues(value);
   return issues.length ? { ok: false, issues } : { ok: true, value };
 }

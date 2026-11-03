@@ -12,6 +12,8 @@ import {
   newProfile, normalizePrintSettings, pdfProfileOf, presetPaper, printSaveErrorMessage, printSettingsV1Schema, profileFor,
   profileUsage, profileWarnings, qrCellsForVersion, qrDotsPerCell, qrFits, qrPlan, rescaleDots, uniqueProfileName, withDpi,
   withPaper, withPrinter, withoutProfile, checkPrintSettings,
+  ACCENT_PALETTE, DESIGN_HINTS, DESIGN_LABELS, LOGO_POSITION_LABELS, LOGO_SIZE_LABELS, SECTION_IDS, SECTION_LABELS, TABLE_STYLE_LABELS,
+  accentContrastOk, canMoveSection, defaultPrintLayout, designsFor, layoutOf, moveSection, normalizeSectionOrder, sectionsFor, withDesign, withLayout,
   type PrintProfile, type PrintSettingsV1,
 } from './printSettings';
 import { PHRASES } from '../../i18n/strings';
@@ -237,9 +239,15 @@ test('حارس (c): لا خيار طباعة يخفي أو يصغّر محتوى
   ];
   const typeKeys = Object.keys(defaultPrintOptions('page'));
   const schemaKeys = Object.keys(printSettingsV1Schema.shape.profiles.element.shape.options.shape);
-  assert.deepEqual([...typeKeys].sort(), [...schemaKeys].sort(), 'المخطط والافتراضي بالمفاتيح نفسها');
-  for (const k of typeKeys) assert.ok(!FORBIDDEN.includes(k), `خيار محظور: ${k}`);
-  for (const k of typeKeys) assert.doesNotMatch(k, /qr(Hidden|Min|Off)|hide|title|tax|vat|notice|watermark|icv|uuid|seller|buyer/i, `خيار يمسّ محتوى إلزامياً: ${k}`);
+  // التخطيط (٣ نوفمبر ٢٠٢٦) اختياريٌّ خارج الافتراضي عمداً: غيابه = مطبوعة اليوم
+  assert.deepEqual([...typeKeys, 'layout'].sort(), [...schemaKeys].sort(), 'المخطط = مفاتيح الافتراضي + layout');
+  for (const printer of ['thermal', 'impact', 'page'] as const) assert.ok(!('layout' in defaultPrintOptions(printer)), 'الافتراضي بلا تخطيط');
+  const layoutKeys = Object.keys(defaultPrintLayout('page'));
+  assert.deepEqual(layoutKeys, ['design', 'logo', 'logoSize', 'accent', 'tableStyle', 'order']);
+  for (const k of [...schemaKeys, ...layoutKeys]) assert.ok(!FORBIDDEN.includes(k), `خيار محظور: ${k}`);
+  for (const k of [...schemaKeys, ...layoutKeys]) assert.doesNotMatch(k, /qr(Hidden|Min|Off)|hide|title|tax|vat|notice|watermark|icv|uuid|seller|buyer/i, `خيار يمسّ محتوى إلزامياً: ${k}`);
+  // والترتيب لا يُسقط قسماً: تبديلٌ كامل لأقسام التصميم، وقسم QR في الرول دائماً
+  assert.ok(sectionsFor('thermal', 'standard').includes('qr'));
   // حجم الرمز «تلقائي» أو «كبير» وحدهما — لا «صغير»
   assert.deepEqual(printSettingsV1Schema.shape.profiles.element.shape.options.shape.qrSize.options, ['auto', 'large']);
 });
@@ -259,6 +267,8 @@ test('كل تسمية ورسالة وتنبيه مترجم إلى اللغات �
     ...Object.values(PRINTER_LABELS), ...Object.values(PRINTER_HINTS), ...Object.values(TEMPLATE_LABELS), ...Object.values(TEMPLATE_HINTS),
     ...Object.values(PRESET_LABELS), ...Object.values(FEED_LABELS), ...Object.values(DOC_KIND_LABELS), PRINT_SAMPLE_WATERMARK, COMPANY_SETTINGS_MISSING_MSG,
     ...Object.values(PRINTER_SHORT), ...Object.values(DOC_KIND_SHORT),
+    ...Object.values(DESIGN_LABELS), ...(Object.values(DESIGN_HINTS) as string[]), ...Object.values(SECTION_LABELS), ...Object.values(LOGO_POSITION_LABELS),
+    ...Object.values(LOGO_SIZE_LABELS), ...Object.values(TABLE_STYLE_LABELS),
   ].filter((s) => /[؀-ۿ]/.test(s));
   const missing: string[] = [];
   for (const ar of all) {
@@ -307,4 +317,127 @@ test('التوصيل: تبويب «إعدادات الطباعة» كسول في
   assert.ok(panel.includes('<PrintPreview profile={p}'));
   const rep = read('src', 'rep', 'RepDocuments.tsx');
   assert.match(rep, /printSettings\?: unknown;/);
+});
+
+// ─── التخطيط (طلب المالك ٣ نوفمبر ٢٠٢٦) ───
+
+const roleProfile = (printer: PrintProfile['printer']): PrintProfile =>
+  printer === 'thermal' ? profile('van', 'thermal', 'roll_compact', 'roll80')
+    : printer === 'impact' ? profile('mip', 'impact', 'impact_plain', 'ff_a4') : profile('office', 'page', 'page_plain', 'a4');
+const withOne = (p: PrintProfile): PrintSettingsV1 => ({ ...legacyPrintSettings(), profiles: [...legacyPrintSettings().profiles, p] });
+
+test('التخطيط: غيابه = اليوم حرفياً، والقراءة المتسامحة تُصلح الترتيب أو تُسقط التخطيط وحده ولا تُسقط القالب', () => {
+  // قالبٌ بلا تخطيط يعود بلا مفتاح layout (لا layout: undefined)
+  const plain = normalizePrintSettings(fleet());
+  for (const p of plain.profiles) assert.ok(!('layout' in p.options));
+  assert.equal(JSON.stringify(plain), JSON.stringify(fleet()));
+  // تخطيطٌ صالح يُقرأ كما هو (اللون بأحرف كبيرة) وفي آخر الخيارات
+  const s = fleet();
+  s.profiles[2] = withDesign(s.profiles[2], 'grid_bilingual');
+  s.profiles[2].options.layout!.accent = '#0f766e';
+  const r = normalizePrintSettings(s);
+  assert.equal(Object.keys(r.profiles[2].options).slice(-1)[0], 'layout');
+  assert.equal(r.profiles[2].options.layout!.accent, '#0F766E');
+  assert.deepEqual(r.profiles[2].options.layout!.order, [...sectionsFor('page', 'grid_bilingual')]);
+  // ترتيبٌ ناقص ⇒ يُصلح في القراءة (و400 في الحفظ)
+  const partial = JSON.parse(JSON.stringify(s));
+  partial.profiles[2].options.layout.order = ['footer', 'items', 'header'];
+  assert.deepEqual(normalizePrintSettings(partial).profiles[2].options.layout!.order, [...sectionsFor('page', 'grid_bilingual')]);
+  const ps = checkPrintSettings(partial, true);
+  assert.ok(!ps.ok && ps.issues.some((i) => i.message === PRINT_ISSUES.layoutOrder));
+  // تصميمٌ مجهول (نسخة أحدث) ⇒ يسقط التخطيط وحده ويبقى القالب والإعداد
+  const future = JSON.parse(JSON.stringify(s));
+  future.profiles[2].options.layout.design = 'magazine';
+  const fr = normalizePrintSettings(future);
+  assert.equal(fr.profiles.length, 3, 'القالب باقٍ');
+  assert.ok(!('layout' in fr.profiles[2].options), 'التخطيط وحده سقط');
+  assert.deepEqual([fr.profiles[2].template, fr.routing.invoice], ['page_plain', 'mip480']);
+  // تخطيطٌ يخالف قاعدةً لا يُصلحها الترتيب (لون فاتح) ⇒ يسقط وحده في القراءة، و400 في الحفظ
+  const pale = JSON.parse(JSON.stringify(s));
+  pale.profiles[2].options.layout.accent = '#FFFF00';
+  assert.ok(!('layout' in normalizePrintSettings(pale).profiles[2].options));
+  const strict = checkPrintSettings(pale, true);
+  assert.ok(!strict.ok && strict.issues.some((i) => i.message === PRINT_ISSUES.layoutAccent));
+});
+
+test('ترتيب الأقسام: التطبيع متساوي القوى ويحفظ القواعد، وكل ناتجٍ يُحفظ صالحاً', () => {
+  for (const printer of ['thermal', 'impact', 'page'] as const) {
+    for (const design of designsFor(printer)) {
+      const def = sectionsFor(printer, design);
+      assert.deepEqual(normalizeSectionOrder(def, printer, design), [...def], `${printer}/${design}`);
+      assert.deepEqual(normalizeSectionOrder([], printer, design), [...def]);
+      const base = withLayout(roleProfile(printer), { design });
+      let seed = 7;
+      for (let n = 0; n < 150; n++) {
+        const shuffled = [...def];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+          seed = (seed * 1103515245 + 12345) % 2147483648;
+          const j = seed % (i + 1);
+          [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        const once = normalizeSectionOrder(shuffled, printer, design);
+        assert.deepEqual(normalizeSectionOrder(once, printer, design), once);
+        assert.deepEqual([...once].sort(), [...def].sort());
+        assert.equal(once[0], 'header');
+        assert.equal(once[once.length - 1], 'footer');
+        assert.ok(once.indexOf('totals') > once.indexOf('items'));
+        if (printer === 'thermal') assert.ok(once.indexOf('qr') > once.indexOf('items'));
+        const p: PrintProfile = { ...base, options: { ...base.options, layout: { ...layoutOf(base), order: once } } };
+        const ok = checkPrintSettings(withOne(p), true);
+        assert.equal(ok.ok, true, JSON.stringify(ok));
+      }
+    }
+  }
+  // مكرر ومجهول ⇒ يُطبَّع
+  assert.deepEqual(normalizeSectionOrder(['items', 'items', 'bogus', 'header'], 'page', 'standard'), ['header', 'info', 'items', 'note', 'totals', 'installments', 'signatures', 'footer']);
+  // الرول: QR بين التواقيع والتذييل (اليوم) أو مبكراً بعد الأصناف
+  assert.deepEqual(normalizeSectionOrder(['header', 'qr', 'info', 'customer', 'items', 'totals', 'signatures', 'footer'], 'thermal', 'standard'),
+    ['header', 'info', 'customer', 'items', 'qr', 'totals', 'signatures', 'footer']);
+  for (const id of SECTION_IDS) assert.ok(SECTION_LABELS[id]);
+});
+
+test('المحرّر: withLayout وwithDesign ونقل الأقسام بقواعده', () => {
+  const page = profile('office', 'page', 'page_branded', 'a4');
+  assert.deepEqual(layoutOf(page), defaultPrintLayout('page'));
+  assert.deepEqual(defaultPrintLayout('page'), { design: 'standard', logo: 'start', logoSize: 'm', accent: null, tableStyle: 'lines', order: [...sectionsFor('page', 'standard')] });
+  assert.equal(defaultPrintLayout('thermal', 'grid_bilingual').design, 'standard', 'الرول تصميمٌ واحد');
+  assert.equal(defaultPrintLayout('thermal').logo, 'center');
+  const centered = withLayout(page, { logo: 'center', logoSize: 'l' });
+  assert.deepEqual([centered.options.layout!.logo, centered.options.layout!.logoSize, centered.template], ['center', 'l', 'page_branded']);
+  assert.ok(!('layout' in withLayout(centered, null).options), 'null يعيد مطبوعة اليوم');
+  assert.equal(withLayout(page, null), page);
+  // ثنائي اللغة: التصميم الأساسي وشعارٌ في الوسط وشبكة وقسم البائع والمشتري
+  const grid = withDesign(withLayout({ ...page, id: 'office-grid', name: 'office-grid' }, { accent: '#1D4ED8' }), 'grid_bilingual');
+  assert.equal(grid.template, 'page_plain');
+  assert.deepEqual([grid.options.layout!.design, grid.options.layout!.logo, grid.options.layout!.tableStyle, grid.options.layout!.accent], ['grid_bilingual', 'center', 'grid', '#1D4ED8']);
+  assert.ok(grid.options.layout!.order.includes('parties'));
+  assert.equal(withDesign(profile('m', 'impact', 'impact_preprinted', 'ff_a4'), 'grid_bilingual').template, 'impact_plain');
+  const back = withDesign(grid, 'standard');
+  assert.deepEqual([back.options.layout!.design, back.options.layout!.accent], ['standard', '#1D4ED8']);
+  assert.ok(!back.options.layout!.order.includes('parties'));
+  const roll = profile('van', 'thermal', 'roll_compact', 'roll80');
+  assert.equal(withDesign(roll, 'grid_bilingual'), roll, 'لا ثنائي على الرول');
+  for (const legacy of legacyPrintSettings().profiles) assert.ok(!('layout' in withLayout(legacy, { logo: 'none' }).options), 'الافتراضيان مجمَّدان');
+  // النقل: الإجماليات لا تسبق الأصناف، والترويسة لا تتحرّك، والتواقيع والتذييل آخراً
+  assert.equal(canMoveSection(page, 'totals', 1), false);
+  assert.equal(canMoveSection(page, 'header', 2), false);
+  assert.equal(canMoveSection(page, 'footer', 3), false);
+  assert.equal(canMoveSection(page, 'info', 0), false);
+  assert.equal(canMoveSection(page, 'info', 1), false, 'لا حركة');
+  assert.equal(canMoveSection(page, 'note', 4), true);
+  const moved = moveSection(page, 'note', 4);
+  assert.deepEqual(moved.options.layout!.order, ['header', 'info', 'items', 'totals', 'note', 'installments', 'signatures', 'footer']);
+  assert.equal(moveSection(page, 'totals', 1), page, 'المكسور لا يُطبَّق');
+  assert.equal(canMoveSection(roll, 'qr', 4), true, 'QR بعد الأصناف في الرول');
+  assert.equal(canMoveSection(roll, 'qr', 2), false);
+  const rollMoved = moveSection(roll, 'qr', 4);
+  assert.deepEqual(rollMoved.options.layout!.order, ['header', 'info', 'customer', 'items', 'qr', 'totals', 'signatures', 'footer']);
+  const s = { ...legacyPrintSettings(), profiles: [...legacyPrintSettings().profiles, moved, rollMoved, grid] };
+  assert.equal(checkPrintSettings(s, true).ok, true, JSON.stringify(checkPrintSettings(s, true)));
+});
+
+test('ألوان التمييز الجاهزة كلها مقروءة على الأبيض (3:1)، والفاتح مرفوض', () => {
+  for (const c of ACCENT_PALETTE) assert.ok(accentContrastOk(c), c);
+  for (const c of ['#FFFFFF', '#FFFF00', '#F5F5F5', '#E0E0E0', 'red', '#FFF']) assert.equal(accentContrastOk(c), false, c);
+  assert.equal(accentContrastOk('#000000'), true);
 });

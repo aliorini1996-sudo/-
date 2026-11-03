@@ -77,6 +77,26 @@ interface Props { onClose: () => void; onSaved: (doc: InvoiceDoc) => void; }
 /** قيمة «فاتورة من خارج النظام» في قائمة فواتير البيع — لا تطابق معرّف فاتورة */
 const MANUAL_SALE = '__manual_ref__';
 
+/**
+ * القالب ثنائي اللغة (طلب المالك ٣ نوفمبر ٢٠٢٦): رمز الصنف وضريبة السطر من ردّ الخادم لكل بندٍ بموضعه وصنفه — كبانية إعادة الفتح
+ * (invoiceDocFromDetail)، فورقة الحفظ تطابق ورقة إعادة الطباعة. ما لا يُطابَق أو لا قيمة له لا يضيف حقلاً (الشكل كما كان).
+ */
+function docGridFields(row: unknown, productId: string | null | undefined, code: unknown): { code?: string; taxAmt?: number } {
+  const r = (row ?? {}) as { productId?: unknown; taxAmt?: unknown; product?: { code?: unknown } };
+  const same = !!productId && r.productId === productId;
+  const c = typeof code === 'string' && code.trim() ? code.trim()
+    : same && typeof r.product?.code === 'string' && r.product.code.trim() ? r.product.code.trim() : '';
+  const tax = same && r.taxAmt != null && Number.isFinite(Number(r.taxAmt)) ? Number(r.taxAmt) : null;
+  return { ...(c ? { code: c } : {}), ...(tax !== null ? { taxAmt: tax } : {}) };
+}
+
+/** العميل على الورقة برمزه البريدي (addrPostalCode) — صندوق المشتري في القالب ثنائي اللغة؛ ولمن لا رمز له كما هو */
+function docCustomerOf(c: Customer): InvoiceDoc['customer'] {
+  const raw = c as unknown as { addrPostalCode?: unknown; postalCode?: unknown };
+  const postal = typeof raw.addrPostalCode === 'string' ? raw.addrPostalCode.trim() : '';
+  return (postal && !raw.postalCode ? { ...c, postalCode: postal } : c) as unknown as InvoiceDoc['customer'];
+}
+
 /** صافي البند — من المحرّك المشترك لا بصيغة ثانية تفترق عنه يوماً ما */
 function calcLine(qty: number, price: number, discPct: number, taxPct: number) {
   return computeInvoiceTotals(
@@ -377,9 +397,14 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
           ...noteFields,
           // InvoiceDoc.type بلا RETURN: المرتجع «آجل» بعلم isReturn كما تبنيه invoiceDocFromDetail
           kind: 'invoice', number: inv.number, date: inv.invoiceDate, type: 'CREDIT', isReturn: true,
-          company: company ?? null, customer: selectedCustomer as Customer, repName,
+          company: company ?? null, customer: docCustomerOf(selectedCustomer as Customer), repName,
           // «تتبّع اللوط»: تشغيلات كل بند من ردّ الخادم (المرتبط وراثةً من البيع، والحرّ بما اختير أو «غير معروف»)
-          items: withDocLots(returnDocItems(inv.items, sources), inv.items),
+          // والقالب ثنائي اللغة: رمز الصنف وضريبة السطر لكل بندٍ من صفّه في الردّ (returnDocItems بموضعه نفسه)
+          items: withDocLots(returnDocItems(inv.items, sources), inv.items).map((it, i) => {
+            const row = Array.isArray(inv.items) ? inv.items[i] : undefined;
+            const pid = (row as { productId?: string } | undefined)?.productId;
+            return { ...it, ...docGridFields(row, pid, (products || []).find(p => p.id === pid)?.code) };
+          }),
           pricesIncludeTax: inv.pricesIncludeTax === true,
           subtotal: Number(inv.subtotal), discount: Number(inv.discountAmt), tax: Number(inv.taxAmt), total: Number(inv.total),
           paidAmt: Number(inv.paidAmt ?? 0), remainingAmt: Number(inv.remainingAmt ?? 0),
@@ -398,12 +423,14 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
       if (lotOn) qc.invalidateQueries({ queryKey: ['invoice-van-lots'] });
       const doc: InvoiceDoc = {
         kind: 'invoice', number: inv.number, date: inv.invoiceDate, type, isReturn: false,
-        company: company ?? null, customer: selectedCustomer as Customer, repName,
+        company: company ?? null, customer: docCustomerOf(selectedCustomer as Customer), repName,
         // لقطة وحدة البند كما أُرسلت (الخادم يرفض ما يخالفها) — فورقة الحفظ تطابق ورقة إعادة الفتح (invoiceDocFromDetail)
         items: lines.map((l, i) => ({
           name: l.productName, unit: l.unit, unitFactor: l.unitFactor, multiUnit: l.units.length > 0,
           qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct, lineTotal: l.lineTotal,
           ...(soldLots[i] && { lots: soldLots[i] }),
+          // القالب ثنائي اللغة: رمز الصنف من السطر، وضريبة السطر من صفّه في الردّ (بموضعه وصنفه)
+          ...docGridFields(Array.isArray(inv.items) ? inv.items[i] : undefined, l.productId, l.productCode),
         })),
         deliveryDate: deliveryDate || undefined,
         subtotal, discount: totalDiscount, tax: taxTotal, total,

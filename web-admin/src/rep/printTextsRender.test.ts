@@ -4,8 +4,8 @@
  *
  * ١) بلا نصوص (غياب العمود أو null أو عطب أو نسخة أحدث أو إعدادٌ فارغ) ⇒ الورقة حرفاً بحرف — الكلاسيكي والجديدان وA4.
  * ٢) بنصوص ⇒ الشريط الكلاسيكي يصير «المختصر» على 58 مم، والصياغة مُهرَّبة، واللغة الثانية تحت العربي في الضيّق وبجانبه في العريض.
- * ٣) الإخفاء: يُخفي صفّه، ولا يُخفي الإلزامي ولو حمله كائنٌ خام، و«القياسي» يبقى على الفاتورة القياسية.
- * ٤) العنوان: صياغة الشركة لمستند المرحلة الأولى، والمختوم يطبع عنوان القرار.
+ * ٣) الحذف (طلب المالك ٣ نوفمبر ٢٠٢٦): كل سطرٍ يُحذف بقيمته — ومنه ما كان إلزامياً — على المبسّطة والقياسية، وكل عبارةٍ تُصاغ.
+ * ٤) العنوان: صياغة الشركة وحذفه في المرحلتين، والرمز المختوم باقٍ.
  * ٥) معاينة المحرّر: كل نصٍّ قابلٌ للنقر، والمخفيّ مشطوبٌ حاضر — وبقية المستندات (الإشعارات) لا تتأثّر بالنصوص.
  */
 import { test } from 'node:test';
@@ -15,7 +15,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { printThermalInvoice, printThermalReceipt, thermalPreviewHtml, type ThermalPrintOptions } from './thermal';
 import { PrintableInvoice, PrintableLoadNotice, PrintableReceipt, invoiceDocFromDetail, type InvoiceDoc, type LoadNoticeDoc, type ReceiptDoc } from './RepDocuments';
 import { PrintTextsPreviewContext } from './printTextsContext';
-import { defaultPrintOptions, legacyThermalProfile, presetPaper, type PrintProfile } from '../lib/print/printSettings';
+import { defaultPrintOptions, legacyThermalProfile, newProfile, presetPaper, withDesign, type PrintProfile } from '../lib/print/printSettings';
+import { PrintLookContext, lookFor } from './printLook';
 import { sampleInvoiceDoc } from '../lib/print/calibration';
 import type { PrintTextsV1 } from '../lib/print/printTexts';
 
@@ -107,42 +108,72 @@ test('الرول العريض (80 مم): اللغة الثانية بجانب ا
   assert.ok(html.includes('<th class="l">الصنف<span dir="ltr" style="display:block'), 'رأس العمود ليس مكدّساً');
 });
 
-test('الإخفاء: الإلزامي لا يُخفى ولو حمله كائنٌ خام، و«القياسي» يبقى على الفاتورة القياسية', async () => {
+test('الحذف بلا قفل (طلب المالك ٣ نوفمبر ٢٠٢٦): كل سطرٍ يُحذف بقيمته ولو كان إلزامياً، وعلى القياسية أيضاً — والصياغة لكل عبارة', async () => {
   const raw = {
     version: 1, secondLang: null, companyNameAlt: null, companyAddressAlt: null,
     edits: {
-      'inv.number': { text: null, alt: null, hidden: true }, // zatca — يُهمل
-      'tot.vat': { text: 'رسوم', alt: null, hidden: true }, // fixed — لا صياغة ولا إخفاء
-      'cust.address': { text: null, alt: null, hidden: true }, // standard
+      'inv.number': { text: null, alt: null, hidden: true }, // كان zatca — يُحذف السطر برقمه
+      'tot.vatIncl': { text: 'رسوم', alt: null, hidden: true }, // كان fixed — يُحذف صفّه
+      'cust.address': { text: null, alt: null, hidden: true }, // كان standard — يُحذف على القياسية أيضاً
       'tot.paid': { text: null, alt: null, hidden: true },
     },
   };
   const c = { ...company, printTexts: raw };
   const detailed = { profile: profile('roll_detailed', 'roll80'), tr: same };
   const simple = await thermal(invoice(c), detailed);
-  assert.ok(simple.includes('INV-9100'), 'رقم الفاتورة أُخفي');
-  assert.ok(!simple.includes('رسوم') && simple.includes('ضريبة القيمة المضافة'), 'عبارة الضريبة أعيدت صياغتها');
-  assert.ok(!simple.includes('حي الملز'), 'عنوان المشتري ظاهرٌ على المبسّطة رغم إخفائه');
-  assert.ok(!simple.includes('المدفوع'), 'المدفوع المخفيّ مطبوع');
+  assert.ok(!simple.includes('INV-9100'), 'سطر رقم الفاتورة المحذوف ما زال مطبوعاً');
+  assert.ok(!simple.includes('رسوم') && !simple.includes('منها ضريبة القيمة المضافة'), 'صفّ الضريبة المحذوف مطبوع');
+  assert.ok(!simple.includes('حي الملز'), 'عنوان المشتري ظاهرٌ على المبسّطة رغم حذفه');
+  assert.ok(!simple.includes('المدفوع'), 'المدفوع المحذوف مطبوع');
   const standard = await thermal(invoice(c, { customer: { name: 'شركة المشتري', taxNumber: '311111111111113', address: 'حي الملز', city: 'الرياض' } }), detailed);
-  assert.ok(standard.includes('حي الملز'), 'عنوان المشتري أُخفي من الفاتورة القياسية');
+  assert.ok(!standard.includes('حي الملز') && standard.includes('311111111111113'), 'الحذف لم يسرِ على القياسية أو أسقط ما لم يُحذف');
   const page = a4(invoice(c));
-  assert.ok(page.includes('INV-9100') && !page.includes('رسوم') && !page.includes('حي الملز') && !page.includes('المدفوع'));
+  assert.ok(!page.includes('INV-9100') && !page.includes('رسوم') && !page.includes('حي الملز') && !page.includes('المدفوع'));
+  assert.ok(page.includes('الإجمالي النهائي') && page.includes('المتبقي'), 'صفوف الإجمالي غير المحذوفة سقطت');
+  // الصياغة: ما كان مقفلاً (zatca وfixed) يُعاد صياغته الآن
+  const reworded = { ...company, printTexts: texts({ edits: {
+    'inv.number': { text: 'رقم المستند', alt: null, hidden: false }, 'tot.vatIncl': { text: 'الضريبة المضمّنة', alt: null, hidden: false },
+  } }) };
+  for (const html of [a4(invoice(reworded)), await thermal(invoice(reworded), detailed)]) {
+    assert.ok(html.includes('رقم المستند') && html.includes('INV-9100'), 'صياغة رقم الفاتورة لم تُطبَّق');
+    assert.ok(html.includes('الضريبة المضمّنة') && !html.includes('منها ضريبة القيمة المضافة'), 'صياغة عبارة الضريبة لم تُطبَّق');
+  }
 });
 
-test('العنوان: صياغة الشركة لمستند المرحلة الأولى، وإخفاؤه — والمختوم يطبع عنوان القرار', async () => {
-  const c = { ...company, printTexts: texts({ edits: { 'inv.title': { text: 'فاتورة مبيعات', alt: null, hidden: false } } }) };
+test('العنوان: صياغة الشركة وحذفه في المرحلتين (طلب المالك ٣ نوفمبر ٢٠٢٦) — والرمز المختوم باقٍ', async () => {
+  // phase2: true = ما يكتبه المحرّر الجديد (يسري على المرحلتين) — والمحفوظ قبله بلا وسم في الاختبار التالي
+  const c = { ...company, printTexts: texts({ edits: { 'inv.title': { text: 'فاتورة مبيعات', alt: null, hidden: false, phase2: true } } }) };
   assert.ok(a4(invoice(c)).includes('فاتورة مبيعات') && !a4(invoice(c)).includes('فاتورة ضريبية مبسطة'));
   assert.ok((await thermal(invoice(c))).includes('فاتورة مبيعات'));
   const stamped = sampleInvoiceDoc(c, same);
   assert.ok(stamped.zatca, 'النموذج مختوم');
-  assert.ok(a4(stamped).includes('فاتورة ضريبية مبسطة') && !a4(stamped).includes('فاتورة مبيعات'), 'المختوم أخذ صياغة الشركة');
-  assert.ok((await thermal(stamped, { profile: profile('roll_compact', 'roll80'), tr: same })).includes('فاتورة ضريبية مبسطة'));
-  const hidden = { ...company, printTexts: texts({ edits: { 'inv.title': { text: null, alt: null, hidden: true } } }) };
-  assert.ok(!a4(invoice(hidden)).includes('فاتورة ضريبية'), 'العنوان المخفيّ مطبوع');
+  assert.ok(a4(stamped).includes('فاتورة مبيعات') && !a4(stamped).includes('فاتورة ضريبية مبسطة'), 'المختوم لم يأخذ صياغة الشركة');
+  assert.ok(a4(stamped).includes('alt="QR"'), 'الرمز المختوم سقط مع الصياغة');
+  const rollStamped = await thermal(stamped, { profile: profile('roll_compact', 'roll80'), tr: same });
+  assert.ok(rollStamped.includes('فاتورة مبيعات') && !rollStamped.includes('فاتورة ضريبية مبسطة'));
+  const hidden = { ...company, printTexts: texts({ edits: { 'inv.title': { text: null, alt: null, hidden: true, phase2: true } } }) };
+  assert.ok(!a4(invoice(hidden)).includes('فاتورة ضريبية'), 'العنوان المحذوف مطبوع');
+  const stampedHidden = sampleInvoiceDoc(hidden, same);
+  // («ليست فاتورة ضريبية» في علامة بيئة المحاكاة ليست العنوان — قرار الطباعة يبقى)
+  assert.ok(!a4(stampedHidden).includes('فاتورة ضريبية مبسطة') && a4(stampedHidden).includes('alt="QR"'), 'المختوم: العنوان المحذوف مطبوع أو الرمز سقط');
   // المرتجع بمفتاحه
   const ret = { ...company, printTexts: texts({ edits: { 'inv.returnTitle': { text: 'مرتجع مبيعات', alt: null, hidden: false } } }) };
   assert.ok(a4(invoice(ret, { isReturn: true })).includes('مرتجع مبيعات'));
+});
+
+test('العنوان المحفوظ قبل ٣ نوفمبر ٢٠٢٦ (بلا وسم): المرحلة الأولى بصياغته، والمختوم يطبع عنوان الهيئة كاليوم — A4 والرول والقالب ثنائي اللغة', async () => {
+  for (const edit of [{ text: 'فاتورة مبيعات', alt: null, hidden: false }, { text: null, alt: null, hidden: true }]) {
+    const c = { ...company, printTexts: texts({ edits: { 'inv.title': edit } }) };
+    const p1 = a4(invoice(c));
+    assert.ok(!p1.includes('فاتورة ضريبية مبسطة'), 'المرحلة الأولى لم تأخذ تعديلها');
+    const stamped = sampleInvoiceDoc(c, same);
+    assert.ok(stamped.zatca, 'النموذج مختوم');
+    assert.ok(a4(stamped).includes('فاتورة ضريبية مبسطة') && !a4(stamped).includes('فاتورة مبيعات'), `المختوم أخذ تعديلاً محفوظاً للمرحلة الأولى ${JSON.stringify(edit)}`);
+    const roll = await thermal(stamped, { profile: profile('roll_compact', 'roll80'), tr: same });
+    assert.ok(roll.includes('فاتورة ضريبية مبسطة') && !roll.includes('فاتورة مبيعات'), 'الرول المختوم أخذ تعديلاً محفوظاً للمرحلة الأولى');
+    const grid = renderToStaticMarkup(createElement(PrintLookContext.Provider, { value: lookFor(withDesign(newProfile('page', 'preview', []), 'grid_bilingual')) }, createElement(PrintableInvoice, { doc: stamped })));
+    assert.ok(grid.includes('فاتورة ضريبية مبسطة') && grid.includes('alt="QR"'), 'ثنائي اللغة: المختوم بلا عنوان الهيئة أو بلا الرمز');
+  }
 });
 
 test('A4 بلغتين: الإنجليزية بجانب العربي، والإخفاء يُسقط الصفّ والعمود، وسطر المنصّة ثابت', () => {
@@ -187,27 +218,33 @@ test('بقية المستندات لا تتأثّر بالنصوص — وثيق�
   assert.ok((await thermalPreviewHtml(invoice({ ...company }), { tr: same, paperMm: 58 })).includes('58mm auto'), 'بلا نصوص: معاينة 58 مم هي الكلاسيكي');
 });
 
-test('مراجعة: إخفاء تسميات فواتير السند يُطبَّق في A4 والرول — ورقم الفاتورة يبقى', async () => {
+test('حذف سطور فواتير السند في A4 والرول: السطر كلّه (التسمية ورقم الفاتورة)، والقائمة كلّها بعنوانها — والمبلغ باقٍ', async () => {
   const hide = (keys: string[]) => texts({ edits: Object.fromEntries(keys.map((k) => [k, { text: null, alt: null, hidden: true }])) });
   const one: ReceiptDoc = { ...receipt({ ...company, printTexts: hide(['rcp.forInvoice']) }), invoices: [{ number: 'INV-9100', amount: 100 }] };
-  const many: ReceiptDoc = { ...receipt({ ...company, printTexts: hide(['rcp.forInvoices', 'rcp.invoiceNo', 'rcp.credit']) }), amount: 300, invoices: [{ number: 'INV-1', amount: 100 }, { number: 'INV-2', amount: 50 }] };
+  const manyDoc = (t: PrintTextsV1): ReceiptDoc => ({ ...receipt({ ...company, printTexts: t }), amount: 300, invoices: [{ number: 'INV-1', amount: 100 }, { number: 'INV-2', amount: 50 }] });
   const roll = { profile: profile('roll_compact', 'roll80'), tr: same };
   for (const [name, html] of [['A4', a4r(one)], ['الرول', await thermal(one, roll)]] as const) {
-    assert.ok(!html.includes('مقابل الفاتورة رقم') && html.includes('INV-9100'), `${name}: التسمية المخفية مطبوعة أو الرقم سقط`);
+    assert.ok(!html.includes('مقابل الفاتورة رقم') && !html.includes('INV-9100'), `${name}: سطر الفاتورة المحذوف ما زال مطبوعاً`);
+    assert.ok(html.includes('100.00') || html.includes('100'), `${name}: المبلغ سقط`);
   }
-  for (const [name, html] of [['A4', a4r(many)], ['الرول', await thermal(many, roll)]] as const) {
-    assert.ok(!html.includes('مقابل الفواتير') && !html.includes('رصيد دائن للعميل') && !html.includes('فاتورة رقم'), `${name}: مخفيٌّ مطبوع`);
-    assert.ok(html.includes('INV-1') && html.includes('INV-2'), `${name}: أرقام الفواتير سقطت`);
+  // «مقابل الفواتير» عنوان قائمة (block): يُسقطها بأرقامها؛ وحذف «فاتورة رقم» والرصيد الدائن يُسقط صفوفهما وحدها
+  for (const [name, html] of [['A4', a4r(manyDoc(hide(['rcp.forInvoices'])))], ['الرول', await thermal(manyDoc(hide(['rcp.forInvoices'])), roll)]] as const) {
+    assert.ok(!html.includes('مقابل الفواتير') && !html.includes('INV-1') && !html.includes('INV-2'), `${name}: قائمة الفواتير المحذوفة مطبوعة`);
   }
+  const rows = a4r(manyDoc(hide(['rcp.invoiceNo', 'rcp.credit'])));
+  assert.ok(rows.includes('مقابل الفواتير') && !rows.includes('فاتورة رقم') && !rows.includes('INV-1') && !rows.includes('رصيد دائن للعميل'), 'A4: صفوف الفواتير المحذوفة');
 });
 
-test('مراجعة: صندوق العميل يسقط كلّه حين تُخفى صفوفه على المبسّطة — ويبقى على القياسية', () => {
-  const allHidden = texts({ edits: Object.fromEntries(['cust.heading', 'cust.name', 'cust.phone', 'cust.address', 'cust.business', 'cust.commercialReg']
-    .map((k) => [k, { text: null, alt: null, hidden: true }])) });
-  const c = { ...company, printTexts: allHidden };
-  assert.ok(!a4(invoice(c)).includes('background:#f8fafc'), 'صندوقٌ رماديٌّ فارغ');
-  const std = a4(invoice(c, { customer: { name: 'شركة المشتري', taxNumber: '311111111111113' } }));
-  assert.ok(std.includes('background:#f8fafc') && std.includes('311111111111113'), 'الرقم الضريبي للمشتري سقط من القياسية');
+test('صندوق العميل: حذف صفوفه يُسقطها وحدها (والرقم الضريبي للقياسية باقٍ)، وحذف عنوانه يُسقط الصندوق كلّه ولو قياسية', () => {
+  const del = (keys: string[]) => texts({ edits: Object.fromEntries(keys.map((k) => [k, { text: null, alt: null, hidden: true }])) });
+  const rowsOnly = { ...company, printTexts: del(['cust.name', 'cust.phone', 'cust.address', 'cust.business', 'cust.commercialReg']) };
+  const simple = a4(invoice(rowsOnly));
+  assert.ok(!simple.includes('بقالة النور') && !simple.includes('حي الملز'), 'المبسّطة: صفوف العميل المحذوفة مطبوعة');
+  const stdCustomer = { customer: { name: 'شركة المشتري', taxNumber: '311111111111113' } };
+  const std = a4(invoice(rowsOnly, stdCustomer));
+  assert.ok(std.includes('background:#f8fafc') && std.includes('311111111111113') && !std.includes('شركة المشتري'), 'القياسية: الصفّ الباقي سقط أو المحذوف بقي');
+  const block = a4(invoice({ ...company, printTexts: del(['cust.heading']) }, stdCustomer));
+  assert.ok(!block.includes('بيانات العميل') && !block.includes('311111111111113') && !block.includes('شركة المشتري'), 'عنوان الصندوق المحذوف لم يُسقط الصندوق');
 });
 
 test('مراجعة: صياغة الشركة لسطر الشكر تسبق نصّ تذييل القالب — وبلا صياغةٍ نصّ القالب كما كان', async () => {
@@ -247,22 +284,28 @@ test('الإشعار الدائن: مرجع الفاتورة الأصلية وس
     assert.ok(html.includes('<span>سبب الإرجاع</span><span>بضاعة تالفة &amp; مكسورة</span>'), `${name}: السبب`);
     assert.equal(await thermal(ret(base, { billingReference: null, noteReason: ' ' }), opts), await thermal(ret(base), opts), `${name}: المرتجع بلا مرجع تغيّر`);
   }
-  // بنصوص الشركة: الصياغة واللغة الثانية تُطبَّقان، والإخفاء يُهمل (إلزاميٌّ على الإشعار الدائن ولو حمله كائنٌ خام)
-  const c = { ...company, printTexts: {
+  // بنصوص الشركة: الصياغة واللغة الثانية تُطبَّقان — والحذف (طلب المالك ٣ نوفمبر ٢٠٢٦) يُسقط السطر بقيمته ولو كان إلزامياً على الإشعار
+  const edited = (originalRefHidden: boolean, reasonHidden: boolean) => ({ ...company, printTexts: {
     version: 1, secondLang: 'en', companyNameAlt: null, companyAddressAlt: null,
     edits: {
-      'inv.originalRef': { text: 'رقم الفاتورة المرتجع منها', alt: 'Original invoice no.', hidden: true },
-      'inv.noteReason': { text: null, alt: null, hidden: true },
+      'inv.originalRef': { text: 'رقم الفاتورة المرتجع منها', alt: 'Original invoice no.', hidden: originalRefHidden },
+      'inv.noteReason': { text: null, alt: null, hidden: reasonHidden },
     },
-  } };
-  for (const [name, html] of [
+  } });
+  const sheets = async (c: InvoiceDoc['company']) => [
     ['A4', a4(note(c))],
     ['المختصر 58', await thermal(note(c))],
     ['المفصّل 80', await thermal(note(c), { profile: profile('roll_detailed', 'roll80'), tr: same })],
-  ] as const) {
+  ] as const;
+  for (const [name, html] of await sheets(edited(false, false))) {
     assert.ok(html.includes('رقم الفاتورة المرتجع منها') && html.includes('Original invoice no.'), `${name}: صياغة الشركة`);
-    assert.ok(html.includes('OLD-2024/0115 &lt;x&gt;'), `${name}: المرجع أُخفي`);
-    assert.ok(html.includes('سبب الإرجاع') && html.includes('بضاعة تالفة &amp; مكسورة'), `${name}: السبب أُخفي`);
+    assert.ok(html.includes('OLD-2024/0115 &lt;x&gt;'), `${name}: المرجع سقط`);
+    assert.ok(html.includes('سبب الإرجاع') && html.includes('بضاعة تالفة &amp; مكسورة'), `${name}: السبب سقط`);
+  }
+  for (const [name, html] of await sheets(edited(true, true))) {
+    assert.ok(!html.includes('رقم الفاتورة المرتجع منها') && !html.includes('OLD-2024/0115'), `${name}: سطر المرجع المحذوف مطبوع`);
+    assert.ok(!html.includes('سبب الإرجاع') && !html.includes('بضاعة تالفة'), `${name}: سطر السبب المحذوف مطبوع`);
+    assert.ok(html.includes('RET-2610-000007'), `${name}: رقم المرتجع سقط`);
   }
 });
 

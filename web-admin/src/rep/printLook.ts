@@ -14,6 +14,7 @@
  */
 import { createContext, useContext, type CSSProperties } from 'react';
 import { STAMPED_QR_CELLS, qrPlan, type Paper, type PrintProfile } from '../lib/print/printSettings';
+import { resolveLayout, type ResolvedLayout } from '../lib/print/layout';
 
 /** عرض قوالب الصفحة الطبيعيّ (PAGE في RepDocuments.tsx = عرض A4 بـ96 بكسل/بوصة) */
 export const SHEET_WIDTH_PX = 794;
@@ -42,6 +43,12 @@ export interface PrintLook {
    * ليُرسم فيها الرمز بنقاط صحيحة في البلوتوث، وتكبر صورته فيها عبر تعريف Windows. null = صندوق اليوم كما هو.
    */
   qrSlotPx: number | null;
+  /**
+   * «تخطيط المطبوعات» (options.layout): مكان الشعار وحجمه ولون التمييز وشكل الجدول وترتيب الأقسام والتصميم (الحالي أو «كلاسيكي
+   * بإطارات — ثنائي اللغة»). **غيابه = ورقة اليوم حرفاً بحرف** — لا يُضاف المفتاح إلا لملفٍّ يحمل تخطيطاً (resolveLayout غير null)،
+   * فيبقى DEFAULT_PRINT_LOOK ومظهر legacy-a4 متساويين.
+   */
+  layout?: ResolvedLayout;
 }
 
 /** مظهر اليوم: كل قالب كما كان قبل «إعدادات الطباعة» — حارسٌ يثبت أنّ legacy-a4 يساويه */
@@ -90,6 +97,7 @@ export function lookFor(p: PrintProfile): PrintLook {
   const o = p.options;
   const impact = p.printer === 'impact';
   const preprinted = p.template === 'impact_preprinted';
+  const layout = resolveLayout(p);
   return {
     mono: p.template !== 'page_branded',
     minimalHeader: impact,
@@ -103,6 +111,7 @@ export function lookFor(p: PrintProfile): PrintLook {
     pagePadding: impact ? 16 : 40,
     pdfFormat: pdfFormatOfPaper(p.paper),
     qrSlotPx: impact ? impactQrSlotPx(p) : null,
+    ...(layout ? { layout } : {}),
   };
 }
 
@@ -136,11 +145,13 @@ export const PRINT_LOOK_CSS = [
 ].join('\n');
 
 /** سمات جذر الورقة — المظهر الافتراضي لا يضيف سمةً واحدة (DOM اليوم كما هو) */
-export function lookRootAttrs(look: PrintLook): { 'data-print-look'?: string; 'data-pdf-format'?: string } {
+export function lookRootAttrs(look: PrintLook): { 'data-print-look'?: string; 'data-pdf-format'?: string; 'data-print-layout'?: string } {
   const tokens = [look.mono ? 'mono' : '', look.boldBody ? 'bold' : ''].filter(Boolean).join(' ');
   return {
     ...(tokens ? { 'data-print-look': tokens } : {}),
     ...(look.pdfFormat !== 'a4' ? { 'data-pdf-format': look.pdfFormat } : {}),
+    // «تخطيط المطبوعات»: التصميم على الجذر (PDF والنقطية والطباعة تتعرّف منه على الورقة ذات الإطارات) — وبلا تخطيط لا سمة
+    ...(look.layout ? { 'data-print-layout': look.layout.design } : {}),
   };
 }
 

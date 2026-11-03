@@ -7,7 +7,7 @@ import { DEFAULT_PRINT_LOOK, PRINT_LOOK_CSS, SHEET_WIDTH_PX, lookFor, lookNeedsC
 import { pdfPageOf } from './pdf';
 import {
   PAGE_STAMPED_QR_PX, PAGE_TEMPLATE_WIDTH_PX, PAPER_PRESETS, PRINT_ISSUES, PRINT_LIMITS, STAMPED_QR_CELLS, checkPrintSettings,
-  defaultPrintOptions, legacyPageProfile, legacyPrintSettings, legacyThermalProfile, pageQrImageMm, pageQrModuleMm, presetPaper,
+  defaultPrintLayout, defaultPrintOptions, legacyPageProfile, legacyPrintSettings, legacyThermalProfile, pageQrImageMm, pageQrModuleMm, presetPaper,
   type PaperPresetId, type PrintProfile, type PrinterType, type TemplateId,
 } from '../lib/print/printSettings';
 import fs from 'node:fs';
@@ -136,4 +136,21 @@ test('الرمز المختوم في قالب الصفحة لا يُصغَّر �
     assert.ok(pageQrImageMm(w) >= 28, `${w} مم: الرمز ${pageQrImageMm(w).toFixed(1)} مم`);
   }
   assert.ok(Math.abs(pageQrImageMm(210) - 46.55) < 0.05, 'A4 كما اليوم');
+});
+
+test('«تخطيط المطبوعات»: المظهر يحمل التخطيط مع options.layout وحده، والجذر يُوسَم بالتصميم — والقديم والحراري بلا مفتاح', () => {
+  const plain = profile('page', 'page_branded', 'a4');
+  assert.equal('layout' in lookFor(plain), false, 'ملفٌّ بلا تخطيط أخذ تخطيطاً');
+  assert.equal('layout' in DEFAULT_PRINT_LOOK, false);
+  const std = lookFor({ ...plain, options: { ...plain.options, layout: defaultPrintLayout('page') } });
+  assert.equal(std.layout?.design, 'standard');
+  assert.equal(lookRootAttrs(std)['data-print-layout'], 'standard');
+  // ما عدا السمة: المظهر نفسه (الحشوة والأحادي ومقاس الـPDF وخانة الرمز)
+  const { layout: _l, ...rest } = std;
+  assert.deepEqual(rest, lookFor(plain));
+  const imp = profile('impact', 'impact_plain', 'ff_a4');
+  const grid = lookFor({ ...imp, options: { ...imp.options, layout: defaultPrintLayout('impact', 'grid_bilingual') } });
+  assert.deepEqual(lookRootAttrs(grid), { ...lookRootAttrs(lookFor(imp)), 'data-print-layout': 'grid_bilingual' });
+  assert.equal(grid.qrSlotPx, lookFor(imp).qrSlotPx, 'خانة رمز النقطية تغيّرت بالتصميم');
+  assert.deepEqual(lookFor(legacyThermalProfile()), DEFAULT_PRINT_LOOK);
 });

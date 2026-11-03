@@ -1791,6 +1791,18 @@ async function warmRepPriceCache(): Promise<void> {
 }
 
 // ============ إنشاء فاتورة (بيع أو إرجاع) ============
+/** رمز الصنف للورقة (عمود «رقم الصنف» في القالب ثنائي اللغة) — ولا حقل بلا رمز: الشكل كما كان */
+function docItemCode(code: unknown): { code?: string } {
+  return typeof code === 'string' && code.trim() ? { code: code.trim() } : {};
+}
+
+/** العميل على الورقة برمزه البريدي (addrPostalCode في صفّ العميل) — يُضاف حين يوجد وحده، فيبقى العميل كما وصل لمن لا رمز له */
+function docCustomerOf<C>(c: C): C {
+  const raw = c as { addrPostalCode?: unknown; postalCode?: unknown } | null | undefined;
+  const postal = typeof raw?.addrPostalCode === 'string' ? raw.addrPostalCode.trim() : '';
+  return postal && !raw?.postalCode ? { ...c, postalCode: postal } : c;
+}
+
 function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClose, onDone, onPermsStale }: { customer: any; repName: string; company: Company | null; mode?: 'sale' | 'return'; perms: RepUser; onClose: () => void; onDone: (doc: InvoiceDoc) => void; /** صلاحيات المندوب ونوعه الافتراضي وأنواعه المسموحة من /auth/me الآن (refreshUser) — بعد رفضٍ سعريّ */ onPermsStale?: () => void }) {
   const tr = useTr();
   const lots = useContext(RepLotsContext); // «تتبّع اللوط» (§٦.٣)
@@ -2499,12 +2511,16 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       name: l.name, unit: l.unit, unitFactor: Number(l.unitFactor ?? 1), multiUnit: hasUnitChoice(products.find(x => x.id === l.productId)),
       qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct,
       lineTotal: repCalc.items[i].lineTotal, taxAmt: repCalc.items[i].taxAmt,
+      // رمز الصنف — عمود «رقم الصنف» في القالب ثنائي اللغة (كبانية إعادة الفتح)؛ غيابه لا يضيف حقلاً
+      ...docItemCode(products.find(x => x.id === l.productId)?.code ?? l.code),
       // المرتجع من فاتورة بيع: حالة الصلاحية كما عرضها الخادم (والخادم يقرّرها ويسجّلها عند الإصدار)
       ...(isReturn && l.shelfLife && l.expiresAt && { returnExpired: l.expiredToday ?? null, expiresAt: l.expiresAt }),
     }));
     /* الإشعار الدائن (المرحلة الثانية): مرجع الفاتورة الأصلية (BT-25) وسببه (KSA-10) على الورقة — من ردّ الخادم، وإلا ممّا
      * أُرسل (رقم فاتورة البيع المختارة أو الرقم اليدويّ). والمرحلة الأولى بلاهما: ورقتها كما كانت */
     const txtOr = (v: unknown, f: string | null | undefined) => (typeof v === 'string' && v.trim() ? v.trim() : f || null);
+    // المشتري على الورقة برمزه البريدي (صندوق المشتري في القالب ثنائي اللغة) — كبانية إعادة الفتح
+    const docBuyer = docCustomerOf(customer);
     const noteDoc = (r: any) => (retPhase2 ? {
       billingReference: txtOr(r?.billingReference, manualRef ? normalizeReturnRef(manualRef.number) : saleRef?.number),
       noteReason: txtOr(r?.noteReason, noteReasonText.trim()),
@@ -2529,7 +2545,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           deliveryDate: row.deliveryDate ?? (deliveryDate || undefined), type, isReturn,
           recipientSignature: signatureOn && signatures.recipient ? signatures.recipient.png : null,
           repSignature: signatureOn && signatures.rep ? signatures.rep.png : null,
-          company, customer, repName, items: printItems,
+          company, customer: docBuyer, repName, items: printItems,
           subtotal, discount, tax, total,
           paidAmt: Number(row.paidAmt ?? 0), remainingAmt: Number(row.remainingAmt ?? total),
           zatca: out.view,
@@ -2583,7 +2599,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         installments: Array.isArray(inv.installments)
           ? inv.installments.map((r: any) => ({ seq: Number(r.seq), dueDate: r.dueDate, amount: Number(r.amount) }))
           : undefined,
-        company, customer, repName, items: docItems,
+        company, customer: docBuyer, repName, items: docItems,
         ...docTotals,
         paidAmt: Number(inv.paidAmt), remainingAmt: Number(inv.remainingAmt),
         /* فوترة ZATCA المرحلة الثانية (Z5.6b، نقد الخطة 6): الطباعة بعد الإصدار مباشرة تُبنى هنا لا من
@@ -2622,7 +2638,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           kind: 'invoice', number: localNumber, offline: true, date: clientCreatedAt, deliveryDate: deliveryDate || undefined, type, isReturn,
           recipientSignature: signatureOn && signatures.recipient ? signatures.recipient.png : null,
           repSignature: signatureOn && signatures.rep ? signatures.rep.png : null,
-          company, customer, repName, items: offlineItems,
+          company, customer: docBuyer, repName, items: offlineItems,
           subtotal, discount, tax, total,
           paidAmt: paid, remainingAmt: isReturn ? 0 : total - paid,
         });

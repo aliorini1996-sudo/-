@@ -1338,3 +1338,42 @@ test('دقّة المستند: defaultPriceListId وallowedPriceTypes للمند
   const guide = JSON.stringify(API_DOC_GUIDES.find((g) => g.title === 'ربط أنواع الأسعار'));
   for (const k of ['defaultPriceListId', 'allowedPriceTypes', 'PRICE_TYPE_DEFAULT_NOT_ALLOWED', 'repsCount']) assert.ok(guide.includes(k), `الدليل لا يذكر ${k}`);
 });
+
+test('الطباعة (٣ نوفمبر ٢٠٢٦): التخطيط بمفاتيحه وقواعده، وكل نصٍّ يُعدَّل ويُحذف سطره — والمستند لا يَعِد بقفلٍ زال', async () => {
+  const core = await import('./print/printSettingsCore');
+  const texts = await import('./print/printTextsCore');
+  const getS = endpointOf('GET', '/company/print-settings');
+  const putS = endpointOf('PUT', '/company/print-settings');
+  for (const k of Object.keys(core.defaultPrintLayout('page'))) assert.ok(getS.response.includes(`${k}:`), `layout.${k} غير موثّق`);
+  for (const v of [...core.LAYOUT_DESIGNS, ...core.LOGO_POSITIONS, ...core.LOGO_SIZES, ...core.TABLE_STYLES]) assert.ok(getS.response.includes(`'${v}'`), v);
+  for (const id of core.SECTION_IDS) assert.ok(getS.rules.join(' ').includes(id), `القسم ${id} غير موثّق`);
+  assert.ok(putS.rules.some((r) => r.startsWith('options.layout اختياري') && r.includes('3:1')));
+  const getT = endpointOf('GET', '/company/print-texts');
+  const putT = endpointOf('PUT', '/company/print-texts');
+  const all = [...getT.rules, ...putT.rules].join(' ');
+  // كل مفتاحٍ يذكره المستند في القائمة فعلاً، والمفاتيح الجديدة كلها مذكورة
+  const keys = new Set(texts.PRINT_TEXT_CATALOG.map((x) => x.key));
+  for (const m of all.matchAll(/\b([a-z]+\.[A-Za-z]+)\b/g)) if (/^(col|sel|cust|inv|sig|tot|foot|note|rcp|qr|inst|h)\./.test(m[1])) assert.ok(keys.has(m[1]), `${m[1]} خارج القائمة`);
+  for (const k of ['col.seq', 'col.code', 'col.unit', 'col.vatAmount', 'sel.heading', 'sel.name', 'sel.address', 'sel.city', 'sel.postalCode', 'sel.taxNumber', 'cust.city', 'cust.postalCode', 'inv.paymentType', 'sig.warehouse', 'sig.remarks', 'tot.exclVat', 'tot.due', 'foot.platform']) {
+    assert.ok(all.includes(k), `${k} غير موثّق`);
+  }
+  assert.ok(putT.rules.some((r) => r.startsWith('كل مفتاح في القائمة يُعاد صياغته') && r.includes('hidden:true')));
+  assert.ok(getT.response.includes('حذف السطر'));
+  assert.doesNotMatch(all, /hidden:true عليها 400|ليس في القائمة ولا يُعدَّل|لا تُعاد صياغتها بالعربية ولا تُخفى/, 'وعدٌ بقفلٍ زال');
+});
+
+test('دقّة المستند (مراجعة الأمان ٣ نوفمبر): قراءة التخطيط المتسامحة — الناقص يُصلَح، وقسمٌ لا تعرفه النسخة يُسقط التخطيط لا يُصلَح', async () => {
+  const s = await import('./print/printSettings');
+  const base = s.legacyPrintSettings();
+  const a4 = { ...base.profiles[1], id: 'p-a4', name: 'A4b', options: { ...base.profiles[1].options } };
+  const read = (order: string[]) => s.normalizePrintSettings({ ...base, profiles: [...base.profiles, { ...a4, options: { ...a4.options, layout: { ...s.defaultPrintLayout('page'), order } } }] })
+    .profiles.find((p) => p.id === 'p-a4')?.options.layout;
+  // ترتيبٌ ناقص يُصلَح بموضعه الافتراضي
+  assert.deepEqual(read(['header', 'info', 'items', 'totals', 'installments', 'signatures', 'footer'])?.order, [...s.sectionsFor('page', 'standard')]);
+  // قسمٌ لا تعرفه النسخة: التخطيط كله يسقط (القالب يطبع تصميم اليوم)
+  assert.equal(read(['header', 'info', 'items', 'zz', 'note', 'totals', 'installments', 'signatures', 'footer']), undefined);
+  const rule = endpointOf('GET', '/company/print-settings').rules.find((r) => r.startsWith('القراءة متسامحة في التخطيط')) ?? '';
+  assert.ok(rule, 'قاعدة القراءة المتسامحة غائبة');
+  assert.doesNotMatch(rule, /بقسمٍ لا تعرفه النسخة يُصلَح/, 'المستند يَعِد بإصلاح قسمٍ مجهول والنواة تُسقط التخطيط');
+  assert.match(rule, /لا تعرفها هذه النسخة/);
+});

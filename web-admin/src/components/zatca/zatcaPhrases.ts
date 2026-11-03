@@ -108,7 +108,7 @@ export const ZATCA_PHRASES: Record<string, { en: string; fr: string; tr: string;
   'اسم الشارع': { en: 'Street name', fr: 'Nom de la rue', tr: 'Sokak adı', zh: '街道名称' },
   'رقم المبنى': { en: 'Building number', fr: 'Numéro du bâtiment', tr: 'Bina numarası', zh: '楼号' },
   'الرقم الإضافي': { en: 'Additional number', fr: 'Numéro complémentaire', tr: 'Ek numara', zh: '附加编号' },
-  'الرمز البريدي': { en: 'Postal code', fr: 'Code postal', tr: 'Posta kodu', zh: '邮政编码' },
+  // «الرمز البريدي» في القاموس العامّ منذ ٣ نوفمبر ٢٠٢٦ (صفّ «نصوص المطبوعات») — zatcaTranslate يرجع إليه
   'الرقم المميّز لعضو المجموعة الضريبية': { en: 'VAT group member TIN', fr: 'TIN du membre du groupe TVA', tr: 'KDV grubu üyesi TIN numarası', zh: '增值税集团成员 TIN' },
   'السجل التجاري (CRN)': { en: 'Commercial registration (CRN)', fr: 'Registre du commerce (CRN)', tr: 'Ticaret sicili (CRN)', zh: '商业登记（CRN）' },
   'ترخيص وزارة البلديات (MOM)': { en: 'Ministry of Municipalities license (MOM)', fr: 'Licence du ministère des Municipalités (MOM)', tr: 'Belediyeler Bakanlığı ruhsatı (MOM)', zh: '市政部许可证（MOM）' },

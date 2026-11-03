@@ -7970,9 +7970,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:PrintSettingsV1, stored, hasCompany}. PrintSettingsV1 = {version:1, profiles:[1..12 قالب طابعة: نوعها ومقاس الورق وتصميمه وهوامشه], routing:{لكل نوع مستند معرّف قالبه أو null}, pdfProfileId (قالب الطابعة العادية لمشاركة PDF), repMayChoose}",
+    "response": "{success:true, data:PrintSettingsV1, stored, hasCompany}. PrintSettingsV1 = {version:1, profiles:[1..12 قالب طابعة: نوعها ومقاس الورق وتصميمه وهوامشه، وفي خياراته options.layout اختيارياً], routing:{لكل نوع مستند معرّف قالبه أو null}, pdfProfileId (قالب الطابعة العادية لمشاركة PDF), repMayChoose}. options.layout = {design:'standard'|'grid_bilingual', logo:'start'|'center'|'end'|'none', logoSize:'s'|'m'|'l', accent:'#RRGGBB'|null, tableStyle:'lines'|'grid'|'striped', order:[أقسام المطبوعة بترتيبها]}",
     "rules": [
      "stored = false يعني الافتراضي (شريط 58 مم للفواتير والسندات وA4 للـPDF)، وdata يحمل حينها الافتراضي كاملاً",
+     "غياب options.layout في قالبٍ يعني مطبوعة اليوم كما هي حرفياً. ومعه: design = grid_bilingual هو التصميم «كلاسيكي بإطارات — ثنائي اللغة» (للطابعة العادية والنقطية)، وlogo مكان الشعار (start = يمين الورقة) أو none بلا شعار، وlogoSize حجمه، وaccent لون التمييز (null = لون الشركة، ولا أثر له على النقطية)، وtableStyle شكل جدول الأصناف، وorder ترتيب الأقسام، وoptions.fontScale يسري على الصفحة والنقطية مع التخطيط وحده",
+     "أقسام order لكل تصميم: الصفحة والنقطية header, info, items, note, totals, installments, signatures, footer؛ وثنائي اللغة يزيد parties بعد info؛ والرول header, info, customer, items, totals, signatures, qr, footer. رمز QR يُطبع على مستند المرحلة الثانية في كل ترتيب",
+     "القراءة متسامحة في التخطيط: ترتيبٌ ناقص أو بقسمٍ ليس من أقسام تصميمه يُصلَح، وتخطيطٌ لا يصلح بعدها، أو فيه قيمةٌ لا تعرفها هذه النسخة (قسمٌ أو تصميمٌ أو لونٌ غير صالح)، يسقط وحده ويبقى القالب بتصميم اليوم",
      "hasCompany = false: لا صف لبيانات الشركة بعد، فالحفظ يرجع 409 COMPANY_SETTINGS_MISSING"
     ],
     "example": ""
@@ -8001,6 +8004,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "rules": [
      "البنية صارمة: حقل غير معروف في أي مستوى أو نسخة غير 1 يُرفض 400 PRINT_SETTINGS_INVALID مع issues:[{path, message}]",
      "فوق 16 كيلوبايت 413 PRINT_SETTINGS_TOO_LARGE، وبلا صف بيانات شركة 409 COMPANY_SETTINGS_MISSING",
+     "options.layout اختياري بمفاتيحه الستة كلها (مفتاح زائد أو ناقص 400). قواعده 400 PRINT_SETTINGS_INVALID برسالتها: order تبديلٌ كامل لأقسام التصميم بلا تكرار ولا نقص، والترويسة أولاً، والتواقيع ثم التذييل آخراً (وفي الرول يجوز رمز QR بينهما)، والإجماليات بعد الأصناف، وفي الرول رمز QR بعد الأصناف؛ وgrid_bilingual للطابعة العادية والنقطية وحدهما؛ والرول بشعارٍ في الوسط أو بلا شعار وجدول lines؛ والشريط الكلاسيكي roll_classic بلا تخطيط؛ وaccent بتباين 3:1 على الأقل مع الأبيض",
+     "الملفّان الافتراضيان legacy-58 وlegacy-a4 يُحفظان كما هما بلا تخطيط مهما أُرسل فيهما، وaccent يُحفظ بأحرف كبيرة",
      "الاستعادة بـ{\"reset\":true} لا بـnull: محلّل JSON في الخادم يرفض null خاماً في أعلى الجسم",
      "اقرأ GET أولاً وعدّل ثم أرسل الكل"
     ],
@@ -8017,11 +8022,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:PrintTextsV1, stored, hasCompany}. PrintTextsV1 = {version:1, secondLang:'en'|'fr'|'tr'|'zh'|null, companyNameAlt:string|null (اسم الشركة باللغة الثانية حتى 80 حرفاً), companyAddressAlt:string|null (العنوان بها حتى 160), edits:{مفتاح النص: {text:string|null (الصياغة العربية البديلة), alt:string|null (نصه باللغة الثانية), hidden:boolean}}}",
+    "response": "{success:true, data:PrintTextsV1, stored, hasCompany}. PrintTextsV1 = {version:1, secondLang:'en'|'fr'|'tr'|'zh'|null, companyNameAlt:string|null (اسم الشركة باللغة الثانية حتى 80 حرفاً), companyAddressAlt:string|null (العنوان بها حتى 160), edits:{مفتاح النص: {text:string|null (الصياغة العربية البديلة), alt:string|null (نصه باللغة الثانية), hidden:boolean (true = حذف السطر كاملاً من المطبوعة)}}}",
     "rules": [
      "stored = false يعني نصوص اليوم كما هي، وdata يحمل حينها {version:1, secondLang:null, companyNameAlt:null, companyAddressAlt:null, edits:{}}",
      "مفاتيح edits من قائمة مغلقة ثابتة لا تتغير (مثل h.phone وinv.title وcust.phone وtot.paid وrcp.title)، ولا يرد فيها إلا ما عدّلته الشركة، بترتيب القائمة",
-     "المحفوظ يُقرأ متسامحاً: مفتاح لا تعرفه هذه النسخة يُهمل، وإخفاء نص صار إلزامياً يسقط وحده ويبقى بقية الإعداد",
+     "hidden:true يعني «حذف السطر»: لا تُطبع العبارة ولا ما تخصّه كاملاً — قيمة الصف، أو عمود الجدول كله، أو صف الإجماليات، أو الصندوق الذي تعنونه، أو خانة التوقيع — وفي التصميم ثنائي اللغة تسقط التسميتان العربية والإنجليزية مع القيمة. ورمز QR ليس عبارة: يبقى مطبوعاً على مستند المرحلة الثانية",
+     "في القائمة منذ ٣ نوفمبر ٢٠٢٦ مفاتيح التصميم ثنائي اللغة وما كان مكتوباً في القوالب: col.seq وcol.code وcol.unit وcol.vatAmount، وsel.heading وsel.name وsel.address وsel.city وsel.postalCode وsel.taxNumber (البائع)، وcust.city وcust.postalCode، وinv.paymentType، وsig.warehouse وsig.remarks، وtot.exclVat وtot.due، وfoot.platform (سطر «صدرت عبر منصة Field Sales» في التذييل)",
+     "المحفوظ يُقرأ متسامحاً: مفتاح لا تعرفه هذه النسخة يُهمل ويبقى بقية الإعداد",
      "مع لغة ثانية تُطبع العربية أولاً أياً كانت لغة الواجهة، وتحتها أو بجانبها نص alt، وإلا ترجمة المنصة للنص العربي",
      "hasCompany = false: لا صف لبيانات الشركة بعد، فالحفظ يرجع 409 COMPANY_SETTINGS_MISSING"
     ],
@@ -8050,12 +8057,9 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "response": "{success:true, data:PrintTextsV1, stored, hasCompany:true}",
     "rules": [
      "البنية صارمة: حقل غير معروف في أي مستوى، أو مفتاح نص خارج القائمة، أو نسخة غير 1، أو لغة غير en وfr وtr وzh يُرفض 400 PRINT_TEXTS_INVALID مع issues:[{path, message}]",
-     "الإلزامي في الفاتورة الضريبية (مثل الرقم الضريبي للبائع وسجله وعنوانه، رقم المستند وتاريخه ووقته، الصنف والكمية والسعر والإجمالي، الرقم الضريبي للعميل، الإجمالي النهائي) وهيكل السند وجدول الأقساط تُعاد صياغتها ولا تُخفى: hidden:true عليها 400",
-     "العبارات الضريبية (السعر شامل الضريبة، قبل الضريبة، الأسعار المعروضة شاملة الضريبة، الوعاء الخاضع للضريبة، ضريبة القيمة المضافة، منها ضريبة القيمة المضافة) لا تُعاد صياغتها بالعربية ولا تُخفى، ويُكتب نصها باللغة الثانية في alt وحده",
-     "اسم العميل ومنشأته وسجله وعنوانه، وعمودا الخصم والضريبة، وسطر الخصم: إخفاؤها يسري على الفاتورة المبسطة وحدها وتبقى على القياسية",
-     "عنوان الفاتورة والمرتجع (inv.title وinv.returnTitle) يُعاد صياغته أو يُخفى لمستندات المرحلة الأولى وحدها، والمستند المختوم من المرحلة الثانية يطبع عنوانه المقرر كما هو",
-     "نص رمز QR واسم الشركة في التذييل وملاحظة الأقساط (qr.caption وfoot.company وinst.note) تُخفى ولا يُكتب لها نص. وسطر «صدرت عبر منصة Field Sales» ليس في القائمة ولا يُعدَّل",
-     "كل نص سطر واحد حتى 60 حرفاً، إلا foot.thanks حتى 160 وnote.pricesIncl حتى 120 وrcp.credit حتى 80. المسافات المكررة تُطوى والفارغ null، والإعداد الذي لا أثر له يُحفظ كالاستعادة (stored = false)",
+     "كل مفتاح في القائمة يُعاد صياغته (text وalt) ويُحذف سطره (hidden:true) بلا استثناء منذ ٣ نوفمبر ٢٠٢٦، ومنها عناوين المستندات على المرحلتين وسطر المنصة foot.platform. لا رفض بسبب الإلزام: المسؤولية على الشركة",
+     "ما كان إلزامياً في الفاتورة الضريبية (مثل الرقم الضريبي للبائع وعنوانه، رقم المستند وتاريخه، الصنف والكمية والسعر، الرقم الضريبي للعميل، الإجماليات والضريبة، عنوان المستند) تُنبّه لوحة التحكم عند حذفه أو تغييره بأن الفاتورة قد لا تطابق متطلبات هيئة الزكاة والضريبة والجمارك، والتنبيه لا يمنع الحفظ ولا يرد في الردّ",
+     "كل نص سطر واحد حتى 60 حرفاً، إلا foot.thanks وinst.note حتى 160 وnote.pricesIncl حتى 120 وrcp.credit وfoot.platform حتى 80. المسافات المكررة تُطوى والفارغ null، والإعداد الذي لا أثر له يُحفظ كالاستعادة (stored = false)",
      "فوق 32 كيلوبايت 413 PRINT_TEXTS_TOO_LARGE، وبلا صف بيانات شركة 409 COMPANY_SETTINGS_MISSING",
      "الاستعادة بـ{\"reset\":true} لا بـnull: محلّل JSON في الخادم يرفض null خاماً في أعلى الجسم",
      "اقرأ GET أولاً وعدّل ثم أرسل الكل"

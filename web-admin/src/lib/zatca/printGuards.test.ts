@@ -59,8 +59,9 @@ test('قالب A4: الرمز المحليّ لا يُبنى إلا بقرارٍ
   const govBranch = s.indexOf('if (gov && einv?.uuid)', block);
   const local = s.indexOf('if (qrValue) {', block);
   assert.ok(p2 > block && p2 < govBranch && p2 < local, 'فرع المرحلة الثانية لا يسبق فرعي الرمز الآخرين');
-  // ولا تفصيل ضريبة على ورقةٍ غير ضريبية — ولا عنوانَ عمودٍ يقول إنّ السعر شامل ضريبة القيمة المضافة
-  assert.match(s, /\{zDecision\.showTaxBreakdown && doc\.tax > 0 && <Row label=\{L\('tot\.taxable', 'الوعاء الخاضع للضريبة'\)/);
+  // ولا تفصيل ضريبة على ورقةٍ غير ضريبية — ولا عنوانَ عمودٍ يقول إنّ السعر شامل ضريبة القيمة المضافة.
+  // تحديثٌ مقصود (طلب المالك الثالث ٣ نوفمبر ٢٠٢٦ «حذف السطر»): صفّ الوعاء يحذفه حذفُ الشركة له وحده — وشرط القرار يبقى أوّلاً
+  assert.match(s, /\{zDecision\.showTaxBreakdown && doc\.tax > 0 && !pt\.hidden\('tot\.taxable'\) && <Row label=\{L\('tot\.taxable', 'الوعاء الخاضع للضريبة'\)/);
   assert.match(s, /\{zDecision\.showTaxBreakdown && !pt\.hidden\('col\.tax'\) && <th style=\{th\}>\{L\('col\.tax', 'الضريبة', \{ stack: true \}\)\}<\/th>\}/);
   assert.match(s, /\{zDecision\.showTaxBreakdown && inclusiveDoc \? L\('col\.priceIncl', 'السعر شامل الضريبة', \{ stack: true \}\) : L\('col\.price', 'السعر', \{ stack: true \}\)\}/);
   // وتصنيف الورقة (سعر الوحدة قبل الضريبة) من القرار لا من رقم المشتري الضريبي
@@ -239,12 +240,16 @@ test('القالبان الحراريان الجديدان من القرار ن�
 test('مظهر الطباعة لا يُخفي محتوىً إلزامياً: الاسم والرقم الضريبي والسجل والعنوان في كل ترويسة', () => {
   const s = read('rep/RepDocuments.tsx');
   const header = between(s, 'export function Header', 'function InfoBox', 'rep/RepDocuments.tsx');
-  // «نصوص المطبوعات» تعيد صياغة التسميات (L) ولا تخفي هذه الثلاثة — قفلها zatca في printTextsCore.ts
-  assert.match(header, /\n\s*\{line\(L\('h\.taxNumber', 'الرقم الضريبي'\), company\?\.taxNumber, light\)\}/, 'الرقم الضريبي صار خياراً');
-  assert.match(header, /\n\s*\{line\(L\('h\.commercialReg', 'السجل التجاري'\), company\?\.commercialReg, light\)\}/);
-  assert.doesNotMatch(header, /pt\.hidden\('h\.(taxNumber|commercialReg|address)'\)/, 'نصٌّ إلزاميّ في الترويسة صار يُخفى');
+  /* تحديثٌ مقصود (طلب المالك الثالث ٣ نوفمبر ٢٠٢٦): كل نصٍّ يُحذف — فالرقم الضريبي والسجل (والعنوان) يحذفها **حذفُ الشركة لسطرها
+   * وحده** (pt.hidden، والمحرّر يحذّر ويطلب التأكيد). ويبقى المحروس: لا خيار مظهرٍ أو تخطيطٍ (look/layout) يخفيها، والاسم والعنوان
+   * في الأشكال الثلاثة، ولا شكلٌ رابع. */
+  assert.match(header, /\n\s*\{!pt\.hidden\('h\.taxNumber'\) && line\(L\('h\.taxNumber', 'الرقم الضريبي'\), company\?\.taxNumber, light\)\}/, 'الرقم الضريبي صار خياراً');
+  assert.match(header, /\n\s*\{!pt\.hidden\('h\.commercialReg'\) && line\(L\('h\.commercialReg', 'السجل التجاري'\), company\?\.commercialReg, light\)\}/);
+  assert.doesNotMatch(header, /(look|layout|lb)\.\w+ && !pt\.hidden\('h\.(taxNumber|commercialReg)'\)/, 'خيار مظهر يخفي نصّاً إلزامياً');
+  assert.doesNotMatch(header, /(look|layout|lb)\.\w+ && line\(L\('h\.(taxNumber|commercialReg)'/);
   assert.equal((header.match(/\{company\?\.name \|\| tr\('اسم الشركة'\)\}/g) || []).length, 3, 'اسم الشركة في الأشكال الثلاثة');
   assert.equal((header.match(/>\{title\}</g) || []).length, 3, 'العنوان في الأشكال الثلاثة');
+  assert.equal((header.match(/if \(style === /g) || []).length, 2, 'شكل ترويسة رابع');
   assert.doesNotMatch(header, /look\.\w+ && line\(tr\('الرقم الضريبي'\)/);
 });
 
@@ -255,8 +260,10 @@ test('(c) لا خيار طباعة يخفي أو يصغّر محتوى ZATCA ا�
     'showSellerName', 'showBuyerTaxNumber',
   ];
   const keys = Object.keys(defaultPrintOptions('thermal'));
-  assert.deepEqual([...keys].sort(), Object.keys(printSettingsV1Schema.shape.profiles.element.shape.options.shape).sort());
-  for (const k of keys) {
+  // «تخطيط المطبوعات» (تحديثٌ مقصود): `layout` المفتاح الجديد الوحيد — اختياريّ لا يدخل الافتراضي (غيابه = ورقة اليوم)
+  assert.ok(!keys.includes('layout'), 'الافتراضي يحمل تخطيطاً');
+  assert.deepEqual([...keys, 'layout'].sort(), Object.keys(printSettingsV1Schema.shape.profiles.element.shape.options.shape).sort());
+  for (const k of [...keys, 'layout']) {
     assert.ok(!FORBIDDEN.includes(k), `خيار محظور: ${k}`);
     assert.doesNotMatch(k, /qr(Hidden|Min|Off)|hide|title|tax|vat|notice|watermark|icv|uuid|seller|buyer/i, `خيار يمسّ محتوى إلزامياً: ${k}`);
   }
@@ -374,7 +381,8 @@ test('لا رأس سياسة يحجب Web Serial (التصميم §3.1) — ال
 });
 
 test('قوالب الرسم النقطيّ بلا تباعد حروف (التصميم §3.3 الخطوة 2): html2canvas يفصل حروف العربية المتصلة به', () => {
-  for (const f of ['rep/RepDocuments.tsx', 'rep/thermal.ts', 'rep/thermalHtml.ts', 'rep/printLook.ts', 'rep/printPage.ts', 'lib/print/calibration.ts']) {
+  for (const f of ['rep/RepDocuments.tsx', 'rep/thermal.ts', 'rep/thermalHtml.ts', 'rep/printLook.ts', 'rep/printPage.ts', 'lib/print/calibration.ts',
+    'rep/printGrid.tsx', 'lib/print/layout.ts']) {
     assert.doesNotMatch(read(f), /letterSpacing|letter-spacing/i, `${f}: تباعد حروف في قالب طباعة`);
   }
 });
@@ -393,4 +401,21 @@ test('فكّ القيد (طلب المالك ٣١ أكتوبر ٢٠٢٦): إشع
     .sort();
   // الحراري (thermal/thermalHtml) والطباعة المباشرة (lib/print) لا تذكره أبداً
   assert.deepEqual(callers, ['components/forms/InvoiceModal.tsx', 'lib/zatca/issueOutcome.ts', 'm/MInvoiceCreate.tsx', 'rep/RepApp.tsx', 'rep/RepDocuments.tsx']);
+});
+
+test('القالب ثنائي اللغة (تخطيط المطبوعات): القرار والعنوان والرمز من قالب A4 نفسه — والقالب الجديد لا يبني رمزاً ولا يكتب خانة', () => {
+  const s = read('rep/RepDocuments.tsx');
+  const a4 = between(s, 'export const PrintableInvoice = forwardRef', "PrintableInvoice.displayName = 'PrintableInvoice';", 'rep/RepDocuments.tsx');
+  // فرع القالب الجديد بعد القرار والعنوان والرمز المحروس — لا قبلها
+  const grid = a4.indexOf("if (layout?.design === 'grid_bilingual') {");
+  assert.ok(grid > 0, 'فرع القالب ثنائي اللغة غائب');
+  for (const anchor of ['const zDecision = zatcaPrintDecision(', 'const docTitle = pt.title(', 'const qrValue = zDecision.qr.source']) {
+    assert.ok(a4.indexOf(anchor) > 0 && a4.indexOf(anchor) < grid, `${anchor} بعد فرع القالب الجديد`);
+  }
+  // الرمز كتلةُ اليوم نفسها (InvoiceQrBlock بقيمة القرار وqrValue المحروسة) — للقالبين
+  assert.match(a4, /const qrNode = <InvoiceQrBlock doc=\{doc\} zDecision=\{zDecision\} qrValue=\{qrValue\} look=\{look\} pt=\{pt\} \/>;/);
+  assert.match(a4, /<GridInvoice ref=\{ref\} doc=\{doc\} facts=\{\{ pt, zDecision, title: docTitle, inclusiveDoc, vatRate, noteRefs \}\} look=\{look\} layout=\{layout\} qr=\{qrNode\} \/>/);
+  assert.equal((a4.match(/\n\s*\{qrNode\}/g) || []).length, 1,'الرمز في القالب الحالي داخل الإجماليات مرّةً واحدة');
+  const g = stripComments(read('rep/printGrid.tsx'));
+  assert.doesNotMatch(g, /buildZatcaQr\s*\(|QRCode\.|data-qr-value|zatcaPrintDecision\(|buyerNotice/, 'القالب ثنائي اللغة يبني رمزاً أو قراراً');
 });

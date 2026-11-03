@@ -15,10 +15,11 @@ import {
   checkPrintSettings, duplicateProfile, isLegacyPrintSettings, isLegacyProfileId, legacyPrintSettings, maxPrintableDots, newProfile, normalizePrintSettings,
   printSaveErrorMessage, printableMm, profileDisplayName, profileUsage, profileWarnings, qrPlan, routingAllowsPrinter, templatesFor,
   uniqueProfileName, withDpi, withPaper, withPreset, withPrinter, withProfile, withoutProfile,
+  DESIGN_HINTS, DESIGN_LABELS,
   type PaperFeed, type PrintIssue, type PrintOptions, type PrintProfile, type PrintSettingsResponse, type PrintSettingsV1, type PrinterDpi,
   type PrinterType, type TemplateId,
 } from '../../lib/print/printSettings';
-import PrintPreview from './PrintPreview';
+import PrintPreview, { GridThumb, LayoutFields, applyDesignCard, designCardSelected, designCards } from './PrintPreview';
 import PrintDeviceTools from './PrintDeviceTools';
 import { PrintableInvoice, type Company } from '../../rep/RepDocuments';
 import { currentPrintIdentity, usePrintDeviceChoice } from '../../rep/printDevice';
@@ -379,15 +380,19 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
 
           {editor.step === 3 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {templatesFor(p.printer).map((t) => {
+              {designCards(p).map((c) => {
+                const t = c.kind === 'template' ? c.t : null;
                 const blocked = t === 'roll_detailed' && (p.paper.printableDots ?? 0) < detailedMinDots;
+                const label = t ? TEMPLATE_LABELS[t] : DESIGN_LABELS.grid_bilingual;
+                const hint = t ? TEMPLATE_HINTS[t] : DESIGN_HINTS.grid_bilingual ?? '';
                 return (
-                  <button key={t} type="button" disabled={blocked} onClick={() => update({ ...p, template: t })}
-                    className={`text-right rounded-2xl border-2 p-3 flex gap-3 transition-colors disabled:opacity-50 ${p.template === t ? 'border-[#E15A30] bg-[#FBEBE2]' : 'border-[#E9E1D3] bg-white hover:border-[#D8CDB9]'}`}>
-                    <TemplateThumb t={t} />
+                  <button key={t ?? 'grid_bilingual'} type="button" disabled={blocked} onClick={() => update(applyDesignCard(p, c))}
+                    data-design-card={t ?? 'grid_bilingual'}
+                    className={`text-right rounded-2xl border-2 p-3 flex gap-3 transition-colors disabled:opacity-50 ${designCardSelected(p, c) ? 'border-[#E15A30] bg-[#FBEBE2]' : 'border-[#E9E1D3] bg-white hover:border-[#D8CDB9]'}`}>
+                    {t ? <TemplateThumb t={t} /> : <GridThumb />}
                     <span className="min-w-0">
-                      <span className="block font-bold text-[#1F1A13]">{tr(TEMPLATE_LABELS[t])}</span>
-                      <span className="block text-xs text-[#6E6557] mt-1 leading-relaxed">{tr(TEMPLATE_HINTS[t])}</span>
+                      <span className="block font-bold text-[#1F1A13]">{tr(label)}</span>
+                      <span className="block text-xs text-[#6E6557] mt-1 leading-relaxed">{tr(hint)}</span>
                       {blocked && <span className="block text-xs text-red-600 mt-1">{tr(PRINT_ISSUES.detailedWidth)}</span>}
                     </span>
                   </button>
@@ -410,19 +415,24 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
                   <input className="input" maxLength={PRINT_LIMITS.footerMax} placeholder={tr('شكرا لتعاملكم معنا')} value={p.options.footerText ?? ''}
                     onChange={(e) => setOpt('footerText', e.target.value ? e.target.value : null)} />
                 </label>
-                <p className="text-[11px] text-[#6E6557] flex items-start gap-1.5"><Info size={12} className="mt-0.5 shrink-0" />{tr('اسم البائع ورقمه الضريبي وعنوان المستند ورمز QR والضريبة تطبع دائما ولا تخفى')}</p>
+                <p className="text-[11px] text-[#6E6557] flex items-start gap-1.5"><Info size={12} className="mt-0.5 shrink-0" />{tr('رمز QR يطبع دائما على مستند المرحلة الثانية — وصياغة العبارات وحذف سطورها من «نصوص المطبوعات»')}</p>
               </Section>
 
+              <Section title={tr('التخطيط')} open><LayoutFields p={p} update={update} /></Section>
+
               <Section title={tr('الخط')}>
-                <div>
-                  <span className="label">{tr('حجم الخط')}</span>
-                  <div className="flex gap-1.5 flex-wrap">
-                    {FONT_SCALES.map((f) => (
-                      <button key={f} type="button" onClick={() => setOpt('fontScale', f)} dir="ltr"
-                        className={`rounded-lg border px-3 py-1 text-xs font-semibold ${p.options.fontScale === f ? 'border-[#E15A30] bg-[#FBEBE2] text-[#C94E28]' : 'border-[#E9E1D3] bg-white'}`}>{Math.round(f * 100)}%</button>
-                    ))}
+                {/* الصفحة والنقطية: حجم الخط في «التخطيط» — لا يُطبَّق عليهما إلا مع تخطيط (بلاه مطبوعة اليوم حرفياً) */}
+                {p.printer === 'thermal' && (
+                  <div>
+                    <span className="label">{tr('حجم الخط')}</span>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {FONT_SCALES.map((f) => (
+                        <button key={f} type="button" onClick={() => setOpt('fontScale', f)} dir="ltr"
+                          className={`rounded-lg border px-3 py-1 text-xs font-semibold ${p.options.fontScale === f ? 'border-[#E15A30] bg-[#FBEBE2] text-[#C94E28]' : 'border-[#E9E1D3] bg-white'}`}>{Math.round(f * 100)}%</button>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
                 <Toggle label={tr('خط عريض للنص')} checked={p.options.boldBody} onChange={(v) => setOpt('boldBody', v)} />
               </Section>
 
@@ -515,7 +525,7 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
         <div className="min-w-0">
           <p className="text-sm font-semibold text-gray-500 mb-2">{tr('المعاينة')}</p>
           <div className="rounded-2xl bg-[#FAF7F0] border border-[#E9E1D3] p-3">
-            <PrintPreview profile={p} companyName={companyName} brandColor={brandColor} />
+            <PrintPreview profile={p} companyName={companyName} brandColor={brandColor} company={company} />
           </div>
           {/* E — الطباعة على هذا الجهاز: المعايرة والتجربة بالقيم المفتوحة (قبل الحفظ) */}
           <p className="text-sm font-semibold text-gray-500 mt-4 mb-2">{tr('الطباعة على هذا الجهاز')}</p>

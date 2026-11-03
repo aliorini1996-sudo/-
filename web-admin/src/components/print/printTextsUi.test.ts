@@ -4,7 +4,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { PRINT_TEXT_CATALOG, PRINT_TEXTS_ISSUES } from '../../lib/print/printTextsCore';
+import { PRINT_TEXT_CATALOG, PRINT_TEXT_WARNINGS, PRINT_TEXTS_ISSUES } from '../../lib/print/printTextsCore';
+import { DESIGN_LABELS } from '../../lib/print/printSettings';
 import { PHRASES } from '../../i18n/strings';
 
 const root = process.cwd();
@@ -89,11 +90,14 @@ test('الحفظ: فحص الخادم الصارم قبله، وبمساره ا�
   assert.ok(client.includes("put: (data: PrintTextsV1 | null) => api.put('/company/print-texts', data ?? { reset: true }),"));
 });
 
-test('المعاينة: القالبان الحقيقيان ملفوفان بـPrintTextsPreviewContext ومظهر اليوم، بمستند المرحلة الأولى، والحرارية للعرض فقط', () => {
+test('المعاينة: القالبان الحقيقيان ملفوفان بـPrintTextsPreviewContext ومظهر اليوم (أو التصميم ثنائي اللغة)، بمستند المرحلة الأولى، والحرارية للعرض فقط', () => {
   const e = editor();
   assert.match(e, /import \{ PrintableInvoice, PrintableReceipt, [^}]*\} from '\.\.\/\.\.\/rep\/RepDocuments';/);
   assert.ok(e.includes("import { PrintTextsPreviewContext } from '../../rep/printTextsContext';"));
-  const look = e.indexOf('<PrintLookContext.Provider value={DEFAULT_PRINT_LOOK}>');
+  const look = e.indexOf('<PrintLookContext.Provider value={previewLook}>');
+  // مظهر اليوم، أو التصميم ثنائي اللغة على A4 وحدها (طلب المالك ٣ نوفمبر ٢٠٢٦: تظهر التسميات الإنجليزية)
+  assert.ok(e.includes("const previewLook = useMemo<PrintLook>(() => (grid ? gridPreviewLook() : DEFAULT_PRINT_LOOK), [grid]);"));
+  assert.ok(e.includes("const grid = design === 'grid' && paper === 'a4';"));
   const open = e.indexOf('<PrintTextsPreviewContext.Provider value={preview}>');
   const inv = e.indexOf('<PrintableInvoice doc={invoiceDoc} />');
   const rcp = e.indexOf('<PrintableReceipt doc={receiptDoc} />');
@@ -122,8 +126,8 @@ test('القاموس: كل نصٍّ في القائمة وكل سبب رفض و�
   const want = new Set<string>([...PRINT_TEXT_CATALOG.map((x) => x.ar), ...Object.values(PRINT_TEXTS_ISSUES), 'اسم الشركة في التذييل']);
   // نداءات tr('…') الحرفية
   for (const src of [e, c]) for (const m of src.matchAll(/\btr\(\s*'((?:[^'\\]|\\.)*)'\s*\)/g)) want.add(m[1]);
-  // الثوابت التي تمرّ بـtr متغيّرةً: عناوين المجموعات وأسباب القفل والتنبيهات
-  for (const name of ['GROUP_TITLES', 'LOCK_REASONS']) {
+  // الثوابت التي تمرّ بـtr متغيّرةً: عناوين المجموعات وتلميحات «حذف السطر» والتنبيهات (لا أسباب قفل: طلب المالك ٣ نوفمبر ٢٠٢٦)
+  for (const name of ['GROUP_TITLES', 'LINE_SCOPE_HINTS']) {
     const at = e.indexOf(`const ${name}`);
     assert.ok(at > 0, name);
     const body = e.slice(at, e.indexOf('});', at));
@@ -131,7 +135,9 @@ test('القاموس: كل نصٍّ في القائمة وكل سبب رفض و�
     assert.ok(vals.length >= 3, name);
     for (const v of vals) want.add(v);
   }
-  for (const name of ['STANDARD_HINT', 'TITLE_WARNING', 'PHASE2_TITLE_NOTE']) {
+  for (const v of Object.values(PRINT_TEXT_WARNINGS)) want.add(v);
+  for (const v of Object.values(DESIGN_LABELS)) want.add(v);
+  for (const name of ['TITLE_WARNING']) {
     const m = e.match(new RegExp(`const ${name} = '([^']+)';`));
     assert.ok(m, name);
     want.add(m[1]);

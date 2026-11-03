@@ -1,8 +1,16 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { ArrowDown, ArrowUp, GripVertical, Info, RotateCcw } from 'lucide-react';
 import { useTr } from '../../i18n/strings';
 import {
   PRINT_SAMPLE_WATERMARK, STAMPED_QR_CELLS, geometry, pageQrModuleMm, qrPlan, type PrintProfile,
+  ACCENT_PALETTE, ACCENT_RE, LOGO_POSITIONS, LOGO_POSITION_LABELS, LOGO_SIZES, LOGO_SIZE_LABELS, PRINT_ISSUES, SECTION_LABELS, TABLE_STYLES,
+  TABLE_STYLE_LABELS, accentContrastOk, canMoveSection, designsFor, isLegacyProfileId, layoutOf, moveSection, normalizeSectionOrder, sectionsFor,
+  templatesFor, withDesign, withLayout, type LogoPosition, type SectionId, type TemplateId,
 } from '../../lib/print/printSettings';
+import { sampleInvoiceDoc } from '../../lib/print/calibration';
+import { PrintableInvoice, PrintableReceipt, type Company, type InvoiceDoc, type ReceiptDoc } from '../../rep/RepDocuments';
+import { PrintLookContext, SHEET_WIDTH_PX, lookFor } from '../../rep/printLook';
+import { thermalPreviewHtml } from '../../rep/thermal';
 
 /**
  * معاينة قالب الطباعة في «إعدادات الطباعة» (التصميم §5.1 D، صورة M1 المبسّطة): الورقة بمقاسها الفعلي (مصغّرة لتتسع)، وحدود
@@ -15,7 +23,176 @@ import {
 const MM = 96 / 25.4; // بكسل CSS لكل مم
 const ROLL_VIEW_MIN_MM = 90;
 
-export default function PrintPreview({ profile, companyName, brandColor }: { profile: PrintProfile; companyName: string; brandColor: string }) {
+/**
+ * «التخطيط» (طلب المالك ٣ نوفمبر ٢٠٢٦): المعاينة صارت بعرضين — «التصميم الفعلي» هو القالب الحقيقي نفسه (PrintableInvoice /
+ * PrintableReceipt بمظهر القالب المفتوح lookFor(profile)، والرول بوثيقة thermal.ts بملفّه) فيظهر مكان الشعار واللون والجدول وترتيب
+ * الأقسام والتصميم ثنائي اللغة ونصوص الشركة كما تُطبع؛ و«المقاس والهوامش» المخطّط القديم بحدود الحزمة والهوامش. المستند النموذجي
+ * هو مستند المعايرة (رمزٌ تجريبي لا يُمسح كرمزٍ ضريبي) مع رمز الصنف وضريبة السطر والمدينة والرمز البريدي للبائع والمشتري.
+ */
+type PreviewView = 'design' | 'paper';
+type PreviewKind = 'invoice' | 'receipt';
+
+export default function PrintPreview({ profile, companyName, brandColor, company }: {
+  profile: PrintProfile; companyName: string; brandColor: string; company?: Company | null;
+}) {
+  const tr = useTr();
+  const [view, setView] = useState<PreviewView>('design');
+  const [kind, setKind] = useState<PreviewKind>('invoice');
+  const tab = (on: boolean): string =>
+    `shrink-0 rounded-full border px-3 py-1 text-[11px] font-semibold ${on ? 'border-[#E15A30] bg-[#FBEBE2] text-[#C94E28]' : 'border-[#E9E1D3] bg-white text-[#44403a]'}`;
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 flex-wrap mb-2" role="tablist">
+        {(['design', 'paper'] as const).map((v) => (
+          <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => setView(v)} className={tab(view === v)}>
+            {v === 'design' ? tr('التصميم الفعلي') : tr('المقاس والهوامش')}
+          </button>
+        ))}
+        {view === 'design' && (
+          <span className="ms-auto flex gap-1">
+            {(['invoice', 'receipt'] as const).map((k) => (
+              <button key={k} type="button" aria-pressed={kind === k} onClick={() => setKind(k)} className={tab(kind === k)}>
+                {k === 'invoice' ? tr('فاتورة') : tr('سند قبض')}
+              </button>
+            ))}
+          </span>
+        )}
+      </div>
+      {view === 'design'
+        ? <DesignPreview profile={profile} company={company} kind={kind} />
+        : <PaperPreview profile={profile} companyName={companyName} brandColor={brandColor} />}
+    </div>
+  );
+}
+
+const r2 = (n: number): number => Math.round(n * 100) / 100;
+
+/** فاتورة المعاينة: مستند المعايرة (sampleInvoiceDoc) ومعه ما يملأ القالب ثنائي اللغة — رمز الصنف وضريبة السطر والعنوان الوطني */
+export function previewInvoiceDoc(company: Company | null | undefined, tr: Tr, now: Date = new Date()): InvoiceDoc {
+  const d = sampleInvoiceDoc(company, tr, now);
+  const c = d.company ?? { name: tr('اسم الشركة') };
+  return {
+    ...d,
+    company: {
+      ...c,
+      address: c.address || tr('الرياض - حي العليا'),
+      phone: c.phone || '0110000000',
+      commercialReg: c.commercialReg || '1010000000',
+      addrCity: c.addrCity || tr('الرياض'),
+      addrPostalCode: c.addrPostalCode || '12211',
+    },
+    customer: {
+      name: tr('عميل تجريبي'), businessName: tr('مؤسسة تجريبية'), taxNumber: '310000000000003', phone: '0500000000',
+      address: tr('جدة - حي الروضة'), city: tr('جدة'), postalCode: '23435',
+    },
+    items: d.items.map((it, i) => ({
+      ...it,
+      code: `P-${1001 + i}`,
+      taxAmt: d.pricesIncludeTax ? r2(it.lineTotal - it.lineTotal / (1 + it.taxPct / 100)) : r2((it.lineTotal * it.taxPct) / 100),
+    })),
+  };
+}
+
+/** سند المعاينة — مقابل فاتورة المعاينة، بلا رمز QR كاليوم */
+export function previewReceiptDoc(company: Company | null | undefined, tr: Tr, now: Date = new Date()): ReceiptDoc {
+  const inv = previewInvoiceDoc(company, tr, now);
+  return {
+    kind: 'receipt', number: 'TEST-R-0001', date: inv.date, company: inv.company, customer: inv.customer, repName: inv.repName,
+    amount: inv.total, paymentMethod: 'CASH', invoices: [{ number: inv.number, amount: inv.total }],
+  };
+}
+
+/** العلامة المائية فوق كل معاينة — «نموذج اختبار — ليس مستندا ضريبيا» */
+function Watermark({ size }: { size: number }) {
+  const tr = useTr();
+  return (
+    <div aria-hidden="true" className="absolute inset-0 flex items-center justify-center pointer-events-none">
+      <span style={{ transform: 'rotate(-28deg)', color: 'rgba(225,90,48,0.32)', fontWeight: 800, fontSize: size, whiteSpace: 'nowrap' }}>
+        {tr(PRINT_SAMPLE_WATERMARK)}
+      </span>
+    </div>
+  );
+}
+
+function DesignPreview({ profile, company, kind }: { profile: PrintProfile; company?: Company | null; kind: PreviewKind }) {
+  const tr = useTr();
+  const doc = useMemo(() => (kind === 'invoice' ? previewInvoiceDoc(company, tr) : previewReceiptDoc(company, tr)), [kind, company, tr]);
+  if (profile.printer === 'thermal') return <RollPreview profile={profile} doc={doc} />;
+  return <SheetPreview profile={profile} doc={doc} />;
+}
+
+/** ورقة الصفحة والنقطية: القالب الحقيقي بعرض 794 بكسل مصغّراً لعمود المعاينة، بمظهر القالب المفتوح */
+function SheetPreview({ profile, doc }: { profile: PrintProfile; doc: InvoiceDoc | ReceiptDoc }) {
+  const look = useMemo(() => lookFor(profile), [profile]);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const [boxW, setBoxW] = useState(0);
+  const [sheetH, setSheetH] = useState(1123);
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    const sheet = sheetRef.current;
+    if (!box || !sheet) return;
+    const measure = () => { setBoxW(box.clientWidth); setSheetH(sheet.offsetHeight); };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(box);
+    ro.observe(sheet);
+    return () => ro.disconnect();
+  }, []);
+  const scale = boxW > 0 ? Math.min(1, boxW / SHEET_WIDTH_PX) : 0.42;
+  return (
+    <div ref={boxRef} className="w-full" data-preview="sheet">
+      <div className="relative mx-auto bg-white overflow-hidden" style={{ width: SHEET_WIDTH_PX * scale, height: sheetH * scale, boxShadow: '0 1px 6px rgba(31,26,19,0.18)', border: '1px solid #E9E1D3' }}>
+        <div ref={sheetRef} style={{ position: 'absolute', top: 0, left: 0, width: SHEET_WIDTH_PX, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
+          <PrintLookContext.Provider value={look}>
+            {doc.kind === 'invoice' ? <PrintableInvoice doc={doc} /> : <PrintableReceipt doc={doc} />}
+          </PrintLookContext.Provider>
+        </div>
+        <Watermark size={Math.max(13, (SHEET_WIDTH_PX * scale) / 13)} />
+      </div>
+    </div>
+  );
+}
+
+/** الرول: وثيقة القالب الحراريّ نفسها (rep/thermal.ts) بملفّ القالب المفتوح في iframe بعرض الورق — للعرض فقط، بلا سكربت */
+function RollPreview({ profile, doc }: { profile: PrintProfile; doc: InvoiceDoc | ReceiptDoc }) {
+  const tr = useTr();
+  const [html, setHtml] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [height, setHeight] = useState(480);
+  const paperMm: 58 | 80 = profile.paper.widthMm < 70 ? 58 : 80;
+  useEffect(() => {
+    let live = true;
+    // تعديلات متتابعة (نقرات الترتيب، كتابة لون) لا تبني الوثيقة لكل خطوة
+    const t = window.setTimeout(() => {
+      thermalPreviewHtml(doc, { tr, paperMm, profile }).then(
+        (h) => { if (live) { setHtml(h); setFailed(false); } },
+        () => { if (live) setFailed(true); },
+      );
+    }, 200);
+    return () => { live = false; window.clearTimeout(t); };
+  }, [doc, paperMm, profile, tr]);
+  if (failed) return <p className="text-sm text-[#8E2A1F] text-center py-10">{tr('تعذر عرض المعاينة الحرارية')}</p>;
+  if (html === null) return <div className="flex justify-center py-10"><span className="w-6 h-6 border-4 border-[#E15A30] border-t-transparent rounded-full animate-spin" /></div>;
+  return (
+    <div className="flex justify-center" data-preview="roll">
+      <div className="relative">
+        <iframe title={tr('المعاينة الحرارية')} srcDoc={html} sandbox="allow-same-origin"
+          onLoad={(e) => {
+            const d = e.currentTarget.contentDocument;
+            if (d) setHeight(Math.max(240, d.documentElement.scrollHeight + 4));
+          }}
+          className="bg-white shadow-sm border border-[#E9E1D3] block"
+          style={{ width: `calc(${profile.paper.widthMm}mm + 2px)`, maxWidth: '100%', height }} />
+        <Watermark size={13} />
+      </div>
+    </div>
+  );
+}
+
+/** المخطّط: الورقة بمقاسها وحدود الحزمة والهوامش (المعاينة قبل «التخطيط») */
+function PaperPreview({ profile, companyName, brandColor }: { profile: PrintProfile; companyName: string; brandColor: string }) {
   const tr = useTr();
   const g = geometry(profile);
   const o = profile.options;
@@ -52,7 +229,7 @@ export default function PrintPreview({ profile, companyName, brandColor }: { pro
   const bandW = g.printableWidthMm * MM;
   const bandL = g.bandLeftMm * MM;
   const preprintedGapPx = profile.template === 'impact_preprinted' ? 25 * MM : 0;
-  const basePx = (profile.printer === 'impact' ? 12 : raster ? 11 : 10.5) * o.fontScale;
+  const basePx = schematicFontPx(profile);
 
   const contentStyle: CSSProperties = {
     position: 'absolute', left: bandL, width: bandW, top: topPx + preprintedGapPx,
@@ -238,5 +415,295 @@ function PageSample({ profile, companyName, brandColor, mono, qrMm, qrCells, tr 
       )}
       <div style={{ textAlign: 'center', marginTop: 8 }}>{o.footerText ?? tr('شكرا لتعاملكم معنا')}</div>
     </div>
+  );
+}
+
+// ─── «التخطيط» (طلب المالك ٣ نوفمبر ٢٠٢٦): التصميم ثنائي اللغة، ومكان الشعار وحجمه، واللون، والخط، والجدول، وترتيب الأقسام ───
+// هنا لا في اللوحة: اللوحة تستورد عميل الـAPI فلا تُحمَّل في اختبار node (printLayoutUi.test.ts يختبر هذه الدوالّ ويرسم الحقول).
+// دوالّ نقيّة فوق مساعدات lib/print/printSettings.ts — لا تحقّق هنا: القواعد في layoutIssues والقيود في canMoveSection/moveSection.
+// قالبٌ لم يُلمس تخطيطه يبقى بلا options.layout فيطبع اليوم حرفياً.
+
+/** بطاقة في خطوة «التصميم»: قالبٌ من قوالب الطابعة، أو «كلاسيكي بإطارات — ثنائي اللغة» (الصفحة والنقطية — ليس TemplateId) */
+export type DesignCard = { kind: 'template'; t: TemplateId } | { kind: 'grid' };
+
+const isGridDesign = (p: PrintProfile): boolean => p.options.layout?.design === 'grid_bilingual';
+
+/** قوالب الطابعة ثم البطاقة الثالثة ثنائية اللغة حيث يصحّ تصميمها (designsFor) */
+export function designCards(p: PrintProfile): DesignCard[] {
+  const cards: DesignCard[] = templatesFor(p.printer).map((t) => ({ kind: 'template' as const, t }));
+  return designsFor(p.printer).includes('grid_bilingual') ? [...cards, { kind: 'grid' }] : cards;
+}
+
+/** المختارة: ثنائي اللغة بتصميمه في التخطيط، وغيره بقالبه ما دام التصميم ليس ثنائي اللغة */
+export function designCardSelected(p: PrintProfile, c: DesignCard): boolean {
+  return c.kind === 'grid' ? isGridDesign(p) : !isGridDesign(p) && p.template === c.t;
+}
+
+/** الاختيار: ثنائي اللغة ⇒ withDesign (القالب الأحادي للطابعة وتخطيطه)، وقالبٌ بعده ⇒ يعود «التصميم الحالي» بذلك القالب */
+export function applyDesignCard(p: PrintProfile, c: DesignCard): PrintProfile {
+  if (c.kind === 'grid') return withDesign(p, 'grid_bilingual');
+  const next: PrintProfile = { ...p, template: c.t };
+  return isGridDesign(p) ? withDesign(next, 'standard') : next;
+}
+
+/** الافتراضيان والرول الكلاسيكي لا يحملان تخطيطاً (layoutClassic) — يُنسخ الافتراضي لتخصيصه كاليوم */
+export function layoutEditable(p: PrintProfile): boolean {
+  return !isLegacyProfileId(p.id) && p.template !== 'roll_classic';
+}
+
+/** مواضع الشعار المتاحة: الرول في الوسط أو بلا شعار (layoutRoll) */
+export function logoChoices(p: PrintProfile): readonly LogoPosition[] {
+  return p.printer === 'thermal' ? ['center', 'none'] : LOGO_POSITIONS;
+}
+
+/** أحجام الخط في «التخطيط» للصفحة والنقطية (الرول يبقى في «الخط» بمقاساته الأربعة كاليوم) */
+export const LAYOUT_FONT_SCALES = [0.9, 1, 1.15] as const;
+
+/** حجم الخط للصفحة والنقطية: يُحفظ في fontScale ويُنشئ التخطيط — بلا تخطيط لا يُطبَّق عليهما (مطبوعة اليوم حرفياً) */
+export function withLayoutFontScale(p: PrintProfile, f: (typeof LAYOUT_FONT_SCALES)[number]): PrintProfile {
+  return withLayout({ ...p, options: { ...p.options, fontScale: f } }, {});
+}
+
+/** حجم الخط الفعّال على الورقة: الصفحة والنقطية بلا تخطيط 100% مهما حُفظ */
+export function effectiveFontScale(p: PrintProfile): number {
+  return p.printer !== 'thermal' && !p.options.layout ? 1 : p.options.fontScale;
+}
+
+/** خطّ مخطّط «المقاس والهوامش»: بالحجم الفعّال على الورقة (effectiveFontScale) — لا fontScale محفوظاً لا تطبعه الصفحة بلا تخطيط */
+export function schematicFontPx(p: PrintProfile): number {
+  const raster = p.printer !== 'page';
+  return (p.printer === 'impact' ? 12 : raster ? 11 : 10.5) * effectiveFontScale(p);
+}
+
+export interface SectionRow { id: SectionId; up: boolean; down: boolean }
+
+/** صفوف «ترتيب الأقسام» بالترتيب الفعّال، و▲▼ لكلٍّ منها حيث لا تمنع قاعدة (الترويسة أولاً، التواقيع ثم التذييل آخراً…) */
+export function sectionRows(p: PrintProfile): SectionRow[] {
+  const l = layoutOf(p);
+  return normalizeSectionOrder(l.order, p.printer, l.design).map((id, i) => ({
+    id, up: canMoveSection(p, id, i - 1), down: canMoveSection(p, id, i + 1),
+  }));
+}
+
+/**
+ * زرّ ▲/▼ الذي يعود إليه التركيز بعد النقل بلوحة المفاتيح: React ينقل عقدة الصفّ في DOM (فيضيع تركيز زرّه) أو يُعطَّل الزرّ عند
+ * الحدّ — فالاتجاه نفسه إن بقي متاحاً، وإلا الآخر، وإلا null
+ */
+export function moveFocusTarget(rows: readonly SectionRow[], id: SectionId, dir: 'up' | 'down'): 'up' | 'down' | null {
+  const r = rows.find((x) => x.id === id);
+  if (!r) return null;
+  if (dir === 'up' ? r.up : r.down) return dir;
+  if (dir === 'up' ? r.down : r.up) return dir === 'up' ? 'down' : 'up';
+  return null;
+}
+
+export function orderIsDefault(p: PrintProfile): boolean {
+  const l = layoutOf(p);
+  const def = sectionsFor(p.printer, l.design);
+  const cur = normalizeSectionOrder(l.order, p.printer, l.design);
+  return cur.length === def.length && cur.every((id, i) => id === def[i]);
+}
+
+/** «إعادة الترتيب الافتراضي» — ترتيب اليوم لأقسام التصميم، وقالبٌ بلا تخطيط يبقى بلا تخطيط */
+export function resetSectionOrder(p: PrintProfile): PrintProfile {
+  if (orderIsDefault(p)) return p;
+  return withLayout(p, { order: [...sectionsFor(p.printer, layoutOf(p).design)] });
+}
+
+/** حالة اللون المكتوب: صالحٌ، أو فاتحٌ لا يُقرأ (layoutAccent)، أو ليس #RRGGBB بعد */
+export function accentInputState(text: string): 'ok' | 'light' | 'invalid' {
+  if (!ACCENT_RE.test(text)) return 'invalid';
+  return accentContrastOk(text) ? 'ok' : 'light';
+}
+
+/**
+ * نصّ خانة «لون مخصص» بعد تغيّر اللون المحفوظ: لون الشركة أو لونٌ من اللوحة ⇒ فارغة؛ واللون المكتوب نفسه ⇒ كما كُتب؛ وغيره ⇒ قيمته
+ * (فلا تبقى خانةٌ بلونٍ فاتحٍ مرفوض ورسالته بعد «العودة إلى تخطيط اليوم»)
+ */
+export function accentTextAfter(value: string | null, text: string): string {
+  if (value === null || (ACCENT_PALETTE as readonly string[]).includes(value.toUpperCase())) return '';
+  return text.toUpperCase() === value.toUpperCase() ? text : value;
+}
+
+const chip = (on: boolean): string =>
+  `rounded-lg border px-3 py-1 text-xs font-semibold disabled:opacity-40 ${on ? 'border-[#E15A30] bg-[#FBEBE2] text-[#C94E28]' : 'border-[#E9E1D3] bg-white'}`;
+
+function Segmented<T extends string>({ label, options, labels, value, onPick, disabled }: {
+  label: string; options: readonly T[]; labels: Readonly<Record<T, string>>; value: T; onPick: (v: T) => void; disabled?: (v: T) => boolean;
+}) {
+  const tr = useTr();
+  return (
+    <div role="group" aria-label={label}>
+      <span className="label">{label}</span>
+      <div className="flex gap-1.5 flex-wrap">
+        {options.map((o) => (
+          <button key={o} type="button" aria-pressed={value === o} disabled={disabled?.(o)} onClick={() => onPick(o)} className={chip(value === o)}>{tr(labels[o])}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** حقول «التخطيط» في الخطوة الرابعة — اللوحة تلفّها في قسمها */
+export function LayoutFields({ p, update }: { p: PrintProfile; update: (next: PrintProfile) => void }) {
+  const tr = useTr();
+  const [drag, setDrag] = useState<SectionId | null>(null);
+  // ▲▼ بلوحة المفاتيح: بعد النقل يعود التركيز إلى زرّ الصفّ نفسه (moveFocusTarget) فتتتابع الضغطات بلا Tab من جديد
+  const orderRef = useRef<HTMLOListElement>(null);
+  const refocus = useRef<{ id: SectionId; dir: 'up' | 'down' } | null>(null);
+  useEffect(() => {
+    const want = refocus.current;
+    if (!want) return;
+    refocus.current = null;
+    const to = moveFocusTarget(sectionRows(p), want.id, want.dir);
+    if (to) orderRef.current?.querySelector<HTMLButtonElement>(`[data-section="${want.id}"] [data-move="${to}"]`)?.focus();
+  });
+  if (!layoutEditable(p)) {
+    return <p className="text-xs text-[#6E6557] flex items-start gap-1.5"><Info size={12} className="mt-0.5 shrink-0" />{tr(PRINT_ISSUES.layoutClassic)}</p>;
+  }
+  const l = layoutOf(p);
+  const custom = p.options.layout !== undefined;
+  const set = (patch: Parameters<typeof withLayout>[1]) => update(withLayout(p, patch));
+  const rows = sectionRows(p);
+  const logoOff = !p.options.showLogo || p.template === 'impact_preprinted';
+  const colorful = p.printer === 'page' && p.template === 'page_branded';
+  const grid = l.design === 'grid_bilingual';
+  const move = (id: SectionId, to: number) => update(moveSection(p, id, to));
+  return (
+    <>
+      {!custom && <p className="text-[11px] text-[#6E6557] flex items-start gap-1.5" data-layout-today=""><Info size={12} className="mt-0.5 shrink-0" />{tr('بلا تغيير هنا تبقى المطبوعة كما هي اليوم حرفيا')}</p>}
+
+      <Segmented label={tr('مكان الشعار')} options={logoChoices(p)} labels={LOGO_POSITION_LABELS} value={l.logo}
+        onPick={(v) => set({ logo: v })} disabled={() => logoOff} />
+      {logoOff && <p className="text-[11px] text-[#9A8F7E]">{tr('شعار الشركة مطفأ في «المحتوى»')}</p>}
+      <Segmented label={tr('حجم الشعار')} options={LOGO_SIZES} labels={LOGO_SIZE_LABELS} value={l.logoSize}
+        onPick={(v) => set({ logoSize: v })} disabled={() => logoOff || l.logo === 'none'} />
+
+      {colorful
+        ? <AccentPicker value={l.accent} onPick={(a) => set({ accent: a })} />
+        : <p className="text-[11px] text-[#6E6557]">{tr('طباعة بالأبيض والأسود — لا أثر للون التمييز')}</p>}
+
+      {p.printer !== 'thermal' && (
+        <>
+          <div role="group" aria-label={tr('حجم الخط')}>
+            <span className="label">{tr('حجم الخط')}</span>
+            <div className="flex gap-1.5 flex-wrap">
+              {LAYOUT_FONT_SCALES.map((f) => (
+                <button key={f} type="button" dir="ltr" aria-pressed={effectiveFontScale(p) === f} onClick={() => update(withLayoutFontScale(p, f))}
+                  className={chip(effectiveFontScale(p) === f)}>{Math.round(f * 100)}%</button>
+              ))}
+            </div>
+          </div>
+          <Segmented label={tr('شكل الجدول')} options={TABLE_STYLES} labels={TABLE_STYLE_LABELS} value={grid ? 'grid' : l.tableStyle}
+            onPick={(v) => set({ tableStyle: v })} disabled={(v) => grid && v !== 'grid'} />
+          {grid && <p className="text-[11px] text-[#9A8F7E]">{tr('التصميم ثنائي اللغة بشبكة كاملة دائما')}</p>}
+        </>
+      )}
+
+      <div>
+        <span className="label">{tr('ترتيب الأقسام')}</span>
+        <p className="text-[11px] text-[#9A8F7E] mb-1.5">{tr('اسحب لتغيير الترتيب')} — {tr('أو استعمل أزرار الرفع والخفض')}</p>
+        <ol ref={orderRef} className="border border-[#E9E1D3] rounded-xl divide-y divide-[#F1EBDF]" data-section-order="">
+          {rows.map((r, i) => {
+            const label = tr(SECTION_LABELS[r.id]);
+            const movable = r.up || r.down;
+            return (
+              <li key={r.id} data-section={r.id} draggable={movable}
+                onDragStart={(e) => { setDrag(r.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', r.id); }}
+                onDragEnd={() => setDrag(null)}
+                onDragOver={(e) => { if (drag && drag !== r.id && canMoveSection(p, drag, i)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
+                onDrop={(e) => { e.preventDefault(); if (drag && canMoveSection(p, drag, i)) move(drag, i); setDrag(null); }}
+                className={`flex items-center gap-2 px-2.5 py-1.5 text-sm ${drag === r.id ? 'opacity-50' : ''} ${movable ? 'cursor-grab' : ''}`}>
+                <GripVertical size={14} aria-hidden="true" className={movable ? 'text-[#9A8F7E]' : 'text-[#E9E1D3]'} />
+                <span className="text-[11px] text-[#9A8F7E] w-4" dir="ltr">{i + 1}</span>
+                <span className="flex-1 min-w-0 text-[#1F1A13]">{label}</span>
+                <button type="button" data-move="up" disabled={!r.up} onClick={() => { refocus.current = { id: r.id, dir: 'up' }; move(r.id, i - 1); }} aria-label={`${tr('نقل لأعلى')}: ${label}`}
+                  className="p-1 rounded-md text-[#6E6557] hover:bg-[#FAF7F0] disabled:opacity-30"><ArrowUp size={14} /></button>
+                <button type="button" data-move="down" disabled={!r.down} onClick={() => { refocus.current = { id: r.id, dir: 'down' }; move(r.id, i + 1); }} aria-label={`${tr('نقل لأسفل')}: ${label}`}
+                  className="p-1 rounded-md text-[#6E6557] hover:bg-[#FAF7F0] disabled:opacity-30"><ArrowDown size={14} /></button>
+              </li>
+            );
+          })}
+        </ol>
+        <div className="flex gap-2 flex-wrap mt-2">
+          <button type="button" className="btn-secondary !py-1 !px-3 text-xs" disabled={orderIsDefault(p)} onClick={() => update(resetSectionOrder(p))}>
+            <RotateCcw size={13} /> {tr('إعادة الترتيب الافتراضي')}
+          </button>
+          {custom && !grid && (
+            <button type="button" className="btn-secondary !py-1 !px-3 text-xs" onClick={() => update(withLayout(p, null))}>
+              <RotateCcw size={13} /> {tr('العودة إلى تخطيط اليوم')}
+            </button>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+/** لون التمييز: لون الشركة (null) أو لوحة جاهزة أو #RRGGBB مكتوب — والفاتح يُرسل فيرفضه layoutIssues برسالته */
+function AccentPicker({ value, onPick }: { value: string | null; onPick: (v: string | null) => void }) {
+  const tr = useTr();
+  const inPalette = (v: string | null) => v !== null && (ACCENT_PALETTE as readonly string[]).includes(v.toUpperCase());
+  const [text, setText] = useState(value !== null && !inPalette(value) ? value : '');
+  // اللون تغيّر من خارج الخانة («العودة إلى تخطيط اليوم»، قالبٌ آخر) — فلا يبقى فيها لونٌ قديم ورسالة رفضٍ لما لم يعد محفوظاً
+  useEffect(() => { setText((t) => accentTextAfter(value, t)); }, [value]);
+  const state = accentInputState(text);
+  const pickText = (raw: string) => {
+    const v = raw.trim();
+    setText(v);
+    if (ACCENT_RE.test(v)) onPick(v.toUpperCase());
+  };
+  return (
+    <div role="group" aria-label={tr('لون التمييز')}>
+      <span className="label">{tr('لون التمييز')}</span>
+      <div className="flex gap-1.5 flex-wrap items-center">
+        <button type="button" aria-pressed={value === null} onClick={() => { setText(''); onPick(null); }} className={chip(value === null)}>{tr('لون الشركة')}</button>
+        {ACCENT_PALETTE.map((c) => {
+          const on = value !== null && value.toUpperCase() === c;
+          return (
+            <button key={c} type="button" aria-pressed={on} aria-label={c} title={c} onClick={() => { setText(''); onPick(c); }}
+              className={`w-7 h-7 rounded-full border-2 ${on ? 'border-[#1F1A13] ring-2 ring-[#E15A30]/40' : 'border-white shadow'}`} style={{ background: c }} />
+          );
+        })}
+      </div>
+      <label className="flex items-center gap-2 mt-2">
+        <span className="text-xs text-[#44403a] shrink-0">{tr('لون مخصص')}</span>
+        <input className="input !py-1 max-w-[9rem]" dir="ltr" maxLength={7} placeholder="#1F2937" value={text} onChange={(e) => pickText(e.target.value)} />
+        <input type="color" className="w-8 h-8 rounded border border-[#E9E1D3] bg-white" aria-label={tr('لون مخصص')}
+          value={ACCENT_RE.test(text) ? text : value ?? '#1F2937'} onChange={(e) => pickText(e.target.value)} />
+      </label>
+      {text !== '' && state === 'light' && <p className="text-xs text-red-600 mt-1">{tr(PRINT_ISSUES.layoutAccent)}</p>}
+      {text !== '' && state === 'invalid' && <p className="text-[11px] text-[#9A8F7E] mt-1" dir="ltr">#RRGGBB</p>}
+    </div>
+  );
+}
+
+/** مخطّط «كلاسيكي بإطارات — ثنائي اللغة»: ترويسة بلغتين وشعار في الوسط، صندوق المستند ورمزه، صندوقا البائع والمشتري، جدول بشبكة، الإجماليات، التواقيع */
+export function GridThumb() {
+  const box = { border: '1px solid #1F1A13', display: 'block' } as const;
+  const bar = (w: string) => <span className="block" style={{ height: 2, width: w, background: '#1F1A13', marginTop: 2 }} />;
+  return (
+    <span aria-hidden="true" data-thumb="grid_bilingual" className="shrink-0 block bg-white border border-[#D8CDB9] rounded-md overflow-hidden" style={{ width: 56, height: 72, padding: 4 }}>
+      <span className="flex items-start justify-between" style={{ borderBottom: '1px solid #1F1A13', paddingBottom: 2 }}>
+        <span className="block" style={{ width: 16 }}>{bar('100%')}{bar('70%')}</span>
+        <span className="block rounded-full" style={{ width: 9, height: 9, border: '1px solid #1F1A13' }} />
+        <span className="block" style={{ width: 16 }}>{bar('100%')}{bar('70%')}</span>
+      </span>
+      <span className="flex gap-[2px] mt-[3px]">
+        <span style={{ ...box, flex: 1, height: 9 }} />
+        <span className="block" style={{ width: 9, height: 9, background: 'repeating-conic-gradient(#000 0 25%, #fff 0 50%) 0 0 / 3px 3px' }} />
+      </span>
+      <span className="flex gap-[2px] mt-[2px]">
+        <span style={{ ...box, flex: 1, height: 8 }} />
+        <span style={{ ...box, flex: 1, height: 8 }} />
+      </span>
+      <span className="grid grid-cols-4 mt-[2px]" style={{ border: '1px solid #1F1A13' }}>
+        {Array.from({ length: 12 }, (_, i) => <span key={i} className="block" style={{ height: 4, borderInlineStart: i % 4 ? '1px solid #1F1A13' : undefined, borderTop: i > 3 ? '1px solid #1F1A13' : undefined, background: i < 4 ? '#D8CDB9' : undefined }} />)}
+      </span>
+      <span className="flex justify-end mt-[2px]"><span style={{ ...box, width: 22, height: 7 }} /></span>
+      <span className="grid grid-cols-4 gap-[2px] mt-[3px]">
+        {Array.from({ length: 4 }, (_, i) => <span key={i} className="block" style={{ height: 1, background: '#1F1A13' }} />)}
+      </span>
+    </span>
   );
 }

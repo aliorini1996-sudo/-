@@ -43,6 +43,77 @@ export function pdfPageOf(v: string | undefined | null): { format: string | [num
   return { format: 'a4', orientation: 'portrait' };
 }
 
+/** صندوقٌ لا يُقصّ بين صفحتين (بكسل العنصر من أعلاه) */
+export interface KeepBox { top: number; bottom: number }
+
+/**
+ * بدايات صفحات ورقةٍ بتخطيطٍ مخصّص (data-print-layout — «تخطيط المطبوعات»)، بكسل العنصر: القصّ لا يقع داخل صفّ جدولٍ ولا صندوقٍ
+ * يتّسع لصفحة (keep) — يرتفع إلى أعلاه ما بقي من الصفحة نصفُها على الأقل، وإلا قصٌّ عاديّ. وورقةٌ تزيد على الصفحة بأقلّ من
+ * `tolerancePx` (ورقة القالب ثنائي اللغة 794×1123 أطول من نسبة A4 بجزءٍ من النقطة) صفحةٌ واحدة لا ثانيةٌ بشريطٍ أبيض.
+ */
+export function layoutPageStarts(totalPx: number, pagePx: number, keep: readonly KeepBox[], tolerancePx = 3): number[] {
+  const starts = [0];
+  if (!(pagePx > 0) || !(totalPx > 0)) return starts;
+  const boxes = keep.filter((b) => b.bottom > b.top && b.bottom - b.top <= pagePx);
+  let pos = 0;
+  while (totalPx - pos > pagePx + tolerancePx) {
+    let cut = pos + pagePx;
+    for (let guard = 0; guard < 20; guard++) {
+      const crossing = boxes.filter((b) => b.top < cut - 0.5 && b.bottom > cut + 0.5 && b.top > pos);
+      if (crossing.length === 0) break;
+      const up = Math.min(...crossing.map((b) => b.top));
+      if (up - pos < pagePx / 2) break;
+      cut = up;
+    }
+    starts.push(cut);
+    pos = cut;
+  }
+  return starts;
+}
+
+/** صناديق «لا تُقصّ» في ورقةٍ بتخطيط: صفوف الجداول والأقسام ووحدات «حذف السطر» (data-line) — بكسل العنصر */
+function keepBoxesOf(el: HTMLElement): KeepBox[] {
+  const base = el.getBoundingClientRect();
+  return Array.from(el.querySelectorAll('tr, [data-section], [data-line]')).map((n) => {
+    const r = n.getBoundingClientRect();
+    return { top: r.top - base.top, bottom: r.bottom - base.top };
+  });
+}
+
+/** ورقةٌ بتخطيط: كل صفحةٍ قطعةٌ من الالتقاط بين بدايتين — لا صورةٌ كاملة تُزاح فتُطبع تحت القصّ صفوفُ الصفحة التالية */
+function layoutPdf(el: HTMLElement, canvas: HTMLCanvasElement, keep: KeepBox[], opts?: { lossless?: boolean }): Blob {
+  const page = pdfPageOf(el.dataset?.pdfFormat);
+  const pdf = new jsPDF({ unit: 'pt', format: page.format, orientation: page.orientation });
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+  const cssW = el.offsetWidth || canvas.width;
+  const k = canvas.width / cssW;                   // بكسل الالتقاط لكل بكسل عنصر
+  const pagePx = (pageH / pageW) * cssW;            // طول الصفحة ببكسل العنصر (الصورة بعرض الصفحة)
+  const totalPx = canvas.height / k;
+  const starts = layoutPageStarts(totalPx, pagePx, keep);
+  const fmt = opts?.lossless ? 'PNG' : 'JPEG';
+  starts.forEach((start, i) => {
+    const end = i + 1 < starts.length ? starts[i + 1] : totalPx;
+    const sy = Math.round(start * k);
+    const sh = Math.max(1, Math.min(canvas.height, Math.round(end * k)) - sy);
+    const part = document.createElement('canvas');
+    part.width = canvas.width;
+    part.height = sh;
+    const ctx = part.getContext('2d');
+    if (!ctx) throw new Error('canvas');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, part.width, part.height);
+    ctx.drawImage(canvas, 0, sy, canvas.width, sh, 0, 0, canvas.width, sh);
+    const data = opts?.lossless ? part.toDataURL('image/png') : part.toDataURL('image/jpeg', 0.95);
+    if (i > 0) pdf.addPage();
+    // صفحةٌ واحدة ضمن السماح: تُصغَّر لتسع الصفحة بدل شريطٍ في صفحةٍ ثانية
+    const h = (sh / canvas.width) * pageW;
+    const fit = starts.length === 1 && h > pageH ? pageH / h : 1;
+    pdf.addImage(data, fmt, (pageW - pageW * fit) / 2, 0, pageW * fit, h * fit);
+  });
+  return pdf.output('blob');
+}
+
 // يحوّل عنصر DOM إلى PDF بصيغة Blob (صفحة A4، يدعم تعدد الصفحات)
 // `singlePage`: يُصغَّر الالتقاط ليسع صفحة واحدة دائماً — عنصرٌ بمقاس 794×1123px أطول من
 // نسبة A4 بجزءٍ من النقطة، فكان يُنتج صفحةً ثانية فارغة تقريباً
@@ -50,12 +121,15 @@ export function pdfPageOf(v: string | undefined | null): { format: string | [num
 // الحُجَيرات في نمطٍ ثنائيّ دقيق، والورقة هذه هي التي يمسحها العميل والمفتّش. وغيرُها يبقى JPEG (أخفّ حجماً).
 export async function elementToPdfBlob(el: HTMLElement, opts?: { singlePage?: boolean; lossless?: boolean }): Promise<Blob> {
   await waitForImages(el);
+  // «تخطيط المطبوعات»: ورقةٌ بسمة data-print-layout تُقسَّم عند حدود الصفوف (قبل الالتقاط: المواضع من DOM نفسه) — وما سواها كما اليوم
+  const keep = !opts?.singlePage && el.hasAttribute?.('data-print-layout') ? keepBoxesOf(el) : null;
   const canvas = await html2canvas(el, {
     scale: 2,
     useCORS: true,
     backgroundColor: '#ffffff',
     logging: false,
   });
+  if (keep) return layoutPdf(el, canvas, keep, opts);
   const fmt = opts?.lossless ? 'PNG' : 'JPEG';
   const imgData = opts?.lossless ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.95);
   // مقاس الصفحة من جذر القالب (A4 بلا سمة) — والنداء المحروس في شاشة النتيجة يبقى كما هو بلا وسيطٍ جديد
