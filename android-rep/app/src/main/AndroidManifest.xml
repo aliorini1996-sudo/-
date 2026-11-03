@@ -28,7 +28,9 @@
 
 
     <!-- وحدة التحصيل بالبطاقة: الأذونات التي يشترطها NearPay Terminal SDK حرفياً من توثيقه.
-         ACCESS_COARSE_LOCATION ليس منها: أندرويد 12+ يشترط طلبه مع الموقع الدقيق في الطلب نفسه -->
+         ACCESS_COARSE_LOCATION ليس منها: أندرويد 12+ يشترط طلبه مع الموقع الدقيق في الطلب نفسه.
+         إعلان أيٍّ من إذنَي الموقع يجعل Chrome يفوّض موقع الصفحة كله إلى التطبيق (لا إلى إذن Chrome): لا يُعلنان بلا
+         LocationDelegationExtraCommandHandler في DelegationService، وإلا ظهر «الموقع متوقف» كما في 1.2.0 و1.2.1 -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
@@ -272,8 +274,10 @@
 
         
             <activity android:name="com.google.androidbrowserhelper.trusted.NotificationPermissionRequestActivity" />
-        
 
-        
+
+        <!-- تفويض الموقع (features.locationDelegation): نشاطٌ شفاف تفتحه DelegationService لتطلب إذن الموقع للتطبيق حين تسأل
+             الصفحة عن الموقع ولم يُمنح بعد. حزمة locationdelegation تعلنه في بيانها أيضاً، وBubblewrap يكتبه هنا حرفياً -->
+            <activity android:name="com.google.androidbrowserhelper.locationdelegation.PermissionRequestActivity"/>
     </application>
 </manifest>
