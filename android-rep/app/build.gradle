@@ -85,8 +85,8 @@ android {
         applicationId "net.fieldsa.twa"
         minSdkVersion 26
         targetSdkVersion 36
-        versionCode 7
-        versionName "1.2.1"
+        versionCode 8
+        versionName "1.2.2"
 
         // The name for the application
         resValue "string", "appName", twaManifest.name
@@ -284,6 +284,11 @@ dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     
         implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.6.2'
+    // تفويض الموقع (features.locationDelegation في Bubblewrap). منذ 1.2.0 يعلن التطبيق إذنَي الموقع (لوحدة التحصيل، وحزمة
+    // NearPay تعلنهما أيضاً)، وChrome حينها يسلّم كل navigator.geolocation في fieldsa.net إلى التطبيق نفسه ولا يرجع إلى إذن
+    // الموقع الخاص به. بلا معالجٍ في DelegationService يرفضها فوراً بلا سؤال (PERMISSION_DENIED = «الموقع متوقف» في الصفحة).
+    // في البناءين، لا داخل if (cardPayBuild): بلا رمز تُزيل src/printonly الأذونات فيعود Chrome إلى إذنه ولا يُستدعى المعالج
+    implementation 'com.google.androidbrowserhelper:locationdelegation:1.1.2'
 
     // وحدة التحصيل بالبطاقة — الحزمتان حرفياً من توثيق NearPay (أحدث نسخة في سجل التغييرات: 0.2.6)
     if (cardPayBuild) {

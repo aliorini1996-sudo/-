@@ -15,7 +15,10 @@
  */
 package net.fieldsa.twa;
 
+import android.Manifest;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.content.pm.ActivityInfo;
 import android.net.Uri;
 import android.os.Build;
@@ -27,7 +30,78 @@ import net.fieldsa.twa.print.PrinterStore;
 
 public class LauncherActivity
         extends com.google.androidbrowserhelper.trusted.LauncherActivity {
-    
+    // تفويض الموقع (DelegationService): Chrome يأخذ إذن الموقع من التطبيق لا من إعداداته. يُطلب هنا قبل فتح الصفحة، مرةً
+    // واحدة لكل تثبيت، لأن طلبه من داخل الصفحة (PermissionRequestActivity تفتحها الخدمة من الخلفية) لا يُعتمد عليه:
+    // - أندرويد 14 فأحدث قد يمنع فتح نشاطٍ من الخلفية (android-browser-helper#499)، فيبقى طلب الموقع معلّقاً بلا جواب.
+    // - أندرويد 8 إلى 10: Chrome يحفظ «مرفوض» من 1.2.0/1.2.1 ولا يسأل ثانيةً حتى يُمنح الإذن للتطبيق.
+    // - بعض الواجهات (HyperOS/OxygenOS) تقتل الخدمة والسؤال مفتوح.
+    // بعد المنح يجيب Chrome «مسموح» بلا سؤال. الرفض أو الرجوع يفتح الصفحة كالمعتاد، وأندرويد 11+ يبقى يسأل من الصفحة
+    private static final int LOCATION_REQUEST_CODE = 4201;
+    private static final String LAUNCHER_PREFS = "fs_launcher";
+    private static final String KEY_LOCATION_ASKED = "locationAsked";
+    private boolean mAwaitingLocationPermission;
+
+    @Override
+    protected boolean shouldLaunchImmediately() {
+        if (!shouldAskLocationBeforeLaunch()) return true;
+        mAwaitingLocationPermission = true;
+        return false;
+    }
+
+    /** شرط Chrome نفسه للتفويض: الإذن معلنٌ في البيان المدمج وغير ممنوح. وبعدها لم يُسأل في هذا التثبيت */
+    private boolean shouldAskLocationBeforeLaunch() {
+        try {
+            if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+                    == PackageManager.PERMISSION_GRANTED) {
+                return false;
+            }
+            // البناء بلا رمز NearPay يُزيل أذونات الموقع (src/printonly)، فChrome يستعمل إذنه ولا داعي للسؤال هنا
+            if (!declaresPermission(Manifest.permission.ACCESS_FINE_LOCATION)) return false;
+            SharedPreferences prefs = getSharedPreferences(LAUNCHER_PREFS, MODE_PRIVATE);
+            // العلامة لا تُكتب هنا بل بعد الجواب: «هذه المرة فقط» و«تقريبي» يُسألان ثانيةً في فتحٍ لاحق، والرفض وحده يُوقف السؤال
+            // (وأندرويد نفسه يتوقف عن عرض الحوار بعد رفضين، فلا حلقة)
+            return !prefs.getBoolean(KEY_LOCATION_ASKED, false);
+        } catch (RuntimeException e) {
+            return false; // أي تعذّر: تُفتح الصفحة فوراً كما كانت، والتفويض يسأل من داخلها
+        }
+    }
+
+    private boolean declaresPermission(String permission) {
+        try {
+            String[] requested = getPackageManager()
+                    .getPackageInfo(getPackageName(), PackageManager.GET_PERMISSIONS)
+                    .requestedPermissions;
+            if (requested == null) return false;
+            for (String p : requested) {
+                if (permission.equals(p)) return true;
+            }
+        } catch (PackageManager.NameNotFoundException e) {
+            // حزمتنا نفسها: لا يقع
+        }
+        return false;
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != LOCATION_REQUEST_CODE || !mAwaitingLocationPermission) return;
+        // رفضٌ صريح للموقع الدقيق والتقريبي معاً ⇒ لا سؤال عند الفتح بعد اليوم (الصفحة تسأل من داخلها). المنح الدقيق لا يحتاج
+        // العلامة (الفحص أعلاه يتخطّى السؤال)، والتقريبي وحده يُسأل ثانيةً لأن قيد الموقع يحتاج الدقيق
+        try {
+            boolean denied = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
+                    && checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED;
+            if (denied && grantResults != null && grantResults.length > 0) {
+                getSharedPreferences(LAUNCHER_PREFS, MODE_PRIVATE).edit().putBoolean(KEY_LOCATION_ASKED, true).apply();
+            }
+        } catch (RuntimeException e) {
+            // لا شيء: يُسأل ثانيةً في الفتح التالي
+        }
+        // أياً كان الجواب (منح، رفض، رجوع بلا جواب) تُفتح الصفحة مرة واحدة
+        mAwaitingLocationPermission = false;
+        launchTwa();
+    }
+
 
     
 
@@ -42,6 +116,13 @@ public class LauncherActivity
             setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT);
         } else {
             setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+        }
+        // FINE وCOARSE معاً: أندرويد 12+ يشترطهما في الطلب نفسه ويعرض «دقيق/تقريبي». الإعادة بعد تدويرٍ أو موت العملية
+        // تفتح الصفحة فوراً (العلامة محفوظة) ويُهمل جوابٌ متأخر، فلا يبقى المندوب على شاشة فارغة
+        if (mAwaitingLocationPermission && !isFinishing()) {
+            requestPermissions(new String[] {
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION}, LOCATION_REQUEST_CODE);
         }
     }
 
