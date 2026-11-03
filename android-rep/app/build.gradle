@@ -85,8 +85,8 @@ android {
         applicationId "net.fieldsa.twa"
         minSdkVersion 26
         targetSdkVersion 36
-        versionCode 8
-        versionName "1.2.2"
+        versionCode 9
+        versionName "1.2.3"
 
         // The name for the application
         resValue "string", "appName", twaManifest.name
@@ -289,6 +289,9 @@ dependencies {
     // الموقع الخاص به. بلا معالجٍ في DelegationService يرفضها فوراً بلا سؤال (PERMISSION_DENIED = «الموقع متوقف» في الصفحة).
     // في البناءين، لا داخل if (cardPayBuild): بلا رمز تُزيل src/printonly الأذونات فيعود Chrome إلى إذنه ولا يُستدعى المعالج
     implementation 'com.google.androidbrowserhelper:locationdelegation:1.1.2'
+    // معالج التفويض نفسه في net.fieldsa.twa.LocationDelegation (معالج المكتبة أوقف التتبّع عند أول انقطاع إشارة في 1.2.2)،
+    // والمكتبة باقيةٌ لنشاط سؤال الإذن. خدمات الموقع صريحةً هنا: تبعية المكتبة لا تظهر لكودنا عند الترجمة
+    implementation 'com.google.android.gms:play-services-location:21.0.1'
 
     // وحدة التحصيل بالبطاقة — الحزمتان حرفياً من توثيق NearPay (أحدث نسخة في سجل التغييرات: 0.2.6)
     if (cardPayBuild) {

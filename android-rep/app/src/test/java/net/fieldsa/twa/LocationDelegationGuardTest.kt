@@ -14,10 +14,36 @@ class LocationDelegationGuardTest {
     @Test
     fun delegationServiceRegistersTheLocationHandler() {
         val src = file("src/main/java/net/fieldsa/twa/DelegationService.java")
-        assertTrue("DelegationService لا يسجّل LocationDelegationExtraCommandHandler",
-            src.contains("registerExtraCommandHandler(new LocationDelegationExtraCommandHandler());"))
+        // معالجنا لا معالج المكتبة: ذاك أوقف التتبّع عند أول انقطاع إشارة وأرسل الخطأ باسمٍ لا يسمعه Chrome (1.2.2)
+        assertTrue("DelegationService لا يسجّل LocationDelegation",
+            src.contains("registerExtraCommandHandler(mLocation);") && src.contains("new LocationDelegation(this)"))
+        assertTrue("معالج المكتبة عاد إلى DelegationService", !src.contains("LocationDelegationExtraCommandHandler"))
         // الدقة العالية تُفحص بإذن التطبيق لا بإذن Chrome (المتّصل على خيط Binder)
         assertTrue("onExtraCommand لا يمحو هوية المتّصل", src.contains("Binder.clearCallingIdentity()"))
+    }
+
+    @Test
+    fun handlerSpeaksChromesCallbackNamesAndNeverStopsOnUnavailable() {
+        val src = file("src/main/java/net/fieldsa/twa/LocationDelegation.java")
+        // الأسماء كما في Chrome (InstalledWebappGeolocationBridge وTrustedWebActivityClient) حرفياً
+        for (name in listOf("\"checkAndroidLocationPermission\"", "\"startLocation\"", "\"stopLocation\"",
+                "\"onNewLocationAvailable\"", "\"onNewLocationError\"", "\"locationPermissionResult\"")) {
+            assertTrue("الاسم $name غائب عن LocationDelegation", src.contains(name))
+        }
+        assertTrue("اسم الخطأ القديم onNewErrorAvailable لا يسمعه Chrome", !src.contains("\"onNewErrorAvailable\""))
+        // «غير متاح» عابر: لا إيقاف ولا إزالة طلب داخل onLocationAvailability
+        val availability = src.substringAfter("public void onLocationAvailability").substringBefore("};")
+        assertTrue("onLocationAvailability يوقف التحديثات", !availability.contains("stop") && !availability.contains("remove"))
+    }
+
+    @Test
+    fun launcherAsksEveryLaunchUntilPreciseIsGranted() {
+        // 1.2.2 كتب علامةً دائمة بعد رفضٍ واحد فلا يُسأل المندوب ثانيةً، ونشاط الإذن من الخلفية يُمنع على أندرويد 14+
+        val src = file("src/main/java/net/fieldsa/twa/LauncherActivity.java")
+        assertTrue("علامة locationAsked الدائمة عادت إلى LauncherActivity", !src.contains("locationAsked"))
+        // stopLocation بلا هوية جسر: لا يُنفَّذ والصفحة ظاهرة
+        val handler = file("src/main/java/net/fieldsa/twa/LocationDelegation.java")
+        assertTrue("الإيقاف لا يفحص الظهور", handler.contains("this::stopIfHidden") && handler.contains("IMPORTANCE_VISIBLE"))
     }
 
     @Test
