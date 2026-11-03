@@ -141,8 +141,7 @@ test('الحذف بلا قفل (طلب المالك ٣ نوفمبر ٢٠٢٦): �
 });
 
 test('العنوان: صياغة الشركة وحذفه في المرحلتين (طلب المالك ٣ نوفمبر ٢٠٢٦) — والرمز المختوم باقٍ', async () => {
-  // phase2: true = ما يكتبه المحرّر الجديد (يسري على المرحلتين) — والمحفوظ قبله بلا وسم في الاختبار التالي
-  const c = { ...company, printTexts: texts({ edits: { 'inv.title': { text: 'فاتورة مبيعات', alt: null, hidden: false, phase2: true } } }) };
+  const c = { ...company, printTexts: texts({ edits: { 'inv.title': { text: 'فاتورة مبيعات', alt: null, hidden: false } } }) };
   assert.ok(a4(invoice(c)).includes('فاتورة مبيعات') && !a4(invoice(c)).includes('فاتورة ضريبية مبسطة'));
   assert.ok((await thermal(invoice(c))).includes('فاتورة مبيعات'));
   const stamped = sampleInvoiceDoc(c, same);
@@ -151,7 +150,7 @@ test('العنوان: صياغة الشركة وحذفه في المرحلتين
   assert.ok(a4(stamped).includes('alt="QR"'), 'الرمز المختوم سقط مع الصياغة');
   const rollStamped = await thermal(stamped, { profile: profile('roll_compact', 'roll80'), tr: same });
   assert.ok(rollStamped.includes('فاتورة مبيعات') && !rollStamped.includes('فاتورة ضريبية مبسطة'));
-  const hidden = { ...company, printTexts: texts({ edits: { 'inv.title': { text: null, alt: null, hidden: true, phase2: true } } }) };
+  const hidden = { ...company, printTexts: texts({ edits: { 'inv.title': { text: null, alt: null, hidden: true } } }) };
   assert.ok(!a4(invoice(hidden)).includes('فاتورة ضريبية'), 'العنوان المحذوف مطبوع');
   const stampedHidden = sampleInvoiceDoc(hidden, same);
   // («ليست فاتورة ضريبية» في علامة بيئة المحاكاة ليست العنوان — قرار الطباعة يبقى)
@@ -161,18 +160,24 @@ test('العنوان: صياغة الشركة وحذفه في المرحلتين
   assert.ok(a4(invoice(ret, { isReturn: true })).includes('مرتجع مبيعات'));
 });
 
-test('العنوان المحفوظ قبل ٣ نوفمبر ٢٠٢٦ (بلا وسم): المرحلة الأولى بصياغته، والمختوم يطبع عنوان الهيئة كاليوم — A4 والرول والقالب ثنائي اللغة', async () => {
+test('العنوان المحفوظ قبل ٣ نوفمبر ٢٠٢٦ يسري على المختوم تلقائياً (قرار المالك ٣ نوفمبر ٢٠٢٦) — A4 والرول والقالب ثنائي اللغة، والرمز باقٍ', async () => {
   for (const edit of [{ text: 'فاتورة مبيعات', alt: null, hidden: false }, { text: null, alt: null, hidden: true }]) {
     const c = { ...company, printTexts: texts({ edits: { 'inv.title': edit } }) };
+    const tag = JSON.stringify(edit);
+    const reworded = edit.text !== null;
     const p1 = a4(invoice(c));
-    assert.ok(!p1.includes('فاتورة ضريبية مبسطة'), 'المرحلة الأولى لم تأخذ تعديلها');
+    assert.ok(!p1.includes('فاتورة ضريبية مبسطة') && p1.includes('فاتورة مبيعات') === reworded, `المرحلة الأولى لم تأخذ تعديلها ${tag}`);
     const stamped = sampleInvoiceDoc(c, same);
     assert.ok(stamped.zatca, 'النموذج مختوم');
-    assert.ok(a4(stamped).includes('فاتورة ضريبية مبسطة') && !a4(stamped).includes('فاتورة مبيعات'), `المختوم أخذ تعديلاً محفوظاً للمرحلة الأولى ${JSON.stringify(edit)}`);
+    const page = a4(stamped);
+    assert.ok(!page.includes('فاتورة ضريبية مبسطة') && page.includes('فاتورة مبيعات') === reworded, `A4 المختوم لم يأخذ التعديل المحفوظ ${tag}`);
+    assert.ok(page.includes('alt="QR"'), `A4 المختوم بلا الرمز ${tag}`);
     const roll = await thermal(stamped, { profile: profile('roll_compact', 'roll80'), tr: same });
-    assert.ok(roll.includes('فاتورة ضريبية مبسطة') && !roll.includes('فاتورة مبيعات'), 'الرول المختوم أخذ تعديلاً محفوظاً للمرحلة الأولى');
+    assert.ok(!roll.includes('فاتورة ضريبية مبسطة') && roll.includes('فاتورة مبيعات') === reworded, `الرول المختوم لم يأخذ التعديل المحفوظ ${tag}`);
+    assert.ok(roll.includes('class="qr"'), `الرول المختوم بلا الرمز ${tag}`);
     const grid = renderToStaticMarkup(createElement(PrintLookContext.Provider, { value: lookFor(withDesign(newProfile('page', 'preview', []), 'grid_bilingual')) }, createElement(PrintableInvoice, { doc: stamped })));
-    assert.ok(grid.includes('فاتورة ضريبية مبسطة') && grid.includes('alt="QR"'), 'ثنائي اللغة: المختوم بلا عنوان الهيئة أو بلا الرمز');
+    assert.ok(!grid.includes('فاتورة ضريبية مبسطة') && grid.includes('فاتورة مبيعات') === reworded, `ثنائي اللغة: المختوم لم يأخذ التعديل المحفوظ ${tag}`);
+    assert.ok(grid.includes('alt="QR"'), `ثنائي اللغة: المختوم بلا الرمز ${tag}`);
   }
 });
 

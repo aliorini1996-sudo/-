@@ -13,7 +13,7 @@
  */
 import { PHRASES } from '../../i18n/strings';
 import {
-  PRINT_TEXT_CATALOG, checkPrintTexts, isEmptyPrintTexts, printTextEditOnPhase2, printTextEntry, printTextWarning,
+  PRINT_TEXT_CATALOG, checkPrintTexts, isEmptyPrintTexts, printTextEntry, printTextWarning,
   type PrintSecondLang, type PrintTextEdit, type PrintTextWarning, type PrintTextsV1,
 } from './printTextsCore';
 
@@ -130,7 +130,8 @@ export interface PrintTexts {
   /** تنبيه المحرّر للمفتاح (printTextWarning) أو null — لا يمنع شيئاً */
   warning: (key: string) => PrintTextWarning | null;
   /**
-   * عنوان الفاتورة/المرتجع بصياغة الشركة — في المرحلتين (طلب المالك ٣ نوفمبر ٢٠٢٦). '' = حذفته الشركة. `decided` عنوان القرار
+   * عنوان الفاتورة/المرتجع بصياغة الشركة — في المرحلتين (طلب المالك ٣ نوفمبر ٢٠٢٦)، ومنه ما حُفظ قبله: المرحلة لا تغيّر العنوان
+   * (قرار المالك ٣ نوفمبر ٢٠٢٦ «طبّقها تلقائياً»؛ ورمز QR المرحلة الثانية يُطبع كاليوم). '' = حذفته الشركة. `decided` عنوان القرار
    * (عربي) — مترجماً بـtr كما اليوم للشركة بلا نصوص. عناوين قرار الطباعة التي ليست عنوان فاتورة (سند التسليم، الملغى، بانتظار
    * الاعتماد) وعنوان الإشعار المدين تُطبع كما قرّرها القرار: inv.title يصوغ عناوين الفاتورة وinv.returnTitle عناوين الإشعار الدائن.
    */
@@ -216,15 +217,11 @@ export function makePrintTexts(
     warning: warningOf,
     title: (decided, t) => {
       // عنوانٌ ليس عنوان فاتورة/إشعار دائن (سند التسليم، الملغى، بانتظار الاعتماد، الإشعار المدين) ⇒ كما قرّره القرار
-      // وتعديل عنوانٍ محفوظٌ قبل ٣ نوفمبر ٢٠٢٦ (بلا phase2) كان للمرحلة الأولى وحدها ⇒ مستند المرحلة الثانية يطبع عنوان القرار كاليوم
-      const titleKey = t.isReturn ? 'inv.returnTitle' : 'inv.title';
-      const titleEntry = printTextEntry(titleKey);
-      if (!(t.isReturn ? RETURN_TITLES : INVOICE_TITLES).has(decided)
-        || (t.phase2 && titleEntry !== undefined && !printTextEditOnPhase2(titleEntry, edit(titleKey)))) {
+      if (!(t.isReturn ? RETURN_TITLES : INVOICE_TITLES).has(decided)) {
         const v = lang ? phraseIn(decided, lang) : null;
         return { text: decided, alt: v && v !== decided ? v : null };
       }
-      const key = titleKey;
+      const key = t.isReturn ? 'inv.returnTitle' : 'inv.title';
       if (hidden(key)) return { text: '', alt: null };
       const primary = text(key, decided);
       const e = edit(key);

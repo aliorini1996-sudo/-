@@ -2,7 +2,7 @@ import { Component, Suspense, lazy, useMemo, useState, type ReactNode } from 're
 import { AlertTriangle, Languages, Pencil, RefreshCw } from 'lucide-react';
 import { useTr } from '../../i18n/strings';
 import {
-  PRINT_TEXT_CATALOG, PRINT_TEXT_LINE, PRINT_TEXT_WARNINGS, SECOND_LANG_NAMES, normalizePrintTexts, printTextEditOnPhase2, printTextEntry, printTextWarning, printTextsSummary,
+  PRINT_TEXT_CATALOG, PRINT_TEXT_LINE, PRINT_TEXT_WARNINGS, SECOND_LANG_NAMES, normalizePrintTexts, printTextEntry, printTextWarning, printTextsSummary,
   type PrintTextEdit, type PrintTextEntry, type PrintTextWarning, type PrintTextsV1,
 } from '../../lib/print/printTexts';
 import type { Company } from '../../rep/RepDocuments';
@@ -27,25 +27,13 @@ const isBlank = (s: string | null): boolean => s === null || s === '';
 /**
  * تعديل نصٍّ واحد في المسودة: patch يُدمج فوق تعديله (hidden:true = «حذف السطر»، false = «استعادة»)، وnull يعيده افتراضياً.
  * التعديل الفارغ (بلا صياغة ولا ترجمة ولا حذف) يُزال — الصورة القانونية نفسها التي يحفظها الخادم.
- * ولمسُ عنوان الفاتورة/الإشعار هنا يوسمه phase2 فيسري على المرحلتين؛ وتعديل عنوانٍ محفوظٌ قبل ٣ نوفمبر ٢٠٢٦ يبقى بلا وسم (للمرحلة
- * الأولى وحدها كما حُفظ) ما لم تلمسه الشركة.
  */
 export function withTextEdit(d: PrintTextsV1, key: string, patch: Partial<PrintTextEdit> | null): PrintTextsV1 {
   const edits = { ...d.edits };
   const next = patch === null ? NO_EDIT : { ...(edits[key] ?? NO_EDIT), ...patch };
   if (isBlank(next.text) && isBlank(next.alt) && !next.hidden) delete edits[key];
-  else {
-    const shaped: PrintTextEdit = { text: isBlank(next.text) ? null : next.text, alt: isBlank(next.alt) ? null : next.alt, hidden: next.hidden };
-    if (printTextEntry(key)?.lock === 'title') shaped.phase2 = true;
-    edits[key] = shaped;
-  }
+  else edits[key] = { text: isBlank(next.text) ? null : next.text, alt: isBlank(next.alt) ? null : next.alt, hidden: next.hidden };
   return { ...d, edits };
-}
-
-/** تعديل عنوانٍ محفوظٌ قبل ٣ نوفمبر ٢٠٢٦ (بلا phase2): لا يسري على مستند المرحلة الثانية — تنبيهٌ في صفّه حتى تلمسه الشركة */
-export function titleEditPhase1Only(key: string, edit: PrintTextEdit | undefined): boolean {
-  const entry = printTextEntry(key);
-  return !!entry && !!edit && !printTextEditOnPhase2(entry, edit) && (edit.text !== null || edit.alt !== null || edit.hidden);
 }
 
 /**

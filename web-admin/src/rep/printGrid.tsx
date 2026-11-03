@@ -266,7 +266,7 @@ function GridHeader({ kit, look, layout, company, title, titleKey, showTax, zDec
     </div>
   );
 
-  // العنوان المحذوف يصل هنا نصّاً فارغاً (pt.title ونصّ rcp.title) — لا pt.hidden: حذفٌ محفوظٌ قبل ٣ نوفمبر ٢٠٢٦ للمرحلة الأولى وحدها
+  // العنوان المحذوف يصل هنا نصّاً فارغاً (pt.title ونصّ rcp.title) — لا pt.hidden: عنوان القرار غير الفاتوري (الملغى، سند التسليم…) يبقى ولو حُذف inv.title
   const titleGone = title.text === '';
   const titleEn = title.alt ?? phraseIn(title.text, 'en');
   return (

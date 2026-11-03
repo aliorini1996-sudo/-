@@ -223,11 +223,8 @@ test('المعاينة: لا يختفي شيء (يُرسم مشطوباً بـhi
 });
 
 test('العنوان: صياغة الشركة وحذفها في المرحلتين (طلب المالك ٣ نوفمبر) — وعناوين القرار التي ليست فاتورة تبقى كما قرّرها', () => {
-  // ما يكتبه المحرّر الجديد: العنوان موسومٌ phase2 (يسري على المرحلتين)
-  const flagged = (t: PrintTextsV1): PrintTextsV1 => ({ ...t, edits: Object.fromEntries(Object.entries(t.edits)
-    .map(([k, e]) => [k, k === 'inv.title' || k === 'inv.returnTitle' ? { ...e, phase2: true } : e])) });
-  const p = makePrintTexts(flagged(texts()), enTr, { standard: false });
-  // المرحلة الثانية: inv.title مُعاد صياغته وinv.returnTitle محذوف — يسريان الآن
+  const p = makePrintTexts(texts(), enTr, { standard: false });
+  // المرحلة الثانية: inv.title مُعاد صياغته وinv.returnTitle محذوف — يسريان كالمرحلة الأولى
   assert.deepEqual(p.title('فاتورة ضريبية', P2), { text: 'فاتورة مبيعات', alt: 'Sales invoice' });
   assert.deepEqual(p.title('فاتورة ضريبية مبسطة', P2), { text: 'فاتورة مبيعات', alt: 'Sales invoice' });
   assert.deepEqual(p.title('إشعار دائن مرتجع', P2R), { text: '', alt: null });
@@ -252,7 +249,7 @@ test('العنوان: صياغة الشركة وحذفها في المرحلتي
   assert.deepEqual(p.title('فاتورة ضريبية', P1), { text: 'فاتورة مبيعات', alt: 'Sales invoice' }, 'القياسية أيضاً');
   assert.deepEqual(p.title('إشعار دائن مرتجع', P1R), { text: '', alt: null });
   // العنوان المحذوف محذوفٌ على القياسية وفي المرحلة الثانية (والمعاينة تُظهره لتستعيده)
-  const hiddenTitle = texts({ edits: { 'inv.title': { text: null, alt: null, hidden: true, phase2: true } } });
+  const hiddenTitle = texts({ edits: { 'inv.title': { text: null, alt: null, hidden: true } } });
   assert.deepEqual(makePrintTexts(hiddenTitle, enTr, { standard: true }).title('فاتورة ضريبية', P1), { text: '', alt: null });
   assert.deepEqual(makePrintTexts(hiddenTitle, enTr, { standard: true }).title('فاتورة ضريبية', P2), { text: '', alt: null });
   assert.equal(makePrintTexts(hiddenTitle, enTr, { standard: true, preview: { onPick: () => {}, active: null } }).title('فاتورة ضريبية', P2).text, 'فاتورة ضريبية');
@@ -266,34 +263,34 @@ test('العنوان: صياغة الشركة وحذفها في المرحلتي
   assert.deepEqual(own.title('فاتورة ضريبية مبسطة', P1), { text: OUTSIDE, alt: null });
 });
 
-test('العنوان المحفوظ قبل ٣ نوفمبر ٢٠٢٦ (بلا وسم phase2): للمرحلة الأولى وحدها كما حُفظ — مستند المرحلة الثانية يطبع عنوان الهيئة كاليوم', () => {
-  // texts(): صياغة inv.title وحذف inv.returnTitle بلا وسم — إعداد شركةٍ محفوظٌ بالقواعد السابقة (والخادم يقرؤه كما هو)
-  const legacy = makePrintTexts(texts(), enTr, { standard: false });
-  assert.deepEqual(legacy.title('فاتورة ضريبية', P2), { text: 'فاتورة ضريبية', alt: ph('فاتورة ضريبية') });
-  assert.deepEqual(legacy.title('فاتورة ضريبية مبسطة', P2), { text: 'فاتورة ضريبية مبسطة', alt: ph('فاتورة ضريبية مبسطة') });
-  assert.deepEqual(legacy.title('إشعار دائن مرتجع', P2R), { text: 'إشعار دائن مرتجع', alt: ph('إشعار دائن مرتجع') });
-  // المرحلة الأولى: كما حُفظ
-  assert.deepEqual(legacy.title('فاتورة ضريبية مبسطة', P1), { text: 'فاتورة مبيعات', alt: 'Sales invoice' });
-  assert.deepEqual(legacy.title('إشعار دائن مرتجع', P1R), { text: '', alt: null });
+test('العنوان المحفوظ قبل ٣ نوفمبر ٢٠٢٦ يسري على مستند المرحلة الثانية تلقائياً كالمرحلة الأولى (قرار المالك ٣ نوفمبر ٢٠٢٦) — بلا وسمٍ ولا حقلٍ جديد', () => {
+  // texts(): صياغة inv.title وحذف inv.returnTitle كما حفظته شركةٌ قبل اليوم (الحقول الثلاثة وحدها)
+  const saved = makePrintTexts(texts(), enTr, { standard: false });
+  for (const f of [P1, P2]) {
+    assert.deepEqual(saved.title('فاتورة ضريبية', f), { text: 'فاتورة مبيعات', alt: 'Sales invoice' }, JSON.stringify(f));
+    assert.deepEqual(saved.title('فاتورة ضريبية مبسطة', f), { text: 'فاتورة مبيعات', alt: 'Sales invoice' }, JSON.stringify(f));
+  }
+  for (const f of [P1R, P2R]) assert.deepEqual(saved.title('إشعار دائن مرتجع', f), { text: '', alt: null }, JSON.stringify(f));
   const hidden = makePrintTexts(texts({ edits: { 'inv.title': { text: null, alt: null, hidden: true } } }), enTr, { standard: true });
-  assert.deepEqual(hidden.title('فاتورة ضريبية', P2), { text: 'فاتورة ضريبية', alt: ph('فاتورة ضريبية') });
+  assert.deepEqual(hidden.title('فاتورة ضريبية', P2), { text: '', alt: null });
   assert.deepEqual(hidden.title('فاتورة ضريبية', P1), { text: '', alt: null });
-  // الخادم الصارم يقبل الوسم ويحفظه لعنواني الفاتورة وحدهما، ولا يكتبه لغيرهما ولا يكتب false — وغيابه بايتات اليوم
-  const r = checkPrintTexts(texts({ edits: {
-    'inv.title': { text: 'فاتورة مبيعات', alt: null, hidden: false, phase2: true },
-    'inv.returnTitle': { text: null, alt: null, hidden: true, phase2: false },
-    'h.phone': { text: 'الهاتف', alt: null, hidden: false, phase2: true },
-  } }), true);
-  assert.ok(r.ok);
-  assert.equal(JSON.stringify(r.ok && r.value.edits), JSON.stringify({
+  // لا وسم phase2: الخادم الصارم يرفضه حقلاً مجهولاً، والمتسامح (الجهاز) يهمله — والصورة القانونية بحقولها الثلاثة كاليوم
+  const r = checkPrintTexts({ ...raw(), edits: { 'inv.title': { text: 'فاتورة مبيعات', alt: null, hidden: false, phase2: true } } }, true);
+  assert.equal(r.ok, false);
+  assert.equal(!r.ok && r.issues[0]?.message, PRINT_TEXTS_ISSUES.unknownKey);
+  const ok = checkPrintTexts({ ...raw(), edits: {
+    'inv.title': { text: 'فاتورة مبيعات', alt: null, hidden: false },
+    'inv.returnTitle': { text: null, alt: null, hidden: true },
     'h.phone': { text: 'الهاتف', alt: null, hidden: false },
-    'inv.title': { text: 'فاتورة مبيعات', alt: null, hidden: false, phase2: true },
+  } }, true);
+  assert.equal(JSON.stringify(ok.ok && ok.value.edits), JSON.stringify({
+    'h.phone': { text: 'الهاتف', alt: null, hidden: false },
+    'inv.title': { text: 'فاتورة مبيعات', alt: null, hidden: false },
     'inv.returnTitle': { text: null, alt: null, hidden: true },
   }));
   assert.equal(JSON.stringify(canonicalPrintTexts(raw()).edits['inv.title']), '{"text":"فاتورة مبيعات","alt":"Sales invoice","hidden":false}');
-  // المتسامح (الجهاز) يحفظ الوسم أيضاً
   const l = checkPrintTexts({ ...raw(), edits: { 'inv.title': { text: 'فاتورة مبيعات', alt: null, hidden: false, phase2: true } } }, false);
-  assert.equal(l.ok && l.value.edits['inv.title']?.phase2, true);
+  assert.equal(JSON.stringify(l.ok && l.value.edits['inv.title']), '{"text":"فاتورة مبيعات","alt":null,"hidden":false}');
 });
 
 test('اسم الشركة وعنوانها باللغة الثانية مع لغةٍ ثانية وحدها، وvalueAlt للقيم الثابتة', () => {

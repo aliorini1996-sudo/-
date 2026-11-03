@@ -250,22 +250,6 @@ export interface PrintTextEdit {
   text: string | null;
   alt: string | null;
   hidden: boolean;
-  /**
-   * لعنواني الفاتورة والإشعار الدائن وحدهما (قفل 'title'): true = صاغته الشركة أو حذفته بعد طلب المالك ٣ نوفمبر ٢٠٢٦ فيسري على
-   * مستندات المرحلة الثانية أيضاً. غيابه = تعديلٌ محفوظٌ قبله كان للمرحلة الأولى وحدها — فيبقى كذلك (ورقة الشركة كما اليوم حتى تعدّله
-   * هي). لا يُكتب لغير مفتاحي العنوان، ولا يُكتب false (الصورة القانونية بلا الحقل = بايتات اليوم).
-   */
-  phase2?: boolean;
-}
-
-/** هل يسري تعديل هذا المفتاح على مستند المرحلة الثانية — كل مفتاحٍ إلا عنوانَي الفاتورة/الإشعار المحفوظين قبل ٣ نوفمبر ٢٠٢٦ */
-export function printTextEditOnPhase2(entry: PrintTextEntry, edit: PrintTextEdit): boolean {
-  return entry.lock !== 'title' || edit.phase2 === true;
-}
-
-/** التعديل بصورته القانونية: phase2 لمفتاحي العنوان وحدهما ومتى كان true — وإلا فالحقول الثلاثة كاليوم */
-function shapedEdit(entry: PrintTextEntry, text: string | null, alt: string | null, hidden: boolean, phase2: unknown): PrintTextEdit {
-  return entry.lock === 'title' && phase2 === true ? { text, alt, hidden, phase2: true } : { text, alt, hidden };
 }
 
 export interface PrintTextsV1 {
@@ -290,8 +274,8 @@ export const PRINT_TEXTS_LIMITS = Object.freeze({
 
 function makePrintTextsSchema(strict: boolean) {
   const edit = strict
-    ? z.object({ text: z.string().nullable(), alt: z.string().nullable(), hidden: z.boolean(), phase2: z.boolean().optional() }).strict()
-    : z.object({ text: z.string().nullable(), alt: z.string().nullable(), hidden: z.boolean(), phase2: z.boolean().optional() });
+    ? z.object({ text: z.string().nullable(), alt: z.string().nullable(), hidden: z.boolean() }).strict()
+    : z.object({ text: z.string().nullable(), alt: z.string().nullable(), hidden: z.boolean() });
   const shape = {
     version: z.literal(1),
     secondLang: z.enum(PRINT_SECOND_LANGS).nullable(),
@@ -367,7 +351,7 @@ export function canonicalPrintTexts(s: PrintTextsV1): PrintTextsV1 {
     const alt = oneLineOrNull(raw.alt);
     const hidden = raw.hidden === true;
     if (text === null && alt === null && !hidden) continue;
-    edits[entry.key] = shapedEdit(entry, text, alt, hidden, (raw as { phase2?: unknown }).phase2);
+    edits[entry.key] = { text, alt, hidden };
   }
   return {
     version: 1,
@@ -439,7 +423,7 @@ export function checkPrintTexts(raw: unknown, strict: boolean): PrintTextsCheck 
     const text = clip(edit.text, entry.max);
     const alt = clip(edit.alt, entry.max);
     if (text === null && alt === null && !hidden) delete value.edits[key];
-    else value.edits[key] = shapedEdit(entry, text, alt, hidden, edit.phase2);
+    else value.edits[key] = { text, alt, hidden };
   }
   value.companyNameAlt = clip(value.companyNameAlt, PRINT_TEXTS_LIMITS.companyNameAltMax);
   value.companyAddressAlt = clip(value.companyAddressAlt, PRINT_TEXTS_LIMITS.companyAddressAltMax);

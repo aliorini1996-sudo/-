@@ -681,25 +681,30 @@ test('حارس نصّي: PUT /api/company وcompanySchema لم يُمسّا — 
   assert.equal(schema.split(/\n\s*printTexts\s+Json\?/).length - 1, 1, 'في CompanySettings وحده');
 });
 
-test('وسم phase2 لعنواني الفاتورة/الإشعار: الصارم يقبله ويحفظه لهما وحدهما (true فقط)، وغيابه = التعديل المحفوظ قبل ٣ نوفمبر ٢٠٢٦ كما كان', () => {
+test('عنوانا الفاتورة/الإشعار بلا وسم مرحلة (قرار المالك ٣ نوفمبر ٢٠٢٦ «طبّقها تلقائياً»): الحقول الثلاثة وحدها، وphase2 حقلٌ مجهول', () => {
   const doc = {
     version: 1, secondLang: null, companyNameAlt: null, companyAddressAlt: null,
     edits: {
-      'inv.title': { text: 'فاتورة مبيعات', alt: null, hidden: false, phase2: true },
-      'inv.returnTitle': { text: null, alt: null, hidden: true, phase2: false },
-      'h.phone': { text: 'الهاتف', alt: null, hidden: false, phase2: true },
+      'inv.title': { text: 'فاتورة مبيعات', alt: null, hidden: false },
+      'inv.returnTitle': { text: null, alt: null, hidden: true },
+      'h.phone': { text: 'الهاتف', alt: null, hidden: false },
     },
   };
   const r = checkPrintTexts(doc, true);
   assert.ok(r.ok, JSON.stringify(!r.ok && r.issues));
   assert.equal(JSON.stringify(r.ok && r.value.edits), JSON.stringify({
     'h.phone': { text: 'الهاتف', alt: null, hidden: false },
-    'inv.title': { text: 'فاتورة مبيعات', alt: null, hidden: false, phase2: true },
+    'inv.title': { text: 'فاتورة مبيعات', alt: null, hidden: false },
     'inv.returnTitle': { text: null, alt: null, hidden: true },
   }));
-  // بلا وسم: الصورة القانونية بحقولها الثلاثة كاليوم حرفاً
-  const legacy = canonicalPrintTexts({ ...emptyPrintTexts(), edits: { 'inv.title': { text: 'فاتورة مبيعات', alt: null, hidden: false } } });
-  assert.equal(JSON.stringify(legacy.edits), '{"inv.title":{"text":"فاتورة مبيعات","alt":null,"hidden":false}}');
-  // نوعٌ غير منطقي مرفوض في الصارم
-  assert.equal(checkPrintTexts({ ...doc, edits: { 'inv.title': { text: null, alt: null, hidden: true, phase2: 'yes' } } }, true).ok, false);
+  const saved = canonicalPrintTexts({ ...emptyPrintTexts(), edits: { 'inv.title': { text: 'فاتورة مبيعات', alt: null, hidden: false } } });
+  assert.equal(JSON.stringify(saved.edits), '{"inv.title":{"text":"فاتورة مبيعات","alt":null,"hidden":false}}');
+  // phase2 لم يعد حقلاً: الصارم يرفضه unknownKey، والمتسامح يهمله
+  for (const phase2 of [true, false, 'yes']) {
+    const bad = checkPrintTexts({ ...doc, edits: { 'inv.title': { text: 'فاتورة مبيعات', alt: null, hidden: false, phase2 } } }, true);
+    assert.equal(bad.ok, false, String(phase2));
+    assert.deepEqual(!bad.ok && bad.issues.map((i) => i.message), [PRINT_TEXTS_ISSUES.unknownKey], String(phase2));
+  }
+  const lenient = checkPrintTexts({ ...doc, edits: { 'inv.title': { text: 'فاتورة مبيعات', alt: null, hidden: false, phase2: true } } }, false);
+  assert.equal(JSON.stringify(lenient.ok && lenient.value.edits), '{"inv.title":{"text":"فاتورة مبيعات","alt":null,"hidden":false}}');
 });

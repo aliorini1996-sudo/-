@@ -19,20 +19,18 @@ import { newProfile, withDesign } from '../../lib/print/printSettings';
 import { PrintableInvoice, PrintableReceipt, type InvoiceDoc, type ReceiptDoc } from '../../rep/RepDocuments';
 import { DEFAULT_PRINT_LOOK, PrintLookContext, lookFor, type PrintLook } from '../../rep/printLook';
 import { PrintTextsPreviewContext } from '../../rep/printTextsContext';
-import { deleteConfirmClass, deleteConfirmText, deletedLines, lineWarning, titleEditPhase1Only, withTextEdit } from './PrintTextsCard';
+import { deleteConfirmClass, deleteConfirmText, deletedLines, lineWarning, withTextEdit } from './PrintTextsCard';
 
 const root = process.cwd();
 const editor = () => fs.readFileSync(path.join(root, 'src', 'components', 'print', 'PrintTextsEditor.tsx'), 'utf8').replace(/\r\n/g, '\n');
 const KEYS = PRINT_TEXT_CATALOG.map((e) => e.key);
 const same = (s: string) => s;
-/** ما يكتبه المحرّر لعنواني الفاتورة/الإشعار: وسم phase2 (يسري على المرحلتين) — تعديل العنوان المحفوظ قبل ٣ نوفمبر بلا وسم */
-const p2 = (key: string): { phase2?: true } => (PRINT_TEXT_CATALOG.find((e) => e.key === key)?.lock === 'title' ? { phase2: true } : {});
 
 test('كل مفتاح في القائمة: «حذف السطر» يقبله الفحص الصارم ويحفظه، و«استعادة» تعيد المسودة فارغة', () => {
   assert.ok(KEYS.length >= 90, `القائمة ${KEYS.length}`);
   for (const key of KEYS) {
     const del = withTextEdit(emptyPrintTexts(), key, { hidden: true });
-    assert.deepEqual(del.edits[key], { text: null, alt: null, hidden: true, ...p2(key) }, key);
+    assert.deepEqual(del.edits[key], { text: null, alt: null, hidden: true }, key);
     const r = checkPrintTexts(del, true);
     assert.ok(r.ok, `${key}: الحذف مرفوض — ${r.ok ? '' : JSON.stringify(r.issues)}`);
     assert.equal(canonicalPrintTexts(r.value).edits[key]?.hidden, true, `${key}: الحذف لا يُحفظ`);
@@ -50,8 +48,8 @@ test('كل مفتاح في القائمة: الصياغة العربية وال�
     assert.ok(r.ok, `${key}: الصياغة مرفوضة — ${r.ok ? '' : JSON.stringify(r.issues)}`);
     const del = withTextEdit(d, key, { hidden: true });
     assert.ok(checkPrintTexts(del, true).ok, `${key}: صياغة + حذف مرفوضة`);
-    assert.deepEqual(withTextEdit(del, key, { hidden: false }).edits[key], { text: 'صياغة بديلة', alt: 'Custom', hidden: false, ...p2(key) });
-    if (p2(key).phase2) assert.equal(r.ok && r.value.edits[key]?.phase2, true, `${key}: الخادم لا يحفظ وسم المرحلتين`);
+    assert.deepEqual(withTextEdit(del, key, { hidden: false }).edits[key], { text: 'صياغة بديلة', alt: 'Custom', hidden: false });
+    assert.deepEqual(r.ok && r.value.edits[key], { text: 'صياغة بديلة', alt: 'Custom', hidden: false }, `${key}: الصورة القانونية بحقولها الثلاثة`);
     // «إعادة النص الافتراضي» (null) يمحو التعديل كله
     assert.deepEqual(withTextEdit(del, key, null).edits, {});
   }
@@ -210,20 +208,21 @@ test('حارس المحرّر: «حذف السطر» بجانب كل عبارة�
   for (const scope of new Set(Object.values(PRINT_TEXT_LINE))) assert.match(hints, new RegExp(`\\b${scope}: '`), `وحدة بلا تلميح: ${scope}`);
 });
 
-test('العنوان المحفوظ قبل ٣ نوفمبر ٢٠٢٦: يبقى بلا وسم (للمرحلة الأولى) ما لم تلمسه الشركة، وتنبيهه في صفّه، و«تطبيقه على المرحلتين» يسمه', () => {
-  const legacy: PrintTextsV1 = { ...emptyPrintTexts(), edits: { 'inv.title': { text: 'فاتورة مبيعات', alt: null, hidden: false } } };
-  assert.equal(titleEditPhase1Only('inv.title', legacy.edits['inv.title']), true);
-  // تعديل مفتاحٍ آخر لا يمسّ العنوان المحفوظ
-  const other = withTextEdit(legacy, 'h.phone', { text: 'الهاتف' });
+test('عنوان الفاتورة/الإشعار في المحرّر كأي عبارة (قرار المالك ٣ نوفمبر ٢٠٢٦ «طبّقها تلقائياً»): لا وسم مرحلة ولا تنبيه «القواعد السابقة» ولا زرّ «تطبيقه على المرحلتين»', () => {
+  const saved: PrintTextsV1 = { ...emptyPrintTexts(), edits: { 'inv.title': { text: 'فاتورة مبيعات', alt: null, hidden: false } } };
+  // تعديل مفتاحٍ آخر لا يمسّ العنوان المحفوظ، ولمسُ العنوان يكتب الحقول الثلاثة وحدها
+  const other = withTextEdit(saved, 'h.phone', { text: 'الهاتف' });
   assert.deepEqual(other.edits['inv.title'], { text: 'فاتورة مبيعات', alt: null, hidden: false });
-  // الزرّ يرسل patch فارغاً: الصياغة كما هي موسومةً للمرحلتين — والخادم الصارم يحفظ الوسم
-  const both = withTextEdit(legacy, 'inv.title', {});
-  assert.deepEqual(both.edits['inv.title'], { text: 'فاتورة مبيعات', alt: null, hidden: false, phase2: true });
-  assert.equal(titleEditPhase1Only('inv.title', both.edits['inv.title']), false);
-  const r = checkPrintTexts(both, true);
-  assert.equal(r.ok && r.value.edits['inv.title']?.phase2, true);
-  // لا تنبيه لغير العنوانين ولا لعنوانٍ بلا تعديل
-  assert.equal(titleEditPhase1Only('h.phone', other.edits['h.phone']), false);
-  assert.equal(titleEditPhase1Only('inv.returnTitle', undefined), false);
-  assert.ok(editor().includes('titleEditPhase1Only(entry.key, edit)') && editor().includes('onClick={() => onChange({})}'), 'المحرّر بلا تنبيه العنوان المحفوظ أو زرّه');
+  assert.deepEqual(withTextEdit(saved, 'inv.title', {}).edits['inv.title'], { text: 'فاتورة مبيعات', alt: null, hidden: false });
+  assert.deepEqual(withTextEdit(saved, 'inv.returnTitle', { hidden: true }).edits['inv.returnTitle'], { text: null, alt: null, hidden: true });
+  const r = checkPrintTexts(other, true);
+  assert.equal(JSON.stringify(r.ok && r.value.edits['inv.title']), '{"text":"فاتورة مبيعات","alt":null,"hidden":false}');
+  const e = editor();
+  const card = fs.readFileSync(path.join(root, 'src', 'components', 'print', 'PrintTextsCard.tsx'), 'utf8');
+  for (const gone of ['titleEditPhase1Only', 'data-pt-phase1-only', 'printTextEditOnPhase2', 'phase2', 'تطبيقه على المرحلتين', 'هذا التعديل محفوظ بالقواعد السابقة']) {
+    assert.ok(!e.includes(gone), `المحرّر: ${gone}`);
+    assert.ok(!card.includes(gone), `البطاقة: ${gone}`);
+  }
+  // تحذير العنوان (الرقم الضريبي) باقٍ كما هو
+  assert.ok(e.includes('{tr(TITLE_WARNING)}'));
 });

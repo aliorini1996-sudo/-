@@ -18,7 +18,7 @@ import { PrintableInvoice, PrintableReceipt, type Company, type DocCustomer, typ
 import { DEFAULT_PRINT_LOOK, PrintLookContext, SHEET_WIDTH_PX, lookFor, type PrintLook } from '../../rep/printLook';
 import { PrintTextsPreviewContext } from '../../rep/printTextsContext';
 import { thermalPreviewHtml } from '../../rep/thermal';
-import { deleteConfirmText, deletedLines, lineWarning, titleEditPhase1Only, withTextEdit, type PrintTextsCompany } from './PrintTextsCard';
+import { deleteConfirmText, deletedLines, lineWarning, withTextEdit, type PrintTextsCompany } from './PrintTextsCard';
 
 /**
  * محرّر «نصوص المطبوعات» (طلب المالك ٣١ أكتوبر ٢٠٢٦) — نافذةٌ كاملة ببوابة إلى document.body (البطاقة داخل نموذج الإعدادات
@@ -741,12 +741,6 @@ function TextRow({ entry, edit, lang, active, issues, onChange, onActivate, onDe
       {isTitle && (active || edited) && (
         <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-800 leading-relaxed">
           <p className="flex items-start gap-1.5"><AlertTriangle size={12} className="mt-0.5 shrink-0" />{tr(TITLE_WARNING)}</p>
-          {titleEditPhase1Only(entry.key, edit) && (
-            <p data-pt-phase1-only={entry.key} className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              <Info size={12} className="shrink-0" />{tr('هذا التعديل محفوظ بالقواعد السابقة فيسري على مستندات المرحلة الأولى وحدها، ومستند المرحلة الثانية يطبع عنوان الهيئة')}
-              <button type="button" onClick={() => onChange({})} className="underline font-semibold">{tr('تطبيقه على المرحلتين')}</button>
-            </p>
-          )}
         </div>
       )}
     </div>
