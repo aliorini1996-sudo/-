@@ -5524,11 +5524,8 @@ export default function RepApp() {
                       <span className={`w-2 h-2 rounded-full bg-[#5FBE92] ${trackStatus === 'active' ? 'animate-pulse' : ''}`} /> <MapPin size={12} />
                     </span>
                   )}
-                  {trackStatus === 'denied' && (
-                    <span className="flex items-center gap-1 text-[11px] text-amber-400" title={tr('فعل إذن الموقع من إعدادات المتصفح')}>
-                      <MapPin size={12} /> {tr('الموقع متوقف')}
-                    </span>
-                  )}
+                  {/* لا شارة «الموقع متوقف» في الشريط أبداً (قرار المالك ٣ نوفمبر ٢٠٢٦): يظنها المشتركون عطلاً في المنصة. المقيَّد
+                      بالموقع يرشده حاجز الموقع، وغيره يعمل بلا تنبيه */}
                   <LanguageToggle variant="dark" />
                   <button onClick={logout} className="text-[#9A8F7E] hover:text-white"><LogOut size={18} /></button>
                 </div>
