@@ -715,3 +715,23 @@ test('حارس: لا عتبة زمنية تقسم اليوم، وGPS يُجمَ�
   assert.match(q, /GROUP BY 1, 2`/, 'GPS لكل (مندوب × يوم محلي) وحده — الدلاء لم يعد لها مستهلك');
   assert.doesNotMatch(src, /make_interval/, 'make_interval مع bigint أسقط المسار على الإنتاج (42883)');
 });
+
+test('حارس: طرفا اليوم في تقرير الساعات من نقاط الصفحة وحدها — نقاط الخلفية (حتى منتصف الليل) لا تمدّ اليوم', () => {
+  // قرار المالك ٤ نوفمبر ٢٠٢٦: RepLocation.source = 'device' لخدمة التطبيق في الخلفية، وnull لنقطة الصفحة كما كانت
+  const src = fs.readFileSync(path.join(__dirname, '../routes/reports.ts'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const h = src.slice(src.indexOf("router.get('/work-hours'"), src.indexOf("router.get('/rep-ranking'"));
+  const q = h.slice(h.indexOf('FROM "rep_locations"'), h.indexOf('prisma.repAttendance.findMany'));
+  assert.match(q, /WHERE "tenantId" = \$\{tid\} AND "capturedAt" >= \$\{fromDate\} AND "capturedAt" < \$\{toEnd\}\s+AND "source" IS NULL\s+GROUP BY 1, 2`/);
+  assert.equal(h.split('FROM "rep_locations"').length, 2, 'استعلام نقاطٍ ثانٍ في تقرير الساعات');
+  assert.match(h, /pingRanges: \(pingsByRep\.get\(r\.id\) \|\| \[\]\)\.map/, 'pingRanges من الاستعلام المصفّى وحده');
+});
+
+test('نقطةٌ من الخلفية لو مُرِّرت تمدّ اليوم بالمساء — لهذا لا تُمرَّر (المحرّك صرفٌ يعكس ما يُعطى)', () => {
+  // يومٌ بلا بصمة: جلسةٌ ٨–١٦ بتوقيت الرياض. طرفا نقاط الصفحة داخلها لا يغيّران شيئاً، وطرفُ جهازٍ عند ٢٣:٥٠ كان سيمدّه
+  const s = { start: iso('2026-11-04T05:00:00Z'), end: iso('2026-11-04T13:00:00Z') };
+  const web = composeWorkDays({ sessions: [s], pingRanges: [{ day: '2026-11-04', min: iso('2026-11-04T05:10:00Z'), max: iso('2026-11-04T12:50:00Z') }], visits: [], tzOffsetMin: KSA });
+  assert.equal(web[0].spanMinutes, 480);
+  const leaked = composeWorkDays({ sessions: [s], pingRanges: [{ day: '2026-11-04', min: iso('2026-11-04T05:10:00Z'), max: iso('2026-11-04T20:50:00Z') }], visits: [], tzOffsetMin: KSA });
+  assert.equal(leaked[0].spanMinutes, 950, 'المحرّك تغيّر: لم يعد يمدّ اليوم بما يُعطى');
+});

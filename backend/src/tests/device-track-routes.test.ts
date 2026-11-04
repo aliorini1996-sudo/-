@@ -6,6 +6,8 @@
 //   • POST /api/tracking/device-token: المندوب وحده، enabled:false حين يُطفأ التتبّع له، وإلا رمزٌ يتحقّق منه verifyTrackToken.
 //   • رفع الإغلاق (x-fs-track-final: 1): نقاطه تُخزَّن ثم يُنسى «التتبّع الأصلي يعمل» — ويُقبل فارغاً بالترويسة وحدها.
 //   • GET /api/tracking/route: يومٌ فوق سقف ٥٠٠٠ نقطة يعيد أحدثها تصاعدياً، لا أولاها.
+//   • مصدر الصفّ (قرار المالك ٤ نوفمبر): نقطة الجهاز source='device' من المسار لا من الجسم، ونقطة الصفحة بلا مصدر؛ والجهاز
+//     يحرّك الدبّوس ولحظته ولا يلمس «آخر ظهور».
 import { after, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -25,7 +27,7 @@ const stub = (rel: string, exports: Record<string, unknown>): void => {
 // ─── Prisma مزيّف ───
 type Tenant = { isActive: boolean; subscriptionEndsAt: Date | null; attendanceEnabled?: boolean };
 type Rep = { tenantId: string; isActive: boolean; canBeTracked: boolean; requireLocationOn: boolean; tenant: Tenant };
-type Loc = { tenantId: string; salesRepId: string; lat: number; lng: number; accuracy: number | null; speed: number | null; capturedAt: Date; createdAt: Date };
+type Loc = { tenantId: string; salesRepId: string; lat: number; lng: number; accuracy: number | null; speed: number | null; capturedAt: Date; createdAt: Date; source?: string | null };
 let reps: Record<string, Rep> = {};
 let trackingEnabled = true;
 let locs: Loc[] = [];
@@ -182,7 +184,12 @@ test('نقطة الجهاز والتتبّع مفعّل ⇒ تُخزَّن لل�
   assert.equal(locs.length, 2);
   assert.ok(locs.every((l) => l.tenantId === 't1' && l.salesRepId === 'free'));
   assert.equal(repRows.free.lastLat, 24.71, 'الأحدث بين نقاط الدفعة');
-  assert.ok(repRows.free.lastSeenAt instanceof Date);
+  assert.ok(repRows.free.lastLocAt instanceof Date, 'لحظة الدبّوس تتحرّك بنقطة الجهاز');
+  // «آخر ظهور» = التطبيق مفتوحٌ أمامه كما كان — الخلفية ترفع حتى منتصف الليل فلا تُبقيه «متصلاً» في عدّاد المالك
+  assert.equal(repRows.free.lastSeenAt, undefined, 'نقطة الجهاز لمست «آخر ظهور»');
+  // مصدر الصفّ من المسار: نقطة الجهاز 'device' (LOCATION_SOURCE_DEVICE)
+  assert.ok(locs.every((l) => l.source === dt.LOCATION_SOURCE_DEVICE), 'نقطة جهازٍ بلا مصدرها');
+  assert.equal(dt.LOCATION_SOURCE_DEVICE, 'device');
   assert.equal(dt.nativeTrackActive('free'), true);
   assert.equal(dt.nativeTrackActive('strict'), false);
 });
@@ -254,9 +261,10 @@ test('جسمٌ فاسد من الجهاز ⇒ 400 بلا تخزين (المخط�
 });
 
 test('نقطة الويب والتتبّع الأصلي يعمل: غير المقيَّد لا تُخزَّن (native) ويُلمس «آخر ظهور» — والمقيَّد يُخزَّن ويُحكم كما كان', async () => {
-  // قبل أي نقطة من الجهاز: الويب كما كان
+  // قبل أي نقطة من الجهاز: الويب كما كان — وصفّه بلا مفتاح المصدر أصلاً (العمود null كما قبل الميزة)
   let r = await call('/api/tracking/ping', { points: [pt()] }, bearer(session('free')));
   assert.deepEqual(r.body, { success: true, data: { stored: 1 } });
+  assert.equal('source' in locs[0], false, 'نقطة الصفحة حملت مصدراً');
   await devicePing(trackTok('free'), [pt()]);
   await devicePing(trackTok('strict'), [pt()]);
   locs = [];
@@ -271,6 +279,7 @@ test('نقطة الويب والتتبّع الأصلي يعمل: غير الم�
   assert.deepEqual(r.body.data.live, { ok: true });
   assert.equal(r.body.data.native, true);
   assert.equal(locs.length, 1);
+  assert.equal('source' in locs[0], false, 'نقطة صفحة المقيَّد حملت مصدراً');
   // التتبّع مطفأ للشركة: الويب يُبلَّغ disabled كما كان، ولو كان الأصلي يعمل
   trackingEnabled = false;
   r = await call('/api/tracking/ping', { points: [pt()] }, bearer(session('free')));
@@ -344,11 +353,13 @@ test('رفع الإغلاق (x-fs-track-final: 1): نقاطه تُخزَّن ث�
   assert.equal(r.status, 200);
   assert.deepEqual(r.body, { success: true, data: { stored: 2 } });
   assert.equal(locs.length, 2, 'نقاط الإغلاق تُخزَّن كغيرها');
+  assert.ok(locs.every((l) => l.source === 'device'), 'نقاط الإغلاق نقاط جهاز');
   assert.equal(dt.nativeTrackActive('free'), false, 'لا ٩٠ث عن خدمةٍ توقّفت');
   // مندوبٌ خرج ثم عاد خلال النافذة: الصفحة تُبلَّغ أن لا جهاز يرفع فتطلب بدءاً، ونقاط صفحته تُخزَّن فوراً
   assert.equal((await call('/api/tracking/device-token', {}, bearer(session('free')))).body.data.nativeActive, false);
   assert.deepEqual((await call('/api/tracking/ping', { points: [pt()] }, bearer(session('free')))).body, { success: true, data: { stored: 1 } });
   assert.equal(locs.length, 3);
+  assert.equal(locs[2].source, undefined, 'نقطة الصفحة بعد الإغلاق بلا مصدر');
   // بدءٌ جديد: أول رفعٍ عاديّ يعلّمه من جديد
   await devicePing(tok, [pt()]);
   assert.equal(dt.nativeTrackActive('free'), true);
@@ -377,6 +388,43 @@ test('الترويسة بغير 1 رفعٌ عاديّ يعلّم — ورفع ا
   trackingEnabled = false;
   assert.deepEqual((await devicePing(tok, [], { 'x-fs-track-final': '1' })).body.data, { stored: 0, stop: true });
   assert.equal(locs.length, 0);
+});
+
+// ─── مصدر النقطة (قرار المالك ٤ نوفمبر): الخلفية تسجّل حتى منتصف الليل، فالتقارير تفرّق نقطة الجهاز عن نقطة الصفحة ───
+test('المصدر من المسار لا من الجسم: نقطة الجهاز «device» ولو ادّعى الجسم غيره، ونقطة الصفحة بلا مصدر ولو ادّعت «device»', async () => {
+  let r = await devicePing(trackTok('free'), [{ ...pt(), source: null }, { ...pt(), source: 'web' }]);
+  assert.equal(r.body.data.stored, 2);
+  r = await call('/api/track-device/ping', { points: [pt()], source: 'web' }, bearer(trackTok('free')));
+  assert.equal(r.body.data.stored, 1);
+  assert.deepEqual(locs.map((l) => l.source), ['device', 'device', 'device']);
+  locs = [];
+  dt.resetNativeTrack();
+  r = await call('/api/tracking/ping', { points: [{ ...pt(), source: 'device' }], source: 'device' }, bearer(session('free')));
+  assert.deepEqual(r.body.data, { stored: 1 });
+  assert.equal(locs.length, 1);
+  assert.equal('source' in locs[0], false, 'جسم الصفحة صنع نقطة جهاز');
+});
+
+test('نقطة الجهاز لا تلمس «آخر ظهور» أبداً — دفعةٌ أحدث تحرّك الدبّوس ولحظته، والأقدم لا تكتب شيئاً، والصفحة تكتبه كما كانت', async () => {
+  const tok = trackTok('free');
+  await devicePing(tok, [pt({ lat: 24.71, capturedAt: new Date(Date.now() - 5_000).toISOString() })]);
+  const loc1 = repRows.free.lastLocAt as Date;
+  assert.ok(loc1 instanceof Date);
+  assert.equal(repRows.free.lastSeenAt, undefined);
+  // دفعةٌ أقدم أعاد الجهاز رفعها بعد انقطاع: تُخزَّن في المسار ولا يُكتب على المندوب شيء
+  await devicePing(tok, [pt({ lat: 24.50, capturedAt: new Date(Date.now() - 600_000).toISOString() })]);
+  assert.equal(repRows.free.lastLat, 24.71);
+  assert.equal((repRows.free.lastLocAt as Date).getTime(), loc1.getTime());
+  assert.equal(repRows.free.lastSeenAt, undefined, 'الدفعة الأقدم من الجهاز لمست «آخر ظهور»');
+  assert.equal(locs.length, 2);
+  // الصفحة مفتوحة أمامه (والجهاز يرفع ⇒ native): «آخر ظهور» يُلمس كما كان
+  assert.deepEqual((await call('/api/tracking/ping', { points: [pt()] }, bearer(session('free')))).body.data, { stored: 0, native: true });
+  // (قراءةٌ جديدة من الصفّ: التأكيدان السابقان ضيّقا النوع إلى undefined)
+  assert.ok(repRow('free').lastSeenAt instanceof Date);
+  // المقيَّد من الجهاز كذلك: موقعه يُخزَّن ويتحرّك دبّوسه، و«آخر ظهور» لصفحته وحدها
+  await devicePing(trackTok('strict'), [pt()]);
+  assert.ok(repRows.strict.lastLocAt instanceof Date);
+  assert.equal(repRows.strict.lastSeenAt, undefined);
 });
 
 // ─── خطّ السير: أحدث ٥٠٠٠ نقطة لا أولاها (مراجعة ٤ نوفمبر) ───

@@ -44,10 +44,17 @@
    - بدونها: مندوب خرج ثم دخل خلال ٩٠ ثانية يُجاب بـ`nativeActive` عن خدمة متوقفة، فلا يُطلب له بدء طوال يومه، ولا تُخزَّن نقاط صفحته حتى تنقضي النافذة.
    - لا تُرسل بعد رفض الرمز أو `data.stop`. والخادم لا يقبل غير القيمة `1`، فقيمة مشوّهة من وسيط لا تُطفئ خدمة ما زالت ترفع.
 
+9. **مصدر النقطة في التقارير (قرار المالك ٤ نوفمبر):** الخلفية تسجّل حتى منتصف الليل المحلي ولو انصرف المندوب، فيُكتب لكل نقطة منها `RepLocation.source = 'device'` (`LOCATION_SOURCE_DEVICE`). المسار هو الذي يحدّده، ولا يُقرأ من الجسم. أما نقطة الصفحة فتبقى `null` كما كانت.
+   - العمود إضافي، ويطبّقه `prisma db push` في preDeploy على Render. الصفوف القائمة تبقى `null`.
+   - **تقرير ساعات العمل:** طرفا اليوم من نقاط الصفحة وحدها (`"source" IS NULL`). نقاط الخلفية لا تمدّ اليوم.
+   - **المسافة في «تقييم الأداء»:** تُحسب نقاط الخلفية داخل غلاف يومها المحلي وحده، أي من أول أثر أمامي إلى آخره: نقاط الصفحة، والجلسات، والزيارات، ولحظات البصمات (`services/foregroundEnvelope.ts`).
+   - **الخريطة الحية، وخط السير، وحاجز «اشتراط تفعيل الموقع»:** تقرأ كل النقاط.
+   - **«آخر ظهور» (`lastSeenAt`):** نقطة الجهاز لا تحدّثه، فعدّاد «الزيارات الحية» يبقى للتطبيق المفتوح. لكنها تحرّك الدبّوس و`lastLocAt`، والخريطة تعدّ المندوب متصلاً بأحدث القيمتين.
+
 ## الملفات
 | الجزء | الملفات |
 |---|---|
-| الخادم | `backend/src/services/deviceTrack.ts`، `backend/src/routes/trackDevice.ts`، و`routes/tracking.ts` (`/device-token` و`storeRepPings`)، و`index.ts` |
+| الخادم | `backend/src/services/deviceTrack.ts`، `backend/src/routes/trackDevice.ts`، و`routes/tracking.ts` (`/device-token` و`storeRepPings`)، و`services/foregroundEnvelope.ts` و`routes/reports.ts` (التقارير)، و`index.ts` |
 | الويب | `web-admin/src/rep/nativeTracking.ts`، و`useRepTracking.ts` (طلب الرمز)، و`RepApp.tsx` (لمسة الحضور `startNativeTrackingOnPunch`، والإيقاف عند الخروج)، و`main.tsx` |
 | أندرويد | `app/src/main/java/net/fieldsa/twa/track/*`، والبيان (النشاط والخدمة وأذونات `FOREGROUND_SERVICE` و`FOREGROUND_SERVICE_LOCATION` و`WAKE_LOCK`)، و`LauncherActivity.appendTrackCapability`، و`src/printonly` (تُزال كلها) |
 | آيفون (فرع `feature/ios-bg-tracking` من `ios-app`) | `FieldSales/TrackService.swift`، و`TrackBridge.swift`، و`Info.plist` (`UIBackgroundModes: location`)، و`project.pbxproj`، و`metadata/review-notes.md` |
@@ -66,6 +73,7 @@
    - فعّل التتبّع لشركة حساب المراجعة ومندوبه، وإلا لن يرى المراجع الإفصاح.
    - إن كانت «بصمة الحضور» مفعّلة لتلك الشركة فلا يبدأ التتبّع إلا بلمسة «تسجيل الحضور». أطفئها للمراجعة، أو أبقِ خطوة «Check in» في الفقرة كما هي.
 5. **آيفون لم يُترجَم بعد.** لا يوجد Mac محلي، فيلزم تشغيل فحص بناء على GitHub Actions قبل الرفع.
-6. **اختبار حيّ على جهاز** قبل الرفع:
+6. **سياسة الخصوصية (البند ١١ في `web-admin/src/landing/defaultContent.ts` ونسخة CMS):** تقول إن خط السير يُسجَّل «ما دام … التطبيق مفتوحا». هذا لم يعد صحيحاً مع الخلفية، فتُحدَّث قبل الإصدار، وهي بقرار المالك.
+7. **اختبار حيّ على جهاز** قبل الرفع:
    - الخلفية، والشاشة المقفلة، والانقطاع ثم العودة، وقتل العملية.
    - تحقّق من ظهور الخطّ على «تتبّع المناديب».

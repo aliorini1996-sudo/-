@@ -5,7 +5,7 @@ import { AuthRequest } from '../types';
 import { pingLimiter, PING_IP_LIMIT } from '../middleware/rateLimits';
 import {
   bearerToken, verifyTrackToken, deviceTrackDecision, deviceNowMs, isoInstantMs, markNativeTrack, clearNativeTrack, isTrackFinal,
-  TRACK_FINAL_HEADER, TRACK_TOKEN_INVALID,
+  TRACK_FINAL_HEADER, TRACK_TOKEN_INVALID, LOCATION_SOURCE_DEVICE,
 } from '../services/deviceTrack';
 import { DEVICE_NOW_HEADER } from '../services/liveLocation';
 import { pingSchema, storeRepPings, PingPoint } from './tracking';
@@ -76,9 +76,10 @@ router.post('/ping', deviceIpLimiter, requireTrackToken, pingLimiter, async (req
 
     // ساعة الجهاز رقماً أو ISO-8601 ⇒ رقمٌ كما يقرؤه correctCapturedAt (الويب يرسل الرقم)
     const dn = deviceNowMs(req.headers[DEVICE_NOW_HEADER]);
-    // storeRepPings يفترض نقطةً واحدة على الأقل (أحدثها يحرّك الدبّوس) — فرفع الإغلاق الفارغ لا يمرّ بها
+    // storeRepPings يفترض نقطةً واحدة على الأقل (أحدثها يحرّك الدبّوس) — فرفع الإغلاق الفارغ لا يمرّ بها.
+    // والمصدر 'device' من هذا المسار نفسه لا من الجسم: به لا يُمدّ يوم العمل بمساء الخلفية في التقارير (services/foregroundEnvelope.ts)
     const stored = points.length
-      ? await storeRepPings(tid, repId, points.map(cleanPoint), dn != null ? String(dn) : undefined, rep?.requireLocationOn === true)
+      ? await storeRepPings(tid, repId, points.map(cleanPoint), dn != null ? String(dn) : undefined, rep?.requireLocationOn === true, LOCATION_SOURCE_DEVICE)
       : 0;
     // نقاط الإغلاق تُخزَّن كغيرها، ثم يُنسى «يعمل الآن»: الخدمة توقّفت، فلا تُسقَط نقاط الصفحة ولا يُمنع بدءٌ جديد ٩٠ث بعدها
     if (final) clearNativeTrack(repId);
