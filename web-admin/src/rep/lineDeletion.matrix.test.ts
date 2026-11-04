@@ -96,7 +96,13 @@ const rcpOne = (): ReceiptDoc => ({
 const rcpMany = (): ReceiptDoc => ({ ...rcpOne(), number: 'RC-56', amount: 300, invoices: [{ number: 'INV-901', amount: 100 }, { number: 'INV-902', amount: 50 }] });
 
 type Doc = InvoiceDoc | ReceiptDoc;
-const DOCS: Record<string, () => Doc> = { invStd, invSimple, creditNote, debitNote, rcpOne, rcpMany };
+/** عناوين الحالة بمفاتيحها (قرار المالك ٤ نوفمبر ٢٠٢٦): سند تسليم (قياسية لم تُعتمد)، ومُبطل، ومعلَّق — بلا رمز */
+const deliveryNote = (): InvoiceDoc => ({ ...invStd(), number: 'INV-779', zatca: zv({ mirror: 'clearance_pending', printable: false, qr: null }) });
+const voidDoc = (): InvoiceDoc => ({ ...invStd(), number: 'INV-780', zatca: zv({ subtype: '02', mirror: 'rejected', printable: false, qr: null }) });
+const pendingDoc = (): InvoiceDoc => ({ ...invStd(), number: 'INV-781', zatca: zv({ subtype: '02', mirror: 'signed', printable: false, qr: null }) });
+const DOCS: Record<string, () => Doc> = { invStd, invSimple, creditNote, debitNote, deliveryNote, voidDoc, pendingDoc, rcpOne, rcpMany };
+/** لا ورقة رول للمُبطل والمعلَّق (thermal.ts يرفض طباعتهما) — يُفحصان على A4 والثنائي */
+const NO_ROLL = new Set(['voidDoc', 'pendingDoc']);
 const PHASE2 = new Set(['invStd', 'creditNote', 'debitNote']);
 
 // ─── النصوص: كل عبارةٍ بوسمٍ فريد، وحذف مفتاحٍ واحد ───
@@ -172,7 +178,7 @@ const CHILDREN: Record<string, readonly string[]> = {
 /** قرائن الوحدة الواحدة (D5): حذف أيٍّ منها يُسقط الوحدة المشتركة */
 const PAIRS: readonly (readonly string[])[] = [
   ['col.price', 'col.priceIncl'], ['tot.vat', 'tot.vatIncl'], ['tot.grand', 'tot.due', 'tot.returnGrand'],
-  ['inv.number', 'inv.returnNumber'], ['inv.title', 'inv.returnTitle', 'inv.debitTitle'], ['inv.infoHeading', 'inv.returnInfoHeading'],
+  ['inv.number', 'inv.returnNumber'], ['inv.title', 'inv.returnTitle', 'inv.debitTitle', 'inv.deliveryNoteTitle', 'inv.voidTitle', 'inv.pendingTitle'], ['inv.infoHeading', 'inv.returnInfoHeading'],
 ];
 /** في الرول المفصّل خصم البند سطرٌ تحت اسمه داخل خلية الصنف */
 const ROLL_CHILDREN: Record<string, readonly string[]> = { 'col.item': ['col.discount'] };
@@ -237,6 +243,7 @@ async function matrixErrors(r: Renderer): Promise<string[]> {
   const errors: string[] = [];
   const check = (ok: boolean, msg: string) => { if (!ok) errors.push(msg); };
   for (const [docName, mk] of Object.entries(DOCS)) {
+    if (r.roll && NO_ROLL.has(docName)) continue;
     const base = await r.run(withTexts(mk(), tokensText()));
     const present = KEYS.filter((k) => base.includes(TOKEN[k]));
     for (const k of present) exercised.add(k);
@@ -296,7 +303,8 @@ test('المصفوفة تلتقط قالباً يتجاهل الحذف أو يح
 test('التغطية: كل مفتاحٍ طُبع وحُذف على قالبٍ واحدٍ على الأقل — والقالب ثنائي اللغة يطبع مفاتيحه الجديدة', async () => {
   // تُعاد هنا إن شُغِّل الاختبار وحده (--test-name-pattern)
   if (exercised.size === 0) {
-    for (const r of RENDERERS) for (const mk of Object.values(DOCS)) {
+    for (const r of RENDERERS) for (const [docName, mk] of Object.entries(DOCS)) {
+      if (r.roll && NO_ROLL.has(docName)) continue;
       const h = await r.run(withTexts(mk(), tokensText()));
       for (const k of KEYS) if (h.includes(TOKEN[k])) exercised.add(k);
     }

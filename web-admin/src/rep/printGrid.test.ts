@@ -14,13 +14,14 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { GRID_INVOICE_KEYS, GRID_RECEIPT_KEYS, GridInvoice, GridReceipt, type GridInvoiceFacts } from './printGrid';
+import { GRID_INVOICE_KEYS, GRID_RECEIPT_KEYS, GridInvoice, GridReceipt, gridSectionStyle, type GridInvoiceFacts } from './printGrid';
+import { PrintDesignPreviewContext, type PrintDesignPreview } from './printDesignContext';
 import type { InvoiceDoc, ReceiptDoc } from './RepDocuments';
 import { DEFAULT_PRINT_LOOK, lookFor, type PrintLook } from './printLook';
 import { zatcaPrintDecision } from '../lib/zatca/docPrint';
-import { makePrintTexts, phraseIn, type PrintTexts, type PrintTextsPreview } from '../lib/print/printTexts';
+import { makePrintTexts, phraseIn, titleKeyOf, type PrintTexts, type PrintTextsPreview } from '../lib/print/printTexts';
 import { printTextEntry } from '../lib/print/printTextsCore';
-import { DEFAULT_SECTIONS, type ResolvedLayout } from '../lib/print/layout';
+import { DEFAULT_SECTIONS, mmToPx, type ResolvedLayout } from '../lib/print/layout';
 import { defaultPrintOptions, presetPaper, type PrintProfile } from '../lib/print/printSettings';
 
 // ─── محلِّل نصوص مزيّف بعقد C(ii) — مستقلٌّ عن تقدّم الحزمة P2 (المحلِّل الحقيقيّ يُختبر في printTexts.test.ts) ───
@@ -37,7 +38,8 @@ function fakePt(o: { deleted?: readonly string[]; edits?: Record<string, string>
     alt: () => null,
     valueAlt: () => null,
     title: (decided: string, t: { isReturn: boolean }) => {
-      const k = t.isReturn ? 'inv.returnTitle' : 'inv.title';
+      // مفتاح العنوان كالمحلِّل الحقيقي: عناوين الحالة بمفاتيحها (قرار المالك ٤ نوفمبر ٢٠٢٦)
+      const k = titleKeyOf(decided, t.isReturn) ?? (t.isReturn ? 'inv.returnTitle' : 'inv.title');
       return !preview && deleted.has(k) ? { text: '', alt: null } : { text: text(k, decided), alt: null };
     },
     companyNameAlt: null, companyAddressAlt: null, preview,
@@ -177,6 +179,7 @@ test('«حذف السطر» في الفاتورة: كل مفتاحٍ يُسقط 
   const saleKeys = GRID_INVOICE_KEYS.filter((k) => ![
     'inv.returnTitle', 'inv.returnInfoHeading', 'inv.returnNumber', 'inv.originalRef', 'inv.noteReason', 'tot.returnGrand', 'tot.subtotal',
     'inv.debitTitle', // عنوان الإشعار المدين (المرحلة الثانية) — يحرسه printTextsReflect.test.ts
+    'inv.deliveryNoteTitle', 'inv.voidTitle', 'inv.pendingTitle', // عناوين الحالة — على مستنداتها أدناه
   ].includes(k));
   assertWholeLine('بيع', (pt) => gridInv(invoice(), pt), saleKeys);
   assertWholeLine('مرتجع', (pt) => gridInv(returnDoc(), pt),
@@ -188,6 +191,19 @@ test('«حذف السطر» في الفاتورة: كل مفتاحٍ يُسقط 
     look: DEFAULT_PRINT_LOOK, layout: layout(), qr: null,
   }));
   assertWholeLine('سند تسليم', asDelivery, ['tot.subtotal']);
+  // عناوين الحالة (قرار المالك ٤ نوفمبر ٢٠٢٦): كلٌّ بمفتاحه على مستند حالته — حذفه يُسقط سطر العنوان وحده
+  const zStatus = (subtype: '01' | '02', mirror: 'clearance_pending' | 'rejected' | 'signed') => invoice({ zatca: {
+    phase: 2, mode: 'live', mirror, documentStatus: null, subtype, documentKind: 'INVOICE', qr: null, printable: false, overdue: false,
+    reportDeadline: null, issuedAt: null, uuid: null, icv: null, warnings: 0,
+  } });
+  for (const [name, doc, key] of [
+    ['سند تسليم (القرار)', zStatus('01', 'clearance_pending'), 'inv.deliveryNoteTitle'],
+    ['مُبطل', zStatus('02', 'rejected'), 'inv.voidTitle'],
+    ['معلَّق', zStatus('02', 'signed'), 'inv.pendingTitle'],
+  ] as const) {
+    assertWholeLine(name, (pt) => gridInv(doc, pt, { qr: null }), [key]);
+    assert.equal(lineCounts(gridInv(doc, fakePt())).get('inv.title') ?? 0, 0, `${name}: عنوان الحالة بمفتاح inv.title`);
+  }
 });
 
 test('«حذف السطر» يُسقط العربي والإنجليزي والقيمة معاً — أمثلة بقيمها', () => {
@@ -393,4 +409,147 @@ test('صفّ الحشو يمدّ شبكة الجدول إلى التذييل: ا
   assert.match(one, /<table style="[^"]*flex:1 1 auto/);
   const many = invoice({ items: Array.from({ length: 40 }, (_, i) => ({ ...items[0], name: `صنف ${i}` })) as InvoiceDoc['items'] });
   assert.doesNotMatch(gridInv(many, fakePt()), /<table style="[^"]*flex:1 1 auto/);
+});
+
+// ═══════════════ «التحرير الحرّ» (طلب المالك ٣ نوفمبر ٢٠٢٦، pd_spec B.2/B.3/E.3/E.4 — الحزمة P5) ═══════════════
+
+const free = (o: Partial<ResolvedLayout>): ResolvedLayout => layout(o);
+const gridFree = (lay: ResolvedLayout, o: { doc?: InvoiceDoc; qr?: ReactNode | null; look?: PrintLook; ctx?: PrintDesignPreview | null } = {}) => {
+  const el = createElement(GridInvoice, { doc: o.doc ?? invoice(), facts: factsFor(o.doc ?? invoice(), fakePt()), look: o.look ?? DEFAULT_PRINT_LOOK, layout: lay, qr: o.qr === undefined ? QR : o.qr });
+  return renderToStaticMarkup(o.ctx ? createElement(PrintDesignPreviewContext.Provider, { value: o.ctx }, el) : el);
+};
+const rcpFree = (lay: ResolvedLayout) => renderToStaticMarkup(createElement(GridReceipt, {
+  doc: receipt(), pt: fakePt(), title: { text: 'سند قبض', alt: null }, look: DEFAULT_PRINT_LOOK, layout: { ...lay, order: DEFAULT_SECTIONS.grid.filter((id) => ['header', 'info', 'parties', 'items', 'signatures', 'footer'].includes(id)) },
+}));
+/** مواضع الأغلفة والكتل المستقلة بترتيب الورقة */
+const blocks = (html: string): string[] => [...html.matchAll(/data-(sec|section)="(logo|qr|header|info|parties|items|note|totals|installments|signatures|footer)"(?=[^>]*>)/g)]
+  .filter((m) => m[1] === 'sec' || m[2] === 'logo' || m[2] === 'qr').map((m) => (m[1] === 'sec' ? m[2] : `*${m[2]}`));
+const qrCount = (html: string): number => (html.match(/alt="QR"/g) ?? []).length;
+
+test('التحرير الحرّ — بلا مفتاحٍ حرّ ولا معاينة: لا غلاف ولا مرساة ولا كتلة مستقلة (ورقة اليوم)', () => {
+  for (const html of [gridFree(layout()), rcpFree(layout())]) {
+    for (const s of ['data-sec=', 'data-copy-anchor', 'data-section="logo"', 'data-section="qr"', 'data-pd']) assert.ok(!html.includes(s), s);
+  }
+});
+
+test('التحرير الحرّ — logoMm: صندوقٌ أقصى بالمم (max-width/max-height وauto) بلا object-fit ولا قصٍّ دائريّ، وبمحاذاته في الترويسة', () => {
+  const html = gridFree(free({ logoMm: 30, logo: 'end' }));
+  const px = mmToPx(30);
+  const img = html.match(/<img src="data:image\/png;base64,iVBORw0KGgo=" alt="" style="([^"]*)"/)![1];
+  assert.equal(img, `display:block;max-width:${px}px;max-height:${px}px;width:auto;height:auto`);
+  assert.ok(!/object-fit|border-radius/.test(img));
+  // end = يسار الورقة: بعد الكتلة الإنجليزية في ترتيب DOM لصفٍّ RTL
+  const header = html.slice(html.indexOf('data-section="header"'), html.indexOf('data-sec="info"'));
+  assert.ok(header.indexOf('Saudi Arabia') < header.indexOf(img), 'الشعار ليس يسار الترويسة');
+  // الحدّان من المحرّك: 6 مم و120 مم (عرض المحتوى أوسع)
+  assert.ok(gridFree(free({ logoMm: 500 })).includes(`max-width:${mmToPx(120)}px`));
+  assert.ok(gridFree(free({ logoMm: 1 })).includes(`max-width:${mmToPx(6)}px`));
+  // بلا شعار
+  assert.ok(!gridFree(free({ logoMm: 30, logo: 'none' })).includes('max-height:'));
+  assert.ok(!gridFree(free({ logoMm: 30 }), { look: { ...DEFAULT_PRINT_LOOK, showLogo: false } }).includes('max-height:'));
+});
+
+test('التحرير الحرّ — logoAfter: كتلةٌ مستقلة أعلى الورقة أو بعد قسمها (ولو أُخفي) أو أسفلها، والترويسة بلا شعار', () => {
+  const top = gridFree(free({ logoAfter: 'top', logo: 'start' }));
+  assert.deepEqual(blocks(top).slice(0, 2), ['*logo', 'header']);
+  assert.match(top, /data-section="logo" style="display:flex;justify-content:flex-start;margin-top:8px"/);
+  const header = top.slice(top.indexOf('data-sec="header"'), top.indexOf('data-sec="info"'));
+  assert.ok(!header.includes('iVBORw0KGgo=" alt=""'), 'الشعار بقي في الترويسة');
+  assert.equal((top.match(/iVBORw0KGgo=" alt=""/g) ?? []).length, 1 + 2, 'شعارٌ واحد (والتوقيعان)');
+  const afterItems = blocks(gridFree(free({ logoAfter: 'items', logo: 'center' })));
+  assert.equal(afterItems[afterItems.indexOf('items') + 1], '*logo');
+  const bottom = blocks(gridFree(free({ logoAfter: 'footer' })));
+  assert.equal(bottom[bottom.length - 1], '*logo');
+  // بعد قسمٍ مخفيّ: في موضعه
+  const hid = blocks(gridFree(free({ logoAfter: 'parties', sections: { parties: { visible: false } } })));
+  assert.ok(!hid.includes('parties'));
+  assert.equal(hid[hid.indexOf('info') + 1], '*logo');
+  // سند القبض كذلك
+  assert.deepEqual(blocks(rcpFree(free({ logoAfter: 'top' }))).slice(0, 2), ['*logo', 'header']);
+});
+
+test('التحرير الحرّ — تنسيق القسم: المخفيّ يسقط، والخط بالنسبة (em ⇒ font-size:pct%)، والمسافتان بالبكسل، والمحاذاة الفعلية', () => {
+  const html = gridFree(free({ sections: {
+    items: { fontPct: 150, spaceBeforeMm: 10, align: 'end' }, parties: { visible: false }, footer: { spaceAfterMm: 2.5, fontPct: 70 },
+  } }));
+  assert.ok(!html.includes('data-section="parties"'));
+  assert.ok(!blocks(html).includes('parties'));
+  assert.match(html, new RegExp(`data-sec="items" style="display:flex;flex-direction:column;flex:1 1 auto;text-align:left;margin-top:${mmToPx(10)}px;font-size:150%"`));
+  assert.match(html, new RegExp(`data-sec="footer" style="display:flow-root;margin-bottom:${mmToPx(2.5)}px;font-size:70%"`));
+  assert.match(html, /data-sec="header" data-copy-anchor="" style="display:flow-root"/);
+  // الأصناف لا تُخفى (LOCKED_VISIBLE) ولو وصل visible:false
+  assert.ok(blocks(gridFree(free({ sections: { items: { visible: false } } }))).includes('items'));
+  // لا zoom ولا filter في المسار الحرّ (المظهر الافتراضي بلا أسلوبٍ محصور)
+  assert.ok(!/zoom|filter/.test(html));
+  // الحشو: غلاف الأصناف يتمدّد فقط حين يتمدّد جدولها
+  const many = invoice({ items: Array.from({ length: 40 }, (_, i) => ({ ...items[0], name: `صنف ${i}` })) as InvoiceDoc['items'] });
+  assert.match(gridFree(free({ logoMm: 20 }), { doc: many }), /data-sec="items" style="display:flow-root"/);
+});
+
+test('التحرير الحرّ — QR لا يُحذف: «البيانات» مخفيّة ⇒ كتلته وحدها بعد الترويسة، مرّةً واحدة، وبلا رمزٍ ممرَّر لا كتلة', () => {
+  const html = gridFree(free({ sections: { info: { visible: false } } }));
+  assert.ok(!html.includes('data-section="info"'));
+  const b = blocks(html);
+  assert.deepEqual(b.slice(0, 2), ['header', '*qr']);
+  assert.equal(qrCount(html), 1);
+  assert.match(html, /data-section="qr" data-grid-qr="" style="display:flex;align-items:center;justify-content:center;margin-top:8px"><div data-test-qr="1"><img alt="QR"/);
+  // الترويسة مخفيّة أيضاً: الرمز في موضعها
+  const both = gridFree(free({ sections: { info: { visible: false }, header: { visible: false } } }));
+  assert.equal(blocks(both)[0], '*qr');
+  assert.equal(qrCount(both), 1);
+  // «البيانات» ظاهرة: الرمز فيها كاليوم بلا كتلةٍ مستقلة
+  const shown = gridFree(free({ sections: { info: { fontPct: 120 } } }));
+  assert.ok(!shown.includes('data-section="qr"'));
+  assert.equal(qrCount(shown), 1);
+  // كل التنسيقات القصوى + كل النصوص محذوفة: الرمز باقٍ
+  const maxed = renderToStaticMarkup(createElement(GridInvoice, {
+    doc: invoice(), facts: factsFor(invoice(), fakePt({ deleted: GRID_INVOICE_KEYS })), look: DEFAULT_PRINT_LOOK, qr: QR,
+    layout: free({ logoMm: 120, logoAfter: 'top', sections: Object.fromEntries(DEFAULT_SECTIONS.grid.map((id) => [id, { visible: false, fontPct: 160, spaceBeforeMm: 30, spaceAfterMm: 30 }])) }),
+  }));
+  assert.equal(qrCount(maxed), 1);
+  assert.ok(blocks(maxed).includes('items'));
+  assert.equal(qrCount(gridFree(free({ sections: { info: { visible: false } } }), { qr: null })), 0);
+  assert.ok(!gridFree(free({ sections: { info: { visible: false } } }), { qr: null }).includes('data-section="qr"'));
+});
+
+test('التحرير الحرّ — مرساة وسم النسخة: على غلاف الترويسة وحده، وتغيب حين تُخفى الترويسة', () => {
+  const html = gridFree(free({ logoAfter: 'top' }));
+  assert.equal((html.match(/data-copy-anchor/g) ?? []).length, 1);
+  assert.ok(html.indexOf('data-copy-anchor') > html.indexOf('data-section="logo"'), 'المرساة على الترويسة لا على الشعار أعلاها');
+  assert.ok(!gridFree(free({ sections: { header: { visible: false } } })).includes('data-copy-anchor'));
+  assert.equal((rcpFree(free({ logoMm: 20 })).match(/data-copy-anchor/g) ?? []).length, 1);
+});
+
+test('التحرير الحرّ — معاينة المصمّم وحدها تضع data-pd (الأقسام والشعار)، والطباعة الحقيقية بلا وسم', () => {
+  const picked: string[] = [];
+  const ctx: PrintDesignPreview = { active: 'items', onPick: (s) => { picked.push(String(s)); } };
+  const html = gridFree(free({ logoAfter: 'top' }), { ctx });
+  for (const id of ['logo', 'header', 'info', 'parties', 'items', 'totals', 'signatures', 'footer']) assert.ok(html.includes(`data-pd="${id}"`), id);
+  assert.match(html, /data-pd="items" data-pd-active=""/);
+  // معاينةٌ بلا مفتاحٍ حرّ: أغلفةٌ موسومة بلا تنسيق
+  const plain = gridFree(layout(), { ctx });
+  assert.match(plain, /data-sec="info" data-pd="info" style="display:flow-root"/);
+  assert.ok(!gridFree(free({ logoAfter: 'top' })).includes('data-pd'));
+});
+
+test('التحرير الحرّ — سند القبض: الفاصل المرن قبل التواقيع (ولو أُخفيت) والأقسام بأغلفتها', () => {
+  const html = rcpFree(free({ sections: { parties: { visible: false } } }));
+  assert.ok(!blocks(html).includes('parties'));
+  assert.match(html, /<div style="flex:1 1 auto"><\/div><div data-sec="signatures"/);
+  const hidden = rcpFree(free({ sections: { signatures: { visible: false } } }));
+  assert.match(hidden, /<div style="flex:1 1 auto"><\/div><div data-sec="footer"/);
+  assert.equal(qrCount(html), 0, 'لا رمز في سند القبض');
+});
+
+test('التحرير الحرّ — gridSectionStyle وحرّاس المصدر: لا zoom/filter/object-fit في الكتل الجديدة', () => {
+  assert.deepEqual(gridSectionStyle(null), { display: 'flow-root' });
+  assert.deepEqual(gridSectionStyle({ visible: true, align: 'center', fontPct: 100, spaceBeforeMm: 0, spaceAfterMm: 0 }, true),
+    { display: 'flex', flexDirection: 'column', flex: '1 1 auto', textAlign: 'center' });
+  const src = readFileSync(new URL('./printGrid.tsx', import.meta.url), 'utf8');
+  const freePart = src.slice(src.indexOf('// ─── الشعار: صندوق اليوم'), src.indexOf('// ─── الترويسة: إنجليزي يساراً'))
+    + src.slice(src.indexOf('const onFreePath'), src.indexOf('// ═══════════════════════ الفاتورة'));
+  assert.ok(freePart.length > 500);
+  assert.ok(!/\bzoom\b|filter/.test(freePart), 'zoom/filter في المسار الحرّ');
+  const planImg = freePart.slice(freePart.indexOf('const logoSrc = plan.show'));
+  assert.ok(!planImg.slice(0, planImg.indexOf('return { img, align')).includes('objectFit'), 'object-fit في شعار الحجم الحرّ');
 });

@@ -70,16 +70,27 @@ router.put('/', requireAdmin, requireAdminPermission('canManageCompanySettings')
     }
     const expected = expectedRevision(req);
     if (expected !== null) {
-      // حفظٌ مشروط بالمراجعة: القراءة والمقارنة والكتابة في معاملة واحدة — تغيّرت القيمة منذ فتح المحرّر ⇒ 409 بلا كتابة
+      // حفظٌ مشروط بالمراجعة: تغيّرت القيمة منذ فتح المحرّر ⇒ 409 بلا كتابة.
+      // والكتابة نفسها مقارنةٌ وتبديل (compare-and-swap): UPDATE واحد شرطه أن العمود ما زال ما قُرئ وطابق المراجعة. القراءة ثم
+      // الكتابة وحدهما (ولو في معاملة بعزلها الافتراضي READ COMMITTED) تُمرّران حفظين في اللحظة نفسها بالمراجعة نفسها فيمسح الثاني
+      // الأول بصمت؛ أما UPDATE المشروط فينتظر قفل الصفّ ثم يعيد PostgreSQL تقييم شرطه على آخر نسخة ملتزمة — فيكتب الأول ويعود
+      // الثاني بـcount 0 ⇒ 409. ومساواة jsonb لا تتأثر بترتيب المفاتيح كالبصمة؛ وAnyNull لعمودٍ فارغ (NULL أو null JSON، وكلاهما rev(null)).
       const outcome = await prisma.$transaction(async (tx) => {
         const cur = await tx.companySettings.findUnique({ where: { tenantId: tid }, select: { printTexts: true } });
         if (!cur) return 'missing' as const;
-        if (printTextsRevision(cur.printTexts ?? null) !== expected) return 'stale' as const;
+        const seen = cur.printTexts ?? null;
+        if (printTextsRevision(seen) !== expected) return 'stale' as const;
         const w = await tx.companySettings.updateMany({
-          where: { tenantId: tid },
+          where: {
+            tenantId: tid,
+            printTexts: seen === null ? { equals: Prisma.AnyNull } : { equals: seen as Prisma.InputJsonValue },
+          },
           data: { printTexts: value === null ? Prisma.DbNull : (value as unknown as Prisma.InputJsonValue) },
         });
-        return w.count === 0 ? ('missing' as const) : ('ok' as const);
+        if (w.count > 0) return 'ok' as const;
+        // لم يُكتب شيء: إما حُذف صفّ الإعدادات بين القراءة والكتابة، أو سبقه حفظٌ آخر غيّر العمود
+        const still = await tx.companySettings.findUnique({ where: { tenantId: tid }, select: { tenantId: true } });
+        return still ? ('stale' as const) : ('missing' as const);
       });
       if (outcome === 'missing') {
         res.status(409).json({ success: false, code: 'COMPANY_SETTINGS_MISSING', message: COMPANY_SETTINGS_MISSING });

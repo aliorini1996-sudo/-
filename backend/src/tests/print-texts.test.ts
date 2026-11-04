@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Prisma } from '@prisma/client';
 import {
-  PRINT_SECOND_LANGS, PRINT_TEXT_CATALOG, PRINT_TEXT_LINE, PRINT_TEXT_LOCKS, PRINT_TEXT_WARNINGS, PRINT_TEXTS_ISSUES, PRINT_TEXTS_LIMITS,
+  PRINT_SECOND_LANGS, PRINT_STATUS_TITLE_KEYS, PRINT_TEXT_CATALOG, PRINT_TEXT_LINE, PRINT_TEXT_LOCKS, PRINT_TEXT_WARNINGS, PRINT_TEXTS_ISSUES, PRINT_TEXTS_LIMITS,
   PRINT_TEXTS_VERSION, canonicalPrintTexts, checkPrintTexts, emptyPrintTexts, isEmptyPrintTexts, isPrintTextsReset, parsePrintTexts,
   printTextAltEditable, printTextEntry, printTextHideable, printTextRewordable, printTextWarning, printTextsBytes, storedPrintTexts,
   type PrintTextEdit, type PrintTextsV1,
@@ -415,8 +415,9 @@ test('القائمة: مفاتيح فريدة بصيغة group.name، وكل ح�
   assert.deepEqual(PRINT_TEXT_CATALOG.filter((x) => /Field Sales|صدرت عبر|منصة/.test(x.ar)).map((x) => [x.key, x.ar, x.doc, x.group]),
     [['foot.platform', 'صدرت عبر منصة Field Sales · fieldsa.net', 'shared', 'footer']]);
   assert.ok(printTextEntry('foot.platform')!.max >= chars(printTextEntry('foot.platform')!.ar));
-  // عناوين الفاتورة والإشعار الدائن والإشعار المدين (طلب المالك ٤ نوفمبر ٢٠٢٦) وحدها بقفل title
-  assert.deepEqual(byLock('title').map((x) => x.key), ['inv.title', 'inv.returnTitle', 'inv.debitTitle']);
+  // عناوين الفاتورة والإشعار الدائن والإشعار المدين (طلب المالك ٤ نوفمبر ٢٠٢٦) وعناوين الحالة بعدها (قرار المالك ٤ نوفمبر ٢٠٢٦) وحدها بقفل title
+  assert.deepEqual(byLock('title').map((x) => x.key),
+    ['inv.title', 'inv.returnTitle', 'inv.debitTitle', 'inv.deliveryNoteTitle', 'inv.voidTitle', 'inv.pendingTitle']);
 });
 
 test('القائمة: كل مفتاح يُحذف، وصنف التنبيه يساوي القوائم المكتوبة حرفاً — والإلزامي سابقاً (zatca وfixed وshape) تنبيه tax', () => {
@@ -425,10 +426,15 @@ test('القائمة: كل مفتاح يُحذف، وصنف التنبيه يس�
   assert.deepEqual(cls('tax'), [...WARN_TAX].sort());
   assert.deepEqual(cls('standard'), [...STANDARD_ONLY].sort());
   assert.deepEqual(cls('platform'), ['foot.platform']);
+  // عناوين الحالة (قرار المالك ٤ نوفمبر ٢٠٢٦): تنبيهها الخاصّ — المستند الملغى أو سند التسليم قد يبدو فاتورةً سارية
+  assert.deepEqual(cls('status'), ['inv.deliveryNoteTitle', 'inv.pendingTitle', 'inv.voidTitle']);
+  assert.deepEqual([...PRINT_STATUS_TITLE_KEYS], ['inv.deliveryNoteTitle', 'inv.voidTitle', 'inv.pendingTitle']);
   assert.deepEqual(byLock('standard').map((x) => x.key).sort(), [...STANDARD_ONLY].sort());
-  for (const x of byLock('zatca', 'fixed', 'shape', 'title')) assert.equal(printTextWarning(x), x.key === 'foot.platform' ? 'platform' : 'tax', x.key);
+  for (const x of byLock('zatca', 'fixed', 'shape', 'title')) {
+    assert.equal(printTextWarning(x), x.key === 'foot.platform' ? 'platform' : PRINT_STATUS_TITLE_KEYS.includes(x.key) ? 'status' : 'tax', x.key);
+  }
   for (const x of PRINT_TEXT_CATALOG.filter((y) => y.lock === 'none' && !y.hideOnly)) assert.equal(printTextWarning(x), null, x.key);
-  assert.equal(Object.keys(PRINT_TEXT_WARNINGS).length, 3);
+  assert.equal(Object.keys(PRINT_TEXT_WARNINGS).length, 4);
   for (const m of Object.values(PRINT_TEXT_WARNINGS)) assert.match(m, /^[؀-ۿ]/, `تنبيه غير عربي: ${m}`);
   // بيانات البائع والمستند والضريبة والإجمالي بالاسم — تنبيه tax
   for (const k of [
@@ -462,12 +468,15 @@ test('القائمة: إعادة الصياغة واللغة الثانية لك
   assert.ok(Object.isFrozen(PRINT_TEXT_LINE));
   // المجموعة الجديدة seller، والمفاتيح الجديدة مضافةٌ آخر القائمة (صورة المحفوظ القانونية لا تتغيّر لشركةٍ قائمة)
   assert.deepEqual(PRINT_TEXT_CATALOG.filter((x) => x.group === 'seller').map((x) => x.key), ['sel.heading', 'sel.name', 'sel.address', 'sel.city', 'sel.postalCode', 'sel.taxNumber']);
-  // inv.debitTitle (٤ نوفمبر ٢٠٢٦) بعد inv.returnTitle — ترتيب المفاتيح القائمة بينها كما هو فصورة المحفوظ لا تتغيّر
-  assert.deepEqual(PRINT_TEXT_CATALOG.slice(75).map((x) => x.key), [
+  // inv.debitTitle (٤ نوفمبر ٢٠٢٦) وعناوين الحالة الثلاثة (قرار المالك ٤ نوفمبر ٢٠٢٦) بعد inv.returnTitle — ترتيب المفاتيح القائمة بينها
+  // كما هو فصورة المحفوظ لا تتغيّر
+  const rt = PRINT_TEXT_CATALOG.findIndex((x) => x.key === 'inv.returnTitle');
+  assert.deepEqual(PRINT_TEXT_CATALOG.slice(rt, rt + 5).map((x) => x.key), ['inv.returnTitle', 'inv.debitTitle', 'inv.deliveryNoteTitle', 'inv.voidTitle', 'inv.pendingTitle']);
+  assert.deepEqual(PRINT_TEXT_CATALOG.slice(78).map((x) => x.key), [
     'col.seq', 'col.code', 'col.unit', 'col.vatAmount', 'sel.heading', 'sel.name', 'sel.address', 'sel.city', 'sel.postalCode', 'sel.taxNumber',
     'cust.city', 'cust.postalCode', 'inv.paymentType', 'sig.warehouse', 'sig.remarks', 'tot.exclVat', 'tot.due', 'foot.platform',
   ]);
-  assert.equal(PRINT_TEXT_CATALOG[74].key, 'rcp.sigCollector', 'آخر مفتاحٍ قديم في مكانه');
+  assert.equal(PRINT_TEXT_CATALOG[77].key, 'rcp.sigCollector', 'آخر مفتاحٍ قديم في مكانه');
   const at = PRINT_TEXT_CATALOG.findIndex((x) => x.key === 'inv.returnTitle');
   assert.equal(PRINT_TEXT_CATALOG[at + 1].key, 'inv.debitTitle');
 });
@@ -601,6 +610,17 @@ test('الحفظ تشغيلاً: إعدادٌ بلا أثر يُكتب NULL (ل�
   assert.equal(writes.length, 1);
   assert.equal(writes[0].data.printTexts, Prisma.DbNull, 'NULL حرفياً');
   assert.equal(st.settings!.printTexts, null);
+
+  // قرار المالك ٤ نوفمبر ٢٠٢٦: عناوين الحالة تُصاغ وتُترجم وتُحذف — الخادم الصارم يحفظها كما هي
+  reset();
+  const status = withEdits({
+    'inv.deliveryNoteTitle': { text: 'إشعار تسليم', alt: 'Delivery receipt' }, 'inv.voidTitle': { hidden: true },
+    'inv.pendingTitle': { alt: 'Pending document', hidden: true },
+  });
+  const okStatus = await call('put', { body: status });
+  assert.deepEqual([okStatus.status, okStatus.body], [200, { success: true, data: status, stored: true, hasCompany: true }]);
+  assert.deepEqual(writes, [{ where: { tenantId: T }, data: { printTexts: status } }]);
+  assert.equal((await call('put', { body: withEdits({ 'inv.voidTitle': { text: 'م'.repeat(61) } }) })).body.message, PRINT_TEXTS_ISSUES.tooLong);
 
   // طلب المالك ٣ نوفمبر ٢٠٢٦: حذف الإجمالي النهائي وصياغة الضريبة وحذف سطر المنصّة تُحفظ (كانت 400)
   reset();

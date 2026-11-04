@@ -9,7 +9,8 @@
 // hidden: true = «حذف السطر»: يحذف السطر كاملاً (التسمية وقيمتها، أو عمود الجدول، أو صفّ الإجمالي، أو الصندوق الذي يعنونه) —
 // وحدة الحذف لكل مفتاح في PRINT_TEXT_LINE. والقفل (lock) صار وصفاً لا يمنع شيئاً: يحدّد تنبيه المحرّر (printTextWarning)
 // وتأكيد الحذف مرةً واحدة لما كان إلزامياً في الفاتورة الضريبية. وسطر «صدرت عبر منصة Field Sales» صار مفتاحاً (foot.platform).
-// ما يبقى مطبوعاً لأنه ليس عبارة: رمز QR نفسه، وأختام قرار الطباعة (ملغى، نسخة تجريبية، سند التسليم)، وICV/UUID.
+// ما يبقى مطبوعاً لأنه ليس عبارة: رمز QR نفسه، وعلامة البروفة («نسخة تجريبية») وتنبيه القرار، وICV/UUID. وعناوين الحالة (سند التسليم،
+// الملغى، بانتظار الاعتماد) صارت مفاتيح بقرار المالك ٤ نوفمبر ٢٠٢٦ (PRINT_STATUS_TITLE_KEYS) بتنبيهٍ وتأكيد.
 // جهازٌ بنسخةٍ قديمة يقرأ حذف «المقفل» قديماً فيطبع السطر كاليوم — تراجعٌ آمن نحو ورقة اليوم بلا فقد إعداد.
 //
 // نسخة حرفية في web-admin/src/lib/print/printTextsCore.ts (بعد هذا الرأس) — عدّل هنا ثم انسخ؛ الحارس
@@ -71,6 +72,11 @@ export const PRINT_TEXT_CATALOG: readonly PrintTextEntry[] = Object.freeze([
   e('inv.title', 'فاتورة ضريبية مبسطة', 'invoice', 'title', 'title'),
   e('inv.returnTitle', 'إشعار دائن مرتجع', 'invoice', 'title', 'title'),
   e('inv.debitTitle', 'إشعار مدين', 'invoice', 'title', 'title'),
+  // عناوين الحالة في قرار طباعة المرحلة الثانية (lib/zatca/docPrint.ts) — قرار المالك ٤ نوفمبر ٢٠٢٦: تُعاد صياغتها وتُحذف كغيرها
+  // بتنبيه 'status' وتأكيدٍ واحد. النصّ الافتراضي هو عنوان القرار نفسه حرفاً، فبلا تعديلٍ تُطبع الورقة كما كانت
+  e('inv.deliveryNoteTitle', 'سند تسليم — ليست فاتورة ضريبية', 'invoice', 'title', 'title'),
+  e('inv.voidTitle', 'مستند ملغى — لا يعتمد للخصم الضريبي', 'invoice', 'title', 'title'),
+  e('inv.pendingTitle', 'مستند بانتظار اعتماد الهيئة', 'invoice', 'title', 'title'),
   e('inv.infoHeading', 'بيانات الفاتورة', 'invoice', 'info'),
   e('inv.returnInfoHeading', 'بيانات المرتجع', 'invoice', 'info'),
   e('inv.number', 'رقم الفاتورة', 'invoice', 'info', 'zatca'),
@@ -176,6 +182,9 @@ export function printTextEntry(key: string): PrintTextEntry | undefined {
   return BY_KEY.get(key);
 }
 
+/** مفاتيح عناوين الحالة (سند التسليم، المستند الملغى، المستند بانتظار اعتماد الهيئة) — قرار المالك ٤ نوفمبر ٢٠٢٦ */
+export const PRINT_STATUS_TITLE_KEYS: readonly string[] = Object.freeze(['inv.deliveryNoteTitle', 'inv.voidTitle', 'inv.pendingTitle']);
+
 /** كل مفتاحٍ يُحذف سطره (طلب المالك ٣ نوفمبر ٢٠٢٦) — باقيةٌ للمستدعين، والجواب true دائماً */
 export function printTextHideable(_e: PrintTextEntry): true {
   return true;
@@ -206,6 +215,7 @@ export const PRINT_TEXT_LINE: Readonly<Record<string, PrintLineScope>> = Object.
   'h.taxNumber': 'row', 'h.commercialReg': 'row', 'h.address': 'row', 'h.phone': 'row', 'h.email': 'row',
   'foot.thanks': 'line', 'foot.company': 'line',
   'inv.title': 'title', 'inv.returnTitle': 'title', 'inv.debitTitle': 'title',
+  'inv.deliveryNoteTitle': 'title', 'inv.voidTitle': 'title', 'inv.pendingTitle': 'title',
   'inv.infoHeading': 'block', 'inv.returnInfoHeading': 'block',
   'inv.number': 'row', 'inv.returnNumber': 'row', 'inv.date': 'row', 'inv.time': 'row', 'inv.type': 'row',
   'inv.deliveryDate': 'row', 'inv.rep': 'row',
@@ -229,18 +239,20 @@ export const PRINT_TEXT_LINE: Readonly<Record<string, PrintLineScope>> = Object.
   'tot.exclVat': 'totalsRow', 'tot.due': 'totalsRow', 'foot.platform': 'line',
 });
 
-/** تنبيه المحرّر بجانب السطر — لا يمنع شيئاً؛ و'tax' و'standard' يطلبان تأكيد الحذف مرةً واحدة */
-export type PrintTextWarning = 'tax' | 'standard' | 'platform';
+/** تنبيه المحرّر بجانب السطر — لا يمنع شيئاً؛ و'tax' و'standard' و'status' تطلب تأكيد الحذف مرةً واحدة */
+export type PrintTextWarning = 'tax' | 'standard' | 'platform' | 'status';
 
 export const PRINT_TEXT_WARNINGS: Readonly<Record<PrintTextWarning, string>> = Object.freeze({
   tax: 'حذف هذا قد يجعل الفاتورة الضريبية غير مطابقة لمتطلبات هيئة الزكاة والضريبة والجمارك',
   standard: 'إلزامي في الفاتورة الضريبية للمنشآت — حذفه قد يجعلها غير مطابقة لمتطلبات هيئة الزكاة والضريبة والجمارك',
   platform: 'سطر المنصة في تذييل المطبوعات',
+  status: 'حذف هذا العنوان قد يجعل المستند الملغى أو سند التسليم أو المستند بانتظار اعتماد الهيئة يبدو كفاتورة سارية',
 });
 
-/** صنف التنبيه من القفل القديم: سطر المنصّة 'platform'، وstandard 'standard'، وzatca/fixed/shape/title وما كان يُخفى فقط 'tax' */
+/** صنف التنبيه من القفل القديم: سطر المنصّة 'platform'، وعناوين الحالة 'status'، وstandard 'standard'، وzatca/fixed/shape/title وما كان يُخفى فقط 'tax' */
 export function printTextWarning(entry: PrintTextEntry): PrintTextWarning | null {
   if (entry.key === 'foot.platform') return 'platform';
+  if (PRINT_STATUS_TITLE_KEYS.includes(entry.key)) return 'status';
   if (entry.lock === 'standard') return 'standard';
   if (entry.lock !== 'none' || entry.hideOnly) return 'tax';
   return null;

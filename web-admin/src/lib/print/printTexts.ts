@@ -13,8 +13,8 @@
  */
 import { PHRASES } from '../../i18n/strings';
 import {
-  PRINT_TEXT_CATALOG, checkPrintTexts, isEmptyPrintTexts, printTextEntry, printTextWarning,
-  type PrintSecondLang, type PrintTextEdit, type PrintTextWarning, type PrintTextsV1,
+  PRINT_STATUS_TITLE_KEYS, PRINT_TEXT_CATALOG, checkPrintTexts, isEmptyPrintTexts, printTextEntry, printTextWarning,
+  type PrintSecondLang, type PrintTextEdit, type PrintTextEntry, type PrintTextWarning, type PrintTextsV1,
 } from './printTextsCore';
 
 export * from './printTextsCore';
@@ -144,9 +144,9 @@ export interface PrintTexts {
   /**
    * عنوان الفاتورة/المرتجع بصياغة الشركة — في المرحلتين (طلب المالك ٣ نوفمبر ٢٠٢٦)، ومنه ما حُفظ قبله: المرحلة لا تغيّر العنوان
    * (قرار المالك ٣ نوفمبر ٢٠٢٦ «طبّقها تلقائياً»؛ ورمز QR المرحلة الثانية يُطبع كاليوم). '' = حذفته الشركة. `decided` عنوان القرار
-   * (عربي) — مترجماً بـtr كما اليوم للشركة بلا نصوص. عناوين قرار الطباعة التي ليست عنوان فاتورة (سند التسليم، الملغى، بانتظار
-   * الاعتماد) تُطبع كما قرّرها القرار: inv.title يصوغ عناوين الفاتورة وinv.returnTitle عناوين الإشعار الدائن وinv.debitTitle عنوان
-   * الإشعار المدين (طلب المالك ٤ نوفمبر ٢٠٢٦).
+   * (عربي) — مترجماً بـtr كما اليوم للشركة بلا نصوص. inv.title يصوغ عناوين الفاتورة وinv.returnTitle عناوين الإشعار الدائن
+   * وinv.debitTitle عنوان الإشعار المدين (طلب المالك ٤ نوفمبر ٢٠٢٦)، وعناوين الحالة في القرار بمفاتيحها (قرار المالك ٤ نوفمبر ٢٠٢٦):
+   * inv.deliveryNoteTitle وinv.voidTitle وinv.pendingTitle — تُعاد صياغتها وتُحذف كغيرها. المفتاح من titleKeyOf.
    */
   title: (decided: string, f: { isReturn: boolean; phase2: boolean }) => { text: string; alt: string | null };
   companyNameAlt: string | null;
@@ -159,11 +159,31 @@ const arabic: Tr = (ar) => ar;
 
 const NO_EDIT: PrintTextEdit = Object.freeze({ text: null, alt: null, hidden: false });
 
-/** ما يصوغه inv.title (عناوين الفاتورة) وinv.returnTitle (عناوين الإشعار الدائن) من عناوين القرار — والإشعار المدين inv.debitTitle، وما سواها كما قرّره القرار */
+/** ما يصوغه inv.title (عناوين الفاتورة) وinv.returnTitle (عناوين الإشعار الدائن) من عناوين القرار — والإشعار المدين inv.debitTitle، وعناوين الحالة بمفاتيحها (titleKeyOf) */
 const INVOICE_TITLES: ReadonlySet<string> = new Set(['فاتورة ضريبية مبسطة', 'فاتورة ضريبية', 'فاتورة']);
 const RETURN_TITLES: ReadonlySet<string> = new Set(['إشعار دائن مرتجع', 'إشعار دائن']);
 /** عنوان الإشعار المدين في قرار المرحلة الثانية — يصوغه inv.debitTitle */
 const DEBIT_TITLE = 'إشعار مدين';
+/**
+ * عناوين الحالة في قرار الطباعة (lib/zatca/docPrint.ts) ⇒ مفاتيحها: نصّ القائمة الافتراضي هو عنوان القرار نفسه حرفاً (يحرسه
+ * printTexts.test.ts على zatcaPrintDecision) — قرار المالك ٤ نوفمبر ٢٠٢٦
+ */
+const STATUS_TITLE_KEY: ReadonlyMap<string, string> = new Map(
+  PRINT_STATUS_TITLE_KEYS.map((k) => [(printTextEntry(k) as PrintTextEntry).ar, k] as const),
+);
+
+/**
+ * مفتاح عنوان المستند لعنوان القرار (عربي): عنوان حالةٍ ⇒ مفتاحه (سند التسليم/الملغى/بانتظار الاعتماد) أيّاً كان المستند؛ وإلا
+ * inv.returnTitle لعناوين الإشعار الدائن، وinv.debitTitle للإشعار المدين، وinv.title لعناوين الفاتورة — وnull لعنوانٍ خارجها (يُطبع
+ * كما قرّره القرار). تسأله القوالب عن مفتاح النقر في المعاينة وسمة data-line.
+ */
+export function titleKeyOf(decided: string, isReturn: boolean): string | null {
+  const status = STATUS_TITLE_KEY.get(decided);
+  if (status) return status;
+  if (isReturn) return RETURN_TITLES.has(decided) ? 'inv.returnTitle' : null;
+  if (decided === DEBIT_TITLE) return 'inv.debitTitle';
+  return INVOICE_TITLES.has(decided) ? 'inv.title' : null;
+}
 
 /** تنبيه المفتاح أو null لمفتاحٍ مجهول */
 const warningOf = (key: string): PrintTextWarning | null => {
@@ -238,14 +258,13 @@ export function makePrintTexts(
     ownAlt,
     warning: warningOf,
     title: (decided, t) => {
-      // عنوان الإشعار المدين (المرحلة الثانية) يُصاغ ويُحذف بمفتاحه inv.debitTitle كعنوان الفاتورة (C-G6)
-      const debit = !t.isReturn && decided === DEBIT_TITLE;
-      // عنوان حالةٍ ليس عنوان فاتورة/إشعار (سند التسليم، الملغى، بانتظار الاعتماد) ⇒ كما قرّره القرار
-      if (!debit && !(t.isReturn ? RETURN_TITLES : INVOICE_TITLES).has(decided)) {
+      /* المفتاح: عنوان الإشعار المدين inv.debitTitle (C-G6)، وعناوين الحالة بمفاتيحها (قرار المالك ٤ نوفمبر ٢٠٢٦) — والحذف ''
+       * فلا سطر عنوان. وعنوانٌ خارج القائمة ⇒ كما قرّره القرار */
+      const key = titleKeyOf(decided, t.isReturn);
+      if (key === null) {
         const v = lang ? phraseIn(decided, lang) : null;
         return { text: decided, alt: v && v !== decided ? v : null };
       }
-      const key = t.isReturn ? 'inv.returnTitle' : debit ? 'inv.debitTitle' : 'inv.title';
       if (hidden(key)) return { text: '', alt: null };
       const primary = text(key, decided);
       const e = edit(key);

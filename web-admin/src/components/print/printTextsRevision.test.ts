@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { canonicalPrintTexts, checkPrintTexts, emptyPrintTexts, type PrintTextsV1 } from '../../lib/print/printTexts';
+import { PRINT_TEXT_WARNINGS, canonicalPrintTexts, checkPrintTexts, emptyPrintTexts, type PrintTextsV1 } from '../../lib/print/printTexts';
 import {
   PRINT_TEXTS_STALE_MSG, isPrintTextsStale, printTextsServerState, reconcilePrintTexts, withTextEdit,
   type PrintTextsBase, type PrintTextsServerState,
@@ -170,19 +170,24 @@ test('حارس مصدري: المحرّر يقرأ من الخادم عند ال
   assert.ok(e.includes("const PRINT_TEXTS_QUERY_KEY = ['company-print-texts'] as const;"), 'مفتاحٌ لا يمسّه إبطال [company]');
 });
 
-test('صياغة المحرّر: الإشعار المدين صفّ عنوان، وعناوين الحالة ثابتة مكتوبة، وسطر الترويسة يذكر كشف الحساب والإشعارات — بلغات القاموس الخمس', () => {
+test('صياغة المحرّر: الإشعار المدين صفّ عنوان، وعناوين الحالة صفوفٌ تُعدَّل وتُحذف (قرار المالك ٤ نوفمبر ٢٠٢٦)، وسطر الترويسة يذكر كشف الحساب والإشعارات — بلغات القاموس الخمس', () => {
   const e = editor();
   assert.ok(e.includes("const TITLE_KEYS: ReadonlySet<string> = new Set(['inv.title', 'inv.returnTitle', 'inv.debitTitle']);"));
   assert.ok(e.includes('const isTitle = TITLE_KEYS.has(entry.key);'));
   assert.match(e, /case 'inv\.title': case 'inv\.debitTitle':[^\n]*\n[^\n]*\n\s*n = \{ isReturn: false \}; break;/);
-  assert.ok(e.includes("{group === 'title' && ("), 'سطر عناوين الحالة تحت مجموعة العنوان');
-  assert.ok(e.includes('{tr(STATUS_TITLES_NOTE)}'));
-  const status = /const STATUS_TITLES_NOTE = '([^']+)';/.exec(e)?.[1] ?? '';
-  for (const t of ['سند تسليم — ليست فاتورة ضريبية', 'مستند ملغى — لا يعتمد للخصم الضريبي', 'مستند بانتظار اعتماد الهيئة']) assert.ok(status.includes(`«${t}»`), t);
+  // سطر «عناوين الحالة ثابتة ولا تعدل» أُزيل: صارت صفوفاً في مجموعة العنوان بتنبيهها (lineWarning ⇒ 'status') وتأكيد حذفها
+  assert.ok(!e.includes('STATUS_TITLES_NOTE') && !e.includes('data-pt-status-titles'), 'سطر «ثابتة ولا تعدل» باقٍ');
+  assert.ok(!e.includes('عناوين الحالة ثابتة ولا تعدل'));
+  // اختيار صفّ عنوان حالةٍ يعرض المستند النموذجي بحالته (والملغى/المعلَّق على A4 وحده: لا ورقة رول لهما)
+  for (const [k, st] of [['inv.deliveryNoteTitle', 'deliveryNote'], ['inv.voidTitle', 'void'], ['inv.pendingTitle', 'pending']]) {
+    assert.ok(e.includes(`case '${k}': n = { isReturn: false, status: '${st}' }; break;`), k);
+  }
+  assert.ok(e.includes("if (status === 'none' || (paper !== 'a4' && status !== 'deliveryNote')) return null;"));
+  assert.ok(e.includes('sampleInvoice(docCompany, tr, sample, now, grid, paper)'));
   const header = 'بعد حفظ أي تعديل تطبع الفاتورة والسند بالعربية أولا أيا كانت لغة واجهة الجهاز، وتتبع ترويسة كشف الحساب والإشعارات النصوص المحفوظة';
   assert.ok(e.includes(`{tr('${header}')}`));
   assert.ok(!e.includes("{tr('بعد حفظ أي تعديل تطبع الفاتورة والسند بالعربية أولا أيا كانت لغة واجهة الجهاز')}"), 'السطر القديم استُبدل');
-  for (const k of [header, status, PRINT_TEXTS_STALE_MSG]) {
+  for (const k of [header, PRINT_TEXT_WARNINGS.status, PRINT_TEXTS_STALE_MSG]) {
     const d = PHRASES[k] as Record<string, string> | undefined;
     assert.ok(d, `غائب عن القاموس: ${k}`);
     for (const l of ['en', 'fr', 'tr', 'zh']) assert.ok(typeof d?.[l] === 'string' && d[l].trim() !== '' && !/[؀-ۿ]/.test(d[l]), `${l}: ${k}`);

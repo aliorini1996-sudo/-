@@ -11,7 +11,7 @@ import DocumentModal from '../components/DocumentModal';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { InvoiceDoc, invoiceDocFromDetail, Company } from '../rep/RepDocuments';
 import { zatcaRegimeOf } from '../lib/zatcaRegime';
-import { ZATCA_ACTION_LABELS, zatcaRowActions, zatcaStatusChip } from '../lib/zatca/docStatus';
+import { ZATCA_ACTION_LABELS, zatcaDocView, zatcaRowActions, zatcaStatusChip } from '../lib/zatca/docStatus';
 import { type ZatcaActionKind } from '../lib/zatca/docQueue';
 import ZatcaActionDialog from '../components/zatca/ZatcaActionDialog';
 import ZatcaShareDialog from '../components/zatca/ZatcaShareDialog';
@@ -171,7 +171,11 @@ export default function InvoicesPage() {
    * بجوار «الإلغاء» في خليّة ضيّقة. والحوار هو حوار شاشة المتابعة نفسه فلا يفترق حكم الشاشتين على الفعل الواحد. */
   const [zatcaAsk, setZatcaAsk] = useState<{ id: string; number: string; kind: ZatcaActionKind } | null>(null);
   // Z5.7 — رابط المشتري لمستندٍ حسمته الهيئة: يُفتح من الصفّ نفسه ليُرسل لصاحب الفاتورة
-  const [shareRow, setShareRow] = useState<{ id: string; number: string } | null>(null);
+  const [shareRow, setShareRow] = useState<{
+    id: string; number: string;
+    /** نوع المستند وقياسيّته لعنوان رسالة واتساب (ثغرة G2) */
+    doc: { documentKind: string | null; subtype: string | null; isReturn: boolean };
+  } | null>(null);
 
   const zatcaAction = async (id: string, kind: ZatcaActionKind) => {
     setZatcaBusyId(id);
@@ -401,7 +405,13 @@ export default function InvoicesPage() {
                       {/* رابط المشتري — للمستند الذي حسمته الهيئة وحده (المرايا الأربع النهائية) */}
                       {phase2 && isShareableRow(inv as unknown as Record<string, unknown>) && (
                         <button
-                          onClick={() => setShareRow({ id: inv.id, number: inv.number })}
+                          onClick={() => {
+                            const v = zatcaDocView(inv as unknown as Record<string, unknown>);
+                            setShareRow({
+                              id: inv.id, number: inv.number,
+                              doc: { documentKind: v?.documentKind ?? null, subtype: v?.subtype ?? null, isReturn: inv.type === 'RETURN' },
+                            });
+                          }}
                           className="p-1.5 hover:bg-[#F1EBDF] rounded text-[#6E6557]"
                           title={tr('رابط المشتري')}
                         >
@@ -449,7 +459,7 @@ export default function InvoicesPage() {
       )}
       {docResult && <DocumentModal doc={docResult} onClose={() => setDocResult(null)} />}
       {shareRow && (
-        <ZatcaShareDialog invoiceId={shareRow.id} number={shareRow.number} tr={tr} onClose={() => setShareRow(null)} />
+        <ZatcaShareDialog invoiceId={shareRow.id} number={shareRow.number} doc={shareRow.doc} tr={tr} onClose={() => setShareRow(null)} />
       )}
       {zatcaAsk && (
         <ZatcaActionDialog

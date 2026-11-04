@@ -12,6 +12,8 @@
 //     كلّها الردّ نفسه بالنصّ نفسه. ردٌّ يفرّق بينها يبني للمهاجم كاشفَ وجود.
 //   • **لا بيانات شركة خارج هذا المستند**: اسم البائع ورقمه الضريبي، اسم المشتري، المبالغ، الحالة، الرمز المختوم.
 //     لا معرّفات ولا رسائل الهيئة ولا بنود ولا أيّ صفٍّ آخر لنفس الشركة أو لغيرها.
+//     وزيادةٌ واحدة بقرار المالك (٤ نوفمبر ٢٠٢٦): اسم الشركة وعنوانها باللغة الثانية من «نصوص المطبوعات»، نصّين محلولين
+//     (`sellerAltOf`) لا العمود الخام.
 //   • **محدّد معدّل خاصّ** فوق العامّ، معرَّف هنا لا في middleware/rateLimits.ts (ملفٌّ مشترك — لا هنّة فيه).
 //
 // وشركةٌ لم تُفعَّل للمرحلة الثانية لا تملك صفّاً في `zatca_documents` أصلاً، فلا استعلام يمسّ مساراتها من هنا.
@@ -26,6 +28,7 @@ import {
   isShareableDocument, publicProjection, publicXmlVariant, readShareToken, shareSecretFrom,
 } from '../compliance/zatca/publicView';
 import { subtypeOfTypeName } from '../compliance/zatca/status';
+import { PRINT_TEXTS_LIMITS, checkPrintTexts } from '../services/printTextsCore';
 
 const router = Router();
 
@@ -46,6 +49,28 @@ const shareLimiter = rateLimit({
 
 /** السرّ يُقرأ عند كلّ طلب لا عند التحميل: اختبارٌ يضبط البيئة بعد الاستيراد يبقى صادقاً، والكلفة معدومة. */
 const secret = (): string | null => shareSecretFrom(process.env.JWT_SECRET);
+
+/**
+ * اسم الشركة وعنوانها باللغة الثانية (قرار المالك ٤ نوفمبر ٢٠٢٦) — الشيء الوحيد من «نصوص المطبوعات» الذي يصل الصفحة العلنية.
+ * يُحلّ هنا من العمود الخام بقراءة الجهاز المتسامحة نفسها (printTextsCore: سطرٌ واحد بلا محارف اتجاه، مقصوصٌ لحدّه)، ولا يخرج
+ * منه إلا نصّان محلولان: لا JSON خام ولا لغةٌ ولا تعديلات العبارات. لغةٌ ثانية غير مختارة أو نصٌّ فارغ أو قيمةٌ لا تصلح ⇒ لا مفتاح.
+ */
+export function sellerAltOf(raw: unknown): { nameAlt?: string; addressAlt?: string } {
+  if (raw === null || raw === undefined) return {};
+  const r = checkPrintTexts(raw, false);
+  if (!r.ok || r.value.secondLang === null) return {};
+  const bound = (v: string | null, max: number): string | null => {
+    if (typeof v !== 'string') return null;
+    const s = Array.from(v.trim()).slice(0, max).join('').trim();
+    return s === '' ? null : s;
+  };
+  const out: { nameAlt?: string; addressAlt?: string } = {};
+  const name = bound(r.value.companyNameAlt, PRINT_TEXTS_LIMITS.companyNameAltMax);
+  const address = bound(r.value.companyAddressAlt, PRINT_TEXTS_LIMITS.companyAddressAltMax);
+  if (name !== null) out.nameAlt = name;
+  if (address !== null) out.addressAlt = address;
+  return out;
+}
 
 const deny = (res: Response): void => { res.status(404).json({ success: false, message: NOT_FOUND }); };
 
@@ -82,7 +107,7 @@ type LoadedDoc = {
  * المستند من الرمز، أو null لأيّ سببٍ كان. استعلامان بحدّ أقصى ولا بايتات: صفّ المستند بفاتورته، ثمّ إعدادات
  * الشركة (اسم البائع ورقمه الضريبي، وعلم التفعيل). لا شيء يُقرأ قبل أن يمرّ الرمز ولا بعد أن تسقط البوابة.
  */
-async function loadShared(token: unknown): Promise<{ doc: LoadedDoc; seller: { name: string | null; legalName: string | null; taxNumber: string | null } } | null> {
+async function loadShared(token: unknown): Promise<{ doc: LoadedDoc; seller: { name: string | null; legalName: string | null; taxNumber: string | null }; sellerAlt: { nameAlt?: string; addressAlt?: string } } | null> {
   const id = readShareToken(token, secret());
   if (id === null) return null;
 
@@ -99,12 +124,16 @@ async function loadShared(token: unknown): Promise<{ doc: LoadedDoc; seller: { n
 
   const settings = await prisma.companySettings.findUnique({
     where: { tenantId: doc.tenantId },
-    select: { name: true, legalName: true, taxNumber: true, zatcaPhase2StartedAt: true },
+    select: { name: true, legalName: true, taxNumber: true, zatcaPhase2StartedAt: true, printTexts: true },
   });
   // التفعيل قائمٌ الآن لا وقت الإصدار: شركةٌ أُطفئت مرحلتها الثانية لا يبقى لها رابطٌ علنيّ مفتوح
   if (!settings?.zatcaPhase2StartedAt) return null;
 
-  return { doc, seller: { name: settings.name, legalName: settings.legalName, taxNumber: settings.taxNumber } };
+  return {
+    doc,
+    seller: { name: settings.name, legalName: settings.legalName, taxNumber: settings.taxNumber },
+    sellerAlt: sellerAltOf(settings.printTexts),
+  };
 }
 
 // ─── 1) عرض المستند ───
@@ -115,7 +144,7 @@ router.get('/einvoice/:token', shareLimiter, async (req: Request, res: Response,
     publicHeaders(res);
     const found = await loadShared(req.params.token);
     if (!found) { deny(res); return; }
-    const { doc, seller } = found;
+    const { doc, seller, sellerAlt } = found;
     const inv = doc.invoice!;
 
     const view = publicProjection({
@@ -138,7 +167,8 @@ router.get('/einvoice/:token', shareLimiter, async (req: Request, res: Response,
     });
     if (!view) { deny(res); return; }
 
-    res.json({ success: true, data: view });
+    // نصّا اللغة الثانية يُضافان تحت البائع متى وُجدا وحدهما — وبلا إعدادٍ يبقى الردّ كما كان حرفاً بحرف
+    res.json({ success: true, data: { ...view, seller: { ...view.seller, ...sellerAlt } } });
   } catch (e) { next(e); }
 });
 

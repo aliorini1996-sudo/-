@@ -13,6 +13,8 @@ import {
 import { printHtmlDocument, printPageNode } from '../../rep/printPage';
 import { printThermalInvoice } from '../../rep/thermal';
 import { PrintLookContext, lookFor } from '../../rep/printLook';
+import { PrintDesignPreviewContext } from '../../rep/printDesignContext';
+import { PrintTextsPreviewContext } from '../../rep/printTextsContext';
 import { directOpts, withConnection } from '../../rep/printDevice';
 import type { Company, InvoiceDoc } from '../../rep/RepDocuments';
 import { DirectPrintOverlay, useDirectPrint } from './DirectPrintUi';
@@ -257,10 +259,15 @@ export default function PrintDeviceTools({ profile, systemProfile, name, company
         </div>
       )}
 
-      {/* المستند النموذجيّ للقوالب الصفحية والنقطية — خارج الشاشة بمظهر هذا القالب، يُستنسخ للطباعة أو يُرسم للبلوتوث */}
+      {/* المستند النموذجيّ للقوالب الصفحية والنقطية — خارج الشاشة بمظهر هذا القالب (وتخطيطه الحرّ: الشعار والأقسام واللوحتان)،
+          يُستنسخ للطباعة أو يُرسم للبلوتوث. طباعةٌ حقيقية: لا وسوم مصمّم (data-pd) ولا معاينة نصوص ولو فُتحت الأدوات داخل محرّر */}
       {profile.printer !== 'thermal' && (
         <div style={{ position: 'fixed', top: 0, left: '-10000px', zIndex: -1 }} aria-hidden>
-          <PrintLookContext.Provider value={look}>{renderSheet(sample, sheetRef)}</PrintLookContext.Provider>
+          <PrintDesignPreviewContext.Provider value={null}>
+            <PrintTextsPreviewContext.Provider value={null}>
+              <PrintLookContext.Provider value={look}>{renderSheet(sample, sheetRef)}</PrintLookContext.Provider>
+            </PrintTextsPreviewContext.Provider>
+          </PrintDesignPreviewContext.Provider>
         </div>
       )}
       <DirectPrintOverlay job={direct.job} onCancel={direct.cancel} />

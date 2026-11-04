@@ -451,9 +451,9 @@ export function layoutEditable(p: PrintProfile): boolean {
   return !isLegacyProfileId(p.id) && p.template !== 'roll_classic';
 }
 
-/** مواضع الشعار المتاحة: الرول في الوسط أو بلا شعار (layoutRoll) */
-export function logoChoices(p: PrintProfile): readonly LogoPosition[] {
-  return p.printer === 'thermal' ? ['center', 'none'] : LOGO_POSITIONS;
+/** مواضع الشعار المتاحة: الأربعة على كل ورق — الرول صار يقبل اليمين واليسار (التحرير الحرّ، pd_spec B.3) */
+export function logoChoices(_p: PrintProfile): readonly LogoPosition[] {
+  return LOGO_POSITIONS;
 }
 
 /** أحجام الخط في «التخطيط» للصفحة والنقطية (الرول يبقى في «الخط» بمقاساته الأربعة كاليوم) */
@@ -476,6 +476,16 @@ export function schematicFontPx(p: PrintProfile): number {
 }
 
 export interface SectionRow { id: SectionId; up: boolean; down: boolean }
+
+/**
+ * السحب باللمس في «ترتيب الأقسام» (Pointer Events — سحب HTML5 لا يعمل بالإصبع): الصفّ تحت المؤشّر من مستطيلات الصفوف (من الأعلى)،
+ * وفوق الأول ⇒ 0 وتحت الأخير ⇒ الأخير؛ بلا صفوف ⇒ -1
+ */
+export function rowIndexAtY(rects: readonly { top: number; bottom: number }[], y: number): number {
+  if (!rects.length) return -1;
+  for (let i = 0; i < rects.length; i++) if (y < rects[i].bottom) return i;
+  return rects.length - 1;
+}
 
 /** صفوف «ترتيب الأقسام» بالترتيب الفعّال، و▲▼ لكلٍّ منها حيث لا تمنع قاعدة (الترويسة أولاً، التواقيع ثم التذييل آخراً…) */
 export function sectionRows(p: PrintProfile): SectionRow[] {
@@ -548,6 +558,8 @@ function Segmented<T extends string>({ label, options, labels, value, onPick, di
 export function LayoutFields({ p, update }: { p: PrintProfile; update: (next: PrintProfile) => void }) {
   const tr = useTr();
   const [drag, setDrag] = useState<SectionId | null>(null);
+  // السحب باللمس/القلم من المقبض: الصفّ المسحوب والصفّ تحت الإصبع — يُنقل عند الرفع وحده (والإلغاء يتركه)، والفأرة لسحب HTML5 كاليوم
+  const [touch, setTouch] = useState<{ id: SectionId; from: number; over: number } | null>(null);
   // ▲▼ بلوحة المفاتيح: بعد النقل يعود التركيز إلى زرّ الصفّ نفسه (moveFocusTarget) فتتتابع الضغطات بلا Tab من جديد
   const orderRef = useRef<HTMLOListElement>(null);
   const refocus = useRef<{ id: SectionId; dir: 'up' | 'down' } | null>(null);
@@ -569,6 +581,13 @@ export function LayoutFields({ p, update }: { p: PrintProfile; update: (next: Pr
   const colorful = p.printer === 'page' && p.template === 'page_branded';
   const grid = l.design === 'grid_bilingual';
   const move = (id: SectionId, to: number) => update(moveSection(p, id, to));
+  const rowAt = (y: number): number => rowIndexAtY(
+    Array.from(orderRef.current?.querySelectorAll<HTMLElement>(':scope > li[data-section]') ?? []).map((el) => el.getBoundingClientRect()), y);
+  const touchEnd = (commit: boolean) => {
+    const t = touch;
+    setTouch(null);
+    if (commit && t && t.over >= 0 && t.over !== t.from && canMoveSection(p, t.id, t.over)) move(t.id, t.over);
+  };
   return (
     <>
       {!custom && <p className="text-[11px] text-[#6E6557] flex items-start gap-1.5" data-layout-today=""><Info size={12} className="mt-0.5 shrink-0" />{tr('بلا تغيير هنا تبقى المطبوعة كما هي اليوم حرفيا')}</p>}
@@ -613,8 +632,19 @@ export function LayoutFields({ p, update }: { p: PrintProfile; update: (next: Pr
                 onDragEnd={() => setDrag(null)}
                 onDragOver={(e) => { if (drag && drag !== r.id && canMoveSection(p, drag, i)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
                 onDrop={(e) => { e.preventDefault(); if (drag && canMoveSection(p, drag, i)) move(drag, i); setDrag(null); }}
-                className={`flex items-center gap-2 px-2.5 py-1.5 text-sm ${drag === r.id ? 'opacity-50' : ''} ${movable ? 'cursor-grab' : ''}`}>
-                <GripVertical size={14} aria-hidden="true" className={movable ? 'text-[#9A8F7E]' : 'text-[#E9E1D3]'} />
+                className={`flex items-center gap-2 px-2.5 py-1.5 text-sm ${drag === r.id || touch?.id === r.id ? 'opacity-50' : ''} ${movable ? 'cursor-grab' : ''} ${touch && touch.over === i && touch.id !== r.id ? (canMoveSection(p, touch.id, i) ? 'bg-[#FBEBE2]' : 'bg-red-50') : ''}`}>
+                <span data-grip="" aria-hidden="true" className="p-1 -m-1" style={movable ? { touchAction: 'none' } : undefined}
+                  onPointerDown={(e) => {
+                    if (!movable || e.pointerType === 'mouse') return;
+                    e.preventDefault();
+                    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* المتصفّح بلا التقاط: يكفي الحدث */ }
+                    setTouch({ id: r.id, from: i, over: i });
+                  }}
+                  onPointerMove={(e) => { if (touch?.id === r.id) { const over = rowAt(e.clientY); if (over !== touch.over) setTouch({ ...touch, over }); } }}
+                  onPointerUp={() => { if (touch?.id === r.id) touchEnd(true); }}
+                  onPointerCancel={() => { if (touch?.id === r.id) touchEnd(false); }}>
+                  <GripVertical size={14} className={movable ? 'text-[#9A8F7E]' : 'text-[#E9E1D3]'} />
+                </span>
                 <span className="text-[11px] text-[#9A8F7E] w-4" dir="ltr">{i + 1}</span>
                 <span className="flex-1 min-w-0 text-[#1F1A13]">{label}</span>
                 <button type="button" data-move="up" disabled={!r.up} onClick={() => { refocus.current = { id: r.id, dir: 'up' }; move(r.id, i - 1); }} aria-label={`${tr('نقل لأعلى')}: ${label}`}

@@ -50,8 +50,10 @@ export interface KeepBox { top: number; bottom: number }
  * بدايات صفحات ورقةٍ بتخطيطٍ مخصّص (data-print-layout — «تخطيط المطبوعات»)، بكسل العنصر: القصّ لا يقع داخل صفّ جدولٍ ولا صندوقٍ
  * يتّسع لصفحة (keep) — يرتفع إلى أعلاه ما بقي من الصفحة نصفُها على الأقل، وإلا قصٌّ عاديّ. وورقةٌ تزيد على الصفحة بأقلّ من
  * `tolerancePx` (ورقة القالب ثنائي اللغة 794×1123 أطول من نسبة A4 بجزءٍ من النقطة) صفحةٌ واحدة لا ثانيةٌ بشريطٍ أبيض.
+ * `innerFirst` («التحرير الحرّ»: صناديق متداخلة — قسمٌ ملفوف بصفوفه): صندوقٌ يبدأ في نصف الصفحة الأعلى لا يُحفظ أصلاً فيُتجاهَل
+ * وتُحفظ صفوفه الداخلة، بدل أن يُسقط حمايتها فيقع القصّ داخل صفّ. بلاه (ورقة اليوم) كما كان حرفاً.
  */
-export function layoutPageStarts(totalPx: number, pagePx: number, keep: readonly KeepBox[], tolerancePx = 3): number[] {
+export function layoutPageStarts(totalPx: number, pagePx: number, keep: readonly KeepBox[], tolerancePx = 3, innerFirst = false): number[] {
   const starts = [0];
   if (!(pagePx > 0) || !(totalPx > 0)) return starts;
   const boxes = keep.filter((b) => b.bottom > b.top && b.bottom - b.top <= pagePx);
@@ -59,7 +61,7 @@ export function layoutPageStarts(totalPx: number, pagePx: number, keep: readonly
   while (totalPx - pos > pagePx + tolerancePx) {
     let cut = pos + pagePx;
     for (let guard = 0; guard < 20; guard++) {
-      const crossing = boxes.filter((b) => b.top < cut - 0.5 && b.bottom > cut + 0.5 && b.top > pos);
+      const crossing = boxes.filter((b) => b.top < cut - 0.5 && b.bottom > cut + 0.5 && b.top > pos && (!innerFirst || b.top - pos >= pagePx / 2));
       if (crossing.length === 0) break;
       const up = Math.min(...crossing.map((b) => b.top));
       if (up - pos < pagePx / 2) break;
@@ -90,7 +92,9 @@ function layoutPdf(el: HTMLElement, canvas: HTMLCanvasElement, keep: KeepBox[], 
   const k = canvas.width / cssW;                   // بكسل الالتقاط لكل بكسل عنصر
   const pagePx = (pageH / pageW) * cssW;            // طول الصفحة ببكسل العنصر (الصورة بعرض الصفحة)
   const totalPx = canvas.height / k;
-  const starts = layoutPageStarts(totalPx, pagePx, keep);
+  // ورقةٌ قياسية (أقسامها الملفوفة لا توجد إلا على مسار التحرير) أو على مسار التحرير: الصفوف داخل قسمٍ عابرٍ للحدّ محفوظة
+  const innerFirst = el.getAttribute('data-print-layout') !== 'grid_bilingual' || el.querySelector('[data-copy-anchor]') !== null;
+  const starts = layoutPageStarts(totalPx, pagePx, keep, undefined, innerFirst);
   const fmt = opts?.lossless ? 'PNG' : 'JPEG';
   starts.forEach((start, i) => {
     const end = i + 1 < starts.length ? starts[i + 1] : totalPx;

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import QRCode from 'qrcode';
 import {
   MONO_THRESHOLD, QR_QUIET_CELLS, applyQrSlots, createBitmap, dotAt, drawQr, fillRect, inkColumns, monoFromRgba, paginate, rowBlank,
-  shiftRight, sliceRows, slotDotsPerCell, splitPages, stackRows, type Bitmap,
+  shiftRight, sliceRows, slotDotsPerCell, splitPages, stackRows, rowsOfRects, CANVAS_BAND_SELECTOR, type Bitmap,
 } from './raster';
 import { PrintRefusedError } from './printErrors';
 import { PRINT_WARNINGS, QR_DOTS_PER_CELL, STAMPED_QR_CELLS } from './printSettings';
@@ -125,4 +125,37 @@ test('خانات الرمز: الرمز التجريبي (طول المختوم)
     () => applyQrSlots(createBitmap(250, 600), [{ value, ec: 'L', rect: { x: 0, y: 0, w: 250, h: 250 } }], { dpi: 203, size: 'auto' }),
     (e: unknown) => e instanceof PrintRefusedError && e.message === PRINT_WARNINGS.qrNoFit,
   );
+});
+
+// ─── «التحرير الحرّ» (طلب المالك ٣ نوفمبر ٢٠٢٦): لوحتا الرأس/التذييل لا تُقطعان في النقطية ───
+
+test('التحرير الحرّ: لوحةٌ عابرة لحدّ الصفحة مدىً محفوظ ⇒ القطع أعلاها لا وسطها، وبلا مدى التقسيم كاليوم حرفاً', () => {
+  // إطار لوحةٍ بلا صفٍّ أبيض داخلها [150، 260)، وفوقها أسطرٌ بفراغاتٍ كل 20 صفّاً
+  const ink = Array.from({ length: 300 }, (_, y) => y).filter((y) => !(y < 150 && y % 20 === 19) && y !== 149);
+  const b = lines(createBitmap(16, 300), ink);
+  const label = () => null;
+  const plain = paginate(b, [], 200, 30, label);
+  const same = paginate(b, [], 200, 30, label, undefined);
+  const empty = paginate(b, [], 200, 30, label, []);
+  assert.deepEqual(plain.map((p) => p.bitmap.height), [200, 100], 'بلا مدى: قطعٌ صلب عند الحدّ داخل اللوحة');
+  assert.deepEqual(same.map((p) => [p.bitmap.height, p.qrRows]), plain.map((p) => [p.bitmap.height, p.qrRows]));
+  assert.deepEqual(empty.map((p) => [p.bitmap.height, p.qrRows]), plain.map((p) => [p.bitmap.height, p.qrRows]));
+  const kept = paginate(b, [], 200, 30, label, [[150, 260]]);
+  assert.deepEqual(kept.map((p) => p.bitmap.height), [150, 150], 'القطع عند أعلى اللوحة (بعد صفّها الأبيض 149)');
+  assert.deepEqual(kept.map((p) => p.qrRows), [[], []], 'مدى اللوحة ليس صفوف رمز (لا اتجاهٌ واحد)');
+});
+
+test('التحرير الحرّ: لوحةٌ أطول من الصفحة لا تحبس التقسيم (قطعٌ عند الحدّ)، والرمز داخل اللوحة يبقى صفوف رمز', () => {
+  const b = lines(createBitmap(16, 500), Array.from({ length: 500 }, (_, y) => y));
+  const pages = paginate(b, [[40, 80]], 200, 30, () => null, [[0, 450]]);
+  assert.deepEqual(pages.map((p) => p.bitmap.height), [200, 200, 100]);
+  assert.deepEqual(pages[0].qrRows, [[40, 80]]);
+});
+
+test('صفوف المستطيلات: بمقياس الالتقاط (floor أعلى/ceil أسفل) مقصوصةً على الصورة، والفاسد والفارغ يسقطان', () => {
+  assert.deepEqual(rowsOfRects([{ top: 10.2, bottom: 20.1 }], 2, 1000), [[20, 41]]);
+  assert.deepEqual(rowsOfRects([{ top: -5, bottom: 600 }], 1.8136, 900), [[0, 900]]);
+  assert.deepEqual(rowsOfRects([{ top: 30, bottom: 30 }, { top: NaN, bottom: 9 }, { top: 0, bottom: Infinity }], 2, 100), []);
+  assert.deepEqual(rowsOfRects([{ top: 0, bottom: 10 }], 0, 100), []);
+  assert.equal(CANVAS_BAND_SELECTOR, '[data-section^="canvas-"]');
 });

@@ -265,7 +265,7 @@ test('شبكة أمان «استعادة الافتراضي»: كائنٌ يسا
   }
 });
 
-test('الحجم: أكبر من 16 كيلوبايت ⇒ 413 قبل التحليل', () => {
+test('الحجم: أكبر من 48 كيلوبايت ⇒ 413 قبل التحليل', () => {
   const big = fleet() as unknown as Record<string, unknown>;
   big.pad = 'x'.repeat(PRINT_LIMITS.maxBytes);
   const r = parsePrintSettings(big);
@@ -293,6 +293,7 @@ const withLayoutOf = (p: PrintProfile, layout: Partial<PrintLayout> = {}, design
 const fleetWith = (p: PrintProfile): PrintSettingsV1 => ({ ...fleet(), profiles: [...fleet().profiles, p] });
 const LAYOUT_MSGS: ReadonlySet<string> = new Set(Object.entries(PRINT_ISSUES).filter(([k]) => k.startsWith('layout')).map(([, v]) => v));
 const layoutIssuesOf = (p: PrintProfile) => issuesOf(fleetWith(p)).filter((m) => LAYOUT_MSGS.has(m));
+const FREE_KEYS: ReadonlySet<string> = new Set(['layoutLogoMm', 'layoutLogoAfter', 'layoutSectionUnknown', 'layoutSectionBounds', 'layoutLockedVisible', 'layoutCanvasPrinter', 'layoutCanvasBands', 'layoutCanvasBandsPaper', 'layoutCanvasBox', 'layoutCanvasFooterOnly', 'layoutCanvasQr']);
 
 test('التخطيط: صالحٌ لكل طابعة، ويُحفظ بترتيب مفاتيح ثابت في آخر الخيارات — والغياب مطبوعة اليوم بلا مفتاح', () => {
   const page = withLayoutOf(profile({ id: 'office-grid', printer: 'page', template: 'page_plain' }, 'a4'), { accent: '#0f766e' }, 'grid_bilingual');
@@ -328,8 +329,7 @@ test('التخطيط: كل قاعدة تُبلَغ برسالتها في الح�
   const cases: Array<[string, PrintProfile]> = [
     [PRINT_ISSUES.layoutClassic, withLayoutOf({ ...rollp, template: 'roll_classic' })],
     [PRINT_ISSUES.layoutDesignPrinter, { ...rollp, options: { ...rollp.options, layout: { ...defaultPrintLayout('thermal'), design: 'grid_bilingual' } } }],
-    [PRINT_ISSUES.layoutRoll, withLayoutOf(rollp, { logo: 'start' })],
-    [PRINT_ISSUES.layoutRoll, withLayoutOf(rollp, { tableStyle: 'grid' })],
+    [PRINT_ISSUES.layoutRoll, { ...rollp, options: { ...rollp.options, layout: { ...defaultPrintLayout('thermal'), design: 'grid_bilingual' } } }],
     [PRINT_ISSUES.layoutOrder, withLayoutOf(pagep, { order: ['header', 'info', 'items', 'totals', 'signatures', 'footer'] })],
     [PRINT_ISSUES.layoutOrder, withLayoutOf(pagep, { order: ['header', 'info', 'info', 'items', 'note', 'totals', 'signatures', 'footer'] })],
     [PRINT_ISSUES.layoutOrder, withLayoutOf(pagep, { order: ['header', 'info', 'parties', 'items', 'note', 'totals', 'installments', 'signatures', 'footer'] })],
@@ -349,8 +349,13 @@ test('التخطيط: كل قاعدة تُبلَغ برسالتها في الح�
     if (!parsed.ok) assert.equal(parsed.status, 400);
     reached.add(message);
   }
-  const all = Object.entries(PRINT_ISSUES).filter(([k]) => k.startsWith('layout')).map(([, v]) => v);
+  // قواعد المفاتيح الحرّة الأربعة في print-settings-free.test.ts
+  const all = Object.entries(PRINT_ISSUES).filter(([k]) => k.startsWith('layout') && !FREE_KEYS.has(k)).map(([, v]) => v);
   assert.equal(all.length, 9);
+  // التحرير الحرّ: الرول يقبل مواضع الشعار الأربعة وأشكال الجدول الثلاثة
+  for (const logo of ['start', 'center', 'end', 'none'] as const) for (const tableStyle of ['lines', 'grid', 'striped'] as const) {
+    assert.deepEqual(layoutIssuesOf(withLayoutOf(rollp, { logo, tableStyle })), [], `${logo}/${tableStyle}`);
+  }
   assert.deepEqual([...reached].sort(), [...all].sort(), 'كل قاعدة تخطيط مبلوغة');
   // الرول: QR بعد الأصناف مقبول (مبكراً)، وبين التواقيع والتذييل (اليوم) مقبول
   assert.deepEqual(layoutIssuesOf(withLayoutOf(rollp, { order: ['header', 'info', 'customer', 'items', 'qr', 'totals', 'signatures', 'footer'] })), []);
@@ -407,7 +412,7 @@ test('التخطيط: الملفّان الافتراضيان لا يحملان�
   }
 });
 
-test('الحجم: اثنا عشر قالباً بأطول اسم وتذييل وتخطيطٍ كامل تبقى تحت 16 كيلوبايت', () => {
+test('الحجم: اثنا عشر قالباً بأطول اسم وتذييل وتخطيطٍ كامل تبقى تحت 48 كيلوبايت', () => {
   const full = legacyPrintSettings();
   for (let i = 0; full.profiles.length < 12; i++) {
     const p = withLayoutOf(profile({ id: `long-name-${i}`, name: `${i}`.padEnd(40, 'ق'), printer: 'impact', template: 'impact_plain' }, 'ff_a4'), { accent: '#1D4ED8' }, 'grid_bilingual');
@@ -516,7 +521,7 @@ test('الحفظ تشغيلاً: بلا صفّ إعدادات ⇒ 409 بلا إ�
   const r = await call('put', { body: bad });
   assert.deepEqual([r.status, r.body.code, r.body.message], [400, 'PRINT_SETTINGS_INVALID', PRINT_ISSUES.routeThermal]);
   assert.ok(Array.isArray(r.body.issues) && r.body.issues[0].path === 'routing.statement');
-  const big = await call('put', { body: { ...fleet(), pad: 'x'.repeat(17000) } });
+  const big = await call('put', { body: { ...fleet(), pad: 'x'.repeat(50000) } });
   assert.equal(big.status, 413);
   assert.equal(writes.length, 0);
   assert.equal(st.settings!.printSettings, null);

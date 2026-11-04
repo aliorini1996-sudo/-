@@ -18,6 +18,7 @@ import { PrintableInvoice, PrintableReceipt, type Company, type DocCustomer, typ
 import { DEFAULT_PRINT_LOOK, PrintLookContext, SHEET_WIDTH_PX, lookFor, type PrintLook } from '../../rep/printLook';
 import { PrintTextsPreviewContext } from '../../rep/printTextsContext';
 import { thermalPreviewHtml } from '../../rep/thermal';
+import type { ZatcaDocView } from '../../lib/zatca/docStatus';
 import {
   PRINT_TEXTS_STALE_MSG, deleteConfirmText, deletedLines, isPrintTextsStale, lineWarning, printTextsServerState, reconcilePrintTexts, withTextEdit,
   type PrintTextsCompany, type PrintTextsServerState,
@@ -28,7 +29,7 @@ import {
  * العامة: Enter هنا لا يُرسله، ولا نموذج (form) في المحرّر يصعد حدث إرساله في شجرة React إليه).
  *
  * المعاينة هي القالب الحقيقي نفسه (PrintableInvoice / PrintableReceipt) بمستندٍ نموذجيّ من المرحلة الأولى (بلا zatca فيظهر أثر
- * تعديل العنوان) وعليه مسودة الشركة — ملفوفاً بـPrintTextsPreviewContext: كل نصٍّ في القائمة قابلٌ للنقر فيُختار صفّه، والمخفيّ
+ * تعديل العنوان) — واختيار عنوان حالةٍ (سند التسليم/الملغى/بانتظار الاعتماد) يعرضه بحالته من المرحلة الثانية — وعليه مسودة الشركة — ملفوفاً بـPrintTextsPreviewContext: كل نصٍّ في القائمة قابلٌ للنقر فيُختار صفّه، والمخفيّ
  * باهتٌ مشطوب لا غائب. والحرارية (58/80 مم) وثيقة القالب الحراريّ نفسها في iframe للعرض فقط.
  *
  * مسودةٌ محلية واحدة تُحفظ بزرّ واحد (PUT /company/print-texts) بعد فحص الخادم نفسه (checkPrintTexts صارماً، النسخة الحرفية) —
@@ -49,9 +50,11 @@ type DocTab = 'invoice' | 'receipt';
 type Paper = 'a4' | '58' | '80';
 type Design = 'standard' | 'grid';
 
-/** المستند النموذجي — ما يحتاجه لإظهار كل نصّ (المرتجع، والقياسية، والأقساط، والأسعار الشاملة، وفواتير السند) */
-interface Sample { isReturn: boolean; standard: boolean; inclusive: boolean; installments: boolean; links: 'one' | 'many' }
-const SAMPLE0: Sample = { isReturn: false, standard: false, inclusive: true, installments: false, links: 'many' };
+/** حالة المستند النموذجي عند الهيئة — لإظهار عناوين الحالة (قرار المالك ٤ نوفمبر ٢٠٢٦)؛ 'none' = المرحلة الأولى كما كانت */
+type SampleStatus = 'none' | 'deliveryNote' | 'void' | 'pending';
+/** المستند النموذجي — ما يحتاجه لإظهار كل نصّ (المرتجع، والقياسية، والأقساط، والأسعار الشاملة، وفواتير السند، وعناوين الحالة) */
+interface Sample { isReturn: boolean; standard: boolean; inclusive: boolean; installments: boolean; links: 'one' | 'many'; status: SampleStatus }
+const SAMPLE0: Sample = { isReturn: false, standard: false, inclusive: true, installments: false, links: 'many', status: 'none' };
 
 /** ما يلزم المستند النموذجي ليظهر النصّ المختار من القائمة — نصٌّ لا يظهر في المعاينة الحالية يُظهِره اختياره */
 function sampleFor(key: string, s: Sample): Sample {
@@ -70,8 +73,13 @@ function sampleFor(key: string, s: Sample): Sample {
     case 'col.price': case 'tot.vat': n = { inclusive: false }; break;
     case 'rcp.forInvoice': n = { links: 'one' }; break;
     case 'rcp.forInvoices': case 'rcp.invoiceNo': case 'rcp.credit': n = { links: 'many' }; break;
-    default: return s;
+    case 'inv.deliveryNoteTitle': n = { isReturn: false, status: 'deliveryNote' }; break;
+    case 'inv.voidTitle': n = { isReturn: false, status: 'void' }; break;
+    case 'inv.pendingTitle': n = { isReturn: false, status: 'pending' }; break;
+    default: break;
   }
+  // عنوان حالةٍ يعرض المستند بحالته، وأيّ نصٍّ غيره يعيده فاتورةً عادية (سند التسليم بلا ضريبةٍ ولا رمز فلا تظهر فيه تسمياتها)
+  if (n.status === undefined && s.status !== 'none') n = { ...n, status: 'none' };
   const next = { ...s, ...n };
   return (Object.keys(n) as (keyof Sample)[]).every((k) => next[k] === s[k]) ? s : next;
 }
@@ -105,6 +113,19 @@ const LINE_SCOPE_HINTS: Readonly<Record<PrintLineScope, string>> = Object.freeze
 const r2 = (n: number): number => Math.round(n * 100) / 100;
 const DAY = 86_400_000;
 
+/**
+ * مرآة الهيئة للمستند النموذجي بحالته — القرار نفسه (zatcaPrintDecision) يختار منها عنوانه: سند التسليم قياسيةٌ لم تُعتمد، والملغى
+ * مرفوض، وبانتظار الاعتماد مبسّطةٌ موقّعة لم تُبلَّغ. الملغى وبانتظار الاعتماد لا ورقة حرارية لهما (لا يُطبعان من الرول) فيُعرضان على A4 وحده.
+ */
+function sampleZatca(status: SampleStatus, paper: Paper): ZatcaDocView | null {
+  if (status === 'none' || (paper !== 'a4' && status !== 'deliveryNote')) return null;
+  const mirror = status === 'deliveryNote' ? 'clearance_pending' : status === 'void' ? 'rejected' : 'signed';
+  return {
+    phase: 2, mode: 'live', mirror, documentStatus: null, subtype: status === 'deliveryNote' ? '01' : '02', documentKind: 'INVOICE',
+    qr: null, printable: false, overdue: false, reportDeadline: null, issuedAt: null, uuid: null, icv: null, warnings: 0,
+  };
+}
+
 /** البائع: بيانات الشركة المحفوظة، وما ينقص منها بقيمةٍ توضيحية (كـsampleInvoiceDoc) فيظهر كل سطرٍ في الترويسة */
 function sampleCompany(company: PrintTextsCompany, tr: Tr, texts: PrintTextsV1 | null): Company {
   const c: Partial<Company> = company ?? {};
@@ -133,7 +154,7 @@ function sampleCustomer(tr: Tr, withTax: boolean, grid: boolean): DocCustomer {
 }
 
 /** فاتورة آجلة بثلاثة أصناف (أحدها بخصم) ومدفوعٍ ومتبقٍّ — أو مرتجع، أو تقسيط. المبالغ متّسقة بالشامل وغير الشامل */
-function sampleInvoice(company: Company, tr: Tr, s: Sample, now: Date, grid: boolean): InvoiceDoc {
+function sampleInvoice(company: Company, tr: Tr, s: Sample, now: Date, grid: boolean, paper: Paper): InvoiceDoc {
   const unit = tr('حبة');
   const item = (n: number, qty: number, incl: number, discountPct: number) => {
     const unitPrice = s.inclusive ? incl : r2(incl / 1.15);
@@ -150,8 +171,9 @@ function sampleInvoice(company: Company, tr: Tr, s: Sample, now: Date, grid: boo
     return { ...base, number: 'RET-0031', type: 'CASH', isReturn: true, items: [item(1, 1, 28.75, 0), item(2, 1, 57.5, 0)], subtotal: 75, discount: 0, tax: 11.25, total: 86.25 };
   }
   const plan = s.installments;
+  const zatca = sampleZatca(s.status, paper);
   return {
-    ...base, number: 'INV-1024', type: 'CREDIT', deliveryDate: new Date(now.getTime() + DAY).toISOString(),
+    ...base, ...(zatca ? { zatca } : {}), number: 'INV-1024', type: 'CREDIT', deliveryDate: new Date(now.getTime() + DAY).toISOString(),
     items: [item(1, 2, 28.75, 0), item(2, 1, 57.5, 10), item(3, 3, 11.5, 0)],
     subtotal: 130, discount: 5, tax: 18.75, total: 143.75,
     paidAmt: plan ? 0 : 50, remainingAmt: plan ? 143.75 : 93.75,
@@ -186,8 +208,6 @@ const GROUP_ORDER: Readonly<Record<DocTab, readonly PrintTextGroup[]>> = Object.
 });
 /* طلب المالك ٣ نوفمبر ٢٠٢٦: لا قفل — لا سبب منعٍ ولا «يبقى ظاهراً». التنبيه من PRINT_TEXT_WARNINGS بجانب السطر لا يمنع شيئاً */
 const TITLE_WARNING = 'المنشأة المسجلة في ضريبة القيمة المضافة يلزمها نظاما عنوان «فاتورة ضريبية» — غيره أو احذفه فقط إن لم تكن منشأتك مسجلة';
-/** عناوين قرار الطباعة (docPrint) ليست عنوان فاتورة ولا إشعار: حالةٌ للمستند لا نصٌّ في القائمة — تُطبع كما هي */
-const STATUS_TITLES_NOTE = 'عناوين الحالة ثابتة ولا تعدل: «سند تسليم — ليست فاتورة ضريبية» و«مستند ملغى — لا يعتمد للخصم الضريبي» و«مستند بانتظار اعتماد الهيئة»';
 /** عنوانٌ صفّه في القائمة: الفاتورة والمرتجع/الإشعار الدائن والإشعار المدين */
 const TITLE_KEYS: ReadonlySet<string> = new Set(['inv.title', 'inv.returnTitle', 'inv.debitTitle']);
 /** قراءة النصوص من الخادم عند فتح المحرّر — مفتاحٌ خاصّ لا يمسّه إبطال ['company']، ولا ذاكرة بعد الإغلاق (gcTime 0) */
@@ -293,7 +313,7 @@ export default function PrintTextsEditor({ company, onClose }: { company: PrintT
   const texts = useMemo(() => normalizePrintTexts(draft), [draft]);
   const docCompany = useMemo(() => sampleCompany(company, tr, texts), [company, tr, texts]);
   const grid = design === 'grid' && paper === 'a4';
-  const invoiceDoc = useMemo(() => sampleInvoice(docCompany, tr, sample, now, grid), [docCompany, tr, sample, now, grid]);
+  const invoiceDoc = useMemo(() => sampleInvoice(docCompany, tr, sample, now, grid, paper), [docCompany, tr, sample, now, grid, paper]);
   const receiptDoc = useMemo(() => sampleReceipt(docCompany, tr, sample, now, grid), [docCompany, tr, sample, now, grid]);
   // معاينة A4: مظهر اليوم، أو التصميم ثنائي اللغة بالقالب الحقيقي (التسميات الإنجليزية بجانب العربية)
   const previewLook = useMemo<PrintLook>(() => (grid ? gridPreviewLook() : DEFAULT_PRINT_LOOK), [grid]);
@@ -599,11 +619,6 @@ export default function PrintTextsEditor({ company, onClose }: { company: PrintT
           {groups.map(({ group, entries }) => (
             <section key={group} className="mb-4">
               <p className="text-xs font-bold text-[#9A8F7E] mb-1.5">{tr(GROUP_TITLES[group])}</p>
-              {group === 'title' && (
-                <p data-pt-status-titles="" className="mb-2 flex items-start gap-1.5 text-[10.5px] leading-relaxed text-[#6E6557]">
-                  <Info size={12} className="mt-0.5 shrink-0" />{tr(STATUS_TITLES_NOTE)}
-                </p>
-              )}
               <div className="space-y-2">
                 {entries.map((entry) => (
                   <TextRow key={entry.key} entry={entry} edit={draft.edits[entry.key] ?? NO_EDIT} lang={lang}

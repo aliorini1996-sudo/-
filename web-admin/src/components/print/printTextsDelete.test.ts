@@ -55,12 +55,12 @@ test('كل مفتاح في القائمة: الصياغة العربية وال�
   }
 });
 
-test('التأكيد: مرّةً واحدة لما كان إلزامياً للفاتورة الضريبية (tax/standard) وحده — لا لسطر المنصة ولا للحرّ', () => {
+test('التأكيد: مرّةً واحدة لما كان إلزامياً للفاتورة الضريبية (tax/standard) ولعناوين الحالة (status) — لا لسطر المنصة ولا للحرّ', () => {
   for (const entry of PRINT_TEXT_CATALOG) {
     // عنوان صندوقٍ (block) يرث أشدّ تنبيهٍ في صفوفه التي تسقط معه (lineWarning) — وغيره تنبيه عبارته
     const w = lineWarning(entry.key);
     if (PRINT_TEXT_LINE[entry.key] !== 'block') assert.equal(w, printTextWarning(entry), entry.key);
-    const want = w === 'tax' || w === 'standard' ? w : null;
+    const want = w === 'tax' || w === 'standard' || w === 'status' ? w : null;
     assert.equal(deleteConfirmClass(entry.key), want, entry.key);
     const text = deleteConfirmText(entry.key, same);
     if (want) {
@@ -73,6 +73,11 @@ test('التأكيد: مرّةً واحدة لما كان إلزامياً لل�
   // عيّنات صريحة من صورة المالك: «الكمية» و«السعر شامل الضريبة» كانا مقفلين ⇒ تنبيه وتأكيد، لا منع
   assert.equal(deleteConfirmClass('col.qty'), 'tax');
   assert.equal(deleteConfirmClass('col.priceIncl'), 'tax');
+  // قرار المالك ٤ نوفمبر ٢٠٢٦: عناوين الحالة تُحذف بتنبيهها وتأكيدٍ واحد يذكر أنّ المستند قد يبدو فاتورةً سارية
+  for (const k of ['inv.deliveryNoteTitle', 'inv.voidTitle', 'inv.pendingTitle']) {
+    assert.equal(deleteConfirmClass(k), 'status', k);
+    assert.ok(deleteConfirmText(k, same)?.includes('يبدو كفاتورة سارية'), k);
+  }
   assert.equal(deleteConfirmClass('inv.title'), 'tax');
   assert.equal(deleteConfirmClass('cust.name'), 'standard');
   assert.equal(deleteConfirmClass('foot.platform'), null);

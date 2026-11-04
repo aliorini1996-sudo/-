@@ -55,6 +55,8 @@ const p2 = (): InvoiceDoc => inv({
 });
 /** إشعار مدين بالمرحلة الثانية — عنوان القرار «إشعار مدين» بمفتاحه inv.debitTitle */
 const debitNote = (): InvoiceDoc => { const d = p2(); return { ...d, number: 'DN-12', zatca: { ...d.zatca!, documentKind: 'DEBIT_NOTE' } as NonNullable<InvoiceDoc['zatca']> }; };
+/** سند تسليم (قياسية لم تُعتمد) — عنوان القرار بمفتاحه inv.deliveryNoteTitle (قرار المالك ٤ نوفمبر ٢٠٢٦) */
+const deliveryNote = (): InvoiceDoc => { const d = p2(); return { ...d, number: 'INV-4097', zatca: { ...d.zatca!, mirror: 'clearance_pending', documentStatus: 'SUBMITTING', qr: null, printable: false } as NonNullable<InvoiceDoc['zatca']> }; };
 const rcp = (over: Partial<ReceiptDoc> = {}): ReceiptDoc => ({
   kind: 'receipt', number: 'RC-77', date: '2026-10-23T11:05:00', company, customer: { name: 'بقالة النور', taxNumber: '322222222222223', address: 'حي النسيم', city: 'الرياض' },
   repName: 'أحمد', amount: 137.05, paymentMethod: 'CASH', notes: 'دفعة أولى', invoices: [{ number: 'INV-1024', amount: 137.05 }], ...over,
@@ -111,6 +113,7 @@ const ROLL: Record<string, Case> = {
   'inv.title': { doc: inv, compact: [div('c b', 'فاتورة ضريبية')], detailed: [div('c b', 'فاتورة ضريبية')] },
   'inv.returnTitle': { doc: creditNote, compact: [div('c b', 'إشعار دائن')], detailed: [div('c b', 'إشعار دائن')] },
   'inv.debitTitle': { doc: debitNote, compact: [div('c b', 'إشعار مدين')], detailed: [div('c b', 'إشعار مدين')] },
+  'inv.deliveryNoteTitle': { doc: deliveryNote, compact: [div('c b', 'سند تسليم — ليست فاتورة ضريبية')], detailed: [div('c b', 'سند تسليم — ليست فاتورة ضريبية')] },
   'inv.number': { doc: inv, compact: [row('رقم')], detailed: [row('رقم')] },
   'inv.returnNumber': { doc: creditNote, compact: [row('رقم')], detailed: [row('رقم')] },
   'inv.date': { doc: inv, compact: [row('التاريخ')], detailed: [row('التاريخ')] },
@@ -165,6 +168,8 @@ const NO_ROLL = [
   'rcp.time', 'rcp.invoiceNo', 'rcp.customerHeading', 'rcp.business', 'rcp.commercialReg', 'rcp.phone', 'rcp.sigPayer', 'rcp.sigCollector',
   'col.seq', 'col.code', 'col.unit', 'col.vatAmount', 'sel.heading', 'sel.name', 'sel.address', 'sel.city', 'sel.postalCode', 'sel.taxNumber',
   'cust.city', 'cust.postalCode', 'inv.paymentType', 'sig.warehouse', 'sig.remarks', 'tot.exclVat', 'tot.due', 'foot.platform',
+  // المُبطل والمعلَّق لا ورقة رول لهما (thermal.ts يرفض طباعتهما) — فلا موضع لعنوانيهما فيه
+  'inv.voidTitle', 'inv.pendingTitle',
 ];
 
 test('حارس الاكتمال: كل مفتاحٍ في PRINT_TEXT_LINE إمّا له وحدةٌ في الرول أو مصنَّفٌ «بلا موضع» — لا ثالث ولا تكرار', () => {

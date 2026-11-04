@@ -25,7 +25,8 @@ import {
  * الذي يُحمَّل كسولاً مع هذه الصفحة وحدها.
  */
 
-const API = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
+// `?.` لا يغيّر شيئاً في Vite (يستبدل import.meta.env بكائن) — ويجعل الصفحة قابلةً للتحميل في اختبارات node (SellerField)
+const API = import.meta.env?.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
 
 const LANGS: ReadonlyArray<{ code: Lang; label: string }> = Object.freeze([
   { code: 'ar', label: 'العربية' },
@@ -148,7 +149,7 @@ export default function EinvoicePublicPage() {
       </header>
 
       <section className="px-4 py-4 grid gap-3 sm:grid-cols-2 border-b border-[#F1EBDF]">
-        <Field label={tr('البائع')} value={doc.seller.name} />
+        <SellerField label={tr('البائع')} seller={doc.seller} />
         <Field label={tr('الرقم الضريبي')} value={doc.seller.vatNumber} ltr />
         <Field label={tr('المشتري')} value={doc.buyer.name} />
         <Field
@@ -234,8 +235,26 @@ function LangBar({ lang, setLang, tr }: { lang: Lang; setLang: (l: Lang) => void
   );
 }
 
-function Field({ label, value, hint, ltr, small }: {
-  label: string; value: string | null; hint?: string | null; ltr?: boolean; small?: boolean;
+/**
+ * خانة البائع: اسمه كما كان، وتحته — متى أرسلهما الخادم — اسم الشركة وعنوانها باللغة الثانية (قرار المالك ٤ نوفمبر ٢٠٢٦).
+ * الاتجاه من النصّ نفسه (dir="auto")، ولغاته الثانية الأربع يسارية. بلا نصٍّ ثانٍ تُرسم الخانة كما كانت حرفاً بحرف.
+ */
+export function SellerField({ label, seller }: { label: string; seller: PublicDoc['seller'] }) {
+  const alt = Boolean(seller.nameAlt || seller.addressAlt);
+  return (
+    <Field label={label} value={seller.name}>
+      {alt && (
+        <div className="mt-0.5 space-y-0.5" data-seller-alt="">
+          {seller.nameAlt && <p className="text-sm text-[#1F1A13] break-words" dir="auto">{seller.nameAlt}</p>}
+          {seller.addressAlt && <p className="text-[12px] text-[#6E6557] break-words" dir="auto">{seller.addressAlt}</p>}
+        </div>
+      )}
+    </Field>
+  );
+}
+
+function Field({ label, value, hint, ltr, small, children }: {
+  label: string; value: string | null; hint?: string | null; ltr?: boolean; small?: boolean; children?: React.ReactNode;
 }) {
   return (
     <div className="min-w-0">
@@ -247,6 +266,7 @@ function Field({ label, value, hint, ltr, small }: {
         {value ?? '—'}
       </p>
       {hint && <p className="text-[10px] text-[#6E6557]">{hint}</p>}
+      {children}
     </div>
   );
 }

@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Component, Suspense, lazy, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import {
-  AlertTriangle, Check, ChevronLeft, ChevronRight, Copy, FileText, Info, Pencil, Plus, Printer, Receipt, RotateCcw, Save, Trash2, X,
+  AlertTriangle, Check, ChevronLeft, ChevronRight, Copy, FileText, Info, Pencil, PenTool, Plus, Printer, Receipt, RefreshCw, RotateCcw, Save, Scissors, Trash2, X,
 } from 'lucide-react';
 import { companyApi, productApi } from '../../api/client';
 import { hasBigUnit } from '../../lib/adminUnits';
@@ -21,6 +21,7 @@ import {
 } from '../../lib/print/printSettings';
 import PrintPreview, { GridThumb, LayoutFields, applyDesignCard, designCardSelected, designCards } from './PrintPreview';
 import PrintDeviceTools from './PrintDeviceTools';
+import PrintDesignTools, { CLASSIC_COPY_NAME, classicCopyFor, isClassicRoll } from './PrintDesignTools';
 import { PrintableInvoice, type Company } from '../../rep/RepDocuments';
 import { currentPrintIdentity, usePrintDeviceChoice } from '../../rep/printDevice';
 
@@ -45,6 +46,8 @@ interface EditorState { index: number | null; profile: PrintProfile; step: 1 | 2
 
 const PRINTER_ICON: Record<PrinterType, typeof Printer> = { thermal: Receipt, impact: Printer, page: FileText };
 const STEPS = ['نوع الطابعة', 'مقاس الورق', 'التصميم', 'التفاصيل'] as const;
+/** «المصمم الحر» كسولاً: لا يدخل حزمة اللوحة، ويُحمَّل عند أول فتح (pd_spec C.(iv) — التركيب) */
+const loadDesigner = () => import('./designer/PrintDesigner');
 
 export default function PrintSettingsPanel({ phase2 }: { phase2: boolean }) {
   const tr = useTr();
@@ -107,6 +110,16 @@ export default function PrintSettingsPanel({ phase2 }: { phase2: boolean }) {
     open(null, { ...p, name: autoName(p, s.profiles, tr) }, false);
   };
   const duplicate = (p: PrintProfile) => open(null, duplicateProfile(p, profileDisplayName(p, tr), s.profiles), true);
+  /**
+   * «تحرير الشريط الكلاسيكي» (B.3): نسخةٌ roll_compact على 58 مم يُوجَّه إليها ما كان يطبع بالكلاسيكي، وتُفتح في الأدوات — والكلاسيكي
+   * نفسه لا يُمسّ (التراجع: إعادة التوجيه). index: موضع القالب المفتوح (null = قالبٌ جديد لم يُضف بعد).
+   */
+  const editClassic = (p: PrintProfile, index: number | null) => {
+    const r = classicCopyFor(s, p, index, tr(CLASSIC_COPY_NAME));
+    if (!r) { toast.error(tr('الحد 12 قالبا')); return; }
+    setDraft(r.settings);
+    open(r.index, r.profile, true);
+  };
   const remove = (p: PrintProfile) => {
     const next = withoutProfile(s, p.id);
     if (!next) { toast.error(tr('القالب مستعمل في توجيه المستندات أو ملف PDF — غير التوجيه أولا')); return; }
@@ -151,6 +164,7 @@ export default function PrintSettingsPanel({ phase2 }: { phase2: boolean }) {
         <ProfileEditor
           editor={editor} setEditor={setEditor} settings={s} phase2={phase2} companyName={companyName} brandColor={brandColor} company={company}
           onApply={(p) => { setDraft(withProfile(s, p, editor.index)); setEditor(null); }}
+          onEditClassic={(p) => editClassic(p, editor.index)} classicBlocked={s.profiles.length + (editor.index === null ? 1 : 0) >= PRINT_LIMITS.maxProfiles}
         />
       ) : (
         <>
@@ -228,6 +242,12 @@ export default function PrintSettingsPanel({ phase2 }: { phase2: boolean }) {
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
                       {!legacy && <button type="button" onClick={() => open(i, p, true)} className="btn-secondary !py-1.5 !px-3 text-xs"><Pencil size={13} /> {tr('تعديل')}</button>}
+                      {isClassicRoll(p) && (
+                        <button type="button" disabled={full} onClick={() => editClassic(p, i)} className="btn-secondary !py-1.5 !px-3 text-xs disabled:opacity-40"
+                          title={tr('ينشئ نسخة قابلة للتحرير ويوجه إليها مستنداته — الكلاسيكي يبقى كما هو')}>
+                          <Scissors size={13} /> {tr('تحرير الشريط الكلاسيكي')}
+                        </button>
+                      )}
                       <button type="button" disabled={full} onClick={() => duplicate(p)} className="p-2 rounded-lg text-[#6E6557] hover:bg-[#FAF7F0] disabled:opacity-40" title={tr('نسخ')}><Copy size={15} /></button>
                       <button type="button" onClick={() => remove(p)} className="p-2 rounded-lg text-red-500 hover:bg-red-50" title={tr('حذف')}><Trash2 size={15} /></button>
                     </div>
@@ -261,11 +281,16 @@ function autoName(p: PrintProfile, existing: readonly PrintProfile[], tr: (s: st
   return uniqueProfileName(`${tr(PRINTER_SHORT[p.printer])} ${tr(PRESET_LABELS[p.paper.preset])}`, existing, p.id);
 }
 
-function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brandColor, company, onApply }: {
+function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brandColor, company, onApply, onEditClassic, classicBlocked }: {
   editor: EditorState; setEditor: (e: EditorState | null) => void; settings: PrintSettingsV1; phase2: boolean;
   companyName: string; brandColor: string; company: Company | null | undefined; onApply: (p: PrintProfile) => void;
+  onEditClassic: (p: PrintProfile) => void; classicBlocked: boolean;
 }) {
   const tr = useTr();
+  // «المصمم الحر»: يُحمَّل عند أول فتح، و«إعادة المحاولة» بعد فشل تحميله مكوّنٌ كسولٌ جديد (React.lazy يحفظ الوعد المرفوض)
+  const [designerOpen, setDesignerOpen] = useState(false);
+  const [designerAttempt, setDesignerAttempt] = useState(0);
+  const Designer = useMemo(() => lazy(loadDesigner), [designerAttempt]); // eslint-disable-line react-hooks/exhaustive-deps
   // اختيار هذا الجهاز (الطريقة والرابط البطيء) — المفتاح نفسه الذي تقرؤه شاشة المستند
   const ident = useMemo(() => currentPrintIdentity(), []);
   const [deviceChoice, setDeviceChoice] = usePrintDeviceChoice(ident);
@@ -420,6 +445,29 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
 
               <Section title={tr('التخطيط')} open><LayoutFields p={p} update={update} /></Section>
 
+              <Section title={tr('أدوات التصميم')} open>
+                <PrintDesignTools p={p} update={update} phase2={phase2} />
+                <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-[#F1EBDF]">
+                  {isClassicRoll(p) ? (
+                    <button type="button" className="btn-secondary !py-1.5 !px-3 text-xs disabled:opacity-40" disabled={classicBlocked} onClick={() => onEditClassic(p)}>
+                      <Scissors size={13} /> {tr('تحرير الشريط الكلاسيكي')}
+                    </button>
+                  ) : (
+                    <button type="button" className="btn-primary !py-1.5 !px-3 text-xs disabled:opacity-40" disabled={issues.length > 0} onClick={() => setDesignerOpen(true)}>
+                      <PenTool size={13} /> {tr('المصمم الحر')}
+                    </button>
+                  )}
+                  <span className="text-[11px] text-[#9A8F7E]">
+                    {isClassicRoll(p)
+                      ? tr('ينشئ نسخة قابلة للتحرير ويوجه إليها مستنداته — الكلاسيكي يبقى كما هو')
+                      : p.printer === 'thermal'
+                        ? tr('اسحب كتل الشريط للترتيب والمحاذاة وكبر الشعار من مقبضه')
+                        : tr('اسحب الشعار وكل مربع إلى أي مكان في رأس الورقة وتذييلها وغير حجمه بالسحب')}
+                  </span>
+                  {issues.length > 0 && !isClassicRoll(p) && <span className="text-[11px] text-red-600">{tr('أصلح أخطاء القالب أولا')}</span>}
+                </div>
+              </Section>
+
               <Section title={tr('الخط')}>
                 {/* الصفحة والنقطية: حجم الخط في «التخطيط» — لا يُطبَّق عليهما إلا مع تخطيط (بلاه مطبوعة اليوم حرفياً) */}
                 {p.printer === 'thermal' && (
@@ -535,6 +583,44 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
             <PrintDeviceTools profile={p} name={p.name.trim() || tr(PRINTER_SHORT[p.printer])} company={company}
               renderSheet={(d, ref) => <PrintableInvoice ref={ref} doc={d} />} choice={deviceChoice} onChoice={setDeviceChoice} />
           )}
+        </div>
+      </div>
+
+      {designerOpen && (
+        <DesignerBoundary onRetry={() => setDesignerAttempt((n) => n + 1)} onClose={() => setDesignerOpen(false)}>
+          <Suspense fallback={(
+            <div className="fixed inset-0 z-[1500] bg-[#FAF7F0]/80 flex items-center justify-center" role="status">
+              <span className="w-8 h-8 border-4 border-[#E15A30] border-t-transparent rounded-full animate-spin" />
+            </div>
+          )}>
+            <Designer profile={p} phase2={phase2} company={company} companyName={companyName} brandColor={brandColor}
+              onApply={update} onClose={() => setDesignerOpen(false)} />
+          </Suspense>
+        </DesignerBoundary>
+      )}
+    </div>
+  );
+}
+
+/** حاجز «المصمم الحر»: فشل تحميل حزمته (نُشر تحديثٌ والصفحة مفتوحة، أو انقطاع) لا يُسقط المحرّر ومسودته — لافتةٌ وإعادة محاولة */
+class DesignerBoundary extends Component<{ children: ReactNode; onRetry: () => void; onClose: () => void }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  retry = () => { this.setState({ failed: false }); this.props.onRetry(); };
+  render(): ReactNode {
+    return this.state.failed ? <DesignerLoadError onRetry={this.retry} onClose={this.props.onClose} /> : this.props.children;
+  }
+}
+
+function DesignerLoadError({ onRetry, onClose }: { onRetry: () => void; onClose: () => void }) {
+  const tr = useTr();
+  return (
+    <div className="fixed inset-0 z-[1500] bg-[#FAF7F0]/90 flex items-center justify-center p-4" role="alertdialog" aria-modal="true">
+      <div className="card max-w-sm w-full">
+        <p className="text-sm font-semibold text-[#8E2A1F] flex items-start gap-2"><AlertTriangle size={16} className="mt-0.5 shrink-0" />{tr('تعذر تحميل المصمم الحر')}</p>
+        <div className="mt-3 flex items-center gap-2 flex-wrap">
+          <button type="button" className="btn-secondary" onClick={onRetry}><RefreshCw size={14} /> {tr('إعادة المحاولة')}</button>
+          <button type="button" className="btn-secondary" onClick={onClose}><X size={14} /> {tr('إغلاق')}</button>
         </div>
       </div>
     </div>

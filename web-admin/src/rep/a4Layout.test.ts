@@ -269,12 +269,18 @@ test('كل مفتاح فاتورة/سند/مشترك في PRINT_TEXT_LINE إمّ
   const ret = inv({ isReturn: true, billingReference: 'INV-1', noteReason: 'تالف', paymentPlan: null, installments: undefined });
   // الإشعار المدين بالمرحلة الثانية (عنوانه inv.debitTitle — طلب المالك ٤ نوفمبر ٢٠٢٦)
   const debit = inv({ number: 'DN-12', zatca: zv({ documentKind: 'DEBIT_NOTE' } as Partial<ZatcaDocView>) });
+  // عناوين الحالة بمفاتيحها (قرار المالك ٤ نوفمبر ٢٠٢٦): سند التسليم والمُبطل والمعلَّق
+  const status = [
+    inv({ zatca: zv({ mirror: 'clearance_pending', printable: false, qr: null }) }),
+    inv({ zatca: zv({ subtype: '02', mirror: 'rejected', printable: false, qr: null }) }),
+    inv({ zatca: zv({ subtype: '02', mirror: 'signed', printable: false, qr: null }) }),
+  ];
   for (const entry of PRINT_TEXT_CATALOG) {
     assert.ok(entry.key in PRINT_TEXT_LINE, `${entry.key} بلا وحدة`);
     if (GRID_ONLY.has(entry.key)) continue;
     // سندٌ بفاتورة واحدة وآخر بفاتورتين ورصيدٍ دائن (150 − 130)
     const rcps = [rcp(), rcp({ invoices: [{ number: 'INV-1', amount: 100 }, { number: 'INV-2', amount: 30 }] })];
-    const docs = entry.doc === 'receipt' ? rcps : entry.doc === 'invoice' ? [inv(), ret, debit] : [inv(), ...rcps];
+    const docs = entry.doc === 'receipt' ? rcps : entry.doc === 'invoice' ? [inv(), ret, debit, ...status] : [inv(), ...rcps];
     const changed = docs.some((d) => {
       const r = (c: Company) => (d.kind === 'invoice' ? a4({ ...d, company: c }) : a4r({ ...d, company: c }));
       return r(withTexts(COMPANY, texts({}))) !== r(withTexts(COMPANY, del(entry.key)));

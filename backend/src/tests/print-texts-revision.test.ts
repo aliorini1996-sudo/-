@@ -26,23 +26,43 @@ function jsonbOrder(v: unknown): unknown {
   return Object.fromEntries(keys.map((k) => [k, jsonbOrder(o[k])]));
 }
 
+/** مساواة jsonb: بنيوية لا تتأثر بترتيب المفاتيح — للمزيّف وحده (مستقلّة عن بصمة المسار) */
+function canon(v: unknown): string {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v);
+  if (Array.isArray(v)) return `[${v.map(canon).join(',')}]`;
+  const o = v as Record<string, unknown>;
+  return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${canon(o[k])}`).join(',')}}`;
+}
+/** شرط عمود printTexts في where كما ينفّذه PostgreSQL: AnyNull/DbNull ⇒ IS NULL، وقيمةٌ ⇒ jsonb = jsonb */
+function jsonFilterMatches(cur: unknown, f: Row | undefined): boolean {
+  if (f === undefined) return true;
+  assert.deepEqual(Object.keys(f), ['equals'], 'شرط العمود مساواةٌ وحدها');
+  if (f.equals === Prisma.AnyNull || f.equals === Prisma.DbNull) return cur === null;
+  return cur !== null && canon(cur) === canon(f.equals);
+}
+
 let st: { admin: Row | null; settings: Row | null };
 let writes: Row[] = [];
 let txCount = 0;
+/** خطّافٌ ينفَّذ قبل كل قراءة لصفّ الإعدادات — لمحاكاة حفظين يقرآن العمود قبل أن يكتب أيٌّ منهما */
+let beforeRead: (() => Promise<void>) | null = null;
 function reset(printTexts: unknown = null): void {
   writes = [];
   txCount = 0;
+  beforeRead = null;
   st = { admin: { isActive: true, canManageCompanySettings: true }, settings: { tenantId: T, name: 'شركة', printTexts } };
 }
 reset();
 const companySettings = {
   async findUnique(a: Row) {
+    if (beforeRead) await beforeRead();
     if (!st.settings || a.where.tenantId !== st.settings.tenantId) return null;
     return { printTexts: st.settings.printTexts };
   },
   async updateMany(a: Row) {
     writes.push(a);
     if (!st.settings || a.where.tenantId !== st.settings.tenantId) return { count: 0 };
+    if (!jsonFilterMatches(st.settings.printTexts, a.where.printTexts)) return { count: 0 };
     st.settings.printTexts = a.data.printTexts === Prisma.DbNull ? null : jsonbOrder(JSON.parse(JSON.stringify(a.data.printTexts)));
     return { count: 1 };
   },
@@ -119,7 +139,8 @@ test('مراجعة مطابقة ⇒ 200 وكتابة في معاملة واحد�
   assert.equal(ok.status, 200, JSON.stringify(ok.body));
   assert.deepEqual(ok.body, { success: true, data: next, stored: true, hasCompany: true, rev: rev(next) });
   assert.equal(txCount, 1, 'القراءة والمقارنة والكتابة في معاملة');
-  assert.deepEqual(writes, [{ where: { tenantId: T }, data: { printTexts: next } }]);
+  // الكتابة مشروطة بالقيمة المقروءة نفسها (مقارنةٌ وتبديل) لا بالشركة وحدها
+  assert.deepEqual(writes, [{ where: { tenantId: T, printTexts: { equals: jsonbOrder(texts('الهاتف')) } }, data: { printTexts: next } }]);
   const after = await call('get', {});
   assert.equal(after.body.rev, ok.body.rev, 'بصمة الردّ = بصمة المقروء بعده — وإلا رُفض الحفظ التالي');
   // حفظٌ ثانٍ بمراجعة الردّ يمرّ
@@ -189,4 +210,86 @@ test('الحرّاس قبل المراجعة: المندوب 403 بلا معام
   const m = await call('put', { body: texts('الهاتف'), headers: withRev(r0) });
   assert.deepEqual([m.status, m.body], [409, { success: false, code: 'COMPANY_SETTINGS_MISSING', message: 'احفظ بيانات الشركة أولا' }]);
   assert.equal(writes.length, 0);
+});
+
+/** حاجزٌ لـn قراءات: لا تعود أيٌّ منها حتى تصل كلّها — فيقرأ الحفظان العمود قبل أن يكتب أيٌّ منهما (أسوأ تداخل) */
+function readBarrier(n: number): () => Promise<void> {
+  let arrived = 0;
+  const waiting: Array<() => void> = [];
+  return () => {
+    arrived++;
+    if (arrived > n) return Promise.resolve();
+    if (arrived === n) { waiting.splice(0).forEach((r) => r()); return Promise.resolve(); }
+    return new Promise<void>((r) => { waiting.push(r); });
+  };
+}
+
+test('سباق: حفظان في اللحظة نفسها بالمراجعة نفسها ⇒ واحدٌ فقط ينجح والآخر 409 PRINT_TEXTS_STALE — ولا يمسح الثاني الأول', async () => {
+  for (const base of [null, texts('الهاتف')]) {
+    reset(base === null ? null : jsonbOrder(base));
+    const opened = (await call('get', {})).body.rev as string;
+    const a = texts('هاتف أ', { 'inv.title': { text: 'فاتورة أ', alt: null, hidden: false } });
+    const b = texts('هاتف ب', { 'cust.phone': { text: null, alt: null, hidden: true } });
+    writes = [];
+    beforeRead = readBarrier(2);
+    const [ra, rb] = await Promise.all([
+      call('put', { body: a, headers: withRev(opened) }),
+      call('put', { body: b, headers: withRev(opened) }),
+    ]);
+    beforeRead = null;
+    const label = base === null ? 'null' : 'texts';
+    assert.deepEqual([ra.status, rb.status].sort(), [200, 409], `base=${label}: ${JSON.stringify([ra.body, rb.body])}`);
+    const [win, lose, winVal] = ra.status === 200 ? [ra, rb, a] : [rb, ra, b];
+    assert.deepEqual(lose.body, { success: false, code: 'PRINT_TEXTS_STALE', message: 'تغيرت نصوص المطبوعات من جهاز آخر' });
+    assert.deepEqual(win.body, { success: true, data: winVal, stored: true, hasCompany: true, rev: rev(winVal) });
+    assert.deepEqual(st.settings!.printTexts, jsonbOrder(winVal), 'العمود كما كتبه الفائز وحده');
+    assert.equal((await call('get', {})).body.rev, win.body.rev);
+    // وكلا الحفظين اشترط القيمة المقروءة (العمود الفارغ ⇒ AnyNull)
+    assert.equal(writes.length, 2);
+    for (const w of writes) {
+      assert.deepEqual(w.where, { tenantId: T, printTexts: { equals: base === null ? Prisma.AnyNull : jsonbOrder(base) } });
+    }
+  }
+});
+
+test('سباق مع «استعادة الافتراضي»: الاستعادة وحفظٌ بالمراجعة نفسها معاً ⇒ واحدٌ فقط ينجح', async () => {
+  reset(jsonbOrder(texts('الهاتف')));
+  const opened = (await call('get', {})).body.rev as string;
+  beforeRead = readBarrier(2);
+  const [r1, r2] = await Promise.all([
+    call('put', { body: { reset: true }, headers: withRev(opened) }),
+    call('put', { body: texts('هاتف جديد'), headers: withRev(opened) }),
+  ]);
+  beforeRead = null;
+  assert.deepEqual([r1.status, r2.status].sort(), [200, 409]);
+  assert.equal((r1.status === 409 ? r1 : r2).body.code, 'PRINT_TEXTS_STALE');
+  assert.deepEqual(st.settings!.printTexts, r1.status === 200 ? null : jsonbOrder(texts('هاتف جديد')));
+});
+
+test('حفظٌ من جهاز آخر بين قراءة هذا الحفظ وكتابته ⇒ 409 PRINT_TEXTS_STALE والعمود كما حفظه الآخر', async () => {
+  const theirs = texts('هاتف المكتب');
+  reset(jsonbOrder(texts('الهاتف')));
+  const opened = (await call('get', {})).body.rev as string;
+  const origUpdate = companySettings.updateMany;
+  companySettings.updateMany = async (a: Row) => { st.settings!.printTexts = jsonbOrder(theirs); return origUpdate(a); };
+  try {
+    const r = await call('put', { body: texts('رقم الهاتف'), headers: withRev(opened) });
+    assert.deepEqual([r.status, r.body], [409, { success: false, code: 'PRINT_TEXTS_STALE', message: 'تغيرت نصوص المطبوعات من جهاز آخر' }]);
+    assert.deepEqual(st.settings!.printTexts, jsonbOrder(theirs));
+  } finally {
+    companySettings.updateMany = origUpdate;
+  }
+});
+
+test('حُذف صفّ الإعدادات بين القراءة والكتابة ⇒ 409 COMPANY_SETTINGS_MISSING (لا PRINT_TEXTS_STALE ولا 200)', async () => {
+  reset(null);
+  const opened = (await call('get', {})).body.rev as string;
+  const origUpdate = companySettings.updateMany;
+  companySettings.updateMany = async (a: Row) => { st.settings = null; return origUpdate(a); };
+  try {
+    const r = await call('put', { body: texts('الهاتف'), headers: withRev(opened) });
+    assert.deepEqual([r.status, r.body], [409, { success: false, code: 'COMPANY_SETTINGS_MISSING', message: 'احفظ بيانات الشركة أولا' }]);
+  } finally {
+    companySettings.updateMany = origUpdate;
+  }
 });

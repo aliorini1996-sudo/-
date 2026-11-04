@@ -228,7 +228,9 @@ export default function ZatcaDocsPanel() {
       )}
 
       {share && (
-        <ZatcaShareDialog invoiceId={share.id} number={share.number} tr={tr} onClose={() => setShare(null)} />
+        <ZatcaShareDialog invoiceId={share.id} number={share.number}
+          doc={{ documentKind: share.view.documentKind, subtype: share.view.subtype }}
+          tr={tr} onClose={() => setShare(null)} />
       )}
 
       {ask && (

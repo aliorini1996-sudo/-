@@ -66,7 +66,11 @@ const STATUSES: readonly string[] = Object.freeze(['reported', 'reported_warn', 
 const KINDS: readonly string[] = Object.freeze(['INVOICE', 'CREDIT_NOTE', 'DEBIT_NOTE']);
 
 export interface PublicDoc {
-  seller: { name: string | null; vatNumber: string | null };
+  /**
+   * nameAlt / addressAlt: اسم الشركة وعنوانها باللغة الثانية من «نصوص المطبوعات» (قرار المالك ٤ نوفمبر ٢٠٢٦) — محلولان في
+   * الخادم، ويغيبان (لا null) متى لم تُختر لغةٌ ثانية أو كان النصّ فارغاً، فيبقى المستند المفكوك كما كان.
+   */
+  seller: { name: string | null; vatNumber: string | null; nameAlt?: string; addressAlt?: string };
   buyer: { name: string | null };
   document: {
     kind: ShareKind;
@@ -90,6 +94,12 @@ export interface PublicDoc {
 const str = (v: unknown, max = 200): string | null =>
   typeof v === 'string' && v.trim() !== '' ? v.trim().slice(0, max) : null;
 
+/** كـstr لكن الحدّ بالمحارف (Array.from) — لنصّي اللغة الثانية اللذين يحدّهما الخادم بالمحارف */
+const strCp = (v: unknown, max: number): string | null => {
+  const s = str(v, Number.MAX_SAFE_INTEGER);
+  return s === null ? null : Array.from(s).slice(0, max).join('').trim() || null;
+};
+
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 /**
@@ -108,8 +118,14 @@ export function parsePublicDoc(raw: unknown): PublicDoc | null {
   const seller = (r.seller ?? {}) as Record<string, unknown>;
   const buyer = (r.buyer ?? {}) as Record<string, unknown>;
   const xml = (r.xml ?? {}) as Record<string, unknown>;
+  // حدّا الخادم بالمحارف (code points) لا بوحدات UTF-16 — فلا يُقصّ نصٌّ قبلَه الخادمُ كاملاً ولا يُشطر محرفٌ خارج BMP نصفين
+  const nameAlt = strCp(seller.nameAlt, 80);
+  const addressAlt = strCp(seller.addressAlt, 160);
   return {
-    seller: { name: str(seller.name, 120), vatNumber: str(seller.vatNumber, 64) },
+    seller: {
+      name: str(seller.name, 120), vatNumber: str(seller.vatNumber, 64),
+      ...(nameAlt ? { nameAlt } : {}), ...(addressAlt ? { addressAlt } : {}),
+    },
     buyer: { name: str(buyer.name, 120) },
     document: {
       kind: (typeof d.kind === 'string' && KINDS.includes(d.kind) ? d.kind : 'INVOICE') as ShareKind,
@@ -220,11 +236,31 @@ export function shareAmountLines(d: PublicDoc): ShareAmountLine[] {
 
 // ─── المشاركة من شاشة المدير ───
 
-/** نصّ الرسالة التي يرسلها المندوب/المدير للمشتري مع الرابط — عربيّ دائماً (المستلم عميل الشركة). */
-export function shareMessageOf(input: { number: string | null; sellerName?: string | null }, link: string): string {
-  const head = input.number ? `فاتورتكم الضريبية رقم ${input.number}` : 'فاتورتكم الضريبية';
+export interface ShareMessageInput {
+  number: string | null;
+  sellerName?: string | null;
+  /** عنوان المستند كما تطبعه الشركة (shareTitle.ts: نصوص المطبوعات ثمّ عنوان القرار) — يغيب ⇒ «فاتورتكم الضريبية». */
+  title?: string | null;
+  /** مرآة الهيئة كما ردّها الخادم مع الرابط — وحدها تقرّر عبارة الهيئة. غيابها أو مرآةٌ غير نهائية ⇒ لا ادّعاء باسم الهيئة. */
+  mirror?: string | null;
+  /** مرحلة الفوترة إن عُرفت — غير الثانية ⇒ لا ادّعاء باسم الهيئة أيّاً كانت المرآة. */
+  phase?: number | null;
+}
+
+/**
+ * نصّ الرسالة التي يرسلها المندوب/المدير للمشتري مع الرابط — عربيّ دائماً (المستلم عميل الشركة).
+ * «معتمدة» للمعتمدة وحدها (القياسية بعد الاعتماد)، والمبسّطة المُبلَّغة بعبارة صفحة المشتري نفسها (NOTES) — و«نسخة» مؤنّثة
+ * فتصحّ مع الإشعار المذكّر. وبلا مرآةٍ نهائية من المرحلة الثانية لا ذكر للهيئة إطلاقاً (ثغرة G2 — ٤ نوفمبر ٢٠٢٦).
+ */
+export function shareMessageOf(input: ShareMessageInput, link: string): string {
+  const title = typeof input.title === 'string' ? input.title.trim() : '';
+  const head = title
+    ? (input.number ? `${title} رقم ${input.number}` : title)
+    : (input.number ? `فاتورتكم الضريبية رقم ${input.number}` : 'فاتورتكم الضريبية');
   const from = input.sellerName ? ` من ${input.sellerName}` : '';
-  return `${head}${from}\nنسخة معتمدة من هيئة الزكاة والضريبة والجمارك:\n${link}`;
+  const phaseOk = input.phase === undefined || input.phase === null || Number(input.phase) === 2;
+  const note = phaseOk && isShareableMirror(input.mirror) ? NOTES[input.mirror as ShareStatus].label : null;
+  return note ? `${head}${from}\nنسخة ${note}:\n${link}` : `${head}${from}:\n${link}`;
 }
 
 /** رابط واتساب — الرقم اختياريّ (بلا رقم تفتح قائمة جهات الاتصال). */

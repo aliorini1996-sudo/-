@@ -7,12 +7,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  PRINT_SECOND_LANGS, PRINT_TEXT_CATALOG, PRINT_TEXT_LINE, PRINT_TEXT_WARNINGS, PRINT_TEXTS_ISSUES, SECOND_LANG_NAMES, canonicalPrintTexts, checkPrintTexts,
+  PRINT_SECOND_LANGS, PRINT_STATUS_TITLE_KEYS, PRINT_TEXT_CATALOG, PRINT_TEXT_LINE, PRINT_TEXT_WARNINGS, PRINT_TEXTS_ISSUES, SECOND_LANG_NAMES, canonicalPrintTexts, checkPrintTexts,
   emptyPrintTexts, isLineDeleted, makePrintTexts, normalizePrintTexts, phraseIn, printTextAltEditable, printTextEntry, printTextHideable,
-  printTextRewordable, printTextWarning, printTextsSummary,
+  printTextRewordable, printTextWarning, printTextsSummary, titleKeyOf,
   type PrintSecondLang, type PrintTextsPreview, type PrintTextsV1,
 } from './printTexts';
 import { PHRASES } from '../../i18n/strings';
+import { DELIVERY_NOTE_TITLE, zatcaPrintDecision } from '../zatca/docPrint';
+import type { ZatcaDocView } from '../zatca/docStatus';
 
 const root = process.cwd();
 const read = (...p: string[]) => fs.readFileSync(path.join(root, ...p), 'utf8').replace(/\r\n/g, '\n');
@@ -371,7 +373,7 @@ test('PRINT_TEXT_LINE: وحدة حذفٍ واحدة لكل مفتاح في ال�
   for (const [k, v] of Object.entries(PRINT_TEXT_LINE)) assert.ok(scopes.includes(v), `${k}: ${v}`);
   assert.ok(Object.isFrozen(PRINT_TEXT_LINE));
   const by = (scope: string) => Object.entries(PRINT_TEXT_LINE).filter(([, v]) => v === scope).map(([k]) => k).sort();
-  assert.deepEqual(by('title'), ['inv.debitTitle', 'inv.returnTitle', 'inv.title', 'rcp.title']);
+  assert.deepEqual(by('title'), ['inv.debitTitle', 'inv.deliveryNoteTitle', 'inv.pendingTitle', 'inv.returnTitle', 'inv.title', 'inv.voidTitle', 'rcp.title']);
   assert.deepEqual(by('slot'), ['rcp.sigCollector', 'rcp.sigPayer', 'sig.recipient', 'sig.remarks', 'sig.rep', 'sig.warehouse']);
   assert.deepEqual(by('column'), ['col.code', 'col.discount', 'col.item', 'col.price', 'col.priceIncl', 'col.qty', 'col.seq', 'col.tax', 'col.total', 'col.unit', 'col.vatAmount', 'inst.amount', 'inst.dueDate']);
   assert.deepEqual(by('block'), ['cust.heading', 'inst.heading', 'inv.infoHeading', 'inv.returnInfoHeading', 'rcp.amount', 'rcp.customerHeading', 'rcp.forInvoices', 'sel.heading']);
@@ -379,9 +381,10 @@ test('PRINT_TEXT_LINE: وحدة حذفٍ واحدة لكل مفتاح في ال�
   assert.equal(PRINT_TEXT_LINE['foot.platform'], 'line');
 });
 
-test('التنبيهات: صنفٌ لكل مفتاح من قفله القديم — tax لما كان zatca/fixed/shape/title أو يُخفى فقط، وstandard، وplatform لسطر المنصّة', () => {
+test('التنبيهات: صنفٌ لكل مفتاح من قفله القديم — tax لما كان zatca/fixed/shape/title أو يُخفى فقط، وstandard، وplatform لسطر المنصّة، وstatus لعناوين الحالة', () => {
   const cls = (w: string | null) => PRINT_TEXT_CATALOG.filter((x) => printTextWarning(x) === w).map((x) => x.key).sort();
   assert.deepEqual(cls('platform'), ['foot.platform']);
+  assert.deepEqual(cls('status'), ['inv.deliveryNoteTitle', 'inv.pendingTitle', 'inv.voidTitle']);
   assert.deepEqual(cls('standard'), [
     'col.discount', 'col.tax', 'col.vatAmount', 'cust.address', 'cust.business', 'cust.city', 'cust.commercialReg', 'cust.name', 'cust.postalCode', 'sel.city',
     'sel.postalCode', 'tot.discount',
@@ -393,10 +396,11 @@ test('التنبيهات: صنفٌ لكل مفتاح من قفله القديم 
     'inst.sum', 'inst.note', 'qr.caption', 'inv.originalRef', 'inv.noteReason', 'rcp.number', 'rcp.date', 'rcp.amount', 'rcp.from',
     'sel.name', 'sel.address', 'sel.taxNumber', 'tot.exclVat', 'tot.due',
   ].sort());
-  const warned = new Set([...cls('platform'), ...cls('standard'), ...cls('tax')]);
+  const warned = new Set([...cls('platform'), ...cls('status'), ...cls('standard'), ...cls('tax')]);
   assert.deepEqual(cls(null), PRINT_TEXT_CATALOG.map((x) => x.key).filter((k) => !warned.has(k)).sort());
   for (const x of PRINT_TEXT_CATALOG) {
-    const expected = x.key === 'foot.platform' ? 'platform' : x.lock === 'standard' ? 'standard' : x.lock !== 'none' || x.hideOnly ? 'tax' : null;
+    const expected = x.key === 'foot.platform' ? 'platform' : PRINT_STATUS_TITLE_KEYS.includes(x.key) ? 'status'
+      : x.lock === 'standard' ? 'standard' : x.lock !== 'none' || x.hideOnly ? 'tax' : null;
     assert.equal(printTextWarning(x), expected, x.key);
     // المحلِّل يعيد الصنف نفسه بنصوصٍ وبلا نصوص
     assert.equal(makePrintTexts(null, markTr).warning(x.key), expected, x.key);
@@ -407,6 +411,7 @@ test('التنبيهات: صنفٌ لكل مفتاح من قفله القديم 
     tax: 'حذف هذا قد يجعل الفاتورة الضريبية غير مطابقة لمتطلبات هيئة الزكاة والضريبة والجمارك',
     standard: 'إلزامي في الفاتورة الضريبية للمنشآت — حذفه قد يجعلها غير مطابقة لمتطلبات هيئة الزكاة والضريبة والجمارك',
     platform: 'سطر المنصة في تذييل المطبوعات',
+    status: 'حذف هذا العنوان قد يجعل المستند الملغى أو سند التسليم أو المستند بانتظار اعتماد الهيئة يبدو كفاتورة سارية',
   });
 });
 
@@ -425,9 +430,16 @@ test('المفاتيح الجديدة: بنصّها ومستندها ومجمو�
     ['foot.platform', 'صدرت عبر منصة Field Sales · fieldsa.net', 'shared', 'footer', 'fixed'],
   ];
   assert.deepEqual(PRINT_TEXT_CATALOG.slice(-NEW.length).map((x) => [x.key, x.ar, x.doc, x.group, x.lock]), NEW);
-  // 74 مفتاح الأصل + inv.debitTitle (طلب المالك ٤ نوفمبر ٢٠٢٦، بعد inv.returnTitle) + مفاتيح ٣ نوفمبر
-  assert.equal(PRINT_TEXT_CATALOG.length, 75 + NEW.length);
-  assert.deepEqual(PRINT_TEXT_CATALOG.map((x) => x.key).slice(PRINT_TEXT_CATALOG.findIndex((x) => x.key === 'inv.returnTitle'), PRINT_TEXT_CATALOG.findIndex((x) => x.key === 'inv.returnTitle') + 2), ['inv.returnTitle', 'inv.debitTitle']);
+  // 74 مفتاح الأصل + inv.debitTitle (طلب المالك ٤ نوفمبر ٢٠٢٦، بعد inv.returnTitle) + عناوين الحالة الثلاثة بعده (قرار المالك ٤ نوفمبر
+  // ٢٠٢٦) + مفاتيح ٣ نوفمبر
+  assert.equal(PRINT_TEXT_CATALOG.length, 78 + NEW.length);
+  const at = PRINT_TEXT_CATALOG.findIndex((x) => x.key === 'inv.returnTitle');
+  assert.deepEqual(PRINT_TEXT_CATALOG.map((x) => x.key).slice(at, at + 5),
+    ['inv.returnTitle', 'inv.debitTitle', 'inv.deliveryNoteTitle', 'inv.voidTitle', 'inv.pendingTitle']);
+  for (const k of PRINT_STATUS_TITLE_KEYS) {
+    const x = printTextEntry(k)!;
+    assert.deepEqual([x.doc, x.group, x.lock, x.max, PRINT_TEXT_LINE[k]], ['invoice', 'title', 'title', 60, 'title'], k);
+  }
   const debit = printTextEntry('inv.debitTitle')!;
   assert.deepEqual([debit.ar, debit.doc, debit.group, debit.lock, debit.max], ['إشعار مدين', 'invoice', 'title', 'title', 60]);
   // سطر المنصّة الافتراضي = تعبير قالب A4 اليوم حرفاً (tr('صدرت عبر منصة') + ' Field Sales · fieldsa.net') بلا ترجمة
@@ -492,5 +504,88 @@ test('ترجمة المفتاح الجديد لا تغيّر سطر اللغة �
   for (const lang of PRINT_SECOND_LANGS) {
     const q = makePrintTexts(texts({ secondLang: lang }), enTr, { standard: false });
     for (const k of ['col.seq', 'inv.paymentType', 'sel.taxNumber']) assert.ok(q.alt(k, printTextEntry(k)!.ar), `${k}.${lang}`);
+  }
+});
+
+// ─── عناوين الحالة (قرار المالك ٤ نوفمبر ٢٠٢٦): «سند تسليم — ليست فاتورة ضريبية» و«مستند ملغى» و«بانتظار اعتماد الهيئة» تُعاد صياغتها وتُحذف ───
+
+const zv = (over: Partial<ZatcaDocView>): ZatcaDocView => ({
+  phase: 2, mode: 'live', mirror: 'cleared', documentStatus: null, subtype: '01', documentKind: 'INVOICE', qr: null, printable: false,
+  overdue: false, reportDeadline: null, issuedAt: null, uuid: null, icv: null, warnings: 0, ...over,
+});
+/** عنوان القرار لكل حالة — من zatcaPrintDecision نفسه لا نصّاً مكتوباً هنا */
+const STATUS_DECIDED: readonly (readonly [string, string, boolean])[] = [
+  ['inv.deliveryNoteTitle', zatcaPrintDecision({}, zv({ subtype: '01', mirror: 'clearance_pending' })).title, false],
+  ['inv.deliveryNoteTitle', zatcaPrintDecision({}, zv({ subtype: '01', mirror: 'cleared_no_xml' })).title, false],
+  ['inv.voidTitle', zatcaPrintDecision({}, zv({ subtype: '02', mirror: 'rejected' })).title, false],
+  ['inv.voidTitle', zatcaPrintDecision({ isReturn: true }, zv({ subtype: '01', mirror: 'withdrawn', documentKind: 'CREDIT_NOTE' })).title, true],
+  ['inv.pendingTitle', zatcaPrintDecision({}, zv({ subtype: '02', mirror: 'signed' })).title, false],
+  ['inv.pendingTitle', zatcaPrintDecision({ isReturn: true }, zv({ subtype: '01', mirror: 'clearance_pending', documentKind: 'CREDIT_NOTE' })).title, true],
+  ['inv.pendingTitle', zatcaPrintDecision({}, zv({ subtype: '01', mirror: 'clearance_pending', documentKind: 'DEBIT_NOTE' })).title, false],
+];
+
+test('عناوين الحالة: نصّ القائمة الافتراضي = عنوان القرار حرفاً، ومفتاحها من titleKeyOf أيّاً كان المستند (فاتورة أو إشعار)', () => {
+  assert.equal(printTextEntry('inv.deliveryNoteTitle')!.ar, DELIVERY_NOTE_TITLE);
+  for (const [key, decided, isReturn] of STATUS_DECIDED) {
+    assert.equal(printTextEntry(key)!.ar, decided, key);
+    assert.equal(titleKeyOf(decided, isReturn), key, `${decided} ${isReturn}`);
+    assert.equal(titleKeyOf(decided, !isReturn), key, `${decided} ${!isReturn}`);
+  }
+  // عناوين الفاتورة والإشعار كما كانت
+  assert.equal(titleKeyOf('فاتورة ضريبية', false), 'inv.title');
+  assert.equal(titleKeyOf('فاتورة', false), 'inv.title');
+  assert.equal(titleKeyOf('إشعار دائن', true), 'inv.returnTitle');
+  assert.equal(titleKeyOf('إشعار مدين', false), 'inv.debitTitle');
+  assert.equal(titleKeyOf('إشعار مدين', true), null, 'خارج القائمة كما قرّره القرار');
+  assert.equal(titleKeyOf('عنوان مجهول', false), null);
+});
+
+test('عناوين الحالة: بلا نصوص tr(العنوان) كاليوم، وبنصوصٍ لا تمسّها العنوان وترجمته كما كانا حرفاً', () => {
+  for (const [, decided, isReturn] of STATUS_DECIDED) {
+    const f = { isReturn, phase2: true };
+    assert.deepEqual(makePrintTexts(null, markTr).title(decided, f), { text: `«${decided}»`, alt: null });
+    // texts(): inv.title معاد الصياغة وinv.returnTitle محذوف — لا يمسّان عنوان الحالة
+    assert.deepEqual(makePrintTexts(texts(), enTr).title(decided, f), { text: decided, alt: ph(decided) });
+    assert.deepEqual(makePrintTexts(texts({ secondLang: 'fr' }), enTr).title(decided, f), { text: decided, alt: ph(decided, 'fr') });
+    assert.deepEqual(makePrintTexts(texts({ secondLang: null }), enTr).title(decided, f), { text: decided, alt: null });
+  }
+});
+
+test('عناوين الحالة: صياغة الشركة وترجمتها وحذف السطر — كلٌّ بمفتاحه وحده، والمعاينة تُظهر المحذوف', () => {
+  for (const [key, decided, isReturn] of STATUS_DECIDED) {
+    const f = { isReturn, phase2: true };
+    const reword = texts({ edits: { [key]: { text: 'مستند غير ضريبي', alt: null, hidden: false } } });
+    assert.deepEqual(makePrintTexts(reword, enTr).title(decided, f), { text: 'مستند غير ضريبي', alt: null }, `${key}: صياغةٌ خارج القاموس بلا سطرٍ ثانٍ`);
+    const withAlt = texts({ edits: { [key]: { text: 'مستند غير ضريبي', alt: 'Non-tax document', hidden: false } } });
+    assert.deepEqual(makePrintTexts(withAlt, enTr).title(decided, f), { text: 'مستند غير ضريبي', alt: 'Non-tax document' }, key);
+    const altOnly = texts({ edits: { [key]: { text: null, alt: 'Status title', hidden: false } } });
+    assert.deepEqual(makePrintTexts(altOnly, enTr).title(decided, f), { text: decided, alt: 'Status title' }, `${key}: ترجمة الشركة وحدها`);
+    // لا تُطبع بلا لغة ثانية
+    const altNoLang = texts({ secondLang: null, edits: { ...altOnly.edits, 'h.phone': { text: 'الهاتف', alt: null, hidden: false } } });
+    assert.deepEqual(makePrintTexts(altNoLang, enTr).title(decided, f), { text: decided, alt: null });
+    const del = texts({ edits: { [key]: { text: 'صياغة', alt: 'X', hidden: true } } });
+    assert.deepEqual(makePrintTexts(del, enTr).title(decided, f), { text: '', alt: null }, `${key}: الحذف يُسقط سطر العنوان كلّه`);
+    assert.equal(makePrintTexts(del, enTr, { standard: false, preview: { onPick: () => {}, active: null } }).title(decided, f).text, 'صياغة', 'المعاينة تُظهره');
+    // مفتاحٌ واحد لا يمسّ عنوان حالةٍ أخرى ولا عنوان الفاتورة
+    for (const [k2, d2, r2] of STATUS_DECIDED) {
+      if (k2 === key) continue;
+      assert.deepEqual(makePrintTexts(del, enTr).title(d2, { isReturn: r2, phase2: true }), { text: d2, alt: ph(d2) }, `${key} مسّ ${k2}`);
+    }
+    assert.deepEqual(makePrintTexts(del, enTr).title('فاتورة ضريبية', P2), { text: 'فاتورة ضريبية', alt: ph('فاتورة ضريبية') });
+  }
+  // وحذف عنوان الفاتورة لا يمسّ عنوان الحالة (كما كان)
+  const noInvTitle = texts({ edits: { 'inv.title': { text: null, alt: null, hidden: true } } });
+  assert.deepEqual(makePrintTexts(noInvTitle, enTr).title(DELIVERY_NOTE_TITLE, P2), { text: DELIVERY_NOTE_TITLE, alt: ph(DELIVERY_NOTE_TITLE) });
+});
+
+test('عناوين الحالة: الخادم الصارم يقبلها صياغةً وترجمةً وحذفاً، والمتسامح يقرأها', () => {
+  for (const k of PRINT_STATUS_TITLE_KEYS) {
+    const v = { version: 1, secondLang: 'en', companyNameAlt: null, companyAddressAlt: null, edits: { [k]: { text: 'عنوان', alt: 'Title', hidden: true } } };
+    const strict = checkPrintTexts(v, true);
+    assert.ok(strict.ok, k);
+    assert.deepEqual(strict.ok && strict.value.edits[k], { text: 'عنوان', alt: 'Title', hidden: true });
+    const long = { ...v, edits: { [k]: { text: 'ع'.repeat(61), alt: null, hidden: false } } };
+    assert.equal(checkPrintTexts(long, true).ok, false, `${k}: الحدّ 60`);
+    assert.ok(normalizePrintTexts(v)?.edits[k]?.hidden, k);
   }
 });

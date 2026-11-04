@@ -66,10 +66,13 @@ export function lineWarning(key: string): PrintTextWarning | null {
   return own;
 }
 
-/** صنف التنبيه الذي يطلب تأكيد الحذف مرّةً واحدة ('tax' و'standard' — ما كان إلزامياً للفاتورة الضريبية، أو صندوقٌ يحويه) أو null */
+/**
+ * صنف التنبيه الذي يطلب تأكيد الحذف مرّةً واحدة ('tax' و'standard' — ما كان إلزامياً للفاتورة الضريبية، أو صندوقٌ يحويه؛ و'status'
+ * — عنوان حالةٍ قد يُقرأ المستند بحذفه فاتورةً سارية، قرار المالك ٤ نوفمبر ٢٠٢٦) أو null
+ */
 export function deleteConfirmClass(key: string): PrintTextWarning | null {
   const w = lineWarning(key);
-  return w === 'tax' || w === 'standard' ? w : null;
+  return w === 'tax' || w === 'standard' || w === 'status' ? w : null;
 }
 
 /** نصّ سؤال تأكيد الحذف (عربيٌّ عبر tr) أو null حين لا يلزم تأكيد */
