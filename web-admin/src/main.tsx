@@ -5,6 +5,7 @@ import { Toaster } from 'react-hot-toast';
 import App from './App';
 import { useDir } from './i18n/lang';
 import { captureBridgeLaunch } from './lib/print/transport/appBridge';
+import { markAppLaunch } from './rep/geoReconnect';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -39,6 +40,8 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+// تبويب تطبيق أندرويد (fsbridge أو مُحيل التطبيق) يُعلَّم قبل أن يُحذف المعامل: مالك الموقع في RepApp يُركَّب فيه وحده
+markAppLaunch();
 // جسر الطباعة: علامة تطبيق أندرويد (fsbridge) تُحفظ ويُحذف معاملها من العنوان قبل أوّل رسم — بلا إعادة تحميل
 captureBridgeLaunch();
 
