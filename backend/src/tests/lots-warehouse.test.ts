@@ -426,10 +426,15 @@ test('GET /vans: المعزول (موقوف + منتهٍ لم يُبع) والم
   assert.equal(on.body.data.lotQuarantined, 7);
   assert.equal(on.body.data.lotHeld, 2);
   assert.deepEqual(on.body.data.lotProducts, [{ productId: 'P1', lotQuarantined: 7, lotHeld: 2 }]);
+  // «عرض الكميات بالوحدة الكبرى»: ١٧ حبة بلا تكلفة = 0.7083 كرتون (أكبر وحدات P1 النشطة: كرتون ٢٤ لا شدّة ٦)، والأساس كما هو
+  const major = { qty: [{ unit: 'كرتون', qty: 0.7083 }], uncostedQty: [{ unit: 'كرتون', qty: 0.7083 }], unsellableQty: [] };
+  assert.equal(on.body.data.qty, 17);
+  assert.deepEqual(on.body.data.major, major);
   world.lotsEnabled = false;
   const off = await call('get', '/vans');
   assert.equal(off.status, 200);
   assert.ok(!('lotQuarantined' in off.body.data) && !('lotProducts' in off.body.data));
+  assert.deepEqual(off.body.data.major, major, 'major مع الميزة مطفأةً أيضاً');
 });
 
 test('الفاعل: جلسة «دخول» المالك أو الموظف تُسجَّل بمُصدِرها، والمفتاح بمعرّفه — لا باسم المدير', () => {

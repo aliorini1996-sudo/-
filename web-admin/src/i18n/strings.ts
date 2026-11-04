@@ -588,6 +588,10 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'بلا تكلفة معروفة خارج القيمة': { en: 'with no known cost, outside the value', fr: 'sans coût connu, hors valeur', tr: 'maliyeti bilinmiyor, değer dışında', zh: '成本未知，未计入价值' },
   'تالف أو منتهي لا يباع': { en: 'damaged or expired, not for sale', fr: 'endommagé ou périmé, non vendable', tr: 'hasarlı veya süresi geçmiş, satılamaz', zh: '损坏或过期，不可销售' },
   'وحدة': { en: 'unit', fr: 'unité', tr: 'birim', zh: '件' },
+  // «عرض الكميات» في مخزون الشركة والسيارات — الوحدة الكبرى أو الصغرى (عرضٌ فقط، components/QtyViewToggle)
+  'عرض الكميات': { en: 'Quantity unit', fr: 'Unité des quantités', tr: 'Miktar birimi', zh: '数量单位' },
+  'الوحدة الكبرى': { en: 'Large unit', fr: 'Grande unité', tr: 'Büyük birim', zh: '大单位' },
+  'الوحدة الصغرى': { en: 'Small unit', fr: 'Petite unité', tr: 'Küçük birim', zh: '小单位' },
   // صفحة تأكيد البريد
   'جار تأكيد بريدك': { en: 'Verifying your email', fr: 'Vérification de votre e-mail', tr: 'E-postanız doğrulanıyor', zh: '正在验证您的邮箱' },
   'تم تأكيد بريدك الإلكتروني': { en: 'Your email has been verified', fr: 'Votre e-mail a été vérifié', tr: 'E-posta adresiniz doğrulandı', zh: '您的邮箱已验证' },

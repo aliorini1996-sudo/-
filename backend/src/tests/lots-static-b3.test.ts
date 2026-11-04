@@ -47,7 +47,7 @@ test('B3 الوارد: العلم من استعلام حارس التفعيل ن
   assert.ok(post.includes('await assertStillUntracked(tx, tid, productIds);'), 'D25: إعادة قراءة التتبّع في المسار غير المتتبَّع والميزة مفعّلة');
   // ما في السيارات: داخل الشرط وحده، والردّ القائم حرفياً خارجه
   const vans = slice(w, "router.get('/vans'", 'const entrySchema');
-  ordered(vans, ['if (lotsOn(req)) {', 'await vansLotUnsellable(prisma, tid, repIds,', 'return;', 'res.json({ success: true, data: { ...summarizeVansStock(perRep, layers, avgCost, dec), deletedVans } });'], 'GET /vans');
+  ordered(vans, ['if (lotsOn(req)) {', 'await vansLotUnsellable(prisma, tid, repIds,', 'return;', 'res.json({ success: true, data: { ...summarizeVansStock(perRep, layers, avgCost, dec, productsMeta), deletedVans } });'], 'GET /vans');
   // السجلّ: lot في include حين العلم وحده
   assert.ok(slice(w, "router.get('/entries'", 'export default router').includes('...(lotsOn(req) && { lot: ENTRY_LOT_SELECT })'));
   // معالج الأخطاء قبل التصدير، ولا يحوّل إلا LotError (P2028 خارج مسار اللوط لا يصير LOT_BUSY)

@@ -15,6 +15,9 @@ import VanLoadsLog from '../components/VanLoadsLog';
 import StockZeroModal from '../components/StockZeroModal';
 import { useAuthStore, isStaffImpersonationClient } from '../store/authStore';
 import { baseQtyText, hasBigUnit, productUnitLabel, suggestionChoice } from '../lib/adminUnits';
+import { anyBigUnit, fmtTotalQty, qtyText, qtyViewFor, totalsList, unitTotalsItems, type QtyView, type UnitTotal } from '../lib/qtyView';
+import { useQtyView } from '../store/qtyViewStore';
+import QtyViewToggle from '../components/QtyViewToggle';
 import { choiceById, defaultChoice, primaryChoice, rebaseRow, unitChoices } from '../rep/repUnits';
 import { primaryUnitOf, type UnitDef } from '../lib/units';
 import { anyPrimary, crossSumLabel, isStaleUnitsError, removalBaseQty, removalStart, suggestPrimarySource, withBaseUnitNames } from '../lib/stockRequest';
@@ -45,6 +48,10 @@ import { AutoPullPreview, EntryLotFields, LotRowsEditor, draftProblemText, entry
  * الرصيد من جديد. وإزالة المنتهي/التالف بمنتقي وحدة (D8) والواجهة تحوّل إلى الأساس قبل الإرسال، فعقد الخادم لا يتغيّر.
  * والمجاميع عبر الأصناف (ملخّص المناديب) بالأساس موسومةً «بالوحدات الصغرى» حين في الأصناف ما له رئيسية (R3).
  * صنفٌ بلا رئيسية: كل نصٍّ ووحدةٍ افتراضية كما كان حرفاً (I1).
+ *
+ * «عرض الكميات» (طلب المالك ٤ نوفمبر ٢٠٢٦، lib/qtyView): مبدّلٌ في بطاقة التصفية بين الوحدة الكبرى (عرض اليوم حرفاً) والصغرى
+ * (رقم الأساس واسمه) لتفاصيل السيارة وتشغيلاتها، وملخّص المناديب بالكبرى من `major` لكل وحدة. عرضٌ فقط، والنوافذ والنماذج كما هي.
+ * لا صنف له وحدةٌ أكبر ⇒ لا مبدّل والصفحة كما كانت.
  */
 
 /** استجابة /van-stock/suggest — تطابق SuggestResult في الخادم */
@@ -104,6 +111,8 @@ interface RepSummary {
   totalDamaged?: number;
   /** عدد الأدوات في عهدة السيارة الآن (عربة، سلة…) */
   toolsCount?: number;
+  /** «عرض الكميات»: المجاميع الأربعة نفسها لكل وحدةٍ كبرى — خادمٌ أقدم لا يرسلها ⇒ العرض القائم */
+  major?: { remaining: UnitTotal[]; loaded: UnitTotal[]; sold: UnitTotal[]; damaged: UnitTotal[] };
 }
 interface StockRow {
   productId: string; name: string; code: string; unit: string;
@@ -253,7 +262,7 @@ export default function VanStockPage() {
     const v = (kind === 'EXPIRED_OUT' ? row.expired : row.damaged) ?? 0;
     return Math.abs(v) > 1e-9 ? (
       <span className="inline-flex items-center gap-2">
-        <b className="text-red-600">{baseQtyText(v, row, fmtQty)}</b>
+        <b className="text-red-600">{qtyText(qv, v, row, fmtQty)}</b>
         {v > 0 && <button onClick={() => setRemoving({ row, kind })}
           className="text-[11px] font-semibold text-red-600 border border-red-200 rounded-md px-2 py-0.5 hover:bg-red-50 disabled:opacity-50">
           {tr('إزالة')}
@@ -292,8 +301,13 @@ export default function VanStockPage() {
     enabled: accountingReady && accountingOn,
   });
   const hasPrimary = anyPrimary(catalogQ.data ?? []);
-  const sumTitle = tr(crossSumLabel(hasPrimary));
-  const sumTag = hasPrimary ? <span className="block text-[9px] font-normal text-[#9A8F7E]">{tr('بالوحدات الصغرى')}</span> : null;
+  /* «عرض الكميات» (طلب المالك ٤ نوفمبر ٢٠٢٦): المبدّل لصفحةٍ فيها صنفٌ له وحدةٌ أكبر وحدها (الأصناف وصفوف السيارة المختارة)،
+   * وإلّا «الكبرى» = اليوم حرفاً. ومجاميع الملخّص بالكبرى من `major` حين أرسلها الخادم لكل مندوب، وإلّا بالأساس موسومةً كما كانت */
+  const anyBig = anyBigUnit(catalogQ.data ?? []) || anyBigUnit(currentQ.data ?? []);
+  const qv = qtyViewFor(useQtyView(), anyBig);
+  const majorSums = anyBig && qv === 'major' && reps.length > 0 && reps.every(r => !!r.major);
+  const sumTitle = majorSums ? undefined : tr(crossSumLabel(hasPrimary));
+  const sumTag = hasPrimary && !majorSums ? <span className="block text-[9px] font-normal text-[#9A8F7E]">{tr('بالوحدات الصغرى')}</span> : null;
   // «لوكيشن» (ميزةٌ يفعّلها المالك): «سجل التحميلات» بعمود الموقع وتصفيته — مطفأةً لا جديد في الصفحة
   const locOn = companyFlags?.locationsEnabled === true;
 
@@ -331,6 +345,8 @@ export default function VanStockPage() {
             <label className="label text-xs">{tr('إلى تاريخ')}</label>
             <input type="date" className="input w-40" value={to} onChange={e => setTo(e.target.value)} />
           </div>
+          {/* «عرض الكميات»: الملخّص وتفاصيل السيارة بالوحدة الكبرى أو الصغرى — عرضٌ فقط */}
+          {anyBig && <QtyViewToggle variant="field" />}
           {filtered && (
             <button className="btn-secondary" onClick={() => { setFrom(''); setTo(''); }}>{tr('مسح الفلاتر')}</button>
           )}
@@ -384,13 +400,13 @@ export default function VanStockPage() {
                         <Wrench size={12} className="text-[#E15A30]" /> {formatCount(r.toolsCount ?? 0)}
                       </button>
                     </td>
-                    <td className="text-center px-3 py-3 text-[#6E6557]">{fmtQty(r.totalLoaded)}</td>
-                    <td className="text-center px-3 py-3 text-[#6E6557]">{fmtQty(r.totalSold)}</td>
+                    <td className="text-center px-3 py-3 text-[#6E6557]">{majorSums ? <UnitTotalsCell list={r.major?.loaded} base={r.totalLoaded} /> : fmtQty(r.totalLoaded)}</td>
+                    <td className="text-center px-3 py-3 text-[#6E6557]">{majorSums ? <UnitTotalsCell list={r.major?.sold} base={r.totalSold} /> : fmtQty(r.totalSold)}</td>
                     {/* «المرتجع التالف»: رصيدٌ في السيارة لا يُباع ولا يدخل المتبقّي حتى تزيله الإدارة من تفاصيل المندوب */}
                     <td className={`text-center px-3 py-3 ${Math.abs(r.totalDamaged ?? 0) > 1e-9 ? 'font-bold text-red-600' : 'text-[#9A8F7E]'}`}>
-                      {Math.abs(r.totalDamaged ?? 0) > 1e-9 ? fmtQty(r.totalDamaged!) : '—'}
+                      {Math.abs(r.totalDamaged ?? 0) > 1e-9 ? (majorSums ? <UnitTotalsCell list={r.major?.damaged} base={r.totalDamaged!} /> : fmtQty(r.totalDamaged!)) : '—'}
                     </td>
-                    <td className={`text-center px-3 py-3 font-bold ${r.totalRemaining < 0 ? 'text-red-600' : 'text-[#1E7A52]'}`}>{fmtQty(r.totalRemaining)}</td>
+                    <td className={`text-center px-3 py-3 font-bold ${r.totalRemaining < 0 ? 'text-red-600' : 'text-[#1E7A52]'}`}>{majorSums ? <UnitTotalsCell list={r.major?.remaining} base={r.totalRemaining} tone /> : fmtQty(r.totalRemaining)}</td>
                     <td className="text-center px-3 py-3" onClick={e => e.stopPropagation()}>
                       <button onClick={() => setSellPerm.mutate({ id: r.salesRepId, val: !r.canSellWithoutStock })}
                         disabled={setSellPerm.isPending}
@@ -460,7 +476,7 @@ export default function VanStockPage() {
                               <Layers size={11} className="text-[#E15A30]" />
                               {snapP ? `${snapP.lots.length} ${tr('تشغيلة')}` : tr('التشغيلات')}
                               {snapP && snapP.quarantined + snapP.expiredUnsold > 1e-6 && (
-                                <span className="rounded bg-amber-50 border border-amber-200 text-amber-700 px-1">{tr('معزول')} {baseQtyText(snapP.quarantined + snapP.expiredUnsold, row, fmtQty)}</span>
+                                <span className="rounded bg-amber-50 border border-amber-200 text-amber-700 px-1">{tr('معزول')} {qtyText(qv, snapP.quarantined + snapP.expiredUnsold, row, fmtQty)}</span>
                               )}
                               {snapP && snapP.unknownUsable < -1e-6 && <span className="rounded bg-red-50 border border-red-200 text-red-600 px-1">{tr('عجز')}</span>}
                               {open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
@@ -468,17 +484,17 @@ export default function VanStockPage() {
                           )}
                         </td>
                         {/* بالأساس من الخادم، مفكَّكةً بوحدات الصنف — «٤٨» بجانب «كرتون» تحت الاسم كانت تُقرأ كراتين */}
-                        <td className="text-center px-2 py-2.5 text-[#6E6557]">{baseQtyText(row.loaded, row, fmtQty)}</td>
-                        <td className="text-center px-2 py-2.5 text-[#C94E28]">{baseQtyText(row.sold, row, fmtQty)}</td>
-                        <td className="text-center px-2 py-2.5 text-[#6E6557]">{baseQtyText(row.returned, row, fmtQty)}</td>
-                        <td className={`text-center px-3 py-2.5 font-bold ${row.remaining < 0 ? 'text-red-600' : row.remaining === 0 ? 'text-[#9A8F7E]' : 'text-[#1E7A52]'}`}>{baseQtyText(row.remaining, row, fmtQty)}</td>
+                        <td className="text-center px-2 py-2.5 text-[#6E6557]">{qtyText(qv, row.loaded, row, fmtQty)}</td>
+                        <td className="text-center px-2 py-2.5 text-[#C94E28]">{qtyText(qv, row.sold, row, fmtQty)}</td>
+                        <td className="text-center px-2 py-2.5 text-[#6E6557]">{qtyText(qv, row.returned, row, fmtQty)}</td>
+                        <td className={`text-center px-3 py-2.5 font-bold ${row.remaining < 0 ? 'text-red-600' : row.remaining === 0 ? 'text-[#9A8F7E]' : 'text-[#1E7A52]'}`}>{qtyText(qv, row.remaining, row, fmtQty)}</td>
                         <td className="text-center px-3 py-2.5">{outCell(row, 'EXPIRED_OUT')}</td>
                         <td className="text-center px-3 py-2.5">{outCell(row, 'DAMAGED_OUT')}</td>
                       </tr>
                       {open && (
                         <tr className="bg-[#FAF7F0]/60">
                           <td colSpan={7} className="px-5 py-3">
-                            <VanLotsDetail productId={row.productId} productName={row.name} repId={selected} row={row}
+                            <VanLotsDetail productId={row.productId} productName={row.name} repId={selected} row={row} qv={qv}
                               snap={snapQ.data} snapLoading={snapQ.isLoading} asOf={to}
                               onAction={setLotAction} busy={runLotAction.isPending} />
                           </td>
@@ -514,7 +530,7 @@ export default function VanStockPage() {
       {locOn && <VanLoadsLog reps={reps} />}
 
       {showLoad && <LoadModal preselectRep={selected} lotOn={lotOn} whOn={whOn} onClose={() => setShowLoad(false)} />}
-      {showAccuracy && <AccuracyModal preselectRep={selected} onClose={() => setShowAccuracy(false)} />}
+      {showAccuracy && <AccuracyModal preselectRep={selected} qv={qv} onClose={() => setShowAccuracy(false)} />}
       {showZero && canZeroStock && <StockZeroModal onClose={() => setShowZero(false)} />}
       {noticeMv && <DocumentModal doc={withMovementLots(loadNoticeDocFromData(repName, noticeMv, companyQ.data ?? null), noticeMv, lotOn)} onClose={() => setNoticeMv(null)} />}
       {toolsRep && <ToolsModal repId={toolsRep.salesRepId} repName={toolsRep.repName} onClose={() => setToolsRep(null)} />}
@@ -538,6 +554,31 @@ export default function VanStockPage() {
 }
 
 const formatCount = (n: number) => n.toLocaleString(activeLocale());
+
+/** مجاميع الوحدة الكبرى بأربع منازل كما يقرّبها الخادم — «0.0028 كرتون» لا «0» ولا «-0» (fmtQty يقف عند اثنتين) */
+const fmtTotal = (n: number) => fmtTotalQty(n, activeLocale());
+
+/**
+ * «عرض الكميات» بالكبرى: مجموعٌ عبر الأصناف لكل وحدةٍ كبرى من الخادم، مجموعةٌ في سطر («22.75 كرتون» فوق «40 حبة») بحجمٍ واحد
+ * أيّاً كان عددها — ووزنها من الخلية، و`tone` (المتبقّي) يلوّن كل مجموعةٍ بإشارتها هي: «-5 كيس» أحمر ولو كان مجموع الأساس موجباً.
+ * قائمةٌ لم تصل أو فرغت وفي الأساس كمية ⇒ رقم الأساس موسوماً «بالوحدات الصغرى» (وسم العمود مخفيٌّ بالكبرى) لا رقمٌ عارٍ.
+ */
+function UnitTotalsCell({ list, base, tone = false }: { list: UnitTotal[] | undefined; base: number; tone?: boolean }) {
+  const tr = useTr();
+  const items = unitTotalsItems(totalsList(list), fmtTotal);
+  if (!items.length) {
+    return Math.abs(base) > 1e-9
+      ? <span className="text-xs leading-tight whitespace-nowrap">{fmtQty(base)} <span className="text-[9px] font-normal text-[#9A8F7E]">{tr('بالوحدات الصغرى')}</span></span>
+      : <span className="text-xs">{fmtTotal(0)}</span>;
+  }
+  return (
+    <span className="inline-flex flex-col items-center gap-0.5 text-xs leading-tight">
+      {items.map((x, i) => (
+        <span key={i} className={`whitespace-nowrap ${tone ? (x.qty < 0 ? 'text-red-600' : 'text-[#1E7A52]') : ''}`}>{x.text}</span>
+      ))}
+    </span>
+  );
+}
 
 /* ═══ عهدة أدوات السيارة (طلب المالك ١٥ أكتوبر ٢٠٢٦) ═══
  * ما سُلّم لسيارة المندوب من أدوات (عربة تحميل، سلة…): الإدارة تسلّم وتستلم، والرصيد لكل أداة مشتقّ من الحركات في الخادم
@@ -725,7 +766,7 @@ function MovementRow({ m, onExport }: { m: Movement; onExport?: (m: Movement) =>
 // نافذة «دقّة الاقتراح» — الحكم أولاً بالعربية، ثم الأرقام، ثم الأيام تفصيلاً.
 // «قيد البيع» يوم لم يكتمل فلا يُحسب — عرضُه محسوباً كان سيتّهم كل تنبّؤٍ
 // صباحيّ بالمبالغة قبل أن يبيع المندوب شيئاً.
-function AccuracyModal({ preselectRep, onClose }: { preselectRep: string; onClose: () => void }) {
+function AccuracyModal({ preselectRep, qv, onClose }: { preselectRep: string; qv: QtyView; onClose: () => void }) {
   const tr = useTr();
   const [repId, setRepId] = useState(preselectRep);
   const [days, setDays] = useState(14);
@@ -802,9 +843,10 @@ function AccuracyModal({ preselectRep, onClose }: { preselectRep: string; onClos
                     </thead>
                     <tbody>
                       {d.days.map((r, i) => {
-                        // الأرقام بالأساس: لصنفٍ له «وحدة رئيسية» تُعرض بها («2 كرتون»، R1) ووسمه «كرتون (24 قارورة)»؛ وغيره كما كان حرفاً
+                        // الأرقام بالأساس: لصنفٍ له «وحدة رئيسية» تُعرض بها («2 كرتون»، R1) ووسمه «كرتون (24 قارورة)»؛ وغيره كما كان حرفاً.
+                        // و«عرض الكميات» بالصغرى: رقم القارورة واسمها
                         const prim = !!primaryUnitOf(r);
-                        const q = (n: number) => (prim ? baseQtyText(n, r, fmtQty) : fmtQty(n));
+                        const q = (n: number) => (prim ? qtyText(qv, n, r, fmtQty) : fmtQty(n));
                         return (
                         <tr key={i} className={r.open ? 'opacity-50' : ''}>
                           <td className="text-xs text-gray-500 tabular-nums">{r.day}</td>
@@ -1330,9 +1372,11 @@ interface VanLotLine { lotId: string; lotNumber: string; expiryDate: string | nu
  * تفصيل صفّ السيارة بتشغيلاته: الصالح لكل تشغيلة وحالتها، وغير المسمّى، والمعزول والمحجوز والمنتهي غير المباع. والآن (لا في تاريخ):
  * إتلاف التشغيلة المنتهية غير المباعة، وتنزيل الموقوفة للمستودع.
  */
-function VanLotsDetail({ productId, productName, repId, row, snap, snapLoading, asOf, onAction, busy }: {
+function VanLotsDetail({ productId, productName, repId, row, qv, snap, snapLoading, asOf, onAction, busy }: {
   productId: string; productName: string; repId: string; row: StockRow; snap?: VanLotSnapshotDto; snapLoading: boolean; asOf: string;
   onAction: (a: LotAction) => void; busy: boolean;
+  /** «عرض الكميات» النافذ في الصفحة */
+  qv: QtyView;
 }) {
   const tr = useTr();
   // «المخزون في تاريخ»: أرصدة التشغيلات بنهاية «إلى تاريخ» من /lots/balances (مرشّحات المستودع نفسها)
@@ -1341,7 +1385,7 @@ function VanLotsDetail({ productId, productName, repId, row, snap, snapLoading, 
     queryFn: async () => (await lotsApi.balances({ productId, asOf })).data.data as LotBalancesResponse,
     enabled: !!asOf,
   });
-  const q = (n: number) => baseQtyText(n, row, fmtLotQty);
+  const q = (n: number) => qtyText(qv, n, row, fmtLotQty);
   let lines: VanLotLine[] = [];
   let unknown = 0, held = 0, quarantined = 0, day = snap?.day ?? '';
   if (asOf) {
