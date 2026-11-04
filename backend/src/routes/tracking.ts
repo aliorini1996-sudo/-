@@ -11,6 +11,7 @@ import { isolationEnabled } from '../services/customerScope';
 import { punchDeviceOf } from '../services/punchDevice';
 import { attendanceEnabled, lockRepAttendance, REP_LOCK_TX } from '../services/attendanceEdit';
 import { getVapidKeys, pushEndpointAllowed, pushKeysValid } from '../services/webPush';
+import { apnsConfigured, apnsEndpoint, apnsTokenValid } from '../services/apnsPush';
 import { heartbeatClientState } from '../services/repHeartbeat';
 import { countStopsByRep, asVisitLike } from '../services/workDay';
 import { correctCapturedAt, DEVICE_NOW_HEADER } from '../services/liveLocation';
@@ -589,6 +590,59 @@ router.post('/push/unsubscribe', async (req: AuthRequest, res: Response, next: N
     const endpoint = z.object({ endpoint: z.string().max(1000) }).parse(req.body ?? {}).endpoint;
     await prisma.repPushSubscription.deleteMany({ where: { endpoint, salesRepId: req.user.id } });
     res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+const apnsSubscribeSchema = z.object({
+  token: z.string().min(64).max(200),
+  env: z.enum(['production', 'sandbox']),
+  tzOffsetMin: z.number().int().min(-840).max(840).optional(),
+  lang: z.string().max(8).optional(),
+});
+
+/**
+ * إطلاق جهاز آيفون: من دخل عليه لا تصله تنبيهات الحضور هنا (البصمة مطفأة لشركته)، فصفّ الجهاز يُحذف أيّاً كان صاحبه —
+ * مندوبٌ خرج بلا شبكة فبقي صفّه، أو من شركةٍ أخرى — فلا تصل تنبيهاتُ غيره هذا الجوال. حيازة الرمز هي الإثبات نفسه الذي ينقل
+ * به upsert أدناه الصفّ إلى من دخل، فلا قدرة جديدة. أفضل جهد بعد ردّ 403: لا يرمي
+ */
+async function releaseApnsDevice(body: unknown): Promise<void> {
+  const b = apnsSubscribeSchema.safeParse(body ?? {});
+  if (!b.success) return;
+  const token = b.data.token.trim().toLowerCase();
+  if (!apnsTokenValid(token)) return;
+  await prisma.repPushSubscription.deleteMany({ where: { endpoint: apnsEndpoint(b.data.env, token) } }).catch(() => { /* في الدخول التالي */ });
+}
+
+/**
+ * اشتراك آيفون (تطبيق المندوب الأصلي، ٤ نوفمبر ٢٠٢٦ — services/apnsPush.ts): رمز الجهاز من Apple يُحفظ في جدول الاشتراكات
+ * نفسه بعنوان apns:<البيئة>:<الرمز> (p256dh/auth فارغان) — فيصله «أثبت تواجدك» وتنبيهات الحضور كما يصل أندرويد والويب.
+ * الجوال لا يقدّم رابطاً بل رمزاً يُفحص هنا، والمضيف ثابتٌ في الخادم (لا SSRF). ويُحفظ ولو لم يُضبط مفتاح APNs بعد:
+ * active يقول للتطبيق هل يُرسَل إليه الآن. والخروج يحذفه بالمسار القائم /push/unsubscribe بعنوانه.
+ * والتطبيق يناديه عند كل دخول: يأخذ الجهاز لمن دخل، أو — والبصمة مطفأة لشركته — يُطلقه (releaseApnsDevice) مع الـ403 نفسه.
+ */
+router.post('/push/apns', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const ctx = await ensureRepAttendance(req, res);
+    if (!ctx) { if (req.user?.role === 'SALES_REP') await releaseApnsDevice(req.body); return; }
+    const { tid, repId } = ctx;
+    const b = apnsSubscribeSchema.parse(req.body ?? {});
+    const token = b.token.trim().toLowerCase();
+    if (!apnsTokenValid(token)) { res.status(400).json({ success: false, message: 'رمز الإشعارات غير صالح' }); return; }
+    const endpoint = apnsEndpoint(b.env, token);
+    const lang = b.lang && /^[a-z]{2}$/.test(b.lang) ? b.lang : null;
+    // الجهاز نفسه بحسابٍ آخر (تبديل الحسابات): الرمز ينتقل إلى من سجّل دخوله الآن (endpoint فريد)
+    await prisma.repPushSubscription.upsert({
+      where: { endpoint },
+      create: { tenantId: tid, salesRepId: repId, endpoint, p256dh: '', auth: '', lang },
+      update: { tenantId: tid, salesRepId: repId, lang },
+    });
+    const extra = await prisma.repPushSubscription.findMany({
+      where: { salesRepId: repId }, orderBy: { updatedAt: 'desc' }, skip: MAX_PUSH_SUBS_PER_REP, select: { id: true },
+    });
+    if (extra.length) await prisma.repPushSubscription.deleteMany({ where: { id: { in: extra.map((x) => x.id) } } });
+    if (b.tzOffsetMin != null) await prisma.salesRep.update({ where: { id: repId }, data: { tzOffsetMin: b.tzOffsetMin } });
+    // endpoint يعود ليُرسَل إلى /push/unsubscribe عند الخروج (المسار القائم يحذف بالعنوان ولصاحب الجلسة وحده)
+    res.json({ success: true, data: { endpoint, active: apnsConfigured() } });
   } catch (err) { next(err); }
 });
 

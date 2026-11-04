@@ -13,6 +13,7 @@ import { getDeviceId, describeDevice } from './deviceId';
 import { useTr } from '../i18n/strings';
 import { presencePhase, mmss, type PendingPresence } from './presencePhase';
 import { startPresenceAlarm, stopPresenceAlarm, silencePresenceAlarm, PRESENCE_UNLOCK_EVENTS } from './presenceAlarm';
+import { iosPushAvailable, iosPushClear } from './iosPush';
 
 export type { PendingPresence, PresencePhase } from './presencePhase';
 
@@ -24,6 +25,7 @@ type Result = { kind: 'ok' | 'late' | 'noFix' | 'expired' | 'error'; text: strin
  */
 function closePresenceNotifications(checkId: string): void {
   if (typeof document === 'undefined' || document.visibilityState !== 'visible') return;
+  if (iosPushAvailable()) { void iosPushClear('presence', checkId); return; } // تطبيق الآيفون: درج الإشعارات عنده
   try {
     navigator.serviceWorker?.getRegistration()
       .then((reg) => reg?.getNotifications({ tag: 'presence' }))

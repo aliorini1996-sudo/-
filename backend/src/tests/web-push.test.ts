@@ -102,3 +102,24 @@ test('جوالٌ واحد لا يُربط بمندوبين: كل ربطٍ قائ
   assert.match(reps, /if \(unbind\) Object\.assign\(updateData, \{ boundDeviceId: null, boundDeviceName: null, boundDeviceAt: null \}\);/);
   assert.match(reps, /action: 'UNBIND_DEVICE', reason: 'أُطفئ قيد ربط البصمة بجهاز واحد'/);
 });
+
+test('اشتراك آيفون لا يُحذف بفحص الرابط: فرع APNs أوّل sendPush قبل pushEndpointAllowed، وبلا مفتاح failed لا gone (٤ نوفمبر ٢٠٢٦)', async () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'services', 'webPush.ts'), 'utf8');
+  const send = src.slice(src.indexOf('export async function sendPush('), src.indexOf('export async function sendPushToRep('));
+  const iApns = send.indexOf('if (isApnsEndpoint(sub.endpoint)) return sendApns(sub.endpoint, payload, opts);');
+  assert.ok(iApns > 0 && iApns < send.indexOf("if (!pushEndpointAllowed(sub.endpoint)) return 'gone';"), 'فرع الآيفون قبل حارس الرابط');
+  assert.match(send, /try \{\s*body = encryptPushPayload\(/, 'مسار الويب كما هو');
+  const { sendPush } = await import('../services/webPush');
+  const { _resetApns } = await import('../services/apnsPush');
+  for (const k of ['APNS_KEY_P8', 'APNS_KEY_ID', 'APNS_TEAM_ID', 'APNS_TOPIC']) delete process.env[k];
+  _resetApns();
+  assert.equal(await sendPush({ endpoint: `apns:production:${'a'.repeat(64)}`, p256dh: '', auth: '' }, { title: 't', body: 'b' }), 'failed');
+  const route = fs.readFileSync(path.join(__dirname, '..', 'routes', 'tracking.ts'), 'utf8');
+  const start = route.indexOf("router.post('/push/apns'");
+  assert.ok(start > 0, 'مسار اشتراك الآيفون مسجّل');
+  const apns = route.slice(start, route.indexOf('\nrouter.', start + 10));
+  assert.match(apns, /if \(!apnsTokenValid\(token\)\)/, 'الرمز يُفحص قبل الحفظ');
+  assert.doesNotMatch(apns, /pushEndpointAllowed/, 'لا رابط من الجوال في هذا المسار');
+  assert.match(apns, /create: \{ tenantId: tid, salesRepId: repId, endpoint, p256dh: '', auth: '', lang \}/);
+  assert.match(route, /await prisma\.repPushSubscription\.deleteMany\(\{ where: \{ endpoint, salesRepId: req\.user\.id \} \}\);/, 'الخروج بالمسار القائم كما هو');
+});

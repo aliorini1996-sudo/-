@@ -9,6 +9,7 @@
 // ============================================================================
 import crypto from 'crypto';
 import prisma from '../config/database';
+import { isApnsEndpoint, sendApns } from './apnsPush';
 
 const b64u = (b: Buffer): string => b.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const unb64u = (s: string): Buffer => Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
@@ -127,6 +128,9 @@ export type PushResult = 'sent' | 'gone' | 'failed';
 
 /** يرسل رسالةً لاشتراكٍ واحد — مهلة ١٠ ثوانٍ، والرسالة تبقى لدى المزوّد ساعة إن كان الجوال مطفأ */
 export async function sendPush(sub: PushSub, payload: object, opts: { ttlSec?: number } = {}): Promise<PushResult> {
+  // اشتراك آيفون (تطبيق المندوب الأصلي): عنوانه apns:<البيئة>:<رمز الجهاز> لا رابط https — يذهب إلى Apple قبل فحص الرابط،
+  // وإلّا عُدّ «منتهياً» فحُذف. الجوال لا يقدّم إلا الرمز: المضيف ثابت (لا SSRF)
+  if (isApnsEndpoint(sub.endpoint)) return sendApns(sub.endpoint, payload, opts);
   if (!pushEndpointAllowed(sub.endpoint)) return 'gone';
   const keys = await getVapidKeys();
   let body: Buffer;

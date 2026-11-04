@@ -55,8 +55,8 @@ test('أندرويد كما هو: الزرّ ممكنٌ في Chrome والتطب
 test('الزرّ في RepApp لا يظهر إلا بشرط الجهاز — وجسر الطباعة على الآيفون لا يُدخل التحصيل بالبطاقة', () => {
   const app = read('rep/RepApp.tsx');
   assert.match(app, /\{accountingOn && cardPayOn && cardPayDeviceSupported\(\) && \(/);
-  // مسار الآيفون للطباعة وحدها: لا ذكر للتحصيل بالبطاقة في جسره ولا في عقده
-  for (const f of ['lib/print/transport/iosBridge.ts', 'lib/print/transport/bridgeContract.ts', 'lib/print/transport/platform.ts']) {
+  // مسار الآيفون للطباعة وحدها: لا ذكر للتحصيل بالبطاقة في جسره ولا في عقده — ولا في جسر إشعاراته (iosPush.ts)
+  for (const f of ['lib/print/transport/iosBridge.ts', 'lib/print/transport/bridgeContract.ts', 'lib/print/transport/platform.ts', 'rep/iosPush.ts']) {
     assert.doesNotMatch(read(f), /cardpay|card-pay|cardPay|fsCardPay/i, f);
   }
 });

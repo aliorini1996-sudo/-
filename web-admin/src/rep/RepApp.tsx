@@ -21,7 +21,8 @@ import { currentActiveTeam, sellableNow, storedUserActiveTeam, useActiveTeam, ty
 import { toGeoFix, isGeoFix, attachFix, fixCoords, visitGate, planFinalize, visitFailure, isFinalVisitRejection, MIN_VISIT_SEC, type GeoFix } from './visitLocation';
 import { precisePunchFix } from './punchFix';
 import { getDeviceId, describeDevice } from './deviceId';
-import { pushState, enablePush, refreshPush, dropPush, forgetForeignPush, isIos, standalone, type PushState } from './pushAlerts';
+import { pushState, enablePush, refreshPush, refreshIosPush, dropPush, forgetForeignPush, isIos, standalone, type PushState } from './pushAlerts';
+import { IOS_PUSH_EVENT, iosPushEventDetail, iosPushReady, iosPushScreen, type IosPushEvent } from './iosPush';
 import { ownPendingVisits, putPendingVisit, removePendingVisit, retryPendingVisits, pendingRetryOutcome, postResultOf, beginEnding, endEnding, orphanEnding, orphanFate, type PendingVisit } from './visitPending';
 import DecimalInput from '../components/DecimalInput';
 import { startRenewLoop, clearRenewRejection } from './renew';
@@ -481,6 +482,7 @@ function RepAttendance({ atCustomer = false, boundDevice = false, presenceOn = f
           )}
           {pushSt === 'denied' && <p className="text-[11px] text-amber-800 bg-amber-50 rounded-xl px-3 py-2 text-center">{tr('الإشعارات مرفوضة لهذا التطبيق فعلها من إعدادات جوالك لتصلك تنبيهات الحضور')}</p>}
           {pushSt === 'ios-install' && <p className="text-[11px] text-[#5C5346] bg-[#FBF7F0] rounded-xl px-3 py-2 text-center">{tr('لتصلك تنبيهات الحضور على آيفون أضف التطبيق إلى الشاشة الرئيسية من زر المشاركة')}</p>}
+          {pushSt === 'ios-update' && <p className="text-[11px] text-[#5C5346] bg-[#FBF7F0] rounded-xl px-3 py-2 text-center">{tr('لتصلك تنبيهات الحضور على آيفون حدث تطبيق فيلد سيلز من App Store')}</p>}
           {pushSt === 'on' && <p className="text-[11px] text-green-700 text-center">{tr('تنبيهات الحضور مفعلة على هذا الجهاز')}</p>}
           {/* «التحقق العشوائي من التواجد» يصل بالإشعار: بلا تنبيهات لا يعلم به إلا والتطبيق مفتوح، فيُحسب «بلا ردّ» */}
           {presenceOn && pushSt != null && pushSt !== 'on' && (
@@ -4747,7 +4749,17 @@ export default function RepApp() {
       else if (e.data.screen === 'presence') fetchPresence();
     };
     navigator.serviceWorker?.addEventListener('message', onMsg);
-    return () => navigator.serviceWorker?.removeEventListener('message', onMsg);
+    // تطبيق الآيفون (iosPush.ts): الإشعار يصل التطبيق لا عامل الخدمة — حدثٌ منه بالرسالة نفسها، وما وصل قبل تحميل الصفحة
+    // (لمسةٌ أقلعت التطبيق) يُؤخذ بـready بعد تسجيل المستمع
+    const onIosEvent = (d: IosPushEvent) => {
+      if (d.kind === 'token') { void refreshPush(); return; }
+      const screen = iosPushScreen(d);
+      if (screen) onMsg({ data: { type: 'OPEN_SCREEN', screen } } as MessageEvent);
+    };
+    const onIos = (e: Event) => { const d = iosPushEventDetail(e); if (!d) return; e.preventDefault(); onIosEvent(d); };
+    window.addEventListener(IOS_PUSH_EVENT, onIos);
+    void iosPushReady().then((evs) => evs.forEach(onIosEvent));
+    return () => { navigator.serviceWorker?.removeEventListener('message', onMsg); window.removeEventListener(IOS_PUSH_EVENT, onIos); };
   }, [fetchPresence]);
   // جرس «أثبت تواجدك» (presenceAlarm.ts): صوته يُفتح بلمسةٍ سابقة في التطبيق (التشغيل التلقائي وiOS) — للمقيَّد بالتحقق وحده
   useEffect(() => (user?.requirePresenceCheck === true ? installPresenceAlarmUnlock() : undefined), [user?.requirePresenceCheck]);
@@ -5415,6 +5427,9 @@ export default function RepApp() {
     if (companyReady && !attendanceOn && screen === 'attendance') setScreen('home');
     if (!aiRepOn && screen === 'airep') setScreen('home');
   }, [accountingOn, dailyReportOn, attendanceOn, aiRepOn, screen, companyReady]);
+  // تنبيهات الآيفون (تطبيق المندوب الأصلي): من أذن من قبل يُعاد حفظ رمز جهازه لهذا المندوب مرّةً لكل جلسة — بلا سؤال.
+  // ولو كانت البصمة مطفأة لشركته: الخادم يردّ 403 ويُطلق الجهاز (يحذف صفّاً تركه مندوبٌ قبله)، فلا تصل تنبيهات غيره جوالَه
+  useEffect(() => { if (token && user?.id) void refreshIosPush(); }, [token, user?.id, attendanceOn]);
 
   // إطار الجوّال يظهر فقط على سطح المكتب (للمعاينة). أمّا على الجوّال الحقيقي أو داخل
   // التطبيق (PWA/TWA) فيُعرض المحتوى ملء الشاشة — وإلا ظهر «جوال داخل جوال».
