@@ -35,6 +35,8 @@ export interface ResolvedLayout {
   canvas?: PrintCanvas;
   /** false = أختام الحالة محذوفة بقرار الشركة (areStampsRemoved) — يُحمل متى كان منطقياً، وغيابه = اليوم */
   stamps?: boolean;
+  /** سقف مجموع اللوحتين على ورقٍ قصير (A5، نصف الصفحة المتصلة) — يوجد مع canvas حين يقلّ عن 200 وحده (paperBandsTotal) */
+  bandsTotalMm?: number;
 }
 
 // ─── نسخ محلية من ثوابت النواة (C(i)) — يحرسها layout.test.ts مقابل printSettingsCore متى صدّرها ───
@@ -56,6 +58,7 @@ const BOUNDS = Object.freeze({
   logoMm: [6, 120] as const, fontPct: [70, 160] as const, spaceMm: [0, 30] as const,
   headerMm: [0, 150] as const, footerMm: [0, 120] as const, bandsTotalMm: 200,
   boxMinMm: 5, qrBoxMinMm: 47, maxBoxes: 9, stepMm: 0.5,
+  minItemsMm: 40,
 });
 /** للحارس في layout.test.ts وحده — المستهلكون يستوردون الثوابت من النواة */
 export const ENGINE_CORE_COPIES = Object.freeze({
@@ -111,7 +114,24 @@ export function resolveLayout(profile: PrintProfile | null | undefined): Resolve
     printer,
   };
   resolveFreeKeys(out, raw as Record<string, unknown>);
+  if (out.canvas) {
+    const total = paperBandsTotal((profile as { paper?: unknown }).paper);
+    if (total < BOUNDS.bandsTotalMm) out.bandsTotalMm = total;
+  }
   return out;
+}
+
+/**
+ * نسخة bandsTotalFor من النواة (يحرسها layout.test.ts): سقف مجموع اللوحتين = 200، ولا أكثر من طول الصفحة بعد الهامشين و40 مم
+ * للأصناف؛ الرول وما بلا طول 200، وA4 لا يتغيّر. على شبكة 0.5 للأسفل.
+ */
+export function paperBandsTotal(paper: unknown): number {
+  if (!paper || typeof paper !== 'object') return BOUNDS.bandsTotalMm;
+  const pp = paper as { feed?: unknown; lengthMm?: unknown; marginTopMm?: unknown; marginBottomMm?: unknown };
+  if (pp.feed === 'roll' || typeof pp.lengthMm !== 'number' || !Number.isFinite(pp.lengthMm)) return BOUNDS.bandsTotalMm;
+  const m = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
+  const room = pp.lengthMm - m(pp.marginTopMm) - m(pp.marginBottomMm) - BOUNDS.minItemsMm;
+  return Math.min(BOUNDS.bandsTotalMm, Math.max(0, Math.floor(room / BOUNDS.stepMm + 1e-9) * BOUNDS.stepMm));
 }
 
 // ─── التحرير الحرّ: قراءة دفاعية للمفاتيح الأربعة (المعيب يسقط وحده — لا التخطيط ولا جيرانه؛ التطبيع الكامل مهمة النواة) ───
@@ -380,7 +400,10 @@ export function resolveCanvas(l: ResolvedLayout | null, ctx: { printer: 'page' |
     header: snapMm(clamp(isNum(c.headerMm) ? c.headerMm : 0, 0, BOUNDS.headerMm[1])),
     footer: snapMm(clamp(isNum(c.footerMm) ? c.footerMm : 0, 0, BOUNDS.footerMm[1])),
   };
-  if (bandH.header + bandH.footer > BOUNDS.bandsTotalMm) bandH.footer = Math.max(0, BOUNDS.bandsTotalMm - bandH.header);
+  // سقف المجموع: 200، أو أقل على الورق القصير (bandsTotalMm من resolveLayout) — التذييل يُقصّ أولاً ثم الرأس
+  const total = isNum(l.bandsTotalMm) ? clamp(l.bandsTotalMm, 0, BOUNDS.bandsTotalMm) : BOUNDS.bandsTotalMm;
+  if (bandH.header > total) bandH.header = total;
+  if (bandH.header + bandH.footer > total) bandH.footer = Math.max(0, total - bandH.header);
   const kept: CanvasBox[] = [];
   const seen = new Set<CanvasBoxId>();
   for (const b of c.boxes.slice(0, BOUNDS.maxBoxes)) {

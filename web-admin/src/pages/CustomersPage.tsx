@@ -19,6 +19,10 @@ import { StatementDoc, statementDocFromData, Company } from '../rep/RepDocuments
 import { buyerRelaxOn, zatcaCollectOn } from '../lib/zatcaRegime';
 import { BuyerField, BuyerRowLike } from '../lib/zatca/buyerData';
 import { BUYER_FIELD_UI_LABELS_AR as BUYER_FIELD_LABELS_AR, buyerBadge } from '../lib/zatca/buyerForm';
+import { withLiveCompany } from '../rep/companyRefresh';
+
+/** جلب إعدادات الشركة — نفسه للاستعلام ولـensureQueryData عند فتح كشف قبل اكتمال تحميلها (كالفواتير والسندات، D-G6) */
+const fetchCompany = async () => { const res = await companyApi.get(); return res.data.data as Company; };
 
 /** فوترة ZATCA (Z5.1a، D2): سلّة قائمة بيانات الفوترة ('' = القائمة العادية) وصفّها كما يعيده الخادم (بلا حقول مالية). */
 type BuyerBucket = '' | 'incomplete' | 'unclassified' | 'complete' | 'all';
@@ -45,10 +49,9 @@ export default function CustomersPage() {
   // بحث قائمة بيانات الفوترة مؤجَّل 300ms (كـ/m): كل طلب منها يمسح عملاء الشركة على دفعات — لا مسح لكل ضغطة
   const [bucketSearch, setBucketSearch] = useState('');
 
-  const { data: company } = useQuery({
-    queryKey: ['company'],
-    queryFn: async () => { const res = await companyApi.get(); return res.data.data as Company; },
-  });
+  const { data: company } = useQuery({ queryKey: ['company'], queryFn: fetchCompany });
+  // «نصوص المطبوعات» تصل كشف الحساب المفتوح: تجدّد إعدادات الشركة (حفظ النصوص يحدّث ['company']) يُستبدل في نسخته
+  useEffect(() => { setDocResult(d => (d ? withLiveCompany(d, company) : d)); }, [company]);
 
   // المحاسبة مطفأة ⇒ يختفي الرصيد والحد الائتماني وكشف الحساب من هذه الصفحة،
   // ويبقى العميل بهويته: الاسم والجوال والمدينة والقناة والحالة.
@@ -188,7 +191,10 @@ export default function CustomersPage() {
       const res = await customerApi.statement(c.id);
       const { customer, entries, teamScoped } = res.data.data;
       // «الفرق»: كشف المشرف يُعنوَن «رصيد فريقك» لا «المستحق على العميل»
-      setDocResult(statementDocFromData(customer, entries, user?.name || tr('الإدارة'), company, { teamScoped: teamScoped === true }));
+      // فُتح قبل اكتمال تحميل الشركة (أو تعثّرها): تُطلب الآن، وإلا خرج بالنصوص الافتراضية وترويسة فارغة (D-G6)
+      let co = company;
+      try { co = company ?? await qc.ensureQueryData({ queryKey: ['company'], queryFn: fetchCompany }); } catch { /* يبقى الحالي */ }
+      setDocResult(statementDocFromData(customer, entries, user?.name || tr('الإدارة'), co, { teamScoped: teamScoped === true }));
     } catch { toast.error(tr('تعذر فتح الكشف')); }
     setOpeningId(null);
   };

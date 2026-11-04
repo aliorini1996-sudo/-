@@ -297,7 +297,7 @@ test('الترجمة: كل tr(\'…\') في الأدوات واللوحة وال
     QR_REMOVE_WARNING, ITEMS_REMOVE_WARNING, STAMPS_REMOVE_WARNING, QR_REMOVED_BADGE, QR_REMOVE_ACTION, QR_RESTORE_ACTION, STAMPS_LABEL,
     STAMPS_HINT, STAMPS_REMOVE_ACTION, STAMPS_RESTORE_ACTION, QR_FLOW_NOTE, QR_PANEL_NOTE, QR_ORPHAN_NOTE,
     PRINT_ISSUES.layoutLogoMm, PRINT_ISSUES.layoutLogoAfter, PRINT_ISSUES.layoutSectionUnknown, PRINT_ISSUES.layoutSectionBounds,
-    PRINT_ISSUES.layoutCanvasPrinter, PRINT_ISSUES.layoutCanvasBands, PRINT_ISSUES.layoutCanvasBox,
+    PRINT_ISSUES.layoutCanvasPrinter, PRINT_ISSUES.layoutCanvasBands, PRINT_ISSUES.layoutCanvasBandsPaper, PRINT_ISSUES.layoutCanvasBox,
     PRINT_ISSUES.layoutCanvasFooterOnly, PRINT_ISSUES.layoutCanvasQr, PRINT_ISSUES.layoutRoll, PRINT_ISSUES.tooLarge,
   ]);
   const want = new Set(ours);

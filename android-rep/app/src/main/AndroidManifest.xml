@@ -52,6 +52,15 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" tools:replace="android:required"/>
 
+    <!-- التتبّع الخلفي (TrackService): خدمة مقدّمة من نوع «الموقع» بإشعارٍ ثابت، تبدأ من TrackActivity بعد إفصاحٍ وموافقة.
+         أندرويد 14+ يشترط FOREGROUND_SERVICE_LOCATION مع إذن الموقع الممنوح. البناء بلا رمز NearPay يُزيلهما (src/printonly) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+    <!-- قفل يقظةٍ قصير بمهلة حول كل دفعة رفعٍ من TrackService: الخدمة المقدّمة لا تُبقي المعالج مستيقظاً، فالشاشة مقفلة كانت
+         تقطع طلب الشبكة في منتصفه. إذنٌ عاديّ يُمنح مع التثبيت بلا سؤال ولا إعلان في Play، فلا يُزال في src/printonly:
+         بقاؤه بلا الخدمة لا يضرّ، وقائمة ما يُزال هناك يثبّتها حارس عقد الطباعة -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+
     
 
     
@@ -239,6 +248,38 @@
                 <data android:scheme="fieldsaprint" android:host="printer" />
             </intent-filter>
         </activity>
+
+        <!-- التتبّع الخلفي: صفحة المندوب تفتح intent://start?t=<رمز>#Intent;scheme=fieldsatrack;package=net.fieldsa.twa;end
+             أي fieldsatrack://start?t=… (وfieldsatrack://stop) — web-admin/src/rep/nativeTracking.ts. أي موقع يستطيع إطلاقه، فالنشاط
+             يعامله مدخلاً غير موثوق والموافقة مربوطة بهوية الرمز (TrackActivity.kt).
+             - مهمّةٌ مستقلة (taskAffinity) بنسخةٍ واحدة (singleTask) خارج القائمة الأخيرة ولا تُحفظ على القرص، كجسر الطباعة.
+             - بلا noHistory: نشاطٌ بلا تاريخ لا يصله جواب سؤال الإذن (onActivityResult)، وfinish() ينهيه في كل مسار.
+             - السمة غير شفافة (Theme.FieldSales.Track): المتصفح يتوقف خلفها فتعرف الصفحة أن الأمر سُلِّم -->
+        <activity
+            android:name="net.fieldsa.twa.track.TrackActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="net.fieldsa.twa.track"
+            android:excludeFromRecents="true"
+            android:autoRemoveFromRecents="true"
+            android:persistableMode="persistNever"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|locale|layoutDirection"
+            android:theme="@style/Theme.FieldSales.Track">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="fieldsatrack" android:host="start" />
+                <data android:scheme="fieldsatrack" android:host="stop" />
+            </intent-filter>
+        </activity>
+
+        <!-- خدمة التتبّع الخلفي: غير مُصدَّرة (لا يبدؤها إلا TrackActivity)، ونوعها «الموقع» -->
+        <service
+            android:name="net.fieldsa.twa.track.TrackService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
 
         <activity android:name="com.google.androidbrowserhelper.trusted.FocusActivity" />
 

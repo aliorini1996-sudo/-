@@ -11,7 +11,9 @@ import {
   SECTION_LABELS, isQrRemoved, layoutOf, sectionsFor,
   type CanvasBand, type CanvasBox, type CanvasBoxId, type LogoPosition, type PrintProfile, type SectionId,
 } from '../../../lib/print/printSettings';
-import { logoMmOf, logoMmRange, removeBox, resetCanvas, resetLogo, resetSections, upsertBox, withCanvas, withLogo, type DesignSel } from '../../../lib/print/designModel';
+import {
+  canvasBoundsFor, drawnCanvasOf, logoMmOf, logoMmRange, removeBox, resetCanvas, resetLogo, resetSections, upsertBox, withCanvas, withLogo, type DesignSel,
+} from '../../../lib/print/designModel';
 import { AlignChips, NumInput, QrRemoveField, SectionStyleFields, StampsField, chipCls, clampFontPct } from './SectionStyleFields';
 import { bandAllows, bandLimits, fitBoxesToBand, snapGrid } from './designerMath';
 import { canvasQrMinMm } from '../../../rep/RepDocuments';
@@ -30,11 +32,14 @@ export interface DesignInspectorProps {
 
 const fin = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
-/** ارتفاع لوحة بعد تعديله: ضمن حدوده، والمربعات تُرفع لتبقى داخلها */
+/**
+ * ارتفاع لوحة بعد تعديله: ضمن حدوده (سقف ورق القالب)، والمربعات تُرفع لتبقى داخلها — ومربع QR والرمز محذوف لا يحدّ اللوحة
+ * (drawnCanvasOf: لا يُرسم ولا يُطبع)
+ */
 export function withBandHeight(p: PrintProfile, band: CanvasBand, hMm: number): PrintProfile {
-  const c = layoutOf(p).canvas;
+  const c = drawnCanvasOf(p);
   if (!c) return p;
-  const lim = bandLimits(c, band, LAYOUT_BOUNDS);
+  const lim = bandLimits(c, band, canvasBoundsFor(p));
   const hi = Math.max(0, Math.min(lim.max, lim.total - lim.other));
   const h = snapGrid(Math.min(hi, Math.max(Math.min(lim.min, hi), hMm)));
   const key = band === 'header' ? 'headerMm' : 'footerMm';

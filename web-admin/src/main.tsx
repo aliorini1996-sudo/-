@@ -6,6 +6,7 @@ import App from './App';
 import { useDir } from './i18n/lang';
 import { captureBridgeLaunch } from './lib/print/transport/appBridge';
 import { markAppLaunch } from './rep/geoReconnect';
+import { captureTrackLaunch } from './rep/nativeTracking';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -42,6 +43,8 @@ if ('serviceWorker' in navigator) {
 
 // تبويب تطبيق أندرويد (fsbridge أو مُحيل التطبيق) يُعلَّم قبل أن يُحذف المعامل: مالك الموقع في RepApp يُركَّب فيه وحده
 markAppLaunch();
+// التتبّع الخلفي: علامة قدرة تطبيق أندرويد (fstrack=1) تُحفظ ويُحذف معاملها قبل أوّل رسم — بلا إعادة تحميل
+captureTrackLaunch();
 // جسر الطباعة: علامة تطبيق أندرويد (fsbridge) تُحفظ ويُحذف معاملها من العنوان قبل أوّل رسم — بلا إعادة تحميل
 captureBridgeLaunch();
 

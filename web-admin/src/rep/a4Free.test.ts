@@ -356,3 +356,32 @@ test('imageNaturalSize/logoImgStyle: PNG وGIF وJPEG (واتجاه EXIF) وWebP
   assert.deepEqual(logoImgStyle(pngOf(100, 400), 80, 80), { display: 'block', width: 20, height: 80 });
   assert.deepEqual(logoImgStyle('data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=', 80, 60), { display: 'block', maxWidth: 80, maxHeight: 60, width: 'auto', height: 'auto' });
 });
+
+test('QR محذوفٌ والإجماليات في لوحة: لا قسم إجماليات فارغ في السريان بمسافتيه — كما لو كان الرمز في لوحته (الصفحة والنقطية وA5)', () => {
+  const SPACED = { totals: { spaceBeforeMm: 10, spaceAfterMm: 10 } };
+  const noQrBox = { ...CANVAS!, boxes: CANVAS!.boxes.filter((b) => b.id !== 'qr') };
+  for (const printer of ['page', 'impact'] as const) {
+    const tpl = printer === 'impact' ? 'impact_plain' : 'page_branded';
+    // اليوم: الرمز والإجماليات في اللوحة ⇒ لا قسم totals في السريان
+    const today = a4(inv({ zatca: zv() }), lookOf({ canvas: CANVAS, sections: SPACED }, printer, tpl));
+    assert.ok(!sectionIds(today).includes('totals'), `${printer}: الإجماليات سرت والرمز وصفوفها في اللوحة`);
+    for (const [name, canvas] of [['qrBoxLingering', CANVAS], ['noQrBox', noQrBox]] as const) {
+      for (const p of [profile({ canvas, sections: { ...SPACED, qr: { visible: false } } }, printer, tpl),
+        { ...profile({ canvas, sections: { ...SPACED, qr: { visible: false } } }, printer, tpl), paper: presetPaper(printer === 'impact' ? 'ff_95x55' : 'a5')! }]) {
+        const at = `${printer}/${name}/${p.paper.preset}`;
+        const out = a4(inv({ zatca: zv() }), lookFor(p));
+        assert.ok(!sectionIds(out).includes('totals'), `${at}: قسم إجماليات فارغ في السريان بعد حذف الرمز`);
+        assert.ok(!out.includes('alt="QR"'), `${at}: الرمز المحذوف مطبوع`);
+        assert.ok(out.slice(out.indexOf('data-section="canvas-footer"')).includes('الإجمالي النهائي'), `${at}: الإجماليات غابت عن لوحتها`);
+        assert.ok(sectionIds(out).includes('items'), `${at}: الأصناف`);
+      }
+    }
+    // الرمز محذوفٌ وصفوف الإجماليات ليست في لوحة: القسم باقٍ بصفوفه (بلا رمز)
+    const rowsInFlow = a4(inv({ zatca: zv() }), lookOf({ canvas: { ...noQrBox, boxes: noQrBox.boxes.filter((b) => b.id !== 'totals') }, sections: { ...SPACED, qr: { visible: false } } }, printer, tpl));
+    assert.ok(sectionIds(rowsInFlow).includes('totals') && rowsInFlow.includes('الإجمالي النهائي') && !rowsInFlow.includes('alt="QR"'), `${printer}: صفوف الإجماليات سقطت من السريان`);
+    // الرمز ظاهرٌ بلا مربع: يبقى القسم ليحمل الرمز في مكانه التلقائي
+    const qrInFlow = a4(inv({ zatca: zv() }), lookOf({ canvas: noQrBox, sections: SPACED }, printer, tpl));
+    const totals = qrInFlow.slice(qrInFlow.indexOf('data-section="totals"'));
+    assert.ok(sectionIds(qrInFlow).includes('totals') && /alt="QR"/.test(totals), `${printer}: الرمز غير الموضوع سقط مع الإجماليات`);
+  }
+});

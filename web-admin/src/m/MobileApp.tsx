@@ -29,6 +29,7 @@ import { MEmpty, MSpinner } from './mobileUi';
 import { can, PermKey } from './perms';
 import { visibleTabs } from './tabRules';
 import { useBackClose } from '../lib/useBackClose';
+import { COMPANY_REFRESH_TICK_MS, DOC_OPEN_EVENT, companyRefreshDue, docOpenRefreshDue } from '../rep/companyRefresh';
 
 /**
  * تطبيق الإدارة على الجوال (`/m`) — قوقعة مستقلّة على نمط تطبيق المندوب:
@@ -186,16 +187,46 @@ export default function MobileApp() {
   useEffect(() => {
     if (!token) return;
     let alive = true;
-    (async () => {
+    // وقت آخر جلب ناجح؛ 0 بعد الفشل ⇒ المحفِّز التالي يعيد المحاولة فوراً
+    let last = Date.now();
+    const pull = async () => {
       try {
         const { data } = await companyApi.get();
         if (!alive) return;
-        setCompany(data?.data ?? null);
+        setCompany((prev: unknown) => data?.data ?? prev ?? null); // ردّ فارغ لا يمحو ما حُمّل
         setActiveCurrency((data?.data as { currency?: string })?.currency);
         setActiveNumerals((data?.data as { numerals?: string })?.numerals);
-      } catch { /* الفشل لا يمنع التطبيق — تبقى العملة الافتراضية */ }
-    })();
-    return () => { alive = false; };
+      } catch { last = 0; /* الفشل لا يمنع التطبيق — تبقى العملة الافتراضية */ }
+    };
+    void pull();
+    /**
+     * وتتجدّد الإعدادات أثناء بقاء التطبيق مفتوحاً (R-G1): كانت تُقرأ مرة عند الدخول فقط، فتعديل «نصوص المطبوعات»
+     * (وأي إعداد) لا يصل مستندات الجوال ولا طباعته ولا PDF حتى يُغلق التطبيق كلياً. كتطبيق المندوب: عند العودة إليه أو
+     * عودة الاتصال أو نبضة دورية، مرة كل 5 دقائق على الأكثر، وفشلها صامت. MDocScreen يبني المستند من company كل رسم.
+     */
+    const refresh = () => {
+      if (!navigator.onLine || document.hidden || !companyRefreshDue(last, Date.now())) return;
+      last = Date.now();
+      void pull();
+    };
+    // وفتح مستند (DocumentResult يعلنه) يطلبها في الخلفية مرة كل 30 ثانية على الأكثر — كتطبيق المندوب: حفظُ النصوص من اللوحة ثم فتح
+    // الفاتورة على الجوال يطبعها بالنصوص الجديدة لا بعد دورة الدقائق الخمس؛ المستند يُعاد بناؤه حين تصل
+    const onDocOpen = () => {
+      if (!navigator.onLine || !docOpenRefreshDue(last, Date.now())) return;
+      last = Date.now();
+      void pull();
+    };
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('online', refresh);
+    window.addEventListener(DOC_OPEN_EVENT, onDocOpen);
+    const iv = window.setInterval(refresh, COMPANY_REFRESH_TICK_MS);
+    return () => {
+      alive = false;
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('online', refresh);
+      window.removeEventListener(DOC_OPEN_EVENT, onDocOpen);
+      window.clearInterval(iv);
+    };
   }, [token]);
 
   // زرّ التثبيت: يظهر فقط حين يعرض المتصفّح إمكانية التثبيت فعلاً

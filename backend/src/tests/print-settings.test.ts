@@ -293,7 +293,7 @@ const withLayoutOf = (p: PrintProfile, layout: Partial<PrintLayout> = {}, design
 const fleetWith = (p: PrintProfile): PrintSettingsV1 => ({ ...fleet(), profiles: [...fleet().profiles, p] });
 const LAYOUT_MSGS: ReadonlySet<string> = new Set(Object.entries(PRINT_ISSUES).filter(([k]) => k.startsWith('layout')).map(([, v]) => v));
 const layoutIssuesOf = (p: PrintProfile) => issuesOf(fleetWith(p)).filter((m) => LAYOUT_MSGS.has(m));
-const FREE_KEYS: ReadonlySet<string> = new Set(['layoutLogoMm', 'layoutLogoAfter', 'layoutSectionUnknown', 'layoutSectionBounds', 'layoutCanvasPrinter', 'layoutCanvasBands', 'layoutCanvasBox', 'layoutCanvasFooterOnly', 'layoutCanvasQr']);
+const FREE_KEYS: ReadonlySet<string> = new Set(['layoutLogoMm', 'layoutLogoAfter', 'layoutSectionUnknown', 'layoutSectionBounds', 'layoutCanvasPrinter', 'layoutCanvasBands', 'layoutCanvasBandsPaper', 'layoutCanvasBox', 'layoutCanvasFooterOnly', 'layoutCanvasQr']);
 
 test('التخطيط: صالحٌ لكل طابعة، ويُحفظ بترتيب مفاتيح ثابت في آخر الخيارات — والغياب مطبوعة اليوم بلا مفتاح', () => {
   const page = withLayoutOf(profile({ id: 'office-grid', printer: 'page', template: 'page_plain' }, 'a4'), { accent: '#0f766e' }, 'grid_bilingual');

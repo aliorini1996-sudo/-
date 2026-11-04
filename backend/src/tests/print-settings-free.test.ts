@@ -273,7 +273,7 @@ test('الحرّ: الحجم — اثنا عشر تصميماً حرّاً بأ�
 });
 
 test('الحرّ: كل رسائل القواعد الجديدة مبلوغة ومن المصدر الواحد', () => {
-  const free = ['layoutLogoMm', 'layoutLogoAfter', 'layoutSectionUnknown', 'layoutSectionBounds', 'layoutCanvasPrinter', 'layoutCanvasBands', 'layoutCanvasBox', 'layoutCanvasFooterOnly', 'layoutCanvasQr'] as const;
+  const free = ['layoutLogoMm', 'layoutLogoAfter', 'layoutSectionUnknown', 'layoutSectionBounds', 'layoutCanvasPrinter', 'layoutCanvasBands', 'layoutCanvasBandsPaper', 'layoutCanvasBox', 'layoutCanvasFooterOnly', 'layoutCanvasQr'] as const;
   for (const k of free) assert.equal(typeof PRINT_ISSUES[k], 'string', k);
   assert.equal(PRINT_ISSUES.layoutRoll, 'في الرول: التصميم القياسي وحده');
   assert.ok(SECTION_IDS.length === 11);
@@ -312,4 +312,23 @@ test('الحذف الصريح (قرار المالك ٤ نوفمبر ٢٠٢٦): 
   legacy.profiles[0] = withLayoutOf(legacy.profiles[0], hideAll);
   const lr = checkPrintSettings(legacy, true);
   assert.ok(lr.ok && !('layout' in lr.value.profiles[0].options));
+});
+
+test('الحذف الصريح مع سقف الورق القصير (bandsTotalFor): حذف الرمز والأصناف لا يرفع السقف ولا حدّ 47، والقصّ المتسامح يُبقي الحذف', () => {
+  const a5 = () => profile({ id: 'a5-office', printer: 'page', template: 'page_branded' }, 'a5');
+  const hideAll = { sections: { qr: { visible: false }, items: { visible: false } }, stamps: false };
+  // الحفظ الصارم: سقف A5 (150) كما هو والرمز والأصناف محذوفة — المصمّم (canvasBoundsFor) يقف عند الورق وحده
+  rejects(withLayoutOf(a5(), { ...hideAll, canvas: canvasOf([], 100, 60) }), PRINT_ISSUES.layoutCanvasBandsPaper, 'a5 hide all 160');
+  accepts(withLayoutOf(a5(), { ...hideAll, canvas: canvasOf([], 100, 50) }), 'a5 hide all 150');
+  rejects(withLayoutOf(a5(), { ...hideAll, canvas: canvasOf([box('qr', 'footer', 0, 0, 30, 30)], 100, 50) }), PRINT_ISSUES.layoutCanvasQr, 'a5 removed qr + small box');
+  // القراءة المتسامحة: لوحتان أطول من A5 تُقصّان (التذييل أولاً)، ومربع الرمز الذي لا تتّسع له لوحته يسقط — والحذف باقٍ كما حُفظ
+  const stored = withLayoutOf(a5(), { ...hideAll, canvas: canvasOf([box('company', 'header', 0, 0, 90, 30), box('qr', 'footer', 0, 0, 47, 47)], 140, 60) });
+  const r = checkPrintSettings(fleetWith(stored), false);
+  assert.ok(r.ok, JSON.stringify(!r.ok && r.issues));
+  if (!r.ok) return;
+  const l = r.value.profiles.find((x) => x.id === 'a5-office')!.options.layout!;
+  assert.deepEqual([l.canvas!.headerMm, l.canvas!.footerMm], [140, 10]);
+  assert.deepEqual(l.canvas!.boxes.map((b) => b.id), ['company']);
+  assert.ok(isQrRemoved(l) && isItemsRemoved(l) && areStampsRemoved(l), 'الحذف لا يسقط مع القصّ');
+  assert.equal(checkPrintSettings(r.value, true).ok, true, 'الناتج يمرّ بالحفظ الصارم');
 });

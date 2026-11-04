@@ -5,6 +5,7 @@ import {
   KEEP_EVERY_MS, MAX_BATCH, MAX_PENDING, REFRESH_IF_SILENT_MS, initialUpload, uploadDue, afterSuccess, afterFailure, retryable, requeue,
   type TrackPoint, type UploadState,
 } from './trackUpload';
+import { startNativeTracking, stopNativeTracking, type TrackTokenPost } from './nativeTracking';
 
 export type TrackStatus = 'off' | 'requesting' | 'active' | 'denied' | 'unavailable';
 
@@ -12,6 +13,8 @@ export type TrackStatus = 'off' | 'requesting' | 'active' | 'denied' | 'unavaila
 const TICK_MS = 5_000;
 /** مهلة طلب النقاط: شبكةٌ ميدانية معلّقة لا تُبقي قفل الرفع مغلقاً فيتوقف الموقع كله — الفاشل يُعاد بالتراجع */
 const PING_TIMEOUT_MS = 20_000;
+/** طلب رمز التتبّع الخلفي في تطبيق الجوال — nativeTracking.ts لا يستورد repApi (يُختبر في node:test) */
+const postTrackToken: TrackTokenPost = (url, body, config) => repApi.post(url, body, config);
 
 // يتتبّع موقع المندوب عبر GPS (عند تفعيل الشركة للتتبّع) ويرسله للخادم بسياسة trackUpload.ts: فوراً عند الفتح والعودة،
 // كل ١٥ث متحرّكاً، وكل ٣٠ث ساكناً — وما يفشل إرساله يُعاد بتراجعٍ لا يُرمى.
@@ -33,6 +36,8 @@ export function useRepTracking(active: boolean, forced = false): TrackStatus {
     let tick: ReturnType<typeof setInterval> | null = null;
     let cancelled = false;
     let refreshing = false;
+    /** حُكم بالتتبّع (لا طلب الفتح): العودة للتطبيق في يومٍ جديد تبدأ التتبّع الخلفي في تطبيق الجوال من جديد */
+    let nativeOn = false;
     upload.current = initialUpload();
     if (owner.current !== currentRepId()) { buffer.current = []; owner.current = currentRepId(); }
 
@@ -108,12 +113,25 @@ export function useRepTracking(active: boolean, forced = false): TrackStatus {
     };
 
     const start = async () => {
+      // التتبّع الخلفي في تطبيق الجوال (أندرويد/آيفون): يستمرّ والتطبيق في الخلفية أو الشاشة مقفلة — وفي المتصفح لا شيء ولا طلب.
+      // رمزه يُطلب مع حكم التفعيل لا بعده: الإقلاع من تذكير الحضور يُظهر زرّ «تسجيل الحضور» بعد طلبٍ واحد، فكان اللمس يسبق الرمز
+      // (طلبان متتاليان) ويظهر زرّ البدء بدل البدء مع الحضور. وطلب الرمز حكمٌ بنفسه: الخادم يجيبه «لا تتبّع» حين تطفئه الشركة أو
+      // يُستثنى المندوب فيوقف هادئاً، والحكم القاطع أدناه بالإطفاء يُلغي طلباً جارياً (جيل الإيقاف)
+      void startNativeTracking(postTrackToken);
       // تتبّع فقط إن فعّلت الشركة الميزة — أو كان المندوب مقيَّداً
+      let known = forced; // حكمٌ قاطع (مقيَّد أو ردّ الخادم) — فشل الطلب لا يوقف التتبّع الخلفي في تطبيق الجوال
       let enabled = forced;
       if (!enabled) {
-        try { enabled = !!(await repApi.get('/tracking/settings', { background: true })).data.data.enabled; } catch { /* */ }
+        try { enabled = !!(await repApi.get('/tracking/settings', { background: true })).data.data.enabled; known = true; } catch { /* */ }
       }
-      if (cancelled || !enabled) { setStatus('off'); return; }
+      if (cancelled || !enabled) {
+        setStatus('off');
+        // تطبيق الجوال يتبع الحكم القاطع: إيقافٌ هادئ بلا لمسة (nativeTracking.ts) — والتطبيق يوقف نفسه بردّ الخادم على أيّ حال
+        if (!cancelled && known) stopNativeTracking(undefined, { ifStarted: true });
+        return;
+      }
+      // حُكمٌ بالتتبّع: العودة للتطبيق تطلب الرمز من جديد (يومٌ جديد، أو تعذّر عند الفتح) — طلب الفتح نفسه صدر أعلاه
+      nativeOn = true;
       if (!('geolocation' in navigator)) { setStatus('unavailable'); return; }
 
       setStatus('requesting');
@@ -132,6 +150,8 @@ export function useRepTracking(active: boolean, forced = false): TrackStatus {
       if (document.hidden) { flush(true); return; }
       upload.current = { ...upload.current, urgent: true, retryAt: 0 };
       maybeFlush();
+      // يومٌ جديد (أو تعذّر الرمز عند الفتح): العودة للتطبيق تبدأ التتبّع الخلفي من جديد — واليوم نفسه بلا طلب
+      if (nativeOn) void startNativeTracking(postTrackToken);
     };
     const onOnline = () => { upload.current = { ...upload.current, urgent: true, retryAt: 0 }; maybeFlush(); };
     const onUnload = () => flush(true);

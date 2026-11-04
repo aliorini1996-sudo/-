@@ -11,7 +11,7 @@ import {
   ACCENT_PALETTE, PRINT_SAMPLE_WATERMARK, defaultPrintOptions, layoutIssues, legacyPageProfile, legacyThermalProfile, presetPaper, sectionsFor,
   withLayout, type PrintProfile,
 } from '../../lib/print/printSettings';
-import { PRINT_TEXT_CATALOG, PRINT_TEXT_WARNINGS } from '../../lib/print/printTextsCore';
+import { PRINT_STATUS_TITLE_KEYS, PRINT_TEXT_CATALOG, PRINT_TEXT_WARNINGS, printTextEntry } from '../../lib/print/printTextsCore';
 import { PHRASES } from '../../i18n/strings';
 // حقول «التخطيط» ودوالّها في PrintPreview.tsx لا في اللوحة: اللوحة تستورد عميل الـAPI (import.meta.env وlocalStorage) فلا تُحمَّل هنا
 import PrintPreview, {
@@ -222,8 +222,10 @@ test('الترجمة: عبارات B وC وقائمة المحرّرين وكل 
     'حذف السطر', 'استعادة', 'السطور المحذوفة', 'تأكيد الحذف', 'لا توجد سطور محذوفة', 'التخطيط', 'مكان الشعار', 'حجم الشعار', 'لون التمييز',
     'لون مخصص', 'حجم الخط', 'شكل الجدول', 'ترتيب الأقسام', 'إعادة الترتيب الافتراضي', 'اسحب لتغيير الترتيب',
   ]);
-  // الفاصلة العلوية تُفحص في عبارات الحزمة وحدها — عبارات اللوحة القديمة كما ترجمها أصحابها
+  // الفاصلة العلوية تُفحص في عبارات الحزمة وحدها — عبارات اللوحة القديمة كما ترجمها أصحابها، وعناوين الحالة (قرار المالك ٤ نوفمبر
+  // ٢٠٢٦) مترجمةٌ قبل الحزمة في ZATCA_PRINT_PHRASES وتُطبع ترجمتُها على الورقة اليوم — تغييرها يغيّر ورقة شركةٍ لغتها الثانية الفرنسية
   const ours = new Set(want);
+  for (const k of PRINT_STATUS_TITLE_KEYS) ours.delete(printTextEntry(k)!.ar);
   for (const src of [panel(), preview()]) for (const m of src.matchAll(/\btr\(\s*'((?:[^'\\]|\\.)*)'\s*\)/g)) want.add(m[1]);
   const missing: string[] = [];
   for (const ar of want) {

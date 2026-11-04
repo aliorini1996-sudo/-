@@ -14,8 +14,8 @@
 
 import {
   CANVAS_BANDS, CANVAS_BOX_IDS, CANVAS_CONTENT_MM, CANVAS_FOOTER_ONLY, LAYOUT_BOUNDS, LEGACY_THERMAL_ID, LOGO_POSITIONS,
-  ALIGNS, defaultPrintLayout, isLegacyProfileId, isQrRemoved, layoutIssues, layoutOf, printableMm, sectionsFor, uniqueProfileId, uniqueProfileName,
-  withLayout,
+  ALIGNS, bandsTotalFor, defaultPrintLayout, isLegacyProfileId, isQrRemoved, layoutIssues, layoutOf, printableMm, sectionsFor,
+  uniqueProfileId, uniqueProfileName, withLayout,
   type CanvasBand, type CanvasBox, type CanvasBoxId, type LogoPosition, type PrintCanvas, type PrintLayout, type PrintProfile,
   type PrintSettingsV1, type SectionId, type SectionStyle,
 } from './printSettings';
@@ -224,20 +224,40 @@ export function resetCanvas(p: PrintProfile): PrintProfile {
 const bandKey = (b: CanvasBand): 'headerMm' | 'footerMm' => (b === 'header' ? 'headerMm' : 'footerMm');
 const boxMin = (id: CanvasBoxId): number => (id === 'qr' ? B.qrBoxMinMm : B.boxMinMm);
 
-/** أقصى ارتفاعٍ للوحة مع الأخرى (حدّها، والمجموع 200) */
-const bandMax = (c: PrintCanvas, band: CanvasBand): number => {
+/**
+ * حدود اللوحتين لهذا القالب: LAYOUT_BOUNDS بسقف مجموعٍ بطول ورقه (bandsTotalFor — A5 150، ونصف الصفحة المتصلة 89.5، وA4 200
+ * كما هو). يمرّ بها المصمّم (المقبض والمفتّش) فلا يُنشئ لوحتين يرفضهما الخادم.
+ */
+export function canvasBoundsFor(p: PrintProfile): Readonly<Omit<typeof B, 'bandsTotalMm'> & { bandsTotalMm: number }> {
+  const total = bandsTotalFor(p.paper);
+  return total === B.bandsTotalMm ? B : Object.freeze({ ...B, bandsTotalMm: total });
+}
+
+/**
+ * اللوحتان كما يرسمهما المصمّم ويطبعهما المحرّك: بلا مربع QR متى حذفته الشركة (isQrRemoved — resolveCanvas وsanitizeCanvas
+ * يُسقطانه)، فلا يفرض مربعٌ لا يُطبع حدّه الأدنى على ارتفاع لوحته في المقبض والمفتّش. undefined بلا لوحتين.
+ */
+export function drawnCanvasOf(p: PrintProfile): PrintCanvas | undefined {
+  const l = layoutOf(p);
+  const c = l.canvas;
+  if (!c || !isQrRemoved(l) || !c.boxes.some((b) => b.id === 'qr')) return c;
+  return { ...c, boxes: c.boxes.filter((b) => b.id !== 'qr') };
+}
+
+/** أقصى ارتفاعٍ للوحة مع الأخرى (حدّها، والمجموع: 200 أو أقل بطول الورق) */
+const bandMax = (c: PrintCanvas, band: CanvasBand, total: number): number => {
   const other = band === 'header' ? c.footerMm : c.headerMm;
-  return floorStep(Math.min(band === 'header' ? B.headerMm[1] : B.footerMm[1], B.bandsTotalMm - other));
+  return floorStep(Math.min(band === 'header' ? B.headerMm[1] : B.footerMm[1], total - other));
 };
 
 /**
  * لوحتان صالحتان بقواعد النواة: أطوالٌ على الشبكة في حدودها (المجموع ≤ 200)، ومربعاتٌ معروفة بلا تكرار، والإجماليات والتواقيع في
  * التذييل، وكل مربعٍ داخل لوحته ≥ 5 مم، ومربع QR ≥ 47 مم (تكبر لوحته إن اتّسع الحدّ، وإلا يعود إلى التدفّق)، ولا مربع في لوحةٍ صفرية.
- * qrRemoved (حذفت الشركة الرمز صراحةً): مربع QR يُسقط بلا أن تكبر لوحةٌ لأجله.
+ * qrRemoved (حذفت الشركة الرمز صراحةً): مربع QR يُسقط بلا أن تكبر لوحةٌ لأجله. total: سقف المجموع بطول الورق (bandsTotalFor).
  */
-function sanitizeCanvas(c: PrintCanvas, W: number, qrRemoved: boolean): PrintCanvas {
-  const headerMm = snapMm(clamp(fin(c.headerMm) ? c.headerMm : 0, B.headerMm[0], B.headerMm[1]));
-  const footerMm = snapMm(clamp(fin(c.footerMm) ? c.footerMm : 0, B.footerMm[0], Math.min(B.footerMm[1], B.bandsTotalMm - headerMm)));
+function sanitizeCanvas(c: PrintCanvas, W: number, qrRemoved: boolean, total: number = B.bandsTotalMm): PrintCanvas {
+  const headerMm = snapMm(clamp(fin(c.headerMm) ? c.headerMm : 0, B.headerMm[0], Math.min(B.headerMm[1], total)));
+  const footerMm = snapMm(clamp(fin(c.footerMm) ? c.footerMm : 0, B.footerMm[0], Math.min(B.footerMm[1], total - headerMm)));
   const out: PrintCanvas = { headerMm, footerMm, boxes: [] };
   const seen = new Set<CanvasBoxId>();
   const list = Array.isArray(c.boxes) ? c.boxes : [];
@@ -252,7 +272,7 @@ function sanitizeCanvas(c: PrintCanvas, W: number, qrRemoved: boolean): PrintCan
     const min = boxMin(raw.id);
     const key = bandKey(band);
     if (raw.id === 'qr' && out[key] < min) {
-      const max = bandMax(out, band);
+      const max = bandMax(out, band, total);
       if (max < min) continue; // لا يتّسع: يُطبع الرمز في مكانه من التدفّق
       out[key] = ceilStep(min);
     }
@@ -283,7 +303,7 @@ export function withCanvas(p: PrintProfile, c: PrintCanvas | null): PrintProfile
     return commit(p, l);
   }
   if (!canvasCapable(p)) return p;
-  l.canvas = sanitizeCanvas(c, contentW(p), isQrRemoved(l));
+  l.canvas = sanitizeCanvas(c, contentW(p), isQrRemoved(l), bandsTotalFor(p.paper));
   return commit(p, l);
 }
 
@@ -300,7 +320,7 @@ export function upsertBox(p: PrintProfile, box: CanvasBox): PrintProfile {
   const min = boxMin(box.id);
   const h = Math.max(min, snapMm(fin(box.h) ? box.h : min));
   const key = bandKey(band);
-  if (c[key] < h) c[key] = Math.max(c[key], Math.min(bandMax(c, band), ceilStep(h)));
+  if (c[key] < h) c[key] = Math.max(c[key], Math.min(bandMax(c, band, bandsTotalFor(p.paper)), ceilStep(h)));
   const next: CanvasBox = { ...box, band, w: Math.max(min, fin(box.w) ? box.w : min), h };
   c.boxes = [...c.boxes.filter((b) => b.id !== box.id), next];
   return withCanvas(p, c);
@@ -350,7 +370,7 @@ export function starterCanvas(p: PrintProfile): PrintCanvas {
   boxes.push({ id: 'title', band: 'header', x: 0, y: leftTop, w: half, h: 12 });
   boxes.push({ id: 'docInfo', band: 'header', x: 0, y: leftTop + 14, w: half, h: 30 });
   const bottom = Math.max(...boxes.map((b) => b.y + b.h));
-  return sanitizeCanvas({ headerMm: ceilStep(bottom + 2), footerMm: 0, boxes }, W, isQrRemoved(l));
+  return sanitizeCanvas({ headerMm: ceilStep(bottom + 2), footerMm: 0, boxes }, W, isQrRemoved(l), bandsTotalFor(p.paper));
 }
 
 // ─── الكلاسيكي ───

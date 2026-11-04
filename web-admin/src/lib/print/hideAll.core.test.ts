@@ -8,6 +8,7 @@
  * ٣) الافتراضي والقديم بلا أيّ حذف — والغياب و{} وtrue = اليوم.
  * ٤) الرول الكلاسيكي لا يحمل تخطيطاً (فلا يحذف شيئاً).
  * ٥) نسختا النواة (الواجهة والخادم) حرفيتان.
+ * ٦) مستند «الربط البرمجي API» يوثّق الحذوف الثلاثة ولا يَعِد بأن رمز QR لا يُحذف.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -268,4 +269,30 @@ test('النواة نسخة حرفية من الخادم بعد الحذف ال�
     assert.ok(new RegExp(`export function ${fn}\\(`).test(server), `${fn} ليست في نواة الخادم`);
   }
   assert.ok(/stamps:\s*free\(z\.boolean\(\)\)/.test(server), 'stamps ليست free(z.boolean()) في الخادم');
+});
+
+// ─── ٦) مستند الربط البرمجي ───
+
+test('مستند «الربط البرمجي API» يوثّق الحذف الصريح (stamps وsections.qr وsections.items) ولا يَعِد بأن الرمز لا يُحذف', async () => {
+  const { API_DOC_GROUPS } = await import('../apiDocsCatalog');
+  const eps = API_DOC_GROUPS.flatMap((g) => g.endpoints);
+  const ep = (method: string, p: string) => {
+    const e = eps.find((x) => x.method === method && x.path === p);
+    assert.ok(e, `${method} ${p} غير موثّق`);
+    return e;
+  };
+  const getS = ep('GET', '/company/print-settings');
+  const putS = ep('PUT', '/company/print-settings');
+  const getT = ep('GET', '/company/print-texts');
+  const all = [getS.response, ...getS.rules, ...putS.rules, ...getT.rules].join(' ');
+  // ما يقوله المستند يطابق النواة: الحفظ الصارم يقبل الحذوف الثلاثة على الصفحة
+  const k = KINDS.find((x) => x.name === 'page_standard')!;
+  const r = checkPrintSettings(raw(settingsWith(profileOf(k, ALL_OFF))), true);
+  assert.ok(r.ok, 'النواة ترفض الحذوف الثلاثة');
+  assert.ok(getS.response.includes('stamps?: boolean'), 'stamps غير موثّق في بنية options.layout');
+  assert.ok(all.includes('sections.qr.visible = false'), 'حذف رمز QR غير موثّق');
+  assert.ok(/visible:false[^.]*items/.test(all), 'حذف الأصناف غير موثّق');
+  assert.ok(putS.rules.some((x) => x.startsWith('options.layout اختياري') && x.includes('stamps')), 'قاعدة الحفظ لا تذكر stamps');
+  assert.ok(getT.rules.some((x) => x.includes('ورمز QR ليس عبارة') && x.includes('sections.qr.visible = false')), 'قاعدة النصوص تَعِد بأن الرمز يُطبع دائماً');
+  assert.doesNotMatch(all, /لا يُحذف أبداً|ولا إخفاء لـitems|ولا يُخفى بها items/, 'وعدٌ بقفلٍ أزاله قرار المالك ٤ نوفمبر ٢٠٢٦');
 });

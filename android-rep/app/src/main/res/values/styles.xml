@@ -21,4 +21,15 @@
         <item name="colorOnSecondary">#FFFFFF</item>
         <item name="android:windowBackground">@color/backgroundColor</item>
     </style>
+
+    <!-- شاشة بدء التتبّع الخلفي وإيقافه (TrackActivity): غير شفافة عمداً كشاشة الطباعة — تغطي المتصفح فيتوقف ويطلق
+         visibilitychange فتعرف الصفحة أن البدء سُلِّم، ويرى المندوب لحظةً أن التسجيل بدأ أو توقف -->
+    <style name="Theme.FieldSales.Track" parent="Theme.MaterialComponents.Light.NoActionBar">
+        <item name="colorPrimary">@color/colorPrimary</item>
+        <item name="colorPrimaryVariant">@color/colorPrimary</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorSecondary">@color/colorPrimary</item>
+        <item name="colorOnSecondary">#FFFFFF</item>
+        <item name="android:windowBackground">@color/backgroundColor</item>
+    </style>
 </resources>

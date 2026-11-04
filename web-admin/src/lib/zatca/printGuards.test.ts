@@ -452,7 +452,7 @@ test('القالب ثنائي اللغة (تخطيط المطبوعات): الق
   /* «التحرير الحرّ»: الرمز في الإجماليات مرّةً واحدة، ولا يُقطع منها (omitQr) إلا لأنّ مربع QR موضوعٌ في لوحة؛ وإن أُخفي القسم
    * الحامل ولم يوضع المربع ولم يُحذف الرمز طُبعت الكتلة نفسها يتيمةً بعد الأصناف (freeBody) */
   assert.equal((a4.match(/\{!o\?\.omitQr && qrShown\}/g) || []).length, 1, 'الرمز في القالب الحالي داخل الإجماليات مرّةً واحدة');
-  assert.equal((a4.match(/\bqrShown\b/g) || []).length, 5, 'qrShown: التعريف والثنائي والإجماليات (المحاذاة والكتلة) واليتيم');
+  assert.equal((a4.match(/\bqrShown\b/g) || []).length, 6, 'qrShown: التعريف والثنائي والإجماليات (المحاذاة والكتلة وسقوط القسم الفارغ) واليتيم');
   assert.equal((a4.match(/omitQr: [^,}]+/g) || []).join('|'), "omitQr: placed.has('qr')", 'الرمز يُقطع من الإجماليات بلا مربعٍ في لوحة');
   assert.match(a4, /\n\s*qr: qrShown,\n/);
   assert.match(s, /const orphan = isNode\(parts\.qr\) && !placed\.has\('qr'\) && \(!visible\.has\('totals'\) \|\| qrOrphan\(layout, printer, 'standard'\)\);/, 'الرمز اليتيم لا يُطبع إن أُخفيت الإجماليات');

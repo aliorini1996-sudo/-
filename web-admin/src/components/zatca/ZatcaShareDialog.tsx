@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import QRCode from 'qrcode';
 import { Check, Copy, ExternalLink, Link2, Loader2, MessageCircle, ShieldAlert } from 'lucide-react';
-import { invoiceApi } from '../../api/client';
+import { companyApi, invoiceApi } from '../../api/client';
 import { shareMessageOf, waShareUrl } from '../../lib/zatca/shareView';
+import { shareMessageTitle, type ShareTitleFacts } from '../../lib/zatca/shareTitle';
 
 /**
  * ZATCA المرحلة الثانية (Z5.7) — حوار «رابط المشتري»: الرابط العلنيّ لمستندٍ نهائيّ كي يُرسل لصاحبه.
@@ -15,11 +17,16 @@ import { shareMessageOf, waShareUrl } from '../../lib/zatca/shareView';
  *   • **`available:false` تُعرض بسببها لا تُخفى**: مستندٌ لم تحسمه الهيئة لا رابط له — وقولها صراحةً يمنع المدير
  *     من انتظار رابطٍ لن يأتي، ويمنعه من تسليم المشتري فاتورةً قد تُرفض بعد ساعة.
  *   • **الرابط سرّ**: من يملكه يرى هذا المستند وحده — مكتوبةٌ في الحوار، فالمدير هو من يقرّر لمن يرسله.
+ *
+ * رسالة واتساب (ثغرة G2): عنوانها عنوان المستند كما تطبعه الشركة (نصوص المطبوعات)، وعبارة الهيئة من مرآة الخادم مع الرابط —
+ * «معتمدة» للمعتمدة وحدها و«مبلغة» للمبسّطة المُبلَّغة. `doc` اختياريّ: بلا وصفٍ للمستند تُحسم القياسية/المبسّطة من المرآة.
  */
-export default function ZatcaShareDialog({ invoiceId, number, sellerName, tr, onClose }: {
+export default function ZatcaShareDialog({ invoiceId, number, sellerName, doc, tr, onClose }: {
   invoiceId: string;
   number: string;
   sellerName?: string | null;
+  /** نوع المستند (فاتورة/إشعار دائن/مدين) وقياسيّته — من ZatcaDocView للصفّ؛ المرآة يحسمها ردّ الخادم. */
+  doc?: Omit<ShareTitleFacts, 'mirror'> | null;
   tr: (s: string) => string;
   onClose: () => void;
 }) {
@@ -28,18 +35,25 @@ export default function ZatcaShareDialog({ invoiceId, number, sellerName, tr, on
   const [reason, setReason] = useState<string | null>(null);
   const [qr, setQr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [mirror, setMirror] = useState<string | null>(null);
+  // نصوص المطبوعات من مخبأ الشركة نفسه الذي تقرؤه الطباعة — قبل وصوله: عنوان قرار الطباعة (شركةٌ بلا نصوص)
+  const { data: company } = useQuery({
+    queryKey: ['company'],
+    queryFn: async () => (await companyApi.get()).data.data as { printTexts?: unknown },
+  });
 
   useEffect(() => {
     let dead = false;
     (async () => {
       try {
         const body = (await invoiceApi.einvoiceShare(invoiceId)).data as {
-          data?: { available?: boolean; reason?: string | null; url?: string | null };
+          data?: { available?: boolean; reason?: string | null; url?: string | null; mirror?: string | null };
         };
         const d = body?.data ?? {};
         if (dead) return;
         if (d.available === true && typeof d.url === 'string' && d.url !== '') {
           setUrl(d.url);
+          setMirror(typeof d.mirror === 'string' ? d.mirror : null);
           setState('ready');
           QRCode.toDataURL(d.url, { width: 220, margin: 1 }).then(u => { if (!dead) setQr(u); }).catch(() => {});
         } else {
@@ -114,7 +128,10 @@ export default function ZatcaShareDialog({ invoiceId, number, sellerName, tr, on
                 {copied ? <Check size={15} /> : <Copy size={15} />} {tr(copied ? 'تم نسخ الرابط' : 'نسخ الرابط')}
               </button>
               <a
-                href={waShareUrl(shareMessageOf({ number, sellerName }, url))}
+                href={waShareUrl(shareMessageOf({
+                  number, sellerName, mirror, phase: 2,
+                  title: shareMessageTitle({ ...(doc ?? {}), mirror }, company?.printTexts ?? null),
+                }, url))}
                 target="_blank" rel="noopener noreferrer"
                 className="py-2.5 px-3 rounded-xl bg-[#E4F1EA] text-[#1E7A52] font-semibold flex items-center gap-2 text-sm"
                 title={tr('إرسال بواتساب')}
