@@ -4,6 +4,8 @@
 //   • رمز التتبّع لا يمرّ من authenticate على /api/tracking/ping.
 //   • نقطة الويب والتتبّع الأصلي يعمل: لا تُخزَّن لغير المقيَّد (native) ويُلمس «آخر ظهور»، والمقيَّد يُخزَّن ويُحكم كما كان.
 //   • POST /api/tracking/device-token: المندوب وحده، enabled:false حين يُطفأ التتبّع له، وإلا رمزٌ يتحقّق منه verifyTrackToken.
+//   • رفع الإغلاق (x-fs-track-final: 1): نقاطه تُخزَّن ثم يُنسى «التتبّع الأصلي يعمل» — ويُقبل فارغاً بالترويسة وحدها.
+//   • GET /api/tracking/route: يومٌ فوق سقف ٥٠٠٠ نقطة يعيد أحدثها تصاعدياً، لا أولاها.
 import { after, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -65,11 +67,21 @@ const prisma = {
         .sort((x, y) => y.capturedAt.getTime() - x.capturedAt.getTime())[0];
       return l ? { lat: l.lat, lng: l.lng, accuracy: l.accuracy, capturedAt: l.capturedAt, createdAt: l.createdAt } : null;
     },
+    // خطّ السير (GET /tracking/route): الترتيب والسقف كما يطلبهما المسار — لا كما أُدرجت النقاط
+    async findMany(a: { where: { tenantId: string; salesRepId: string; capturedAt: { gte: Date; lt: Date } }; orderBy: { capturedAt: 'asc' | 'desc' }; take?: number }) {
+      const dir = a.orderBy.capturedAt === 'desc' ? -1 : 1;
+      return locs.filter((x) => x.tenantId === a.where.tenantId && x.salesRepId === a.where.salesRepId
+        && x.capturedAt >= a.where.capturedAt.gte && x.capturedAt < a.where.capturedAt.lt)
+        .sort((x, y) => dir * (x.capturedAt.getTime() - y.capturedAt.getTime()))
+        .slice(0, a.take ?? Infinity)
+        .map((x) => ({ lat: x.lat, lng: x.lng, accuracy: x.accuracy, speed: x.speed, capturedAt: x.capturedAt }));
+    },
   },
   repAttendance: {
     async findFirst(a: { where: { salesRepId: string; checkOutAt: null } }) {
       return openShifts[a.where.salesRepId] ? { id: 'shift-1', checkInAt: new Date() } : null;
     },
+    async findMany() { return []; },
   },
   // مستخدم اللوحة (authenticate وrequireAdminPermission) — لاختبار أن /device-token للمندوب وحده
   admin: {
@@ -93,7 +105,7 @@ const { errorHandler } = require('../middleware/errorHandler') as typeof import(
 const realFetch = globalThis.fetch;
 let server: { port: number; close: () => Promise<void> } | null = null;
 after(async () => { await server?.close(); server = null; });
-async function call(p: string, body: unknown, headers: Record<string, string> = {}): Promise<{ status: number; body: Record<string, any> }> {
+async function base(): Promise<string> {
   if (!server) {
     const app = express();
     app.use(express.json());
@@ -104,9 +116,17 @@ async function call(p: string, body: unknown, headers: Record<string, string> = 
     await new Promise<void>((resolve) => s.listen(0, '127.0.0.1', resolve));
     server = { port: (s.address() as AddressInfo).port, close: () => new Promise<void>((r) => { s.closeAllConnections?.(); s.close(() => r()); }) };
   }
-  const r = await realFetch(`http://127.0.0.1:${server.port}${p}`, {
+  return `http://127.0.0.1:${server.port}`;
+}
+async function call(p: string, body: unknown, headers: Record<string, string> = {}): Promise<{ status: number; body: Record<string, any> }> {
+  const r = await realFetch(`${await base()}${p}`, {
     method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body),
   });
+  const t = await r.text();
+  return { status: r.status, body: t ? JSON.parse(t) : {} };
+}
+async function get(p: string, headers: Record<string, string> = {}): Promise<{ status: number; body: Record<string, any> }> {
+  const r = await realFetch(`${await base()}${p}`, { headers });
   const t = await r.text();
   return { status: r.status, body: t ? JSON.parse(t) : {} };
 }
@@ -308,4 +328,85 @@ test('/device-token لمستخدم اللوحة ⇒ 403، وبلا جلسة ⇒ 
   assert.equal(admin.status, 403);
   assert.equal(admin.body.token, undefined);
   assert.equal((await call('/api/tracking/device-token', {})).status, 401);
+});
+
+// ─── رفع الإغلاق: الخدمة توقّفت (خروج المندوب أو منتصف الليل) — مراجعة ٤ نوفمبر ───
+test('رفع الإغلاق (x-fs-track-final: 1): نقاطه تُخزَّن ثم يُنسى «التتبّع الأصلي يعمل» — /device-token يطلب بدءاً ونقاط الويب تُخزَّن', async () => {
+  const tok = trackTok('free');
+  // رفعٌ عاديّ يعلّم: الصفحة لا تطلب بدءاً ثانياً، ونقطة ويبها لا تُخزَّن
+  assert.deepEqual((await devicePing(tok, [pt()])).body.data, { stored: 1 });
+  assert.equal(dt.nativeTrackActive('free'), true);
+  assert.equal((await call('/api/tracking/device-token', {}, bearer(session('free')))).body.data.nativeActive, true);
+  assert.deepEqual((await call('/api/tracking/ping', { points: [pt()] }, bearer(session('free')))).body.data, { stored: 0, native: true });
+
+  locs = [];
+  const r = await devicePing(tok, [pt({ lat: 24.70 }), pt({ lat: 24.71 })], { 'x-fs-track-final': '1' });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body, { success: true, data: { stored: 2 } });
+  assert.equal(locs.length, 2, 'نقاط الإغلاق تُخزَّن كغيرها');
+  assert.equal(dt.nativeTrackActive('free'), false, 'لا ٩٠ث عن خدمةٍ توقّفت');
+  // مندوبٌ خرج ثم عاد خلال النافذة: الصفحة تُبلَّغ أن لا جهاز يرفع فتطلب بدءاً، ونقاط صفحته تُخزَّن فوراً
+  assert.equal((await call('/api/tracking/device-token', {}, bearer(session('free')))).body.data.nativeActive, false);
+  assert.deepEqual((await call('/api/tracking/ping', { points: [pt()] }, bearer(session('free')))).body, { success: true, data: { stored: 1 } });
+  assert.equal(locs.length, 3);
+  // بدءٌ جديد: أول رفعٍ عاديّ يعلّمه من جديد
+  await devicePing(tok, [pt()]);
+  assert.equal(dt.nativeTrackActive('free'), true);
+});
+
+test('الترويسة بغير 1 رفعٌ عاديّ يعلّم — ورفع الإغلاق الفارغ يُقبل بالترويسة وحدها فينسى بلا تخزين', async () => {
+  const tok = trackTok('free');
+  for (const v of ['0', 'true', '']) {
+    dt.resetNativeTrack();
+    assert.deepEqual((await devicePing(tok, [pt()], { 'x-fs-track-final': v })).body.data, { stored: 1 }, v);
+    assert.equal(dt.nativeTrackActive('free'), true, `«${v}» ليست إغلاقاً`);
+  }
+  locs = [];
+  // طابور الجهاز فارغٌ لحظة التوقّف
+  const r = await devicePing(tok, [], { 'x-fs-track-final': '1' });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body, { success: true, data: { stored: 0 } });
+  assert.equal(locs.length, 0);
+  assert.equal(dt.nativeTrackActive('free'), false);
+  // الفارغ بلا الترويسة يبقى 400 (مخطّط /ping)، والفاسد 400 ولو بها، وبلا رمز 401
+  assert.equal((await devicePing(tok, [])).status, 400);
+  assert.equal((await devicePing(tok, [{ lat: 95, lng: 46 }], { 'x-fs-track-final': '1' })).status, 400);
+  assert.equal((await devicePing(tok, Array.from({ length: 201 }, () => pt()), { 'x-fs-track-final': '1' })).status, 400);
+  assert.equal((await call('/api/track-device/ping', { points: [] }, { 'x-fs-track-final': '1' })).status, 401);
+  // والتتبّع مطفأ: stop كما كان
+  trackingEnabled = false;
+  assert.deepEqual((await devicePing(tok, [], { 'x-fs-track-final': '1' })).body.data, { stored: 0, stop: true });
+  assert.equal(locs.length, 0);
+});
+
+// ─── خطّ السير: أحدث ٥٠٠٠ نقطة لا أولاها (مراجعة ٤ نوفمبر) ───
+test('/tracking/route: يومٌ فوق سقف ٥٠٠٠ نقطة يعيد أحدثها تصاعدياً — لا يُقطع آخر اليوم، والردّ بشكله', async () => {
+  const day = '2026-11-03';
+  const t0 = Date.parse(`${day}T00:00:00.000Z`);
+  const n = 5003;
+  const loc = (i: number, o: Partial<Loc> = {}): Loc => ({
+    tenantId: 't1', salesRepId: 'strict', lat: 24.7, lng: 46.6, accuracy: 10, speed: null, capturedAt: new Date(t0 + i * 10_000), createdAt: new Date(), ...o,
+  });
+  // تُدرج مقلوبةً: الترتيب من الاستعلام لا من الإدراج
+  for (let i = n - 1; i >= 0; i--) locs.push(loc(i));
+  // يومٌ آخر ومندوبٌ آخر خارج الخطّ
+  locs.push(loc(n + 9_000), loc(n - 1, { salesRepId: 'free' }));
+  const admin = bearer(session('a1', 'ADMIN'));
+  const r = await get(`/api/tracking/route?salesRepId=strict&date=${day}&snap=0`, admin);
+  assert.equal(r.status, 200);
+  assert.deepEqual(Object.keys(r.body).sort(), ['checkIn', 'checkOut', 'data', 'routeHidden', 'shape', 'snapped', 'success']);
+  const at = (r.body.data as { capturedAt: string }[]).map((p) => Date.parse(p.capturedAt));
+  assert.equal(at.length, 5000);
+  assert.equal(at[0], t0 + 3 * 10_000, 'المقطوع أوّل اليوم');
+  assert.equal(at[at.length - 1], t0 + (n - 1) * 10_000, 'آخر نقطةٍ في اليوم حاضرة');
+  assert.ok(at.every((t, i) => i === 0 || t > at[i - 1]), 'تصاعدياً كما كان الردّ');
+  assert.deepEqual(Object.keys(r.body.data[0]).sort(), ['accuracy', 'capturedAt', 'lat', 'lng', 'speed']);
+  assert.equal(r.body.shape, null);
+  assert.equal(r.body.snapped, null);
+  assert.equal(r.body.routeHidden, false);
+
+  // تحت السقف: اليوم كلّه تصاعدياً كما كان
+  locs = [loc(7), loc(2), loc(5)];
+  const small = await get(`/api/tracking/route?salesRepId=strict&date=${day}&snap=0`, admin);
+  assert.deepEqual((small.body.data as { capturedAt: string }[]).map((p) => Date.parse(p.capturedAt)), [2, 5, 7].map((i) => t0 + i * 10_000));
 });

@@ -18,6 +18,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -47,6 +48,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * التتبّع الخلفي (طلب المالك، ٤ نوفمبر ٢٠٢٦): خدمة مقدّمة من نوع «الموقع» بإشعارٍ ثابت ظاهر ما دامت تعمل. تقرأ الموقع كل ٥ ثوانٍ،
  * وتحفظ ما يمرّ من مرشّح العقد (TrackLogic.shouldKeep: نقطةٌ كل ١٥ ثانية للمتحرّك، ونبضٌ كل ٣٠ ثانية للثابت) في طابورٍ على
  * القرص (TrackQueue)، وترفعه كل ٣٠ ثانية إلى /api/track-device/ping برمز التتبّع (TrackStore) لا بجلسة المندوب.
+ * موعد الرفع تقيسه قراءات الموقع بالساعة المنقضية (uploadIfDue)، والمعالج مستيقظٌ بقفلٍ قصير حتى تكتمل الدفعة (executeAwake):
+ * الشاشة مقفلة تُنيم المعالج بين القراءات، فمؤقّتٌ وحده كان يؤخّر الرفع دقائق ويُظهر المندوب «موقعه متوقف» على خريطة المدير.
  *
  * تبدأ من TrackActivity وحده (بعد إفصاح المندوب وموافقته وإذن الموقع الدقيق)، وتتوقف: بالإيقاف الصريح (الخروج من الحساب)،
  * أو انتهاء الرمز، أو تبدّل يوم الجوال، أو رفض الخادم للرمز (401/403 بـTRACK_TOKEN_INVALID)، أو ردّ الخادم stop (الشركة أطفأت التتبّع)، أو سحب إذن الموقع.
@@ -72,11 +75,20 @@ class TrackService : Service() {
     /** لا رفعٌ أخير عند الهدم: الخادم رفض الرمز أو أوقف التتبّع */
     @Volatile private var noFinalFlush = false
 
-    // حالة الرفع على خيط io وحده
+    // حالة الرفع: يكتبها خيط io وحده. retryAtElapsed وlastUploadAttemptElapsed يقرؤهما الخيط الرئيسي أيضاً (uploadIfDue)
     private var backoffMs = 0L
-    private var retryAtElapsed = 0L
+    @Volatile private var retryAtElapsed = 0L
+    /** لحظة آخر POST (elapsedRealtime) — لا يحرّكها طلبٌ وجد الطابور فارغاً، فأول نقطةٍ بعده لا تنتظر ٣٠ ثانية أخرى */
+    @Volatile private var lastUploadAttemptElapsed = 0L
     private val uploadQueued = AtomicBoolean(false)
 
+    /** قفل يقظةٍ جزئي لدفعة الرفع: بلا عدّ مراجع، فإمساكٌ ثانٍ يمدّ المهلة وإفلاتٌ واحد يكفي ولا يرمي استثناءً */
+    private var wakeLock: PowerManager.WakeLock? = null
+
+    /**
+     * احتياطٌ إن غابت قراءات الموقع (مبنى يحجب الإشارة) وطابورٌ ينتظر، وفحصٌ دوري لصلاحية الرمز واليوم. لا يقيس موعد الرفع:
+     * Handler يعدّ وقت يقظة المعالج وحده (uptimeMillis)، فيتمدّد ٣٠ ثانية إلى دقائق والشاشة مقفلة
+     */
     private val tick = object : Runnable {
         override fun run() {
             if (!running) return
@@ -84,7 +96,7 @@ class TrackService : Service() {
                 stopTracking(clearToken = true)
                 return
             }
-            requestUpload()
+            uploadIfDue()
             main.postDelayed(this, TrackContract.UPLOAD_INTERVAL_MS)
         }
     }
@@ -108,6 +120,14 @@ class TrackService : Service() {
     override fun onCreate() {
         super.onCreate()
         queue = TrackQueue(File(filesDir, TrackQueue.FILE_NAME))
+        wakeLock = try {
+            ContextCompat.getSystemService(this, PowerManager::class.java)
+                ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG)
+                ?.apply { setReferenceCounted(false) }
+        } catch (e: RuntimeException) {
+            // بلا قفل يمضي الرفع كما كان: يتأخّر والشاشة مقفلة ولا يضيع
+            null
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -154,9 +174,10 @@ class TrackService : Service() {
         main.removeCallbacksAndMessages(null)
         removeLocationUpdates()
         running = false
-        // رفعٌ أخير لما في الطابور (الخروج من الحساب): نقاطٌ التُقطت قبله. وما لم يُرفع يبقى للبدء التالي بالهوية نفسها
+        // رفعٌ أخير لما في الطابور (الخروج من الحساب): نقاطٌ التُقطت قبله. وما لم يُرفع يبقى للبدء التالي بالهوية نفسها.
+        // يحمل ترويسة «الأخير» فينسى الخادم أن التطبيق يرفع: دخولٌ سريع بعد الخروج يطلب بدءاً جديداً ولا يظنّ الخدمة الميتة حيّة
         val t = token
-        if (t != null && !noFinalFlush) execute { uploadRounds(t, maxRounds = 2) }
+        if (t != null && !noFinalFlush) executeAwake { uploadRounds(t, maxRounds = 2, closing = true) }
         io.shutdown()
         super.onDestroy()
     }
@@ -308,12 +329,19 @@ class TrackService : Service() {
             speed = if (location.hasSpeed()) location.speed.toDouble() else null,
             timeMs = location.time.takeIf { it > 0 } ?: now,
         )
-        if (!TrackLogic.shouldKeep(fix, lastKept)) return
-        lastKept = fix
-        execute { queue.add(fix) }
-        if (uploadOnNextKeep) {
+        val keep = TrackLogic.shouldKeep(fix, lastKept)
+        if (keep) {
+            lastKept = fix
+            // قبل طلب الرفع: خيط io واحد بالترتيب، فالنقطة في الطابور حين تُقرأ الدفعة
+            execute { queue.add(fix) }
+        }
+        if (keep && uploadOnNextKeep) {
             uploadOnNextKeep = false
             requestUpload()
+        } else {
+            // كل قراءةٍ (محفوظةً أو لا) يقظةٌ حقيقية للمعالج والشاشة مقفلة — فيها يُقاس موعد الرفع لا في مؤقّتٍ ينام معه.
+            // قراءات المحفوظة وحدها كانت تُفوّت الموعد بأجزاء ثانية فيصير الرفع كل دقيقة للثابت
+            uploadIfDue()
         }
     }
 
@@ -340,30 +368,88 @@ class TrackService : Service() {
 
     // ── الرفع (خيط io) ───────────────────────────────────────────────────────────────────────────
 
-    private fun execute(block: () -> Unit) {
-        try {
-            io.execute(block)
-        } catch (e: RejectedExecutionException) {
-            // الخدمة تُهدم
+    /** false: الخدمة تُهدم ولم يُقبل العمل */
+    private fun execute(block: () -> Unit): Boolean = try {
+        io.execute(block)
+        true
+    } catch (e: RejectedExecutionException) {
+        false
+    }
+
+    /**
+     * عمل رفعٍ على io والمعالج مستيقظ. القفل يُمسك هنا قبل التسليم وفي نداء الموقع نفسه: بعد عودة النداء يُفلت النظام قفله،
+     * وقد ينام المعالج قبل أن يبدأ خيط io. ويُفلت في finally على io في كل حال، ومهلته حدٌّ إن علق شيء
+     */
+    private fun executeAwake(block: () -> Unit) {
+        holdAwake()
+        val queued = execute {
+            try {
+                block()
+            } finally {
+                letSleep()
+            }
         }
+        if (!queued) letSleep()
+    }
+
+    /** يمسك القفل أو يمدّ مهلته — يُستدعى قبل كل POST، فدفعاتٌ متتالية لا تنقطع بانتهاء مهلة الأولى */
+    private fun holdAwake() {
+        try {
+            wakeLock?.acquire(WAKE_LOCK_TIMEOUT_MS)
+        } catch (e: RuntimeException) {
+            // بلا إذن WAKE_LOCK (SecurityException): الرفع يمضي بلا قفل
+        }
+    }
+
+    private fun letSleep() {
+        try {
+            wakeLock?.let { if (it.isHeld) it.release() }
+        } catch (e: RuntimeException) {
+            // لا شيء
+        }
+    }
+
+    /**
+     * يرفع إن مضت ٣٠ ثانية منذ آخر POST بالساعة المنقضية (تحسب نوم المعالج) ولم يكن في تراجعٍ بعد خطأ. يُستدعى من كل قراءة
+     * موقع ومن المؤقّت الاحتياطي، وطلبٌ مكرّر وهو في الطريق لا يُضاف (uploadQueued)
+     */
+    private fun uploadIfDue() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastUploadAttemptElapsed < TrackContract.UPLOAD_INTERVAL_MS) return
+        if (now < retryAtElapsed) return
+        requestUpload()
     }
 
     private fun requestUpload() {
         val t = token ?: return
         if (!uploadQueued.compareAndSet(false, true)) return
-        execute {
+        executeAwake {
             uploadQueued.set(false)
-            if (SystemClock.elapsedRealtime() < retryAtElapsed) return@execute
+            // يُعاد الفحص هنا: التراجع قد يتغيّر بين الطلب والتنفيذ
+            if (SystemClock.elapsedRealtime() < retryAtElapsed) return@executeAwake
             uploadRounds(t, maxRounds = 5)
         }
     }
 
-    /** دفعاتٌ متتالية حتى يفرغ الطابور أو يقع خطأ — كلها على io */
-    private fun uploadRounds(t: String, maxRounds: Int) {
-        repeat(maxRounds) {
+    /**
+     * دفعاتٌ متتالية حتى يفرغ الطابور أو يقع خطأ — كلها على io، داخل executeAwake وحده.
+     * closing: الرفع الأخير عند هدم الخدمة وحده (onDestroy) — يحمل ترويسة «الأخير» فينسى الخادم أن التطبيق يرفع
+     */
+    private fun uploadRounds(t: String, maxRounds: Int, closing: Boolean = false) {
+        repeat(maxRounds) { round ->
             val batch = queue.peek(TrackContract.MAX_BATCH)
-            if (batch.isEmpty()) return
-            val (code, body) = post(t, TrackQueue.bodyOf(batch))
+            if (batch.isEmpty()) {
+                // الطابور فارغ لحظة الهدم (الغالب: آخر رفعٍ قبل ثوانٍ): POST بلا نقاط يحمل الترويسة وحدها — الخادم يقبله بها
+                // فارغاً — وإلا بقي «التطبيق يرفع» ٩٠ ثانية عن خدمةٍ ميتة. ردّه لا يغيّر شيئاً: الخدمة انتهت
+                if (closing && round == 0) {
+                    holdAwake()
+                    post(t, TrackQueue.bodyOf(emptyList()), closing)
+                }
+                return
+            }
+            holdAwake()
+            lastUploadAttemptElapsed = SystemClock.elapsedRealtime()
+            val (code, body) = post(t, TrackQueue.bodyOf(batch), closing)
             when (TrackLogic.classify(code, body)) {
                 TrackLogic.Reply.OK -> {
                     queue.remove(batch.size)
@@ -406,7 +492,7 @@ class TrackService : Service() {
     }
 
     /** POST واحد؛ رمز الحالة (-1 لخطأ الشبكة) وجسم الردّ — الرمز لا يُسجَّل */
-    private fun post(t: String, json: String): Pair<Int, String?> {
+    private fun post(t: String, json: String, closing: Boolean): Pair<Int, String?> {
         val conn = try {
             URL(endpoint()).openConnection() as HttpURLConnection
         } catch (e: IOException) {
@@ -424,6 +510,8 @@ class TrackService : Service() {
             conn.setRequestProperty("Accept", "application/json")
             conn.setRequestProperty("Authorization", "Bearer $t")
             conn.setRequestProperty(TrackContract.DEVICE_NOW_HEADER, TrackLogic.isoUtc(System.currentTimeMillis()))
+            // في رفع الهدم وحده: رفعٌ دوري بها كان سيمحو علامة «التطبيق يرفع» والخدمة حيّة، فتُخزَّن نقاط الصفحة مكرّرةً على الخريطة
+            if (closing) conn.setRequestProperty(TrackContract.FINAL_HEADER, TrackContract.FINAL_VALUE)
             conn.setRequestProperty(
                 "User-Agent",
                 "FieldSales-Rep/${BuildConfig.VERSION_NAME} (Android ${Build.VERSION.RELEASE}; ${BuildConfig.APPLICATION_ID})",
@@ -457,6 +545,13 @@ class TrackService : Service() {
         private const val TAG = "FsTrack"
         private const val NOTIFICATION_ID = 4301
         private const val MAX_REPLY_CHARS = 16 * 1024
+        /** الوسم يظهر في إحصاءات البطارية — بلا هوية المندوب */
+        private const val WAKE_LOCK_TAG = "FieldSales:TrackUpload"
+        /**
+         * مهلة قفل اليقظة لـPOST واحد: مهلة الاتصال ومهلة القراءة (HTTP_TIMEOUT_MS لكلٍّ) وهامش. تُجدَّد قبل كل دفعة، وحدُّها يمنع
+         * شبكةً عالقة من إبقاء المعالج مستيقظاً يستنزف البطارية
+         */
+        internal const val WAKE_LOCK_TIMEOUT_MS = 2L * TrackContract.HTTP_TIMEOUT_MS + 5_000L
         const val CHANNEL_NAME = "تسجيل الموقع"
         const val NOTIFICATION_TITLE = "فيلد سيلز: يُسجَّل موقعك اليوم"
         const val NOTIFICATION_TEXT = "يتوقف التسجيل عند تسجيل الخروج أو في نهاية اليوم. اضغط لفتح التطبيق."

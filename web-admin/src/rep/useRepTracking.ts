@@ -36,7 +36,7 @@ export function useRepTracking(active: boolean, forced = false): TrackStatus {
     let tick: ReturnType<typeof setInterval> | null = null;
     let cancelled = false;
     let refreshing = false;
-    /** حُكم بالتتبّع: العودة للتطبيق في يومٍ جديد تبدأ التتبّع الخلفي في تطبيق الجوال من جديد */
+    /** حُكم بالتتبّع (لا طلب الفتح): العودة للتطبيق في يومٍ جديد تبدأ التتبّع الخلفي في تطبيق الجوال من جديد */
     let nativeOn = false;
     upload.current = initialUpload();
     if (owner.current !== currentRepId()) { buffer.current = []; owner.current = currentRepId(); }
@@ -113,6 +113,11 @@ export function useRepTracking(active: boolean, forced = false): TrackStatus {
     };
 
     const start = async () => {
+      // التتبّع الخلفي في تطبيق الجوال (أندرويد/آيفون): يستمرّ والتطبيق في الخلفية أو الشاشة مقفلة — وفي المتصفح لا شيء ولا طلب.
+      // رمزه يُطلب مع حكم التفعيل لا بعده: الإقلاع من تذكير الحضور يُظهر زرّ «تسجيل الحضور» بعد طلبٍ واحد، فكان اللمس يسبق الرمز
+      // (طلبان متتاليان) ويظهر زرّ البدء بدل البدء مع الحضور. وطلب الرمز حكمٌ بنفسه: الخادم يجيبه «لا تتبّع» حين تطفئه الشركة أو
+      // يُستثنى المندوب فيوقف هادئاً، والحكم القاطع أدناه بالإطفاء يُلغي طلباً جارياً (جيل الإيقاف)
+      void startNativeTracking(postTrackToken);
       // تتبّع فقط إن فعّلت الشركة الميزة — أو كان المندوب مقيَّداً
       let known = forced; // حكمٌ قاطع (مقيَّد أو ردّ الخادم) — فشل الطلب لا يوقف التتبّع الخلفي في تطبيق الجوال
       let enabled = forced;
@@ -125,9 +130,8 @@ export function useRepTracking(active: boolean, forced = false): TrackStatus {
         if (!cancelled && known) stopNativeTracking(undefined, { ifStarted: true });
         return;
       }
-      // التتبّع الخلفي في تطبيق الجوال (أندرويد/آيفون): يستمرّ والتطبيق في الخلفية أو الشاشة مقفلة — وفي المتصفح لا شيء
+      // حُكمٌ بالتتبّع: العودة للتطبيق تطلب الرمز من جديد (يومٌ جديد، أو تعذّر عند الفتح) — طلب الفتح نفسه صدر أعلاه
       nativeOn = true;
-      void startNativeTracking(postTrackToken);
       if (!('geolocation' in navigator)) { setStatus('unavailable'); return; }
 
       setStatus('requesting');

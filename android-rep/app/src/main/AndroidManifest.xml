@@ -56,6 +56,10 @@
          أندرويد 14+ يشترط FOREGROUND_SERVICE_LOCATION مع إذن الموقع الممنوح. البناء بلا رمز NearPay يُزيلهما (src/printonly) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+    <!-- قفل يقظةٍ قصير بمهلة حول كل دفعة رفعٍ من TrackService: الخدمة المقدّمة لا تُبقي المعالج مستيقظاً، فالشاشة مقفلة كانت
+         تقطع طلب الشبكة في منتصفه. إذنٌ عاديّ يُمنح مع التثبيت بلا سؤال ولا إعلان في Play، فلا يُزال في src/printonly:
+         بقاؤه بلا الخدمة لا يضرّ، وقائمة ما يُزال هناك يثبّتها حارس عقد الطباعة -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
 
     
 

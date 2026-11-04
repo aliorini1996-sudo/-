@@ -25,6 +25,12 @@ export const TRACK_TOKEN_MAX_LEN = 4096;
  * تُخزَّن نقطة ويبٍ في المكان نفسه — تكرارٌ لا يضرّ الخطّ.
  */
 export const NATIVE_TRACK_WINDOW_MS = 90_000;
+/**
+ * ترويسة «رفع الإغلاق»: يرسلها التطبيقان بقيمة '1' في الرفع الأخير وحده حين تتوقّف خدمة الموقع (أندرويد TrackService.onDestroy،
+ * آيفون send(closing:true)). بها ينسى الخادم «التتبّع الأصلي يعمل» فوراً بدل بقائه ٩٠ث بعد موت الخدمة: وإلا أجابت /device-token
+ * nativeActive:true عن خدمةٍ توقّفت للتوّ، فمندوبٌ خرج ثم عاد خلال النافذة لا يُطلب له بدءٌ طوال يومه، ونقاط صفحته لا تُخزَّن.
+ */
+export const TRACK_FINAL_HEADER = 'x-fs-track-final';
 
 function trackSecret(): string | null {
   const s = process.env.JWT_SECRET;
@@ -84,6 +90,15 @@ export function deviceNowMs(header: unknown): number | null {
   return isoInstantMs(s);
 }
 
+/**
+ * رفع الإغلاق: الترويسة بقيمة '1' حرفياً. غيرها (غائبةٌ أو أي قيمةٍ أخرى) رفعٌ عاديّ يعلّم «يعمل الآن» — فقيمةٌ مشوّهة من
+ * وسيطٍ أو إصدارٍ قادم لا تُطفئ علامة خدمةٍ ما زالت ترفع.
+ */
+export function isTrackFinal(header: unknown): boolean {
+  const v = Array.isArray(header) ? header[0] : header;
+  return typeof v === 'string' && v.trim() === '1';
+}
+
 /** حالة المندوب وشركته كما تُقرأ لنقطة الجهاز */
 export interface TrackRepState {
   isActive: boolean;
@@ -128,6 +143,14 @@ export function markNativeTrack(repId: string, now = Date.now()): void {
   if (nativeSeen.size > NATIVE_SWEEP_AT) {
     for (const [id, at] of nativeSeen) if (now - at > NATIVE_TRACK_WINDOW_MS) nativeSeen.delete(id);
   }
+}
+
+/**
+ * رفع الإغلاق قُبل لهذا المندوب: خدمة جهازه توقّفت ⇒ لا «يعمل الآن» — تعود نقاط صفحته تُخزَّن فوراً، و/device-token يجيب
+ * nativeActive:false فتطلب الصفحة بدءاً جديداً (لا تنتظر انقضاء النافذة عن خدمةٍ ميتة)
+ */
+export function clearNativeTrack(repId: string): void {
+  nativeSeen.delete(repId);
 }
 
 /** قُبلت نقطةٌ من الجهاز لهذا المندوب خلال النافذة (٩٠ث) */

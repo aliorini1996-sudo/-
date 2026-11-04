@@ -4,7 +4,8 @@ import prisma from '../config/database';
 import { AuthRequest } from '../types';
 import { pingLimiter, PING_IP_LIMIT } from '../middleware/rateLimits';
 import {
-  bearerToken, verifyTrackToken, deviceTrackDecision, deviceNowMs, isoInstantMs, markNativeTrack, TRACK_TOKEN_INVALID,
+  bearerToken, verifyTrackToken, deviceTrackDecision, deviceNowMs, isoInstantMs, markNativeTrack, clearNativeTrack, isTrackFinal,
+  TRACK_FINAL_HEADER, TRACK_TOKEN_INVALID,
 } from '../services/deviceTrack';
 import { DEVICE_NOW_HEADER } from '../services/liveLocation';
 import { pingSchema, storeRepPings, PingPoint } from './tracking';
@@ -54,7 +55,11 @@ const cleanPoint = (p: PingPoint): PingPoint =>
 router.post('/ping', deviceIpLimiter, requireTrackToken, pingLimiter, async (req: Request, res: Response<unknown, TrackLocals>, next: NextFunction) => {
   try {
     const { repId, tenantId: tid } = res.locals.track;
-    const { points } = pingSchema.parse(req.body);
+    // رفع الإغلاق (TRACK_FINAL_HEADER) قد يأتي بلا نقطة: طابور الجهاز فارغٌ لحظة التوقّف، والنسيان هو المقصود منه — فيُقبل فارغاً
+    // بالترويسة وحدها. والرفع العاديّ بمخطّط /ping نفسه (١–٢٠٠ نقطة)
+    const final = isTrackFinal(req.headers[TRACK_FINAL_HEADER]);
+    const sent = (req.body as { points?: unknown } | undefined)?.points;
+    const points: PingPoint[] = final && Array.isArray(sent) && sent.length === 0 ? [] : pingSchema.parse(req.body).points;
 
     const [settings, rep] = await Promise.all([
       prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { trackingEnabled: true } }),
@@ -71,8 +76,13 @@ router.post('/ping', deviceIpLimiter, requireTrackToken, pingLimiter, async (req
 
     // ساعة الجهاز رقماً أو ISO-8601 ⇒ رقمٌ كما يقرؤه correctCapturedAt (الويب يرسل الرقم)
     const dn = deviceNowMs(req.headers[DEVICE_NOW_HEADER]);
-    const stored = await storeRepPings(tid, repId, points.map(cleanPoint), dn != null ? String(dn) : undefined, rep?.requireLocationOn === true);
-    markNativeTrack(repId);
+    // storeRepPings يفترض نقطةً واحدة على الأقل (أحدثها يحرّك الدبّوس) — فرفع الإغلاق الفارغ لا يمرّ بها
+    const stored = points.length
+      ? await storeRepPings(tid, repId, points.map(cleanPoint), dn != null ? String(dn) : undefined, rep?.requireLocationOn === true)
+      : 0;
+    // نقاط الإغلاق تُخزَّن كغيرها، ثم يُنسى «يعمل الآن»: الخدمة توقّفت، فلا تُسقَط نقاط الصفحة ولا يُمنع بدءٌ جديد ٩٠ث بعدها
+    if (final) clearNativeTrack(repId);
+    else markNativeTrack(repId);
     res.json({ success: true, data: { stored } });
   } catch (err) { next(err); }
 });

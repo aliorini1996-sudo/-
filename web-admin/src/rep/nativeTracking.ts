@@ -21,8 +21,11 @@
  *     startNativeTrackingOnPunch تفتح الرابط في أوّل اللمسة، والبصمة تُكمل بعد العودة من شاشة التطبيق (فلا تُقرأ قراءتها والصفحة
  *     مخفيّة). وعلى الآيفون كذلك: البدء مع الحضور ليتّفق الجوالان.
  *   - وإلا على أندرويد: زرّ «اضغط لتشغيل تسجيل الموقع» (والآيفون يبدأ فوراً بلا لمسة).
+ *   - لمسة الحضور والرمز في الطريق (الإقلاع من تذكير الحضور: زرّ الحضور يظهر قبل الرمز): تنتظر ردّه حتى PUNCH_TOKEN_WAIT_MS ثم
+ *     تفتح الرابط داخلها — بعده (أو إيماءةٌ انقضت) فالزرّ.
  * لا تُستعار لمسةٌ أخرى ولا إيماءةٌ قائمة، فلا يتقاسم البدء إيماءة الطباعة أو التحصيل بالبطاقة ولا يسبق رابطيهما. وجهازٌ يرفع الآن
- * (nativeActive) لا يُطلب له بدءٌ ثانٍ.
+ * (nativeActive) وبدأه هذا الجهاز ولم يوقفه لا يُطلب له بدءٌ ثانٍ — أمّا بعد إيقافه (خروجٌ ثم دخولٌ سريع) فقد يكون «يرفع الآن» آخرَ
+ * دفعةٍ من خدمةٍ ماتت، فيُسلَّح البدء كالعادة.
  * واللمسة نفسها تُعدّ تسليماً فيُعلَّم اليوم معها — لا يُرهن بإخفاء الصفحة (شاشة التطبيق قد لا تُخفيها، وإعادة الرابط تعني إفصاحاً
  * ثانياً وبدءاً مكرّراً). ومن رابط غريبٍ يحمي التطبيق نفسه: الموافقة مربوطةٌ بهوية الرمز (TrackActivity).
  *
@@ -240,6 +243,12 @@ export function trackTokenReplyOf(body: unknown): TrackTokenReply | null {
 /** أقصى انتظار البصمة لعودة الصفحة من شاشة التطبيق (الإفصاح أول مرة يُقرأ) — بعده تُكمل البصمة على أيّ حال */
 export const PUNCH_RETURN_MAX_MS = 60_000;
 
+/**
+ * أقصى انتظار لمسة الحضور لرمزٍ في الطريق قبل أن تفتح الرابط داخلها (أندرويد): دون صلاحية إيماءة Chrome (~٥ث) ودون مهلة إيماءة
+ * جسر الطباعة (LAUNCH_GESTURE_MS = ٣ث) فتبقى اللمسة حيّة عند الفتح، وتأخيرٌ يحتمله الحضور. بعده يعرض الردّ الزرّ كما كان
+ */
+export const PUNCH_TOKEN_WAIT_MS = 2_500;
+
 /** علامة يوم البدء: اليوم ومندوبه — مندوبٌ آخر (أو يومٌ آخر) ⇒ «لم يبدأ» */
 function dayMark(day: string, rep: string | null): string {
   return `${day}|${rep ?? ''}`;
@@ -254,12 +263,17 @@ function dayMark(day: string, rep: string | null): string {
 interface Pending {
   mark: string;
   token: string;
+  /** بزرّه (أندرويد) — وبلا زرّ ينتظر لمسة الحضور؛ فإن مضى الحضور وانقضت إيماءته صار زرّاً */
+  chip: boolean;
   restart: () => void;
   cancel: () => void;
 }
 interface TrackState {
   gen: number;
+  /** علامة اليوم التي يُطلب رمزها الآن */
   busy: string | null;
+  /** الطلب الجاري ومعالجة ردّه (مع busy): لمسة حضورٍ تسبق الرمز تنتظره لتفتح الرابط داخلها — يستقرّ دائماً ولا يُرفض */
+  flight: Promise<void> | null;
   pending: Pending | null;
   halted: { session: string | null } | null;
   /** لمسة حضورٍ وقعت ولا بدء مسلَّحاً (الرمز لم يصل بعد): ردٌّ يقول waitPunch بعدها يعرض الزرّ — الحضور مضى */
@@ -269,7 +283,7 @@ const states = new WeakMap<object, TrackState>();
 function stateOf(env: NativeTrackEnv): TrackState {
   const k = env.app.win as object;
   let st = states.get(k);
-  if (!st) { st = { gen: 0, busy: null, pending: null, halted: null, punchTap: null }; states.set(k, st); }
+  if (!st) { st = { gen: 0, busy: null, flight: null, pending: null, halted: null, punchTap: null }; states.set(k, st); }
   return st;
 }
 
@@ -321,6 +335,7 @@ function arm(token: string, env: NativeTrackEnv, st: TrackState, mark: string, g
   const pending: Pending = {
     mark,
     token,
+    chip,
     restart,
     cancel: () => {
       if (remove) { const r = remove; remove = null; try { r(); } catch { /* */ } }
@@ -368,7 +383,19 @@ export async function startNativeTracking(post: TrackTokenPost, env: NativeTrack
       st.pending.cancel(); // يومٌ مضى أو مندوبٌ آخر: زرّه ورمزه لا يصلحان
     }
     st.busy = mark;
-    const gen = st.gen;
+    // الطلب ومعالجة ردّه وعدٌ واحد تنتظره لمسة حضورٍ سبقت الرمز (startNativeTrackingOnPunch)
+    const run = requestStart(post, env, st, platform, mark, st.gen);
+    st.flight = run;
+    await run;
+    if (st.flight === run) st.flight = null;
+  } catch { /* التتبّع الخلفي لا يكسر التطبيق */ }
+}
+
+/** طلب الرمز ثم تسليمه أو تسليحه — يستقرّ دائماً ولا يرمي */
+async function requestStart(
+  post: TrackTokenPost, env: NativeTrackEnv, st: TrackState, platform: 'android' | 'ios', mark: string, gen: number,
+): Promise<void> {
+  try {
     let reply: ReturnType<typeof trackTokenReplyOf> = null;
     try { reply = trackTokenReplyOf((await post(TRACK_TOKEN_PATH, {}, { background: true }))?.data); } catch { reply = null; }
     // أُوقف أثناء الطلب (خروج المندوب): رمزه لا يُسلَّم — والإيقاف حرّر القفل لمن دخل بعده
@@ -376,20 +403,24 @@ export async function startNativeTracking(post: TrackTokenPost, env: NativeTrack
     st.busy = null;
     if (!reply) return; // شبكةٌ أو ردٌّ غير متوقَّع: العودة التالية للتطبيق تحاول
     if (!reply.enabled) { stopNativeTracking(env, { ifStarted: true }); return; }
-    // جهاز أندرويد يرفع الآن (بدأ اليوم من تبويبٍ سابق): لا لمسة ولا بدء ثانٍ. والآيفون يُرسل بلا لمسة فيتجدّد رمزه
-    if (platform === 'android' && reply.nativeActive) { markStarted(env, mark); return; }
+    // جهاز أندرويد يرفع الآن وبدأه هذا الجهاز ولم يوقفه (تبويبٌ سابق، أو إعادة تشغيل التطبيق): لا لمسة ولا بدء ثانٍ. أمّا بعد إيقافٍ من
+    // هنا (خروجٌ ثم دخولٌ خلال ٩٠ث) فـnativeActive قد يكون آخر دفعةٍ من خدمةٍ توقفت — تصديقه يعلّم اليوم بلا خدمة حتى آخره، فيُسلَّح
+    // البدء كالعادة (وبدءٌ ثانٍ على خدمةٍ تعمل لا يضرّ: تأخذ رمزه وتستمرّ). والآيفون يُرسل بلا لمسة فيتجدّد رمزه
+    if (platform === 'android' && reply.nativeActive && getItem(env.local, SENT_KEY) === '1') { markStarted(env, mark); return; }
     // ينتظر لمسة الحضور — إلا إن وقعت لمسة الحضور قبل وصول الرمز (الحضور مضى، فالزرّ)
     const waitPunch = reply.waitPunch && st.punchTap !== mark;
     const restart = () => { void startNativeTracking(post, env); };
     if (platform === 'ios' && !waitPunch) { void deliver(env, 'ios', reply.token, mark); return; }
     arm(reply.token, env, st, mark, gen, restart, platform === 'android' && !waitPunch);
-  } catch { /* التتبّع الخلفي لا يكسر التطبيق */ }
+  } catch { /* */ }
 }
 
 /**
  * لمسة «تسجيل الحضور» (RepAttendance): تُستدعى متزامنةً في أوّل اللمسة قبل أيّ انتظار. بدءٌ مسلَّح (بانتظار الحضور أو بزرّه) يُسلَّم
  * داخلها — ويُزال زرّه — ويُوعد بعودة الصفحة من شاشة التطبيق (حدّاً PUNCH_RETURN_MAX_MS) لتقرأ البصمة موقعها والصفحة ظاهرة.
- * بلا بدءٍ مسلَّح يُعاد فوراً: إن كان الرمز في الطريق عُلّمت اللمسة فيعرض ردُّه الزرّ. بلا تطبيق لا شيء. لا يرمي أبداً.
+ * بلا بدءٍ مسلَّح والرمز في الطريق (الإقلاع من تذكير الحضور، أندرويد): تنتظر ردّه حتى PUNCH_TOKEN_WAIT_MS — فإن سلّح بدءاً والإيماءة
+ * حيّة سُلّم داخلها، وإلا عُلّمت اللمسة فيعرض الردّ (أو البدء المسلَّح) الزرّ. والآيفون لا ينتظر: رسالته لا تحتاج إيماءة، فاللمسة
+ * المعلَّمة تجعل الردّ يُسلَّم فور وصوله. بلا تطبيق لا شيء. لا يرمي أبداً، والوعد يستقرّ دائماً.
  */
 export function startNativeTrackingOnPunch(env: NativeTrackEnv | null = browserTrackEnv()): Promise<void> {
   try {
@@ -399,11 +430,56 @@ export function startNativeTrackingOnPunch(env: NativeTrackEnv | null = browserT
     const st = stateOf(env);
     const mark = dayMark(deviceDay(env.now()), env.repId());
     const p = st.pending;
-    if (!p) { st.punchTap = mark; return Promise.resolve(); }
-    p.cancel();
-    if (p.mark !== mark) { p.restart(); return Promise.resolve(); }
-    return deliver(env, platform, p.token, mark);
+    if (p) return deliverPending(env, platform, p, mark);
+    const flight = st.busy === mark ? st.flight : null;
+    if (platform === 'android' && flight) return punchAfterFlight(env, st, flight, mark, st.gen);
+    st.punchTap = mark;
+    return Promise.resolve();
   } catch { return Promise.resolve(); }
+}
+
+/** البدء المسلَّح داخل لمسة الحضور (ويُزال زرّه) — أو رمزٌ جديد إن تبدّل اليوم أو المندوب قبلها */
+function deliverPending(env: NativeTrackEnv, platform: 'android' | 'ios', p: Pending, mark: string): Promise<void> {
+  p.cancel();
+  if (p.mark !== mark) { p.restart(); return Promise.resolve(); }
+  return deliver(env, platform, p.token, mark);
+}
+
+/** حتى يستقرّ الوعد أو تمضي ms (مؤقّت الصفحة) — يستقرّ دائماً */
+function settledWithin(app: AppEnv, p: Promise<unknown>, ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    let over = false;
+    let timer: unknown = null;
+    const done = () => {
+      if (over) return;
+      over = true;
+      if (timer !== null) { try { app.clearTimeout(timer); } catch { /* */ } }
+      resolve();
+    };
+    // بلا مؤقّت لا انتظار: طلبٌ معلّق لا يُعلّق البصمة
+    try { timer = app.setTimeout(done, ms); } catch { done(); }
+    p.then(done, done);
+  });
+}
+
+/**
+ * لمسة حضورٍ سبقت الرمز (أندرويد): ردٌّ سلّح بدءاً خلال PUNCH_TOKEN_WAIT_MS والإيماءة حيّة (أو لا يُعرف حالها) ⇒ يُفتح الرابط داخل
+ * اللمسة ويُنتظر عودة الصفحة كالعادة. انقضت الإيماءة ⇒ البدء المنتظِر للحضور يصير زرّاً (الحضور مضى). لم يصل الردّ ⇒ تُعلَّم اللمسة
+ * فيعرض الردّ الزرّ. وإيقافٌ أثناء الانتظار (خروج) يُسقطها كلها.
+ */
+function punchAfterFlight(env: NativeTrackEnv, st: TrackState, flight: Promise<void>, mark: string, gen: number): Promise<void> {
+  return settledWithin(env.app, flight, PUNCH_TOKEN_WAIT_MS).then(() => {
+    try {
+      if (st.gen !== gen) return undefined;
+      const p = st.pending;
+      if (!p) { st.punchTap = mark; return undefined; }
+      const now = dayMark(deviceDay(env.now()), env.repId());
+      // الإيماءة تُفحص هنا وحدها: لمسة الحضور نفسها بعد انتظارٍ قصير — لا إيماءةٌ أخرى تُستعار
+      if (p.mark !== now || env.app.activation() !== false) return deliverPending(env, 'android', p, now);
+      if (!p.chip) { p.cancel(); arm(p.token, env, st, p.mark, gen, p.restart, true); }
+    } catch { /* */ }
+    return undefined;
+  }).catch(() => undefined);
 }
 
 /**
@@ -419,6 +495,7 @@ export function stopNativeTracking(env: NativeTrackEnv | null = browserTrackEnv(
     const st = stateOf(env);
     st.gen += 1;
     st.busy = null;
+    st.flight = null;
     st.pending?.cancel();
     st.pending = null;
     if (!opts.ifStarted) st.halted = { session: env.sessionKey() };

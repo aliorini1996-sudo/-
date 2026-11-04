@@ -112,6 +112,29 @@ test('«التتبّع الأصلي يعمل الآن»: نافذة ٩٠ث لك�
   assert.equal(dt.nativeTrackActive('rep1', t0 + 150_000), false);
 });
 
+test('رفع الإغلاق: الترويسة المشتركة x-fs-track-final بقيمة 1 وحدها، وclearNativeTrack ينسى المندوب وحده', () => {
+  // قيمةٌ مشتركة مع أندرويد (TrackService.onDestroy) وآيفون (send(closing:true)) — تغييرها في جهةٍ يُبقي العلامة ٩٠ث بصمت
+  assert.equal(dt.TRACK_FINAL_HEADER, 'x-fs-track-final');
+  assert.equal(dt.isTrackFinal('1'), true);
+  assert.equal(dt.isTrackFinal(' 1 '), true);
+  assert.equal(dt.isTrackFinal(['1']), true);
+  for (const v of [undefined, '', '0', 'true', 'yes', '11', 1, true, ['0']]) assert.equal(dt.isTrackFinal(v), false, String(v));
+
+  dt.resetNativeTrack();
+  const t0 = 1_000_000_000_000;
+  dt.markNativeTrack('rep1', t0);
+  dt.markNativeTrack('rep2', t0);
+  dt.clearNativeTrack('rep1');
+  assert.equal(dt.nativeTrackActive('rep1', t0 + 1_000), false, 'الخدمة توقّفت — لا انتظار للنافذة');
+  assert.equal(dt.nativeTrackActive('rep2', t0 + 1_000), true, 'لا يمسّ غيره');
+  // مندوبٌ لم يُعلَّم أصلاً: لا خطأ
+  dt.clearNativeTrack('nobody');
+  // بدءٌ جديد بعد الإغلاق يعلّمه من جديد
+  dt.markNativeTrack('rep1', t0 + 5_000);
+  assert.equal(dt.nativeTrackActive('rep1', t0 + 6_000), true);
+  dt.resetNativeTrack();
+});
+
 test('حكم نقطة الجهاز: المندوب/الشركة ⇒ gone، التتبّع مطفأ لغير المقيَّد ⇒ off، وإلا on', () => {
   const now = Date.now();
   const tenant = { isActive: true, subscriptionEndsAt: null as Date | null };
