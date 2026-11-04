@@ -2,7 +2,10 @@
 // منتصف A4 بعرض 8.0 بوصة، والنسخ الموسومة، ومظهر الطباعة (الافتراضي = اليوم حرفاً بحرف)، ومقاس صفحة الـPDF من جذر القالب.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TEMPLATE_WIDTH_PX, buildPageDocument, copiesOf, copyLabelHtml, pagePrintGeom, pageRule, pageSizeOf } from './printPage';
+import {
+  LAYOUT_BREAK_CSS, LAYOUT_FREE_BREAK_CSS, TEMPLATE_WIDTH_PX, buildPageDocument, copiesOf, copyAnchorOf, copyLabelHtml, freeSheetHtml, pagePrintGeom, pageRule,
+  pageSizeOf,
+} from './printPage';
 import { DEFAULT_PRINT_LOOK, PRINT_LOOK_CSS, SHEET_WIDTH_PX, lookFor, lookNeedsCss, lookRootAttrs, pdfFormatOfPaper } from './printLook';
 import { pdfPageOf } from './pdf';
 import {
@@ -117,7 +120,11 @@ test('الرمز المختوم في قالب الصفحة لا يُصغَّر �
   // ثوابت الحساب هي ما يرسمه القالب فعلاً: عرض 794 بكسل وصورة الرمز 176 بكسل بهامش خلية (margin: 1)
   assert.equal(PAGE_TEMPLATE_WIDTH_PX, SHEET_WIDTH_PX);
   const rep = fs.readFileSync(path.join(process.cwd(), 'src', 'rep', 'RepDocuments.tsx'), 'utf8');
-  assert.ok(rep.includes(`<QrImage value={zDecision.qr.value} size={${PAGE_STAMPED_QR_PX}} ec="L" scale={4} />`));
+  // «التحرير الحرّ» (P3): مربع QR في لوحةٍ أكبر يُكبّر الصورة (imgPx) ولا يصغّرها أبداً تحت 176 — إحدى الصيغتين
+  const fixed = rep.includes(`<QrImage value={zDecision.qr.value} size={${PAGE_STAMPED_QR_PX}} ec="L" scale={4} />`);
+  const grown = rep.includes(`<QrImage value={zDecision.qr.value} size={imgPx(${PAGE_STAMPED_QR_PX})} ec="L" scale={4} />`)
+    && /const imgPx = \(today: number\): number => \([^;]*Math\.max\(today, [^;]*\) : today\);/.test(rep);
+  assert.ok(fixed || grown, 'رمز الصفحة المختوم لم يعد 176 بكسل على الأقل');
   assert.ok(rep.includes("QRCode.toDataURL(value, { width: size * scale, margin: 1, errorCorrectionLevel: ec })"));
   // 58×200 مم كان يعطي ~0.14 مم للخلية (الرمز ~13 مم) — مرفوضٌ الآن في النواة لا في الواجهة وحدها
   assert.ok(pageQrModuleMm(58, STAMPED_QR_CELLS.max) < 0.15);
@@ -153,4 +160,59 @@ test('«تخطيط المطبوعات»: المظهر يحمل التخطيط م
   assert.deepEqual(lookRootAttrs(grid), { ...lookRootAttrs(lookFor(imp)), 'data-print-layout': 'grid_bilingual' });
   assert.equal(grid.qrSlotPx, lookFor(imp).qrSlotPx, 'خانة رمز النقطية تغيّرت بالتصميم');
   assert.deepEqual(lookFor(legacyThermalProfile()), DEFAULT_PRINT_LOOK);
+});
+
+// ─── «التحرير الحرّ» (طلب المالك ٣ نوفمبر ٢٠٢٦): قاعدة القصّ الثانية ومرساة وسم النسخة ───
+
+test('التحرير الحرّ: LAYOUT_FREE_BREAK_CSS ثابتٌ ثانٍ يُضاف لورقةٍ حرّة وحدها — وثيقة ورقة التخطيط العادية كما هي حرفاً', () => {
+  const g = pagePrintGeom(legacyPageProfile());
+  const std = '<div data-print-layout="standard"><div data-section="totals">A</div></div>';
+  const doc = buildPageDocument([std], g, '');
+  assert.ok(doc.includes(LAYOUT_BREAK_CSS) && !doc.includes(LAYOUT_FREE_BREAK_CSS), 'ورقة تخطيطٍ بلا مفاتيح حرّة أخذت القاعدة الثانية');
+  assert.equal(LAYOUT_BREAK_CSS, '[data-print-layout] tr, [data-print-layout] [data-section="totals"], [data-print-layout] [data-section="signatures"] { break-inside: avoid; page-break-inside: avoid; }');
+  for (const free of [
+    '<div data-print-layout="standard" data-print-canvas="1"><div data-section="canvas-header" data-copy-anchor="">H</div></div>',
+    '<div data-print-layout="grid_bilingual"><div data-sec="header" data-copy-anchor=""><div data-section="header">H</div></div></div>',
+    '<div data-print-layout="standard"><div data-section="logo">L</div></div>',
+    '<div data-print-layout="grid_bilingual"><div data-section="qr">Q</div></div>',
+  ]) {
+    const d = buildPageDocument([std, free], g, '');
+    assert.ok(d.includes(`${LAYOUT_BREAK_CSS}\n    ${LAYOUT_FREE_BREAK_CSS}\n`), free);
+    // بلا القاعدة الثانية: الوثيقة نفسها حرفاً
+    assert.equal(d.replace(`\n    ${LAYOUT_FREE_BREAK_CSS}`, ''), buildPageDocument([std, free.replace(/data-(print-canvas|copy-anchor)=/g, 'data-x=').replace(/data-section="(logo|qr)"/g, 'data-x="$1"')], g, '')
+      .replace(/data-x=""/g, 'data-copy-anchor=""').replace(/data-x="1"/g, 'data-print-canvas="1"').replace(/data-x="(logo|qr)"/g, 'data-section="$1"'));
+  }
+  // ورقةٌ بلا تخطيط (data-print-layout) لا تأخذ أيّاً من القاعدتين ولو حملت سمةً حرّة
+  assert.ok(!buildPageDocument(['<div data-copy-anchor="">A</div>'], g, '').includes('break-inside'));
+  for (const sel of ['[data-section^="canvas-"]', '[data-section="logo"]', '[data-section="qr"]']) assert.ok(LAYOUT_FREE_BREAK_CSS.includes(`[data-print-layout] ${sel}`), sel);
+  assert.ok(!/zoom|filter/.test(LAYOUT_FREE_BREAK_CSS));
+  assert.equal(freeSheetHtml('<div data-print-layout="standard"><div data-section="totals"></div></div>'), false);
+});
+
+/** عنصرٌ بسيط بلا DOM: أبناءٌ بوسم، وquerySelector على سمة المرساة وحدها (بعمق) */
+interface FakeEl { tagName: string; anchor?: boolean; children: FakeEl[] }
+const fake = (tagName: string, children: FakeEl[] = [], anchor = false): FakeEl => ({ tagName, children, anchor });
+const asRoot = (el: FakeEl) => ({
+  children: el.children as unknown as HTMLCollection,
+  querySelector: ((sel: string) => {
+    assert.equal(sel, '[data-copy-anchor]');
+    const walk = (n: FakeEl): FakeEl | null => { for (const c of n.children) { if (c.anchor) return c; const d = walk(c); if (d) return d; } return null; };
+    return walk(el) as unknown as Element | null;
+  }) as ParentNode['querySelector'],
+});
+
+test('التحرير الحرّ: وسم النسخة بعد المرساة الصريحة (الرأس/لوحة الرأس) — وبلاها أوّل عنصرٍ ليس STYLE كاليوم', () => {
+  const head = fake('DIV');
+  const today = fake('DIV', [fake('STYLE'), head, fake('DIV')]);
+  assert.equal(copyAnchorOf(asRoot(today)), head as unknown as Element, 'بلا مرساة: كاليوم');
+  const logo = fake('DIV');
+  const header = fake('DIV', [], true);
+  const free = fake('DIV', [logo, header, fake('DIV')]);
+  assert.equal(copyAnchorOf(asRoot(free)), header as unknown as Element, 'كتلة الشعار أعلى الورقة لا تأخذ الوسم');
+  const band = fake('DIV', [], true);
+  const nested = fake('DIV', [fake('DIV', [band]), fake('DIV', [], true)]);
+  assert.equal(copyAnchorOf(asRoot(nested)), band as unknown as Element, 'أوّل مرساةٍ في ترتيب الوثيقة');
+  assert.equal(copyAnchorOf(asRoot(fake('DIV', [fake('STYLE')]))), undefined);
+  const src = fs.readFileSync(path.join(process.cwd(), 'src/rep/printPage.ts'), 'utf8');
+  assert.ok(src.includes("if (label) copyAnchorOf(clone)?.insertAdjacentHTML('afterend', copyLabelHtml(label));"));
 });

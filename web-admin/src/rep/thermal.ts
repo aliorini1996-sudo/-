@@ -21,6 +21,9 @@ import { COPY_SLOT, LEGACY_THERMAL_GEOM, buildThermalDocument, rollHeightMm, the
 import { invoiceLotsOf, lotLineText } from './docLots';
 // «تخطيط المطبوعات» (pl_spec v2 — B2/C(iii)): الشعار في الوسط أو بلا شعار وحجمه، وترتيب الأقسام — null ⇒ رول اليوم حرفاً بحرف
 import { logoBox, orderedSections, resolveLayout, rollSectionsHtml, type ResolvedLayout } from '../lib/print/layout';
+// «التحرير الحرّ» (طلب المالك ٣ نوفمبر ٢٠٢٦، pd_spec B.2/B.3/C.(iii)): حجم الشعار بالملّيمتر ومحاذاته ومكانه كتلةً مستقلة، ولكل قسم
+// إظهار/إخفاء ومحاذاة وحجم خط ومسافة — كلّه خلف hasFreeLayout، فقالبٌ بلا المفاتيح الأربعة يطبع كما قبلها حرفاً بحرف
+import { DEFAULT_SECTIONS, fontPx, hasFreeLayout, logoPlan, sectionCssText, sectionLook, visibleOrder, type LogoPlan } from '../lib/print/layout';
 import type { SectionId } from '../lib/print/printSettingsCore';
 
 type Tr = (ar: string) => string;
@@ -41,6 +44,11 @@ export interface ThermalPrintOptions {
   sampleBanner?: string | null;
   /** معاينة محرّر «نصوص المطبوعات»: الوثيقة نفسها تُسلَّم هنا بدل الطباعة (الكلاسيكي والجديدان) */
   capture?: ((html: string) => void) | null;
+  /**
+   * مصمّم الشريط بالسحب (pd_spec B.5): وسم `data-pd` على كل قسمٍ وعلى الشعار ليضع المصمّم مقابضه فوقها — للمعاينة وحدها،
+   * والطباعة الحقيقية لا تمرّره أبداً. الكلاسيكي بلا وسوم (لا يُحرَّر إلا نسخةً مختصرة).
+   */
+  markers?: boolean;
 }
 
 /** طباعةٌ تُرفض بسبب يقرؤه المندوب — الصنف في lib/print/printErrors.ts (يرميه رسم البلوتوث أيضاً)، ويُصدَّر من هنا كما كان */
@@ -55,6 +63,10 @@ interface Roll {
   wide: boolean;
   /** تخطيط القالب (options.layout) — null ⇒ الشعار والترتيب كاليوم حرفاً بحرف (بلا تخطيط، أو الملف الافتراضي المستبدَل) */
   layout: ResolvedLayout | null;
+  /** أحد المفاتيح الحرّة الأربعة (logoMm/logoAfter/sections/canvas) — وإلا مسار التخطيط كما كان حرفاً بحرف */
+  free: boolean;
+  /** وسوم المصمّم (ThermalPrintOptions.markers) */
+  markers: boolean;
 }
 
 /**
@@ -77,11 +89,12 @@ function rollOf(opts: ThermalPrintOptions | undefined, company: InvoiceDoc['comp
     p = { ...legacyThermalProfile(), template: 'roll_compact' };
   }
   const pt = makePrintTexts(texts, opts?.tr ?? asIs, { standard });
+  const layout = resolveLayout(p);
   return {
     profile: p, o: p.options, tr: pt.tr, detailed: p.template === 'roll_detailed',
     raster: opts?.raster ?? null, banner: opts?.sampleBanner ?? null, capture: opts?.capture ?? null,
     pt, wide: geometry(p).printableWidthMm >= 70,
-    layout: resolveLayout(p),
+    layout, free: hasFreeLayout(layout), markers: !!opts?.markers,
   };
 }
 
@@ -144,8 +157,8 @@ function dt(d: string): string {
  * وفي تطبيق الآيفون (iosSystemPrintAvailable) الوثيقة نفسها إلى نافذة الطباعة في التطبيق: print() في WKWebView لا يفتحها،
  * والتطبيق يقسّم الصفحات بمقاس الورق المختار هناك.
  */
-function printHTML(body: string, geom: ThermalGeom = LEGACY_THERMAL_GEOM): void | Promise<void> {
-  const html = buildThermalDocument(body, geom);
+function printHTML(body: string, geom: ThermalGeom = LEGACY_THERMAL_GEOM, freeCss?: string): void | Promise<void> {
+  const html = buildThermalDocument(body, geom, undefined, freeCss);
   if (iosSystemPrintAvailable()) return iosSystemPrint(html, geom.paperWidthMm, '');
 
   const iframe = document.createElement('iframe');
@@ -436,8 +449,10 @@ const rollGeom = (r: Roll): ThermalGeom => thermalGeom(r.profile, [r.tr('الأ�
 function deliverRoll(body: string, r: Roll): void | Promise<void> {
   const b = r.banner ? `${r.banner}${body}${r.banner}` : body;
   const geom = rollGeom(r);
-  if (r.capture) { r.capture(buildThermalDocument(b, geom)); return; }
-  return r.raster ? r.raster(buildThermalDocument(b, geom), geom) : printHTML(b, geom);
+  // «التحرير الحرّ»: قواعد الأقسام وشكل الجدول في <style> ثانٍ — '' بلا تحرير فالوثيقة كما كانت
+  const css = rollFreeCss(r) || undefined;
+  if (r.capture) { r.capture(buildThermalDocument(b, geom, undefined, css)); return; }
+  return r.raster ? r.raster(buildThermalDocument(b, geom, undefined, css), geom) : printHTML(b, geom, css);
 }
 
 /** شعارٌ يُطمأنّ إليه في <img>: صورة نقطية بصيغة data URL كما يحفظها صفّ الشركة — وغيره لا يُطبع */
@@ -456,16 +471,110 @@ function rollQr(d: ZatcaPrintDecision, qr: string, profile: PrintProfile): strin
   return `<div class="qrbox" style="--qr:${Math.round(plan.sizeMm * 100) / 100}mm">${qr}</div>`;
 }
 
+/** المحاذاة المنطقية بحافة الورق الفعلية: البداية يمين الشريط (RTL) — وhtml2canvas لا يعرف start/end فتُكتب فيزيائياً */
+const PHYS_ALIGN = Object.freeze({ start: 'right', center: 'center', end: 'left' } as const);
+type RollAlign = keyof typeof PHYS_ALIGN;
+const JUSTIFY: Readonly<Record<RollAlign, string>> = Object.freeze({ start: 'flex-start', center: 'center', end: 'flex-end' });
+const mmCss = (n: number): string => `${Math.round(n * 10) / 10}mm`;
+
+/**
+ * خطة الشعار الحرّة (logoPlan من المحرّك): الحجم الأقصى بالملّيمتر ومحاذاته ومكانه — null بلا مفتاحٍ حرّ للشعار (حجم اليوم s/m/l).
+ * دفاعاً: لا يتجاوز عرض الحزمة المطبوعة ولا 80 مم (B.2)، ولا ينزل عن 6 مم.
+ */
+function rollLogoPlan(r: Roll): LogoPlan | null {
+  if (!r.free || !r.layout) return null;
+  const band = geometry(r.profile).printableWidthMm;
+  const plan = logoPlan(r.layout, 'classic', 'roll', band);
+  if (!plan) return null;
+  const cap = (v: number): number => (Number.isFinite(v) ? Math.min(Math.max(v, 6), band, 80) : Math.min(band, 16));
+  return { ...plan, maxWmm: cap(plan.maxWmm), maxHmm: cap(plan.maxHmm) };
+}
+
+/**
+ * أين يُطبع الشعار: داخل الرأس كاليوم ('header')، أو كتلةً مستقلة أوّل الشريط ('top') أو بعد قسمٍ من أقسام الرول (B.2).
+ * قسمٌ ليس من أقسام الرول (مسودّةٌ فاسدة) ⇒ داخل الرأس، فلا يضيع الشعار.
+ */
+function rollLogoAt(r: Roll): 'header' | 'top' | SectionId {
+  const at = rollLogoPlan(r)?.at ?? 'header';
+  if (at === 'header' || at === 'top') return at;
+  return DEFAULT_SECTIONS.thermal.includes(at) ? at : 'header';
+}
+
 /**
  * صورة الشعار: بلا تخطيط كما اليوم حرفاً بحرف (أسلوب `.logo img` في الوثيقة)؛ وبتخطيطٍ «بلا شعار» لا صورة، وحجمه نسبةٌ من عرض
- * اليوم (logoBox: px = max-width المئوية — 36/48/60) والارتفاع بالنسبة نفسها من 16 مم. الرول في الوسط دائماً.
+ * اليوم (logoBox: px = max-width المئوية — 36/48/60) والارتفاع بالنسبة نفسها من 16 مم.
+ * «التحرير الحرّ»: logoMm صندوقٌ أقصى بالملّيمتر (العرض والارتفاع ≤ logoMm بـmax-width/max-height فلا تمطيط — B.2)، والمحاذاة
+ * يمين/وسط/يسار (الوسط بصنف اليوم `c` حرفاً بحرف). `standalone` = كتلة الشعار المستقلة (data-sec="logo").
  */
-function rollLogo(logo: string, r: Roll): string {
-  if (!r.layout) return `<div class="c logo"><img src="${logo}" alt=""/></div>`;
+function rollLogo(logo: string, r: Roll, standalone = false): string {
+  const pd = r.markers ? ' data-pd="logo"' : '';
+  if (!r.layout) return `<div class="c logo"${pd}><img src="${logo}" alt=""/></div>`;
+  const plan = rollLogoPlan(r);
   const box = logoBox(r.layout, 'classic', 'roll');
-  if (!box.show) return '';
-  const style = box.px === 60 ? '' : ` style="max-width:${box.px}%;max-height:${Math.round((16 * box.px) / 60 * 10) / 10}mm"`;
-  return `<div class="c logo"><img src="${logo}" alt=""${style}/></div>`;
+  if (!(plan ? plan.show : box.show)) return '';
+  const align: RollAlign = plan ? plan.align : r.layout.logo === 'start' || r.layout.logo === 'end' ? r.layout.logo : 'center';
+  const style = plan
+    ? ` style="max-width:${mmCss(plan.maxWmm)};max-height:${mmCss(plan.maxHmm)}"`
+    : box.px === 60 ? '' : ` style="max-width:${box.px}%;max-height:${Math.round((16 * box.px) / 60 * 10) / 10}mm"`;
+  const cls = align === 'center' ? 'c logo' : 'logo';
+  const at = align === 'center' ? '' : ` style="text-align:${PHYS_ALIGN[align]}"`;
+  return `<div class="${cls}"${standalone ? ' data-sec="logo"' : ''}${pd}${at}><img src="${logo}" alt=""${style}/></div>`;
+}
+
+/** كتلة الشعار المستقلة (logoAfter) — '' والشعار داخل الرأس، أو بلا شعار */
+function rollLogoBlock(company: InvoiceDoc['company'], r: Roll): string {
+  const logo = company?.logo;
+  if (rollLogoAt(r) === 'header' || !r.o.showLogo || !isRasterSrc(logo)) return '';
+  return rollLogo(logo, r, true);
+}
+
+/**
+ * قواعد «التحرير الحرّ» للرول (C.(iii)): لكل قسمٍ له تنسيق — المحاذاة (`.c` و`.row` المرنة داخله؛ والشعار يتبع مفتاحه وحده) وحجم
+ * الخط بضرب قيم القالب بالبكسل (fontPx — لا zoom: html2canvas لا يعرفه). وشكل الجدول على الحراري بالأسود وحده (لا تعبئة رمادية،
+ * عتبة 160): «شبكة» = خلايا بإطار (المفصّل) أو بندٌ في إطار (المختصر)، و«مخطط» = خطٌّ منقّط بين البنود.
+ * '' بلا تخطيطٍ حرّ وجدولٍ بخطوط ⇒ لا <style> ثانٍ.
+ */
+function rollFreeCss(r: Roll): string {
+  if (!r.layout) return '';
+  const rules: string[] = [];
+  if (r.free) {
+    const scale = Number(r.o.fontScale);
+    const base = (n: number): number => Math.round(n * (Number.isFinite(scale) && scale > 0 ? scale : 1) * 100) / 100;
+    for (const id of DEFAULT_SECTIONS.thermal) {
+      const raw = sectionLook(r.layout, id);
+      if (!raw || !raw.visible) continue;
+      /* جدول المفصّل لا يكبر عن خط القالب: أعمدته الخمسة تملأ الحزمة بخط 100٪ (72 مم)، فالتكبير يكسر الرقم وسط خاناته («٦٠٠» ⇒
+       * «٦٠» ثم «٠») والكلمة العربية وسط حروفها — وhtml2canvas يرسم الكلمة المنكسرة حرفاً حرفاً بأشكالها المنفصلة فتتراكب على ورق
+       * البلوتوث (مُثبَت في متصفحٍ حقيقيّ). والبديل (عدم الكسر) يُخرج عمود الإجمالي عن الحزمة. فالتصغير يسري والتكبير لا */
+      const look = id === 'items' && r.detailed && raw.fontPct > 100 ? { ...raw, fontPct: 100 } : raw;
+      const sel = `[data-sec="${id}"]`;
+      if (look.align) {
+        rules.push(`${sel}, ${sel} .c:not(.logo), ${sel} .copy-label { text-align: ${PHYS_ALIGN[look.align]}; }`);
+        rules.push(`${sel} .row { justify-content: ${JUSTIFY[look.align]}; }`);
+        // الرمز يتبع محاذاة قسمه أيضاً: الصورة (نظام الطباعة) بـtext-align، وخانة البلوتوث بهامشها — raster.ts يرسم الرمز في مستطيلها
+        if (id === 'qr') {
+          rules.push(`${sel} .qr { text-align: ${PHYS_ALIGN[look.align]}; }`,
+            `${sel} .qrslot { margin: ${look.align === 'start' ? '0 0 0 auto' : look.align === 'end' ? '0 auto 0 0' : '0 auto'}; }`);
+        }
+      }
+      if (look.fontPct !== 100) {
+        const f = (n: number): string => `${Math.round(fontPx(base(n), look) * 100) / 100}px`;
+        rules.push(`${sel} { font-size: ${f(11)}; }`, `${sel} .lg { font-size: ${f(14)}; }`, `${sel} .xl { font-size: ${f(17)}; }`,
+          `${sel} .muted, ${sel} .copy-label { font-size: ${f(10)}; }`);
+      }
+      /* الخط المكبَّر لا يُقصّ: الحزمة بعرضها والالتقاط بحدودها (raster.ts)، فما فاض عنها يضيع من الورق — في البلوتوث ونظام الطباعة.
+       * فالتسمية وقيمتها تنزلان سطراً متى ضاق الصفّ، والرقم الأعرض من سطرٍ كامل ينكسر بدل أن يخرج عن الحزمة (وجدول المفصّل لا يكبر — أعلاه). والكلمة المنكسرة
+       * يرسمها html2canvas حرفاً حرفاً بمستطيلاتها (parseTextBounds) — فلا تكسرها إلا كلمةٌ أعرض من سطرٍ كامل */
+      if (look.fontPct > 100) {
+        rules.push(`${sel} .row { flex-wrap: wrap; }`,
+          `${sel} .row > span, ${sel} .iname { overflow-wrap: anywhere; }`);
+      }
+    }
+  }
+  const ts = r.layout.tableStyle;
+  if (ts === 'grid') rules.push(r.detailed ? '.t th, .t td { border: 1px solid #000; }' : '.item { border: 1px solid #000; padding: 1px 3px; }');
+  if (ts === 'striped') rules.push(r.detailed ? '.t tbody tr + tr td { border-top: 1px dotted #000; }' : '.item + .item { border-top: 1px dotted #000; padding-top: 3px; }');
+  return rules.join('\n    ');
 }
 
 /**
@@ -475,7 +584,7 @@ function rollLogo(logo: string, r: Roll): string {
 function rollHead(company: InvoiceDoc['company'], r: Roll): string {
   const logo = company?.logo;
   return `
-    ${r.o.showLogo && isRasterSrc(logo) ? rollLogo(logo, r) : ''}
+    ${r.o.showLogo && isRasterSrc(logo) && rollLogoAt(r) === 'header' ? rollLogo(logo, r) : ''}
     <div class="c b lg">${esc(company?.name || r.tr('اسم الشركة'))}</div>${r.pt.companyNameAlt ? `<div class="c b" dir="ltr">${esc(r.pt.companyNameAlt)}</div>` : ''}
     ${company?.taxNumber && !gone(r, 'h.taxNumber') ? `<div class="c muted">${lbl(r, 'h.taxNumber', 'الرقم الضريبي')} ${esc(company.taxNumber)}</div>` : ''}
     ${r.o.showContact && company?.address && !gone(r, 'h.address') ? `<div class="c muted">${esc(company.address)}</div>${r.pt.companyAddressAlt ? `<div class="c muted" dir="ltr">${esc(r.pt.companyAddressAlt)}</div>` : ''}` : ''}
@@ -509,8 +618,14 @@ interface InvoiceFacts {
  * بمسافاتها، فوصلها = وثيقة اليوم حرفاً بحرف (حارس rollThermal.baseline). وبتخطيطٍ ترتيب الشركة؛ و«بيانات المستند» إن لم يلِها
  * «العميل» تأخذ فاصلها كي لا تلتصق بما بعدها. الرمز قسمٌ قائم يُطبع في أيّ ترتيب، ولا يتعلّق بأيّ عبارة.
  */
-function rollSections(r: Roll, parts: Partial<Record<SectionId, string>>): string {
+function rollSections(r: Roll, parts: Partial<Record<SectionId, string>>, logoBlock = '', keep = ''): string {
   const order = orderedSections(r.layout, 'thermal');
+  // «التحرير الحرّ»: القسم المخفيّ (visible:false) يسقط كاملاً — والأصناف والرمز لا يُخفيان أبداً (LOCKED_VISIBLE)
+  if (r.free) {
+    const shown = new Set<SectionId>(visibleOrder(r.layout, 'thermal'));
+    shown.add('items'); shown.add('qr');
+    parts = Object.fromEntries(Object.entries(parts).filter(([id]) => shown.has(id as SectionId))) as Partial<Record<SectionId, string>>;
+  }
   if (r.layout && parts.info) {
     const present = order.filter((id) => parts[id]);
     const next = present[present.indexOf('info') + 1];
@@ -522,7 +637,32 @@ function rollSections(r: Roll, parts: Partial<Record<SectionId, string>>): strin
     const next = present[present.indexOf('qr') + 1];
     if (next && next !== 'footer') parts = { ...parts, qr: `${parts.qr}\n    <div class="sep"></div>` };
   }
-  return rollSectionsHtml(order, parts);
+  if (!r.free && !r.markers) return rollSectionsHtml(order, parts);
+  return rollWrapped(r, order, parts, logoBlock, keep);
+}
+
+/**
+ * مسار «التحرير الحرّ» ووسوم المصمّم: كل قسمٍ في غلافٍ `<div data-sec="id">` بأسلوبه المضمَّن (المسافة قبله وبعده ومحاذاته —
+ * sectionCssText) ومعه `data-pd` للمصمّم وحده؛ وكتلة الشعار المستقلة أوّل الشريط أو بعد قسمها (ولو أُخفي القسم: في موضعه).
+ * والرأس المخفيّ لا يُسقط سطر «الأصل/نسخة» ولا ما يفرضه قرار الطباعة (keep: العلامة المائية للبروفة وتنبيه سند التسليم —
+ * zatcaPrintDecision لا الشركة): موضعهما أوّل الشريط.
+ */
+function rollWrapped(r: Roll, order: readonly SectionId[], parts: Partial<Record<SectionId, string>>, logoBlock: string, keep = ''): string {
+  const at = rollLogoAt(r);
+  let out = r.free && parts.header === undefined ? COPY_SLOT + keep : '';
+  if (at === 'top') out += logoBlock;
+  for (const id of order) {
+    const html = parts[id];
+    // قسمٌ بلا محتوى في هذا المستند (تواقيع لم تُجمع، رمزٌ لا يلزم): لا مسافة له فلا بياض على الورق — والمصمّم يبقي مقبضه بلا أسلوب
+    const blank = typeof html === 'string' && html.trim() === '';
+    if (typeof html === 'string' && html !== '' && !(blank && !r.markers)) {
+      const look = r.free && !blank ? sectionLook(r.layout, id) : null;
+      const style = look ? sectionCssText(look) : '';
+      out += `<div data-sec="${id}"${r.markers ? ` data-pd="${id}"` : ''}${style ? ` style="${esc(style)}"` : ''}>${html}</div>`;
+    }
+    if (at === id) out += logoBlock;
+  }
+  return out;
 }
 
 function rollInvoiceBody(f: InvoiceFacts, r: Roll): string {
@@ -585,6 +725,8 @@ function rollInvoiceBody(f: InvoiceFacts, r: Roll): string {
   const vatKey = inclusiveDoc ? 'tot.vatIncl' : 'tot.vat';
   // صفّ الإجمالي النهائي بتسمياته الثلاث صفٌّ واحد: يُحذف بحذف tot.returnGrand للمرتجع، وإلا بحذف tot.grand
   const grandKey = doc.isReturn ? 'tot.returnGrand' : 'tot.grand';
+  // العلامة المائية للبروفة وتنبيه سند التسليم من قرار الطباعة: في الرأس كاليوم، وأوّل الشريط إن أُخفي الرأس (keep)
+  const keep = `${d.watermark ? `<div class="c b muted">${esc(tr(d.watermark))}</div>` : ''}${d.notice ? `<div class="sep"></div><div class="c muted">${esc(tr(d.notice))}</div>` : ''}`;
 
   return rollSections(r, {
     header: `
@@ -630,20 +772,22 @@ function rollInvoiceBody(f: InvoiceFacts, r: Roll): string {
     ${doc.zatca?.uuid ? `<div class="c muted" style="word-break:break-all;direction:ltr">${esc(doc.zatca.uuid)}</div>` : ''}`,
     footer: `
     ${rollFoot(doc.company, r)}`,
-  });
+  }, rollLogoBlock(doc.company, r), keep);
 }
 
 /** السند: الأقسام نفسها بلا أصناف ولا تواقيع ولا رمز — والمبلغ وفواتيره قسم «الإجماليات» */
 function rollReceiptBody(doc: ReceiptDoc, r: Roll): string {
   const { o, tr } = r;
   const addr = buyerAddress(doc.customer);
+  // وسم «سند ملغى»: في الرأس كاليوم، وأوّل الشريط إن أُخفي الرأس (keep) — فلا يُطبع سندٌ ملغى بلا وسمه
+  const cancelled = doc.cancelled ? `<div class="c b">— ${tr('سند ملغى')} —</div>` : '';
   return rollSections(r, {
     header: `
     ${rollHead(doc.company, r)}
     <div class="sep"></div>
     ${r.pt.hidden('rcp.title') ? '' : `<div class="c b">${lbl(r, 'rcp.title', 'سند قبض', { stack: true })}</div>`}
     ${COPY_SLOT}
-    ${doc.cancelled ? `<div class="c b">— ${tr('سند ملغى')} —</div>` : ''}
+    ${cancelled}
     <div class="sep"></div>`,
     info: `
     ${gone(r, 'rcp.number') ? '' : `<div class="row"><span>${lbl(r, 'rcp.number', 'رقم')}</span><span class="b">${esc(doc.number)}</span></div>`}
@@ -664,7 +808,7 @@ function rollReceiptBody(doc: ReceiptDoc, r: Roll): string {
     <div class="sep"></div>`,
     footer: `
     ${rollFoot(doc.company, r)}`,
-  });
+  }, rollLogoBlock(doc.company, r), cancelled);
 }
 
 /**
@@ -672,14 +816,16 @@ function rollReceiptBody(doc: ReceiptDoc, r: Roll): string {
  * (الكلاسيكي، أو المختصر متى حفظت نصوصاً) و80 مم بالمختصر — لتُعرض في <iframe srcDoc>. لا طباعة ولا بلوتوث.
  * `profile` (اختياري — معاينة «التخطيط» الحيّة في إعدادات الطباعة): قالبٌ حراريّ بعينه بتخطيطه بدل الافتراضي؛ وغيابه كما كان.
  */
-export async function thermalPreviewHtml(doc: InvoiceDoc | ReceiptDoc, opts: { tr: Tr; paperMm: 58 | 80; profile?: PrintProfile | null }): Promise<string> {
+export async function thermalPreviewHtml(doc: InvoiceDoc | ReceiptDoc, opts: { tr: Tr; paperMm: 58 | 80; profile?: PrintProfile | null; markers?: boolean }): Promise<string> {
   const profile: PrintProfile = opts.profile && opts.profile.printer === 'thermal' ? opts.profile
     : opts.paperMm === 58
     ? legacyThermalProfile()
     : { ...legacyThermalProfile(), id: 'preview-80', template: 'roll_compact', paper: presetPaper('roll80') as Paper };
   let html = '';
   const capture = (h: string): void => { html = h; };
-  if (doc.kind === 'invoice') await printThermalInvoice(doc, { profile, tr: opts.tr, capture });
-  else await printThermalReceipt(doc, { profile, tr: opts.tr, capture });
+  // markers (مصمّم الشريط، pd_spec B.5): وسوم data-pd للمقابض — تُمرَّر متى طُلبت وحدها فمعاينة اليوم كما هي
+  const markers = opts.markers ? { markers: true } : {};
+  if (doc.kind === 'invoice') await printThermalInvoice(doc, { profile, tr: opts.tr, capture, ...markers });
+  else await printThermalReceipt(doc, { profile, tr: opts.tr, capture, ...markers });
   return html;
 }

@@ -125,7 +125,8 @@ test('الخط والشعار والجدول واللون: الصفحة والن
   valid(f);
   assert.equal(effectiveFontScale({ ...van(), options: { ...van().options, fontScale: 1.3 } }), 1.3, 'الرول يطبّق حجمه اليوم');
 
-  assert.deepEqual([...logoChoices(van())], ['center', 'none']);
+  // التحرير الحرّ (pd_spec B.3): الرول صار يقبل الشعار يميناً ويساراً أيضاً
+  assert.deepEqual([...logoChoices(van())], ['start', 'center', 'end', 'none']);
   assert.deepEqual([...logoChoices(page())], ['start', 'center', 'end', 'none']);
 
   assert.equal(layoutEditable(page()), true);

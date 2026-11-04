@@ -133,6 +133,10 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
+// «أثبت تواجدك»: اهتزازٌ صريح للطلب (طلب المالك، ٤ نوفمبر ٢٠٢٦) — أندرويد ٨+ يتجاهله (القناة تقرّر: قناة الإنذار في تطبيق المندوب،
+// android-rep PresenceAlarm.java)، ويأخذه غيره، ولا ضرر حيث يُتجاهل. ولا يجتمع مع silent (TypeError) — فلا silent لهذا الوسم
+const PRESENCE_VIBRATE_PUSH = [600, 150, 600, 150, 600, 150, 600];
+
 // تنبيهات الحضور (طلب المالك، ٢١ أكتوبر ٢٠٢٦): الخادم يرسل { title, body, url, tag } مشفّراً (backend/src/services/webPush.ts)،
 // فيُعرض إشعاراً — والنقر يفتح شاشة البصمة في نافذة التطبيق المفتوحة إن وُجدت، وإلّا نافذةً جديدة.
 self.addEventListener('push', (event) => {
@@ -154,13 +158,15 @@ self.addEventListener('push', (event) => {
     // «أثبت تواجدك» ينبّه كل مرّة (صوتٌ واهتزاز ولو حلّ محلّ سابقه بالوسم نفسه) ويبقى حتى يُلمس — مهلته دقيقتان
     renotify: data.tag === 'presence',
     requireInteraction: data.tag === 'presence',
+    vibrate: data.tag === 'presence' ? PRESENCE_VIBRATE_PUSH : undefined,
     dir: 'auto',
     // معرّف الطلب: التطبيق يُغلق إشعار طلبه وحده، لا إشعار طلبٍ أحدث وصل وهو في الخلفية
     data: { url, checkId: typeof data.checkId === 'string' ? data.checkId : null },
   });
-  // «أثبت تواجدك» (التحقق العشوائي من التواجد): نافذة التطبيق المفتوحة تعرض الطلب فوراً بلا انتظار النقر — المهلة دقيقتان
+  // «أثبت تواجدك» (التحقق العشوائي من التواجد): نافذة التطبيق المفتوحة تعرض الطلب فوراً بلا انتظار النقر — المهلة دقيقتان.
+  // بعد عرض الإشعار: النافذة تُغلقه بأوّل لمسةٍ من المندوب (PresenceCheck.tsx) فتجده قائماً — ولا تُغلقه بظهورها وحده
   const openNow = data.tag === 'presence'
-    ? self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
+    ? shown.catch(() => {}).then(() => self.clients.matchAll({ type: 'window', includeUncontrolled: true })).then((wins) => {
       for (const w of wins) if (shellFor(new URL(w.url).pathname) === '/rep') w.postMessage({ type: 'OPEN_SCREEN', screen: 'presence' });
     }).catch(() => {})
     : Promise.resolve();

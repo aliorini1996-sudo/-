@@ -103,13 +103,25 @@ export const copyLabelHtml = (label: string): string =>
  */
 export const LAYOUT_BREAK_CSS = '[data-print-layout] tr, [data-print-layout] [data-section="totals"], [data-print-layout] [data-section="signatures"] { break-inside: avoid; page-break-inside: avoid; }';
 
+/**
+ * «التحرير الحرّ» (طلب المالك ٣ نوفمبر ٢٠٢٦): لوحتا الرأس/التذييل (data-section="canvas-…") وكتلة الشعار المستقلة ورمز QR
+ * المستقلّ لا تُقصّ بين صفحتين. ثابتٌ ثانٍ لا يمسّ LAYOUT_BREAK_CSS: يُضاف لوثيقةٍ فيها ورقةٌ حرّة وحدها (freeSheetHtml).
+ */
+export const LAYOUT_FREE_BREAK_CSS = '[data-print-layout] [data-section^="canvas-"], [data-print-layout] [data-section="logo"], [data-print-layout] [data-section="qr"] { break-inside: avoid; page-break-inside: avoid; }';
+
+/** ورقةٌ حرّة: لوحات (data-print-canvas) أو مرساة وسم النسخة (data-copy-anchor — رأس المسار الحرّ وحده) أو كتلةٌ مستقلة */
+export const freeSheetHtml = (html: string): boolean =>
+  html.includes('data-print-canvas=') || html.includes('data-copy-anchor=') || html.includes('data-section="logo"') || html.includes('data-section="qr"');
+
 /** نصّ الوثيقة (نقيّ): الأنماط المنسوخة من الصفحة ثم @page ثم النسخ — كلٌّ في صفحته */
 export function buildPageDocument(copies: readonly string[], g: PagePrintGeom, headHtml = ''): string {
   const layoutCss = copies.some((c) => c.includes(`${GRID_SHEET_ATTR}=`)) ? `
     ${LAYOUT_BREAK_CSS}` : '';
+  const freeCss = layoutCss && copies.some(freeSheetHtml) ? `
+    ${LAYOUT_FREE_BREAK_CSS}` : '';
   return `<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"/>${headHtml}
   <style>
-    ${pageRule(g)}${layoutCss}
+    ${pageRule(g)}${layoutCss}${freeCss}
     * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     html, body { margin: 0; padding: 0; background: #fff; }
     .fs-band { width: ${g.widthMm}mm; margin: 0 auto 0 ${g.leftMm}mm; }
@@ -158,6 +170,14 @@ export async function sheetReady(node: HTMLElement, timeoutMs = 4000): Promise<b
 }
 
 /**
+ * موضع وسم النسخة: مرساةٌ صريحة (data-copy-anchor — رأس المسار الحرّ أو لوحة الرأس) إن وُجدت، وإلا أوّل عنصرٍ ليس
+ * أسلوب المظهر المحصور (كاليوم حرفاً). فكتلة شعارٍ مستقلة أعلى الورقة لا تُنزل الوسم تحتها.
+ */
+export function copyAnchorOf(root: Pick<ParentNode, 'children' | 'querySelector'>): Element | undefined {
+  return root.querySelector('[data-copy-anchor]') ?? Array.from(root.children).find((c) => c.tagName !== 'STYLE');
+}
+
+/**
  * نسخة العقدة بوسمها (M3: مشتركةٌ بين نظام الطباعة والبلوتوث المباشر — النسخة نفسها تُطبع أو تُرسم): سطر «الأصل/نسخة» بعد
  * الترويسة، وفي الطباعة التجريبية شريط «نموذج اختبار» أوّلها (sampleBannerHtml من lib/print/calibration.ts).
  * `sheetHeightPx` (gridSheetHeightPx): ورقة القالب ثنائي اللغة تُضبط على طول صفحة الطابعة — وغيرها لا يُمسّ.
@@ -165,8 +185,8 @@ export async function sheetReady(node: HTMLElement, timeoutMs = 4000): Promise<b
 export function cloneWithLabel(node: HTMLElement, label: string | null, bannerHtml?: string | null, sheetHeightPx?: number | null): HTMLElement {
   const clone = node.cloneNode(true) as HTMLElement;
   if (sheetHeightPx && isGridSheet(clone)) clone.style.minHeight = `${sheetHeightPx}px`;
-  // بعد الترويسة: أوّل عنصرٍ ليس أسلوب المظهر المحصور
-  if (label) Array.from(clone.children).find((c) => c.tagName !== 'STYLE')?.insertAdjacentHTML('afterend', copyLabelHtml(label));
+  // بعد الترويسة: المرساة الصريحة، وإلا أوّل عنصرٍ ليس أسلوب المظهر المحصور
+  if (label) copyAnchorOf(clone)?.insertAdjacentHTML('afterend', copyLabelHtml(label));
   // شريط التجربة أوّل الورقة وحده: الثاني آخرها كان يدفع ورقة A4 النموذجية إلى صفحةٍ ثانية فلا تشبه الفاتورة الحقيقية
   if (bannerHtml) clone.insertAdjacentHTML('afterbegin', bannerHtml);
   return clone;

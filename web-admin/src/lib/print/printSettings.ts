@@ -14,6 +14,8 @@
 import {
   DOC_KINDS, LEGACY_NAMES, LEGACY_PAGE_ID, LEGACY_THERMAL_ID, PRINT_ISSUES, TEMPLATES_BY_PRINTER, checkPrintSettings, defaultPrintLayout, defaultPrintOptions,
   dotsPerMm, isLegacyPrintSettings, legacyPrintSettings, legacyThermalProfile, maxPrintableDots, normalizeSectionOrder, presetPaper, routingAllowsPrinter,
+  sectionsFor,
+  type Align, type CanvasBand, type CanvasBoxId, type SectionStyle,
   type LayoutDesign, type LogoPosition, type LogoSize, type Paper, type PaperFeed, type PaperPresetId, type PrintDocKind, type PrintLayout,
   type PrintOptions, type PrintProfile, type PrintSettingsV1, type PrinterDpi, type PrinterType, type QrSize, type SectionId, type TableStyle,
   type TemplateId,
@@ -495,6 +497,21 @@ export const SECTION_LABELS: Readonly<Record<SectionId, string>> = Object.freeze
 export const LOGO_POSITION_LABELS: Readonly<Record<LogoPosition, string>> = Object.freeze({ start: 'يمين', center: 'وسط', end: 'يسار', none: 'بلا شعار' });
 export const LOGO_SIZE_LABELS: Readonly<Record<LogoSize, string>> = Object.freeze({ s: 'صغير', m: 'متوسط', l: 'كبير' });
 export const TABLE_STYLE_LABELS: Readonly<Record<TableStyle, string>> = Object.freeze({ lines: 'خطوط', grid: 'شبكة', striped: 'مخطط' });
+/** التحرير الحرّ: محاذاة القسم أو المربع — start = يمين الورقة في العربية */
+export const ALIGN_LABELS: Readonly<Record<Align, string>> = Object.freeze({ start: 'يمين', center: 'وسط', end: 'يسار' });
+/** مربعات المصمّم الحر في رأس الورقة وتذييلها */
+export const CANVAS_BOX_LABELS: Readonly<Record<CanvasBoxId, string>> = Object.freeze({
+  logo: 'الشعار',
+  company: 'بيانات الشركة',
+  title: 'عنوان المستند',
+  docInfo: 'بيانات المستند',
+  customer: 'العميل',
+  qr: 'رمز QR',
+  totals: 'الإجماليات',
+  signatures: 'التواقيع',
+  footer: 'التذييل',
+});
+export const CANVAS_BAND_LABELS: Readonly<Record<CanvasBand, string>> = Object.freeze({ header: 'رأس الورقة', footer: 'تذييل الورقة' });
 
 /** التصاميم التي تُختار لنوع الطابعة — ثنائي اللغة للصفحة والنقطية وحدهما */
 export const designsFor = (printer: PrinterType): readonly LayoutDesign[] => (printer === 'thermal' ? ['standard'] : ['standard', 'grid_bilingual']);
@@ -530,10 +547,28 @@ export function withDesign(p: PrintProfile, design: LayoutDesign): PrintProfile 
   if (design === 'grid_bilingual') {
     const template: TemplateId = p.printer === 'impact' ? 'impact_plain' : 'page_plain';
     const layout: PrintLayout = { ...defaultPrintLayout(p.printer, 'grid_bilingual'), ...(cur ? { accent: cur.accent, logoSize: cur.logoSize } : {}) };
-    return { ...p, template, options: { ...p.options, layout } };
+    return { ...p, template, options: { ...p.options, layout: carryFree(cur, layout, p.printer) } };
   }
   if (!cur || cur.design === 'standard') return p;
-  return { ...p, options: { ...p.options, layout: { ...defaultPrintLayout(p.printer, 'standard'), accent: cur.accent, logoSize: cur.logoSize } } };
+  return { ...p, options: { ...p.options, layout: carryFree(cur, { ...defaultPrintLayout(p.printer, 'standard'), accent: cur.accent, logoSize: cur.logoSize }, p.printer) } };
+}
+
+/**
+ * التحرير الحرّ عبر تغيير التصميم: حجم الشعار يبقى، ومكانه المستقل وتنسيقات الأقسام تبقى ما صلحت لأقسام التصميم الجديد، واللوحتان
+ * (المصمّم الحر) تسقطان — للتصميم القياسي وحده. والمفتاح الغائب يبقى غائباً (لا undefined).
+ */
+function carryFree(cur: PrintLayout | undefined, next: PrintLayout, printer: PrinterType): PrintLayout {
+  if (!cur) return next;
+  const ids = sectionsFor(printer, next.design);
+  const out: PrintLayout = { ...next };
+  if (cur.logoMm !== undefined) out.logoMm = cur.logoMm;
+  if (cur.logoAfter !== undefined && (cur.logoAfter === 'top' || ids.includes(cur.logoAfter))) out.logoAfter = cur.logoAfter;
+  if (cur.sections) {
+    const kept = Object.entries(cur.sections).filter(([id, st]) => st && ids.includes(id as SectionId)) as Array<[SectionId, SectionStyle]>;
+    if (kept.length) out.sections = Object.fromEntries(kept) as Partial<Record<SectionId, SectionStyle>>;
+  }
+  if (cur.canvas && next.design === 'standard') out.canvas = cur.canvas;
+  return out;
 }
 
 const sameOrder = (a: readonly SectionId[], b: readonly SectionId[]): boolean => a.length === b.length && a.every((x, i) => x === b[i]);
