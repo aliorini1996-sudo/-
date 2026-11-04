@@ -376,7 +376,7 @@ const WARN_TAX = [
   // مشترك
   'h.taxNumber', 'h.commercialReg', 'h.address', 'foot.company',
   // الفاتورة
-  'inv.title', 'inv.returnTitle', 'inv.number', 'inv.returnNumber', 'inv.date', 'inv.time', 'inv.deliveryDate', 'cust.taxNumber',
+  'inv.title', 'inv.returnTitle', 'inv.debitTitle', 'inv.number', 'inv.returnNumber', 'inv.date', 'inv.time', 'inv.deliveryDate', 'cust.taxNumber',
   'col.item', 'col.qty', 'col.price', 'col.priceIncl', 'col.total', 'item.beforeTax', 'note.pricesIncl',
   'tot.taxable', 'tot.vat', 'tot.vatIncl', 'tot.grand', 'tot.returnGrand',
   'inst.heading', 'inst.dueDate', 'inst.amount', 'inst.sum', 'inst.note', 'qr.caption', 'inv.originalRef', 'inv.noteReason',
@@ -415,8 +415,8 @@ test('القائمة: مفاتيح فريدة بصيغة group.name، وكل ح�
   assert.deepEqual(PRINT_TEXT_CATALOG.filter((x) => /Field Sales|صدرت عبر|منصة/.test(x.ar)).map((x) => [x.key, x.ar, x.doc, x.group]),
     [['foot.platform', 'صدرت عبر منصة Field Sales · fieldsa.net', 'shared', 'footer']]);
   assert.ok(printTextEntry('foot.platform')!.max >= chars(printTextEntry('foot.platform')!.ar));
-  // العنوانان وحدهما بقفل title
-  assert.deepEqual(byLock('title').map((x) => x.key), ['inv.title', 'inv.returnTitle']);
+  // عناوين الفاتورة والإشعار الدائن والإشعار المدين (طلب المالك ٤ نوفمبر ٢٠٢٦) وحدها بقفل title
+  assert.deepEqual(byLock('title').map((x) => x.key), ['inv.title', 'inv.returnTitle', 'inv.debitTitle']);
 });
 
 test('القائمة: كل مفتاح يُحذف، وصنف التنبيه يساوي القوائم المكتوبة حرفاً — والإلزامي سابقاً (zatca وfixed وshape) تنبيه tax', () => {
@@ -462,11 +462,14 @@ test('القائمة: إعادة الصياغة واللغة الثانية لك
   assert.ok(Object.isFrozen(PRINT_TEXT_LINE));
   // المجموعة الجديدة seller، والمفاتيح الجديدة مضافةٌ آخر القائمة (صورة المحفوظ القانونية لا تتغيّر لشركةٍ قائمة)
   assert.deepEqual(PRINT_TEXT_CATALOG.filter((x) => x.group === 'seller').map((x) => x.key), ['sel.heading', 'sel.name', 'sel.address', 'sel.city', 'sel.postalCode', 'sel.taxNumber']);
-  assert.deepEqual(PRINT_TEXT_CATALOG.slice(74).map((x) => x.key), [
+  // inv.debitTitle (٤ نوفمبر ٢٠٢٦) بعد inv.returnTitle — ترتيب المفاتيح القائمة بينها كما هو فصورة المحفوظ لا تتغيّر
+  assert.deepEqual(PRINT_TEXT_CATALOG.slice(75).map((x) => x.key), [
     'col.seq', 'col.code', 'col.unit', 'col.vatAmount', 'sel.heading', 'sel.name', 'sel.address', 'sel.city', 'sel.postalCode', 'sel.taxNumber',
     'cust.city', 'cust.postalCode', 'inv.paymentType', 'sig.warehouse', 'sig.remarks', 'tot.exclVat', 'tot.due', 'foot.platform',
   ]);
-  assert.equal(PRINT_TEXT_CATALOG[73].key, 'rcp.sigCollector', 'آخر مفتاحٍ قديم في مكانه');
+  assert.equal(PRINT_TEXT_CATALOG[74].key, 'rcp.sigCollector', 'آخر مفتاحٍ قديم في مكانه');
+  const at = PRINT_TEXT_CATALOG.findIndex((x) => x.key === 'inv.returnTitle');
+  assert.equal(PRINT_TEXT_CATALOG[at + 1].key, 'inv.debitTitle');
 });
 
 test('نظافة النواة: الملف يبدأ برأس «// ====» ولا يستورد إلا zod (تُنسخ حرفياً للواجهة)', () => {
@@ -534,6 +537,13 @@ async function call(method: string, req: Row): Promise<{ status: number; body: R
     await h.handle(full, res, (e?: unknown) => { if (e) err = e; else passed = true; });
     if (err) throw err;
     if (!passed) break;
+  }
+  // rev (مراجعة الحفظ المشروط، D-G2) تُختبر في print-texts-revision.test.ts — هنا يُتحقّق من شكلها ويُزال من الجسم المقارَن
+  const body = res.body as Row | null;
+  if (body && typeof body === 'object' && 'rev' in body) {
+    const { rev, ...rest } = body;
+    assert.match(String(rev), /^[0-9a-f]{16}$/, 'rev بصمة ١٦ حرفاً');
+    return { status: res.statusCode, body: rest };
   }
   return { status: res.statusCode, body: res.body };
 }
@@ -707,4 +717,28 @@ test('عنوانا الفاتورة/الإشعار بلا وسم مرحلة (ق�
   }
   const lenient = checkPrintTexts({ ...doc, edits: { 'inv.title': { text: 'فاتورة مبيعات', alt: null, hidden: false, phase2: true } } }, false);
   assert.equal(JSON.stringify(lenient.ok && lenient.value.edits), '{"inv.title":{"text":"فاتورة مبيعات","alt":null,"hidden":false}}');
+});
+
+test('عنوان الإشعار المدين inv.debitTitle (طلب المالك ٤ نوفمبر ٢٠٢٦): مفتاحٌ في القائمة بوحدة title — الحفظ الصارم يقبل صياغته وحذفه ونصّه الثاني', async () => {
+  const x = printTextEntry('inv.debitTitle');
+  assert.ok(x);
+  assert.deepEqual([x!.ar, x!.doc, x!.group, x!.lock, x!.max], ['إشعار مدين', 'invoice', 'title', 'title', 60]);
+  assert.equal(PRINT_TEXT_LINE['inv.debitTitle'], 'title');
+  assert.equal(printTextWarning(x!), 'tax');
+  for (const e of [{ text: 'إشعار مدين ضريبي' }, { hidden: true }, { alt: 'Debit Note' }, { text: 'إشعار مدين ضريبي', alt: 'Tax Debit Note' }] as Partial<PrintTextEdit>[]) {
+    const body = withEdits({ 'inv.debitTitle': e }, { secondLang: 'en' });
+    const r = parsePrintTexts(body);
+    assert.ok(r.ok, JSON.stringify(!r.ok && r.issues));
+    assert.deepEqual(r.ok && r.value?.edits['inv.debitTitle'], ed(e), JSON.stringify(e));
+  }
+  // بعد inv.returnTitle في الصورة القانونية
+  const both = canonicalPrintTexts(withEdits({ 'inv.debitTitle': { hidden: true }, 'inv.returnTitle': { hidden: true }, 'inv.title': { hidden: true } }));
+  assert.deepEqual(Object.keys(both.edits), ['inv.title', 'inv.returnTitle', 'inv.debitTitle']);
+  // PUT /api/company/print-texts تشغيلاً: يُكتب كما هو
+  reset();
+  st.admin = { isActive: true, canManageCompanySettings: true };
+  const body = withEdits({ 'inv.debitTitle': { text: 'إشعار مدين ضريبي' } });
+  const ok = await call('put', { user: manager, body });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.deepEqual(writes, [{ where: { tenantId: T }, data: { printTexts: canonicalPrintTexts(body) } }]);
 });

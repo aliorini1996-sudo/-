@@ -53,6 +53,8 @@ const p2 = (): InvoiceDoc => inv({
     uuid: '3cf5ee18-ee25-44ea-a444-2c37ba7f28be', icv: 42, warnings: 0,
   } as NonNullable<InvoiceDoc['zatca']>,
 });
+/** إشعار مدين بالمرحلة الثانية — عنوان القرار «إشعار مدين» بمفتاحه inv.debitTitle */
+const debitNote = (): InvoiceDoc => { const d = p2(); return { ...d, number: 'DN-12', zatca: { ...d.zatca!, documentKind: 'DEBIT_NOTE' } as NonNullable<InvoiceDoc['zatca']> }; };
 const rcp = (over: Partial<ReceiptDoc> = {}): ReceiptDoc => ({
   kind: 'receipt', number: 'RC-77', date: '2026-10-23T11:05:00', company, customer: { name: 'بقالة النور', taxNumber: '322222222222223', address: 'حي النسيم', city: 'الرياض' },
   repName: 'أحمد', amount: 137.05, paymentMethod: 'CASH', notes: 'دفعة أولى', invoices: [{ number: 'INV-1024', amount: 137.05 }], ...over,
@@ -108,6 +110,7 @@ const ROLL: Record<string, Case> = {
   'foot.thanks': { doc: inv, compact: [div('c muted', 'شكرا لتعاملكم معنا')], detailed: [div('c muted', 'شكرا لتعاملكم معنا')] },
   'inv.title': { doc: inv, compact: [div('c b', 'فاتورة ضريبية')], detailed: [div('c b', 'فاتورة ضريبية')] },
   'inv.returnTitle': { doc: creditNote, compact: [div('c b', 'إشعار دائن')], detailed: [div('c b', 'إشعار دائن')] },
+  'inv.debitTitle': { doc: debitNote, compact: [div('c b', 'إشعار مدين')], detailed: [div('c b', 'إشعار مدين')] },
   'inv.number': { doc: inv, compact: [row('رقم')], detailed: [row('رقم')] },
   'inv.returnNumber': { doc: creditNote, compact: [row('رقم')], detailed: [row('رقم')] },
   'inv.date': { doc: inv, compact: [row('التاريخ')], detailed: [row('التاريخ')] },

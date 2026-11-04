@@ -30,7 +30,7 @@ function fakePt(o: { deleted?: readonly string[]; edits?: Record<string, string>
   const preview = o.preview ?? null;
   const text = (k: string, ar: string) => edits[k] ?? ar;
   const pt = {
-    on: true, tr: (s: string) => s, lang: null,
+    on: true, tr: (s: string) => s, lang: null, gridLang: 'en',
     hidden: (k: string) => !preview && deleted.has(k),
     hiddenInSettings: (k: string) => deleted.has(k),
     text,
@@ -43,6 +43,7 @@ function fakePt(o: { deleted?: readonly string[]; edits?: Record<string, string>
     companyNameAlt: null, companyAddressAlt: null, preview,
     en: (k: string, ar: string) => (deleted.has(k) && !preview ? null
       : phraseIn(text(k, ar), 'en') ?? phraseIn(printTextEntry(k)?.ar ?? ar, 'en') ?? null),
+    ownAlt: () => null,
     warning: () => null,
   };
   return pt as unknown as PrintTexts;
@@ -175,6 +176,7 @@ test('ثنائي اللغة: العربي أولاً والإنجليزي من p
 test('«حذف السطر» في الفاتورة: كل مفتاحٍ يُسقط وحدته كاملة ولا يمسّ غيرها', () => {
   const saleKeys = GRID_INVOICE_KEYS.filter((k) => ![
     'inv.returnTitle', 'inv.returnInfoHeading', 'inv.returnNumber', 'inv.originalRef', 'inv.noteReason', 'tot.returnGrand', 'tot.subtotal',
+    'inv.debitTitle', // عنوان الإشعار المدين (المرحلة الثانية) — يحرسه printTextsReflect.test.ts
   ].includes(k));
   assertWholeLine('بيع', (pt) => gridInv(invoice(), pt), saleKeys);
   assertWholeLine('مرتجع', (pt) => gridInv(returnDoc(), pt),

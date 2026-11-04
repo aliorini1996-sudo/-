@@ -86,6 +86,8 @@ const creditNote = (): InvoiceDoc => ({
   ...invStd(), number: 'RET-55', isReturn: true, paymentPlan: null, installments: undefined, paidAmt: undefined, remainingAmt: undefined,
   billingReference: 'INV-500', noteReason: 'بضاعة تالفة', zatca: zv({ documentKind: 'CREDIT_NOTE' } as Partial<ZatcaDocView>),
 });
+/** إشعار مدين بالمرحلة الثانية — عنوانه بمفتاحه inv.debitTitle (طلب المالك ٤ نوفمبر ٢٠٢٦) */
+const debitNote = (): InvoiceDoc => ({ ...invStd(), number: 'DN-12', zatca: zv({ documentKind: 'DEBIT_NOTE' } as Partial<ZatcaDocView>) });
 const rcpOne = (): ReceiptDoc => ({
   kind: 'receipt', number: 'RC-55', date: '2026-11-02T11:00:00.000Z', company: COMPANY,
   customer: { name: 'بقالة النور', businessName: 'مؤسسة النور', commercialReg: '4030303030', taxNumber: '399999999999993', phone: '0559998887', address: 'حي الروضة' },
@@ -94,8 +96,8 @@ const rcpOne = (): ReceiptDoc => ({
 const rcpMany = (): ReceiptDoc => ({ ...rcpOne(), number: 'RC-56', amount: 300, invoices: [{ number: 'INV-901', amount: 100 }, { number: 'INV-902', amount: 50 }] });
 
 type Doc = InvoiceDoc | ReceiptDoc;
-const DOCS: Record<string, () => Doc> = { invStd, invSimple, creditNote, rcpOne, rcpMany };
-const PHASE2 = new Set(['invStd', 'creditNote']);
+const DOCS: Record<string, () => Doc> = { invStd, invSimple, creditNote, debitNote, rcpOne, rcpMany };
+const PHASE2 = new Set(['invStd', 'creditNote', 'debitNote']);
 
 // ─── النصوص: كل عبارةٍ بوسمٍ فريد، وحذف مفتاحٍ واحد ───
 
@@ -170,7 +172,7 @@ const CHILDREN: Record<string, readonly string[]> = {
 /** قرائن الوحدة الواحدة (D5): حذف أيٍّ منها يُسقط الوحدة المشتركة */
 const PAIRS: readonly (readonly string[])[] = [
   ['col.price', 'col.priceIncl'], ['tot.vat', 'tot.vatIncl'], ['tot.grand', 'tot.due', 'tot.returnGrand'],
-  ['inv.number', 'inv.returnNumber'], ['inv.title', 'inv.returnTitle'], ['inv.infoHeading', 'inv.returnInfoHeading'],
+  ['inv.number', 'inv.returnNumber'], ['inv.title', 'inv.returnTitle', 'inv.debitTitle'], ['inv.infoHeading', 'inv.returnInfoHeading'],
 ];
 /** في الرول المفصّل خصم البند سطرٌ تحت اسمه داخل خلية الصنف */
 const ROLL_CHILDREN: Record<string, readonly string[]> = { 'col.item': ['col.discount'] };
@@ -342,7 +344,7 @@ test('كل العبارات محذوفة بكل ترتيبٍ للأقسام: ر�
   }
 });
 
-test('بقية المستندات (الكشف وإشعار التحميل) لا تتأثّر بالنصوص — ولو حُذفت كل العبارات', () => {
+test('بقية المستندات (الكشف وإشعار التحميل): ترويستها تتبع النصوص (حذف سطور h.*) وجسمها لا يتأثّر — ولو حُذفت كل العبارات', () => {
   const st = (c: Company): StatementDoc => ({
     kind: 'statement', company: c, customer: { name: 'بقالة النور', taxNumber: '399999999999993' }, repName: 'أحمد السالم', date: '2026-10-31T09:00:00',
     fromDate: '2026-10-01', toDate: '2026-10-31', timezone: 'Asia/Riyadh', openingBalance: 10, totalDebit: 52.75, totalCredit: 20, finalBalance: 42.75,
@@ -352,8 +354,16 @@ test('بقية المستندات (الكشف وإشعار التحميل) لا 
   const ln = (c: Company): LoadNoticeDoc => ({ kind: 'loadNotice', company: c, repName: 'أحمد', date: '2026-10-31T09:00:00', movementKind: 'LOAD', items: [{ name: 'ماء', qty: 5 }] });
   const plain = { ...COMPANY };
   const deleted = { ...COMPANY, printTexts: deleteOnly(KEYS) };
-  assert.equal(renderToStaticMarkup(createElement(PrintableStatement, { doc: st(deleted) })), renderToStaticMarkup(createElement(PrintableStatement, { doc: st(plain) })));
-  assert.equal(renderToStaticMarkup(createElement(PrintableLoadNotice, { doc: ln(deleted) })), renderToStaticMarkup(createElement(PrintableLoadNotice, { doc: ln(plain) })));
+  /* C-G7 (طلب المالك ٤ نوفمبر ٢٠٢٦): سطور الترويسة (العنوان والرقم الضريبي والسجل والهاتف والبريد) تُحذف بحذف مفاتيحها كترويسة
+   * الفاتورة — ولا شيء غيرها: الورقة = ورقة اليوم بلا تلك السطور حرفاً بحرف (الجسم والتذييل كما هما) */
+  const headerLines = /<div style="font-size:11.5px;color:#4b5563">.*?<\/div>/g;
+  for (const [name, html, ref] of [
+    ['كشف', renderToStaticMarkup(createElement(PrintableStatement, { doc: st(deleted) })), renderToStaticMarkup(createElement(PrintableStatement, { doc: st(plain) }))],
+    ['إشعار', renderToStaticMarkup(createElement(PrintableLoadNotice, { doc: ln(deleted) })), renderToStaticMarkup(createElement(PrintableLoadNotice, { doc: ln(plain) }))],
+  ] as const) {
+    assert.ok((ref.match(headerLines) ?? []).length >= 4, `${name}: سطور الترويسة غير مرسومة أصلاً`);
+    assert.equal(html, ref.replace(headerLines, ''), `${name}: حذف سطور الترويسة غيّر غيرها`);
+  }
 });
 
 // ═══ مسارات إخراج A4 للقالب ثنائي اللغة: طباعة النظام وPDF والنقطية والبانيات (الحزمة P4b) ═══

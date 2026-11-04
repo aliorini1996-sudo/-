@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { invoiceApi, companyApi, salesRepApi, locationsApi, priceListApi } from '../api/client';
 import { Invoice, SalesRep } from '../types';
@@ -24,6 +24,10 @@ import { locationFilterOptions, type SalesLocation } from '../lib/locations';
 import { lotErrorOf, lotFlagsOf } from '../lib/lots';
 import { lotErrorText, withDocLots } from '../lib/invoiceLots';
 import { priceListsOf } from '../lib/priceLists';
+import { withLiveCompany } from '../rep/companyRefresh';
+
+/** جلب إعدادات الشركة — نفسه للاستعلام ولـensureQueryData عند فتح مستند قبل اكتمال تحميلها (D-G6) */
+const fetchCompany = async () => { const res = await companyApi.get(); return res.data.data as Company; };
 
 /** ألوان شارة حالة الفوترة الإلكترونية (المرحلة الثانية) — مفتاحها `ZatcaChipTone`. */
 const ADMIN_CHIP_TONE: Record<string, string> = {
@@ -50,10 +54,9 @@ export default function InvoicesPage() {
   const [exporting, setExporting] = useState(false);
   const [cancelId, setCancelId] = useState<string | null>(null);
 
-  const { data: company } = useQuery({
-    queryKey: ['company'],
-    queryFn: async () => { const res = await companyApi.get(); return res.data.data as Company; },
-  });
+  const { data: company } = useQuery({ queryKey: ['company'], queryFn: fetchCompany });
+  // «نصوص المطبوعات» تصل المستند المفتوح: تجدّد إعدادات الشركة يُستبدل في نسخته (لا نصوص لحظة الفتح)
+  useEffect(() => { setDocResult(d => (d ? withLiveCompany(d, company) : d)); }, [company]);
 
   // صفحة الفواتير مالية بالكامل: لا جدول ولا تصفية ولا زرّ إصدار حين تُطفأ المحاسبة
   const { on: accountingOn, ready: accountingReady } = useAccountingOn();
@@ -119,7 +122,10 @@ export default function InvoicesPage() {
     setOpeningId(id);
     try {
       const res = await invoiceApi.get(id, { withLots: lotOn });
-      const doc = invoiceDocFromDetail(res.data.data, '', company);
+      // فُتحت قبل اكتمال تحميل الشركة (أو تعثّرها): تُطلب الآن، وإلا خرجت بالنصوص الافتراضية وترويسة فارغة (D-G6)
+      let co = company;
+      try { co = company ?? await qc.ensureQueryData({ queryKey: ['company'], queryFn: fetchCompany }); } catch { /* يبقى الحالي */ }
+      const doc = invoiceDocFromDetail(res.data.data, '', co);
       // تشغيلات البنود من الردّ إن لم تحملها البانية — بالترتيب نفسه (invoiceDocFromDetail يحفظه)
       setDocResult(lotOn ? { ...doc, items: withDocLots(doc.items, res.data.data?.items) } : doc);
     } catch { toast.error(tr('تعذر فتح المستند')); }

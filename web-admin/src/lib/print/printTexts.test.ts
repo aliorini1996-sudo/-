@@ -371,7 +371,7 @@ test('PRINT_TEXT_LINE: وحدة حذفٍ واحدة لكل مفتاح في ال�
   for (const [k, v] of Object.entries(PRINT_TEXT_LINE)) assert.ok(scopes.includes(v), `${k}: ${v}`);
   assert.ok(Object.isFrozen(PRINT_TEXT_LINE));
   const by = (scope: string) => Object.entries(PRINT_TEXT_LINE).filter(([, v]) => v === scope).map(([k]) => k).sort();
-  assert.deepEqual(by('title'), ['inv.returnTitle', 'inv.title', 'rcp.title']);
+  assert.deepEqual(by('title'), ['inv.debitTitle', 'inv.returnTitle', 'inv.title', 'rcp.title']);
   assert.deepEqual(by('slot'), ['rcp.sigCollector', 'rcp.sigPayer', 'sig.recipient', 'sig.remarks', 'sig.rep', 'sig.warehouse']);
   assert.deepEqual(by('column'), ['col.code', 'col.discount', 'col.item', 'col.price', 'col.priceIncl', 'col.qty', 'col.seq', 'col.tax', 'col.total', 'col.unit', 'col.vatAmount', 'inst.amount', 'inst.dueDate']);
   assert.deepEqual(by('block'), ['cust.heading', 'inst.heading', 'inv.infoHeading', 'inv.returnInfoHeading', 'rcp.amount', 'rcp.customerHeading', 'rcp.forInvoices', 'sel.heading']);
@@ -387,7 +387,7 @@ test('التنبيهات: صنفٌ لكل مفتاح من قفله القديم 
     'sel.postalCode', 'tot.discount',
   ].sort());
   assert.deepEqual(cls('tax'), [
-    'h.taxNumber', 'h.commercialReg', 'h.address', 'foot.company', 'inv.title', 'inv.returnTitle', 'inv.number', 'inv.returnNumber', 'inv.date',
+    'h.taxNumber', 'h.commercialReg', 'h.address', 'foot.company', 'inv.title', 'inv.returnTitle', 'inv.debitTitle', 'inv.number', 'inv.returnNumber', 'inv.date',
     'inv.time', 'inv.deliveryDate', 'cust.taxNumber', 'col.item', 'col.qty', 'col.price', 'col.priceIncl', 'col.total', 'item.beforeTax',
     'note.pricesIncl', 'tot.taxable', 'tot.vat', 'tot.vatIncl', 'tot.grand', 'tot.returnGrand', 'inst.heading', 'inst.dueDate', 'inst.amount',
     'inst.sum', 'inst.note', 'qr.caption', 'inv.originalRef', 'inv.noteReason', 'rcp.number', 'rcp.date', 'rcp.amount', 'rcp.from',
@@ -425,13 +425,17 @@ test('المفاتيح الجديدة: بنصّها ومستندها ومجمو�
     ['foot.platform', 'صدرت عبر منصة Field Sales · fieldsa.net', 'shared', 'footer', 'fixed'],
   ];
   assert.deepEqual(PRINT_TEXT_CATALOG.slice(-NEW.length).map((x) => [x.key, x.ar, x.doc, x.group, x.lock]), NEW);
-  assert.equal(PRINT_TEXT_CATALOG.length, 74 + NEW.length);
+  // 74 مفتاح الأصل + inv.debitTitle (طلب المالك ٤ نوفمبر ٢٠٢٦، بعد inv.returnTitle) + مفاتيح ٣ نوفمبر
+  assert.equal(PRINT_TEXT_CATALOG.length, 75 + NEW.length);
+  assert.deepEqual(PRINT_TEXT_CATALOG.map((x) => x.key).slice(PRINT_TEXT_CATALOG.findIndex((x) => x.key === 'inv.returnTitle'), PRINT_TEXT_CATALOG.findIndex((x) => x.key === 'inv.returnTitle') + 2), ['inv.returnTitle', 'inv.debitTitle']);
+  const debit = printTextEntry('inv.debitTitle')!;
+  assert.deepEqual([debit.ar, debit.doc, debit.group, debit.lock, debit.max], ['إشعار مدين', 'invoice', 'title', 'title', 60]);
   // سطر المنصّة الافتراضي = تعبير قالب A4 اليوم حرفاً (tr('صدرت عبر منصة') + ' Field Sales · fieldsa.net') بلا ترجمة
   const a4Today = (tr: (s: string) => string) => `${tr('صدرت عبر منصة')} Field Sales · fieldsa.net`;
   assert.equal(printTextEntry('foot.platform')!.ar, a4Today((x) => x));
 });
 
-test('التسمية الإنجليزية en(): المحذوف null، ونصّ الشركة الإنجليزي، وإلا ترجمة صياغتها ثم الافتراضي — وبلا نصوص ترجمة النصّ', () => {
+test('تسمية العمود الثاني en(): المحذوف null، ونصّ الشركة الثاني أيّاً كانت لغته، وإلا ترجمة صياغتها وحدها ثم الافتراضي بـgridLang — وبلا نصوص ترجمة النصّ بالإنجليزية', () => {
   // بلا نصوص: phraseIn(ar,'en') (وترجمة المفتاح لافتراضي المفاتيح الجديدة)
   const off = makePrintTexts(null, markTr);
   assert.equal(off.en('inv.date', 'التاريخ'), ph('التاريخ'));
@@ -446,24 +450,32 @@ test('التسمية الإنجليزية en(): المحذوف null، ونصّ �
   assert.equal(off.en('tot.exclVat', 'الإجمالي الخاضع للضريبة (غير شامل الضريبة)'), 'Total Taxable Amount (Excluding VAT)');
   assert.equal(off.en('tot.due', 'إجمالي المبلغ المستحق'), 'Total Amount Due');
   assert.equal(off.en('foot.platform', 'صدرت عبر منصة Field Sales · fieldsa.net'), 'Issued via Field Sales · fieldsa.net');
-  // بنصوص بالإنجليزية: نصّ الشركة أوّلاً، ثم ترجمة صياغتها، ثم الافتراضي (ولو كانت صياغتها خارج القاموس)، والمحذوف null
+  assert.equal(off.gridLang, 'en');
+  assert.equal(off.ownAlt('h.phone'), null);
+  // بنصوص بالإنجليزية: نصّ الشركة أوّلاً، ثم ترجمة صياغتها وحدها (صياغةٌ خارج القاموس ⇒ لا تسمية: لا إنجليزية الافتراضي القديم)، ثم الافتراضي، والمحذوف null
   const p = makePrintTexts(texts(), enTr, { standard: false });
+  assert.equal(p.gridLang, 'en');
   assert.equal(p.en('h.phone', 'هاتف'), 'Tel');
   assert.equal(p.en('h.email', 'البريد'), 'Email');
   assert.equal(p.en('inv.number', 'رقم الفاتورة'), ph('رقم'), 'ترجمة صياغتها');
-  assert.equal(p.en('inv.rep', 'المندوب'), ph('المندوب'), 'صياغةٌ خارج القاموس ⇒ ترجمة الافتراضي (القالب ثنائي اللغة يحتاج تسمية)');
+  assert.equal(p.en('inv.rep', 'المندوب'), null, 'صياغةٌ خارج القاموس بلا نصٍّ ثانٍ ⇒ لا إنجليزية الافتراضي القديم بجانبها (C-G2)');
   assert.equal(p.en('col.priceIncl', 'السعر شامل الضريبة'), 'Unit price incl. VAT');
   assert.equal(p.en('cust.phone', 'الجوال'), null, 'محذوف');
   assert.equal(p.en('col.discount', 'الخصم'), null, 'محذوف (standard سابقاً) ولو على القياسية');
   assert.equal(makePrintTexts(texts(), enTr, { standard: true }).en('col.discount', 'الخصم'), null);
-  // بلغةٍ ثانية غير الإنجليزية: نصّ الشركة (بتلك اللغة) لا يصير تسميةً إنجليزية
+  // بلغةٍ ثانية غير الإنجليزية: العمود الثاني بتلك اللغة — نصّ الشركة بها، وإلا ترجمة صياغتها أو الافتراضي إليها (C-G1)
   const fr = makePrintTexts(texts({ secondLang: 'fr' }), enTr, { standard: false });
-  assert.equal(fr.en('h.phone', 'هاتف'), ph('الهاتف'), 'ترجمة صياغتها العربية «الهاتف»');
-  assert.equal(fr.en('col.priceIncl', 'السعر شامل الضريبة'), ph('السعر شامل الضريبة'));
+  assert.equal(fr.gridLang, 'fr');
+  assert.equal(fr.en('h.phone', 'هاتف'), 'Tel', 'نصّ الشركة الثاني كما كتبته');
+  assert.equal(fr.en('col.priceIncl', 'السعر شامل الضريبة'), 'Unit price incl. VAT');
+  assert.equal(fr.en('inv.date', 'التاريخ'), ph('التاريخ', 'fr'), 'غير المعدّل بالفرنسية لا بالإنجليزية');
+  assert.equal(fr.en('inv.number', 'رقم الفاتورة'), ph('رقم', 'fr'), 'ترجمة صياغتها بالفرنسية');
   // بلا لغة ثانية: الإنجليزية من الترجمة — والقالب ثنائي اللغة يطبعها
   const ar = makePrintTexts(texts({ secondLang: null }), enTr, { standard: false });
+  assert.equal(ar.gridLang, 'en');
   assert.equal(ar.en('h.phone', 'هاتف'), ph('الهاتف'));
   assert.equal(ar.en('inv.date', 'التاريخ'), ph('التاريخ'));
+  assert.equal(ar.en('inv.rep', 'المندوب'), null, 'صياغةٌ خارج القاموس بلا لغة ثانية ⇒ لا إنجليزية قديمة');
   // المعاينة: المحذوف يُرسم مشطوباً فتبقى تسميته
   const pv = makePrintTexts(texts(), enTr, { standard: false, preview: { onPick: () => {}, active: null } });
   assert.equal(pv.en('cust.phone', 'الجوال'), ph('الجوال'));

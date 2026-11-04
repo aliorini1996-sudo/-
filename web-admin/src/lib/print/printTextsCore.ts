@@ -58,6 +58,7 @@ export const PRINT_TEXT_CATALOG: readonly PrintTextEntry[] = Object.freeze([
   // ── الفاتورة ──
   e('inv.title', 'فاتورة ضريبية مبسطة', 'invoice', 'title', 'title'),
   e('inv.returnTitle', 'إشعار دائن مرتجع', 'invoice', 'title', 'title'),
+  e('inv.debitTitle', 'إشعار مدين', 'invoice', 'title', 'title'),
   e('inv.infoHeading', 'بيانات الفاتورة', 'invoice', 'info'),
   e('inv.returnInfoHeading', 'بيانات المرتجع', 'invoice', 'info'),
   e('inv.number', 'رقم الفاتورة', 'invoice', 'info', 'zatca'),
@@ -192,7 +193,7 @@ export type PrintLineScope = 'row' | 'column' | 'totalsRow' | 'block' | 'title' 
 export const PRINT_TEXT_LINE: Readonly<Record<string, PrintLineScope>> = Object.freeze({
   'h.taxNumber': 'row', 'h.commercialReg': 'row', 'h.address': 'row', 'h.phone': 'row', 'h.email': 'row',
   'foot.thanks': 'line', 'foot.company': 'line',
-  'inv.title': 'title', 'inv.returnTitle': 'title',
+  'inv.title': 'title', 'inv.returnTitle': 'title', 'inv.debitTitle': 'title',
   'inv.infoHeading': 'block', 'inv.returnInfoHeading': 'block',
   'inv.number': 'row', 'inv.returnNumber': 'row', 'inv.date': 'row', 'inv.time': 'row', 'inv.type': 'row',
   'inv.deliveryDate': 'row', 'inv.rep': 'row',

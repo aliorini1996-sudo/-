@@ -27,6 +27,7 @@ import { accentColor, logoBox, orderedSections, scaleStyle, tableCss, type Resol
 import { GridInvoice, GridReceipt } from './printGrid';
 import { DocTextsContext, useDocTexts, usePrintTextsPreview } from './printTextsContext';
 import { printPageNode } from './printPage';
+import { announceDocOpen } from './companyRefresh';
 import { currentPrintIdentity, directOpts, usePrintDeviceChoice, withKindChoice } from './printDevice';
 import PrintDeviceSheet from './PrintDeviceSheet';
 import { directAvailableFor, printHtmlDirect, printNodeDirect, supportsDirect, transportFor, type DirectOutcome, type PrintTransport } from './printDirect';
@@ -505,13 +506,22 @@ const reworded = (pt: PrintTexts, key: string): boolean => pt.on && pt.text(key,
 /** سطر المنصّة بعبارته في القائمة (foot.platform) — والافتراضي على الورقة تعبيرُ اليوم نفسه */
 const PLATFORM_LINE_AR = 'صدرت عبر منصة Field Sales · fieldsa.net';
 
-/** سطر المنصّة في التذييل: بلا صياغة ⇒ تعبير اليوم حرفاً، ومحذوفٌ ⇒ لا سطر، ومُعاد الصياغة ⇒ صياغة الشركة */
+/** نصّ الشركة نفسه باللغة الثانية بجانب سطرٍ عربيّ لا يمرّ بـL (كما يرسم L سطره الثاني) — لا شيء بلا نصّها (C-G4/C-G5) */
+function ownAltSpan(pt: PrintTexts, key: string): React.ReactNode {
+  const alt = pt.ownAlt(key);
+  return alt ? <span dir="ltr" style={ALT_INLINE}>{alt}</span> : null;
+}
+
+/**
+ * سطر المنصّة في التذييل: بلا صياغة ⇒ تعبير اليوم حرفاً (ومعه نصّ الشركة الثاني إن كتبته)، ومحذوفٌ ⇒ لا سطر، ومُعاد الصياغة ⇒
+ * صياغة الشركة
+ */
 function PlatformLine({ pt }: { pt: PrintTexts }) {
   if (pt.hidden('foot.platform')) return null;
   const L = labeler(pt);
   return (
     <div style={{ marginTop: 6, fontSize: 10, color: '#c3bcae' }}>
-      {reworded(pt, 'foot.platform') ? L('foot.platform', PLATFORM_LINE_AR) : <Pick pt={pt} k="foot.platform">{pt.tr('صدرت عبر منصة')} Field Sales · fieldsa.net</Pick>}
+      {reworded(pt, 'foot.platform') ? L('foot.platform', PLATFORM_LINE_AR) : <Pick pt={pt} k="foot.platform">{pt.tr('صدرت عبر منصة')} Field Sales · fieldsa.net{ownAltSpan(pt, 'foot.platform')}</Pick>}
     </div>
   );
 }
@@ -537,6 +547,22 @@ function useSheet(): { style: React.CSSProperties; attrs: ReturnType<typeof look
     attrs: lookRootAttrs(look),
     css: lookNeedsCss(look) ? <style>{PRINT_LOOK_CSS}</style> : null,
   };
+}
+
+/**
+ * ترويسة المستندات الأخرى (كشف الحساب، سجل التحصيل، إشعارات التحميل والمخزون، طلب المخزون) بنصوص الشركة المحفوظة (C-G7):
+ * صياغة تسميات الترويسة (h.*) وحذف سطورها واسم الشركة وعنوانها باللغة الثانية — كترويسة الفاتورة. المحلِّل يلفّ الترويسة وحدها
+ * (لا جسم المستند)، وشركةٌ بلا نصوص لا محلِّل لها فترويستها كاليوم حرفاً.
+ */
+function CompanyTextsHeader({ title, company }: { title: React.ReactNode; company?: Company | null }) {
+  const uiTr = useTr();
+  const raw = company?.printTexts;
+  const pt = useMemo(() => {
+    const texts = normalizePrintTexts(raw);
+    return texts ? makePrintTexts(texts, uiTr) : null;
+  }, [raw, uiTr]);
+  const header = <Header title={title} company={company} />;
+  return pt ? <DocTextsContext.Provider value={pt}>{header}</DocTextsContext.Provider> : header;
 }
 
 export function Header({ title, company, layout }: { title: React.ReactNode; company?: Company | null; layout?: ResolvedLayout | null }) {
@@ -718,13 +744,13 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
   const vatRowGone = pt.hidden('tot.vat') || pt.hidden('tot.vatIncl');
   const grandGone = pt.hidden(doc.isReturn ? 'tot.returnGrand' : 'tot.grand');
   // عمود التسلسل: «#» كاليوم ما لم تُعِد الشركة صياغته (col.seq) — والمعاينة تعرضه قابلاً للنقر
-  const seqLabel = pt.preview || reworded(pt, 'col.seq') ? L('col.seq', '#', { stack: true }) : '#';
+  const seqLabel = pt.preview || reworded(pt, 'col.seq') || pt.ownAlt('col.seq') !== null ? L('col.seq', '#', { stack: true }) : '#';
   const scale = scaleStyle(layout);
 
   const sections: Partial<Record<string, React.ReactNode>> = {
     header: (
       <>
-        <Header title={titleNode(pt, doc.isReturn ? 'inv.returnTitle' : 'inv.title', docTitle)} company={doc.company} layout={layout} />
+        <Header title={titleNode(pt, doc.isReturn ? 'inv.returnTitle' : zDecision.title === 'إشعار مدين' ? 'inv.debitTitle' : 'inv.title', docTitle)} company={doc.company} layout={layout} />
 
         {/* المرحلة الثانية: بيئة المحاكاة تُوسَم على الورقة نفسها — ورقة بروفة لا تُقرأ فاتورةً حقيقية */}
         {zDecision.watermark && (
@@ -937,7 +963,7 @@ function InvoiceQrBlock({ doc, zDecision, qrValue, look, pt }: { doc: InvoiceDoc
         <div style={{ textAlign: 'center' }}>
           <div style={slotBox} data-qr-value={look.qrSlotPx ? zDecision.qr.value : undefined} data-qr-ec={look.qrSlotPx ? 'L' : undefined}><QrImage value={zDecision.qr.value} size={176} ec="L" scale={4} /></div>
           {/* تعليق الرمز عبارةٌ كغيرها (qr.caption): يُحذف سطره أو يُعاد صياغته — والرمز المختوم وسطر ICV باقيان. بلا صياغة: تعليق القرار كاليوم */}
-          {!pt.hidden('qr.caption') && <div style={{ fontSize: 10, color: '#6b7280', marginTop: 6, maxWidth: 160 }}>{reworded(pt, 'qr.caption') ? L('qr.caption', 'رمز الاستجابة السريعة للفاتورة الضريبية') : tr(zDecision.qr.caption || '')}</div>}
+          {!pt.hidden('qr.caption') && <div style={{ fontSize: 10, color: '#6b7280', marginTop: 6, maxWidth: 160 }}>{reworded(pt, 'qr.caption') ? L('qr.caption', 'رمز الاستجابة السريعة للفاتورة الضريبية') : pt.ownAlt('qr.caption') !== null ? <Pick pt={pt} k="qr.caption">{tr(zDecision.qr.caption || '')}{ownAltSpan(pt, 'qr.caption')}</Pick> : tr(zDecision.qr.caption || '')}</div>}
           <div style={{ fontSize: 9, color: '#9ca3af', marginTop: 2, maxWidth: 160, wordBreak: 'break-all', direction: 'ltr' }}>
             {doc.zatca.icv !== null ? `ICV ${doc.zatca.icv}` : ''}{doc.zatca.uuid ? ` · ${doc.zatca.uuid}` : ''}
           </div>
@@ -995,7 +1021,7 @@ const thanksReworded = (pt: PrintTexts): boolean => pt.on && pt.text('foot.thank
 function FooterLine({ pt, thanks, name }: { pt: PrintTexts; thanks: React.ReactNode | null; name: string }) {
   const t = pt.hidden('foot.thanks') ? null : thanks;
   // اسم الشركة في التذييل: صياغة الشركة له (foot.company) إن كتبتها، وإلا الاسم كما هو
-  const n = pt.hidden('foot.company') ? null : <Pick pt={pt} k="foot.company">{reworded(pt, 'foot.company') ? pt.text('foot.company', name) : name}</Pick>;
+  const n = pt.hidden('foot.company') ? null : <Pick pt={pt} k="foot.company">{reworded(pt, 'foot.company') ? pt.text('foot.company', name) : name}{ownAltSpan(pt, 'foot.company')}</Pick>;
   return <>{t}{t !== null && n !== null ? ' — ' : null}{n}</>;
 }
 
@@ -1064,7 +1090,7 @@ export const PrintableReceipt = forwardRef<HTMLDivElement, { doc: ReceiptDoc }>(
       </div>
 
       <div style={{ marginTop: 30, textAlign: 'center', color: '#9ca3af', fontSize: 12, borderTop: '1px solid #eef2f7', paddingTop: 12 }}>
-        {pt.hidden('foot.company') ? null : <Pick pt={pt} k="foot.company">{reworded(pt, 'foot.company') ? pt.text('foot.company', '') : doc.company?.name || ''}</Pick>}
+        {pt.hidden('foot.company') ? null : <Pick pt={pt} k="foot.company">{reworded(pt, 'foot.company') ? pt.text('foot.company', '') : doc.company?.name || ''}{ownAltSpan(pt, 'foot.company')}</Pick>}
         <PlatformLine pt={pt} />
       </div>
       {sheet.css}
@@ -1170,7 +1196,7 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
 
   return (
     <div ref={ref} style={sheet.style} {...sheet.attrs}>
-      <Header title={tr('كشف حساب')} company={doc.company} />
+      <CompanyTextsHeader title={tr('كشف حساب')} company={doc.company} />
 
       {/* بيانات العميل + الفترة */}
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, marginBottom: 16 }}>
@@ -1296,7 +1322,7 @@ export const PrintableSettlementLog = forwardRef<HTMLDivElement, { doc: Settleme
 
   return (
     <div ref={ref} style={sheet.style} {...sheet.attrs}>
-      <Header title={single ? tr('سند استلام تحصيل') : tr('سجل استلام التحصيل')} company={doc.company} />
+      <CompanyTextsHeader title={single ? tr('سند استلام تحصيل') : tr('سجل استلام التحصيل')} company={doc.company} />
 
       {/* بيانات المندوب + ملخّص التحصيل */}
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, marginBottom: 16 }}>
@@ -1390,7 +1416,7 @@ export const PrintableLoadNotice = forwardRef<HTMLDivElement, { doc: LoadNoticeD
 
   return (
     <div ref={ref} style={sheet.style} {...sheet.attrs}>
-      <Header title={title} company={doc.company} />
+      <CompanyTextsHeader title={title} company={doc.company} />
 
       {/* بيانات المندوب + ملخّص الحركة */}
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, marginBottom: 16 }}>
@@ -1506,7 +1532,7 @@ export const PrintableWarehouseNotice = forwardRef<HTMLDivElement, { doc: Wareho
 
   return (
     <div ref={ref} style={sheet.style} {...sheet.attrs}>
-      <Header title={title} company={doc.company} />
+      <CompanyTextsHeader title={title} company={doc.company} />
 
       {/* بيانات الحركة + ملخّصها */}
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, marginBottom: 16 }}>
@@ -1631,7 +1657,7 @@ export const PrintableStockRequest = forwardRef<HTMLDivElement, { doc: StockRequ
 
   return (
     <div ref={ref} style={sheet.style} {...sheet.attrs}>
-      <Header title={tr('طلب مخزون')} company={doc.company} />
+      <CompanyTextsHeader title={tr('طلب مخزون')} company={doc.company} />
 
       {/* بيانات الطلب + الجهة وملخّصه */}
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, marginBottom: 16 }}>
@@ -2125,6 +2151,15 @@ function InvoiceLotsStrip({ doc }: { doc: InvoiceDoc }) {
 }
 
 // ============ شاشة النتيجة (معاينة + مشاركة/حفظ PDF) ============
+/**
+ * عبارتا «الأصل/نسخة» لطباعة أكثر من نسخة على الصفحة والنقطية: فاتورةٌ أو سندٌ لشركةٍ لها نصوص مطبوعات ورقتُه عربيةٌ أولاً أيّاً
+ * كانت لغة الواجهة ⇒ بالعربية (كما يطبعها الشريط الحراري)؛ وما سواه بلغة الواجهة كاليوم.
+ */
+export function docCopyLabels(doc: AnyDoc, tr: (ar: string) => string): [string, string] {
+  if ((doc.kind === 'invoice' || doc.kind === 'receipt') && normalizePrintTexts(doc.company?.printTexts) !== null) return ['الأصل', 'نسخة'];
+  return [tr('الأصل'), tr('نسخة')];
+}
+
 export function DocumentResult({ doc, onClose, showLotsStrip = false }: {
   doc: AnyDoc; onClose: () => void;
   /** «تتبّع اللوط»: شريط «تشغيلات البنود» خارج الورقة — للإدارة وحدها (§٦.١)، فلا يمرّره تطبيق المندوب */
@@ -2134,6 +2169,8 @@ export function DocumentResult({ doc, onClose, showLotsStrip = false }: {
   const printRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
+  // فتح المستند يطلب إعدادات الشركة الأحدث في الخلفية حيث يُستمع له (/m) — «نصوص المطبوعات» المحفوظة للتوّ تصل طباعته
+  useEffect(() => { announceDocOpen(); }, []);
 
   const isReceipt = doc.kind === 'receipt';
   const isStatement = doc.kind === 'statement';
@@ -2233,8 +2270,10 @@ export function DocumentResult({ doc, onClose, showLotsStrip = false }: {
       } else {
         const node = separatePage ? pageRef.current : printRef.current;
         if (!node) throw new Error('print sheet');
-        if (port) sent.outcome = await bt.run((ui) => printNodeDirect(port, node, directProfile, [tr('الأصل'), tr('نسخة')], ui), { ...directOpts(deviceChoice), label: title });
-        else await printPageNode(node, directProfile, [tr('الأصل'), tr('نسخة')]);
+        // «الأصل/نسخة» بلغة الورقة: العربية لفاتورة/سند شركةٍ لها نصوص (كالشريط)، وإلا بلغة الواجهة كاليوم (R-G2)
+        const copyLabels = docCopyLabels(doc, tr);
+        if (port) sent.outcome = await bt.run((ui) => printNodeDirect(port, node, directProfile, copyLabels, ui), { ...directOpts(deviceChoice), label: title });
+        else await printPageNode(node, directProfile, copyLabels);
       }
       if (sent.outcome === 'handed') setAppPrompt('soft');
       else if (sent.outcome) setStatus(sent.outcome === 'cancelled' ? tr('ألغيت الطباعة') : tr('✓ تم الإرسال إلى الطابعة'));

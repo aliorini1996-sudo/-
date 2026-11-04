@@ -305,10 +305,13 @@ export const companyApi = {
   },
   // «نصوص المطبوعات» — /api/company/print-texts: صياغة نصوص الفاتورة وسند القبض وإخفاؤها ولغتها الثانية. القراءة لكل مسجّل
   // (data خام تُقرأ عبر normalizePrintTexts)، والحفظ بصلاحية إعدادات الشركة (400 PRINT_TEXTS_INVALID بأسباب issues، 413، 409).
-  // مسارٌ مستقلّ كالطباعة لا حقلٌ في update. null = «استعادة النصوص الافتراضية»: { reset: true } فيُكتب العمود null
+  // مسارٌ مستقلّ كالطباعة لا حقلٌ في update. null = «استعادة النصوص الافتراضية»: { reset: true } فيُكتب العمود null.
+  // rev (من ردّ GET/PUT): يُرسل في رأس x-print-texts-rev فيرفض الخادم الحفظ إن تغيّرت النصوص من جهاز آخر منذها
+  // (409 PRINT_TEXTS_STALE) بدل أن يمسح تعديلات غيره — وبلا rev الحفظ كما كان
   printTexts: {
     get: () => api.get('/company/print-texts'),
-    put: (data: PrintTextsV1 | null) => api.put('/company/print-texts', data ?? { reset: true }),
+    put: (data: PrintTextsV1 | null, rev?: string | null) =>
+      api.put('/company/print-texts', data ?? { reset: true }, rev ? { headers: { 'x-print-texts-rev': rev } } : undefined),
   },
   // «اشتراط اختيار فاتورة البيع للمرتجع» — /api/company/return-policy: لمدير الشركة وحده؛ null = افتراضيّ المرحلة (lib/returnPolicy.ts)
   returnPolicy: {

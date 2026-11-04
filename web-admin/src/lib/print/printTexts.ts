@@ -69,6 +69,8 @@ const PRINT_PHRASES: Readonly<Record<string, Partial<Record<PrintSecondLang, str
   'صدرت عبر منصة Field Sales · fieldsa.net': {
     en: 'Issued via Field Sales · fieldsa.net', fr: 'Émis via Field Sales · fieldsa.net', tr: 'Field Sales · fieldsa.net üzerinden düzenlendi', zh: '通过 Field Sales · fieldsa.net 开具',
   },
+  // سطر الدولة في ترويسة القالب ثنائي اللغة بلغة الشركة الثانية (طلب المالك ٤ نوفمبر ٢٠٢٦) — الإنجليزية «Saudi Arabia» كما اليوم
+  'المملكة العربية السعودية': { en: 'Saudi Arabia', fr: 'Arabie saoudite', tr: 'Suudi Arabistan', zh: '沙特阿拉伯' },
 });
 
 /**
@@ -110,6 +112,11 @@ export interface PrintTexts {
   /** اللغة الثانية على الورقة أو null */
   lang: PrintSecondLang | null;
   /**
+   * لغة العمود الثاني في القالب ثنائي اللغة: اللغة الثانية التي اختارتها الشركة، وإلا الإنجليزية — وبلا نصوص الإنجليزية كاليوم.
+   * (طلب المالك ٤ نوفمبر ٢٠٢٦: شركةٌ اختارت الفرنسية أو التركية أو الصينية تُطبع تسمياتها بها لا بالإنجليزية)
+   */
+  gridLang: PrintSecondLang;
+  /**
    * «حذف السطر»: true ⇒ القالب يزيل وحدة المفتاح كاملة (PRINT_TEXT_LINE: التسمية وقيمتها، العمود، صفّ الإجمالي، الصندوق…) —
    * لكل مفتاح وعلى كل مستند (طلب المالك ٣ نوفمبر ٢٠٢٦). false بلا نصوص وفي المعاينة (هناك hiddenInSettings).
    */
@@ -123,17 +130,23 @@ export interface PrintTexts {
   /** قيمةٌ ثابتة من القاموس (نقدي/آجل/تقسيط…) باللغة الثانية — لا تُعاد صياغتها */
   valueAlt: (ar: string, primary: string) => string | null;
   /**
-   * التسمية الإنجليزية للقالب ثنائي اللغة أيّاً كانت اللغة الثانية: المحذوف null؛ ونصّ الشركة الإنجليزي (secondLang 'en')؛ وإلا
-   * ترجمة صياغتها العربية ثم ترجمة الافتراضي. بلا نصوص: ترجمة `ar`.
+   * تسمية العمود الثاني في القالب ثنائي اللغة بلغة `gridLang`: المحذوف null؛ ونصّ الشركة باللغة الثانية (أيّاً كانت)؛ وإلا ترجمة
+   * صياغتها العربية وحدها (لا ترجمة الافتراضي القديم بجانب صياغةٍ جديدة)؛ وإلا ترجمة الافتراضي. بلا نصوص: ترجمة `ar` بالإنجليزية.
    */
   en: (key: string, ar: string) => string | null;
+  /**
+   * نصّ الشركة نفسه باللغة الثانية (edit.alt) لسطرٍ لا يُطبع سطره الثاني من القاموس (اسم الشركة في التذييل، تعليق الرمز المختوم،
+   * سطر المنصّة، «#»…): null بلا نصوص أو بلا لغة ثانية أو للمحذوف — ولا ترجمة من القاموس.
+   */
+  ownAlt: (key: string) => string | null;
   /** تنبيه المحرّر للمفتاح (printTextWarning) أو null — لا يمنع شيئاً */
   warning: (key: string) => PrintTextWarning | null;
   /**
    * عنوان الفاتورة/المرتجع بصياغة الشركة — في المرحلتين (طلب المالك ٣ نوفمبر ٢٠٢٦)، ومنه ما حُفظ قبله: المرحلة لا تغيّر العنوان
    * (قرار المالك ٣ نوفمبر ٢٠٢٦ «طبّقها تلقائياً»؛ ورمز QR المرحلة الثانية يُطبع كاليوم). '' = حذفته الشركة. `decided` عنوان القرار
    * (عربي) — مترجماً بـtr كما اليوم للشركة بلا نصوص. عناوين قرار الطباعة التي ليست عنوان فاتورة (سند التسليم، الملغى، بانتظار
-   * الاعتماد) وعنوان الإشعار المدين تُطبع كما قرّرها القرار: inv.title يصوغ عناوين الفاتورة وinv.returnTitle عناوين الإشعار الدائن.
+   * الاعتماد) تُطبع كما قرّرها القرار: inv.title يصوغ عناوين الفاتورة وinv.returnTitle عناوين الإشعار الدائن وinv.debitTitle عنوان
+   * الإشعار المدين (طلب المالك ٤ نوفمبر ٢٠٢٦).
    */
   title: (decided: string, f: { isReturn: boolean; phase2: boolean }) => { text: string; alt: string | null };
   companyNameAlt: string | null;
@@ -146,9 +159,11 @@ const arabic: Tr = (ar) => ar;
 
 const NO_EDIT: PrintTextEdit = Object.freeze({ text: null, alt: null, hidden: false });
 
-/** ما يصوغه inv.title (عناوين الفاتورة) وinv.returnTitle (عناوين الإشعار الدائن) من عناوين القرار — وما سواها كما قرّره القرار */
+/** ما يصوغه inv.title (عناوين الفاتورة) وinv.returnTitle (عناوين الإشعار الدائن) من عناوين القرار — والإشعار المدين inv.debitTitle، وما سواها كما قرّره القرار */
 const INVOICE_TITLES: ReadonlySet<string> = new Set(['فاتورة ضريبية مبسطة', 'فاتورة ضريبية', 'فاتورة']);
 const RETURN_TITLES: ReadonlySet<string> = new Set(['إشعار دائن مرتجع', 'إشعار دائن']);
+/** عنوان الإشعار المدين في قرار المرحلة الثانية — يصوغه inv.debitTitle */
+const DEBIT_TITLE = 'إشعار مدين';
 
 /** تنبيه المفتاح أو null لمفتاحٍ مجهول */
 const warningOf = (key: string): PrintTextWarning | null => {
@@ -168,12 +183,13 @@ export function makePrintTexts(
   const preview = f.preview ?? null;
   if (!texts) {
     return {
-      on: false, tr, lang: null,
+      on: false, tr, lang: null, gridLang: 'en',
       hidden: () => false, hiddenInSettings: () => false,
       text: (_k, ar) => tr(ar),
       alt: () => null,
       valueAlt: () => null,
       en: (key, ar) => keyPhraseIn(key, ar, 'en'),
+      ownAlt: () => null,
       warning: warningOf,
       title: (decided) => ({ text: tr(decided), alt: null }),
       companyNameAlt: null, companyAddressAlt: null,
@@ -181,6 +197,7 @@ export function makePrintTexts(
     };
   }
   const lang = texts.secondLang;
+  const gridLang: PrintSecondLang = lang ?? 'en';
   const edit = (key: string): PrintTextEdit => (Object.prototype.hasOwnProperty.call(texts.edits, key) ? texts.edits[key] : NO_EDIT);
   const hiddenInSettings = (key: string): boolean => !!printTextEntry(key) && edit(key).hidden;
   const hidden = (key: string): boolean => !preview && hiddenInSettings(key);
@@ -194,16 +211,20 @@ export function makePrintTexts(
   const en = (key: string, ar: string): string | null => {
     if (hidden(key)) return null;
     const e = edit(key);
-    if (lang === 'en' && e.alt !== null) return e.alt;
+    // نصّ الشركة باللغة الثانية أيّاً كانت (C-G1)
+    if (lang && e.alt !== null) return e.alt;
+    // صياغةٌ عربية بلا نصٍّ ثانٍ: ترجمتها وحدها — لا ترجمة الافتراضي القديم بجانب الصياغة الجديدة (C-G2)
+    if (e.text !== null) return phraseIn(e.text, gridLang);
     const entry = printTextEntry(key);
-    return (e.text !== null ? phraseIn(e.text, 'en') : keyPhraseIn(key, ar, 'en'))
-      ?? (entry ? keyPhraseIn(key, entry.ar, 'en') : null);
+    return keyPhraseIn(key, ar, gridLang) ?? (entry ? keyPhraseIn(key, entry.ar, gridLang) : null);
   };
+  const ownAlt = (key: string): string | null => (lang && !hidden(key) ? edit(key).alt : null);
   const text = (key: string, ar: string): string => edit(key).text ?? ar;
   return {
     on: true,
     tr: arabic,
     lang,
+    gridLang,
     hidden,
     hiddenInSettings,
     text,
@@ -214,14 +235,17 @@ export function makePrintTexts(
       return v && v !== primary ? v : null;
     },
     en,
+    ownAlt,
     warning: warningOf,
     title: (decided, t) => {
-      // عنوانٌ ليس عنوان فاتورة/إشعار دائن (سند التسليم، الملغى، بانتظار الاعتماد، الإشعار المدين) ⇒ كما قرّره القرار
-      if (!(t.isReturn ? RETURN_TITLES : INVOICE_TITLES).has(decided)) {
+      // عنوان الإشعار المدين (المرحلة الثانية) يُصاغ ويُحذف بمفتاحه inv.debitTitle كعنوان الفاتورة (C-G6)
+      const debit = !t.isReturn && decided === DEBIT_TITLE;
+      // عنوان حالةٍ ليس عنوان فاتورة/إشعار (سند التسليم، الملغى، بانتظار الاعتماد) ⇒ كما قرّره القرار
+      if (!debit && !(t.isReturn ? RETURN_TITLES : INVOICE_TITLES).has(decided)) {
         const v = lang ? phraseIn(decided, lang) : null;
         return { text: decided, alt: v && v !== decided ? v : null };
       }
-      const key = t.isReturn ? 'inv.returnTitle' : 'inv.title';
+      const key = t.isReturn ? 'inv.returnTitle' : debit ? 'inv.debitTitle' : 'inv.title';
       if (hidden(key)) return { text: '', alt: null };
       const primary = text(key, decided);
       const e = edit(key);

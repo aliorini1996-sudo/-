@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { AlertTriangle, Info, Languages, RotateCcw, Save, Trash2, Undo2, X } from 'lucide-react';
 import { companyApi } from '../../api/client';
@@ -18,7 +18,10 @@ import { PrintableInvoice, PrintableReceipt, type Company, type DocCustomer, typ
 import { DEFAULT_PRINT_LOOK, PrintLookContext, SHEET_WIDTH_PX, lookFor, type PrintLook } from '../../rep/printLook';
 import { PrintTextsPreviewContext } from '../../rep/printTextsContext';
 import { thermalPreviewHtml } from '../../rep/thermal';
-import { deleteConfirmText, deletedLines, lineWarning, withTextEdit, type PrintTextsCompany } from './PrintTextsCard';
+import {
+  PRINT_TEXTS_STALE_MSG, deleteConfirmText, deletedLines, isPrintTextsStale, lineWarning, printTextsServerState, reconcilePrintTexts, withTextEdit,
+  type PrintTextsCompany, type PrintTextsServerState,
+} from './PrintTextsCard';
 
 /**
  * محرّر «نصوص المطبوعات» (طلب المالك ٣١ أكتوبر ٢٠٢٦) — نافذةٌ كاملة ببوابة إلى document.body (البطاقة داخل نموذج الإعدادات
@@ -30,6 +33,10 @@ import { deleteConfirmText, deletedLines, lineWarning, withTextEdit, type PrintT
  *
  * مسودةٌ محلية واحدة تُحفظ بزرّ واحد (PUT /company/print-texts) بعد فحص الخادم نفسه (checkPrintTexts صارماً، النسخة الحرفية) —
  * والحفظ يُبطل ['company'] لأن جهاز المندوب والقوالب تقرأ العمود من ردّ /company. «استعادة النصوص الافتراضية» تُرسل الإعادة فوراً.
+ *
+ * بلاغ ٤ نوفمبر ٢٠٢٦ (حفظٌ من جهازين يمسح تعديلات الأول): عند الفتح تُقرأ النصوص من الخادم نفسه (لا ذاكرة ['company']) فتُبذر منها
+ * المسودة ما لم تُعدَّل، ويُحفظ بمراجعتها (rev). تغيّرت من جهاز آخر ⇒ 409 PRINT_TEXTS_STALE: يُعاد الجلب، والأصل والمراجعة من الخادم،
+ * ومسودة المستخدم كما هي، وتنبيهٌ ليراجع المعاينة ثم يحفظ ثانية.
  *
  * طلب المالك ٣ نوفمبر ٢٠٢٦: لا عبارة مقفلة — كل نصٍّ تُعاد صياغته، وبجانب كلٍّ زرّ «حذف السطر» يزيل وحدته كاملة (PRINT_TEXT_LINE:
  * التسمية وقيمتها، أو عمود الجدول، أو صفّ الإجمالي، أو القسم كلّه). وما كان إلزامياً للفاتورة الضريبية يحمل تنبيهاً لا يمنع
@@ -52,7 +59,7 @@ function sampleFor(key: string, s: Sample): Sample {
   switch (key) {
     case 'inv.returnTitle': case 'inv.returnInfoHeading': case 'inv.returnNumber': case 'tot.returnGrand':
       n = { isReturn: true }; break;
-    case 'inv.title': case 'inv.infoHeading': case 'inv.number': case 'inv.type': case 'tot.paid': case 'tot.remaining':
+    case 'inv.title': case 'inv.debitTitle': case 'inv.infoHeading': case 'inv.number': case 'inv.type': case 'tot.paid': case 'tot.remaining':
     case 'inv.paymentType': case 'tot.due':
       n = { isReturn: false }; break;
     case 'inst.heading': case 'inst.dueDate': case 'inst.amount': case 'inst.sum': case 'inst.note':
@@ -179,6 +186,12 @@ const GROUP_ORDER: Readonly<Record<DocTab, readonly PrintTextGroup[]>> = Object.
 });
 /* طلب المالك ٣ نوفمبر ٢٠٢٦: لا قفل — لا سبب منعٍ ولا «يبقى ظاهراً». التنبيه من PRINT_TEXT_WARNINGS بجانب السطر لا يمنع شيئاً */
 const TITLE_WARNING = 'المنشأة المسجلة في ضريبة القيمة المضافة يلزمها نظاما عنوان «فاتورة ضريبية» — غيره أو احذفه فقط إن لم تكن منشأتك مسجلة';
+/** عناوين قرار الطباعة (docPrint) ليست عنوان فاتورة ولا إشعار: حالةٌ للمستند لا نصٌّ في القائمة — تُطبع كما هي */
+const STATUS_TITLES_NOTE = 'عناوين الحالة ثابتة ولا تعدل: «سند تسليم — ليست فاتورة ضريبية» و«مستند ملغى — لا يعتمد للخصم الضريبي» و«مستند بانتظار اعتماد الهيئة»';
+/** عنوانٌ صفّه في القائمة: الفاتورة والمرتجع/الإشعار الدائن والإشعار المدين */
+const TITLE_KEYS: ReadonlySet<string> = new Set(['inv.title', 'inv.returnTitle', 'inv.debitTitle']);
+/** قراءة النصوص من الخادم عند فتح المحرّر — مفتاحٌ خاصّ لا يمسّه إبطال ['company']، ولا ذاكرة بعد الإغلاق (gcTime 0) */
+const PRINT_TEXTS_QUERY_KEY = ['company-print-texts'] as const;
 /** تسمية الصفّ — «اسم الشركة في التذييل» قيمةٌ لا تسمية فنصّه في القائمة وصفُه */
 const rowLabel = (entry: PrintTextEntry, tr: Tr): string => tr(entry.ar);
 
@@ -235,6 +248,35 @@ export default function PrintTextsEditor({ company, onClose }: { company: PrintT
   const dialogRef = useRef<HTMLDivElement>(null);
   /** المسودة التي أُرسلت — الردّ لا يمحو ما كُتب بعدها أثناء الحفظ */
   const sentRef = useRef<PrintTextsV1 | null>(null);
+  /** مراجعة الأصل على الخادم (من GET عند الفتح ثم من كل ردّ حفظ) — تُرسل مع كل حفظ؛ null (خادمٌ أقدم أو لم تصل) = حفظ بلا شرط */
+  const revRef = useRef<string | null>(null);
+  /** قراءة الفتح طُبّقت (أو سبقها حفظ) — فلا تكتب قراءةٌ متأخرة قيمةً أقدم فوق ما حُفظ */
+  const seededRef = useRef(false);
+  const latest = useRef({ initial, draft });
+  latest.current = { initial, draft };
+
+  // النصوص من الخادم نفسه عند كل فتح — ذاكرة ['company'] قد تكون أقدم (نافذةٌ مفتوحة منذ ساعات، أو حفظٌ من جهاز آخر)
+  const fresh = useQuery({
+    queryKey: PRINT_TEXTS_QUERY_KEY,
+    queryFn: async () => printTextsServerState((await companyApi.printTexts.get()).data),
+    gcTime: 0, staleTime: 0, refetchOnMount: 'always', refetchOnWindowFocus: false, refetchOnReconnect: false,
+  });
+  /** حال الخادم فوق المسودة (reconcilePrintTexts): true = تغيّر الأصل وفي المسودة تعديلات — يُنبَّه المستخدم */
+  const applyServer = useCallback((server: PrintTextsServerState): boolean => {
+    const next = reconcilePrintTexts({ ...latest.current, rev: revRef.current }, server);
+    revRef.current = next.rev;
+    setInitial(next.initial);
+    setDraft(next.draft);
+    setStored(server.stored);
+    if (next.draft === next.initial && next.initial.secondLang) lastLang.current = next.initial.secondLang;
+    return next.conflict;
+  }, []);
+  const { refetch } = fresh;
+  useEffect(() => {
+    if (seededRef.current || !fresh.data) return;
+    seededRef.current = true;
+    if (applyServer(fresh.data)) toast.error(tr(PRINT_TEXTS_STALE_MSG));
+  }, [fresh.data, applyServer, tr]);
 
   const dirty = useMemo(() => JSON.stringify(canonicalPrintTexts(draft)) !== JSON.stringify(canonicalPrintTexts(initial)), [draft, initial]);
   // فحص الخادم نفسه (صارماً) وحدّ الحجم — والخادم يعيد الفحص عند الحفظ
@@ -260,9 +302,11 @@ export default function PrintTextsEditor({ company, onClose }: { company: PrintT
 
   const save = useMutation({
     // null = «استعادة النصوص الافتراضية» (العمود null حرفياً)
-    mutationFn: (v: PrintTextsV1 | null) => companyApi.printTexts.put(v),
+    mutationFn: (v: PrintTextsV1 | null) => companyApi.printTexts.put(v, revRef.current),
     onSuccess: (res, sent) => {
       const body = res.data as { data?: unknown; stored?: boolean };
+      seededRef.current = true;
+      revRef.current = printTextsServerState(res.data).rev;
       const saved = normalizePrintTexts(body.data ?? null) ?? emptyPrintTexts();
       setInitial(saved);
       setDraft((d) => (d === sentRef.current ? saved : d));
@@ -277,6 +321,13 @@ export default function PrintTextsEditor({ company, onClose }: { company: PrintT
       toast.success(sent === null ? tr('تمت استعادة النصوص الافتراضية') : tr('تم حفظ نصوص المطبوعات'));
     },
     onError: (e) => {
+      if (isPrintTextsStale(e)) {
+        // تغيّرت من جهاز آخر: الأصل والمراجعة من الخادم، ومسودة المستخدم كما هي — يراجع المعاينة ثم يحفظ ثانية
+        setServerIssues([]);
+        toast.error(tr(PRINT_TEXTS_STALE_MSG));
+        void refetch().then((r) => { if (r.isSuccess) { seededRef.current = true; applyServer(r.data); } });
+        return;
+      }
       setServerIssues(serverIssuesOf(e));
       toast.error(tr(saveErrorMessage(e)));
     },
@@ -515,7 +566,7 @@ export default function PrintTextsEditor({ company, onClose }: { company: PrintT
               </div>
             )}
             <p className="text-[11px] text-[#9A8F7E] mt-2 flex items-start gap-1.5 leading-relaxed">
-              <Info size={12} className="mt-0.5 shrink-0" />{tr('بعد حفظ أي تعديل تطبع الفاتورة والسند بالعربية أولا أيا كانت لغة واجهة الجهاز')}
+              <Info size={12} className="mt-0.5 shrink-0" />{tr('بعد حفظ أي تعديل تطبع الفاتورة والسند بالعربية أولا أيا كانت لغة واجهة الجهاز، وتتبع ترويسة كشف الحساب والإشعارات النصوص المحفوظة')}
             </p>
           </section>
 
@@ -548,6 +599,11 @@ export default function PrintTextsEditor({ company, onClose }: { company: PrintT
           {groups.map(({ group, entries }) => (
             <section key={group} className="mb-4">
               <p className="text-xs font-bold text-[#9A8F7E] mb-1.5">{tr(GROUP_TITLES[group])}</p>
+              {group === 'title' && (
+                <p data-pt-status-titles="" className="mb-2 flex items-start gap-1.5 text-[10.5px] leading-relaxed text-[#6E6557]">
+                  <Info size={12} className="mt-0.5 shrink-0" />{tr(STATUS_TITLES_NOTE)}
+                </p>
+              )}
               <div className="space-y-2">
                 {entries.map((entry) => (
                   <TextRow key={entry.key} entry={entry} edit={draft.edits[entry.key] ?? NO_EDIT} lang={lang}
@@ -687,7 +743,7 @@ function TextRow({ entry, edit, lang, active, issues, onChange, onActivate, onDe
   // تنبيه وحدة الحذف: تنبيه العبارة، وعنوان الصندوق أشدّ تنبيهٍ في صفوفه التي تسقط معه
   const warning = lineWarning(entry.key);
   const scope = PRINT_TEXT_LINE[entry.key];
-  const isTitle = entry.key === 'inv.title' || entry.key === 'inv.returnTitle';
+  const isTitle = TITLE_KEYS.has(entry.key);
   // ما يُطبع باللغة الثانية إن تُركت خانتها فارغة: ترجمة الصياغة العربية الجديدة من القاموس (إن وُجدت)، وإلا ترجمة الافتراضي
   const altFallback = lang ? (edit.text !== null ? phraseIn(edit.text.trim(), lang) : phraseIn(entry.ar, lang)) : null;
   const altMissing = lang !== null && edit.text !== null && edit.text.trim() !== '' && edit.alt === null && !altFallback;

@@ -6,7 +6,7 @@
  * ٢) بنصوص ⇒ الشريط الكلاسيكي يصير «المختصر» على 58 مم، والصياغة مُهرَّبة، واللغة الثانية تحت العربي في الضيّق وبجانبه في العريض.
  * ٣) الحذف (طلب المالك ٣ نوفمبر ٢٠٢٦): كل سطرٍ يُحذف بقيمته — ومنه ما كان إلزامياً — على المبسّطة والقياسية، وكل عبارةٍ تُصاغ.
  * ٤) العنوان: صياغة الشركة وحذفه في المرحلتين، والرمز المختوم باقٍ.
- * ٥) معاينة المحرّر: كل نصٍّ قابلٌ للنقر، والمخفيّ مشطوبٌ حاضر — وبقية المستندات (الإشعارات) لا تتأثّر بالنصوص.
+ * ٥) معاينة المحرّر: كل نصٍّ قابلٌ للنقر، والمخفيّ مشطوبٌ حاضر — وبقية المستندات (الإشعارات): ترويستها وحدها تتبع النصوص.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -209,13 +209,16 @@ test('معاينة المحرّر: كل نصٍّ قابلٌ للنقر، وال�
   assert.ok(!a4(invoice(c)).includes('data-pt-key'), 'سمة المعاينة في الطباعة الحقيقية');
 });
 
-test('بقية المستندات لا تتأثّر بالنصوص — وثيقة المعاينة الحرارية تُبنى بلا طباعة', async () => {
+test('بقية المستندات: ترويستها وحدها تتبع النصوص وجسمها كما هو — وثيقة المعاينة الحرارية تُبنى بلا طباعة', async () => {
   const notice = (co: LoadNoticeDoc['company']): LoadNoticeDoc => ({ kind: 'loadNotice', company: co, repName: 'أحمد', date: '2026-10-31T09:00:00', movementKind: 'LOAD', items: [{ name: 'ماء', qty: 5 }] });
   const withTexts = { ...company, printTexts: texts({ secondLang: 'en', edits: { 'h.phone': { text: null, alt: null, hidden: true } } }) };
-  assert.equal(
-    renderToStaticMarkup(createElement(PrintableLoadNotice, { doc: notice(withTexts) })),
-    renderToStaticMarkup(createElement(PrintableLoadNotice, { doc: notice({ ...company }) })),
-  );
+  // C-G7: الهاتف المحذوف يسقط من ترويسة الإشعار وتسمياتها بلغتين — وما بعد الترويسة حرفاً بحرف
+  const body = (h: string) => h.slice(h.indexOf('<div style="display:flex;justify-content:space-between;gap:14px'));
+  const on = renderToStaticMarkup(createElement(PrintableLoadNotice, { doc: notice(withTexts) }));
+  const off = renderToStaticMarkup(createElement(PrintableLoadNotice, { doc: notice({ ...company }) }));
+  assert.ok(off.includes('0501234567') && !on.includes('0501234567'), 'الهاتف المحذوف بقي في ترويسة الإشعار');
+  assert.ok(on.includes('VAT No.') && !off.includes('VAT No.'), 'تسمية الترويسة بلا لغتها الثانية');
+  assert.equal(body(on), body(off), 'جسم الإشعار تغيّر');
   const p58 = await thermalPreviewHtml(invoice(withTexts), { tr: same, paperMm: 58 });
   const p80 = await thermalPreviewHtml(receipt(withTexts), { tr: same, paperMm: 80 });
   assert.ok(p58.startsWith('<!DOCTYPE html>') && p58.includes('size: 58mm'));
