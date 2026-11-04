@@ -2117,6 +2117,11 @@ model RepLocation {
   speed      Float? // السرعة م/ث إن توفّرت
   capturedAt DateTime // وقت التقاط الموقع على جهاز المندوب
   createdAt  DateTime @default(now())
+  // مصدر النقطة (قرار المالك ٤ نوفمبر ٢٠٢٦): null = نقطة الصفحة كما كانت، 'device' = خدمة التطبيق في الخلفية
+  // (POST /api/track-device/ping، LOCATION_SOURCE_DEVICE في services/deviceTrack.ts). الخلفية تسجّل حتى منتصف الليل،
+  // فتقرير الساعات يقرأ نقاط الصفحة وحدها، والمسافة تعدّ نقاط الجهاز داخل غلاف يوم العمل وحده (services/foregroundEnvelope.ts).
+  // إضافيّ بلا قيمة افتراضية: الصفوف القائمة تبقى null، ولا فهرس جديد — الاستعلامات تمرّ بفهرس (tenantId, salesRepId, capturedAt)
+  source     String?
 
   @@index([tenantId, salesRepId, capturedAt])
   @@map("rep_locations")

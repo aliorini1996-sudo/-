@@ -4404,7 +4404,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{salesRepId, repName, isActive, canSellWithoutStock, productCount, totalRemaining, totalLoaded, totalSold, totalDamaged, toolsCount, lastLoadAt}], filtered:boolean, from:string|null, to:string|null}",
+    "response": "{success:true, data:[{salesRepId, repName, isActive, canSellWithoutStock, productCount, totalRemaining, totalLoaded, totalSold, totalDamaged, toolsCount, lastLoadAt, major:{remaining, loaded, sold, damaged}}], filtered:boolean, from:string|null, to:string|null}",
     "rules": [
      "بلا from وto: الأرقام إجمالية على كامل التاريخ",
      "مع from أو to: totalLoaded وtotalSold هما ما جرى داخل المدة، أما totalRemaining فهو الرصيد التراكمي حتى نهاية to",
@@ -4414,7 +4414,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "toolsCount عدد الأدوات في عهدة السيارة الآن (المسلَّم − المستلَم) ولا يتبع المدة",
      "يشمل المناديب غير النشطين (راجع حقل isActive)",
      "لا ترقيم صفحات، والقائمة تشمل كل المناديب في النطاق",
-     "totalRemaining وtotalLoaded وtotalSold وtotalDamaged مجاميع عبر أصناف مختلفة بوحدات أساسها (حبّات)، فلا تُقرأ كراتين"
+     "totalRemaining وtotalLoaded وtotalSold وtotalDamaged مجاميع عبر أصناف مختلفة بوحدات أساسها (حبّات)، فلا تُقرأ كراتين",
+     "major للعرض فقط: الأعمدة الأربعة نفسها بالوحدة الكبرى لكل صنف، كلٌّ منها قائمة [{unit, qty}] (مثل 22.75 كرتون و40 حبة). الوحدة الكبرى هي الوحدة الرئيسية إن صلحت، وإلا أكبر وحدة نشطة، وإلا وحدة الأساس. وتُضمّ الأصناف باسم الوحدة، وqty مقرّبة لأربع خانات، والمجموع الصفري يُحذف. وdamaged بالموجب وحده كـtotalDamaged. والحساب يبقى على أرقام الأساس"
     ],
     "example": ""
    },
@@ -4702,13 +4703,14 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{qty, value, uncostedQty, unsellableQty, reps, products, deletedVans, lotQuarantined?, lotHeld?, lotProducts?:[{productId, lotQuarantined, lotHeld}]}}",
+    "response": "{success:true, data:{qty, value, uncostedQty, unsellableQty, reps, products, major:{qty, uncostedQty, unsellableQty}, deletedVans, lotQuarantined?, lotHeld?, lotProducts?:[{productId, lotQuarantined, lotHeld}]}}",
     "rules": [
      "«تتبّع LOT» (حين تكون الميزة مفعّلة للشركة وحدها): lotQuarantined رصيد تشغيلات موقوفة أو منتهية لم تُبع في سيارات النطاق، وlotHeld المحجوز (مرتجع إشعار دائن قياسي بانتظار الاعتماد) — كلاهما داخل qty ولا يُباع، فأضفه إلى ما لا يُباع. وlotProducts تفصيلهما لكل صنف متتبَّع. بوحدة الأساس، ومع asOf بيوم ذلك التاريخ",
      "value قيمة ما في السيارات بطبقات تكلفة خروجه من المستودع (الأحدث أولاً)، وuncostedQty كمية بلا تكلفة معروفة لا تدخل القيمة",
      "unsellableQty التالف والمنتهي في السيارات (لا يُباع)، وreps عدد السيارات التي فيها شيء، وproducts عدد الأصناف",
      "deletedVans سيارات مناديب محذوفين بقي فيها رصيد — تُعدّ لصاحب المفتاح غير المقيّد وحده",
-     "qty وuncostedQty وunsellableQty مجاميع عبر الأصناف بوحدات أساسها"
+     "qty وuncostedQty وunsellableQty مجاميع عبر الأصناف بوحدات أساسها",
+     "major للعرض فقط: qty وuncostedQty وunsellableQty نفسها بالوحدة الكبرى لكل صنف، كلٌّ منها قائمة [{unit, qty}] (مثل 22.75 كرتون و40 حبة). الوحدة الكبرى هي الوحدة الرئيسية إن صلحت، وإلا أكبر وحدة نشطة، وإلا وحدة الأساس. وتُضمّ الأصناف باسم الوحدة، وqty مقرّبة لأربع خانات، والمجموع الصفري يُحذف"
     ],
     "example": ""
    },
@@ -6642,8 +6644,9 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "rules": [
      "يشمل كل المناديب النشطين ولو لم يرسلوا موقعاً بعد، وفي هذه الحالة lastLat وlastLng بقيمة null",
      "visitsToday يُحسب منذ منتصف ليل UTC اليوم، أي الثالثة فجراً بتوقيت الرياض، ويعدّ الوقفات لا السجلات",
-     "يتحدّث lastSeenAt بنبضات تطبيق المندوب، فهو مؤشر الاتصال لا عمر الموقع",
-     "lastLocAt لحظة التقاط lastLat وlastLng بساعة الخادم: موقعٌ عمره دقائق والمندوب متصل يعني أن موقعه متوقف"
+     "يتحدّث lastSeenAt بنبضات تطبيق المندوب ونقاط صفحته، فهو مؤشر الاتصال لا عمر الموقع",
+     "lastLocAt لحظة التقاط lastLat وlastLng بساعة الخادم: موقعٌ عمره دقائق والمندوب متصل يعني أن موقعه متوقف",
+     "نقاط التطبيق في الخلفية (والشاشة مقفلة، حتى منتصف الليل المحلي) تحرّك lastLat وlastLng وlastLocAt ولا تحدّث lastSeenAt، فاعتبر المندوب متصلاً بأحدث القيمتين"
     ],
     "example": ""
    },
@@ -6679,7 +6682,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "body": [],
     "response": "{success:true, data:[{lat,lng,accuracy,speed,capturedAt}], snapped:[{lat,lng}]|null, shape:{segments:[{kind:'observed'|'inferred'|'raw', points:[{lat,lng}], meters}], observedMeters, inferredMeters, rawMeters, truncated, degraded}|null, checkIn:{lat,lng,at}|null, checkOut:{lat,lng,at}|null}. تنبيه: snapped وshape وcheckIn وcheckOut تأتي بجانب data في أعلى الرد وليست داخلها",
     "rules": [
-     "النقاط مرتبة تصاعدياً بوقت الالتقاط، والسقف أول 5000 نقطة في اليوم",
+     "النقاط مرتبة تصاعدياً بوقت الالتقاط، والسقف أحدث 5000 نقطة في اليوم",
+     "تشمل النقاط نقاط التطبيق في الخلفية حتى منتصف الليل المحلي ولو انصرف المندوب، فالخط والكيلومترات في shape قد تتجاوز يوم العمل الذي تحسبه GET /reports/rep-ranking",
      "المطابقة تستدعي خدمة خرائط خارجية. degraded=true يعني أن المرسوم خطوط مستقيمة وليس شوارع، وعندها snapped=null. وعند snap=0 تكون shape وsnapped بقيمة null",
      "checkIn هو أول بصمة حضور لها موقع في اليوم، وcheckOut آخر بصمة انصراف لها موقع",
      "accuracy بالأمتار وspeed بالمتر في الثانية"
@@ -7652,6 +7656,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "مرّر tz=180 للسعودية وإلا حُسبت الأيام بتوقيت UTC",
      "totalMinutes وhours وminutes نشاط التطبيق من الجلسات، أما fieldMinutesTotal فمجموع spanMinutes الميداني والترتيب تنازلي حسبه",
      "اليوم الذي فيه بصمة حضور تُؤخذ فترته من البصمات (PUNCH) ومجموع النوبات المغلقة وحدها، واليوم بلا بصمة امتداد واحد من أول أثر لآخر أثر (ACTIVITY)",
+     "نقاط الموقع التي تدخل أول أثر وآخره نقاط صفحة التطبيق وحدها. نقاط التطبيق في الخلفية تُسجَّل حتى منتصف الليل فلا تمدّ اليوم ولا firstSeen وlastSeen",
      "الأيام الخالية داخل المدى تظهر بصف absent=true، وavgDayMinutes يُقسم على أيام العمل لا أيام المدى",
      "الزيارات الخام محدودة بـ 10000 سجل"
     ],
@@ -7712,6 +7717,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "rules": [
      "الصفوف بالقيمة تنازلياً، والمتساويان يأخذان المرتبة نفسها (1، 2، 2، 4)",
      "distance مدى أقصاه 31 يوماً، وما زاد يُقصّ ويُعلن في clampedDays",
+     "distance: نقاط صفحة التطبيق تُحسب كلها، ونقاط التطبيق في الخلفية تُحسب داخل يوم العمل المحلي وحده، أي من أول أثر في اليوم إلى آخره (نقاط الصفحة والجلسات والزيارات وبصمات الحضور والانصراف للمندوب نفسه)، فقيادة النهار والشاشة مقفلة تُحسب والمساء بعد آخر أثر لا. ويوم بلا أثر لا تُحسب له نقطة خلفية",
      "المبالغ والكميات بثلاث منازل، والكيلو بمنزلة واحدة، والدقائق صحيحة",
      "مع metric=product: value صافي الكمية المباعة بوحدة الأساس product.unit (كرتون من 24 = 24) بعد طرح المرتجع منه في المدى، وقد يكون سالباً، وunits وحدات الصنف النشطة للعرض. ومع metric=sales: value صافي المبيعات (البيع المؤكَّد ناقص المرتجع المؤكَّد)"
     ],

@@ -69,7 +69,10 @@ const db: Row = {
     async findFirst(a: Row) {
       return a.where.id === 'R1' ? { id: 'R1', name: 'أحمد', tenantId: T, canManageVanStock: true, locationId: null, tenant: { locationsEnabled: false } } : null;
     },
+    // ملخّص كل المناديب (GET /summary)
+    async findMany(a: Row) { return a.where.tenantId === T ? [{ id: 'R1', name: 'أحمد', isActive: true, canSellWithoutStock: false }] : []; },
   },
+  vanToolMove: { async groupBy() { return []; } },
   product: {
     async count(a: Row) { return PRODUCTS.filter((p) => inIds(a.where.id, p.id) && p.tenantId === a.where.tenantId).length; },
     async findMany(a: Row) {
@@ -244,6 +247,26 @@ test('مخزون السيارة الآن بالأساس ومعه وحدات ال
   assert.equal(p1.remaining, 43);
   assert.equal(p1.unit, 'حبة', 'الرصيد بوحدة الأساس');
   assert.deepEqual(p1.units.map((u: Row) => [u.name, u.factor]), [['كرتون', 24], ['شدّة', 6]], 'كل وحدات الصنف للعرض (formatQty يُسقط الموقوفة)');
+});
+
+test('ملخّص المناديب: المجاميع بالأساس كما هي، ومعها major بالوحدة الكبرى لكل صنف مضمومةً باسمها', async () => {
+  reset();
+  st.loadItems.push({ productId: 'P1', qty: 2, unitName: 'كرتون', unitFactor: 24, baseQty: 48, vanLoad: { type: 'LOAD', createdAt: day(20), salesRepId: 'R1' } });
+  st.loadItems.push({ productId: 'P2', qty: 5, unitName: null, unitFactor: 1, baseQty: 5, vanLoad: { type: 'LOAD', createdAt: day(20), salesRepId: 'R1' } });
+  st.invItems.push(sale('P1', 5, 1, day(21)));
+  const r = await call(vanRouter, 'get', '/summary', { query: {} });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const [row] = r.body.data as Row[];
+  // الحقول القائمة: مجاميع عبر الأصناف بالأساس (٤٣ حبة + ٥ علب) كما كانت
+  assert.deepEqual([row.salesRepId, row.productCount, row.totalRemaining, row.totalLoaded, row.totalSold, row.totalDamaged], ['R1', 2, 48, 53, 5, 0]);
+  // كرتون P1 (٢٤ — الشدّة موقوفة) وكرتون P2 (١٢) اسمٌ واحد: 43/24 + 5/12 = 2.2083
+  assert.deepEqual(row.major, {
+    remaining: [{ unit: 'كرتون', qty: 2.2083 }],
+    loaded: [{ unit: 'كرتون', qty: 2.4167 }],
+    sold: [{ unit: 'كرتون', qty: 0.2083 }],
+    damaged: [],
+  });
+  assert.equal(st.unitQueries.length, 1, 'وحدات كل الأصناف باستعلامٍ واحد');
 });
 
 test('اقتراح التحميل ودقّته بالأساس: كرتونٌ مُباع = ٢٤، وتحميل كرتونين لاقتراح ٤٨ تبنٍّ', async () => {

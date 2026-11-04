@@ -31,6 +31,13 @@ export const NATIVE_TRACK_WINDOW_MS = 90_000;
  * nativeActive:true عن خدمةٍ توقّفت للتوّ، فمندوبٌ خرج ثم عاد خلال النافذة لا يُطلب له بدءٌ طوال يومه، ونقاط صفحته لا تُخزَّن.
  */
 export const TRACK_FINAL_HEADER = 'x-fs-track-final';
+/**
+ * مصدر نقطة الموقع في RepLocation.source لما يرفعه التطبيق من الخلفية (قرار المالك، ٤ نوفمبر ٢٠٢٦). نقطة الصفحة بلا مصدر
+ * (null) كما كانت قبل الميزة. الخادم وحده يكتبه بحسب المسار — لا يُقرأ من جسم الطلب أبداً، فلا تتنكّر نقطة جهازٍ نقطةَ صفحة.
+ * الخلفية تسجّل حتى منتصف الليل ولو انصرف المندوب، فتقرير الساعات لا يعدّها، والمسافة تعدّها داخل غلاف يوم العمل وحده.
+ */
+export const LOCATION_SOURCE_DEVICE = 'device';
+export type LocationSource = typeof LOCATION_SOURCE_DEVICE;
 
 function trackSecret(): string | null {
   const s = process.env.JWT_SECRET;

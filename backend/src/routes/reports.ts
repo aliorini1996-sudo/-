@@ -1,10 +1,12 @@
 import { Router, Response, NextFunction } from 'express';
+import { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, requireLots, requirePaymentMethods, tenantId } from '../middleware/auth';
 import { scopedRecordWhere, scopedRepRecordWhere, adminCustomerFilter, adminRepFilter, SHAPE_INVOICE_RECEIPT, SHAPE_VISIT } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { composeWorkDays, attendanceByDay, overlayAttendance, mergeVisitsByRep, asVisitLike } from '../services/workDay';
 import { FINANCIAL_METRICS, RANKING_METRICS, rankRows, trackedMeters, type RankingMetric } from '../services/repRanking';
+import { deviceEnvelopeSql, foregroundEnvelopes, foregroundEvidenceByRep } from '../services/foregroundEnvelope';
 import { TEAM_NAME_SELECT, reportTeamOf, teamDocWhere, teamRepOrDocsWhere, teamRepWhere } from '../services/teams';
 import { isDamagedVanReturn } from '../services/vanDamaged';
 import { tenantTz } from '../services/invoiceExpiry';
@@ -941,12 +943,16 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
       // ⚠️ لا make_interval هنا: Prisma يمرّر الرقم bigint وPostgres لا يملك
       // make_interval(mins => bigint) فسقط المسار بـ42883 على الإنتاج فور نشره.
       // ضربُ interval ثابت بالمعامل يقبل bigint بالتحويل الضمني ويؤدّي المعنى نفسه.
+      // نقاط الصفحة وحدها ("source" IS NULL — قرار المالك ٤ نوفمبر ٢٠٢٦): خدمة التطبيق في الخلفية تسجّل حتى منتصف الليل
+      // ولو انصرف المندوب، فنقطةٌ منها كانت ستمدّ اليوم والمتوسط و«آخر ظهور» إلى قرب ١٢ ليلاً. وقصُّها على غلاف اليوم
+      // (services/foregroundEnvelope.ts) لا يغيّر طرفيه أبداً، فاستبعادها هو المكافئ الدقيق. نقاط الصفحة كما كانت حرفاً.
       prisma.$queryRaw<{ salesRepId: string; day: string; min: Date; max: Date }[]>`
         SELECT "salesRepId",
                to_char(("capturedAt" + ${tzOffsetMin} * interval '1 minute')::date, 'YYYY-MM-DD') AS "day",
                MIN("capturedAt") AS "min", MAX("capturedAt") AS "max"
         FROM "rep_locations"
         WHERE "tenantId" = ${tid} AND "capturedAt" >= ${fromDate} AND "capturedAt" < ${toEnd}
+          AND "source" IS NULL
         GROUP BY 1, 2`,
       // بصمات الحضور: تُنسب ليومها المحلي ببصمة الحضور — نوبةٌ عبرت منتصف الليل تبقى ليوم بدايتها.
       // ومعها إحداثيات البصمتين: التقرير يُظهر أين حضر وأين انصرف (رابط خريطة لكل وقت)
@@ -1033,7 +1039,8 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
  *  - product: الكمية المباعة من صنفٍ بعينه في فواتير البيع المؤكَّدة؛
  *  - sales: قيمة المبيعات — فواتير مؤكَّدة غير مرتجعة (تعريف «أداء المندوب» نفسه)؛
  *  - distance: المسافة المرصودة بالكيلو من نقاط GPS — تُختزل في القاعدة إلى نقطةٍ لكل دقيقة (الأدقّ) لكل مندوب على حدة،
- *    والمدى ٣١ يوماً على الأكثر (كتقرير ساعات العمل) ويُعلن القصّ؛
+ *    والمدى ٣١ يوماً على الأكثر (كتقرير ساعات العمل) ويُعلن القصّ. ونقاط التطبيق في الخلفية تُعدّ داخل غلاف يوم العمل
+ *    المحلي وحده (services/foregroundEnvelope.ts)، ونقاط الصفحة كلّها كما كانت؛
  *  - appTime: وقت استخدام التطبيق بالدقائق — جلسات النبض (مصدر «ساعات العمل» في أداء المندوب).
  * حدود المدى على **حدود اليوم المحلي** بإزاحة المتصفّح (tz) كتقرير ساعات العمل. والمعياران الماليّان يُرفضان مع المحاسبة المطفأة.
  */
@@ -1122,13 +1129,56 @@ router.get('/rep-ranking', async (req: AuthRequest, res: Response, next: NextFun
       });
       for (const x of sessions) add(x.salesRepId, Math.max(0, (x.lastBeatAt.getTime() - x.startedAt.getTime()) / 60000));
     } else if (ids.length && metric === 'distance') {
-      // مندوبٌ مندوب: نقطةٌ لكل دقيقة (الأدقّ) تُختزل في القاعدة — الخام نقطةٌ كل ٨ ثوانٍ (~٣٦٠٠ يومياً)
+      // تتبّع الخلفية (قرار المالك ٤ نوفمبر ٢٠٢٦): نقاط الجهاز (source='device') تُعدّ داخل غلاف يوم العمل المحلي وحده
+      // (services/foregroundEnvelope.ts) — القيادة نهاراً والشاشة مقفلة تُحسب، والمساء بعد الانصراف لا. والغلاف من الأثر
+      // الأمامي لكل يوم: نقاط الصفحة وجلسات التطبيق والزيارات والبصمات — بالمندوب والشركة وحدهما بلا نطاق عملاء المستخدم
+      // ولا الفريق، فلا يتغيّر كيلو المندوب بمن ينظر. ونقاط الصفحة نفسها كما كانت حرفاً.
+      // الجلسات وحدها من يومٍ قبل المدى: جلسةٌ عبرت منتصف ليلته تمدّ أول أيامه بحصّتها. الزيارات والبصمات لحظاتٌ في يومها
+      // (foregroundEvidenceByRep)، فمداها مدى التقرير نفسه
+      const sessionsFrom = new Date(start.getTime() - DAY);
+      const [webDays, evSessions, evVisits, evShifts] = await Promise.all([
+        // طرفا نقاط الصفحة لكل (مندوب × يوم محلي) في القاعدة — الخام ملايين الصفوف، والمطلوب طرفاها (كتقرير الساعات)
+        prisma.$queryRaw<{ salesRepId: string; day: string; min: Date; max: Date }[]>`
+          SELECT "salesRepId",
+                 to_char(("capturedAt" + ${tz} * interval '1 minute')::date, 'YYYY-MM-DD') AS "day",
+                 MIN("capturedAt") AS "min", MAX("capturedAt") AS "max"
+          FROM "rep_locations"
+          WHERE "tenantId" = ${tid} AND "salesRepId" IN (${Prisma.join(ids)}) AND "capturedAt" >= ${start} AND "capturedAt" < ${end}
+            AND "source" IS NULL
+          GROUP BY 1, 2`,
+        prisma.repSession.findMany({
+          where: { tenantId: tid, salesRepId: { in: ids }, startedAt: { gte: sessionsFrom, lt: end }, lastBeatAt: { gte: start } },
+          select: { salesRepId: true, startedAt: true, lastBeatAt: true },
+        }),
+        // فلتر تقرير الساعات نفسه على حقل التجميع (at = startedAt || createdAt)
+        prisma.repVisit.findMany({
+          where: {
+            tenantId: tid, salesRepId: { in: ids },
+            OR: [{ startedAt: { gte: start, lt: end } }, { startedAt: null, createdAt: { gte: start, lt: end } }],
+          },
+          select: { salesRepId: true, createdAt: true, startedAt: true, durationSec: true },
+        }),
+        // كل بصمةٍ لحظتها: انصرافٌ داخل المدى من نوبةٍ بدأت قبله أثرٌ لأول أيامه
+        prisma.repAttendance.findMany({
+          where: {
+            tenantId: tid, salesRepId: { in: ids },
+            OR: [{ checkInAt: { gte: start, lt: end } }, { checkOutAt: { gte: start, lt: end } }],
+          },
+          select: { salesRepId: true, checkInAt: true, checkOutAt: true },
+        }),
+      ]);
+      const evidence = foregroundEvidenceByRep({ webDays, sessions: evSessions, visits: evVisits, shifts: evShifts }, tz);
+
+      // مندوبٌ مندوب: نقطةٌ لكل دقيقة (الأدقّ) تُختزل في القاعدة — الخام نقطةٌ كل ٨ ثوانٍ (~٣٦٠٠ يومياً).
+      // وقصّ نقاط الجهاز على الغلاف في WHERE قبل DISTINCT ON: لو قُصّت بعده لأزاحت نقطةُ جهازٍ ستُسقَط نقطةَ صفحةٍ في دقيقتها
       for (const repId of ids) {
+        const windows = foregroundEnvelopes(evidence.get(repId) ?? [], tz, { from: start, to: end });
         const pts = await prisma.$queryRaw<{ lat: number; lng: number; accuracy: number | null; capturedAt: Date }[]>`
           SELECT DISTINCT ON (date_trunc('minute', "capturedAt")) "lat", "lng", "accuracy", "capturedAt"
           FROM "rep_locations"
           WHERE "tenantId" = ${tid} AND "salesRepId" = ${repId} AND "capturedAt" >= ${start} AND "capturedAt" < ${end}
             AND ("accuracy" IS NULL OR "accuracy" <= 150)
+            AND ${deviceEnvelopeSql(windows)}
           ORDER BY date_trunc('minute', "capturedAt"), "accuracy" ASC NULLS LAST`;
         add(repId, trackedMeters(pts.map((p) => ({ lat: Number(p.lat), lng: Number(p.lng), accuracy: p.accuracy == null ? null : Number(p.accuracy), capturedAt: new Date(p.capturedAt) }))) / 1000);
       }

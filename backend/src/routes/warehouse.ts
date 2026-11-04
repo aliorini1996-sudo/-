@@ -154,6 +154,8 @@ router.get('/vans', async (req: AuthRequest, res: Response, next: NextFunction) 
         })),
       };
     });
+    // عرض البطاقة بالوحدة الكبرى (major): أصناف الشركة بوحداتها ورئيسيّها من القراءة نفسها (loadWarehouseInputs) — بلا استعلام
+    const productsMeta = new Map(inputs.products.map((p) => [p.id, p]));
     // سيارات المناديب المحذوفين: حذفُ المندوب يُبقي تحميلاته بمعرّفه المحفوظ (vanKeyOf) ويُفرغ مندوب فواتيره، فلا يُعرف ما بقي
     // في سيارته. تُعدّ صراحةً بدل أن تسقط بصمت — لغير المقيَّد وحده (المقيَّد لا يُعرف نطاقه في مندوبٍ لم يعد موجوداً)
     let deletedVans = 0;
@@ -170,10 +172,10 @@ router.get('/vans', async (req: AuthRequest, res: Response, next: NextFunction) 
     // داخلان في المتاح أعلاه ولا يُباعان، فتضيفهما الواجهة إلى «لا يُباع». الميزة مطفأة ⇒ الردّ كما كان بلا استعلام
     if (lotsOn(req)) {
       const lots = await vansLotUnsellable(prisma, tid, repIds, { day: isLocalDate(req.query.asOf) ? req.query.asOf : null, before });
-      res.json({ success: true, data: { ...summarizeVansStock(perRep, layers, avgCost, dec), deletedVans, ...lots } });
+      res.json({ success: true, data: { ...summarizeVansStock(perRep, layers, avgCost, dec, productsMeta), deletedVans, ...lots } });
       return;
     }
-    res.json({ success: true, data: { ...summarizeVansStock(perRep, layers, avgCost, dec), deletedVans } });
+    res.json({ success: true, data: { ...summarizeVansStock(perRep, layers, avgCost, dec, productsMeta), deletedVans } });
   } catch (err) { next(err); }
 });
 

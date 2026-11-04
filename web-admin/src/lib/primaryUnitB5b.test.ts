@@ -65,11 +65,13 @@ test('إجراءات التشغيلة في السيارة (إتلاف/تنزيل
 
 test('مخزون السيارات: العنوان الفرعي بالرئيسية بلا «الأساس»، والملخّص موسوم (R3)، ودقّة الاقتراح بالرئيسية وحدها', () => {
   assert.match(van, /primaryUnitOf\(row\) \? `\$\{tr\('الوحدة الرئيسية'\)\} \$\{productUnitLabel\(row\)\}` : hasBigUnit\(row\.units\) \? `\$\{tr\('وحدة الأساس'\)\} \$\{row\.unit\}` : row\.unit/);
-  assert.match(van, /const sumTitle = tr\(crossSumLabel\(hasPrimary\)\)/);
+  // «عرض الكميات» بالكبرى (major من الخادم) يُسقط وسم «الصغرى» — وإلّا فالوسم من crossSumLabel كما كان
+  assert.match(van, /const sumTitle = majorSums \? undefined : tr\(crossSumLabel\(hasPrimary\)\)/);
   assert.equal((van.match(/title=\{sumTitle\}/g) ?? []).length, 4);
   assert.doesNotMatch(van, /title=\{tr\('مجموع بوحدات الأساس'\)\}/, 'الوسم من crossSumLabel وحده');
   const acc = body(van, 'function AccuracyModal(', '\n/** سطر نافذة التحميل');
-  assert.match(acc, /const q = \(n: number\) => \(prim \? baseQtyText\(n, r, fmtQty\) : fmtQty\(n\)\)/, 'بلا رئيسية الرقم كما كان');
+  // «الكبرى» = baseQtyText حرفاً (qtyView)، و«الصغرى» رقم الأساس واسمه — وبلا رئيسية الرقم كما كان
+  assert.match(acc, /const q = \(n: number\) => \(prim \? qtyText\(qv, n, r, fmtQty\) : fmtQty\(n\)\)/, 'بلا رئيسية الرقم كما كان');
 });
 
 test('المستودع: سطر الوارد بالرئيسية افتراضاً ويحمل baseUnitName، و400/409 يعيد الأسطر، والتكلفة للرئيسية أولاً', () => {
@@ -82,7 +84,8 @@ test('المستودع: سطر الوارد بالرئيسية افتراضاً 
   // تلميح المتوسّط الخام (تكلفة القارورة) على سطر القارورة لا على سطر الكرتون
   assert.match(wh, /title=\{String\(r\.avgCost\)\}>\{r\.unit\}: \{formatCurrency\(r\.avgCost, undefined, 4\)\}/);
   assert.doesNotMatch(wh, /title=\{String\(r\.avgCost\)\}>\{prim\.name\}/);
-  assert.match(wh, /title=\{tr\(crossSumLabel\(hasPrimary\)\)\}/);
+  // ما في السيارات بالكبرى لكل وحدة (vans.major) بلا وسم «الصغرى» — وإلّا الوسم من crossSumLabel كما كان
+  assert.match(wh, /title=\{vansQtyTotals \? undefined : tr\(crossSumLabel\(hasPrimary\)\)\}/);
   assert.match(wh, /\{hasPrimary \? tr\('متوسط التكلفة'\) : tr\('متوسط التكلفة لوحدة الأساس'\)\}/);
 });
 

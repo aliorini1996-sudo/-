@@ -18,7 +18,7 @@ import { readLiveVerdict } from '../middleware/repLiveLocation';
 import { pingLimiter } from '../middleware/rateLimits';
 import { publishLocationsChanged } from '../services/liveEvents';
 import { pendingPresence, presenceOutcome, PRESENCE_TAP_HOLD_MS } from '../services/presenceChecks';
-import { issueTrackToken, nativeTrackActive, repTrackingOff, deviceTrackDecision } from '../services/deviceTrack';
+import { issueTrackToken, nativeTrackActive, repTrackingOff, deviceTrackDecision, LOCATION_SOURCE_DEVICE, type LocationSource } from '../services/deviceTrack';
 
 const router = Router();
 router.use(authenticate);
@@ -56,8 +56,15 @@ export type PingPoint = z.infer<typeof pingSchema>['points'][number];
 /**
  * تخزين دفعة نقاط مندوبٍ تقرّر أن تُخزَّن، وتحديث آخر موقعٍ معروف وإبلاغ الخريطة — مشتركٌ بين نقطة الويب (POST /tracking/ping)
  * ونقطة التطبيق الأصلي في الخلفية (POST /track-device/ping، routes/trackDevice.ts)، فالحكم واحد في الطريقين. يعيد عدد المخزَّن.
+ *
+ * `source`: يمرّره المسار لا الطلب — الويب لا يمرّر شيئاً (صفّه بلا مصدر = null كما كان حرفاً)، والجهاز LOCATION_SOURCE_DEVICE.
+ * والجهاز لا يلمس «آخر ظهور» (lastSeenAt): الخلفية ترفع حتى منتصف الليل، و«آخر ظهور» يقرؤه عدّاد «الزيارات الحية» ومنحنى
+ * الحضور في لوحة المالك وتنبيه تصفير المخزون وجاهزية الفوترة — فيبقى «التطبيق مفتوحٌ أمامه» كما كان. الدبّوس ولحظته
+ * (lastLat/lastLng/lastLocAt) يتحرّكان بنقاط الجهاز، والخريطة تعدّه متصلاً بأحدث الطابعين (web-admin lib/liveRepStatus.ts).
  */
-export async function storeRepPings(tid: string, repId: string, points: PingPoint[], deviceNowHeader: unknown, strict: boolean): Promise<number> {
+export async function storeRepPings(
+  tid: string, repId: string, points: PingPoint[], deviceNowHeader: unknown, strict: boolean, source?: LocationSource,
+): Promise<number> {
   // المقيَّد: لحظة القراءة بساعة الخادم (ساعة الجهاز تنحرف) ولا مستقبل — عليها يُحكم «طازجة أم قديمة»
   const serverNow = Date.now();
   const rows = points.map(p => ({
@@ -65,8 +72,11 @@ export async function storeRepPings(tid: string, repId: string, points: PingPoin
     accuracy: p.accuracy ?? null, speed: p.speed ?? null,
     capturedAt: strict ? correctCapturedAt(p.capturedAt, deviceNowHeader, serverNow)
       : p.capturedAt ? new Date(p.capturedAt) : new Date(),
+    // نقطة الصفحة بلا المفتاح أصلاً (العمود يبقى null كما قبل الميزة)
+    ...(source ? { source } : {}),
   }));
   await prisma.repLocation.createMany({ data: rows });
+  const device = source === LOCATION_SOURCE_DEVICE;
 
   // أحدث نقطة = آخر موقع معروف (الإحداثيّات من نقطة العميل، أمّا «آخر ظهور» فبوقت
   // الخادم لا بساعة الجهاز: عدّاد «الزيارات الحية» يوازن lastSeenAt بنافذة وقت خادم
@@ -79,10 +89,10 @@ export async function storeRepPings(tid: string, repId: string, points: PingPoin
   const now = new Date();
   const moved = await prisma.salesRep.updateMany({
     where: { id: repId, OR: [{ lastLocAt: null }, { lastLocAt: { lt: latestAt } }] },
-    data: { lastLat: rows[iLatest].lat, lastLng: rows[iLatest].lng, lastLocAt: latestAt, lastSeenAt: now },
+    data: { lastLat: rows[iLatest].lat, lastLng: rows[iLatest].lng, lastLocAt: latestAt, ...(device ? {} : { lastSeenAt: now }) },
   });
-  // دفعةٌ أقدم لم تحرّك الدبّوس: لا حدث — لا جديد تقرؤه الخريطة
-  if (moved.count === 0) await prisma.salesRep.update({ where: { id: repId }, data: { lastSeenAt: now } });
+  // دفعةٌ أقدم لم تحرّك الدبّوس: لا حدث — لا جديد تقرؤه الخريطة. ومن الجهاز لا شيء يُكتب (لا «آخر ظهور» له)
+  if (moved.count === 0) { if (!device) await prisma.salesRep.update({ where: { id: repId }, data: { lastSeenAt: now } }); }
   else publishLocationsChanged(tid);
   return rows.length;
 }

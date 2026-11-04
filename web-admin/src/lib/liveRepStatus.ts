@@ -38,9 +38,28 @@ const ageMs = (iso: string | null | undefined, now: number): number => {
   return Number.isFinite(t) ? now - t : Infinity;
 };
 
+/**
+ * «آخر ظهور» كما تقرؤه الخريطة: أحدث الطابعين — نبضة الصفحة أو نقطتها (lastSeenAt) ولحظة آخر موقع (lastLocAt).
+ * تتبّع الخلفية في التطبيق (قرار المالك ٤ نوفمبر ٢٠٢٦) يحرّك الدبّوس ولحظته ولا يلمس lastSeenAt — كي لا يعدّ عدّاد المالك
+ * المندوب «متصلاً» حتى منتصف الليل — فمندوبٌ يقود والشاشة مقفلة يبقى على الخريطة «موقع مباشر» بلحظة موقعه.
+ * ولنقاط الصفحة لا فرق: الطابعان يُكتبان معاً، ولحظة الالتقاط (lastLocAt) لا تتجاوز وقت الاستقبال (lastSeenAt) — فهو الأحدث كما كان.
+ */
+export function repSeenAt(r: LiveRepTimes): string | null {
+  const at = (iso: string | null | undefined): number => {
+    const t = iso ? new Date(iso).getTime() : NaN;
+    return Number.isFinite(t) ? t : -Infinity;
+  };
+  const seen = at(r.lastSeenAt);
+  const loc = at(r.lastLocAt);
+  // لا طابع صالح: lastSeenAt كما هو (null ⇒ «لم يحدد موقعه بعد» كما كان)
+  if (seen === -Infinity && loc === -Infinity) return r.lastSeenAt ?? null;
+  return loc > seen ? r.lastLocAt! : r.lastSeenAt!;
+}
+
 export function repLiveState(r: LiveRepTimes, now = Date.now()): RepLiveState {
-  if (!r.lastSeenAt) return 'none';
-  if (!(ageMs(r.lastSeenAt, now) < CONNECTED_MS)) return 'offline';
+  const seenAt = repSeenAt(r);
+  if (!seenAt) return 'none';
+  if (!(ageMs(seenAt, now) < CONNECTED_MS)) return 'offline';
   const located = r.lastLat != null && r.lastLng != null;
   // خادمٌ أقدم لا يعرف لحظة الموقع: كما كان («متصل» = موقعه الآن)
   if (r.lastLocAt === undefined) return located ? 'live' : 'stale';
@@ -71,7 +90,7 @@ export function relativeAge(iso: string, tr: (s: string) => string, now = Date.n
 export function repLiveText(r: LiveRepTimes, tr: (s: string) => string, lastSeen: (iso: string) => string, now = Date.now()): string {
   const st = repLiveState(r, now);
   if (st === 'none') return tr('لم يحدد موقعه بعد');
-  if (st === 'offline') return `${tr('آخر ظهور')} ${lastSeen(r.lastSeenAt!)}`;
+  if (st === 'offline') return `${tr('آخر ظهور')} ${lastSeen(repSeenAt(r)!)}`;
   if (st === 'live') return r.lastLocAt ? `${tr('موقع مباشر')} · ${relativeAge(r.lastLocAt, tr, now)}` : tr('متصل الآن');
   if (r.lastLat == null || r.lastLng == null) return tr('متصل بلا موقع');
   return r.lastLocAt ? `${tr('متصل وموقعه متوقف')} · ${relativeAge(r.lastLocAt, tr, now)}` : tr('متصل وموقعه غير محدث');

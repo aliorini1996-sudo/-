@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- بناء التطوير وحده: يسمح بـ http إلى المحاكي/الجهاز نفسه لعنوان الرفع البديل (معامل u في fieldsatrack://start،
+     TrackLogic.acceptableDebugUrl). أندرويد 9+ يمنع النص الصريح افتراضاً، فكان الرفع إلى خادمٍ وهمي محلي يفشل بصمت.
+     بناء الإصدار لا يحمل هذا الملف (مصدر debug وحده). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:networkSecurityConfig="@xml/network_security_config_debug" />
+</manifest>
