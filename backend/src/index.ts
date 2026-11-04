@@ -46,6 +46,7 @@ import lotsRouter from './routes/lots';
 import repRoutesRouter from './routes/repRoutes';
 import dailyReportsRouter from './routes/dailyReports';
 import trackingRouter from './routes/tracking';
+import trackDeviceRouter from './routes/trackDevice';
 import attendanceAdminRouter from './routes/attendanceAdmin';
 import visitsRouter from './routes/visits';
 import supportRouter from './routes/support';
@@ -197,6 +198,9 @@ app.use('/api/telephony/webhook', telephonyWebhookRouter);
 app.use('/api/wa-bridge', bridgeLimiter, waBridgeRouter);
 // منفذ حساب واتساب (الموجة ٢ — قراءة فقط، مطفأ بلا WA_ACCOUNT_ENABLED)
 app.use('/api/wa-account', waAccountRouter);
+// نقاط موقع التطبيق الأصلي في الخلفية (أندرويد/آيفون، طلب المالك ٤ نوفمبر ٢٠٢٦) — برمز تتبّعٍ لا بجلسة (لا authenticate)،
+// وقبل محدِّد المعدّل العام بدلوَي العنوان والمندوب الخاصّين بها: نقاط مناديب الشركة خلف عنوانٍ واحد لا تستهلك حدّ فواتيرهم (routes/trackDevice.ts)
+app.use('/api/track-device', trackDeviceRouter);
 
 // حدّ عام واقٍ لكل واجهة API (حدود أدق على الدخول/التسجيل داخل كل مسار)
 app.use('/api', apiLimiter);

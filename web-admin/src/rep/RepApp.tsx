@@ -41,6 +41,7 @@ import { methodIconComponent } from '../components/PaymentMethodIcon';
 import RepRouteScreen, { fetchMyRoute, RouteToday } from './RepRouteScreen';
 import RepDailyReport from './RepDailyReport';
 import { useRepTracking } from './useRepTracking';
+import { stopNativeTracking } from './nativeTracking';
 import { useHeartbeat } from './useHeartbeat';
 import PresenceCheckModal from './PresenceCheck';
 import type { PendingPresence } from './presencePhase';
@@ -5365,6 +5366,8 @@ export default function RepApp() {
     return false;
   };
   const logout = async () => {
+    // التتبّع الخلفي في تطبيق الجوال يتوقف أولاً — داخل لمسة «الخروج» نفسها (أندرويد لا يفتح رابط التطبيق بلا إيماءة)
+    stopNativeTracking();
     // زيارة جارية عند تسجيل الخروج تُنهى وتُرفع أولاً كي لا تضيع مدّتها
     const t = getVisitTimer();
     if (t) await finalizeVisit(t);

@@ -12,8 +12,13 @@
     <uses-permission android:name="android.permission.READ_PHONE_STATE" tools:node="remove"/>
     <uses-permission android:name="android.permission.NFC" tools:node="remove"/>
     <uses-feature android:name="android.hardware.nfc" android:required="false" tools:node="remove"/>
+    <!-- التتبّع الخلفي يحتاج إذن الموقع المُزال أعلاه: لا خدمة ولا نشاط ولا أذونات خدمةٍ مقدّمة، وLauncherActivity لا يضيف fstrack -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" tools:node="remove"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" tools:node="remove"/>
 
     <application>
         <activity android:name="net.fieldsa.twa.cardpay.CardPayActivity" tools:node="remove"/>
+        <activity android:name="net.fieldsa.twa.track.TrackActivity" tools:node="remove"/>
+        <service android:name="net.fieldsa.twa.track.TrackService" tools:node="remove"/>
     </application>
 </manifest>

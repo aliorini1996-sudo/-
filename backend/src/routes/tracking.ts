@@ -18,6 +18,7 @@ import { readLiveVerdict } from '../middleware/repLiveLocation';
 import { pingLimiter } from '../middleware/rateLimits';
 import { publishLocationsChanged } from '../services/liveEvents';
 import { pendingPresence, presenceOutcome, PRESENCE_TAP_HOLD_MS } from '../services/presenceChecks';
+import { issueTrackToken, nativeTrackActive, repTrackingOff, deviceTrackDecision } from '../services/deviceTrack';
 
 const router = Router();
 router.use(authenticate);
@@ -41,7 +42,7 @@ router.patch('/settings', requireAdmin, async (req: AuthRequest, res: Response, 
   } catch (err) { next(err); }
 });
 
-const pingSchema = z.object({
+export const pingSchema = z.object({
   points: z.array(z.object({
     lat: z.number().min(-90).max(90),
     lng: z.number().min(-180).max(180),
@@ -50,6 +51,41 @@ const pingSchema = z.object({
     capturedAt: z.string().optional(),
   })).min(1).max(200),
 });
+export type PingPoint = z.infer<typeof pingSchema>['points'][number];
+
+/**
+ * تخزين دفعة نقاط مندوبٍ تقرّر أن تُخزَّن، وتحديث آخر موقعٍ معروف وإبلاغ الخريطة — مشتركٌ بين نقطة الويب (POST /tracking/ping)
+ * ونقطة التطبيق الأصلي في الخلفية (POST /track-device/ping، routes/trackDevice.ts)، فالحكم واحد في الطريقين. يعيد عدد المخزَّن.
+ */
+export async function storeRepPings(tid: string, repId: string, points: PingPoint[], deviceNowHeader: unknown, strict: boolean): Promise<number> {
+  // المقيَّد: لحظة القراءة بساعة الخادم (ساعة الجهاز تنحرف) ولا مستقبل — عليها يُحكم «طازجة أم قديمة»
+  const serverNow = Date.now();
+  const rows = points.map(p => ({
+    tenantId: tid, salesRepId: repId, lat: p.lat, lng: p.lng,
+    accuracy: p.accuracy ?? null, speed: p.speed ?? null,
+    capturedAt: strict ? correctCapturedAt(p.capturedAt, deviceNowHeader, serverNow)
+      : p.capturedAt ? new Date(p.capturedAt) : new Date(),
+  }));
+  await prisma.repLocation.createMany({ data: rows });
+
+  // أحدث نقطة = آخر موقع معروف (الإحداثيّات من نقطة العميل، أمّا «آخر ظهور» فبوقت
+  // الخادم لا بساعة الجهاز: عدّاد «الزيارات الحية» يوازن lastSeenAt بنافذة وقت خادم
+  // مطلقة، فساعةُ جهازٍ منحرفةٌ كانت ستُبقي المندوب «متصلاً» أطول/أقصر من حقيقته).
+  // ولحظة الموقع lastLocAt بساعة الخادم (مصحَّحة لكل مندوب): بها تعرف اللوحة «موقعه الآن» من «متصل وموقعه قديم».
+  // دفعةٌ أقدم تصل متأخّرة (أعاد التطبيق إرسالها بعد انقطاع) لا تُرجع الدبّوس إلى الوراء — تُخزَّن في المسار فقط
+  const fixAt = points.map(p => correctCapturedAt(p.capturedAt, deviceNowHeader, serverNow).getTime());
+  const iLatest = fixAt.reduce((best, t, i) => (t > fixAt[best] ? i : best), 0);
+  const latestAt = new Date(fixAt[iLatest]);
+  const now = new Date();
+  const moved = await prisma.salesRep.updateMany({
+    where: { id: repId, OR: [{ lastLocAt: null }, { lastLocAt: { lt: latestAt } }] },
+    data: { lastLat: rows[iLatest].lat, lastLng: rows[iLatest].lng, lastLocAt: latestAt, lastSeenAt: now },
+  });
+  // دفعةٌ أقدم لم تحرّك الدبّوس: لا حدث — لا جديد تقرؤه الخريطة
+  if (moved.count === 0) await prisma.salesRep.update({ where: { id: repId }, data: { lastSeenAt: now } });
+  else publishLocationsChanged(tid);
+  return rows.length;
+}
 
 // استقبال نقاط موقع المندوب (دفعة) — يخزّنها ويحدّث آخر موقع معروف
 router.post('/ping', pingLimiter, async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -67,44 +103,54 @@ router.post('/ping', pingLimiter, async (req: AuthRequest, res: Response, next: 
     // «اشتراط تفعيل الموقع»: موقع المقيَّد يُخزَّن دائماً — ظهوره على الخريطة شرطُ عمله، فلا يُسقطه إيقاف
     // التتبّع للشركة ولا استثناؤه (لو أُسقط لما عمل أبداً). المدير فعّل القيد له صراحةً، والتلميح في إعداداته يقول ذلك.
     const strict = rep?.requireLocationOn === true;
-    if (!strict && (!settings?.trackingEnabled || rep?.canBeTracked === false)) {
+    if (repTrackingOff(settings?.trackingEnabled, rep)) {
       res.json({ success: true, data: { stored: 0, disabled: true } });
       return;
     }
 
-    // المقيَّد: لحظة القراءة بساعة الخادم (ساعة الجهاز تنحرف) ولا مستقبل — عليها يُحكم «طازجة أم قديمة»
-    const serverNow = Date.now();
-    const rows = points.map(p => ({
-      tenantId: tid, salesRepId: repId, lat: p.lat, lng: p.lng,
-      accuracy: p.accuracy ?? null, speed: p.speed ?? null,
-      capturedAt: strict ? correctCapturedAt(p.capturedAt, req.headers[DEVICE_NOW_HEADER], serverNow)
-        : p.capturedAt ? new Date(p.capturedAt) : new Date(),
-    }));
-    await prisma.repLocation.createMany({ data: rows });
+    // تتبّع الخلفية الأصلي يعمل لهذا المندوب (نقطةٌ من جهازه قُبلت خلال ٩٠ث — services/deviceTrack.ts): أثره هو المسار،
+    // فنقاط الويب لا تُخزَّن (لا أثرين متراكبين) ويُلمس «آخر ظهور» وحده. إلا المقيَّد: نقطة الويب الطازجة قبل كل إجراء هي ما
+    // يُبقي حكم «ظاهر الآن» صادقاً (نقطة الجهاز تصل بعد التقاطها بما يبلغ ٣٠ث ورفعه قد يتعثّر، ونافذة الحكم ٩٠ث)، فتُخزَّن كما كانت.
+    const native = nativeTrackActive(repId);
+    if (native && !strict) {
+      await prisma.salesRep.update({ where: { id: repId }, data: { lastSeenAt: new Date() } });
+      res.json({ success: true, data: { stored: 0, native: true } });
+      return;
+    }
 
-    // أحدث نقطة = آخر موقع معروف (الإحداثيّات من نقطة العميل، أمّا «آخر ظهور» فبوقت
-    // الخادم لا بساعة الجهاز: عدّاد «الزيارات الحية» يوازن lastSeenAt بنافذة وقت خادم
-    // مطلقة، فساعةُ جهازٍ منحرفةٌ كانت ستُبقي المندوب «متصلاً» أطول/أقصر من حقيقته).
-    // ولحظة الموقع lastLocAt بساعة الخادم (مصحَّحة لكل مندوب): بها تعرف اللوحة «موقعه الآن» من «متصل وموقعه قديم».
-    // دفعةٌ أقدم تصل متأخّرة (أعاد التطبيق إرسالها بعد انقطاع) لا تُرجع الدبّوس إلى الوراء — تُخزَّن في المسار فقط
-    const fixAt = points.map(p => correctCapturedAt(p.capturedAt, req.headers[DEVICE_NOW_HEADER], serverNow).getTime());
-    const iLatest = fixAt.reduce((best, t, i) => (t > fixAt[best] ? i : best), 0);
-    const latestAt = new Date(fixAt[iLatest]);
-    const now = new Date();
-    const moved = await prisma.salesRep.updateMany({
-      where: { id: repId, OR: [{ lastLocAt: null }, { lastLocAt: { lt: latestAt } }] },
-      data: { lastLat: rows[iLatest].lat, lastLng: rows[iLatest].lng, lastLocAt: latestAt, lastSeenAt: now },
-    });
-    // دفعةٌ أقدم لم تحرّك الدبّوس: لا حدث — لا جديد تقرؤه الخريطة
-    if (moved.count === 0) await prisma.salesRep.update({ where: { id: repId }, data: { lastSeenAt: now } });
-    else publishLocationsChanged(tid);
+    const stored = await storeRepPings(tid, repId, points, req.headers[DEVICE_NOW_HEADER], strict);
 
     // المقيَّد: حكم الخادم نفسه الذي يحرس كل إجراء (middleware/repLiveLocation.ts) في ردّ النقطة — به يرفع التطبيق حاجزه
     if (strict) {
-      res.json({ success: true, data: { stored: rows.length, live: await readLiveVerdict(tid, repId) } });
+      res.json({ success: true, data: { stored, live: await readLiveVerdict(tid, repId), ...(native ? { native: true } : {}) } });
       return;
     }
-    res.json({ success: true, data: { stored: rows.length } });
+    res.json({ success: true, data: { stored } });
+  } catch (err) { next(err); }
+});
+
+// رمز تتبّع الخلفية للتطبيق الأصلي (أندرويد/آيفون) — الصفحة تطلبه بجلسة المندوب وتسلّمه لخدمة الموقع في الجهاز، فترسل
+// نقاطها إلى /api/track-device/ping بلا جلسة ويب (services/deviceTrack.ts). الحكم نفسه في /ping: التتبّع مطفأ للشركة أو
+// المندوب مستثنى (وليس مقيَّداً) ⇒ enabled:false فيوقف التطبيق خدمته. المندوب وحده (requireAdminPermission يمرّره كما يمرّر /ping)
+router.post('/device-token', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (req.user?.role !== 'SALES_REP') { res.status(403).json({ success: false, message: 'غير مسموح' }); return; }
+    const tid = tenantId(req);
+    const repId = req.user.id;
+    const [settings, rep] = await Promise.all([
+      prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { trackingEnabled: true } }),
+      prisma.salesRep.findFirst({
+        where: { id: repId, tenantId: tid },
+        select: { isActive: true, canBeTracked: true, requireLocationOn: true, tenant: { select: { isActive: true, subscriptionEndsAt: true } } },
+      }),
+    ]);
+    // جلسة «دخول» ليست جوال المندوب، ومندوبٌ معطّل أو شركةٌ موقوفة لا يُصدر لهما رمز (نقطة الجهاز سترفضه على أي حال)
+    if (req.user.impersonated || deviceTrackDecision(rep, settings?.trackingEnabled) !== 'on') {
+      res.json({ success: true, data: { enabled: false } });
+      return;
+    }
+    const { token, expiresAt } = issueTrackToken(repId, tid);
+    res.json({ success: true, data: { enabled: true, token, expiresAt } });
   } catch (err) { next(err); }
 });
 
