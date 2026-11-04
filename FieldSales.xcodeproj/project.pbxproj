@@ -20,6 +20,8 @@
 		FA51A0F1C0DE000000000022 /* PrintBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA51A0F1C0DE000000000021 /* PrintBridge.swift */; };
 		FA51A0F1C0DE000000000032 /* BlePrinter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA51A0F1C0DE000000000031 /* BlePrinter.swift */; };
 		FA51A0F1C0DE000000000042 /* PrinterPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA51A0F1C0DE000000000041 /* PrinterPicker.swift */; };
+		FA51A0F1C0DE7AC000000012 /* TrackService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA51A0F1C0DE7AC000000011 /* TrackService.swift */; };
+		FA51A0F1C0DE7AC000000022 /* TrackBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA51A0F1C0DE7AC000000021 /* TrackBridge.swift */; };
 		CDC0FE292388222C002C8D56 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = CDC0FE252388222B002C8D56 /* Main.storyboard */; };
 		CDC0FE2A2388222C002C8D56 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = CDC0FE272388222B002C8D56 /* LaunchScreen.storyboard */; };
 		E1E260C850014D6B34B487B0 /* Pods_FieldSales.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BE9D7FFB2FBE6EEBCA807B6A /* Pods_FieldSales.framework */; };
@@ -42,6 +44,8 @@
 		FA51A0F1C0DE000000000021 /* PrintBridge.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = PrintBridge.swift; path = "FieldSales/PrintBridge.swift"; sourceTree = "<group>"; };
 		FA51A0F1C0DE000000000031 /* BlePrinter.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = BlePrinter.swift; path = "FieldSales/BlePrinter.swift"; sourceTree = "<group>"; };
 		FA51A0F1C0DE000000000041 /* PrinterPicker.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = PrinterPicker.swift; path = "FieldSales/PrinterPicker.swift"; sourceTree = "<group>"; };
+		FA51A0F1C0DE7AC000000011 /* TrackService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = TrackService.swift; path = "FieldSales/TrackService.swift"; sourceTree = "<group>"; };
+		FA51A0F1C0DE7AC000000021 /* TrackBridge.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = TrackBridge.swift; path = "FieldSales/TrackBridge.swift"; sourceTree = "<group>"; };
 		BE9D7FFB2FBE6EEBCA807B6A /* Pods_FieldSales.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = "Pods_FieldSales.framework"; sourceTree = BUILT_PRODUCTS_DIR; };
 		BEE8E5C625AE96C07F8AADED /* Pods-FieldSales.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-FieldSales.debug.xcconfig"; path = "Target Support Files/Pods-FieldSales/Pods-FieldSales.debug.xcconfig"; sourceTree = "<group>"; };
 		CDC0FE262388222B002C8D56 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = "FieldSales/Base.lproj/Main.storyboard"; sourceTree = "<group>"; };
@@ -96,6 +100,8 @@
 				FA51A0F1C0DE000000000021 /* PrintBridge.swift */,
 				FA51A0F1C0DE000000000031 /* BlePrinter.swift */,
 				FA51A0F1C0DE000000000041 /* PrinterPicker.swift */,
+				FA51A0F1C0DE7AC000000011 /* TrackService.swift */,
+				FA51A0F1C0DE7AC000000021 /* TrackBridge.swift */,
 				30FCACC6A7BF53CD6D9CF6C0 /* Pods */,
 				90E46E861CB86F5FAF46BED9 /* Frameworks */,
 				59333BAA25CFF706003392A4 /* FieldSales.app */,
@@ -230,6 +236,8 @@
 				FA51A0F1C0DE000000000022 /* PrintBridge.swift in Sources */,
 				FA51A0F1C0DE000000000032 /* BlePrinter.swift in Sources */,
 				FA51A0F1C0DE000000000042 /* PrinterPicker.swift in Sources */,
+				FA51A0F1C0DE7AC000000012 /* TrackService.swift in Sources */,
+				FA51A0F1C0DE7AC000000022 /* TrackBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

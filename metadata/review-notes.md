@@ -64,6 +64,21 @@ nearby the list simply shows a hint, and the rest of the app works exactly as be
 A short video of the feature on a real printer: <owner's unlisted link>.
 The app still does not process payments.
 
+Background location — working-day route tracking:
+When the rep's own company has turned on route tracking for that rep, the app records the rep's location
+during the rep's working day, also while the app is in the background or the screen is locked, and sends it
+only to that company's own account, so the rep's manager can see where the rep is on the company's
+tracking map. It starts only when the rep opens the app and is signed in; the first time, the app explains
+this in a dialog and starts only after the rep taps "OK". It uses "While Using the App" permission only
+(the app never asks for "Always"), and iOS shows the blue location indicator the whole time it runs. If
+Precise Location is off, the app asks iOS for temporary precise location (iOS's own prompt, with our purpose
+text) and does not record at all if the rep declines. It
+stops when the rep signs out, at the end of the day, or when the company turns tracking off, and starts
+again only the next time the rep opens the app. The location is not used for advertising and is not
+shared with anyone outside the rep's company.
+To see it: sign in with the demo account, accept the dialog, then go to the Home Screen — the blue
+location indicator stays on.
+
 The app has no user-generated public content, no social features, and no in-app
 purchases. It is distributed to a company's own field staff.
 
@@ -87,7 +102,15 @@ Contact for questions: help@fieldsa.net
 - «ما الجديد» بلا ذكر أي مزوّد. ما زال التطبيق لا يعالج مدفوعات، فجملة "does not process payments" صحيحة.
 - App Privacy بلا تغيير: معرّف الطابعة يبقى على الجوال ولا يُجمع.
 
+## التتبّع في الخلفية طوال يوم العمل (للمرجع الداخلي)
+- الفقرة الإنجليزية «Background location — working-day route tracking» أعلاه تُلصق مع الملاحظات (البندان 2.5.4 و5.1.1).
+- وضع الخلفية `location` في `UIBackgroundModes` مع إذن «أثناء استخدام التطبيق» وحده — لا طلب «دائماً» — والمؤشّر الأزرق ظاهر ما دام يعمل؛ ولا Entitlements جديدة.
+- شاشة إفصاح داخل التطبيق مرة واحدة قبل أول تشغيل، ويتوقف عند تسجيل الخروج أو نهاية اليوم أو إيقاف الشركة للتتبّع.
+- «الموقع الدقيق» شرط: إن كان مطفأً يُطلب الدقيق مؤقتاً بنص `NSLocationTemporaryUsageDescriptionDictionary` (المفتاح `WorkdayRoute`)، وإن رُفض لا يبدأ التسجيل، وإن أُطفئ أثناء اليوم يتوقف ويختفي المؤشّر بدل أن يعمل بلا نقاط.
+- App Privacy بلا تغيير: «الموقع الدقيق» مصرَّح به أصلاً لوظائف التطبيق ومرتبط بالمندوب، ولا تتبّع عبر التطبيقات.
+
 ## تذكيرات قبل الإرسال
+- [ ] التتبّع مفعّل لشركة حساب المراجعة وللمندوب نفسه، وإلا لن يرى المراجِع شاشة الإفصاح ولا المؤشّر الأزرق.
 - [ ] حساب المراجعة يعمل (اختبره بنفسك على fieldsa.net/rep).
 - [ ] Support URL = https://fieldsa.net/contact · Privacy = https://fieldsa.net/privacy (كلاهما حيّ).
 - [ ] لقطات الشاشة مرفوعة (راجع assets/screenshots/).

@@ -65,6 +65,8 @@ class ViewController: UIViewController, WKNavigationDelegate, UIDocumentInteract
         FieldSales.webView = createWebView(container: webviewView, WKSMH: self, WKND: self, NSO: self, VC: self)
         // fsPrint bridge (WKScriptMessageHandlerWithReply, .page world) + window.__fsIosBridge marker script.
         PrintBridge.shared.install(webView: FieldSales.webView, presenter: self)
+        // fsTrack bridge (WKScriptMessageHandler, .page world): working-day background route tracking.
+        TrackBridge.shared.install(webView: FieldSales.webView, presenter: self)
         webviewView.addSubview(FieldSales.webView);
         
         FieldSales.webView.uiDelegate = self;
