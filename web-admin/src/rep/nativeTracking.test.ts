@@ -1,6 +1,7 @@
 // التتبّع الخلفي في تطبيق الجوال (طلب المالك، ٤ نوفمبر ٢٠٢٦) ببيئةٍ مزيّفة: روابط intent حرفاً بحرف، والتقاط fstrack
 // وحذفه وحده، وتمييز المنصّة، ويوم البدء لكل مندوب، و«لا تتبّع» ⇒ إيقافٌ هادئ، وبلا تطبيق لا شيء، وزرّ البدء بلمسته وحدها (لا تُستعار
-// لمسة الطباعة أو التحصيل، ولا يُنتظر إخفاء الصفحة)، والإيقاف أثناء طلب الرمز، ولا رمي أبداً — وحارس العقد مع TrackContract.kt
+// لمسة الطباعة أو التحصيل، ولا يُنتظر إخفاء الصفحة)، ولمسة الحضور والرمز في الطريق، و«يرفع الآن» بعد خروجٍ ودخولٍ سريع، والإيقاف
+// أثناء طلب الرمز، ولا رمي أبداً — وحارس العقد مع TrackContract.kt
 // (android-rep، قراءةً فقط) وتوصيل main.tsx وuseRepTracking وRepApp.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,11 +12,12 @@ import {
   IOS_TRACK_HANDLER, TRACK_HOST_START, TRACK_HOST_STOP, TRACK_LAUNCH_PARAM, TRACK_LAUNCH_VALUE, TRACK_PACKAGE, TRACK_PARAM_DEBUG_URL,
   TRACK_PARAM_TOKEN, TRACK_PING_URL, TRACK_SCHEME, TRACK_TOKEN_PATH, browserTrackEnv, captureTrackLaunch, isTrackToken,
   nativeTrackPlatform, showStartChip, startNativeTracking, startNativeTrackingOnPunch, stopNativeTracking, trackIntentUrl,
-  trackTokenReplyOf, PUNCH_RETURN_MAX_MS, type NativeTrackEnv,
+  trackTokenReplyOf, PUNCH_RETURN_MAX_MS, PUNCH_TOKEN_WAIT_MS, type NativeTrackEnv,
   type TrackTokenPost,
 } from './nativeTracking';
 import { deviceDay } from './deviceDay';
 import type { AppEnv } from '../lib/print/transport/appBridge';
+import { LAUNCH_GESTURE_MS } from '../lib/print/transport/bridgeContract';
 
 const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJyZXAtMSIsInRpZCI6InQtMSIsInR5cCI6ImZzLXRyYWNrIn0.c2lnbmF0dXJlLXZhbHVlX2hlcmU';
 const ON = { success: true, data: { enabled: true, token: TOKEN, expiresAt: '2026-11-05T05:00:00.000Z' } };
@@ -24,6 +26,8 @@ const OFF = { success: true, data: { enabled: false } };
 const PUNCH = { success: true, data: { ...ON.data, waitPunch: true } };
 /** الجهاز يرفع الآن (بدأ من تبويبٍ سابق) */
 const ACTIVE = { success: true, data: { ...ON.data, nativeActive: true } };
+/** «يرفع الآن» وينتظر لمسة الحضور */
+const ACTIVE_PUNCH = { success: true, data: { ...ON.data, waitPunch: true, nativeActive: true } };
 const START_URL = `intent://start?t=${TOKEN}#Intent;scheme=fieldsatrack;package=net.fieldsa.twa;end`;
 const STOP_URL = 'intent://stop#Intent;scheme=fieldsatrack;package=net.fieldsa.twa;end';
 const TODAY = new Date(2026, 10, 4, 9, 30, 0);
@@ -132,6 +136,17 @@ function poster(reply: unknown) {
     return { data: reply };
   };
   return { post, calls };
+}
+
+/** طلب رمزٍ في الطريق: يُردّ عليه يدوياً (reply) أو يُرفض (fail) */
+function deferredPoster() {
+  const calls: unknown[][] = [];
+  let settle: { ok: (v: unknown) => void; no: (e: unknown) => void } = { ok: () => {}, no: () => {} };
+  const post: TrackTokenPost = (...a) => {
+    calls.push(a);
+    return new Promise((ok, no) => { settle = { ok: (v) => ok({ data: v }), no }; });
+  };
+  return { post, calls, reply: (v: unknown) => settle.ok(v), fail: () => settle.no(new Error('Network Error')) };
 }
 
 const tick = () => new Promise<void>((r) => setImmediate(r));
@@ -430,8 +445,9 @@ test('بصمة الحضور (الآيفون): لا رسالة عند الفتح 
   assert.equal(h.armed(), 0);
 });
 
-test('الجهاز يرفع الآن (nativeActive) على أندرويد ⇒ يُعلَّم اليوم بلا زرّ ولا رابط؛ والآيفون يُرسل بلا لمسة كما هو', async () => {
-  const h = harness({ cap: true });
+test('الجهاز يرفع الآن (nativeActive) وبدأه هذا الجهاز (إعادة تشغيل التطبيق: تبويبٌ جديد) ⇒ يُعلَّم اليوم بلا زرّ ولا رابط؛ والآيفون يُرسل بلا لمسة', async () => {
+  // «أُرسل بدءٌ ولم يُرسل إيقاف» باقٍ في localStorage، وsessionStorage جديد بلا يوم بدء
+  const h = harness({ cap: true, local: memStorage({ fs_track_native: '1' }) });
   const p = poster(ACTIVE);
   await startNativeTracking(p.post, h.env);
   assert.equal(h.armed(), 0);
@@ -445,6 +461,179 @@ test('الجهاز يرفع الآن (nativeActive) على أندرويد ⇒ ي
   const i = harness({ ios: true });
   await startNativeTracking(poster(ACTIVE).post, i.env);
   assert.deepEqual(i.iosMsgs, [{ action: 'start', token: TOKEN }]);
+  // وينتظر الحضور: «يرفع الآن» يكفي كذلك — لا انتظار للمسة
+  const w = harness({ cap: true, local: memStorage({ fs_track_native: '1' }) });
+  await startNativeTracking(poster(ACTIVE_PUNCH).post, w.env);
+  assert.equal(w.day(), mark(TODAY));
+  await startNativeTrackingOnPunch(w.env);
+  assert.equal(w.app.hrefs.length, 0);
+});
+
+test('خروجٌ ثم دخولٌ سريع (أندرويد): nativeActive من خدمةٍ أوقفها هذا الجهاز لا يُصدَّق — يُسلَّح البدء ويُسلَّم بالزرّ أو بلمسة الحضور', async () => {
+  // بلا بصمة: الزرّ
+  const h = harness({ cap: true });
+  await startNativeTracking(poster(ON).post, h.env);
+  h.tap();
+  stopNativeTracking(h.env); // الخروج: الخدمة تتوقف ودفعتها الأخيرة تُبقي «يرفع الآن» ٩٠ث
+  assert.deepEqual(h.app.hrefs, [START_URL, STOP_URL]);
+  assert.equal(h.sent(), null);
+  h.login('rep-session-A2'); // المندوب نفسه بجلسةٍ جديدة خلال ٩٠ث
+  const p = poster(ACTIVE);
+  await startNativeTracking(p.post, h.env);
+  assert.equal(p.calls.length, 1);
+  assert.equal(h.day(), null, 'لا يُعلَّم اليوم بلا بدء');
+  assert.equal(h.armed(), 1, 'الزرّ معروض');
+  // العودة للتطبيق والزرّ معروض: لا طلب ثانٍ
+  await startNativeTracking(p.post, h.env);
+  assert.equal(p.calls.length, 1);
+  h.tap();
+  assert.deepEqual(h.app.hrefs, [START_URL, STOP_URL, START_URL]);
+  assert.equal(h.day(), mark(TODAY));
+  assert.equal(h.sent(), '1');
+  // بالبصمة: لا زرّ، ولمسة الحضور تفتح الرابط داخلها
+  const g = harness({ cap: true, handOff: true });
+  await startNativeTracking(poster(PUNCH).post, g.env);
+  await startNativeTrackingOnPunch(g.env);
+  stopNativeTracking(g.env);
+  g.login('rep-session-A2');
+  await startNativeTracking(poster(ACTIVE_PUNCH).post, g.env);
+  assert.equal(g.armed(), 0, 'لا زرّ: ينتظر الحضور');
+  assert.equal(g.day(), null);
+  await startNativeTrackingOnPunch(g.env);
+  assert.deepEqual(g.app.hrefs, [START_URL, STOP_URL, START_URL]);
+  assert.equal(g.day(), mark(TODAY));
+});
+
+test('الإقلاع من تذكير الحضور (أندرويد): لمسة الحضور والرمز في الطريق تنتظر ردّه وتفتح الرابط داخلها — بلا زرّ، والبصمة تنتظر عودة الصفحة', async () => {
+  assert.ok(PUNCH_TOKEN_WAIT_MS <= 2_500 && PUNCH_TOKEN_WAIT_MS < LAUNCH_GESTURE_MS, 'دون صلاحية الإيماءة');
+  for (const act of [true, null]) { // إيماءةٌ حيّة، أو لا يُعرف حالها (userActivation غائب)
+    const h = harness({ cap: true, handOff: true });
+    const d = deferredPoster();
+    const run = startNativeTracking(d.post, h.env);
+    await until(() => d.calls.length === 1);
+    h.app.act = act;
+    let resumed = false;
+    const wait = startNativeTrackingOnPunch(h.env).then(() => { resumed = true; });
+    await tick();
+    assert.equal(resumed, false, 'البصمة تنتظر الرمز');
+    assert.equal(h.app.hrefs.length, 0);
+    h.app.advance(PUNCH_TOKEN_WAIT_MS - 1);
+    d.reply(PUNCH);
+    await run;
+    await wait;
+    assert.deepEqual(h.app.hrefs, [START_URL], 'داخل لمسة الحضور');
+    assert.equal(h.armed(), 0, 'لا زرّ');
+    assert.equal(h.day(), mark(TODAY));
+    assert.equal(h.sent(), '1');
+    h.app.advance(PUNCH_TOKEN_WAIT_MS);
+    assert.equal(h.app.listeners(), 0, 'لا مستمع باقٍ');
+    assert.deepEqual(h.app.hrefs, [START_URL], 'لا بدء ثانٍ');
+  }
+  // ردٌّ بلا بصمة (فتح نوبةً من قبل) والرمز في الطريق: يُسلَّح بزرّه ثم تبدؤه اللمسة وتُزيله
+  const c = harness({ cap: true, handOff: true });
+  const dc = deferredPoster();
+  const rc = startNativeTracking(dc.post, c.env);
+  await until(() => dc.calls.length === 1);
+  const wc = startNativeTrackingOnPunch(c.env);
+  dc.reply(ON);
+  await rc;
+  await wc;
+  assert.deepEqual(c.app.hrefs, [START_URL]);
+  assert.equal(c.armed(), 0, 'الزرّ أُزيل');
+});
+
+test('الإقلاع من تذكير الحضور: ردٌّ بعد مهلة الانتظار، أو إيماءةٌ انقضت، أو ردٌّ متعذّر ⇒ البصمة تمضي والزرّ يبدأ', async () => {
+  // الردّ بعد المهلة: لا رابط بلا رمز، والبصمة تُكمل عند المهلة لا قبلها؛ والردّ يعرض الزرّ (الحضور مضى)
+  const h = harness({ cap: true });
+  const d = deferredPoster();
+  const run = startNativeTracking(d.post, h.env);
+  await until(() => d.calls.length === 1);
+  let resumed = false;
+  void startNativeTrackingOnPunch(h.env).then(() => { resumed = true; });
+  h.app.advance(PUNCH_TOKEN_WAIT_MS - 1);
+  await tick();
+  assert.equal(resumed, false, 'ما زالت تنتظر');
+  h.app.advance(1);
+  await until(() => resumed);
+  assert.equal(h.app.hrefs.length, 0);
+  d.reply(PUNCH);
+  await run;
+  assert.equal(h.armed(), 1, 'الزرّ: لا لمسة حضورٍ قادمة');
+  h.tap();
+  assert.deepEqual(h.app.hrefs, [START_URL]);
+  // الردّ في المهلة والإيماءة انقضت: لا رابط — البدء المنتظِر للحضور يصير زرّاً
+  const g = harness({ cap: true });
+  const dg = deferredPoster();
+  const rg = startNativeTracking(dg.post, g.env);
+  await until(() => dg.calls.length === 1);
+  const wg = startNativeTrackingOnPunch(g.env);
+  g.app.act = false;
+  dg.reply(PUNCH);
+  await rg;
+  await wg;
+  assert.equal(g.app.hrefs.length, 0, 'لا رابط بلا إيماءة');
+  assert.equal(g.armed(), 1);
+  g.tap();
+  assert.deepEqual(g.app.hrefs, [START_URL]);
+  assert.equal(g.day(), mark(TODAY));
+  // والزرّ معروضٌ أصلاً (ردٌّ بلا بصمة): يبقى زرّاً واحداً
+  const k = harness({ cap: true });
+  const dk = deferredPoster();
+  const rk = startNativeTracking(dk.post, k.env);
+  await until(() => dk.calls.length === 1);
+  const wk = startNativeTrackingOnPunch(k.env);
+  k.app.act = false;
+  dk.reply(ON);
+  await rk;
+  await wk;
+  assert.equal(k.armed(), 1);
+  assert.equal(k.app.hrefs.length, 0);
+  // ردٌّ متعذّر (شبكة): البصمة تمضي، واللمسة معلَّمة فيعرض الطلب التالي الزرّ
+  const n = harness({ cap: true });
+  const dn = deferredPoster();
+  const rn = startNativeTracking(dn.post, n.env);
+  await until(() => dn.calls.length === 1);
+  const wn = startNativeTrackingOnPunch(n.env);
+  dn.fail();
+  await rn;
+  await assert.doesNotReject(wn);
+  assert.equal(n.app.hrefs.length, 0);
+  await startNativeTracking(poster(PUNCH).post, n.env);
+  assert.equal(n.armed(), 1);
+});
+
+test('الإقلاع من تذكير الحضور: الخروج أثناء الانتظار يُسقط البدء واللمسة؛ والآيفون لا ينتظر — يُرسل start فور وصول الرمز', async () => {
+  const h = harness({ cap: true });
+  const d = deferredPoster();
+  const run = startNativeTracking(d.post, h.env);
+  await until(() => d.calls.length === 1);
+  const wait = startNativeTrackingOnPunch(h.env);
+  stopNativeTracking(h.env);
+  d.reply(PUNCH);
+  await run;
+  await wait;
+  assert.deepEqual(h.app.hrefs, [STOP_URL], 'لا رابط بدء بعد الخروج');
+  assert.equal(h.armed(), 0);
+  // من يدخل بعده (بلا بصمةٍ بعد) ينتظر لمسة حضوره — لمسة الخارج لم تُعلَّم له
+  h.login('rep-session-B');
+  await startNativeTracking(poster(PUNCH).post, h.env);
+  assert.equal(h.armed(), 0, 'لا زرّ');
+  void startNativeTrackingOnPunch(h.env);
+  assert.deepEqual(h.app.hrefs, [STOP_URL, START_URL]);
+  // الآيفون
+  const i = harness({ ios: true });
+  const di = deferredPoster();
+  const ri = startNativeTracking(di.post, i.env);
+  await until(() => di.calls.length === 1);
+  let resumed = false;
+  void startNativeTrackingOnPunch(i.env).then(() => { resumed = true; });
+  await tick();
+  assert.ok(resumed, 'البصمة لا تنتظر');
+  assert.deepEqual(i.iosMsgs, []);
+  di.reply(PUNCH);
+  await ri;
+  assert.deepEqual(i.iosMsgs, [{ action: 'start', token: TOKEN }]);
+  assert.equal(i.day(), mark(TODAY));
 });
 
 test('حارس ثابت: لمسة «تسجيل الحضور» تبدأ التتبّع الخلفي قبل أيّ انتظار في البصمة — والانصراف لا', () => {
@@ -694,18 +883,29 @@ test('حارس ثابت: main.tsx يلتقط fstrack بعد markAppLaunch وقب
   assert.match(src, /window\.localStorage\.getItem\('rep_user'\)/);
   assert.match(src, /askTap: \(f\) => showStartChip\(document, f\),/);
   assert.doesNotMatch(src, /addEventListener\('click', [^)]*capture/);
-  assert.doesNotMatch(src, /\.activation\(\)/);
+  // الإيماءة تُفحص في موضعٍ واحد: لمسة الحضور نفسها بعد انتظار رمزٍ في الطريق — لا يُفتح الرابط على إيماءةٍ قائمة غيرها
+  assert.equal([...src.matchAll(/\.activation\(\)/g)].length, 1);
+  const wait = src.slice(src.indexOf('function punchAfterFlight('), src.indexOf('\n}\n', src.indexOf('function punchAfterFlight(')));
+  assert.match(wait, /env\.app\.activation\(\) !== false/);
 });
 
-test('حارس ثابت: useRepTracking يبدأ بعد حكم التفعيل ويوقف هادئاً عند الحكم القاطع بالإطفاء، والعودة تبدأ يوماً جديداً', () => {
+test('حارس ثابت: useRepTracking يطلب الرمز مع حكم التفعيل لا بعده، ويوقف هادئاً عند الحكم القاطع بالإطفاء، والعودة تبدأ يوماً جديداً', () => {
   const t = read(SRC, 'rep', 'useRepTracking.ts');
   assert.match(t, /import \{ startNativeTracking, stopNativeTracking, type TrackTokenPost \} from '\.\/nativeTracking';/);
   assert.match(t, /const postTrackToken: TrackTokenPost = \(url, body, config\) => repApi\.post\(url, body, config\);/);
   const start = t.slice(t.indexOf('const start = async () => {'), t.indexOf('start();'));
+  // طلب الرمز أوّلاً بلا انتظار — موازياً لـ/tracking/settings لا بعده (لمسة الحضور بعد الإقلاع من التذكير لا تسبقه)، ومرّةً واحدة
+  const early = start.indexOf('void startNativeTracking(postTrackToken);');
+  const settings = start.indexOf("repApi.get('/tracking/settings'");
+  assert.ok(early > 0 && settings > early, 'الطلب قبل حكم التفعيل');
+  assert.equal(start.slice(0, early).includes('await '), false, 'لا انتظار قبله');
+  assert.equal(start.split('startNativeTracking(').length - 1, 1);
+  // الحكم القاطع بالإطفاء بعد ردّ الإعدادات: إيقافٌ هادئ (يُلغي طلب الرمز الجاري)، وفشل الطلب لا يوقف
   assert.match(start, /\.data\.data\.enabled; known = true; \} catch/);
   assert.match(start, /if \(!cancelled && known\) stopNativeTracking\(undefined, \{ ifStarted: true \}\);\s*return;\s*\}/);
-  // البدء بعد الحكم وقبل فحص geolocation في الصفحة (التطبيق يتتبّع ولو غاب موقع المتصفح)
-  const on = start.indexOf('nativeOn = true;\n      void startNativeTracking(postTrackToken);');
+  assert.ok(start.indexOf('stopNativeTracking(') > settings);
+  // «حكمٌ بالتتبّع» بعد الحكم وقبل فحص geolocation في الصفحة (التطبيق يتتبّع ولو غاب موقع المتصفح)
+  const on = start.indexOf('nativeOn = true;');
   assert.ok(on > start.indexOf('if (cancelled || !enabled) {') && on < start.indexOf("if (!('geolocation' in navigator))"));
   const vis = t.slice(t.indexOf('const onVisibility = () => {'), t.indexOf('const onOnline'));
   assert.match(vis, /if \(document\.hidden\) \{ flush\(true\); return; \}[\s\S]*if \(nativeOn\) void startNativeTracking\(postTrackToken\);/);

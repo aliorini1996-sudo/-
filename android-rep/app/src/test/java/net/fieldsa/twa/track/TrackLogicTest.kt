@@ -193,6 +193,9 @@ class TrackLogicTest {
         assertEquals("1", TrackContract.LAUNCH_VALUE)
         assertEquals("https://api.fieldsa.net/api/track-device/ping", TrackContract.PING_URL)
         assertEquals("x-fs-device-now", TrackContract.DEVICE_NOW_HEADER)
+        // رفع الهدم (الخادم ينسى «التطبيق يرفع» بها، deviceTrack.ts TRACK_FINAL_HEADER وisTrackFinal يقبل '1' حرفياً)
+        assertEquals("x-fs-track-final", TrackContract.FINAL_HEADER)
+        assertEquals("1", TrackContract.FINAL_VALUE)
         assertEquals(5_000L, TrackContract.SAMPLE_INTERVAL_MS)
         assertEquals(15_000L, TrackContract.MOVING_KEEP_MS)
         assertEquals(20.0, TrackContract.MOVE_THRESHOLD_M, 0.0)
@@ -200,6 +203,8 @@ class TrackLogicTest {
         assertEquals("TRACK_TOKEN_INVALID", TrackContract.TOKEN_INVALID_CODE)
         assertEquals(500.0, TrackContract.MAX_ACCURACY_M, 0.0)
         assertEquals(30_000L, TrackContract.UPLOAD_INTERVAL_MS)
+        // كل قراءةٍ تفحص موعد الرفع (TrackService.uploadIfDue): فاصل القراءة أقصر منه، فيُدرَك الموعد بتأخّر قراءةٍ واحدة على الأكثر
+        assertTrue(TrackContract.SAMPLE_INTERVAL_MS < TrackContract.UPLOAD_INTERVAL_MS)
         assertEquals(200, TrackContract.MAX_BATCH)
         assertEquals(3_000, TrackContract.MAX_QUEUED)
         assertEquals(4_096, TrackContract.TOKEN_MAX_CHARS)

@@ -11,10 +11,20 @@ import java.io.File
  * حارس التتبّع الخلفي (طلب المالك، ٤ نوفمبر ٢٠٢٦): البيان (الأذونات والخدمة والنشاط وإزالتها من بناء الطباعة وحده)،
  * وSTART_NOT_STICKY، وعلامة fstrack في LauncherActivity دون مسّ جسر الطباعة والتحصيل، وربط الموافقة بهوية الرمز، وأن الإصدار لم
  * يتغيّر (التتبّع يُضاف إلى التحديث التالي مع ميزات الجلسات الأخرى — لا رفع للإصدار من هنا).
+ * وأسلاك الخدمة التي لا تُختبر بلا جهاز (مراجعة ٤ نوفمبر): موعد الرفع من قراءات الموقع بالساعة المنقضية، وقفل اليقظة بمهلةٍ يُفلت في
+ * finally، وترويسة «الأخير» في رفع الهدم وحده.
  */
 class TrackGuardTest {
 
     private val manifest by lazy { file("src/main/AndroidManifest.xml") }
+    private val service by lazy { file("src/main/java/net/fieldsa/twa/track/TrackService.kt") }
+
+    /** جسم عضوٍ من TrackService من توقيعه حتى قوس إغلاقه على مسافة الأعضاء */
+    private fun body(src: String, signature: String): String {
+        val at = src.indexOf(signature)
+        assertTrue("$signature غائب", at >= 0)
+        return src.substring(at).substringBefore("\n    }\n")
+    }
 
     /** عنصرٌ من البيان باسمه (activity أو service) بنصّه كاملاً */
     private fun element(xml: String, tag: String, name: String): String {
@@ -83,6 +93,72 @@ class TrackGuardTest {
     }
 
     @Test
+    fun uploadsFollowLocationFixesOnTheElapsedClock() {
+        // الشاشة مقفلة تُنيم المعالج بين القراءات، وHandler يعدّ وقت اليقظة وحده: مؤقّتٌ وحده أخّر الرفع دقائق وأظهر المندوب
+        // «موقعه متوقف» على خريطة المدير والخدمة تعمل. كل قراءةٍ يقظةٌ حقيقية، فيها يُقاس الموعد بالساعة المنقضية
+        val onFix = body(service, "private fun onFix(")
+        val add = onFix.indexOf("execute { queue.add(fix) }")
+        assertTrue("الموعد يُفحص بعد حفظ النقطة", add >= 0 && add < onFix.indexOf("uploadIfDue()"))
+        val due = body(service, "private fun uploadIfDue()")
+        assertTrue(due.contains("val now = SystemClock.elapsedRealtime()"))
+        assertTrue(due.contains("now - lastUploadAttemptElapsed < TrackContract.UPLOAD_INTERVAL_MS"))
+        assertTrue("يتجاوز التراجع بعد الخطأ", due.contains("now < retryAtElapsed"))
+        assertTrue(due.contains("requestUpload()"))
+        // يكتبهما io ويقرؤهما الخيط الرئيسي
+        assertTrue(service.contains("@Volatile private var retryAtElapsed"))
+        assertTrue(service.contains("@Volatile private var lastUploadAttemptElapsed"))
+        // آخر محاولةٍ = آخر POST فعلي، لا طلبٌ وجد الطابور فارغاً
+        assertTrue(body(service, "private fun uploadRounds(").contains("lastUploadAttemptElapsed = SystemClock.elapsedRealtime()"))
+        // المؤقّت احتياطٌ يمرّ بالموعد نفسه، لا رفعٌ مباشر
+        val tick = body(service, "private val tick = object : Runnable {")
+        assertTrue(tick.contains("uploadIfDue()") && !tick.contains("requestUpload()"))
+        assertFalse("ساعة اليقظة لا تقيس الرفع", service.contains("uptimeMillis()"))
+    }
+
+    @Test
+    fun uploadsHoldATimedWakeLockReleasedInFinally() {
+        assertTrue(manifest.contains("<uses-permission android:name=\"android.permission.WAKE_LOCK\"/>"))
+        assertFalse("بناء الطباعة يمسّ WAKE_LOCK", file("src/printonly/AndroidManifest.xml").contains("WAKE_LOCK"))
+        assertTrue(service.contains("newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG)"))
+        assertTrue("بعدّ المراجع يرمي الإفلاتُ بعد المهلة", service.contains("setReferenceCounted(false)"))
+        // بمهلةٍ دائماً: شبكةٌ عالقة لا تُبقي المعالج مستيقظاً يستنزف البطارية
+        assertTrue(service.contains("wakeLock?.acquire(WAKE_LOCK_TIMEOUT_MS)"))
+        assertFalse("قفلٌ بلا مهلة", Regex("\\.acquire\\(\\s*\\)").containsMatchIn(service))
+        assertTrue("المهلة أقصر من POST واحد", TrackService.WAKE_LOCK_TIMEOUT_MS >= 2L * TrackContract.HTTP_TIMEOUT_MS)
+        assertTrue("المهلة طويلة", TrackService.WAKE_LOCK_TIMEOUT_MS <= 60_000L)
+        // يُمسك قبل التسليم لخيط io (في نداء الموقع نفسه)، ويُفلت في finally هناك، أو فوراً إن رُفض التسليم
+        val awake = body(service, "private fun executeAwake(")
+        val hold = awake.indexOf("holdAwake()")
+        assertTrue(hold >= 0 && hold < awake.indexOf("execute {"))
+        assertTrue(Regex("finally \\{\\s*letSleep\\(\\)\\s*\\}").containsMatchIn(awake))
+        assertTrue(awake.contains("if (!queued) letSleep()"))
+        // كل رفعٍ يمرّ بها: لا نداء لـuploadRounds خارج executeAwake
+        val calls = Regex("uploadRounds\\(t, ").findAll(service).map { it.range.first }.toList()
+        assertEquals(2, calls.size)
+        for (at in calls) {
+            val before = service.substring(0, at)
+            val opened = before.lastIndexOf("executeAwake {")
+            assertTrue("uploadRounds خارج executeAwake", opened >= 0 && !before.substring(opened).contains("\n    }\n"))
+        }
+        // ويُمدّ قبل كل POST، فالدفعات المتتالية لا تنقطع بانتهاء مهلة الأولى
+        val rounds = body(service, "private fun uploadRounds(")
+        assertEquals(Regex("\\bpost\\(t, ").findAll(rounds).count(), Regex("holdAwake\\(\\)").findAll(rounds).count())
+    }
+
+    @Test
+    fun finalHeaderOnlyOnTheStopFlush() {
+        // رفعٌ دوري بها يمحو «التطبيق يرفع» والخدمة حيّة فتُخزَّن نقاط الصفحة مكرّرة — فهي في رفع onDestroy وحده
+        assertEquals(1, Regex("TrackContract\\.FINAL_HEADER").findAll(service).count())
+        assertTrue(service.contains("if (closing) conn.setRequestProperty(TrackContract.FINAL_HEADER, TrackContract.FINAL_VALUE)"))
+        assertTrue(service.contains("private fun uploadRounds(t: String, maxRounds: Int, closing: Boolean = false)"))
+        assertEquals(1, Regex("closing = true").findAll(service).count())
+        assertTrue(body(service, "override fun onDestroy()").contains("executeAwake { uploadRounds(t, maxRounds = 2, closing = true) }"))
+        assertTrue(body(service, "private fun requestUpload()").contains("uploadRounds(t, maxRounds = 5)\n"))
+        // الطابور فارغٌ لحظة الهدم: POST بلا نقاط بالترويسة وحدها، في أول دورةٍ من رفع الهدم وحده
+        assertTrue(body(service, "private fun uploadRounds(").contains("if (closing && round == 0) {"))
+    }
+
+    @Test
     fun consentIsBoundToTheTokenIdentity() {
         // موقعٌ غريب برمز شركةٍ أخرى لا يمرّ بموافقةٍ أُعطيت لشركة المندوب (مراجعة ٤ نوفمبر)
         val activity = file("src/main/java/net/fieldsa/twa/track/TrackActivity.kt")
@@ -131,6 +207,16 @@ class TrackGuardTest {
         assertEquals(TrackContract.LAUNCH_VALUE, tsConst("TRACK_LAUNCH_VALUE"))
         assertEquals(TrackContract.PING_URL, tsConst("TRACK_PING_URL"))
         assertTrue(ts.contains("export const TRACK_TOKEN_MAX_CHARS = ${TrackContract.TOKEN_MAX_CHARS};"))
+    }
+
+    /** ترويسة رفع الهدم كما يقرؤها الخادم — إن وُجد مستودع الخادم بجانب المشروع */
+    @Test
+    fun backendFinalHeaderMatches() {
+        val ts = listOf(File("../../backend/src/services/deviceTrack.ts"), File("../backend/src/services/deviceTrack.ts"))
+            .firstOrNull { it.isFile }
+        assumeTrue("backend غير موجود بجانب android-rep", ts != null)
+        val src = ts!!.readText(Charsets.UTF_8)
+        assertEquals(TrackContract.FINAL_HEADER, Regex("export const TRACK_FINAL_HEADER = '([^']*)';").find(src)?.groupValues?.get(1))
     }
 
     private fun file(rel: String): String =

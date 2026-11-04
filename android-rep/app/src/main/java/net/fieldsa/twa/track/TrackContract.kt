@@ -25,6 +25,13 @@ object TrackContract {
     const val PING_URL = "https://api.fieldsa.net/api/track-device/ping"
     /** ساعة الجهاز لحظة الإرسال (ISO-8601 UTC) — الترويسة نفسها التي ترسلها الصفحة (backend/src/services/liveLocation.ts) */
     const val DEVICE_NOW_HEADER = "x-fs-device-now"
+    /**
+     * الرفع الأخير حين تتوقف الخدمة (onDestroy في أندرويد، send(closing: true) في الآيفون) وحده يحمل هذه الترويسة بالقيمة
+     * FINAL_VALUE: الخادم (backend/src/routes/trackDevice.ts) يخزّن نقاطه ثم ينسى علامة «التطبيق يرفع» بدل تجديدها. بدونها
+     * يبقى المندوب «يرفع من التطبيق» ٩٠ ثانية بعد خروجه، فإن دخل ثانيةً خلالها لم تطلب الصفحة بدءاً جديداً بقية اليوم.
+     */
+    const val FINAL_HEADER = "x-fs-track-final"
+    const val FINAL_VALUE = "1"
 
     /** فاصل القراءة من مزوّد الموقع */
     const val SAMPLE_INTERVAL_MS = 5_000L
@@ -40,7 +47,10 @@ object TrackContract {
     /** قراءةٌ أسوأ دقّةً من هذا تُسقط */
     const val MAX_ACCURACY_M = 500.0
 
-    /** الرفع كل ٣٠ ثانية، وأول نقطةٍ بعد البدء فوراً */
+    /**
+     * الرفع كل ٣٠ ثانية بالساعة المنقضية (elapsedRealtime، تحسب نوم المعالج)، وأول نقطةٍ بعد البدء فوراً. في أندرويد تقيسه
+     * قراءات الموقع نفسها لا مؤقّتٌ: الشاشة مقفلة تُنيم المعالج بين القراءات، ومؤقّت Handler يعدّ وقت اليقظة وحده فيتمدّد لدقائق
+     */
     const val UPLOAD_INTERVAL_MS = 30_000L
     /** سقف الدفعة عند الخادم (pingSchema: max 200) */
     const val MAX_BATCH = 200

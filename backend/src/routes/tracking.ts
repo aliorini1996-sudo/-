@@ -688,11 +688,13 @@ router.get('/route', requireAdmin, async (req: AuthRequest, res: Response, next:
     // routeHidden يفرّقه عن «لا نقاط مسجّلة». بصمتا الحضور والانصراف تبقيان: موضعا بدء العمل وانتهائه ليسا خطّ سير
     const repView = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid }, select: { showRouteOnMap: true } });
     const routeHidden = repView?.showRouteOnMap === false;
-    const points = routeHidden ? [] : await prisma.repLocation.findMany({
+    // أحدث ٥٠٠٠ نقطة لا أولاها، ثم تُقلب تصاعدياً كما كان الردّ: يومٌ طويل يتجاوز السقف (المقيَّد تُخزَّن نقاط صفحته ونقاط
+    // جهازه معاً منذ تتبّع الخلفية) كان يقطع آخر اليوم، وهو ما يفتح المشرف الخريطة ليراه — والمقطوع الآن أوّله
+    const points = routeHidden ? [] : (await prisma.repLocation.findMany({
       where: { tenantId: tid, salesRepId, capturedAt: { gte: start, lt: end }, ...(await scopedRepRecordWhere(req)) },
-      orderBy: { capturedAt: 'asc' }, take: 5000,
+      orderBy: { capturedAt: 'desc' }, take: 5000,
       select: { lat: true, lng: true, accuracy: true, speed: true, capturedAt: true },
-    });
+    })).reverse();
 
     // بصمة الحضور/الانصراف لهذا اليوم — لتوضيح «من أين بدأ عمله بالضبط» على الخريطة.
     // أوّل بصمة حضور لها موقع، وآخر بصمة انصراف لها موقع (قد تختلف عن أوّل/آخر رصد GPS).
