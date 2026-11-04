@@ -74,6 +74,9 @@ import { attemptClientRef, customerScopeOpen, deviceKind, liveSnapshot, onLiveRe
 import { clearAiSession, markConverted, type AiAddPrefill } from './aiRepSession';
 import { OUTLET_TYPE_OPTIONS } from './aiRepLogic';
 import { dayMinutes, nextPunch, shiftMinutes, shiftsOf, type AttendanceState } from './attendanceDay';
+import { installGeoReconnect } from './geoReconnect';
+// داخل تطبيق أندرويد: كل طلبات الموقع تمرّ بمالكٍ يعيد فتح الاتصال إن سكت (عملية التطبيق ماتت والصفحة مفتوحة) — قبل أي طلب موقع
+installGeoReconnect();
 // المندوب الذكي كسول: لا تُحمَّل حزمته إلا لمن فُعّلت له الميزة وفتحها
 const RepAiScreen = lazy(() => import('./RepAiScreen'));
 

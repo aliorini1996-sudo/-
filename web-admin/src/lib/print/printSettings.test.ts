@@ -14,6 +14,7 @@ import {
   withPaper, withPrinter, withoutProfile, checkPrintSettings,
   ACCENT_PALETTE, DESIGN_HINTS, DESIGN_LABELS, LOGO_POSITION_LABELS, LOGO_SIZE_LABELS, SECTION_IDS, SECTION_LABELS, TABLE_STYLE_LABELS,
   accentContrastOk, canMoveSection, defaultPrintLayout, designsFor, layoutOf, moveSection, normalizeSectionOrder, sectionsFor, withDesign, withLayout,
+  ALIGN_LABELS, CANVAS_BAND_LABELS, CANVAS_BOX_IDS, CANVAS_BOX_LABELS, ALIGNS, CANVAS_BANDS,
   type PrintProfile, type PrintSettingsV1,
 } from './printSettings';
 import { PHRASES } from '../../i18n/strings';
@@ -244,8 +245,11 @@ test('حارس (c): لا خيار طباعة يخفي أو يصغّر محتوى
   for (const printer of ['thermal', 'impact', 'page'] as const) assert.ok(!('layout' in defaultPrintOptions(printer)), 'الافتراضي بلا تخطيط');
   const layoutKeys = Object.keys(defaultPrintLayout('page'));
   assert.deepEqual(layoutKeys, ['design', 'logo', 'logoSize', 'accent', 'tableStyle', 'order']);
-  for (const k of [...schemaKeys, ...layoutKeys]) assert.ok(!FORBIDDEN.includes(k), `خيار محظور: ${k}`);
-  for (const k of [...schemaKeys, ...layoutKeys]) assert.doesNotMatch(k, /qr(Hidden|Min|Off)|hide|title|tax|vat|notice|watermark|icv|uuid|seller|buyer/i, `خيار يمسّ محتوى إلزامياً: ${k}`);
+  // التحرير الحرّ: أربعة مفاتيح اختيارية في مخطط التخطيط وحده — لا خيار فيها يخفي الرمز (حارس LOCKED_VISIBLE في النواة)
+  const layoutSchemaKeys = Object.keys((printSettingsV1Schema.shape.profiles.element.shape.options.shape.layout as unknown as { unwrap(): { shape: Record<string, unknown> } }).unwrap().shape);
+  assert.deepEqual(layoutSchemaKeys, [...layoutKeys, 'logoMm', 'logoAfter', 'sections', 'canvas']);
+  for (const k of [...schemaKeys, ...layoutSchemaKeys]) assert.ok(!FORBIDDEN.includes(k), `خيار محظور: ${k}`);
+  for (const k of [...schemaKeys, ...layoutSchemaKeys]) assert.doesNotMatch(k, /qr(Hidden|Min|Off)|hide|title|tax|vat|notice|watermark|icv|uuid|seller|buyer/i, `خيار يمسّ محتوى إلزامياً: ${k}`);
   // والترتيب لا يُسقط قسماً: تبديلٌ كامل لأقسام التصميم، وقسم QR في الرول دائماً
   assert.ok(sectionsFor('thermal', 'standard').includes('qr'));
   // حجم الرمز «تلقائي» أو «كبير» وحدهما — لا «صغير»
@@ -269,6 +273,7 @@ test('كل تسمية ورسالة وتنبيه مترجم إلى اللغات �
     ...Object.values(PRINTER_SHORT), ...Object.values(DOC_KIND_SHORT),
     ...Object.values(DESIGN_LABELS), ...(Object.values(DESIGN_HINTS) as string[]), ...Object.values(SECTION_LABELS), ...Object.values(LOGO_POSITION_LABELS),
     ...Object.values(LOGO_SIZE_LABELS), ...Object.values(TABLE_STYLE_LABELS),
+    ...Object.values(ALIGN_LABELS), ...Object.values(CANVAS_BOX_LABELS), ...Object.values(CANVAS_BAND_LABELS),
   ].filter((s) => /[؀-ۿ]/.test(s));
   const missing: string[] = [];
   for (const ar of all) {
@@ -440,4 +445,44 @@ test('ألوان التمييز الجاهزة كلها مقروءة على ال
   for (const c of ACCENT_PALETTE) assert.ok(accentContrastOk(c), c);
   for (const c of ['#FFFFFF', '#FFFF00', '#F5F5F5', '#E0E0E0', 'red', '#FFF']) assert.equal(accentContrastOk(c), false, c);
   assert.equal(accentContrastOk('#000000'), true);
+});
+
+test('التحرير الحرّ: التسميات لكل قيمة، وwithDesign يحمل حجم الشعار وما يصلح من مكانه وتنسيقاته ويُسقط اللوحتين على ثنائي اللغة', () => {
+  for (const a of ALIGNS) assert.ok(ALIGN_LABELS[a]);
+  for (const b of CANVAS_BANDS) assert.ok(CANVAS_BAND_LABELS[b]);
+  for (const id of CANVAS_BOX_IDS) assert.ok(CANVAS_BOX_LABELS[id]);
+  const page = withLayout(profile('office', 'page', 'page_branded', 'a4'), {
+    logoMm: 30, logoAfter: 'note', sections: { note: { align: 'center' }, totals: { fontPct: 120 } },
+    canvas: { headerMm: 60, footerMm: 0, boxes: [{ id: 'logo', band: 'header', x: 0, y: 0, w: 30, h: 30 }] },
+  });
+  const grid = withDesign(page, 'grid_bilingual');
+  const gl = grid.options.layout!;
+  assert.equal(gl.design, 'grid_bilingual');
+  assert.equal(gl.logoMm, 30);
+  assert.equal(gl.logoAfter, 'note', 'note قسمٌ في ثنائي اللغة');
+  assert.deepEqual(gl.sections, { note: { align: 'center' }, totals: { fontPct: 120 } });
+  assert.ok(!('canvas' in gl), 'لا لوحات على ثنائي اللغة');
+  const back = withDesign(withLayout(grid, { logoAfter: 'parties', sections: { parties: { fontPct: 90 }, totals: { fontPct: 120 } } }), 'standard').options.layout!;
+  assert.ok(!('logoAfter' in back), 'parties ليس في التصميم القياسي');
+  assert.deepEqual(back.sections, { totals: { fontPct: 120 } });
+  assert.equal(back.logoMm, 30);
+  // بلا مفاتيح حرّة: كما كان (لا مفتاح جديد)
+  const plain = withDesign(withLayout(profile('o2', 'page', 'page_branded', 'a4'), { accent: '#1D4ED8' }), 'grid_bilingual');
+  assert.deepEqual(Object.keys(plain.options.layout!), ['design', 'logo', 'logoSize', 'accent', 'tableStyle', 'order']);
+  const s = { ...legacyPrintSettings(), profiles: [...legacyPrintSettings().profiles, { ...grid, id: 'g-1', name: 'g-1' }] };
+  assert.equal(checkPrintSettings(s, true).ok, true, JSON.stringify(checkPrintSettings(s, true)));
+});
+
+test('التحرير الحرّ: الجهاز يقرأ ما يحفظه الخادم، ويُسقط المفتاح المعيب وحده (نسخة أحدث) ويطبع بالستة', () => {
+  const roll = withLayout(profile('van', 'thermal', 'roll_compact', 'roll58'), { logo: 'end', tableStyle: 'grid', logoMm: 20, logoAfter: 'top', sections: { qr: { align: 'start' } } });
+  const s = { ...fleet(), profiles: [...fleet().profiles, roll] };
+  const strict = checkPrintSettings(s, true);
+  assert.ok(strict.ok, JSON.stringify(strict));
+  assert.deepEqual(normalizePrintSettings(s).profiles[3].options.layout, strict.ok ? strict.value.profiles[3].options.layout : null);
+  const raw = JSON.parse(JSON.stringify(s));
+  raw.profiles[3].options.layout.logoMm = 'xl';
+  raw.profiles[3].options.layout.canvas = { headerMm: 10, footerMm: 0, boxes: [] };
+  const l = normalizePrintSettings(raw).profiles[3].options.layout!;
+  assert.ok(!('logoMm' in l) && !('canvas' in l), 'المعيب يسقط وحده');
+  assert.deepEqual([l.logo, l.tableStyle, l.logoAfter], ['end', 'grid', 'top']);
 });

@@ -1,16 +1,18 @@
 // الطباعة المباشرة بالبلوتوث («إعدادات الطباعة» M3، التصميم §3.3): أيّ قالبٍ يُرسل (لا الكلاسيكي ولا العادية)، وطريقة الجهاز
 // (نظام الطباعة افتراضاً)، والمُرمِّز لكل طابعة بهامشها وإزاحتها وطول صفحتها وقصّها، وخانة الرمز الأكبر للنقطية.
 import { test } from 'node:test';
+import fs from 'node:fs';
+import path from 'node:path';
 import assert from 'node:assert/strict';
 import { directAvailableFor, directHintFor, encodeForProfile, impactLeftDots, send, supportsDirect, transportFor } from './printDirect';
 import { decodeBridgePayload } from '../lib/print/transport/bridgePayload';
 import { TSPL_CANCEL } from '../lib/print/tspl';
 import { DEFAULT_PRINT_LOOK, impactQrSlotPx, lookFor, qrSlotStyle } from './printLook';
 import {
-  STAMPED_QR_CELLS, defaultPrintOptions, legacyPageProfile, legacyThermalProfile, presetPaper,
+  STAMPED_QR_CELLS, defaultPrintOptions, dotsPerMm, geometry, legacyPageProfile, legacyThermalProfile, presetPaper,
   type PaperPresetId, type PrintProfile, type PrinterType, type TemplateId,
 } from '../lib/print/printSettings';
-import { createBitmap, fillRect, type RasterPage } from '../lib/print/raster';
+import { PAGE_CUT_SEARCH_MM, createBitmap, fillRect, paginate, type RasterPage } from '../lib/print/raster';
 import { ESCPOS_CANCEL } from '../lib/print/escpos';
 import { ESCP24_CANCEL, ESCP24_CANCEL_CONTINUOUS } from '../lib/print/escp24';
 
@@ -212,4 +214,38 @@ test('القيم الافتراضية في تطبيق الآيفون (ما تس�
     assert.equal(transportFor(th, { transport: 'bt-serial' }), 'bt-serial');
     assert.equal(transportFor(th, { transport: 'system' }), 'system');
   });
+});
+
+// ─── «التحرير الحرّ» (طلب المالك ٣ نوفمبر ٢٠٢٦، pd_spec E.7): لوحة A4 على MIP480 لا تُقطع، وسطر الطباعة 1440 ───
+
+test('التحرير الحرّ — النقطية: لوحة تذييلٍ بإطار عابرةٌ لحدّ الصفحة تنتقل كاملةً للصفحة التالية، والسطر 1440 نقطة', () => {
+  const p = profile('impact', 'impact_plain', 'cut_a4');
+  const g = geometry(p);
+  const per = g.rowsPerPage as number;
+  assert.ok(per > 1000 && p.paper.printableDots === 1440);
+  const H = Math.round(per * 1.7);
+  const top = per - 200;
+  const bottom = per + 300;
+  const bm = createBitmap(1440, H);
+  for (let y = 0; y < top; y++) if (y % 30 !== 29) fillRect(bm, 100, y, 1200, 1, true); // أسطرٌ بفراغاتٍ بينها
+  fillRect(bm, 0, top, 1440, 2, true); fillRect(bm, 0, bottom - 2, 1440, 2, true);    // إطار اللوحة: لا صفّ أبيض داخلها
+  fillRect(bm, 0, top, 2, bottom - top, true); fillRect(bm, 1438, top, 2, bottom - top, true);
+  const search = Math.round(PAGE_CUT_SEARCH_MM * dotsPerMm(180));
+  const plain = paginate(bm, [], per, search);
+  assert.equal(plain[0].bitmap.height, per, 'بلا مدى: قطعٌ صلب داخل الإطار (اليوم)');
+  const kept = paginate(bm, [], per, search, undefined, [[top, bottom]]);
+  assert.equal(kept[0].bitmap.height, top, 'القصّ عند أعلى اللوحة');
+  assert.equal(kept[1].bitmap.height, bottom - top, 'اللوحة كاملةً في الصفحة الثانية');
+  assert.ok(kept.every((pg) => pg.bitmap.width === 1440));
+  const { job, kind } = encodeForProfile(p, [kept]);
+  assert.equal(kind, 'escp24');
+  assert.ok(job.bytes.length > 0, 'سطر 1440 بلا حبرٍ وراءه');
+});
+
+test('التحرير الحرّ — rasterPages يمرّر مدى اللوحات (keep من captureElement) إلى paginate', () => {
+  const src = fs.readFileSync(path.join(process.cwd(), 'src/rep/printDirect.ts'), 'utf8');
+  assert.ok(src.includes('const { bitmap, slots, keep } = await captureElement(el, p.paper.printableDots as number);'));
+  assert.ok(src.includes('return paginate(bitmap, qrRows, rows, Math.round(PAGE_CUT_SEARCH_MM * dotsPerMm(dpi)), label, keep);'));
+  const raster = fs.readFileSync(path.join(process.cwd(), 'src/lib/print/raster.ts'), 'utf8');
+  assert.ok(raster.includes("if (!el.hasAttribute('data-print-canvas')) return { bitmap, slots };"), 'الورقة بلا لوحات بلا keep');
 });

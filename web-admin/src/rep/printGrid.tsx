@@ -15,14 +15,23 @@
  * · رمز QR ليس عبارة: يُطبع متى مُرِّر مهما حُذف من النصوص.
  * · أحادي اللون/النقطية: حدود ‎#000 بعرض 1px وبلا تعبئة رمادية (عتبة النقطية ١٦٠)؛ ولون التمييز (accentColor) على خط الترويسة
  *   وخلفية رؤوس الجدول في الطابعات الملوّنة وحدها.
+ * · «التحرير الحرّ» (طلب المالك ٣ نوفمبر ٢٠٢٦، pd_spec B.2/B.3): مع مفتاحٍ حرّ (hasFreeLayout) أو معاينة المصمّم كل قسمٍ ظاهر
+ *   ملفوفٌ بـ<div data-sec> بمحاذاته ومسافتيه، وحجم خطّه `fontSize: pct%` (القالب بوحدة em — لا zoom ولا filter)؛ والمخفيّ يسقط؛
+ *   والشعار بحجمٍ حرّ (logoMm: max-width/max-height بلا object-fit — html2canvas يمطّه) وكتلةٌ مستقلة (data-section="logo")
+ *   أعلى الورقة أو بعد قسم؛ و«البيانات» مخفيّة ⇒ رمز QR كتلةٌ وحده (data-section="qr") بعد الترويسة — لا يُحذف أبداً؛ ووسم
+ *   النسخة بعد غلاف الترويسة (data-copy-anchor). وبلا مفتاحٍ حرّ ولا معاينة: الورقة كما هي حرفاً (layout6 والحرّاس الذهبية).
  */
 import { forwardRef, type CSSProperties, type ReactNode } from 'react';
 import type { InvoiceDoc, ReceiptDoc } from './RepDocuments';
 import type { ZatcaPrintDecision } from '../lib/zatca/docPrint';
 import { phraseIn, type PrintTexts } from '../lib/print/printTexts';
 import { PRINT_LOOK_CSS, lookNeedsCss, lookRootAttrs, type PrintLook } from './printLook';
-import { accentColor, fmtQty4, lineVat, logoBox, orderedSections, type ResolvedLayout } from '../lib/print/layout';
-import type { SectionId } from '../lib/print/printSettingsCore';
+import {
+  accentColor, fmtQty4, hasFreeLayout, lineVat, logoBox, logoPlan, mmToPx, orderedSections, qrOrphan, sectionCss, sectionLook, visibleOrder,
+  type LogoPlan, type ResolvedLayout, type SectionLook,
+} from '../lib/print/layout';
+import type { Align, SectionId } from '../lib/print/printSettingsCore';
+import { pdProps, usePrintDesignPreview, type PrintDesignPreview } from './printDesignContext';
 import { getActiveCurrency } from '../utils/format';
 import { currencyDecimals } from '../i18n/countries';
 import { factorOf } from '../lib/units';
@@ -208,6 +217,28 @@ function bilingualValue(ar: string): ReactNode {
   return en && en !== ar ? <>{ar} / <Ltr>{en}</Ltr></> : ar;
 }
 
+// ─── الشعار: صندوق اليوم (logoBox) أو خطة التحرير الحرّ (logoPlan) ───
+
+/** صورة الشعار ومحاذاتها ومكانها — at='header' داخل الترويسة كاليوم، وغيرها كتلةٌ مستقلة (والترويسة بلا شعار) */
+export interface GridLogo { img: ReactNode | null; align: Align; at: LogoPlan['at'] }
+
+export function gridLogo(look: PrintLook, layout: ResolvedLayout, src: string | null | undefined): GridLogo {
+  const plan = logoPlan(layout, 'classic', 'grid');
+  if (!plan) {
+    const lb = logoBox(layout, 'classic', 'grid');
+    const logoSrc = lb.show && look.showLogo ? (src || null) : null;
+    return { img: logoSrc ? <img src={logoSrc} alt="" style={{ width: lb.px, height: lb.px, objectFit: 'contain', borderRadius: '50%' }} /> : null, align: lb.align, at: 'header' };
+  }
+  const logoSrc = plan.show && look.showLogo ? (src || null) : null;
+  // صندوقٌ أقصى بنسبة الصورة (لا مربّعٌ بـobject-fit: النقطية والـPDF يمطّانه) وبلا قصٍّ دائريّ يأكل أطراف الشعار العريض
+  const img = logoSrc
+    ? <img src={logoSrc} alt="" style={{ display: 'block', maxWidth: mmToPx(plan.maxWmm), maxHeight: mmToPx(plan.maxHmm), width: 'auto', height: 'auto' }} />
+    : null;
+  return { img, align: plan.align, at: plan.at };
+}
+
+const flexJustify = (a: Align): CSSProperties['justifyContent'] => (a === 'start' ? 'flex-start' : a === 'end' ? 'flex-end' : 'center');
+
 // ─── الترويسة: إنجليزي يساراً، الشعار، عربي يميناً ───
 
 interface HeaderCompany {
@@ -215,8 +246,16 @@ interface HeaderCompany {
   logo?: string | null; addrCity?: string | null;
 }
 
-function GridHeader({ kit, look, layout, company, title, titleKey, showTax, zDecision }: {
-  kit: Kit; look: PrintLook; layout: ResolvedLayout; company: HeaderCompany | null | undefined;
+/** العلامة المائية للبروفة وتنبيه سند التسليم (قرار الطباعة لا الشركة): في الترويسة كاليوم، وبعد موضعها إن أُخفيت (التحرير الحرّ) */
+function gridZatcaBanner(zDecision: ZatcaPrintDecision | null | undefined): ReactNode[] {
+  return [
+    zDecision?.watermark ? <div key="wm" style={{ border: B, padding: '5px 8px', marginTop: 6, fontWeight: 700, textAlign: 'center' }}>{zDecision.watermark}</div> : null,
+    zDecision?.notice ? <div key="nt" style={{ border: B, padding: '5px 8px', marginTop: 6, lineHeight: 1.7 }}>{zDecision.notice}</div> : null,
+  ];
+}
+
+function GridHeader({ kit, look, logo: lg, company, title, titleKey, showTax, zDecision }: {
+  kit: Kit; look: PrintLook; logo: GridLogo; company: HeaderCompany | null | undefined;
   title: { text: string; alt: string | null }; titleKey: string; showTax: boolean; zDecision?: ZatcaPrintDecision | null;
 }) {
   const { pt } = kit;
@@ -232,10 +271,9 @@ function GridHeader({ kit, look, layout, company, title, titleKey, showTax, zDec
   const shown = lines.filter((l) => !goneAny(pt, l.keys));
   const saudi = look.showContact && isSaudi(company as { countryCode?: string | null } | null);
 
-  const lb = logoBox(layout, 'classic', 'grid');
-  const logoSrc = lb.show && look.showLogo ? (company?.logo || null) : null;
-  const logo = logoSrc
-    ? <div style={{ flex: '0 0 auto', display: 'flex', justifyContent: 'center' }}><img src={logoSrc} alt="" style={{ width: lb.px, height: lb.px, objectFit: 'contain', borderRadius: '50%' }} /></div>
+  // الشعار داخل الترويسة إلا إن صار كتلةً مستقلة (logoAfter)
+  const logo = lg.at === 'header' && lg.img
+    ? <div style={{ flex: '0 0 auto', display: 'flex', justifyContent: 'center' }}>{lg.img}</div>
     : null;
 
   const arBlock = (
@@ -272,11 +310,11 @@ function GridHeader({ kit, look, layout, company, title, titleKey, showTax, zDec
   return (
     <div data-section="header">
       <div dir="rtl" style={{ display: 'flex', alignItems: 'center', gap: 12, paddingBottom: 8, borderBottom: `2px solid ${kit.mono ? INK : kit.accent}` }}>
-        {lb.align === 'start' ? logo : null}
+        {lg.align === 'start' ? logo : null}
         {arBlock}
-        {lb.align === 'center' ? logo : null}
+        {lg.align === 'center' ? logo : null}
         {enBlock}
-        {lb.align === 'end' ? logo : null}
+        {lg.align === 'end' ? logo : null}
       </div>
       {!titleGone && (
         <div {...unitProps(pt, [titleKey], { textAlign: 'center', fontSize: '1.45em', fontWeight: 700, margin: '8px 0 2px' })}>
@@ -286,8 +324,7 @@ function GridHeader({ kit, look, layout, company, title, titleKey, showTax, zDec
           </Pk>
         </div>
       )}
-      {zDecision?.watermark ? <div style={{ border: B, padding: '5px 8px', marginTop: 6, fontWeight: 700, textAlign: 'center' }}>{zDecision.watermark}</div> : null}
-      {zDecision?.notice ? <div style={{ border: B, padding: '5px 8px', marginTop: 6, lineHeight: 1.7 }}>{zDecision.notice}</div> : null}
+      {gridZatcaBanner(zDecision)}
     </div>
   );
 }
@@ -388,6 +425,71 @@ function sheetStyle(look: PrintLook, layout: ResolvedLayout): CSSProperties {
 /** الأقسام بالترتيب المحفوظ — وما لا يخصّ هذا التصميم يُتجاهل */
 const sectionsOf = (layout: ResolvedLayout): readonly SectionId[] => orderedSections(layout, layout.printer, 'grid_bilingual');
 
+/** مسار «التحرير الحرّ»: مفتاحٌ جديد في التخطيط، أو معاينة المصمّم (لوسم الأقسام بـdata-pd) — وإلا ورقة اليوم حرفاً */
+const onFreePath = (layout: ResolvedLayout, dctx: PrintDesignPreview | null): boolean => dctx !== null || hasFreeLayout(layout);
+
+/** مظهر قسمٍ بلا تنسيق (معاينةٌ بلا مفتاحٍ حرّ) */
+const PLAIN_LOOK: SectionLook = { visible: true, align: null, fontPct: 100, spaceBeforeMm: 0, spaceAfterMm: 0 };
+
+/** نمط غلاف القسم: المحاذاة والمسافتان (sectionCss) والخط بالنسبة المئوية لوحدة em — و`fill` لقسمٍ يتمدّد في الورقة المرنة */
+export function gridSectionStyle(s: SectionLook | null, fill = false): CSSProperties {
+  const look = s ?? PLAIN_LOOK;
+  return {
+    display: fill ? 'flex' : 'flow-root',
+    ...(fill ? { flexDirection: 'column', flex: '1 1 auto' } : {}),
+    ...(sectionCss(look) as CSSProperties),
+    ...(look.fontPct !== 100 && Number.isFinite(look.fontPct) ? { fontSize: `${look.fontPct}%` } : {}),
+  };
+}
+
+const isNode = (n: ReactNode): boolean => n !== null && n !== undefined && n !== false && n !== '';
+
+/**
+ * أقسام الورقة على المسار الحرّ بالترتيب: الشعار المستقلّ (أعلى الورقة أو بعد قسمه — ولو أُخفي القسم)، وكل قسمٍ ظاهر بغلافه،
+ * ورمز QR وحده بعد الترويسة متى أُخفيت «البيانات» (qrOrphan) — والترويسة تحمل مرساة وسم النسخة.
+ */
+function gridFreeBody(
+  layout: ResolvedLayout, dctx: PrintDesignPreview | null, bySection: Partial<Record<SectionId, ReactNode>>, logo: GridLogo,
+  opts: { qr?: ReactNode | null; fill?: ReadonlySet<SectionId>; before?: Partial<Record<SectionId, ReactNode>>; banner?: { at: SectionId; nodes: ReactNode[] } },
+): ReactNode[] {
+  const all = sectionsOf(layout);
+  const visible = new Set<SectionId>(visibleOrder(layout, layout.printer, 'grid_bilingual'));
+  const orphan = isNode(opts.qr) && qrOrphan(layout, layout.printer, 'grid_bilingual');
+  const logoBlock = (key: string): ReactNode => (logo.img ? (
+    <div key={key} data-section="logo" {...(pdProps(dctx, 'logo') as Record<string, never>)}
+      style={{ display: 'flex', justifyContent: flexJustify(logo.align), marginTop: 8 }}>
+      {logo.img}
+    </div>
+  ) : null);
+  const standalone = logo.at !== 'header';
+  const logoAt = standalone && logo.at !== 'top' && all.includes(logo.at) ? logo.at : null;
+  const out: ReactNode[] = [];
+  if (standalone && !logoAt) out.push(logoBlock('logo-top'));
+  for (const id of all) {
+    const node = visible.has(id) ? bySection[id] ?? null : null;
+    // الفاصل المرن قبل موضع القسم ولو أُخفي (التذييل أسفل الورقة كاليوم)
+    if (opts.before?.[id]) out.push(opts.before[id]);
+    if (isNode(node)) {
+      out.push(
+        <div key={id} data-sec={id} {...(id === 'header' ? { 'data-copy-anchor': '' } : {})} {...(pdProps(dctx, id) as Record<string, never>)}
+          style={gridSectionStyle(sectionLook(layout, id), opts.fill?.has(id) === true)}>
+          {node}
+        </div>,
+      );
+    }
+    // القسم الحامل مخفيّ: العلامة المائية والتنبيه (قرار الطباعة، في الترويسة) ووسم «سند ملغى» (في البيانات) لا يسقطان معه — في موضعه
+    if (opts.banner && id === opts.banner.at && !isNode(node) && opts.banner.nodes.some(isNode)) out.push(<div key="keep-banner">{opts.banner.nodes}</div>);
+    if (logoAt === id) out.push(logoBlock(`logo-${id}`));
+    if (id === 'header' && orphan) {
+      // QR المرحلة الثانية لا يُحذف: «البيانات» (حاملته) مخفيّة ⇒ كتلته وحدها بعد الترويسة
+      out.push(
+        <div key="qr-orphan" data-section="qr" data-grid-qr="" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 8 }}>{opts.qr}</div>,
+      );
+    }
+  }
+  return out;
+}
+
 // ═══════════════════════ الفاتورة (البيع والمرتجع/الإشعار وسند التسليم والمُبطل) ═══════════════════════
 
 type GridItem = InvoiceDoc['items'][number] & { code?: string | null; taxAmt?: number | null };
@@ -408,6 +510,8 @@ export const GridInvoice = forwardRef<HTMLDivElement, {
   const customer = doc.customer as InvoiceDoc['customer'] & { postalCode?: string | null };
   const items = doc.items as GridItem[];
   const kit = kitOf(pt, look, layout, company);
+  const dctx = usePrintDesignPreview();
+  const logo = gridLogo(look, layout, company?.logo);
   const tax = zDecision.showTaxBreakdown;
   const titleKey = doc.isReturn ? 'inv.returnTitle' : 'inv.title';
 
@@ -652,7 +756,7 @@ export const GridInvoice = forwardRef<HTMLDivElement, {
   const footerNode = <Footer key="footer" kit={kit} thanks={thanks} companyName={company?.name || ''} />;
 
   const headerNode = (
-    <GridHeader key="header" kit={kit} look={look} layout={layout} company={company}
+    <GridHeader key="header" kit={kit} look={look} logo={logo} company={company}
       // بلا نصوص: عنوان القرار بالعربية (العنوان الممرَّر مترجمٌ بلغة واجهة الجهاز كقالب اليوم) — القالب عربيٌّ أولاً
       title={pt.on ? facts.title : { text: zDecision.title, alt: null }} titleKey={titleKey}
       showTax={false} zDecision={zDecision} />
@@ -664,7 +768,9 @@ export const GridInvoice = forwardRef<HTMLDivElement, {
   };
   return (
     <div ref={ref} style={sheetStyle(look, layout)} {...lookRootAttrs(look)}>
-      {sectionsOf(layout).map((id) => bySection[id] ?? null)}
+      {onFreePath(layout, dctx)
+        ? gridFreeBody(layout, dctx, bySection, logo, { qr, fill: filler ? new Set<SectionId>(['items']) : undefined, banner: { at: 'header', nodes: gridZatcaBanner(zDecision) } })
+        : sectionsOf(layout).map((id) => bySection[id] ?? null)}
       {lookNeedsCss(look) ? <style>{PRINT_LOOK_CSS}</style> : null}
     </div>
   );
@@ -679,6 +785,8 @@ export const GridReceipt = forwardRef<HTMLDivElement, {
   const company = (doc.company ?? null) as (ReceiptDoc['company'] & { addrCity?: string | null }) | null;
   const customer = doc.customer;
   const kit = kitOf(pt, look, layout, company);
+  const dctx = usePrintDesignPreview();
+  const logo = gridLogo(look, layout, company?.logo);
 
   const infoRows: KvRow[] = [
     { keys: ['rcp.number'], def: 'رقم السند', value: doc.number, ltr: true },
@@ -687,10 +795,11 @@ export const GridReceipt = forwardRef<HTMLDivElement, {
   if (look.showRepName && doc.repName) infoRows.push({ keys: ['rcp.rep'], def: 'المندوب', value: doc.repName });
   infoRows.push({ keys: ['rcp.method'], def: 'طريقة الدفع', value: methodLabelFor(company, doc.paymentMethod, doc.paymentMethodKey, (s: string) => s) });
   if (doc.notes) infoRows.push({ keys: ['rcp.notes'], def: 'ملاحظات', value: doc.notes });
+  const cancelledMark = doc.cancelled ? <div style={{ border: `2px solid ${INK}`, padding: 6, marginTop: 6, textAlign: 'center', fontWeight: 700, fontSize: '1.3em' }}>سند ملغى</div> : null;
   const info = (
     <div key="info" data-section="info" style={{ marginTop: 8 }}>
       <KvBox kit={kit} rows={infoRows.filter((r) => !goneAny(pt, r.keys))} enW={128} arW={140} />
-      {doc.cancelled ? <div style={{ border: `2px solid ${INK}`, padding: 6, marginTop: 6, textAlign: 'center', fontWeight: 700, fontSize: '1.3em' }}>سند ملغى</div> : null}
+      {cancelledMark}
     </div>
   );
 
@@ -754,14 +863,17 @@ export const GridReceipt = forwardRef<HTMLDivElement, {
   );
   const footer = <Footer key="footer" kit={kit} thanks={null} companyName={company?.name || ''} />;
   const header = (
-    <GridHeader key="header" kit={kit} look={look} layout={layout} company={company}
+    <GridHeader key="header" kit={kit} look={look} logo={logo} company={company}
       title={pt.on ? title : { text: 'سند قبض', alt: null }} titleKey="rcp.title" showTax />
   );
   const bySection: Partial<Record<SectionId, ReactNode>> = { header, info, parties, items, signatures: sig, footer };
   const order = sectionsOf(layout);
   return (
     <div ref={ref} style={sheetStyle(look, layout)} {...lookRootAttrs(look)}>
-      {order.map((id) => (id === 'signatures' ? [<div key="spacer" style={{ flex: '1 1 auto' }} />, bySection[id] ?? null] : bySection[id] ?? null))}
+      {onFreePath(layout, dctx)
+        // التواقيع أسفل الورقة كاليوم: الفاصل المرن قبل غلافها
+        ? gridFreeBody(layout, dctx, bySection, logo, { before: { signatures: <div key="spacer" style={{ flex: '1 1 auto' }} /> }, banner: { at: 'info', nodes: [cancelledMark] } })
+        : order.map((id) => (id === 'signatures' ? [<div key="spacer" style={{ flex: '1 1 auto' }} />, bySection[id] ?? null] : bySection[id] ?? null))}
       {lookNeedsCss(look) ? <style>{PRINT_LOOK_CSS}</style> : null}
     </div>
   );

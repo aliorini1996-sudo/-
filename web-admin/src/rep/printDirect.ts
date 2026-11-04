@@ -88,7 +88,7 @@ const dpiOf = (p: PrintProfile): PrinterDpi => p.paper.dpi as PrinterDpi;
 /** صفحات عنصرٍ واحد (نسخة): التقاط ثم رموز QR ثم تقسيمٌ للورق المقطع والمتصل مع سطر الترقيم */
 export async function rasterPages(el: HTMLElement, p: PrintProfile, ui: DirectUi): Promise<RasterPage[]> {
   const dpi = dpiOf(p);
-  const { bitmap, slots } = await captureElement(el, p.paper.printableDots as number);
+  const { bitmap, slots, keep } = await captureElement(el, p.paper.printableDots as number);
   const qrRows = applyQrSlots(bitmap, slots, { dpi, size: p.options.qrSize });
   const g = geometry(p);
   const rows = g.feed === 'roll' ? null : g.rowsPerPage;
@@ -96,7 +96,8 @@ export async function rasterPages(el: HTMLElement, p: PrintProfile, ui: DirectUi
     const r = pageLabelRows(dpi);
     return stackRows(createBitmap(bitmap.width, r.gap), textStrip(ui.pageLabel(n, m), bitmap.width, r.text));
   };
-  return paginate(bitmap, qrRows, rows, Math.round(PAGE_CUT_SEARCH_MM * dotsPerMm(dpi)), label);
+  // لوحتا «التحرير الحرّ» (keep — ورقةٌ بـdata-print-canvas وحدها) لا تُقطعان بين صفحتين؛ وبلاها (undefined) التقسيم كاليوم
+  return paginate(bitmap, qrRows, rows, Math.round(PAGE_CUT_SEARCH_MM * dotsPerMm(dpi)), label, keep);
 }
 
 /**

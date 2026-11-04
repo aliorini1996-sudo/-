@@ -62,7 +62,9 @@ test('قالب A4: الرمز المحليّ لا يُبنى إلا بقرارٍ
   // ولا تفصيل ضريبة على ورقةٍ غير ضريبية — ولا عنوانَ عمودٍ يقول إنّ السعر شامل ضريبة القيمة المضافة.
   // تحديثٌ مقصود (طلب المالك الثالث ٣ نوفمبر ٢٠٢٦ «حذف السطر»): صفّ الوعاء يحذفه حذفُ الشركة له وحده — وشرط القرار يبقى أوّلاً
   assert.match(s, /\{zDecision\.showTaxBreakdown && doc\.tax > 0 && !pt\.hidden\('tot\.taxable'\) && <Row label=\{L\('tot\.taxable', 'الوعاء الخاضع للضريبة'\)/);
-  assert.match(s, /\{zDecision\.showTaxBreakdown && !pt\.hidden\('col\.tax'\) && <th style=\{th\}>\{L\('col\.tax', 'الضريبة', \{ stack: true \}\)\}<\/th>\}/);
+  // «التحرير الحرّ»: نمط رأس العمود صار thf(f) (حجم خطّ القسم — IDENT بلا تخطيطٍ حرّ = نمط اليوم، وخطوط الأساس تثبته) — والشرط هو هو
+  assert.match(s, /\{zDecision\.showTaxBreakdown && !pt\.hidden\('col\.tax'\) && <th style=\{thf\(f\)\}>\{L\('col\.tax', 'الضريبة', \{ stack: true \}\)\}<\/th>\}/);
+  assert.match(s, /const thf = \(f: Fx\): React\.CSSProperties => \(\{ \.\.\.th, fontSize: f\(13\) \}\);/);
   assert.match(s, /\{zDecision\.showTaxBreakdown && inclusiveDoc \? L\('col\.priceIncl', 'السعر شامل الضريبة', \{ stack: true \}\) : L\('col\.price', 'السعر', \{ stack: true \}\)\}/);
   // وتصنيف الورقة (سعر الوحدة قبل الضريبة) من القرار لا من رقم المشتري الضريبي
   assert.match(s, /inclusiveDoc && zDecision\.standardLayout && it\.taxPct > 0/);
@@ -72,10 +74,13 @@ test('قالب A4: الرمز المحليّ لا يُبنى إلا بقرارٍ
 test('الرمز المختوم على ورقة A4: مقاسٌ وتصحيحٌ يحتملان حمولة المرحلة الثانية، وبلا ضغطٍ فاقد في الـPDF', () => {
   const s = read('rep/RepDocuments.tsx');
   // الافتراضيّ (١٢٤px من مصدر ٣٧٢px بتصحيح M) هو ما حُكم في thermal.ts بأنّ الماسح لا يقرؤه لهذه الحمولة
-  assert.match(s, /<QrImage value=\{zDecision\.qr\.value\} size=\{176\} ec="L" scale=\{4\} \/>/, 'الرمز المختوم بمقاس المرحلة الأولى');
+  /* «التحرير الحرّ»: مربع QR في لوحة المصمّم يكبّر الصورة ولا يصغّرها أبداً — imgPx(today) = today بلا مربع (أو على النقطية
+   * التي تعيد رسمه في خانتها)، وإلا max(today, ضلع المربع − الإطار) */
+  assert.match(s, /const imgPx = \(today: number\): number => \(fit && !look\.qrSlotPx \? Math\.max\(today, side - 14\) : today\);/, 'مقاس الرمز في اللوحة قد يصغر عن اليوم');
+  assert.match(s, /<QrImage value=\{zDecision\.qr\.value\} size=\{imgPx\(176\)\} ec="L" scale=\{4\} \/>/, 'الرمز المختوم بمقاس المرحلة الأولى');
   assert.match(s, /QRCode\.toDataURL\(value, \{ width: size \* scale, margin: 1, errorCorrectionLevel: ec \}\)/);
   // ورمز المرحلة الأولى بلا وسيطين ⇒ الافتراضيّ كما اليوم حرفاً بحرف
-  assert.match(s, /<QrImage value=\{qrValue\} size=\{108\} \/>/);
+  assert.match(s, /<QrImage value=\{qrValue\} size=\{imgPx\(108\)\} \/>/);
   // والورقة الحاملة للرمز المختوم لا تمرّ على JPEG
   assert.match(s, /elementToPdfBlob\(printRef\.current, \{ lossless: zDecision\?\.qr\.source === 'stamped' \}\)/);
   // في `elementToPdfBlob` وحدها (لا في بانية التقارير متعدّدة العناصر — ورقةٌ بلا رمزٍ مختوم)
@@ -247,7 +252,15 @@ test('مظهر الطباعة لا يُخفي محتوىً إلزامياً: ا�
   assert.match(header, /\n\s*\{!pt\.hidden\('h\.commercialReg'\) && line\(L\('h\.commercialReg', 'السجل التجاري'\), company\?\.commercialReg, light\)\}/);
   assert.doesNotMatch(header, /(look|layout|lb)\.\w+ && !pt\.hidden\('h\.(taxNumber|commercialReg)'\)/, 'خيار مظهر يخفي نصّاً إلزامياً');
   assert.doesNotMatch(header, /(look|layout|lb)\.\w+ && line\(L\('h\.(taxNumber|commercialReg)'/);
-  assert.equal((header.match(/\{company\?\.name \|\| tr\('اسم الشركة'\)\}/g) || []).length, 3, 'اسم الشركة في الأشكال الثلاثة');
+  /* «التحرير الحرّ»: الأشكال الثلاثة + كتلة الشركة وحدها (مربع «الشركة» في لوحة المصمّم، free.part) — وهي الاسم بأسطره الإلزامية
+   * نفسها (infoLines) لا شكلٌ رابع. وقطع الاسم من الترويسة (omitCompany) لا يكون إلا لأنّ مربع الشركة موضوعٌ في لوحة */
+  assert.equal((header.match(/\{company\?\.name \|\| tr\('اسم الشركة'\)\}/g) || []).length, 4, 'اسم الشركة في الأشكال الثلاثة وكتلة الشركة');
+  const companyPart = between(header, "if (free?.part === 'company') {", '// شكل "بانر"', 'rep/RepDocuments.tsx');
+  assert.match(companyPart, /\{company\?\.name \|\| tr\('اسم الشركة'\)\}\{nameAlt\}<\/div>\n\s*\{infoLines\(false\)\}/, 'كتلة الشركة بلا رقمها الضريبي');
+  assert.match(header, /const noCompany = !!free\?\.omitCompany;/);
+  const a4 = read('rep/RepDocuments.tsx');
+  for (const call of a4.match(/omitCompany: [^,}]+/g) || []) assert.equal(call.trim(), "omitCompany: placed.has('company')", 'الشركة تُقطع من الترويسة بلا مربعٍ في لوحة');
+  for (const call of a4.match(/omitTitle: [^,}]+/g) || []) assert.equal(call.trim(), "omitTitle: placed.has('title')", 'العنوان يُقطع من الترويسة بلا مربعٍ في لوحة');
   assert.equal((header.match(/>\{title\}</g) || []).length, 3, 'العنوان في الأشكال الثلاثة');
   assert.equal((header.match(/if \(style === /g) || []).length, 2, 'شكل ترويسة رابع');
   assert.doesNotMatch(header, /look\.\w+ && line\(tr\('الرقم الضريبي'\)/);
@@ -320,9 +333,12 @@ test('(b) كل خانة data-qr-value تأخذ قيمتها من القرار أ
     'lib/print/calibration.ts', // الرمز التجريبيّ وحده
     'lib/print/raster.ts', // يقرأ الخانة ولا يكتبها
     'rep/RepDocuments.tsx', // قالب A4 والنقطية
+    'rep/printCanvas.tsx', // لوحة المصمّم: تذكرها في تعليقٍ فقط — تمرّر كتلة InvoiceQrBlock كما هي ولا تكتب خانة
     'rep/printLook.ts', // محدِّد CSS لصورة الخانة
     'rep/thermal.ts', // خانة الشريط في البلوتوث
   ], 'ملفٌّ جديد يكتب خانة رمز بلا حارس');
+  const canvasSrc = stripComments(read('rep/printCanvas.tsx'));
+  assert.doesNotMatch(canvasSrc, /data-qr-value|data-qr-ec|QRCode\.|buildZatcaQr\s*\(|zatcaPrintDecision\(/, 'لوحة المصمّم تكتب خانة رمز أو تبنيه');
   // قالب A4: خانتان، قيمتاهما zDecision.qr.value وqrValue لا غير
   const a4 = read('rep/RepDocuments.tsx');
   const exprs = [...a4.matchAll(/data-qr-value=\{([^}]*)\}/g)].map((m) => m[1]);
@@ -415,7 +431,14 @@ test('القالب ثنائي اللغة (تخطيط المطبوعات): الق
   // الرمز كتلةُ اليوم نفسها (InvoiceQrBlock بقيمة القرار وqrValue المحروسة) — للقالبين
   assert.match(a4, /const qrNode = <InvoiceQrBlock doc=\{doc\} zDecision=\{zDecision\} qrValue=\{qrValue\} look=\{look\} pt=\{pt\} \/>;/);
   assert.match(a4, /<GridInvoice ref=\{ref\} doc=\{doc\} facts=\{\{ pt, zDecision, title: docTitle, inclusiveDoc, vatRate, noteRefs \}\} look=\{look\} layout=\{layout\} qr=\{qrNode\} \/>/);
-  assert.equal((a4.match(/\n\s*\{qrNode\}/g) || []).length, 1,'الرمز في القالب الحالي داخل الإجماليات مرّةً واحدة');
+  /* «التحرير الحرّ»: الرمز في الإجماليات مرّةً واحدة، ولا يُقطع منها (omitQr) إلا لأنّ مربع QR موضوعٌ في لوحة؛ وإن أُخفي القسم
+   * الحامل ولم يوضع المربع طُبعت الكتلة نفسها يتيمةً بعد الأصناف (freeBody) */
+  assert.equal((a4.match(/\{!o\?\.omitQr && qrNode\}/g) || []).length, 1, 'الرمز في القالب الحالي داخل الإجماليات مرّةً واحدة');
+  assert.equal((a4.match(/\bqrNode\b/g) || []).length, 4, 'qrNode: التعريف والقالب ثنائي اللغة والإجماليات واليتيم');
+  assert.equal((a4.match(/omitQr: [^,}]+/g) || []).join('|'), "omitQr: placed.has('qr')", 'الرمز يُقطع من الإجماليات بلا مربعٍ في لوحة');
+  assert.match(a4, /\n\s*qr: qrNode,\n/);
+  assert.match(s, /const orphan = isNode\(parts\.qr\) && !placed\.has\('qr'\) && \(!visible\.has\('totals'\) \|\| qrOrphan\(layout, printer, 'standard'\)\);/, 'الرمز اليتيم لا يُطبع إن أُخفيت الإجماليات');
+  assert.match(s, /if \(id === 'items' && orphan\) \{/);
   const g = stripComments(read('rep/printGrid.tsx'));
   assert.doesNotMatch(g, /buildZatcaQr\s*\(|QRCode\.|data-qr-value|zatcaPrintDecision\(|buyerNotice/, 'القالب ثنائي اللغة يبني رمزاً أو قراراً');
 });
