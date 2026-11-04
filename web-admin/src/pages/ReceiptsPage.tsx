@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { receiptApi, companyApi, salesRepApi } from '../api/client';
 import { Receipt, SalesRep } from '../types';
@@ -15,6 +15,10 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import { ReceiptDoc, receiptDocFromDetail, Company } from '../rep/RepDocuments';
 import { shareOrDownloadExcel, num } from '../utils/excel';
 import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
+import { withLiveCompany } from '../rep/companyRefresh';
+
+/** جلب إعدادات الشركة — نفسه للاستعلام ولـensureQueryData عند فتح مستند قبل اكتمال تحميلها (D-G6) */
+const fetchCompany = async () => { const res = await companyApi.get(); return res.data.data as Company; };
 
 export default function ReceiptsPage() {
   const qc = useQueryClient();
@@ -29,10 +33,9 @@ export default function ReceiptsPage() {
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [cancelId, setCancelId] = useState<string | null>(null);
 
-  const { data: company } = useQuery({
-    queryKey: ['company'],
-    queryFn: async () => { const res = await companyApi.get(); return res.data.data as Company; },
-  });
+  const { data: company } = useQuery({ queryKey: ['company'], queryFn: fetchCompany });
+  // «نصوص المطبوعات» تصل المستند المفتوح: تجدّد إعدادات الشركة يُستبدل في نسخته (لا نصوص لحظة الفتح)
+  useEffect(() => { setDocResult(d => (d ? withLiveCompany(d, company) : d)); }, [company]);
 
   // سندات القبض تحصيلٌ خالص: الصفحة كلّها تختفي مع المحاسبة ولا تُصدر طلباً
   const { on: accountingOn, ready: accountingReady } = useAccountingOn();
@@ -93,7 +96,10 @@ export default function ReceiptsPage() {
     setOpeningId(id);
     try {
       const res = await receiptApi.get(id);
-      setDocResult(receiptDocFromDetail(res.data.data, '', company));
+      // فُتح قبل اكتمال تحميل الشركة (أو تعثّرها): تُطلب الآن، وإلا خرج بالنصوص الافتراضية وترويسة فارغة (D-G6)
+      let co = company;
+      try { co = company ?? await qc.ensureQueryData({ queryKey: ['company'], queryFn: fetchCompany }); } catch { /* يبقى الحالي */ }
+      setDocResult(receiptDocFromDetail(res.data.data, '', co));
     } catch { toast.error(tr('تعذر فتح المستند')); }
     setOpeningId(null);
   };

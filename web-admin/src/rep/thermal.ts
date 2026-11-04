@@ -595,9 +595,15 @@ function rollHead(company: InvoiceDoc['company'], r: Roll): string {
  * اسم الشركة والشكر — كلٌّ يُخفى وحده («نصوص المطبوعات»). الإخفاء يسبق كل شيء، ثم صياغة الشركة للشكر (ما تراه في معاينة المحرّر
  * يُطبع)، ثم نصّ تذييل القالب، ثم الافتراضي — كقالب A4.
  */
+/** نصّ الشركة الثاني لاسمها في التذييل (foot.company) سطراً تحته كاسمها باللغة الثانية في الرأس — لا شيء بلا نصّها (C-G4) */
+function footCompanyAlt(r: Roll): string {
+  const alt = r.pt.ownAlt('foot.company');
+  return alt ? `<div class="c muted" dir="ltr">${esc(alt)}</div>` : '';
+}
+
 function rollFoot(company: InvoiceDoc['company'], r: Roll): string {
   return `
-    ${r.pt.hidden('foot.company') ? '' : `<div class="c muted">${esc(r.pt.on && r.pt.text('foot.company', '') !== '' ? r.pt.text('foot.company', '') : company?.name || '')}</div>`}
+    ${r.pt.hidden('foot.company') ? '' : `<div class="c muted">${esc(r.pt.on && r.pt.text('foot.company', '') !== '' ? r.pt.text('foot.company', '') : company?.name || '')}</div>${footCompanyAlt(r)}`}
     ${r.pt.hidden('foot.thanks') ? '' : `<div class="c muted">${r.o.footerText !== null && !(r.pt.on && r.pt.text('foot.thanks', '') !== '') ? esc(r.o.footerText) : r.pt.on ? lbl(r, 'foot.thanks', 'شكرا لتعاملكم معنا') : esc(r.tr('شكرا لتعاملكم معنا'))}</div>`}`;
 }
 

@@ -2,7 +2,8 @@ import { Component, Suspense, lazy, useMemo, useState, type ReactNode } from 're
 import { AlertTriangle, Languages, Pencil, RefreshCw } from 'lucide-react';
 import { useTr } from '../../i18n/strings';
 import {
-  PRINT_TEXT_CATALOG, PRINT_TEXT_LINE, PRINT_TEXT_WARNINGS, SECOND_LANG_NAMES, normalizePrintTexts, printTextEntry, printTextWarning, printTextsSummary,
+  PRINT_TEXT_CATALOG, PRINT_TEXT_LINE, PRINT_TEXT_WARNINGS, SECOND_LANG_NAMES, canonicalPrintTexts, emptyPrintTexts, normalizePrintTexts, printTextEntry,
+  printTextWarning, printTextsSummary,
   type PrintTextEdit, type PrintTextEntry, type PrintTextWarning, type PrintTextsV1,
 } from '../../lib/print/printTexts';
 import type { Company } from '../../rep/RepDocuments';
@@ -65,10 +66,13 @@ export function lineWarning(key: string): PrintTextWarning | null {
   return own;
 }
 
-/** صنف التنبيه الذي يطلب تأكيد الحذف مرّةً واحدة ('tax' و'standard' — ما كان إلزامياً للفاتورة الضريبية، أو صندوقٌ يحويه) أو null */
+/**
+ * صنف التنبيه الذي يطلب تأكيد الحذف مرّةً واحدة ('tax' و'standard' — ما كان إلزامياً للفاتورة الضريبية، أو صندوقٌ يحويه؛ و'status'
+ * — عنوان حالةٍ قد يُقرأ المستند بحذفه فاتورةً سارية، قرار المالك ٤ نوفمبر ٢٠٢٦) أو null
+ */
 export function deleteConfirmClass(key: string): PrintTextWarning | null {
   const w = lineWarning(key);
-  return w === 'tax' || w === 'standard' ? w : null;
+  return w === 'tax' || w === 'standard' || w === 'status' ? w : null;
 }
 
 /** نصّ سؤال تأكيد الحذف (عربيٌّ عبر tr) أو null حين لا يلزم تأكيد */
@@ -83,6 +87,49 @@ export function deleteConfirmText(key: string, tr: (ar: string) => string): stri
 export function deletedLines(t: PrintTextsV1 | null, doc?: 'invoice' | 'receipt'): PrintTextEntry[] {
   if (!t) return [];
   return PRINT_TEXT_CATALOG.filter((e) => (!doc || e.doc === doc || e.doc === 'shared') && t.edits[e.key]?.hidden === true);
+}
+
+// ─── الحفظ المشروط بالمراجعة (بلاغ ٤ نوفمبر ٢٠٢٦: مديرٌ ثانٍ أو نافذةٌ قديمة كان حفظها يمسح تعديلات غيره بلا تنبيه) — المحرّر يقرأ
+//     النصوص من الخادم عند فتحه ويحفظ بمراجعتها (x-print-texts-rev)، والخادم يرفض الحفظ إن تغيّرت منذها (409 PRINT_TEXTS_STALE) ───
+
+/** تنبيه رفض الحفظ لأن النصوص تغيّرت من جهاز آخر منذ فتح المحرّر — يُعرض بـtr */
+export const PRINT_TEXTS_STALE_MSG = 'تغيرت نصوص المطبوعات من جهاز آخر — راجع المعاينة ثم احفظ مرة أخرى';
+
+/** حال النصوص على الخادم: القراءة المتسامحة، وهل هي محفوظة، ومراجعتها (null من خادمٍ أقدم ⇒ يُحفظ بلا شرط كما كان) */
+export interface PrintTextsServerState { texts: PrintTextsV1; stored: boolean; rev: string | null }
+
+/** ردّ GET أو PUT /company/print-texts ⇒ حال الخادم */
+export function printTextsServerState(body: unknown): PrintTextsServerState {
+  const b = (body !== null && typeof body === 'object' ? body : {}) as { data?: unknown; stored?: unknown; rev?: unknown };
+  return {
+    texts: normalizePrintTexts(b.data ?? null) ?? emptyPrintTexts(),
+    stored: b.stored === true,
+    rev: typeof b.rev === 'string' && b.rev !== '' ? b.rev : null,
+  };
+}
+
+/** رُفض الحفظ لأن النصوص تغيّرت من جهاز آخر منذ المراجعة المرسلة */
+export function isPrintTextsStale(err: unknown): boolean {
+  const r = (err as { response?: { status?: number; data?: { code?: unknown } } } | null)?.response;
+  return r?.status === 409 && r.data?.code === 'PRINT_TEXTS_STALE';
+}
+
+/** ما يبني عليه المحرّر: الأصل المحفوظ، والمسودة، ومراجعة الأصل على الخادم */
+export interface PrintTextsBase { initial: PrintTextsV1; draft: PrintTextsV1; rev: string | null }
+
+const sameTexts = (a: PrintTextsV1, b: PrintTextsV1): boolean =>
+  JSON.stringify(canonicalPrintTexts(a)) === JSON.stringify(canonicalPrintTexts(b));
+
+/**
+ * حال الخادم (عند فتح المحرّر، وبعد رفض الحفظ لقِدم المراجعة) فوق ما يبني عليه المحرّر:
+ * - مسودةٌ بلا تعديل ⇒ تُبذر هي والأصل من الخادم (لا من ذاكرة ['company'] التي قد تكون أقدم)
+ * - مسودةٌ معدّلة على أصلٍ لم يتغيّر ⇒ تبقى كما هي، والمراجعة من الخادم
+ * - مسودةٌ معدّلة والأصل تغيّر ⇒ المسودة كما هي (لا يضيع ما كتبه)، والأصل والمراجعة من الخادم، وconflict: يُنبَّه ليراجع ثم يحفظ
+ */
+export function reconcilePrintTexts(cur: PrintTextsBase, server: PrintTextsServerState): PrintTextsBase & { conflict: boolean } {
+  if (sameTexts(cur.draft, cur.initial)) return { initial: server.texts, draft: server.texts, rev: server.rev, conflict: false };
+  if (sameTexts(server.texts, cur.initial)) return { initial: cur.initial, draft: cur.draft, rev: server.rev, conflict: false };
+  return { initial: server.texts, draft: cur.draft, rev: server.rev, conflict: true };
 }
 
 const loadEditor = () => import('./PrintTextsEditor');

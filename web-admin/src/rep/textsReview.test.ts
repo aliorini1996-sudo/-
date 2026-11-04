@@ -106,6 +106,8 @@ test('عنوان صندوقٍ يحذف صفوفه الإلزامية سابقا�
   for (const e of PRINT_TEXT_CATALOG) {
     if (PRINT_TEXT_LINE[e.key] === 'block') continue;
     const own = deleteConfirmClass(e.key);
-    assert.equal(lineWarning(e.key) === 'tax' || lineWarning(e.key) === 'standard' ? lineWarning(e.key) : null, own, e.key);
+    const w = lineWarning(e.key);
+    // 'status': عناوين الحالة (قرار المالك ٤ نوفمبر ٢٠٢٦) — تأكيدٌ مرّةً واحدة كالإلزامي سابقاً
+    assert.equal(w === 'tax' || w === 'standard' || w === 'status' ? w : null, own, e.key);
   }
 });

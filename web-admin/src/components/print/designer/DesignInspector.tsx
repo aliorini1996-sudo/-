@@ -10,7 +10,7 @@ import {
   SECTION_LABELS, layoutOf, sectionsFor,
   type CanvasBand, type CanvasBox, type CanvasBoxId, type LogoPosition, type PrintProfile, type SectionId,
 } from '../../../lib/print/printSettings';
-import { logoMmOf, logoMmRange, removeBox, resetCanvas, resetLogo, resetSections, upsertBox, withCanvas, withLogo, type DesignSel } from '../../../lib/print/designModel';
+import { canvasBoundsFor, logoMmOf, logoMmRange, removeBox, resetCanvas, resetLogo, resetSections, upsertBox, withCanvas, withLogo, type DesignSel } from '../../../lib/print/designModel';
 import { AlignChips, NumInput, SectionStyleFields, chipCls, clampFontPct } from './SectionStyleFields';
 import { bandAllows, bandLimits, fitBoxesToBand, snapGrid } from './designerMath';
 import { canvasQrMinMm } from '../../../rep/RepDocuments';
@@ -33,7 +33,7 @@ const fin = (v: unknown): v is number => typeof v === 'number' && Number.isFinit
 export function withBandHeight(p: PrintProfile, band: CanvasBand, hMm: number): PrintProfile {
   const c = layoutOf(p).canvas;
   if (!c) return p;
-  const lim = bandLimits(c, band, LAYOUT_BOUNDS);
+  const lim = bandLimits(c, band, canvasBoundsFor(p));
   const hi = Math.max(0, Math.min(lim.max, lim.total - lim.other));
   const h = snapGrid(Math.min(hi, Math.max(Math.min(lim.min, hi), hMm)));
   const key = band === 'header' ? 'headerMm' : 'footerMm';

@@ -242,7 +242,7 @@ test('الحرّ: الحجم — اثنا عشر تصميماً حرّاً بأ�
 });
 
 test('الحرّ: كل رسائل القواعد الجديدة مبلوغة ومن المصدر الواحد', () => {
-  const free = ['layoutLogoMm', 'layoutLogoAfter', 'layoutSectionUnknown', 'layoutSectionBounds', 'layoutLockedVisible', 'layoutCanvasPrinter', 'layoutCanvasBands', 'layoutCanvasBox', 'layoutCanvasFooterOnly', 'layoutCanvasQr'] as const;
+  const free = ['layoutLogoMm', 'layoutLogoAfter', 'layoutSectionUnknown', 'layoutSectionBounds', 'layoutLockedVisible', 'layoutCanvasPrinter', 'layoutCanvasBands', 'layoutCanvasBandsPaper', 'layoutCanvasBox', 'layoutCanvasFooterOnly', 'layoutCanvasQr'] as const;
   for (const k of free) assert.equal(typeof PRINT_ISSUES[k], 'string', k);
   assert.equal(PRINT_ISSUES.layoutRoll, 'في الرول: التصميم القياسي وحده');
   assert.ok(SECTION_IDS.length === 11);

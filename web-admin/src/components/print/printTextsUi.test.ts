@@ -75,7 +75,7 @@ test('المحرّر: بوابة إلى document.body بلا <form>، وكل أ�
 
 test('الحفظ: فحص الخادم الصارم قبله، وبمساره المستقل (companyApi.printTexts.put) لا companyApi.update، والإعداد بلا أثر = إعادة', () => {
   const e = editor();
-  assert.ok(e.includes('mutationFn: (v: PrintTextsV1 | null) => companyApi.printTexts.put(v),'));
+  assert.ok(e.includes('mutationFn: (v: PrintTextsV1 | null) => companyApi.printTexts.put(v, revRef.current),'), 'الحفظ بمراجعة الأصل (D-G2)');
   assert.doesNotMatch(e, /companyApi\.update/);
   assert.ok(e.includes('const r = checkPrintTexts(draft, true);'), 'الفحص الصارم (نسخة الخادم الحرفية) قبل الحفظ');
   assert.ok(e.includes('save.mutate(isEmptyPrintTexts(draft) ? null : r.value);'));
@@ -87,7 +87,7 @@ test('الحفظ: فحص الخادم الصارم قبله، وبمساره ا�
   assert.match(e, /const resetAll = \(\) => \{[\s\S]*?save\.mutate\(null\);/);
   const client = read('src', 'api', 'client.ts');
   assert.ok(client.includes("get: () => api.get('/company/print-texts'),"));
-  assert.ok(client.includes("put: (data: PrintTextsV1 | null) => api.put('/company/print-texts', data ?? { reset: true }),"));
+  assert.ok(client.includes("api.put('/company/print-texts', data ?? { reset: true }, rev ? { headers: { 'x-print-texts-rev': rev } } : undefined),"));
 });
 
 test('المعاينة: القالبان الحقيقيان ملفوفان بـPrintTextsPreviewContext ومظهر اليوم (أو التصميم ثنائي اللغة)، بمستند المرحلة الأولى، والحرارية للعرض فقط', () => {

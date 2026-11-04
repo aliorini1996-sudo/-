@@ -164,12 +164,15 @@ export function bandHeightFromDrag(h0: number, dyMm: number, lim: { min: number;
 interface BandBoxLike { band: CanvasBand; y: number; h: number }
 interface CanvasLike { headerMm: number; footerMm: number; boxes: readonly BandBoxLike[] }
 
-/** حدود ارتفاع لوحة: لا تقصر عن أطول مربعاتها، ولا تتجاوز حدّها، ومجموع اللوحتين ضمن السقف */
+/**
+ * حدود ارتفاع لوحة: لا تقصر عن أطول مربعاتها، ولا تتجاوز حدّها ولا سقف المجموع، ومجموع اللوحتين ضمن السقف. bounds بسقف ورق
+ * القالب (canvasBoundsFor في designModel: A5 150، ونصف الصفحة المتصلة 89.5، وA4 200) فيقف المقبض عند ما يقبله الخادم.
+ */
 export function bandLimits(c: CanvasLike, band: CanvasBand, bounds: { headerMm: readonly [number, number]; footerMm: readonly [number, number]; bandsTotalMm: number }):
   { min: number; max: number; other: number; total: number } {
   const tallest = c.boxes.filter((b) => b.band === band).reduce((m, b) => Math.max(m, fin(b.h)), 0);
   const range = band === 'header' ? bounds.headerMm : bounds.footerMm;
-  return { min: Math.max(range[0], tallest), max: range[1], other: band === 'header' ? fin(c.footerMm) : fin(c.headerMm), total: bounds.bandsTotalMm };
+  return { min: Math.max(range[0], tallest), max: Math.min(range[1], bounds.bandsTotalMm), other: band === 'header' ? fin(c.footerMm) : fin(c.headerMm), total: bounds.bandsTotalMm };
 }
 
 /** بعد تقصير لوحة: مربعاتها تُرفع حتى تبقى داخلها (y + h ≤ الارتفاع) */

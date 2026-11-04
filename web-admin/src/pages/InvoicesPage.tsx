@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { invoiceApi, companyApi, salesRepApi, locationsApi, priceListApi } from '../api/client';
 import { Invoice, SalesRep } from '../types';
@@ -11,7 +11,7 @@ import DocumentModal from '../components/DocumentModal';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { InvoiceDoc, invoiceDocFromDetail, Company } from '../rep/RepDocuments';
 import { zatcaRegimeOf } from '../lib/zatcaRegime';
-import { ZATCA_ACTION_LABELS, zatcaRowActions, zatcaStatusChip } from '../lib/zatca/docStatus';
+import { ZATCA_ACTION_LABELS, zatcaDocView, zatcaRowActions, zatcaStatusChip } from '../lib/zatca/docStatus';
 import { type ZatcaActionKind } from '../lib/zatca/docQueue';
 import ZatcaActionDialog from '../components/zatca/ZatcaActionDialog';
 import ZatcaShareDialog from '../components/zatca/ZatcaShareDialog';
@@ -24,6 +24,10 @@ import { locationFilterOptions, type SalesLocation } from '../lib/locations';
 import { lotErrorOf, lotFlagsOf } from '../lib/lots';
 import { lotErrorText, withDocLots } from '../lib/invoiceLots';
 import { priceListsOf } from '../lib/priceLists';
+import { withLiveCompany } from '../rep/companyRefresh';
+
+/** جلب إعدادات الشركة — نفسه للاستعلام ولـensureQueryData عند فتح مستند قبل اكتمال تحميلها (D-G6) */
+const fetchCompany = async () => { const res = await companyApi.get(); return res.data.data as Company; };
 
 /** ألوان شارة حالة الفوترة الإلكترونية (المرحلة الثانية) — مفتاحها `ZatcaChipTone`. */
 const ADMIN_CHIP_TONE: Record<string, string> = {
@@ -50,10 +54,9 @@ export default function InvoicesPage() {
   const [exporting, setExporting] = useState(false);
   const [cancelId, setCancelId] = useState<string | null>(null);
 
-  const { data: company } = useQuery({
-    queryKey: ['company'],
-    queryFn: async () => { const res = await companyApi.get(); return res.data.data as Company; },
-  });
+  const { data: company } = useQuery({ queryKey: ['company'], queryFn: fetchCompany });
+  // «نصوص المطبوعات» تصل المستند المفتوح: تجدّد إعدادات الشركة يُستبدل في نسخته (لا نصوص لحظة الفتح)
+  useEffect(() => { setDocResult(d => (d ? withLiveCompany(d, company) : d)); }, [company]);
 
   // صفحة الفواتير مالية بالكامل: لا جدول ولا تصفية ولا زرّ إصدار حين تُطفأ المحاسبة
   const { on: accountingOn, ready: accountingReady } = useAccountingOn();
@@ -119,7 +122,10 @@ export default function InvoicesPage() {
     setOpeningId(id);
     try {
       const res = await invoiceApi.get(id, { withLots: lotOn });
-      const doc = invoiceDocFromDetail(res.data.data, '', company);
+      // فُتحت قبل اكتمال تحميل الشركة (أو تعثّرها): تُطلب الآن، وإلا خرجت بالنصوص الافتراضية وترويسة فارغة (D-G6)
+      let co = company;
+      try { co = company ?? await qc.ensureQueryData({ queryKey: ['company'], queryFn: fetchCompany }); } catch { /* يبقى الحالي */ }
+      const doc = invoiceDocFromDetail(res.data.data, '', co);
       // تشغيلات البنود من الردّ إن لم تحملها البانية — بالترتيب نفسه (invoiceDocFromDetail يحفظه)
       setDocResult(lotOn ? { ...doc, items: withDocLots(doc.items, res.data.data?.items) } : doc);
     } catch { toast.error(tr('تعذر فتح المستند')); }
@@ -165,7 +171,11 @@ export default function InvoicesPage() {
    * بجوار «الإلغاء» في خليّة ضيّقة. والحوار هو حوار شاشة المتابعة نفسه فلا يفترق حكم الشاشتين على الفعل الواحد. */
   const [zatcaAsk, setZatcaAsk] = useState<{ id: string; number: string; kind: ZatcaActionKind } | null>(null);
   // Z5.7 — رابط المشتري لمستندٍ حسمته الهيئة: يُفتح من الصفّ نفسه ليُرسل لصاحب الفاتورة
-  const [shareRow, setShareRow] = useState<{ id: string; number: string } | null>(null);
+  const [shareRow, setShareRow] = useState<{
+    id: string; number: string;
+    /** نوع المستند وقياسيّته لعنوان رسالة واتساب (ثغرة G2) */
+    doc: { documentKind: string | null; subtype: string | null; isReturn: boolean };
+  } | null>(null);
 
   const zatcaAction = async (id: string, kind: ZatcaActionKind) => {
     setZatcaBusyId(id);
@@ -395,7 +405,13 @@ export default function InvoicesPage() {
                       {/* رابط المشتري — للمستند الذي حسمته الهيئة وحده (المرايا الأربع النهائية) */}
                       {phase2 && isShareableRow(inv as unknown as Record<string, unknown>) && (
                         <button
-                          onClick={() => setShareRow({ id: inv.id, number: inv.number })}
+                          onClick={() => {
+                            const v = zatcaDocView(inv as unknown as Record<string, unknown>);
+                            setShareRow({
+                              id: inv.id, number: inv.number,
+                              doc: { documentKind: v?.documentKind ?? null, subtype: v?.subtype ?? null, isReturn: inv.type === 'RETURN' },
+                            });
+                          }}
                           className="p-1.5 hover:bg-[#F1EBDF] rounded text-[#6E6557]"
                           title={tr('رابط المشتري')}
                         >
@@ -443,7 +459,7 @@ export default function InvoicesPage() {
       )}
       {docResult && <DocumentModal doc={docResult} onClose={() => setDocResult(null)} />}
       {shareRow && (
-        <ZatcaShareDialog invoiceId={shareRow.id} number={shareRow.number} tr={tr} onClose={() => setShareRow(null)} />
+        <ZatcaShareDialog invoiceId={shareRow.id} number={shareRow.number} doc={shareRow.doc} tr={tr} onClose={() => setShareRow(null)} />
       )}
       {zatcaAsk && (
         <ZatcaActionDialog

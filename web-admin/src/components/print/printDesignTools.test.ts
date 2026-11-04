@@ -203,7 +203,7 @@ test('الترجمة: كل tr(\'…\') في الأدوات واللوحة وال
     ...Object.values(ALIGN_LABELS), ...Object.values(CANVAS_BOX_LABELS), ...Object.values(CANVAS_BAND_LABELS),
     HIDE_MANDATORY_WARNING, LOCKED_VISIBLE_HINT, DESIGNER_DISCARD_CONFIRM, MONO_PREVIEW_HINT, CLASSIC_COPY_NAME,
     PRINT_ISSUES.layoutLogoMm, PRINT_ISSUES.layoutLogoAfter, PRINT_ISSUES.layoutSectionUnknown, PRINT_ISSUES.layoutSectionBounds,
-    PRINT_ISSUES.layoutLockedVisible, PRINT_ISSUES.layoutCanvasPrinter, PRINT_ISSUES.layoutCanvasBands, PRINT_ISSUES.layoutCanvasBox,
+    PRINT_ISSUES.layoutLockedVisible, PRINT_ISSUES.layoutCanvasPrinter, PRINT_ISSUES.layoutCanvasBands, PRINT_ISSUES.layoutCanvasBandsPaper, PRINT_ISSUES.layoutCanvasBox,
     PRINT_ISSUES.layoutCanvasFooterOnly, PRINT_ISSUES.layoutCanvasQr, PRINT_ISSUES.layoutRoll, PRINT_ISSUES.tooLarge,
   ]);
   const want = new Set(ours);

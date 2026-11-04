@@ -127,7 +127,27 @@ export const LAYOUT_BOUNDS = Object.freeze({
   logoMm: [6, 120] as const, fontPct: [70, 160] as const, spaceMm: [0, 30] as const,
   headerMm: [0, 150] as const, footerMm: [0, 120] as const, bandsTotalMm: 200,
   boxMinMm: 5, qrBoxMinMm: 47, maxBoxes: 9, stepMm: 0.5,
+  /** ما يبقى للأصناف على الأقل من طول الصفحة بعد اللوحتين (bandsTotalFor) */
+  minItemsMm: 40,
 });
+
+/** ما يلزم من الورق لحساب سقف اللوحتين — Paper كاملاً أو بعضه */
+export type BandsPaper = Pick<Paper, 'lengthMm' | 'marginTopMm' | 'marginBottomMm'> & { feed?: PaperFeed };
+
+/**
+ * سقف مجموع اللوحتين (رأس الورقة + تذييلها) على هذا الورق: 200 مم، ولا أكثر مما يبقى من طول الصفحة بعد الهامشين و40 مم
+ * للأصناف — فلا تأكل اللوحتان صفحة A5 (210 ⇒ 150) أو نصف الصفحة المتصلة ff_95x55 (139.7 ⇒ 89.5) كلها. الرول وما بلا طول: 200
+ * كما هو، وA4 (277 − 40 ≥ 200) لا يتغيّر. على شبكة 0.5 (للأسفل)، ولا يقلّ عن 0.
+ */
+export function bandsTotalFor(paper: BandsPaper | null | undefined): number {
+  const B = LAYOUT_BOUNDS;
+  if (!paper || paper.feed === 'roll') return B.bandsTotalMm;
+  const len = paper.lengthMm;
+  if (typeof len !== 'number' || !Number.isFinite(len)) return B.bandsTotalMm;
+  const m = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
+  const room = len - m(paper.marginTopMm) - m(paper.marginBottomMm) - B.minItemsMm;
+  return Math.min(B.bandsTotalMm, Math.max(0, Math.floor(room / B.stepMm + 1e-9) * B.stepMm));
+}
 
 export interface SectionStyle {
   visible?: boolean; // false = مخفي (ممنوع على LOCKED_VISIBLE)
@@ -505,6 +525,7 @@ export const PRINT_ISSUES = Object.freeze({
   layoutLockedVisible: 'لا يمكن إخفاء الأصناف ولا رمز QR',
   layoutCanvasPrinter: 'التصميم الحر بالسحب للصفحة والنقطية بالتصميم القياسي فقط',
   layoutCanvasBands: 'ارتفاع رأس الورقة وتذييلها خارج الحدود (المجموع حتى 200 ملم)',
+  layoutCanvasBandsPaper: 'رأس الورقة وتذييلها أطول مما يتسع له طول هذا الورق (يبقى 40 ملم على الأقل للأصناف)',
   layoutCanvasBox: 'مربعٌ خارج حدود الورقة أو أصغر من 5 ملم أو مكرر',
   layoutCanvasFooterOnly: 'الإجماليات والتوقيعات في تذييل الورقة فقط (بعد الأصناف)',
   layoutCanvasQr: 'مربع رمز QR أصغر من الحد المقروء (47 ملم)',
@@ -623,6 +644,8 @@ function freeLayoutFaults(p: PrintProfile): FreeFault[] {
     else {
       const bandsOk = inRangeL(c.headerMm, B.headerMm) && inRangeL(c.footerMm, B.footerMm) && c.headerMm + c.footerMm <= B.bandsTotalMm + EPS;
       if (!bandsOk) fault('headerMm', PRINT_ISSUES.layoutCanvasBands);
+      // الورق القصير (A5، نصف الصفحة المتصلة): اللوحتان لا تأكلان الصفحة — يبقى للأصناف 40 مم على الأقل
+      else if (c.headerMm + c.footerMm > bandsTotalFor(p.paper) + EPS) fault('headerMm', PRINT_ISSUES.layoutCanvasBandsPaper);
       const contentW = CANVAS_CONTENT_MM[p.printer];
       if (c.boxes.length > B.maxBoxes) fault('boxes', PRINT_ISSUES.layoutCanvasBox);
       const seen = new Set<CanvasBoxId>();
@@ -639,6 +662,28 @@ function freeLayoutFaults(p: PrintProfile): FreeFault[] {
     }
   }
   return out;
+}
+
+/**
+ * القراءة المتسامحة على الورق القصير: لوحتان في حدودهما الثابتة لكن أطول مما يتّسع له الورق (bandsTotalFor) تُقصّان — التذييل
+ * أولاً ثم الرأس كما يرسم resolveCanvas — ومربعاتهما تُرفع وتُقصّ داخلهما، والمربع الذي لا تتّسع له لوحته يعود إلى مكانه من
+ * التدفّق (ورمز QR يُطبع هناك). فلا يسقط التصميم بخطأ الورق وحده؛ وغيره (أو ما في حدّ ورقه) يعود كما هو — الكائن نفسه.
+ */
+function fitCanvasToPaper(c: PrintCanvas, paper: Paper): PrintCanvas {
+  const B = LAYOUT_BOUNDS;
+  if (!inRangeL(c.headerMm, B.headerMm) || !inRangeL(c.footerMm, B.footerMm) || c.headerMm + c.footerMm > B.bandsTotalMm + EPS) return c;
+  const total = bandsTotalFor(paper);
+  if (c.headerMm + c.footerMm <= total + EPS) return c;
+  const headerMm = Math.min(c.headerMm, total);
+  const footerMm = Math.max(0, Math.min(c.footerMm, total - headerMm));
+  const boxes: CanvasBox[] = [];
+  for (const b of c.boxes) {
+    const bandH = b.band === 'header' ? headerMm : footerMm;
+    if (bandH < (b.id === 'qr' ? B.qrBoxMinMm : B.boxMinMm) - EPS) continue;
+    const h = Math.min(b.h, bandH);
+    boxes.push({ ...b, h, y: Math.max(0, Math.min(b.y, bandH - h)) });
+  }
+  return { headerMm, footerMm, boxes };
 }
 
 /** قواعد تخطيط القالب (المسار يبدأ بـat) — لا شيء بلا تخطيط. تُستدعى من profileIssues */
@@ -675,6 +720,8 @@ function repairLayout(p: PrintProfile): PrintProfile {
   const l = p.options.layout;
   if (!l) return p;
   const layout: PrintLayout = { ...l, order: normalizeSectionOrder(l.order, p.printer, l.design) };
+  // لوحتان أطول مما يتّسع له الورق القصير تُقصّان لا تسقطان (fitCanvasToPaper)
+  if (layout.canvas !== undefined) layout.canvas = fitCanvasToPaper(layout.canvas, p.paper);
   // المفاتيح الحرّة أولاً: كل مفتاحٍ معيب يسقط وحده (والقسم المعيب وحده، وإخفاء الأصناف أو QR يُمحى بصمت) — ثم قواعد اليوم
   const faults = freeLayoutFaults({ ...p, options: { ...p.options, layout } });
   if (faults.length) {

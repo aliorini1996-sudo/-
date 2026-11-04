@@ -47,7 +47,7 @@ import PresenceCheckModal from './PresenceCheck';
 import { installPresenceAlarmUnlock } from './presenceAlarm';
 import type { PendingPresence } from './presencePhase';
 import { underCutoverReview } from './outboxReview';
-import { COMPANY_REFRESH_TICK_MS, companyRefreshDue } from './companyRefresh';
+import { COMPANY_REFRESH_TICK_MS, companyRefreshDue, docOpenRefreshDue, withLiveCompany } from './companyRefresh';
 import { APP_UPDATE_CHECK_GAP_MS, APP_UPDATE_TRIED_KEY, fetchLatestBuildId, isNewerBuild, shouldAutoReload } from './appUpdate';
 import { BUILD_ID } from '../lib/buildId';
 import { buyerRelaxOn, zatcaCollectOn, zatcaRegimeOf } from '../lib/zatcaRegime';
@@ -5286,13 +5286,15 @@ export default function RepApp() {
   }, [token]);
 
   // إعدادات الشركة تتجدّد عند العودة إلى التطبيق أو عودة الاتصال (Z5.0): مرة كل 5 دقائق على الأكثر، وفشلها صامت (يبقى الكاش)
+  // وقت آخر جلب مشترك مع فتح المستند (D-G4)، والجلب نفسه مكشوف له بمرجع — خلفيّ دائماً لا ينتظره مسار طباعة
+  const companyFetchedAt = useRef(0);
+  const pullCompanyRef = useRef<() => void>(() => undefined);
   useEffect(() => {
     if (!token) return;
     let last = Date.now(); // الجلب الأول في المؤثّر أعلاه
-    const refresh = () => {
-      if (!navigator.onLine || document.hidden || !companyRefreshDue(last, Date.now())) return;
-      last = Date.now();
-      void refreshUser(); // وصلاحيات المندوب وقيوده معها
+    companyFetchedAt.current = last;
+    const pull = () => {
+      companyFetchedAt.current = Date.now();
       repApi.get('/company', { background: true }).then(async ({ data }) => {
         const fresh = data?.data as Company | undefined;
         if (!fresh) return;
@@ -5302,6 +5304,13 @@ export default function RepApp() {
         setActiveNumerals((fresh as { numerals?: string })?.numerals);
       }).catch(() => { /* أوف‑لاين أو عطل عابر: يبقى المحفوظ */ });
     };
+    pullCompanyRef.current = pull;
+    const refresh = () => {
+      last = companyFetchedAt.current; // قد يكون فتحُ مستند جلبها للتوّ
+      if (!navigator.onLine || document.hidden || !companyRefreshDue(last, Date.now())) return;
+      void refreshUser(); // وصلاحيات المندوب وقيوده معها
+      pull();
+    };
     document.addEventListener('visibilitychange', refresh);
     window.addEventListener('online', refresh);
     // وأثناء بقاء التطبيق مفتوحاً أمام المندوب (ميزة يفعّلها المالك تظهر خلال دقائق بلا خروج وعودة)
@@ -5310,8 +5319,20 @@ export default function RepApp() {
       document.removeEventListener('visibilitychange', refresh);
       window.removeEventListener('online', refresh);
       window.clearInterval(iv);
+      pullCompanyRef.current = () => undefined;
     };
   }, [token, refreshUser]);
+
+  // «نصوص المطبوعات» تصل المستند المفتوح (D-G3): إعادة الطباعة والمشاركة والبلوتوث بنسخة الشركة الأحدث لا بنسخة لحظة الفتح
+  useEffect(() => {
+    setDocResult(d => (d ? withLiveCompany(d, company) : d));
+  }, [company]);
+  // وفتح مستند يطلب الشركة في الخلفية (D-G4) — مرة كل 30 ثانية على الأكثر؛ أوف‑لاين يبقى المحفوظ
+  const docOpen = docResult !== null;
+  useEffect(() => {
+    if (!token || !docOpen || !navigator.onLine) return;
+    if (docOpenRefreshDue(companyFetchedAt.current, Date.now())) pullCompanyRef.current();
+  }, [token, docOpen]);
 
   // تحديث التطبيق نفسه حين تُنشر نسخة أحدث (appUpdate.ts): التطبيق المفتوح أياماً في الخلفية يظلّ على شيفرته القديمة فلا يرى
   // الميزات الجديدة (بلاغ «بصمة الحضور لا تظهر لبعض المناديب»). يُفحص عند الفتح وكل بضع دقائق وعند العودة إليه.

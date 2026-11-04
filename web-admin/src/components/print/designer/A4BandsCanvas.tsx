@@ -17,7 +17,7 @@ import {
   type CanvasBand, type CanvasBox, type CanvasBoxId, type PrintCanvas, type PrintProfile,
 } from '../../../lib/print/printSettings';
 import { resolveCanvas, resolveLayout, type CanvasBandR, type CanvasBoxR, type ResolvedCanvas } from '../../../lib/print/layout';
-import { removeBox, starterCanvas, upsertBox, withCanvas, type DesignSel } from '../../../lib/print/designModel';
+import { canvasBoundsFor, removeBox, starterCanvas, upsertBox, withCanvas, type DesignSel } from '../../../lib/print/designModel';
 import { PrintableInvoice, PrintableReceipt, canvasQrMinMm, type Company } from '../../../rep/RepDocuments';
 import { PrintLookContext, SHEET_WIDTH_PX, lookFor } from '../../../rep/printLook';
 import { PrintDesignPreviewContext } from '../../../rep/printDesignContext';
@@ -83,8 +83,8 @@ export function qrMinMmFor(p: PrintProfile): number {
  * بداية سحب مقبض لوحة: من ارتفاعها المرسوم (resolveCanvas قد يطيلها لتسع QR بحدّ الورقة) — لا المخزَّن — ولا تقصر عن أطول
  * مربعٍ مرسوم فيها؛ كأسهم المقبض تماماً. وإلا قفزت اللوحة عند أول حركة إلى المخزَّن وبرز QR منها.
  */
-export function gripStart(c: PrintCanvas, bandR: CanvasBandR, band: CanvasBand): { h0: number; lim: ReturnType<typeof bandLimits> } {
-  const lim = bandLimits(c, band, LAYOUT_BOUNDS);
+export function gripStart(c: PrintCanvas, bandR: CanvasBandR, band: CanvasBand, bounds: Parameters<typeof bandLimits>[2] = LAYOUT_BOUNDS): { h0: number; lim: ReturnType<typeof bandLimits> } {
+  const lim = bandLimits(c, band, bounds);
   const tallest = bandR.boxes.reduce((m, b) => Math.max(m, b.y + b.h), 0);
   return { h0: bandR.hMm, lim: { ...lim, min: Math.max(lim.min, tallest) } };
 }
@@ -251,7 +251,7 @@ export default function A4BandsCanvas({ p, update, doc, selected, onSelect, zoom
     const c = l.canvas;
     const bandR = band === 'header' ? resolved?.header : resolved?.footer;
     if (!c || !bandR) return;
-    const { h0, lim } = gripStart(c, bandR, band);
+    const { h0, lim } = gripStart(c, bandR, band, canvasBoundsFor(p));
     onSelect(`band:${band}`);
     begin(e, {
       onMove: (_dx, dy) => setLiveBand({ band, h: bandHeightFromDrag(h0, screenToMm(dy, scale), lim) }),
@@ -359,7 +359,7 @@ export default function A4BandsCanvas({ p, update, doc, selected, onSelect, zoom
             const step = e.shiftKey ? 5 : LAYOUT_BOUNDS.stepMm;
             const c = l.canvas;
             if (!c) return;
-            update(withBandHeight(p, band, Math.max(gripStart(c, bandR, band).lim.min, bandR.hMm + (e.key === 'ArrowDown' ? step : -step))));
+            update(withBandHeight(p, band, Math.max(gripStart(c, bandR, band, canvasBoundsFor(p)).lim.min, bandR.hMm + (e.key === 'ArrowDown' ? step : -step))));
           }}
           className="absolute left-0 right-0 flex items-center justify-center"
           style={{ top: px(hPx) - hit / 2, height: hit, cursor: 'ns-resize', touchAction: 'none', pointerEvents: 'auto', zIndex: GRIP_Z }}>

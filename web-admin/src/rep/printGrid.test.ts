@@ -19,7 +19,7 @@ import { PrintDesignPreviewContext, type PrintDesignPreview } from './printDesig
 import type { InvoiceDoc, ReceiptDoc } from './RepDocuments';
 import { DEFAULT_PRINT_LOOK, lookFor, type PrintLook } from './printLook';
 import { zatcaPrintDecision } from '../lib/zatca/docPrint';
-import { makePrintTexts, phraseIn, type PrintTexts, type PrintTextsPreview } from '../lib/print/printTexts';
+import { makePrintTexts, phraseIn, titleKeyOf, type PrintTexts, type PrintTextsPreview } from '../lib/print/printTexts';
 import { printTextEntry } from '../lib/print/printTextsCore';
 import { DEFAULT_SECTIONS, mmToPx, type ResolvedLayout } from '../lib/print/layout';
 import { defaultPrintOptions, presetPaper, type PrintProfile } from '../lib/print/printSettings';
@@ -31,19 +31,21 @@ function fakePt(o: { deleted?: readonly string[]; edits?: Record<string, string>
   const preview = o.preview ?? null;
   const text = (k: string, ar: string) => edits[k] ?? ar;
   const pt = {
-    on: true, tr: (s: string) => s, lang: null,
+    on: true, tr: (s: string) => s, lang: null, gridLang: 'en',
     hidden: (k: string) => !preview && deleted.has(k),
     hiddenInSettings: (k: string) => deleted.has(k),
     text,
     alt: () => null,
     valueAlt: () => null,
     title: (decided: string, t: { isReturn: boolean }) => {
-      const k = t.isReturn ? 'inv.returnTitle' : 'inv.title';
+      // مفتاح العنوان كالمحلِّل الحقيقي: عناوين الحالة بمفاتيحها (قرار المالك ٤ نوفمبر ٢٠٢٦)
+      const k = titleKeyOf(decided, t.isReturn) ?? (t.isReturn ? 'inv.returnTitle' : 'inv.title');
       return !preview && deleted.has(k) ? { text: '', alt: null } : { text: text(k, decided), alt: null };
     },
     companyNameAlt: null, companyAddressAlt: null, preview,
     en: (k: string, ar: string) => (deleted.has(k) && !preview ? null
       : phraseIn(text(k, ar), 'en') ?? phraseIn(printTextEntry(k)?.ar ?? ar, 'en') ?? null),
+    ownAlt: () => null,
     warning: () => null,
   };
   return pt as unknown as PrintTexts;
@@ -176,6 +178,8 @@ test('ثنائي اللغة: العربي أولاً والإنجليزي من p
 test('«حذف السطر» في الفاتورة: كل مفتاحٍ يُسقط وحدته كاملة ولا يمسّ غيرها', () => {
   const saleKeys = GRID_INVOICE_KEYS.filter((k) => ![
     'inv.returnTitle', 'inv.returnInfoHeading', 'inv.returnNumber', 'inv.originalRef', 'inv.noteReason', 'tot.returnGrand', 'tot.subtotal',
+    'inv.debitTitle', // عنوان الإشعار المدين (المرحلة الثانية) — يحرسه printTextsReflect.test.ts
+    'inv.deliveryNoteTitle', 'inv.voidTitle', 'inv.pendingTitle', // عناوين الحالة — على مستنداتها أدناه
   ].includes(k));
   assertWholeLine('بيع', (pt) => gridInv(invoice(), pt), saleKeys);
   assertWholeLine('مرتجع', (pt) => gridInv(returnDoc(), pt),
@@ -187,6 +191,19 @@ test('«حذف السطر» في الفاتورة: كل مفتاحٍ يُسقط 
     look: DEFAULT_PRINT_LOOK, layout: layout(), qr: null,
   }));
   assertWholeLine('سند تسليم', asDelivery, ['tot.subtotal']);
+  // عناوين الحالة (قرار المالك ٤ نوفمبر ٢٠٢٦): كلٌّ بمفتاحه على مستند حالته — حذفه يُسقط سطر العنوان وحده
+  const zStatus = (subtype: '01' | '02', mirror: 'clearance_pending' | 'rejected' | 'signed') => invoice({ zatca: {
+    phase: 2, mode: 'live', mirror, documentStatus: null, subtype, documentKind: 'INVOICE', qr: null, printable: false, overdue: false,
+    reportDeadline: null, issuedAt: null, uuid: null, icv: null, warnings: 0,
+  } });
+  for (const [name, doc, key] of [
+    ['سند تسليم (القرار)', zStatus('01', 'clearance_pending'), 'inv.deliveryNoteTitle'],
+    ['مُبطل', zStatus('02', 'rejected'), 'inv.voidTitle'],
+    ['معلَّق', zStatus('02', 'signed'), 'inv.pendingTitle'],
+  ] as const) {
+    assertWholeLine(name, (pt) => gridInv(doc, pt, { qr: null }), [key]);
+    assert.equal(lineCounts(gridInv(doc, fakePt())).get('inv.title') ?? 0, 0, `${name}: عنوان الحالة بمفتاح inv.title`);
+  }
 });
 
 test('«حذف السطر» يُسقط العربي والإنجليزي والقيمة معاً — أمثلة بقيمها', () => {

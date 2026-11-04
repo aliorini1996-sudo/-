@@ -24,7 +24,7 @@
 import { forwardRef, type CSSProperties, type ReactNode } from 'react';
 import type { InvoiceDoc, ReceiptDoc } from './RepDocuments';
 import type { ZatcaPrintDecision } from '../lib/zatca/docPrint';
-import { phraseIn, type PrintTexts } from '../lib/print/printTexts';
+import { phraseIn, titleKeyOf, type PrintTexts } from '../lib/print/printTexts';
 import { PRINT_LOOK_CSS, lookNeedsCss, lookRootAttrs, type PrintLook } from './printLook';
 import {
   accentColor, fmtQty4, hasFreeLayout, lineVat, logoBox, logoPlan, mmToPx, orderedSections, qrOrphan, sectionCss, sectionLook, visibleOrder,
@@ -61,7 +61,7 @@ export const GRID_FILLER_MAX_ITEMS = 18;
  */
 export const GRID_INVOICE_KEYS: readonly string[] = Object.freeze([
   'h.address', 'h.phone', 'h.email', 'h.commercialReg',
-  'inv.title', 'inv.returnTitle', 'inv.infoHeading', 'inv.returnInfoHeading', 'inv.number', 'inv.returnNumber', 'inv.date', 'inv.time',
+  'inv.title', 'inv.returnTitle', 'inv.debitTitle', 'inv.deliveryNoteTitle', 'inv.voidTitle', 'inv.pendingTitle', 'inv.infoHeading', 'inv.returnInfoHeading', 'inv.number', 'inv.returnNumber', 'inv.date', 'inv.time',
   'inv.paymentType', 'inv.deliveryDate', 'inv.originalRef', 'inv.noteReason', 'inv.rep',
   'cust.heading', 'cust.name', 'cust.business', 'cust.address', 'cust.city', 'cust.postalCode', 'cust.commercialReg', 'cust.taxNumber',
   'sel.heading', 'sel.name', 'sel.address', 'sel.city', 'sel.postalCode', 'sel.taxNumber',
@@ -211,9 +211,9 @@ function KvBox({ kit, rows, enW, arW, style }: { kit: Kit; rows: KvRow[]; enW: n
   );
 }
 
-/** قيمة ثابتة (نقدي/آجل/تقسيط) بالعربية ومعها الإنجليزية: «آجل / Credit» */
-function bilingualValue(ar: string): ReactNode {
-  const en = phraseIn(ar, 'en');
+/** قيمة ثابتة (نقدي/آجل/تقسيط) بالعربية ومعها لغة العمود الثاني (pt.gridLang — الإنجليزية بلا نصوص): «آجل / Credit» */
+function bilingualValue(ar: string, lang: PrintTexts['gridLang']): ReactNode {
+  const en = phraseIn(ar, lang);
   return en && en !== ar ? <>{ar} / <Ltr>{en}</Ltr></> : ar;
 }
 
@@ -259,8 +259,10 @@ function GridHeader({ kit, look, logo: lg, company, title, titleKey, showTax, zD
   title: { text: string; alt: string | null }; titleKey: string; showTax: boolean; zDecision?: ZatcaPrintDecision | null;
 }) {
   const { pt } = kit;
+  // لغة العمود الثاني: اللغة الثانية التي اختارتها الشركة، وإلا الإنجليزية كاليوم (C-G1)
+  const gl = pt.gridLang;
   const name = company?.name || 'اسم الشركة';
-  const nameEn = pt.companyNameAlt ?? (company?.name ? phraseIn(company.name, 'en') : null);
+  const nameEn = pt.companyNameAlt ?? (company?.name ? phraseIn(company.name, gl) : null);
   const city = clean(company?.addrCity);
   const lines: { keys: string[]; def: string; value: string; valueEn?: string | null }[] = [];
   if (look.showContact && company?.address) lines.push({ keys: ['h.address'], def: 'العنوان', value: company.address, valueEn: pt.companyAddressAlt });
@@ -300,13 +302,15 @@ function GridHeader({ kit, look, logo: lg, company, title, titleKey, showTax, zD
           </div>
         );
       })}
-      {saudi && <div style={{ fontSize: '0.92em' }}>{city && !hasArabic(city) ? `Saudi Arabia - ${city}` : 'Saudi Arabia'}</div>}
+      {saudi && (gl === 'en'
+        ? <div style={{ fontSize: '0.92em' }}>{city && !hasArabic(city) ? `Saudi Arabia - ${city}` : 'Saudi Arabia'}</div>
+        : <div style={{ fontSize: '0.92em' }}>{(() => { const c = phraseIn('المملكة العربية السعودية', gl) ?? 'Saudi Arabia'; return city && !hasArabic(city) ? `${c} - ${city}` : c; })()}</div>)}
     </div>
   );
 
-  // العنوان المحذوف يصل هنا نصّاً فارغاً (pt.title ونصّ rcp.title) — لا pt.hidden: عنوان القرار غير الفاتوري (الملغى، سند التسليم…) يبقى ولو حُذف inv.title
+  // العنوان المحذوف يصل هنا نصّاً فارغاً (pt.title ونصّ rcp.title) — لا pt.hidden: لكل عنوانٍ مفتاحه (الملغى وسند التسليم بمفتاحيهما لا inv.title)
   const titleGone = title.text === '';
-  const titleEn = title.alt ?? phraseIn(title.text, 'en');
+  const titleEn = title.alt ?? phraseIn(title.text, gl);
   return (
     <div data-section="header">
       <div dir="rtl" style={{ display: 'flex', alignItems: 'center', gap: 12, paddingBottom: 8, borderBottom: `2px solid ${kit.mono ? INK : kit.accent}` }}>
@@ -358,7 +362,10 @@ function Signatures({ kit, slots }: { kit: Kit; slots: Slot[] }) {
 
 const PLATFORM_DEFAULT = 'صدرت عبر منصة Field Sales · fieldsa.net';
 
-function Footer({ kit, thanks, companyName }: { kit: Kit; thanks: string | null; companyName: string }) {
+/** نصّ الشركة باللغة الثانية بعد سطرٍ عربيّ بأسلوب القالب « · Alt» — لا شيء بلا نصّها (C-G3/C-G4) */
+const withOwnAlt = (alt: string | null): ReactNode => (alt ? <> · <Ltr>{alt}</Ltr></> : null);
+
+function Footer({ kit, thanks, thanksAlt = null, companyName }: { kit: Kit; thanks: string | null; thanksAlt?: string | null; companyName: string }) {
   const { pt } = kit;
   const t = thanks !== null && !pt.hidden('foot.thanks') ? thanks : null;
   // اسم الشركة في التذييل: صياغة الشركة له (foot.company) إن كتبتها، وإلا الاسم كما هو
@@ -369,13 +376,13 @@ function Footer({ kit, thanks, companyName }: { kit: Kit; thanks: string | null;
     <div data-section="footer" style={{ marginTop: 8, textAlign: 'center', fontSize: '0.9em' }}>
       {t !== null || n !== null ? (
         <div>
-          {t !== null ? <span {...unitProps(pt, ['foot.thanks'])}><Pk pt={pt} k="foot.thanks">{t}</Pk></span> : null}
+          {t !== null ? <span {...unitProps(pt, ['foot.thanks'])}><Pk pt={pt} k="foot.thanks">{t}{withOwnAlt(thanksAlt)}</Pk></span> : null}
           {t !== null && n !== null ? ' — ' : null}
-          {n !== null ? <span {...unitProps(pt, ['foot.company'])}><Pk pt={pt} k="foot.company">{n}</Pk></span> : null}
+          {n !== null ? <span {...unitProps(pt, ['foot.company'])}><Pk pt={pt} k="foot.company">{n}{withOwnAlt(pt.ownAlt('foot.company'))}</Pk></span> : null}
         </div>
       ) : null}
       {platform !== null ? (
-        <div {...unitProps(pt, ['foot.platform'], { marginTop: 3, fontSize: '0.85em' })}><Pk pt={pt} k="foot.platform">{platform}</Pk></div>
+        <div {...unitProps(pt, ['foot.platform'], { marginTop: 3, fontSize: '0.85em' })}><Pk pt={pt} k="foot.platform">{platform}{withOwnAlt(pt.ownAlt('foot.platform'))}</Pk></div>
       ) : null}
     </div>
   );
@@ -513,7 +520,10 @@ export const GridInvoice = forwardRef<HTMLDivElement, {
   const dctx = usePrintDesignPreview();
   const logo = gridLogo(look, layout, company?.logo);
   const tax = zDecision.showTaxBreakdown;
-  const titleKey = doc.isReturn ? 'inv.returnTitle' : 'inv.title';
+  /* الإشعار المدين (المرحلة الثانية) عنوانه بمفتاحه inv.debitTitle، وعناوين الحالة (سند التسليم/الملغى/بانتظار الاعتماد) بمفاتيحها
+   * (قرار المالك ٤ نوفمبر ٢٠٢٦) — وبلا نصوص ولا معاينة المفتاح كاليوم (سمة data-line نفسها حرفاً) */
+  const legacyTitleKey = doc.isReturn ? 'inv.returnTitle' : 'inv.title';
+  const titleKey = pt.on || pt.preview ? titleKeyOf(zDecision.title, !!doc.isReturn) ?? legacyTitleKey : legacyTitleKey;
 
   // ── بيانات المستند ──
   const infoRows: KvRow[] = [];
@@ -523,7 +533,7 @@ export const GridInvoice = forwardRef<HTMLDivElement, {
   infoRows.push({ keys: ['inv.date'], def: 'التاريخ', value: dateWithTime(pt, doc.date, 'inv.time'), ltr: true });
   if (!doc.isReturn) {
     const v = doc.paymentPlan === 'INSTALLMENT' ? 'تقسيط' : (doc.type === 'CASH' ? 'نقدي' : 'آجل');
-    infoRows.push({ keys: ['inv.paymentType'], def: 'طريقة الدفع', value: bilingualValue(v) });
+    infoRows.push({ keys: ['inv.paymentType'], def: 'طريقة الدفع', value: bilingualValue(v, pt.gridLang) });
   }
   if (doc.deliveryDate) infoRows.push({ keys: ['inv.deliveryDate'], def: 'تاريخ التسليم', value: gridDateTime(doc.deliveryDate, false), ltr: true });
   if (noteRefs.ref) infoRows.push({ keys: ['inv.originalRef'], def: 'الفاتورة الأصلية', value: noteRefs.ref, ltr: true });
@@ -736,7 +746,7 @@ export const GridInvoice = forwardRef<HTMLDivElement, {
           </tbody>
         </table>
         {!pt.hidden('inst.note') ? (
-          <div {...unitProps(pt, ['inst.note'], { marginTop: 3, fontSize: '0.9em' })}><Pk pt={pt} k="inst.note">{arOf(pt, 'inst.note', noteDef)}</Pk></div>
+          <div {...unitProps(pt, ['inst.note'], { marginTop: 3, fontSize: '0.9em' })}><Pk pt={pt} k="inst.note">{arOf(pt, 'inst.note', noteDef)}{withOwnAlt(pt.ownAlt('inst.note'))}</Pk></div>
         ) : null}
       </div>
     );
@@ -752,8 +762,11 @@ export const GridInvoice = forwardRef<HTMLDivElement, {
     ]} />
   ) : null;
   const thanksReworded = pt.on && pt.text('foot.thanks', '') !== '';
-  const thanks = look.footerText !== null && !thanksReworded ? look.footerText : arOf(pt, 'foot.thanks', 'شكرا لتعاملكم معنا');
-  const footerNode = <Footer key="footer" kit={kit} thanks={thanks} companyName={company?.name || ''} />;
+  const thanksFromFooterText = look.footerText !== null && !thanksReworded;
+  const thanks = thanksFromFooterText ? look.footerText : arOf(pt, 'foot.thanks', 'شكرا لتعاملكم معنا');
+  // نصّ الشكر الثاني للشركة يتبع سطرها وحده — لا نصّ تذييل قالب الطباعة (C-G3)
+  const thanksAlt = thanksFromFooterText ? null : pt.ownAlt('foot.thanks');
+  const footerNode = <Footer key="footer" kit={kit} thanks={thanks} thanksAlt={thanksAlt} companyName={company?.name || ''} />;
 
   const headerNode = (
     <GridHeader key="header" kit={kit} look={look} logo={logo} company={company}

@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Prisma } from '@prisma/client';
 import {
-  PRINT_SECOND_LANGS, PRINT_TEXT_CATALOG, PRINT_TEXT_LINE, PRINT_TEXT_LOCKS, PRINT_TEXT_WARNINGS, PRINT_TEXTS_ISSUES, PRINT_TEXTS_LIMITS,
+  PRINT_SECOND_LANGS, PRINT_STATUS_TITLE_KEYS, PRINT_TEXT_CATALOG, PRINT_TEXT_LINE, PRINT_TEXT_LOCKS, PRINT_TEXT_WARNINGS, PRINT_TEXTS_ISSUES, PRINT_TEXTS_LIMITS,
   PRINT_TEXTS_VERSION, canonicalPrintTexts, checkPrintTexts, emptyPrintTexts, isEmptyPrintTexts, isPrintTextsReset, parsePrintTexts,
   printTextAltEditable, printTextEntry, printTextHideable, printTextRewordable, printTextWarning, printTextsBytes, storedPrintTexts,
   type PrintTextEdit, type PrintTextsV1,
@@ -376,7 +376,7 @@ const WARN_TAX = [
   // مشترك
   'h.taxNumber', 'h.commercialReg', 'h.address', 'foot.company',
   // الفاتورة
-  'inv.title', 'inv.returnTitle', 'inv.number', 'inv.returnNumber', 'inv.date', 'inv.time', 'inv.deliveryDate', 'cust.taxNumber',
+  'inv.title', 'inv.returnTitle', 'inv.debitTitle', 'inv.number', 'inv.returnNumber', 'inv.date', 'inv.time', 'inv.deliveryDate', 'cust.taxNumber',
   'col.item', 'col.qty', 'col.price', 'col.priceIncl', 'col.total', 'item.beforeTax', 'note.pricesIncl',
   'tot.taxable', 'tot.vat', 'tot.vatIncl', 'tot.grand', 'tot.returnGrand',
   'inst.heading', 'inst.dueDate', 'inst.amount', 'inst.sum', 'inst.note', 'qr.caption', 'inv.originalRef', 'inv.noteReason',
@@ -415,8 +415,9 @@ test('القائمة: مفاتيح فريدة بصيغة group.name، وكل ح�
   assert.deepEqual(PRINT_TEXT_CATALOG.filter((x) => /Field Sales|صدرت عبر|منصة/.test(x.ar)).map((x) => [x.key, x.ar, x.doc, x.group]),
     [['foot.platform', 'صدرت عبر منصة Field Sales · fieldsa.net', 'shared', 'footer']]);
   assert.ok(printTextEntry('foot.platform')!.max >= chars(printTextEntry('foot.platform')!.ar));
-  // العنوانان وحدهما بقفل title
-  assert.deepEqual(byLock('title').map((x) => x.key), ['inv.title', 'inv.returnTitle']);
+  // عناوين الفاتورة والإشعار الدائن والإشعار المدين (طلب المالك ٤ نوفمبر ٢٠٢٦) وعناوين الحالة بعدها (قرار المالك ٤ نوفمبر ٢٠٢٦) وحدها بقفل title
+  assert.deepEqual(byLock('title').map((x) => x.key),
+    ['inv.title', 'inv.returnTitle', 'inv.debitTitle', 'inv.deliveryNoteTitle', 'inv.voidTitle', 'inv.pendingTitle']);
 });
 
 test('القائمة: كل مفتاح يُحذف، وصنف التنبيه يساوي القوائم المكتوبة حرفاً — والإلزامي سابقاً (zatca وfixed وshape) تنبيه tax', () => {
@@ -425,10 +426,15 @@ test('القائمة: كل مفتاح يُحذف، وصنف التنبيه يس�
   assert.deepEqual(cls('tax'), [...WARN_TAX].sort());
   assert.deepEqual(cls('standard'), [...STANDARD_ONLY].sort());
   assert.deepEqual(cls('platform'), ['foot.platform']);
+  // عناوين الحالة (قرار المالك ٤ نوفمبر ٢٠٢٦): تنبيهها الخاصّ — المستند الملغى أو سند التسليم قد يبدو فاتورةً سارية
+  assert.deepEqual(cls('status'), ['inv.deliveryNoteTitle', 'inv.pendingTitle', 'inv.voidTitle']);
+  assert.deepEqual([...PRINT_STATUS_TITLE_KEYS], ['inv.deliveryNoteTitle', 'inv.voidTitle', 'inv.pendingTitle']);
   assert.deepEqual(byLock('standard').map((x) => x.key).sort(), [...STANDARD_ONLY].sort());
-  for (const x of byLock('zatca', 'fixed', 'shape', 'title')) assert.equal(printTextWarning(x), x.key === 'foot.platform' ? 'platform' : 'tax', x.key);
+  for (const x of byLock('zatca', 'fixed', 'shape', 'title')) {
+    assert.equal(printTextWarning(x), x.key === 'foot.platform' ? 'platform' : PRINT_STATUS_TITLE_KEYS.includes(x.key) ? 'status' : 'tax', x.key);
+  }
   for (const x of PRINT_TEXT_CATALOG.filter((y) => y.lock === 'none' && !y.hideOnly)) assert.equal(printTextWarning(x), null, x.key);
-  assert.equal(Object.keys(PRINT_TEXT_WARNINGS).length, 3);
+  assert.equal(Object.keys(PRINT_TEXT_WARNINGS).length, 4);
   for (const m of Object.values(PRINT_TEXT_WARNINGS)) assert.match(m, /^[؀-ۿ]/, `تنبيه غير عربي: ${m}`);
   // بيانات البائع والمستند والضريبة والإجمالي بالاسم — تنبيه tax
   for (const k of [
@@ -462,11 +468,17 @@ test('القائمة: إعادة الصياغة واللغة الثانية لك
   assert.ok(Object.isFrozen(PRINT_TEXT_LINE));
   // المجموعة الجديدة seller، والمفاتيح الجديدة مضافةٌ آخر القائمة (صورة المحفوظ القانونية لا تتغيّر لشركةٍ قائمة)
   assert.deepEqual(PRINT_TEXT_CATALOG.filter((x) => x.group === 'seller').map((x) => x.key), ['sel.heading', 'sel.name', 'sel.address', 'sel.city', 'sel.postalCode', 'sel.taxNumber']);
-  assert.deepEqual(PRINT_TEXT_CATALOG.slice(74).map((x) => x.key), [
+  // inv.debitTitle (٤ نوفمبر ٢٠٢٦) وعناوين الحالة الثلاثة (قرار المالك ٤ نوفمبر ٢٠٢٦) بعد inv.returnTitle — ترتيب المفاتيح القائمة بينها
+  // كما هو فصورة المحفوظ لا تتغيّر
+  const rt = PRINT_TEXT_CATALOG.findIndex((x) => x.key === 'inv.returnTitle');
+  assert.deepEqual(PRINT_TEXT_CATALOG.slice(rt, rt + 5).map((x) => x.key), ['inv.returnTitle', 'inv.debitTitle', 'inv.deliveryNoteTitle', 'inv.voidTitle', 'inv.pendingTitle']);
+  assert.deepEqual(PRINT_TEXT_CATALOG.slice(78).map((x) => x.key), [
     'col.seq', 'col.code', 'col.unit', 'col.vatAmount', 'sel.heading', 'sel.name', 'sel.address', 'sel.city', 'sel.postalCode', 'sel.taxNumber',
     'cust.city', 'cust.postalCode', 'inv.paymentType', 'sig.warehouse', 'sig.remarks', 'tot.exclVat', 'tot.due', 'foot.platform',
   ]);
-  assert.equal(PRINT_TEXT_CATALOG[73].key, 'rcp.sigCollector', 'آخر مفتاحٍ قديم في مكانه');
+  assert.equal(PRINT_TEXT_CATALOG[77].key, 'rcp.sigCollector', 'آخر مفتاحٍ قديم في مكانه');
+  const at = PRINT_TEXT_CATALOG.findIndex((x) => x.key === 'inv.returnTitle');
+  assert.equal(PRINT_TEXT_CATALOG[at + 1].key, 'inv.debitTitle');
 });
 
 test('نظافة النواة: الملف يبدأ برأس «// ====» ولا يستورد إلا zod (تُنسخ حرفياً للواجهة)', () => {
@@ -535,6 +547,13 @@ async function call(method: string, req: Row): Promise<{ status: number; body: R
     if (err) throw err;
     if (!passed) break;
   }
+  // rev (مراجعة الحفظ المشروط، D-G2) تُختبر في print-texts-revision.test.ts — هنا يُتحقّق من شكلها ويُزال من الجسم المقارَن
+  const body = res.body as Row | null;
+  if (body && typeof body === 'object' && 'rev' in body) {
+    const { rev, ...rest } = body;
+    assert.match(String(rev), /^[0-9a-f]{16}$/, 'rev بصمة ١٦ حرفاً');
+    return { status: res.statusCode, body: rest };
+  }
   return { status: res.statusCode, body: res.body };
 }
 const rep = { id: 'R1', role: 'SALES_REP', tenantId: T };
@@ -591,6 +610,17 @@ test('الحفظ تشغيلاً: إعدادٌ بلا أثر يُكتب NULL (ل�
   assert.equal(writes.length, 1);
   assert.equal(writes[0].data.printTexts, Prisma.DbNull, 'NULL حرفياً');
   assert.equal(st.settings!.printTexts, null);
+
+  // قرار المالك ٤ نوفمبر ٢٠٢٦: عناوين الحالة تُصاغ وتُترجم وتُحذف — الخادم الصارم يحفظها كما هي
+  reset();
+  const status = withEdits({
+    'inv.deliveryNoteTitle': { text: 'إشعار تسليم', alt: 'Delivery receipt' }, 'inv.voidTitle': { hidden: true },
+    'inv.pendingTitle': { alt: 'Pending document', hidden: true },
+  });
+  const okStatus = await call('put', { body: status });
+  assert.deepEqual([okStatus.status, okStatus.body], [200, { success: true, data: status, stored: true, hasCompany: true }]);
+  assert.deepEqual(writes, [{ where: { tenantId: T }, data: { printTexts: status } }]);
+  assert.equal((await call('put', { body: withEdits({ 'inv.voidTitle': { text: 'م'.repeat(61) } }) })).body.message, PRINT_TEXTS_ISSUES.tooLong);
 
   // طلب المالك ٣ نوفمبر ٢٠٢٦: حذف الإجمالي النهائي وصياغة الضريبة وحذف سطر المنصّة تُحفظ (كانت 400)
   reset();
@@ -707,4 +737,28 @@ test('عنوانا الفاتورة/الإشعار بلا وسم مرحلة (ق�
   }
   const lenient = checkPrintTexts({ ...doc, edits: { 'inv.title': { text: 'فاتورة مبيعات', alt: null, hidden: false, phase2: true } } }, false);
   assert.equal(JSON.stringify(lenient.ok && lenient.value.edits), '{"inv.title":{"text":"فاتورة مبيعات","alt":null,"hidden":false}}');
+});
+
+test('عنوان الإشعار المدين inv.debitTitle (طلب المالك ٤ نوفمبر ٢٠٢٦): مفتاحٌ في القائمة بوحدة title — الحفظ الصارم يقبل صياغته وحذفه ونصّه الثاني', async () => {
+  const x = printTextEntry('inv.debitTitle');
+  assert.ok(x);
+  assert.deepEqual([x!.ar, x!.doc, x!.group, x!.lock, x!.max], ['إشعار مدين', 'invoice', 'title', 'title', 60]);
+  assert.equal(PRINT_TEXT_LINE['inv.debitTitle'], 'title');
+  assert.equal(printTextWarning(x!), 'tax');
+  for (const e of [{ text: 'إشعار مدين ضريبي' }, { hidden: true }, { alt: 'Debit Note' }, { text: 'إشعار مدين ضريبي', alt: 'Tax Debit Note' }] as Partial<PrintTextEdit>[]) {
+    const body = withEdits({ 'inv.debitTitle': e }, { secondLang: 'en' });
+    const r = parsePrintTexts(body);
+    assert.ok(r.ok, JSON.stringify(!r.ok && r.issues));
+    assert.deepEqual(r.ok && r.value?.edits['inv.debitTitle'], ed(e), JSON.stringify(e));
+  }
+  // بعد inv.returnTitle في الصورة القانونية
+  const both = canonicalPrintTexts(withEdits({ 'inv.debitTitle': { hidden: true }, 'inv.returnTitle': { hidden: true }, 'inv.title': { hidden: true } }));
+  assert.deepEqual(Object.keys(both.edits), ['inv.title', 'inv.returnTitle', 'inv.debitTitle']);
+  // PUT /api/company/print-texts تشغيلاً: يُكتب كما هو
+  reset();
+  st.admin = { isActive: true, canManageCompanySettings: true };
+  const body = withEdits({ 'inv.debitTitle': { text: 'إشعار مدين ضريبي' } });
+  const ok = await call('put', { user: manager, body });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.deepEqual(writes, [{ where: { tenantId: T }, data: { printTexts: canonicalPrintTexts(body) } }]);
 });
