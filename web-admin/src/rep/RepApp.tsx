@@ -41,8 +41,10 @@ import { methodIconComponent } from '../components/PaymentMethodIcon';
 import RepRouteScreen, { fetchMyRoute, RouteToday } from './RepRouteScreen';
 import RepDailyReport from './RepDailyReport';
 import { useRepTracking } from './useRepTracking';
+import { startNativeTrackingOnPunch, stopNativeTracking } from './nativeTracking';
 import { useHeartbeat } from './useHeartbeat';
 import PresenceCheckModal from './PresenceCheck';
+import { installPresenceAlarmUnlock } from './presenceAlarm';
 import type { PendingPresence } from './presencePhase';
 import { underCutoverReview } from './outboxReview';
 import { COMPANY_REFRESH_TICK_MS, companyRefreshDue, docOpenRefreshDue, withLiveCompany } from './companyRefresh';
@@ -326,6 +328,9 @@ function RepAttendance({ atCustomer = false, boundDevice = false, presenceOn = f
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true); setErr(''); setPlaceNote(''); setDeviceRefused(false);
+    // التتبّع الخلفي في تطبيق الجوال يبدأ بلمسة الحضور (قرار المالك ٤ نوفمبر): رابط التطبيق يُفتح داخل هذه اللمسة قبل أيّ انتظار،
+    // والبصمة تُكمل بعد العودة من شاشة التطبيق فتقرأ موقعها والصفحة ظاهرة. بلا تطبيق أو بلا بدءٍ منتظَر: يعود فوراً
+    if (kind === 'checkin') await startNativeTrackingOnPunch();
     // لا قراءة والموقع غير مرفوض (مهلة/تعذّر): رفض الخادم «فعّل الموقع» لا يصف الحال — تُقال الحقيقة بدلاً منه
     let noFix = false;
     try {
@@ -4748,6 +4753,8 @@ export default function RepApp() {
     navigator.serviceWorker?.addEventListener('message', onMsg);
     return () => navigator.serviceWorker?.removeEventListener('message', onMsg);
   }, [fetchPresence]);
+  // جرس «أثبت تواجدك» (presenceAlarm.ts): صوته يُفتح بلمسةٍ سابقة في التطبيق (التشغيل التلقائي وiOS) — للمقيَّد بالتحقق وحده
+  useEffect(() => (user?.requirePresenceCheck === true ? installPresenceAlarmUnlock() : undefined), [user?.requirePresenceCheck]);
   // «التحصيل بالبطاقة»: نتيجة الرجوع من وحدة الدفع الأصلية — من الرابط (/rep?cardpay=<المعرّف>|unsupported|aborted) أو من
   // عملية معلّقة محفوظة (عند التحميل بلا وسيط، أو حين يعود المندوب بزرّ الرجوع). الخادم يحسم ويُصدر السند؛ النافذة تعرض فقط
   const [cardPayView, setCardPayView] = useState<{ pending: CardPayPending | null; unsupported?: boolean } | null>(null);
@@ -5386,6 +5393,8 @@ export default function RepApp() {
     return false;
   };
   const logout = async () => {
+    // التتبّع الخلفي في تطبيق الجوال يتوقف أولاً — داخل لمسة «الخروج» نفسها (أندرويد لا يفتح رابط التطبيق بلا إيماءة)
+    stopNativeTracking();
     // زيارة جارية عند تسجيل الخروج تُنهى وتُرفع أولاً كي لا تضيع مدّتها
     const t = getVisitTimer();
     if (t) await finalizeVisit(t);

@@ -39,4 +39,8 @@
     }]
     
   </string>  
+
+  <!-- قناة إنذار «أثبت تواجدك» (PresenceAlarm): اسمها ووصفها كما يراهما المندوب في إعدادات إشعارات التطبيق -->
+  <string name="presence_alarm_channel_name">طلب إثبات التواجد</string>
+  <string name="presence_alarm_channel_description">صوت منبّه واهتزاز يتكرّران حين يُطلب منك إثبات تواجدك، حتى تفتح الإشعار (ثلاث دقائق على الأكثر)</string>
 </resources>

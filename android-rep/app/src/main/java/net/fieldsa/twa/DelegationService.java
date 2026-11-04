@@ -37,4 +37,19 @@ public class DelegationService extends
             android.os.Binder.restoreCallingIdentity(token);
         }
     }
+
+    /**
+     * «أثبت تواجدك» (التحقق العشوائي من التواجد): إشعار الوسم 'presence' وحده يُنشر على قناة الإنذار (PresenceAlarm) — صوت منبّه
+     * واهتزاز يتكرّران حتى يُلمس أو يُغلق أو يُفتح الدرج، بسقف ثلاث دقائق. كل إشعارٍ آخر، أو قناة الإنذار محظورة، أو أي خطأ: المكتبة
+     * كما هي (super). الإلغاء بلا تغيير: onCancelNotification في المكتبة يلغي بالوسم والمعرّف أيّاً كانت القناة. يحرسه PresenceAlarmTest
+     */
+    @Override
+    public boolean onNotifyNotificationWithChannel(String platformTag, int platformId,
+            android.app.Notification notification, String channelName) {
+        if (PresenceAlarm.isPresenceTag(platformTag)
+                && PresenceAlarm.notify(this, platformTag, platformId, notification)) {
+            return true;
+        }
+        return super.onNotifyNotificationWithChannel(platformTag, platformId, notification, channelName);
+    }
 }

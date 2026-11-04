@@ -25,6 +25,7 @@ import android.os.Bundle;
 
 import net.fieldsa.twa.print.BridgeContract;
 import net.fieldsa.twa.print.PrinterStore;
+import net.fieldsa.twa.track.TrackContract;
 
 
 public class LauncherActivity
@@ -118,8 +119,35 @@ public class LauncherActivity
         // وحدة التحصيل بالبطاقة: رجوعها (CardPayActivity.returnToWeb بـNEW_TASK|CLEAR_TASK) يجعل /rep?cardpay=<المعرّف>
         // «النيّة الأساس» للمهمّة. فتح المهمّة لاحقاً من قائمة التطبيقات الأخيرة يعيد تسليمها بـFLAG_ACTIVITY_LAUNCHED_FROM_HISTORY،
         // فتعرض الصفحة نتيجة دفعٍ قديم كأنه تحصيلٌ جديد. من القائمة الأخيرة يُسقط cardpay ويبقى ما سواه
-        // ثم وسيط جسر الطباعة (fsbridge) على كل إطلاق
-        return appendPrintBridge(stripStaleCardPay(uri));
+        // ثم وسيط جسر الطباعة (fsbridge) على كل إطلاق، ثم علامة التتبّع الخلفي (fstrack=1)
+        return appendTrackCapability(appendPrintBridge(stripStaleCardPay(uri)));
+    }
+
+    /**
+     * التتبّع الخلفي (TrackService): يقول للصفحة إن هذه النسخة تحمل خدمة التتبّع (fstrack=1)، فتحفظ الصفحة العلامة وتحذفها من العنوان
+     * (captureTrackLaunch) ثم تسلّم البدء للتطبيق (startNativeTracking). على عناوين https لمضيفنا وحدها، ولا يتكرر، وبشرط إعلان
+     * الموقع الدقيق في البيان المدمج: البناء بلا رمز NearPay يُزيل الموقع والخدمة معاً (src/printonly) فلا يُضاف
+     */
+    private Uri appendTrackCapability(Uri uri) {
+        if (uri == null || !uri.isHierarchical()) return uri;
+        if (!"https".equals(uri.getScheme()) || !getString(R.string.hostName).equals(uri.getHost())) return uri;
+        try {
+            if (!declaresPermission(Manifest.permission.ACCESS_FINE_LOCATION)) return uri;
+            if (uri.getQueryParameter(TrackContract.LAUNCH_PARAM) == null) {
+                return uri.buildUpon()
+                        .appendQueryParameter(TrackContract.LAUNCH_PARAM, TrackContract.LAUNCH_VALUE).build();
+            }
+            Uri.Builder clean = uri.buildUpon().clearQuery();
+            for (String name : uri.getQueryParameterNames()) {
+                if (TrackContract.LAUNCH_PARAM.equals(name)) continue;
+                for (String v : uri.getQueryParameters(name)) {
+                    clean.appendQueryParameter(name, v);
+                }
+            }
+            return clean.appendQueryParameter(TrackContract.LAUNCH_PARAM, TrackContract.LAUNCH_VALUE).build();
+        } catch (RuntimeException e) {
+            return uri; // عنوانٌ لا يُحلَّل: يُترك كما هو، والصفحة تعمل بلا تتبّع خلفي
+        }
     }
 
     /**
