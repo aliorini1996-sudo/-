@@ -63,6 +63,8 @@ class ViewController: UIViewController, WKNavigationDelegate, UIDocumentInteract
     
     func initWebView() {
         FieldSales.webView = createWebView(container: webviewView, WKSMH: self, WKND: self, NSO: self, VC: self)
+        // fsPush bridge (WKScriptMessageHandlerWithReply, .page world): APNs notifications + window.__fsIosPush marker.
+        PushBridge.shared.install(webView: FieldSales.webView)
         // fsPrint bridge (WKScriptMessageHandlerWithReply, .page world) + window.__fsIosBridge marker script.
         PrintBridge.shared.install(webView: FieldSales.webView, presenter: self)
         webviewView.addSubview(FieldSales.webView);
@@ -265,18 +267,6 @@ extension ViewController: WKScriptMessageHandler {
   func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         if message.name == "print" {
             printView(webView: FieldSales.webView)
-        }
-        if message.name == "push-subscribe" {
-            handleSubscribeTouch(message: message)
-        }
-        if message.name == "push-permission-request" {
-            handlePushPermission()
-        }
-        if message.name == "push-permission-state" {
-            handlePushState()
-        }
-        if message.name == "push-token" {
-            handleFCMToken()
         }
   }
 }

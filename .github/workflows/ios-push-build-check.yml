@@ -1,0 +1,88 @@
+# فحص ترجمة فرع إشعارات الآيفون (طلب المالك ٤ نوفمبر ٢٠٢٦): لا Mac محلياً، فيُترجَم هنا قبل أي بناء TestFlight.
+# بناءٌ بلا توقيع ولا أسرار ولا رفع — لا TestFlight ولا App Store. يعمل على هذا الفرع وحده (ios-testflight.yml يعمل على ios-app)،
+# ولا يعمل إلا إن دُفع الفرع بإذن المالك.
+name: ios-push-build-check
+
+on:
+  push:
+    branches:
+      - feature/ios-push
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RUBY_VERSION: "3.3"
+
+concurrency:
+  group: ios-push-build-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: نسخة Xcode
+        run: xcodebuild -version
+
+      # الحراس النصية نفسها في ios-testflight.yml — ما يرفضه بناء TestFlight يُرفض هنا قبله
+      - name: الحراس النصية
+        run: |
+          set -euo pipefail
+          plutil -lint FieldSales/Info.plist
+          plutil -lint FieldSales/FieldSales.entitlements
+          python3 -I ci/check_push.py
+          python3 -I ci/check_push.py --selftest
+          afinfo FieldSales/presence-alarm.wav | tee /tmp/fs-snd.txt
+          grep -qE '^File type ID:[[:space:]]+WAVE' /tmp/fs-snd.txt || { echo "✗ وعاء الصوت"; exit 1; }
+          awk '/^estimated duration:/ { seen = 1; if ($3 + 0 > 0 && $3 + 0 < 30) ok = 1 } END { exit !(seen && ok) }' /tmp/fs-snd.txt || { echo "✗ مدة الصوت"; exit 1; }
+          if /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" FieldSales/Info.plist 2>/dev/null | grep -qi bluetooth; then echo "✗ وضع خلفية للبلوتوث"; exit 1; fi
+          if grep -RniE "nearpay|near pay|نيرباي|نير باي" FieldSales; then echo "✗ اسم المزوّد"; exit 1; fi
+          if grep -RnE --include='*.swift' "UserDefaults|systemUptime|mach_absolute_time|creationDate|modificationDate|ModificationDate|volumeAvailableCapacity|systemFreeSize|activeInputModes" FieldSales; then echo "✗ واجهة تتطلب Privacy Manifest"; exit 1; fi
+          test "$(grep -c 'MARKETING_VERSION = ' FieldSales.xcodeproj/project.pbxproj)" -eq "$(grep -c 'MARKETING_VERSION = 1.1.0;' FieldSales.xcodeproj/project.pbxproj)"
+
+      # المكتبات (Firebase) كبناء TestFlight: fastlane cocoapods ⇒ هنا pod install بالإصدار المثبّت في Gemfile
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ env.RUBY_VERSION }}
+          bundler-cache: false
+
+      - name: تثبيت CocoaPods والمكتبات
+        run: |
+          set -euo pipefail
+          bundle install --jobs 4 --retry 3
+          bundle exec pod install --repo-update
+
+      - name: ترجمة للمحاكي (Debug) بلا توقيع
+        run: |
+          set -o pipefail
+          xcodebuild -workspace FieldSales.xcworkspace -scheme FieldSales -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build 2>&1 | tail -150
+
+      # Release هو إعداد الأرشيف: فيه CODE_SIGN_ENTITLEMENTS، ويُترجَم هنا بلا توقيع (الصلاحيات تُفحص على الـIPA في Fastfile)
+      - name: ترجمة للجهاز (Release) بلا توقيع — كإعداد الأرشيف
+        run: |
+          set -o pipefail
+          xcodebuild -workspace FieldSales.xcworkspace -scheme FieldSales -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build 2>&1 | tail -150
+
+      # الصوت مورد في الحزمة المبنية (لا مجرد سطرٍ في المشروع)، وملف الصلاحيات ليس فيها (درس انهيار 1.0)
+      - name: محتوى الحزمة
+        run: |
+          set -euo pipefail
+          APP="$(find ~/Library/Developer/Xcode/DerivedData -maxdepth 6 -type d -path '*/Release-iphoneos/FieldSales.app' | head -1)"
+          test -n "$APP" || { echo "✗ لم تُعثر على FieldSales.app"; exit 1; }
+          test -f "$APP/presence-alarm.wav" || { echo "✗ الصوت ليس في الحزمة"; exit 1; }
+          cmp "$APP/presence-alarm.wav" FieldSales/presence-alarm.wav
+          if find "$APP" -name '*.entitlements' | grep -q .; then echo "✗ ملف صلاحيات داخل الحزمة"; exit 1; fi
