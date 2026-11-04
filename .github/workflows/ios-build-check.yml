@@ -1,0 +1,58 @@
+# فحص ترجمة فرع التتبّع الخلفي على الآيفون (طلب المالك ٤ نوفمبر ٢٠٢٦): لا Mac محلياً، فيُترجَم هنا.
+# بناءٌ بلا توقيع ولا أسرار ولا رفع — لا TestFlight ولا App Store. يعمل على هذا الفرع وحده (ios-testflight.yml يعمل على ios-app).
+name: ios-build-check
+
+on:
+  push:
+    branches:
+      - feature/ios-bg-tracking
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-build-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: نسخة Xcode
+        run: xcodebuild -version
+
+      # الحراس النصية نفسها في ios-testflight.yml — ما يرفضه بناء TestFlight يُرفض هنا قبله
+      - name: الحراس النصية
+        run: |
+          set -euo pipefail
+          plutil -lint FieldSales/Info.plist
+          /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" FieldSales/Info.plist
+          /usr/libexec/PlistBuddy -c "Print :NSLocationWhenInUseUsageDescription" FieldSales/Info.plist
+          /usr/libexec/PlistBuddy -c "Print :NSLocationTemporaryUsageDescriptionDictionary:WorkdayRoute" FieldSales/Info.plist
+          if /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" FieldSales/Info.plist 2>/dev/null | grep -qi bluetooth; then echo "✗ وضع خلفية للبلوتوث"; exit 1; fi
+          if grep -q CODE_SIGN_ENTITLEMENTS FieldSales.xcodeproj/project.pbxproj; then echo "✗ Entitlements"; exit 1; fi
+          if grep -RniE "nearpay|near pay|نيرباي|نير باي" FieldSales; then echo "✗ اسم المزوّد"; exit 1; fi
+          if grep -RnE --include='*.swift' "UserDefaults|systemUptime|mach_absolute_time|creationDate|modificationDate|ModificationDate|volumeAvailableCapacity|systemFreeSize|activeInputModes" FieldSales; then echo "✗ واجهة تتطلب Privacy Manifest"; exit 1; fi
+
+      - name: ترجمة للمحاكي (Debug) بلا توقيع
+        run: |
+          set -o pipefail
+          xcodebuild -project FieldSales.xcodeproj -scheme FieldSales -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build 2>&1 | tail -150
+
+      - name: ترجمة للجهاز (Release) بلا توقيع — كإعداد الأرشيف
+        run: |
+          set -o pipefail
+          xcodebuild -project FieldSales.xcodeproj -scheme FieldSales -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build 2>&1 | tail -150
