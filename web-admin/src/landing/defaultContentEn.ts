@@ -193,7 +193,7 @@ info@fieldsa.net`,
     },
     privacy: {
       title: 'Privacy Policy',
-      body: `Last updated: September 2026
+      body: `Last updated: November 2026
 
 FieldSales ("we", "the platform") is committed to protecting the privacy of its customers, users and website visitors. This policy explains what data we collect, how we use and protect it, with whom we share it, and the rights you have under the Saudi Personal Data Protection Law (PDPL).
 
@@ -295,7 +295,7 @@ GitHub, our email, geolocation, mapping, search and business data, and AI provid
 
 11. Location Tracking
 The rep app collects location data in two ways:
-• Route tracking: it runs only if the company manager enables it, and it records the rep's location every few seconds while the rep is signed in and the app is open on the device. The app does not limit it to working hours, so we advise reps to sign out or close the app outside working hours. The company manager can turn it off at any time, and it then stops for all of the company's reps.
+• Route tracking: it runs only if the company manager enables it, and it records the rep's location every few seconds from the time the rep first opens the app that day, while the rep is signed in. In the mobile app, recording continues while the app is in the background or the screen is locked, with a visible notification on Android and the location indicator on iPhone, until the rep signs out or the day ends at midnight. The rep agrees to this in the app before it first runs. Points recorded after the rep's last use of the app that day are not counted as working hours. The app does not limit it to working hours, so we advise reps to sign out outside working hours. The company manager can turn it off at any time, and it then stops for all of the company's reps.
 • A point-in-time location, captured regardless of the tracking setting, when the rep records a field visit (as proof of arrival, together with the visit photos) or pins a customer's location on the map. The app also reads the current location, without saving it, to check proximity to a customer or to find the nearest fuel stations.
 Route points are sent to a mapping service provider to match them to roads and show them on the map.
 The rep app also records the times it is open and connected to our servers while the rep is signed in and the app is open, regardless of the tracking setting, so turning tracking off does not stop it. From these times, route points and visits, the rep's working hours and days present and absent are calculated and shown to the company's management.
