@@ -15,8 +15,12 @@ import {
   ACCENT_PALETTE, DESIGN_HINTS, DESIGN_LABELS, LOGO_POSITION_LABELS, LOGO_SIZE_LABELS, SECTION_IDS, SECTION_LABELS, TABLE_STYLE_LABELS,
   accentContrastOk, canMoveSection, defaultPrintLayout, designsFor, layoutOf, moveSection, normalizeSectionOrder, sectionsFor, withDesign, withLayout,
   ALIGN_LABELS, CANVAS_BAND_LABELS, CANVAS_BOX_IDS, CANVAS_BOX_LABELS, ALIGNS, CANVAS_BANDS,
+  COMPLIANCE_HIDE_SECTIONS, areStampsRemoved, isItemsRemoved, isQrRemoved,
+  QR_REMOVE_WARNING, ITEMS_REMOVE_WARNING, STAMPS_REMOVE_WARNING, QR_REMOVED_BADGE, QR_REMOVE_ACTION, QR_RESTORE_ACTION, STAMPS_LABEL, STAMPS_HINT,
+  STAMPS_REMOVE_ACTION, STAMPS_RESTORE_ACTION, QR_FLOW_NOTE, QR_PANEL_NOTE, QR_ORPHAN_NOTE,
   type PrintProfile, type PrintSettingsV1,
 } from './printSettings';
+import * as printSettingsModule from './printSettings';
 import { PHRASES } from '../../i18n/strings';
 
 const root = process.cwd();
@@ -245,12 +249,14 @@ test('حارس (c): لا خيار طباعة يخفي أو يصغّر محتوى
   for (const printer of ['thermal', 'impact', 'page'] as const) assert.ok(!('layout' in defaultPrintOptions(printer)), 'الافتراضي بلا تخطيط');
   const layoutKeys = Object.keys(defaultPrintLayout('page'));
   assert.deepEqual(layoutKeys, ['design', 'logo', 'logoSize', 'accent', 'tableStyle', 'order']);
-  // التحرير الحرّ: أربعة مفاتيح اختيارية في مخطط التخطيط وحده — لا خيار فيها يخفي الرمز (حارس LOCKED_VISIBLE في النواة)
+  // التحرير الحرّ: خمسة مفاتيح اختيارية في مخطط التخطيط وحده. قرار المالك ٤ نوفمبر ٢٠٢٦ «كل شيء يُحذف»: رمز QR يُطبع ما لم تحذفه
+  // الشركة صراحةً (sections.qr.visible = false)، ومثله الأصناف وأختام الحالة (stamps = false) — لا مفتاح «إخفاء» عامّ، والغياب = اليوم
   const layoutSchemaKeys = Object.keys((printSettingsV1Schema.shape.profiles.element.shape.options.shape.layout as unknown as { unwrap(): { shape: Record<string, unknown> } }).unwrap().shape);
-  assert.deepEqual(layoutSchemaKeys, [...layoutKeys, 'logoMm', 'logoAfter', 'sections', 'canvas']);
+  assert.deepEqual(layoutSchemaKeys, [...layoutKeys, 'logoMm', 'logoAfter', 'sections', 'canvas', 'stamps']);
+  assert.ok(!('stamps' in defaultPrintLayout('page')) && !('stamps' in defaultPrintLayout('thermal')), 'الافتراضي بلا حذف');
   for (const k of [...schemaKeys, ...layoutSchemaKeys]) assert.ok(!FORBIDDEN.includes(k), `خيار محظور: ${k}`);
   for (const k of [...schemaKeys, ...layoutSchemaKeys]) assert.doesNotMatch(k, /qr(Hidden|Min|Off)|hide|title|tax|vat|notice|watermark|icv|uuid|seller|buyer/i, `خيار يمسّ محتوى إلزامياً: ${k}`);
-  // والترتيب لا يُسقط قسماً: تبديلٌ كامل لأقسام التصميم، وقسم QR في الرول دائماً
+  // والترتيب لا يُسقط قسماً: تبديلٌ كامل لأقسام التصميم، وقسم QR في الرول دائماً (الحذف بـvisible لا بالترتيب)
   assert.ok(sectionsFor('thermal', 'standard').includes('qr'));
   // حجم الرمز «تلقائي» أو «كبير» وحدهما — لا «صغير»
   assert.deepEqual(printSettingsV1Schema.shape.profiles.element.shape.options.shape.qrSize.options, ['auto', 'large']);
@@ -274,6 +280,8 @@ test('كل تسمية ورسالة وتنبيه مترجم إلى اللغات �
     ...Object.values(DESIGN_LABELS), ...(Object.values(DESIGN_HINTS) as string[]), ...Object.values(SECTION_LABELS), ...Object.values(LOGO_POSITION_LABELS),
     ...Object.values(LOGO_SIZE_LABELS), ...Object.values(TABLE_STYLE_LABELS),
     ...Object.values(ALIGN_LABELS), ...Object.values(CANVAS_BOX_LABELS), ...Object.values(CANVAS_BAND_LABELS),
+    QR_REMOVE_WARNING, ITEMS_REMOVE_WARNING, STAMPS_REMOVE_WARNING, QR_REMOVED_BADGE, QR_REMOVE_ACTION, QR_RESTORE_ACTION, STAMPS_LABEL, STAMPS_HINT,
+    STAMPS_REMOVE_ACTION, STAMPS_RESTORE_ACTION, QR_FLOW_NOTE, QR_PANEL_NOTE, QR_ORPHAN_NOTE,
   ].filter((s) => /[؀-ۿ]/.test(s));
   const missing: string[] = [];
   for (const ar of all) {
@@ -485,4 +493,68 @@ test('التحرير الحرّ: الجهاز يقرأ ما يحفظه الخا�
   const l = normalizePrintSettings(raw).profiles[3].options.layout!;
   assert.ok(!('logoMm' in l) && !('canvas' in l), 'المعيب يسقط وحده');
   assert.deepEqual([l.logo, l.tableStyle, l.logoAfter], ['end', 'grid', 'top']);
+});
+
+test('الحذف الصريح (قرار المالك ٤ نوفمبر ٢٠٢٦): رمز QR والأصناف وأختام الحالة — الحفظ يقبلها في كل قالب والقراءة تُبقيها', () => {
+  const hideAll = { sections: { qr: { visible: false }, items: { visible: false } }, stamps: false };
+  const targets: PrintProfile[] = [
+    withLayout(profile('van-h', 'thermal', 'roll_compact', 'roll80'), hideAll),
+    withLayout(profile('office-h', 'page', 'page_branded', 'a4'), hideAll),
+    withLayout(profile('mip-h', 'impact', 'impact_plain', 'ff_a4'), hideAll),
+    withLayout(withDesign(profile('office-g', 'page', 'page_branded', 'a4'), 'grid_bilingual'), hideAll),
+    withLayout(withDesign(profile('mip-g', 'impact', 'impact_plain', 'ff_a4'), 'grid_bilingual'), hideAll),
+  ];
+  for (const p of targets) {
+    const s = { ...fleet(), profiles: [...fleet().profiles, p] };
+    const strict = checkPrintSettings(s, true);
+    assert.ok(strict.ok, `${p.id}: ${JSON.stringify(strict)}`);
+    const l = normalizePrintSettings(s).profiles[3].options.layout;
+    assert.ok(isQrRemoved(l) && isItemsRemoved(l) && areStampsRemoved(l), `${p.id}: القراءة تُبقي الحذف`);
+    assert.deepEqual(l, strict.ok ? strict.value.profiles[3].options.layout : null);
+  }
+  // الصفحة: رمز QR قسمٌ افتراضي يقبل visible وحده
+  const page = profile('office-x', 'page', 'page_branded', 'a4');
+  for (const qr of [{ align: 'center' as const }, { fontPct: 120 }, { visible: false, align: 'center' as const }]) {
+    const r = checkPrintSettings({ ...fleet(), profiles: [...fleet().profiles, withLayout(page, { sections: { qr } })] }, true);
+    assert.ok(!r.ok && r.issues.some((i) => i.message === PRINT_ISSUES.layoutSectionUnknown), JSON.stringify(qr));
+  }
+  const bad = JSON.parse(JSON.stringify({ ...fleet(), profiles: [...fleet().profiles, withLayout(page, { logo: 'end' })] }));
+  bad.profiles[3].options.layout.stamps = 'no';
+  const rb = checkPrintSettings(bad, true);
+  assert.ok(!rb.ok && rb.issues.some((i) => i.message === PRINT_ISSUES.shape && i.path.endsWith('stamps')));
+  const lb = normalizePrintSettings(bad).profiles[3].options.layout!;
+  assert.ok(!('stamps' in lb) && lb.logo === 'end', 'المتسامح يُسقط stamps المعيب وحده');
+  // الكلاسيكي والافتراضيان لا يُعدَّلان (انسخ أولاً)
+  const classic = { ...profile('van-c', 'thermal', 'roll_compact', 'roll58'), template: 'roll_classic' as const };
+  const rc = checkPrintSettings({ ...fleet(), profiles: [...fleet().profiles, { ...classic, options: { ...classic.options, layout: { ...defaultPrintLayout('thermal'), ...hideAll } } }] }, true);
+  assert.ok(!rc.ok && rc.issues.some((i) => i.message === PRINT_ISSUES.layoutClassic));
+  for (const legacy of legacyPrintSettings().profiles) assert.ok(!('layout' in withLayout(legacy, hideAll).options));
+  // الدوال: الغياب والافتراضي = لا حذف
+  for (const l of [undefined, null, defaultPrintLayout('page'), defaultPrintLayout('thermal'), defaultPrintLayout('impact', 'grid_bilingual')]) {
+    assert.deepEqual([isQrRemoved(l), isItemsRemoved(l), areStampsRemoved(l)], [false, false, false]);
+  }
+  assert.equal('LOCKED_VISIBLE' in printSettingsModule, false);
+  assert.deepEqual([...COMPLIANCE_HIDE_SECTIONS], ['items', 'qr']);
+  // تغيير التصميم لا يُعيد ما حذفته الشركة
+  const back = withDesign(targets[3], 'standard').options.layout;
+  assert.ok(isQrRemoved(back) && isItemsRemoved(back) && areStampsRemoved(back));
+});
+
+test('التنبيهات مع الحذف: رمزٌ محذوف بلا qrNoFit/phase2Narrow ومع qrRemoved — وبلا حذفٍ المخرج كما هو', () => {
+  const narrow = profile('n', 'thermal', 'roll_compact', 'roll58');
+  narrow.paper.printableDots = 256;
+  const hidden = withLayout(narrow, { sections: { qr: { visible: false } } });
+  const w = profileWarnings(hidden, { phase2: true }).warnings;
+  assert.ok(w.includes(PRINT_WARNINGS.qrRemoved));
+  assert.ok(!w.includes(PRINT_WARNINGS.qrNoFit) && !w.includes(PRINT_WARNINGS.phase2Narrow));
+  const page = withLayout(profile('o', 'page', 'page_branded', 'a4'), { sections: { items: { visible: false } }, stamps: false });
+  assert.deepEqual(profileWarnings(page, { phase2: true }).warnings, [PRINT_WARNINGS.itemsRemoved, PRINT_WARNINGS.stampsRemoved]);
+  assert.equal(PRINT_WARNINGS.qrRemoved, QR_REMOVE_WARNING);
+  // بلا حذف: كل قالبٍ افتراضي وكل مقاسٍ جاهز بالتنبيهات نفسها، ولا تنبيه حذف
+  const removal: string[] = [PRINT_WARNINGS.qrRemoved, PRINT_WARNINGS.itemsRemoved, PRINT_WARNINGS.stampsRemoved];
+  for (const lp of legacyPrintSettings().profiles) for (const phase2 of [true, false]) {
+    assert.ok(!profileWarnings(lp, { phase2 }).warnings.some((x) => removal.includes(x)));
+  }
+  assert.ok(profileWarnings(narrow, { phase2: true }).warnings.includes(PRINT_WARNINGS.qrNoFit), 'بلا حذف: كما اليوم');
+  assert.deepEqual(profileWarnings(withLayout(narrow, { logo: 'end' }), { phase2: true }), profileWarnings(narrow, { phase2: true }));
 });

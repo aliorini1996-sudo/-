@@ -6,6 +6,8 @@
  * أو العلامة المائية. وكانا يسكنان قسم «الترويسة» وحده في القوالب الثلاثة، فإخفاء الترويسة (sections.header.visible=false، مسموحٌ
  * بقرار المالك) كان يطبع فاتورة بروفةٍ برمزها المختوم بلا وسمها — ورقةً تُقرأ فاتورةً حقيقية — وسندَ تسليمٍ بلا سببه.
  * الحارس: كل نصٍّ منهما يُطبع مرّةً واحدة بالضبط في كل تركيبة (اليوم، الترويسة مخفيّة، كل قسمٍ مخفيّ، ولوحات A4 بالعنوان فيها أو بدونه).
+ * وقرار المالك ٤ نوفمبر ٢٠٢٦ («احذف كل شيء»): هما «أختام حالة» تُحذف بحذف الشركة الصريح لها وحده (layout.stamps=false —
+ * areStampsRemoved): لا مرّة في أيّ تركيبة (ولا شريطها المعاد). ورفض طباعة المُبطل والمعلّق (canPrint) على الرول لا يتغيّر.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,12 +15,11 @@ import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { PrintableInvoice, type Company, type InvoiceDoc } from './RepDocuments';
 import { PrintLookContext, lookFor } from './printLook';
-import { printThermalInvoice, type ThermalPrintOptions } from './thermal';
+import { PrintRefusedError, printThermalInvoice, type ThermalPrintOptions } from './thermal';
 import {
   defaultPrintLayout, defaultPrintOptions, presetPaper, sectionsFor,
   type LayoutDesign, type PaperPresetId, type PrintLayout, type PrintProfile, type PrinterType, type TemplateId,
 } from '../lib/print/printSettings';
-import { LOCKED_VISIBLE } from '../lib/print/printSettingsCore';
 import { REHEARSAL_WATERMARK } from '../lib/zatca/docPrint';
 import type { ZatcaDocView } from '../lib/zatca/docStatus';
 import { useLang } from '../i18n/lang';
@@ -66,9 +67,11 @@ const TARGETS: Target[] = [
 ];
 const designOf = (t: Target): LayoutDesign => (t.kind === 'grid' ? 'grid_bilingual' : 'standard');
 const withFree = (p: PrintProfile, free: Partial<PrintLayout>): PrintProfile => ({ ...p, options: { ...p.options, layout: { ...p.options.layout!, ...free } } });
-const allHidden = (t: Target) => Object.fromEntries(sectionsFor(t.printer, designOf(t)).filter((id) => !LOCKED_VISIBLE.includes(id)).map((id) => [id, { visible: false }]));
+/** كل قسمٍ مخفيّ عدا رمز الرول (إخفاؤه حذفٌ صريح للرمز لا يخصّ الأختام) */
+const allHidden = (t: Target) => Object.fromEntries(sectionsFor(t.printer, designOf(t)).filter((id) => id !== 'qr').map((id) => [id, { visible: false }]));
 
-const FIXTURES: Array<{ name: string; free: (t: Target) => Partial<PrintLayout> | null }> = [
+/** off: حذف الشركة الصريح لأختام الحالة ⇒ ٠ مرّة. وإلا مرّةً واحدة بالضبط */
+const FIXTURES: Array<{ name: string; off?: boolean; free: (t: Target) => Partial<PrintLayout> | null }> = [
   { name: 'today', free: () => ({}) },
   { name: 'headerHidden', free: () => ({ sections: { header: { visible: false } } }) },
   { name: 'allHidden', free: (t) => ({ sections: allHidden(t) }) },
@@ -77,6 +80,12 @@ const FIXTURES: Array<{ name: string; free: (t: Target) => Partial<PrintLayout> 
   { name: 'canvasTitle', free: (t) => (t.kind === 'a4' ? { canvas: { headerMm: 40, footerMm: 0, boxes: [{ id: 'title', band: 'header', x: 100, y: 0, w: 88, h: 35 }] } } : null) },
   { name: 'canvasTitleHeaderHidden', free: (t) => (t.kind === 'a4' ? { canvas: { headerMm: 40, footerMm: 0, boxes: [{ id: 'title', band: 'header', x: 100, y: 0, w: 88, h: 35 }] }, sections: { header: { visible: false } } } : null) },
   { name: 'canvasCompanyHeaderHidden', free: (t) => (t.kind === 'a4' ? { canvas: { headerMm: 40, footerMm: 0, boxes: [{ id: 'company', band: 'header', x: 0, y: 0, w: 90, h: 35 }] }, sections: { header: { visible: false } } } : null) },
+  { name: 'stampsOn', free: () => ({ stamps: true }) },
+  // الحذف الصريح: على مسار اليوم (stamps وحده ليس مفتاحاً حرّاً) وعلى المسار الحرّ والشريط المعاد واللوحات
+  { name: 'stampsOff', off: true, free: () => ({ stamps: false }) },
+  { name: 'stampsOffHeaderHidden', off: true, free: () => ({ stamps: false, sections: { header: { visible: false } } }) },
+  { name: 'stampsOffAllHidden', off: true, free: (t) => ({ stamps: false, logoAfter: 'top', sections: allHidden(t) }) },
+  { name: 'stampsOffCanvasTitle', off: true, free: (t) => (t.kind === 'a4' ? { stamps: false, canvas: { headerMm: 40, footerMm: 0, boxes: [{ id: 'title', band: 'header', x: 100, y: 0, w: 88, h: 35 }] }, sections: { header: { visible: false } } } : null) },
 ];
 
 const render = async (t: Target, p: PrintProfile, doc: InvoiceDoc, raster: boolean): Promise<string> => {
@@ -93,7 +102,7 @@ const render = async (t: Target, p: PrintProfile, doc: InvoiceDoc, raster: boole
 const count = (h: string, s: string): number => h.split(s).length - 1;
 
 for (const t of TARGETS) {
-  test(`العلامة المائية والتنبيه يُطبعان مرّةً واحدة في كل تركيبةٍ حرّة (${t.name})`, async () => {
+  test(`العلامة المائية والتنبيه يُطبعان مرّةً واحدة في كل تركيبةٍ حرّة — ولا مرّة بحذف الشركة الصريح لأختام الحالة (${t.name})`, async () => {
     const errors: string[] = [];
     for (const raster of t.kind === 'roll' ? [false, true] : [false]) {
       for (const d of DOCS) {
@@ -101,10 +110,25 @@ for (const t of TARGETS) {
           const free = f.free(t);
           if (!free) continue;
           const n = count(await render(t, withFree(t.base(), free), d.doc(), raster), d.text);
-          if (n !== 1) errors.push(`${t.name}${raster ? '/bt' : ''}/${d.name}/${f.name}: ${n}`);
+          if (n !== (f.off ? 0 : 1)) errors.push(`${t.name}${raster ? '/bt' : ''}/${d.name}/${f.name}: ${n}`);
         }
       }
     }
     assert.deepEqual(errors, []);
   });
 }
+
+test('حذف أختام الحالة لا يفتح طباعة المُبطل ولا المعلّق: الرول يرفض كاليوم (canPrint) في الطباعة والبلوتوث', async () => {
+  const voided = inv(zv({ mirror: 'rejected', printable: false, qr: null }));
+  const pending = inv(zv({ subtype: '02', mirror: 'clearance_pending', printable: false, qr: null }));
+  for (const t of TARGETS.filter((x) => x.kind === 'roll')) {
+    for (const free of [{}, { stamps: false }, { stamps: false, sections: { header: { visible: false }, qr: { visible: false } } }] as Array<Partial<PrintLayout>>) {
+      for (const doc of [voided, pending]) {
+        for (const raster of [false, true]) {
+          await assert.rejects(render(t, withFree(t.base(), free), doc, raster), (e: unknown) => e instanceof PrintRefusedError,
+            `${t.name}/${JSON.stringify(free)}/${doc.zatca!.mirror}/${raster}: طُبع مستندٌ لا ورقة له`);
+        }
+      }
+    }
+  }
+});

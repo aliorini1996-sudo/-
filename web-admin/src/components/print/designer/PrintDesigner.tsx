@@ -12,7 +12,7 @@ import { createPortal } from 'react-dom';
 import { AlertTriangle, Check, Info, Maximize2, Redo2, Undo2, X } from 'lucide-react';
 import { useTr } from '../../../i18n/strings';
 import { useDir } from '../../../i18n/lang';
-import type { PrintProfile } from '../../../lib/print/printSettings';
+import { ITEMS_REMOVE_WARNING, isItemsRemoved, layoutOf, type PrintProfile } from '../../../lib/print/printSettings';
 import { freeIssues, type DesignSel } from '../../../lib/print/designModel';
 import { layoutEditable } from '../PrintPreview';
 import A4BandsCanvas from './A4BandsCanvas';
@@ -163,6 +163,10 @@ export default function PrintDesigner({ profile, phase2, company, companyName, o
               <p className="mb-2 text-[11px] text-[#9A8F7E] flex items-center gap-1">
                 <Info className="w-3 h-3" aria-hidden="true" />{tr(MONO_PREVIEW_HINT)}
               </p>
+            )}
+            {/* جدول الأصناف محذوف بخيار الشركة الصريح (قرار المالك ٤ نوفمبر ٢٠٢٦): تنبيهٌ أحمر دائم أيّاً كان العنصر المحدَّد — رمز QR له تنبيهه تحت اللوحة/الشريط */}
+            {isItemsRemoved(layoutOf(p)) && (
+              <p className="mb-2 text-[11px] text-[#8E2A1F] bg-[#FBEBE2] rounded px-2 py-1" role="note" data-items-removed-note="">{tr(ITEMS_REMOVE_WARNING)}</p>
             )}
             {thermal
               ? <RollStrip p={p} update={update} doc={doc} selected={selected} onSelect={setSelected} company={company} />

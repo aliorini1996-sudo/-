@@ -3,7 +3,8 @@
  *
  * ١) حجم الشعار بالملّيمتر بلا object-fit (أبعادٌ محسوبة من رأس الصورة)، ومحاذاته، وكتلته المستقلة أعلى الورقة أو بعد قسم.
  * ٢) تنسيق كل قسم: إخفاء، ومحاذاة (start = يمين الورقة)، ومسافة قبل/بعد، وحجم خطٍّ يضرب بكسل القالب (لا zoom ولا filter).
- * ٣) QR المرحلة الثانية لا يُحذف: قسم الإجماليات مخفيّ ⇒ كتلته وحدها بعد الأصناف؛ لوحاتٌ بلا مربع QR ⇒ يسري مع الإجماليات.
+ * ٣) QR المرحلة الثانية لا يُحذف إلا بحذف الشركة الصريح (قرار المالك ٤ نوفمبر ٢٠٢٦، sections.qr.visible=false): قسم الإجماليات
+ *    مخفيّ ⇒ كتلته وحدها بعد الأصناف؛ لوحاتٌ بلا مربع QR ⇒ يسري مع الإجماليات؛ والحذف الصريح ⇒ لا كتلة في أيّ مكان.
  * ٤) لوحتا الرأس والتذييل (PrintCanvasSheet): الكتل في اللوحة، والسريان مقلَّم، وdata-print-canvas على الجذر وحده مع لوحات.
  * ٥) وسم المصمّم data-pd داخل سياق المعاينة وحده، وdata-copy-anchor على غلاف الترويسة. ٦) السند خريطة أقسام على مسار التحرير.
  * ملفٌّ بلا المفاتيح الحرّة = ورقة اليوم حرفاً: الذهبيّان printA4.baseline وprintLayout6.baseline يثبتانه.
@@ -205,6 +206,41 @@ test('QR المرحلة الثانية: الإجماليات مخفية ⇒ كت
   const shown = a4(inv({ zatca: zv() }), lookOf({ logoMm: 30 }));
   assert.ok(!sectionIds(shown).includes('qr'));
   assert.match(shown.slice(shown.indexOf('data-section="totals"')), /alt="QR"/);
+});
+
+test('QR محذوفٌ صراحةً (قرار المالك ٤ نوفمبر ٢٠٢٦): لا كتلة في الإجماليات ولا يتيمة ولا في لوحة — والإجماليات والأصناف باقية', () => {
+  const ICV = /ICV 41|3f2b8c1e-7a4d-4e9b-9c55-0d1e2f3a4b5c/;
+  for (const printer of ['page', 'impact'] as const) {
+    const tpl = printer === 'impact' ? 'impact_plain' : 'page_branded';
+    // الإجماليات ظاهرة: صفوفها وحدها، ملتصقةً بطرفها كاليوم بلا رمز (flex-end)
+    const shown = a4(inv({ zatca: zv() }), lookOf({ sections: { qr: { visible: false } } }, printer, tpl));
+    assert.ok(!shown.includes('alt="QR"') && !shown.includes('data-qr-value="') && !ICV.test(shown), `${printer}: الرمز المحذوف مطبوع`);
+    assert.ok(shown.includes('الإجمالي النهائي'));
+    assert.match(shown.slice(shown.indexOf('data-section="totals"')), /justify-content:flex-end/);
+    // الإجماليات مخفيّة أيضاً: لا كتلة يتيمة
+    const host = a4(inv({ zatca: zv() }), lookOf({ sections: { totals: { visible: false }, qr: { visible: false } } }, printer, tpl));
+    assert.ok(!sectionIds(host).includes('qr') && !host.includes('alt="QR"'), `${printer}: كتلةٌ يتيمة لرمزٍ محذوف`);
+    // لوحةٌ ما زال فيها مربع QR: يُهمل المربع، والإجماليات في لوحتها
+    const cv = a4(inv({ zatca: zv() }), lookOf({ canvas: CANVAS, sections: { qr: { visible: false } } }, printer, tpl));
+    assert.ok(!cv.includes('alt="QR"') && !ICV.test(cv), `${printer}: مربع QR في لوحة لرمزٍ محذوف`);
+    assert.ok(cv.slice(cv.indexOf('data-section="canvas-footer"')).includes('الإجمالي النهائي'));
+    // المرحلة الأولى كذلك
+    assert.ok(!a4(inv(), lookOf({ sections: { qr: { visible: false } } }, printer, tpl)).includes('alt="QR"'));
+  }
+  // بلا حذفٍ صريح: كما اليوم (الرمز في الإجماليات بمسافةٍ بينهما)
+  const today = a4(inv({ zatca: zv() }), lookOf({ logoMm: 30 }));
+  assert.match(today.slice(today.indexOf('data-section="totals"')), /justify-content:space-between/);
+});
+
+test('الأصناف مخفيّة صراحةً: الجدول يسقط، والإجماليات باقية، ومرساة الرمز اليتيم في موضع الأصناف ما زالت تعمل', () => {
+  const noItems = a4(inv({ zatca: zv() }), lookOf({ sections: { items: { visible: false } } }));
+  assert.ok(!noItems.includes('مياه معدنية') && !sectionIds(noItems).includes('items'));
+  assert.ok(noItems.includes('الإجمالي النهائي') && noItems.includes('alt="QR"'));
+  const both = a4(inv({ zatca: zv() }), lookOf({ sections: { items: { visible: false }, totals: { visible: false } } }));
+  const ids = sectionIds(both);
+  assert.ok(!ids.includes('items') && !ids.includes('totals'));
+  assert.equal((both.match(/alt="QR"/g) ?? []).length, 1, 'الرمز اليتيم سقط مع الأصناف');
+  assert.equal(ids[ids.indexOf('info') + 1], 'qr', 'اليتيم ليس في موضع الأصناف');
 });
 
 // ─── ٤) لوحتا الرأس والتذييل ───

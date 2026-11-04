@@ -13,7 +13,8 @@
  */
 import {
   DOC_KINDS, LEGACY_NAMES, LEGACY_PAGE_ID, LEGACY_THERMAL_ID, PRINT_ISSUES, TEMPLATES_BY_PRINTER, checkPrintSettings, defaultPrintLayout, defaultPrintOptions,
-  dotsPerMm, isLegacyPrintSettings, legacyPrintSettings, legacyThermalProfile, maxPrintableDots, normalizeSectionOrder, presetPaper, routingAllowsPrinter,
+  areStampsRemoved, dotsPerMm, isItemsRemoved, isLegacyPrintSettings, isQrRemoved,
+  legacyPrintSettings, legacyThermalProfile, maxPrintableDots, normalizeSectionOrder, presetPaper, routingAllowsPrinter,
   sectionsFor,
   type Align, type CanvasBand, type CanvasBoxId, type SectionStyle,
   type LayoutDesign, type LogoPosition, type LogoSize, type Paper, type PaperFeed, type PaperPresetId, type PrintDocKind, type PrintLayout,
@@ -261,12 +262,32 @@ export function qrPlan(p: PrintProfile, cells: number): QrPlan | null {
 
 // ─── التنبيهات (لا تمنع الحفظ) ───
 
+// الحذف الصريح (قرار المالك ٤ نوفمبر ٢٠٢٦): رمز QR والأصناف وأختام الحالة تُحذف بخيار الشركة وحده، مع تأكيدٍ مرةً وتحذيرٍ دائم
+export const QR_REMOVE_WARNING = 'حذف رمز QR يجعل الفاتورة الضريبية غير مطابقة لمتطلبات هيئة الزكاة والضريبة والجمارك وقد يعرّض المنشأة للمخالفة';
+export const ITEMS_REMOVE_WARNING = 'حذف جدول الأصناف يجعل الفاتورة الضريبية غير مطابقة لمتطلبات هيئة الزكاة والضريبة والجمارك لأن بيان السلع والخدمات وكمياتها إلزامي';
+export const STAMPS_REMOVE_WARNING = 'حذف أختام الحالة يطبع المستند الملغى وسند التسليم ونسخة المحاكاة بلا ما يميزها فقد تظن فاتورة ضريبية سارية';
+export const QR_REMOVED_BADGE = 'بلا رمز QR';
+export const QR_REMOVE_ACTION = 'حذف رمز QR من المطبوعة';
+export const QR_RESTORE_ACTION = 'إعادة رمز QR إلى المطبوعة';
+export const STAMPS_LABEL = 'أختام الحالة';
+export const STAMPS_HINT = 'وسم نسخة المحاكاة وإشعار سند التسليم وختم الإلغاء';
+export const STAMPS_REMOVE_ACTION = 'حذف أختام الحالة';
+export const STAMPS_RESTORE_ACTION = 'إعادة أختام الحالة';
+export const QR_FLOW_NOTE = 'رمز QR غير الموضوع في لوحة يبقى مع الإجماليات — ولحذفه استعمل «حذف رمز QR من المطبوعة»';
+export const QR_PANEL_NOTE = 'رمز QR يطبع على مستند المرحلة الثانية ما لم تحذفه من أدوات التصميم — وصياغة العبارات وحذف سطورها من «نصوص المطبوعات»';
+export const QR_ORPHAN_NOTE = 'القسم الحامل لرمز QR مخفي — يطبع الرمز وحده في مكانه التلقائي ما لم تحذفه';
+
+
 export const PRINT_WARNINGS = Object.freeze({
   qrNoFit: 'عرض الورق لا يتسع لرمز الفاتورة المعتمد — اختر قالبا أعرض',
   phase2Narrow: 'رمز الفاتورة المعتمد في المرحلة الثانية يحتاج عرض طباعة 48 مم على الأقل (384 نقطة)',
   roll85: 'عرض 85 مم ليس رولا قياسيا — ابدأ بعرض طباعة 72 مم ثم زده بعد المعايرة',
   wide241: 'تأكد أن طابعتك تقبل ورقا متصلا بعرض 241 مم',
   impactCopies: 'الورق الكربوني يعطي نسخه في مرور واحد — اجعل النسخ أكثر من واحدة للورق ذي الطبقة الواحدة فقط',
+  // حذفٌ صريح من الشركة (قرار المالك ٤ نوفمبر ٢٠٢٦: كل شيء يُحذف) — تنبيهٌ قويّ لا يمنع الحفظ
+  qrRemoved: QR_REMOVE_WARNING,
+  itemsRemoved: ITEMS_REMOVE_WARNING,
+  stampsRemoved: STAMPS_REMOVE_WARNING,
 });
 export const PRINT_NOTES = Object.freeze({
   impactTopPly: 'الطبقة العليا وحدها يقرأ الماسح رمزها — النسخ الكربونية لا تمسح',
@@ -278,11 +299,18 @@ export const PRINT_NOTES = Object.freeze({
 export function profileWarnings(p: PrintProfile, ctx: { phase2: boolean }): { warnings: string[]; notes: string[] } {
   const warnings: string[] = [];
   const notes: string[] = [];
+  const layout = p.options.layout;
+  const qrRemoved = isQrRemoved(layout);
+  // الحذف الصريح يُنبَّه عليه في كل طابعة — وبلا حذفٍ لا يتغيّر شيء في المخرج
+  if (qrRemoved) warnings.push(PRINT_WARNINGS.qrRemoved);
+  if (isItemsRemoved(layout)) warnings.push(PRINT_WARNINGS.itemsRemoved);
+  if (areStampsRemoved(layout)) warnings.push(PRINT_WARNINGS.stampsRemoved);
   if (p.printer !== 'page' && p.paper.printableDots !== null) {
     const plan = qrPlan(p, STAMPED_QR_CELLS.max);
-    // نزول الرمز للحد الأدنى ليتسع ليس تنبيهاً (58 مم برمز مختوم كبير = الوضع القائم) — التنبيه حين لا يتسع أصلاً (§3.4)
-    if (plan && !plan.fits) warnings.push(PRINT_WARNINGS.qrNoFit);
-    if (ctx.phase2 && p.paper.printableDots < 384) warnings.push(PRINT_WARNINGS.phase2Narrow);
+    // نزول الرمز للحد الأدنى ليتسع ليس تنبيهاً (58 مم برمز مختوم كبير = الوضع القائم) — التنبيه حين لا يتسع أصلاً (§3.4)؛
+    // ورمزٌ حذفته الشركة لا يُسأل عن اتساعه
+    if (!qrRemoved && plan && !plan.fits) warnings.push(PRINT_WARNINGS.qrNoFit);
+    if (!qrRemoved && ctx.phase2 && p.paper.printableDots < 384) warnings.push(PRINT_WARNINGS.phase2Narrow);
     if (p.paper.preset === 'roll85') warnings.push(PRINT_WARNINGS.roll85);
     notes.push(PRINT_NOTES.directChrome);
   }
@@ -555,7 +583,8 @@ export function withDesign(p: PrintProfile, design: LayoutDesign): PrintProfile 
 
 /**
  * التحرير الحرّ عبر تغيير التصميم: حجم الشعار يبقى، ومكانه المستقل وتنسيقات الأقسام تبقى ما صلحت لأقسام التصميم الجديد، واللوحتان
- * (المصمّم الحر) تسقطان — للتصميم القياسي وحده. والمفتاح الغائب يبقى غائباً (لا undefined).
+ * (المصمّم الحر) تسقطان — للتصميم القياسي وحده. والمفتاح الغائب يبقى غائباً (لا undefined). وحذف الشركة الصريح لرمز QR (قسمٌ
+ * افتراضي في الصفحة والنقطية) ولأختام الحالة يبقى في كل تصميم — لا يعود ما حذفته الشركة بتغيير التصميم.
  */
 function carryFree(cur: PrintLayout | undefined, next: PrintLayout, printer: PrinterType): PrintLayout {
   if (!cur) return next;
@@ -565,9 +594,11 @@ function carryFree(cur: PrintLayout | undefined, next: PrintLayout, printer: Pri
   if (cur.logoAfter !== undefined && (cur.logoAfter === 'top' || ids.includes(cur.logoAfter))) out.logoAfter = cur.logoAfter;
   if (cur.sections) {
     const kept = Object.entries(cur.sections).filter(([id, st]) => st && ids.includes(id as SectionId)) as Array<[SectionId, SectionStyle]>;
+    if (isQrRemoved(cur) && !ids.includes('qr')) kept.push(['qr', { visible: false }]);
     if (kept.length) out.sections = Object.fromEntries(kept) as Partial<Record<SectionId, SectionStyle>>;
   }
   if (cur.canvas && next.design === 'standard') out.canvas = cur.canvas;
+  if (cur.stamps !== undefined) out.stamps = cur.stamps;
   return out;
 }
 

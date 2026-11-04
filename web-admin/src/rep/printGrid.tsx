@@ -12,13 +12,14 @@
  * · «حذف السطر» (نصوص المطبوعات): مفتاحٌ محذوف يُسقط وحدته كاملة — التسمية العربية والإنجليزية والقيمة، أو عمود الجدول كله،
  *   أو صفّ الإجمالي، أو الخانة، أو الصندوق الذي يعنونه. كل عنصرٍ من الوحدة يحمل `data-line` بمفاتيحه (مفصولةً بمسافة) فيُفحص
  *   غيابه بـ`[data-line~="key"]`. وفي معاينة المحرّر لا يُحذف شيء: الوحدة مشطوبةٌ باهتة وتسميتها قابلةٌ للنقر.
- * · رمز QR ليس عبارة: يُطبع متى مُرِّر مهما حُذف من النصوص.
+ * · رمز QR ليس عبارة: يُطبع متى مُرِّر مهما حُذف من النصوص — والقالب الأصليّ لا يمرّره (null) إلا حين تحذفه الشركة صراحةً
+ *   (isQrRemoved، قرار المالك ٤ نوفمبر ٢٠٢٦). وأختام الحالة (وسم البروفة والإشعار و«سند ملغى») تسقط بـareStampsRemoved وحده.
  * · أحادي اللون/النقطية: حدود ‎#000 بعرض 1px وبلا تعبئة رمادية (عتبة النقطية ١٦٠)؛ ولون التمييز (accentColor) على خط الترويسة
  *   وخلفية رؤوس الجدول في الطابعات الملوّنة وحدها.
  * · «التحرير الحرّ» (طلب المالك ٣ نوفمبر ٢٠٢٦، pd_spec B.2/B.3): مع مفتاحٍ حرّ (hasFreeLayout) أو معاينة المصمّم كل قسمٍ ظاهر
  *   ملفوفٌ بـ<div data-sec> بمحاذاته ومسافتيه، وحجم خطّه `fontSize: pct%` (القالب بوحدة em — لا zoom ولا filter)؛ والمخفيّ يسقط؛
  *   والشعار بحجمٍ حرّ (logoMm: max-width/max-height بلا object-fit — html2canvas يمطّه) وكتلةٌ مستقلة (data-section="logo")
- *   أعلى الورقة أو بعد قسم؛ و«البيانات» مخفيّة ⇒ رمز QR كتلةٌ وحده (data-section="qr") بعد الترويسة — لا يُحذف أبداً؛ ووسم
+ *   أعلى الورقة أو بعد قسم؛ و«البيانات» مخفيّة ⇒ رمز QR كتلةٌ وحده (data-section="qr") بعد الترويسة — لا يُحذف إلا صراحةً؛ ووسم
  *   النسخة بعد غلاف الترويسة (data-copy-anchor). وبلا مفتاحٍ حرّ ولا معاينة: الورقة كما هي حرفاً (layout6 والحرّاس الذهبية).
  */
 import { forwardRef, type CSSProperties, type ReactNode } from 'react';
@@ -31,6 +32,7 @@ import {
   type LogoPlan, type ResolvedLayout, type SectionLook,
 } from '../lib/print/layout';
 import type { Align, SectionId } from '../lib/print/printSettingsCore';
+import { areStampsRemoved } from '../lib/print/printSettings';
 import { pdProps, usePrintDesignPreview, type PrintDesignPreview } from './printDesignContext';
 import { getActiveCurrency } from '../utils/format';
 import { currencyDecimals } from '../i18n/countries';
@@ -481,7 +483,7 @@ function gridFreeBody(
     if (opts.banner && id === opts.banner.at && !isNode(node) && opts.banner.nodes.some(isNode)) out.push(<div key="keep-banner">{opts.banner.nodes}</div>);
     if (logoAt === id) out.push(logoBlock(`logo-${id}`));
     if (id === 'header' && orphan) {
-      // QR المرحلة الثانية لا يُحذف: «البيانات» (حاملته) مخفيّة ⇒ كتلته وحدها بعد الترويسة
+      // QR المرحلة الثانية لا يُحذف بإخفاء حامله: «البيانات» مخفيّة ⇒ كتلته وحدها بعد الترويسة (حذفه الصريح: opts.qr = null وqrOrphan = false)
       out.push(
         <div key="qr-orphan" data-section="qr" data-grid-qr="" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 8 }}>{opts.qr}</div>,
       );
@@ -514,6 +516,8 @@ export const GridInvoice = forwardRef<HTMLDivElement, {
   const logo = gridLogo(look, layout, company?.logo);
   const tax = zDecision.showTaxBreakdown;
   const titleKey = doc.isReturn ? 'inv.returnTitle' : 'inv.title';
+  // أختام الحالة من قرار الطباعة — تُحذف بقرار الشركة وحده (stamps:false) في الترويسة وفي شريطها المعاد
+  const marks = areStampsRemoved(layout) ? null : zDecision;
 
   // ── بيانات المستند ──
   const infoRows: KvRow[] = [];
@@ -759,7 +763,7 @@ export const GridInvoice = forwardRef<HTMLDivElement, {
     <GridHeader key="header" kit={kit} look={look} logo={logo} company={company}
       // بلا نصوص: عنوان القرار بالعربية (العنوان الممرَّر مترجمٌ بلغة واجهة الجهاز كقالب اليوم) — القالب عربيٌّ أولاً
       title={pt.on ? facts.title : { text: zDecision.title, alt: null }} titleKey={titleKey}
-      showTax={false} zDecision={zDecision} />
+      showTax={false} zDecision={marks} />
   );
 
   const bySection: Partial<Record<SectionId, ReactNode>> = {
@@ -769,7 +773,7 @@ export const GridInvoice = forwardRef<HTMLDivElement, {
   return (
     <div ref={ref} style={sheetStyle(look, layout)} {...lookRootAttrs(look)}>
       {onFreePath(layout, dctx)
-        ? gridFreeBody(layout, dctx, bySection, logo, { qr, fill: filler ? new Set<SectionId>(['items']) : undefined, banner: { at: 'header', nodes: gridZatcaBanner(zDecision) } })
+        ? gridFreeBody(layout, dctx, bySection, logo, { qr, fill: filler ? new Set<SectionId>(['items']) : undefined, banner: { at: 'header', nodes: gridZatcaBanner(marks) } })
         : sectionsOf(layout).map((id) => bySection[id] ?? null)}
       {lookNeedsCss(look) ? <style>{PRINT_LOOK_CSS}</style> : null}
     </div>
@@ -795,7 +799,7 @@ export const GridReceipt = forwardRef<HTMLDivElement, {
   if (look.showRepName && doc.repName) infoRows.push({ keys: ['rcp.rep'], def: 'المندوب', value: doc.repName });
   infoRows.push({ keys: ['rcp.method'], def: 'طريقة الدفع', value: methodLabelFor(company, doc.paymentMethod, doc.paymentMethodKey, (s: string) => s) });
   if (doc.notes) infoRows.push({ keys: ['rcp.notes'], def: 'ملاحظات', value: doc.notes });
-  const cancelledMark = doc.cancelled ? <div style={{ border: `2px solid ${INK}`, padding: 6, marginTop: 6, textAlign: 'center', fontWeight: 700, fontSize: '1.3em' }}>سند ملغى</div> : null;
+  const cancelledMark = doc.cancelled && !areStampsRemoved(layout) ? <div style={{ border: `2px solid ${INK}`, padding: 6, marginTop: 6, textAlign: 'center', fontWeight: 700, fontSize: '1.3em' }}>سند ملغى</div> : null;
   const info = (
     <div key="info" data-section="info" style={{ marginTop: 8 }}>
       <KvBox kit={kit} rows={infoRows.filter((r) => !goneAny(pt, r.keys))} enW={128} arW={140} />

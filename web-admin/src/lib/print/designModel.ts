@@ -6,11 +6,15 @@
 // القواعد: تعديلٌ بلا أثر يعيد القالب نفسه (لا يُنشئ layout)، والقيم الافتراضية لا تُكتب (ظاهر/100٪/0 مم)، ومحو آخر مفتاحٍ حرّ يترك
 // تخطيط المفاتيح الستة كما هو. القيم تُقصّ إلى حدود النواة (LAYOUT_BOUNDS) وتُلصق بشبكة 0.5 مم — والخادم يتحقّق منها ثانيةً.
 // الملفّان الافتراضيان والكلاسيكي لا يحملان تخطيطاً (withLayout يرفضهما) — الكلاسيكي يُحرَّر بنسخته editableClassicCopy.
+//
+// قرار المالك ٤ نوفمبر ٢٠٢٦ («اجعل يمكن حذف كل شي حتى كيو ار»): لا قسم مقفل بعد اليوم — الأصناف ورمز QR يُخفيان بقرارٍ صريح من
+// الشركة (sections.items/qr.visible=false؛ وqr قسمٌ افتراضيّ على الصفحة والنقطية لا يحمل إلا visible)، وأختام الحالة بـstamps=false.
+// الغياب = اليوم حرفياً. والقراءة عبر isQrRemoved/isItemsRemoved/areStampsRemoved من النواة وحدها.
 // ============================================================================
 
 import {
-  CANVAS_BANDS, CANVAS_BOX_IDS, CANVAS_CONTENT_MM, CANVAS_FOOTER_ONLY, LAYOUT_BOUNDS, LEGACY_THERMAL_ID, LOCKED_VISIBLE, LOGO_POSITIONS,
-  ALIGNS, defaultPrintLayout, isLegacyProfileId, layoutIssues, layoutOf, printableMm, sectionsFor, uniqueProfileId, uniqueProfileName,
+  CANVAS_BANDS, CANVAS_BOX_IDS, CANVAS_CONTENT_MM, CANVAS_FOOTER_ONLY, LAYOUT_BOUNDS, LEGACY_THERMAL_ID, LOGO_POSITIONS,
+  ALIGNS, defaultPrintLayout, isLegacyProfileId, isQrRemoved, layoutIssues, layoutOf, printableMm, sectionsFor, uniqueProfileId, uniqueProfileName,
   withLayout,
   type CanvasBand, type CanvasBox, type CanvasBoxId, type LogoPosition, type PrintCanvas, type PrintLayout, type PrintProfile,
   type PrintSettingsV1, type SectionId, type SectionStyle,
@@ -60,12 +64,19 @@ function commit(p: PrintProfile, next: PrintLayout): PrintProfile {
 
 const sectionIds = (p: PrintProfile, l: PrintLayout): readonly SectionId[] => sectionsFor(p.printer, l.design);
 
+/** QR على الصفحة والنقطية (القياسي وثنائي اللغة): ليس قسماً في الترتيب بل «قسمٌ افتراضيّ» يحمل مفتاح الحذف visible وحده */
+const isVirtualQr = (p: PrintProfile, l: PrintLayout, id: SectionId): boolean => id === 'qr' && !sectionIds(p, l).includes('qr');
+
 // ─── تنسيق الأقسام ───
 
-/** نمطٌ نظيف: مقصوص إلى الحدود، بلا قيمٍ افتراضية (ظاهر/100٪/0)، وبلا إخفاءٍ للأصناف ولا لرمز QR الرول */
-function cleanStyle(id: SectionId, s: Partial<SectionStyle>): SectionStyle {
+/**
+ * نمطٌ نظيف: مقصوص إلى الحدود، بلا قيمٍ افتراضية (ظاهر/100٪/0). الإخفاء يبقى لكل قسم — ومنه الأصناف ورمز QR (قرار المالك
+ * ٤ نوفمبر ٢٠٢٦) بتنبيهٍ وتأكيدٍ في الواجهة. virtual: قسم QR الافتراضي على الصفحة والنقطية — لا يحمل إلا visible.
+ */
+function cleanStyle(s: Partial<SectionStyle>, virtual = false): SectionStyle {
   const out: SectionStyle = {};
-  if (s.visible === false && !LOCKED_VISIBLE.includes(id)) out.visible = false;
+  if (s.visible === false) out.visible = false;
+  if (virtual) return out;
   if (s.align !== undefined && (ALIGNS as readonly string[]).includes(s.align)) out.align = s.align;
   if (fin(s.fontPct)) {
     const f = Math.round(clamp(s.fontPct, B.fontPct[0], B.fontPct[1]));
@@ -83,11 +94,13 @@ function cleanStyle(id: SectionId, s: Partial<SectionStyle>): SectionStyle {
 
 /**
  * تنسيق قسم: patch يُدمج فوق المحفوظ (قيمة undefined تحذف مفتاحها، والافتراضي يُحذف)، وnull يمحو تنسيق القسم كلّه. قسمٌ ليس
- * من أقسام التصميم يعيد القالب كما هو.
+ * من أقسام التصميم يعيد القالب كما هو — إلا QR على الصفحة والنقطية: قسمٌ افتراضيّ (يحمله الإجماليات أو البيانات) يقبل visible
+ * وحده وتُهمل بقية المفاتيح، فلا يدخل الترتيب ولا يُنسَّق.
  */
 export function withSectionStyle(p: PrintProfile, id: SectionId, patch: Partial<SectionStyle> | null): PrintProfile {
   const l = currentLayout(p);
-  if (!sectionIds(p, l).includes(id)) return p;
+  const virtual = isVirtualQr(p, l, id);
+  if (!virtual && !sectionIds(p, l).includes(id)) return p;
   const sections: Partial<Record<SectionId, SectionStyle>> = { ...(l.sections ?? {}) };
   if (patch === null) delete sections[id];
   else {
@@ -96,7 +109,7 @@ export function withSectionStyle(p: PrintProfile, id: SectionId, patch: Partial<
       if (v === undefined) delete merged[k];
       else (merged as Record<string, unknown>)[k] = v;
     }
-    const st = cleanStyle(id, merged);
+    const st = cleanStyle(merged, virtual);
     if (Object.keys(st).length) sections[id] = st;
     else delete sections[id];
   }
@@ -107,6 +120,40 @@ export function withSectionStyle(p: PrintProfile, id: SectionId, patch: Partial<
 
 /** «العودة» لقسمٍ واحد (B.7) */
 export const resetSection = (p: PrintProfile, id: SectionId): PrintProfile => withSectionStyle(p, id, null);
+
+// ─── الحذف الصريح: رمز QR وأختام الحالة (قرار المالك ٤ نوفمبر ٢٠٢٦) ───
+
+/**
+ * حذف رمز QR من المطبوعة أو إعادته — لكل طابعة وتصميم: removed=true يكتب sections.qr.visible=false (قسمٌ افتراضيّ على الصفحة
+ * والنقطية، ومدموجٌ مع تنسيق قسم الرول) ويزيل مربع QR من اللوحة إن وُجد؛ وfalse يحذف visible وحده (والنمط الفارغ يُزال). القسم
+ * الحامل (الإجماليات/البيانات) لا يُمسّ أبداً — إخفاؤه وحده يُبقي الرمز يتيماً في مكانه التلقائي كاليوم. الكلاسيكي والافتراضيان كما هما.
+ * الإعادة لا تعيد مربع اللوحة المحذوف: يعود الرمز إلى مكانه في التدفّق (مع الإجماليات).
+ */
+export function withQrRemoved(p: PrintProfile, removed: boolean): PrintProfile {
+  if (!editable(p)) return p;
+  const l = currentLayout(p);
+  const virtual = isVirtualQr(p, l, 'qr');
+  const sections: Partial<Record<SectionId, SectionStyle>> = { ...(l.sections ?? {}) };
+  const cur: Partial<SectionStyle> = { ...(sections.qr ?? {}) };
+  if (removed) cur.visible = false;
+  else delete cur.visible;
+  const st = cleanStyle(cur, virtual);
+  if (Object.keys(st).length) sections.qr = st;
+  else delete sections.qr;
+  if (Object.keys(sections).length) l.sections = sections;
+  else delete l.sections;
+  if (removed && l.canvas?.boxes.some((b) => b.id === 'qr')) l.canvas = { ...l.canvas, boxes: l.canvas.boxes.filter((b) => b.id !== 'qr') };
+  return commit(p, l);
+}
+
+/** حذف أختام الحالة (وسم نسخة المحاكاة، وإشعار سند التسليم والإلغاء، وختم «سند ملغى») أو إعادتها: true يكتب stamps=false، وfalse يحذفه */
+export function withStampsRemoved(p: PrintProfile, removed: boolean): PrintProfile {
+  if (!editable(p)) return p;
+  const l = currentLayout(p);
+  if (removed) l.stamps = false;
+  else delete l.stamps;
+  return commit(p, l);
+}
 
 // ─── الشعار ───
 
@@ -157,6 +204,7 @@ export function resetLogo(p: PrintProfile): PrintProfile {
   return commit(p, l);
 }
 
+/** «إعادة تنسيق الأقسام»: يمحو تنسيق كل قسم ومعه حذف الأصناف ورمز QR (إعادةٌ صريحة) — أختام الحالة لا تعود إلا بـwithStampsRemoved أو إعادة التخطيط كلّه */
 export function resetSections(p: PrintProfile): PrintProfile {
   if (!p.options.layout?.sections) return p;
   const l = currentLayout(p);
@@ -185,8 +233,9 @@ const bandMax = (c: PrintCanvas, band: CanvasBand): number => {
 /**
  * لوحتان صالحتان بقواعد النواة: أطوالٌ على الشبكة في حدودها (المجموع ≤ 200)، ومربعاتٌ معروفة بلا تكرار، والإجماليات والتواقيع في
  * التذييل، وكل مربعٍ داخل لوحته ≥ 5 مم، ومربع QR ≥ 47 مم (تكبر لوحته إن اتّسع الحدّ، وإلا يعود إلى التدفّق)، ولا مربع في لوحةٍ صفرية.
+ * qrRemoved (حذفت الشركة الرمز صراحةً): مربع QR يُسقط بلا أن تكبر لوحةٌ لأجله.
  */
-function sanitizeCanvas(c: PrintCanvas, W: number): PrintCanvas {
+function sanitizeCanvas(c: PrintCanvas, W: number, qrRemoved: boolean): PrintCanvas {
   const headerMm = snapMm(clamp(fin(c.headerMm) ? c.headerMm : 0, B.headerMm[0], B.headerMm[1]));
   const footerMm = snapMm(clamp(fin(c.footerMm) ? c.footerMm : 0, B.footerMm[0], Math.min(B.footerMm[1], B.bandsTotalMm - headerMm)));
   const out: PrintCanvas = { headerMm, footerMm, boxes: [] };
@@ -196,6 +245,7 @@ function sanitizeCanvas(c: PrintCanvas, W: number): PrintCanvas {
   const ordered = [...list.filter((b) => b?.id === 'qr'), ...list.filter((b) => b?.id !== 'qr')];
   for (const raw of ordered) {
     if (!raw || !(CANVAS_BOX_IDS as readonly string[]).includes(raw.id) || seen.has(raw.id)) continue;
+    if (raw.id === 'qr' && qrRemoved) continue;
     if (![raw.x, raw.y, raw.w, raw.h].every(fin)) continue;
     const band: CanvasBand = CANVAS_FOOTER_ONLY.includes(raw.id) ? 'footer'
       : (CANVAS_BANDS as readonly string[]).includes(raw.band) ? raw.band : 'header';
@@ -233,16 +283,18 @@ export function withCanvas(p: PrintProfile, c: PrintCanvas | null): PrintProfile
     return commit(p, l);
   }
   if (!canvasCapable(p)) return p;
-  l.canvas = sanitizeCanvas(c, contentW(p));
+  l.canvas = sanitizeCanvas(c, contentW(p), isQrRemoved(l));
   return commit(p, l);
 }
 
 /**
  * إضافة مربع أو تعديله: يُلصق بالشبكة ويُقصّ داخل لوحته والمحتوى؛ الإجماليات والتواقيع تذهب للتذييل، وQR لا يصغر عن 47 مم؛ واللوحة
- * تكبر لتسع ارتفاع المربع (لا موضعه) في حدودها. بلا لوحتين بعد ⇒ تُنشأ لوحتان صفريتان تكبر منهما لوحة المربع.
+ * تكبر لتسع ارتفاع المربع (لا موضعه) في حدودها. بلا لوحتين بعد ⇒ تُنشأ لوحتان صفريتان تكبر منهما لوحة المربع. مربع QR مرفوضٌ
+ * (القالب كما هو) ما دامت الشركة حذفت الرمز — يُعاد الرمز أولاً بـwithQrRemoved(p, false).
  */
 export function upsertBox(p: PrintProfile, box: CanvasBox): PrintProfile {
   if (!canvasCapable(p) || !box || !(CANVAS_BOX_IDS as readonly string[]).includes(box.id)) return p;
+  if (box.id === 'qr' && isQrRemoved(layoutOf(p))) return p;
   const c: PrintCanvas = JSON.parse(JSON.stringify(layoutOf(p).canvas ?? { headerMm: 0, footerMm: 0, boxes: [] })) as PrintCanvas;
   const band: CanvasBand = CANVAS_FOOTER_ONLY.includes(box.id) ? 'footer' : (CANVAS_BANDS as readonly string[]).includes(box.band) ? box.band : 'header';
   const min = boxMin(box.id);
@@ -254,7 +306,10 @@ export function upsertBox(p: PrintProfile, box: CanvasBox): PrintProfile {
   return withCanvas(p, c);
 }
 
-/** يعيد المربع إلى مكانه في التدفّق (QR منه: يُطبع مع الإجماليات — لا يُحذف أبداً) */
+/**
+ * يعيد المربع إلى مكانه في التدفّق — وQR منه يعود إلى مكانه التلقائي مع الإجماليات (إخراجٌ من اللوحة لا حذف). حذف الرمز من
+ * المطبوعة قرارٌ صريحٌ آخر: withQrRemoved.
+ */
 export function removeBox(p: PrintProfile, id: CanvasBoxId): PrintProfile {
   const c = layoutOf(p).canvas;
   if (!c || !c.boxes.some((b) => b.id === id)) return p;
@@ -295,7 +350,7 @@ export function starterCanvas(p: PrintProfile): PrintCanvas {
   boxes.push({ id: 'title', band: 'header', x: 0, y: leftTop, w: half, h: 12 });
   boxes.push({ id: 'docInfo', band: 'header', x: 0, y: leftTop + 14, w: half, h: 30 });
   const bottom = Math.max(...boxes.map((b) => b.y + b.h));
-  return sanitizeCanvas({ headerMm: ceilStep(bottom + 2), footerMm: 0, boxes }, W);
+  return sanitizeCanvas({ headerMm: ceilStep(bottom + 2), footerMm: 0, boxes }, W, isQrRemoved(l));
 }
 
 // ─── الكلاسيكي ───
@@ -328,9 +383,9 @@ export function editableClassicCopy(s: PrintSettingsV1, classicId: string, name?
 
 // ─── أخطاء المفاتيح الحرّة (للعرض بجوار الأداة) ───
 
-const FREE_PATH = /\.options\.layout\.(logoMm|logoAfter|sections|canvas)(\b|\.|\[|$)/;
+const FREE_PATH = /\.options\.layout\.(logoMm|logoAfter|sections|canvas|stamps)(\b|\.|\[|$)/;
 
-/** رسائل قواعد النواة للمفاتيح الأربعة وحدها (بلا تكرار) — [] للقالب السليم أو بلا تخطيط */
+/** رسائل قواعد النواة للمفاتيح الحرّة وحدها (logoMm/logoAfter/sections/canvas/stamps، بلا تكرار) — [] للقالب السليم أو بلا تخطيط */
 export function freeIssues(p: PrintProfile): string[] {
   const out: string[] = [];
   for (const i of layoutIssues(p, 'p')) if (FREE_PATH.test(i.path) && !out.includes(i.message)) out.push(i.message);

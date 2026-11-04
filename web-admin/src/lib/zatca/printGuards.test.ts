@@ -232,13 +232,18 @@ test('القالبان الحراريان الجديدان من القرار ن�
   assert.match(body, /\$\{d\.showTaxBreakdown \? `<div class="row"><span>\$\{inclusiveDoc\s*\? lbl\(r, 'tot\.vatIncl', 'منها ضريبة القيمة المضافة'/, 'سطر الضريبة غير محروس');
   assert.match(body, /\$\{d\.showTaxBreakdown \? `<div class="row"><span>\$\{lbl\(r, 'tot\.taxable', 'المجموع قبل الضريبة'\)\}/);
   assert.match(body, /inclusiveDoc && d\.standardLayout && it\.taxPct > 0/, 'سعر الوحدة قبل الضريبة بتخمينٍ لا بالقرار');
-  assert.match(body, /\$\{d\.watermark \? /);
-  assert.match(body, /\$\{d\.notice \? /);
+  /* أختام الحالة (قرار المالك ٤ نوفمبر ٢٠٢٦): من القرار وحده، وتسقط بقرار الشركة الصريح وحده (areStampsRemoved) — لا شرط آخر */
+  assert.match(body, /const marks = !areStampsRemoved\(r\.layout\);\n\s*const watermark = marks \? d\.watermark : null;\n\s*const notice = marks \? d\.notice : null;/);
+  assert.equal((body.match(/\$\{watermark \? /g) || []).length, 2, 'وسم البروفة: في الرأس وفي keep');
+  assert.equal((body.match(/\$\{notice \? /g) || []).length, 2, 'الإشعار: في الرأس وفي keep');
+  assert.doesNotMatch(body, /\$\{d\.(watermark|notice) \? /, 'ختمٌ يتجاوز خيار الشركة');
   assert.doesNotMatch(body, /buildZatcaQr|QRCode\.|qrBlock\(|isSimplified/);
   // الرمز الوحيد: ما بنته printThermalInvoice من القرار، ومقاسه من خلاياه الفعلية — بلا صورةٍ ثانية
   const rq = between(t, 'function rollQr', 'function rollHead', 'rep/thermal.ts');
   assert.match(rq, /QRCode\.create\(d\.qr\.value, \{ errorCorrectionLevel: 'L' \}\)/);
   assert.match(rq, /if \(!plan \|\| !plan\.fits\) throw new PrintRefusedError\(PRINT_WARNINGS\.qrNoFit\)/);
+  // لا رمز (حذفته الشركة صراحةً فلم يُبنَ — qrOff) ⇒ لا قياس ولا رفض: أول سطر في rollQr
+  assert.match(rq, /\{\n\s*if \(!qr \|\| d\.qr\.source !== 'stamped' \|\| !d\.qr\.value\) return qr;/);
   assert.doesNotMatch(rq, /toDataURL|buildZatcaQr/);
 });
 
@@ -356,7 +361,13 @@ test('(b) كل خانة data-qr-value تأخذ قيمتها من القرار أ
   assert.match(builders, /return qrSlot\(payload, 'M', p\)/);
   // البانيان يُختاران مرّة قبل السطر المحروس نفسه — فالمختوم من القرار، والمرحلة الأولى خلف مصدرها
   const inv = between(t, 'export async function printThermalInvoice', 'const items = doc.items.map', 'rep/thermal.ts');
-  assert.match(inv, /const \{ stampedQrBlock, qrBlock \} = qrBuilders\(roll\);\n\s*const qr = d\.qr\.source === 'stamped' && d\.qr\.value \? await stampedQrBlock\(d\.qr\.value\)/);
+  /* قرار المالك ٤ نوفمبر ٢٠٢٦: البوابة الوحيدة qrOff = حذف الشركة الصريح (isQrRemoved على تخطيط القالب الجديد) ⇒ بانيان فارغان
+   * (NO_QR) فلا صورة ولا خانة ولا qrNoFit — وإلا كاليوم؛ والسطر المحروس بعدها حرفاً */
+  assert.match(inv, /const qrOff = !!roll && isQrRemoved\(roll\.layout\);\n\s*const \{ stampedQrBlock, qrBlock \} = qrOff \? NO_QR : qrBuilders\(roll\);\n\s*const qr = d\.qr\.source === 'stamped' && d\.qr\.value \? await stampedQrBlock\(d\.qr\.value\)/);
+  assert.equal((t.match(/\bqrOff\b/g) || []).length, 2, 'qrOff: التعريف والاختيار وحدهما');
+  assert.equal((stripComments(t).match(/isQrRemoved\(/g) || []).length, 1, 'قراءةٌ ثانية لحذف الرمز في الشريط');
+  assert.match(t, /const NO_QR: QrBuilders = Object\.freeze\(\{ stampedQrBlock: async \(\) => '', qrBlock: async \(\) => '' \}\);/);
+  assert.equal((t.match(/\bNO_QR\b/g) || []).length, 2, 'NO_QR: التعريف والاختيار');
   assert.equal(t.split('phase1Payload(').length - 1, 3, 'phase1Payload: التعريف وqrBlock وبانية الخانة');
   // المعايرة: الرمز التجريبيّ وحده
   const cal = read('lib/print/calibration.ts');
@@ -430,13 +441,20 @@ test('القالب ثنائي اللغة (تخطيط المطبوعات): الق
   }
   // الرمز كتلةُ اليوم نفسها (InvoiceQrBlock بقيمة القرار وqrValue المحروسة) — للقالبين
   assert.match(a4, /const qrNode = <InvoiceQrBlock doc=\{doc\} zDecision=\{zDecision\} qrValue=\{qrValue\} look=\{look\} pt=\{pt\} \/>;/);
-  assert.match(a4, /<GridInvoice ref=\{ref\} doc=\{doc\} facts=\{\{ pt, zDecision, title: docTitle, inclusiveDoc, vatRate, noteRefs \}\} look=\{look\} layout=\{layout\} qr=\{qrNode\} \/>/);
+  /* قرار المالك ٤ نوفمبر ٢٠٢٦ («احذف كل شيء حتى QR»): الرمز يُطبع ما لم تحذفه الشركة صراحةً — بوابةٌ واحدة qrShown من isQrRemoved
+   * على تخطيط القالب، وكل استعمالٍ للكتلة (الثنائي والإجماليات واليتيم) يمرّ بها فتسقط الكتلة كلّها معاً (المختوم والحكومي والمرحلة
+   * الأولى والسبب والتلميح والتعليق وICV/UUID). ولا قراءة يدوية لـsections.qr. */
+  assert.match(a4, /\n\s*const qrShown = isQrRemoved\(layout\) \? null : qrNode;\n/);
+  assert.equal((a4.match(/\bqrNode\b/g) || []).length, 2, 'qrNode: التعريف والبوابة وحدهما');
+  assert.equal((stripComments(a4).match(/isQrRemoved\(/g) || []).length, 1, 'قراءةٌ ثانية لحذف الرمز في قالب A4');
+  assert.doesNotMatch(stripComments(s), /sections\??\.qr\b/, 'قراءةٌ يدوية لخيار حذف الرمز');
+  assert.match(a4, /<GridInvoice ref=\{ref\} doc=\{doc\} facts=\{\{ pt, zDecision, title: docTitle, inclusiveDoc, vatRate, noteRefs \}\} look=\{look\} layout=\{layout\} qr=\{qrShown\} \/>/);
   /* «التحرير الحرّ»: الرمز في الإجماليات مرّةً واحدة، ولا يُقطع منها (omitQr) إلا لأنّ مربع QR موضوعٌ في لوحة؛ وإن أُخفي القسم
-   * الحامل ولم يوضع المربع طُبعت الكتلة نفسها يتيمةً بعد الأصناف (freeBody) */
-  assert.equal((a4.match(/\{!o\?\.omitQr && qrNode\}/g) || []).length, 1, 'الرمز في القالب الحالي داخل الإجماليات مرّةً واحدة');
-  assert.equal((a4.match(/\bqrNode\b/g) || []).length, 4, 'qrNode: التعريف والقالب ثنائي اللغة والإجماليات واليتيم');
+   * الحامل ولم يوضع المربع ولم يُحذف الرمز طُبعت الكتلة نفسها يتيمةً بعد الأصناف (freeBody) */
+  assert.equal((a4.match(/\{!o\?\.omitQr && qrShown\}/g) || []).length, 1, 'الرمز في القالب الحالي داخل الإجماليات مرّةً واحدة');
+  assert.equal((a4.match(/\bqrShown\b/g) || []).length, 5, 'qrShown: التعريف والثنائي والإجماليات (المحاذاة والكتلة) واليتيم');
   assert.equal((a4.match(/omitQr: [^,}]+/g) || []).join('|'), "omitQr: placed.has('qr')", 'الرمز يُقطع من الإجماليات بلا مربعٍ في لوحة');
-  assert.match(a4, /\n\s*qr: qrNode,\n/);
+  assert.match(a4, /\n\s*qr: qrShown,\n/);
   assert.match(s, /const orphan = isNode\(parts\.qr\) && !placed\.has\('qr'\) && \(!visible\.has\('totals'\) \|\| qrOrphan\(layout, printer, 'standard'\)\);/, 'الرمز اليتيم لا يُطبع إن أُخفيت الإجماليات');
   assert.match(s, /if \(id === 'items' && orphan\) \{/);
   const g = stripComments(read('rep/printGrid.tsx'));

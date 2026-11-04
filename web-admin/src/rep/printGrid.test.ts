@@ -460,8 +460,12 @@ test('التحرير الحرّ — تنسيق القسم: المخفيّ يسق
   assert.match(html, new RegExp(`data-sec="items" style="display:flex;flex-direction:column;flex:1 1 auto;text-align:left;margin-top:${mmToPx(10)}px;font-size:150%"`));
   assert.match(html, new RegExp(`data-sec="footer" style="display:flow-root;margin-bottom:${mmToPx(2.5)}px;font-size:70%"`));
   assert.match(html, /data-sec="header" data-copy-anchor="" style="display:flow-root"/);
-  // الأصناف لا تُخفى (LOCKED_VISIBLE) ولو وصل visible:false
-  assert.ok(blocks(gridFree(free({ sections: { items: { visible: false } } }))).includes('items'));
+  // قرار المالك ٤ نوفمبر ٢٠٢٦: الأصناف تُخفى بإخفاء الشركة الصريح — والإجماليات باقية، والحشو بلا جدول لا يكسر الورقة
+  const noItems = gridFree(free({ sections: { items: { visible: false } } }));
+  assert.ok(!blocks(noItems).includes('items'));
+  assert.ok(!noItems.includes('data-section="items"'));
+  assert.ok(blocks(noItems).includes('totals'));
+  assert.ok(blocks(gridFree(free({ sections: { items: { fontPct: 120 } } }))).includes('items'), 'تنسيقٌ بلا إخفاء يبقيها');
   // لا zoom ولا filter في المسار الحرّ (المظهر الافتراضي بلا أسلوبٍ محصور)
   assert.ok(!/zoom|filter/.test(html));
   // الحشو: غلاف الأصناف يتمدّد فقط حين يتمدّد جدولها
@@ -469,7 +473,7 @@ test('التحرير الحرّ — تنسيق القسم: المخفيّ يسق
   assert.match(gridFree(free({ logoMm: 20 }), { doc: many }), /data-sec="items" style="display:flow-root"/);
 });
 
-test('التحرير الحرّ — QR لا يُحذف: «البيانات» مخفيّة ⇒ كتلته وحدها بعد الترويسة، مرّةً واحدة، وبلا رمزٍ ممرَّر لا كتلة', () => {
+test('التحرير الحرّ — QR لا يُحذف إلا بحذف الشركة الصريح: «البيانات» مخفيّة ⇒ كتلته وحدها بعد الترويسة، مرّةً واحدة، وبلا رمزٍ ممرَّر لا كتلة', () => {
   const html = gridFree(free({ sections: { info: { visible: false } } }));
   assert.ok(!html.includes('data-section="info"'));
   const b = blocks(html);
@@ -490,7 +494,16 @@ test('التحرير الحرّ — QR لا يُحذف: «البيانات» م�
     layout: free({ logoMm: 120, logoAfter: 'top', sections: Object.fromEntries(DEFAULT_SECTIONS.grid.map((id) => [id, { visible: false, fontPct: 160, spaceBeforeMm: 30, spaceAfterMm: 30 }])) }),
   }));
   assert.equal(qrCount(maxed), 1);
-  assert.ok(blocks(maxed).includes('items'));
+  assert.ok(!blocks(maxed).includes('items'), 'الأصناف المخفيّة صراحةً تسقط (قرار المالك ٤ نوفمبر)');
+  /* الحذف الصريح (sections.qr.visible=false): القالب الأصليّ لا يمرّر الرمز (null) فلا رمز في البيانات ولا يتيم؛ وqrOrphan نفسه
+   * لا يطبع كتلةً يتيمة ولو مُرِّرت عقدة */
+  const removedHost = gridFree(free({ sections: { info: { visible: false }, qr: { visible: false } } }));
+  assert.ok(!removedHost.includes('data-section="qr"'), 'كتلةٌ يتيمة لرمزٍ محذوف');
+  assert.equal(qrCount(removedHost), 0);
+  const removed = gridFree(free({ sections: { qr: { visible: false } } }), { qr: null });
+  assert.equal(qrCount(removed), 0);
+  assert.ok(!removed.includes('data-grid-qr'));
+  assert.ok(blocks(removed).includes('info'), 'البيانات باقية بلا رمزها');
   assert.equal(qrCount(gridFree(free({ sections: { info: { visible: false } } }), { qr: null })), 0);
   assert.ok(!gridFree(free({ sections: { info: { visible: false } } }), { qr: null }).includes('data-section="qr"'));
 });

@@ -13,7 +13,10 @@ import type { InvoiceDoc, ReceiptDoc } from './RepDocuments';
 import { creditNoteRefs, isSaudiDoc, isSignatureSrc, showsItemUnit } from './RepDocuments';
 import { zatcaPrintDecision, type ZatcaPrintDecision } from '../lib/zatca/docPrint';
 import { receiptLinkView } from './receiptLinks';
-import { PRINT_WARNINGS, dotsPerMm, geometry, legacyThermalProfile, presetPaper, qrPlan, type Paper, type PrintOptions, type PrintProfile, type PrinterDpi } from '../lib/print/printSettings';
+import {
+  PRINT_WARNINGS, areStampsRemoved, dotsPerMm, geometry, isQrRemoved, legacyThermalProfile, presetPaper, qrPlan, type Paper, type PrintOptions, type PrintProfile,
+  type PrinterDpi,
+} from '../lib/print/printSettings';
 import { makePrintTexts, normalizePrintTexts, type PrintTexts } from '../lib/print/printTexts';
 import { PrintRefusedError } from '../lib/print/printErrors';
 import { iosSystemPrint, iosSystemPrintAvailable } from '../lib/print/transport/iosBridge';
@@ -238,6 +241,9 @@ type QrBuilders = {
   qrBlock: (company: InvoiceDoc['company'], date: string, total: number, vat: number) => Promise<string>;
 };
 
+/** بانيا رمزٍ محذوف بقرار الشركة (isQrRemoved): '' دائماً — فيمرّ rollQr بلا قياسٍ ولا رفض */
+const NO_QR: QrBuilders = Object.freeze({ stampedQrBlock: async () => '', qrBlock: async () => '' });
+
 /**
  * بانيا الرمز لهذه المهمة: الصورة لنظام الطباعة (الدالّتان أعلاه كما هما — والشريط الكلاسيكي لا يعرف غيرهما)، والخانة للبلوتوث.
  * الاسمان يُظلَّلان محلياً في printThermalInvoice فيبقى السطر المحروس (`const qr = d.qr.source === 'stamped' …`) حرفاً بحرف:
@@ -311,7 +317,10 @@ export async function printThermalInvoice(doc: InvoiceDoc, opts?: ThermalPrintOp
   const title = d.title;
   // القالبان الجديدان أو الكلاسيكي — يُعرف قبل الرمز: البلوتوث المباشر يأخذ الرمز خانةً لا صورة (qrBuilders)
   const roll = rollOf(opts, doc.company, d.standardLayout);
-  const { stampedQrBlock, qrBlock } = qrBuilders(roll);
+  /* «احذف كل شيء حتى QR» (قرار المالك ٤ نوفمبر ٢٠٢٦): رمزٌ حذفته الشركة صراحةً (isQrRemoved — قسم الرمز مخفي) لا يُبنى أصلاً:
+   * لا صورة ولا خانة data-qr-value ولا رفض qrNoFit على الورق الضيّق، وقسمه (بـICV/UUID) يسقط في rollSections. والكلاسيكي بلا تخطيط. */
+  const qrOff = !!roll && isQrRemoved(roll.layout);
+  const { stampedQrBlock, qrBlock } = qrOff ? NO_QR : qrBuilders(roll);
   const qr = d.qr.source === 'stamped' && d.qr.value ? await stampedQrBlock(d.qr.value)
     : d.qr.source === 'phase1' ? await qrBlock(doc.company, doc.date, doc.total, doc.tax)
     : '';
@@ -620,10 +629,10 @@ interface InvoiceFacts {
  */
 function rollSections(r: Roll, parts: Partial<Record<SectionId, string>>, logoBlock = '', keep = ''): string {
   const order = orderedSections(r.layout, 'thermal');
-  // «التحرير الحرّ»: القسم المخفيّ (visible:false) يسقط كاملاً — والأصناف والرمز لا يُخفيان أبداً (LOCKED_VISIBLE)
+  // «التحرير الحرّ»: القسم المخفيّ (visible:false) يسقط كاملاً — والأصناف والرمز أيضاً متى أخفتهما الشركة صراحةً (قرار المالك
+  // ٤ نوفمبر ٢٠٢٦؛ الرمز المخفي لا يُبنى أصلاً — qrBuilders)، ومعه فاصله
   if (r.free) {
     const shown = new Set<SectionId>(visibleOrder(r.layout, 'thermal'));
-    shown.add('items'); shown.add('qr');
     parts = Object.fromEntries(Object.entries(parts).filter(([id]) => shown.has(id as SectionId))) as Partial<Record<SectionId, string>>;
   }
   if (r.layout && parts.info) {
@@ -645,7 +654,7 @@ function rollSections(r: Roll, parts: Partial<Record<SectionId, string>>, logoBl
  * مسار «التحرير الحرّ» ووسوم المصمّم: كل قسمٍ في غلافٍ `<div data-sec="id">` بأسلوبه المضمَّن (المسافة قبله وبعده ومحاذاته —
  * sectionCssText) ومعه `data-pd` للمصمّم وحده؛ وكتلة الشعار المستقلة أوّل الشريط أو بعد قسمها (ولو أُخفي القسم: في موضعه).
  * والرأس المخفيّ لا يُسقط سطر «الأصل/نسخة» ولا ما يفرضه قرار الطباعة (keep: العلامة المائية للبروفة وتنبيه سند التسليم —
- * zatcaPrintDecision لا الشركة): موضعهما أوّل الشريط.
+ * zatcaPrintDecision لا الشركة): موضعهما أوّل الشريط — ما لم تحذف الشركة أختام الحالة صراحةً (stamps:false ⇒ keep فارغ).
  */
 function rollWrapped(r: Roll, order: readonly SectionId[], parts: Partial<Record<SectionId, string>>, logoBlock: string, keep = ''): string {
   const at = rollLogoAt(r);
@@ -725,8 +734,12 @@ function rollInvoiceBody(f: InvoiceFacts, r: Roll): string {
   const vatKey = inclusiveDoc ? 'tot.vatIncl' : 'tot.vat';
   // صفّ الإجمالي النهائي بتسمياته الثلاث صفٌّ واحد: يُحذف بحذف tot.returnGrand للمرتجع، وإلا بحذف tot.grand
   const grandKey = doc.isReturn ? 'tot.returnGrand' : 'tot.grand';
-  // العلامة المائية للبروفة وتنبيه سند التسليم من قرار الطباعة: في الرأس كاليوم، وأوّل الشريط إن أُخفي الرأس (keep)
-  const keep = `${d.watermark ? `<div class="c b muted">${esc(tr(d.watermark))}</div>` : ''}${d.notice ? `<div class="sep"></div><div class="c muted">${esc(tr(d.notice))}</div>` : ''}`;
+  // العلامة المائية للبروفة وتنبيه سند التسليم من قرار الطباعة: في الرأس كاليوم، وأوّل الشريط إن أُخفي الرأس (keep) — وتسقطان معاً
+  // بقرار الشركة وحده (stamps:false، areStampsRemoved)
+  const marks = !areStampsRemoved(r.layout);
+  const watermark = marks ? d.watermark : null;
+  const notice = marks ? d.notice : null;
+  const keep = `${watermark ? `<div class="c b muted">${esc(tr(watermark))}</div>` : ''}${notice ? `<div class="sep"></div><div class="c muted">${esc(tr(notice))}</div>` : ''}`;
 
   return rollSections(r, {
     header: `
@@ -734,8 +747,8 @@ function rollInvoiceBody(f: InvoiceFacts, r: Roll): string {
     <div class="sep"></div>
     ${titleHtml ? `<div class="c b">${titleHtml}</div>` : ''}
     ${COPY_SLOT}
-    ${d.watermark ? `<div class="c b muted">${esc(tr(d.watermark))}</div>` : ''}
-    ${d.notice ? `<div class="sep"></div><div class="c muted">${esc(tr(d.notice))}</div>` : ''}
+    ${watermark ? `<div class="c b muted">${esc(tr(watermark))}</div>` : ''}
+    ${notice ? `<div class="sep"></div><div class="c muted">${esc(tr(notice))}</div>` : ''}
     <div class="sep"></div>`,
     info: `
     ${gone(r, numberKey) ? '' : `<div class="row"><span>${lbl(r, numberKey, 'رقم')}</span><span class="b">${esc(doc.number)}</span></div>`}
@@ -779,8 +792,9 @@ function rollInvoiceBody(f: InvoiceFacts, r: Roll): string {
 function rollReceiptBody(doc: ReceiptDoc, r: Roll): string {
   const { o, tr } = r;
   const addr = buyerAddress(doc.customer);
-  // وسم «سند ملغى»: في الرأس كاليوم، وأوّل الشريط إن أُخفي الرأس (keep) — فلا يُطبع سندٌ ملغى بلا وسمه
-  const cancelled = doc.cancelled ? `<div class="c b">— ${tr('سند ملغى')} —</div>` : '';
+  // وسم «سند ملغى»: في الرأس كاليوم، وأوّل الشريط إن أُخفي الرأس (keep) — فلا يُطبع سندٌ ملغى بلا وسمه ما لم تحذف الشركة أختام
+  // الحالة صراحةً (stamps:false، areStampsRemoved)
+  const cancelled = doc.cancelled && !areStampsRemoved(r.layout) ? `<div class="c b">— ${tr('سند ملغى')} —</div>` : '';
   return rollSections(r, {
     header: `
     ${rollHead(doc.company, r)}

@@ -15,10 +15,14 @@
  * والطباعة التجريبية: مستند فاتورةٍ نموذجيّ يمرّ بالقوالب الحقيقية نفسها، وقرار ZATCA فيه **بيئة محاكاة** (علامتها المائية) ورمزه
  * تجريبيٌّ بالطول نفسه (dummyQrValue) — لا buildZatcaQr أبداً: لا يخرج من الإعدادات رمزٌ ضريبيٌّ يشبه الحقيقيّ (§4.14).
  * وكلاهما يحمل «نموذج اختبار — ليس مستندا ضريبيا».
+ *
+ * وما حذفته الشركة صراحةً من قالبها (قرار المالك ٤ نوفمبر ٢٠٢٦ «اجعل يمكن حذف كل شي حتى كيو ار») لا تطبعه صفحة المعايرة أيضاً:
+ * رمز QR محذوف (isQrRemoved) ⇒ بلا خانة رمزٍ تجريبيّ ولا قسمه على الورق القصير (فلا رفض qrNoFit)؛ وأختام الحالة محذوفة
+ * (areStampsRemoved) ⇒ بلا شريط «نموذج اختبار» ويُعاد حساب ارتفاع الرأس. بلا اختيارٍ: الصفحة كما هي حرفياً.
  */
 import QRCode from 'qrcode';
 import {
-  FONT_SCALES, PRINT_SAMPLE_WATERMARK, dotsPerMm, geometry, qrPlan, type PrintProfile,
+  FONT_SCALES, PRINT_SAMPLE_WATERMARK, areStampsRemoved, dotsPerMm, geometry, isQrRemoved, layoutOf, qrPlan, type PrintProfile,
 } from './printSettings';
 import type { Company, InvoiceDoc } from '../../rep/RepDocuments';
 
@@ -111,6 +115,8 @@ function calibrationModel(p: PrintProfile, tr: Tr, name: string) {
   const g = geometry(p);
   const W = g.printableWidthMm;
   const base = p.printer === 'thermal' ? 11 : 12.5;
+  const noQr = isQrRemoved(layoutOf(p));
+  const noStamps = areStampsRemoved(layoutOf(p));
   const q = calibrationQr(p);
   const slotMm = (q.cells + 4) * q.cellMm + 0.4;
   const fonts = [
@@ -131,30 +137,30 @@ function calibrationModel(p: PrintProfile, tr: Tr, name: string) {
     'إن قص طرف المسطرة فقلل عرض الطباعة بالنقاط',
     ...(p.paper.feed === 'continuous' ? ['يجب أن يقع خط النهاية على المسافة نفسها من الثقب في الصفحات الثلاث'] : []),
   ];
-  const helpQr = ['امسح الرمز التجريبي بالجوال — إن لم يقرأ فاختر مقاس الرمز كبير'];
+  const helpQr = noQr ? [] : ['امسح الرمز التجريبي بالجوال — إن لم يقرأ فاختر مقاس الرمز كبير'];
   const small = base * 0.85;
   const help = (lines: readonly string[]) => 1.5 + sum(lines.map((h) => textMm(`• ${tr(h)}`, small, W)));
   // العنوان بأطول صورته («· n/m»)
   const title = `${tr('صفحة معايرة')} — ${name} · 9/9`;
-  const banner = 2 * 1.5 * PX_MM + 2 + textMm(tr(PRINT_SAMPLE_WATERMARK), base, W) + 1.5;
+  const banner = noStamps ? 0 : 2 * 1.5 * PX_MM + 2 + textMm(tr(PRINT_SAMPLE_WATERMARK), base, W) + 1.5;
   const est = {
     banner,
     title: textMm(title, base * 1.15, W),
     meta: textMm(meta, small, W) + 1.5,
     rulers: (12 + 0.3) + (9 + 1) + (5 + 2 + 2),
     fonts: sum(fonts.map((f) => textMm(f.text, f.px, W))),
-    qr: 2 + slotMm + textMm(tr('رمز تجريبي — ليس رمزا ضريبيا'), small, W) + textMm(qrCaption, small, W) + 2,
+    qr: noQr ? 0 : 2 + slotMm + textMm(tr('رمز تجريبي — ليس رمزا ضريبيا'), small, W) + textMm(qrCaption, small, W) + 2,
     helpAll: help([...helpRuler.slice(0, 2), ...helpQr, ...helpRuler.slice(2)]),
     helpRuler: help(helpRuler),
     helpQr: help(helpQr),
     end: lineMm(small) + 0.4 + END_SAFETY_MM,
   };
-  return { g, W, base, q, slotMm, fonts, meta, qrCaption, helpRuler, helpQr, est };
+  return { g, W, base, q, slotMm, fonts, meta, qrCaption, helpRuler, helpQr, est, noQr, noStamps };
 }
 
 /** أقسام الصفحة لهذا القالب: واحدٌ إن اتسع كل شيء، وإلا الرأس والمساطر ثم الرمز — والتقدير لكلٍّ داخل طول القسم */
 export function calibrationLayout(p: PrintProfile, tr: Tr, name = ''): CalibrationLayout {
-  const { g, est } = calibrationModel(p, tr, name);
+  const { g, est, noQr } = calibrationModel(p, tr, name);
   const bodyMm = g.paperLengthMm === null ? null : Math.max(20, (g.usableLengthMm ?? 0) - 0.5);
   const end = bodyMm === null ? 0 : est.end;
   const head = est.banner + est.title;
@@ -165,6 +171,8 @@ export function calibrationLayout(p: PrintProfile, tr: Tr, name = ''): Calibrati
   const rulers: CalibrationSection = withFonts <= bodyMm
     ? { kind: 'rulers', fonts: true, mm: withFonts }
     : { kind: 'rulers', fonts: false, mm: withFonts - est.fonts };
+  // رمز QR محذوف: لا قسم رمز — الرأس والمساطر وحدها على أوراق المعايرة
+  if (noQr) return { bodyMm, sections: [rulers], sheets: pages };
   const qr: CalibrationSection = { kind: 'qr', fonts: false, mm: head + est.qr + est.helpQr + end };
   return { bodyMm, sections: [rulers, qr], sheets: Math.max(pages, 2) };
 }
@@ -175,7 +183,7 @@ export function calibrationLayout(p: PrintProfile, tr: Tr, name = ''): Calibrati
  * يقسم الصفحة قسمين (calibrationLayout) يتعاقبان على الأوراق.
  */
 export function buildCalibrationDocument(p: PrintProfile, tr: Tr, opts: CalibrationOptions): string {
-  const { g, W, base, q, slotMm, fonts, meta, qrCaption, helpRuler, helpQr } = calibrationModel(p, tr, opts.name);
+  const { g, W, base, q, slotMm, fonts, meta, qrCaption, helpRuler, helpQr, noQr, noStamps } = calibrationModel(p, tr, opts.name);
   const raster = p.printer !== 'page';
   const roll = g.paperLengthMm === null;
   const layout = calibrationLayout(p, tr, opts.name);
@@ -197,15 +205,16 @@ export function buildCalibrationDocument(p: PrintProfile, tr: Tr, opts: Calibrat
   const fontsHtml = fonts.map((f) => `<div style="font-size:${f.px}px${f.bold ? ';font-weight:700' : ''}">${esc(f.text)}</div>`).join('');
   const helpHtml = (lines: readonly string[]) => `<div class="help">${lines.map((h) => `<div>• ${esc(tr(h))}</div>`).join('')}</div>`;
 
-  const head = (n: number) => `
-    <div class="banner">${esc(tr(PRINT_SAMPLE_WATERMARK))}</div>
+  const banner = noStamps ? '' : `
+    <div class="banner">${esc(tr(PRINT_SAMPLE_WATERMARK))}</div>`;
+  const head = (n: number) => `${banner}
     <div class="title">${esc(tr('صفحة معايرة'))} — ${esc(opts.name)}${sheets > 1 ? ` · <span dir="ltr">${n}/${sheets}</span>` : ''}</div>`;
   const rulers = `
     <div class="meta" dir="ltr">${esc(meta)}</div>
     <div class="ruler" dir="ltr">${ticks.join('')}</div>
     <div class="edges" dir="ltr"><span class="e l"></span><span class="mid"></span><span class="e r"></span></div>
     <div class="bar"></div>`;
-  const qrBlock = `
+  const qrBlock = noQr ? '' : `
     <div class="qrwrap">
       <div class="qrslot" data-qr-value="${esc(dummy)}" data-qr-ec="L" style="width:${mm(slotMm)};height:${mm(slotMm)}">${qrSvg(dummy, q.cellMm)}</div>
       <div class="cap">${esc(tr('رمز تجريبي — ليس رمزا ضريبيا'))}</div>

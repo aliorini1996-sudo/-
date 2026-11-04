@@ -2,16 +2,17 @@
  * مفتّش «المصمّم الحرّ»: أدوات العنصر المحدَّد — قسم (SectionStyleFields)، أو الشعار (منزلقة الحجم بالملّيمتر ومحاذاته
  * ومكانه)، أو مربعٌ في لوحة (x/y/w/h بالملّيمتر واللوحة والمحاذاة والخط)، أو لوحة (ارتفاعها). وبلا تحديد: قائمة الأقسام
  * للاختيار وأزرار «العودة» الجزئية. كل كتابةٍ تمرّ بمساعدات designModel فيبقى للمصمّم والأدوات نموذج بيانات واحد.
+ * وعلى مستوى القالب (قرار المالك ٤ نوفمبر ٢٠٢٦): «حذف رمز QR من المطبوعة» و«أختام الحالة» بتأكيدٍ وتنبيهٍ أحمر.
  */
 import { RotateCcw, Trash2 } from 'lucide-react';
 import { useTr } from '../../../i18n/strings';
 import {
   CANVAS_BAND_LABELS, CANVAS_BOX_LABELS, CANVAS_CONTENT_MM, CANVAS_FOOTER_ONLY, LAYOUT_BOUNDS, LOGO_POSITIONS, LOGO_POSITION_LABELS,
-  SECTION_LABELS, layoutOf, sectionsFor,
+  SECTION_LABELS, isQrRemoved, layoutOf, sectionsFor,
   type CanvasBand, type CanvasBox, type CanvasBoxId, type LogoPosition, type PrintProfile, type SectionId,
 } from '../../../lib/print/printSettings';
 import { logoMmOf, logoMmRange, removeBox, resetCanvas, resetLogo, resetSections, upsertBox, withCanvas, withLogo, type DesignSel } from '../../../lib/print/designModel';
-import { AlignChips, NumInput, SectionStyleFields, chipCls, clampFontPct } from './SectionStyleFields';
+import { AlignChips, NumInput, QrRemoveField, SectionStyleFields, StampsField, chipCls, clampFontPct } from './SectionStyleFields';
 import { bandAllows, bandLimits, fitBoxesToBand, snapGrid } from './designerMath';
 import { canvasQrMinMm } from '../../../rep/RepDocuments';
 import { lookFor } from '../../../rep/printLook';
@@ -94,6 +95,10 @@ export default function DesignInspector({ p, update, selected, onSelect, phase2 
           <button type="button" key={s} onClick={() => onSelect(s)} className={chipCls(false)}>{tr(SECTION_LABELS[s])}</button>
         ))}
       </div>
+      <div className="space-y-2 border-t border-[#F1EBDF] pt-2 mb-2" data-profile-removals="">
+        <QrRemoveField p={p} update={update} />
+        <StampsField p={p} update={update} />
+      </div>
       <div className="flex flex-col items-start gap-1 border-t border-[#F1EBDF] pt-2">
         <button type="button" disabled={!hasLogo} onClick={() => update(resetLogo(p))} className="inline-flex items-center gap-1 text-[11px] text-[#6E6557] hover:text-[#C94E28] disabled:opacity-40">
           <RotateCcw className="w-3 h-3" aria-hidden="true" />{tr('إعادة الشعار كاليوم')}
@@ -175,9 +180,11 @@ function BoxInspector({ p, update, box, onSelect }: { p: PrintProfile; update(ne
   const contentW = p.printer === 'impact' ? CANVAS_CONTENT_MM.impact : CANVAS_CONTENT_MM.page;
   const set = (patch: Partial<CanvasBox>): void => update(upsertBox(p, { ...box, ...patch }));
   const isQr = box.id === 'qr';
-  const qrMin = isQr ? qrBoxMinFor(p) : 0;
+  // حدّ القراءة لا يسري إلا ما دام الرمز غير محذوف (المحذوف لا مربع له — المصمّم يزيله)
+  const qrLive = isQr && !isQrRemoved(layoutOf(p));
+  const qrMin = qrLive ? qrBoxMinFor(p) : 0;
   // ضلعا QR لا يُكتبان تحت ما ترسمه الورقة (وإلا عرض الحقل 47 والمطبوع 50.5)
-  const lo = (k: 'x' | 'y' | 'w' | 'h'): number => (isQr && (k === 'w' || k === 'h') ? qrMin : 0);
+  const lo = (k: 'x' | 'y' | 'w' | 'h'): number => (qrLive && (k === 'w' || k === 'h') ? qrMin : 0);
   const mmField = (k: 'x' | 'y' | 'w' | 'h', label: string) => (
     <label className="inline-flex items-center gap-1 text-[11px] text-[#6E6557]">
       <span className="w-4 text-center" dir="ltr">{k.toUpperCase()}</span>
@@ -194,7 +201,7 @@ function BoxInspector({ p, update, box, onSelect }: { p: PrintProfile; update(ne
         {mmField('w', tr('العرض'))}
         {mmField('h', tr('الارتفاع'))}
       </div>
-      {isQr && <p className="text-[11px] text-[#9A8F7E]">{tr('رمز QR لا يصغر عن حد القراءة')} · <span dir="ltr">≥ {qrMin} mm</span></p>}
+      {qrLive && <p className="text-[11px] text-[#9A8F7E]">{tr('رمز QR لا يصغر عن حد القراءة')} · <span dir="ltr">≥ {qrMin} mm</span></p>}
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="text-[#6E6557] min-w-[84px]">{tr('اللوحة')}</span>
         {(['header', 'footer'] as const).map((b) => (
@@ -236,6 +243,8 @@ function BoxInspector({ p, update, box, onSelect }: { p: PrintProfile; update(ne
         className="inline-flex items-center gap-1 text-[11px] text-[#8E2A1F] hover:underline">
         <Trash2 className="w-3 h-3" aria-hidden="true" />{isQr ? tr('إعادة رمز QR إلى مكانه التلقائي') : tr('إخراج من اللوحة (يعود إلى مكانه في الورقة)')}
       </button>
+      {/* «إعادة إلى مكانه التلقائي» تُخرجه من اللوحة ويبقى مطبوعاً؛ الحذف من المطبوعة قرارٌ آخر بتأكيد */}
+      {isQr && <QrRemoveField p={p} update={update} />}
     </div>
   );
 }

@@ -12,7 +12,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEve
 import { Eye } from 'lucide-react';
 import { useTr } from '../../../i18n/strings';
 import {
-  PRINT_SAMPLE_WATERMARK, SECTION_LABELS, canMoveSection, layoutOf, moveSection, normalizeSectionOrder, sectionsFor,
+  PRINT_SAMPLE_WATERMARK, QR_REMOVE_WARNING, SECTION_LABELS, canMoveSection, isQrRemoved, layoutOf, moveSection, normalizeSectionOrder, sectionsFor,
   type Align, type PrintProfile, type SectionId,
 } from '../../../lib/print/printSettings';
 import { logoMmOf, logoMmRange, withLogo, type DesignSel } from '../../../lib/print/designModel';
@@ -51,6 +51,12 @@ export function withRollAlign(p: PrintProfile, sel: string, a: Align): PrintProf
  * الحاشيتين. غير المحدّدة تترك التمرير العمودي للصفحة (لمسةٌ تحدّدها)، والمحدّدة تُسحب (none). الفأرة لا تتأثّر.
  */
 export const stripTouchAction = (selected: boolean): 'none' | 'pan-y' => (selected ? 'none' : 'pan-y');
+
+/** أقسام الشريط المخفية بقرار الشركة (شرائح «مخفي» للإعادة) — بلا استثناء: الأصناف وQR منها */
+export const hiddenRollSections = (p: PrintProfile): SectionId[] => {
+  const l = layoutOf(p);
+  return sectionsFor(p.printer, l.design).filter((s) => l.sections?.[s]?.visible === false);
+};
 
 export default function RollStrip({ p, update, doc, selected, onSelect, company }: RollStripProps) {
   const tr = useTr();
@@ -195,7 +201,9 @@ export default function RollStrip({ p, update, doc, selected, onSelect, company 
     if (next !== p) update(next);
   };
 
-  const hidden = sectionsFor(p.printer, l.design).filter((s) => l.sections?.[s]?.visible === false);
+  // كل قسمٍ مخفي — ومنه الأصناف ورمز QR (قرار المالك ٤ نوفمبر ٢٠٢٦: يُخفيان بقرار الشركة الصريح) — ويُعاد بنقرة بلا تأكيد
+  const hidden = hiddenRollSections(p);
+  const qrRemoved = isQrRemoved(l);
 
   if (failed) return <p className="text-sm text-[#8E2A1F] text-center py-10">{tr('تعذر عرض المعاينة الحرارية')}</p>;
   if (html === null) return <div className="flex justify-center py-10"><span className="w-6 h-6 border-4 border-[#E15A30] border-t-transparent rounded-full animate-spin" /></div>;
@@ -268,6 +276,9 @@ export default function RollStrip({ p, update, doc, selected, onSelect, company 
             </button>
           ))}
         </div>
+      )}
+      {qrRemoved && (
+        <p className="mt-2 max-w-xs text-[11px] text-[#8E2A1F] bg-[#FBEBE2] rounded px-2 py-1" role="note" data-qr-removed-note="">{tr(QR_REMOVE_WARNING)}</p>
       )}
       <p className="mt-2 text-[11px] text-[#9A8F7E] text-center max-w-xs">
         {tr('اسحب الكتلة للأعلى أو الأسفل للترتيب وأفقيا للمحاذاة، ومقبض الشعار لحجمه. الأسهم وعلامتا + و − من لوحة المفاتيح')}
