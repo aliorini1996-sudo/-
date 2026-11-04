@@ -12,6 +12,7 @@ import { precisePunchFix } from './punchFix';
 import { getDeviceId, describeDevice } from './deviceId';
 import { useTr } from '../i18n/strings';
 import { presencePhase, mmss, type PendingPresence } from './presencePhase';
+import { startPresenceAlarm, stopPresenceAlarm, silencePresenceAlarm, PRESENCE_UNLOCK_EVENTS } from './presenceAlarm';
 
 export type { PendingPresence, PresencePhase } from './presencePhase';
 
@@ -50,20 +51,37 @@ export default function PresenceCheckModal({ pending, onClose, onDismiss, onAnsw
   const [result, setResult] = useState<Result | null>(null);
 
   useEffect(() => {
-    // الإشعار يُغلق حين يرى المندوب النافذة فعلاً — لا والتطبيق في الخلفية (تُركَّب النافذة فيه بالنبضة أو رسالة العامل)،
-    // وإلّا مُسح من الدرج قبل أن يراه فلا يعلم بالطلب
+    // الإشعار يُغلق حين يرى المندوب النافذة فعلاً: بلمسةٍ منه والنافذة ظاهرة — لا بظهورها وحده. جوالٌ موضوعٌ بشاشةٍ مضيئة لا
+    // يراه صاحبه، ومسحُ إشعاره يُسكت إنذار أندرويد (المتكرّر بمستوى المنبّه) فإن انطفأت الشاشة سكت كل شيء (المخفية لا ترنّ).
+    // ولا لمس والتطبيق في الخلفية (تُركَّب النافذة فيه بالنبضة أو رسالة العامل): لا يُمسح من الدرج قبل أن يراه
     const seen = () => closePresenceNotifications(pending.id);
-    seen();
-    document.addEventListener('visibilitychange', seen);
+    const opts: AddEventListenerOptions = { capture: true, passive: true };
+    for (const ev of PRESENCE_UNLOCK_EVENTS) document.addEventListener(ev, seen, opts);
     const id = setInterval(() => setNow(Date.now() + skew.current), 1000);
-    return () => { clearInterval(id); document.removeEventListener('visibilitychange', seen); closePresenceNotifications(pending.id); };
+    return () => {
+      clearInterval(id);
+      for (const ev of PRESENCE_UNLOCK_EVENTS) document.removeEventListener(ev, seen, opts);
+      closePresenceNotifications(pending.id);
+    };
   }, [pending.id]);
 
   const { phase, leftMs } = presencePhase(pending, now);
   const busy = stage !== 'idle';
 
+  // جرس الطلب (presenceAlarm.ts): صوت منبّه واهتزاز يتكرّران ما دامت تنتظر الضغط — يسكت بالضغط أو النتيجة أو انتهاء المهلة، وبسقف
+  // ثلاث دقائق من أوّل رنينٍ لهذا الطلب (إعادة التركيب لا تعيده). والصفحة مخفية لا يرنّ هنا: الإشعار يرنّ (باقٍ حتى يلمس الشاشة)
+  const alarmOn = !result && !busy && phase !== 'expired';
+  useEffect(() => {
+    if (!alarmOn) return;
+    startPresenceAlarm(pending.id);
+    return () => stopPresenceAlarm(pending.id);
+  }, [alarmOn, pending.id]);
+
   const confirm = async () => {
     if (busy) return;
+    // الضغطة تُسكت الجرس فوراً ولا يعود لهذا الطلب ولو فشل الإرسال أو أُغلق مؤقتاً — ومعه إشعاره إن بقي يرنّ
+    silencePresenceAlarm(pending.id);
+    closePresenceNotifications(pending.id);
     onAttempt();
     setStage('locating');
     try {

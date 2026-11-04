@@ -43,6 +43,7 @@ import RepDailyReport from './RepDailyReport';
 import { useRepTracking } from './useRepTracking';
 import { useHeartbeat } from './useHeartbeat';
 import PresenceCheckModal from './PresenceCheck';
+import { installPresenceAlarmUnlock } from './presenceAlarm';
 import type { PendingPresence } from './presencePhase';
 import { underCutoverReview } from './outboxReview';
 import { COMPANY_REFRESH_TICK_MS, companyRefreshDue } from './companyRefresh';
@@ -4745,6 +4746,8 @@ export default function RepApp() {
     navigator.serviceWorker?.addEventListener('message', onMsg);
     return () => navigator.serviceWorker?.removeEventListener('message', onMsg);
   }, [fetchPresence]);
+  // جرس «أثبت تواجدك» (presenceAlarm.ts): صوته يُفتح بلمسةٍ سابقة في التطبيق (التشغيل التلقائي وiOS) — للمقيَّد بالتحقق وحده
+  useEffect(() => (user?.requirePresenceCheck === true ? installPresenceAlarmUnlock() : undefined), [user?.requirePresenceCheck]);
   // «التحصيل بالبطاقة»: نتيجة الرجوع من وحدة الدفع الأصلية — من الرابط (/rep?cardpay=<المعرّف>|unsupported|aborted) أو من
   // عملية معلّقة محفوظة (عند التحميل بلا وسيط، أو حين يعود المندوب بزرّ الرجوع). الخادم يحسم ويُصدر السند؛ النافذة تعرض فقط
   const [cardPayView, setCardPayView] = useState<{ pending: CardPayPending | null; unsupported?: boolean } | null>(null);
