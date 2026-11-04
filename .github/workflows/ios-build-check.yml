@@ -11,6 +11,9 @@ on:
 permissions:
   contents: read
 
+env:
+  RUBY_VERSION: "3.3"
+
 concurrency:
   group: ios-build-check-${{ github.ref }}
   cancel-in-progress: true
@@ -43,16 +46,28 @@ jobs:
           if grep -RniE "nearpay|near pay|نيرباي|نير باي" FieldSales; then echo "✗ اسم المزوّد"; exit 1; fi
           if grep -RnE --include='*.swift' "UserDefaults|systemUptime|mach_absolute_time|creationDate|modificationDate|ModificationDate|volumeAvailableCapacity|systemFreeSize|activeInputModes" FieldSales; then echo "✗ واجهة تتطلب Privacy Manifest"; exit 1; fi
 
+      # المكتبات (Firebase) كبناء TestFlight: fastlane cocoapods ⇒ هنا pod install بالإصدار المثبّت في Gemfile
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ env.RUBY_VERSION }}
+          bundler-cache: false
+
+      - name: تثبيت CocoaPods والمكتبات
+        run: |
+          set -euo pipefail
+          bundle install --jobs 4 --retry 3
+          bundle exec pod install --repo-update
+
       - name: ترجمة للمحاكي (Debug) بلا توقيع
         run: |
           set -o pipefail
-          xcodebuild -project FieldSales.xcodeproj -scheme FieldSales -configuration Debug \
+          xcodebuild -workspace FieldSales.xcworkspace -scheme FieldSales -configuration Debug \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build 2>&1 | tail -150
 
       - name: ترجمة للجهاز (Release) بلا توقيع — كإعداد الأرشيف
         run: |
           set -o pipefail
-          xcodebuild -project FieldSales.xcodeproj -scheme FieldSales -configuration Release \
+          xcodebuild -workspace FieldSales.xcworkspace -scheme FieldSales -configuration Release \
             -sdk iphoneos -destination 'generic/platform=iOS' \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build 2>&1 | tail -150
