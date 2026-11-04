@@ -20,7 +20,13 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-26
+    # نسختا macOS معاً: macos-26 (Xcode بناء TestFlight نفسه) يتعذّر حجزه أحياناً لضغط GitHub، وmacos-15 بديلٌ متاح —
+    # ترجمةٌ ناجحة على أيٍّ منهما تثبت سلامة الكود، والأولى هي الحَكَم حين تتاح
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-26, macos-15]
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     defaults:
       run:
