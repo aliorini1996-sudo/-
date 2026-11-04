@@ -16,6 +16,8 @@ import { paymentMethodsRange } from '../services/paymentMethodsReport';
 // الوحدات المتعددة: كل رصيدٍ ومقارنة بالأساس (baseQtyOf)، وكل بندٍ يُكتب بلقطة وحدته (unitFields)
 import { baseQtyOf, primaryUnitOf, productQtyText, toBase, unitFields } from '../services/units';
 import { resolveLineUnits, unitsByProduct, UnitInvalidError, UNIT_SELECT } from '../services/warehouseStock';
+// ملخّص المناديب بالوحدة الكبرى لكل صنف (عرضٌ فقط — المجاميع بالأساس كما هي)
+import { repStockMajor } from '../services/majorUnitTotals';
 // «الوحدة الرئيسية» §3 (#2 و#4): كل حركة تُقارن الأساس الذي يعرفه العميل حيّاً، ثم الأساس الذي حُلّت عليه تحت قفل الأصناف
 import {
   BASE_GUARD_TX, ProductUnitsBusyError, ProductUnitsChangedError, assertBasesUnchanged, baseGuardReply, baseUnitRequiredReply, expectedBasesOf, lockBases,
@@ -675,8 +677,10 @@ router.get('/summary', requireAdmin, async (req: AuthRequest, res: Response, nex
       by: ['salesRepId', 'type'], where: { tenantId: tid, salesRepId: { in: reps.map(r => r.id) } }, _sum: { qty: true },
     });
     const toolsByRep = toolCountsByRep(toolGroups);
+    const rowsByRep = new Map<string, StockRow[]>();
     const data = await Promise.all(reps.map(async r => {
       const rows = await computeStock(tid, r.id, range);
+      rowsByRep.set(r.id, rows);
       const lastLoad = await prisma.vanLoad.findFirst({
         // «آخر تحميل» يلتزم نهاية المدّة أيضاً، وإلا عرض الجدولُ تاريخاً خارجها
         where: { tenantId: tid, salesRepId: r.id, type: 'LOAD', ...(lastLoadBefore && { createdAt: { lte: lastLoadBefore } }) },
@@ -696,8 +700,12 @@ router.get('/summary', requireAdmin, async (req: AuthRequest, res: Response, nex
         lastLoadAt: lastLoad?.createdAt || null,
       };
     }));
+    // «عرض الكميات بالوحدة الكبرى» (طلب المالك ٤ نوفمبر ٢٠٢٦): الأعمدة الأربعة نفسها لكل صنفٍ بوحدته الكبرى في `major` — إضافةٌ،
+    // والمجاميع بالأساس أعلاه كما هي حرفياً. الوحدات باستعلامٍ واحد لكل المناديب لا داخل computeStock (مستدعوه الآخرون لا يحتاجونها)
+    const units = await unitsByProduct(tid, [...rowsByRep.values()].flatMap(rs => rs.map(x => x.productId)));
+    const withMajor = data.map(d => ({ ...d, major: repStockMajor(rowsByRep.get(d.salesRepId) ?? [], units) }));
     // `filtered` تُخبر الواجهة أن «محمَّل/مباع» صارا تدفّقَي مدّة لا إجماليين
-    res.json({ success: true, data, filtered: !!range, from: from || null, to: to || null });
+    res.json({ success: true, data: withMajor, filtered: !!range, from: from || null, to: to || null });
   } catch (err) { next(err); }
 });
 

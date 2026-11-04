@@ -760,7 +760,7 @@ test('حارس نصّي: المستودع يقيّم المعطّل كبطاقة
   assert.ok(st.includes('loadWarehouseInputs(tid, { before, includeInactive: true }),'), 'المجموعتان على أصنافٍ واحدة');
   assert.ok(st.includes('return visibleWarehouseRows(composeWarehouse(products, whItems, vanItems, dec), inactive);'));
   const w = read('routes/warehouse.ts');
-  assert.ok(w.includes('res.json({ success: true, data: { ...summarizeVansStock(perRep, layers, avgCost, dec), deletedVans } });'));
+  assert.ok(w.includes('res.json({ success: true, data: { ...summarizeVansStock(perRep, layers, avgCost, dec, productsMeta), deletedVans } });'));
 });
 
 // ═══ الوحدات المتعددة: الكمية بالأساس والتكلفة لوحدة الأساس، والوحدة يحلّها الخادم ═══

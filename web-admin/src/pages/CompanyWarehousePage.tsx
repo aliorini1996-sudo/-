@@ -13,7 +13,10 @@ import StockRequestModal from '../components/StockRequestModal';
 import StockZeroModal from '../components/StockZeroModal';
 import { warehouseNoticeDocFromEntry, Company } from '../rep/RepDocuments';
 import { useAuthStore, isStaffImpersonationClient } from '../store/authStore';
-import { baseQtyText, biggestUnit, hasBigUnit, productUnitLabel } from '../lib/adminUnits';
+import { biggestUnit, hasBigUnit, productUnitLabel } from '../lib/adminUnits';
+import { anyBigUnit, fmtTotalQty, qtyText, qtyViewFor, totalsList, unitTotalsParts, type QtyView, type UnitTotal } from '../lib/qtyView';
+import { useQtyView } from '../store/qtyViewStore';
+import QtyViewToggle from '../components/QtyViewToggle';
 import { choiceById, defaultChoice, rebaseRow, unitChoices } from '../rep/repUnits';
 import { primaryUnitOf, type UnitDef } from '../lib/units';
 import { anyPrimary, crossSumLabel, isStaleUnitsError } from '../lib/stockRequest';
@@ -42,6 +45,10 @@ import { EntryLotFields, fetchLotBalances, fmtLotQty } from '../components/Stock
  * 400/409 ⇒ تُجلب الأصناف من جديد ويُعاد كل سطر إلى وحدته الآن (rebaseRow) قبل أن يُعاد الحفظ. `stockValue` لا يتغيّر.
  * والمجاميع عبر الأصناف (ما في السيارات) بالأساس موسومةً «بالوحدات الصغرى» حين في الأصناف ما له رئيسية (R3).
  * صنفٌ بلا رئيسية: كل نصٍّ كما كان حرفاً (I1).
+ *
+ * «عرض الكميات» (طلب المالك ٤ نوفمبر ٢٠٢٦، lib/qtyView): مبدّلٌ في بطاقة القيمة بين الوحدة الكبرى (عرض اليوم حرفاً) والصغرى
+ * (رقم الأساس واسمه، والتكلفة للصغرى وحدها)، وما في السيارات بالكبرى من `vans.major` لكل وحدة. عرضٌ فقط، والنماذج والسجلّ كما هي.
+ * لا صنف له وحدةٌ أكبر ⇒ لا مبدّل والصفحة كما كانت.
  */
 
 interface WhRow {
@@ -83,6 +90,8 @@ interface VansStock {
   qty: number; value: number; uncostedQty: number; unsellableQty: number; reps: number; products: number; deletedVans?: number;
   /** «تتبّع اللوط»: المعزول (تشغيلة موقوفة أو منتهية لم تُبع) والمحجوز (إشعار قياسي بانتظار الاعتماد) — داخلان في المتاح ولا يُباعان */
   lotQuarantined?: number; lotHeld?: number;
+  /** «عرض الكميات»: المجاميع نفسها لكل وحدةٍ كبرى («22.75 كرتون · 40 حبة») — خادمٌ أقدم لا يرسلها ⇒ العرض القائم */
+  major?: { qty: UnitTotal[]; uncostedQty: UnitTotal[]; unsellableQty: UnitTotal[] };
 }
 
 /** أرصدة تشغيلات أصناف المستودع المتتبَّعة — عرض المستودع وحده بالصنف، ويوم القياس من الخادم */
@@ -184,6 +193,14 @@ export default function CompanyWarehousePage() {
   // R3: في الأصناف ما له وحدة رئيسية (صادقة — null لا يُعدّ)؟ — فالمجاميع عبر الأصناف (بالأساس) تُوسم «بالوحدات الصغرى»،
   // وعمود متوسط التكلفة يُوسم بوحدة كل خلية، وإلا كل وسمٍ كما كان حرفياً (I1)
   const hasPrimary = anyPrimary(rows) || anyPrimary(shownRows);
+  // «عرض الكميات» (طلب المالك ٤ نوفمبر ٢٠٢٦): المبدّل لصفحةٍ فيها صنفٌ له وحدةٌ أكبر وحدها — وإلّا «الكبرى» = اليوم حرفاً
+  const anyBig = anyBigUnit(rows) || anyBigUnit(shownRows);
+  const qv = qtyViewFor(useQtyView(), anyBig);
+  // ما في السيارات بالوحدة الكبرى من الخادم — «الصغرى» أو مبدّلٌ مخفيّ أو خادمٌ أقدم ⇒ المجموع بالأساس كما كان
+  const vansMajor = anyBig && qv === 'major' ? vans?.major : undefined;
+  const vansQtyTotals = totalsList(vansMajor?.qty);
+  const vansUncostedTotals = totalsList(vansMajor?.uncostedQty);
+  const vansUnsellableTotals = totalsList(vansMajor?.unsellableQty);
 
   // أرصدة التشغيلات لأصناف الجدول المتتبَّعة، في التاريخ المختار أو الآن
   const trackedIds = shownRows.filter(r => trackedSet.has(r.productId)).map(r => r.productId).sort();
@@ -247,6 +264,8 @@ export default function CompanyWarehousePage() {
             </div>
             {asOf && <p className="text-[11px] text-[#9A8F7E]">{tr('الأرصدة كما في نهاية يوم')} {formatDayOnly(asOf)}</p>}
           </div>
+          {/* «عرض الكميات»: الجدول وما في السيارات بالوحدة الكبرى أو الصغرى — عرضٌ فقط */}
+          {anyBig && <QtyViewToggle />}
           {uncostedRows > 0 && (
             <p className="text-[11px] text-[#9A8F7E] flex items-center gap-1.5 max-w-sm">
               <Info size={13} className="shrink-0 text-amber-600" />
@@ -260,22 +279,25 @@ export default function CompanyWarehousePage() {
               <span className="w-10 h-10 rounded-xl bg-[#FBEBE2] text-[#E15A30] flex items-center justify-center"><Truck size={20} /></span>
               <div>
                 <p className="text-xs text-[#9A8F7E]">{tr('في مخزون السيارات')}</p>
-                {/* مجموعٌ عبر الأصناف بوحدات الأساس (الخادم) — حبّاتٌ لا كراتين لصنفٍ له وحدات */}
+                {/* مجموعٌ عبر الأصناف بوحدات الأساس (الخادم) — حبّاتٌ لا كراتين لصنفٍ له وحدات؛ و«الكبرى» لكل وحدةٍ كبرى من الخادم */}
                 <p className={`text-lg font-extrabold text-[#1F1A13] leading-tight ${vansQ.isFetching && !vansQ.isLoading ? 'opacity-40' : ''}`}
-                  title={tr(crossSumLabel(hasPrimary))}>
-                  {fmtQty(vans.qty)} <span className="text-xs font-semibold text-[#6E6557]">{hasPrimary ? tr('بالوحدات الصغرى') : tr('وحدة')}</span>
+                  title={vansQtyTotals ? undefined : tr(crossSumLabel(hasPrimary))}>
+                  {vansQtyTotals
+                    ? <UnitTotalsInline list={vansQtyTotals} base={vans.qty} />
+                    : <>{fmtQty(vans.qty)} <span className="text-xs font-semibold text-[#6E6557]">{hasPrimary ? tr('بالوحدات الصغرى') : tr('وحدة')}</span></>}
                   <span className="text-[#C9BFAE] mx-1.5">·</span>
                   {formatCurrency(vans.value)}
                 </p>
                 <p className="text-[11px] text-[#9A8F7E]">
                   {vans.reps} {tr('سيارة')} · {vans.products} {tr('صنف')}
-                  {vans.uncostedQty > 0 && <> · {fmtQty(vans.uncostedQty)} {tr('بلا تكلفة معروفة خارج القيمة')}</>}
-                  {vans.unsellableQty > 0 && <> · {fmtQty(vans.unsellableQty)} {tr('تالف أو منتهي لا يباع')}</>}
+                  {vans.uncostedQty > 0 && <> · {vansUncostedTotals ? <UnitTotalsInline list={vansUncostedTotals} base={vans.uncostedQty} paren /> : fmtQty(vans.uncostedQty)} {tr('بلا تكلفة معروفة خارج القيمة')}</>}
+                  {vans.unsellableQty > 0 && <> · {vansUnsellableTotals ? <UnitTotalsInline list={vansUnsellableTotals} base={vans.unsellableQty} paren /> : fmtQty(vans.unsellableQty)} {tr('تالف أو منتهي لا يباع')}</>}
                 </p>
-                {/* «تتبّع اللوط»: تشغيلاتٌ معزولة أو محجوزة في السيارات — ضمن المتاح أعلاه ولا تُباع */}
+                {/* «تتبّع اللوط»: تشغيلاتٌ معزولة أو محجوزة في السيارات — ضمن المتاح أعلاه ولا تُباع.
+                    مجموعٌ بالأساس عبر الأصناف: تحت مجاميع «الكبرى» (بلا وسمٍ فوقه) يُوسم «بالوحدات الصغرى» وإلّا قُرئ كراتين */}
                 {vansLotUnsellable > 0 && (
                   <p className="text-[11px] text-amber-700">
-                    {fmtQty(vansLotUnsellable)} {tr('في تشغيلات معزولة أو محجوزة لا يباع')}
+                    {fmtQty(vansLotUnsellable)}{vansQtyTotals && <> {tr('بالوحدات الصغرى')}</>} {tr('في تشغيلات معزولة أو محجوزة لا يباع')}
                     {(vans.lotHeld ?? 0) > 0 && <> ({fmtQty(vans.lotHeld ?? 0)} {tr('بانتظار الاعتماد')})</>}
                   </p>
                 )}
@@ -339,22 +361,27 @@ export default function CompanyWarehousePage() {
                           className="mt-1 inline-flex items-center gap-1 flex-wrap text-[10px] font-semibold text-[#6E6557] hover:text-[#E15A30]">
                           <Layers size={11} className="text-[#E15A30]" />
                           {sum ? `${sum.lots} ${tr('تشغيلة')}` : tr('التشغيلات')}
-                          {sum && sum.quarantined > 0 && <span className="rounded bg-amber-50 border border-amber-200 text-amber-700 px-1">{tr('معزول')} {baseQtyText(sum.quarantined, r, fmtQty)}</span>}
-                          {sum && sum.held > 0 && <span className="rounded bg-sky-50 border border-sky-200 text-sky-700 px-1">{tr('محجوز')} {baseQtyText(sum.held, r, fmtQty)}</span>}
+                          {sum && sum.quarantined > 0 && <span className="rounded bg-amber-50 border border-amber-200 text-amber-700 px-1">{tr('معزول')} {qtyText(qv, sum.quarantined, r, fmtQty)}</span>}
+                          {sum && sum.held > 0 && <span className="rounded bg-sky-50 border border-sky-200 text-sky-700 px-1">{tr('محجوز')} {qtyText(qv, sum.held, r, fmtQty)}</span>}
                           {sum?.deficit && <span className="rounded bg-red-50 border border-red-200 text-red-600 px-1">{tr('عجز')}</span>}
                           {open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                         </button>
                       )}
                     </td>
                     <td className="px-3 py-2.5 text-center">
-                      <span className={`font-extrabold ${r.onHand < 0 ? 'text-red-600' : r.onHand === 0 ? 'text-amber-600' : 'text-[#1E7A52]'}`}>{baseQtyText(r.onHand, r, fmtQty)}</span>
+                      <span className={`font-extrabold ${r.onHand < 0 ? 'text-red-600' : r.onHand === 0 ? 'text-amber-600' : 'text-[#1E7A52]'}`}>{qtyText(qv, r.onHand, r, fmtQty)}</span>
                     </td>
-                    <td className="px-3 py-2.5 text-center text-[#6E6557]">{baseQtyText(r.received + r.adjusted, r, fmtQty)}</td>
-                    <td className="px-3 py-2.5 text-center text-[#C94E28]">−{baseQtyText(r.loadedToVans, r, fmtQty)}</td>
-                    <td className="px-3 py-2.5 text-center text-[#1E7A52]">+{baseQtyText(r.returnedFromVans, r, fmtQty)}</td>
+                    <td className="px-3 py-2.5 text-center text-[#6E6557]">{qtyText(qv, r.received + r.adjusted, r, fmtQty)}</td>
+                    <td className="px-3 py-2.5 text-center text-[#C94E28]">−{qtyText(qv, r.loadedToVans, r, fmtQty)}</td>
+                    <td className="px-3 py-2.5 text-center text-[#1E7A52]">+{qtyText(qv, r.returnedFromVans, r, fmtQty)}</td>
                     <td className="px-3 py-2.5 text-center text-[#6E6557]">
-                      {/* «الوحدة الرئيسية»: تكلفتها أولاً (متوسّط القارورة × معامل الكرتون) ثم القارورة سطراً تحتها، كلٌّ باسم وحدته */}
-                      {prim ? (
+                      {/* «عرض الكميات» بالصغرى: تكلفة الوحدة الصغرى وحدها باسمها («بيض: 0.3068») — لا سطر كرتونٍ تحتها */}
+                      {qv === 'minor' && hasBigUnit(r.units) ? (
+                        r.avgCost > 0
+                          ? <span title={String(r.avgCost)}>{r.unit}: {formatCurrency(r.avgCost, undefined, 4)}</span>
+                          : <span className="text-[#C9BFAE]">—</span>
+                      ) : prim ? (
+                        /* «الوحدة الرئيسية»: تكلفتها أولاً (متوسّط القارورة × معامل الكرتون) ثم القارورة سطراً تحتها، كلٌّ باسم وحدته */
                         r.avgCost > 0 ? (
                           <>
                             {/* التلميح (المتوسّط غير المقرَّب للقارورة) على سطر القارورة نفسه — على سطر الكرتون يُقرأ تكلفة كرتون */}
@@ -381,7 +408,7 @@ export default function CompanyWarehousePage() {
                         : <span className="text-[#C9BFAE]">—</span>}
                       {r.uncostedQty > 0 && (
                         <span className="block text-[10px] text-amber-600 mt-0.5">
-                          {baseQtyText(r.uncostedQty, r, fmtQty)} {tr('خارج التقييم')}
+                          {qtyText(qv, r.uncostedQty, r, fmtQty)} {tr('خارج التقييم')}
                         </span>
                       )}
                     </td>
@@ -389,7 +416,7 @@ export default function CompanyWarehousePage() {
                   {open && (
                     <tr className="bg-[#FAF7F0]/60">
                       <td colSpan={7} className="px-4 py-3">
-                        <WarehouseLotsDetail view={view} day={lotDayNow} loading={lotsQ.isLoading} error={lotsQ.isError} row={r} asOf={asOf} />
+                        <WarehouseLotsDetail view={view} day={lotDayNow} loading={lotsQ.isLoading} error={lotsQ.isError} row={r} asOf={asOf} qv={qv} />
                       </td>
                     </tr>
                   )}
@@ -510,10 +537,28 @@ function withEntryLots<D extends { items: object[] }>(doc: D, entry: WhEntry, lo
   };
 }
 
+/**
+ * «عرض الكميات» بالكبرى في بطاقة «ما في السيارات»: مجموعات الخادم بأربع منازل («0.0028 كرتون» لا «0»)، كلٌّ رقمه واسمه
+ * لا ينكسران بين سطرين، ويُضمّ بـ« + » لا بـ« · » فاصلِ بنود السطر — و`paren` يحيط المتعدّد بقوسين قبل وسمه
+ * («(0.25 كرتون + 6 كيس) بلا تكلفة معروفة») كي لا تُقرأ مجموعته الأولى بنداً بلا وسم.
+ * قائمةٌ فارغة ومجموع الأساس غير صفر (كسورٌ دون أربع منازل) ⇒ رقم الأساس موسوماً، لا «0» لبضاعةٍ قائمة.
+ */
+function UnitTotalsInline({ list, base, paren = false }: { list: UnitTotal[]; base: number; paren?: boolean }) {
+  const tr = useTr();
+  const parts = unitTotalsParts(list, fmtTotalQty);
+  if (!parts.length) return Math.abs(base) > 1e-9 ? <>{fmtQty(base)} {tr('بالوحدات الصغرى')}</> : <>{fmtTotalQty(0)}</>;
+  const body = parts.map((x, i) => (
+    <Fragment key={i}>{i > 0 && ' + '}<span className="whitespace-nowrap">{x}</span></Fragment>
+  ));
+  return paren && parts.length > 1 ? <>({body})</> : <>{body}</>;
+}
+
 /** تفصيل صفّ الرصيد بتشغيلاته في المستودع: الخام والصالح والمحجوز لكل تشغيلة، وغير المسمّى، والعجز */
-function WarehouseLotsDetail({ view, day, loading, error, row, asOf }: {
+function WarehouseLotsDetail({ view, day, loading, error, row, asOf, qv }: {
   view: PlaceViewWithAvailability | undefined; day: string; loading: boolean; error: boolean;
   row: { unit: string; units?: UnitDef[]; primaryUnitId?: string | null }; asOf: string;
+  /** «عرض الكميات» النافذ في الصفحة */
+  qv: QtyView;
 }) {
   const tr = useTr();
   if (loading) return <p className="text-xs text-[#9A8F7E]">{tr('جار التحميل')}</p>;
@@ -521,7 +566,7 @@ function WarehouseLotsDetail({ view, day, loading, error, row, asOf }: {
   if (!view) return <p className="text-xs text-[#9A8F7E]">{tr('لا تشغيلات لهذا الصنف في المستودع')}</p>;
   const lots = view.lots.filter(l => Math.abs(l.raw.SELLABLE) > 1e-6 || Math.abs(l.held.SELLABLE) > 1e-6);
   const unknown = view.unknown?.SELLABLE ?? 0;
-  const q = (n: number) => baseQtyText(n, row, fmtLotQty);
+  const q = (n: number) => qtyText(qv, n, row, fmtLotQty);
   return (
     <div className="space-y-1.5">
       {asOf && <p className="text-[10px] text-[#9A8F7E]">{tr('الأرصدة كما في نهاية يوم')} {formatDayOnly(asOf)}</p>}

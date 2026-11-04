@@ -19,6 +19,7 @@ import { currencyDecimalsOf } from '../config/countries';
 import { roundDecimal } from '../utils/helpers';
 import { valueStock, valueVanQty, unitCostPerBase, CostMove, VanLayer, DEFAULT_CURRENCY_DECIMALS } from './warehouseCost';
 import { baseQtyOf, factorOf, type UnitDef } from './units';
+import { majorTotals, type MajorUnitProduct, type UnitTotal } from './majorUnitTotals';
 
 export interface WarehouseRow {
   productId: string;
@@ -321,7 +322,12 @@ export interface VansStockSummary {
   products: number;      // أصنافٌ في سيارةٍ واحدة على الأقل
   /** سيارات مناديب محذوفين حُمّلت ولم تُنزَّل كلها — بضاعتها غير معروفة (فواتيرهم فقدت مندوبها بالحذف) فلا تدخل هنا */
   deletedVans?: number;
+  /** qty وuncostedQty وunsellableQty نفسها بالوحدة الكبرى لكل صنف (عرضٌ فقط) — حين يمرّر المستدعي أصنافه وحدها */
+  major?: VansStockMajor;
 }
+
+/** مجاميع بطاقة «في مخزون السيارات» بالوحدة الكبرى: «22.75 كرتون · 40 حبة» بدل «8,191 بالوحدات الصغرى» */
+export interface VansStockMajor { qty: UnitTotal[]; uncostedQty: UnitTotal[]; unsellableQty: UnitTotal[] }
 
 /**
  * دالّة نقيّة: رصيد كل سيارة (من طيّ حركاتها كمسار مخزون السيارات) مقيَّماً بطبقاتها (valueVanQty)، وبمتوسّط المستودع لما
@@ -332,13 +338,22 @@ export function summarizeVansStock(
   layers: ReadonlyMap<string, ReadonlyMap<string, VanLayer[]>>,
   avgCost: ReadonlyMap<string, number>,
   decimals: number = DEFAULT_CURRENCY_DECIMALS,
+  /** أصناف الشركة (صنف ← أساسه ووحداته ورئيسيّه) ⇒ يُضاف `major`. غيابها ⇒ الناتج كما كان حرفياً («تصفير المخزون») */
+  productsMeta?: ReadonlyMap<string, MajorUnitProduct>,
 ): VansStockSummary {
   let qty = 0, value = 0, uncostedQty = 0, unsellableQty = 0, reps = 0;
   const products = new Set<string>();
+  // الأرقام نفسها التي تصنع المجاميع أعلاه صنفاً صنفاً — فلا يفترق المجموعان بشرطٍ يُنسى في أحدهما
+  type Part = { product?: MajorUnitProduct | null; baseQty: number };
+  const mQty: Part[] = [], mUncosted: Part[] = [], mUnsellable: Part[] = [];
   for (const r of perRep) {
     let has = false;
     for (const p of r.products) {
-      if (p.unsellable > 0) unsellableQty += p.unsellable;
+      const meta = productsMeta?.get(p.productId);
+      if (p.unsellable > 0) {
+        unsellableQty += p.unsellable;
+        if (productsMeta) mUnsellable.push({ product: meta, baseQty: p.unsellable });
+      }
       if (!(p.remaining > 1e-9)) continue;
       has = true;
       products.add(p.productId);
@@ -346,6 +361,10 @@ export function summarizeVansStock(
       const v = valueVanQty(layers.get(p.productId)?.get(r.repId), p.remaining, avgCost.get(p.productId) ?? 0);
       value += v.value;
       uncostedQty += v.uncostedQty;
+      if (productsMeta) {
+        mQty.push({ product: meta, baseQty: p.remaining });
+        if (v.uncostedQty > 0) mUncosted.push({ product: meta, baseQty: v.uncostedQty });
+      }
     }
     if (has) reps += 1;
   }
@@ -356,5 +375,6 @@ export function summarizeVansStock(
     unsellableQty: roundDecimal(unsellableQty, 4),
     reps,
     products: products.size,
+    ...(productsMeta && { major: { qty: majorTotals(mQty), uncostedQty: majorTotals(mUncosted), unsellableQty: majorTotals(mUnsellable) } }),
   };
 }

@@ -4404,7 +4404,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{salesRepId, repName, isActive, canSellWithoutStock, productCount, totalRemaining, totalLoaded, totalSold, totalDamaged, toolsCount, lastLoadAt}], filtered:boolean, from:string|null, to:string|null}",
+    "response": "{success:true, data:[{salesRepId, repName, isActive, canSellWithoutStock, productCount, totalRemaining, totalLoaded, totalSold, totalDamaged, toolsCount, lastLoadAt, major:{remaining, loaded, sold, damaged}}], filtered:boolean, from:string|null, to:string|null}",
     "rules": [
      "بلا from وto: الأرقام إجمالية على كامل التاريخ",
      "مع from أو to: totalLoaded وtotalSold هما ما جرى داخل المدة، أما totalRemaining فهو الرصيد التراكمي حتى نهاية to",
@@ -4414,7 +4414,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "toolsCount عدد الأدوات في عهدة السيارة الآن (المسلَّم − المستلَم) ولا يتبع المدة",
      "يشمل المناديب غير النشطين (راجع حقل isActive)",
      "لا ترقيم صفحات، والقائمة تشمل كل المناديب في النطاق",
-     "totalRemaining وtotalLoaded وtotalSold وtotalDamaged مجاميع عبر أصناف مختلفة بوحدات أساسها (حبّات)، فلا تُقرأ كراتين"
+     "totalRemaining وtotalLoaded وtotalSold وtotalDamaged مجاميع عبر أصناف مختلفة بوحدات أساسها (حبّات)، فلا تُقرأ كراتين",
+     "major للعرض فقط: الأعمدة الأربعة نفسها بالوحدة الكبرى لكل صنف، كلٌّ منها قائمة [{unit, qty}] (مثل 22.75 كرتون و40 حبة). الوحدة الكبرى هي الوحدة الرئيسية إن صلحت، وإلا أكبر وحدة نشطة، وإلا وحدة الأساس. وتُضمّ الأصناف باسم الوحدة، وqty مقرّبة لأربع خانات، والمجموع الصفري يُحذف. وdamaged بالموجب وحده كـtotalDamaged. والحساب يبقى على أرقام الأساس"
     ],
     "example": ""
    },
@@ -4702,13 +4703,14 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{qty, value, uncostedQty, unsellableQty, reps, products, deletedVans, lotQuarantined?, lotHeld?, lotProducts?:[{productId, lotQuarantined, lotHeld}]}}",
+    "response": "{success:true, data:{qty, value, uncostedQty, unsellableQty, reps, products, major:{qty, uncostedQty, unsellableQty}, deletedVans, lotQuarantined?, lotHeld?, lotProducts?:[{productId, lotQuarantined, lotHeld}]}}",
     "rules": [
      "«تتبّع LOT» (حين تكون الميزة مفعّلة للشركة وحدها): lotQuarantined رصيد تشغيلات موقوفة أو منتهية لم تُبع في سيارات النطاق، وlotHeld المحجوز (مرتجع إشعار دائن قياسي بانتظار الاعتماد) — كلاهما داخل qty ولا يُباع، فأضفه إلى ما لا يُباع. وlotProducts تفصيلهما لكل صنف متتبَّع. بوحدة الأساس، ومع asOf بيوم ذلك التاريخ",
      "value قيمة ما في السيارات بطبقات تكلفة خروجه من المستودع (الأحدث أولاً)، وuncostedQty كمية بلا تكلفة معروفة لا تدخل القيمة",
      "unsellableQty التالف والمنتهي في السيارات (لا يُباع)، وreps عدد السيارات التي فيها شيء، وproducts عدد الأصناف",
      "deletedVans سيارات مناديب محذوفين بقي فيها رصيد — تُعدّ لصاحب المفتاح غير المقيّد وحده",
-     "qty وuncostedQty وunsellableQty مجاميع عبر الأصناف بوحدات أساسها"
+     "qty وuncostedQty وunsellableQty مجاميع عبر الأصناف بوحدات أساسها",
+     "major للعرض فقط: qty وuncostedQty وunsellableQty نفسها بالوحدة الكبرى لكل صنف، كلٌّ منها قائمة [{unit, qty}] (مثل 22.75 كرتون و40 حبة). الوحدة الكبرى هي الوحدة الرئيسية إن صلحت، وإلا أكبر وحدة نشطة، وإلا وحدة الأساس. وتُضمّ الأصناف باسم الوحدة، وqty مقرّبة لأربع خانات، والمجموع الصفري يُحذف"
     ],
     "example": ""
    },
