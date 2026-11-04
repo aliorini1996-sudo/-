@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from '
 import { AlertTriangle, Bluetooth, Check, FlaskConical, Info, Link2, Printer, Ruler } from 'lucide-react';
 import { useTr } from '../../i18n/strings';
 import {
-  PRINT_NOTES, PRINT_SAMPLE_WATERMARK, areStampsRemoved, geometry, isQrRemoved, layoutOf, type DevicePrintChoice, type PrintProfile,
+  PRINT_NOTES, PRINT_SAMPLE_WATERMARK, geometry, isQrRemoved, layoutOf, type DevicePrintChoice, type PrintProfile,
 } from '../../lib/print/printSettings';
 import { DIRECT_PRINT_FALLBACK, DirectPrintError, PrintRefusedError } from '../../lib/print/printErrors';
 import { buildCalibrationDocument, sampleBannerHtml, sampleInvoiceDoc } from '../../lib/print/calibration';
@@ -130,9 +130,8 @@ export default function PrintDeviceTools({ profile, systemProfile, name, company
   });
 
   const testPrint = (via: PrintTransport) => guarded(via, async (port) => {
-    // أختام الحالة محذوفة صراحةً من القالب المطبوع (قرار المالك ٤ نوفمبر ٢٠٢٦) ⇒ بلا شريط «نموذج اختبار» على الورق — المعاينة تبقيه
-    const printed = profile.printer === 'thermal' && !port ? sysProfile : profile;
-    const banner = areStampsRemoved(layoutOf(printed)) ? null : sampleBannerHtml(tr(PRINT_SAMPLE_WATERMARK));
+    // شريط «نموذج اختبار» على الورق دائماً ولو حذفت الشركة أختام الحالة (قرار المالك ٤ نوفمبر ٢٠٢٦): الورقة تحمل اسم الشركة ورقمها الضريبيّ
+    const banner = sampleBannerHtml(tr(PRINT_SAMPLE_WATERMARK));
     if (profile.printer === 'thermal') {
       let outcome: DirectOutcome = 'done';
       await printThermalInvoice(sample, {
@@ -242,7 +241,7 @@ export default function PrintDeviceTools({ profile, systemProfile, name, company
           <button type="button" disabled={busy} onClick={() => testPrint(transport)} className="btn-secondary disabled:opacity-60"><FlaskConical size={15} /> {tr('طباعة تجريبية')}</button>
         )}
       </div>
-      {!areStampsRemoved(layoutOf(profile)) && !isQrRemoved(layoutOf(profile)) && (
+      {!isQrRemoved(layoutOf(profile)) && (
         <p className="text-[11px] text-[#9A8F7E]">{tr('المعاينة والاختبار يحملان «نموذج اختبار — ليس مستندا ضريبيا» ورمزا تجريبيا')}</p>
       )}
 

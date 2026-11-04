@@ -189,31 +189,29 @@ test('رمز QR محذوف: صفحة المعايرة بلا خانة رمزٍ �
   }
 });
 
-test('أختام الحالة محذوفة: صفحة المعايرة بلا شريط «نموذج اختبار» وارتفاع رأسها بلا الشريط — والافتراضي يحمله', () => {
-  for (const [printer, template, preset] of [['thermal', 'roll_compact', 'roll80'], ['impact', 'impact_plain', 'ff_a4'], ['impact', 'impact_plain', 'ff_95x55']] as const) {
+test('أختام الحالة محذوفة: صفحة المعايرة تبقى بشريط «نموذج اختبار» حرفياً كالافتراضي (قرار المالك ٤ نوفمبر ٢٠٢٦: تبقى العبارة دائماً)', () => {
+  for (const [printer, template, preset] of [['thermal', 'roll_compact', 'roll80'], ['impact', 'impact_plain', 'ff_a4'], ['impact', 'impact_plain', 'ff_95x55'], ['page', 'page_branded', 'a4']] as const) {
     const p = profile(printer, template, preset);
-    const def = buildCalibrationDocument(p, tr, { mode: 'raster', name: 'x' });
-    assert.ok(def.includes(`<div class="banner">${PRINT_SAMPLE_WATERMARK}</div>`), `${preset}: الافتراضي بالعلامة`);
-    const off = noStamps(p);
-    const html = buildCalibrationDocument(off, tr, { mode: 'raster', name: 'x' });
-    assert.ok(!html.includes('<div class="banner">') && !html.includes(PRINT_SAMPLE_WATERMARK), `${preset}: بلا شريط`);
-    assert.ok(html.includes('data-qr-value'), `${preset}: الرمز التجريبيّ باقٍ (لم يُحذف)`);
-    const a = calibrationLayout(p, tr);
-    const b = calibrationLayout(off, tr);
-    assert.equal(b.sections.length, a.sections.length);
-    for (let i = 0; i < a.sections.length; i++) assert.ok(b.sections[i].mm < a.sections[i].mm, `${preset}: ارتفاع الرأس بلا الشريط`);
+    for (const mode of ['raster', 'system'] as const) {
+      const def = buildCalibrationDocument(p, tr, { mode, name: 'x' });
+      assert.ok(def.includes(`<div class="banner">${PRINT_SAMPLE_WATERMARK}</div>`), `${preset}/${mode}: الافتراضي بالعلامة`);
+      assert.equal(buildCalibrationDocument(noStamps(p), tr, { mode, name: 'x' }), def, `${preset}/${mode}: stamps:false لا يغيّر صفحة المعايرة`);
+    }
+    assert.deepEqual(calibrationLayout(noStamps(p), tr), calibrationLayout(p, tr), `${preset}: الأقسام وارتفاعاتها كما هي`);
   }
-  // والاثنان معاً: لا علامة ولا رمز
+  // والاثنان معاً: العلامة باقية، والرمز التجريبيّ وحده يُحذف
   const both = noStamps(noQr(profile('thermal', 'roll_compact', 'roll58')));
   const h = buildCalibrationDocument(both, tr, { mode: 'raster', name: 'x' });
-  assert.ok(!h.includes(PRINT_SAMPLE_WATERMARK) && !h.includes('data-qr-value') && h.includes('class="title"'));
+  assert.ok(h.includes(`<div class="banner">${PRINT_SAMPLE_WATERMARK}</div>`) && !h.includes('data-qr-value') && h.includes('class="title"'));
+  assert.equal(h, buildCalibrationDocument(noQr(profile('thermal', 'roll_compact', 'roll58')), tr, { mode: 'raster', name: 'x' }));
 });
 
-test('الطباعة التجريبية: شريط «نموذج اختبار» يُترك على الورق حين حذفت الشركة أختام الحالة — والمستند التجريبيّ نفسه (رمزه ومحاكاته)', () => {
+test('الطباعة التجريبية: شريط «نموذج اختبار» على الورق دائماً ولو حذفت الشركة أختام الحالة — والمستند التجريبيّ نفسه (رمزه ومحاكاته)', () => {
   const src = fs.readFileSync(new URL('../../components/print/PrintDeviceTools.tsx', import.meta.url), 'utf8');
   const job = src.slice(src.indexOf('const testPrint = (via: PrintTransport)'), src.indexOf('const directHintText'));
-  assert.match(job, /const printed = profile\.printer === 'thermal' && !port \? sysProfile : profile;/);
-  assert.match(job, /const banner = areStampsRemoved\(layoutOf\(printed\)\) \? null : sampleBannerHtml\(tr\(PRINT_SAMPLE_WATERMARK\)\);/);
+  assert.match(job, /const banner = sampleBannerHtml\(tr\(PRINT_SAMPLE_WATERMARK\)\);/);
+  assert.ok(!/areStampsRemoved|banner = .*\? null/.test(job), 'لا شرط على الأختام في شريط الطباعة التجريبية');
+  assert.ok(!/areStampsRemoved/.test(src), 'تلميح «المعاينة والاختبار يحملان…» لا يتبع الأختام');
   for (const use of ['sampleBanner: banner', "[tr('الأصل'), tr('نسخة')], ui, banner)", "[tr('الأصل'), tr('نسخة')], banner);"]) assert.ok(job.includes(use), use);
   // المستند التجريبيّ لا يتغيّر بالحذف: الحذف في القالب وتطبّقه القوالب الحقيقية
   const doc = sampleInvoiceDoc(null, tr, new Date('2026-11-04T08:00:00Z'));

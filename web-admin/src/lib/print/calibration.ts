@@ -17,12 +17,13 @@
  * وكلاهما يحمل «نموذج اختبار — ليس مستندا ضريبيا».
  *
  * وما حذفته الشركة صراحةً من قالبها (قرار المالك ٤ نوفمبر ٢٠٢٦ «اجعل يمكن حذف كل شي حتى كيو ار») لا تطبعه صفحة المعايرة أيضاً:
- * رمز QR محذوف (isQrRemoved) ⇒ بلا خانة رمزٍ تجريبيّ ولا قسمه على الورق القصير (فلا رفض qrNoFit)؛ وأختام الحالة محذوفة
- * (areStampsRemoved) ⇒ بلا شريط «نموذج اختبار» ويُعاد حساب ارتفاع الرأس. بلا اختيارٍ: الصفحة كما هي حرفياً.
+ * رمز QR محذوف (isQrRemoved) ⇒ بلا خانة رمزٍ تجريبيّ ولا قسمه على الورق القصير (فلا رفض qrNoFit). بلا اختيارٍ: الصفحة كما هي حرفياً.
+ * أمّا شريط «نموذج اختبار» فيبقى دائماً ولو حذفت الشركة أختام الحالة (stamps:false) — قرار المالك ٤ نوفمبر ٢٠٢٦: الورقة التجريبية
+ * تحمل اسم الشركة ورقمها الضريبيّ، فلا تخرج بلا ما يميّزها عن فاتورةٍ حقيقية.
  */
 import QRCode from 'qrcode';
 import {
-  FONT_SCALES, PRINT_SAMPLE_WATERMARK, areStampsRemoved, dotsPerMm, geometry, isQrRemoved, layoutOf, qrPlan, type PrintProfile,
+  FONT_SCALES, PRINT_SAMPLE_WATERMARK, dotsPerMm, geometry, isQrRemoved, layoutOf, qrPlan, type PrintProfile,
 } from './printSettings';
 import type { Company, InvoiceDoc } from '../../rep/RepDocuments';
 
@@ -116,7 +117,6 @@ function calibrationModel(p: PrintProfile, tr: Tr, name: string) {
   const W = g.printableWidthMm;
   const base = p.printer === 'thermal' ? 11 : 12.5;
   const noQr = isQrRemoved(layoutOf(p));
-  const noStamps = areStampsRemoved(layoutOf(p));
   const q = calibrationQr(p);
   const slotMm = (q.cells + 4) * q.cellMm + 0.4;
   const fonts = [
@@ -142,7 +142,7 @@ function calibrationModel(p: PrintProfile, tr: Tr, name: string) {
   const help = (lines: readonly string[]) => 1.5 + sum(lines.map((h) => textMm(`• ${tr(h)}`, small, W)));
   // العنوان بأطول صورته («· n/m»)
   const title = `${tr('صفحة معايرة')} — ${name} · 9/9`;
-  const banner = noStamps ? 0 : 2 * 1.5 * PX_MM + 2 + textMm(tr(PRINT_SAMPLE_WATERMARK), base, W) + 1.5;
+  const banner = 2 * 1.5 * PX_MM + 2 + textMm(tr(PRINT_SAMPLE_WATERMARK), base, W) + 1.5;
   const est = {
     banner,
     title: textMm(title, base * 1.15, W),
@@ -155,7 +155,7 @@ function calibrationModel(p: PrintProfile, tr: Tr, name: string) {
     helpQr: help(helpQr),
     end: lineMm(small) + 0.4 + END_SAFETY_MM,
   };
-  return { g, W, base, q, slotMm, fonts, meta, qrCaption, helpRuler, helpQr, est, noQr, noStamps };
+  return { g, W, base, q, slotMm, fonts, meta, qrCaption, helpRuler, helpQr, est, noQr };
 }
 
 /** أقسام الصفحة لهذا القالب: واحدٌ إن اتسع كل شيء، وإلا الرأس والمساطر ثم الرمز — والتقدير لكلٍّ داخل طول القسم */
@@ -183,7 +183,7 @@ export function calibrationLayout(p: PrintProfile, tr: Tr, name = ''): Calibrati
  * يقسم الصفحة قسمين (calibrationLayout) يتعاقبان على الأوراق.
  */
 export function buildCalibrationDocument(p: PrintProfile, tr: Tr, opts: CalibrationOptions): string {
-  const { g, W, base, q, slotMm, fonts, meta, qrCaption, helpRuler, helpQr, noQr, noStamps } = calibrationModel(p, tr, opts.name);
+  const { g, W, base, q, slotMm, fonts, meta, qrCaption, helpRuler, helpQr, noQr } = calibrationModel(p, tr, opts.name);
   const raster = p.printer !== 'page';
   const roll = g.paperLengthMm === null;
   const layout = calibrationLayout(p, tr, opts.name);
@@ -205,9 +205,8 @@ export function buildCalibrationDocument(p: PrintProfile, tr: Tr, opts: Calibrat
   const fontsHtml = fonts.map((f) => `<div style="font-size:${f.px}px${f.bold ? ';font-weight:700' : ''}">${esc(f.text)}</div>`).join('');
   const helpHtml = (lines: readonly string[]) => `<div class="help">${lines.map((h) => `<div>• ${esc(tr(h))}</div>`).join('')}</div>`;
 
-  const banner = noStamps ? '' : `
-    <div class="banner">${esc(tr(PRINT_SAMPLE_WATERMARK))}</div>`;
-  const head = (n: number) => `${banner}
+  const head = (n: number) => `
+    <div class="banner">${esc(tr(PRINT_SAMPLE_WATERMARK))}</div>
     <div class="title">${esc(tr('صفحة معايرة'))} — ${esc(opts.name)}${sheets > 1 ? ` · <span dir="ltr">${n}/${sheets}</span>` : ''}</div>`;
   const rulers = `
     <div class="meta" dir="ltr">${esc(meta)}</div>
