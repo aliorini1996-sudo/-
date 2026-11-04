@@ -17,6 +17,11 @@ enum TrackContract {
     static let handlerName = "fsTrack"
     static let pingUrl = "https://api.fieldsa.net/api/track-device/ping"
     static let deviceNowHeader = "x-fs-device-now"
+    /// Sent with the value "1" only on the last batch of a stopped run (send(closing: true)), like the final
+    /// flush in Android's TrackService.onDestroy. The server stores the points, then forgets that this rep's
+    /// phone is uploading. Without it the server takes a stopped app for a running one for 90 s more: it
+    /// drops the page's own points and tells a quick sign-in again that the phone is already recording.
+    static let finalHeader = "x-fs-track-final"
     static let sampleMs: Double = 5_000
     static let movingKeepMs: Double = 15_000
     static let moveThresholdM: Double = 20
@@ -405,9 +410,11 @@ final class TrackService: NSObject, CLLocationManagerDelegate {
             // this rep's next start (another rep's start discards them in adoptQueue).
             break
         case .explicit, .dayChanged, .denied:
-            // One last batch while the token is still in hand; whatever is left waits in the file for this
-            // rep's next start.
-            if let t = tok, live, !uploading, !queue.isEmpty { send(t, closing: true) }
+            // One last batch while the token is still in hand, marked final (TrackContract.finalHeader);
+            // whatever is left waits in the file for this rep's next start. With an empty queue the final
+            // request still goes out with no points (as on Android): the server forgets "this phone is
+            // uploading" at once, so a page opened right after the stop asks for a new start.
+            if let t = tok, live, !uploading { send(t, closing: true) }
         case .expired:
             break
         }
@@ -555,7 +562,8 @@ final class TrackService: NSObject, CLLocationManagerDelegate {
     }
 
     private func send(_ tok: String, closing: Bool) {
-        guard !uploading, !queue.isEmpty, let url = URL(string: TrackContract.pingUrl) else { return }
+        // A closing request may carry no points (see finish()); a regular upload never goes out empty.
+        guard !uploading, closing || !queue.isEmpty, let url = URL(string: TrackContract.pingUrl) else { return }
         let batch = Array(queue.prefix(TrackContract.maxBatch))
         guard let body = TrackService.body(batch) else {
             // Not representable as JSON (cannot happen with the finite values accepted above): drop the
@@ -569,6 +577,10 @@ final class TrackService: NSObject, CLLocationManagerDelegate {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("Bearer " + tok, forHTTPHeaderField: "Authorization")
         req.setValue(TrackService.deviceNow(), forHTTPHeaderField: TrackContract.deviceNowHeader)
+        if closing {
+            // Only from finish(): the run is over, so this batch must not count as a phone still uploading.
+            req.setValue("1", forHTTPHeaderField: TrackContract.finalHeader)
+        }
         req.httpBody = body
         uploading = true
         inFlight = batch.count
