@@ -98,8 +98,11 @@ export function rollHeightMm(copyHeightsPx: readonly number[]): number | undefin
 /**
  * نصّ الوثيقة. الهندسة الافتراضية ⇒ وثيقة اليوم حرفاً بحرف. وغيرها ⇒ نسخٌ مكرّرة (لكلٍّ سطر «الأصل/نسخة» مكان COPY_SLOT)
  * بعرض الورق، والحزمة بعرضها الفعليّ في موضعها، والخطّ بمقياس القالب.
+ *
+ * `freeCss` («التحرير الحرّ» — طلب المالك ٣ نوفمبر ٢٠٢٦، pd_spec C.(iii)): قواعد أقسام الرول المحرَّرة (المحاذاة والخط وشكل الجدول)
+ * في `<style>` ثانٍ بعد الأول — يُكتب متى كان نصّاً غير فارغ وحده، فوثيقةٌ بلا تحريرٍ حرّ كما هي حرفاً بحرف. والكلاسيكي لا يقرؤه.
  */
-export function buildThermalDocument(body: string, geom: ThermalGeom = LEGACY_THERMAL_GEOM, pageHeightMm?: number): string {
+export function buildThermalDocument(body: string, geom: ThermalGeom = LEGACY_THERMAL_GEOM, pageHeightMm?: number, freeCss?: string): string {
   if (geom.legacy) {
     return `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"/>
   <style>
@@ -159,5 +162,5 @@ export function buildThermalDocument(body: string, geom: ThermalGeom = LEGACY_TH
     .t .e { text-align: left; }
     .t .n { white-space: nowrap; }
     img { display: inline-block; }
-  </style></head><body>${sections}</body></html>`;
+  </style>${freeCss ? `<style data-fs-free="">${freeCss}</style>` : ''}</head><body>${sections}</body></html>`;
 }

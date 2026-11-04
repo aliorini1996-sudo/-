@@ -1348,6 +1348,17 @@ test('الطباعة (٣ نوفمبر ٢٠٢٦): التخطيط بمفاتيحه
   for (const v of [...core.LAYOUT_DESIGNS, ...core.LOGO_POSITIONS, ...core.LOGO_SIZES, ...core.TABLE_STYLES]) assert.ok(getS.response.includes(`'${v}'`), v);
   for (const id of core.SECTION_IDS) assert.ok(getS.rules.join(' ').includes(id), `القسم ${id} غير موثّق`);
   assert.ok(putS.rules.some((r) => r.startsWith('options.layout اختياري') && r.includes('3:1')));
+  // التحرير الحرّ (٣ نوفمبر ٢٠٢٦): المفاتيح الأربعة وقيمها وحدودها، والحجم 48
+  for (const k of ['logoMm', 'logoAfter', 'sections', 'canvas', 'headerMm', 'footerMm', 'boxes', 'fontPct', 'spaceBeforeMm', 'spaceAfterMm']) assert.ok(getS.response.includes(`${k}`), `${k} غير موثّق`);
+  for (const k of ['logoMm', 'logoAfter', 'sections', 'canvas']) assert.ok(getS.response.includes(`${k}?:`), `${k} غير موثّق اختيارياً`);
+  for (const v of [...core.ALIGNS, ...core.CANVAS_BOX_IDS, ...core.CANVAS_BANDS]) assert.ok(getS.response.includes(`'${v}'`), v);
+  for (const n of ['6–120', '70–160', '0–30', '0–150', '0–120', '47', '188', '201']) assert.ok(getS.response.includes(n), n);
+  // الخادم يقبل logoMm حتى 120 على الرول، والطباعة تقصره على عرض الطباعة وحتى 80 مم (thermal.ts rollLogoPlan) — موثّقاً
+  assert.match(getS.response, /logoMm\?: 6–120 \([^)]*الرول[^)]*80/, 'سقف شعار الرول غير موثّق');
+  const layoutRule = putS.rules.find((r) => r.startsWith('options.layout اختياري')) ?? '';
+  assert.ok(layoutRule.includes('مفاتيحه الستة إلزامية والأربعة الحرّة اختيارية') && !layoutRule.includes('بمفاتيحه الستة كلها'));
+  assert.ok(putS.rules.some((r) => r.includes('48 كيلوبايت 413')) && !putS.rules.some((r) => r.includes('16 كيلوبايت')));
+  assert.equal(core.PRINT_LIMITS.maxBytes, 48 * 1024);
   const getT = endpointOf('GET', '/company/print-texts');
   const putT = endpointOf('PUT', '/company/print-texts');
   const all = [...getT.rules, ...putT.rules].join(' ');

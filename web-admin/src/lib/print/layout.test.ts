@@ -8,6 +8,8 @@ import path from 'node:path';
 import { brotliDecompressSync } from 'node:zlib';
 import {
   DEFAULT_SECTIONS, accentColor, cssText, fmtQty4, lineVat, logoBox, orderedSections, resolveLayout, rollSectionsHtml, scaleStyle, tableCss,
+  ENGINE_CORE_COPIES, MM_PX, clampBox, fontPx, hasFreeLayout, logoMmBounds, logoPlan, mmToPx, physicalAlign, qrHost, qrOrphan, resolveCanvas,
+  sectionCss, sectionCssText, sectionLook, snapMm, visibleOrder,
   type ResolvedLayout,
 } from './layout';
 import { defaultPrintOptions, legacyPrintSettings, newProfile, presetPaper, type PrintProfile } from './printSettings';
@@ -113,11 +115,14 @@ test('order normalisation: any non-permutation falls back to the default order',
   assert.deepEqual(resolveLayout(profile('page', fullLayout({ design: 'grid_bilingual', order: DEFAULT_SECTIONS.page })))!.order, DEFAULT_SECTIONS.grid);
 });
 
-test('roll constraints are enforced defensively: standard design, centre/none logo, lines table', () => {
+test('roll: standard design enforced; logo start/center/end/none and every table style allowed since free editing (pd_spec B.1/B.3)', () => {
   const r = resolveLayout(profile('thermal', fullLayout({ design: 'grid_bilingual', logo: 'end', tableStyle: 'striped', order: DEFAULT_SECTIONS.thermal })))!;
   assert.equal(r.design, 'standard');
-  assert.equal(r.logo, 'center');
-  assert.equal(r.tableStyle, 'lines');
+  assert.equal(r.logo, 'end');
+  assert.equal(r.tableStyle, 'striped');
+  assert.equal(resolveLayout(profile('thermal', fullLayout({ logo: 'start', tableStyle: 'grid', order: DEFAULT_SECTIONS.thermal })))!.logo, 'start');
+  assert.equal(resolveLayout(profile('thermal', fullLayout({ logo: 'bogus', tableStyle: 'dots', order: DEFAULT_SECTIONS.thermal })))!.logo, 'center');
+  assert.equal(resolveLayout(profile('thermal', fullLayout({ logo: 'bogus', tableStyle: 'dots', order: DEFAULT_SECTIONS.thermal })))!.tableStyle, 'lines');
   assert.deepEqual(r.order, DEFAULT_SECTIONS.thermal);
   assert.equal(resolveLayout(profile('thermal', fullLayout({ logo: 'none', order: DEFAULT_SECTIONS.thermal })))!.logo, 'none');
   const qrFirst = ['header', 'qr', 'info', 'customer', 'items', 'totals', 'signatures', 'footer'];
@@ -272,4 +277,195 @@ test('layout.ts is framework-free, imports the core as types only, and has no le
   }
   // paper presets untouched by the engine (sanity: the helper we use in tests still exists)
   assert.ok(presetPaper('a4'));
+});
+
+// ─── التحرير الحرّ (pd_spec C.(ii)) ───
+
+const page = (over: Record<string, unknown> = {}, printer: Printer = 'page') =>
+  resolveLayout(profile(printer, fullLayout({ order: printer === 'thermal' ? DEFAULT_SECTIONS.thermal : DEFAULT_SECTIONS.page, ...over })))!;
+
+test('free keys: absent ⇒ resolveLayout keeps exactly the 8 keys and every free helper returns null/{} (6-key layouts untouched)', () => {
+  const six = page();
+  assert.deepEqual(Object.keys(six).sort(), ['accent', 'design', 'fontScale', 'logo', 'logoSize', 'order', 'printer', 'tableStyle']);
+  for (const l of [null, six]) {
+    assert.equal(hasFreeLayout(l), false);
+    assert.equal(logoPlan(l, 'classic', 'page'), null);
+    assert.equal(logoPlan(l, 'classic', 'roll', 72), null);
+    assert.equal(sectionLook(l, 'info'), null);
+    assert.equal(qrOrphan(l, 'page', 'standard'), false);
+    assert.equal(resolveCanvas(l, { printer: 'page', qrMinMm: 47, kind: 'invoice' }), null);
+    assert.equal(fontPx(13, sectionLook(l, 'items')), 13);
+  }
+  assert.deepEqual(visibleOrder(six, 'page'), six.order);
+  assert.deepEqual(visibleOrder(null, 'thermal'), DEFAULT_SECTIONS.thermal);
+});
+
+test('free keys: valid values are carried; invalid ones drop individually (never the layout)', () => {
+  const r = page({
+    logoMm: 22.5, logoAfter: 'info',
+    sections: { info: { visible: false, align: 'end', fontPct: 120, spaceBeforeMm: 3, spaceAfterMm: 1.5 }, items: { visible: false, fontPct: 90 }, qr: { align: 'center' } },
+    canvas: { headerMm: 40, footerMm: 0, boxes: [{ id: 'logo', band: 'header', x: 0, y: 0, w: 20, h: 20 }] },
+  });
+  assert.equal(r.logoMm, 22.5);
+  assert.equal(r.logoAfter, 'info');
+  assert.deepEqual(r.sections, { info: { visible: false, align: 'end', fontPct: 120, spaceBeforeMm: 3, spaceAfterMm: 1.5 }, items: { fontPct: 90 } }, 'items لا يُخفى، وqr ليس من أقسام الصفحة');
+  assert.equal(r.canvas!.boxes.length, 1);
+  assert.equal(hasFreeLayout(r), true);
+  const bad = page({ logoMm: 5.9, logoAfter: 'parties', sections: { info: { fontPct: 161, spaceBeforeMm: -1, align: 'left' } }, canvas: { headerMm: 151, footerMm: 0, boxes: [] } });
+  for (const k of ['logoMm', 'logoAfter', 'sections', 'canvas'] as const) assert.equal(bad[k], undefined, k);
+  assert.equal(bad.tableStyle, 'grid', 'the 6-key layout survives');
+  for (const v of [NaN, Infinity, '30', null]) assert.equal(page({ logoMm: v }).logoMm, undefined, String(v));
+  assert.equal(page({ logoMm: 6 }).logoMm, 6);
+  assert.equal(page({ logoMm: 120 }).logoMm, 120);
+  // canvas only on page/impact standard
+  const cv = { headerMm: 40, footerMm: 10, boxes: [] };
+  assert.equal(page({ canvas: cv }, 'thermal').canvas, undefined);
+  assert.equal(resolveLayout(profile('page', fullLayout({ design: 'grid_bilingual', order: DEFAULT_SECTIONS.grid, canvas: cv })))!.canvas, undefined);
+  assert.ok(page({ canvas: cv }, 'impact').canvas);
+  // logoAfter must belong to the design: parties only on grid, qr only on roll
+  assert.equal(page({ logoAfter: 'qr' }).logoAfter, undefined);
+  assert.equal(page({ logoAfter: 'qr' }, 'thermal').logoAfter, 'qr');
+  assert.equal(page({ logoAfter: 'top' }, 'thermal').logoAfter, 'top');
+  // the roll qr section is locked visible
+  assert.equal(page({ sections: { qr: { visible: false } } }, 'thermal').sections, undefined);
+});
+
+test('MM_PX/mmToPx: 96 px per inch on the 794 px template', () => {
+  assert.equal(MM_PX, 96 / 25.4);
+  assert.equal(mmToPx(25.4), 96);
+  assert.equal(mmToPx(10), 37.8);
+  assert.equal(mmToPx(0), 0);
+});
+
+test('logoMmBounds and logoPlan: continuous size wins over s/m/l, clamped per target; placement and alignment', () => {
+  assert.deepEqual(logoMmBounds('page'), [6, 120]);
+  assert.deepEqual(logoMmBounds('grid'), [6, 120]);
+  assert.deepEqual(logoMmBounds('roll', 48), [6, 48]);
+  assert.deepEqual(logoMmBounds('roll', 104), [6, 80]);
+  assert.deepEqual(logoMmBounds('roll'), [6, 80]);
+  const p = logoPlan(page({ logo: 'end', logoMm: 30 }), 'classic', 'page')!;
+  assert.deepEqual(p, { show: true, align: 'end', maxWmm: 30, maxHmm: 30, maxPx: mmToPx(30), at: 'header' });
+  const roll = logoPlan(page({ logo: 'start', logoMm: 100 }, 'thermal'), 'classic', 'roll', 48)!;
+  assert.equal(roll.maxWmm, 48, 'roll: ≤ printable width');
+  assert.equal(roll.align, 'start');
+  // logoAfter alone: today's s/m/l size, standalone placement
+  const top = logoPlan(page({ logoSize: 'l', logoAfter: 'top' }), 'classic', 'page')!;
+  assert.equal(top.at, 'top');
+  assert.equal(top.maxWmm, Math.round((56 / MM_PX) * 100) / 100);
+  const rollTop = logoPlan(page({ logoSize: 'm', logoAfter: 'footer' }, 'thermal'), 'classic', 'roll', 72)!;
+  assert.equal(rollTop.at, 'footer');
+  assert.equal(rollTop.maxWmm, 34.56, '48% of 72 mm (today m)');
+  assert.equal(rollTop.maxHmm, 12.8, '16 mm × 48/60');
+  const none = logoPlan(page({ logo: 'none', logoMm: 20 }), 'classic', 'page')!;
+  assert.equal(none.show, false);
+});
+
+test('sectionLook/sectionCss/sectionCssText/fontPx: physical RTL alignment, px/mm spacing, never zoom or fontSize', () => {
+  const l = page({ sections: { info: { align: 'start', fontPct: 130, spaceBeforeMm: 2, spaceAfterMm: 0.5 }, totals: { align: 'end' } } });
+  const info = sectionLook(l, 'info')!;
+  assert.deepEqual(info, { visible: true, align: 'start', fontPct: 130, spaceBeforeMm: 2, spaceAfterMm: 0.5 });
+  assert.deepEqual(sectionCss(info), { textAlign: 'right', marginTop: mmToPx(2), marginBottom: mmToPx(0.5) });
+  assert.equal(sectionCssText(info), 'text-align:right;margin-top:2mm;margin-bottom:0.5mm');
+  assert.deepEqual(sectionCss(sectionLook(l, 'totals')!), { textAlign: 'left' });
+  // a section without style under a free layout: a wrapper with no style
+  const items = sectionLook(l, 'items')!;
+  assert.deepEqual(items, { visible: true, align: null, fontPct: 100, spaceBeforeMm: 0, spaceAfterMm: 0 });
+  assert.deepEqual(sectionCss(items), {});
+  assert.equal(sectionCssText(items), '');
+  assert.equal(physicalAlign('center'), 'center');
+  assert.equal(fontPx(13, info), 16.9, '13 × 130%');
+  assert.equal(fontPx(13, items), 13);
+  assert.equal(fontPx(13, null), 13);
+  for (const css of [sectionCss(info), sectionCss(sectionLook(l, 'totals')!)]) {
+    assert.ok(!('zoom' in css) && !('fontSize' in css) && !('filter' in css));
+  }
+  assert.ok(!/zoom|font-size|filter/.test(sectionCssText(info)));
+});
+
+test('visibleOrder hides sections but never items or the roll QR; qrHost/qrOrphan', () => {
+  const l = page({ sections: { info: { visible: false }, note: { visible: false } } });
+  assert.deepEqual(visibleOrder(l, 'page'), ['header', 'items', 'totals', 'installments', 'signatures', 'footer']);
+  const roll = page({ sections: { customer: { visible: false } } }, 'thermal');
+  assert.deepEqual(visibleOrder(roll, 'thermal'), ['header', 'info', 'items', 'totals', 'signatures', 'qr', 'footer']);
+  assert.equal(qrHost('page', 'standard'), 'totals');
+  assert.equal(qrHost('impact', 'grid_bilingual'), 'info');
+  assert.equal(qrHost('thermal', 'standard'), 'qr');
+  assert.equal(qrOrphan(page({ sections: { totals: { visible: false } } }), 'page', 'standard'), true);
+  assert.equal(qrOrphan(page({ sections: { info: { visible: false } } }), 'page', 'standard'), false);
+  const grid = resolveLayout(profile('page', fullLayout({ design: 'grid_bilingual', order: DEFAULT_SECTIONS.grid, sections: { info: { visible: false } } })))!;
+  assert.equal(qrOrphan(grid, 'page', 'grid_bilingual'), true);
+  assert.equal(qrOrphan(roll, 'thermal', 'standard'), false);
+  // a canvas qr box prints the QR, so no orphan block
+  const placed = page({ sections: { totals: { visible: false } }, canvas: { headerMm: 0, footerMm: 60, boxes: [{ id: 'qr', band: 'footer', x: 0, y: 0, w: 50, h: 50 }] } });
+  assert.equal(qrOrphan(placed, 'page', 'standard'), false);
+});
+
+test('snapMm and clampBox: 0.5 grid, inside band and content, min size, non-finite safe', () => {
+  assert.equal(snapMm(10.26), 10.5);
+  assert.equal(snapMm(10.24), 10);
+  assert.equal(snapMm(-0.1), 0);
+  assert.ok(!Object.is(snapMm(-0.1), -0));
+  assert.equal(snapMm(7, 2), 8);
+  assert.equal(snapMm(NaN), 0);
+  const b = { id: 'company' as const, band: 'header' as const, x: 180, y: 35, w: 30, h: 20 };
+  assert.deepEqual(clampBox(b, 40, 188, 5), { ...b, x: 158, y: 20, w: 30, h: 20 });
+  assert.deepEqual(clampBox({ ...b, w: 2, h: 1, x: -3, y: -1 }, 40, 188, 5), { ...b, x: 0, y: 0, w: 5, h: 5 });
+  assert.deepEqual(clampBox({ ...b, w: 500, h: 500 }, 40, 188, 5), { ...b, x: 0, y: 0, w: 188, h: 40 });
+  assert.deepEqual(clampBox({ ...b, x: NaN, y: Infinity, w: NaN, h: NaN }, 40, 188, 5), { ...b, x: 0, y: 0, w: 5, h: 5 });
+  const c = clampBox({ ...b, x: 100.3, y: 3.7, w: 40.2, h: 10.1 }, 40, 201.6, 5);
+  for (const v of [c.x, c.y, c.w, c.h]) assert.equal(v * 2, Math.round(v * 2), 'on the 0.5 grid');
+  assert.ok(c.x + c.w <= 201.6 && c.y + c.h <= 40);
+});
+
+test('resolveCanvas: bands, px, placed/hostOf, qr grown to qrMinMm with its band, receipt drops qr, invalid boxes flow', () => {
+  const l = page({
+    canvas: {
+      headerMm: 40, footerMm: 30,
+      boxes: [
+        { id: 'logo', band: 'header', x: 160, y: 0, w: 28, h: 20, align: 'center' },
+        { id: 'company', band: 'header', x: 100, y: 0, w: 60, h: 30, fontPct: 120 },
+        { id: 'totals', band: 'header', x: 0, y: 0, w: 60, h: 30 },
+        { id: 'qr', band: 'footer', x: 0, y: 0, w: 47, h: 47 },
+        { id: 'signatures', band: 'footer', x: 60, y: 5, w: 80, h: 20 },
+      ],
+    },
+  });
+  const rc = resolveCanvas(l, { printer: 'page', qrMinMm: 50, kind: 'invoice' })!;
+  assert.equal(rc.contentWmm, 188);
+  assert.equal(rc.header!.hMm, 40);
+  assert.equal(rc.header!.hPx, mmToPx(40));
+  assert.deepEqual(rc.header!.boxes.map((b) => b.id), ['logo', 'company']);
+  assert.deepEqual(rc.header!.boxes[0].px, { left: mmToPx(160), top: 0, width: mmToPx(28), height: mmToPx(20) });
+  assert.equal(rc.header!.boxes[0].align, 'center');
+  assert.equal(rc.header!.boxes[1].align, 'start');
+  assert.equal(rc.header!.boxes[1].fontPct, 120);
+  assert.equal(rc.header!.boxes[0].fontPct, 100);
+  const qr = rc.footer!.boxes.find((b) => b.id === 'qr')!;
+  assert.ok(qr.w >= 50 && qr.h >= 50, 'grown to qrMinMm');
+  assert.ok(rc.footer!.hMm >= qr.y + qr.h, 'band grown to fit the qr');
+  assert.deepEqual([...rc.placed].sort(), ['company', 'logo', 'qr', 'signatures'], 'totals in the header is footer-only ⇒ flows');
+  assert.equal(rc.hostOf.qr, 'totals');
+  assert.equal(rc.hostOf.docInfo, 'info');
+  assert.equal(rc.hostOf.company, 'header');
+  // receipts: no QR box
+  const rr = resolveCanvas(l, { printer: 'page', qrMinMm: 47, kind: 'receipt' })!;
+  assert.ok(!rr.placed.has('qr'));
+  // impact content width
+  assert.equal(resolveCanvas(page({ canvas: { headerMm: 20, footerMm: 0, boxes: [] } }, 'impact'), { printer: 'impact', qrMinMm: 47, kind: 'invoice' })!.contentWmm, 201);
+  // zero bands ⇒ null; box in a zero band flows
+  assert.equal(resolveCanvas(page({ canvas: { headerMm: 0, footerMm: 0, boxes: [{ id: 'logo', band: 'header', x: 0, y: 0, w: 10, h: 10 }] } }), { printer: 'page', qrMinMm: 47, kind: 'invoice' }), null);
+  const half = resolveCanvas(page({ canvas: { headerMm: 20, footerMm: 0, boxes: [{ id: 'qr', band: 'footer', x: 0, y: 0, w: 50, h: 50 }] } }), { printer: 'page', qrMinMm: 47, kind: 'invoice' })!;
+  assert.equal(half.footer, null);
+  assert.ok(!half.placed.has('qr'), 'qr omitted from the bands ⇒ auto-placed in the flow');
+  // a QR smaller than legible (corrupt draft) is grown, never shrunk
+  const tiny = resolveCanvas(page({ canvas: { headerMm: 30, footerMm: 0, boxes: [{ id: 'qr', band: 'header', x: 150, y: 10, w: 10, h: 10 }] } }), { printer: 'page', qrMinMm: 46.57, kind: 'invoice' })!;
+  const tq = tiny.header!.boxes[0];
+  assert.ok(tq.w >= 47 && tq.h >= 47 && tq.x + tq.w <= 188 && tq.y + tq.h <= tiny.header!.hMm);
+  // never on roll or grid
+  assert.equal(resolveCanvas(page({}, 'thermal'), { printer: 'page', qrMinMm: 47, kind: 'invoice' }), null);
+});
+
+test('engine copies of the core free-editing constants equal printSettingsCore', async () => {
+  const core = await import('./printSettingsCore') as Record<string, unknown>;
+  for (const [k, v] of Object.entries(ENGINE_CORE_COPIES)) assert.deepEqual(JSON.parse(JSON.stringify(core[k])), JSON.parse(JSON.stringify(v)), k);
 });

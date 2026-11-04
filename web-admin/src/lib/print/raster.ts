@@ -173,8 +173,10 @@ export function splitPages(bm: Bitmap, rowsPerPage: number, searchRows: number, 
       if (rowBlank(bm, y) && !splits(y + 1)) { cut = y + 1; break; }
     }
     if (cut < 0) {
-      const crossing = keep.find(([a, b]) => a < limit && b > limit);
-      cut = crossing && crossing[0] > start ? crossing[0] : limit;
+      // أعلى مدىً عابرٍ للحدّ يبدأ بعد أول الصفحة — لا أوّلُ مدىً في القائمة: صفوف رمزٍ داخل لوحة «التحرير الحرّ» كانت تقطع اللوحة
+      // من أعلى الرمز. ومدياتٌ متفرّقة (صفوف الرموز وحدها — اليوم) لا يعبر الحدّ منها إلا واحد، فالنتيجة كما كانت حرفاً
+      const tops = keep.filter(([a, b]) => a < limit && b > limit && a > start).map(([a]) => a);
+      cut = tops.length > 0 ? Math.min(...tops) : limit;
     }
     pages.push([start, cut]);
     start = cut;
@@ -196,8 +198,11 @@ export interface RasterPage {
 export function paginate(
   bm: Bitmap, qrRows: ReadonlyArray<readonly [number, number]>, rowsPerPage: number | null, searchRows: number,
   label?: (n: number, m: number) => Bitmap | null,
+  keepRows?: ReadonlyArray<readonly [number, number]>,
 ): RasterPage[] {
   const all = qrRows.map(([a, b]) => [a, b] as [number, number]);
+  // «التحرير الحرّ»: لوحتا الرأس/التذييل مدى محفوظٌ للتقسيم وحده (لا تُطبع في اتجاهٍ واحد كصفوف الرمز) — وبلاها كما اليوم
+  const keep = keepRows && keepRows.length > 0 ? [...all, ...keepRows.map(([a, b]) => [a, b] as [number, number])] : all;
   if (rowsPerPage === null) return [{ bitmap: bm, qrRows: all }];
   // الورق: البياض في ذيل القالب (حشوته وحدّه الأدنى للطول) لا يفتح صفحةً ثانية — المُرمِّز يكمل الورقة أو يخرجها بنفسه
   let ink = bm.height;
@@ -206,7 +211,7 @@ export function paginate(
   const probe = label?.(1, 1) ?? null;
   const labelRows = probe ? probe.height : 0;
   const contentRows = Math.max(1, rowsPerPage - labelRows);
-  const ranges = splitPages(sliceRows(bm, 0, ink), contentRows, searchRows, all);
+  const ranges = splitPages(sliceRows(bm, 0, ink), contentRows, searchRows, keep);
   return ranges.map(([a, b], i) => {
     const content = sliceRows(bm, a, b);
     const strip = labelRows ? label?.(i + 1, ranges.length) ?? null : null;
@@ -215,6 +220,23 @@ export function paginate(
     return { bitmap, qrRows: rows };
   });
 }
+
+/**
+ * صفوف الصورة لمستطيلاتٍ من الورقة (بكسل CSS من أعلى العنصر) بمقياس الالتقاط — مدى [بداية، نهاية) مقصوصٌ على ارتفاع الصورة،
+ * والفارغ يسقط. لوحات «التحرير الحرّ» (data-section^="canvas-") تصير به مدىً محفوظاً لـpaginate.
+ */
+export function rowsOfRects(rects: ReadonlyArray<{ top: number; bottom: number }>, scale: number, height: number): Array<[number, number]> {
+  if (!(scale > 0) || !(height > 0)) return [];
+  return rects.flatMap(({ top, bottom }) => {
+    if (!Number.isFinite(top) || !Number.isFinite(bottom)) return [];
+    const a = Math.max(0, Math.floor(top * scale));
+    const b = Math.min(Math.floor(height), Math.ceil(bottom * scale));
+    return b > a ? [[a, b] as [number, number]] : [];
+  });
+}
+
+/** محدِّد لوحات الورقة الحرّة — تُحفظ عند التقسيم متى حمل الجذر data-print-canvas وحده */
+export const CANVAS_BAND_SELECTOR = '[data-section^="canvas-"]';
 
 // ─── رمز QR بنقاط صحيحة ───
 
@@ -289,7 +311,7 @@ const EC_LEVELS: readonly QrEc[] = ['L', 'M', 'Q', 'H'];
  * يلتقط عنصراً بعرض `widthDots` نقطة بالضبط: المقياس = النقاط ÷ عرضه بالبكسل، فكل مم في القالب = نقاط الدقة لكل مم.
  * القطع بحدود صفوفٍ صحيحة (القطعة k تبدأ من الصفّ k×R) فلا سطرٌ مكرّر ولا فجوة بيضاء بين قطعتين. ويعيد خانات QR بمواضعها.
  */
-export async function captureElement(el: HTMLElement, widthDots: number): Promise<{ bitmap: Bitmap; slots: QrSlotRef[] }> {
+export async function captureElement(el: HTMLElement, widthDots: number): Promise<{ bitmap: Bitmap; slots: QrSlotRef[]; keep?: Array<[number, number]> }> {
   try { await el.ownerDocument.fonts?.ready; } catch { /* خطّ النظام */ }
   const box = el.getBoundingClientRect();
   const cssW = box.width;
@@ -321,7 +343,13 @@ export async function captureElement(el: HTMLElement, widthDots: number): Promis
       rect: { x: (r.left - box.left) * scale, y: (r.top - box.top) * scale, w: r.width * scale, h: r.height * scale },
     }];
   });
-  return { bitmap, slots };
+  // «التحرير الحرّ»: ورقةٌ بلوحات (data-print-canvas) ⇒ صفوف كل لوحةٍ مدىً لا يُقطع — وما سواها بلا مفتاحٍ إضافيّ (كاليوم)
+  if (!el.hasAttribute('data-print-canvas')) return { bitmap, slots };
+  const bands = Array.from(el.querySelectorAll<HTMLElement>(CANVAS_BAND_SELECTOR)).map((n) => {
+    const r = n.getBoundingClientRect();
+    return { top: r.top - box.top, bottom: r.bottom - box.top };
+  });
+  return { bitmap, slots, keep: rowsOfRects(bands, scale, bitmap.height) };
 }
 
 /** سطر نصّ قصير مرسوماً بـcanvas (تشكيل Chrome للعربية) — لترقيم الصفحات */
