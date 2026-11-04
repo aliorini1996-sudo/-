@@ -20,8 +20,8 @@
     "path": "./signing.keystore",
     "alias": "my-key-alias"
   },
-  "appVersionName": "1.2.2",
-  "appVersionCode": 8,
+  "appVersionName": "1.2.3",
+  "appVersionCode": 9,
   "shortcuts": [],
   "generatorApp": "bubblewrap-core 1.25.0 (fieldsa)",
   "webManifestUrl": "https://fieldsa.net/manifest.webmanifest",
@@ -47,5 +47,5 @@
   "fileHandlers": [],
   "launchHandlerClientMode": "",
   "displayOverride": [],
-  "appVersion": "1.2.2"
+  "appVersion": "1.2.3"
 }

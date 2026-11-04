@@ -1,24 +1,31 @@
 package net.fieldsa.twa;
 
-import com.google.androidbrowserhelper.locationdelegation.LocationDelegationExtraCommandHandler;
-
 
 public class DelegationService extends
         com.google.androidbrowserhelper.trusted.DelegationService {
+    private LocationDelegation mLocation;
+
     @Override
     public void onCreate() {
         super.onCreate();
         // تفويض الموقع: التطبيق يعلن إذنَي الموقع، فChrome يسأل هذه الخدمة عن كل navigator.geolocation في الصفحة
-        // (checkAndroidLocationPermission ثم startLocation/stopLocation). بلا هذا المعالج تردّ المكتبة «لا أعرف الأمر»
-        // فيرفض Chrome الموقع فوراً بلا سؤال، ولا يغيّر ذلك إذنُ الموقع في إعدادات Chrome. يحرسه LocationDelegationGuardTest.
+        // (checkAndroidLocationPermission ثم startLocation/stopLocation). بلا معالجٍ يرفض Chrome الموقع فوراً بلا سؤال، ولا يغيّر
+        // ذلك إذنُ الموقع في إعدادات Chrome. معالجنا لا معالج المكتبة (1.2.2 أوقف التتبّع عند أول انقطاع إشارة، انظر
+        // LocationDelegation). يحرسه LocationDelegationGuardTest.
         // الخدمة مفعّلة بـ@bool/enableNotification (enableNotifications في twa-manifest.json): إطفاؤها يُطفئ التفويض أيضاً
-        registerExtraCommandHandler(new LocationDelegationExtraCommandHandler());
+        mLocation = new LocationDelegation(this);
+        registerExtraCommandHandler(mLocation);
+    }
+
+    @Override
+    public void onDestroy() {
+        if (mLocation != null) mLocation.shutdown();
+        super.onDestroy();
     }
 
     /**
-     * الأمر يصل على خيط Binder بهوية Chrome (المتّصل)، والمعالج يقرّر الدقة العالية بـcheckCallingOrSelfPermission(FINE):
-     * بهوية Chrome يُفحص إذن Chrome لا إذن التطبيق، فإن لم يملك Chrome الموقع الدقيق صارت كل القراءات «متوازنة» (واي فاي
-     * وأبراج، كثيراً فوق ١٠٠ م) فلا يقبلها قيد الموقع. checkCaller() تحقّق من المتّصل قبل هذا، فمحو الهوية هنا آمن
+     * الأمر يصل على خيط Binder بهوية Chrome (المتّصل). معالجنا يفحص إذن التطبيق بمعرّفه صراحةً، ومحو الهوية هنا يبقى لكل ما
+     * يفحص بـcheckCallingOrSelfPermission (نشاط الإذن في المكتبة وخدمات Google). checkCaller() تحقّق من المتّصل قبل هذا، فمحوها آمن
      */
     @Override
     public android.os.Bundle onExtraCommand(String commandName, android.os.Bundle args,
@@ -31,4 +38,3 @@ public class DelegationService extends
         }
     }
 }
-
