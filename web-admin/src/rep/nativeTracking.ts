@@ -16,9 +16,14 @@
  * ومندوبٌ آخر على الجهاز نفسه (ولو بعد خروجٍ قسريّ لا يمرّ بالإيقاف) يبدأ برمزه. والتطبيق يوقف نفسه عند الخروج ونهاية اليوم
  * وانتهاء الرمز وردّ الخادم stop (إيقاف الشركة للتتبّع) — فالإيقاف من هنا تأكيدٌ لا شرط.
  *
- * Chrome لا يفتح intent بلا إيماءةٍ حديثة، والبدء يقع عند الفتح بلا لمسة: فيظهر زرّ «اضغط لتشغيل تسجيل الموقع» ويُفتح الرابط داخل
- * لمسته وحدها — لا تُستعار لمسةٌ أخرى ولا إيماءةٌ قائمة، فلا يتقاسم البدء إيماءة الطباعة أو التحصيل بالبطاقة ولا يسبق رابطيهما.
- * ولمسة الزرّ نفسها تُعدّ تسليماً فيُعلَّم اليوم معها — لا يُرهن بإخفاء الصفحة (شاشة التطبيق قد لا تُخفيها، وإعادة الرابط تعني إفصاحاً
+ * Chrome لا يفتح intent بلا إيماءةٍ حديثة، والبدء يقع عند الفتح بلا لمسة. فالبدء ينتظر لمسةً مخصّصة يُفتح الرابط داخلها وحدها:
+ *   - شركةٌ تستعمل «بصمة الحضور» والمندوب لم يبصم بعد (waitPunch من الخادم): لمسة «تسجيل الحضور» نفسها (قرار المالك ٤ نوفمبر) —
+ *     startNativeTrackingOnPunch تفتح الرابط في أوّل اللمسة، والبصمة تُكمل بعد العودة من شاشة التطبيق (فلا تُقرأ قراءتها والصفحة
+ *     مخفيّة). وعلى الآيفون كذلك: البدء مع الحضور ليتّفق الجوالان.
+ *   - وإلا على أندرويد: زرّ «اضغط لتشغيل تسجيل الموقع» (والآيفون يبدأ فوراً بلا لمسة).
+ * لا تُستعار لمسةٌ أخرى ولا إيماءةٌ قائمة، فلا يتقاسم البدء إيماءة الطباعة أو التحصيل بالبطاقة ولا يسبق رابطيهما. وجهازٌ يرفع الآن
+ * (nativeActive) لا يُطلب له بدءٌ ثانٍ.
+ * واللمسة نفسها تُعدّ تسليماً فيُعلَّم اليوم معها — لا يُرهن بإخفاء الصفحة (شاشة التطبيق قد لا تُخفيها، وإعادة الرابط تعني إفصاحاً
  * ثانياً وبدءاً مكرّراً). ومن رابط غريبٍ يحمي التطبيق نفسه: الموافقة مربوطةٌ بهوية الرمز (TrackActivity).
  *
  * لا يستورد repApi (متغيّرات بيئة Vite غائبة في node:test): المستدعي يمرّر دالة الطلب. ولا يرمي أبداً.
@@ -216,14 +221,24 @@ export function trackIntentUrl(host: typeof TRACK_HOST_START | typeof TRACK_HOST
   return `intent://${host}${q}#Intent;scheme=${TRACK_SCHEME};package=${TRACK_PACKAGE};end`;
 }
 
-/** ردّ /tracking/device-token: { success, data: { enabled:false } | { enabled:true, token, expiresAt } } — وغيره null */
-export function trackTokenReplyOf(body: unknown): { enabled: false } | { enabled: true; token: string } | null {
+export type TrackTokenReply = { enabled: false } | { enabled: true; token: string; waitPunch: boolean; nativeActive: boolean };
+
+/**
+ * ردّ /tracking/device-token: { success, data: { enabled:false } | { enabled:true, token, expiresAt, waitPunch?, nativeActive? } } —
+ * وغيره null. waitPunch: البدء ينتظر لمسة «تسجيل الحضور». nativeActive: الجهاز يرفع الآن. خادمٌ أقدم بلاهما ⇒ false
+ */
+export function trackTokenReplyOf(body: unknown): TrackTokenReply | null {
   const d = isObj(body) && isObj(body.data) ? body.data : null;
   if (!d) return null;
   if (d.enabled === false) return { enabled: false };
-  if (d.enabled === true && isTrackToken(d.token)) return { enabled: true, token: d.token };
+  if (d.enabled === true && isTrackToken(d.token)) {
+    return { enabled: true, token: d.token, waitPunch: d.waitPunch === true, nativeActive: d.nativeActive === true };
+  }
   return null;
 }
+
+/** أقصى انتظار البصمة لعودة الصفحة من شاشة التطبيق (الإفصاح أول مرة يُقرأ) — بعده تُكمل البصمة على أيّ حال */
+export const PUNCH_RETURN_MAX_MS = 60_000;
 
 /** علامة يوم البدء: اليوم ومندوبه — مندوبٌ آخر (أو يومٌ آخر) ⇒ «لم يبدأ» */
 function dayMark(day: string, rep: string | null): string {
@@ -235,17 +250,26 @@ function dayMark(day: string, rep: string | null): string {
  * والجلسة التي أوقفها الخروج: بين «توقّف» ومسح الجلسة ثوانٍ (إنهاء الزيارة وإلغاء التنبيهات) تعود فيها الصفحة من شاشة التطبيق —
  * والعودة تبدأ التتبّع (useRepTracking) فيُعاد تشغيله لمن يخرج. فلا بدء على تلك الجلسة؛ ودخولٌ جديد (جلسةٌ أخرى) يفكّ القفل.
  */
+/** بدءٌ مُسلَّحٌ ينتظر لمسته: رمزه ويومه، و«أعد الطلب» إن تبدّل اليوم أو المندوب قبل اللمسة، ومُزيل زرّه إن عُرض */
+interface Pending {
+  mark: string;
+  token: string;
+  restart: () => void;
+  cancel: () => void;
+}
 interface TrackState {
   gen: number;
   busy: string | null;
-  pending: { mark: string; cancel: () => void } | null;
+  pending: Pending | null;
   halted: { session: string | null } | null;
+  /** لمسة حضورٍ وقعت ولا بدء مسلَّحاً (الرمز لم يصل بعد): ردٌّ يقول waitPunch بعدها يعرض الزرّ — الحضور مضى */
+  punchTap: string | null;
 }
 const states = new WeakMap<object, TrackState>();
 function stateOf(env: NativeTrackEnv): TrackState {
   const k = env.app.win as object;
   let st = states.get(k);
-  if (!st) { st = { gen: 0, busy: null, pending: null, halted: null }; states.set(k, st); }
+  if (!st) { st = { gen: 0, busy: null, pending: null, halted: null, punchTap: null }; states.set(k, st); }
   return st;
 }
 
@@ -254,28 +278,64 @@ function markStarted(env: NativeTrackEnv, mark: string): void {
   setItem(env.local, SENT_KEY, '1');
 }
 
+/** حتى تعود الصفحة ظاهرةً (من شاشة التطبيق) أو تمضي maxMs */
+function untilVisible(app: AppEnv, maxMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    if (app.doc.visibilityState === 'visible') { resolve(); return; }
+    let timer: unknown = null;
+    const done = () => {
+      app.doc.removeEventListener('visibilitychange', onVis);
+      if (timer !== null) app.clearTimeout(timer);
+      resolve();
+    };
+    const onVis = () => { if (app.doc.visibilityState === 'visible') done(); };
+    app.doc.addEventListener('visibilitychange', onVis);
+    timer = app.setTimeout(done, maxMs);
+  });
+}
+
 /**
- * أندرويد: زرّ البدء ينتظر لمسة المندوب، ورابط البدء يُفتح داخلها — ويُعلَّم اليوم معها (الشاشة الشفّافة لا تُخفي الصفحة فلا يُنتظر
- * إخفاؤها). لمسةٌ بعد منتصف الليل أو بعد تبدّل المندوب تطلب رمزاً جديداً (restart) لا تفتح رابطاً قديماً.
+ * تسليم البدء للتطبيق داخل لمسةٍ حيّة — يُعلَّم اليوم معها (شاشة التطبيق قد لا تُخفي الصفحة، وإعادة الرابط تعني إفصاحاً ثانياً).
+ * أندرويد: الرابط يُفتح متزامناً قبل أيّ انتظار، ويُوعد بعودة الصفحة إن أُخفيت. الآيفون: رسالة المعالج.
  */
-function androidStart(token: string, env: NativeTrackEnv, st: TrackState, mark: string, gen: number, restart: () => void): void {
+function deliver(env: NativeTrackEnv, platform: 'android' | 'ios', token: string, mark: string): Promise<void> {
+  if (platform === 'ios') {
+    const h = env.ios();
+    if (!h) return Promise.resolve();
+    h.postMessage({ action: 'start', token });
+    markStarted(env, mark);
+    return Promise.resolve();
+  }
+  markStarted(env, mark);
+  return launchIntent(trackIntentUrl(TRACK_HOST_START, token), env.app)
+    .then((r) => (r === 'handed' ? untilVisible(env.app, PUNCH_RETURN_MAX_MS) : undefined))
+    .catch(() => undefined);
+}
+
+/**
+ * يسلّح البدء لينتظر لمسته: زرّ «اضغط لتشغيل تسجيل الموقع» (chip، أندرويد وحده) أو لمسة «تسجيل الحضور»
+ * (startNativeTrackingOnPunch). لمسةٌ بعد منتصف الليل أو بعد تبدّل المندوب تطلب رمزاً جديداً (restart) لا تفتح رابطاً قديماً.
+ */
+function arm(token: string, env: NativeTrackEnv, st: TrackState, mark: string, gen: number, restart: () => void, chip: boolean): void {
   let remove: (() => void) | null = null;
-  const pending = {
+  const pending: Pending = {
     mark,
+    token,
+    restart,
     cancel: () => {
       if (remove) { const r = remove; remove = null; try { r(); } catch { /* */ } }
       if (st.pending === pending) st.pending = null;
     },
   };
   st.pending = pending;
+  if (!chip) return;
   try {
     const r = env.askTap(() => {
       remove = null;
       if (st.gen !== gen || st.pending !== pending) return;
       st.pending = null;
       if (dayMark(deviceDay(env.now()), env.repId()) !== mark) { restart(); return; }
-      markStarted(env, mark);
-      void launchIntent(trackIntentUrl(TRACK_HOST_START, token), env.app);
+      void deliver(env, 'android', token, mark);
     });
     if (st.pending === pending) remove = r;
   } catch {
@@ -316,15 +376,34 @@ export async function startNativeTracking(post: TrackTokenPost, env: NativeTrack
     st.busy = null;
     if (!reply) return; // شبكةٌ أو ردٌّ غير متوقَّع: العودة التالية للتطبيق تحاول
     if (!reply.enabled) { stopNativeTracking(env, { ifStarted: true }); return; }
-    if (platform === 'ios') {
-      const h = env.ios();
-      if (!h) return;
-      h.postMessage({ action: 'start', token: reply.token });
-      markStarted(env, mark);
-      return;
-    }
-    androidStart(reply.token, env, st, mark, gen, () => { void startNativeTracking(post, env); });
+    // جهاز أندرويد يرفع الآن (بدأ اليوم من تبويبٍ سابق): لا لمسة ولا بدء ثانٍ. والآيفون يُرسل بلا لمسة فيتجدّد رمزه
+    if (platform === 'android' && reply.nativeActive) { markStarted(env, mark); return; }
+    // ينتظر لمسة الحضور — إلا إن وقعت لمسة الحضور قبل وصول الرمز (الحضور مضى، فالزرّ)
+    const waitPunch = reply.waitPunch && st.punchTap !== mark;
+    const restart = () => { void startNativeTracking(post, env); };
+    if (platform === 'ios' && !waitPunch) { void deliver(env, 'ios', reply.token, mark); return; }
+    arm(reply.token, env, st, mark, gen, restart, platform === 'android' && !waitPunch);
   } catch { /* التتبّع الخلفي لا يكسر التطبيق */ }
+}
+
+/**
+ * لمسة «تسجيل الحضور» (RepAttendance): تُستدعى متزامنةً في أوّل اللمسة قبل أيّ انتظار. بدءٌ مسلَّح (بانتظار الحضور أو بزرّه) يُسلَّم
+ * داخلها — ويُزال زرّه — ويُوعد بعودة الصفحة من شاشة التطبيق (حدّاً PUNCH_RETURN_MAX_MS) لتقرأ البصمة موقعها والصفحة ظاهرة.
+ * بلا بدءٍ مسلَّح يُعاد فوراً: إن كان الرمز في الطريق عُلّمت اللمسة فيعرض ردُّه الزرّ. بلا تطبيق لا شيء. لا يرمي أبداً.
+ */
+export function startNativeTrackingOnPunch(env: NativeTrackEnv | null = browserTrackEnv()): Promise<void> {
+  try {
+    if (!env) return Promise.resolve();
+    const platform = nativeTrackPlatform(env);
+    if (!platform) return Promise.resolve();
+    const st = stateOf(env);
+    const mark = dayMark(deviceDay(env.now()), env.repId());
+    const p = st.pending;
+    if (!p) { st.punchTap = mark; return Promise.resolve(); }
+    p.cancel();
+    if (p.mark !== mark) { p.restart(); return Promise.resolve(); }
+    return deliver(env, platform, p.token, mark);
+  } catch { return Promise.resolve(); }
 }
 
 /**

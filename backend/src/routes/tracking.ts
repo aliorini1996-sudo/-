@@ -141,7 +141,7 @@ router.post('/device-token', async (req: AuthRequest, res: Response, next: NextF
       prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { trackingEnabled: true } }),
       prisma.salesRep.findFirst({
         where: { id: repId, tenantId: tid },
-        select: { isActive: true, canBeTracked: true, requireLocationOn: true, tenant: { select: { isActive: true, subscriptionEndsAt: true } } },
+        select: { isActive: true, canBeTracked: true, requireLocationOn: true, tenant: { select: { isActive: true, subscriptionEndsAt: true, attendanceEnabled: true } } },
       }),
     ]);
     // جلسة «دخول» ليست جوال المندوب، ومندوبٌ معطّل أو شركةٌ موقوفة لا يُصدر لهما رمز (نقطة الجهاز سترفضه على أي حال)
@@ -150,7 +150,10 @@ router.post('/device-token', async (req: AuthRequest, res: Response, next: NextF
       return;
     }
     const { token, expiresAt } = issueTrackToken(repId, tid);
-    res.json({ success: true, data: { enabled: true, token, expiresAt } });
+    // waitPunch: «بصمة الحضور» مفعّلة للشركة والمندوب لم يبصم حضوره (لا نوبة مفتوحة) ⇒ البدء ينتظر لمسة «تسجيل الحضور» لا زرّاً
+    // (قرار المالك ٤ نوفمبر). nativeActive: جهازه يرفع الآن (services/deviceTrack.ts) ⇒ لا تطلب الصفحة بدءاً ثانياً ولا لمسة
+    const waitPunch = rep?.tenant?.attendanceEnabled === true && !(await openShift(prisma, tid, repId));
+    res.json({ success: true, data: { enabled: true, token, expiresAt, waitPunch, nativeActive: nativeTrackActive(repId) } });
   } catch (err) { next(err); }
 });
 

@@ -21,13 +21,15 @@ const stub = (rel: string, exports: Record<string, unknown>): void => {
 };
 
 // ─── Prisma مزيّف ───
-type Tenant = { isActive: boolean; subscriptionEndsAt: Date | null };
+type Tenant = { isActive: boolean; subscriptionEndsAt: Date | null; attendanceEnabled?: boolean };
 type Rep = { tenantId: string; isActive: boolean; canBeTracked: boolean; requireLocationOn: boolean; tenant: Tenant };
 type Loc = { tenantId: string; salesRepId: string; lat: number; lng: number; accuracy: number | null; speed: number | null; capturedAt: Date; createdAt: Date };
 let reps: Record<string, Rep> = {};
 let trackingEnabled = true;
 let locs: Loc[] = [];
 let repRows: Record<string, Record<string, unknown>> = {};
+/** نوبة الحضور المفتوحة لكل مندوب (بصمة حضورٍ بلا انصراف) */
+let openShifts: Record<string, boolean> = {};
 const repRow = (id: string) => (repRows[id] ??= {});
 
 const prisma = {
@@ -62,6 +64,11 @@ const prisma = {
         && x.capturedAt >= a.where.capturedAt.gte && x.capturedAt <= a.where.capturedAt.lte && x.createdAt >= a.where.createdAt.gte)
         .sort((x, y) => y.capturedAt.getTime() - x.capturedAt.getTime())[0];
       return l ? { lat: l.lat, lng: l.lng, accuracy: l.accuracy, capturedAt: l.capturedAt, createdAt: l.createdAt } : null;
+    },
+  },
+  repAttendance: {
+    async findFirst(a: { where: { salesRepId: string; checkOutAt: null } }) {
+      return openShifts[a.where.salesRepId] ? { id: 'shift-1', checkInAt: new Date() } : null;
     },
   },
   // مستخدم اللوحة (authenticate وrequireAdminPermission) — لاختبار أن /device-token للمندوب وحده
@@ -113,6 +120,7 @@ beforeEach(() => {
   trackingEnabled = true;
   locs = [];
   repRows = {};
+  openShifts = {};
   dt.resetNativeTrack();
 });
 
@@ -256,8 +264,24 @@ test('/device-token: المندوب يأخذ رمزاً يتحقّق منه veri
   assert.deepEqual(dt.verifyTrackToken(r.body.data.token), { repId: 'free', tenantId: 't1' });
   const life = new Date(r.body.data.expiresAt).getTime() - Date.now();
   assert.ok(life > 20 * 3600_000 - 10_000 && life <= 20 * 3600_000, String(life));
+  // بلا «بصمة الحضور» للشركة: لا انتظار للمسة الحضور، والجهاز لم يرفع بعد
+  assert.equal(r.body.data.waitPunch, false);
+  assert.equal(r.body.data.nativeActive, false);
   // والرمز نفسه تقبله نقطة الجهاز
   assert.equal((await devicePing(r.body.data.token, [pt()])).body.data.stored, 1);
+  // بعد أول رفعٍ من الجهاز: الصفحة تعرف أن التتبّع يعمل فلا تطلب بدءاً ثانياً
+  assert.equal((await call('/api/tracking/device-token', {}, bearer(session('free')))).body.data.nativeActive, true);
+});
+
+test('/device-token: «بصمة الحضور» مفعّلة ولم يبصم ⇒ waitPunch (البدء بلمسة الحضور) — وبعد الحضور لا انتظار', async () => {
+  reps.free.tenant = { ...T_OK, attendanceEnabled: true };
+  assert.equal((await call('/api/tracking/device-token', {}, bearer(session('free')))).body.data.waitPunch, true);
+  openShifts.free = true;
+  assert.equal((await call('/api/tracking/device-token', {}, bearer(session('free')))).body.data.waitPunch, false);
+  // الميزة مطفأة للشركة ولو بقيت نوبةٌ قديمة: لا انتظار
+  openShifts.free = false;
+  reps.free.tenant = { ...T_OK, attendanceEnabled: false };
+  assert.equal((await call('/api/tracking/device-token', {}, bearer(session('free')))).body.data.waitPunch, false);
 });
 
 test('/device-token: التتبّع مطفأ أو المندوب مستثنى أو معطّل أو الشركة موقوفة ⇒ enabled:false بلا رمز — والمقيَّد يأخذ رمزه', async () => {

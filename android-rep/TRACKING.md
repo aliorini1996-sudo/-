@@ -10,13 +10,18 @@
 2. تطلب الصفحة رمز تتبّع بجلسة المندوب: `POST /api/tracking/device-token`.
    - الرمز JWT بمفتاح مشتق `JWT_SECRET + ':device-track'`، وعمره ٢٠ ساعة.
    - لا يُقبل في أي مسار آخر، ولا يُقبل توكن الجلسة مكانه.
-3. **أندرويد:** يظهر زرّ «اضغط لتشغيل تسجيل الموقع» مرّة في اليوم. Chrome لا يفتح التطبيق بلا لمسة.
-   - لمسته تفتح `intent://start?t=<الرمز>#Intent;scheme=fieldsatrack;package=net.fieldsa.twa;end`.
+   - مع الرمز: `waitPunch` و`nativeActive`.
+3. **متى يبدأ (قرار المالك):**
+   - شركة تستعمل «بصمة الحضور» والمندوب لم يبصم بعد (`waitPunch` من الخادم): يبدأ بلمسة «تسجيل الحضور» نفسها، على أندرويد وآيفون.
+     - الرابط يُفتح في أول اللمسة، والبصمة تُكمل بعد عودة الصفحة من شاشة التطبيق، بحدٍّ أقصى ٦٠ث.
+   - غيرها: على أندرويد زرّ «اضغط لتشغيل تسجيل الموقع» مرة في اليوم، لأن Chrome لا يفتح التطبيق بلا لمسة. وعلى آيفون يبدأ فوراً.
+   - جهاز يرفع الآن (`nativeActive`): لا يُطلب بدء ثانٍ.
+4. **أندرويد:** `intent://start?t=<الرمز>#Intent;scheme=fieldsatrack;package=net.fieldsa.twa;end`.
    - يظهر `TrackActivity`، ثم الإفصاح وزرّ «موافق» (مرة لكل حساب)، ثم إذن الموقع الدقيق، ثم تبدأ `TrackService`.
    - `TrackService` خدمة مقدّمة من نوع `location`، بإشعار ثابت «فيلد سيلز: يُسجَّل موقعك اليوم».
-4. **آيفون:** `fsTrack.postMessage({action:'start', token})`.
-   - يظهر الإفصاح، ثم إذن «أثناء الاستخدام» والموقع الدقيق.
-   - بعدها تعمل تحديثات الموقع في الخلفية مع المؤشّر الأزرق. لا يُطلب «دائماً» أبداً.
+   - **آيفون:** `fsTrack.postMessage({action:'start', token})`.
+     - يظهر الإفصاح، ثم إذن «أثناء الاستخدام» والموقع الدقيق.
+     - بعدها تعمل تحديثات الموقع في الخلفية مع المؤشّر الأزرق. لا يُطلب «دائماً» أبداً.
 5. يحفظ التطبيقان نقطة كل ١٥ ثانية متى تحرّك المندوب ٢٠ متراً، ونقطة كل ٣٠ ثانية وهو ثابت. تُسقط القراءة الأسوأ دقّةً من ٥٠٠ م.
    - يرفعان كل ٣٠ ثانية إلى `POST /api/track-device/ping`، والرمز في `Authorization: Bearer`.
    - يحفظان النقاط عند الانقطاع، حتى ٣٠٠٠ نقطة، ويعيدان المحاولة بتراجع ٣٠ ← ٦٠ ← ١٢٠ ← ٣٠٠ ثانية.
@@ -32,7 +37,7 @@
 | الجزء | الملفات |
 |---|---|
 | الخادم | `backend/src/services/deviceTrack.ts`، `backend/src/routes/trackDevice.ts`، و`routes/tracking.ts` (`/device-token` و`storeRepPings`)، و`index.ts` |
-| الويب | `web-admin/src/rep/nativeTracking.ts`، و`useRepTracking.ts` (البدء)، و`RepApp.tsx` (الإيقاف عند الخروج)، و`main.tsx` |
+| الويب | `web-admin/src/rep/nativeTracking.ts`، و`useRepTracking.ts` (طلب الرمز)، و`RepApp.tsx` (لمسة الحضور `startNativeTrackingOnPunch`، والإيقاف عند الخروج)، و`main.tsx` |
 | أندرويد | `app/src/main/java/net/fieldsa/twa/track/*`، والبيان (النشاط والخدمة وأذونات `FOREGROUND_SERVICE` و`FOREGROUND_SERVICE_LOCATION`)، و`LauncherActivity.appendTrackCapability`، و`src/printonly` (تُزال كلها) |
 | آيفون (فرع `feature/ios-bg-tracking` من `ios-app`) | `FieldSales/TrackService.swift`، و`TrackBridge.swift`، و`Info.plist` (`UIBackgroundModes: location`)، و`project.pbxproj`، و`metadata/review-notes.md` |
 

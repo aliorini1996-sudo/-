@@ -41,7 +41,7 @@ import { methodIconComponent } from '../components/PaymentMethodIcon';
 import RepRouteScreen, { fetchMyRoute, RouteToday } from './RepRouteScreen';
 import RepDailyReport from './RepDailyReport';
 import { useRepTracking } from './useRepTracking';
-import { stopNativeTracking } from './nativeTracking';
+import { startNativeTrackingOnPunch, stopNativeTracking } from './nativeTracking';
 import { useHeartbeat } from './useHeartbeat';
 import PresenceCheckModal from './PresenceCheck';
 import type { PendingPresence } from './presencePhase';
@@ -327,6 +327,9 @@ function RepAttendance({ atCustomer = false, boundDevice = false, presenceOn = f
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true); setErr(''); setPlaceNote(''); setDeviceRefused(false);
+    // التتبّع الخلفي في تطبيق الجوال يبدأ بلمسة الحضور (قرار المالك ٤ نوفمبر): رابط التطبيق يُفتح داخل هذه اللمسة قبل أيّ انتظار،
+    // والبصمة تُكمل بعد العودة من شاشة التطبيق فتقرأ موقعها والصفحة ظاهرة. بلا تطبيق أو بلا بدءٍ منتظَر: يعود فوراً
+    if (kind === 'checkin') await startNativeTrackingOnPunch();
     // لا قراءة والموقع غير مرفوض (مهلة/تعذّر): رفض الخادم «فعّل الموقع» لا يصف الحال — تُقال الحقيقة بدلاً منه
     let noFix = false;
     try {
