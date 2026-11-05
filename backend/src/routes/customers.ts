@@ -9,6 +9,8 @@ import { AuthRequest } from '../types';
 const NOT_DELETED = { status: { not: 'DELETED' } } as const;
 import { paginate, paginationMeta } from '../utils/helpers';
 import { resolveLocationUrl } from '../services/geoLink';
+import { withDeletedProductName } from '../services/deletedProduct';
+import { purgeInTx } from '../services/ownerPurge';
 import { customerScope, ensureAssignment, canAccessCustomer } from '../services/customerScope';
 import { scopedRecordWhere, SHAPE_INVOICE_RECEIPT, teamSupervisorIdOf } from '../services/adminScope';
 import { scaleTeamRows, teamReceiptShare, teamStatementTotals } from '../services/teams';
@@ -397,6 +399,10 @@ router.get('/:id/statement', async (req: AuthRequest, res: Response, next: NextF
     }));
     const customer = await prisma.customer.findFirst({ where: { id: req.params.id, tenantId: tid } });
     if (!customer) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
+    // الصنف المحذوف حذفاً حقيقياً: بنود فواتير الكشف باسمه من لقطة البند (services/deletedProduct.ts)
+    for (const r of rows as unknown as Array<{ invoice?: { items?: Array<Record<string, unknown>> } | null }>) {
+      if (r.invoice?.items) r.invoice.items = r.invoice.items.map((x) => withDeletedProductName(x));
+    }
 
     // ── الرصيد الجاري يُشتقّ في ترتيب العرض، ولا يُعرض المخزَّن ──
     // القيمة المخزّنة في `balance` لقطةٌ لحظةَ الكتابة: قيدٌ بأثر رجعي يحمل رصيد
@@ -453,7 +459,8 @@ router.get('/:id/invoices', async (req: AuthRequest, res: Response, next: NextFu
       include: { salesRep: { select: { name: true } }, items: { include: { product: true } } },
       orderBy: { createdAt: 'desc' },
     });
-    res.json({ success: true, data: invoices });
+    // الصنف المحذوف حذفاً حقيقياً: اسمه من لقطة البند
+    res.json({ success: true, data: invoices.map((inv) => ({ ...inv, items: inv.items.map((x) => withDeletedProductName(x)) })) });
   } catch (err) { next(err); }
 });
 
@@ -517,19 +524,13 @@ router.put('/:id/prices', requireAdmin, async (req: AuthRequest, res: Response, 
 });
 
 /**
- * حذف عميل — للإدارة وحدها، **ويمضي دائماً**.
+ * حذف عميل — للإدارة وحدها.
  *
- * كان يُرفض بـ409 متى كانت للعميل فاتورةٌ أو سندٌ أو حركةُ كشف، فيبقى في
- * قائمة المشترك أبداً ولا يفيده «تعطيله» لأنّه يظلّ معروضاً. والقرار (المالك):
- * يختفي نهائياً، وتبقى فواتيره.
- *
- * فمساران بحسب ما له من أثر ماليّ:
- *  • بلا أثر ⇒ حذفٌ فعليّ من القاعدة كما كان.
- *  • بأثر ⇒ **أرشفة**: `status = 'DELETED'` فيسقط من كل قائمة وبحثٍ وتقرير،
- *    وتُقطع إسناداته ومحطّاته وأسعاره الخاصّة فلا يبلغه مندوب. وصفّه يبقى في
- *    القاعدة لسببٍ واحد: فواتيره وسنداته تشير إليه، وقراءةُ اسمها منه. محوُه
- *    معها كان يُنقص المبيعات والتحصيل في تقاريرَ سبق إقرارها ضريبياً، ويخالف
- *    إلزام الهيئة بحفظ الفاتورة ستّ سنوات.
+ * فمساران بحسب ما له من أثر ماليّ (أمر المالك ٥ نوفمبر ٢٠٢٦: حذفٌ حقيقيّ بلا نسخة مخفية):
+ *  • بلا أثر ⇒ حذفٌ فعليّ من القاعدة.
+ *  • بأثر (فواتير أو سندات أو قيود) ⇒ **رفض** 409 CUSTOMER_HAS_DOCUMENTS: لا تبقى فاتورة بلا عميل، ولا صفٌّ مخفيّ
+ *    تعيده المزامنة. يوقفه المدير بدل حذفه، أو يحذفه مالك المنصة مع مستنداته بالحذف النهائي.
+ *    (العملاء المؤرشفون قبل اليوم بـstatus = 'DELETED' يبقون كما هم.)
  *
  * ومن ثمّ لا مسار «استرجاع» في الواجهة: الحذف نهائيّ كما وُعد المستخدم.
  */
@@ -539,36 +540,32 @@ router.delete('/:id', requireAdmin, async (req: AuthRequest, res: Response, next
     const customer = await prisma.customer.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true, name: true } });
     if (!customer) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
 
-    const [invoices, receipts, entries] = await Promise.all([
-      prisma.invoice.count({ where: { customerId: customer.id } }),
-      prisma.receipt.count({ where: { customerId: customer.id } }),
-      prisma.accountEntry.count({ where: { customerId: customer.id } }),
-    ]);
-    const hasRecords = invoices > 0 || receipts > 0 || entries > 0;
-
-    // ما يُقطع في الحالين: إسنادُه لمندوب، ومحطّاته في خطوط السير، وأسعاره الخاصّة
-    const detach = [
-      prisma.customerAssignment.deleteMany({ where: { customerId: customer.id } }),
-      prisma.repRouteStop.deleteMany({ where: { customerId: customer.id } }),
-      prisma.customerPrice.deleteMany({ where: { customerId: customer.id } }),
-    ];
-
-    if (hasRecords) {
-      await prisma.$transaction([
-        ...detach,
-        // `status` لا حقلٌ جديد: كلّ شاشةٍ تفلتر ACTIVE تُسقطه فوراً، وما لا
-        // يفلتر استُثني صراحةً (قائمة العملاء والخريطة ولوحة التحكّم).
-        prisma.customer.update({ where: { id: customer.id }, data: { status: 'DELETED' } }),
+    // أمر المالك (٥ نوفمبر ٢٠٢٦): «الحذف… حذف فعلي و حقيقي بدون نسخة ثانية» — لا أرشفة بعد اليوم (status DELETED كان يُبقي
+    // صفّاً مخفياً تعيده المزامنة فيظنّه الربط البرمجي موجوداً). وقراره: العميل الذي له فواتير أو سندات أو قيود لا يحذفه مدير
+    // الشركة (لا تبقى فاتورة بلا عميل) — يوقفه بدل حذفه، ومالك المنصة يحذفه مع مستنداته بالحذف النهائي (routes/ownerPurge.ts).
+    // العدّ والحذف في معاملة واحدة بعد قفل صفّ العميل FOR UPDATE (الفاتورة والسند يقفلانه قبل الكتابة: lockCustomerRow) — فلا
+    // تُحذف فاتورةٌ تُكتب في الأثناء مع عميلها. وبلا أثرٍ ماليّ يُحذف بالمحرّك نفسه مع كل ما يتبعه (إسناداته ومحطّاته وأسعاره
+    // وزياراته الميدانية…)، وإشعاراته معه كما كان
+    const refused = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM customers WHERE id = ${customer.id} FOR UPDATE`;
+      const [invoices, receipts, entries] = await Promise.all([
+        tx.invoice.count({ where: { customerId: customer.id } }),
+        tx.receipt.count({ where: { customerId: customer.id } }),
+        tx.accountEntry.count({ where: { customerId: customer.id } }),
       ]);
-      res.json({ success: true, data: { archived: true, invoices, receipts, entries } });
+      if (invoices > 0 || receipts > 0 || entries > 0) return { invoices, receipts, entries };
+      await tx.notification.deleteMany({ where: { customerId: customer.id } });
+      await purgeInTx(tx, tid, 'Customer', [customer.id]);
+      return null;
+    }, { maxWait: 10_000, timeout: 60_000 });
+    if (refused) {
+      res.status(409).json({
+        success: false, code: 'CUSTOMER_HAS_DOCUMENTS',
+        message: `لا يمكن حذف «${customer.name}» لأن له فواتير أو سندات في الدفاتر — أوقف العميل بدل حذفه`,
+        data: refused,
+      });
       return;
     }
-
-    await prisma.$transaction([
-      ...detach,
-      prisma.notification.deleteMany({ where: { customerId: customer.id } }),
-      prisma.customer.delete({ where: { id: customer.id } }),
-    ]);
     res.json({ success: true, data: { archived: false } });
   } catch (err) { next(err); }
 });

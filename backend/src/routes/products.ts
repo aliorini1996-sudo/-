@@ -6,6 +6,7 @@ import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, 
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta, roundDecimal } from '../utils/helpers';
 import { canAccessCustomer } from '../services/customerScope';
+import { purgeInTx } from '../services/ownerPurge';
 import { adminRepFilter } from '../services/adminScope';
 import { applyProductVatGate } from './productsZatca';
 import { RETURN_RULE_METRICS, RETURN_RULE_MODES, SHELF_LIFE_BASES, SHELF_LIFE_UNITS, returnRuleConfigProblem, shelfLifeProblem } from '../services/shelfLife';
@@ -1118,10 +1119,9 @@ router.delete('/:id', requireAdmin, async (req: AuthRequest, res: Response, next
     const product = await prisma.product.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
     if (!product) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
 
-    // صنف له أثر مالي/مخزني — أو تشغيلة (§٤.١٩: ProductLot يمنع حذفه، Restrict) — يؤرشف لا يمحى: يختفي من كل القوائم ولا
-    // يباع مجددا، ويبقى صفه باسمه حيا فتعرضه الفواتير والسندات والكشوف القديمة وتقارير المبيعات حسب الصنف وشاشة التتبّع كما
-    // كانت حرفيا. العدّ والحذف في معاملة واحدة بعد قفل صفّ الصنف FOR UPDATE: بندٌ أو حركةٌ أو تشغيلةٌ تُكتب بين العدّ والحذف
-    // تنتظر القفل (فحص مفتاحها الأجنبي يأخذ FOR KEY SHARE على الصنف، وكل عملية لوطٍ كذلك)، فلا يُمحى صنفٌ صار له أثر
+    // حذفٌ حقيقيّ (أمر المالك ٥ نوفمبر ٢٠٢٦ — hardDeleteLocked أدناه): الفواتير تبقى باسم الصنف من لقطة بنودها، وحركاته وتشغيلاته
+    // تُحذف معه. والحذف بعد قفل صفّ الصنف FOR UPDATE: بندٌ أو حركةٌ أو تشغيلةٌ تُكتب في الأثناء تنتظر القفل (فحص مفتاحها الأجنبي
+    // يأخذ FOR KEY SHARE على الصنف، وكل عملية لوطٍ كذلك)، فلا يفلت منها شيء
     const archived = await prisma.$transaction(async (tx) => {
       // انتظار القفل بمهلةٍ محلية تُحفظ وتُستعاد (نمط lockLotProducts): من يمسك الصفّ أطول منها (convert-base حتى ١٢٠ ثانية،
       // أو عملية لوطٍ حتى ٢٠) ⇒ 55P03 ⇒ 503 LOT_BUSY مبكراً، لا انتظار مهلة المعاملة ثم 500
@@ -1129,8 +1129,8 @@ router.delete('/:id', requireAdmin, async (req: AuthRequest, res: Response, next
       await tx.$executeRaw`SELECT set_config('lock_timeout', ${LOT_LOCK_TIMEOUT}, true)`;
       const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM products WHERE id = ${req.params.id} AND "tenantId" = ${tid} FOR UPDATE`;
       await tx.$executeRaw`SELECT set_config('lock_timeout', ${prev[0]?.lock_timeout ?? '0'}, true)`;
-      return locked.length ? deleteOrArchiveLocked(tx, req) : null;
-    }, { maxWait: 10_000, timeout: 20_000 }); // قد ينتظر القفلُ عمليةَ لوطٍ جارية (D13)
+      return locked.length ? hardDeleteLocked(tx, tid, req.params.id) : null;
+    }, { maxWait: 10_000, timeout: 60_000 }); // قد ينتظر القفلُ عمليةَ لوطٍ جارية (D13)، والحذف يمسّ حركات الصنف
     if (archived === null) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
     res.json({ success: true, archived });
   } catch (err) {
@@ -1142,24 +1142,19 @@ router.delete('/:id', requireAdmin, async (req: AuthRequest, res: Response, next
 });
 
 /**
- * حذف الصنف أو أرشفته **بعد** قفل صفّه FOR UPDATE داخل معاملة الحذف (§٤.١٩) — `prisma` هنا عميل المعاملة. العدّ على بنود الصنف
- * بمعرّفه (بند الإشعار المدين بلا صنف لا يُعدّ)، ومعه تشغيلاته: ProductLot يمنع حذفه (Restrict) فصنفٌ له تشغيلة يُؤرشف.
+ * حذف الصنف حذفاً حقيقياً **بعد** قفل صفّه FOR UPDATE داخل معاملة الحذف (§٤.١٩) — أمر المالك ٥ نوفمبر ٢٠٢٦: «الحذف… حذف فعلي
+ * و حقيقي بدون نسخة ثانية»، وقراره: «يُحذف وتبقى الفواتير». لا أرشفة بعد اليوم (الصفّ المؤرشف كان يُبقي كوده محجوزاً وتعيده
+ * المزامنة فيظنّه الربط البرمجي موجوداً):
+ *  - اسم الصنف يُكتب في بنود فواتيره التي بلا لقطة اسم (itemName) ثم يُفكّ ربطها (productId ← null) — فتبقى الفواتير وتُعرض
+ *    باسمه (services/deletedProduct.ts) في التفصيل والطباعة وكشف الحساب.
+ *  - ما لا معنى له بلا الصنف يُحذف معه: وحداته وأسعاره وقواعد قوائم الأسعار، وبنود حركات السيارة والمستودع، وتشغيلاته.
+ * بالمحرّك نفسه الذي يحذف به مالك المنصة (services/ownerPurge.ts — purgeInTx) داخل المعاملة نفسها.
+ * (الأصناف المؤرشفة قبل اليوم تبقى كما هي.) يعيد false دائماً: «archived» في الردّ للتوافق.
  */
-async function deleteOrArchiveLocked(prisma: Prisma.TransactionClient, req: AuthRequest): Promise<boolean> {
-  const invoiceItems = await prisma.invoiceItem.count({ where: { productId: req.params.id } });
-  const loadItems = await prisma.vanLoadItem.count({ where: { productId: req.params.id } });
-  const warehouseItems = await prisma.warehouseEntryItem.count({ where: { productId: req.params.id } });
-  const lots = await prisma.productLot.count({ where: { productId: req.params.id } });
-  await prisma.priceTier.deleteMany({ where: { productId: req.params.id } });
-  await prisma.customerPrice.deleteMany({ where: { productId: req.params.id } });
-  await prisma.priceListItem.deleteMany({ where: { productId: req.params.id } }); // «قوائم الأسعار» — والحذف الفعلي يسلسلها أيضاً
-  await prisma.priceListRule.deleteMany({ where: { productId: req.params.id } }); // وقواعد الصنف فيها (Cascade في الحذف الفعلي كذلك)
-  if (invoiceItems > 0 || loadItems > 0 || warehouseItems > 0 || lots > 0) {
-    await prisma.product.update({ where: { id: req.params.id }, data: { deletedAt: new Date(), status: 'INACTIVE' } });
-    return true;
-  }
-  // بلا أي أثر: حذف فعلي مع بيانات التسعير التابعة
-  await prisma.product.delete({ where: { id: req.params.id } });
+async function hardDeleteLocked(tx: Prisma.TransactionClient, tid: string, id: string): Promise<boolean> {
+  const p = await tx.product.findUnique({ where: { id }, select: { name: true } });
+  if (p?.name) await tx.invoiceItem.updateMany({ where: { productId: id, itemName: null }, data: { itemName: p.name } });
+  await purgeInTx(tx, tid, 'Product', [id]);
   return false;
 }
 

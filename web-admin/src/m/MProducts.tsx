@@ -832,7 +832,7 @@ function MProductForm({ product, categories, onClose, onReplace, lotOn = false }
       {confirming && product && newCat === null && (
         <Sheet title={tr('حذف الصنف')} onClose={() => setConfirming(false)}>
           <p className="text-[12px] text-[#6E6557] leading-relaxed">
-            {tr('سيتم حذف الصنف')} «{product.name}» {tr('من كل القوائم ولن يمكن بيعه في فواتير جديدة فواتيره وسنداته وكشوفه القديمة تبقى كما هي بالاسم نفسه ولا يمكن التراجع عن الحذف')}
+            {tr('سيتم حذف الصنف')} «{product.name}» {tr('نهائيا من قاعدة البيانات فواتيره القديمة تبقى باسمه ويحذف معه سجل حركاته في السيارات والمستودع وتشغيلاته ولا يمكن التراجع عن الحذف')}
           </p>
           {delBalanceLine && <p className="text-[12px] font-semibold text-amber-800 leading-relaxed">{delBalanceLine}</p>}
           <div className="flex gap-2">

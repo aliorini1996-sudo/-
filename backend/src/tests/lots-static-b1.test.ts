@@ -282,24 +282,20 @@ test('حارس نصّي: تبديل العلم — الطابور ثم FOR UPDAT
   assert.ok(fn.indexOf('if (!on) {') < fn.indexOf('namedLotBalances(tx'));
 });
 
-test('حارس نصّي: حذف الصنف — العدّ والحذف داخل معاملةٍ بقفل الصفّ FOR UPDATE، وproductLot.count يؤرشف (§٤.١٩)', () => {
+test('حارس نصّي: حذف الصنف حقيقيّ (أمر المالك ٥ نوفمبر ٢٠٢٦) — داخل معاملةٍ بقفل الصفّ FOR UPDATE، لقطة الاسم ثم المحرّك، ولا أرشفة (§٤.١٩)', () => {
   const src = strip(read('routes/products.ts'));
   const del = routeBody(src, "router.delete('/:id', requireAdmin");
-  ordered(del, ['prisma.$transaction(async (tx) => {', 'FOR UPDATE', 'deleteOrArchiveLocked(tx, req)'], 'الحذف');
+  ordered(del, ['prisma.$transaction(async (tx) => {', 'FOR UPDATE', 'hardDeleteLocked(tx, tid, req.params.id)'], 'الحذف');
   // انتظار القفل بمهلةٍ محلية تُحفظ وتُستعاد (نمط lockLotProducts)، والانشغال 503 LOT_BUSY في catch المسار (D14، §٣.٣)
   ordered(del, [
     "current_setting('lock_timeout')", "set_config('lock_timeout', ${LOT_LOCK_TIMEOUT}, true)", 'FOR UPDATE', "set_config('lock_timeout', ${prev",
-    'deleteOrArchiveLocked(tx, req)', 'catch (err) {', 'asLotBusy(err)', 'res.status(busy.status).json(lotErrorBody(busy))', 'next(err);',
+    'hardDeleteLocked(tx, tid, req.params.id)', 'catch (err) {', 'asLotBusy(err)', 'res.status(busy.status).json(lotErrorBody(busy))', 'next(err);',
   ], 'مهلة القفل والانشغال');
   assert.doesNotMatch(del, /SET LOCAL/);
-  assert.doesNotMatch(del.slice(del.indexOf('=>'), del.indexOf('prisma.$transaction(')), /\.count\(|\.delete(Many)?\(|\.update\(/, 'لا عدّ ولا كتابة قبل القفل');
-  const fn = fnBody(src, 'async function deleteOrArchiveLocked(');
-  const firstWrite = fn.search(/\.delete(Many)?\(|\.update\(/);
-  for (const c of ['invoiceItem.count(', 'vanLoadItem.count(', 'warehouseEntryItem.count(', 'productLot.count(']) {
-    const i = fn.indexOf(c);
-    assert.ok(i > 0 && i < firstWrite, `${c} قبل أول كتابة`);
-  }
-  assert.match(fn, /invoiceItems > 0 \|\| loadItems > 0 \|\| warehouseItems > 0 \|\| lots > 0/);
+  assert.doesNotMatch(del.slice(del.indexOf('=>'), del.indexOf('prisma.$transaction(')), /\.count\(|\.delete(Many)?\(|\.update(Many)?\(/, 'لا عدّ ولا كتابة قبل القفل');
+  const fn = fnBody(src, 'async function hardDeleteLocked(');
+  ordered(fn, ['tx.product.findUnique(', 'tx.invoiceItem.updateMany(', "purgeInTx(tx, tid, 'Product', [id])"], 'لقطة الاسم قبل الحذف');
+  assert.doesNotMatch(fn, /deletedAt|status: 'INACTIVE'/, 'لا أرشفة');
 });
 
 // ═══ علم الصنف — عبر الموجّه ═══
@@ -535,35 +531,40 @@ test('حدث اللوط من جلسة «دخول» المالك موسومٌ ب�
   assert.deepEqual(['actorType', 'actorId'].map((k) => calls[opIdx('lotEvent.create')].args.data[k]), ['API_KEY', 'k1']);
 });
 
-test('حذف الصنف: صنفٌ له تشغيلة وحدها يؤرشف (Restrict)، وبلا أثرٍ يُحذف، والعدّ كله بعد القفل داخل المعاملة', async () => {
-  const world = (counts: { lots: number }) => {
+/** صنفٌ قائم p1 كما يقرؤه محرّك الحذف (services/ownerPurge.ts): الجذر بمعرّفه، وتشغيلته L1 إن طُلبت */
+function productDeleteWorld(o: { lots: boolean }): void {
+  scripted['product.findFirst'] = () => ({ id: 'p1' });
+  scripted['product.findUnique'] = () => ({ name: 'شاي' });
+  scripted['product.findMany'] = (a) => ((a.where?.id?.in ?? []).includes('p1') ? [{ id: 'p1' }] : []);
+  scripted['productLot.findMany'] = (a) => (o.lots && (a.where?.productId?.in ?? []).includes('p1') ? [{ id: 'L1' }] : []);
+}
+
+test('حذف الصنف حقيقيّ (أمر المالك ٥ نوفمبر ٢٠٢٦): ولو له تشغيلة — لقطة الاسم في بنود الفواتير ثم الحذف بالمحرّك، كله بعد القفل داخل المعاملة', async () => {
+  const world = (lots: boolean) => {
     reset();
-    scripted['product.findFirst'] = () => ({ id: 'p1' });
-    scripted['productLot.count'] = () => counts.lots;
+    productDeleteWorld({ lots });
     rawScript = (sql) => (sql.includes('FROM products WHERE id =') && sql.includes('FOR UPDATE') ? [{ id: 'p1' }] : undefined);
   };
-  world({ lots: 1 });
-  const a = await call('DELETE', '/api/products/p1');
-  assert.deepEqual([a.status, a.body.archived], [200, true]);
-  const lock = rawIdx('FOR UPDATE');
-  for (const c of ['invoiceItem.count', 'vanLoadItem.count', 'warehouseEntryItem.count', 'productLot.count', 'product.update']) {
-    const i = opIdx(c);
-    assert.ok(i > lock && calls[i].inTx, c);
+  for (const lots of [true, false]) {
+    world(lots);
+    const a = await call('DELETE', '/api/products/p1');
+    assert.deepEqual([a.status, a.body.archived], [200, false], JSON.stringify(a.body));
+    const lock = rawIdx('FOR UPDATE');
+    const snap = opIdx('invoiceItem.updateMany');
+    assert.ok(snap > lock && calls[snap].inTx, ops().join(' → '));
+    assert.deepEqual(calls[snap].args, { where: { productId: 'p1', itemName: null }, data: { itemName: 'شاي' } });
+    const del = opIdx('product.deleteMany');
+    assert.ok(del > snap && calls[del].inTx, ops().join(' → '));
+    if (lots) assert.ok(opIdx('productLot.deleteMany') > snap && opIdx('productLot.deleteMany') < del, 'التشغيلة قبل صنفها');
+    assert.equal(opIdx('product.update'), -1, 'لا أرشفة');
+    assert.deepEqual(calls[opIdx('$transaction')].args, { maxWait: 10_000, timeout: 60_000 });
   }
-  assert.deepEqual(calls[opIdx('product.update')].args.data.status, 'INACTIVE');
-  assert.equal(opIdx('product.delete'), -1);
-  assert.deepEqual(calls[opIdx('$transaction')].args, { maxWait: 10_000, timeout: 20_000 });
-
-  world({ lots: 0 });
-  const b = await call('DELETE', '/api/products/p1');
-  assert.deepEqual([b.status, b.body.archived], [200, false]);
-  assert.ok(opIdx('product.delete') > opIdx('productLot.count'));
 
   reset();
   scripted['product.findFirst'] = () => ({ id: 'p1' });
   const gone = await call('DELETE', '/api/products/p1');
   assert.equal(gone.status, 404, 'حُذف بين القراءتين');
-  assert.equal(opIdx('invoiceItem.count'), -1);
+  assert.equal(opIdx('invoiceItem.updateMany'), -1);
 });
 
 test('حذف الصنف وصفّه ممسوك (convert-base حتى ١٢٠ ثانية، أو عملية لوط): مهلة قفلٍ محلية تُستعاد، وتجاوزها أو مهلة المعاملة ⇒ 503 LOT_BUSY لا 500', async () => {
@@ -582,12 +583,12 @@ test('حذف الصنف وصفّه ممسوك (convert-base حتى ١٢٠ ثان
     assert.equal(r.status, 503, `${code}: ${JSON.stringify(r.body)}`);
     assert.equal(r.body.code, 'LOT_BUSY');
     assert.doesNotMatch(String(r.body.message), /Transaction|timeout/i, 'لا رسالة داخلية');
-    assert.equal(opIdx('invoiceItem.count'), -1);
-    assert.equal(calls.filter((c) => /\.(delete|deleteMany|update)$/.test(c.op)).length, 0, 'لا كتابة');
+    assert.equal(opIdx('invoiceItem.updateMany'), -1);
+    assert.equal(calls.filter((c) => /\.(delete|deleteMany|update|updateMany)$/.test(c.op)).length, 0, 'لا كتابة');
   }
   // المهلة المحلية حول FOR UPDATE وحده: حفظٌ ثم ٥ ثوانٍ ثم القفل ثم الاستعادة، كلها داخل المعاملة وقبل العدّ
   reset();
-  scripted['product.findFirst'] = () => ({ id: 'p1' });
+  productDeleteWorld({ lots: false });
   rawScript = (sql) => {
     if (sql.includes("current_setting('lock_timeout')")) return [{ lock_timeout: '2s' }];
     if (sql.includes('FROM products WHERE id =') && sql.includes('FOR UPDATE')) return [{ id: 'p1' }];
@@ -599,7 +600,7 @@ test('حذف الصنف وصفّه ممسوك (convert-base حتى ١٢٠ ثان
   const set = rawIdx("set_config('lock_timeout', $1, true)");
   const lock = rawIdx('FROM products WHERE id =');
   const restore = calls.findIndex((c, i) => i > lock && String(c.args?.sql ?? '').includes("set_config('lock_timeout'"));
-  assert.ok(save >= 0 && save < set && set < lock && lock < restore && restore < opIdx('invoiceItem.count'), ops().join(' → '));
+  assert.ok(save >= 0 && save < set && set < lock && lock < restore && restore < opIdx('invoiceItem.updateMany'), ops().join(' → '));
   assert.ok([save, set, lock, restore].every((i) => calls[i].inTx));
   assert.equal(calls[set].args.values[0], '5s');
   assert.equal(calls[restore].args.values[0], '2s', 'المهلة السابقة تُستعاد');

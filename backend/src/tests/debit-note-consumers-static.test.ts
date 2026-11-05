@@ -54,9 +54,9 @@ test('تصدير ERP: بنود الفاتورة تُقرأ بحقولها لا �
   assert.match(invoices, /items\.map\(\(it\) => invoiceItemPayloadRow\(it, incl\)\)|invoiceItemPayloadRow\(/, 'الفاتورة لا تبني بنودها بالدالّة المحروسة');
 });
 
-test('حذف الصنف: العدّ لا يقع على بنود بلا صنف (لا يمنع حذفاً بسبب إشعار مدين)', () => {
+test('حذف الصنف: لقطة الاسم تقع على بنود الصنف وحده — بنود الإشعار المدين بلا صنف لا تُمسّ', () => {
   const products = read('routes/products.ts');
-  assert.match(products, /prisma\.invoiceItem\.count\(\{ where: \{ productId: req\.params\.id \} \}\)/, 'عدّ بنود الصنف تغيّر');
+  assert.match(products, /tx\.invoiceItem\.updateMany\(\{ where: \{ productId: id, itemName: null \}, data: \{ itemName: p\.name \} \}\)/, 'لقطة بنود الصنف تغيّرت');
 });
 
 test('الإشعار المدين نفسه: بنوده بلا صنف وصفّه لا يحمل مرتجعاً', () => {

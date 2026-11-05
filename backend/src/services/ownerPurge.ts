@@ -40,7 +40,8 @@ function pkFields(m: DmmfModel): string[] {
 }
 
 /** كل علاقةٍ واردة إلى `target`: نموذجٌ آخر يحمل مفتاحاً أجنبياً (حقلاً واحداً) يشير إليه */
-interface Inbound { child: DmmfModel; fk: string; ref: string; required: boolean }
+/** required: المفتاح إلزامي؛ cascade: onDelete: Cascade في المخطط (مثل قاعدة قائمة أسعارٍ لصنفٍ بعينه — اختيارية لكنها تُحذف معه) */
+interface Inbound { child: DmmfModel; fk: string; ref: string; required: boolean; cascade: boolean }
 const inboundCache = new Map<string, Inbound[]>();
 export function inboundOf(target: string): Inbound[] {
   const hit = inboundCache.get(target);
@@ -53,12 +54,15 @@ export function inboundOf(target: string): Inbound[] {
       const to = f.relationToFields ?? [];
       if (from.length !== 1 || to.length !== 1) continue; // المفاتيح المركّبة غير مستعملة لمستندات الشركة
       const fkField = m.fields.find((x) => x.name === from[0]);
-      out.push({ child: m, fk: from[0], ref: to[0], required: !!fkField?.isRequired });
+      out.push({ child: m, fk: from[0], ref: to[0], required: !!fkField?.isRequired, cascade: (f as { relationOnDelete?: string }).relationOnDelete === 'Cascade' });
     }
   }
   inboundCache.set(target, out);
   return out;
 }
+
+/** يُحذف الصفّ الابن مع المحذوف: مفتاحه إلزامي، أو المخطط يسلسل حذفه (Cascade)، أو هو من DELETE_ON_OPTIONAL — وإلا يُفرَّغ مفتاحه */
+const deletesWith = (r: Inbound): boolean => r.required || r.cascade || DELETE_ON_OPTIONAL.has(`${r.child.name}.${r.fk}`);
 
 export const hasTenantId = (m: DmmfModel | undefined): boolean => !!m?.fields.some((f) => f.name === 'tenantId' && f.kind === 'scalar');
 
@@ -136,7 +140,7 @@ export async function buildPurgePlan(db: Tx | typeof prisma, tenantId: string, m
       const values = [...new Set(fresh.map((x) => x[r.ref]).filter((v) => v !== null && v !== undefined))];
       if (!values.length) continue;
       const cw = { [r.fk]: { in: values } };
-      if (r.required || DELETE_ON_OPTIONAL.has(`${r.child.name}.${r.fk}`)) {
+      if (deletesWith(r)) {
         queue.push({ model: r.child.name, where: cw });
       } else {
         const count = await d[delegateOf(r.child.name)].count({ where: cw });
@@ -193,6 +197,28 @@ async function touchedCustomers(tx: Tx, plan: PurgePlan): Promise<Set<string>> {
 
 export interface PurgeResult { counts: Record<string, number>; nullCounts: Record<string, number> }
 
+/** بندٌ يُحذف ← رأسه (حقل الربط ونموذج الرأس): الرأس الذي لم يُحذف هو نفسه وقد يفرغ */
+const LINE_HEADERS: ReadonlyArray<[line: string, fk: string, header: string]> = [
+  ['VanLoadItem', 'vanLoadId', 'VanLoad'],
+  ['WarehouseEntryItem', 'entryId', 'WarehouseEntry'],
+  ['RepStockRequestItem', 'requestId', 'RepStockRequest'],
+];
+
+/** رؤوس البنود المحذوفة التي لا يحذفها الحذف نفسه — مرشّحة للحذف إن فرغت بعده */
+async function emptiedHeaderCandidates(tx: Tx, keysOf: Map<string, Array<Record<string, unknown>>>): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  const db = tx as unknown as Record<string, { findMany(a: unknown): Promise<Array<Record<string, unknown>>> }>;
+  for (const [line, fk, header] of LINE_HEADERS) {
+    const ids = (keysOf.get(line) ?? []).map((k) => k.id).filter(Boolean);
+    if (!ids.length) continue;
+    const gone = new Set((keysOf.get(header) ?? []).map((k) => String(k.id)));
+    const rows = await db[delegateOf(line)].findMany({ where: { id: { in: ids } }, select: { [fk]: true } });
+    const hs = [...new Set(rows.map((r) => String(r[fk])))].filter((h) => !gone.has(h));
+    if (hs.length) out.set(header, hs);
+  }
+  return out;
+}
+
 /** مفاتيح كل نموذجٍ في الخطة مجموعةً من دفعاته */
 function mergedKeys(plan: PurgePlan): Map<string, Array<Record<string, unknown>>> {
   const out = new Map<string, Array<Record<string, unknown>>>();
@@ -213,7 +239,7 @@ export function deletionOrder(plan: PurgePlan): string[] {
   for (const p of models) {
     for (const r of inboundOf(p)) {
       if (r.child.name === p || !inPlan.has(r.child.name)) continue;
-      if (r.required || DELETE_ON_OPTIONAL.has(`${r.child.name}.${r.fk}`)) must.get(p)!.add(r.child.name);
+      if (deletesWith(r)) must.get(p)!.add(r.child.name);
     }
   }
   const out: string[] = [];
@@ -229,7 +255,15 @@ export function deletionOrder(plan: PurgePlan): string[] {
 
 /** ينفّذ الخطة في معاملة واحدة: إعادة مبالغ تخصيص السندات القائمة، ثم التفريغ، ثم الحذف من الأبناء إلى الآباء، ثم تصحيح الأرصدة */
 export async function executePurge(tenantId: string, model: string, id: string | readonly string[]): Promise<PurgeResult> {
-  return prisma.$transaction(async (tx) => {
+  return prisma.$transaction((tx) => purgeInTx(tx, tenantId, model, id), { timeout: 120_000, maxWait: 15_000 });
+}
+
+/**
+ * الحذف داخل معاملةٍ قائمة — يستعمله الحذف النهائي للمالك، وحذف الصنف العادي (حذفٌ حقيقي بلا أرشفة، أمر المالك ٥ نوفمبر):
+ * الخطة ثم إعادة مبالغ التخصيص ثم التفريغ ثم الحذف من الأبناء إلى الآباء ثم تصحيح الأرصدة
+ */
+export async function purgeInTx(tx: Tx, tenantId: string, model: string, id: string | readonly string[]): Promise<PurgeResult> {
+  {
     const plan = await buildPurgePlan(tx, tenantId, model, id);
     const deltas = await totalsDelta(tx, plan);
     const customers = await touchedCustomers(tx, plan);
@@ -244,11 +278,23 @@ export async function executePurge(tenantId: string, model: string, id: string |
       await restoreAllocations(tx as never, tenantId, allocs.filter((a) => !goneInv.has(a.invoiceId)));
     }
 
+    const keysOf = mergedKeys(plan);
+    // الصنف المحذوف (من أي مسار: حذف الصنف العادي، أو حذف المالك النهائي أو الجماعي): اسمه ووحدته في بنود فواتيره الباقية قبل
+    // فكّ ربطها — فتُعرض باسمه (services/deletedProduct.ts) ولا تنكسر شاشةٌ تقرأ product.name. المعامل يبقى فلا تتغيّر كمية
+    const goneProducts = (keysOf.get('Product') ?? []).map((k) => String(k.id));
+    if (goneProducts.length) {
+      for (const p of await tx.product.findMany({ where: { id: { in: goneProducts } }, select: { id: true, name: true, unit: true } })) {
+        await tx.invoiceItem.updateMany({ where: { productId: p.id, itemName: null }, data: { itemName: p.name } });
+        if (p.unit) await tx.invoiceItem.updateMany({ where: { productId: p.id, unitName: null }, data: { unitName: p.unit } });
+      }
+    }
+    // رؤوس الحركات التي قد تفرغ من بنودها بحذف بنودها (تحميل سيارة، وارد مستودع، طلب بضاعة) — تُحذف بعدها إن فرغت
+    const headersOf = await emptiedHeaderCandidates(tx, keysOf);
+
     const d = tx as unknown as Record<string, { updateMany(a: unknown): Promise<unknown>; deleteMany(a: unknown): Promise<{ count: number }> }>;
     for (const n of plan.nullify) {
       await d[delegateOf(n.model)].updateMany({ where: { [n.fk]: { in: n.values } }, data: { [n.fk]: null } });
     }
-    const keysOf = mergedKeys(plan);
     for (const m of deletionOrder(plan)) {
       const rows = keysOf.get(m) ?? [];
       const keys = Object.keys(rows[0] ?? {});
@@ -259,6 +305,17 @@ export async function executePurge(tenantId: string, model: string, id: string |
         }
       } else {
         for (const key of rows) await d[delegateOf(m)].deleteMany({ where: key });
+      }
+    }
+
+    // رأس حركةٍ لم يبقَ له بند: مستندٌ فارغ لا يقبله النظام إنشاءً — يُحذف هو أيضاً (بالمحرّك نفسه)
+    for (const [header, ids] of headersOf) {
+      if (!ids.length) continue;
+      const empty = await (tx as unknown as Record<string, { findMany(a: unknown): Promise<Array<{ id: string }>> }>)[delegateOf(header)]
+        .findMany({ where: { id: { in: ids }, tenantId, items: { none: {} } }, select: { id: true } });
+      if (empty.length) {
+        const sub = await purgeInTx(tx, tenantId, header, empty.map((e) => e.id));
+        for (const [m, n] of Object.entries(sub.counts)) plan.counts[m] = (plan.counts[m] ?? 0) + n;
       }
     }
 
@@ -277,5 +334,5 @@ export async function executePurge(tenantId: string, model: string, id: string |
       });
     }
     return { counts: plan.counts, nullCounts: plan.nullCounts };
-  }, { timeout: 120_000, maxWait: 15_000 });
+  }
 }

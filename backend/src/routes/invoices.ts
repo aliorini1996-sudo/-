@@ -10,6 +10,7 @@ import {
   chainFrom, conversionsSince, pickByFactor, pickByPrice, rebaseCandidates, type BaseConversionRow,
 } from '../services/baseConversions';
 import { baseUnitRequiredReply, missingBaseForApi } from '../services/baseGuard';
+import { withDeletedProductName } from '../services/deletedProduct';
 import { ReturnLinkError, SALE_TYPES, assertReturnLinks, returnableOf, returnedBySaleItem } from '../services/returnLinks';
 import { isExpiredOn, linkedReturnExpiry, returnRuleBlock, saleExpiryFor, stampExpiryAfterIssue, stampExpiryIfMissing, tenantTz } from '../services/invoiceExpiry';
 // مراجعة المخزون نوفمبر ٢٠٢٦: حارس «البيع بدون مخزون» داخل المعاملة وحجز إعادة الرفع (البندان ٩ و٥)، ومنع سحب مرتجعٍ خرجت
@@ -683,7 +684,9 @@ function returnedChanged(a: ReadonlyMap<string, number>, b: ReadonlyMap<string, 
 }
 
 /** بند مستندٍ للعرض والطباعة (القاعدة ٨): لقطة وحدته، وإلّا وحدة صنفه — صفٌّ بلا لقطة كُتب بوحدة الأساس وقتها */
-function withUnitName<T extends { unitName?: string | null; product?: { unit?: string | null } | null }>(it: T): T {
+function withUnitName<T extends { unitName?: string | null; itemName?: string | null; product?: { unit?: string | null } | null }>(item: T): T {
+  // الصنف المحذوف حذفاً حقيقياً: اسمه من لقطة البند (services/deletedProduct.ts)
+  const it = withDeletedProductName(item);
   return it.unitName ? it : { ...it, unitName: it.product?.unit ?? null };
 }
 

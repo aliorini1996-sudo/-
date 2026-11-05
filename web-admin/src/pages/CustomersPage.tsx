@@ -469,7 +469,7 @@ export default function CustomersPage() {
         <ConfirmDialog
           danger
           title={tr('حذف العميل')}
-          message={`${tr('سيتم حذف العميل')} «${deleting.name}» ${tr('نهائيا ولا يمكن التراجع ويختفي من كل القوائم والتقارير وتبقى فواتيره وسنداته محفوظة في الدفاتر كما تقتضيه الأنظمة')}`}
+          message={`${tr('سيتم حذف العميل')} «${deleting.name}» ${tr('نهائيا من قاعدة البيانات ولا يمكن التراجع والعميل الذي له فواتير أو سندات لا يحذف بل يوقف')}`}
           confirmLabel={tr('حذف نهائي')}
           loading={deleteMutation.isPending}
           onConfirm={() => deleteMutation.mutate(deleting.id)}

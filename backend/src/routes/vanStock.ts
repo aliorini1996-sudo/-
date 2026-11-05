@@ -944,7 +944,7 @@ router.get('/movements', async (req: AuthRequest, res: Response, next: NextFunct
         // المرتجع التالف (منذ DAMAGED_VAN_SINCE) يدخل رصيد «المرتجع التالف» لا المتاح — فيُوسم بذلك في الحركة
         kind: inv.type === 'RETURN' ? (isDamagedVanReturn(inv) ? 'RETURN_DAMAGED' : 'RETURN') : 'SALE', date: inv.invoiceDate,
         ref: !visible || visible.has(inv.id) ? `${inv.number} · ${inv.customer.name}` : 'مستند خارج نطاقك', by: 'REP', zeroRunId: null,
-        items: inv.items.map(i => ({ name: i.product?.name ?? 'صنف محذوف', unit: i.unitName ?? i.product?.unit ?? '', qty: i.qty, baseQty: baseQtyOf(i), ...primaryOf(i.product), lineRef: !visible || visible.has(inv.id) ? (i.lineRef ?? null) : null, ...(withLots && { lots: (i as { lots?: unknown }).lots ?? [] }) })),
+        items: inv.items.map(i => ({ name: i.product?.name ?? i.itemName ?? 'صنف محذوف', unit: i.unitName ?? i.product?.unit ?? '', qty: i.qty, baseQty: baseQtyOf(i), ...primaryOf(i.product), lineRef: !visible || visible.has(inv.id) ? (i.lineRef ?? null) : null, ...(withLots && { lots: (i as { lots?: unknown }).lots ?? [] }) })),
       })),
     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 60);
 

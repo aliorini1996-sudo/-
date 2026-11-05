@@ -387,7 +387,7 @@ export default function ProductsPage() {
         <ConfirmDialog
           danger
           title={tr('حذف الصنف')}
-          message={`${tr('سيتم حذف الصنف')} «${deleting.name}» ${tr('من كل القوائم ولن يمكن بيعه في فواتير جديدة فواتيره وسنداته وكشوفه القديمة تبقى كما هي بالاسم نفسه ولا يمكن التراجع عن الحذف')}`}
+          message={`${tr('سيتم حذف الصنف')} «${deleting.name}» ${tr('نهائيا من قاعدة البيانات فواتيره القديمة تبقى باسمه ويحذف معه سجل حركاته في السيارات والمستودع وتشغيلاته ولا يمكن التراجع عن الحذف')}`}
           /* S6: رصيد الصنف في المستودع والسيارات قبل الحذف — الحذف نفسه كما هو */
           extra={deleteBalanceLine ? (
             <p className={`text-xs mt-3 leading-relaxed rounded-lg px-3 py-2 ${hasStockBalance(deleteStock.data) ? 'bg-amber-50 text-amber-800 font-semibold' : 'bg-gray-50 text-gray-500'}`}>{deleteBalanceLine}</p>

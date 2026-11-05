@@ -52,11 +52,14 @@ test('جرد كتّاب بنود الفاتورة (§٤.١٥): موضعٌ جدي
     'routes/invoicesNotes.ts': ['invoice.create'],
     'routes/invoicesZatca.ts': ['invoice.create'],
     // تحويل وحدة الأساس: يضرب لقطات الصنف في F تحت قفل اللوط (convert-base، D22) — لا يغيّر كمية أساسية
-    'routes/products.ts': ['SQL UPDATE'],
+    // وحذف الصنف الحقيقيّ (أمر المالك ٥ نوفمبر ٢٠٢٦): لقطة اسمه في itemName لبنوده وحدها قبل فكّ ربطها — لا تمسّ كمية ولا توزيعاً
+    'routes/products.ts': ['invoiceItem.updateMany', 'SQL UPDATE'],
     // حذف الشركة: البنود وصفوف توزيعها تعاقبياً
     'routes/tenants.ts': ['invoiceItem.deleteMany'],
     // مُطلِق baseQty: يملأ الفارغ بـqty × المعامل نفسه (= BASE_QTY_SQL) — لا يغيّر الأساس
     'scripts/backfillBaseQty.ts': ['TABLE-NAME'],
+    // محرّك الحذف (الصنف المحذوف حقيقياً من أي مسار): لقطة الاسم والوحدة في بنود فواتيره قبل فكّ ربطها — لا كمية ولا توزيع
+    'services/ownerPurge.ts': ['invoiceItem.updateMany', 'invoiceItem.updateMany'],
     // الختم اللاحق: الصلاحية وحدها، ويتخطّى المختوم (أدناه)
     'services/invoiceExpiry.ts': ['invoiceItem.update', 'invoiceItem.update'],
   });

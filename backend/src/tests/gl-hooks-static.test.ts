@@ -383,8 +383,17 @@ test('tenants.ts DELETE /:id: «قوائم الأسعار» — القواعد �
 
 test('حذف الصنف وأرشفته يحذف قواعده في القوائم مع أسعاره فيها، واسترجاع فئة الاستيراد يُبقي فئةً عليها قواعد', () => {
   const products = read('routes/products.ts');
-  const fn = products.slice(products.indexOf('async function deleteOrArchiveLocked('), products.indexOf('\n}\n', products.indexOf('async function deleteOrArchiveLocked(')));
-  ordered(fn, ['priceListItem.deleteMany({ where: { productId: req.params.id } })', 'priceListRule.deleteMany({ where: { productId: req.params.id } })', 'product.update(', 'product.delete('], 'حذف الصنف');
+  // الحذف حقيقيّ (أمر المالك ٥ نوفمبر ٢٠٢٦) بمحرّك الحذف: أسعار الصنف وقواعده في القوائم مفاتيحها إلزامية إليه فتُحذف معه
+  const fn = products.slice(products.indexOf('async function hardDeleteLocked('), products.indexOf('\n}\n', products.indexOf('async function hardDeleteLocked(')));
+  assert.match(fn, /purgeInTx\(tx, tid, 'Product', \[id\]\)/, 'حذف الصنف بالمحرّك');
+  // والمحرّك يحذف الابن إن كان مفتاحه إلزامياً أو onDelete: Cascade (قاعدة الصنف اختيارية المفتاح لكنها تسلسل) — لا يفرّغه
+  const schema = fs.readFileSync(path.join(__dirname, '..', '..', 'prisma', 'schema.prisma'), 'utf8');
+  for (const child of ['PriceListItem', 'PriceListRule']) {
+    const start = schema.indexOf(`model ${child} {`);
+    const body = schema.slice(start, schema.indexOf('}', schema.indexOf('@@', start)));
+    assert.match(body, /product\s+Product\??\s+@relation\(fields: \[productId\], references: \[id\], onDelete: Cascade\)/, `${child} يُحذف مع الصنف`);
+  }
+  assert.match(read('services/ownerPurge.ts'), /const deletesWith = \(r: Inbound\): boolean => r\.required \|\| r\.cascade \|\|/);
   const imp = read('routes/import.ts');
   const del = imp.slice(imp.indexOf('async function deleteImportCategory('), imp.indexOf('\n}\n', imp.indexOf('async function deleteImportCategory(')));
   ordered(del, ['categoryDeletable(', "return 'kept'", 'tx.priceListRule.count({ where: { tenantId: tid, categoryId: catId } })', "return 'kept'", 'tx.productCategory.deleteMany('], 'فئة الاستيراد');
