@@ -134,7 +134,7 @@ test('البنية الصارمة: مفتاح مجهول في أي مستوى أ
     add((s) => { s.extra = 1; }),
     add((s) => { s.profiles[0].logo = 'data:image/png;base64,AAAA'; }), // لا صور — الشعار من company.logo
     add((s) => { s.profiles[0].paper.cpl = 48; }), // لا حروف في السطر (المخرج صورة دائماً)
-    add((s) => { s.profiles[0].options.showQr = false; }), // لا خيار يخفي رمز QR
+    add((s) => { s.profiles[0].options.showQr = false; }), // لا مفتاح showQr — حذف الرمز الصريح بـlayout.sections.qr.visible وحده
     add((s) => { s.routing.return = 'mip480'; }),
   ]) assert.deepEqual(issuesOf(s), [PRINT_ISSUES.unknownKey], JSON.stringify(s).slice(0, 80));
   assert.deepEqual(issuesOf(add((s) => { s.version = 2; })), [PRINT_ISSUES.shape]);
@@ -293,7 +293,7 @@ const withLayoutOf = (p: PrintProfile, layout: Partial<PrintLayout> = {}, design
 const fleetWith = (p: PrintProfile): PrintSettingsV1 => ({ ...fleet(), profiles: [...fleet().profiles, p] });
 const LAYOUT_MSGS: ReadonlySet<string> = new Set(Object.entries(PRINT_ISSUES).filter(([k]) => k.startsWith('layout')).map(([, v]) => v));
 const layoutIssuesOf = (p: PrintProfile) => issuesOf(fleetWith(p)).filter((m) => LAYOUT_MSGS.has(m));
-const FREE_KEYS: ReadonlySet<string> = new Set(['layoutLogoMm', 'layoutLogoAfter', 'layoutSectionUnknown', 'layoutSectionBounds', 'layoutLockedVisible', 'layoutCanvasPrinter', 'layoutCanvasBands', 'layoutCanvasBandsPaper', 'layoutCanvasBox', 'layoutCanvasFooterOnly', 'layoutCanvasQr']);
+const FREE_KEYS: ReadonlySet<string> = new Set(['layoutLogoMm', 'layoutLogoAfter', 'layoutSectionUnknown', 'layoutSectionBounds', 'layoutCanvasPrinter', 'layoutCanvasBands', 'layoutCanvasBandsPaper', 'layoutCanvasBox', 'layoutCanvasFooterOnly', 'layoutCanvasQr']);
 
 test('التخطيط: صالحٌ لكل طابعة، ويُحفظ بترتيب مفاتيح ثابت في آخر الخيارات — والغياب مطبوعة اليوم بلا مفتاح', () => {
   const page = withLayoutOf(profile({ id: 'office-grid', printer: 'page', template: 'page_plain' }, 'a4'), { accent: '#0f766e' }, 'grid_bilingual');

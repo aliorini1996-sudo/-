@@ -62,6 +62,24 @@ test('حارس نصّي: المعياران الماليّان يُرفضان م
   assert.match(h, /product = await prisma\.product\.findFirst\(\{ where: \{ id: q\.productId, tenantId: tid \}/, 'الصنف من الشركة نفسها');
 });
 
+test('حارس نصّي: المسافة تعدّ نقاط الخلفية داخل غلاف يوم العمل وحده — القصّ في WHERE قبل DISTINCT ON، والأثر بلا نطاق المشاهد', () => {
+  // قرار المالك ٤ نوفمبر ٢٠٢٦: خدمة التطبيق في الخلفية تسجّل حتى منتصف الليل (services/foregroundEnvelope.ts)
+  const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'reports.ts'), 'utf8').replace(/\r\n/g, '\n');
+  const i = src.indexOf("} else if (ids.length && metric === 'distance') {");
+  assert.ok(i > 0);
+  const b = src.slice(i, src.indexOf('// الكيلو بمنزلةٍ عشرية', i));
+  // الأثر الأمامي: طرفا نقاط الصفحة مجمَّعين في القاعدة، والجلسات والزيارات والبصمات — بالمندوب والشركة وحدهما
+  assert.match(b, /FROM "rep_locations"\s+WHERE "tenantId" = \$\{tid\} AND "salesRepId" IN \(\$\{Prisma\.join\(ids\)\}\)[^`]*AND "source" IS NULL\s+GROUP BY 1, 2`/);
+  for (const m of ['repSession', 'repVisit', 'repAttendance']) assert.match(b, new RegExp(`prisma\\.${m}\\.findMany\\(\\{\\s+where: \\{\\s*tenantId: tid, salesRepId: \\{ in: ids \\}`), m);
+  assert.doesNotMatch(b, /scopedRecordWhere|scopedRepRecordWhere|teamDocWhere/, 'كيلو المندوب لا يتغيّر بنطاق من ينظر');
+  // الأثر يُبنى في الخدمة الصرفة (البصمة لحظة، ونهاية الزيارة في يومها) لا في المسار
+  assert.match(b, /const evidence = foregroundEvidenceByRep\(\{ webDays, sessions: evSessions, visits: evVisits, shifts: evShifts \}, tz\);/);
+  // الغلاف لكل مندوب بتوقيت المسار، والشرط داخل WHERE استعلام الدقيقة نفسه (قبل DISTINCT ON وقبل ORDER BY)
+  assert.match(b, /const windows = foregroundEnvelopes\(evidence\.get\(repId\) \?\? \[\], tz, \{ from: start, to: end \}\);/);
+  const q = b.slice(b.indexOf('SELECT DISTINCT ON'));
+  assert.match(q, /AND \("accuracy" IS NULL OR "accuracy" <= 150\)\s+AND \$\{deviceEnvelopeSql\(windows\)\}\s+ORDER BY date_trunc/);
+});
+
 test('الوحدات المتعددة: معيار «الصنف» يجمع الكمية بالأساس — كرتونٌ وحبّات لا يُقارنان خاماً', () => {
   const m = productQtyByRep([
     { qty: 2, unitFactor: 24, baseQty: 48, invoice: { salesRepId: 'a' } },   // كرتونان = ٤٨ حبة

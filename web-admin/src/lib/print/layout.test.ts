@@ -267,12 +267,14 @@ test('cssText: kebab-case, px for numbers except unitless props, skips empty val
 
 // ─── حرّاس المصدر ───
 
-test('layout.ts is framework-free, imports the core as types only, and has no letterSpacing', () => {
+test('layout.ts is framework-free, imports the core as types only (plus the hide reader from printSettings), and has no letterSpacing', () => {
   const src = read('src', 'lib', 'print', 'layout.ts');
   assert.ok(!/from 'react'|from "react"|document\.|window\./.test(src));
   assert.ok(!/letterSpacing|letter-spacing/.test(src.replace(/\/\/.*$/gm, '')));
   for (const m of src.matchAll(/^import (.+) from '([^']+)';$/gm)) {
     if (m[2] === './printSettingsCore') assert.match(m[1], /^type /, 'النواة type-only');
+    // قرار المالك ٤ نوفمبر ٢٠٢٦: خيار حذف الرمز يُقرأ بالمساعد الخالص وحده — لا قراءة يدوية لـsections.qr
+    else if (m[2] === './printSettings') assert.equal(m[1], '{ isQrRemoved }');
     else assert.equal(m[2], '../money');
   }
   // paper presets untouched by the engine (sanity: the helper we use in tests still exists)
@@ -308,7 +310,8 @@ test('free keys: valid values are carried; invalid ones drop individually (never
   });
   assert.equal(r.logoMm, 22.5);
   assert.equal(r.logoAfter, 'info');
-  assert.deepEqual(r.sections, { info: { visible: false, align: 'end', fontPct: 120, spaceBeforeMm: 3, spaceAfterMm: 1.5 }, items: { fontPct: 90 } }, 'items لا يُخفى، وqr ليس من أقسام الصفحة');
+  assert.deepEqual(r.sections, { info: { visible: false, align: 'end', fontPct: 120, spaceBeforeMm: 3, spaceAfterMm: 1.5 }, items: { visible: false, fontPct: 90 } },
+    'items يُخفى صراحةً (قرار المالك ٤ نوفمبر)، وqr على الصفحة قسمٌ افتراضي لا يُحمل منه إلا visible:false');
   assert.equal(r.canvas!.boxes.length, 1);
   assert.equal(hasFreeLayout(r), true);
   const bad = page({ logoMm: 5.9, logoAfter: 'parties', sections: { info: { fontPct: 161, spaceBeforeMm: -1, align: 'left' } }, canvas: { headerMm: 151, footerMm: 0, boxes: [] } });
@@ -326,8 +329,20 @@ test('free keys: valid values are carried; invalid ones drop individually (never
   assert.equal(page({ logoAfter: 'qr' }).logoAfter, undefined);
   assert.equal(page({ logoAfter: 'qr' }, 'thermal').logoAfter, 'qr');
   assert.equal(page({ logoAfter: 'top' }, 'thermal').logoAfter, 'top');
-  // the roll qr section is locked visible
-  assert.equal(page({ sections: { qr: { visible: false } } }, 'thermal').sections, undefined);
+  // owner decision 4 Nov 2026: the roll qr section is hideable (an explicit removal), and so is the virtual page/grid qr
+  assert.deepEqual(page({ sections: { qr: { visible: false } } }, 'thermal').sections, { qr: { visible: false } });
+  assert.deepEqual(page({ sections: { qr: { visible: false, align: 'center' } } }).sections, { qr: { visible: false } }, 'virtual qr: visible:false only');
+  assert.equal(page({ sections: { qr: {} } }).sections, undefined, 'empty qr = today');
+  assert.equal(page({ sections: { qr: { visible: true } } }).sections, undefined, 'visible:true = today');
+  const g = resolveLayout(profile('page', fullLayout({ design: 'grid_bilingual', order: DEFAULT_SECTIONS.grid, sections: { qr: { visible: false } } })))!;
+  assert.deepEqual(g.sections, { qr: { visible: false } });
+  assert.ok(!g.order.includes('qr') && !page({ sections: { qr: { visible: false } } }).order.includes('qr'), 'virtual qr never enters order');
+  // stamps: carried only when boolean; absent = the 8 keys (today)
+  assert.equal(page({ stamps: false }).stamps, false);
+  assert.equal(page({ stamps: true }).stamps, true);
+  assert.equal(page({ stamps: 'no' }).stamps, undefined);
+  assert.ok(!('stamps' in page()));
+  assert.equal(hasFreeLayout(page({ stamps: false })), false, 'stamps alone keeps the non-free path (renderers honour it there)');
 });
 
 test('MM_PX/mmToPx: 96 px per inch on the 794 px template', () => {
@@ -382,11 +397,15 @@ test('sectionLook/sectionCss/sectionCssText/fontPx: physical RTL alignment, px/m
   assert.ok(!/zoom|font-size|filter/.test(sectionCssText(info)));
 });
 
-test('visibleOrder hides sections but never items or the roll QR; qrHost/qrOrphan', () => {
+test('visibleOrder hides sections, and items or the roll QR only when explicitly hidden; qrHost/qrOrphan', () => {
   const l = page({ sections: { info: { visible: false }, note: { visible: false } } });
   assert.deepEqual(visibleOrder(l, 'page'), ['header', 'items', 'totals', 'installments', 'signatures', 'footer']);
   const roll = page({ sections: { customer: { visible: false } } }, 'thermal');
   assert.deepEqual(visibleOrder(roll, 'thermal'), ['header', 'info', 'items', 'totals', 'signatures', 'qr', 'footer']);
+  // owner decision 4 Nov 2026: an explicit hide of items / the roll qr is honoured
+  assert.deepEqual(visibleOrder(page({ sections: { items: { visible: false } } }), 'page'), ['header', 'info', 'note', 'totals', 'installments', 'signatures', 'footer']);
+  assert.deepEqual(visibleOrder(page({ sections: { items: { visible: false }, qr: { visible: false } } }, 'thermal'), 'thermal'), ['header', 'info', 'customer', 'totals', 'signatures', 'footer']);
+  assert.deepEqual(visibleOrder(page({ sections: { qr: { visible: false } } }), 'page'), page({}).order, 'the virtual page qr is never in the order');
   assert.equal(qrHost('page', 'standard'), 'totals');
   assert.equal(qrHost('impact', 'grid_bilingual'), 'info');
   assert.equal(qrHost('thermal', 'standard'), 'qr');
@@ -398,6 +417,11 @@ test('visibleOrder hides sections but never items or the roll QR; qrHost/qrOrpha
   // a canvas qr box prints the QR, so no orphan block
   const placed = page({ sections: { totals: { visible: false } }, canvas: { headerMm: 0, footerMm: 60, boxes: [{ id: 'qr', band: 'footer', x: 0, y: 0, w: 50, h: 50 }] } });
   assert.equal(qrOrphan(placed, 'page', 'standard'), false);
+  // host hidden WITHOUT removal: today's orphan (above); host hidden AND the QR explicitly removed: no orphan (nothing prints)
+  assert.equal(qrOrphan(page({ sections: { totals: { visible: false }, qr: { visible: false } } }), 'page', 'standard'), false);
+  const gridGone = resolveLayout(profile('page', fullLayout({ design: 'grid_bilingual', order: DEFAULT_SECTIONS.grid, sections: { info: { visible: false }, qr: { visible: false } } })))!;
+  assert.equal(qrOrphan(gridGone, 'page', 'grid_bilingual'), false);
+  assert.equal(qrOrphan(page({ sections: { qr: { visible: false } } }), 'page', 'standard'), false);
 });
 
 test('snapMm and clampBox: 0.5 grid, inside band and content, min size, non-finite safe', () => {
@@ -463,6 +487,17 @@ test('resolveCanvas: bands, px, placed/hostOf, qr grown to qrMinMm with its band
   assert.ok(tq.w >= 47 && tq.h >= 47 && tq.x + tq.w <= 188 && tq.y + tq.h <= tiny.header!.hMm);
   // never on roll or grid
   assert.equal(resolveCanvas(page({}, 'thermal'), { printer: 'page', qrMinMm: 47, kind: 'invoice' }), null);
+  // owner decision 4 Nov 2026: an explicitly removed QR drops its box — not placed, and its band is not grown for it
+  const gone = resolveCanvas(page({ sections: { qr: { visible: false } }, canvas: { headerMm: 20, footerMm: 10, boxes: [
+    { id: 'qr', band: 'footer', x: 0, y: 0, w: 47, h: 47 }, { id: 'logo', band: 'header', x: 0, y: 0, w: 20, h: 20 },
+  ] } }), { printer: 'page', qrMinMm: 50, kind: 'invoice' })!;
+  assert.ok(!gone.placed.has('qr'));
+  assert.equal(gone.footer!.hMm, 10, 'band keeps its saved height');
+  assert.deepEqual(gone.footer!.boxes, []);
+  assert.deepEqual([...gone.placed], ['logo']);
+  // the same canvas without the removal grows the band for the QR (today)
+  const kept = resolveCanvas(page({ canvas: { headerMm: 20, footerMm: 10, boxes: [{ id: 'qr', band: 'footer', x: 0, y: 0, w: 47, h: 47 }] } }), { printer: 'page', qrMinMm: 50, kind: 'invoice' })!;
+  assert.ok(kept.placed.has('qr') && kept.footer!.hMm >= 50);
 });
 
 test('engine copies of the core free-editing constants equal printSettingsCore', async () => {

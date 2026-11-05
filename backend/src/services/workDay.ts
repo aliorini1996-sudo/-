@@ -153,7 +153,11 @@ export function asVisitLike<R extends {
   };
 }
 
-/** نشاط GPS مُجمَّعاً في القاعدة لكل (مندوب × يوم محلي): أول التقاطٍ وآخره */
+/**
+ * نشاط GPS مُجمَّعاً في القاعدة لكل (مندوب × يوم محلي): أول التقاطٍ وآخره — من **نقاط الصفحة وحدها** (source IS NULL).
+ * نقاط التطبيق في الخلفية (source='device') تسجّل حتى منتصف الليل فلا تُمرَّر هنا أبداً: كانت ستمدّ اليوم بالمساء
+ * (قرار المالك ٤ نوفمبر ٢٠٢٦ — routes/reports.ts، وservices/foregroundEnvelope.ts للمسافة).
+ */
 export interface PingRange { day: string; min: Date; max: Date }
 
 const roundMin = (ms: number) => Math.max(0, Math.round(ms / 60000));
@@ -350,7 +354,7 @@ export function overlayAttendance(days: readonly WorkDay[], byDay: Map<string, A
 
 export function composeWorkDays(input: {
   sessions: Interval[];
-  pingRanges: PingRange[];   // مُجمَّعة مسبقاً لكل يوم محلي (min/max) — النقاط الخام كثيرة
+  pingRanges: PingRange[];   // مُجمَّعة مسبقاً لكل يوم محلي (min/max) من نقاط الصفحة وحدها — النقاط الخام كثيرة
   visits: VisitLike[];
   tzOffsetMin: number;
   /** مدى الأيام المحلّية (YYYY-MM-DD) — يُملأ الغائب منها بصفوفٍ فارغة */

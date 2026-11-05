@@ -12,7 +12,7 @@ import java.io.File
  * وSTART_NOT_STICKY، وعلامة fstrack في LauncherActivity دون مسّ جسر الطباعة والتحصيل، وربط الموافقة بهوية الرمز، وأن الإصدار لم
  * يتغيّر (التتبّع يُضاف إلى التحديث التالي مع ميزات الجلسات الأخرى — لا رفع للإصدار من هنا).
  * وأسلاك الخدمة التي لا تُختبر بلا جهاز (مراجعة ٤ نوفمبر): موعد الرفع من قراءات الموقع بالساعة المنقضية، وقفل اليقظة بمهلةٍ يُفلت في
- * finally، وترويسة «الأخير» في رفع الهدم وحده.
+ * finally، وترويسة «الأخير» في رفع الهدم وحده، وعنوان الرفع الملتقط مرةً لكل تشغيل (نتائج المحاكي، ٤ نوفمبر).
  */
 class TrackGuardTest {
 
@@ -90,6 +90,45 @@ class TrackGuardTest {
         assertTrue(src.contains("TrackContract.DEVICE_NOW_HEADER"))
         // عنوان التطوير البديل في بناء التطوير وحده
         assertTrue(src.contains("if (BuildConfig.DEBUG)") && src.contains("TrackStore.debugUrl("))
+    }
+
+    @Test
+    fun uploadEndpointIsCapturedOncePerRun() {
+        // إيقاف TrackActivity يمسح TrackStore (ومعه عنوان التطوير) قبل stopService، فرفع الهدم الذي يقرأ العنوان من جديد أرسل
+        // دفعة بناء التطوير الأخيرة إلى الإنتاج (مثبت بالمحاكي، ٤ نوفمبر): العنوان يُلتقط مرةً في onStartCommand وكل POST يقرؤه
+        assertTrue(service.contains("@Volatile private var uploadUrl: String = TrackContract.PING_URL"))
+        val endpoint = body(service, "private fun endpoint(): String {")
+        assertTrue("عنوان التطوير خارج BuildConfig.DEBUG", endpoint.contains("if (BuildConfig.DEBUG) {"))
+        assertTrue(endpoint.indexOf("if (BuildConfig.DEBUG) {") < endpoint.indexOf("TrackStore.debugUrl("))
+        assertTrue("الإصدار لا يرفع إلا إلى PING_URL", endpoint.contains("return TrackContract.PING_URL"))
+        // عنوان التطوير لا يُقرأ إلا في endpoint، وendpoint لا يُستدعى إلا مرةً في onStartCommand
+        assertEquals(1, Regex("TrackStore\\.debugUrl\\(").findAll(service).count())
+        assertEquals(1, Regex("(?<!fun )\\bendpoint\\(\\)").findAll(service).count())
+        val start = body(service, "override fun onStartCommand(")
+        val capture = start.indexOf("uploadUrl = endpoint()")
+        assertTrue("العنوان لا يُلتقط عند البدء", capture >= 0)
+        // بعد التحقق من الرمز وقبل تعيينه: io لا يرى الرمز الجديد بعنوان التشغيل السابق
+        assertTrue(capture > start.indexOf("TrackLogic.tokenIdentity(t)") && capture < start.indexOf("token = t\n"))
+        // لا كتابة أخرى للعنوان، وكل POST — ومنها رفع الهدم — يقرأ الحقل لا TrackStore
+        assertEquals(1, Regex("\\buploadUrl = ").findAll(service).count())
+        val post = body(service, "private fun post(")
+        assertTrue(post.contains("URL(uploadUrl).openConnection()"))
+        assertFalse(post.contains("endpoint()") || post.contains("TrackStore."))
+        val destroy = body(service, "override fun onDestroy()")
+        assertFalse("رفع الهدم يقرأ TrackStore الممسوح", destroy.contains("endpoint()") || destroy.contains("TrackStore."))
+        assertFalse(body(service, "private fun uploadRounds(").contains("TrackStore."))
+    }
+
+    /** حدّ التراجع حدّ الصفحة نفسه — إن وُجد مستودع الويب بجانب المشروع */
+    @Test
+    fun backoffCapMatchesTheWebRetryMax() {
+        // حدّ ٣٠٠ ثانية أبقى المندوب «موقعه متوقف» دقائق بعد عودة الخادم من 503 أو 403 وسيط (مثبت بالمحاكي، ٤ نوفمبر)
+        val web = listOf(File("../../web-admin/src/rep/trackUpload.ts"), File("../web-admin/src/rep/trackUpload.ts"))
+            .firstOrNull { it.isFile }
+        assumeTrue("web-admin غير موجود بجانب android-rep", web != null)
+        val ts = web!!.readText(Charsets.UTF_8)
+        val max = Regex("export const RETRY_MAX_MS = ([0-9_]+);").find(ts)?.groupValues?.get(1)?.replace("_", "")?.toLong()
+        assertEquals(TrackContract.BACKOFF_MAX_MS, max)
     }
 
     @Test

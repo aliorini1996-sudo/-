@@ -330,6 +330,12 @@ test('حارس: لا مكتبة QR ولا zoom ولا filter في المصمّم
   assert.match(d, /beforeunload/);
 });
 
+/** ثوابت الحذف المشتركة التي يمرّرها المصمّم إلى tr() باسمها */
+const SHARED_REMOVAL_CONSTS = [
+  'QR_REMOVE_WARNING', 'QR_REMOVE_ACTION', 'QR_RESTORE_ACTION', 'QR_FLOW_NOTE',
+  'STAMPS_LABEL', 'STAMPS_HINT', 'STAMPS_REMOVE_ACTION', 'STAMPS_RESTORE_ACTION', 'STAMPS_REMOVE_WARNING',
+] as const;
+
 /** كل tr('…') حرفيّ في ملفات المصمّم وكل ثابت عربيٍّ يُمرَّر إلى tr() */
 function designerPhrases(): string[] {
   const out = new Set<string>();
@@ -339,8 +345,18 @@ function designerPhrases(): string[] {
   }
   // الثوابت التي تُمرَّر إلى tr() باسمها
   const consts = read('SectionStyleFields.tsx') + read('PrintDesigner.tsx') + read('A4BandsCanvas.tsx');
-  for (const name of ['HIDE_MANDATORY_WARNING', 'LOCKED_VISIBLE_HINT', 'DESIGNER_DISCARD_CONFIRM', 'MONO_PREVIEW_HINT']) {
+  for (const name of ['HIDE_MANDATORY_WARNING', 'DESIGNER_DISCARD_CONFIRM', 'MONO_PREVIEW_HINT']) {
     const m = consts.match(new RegExp(`export const ${name} = '([^']+)'`));
+    assert.ok(m, name);
+    out.add(m[1]);
+  }
+  // الثوابت المشتركة لحذف QR والأصناف وأختام الحالة (قرار المالك ٤ نوفمبر ٢٠٢٦) — من printSettings.ts، يمرّرها المصمّم إلى tr()
+  const shared = fs.readFileSync(path.join(process.cwd(), 'src', 'lib', 'print', 'printSettings.ts'), 'utf8');
+  const designerSrc = ALL.map(read).join('\n');
+  for (const name of [...SHARED_REMOVAL_CONSTS, 'ITEMS_REMOVE_WARNING']) {
+    // ITEMS_REMOVE_WARNING يمرّ عبر complianceWarning(id) ثم tr(strong)
+    if (name !== 'ITEMS_REMOVE_WARNING') assert.match(designerSrc, new RegExp(`tr\\(${name}\\)`), `${name}: لا يُمرَّر إلى tr() في المصمّم`);
+    const m = shared.match(new RegExp(`export const ${name} = '([^']+)'`));
     assert.ok(m, name);
     out.add(m[1]);
   }

@@ -1,18 +1,19 @@
 // نموذج «التحرير الحرّ» (lib/print/designModel.ts — pd_spec C.(ii)) — طلب المالك ٣ نوفمبر ٢٠٢٦.
 // يثبت: تعديلٌ بلا أثر يعيد القالب نفسه ولا يُنشئ layout، ومحو آخر مفتاح حرّ يترك المفاتيح الستة، والقصّ إلى حدود النواة،
 // وأن كل ناتجٍ من المساعدات (ومنها عيّنات عشوائية) يمرّ بقواعد الحفظ الصارمة في النواة بلا خطأ، ورمز QR لا يصغر عن 47 مم،
-// ونسخة الكلاسيكي القابلة للتحرير بإعادة التوجيه دون مساس الكلاسيكي.
+// ونسخة الكلاسيكي القابلة للتحرير بإعادة التوجيه دون مساس الكلاسيكي. وقرار المالك ٤ نوفمبر ٢٠٢٦ («اجعل يمكن حذف كل شي حتى كيو ار»):
+// الأصناف ورمز QR يُخفيان بقرارٍ صريح (withQrRemoved/withStampsRemoved)، والغياب = اليوم حرفياً.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
   editableClassicCopy, freeIssues, logoMmOf, logoMmRange, nudgeBox, removeBox, resetCanvas, resetLogo, resetSection, resetSections,
-  starterCanvas, upsertBox, withCanvas, withLogo, withSectionStyle,
+  starterCanvas, upsertBox, withCanvas, withLogo, withQrRemoved, withSectionStyle, withStampsRemoved,
 } from './designModel';
 import {
-  LAYOUT_BOUNDS, PRINT_ISSUES, defaultPrintLayout, legacyPrintSettings, newProfile, presetPaper, printSettingsIssues, profileIssues,
-  withDesign, withLayout, type CanvasBox, type PrintCanvas, type PrintLayout, type PrintProfile, type PrinterType, type SectionId,
+  LAYOUT_BOUNDS, PRINT_ISSUES, areStampsRemoved, defaultPrintLayout, isItemsRemoved, isQrRemoved, legacyPrintSettings, newProfile, presetPaper,
+  printSettingsIssues, profileIssues, withDesign, withLayout, type CanvasBox, type PrintCanvas, type PrintLayout, type PrintProfile, type PrinterType, type SectionId,
 } from './printSettings';
 
 const mk = (printer: PrinterType, over: Partial<PrintProfile> = {}): PrintProfile => ({ ...newProfile(printer, 'تجربة', []), ...over });
@@ -27,7 +28,13 @@ test('no-op edits return the same profile and never create a layout', () => {
     assert.equal(lay(p), undefined);
     assert.equal(withSectionStyle(p, 'info', null), p, printer);
     assert.equal(withSectionStyle(p, 'info', { visible: true, fontPct: 100, spaceBeforeMm: 0 }), p, printer);
-    assert.equal(withSectionStyle(p, 'items', { visible: false }), p, 'items cannot be hidden');
+    // قرار المالك ٤ نوفمبر ٢٠٢٦: الأصناف تُخفى بقرارٍ صريح (لم تعد مقفلة) — والإظهار الافتراضي لا أثر له
+    assert.equal(withSectionStyle(p, 'items', { visible: true }), p, printer);
+    const hid = withSectionStyle(p, 'items', { visible: false });
+    assert.notEqual(hid, p, `${printer}: items hideable`);
+    assert.equal(lay(hid)!.sections!.items!.visible, false);
+    assert.ok(isItemsRemoved(lay(hid)));
+    ok(hid, printer);
     assert.equal(withLogo(p, { logo: defaultPrintLayout(printer).logo }), p, printer);
     assert.equal(withLogo(p, { logoMm: null, logoAfter: null }), p, printer);
     assert.equal(withCanvas(p, null), p);
@@ -38,9 +45,10 @@ test('no-op edits return the same profile and never create a layout', () => {
     assert.equal(removeBox(p, 'logo'), p);
     assert.equal(nudgeBox(p, 'logo', 1, 1), p);
   }
-  // an unknown section for the design
+  // an unknown section for the design — qr on page is virtual: only `visible` is kept
   const pg = mk('page');
   assert.equal(withSectionStyle(pg, 'qr', { align: 'end' }), pg);
+  assert.deepEqual(lay(withSectionStyle(pg, 'qr', { visible: false, align: 'end', fontPct: 120 }))!.sections, { qr: { visible: false } });
   assert.equal(withSectionStyle(pg, 'parties', { align: 'end' }), pg);
   // legacy and classic profiles never get a layout
   for (const p of legacyPrintSettings().profiles) {
@@ -66,11 +74,14 @@ test('withSectionStyle: merges, clamps to core bounds, drops defaults; clearing 
   assert.ok(!('sections' in lay(cleared)!), 'no undefined key left behind');
   assert.equal(resetSections(p2).options.layout!.sections, undefined);
   assert.deepEqual(six(resetSections(p2)), SIX);
-  // roll: the qr section is locked visible, other roll sections hide
+  // roll: every section hides — the qr section too, by the company's explicit choice (owner decision 4 Nov 2026)
   const r = withSectionStyle(mk('thermal'), 'customer', { visible: false, align: 'center' });
   assert.deepEqual(lay(r)!.sections, { customer: { visible: false, align: 'center' } });
-  assert.equal(lay(withSectionStyle(mk('thermal'), 'qr', { visible: false, align: 'end' }))!.sections!.qr!.visible, undefined);
+  const rq = withSectionStyle(mk('thermal'), 'qr', { visible: false, align: 'end' });
+  assert.deepEqual(lay(rq)!.sections!.qr, { visible: false, align: 'end' }, 'roll qr hide kept with its style');
+  assert.ok(isQrRemoved(lay(rq)));
   ok(r);
+  ok(rq);
   // non-finite input is ignored
   assert.equal(withSectionStyle(p0, 'info', { fontPct: NaN, spaceBeforeMm: Infinity }), p0);
 });
@@ -231,7 +242,12 @@ test('freeIssues: the core messages for the four free keys only', () => {
   assert.deepEqual(freeIssues(withLogo(p, { logoMm: 30 })), []);
   const raw = (layout: Partial<PrintLayout>): PrintProfile => ({ ...p, options: { ...p.options, layout: { ...defaultPrintLayout('page'), ...layout } } });
   assert.deepEqual(freeIssues(raw({ logoMm: 200 })), [PRINT_ISSUES.layoutLogoMm]);
-  assert.deepEqual(freeIssues(raw({ sections: { items: { visible: false } } })), [PRINT_ISSUES.layoutLockedVisible]);
+  // nothing is locked any more: hiding items / the QR is a valid explicit choice
+  assert.deepEqual(freeIssues(raw({ sections: { items: { visible: false } } })), []);
+  assert.deepEqual(freeIssues(raw({ sections: { qr: { visible: false } } })), [], 'virtual qr on page with visible only');
+  assert.deepEqual(freeIssues(raw({ sections: { qr: { visible: false, align: 'end' } } })), [PRINT_ISSUES.layoutSectionUnknown], 'virtual qr takes visible only');
+  assert.deepEqual(freeIssues(raw({ stamps: false })), []);
+  assert.ok(!(Object.values(PRINT_ISSUES) as string[]).includes('لا يمكن إخفاء الأصناف ولا رمز QR'), 'layoutLockedVisible removed');
   assert.deepEqual(freeIssues(raw({ canvas: { headerMm: 60, footerMm: 0, boxes: [{ id: 'qr', band: 'header', x: 0, y: 0, w: 30, h: 30 }] } })), [PRINT_ISSUES.layoutCanvasQr]);
   assert.deepEqual(freeIssues(raw({ accent: '#FFFFFF' })), [], 'a 6-key issue is not a free-key issue');
 });
@@ -248,7 +264,7 @@ test('fuzz: any sequence of model edits yields a profile the strict core accepts
     let p = mk(printer, printer === 'thermal' ? { paper: presetPaper(pick(['roll58', 'roll80'] as const))! } : {});
     if (printer !== 'thermal' && rnd() < 0.3) p = withDesign(p, 'grid_bilingual');
     for (let step = 0; step < 25; step++) {
-      const op = Math.floor(rnd() * 9);
+      const op = Math.floor(rnd() * 11);
       if (op === 0) p = withSectionStyle(p, pick(SECS), { visible: rnd() < 0.5, align: pick(['start', 'center', 'end'] as const), fontPct: num(0, 300), spaceBeforeMm: num(-10, 50), spaceAfterMm: num(-10, 50) });
       else if (op === 1) p = withLogo(p, { logo: pick(['start', 'center', 'end', 'none'] as const), logoMm: rnd() < 0.2 ? null : num(-10, 300), logoAfter: rnd() < 0.3 ? null : pick([...SECS, 'top'] as const) });
       else if (op === 2) p = upsertBox(p, { id: pick(BOXES), band: pick(['header', 'footer'] as const), x: num(-50, 250), y: num(-50, 200), w: num(-5, 250), h: num(-5, 200), fontPct: num(0, 300) });
@@ -257,9 +273,12 @@ test('fuzz: any sequence of model edits yields a profile the strict core accepts
       else if (op === 5) p = withCanvas(p, rnd() < 0.2 ? null : { headerMm: num(-10, 200), footerMm: num(-10, 200), boxes: [{ id: pick(BOXES), band: pick(['header', 'footer'] as const), x: num(0, 200), y: num(0, 100), w: num(0, 100), h: num(0, 100) }] });
       else if (op === 6) p = rnd() < 0.5 ? withCanvas(p, starterCanvas(p)) : resetCanvas(p);
       else if (op === 7) p = pick([resetLogo, resetSections])(p);
+      else if (op === 9) p = withQrRemoved(p, rnd() < 0.6);
+      else if (op === 10) p = withStampsRemoved(p, rnd() < 0.5);
       else p = resetSection(p, pick(SECS));
       assert.deepEqual(profileIssues(p, 'p'), [], `run ${run} step ${step} op ${op}: ${JSON.stringify(lay(p))}`);
       for (const k of Object.keys(lay(p) ?? {})) assert.notEqual((lay(p) as unknown as Record<string, unknown>)[k], undefined, k);
+      if (isQrRemoved(lay(p))) assert.ok(!(lay(p)!.canvas?.boxes ?? []).some((b) => b.id === 'qr'), `run ${run} step ${step}: qr box while removed`);
     }
   }
 });
@@ -268,4 +287,122 @@ test('designModel.ts is framework-free and writes only through withLayout', () =
   const src = fs.readFileSync(path.join(process.cwd(), 'src', 'lib', 'print', 'designModel.ts'), 'utf8');
   assert.ok(!/from 'react'|document\.|window\./.test(src));
   assert.ok(!/options:\s*\{\s*\.\.\.p\.options,\s*layout/.test(src.replace(/editableClassicCopy[\s\S]*$/, '')), 'no direct layout writes');
+});
+
+// ─── قرار المالك ٤ نوفمبر ٢٠٢٦: حذف رمز QR وأختام الحالة صراحةً ───
+
+const SAMPLE_CANVAS: PrintCanvas = {
+  headerMm: 60, footerMm: 60,
+  boxes: [
+    { id: 'company', band: 'header', x: 100, y: 0, w: 80, h: 20 },
+    { id: 'qr', band: 'footer', x: 0, y: 0, w: 50, h: 50 },
+    { id: 'totals', band: 'footer', x: 100, y: 0, w: 80, h: 30 },
+  ],
+};
+
+test('withQrRemoved: one explicit key for every printer/design; host section untouched; restore round-trips byte-equal', () => {
+  const bases: Array<[string, PrintProfile]> = [
+    ['thermal', withLogo(mk('thermal', { paper: presetPaper('roll58')! }), { logoMm: 20 })],
+    ['thermal80+style', withSectionStyle(withSectionStyle(mk('thermal', { paper: presetPaper('roll80')! }), 'qr', { align: 'end', fontPct: 120 }), 'customer', { visible: false })],
+    ['page', withLogo(mk('page'), { logoMm: 30 })],
+    ['impact', withSectionStyle(mk('impact'), 'totals', { align: 'end' })],
+    ['grid', withDesign(mk('page'), 'grid_bilingual')],
+    ['grid-impact', withSectionStyle(withDesign(mk('impact'), 'grid_bilingual'), 'info', { fontPct: 90 })],
+    ['page-canvas-noqr', withCanvas(mk('page'), starterCanvas(mk('page')))],
+  ];
+  for (const [name, p] of bases) {
+    assert.ok(!isQrRemoved(lay(p)), `${name}: not removed by default`);
+    const hostBefore = JSON.stringify({ totals: lay(p)?.sections?.totals, info: lay(p)?.sections?.info });
+    const gone = withQrRemoved(p, true);
+    assert.ok(isQrRemoved(lay(gone)), name);
+    assert.equal(lay(gone)!.sections!.qr!.visible, false, name);
+    if (p.printer !== 'thermal') assert.deepEqual(lay(gone)!.sections!.qr, { visible: false }, `${name}: virtual qr = visible only`);
+    else assert.deepEqual({ ...lay(gone)!.sections!.qr, visible: undefined }, { ...(lay(p)?.sections?.qr ?? {}), visible: undefined }, `${name}: roll style merged`);
+    assert.equal(JSON.stringify({ totals: lay(gone)?.sections?.totals, info: lay(gone)?.sections?.info }), hostBefore, `${name}: host untouched`);
+    assert.deepEqual(lay(gone)!.order, lay(p)!.order, `${name}: order untouched (virtual qr never enters it)`);
+    ok(gone, name);
+    assert.equal(withQrRemoved(gone, true), gone, `${name}: idempotent`);
+    const back = withQrRemoved(gone, false);
+    assert.equal(JSON.stringify(back), JSON.stringify(p), `${name}: restore is byte-equal`);
+    assert.equal(withQrRemoved(p, false), p, `${name}: restore without removal = no-op`);
+  }
+  // a profile without a layout: removal writes the explicit key; restore leaves the plain 6-key layout (prints as today)
+  const bare = mk('page');
+  const g = withQrRemoved(bare, true);
+  assert.deepEqual(lay(g)!.sections, { qr: { visible: false } });
+  assert.deepEqual(six(withQrRemoved(g, false)), SIX);
+  // classic / legacy: nothing changes
+  for (const p of legacyPrintSettings().profiles) assert.equal(withQrRemoved(p, true), p);
+  const classic = mk('thermal', { template: 'roll_classic' });
+  assert.equal(withQrRemoved(classic, true), classic);
+  // hiding the host section alone is NOT a removal (orphan QR prints as today)
+  assert.ok(!isQrRemoved(lay(withSectionStyle(mk('page'), 'totals', { visible: false }))));
+  assert.ok(!isQrRemoved(lay(withSectionStyle(withDesign(mk('page'), 'grid_bilingual'), 'info', { visible: false }))));
+  // resetSection('qr') / resetSections clear the hide (explicit reset)
+  assert.ok(!isQrRemoved(lay(resetSection(withQrRemoved(mk('thermal'), true), 'qr'))));
+  assert.ok(!isQrRemoved(lay(resetSections(withQrRemoved(mk('page'), true)))));
+});
+
+test('withQrRemoved on a canvas: the qr box is dropped (never re-grown), restore returns the QR to the flow; removeBox stays a flow return', () => {
+  for (const printer of ['page', 'impact'] as PrinterType[]) {
+    const p = withCanvas(mk(printer), SAMPLE_CANVAS);
+    assert.ok(lay(p)!.canvas!.boxes.some((b) => b.id === 'qr'), printer);
+    const gone = withQrRemoved(p, true);
+    const c = lay(gone)!.canvas!;
+    assert.ok(!c.boxes.some((b) => b.id === 'qr'), `${printer}: qr box removed`);
+    assert.deepEqual(c.boxes, lay(p)!.canvas!.boxes.filter((b) => b.id !== 'qr'), `${printer}: other boxes untouched`);
+    assert.equal(c.headerMm, lay(p)!.canvas!.headerMm);
+    ok(gone, printer);
+    // restore: the QR prints again, in the flow with totals (the box is not resurrected)
+    const back = withQrRemoved(gone, false);
+    assert.ok(!isQrRemoved(lay(back)));
+    assert.ok(!lay(back)!.canvas!.boxes.some((b) => b.id === 'qr'));
+    ok(back, printer);
+    // removeBox is NOT a removal: the QR returns to the flow and still prints
+    const flow = removeBox(p, 'qr');
+    assert.ok(!isQrRemoved(lay(flow)), `${printer}: removeBox ≠ removal`);
+    assert.ok(!lay(flow)!.canvas!.boxes.some((b) => b.id === 'qr'));
+  }
+});
+
+test('sanitizeCanvas/upsertBox with the QR removed: qr boxes are refused with no band growth; otherwise the 47 mm minimum is unchanged', () => {
+  const gone = withQrRemoved(withCanvas(mk('page'), { headerMm: 20, footerMm: 0, boxes: [] }), true);
+  // upsertBox refuses a qr box
+  assert.equal(upsertBox(gone, { id: 'qr', band: 'footer', x: 0, y: 0, w: 47, h: 47 }), gone);
+  // withCanvas drops it — and no band grows for it
+  const c = withCanvas(gone, { headerMm: 20, footerMm: 0, boxes: [{ id: 'qr', band: 'header', x: 0, y: 0, w: 10, h: 10 }, { id: 'company', band: 'header', x: 100, y: 0, w: 80, h: 15 }] });
+  assert.deepEqual(lay(c)!.canvas, { headerMm: 20, footerMm: 0, boxes: [{ id: 'company', band: 'header', x: 100, y: 0, w: 80, h: 15 }] });
+  ok(c);
+  // other boxes behave exactly as before
+  const withCo = upsertBox(gone, { id: 'company', band: 'header', x: 100, y: 0, w: 80, h: 30 });
+  assert.equal(lay(withCo)!.canvas!.headerMm, 30);
+  // not removed: today’s rules (qr grows to 47 mm and grows its band)
+  const live = withCanvas(mk('page'), { headerMm: 20, footerMm: 0, boxes: [] });
+  const q = upsertBox(live, { id: 'qr', band: 'header', x: 0, y: 0, w: 10, h: 10 });
+  const qb = lay(q)!.canvas!.boxes.find((b) => b.id === 'qr')!;
+  assert.ok(qb.w >= LAYOUT_BOUNDS.qrBoxMinMm && qb.h >= LAYOUT_BOUNDS.qrBoxMinMm);
+  assert.ok(lay(q)!.canvas!.headerMm >= LAYOUT_BOUNDS.qrBoxMinMm);
+  const grown = withCanvas(mk('page'), { headerMm: 20, footerMm: 0, boxes: [{ id: 'qr', band: 'header', x: 0, y: 0, w: 10, h: 10 }] });
+  assert.equal(lay(grown)!.canvas!.headerMm, 47);
+  // starterCanvas never adds a qr box either way
+  assert.ok(!starterCanvas(gone).boxes.some((b) => b.id === 'qr'));
+});
+
+test('withStampsRemoved: true writes stamps=false, false deletes the key (byte-equal round trip); classic/legacy untouched', () => {
+  for (const p of [withLogo(mk('page'), { logoMm: 30 }), withLogo(mk('thermal'), { logoMm: 20 }), withDesign(mk('impact'), 'grid_bilingual')]) {
+    assert.ok(!areStampsRemoved(lay(p)));
+    const gone = withStampsRemoved(p, true);
+    assert.equal(lay(gone)!.stamps, false);
+    assert.ok(areStampsRemoved(lay(gone)));
+    ok(gone, p.printer);
+    assert.equal(withStampsRemoved(gone, true), gone, 'idempotent');
+    assert.equal(JSON.stringify(withStampsRemoved(gone, false)), JSON.stringify(p), 'restore is byte-equal');
+    assert.equal(withStampsRemoved(p, false), p, 'restore without removal = no-op');
+    // section resets do not bring the stamps back (only withStampsRemoved or a full layout reset)
+    assert.ok(areStampsRemoved(lay(resetSections(withSectionStyle(gone, 'info', { align: 'end' })))));
+  }
+  for (const p of legacyPrintSettings().profiles) assert.equal(withStampsRemoved(p, true), p);
+  const classic = mk('thermal', { template: 'roll_classic' });
+  assert.equal(withStampsRemoved(classic, true), classic);
+  assert.ok(!('stamps' in defaultPrintLayout('page')), 'stamps is not in the default layout');
 });

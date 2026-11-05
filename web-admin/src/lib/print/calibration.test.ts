@@ -3,16 +3,19 @@
 // qrPlan — والمستند التجريبيّ يمرّ بقرارٍ «بيئة محاكاة» ورمزه تجريبيّ لا رمز مرحلةٍ أولى.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import QRCode from 'qrcode';
 import {
   CALIBRATION_ROLL_MM, DUMMY_QR_LENGTH, buildCalibrationDocument, calibrationLayout, calibrationPages, calibrationQr, dummyQrValue,
   sampleBannerHtml, sampleInvoiceDoc,
 } from './calibration';
 import {
-  PAPER_PRESETS, PRINT_SAMPLE_WATERMARK, STAMPED_QR_CELLS, defaultPrintOptions, legacyPageProfile, legacyThermalProfile, presetPaper,
-  type PaperPresetId, type PrintProfile, type PrinterType, type TemplateId,
+  PAPER_PRESETS, PRINT_SAMPLE_WATERMARK, PRINT_WARNINGS, STAMPED_QR_CELLS, defaultPrintOptions, legacyPageProfile, legacyThermalProfile, presetPaper,
+  withLayout, type PaperPresetId, type PrintProfile, type PrinterType, type TemplateId,
 } from './printSettings';
 import { REHEARSAL_WATERMARK, zatcaPrintDecision } from '../zatca/docPrint';
+import { PrintRefusedError } from './printErrors';
+import { applyQrSlots, createBitmap } from './raster';
 
 const tr = (s: string) => s;
 const profile = (printer: PrinterType, template: TemplateId, preset: PaperPresetId): PrintProfile => ({
@@ -137,4 +140,81 @@ test('المستند التجريبيّ: قرار «بيئة محاكاة» بر
   // شركةٌ بلا اسمٍ أو رقم: بدائل نموذجية
   assert.equal(sampleInvoiceDoc(null, tr).company?.taxNumber, '300000000000003');
   assert.ok(sampleBannerHtml('<x>').includes('&lt;x&gt;'));
+});
+
+// ─── قرار المالك ٤ نوفمبر ٢٠٢٦ («اجعل يمكن حذف كل شي حتى كيو ار»): ما حذفته الشركة صراحةً لا تطبعه صفحة المعايرة ───
+
+const noQr = (p: PrintProfile): PrintProfile => withLayout(p, { sections: { qr: { visible: false } } });
+const noStamps = (p: PrintProfile): PrintProfile => withLayout(p, { stamps: false });
+/** خانات الرمز في الوثيقة كما يجمعها captureElement — ثم تُرسم بنقاط الطابعة (applyQrSlots يرفض ما لا يتسع) */
+const slotsOf = (html: string, widthDots: number) => [...html.matchAll(/data-qr-value="([^"]*)" data-qr-ec="(L|M)"/g)]
+  .map((m) => ({ value: m[1], ec: m[2] as 'L' | 'M', rect: { x: 0, y: 0, w: widthDots, h: widthDots } }));
+
+test('رمز QR محذوف: صفحة المعايرة بلا خانة رمزٍ تجريبيّ ولا قسمه — فلا رفض qrNoFit على الرول الضيّق، والصفحة بلا اختيارٍ كما هي', () => {
+  // 58 مم بحزمةٍ أضيق من الرمز التجريبيّ بأدنى نقاطه: الوثيقة اليوم ترفضها الطابعة — وبالحذف تُطبع
+  const narrow = profile('thermal', 'roll_compact', 'roll58');
+  narrow.paper = { ...narrow.paper, printableDots: 256 };
+  assert.equal(calibrationQr(narrow).fits, false, 'الحزمة لا تتسع للرمز');
+  const before = buildCalibrationDocument(narrow, tr, { mode: 'raster', name: 'x' });
+  assert.equal(slotsOf(before, 256).length, 1);
+  assert.throws(() => applyQrSlots(createBitmap(256, 600), slotsOf(before, 256), { dpi: 203, size: narrow.options.qrSize }),
+    (e: unknown) => e instanceof PrintRefusedError && e.message === PRINT_WARNINGS.qrNoFit, 'بلا حذف: الرفض كاليوم');
+  const removed = noQr(narrow);
+  for (const mode of ['raster', 'system'] as const) {
+    const html = buildCalibrationDocument(removed, tr, { mode, name: 'x' });
+    assert.ok(!html.includes('data-qr-value'), `${mode}: خانة رمز`);
+    assert.ok(!html.includes('class="qrslot"') && !html.includes('رمز تجريبي — ليس رمزا ضريبيا'), mode);
+    assert.ok(!html.includes('امسح الرمز التجريبي بالجوال'), `${mode}: شرح الرمز`);
+    assert.doesNotThrow(() => applyQrSlots(createBitmap(256, 600), slotsOf(html, 256), { dpi: 203, size: removed.options.qrSize }));
+    assert.ok(html.includes(PRINT_SAMPLE_WATERMARK), 'العلامة باقية: الأختام لم تُحذف');
+    assert.ok(html.includes('class="ruler"'), 'المساطر باقية');
+  }
+  // الورق القصير: لا قسم رمزٍ — الرأس والمساطر وحدها على أوراق المعايرة
+  const half = profile('impact', 'impact_plain', 'ff_95x55');
+  assert.deepEqual(calibrationLayout(half, tr).sections.map((x) => x.kind), ['rulers', 'qr']);
+  const l = calibrationLayout(noQr(half), tr);
+  assert.ok(l.sections.every((x) => x.kind !== 'qr'), 'بلا قسم رمز');
+  assert.equal(l.sheets, calibrationPages(half));
+  const hh = buildCalibrationDocument(noQr(half), tr, { mode: 'system', name: 'x' });
+  assert.equal((hh.match(/<section class="cal"/g) || []).length, l.sheets);
+  assert.ok(!hh.includes('data-cal="qr"') && !hh.includes('data-qr-value'));
+  for (const sec of l.sections) assert.ok(sec.mm <= (l.bodyMm as number));
+  // بلا اختيار: الوثيقة حرفياً (الحذف وحده يغيّرها، وsections.qr فارغاً لا يغيّر شيئاً)
+  for (const [printer, template, preset] of [['thermal', 'roll_compact', 'roll80'], ['impact', 'impact_plain', 'ff_a4'], ['page', 'page_branded', 'a4']] as const) {
+    const p = profile(printer, template, preset);
+    const a = buildCalibrationDocument(p, tr, { mode: 'system', name: 'x' });
+    assert.equal(buildCalibrationDocument(withLayout(p, { sections: { qr: {} } }), tr, { mode: 'system', name: 'x' }), a, `${preset}: qr فارغ`);
+    assert.equal(buildCalibrationDocument(withLayout(p, { stamps: true }), tr, { mode: 'system', name: 'x' }), a, `${preset}: stamps=true`);
+    assert.ok(a.includes(`data-qr-value="${dummyQrValue()}"`) && a.includes(PRINT_SAMPLE_WATERMARK), preset);
+  }
+});
+
+test('أختام الحالة محذوفة: صفحة المعايرة تبقى بشريط «نموذج اختبار» حرفياً كالافتراضي (قرار المالك ٤ نوفمبر ٢٠٢٦: تبقى العبارة دائماً)', () => {
+  for (const [printer, template, preset] of [['thermal', 'roll_compact', 'roll80'], ['impact', 'impact_plain', 'ff_a4'], ['impact', 'impact_plain', 'ff_95x55'], ['page', 'page_branded', 'a4']] as const) {
+    const p = profile(printer, template, preset);
+    for (const mode of ['raster', 'system'] as const) {
+      const def = buildCalibrationDocument(p, tr, { mode, name: 'x' });
+      assert.ok(def.includes(`<div class="banner">${PRINT_SAMPLE_WATERMARK}</div>`), `${preset}/${mode}: الافتراضي بالعلامة`);
+      assert.equal(buildCalibrationDocument(noStamps(p), tr, { mode, name: 'x' }), def, `${preset}/${mode}: stamps:false لا يغيّر صفحة المعايرة`);
+    }
+    assert.deepEqual(calibrationLayout(noStamps(p), tr), calibrationLayout(p, tr), `${preset}: الأقسام وارتفاعاتها كما هي`);
+  }
+  // والاثنان معاً: العلامة باقية، والرمز التجريبيّ وحده يُحذف
+  const both = noStamps(noQr(profile('thermal', 'roll_compact', 'roll58')));
+  const h = buildCalibrationDocument(both, tr, { mode: 'raster', name: 'x' });
+  assert.ok(h.includes(`<div class="banner">${PRINT_SAMPLE_WATERMARK}</div>`) && !h.includes('data-qr-value') && h.includes('class="title"'));
+  assert.equal(h, buildCalibrationDocument(noQr(profile('thermal', 'roll_compact', 'roll58')), tr, { mode: 'raster', name: 'x' }));
+});
+
+test('الطباعة التجريبية: شريط «نموذج اختبار» على الورق دائماً ولو حذفت الشركة أختام الحالة — والمستند التجريبيّ نفسه (رمزه ومحاكاته)', () => {
+  const src = fs.readFileSync(new URL('../../components/print/PrintDeviceTools.tsx', import.meta.url), 'utf8');
+  const job = src.slice(src.indexOf('const testPrint = (via: PrintTransport)'), src.indexOf('const directHintText'));
+  assert.match(job, /const banner = sampleBannerHtml\(tr\(PRINT_SAMPLE_WATERMARK\)\);/);
+  assert.ok(!/areStampsRemoved|banner = .*\? null/.test(job), 'لا شرط على الأختام في شريط الطباعة التجريبية');
+  assert.ok(!/areStampsRemoved/.test(src), 'تلميح «المعاينة والاختبار يحملان…» لا يتبع الأختام');
+  for (const use of ['sampleBanner: banner', "[tr('الأصل'), tr('نسخة')], ui, banner)", "[tr('الأصل'), tr('نسخة')], banner);"]) assert.ok(job.includes(use), use);
+  // المستند التجريبيّ لا يتغيّر بالحذف: الحذف في القالب وتطبّقه القوالب الحقيقية
+  const doc = sampleInvoiceDoc(null, tr, new Date('2026-11-04T08:00:00Z'));
+  assert.equal(doc.zatca?.mode, 'rehearsal');
+  assert.equal(doc.zatca?.qr, dummyQrValue());
 });

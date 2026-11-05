@@ -11,6 +11,7 @@ import { isolationEnabled } from '../services/customerScope';
 import { punchDeviceOf } from '../services/punchDevice';
 import { attendanceEnabled, lockRepAttendance, REP_LOCK_TX } from '../services/attendanceEdit';
 import { getVapidKeys, pushEndpointAllowed, pushKeysValid } from '../services/webPush';
+import { apnsConfigured, apnsEndpoint, apnsTokenValid } from '../services/apnsPush';
 import { heartbeatClientState } from '../services/repHeartbeat';
 import { countStopsByRep, asVisitLike } from '../services/workDay';
 import { correctCapturedAt, DEVICE_NOW_HEADER } from '../services/liveLocation';
@@ -18,7 +19,10 @@ import { readLiveVerdict } from '../middleware/repLiveLocation';
 import { pingLimiter } from '../middleware/rateLimits';
 import { publishLocationsChanged } from '../services/liveEvents';
 import { pendingPresence, presenceOutcome, PRESENCE_TAP_HOLD_MS } from '../services/presenceChecks';
-import { issueTrackToken, nativeTrackActive, repTrackingOff, deviceTrackDecision } from '../services/deviceTrack';
+import {
+  issueTrackToken, nativeTrackActive, nativeTrackFlags, nativeTrackSeenAt, nativeTrackStopped, repTrackingOff, deviceTrackDecision,
+  LOCATION_SOURCE_DEVICE, NATIVE_RECENT_WINDOW_MS, NATIVE_ROW_LOOKBACK_MS, type LocationSource,
+} from '../services/deviceTrack';
 
 const router = Router();
 router.use(authenticate);
@@ -56,8 +60,15 @@ export type PingPoint = z.infer<typeof pingSchema>['points'][number];
 /**
  * تخزين دفعة نقاط مندوبٍ تقرّر أن تُخزَّن، وتحديث آخر موقعٍ معروف وإبلاغ الخريطة — مشتركٌ بين نقطة الويب (POST /tracking/ping)
  * ونقطة التطبيق الأصلي في الخلفية (POST /track-device/ping، routes/trackDevice.ts)، فالحكم واحد في الطريقين. يعيد عدد المخزَّن.
+ *
+ * `source`: يمرّره المسار لا الطلب — الويب لا يمرّر شيئاً (صفّه بلا مصدر = null كما كان حرفاً)، والجهاز LOCATION_SOURCE_DEVICE.
+ * والجهاز لا يلمس «آخر ظهور» (lastSeenAt): الخلفية ترفع حتى منتصف الليل، و«آخر ظهور» يقرؤه عدّاد «الزيارات الحية» ومنحنى
+ * الحضور في لوحة المالك وتنبيه تصفير المخزون وجاهزية الفوترة — فيبقى «التطبيق مفتوحٌ أمامه» كما كان. الدبّوس ولحظته
+ * (lastLat/lastLng/lastLocAt) يتحرّكان بنقاط الجهاز، والخريطة تعدّه متصلاً بأحدث الطابعين (web-admin lib/liveRepStatus.ts).
  */
-export async function storeRepPings(tid: string, repId: string, points: PingPoint[], deviceNowHeader: unknown, strict: boolean): Promise<number> {
+export async function storeRepPings(
+  tid: string, repId: string, points: PingPoint[], deviceNowHeader: unknown, strict: boolean, source?: LocationSource,
+): Promise<number> {
   // المقيَّد: لحظة القراءة بساعة الخادم (ساعة الجهاز تنحرف) ولا مستقبل — عليها يُحكم «طازجة أم قديمة»
   const serverNow = Date.now();
   const rows = points.map(p => ({
@@ -65,8 +76,11 @@ export async function storeRepPings(tid: string, repId: string, points: PingPoin
     accuracy: p.accuracy ?? null, speed: p.speed ?? null,
     capturedAt: strict ? correctCapturedAt(p.capturedAt, deviceNowHeader, serverNow)
       : p.capturedAt ? new Date(p.capturedAt) : new Date(),
+    // نقطة الصفحة بلا المفتاح أصلاً (العمود يبقى null كما قبل الميزة)
+    ...(source ? { source } : {}),
   }));
   await prisma.repLocation.createMany({ data: rows });
+  const device = source === LOCATION_SOURCE_DEVICE;
 
   // أحدث نقطة = آخر موقع معروف (الإحداثيّات من نقطة العميل، أمّا «آخر ظهور» فبوقت
   // الخادم لا بساعة الجهاز: عدّاد «الزيارات الحية» يوازن lastSeenAt بنافذة وقت خادم
@@ -79,10 +93,10 @@ export async function storeRepPings(tid: string, repId: string, points: PingPoin
   const now = new Date();
   const moved = await prisma.salesRep.updateMany({
     where: { id: repId, OR: [{ lastLocAt: null }, { lastLocAt: { lt: latestAt } }] },
-    data: { lastLat: rows[iLatest].lat, lastLng: rows[iLatest].lng, lastLocAt: latestAt, lastSeenAt: now },
+    data: { lastLat: rows[iLatest].lat, lastLng: rows[iLatest].lng, lastLocAt: latestAt, ...(device ? {} : { lastSeenAt: now }) },
   });
-  // دفعةٌ أقدم لم تحرّك الدبّوس: لا حدث — لا جديد تقرؤه الخريطة
-  if (moved.count === 0) await prisma.salesRep.update({ where: { id: repId }, data: { lastSeenAt: now } });
+  // دفعةٌ أقدم لم تحرّك الدبّوس: لا حدث — لا جديد تقرؤه الخريطة. ومن الجهاز لا شيء يُكتب (لا «آخر ظهور» له)
+  if (moved.count === 0) { if (!device) await prisma.salesRep.update({ where: { id: repId }, data: { lastSeenAt: now } }); }
   else publishLocationsChanged(tid);
   return rows.length;
 }
@@ -153,7 +167,25 @@ router.post('/device-token', async (req: AuthRequest, res: Response, next: NextF
     // waitPunch: «بصمة الحضور» مفعّلة للشركة والمندوب لم يبصم حضوره (لا نوبة مفتوحة) ⇒ البدء ينتظر لمسة «تسجيل الحضور» لا زرّاً
     // (قرار المالك ٤ نوفمبر). nativeActive: جهازه يرفع الآن (services/deviceTrack.ts) ⇒ لا تطلب الصفحة بدءاً ثانياً ولا لمسة
     const waitPunch = rep?.tenant?.attendanceEnabled === true && !(await openShift(prisma, tid, repId));
-    res.json({ success: true, data: { enabled: true, token, expiresAt, waitPunch, nativeActive: nativeTrackActive(repId) } });
+    // الذاكرة تُمسح بكل نشرٍ أو إعادة تشغيلٍ على Render، والصفحة صارت تسأل هنا دورياً لتكتشف خدمةً قتلها النظام فتعيد تسليحها —
+    // فبالذاكرة وحدها يبدو كل جهازٍ سليم ميتاً بعد النشر ويظهر زرّ البدء للجميع. فإن لم تعرفه: أحدث صفّ جهازٍ استُقبل خلال
+    // NATIVE_RECENT_WINDOW_MS (createdAt بساعة الخادم، لا capturedAt بساعة الجهاز) — استعلامٌ واحد في مدى الفهرس، إلا بعد رفع
+    // إغلاقٍ لم يتبعه رفع. nativeRecent (نافذةٌ أوسع): لسؤال التحقّق وحده — فجوة رفعٍ عادية لجهازٍ سليم لا تُظهر له زرّ البدء
+    const now = Date.now();
+    let seenAt = nativeTrackSeenAt(repId, now);
+    if (seenAt === null && !nativeTrackStopped(repId, now)) {
+      const row = await prisma.repLocation.findFirst({
+        where: {
+          tenantId: tid, salesRepId: repId, source: LOCATION_SOURCE_DEVICE,
+          capturedAt: { gte: new Date(now - NATIVE_ROW_LOOKBACK_MS) }, createdAt: { gte: new Date(now - NATIVE_RECENT_WINDOW_MS) },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      });
+      seenAt = row ? row.createdAt.getTime() : null;
+    }
+    const { nativeActive, nativeRecent } = nativeTrackFlags(seenAt, now);
+    res.json({ success: true, data: { enabled: true, token, expiresAt, waitPunch, nativeActive, nativeRecent } });
   } catch (err) { next(err); }
 });
 
@@ -638,6 +670,59 @@ router.post('/push/unsubscribe', async (req: AuthRequest, res: Response, next: N
     const endpoint = z.object({ endpoint: z.string().max(1000) }).parse(req.body ?? {}).endpoint;
     await prisma.repPushSubscription.deleteMany({ where: { endpoint, salesRepId: req.user.id } });
     res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+const apnsSubscribeSchema = z.object({
+  token: z.string().min(64).max(200),
+  env: z.enum(['production', 'sandbox']),
+  tzOffsetMin: z.number().int().min(-840).max(840).optional(),
+  lang: z.string().max(8).optional(),
+});
+
+/**
+ * إطلاق جهاز آيفون: من دخل عليه لا تصله تنبيهات الحضور هنا (البصمة مطفأة لشركته)، فصفّ الجهاز يُحذف أيّاً كان صاحبه —
+ * مندوبٌ خرج بلا شبكة فبقي صفّه، أو من شركةٍ أخرى — فلا تصل تنبيهاتُ غيره هذا الجوال. حيازة الرمز هي الإثبات نفسه الذي ينقل
+ * به upsert أدناه الصفّ إلى من دخل، فلا قدرة جديدة. أفضل جهد بعد ردّ 403: لا يرمي
+ */
+async function releaseApnsDevice(body: unknown): Promise<void> {
+  const b = apnsSubscribeSchema.safeParse(body ?? {});
+  if (!b.success) return;
+  const token = b.data.token.trim().toLowerCase();
+  if (!apnsTokenValid(token)) return;
+  await prisma.repPushSubscription.deleteMany({ where: { endpoint: apnsEndpoint(b.data.env, token) } }).catch(() => { /* في الدخول التالي */ });
+}
+
+/**
+ * اشتراك آيفون (تطبيق المندوب الأصلي، ٤ نوفمبر ٢٠٢٦ — services/apnsPush.ts): رمز الجهاز من Apple يُحفظ في جدول الاشتراكات
+ * نفسه بعنوان apns:<البيئة>:<الرمز> (p256dh/auth فارغان) — فيصله «أثبت تواجدك» وتنبيهات الحضور كما يصل أندرويد والويب.
+ * الجوال لا يقدّم رابطاً بل رمزاً يُفحص هنا، والمضيف ثابتٌ في الخادم (لا SSRF). ويُحفظ ولو لم يُضبط مفتاح APNs بعد:
+ * active يقول للتطبيق هل يُرسَل إليه الآن. والخروج يحذفه بالمسار القائم /push/unsubscribe بعنوانه.
+ * والتطبيق يناديه عند كل دخول: يأخذ الجهاز لمن دخل، أو — والبصمة مطفأة لشركته — يُطلقه (releaseApnsDevice) مع الـ403 نفسه.
+ */
+router.post('/push/apns', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const ctx = await ensureRepAttendance(req, res);
+    if (!ctx) { if (req.user?.role === 'SALES_REP') await releaseApnsDevice(req.body); return; }
+    const { tid, repId } = ctx;
+    const b = apnsSubscribeSchema.parse(req.body ?? {});
+    const token = b.token.trim().toLowerCase();
+    if (!apnsTokenValid(token)) { res.status(400).json({ success: false, message: 'رمز الإشعارات غير صالح' }); return; }
+    const endpoint = apnsEndpoint(b.env, token);
+    const lang = b.lang && /^[a-z]{2}$/.test(b.lang) ? b.lang : null;
+    // الجهاز نفسه بحسابٍ آخر (تبديل الحسابات): الرمز ينتقل إلى من سجّل دخوله الآن (endpoint فريد)
+    await prisma.repPushSubscription.upsert({
+      where: { endpoint },
+      create: { tenantId: tid, salesRepId: repId, endpoint, p256dh: '', auth: '', lang },
+      update: { tenantId: tid, salesRepId: repId, lang },
+    });
+    const extra = await prisma.repPushSubscription.findMany({
+      where: { salesRepId: repId }, orderBy: { updatedAt: 'desc' }, skip: MAX_PUSH_SUBS_PER_REP, select: { id: true },
+    });
+    if (extra.length) await prisma.repPushSubscription.deleteMany({ where: { id: { in: extra.map((x) => x.id) } } });
+    if (b.tzOffsetMin != null) await prisma.salesRep.update({ where: { id: repId }, data: { tzOffsetMin: b.tzOffsetMin } });
+    // endpoint يعود ليُرسَل إلى /push/unsubscribe عند الخروج (المسار القائم يحذف بالعنوان ولصاحب الجلسة وحده)
+    res.json({ success: true, data: { endpoint, active: apnsConfigured() } });
   } catch (err) { next(err); }
 });
 

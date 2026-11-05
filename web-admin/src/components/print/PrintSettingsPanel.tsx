@@ -11,8 +11,8 @@ import { useTr } from '../../i18n/strings';
 import {
   COMPANY_SETTINGS_MISSING_MSG, DOC_KINDS, DOC_KIND_LABELS, DOC_KIND_SHORT, DPIS_BY_PRINTER, FEEDS_BY_PRINTER, FEED_LABELS, FONT_SCALES,
   PAPER_PRESETS, PRESET_LABELS, PRINTER_HINTS, PRINTER_LABELS, PRINTER_SHORT, PRINTER_TYPES, PRINT_ISSUES, PRINT_LIMITS, PRINT_NOTES,
-  PRINT_COPIES, STAMPED_QR_CELLS, TEMPLATE_HINTS, TEMPLATE_LABELS,
-  checkPrintSettings, duplicateProfile, isLegacyPrintSettings, isLegacyProfileId, legacyPrintSettings, maxPrintableDots, newProfile, normalizePrintSettings,
+  PRINT_COPIES, QR_PANEL_NOTE, QR_REMOVED_BADGE, STAMPED_QR_CELLS, TEMPLATE_HINTS, TEMPLATE_LABELS,
+  checkPrintSettings, isQrRemoved, layoutOf, duplicateProfile, isLegacyPrintSettings, isLegacyProfileId, legacyPrintSettings, maxPrintableDots, newProfile, normalizePrintSettings,
   printSaveErrorMessage, printableMm, profileDisplayName, profileUsage, profileWarnings, qrPlan, routingAllowsPrinter, templatesFor,
   uniqueProfileName, withDpi, withPaper, withPreset, withPrinter, withProfile, withoutProfile,
   DESIGN_HINTS, DESIGN_LABELS,
@@ -233,6 +233,7 @@ export default function PrintSettingsPanel({ phase2 }: { phase2: boolean }) {
                         {profileDisplayName(p, tr)}
                         {legacy && <span className="text-[10px] text-[#1E7A52] bg-green-50 rounded-full px-2 py-0.5">{tr('الافتراضي الحالي')}</span>}
                         {usage.map((u) => <span key={u} className="text-[10px] text-[#C94E28] bg-[#FBEBE2] rounded-full px-2 py-0.5">{tr(DOC_KIND_SHORT[u])}</span>)}
+                        {isQrRemoved(layoutOf(p)) && <span data-qr-removed="" className="text-[10px] font-bold text-white bg-[#B42318] rounded-full px-2 py-0.5">{tr(QR_REMOVED_BADGE)}</span>}
                         {w.length > 0 && <span title={w.map((x) => tr(x)).join(' · ')}><AlertTriangle size={14} className="text-amber-600" /></span>}
                       </p>
                       <p className="text-xs text-[#6E6557] mt-0.5">
@@ -440,7 +441,7 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
                   <input className="input" maxLength={PRINT_LIMITS.footerMax} placeholder={tr('شكرا لتعاملكم معنا')} value={p.options.footerText ?? ''}
                     onChange={(e) => setOpt('footerText', e.target.value ? e.target.value : null)} />
                 </label>
-                <p className="text-[11px] text-[#6E6557] flex items-start gap-1.5"><Info size={12} className="mt-0.5 shrink-0" />{tr('رمز QR يطبع دائما على مستند المرحلة الثانية — وصياغة العبارات وحذف سطورها من «نصوص المطبوعات»')}</p>
+                <p className="text-[11px] text-[#6E6557] flex items-start gap-1.5"><Info size={12} className="mt-0.5 shrink-0" />{tr(QR_PANEL_NOTE)}</p>
               </Section>
 
               <Section title={tr('التخطيط')} open><LayoutFields p={p} update={update} /></Section>

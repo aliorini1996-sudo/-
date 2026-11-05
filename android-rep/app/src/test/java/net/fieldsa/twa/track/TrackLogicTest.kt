@@ -123,7 +123,12 @@ class TrackLogicTest {
             b = TrackLogic.nextBackoffMs(b)
             seen += b
         }
-        assertEquals(listOf(30_000L, 60_000L, 120_000L, 300_000L, 300_000L, 300_000L), seen)
+        // الحدّ ١٢٠ ثانية كالصفحة (trackUpload.ts RETRY_MAX_MS): ٣٠٠ أبقت المندوب «موقعه متوقف» دقائق بعد عودة الخادم
+        assertEquals(listOf(30_000L, 60_000L, 120_000L, 120_000L, 120_000L, 120_000L), seen)
+        // قيمةٌ شاذّة (أكبر من الحدّ أو قرب الفيض) تعود إلى الحدّ لا إلى سالب
+        assertEquals(120_000L, TrackLogic.nextBackoffMs(300_000L))
+        assertEquals(120_000L, TrackLogic.nextBackoffMs(Long.MAX_VALUE))
+        assertEquals(30_000L, TrackLogic.nextBackoffMs(-1L))
     }
 
     @Test
@@ -210,6 +215,10 @@ class TrackLogicTest {
         assertEquals(4_096, TrackContract.TOKEN_MAX_CHARS)
         assertEquals(15_000, TrackContract.HTTP_TIMEOUT_MS)
         assertEquals("fs_track", TrackContract.CHANNEL_ID)
+        // التراجع: الآيفون يحمل الجدول نفسه (TrackService.swift backoffMs = [30_000, 60_000, 120_000])، والحدّ حدّ الصفحة —
+        // بعد عودة الخادم لا يتأخّر الرفع التالي أكثر من نافذة «موقع مباشر» (دقيقتان، liveRepStatus.ts LOCATION_FRESH_MS)
+        assertEquals(30_000L, TrackContract.BACKOFF_FIRST_MS)
+        assertEquals(120_000L, TrackContract.BACKOFF_MAX_MS)
     }
 
     @Test

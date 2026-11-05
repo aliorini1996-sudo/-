@@ -110,12 +110,15 @@ object TrackLogic {
         return TrackIdentity(sub, tid)
     }
 
-    /** التراجع التالي: ٠ ← ٣٠ث ← ٦٠ ← ١٢٠ ← ٣٠٠ ثم يبقى ٣٠٠ */
+    /**
+     * التراجع التالي: ٠ ← ٣٠ث ← ٦٠ ← ١٢٠ ثم يبقى ١٢٠ (BACKOFF_MAX_MS). الضعف حتى الحدّ، فلا ينتظر الجهاز بعد عودة الخادم
+     * أكثر من دقيقتين قبل الرفع التالي
+     */
     fun nextBackoffMs(prevMs: Long): Long = when {
         prevMs < TrackContract.BACKOFF_FIRST_MS -> TrackContract.BACKOFF_FIRST_MS
-        prevMs < TrackContract.BACKOFF_FIRST_MS * 2 -> TrackContract.BACKOFF_FIRST_MS * 2
-        prevMs < TrackContract.BACKOFF_FIRST_MS * 4 -> TrackContract.BACKOFF_FIRST_MS * 4
-        else -> TrackContract.BACKOFF_MAX_MS
+        // المقارنة بالنصف لا بالضعف: قيمةٌ شاذّة كبيرة لا تفيض إلى سالبٍ يُلغي التراجع
+        prevMs >= TrackContract.BACKOFF_MAX_MS / 2 -> TrackContract.BACKOFF_MAX_MS
+        else -> prevMs * 2
     }
 
     /** يوم الجهاز المحلي «yyyy-MM-dd» — كيوم الصفحة (web-admin/src/rep/deviceDay.ts) */

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { repLiveState, repLiveText, relativeAge, noteServerNow, serverClockNow, CONNECTED_MS, LOCATION_FRESH_MS } from './liveRepStatus';
+import { repLiveState, repLiveText, repSeenAt, relativeAge, noteServerNow, serverClockNow, CONNECTED_MS, LOCATION_FRESH_MS } from './liveRepStatus';
 import { LIVE_LOCATIONS } from './livePolicy';
 
 // «متصل الآن» على دبّوسٍ عمره ساعة كان يوهم المدير أن المندوب عند العميل (النبضة تمدّ الاتصال بلا GPS). الآن: موقعٌ
@@ -30,13 +30,39 @@ test('غير متصل منذ ٥ دقائق ⇒ «آخر ظهور» بأسلوب 
   const r = rep({ lastSeenAt: ago(CONNECTED_MS), lastLocAt: ago(CONNECTED_MS) });
   assert.equal(repLiveState(r, NOW), 'offline');
   assert.equal(repLiveText(r, tr, (iso) => `@${iso}`, NOW), `آخر ظهور @${ago(CONNECTED_MS)}`);
-  assert.equal(repLiveState(rep({ lastSeenAt: null }), NOW), 'none');
+  assert.equal(repLiveState(rep({ lastSeenAt: null, lastLocAt: null }), NOW), 'none');
+  // لحظة موقعٍ بلا «آخر ظهور» لم تكن ممكنة قبل تتبّع الخلفية (الطابعان معاً): نقطة جهازٍ سبقت أول نبضة ⇒ ظهر فعلاً
+  assert.equal(repLiveState(rep({ lastSeenAt: null }), NOW), 'live');
 });
 
 test('خادمٌ أقدم بلا lastLocAt (الواجهة نُشرت قبله): كما كان، «متصل» = موقعه الآن', () => {
   const legacy = { lastLat: 24.7, lastLng: 46.6, lastSeenAt: ago(10_000) };
   assert.equal(repLiveState(legacy, NOW), 'live');
   assert.equal(repLiveText(legacy, tr, () => '', NOW), 'متصل الآن');
+});
+
+test('تتبّع الخلفية: نقطة الجهاز تحرّك lastLocAt وحده — «متصل» بأحدث الطابعين، فالقائد والشاشة مقفلة «موقع مباشر»', () => {
+  // قرار المالك ٤ نوفمبر ٢٠٢٦: الخادم لا يكتب lastSeenAt من نقاط الخلفية (عدّاد «الزيارات الحية» يبقى للتطبيق المفتوح)
+  const driving = rep({ lastSeenAt: ago(40 * 60_000), lastLocAt: ago(20_000) });
+  assert.equal(repSeenAt(driving), driving.lastLocAt);
+  assert.equal(repLiveState(driving, NOW), 'live');
+  assert.equal(repLiveText(driving, tr, () => '', NOW), 'موقع مباشر · الآن');
+  // توقّفت الخدمة (منتصف الليل): «آخر ظهور» بلحظة آخر موقع لا بآخر فتحٍ للصفحة
+  const stopped = rep({ lastSeenAt: ago(5 * 3_600_000), lastLocAt: ago(CONNECTED_MS + 60_000) });
+  assert.equal(repLiveState(stopped, NOW), 'offline');
+  assert.equal(repLiveText(stopped, tr, (iso) => `@${iso}`, NOW), `آخر ظهور @${stopped.lastLocAt}`);
+  // بين دقيقتين وخمسٍ بلا نقطة: «متصل وموقعه متوقف» كما للصفحة
+  assert.equal(repLiveState(rep({ lastSeenAt: ago(40 * 60_000), lastLocAt: ago(LOCATION_FRESH_MS + 1_000) }), NOW), 'stale');
+});
+
+test('نقاط الصفحة كما كانت: الطابعان معاً و«آخر ظهور» lastSeenAt — ولا طابع ⇒ «لم يحدد موقعه بعد»', () => {
+  const r = rep();
+  assert.equal(repSeenAt(r), r.lastSeenAt, 'lastSeenAt (وقت الاستقبال) هو الأحدث لنقطة الصفحة');
+  assert.equal(repSeenAt({ lastLat: null, lastLng: null, lastSeenAt: ago(10_000) }), ago(10_000), 'خادمٌ أقدم بلا lastLocAt');
+  assert.equal(repSeenAt({ lastLat: null, lastLng: null, lastSeenAt: null, lastLocAt: null }), null);
+  assert.equal(repLiveState({ lastLat: null, lastLng: null, lastSeenAt: null, lastLocAt: null }, NOW), 'none');
+  const old = rep({ lastSeenAt: ago(CONNECTED_MS + 1_000), lastLocAt: ago(CONNECTED_MS + 30_000) });
+  assert.equal(repLiveText(old, tr, (iso) => `@${iso}`, NOW), `آخر ظهور @${old.lastSeenAt}`);
 });
 
 test('العمر النسبي', () => {

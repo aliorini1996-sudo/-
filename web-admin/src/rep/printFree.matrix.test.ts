@@ -299,9 +299,14 @@ test('الأقسام: المخفي غائب، والمسافتان والمحا�
         if (sectionIds(t, hid).includes(hidden)) errors.push(`${at}: ${hidden} المخفي ما زال مطبوعاً`);
         if (hid.length >= vis.length) errors.push(`${at}: إخفاء ${hidden} لم يُنقص الورقة`);
       }
-      // الأصناف لا تُخفى ولو طُلب (القراءة المتسامحة تمحو الطلب بصمت)
+      // قرار المالك ٤ نوفمبر ٢٠٢٦: الأصناف تُخفى بإخفاء الشركة الصريح وحده — والإجماليات باقية؛ وتنسيقها بلا إخفاء يُبقيها
       const items = await render(t, withFree(base, { sections: { items: { visible: false, align: 'center' } } } as Partial<PrintLayout>), doc);
-      if (doc.kind === 'invoice' && !items.includes('مياه معدنية')) errors.push(`${at}: الأصناف اختفت`);
+      const itemsKept = await render(t, withFree(base, { sections: { items: { align: 'center' } } } as Partial<PrintLayout>), doc);
+      if (doc.kind === 'invoice') {
+        if (items.includes('مياه معدنية')) errors.push(`${at}: الأصناف المخفيّة صراحةً ما زالت مطبوعة`);
+        if (!items.includes('52.75')) errors.push(`${at}: الإجماليات سقطت مع الأصناف`);
+        if (!itemsKept.includes('مياه معدنية')) errors.push(`${at}: الأصناف اختفت بلا إخفاء`);
+      }
       // المسافة والمحاذاة
       const styled = await render(t, withFree(base, { sections: { header: { align: 'end', spaceBeforeMm: 30, spaceAfterMm: 30 } } }), doc);
       const head = sectionHtml(t, styled, 'header');

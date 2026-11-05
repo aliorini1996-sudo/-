@@ -8,15 +8,17 @@ import path from 'node:path';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
-  ALIGN_LABELS, CANVAS_BAND_LABELS, CANVAS_BOX_LABELS, LEGACY_THERMAL_ID, LOGO_POSITIONS, PRINT_ISSUES, TABLE_STYLES, defaultPrintOptions,
-  layoutIssues, layoutOf, legacyPrintSettings, presetPaper, sectionsFor, withLayout,
+  ALIGN_LABELS, CANVAS_BAND_LABELS, CANVAS_BOX_LABELS, ITEMS_REMOVE_WARNING, LEGACY_THERMAL_ID, LOGO_POSITIONS, PRINT_ISSUES, QR_FLOW_NOTE,
+  QR_ORPHAN_NOTE, QR_PANEL_NOTE, QR_REMOVED_BADGE, QR_REMOVE_ACTION, QR_REMOVE_WARNING, QR_RESTORE_ACTION, SECTION_LABELS, STAMPS_HINT, STAMPS_LABEL,
+  STAMPS_REMOVE_ACTION, STAMPS_REMOVE_WARNING, STAMPS_RESTORE_ACTION, TABLE_STYLES, defaultPrintOptions, isQrRemoved,
+  layoutIssues, layoutOf, legacyPrintSettings, presetPaper, profileWarnings, sectionsFor, withLayout,
   type PrintProfile, type PrintSettingsV1,
 } from '../../lib/print/printSettings';
-import { logoMmRange, withSectionStyle } from '../../lib/print/designModel';
+import { logoMmRange, withQrRemoved, withSectionStyle, withStampsRemoved } from '../../lib/print/designModel';
 import { PHRASES } from '../../i18n/strings';
-import { HIDE_MANDATORY_WARNING, LOCKED_VISIBLE_HINT } from './designer/SectionStyleFields';
+import { HIDE_MANDATORY_WARNING } from './designer/SectionStyleFields';
 import { DESIGNER_DISCARD_CONFIRM, MONO_PREVIEW_HINT } from './designer/PrintDesigner';
-import PrintDesignTools, { CLASSIC_COPY_NAME, classicCopyFor, isClassicRoll, logoSlider, toolRows } from './PrintDesignTools';
+import PrintDesignTools, { CLASSIC_COPY_NAME, classicCopyFor, isClassicRoll, logoSlider, qrOrphanNote, qrToolBlock, toolRows } from './PrintDesignTools';
 import { LayoutFields, logoChoices, rowIndexAtY } from './PrintPreview';
 
 const root = process.cwd();
@@ -30,6 +32,8 @@ const mip = () => prof('mip480', 'impact', 'impact_plain', 'ff_a4');
 const pre = () => prof('pre', 'impact', 'impact_preprinted', 'ff_a4');
 const van = () => prof('van-80', 'thermal', 'roll_compact', 'roll80');
 const van58 = () => prof('van-58', 'thermal', 'roll_compact', 'roll58');
+const grid = () => withLayout(page(), { design: 'grid_bilingual' });
+const mipGrid = () => withLayout(mip(), { design: 'grid_bilingual' });
 const classic = () => prof('cls', 'thermal', 'roll_classic', 'roll58');
 const valid = (p: PrintProfile) => assert.deepEqual(layoutIssues(p, 'p'), [], JSON.stringify(p.options.layout));
 const render = (p: PrintProfile, extra: Record<string, unknown> = {}) =>
@@ -81,31 +85,118 @@ test('مكان الشعار: داخل الترويسة كاليوم، أو أع�
   }
 });
 
-test('صفوف الأقسام: صفٌّ لكل قسم بأدواته، والأصناف ورمز QR لا تُخفى، والمخفي والمعدَّل موسومان، والمحدَّد مفتوح', () => {
+test('صفوف الأقسام: صفٌّ لكل قسم بأدواته، والأصناف ورمز QR الرول تُخفى (قرار المالك ٤ نوفمبر ٢٠٢٦)، والمخفي والمعدَّل موسومان، والمحدَّد مفتوح', () => {
   const p0 = page();
   assert.deepEqual(toolRows(p0).map((r) => r.id), [...sectionsFor('page', 'standard')]);
   const h0 = render(p0);
   assert.equal(h0.match(/data-section-style="/g)?.length, sectionsFor('page', 'standard').length);
   const items = h0.slice(h0.indexOf('data-section-style="items"'));
-  assert.ok(items.slice(0, items.indexOf('</button>')).includes('disabled=""'), 'إخفاء الأصناف معطّل');
+  assert.ok(!items.slice(0, items.indexOf('</button>')).includes('disabled=""'), 'إخفاء الأصناف متاح');
   const p1 = withSectionStyle(withSectionStyle(p0, 'note', { visible: false }), 'totals', { fontPct: 120 });
   const rows = toolRows(p1);
   assert.equal(rows.find((r) => r.id === 'note')!.hidden, true);
   assert.equal(rows.find((r) => r.id === 'totals')!.styled, true);
-  assert.equal(rows.find((r) => r.id === 'items')!.locked, true);
+  assert.ok(rows.every((r) => !('locked' in r)), 'لا قسم مقفل الظهور');
   assert.equal(rows.find((r) => r.id === 'header')!.styled, false);
+  // إخفاء الأصناف صراحةً: صفٌّ موسوم «مخفي» وتخطيطٌ صالح بقواعد الخادم
+  const noItems = withSectionStyle(p0, 'items', { visible: false });
+  assert.equal(toolRows(noItems).find((r) => r.id === 'items')!.hidden, true);
+  valid(noItems);
   const h1 = render(p1, { selected: 'totals' });
   assert.match(h1, /<details[^>]*data-tool-row="totals"[^>]*open=""/, 'القسم المحدَّد في المصمّم مفتوح');
   assert.doesNotMatch(h1, /<details[^>]*data-tool-row="header"[^>]*open=""/);
-  // الرول بأقسامه، ورمز QR الرول مقفل الظهور
+  // الرول بأقسامه، وصفّ رمز QR الرول يُخفى من مفتاح ظهوره (بالتنبيه القويّ من SectionStyleFields)
   assert.deepEqual(toolRows(van()).map((r) => r.id), [...sectionsFor('thermal', 'standard')]);
-  assert.equal(toolRows(van()).find((r) => r.id === 'qr')!.locked, true);
+  const hv = render(van());
+  const qrRow = hv.slice(hv.indexOf('data-section-style="qr"'));
+  assert.ok(!qrRow.slice(0, qrRow.indexOf('</button>')).includes('disabled=""'), 'إخفاء رمز QR الرول متاح');
+  const vanNoQr = withSectionStyle(van(), 'qr', { visible: false });
+  assert.equal(toolRows(vanNoQr).find((r) => r.id === 'qr')!.hidden, true);
+  assert.equal(isQrRemoved(layoutOf(vanNoQr)), true);
+  valid(vanNoQr);
 });
 
-test('القسم الحامل لرمز QR مخفيّاً: تنبيه أن الرمز يطبع وحده — ولا تنبيه بدونه', () => {
-  const hidden = withSectionStyle(page(), 'totals', { visible: false });
-  assert.ok(render(hidden).includes('data-qr-orphan'));
-  assert.ok(!render(page()).includes('data-qr-orphan'));
+test('القسم الحامل لرمز QR مخفيّاً: تنبيه أن الرمز يطبع وحده (ما لم يُحذف) — ولا تنبيه بدونه ولا بعد حذف الرمز صراحةً', () => {
+  for (const [p, host] of [[page(), 'totals'], [grid(), 'info'], [mip(), 'totals'], [mipGrid(), 'info']] as const) {
+    const hidden = withSectionStyle(p, host, { visible: false });
+    const h = render(hidden);
+    assert.ok(h.includes('data-qr-orphan'), `${p.id}/${host}`);
+    assert.ok(h.includes(QR_ORPHAN_NOTE), 'النصّ الجديد');
+    assert.ok(!h.includes('قسم رمز QR مخفي — يطبع الرمز وحده في مكانه التلقائي'), 'لا النصّ القديم');
+    assert.equal(qrOrphanNote(hidden), true);
+    assert.ok(!render(p).includes('data-qr-orphan'));
+    // حذف الرمز صراحةً: لا رمزَ يطبع وحده فلا تنبيه — والحامل المخفي وحده لا يحذف الرمز
+    const removed = withQrRemoved(hidden, true);
+    assert.equal(isQrRemoved(layoutOf(removed)), true);
+    assert.equal(isQrRemoved(layoutOf(hidden)), false, 'إخفاء الحامل ليس حذفاً للرمز');
+    assert.equal(qrOrphanNote(removed), false);
+    assert.ok(!render(removed).includes('data-qr-orphan'));
+  }
+});
+
+test('كتلة «رمز QR» في أدوات الصفحة والنقطية (القياسي وثنائي اللغة) بحقل الحذف — والرول يحذفه من صفّ قسمه', () => {
+  for (const p of [page(), grid(), mip(), mipGrid(), pre()]) {
+    assert.equal(qrToolBlock(p), true, p.id);
+    const h = render(p);
+    const at = h.indexOf('data-tool-qr=""');
+    assert.ok(at > 0, `${p.id}: كتلة رمز QR`);
+    const block = h.slice(at, h.indexOf('data-tool-stamps', at));
+    assert.ok(block.includes(SECTION_LABELS.qr), `${p.id}: عنوانها`);
+    assert.ok(block.includes('data-qr-remove'), `${p.id}: QrRemoveField`);
+    // مع الحذف تبقى الكتلة (للإعادة) والتنبيه الأحمر الدائم فيها
+    const hr = render(withQrRemoved(p, true));
+    const br = hr.slice(hr.indexOf('data-tool-qr=""'));
+    assert.ok(br.includes('data-qr-remove') && br.includes(QR_REMOVE_WARNING), `${p.id}: تنبيه الحذف الدائم`);
+  }
+  for (const p of [van(), van58()]) {
+    assert.equal(qrToolBlock(p), false);
+    assert.ok(!render(p).includes('data-tool-qr'), 'الرول: رمزه صفّ قسمٍ عادي');
+  }
+  assert.equal(qrToolBlock(classic()), false);
+  assert.ok(!render(classic()).includes('data-qr-remove'), 'الكلاسيكي لا يُحرَّر');
+  // الكتلة تحت صفوف الأقسام في الأدوات، والحقل من SectionStyleFields (G3)
+  const src = read(...printDir, 'PrintDesignTools.tsx');
+  assert.ok(src.includes("import { NumInput, QrRemoveField, SectionStyleFields, StampsField, chipCls } from './designer/SectionStyleFields';"));
+  assert.ok(src.includes('<QrRemoveField p={p} update={update} />'));
+  assert.doesNotMatch(src, /LOCKED_VISIBLE/, 'لا استيراد للقفل الملغى');
+});
+
+test('«أختام الحالة» في أدوات كل طابعة قابلة للتحرير — وحذفها تغييرٌ يُخرج الأدوات من «كما اليوم»', () => {
+  for (const p of [page(), grid(), mip(), mipGrid(), pre(), van(), van58()]) {
+    const h = render(p);
+    assert.ok(h.includes('data-tool-stamps') && h.includes('data-stamps'), `${p.id}: StampsField`);
+    const off = withStampsRemoved(p, true);
+    assert.equal(off.options.layout?.stamps, false);
+    const ho = render(off);
+    assert.ok(!ho.includes('بلا تغيير هنا تبقى المطبوعة كما هي اليوم حرفيا'), `${p.id}: stamps يُعدّ تغييراً`);
+    assert.ok(ho.includes(STAMPS_REMOVE_WARNING), `${p.id}: تنبيه الأختام الدائم`);
+    valid(off);
+  }
+  for (const p of [page(), mip(), pre(), van(), van58()]) {
+    assert.ok(render(p).includes('بلا تغيير هنا تبقى المطبوعة كما هي اليوم حرفيا'), `${p.id}: بلا اختيار = اليوم`);
+  }
+  assert.ok(!render(classic()).includes('data-stamps'), 'الكلاسيكي لا يُحرَّر');
+  assert.ok(read(...printDir, 'PrintDesignTools.tsx').includes('<StampsField p={p} update={update} />'));
+});
+
+test('قائمة القوالب: شارة حمراء «بلا رمز QR» لقالبٍ حذف الرمز وعدّاد التنبيهات منه — وملاحظة اللوحة بالقاعدة الجديدة', () => {
+  // الشرط: حذفٌ صريح وحده — لا القالب الافتراضي ولا إخفاء القسم الحامل
+  for (const p of [page(), grid(), mip(), van(), van58()]) {
+    assert.equal(isQrRemoved(layoutOf(p)), false, p.id);
+    const r = withQrRemoved(p, true);
+    assert.equal(isQrRemoved(layoutOf(r)), true, p.id);
+    assert.ok(profileWarnings(r, { phase2: true }).warnings.includes(QR_REMOVE_WARNING), `${p.id}: عدّاد التنبيهات`);
+  }
+  assert.equal(isQrRemoved(layoutOf(withSectionStyle(page(), 'totals', { visible: false }))), false);
+  const s = read(...printDir, 'PrintSettingsPanel.tsx');
+  assert.ok(s.includes('{isQrRemoved(layoutOf(p)) && <span data-qr-removed=""'), 'الشارة بشرط الحذف الصريح');
+  assert.ok(s.includes('{tr(QR_REMOVED_BADGE)}</span>}'));
+  const row = s.slice(s.indexOf('{s.profiles.map((p, i) => {'), s.indexOf("{tr('تعديل')}"));
+  assert.ok(row.indexOf('data-qr-removed') > row.indexOf('{usage.map('), 'بجوار شارات الاستعمال');
+  assert.ok(row.includes('const w = profileWarnings(p, { phase2 }).warnings;') && row.includes('<AlertTriangle size={14}'), 'العدّاد من profileWarnings');
+  // ملاحظة «المحتوى»: الرمز يطبع ما لم تحذفه الشركة — لا «يطبع دائما»
+  assert.ok(s.includes('{tr(QR_PANEL_NOTE)}'));
+  assert.ok(!s.includes('رمز QR يطبع دائما'), 'النصّ القديم');
 });
 
 test('الكلاسيكي والافتراضي: بلا أدوات تحرير — والكلاسيكي يُعرَف لـ«تحرير الشريط الكلاسيكي»', () => {
@@ -201,9 +292,12 @@ test('الترجمة: كل tr(\'…\') في الأدوات واللوحة وال
   ];
   const ours = new Set<string>([
     ...Object.values(ALIGN_LABELS), ...Object.values(CANVAS_BOX_LABELS), ...Object.values(CANVAS_BAND_LABELS),
-    HIDE_MANDATORY_WARNING, LOCKED_VISIBLE_HINT, DESIGNER_DISCARD_CONFIRM, MONO_PREVIEW_HINT, CLASSIC_COPY_NAME,
+    HIDE_MANDATORY_WARNING, DESIGNER_DISCARD_CONFIRM, MONO_PREVIEW_HINT, CLASSIC_COPY_NAME,
+    // قرار المالك ٤ نوفمبر ٢٠٢٦: حذف رمز QR والأصناف والأختام — تنبيهاتها وشارتها وأفعالها وملاحظاتها
+    QR_REMOVE_WARNING, ITEMS_REMOVE_WARNING, STAMPS_REMOVE_WARNING, QR_REMOVED_BADGE, QR_REMOVE_ACTION, QR_RESTORE_ACTION, STAMPS_LABEL,
+    STAMPS_HINT, STAMPS_REMOVE_ACTION, STAMPS_RESTORE_ACTION, QR_FLOW_NOTE, QR_PANEL_NOTE, QR_ORPHAN_NOTE,
     PRINT_ISSUES.layoutLogoMm, PRINT_ISSUES.layoutLogoAfter, PRINT_ISSUES.layoutSectionUnknown, PRINT_ISSUES.layoutSectionBounds,
-    PRINT_ISSUES.layoutLockedVisible, PRINT_ISSUES.layoutCanvasPrinter, PRINT_ISSUES.layoutCanvasBands, PRINT_ISSUES.layoutCanvasBandsPaper, PRINT_ISSUES.layoutCanvasBox,
+    PRINT_ISSUES.layoutCanvasPrinter, PRINT_ISSUES.layoutCanvasBands, PRINT_ISSUES.layoutCanvasBandsPaper, PRINT_ISSUES.layoutCanvasBox,
     PRINT_ISSUES.layoutCanvasFooterOnly, PRINT_ISSUES.layoutCanvasQr, PRINT_ISSUES.layoutRoll, PRINT_ISSUES.tooLarge,
   ]);
   const want = new Set(ours);

@@ -9,8 +9,9 @@
 // الافتراضي). قاعدتان مختلفتان تعنيان إعداداً يقبله الخادم فيسقط في جوال المندوب صامتاً إلى 58 مم. ولذلك أيضاً: **تضييق
 // قاعدة هنا لاحقاً خطِر** (إعداد محفوظ يصير غير صالح فيرجع كل جهاز للافتراضي) — والتوسيع آمن. فالقواعد صارمة من الآن.
 //
-// ما لا يوجد عمداً (التصميم §1.6 و§4): لا خيار يخفي أو يصغّر العنوان أو رمز QR أو تفصيل الضريبة أو التنبيه أو العلامة المائية
-// أو اسم البائع ورقمه الضريبي أو رقم المشتري الضريبي أو ICV/UUID — قرار الطباعة (zatcaPrintDecision) يحكمها لا الشركة.
+// ما لا يوجد عمداً (التصميم §1.6 و§4): لا خيار يصغّر رمز QR عن حدّ القراءة، وقرار الطباعة (zatcaPrintDecision) يحكم المحتوى
+// الإلزامي. وقرار المالك ٤ نوفمبر ٢٠٢٦: كل شيء يُحذف بخيار الشركة الصريح وحده — رمز QR والأصناف (sections.*.visible = false)
+// وأختام الحالة (stamps = false) — مع تحذيرٍ قويّ؛ والغياب = مطبوعة اليوم حرفياً (isQrRemoved/isItemsRemoved/areStampsRemoved).
 // ولا «حروف في السطر» ولا وضع نصّي: المخرج صورة دائماً (العربية لا تُرسل نصّاً للطابعة؛ CP864 لا يُستعمل).
 //
 // نسخة حرفية في web-admin/src/lib/print/printSettingsCore.ts (بعد هذا الرأس) — عدّل هنا ثم انسخ؛ الحارس
@@ -97,10 +98,11 @@ export const GRAPHICS_QUALITIES = ['quality', 'draft'] as const;
 export type GraphicsQuality = (typeof GRAPHICS_QUALITIES)[number];
 
 // ─── التخطيط (طلب المالك ٣ نوفمبر ٢٠٢٦): مكان الشعار وحجمه، ولون التمييز، وشكل الجدول، وترتيب الأقسام، والتصميم ثنائي اللغة ───
-// اختياريٌّ في كل قالب (options.layout): غيابه = مطبوعة اليوم حرفياً، وليس في defaultPrintOptions عمداً. لا يُخفي شيئاً:
-// الترتيب تبديلٌ لأقسامٍ ثابتة (sectionsFor)، ورمز QR يُطبع على مستند المرحلة الثانية في كل ترتيب (داخل الإجماليات أو بيانات
-// المستند في الصفحة، وقسماً مستقلاً بعد الأصناف في الرول). والتصميم ثنائي اللغة ليس TemplateId: هاتفٌ قديم يُهمل المفتاح
-// المجهول فيطبع تصميم اليوم، بينما تصميمٌ مجهول في z.enum كان يُسقط إعداد الشركة كله إلى الافتراضي.
+// اختياريٌّ في كل قالب (options.layout): غيابه = مطبوعة اليوم حرفياً، وليس في defaultPrintOptions عمداً. الترتيب تبديلٌ
+// لأقسامٍ ثابتة (sectionsFor)، ورمز QR يُطبع على مستند المرحلة الثانية في كل ترتيب (داخل الإجماليات أو بيانات المستند في الصفحة،
+// وقسماً مستقلاً بعد الأصناف في الرول) ما لم تحذفه الشركة صراحةً (قرار المالك ٤ نوفمبر ٢٠٢٦: كل شيء يُحذف، isQrRemoved). والتصميم
+// ثنائي اللغة ليس TemplateId: هاتفٌ قديم يُهمل المفتاح المجهول فيطبع تصميم اليوم، بينما تصميمٌ مجهول في z.enum كان يُسقط إعداد
+// الشركة كله إلى الافتراضي.
 
 export const LAYOUT_DESIGNS = ['standard', 'grid_bilingual'] as const;
 /** standard = تصميم القالب اليوم · grid_bilingual = «كلاسيكي بإطارات — ثنائي اللغة» (للصفحة والنقطية وحدهما) */
@@ -122,8 +124,9 @@ export const ACCENT_RE = /^#[0-9A-Fa-f]{6}$/;
 // ─── التحرير الحرّ (طلب المالك ٣ نوفمبر ٢٠٢٦) — مفاتيح اختيارية: غيابها = مطبوعة اليوم حرفياً ───
 // أربعة مفاتيح في PrintLayout (logoMm، logoAfter، sections، canvas) لا تدخل defaultPrintLayout: نسخةٌ قديمة تُهملها في القراءة
 // المتسامحة فتطبع تخطيط المفاتيح الستة. الأبعاد بالملّيمتر على الورقة (بخطوة 0.5)، وx في المصمّم من الحافة اليسرى الفعلية
-// لصندوق المحتوى (الواجهة RTL تعكس الأدوات وحدها). رمز QR المرحلة الثانية لا يُحذف: لا يُخفى قسمه في الرول، ومربعه في
-// المصمّم لا يصغر عن حدّ القراءة، وإن غاب عن اللوحتين طُبع في مكانه من التدفّق.
+// لصندوق المحتوى (الواجهة RTL تعكس الأدوات وحدها). رمز QR المرحلة الثانية يُطبع ما لم تحذفه الشركة صراحةً بـsections.qr =
+// { visible: false } (قسمٌ حقيقي في الرول، وافتراضيٌّ في الصفحة والنقطية لا يقبل إلا visible)، ومربعه في المصمّم لا يصغر عن حدّ
+// القراءة، وإن غاب عن اللوحتين ولم يُحذف طُبع في مكانه من التدفّق. ومثله الأصناف (sections.items) وأختام الحالة (stamps: false).
 export const ALIGNS = ['start', 'center', 'end'] as const; // start = يمين الورقة (RTL)
 export type Align = (typeof ALIGNS)[number];
 export const CANVAS_BANDS = ['header', 'footer'] as const;
@@ -132,8 +135,8 @@ export const CANVAS_BOX_IDS = ['logo', 'company', 'title', 'docInfo', 'customer'
 export type CanvasBoxId = (typeof CANVAS_BOX_IDS)[number];
 /** بعد الأصناف دائماً — فلا تكون في رأس الورقة */
 export const CANVAS_FOOTER_ONLY: readonly CanvasBoxId[] = ['totals', 'signatures'];
-/** لا تُخفى: الأصناف، ورمز QR في الرول */
-export const LOCKED_VISIBLE: readonly SectionId[] = ['items', 'qr'];
+/** تُخفى بخيار الشركة الصريح وحده، مع تحذيرٍ قويّ: حذفها يجعل الفاتورة الضريبية غير مطابقة لمتطلبات الهيئة */
+export const COMPLIANCE_HIDE_SECTIONS: readonly SectionId[] = Object.freeze(['items', 'qr'] as SectionId[]);
 /** عرض صندوق المحتوى بالمم في قالب 794 بكسل: الصفحة (794−80)/MM_PX = 188.9، والنقطية 201.6 */
 export const CANVAS_CONTENT_MM = Object.freeze({ page: 188, impact: 201 });
 export const LAYOUT_BOUNDS = Object.freeze({
@@ -163,7 +166,7 @@ export function bandsTotalFor(paper: BandsPaper | null | undefined): number {
 }
 
 export interface SectionStyle {
-  visible?: boolean; // false = مخفي (ممنوع على LOCKED_VISIBLE)
+  visible?: boolean; // false = مخفي بخيار الشركة الصريح (الأصناف ورمز QR معه تحذير COMPLIANCE_HIDE_SECTIONS)؛ الغياب = اليوم
   align?: Align;
   fontPct?: number; // 70–160 عدد صحيح
   spaceBeforeMm?: number; // 0–30 بخطوة 0.5
@@ -189,7 +192,20 @@ export interface PrintLayout {
   sections?: Partial<Record<SectionId, SectionStyle>>;
   /** المصمّم الحر: لوحتا رأس الورقة وتذييلها — للصفحة والنقطية بالتصميم القياسي فقط */
   canvas?: PrintCanvas;
+  /**
+   * false = حذفت الشركة أختام الحالة (وسم نسخة المحاكاة، وإشعار سند التسليم والإلغاء، وختم السند الملغى) بخيارها الصريح؛
+   * الغياب أو true = اليوم. ليس في defaultPrintLayout عمداً
+   */
+  stamps?: boolean;
 }
+
+type HideLike = { sections?: Partial<Record<SectionId, { visible?: boolean } | undefined>>; stamps?: boolean } | null | undefined;
+/** حذفت الشركة رمز QR صراحةً (sections.qr.visible === false) — الطريق الوحيد لقراءة هذا الخيار */
+export function isQrRemoved(l: HideLike): boolean { return l?.sections?.qr?.visible === false; }
+/** حذفت الشركة جدول الأصناف صراحةً */
+export function isItemsRemoved(l: HideLike): boolean { return l?.sections?.items?.visible === false; }
+/** حذفت الشركة أختام الحالة صراحةً (stamps === false) */
+export function areStampsRemoved(l: HideLike): boolean { return l?.stamps === false; }
 
 /** تفاصيل الطباعة — لا مفتاح هنا يمسّ محتوى ZATCA الإلزامي (حارس المفاتيح المحظورة في اختبار الواجهة) */
 export interface PrintOptions {
@@ -438,6 +454,7 @@ function makePrintSettingsSchema(strict: boolean) {
     logoAfter: free(z.union([z.enum(SECTION_IDS), z.literal('top')])),
     sections: free(sections),
     canvas: free(canvas),
+    stamps: free(z.boolean()),
   }, strict);
   const options = objectOf({
     showLogo: z.boolean(),
@@ -535,7 +552,6 @@ export const PRINT_ISSUES = Object.freeze({
   layoutLogoAfter: 'مكان الشعار يجب أن يكون أعلى الورقة أو بعد قسمٍ من أقسام هذا القالب',
   layoutSectionUnknown: 'تنسيقٌ لقسمٍ ليس في هذا القالب',
   layoutSectionBounds: 'تنسيق القسم خارج الحدود: الخط من 70 إلى 160 بالمئة والمسافة من 0 إلى 30 ملم',
-  layoutLockedVisible: 'لا يمكن إخفاء الأصناف ولا رمز QR',
   layoutCanvasPrinter: 'التصميم الحر بالسحب للصفحة والنقطية بالتصميم القياسي فقط',
   layoutCanvasBands: 'ارتفاع رأس الورقة وتذييلها خارج الحدود (المجموع حتى 200 ملم)',
   layoutCanvasBandsPaper: 'رأس الورقة وتذييلها أطول مما يتسع له طول هذا الورق (يبقى 40 ملم على الأقل للأصناف)',
@@ -628,9 +644,12 @@ const inRangeL = (n: unknown, [lo, hi]: readonly [number, number]): boolean => t
 const EPS = 1e-9;
 
 /** عيبٌ في مفتاحٍ حرّ — key يحدّد ما يُسقطه الإصلاح المتسامح (والقسم المعيب وحده في sections) */
-interface FreeFault { key: 'logoMm' | 'logoAfter' | 'sections' | 'canvas'; section?: SectionId; locked?: boolean; path: string; message: string }
+interface FreeFault { key: 'logoMm' | 'logoAfter' | 'sections' | 'canvas'; section?: SectionId; path: string; message: string }
 
-/** قواعد المفاتيح الحرّة الأربعة — فارغة بلا أيٍّ منها */
+/**
+ * قواعد المفاتيح الحرّة — فارغة بلا أيٍّ منها. لا قسم مقفلاً (قرار المالك ٤ نوفمبر ٢٠٢٦): إخفاء الأصناف ورمز QR خيار الشركة
+ * الصريح. ورمز QR في الصفحة والنقطية قسمٌ افتراضي ليس في sectionsFor: يُقبل تنسيقه بمفتاح visible وحده (الحذف)، وغيره «ليس في القالب».
+ */
 function freeLayoutFaults(p: PrintProfile): FreeFault[] {
   const l = p.options.layout;
   if (!l) return [];
@@ -643,11 +662,14 @@ function freeLayoutFaults(p: PrintProfile): FreeFault[] {
     for (const [k, s] of Object.entries(l.sections) as Array<[SectionId, SectionStyle | undefined]>) {
       if (s === undefined) continue;
       const at = `sections.${k}`;
-      if (!def.includes(k)) { out.push({ key: 'sections', section: k, path: at, message: PRINT_ISSUES.layoutSectionUnknown }); continue; }
+      if (!def.includes(k)) {
+        if (k === 'qr' && Object.keys(s).every((key) => key === 'visible')) continue;
+        out.push({ key: 'sections', section: k, path: at, message: PRINT_ISSUES.layoutSectionUnknown });
+        continue;
+      }
       if ((s.fontPct !== undefined && !inRangeL(s.fontPct, B.fontPct))
         || (s.spaceBeforeMm !== undefined && !inRangeL(s.spaceBeforeMm, B.spaceMm))
         || (s.spaceAfterMm !== undefined && !inRangeL(s.spaceAfterMm, B.spaceMm))) out.push({ key: 'sections', section: k, path: at, message: PRINT_ISSUES.layoutSectionBounds });
-      if (s.visible === false && LOCKED_VISIBLE.includes(k)) out.push({ key: 'sections', section: k, locked: true, path: `${at}.visible`, message: PRINT_ISSUES.layoutLockedVisible });
     }
   }
   const c = l.canvas;
@@ -680,7 +702,8 @@ function freeLayoutFaults(p: PrintProfile): FreeFault[] {
 /**
  * القراءة المتسامحة على الورق القصير: لوحتان في حدودهما الثابتة لكن أطول مما يتّسع له الورق (bandsTotalFor) تُقصّان — التذييل
  * أولاً ثم الرأس كما يرسم resolveCanvas — ومربعاتهما تُرفع وتُقصّ داخلهما، والمربع الذي لا تتّسع له لوحته يعود إلى مكانه من
- * التدفّق (ورمز QR يُطبع هناك). فلا يسقط التصميم بخطأ الورق وحده؛ وغيره (أو ما في حدّ ورقه) يعود كما هو — الكائن نفسه.
+ * التدفّق (ورمز QR يُطبع هناك ما لم تحذفه الشركة صراحةً، isQrRemoved — وحذفه لا يغيّر السقف ولا حدّ 47). فلا يسقط التصميم بخطأ
+ * الورق وحده؛ وغيره (أو ما في حدّ ورقه) يعود كما هو — الكائن نفسه.
  */
 function fitCanvasToPaper(c: PrintCanvas, paper: Paper): PrintCanvas {
   const B = LAYOUT_BOUNDS;
@@ -735,19 +758,13 @@ function repairLayout(p: PrintProfile): PrintProfile {
   const layout: PrintLayout = { ...l, order: normalizeSectionOrder(l.order, p.printer, l.design) };
   // لوحتان أطول مما يتّسع له الورق القصير تُقصّان لا تسقطان (fitCanvasToPaper)
   if (layout.canvas !== undefined) layout.canvas = fitCanvasToPaper(layout.canvas, p.paper);
-  // المفاتيح الحرّة أولاً: كل مفتاحٍ معيب يسقط وحده (والقسم المعيب وحده، وإخفاء الأصناف أو QR يُمحى بصمت) — ثم قواعد اليوم
+  // المفاتيح الحرّة أولاً: كل مفتاحٍ معيب يسقط وحده (والقسم المعيب وحده؛ وإخفاء الأصناف أو QR الصريح يبقى) — ثم قواعد اليوم
   const faults = freeLayoutFaults({ ...p, options: { ...p.options, layout } });
   if (faults.length) {
     const sections: Partial<Record<SectionId, SectionStyle>> = { ...(layout.sections ?? {}) };
     for (const f of faults) {
       if (f.key !== 'sections') { delete layout[f.key]; continue; }
-      const id = f.section as SectionId;
-      if (f.locked && sections[id]) {
-        const rest: SectionStyle = { ...sections[id] };
-        delete rest.visible;
-        if (Object.keys(rest).length) sections[id] = rest;
-        else delete sections[id];
-      } else if (!f.locked) delete sections[id];
+      delete sections[f.section as SectionId];
     }
     if (layout.sections !== undefined) {
       if (Object.keys(sections).length) layout.sections = sections;
@@ -950,6 +967,7 @@ export function canonicalPrintSettings(s: PrintSettingsV1): PrintSettingsV1 {
         if (sections) layout.sections = sections;
       }
       if (l.canvas !== undefined) layout.canvas = canonicalCanvas(l.canvas);
+      if (l.stamps !== undefined) layout.stamps = l.stamps;
       options.layout = layout;
     }
     return { id: p.id, name: oneLine(p.name), printer: p.printer, template: p.template, paper, options };

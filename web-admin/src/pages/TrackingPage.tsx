@@ -472,7 +472,7 @@ export default function TrackingPage() {
                       </div>
                     )}
                     <p className="text-[10px] text-[#B3A996] leading-snug">
-                      {tr('المرجح هو أرجح طريق بين نقطتين متباعدتين التطبيق لا يلتقط الموقع وهو مغلق ليس أثرا مرصودا')}
+                      {tr('المرجح هو أرجح طريق بين نقطتين متباعدتين لم يصل بينهما موقع ليس أثرا مرصودا')}
                     </p>
                     {shape.degraded && (
                       <p className="text-[10px] text-red-600 leading-snug">

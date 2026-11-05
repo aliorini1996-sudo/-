@@ -19,7 +19,8 @@ import { receiptInvoicesFrom, receiptLinkView, type ReceiptInvoiceLink } from '.
 import { backdropClose } from '../lib/backdropClose';
 import { useBackClose } from '../lib/useBackClose';
 import {
-  LEGACY_THERMAL_ID, PRINT_NOTES, deviceProfilesFor, deviceRollProfile, pdfProfileOf, printKindOf, profileDisplayName, profileFor, readPrintSettings,
+  LEGACY_THERMAL_ID, PRINT_NOTES, areStampsRemoved, deviceProfilesFor, deviceRollProfile, isQrRemoved, pdfProfileOf, printKindOf, profileDisplayName, profileFor,
+  readPrintSettings,
 } from '../lib/print/printSettings';
 import { PRINT_LOOK_CSS, PrintLookContext, logoImgStyle, lookFor, lookHasCanvas, lookNeedsCss, lookRootAttrs, qrSlotStyle, usePrintLook, type PrintLook } from './printLook';
 import { PRINT_TEXT_LINE, makePrintTexts, normalizePrintTexts, titleKeyOf, type PrintLineScope, type PrintTexts } from '../lib/print/printTexts';
@@ -592,7 +593,7 @@ interface FreeDocParts {
   section(id: SectionId, f: Fx, placed: ReadonlySet<CanvasBoxId>, plan: LogoPlan | null): React.ReactNode;
   /** كتلة مربعٍ في لوحة (عدا الشعار: يبنيه freeBody) */
   block(id: CanvasBoxId, f: Fx, box: CanvasBoxR): React.ReactNode;
-  /** كتلة الرمز (الفاتورة) — تُطبع وحدها بعد الأصناف إن أُخفي القسم الحامل لها ولم توضع في لوحة. السند: null */
+  /** كتلة الرمز (الفاتورة) — تُطبع وحدها بعد الأصناف إن أُخفي القسم الحامل لها ولم توضع في لوحة. السند والرمز المحذوف صراحةً: null */
   qr: React.ReactNode | null;
   /**
    * أشرطة حالة المستند (وسم البروفة، إشعار سند التسليم/الإبطال، ختم «سند ملغى») متى نُقل مضيفها إلى مربع لوحة (overflow:hidden يقصّها)
@@ -659,7 +660,7 @@ function freeBody(layout: ResolvedLayout | null, look: PrintLook, dctx: PrintDes
       if (isNode(banner)) flow.push(<Fragment key="banner">{banner}</Fragment>);
     }
     if (id === 'items' && orphan) {
-      // QR المرحلة الثانية لا يُحذف: القسم الحامل له مخفيّ ولم يوضع في لوحة ⇒ كتلته وحدها بعد الأصناف
+      // QR المرحلة الثانية لا يُحذف بإخفاء حامله: القسم الحامل مخفيّ ولم يوضع في لوحة ⇒ كتلته وحدها بعد الأصناف (حذفه الصريح: parts.qr = null)
       flow.push(<div key="qr-orphan" data-section="qr" style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 20 }}>{parts.qr}</div>);
     }
     if (logoAt === id) flow.push(planLogo(`logo-${id}`, id === 'footer' ? 'bottom' : 'mid'));
@@ -899,9 +900,14 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
   /* «كلاسيكي بإطارات — ثنائي اللغة» (rep/printGrid.tsx): القرار والعنوان والنسبة والشمول والمرجع محسوبةٌ هنا مرّةً واحدة، والرمز
    * كتلةُ اليوم نفسها (InvoiceQrBlock) — فلا عنوان ولا رمز ولا ضريبة من صنع القالب الجديد. */
   const qrNode = <InvoiceQrBlock doc={doc} zDecision={zDecision} qrValue={qrValue} look={look} pt={pt} />;
+  /* «احذف كل شيء حتى QR» (قرار المالك ٤ نوفمبر ٢٠٢٦): البوابة الوحيدة للرمز — حذفته الشركة صراحةً (isQrRemoved) ⇒ لا كتلة كلّها
+   * (المختوم والحكومي والمرحلة الأولى والسبب والتلميح والتعليق وICV/UUID) في الإجماليات ولا يتيمةً ولا في الثنائي. وإلا كاليوم. */
+  const qrShown = isQrRemoved(layout) ? null : qrNode;
+  // أختام الحالة (وسم البروفة وإشعار سند التسليم/الإبطال): تُحذف بقرار الشركة وحده (stamps:false) — وقرار الطباعة canPrint لا يتغيّر
+  const stampsOff = areStampsRemoved(layout);
   if (layout?.design === 'grid_bilingual') {
     return (
-      <GridInvoice ref={ref} doc={doc} facts={{ pt, zDecision, title: docTitle, inclusiveDoc, vatRate, noteRefs }} look={look} layout={layout} qr={qrNode} />
+      <GridInvoice ref={ref} doc={doc} facts={{ pt, zDecision, title: docTitle, inclusiveDoc, vatRate, noteRefs }} look={look} layout={layout} qr={qrShown} />
     );
   }
 
@@ -927,7 +933,7 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
   const thf = (f: Fx): React.CSSProperties => ({ ...th, fontSize: f(13) });
   const tdf = (f: Fx): React.CSSProperties => ({ ...td, fontSize: f(13) });
 
-  const titleExtras = (f: Fx) => (
+  const titleExtras = (f: Fx) => stampsOff ? null : (
     <>
       {/* المرحلة الثانية: بيئة المحاكاة تُوسَم على الورقة نفسها — ورقة بروفة لا تُقرأ فاتورةً حقيقية */}
       {zDecision.watermark && (
@@ -1064,9 +1070,9 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
     </div>
   );
   const totalsPart = (f: Fx, o?: { omitQr?: boolean; omitRows?: boolean }) => (
-    <div style={{ display: 'flex', justifyContent: o?.omitQr ? 'flex-end' : 'space-between', alignItems: 'flex-end', gap: 20 }}>
+    <div style={{ display: 'flex', justifyContent: o?.omitQr || !qrShown ? 'flex-end' : 'space-between', alignItems: 'flex-end', gap: 20 }}>
       {/* رمز QR / معرّف الاعتماد للفاتورة الإلكترونية */}
-      {!o?.omitQr && qrNode}
+      {!o?.omitQr && qrShown}
 
       {!o?.omitRows && totalsRows(f)}
     </div>
@@ -1145,7 +1151,7 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
   const body = freeBody(layout, look, dctx, {
     company: doc.company,
     headerStyle,
-    qr: qrNode,
+    qr: qrShown,
     banner: (placed, visible) => (placed.has('title') || !visible.has('header') ? titleExtras(IDENT) : null),
     section: (id, f, placed, plan) => {
       switch (id) {
@@ -1153,7 +1159,8 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
         case 'info': return placed.has('docInfo') && placed.has('customer') ? null : infoPart(f, { omitDoc: placed.has('docInfo'), omitCust: placed.has('customer') });
         case 'items': return itemsPart(f);
         case 'note': return notePart(f);
-        case 'totals': return placed.has('qr') && placed.has('totals') ? null : totalsPart(f, { omitQr: placed.has('qr'), omitRows: placed.has('totals') });
+        // الإجماليات تسقط من السريان متى لم يبقَ فيها شيء: صفوفها في لوحة، والرمز في لوحة أو محذوفٌ صراحةً (لا قسمٌ فارغ بمسافتيه)
+        case 'totals': return (placed.has('qr') || !qrShown) && placed.has('totals') ? null : totalsPart(f, { omitQr: placed.has('qr'), omitRows: placed.has('totals') });
         case 'installments': return installmentsPart(f);
         case 'signatures': return placed.has('signatures') ? null : signaturesPart(f);
         case 'footer': return placed.has('footer') ? null : footerPart(f);
@@ -1309,6 +1316,8 @@ export const PrintableReceipt = forwardRef<HTMLDivElement, { doc: ReceiptDoc }>(
   const tr = pt.tr;
   const L = labeler(pt);
   const receiptTitle = pt.hidden('rcp.title') ? '' : titleNode(pt, 'rcp.title', { text: pt.text('rcp.title', 'سند قبض'), alt: pt.alt('rcp.title', 'سند قبض') });
+  // ختم «سند ملغى»: يُحذف بقرار الشركة وحده (stamps:false) — في مكانه وفي شريطه المعاد حين يُخفى مضيفه
+  const cancelStamp = doc.cancelled && !areStampsRemoved(layout);
   if (layout?.design === 'grid_bilingual') {
     const title = pt.hidden('rcp.title') ? { text: '', alt: null } : { text: pt.text('rcp.title', 'سند قبض'), alt: pt.alt('rcp.title', 'سند قبض') };
     return <GridReceipt ref={ref} doc={doc} pt={pt} title={title} look={look} layout={layout} />;
@@ -1327,7 +1336,7 @@ export const PrintableReceipt = forwardRef<HTMLDivElement, { doc: ReceiptDoc }>(
         {look.showRepName && !pt.hidden('rcp.rep') && <InfoBox label={L('rcp.rep', 'المندوب')} value={doc.repName} />}
       </div>
 
-      {doc.cancelled && !noStamp && (
+      {cancelStamp && !noStamp && (
         <div style={{ background: '#fef2f2', border: '2px solid #dc2626', borderRadius: 10, padding: 10, textAlign: 'center', marginBottom: 16, color: '#b91c1c', fontWeight: 700, fontSize: f(18) }}>
           {tr('سند ملغى')}
         </div>
@@ -1398,7 +1407,7 @@ export const PrintableReceipt = forwardRef<HTMLDivElement, { doc: ReceiptDoc }>(
     company: doc.company,
     headerStyle,
     qr: null,
-    banner: (placed, visible) => (doc.cancelled && (placed.has('docInfo') || !visible.has('info'))
+    banner: (placed, visible) => (cancelStamp && (placed.has('docInfo') || !visible.has('info'))
       ? <div style={{ background: '#fef2f2', border: '2px solid #dc2626', borderRadius: 10, padding: 10, textAlign: 'center', marginBottom: 16, color: '#b91c1c', fontWeight: 700, fontSize: 18 }}>{tr('سند ملغى')}</div>
       : null),
     section: (id, f, placed, plan) => {

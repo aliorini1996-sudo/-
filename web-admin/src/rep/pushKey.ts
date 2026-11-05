@@ -1,3 +1,5 @@
+import { iosPushAvailable, iosPushClearAll } from './iosPush';
+
 /** مفتاح الإشعارات العامّ (base64url، ٦٥ بايتاً غير مضغوط) ⇒ بايتات applicationServerKey — صرفٌ يُختبر وحده */
 export function urlB64ToBytes(b64: string): Uint8Array {
   const pad = '='.repeat((4 - (b64.length % 4)) % 4);
@@ -25,6 +27,7 @@ export async function localPushSubscription(): Promise<PushSubscription | null> 
 /** يلغي اشتراك الجهاز محلياً بلا شبكة وبمهلة — الخروج القسري ودخول حسابٍ آخر: لا تصل الجهازَ تنبيهاتُ حسابٍ غادره */
 export async function unsubscribeLocalPush(timeoutMs = 2000): Promise<void> {
   const work = (async () => {
+    if (iosPushAvailable()) await iosPushClearAll(); // تطبيق الآيفون: درج إشعاراته عنده لا عند عامل الخدمة
     const sub = await localPushSubscription();
     if (sub) await sub.unsubscribe();
     try { localStorage.removeItem(PUSH_OWNER_KEY); } catch { /* تخزينٌ محجوب */ }
