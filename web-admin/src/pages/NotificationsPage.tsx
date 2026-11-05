@@ -29,6 +29,8 @@ const typeLabels: Record<string, string> = {
   // — ميدانيّان لا محاسبيّان، فلا يدخلان ACCOUNTING_TYPES
   REPLAY_UNITS_REBASED: 'إعادة رفع بعد تحويل وحدات',
   LOT_REPLAY_HELD: 'بانتظار تحميل ناقص',
+  // D5: فاتورة مندوبٍ دون اتصال تتجاوز مخزون سيارته — محجوزة في جهازه حتى تُسجَّل الحركة الناقصة
+  VAN_STOCK_REPLAY_HELD: 'بانتظار تحميل ناقص',
 };
 
 const typeColors: Record<string, string> = {
@@ -37,6 +39,7 @@ const typeColors: Record<string, string> = {
   OVERDUE_PAYMENT: 'bg-yellow-100 text-yellow-700',
   REPLAY_UNITS_REBASED: 'bg-amber-100 text-amber-800',
   LOT_REPLAY_HELD: 'bg-amber-100 text-amber-800',
+  VAN_STOCK_REPLAY_HELD: 'bg-amber-100 text-amber-800',
 };
 
 interface Notification {

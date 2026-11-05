@@ -15,7 +15,13 @@ import { tenantTz } from '../services/invoiceExpiry';
 import { paymentMethodsRange } from '../services/paymentMethodsReport';
 // الوحدات المتعددة: كل رصيدٍ ومقارنة بالأساس (baseQtyOf)، وكل بندٍ يُكتب بلقطة وحدته (unitFields)
 import { baseQtyOf, primaryUnitOf, productQtyText, toBase, unitFields } from '../services/units';
-import { resolveLineUnits, unitsByProduct, UnitInvalidError, UNIT_SELECT } from '../services/warehouseStock';
+import {
+  resolveLineUnits, unitsByProduct, UnitInvalidError, UNIT_SELECT, lineProductRefusal, assertWarehouseCovers, WarehouseInsufficientError, vanKeyOf,
+} from '../services/warehouseStock';
+// مفتاح منع التكرار لحركات السيارة (D8): بلا قيدٍ فريد — قفلٌ استشاري على المرجع ثم البحث به داخل المعاملة
+import { CLIENT_REF_SCHEMA, ClientRefReplay, clientRefQuery, lockClientRef } from '../services/stockClientRef';
+// حدود أيام ملخّص السيارات بتوقيت الشركة كسجلّ التحميلات (#14)
+import { addDays, isLocalDate, zonedStartOfDay } from '../services/gl/dates';
 // ملخّص المناديب بالوحدة الكبرى لكل صنف (عرضٌ فقط — المجاميع بالأساس كما هي)
 import { repStockMajor } from '../services/majorUnitTotals';
 // «الوحدة الرئيسية» §3 (#2 و#4): كل حركة تُقارن الأساس الذي يعرفه العميل حيّاً، ثم الأساس الذي حُلّت عليه تحت قفل الأصناف
@@ -48,6 +54,8 @@ const loadSchema = z.object({
   note: z.string().optional(),
   // «تتبّع اللوط» D30: تنزيلٌ إداري من سيارة مندوبٍ محذوف (UNLOAD وحده، لأصنافٍ متتبَّعة بلوطاتٍ صريحة) — مكان salesRepId
   deletedSalesRepId: z.string().optional(),
+  // مفتاح منع التكرار (D8): واحدٌ لكل محاولة حفظ يُعاد مع إعادتها — المكرَّر يردّ الحركة القائمة 200 بلا كتابة. غائبٌ ⇒ كما كان
+  clientRef: CLIENT_REF_SCHEMA.optional(),
   items: z.array(z.object({
     productId: z.string(),
     qty: z.number(), // موجب للتحميل/الإرجاع للمستودع؛ قد تكون سالبة لـADJUST — بوحدة البند
@@ -150,6 +158,9 @@ interface StockRow {
   productId: string; name: string; code: string; unit: string;
   /** «الوحدة الرئيسية» (القاعدة ١٢): عرضٌ فقط — الرصيد يبقى بالأساس */
   primaryUnitId: string | null;
+  /** حالة الصنف كما خُزّنت (ACTIVE | INACTIVE) وأرشفته (deletedAt) — عرضٌ فقط (S1): وسم «موقوف/محذوف» على صفّ السيارة */
+  status?: string;
+  archived?: boolean;
   loaded: number; unloaded: number; adjusted: number; sold: number; returned: number; remaining: number;
   /** رصيد «منتهي الصلاحية» في السيارة: مرتجعٌ عاد بعد انتهاء صلاحيته — لا يُباع ولا يدخل `remaining`، ويبقى حتى تزيله الإدارة */
   expired: number;
@@ -166,7 +177,14 @@ interface StockRow {
  * لولا هذا الفصل لظهر مندوبٌ حُمِّل الشهر الماضي وباع هذا الشهر برصيد **سالب**.
  * وحين لا تُمرَّر نافذة يبقى السلوك كما كان حرفياً (كل المستدعين الآخرين).
  */
-export interface StockRange { from?: string; to?: string }
+export interface StockRange {
+  from?: string; to?: string;
+  /**
+   * حدّا المدّة لحظاتٍ بتوقيت الشركة (#14، ملخّص المناديب): `fromAt` بداية يوم from، و`toBefore` بداية اليوم التالي لـto (حصرية).
+   * يغلبان النصّين حين يُمرَّران؛ وبدونهما السلوك القائم حرفياً (منتصف ليل UTC ونهاية اليوم بساعة الخادم)
+   */
+  fromAt?: Date; toBefore?: Date;
+}
 
 export interface StockBucket {
   loaded: number; unloaded: number; adjusted: number; sold: number; returned: number;
@@ -249,8 +267,10 @@ export const bucketRemaining = (b: StockBucket) => roundDecimal(b.loaded - b.unl
 
 // يحسب مخزون سيارة مندوب لكل منتج: المتبقي = المحمّل − المنزَّل + التسوية − المُباع + المُرتجع
 export async function computeStock(tid: string, salesRepId: string, range?: StockRange): Promise<StockRow[]> {
-  const from = range?.from ? new Date(range.from) : undefined;
-  const to = rangeEnd(range?.to);
+  const from = range?.fromAt ?? (range?.from ? new Date(range.from) : undefined);
+  // نهاية المدّة: لحظةٌ حصرية بتوقيت الشركة إن مُرِّرت (#14)، وإلا نهاية اليوم كما كانت
+  const to = range?.toBefore ? undefined : rangeEnd(range?.to);
+  const toWhere = range?.toBefore ? { lt: range.toBefore } : to ? { lte: to } : undefined;
   // الاستعلام محدود بـ`to` وحده — فكل ما يعود يدخل الرصيد، والنافذة تُرشَّح في الذاكرة
   // بـ`from`. استعلامٌ واحد لكل مصدر لا اثنان، والمسار يمرّ على كل مندوب في حلقة.
   const inWindow = (d: Date) => !from || d >= from;
@@ -258,17 +278,18 @@ export async function computeStock(tid: string, salesRepId: string, range?: Stoc
   // لقطة وحدة كل صفّ (unitFactor/baseQty) — foldStock يطوي بالأساس منها لا من `qty` الخام
   const [loadItems, invItems, products] = await Promise.all([
     prisma.vanLoadItem.findMany({
-      where: { vanLoad: { tenantId: tid, salesRepId, ...(to && { createdAt: { lte: to } }) } },
+      where: { vanLoad: { tenantId: tid, salesRepId, ...(toWhere && { createdAt: toWhere }) } },
       select: { productId: true, qty: true, unitFactor: true, baseQty: true, vanLoad: { select: { type: true, createdAt: true } } },
     }),
     prisma.invoiceItem.findMany({
-      where: { invoice: { tenantId: tid, salesRepId, status: 'CONFIRMED', ...(to && { invoiceDate: { lte: to } }) } },
+      where: { invoice: { tenantId: tid, salesRepId, status: 'CONFIRMED', ...(toWhere && { invoiceDate: toWhere }) } },
       select: {
         productId: true, qty: true, unitFactor: true, baseQty: true, returnExpired: true,
         invoice: { select: { type: true, returnToStock: true, invoiceDate: true, returnReason: true, createdAt: true } },
       },
     }),
-    prisma.product.findMany({ where: { tenantId: tid }, select: { id: true, name: true, unit: true, code: true, primaryUnitId: true } }),
+    // والحالة والأرشفة (S1) في القراءة نفسها: وسم «موقوف/محذوف» على صفّ السيارة بلا استعلام زائد
+    prisma.product.findMany({ where: { tenantId: tid }, select: { id: true, name: true, unit: true, code: true, primaryUnitId: true, status: true, deletedAt: true } }),
   ]);
 
   const { acc, bal } = foldStock(loadItems, invItems, from);
@@ -285,7 +306,11 @@ export async function computeStock(tid: string, salesRepId: string, range?: Stoc
     const remaining = bucketRemaining(b);
     const expired = roundDecimal(b.expiredIn - b.expiredOut, 4);
     const damaged = roundDecimal(b.damagedIn - b.damagedOut, 4);
-    rows.push({ productId: pid, name: p.name, code: p.code, unit: p.unit, primaryUnitId: p.primaryUnitId ?? null, ...m, remaining, expired, damaged });
+    rows.push({
+      productId: pid, name: p.name, code: p.code, unit: p.unit, primaryUnitId: p.primaryUnitId ?? null,
+      ...(p.status != null && { status: p.status }), ...(p.deletedAt !== undefined && { archived: p.deletedAt != null }),
+      ...m, remaining, expired, damaged,
+    });
   }
   rows.sort((a, b) => b.remaining - a.remaining);
   return rows;
@@ -316,6 +341,29 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     const loadLocationId = data.type === 'LOAD' ? repStampLocation(rep) : null;
     const lotsOn = gone !== null || rep?.tenant?.lotTrackingEnabled === true;
 
+    // D8: مرجعٌ سبق حفظه ⇒ الحركة القائمة 200 بشكل ردّ الإنشاء (و replay: true) بلا أي كتابة ولا حكمٍ جديد على أصنافها — بعد النطاق
+    // (السيارة في نطاق المستخدم، وحركة المرجع لها نفسها) لا قبله. ومرجعٌ لحركةٍ أخرى (سيارة أو نوع آخر) ⇒ 409 CLIENT_REF_REUSED.
+    // والطلبان المتزامنان بالمرجع نفسه يحسمهما القفل في المعاملة (refGate)
+    const clientRef = data.clientRef ?? null;
+    const priorInclude = { items: { include: { product: { select: { id: true, name: true, unit: true, primaryUnitId: true } }, ...(lotsOn && { lots: ITEM_LOTS_INCLUDE }) } } };
+    const priorOf = async (db: Prisma.TransactionClient | typeof prisma) => {
+      if (!clientRef) return null;
+      const prior = await db.vanLoad.findFirst({ where: { tenantId: tid, clientRef }, orderBy: { createdAt: 'asc' }, include: priorInclude });
+      if (prior && (vanKeyOf(prior) !== salesRepId || prior.type !== data.type)) {
+        throw Object.assign(new Error('مرجع الحفظ clientRef مستعملٌ لحركةٍ أخرى — ولّد مرجعاً جديداً لكل حفظ'), { status: 409, code: 'CLIENT_REF_REUSED' });
+      }
+      return prior;
+    };
+    const prior0 = await priorOf(prisma);
+    if (prior0) { res.status(200).json({ success: true, data: prior0, replay: true, idempotent: true }); return; }
+    /** أول ما في كل معاملة كتابة: قفل المرجع ثم البحث به — وُجد ⇒ تُجهَض المعاملة بلا كتابة ويُردّ القائم (ClientRefReplay) */
+    const refGate = async (tx: Prisma.TransactionClient) => {
+      if (!clientRef) return;
+      await lockClientRef(tx, 'van-load', tid, clientRef);
+      const prior = await priorOf(tx);
+      if (prior) throw new ClientRefReplay(prior);
+    };
+
     // البنود غير الصفرية وكلٌّ بموضعه `at` في طلب العميل: به تُعرَّف أسطر خطة اللوط، فيشير تحذيرها وخطؤها ({idx}، §٢.٦) إلى
     // السطر الذي أرسله لا إلى موضعه بعد ترشيح الأصفار. وما سواها (units وترتيب البنود) بموضع البند في `items` كما كان
     const items = data.items.map((i, at) => ({ ...i, at })).filter(i => i.qty !== 0);
@@ -324,14 +372,19 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     // الأصناف نفسها بدل العدّ (استعلامٌ واحد كما كان): «الوحدة الرئيسية» §3 تحتاج أساسها وتاريخ تحويلها ووحداتها في الميزتين،
     // و«تتبّع اللوط» علمها واسمها وصلاحيتها (lotProducts) والميزة مفعّلة وحدها. تُقرأ **قبل** حلّ وحدات البنود: فتحويلٌ يلتزم بين
     // القراءتين يجعل الأساس المتوقَّع أقدم من الوحدات المحلولة فيرفضه القفل (409)؛ ولو قُرئت بعدها لرأت الأساس الجديد ومرّ القفل
-    // ببندٍ حُلّ معامله على الأساس القديم (طبلية ×50 كرتوناً تُكتب ×50 قارورة). ردود الرفض بترتيبها القائم (الصنف غير الصالح أدناه)
+    // ببندٍ حُلّ معامله على الأساس القديم (طبلية ×50 كرتوناً تُكتب ×50 قارورة). ومعها الأرشفة (deletedAt) لرفض تحميل المؤرشف (مراجعة المخزون H2)
     const products = await prisma.product.findMany({
       where: { id: { in: productIds }, tenantId: tid },
       select: {
         id: true, name: true, unit: true, primaryUnitId: true, baseConvertedAt: true, units: { select: UNIT_SELECT },
-        lotTracked: true, shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true,
+        lotTracked: true, shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true, deletedAt: true,
       },
     });
+    // #23: وجود الأصناف **قبل** حلّ وحداتها — صنفٌ محذوف بسطرٍ يحمل unitId كان يُردّ UNIT_INVALID «حدّث قائمة الأصناف» فيعيد المُكامِل
+    // سحب أصنافه بلا فائدة: الآن 400 PRODUCT_NOT_FOUND بموضع السطر (i.at). وH2 (مراجعة المخزون): **التحميل** لصنفٍ مؤرشف ⇒ 422 PRODUCT_ARCHIVED؛
+    // والتنزيل والتسوية والإزالة تمرّ عليه (طريق تصفية رصيده). الموقوف غير المؤرشف كما كان
+    const refused = lineProductRefusal(items, products, { rejectArchived: data.type === 'LOAD' ? 'LOAD' : null });
+    if (refused) { res.status(refused.status).json(refused.body); return; }
     // لقطة وحدة كل بند بترتيب `items` — يحلّها الخادم من وحدات الصنف (بلا unitId ⇒ الأساس، ولا استعلام)
     const units = await resolveLineUnits(tid, items, { replay: String(req.headers['x-fs-replay'] || '') === '1' });
 
@@ -359,7 +412,6 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
       }
     };
 
-    if (products.length !== productIds.length) { res.status(400).json({ success: false, message: 'منتج غير صالح' }); return; }
     const lotProducts = lotsOn ? products : null;
     const productById = new Map(products.map(p => [p.id, p]));
     // «الوحدة الرئيسية» §3: الأساس الذي حُلّت عليه البنود. مفتاح API على صنفٍ حُوِّل بلا baseUnitName ⇒ 400 (D19)، ثم المقارنة
@@ -385,6 +437,19 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
       const stray = items.find(i => !preTracked.has(i.productId) && vanLineCarriesLot(i));
       if (stray) throw lotOnUntrackedError(lotProducts.find(p => p.id === stray.productId)?.name ?? '', stray.productId, stray.at);
     }
+    // مراجعة المخزون S5 وقرار المالك D2 («التحميل فوق رصيد المستودع يمنع»): المستودع مفعّل ⇒ تحميلٌ يتجاوز رصيد صنفٍ في المستودع
+    // (بالأساس، وأسطر الصنف الواحد مجموعة) 422 WAREHOUSE_INSUFFICIENT بلا كتابة — لكل مُصدِر. الحكم داخل المعاملة بعد أقفال الأصناف
+    // وتحت قفل المستودع للشركة (whGate)، فلا يمرّ تحميلان متزامنان فوق الرصيد. التنزيل والتسوية والإزالة والشركة بلا مستودع كما كانت
+    const whGuard = data.type === 'LOAD' && !gone && rep?.tenant?.warehouseEnabled === true;
+    const whLines = whGuard ? items.map((i, n) => ({ productId: i.productId, baseQty: unitFields(i.qty, units[n]).baseQty, at: i.at })) : [];
+    const whGate = async (tx: Prisma.TransactionClient) => { if (whGuard) await assertWarehouseCovers(tx, tid, whLines, productById); };
+    // D10: حركةٌ تُنقص المتاح في سيارة مندوبٍ قائم (تنزيلٌ موجب، أو تحميلٌ/تسويةٌ بسطرٍ سالب) تأخذ قفل `van-sellable:` نفسه
+    // (services/repSaleStock VAN_SELLABLE_LOCK_PREFIX) بعد أقفال الأصناف — فتتسلسل مع حارس إلغاء المرتجع والبيع فلا يقرآن رصيداً
+    // تُنقصه هي في اللحظة نفسها. الترتيب الكلّي في VAN_LOCK_ORDER. وإزالة المنتهي/التالف لا تمسّ المتاح
+    const sellOut = !outBucket && !gone && items.some(i => (data.type === 'UNLOAD' ? i.qty > 0 : i.qty < 0));
+    const sellGate = async (tx: Prisma.TransactionClient) => {
+      if (sellOut) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'van-sellable:' + salesRepId}))`;
+    };
 
     // نداء الإنشاء الوحيد (locations.test.ts): الحركة وبنودها — وتوزيع البند على التشغيلات حين تحمل الخطة صفوفه (D2: البند لا يُشطر)
     const createLoad = (db: Prisma.TransactionClient | typeof prisma, plan: VanMovementPlan | null = null) => db.vanLoad.create({
@@ -393,6 +458,8 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
         // D30: تنزيل سيارة مندوبٍ محذوف بمعرّفه المحفوظ، كما يكتبه حذف المندوب على حركاته
         ...(gone && { deletedSalesRepId: gone.vanKey }),
         ...(loadLocationId && { locationId: loadLocationId }),
+        // D8: مرجع منع التكرار بالنشر الشرطيّ — غائبٌ ⇒ العمود null كما كان
+        ...(clientRef && { clientRef }),
         createdBy: isRep ? 'REP' : 'ADMIN',
         // لقطة الوحدة + الكمية بالأساس؛ والمقترَح والمتنبَّأ به بالأساس كما أخرجهما المحرّك
         items: {
@@ -418,11 +485,15 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
       const release = await acquireLotQueue(tid, preTracked);
       try {
         const out = await prisma.$transaction(async (tx) => {
+          await refGate(tx); // D8: المرجع أولاً — مكرَّرٌ ⇒ لا قفل لوط ولا خطة
           if (outBucket) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`van-${outBucket}:` + salesRepId}))`;
           const locked = await lockLotProducts(tx, tid, productIds);
           // §3: الأساس تحت قفل lockLotProducts نفسه (صفوفه تحمل unit) — بلا قفلٍ ثانٍ، وقبل أي رصيد أو خطة أو كتابة
           assertBasesUnchanged(expected, locked.units);
+          await sellGate(tx);
           if (outBucket) await assertOutAvailable(outBucket); // رصيد الدلو للصنف كما كان، ثم اللوط في الخطة
+          // D2: رصيد المستودع تحت قفله بعد أقفال الأصناف (فلا يمسك قفلَ الشركة منتظراً صنفاً)، ثم خطة التشغيلات
+          await whGate(tx);
           const plan = await planVanMovementInTx(tx, {
             tenantId: tid, vanKey: salesRepId, deletedVan: gone !== null, type: data.type,
             warehouseEnabled: gone ? gone.warehouseEnabled : rep?.tenant?.warehouseEnabled === true,
@@ -463,6 +534,7 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     const busy = (e: unknown): never => { throw (lotsOn && !(e instanceof ProductUnitsChangedError) ? asLotBusy(e) : null) ?? e; };
     const load = outBucket
       ? await prisma.$transaction(async (tx) => {
+        await refGate(tx);
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`van-${outBucket}:` + salesRepId}))`;
         await lockBases(tx, tid, expected);
         if (lotsOn) await assertStillUntracked(tx, tid, productIds);
@@ -471,12 +543,18 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
       }, BASE_GUARD_TX).catch(busy)
       : lotsOn
         ? await prisma.$transaction(async (tx) => {
+          await refGate(tx);
           await lockBases(tx, tid, expected);
           await assertStillUntracked(tx, tid, productIds);
+          await sellGate(tx);
+          await whGate(tx);
           return createLoad(tx);
         }, BASE_GUARD_TX).catch(busy)
         : await prisma.$transaction(async (tx) => {
+          await refGate(tx);
           await lockBases(tx, tid, expected);
+          await sellGate(tx);
+          await whGate(tx);
           return createLoad(tx);
         }, BASE_GUARD_TX);
     res.status(201).json({ success: true, data: load });
@@ -488,6 +566,11 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     const g = err instanceof ProductUnitsChangedError || err instanceof ProductUnitsBusyError
       ? baseGuardReply(err, String(req.headers['x-fs-replay'] || '') === '1') : null;
     if (g) { res.status(g.status).json(g.body); return; }
+    // D2: التحميل فوق رصيد المستودع ⇒ 422 بأسطره (index وproductId وavailableBase وrequestedBase) بلا كتابة
+    if (err instanceof WarehouseInsufficientError) { res.status(422).json(err.body()); return; }
+    // D8: طلبٌ مكرَّر تزامن مع أصله فوجده القفل ⇒ الحركة القائمة كما في المسار السريع
+    if (err instanceof ClientRefReplay) { res.status(200).json({ success: true, data: err.row, replay: true, idempotent: true }); return; }
+    if ((err as { code?: unknown })?.code === 'CLIENT_REF_REUSED') { res.status(409).json({ success: false, code: 'CLIENT_REF_REUSED', message: (err as Error).message }); return; }
     next(err);
   }
 });
@@ -568,7 +651,8 @@ router.get('/suggest', async (req: AuthRequest, res: Response, next: NextFunctio
       }),
       // ووحدات الصنف تُرفق بكل صفّ اقتراح: الكمية المقترحة بالأساس، والواجهة تعرضها «٢ كرتون و٣ حبة»
       prisma.product.findMany({
-        where: { tenantId: tid, status: { not: 'INACTIVE' } },
+        // والمؤرشف خارجه (D3): تحميله يُرفض 422 PRODUCT_ARCHIVED فلا يُقترح — ولو أُعيد ACTIVE بعد أرشفته
+        where: { tenantId: tid, status: { not: 'INACTIVE' }, deletedAt: null },
         // و«الوحدة الرئيسية»: الاقتراح بها في الواجهة (suggestionChoice) — عرضٌ فقط، الكميات بالأساس كما هي
         select: { id: true, name: true, code: true, unit: true, units: { select: UNIT_SELECT }, primaryUnitId: true },
       }),
@@ -668,10 +752,16 @@ router.get('/summary', requireAdmin, async (req: AuthRequest, res: Response, nex
     let to = valid(req.query.to as string | undefined);
     // مدى مقلوب: نصحّحه بدل إرجاع جدول فارغ يحيّر المستخدم
     if (from && to && new Date(from) > new Date(to)) [from, to] = [to, from];
-    const range = from || to ? { from, to } : undefined;
-    const lastLoadBefore = to ? new Date(new Date(to).setHours(23, 59, 59, 999)) : undefined;
+    // #14: حدود الأيام بتوقيت الشركة كسجلّ التحميلات في الصفحة نفسها (GET /loads: paymentMethodsRange) — كانت منتصف ليل UTC ونهاية
+    // اليوم بساعة الخادم، فتحميل الواحدة والنصف فجراً بالرياض يسقط من يومه ويدخل اليوم السابق. التاريخ YYYY-MM-DD وحده؛ وغيره كما كان
+    const tz = (from && isLocalDate(from)) || (to && isLocalDate(to)) ? await tenantTz(tid) : null;
+    const fromAt = tz && from && isLocalDate(from) ? zonedStartOfDay(from, tz) : undefined;
+    const toBefore = tz && to && isLocalDate(to) ? zonedStartOfDay(addDays(to, 1), tz) : undefined;
+    const range = from || to ? { from, to, ...(fromAt && { fromAt }), ...(toBefore && { toBefore }) } : undefined;
+    const lastLoadBefore = to && !toBefore ? new Date(new Date(to).setHours(23, 59, 59, 999)) : undefined;
 
-    const reps = await prisma.salesRep.findMany({ where: { tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true, name: true, isActive: true, canSellWithoutStock: true } });
+    const repFilter = await adminRepFilter(req);
+    const reps = await prisma.salesRep.findMany({ where: { tenantId: tid, ...repFilter }, select: { id: true, name: true, isActive: true, canSellWithoutStock: true } });
     // عهدة الأدوات: رصيد اللحظة (لا تتبع المدّة — عهدةٌ قائمة لا تدفّق)، باستعلامٍ مجمَّع واحد للشركة
     const toolGroups = await prisma.vanToolMove.groupBy({
       by: ['salesRepId', 'type'], where: { tenantId: tid, salesRepId: { in: reps.map(r => r.id) } }, _sum: { qty: true },
@@ -683,14 +773,25 @@ router.get('/summary', requireAdmin, async (req: AuthRequest, res: Response, nex
       rowsByRep.set(r.id, rows);
       const lastLoad = await prisma.vanLoad.findFirst({
         // «آخر تحميل» يلتزم نهاية المدّة أيضاً، وإلا عرض الجدولُ تاريخاً خارجها
-        where: { tenantId: tid, salesRepId: r.id, type: 'LOAD', ...(lastLoadBefore && { createdAt: { lte: lastLoadBefore } }) },
+        where: {
+          tenantId: tid, salesRepId: r.id, type: 'LOAD',
+          ...(toBefore ? { createdAt: { lt: toBefore } } : lastLoadBefore && { createdAt: { lte: lastLoadBefore } }),
+        },
         orderBy: { createdAt: 'desc' }, select: { createdAt: true },
       });
       // المجاميع عبر الأصناف بوحدات الأساس (حبّات لا كراتين) — computeStock بالأساس، فلصنفٍ بلا وحدات لا يتغيّر شيء
       return {
         salesRepId: r.id, repName: r.name, isActive: r.isActive, canSellWithoutStock: r.canSellWithoutStock,
+        // productCount بمعناه المنشور (كل صنفٍ متبقّيه غير صفري، موجباً أو سالباً) — والإضافة onVanCount «أصناف بالسيارة» ما فيها
+        // فعلاً (#10): العجز (رصيدٌ سالب من بيعٍ بلا مخزون) ليس صنفاً في السيارة، يُعدّ في deficitCount
         productCount: rows.filter(x => Math.abs(x.remaining) > 1e-9).length,
+        onVanCount: rows.filter(x => x.remaining > 1e-9).length,
+        // المتبقّي صافياً بإشارته كما كان، والعجز والمنتهي يُعرضان بجانبه إضافةً (totalDeficit وdeficitCount وtotalExpired)
         totalRemaining: roundDecimal(rows.reduce((s, x) => s + x.remaining, 0), 4),
+        totalDeficit: roundDecimal(rows.reduce((s, x) => s + Math.max(0, -x.remaining), 0), 4),
+        deficitCount: rows.filter(x => x.remaining < -1e-9).length,
+        // «منتهي الصلاحية» في السيارة لا يُباع — الموجب وحده كالتالف أدناه
+        totalExpired: roundDecimal(rows.reduce((s, x) => s + Math.max(0, x.expired), 0), 4),
         totalLoaded: roundDecimal(rows.reduce((s, x) => s + x.loaded, 0), 4),
         totalSold: roundDecimal(rows.reduce((s, x) => s + x.sold, 0), 4),
         // «المرتجع التالف»: رصيدٌ حتى نهاية المدّة كالمتبقّي، لا يُباع
@@ -704,8 +805,11 @@ router.get('/summary', requireAdmin, async (req: AuthRequest, res: Response, nex
     // والمجاميع بالأساس أعلاه كما هي حرفياً. الوحدات باستعلامٍ واحد لكل المناديب لا داخل computeStock (مستدعوه الآخرون لا يحتاجونها)
     const units = await unitsByProduct(tid, [...rowsByRep.values()].flatMap(rs => rs.map(x => x.productId)));
     const withMajor = data.map(d => ({ ...d, major: repStockMajor(rowsByRep.get(d.salesRepId) ?? [], units) }));
+    // D9: عهد أدوات المناديب المحذوفين القائمة — صفوف «مندوب محذوف» بجانب الجدول (إضافةٌ؛ data كما هي). لغير المقيَّد وحده كبطاقة
+    // سيارات المحذوفين: المقيَّد لا يُعرف نطاقه في مندوبٍ لم يعد موجوداً، فيعود له [] بلا استعلام
+    const deletedTools = Object.keys(repFilter).length ? [] : await deletedToolHolders(tid);
     // `filtered` تُخبر الواجهة أن «محمَّل/مباع» صارا تدفّقَي مدّة لا إجماليين
-    res.json({ success: true, data: withMajor, filtered: !!range, from: from || null, to: to || null });
+    res.json({ success: true, data: withMajor, filtered: !!range, from: from || null, to: to || null, deletedTools });
   } catch (err) { next(err); }
 });
 
@@ -756,12 +860,15 @@ router.get('/loads', async (req: AuthRequest, res: Response, next: NextFunction)
     const paged = typeof req.query.page === 'string' && !!req.query.page;
     const page = Math.max(1, parseInt(String(req.query.page)) || 1);
     const limit = Math.min(LOADS_MAX_PAGE, Math.max(1, parseInt(String(req.query.limit)) || 50));
+    // D8: ?clientRef= — هل حُفظت محاولةٌ بمرجعها قبل إعادة الإرسال؟ نصٌّ صالح وحده، وغيره يُهمل
+    const clientRef = clientRefQuery(req.query.clientRef);
     const where = {
       tenantId: tid,
       ...(salesRepId && { salesRepId }),
       ...locationDocWhere(location),
       ...(type && { type }),
       ...(createdAt && { createdAt }),
+      ...(clientRef && { clientRef }),
       // القيد يغطّي حالة عدم تمرير معرّف: بلا نطاق يعود {} فلا يتغيّر شيء
       ...(await scopedRepRecordWhere(req)),
     };
@@ -878,8 +985,43 @@ export function toolCountsByRep(groups: { salesRepId: string | null; type: strin
   return out;
 }
 
+/**
+ * عهدة مندوبٍ محذوف (مراجعة المخزون D9): حذف المندوب يُبقي حركات أدواته بمعرّفه في deletedSalesRepId (salesReps.ts) فتبقى ظاهرة
+ * «مندوب محذوف». لإداري غير مقيَّد بنطاق وحده (المقيَّد لا يُعرف نطاقه في مندوبٍ لم يعد موجوداً — كبطاقة سيارات المحذوفين)، والمعرّف
+ * لمندوبٍ محذوفٍ فعلاً له أثر عهدة. وإلا 404 كمندوبٍ غير موجود
+ */
+async function deletedToolHolderOf(req: AuthRequest, tid: string, key: string): Promise<string> {
+  const gone = () => Object.assign(new Error('المندوب غير موجود'), { status: 404 });
+  if (req.user?.role === 'SALES_REP' || !key || (await adminScopeEnabled(req))) throw gone();
+  const live = await prisma.salesRep.findFirst({ where: { id: key, tenantId: tid }, select: { id: true } });
+  const past = live ? null : await prisma.vanToolMove.findFirst({ where: { tenantId: tid, salesRepId: null, deletedSalesRepId: key }, select: { id: true } });
+  if (live || !past) throw gone();
+  return key;
+}
+
+/** عهد المناديب المحذوفين القائمة (رصيدٌ موجب) — لبطاقة ملخّص المناديب: صفٌّ «مندوب محذوف» لكل حامل باستعلامٍ واحد للشركة */
+export async function deletedToolHolders(tid: string): Promise<{ deletedSalesRepId: string; repName: string; toolsCount: number; balances: { toolName: string; qty: number }[] }[]> {
+  const moves = await prisma.vanToolMove.findMany({
+    where: { tenantId: tid, salesRepId: null, deletedSalesRepId: { not: null } }, orderBy: { createdAt: 'asc' },
+    select: { deletedSalesRepId: true, toolName: true, qty: true, type: true },
+  });
+  const byKey = new Map<string, { toolName: string; qty: number; type: string }[]>();
+  for (const m of moves) {
+    if (!m.deletedSalesRepId) continue;
+    const list = byKey.get(m.deletedSalesRepId) ?? [];
+    list.push(m);
+    byKey.set(m.deletedSalesRepId, list);
+  }
+  return [...byKey].map(([deletedSalesRepId, ms]) => {
+    const balances = foldTools(ms).filter(b => b.qty > 0);
+    return { deletedSalesRepId, repName: REP_GONE_NAME, toolsCount: balances.reduce((s, b) => s + b.qty, 0), balances };
+  }).filter(h => h.toolsCount > 0);
+}
+
 const toolMoveSchema = z.object({
-  salesRepId: z.string().min(1),
+  // أحدهما: مندوبٌ قائم، أو مندوبٌ محذوف (D9) تُستلم أدواته (RETURN وحده)
+  salesRepId: z.string().min(1).optional(),
+  deletedSalesRepId: z.string().min(1).optional(),
   type: z.enum(['ISSUE', 'RETURN']),
   note: z.string().trim().max(300).optional(),
   items: z.array(z.object({
@@ -893,12 +1035,16 @@ router.get('/tools', async (req: AuthRequest, res: Response, next: NextFunction)
   try {
     const tid = tenantId(req);
     const isRep = req.user?.role === 'SALES_REP';
-    const salesRepId = isRep ? req.user!.id : queryRepId(req);
-    if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
-    await assertRepInScope(req, tid, salesRepId);
+    // D9: ?deletedSalesRepId= عهدة مندوبٍ محذوف بالشكل نفسه (إداري غير مقيَّد) — مكان salesRepId
+    const goneQ = !isRep && typeof req.query.deletedSalesRepId === 'string' && req.query.deletedSalesRepId ? req.query.deletedSalesRepId : null;
+    const goneKey = goneQ ? await deletedToolHolderOf(req, tid, goneQ) : null;
+    const salesRepId = isRep ? req.user!.id : goneKey ? null : queryRepId(req);
+    if (!salesRepId && !goneKey) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
+    if (salesRepId) await assertRepInScope(req, tid, salesRepId);
+    const holder = goneKey ? { salesRepId: null, deletedSalesRepId: goneKey } : { salesRepId };
     const [moves, names] = await Promise.all([
       prisma.vanToolMove.findMany({
-        where: { tenantId: tid, salesRepId }, orderBy: { createdAt: 'asc' },
+        where: { tenantId: tid, ...holder }, orderBy: { createdAt: 'asc' },
         select: { id: true, type: true, toolName: true, qty: true, note: true, createdByName: true, createdAt: true },
       }),
       // اقتراحات الاسم في نموذج التسليم — من كل أدوات الشركة، للإدارة وحدها
@@ -925,9 +1071,18 @@ router.post('/tools', requireAdmin, async (req: AuthRequest, res: Response, next
   try {
     const tid = tenantId(req);
     const data = toolMoveSchema.parse(req.body);
-    await assertRepInScope(req, tid, data.salesRepId);
-    const rep = await prisma.salesRep.findFirst({ where: { id: data.salesRepId, tenantId: tid }, select: { id: true } });
-    if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+    if (!data.salesRepId === !data.deletedSalesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
+    // D9: مندوبٌ محذوف ⇒ الاستلام وحده (تُستردّ عهدته، ولا تسليم لمن لم يعد موجوداً)
+    if (data.deletedSalesRepId && data.type !== 'RETURN') { res.status(400).json({ success: false, message: 'المندوب المحذوف تُستلم منه أدواته فقط' }); return; }
+    const goneKey = data.deletedSalesRepId ? await deletedToolHolderOf(req, tid, data.deletedSalesRepId) : null;
+    if (data.salesRepId) {
+      await assertRepInScope(req, tid, data.salesRepId);
+      const rep = await prisma.salesRep.findFirst({ where: { id: data.salesRepId, tenantId: tid }, select: { id: true } });
+      if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+    }
+    // حامل العهدة: المندوب، أو معرّف المحذوف بمرجعٍ مفرَّغ كما كتبه حذفه
+    const holder = goneKey ? { salesRepId: null, deletedSalesRepId: goneKey } : { salesRepId: data.salesRepId! };
+    const lockKey = goneKey ?? data.salesRepId!;
     // سطران للأداة نفسها في الطلب يُجمعان — والاسم بصيغته الموحّدة
     const want = new Map<string, { toolName: string; qty: number }>();
     for (const i of data.items) {
@@ -938,10 +1093,10 @@ router.post('/tools', requireAdmin, async (req: AuthRequest, res: Response, next
     }
     const actor = actorOf(req);
     const created = await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'van-tools:' + data.salesRepId}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'van-tools:' + lockKey}))`;
       if (data.type === 'RETURN') {
         const have = new Map(foldTools(await tx.vanToolMove.findMany({
-          where: { tenantId: tid, salesRepId: data.salesRepId }, orderBy: { createdAt: 'asc' },
+          where: { tenantId: tid, ...holder }, orderBy: { createdAt: 'asc' },
           select: { toolName: true, qty: true, type: true },
         })).map(b => [toolKey(b.toolName), b]));
         for (const [k, w] of want) {
@@ -952,7 +1107,7 @@ router.post('/tools', requireAdmin, async (req: AuthRequest, res: Response, next
       }
       await tx.vanToolMove.createMany({
         data: [...want.values()].map(w => ({
-          tenantId: tid, salesRepId: data.salesRepId, type: data.type, toolName: w.toolName, qty: w.qty,
+          tenantId: tid, ...holder, type: data.type, toolName: w.toolName, qty: w.qty,
           // جلسة المالك تُسجَّل OWNER:<المعرّف> و«الدعم الفني» لا باسم مدير الشركة (actorOf)
           note: data.note || null, createdById: actor, createdByName: actor.startsWith('OWNER:') ? 'الدعم الفني' : (req.user?.name ?? null),
         })),

@@ -811,6 +811,62 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "example": ""
    },
    {
+    "method": "GET",
+    "path": "/products/name-check",
+    "purpose": "فحص الاسم المكرَّر قبل الحفظ: أصناف الشركة التي يطابق اسمها الاسم المرسل، ومنها الموقوفة والمؤرشفة",
+    "permission": "canManageProducts",
+    "gates": [
+     "requireAccounting",
+     "requireAdminPermission('canManageProducts')",
+     "requireAdmin — الدور ADMIN أو MANAGER أو ACCOUNTANT"
+    ],
+    "query": [
+     {
+      "name": "name",
+      "type": "string",
+      "required": true,
+      "desc": "الاسم المراد فحصه (أول 200 حرف). الفارغ يعيد matches فارغة"
+     },
+     {
+      "name": "excludeId",
+      "type": "string (uuid)",
+      "required": false,
+      "desc": "معرّف الصنف الذي يُعدَّل فلا يطابق نفسه"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{matches:[{id, code, name, status:'ACTIVE'|'INACTIVE', archived:boolean}]}} — حتى 20 مطابقة بترتيب الإنشاء، وarchived=true للصنف المحذوف المؤرشف",
+    "rules": [
+     "المطابقة بعد التطبيع: قصّ الأطراف ودمج المسافات وحالة الأحرف اللاتينية («كرتون بيض M» = «كرتون  بيض m»)، بلا تطبيعٍ للهمزات والتاء المربوطة",
+     "فحصٌ لا يمنع شيئاً: الكود وحده فريد، والاسم المكرَّر قد يكون مقصوداً. والإنشاء والتعديل والاستيراد يحذّرون بأنفسهم (warnings بالرمز DUPLICATE_NAME)",
+     "إن كان الصنف القائم هو نفسه فالأصح إضافة وحدة له (POST /products/:id/units) بدل صنفٍ جديد بكودٍ آخر"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/products/:id/stock-summary",
+    "purpose": "رصيد الصنف الآن بوحدة الأساس: في مخزون الشركة وفي سيارات المناديب كلها — قبل حذفه أو أرشفته",
+    "permission": "canManageProducts",
+    "gates": [
+     "requireAccounting",
+     "requireAdminPermission('canManageProducts')",
+     "requireAdmin — الدور ADMIN أو MANAGER أو ACCOUNTANT"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:{productId, warehouseBase:number|null, vansBase:number|null, vansSellableBase:number|null, stockHidden?:true, unit, units:[{id, name, factor, isActive}], primaryUnitId}} — 404 {success:false, message:'الصنف غير موجود'}",
+    "rules": [
+     "warehouseBase رصيد مخزون الشركة كما في GET /warehouse (الوارد والتسويات ناقص التحميل زائد التنزيل)، وnull حين ميزة مخزون الشركة مطفأة",
+     "vansBase مجموع سيارات المناديب كلها (المتاح للبيع والمنتهي الصلاحية والتالف)، وvansSellableBase المتاح للبيع وحده — كما في GET /van-stock/current",
+     "المستخدم المقيَّد بنطاق مناديب (قوائم أو فرق): vansBase وvansSellableBase لسيارات مناديب نطاقه وحدها كبطاقة GET /warehouse/vans، والمستودع رصيد الشركة كله",
+     "مستخدمٌ بلا صلاحية canManageVanStock: الأرقام الثلاثة null وstockHidden:true (لا يرى المخزون) — والوحدات كما هي",
+     "الكميات بوحدة الأساس unit، وunits وprimaryUnitId لعرضها بالكرتون",
+     "قراءة فقط: الحذف (DELETE /products/:id) كما هو ولا يفحص الرصيد — والرصيد يبقى في الجداول باسم الصنف المؤرشف"
+    ],
+    "example": ""
+   },
+   {
     "method": "POST",
     "path": "/products",
     "purpose": "إنشاء صنف جديد",
@@ -1060,7 +1116,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "لبيعه بالكرتون أيضاً أضف بعد الإنشاء وحدة: POST /products/:id/units بالجسم {\"name\":\"كرتون\",\"factor\":40,\"price\":13.04}، أو أرسلها هنا في units مع primaryUnitName لتعريفه بالكرتون",
      "«تتبّع LOT»: الصنف المنشأ بـlotTracked=true يُسجَّل له حدث TRACKING_ON في سجل التدقيق في معاملة الإنشاء نفسها. وإن كانت صلاحيته مفعّلة (shelfLifeEnabled) صار تاريخ انتهاء كل تشغيلة له إلزامياً (LOT_EXPIRY_REQUIRED)",
      "الإنشاء بالوحدة الرئيسية (الكرتون): {\"code\":\"W24\",\"name\":\"مياه 330\",\"unit\":\"قارورة\",\"units\":[{\"name\":\"كرتون\",\"factor\":24,\"price\":48,\"unitCode\":\"CT\"}],\"primaryUnitName\":\"كرتون\"} ⇒ قارورة بسعر 2 (48 ÷ 24) ووحدة كرتون بسعر 48 صريحاً، وprimaryUnitId = معرّف الكرتون. الحساب الداخلي لا ينقلب: المخزون والأسعار والضريبة بالقارورة، وبندٌ بلا unitId قارورة",
-     "primaryUnitId في الجسم لا يُقرأ: الوحدة الرئيسية تُعرَّف بالاسم في primaryUnitName عند الإنشاء، وبـPUT /products/:id/primary-unit بعده"
+     "primaryUnitId في الجسم لا يُقرأ: الوحدة الرئيسية تُعرَّف بالاسم في primaryUnitName عند الإنشاء، وبـPUT /products/:id/primary-unit بعده",
+     "الاسم المكرَّر تحذيرٌ لا رفض: إن طابق الاسم (بعد قصّ الأطراف ودمج المسافات وحالة الأحرف اللاتينية) صنفاً للشركة قائماً أو موقوفاً أو مؤرشفاً، يُنشأ الصنف ويحمل الردّ بجانب data: warnings:[{code:'DUPLICATE_NAME', matches:[{id, code, name, status, archived}]}]. وبلا مطابقة لا مفتاح warnings والردّ كما كان. للفحص قبل الحفظ GET /products/name-check"
     ],
     "example": "{\"code\":\"P-1001\",\"name\":\"مياه 330 مل\",\"unit\":\"حبة\",\"basePrice\":0.35,\"taxPct\":15,\"barcode\":\"6281234567890\",\"categoryId\":\"3f2c1a9e-7b1d-4c2e-9a51-0d6e8f4b2c11\",\"status\":\"ACTIVE\",\"unitCode\":\"PCE\"}"
    },
@@ -1316,7 +1373,9 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "الأصناف المؤرشفة قابلة للتعديل لكن التعديل لا يلغي الأرشفة (deletedAt يبقى) فتبقى مخفية من القوائم",
      "التعديل لا يمس شرائح الأسعار ولا أسعار العملاء ولا أسعار «أنواع الأسعار» (listPrices في الجسم يُسقط بصمت ولا يعود في الرد: لها PUT /products/:id/list-prices) ولا وحدات الصنف (لها مساراتها /products/:id/units) ولا الفواتير السابقة — إلا رقعة primaryUnit للوحدة الرئيسية وحدها",
      "primaryUnitId في الجسم يُتجاهل (ليس في المخطط): رحلة GET ثم PUT لا تكتب قيمةً قديمة. لتغيير الوحدة الرئيسية استعمل PUT /products/:id/primary-unit",
-     "جسمٌ يمسّ basePrice أو unit أو primaryUnit يُكتب في معاملة بقفل صفّ الصنف لا ينتظر الفواتير، وينتظر «إضافة وحدة فرعية أصغر» جاريةً ٥ ثوانٍ على الأكثر ثم 503 PRODUCT_UNITS_BUSY: أعد المحاولة. وجسمٌ لا يمسّها (اسم أو صورة) كما كان بلا قفل"
+     "جسمٌ يمسّ basePrice أو unit أو primaryUnit يُكتب في معاملة بقفل صفّ الصنف لا ينتظر الفواتير، وينتظر «إضافة وحدة فرعية أصغر» جاريةً ٥ ثوانٍ على الأكثر ثم 503 PRODUCT_UNITS_BUSY: أعد المحاولة. وجسمٌ لا يمسّها (اسم أو صورة) كما كان بلا قفل",
+     "إعادة التسمية باسم صنفٍ آخر للشركة (قائمٍ أو موقوفٍ أو مؤرشف، بعد التطبيع) تُحفظ ويحمل الردّ warnings:[{code:'DUPLICATE_NAME', matches}] كما في POST /products — تحذيرٌ لا رفض، والاسم نفسه بلا بحث",
+     "رقعة primaryUnit بتسمية الوحدة الرئيسية باسمٍ كان وحدة أساس هذا الصنف (ومنه أساسٌ أُعيدت تسميته) بمعامل أكبر من 1 لصنفٍ له تاريخ (بيع أو تحميل أو وارد) ⇒ 409 {success:false, code:'BASE_NAME_RESERVED', message} بلا كتابة، كما في POST /products/:id/units"
     ],
     "example": "{\"basePrice\":14.5,\"status\":\"INACTIVE\"}"
    },
@@ -1541,7 +1600,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "rules": [
      "الكتابة داخل معاملة بقفل صفّ الصنف، وتحدّث updatedAt الصنف فيصل التغيير لمزامنة /api/v1/sync/products ولمزامنة ERP",
      "رسائل PRODUCT_UNITS_INVALID: «اسم الوحدة مطلوب»، «اسم الوحدة طويل»، «معامل التحويل رقم أكبر من صفر»، «معامل التحويل لا يتجاوز 100000»، «معامل التحويل عدد صحيح — وحدة الأساس هي الأصغر»، «سعر الوحدة رقم موجب»، «اسم الوحدة مكرر لهذا الصنف»، «يوجد وحدة بالمعامل نفسه لهذا الصنف»",
-     "id الوحدة في الرد هو unitId الذي يُرسل في بنود الفواتير والتحميل والوارد وطلب البضاعة"
+     "id الوحدة في الرد هو unitId الذي يُرسل في بنود الفواتير والتحميل والوارد وطلب البضاعة",
+     "409 {success:false, code:'BASE_NAME_RESERVED', message} بلا كتابة: اسمٌ كان وحدة أساس هذا الصنف (ومنه أساسٌ أُعيدت تسميته، مثل «كرتون» صار «حبة») بمعامل أكبر من 1 لصنفٍ له تاريخ (بيع أو تحميل أو وارد) — رصيده المكتوب بالأساس القديم كان سيُقرأ بالجديد. إلا وحدةً بمعامل سلسلة التحويل المسجّلة نفسه (كرتونٌ حُوّل فعلاً ×24 ثم أُعيد بمعامله). ولإضافة وحدة أصغر لصنفٍ قائم: «إضافة وحدة فرعية أصغر» من لوحة الإدارة أو الدعم الفني"
     ],
     "example": "{\"name\":\"كرتون\",\"factor\":40,\"price\":13.04,\"unitCode\":\"CT\"}"
    },
@@ -1612,7 +1672,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "تغيير factor لا يعيد كتابة الماضي: كل بند كُتب بالوحدة يحمل لقطة اسمها ومعاملها (unitName وunitFactor) وكميته بالأساس (baseQty) لحظة كتابته، فكرتونٌ صار 12 بعد أن كان 24 لا يُنقص مخزوناً مضى",
      "التحقق على الوحدة بعد دمج المرسل مع المحفوظ، مقابل وحدة الأساس وبقية وحدات الصنف",
      "يتحرّك updatedAt للصنف فيصل التعديل لمزامنة products",
-     "تغيير اسم الوحدة الرئيسية أو معاملها أو سعرها مسموح (التاريخ يحمل لقطاته)، أما إيقافها فيحتاج clearPrimary"
+     "تغيير اسم الوحدة الرئيسية أو معاملها أو سعرها مسموح (التاريخ يحمل لقطاته)، أما إيقافها فيحتاج clearPrimary",
+     "تسمية الوحدة باسمٍ كان وحدة أساس هذا الصنف (ومنه أساسٌ أُعيدت تسميته) ومعاملها أكبر من 1 لصنفٍ له تاريخ ⇒ 409 {success:false, code:'BASE_NAME_RESERVED', message} كما في POST /products/:id/units. وتغيير المعامل وحده بلا تغيير الاسم لا يمرّ بهذا الفحص"
     ],
     "example": "{\"price\":12.5,\"isActive\":true}"
    },
@@ -2509,6 +2570,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "الحد الائتماني لا يمنع الإنشاء. إذا كان creditLimit>0 وتجاوزه الرصيد مع الإجمالي يُنشأ تنبيه CREDIT_LIMIT_EXCEEDED فقط",
      "العميل المحظور BLOCKED يرجع 400، والعميل أو المندوب خارج النطاق يرجع 403 أو 404",
      "قيود المندوب (حد الخصم وتغيير السعر وتبديل نوع السعر canChangePriceList والبيع بلا مخزون وقيود الصنف REP_PRODUCT_RULE والأذونات) لا تنطبق على المفتاح، لأنها مشروطة بالدور SALES_REP. لذلك المفتاح يستطيع البيع بأكثر من مخزون السيارة، إلا الصنف المتتبَّع بالتشغيلة («تتبّع LOT» مفعّل للشركة والصنف): بيعه ممنوعٌ فوق رصيد تشغيلات السيارة الصالحة وغير المسمّى لكل مُصدِر ومنه المفتاح، ولا يُعفي منه إذن canSellWithoutStock (409 LOT_STOCK_INSUFFICIENT)",
+     "مندوب بلا «البيع بدون مخزون» (canSellWithoutStock=false) — لدور المندوب وحده، لا المفتاح: بيعٌ يتجاوز متبقّي سيارته بالأساس يُرفض 403، ويُعاد الفحص داخل معاملة الإصدار تحت قفل السيارة فلا يتجاوزه بيعان متزامنان معاً. ومستند صندوق تطبيق المندوب المُعاد رفعه (X-FS-Replay، وهي تُمحى لطلب المفتاح) لا يُرفض بذلك بل يُحجز 409 {success:false, code:'VAN_STOCK_REPLAY_HELD', message, detail:{productId, availableBase, requestedBase}} بلا كتابة، ويبقى في جهاز المندوب «بانتظار الإدارة» ويُشعَر مدير الشركة مرة لكل clientRef حتى يُسجَّل التحميل الناقص",
+     "تاريخ فاتورة المندوب دون اتصال: مستند صندوق تطبيق المندوب المُعاد رفعه (X-FS-Replay، وهي تُمحى لطلب المفتاح) يُؤرَّخ invoiceDate بلحظة إصداره على الجهاز clientCreatedAt لا بلحظة المزامنة — في الرقم والقيد وحركة السيارة والتقارير — إن لم تكن في المستقبل ولا أقدم من سبعة أيام (وإلا ساعة الخادم)، وبادئة الرقم بشهرها بتوقيت الشركة. وساعة جهازٍ منحرفة أكثر من خمس دقائق (الصندوق يرسل لحظته وقت الرفع في X-FS-Device-Now) تُصحَّح لحظة الإصدار بالفرق. وفي المرحلة الثانية التاريخ لحظة ختم المستند، إلا المستند الانتقاليّ المقبول مرحلةً أولى ولحظة جهازه قبل التفعيل فيُؤرَّخ بها. ولطلب المفتاح لا يتغيّر شيء: invoiceDate المرسل وإلا ساعة الخادم",
      "«تتبّع LOT» — التوزيع: البيع تلقائي ما لم ترسل items[].lots: يوزّع الخادم البند على تشغيلات سيارة المندوب الصالحة يوم الشركة (غير الموقوفة وغير المنتهية) بالأقرب انتهاءً (FEFO)، ثم من الرصيد «غير المسمّى» بيقين UNKNOWN مع تحذير LOT_FROM_UNKNOWN. والصفّ المسمّى بيقين CONFIRMED إن كانت تشغيلته المصدر الوحيد للصنف في السيارة (لا تشغيلة أخرى فيها رصيد ولا رصيد غير مسمّى)، وإلا ASSUMED. أسطر الوحدة الأكبر تُخدم أولاً، والبند بوحدة أكبر (كرتون) يُؤخذ كراتين كاملة من تشغيلة واحدة ما أمكن، وإلا يُقسم مع تحذير LOT_SPLIT_UNIT. والبندان للصنف نفسه يُفحصان معاً على رصيد واحد، والسطر بلا lots يأخذ مما بقي بعد الأسطر الصريحة. كمية البند بالأساس بأكثر من أربع خانات عشرية ترجع 422 LOT_QTY_INVALID. وصلاحية البند (expiresAt) تُختم من أقرب تشغيلة مسمّاة له انتهاء",
      "«تتبّع LOT» — المرتجع: المرتبط بفاتورة بيع يرث تشغيلات بندها (إن كان فيها ما انتهى يوم المرتجع يُوزَّع الأقرب انتهاءً أولاً، وإلا الأبعد انتهاءً، وصفوف البيع «غير المعروفة» آخراً، والزائد «غير معروف»)، وبندٌ فيه تشغيلة منتهية يدخل كله رصيد «منتهي الصلاحية» في السيارة. والحرّ يحدّد الخادم تشغيلته من مبيعات العميل السابقة للصنف (فواتير البيع النقدي والآجل غير الملغاة حتى تاريخ المرتجع، من أحدث 200 صفّ توزيع للصنف، آخر فاتورة أولاً، والمُرجَع منها سابقاً لا يُرجَع مرتين، بيقين ASSUMED وsourceItemLotId صفّ البيع المستنتَج منه، والزائد عن مبيعاته «غير معروف») ما لم ترسل items[].lots (فصريحها المسمّى بيقين CONFIRMED). ويوم الشركة لطلب المفتاح بساعة الخادم دائماً، وX-FS-Replay تُمحى فلا ينال المفتاح تسامح صندوق المندوب ولا الحجز للمراجعة LOT_REPLAY_HELD",
      "«تتبّع LOT» — الانشغال: 503 {success:false, code:'LOT_BUSY', message, detail:{cause|reason}} حين يكون صنفٌ في المستند مشغولاً بعملية تشغيلات أخرى، أو تبدّل تتبّعه أثناء الطلب (reason: 'TRACKING_CHANGED'). لا يُكتب شيء: أعد الإرسال بنفس clientRef. وفي المرحلة الثانية تبقى مهلة الإصدار 503 ZATCA_UNIT_BUSY كما هي",
@@ -2564,7 +2627,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "الفاتورة الآجلة التي حُصّل جزء منها (paidAmt>0) ترجع 400، والفاتورة المرتبطة بسند قبض ترجع 400",
      "الأثر: status=CANCELLED، وعكس القيود حسب النوع (مرتجع أو نقدي أو آجل)، وتنبيه INVOICE_CANCELLED، وإبطال روابط الدفع الحية. مخزون السيارة يُستعاد تلقائياً لأن الحساب يعتمد على الفواتير المؤكدة فقط",
      "الفحوص تُعاد تحت قفل الصف لمنع الإلغاء المزدوج (services/docCancel.ts)",
-     "«تتبّع LOT»: إلغاء فاتورة بيع يعيد كمياتها إلى تشغيلاتها في السيارة تلقائياً. أما إلغاء مرتجعٍ فيه صنف متتبَّع فيُخرج بضاعته من السيارة، فيُرفض 409 {code:'LOT_STOCK_INSUFFICIENT', detail} إن كانت قد بيعت (لا تصير تشغيلة سالبة ولا ينقص الرصيد غير المسمّى تحت الصفر)، و503 LOT_BUSY حين يكون الصنف مشغولاً أو تبدّل تتبّعه أثناء الطلب: أعد المحاولة"
+     "«تتبّع LOT»: إلغاء فاتورة بيع يعيد كمياتها إلى تشغيلاتها في السيارة تلقائياً. أما إلغاء مرتجعٍ فيه صنف متتبَّع فيُخرج بضاعته من السيارة، فيُرفض 409 {code:'LOT_STOCK_INSUFFICIENT', detail} إن كانت قد بيعت (لا تصير تشغيلة سالبة ولا ينقص الرصيد غير المسمّى تحت الصفر)، و503 LOT_BUSY حين يكون الصنف مشغولاً أو تبدّل تتبّعه أثناء الطلب: أعد المحاولة",
+     "إلغاء مرتجعٍ يُخرج بضاعته من سيارة مندوبه لصنفٍ غير متتبَّع أيضاً: إن صار به رصيد السيارة سالباً في رصيده (المتاح للبيع، أو منتهي الصلاحية، أو التالف) لأنها بيعت أو أُزيلت يُرفض 409 {success:false, code:'RETURN_CANCEL_STOCK_SHORT', message, lines:[{productId, availableBase, requiredBase, bucket:'sellable'|'expired'|'damaged'}]} بلا تغيير — الكميات بوحدة الأساس. سجّل تحميلاً أو تسوية للسيارة ثم أعد الإلغاء. الفحص تحت قفل الفاتورة وقفل السيارة"
     ],
     "example": ""
    },
@@ -2805,7 +2869,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "rules": [
      "للمستندات من نوع RETURN فقط، ويشمل الإشعار الدائن. غير ذلك يرجع 400",
      "يغيّر حساب مخزون السيارة فوراً ولا يمس القيود المالية",
-     "«تتبّع LOT»: true زيادةٌ تعود بها البضاعة إلى تشغيلاتها. أما false لمرتجعٍ فيه صنف متتبَّع فيُخرجها من السيارة، فيُرفض 409 {code:'LOT_STOCK_INSUFFICIENT', detail} إن كانت قد بيعت، و503 LOT_BUSY عند الانشغال أو تبدّل تتبّع الصنف أثناء الطلب"
+     "«تتبّع LOT»: true زيادةٌ تعود بها البضاعة إلى تشغيلاتها. أما false لمرتجعٍ فيه صنف متتبَّع فيُخرجها من السيارة، فيُرفض 409 {code:'LOT_STOCK_INSUFFICIENT', detail} إن كانت قد بيعت، و503 LOT_BUSY عند الانشغال أو تبدّل تتبّع الصنف أثناء الطلب",
+     "وfalse لصنفٍ غير متتبَّع: إن صار المتاح للبيع في سيارة المندوب سالباً (بيعت بضاعة المرتجع) يُرفض 409 {success:false, code:'RETURN_CANCEL_STOCK_SHORT', message, lines:[{productId, availableBase, requiredBase, bucket:'sellable'}]} بلا تغيير. المنتهي والتالف لا تحكمهما returnToStock فلا يُفحصان هنا"
     ],
     "example": "{\"returnToStock\":true}"
    },
@@ -2827,7 +2892,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "rules": [
      "لا يحتاج جسماً",
      "أي رفض يرجع 409 ZATCA_WITHDRAW_NOT_ALLOWED مع reason، ومن الأسباب SIMPLIFIED_KEPT وNOT_CONFIRMED وMIRROR_NOT_VOIDABLE وSTATE_CHANGED",
-     "الأثر: المستند WITHDRAWN، والفاتورة CANCELLED، والقيود تُعكس في معاملة واحدة"
+     "الأثر: المستند WITHDRAWN، والفاتورة CANCELLED، والقيود تُعكس في معاملة واحدة",
+     "سحب إشعارٍ دائن قياسي يُخرج مرتجعه من سيارة المندوب: لصنفٍ غير متتبَّع بيعت بضاعته فصار رصيد السيارة سالباً يُرفض 409 {success:false, code:'RETURN_CANCEL_STOCK_SHORT', message, lines:[{productId, availableBase, requiredBase, bucket}]} قبل أي تغيير. فاتورة البيع لا تمرّ بهذا الفحص"
     ],
     "example": ""
    },
@@ -3177,7 +3243,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "receiptDate",
       "type": "string (ISO date-time)",
       "required": false,
-      "desc": "تاريخ السند، والافتراضي الآن. يحدد بادئة الرقم RCP-YYMM وتاريخ القيد في كشف الحساب، والتاريخ الماضي مقبول"
+      "desc": "تاريخ السند، والافتراضي الآن. يحدد بادئة الرقم RCP-YYMM وتاريخ القيد في كشف الحساب، والتاريخ الماضي مقبول. ولسند صندوق تطبيق المندوب المُعاد رفعه (X-FS-Replay، تُمحى لطلب المفتاح) بلا receiptDate: لحظة إصداره على الجهاز clientCreatedAt كفاتورته — لا مستقبل ولا أقدم من سبعة أيام (وإلا الآن)، ومصحَّحةً بانحراف ساعة الجهاز (X-FS-Device-Now) إن جاوز خمس دقائق، وبادئة رقمه بشهرها بتوقيت الشركة"
      },
      {
       "name": "amount",
@@ -4078,7 +4144,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
  {
   "key": "stock",
   "title": "مخزون السيارات ومخزون الشركة",
-  "overview": "وحدتان مترابطتان. الأولى مخزون سيارات المناديب (/van-stock)، ورصيده لا يُخزَّن بل يُحسب في كل طلب: التحميل − التنزيل + التسوية − المبيع + المرتجع العائد للمخزون. والثانية مستودع الشركة المركزي (/warehouse)، ورصيده محسوب أيضاً: الوارد + تسويات المستودع + العائد من السيارات − المحمَّل للسيارات، مع تقييم بتكلفة الشراء الصافية قبل الضريبة. لذلك فتحميل سيارة عبر POST /van-stock/loads ينقص المستودع تلقائياً، وتنزيلها يعيد الكمية إليه.\nالحراس على كل مسارات /van-stock: يجب ألا يكون النظام المحاسبي مطفأً (accountingEnabled، والرفض 403 برمز ACCOUNTING_NOT_ALLOWED)، ويجب أن يملك صاحب المفتاح صلاحية canManageVanStock (والرفض 403). ويُطبَّق كذلك نطاق المناديب المحدد لصاحب المفتاح إن كان مقيَّداً.\nمسارات /warehouse تشترط الشيئين نفسيهما وتفعيل ميزة مخزون الشركة (warehouseEnabled، وهي مطفأة افتراضياً)، بهذا الترتيب: صلاحية canManageVanStock أولاً (403 بلا code، فيأتي ولو كان النظام المحاسبي مطفأً)، ثم النظام المحاسبي (403 ACCOUNTING_NOT_ALLOWED)، ثم عَلَم المستودع (403 بلا code برسالة «ميزة مخزون الشركة غير مفعلة لهذه الشركة»).\nالمفتاح المضبوط على «قراءة فقط» لا يمرّ إلا بطلبات GET.\nلكل قائمة في هذه المجموعة سقف ثابت: سجل المستودع آخر 100 حركة، وسجل التحميلات آخر 100 حركة ما لم تُرسل page فيُرقَّم بحدّ 200. للتاريخ الكامل استعمل مسارات المزامنة /v1/sync/van-loads و/v1/sync/warehouse-entries.\nلا يوجد مسار لتعديل الحركات أو حذفها، والتصحيح يكون بحركة معاكسة أو بتسوية. ولا يوجد clientRef، فإعادة إرسال طلب الكتابة تُنشئ حركة مكررة.\nطلبات البضاعة (/rep-stock-requests): المندوب الذي لا يملك صلاحية التحميل يرفع من تطبيقه ما يحتاجه، فيظهر للإدارة في «طلب مخزون» بصفحة مخزون الشركة. بمفتاح الشركة تقرأ المعلّقة وتعدّل الكميات المعتمدة وترسل الطلب العام أو ترفض. الطلب لا يمسّ أي رصيد، وكل كتابة ترسل نسخة الطلب updatedAt كما قرأتها (409 إن تغيّر). وحراسها بالترتيب: النظام المحاسبي (403 ACCOUNTING_NOT_ALLOWED) ثم canManageVanStock ثم العَلَم (403 WAREHOUSE_NOT_ENABLED).\nالحد 120 طلباً في الدقيقة لكل مفتاح، ويظهر في رؤوس X-RateLimit-*\nالوحدات المتعددة: كل رصيد وكمية مجمّعة في هذه المجموعة بوحدة الأساس للصنف (unit، أصغر ما يُباع): remaining وloaded وsold في السيارة، وonHand وreceived في المستودع، وأرقام الاقتراح والدقة، ومجاميع الملخّصات عبر الأصناف (حبّات لا كراتين). وتُرفق units (وحدات الصنف {id, name, factor, isActive}) بصفوف الأرصدة ليعرضها نظامكم «2 كرتون و3 حبة». ومسارات الكتابة (POST /van-stock/loads وPOST /warehouse/entries وتعديل طلب البضاعة) تقبل items[].unitId من units[].id للصنف، فتكون qty بوحدته (وunitCost لوحدته في الوارد)، ويكتب الخادم لقطتها unitName وunitFactor وbaseQty = qty × unitFactor. غياب unitId = وحدة الأساس كما قبل الميزة، ومعرّفٌ لا يخصّ الصنف أو لوحدة موقوفة يُرفض 400 {success:false, code:'UNIT_INVALID', message} ولا تُكتب الحركة. ومزامنة /v1/sync/van-loads و/v1/sync/warehouse-entries تحمل اللقطة نفسها في كل بند: اجمع baseQty لا qty\n«تتبّع LOT» (حين lotTrackingEnabled للشركة وlotTracked للصنف، وإلا لا شيء مما يلي): رصيد الصنف المتتبَّع مقسوم على تشغيلات في المستودع وفي كل سيارة، والباقي «غير مسمّى». لا تجعل أي حركة رصيد تشغيلة سالباً ولا تُنقص الرصيد غير المسمّى تحت الصفر، لأي مُصدِر (409 LOT_STOCK_INSUFFICIENT)، فالقاعدتان «لا فحص للتوفر» و«المستودع قد يصير سالباً» لا تنطبقان عليه. كل زيادة بلا مصدر يلزمها تشغيلة وإلا 422 LOT_REQUIRED: الوارد والتسوية بالزيادة في المستودع (items[].lotId أو items[].lotNumber وتاريخاها، وlotId: null صريحاً للرصيد غير المسمّى في التسوية وحدها)، والتسوية بالزيادة في السيارة والتحميل في شركة بلا مخزون شركة (items[].lotNumber أو items[].lots). والتحميل من المستودع يوزّعه الخادم بالأقرب انتهاءً من التشغيلات النشطة غير المنتهية ثم من الرصيد غير المسمّى، أو بتشغيلاتك في items[].lots، والإنقاص من السيارة (التنزيل والتسوية والإتلاف) بتشغيلاتك في items[].lots، وبدونها يُسحب تلقائياً من كل تشغيلات الدلو بالأقرب انتهاءً أولاً (والموقوفة والمنتهية منها، والتي بلا انتهاء آخراً) ثم من الرصيد غير المسمّى (عدا تنزيل سيارة مندوبٍ محذوف: تشغيلاتٌ مسمّاة صريحة لازمة وإلا 422 LOT_REQUIRED بـdetail.reason = DELETED_VAN، وإتلاف المنتهي غير المباع lotReason = EXPIRED_UNSOLD_DESTROY: من التشغيلات المنتهية يوم الشركة وحدها لا من غير المسمّى، ونقصها 409 LOT_STOCK_INSUFFICIENT)، فقد يتوزّع البند على أكثر من تشغيلة بيقين ASSUMED، وما فاق رصيد الدلو 409 LOT_STOCK_INSUFFICIENT؛ وكذلك تسوية النقص في المستودع بلا تشغيلة (تُكتب بنداً لكل تشغيلة). كل كميات التشغيلات بوحدة الأساس. والمخزون الافتتاحي بالاستيراد (POST /import/opening-stock في مجموعة «استيراد البيانات»، صفوف rows حتى 5000) يقبل لكل صف lotNumber وproductionDate وexpiryDate للصنف المتتبَّع، وأخطاء صفوفه في errors[]: LOT_REQUIRED (رقم غائب أو أطول من 64) وLOT_DATES_INVALID وLOT_EXPIRY_REQUIRED وLOT_QTY_INVALID (كمية بالأساس بأكثر من أربع خانات) وLOT_DATES_MISMATCH (رقم مسجَّل أو مكرّر في الملف بتواريخ أخرى)، وانشغال الأصناف 409 OPENING_STOCK_LEDGER_BUSY. والتراجع عن دفعة افتتاحية استُعملت تشغيلاتها بعدها يبقى في blocked بالسبب «استُعملت تشغيلات المخزون الافتتاحي بعد الاستيراد». التفاصيل في مجموعة «تتبّع LOT»",
+  "overview": "وحدتان مترابطتان. الأولى مخزون سيارات المناديب (/van-stock)، ورصيده لا يُخزَّن بل يُحسب في كل طلب: التحميل − التنزيل + التسوية − المبيع + المرتجع العائد للمخزون. والثانية مستودع الشركة المركزي (/warehouse)، ورصيده محسوب أيضاً: الوارد + تسويات المستودع + العائد من السيارات − المحمَّل للسيارات، مع تقييم بتكلفة الشراء الصافية قبل الضريبة. لذلك فتحميل سيارة عبر POST /van-stock/loads ينقص المستودع تلقائياً، وتنزيلها يعيد الكمية إليه.\nالحراس على كل مسارات /van-stock: يجب ألا يكون النظام المحاسبي مطفأً (accountingEnabled، والرفض 403 برمز ACCOUNTING_NOT_ALLOWED)، ويجب أن يملك صاحب المفتاح صلاحية canManageVanStock (والرفض 403). ويُطبَّق كذلك نطاق المناديب المحدد لصاحب المفتاح إن كان مقيَّداً.\nمسارات /warehouse تشترط الشيئين نفسيهما وتفعيل ميزة مخزون الشركة (warehouseEnabled، وهي مطفأة افتراضياً)، بهذا الترتيب: صلاحية canManageVanStock أولاً (403 بلا code، فيأتي ولو كان النظام المحاسبي مطفأً)، ثم النظام المحاسبي (403 ACCOUNTING_NOT_ALLOWED)، ثم عَلَم المستودع (403 بلا code برسالة «ميزة مخزون الشركة غير مفعلة لهذه الشركة»).\nالمفتاح المضبوط على «قراءة فقط» لا يمرّ إلا بطلبات GET.\nلكل قائمة في هذه المجموعة سقف ثابت: سجل المستودع آخر 100 حركة، وسجل التحميلات آخر 100 حركة ما لم تُرسل page فيُرقَّم بحدّ 200. للتاريخ الكامل استعمل مسارات المزامنة /v1/sync/van-loads و/v1/sync/warehouse-entries.\nلا يوجد مسار لتعديل الحركات أو حذفها، والتصحيح يكون بحركة معاكسة أو بتسوية. وPOST /van-stock/loads وPOST /warehouse/entries يقبلان clientRef اختيارياً (حتى 64 حرفاً لاتينياً أو رقماً أو - أو _): ولّد واحداً لكل حركة وأعده نفسه عند الإعادة، فيرجع المكرَّر 200 بالحركة القائمة وreplay: true بلا كتابة (والبحث به ?clientRef= في GET). بلاه تُنشئ إعادة الطلب حركة مكررة.\nالتحميل LOAD في شركة مخزونها مفعّل (warehouseEnabled) لا يتجاوز رصيد الصنف في المستودع بوحدة الأساس، لكل مُصدِر ومنه المفتاح: 422 WAREHOUSE_INSUFFICIENT بـlines:[{index, indexes, productId, availableBase, requestedBase}] ولا يُكتب شيء. والوارد RECEIVE والتحميل LOAD لصنفٍ مؤرشف 422 PRODUCT_ARCHIVED، وصنفٌ لا يتبع الشركة 400 PRODUCT_NOT_FOUND بموضع السطر index.\nطلبات البضاعة (/rep-stock-requests): المندوب الذي لا يملك صلاحية التحميل يرفع من تطبيقه ما يحتاجه، فيظهر للإدارة في «طلب مخزون» بصفحة مخزون الشركة. بمفتاح الشركة تقرأ المعلّقة وتعدّل الكميات المعتمدة وترسل الطلب العام أو ترفض. الطلب لا يمسّ أي رصيد، وكل كتابة ترسل نسخة الطلب updatedAt كما قرأتها (409 إن تغيّر). وحراسها بالترتيب: النظام المحاسبي (403 ACCOUNTING_NOT_ALLOWED) ثم canManageVanStock ثم العَلَم (403 WAREHOUSE_NOT_ENABLED).\nالحد 120 طلباً في الدقيقة لكل مفتاح، ويظهر في رؤوس X-RateLimit-*\nالوحدات المتعددة: كل رصيد وكمية مجمّعة في هذه المجموعة بوحدة الأساس للصنف (unit، أصغر ما يُباع): remaining وloaded وsold في السيارة، وonHand وreceived في المستودع، وأرقام الاقتراح والدقة، ومجاميع الملخّصات عبر الأصناف (حبّات لا كراتين). وتُرفق units (وحدات الصنف {id, name, factor, isActive}) بصفوف الأرصدة ليعرضها نظامكم «2 كرتون و3 حبة». ومسارات الكتابة (POST /van-stock/loads وPOST /warehouse/entries وتعديل طلب البضاعة) تقبل items[].unitId من units[].id للصنف، فتكون qty بوحدته (وunitCost لوحدته في الوارد)، ويكتب الخادم لقطتها unitName وunitFactor وbaseQty = qty × unitFactor. غياب unitId = وحدة الأساس كما قبل الميزة، ومعرّفٌ لا يخصّ الصنف أو لوحدة موقوفة يُرفض 400 {success:false, code:'UNIT_INVALID', message} ولا تُكتب الحركة. ومزامنة /v1/sync/van-loads و/v1/sync/warehouse-entries تحمل اللقطة نفسها في كل بند: اجمع baseQty لا qty\n«تتبّع LOT» (حين lotTrackingEnabled للشركة وlotTracked للصنف، وإلا لا شيء مما يلي): رصيد الصنف المتتبَّع مقسوم على تشغيلات في المستودع وفي كل سيارة، والباقي «غير مسمّى». لا تجعل أي حركة رصيد تشغيلة سالباً ولا تُنقص الرصيد غير المسمّى تحت الصفر، لأي مُصدِر (409 LOT_STOCK_INSUFFICIENT)، فالقاعدتان «لا فحص للتوفر» و«المستودع قد يصير سالباً» لا تنطبقان عليه. كل زيادة بلا مصدر يلزمها تشغيلة وإلا 422 LOT_REQUIRED: الوارد والتسوية بالزيادة في المستودع (items[].lotId أو items[].lotNumber وتاريخاها، وlotId: null صريحاً للرصيد غير المسمّى في التسوية وحدها)، والتسوية بالزيادة في السيارة والتحميل في شركة بلا مخزون شركة (items[].lotNumber أو items[].lots). والتحميل من المستودع يوزّعه الخادم بالأقرب انتهاءً من التشغيلات النشطة غير المنتهية ثم من الرصيد غير المسمّى، أو بتشغيلاتك في items[].lots، والإنقاص من السيارة (التنزيل والتسوية والإتلاف) بتشغيلاتك في items[].lots، وبدونها يُسحب تلقائياً من كل تشغيلات الدلو بالأقرب انتهاءً أولاً (والموقوفة والمنتهية منها، والتي بلا انتهاء آخراً) ثم من الرصيد غير المسمّى (عدا تنزيل سيارة مندوبٍ محذوف: تشغيلاتٌ مسمّاة صريحة لازمة وإلا 422 LOT_REQUIRED بـdetail.reason = DELETED_VAN، وإتلاف المنتهي غير المباع lotReason = EXPIRED_UNSOLD_DESTROY: من التشغيلات المنتهية يوم الشركة وحدها لا من غير المسمّى، ونقصها 409 LOT_STOCK_INSUFFICIENT)، فقد يتوزّع البند على أكثر من تشغيلة بيقين ASSUMED، وما فاق رصيد الدلو 409 LOT_STOCK_INSUFFICIENT؛ وكذلك تسوية النقص في المستودع بلا تشغيلة (تُكتب بنداً لكل تشغيلة). كل كميات التشغيلات بوحدة الأساس. والمخزون الافتتاحي بالاستيراد (POST /import/opening-stock في مجموعة «استيراد البيانات»، صفوف rows حتى 5000) يقبل لكل صف lotNumber وproductionDate وexpiryDate للصنف المتتبَّع، وأخطاء صفوفه في errors[]: LOT_REQUIRED (رقم غائب أو أطول من 64) وLOT_DATES_INVALID وLOT_EXPIRY_REQUIRED وLOT_QTY_INVALID (كمية بالأساس بأكثر من أربع خانات) وLOT_DATES_MISMATCH (رقم مسجَّل أو مكرّر في الملف بتواريخ أخرى)، وانشغال الأصناف 409 OPENING_STOCK_LEDGER_BUSY. والتراجع عن دفعة افتتاحية استُعملت تشغيلاتها بعدها يبقى في blocked بالسبب «استُعملت تشغيلات المخزون الافتتاحي بعد الاستيراد». التفاصيل في مجموعة «تتبّع LOT»",
   "endpoints": [
    {
     "method": "POST",
@@ -4121,7 +4187,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "items[].productId",
       "type": "string (uuid)",
       "required": true,
-      "desc": "معرّف صنف تابع للشركة. الصنف غير النشط مقبول، وتكرار الصنف في أكثر من بند مقبول"
+      "desc": "معرّف صنف تابع للشركة، وإلا 400 PRODUCT_NOT_FOUND بموضع السطر. الصنف الموقوف (status=INACTIVE) مقبول، والمؤرشف (deletedAt غير فارغ) يُرفض في LOAD وحده 422 PRODUCT_ARCHIVED ويُقبل في UNLOAD وADJUST وEXPIRED_OUT وDAMAGED_OUT (بها يُصفّى رصيده). وتكرار الصنف في أكثر من بند مقبول، وأسطره تُجمع في حكم رصيد المستودع"
      },
      {
       "name": "items[].qty",
@@ -4194,24 +4260,32 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "type": "string",
       "required": false,
       "desc": "«تتبّع LOT»: تنزيل بضاعة سيارة مندوب محذوف إلى المستودع (بدل salesRepId ولا معه، وإلا 400). لمستخدم غير مقيّد بنطاق (403 LOT_SCOPED_USER) والميزة مفعّلة (403 LOTS_NOT_ALLOWED)، وبالنوع UNLOAD وحده (400)، ولأصناف متتبَّعة وحدها (400) بتشغيلات مسمّاة صريحة في items[].lots أو items[].lotNumber (422 LOT_REQUIRED). المعرّف من deletedSalesRepId في سجل التحميلات أو من GET /lots/:id/unload-plan، ومعرّفٌ بلا أثر محفوظ 404"
+     },
+     {
+      "name": "clientRef",
+      "type": "string ≤ 64 ([A-Za-z0-9_-])",
+      "required": false,
+      "desc": "مفتاح منع التكرار: ولّد واحداً لكل حركة (uuid يكفي) وأعد إرساله نفسه عند إعادة المحاولة. مرجعٌ سبق حفظه لهذه الشركة ⇒ 200 {success:true, data:<الحركة القائمة بشكل ردّ الإنشاء>, replay:true, idempotent:true} ولا يُكتب شيء ولا يُعاد الحكم على الأصناف أو الرصيد (ولو تغيّر بعد الحفظ الأول). مرجعٌ لحركة سيارة أخرى أو نوع آخر ⇒ 409 {success:false, code:'CLIENT_REF_REUSED'}. والطلبان المتزامنان بالمرجع نفسه يُنشئان حركة واحدة. غيابه = بلا حماية من التكرار كما كان، وصيغةٌ غير صالحة 400. لكل شركة مستقلّ، ويعود في GET /van-stock/loads (و?clientRef=) ومزامنة van-loads"
      }
     ],
-    "response": "201 {success:true, data:{id, tenantId, salesRepId, deletedSalesRepId, locationId, type, note, createdBy:'ADMIN', zeroRunId:null, createdAt, updatedAt, items:[{id, vanLoadId, productId, qty, unitName, unitFactor, baseQty, suggestedQty, expectedQty, lineRef, product:{id,name,unit,primaryUnitId}, lots?}]}, warnings?}. lineRef «مرجع السطر» كما أرسلته (null لما لم يُرسَل). «تتبّع LOT»: حركةٌ فيها صنف متتبَّع ترجع كل بند بـlots:[{id, vanLoadItemId, tenantId, productId, vanKey, moveType, viaWarehouse, lotId, qty, certainty, reason, createdAt, lot:{lotNumber, expiryDate}|null}] (qty بالأساس وبإشارة البند، فتسوية النقص سالبة)، ومعها warnings:[{code, productId, detail?}] (قد تكون فارغة): LOT_FROM_UNKNOWN تحميلٌ من المستودع وزّعه الخادم فأخذ من الرصيد غير المسمّى، LOT_SPLIT_UNIT وحدة بند (كرتون) انقسمت بين مصدرين في التوزيع التلقائي detail:{unitFactor, idx} وidx موضع البند في items كما أرسلته، LOT_INTO_BLOCKED تسوية بالزيادة إلى تشغيلة موقوفة detail:{lotId, lotNumber, blockKind}، LOT_MULTI_IN_VAN صار في السيارة أكثر من تشغيلة صالحة للصنف بعد تحميل أو تسوية بالزيادة detail:{lots:[{lotId, lotNumber, usable, expiryDate, status}]}. البند لا يُشطر: إنقاصٌ سُحب من أكثر من تشغيلة يبقى بنداً واحداً بعدة صفوف في lots — 400 {success:false, code:'UNIT_INVALID', message} لوحدة بند غير صالحة (items[].unitId) — 400 {success:false, code:'BASE_UNIT_REQUIRED', message} لمفتاحٍ على صنف محوَّل بلا baseUnitName — 409 {success:false, code:'PRODUCT_UNITS_CHANGED', message} حين يلتزم تحويلُ صنفٍ بين القراءة والكتابة (لا يُكتب شيء) — 503 {success:false, code:'PRODUCT_UNITS_BUSY', message:'وحدات الأصناف قيد التحديث الآن — أعد المحاولة بعد لحظات'}",
+    "response": "201 {success:true, data:{id, tenantId, salesRepId, deletedSalesRepId, locationId, type, note, createdBy:'ADMIN', zeroRunId:null, clientRef, createdAt, updatedAt, items:[{id, vanLoadId, productId, qty, unitName, unitFactor, baseQty, suggestedQty, expectedQty, lineRef, product:{id,name,unit,primaryUnitId}, lots?}]}, warnings?}. lineRef «مرجع السطر» كما أرسلته (null لما لم يُرسَل). «تتبّع LOT»: حركةٌ فيها صنف متتبَّع ترجع كل بند بـlots:[{id, vanLoadItemId, tenantId, productId, vanKey, moveType, viaWarehouse, lotId, qty, certainty, reason, createdAt, lot:{lotNumber, expiryDate}|null}] (qty بالأساس وبإشارة البند، فتسوية النقص سالبة)، ومعها warnings:[{code, productId, detail?}] (قد تكون فارغة): LOT_FROM_UNKNOWN تحميلٌ من المستودع وزّعه الخادم فأخذ من الرصيد غير المسمّى، LOT_SPLIT_UNIT وحدة بند (كرتون) انقسمت بين مصدرين في التوزيع التلقائي detail:{unitFactor, idx} وidx موضع البند في items كما أرسلته، LOT_INTO_BLOCKED تسوية بالزيادة إلى تشغيلة موقوفة detail:{lotId, lotNumber, blockKind}، LOT_MULTI_IN_VAN صار في السيارة أكثر من تشغيلة صالحة للصنف بعد تحميل أو تسوية بالزيادة detail:{lots:[{lotId, lotNumber, usable, expiryDate, status}]}. البند لا يُشطر: إنقاصٌ سُحب من أكثر من تشغيلة يبقى بنداً واحداً بعدة صفوف في lots — 400 {success:false, code:'UNIT_INVALID', message} لوحدة بند غير صالحة (items[].unitId) — 400 {success:false, code:'BASE_UNIT_REQUIRED', message} لمفتاحٍ على صنف محوَّل بلا baseUnitName — 409 {success:false, code:'PRODUCT_UNITS_CHANGED', message} حين يلتزم تحويلُ صنفٍ بين القراءة والكتابة (لا يُكتب شيء) — 503 {success:false, code:'PRODUCT_UNITS_BUSY', message:'وحدات الأصناف قيد التحديث الآن — أعد المحاولة بعد لحظات'} — 400 {success:false, code:'PRODUCT_NOT_FOUND', message, productId, index, productIds, indexes} صنفٌ لا يتبع الشركة — 422 {success:false, code:'PRODUCT_ARCHIVED', message, productId, index} تحميل صنفٍ مؤرشف — 422 {success:false, code:'WAREHOUSE_INSUFFICIENT', message, lines:[{index, indexes, productId, availableBase, requestedBase}]} تحميلٌ فوق رصيد المستودع — 200 {success:true, data, replay:true, idempotent:true} لمرجع clientRef سبق حفظه — 409 {success:false, code:'CLIENT_REF_REUSED', message}",
     "rules": [
      "البنود التي كميتها صفر تُحذف، فإن لم يبقَ بند يُرَدّ 400 «لا توجد كميات صالحة»",
-     "أي صنف لا يتبع الشركة يعطي 400 «منتج غير صالح»",
+     "صنفٌ لا يتبع الشركة (أو حُذف حذفاً فعلياً) ⇒ 400 {success:false, code:'PRODUCT_NOT_FOUND', message, productId, index, productIds, indexes} قبل حلّ وحدات البنود (فلا يأتي UNIT_INVALID مضلِّلاً لسطرٍ يحمل unitId): index موضع أول سطرٍ مرفوض في items كما أرسلتها (من الصفر، والسطر الصفري لا يزيحه)، وindexes كل المواضع، وproductIds الأصناف المرفوضة",
+     "الصنف المؤرشف (deletedAt غير فارغ — حُذف وله أثر): LOAD ⇒ 422 {success:false, code:'PRODUCT_ARCHIVED', message, productId, index} بلا كتابة. وUNLOAD وADJUST وEXPIRED_OUT وDAMAGED_OUT تُقبل عليه (طريق تصفية رصيده). والموقوف غير المؤرشف (status=INACTIVE) يُقبل في كل الأنواع",
+     "رصيد المستودع في التحميل (الشركة warehouseEnabled = true): LOAD لا يتجاوز رصيد الصنف في المستودع (onHand في GET /warehouse) بوحدة الأساس، لكل مُصدِر ومنه المفتاح وتطبيق المندوب. أسطر الصنف الواحد تُجمع، والصنف الذي رصيده صفر أو سالب لا يُحمَّل منه شيء. التجاوز ⇒ 422 {success:false, code:'WAREHOUSE_INSUFFICIENT', message, lines:[{index, indexes, productId, availableBase, requestedBase}]} ولا تُكتب الحركة كلها: سطرٌ لكل صنفٍ ناقص، وindex موضع أول أسطره في items كما أرسلتها (indexes كلها)، وavailableBase رصيده قبل الحركة وrequestedBase مجموع أسطره، بالأساس. الحكم داخل معاملة الكتابة تحت قفلٍ للمستودع، فتحميلان متزامنان لا يمرّان معاً فوق الرصيد. والشركة بلا مخزون شركة: لا حكم بالمستودع",
      "مندوب غير موجود في الشركة يعطي 404",
-     "لا فحص لتوفر الكمية في المستودع عند LOAD ولا في السيارة عند UNLOAD، فقد يصير أي من الرصيدين سالباً — إلا الصنف المتتبَّع بالتشغيلة («تتبّع LOT» مفعّل للشركة والصنف): لا يصير رصيد أي تشغيلة له سالباً في المستودع أو السيارة، ولا ينقص رصيده غير المسمّى تحت الصفر (409 LOT_STOCK_INSUFFICIENT مع detail)، فتحميله من المستودع قبل تسجيل وارده يُرفض بالرسالة «سجّل وارد التشغيلة أولاً» (detail.hint = 'RECEIVE_FIRST')",
+     "لا فحص لتوفر الكمية في السيارة عند UNLOAD ولا في التسوية بالنقص، فقد يصير رصيدها سالباً (والتحميل يُحكم عليه برصيد المستودع، القاعدة أعلاه) — إلا الصنف المتتبَّع بالتشغيلة («تتبّع LOT» مفعّل للشركة والصنف): لا يصير رصيد أي تشغيلة له سالباً في المستودع أو السيارة، ولا ينقص رصيده غير المسمّى تحت الصفر (409 LOT_STOCK_INSUFFICIENT مع detail)، فتحميله من المستودع قبل تسجيل وارده يُرفض بالرسالة «سجّل وارد التشغيلة أولاً» (detail.hint = 'RECEIVE_FIRST')",
      "الأثر على المستودع: LOAD ينقص onHand في المستودع، وUNLOAD يعيد الكمية إليه بكلفة خروجها من نفس السيارة (آخر ما حُمّل أول ما يعود)، وADJUST لا يمسّ المستودع",
      "الإدارة لا قيد عليها في إشارة qty، فـLOAD أو UNLOAD بكمية سالبة يُقبل ويعكس المعنى. أرسل الكميات موجبة دائماً. والصنف المتتبَّع: الكمية السالبة لتسوية ADJUST وحدها، وغيرها 422 LOT_QTY_INVALID",
      "«تتبّع LOT» — الزيادة بلا مصدر تحمل تشغيلتها: تحميل الصنف المتتبَّع في شركة بلا مخزون شركة، والتسوية بالزيادة (ADJUST بكمية موجبة) في أي شركة — items[].lotNumber وتاريخاه، أو items[].lots بتشغيلة قائمة أو null للرصيد غير المسمّى صراحةً — وبدونها 422 LOT_REQUIRED بـdetail {productId, idx}. التحميل يرفض التشغيلة الموقوفة (422 LOT_BLOCKED) والمنتهية (422 LOT_EXPIRED)، والتسوية بالزيادة تقبل الموقوفة بتحذير LOT_INTO_BLOCKED. وما عدا الزيادة لا يأتي LOT_REQUIRED في هذا المسار إلا لرقم تشغيلة غير صالح (detail.reason = LOT_NUMBER_INVALID) أو لتنزيل سيارة مندوب محذوف (DELETED_VAN): كل إنقاص بلا تشغيلة يسحبه الخادم تلقائياً",
      "«تتبّع LOT» — التنزيل بعد إيقاف تشغيلة أو سحبها: اقرأ السيارات التي فيها من GET /lots/:id/unload-plan ثم أرسل UNLOAD بـitems[].lots = [{lotId, qty}] لكل سيارة (والخطة [] لصنفٍ أُطفئ تتبّعه: نزّله بلا حقول التشغيلة). ولا تعتمد على السحب التلقائي هنا: بلا items[].lots يختار الخادم بالأقرب انتهاءً لا بالحالة، فقد يُنزّل تشغيلة أخرى قبل الموقوفة",
      "«تتبّع LOT» — صنفٌ غير متتبَّع والميزة مفعّلة للشركة: بندٌ يحمل حقل تشغيلة (items[].lots غير فارغة، أو lotNumber أو productionDate أو expiryDate أو lotReason) يُرفض 422 {code:'LOT_PRODUCT_MISMATCH', detail:{productId, idx, reason:'NOT_TRACKED'}} بلا حركة، وidx موضع البند في items كما أرسلته. أرسله بلا هذه الحقول (null والنص الفارغ والقائمة الفارغة غياب). والميزة مطفأة تُهمل هذه الحقول كما كانت",
-     "«تتبّع LOT» — الانشغال: 503 {code:'LOT_BUSY', detail:{cause|reason}} حين يكون الصنف مشغولاً بعملية تشغيلات أخرى، أو تبدّل تتبّعه أثناء الطلب (detail.reason = 'TRACKING_CHANGED')، أو طال انتظار المعاملة تحت الضغط — ومنه حركةٌ أصنافها كلها غير متتبَّعة والميزة مفعّلة للشركة. لا يُكتب شيء، فأعد الطلب (الحركة بلا clientRef، فلا تُعِده بعد 201). والميزة مطفأة لا LOT_BUSY",
+     "«تتبّع LOT» — الانشغال: 503 {code:'LOT_BUSY', detail:{cause|reason}} حين يكون الصنف مشغولاً بعملية تشغيلات أخرى، أو تبدّل تتبّعه أثناء الطلب (detail.reason = 'TRACKING_CHANGED')، أو طال انتظار المعاملة تحت الضغط — ومنه حركةٌ أصنافها كلها غير متتبَّعة والميزة مفعّلة للشركة. لا يُكتب شيء، فأعد الطلب (بالـclientRef نفسه إن أرسلته). والميزة مطفأة لا LOT_BUSY",
      "«تتبّع LOT» — شكل 409 LOT_STOCK_INSUFFICIENT (الكميات بالأساس): في الإنقاص من السيارة detail {productId, bucket, wanted, lines:[idx], sources:[{lotId, lotNumber, usable, status, expiryDate}]} — bucket دلو السيارة SELLABLE أو EXPIRED أو DAMAGED، وwanted ما طُلب منه للصنف، وlines مواضع أسطره في items كما أرسلتها، وsources مصادره الصالحة (lotId: null للرصيد غير المسمّى)، ولتشغيلة صريحة يضاف lotId وlotNumber. وفي التحميل من المستودع detail {productId, wanted, available, byLot:[{lotId, lotNumber, usable, status, expiryDate}], unknownUsable}، ومعه hint = 'RECEIVE_FIRST' حين لا شيء صالح في المستودع للصنف، ولتشغيلة صريحة {productId, lotId, lotNumber, wanted, usable}",
      "createdBy يُسجَّل ADMIN لكل طلب من غير المندوب",
      "EXPIRED_OUT وDAMAGED_OUT: كمياتٌ موجبة لا يتجاوز مجموعها بالأساس رصيد expired أو damaged للصنف في السيارة (وإلا 400)، ولا تمسّ remaining ولا المستودع",
-     "لا يوجد clientRef ولا حماية من التكرار، ولا مسار تعديل أو حذف. التصحيح يكون بحركة معاكسة أو تسوية",
+     "منع التكرار بـclientRef الاختياري (انظر الحقل): أرسله فتصير إعادة المحاولة بعد انقطاعٍ أو مهلة آمنة، والمكرَّر 200 بالحركة القائمة وreplay:true. بلاه كل طلبٍ حركةٌ جديدة. ولا مسار تعديل أو حذف: التصحيح بحركة معاكسة أو تسوية",
      "إن غاب salesRepId يُرَدّ 400 برسالة «يجب تحديد المندوب»",
      "مندوب خارج نطاق صاحب المفتاح يُرَدّ عليه 404 برسالة «المندوب غير موجود»",
      "ختم الموقع (ميزة «لوكيشن»): التحميل من النوع LOAD يُختم في الخادم بموقع المندوب لحظة التسجيل إن كانت الميزة مفعّلة، والأنواع الأخرى بلا ختم. لا حقل له في الجسم",
@@ -4238,14 +4312,14 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{productId, name, code, unit, loaded, unloaded, adjusted, sold, returned, remaining, expired, damaged, units:[{id, name, factor, isActive}], primaryUnitId(null أو معرّف من units — للعرض وحده، والكميات بالأساس)}]}، مرتبة تنازلياً حسب remaining",
+    "response": "{success:true, data:[{productId, name, code, unit, status, archived, loaded, unloaded, adjusted, sold, returned, remaining, expired, damaged, units:[{id, name, factor, isActive}], primaryUnitId(null أو معرّف من units — للعرض وحده، والكميات بالأساس)}]}، مرتبة تنازلياً حسب remaining",
     "rules": [
      "remaining = loaded − unloaded + adjusted − sold + returned، مقرّبة لأربع خانات، وتُحسب على كامل التاريخ",
      "sold هو بنود كل فاتورة مؤكدة (CONFIRMED) غير مرتجعة منسوبة لهذا المندوب، أياً كان من أنشأها",
      "returned هو المرتجعات غير المنتهية وغير التالفة التي returnToStock فيها true",
      "expired رصيد «منتهي الصلاحية»: مرتجعٌ عاد بعد انتهاء صلاحيته، لا يدخل remaining حتى يُزال بـEXPIRED_OUT",
      "damaged رصيد «المرتجع التالف»: مرتجعٌ سببه DAMAGED سُجّل منذ ١٥ أكتوبر ٢٠٢٦، لا يدخل remaining مهما كانت returnToStock حتى يُزال بـDAMAGED_OUT. والتالف المنتهي صلاحيته يدخل expired",
-     "تظهر فقط الأصناف التي لها حركة لهذا المندوب، والأصناف غير النشطة تظهر إن كانت لها حركة",
+     "تظهر فقط الأصناف التي لها حركة لهذا المندوب، ومنها الموقوفة والمؤرشفة: status حالة الصنف (ACTIVE أو INACTIVE)، وarchived = true للمؤرشف (deletedAt غير فارغ) — للعرض وحده، فلا يبدو الصنف مكرّراً بجانب بديله",
      "remaining قد يكون سالباً إن باع المندوب فوق ما حمّل وهو يملك إذن canSellWithoutStock، أو بيع له بالإدارة أو المفتاح — إلا الصنف المتتبَّع بالتشغيلة («تتبّع LOT»): بيعه مقيّد برصيد تشغيلاته وغير المسمّى لكل مُصدِر (409 LOT_STOCK_INSUFFICIENT)، فلا يصير remaining له سالباً إلا من تاريخ ما قبل التفعيل",
      "بنود الفاتورة التي لا صنف لها تُتجاهل",
      "معرّف مندوب غير موجود يعيد مصفوفة فارغة، ومندوب خارج النطاق يعيد 404 «المندوب غير موجود»",
@@ -4394,22 +4468,25 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "from",
       "type": "string (YYYY-MM-DD)",
       "required": false,
-      "desc": "بداية المدة، وتشمل اليوم نفسه. القيمة الفاسدة تُهمل"
+      "desc": "بداية المدة من أول اليوم بتوقيت الشركة (كسجل التحميلات GET /van-stock/loads). القيمة الفاسدة تُهمل"
      },
      {
       "name": "to",
       "type": "string (YYYY-MM-DD)",
       "required": false,
-      "desc": "نهاية المدة حتى آخر اليوم. القيمة الفاسدة تُهمل، والمدى المقلوب يُصحَّح تلقائياً"
+      "desc": "نهاية المدة حتى آخر اليوم بتوقيت الشركة. القيمة الفاسدة تُهمل، والمدى المقلوب يُصحَّح تلقائياً"
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{salesRepId, repName, isActive, canSellWithoutStock, productCount, totalRemaining, totalLoaded, totalSold, totalDamaged, toolsCount, lastLoadAt, major:{remaining, loaded, sold, damaged}}], filtered:boolean, from:string|null, to:string|null}",
+    "response": "{success:true, data:[{salesRepId, repName, isActive, canSellWithoutStock, productCount, onVanCount, totalRemaining, totalDeficit, deficitCount, totalExpired, totalLoaded, totalSold, totalDamaged, toolsCount, lastLoadAt, major:{remaining, onVan, loaded, sold, damaged}}], filtered:boolean, from:string|null, to:string|null, deletedTools:[{deletedSalesRepId, repName:'مندوب محذوف', toolsCount, balances:[{toolName, qty}]}]}",
     "rules": [
+     "حدود الأيام بتوقيت الشركة: from من أول يومه وto حتى آخر يومه بتوقيتها، للمحمَّل والمباع وآخر تحميل والرصيد حتى نهاية المدة",
+     "totalDeficit مجموع العجز (الأرصدة السالبة بقيمتها المطلقة) وdeficitCount عدد أصنافه، وtotalExpired رصيد «منتهي الصلاحية» الموجب — إضافات، وtotalRemaining كما كان (صافٍ بإشارته)",
+     "deletedTools عهد أدوات المناديب المحذوفين القائمة (رصيد موجب)، لصاحب المفتاح غير المقيّد بنطاق وحده (وللمقيّد [])، وتفصيلها وتسجيل استلامها في /van-stock/tools بـdeletedSalesRepId",
      "بلا from وto: الأرقام إجمالية على كامل التاريخ",
      "مع from أو to: totalLoaded وtotalSold هما ما جرى داخل المدة، أما totalRemaining فهو الرصيد التراكمي حتى نهاية to",
      "lastLoadAt هو تاريخ آخر LOAD قبل نهاية to",
-     "productCount هو عدد الأصناف التي متبقيها غير صفري",
+     "productCount عدد الأصناف التي متبقيها غير صفري (موجباً أو سالباً كما كان)، وonVanCount الموجبة وحدها، وdeficitCount السالبة، وmajor.onVan مجموع الموجب وحده لكل وحدة كبرى (major.remaining صافٍ بإشارته كما كان)",
      "totalDamaged رصيد «المرتجع التالف» في السيارة حتى نهاية to، كالمتبقي",
      "toolsCount عدد الأدوات في عهدة السيارة الآن (المسلَّم − المستلَم) ولا يتبع المدة",
      "يشمل المناديب غير النشطين (راجع حقل isActive)",
@@ -4512,10 +4589,16 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "type": "1 | true",
       "required": false,
       "desc": "«تتبّع LOT»: يضيف لكل بند lots:[{id, vanLoadItemId, tenantId, productId, vanKey, moveType, viaWarehouse, lotId, qty, certainty, reason, createdAt, lot:{lotNumber, expiryDate}|null}] — توزيعه على التشغيلات بالكمية الأساسية وبإشارة البند. بند صنف غير متتبَّع lots فارغة. يُهمل حين تكون الميزة مطفأة للشركة"
+     },
+     {
+      "name": "clientRef",
+      "type": "string ≤ 64 ([A-Za-z0-9_-])",
+      "required": false,
+      "desc": "الحركة التي أُرسلت بهذا المرجع (POST /van-stock/loads) — للتحقّق قبل إعادة الإرسال. صيغةٌ غير صالحة تُهمل"
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{id, tenantId, salesRepId, deletedSalesRepId, locationId, type, note, createdBy:'REP'|'ADMIN'|null, createdAt, zeroRunId, items:[{id, vanLoadId, productId, qty, unitName, unitFactor, baseQty, suggestedQty, expectedQty, lineRef, product:{id,name,unit,primaryUnitId}, lots?}], salesRep:{id,name}, location:{id,name}|null}], pagination?:{total, page, limit, pages}}",
+    "response": "{success:true, data:[{id, tenantId, salesRepId, deletedSalesRepId, locationId, type, note, createdBy:'REP'|'ADMIN'|null, createdAt, zeroRunId, clientRef, items:[{id, vanLoadId, productId, qty, unitName, unitFactor, baseQty, suggestedQty, expectedQty, lineRef, product:{id,name,unit,primaryUnitId}, lots?}], salesRep:{id,name}, location:{id,name}|null}], pagination?:{total, page, limit, pages}}",
     "rules": [
      "بلا page: آخر 100 حركة فقط، الأحدث أولاً، بلا pagination. ومع page: صفحات مرقّمة بحدّ 200. للتاريخ الكامل استعمل /v1/sync/van-loads",
      "location هو ختم موقع المندوب لحظة التحميل (حركات LOAD وحدها تُختم حين تفعّل الشركة ميزة «لوكيشن»)، ولا يتغيّر إن نُقل المندوب لاحقاً. وnull لما بلا ختم",
@@ -4579,7 +4662,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "salesRepId",
       "type": "string (uuid)",
       "required": true,
-      "desc": "معرّف المندوب، وغيابه يعطي 400"
+      "desc": "معرّف المندوب، وغيابه (بلا deletedSalesRepId) يعطي 400"
+     },
+     {
+      "name": "deletedSalesRepId",
+      "type": "string",
+      "required": false,
+      "desc": "عهدة مندوب محذوف بدل salesRepId (من deletedTools في GET /van-stock/summary): حذف المندوب يُبقي حركات أدواته بمعرّفه فتبقى ظاهرة. لصاحب مفتاح غير مقيّد بنطاق، ومعرّف مندوب قائم أو بلا أثر عهدة أو مستخدم مقيّد ⇒ 404"
      }
     ],
     "body": [],
@@ -4610,7 +4699,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "salesRepId",
       "type": "string (uuid)",
       "required": true,
-      "desc": "معرّف المندوب صاحب السيارة"
+      "desc": "معرّف المندوب صاحب السيارة. أحدهما إلزامي: salesRepId أو deletedSalesRepId (لا كلاهما ولا غيابهما، وإلا 400)"
+     },
+     {
+      "name": "deletedSalesRepId",
+      "type": "string",
+      "required": false,
+      "desc": "استلام أدوات من عهدة مندوب محذوف (RETURN وحده، وإلا 400) بسقف عهدته، لصاحب مفتاح غير مقيّد بنطاق (وإلا 404)"
      },
      {
       "name": "type",
@@ -4647,6 +4742,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "rules": [
      "RETURN لا يتجاوز عهدة الأداة في السيارة، وإلا 400",
      "سطران للأداة نفسها في الطلب يُجمعان في حركة واحدة",
+     "حذف المندوب لا يمحو عهدته: تبقى حركاتها بمعرّفه (deletedSalesRepId) وتُستلم منه بـdeletedSalesRepId",
      "لا مسار تعديل أو حذف: التصحيح بحركة معاكسة"
     ],
     "example": "{\"salesRepId\":\"3f6c2a1e-8b4d-4c1a-9e2f-1a2b3c4d5e6f\",\"type\":\"ISSUE\",\"items\":[{\"toolName\":\"عربة تحميل\",\"qty\":1},{\"toolName\":\"سلة\",\"qty\":4}]}"
@@ -4670,14 +4766,14 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{productId, name, code, unit, received, adjusted, loadedToVans, returnedFromVans, onHand, avgCost, stockValue, costedQty, uncostedQty, units:[{id, name, factor, isActive}], primaryUnitId(null أو معرّف من units — للعرض وحده، والكميات والتكلفة بالأساس)}]}، مرتبة تنازلياً حسب onHand",
+    "response": "{success:true, data:[{productId, name, code, unit, status, archived, received, adjusted, loadedToVans, returnedFromVans, onHand, avgCost, stockValue, costedQty, uncostedQty, units:[{id, name, factor, isActive}], primaryUnitId(null أو معرّف من units — للعرض وحده، والكميات والتكلفة بالأساس)}]}، مرتبة تنازلياً حسب onHand",
     "rules": [
-     "تظهر كل الأصناف النشطة حتى التي لا حركة لها",
+     "تظهر كل الأصناف النشطة حتى التي لا حركة لها، والموقوفة والمؤرشفة ما دام لها رصيد أو قيمة (ومع asOf كذلك). status حالة الصنف (ACTIVE أو INACTIVE)، وarchived = true للمؤرشف (deletedAt غير فارغ) — للعرض وحده، فلا يبدو الصنف مكرّراً بجانب بديله",
      "onHand = received + adjusted + returnedFromVans − loadedToVans، مقرّبة لأربع خانات",
      "تُحسب تحميلات كل المناديب ومنهم المحذوفون، ولا يُطبَّق نطاق المناديب هنا لأن المستودع على مستوى الشركة",
      "avgCost متوسط متحرك من الوارد المسعّر، صافٍ قبل الضريبة، بأربع خانات. stockValue = costedQty × avgCost، مقرّبة بخانات عملة الشركة",
      "uncostedQty كمية بلا سعر معروف، وهي خارج stockValue صراحة",
-     "onHand وstockValue قد يصيران سالبين حين يُحمَّل للسيارات أكثر من الوارد — إلا الصنف المتتبَّع بالتشغيلة («تتبّع LOT»): التحميل والتسوية بالنقص لا يتجاوزان رصيد تشغيلاته والرصيد غير المسمّى (409 LOT_STOCK_INSUFFICIENT)، فلا ينزل تحت الصفر إلا ما كان سالباً قبل التفعيل. وأرصدته بالتشغيلة في GET /lots/balances",
+     "onHand وstockValue قد يصيران سالبين بتسوية بالنقص، أو من تحميلاتٍ سبقت منع التحميل فوق الرصيد (POST /van-stock/loads يرفض الآن 422 WAREHOUSE_INSUFFICIENT ما يتجاوز onHand، والصنف السالب لا يُحمَّل منه) — إلا الصنف المتتبَّع بالتشغيلة («تتبّع LOT»): التحميل والتسوية بالنقص لا يتجاوزان رصيد تشغيلاته والرصيد غير المسمّى (409 LOT_STOCK_INSUFFICIENT)، فلا ينزل تحت الصفر إلا ما كان سالباً قبل التفعيل. وأرصدته بالتشغيلة في GET /lots/balances",
      "الكميات (received وadjusted وloadedToVans وreturnedFromVans وonHand وcostedQty وuncostedQty) بوحدة الأساس unit، وavgCost لوحدة الأساس (تكلفة الكرتون ÷ معامله بلا تقريب قبل المتوسط)، وunits وحدات الصنف للعرض"
     ],
     "example": ""
@@ -4752,6 +4848,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "الافتراضي false. اجعله true إن كانت قيم unitCost شاملة للضريبة، فيحوّلها الخادم إلى الصافي قبل الحفظ"
      },
      {
+      "name": "clientRef",
+      "type": "string ≤ 64 ([A-Za-z0-9_-])",
+      "required": false,
+      "desc": "مفتاح منع التكرار: ولّد واحداً لكل حركة وأعد إرساله نفسه عند إعادة المحاولة. مرجعٌ سبق حفظه لهذه الشركة ⇒ 200 {success:true, data:<الحركة القائمة بشكل ردّ الإنشاء>, replay:true, idempotent:true} بلا كتابة ولا حكمٍ جديد. مرجعٌ لحركة من نوع آخر ⇒ 409 {success:false, code:'CLIENT_REF_REUSED'}. والطلبان المتزامنان بالمرجع نفسه يُنشئان حركة واحدة. غيابه = بلا حماية من التكرار، وصيغةٌ غير صالحة 400. يعود في GET /warehouse/entries (و?clientRef=) ومزامنة warehouse-entries"
+     },
+     {
       "name": "items",
       "type": "array (min 1)",
       "required": true,
@@ -4761,7 +4863,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "items[].productId",
       "type": "string (uuid)",
       "required": true,
-      "desc": "معرّف صنف تابع للشركة"
+      "desc": "معرّف صنف تابع للشركة، وإلا 400 PRODUCT_NOT_FOUND بموضع السطر. المؤرشف (deletedAt غير فارغ) يُرفض في RECEIVE وحده 422 PRODUCT_ARCHIVED، وتُقبل عليه ADJUST (به يُصحَّح رصيده)، والموقوف غير المؤرشف مقبول"
      },
      {
       "name": "items[].qty",
@@ -4818,21 +4920,22 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "«مرجع السطر»: معرّف السطر في نظامك، يُحفظ على البند ويعود كما هو في ردّ الحركة وGET /warehouse/entries ومزامنة warehouse-entries (items[].lineRef). وسطر تسوية النقص الذي سحبه الخادم من أكثر من تشغيلة يعود بنوداً متعددة كلها بـlineRef السطر نفسه، فاجمع baseQty البنود بالمرجع لتطابق سطرك. اختياري لكل الشركات: يُقصّ طرفاه، والفارغ بعد القصّ = null، والأطول من 100 حرف 400. لا فرادة ولا فحص غيره"
      }
     ],
-    "response": "201 {success:true, data:{id, tenantId, type, note, supplier, createdBy, createdAt, items:[{id, entryId, productId, qty, unitName, unitFactor, baseQty, unitCost, expiresAt, lineRef, product:{id,name,unit,primaryUnitId}, lotId?, lot?}]}, warnings?}. lineRef «مرجع السطر» كما أرسلته (null لما لم يُرسَل). «تتبّع LOT» (الميزة مفعّلة): كل بند يحمل lotId وlot:{lotNumber, productionDate, expiryDate}|null (null لصنف غير متتبَّع أو للرصيد غير المسمّى)، وwarnings بجوار data حين توجد وحدها: LOT_INTO_BLOCKED {code, productId, detail:{idx, lotId, lotNumber, blockKind}} حين يدخل الوارد أو التسوية بالزيادة تشغيلة موقوفة، وLOT_SPLIT_UNIT {code, productId, detail:{unitFactor, idx}} حين قسم السحب التلقائي لتسوية النقص وحدة السطر (كرتوناً) بين مصدرين (idx موضع السطر بين البنود غير الصفرية). وسطر تسوية نقص سحبه الخادم من أكثر من تشغيلة يعود بنوداً متعددة في items للصنف نفسه، لكلٍّ lotId وlot ولقطة وحدته (وحدة السطر إن كانت حصّته وحداتٍ كاملة وإلا وحدة الأساس) وqty وbaseQty بالسالب وlineRef السطر نفسه، ومجموع baseQty لها = الكمية الأساسية للسطر — 400 {success:false, code:'UNIT_INVALID', message} لوحدة بند غير صالحة — 400 {success:false, code:'BASE_UNIT_REQUIRED', message} لمفتاحٍ على صنف محوَّل بلا baseUnitName — 409 {success:false, code:'PRODUCT_UNITS_CHANGED', message} حين يلتزم تحويلُ صنفٍ بين القراءة والكتابة (لا يُكتب شيء) — 503 {success:false, code:'PRODUCT_UNITS_BUSY', message:'وحدات الأصناف قيد التحديث الآن — أعد المحاولة بعد لحظات'}",
+    "response": "201 {success:true, data:{id, tenantId, type, note, supplier, createdBy, clientRef, createdAt, items:[{id, entryId, productId, qty, unitName, unitFactor, baseQty, unitCost, expiresAt, lineRef, product:{id,name,unit,primaryUnitId}, lotId?, lot?}]}, warnings?}. lineRef «مرجع السطر» كما أرسلته (null لما لم يُرسَل). «تتبّع LOT» (الميزة مفعّلة): كل بند يحمل lotId وlot:{lotNumber, productionDate, expiryDate}|null (null لصنف غير متتبَّع أو للرصيد غير المسمّى)، وwarnings بجوار data حين توجد وحدها: LOT_INTO_BLOCKED {code, productId, detail:{idx, lotId, lotNumber, blockKind}} حين يدخل الوارد أو التسوية بالزيادة تشغيلة موقوفة، وLOT_SPLIT_UNIT {code, productId, detail:{unitFactor, idx}} حين قسم السحب التلقائي لتسوية النقص وحدة السطر (كرتوناً) بين مصدرين (idx موضع السطر بين البنود غير الصفرية). وسطر تسوية نقص سحبه الخادم من أكثر من تشغيلة يعود بنوداً متعددة في items للصنف نفسه، لكلٍّ lotId وlot ولقطة وحدته (وحدة السطر إن كانت حصّته وحداتٍ كاملة وإلا وحدة الأساس) وqty وbaseQty بالسالب وlineRef السطر نفسه، ومجموع baseQty لها = الكمية الأساسية للسطر — 400 {success:false, code:'UNIT_INVALID', message} لوحدة بند غير صالحة — 400 {success:false, code:'BASE_UNIT_REQUIRED', message} لمفتاحٍ على صنف محوَّل بلا baseUnitName — 409 {success:false, code:'PRODUCT_UNITS_CHANGED', message} حين يلتزم تحويلُ صنفٍ بين القراءة والكتابة (لا يُكتب شيء) — 503 {success:false, code:'PRODUCT_UNITS_BUSY', message:'وحدات الأصناف قيد التحديث الآن — أعد المحاولة بعد لحظات'}",
     "rules": [
      "«تتبّع LOT»: كمية سطر الصنف المتتبَّع بالأساس (qty × factor) بأربع خانات عشرية على الأكثر (وإلا 422 LOT_QTY_INVALID). الزيادة (الوارد والتسوية بالزيادة) تشغيلة واحدة للسطر: lotId أو lotNumber، أو lotId: null صريحاً للرصيد غير المسمّى في التسوية وحدها، وبدونها 422 LOT_REQUIRED. التسوية بالنقص لا تتجاوز رصيد التشغيلة أو الرصيد غير المسمّى في المستودع (409 LOT_STOCK_INSUFFICIENT). وسطرٌ بالنقص بلا lotId ولا lotNumber يسحبه الخادم تلقائياً مما بقي بعد الأسطر الصريحة للصنف: كل تشغيلات المستودع بالأقرب انتهاءً أولاً، والموقوفة والمنتهية داخلة في الترتيب (فالمنتهية تخرج أولاً)، والتي بلا انتهاء بعدها، ثم الرصيد غير المسمّى آخراً. أسطر الكرتون قبل أسطر الحبة، والكرتون الكامل من تشغيلة واحدة ما أمكن. فإن أخذ السطر من أكثر من تشغيلة كُتب بنداً لكل تشغيلة (items متعددة للسطر نفسه بالصنف نفسه، بوحدة السطر إن كانت حصّتها وحداتٍ كاملة وإلا بوحدة الأساس، ومجموع baseQty لها = أساس السطر، وكلها بـitems[].lineRef السطر إن أرسلته). لإتلاف تشغيلة بعينها (موقوفة أو منتهية) أرسل lotId أو lotNumber: السحب التلقائي يختار بالانتهاء لا بالحالة. وأي رفض يلغي الحركة كلها، والانشغال 503 LOT_BUSY",
      "«تتبّع LOT» — شكل 409 LOT_STOCK_INSUFFICIENT في التسوية بالنقص (الكميات بالأساس): detail {productId, productName, bucket:'SELLABLE', wanted, sources:[{lotId, lotNumber, usable, status, expiryDate}]} — wanted ما طُلب من الصنف، وsources مصادر المستودع الصالحة (lotId: null للرصيد غير المسمّى)، ولتشغيلة صريحة يضاف lotId وlotNumber. ولا فهرس سطر فيه",
      "«تتبّع LOT» — صنفٌ غير متتبَّع والميزة مفعّلة للشركة: سطرٌ يحمل حقل تشغيلة (lotId غير null، أو lotNumber أو productionDate أو expiryDate غير فارغ) يُرفض 422 {code:'LOT_PRODUCT_MISMATCH', detail:{productId, idx, reason:'NOT_TRACKED'}} وتُلغى الحركة كلها، وidx موضع السطر بين البنود غير الصفرية كسائر أخطاء الحركة. أرسله بلا هذه الحقول (null والنص الفارغ غياب). والميزة مطفأة تُهمل هذه الحقول كما كانت",
-     "«تتبّع LOT» — الانشغال: 503 {code:'LOT_BUSY', detail:{cause|reason}} حين يكون الصنف مشغولاً بعملية تشغيلات أخرى، أو تبدّل تتبّعه أثناء الطلب (detail.reason = 'TRACKING_CHANGED')، أو طال انتظار المعاملة تحت الضغط — ومنه حركةٌ أصنافها كلها غير متتبَّعة والميزة مفعّلة للشركة. لا يُكتب شيء، فأعد الطلب (بلا clientRef، فلا تُعِده بعد 201). والميزة مطفأة لا LOT_BUSY",
+     "«تتبّع LOT» — الانشغال: 503 {code:'LOT_BUSY', detail:{cause|reason}} حين يكون الصنف مشغولاً بعملية تشغيلات أخرى، أو تبدّل تتبّعه أثناء الطلب (detail.reason = 'TRACKING_CHANGED')، أو طال انتظار المعاملة تحت الضغط — ومنه حركةٌ أصنافها كلها غير متتبَّعة والميزة مفعّلة للشركة. لا يُكتب شيء، فأعد الطلب (بالـclientRef نفسه إن أرسلته). والميزة مطفأة لا LOT_BUSY",
      "البنود التي كميتها صفر تُحذف، فإن لم يبقَ بند يُرَدّ 400",
      "RECEIVE بكمية سالبة يعطي 400، والتنقيص يكون بتسوية ADJUST",
      "ADJUST مع unitCost يعطي 400",
-     "أي صنف لا يتبع الشركة يعطي 400 «منتج غير صالح»",
+     "صنفٌ لا يتبع الشركة (أو حُذف حذفاً فعلياً) ⇒ 400 {success:false, code:'PRODUCT_NOT_FOUND', message, productId, index, productIds, indexes}: index موضع أول سطرٍ مرفوض في items كما أرسلتها (من الصفر، والسطر الصفري لا يزيحه)، وindexes كل المواضع",
+     "الوارد RECEIVE لصنفٍ مؤرشف (deletedAt غير فارغ) ⇒ 422 {success:false, code:'PRODUCT_ARCHIVED', message, productId, index} بلا كتابة. والتسوية ADJUST تُقبل عليه",
      "unitCost المحفوظ صافٍ دائماً ولوحدة البند، والتقييم يقسمه على unitFactor فتكلفة الحبة = تكلفة الكرتون ÷ 24. مع costsIncludeTax=true يكون unitCost ÷ (1 + taxPct الصنف/100) مقرّباً لأربع خانات",
      "التقييم: الوارد المسعّر يحرّك متوسط التكلفة، والوارد بلا سعر يدخل uncostedQty، والتسوية الموجبة تُقيَّم بمتوسط اللحظة، والسالبة تنقص الكمية المقيَّمة وغير المقيَّمة بنسبتهما",
      "المسار لا يُنشئ قيداً محاسبياً ولا ذمة مورد، فهو حركة مخزون فقط",
      "createdBy هو اسم مستخدم الشركة صاحب المفتاح",
-     "لا يوجد clientRef، ولا مسار تعديل أو حذف"
+     "منع التكرار بـclientRef الاختياري (انظر الحقل): المكرَّر 200 بالحركة القائمة وreplay:true، وبلاه كل طلبٍ حركةٌ جديدة. ولا مسار تعديل أو حذف"
     ],
     "example": "{\"type\":\"RECEIVE\",\"supplier\":\"مؤسسة التوريد المتحدة\",\"note\":\"فاتورة مورد 5512\",\"costsIncludeTax\":true,\"items\":[{\"productId\":\"a1b2c3d4-0000-4000-8000-000000000001\",\"unitId\":\"5e6f7a8b-0000-4000-8000-0000000000c1\",\"qty\":5,\"unitCost\":276},{\"productId\":\"a1b2c3d4-0000-4000-8000-000000000002\",\"qty\":48}]}"
    },
@@ -4846,9 +4949,16 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "accountingEnabled ليس false وإلا 403 ACCOUNTING_NOT_ALLOWED",
      "warehouseEnabled يجب أن يكون true وإلا 403 بلا code «ميزة مخزون الشركة غير مفعلة لهذه الشركة»"
     ],
-    "query": [],
+    "query": [
+     {
+      "name": "clientRef",
+      "type": "string ≤ 64 ([A-Za-z0-9_-])",
+      "required": false,
+      "desc": "الحركة التي أُرسلت بهذا المرجع (POST /warehouse/entries) — للتحقّق قبل إعادة الإرسال. صيغةٌ غير صالحة تُهمل"
+     }
+    ],
     "body": [],
-    "response": "{success:true, data:[{id, tenantId, type, note, supplier, createdBy, createdAt, zeroRunId, items:[{id, entryId, productId, qty, unitName, unitFactor, baseQty, unitCost, expiresAt, lineRef, product:{name,unit,primaryUnitId}, lineCost, lotId?, lot?}], totalCost}]}",
+    "response": "{success:true, data:[{id, tenantId, type, note, supplier, createdBy, createdAt, zeroRunId, clientRef, items:[{id, entryId, productId, qty, unitName, unitFactor, baseQty, unitCost, expiresAt, lineRef, product:{name,unit,primaryUnitId}, lineCost, lotId?, lot?}], totalCost}]}",
     "rules": [
      "«تتبّع LOT» (حين تكون الميزة مفعّلة للشركة): كل بند يحمل lotId وlot:{lotNumber, productionDate, expiryDate}|null — تشغيلة البند، وnull لصنف غير متتبَّع أو للرصيد غير المسمّى. وتسوية نقصٍ سحبها الخادم من أكثر من تشغيلة تظهر بنوداً متعددة للصنف نفسه في الحركة، لكلٍّ تشغيلته ولقطة وحدته وbaseQty وكلها بـlineRef السطر نفسه، فاجمع baseQty. والميزة مطفأة: الرد كما كان",
      "lineRef «مرجع السطر» (لكل الشركات): ما أرسلته في items[].lineRef عند POST /warehouse/entries كما هو، وnull لما لم يُرسَل",
@@ -5932,7 +6042,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "true يتجاوز رفض الملف المكرر IMPORT_DUPLICATE_BATCH"
      }
     ],
-    "response": "{success:true, data:{created, skipped, total, errors:[{row, message, code?, value?, field?}], errorsTotal, batchId, skippedRows:[{row, reason:'CODE_EXISTS'|'DUPLICATE_IN_FILE', code}], netFromInclusive}}. netFromInclusive عدد الصفوف التي تغيّر سعرها من شامل إلى صافٍ، وbatchId = null إن لم يُنشأ صنف",
+    "response": "{success:true, data:{created, skipped, total, errors:[{row, message, code?, value?, field?}], errorsTotal, batchId, skippedRows:[{row, reason:'CODE_EXISTS'|'DUPLICATE_IN_FILE', code}], netFromInclusive, warnings?:{duplicateNames:[{code:'DUPLICATE_NAME', row, name, matches:[{id, code, name, status, archived, row?}]}]}}}. netFromInclusive عدد الصفوف التي تغيّر سعرها من شامل إلى صافٍ، وbatchId = null إن لم يُنشأ صنف. وwarnings.duplicateNames تحذيرٌ لا يمنع شيئاً: صفٌّ أُنشئ اسمُه (بعد قصّ الأطراف ودمج المسافات وحالة الأحرف اللاتينية) يطابق صنفاً للشركة قائماً أو موقوفاً أو مؤرشفاً (archived=true)، أو صفّاً قبله في الملف بكودٍ آخر (id=null ورقم صفّه row) — حتى 200 صف، وبلا مطابقة لا مفتاح warnings",
     "rules": [
      "المسار يُنشئ فقط ولا يحدّث صنفاً قائماً: كودٌ لصنف قائم ⇒ يُتخطّى بالسبب CODE_EXISTS. ولتعديل الأسعار أو الوحدات استعمل PUT /products/:id ومسارات /products/:id/units",
      "كودٌ لصنف مؤرشف ⇒ خطأ صف PRODUCT_CODE_ARCHIVED. وكودٌ مكرر في الملف: إن تطابقت بياناته (ومنها وحداته) يُتخطّى بالسبب DUPLICATE_IN_FILE، وإن اختلفت فخطأ صف PRODUCT_DUPLICATE_IN_FILE",
@@ -8084,7 +8194,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "response": "{success:true, data:[{id, tenantId, type, title, body, salesRepId, customerId, isRead, data (نص JSON أو null), createdAt}]} من الأحدث",
     "rules": [
      "الحد ثابت 50 بلا ترقيم ولا فلتر لحالة القراءة",
-     "type نص مفتوح، ومن قيمه في الكود CREDIT_LIMIT_EXCEEDED وINVOICE_CANCELLED وRECEIPT_CANCELLED وPAYLINK_PAID وPAYLINK_REFUNDED وZATCA_ISSUE_FAILED وأنواع LEDGER_*، وREPLAY_UNITS_REBASED (فاتورةٌ دون اتصال من تطبيق المندوب فُسِّرت كمياتها بعد «إضافة وحدة فرعية أصغر» لصنفها: data {clientRef, number, lines:[{productId, unitName, rebase, notice}]} — راجع كمياتها) وLOT_REPLAY_HELD (فاتورةٌ دون اتصال بانتظار تسجيل تحميلٍ ناقص: data {clientRef, detail})",
+     "type نص مفتوح، ومن قيمه في الكود CREDIT_LIMIT_EXCEEDED وINVOICE_CANCELLED وRECEIPT_CANCELLED وPAYLINK_PAID وPAYLINK_REFUNDED وZATCA_ISSUE_FAILED وأنواع LEDGER_*، وREPLAY_UNITS_REBASED (فاتورةٌ دون اتصال من تطبيق المندوب فُسِّرت كمياتها بعد «إضافة وحدة فرعية أصغر» لصنفها: data {clientRef, number, lines:[{productId, unitName, rebase, notice}]} — راجع كمياتها) وLOT_REPLAY_HELD (فاتورةٌ دون اتصال بانتظار تسجيل تحميلٍ ناقص: data {clientRef, detail})، وVAN_STOCK_REPLAY_HELD (فاتورةٌ دون اتصال تتجاوز مخزون سيارة مندوبٍ بلا «البيع بدون مخزون»، محجوزة في جهازه حتى يُسجَّل التحميل الناقص — إشعارٌ واحد لكل clientRef: data {clientRef, detail:{productId, availableBase, requestedBase}})",
      "حقل data نص JSON يجب فكّه عند القراءة"
     ],
     "example": ""
@@ -8906,8 +9016,8 @@ export const API_DOC_GUIDES: DocGuide[] = [
         title: 'اقرأ رصيد المستودع وقيمته',
         method: 'GET', path: '/warehouse',
         text: [
-          'الرد [{productId, name, code, unit, received, adjusted, loadedToVans, returnedFromVans, onHand, avgCost, stockValue, costedQty, uncostedQty, units, primaryUnitId}]، مرتباً تنازلياً بالرصيد، ويضم كل الأصناف النشطة ولو بلا حركة. وprimaryUnitId «الوحدة الرئيسية» للعرض وحده (null أو معرّف من units)، والكميات بالأساس.',
-          '- onHand = received + adjusted + returnedFromVans − loadedToVans، وقد يصير سالباً إن حُمّل للسيارات أكثر من الوارد — إلا الصنف المتتبَّع بالتشغيلة («تتبّع LOT»): لا يُحمَّل ولا يُسوّى بالنقص فوق رصيد تشغيلاته (409 LOT_STOCK_INSUFFICIENT، دليل ربط تتبّع LOT).',
+          'الرد [{productId, name, code, unit, status, archived, received, adjusted, loadedToVans, returnedFromVans, onHand, avgCost, stockValue, costedQty, uncostedQty, units, primaryUnitId}]، مرتباً تنازلياً بالرصيد، ويضم كل الأصناف النشطة ولو بلا حركة، والموقوفة والمؤرشفة ما دام لها رصيد (status ACTIVE أو INACTIVE، وarchived = true للمؤرشف). وprimaryUnitId «الوحدة الرئيسية» للعرض وحده (null أو معرّف من units)، والكميات بالأساس.',
+          '- onHand = received + adjusted + returnedFromVans − loadedToVans، وقد يصير سالباً بتسوية بالنقص أو من تحميلاتٍ سبقت منع التحميل فوق الرصيد (اليوم 422 WAREHOUSE_INSUFFICIENT) — إلا الصنف المتتبَّع بالتشغيلة («تتبّع LOT»): لا يُحمَّل ولا يُسوّى بالنقص فوق رصيد تشغيلاته (409 LOT_STOCK_INSUFFICIENT، دليل ربط تتبّع LOT).',
           '- stockValue = costedQty × avgCost، وavgCost صافٍ قبل الضريبة. وuncostedQty خارج القيمة صراحةً.',
           '- للمخزون في تاريخ مضى أضف ?asOf=YYYY-MM-DD (نهاية ذلك اليوم بتوقيت الشركة).',
           '- الكميات بوحدة الأساس للصنف (unit، أصغر ما يُباع)، وavgCost لوحدة الأساس، وunits وحدات الصنف الأكبر لعرض الرصيد «2 كرتون و3 حبة».',
@@ -8925,7 +9035,8 @@ export const API_DOC_GUIDES: DocGuide[] = [
           '- ADJUST تسوية جرد: الموجب يزيد والسالب ينقص، وبلا unitCost (وإلا 400).',
           '- الصنف المتتبَّع بالتشغيلة («تتبّع LOT»): الوارد والتسوية بالزيادة يحملان تشغيلة السطر — items[].lotId لتشغيلة قائمة، أو items[].lotNumber مع productionDate وexpiryDate (YYYY-MM-DD) تُحلّ أو تُنشأ، و"lotId": null في التسوية للرصيد غير المسمّى. وبدونها 422 LOT_REQUIRED (دليل ربط تتبّع LOT).',
           '- التسوية بالنقص بلا lotId ولا lotNumber يسحبها الخادم تلقائياً: كل تشغيلات المستودع بالأقرب انتهاءً أولاً (والموقوفة والمنتهية منها، والتي بلا انتهاء آخراً)، ثم الرصيد غير المسمّى. فإن أخذ السطر من أكثر من تشغيلة عاد في الرد بنوداً متعددة للصنف نفسه، لكلٍّ lotId وbaseQty (بوحدة السطر إن كانت حصّته وحداتٍ كاملة وإلا بوحدة الأساس) وكلها بـlineRef السطر. لإتلاف تشغيلة بعينها أرسل lotId. وما فاق الرصيد 409 LOT_STOCK_INSUFFICIENT.',
-          '- لا clientRef ولا تعديل ولا حذف: إعادة الطلب نفسه تُنشئ حركة مكررة، فلا تُعِد الإرسال إلا بعد التأكد من فشل الأول، والتصحيح بتسوية معاكسة.',
+          '- clientRef (حتى 64 حرفاً لاتينياً أو رقماً أو - أو _) يجعل إعادة الإرسال آمنة: ولّد واحداً لكل حركة وأعده نفسه عند الإعادة، فيرجع المكرَّر 200 بالحركة القائمة وreplay: true بلا كتابة. بلاه تُنشئ إعادة الطلب حركة مكررة. ولا تعديل ولا حذف: التصحيح بتسوية معاكسة.',
+          '- الوارد RECEIVE لصنفٍ مؤرشف (deletedAt غير فارغ) 422 PRODUCT_ARCHIVED، وصنفٌ لا يتبع الشركة 400 PRODUCT_NOT_FOUND، وكلاهما بموضع السطر index.',
           '- الحركة مخزون فقط: لا تُنشئ قيداً محاسبياً ولا ذمة مورد.',
         ].join('\n'),
         curl: send('POST', '/warehouse/entries', '{"type":"RECEIVE","supplier":"مؤسسة التوريد المتحدة","note":"فاتورة مورد 5512","costsIncludeTax":true,"items":[{"productId":"<productId>","qty":120,"unitCost":11.5}]}'),
@@ -8947,7 +9058,8 @@ export const API_DOC_GUIDES: DocGuide[] = [
         text: [
           'الجسم {salesRepId, type: LOAD|UNLOAD, note?, items:[{productId, qty, unitId?, lineRef?}]}. LOAD ينقص المستودع ويزيد السيارة، وUNLOAD يعيد الكمية إلى المستودع بكلفة خروجها من السيارة نفسها. وlineRef «مرجع السطر» في نظامكم يعود كما هو على البند.',
           '- unitId وحدة البند من units[].id للصنف (كرتون): qty بها والرصيد يتحرّك qty × factor. بلا unitId فالكمية بوحدة الأساس. وbaseUnitName = unit الصنف كما في كتالوجكم إلزامي لطلب المفتاح على صنف أُضيفت له وحدة فرعية أصغر، وإلا 400 BASE_UNIT_REQUIRED.',
-          '- لا فحص لتوفر الكمية في المستودع ولا في السيارة، فتحقّق من GET /api/warehouse قبل التحميل إن أردت منع الرصيد السالب. والاستثناء الصنف المتتبَّع بالتشغيلة («تتبّع LOT»): الخادم يوزّع تحميله على تشغيلات المستودع النشطة غير المنتهية بالأقرب انتهاءً ثم الرصيد غير المسمّى، ويرفض ما يتجاوزهما 409 LOT_STOCK_INSUFFICIENT. والتنزيل بلا items[].lots يسحبه الخادم من كل تشغيلات السيارة بالأقرب انتهاءً أولاً (والموقوفة والمنتهية منها) ثم من غير المسمّى، وتعود التشغيلات نفسها إلى المستودع. لتنزيل تشغيلة بعينها أرسل items[].lots = [{lotId, qty}] بالأساس.',
+          '- التحميل LOAD لا يتجاوز رصيد المستودع: صنفٌ لا يكفيه onHand (أسطره مجموعة، والرصيد الصفري أو السالب لا يُحمَّل منه) يُرفض 422 WAREHOUSE_INSUFFICIENT بـlines:[{index, productId, availableBase, requestedBase}] ولا تُكتب الحركة، لكل مُصدِر. والصنف المؤرشف 422 PRODUCT_ARCHIVED. وأرسل clientRef لإعادة آمنة (المكرَّر 200 وreplay: true).',
+          '- لا فحص لتوفر الكمية في السيارة عند التنزيل والتسوية بالنقص. والاستثناء الصنف المتتبَّع بالتشغيلة («تتبّع LOT»): الخادم يوزّع تحميله على تشغيلات المستودع النشطة غير المنتهية بالأقرب انتهاءً ثم الرصيد غير المسمّى، ويرفض ما يتجاوزهما 409 LOT_STOCK_INSUFFICIENT. والتنزيل بلا items[].lots يسحبه الخادم من كل تشغيلات السيارة بالأقرب انتهاءً أولاً (والموقوفة والمنتهية منها) ثم من غير المسمّى، وتعود التشغيلات نفسها إلى المستودع. لتنزيل تشغيلة بعينها أرسل items[].lots = [{lotId, qty}] بالأساس.',
           '- التحميل LOAD يُختم بموقع المندوب إن كانت ميزة «لوكيشن» مفعّلة (انظر دليل اللوكيشن).',
           '- السجل في GET /api/van-stock/loads، وقيمة ما في كل السيارات في GET /api/warehouse/vans ({qty, value, uncostedQty, unsellableQty, reps, products, deletedVans}، ومع «تتبّع LOT» lotQuarantined وlotHeld وlotProducts لما لا يُباع من التشغيلات الموقوفة والمنتهية والمحجوزة).',
         ].join('\n'),
@@ -8991,7 +9103,7 @@ export const API_DOC_GUIDES: DocGuide[] = [
           '- /api/v1/sync/warehouse-entries: الوارد والتسويات ببنودها. يشترط canManageVanStock ثم ألا يكون النظام المحاسبي مطفأً (403 ACCOUNTING_DISABLED) ثم تفعيل الميزة (403 WAREHOUSE_DISABLED). الحركة المحذوفة تُكتشف بمطابقة /ids.',
           '- /api/v1/sync/van-loads: التحميل والتنزيل والتسوية للسيارات، ومعها locationId.',
           '- بهما مع الفواتير تحسب رصيد المستودع والسيارات في نظامكم بالمعادلة أعلاه، بجمع baseQty لكل بند (الكمية بالأساس) لا qty: البند يحمل unitName وunitFactor وbaseQty = qty × unitFactor.',
-          '- كل بند في المورديْن يحمل lineRef («مرجع السطر» الذي أرسلتموه، وnull لما لم يُرسَل) لكل الشركات.',
+          '- كل بند في المورديْن يحمل lineRef («مرجع السطر» الذي أرسلتموه، وnull لما لم يُرسَل) لكل الشركات، وكل حركة تحمل clientRef (مفتاح منع التكرار كما أرسلتموه، وnull لما بلاه).',
           '- «تتبّع LOT» مفعّل: بنود warehouse-entries تحمل id وlotId وlot (بطاقة التشغيلة)، وبنود van-loads تحمل id وتوزيعها lots، والموارد الخمسة المنفصلة باقية (دليل ربط تتبّع LOT). وتسوية نقص سحبها الخادم من أكثر من تشغيلة تصل في warehouse-entries بنوداً متعددة للصنف نفسه، لكلٍّ lotId ولقطة وحدته وbaseQty وكلها بـlineRef السطر. أما بند حركة السيارة فلا يُشطر: توزيعه صفوف متعددة في items[].lots (وفي van-load-item-lots بـvanLoadItemId واحد).',
         ].join('\n'),
         curl: get('/v1/sync/warehouse-entries?since=2026-10-25T00:00:00Z&limit=500'),
@@ -9163,7 +9275,7 @@ export const API_DOC_GUIDES: DocGuide[] = [
   /*
    * دليل «ربط حركات المخزون من نظامكم» (٢ نوفمبر ٢٠٢٦): مشتركٌ يسحب /api/v1/sync ويرسل الأصناف والعملاء ولم يرسل حركة مخزون واحدة،
    * فظنّ أن «المخزون والتحويلات لا تصل». المنصة لا تسحب من نظامه: كل عملية مخزون POST لحظة وقوعها. كل ما هنا من الموجّهين
-   * (warehouse وvanStock) وخطط التشغيلات: لا clientRef ولا نوع نقل بين سيارتين، والتحقّق قبل الإعادة بـnote وlineRef على جهة المُكامِل.
+   * (warehouse وvanStock) وخطط التشغيلات: clientRef اختياري يمنع التكرار (منذ ٥ نوفمبر)، ولا نوع نقل بين سيارتين، والتحقّق قبل الإعادة بـ?clientRef= ثم note وlineRef.
    */
   {
     key: 'stock-push-guide',
@@ -9205,7 +9317,7 @@ export const API_DOC_GUIDES: DocGuide[] = [
           '- id (هو productId في كل حركة)، وcode (فريد في الشركة، به تطابق رمز الصنف عندكم)، وunit (وحدة الأساس، أصغر وحدة)، وunits[] بالحقول {id, name, factor, isActive}، وbaseConvertedAt، وstatus، وdeletedAt، ومع «تتبّع LOT» الحقل lotTracked.',
           '- الكمية بالكرتون تُرسل بـunitId = units[].id للكرتون وqty بعدد الكراتين، فيتحرّك الرصيد qty × factor. الحقل unitName غير مقبول في الحركة ويُهمل بصمت: سطر بالكرتون بلا unitId يُسجَّل بوحدة الأساس (كرتون من 24 يصير حبة واحدة). والوحدة التي لا تخص الصنف أو الموقوفة ترجع 400 UNIT_INVALID.',
           '- أرسل مع كل سطر baseUnitName = unit الصنف كما حفظته. هو إلزامي لصنفٍ baseConvertedAt فيه غير فارغ (وإلا 400 BASE_UNIT_REQUIRED)، ويحمي باقي الأصناف: إن تغيّرت وحدة أساس الصنف عندنا رجع 400 UNIT_INVALID بدل كمية خاطئة. حين يصلك أحد الرمزين اسحب الأصناف من جديد ثم أعد الإرسال. وفي أمثلة هذا الدليل <unit> مكان unit الصنف كما سحبته من المزامنة، لا كلمة ثابتة: الخادم يقارنه بوحدة أساس الصنف حرفاً بحرف بعد قصّ طرفيه.',
-          '- الحركة لا ترفض صنفاً مؤرشفاً أو موقوفاً، فتأكد قبل الإرسال أن deletedAt = null وstatus = ACTIVE. والمعرّف الذي لا يخص شركتكم يرجع 400 «منتج غير صالح»، وكذلك معرّف صنف حُذف عندنا حذفاً فعلياً: الصنف الذي ليس له فاتورة ولا حركة مخزون ولا تشغيلة يُحذف ولا يُؤرشف، فيختفي من المزامنة بلا deletedAt، ويُرفض الطلب كله بسببه. قارن ربطك دورياً بـGET /api/v1/sync/products/ids واحذف منه كل معرّف ليس في القائمة.',
+          '- الوارد RECEIVE والتحميل LOAD يرفضان الصنف المؤرشف (deletedAt غير فارغ) 422 PRODUCT_ARCHIVED بموضع السطر index، والتنزيل والتسوية تقبله. والموقوف (status = INACTIVE) لا يُرفض، فتأكد قبل الإرسال أن deletedAt = null وstatus = ACTIVE. والمعرّف الذي لا يخص شركتكم يرجع 400 PRODUCT_NOT_FOUND بموضع السطر (index وindexes)، وكذلك معرّف صنف حُذف عندنا حذفاً فعلياً: الصنف الذي ليس له فاتورة ولا حركة مخزون ولا تشغيلة يُحذف ولا يُؤرشف، فيختفي من المزامنة بلا deletedAt، ويُرفض الطلب كله بسببه. قارن ربطك دورياً بـGET /api/v1/sync/products/ids واحذف منه كل معرّف ليس في القائمة.',
           '- لا تطابق بـGET /api/products?search=: البحث جزئي في الاسم والرمز والباركود ولا يعيد المؤرشف. والصنف الذي تنشئونه بـPOST /api/products يعود ومعه data.id وdata.units، فاحفظهما فوراً.',
         ].join('\n'),
         curl: get('/v1/sync/products?limit=500'),
@@ -9256,7 +9368,7 @@ export const API_DOC_GUIDES: DocGuide[] = [
         text: [
           'الجسم {salesRepId, type: "LOAD", note, items:[{productId, qty, unitId?, baseUnitName, lineRef, lots?}]}، والنجاح 201. السيارة تزيد والمستودع ينقص، والرصيدان يُحسبان من الحركات في كل قراءة فيظهر الأثر فوراً.',
           '- qty موجبة دائماً بوحدة السطر. الخادم يقبل كمية سالبة في LOAD وUNLOAD للصنف غير المتتبَّع فيعكس معنى الحركة، فلا ترسل سالباً إلا في ADJUST.',
-          '- لا فحص لتوفر الصنف غير المتتبَّع في المستودع، فقد يصير رصيده سالباً. اقرأ GET /api/warehouse قبل الإرسال إن أردت منع ذلك. أما الصنف المتتبَّع فيوزّعه الخادم على تشغيلات المستودع النشطة غير المنتهية بالأقرب انتهاءً ثم الرصيد غير المسمّى، والنقص 409 LOT_STOCK_INSUFFICIENT (الخطوة 10).',
+          '- التحميل لا يتجاوز رصيد المستودع (onHand) للصنف: التجاوز 422 WAREHOUSE_INSUFFICIENT بـlines:[{index, indexes, productId, availableBase, requestedBase}] بالأساس ولا يُكتب شيء، وأسطر الصنف الواحد تُجمع، والصنف الذي رصيده صفر أو سالب لا يُحمَّل منه. سجّل الوارد أولاً. أما الصنف المتتبَّع فيوزّعه الخادم على تشغيلات المستودع النشطة غير المنتهية بالأقرب انتهاءً ثم الرصيد غير المسمّى، والنقص 409 LOT_STOCK_INSUFFICIENT (الخطوة 10).',
           '- شركة بلا مخزون شركة (warehouseEnabled = false): الحركة تُقبل وتزيد السيارة، ومسارات /api/warehouse ترجع 403. والصنف المتتبَّع فيها يحمل تشغيلته في السطر (lotNumber أو lots)، وإلا 422 LOT_REQUIRED.',
           '- إن كانت «لوكيشن» مفعّلة فالتحميل وحده يُختم بموقع المندوب.',
           '- الرد data الحركة (id وsalesRepId وtype وnote وcreatedAt…) ومعها items[] بالحقول id وproductId وqty وunitName وunitFactor وbaseQty وlineRef وproduct. وإن كان في الحركة صنف متتبَّع حمل كل بند items[].lots (فارغة لبند الصنف غير المتتبَّع)، وجاء الحقل warnings في جذر الرد بجوار data لا داخلها، وقد يكون مصفوفة فارغة. احفظ data.id وطابق بـlineRef.',
@@ -9296,7 +9408,7 @@ export const API_DOC_GUIDES: DocGuide[] = [
           '- مع مخزون الشركة يعيد التنزيل الكمية إلى المستودع ويأخذها التحميل منه، فيعود رصيد المستودع كما كان بعد الطلبين. وبلا مخزون شركة لا مستودع ظاهر بينهما: التنزيل ينقص A والتحميل يزيد B.',
           '- الصنف المتتبَّع بالتشغيلة: انسخ items[].lots من رد التنزيل (lotId وqty بوحدة الأساس، والكمية موجبة) إلى items[].lots في التحميل كما هي، ومنها الصفوف التي lotId فيها null. بدونها يوزّع الخادم التحميل على تشغيلات المستودع النشطة غير المنتهية بالأقرب انتهاءً، فقد تصل إلى B تشغيلة غير التي نُقلت. وفي شركة بلا مخزون شركة نسخها إلزامي، وإلا 422 LOT_REQUIRED. وللصنف غير المتتبَّع لا ترسل lots.',
           '- اختر ما تنزّله من GET /api/van-stock/lot-balances?salesRepId=<A>: في data.products[].lots لكل تشغيلة status (ACTIVE أو BLOCKED) وexpiryDate وusable، وdata.day يوم الشركة، والتشغيلة منتهية حين يكون expiryDate قبل data.day. أرسل اختيارك في التنزيل items[].lots صراحةً. التنزيل التلقائي يسحب بالأقرب انتهاءً من كل تشغيلات السيارة أيّاً كانت حالتها: المنتهية تخرج قبل غيرها لأن انتهاءها أقدم، والموقوفة تخرج في دورها بتاريخ انتهائها. والتحميل يرفضهما (422 LOT_BLOCKED أو 422 LOT_EXPIRED)، فلا تنقلهما بالتنزيل والتحميل (طريقتهما في بند «التشغيلة الموقوفة أو المنتهية» أدناه).',
-          '- مع مخزون الشركة تبقى الكمية بين الطلبين في المستودع المشترك، وقد يحمّلها مستخدم آخر لسيارة ثالثة، فيرجع تحميلك للصنف المتتبَّع 409 LOT_STOCK_INSUFFICIENT. أرسل التحميل فور نجاح التنزيل. وبلا مخزون شركة لا يُفحص أي رصيد لتحميل يحمل تشغيلاته، فلا يرجع 409.',
+          '- مع مخزون الشركة تبقى الكمية بين الطلبين في المستودع المشترك، وقد يحمّلها مستخدم آخر لسيارة ثالثة، فيرجع تحميلك للصنف المتتبَّع 409 LOT_STOCK_INSUFFICIENT. أرسل التحميل فور نجاح التنزيل، ومثله غير المتتبَّع: يرجع 422 WAREHOUSE_INSUFFICIENT إن نقص رصيد المستودع بينهما. وبلا مخزون شركة لا يُفحص أي رصيد لتحميل يحمل تشغيلاته، فلا يرجع 409.',
           '- إن نجح التنزيل وفشل التحميل فلا تكرّر التنزيل: صحّح السبب وأعد التحميل إلى B وحده، أو أرجع البضاعة إلى A بتحميل LOAD إليها بالتشغيلات نفسها. ولا حذف ولا تعديل للحركات.',
           '- التشغيلة الموقوفة أو المنتهية لا يقبلها LOAD في أي سيارة، ولا في A نفسها. لنقلها من A إلى B أرسل ADJUST بكمية سالبة إلى A ثم ADJUST بكمية موجبة إلى B، وفي الاثنين items[].lots نفسها. التسوية لا تمسّ المستودع، والموجبة تقبل الموقوفة مع تحذير LOT_INTO_BLOCKED وتقبل المنتهية بلا خطأ. وإن نجح تنزيل تشغيلة كهذه ثم رُفض تحميلها: مع مخزون الشركة صارت في المستودع، فأنقصها منه بتسوية ADJUST سالبة على POST /api/warehouse/entries بحقل lotId، ثم أضفها إلى B بتسوية موجبة بـitems[].lots. وبلا مخزون شركة أضفها إلى B بتسوية موجبة بـitems[].lots.',
           '- إن انقطع الاتصال في أحد الطلبين فتحقّق أولاً (الخطوة 12) بـsalesRepId=<A>&type=UNLOAD ثم salesRepId=<B>&type=LOAD قبل أي إعادة. وإن وجدت التنزيل فخذ تشغيلاته بـwithLots=1.',
@@ -9335,7 +9447,7 @@ export const API_DOC_GUIDES: DocGuide[] = [
         text: [
           'كل طلب حركة يُكتب كاملاً في معاملة واحدة ببنوده وتشغيلاته، أو لا يُكتب منه شيء. لا توجد حركة نصف محفوظة.',
           '- 201: الحركة سُجّلت. احفظ data.id وأغلق المستند عندكم، ولا ترسله مرة أخرى.',
-          '- 400 (بيانات غير صحيحة، «منتج غير صالح»، «يجب تحديد المندوب»، UNIT_INVALID، BASE_UNIT_REQUIRED، كمية بإشارة خاطئة، سعر في التسوية)، و404 «المندوب غير موجود»، و409 (PRODUCT_UNITS_CHANGED وLOT_STOCK_INSUFFICIENT وLOT_DATES_MISMATCH)، و422 (LOT_REQUIRED وسائر رموز التشغيلة): لم يُكتب شيء، والطلب نفسه سيُرفض مرة أخرى. صحّح البيانات أو اسحب الأصناف من جديد ثم أرسل. وفي أخطاء التشغيلة يحمل detail في الغالب productId، ومعه موضع السطر حين يخصّ الخطأ سطراً بعينه: idx بالعدّ من صفر (في السيارة موضعه في items كما أرسلته، وفي المستودع موضعه بعد حذف الأسطر التي كميتها صفر، فلا ترسل أسطراً كميتها صفر)، أو lines مصفوفة مواضع في التنزيل والتسوية السالبة والإزالة في السيارة. وبعضها بلا موضع، مثل LOT_STOCK_INSUFFICIENT في التحميل من المستودع وفي تسوية المستودع، وLOT_DATES_MISMATCH (فيه lotId وحده)، فطابق حينها بـproductId أو lotId.',
+          '- 400 (بيانات غير صحيحة، PRODUCT_NOT_FOUND، «يجب تحديد المندوب»، UNIT_INVALID، BASE_UNIT_REQUIRED، كمية بإشارة خاطئة، سعر في التسوية)، و404 «المندوب غير موجود»، و409 (PRODUCT_UNITS_CHANGED وLOT_STOCK_INSUFFICIENT وLOT_DATES_MISMATCH وCLIENT_REF_REUSED)، و422 (PRODUCT_ARCHIVED وWAREHOUSE_INSUFFICIENT وLOT_REQUIRED وسائر رموز التشغيلة): لم يُكتب شيء، والطلب نفسه سيُرفض مرة أخرى. صحّح البيانات أو اسحب الأصناف من جديد ثم أرسل. وفي أخطاء التشغيلة يحمل detail في الغالب productId، ومعه موضع السطر حين يخصّ الخطأ سطراً بعينه: idx بالعدّ من صفر (في السيارة موضعه في items كما أرسلته، وفي المستودع موضعه بعد حذف الأسطر التي كميتها صفر، فلا ترسل أسطراً كميتها صفر)، أو lines مصفوفة مواضع في التنزيل والتسوية السالبة والإزالة في السيارة. وبعضها بلا موضع، مثل LOT_STOCK_INSUFFICIENT في التحميل من المستودع وفي تسوية المستودع، وLOT_DATES_MISMATCH (فيه lotId وحده)، فطابق حينها بـproductId أو lotId.',
           '- 403 (API_KEY_FORBIDDEN، ACCOUNTING_NOT_ALLOWED، ميزة مخزون الشركة، صلاحية canManageVanStock): خطأ إعداد لا تصلحه الإعادة. أوقف الإرسال وراجع الخطوة 1.',
           '- 429 API_RATE_LIMIT: لم يُكتب شيء. انتظر عدد الثواني في ترويسة Retry-After ثم أرسل الطلب نفسه. الحد 120 طلباً في الدقيقة لكل مفتاح، والسحب الدوري للمزامنة يستهلك من الحد نفسه، وكل رد يحمل X-RateLimit-Remaining.',
           '- 503 بجسم JSON فيه code = LOT_BUSY أو PRODUCT_UNITS_BUSY: الصنف مشغول بعملية أخرى ولم يُكتب شيء. أعد الطلب نفسه بعد ثوانٍ.',
@@ -9346,7 +9458,8 @@ export const API_DOC_GUIDES: DocGuide[] = [
         title: 'أرسل كل حركة مرة واحدة: تحقّق قبل أن تعيد الإرسال',
         method: 'GET', path: '/van-stock/loads',
         text: [
-          'لا يوجد clientRef ولا أي مفتاح لمنع التكرار في POST /api/warehouse/entries ولا في POST /api/van-stock/loads: الحقل clientRef يُهمل فيهما بصمت، وطلبان متطابقان يكتبان حركتين. وسيلتكم الوحيدة رقم مستندكم في note ومرجع كل سطر في lineRef، والبحث بهما على جهتكم لأن الخادم لا يفلتر بهما.',
+          'أرسل clientRef في POST /api/warehouse/entries وPOST /api/van-stock/loads (حتى 64 حرفاً لاتينياً أو رقماً أو - أو _؛ uuid يكفي): واحدٌ لكل حركة تحفظونه معها، وتعيدونه نفسه في كل إعادة. المرجع الذي سبق حفظه يرجع 200 بالحركة القائمة وreplay: true بلا كتابة، ولو تزامن الطلبان، ومرجعٌ لحركة أخرى 409 CLIENT_REF_REUSED. وللتحقّق: GET /api/van-stock/loads?clientRef=<المرجع> وGET /api/warehouse/entries?clientRef=<المرجع>، ومزامنة van-loads وwarehouse-entries تحمل clientRef.',
+          '- الحركات التي أُرسلت بلا clientRef (ومنها كل ما قبل ٥ نوفمبر ٢٠٢٦) لا يوجد لها مفتاح لمنع التكرار: طلبان متطابقان يكتبان حركتين. وسيلتكم لها رقم مستندكم في note ومرجع كل سطر في lineRef، والبحث بهما على جهتكم لأن الخادم لا يفلتر بهما.',
           '- احفظ لكل حركة عندكم حالتها: لم تُرسل، قيد الإرسال، أُرسلت (ومعها data.id). وأرسلها من مكان واحد، ولا ترسل المستند نفسه في طلبين متوازيين.',
           '- لا تفعّل إعادة المحاولة التلقائية لطلبات POST في مكتبة HTTP عندكم (مثل Retry من urllib3 مع python-requests حين يضم allowed_methods الطريقة POST، أو حين يكون allowed_methods = None أو False فيعيد كل الطرق: عندها يعيد POST بعد انقطاع القراءة وبعد الرموز التي في status_forcelist مثل 502 و503 و504)، فهي تعيد الإرسال بلا تحقّق. أعد آلياً فقط 429، و503 الذي فيه code = LOT_BUSY أو PRODUCT_UNITS_BUSY.',
           '- اجعل مهلة الطلب 60 ثانية على الأقل: الحفظ تحت الضغط قد يستغرق نحو 40 ثانية (انتظار الصنف ثم المعاملة)، والمهلة الأقصر تقطع طلباً قد يُحفظ بعد انقطاعه.',

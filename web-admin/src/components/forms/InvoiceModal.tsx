@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { invoiceApi, customerApi, productApi, salesRepApi, companyApi, lotsApi, priceListApi } from '../../api/client';
+import { invoiceApi, customerApi, productApi, salesRepApi, companyApi, lotsApi, priceListApi, vanStockApi } from '../../api/client';
 import { Customer, Product, SalesRep } from '../../types';
 import { formatCurrency, formatDate, formatDayOnly, getActiveCurrency } from '../../utils/format';
 import { currencyDecimals } from '../../i18n/countries';
@@ -37,6 +37,8 @@ import SearchableSelect from '../SearchableSelect';
 import PriceTypeChips from '../PriceTypeChips';
 import { baseLabelOf, priceListsOf, priceOverrides, repriceUntouched, suggestedNetOf } from '../../lib/priceLists';
 import { adminInvoiceListOf, adminListHintOf, type AdminListChoice } from '../../lib/invoiceModalRepPrice';
+import ConfirmDialog from '../ConfirmDialog';
+import { overAvailable, refFor, vanRemainingOf, withClientRef, type RefMemo } from '../../lib/vanStockFlags';
 
 /**
  * بند الفاتورة في المحرّر. الوحدات المتعددة: `unit` اسم وحدة البند كما يُطبع، والكمية والسعر بها؛ و`unitId` وحدتها
@@ -269,6 +271,27 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
   const saleLotState: SaleLotState = !salesRepId ? 'NO_REP' : !canVanStock ? 'NO_PERM'
     : vanLots ? 'READY' : vanLotsQ.isError ? 'FAILED' : 'LOADING';
   const saleLotIssues = isReturn ? [] : saleLotProblems(lines, vanLots, pid => trackedIds.has(pid));
+  /* مراجعة المخزون #17: بيع الإدارة يخصم من سيارة المندوب المختار — «متاح في سيارة المندوب» لكل سطرٍ غير متتبَّع (المتتبَّع بمنتقي
+   * تشغيلته)، والكمية فوقه (أسطر الصنف بوحداتها تُجمع) تُؤكَّد قبل الإصدار فلا تصير السيارة سالبة بصمت. بصلاحية مخزون السيارات
+   * وحدها (مسار /van-stock)، وتعذّره لا يحجب ولا يُظهر شيئاً — والخادم الحَكَم كما كان */
+  const hasVanSaleLine = !isReturn && lines.some(l => !trackedIds.has(l.productId));
+  const vanRowsQ = useQuery({
+    queryKey: ['van-current', salesRepId],
+    enabled: hasVanSaleLine && !!salesRepId && canVanStock,
+    staleTime: 15_000,
+    retry: false,
+    queryFn: async () => (await vanStockApi.current(salesRepId)).data.data as unknown,
+  });
+  const vanAvail = hasVanSaleLine && salesRepId ? vanRemainingOf(vanRowsQ.data) : null;
+  const vanShort = vanAvail
+    ? overAvailable(lines.filter(l => !trackedIds.has(l.productId)).map(l => ({ productId: l.productId, qty: l.qty, factor: l.unitFactor })), vanAvail)
+    : [];
+  const vanShortIds = new Set(vanShort.map(s => s.productId));
+  const [askVanShort, setAskVanShort] = useState(false);
+  // أُكِّد التجاوز في الحوار: الإصدار التالي يمضي مرّةً واحدة ثم يُنسى
+  const vanShortOk = useRef(false);
+  // D8: مرجع محاولة المرتجع — المحتوى نفسه بعد ضياع الردّ يعود بالمرتجع الأول (200 idempotent) لا بإشعارٍ دائنٍ ثانٍ
+  const retRef = useRef<RefMemo | undefined>(undefined);
   // خطأ لوطٍ من الخادم على أسطره (بمفتاح السطر — الحذف يزيح الفهارس): يُمحى بأي تعديلٍ لاختيار السطر أو بإصدارٍ جديد
   const [lotLineErr, setLotLineErr] = useState<{ keys: string[]; text: string } | null>(null);
   // أسطر البيع كما أُرسلت: فهارس خطأ الخادم فهارس **الجسم المرسل** — سطرٌ حُذف أثناء الإرسال لا يزيح الخطأ إلى سطرٍ آخر
@@ -357,7 +380,13 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
     setLinked(s => s && { ...s, lines: s.lines.map(l => (l.saleItemId === saleItemId ? { ...l, qty: clampReturnQty(v, l) } : l)) });
 
   const mutation = useMutation({
-    mutationFn: (data: unknown) => invoiceApi.create(data),
+    /* D8: المرتجع بمرجعٍ لكل محاولة (clientRef) — المحتوى نفسه بعد ضياع الردّ يحمل المرجع نفسه فيعود الخادم بالمرتجع الأول (200
+     * idempotent) لا بإشعارٍ دائنٍ ثانٍ، وتعديل المرتجع مستندٌ آخر بمرجعٍ جديد (refFor). والبيع جسمه كما كان */
+    mutationFn: (data: unknown) => {
+      if ((data as { type?: string } | null)?.type !== 'RETURN') return invoiceApi.create(data);
+      retRef.current = refFor(retRef.current, data);
+      return invoiceApi.create(withClientRef(data as object, retRef.current.ref));
+    },
     onSuccess: (res, vars) => {
       const inv = res.data.data;
       const repName = salesReps?.find(r => r.id === salesRepId)?.name || '';
@@ -370,9 +399,12 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
         qc.invalidateQueries({ queryKey: ['returnable-sales'] });
         qc.invalidateQueries({ queryKey: ['van-summary'] });
         qc.invalidateQueries({ queryKey: ['van-current'] });
+        retRef.current = undefined;
         /* المرحلة الثانية: إشعار دائن على فاتورة قياسية ينتظر اعتماد الهيئة (202) — أُنشئ فعلاً ولا ورقة له حتى يُعتمد
-         * (zatcaIssueOutcome ⇒ halt). تُغلق النافذة (إعادة الضغط تُصدر إشعاراً ثانياً) وتُحدَّث القائمة كما بعد البيع. */
-        if (res.status !== 201) {
+         * (zatcaIssueOutcome ⇒ halt). تُغلق النافذة (إعادة الضغط تُصدر إشعاراً ثانياً) وتُحدَّث القائمة كما بعد البيع.
+         * وإعادةٌ بالمرجع نفسه (D8: 200 idempotent) هي المرتجع الأول بصفّه — ورقته كما بعد 201 */
+        const replayOk = res.status === 200 && (res.data as { idempotent?: unknown } | undefined)?.idempotent === true;
+        if (res.status !== 201 && !replayOk) {
           const out = zatcaIssueOutcome(res, tr('صدر الإشعار الدائن وبانتظار اعتماد الهيئة ولا ورقة له حتى الاعتماد'));
           toast(tr(out.kind === 'issued' ? 'تم إنشاء المرتجع' : out.message), { duration: 8000 });
           qc.invalidateQueries({ queryKey: ['invoices'] });
@@ -596,6 +628,10 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
       toast.error(`${tr('تشغيلة السطر')} «${bl.productName}»: ${saleLotProblemText(saleLotIssues[badLot], tr, (products || []).find(p => p.id === bl.productId) ?? null)}`, { duration: 7000 });
       return;
     }
+    // #17: الكمية فوق المتاح في سيارة المندوب تُؤكَّد صراحةً — سيارته تصير سالبة (الخادم يقبل بيع الإدارة كما كان)
+    if (vanShort.length && !vanShortOk.current) { setAskVanShort(true); return; }
+    vanShortOk.current = false;
+    setAskVanShort(false);
     setLotLineErr(null);
     sentLines.current = lines;
     mutation.mutate({
@@ -988,6 +1024,12 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                         ) : (
                           <p className="text-xs text-gray-400">{l.unit}</p>
                         )}
+                        {/* #17: متاح الصنف في سيارة المندوب المختار (بالأساس مفكَّكاً) — فوقه أحمر ويُؤكَّد عند الإصدار */}
+                        {!isReturn && !trackedIds.has(l.productId) && vanAvail && (
+                          <p className={`text-[10px] mt-0.5 ${vanShortIds.has(l.productId) ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>
+                            {tr('متاح في سيارة المندوب')}: {baseQtyText(vanAvail.get(l.productId) ?? 0, p ?? null, fmtVanQty, { withUnit: true })}
+                          </p>
+                        )}
                         {/* «تتبّع اللوط» (D5): المرتجع الحرّ من الإدارة بتشغيلة صريحة اختيارية — والبيع بمنتقيه أدناه (SaleLotPicker) */}
                         {isReturn && trackedIds.has(l.productId) && (
                           <FreeReturnLotPicker productId={l.productId} lotOn={lotOn} disabled={mutation.isPending}
@@ -1068,6 +1110,24 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
           <button onClick={onClose} className="btn-secondary">{tr('إلغاء')}</button>
         </div>
       </div>
+      {/* #17: بيعٌ فوق المتاح في سيارة المندوب — تأكيدٌ صريح بأصنافه ومتاحها قبل الإصدار */}
+      {askVanShort && vanShort.length > 0 && (
+        <ConfirmDialog title={tr('الكمية أكبر من المتاح في سيارة المندوب')} danger loading={mutation.isPending}
+          message={tr('يخصم البيع من سيارة المندوب المختار فيصير رصيدها سالبا لهذه الأصناف')}
+          extra={<ul className="mt-2 text-xs text-[#6E6557] space-y-0.5 text-start">{vanShort.map(s => {
+            const p = (products || []).find(x => x.id === s.productId);
+            return (
+              <li key={s.productId}>
+                {p?.name ?? lines.find(l => l.productId === s.productId)?.productName}: {tr('البيع')} {baseQtyText(s.wantBase, p ?? null, fmtVanQty, { withUnit: true })} · {tr('متاح في سيارة المندوب')} {baseQtyText(s.haveBase, p ?? null, fmtVanQty, { withUnit: true })}
+              </li>
+            );
+          })}</ul>}
+          confirmLabel={tr('إصدار رغم التجاوز')}
+          onConfirm={() => { vanShortOk.current = true; handleSubmit(); }} onClose={() => { if (!mutation.isPending) setAskVanShort(false); }} />
+      )}
     </div>
   );
 }
+
+/** كميات «متاح في سيارة المندوب» — منزلتان بلا أصفارٍ زائدة */
+const fmtVanQty = (n: number) => String(Number((Number(n) || 0).toFixed(2)));

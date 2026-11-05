@@ -655,6 +655,16 @@ export interface Phase2IssuanceContext {
    * والسبب وأنه ليس في النظام)؛ وغيابه = الفاتورة كما هي، والمرتجع بلا أصل يبقى 422 ZATCA_RETURN_NEEDS_ORIGINAL.
    */
   manualNote?: Phase2ManualNote | null;
+  /**
+   * مراجعة المخزون (البند ٩): «البيع بدون مخزون» داخل معاملة الختم — يحقنه routes/invoices.ts لمندوبٍ لا يملكه (قفل السيارة ثم
+   * متبقّيها). يُنادى بعد قفل الأصناف وقبل إدراج المستند، فرفضه يُلغي المعاملة قبل الختم وICV. غائب ⇒ كما كان.
+   */
+  stockGuard?: ((tx: Phase2Tx) => Promise<void>) | null;
+  /**
+   * مراجعة المخزون (البند ١، D6): ختم صلاحية بنود الإشعار اليدويّ (مرتجعٌ حرّ) بفهرس البند — محسوبٌ قبل المعاملة فيُكتب داخلها
+   * (تغلبه صفوف اللوط). غائب ⇒ الختم اللاحق وحده كما كان.
+   */
+  expiryStamps?: ReadonlyMap<number, { expiresAt: Date; returnExpired: boolean | null; expirySaleInvoiceId: string | null }> | null;
 }
 
 /** ما يحمله الإشعار الدائن اليدويّ إلى نواة الإصدار — BT-25 وKSA-10 وBR-49 ونوعه الفرعي من تصنيف العميل الحيّ */
@@ -919,6 +929,8 @@ async function issueNow(
             const lotInvoiceId = alloc ? randomUUID() : null;
             const lotVan = ctx.lots?.vanKey ?? null;
             lotWarnings = alloc?.warnings ? [...alloc.warnings] : [];
+            // البند ٩: متبقّي السيارة تحت قفلها بعد التوزيع (مفاتيح اللوط قبل قفل السيارة) — رفضه يُلغي المعاملة قبل الإدراج
+            if (ctx.stockGuard) await ctx.stockGuard(t);
             const row = await t.invoice.create({
               data: {
                 ...(lotInvoiceId && { id: lotInvoiceId }),
@@ -959,6 +971,8 @@ async function issueNow(
                   // ثمّ صفوف التشغيلات وختم صلاحيتها (اللوط لا يدخل الـXML ولا phase2ItemColumns)
                   create: ctx.items.map((i, idx) => ({
                     ...legacyItemColumns(i), ...phase2ItemColumns(record.items[idx]),
+                    // D6: ختم صلاحية بند الإشعار اليدويّ داخل المعاملة (لا يدخل الـXML) — وصفوف اللوط بعده تغلبه
+                    ...(ctx.expiryStamps?.get(idx) ?? {}),
                     ...invoiceItemLotColumns(alloc?.lines ?? null, idx, { tenantId: ctx.tenantId, invoiceId: lotInvoiceId ?? '', productId: i.productId, vanKey: lotVan }),
                   })),
                 },

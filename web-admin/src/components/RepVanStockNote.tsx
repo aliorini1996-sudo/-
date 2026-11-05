@@ -1,11 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
-import { Truck } from 'lucide-react';
+import { Truck, Wrench } from 'lucide-react';
 import { vanStockApi } from '../api/client';
 import { useTr } from '../i18n/strings';
 import { useAuthStore } from '../store/authStore';
 import { useAccountingOn } from './AccountingGate';
 import { formatNumber } from '../utils/format';
-import { REP_DELETE_VAN, fillVanLeft, vanLeftText, vanLeftover } from '../lib/repDeleteVan';
+import { REP_DELETE_VAN, fillTools, fillVanLeft, fillVanUnsellable, toolsLeftover, vanIsEmpty, vanLeftText, vanLeftover } from '../lib/repDeleteVan';
 
 /**
  * تحذير حوار حذف المندوب: كم بقي في سيارته، وأنّ سجلّ تحميلاتها يبقى.
@@ -14,6 +14,9 @@ import { REP_DELETE_VAN, fillVanLeft, vanLeftText, vanLeftover } from '../lib/re
  * والطلب خلف حارسَي مسار /van-stock نفسيهما (النظام المحاسبي وصلاحية مخزون
  * السيارة): بلا صلاحية المخزون يُعرض سطر السجلّ وحده بلا رقم لا لافتة خطأ،
  * وبلا النظام المحاسبي لا يُعرض شيء (لا مستودع أصلاً).
+ *
+ * مراجعة المخزون #7 (D9): والتالف والمنتهي في السيارة وعهدة أدواتها يُذكران — كان يقول «لا بضاعة في سيارته» وفيها تالفٌ
+ * وعربات تحميل في عهدته. وتعذّر طلب الأدوات لا يُسقط شيئاً: يُعرض ما وصل.
  */
 export default function RepVanStockNote({ repId, compact = false }: { repId: string; compact?: boolean }) {
   const tr = useTr();
@@ -27,9 +30,19 @@ export default function RepVanStockNote({ repId, compact = false }: { repId: str
     retry: false,
     staleTime: 0, // رقمٌ يُقرأ قبل حذفٍ لا رجعة فيه — لا من ذاكرةٍ قديمة
   });
+  const toolsQ = useQuery({
+    queryKey: ['rep-delete-tools', repId],
+    queryFn: async () => toolsLeftover((await vanStockApi.tools(repId)).data?.data),
+    enabled: allowed,
+    retry: false,
+    staleTime: 0,
+  });
   const left = allowed ? q.data : undefined;
+  const tools = allowed ? toolsQ.data : undefined;
   // شركةٌ النظامُ المحاسبي مطفأٌ لها: لا مخزون سيارات ولا مستودع — سطرٌ عنهما يُربك ولا يُخبر
   if (ready && !on) return null;
+  // «لا بضاعة» تُقال حين يُعرف كلاهما فارغاً (أو تعذّرت الأدوات) — لا قبل وصول العهدة
+  const toolsKnown = !!tools || toolsQ.isError;
   return (
     <div className={`mt-3 rounded-xl bg-[#FDF6E7] border border-[#F0E0BC] px-3 py-2 text-start leading-relaxed text-[#9A5B1E] ${compact ? 'text-[11.5px]' : 'text-xs'}`}>
       {allowed && q.isLoading && <p>{tr(REP_DELETE_VAN.checking)}</p>}
@@ -42,7 +55,16 @@ export default function RepVanStockNote({ repId, compact = false }: { repId: str
           <p className="mt-1">{tr(REP_DELETE_VAN.unloadFirst)}</p>
         </>
       )}
-      {left && left.products === 0 && <p>{tr(REP_DELETE_VAN.empty)}</p>}
+      {left && (left.unsellableProducts ?? 0) > 0 && (
+        <p className={`font-semibold ${left.products > 0 ? 'mt-1' : ''}`}>{fillVanUnsellable(tr(REP_DELETE_VAN.unsellable), left, formatNumber)}</p>
+      )}
+      {tools && tools.total > 0 && (
+        <p className="mt-1 font-semibold flex items-start gap-1.5">
+          <Wrench size={13} className="flex-shrink-0 mt-0.5" />
+          <span>{fillTools(tr(REP_DELETE_VAN.tools), tools, formatNumber)}</span>
+        </p>
+      )}
+      {left && toolsKnown && vanIsEmpty(left, tools) && <p>{tr(REP_DELETE_VAN.empty)}</p>}
       <p className={left || (allowed && q.isLoading) ? 'mt-1' : ''}>{tr(REP_DELETE_VAN.history)}</p>
     </div>
   );

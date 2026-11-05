@@ -6,15 +6,20 @@ import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, 
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta, roundDecimal } from '../utils/helpers';
 import { canAccessCustomer } from '../services/customerScope';
+import { adminRepFilter } from '../services/adminScope';
 import { applyProductVatGate } from './productsZatca';
 import { RETURN_RULE_METRICS, RETURN_RULE_MODES, SHELF_LIFE_BASES, SHELF_LIFE_UNITS, returnRuleConfigProblem, shelfLifeProblem } from '../services/shelfLife';
-import { MAX_UNIT_FACTOR, QTY_EPS, unitProblem, factorOf, baseNameKey, derivedBasePrice, primaryUnitOf, type UnitDef } from '../services/units';
+import { MAX_UNIT_FACTOR, QTY_EPS, unitProblem, factorOf, baseNameKey, baseQtyOf, derivedBasePrice, primaryUnitOf, type UnitDef } from '../services/units';
 import { REP_UNIT_RULES, hasRepRules, repRuleConfigProblem, repRulesChanged, repUnitRuleOf } from '../services/repProductRules';
 import { LOT_BUCKETS, LOT_EPS, LotError, asLockBusy, asLotBusy, lotErr, lotErrorBody, lotHttpError, roundLot, type BucketQty, type PlaceLotView } from '../services/lots';
 import { LOT_LOCK_TIMEOUT, acquireLotQueue, lockLotProducts, placeViews, recordLotEvent, type LotEventActor, type LotTx } from '../services/lotsDb';
 import { convertBaseRefusalFor } from '../services/convertBaseAccess';
 import { BASE_GUARD_TX, markConverting, unmarkConverting } from '../services/baseGuard';
 import { PRICE_LIST_MESSAGES, listBasePriceOf } from '../services/priceLists';
+import { chainFrom } from '../services/baseConversions';
+import { duplicateNameMatches, duplicateNameWarnings, productNameKey } from '../services/productNames';
+import { bucketRemaining, foldStock } from './vanStock';
+import { composeWarehouse, UNIT_SELECT } from '../services/warehouseStock';
 
 const router = Router();
 router.use(authenticate); // القراءة متاحة للمندوب (للبحث عند إصدار الفاتورة)؛ الكتابة للإدارة فقط
@@ -304,6 +309,42 @@ async function isRetiredBaseName(db: Prisma.TransactionClient, tid: string, prod
   return (rows ?? []).some((r) => baseNameKey(r.fromUnit) === key);
 }
 
+/** رسالة 409 BASE_NAME_RESERVED — توجيهٌ إلى «تحويل الأساس» أو الدعم بدل إعادة التسمية ثم الإضافة */
+const reservedBaseMsg = (name: string) =>
+  `«${name}» كان وحدة أساس هذا الصنف وبه سُجّل رصيده وتاريخه — إضافته وحدةً أكبر تقلب معنى الرصيد كله. لإضافة وحدة أصغر استخدم «إضافة وحدة فرعية أصغر» (تحويل الأساس)، أو تواصل مع الدعم الفني`;
+
+/**
+ * مراجعة المخزون (البند ٢): وحدةٌ بمعامل > ١ باسمٍ كان أساس الصنف (fromUnit في أي صفٍّ من سجلّه، ومنها صفوف إعادة التسمية
+ * بمعامل ١) لصنفٍ له تاريخ ⇒ 409 BASE_NAME_RESERVED. «كرتون» أُعيدت تسميته «حبة» ثم أُضيف «كرتون = 24»: الرصيد الذي كُتب
+ * كراتين يُقرأ حبّات، وإعادة رفع فاتورةٍ بأساس الجهاز القديم تُضرب ×24. ويُستثنى ما يطابق السجلّ نفسه: وحدةٌ معاملها حاصل
+ * السلسلة من ذلك الاسم إلى الأساس الحالي (كرتونٌ حُذف بعد تحويلٍ حقيقي ×24 ثم أُعيد بمعامله). تُقرأ على الصفّ المقفل
+ */
+async function assertNotReservedBaseName(tx: Prisma.TransactionClient, tid: string, product: { id: string; unit: string }, name: string, factor: number): Promise<void> {
+  const key = baseNameKey(name);
+  if (!key || Math.round(Number(factor)) <= 1) return;
+  const rows = await tx.productBaseConversion.findMany({
+    where: { tenantId: tid, productId: product.id },
+    orderBy: { convertedAt: 'asc' },
+    select: { fromUnit: true, toUnit: true, factor: true, fromUnitId: true, convertedAt: true },
+  });
+  if (!(rows ?? []).some((r) => baseNameKey(r.fromUnit) === key)) return;
+  const chain = chainFrom(rows ?? [], name.trim(), product.unit);
+  if (chain && chain.factor > 1 && chain.factor === Math.round(Number(factor))) return;
+  // صنفٌ بلا أي أثر (لا بيع ولا تحميل ولا وارد): لا رصيد يُقلب، فإعادة التسمية ثم الإضافة تصحيحٌ مشروع
+  if (!(await productHasHistory(tx, product.id))) return;
+  throw new UnitsRefusal(409, reservedBaseMsg(name.trim()), 'BASE_NAME_RESERVED');
+}
+
+/** للصنف أثرٌ في المخزون أو الفواتير (بيعٌ أو تحميلٌ أو وارد) — ثلاث قراءاتٍ بحدّ صفٍّ واحد */
+async function productHasHistory(tx: Prisma.TransactionClient, productId: string): Promise<boolean> {
+  const [sold, loaded, received] = await Promise.all([
+    tx.invoiceItem.findFirst({ where: { productId }, select: { id: true } }),
+    tx.vanLoadItem.findFirst({ where: { productId }, select: { id: true } }),
+    tx.warehouseEntryItem.findFirst({ where: { productId }, select: { id: true } }),
+  ]);
+  return !!(sold || loaded || received);
+}
+
 /** صفّ الصنف المقفل كما يحتاجه التعديل المحروس — من lockProductForEdit، أو من صفّ «تتبّع اللوط» المقفل مع وحداته */
 interface LockedForEdit {
   id: string; unit: string; primaryUnitId: string | null; baseConvertedAt: Date | null;
@@ -346,6 +387,14 @@ async function guardProductEdit(tx: Prisma.TransactionClient, req: AuthRequest, 
     };
     const problem = unitProblem(merged, [baseAsUnit(newBase), ...locked.units.filter((u) => u.id !== current.id)]);
     if (problem) throw new UnitsRefusal(400, problem);
+    // البند ٢: تسمية الرئيسية باسم أساسٍ سابق وهي أكبر ⇒ 409 BASE_NAME_RESERVED — ومنه الأساس الذي يُعاد تسميته في الطلب نفسه
+    // (صفّه في السجلّ يُكتب في الخطوة ٦ بعد هذا)
+    if (patch.name !== undefined && baseNameKey(patch.name) !== baseNameKey(current.name)) {
+      if (renames && baseNameKey(patch.name) === baseNameKey(locked.unit) && Math.round(Number(merged.factor)) > 1 && await productHasHistory(tx, locked.id)) {
+        throw new UnitsRefusal(409, reservedBaseMsg(patch.name.trim()), 'BASE_NAME_RESERVED');
+      }
+      await assertNotReservedBaseName(tx, tid, { id: locked.id, unit: newBase }, patch.name, Number(merged.factor));
+    }
     await tx.productUnit.updateMany({
       where: { id: current.id, productId: locked.id, tenantId: tid },
       data: {
@@ -525,6 +574,19 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   } catch (err) { next(err); }
 });
 
+/**
+ * S4 (D4): أصناف الشركة التي يطابق اسمها `name` بعد التطبيع (قصٌّ ودمج مسافات وحالة الأحرف اللاتينية) — القائمة والموقوفة
+ * والمؤرشفة، بلا `excludeId` (الصنف الذي يُعدَّل). فحصٌ رخيص قبل الحفظ تسأل به نافذة الصنف؛ والإنشاء والتعديل يحذّران بأنفسهما
+ */
+router.get('/name-check', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const name = typeof req.query.name === 'string' ? req.query.name.slice(0, 200) : '';
+    const excludeId = typeof req.query.excludeId === 'string' && req.query.excludeId ? req.query.excludeId : null;
+    res.json({ success: true, data: { matches: await duplicateNameMatches(prisma, tid, name, excludeId) } });
+  } catch (err) { next(err); }
+});
+
 router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
@@ -535,6 +597,77 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     if (!product) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
     const lists = await adminListPrices(req, tid, [product.id]);
     res.json({ success: true, data: lists ? { ...product, listPrices: lists.get(product.id) ?? [] } : product });
+  } catch (err) { next(err); }
+});
+
+/**
+ * S6: رصيد الصنف قبل حذفه، بالأساس — في المستودع (null حين مخزون الشركة مطفأ) وفي السيارات كلها معاً: vansBase المتاح
+ * والمنتهي والتالف، وvansSellableBase المتاح وحده. قراءةٌ لا تغيّر شيئاً (الحذف كما هو)، بحساب composeWarehouse وfoldStock
+ * نفسيهما مقصوراً على الصنف الواحد — والطيّ خطّيّ فمجموع السيارات طيُّ حركاتها معاً
+ */
+router.get('/:id/stock-summary', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const product = await prisma.product.findFirst({
+      where: { id: req.params.id, tenantId: tid },
+      select: { id: true, name: true, code: true, unit: true, primaryUnitId: true, units: { select: UNIT_SELECT } },
+    });
+    if (!product) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
+    // الرصيد لمن يرى المخزون وحده (صلاحية «مخزون السيارات» كمساري /warehouse و/van-stock) — وغيره بلا أرقام (null: غير معروف)
+    const stockAllowed = isOwnerSession(req)
+      || (await prisma.admin.findUnique({ where: { id: req.user!.id }, select: { canManageVanStock: true } }))?.canManageVanStock !== false;
+    if (!stockAllowed) {
+      res.json({
+        success: true,
+        data: { productId: product.id, warehouseBase: null, vansBase: null, vansSellableBase: null, stockHidden: true, unit: product.unit, units: product.units ?? [], primaryUnitId: product.primaryUnitId ?? null },
+      });
+      return;
+    }
+    // ونطاق المستخدم (LISTS/TEAMS): سيارات مناديبه وحدها كبطاقة /warehouse/vans — والمستودع رصيد الشركة كله كما في /warehouse
+    const repFilter = await adminRepFilter(req);
+    const scopedRepIds = Object.keys(repFilter).length
+      ? new Set((await prisma.salesRep.findMany({ where: { tenantId: tid, ...repFilter }, select: { id: true } })).map((r) => r.id))
+      : null;
+    const whOn = (await prisma.tenant.findUnique({ where: { id: tid }, select: { warehouseEnabled: true } }))?.warehouseEnabled === true;
+    const [whItems, loads, invs] = await Promise.all([
+      whOn
+        ? prisma.warehouseEntryItem.findMany({
+          where: { productId: product.id, entry: { tenantId: tid } },
+          select: { qty: true, unitFactor: true, baseQty: true, entry: { select: { type: true } } },
+        })
+        : Promise.resolve([]),
+      prisma.vanLoadItem.findMany({
+        where: { productId: product.id, vanLoad: { tenantId: tid } },
+        select: { productId: true, qty: true, unitFactor: true, baseQty: true, vanLoad: { select: { type: true, createdAt: true, salesRepId: true } } },
+      }),
+      prisma.invoiceItem.findMany({
+        where: { productId: product.id, invoice: { tenantId: tid, status: 'CONFIRMED', ...(scopedRepIds && { salesRepId: { in: [...scopedRepIds] } }) } },
+        select: {
+          productId: true, qty: true, unitFactor: true, baseQty: true, returnExpired: true,
+          invoice: { select: { type: true, returnToStock: true, invoiceDate: true, returnReason: true, createdAt: true } },
+        },
+      }),
+    ]);
+    let warehouseBase: number | null = null;
+    if (whOn) {
+      const [row] = composeWarehouse(
+        [{ id: product.id, name: product.name, code: product.code, unit: product.unit }],
+        (whItems ?? []).map((i) => ({ productId: product.id, qty: baseQtyOf(i), type: i.entry.type })),
+        (loads ?? []).map((l) => ({ productId: product.id, qty: baseQtyOf(l), type: l.vanLoad.type })),
+      );
+      warehouseBase = row?.onHand ?? 0;
+    }
+    // السيارات: حركات سيارات النطاق وحدها (المقيَّد لا يرى سيارات غيره ولا سيارات المحذوفين)، والمستودع أعلاه بكل الحركات
+    const vanLoads = scopedRepIds
+      ? (loads ?? []).filter((l) => !!l.vanLoad.salesRepId && scopedRepIds.has(l.vanLoad.salesRepId))
+      : (loads ?? []);
+    const b = foldStock(vanLoads as never, (invs ?? []) as never).bal.get(product.id);
+    const vansSellableBase = b ? bucketRemaining(b) : 0;
+    const vansBase = b ? roundDecimal(vansSellableBase + (b.expiredIn - b.expiredOut) + (b.damagedIn - b.damagedOut), 4) : 0;
+    res.json({
+      success: true,
+      data: { productId: product.id, warehouseBase, vansBase, vansSellableBase, unit: product.unit, units: product.units ?? [], primaryUnitId: product.primaryUnitId ?? null },
+    });
   } catch (err) { next(err); }
 });
 
@@ -755,6 +888,9 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
       res.status(409).json({ success: false, message: dupe.deletedAt ? 'الكود مستخدم بصنف محذوف مؤرشف بفواتيره القديمة استخدم كودا مختلفا' : 'كود الصنف مستخدم من قبل' });
       return;
     }
+    // S4 (D4): اسمٌ يطابق صنفاً للشركة — قائماً أو موقوفاً أو مؤرشفاً — تحذيرٌ في الردّ لا رفض، فلا ينكسر مفتاح API ولا تكامل
+    const nameWarn = duplicateNameWarnings(await duplicateNameMatches(prisma, tid, data.name));
+    const withNameWarn = <T extends object>(body: T) => (nameWarn.length ? { ...body, warnings: nameWarn } : body);
     const lifeProblem = shelfLifeProblem(data) ?? returnRuleConfigProblem(data);
     if (lifeProblem) { res.status(400).json({ success: false, message: lifeProblem }); return; }
     // «قيود المندوب»: الصنف الجديد بلا وحدات بعد، فلا «كبرى فقط» عند إنشائه — إلا الإنشاء العكسي فوحداته معه (D10)
@@ -794,9 +930,9 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
         if (writeLists) await writeLists(tx, created, 1);
         return created;
       });
-    if (!writeLists) { res.status(201).json({ success: true, data: product }); return; }
+    if (!writeLists) { res.status(201).json(withNameWarn({ success: true, data: product })); return; }
     const lists = await adminListPrices(req, tid, [product.id]);
-    res.status(201).json({ success: true, data: { ...product, listPrices: lists?.get(product.id) ?? [] } });
+    res.status(201).json(withNameWarn({ success: true, data: { ...product, listPrices: lists?.get(product.id) ?? [] } }));
   } catch (err) {
     if (err instanceof UnitsRefusal) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
     if (reverseUniqueViolation(err)) { res.status(409).json({ success: false, message: 'اسم الوحدة مكرر لهذا الصنف' }); return; }
@@ -818,6 +954,7 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
         id: true, shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true, shelfLifeBasis: true, shelfLifeFromDate: true,
         returnRuleEnabled: true, returnRuleMode: true, returnRuleMetric: true, returnRuleValue: true,
         unit: true, units: { select: { name: true, factor: true, isActive: true } },
+        name: true, // S4: إعادة التسمية وحدها تسأل عن الاسم المكرَّر
         lotTracked: true, // «تتبّع اللوط»: الانتقال يُعرف من القراءة نفسها بلا استعلام
         repSaleAllowed: true, repReturnAllowed: true, repSaleUnit: true, repReturnUnit: true,
       },
@@ -855,6 +992,10 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
     const lot = productLotSchema.parse(req.body);
     const lotTo = lot.lotTracked != null && lot.lotTracked !== exists.lotTracked ? lot.lotTracked : null;
     if (lotTo === true && !(await lotsAllowed(tid))) { res.status(403).json(lotErrorBody(lotErr('LOTS_NOT_ALLOWED'))); return; }
+    // S4 (D4): إعادة تسمية الصنف باسم صنفٍ آخر للشركة (قائمٍ أو موقوفٍ أو مؤرشف) — تحذيرٌ في الردّ لا رفض
+    const renamed = data.name !== undefined && productNameKey(data.name) !== productNameKey(exists.name);
+    const nameWarn = renamed ? duplicateNameWarnings(await duplicateNameMatches(prisma, tid, data.name, exists.id)) : [];
+    const withNameWarn = <T extends object>(body: T) => (nameWarn.length ? { ...body, warnings: nameWarn } : body);
     const updateData: Record<string, unknown> = { ...data };
     for (const k of REP_RULE_KEYS) delete updateData[k];
     Object.assign(updateData, repRules.write);
@@ -882,7 +1023,7 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
         : undefined;
       const tracked = await setProductLotTracking(tid, req.params.id, lotTo, { confirm: lot.confirmLotBalances === true, data: updateData, actor: lotActorOf(req), ...(editGuard && { guard: editGuard }) });
       if (!tracked) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
-      res.json({ success: true, data: tracked });
+      res.json(withNameWarn({ success: true, data: tracked }));
       return;
     }
     if (touchesBase) {
@@ -893,7 +1034,7 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
         await guardProductEdit(tx, req, tid, locked, { guard, newUnit: data.unit, seenUnit: exists.unit });
         return tx.product.update({ where: { id: req.params.id }, data: updateData, include: { category: true, units: UNITS_ORDER } });
       }, { maxWait: 10_000, timeout: 20_000 });
-      res.json({ success: true, data: guarded });
+      res.json(withNameWarn({ success: true, data: guarded }));
       return;
     }
     const product = await prisma.product.update({
@@ -902,7 +1043,7 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
       // الوحدات مع الردّ: الواجهة تستبدل صفّ الصنف بما يعود، فبلاها تختفي وحداته من الشاشة حتى إعادة التحميل
       include: { category: true, units: UNITS_ORDER },
     });
-    res.json({ success: true, data: product });
+    res.json(withNameWarn({ success: true, data: product }));
   } catch (err) {
     // التعديل المحروس في المسارين: الرفض برمزه، ومنه انتظار قفل الصنف خلف تحويلٍ طويل ⇒ 503 PRODUCT_UNITS_BUSY (من lockProductForEdit
     // وحده). وانشغالٌ آخر في المعاملة (قاعدةٌ بطيئة، تعطّل متبادل) ليس «وحدات الصنف قيد التحويل»: يمرّ إلى المعالج العام كما كان
@@ -1051,6 +1192,8 @@ router.post('/:id/units', requireAdmin, async (req: AuthRequest, res: Response, 
       // الأساس بين «الأخريات»: لا وحدة باسمه، ولا وحدة بمعامل ١ (هي الأساس نفسه)
       const problem = unitProblem(data, [baseAsUnit(product.unit), ...product.units]);
       if (problem) throw new UnitsRefusal(400, problem);
+      // البند ٢: اسم أساسٍ سابق وحدةً أكبر لصنفٍ له تاريخ ⇒ 409 BASE_NAME_RESERVED
+      await assertNotReservedBaseName(tx, tid, product, data.name, data.factor);
       const created = await tx.productUnit.create({
         data: {
           tenantId: tid, productId: product.id, name: data.name.trim(),
@@ -1103,6 +1246,10 @@ router.put('/:id/units/:unitId', requireAdmin, async (req: AuthRequest, res: Res
       };
       const problem = unitProblem(merged, [baseAsUnit(product.unit), ...product.units.filter((u) => u.id !== current.id)]);
       if (problem) throw new UnitsRefusal(400, problem);
+      // البند ٢: تسمية وحدةٍ أكبر باسم أساسٍ سابق (لا تغيير معاملها وحده) ⇒ 409 BASE_NAME_RESERVED
+      if (data.name !== undefined && baseNameKey(data.name) !== baseNameKey(current.name)) {
+        await assertNotReservedBaseName(tx, tid, product, data.name, Number(merged.factor));
+      }
       refuseLargeRuleWithout(product, product.units.map((u) => (u.id === current.id
         ? { factor: Number(merged.factor), isActive: data.isActive ?? u.isActive } : u)));
       await tx.productUnit.updateMany({

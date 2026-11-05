@@ -92,10 +92,12 @@ const db: Record<string, unknown> = {
   },
   product: { findMany: async ({ where }: { where: Row }) => S.products.filter((p) => matches(p as unknown as Row, where)).map((p) => ({ ...p, units: [] })) },
   productUnit: { findMany: async () => [] },
+  // D2 (التحميل فوق رصيد المستودع يُمنع): رصيد المستودع لأصناف الحركة — وفيرٌ هنا، فهذا الملف لا يحرس الرصيد (van-load-warehouse-guard.test.ts)
+  warehouseEntryItem: { findMany: async ({ where }: { where: { productId: { in: string[] } } }) => where.productId.in.map((productId) => ({ productId, qty: 1e6, unitFactor: 1, baseQty: 1e6 })) },
   invoiceItemLot: { findFirst: async () => null },
-  // computeStock (رصيد الإزالة)
+  // computeStock (رصيد الإزالة)؛ وقراءة رصيد المستودع (D2، مقيّدة بالأصناف) بلا حركات سيارة — الوارد وفير
   vanLoadItem: {
-    findMany: async ({ where }: { where: { vanLoad: { tenantId: string; salesRepId: string } } }) =>
+    findMany: async ({ where }: { where: { productId?: unknown; vanLoad: { tenantId: string; salesRepId: string } } }) => 'productId' in where ? [] :
       S.vanItems.map((it) => ({ it, l: S.vanLoads.find((l) => l.id === it.vanLoadId)! }))
         .filter(({ l }) => l.tenantId === where.vanLoad.tenantId && l.salesRepId === where.vanLoad.salesRepId)
         .map(({ it, l }) => ({ productId: it.productId, qty: it.qty, unitFactor: it.unitFactor, baseQty: it.baseQty, vanLoad: { type: l.type, createdAt: l.createdAt } })),

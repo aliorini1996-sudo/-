@@ -310,15 +310,15 @@ test('التعديل بلا انتقال: المسار حرفياً كما كا�
     productsWorld({ tenantLots: true, tracked: false });
     const r = await call('PUT', '/api/products/p1', body);
     assert.equal(r.status, 200, JSON.stringify(r.body));
-    assert.deepEqual(ops(), ['product.findFirst', 'product.update']);
-    const upd = calls[1].args;
+    assert.deepEqual(ops(), ['product.findFirst', 'product.findMany', 'product.update'] /* D4: قراءة الاسم المكرَّر */);
+    const upd = calls[2].args;
     assert.ok(!('lotTracked' in upd.data) && !('confirmLotBalances' in upd.data) && !('lotTrackedSince' in upd.data));
   }
   // والمتتبَّع يُرسل true كما هو: لا انتقال
   reset();
   productsWorld({ tenantLots: true, tracked: true });
   assert.equal((await call('PUT', '/api/products/p1', { name: 'شاي', lotTracked: true })).status, 200);
-  assert.deepEqual(ops(), ['product.findFirst', 'product.update']);
+  assert.deepEqual(ops(), ['product.findFirst', 'product.findMany', 'product.update'] /* D4: قراءة الاسم المكرَّر */);
 });
 
 test('null في lotTracked وconfirmLotBalances غيابٌ كما كان قبل الميزة (نماذج RHF، §١٠.١): لا رفض، ولا انتقال ولو كان الصنف متتبَّعاً', async () => {
@@ -329,8 +329,8 @@ test('null في lotTracked وconfirmLotBalances غيابٌ كما كان قبل 
       const r = await call('PUT', '/api/products/p1', body);
       assert.equal(r.status, 200, `${tracked} ${JSON.stringify(body)}: ${JSON.stringify(r.body)}`);
       // null ليس false: المتتبَّع لا يُطفأ، ولا قراءة علمٍ ولا معاملة
-      assert.deepEqual(ops(), ['product.findFirst', 'product.update']);
-      const data = calls[1].args.data;
+      assert.deepEqual(ops(), ['product.findFirst', 'product.findMany', 'product.update'] /* D4: قراءة الاسم المكرَّر */);
+      const data = calls[2].args.data;
       assert.ok(!('lotTracked' in data) && !('confirmLotBalances' in data) && !('lotTrackedSince' in data));
     }
   }
@@ -338,8 +338,8 @@ test('null في lotTracked وconfirmLotBalances غيابٌ كما كان قبل 
   scripted['product.create'] = (a) => ({ id: 'p-new', ...a.data });
   const c = await call('POST', '/api/products', { code: 'C1', name: 'شاي', unit: 'حبة', basePrice: 5, taxPct: 15, lotTracked: null, confirmLotBalances: null });
   assert.equal(c.status, 201, JSON.stringify(c.body));
-  assert.deepEqual(ops(), ['product.findFirst', 'product.create']);
-  assert.ok(!Object.keys(calls[1].args.data).some((k) => /^lot|^confirmLot/.test(k)));
+  assert.deepEqual(ops(), ['product.findFirst', 'product.findMany', 'product.create'] /* D4: قراءة الاسم المكرَّر */);
+  assert.ok(!Object.keys(calls[2].args.data).some((k) => /^lot|^confirmLot/.test(k)));
 });
 
 test('التفعيل والعلم مطفأ للشركة ⇒ 403 LOTS_NOT_ALLOWED بلا كتابة', async () => {
@@ -498,8 +498,8 @@ test('الإنشاء: بلا العلم كما كان (لا قراءة علم و
   reset();
   scripted['product.create'] = (a) => ({ id: 'p-new', ...a.data });
   assert.equal((await call('POST', '/api/products', body)).status, 201);
-  assert.deepEqual(ops(), ['product.findFirst', 'product.create']);
-  assert.ok(!Object.keys(calls[1].args.data).some((k) => /^lot/.test(k)));
+  assert.deepEqual(ops(), ['product.findFirst', 'product.findMany', 'product.create'] /* D4: قراءة الاسم المكرَّر */);
+  assert.ok(!Object.keys(calls[2].args.data).some((k) => /^lot/.test(k)));
 
   reset();
   scripted['tenant.findUnique'] = () => ({ lotTrackingEnabled: false });

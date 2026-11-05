@@ -33,8 +33,8 @@ test('نافذة التحميل: كل بندٍ (تحميلاً وتنزيلاً)
   assert.match(m, /baseUnit: String\(p\.unit \?\? ''\)/, 'الأساس كما رآه النموذج لحظة إضافة الصنف');
   assert.match(m, /if \(isStaleUnitsError\(e\)\) void rebaseRows\(\)/);
   assert.match(m, /rebaseRow\(/);
-  // R5 في التلميح وR6 الافتراضي وR7 الاقتراح
-  assert.match(m, /hint: `\$\{p\.code\} · \$\{productUnitLabel\(p\)\}`/);
+  // R5 في التلميح وR6 الافتراضي وR7 الاقتراح — والتلميح منذ مراجعة المخزون (S3) الكود («اسم مكرر — كود X» للمكرر) ثم وحدة الصنف
+  assert.match(m, /hint: \[e\.dup \? fillCode\(tr\(DUP_NAME_TEXT\), e\.p\.code\) : e\.p\.code, productUnitLabel\(e\.p\),/);
   assert.match(m, /const c = defaultChoice\(p\)/);
   assert.match(m, /p \? suggestionChoice\(p, r\.suggested\) : suggestionChoice\(\{ unit: r\.unit, units: r\.units \?\? \[\] \}, r\.suggested\)/, 'بلا رئيسية كما كان');
   // الرئيسية من صفّ الاقتراح نفسه أولاً (لا تنتظر قائمة الأصناف)، والكتالوج احتياطٌ لخادمٍ لا يرسلها
@@ -80,7 +80,8 @@ test('المستودع: سطر الوارد بالرئيسية افتراضاً 
   assert.match(m, /\.\.\.\(r\.baseUnit && \{ baseUnitName: r\.baseUnit \}\)/);
   assert.match(m, /if \(isStaleUnitsError\(e\)\) void rebaseRows\(\)/);
   assert.match(m, /hint: `\$\{p\.code\} · \$\{productUnitLabel\(p\)\}`/);
-  assert.match(wh, /\{prim\.name\}: \{formatCurrency\(r\.avgCost \* Number\(prim\.factor\), undefined, 4\)\}/);
+  // تكلفة الرئيسية من قيمة الصف ÷ كميته المقيَّمة × المعامل (مراجعة المخزون S8، rowUnitCost) — لا متوسّط القارورة المقرَّب × المعامل
+  assert.match(wh, /\{prim\.name\}: \{formatCurrency\(rowUnitCost\(r, Number\(prim\.factor\)\) \?\? 0, undefined, 4\)\}/);
   // تلميح المتوسّط الخام (تكلفة القارورة) على سطر القارورة لا على سطر الكرتون
   assert.match(wh, /title=\{String\(r\.avgCost\)\}>\{r\.unit\}: \{formatCurrency\(r\.avgCost, undefined, 4\)\}/);
   assert.doesNotMatch(wh, /title=\{String\(r\.avgCost\)\}>\{prim\.name\}/);

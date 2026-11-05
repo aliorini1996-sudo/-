@@ -31,6 +31,9 @@ import {
 import { lotErrorOf } from '../lib/lots';
 import { productLotNote, productLotPayload, trackingBalanceOf, type TrackingBalanceProduct } from '../lib/lotTrackingUi';
 import { shelfLifeOn, LOT_CACHE_KEYS } from './mLotsLogic';
+import { deleteBalanceText, duplicateNameAskText, duplicateNameSavedText, duplicateNameWarningsOf, type NameMatch } from '../lib/productGuards';
+import { fetchNameMatches, fetchStockSummary } from '../lib/productGuardsApi';
+import { baseQtyText } from '../lib/adminUnits';
 
 /**
  * المنتجات والأسعار في تطبيق الإدارة على الجوال.
@@ -360,12 +363,29 @@ function MProductForm({ product, categories, onClose, onReplace, lotOn = false }
   const lotNote = lotOn ? productLotNote(lotBase ?? null, lotValue) : null;
   // إطفاءٌ ردّه الخادم بأرصدة في تشغيلات (D9) — تفاصيلها للتأكيد، ثم الحفظ نفسه بـconfirmLotBalances
   const [lotBalances, setLotBalances] = useState<TrackingBalanceProduct[] | null>(null);
+  /* D4 (الاسم المكرَّر تحذيرٌ لا رفض، كنافذة اللوحة): قبل حفظ اسمٍ جديد يُسأل الخادم عن أصنافٍ بالاسم نفسه — قائمةٍ أو موقوفةٍ
+   * أو محذوفة — فيؤكّد المدير. dupAsk مطابقاتٌ تنتظر التأكيد، وdupAcked أكّدها فلا يُعاد التحذير بعد الحفظ */
+  const [dupAsk, setDupAsk] = useState<NameMatch[] | null>(null);
+  const [nameChecking, setNameChecking] = useState(false);
+  const dupAcked = useRef(false);
+  /* S6: رصيد الصنف في نصّ تأكيد الحذف — undefined جارٍ، null تعذّر (لا سطر). الكمية بالأساس بوحداته */
+  const delStock = useQuery({
+    queryKey: ['product-stock-summary', product?.id],
+    queryFn: () => fetchStockSummary(product!.id),
+    enabled: !!product && confirming,
+    staleTime: 0,
+  });
+  const delBalanceLine = product && confirming
+    ? deleteBalanceText(delStock.isLoading ? undefined : (delStock.data ?? null), tr,
+      n => baseQtyText(n, liveQ.data ?? product, formatNumber, { withUnit: true }))
+    : null;
 
   // طبقات هذا النموذج — من الأعلى بصرياً إلى الأدنى (وطبقة «أسعار الكميات»
   // تسجّل نفسها داخل مكوّنها فتقع فوق الجميع)
   useBackClose(newCat !== null, () => setNewCat(null));
   useBackClose(newCat === null && confirming, () => setConfirming(false));
   useBackClose(lotBalances !== null, () => setLotBalances(null));
+  useBackClose(dupAsk !== null, () => setDupAsk(null));
   useBackClose(unitsOpen, () => setUnitsOpen(false));
   useBackClose(switching, () => setSwitching(false));
   useBackClose(subUnitOpen, () => setSubUnitOpen(false));
@@ -423,11 +443,10 @@ function MProductForm({ product, categories, onClose, onReplace, lotOn = false }
       const lot = productLotPayload(product ? (lotBase ?? null) : null, lotOn, lotValue);
       Object.assign(payload, lot);
       if (confirmLot && lot.lotTracked === false) payload.confirmLotBalances = true;
-      if (product) await productApi.update(product.id, payload);
-      else await productApi.create(payload);
-      return 'lotTracked' in lot;
+      const res = product ? await productApi.update(product.id, payload) : await productApi.create(payload);
+      return { lotChanged: 'lotTracked' in lot, dups: duplicateNameWarningsOf(res?.data) };
     },
-    onSuccess: (lotChanged) => {
+    onSuccess: ({ lotChanged, dups }) => {
       qc.invalidateQueries({ queryKey: ['m-products'] });
       if (product) qc.invalidateQueries({ queryKey: ['m-product', product.id] });
       // تبدّل التتبّع أو الوحدات: قوائم الأصناف في الفاتورة والتحميل والوارد تقرأ علمه ووحداته، وشاشة التشغيلات
@@ -435,6 +454,8 @@ function MProductForm({ product, categories, onClose, onReplace, lotOn = false }
       if (lotChanged) LOT_CACHE_KEYS.forEach(k => qc.invalidateQueries({ queryKey: [k] }));
       setLotBalances(null);
       toast.success(product ? tr('تم التحديث') : tr('تم الإضافة'));
+      // تحذير الخادم (D4) لمن لم يُسأل قبل الحفظ (تعذّر السؤال أو سبقه صنفٌ متزامن) — لا يمنع
+      if (dups.length && !dupAcked.current) toast(duplicateNameSavedText(dups, tr), { icon: '⚠️', duration: 7000 });
       onClose();
     },
     onError: (e: unknown, confirmLot) => {
@@ -445,6 +466,20 @@ function MProductForm({ product, categories, onClose, onReplace, lotOn = false }
       toast.error(lotErrorOf(e)?.message || apiMessage(e, tr('تعذر الحفظ')));
     },
   });
+
+  /** الحفظ من الزرّ: اسمٌ جديد (إنشاءٌ أو إعادة تسمية) يُفحص تكراره أولاً — تعذّر الفحص لا يحجب (الخادم يحذّر في ردّه) */
+  const onSaveClick = async () => {
+    setRfTouched(true);
+    const renamed = !product || form.name.trim() !== String(product.name ?? '').trim();
+    dupAcked.current = false;
+    if (renamed) {
+      setNameChecking(true);
+      const matches = await fetchNameMatches(form.name, product?.id ?? null);
+      setNameChecking(false);
+      if (matches && matches.length) { setDupAsk(matches); return; }
+    }
+    save.mutate(false);
+  };
 
   /** جعل وحدةٍ موجودة رئيسية (الخيار «أ») أو العودة إلى الافتراضي (null) — علمٌ فوري (D11)، والنموذج يُعاد فتحه بالنتيجة */
   const setPrimary = useMutation({
@@ -703,9 +738,9 @@ function MProductForm({ product, categories, onClose, onReplace, lotOn = false }
       {/* زرّ الحفظ ثابت أسفل — لا يُبحث عنه بالتمرير */}
       <div className="flex-shrink-0 border-t border-[#E9E1D3] bg-white p-3"
         style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
-        <button onClick={() => { setRfTouched(true); save.mutate(false); }} disabled={!valid || save.isPending}
+        <button onClick={() => { void onSaveClick(); }} disabled={!valid || save.isPending || nameChecking}
           className="w-full bg-[#E15A30] text-white font-bold py-3.5 rounded-xl min-h-[50px] flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
-          {save.isPending && <Loader2 size={16} className="animate-spin" />}
+          {(save.isPending || nameChecking) && <Loader2 size={16} className="animate-spin" />}
           {product ? tr('حفظ التعديلات') : tr('إضافة الصنف')}
         </button>
       </div>
@@ -759,11 +794,30 @@ function MProductForm({ product, categories, onClose, onReplace, lotOn = false }
         </Sheet>
       )}
 
+      {/* D4: صنفٌ آخر بالاسم نفسه — تأكيدٌ قبل الحفظ (أو إضافة وحدةٍ أصغر للقديم بدل صنفٍ جديد) */}
+      {dupAsk && (
+        <Sheet title={tr('اسم مكرر')} onClose={() => setDupAsk(null)}>
+          <p className="text-[12px] text-[#6E6557] leading-relaxed">{duplicateNameAskText(dupAsk, tr)}</p>
+          <div className="flex gap-2">
+            <button onClick={() => { dupAcked.current = true; setDupAsk(null); save.mutate(false); }} disabled={save.isPending}
+              className="flex-1 bg-[#E15A30] text-white font-bold py-3 rounded-xl min-h-[48px] flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
+              {save.isPending && <Loader2 size={16} className="animate-spin" />}
+              {tr('حفظ')}
+            </button>
+            <button onClick={() => setDupAsk(null)}
+              className="px-5 border border-[#E9E1D3] bg-white rounded-xl min-h-[48px] text-sm font-semibold text-[#1F1A13]">
+              {tr('إلغاء')}
+            </button>
+          </div>
+        </Sheet>
+      )}
+
       {confirming && product && newCat === null && (
         <Sheet title={tr('حذف الصنف')} onClose={() => setConfirming(false)}>
           <p className="text-[12px] text-[#6E6557] leading-relaxed">
             {tr('سيتم حذف الصنف')} «{product.name}» {tr('من كل القوائم ولن يمكن بيعه في فواتير جديدة فواتيره وسنداته وكشوفه القديمة تبقى كما هي بالاسم نفسه ولا يمكن التراجع عن الحذف')}
           </p>
+          {delBalanceLine && <p className="text-[12px] font-semibold text-amber-800 leading-relaxed">{delBalanceLine}</p>}
           <div className="flex gap-2">
             <button onClick={() => del.mutate()} disabled={del.isPending}
               className="flex-1 bg-[#C0392B] text-white font-bold py-3 rounded-xl min-h-[48px] flex items-center justify-center gap-2 disabled:opacity-60">

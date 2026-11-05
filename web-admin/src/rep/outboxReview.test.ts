@@ -67,7 +67,7 @@ test('الخروج من المراجعة: المرفوض والمرفوع بلا
 
 test('المزامنة: X-FS-Replay على كل رفع من الصفّ، وZATCA_CUTOVER_REVIEW يُبقي المستند ويتابع قبل فرع الرفض — وبقية الاستثناءات كما هي', () => {
   const s = read('src', 'rep', 'offlineSync.ts');
-  assert.ok(s.includes("const res = await repApi.post(endpoint, doc.payload, { headers: { 'X-FS-Replay': '1' } });"));
+  assert.ok(s.includes("const res = await repApi.post(endpoint, doc.payload, { headers: { 'X-FS-Replay': '1', 'X-FS-Device-Now': new Date().toISOString() } });"));
   assert.equal(s.split('repApi.post(').length - 1, 1, 'رفع واحد فقط في المزامنة');
   assert.ok(s.includes(".filter((d) => d.status === 'queued' && ownedByCurrentRep(d) && reviewRecheckDue(d, startedAt))"));
   const i = s.indexOf('if (code === CUTOVER_REVIEW_CODE) {');

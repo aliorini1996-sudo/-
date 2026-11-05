@@ -12,8 +12,11 @@ import { formatQty, primaryUnitOf, unitPriceOf, type UnitDef } from '../../lib/u
 import {
   EMPTY_UNIT_FORM, unitFormOf, unitFormPayload, unitFormProblem, convertFormProblem, convertPreview, convertPayload, hasBigUnit,
   biggestUnit, productUnitLabel, EMPTY_REVERSE_FORM, reverseFormProblem, reverseCreatePayload, reverseEditPatch, reverseFormOf, reverseSubPrice,
-  type UnitForm, type ConvertForm, type ReverseForm,
+  baseQtyText, type UnitForm, type ConvertForm, type ReverseForm,
 } from '../../lib/adminUnits';
+// مراجعة المخزون (D4 وD7): الاسم المكرَّر وإعادة تسمية أساسٍ له رصيد — إقرارٌ قبل الحفظ
+import { baseRenameAskText, duplicateNameAskText, hasStockBalance, productNameKey } from '../../lib/productGuards';
+import { fetchNameMatches, fetchStockSummary } from '../../lib/productGuardsApi';
 import { PRODUCT_VAT_CATEGORY_LABELS_AR, VATEX_LABELS_AR, productVatPayload, vatexCodesFor } from '../../lib/zatca/productVatForm';
 import {
   RETURN_RULE_METRIC_LABELS, RETURN_RULE_MODE_LABELS, ReturnRuleMetric, ReturnRuleMode, SHELF_LIFE_BASIS_LABELS, SHELF_LIFE_UNIT_LABELS,
@@ -29,7 +32,8 @@ import { roundHalfUp } from '../../lib/money';
 
 interface Props {
   /** onSave: الصنف كما كان، ومعه listPriceEdits («أنواع الأسعار») حين تغيّر سعر نوعٍ — تحفظه الصفحة بمساره بعد الصنف */
-  product: Product | null; onClose: () => void; onSave: (data: Partial<Product> & { listPriceEdits?: ListPriceEdits }) => void; loading: boolean;
+  // duplicateNameAck: أقرّ المدير بالاسم المكرَّر قبل الحفظ (D4) — فلا تُعيد الصفحة تحذير الخادم نفسه بعده؛ والخادم يُسقطه
+  product: Product | null; onClose: () => void; onSave: (data: Partial<Product> & { listPriceEdits?: ListPriceEdits; duplicateNameAck?: boolean }) => void; loading: boolean;
   /** فوترة ZATCA (Z5.1a): الشركة تجمع بيانات الفوترة؟ (zatcaCollectOn) — false ⇒ النموذج والحمولة كما اليوم */
   zatcaCollect?: boolean;
   /** «تتبّع اللوط» مفعّل للشركة؟ (lotFlagsOf(company).on) — false ⇒ لا قسم ولا حقل في الحمولة (§١٠.١) */
@@ -407,7 +411,7 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
     const listPriceEdits: ListPriceEdits | null = listEdits.items.length
       ? { items: listEdits.items, expectedPrimary: reverseLayout && product && primary?.id ? { id: primary.id, factor: Math.round(fieldNum(rev.factor)) } : null }
       : null;
-    onSave({
+    void confirmThenSave(String(rest.name ?? ''), newBase, {
       ...rest, shelfLifeEnabled: !!rest.shelfLifeEnabled, shelfLifeValue: lifeValue,
       shelfLifeBasis: rest.shelfLifeBasis || 'SALE', shelfLifeFromDate: fromDate,
       returnRuleEnabled: ruleEnabled, returnRuleMode: rest.returnRuleMode || 'NEAR_EXPIRY', returnRuleMetric: rest.returnRuleMetric || 'DAYS',
@@ -422,6 +426,29 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
       ...(product ? { expectedBaseName: savedBase } : {}),
       ...(listPriceEdits ? { listPriceEdits } : {}),
     } as Partial<Product> & { listPriceEdits?: ListPriceEdits });
+  };
+  /* مراجعة المخزون: إقرارٌ قبل الحفظ — والسؤال يتعذّر (null) ⇒ الحفظ كما كان، والخادم يحذّر بنفسه.
+   *  • D4 (S4): اسمٌ جديد أو مُعاد يطابق صنفاً للشركة (قائماً أو موقوفاً أو مؤرشفاً) — تحذيرٌ لا رفض، ونصّه يقترح وحدةً أصغر للقديم.
+   *  • D7 (البند ٢): إعادة تسمية وحدة الأساس لصنفٍ له رصيد — الرقم لا يتغيّر ويُقرأ بالاسم الجديد */
+  const [checking, setChecking] = useState(false);
+  const confirmThenSave = async (name: string, newBase: string, payload: Partial<Product> & { listPriceEdits?: ListPriceEdits }) => {
+    setChecking(true);
+    try {
+      let duplicateNameAck = false;
+      if (productNameKey(name) && (!product || productNameKey(name) !== productNameKey(product.name))) {
+        const matches = await fetchNameMatches(name, product?.id ?? null);
+        if (matches?.length) {
+          if (!window.confirm(duplicateNameAskText(matches, tr))) return;
+          duplicateNameAck = true;
+        }
+      }
+      if (product && newBase && newBase !== savedBase.trim()) {
+        const s = await fetchStockSummary(product.id);
+        const qty = (n: number) => baseQtyText(n, { unit: savedBase, units, primaryUnitId }, formatNumber, { withUnit: true });
+        if (s && hasStockBalance(s) && !window.confirm(baseRenameAskText(savedBase, newBase, s, tr, qty))) return;
+      }
+      onSave({ ...payload, ...(duplicateNameAck && { duplicateNameAck: true }) });
+    } finally { setChecking(false); }
   };
   const revSet = (k: keyof ReverseForm) => (e: React.ChangeEvent<HTMLInputElement>) => { const v = e.target.value; setRev(r => ({ ...r, [k]: v })); };
   const revPrimaryName = rev.primaryName.trim() || tr('الوحدة الرئيسية');
@@ -950,8 +977,8 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
           </details>
 
           <div className="flex gap-3 pt-2">
-            <button type="submit" disabled={loading} className="btn-primary flex-1 justify-center py-2.5">
-              {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : null}
+            <button type="submit" disabled={loading || checking} className="btn-primary flex-1 justify-center py-2.5">
+              {loading || checking ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : null}
               {product ? tr('حفظ التعديلات') : tr('إضافة الصنف')}
             </button>
             <button type="button" onClick={onClose} className="btn-secondary">{tr('إلغاء')}</button>

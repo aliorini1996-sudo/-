@@ -16,6 +16,8 @@ import { ALLOCATION_ALLOWED_WHERE, ALLOCATION_BLOCKED_MIRRORS } from '../complia
 import { ZatcaHttpError } from '../compliance/zatca/errors';
 // «إدارة طرق الدفع»: النواة الصرفة (لا services/gl — هذا المسار محروس بـgl-hooks-static)
 import { readPaymentMethodsConfig, resolveReceiptMethod } from '../services/paymentMethodsCore';
+import { DEVICE_NOW_HEADER, headerText, offlineInvoiceDate } from '../services/offlineInvoiceDate';
+import { tenantTz } from '../services/invoiceExpiry';
 
 const router = Router();
 router.use(authenticate);
@@ -247,7 +249,15 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       res.status(400).json({ success: false, message: 'مجموع تخصيص الفواتير أكبر من مبلغ السند' }); return;
     }
 
-    const docDate = body.receiptDate ? new Date(body.receiptDate) : undefined;
+    /* D11 (مراجعة المخزون، البند ١٥): سند المندوب دون اتصال يُؤرَّخ بلحظة إصداره على الجهاز كفاتورته (services/offlineInvoiceDate.ts) —
+     * وإلا انشطر الزوج: فاتورة يوم ٣ وسند تحصيلها يوم ٤ في الكشف والأعمار وأرقام اليوم. الحصر نفسه (إعادة رفع المندوب وحدها، لا
+     * مستقبل ولا أقدم من سبعة أيام، والتاريخ الصريح يغلب)، والسند ليس مستنداً ضريبياً فلا استثناء للمرحلة الثانية */
+    const offlineAt = offlineInvoiceDate({
+      replay: String(req.headers['x-fs-replay'] || '') === '1', role: req.user!.role, viaApiKey: Boolean(req.user?.apiKeyId),
+      bodyInvoiceDate: body.receiptDate, clientCreatedAt: body.clientCreatedAt, deviceNow: headerText(req.headers[DEVICE_NOW_HEADER]),
+      phase2StartedAt: null, now: new Date(),
+    });
+    const docDate = body.receiptDate ? new Date(body.receiptDate) : (offlineAt ?? undefined);
 
     // الرقم يُولَّد داخل إعادة المحاولة: عند تصادم P2002 (سندان متزامنان بنفس الرقم) يُعاد التوليد والإنشاء
     // ═══ التوزيع إلزاميّ (قرار المالك) ═══
@@ -270,8 +280,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // التخصيص المكتمل يحلّ محلّ الوارد (الدالة تجمع المتكرّر بالفاتورة أصلاً)
     allocations = filled;
 
+    // D11: السند المؤرَّخ بلحظة الجهاز يأخذ تسلسل شهره بتوقيت الشركة (utils/helpers prefixFor) — وغيره كما كان
+    const numTz = offlineAt ? await tenantTz(tid).catch(() => undefined) : undefined;
     const receipt = await withNumberRetry(async () => {
-    const number = await generateReceiptNumber(tid, docDate); // البادئة من تاريخ السند لا وقت الرفع
+    const number = await generateReceiptNumber(tid, docDate, numTz); // البادئة من تاريخ السند لا وقت الرفع
     return prisma.$transaction(async tx => {
       // خريطتا المتبقي والمدفوع تعيشان بنطاق المعاملة: تملآن في فحص التخصيص
       // وتستهلكان في الضبط المنظف بعد انشاء السند

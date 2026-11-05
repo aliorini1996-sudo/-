@@ -119,8 +119,8 @@ test('كل بانية مستندِ فاتورةٍ من ردّ الخادم تم�
     ['rep/RepDocuments.tsx', 'export function invoiceDocFromDetail', '\n}'],
     // الطباعة فور الإصدار في تطبيق المندوب — من نداء الإصدار إلى مصيدة الخطأ
     ['rep/RepApp.tsx', "const res = await repApi.post('/invoices', payload);", '} catch (err'],
-    // الطباعة فور الحفظ في لوحة الإدارة — من الطفرة إلى معالج خطئها
-    ['components/forms/InvoiceModal.tsx', 'mutationFn: (data: unknown) => invoiceApi.create(data),', 'onError:'],
+    // الطباعة فور الحفظ في لوحة الإدارة — من الطفرة إلى معالج خطئها (المرتجع يحمل مرجع محاولته D8، فالمرساة رأس الطفرة)
+    ['components/forms/InvoiceModal.tsx', 'const mutation = useMutation({', 'onError:'],
   ] as const) {
     const tail = between(read(file), from, to, file);
     assert.match(tail, /zatca: zatcaDocView\(inv\)/, `${file}: المستند يُبنى بلا عرض المرحلة الثانية فيُطبع رمز المرحلة الأولى`);

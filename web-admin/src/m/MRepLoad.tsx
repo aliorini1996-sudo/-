@@ -1,17 +1,25 @@
-import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Search, Plus, Trash2, Loader2, Package, Truck, Sparkles, AlertTriangle,
   ArrowDownToLine, TrendingDown, Download,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { vanStockApi, productApi, lotsApi } from '../api/client';
+import { vanStockApi, productApi, lotsApi, warehouseApi } from '../api/client';
 import { SalesRep } from '../types';
 import { activeLocale, formatDate, formatTime, formatNumber } from '../utils/format';
 import { useTr } from '../i18n/strings';
+import { useLang } from '../i18n/lang';
+import { countText } from '../lib/arCount';
 import { useBackClose } from '../lib/useBackClose';
 import { primaryUnitOf, type UnitDef } from '../lib/units';
-import { unitChoices, defaultChoice, rebaseRow } from '../rep/repUnits';
+import { unitChoices, defaultChoice, rebaseRow, choiceById } from '../rep/repUnits';
+import { removalStart } from '../lib/stockRequest';
+import {
+  DUP_NAME_TEXT, EXTRA_KIND_META, PRODUCT_FLAG_LABELS, VAN_MOVE_TEXT, archivedErrorOf, dupNameIds, fillCode, fillNames, isReplayResponse,
+  loadOverWarehouse, movementKey, productFlagOf, refFor, unloadOverVan, vanRowsTotals, warehouseAvailOf, warehouseInsufficientOf,
+  isIndeterminateError, sendWithRefRecovery, withClientRef, withServerAvail, type RefMemo,
+} from '../lib/vanStockFlags';
 import { productUnitLabel } from '../lib/adminUnits';
 import { splitVanMovement } from '../lib/vanMovement';
 import {
@@ -27,6 +35,7 @@ import {
 import {
   newRowId, shelfLifeOn, resolveShelfOn, emptyLotDraft, lotDraftProblem, loadLotFields, lineBaseQty, fefoLinesParam,
   vanOutSources, prefillOutLines, sourcesLeftFor, outAutoRows, outGroupProblems, setOutQty, lotLineLabel, lotQtyText, LOT_CACHE_KEYS, VAN_OUT_PROBLEMS,
+  STOCK_CACHE_KEYS,
   type LotDraft, type OutSource,
 } from './mLotsLogic';
 import MUnitChips from './MUnitChips';
@@ -49,11 +58,17 @@ import { anyPrimary, fill, qtyTotalLabel, refetchUnitsOn, withBaseUnitName, back
  *
  * ولماذا الكمّية إدخالٌ حرّ لا أزرار ±١: التحميل الصباحي خمسون كرتوناً، وخمسون
  * نقرة في المستودع تعني أن يُكتَب الرقم في دفتر ورقيّ بدل التطبيق.
+ *
+ * مراجعة المخزون (طلب المالك ٤ نوفمبر ٢٠٢٦، lib/vanStockFlags) كاللوحة: الصنف موسومٌ «محذوف/موقوف/اسم مكرر»، والمحذوف تنزيلٌ وحده؛
+ * والتحميل فوق المتاح في المستودع لا يُحفظ (D2، 422 WAREHOUSE_INSUFFICIENT)، والتنزيل فوق رصيد السيارة يُسمّى في التأكيد (#4)؛
+ * ولكل وثيقةٍ مقسومة clientRef لمحاولتها (D8)؛ والمجاميع الموجب وحده والعجز منفصلاً (#10)، وصفّ السيارة بمنزَّله وتسويته (#12).
  */
 
 interface StockRow {
   productId: string; name: string; code: string; unit: string;
   loaded: number; unloaded: number; adjusted: number; sold: number; returned: number; remaining: number;
+  /** حالة الصنف (S1): «محذوف» archived و«موقوف» INACTIVE — اختياريان، وخادمٌ أقدم بلا وسم */
+  status?: string; archived?: boolean;
   /** «منتهي الصلاحية» في السيارة — لا يُباع ولا يدخل المتبقّي، وتزيله الإدارة من لوحة مخزون السيارات */
   expired?: number;
   /** «المرتجع التالف» في السيارة — لا يُباع ولا يدخل المتبقّي، وتزيله الإدارة من لوحة مخزون السيارات */
@@ -68,6 +83,8 @@ interface ProductPick {
   id: string; name: string; code?: string; unit?: string; units?: UnitDef[]; primaryUnitId?: string | null;
   /** «تتبّع اللوط»: علم الصنف وصلاحيته (إلزام انتهاء التشغيلة الجديدة في شركة بلا مستودع) */
   lotTracked?: boolean; shelfLifeEnabled?: boolean; shelfLifeValue?: number | null; shelfLifeUnit?: string | null;
+  /** «موقوف» يُوسم ويُحمَّل كما كان (القائمة بلا المحذوف أصلاً) */
+  status?: string;
 }
 
 /** استجابة /van-stock/suggest — تطابق SuggestResult في الخادم */
@@ -94,6 +111,8 @@ interface SuggestResponse {
 
 interface Movement {
   kind: string; date: string; ref: string; by: string | null;
+  /** #11 (إضافتان قد تغيبان): مرتجعٌ لا يعود للمخزون أو عاد منتهياً — movementKey يقرؤهما */
+  returnToStock?: boolean; returnExpired?: boolean;
   /** `unit` لقطة وحدة البند و`qty` بها، و`baseQty` كميته بالأساس — لمن يجمع بنوداً تختلف وحداتها.
    *  و`lots` صفوف تشغيلات البند (withLots=1 والميزة مفعّلة وحدها) — للإشعار المطبوع */
   items: { name: string; unit: string; qty: number; baseQty?: number | null; lots?: unknown; primaryUnitId?: string | null }[];
@@ -153,6 +172,11 @@ const KIND_META: Record<string, { label: string; cls: string; sign: string }> = 
   EXPIRED_OUT: { label: 'إزالة منتهي الصلاحية', cls: 'text-[#C0392B] bg-[#FDECEA]', sign: '−' },
   RETURN_DAMAGED: { label: 'مرتجع تالف', cls: 'text-[#C0392B] bg-[#FDECEA]', sign: '+' },
   DAMAGED_OUT: { label: 'إزالة مرتجع تالف', cls: 'text-[#C0392B] bg-[#FDECEA]', sign: '−' },
+  // #11: مرتجعٌ لا يعود للمخزون بلا إشارة، والمنتهي إلى «منتهي الصلاحية»، والإلغاء حركةٌ عكسية بتاريخه (أنواعٌ إضافية من الخادم)
+  RETURN_NO_STOCK: { ...EXTRA_KIND_META.RETURN_NO_STOCK, cls: 'text-[#6E6557] bg-[#F5F1E9]' },
+  RETURN_EXPIRED: { ...EXTRA_KIND_META.RETURN_EXPIRED, cls: 'text-[#C0392B] bg-[#FDECEA]' },
+  SALE_CANCELLED: { ...EXTRA_KIND_META.SALE_CANCELLED, cls: 'text-[#6E6557] bg-[#F5F1E9]' },
+  RETURN_CANCELLED: { ...EXTRA_KIND_META.RETURN_CANCELLED, cls: 'text-[#6E6557] bg-[#F5F1E9]' },
 };
 
 /* إشعار الحركة في حزمة مستقلّة — يجرّ jspdf وhtml2canvas وqrcode معه */
@@ -180,6 +204,8 @@ export default function MRepLoad({ rep, company, onClose }: {
   onClose: () => void;
 }) {
   const tr = useTr();
+  // تمييز العدد بالعربية (S14) لسطر العجز: «صنفان» لا «2 صنف»
+  const lang = useLang(s => s.lang);
   const qc = useQueryClient();
   /* «تتبّع اللوط» — مطفأ ⇒ لا لقطة ولا اقتراح ولا حقل: الشاشة والجسم كما قبل الميزة (§١٠.١). والمستودع يقرّر مصدر
    * التحميل: مفعّلٌ ⇒ يوزّع الخادم بـFEFO (اقتراحٌ يُعرض هنا)، ومطفأٌ ⇒ تشغيلةٌ صريحة لكل سطر (D4) */
@@ -263,7 +289,35 @@ export default function MRepLoad({ rep, company, onClose }: {
     return (id: string) => m.get(id) ?? 0;
   }, [stockQ.data]);
 
-  const totalRemaining = (stockQ.data ?? []).reduce((s, r) => s + r.remaining, 0);
+  /* D2 («التحميل فوق رصيد المستودع يمنع»): المتاح في المستودع لكل صنف — مفتاح «مخزون الشركة» في اللوحة نفسه (الشكل واحد)، طازجاً
+   * عند فتح الشاشة؛ والمستودع مطفأ ⇒ لا جلب ولا حكم. وما ردّه الخادم في 422 يغلب الصفوف المخزّنة حتى تصل من جديد */
+  const whQ = useQuery({
+    queryKey: ['warehouse-stock'],
+    enabled: warehouseOn,
+    staleTime: 0,
+    queryFn: async () => (await warehouseApi.stock()).data?.data as unknown,
+  });
+  const [whServer, setWhServer] = useState<ReadonlyMap<string, number>>(() => new Map());
+  useEffect(() => { setWhServer(new Map()); }, [whQ.dataUpdatedAt]);
+  const whAvail = warehouseOn ? withServerAvail(warehouseAvailOf(whQ.data), whServer) : null;
+  // صفوف المستودع لم تصل والخريطة ما ردّه الخادم في 422 وحده ⇒ جزئية: الغائب منها لا يُحكم عليه (المراجعة UX6)
+  const whPartial = warehouseOn && warehouseAvailOf(whQ.data) === null;
+  // D3: صنفٌ ردّه الخادم «محذوفاً» في هذه الشاشة (422 PRODUCT_ARCHIVED) — لا يُحمَّل ويبقى تنزيله
+  const [archivedIds, setArchivedIds] = useState<ReadonlySet<string>>(() => new Set());
+  const stockRowOf = (id: string) => (stockQ.data ?? []).find(s => s.productId === id);
+  const archivedOf = (id: string) => archivedIds.has(id) || productFlagOf(stockRowOf(id)) === 'ARCHIVED';
+  // S1: «اسم مكرر» على صفوف السيارة ونتائج البحث معاً — القديم والجديد كلاهما موسومٌ بكوده
+  const dupIds = dupNameIds([...(stockQ.data ?? []).map(s => ({ id: s.productId, name: s.name })), ...(prodQ.data ?? [])]);
+  // مرجع كل وثيقةٍ لمحاولة حفظها (D8): التحميل والتنزيل كلٌّ بمرجعه، يُعاد مع الإعادة بالمحتوى نفسه ويُنسى بعد النجاح
+  const refs = useRef<{ load?: RefMemo; unload?: RefMemo }>({});
+  // D8 (المراجعة F1): محاولةٌ لم يصل ردّها وربما كُتبت — إعادة المحتوى نفسه بمرجعه يحسمها الخادم (200 replay)، فلا يحجبها فحص
+  // المستودع المسبق (رصيده بعد الحفظ الضائع ينقص بالحركة نفسها). أي تعديلٍ وثيقةٌ جديدة فيعود الفحص
+  const [uncertain, setUncertain] = useState(false);
+  useEffect(() => { setUncertain(false); }, [rows, note]);
+
+  // #10: «أصناف بالسيارة» ما رصيده موجب و«المتبقي» مجموعه — والعجز (بيعٌ بلا مخزون) يُعرض منفصلاً لا يُطرح من بضاعة غيره
+  const vanTotals = vanRowsTotals(stockQ.data);
+  const totalRemaining = vanTotals.onVan;
   // مجموع المتبقّي عبر الأصناف بالأساس — يُسمّى كذلك حين لصنفٍ وحدةٌ أكبر، فلا يُقرأ ١٢٠٠ حبة «١٢٠٠ كرتون»
   const anyMulti = (stockQ.data ?? []).some(s => hasBigUnit(s.units));
   // ولصنفٍ له «وحدة رئيسية» (R3): «المتبقي بالوحدات الصغرى» — «بوحدات الأساس» لا تُقال لمن عرّف صنفه بالكرتون (D21)
@@ -417,7 +471,16 @@ export default function MRepLoad({ rep, company, onClose }: {
       return u ? [...rs, { rowId: newRowId(), productId, name, qty: '1', ...u, primaryUnitId: p.primaryUnitId ?? null, ...extra }] : rs;
     });
   const addProduct = (p: ProductPick) => addLine(p, p.id, p.name, lotOn ? { shelfOn: shelfLifeOn(p) } : {});
-  const addFromStock = (s: StockRow) => addLine(s, s.productId, s.name);
+  /* D3: صنفٌ محذوف في السيارة تنزيلٌ وحده — سطرٌ واحد بكامل رصيده سالباً (بالرئيسية حين ينقسم عليها، وإلّا بالأساس: removalStart)،
+   * ولا سطر لمحذوفٍ بلا رصيد. وغيره كما كان */
+  const addFromStock = (s: StockRow) => {
+    if (!archivedOf(s.productId)) { addLine(s, s.productId, s.name); return; }
+    if (!(s.remaining > 0) || rows.some(r => r.productId === s.productId)) return;
+    const st = removalStart(s, s.remaining);
+    const c = choiceById(s, st.unitId) ?? choiceById(s, null);
+    if (!c) return;
+    setRows(rs => [...rs, { rowId: newRowId(), productId: s.productId, name: s.name, qty: String(-roundLot(st.qty)), ...stockLineUnit(s, c), primaryUnitId: s.primaryUnitId ?? null }]);
+  };
   // تغيّر الكمية أو إشارتها أو وحدتها يُعيد التنزيل «تلقائياً» (AUTO_OUT): التحديد اليدوي كان لكميةٍ لم تعد كمية السطر
   const patchQty = (key: string, v: string) => setRows(rs => rs.map(r => r.rowId === key ? { ...r, qty: v, ...AUTO_OUT } : r));
   const flipSign = (key: string) => setRows(rs => rs.map(r => {
@@ -457,22 +520,37 @@ export default function MRepLoad({ rep, company, onClose }: {
       const trimmed = note.trim() || undefined;
       // «تتبّع اللوط»: تحذيرات الوثيقتين (تشغيلتان في السيارة، كرتونٌ مقسوم، رصيدٌ غير مسمّى) — لا تمنع لكنها تُقال
       const warnings: LotWarning[] = [];
+      let replayed = false;
       if (out.length) {
-        const res = await vanStockApi.createLoad({ salesRepId: rep.id, type: 'LOAD', note: trimmed, items: out });
+        // D8: مرجع محاولة وثيقة التحميل — المحتوى نفسه بعد ضياع الردّ يعود بالحركة الأولى (200) لا بثانية
+        const body = { salesRepId: rep.id, type: 'LOAD', note: trimmed, items: out };
+        refs.current.load = refFor(refs.current.load, body);
+        const ref = refs.current.load.ref;
+        // ردٌّ ضاع: يُسأل الخادم عن المرجع نفسه — محفوظٌ ⇒ كالإعادة، فلا تُكتب الحركة مرّتين (المراجعة F1)
+        const res = await sendWithRefRecovery(() => vanStockApi.createLoad(withClientRef(body, ref)), () => vanStockApi.loadsByClientRef(ref, rep.id));
+        replayed = replayed || isReplayResponse(res);
         warnings.push(...lotWarningsOf((res.data as { warnings?: unknown } | undefined)?.warnings));
         // وثيقة التحميل كُتبت فعلاً: تُسقَط أسطرها فوراً كي لا تُكتب مرّتين لو
         // سقط التنزيل بعدها وأعاد المستخدم المحاولة
         setRows(rs => rs.filter(r => !(Number(r.qty) > 0)));
+        refs.current.load = undefined;
       }
       if (back.length) {
-        const res = await vanStockApi.createLoad({ salesRepId: rep.id, type: 'UNLOAD', note: trimmed, items: back });
+        // ووثيقة التنزيل بمرجعها هي (مرجعٌ لكل مستندٍ مقسوم)
+        const body = { salesRepId: rep.id, type: 'UNLOAD', note: trimmed, items: back };
+        refs.current.unload = refFor(refs.current.unload, body);
+        const ref = refs.current.unload.ref;
+        const res = await sendWithRefRecovery(() => vanStockApi.createLoad(withClientRef(body, ref)), () => vanStockApi.loadsByClientRef(ref, rep.id));
+        replayed = replayed || isReplayResponse(res);
         warnings.push(...lotWarningsOf((res.data as { warnings?: unknown } | undefined)?.warnings));
+        refs.current.unload = undefined;
       }
-      return warnings;
+      return { warnings, replayed };
     },
-    onSuccess: (warnings) => {
+    onSuccess: ({ warnings, replayed }) => {
       invalidateVanStock();
       toast.success(tr('تم حفظ الحركة'));
+      if (replayed) toast(tr(VAN_MOVE_TEXT.replay));
       [...new Set(warnings.map(w => w.code))].forEach(c => toast(tr(LOT_WARNING_LABELS[c])));
       setRows([]);
       setNote('');
@@ -482,6 +560,27 @@ export default function MRepLoad({ rep, company, onClose }: {
       // حتى الفشل يُبطِل المفاتيح: الشقّ الأوّل من الحركة المختلطة قد يكون كُتب،
       // وعرضُ رصيدٍ قديم بعده يخفي عن المستخدم ما صار في السيارة حقّاً
       invalidateVanStock();
+      setConfirm(null);
+      // بلا جوابٍ حاسم: الإعادة بالمحتوى نفسه مسموحة ولو قال رصيد المستودع المحدَّث غير ذلك
+      if (isIndeterminateError(e)) setUncertain(true);
+      // D2: التحميل فوق رصيد المستودع (422 WAREHOUSE_INSUFFICIENT) — لا شيء كُتب، والمتاح كما رآه الخادم على أسطر صنفه
+      const wi = warehouseInsufficientOf(e);
+      if (wi) {
+        if (wi.lines.length) setWhServer(m => new Map([...m, ...wi.lines.map(l => [l.productId, l.availableBase] as const)]));
+        const names = wi.lines.map(l => rows.find(r => r.productId === l.productId)?.name ?? '');
+        toast.error(names.some(Boolean) ? fillNames(tr(VAN_MOVE_TEXT.whInsufficient), names) : wi.message || tr(VAN_MOVE_TEXT.whLine));
+        return;
+      }
+      // D3: صنفٌ حُذف بعد فتح الشاشة (422 PRODUCT_ARCHIVED) — أسطره الموجبة تُمنع ويبقى تنزيله
+      const arch = archivedErrorOf(e);
+      if (arch) {
+        const id = arch.productId;
+        if (id) setArchivedIds(s => new Set([...s, id]));
+        const name = id ? rows.find(r => r.productId === id)?.name ?? '' : '';
+        toast.error(name ? fillNames(tr(VAN_MOVE_TEXT.archived), [name]) : arch.message || tr('تعذر الحفظ'));
+        qc.invalidateQueries({ queryKey: ['m-van-products'] });
+        return;
+      }
       // أساس صنفٍ تغيّر (كاشٌ قديم أو سباقٌ مع «إضافة وحدة فرعية أصغر»): الأصناف تُجلب من جديد، وأسطر الشاشة يُعاد أساسها
       // بها (rebaseRow كتطبيق المندوب) فلا يُرفض الحفظ التالي ثانيةً — ورسالة الخادم تسمّي الصنف. و503 PRODUCT_UNITS_BUSY
       // رسالته وحدها: الكتالوج لم يتغيّر بعد
@@ -518,15 +617,26 @@ export default function MRepLoad({ rep, company, onClose }: {
   function invalidateVanStock() {
     // مفاتيح الجوال ومفاتيح اللوحة معاً — الحزمة واحدة والكاش مشترك، فترك
     // مفاتيح اللوحة يُظهر للأدمن رصيداً قديماً حين ينتقل إليها
+    // ومعها أرصدة المستودع وبطاقة «في مخزون السيارات» (#20، STOCK_CACHE_KEYS): التحميل يُنقص المستودع والتنزيل يزيده
     // و«تتبّع اللوط» في الجهتين: لقطة السيارة واقتراحها وأرصدة المستودع وخيارات المنتقي (تشغيلةٌ أُنشئت مع تحميلٍ بلا
     // مستودع) وشاشة التتبّع — الجوال واللوحة (LOT_CACHE_KEYS)
-    ['m-van-current', 'm-van-movements', 'm-van-suggest', 'van-summary', 'van-current', 'van-movements',
-      ...(lotOn ? LOT_CACHE_KEYS : [])]
+    [...STOCK_CACHE_KEYS, 'rep-delete-van', ...(lotOn ? LOT_CACHE_KEYS : [])]
       .forEach(k => qc.invalidateQueries({ queryKey: [k] }));
   }
 
+  /* D2: أسطر التحميل بالأساس لكل صنف (أسطر الصنف الواحد بوحداتها تُجمع) فوق المتاح في المستودع ⇒ لا حفظ؛ ورصيده لم يصل ⇒ لا
+   * حفظ حتى يُعرف (تعذّره لا يحجب — الخادم الحَكَم). و#4: التنزيل فوق رصيد السيارة لغير المتتبَّع يُسمّى في التأكيد.
+   * وD3: المحذوف بكميةٍ موجبة لا يُحفظ */
+  const moveLines = rows.map(r => ({ productId: r.productId, qty: Number(r.qty), factor: r.unitFactor }));
+  const overWhIds = new Set(uncertain ? [] : loadOverWarehouse(moveLines, whAvail, whPartial).map(o => o.productId));
+  const whPending = warehouseOn && whQ.isLoading && rows.some(r => Number(r.qty) > 0);
+  const overVan = stockQ.data ? unloadOverVan(moveLines.filter(l => !trackedOf(l.productId)), id => stockRowOf(id)?.remaining ?? 0) : [];
+  const overVanIds = new Set(overVan.map(o => o.productId));
+  const archivedLoad = rows.some(r => Number(r.qty) > 0 && archivedOf(r.productId));
+  const stockBlocked = overWhIds.size > 0 || whPending || archivedLoad;
+
   const onSave = () => {
-    if (!hasMovement || lotBlocked) return;
+    if (!hasMovement || lotBlocked || stockBlocked) return;
     // التنزيل يعكس اتجاه الرصيد — يُؤكَّد صراحةً، والتحميل الصِّرف يمضي بلا حاجز
     if (split.back.length) { setConfirm('save'); return; }
     save.mutate();
@@ -570,24 +680,46 @@ export default function MRepLoad({ rep, company, onClose }: {
           ) : (
             <>
               <div className="grid grid-cols-2 gap-2.5">
-                <MStat icon={Package} label={tr('أصناف بالسيارة')} value={formatNumber(stockQ.data.length)} />
+                <MStat icon={Package} label={tr('أصناف بالسيارة')} value={formatNumber(vanTotals.products)} />
                 <MStat icon={Truck} label={remainingLabel} value={fmtQty(totalRemaining)}
                   tone={totalRemaining > 0 ? 'good' : 'default'} />
               </div>
+              {/* #10: العجز (رصيدٌ سالب من بيعٍ بلا مخزون) والمنتهي منفصلين — لا يُطرحان من «المتبقي» ولا يُعدّان أصنافاً فيه */}
+              {(vanTotals.deficitCount > 0 || vanTotals.expired > 0) && (
+                <p className="text-[11px] px-1 flex flex-wrap gap-x-3">
+                  {vanTotals.deficitCount > 0 && (
+                    <span className="text-[#C0392B] font-semibold">
+                      {tr('عجز')} {fmtQty(vanTotals.deficit)} · {countText(lang, vanTotals.deficitCount, 'صنف', tr, formatNumber)}
+                    </span>
+                  )}
+                  {vanTotals.expired > 0 && <span className="text-[#C0392B]">{tr('منتهي الصلاحية')} {fmtQty(vanTotals.expired)}</span>}
+                  {anyMulti && <span className="text-[#9A8F7E]">{tr('بالوحدات الصغرى')}</span>}
+                </p>
+              )}
               <MCard className="overflow-hidden">
                 {/* تمريرٌ داخليّ: قائمة أصنافٍ طويلة كانت ستدفع النموذج خارج الشاشة */}
                 <div className="max-h-[250px] overflow-y-auto overscroll-contain">
                   {stockQ.data.map(s => {
-                    // «مضاف» حين لا وحدة حرّة للصنف — وله وحدةٌ أخرى ⇒ النقرة سطرٌ ثانٍ بها. والمتتبَّع يقبل سطراً لكل تشغيلة
-                    const picked = !trackedOf(s.productId) && nextStockLineUnit(s, rows, s.productId) === null;
+                    // «مضاف» حين لا وحدة حرّة للصنف — وله وحدةٌ أخرى ⇒ النقرة سطرٌ ثانٍ بها. والمتتبَّع يقبل سطراً لكل تشغيلة.
+                    // والمحذوف (D3) تنزيلٌ وحده: سطرٌ واحد بكامل رصيده، ولا نقرة له بلا رصيد
+                    const arch = archivedOf(s.productId);
+                    const picked = arch
+                      ? !(s.remaining > 0) || rows.some(r => r.productId === s.productId)
+                      : !trackedOf(s.productId) && nextStockLineUnit(s, rows, s.productId) === null;
+                    const flag = arch ? 'ARCHIVED' as const : productFlagOf(s);
                     return (
                       <MRow key={s.productId}
-                        title={s.name}
-                        // ما لا يُباع (منتهٍ أو تالف) يُذكر بجانب الصنف — لا يدخل المتبقّي
+                        // S1: «محذوف/موقوف» بجانب الاسم — القديم من الجديد
+                        title={flag ? `${s.name} (${tr(PRODUCT_FLAG_LABELS[flag])})` : s.name}
+                        // ما لا يُباع (منتهٍ أو تالف) يُذكر بجانب الصنف — لا يدخل المتبقّي. و#12: المنزَّل للمستودع والتسوية حين وقعا،
+                        // فيتطابق «المتبقي» مع ما حُمّل وبيع. و«اسم مكرر» بكوده
                         subtitle={[
-                          `${s.code} · ${productUnitLabel(s, formatNumber)}`,
+                          `${dupIds.has(s.productId) ? fillCode(tr(DUP_NAME_TEXT), s.code) : s.code} · ${productUnitLabel(s, formatNumber)}`,
+                          Math.abs(s.unloaded ?? 0) > 1e-9 ? `${tr('منزل للمستودع')} ${qtyText(s.unloaded, s, fmtQty)}` : '',
+                          Math.abs(s.adjusted ?? 0) > 1e-9 ? `${tr('تسوية')} ${s.adjusted < 0 ? '−' : '+'}${qtyText(Math.abs(s.adjusted), s, fmtQty)}` : '',
                           (s.expired ?? 0) > 0 ? `${tr('منتهي الصلاحية')} ${qtyText(s.expired!, s, fmtQty)}` : '',
                           (s.damaged ?? 0) > 0 ? `${tr('تالف')} ${qtyText(s.damaged!, s, fmtQty)}` : '',
+                          arch && s.remaining > 0 ? tr('تنزيل فقط') : '',
                         ].filter(Boolean).join(' · ')}
                         // صفٌّ مضافٌ سلفاً لا يُنقر: نقرةٌ لا أثر لها تُقرأ عطلاً
                         onClick={picked ? undefined : () => addFromStock(s)}
@@ -729,11 +861,13 @@ export default function MRepLoad({ rep, company, onClose }: {
             ) : (
               <div className="max-h-[250px] overflow-y-auto overscroll-contain">
                 {prodQ.data.map(p => {
+                  // S3: الموقوف موسومٌ ويُحمَّل كما كان؛ والاسم المكرر بكوده — والمحذوف ليس في القائمة أصلاً
                   const picked = !trackedOf(p.id) && nextStockLineUnit(p, rows, p.id) === null;
+                  const flag = productFlagOf(p);
                   return (
                     <MRow key={p.id}
-                      title={p.name}
-                      subtitle={[p.code, productUnitLabel(p, formatNumber)].filter(Boolean).join(' · ') || undefined}
+                      title={flag ? `${p.name} (${tr(PRODUCT_FLAG_LABELS[flag])})` : p.name}
+                      subtitle={[dupIds.has(p.id) ? fillCode(tr(DUP_NAME_TEXT), p.code) : p.code, productUnitLabel(p, formatNumber)].filter(Boolean).join(' · ') || undefined}
                       onClick={picked ? undefined : () => addProduct(p)}
                       trailing={(
                         <span className="flex items-center gap-2 flex-shrink-0">
@@ -771,11 +905,26 @@ export default function MRepLoad({ rep, company, onClose }: {
                 <div key={k} className="p-3 space-y-2 border-b border-[#F1EBDF] last:border-0">
                   <div className="flex items-start gap-2">
                     <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-semibold text-[#1F1A13] truncate">{r.name}</span>
-                      {/* الرصيد بالأساس بوحدة الأساس أو مفكَّكاً — لا بجانب اسم وحدة السطر */}
-                      <span className="block text-[11px] text-[#9A8F7E] truncate mt-0.5">
+                      <span className="block text-sm font-semibold text-[#1F1A13] truncate">
+                        {r.name}
+                        {archivedOf(r.productId) && <span className="ms-1 text-[10px] font-semibold text-gray-500">({tr(PRODUCT_FLAG_LABELS.ARCHIVED)})</span>}
+                      </span>
+                      {/* الرصيد بالأساس بوحدة الأساس أو مفكَّكاً — لا بجانب اسم وحدة السطر. والتنزيل فوقه أحمر (#4) */}
+                      <span className={`block text-[11px] truncate mt-0.5 ${neg && overVanIds.has(r.productId) ? 'text-[#C0392B] font-semibold' : 'text-[#9A8F7E]'}`}>
                         {tr('المتبقي')} {qtyText(remainingOf(r.productId), prod, fmtQty, { withUnit: true })}
                       </span>
+                      {/* D2: المتاح في المستودع لسطر التحميل — فوقه (بمجموع أسطر الصنف) لا حفظ */}
+                      {!neg && !zero && warehouseOn && (whAvail && (!whPartial || whAvail.has(r.productId)) ? (
+                        <span className={`block text-[11px] truncate ${overWhIds.has(r.productId) ? 'text-[#C0392B] font-semibold' : 'text-[#6E6557]'}`}>
+                          {tr('المتاح في المستودع')} {qtyText(whAvail.get(r.productId) ?? 0, prod, fmtQty, { withUnit: true })}
+                        </span>
+                      ) : whQ.isLoading ? <span className="block text-[11px] text-[#9A8F7E]">{tr(VAN_MOVE_TEXT.whPending)}</span> : null)}
+                      {!neg && !zero && overWhIds.has(r.productId) && (
+                        <span className="block text-[10px] text-[#C0392B] font-semibold">{tr(VAN_MOVE_TEXT.whLine)}</span>
+                      )}
+                      {!neg && !zero && archivedOf(r.productId) && (
+                        <span className="block text-[10px] text-[#C0392B] font-semibold">{tr(VAN_MOVE_TEXT.archivedLine)}</span>
+                      )}
                       {/* وسمُ الاتجاه على السطر نفسه: الإشارة وحدها تُقرأ خطأً في عجلة المستودع */}
                       <span className={`inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded-md ${neg ? 'text-[#B7791F] bg-[#FDF6E7]' : zero ? 'text-[#9A8F7E] bg-[#F5F1E9]' : 'text-[#2F855A] bg-[#EAF6F0]'}`}>
                         {neg ? tr('تنزيل للمستودع') : zero ? tr('لا حركة') : tr('تحميل')}
@@ -876,7 +1025,7 @@ export default function MRepLoad({ rep, company, onClose }: {
           ) : (
             <MCard>
               {mvQ.data.slice(0, 12).map((m, i) => {
-                const meta = KIND_META[m.kind] || KIND_META.ADJUST;
+                const meta = KIND_META[movementKey(m)] || KIND_META.ADJUST;
                 const qty = m.items.reduce((s, it) => s + it.qty, 0);
                 // بنودٌ تختلف وحداتها تُجمع لكل وحدة («٢ كرتون · ٥ حبة») — «٧» رقمٌ بلا وحدة؛ وبالأساس كلّها: كما كانت
                 const mixed = movementQtyText(m.items, fmtQty);
@@ -915,7 +1064,13 @@ export default function MRepLoad({ rep, company, onClose }: {
             {tr('تنزيل للمستودع')}: <b className="tabular-nums">{formatNumber(split.back.length)}</b>
           </p>
         )}
-        <button onClick={onSave} disabled={!hasMovement || lotBlocked || save.isPending}
+        {overWhIds.size > 0 && (
+          <p className="text-[11px] text-[#C0392B] font-semibold mb-2 px-0.5">
+            {fillNames(tr(VAN_MOVE_TEXT.whInsufficient), [...overWhIds].map(id => rows.find(r => r.productId === id)?.name ?? ''))}
+          </p>
+        )}
+        {uncertain && <p className="text-[11px] text-amber-700 font-semibold mb-2 px-0.5">{tr(VAN_MOVE_TEXT.uncertain)}</p>}
+        <button onClick={onSave} disabled={!hasMovement || lotBlocked || stockBlocked || save.isPending}
           className="w-full bg-[#E15A30] text-white font-bold py-3.5 rounded-xl min-h-[50px] flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
           {save.isPending ? <Loader2 size={16} className="animate-spin" /> : <ArrowDownToLine size={16} />}
           {tr('حفظ الحركة')}
@@ -934,8 +1089,10 @@ export default function MRepLoad({ rep, company, onClose }: {
       {confirm === 'save' && (
         <MConfirm
           title={tr('حفظ الحركة')}
-          message={`${tr('تحميل')}: ${formatNumber(split.out.length)} · ${tr('تنزيل للمستودع')}: ${formatNumber(split.back.length)} — ${tr('السالب ينزل للمستودع ولا يحمل للسيارة')}`}
-          confirmLabel={tr('حفظ الحركة')}
+          // #4: التنزيل فوق رصيد السيارة يُسمّى بأصنافه — الخادم يقبله لغير المتتبَّع فتصير السيارة سالبة
+          message={`${tr('تحميل')}: ${formatNumber(split.out.length)} · ${tr('تنزيل للمستودع')}: ${formatNumber(split.back.length)} — ${tr('السالب ينزل للمستودع ولا يحمل للسيارة')}${overVan.length ? `\n${fillNames(tr(VAN_MOVE_TEXT.unloadOver), overVan.map(o => rows.find(r => r.productId === o.productId)?.name ?? ''))}` : ''}`}
+          danger={overVan.length > 0}
+          confirmLabel={overVan.length ? tr('حفظ رغم التجاوز') : tr('حفظ الحركة')}
           loading={save.isPending}
           onConfirm={() => save.mutate()}
           onClose={() => setConfirm(null)} />
@@ -1110,7 +1267,7 @@ function MConfirm({ title, message, confirmLabel, loading, danger, onConfirm, on
           </span>
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-bold text-[#1F1A13]">{title}</span>
-            <span className="block text-[12px] text-[#6E6557] mt-1 leading-relaxed">{message}</span>
+            <span className="block text-[12px] text-[#6E6557] mt-1 leading-relaxed whitespace-pre-line">{message}</span>
           </span>
         </div>
         <div className="flex gap-2.5 pt-1">

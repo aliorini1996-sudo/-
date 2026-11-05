@@ -1,16 +1,21 @@
-import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Search, Plus, Trash2, Loader2, Warehouse, PackagePlus, Package, Wallet,
   Boxes, AlertTriangle, TrendingUp, TrendingDown, ChevronDown, ChevronUp,
-  ArrowRightLeft, FileDown,
+  ArrowRightLeft, FileDown, SlidersHorizontal,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { warehouseApi, productApi } from '../api/client';
 import { activeLocale, formatCurrency, formatDate, formatNumber } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { useBackClose } from '../lib/useBackClose';
-import { primaryUnitOf, type UnitDef } from '../lib/units';
+import { primaryUnitOf, roundQty, type UnitDef } from '../lib/units';
+import { fmtTotalQty } from '../lib/qtyView';
+import { costKindOf, duplicateNames, isDuplicateName, isZeroQty, rowState, rowUnitCost, signedQty, splitDormant, valueBreakdown } from '../lib/warehouseRows';
+import { entryAttempt, isReplayResponse, productArchivedOf, zeroAdjustStart, type EntryAttempt } from '../lib/warehouseEntry';
+import { countLead, countText } from '../lib/arCount';
+import { useLang } from '../i18n/lang';
 import { unitChoices, defaultChoice, rebaseRow } from '../rep/repUnits';
 import { productUnitLabel } from '../lib/adminUnits';
 import {
@@ -63,6 +68,9 @@ interface WhRow {
   units?: UnitDef[];
   /** «الوحدة الرئيسية» (القاعدة ١٢، warehouseStock.ts §2.6): عرضٌ فقط — الرصيد «52 كرتون و2 قارورة» وتكلفة الكرتون أولاً */
   primaryUnitId?: string | null;
+  /** حالة الصنف وأرشفته (مراجعة المخزون S1) — عرضٌ فقط، وخادمٌ أقدم لا يرسلهما ⇒ لا وسم */
+  status?: string;
+  archived?: boolean;
   received: number;         // الوارد للمستودع
   adjusted: number;         // تسويات المستودع (+/−)
   loadedToVans: number;     // خرج للسيارات
@@ -94,10 +102,16 @@ interface ProductPick {
   id: string; name: string; code?: string; unit?: string; taxPct?: number; units?: UnitDef[]; primaryUnitId?: string | null;
   /** «تتبّع اللوط»: علم الصنف وما يلزم إلزام انتهاء التشغيلة الجديدة (shelfLifeOf) */
   lotTracked?: boolean; shelfLifeEnabled?: boolean; shelfLifeValue?: number | null; shelfLifeUnit?: string | null;
+  /** ACTIVE | INACTIVE — الموقوف موسومٌ في منتقي الحركة (S3) */
+  status?: string;
 }
 
-/** كسورٌ محتملة في الوحدات الموزونة — بلا أصفارٍ زائدة على «١٢» */
-const fmtQty = (n: number) => formatNumber(Number(n.toFixed(2)));
+/** جسم POST /warehouse/entries ومعه مرجع المحاولة (D8) — اختياريّ في الخادم */
+type EntryPayload = Parameters<typeof warehouseApi.createEntry>[0] & { clientRef?: string };
+
+/** كسورٌ محتملة في الوحدات الموزونة — بلا أصفارٍ زائدة على «١٢»، وحتى أربع منازل (مراجعة المخزون #19): منزلتان كانتا تطبعان
+ * بقيةً ٠٫٠٠٤ «0» ورصيد −٠٫٠٠٤ «−0» — ورقمٌ غير صفرٍ لا يُطبع صفراً، وغبار العائمة يُحجب قبله (roundQty) */
+const fmtQty = (n: number) => fmtTotalQty(roundQty(n), activeLocale());
 
 /** كمية تشغيلةٍ بالأساس: أربع خانات (D22) لا خانتان — تُعرض عبر lotQtyText بوحدات الصنف */
 const fmtLotQ = (n: number) => new Intl.NumberFormat(activeLocale(), { maximumFractionDigits: 4 }).format(roundLot(n));
@@ -113,14 +127,19 @@ export default function MWarehouse({ onBack, company }: {
   company?: unknown;
 }) {
   const tr = useTr();
+  // تمييز العدد بالعربية (S14) — واللغات الأخرى كما كانت
+  const lang = useLang(s => s.lang);
   // «تتبّع اللوط» — مطفأ ⇒ لا جلب ولا حقل ولا سطر زائد (§١٠.١)
   const lotOn = lotFlagsOf(company as { lotTrackingEnabled?: unknown } | null).on;
   const [q, setQ] = useState('');
   const [dq, setDq] = useState('');
   const [openId, setOpenId] = useState<string | null>(null); // الصنف المفتوح تفصيله
   const [entryOpen, setEntryOpen] = useState(false);         // طبقة تسجيل الحركة
+  // «تسوية» من صفّ الرصيد (D1): الطبقة تسويةً بسطر صنف الصفّ ولو حُذف من المنتجات — null = الطبقة كما كانت
+  const [adjustSeed, setAdjustSeed] = useState<WhRow | null>(null);
+  const closeEntry = () => { setEntryOpen(false); setAdjustSeed(null); };
 
-  useBackClose(entryOpen, () => setEntryOpen(false));
+  useBackClose(entryOpen, closeEntry);
   // إشعار حركةٍ مفتوح — طبقةٌ فوق الشاشة، إغلاقها يُطفئ شرطها
   const [noticeOf, setNoticeOf] = useState<WhEntry | null>(null);
   useBackClose(!!noticeOf, () => setNoticeOf(null));
@@ -154,17 +173,23 @@ export default function MWarehouse({ onBack, company }: {
   /* الإجماليات على القائمة **كاملةً** لا على المصفّاة: بطاقةٌ مكتوبٌ عليها
      «قيمة المخزون» يجب أن تصف المستودع لا نتيجة بحثٍ عابرة، وإلا قرأ المستخدم
      قيمة صنفين وظنّها قيمة شركته. */
+  // والكمية المقيَّمة للموجب وحده (S13): عجز صنفٍ لا يُطرح من كمية غيره — والقيمة صافيةٌ كما هي وعجزها يُقال تحتها (S7)
   const totals = useMemo(() => all.reduce((a, r) => ({
     value: a.value + r.stockValue,
-    costed: a.costed + r.costedQty,
+    costed: a.costed + Math.max(0, r.costedQty),
     uncosted: a.uncosted + r.uncostedQty,
   }), { value: 0, costed: 0, uncosted: 0 }), [all]);
+  const breakdown = useMemo(() => valueBreakdown(all), [all]);
+  const deficitDormant = useMemo(() => all.filter(r => r.stockValue < 0 && rowState(r) !== null).length, [all]);
+  // S1: الاسم المكرّر على القائمة كاملةً (توأمٌ خارج البحث يبقى توأماً)، والموقوف والمحذوف في مجموعةٍ بعد النشط
+  const dupNames = useMemo(() => duplicateNames(all), [all]);
+  const { active: activeRows, dormant: dormantRows } = useMemo(() => splitDormant(rows), [rows]);
   // مجموع الكميات عبر الأصناف بالأساس — يُسمّى كذلك حين لصنفٍ وحدةٌ أكبر، فلا يُقرأ عدد الحبّات كراتين
   const anyMulti = useMemo(() => all.some(r => hasBigUnit(r.units)), [all]);
   // ولصنفٍ له «وحدة رئيسية» (R3): «… بالوحدات الصغرى» لا «بوحدات الأساس» (D21) — وبلاها الوسم القائم حرفاً (I1)
   const primaryIn = useMemo(() => anyPrimary(all), [all]);
 
-  if (entryOpen) return <MWarehouseEntry lotOn={lotOn} onClose={() => setEntryOpen(false)} />;
+  if (entryOpen) return <MWarehouseEntry lotOn={lotOn} seed={adjustSeed} stockRows={all} onClose={closeEntry} />;
   /* الإشعار طبقةٌ ملء الشاشة كطبقة التسجيل — ولا تجتمعان: كلتاهما تُفتح من
    * هذه الشاشة وحدها، والتسجيل يسبق في الترتيب */
   if (noticeOf) {
@@ -186,7 +211,7 @@ export default function MWarehouse({ onBack, company }: {
             subtitle={tr('المستودع المركزي التحميل يخرج منه والتنزيل يعود إليه والوارد يزيده')}
             onBack={onBack}
             action={
-              <button onClick={() => setEntryOpen(true)} aria-label={tr('استلام بضاعة أو تسوية')}
+              <button onClick={() => { setAdjustSeed(null); setEntryOpen(true); }} aria-label={tr('استلام بضاعة أو تسوية')}
                 className="w-11 h-11 rounded-xl bg-[#E15A30] text-white flex items-center justify-center flex-shrink-0">
                 <PackagePlus size={20} />
               </button>
@@ -221,6 +246,15 @@ export default function MWarehouse({ onBack, company }: {
               <div className="grid grid-cols-2 gap-2.5">
                 <div className="col-span-2">
                   <MStat icon={Wallet} label={tr('قيمة المخزون بتكلفة الشراء')} value={formatCurrency(totals.value)} />
+                  {/* S7: القيمة صافية — والعجز فيها يُقال لا يُطرح بصمت */}
+                  {breakdown && (
+                    <p className="text-[11px] text-[#9A8F7E] px-1 mt-1.5 leading-relaxed">
+                      {tr('منها عجز')} <b className="text-[#C0392B] tabular-nums" dir="ltr">{formatCurrency(breakdown.deficit)}</b>
+                      {' '}({countLead(lang, breakdown.deficitCount, 'صنف', 'صنفا برصيد سالب', tr, formatNumber)}
+                      {deficitDormant > 0 && <>، {tr('منها {n} محذوفة أو موقوفة').split('{n}').join(formatNumber(deficitDormant))}</>})
+                      {' · '}{tr('والموجب')} <b className="text-[#1F1A13] tabular-nums" dir="ltr">{formatCurrency(breakdown.positive)}</b>
+                    </p>
+                  )}
                 </div>
                 <MStat icon={Boxes} label={tr('عدد الأصناف')} value={formatNumber(all.length)} />
                 <MStat icon={Package} label={qtyTotalLabel(tr, 'الكمية المقيمة', 'الكمية المقيمة بوحدات الأساس', { primary: primaryIn, multi: anyMulti })} value={fmtQty(totals.costed)} />
@@ -255,13 +289,27 @@ export default function MWarehouse({ onBack, company }: {
             {!rows.length ? (
               <MCard><div className="py-10"><MEmpty icon={Package} text={tr('لا نتائج')} /></div></MCard>
             ) : (
-              <MCard>
-                {rows.map(r => (
-                  <StockRow key={r.productId} r={r} lotOn={lotOn}
-                    open={openId === r.productId}
-                    onToggle={() => setOpenId(id => (id === r.productId ? null : r.productId))} />
+              <>
+                {[activeRows, dormantRows].map((list, gi) => list.length > 0 && (
+                  <div key={gi} className="space-y-1.5">
+                    {/* S1: الموقوف والمحذوف الذي بقي له رصيد بعد النشط بعنوانه — لا يبدو الصنف مكرّراً بجانب بديله */}
+                    {gi === 1 && (
+                      <p className="text-[11px] font-bold text-[#6E6557] px-1 pt-1">
+                        {tr('أصناف موقوفة أو محذوفة لها رصيد')} ({formatNumber(list.length)})
+                        <span className="block text-[10px] font-normal text-[#9A8F7E]">{tr('صحح رصيدها بتسوية من تفصيل الصنف')}</span>
+                      </p>
+                    )}
+                    <MCard>
+                      {list.map(r => (
+                        <StockRow key={r.productId} r={r} lotOn={lotOn} dup={isDuplicateName(r, dupNames)}
+                          open={openId === r.productId}
+                          onToggle={() => setOpenId(id => (id === r.productId ? null : r.productId))}
+                          onAdjust={() => { setAdjustSeed(r); setEntryOpen(true); }} />
+                      ))}
+                    </MCard>
+                  </div>
                 ))}
-              </MCard>
+              </>
             )}
             {searching && rows.length > 0 && (
               <p className="text-[11px] text-[#9A8F7E] px-1">
@@ -306,15 +354,35 @@ export default function MWarehouse({ onBack, company }: {
 
 /* ═══════════════════════ صفّ رصيدٍ يتوسّع بتفصيله ═══════════════════════ */
 
-function StockRow({ r, open, onToggle, lotOn }: { r: WhRow; open: boolean; onToggle: () => void; lotOn: boolean }) {
+function StockRow({ r, open, onToggle, lotOn, dup = false, onAdjust }: {
+  r: WhRow; open: boolean; onToggle: () => void; lotOn: boolean;
+  /** «اسم مكرر» (S1): الاسم نفسه لصنفٍ آخر — الكود يميّز الحالي من القديم */
+  dup?: boolean;
+  /** «تسوية» بصنف الصفّ (D1) */
+  onAdjust?: () => void;
+}) {
   const tr = useTr();
-  const tone = r.onHand < 0 ? 'text-[#C0392B]' : r.onHand === 0 ? 'text-[#B7791F]' : 'text-[#2F855A]';
+  // اللون على الرقم المعروض (#19): غبار عائمةٍ سالب يُطبع «0» فلا يُلوَّن أحمر
+  const tone = isZeroQty(r.onHand) ? 'text-[#B7791F]' : r.onHand < 0 ? 'text-[#C0392B]' : 'text-[#2F855A]';
   // صنفٌ له وحدةٌ أكبر: الكميات مفكَّكة («٢ كرتون و٣ حبة») بلا اتجاهٍ مفروض، والتكلفة تُسمّى بوحدة الأساس ومعها الكرتون
   const multi = hasBigUnit(r.units);
   const big = biggestUnit(r.units);
-  // «الوحدة الرئيسية»: تكلفتها أولاً (avgCost × F) ثم تكلفة الفرعية الواحدة باسمها (§5.3) — وبلاها الصفّ كما كان حرفاً
+  // «الوحدة الرئيسية»: تكلفتها أولاً ثم تكلفة الفرعية الواحدة باسمها (§5.3) — وبلاها الصفّ كما كان حرفاً
   const prim = primaryUnitOf(r);
   const q = (n: number) => qtyText(n, r, fmtQty);
+  // S1: محذوفٌ بقي له رصيد أو موقوف — وسمٌ فقط
+  const state = rowState(r);
+  /* S8/S10: تكلفة الكبرى من قيمة الصف، وعلاماتٌ لا تختلط: «تكلفة العجز» لعجزٍ له قيمة، و«عجز بلا تكلفة» لعجزٍ قبل أي سعر،
+   * و«بلا تكلفة» لرصيدٍ لا تُعرف تكلفته، و«—» لصفٍّ لا رصيد له وحده */
+  const kind = costKindOf(r);
+  const marker = kind === 'uncosted' ? tr('بلا تكلفة') : kind === 'deficitUncosted' ? tr('عجز بلا تكلفة') : '—';
+  const markerTone = kind === 'uncosted' ? 'text-[#B7791F]' : kind === 'deficitUncosted' ? 'text-[#C0392B]' : 'text-[#1F1A13]';
+  const costed = kind === 'costed' || kind === 'deficit';
+  const costAt = (factor: number, digits?: number) => {
+    const c = rowUnitCost(r, factor);
+    return c === null ? marker : formatCurrency(c, undefined, digits);
+  };
+  const costTone = costed ? 'text-[#1F1A13]' : markerTone;
   return (
     // الفاصل على الغلاف لا على `MRow`: الصفّ صار وحيد أبيه فـ`last:border-0`
     // تُسقط فاصله، فيلتصق التفصيل بالصفّ الذي يليه
@@ -322,7 +390,17 @@ function StockRow({ r, open, onToggle, lotOn }: { r: WhRow; open: boolean; onTog
       <MRow
         onClick={onToggle}
         title={r.name}
-        subtitle={[r.code, productUnitLabel(r, formatNumber)].filter(Boolean).join(' · ')}
+        subtitle={
+          <>
+            {state && (
+              <span className="me-1 text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#EEF0F3] text-[#5A6270]">
+                {state === 'ARCHIVED' ? tr('محذوف — بقي له رصيد') : tr('موقوف')}
+              </span>
+            )}
+            {dup && <span className="me-1 text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#FDF6E7] text-[#8A6D1F]">{tr('اسم مكرر')}</span>}
+            {[r.code, productUnitLabel(r, formatNumber)].filter(Boolean).join(' · ')}
+          </>
+        }
         trailing={
           <span className="flex items-center gap-2 flex-shrink-0">
             {multi ? (
@@ -342,24 +420,28 @@ function StockRow({ r, open, onToggle, lotOn }: { r: WhRow; open: boolean; onTog
           <div className="grid grid-cols-2 gap-2">
             <Cell label={tr('الوارد')} value={multi ? q(r.received) : fmtQty(r.received)} multi={multi} />
             <Cell label={tr('تسويات')} value={multi ? signedQtyText(r.adjusted, r, fmtQty) : signed(r.adjusted)} multi={multi}
-              tone={r.adjusted < 0 ? 'bad' : r.adjusted > 0 ? 'good' : 'muted'} />
-            <Cell label={tr('خرج للسيارات')} value={`−${multi ? q(r.loadedToVans) : fmtQty(r.loadedToVans)}`} tone="bad" multi={multi} />
-            <Cell label={tr('عاد منها')} value={`+${multi ? q(r.returnedFromVans) : fmtQty(r.returnedFromVans)}`} tone="good" multi={multi} />
+              tone={isZeroQty(r.adjusted) ? 'muted' : r.adjusted < 0 ? 'bad' : 'good'} />
+            {/* S9: لا إشارة على الصفر — «−0» تُقرأ حركةً لم تقع */}
+            <Cell label={tr('خرج للسيارات')} value={signedQty(r.loadedToVans, '−', multi ? q(r.loadedToVans) : fmtQty(r.loadedToVans))}
+              tone={isZeroQty(r.loadedToVans) ? 'muted' : 'bad'} multi={multi} />
+            <Cell label={tr('عاد منها')} value={signedQty(r.returnedFromVans, '+', multi ? q(r.returnedFromVans) : fmtQty(r.returnedFromVans))}
+              tone={isZeroQty(r.returnedFromVans) ? 'muted' : 'good'} multi={multi} />
           </div>
 
           <div className="rounded-xl bg-[#FAF7F0] border border-[#F1EBDF] px-3 py-2.5 space-y-1.5">
+            {kind === 'deficit' && <p className="text-[10px] font-bold text-[#C0392B]">{tr('تكلفة العجز')}</p>}
             {prim ? (
               <>
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] text-[#6E6557]">{fill(tr('متوسط تكلفة {unit}'), { unit: prim.name })}</span>
-                  <b className="text-[11px] text-[#1F1A13] tabular-nums" dir="ltr">
-                    {r.avgCost > 0 ? formatCurrency(r.avgCost * Number(prim.factor)) : '—'}
+                  <b className={`text-[11px] tabular-nums ${costTone}`} dir="ltr">
+                    {costed ? formatCurrency(rowUnitCost(r, Number(prim.factor)) ?? 0) : marker}
                   </b>
                 </div>
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] text-[#6E6557]">{fill(tr('متوسط تكلفة {unit} الواحدة'), { unit: r.unit })}</span>
-                  <b className="text-[11px] text-[#1F1A13] tabular-nums" dir="ltr">
-                    {r.avgCost > 0 ? formatCurrency(r.avgCost, undefined, 4) : '—'}
+                  <b className={`text-[11px] tabular-nums ${costTone}`} dir="ltr">
+                    {costAt(1, 4)}
                   </b>
                 </div>
               </>
@@ -368,24 +450,24 @@ function StockRow({ r, open, onToggle, lotOn }: { r: WhRow; open: boolean; onTog
               <span className="text-[11px] text-[#6E6557]">
                 {multi ? `${tr('متوسط التكلفة لوحدة الأساس')} (${r.unit})` : tr('متوسط تكلفة الوحدة')}
               </span>
-              <b className="text-[11px] text-[#1F1A13] tabular-nums" dir="ltr">
-                {r.avgCost > 0 ? formatCurrency(r.avgCost, undefined, 4) : '—'}
+              <b className={`text-[11px] tabular-nums ${costTone}`} dir="ltr">
+                {costAt(1, 4)}
               </b>
             </div>
             )}
-            {/* تكلفة الحبّة وحدها تُقارَن خطأً بسعر شراء الكرتون — فتُعرض تكلفة أكبر وحدةٍ بجانبها */}
-            {!prim && multi && big && r.avgCost > 0 && (
+            {/* تكلفة الحبّة وحدها تُقارَن خطأً بسعر شراء الكرتون — فتُعرض تكلفة أكبر وحدةٍ بجانبها (من قيمة الصف، S8) */}
+            {!prim && multi && big && costed && (
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[11px] text-[#6E6557]">{tr('ما يعادل')} {big.name}</span>
                 <b className="text-[11px] text-[#1F1A13] tabular-nums" dir="ltr">
-                  {formatCurrency(r.avgCost * Number(big.factor))}
+                  {costAt(Number(big.factor))}
                 </b>
               </div>
             )}
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] text-[#6E6557]">{tr('قيمة الرصيد')}</span>
-              <b className={`text-[11px] tabular-nums ${r.stockValue < 0 ? 'text-[#C0392B]' : 'text-[#1F1A13]'}`} dir="ltr">
-                {r.costedQty !== 0 ? formatCurrency(r.stockValue) : '—'}
+              <b className={`text-[11px] tabular-nums ${r.stockValue < 0 || kind === 'deficitUncosted' ? 'text-[#C0392B]' : 'text-[#1F1A13]'}`} dir="ltr">
+                {kind === 'deficitUncosted' ? tr('عجز بلا تكلفة') : r.costedQty !== 0 ? formatCurrency(r.stockValue) : '—'}
               </b>
             </div>
             <p className="text-[10px] text-[#9A8F7E]">{tr('قبل الضريبة')}</p>
@@ -398,6 +480,13 @@ function StockRow({ r, open, onToggle, lotOn }: { r: WhRow; open: boolean; onTog
             )}
           </div>
           {lotOn && <WhLotBreakdown productId={r.productId} prod={r} />}
+          {/* D1: تسوية بصنف الصفّ نفسه ولو حُذف من المنتجات — طريق تصحيح رصيده */}
+          {onAdjust && (
+            <button type="button" onClick={onAdjust}
+              className="w-full min-h-[44px] rounded-xl border border-[#E9E1D3] bg-white text-[13px] font-bold text-[#6B46C1] flex items-center justify-center gap-1.5 active:bg-[#F3EEFB]">
+              <SlidersHorizontal size={15} /> {tr('تسوية رصيد هذا الصنف')}
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -447,7 +536,7 @@ function WhLotBreakdown({ productId, prod }: { productId: string; prod: { unit?:
 
 /** إشارةٌ صريحة على التسوية: «٣» و«−٣» يفترقان في المعنى افتراقاً تامّاً */
 function signed(n: number): string {
-  if (n === 0) return fmtQty(0);
+  if (isZeroQty(n)) return fmtQty(0);
   return `${n < 0 ? '−' : '+'}${fmtQty(Math.abs(n))}`;
 }
 
@@ -470,6 +559,8 @@ function Cell({ label, value, tone = 'default', multi }: {
 
 function EntryRow({ e, onNotice }: { e: WhEntry; onNotice: () => void }) {
   const tr = useTr();
+  // تمييز العدد بالعربية (S14): «صنفان» و«3 أصناف» لا «2 صنف» — واللغات الأخرى كما كانت
+  const lang = useLang(s => s.lang);
   const receive = e.type === 'RECEIVE';
   // «تتبّع اللوط»: أرقام تشغيلات الحركة — لا تظهر إلا حين يضمّها الخادم (الميزة مفعّلة)
   const lotNos = [...new Set(e.items.map(i => i.lot?.lotNumber).filter((n): n is string => !!n))];
@@ -483,7 +574,7 @@ function EntryRow({ e, onNotice }: { e: WhEntry; onNotice: () => void }) {
           {receive ? tr('وارد') : tr('تسوية')}
         </span>
       }
-      title={`${formatNumber(products)} ${tr('صنف')}`}
+      title={countText(lang, products, 'صنف', tr, formatNumber)}
       subtitle={[e.supplier, e.note, e.createdBy, lotNos.length ? `${tr('التشغيلة')} ${lotNos.slice(0, 3).join('، ')}${lotNos.length > 3 ? '…' : ''}` : '']
         .filter(Boolean).join(' · ') || undefined}
       note={formatDate(e.createdAt)}
@@ -535,13 +626,42 @@ interface FormRow extends StockLineUnit {
  * بكمّيةٍ موجبة أو سالبة **بلا سعر** (الخادم يرفض سعراً مع تسوية رفضاً صريحاً،
  * فلا نُرسله أصلاً).
  */
-function MWarehouseEntry({ onClose, lotOn }: { onClose: () => void; lotOn: boolean }) {
+/* `seed` (D1): «تسوية» من صفّ الرصيد — الطبقة تسويةً بسطر صنف الصفّ (اسمه ووحداته وأساسه من صفّ المستودع، فيصل إلى صنفٍ
+ * محذوف). و`stockRows` أرصدة الشاشة: «الرصيد الآن» تحت كل سطر و«اجعل الرصيد صفراً» للتسوية، ومعرفة المحذوف قبل الإرسال */
+function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onClose: () => void; lotOn: boolean; seed?: WhRow | null; stockRows?: WhRow[] }) {
   const tr = useTr();
   const qc = useQueryClient();
-  const [type, setType] = useState<'RECEIVE' | 'ADJUST'>('RECEIVE');
+  const [type, setType] = useState<'RECEIVE' | 'ADJUST'>(seed ? 'ADJUST' : 'RECEIVE');
   const [supplier, setSupplier] = useState('');
   const [note, setNote] = useState('');
-  const [rows, setRows] = useState<FormRow[]>([]);
+  // الكمية فارغة في سطر الصفّ: المستخدم يكتب التسوية أو يضغط «اجعل الرصيد صفراً» — لا حفظ بكميةٍ لم يرها
+  const [rows, setRows] = useState<FormRow[]>(() => {
+    if (!seed) return [];
+    const p = { id: seed.productId, unit: seed.unit, units: seed.units, primaryUnitId: seed.primaryUnitId ?? null };
+    const u = nextStockLineUnit(p, [], p.id);
+    return u ? [{
+      rowId: newRowId(), productId: seed.productId, name: seed.name, ...u, primaryUnitId: seed.primaryUnitId ?? null,
+      taxPct: 0, qty: '', unitCost: '', tracked: false, shelfOn: false, lot: emptyLotDraft(),
+    }] : [];
+  });
+  // D8: مرجع محاولة الحفظ — يُعاد مع الإعادة بالمحتوى نفسه، ومحتوى آخر ⇒ مرجعٌ جديد
+  const attempt = useRef<EntryAttempt>(null);
+  // D3: المحذوف لا يُستلم (422 PRODUCT_ARCHIVED) — من صفوف المستودع، ومعه ما ردّه الخادم في هذه الطبقة
+  const [refusedArchived, setRefusedArchived] = useState<ReadonlySet<string>>(() => new Set());
+  const isArchived = (id: string) => refusedArchived.has(id) || stockRows.some(s => s.productId === id && s.archived === true);
+  const stockOf = (id: string) => stockRows.find(s => s.productId === id);
+  /* «تتبّع اللوط» لسطر الصفّ: الصفّ لا يحمل علم الصنف — يُقرأ من الصنف نفسه مرّةً والميزة مفعّلة (المحذوف قد لا يُقرأ فيبقى بلا تشغيلة) */
+  useEffect(() => {
+    if (!seed || !lotOn) return;
+    let live = true;
+    productApi.get(seed.productId).then(res => {
+      const p = res.data?.data as ProductPick | undefined;
+      if (!live || !p || !isTracked(lotOn, p)) return;
+      setRows(rs => rs.map(r => (r.productId === seed.productId ? { ...r, tracked: true, shelfOn: shelfLifeOn(p), lot: emptyLotDraft() } : r)));
+    }).catch(() => { /* يبقى السطر بلا تشغيلة */ });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // فاتورة المورّد تُعلن السعر شاملاً الضريبة غالباً؛ المؤشّر يُخبر الخادم فيردّه
   // إلى صافيه قبل الحفظ — فيبقى للعمود معنى واحد مهما اختلفت عادة المورّدين
   const [costsIncludeTax, setCostsIncludeTax] = useState(false);
@@ -562,6 +682,7 @@ function MWarehouseEntry({ onClose, lotOn }: { onClose: () => void; lotOn: boole
       return expectArray<ProductPick>((await productApi.list(params)).data?.data, tr('الأصناف'));
     },
   });
+  const pickDup = useMemo(() => duplicateNames(prodQ.data ?? []), [prodQ.data]);
 
   /**
    * نقرة الصنف: أوّل سطرٍ بوحدته الافتراضية (الأكبر — المورّد يفوتر بالكرتون)، وكل نقرةٍ بعدها سطرٌ بوحدةٍ لم يأخذها
@@ -684,7 +805,20 @@ function MWarehouseEntry({ onClose, lotOn }: { onClose: () => void; lotOn: boole
   });
   const lotBad = (r: FormRow) => r.tracked && (!draftOk(r) || outProblems.has(r.rowId));
 
-  const valid = rows.length > 0 && rows.every(r => !qtyBad(r) && !costBad(r) && !lotBad(r));
+  // D3: وارد صنفٍ محذوف يُمنع هنا لا بعد الإرسال — والتسوية تمرّ (بها يُصحَّح رصيده)
+  const archivedReceive = (r: FormRow) => type === 'RECEIVE' && isArchived(r.productId);
+  const valid = rows.length > 0 && rows.every(r => !qtyBad(r) && !costBad(r) && !lotBad(r) && !archivedReceive(r));
+  /** «اجعل الرصيد صفراً»: كمية التسوية عكس رصيد الشاشة — بالرئيسية حين ينقسم عليها، وإلّا بالأساس (والاتجاه المنقلب يصفّر تشغيلته) */
+  const zeroRow = (key: string) => setRows(rs => rs.map(r => {
+    if (r.rowId !== key) return r;
+    const s = stockOf(r.productId);
+    const prod = { unit: r.baseUnit, units: r.units, primaryUnitId: r.primaryUnitId };
+    const z = s ? zeroAdjustStart(prod, s.onHand) : null;
+    const c = z ? unitChoices(prod).find(o => o.id === z.unitId) : undefined;
+    if (!z || !c) return r;
+    const next = { ...r, ...stockLineUnit(prod, c), qty: String(z.qty) };
+    return r.tracked && outDir(type, r.qty) !== outDir(type, next.qty) ? { ...next, lot: emptyLotDraft() } : next;
+  }));
 
   const save = useMutation({
     mutationFn: async () => {
@@ -702,16 +836,21 @@ function MWarehouseEntry({ onClose, lotOn }: { onClose: () => void; lotOn: boole
         if (type === 'RECEIVE' && r.unitCost.trim() !== '') item.unitCost = Number(r.unitCost);
         return item;
       });
-      const res = await warehouseApi.createEntry({
+      const body = {
         type,
         supplier: type === 'RECEIVE' ? supplier.trim() || undefined : undefined,
         note: note.trim() || undefined,
         costsIncludeTax: type === 'RECEIVE' ? costsIncludeTax : undefined,
         items,
-      });
-      return lotWarningsOf((res.data as { warnings?: unknown } | undefined)?.warnings);
+      };
+      // D8: المرجع من المحتوى — الإعادة بلا تعديل ترسل المرجع نفسه فيردّ الخادم الحركة المحفوظة ولا يكتبها ثانية
+      attempt.current = entryAttempt(attempt.current, body);
+      const payload: EntryPayload = { ...body, clientRef: attempt.current.ref };
+      const res = await warehouseApi.createEntry(payload);
+      return { warnings: lotWarningsOf((res.data as { warnings?: unknown } | undefined)?.warnings), replay: isReplayResponse(res.data) };
     },
-    onSuccess: (warnings) => {
+    onSuccess: ({ warnings, replay }) => {
+      attempt.current = null;
       // مفاتيح الجوال ومفاتيح اللوحة معاً — الحزمة واحدة والكاش مشترك، فترك
       // مفاتيح اللوحة يُظهر رصيداً قديماً لمن ينتقل إليها بعد الحفظ.
       // و«تتبّع اللوط» في الجهتين: أرصدة التشغيلات وقوائمها، واقتراح FEFO للتحميل (الوارد يغيّره)، وشاشة التتبّع —
@@ -719,12 +858,15 @@ function MWarehouseEntry({ onClose, lotOn }: { onClose: () => void; lotOn: boole
       ['m-wh-stock', 'm-wh-entries', 'warehouse-stock', 'warehouse-entries',
         ...(lotOn ? LOT_CACHE_KEYS : [])]
         .forEach(k => qc.invalidateQueries({ queryKey: [k] }));
-      toast.success(tr('تم حفظ الحركة'));
+      toast.success(replay ? tr('هذه الحركة محفوظة من قبل ولم تسجل مرة ثانية') : tr('تم حفظ الحركة'));
       // التحذير لا يمنع (تشغيلة موقوفة تبقى معزولة) — لكنه يُقال
       [...new Set(warnings.map(w => w.code))].forEach(c => toast(tr(LOT_WARNING_LABELS[c])));
       onClose();
     },
     onError: (e: unknown) => {
+      // D3: وارد صنفٍ محذوف — يُعلَّم سطره فيُقال عليه ويُمنع الحفظ حتى يُحذف أو تصير الحركة تسوية
+      const arch = productArchivedOf(e);
+      if (arch) setRefusedArchived(s => new Set([...s, arch.productId]));
       // أساس صنفٍ تغيّر: الأصناف تُجلب من جديد وأسطر النموذج يُعاد أساسها — و503 PRODUCT_UNITS_BUSY رسالته وحدها
       if (refetchUnitsOn(e)) {
         qc.invalidateQueries({ queryKey: ['m-wh-products'] });
@@ -791,10 +933,12 @@ function MWarehouseEntry({ onClose, lotOn }: { onClose: () => void; lotOn: boole
                   // «مضاف» حين لا وحدة حرّة للصنف — وله وحدةٌ أخرى ⇒ النقرة سطرٌ ثانٍ بها. والمتتبَّع يقبل سطراً لكل تشغيلة
                   const tracked = isTracked(lotOn, p);
                   const picked = !tracked && nextStockLineUnit(p, rows, p.id) === null;
+                  // S3: الموقوف موسوم والاسم المكرّر يُقال (الكود يميّز) — في نتائج البحث نفسها
+                  const inactive = String(p.status ?? '').toUpperCase() === 'INACTIVE';
                   return (
                     <MRow key={p.id}
                       title={p.name}
-                      subtitle={[p.code, productUnitLabel(p, formatNumber), tracked ? tr('تتبع بـLOT') : ''].filter(Boolean).join(' · ') || undefined}
+                      subtitle={[p.code, productUnitLabel(p, formatNumber), tracked ? tr('تتبع بـLOT') : '', inactive ? tr('موقوف') : '', isDuplicateName(p, pickDup) ? tr('اسم مكرر') : ''].filter(Boolean).join(' · ') || undefined}
                       // صفٌّ مضافٌ سلفاً لا يُنقر: نقرةٌ لا أثر لها تُقرأ عطلاً
                       onClick={picked ? undefined : () => addProduct(p)}
                       trailing={picked
@@ -822,6 +966,7 @@ function MWarehouseEntry({ onClose, lotOn }: { onClose: () => void; lotOn: boole
               const line = receive && net !== null && Number.isFinite(qty) ? qty * net : null;
               const opts = unitChoices({ unit: r.baseUnit, units: r.units, primaryUnitId: r.primaryUnitId });
               const multi = opts.length > 1;
+              const stock = stockOf(r.productId);
               return (
                 <div key={k} className="p-3 space-y-2 border-b border-[#F1EBDF] last:border-0">
                   <div className="flex items-start gap-2">
@@ -874,6 +1019,16 @@ function MWarehouseEntry({ onClose, lotOn }: { onClose: () => void; lotOn: boole
                       {tr('قيمة السطر قبل الضريبة')}: <b className="text-[#1F1A13] tabular-nums">{formatCurrency(line)}</b>
                     </p>
                   )}
+                  {/* رصيد الصنف الآن — والتسوية تعيده صفراً بلمسة (D1) لصنفٍ في سطرٍ واحد */}
+                  {stock && (
+                    <p className="text-[10px] text-[#9A8F7E] flex items-center gap-2 flex-wrap">
+                      <span>{tr('الرصيد الآن')}: <b className={stock.onHand < 0 ? 'text-[#C0392B]' : 'text-[#1F1A13]'}>{qtyText(stock.onHand, stock, fmtQty, { withUnit: true })}</b></span>
+                      {!receive && !isZeroQty(stock.onHand) && rows.filter(x => x.productId === r.productId).length === 1 && (
+                        <button type="button" onClick={() => zeroRow(k)} className="min-h-[32px] px-2 -my-1 rounded-lg font-bold text-[#6B46C1] active:bg-[#F3EEFB]">{tr('اجعل الرصيد صفرا')}</button>
+                      )}
+                    </p>
+                  )}
+                  {archivedReceive(r) && <p className="text-[10px] text-[#C0392B]">{tr('صنف محذوف لا يستلم في المستودع استعمل التسوية لتصحيح رصيده')}</p>}
                   {/* «تتبّع اللوط»: تشغيلة السطر للصنف المتتبَّع وحده — والنقص بلا اختيار يُسحب تلقائياً بالأقرب انتهاءً أولاً
                       (معاينته تحت المنتقي)، وما يُمنع على مستوى الصنف (فوق الرصيد، فوق الصالح، D26) يُقال على سطره */}
                   {r.tracked && !badQty && (

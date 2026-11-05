@@ -31,6 +31,7 @@ import {
 import { netFromInclusive, roundHalfUp } from '../lib/money';
 import { entryTotalCost } from '../services/warehouseCost';
 import { derivedBasePrice, primaryUnitOf, unitFields } from '../services/units';
+import { importDuplicateNameWarnings, type DuplicateNameWarning } from '../services/productNames';
 // «الوحدة الرئيسية» §2.11: استيراد الأسعار والجرد يكتبان بوحدة الصنف الصغرى تحت قفل صفّه (FOR KEY SHARE) مقارنةً بما حُلّت عليه الصفوف
 import {
   ProductUnitsBusyError, ProductUnitsChangedError, assertBasesUnchanged, baseGuardReply, lockBases, type ExpectedBases,
@@ -668,13 +669,16 @@ router.post('/products', requireImportAccess('products'), async (req: AuthReques
     const netPriceByRow = new Map<number, number>();
     /** وأسعار وحداته الإضافية بالقاعدة نفسها (الشامل ⇒ صافيه بضريبة الصنف) — سعر الكرتون صافٍ كسعر الحبة */
     const netUnitPricesByRow = new Map<number, (number | undefined)[]>();
+    /** S4 (D4): تحذيرات الاسم المكرَّر للصفوف التي تُنشأ — لا تمنع */
+    let duplicateNames: DuplicateNameWarning[] = [];
 
     // البند 20: الدفعة محجوزة قبل أي كتابة (والفئات تُطابَق تحت قفل النوع فلا تتكرر)
     const progress = new ImportBatchProgress(
       await reserveMasterBatch(tid, 'products', importContentHash('products', hashRowsOf(rows)), importedBy(req), body.force === true), 'products');
     try {
       // البند 30: المؤرشف خطأ صف، والقائم والمكرر في الملف متخطى برقم صفه وسببه
-      const existing = await prisma.product.findMany({ where: { tenantId: tid }, select: { code: true, deletedAt: true } });
+      // والاسم والحالة (S4، D4): تحذير الاسم المكرَّر بلا استعلامٍ ثانٍ
+      const existing = await prisma.product.findMany({ where: { tenantId: tid }, select: { id: true, code: true, name: true, status: true, deletedAt: true } });
 
       // خريطة الفئات بالاسم المطبَّع (مؤسسة/مؤسسه، المسافات)
       const cats = await prisma.productCategory.findMany({ where: { tenantId: tid }, select: { id: true, name: true }, orderBy: { createdAt: 'asc' } });
@@ -696,6 +700,8 @@ router.post('/products', requireImportAccess('products'), async (req: AuthReques
       });
       plan.errors = planErrors.sort((a, b) => a.row - b.row);
       const creates = plan.creates;
+      // S4 (D4): صفٌّ يُنشأ اسمه يطابق صنفاً للشركة (قائماً أو موقوفاً أو مؤرشفاً) أو صفّاً قبله في الملف — تحذيرٌ لا رفض
+      duplicateNames = importDuplicateNameWarnings(creates, existing);
       result.skipped = plan.skippedRows.length;
       for (const e of plan.errors) result.errors.push(e);
       // البند 31: ضريبة الصف إن كُتبت وإلا ضريبة الشركة الافتراضية — وهي عين ما يُخزَّن في taxPct أدناه
@@ -785,7 +791,14 @@ router.post('/products', requireImportAccess('products'), async (req: AuthReques
     } finally {
       result.batchId = await progress.finish();
     }
-    res.json({ success: true, data: { ...result, ...cappedErrors(result.errors), skippedRows: plan.skippedRows.slice(0, 500), netFromInclusive: netFromInclusiveRows } });
+    res.json({
+      success: true,
+      data: {
+        ...result, ...cappedErrors(result.errors), skippedRows: plan.skippedRows.slice(0, 500), netFromInclusive: netFromInclusiveRows,
+        // S4 (D4): كائنٌ كتحذيرات الاستيراد الأخرى (warnings.similar للعملاء) — بلا مطابقة لا مفتاح فالردّ كما كان
+        ...(duplicateNames.length && { warnings: { duplicateNames } }),
+      },
+    });
   } catch (err) { sendImportError(err, res, next); }
 });
 

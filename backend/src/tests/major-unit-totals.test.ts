@@ -98,6 +98,7 @@ test('ملخّص المناديب: الأعمدة الأربعة بالوحدة 
   // P1 بالرئيسية (كرتون ٢٤ لا الطبلية)، وP2 بكرتونه (١٢) — والاسم واحد فيُضمّان
   assert.deepEqual(repStockMajor(rows, units), {
     remaining: [{ unit: 'كرتون', qty: 1.2917 }], // 43/24 − 6/12
+    onVan: [{ unit: 'كرتون', qty: 1.7917 }],     // 43/24 — العجز لا يُطرح من «ما في السيارة» (UX2)
     loaded: [{ unit: 'كرتون', qty: 2 }],
     sold: [{ unit: 'كرتون', qty: 0.7083 }],      // 5/24 + 6/12
     damaged: [{ unit: 'كرتون', qty: 1 }],        // max(0, −3) + 12/12
@@ -105,11 +106,12 @@ test('ملخّص المناديب: الأعمدة الأربعة بالوحدة 
   // بلا وحدات (صنفٌ لا وحدة أكبر له) ⇒ كل صنفٍ بأساسه، والصفر يسقط
   assert.deepEqual(repStockMajor(rows, new Map()), {
     remaining: [{ unit: 'قارورة', qty: 43 }, { unit: 'علبة', qty: -6 }],
+    onVan: [{ unit: 'قارورة', qty: 43 }],
     loaded: [{ unit: 'قارورة', qty: 48 }],
     sold: [{ unit: 'علبة', qty: 6 }, { unit: 'قارورة', qty: 5 }],
     damaged: [{ unit: 'علبة', qty: 12 }],
   });
-  assert.deepEqual(repStockMajor([], new Map()), { remaining: [], loaded: [], sold: [], damaged: [] });
+  assert.deepEqual(repStockMajor([], new Map()), { remaining: [], onVan: [], loaded: [], sold: [], damaged: [] });
 });
 
 // ═══ بطاقة «في مخزون السيارات» (GET /warehouse/vans) ═══

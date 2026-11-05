@@ -339,11 +339,24 @@ export async function linkedReturnExpiry(
 /**
  * بعد ردّ الإصدار: إن صدر مستندٌ جديد (201) تُسجَّل صلاحية بنوده. لا يرمي أبداً — فشلُه يُسجَّل في السجلّ
  * والمستند صادرٌ كما هو.
+ *
+ * ومراجعة المخزون (البند ١، D6): و202 أيضاً — إشعارٌ قياسيّ تأخّر اعتماده أو CLEARED_NO_XML صدر ولم يُختم فبقي منتهيه «متاحاً
+ * للبيع» — وردّ التكرار 200 (`idempotent: true`) يختم ما بقي بلا ختم (رفعٌ أوّل تعثّر ختمه). والختم يتخطّى المختوم أصلاً
+ * (expiresAt != null) فلا يُعاد حساب شيء — من الآن فصاعداً بلا أثرٍ رجعيّ على ما سبق.
  */
 export async function stampExpiryAfterIssue(tenantId: string, status: number, body: unknown): Promise<void> {
-  if (status !== 201) return;
+  const replayed = status === 200 && (body as { idempotent?: unknown } | null)?.idempotent === true;
+  if (status !== 201 && status !== 202 && !replayed) return;
   const id = (body as { data?: { id?: unknown } } | null)?.data?.id;
   if (typeof id !== 'string') return;
+  await stampExpiryIfMissing(tenantId, id);
+}
+
+/**
+ * ختم ما بقي من بنود مستندٍ قائم بلا ختم (D6) — لردّ التكرار وسباق clientRef: الختم الأول تعثّر (فشلٌ عابر أو إعادة تشغيل
+ * الخادم بعد الالتزام) فتُكمله إعادة الرفع. لا يرمي، وبلا بندٍ صنفُه بصلاحية لا كتابة (stampInvoiceExpiry نفسها).
+ */
+export async function stampExpiryIfMissing(tenantId: string, id: string): Promise<void> {
   try {
     await stampInvoiceExpiry(tenantId, id);
   } catch (err) {

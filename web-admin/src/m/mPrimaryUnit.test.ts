@@ -314,7 +314,8 @@ test('MRepLoad: baseUnitName في الشقّين، وإعادة الجلب عل�
 test('MWarehouse: baseUnitName في كل سطر وارد/تسوية، وتكلفة الرئيسية أولاً، ووسم R3', () => {
   const s = src('MWarehouse.tsx');
   assert.match(s, /withBaseUnitName\(\{\s*productId: r\.productId[\s\S]{0,200}\}, r\.baseUnit\)/);
-  assert.match(s, /formatCurrency\(r\.avgCost \* Number\(prim\.factor\)\)/);
+  // تكلفة الرئيسية من قيمة الصف (مراجعة المخزون S8، rowUnitCost) — لا متوسّط القارورة المقرَّب × المعامل
+  assert.match(s, /formatCurrency\(rowUnitCost\(r, Number\(prim\.factor\)\) \?\? 0\)/);
   assert.match(s, /qtyTotalLabel\(tr, 'الكمية المقيمة', 'الكمية المقيمة بوحدات الأساس'/);
   assert.match(s, /qtyTotalLabel\(tr, 'كمية خارج التقييم', 'كمية خارج التقييم بوحدات الأساس'/);
   assert.match(s, /if \(refetchUnitsOn\(e\)\) \{/);

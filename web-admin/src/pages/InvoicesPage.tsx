@@ -23,6 +23,8 @@ import { isDamagedVanReturn } from '../lib/vanDamaged';
 import { locationFilterOptions, type SalesLocation } from '../lib/locations';
 import { lotErrorOf, lotFlagsOf } from '../lib/lots';
 import { lotErrorText, withDocLots } from '../lib/invoiceLots';
+import { cachedProduct, cachedProductName, returnCancelShortOf, returnCancelShortText } from '../lib/returnCancelStock';
+import { baseQtyText } from '../lib/adminUnits';
 import { priceListsOf } from '../lib/priceLists';
 import { withLiveCompany } from '../rep/companyRefresh';
 
@@ -132,13 +134,32 @@ export default function InvoicesPage() {
     setOpeningId(null);
   };
 
+  /* D10 (قرار المالك): إلغاء مرتجعٍ أو إطفاء «يعود للمخزون» أو سحب إشعارٍ دائن يجعل رصيد السيارة سالباً لصنفٍ غير متتبَّع يُرفض
+   * (409 RETURN_CANCEL_STOCK_SHORT بأسطره) ولا يتغيّر شيء — النصّ بأصنافه ومتاحها حين تُعرف أسماؤها هنا، وإلا رسالة الخادم */
+  const cancelShortToast = (err: unknown): boolean => {
+    const s = returnCancelShortOf(err);
+    if (!s) return false;
+    // الكميات بالأساس مفكَّكةً بوحدات الصنف («2 كرتون و3 حبة») حين يُعرف — لا رقمٌ مجرّد يُقرأ كراتين
+    const get = (k: readonly unknown[]) => qc.getQueryData(k);
+    const qtyOf = (id: string, n: number) => baseQtyText(n, cachedProduct(get, id), x => String(Number(x.toFixed(4))), { withUnit: true });
+    toast.error(returnCancelShortText(s, tr, id => cachedProductName(get, id), qtyOf), { duration: 9000 });
+    qc.invalidateQueries({ queryKey: ['van-current'] });
+    return true;
+  };
+
   const cancelMutation = useMutation({
     mutationFn: (id: string) => invoiceApi.cancel(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['invoices'] }); toast.success(tr('تم إلغاء الفاتورة')); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['invoices'] });
+      // إلغاء البيع أو المرتجع يغيّر رصيد السيارة — الصفحات المفتوحة لا تعرض القديم
+      qc.invalidateQueries({ queryKey: ['van-summary'] }); qc.invalidateQueries({ queryKey: ['van-current'] });
+      toast.success(tr('تم إلغاء الفاتورة'));
+    },
     onError: (err: unknown) => {
       // «تتبّع اللوط»: مرتجعٌ بيعت بضاعته لا يُلغى (409 LOT_STOCK_INSUFFICIENT بتشغيلته)، والانشغال 503 «أعد المحاولة»
       const le = lotErrorOf(err);
       if (le) { toast.error(lotErrorText(le, tr), { duration: 8000 }); return; }
+      if (cancelShortToast(err)) return;
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('خطأ');
       toast.error(msg);
     },
@@ -157,6 +178,8 @@ export default function InvoicesPage() {
       // «تتبّع اللوط»: لا تُطفأ عودة مرتجعٍ بيعت بضاعته من السيارة (409 بتشغيلته أو بالرصيد غير المسمّى)
       const le = lotErrorOf(err);
       if (le) { toast.error(lotErrorText(le, tr), { duration: 8000 }); return; }
+      // D10: وغير المتتبَّع كذلك — سيارته لا تصير سالبة بإطفاء العودة
+      if (cancelShortToast(err)) return;
       toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('خطأ'));
     },
   });
@@ -184,10 +207,14 @@ export default function InvoicesPage() {
       await call(id);
       setZatcaAsk(null);
       qc.invalidateQueries({ queryKey: ['invoices'] });
+      // سحب مستندٍ يعكس أثره على سيارة مندوبه (بيعاً كان أو إشعاراً دائناً) — الصفحات المفتوحة لا تعرض الرصيد القديم
+      if (kind === 'withdraw') { qc.invalidateQueries({ queryKey: ['van-summary'] }); qc.invalidateQueries({ queryKey: ['van-current'] }); }
       toast.success(kind === 'retry' ? tr('أعيد إرسال المستند إلى الهيئة')
         : kind === 'withdraw' ? tr('سحبت الفاتورة وأبطلت')
         : tr('أعيد إصدار المستند للهيئة'));
     } catch (err: unknown) {
+      // D10: سحب إشعارٍ دائن قياسي بيعت بضاعته من السيارة (409 RETURN_CANCEL_STOCK_SHORT) — بأصنافه
+      if (cancelShortToast(err)) { setZatcaBusyId(null); return; }
       // رسالة الخادم أوّلاً: هي التي تحمل سبب الرفض (المستند قيد الإرسال، أو قد تكون الهيئة استلمته)
       toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر تنفيذ الإجراء'));
     }

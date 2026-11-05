@@ -17,6 +17,7 @@
  */
 import { QTY_EPS, baseNameKey, factorOf, fromBase, primaryUnitOf, roundQty, toBase, type UnitDef } from './units';
 import { choiceById, defaultChoice, unitChoices, type UnitChoice } from '../rep/repUnits';
+import { isDormant, type DormantFields } from './warehouseRows';
 
 /** الجهة الموجَّه إليها الطلب */
 export type StockRequestTo = 'PURCHASING' | 'PRODUCTION';
@@ -72,6 +73,8 @@ export function isInvalidRequestQty(raw: string | undefined): boolean {
  */
 export interface StockRequestSourceRow {
   productId: string; name: string; code?: string; unit?: string; onHand: number; units?: UnitDef[] | null; primaryUnitId?: string | null;
+  /** حالة الصنف من صفّ المستودع (مراجعة المخزون S1) — الموقوف والمحذوف لا يُطلبان (requestCandidates). غيابهما خادمٌ أقدم ⇒ كما كان */
+  status?: string | null; archived?: boolean | null;
 }
 /**
  * سطر الورقة: `qty` بوحدة الطلب `unit`. ولصنفٍ له وحدات: `unitFactor` معامل تلك الوحدة (فلا يُجمع كرتونٌ وحبّةٌ في
@@ -160,6 +163,14 @@ export function stockRequestTotalText(lines: { qty: number; unit?: string; unitF
 
 /** الناقص: رصيده صفر أو سالب — هو ما ينبّه إليه شريط الصفحة «يحتاج استلام بضاعة» */
 export const isShort = (r: { onHand: number }): boolean => r.onHand <= 0;
+
+/**
+ * أصناف نافذة الطلب (مراجعة المخزون S1): الموقوف والمحذوف (المؤرشف) لا يُطلب شراؤه، فيخرج من النافذة كما خرج من عدّاد
+ * «يحتاج استلام» — إلا صنفاً طلبه مندوب (`requested`)، فيبقى برصيده الحقيقي ولا يُلحق برصيد صفر (withRequestedProducts).
+ */
+export function requestCandidates<T extends { productId: string } & DormantFields>(rows: T[], requested: ReadonlySet<string> = new Set()): T[] {
+  return rows.filter(r => !isDormant(r) || requested.has(r.productId));
+}
 
 /** الناقص أولاً، ثم البقية — وكلٌّ بترتيبه في جدول المستودع */
 export function shortFirst<T extends { onHand: number }>(rows: T[]): T[] {

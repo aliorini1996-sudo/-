@@ -9,14 +9,16 @@ import type { Company, StockRequestDoc } from '../rep/RepDocuments';
 import {
   stockRequestLines, stockRequestTotalText, stockRequestRef, stockRequestToLabel, isInvalidRequestQty, isShort,
   repItemQty, repRequestDirty, repRequestTotals, withRequestedProducts, requestedFirst, parseRequestQty,
-  requestUnitOf, defaultRequestUnit, prefillInUnit, repLineUnitId, repItemUnit, repEditItems, convertRepQty, isStaleUnitsError,
+  requestUnitOf, defaultRequestUnit, prefillInUnit, repLineUnitId, repItemUnit, repEditItems, convertRepQty, isStaleUnitsError, requestCandidates,
   type StockRequestTo, type StockRequestSourceRow, type RepStockRequest, type RepRequestItem, type RepUnitEdits,
 } from '../lib/stockRequest';
 import { baseQtyText, hasBigUnit, productUnitLabel } from '../lib/adminUnits';
 import { unitChoices } from '../rep/repUnits';
-import { primaryUnitOf } from '../lib/units';
+import { primaryUnitOf, roundQty } from '../lib/units';
+import { fmtTotalQty } from '../lib/qtyView';
 
-const fmtQty = (n: number) => Number(n.toFixed(2)).toLocaleString('en-US');
+// حتى أربع منازل (مراجعة المخزون #19): رصيدٌ بقيت منه ٠٫٠٠٤ لا يُطبع «0» — وكميات الطلب بخانتيها كما هي
+const fmtQty = (n: number) => fmtTotalQty(roundQty(n));
 /** قيمة خيار «وحدة سطر المندوب كما هي» في المنتقي — وحدةٌ لم تعد بين النشطة (أُوقفت أو تغيّر معاملها) */
 const LINE_UNIT = '__line';
 /** معامل وحدة سطر المندوب كما في لقطته */
@@ -83,7 +85,8 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
   const repSum = repRequestTotals(included, edits, unitEdits);
   // ما طلبوه أصلاً — يثبّت الترتيب فلا يقفز الصنف حين يُصفّر الإداري كميّته
   const requested = useMemo(() => new Set(reqs.flatMap(r => r.items.filter(i => i.requestedQty > 0).map(i => i.productId))), [reqs]);
-  const ordered = useMemo(() => requestedFirst(withRequestedProducts(rows, reqs), requested), [rows, reqs, requested]);
+  // الموقوف والمحذوف لا يُطلب شراؤه (S1) — إلا ما طلبه مندوب، فيبقى برصيده
+  const ordered = useMemo(() => requestedFirst(withRequestedProducts(requestCandidates(rows, requested), reqs), requested), [rows, reqs, requested]);
 
   // وحدة الطلب العام لكل صنف — المختارة، وإلا الافتراضية من مجموع مناديبه
   const unitById: Record<string, string | null> = {};

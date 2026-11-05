@@ -24,6 +24,8 @@ let reps: Row[] = [];
 let loads: Row[] = [];
 let loadItems: Row[] = [];
 let calls: string[] = [];
+/** حركات عهدة الأدوات (D9): حذف المندوب يُبقيها بمرجعٍ مفرَّغ ومعرّفه محفوظ كالتحميلات */
+let toolMoves: Row[] = [];
 
 const products: Row[] = [
   { id: 'P1', tenantId: T, name: 'منتج أ', code: 'A1', unit: 'كيس', status: 'ACTIVE' },
@@ -63,6 +65,15 @@ const db: Row = {
   repVisit: generic('repVisit'),
   repSettlement: generic('repSettlement'),
   customerAssignment: generic('customerAssignment'),
+  vanToolMove: {
+    async updateMany(a: Row) {
+      calls.push('vanToolMove.updateMany');
+      let count = 0;
+      for (const m of toolMoves) if (flatMatch(m, a.where)) { Object.assign(m, a.data); count++; }
+      return { count };
+    },
+    async deleteMany() { calls.push('vanToolMove.deleteMany'); toolMoves = []; return { count: 0 }; },
+  },
   salesRep: {
     async findFirst(a: Row) { const r = reps.find(x => flatMatch(x, a.where)); return r ? { id: r.id, name: r.name } : null; },
     async delete(a: Row) {
@@ -70,6 +81,7 @@ const db: Row = {
       reps = reps.filter(x => x.id !== a.where.id);
       // كما أعلن المخطط: onDelete: SetNull — والمعرّف المحفوظ يكتبه المسار لا القاعدة
       for (const l of loads) if (l.salesRepId === a.where.id) l.salesRepId = null;
+      for (const m of toolMoves) if (m.salesRepId === a.where.id) m.salesRepId = null;
       return {};
     },
   },
@@ -154,6 +166,10 @@ function seed(): void {
   seq = 0; calls = [];
   reps = [{ id: 'R1', tenantId: T, name: 'أحمد' }, { id: 'R2', tenantId: T, name: 'خالد' }];
   loads = []; loadItems = [];
+  toolMoves = [
+    { id: 'M1', tenantId: T, salesRepId: 'R1', deletedSalesRepId: null, type: 'ISSUE', toolName: 'عربة', qty: 3 },
+    { id: 'M2', tenantId: T, salesRepId: 'R2', deletedSalesRepId: null, type: 'ISSUE', toolName: 'سلة', qty: 2 },
+  ];
   load('R1', 'LOAD', 2, [['P1', 30], ['P2', 10]]);        // خرج بكلفة ١٠
   // مندوبٌ حُذف قبلُ (بعد الإصلاح): مرجعه مفرَّغ ومعرّفه محفوظ — حمّل بعد ارتفاع الكلفة
   load(null, 'LOAD', 4, [['P1', 20]], 'R0');
@@ -186,6 +202,9 @@ test('حذف المندوب يُبقي تحميلاته بمرجعٍ مفرَّ�
   }
   // تحميلات مندوبٍ آخر لم تُمسّ
   assert.ok(loads.filter(l => l.salesRepId === 'R2').length === 2);
+  // D9: عهدة أدواته باقية بمعرّفه المحفوظ (لا تختفي بـSetNull وحده)، وعهدة غيره لم تُمسّ
+  assert.ok(!calls.includes('vanToolMove.deleteMany'), 'المسار يمحو عهدة الأدوات');
+  assert.deepEqual(toolMoves.map(m => [m.id, m.salesRepId, m.deletedSalesRepId]), [['M1', null, 'R1'], ['M2', 'R2', null]]);
 
   const after = await computeWarehouseStock(T, 2);
   assert.deepEqual(after, before, 'رصيد المستودع أو قيمته تغيّر بحذف المندوب');

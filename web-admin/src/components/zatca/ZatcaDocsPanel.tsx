@@ -14,6 +14,7 @@ import ZatcaActionDialog from './ZatcaActionDialog';
 import ZatcaShareDialog from './ZatcaShareDialog';
 import { isShareableMirror } from '../../lib/zatca/shareView';
 import { useZatcaTr as useTr } from './zatcaPhrases';
+import { returnCancelShortOf, returnCancelShortText } from '../../lib/returnCancelStock';
 
 /**
  * فوترة ZATCA المرحلة الثانية (Z5.6c) — شاشة متابعة المستندات الضريبية لمدير الشركة.
@@ -98,8 +99,11 @@ export default function ZatcaDocsPanel() {
       await q.refetch();
       toast.success(tr(ZATCA_ACTION_LABELS[kind]));
     } catch (err) {
+      // D10: سحب إشعارٍ دائن قياسي بيعت بضاعته من السيارة يُرفض (409 RETURN_CANCEL_STOCK_SHORT) — الجملة بلغة الواجهة ورسالة الخادم بأصنافه
+      const short = returnCancelShortOf(err);
+      if (short) toast.error(returnCancelShortText(short, tr, () => null), { duration: 9000 });
       // رسالة الخادم أوّلاً: هي التي تحمل سبب الرفض (قيد الإرسال الآن، حسمته الهيئة، الإرسال موقوف…)
-      toast.error(serverMessage(err) ?? tr('تعذر تنفيذ الإجراء'));
+      else toast.error(serverMessage(err) ?? tr('تعذر تنفيذ الإجراء'));
     }
     setBusyId(null);
   };

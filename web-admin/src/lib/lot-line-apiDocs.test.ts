@@ -203,10 +203,11 @@ test('دليل «ربط تتبّع LOT»: خطوة «اقرأ التشغيلة �
 
 test('«ما الجديد»: بند ٢ نوفمبر للتشغيلات على مستوى السطر يذكر lineRef والتشغيلات المضمّنة وبقاء الموارد المنفصلة، والعنوان يشمله', () => {
   const docs = fs.readFileSync(path.join(process.cwd(), 'src', 'components', 'ApiDocs.tsx'), 'utf8').replace(/\r\n/g, '\n');
-  assert.ok(docs.includes('title="ما الجديد (٢٩ أكتوبر – ٢ نوفمبر ٢٠٢٦)"'), 'العنوان');
+  assert.ok(docs.includes('title="ما الجديد (٢٩ أكتوبر – ٥ نوفمبر ٢٠٢٦)"'), 'العنوان');
   const list = docs.slice(docs.indexOf('title="ما الجديد'), docs.indexOf('</ul>', docs.indexOf('title="ما الجديد')));
   // أول البنود دليل «حركات المخزون من نظامكم» (٢ نوفمبر)، وبعده بند التشغيلات على مستوى السطر بالتاريخ نفسه
-  const bullets = [...list.matchAll(/<li>([^]*?)<\/li>/g)].map((m) => m[1]);
+  // بنود ٥ نوفمبر (الأحدث) أولاً ثم بنود ٢ نوفمبر
+  const bullets = [...list.matchAll(/<li>([^]*?)<\/li>/g)].map((m) => m[1]).filter((b) => !b.startsWith('٥ نوفمبر — '));
   assert.ok(bullets[0].startsWith('٢ نوفمبر — '), 'أول بند');
   const first = bullets.find((b) => b.includes('items[].lineRef'))!;
   assert.ok(first, 'بند lineRef غائب');

@@ -620,6 +620,8 @@ export const vanStockApi = {
   current: (salesRepId: string) => api.get('/van-stock/current', { params: { salesRepId } }),
   // withLots: items[].lots بتشغيلاتها (VanLoadItemLotDto في lib/lots.ts)
   loads: (salesRepId?: string, opts?: WithLots) => api.get('/van-stock/loads', { params: { ...(salesRepId ? { salesRepId } : {}), ...lotsParam(opts) } }),
+  // D8: هل حُفظت محاولةٌ بمرجعها؟ (بعد ضياع ردّ الحفظ) — صفوف الحركة بذلك المرجع، و[] إن لم تُحفظ
+  loadsByClientRef: async (clientRef: string, salesRepId?: string) => (await api.get('/van-stock/loads', { params: { clientRef, ...(salesRepId ? { salesRepId } : {}) } })).data?.data as unknown,
   // «سجل التحميلات» المرقَّم («لوكيشن»): type=LOAD وfrom/to بأيام الشركة وlocationId (معرّف أو none) وpage/limit — يعيد pagination
   loadsLog: (params: Record<string, string | number>) => api.get('/van-stock/loads', { params }),
   movements: (salesRepId: string, opts?: WithLots) => api.get('/van-stock/movements', { params: { salesRepId, ...lotsParam(opts) } }),

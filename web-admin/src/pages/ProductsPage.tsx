@@ -17,11 +17,15 @@ import { useAuthStore } from '../store/authStore';
 import { lotFlagsOf, type LotTrackingRequest, type LotTrackingResultDto } from '../lib/lots';
 import { attentionRows, trackingBalanceOf, trackingRequest, type AttentionRow, type TrackingBalanceProduct } from '../lib/lotTrackingUi';
 import { listPricesCreateBody, type ListPriceEdits } from '../lib/priceLists';
+// مراجعة المخزون (S4 وS6): تحذير الاسم المكرَّر بعد الحفظ، ورصيد الصنف في تأكيد الحذف
+import { deleteBalanceText, duplicateNameSavedText, duplicateNameWarningsOf, hasStockBalance } from '../lib/productGuards';
+import { fetchStockSummary } from '../lib/productGuardsApi';
 import PagePanelModal from '../components/PagePanelModal';
 import PriceListsPanel from '../components/priceLists/PriceListsPanel';
 
-/** حمولة حفظ الصنف — والتأكيد بعد 409 LOT_TRACKING_HAS_BALANCE (D9)، وأسعار «أنواع الأسعار» المتغيّرة من النافذة */
-type ProductSave = Partial<Product> & { confirmLotBalances?: boolean; listPriceEdits?: ListPriceEdits };
+/** حمولة حفظ الصنف — والتأكيد بعد 409 LOT_TRACKING_HAS_BALANCE (D9)، وأسعار «أنواع الأسعار» المتغيّرة من النافذة، وإقرار الاسم المكرَّر
+ *  قبل الحفظ (D4: لا يُعاد تحذير الخادم بعده) */
+type ProductSave = Partial<Product> & { confirmLotBalances?: boolean; listPriceEdits?: ListPriceEdits; duplicateNameAck?: boolean };
 /** تأكيد إطفاء التتبّع بأرصدة مسمّاة (D9): لصنفٍ من نافذته، أو للتفعيل الجماعي */
 type BalanceConfirm =
   | { kind: 'product'; values: ProductSave; products: TrackingBalanceProduct[] }
@@ -85,6 +89,8 @@ export default function ProductsPage() {
     /* «أنواع الأسعار»: أسعار الأنواع المتغيّرة (listPriceEdits) ليست حقل صنف — للجديد تُرسل في جسم إنشائه (listPrices)، وللقائم
      * بمسارها بعد نجاح حفظه وبأساسه كما ردّه الخادم (إعادة تسمية الأساس في الحفظ نفسه). فشلها يبقي النافذة برسالة الخادم */
     mutationFn: async ({ listPriceEdits, ...values }: ProductSave) => {
+      // D4: إقرار الاسم المكرَّر قبل الحفظ للواجهة وحدها — لا يُرسل للخادم
+      delete values.duplicateNameAck;
       if (!selected) return productApi.create({ ...values, ...listPricesCreateBody(listPriceEdits) });
       const res = await productApi.update(selected.id, values);
       if (listPriceEdits?.items.length) {
@@ -117,6 +123,18 @@ export default function ProductsPage() {
       toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('حدث خطأ'));
     },
   });
+
+  /* S6 (مراجعة مخزون الشركة): رصيد الصنف قبل حذفه في نصّ التأكيد — undefined جارٍ، null تعذّر (لا سطر). الكمية بالأساس بوحداته */
+  const deleteStock = useQuery({
+    queryKey: ['product-stock-summary', deleting?.id],
+    queryFn: () => fetchStockSummary(deleting!.id),
+    enabled: !!deleting,
+    staleTime: 0,
+  });
+  const deleteBalanceLine = deleting
+    ? deleteBalanceText(deleteStock.isLoading ? undefined : (deleteStock.data ?? null), tr,
+      n => baseQtyText(n, deleting, formatNumber, { withUnit: true }))
+    : null;
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => productApi.remove(id),
@@ -330,7 +348,13 @@ export default function ProductsPage() {
           lotTrackingOn={lotOn}
           product={selected}
           onClose={() => { setShowModal(false); setSelected(null); }}
-          onSave={saveMutation.mutate}
+          /* D4: الخادم حذّر من اسمٍ مكرَّر لم يُقرّ به المدير قبل الحفظ (تعذّر السؤال) — تنبيهٌ بعد الحفظ لا رفض */
+          onSave={(values) => saveMutation.mutate(values, {
+            onSuccess: (res) => {
+              const dup = values.duplicateNameAck ? [] : duplicateNameWarningsOf((res as { data?: unknown } | undefined)?.data);
+              if (dup.length) toast(duplicateNameSavedText(dup, tr), { icon: '⚠️', duration: 8000 });
+            },
+          })}
           loading={saveMutation.isPending}
         />
       )}
@@ -340,6 +364,10 @@ export default function ProductsPage() {
           danger
           title={tr('حذف الصنف')}
           message={`${tr('سيتم حذف الصنف')} «${deleting.name}» ${tr('من كل القوائم ولن يمكن بيعه في فواتير جديدة فواتيره وسنداته وكشوفه القديمة تبقى كما هي بالاسم نفسه ولا يمكن التراجع عن الحذف')}`}
+          /* S6: رصيد الصنف في المستودع والسيارات قبل الحذف — الحذف نفسه كما هو */
+          extra={deleteBalanceLine ? (
+            <p className={`text-xs mt-3 leading-relaxed rounded-lg px-3 py-2 ${hasStockBalance(deleteStock.data) ? 'bg-amber-50 text-amber-800 font-semibold' : 'bg-gray-50 text-gray-500'}`}>{deleteBalanceLine}</p>
+          ) : undefined}
           confirmLabel={tr('حذف نهائي')}
           loading={deleteMutation.isPending}
           onConfirm={() => deleteMutation.mutate(deleting.id)}

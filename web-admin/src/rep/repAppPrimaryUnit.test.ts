@@ -212,7 +212,7 @@ test('الصندوق الأوف‑لاين (D16): الحمولة تُرفع كم
   assert.match(repApp, /const payload = \{ \.\.\.body, clientRef, clientCreatedAt \};/);
   assert.match(repApp, /\.\.\.invoiceItemUnit\(l\),/);
   // إعادة الرفع ترسل doc.payload نفسه مع X-FS-Replay — فيقرأ الخادم docAt من clientCreatedAt في الجسم
-  assert.match(sync, /await repApi\.post\(endpoint, doc\.payload, \{ headers: \{ 'X-FS-Replay': '1' \} \}\)/);
+  assert.match(sync, /await repApi\.post\(endpoint, doc\.payload, \{ headers: \{ 'X-FS-Replay': '1'(, 'X-FS-Device-Now': new Date\(\)\.toISOString\(\))? \} \}\)/);
   // لا رمز «حجز» جديد (D16): 503 PRODUCT_UNITS_BUSY أو PRODUCT_UNITS_CHANGED (503 لإعادة الرفع) يقعان في فرع 5xx فيبقى المستند
   assert.doesNotMatch(sync, /PRODUCT_UNITS/);
   assert.match(sync, /if \(status && status >= 400 && status < 500\) \{[\s\S]*?\} else \{\s*\/\/[^\n]*\n\s*stopped = true;\s*break;/);

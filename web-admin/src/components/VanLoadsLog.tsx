@@ -151,7 +151,8 @@ export default function VanLoadsLog({ reps }: { reps: { salesRepId: string; repN
                 return (
                 <tr key={l.id} className="border-t border-[#F1EBDF] align-top">
                   <td className="px-5 py-2.5 text-xs text-[#6E6557] whitespace-nowrap">{formatDateTime(l.createdAt)}</td>
-                  <td className="px-3 py-2.5 font-semibold text-[#1F1A13] whitespace-nowrap">{l.salesRep?.name ?? '—'}</td>
+                  {/* D9: تحميل مندوبٍ حُذف بعده يبقى بمعرّفه (deletedSalesRepId) — «مندوب محذوف» لا شرطةٌ تُقرأ «بلا مندوب» */}
+                  <td className="px-3 py-2.5 font-semibold text-[#1F1A13] whitespace-nowrap">{l.salesRep?.name ?? ((l as { deletedSalesRepId?: string | null }).deletedSalesRepId ? <span className="text-[#9A8F7E]">{tr('مندوب محذوف')}</span> : '—')}</td>
                   {/* ختم الحركة وقت التحميل — null لمندوبٍ بلا موقع ولما قبل التفعيل */}
                   <td className="px-3 py-2.5 whitespace-nowrap">{l.location?.name ?? <span className="text-gray-300">—</span>}</td>
                   <td className="px-3 py-2.5">

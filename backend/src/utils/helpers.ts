@@ -1,5 +1,6 @@
 import prisma from '../config/database';
 import { roundHalfUp } from '../lib/money';
+import { localDate } from '../services/gl/dates';
 
 export function paginate(page: number, limit: number) {
   const skip = (page - 1) * limit;
@@ -21,7 +22,15 @@ export function paginationMeta(total: number, page: number, limit: number) {
 // ⚠️ البادئة تُشتقّ من **تاريخ المستند** لا من وقت الرفع: فاتورة أُنشئت أوف-لاين في يوليو
 // وطُبع QR لها ثم رُفعت في أغسطس يجب أن تأخذ تسلسل يوليو (INV-YYMM بشهر البيع) — وإلا
 // انكسر تسلسل الفترة القانوني (ZATCA/ETA يشترطان تسلسلاً متّصلاً لكل فترة). الافتراضي «الآن».
-function prefixFor(kind: 'INV' | 'RCP' | 'RET', date: Date = new Date()): string {
+// وtz (منطقة الشركة) يُمرَّر لمستندٍ أُرِّخ بلحظة جهاز المندوب (D11): شهره بتوقيت الشركة كما يراه الكشف والتقارير — وإلا بيعُ
+// الساعة ١ فجر أول الشهر (بتوقيت الرياض) أخذ تسلسل الشهر السابق بساعة الخادم (UTC). بلا tz ⇒ ساعة الخادم كما كانت.
+export function prefixFor(kind: 'INV' | 'RCP' | 'RET', date: Date = new Date(), tz?: string): string {
+  if (tz) {
+    try {
+      const [y, m] = localDate(date, tz).split('-');
+      return `${kind}-${y.slice(-2)}${m}-`;
+    } catch { /* منطقةٌ تالفة ⇒ ساعة الخادم */ }
+  }
   const yy = date.getFullYear().toString().slice(-2);
   const mm = String(date.getMonth() + 1).padStart(2, '0');
   return `${kind}-${yy}${mm}-`;
@@ -38,16 +47,16 @@ async function nextInvoiceLike(tenantId: string, prefix: string): Promise<string
   return prefix + String(lastSeq + 1).padStart(6, '0');
 }
 
-export async function generateInvoiceNumber(tenantId: string, date?: Date): Promise<string> {
-  return nextInvoiceLike(tenantId, prefixFor('INV', date));
+export async function generateInvoiceNumber(tenantId: string, date?: Date, tz?: string): Promise<string> {
+  return nextInvoiceLike(tenantId, prefixFor('INV', date, tz));
 }
 
-export async function generateReturnNumber(tenantId: string, date?: Date): Promise<string> {
-  return nextInvoiceLike(tenantId, prefixFor('RET', date));
+export async function generateReturnNumber(tenantId: string, date?: Date, tz?: string): Promise<string> {
+  return nextInvoiceLike(tenantId, prefixFor('RET', date, tz));
 }
 
-export async function generateReceiptNumber(tenantId: string, date?: Date): Promise<string> {
-  const prefix = prefixFor('RCP', date);
+export async function generateReceiptNumber(tenantId: string, date?: Date, tz?: string): Promise<string> {
+  const prefix = prefixFor('RCP', date, tz);
   const last = await prisma.receipt.findFirst({
     where: { tenantId, number: { startsWith: prefix } },
     orderBy: { number: 'desc' },

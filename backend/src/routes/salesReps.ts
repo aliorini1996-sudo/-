@@ -429,6 +429,9 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
        * حادثة ٢ أكتوبر ٢٠٢٦. تبقى بمرجعٍ مفرَّغ، ومعرّفه في deletedSalesRepId كي
        * تبقى «سيارته» مكدّساً مستقلاً في تقييم المستودع. والحذف يمضي دائماً (قرار المالك). */
       await tx.vanLoad.updateMany({ where: { tenantId: tid, salesRepId: req.params.id }, data: { salesRepId: null, deletedSalesRepId: req.params.id } });
+      /* عهدة الأدوات (مراجعة المخزون D9) كتحميلات السيارة: SetNull وحده كان يُخفي ما في يده من عربات وسلال عن كل شاشة فتضيع
+       * المطالبة بها. تبقى بمرجعٍ مفرَّغ ومعرّفه في deletedSalesRepId، فتظهر «مندوب محذوف» وتُستلم منه (routes/vanStock.ts) */
+      await tx.vanToolMove.updateMany({ where: { tenantId: tid, salesRepId: req.params.id }, data: { salesRepId: null, deletedSalesRepId: req.params.id } });
       await tx.repLocation.deleteMany({ where: { salesRepId: req.params.id } });
       await tx.repVisit.deleteMany({ where: { salesRepId: req.params.id } }); // صورها تُحذف تعاقبياً
       /* استلام التحصيل سجلٌّ مالي لا بيانات تشغيل: هو «المستلَم» في عهدة مستخدم الشركة الذي استلم (userCustody).

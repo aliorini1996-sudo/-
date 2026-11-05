@@ -13,6 +13,8 @@ import { outboxAll, outboxUpdate, outboxDelete, OutboxDoc, currentRepId } from '
 import { CUTOVER_REVIEW_CODE, clearReview, reviewRecheckDue } from './outboxReview';
 import { isLiveGuardedKind, isLiveRefusal } from './liveGate';
 import { LOT_REPLAY_HELD_CODE } from './vanLots';
+// مراجعة المخزون (البند ٥، D5): فاتورةٌ دون اتصال فوق مخزون السيارة لمندوبٍ بلا «البيع بدون مخزون» تُحجز «بانتظار الإدارة» لا تُرفض
+import { VAN_STOCK_REPLAY_HELD_CODE, vanStockHeldRecheckDue } from './vanStockHeld';
 
 /** حزمةٌ قديمة بلا قدرة القفل (الخادم: 426/503) — لا تصل الحزمة الحديثة، ويُبقى المستند إن وصلها */
 export const LIVE_CLIENT_UPDATE_CODE = 'LOCATION_APP_UPDATE';
@@ -65,6 +67,8 @@ export async function syncOutbox(): Promise<SyncResult> {
     const startedAt = Date.now();
     const queued = (await outboxAll())
       .filter((d) => d.status === 'queued' && ownedByCurrentRep(d) && reviewRecheckDue(d, startedAt))
+      // والمحجوز بعجز السيارة (D5) لا يُسأل قبل المهلة نفسها
+      .filter((d) => vanStockHeldRecheckDue(d, startedAt))
       .sort((a, b) => (rank(a.kind) - rank(b.kind)) || a.clientCreatedAt.localeCompare(b.clientCreatedAt));
 
     // ردّ قفل صفحة العميل يوقف ما يعمل على عميل وحده — التقرير اليومي ونتيجة المندوب الذكي بعده تُرفع ولا تُحبس خلفه
@@ -73,8 +77,9 @@ export async function syncOutbox(): Promise<SyncResult> {
       if (liveBlocked && isLiveGuardedKind(doc.kind)) continue;
       const endpoint = endpointOf(doc.kind);
       try {
-        // X-FS-Replay: إعادة رفع من الصفّ (Z5.0) — تميّزها قاعدة التحويل عند تفعيل الفوترة (Z5.8) عن الإصدار المباشر
-        const res = await repApi.post(endpoint, doc.payload, { headers: { 'X-FS-Replay': '1' } });
+        // X-FS-Replay: إعادة رفع من الصفّ (Z5.0) — تميّزها قاعدة التحويل عند تفعيل الفوترة (Z5.8) عن الإصدار المباشر.
+        // X-FS-Device-Now: لحظة الجهاز الآن — يقيس بها الخادم انحراف ساعته فيصحّح تاريخ المستند دون اتصال (D11)
+        const res = await repApi.post(endpoint, doc.payload, { headers: { 'X-FS-Replay': '1', 'X-FS-Device-Now': new Date().toISOString() } });
         const server = res.data?.data ?? {};
         // sentAt («تتبّع اللوط» §٧.٢) يختمه outboxUpdate لحظة الانتقال إلى sent
         await outboxUpdate({ ...clearReview(doc), status: 'sent', serverNumber: server.number, serverId: server.id });
@@ -117,6 +122,14 @@ export async function syncOutbox(): Promise<SyncResult> {
           // أُشعرت لتسجّل التحميل الناقص فتمرّ في سؤالٍ لاحق. والمزامنة تتابع ما بعدها كمراجعة الفوترة
           const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
           await outboxUpdate({ ...doc, reviewCode: LOT_REPLAY_HELD_CODE, reviewCheckedAt: new Date().toISOString(), error: msg || undefined });
+          continue;
+        }
+        if (code === VAN_STOCK_REPLAY_HELD_CODE) {
+          // مراجعة المخزون (البند ٥، D5): فاتورةٌ دون اتصال تتجاوز مخزون السيارة لمندوبٍ بلا «البيع بدون مخزون» — سُلّمت بضاعتها فلا رفض
+          // ولا إعدام (كان 403 «مرفوضة» فتخرج من الدفاتر، و«تجاهل» يضيّعها): تبقى مصفوفةً بوسم «بانتظار الإدارة» ورسالة الخادم، والإدارة
+          // أُشعرت لتسجّل التحميل الناقص، ولا يُسأل عنها قبل المهلة (vanStockHeldRecheckDue)، والمزامنة تتابع ما بعدها
+          const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+          await outboxUpdate({ ...doc, reviewCode: VAN_STOCK_REPLAY_HELD_CODE, reviewCheckedAt: new Date().toISOString(), error: msg || undefined });
           continue;
         }
         if (status && status >= 400 && status < 500) {

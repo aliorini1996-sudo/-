@@ -7,6 +7,7 @@ import { Invoice } from '../types';
 import { formatCurrency, formatDate, formatTime, formatDayOnly } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { invalidateAfterReceipt } from '../lib/receiptEffects';
+import { returnCancelShortOf, returnCancelShortText } from '../lib/returnCancelStock';
 import { zatcaStatusChip } from '../lib/zatca/docStatus';
 import { useBackClose } from '../lib/useBackClose';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -85,6 +86,9 @@ export default function MDocList({ kind, company, userName, onSwitchKind }: {
       toast.success(kind === 'invoice' ? tr('تم إلغاء الفاتورة') : tr('تم إلغاء السند'));
       setCancelId(null); setOpenId(null);
     } catch (e) {
+      // D10: مرتجعٌ بيعت بضاعته من السيارة لا يُلغى (409 RETURN_CANCEL_STOCK_SHORT) — الجملة بلغة الواجهة ورسالة الخادم بأصنافه
+      const short = returnCancelShortOf(e);
+      if (short) { toast.error(returnCancelShortText(short, tr, () => null), { duration: 9000 }); return; }
       toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الإلغاء'));
     } finally { setCancelling(false); }
   };

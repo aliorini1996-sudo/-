@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { vanLeftover, fillVanLeft, vanLeftText, REP_DELETE_VAN } from './repDeleteVan';
+import { vanLeftover, fillVanLeft, vanLeftText, REP_DELETE_VAN, toolsLeftover, vanIsEmpty, fillVanUnsellable, fillTools } from './repDeleteVan';
 import { PHRASES } from '../i18n/strings';
 
 test('الموجب وحده بضاعة في السيارة — السالب بيع بلا مخزون لا يُطرح ولا يُعد', () => {
@@ -46,6 +46,30 @@ test('rep-offline-8 (R3): صنفٌ له رئيسية في المجموع ⇒ «�
   }
   const note = fs.readFileSync(path.join(process.cwd(), 'src', 'components', 'RepVanStockNote.tsx'), 'utf8');
   assert.match(note, /fillVanLeft\(tr\(vanLeftText\(left\)\), left, formatNumber\)/);
+});
+
+test('D9: التالف والمنتهي في السيارة يُعدّان وحدهما — «لا بضاعة» لا تُقال وفيها تالف أو أدوات', () => {
+  const left = vanLeftover([
+    { productId: 'a', remaining: 0, damaged: 6 },
+    { productId: 'b', remaining: 0, expired: 2, damaged: -1 },
+    { productId: 'c', remaining: 4 },
+  ]);
+  assert.deepEqual(left, { products: 1, qty: 4, unsellable: 8, unsellableProducts: 2 });
+  assert.equal(fillVanUnsellable('{qty}/{n}', left), '8/2');
+  const onlyBad = vanLeftover([{ remaining: 0, damaged: 6 }]);
+  assert.equal(vanIsEmpty(onlyBad, null), false, 'كان يقول «لا بضاعة في سيارته» وفيها ٦ تالفة');
+  const tools = toolsLeftover({ balances: [{ toolName: 'عربة تحميل', qty: 3 }, { toolName: 'سلة', qty: 1 }, { toolName: ' ', qty: 2 }, { toolName: 'x', qty: 0 }], total: 4 });
+  assert.deepEqual(tools, { total: 4, names: ['عربة تحميل ×3', 'سلة'] });
+  assert.equal(fillTools('{qty}: {names}', tools), '4: عربة تحميل ×3، سلة');
+  assert.equal(vanIsEmpty(vanLeftover([]), tools), false, 'العهدة تُذكر قبل الحذف');
+  assert.equal(vanIsEmpty(vanLeftover([]), toolsLeftover(null)), true);
+  for (const lang of ['en', 'fr', 'tr', 'zh'] as const) {
+    assert.ok(PHRASES[REP_DELETE_VAN.unsellable]?.[lang]?.includes('{qty}') && PHRASES[REP_DELETE_VAN.unsellable][lang].includes('{n}'), `${lang} تُسقط رقماً من التالف`);
+    assert.ok(PHRASES[REP_DELETE_VAN.tools]?.[lang]?.includes('{qty}') && PHRASES[REP_DELETE_VAN.tools][lang].includes('{names}'), `${lang} تُسقط الأدوات`);
+  }
+  const note = fs.readFileSync(path.join(process.cwd(), 'src', 'components', 'RepVanStockNote.tsx'), 'utf8');
+  assert.match(note, /vanStockApi\.tools\(repId\)/, 'العهدة لا تُقرأ قبل الحذف');
+  assert.match(note, /vanIsEmpty\(left, tools\)/);
 });
 
 test('الأرقام تُملأ بعد الترجمة بالمنسّق الممرَّر', () => {

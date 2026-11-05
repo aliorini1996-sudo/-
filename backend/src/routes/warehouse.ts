@@ -4,10 +4,11 @@
 // ============================================================================
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { authenticate, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
-import { computeWarehouseStock, tenantCurrencyDecimals, loadWarehouseInputs, composeWarehouse, summarizeVansStock, resolveLineUnits, UnitInvalidError } from '../services/warehouseStock';
+import { computeWarehouseStock, tenantCurrencyDecimals, loadWarehouseInputs, composeWarehouse, summarizeVansStock, resolveLineUnits, UnitInvalidError, lineProductRefusal } from '../services/warehouseStock';
 // «الوحدة الرئيسية» §3 (#5): الوارد والتسوية يكتبان كمية وتكلفةً بوحدة الأساس — تُقارَن بالأساس الذي يعرفه العميل حيّاً، ثم تحت القفل
 import {
   BASE_GUARD_TX, ProductUnitsBusyError, ProductUnitsChangedError, assertBasesUnchanged, baseGuardReply, baseUnitRequiredReply, expectedBasesOf, lockBases,
@@ -41,6 +42,8 @@ export async function warehouseAsOf(tid: string, asOf: unknown): Promise<Date | 
   return importedEntryInstant(addDays(asOf, 1), importTimezone(gl));
 }
 import { netUnitCost, entryTotalCost, lineCost } from '../services/warehouseCost';
+// مفتاح منع التكرار للوارد والتسوية (D8): بلا قيدٍ فريد — قفلٌ استشاري على المرجع ثم البحث به داخل المعاملة
+import { CLIENT_REF_SCHEMA, ClientRefReplay, clientRefQuery, lockClientRef } from '../services/stockClientRef';
 
 const router = Router();
 router.use(authenticate);
@@ -186,6 +189,8 @@ const entrySchema = z.object({
   // هل الأسعار المكتوبة شاملةٌ للضريبة؟ يقرّره المستخدم بحسب فاتورة مورّده،
   // والخادم يردّها إلى صافيها — فالمخزَّن معنى واحد لا معنيان (انظر warehouseCost)
   costsIncludeTax: z.boolean().optional().default(false),
+  // مفتاح منع التكرار (D8): واحدٌ لكل محاولة حفظ يُعاد مع إعادتها — المكرَّر يردّ الحركة القائمة 200 بلا كتابة. غائبٌ ⇒ كما كان
+  clientRef: CLIENT_REF_SCHEMA.optional(),
   items: z.array(z.object({
     productId: z.string(),
     qty: z.number(), // بوحدة البند
@@ -217,6 +222,27 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
   try {
     const tid = tenantId(req);
     const data = entrySchema.parse(req.body);
+    // D8: مرجعٌ سبق حفظه ⇒ الحركة القائمة 200 بشكل ردّ الإنشاء (و replay: true) بلا كتابة ولا حكمٍ جديد على أصنافها؛ ومرجعٌ لحركةٍ من نوعٍ
+    // آخر ⇒ 409 CLIENT_REF_REUSED. والطلبان المتزامنان بالمرجع نفسه يحسمهما القفل في المعاملة (refGate). المستودع للشركة كلها فلا نطاق
+    const clientRef = data.clientRef ?? null;
+    const priorInclude = { items: { include: { product: { select: { id: true, name: true, unit: true, primaryUnitId: true } }, ...(lotsOn(req) && { lot: ENTRY_LOT_SELECT }) } } };
+    const priorOf = async (db: Prisma.TransactionClient | typeof prisma) => {
+      if (!clientRef) return null;
+      const prior = await db.warehouseEntry.findFirst({ where: { tenantId: tid, clientRef }, orderBy: { createdAt: 'asc' }, include: priorInclude });
+      if (prior && prior.type !== data.type) {
+        throw Object.assign(new Error('مرجع الحفظ clientRef مستعملٌ لحركةٍ أخرى — ولّد مرجعاً جديداً لكل حفظ'), { status: 409, code: 'CLIENT_REF_REUSED' });
+      }
+      return prior;
+    };
+    const prior0 = await priorOf(prisma);
+    if (prior0) { res.status(200).json({ success: true, data: prior0, replay: true, idempotent: true }); return; }
+    /** أول ما في كل معاملة كتابة: قفل المرجع ثم البحث به — وُجد ⇒ تُجهَض المعاملة بلا كتابة ويُردّ القائم */
+    const refGate = async (tx: Prisma.TransactionClient) => {
+      if (!clientRef) return;
+      await lockClientRef(tx, 'warehouse-entry', tid, clientRef);
+      const prior = await priorOf(tx);
+      if (prior) throw new ClientRefReplay(prior);
+    };
     const items = data.items.filter((i) => i.qty !== 0);
     if (!items.length) { res.status(400).json({ success: false, message: 'لا توجد كميات صالحة' }); return; }
     // الوارد موجبٌ دائماً؛ التنقيص يكون تسويةً صريحة
@@ -234,11 +260,16 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
     // نقرأ الضريبة مع التحقّق: الردّ من الشامل إلى الصافي يحتاج نسبة كل صنف
     // (ومعها أعمدة «تتبّع اللوط» في الاستعلام نفسه: العلم والاسم وما يلزم إلزام انتهاء التشغيلة)
     // (ومعها وحدة الأساس وتاريخ تحويلها لحارس §3 في الاستعلام نفسه)
+    // (ومعها الأرشفة deletedAt لرفض الوارد على صنفٍ مؤرشف، مراجعة المخزون H2)
     const products = await prisma.product.findMany({
       where: { id: { in: productIds }, tenantId: tid },
-      select: { id: true, taxPct: true, name: true, unit: true, baseConvertedAt: true, ...LOT_PRODUCT_SELECT },
+      select: { id: true, taxPct: true, name: true, unit: true, baseConvertedAt: true, deletedAt: true, ...LOT_PRODUCT_SELECT },
     });
-    if (products.length !== productIds.length) { res.status(400).json({ success: false, message: 'منتج غير صالح' }); return; }
+    // مراجعة المخزون #23 وH2: صنفٌ لا يتبع الشركة ⇒ 400 PRODUCT_NOT_FOUND بموضع سطره في الطلب، والوارد لصنفٍ مؤرشف ⇒ 422 PRODUCT_ARCHIVED.
+    // التسوية تمرّ على المؤرشف (بها يُصحَّح رصيده). المواضع من items كما أرسلها العميل قبل حذف الأسطر الصفرية
+    const lineAt = data.items.map((i, at) => ({ productId: i.productId, at, qty: i.qty })).filter((l) => l.qty !== 0);
+    const refused = lineProductRefusal(lineAt, products, { rejectArchived: data.type === 'RECEIVE' ? 'RECEIVE' : null });
+    if (refused) { res.status(refused.status).json(refused.body); return; }
     // «الوحدة الرئيسية» §3: الأساس الذي حُلّت عليه البنود — يُقارَن بما يعرفه العميل الآن، ثم تحت القفل في معاملة الإنشاء.
     // مفتاح API على صنفٍ حُوِّل بلا baseUnitName ⇒ 400 (D19) بدل خطأٍ ×٢٤ صامت في الكمية والتكلفة
     const expected = expectedBasesOf(products);
@@ -265,6 +296,8 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
     // و«مرجع السطر» على كل بندٍ من سطره — والمقسوم على تشغيلات يحمله كلُّ بندٍ منه فيجمعها المُكامِل إلى سطره. غائبٌ ⇒ البند كما كان
     const entryData = (lotIdByLine: ReadonlyMap<number, string | null> | null, splitByLine?: ReadonlyMap<number, { lotId: string | null; qty: number }[]>) => ({
       tenantId: tid, type: data.type, note: data.note, supplier: data.supplier, createdBy: by?.name,
+      // D8: المرجع بالنشر الشرطيّ — غائبٌ ⇒ العمود null كما كان
+      ...(clientRef && { clientRef }),
       items: {
         create: items.flatMap((i, idx) => {
           const unitCost = i.unitCost == null
@@ -304,11 +337,13 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
     if (!preTracked.length) {
       const entry = withLots
         ? await prisma.$transaction(async (tx) => {
+          await refGate(tx);
           await lockBases(tx, tid, expected);
           await assertStillUntracked(tx, tid, productIds);
           return tx.warehouseEntry.create({ data: entryData(null), include: entryInclude });
         }, BASE_GUARD_TX).catch((e: unknown) => { throw (e instanceof ProductUnitsChangedError ? null : asLotBusy(e)) ?? e; })
         : await prisma.$transaction(async (tx) => {
+          await refGate(tx);
           await lockBases(tx, tid, expected);
           return tx.warehouseEntry.create({ data: entryData(null), include: entryInclude });
         }, BASE_GUARD_TX);
@@ -324,6 +359,7 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
     const release = await acquireLotQueue(tid, preTracked);
     try {
       const out = await prisma.$transaction(async (tx) => {
+        await refGate(tx); // D8: المرجع أولاً — مكرَّرٌ ⇒ لا قفل لوط ولا خطة
         const locked = await lockLotProducts(tx, tid, productIds);
         // §3: الأساس تحت قفل lockLotProducts نفسه (صفوفه تحمل unit) — بلا قفلٍ ثانٍ، وقبل أي خطة أو كتابة
         assertBasesUnchanged(expected, locked.units);
@@ -349,6 +385,9 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
     // المستودع للوحة وحدها (لا صندوق أوف‑لاين) فلا إعادة رفع. LotError يمرّ إلى معالج الموجّه كما كان
     const g = err instanceof ProductUnitsChangedError || err instanceof ProductUnitsBusyError ? baseGuardReply(err, false) : null;
     if (g) { res.status(g.status).json(g.body); return; }
+    // D8: طلبٌ مكرَّر تزامن مع أصله فوجده القفل ⇒ الحركة القائمة كما في المسار السريع؛ ومرجعٌ لحركةٍ أخرى 409
+    if (err instanceof ClientRefReplay) { res.status(200).json({ success: true, data: err.row, replay: true, idempotent: true }); return; }
+    if ((err as { code?: unknown })?.code === 'CLIENT_REF_REUSED') { res.status(409).json({ success: false, code: 'CLIENT_REF_REUSED', message: (err as Error).message }); return; }
     next(err);
   }
 });
@@ -357,11 +396,13 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
 router.get('/entries', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
+    // D8: ?clientRef= — هل حُفظت محاولةٌ بمرجعها قبل إعادة الإرسال؟ نصٌّ صالح وحده، وغيره يُهمل
+    const clientRef = clientRefQuery(req.query.clientRef);
     // الخانات تُقرأ مرّة واحدة مع الحركات — لا داخل حلقة الأسطر أدناه
     const [dec, entries] = await Promise.all([
       tenantCurrencyDecimals(tid),
       prisma.warehouseEntry.findMany({
-        where: { tenantId: tid },
+        where: { tenantId: tid, ...(clientRef && { clientRef }) },
         orderBy: { createdAt: 'desc' },
         take: 100,
         include: { items: { include: { product: { select: { name: true, unit: true, primaryUnitId: true } }, ...(lotsOn(req) && { lot: ENTRY_LOT_SELECT }) } } },

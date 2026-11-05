@@ -92,6 +92,8 @@ const ORIGINAL_ITEM_SELECT = {
     select: {
       // «تتبّع اللوط» (§٤.٩): lotTracked من الصفّ المحمَّل أصلاً — علم الشركة لا يُقرأ إلا حين يحمل الأصل صنفاً متتبَّعاً (§١٠.١)
       name: true, unit: true, damagedReturnToStock: true, lotTracked: true,
+      // مراجعة المخزون (D6): الصلاحية من الصفّ المحمَّل — ختم بنود الإشعار داخل معاملته لأصنافها وحدها، بلا استعلامٍ لغيرها
+      shelfLifeEnabled: true,
       // «الوحدة الرئيسية»: عرضٌ وحده — رسالة تجاوز المتاح بها (compliance/zatca/notes.ts qtyText)، ولا تدخل حساباً (I2)
       primaryUnitId: true,
       // «قيود المندوب» على الصنف (services/repProductRules.ts) — الإشعار الدائن مرتجع
@@ -123,6 +125,8 @@ export interface LoadedOriginal {
    * (معاملةٌ بـ$queryRaw)، ويقارنها stampNote بالأساس الذي حُلّت عليه بنود الطلب قبل الترقيم وICV. غائبةٌ ⇒ لا مقارنة.
    */
   lockedBases?: ReadonlyMap<string, string>;
+  /** مراجعة المخزون (D6): أصناف بنود الأصل المفعّلة صلاحيتها الآن — فارغةٌ أو غائبة ⇒ لا ختم داخل المعاملة (ولا استعلام له). */
+  shelfLifeProducts?: ReadonlySet<string>;
 }
 
 /** مشتري اللقطة إن كانت لقطةً مفهومة (v1)؛ وإلا null — اللقطة لا تُفشل إشعاراً. */
@@ -167,6 +171,7 @@ function originalOf(row: OriginalRow): LoadedOriginal {
     },
     originalBuyer: buyerOfSnapshot(row.einvoiceSnapshot),
     lotTrackedProducts: new Set(row.items.filter(it => it.productId && it.product?.lotTracked === true).map(it => it.productId as string)),
+    shelfLifeProducts: new Set(row.items.filter(it => it.productId && it.product?.shelfLifeEnabled === true).map(it => it.productId as string)),
     repReturnRules: new Map(row.items.filter(it => it.productId && it.product).map(it => [it.productId as string, it.product as RepRuleProduct])),
   };
 }
@@ -465,6 +470,12 @@ export interface CreditNoteContext extends NoteContextBase {
   lines: CreditLinesInput;
   reasonCode?: string | null;
   returnToStock?: boolean | null;
+  /**
+   * مراجعة المخزون (البند ١، D6): ختم صلاحية بنود الإشعار داخل معاملته — بند الأصل ⇒ ما يُكتب على بند الإشعار (linkedReturnExpiry
+   * في الإنتاج، routes/invoices.ts). يُنادى قبل المعاملة لبنود الأصل كلها (stampNote)؛ وما لم يُختم يختمه الختم اللاحق على
+   * 201/202. غائب ⇒ الختم اللاحق وحده كما كان.
+   */
+  expiryStampsFor?: ((saleItemIds: readonly string[]) => Promise<ReadonlyMap<string, ItemExpiryStamp>>) | null;
 }
 
 export interface DebitNoteContext extends NoteContextBase {
@@ -795,6 +806,14 @@ async function stampNote(
   unit: { id: string; tenantId: string; keyVersion: number; vatNumber: string }, preview: LoadedOriginal, now: Date,
   lots: NoteLotContext | null = null,
 ): Promise<Phase2Result> {
+  // D6: ختم صلاحية بنود الأصل (ذوات الصنف) قبل التوقيع والـmutex والمعاملة — يُكتب داخلها على بند الإشعار المرتبط به، فلا
+  // يبقى المنتهي «متاحاً للبيع» رهنَ ختمٍ لاحقٍ قد لا يقع (202). بنود الأصل كلها ذوات الصلاحية (البناء الحاكم تحت القفل قد يخالف
+  // المعاينة)، وأصلٌ بلا صنفٍ مفعّلة صلاحيته لا يُسأل عنه شيء
+  const stampsFor = kind === 'CREDIT_NOTE' ? (ctx as CreditNoteContext).expiryStampsFor : null;
+  const lifeItems = preview.original.items.filter(i => i.productId && preview.shelfLifeProducts?.has(i.productId));
+  const expiry: ReadonlyMap<string, ItemExpiryStamp> | null = stampsFor && lifeItems.length
+    ? await stampsFor(lifeItems.map(i => i.id))
+    : null;
   const signing = await openIssuanceSigning({ store: deps.units, keyring: deps.keyring, now }, unit);
 
   let created: (Record<string, unknown> & { id: string }) | null = null;
@@ -877,6 +896,8 @@ async function stampNote(
                   create: prepared.engine.items.map((calc, idx) => ({
                     ...legacyNoteItem(kind, prepared.lines[idx] ?? null, calc),
                     ...noteItemColumns(record.items[idx], kind === 'CREDIT_NOTE' ? (prepared.lines[idx]?.invoiceItemId ?? null) : null),
+                    // D6: ختم صلاحية البند من بند أصله داخل المعاملة (لا يدخل الـXML) — وصفوف اللوط بعده تغلبه
+                    ...(kind === 'CREDIT_NOTE' && prepared.lines[idx]?.productId ? (expiry?.get(prepared.lines[idx]!.invoiceItemId) ?? {}) : {}),
                     ...invoiceItemLotColumns(alloc?.lines ?? null, idx, {
                       tenantId: ctx.tenantId, invoiceId: lotInvoiceId ?? '', productId: prepared.lines[idx]?.productId ?? '', vanKey: lotVan,
                     }),

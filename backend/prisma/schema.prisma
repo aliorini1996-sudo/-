@@ -1761,6 +1761,9 @@ model VanLoad {
   /// «تصفير المخزون» (طلب المالك ١ نوفمبر ٢٠٢٦): معرّف StockZeroRun لحركة التصفير — null لكل حركة أخرى. وسمٌ لا يُزوَّر
   /// بنصّ ملاحظة، وهو حدّ دفعات الصلاحية (VAN_LOAD) للمندوب بعد التصفير. بلا مفتاح أجنبي: سجلٌّ تدقيقيّ لا علاقة تُحذف
   zeroRunId  String?
+  /// مفتاح منع التكرار (مراجعة المخزون D8): يولّده العميل لكل محاولة حفظ ويعيده عند الإعادة — المكرَّر يردّ الحركة القائمة بلا كتابة.
+  /// ⚠️ بلا @@unique (كـCustomer.clientRef): القيد على جدولٍ مأهول يوقف db push. التفرّد في التطبيق تحت قفلٍ استشاري (routes/vanStock.ts)
+  clientRef  String?
   createdAt  DateTime @default(now())
   /// طابع التعديل — للمزامنة (/api/v1/sync): حذف المندوب يغيّر salesRepId/deletedSalesRepId بعد الإنشاء.
   /// @default(now()) يجعله إضافياً على جدولٍ مأهول
@@ -1771,6 +1774,7 @@ model VanLoad {
   @@index([tenantId])
   @@index([salesRepId])
   @@index([tenantId, locationId, createdAt]) // «لوكيشن»: ملخّص المواقع وفلتر سجلّ التحميلات
+  @@index([tenantId, clientRef]) // فهرس عادي لا قيد فريد — حلّ المرجع المكرَّر وفلتر ?clientRef=
   @@map("van_loads")
 }
 
@@ -1871,6 +1875,9 @@ model VanToolMove {
   // SetNull كالتحميل: حذف المندوب لا يمحو أثر ما سُلّم له
   salesRepId    String?
   salesRep      SalesRep? @relation(fields: [salesRepId], references: [id], onDelete: SetNull)
+  /// معرّف المندوب بعد حذفه (مراجعة المخزون D9) — يُكتب في معاملة الحذف حين يُفرَّغ salesRepId كتحميلات السيارة، بلا مفتاح أجنبي،
+  /// فتبقى عهدته ظاهرة «مندوب محذوف» وتُستلم منه
+  deletedSalesRepId String?
   type          String // ISSUE تسليم للسيارة | RETURN استلام منها
   toolName      String
   qty           Int // موجبٌ دائماً — الاتجاه في type
@@ -1880,6 +1887,7 @@ model VanToolMove {
   createdAt     DateTime  @default(now())
 
   @@index([tenantId, salesRepId])
+  @@index([tenantId, deletedSalesRepId])
   @@map("van_tool_moves")
 }
 
@@ -1896,10 +1904,13 @@ model WarehouseEntry {
   zeroRunId String?
   supplier  String? // المورّد (اختياري، للوارد)
   createdBy String? // اسم المستخدم الذي سجّل الحركة
+  /// مفتاح منع التكرار (مراجعة المخزون D8) كـVanLoad.clientRef: بلا @@unique، والتفرّد تحت قفلٍ استشاري (routes/warehouse.ts)
+  clientRef String?
   items     WarehouseEntryItem[]
   createdAt DateTime             @default(now())
 
   @@index([tenantId, createdAt])
+  @@index([tenantId, clientRef]) // فهرس عادي لا قيد فريد
   @@map("warehouse_entries")
 }
 

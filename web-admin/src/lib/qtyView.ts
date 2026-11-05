@@ -27,15 +27,16 @@ type QtyProduct = { unit?: string | null; units?: UnitDef[] | null; primaryUnitI
 
 /**
  * كمية بالأساس للعرض بحسب المبدّل: «الكبرى» = baseQtyText حرفاً، و«الصغرى» = رقم الأساس واسمه لصنفٍ له وحدةٌ أكبر.
- * قيمةٌ غير «الصغرى» تُقرأ «الكبرى» (عرض اليوم).
+ * قيمةٌ غير «الصغرى» تُقرأ «الكبرى» (عرض اليوم). و`opts.withUnit` يُمرَّر إلى baseQtyText: صنفٌ بلا وحدات يُلحق اسم أساسه
+ * («-25 كرتون» لا «-25» عارياً بجانب صفوفٍ مفكَّكة — مراجعة المخزون S11)، وغيابه العرض كما كان حرفاً.
  */
-export function qtyText(view: QtyView, baseQty: number, p: QtyProduct, fmt: (n: number) => string): string {
+export function qtyText(view: QtyView, baseQty: number, p: QtyProduct, fmt: (n: number) => string, opts: { withUnit?: boolean } = {}): string {
   if (view === 'minor' && p && hasBigUnit(p.units)) {
     const base = String(p.unit ?? '');
     const n = Number(baseQty) || 0;
     return base ? `${fmt(n)} ${base}` : fmt(n);
   }
-  return baseQtyText(baseQty, p, fmt);
+  return baseQtyText(baseQty, p, fmt, opts);
 }
 
 /** مجموعٌ لوحدةٍ كبرى كما يرسله الخادم (`major`) — الكمية بتلك الوحدة لا بالأساس */

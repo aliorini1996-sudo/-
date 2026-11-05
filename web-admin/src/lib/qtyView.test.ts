@@ -201,8 +201,9 @@ test('الصفحتان: المبدّل بشرط الوحدة الأكبر، وا
   assert.match(van, /\{anyBig && <QtyViewToggle variant="field" \/>\}/);
   // كل كميةٍ معروضة في «مخزون الشركة» من qtyText — لا baseQtyText باقٍ
   assert.doesNotMatch(wh, /baseQtyText\(/);
-  // مجاميع «ما في السيارات» بالكبرى بشرط المبدّل الظاهر — مخفيٌّ ⇒ اليوم حرفاً
-  assert.match(wh, /anyBig && qv === 'major' \? vans\?\.major : undefined/);
+  // مجاميع «ما في السيارات» بالكبرى من الخادم — ومبدّلٌ مخفيّ (العرض «الكبرى») مجاميع لكل وحدة أساسٍ باسمها (مراجعة المخزون
+  // S13: رقمٌ واحد كان يجمع بيضاً وكراتين)؛ و«الصغرى» المجموع بالأساس موسوماً كما كان
+  assert.match(wh, /const vansMajor = qv === 'major' \? vans\?\.major : undefined;/);
   assert.match(van, /const majorSums = anyBig && qv === 'major'/);
   // المجاميع لكل وحدةٍ بمنسّق الأربع منازل لا fmtQty (منزلتان ⇒ «0 كرتون» لبضاعةٍ قائمة)
   assert.match(wh, /unitTotalsParts\(list, fmtTotalQty\)/);
@@ -215,8 +216,27 @@ test('الصفحتان: المبدّل بشرط الوحدة الأكبر، وا
   // سطر التشغيلات المعزولة بالأساس: تحت مجاميع «الكبرى» موسومٌ «بالوحدات الصغرى» (لا يُقرأ كراتين)
   assert.match(wh, /\{fmtQty\(vansLotUnsellable\)\}\{vansQtyTotals && <> \{tr\('بالوحدات الصغرى'\)\}<\/>\}/);
   // المتبقّي في ملخّص المناديب: كل مجموعةٍ بلون إشارتها
-  assert.match(van, /<UnitTotalsCell list=\{r\.major\?\.remaining\} base=\{r\.totalRemaining\} tone \/>/);
+  // UX2: الموجب لكل وحدة (major.onVan) حين يرسله الخادم، وإلا الصافي كما كان
+  assert.match(van, /<UnitTotalsCell list=\{r\.major\?\.onVan \?\? r\.major\?\.remaining\} base=\{r\.major\?\.onVan \? v\.onVan : r\.totalRemaining\} tone \/>/);
   // سطر الاقتراح ورصيد نافذة الإزالة باقيان بالعرض القائم (نماذج لا عرض)
   assert.match(van, /baseQtyText\(r\.suggested, suggestProduct\(r\), fmtQty\)/);
   assert.match(van, /baseQtyText\(have, row, fmtQty\)/);
+});
+
+test('مراجعة المخزون S11: withUnit يُلحق اسم الأساس لصنفٍ بلا وحدات في الحالين، وصنفٌ مفكَّك كما هو', () => {
+  const oldCarton = { unit: 'كرتون', units: [] };
+  for (const v of ['major', 'minor'] as const) {
+    assert.equal(qtyText(v, -25, oldCarton, plain, { withUnit: true }), '-25 كرتون');
+    assert.equal(qtyText(v, -25, oldCarton, plain), '-25', 'بلا الخيار كما كان حرفاً');
+  }
+  assert.equal(qtyText('major', 1250, waterPrimary, plain, { withUnit: true }), qtyText('major', 1250, waterPrimary, plain));
+  assert.equal(qtyText('minor', 1250, water, plain, { withUnit: true }), '1250 قارورة');
+});
+
+test('مراجعة المخزون #19: أربع منازل ولا «−0» ولا صفرٌ لرقمٍ غير صفر', () => {
+  assert.equal(fmtTotalQty(0.004), '0.004');
+  assert.equal(fmtTotalQty(-0.004), '-0.004');
+  assert.equal(fmtTotalQty(-0), '0');
+  assert.equal(fmtTotalQty(3.00041), '3.0004');
+  assert.notEqual(fmtTotalQty(0.00001), '0');
 });

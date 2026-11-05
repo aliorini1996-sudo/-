@@ -72,7 +72,8 @@ const db: Row = {
     // ملخّص كل المناديب (GET /summary)
     async findMany(a: Row) { return a.where.tenantId === T ? [{ id: 'R1', name: 'أحمد', isActive: true, canSellWithoutStock: false }] : []; },
   },
-  vanToolMove: { async groupBy() { return []; } },
+  // findMany: عهد المناديب المحذوفين في الملخّص (D9) — لا شيء هنا
+  vanToolMove: { async groupBy() { return []; }, async findMany() { return []; } },
   product: {
     async count(a: Row) { return PRODUCTS.filter((p) => inIds(a.where.id, p.id) && p.tenantId === a.where.tenantId).length; },
     async findMany(a: Row) {
@@ -262,6 +263,7 @@ test('ملخّص المناديب: المجاميع بالأساس كما هي،
   // كرتون P1 (٢٤ — الشدّة موقوفة) وكرتون P2 (١٢) اسمٌ واحد: 43/24 + 5/12 = 2.2083
   assert.deepEqual(row.major, {
     remaining: [{ unit: 'كرتون', qty: 2.2083 }],
+    onVan: [{ unit: 'كرتون', qty: 2.2083 }],
     loaded: [{ unit: 'كرتون', qty: 2.4167 }],
     sold: [{ unit: 'كرتون', qty: 0.2083 }],
     damaged: [],

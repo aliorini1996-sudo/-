@@ -75,7 +75,8 @@ test('حارس ثابت: /products يجلب deletedAt ويخطط بـplanProduct
   const src = read('routes/import.ts');
   const i = src.indexOf("router.post('/products'");
   const body = src.slice(i, src.indexOf('\n});', i));
-  assert.match(body, /select: \{ code: true, deletedAt: true \}/);
+  // والاسم والحالة (S4، D4) لتحذير الاسم المكرَّر من القراءة نفسها — الكود والأرشفة كما كانا
+  assert.match(body, /select: \{ id: true, code: true, name: true, status: true, deletedAt: true \}/);
   // البند 30: التوقيع يُقارَن بالقيم كما تُكتب — الضريبة الافتراضية نفسها تصل إلى المخطِّط
   assert.match(body, /planProductImportRows\(rows, existing, defaultVat\)/);
   assert.match(body, /taxPct: r\.taxPct \?\? defaultVat/);

@@ -66,8 +66,11 @@ export interface StockMajorRow {
   remaining: number; loaded: number; sold: number; damaged: number;
 }
 
-/** مجاميع سيارة مندوب بالوحدة الكبرى (GET /van-stock/summary) */
-export interface RepStockMajor { remaining: UnitTotal[]; loaded: UnitTotal[]; sold: UnitTotal[]; damaged: UnitTotal[] }
+/**
+ * مجاميع سيارة مندوب بالوحدة الكبرى (GET /van-stock/summary). onVan إضافةٌ (#10، المراجعة UX2): الموجب وحده — ما في السيارة فعلاً
+ * كـ«المتبقي» في عرض الأساس (totalRemaining + totalDeficit) — والعجز يُعرض بجانبه لا يُطرح منه
+ */
+export interface RepStockMajor { remaining: UnitTotal[]; onVan: UnitTotal[]; loaded: UnitTotal[]; sold: UnitTotal[]; damaged: UnitTotal[] }
 
 /**
  * أعمدة ملخّص المناديب الأربعة بالوحدة الكبرى، من الصفوف نفسها التي تصنع totalRemaining/totalLoaded/totalSold/totalDamaged:
@@ -80,6 +83,7 @@ export function repStockMajor(rows: readonly StockMajorRow[], unitsOf: ReadonlyM
   })));
   return {
     remaining: sum((x) => x.remaining),
+    onVan: sum((x) => Math.max(0, x.remaining)),
     loaded: sum((x) => x.loaded),
     sold: sum((x) => x.sold),
     damaged: sum((x) => Math.max(0, x.damaged)),

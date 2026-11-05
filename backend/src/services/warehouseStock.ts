@@ -18,7 +18,7 @@ import prisma from '../config/database';
 import { currencyDecimalsOf } from '../config/countries';
 import { roundDecimal } from '../utils/helpers';
 import { valueStock, valueVanQty, unitCostPerBase, CostMove, VanLayer, DEFAULT_CURRENCY_DECIMALS } from './warehouseCost';
-import { baseQtyOf, factorOf, type UnitDef } from './units';
+import { baseQtyOf, factorOf, productQtyText, type UnitDef } from './units';
 import { majorTotals, type MajorUnitProduct, type UnitTotal } from './majorUnitTotals';
 
 export interface WarehouseRow {
@@ -31,6 +31,10 @@ export interface WarehouseRow {
   units?: UnitDef[];
   /** «الوحدة الرئيسية» (القاعدة ١٢): عرضٌ فقط — الواجهة تعرض الرصيد والتكلفة بها (productQtyText). لا يدخل الحساب هنا */
   primaryUnitId?: string | null;
+  /** حالة الصنف كما خُزّنت (ACTIVE | INACTIVE) — عرضٌ فقط: الواجهة توسم الموقوف وتنزله إلى ذيل الجدول. يغيب لمستدعٍ نقيّ لا يمرّرها */
+  status?: string;
+  /** صنفٌ مؤرشف (حذفُه وضع deletedAt) بقي له رصيد — يُوسم فلا يبدو الصنف مكرّراً بجانب بديله. يغيب كـstatus */
+  archived?: boolean;
   received: number;        // الوارد للمستودع
   adjusted: number;        // تسويات المستودع (+/−)
   loadedToVans: number;    // خرج للسيارات
@@ -49,7 +53,7 @@ export const UNIT_SELECT = { id: true, name: true, factor: true, isActive: true 
 /** ما تقرؤه loadWarehouseInputs من القاعدة — prisma أو معاملة أو قاعدةٌ مزيّفة في الاختبار */
 export type WarehouseInputsDb = Pick<Prisma.TransactionClient, 'product' | 'warehouseEntryItem' | 'vanLoadItem'>;
 
-interface ProdMeta { id: string; name: string; code: string; unit: string; status?: string; units?: UnitDef[]; primaryUnitId?: string | null }
+interface ProdMeta { id: string; name: string; code: string; unit: string; status?: string; deletedAt?: Date | null; units?: UnitDef[]; primaryUnitId?: string | null }
 // `at` لحظة الحركة — التقييم متوسّطٌ متحرّك فترتيبه الزمنيّ جزءٌ من صحّته:
 // المرور غير المرتَّب يعطي متوسّطاً خاطئاً بصمت. اختياريّ لتبقى الاختبارات
 // النقيّة تمرّر ترتيبها بترتيب المصفوفة.
@@ -146,6 +150,9 @@ export function composeWarehouse(
       productId: p.id, name: p.name, code: p.code, unit: p.unit, ...(p.units && { units: p.units }),
       // عرضٌ فقط، ومن القراءة وحدها (loadWarehouseInputs) — مستدعٍ نقيّ لا يمرّره يبقى صفّه كما كان حرفياً
       ...(p.primaryUnitId !== undefined && { primaryUnitId: p.primaryUnitId }),
+      // الحالة والأرشفة (S1) عرضٌ فقط ومن القراءة وحدها كذلك — لا رقم يتغيّر
+      ...(p.status !== undefined && { status: p.status }),
+      ...(p.deletedAt !== undefined && { archived: p.deletedAt != null }),
       ...m, onHand,
       avgCost: val.avgCost,
       stockValue: val.stockValue,
@@ -190,7 +197,8 @@ export async function computeWarehouseStock(tid: string, decimals?: number, befo
     decimals ?? tenantCurrencyDecimals(tid),
     loadWarehouseInputs(tid, { before, includeInactive: true }),
   ]);
-  const inactive = new Set(products.filter((p) => p.status === 'INACTIVE').map((p) => p.id));
+  // والمؤرشف كالموقوف (S1): صنفٌ أُعيد ACTIVE بعد أرشفته يبقى deletedAt عليه — لا يظهر صفّه صفراً بلا شيء
+  const inactive = new Set(products.filter((p) => p.status === 'INACTIVE' || p.deletedAt != null).map((p) => p.id));
   return visibleWarehouseRows(composeWarehouse(products, whItems, vanItems, dec), inactive);
 }
 
@@ -219,7 +227,8 @@ export async function loadWarehouseInputs(tid: string, opts: { includeInactive?:
   const [products, whItems, vanItems] = await Promise.all([
     db.product.findMany({
       where: { tenantId: tid, ...(!opts.includeInactive && { status: { not: 'INACTIVE' } }) },
-      select: { id: true, name: true, code: true, unit: true, status: true, units: { select: UNIT_SELECT }, primaryUnitId: true },
+      // deletedAt (S1): وسم «مؤرشف» على صفّ المستودع — في القراءة نفسها بلا استعلام زائد
+      select: { id: true, name: true, code: true, unit: true, status: true, deletedAt: true, units: { select: UNIT_SELECT }, primaryUnitId: true },
     }),
     db.warehouseEntryItem.findMany({
       where: { entry: { tenantId: tid, ...(opts.before && { createdAt: { lt: opts.before } }) } },
@@ -310,6 +319,183 @@ export async function unitsByProduct(tid: string, productIds: readonly string[])
     out.set(productId, list);
   }
   return out;
+}
+
+// ═══ حكم أصناف البنود في مسارات كتابة المخزون (الوارد وحركة السيارة) ═══
+
+/** صنف بندٍ كما يحتاجه حكم الوجود والأرشفة — من قراءة المسار نفسها */
+export interface LineProductMeta { id: string; name: string; deletedAt?: Date | null }
+
+/** ردّ رفضٍ جاهز: الحالة والجسم كما يُرسَلان */
+export type LineProductRefusal =
+  | { status: 400; body: { success: false; code: 'PRODUCT_NOT_FOUND'; message: string; productId: string; index: number; productIds: string[]; indexes: number[] } }
+  | { status: 422; body: { success: false; code: 'PRODUCT_ARCHIVED'; message: string; productId: string; index: number } };
+
+const ARCHIVED_MESSAGE = {
+  RECEIVE: (name: string) => `الصنف «${name}» محذوف (مؤرشف) فلا يُستلم في المستودع — استلم على الصنف الحالي، وصحّح رصيد القديم بتسوية`,
+  LOAD: (name: string) => `الصنف «${name}» محذوف (مؤرشف) فلا يُحمَّل للسيارة — حمّل الصنف الحالي، والتنزيل والتسوية متاحان لتصفية رصيده`,
+} as const;
+
+/**
+ * حكم أصناف بنود حركة مخزون **قبل** حلّ وحداتها (#23): صنفٌ لا يتبع الشركة ⇒ 400 PRODUCT_NOT_FOUND بموضع سطره وكل
+ * المواضع المرفوضة (كان «منتج غير صالح» بلا رمز ولا سطر، وسطرٌ يحمل unitId كان يأتيه UNIT_INVALID مضلِّلاً). و`rejectArchived`
+ * (مراجعة المخزون H2: الوارد RECEIVE وتحميل السيارة LOAD وحدهما) ⇒ صنفٌ مؤرشف (deletedAt) 422 PRODUCT_ARCHIVED — زيادةٌ لا يبيعها أحد ولا يراها
+ * منتقي الأصناف. والتسوية والتنزيل والإزالة تمرّ: هي طريق تصفية رصيده. الموقوف غير المؤرشف كما كان (وسمٌ في العرض وحده).
+ * `index` موضع السطر في items كما أرسله العميل (من الصفر). null ⇒ يمضي المسار.
+ */
+export function lineProductRefusal(
+  lines: readonly { productId: string; at: number }[],
+  products: readonly LineProductMeta[],
+  opts: { rejectArchived: 'RECEIVE' | 'LOAD' | null },
+): LineProductRefusal | null {
+  const byId = new Map(products.map((p) => [p.id, p]));
+  const missing = lines.filter((l) => !byId.has(l.productId));
+  if (missing.length) {
+    const [first] = missing;
+    const shown = missing.slice(0, 10).map((l) => l.at + 1).join('، ');
+    return {
+      status: 400,
+      body: {
+        success: false, code: 'PRODUCT_NOT_FOUND',
+        message: missing.length === 1
+          ? `منتج غير صالح — صنف السطر ${first.at + 1} غير موجود في هذه الشركة`
+          : `منتج غير صالح — أصناف الأسطر ${shown}${missing.length > 10 ? '…' : ''} غير موجودة في هذه الشركة`,
+        productId: first.productId, index: first.at,
+        productIds: [...new Set(missing.map((l) => l.productId))], indexes: missing.map((l) => l.at),
+      },
+    };
+  }
+  if (!opts.rejectArchived) return null;
+  const archived = lines.find((l) => byId.get(l.productId)?.deletedAt != null);
+  if (!archived) return null;
+  return {
+    status: 422,
+    body: {
+      success: false, code: 'PRODUCT_ARCHIVED', message: ARCHIVED_MESSAGE[opts.rejectArchived](byId.get(archived.productId)!.name),
+      productId: archived.productId, index: archived.at,
+    },
+  };
+}
+
+// ═══ «التحميل فوق رصيد المستودع يُمنع» (مراجعة المخزون S5، قرار المالك D2) ═══
+// المستودع مفعّل ⇒ تحميل السيارة (LOAD) لا يتجاوز رصيد الصنف في المستودع بالأساس، لكل مُصدِر (اللوحة والجوال والمندوب ومفتاح API).
+// الفحص والكتابة في معاملةٍ واحدة تحت قفل المستودع الاستشاري للشركة، فلا يمرّ تحميلان متزامنان معاً فوق الرصيد. والشركة بلا مستودع كما كانت.
+
+/** صنفٌ لا يكفيه رصيد المستودع في ردّ 422 WAREHOUSE_INSUFFICIENT — أسطره مجموعة، والكميتان بوحدة الأساس */
+export interface WarehouseShortLine {
+  /** موضع أول سطرٍ للصنف في items كما أرسلها العميل (من الصفر) */
+  index: number;
+  /** مواضع كل أسطر الصنف في الطلب (الرصيد واحد فتُجمع) */
+  indexes: number[];
+  productId: string;
+  /** رصيد المستودع قبل الحركة — قد يكون صفراً أو سالباً */
+  availableBase: number;
+  requestedBase: number;
+}
+
+/**
+ * دالّة نقيّة: أسطر التحميل بالأساس مقابل رصيد المستودع لكل صنف. أسطر الصنف الواحد تُجمع، فسطرٌ واحد لكل صنفٍ ناقص بترتيب
+ * أول ظهوره. صافي طلبٍ غير موجب لا يُحكم عليه، وصنفٌ رصيده صفر أو سالب لا يُحمَّل منه شيء.
+ */
+export function warehouseShortLines(
+  lines: readonly { productId: string; baseQty: number; at: number }[], onHand: ReadonlyMap<string, number>,
+): WarehouseShortLine[] {
+  const want = new Map<string, { q: number; indexes: number[] }>();
+  for (const l of lines) {
+    const w = want.get(l.productId) ?? { q: 0, indexes: [] };
+    w.q += l.baseQty;
+    w.indexes.push(l.at);
+    want.set(l.productId, w);
+  }
+  const out: WarehouseShortLine[] = [];
+  for (const [productId, w] of want) {
+    const requestedBase = roundDecimal(w.q, 4);
+    const availableBase = roundDecimal(onHand.get(productId) ?? 0, 4);
+    if (requestedBase > 1e-9 && requestedBase > availableBase + 1e-9) {
+      out.push({ index: w.indexes[0], indexes: w.indexes, productId, availableBase, requestedBase });
+    }
+  }
+  return out;
+}
+
+/** ما يقرؤه warehouseOnHandOf — prisma أو معاملة أو قاعدةٌ مزيّفة في الاختبار */
+export type WarehouseOnHandDb = Pick<Prisma.TransactionClient, 'warehouseEntryItem' | 'vanLoadItem'>;
+
+/**
+ * رصيد المستودع الآن لأصنافٍ بعينها (بالأساس) بالمعادلة نفسها في composeWarehouse: الوارد والتسويات + العائد من السيارات − المحمَّل
+ * لها (ومنه تحميلات المناديب المحذوفين). استعلامان مقيّدان بأصناف الحركة لا مستودع الشركة كله. داخل معاملة التحميل يقرأ الملتزَم
+ * بعد قفل المستودع (READ COMMITTED): التحميل السابق التزم قبل أن يُفكّ قفله.
+ */
+export async function warehouseOnHandOf(tid: string, productIds: readonly string[], db: WarehouseOnHandDb = prisma): Promise<Map<string, number>> {
+  const ids = [...new Set(productIds)];
+  const out = new Map<string, number>(ids.map((id) => [id, 0]));
+  if (!ids.length) return out;
+  const [wh, van] = await Promise.all([
+    db.warehouseEntryItem.findMany({
+      where: { productId: { in: ids }, entry: { tenantId: tid } },
+      select: { productId: true, qty: true, unitFactor: true, baseQty: true },
+    }),
+    db.vanLoadItem.findMany({
+      where: { productId: { in: ids }, vanLoad: { tenantId: tid, type: { in: ['LOAD', 'UNLOAD'] } } },
+      select: { productId: true, qty: true, unitFactor: true, baseQty: true, vanLoad: { select: { type: true } } },
+    }),
+  ]);
+  for (const i of wh) out.set(i.productId, (out.get(i.productId) ?? 0) + baseQtyOf(i));
+  for (const i of van) {
+    const sign = i.vanLoad.type === 'UNLOAD' ? 1 : i.vanLoad.type === 'LOAD' ? -1 : 0;
+    out.set(i.productId, (out.get(i.productId) ?? 0) + sign * baseQtyOf(i));
+  }
+  return out;
+}
+
+/** مفتاح قفل المستودع الاستشاري للشركة — كل تحميلٍ يُحكم على رصيده تحته */
+export const WAREHOUSE_STOCK_LOCK_PREFIX = 'warehouse-stock:';
+
+/** قفل المستودع للشركة داخل المعاملة (قفل معاملة لا جلسة: يُفكّ بالتزامها أو إجهاضها) */
+export async function lockWarehouseStock(tx: Pick<Prisma.TransactionClient, '$executeRaw'>, tid: string): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${WAREHOUSE_STOCK_LOCK_PREFIX + tid}))`;
+}
+
+/** صنف السطر كما يعرضه نصّ الرفض: اسمه ووحدته ووحداته ورئيسيّه */
+type ShortProduct = { name: string; unit?: string | null; units?: UnitDef[]; primaryUnitId?: string | null };
+
+/** نصّ الرفض: كل صنفٍ ناقص بالمتاح والمطلوب بوحدة عرضه («2 كرتون و3 حبة»)، والرصيد الصفري أو السالب «لا رصيد له» */
+export function warehouseShortMessage(lines: readonly WarehouseShortLine[], products: ReadonlyMap<string, ShortProduct>): string {
+  const qty = (q: number, p?: ShortProduct) => (p ? productQtyText(q, p) : String(q));
+  const one = (l: WarehouseShortLine) => {
+    const p = products.get(l.productId);
+    const name = `«${p?.name ?? l.productId}»`;
+    return l.availableBase > 1e-9
+      ? `${name}: المتاح ${qty(l.availableBase, p)} والمطلوب ${qty(l.requestedBase, p)}`
+      : `${name}: لا رصيد له في المستودع والمطلوب ${qty(l.requestedBase, p)}`;
+  };
+  const shown = lines.slice(0, 5).map(one).join('، ');
+  const more = lines.length > 5 ? ` و${lines.length - 5} أصناف أخرى` : '';
+  return `رصيد المستودع لا يكفي للتحميل — ${shown}${more}. سجّل الوارد أولاً أو خفّض الكمية`;
+}
+
+/** رفض التحميل فوق رصيد المستودع — يردّه المسار 422 بجسمه (body) ولا يُكتب شيء */
+export class WarehouseInsufficientError extends Error {
+  readonly status = 422;
+  readonly code = 'WAREHOUSE_INSUFFICIENT';
+  constructor(readonly lines: WarehouseShortLine[], message: string) { super(message); this.name = 'WarehouseInsufficientError'; }
+  body() { return { success: false as const, code: this.code, message: this.message, lines: this.lines }; }
+}
+
+/** ما يحتاجه الحارس داخل المعاملة: القفل والقراءتان */
+export type WarehouseGuardDb = Pick<Prisma.TransactionClient, '$executeRaw' | 'warehouseEntryItem' | 'vanLoadItem'>;
+
+/**
+ * حارس D2 داخل معاملة التحميل: قفل المستودع للشركة، ثم رصيد أصناف الحركة الملتزَم، ثم الرفض بـWarehouseInsufficientError لأي صنفٍ
+ * لا يكفيه رصيده. يُستدعى قبل أي كتابة في المعاملة.
+ */
+export async function assertWarehouseCovers(
+  tx: WarehouseGuardDb, tid: string, lines: readonly { productId: string; baseQty: number; at: number }[],
+  products: ReadonlyMap<string, ShortProduct>,
+): Promise<void> {
+  await lockWarehouseStock(tx, tid);
+  const short = warehouseShortLines(lines, await warehouseOnHandOf(tid, lines.map((l) => l.productId), tx));
+  if (short.length) throw new WarehouseInsufficientError(short, warehouseShortMessage(short, products));
 }
 
 /** ما في السيارات بتكلفة الشراء — بطاقة «في مخزون السيارات» في صفحة مخزون الشركة */

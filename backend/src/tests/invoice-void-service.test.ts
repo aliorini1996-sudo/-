@@ -239,6 +239,33 @@ test('سحبٌ مؤهَّل: المستند WITHDRAWN والفاتورة مُب�
   assert.ok(raws.some(s => s.includes('WITHDRAWN') || s.includes('UPDATE zatca_documents')), 'لم يُحسم المستند');
 });
 
+test('D10 (المراجعة F2): حارس المسار داخل معاملة السحب — بعد حسم المستند وقفل الفاتورة وقبل إبطالها، ورميُه يُجهض السحب كلّه', async () => {
+  scriptWithdraw();
+  const order: string[] = [];
+  const boom = new Error('RETURN_CANCEL_STOCK_SHORT');
+  await assert.rejects(withdrawPhase2Invoice({
+    tenantId: TENANT, invoiceId: 'inv-1', now: NOW,
+    guardInTx: async () => {
+      order.push(`guard@${calls.length}`);
+      assert.ok(calls.some(c => c.model === '$transaction'), 'الحارس خارج المعاملة');
+      assert.ok(raws.some(r => r.includes('FOR UPDATE')), 'الحارس قبل قفل صفّ الفاتورة');
+      throw boom;
+    },
+  }), boom);
+  assert.equal(order.length, 1);
+  assert.equal(calls.some(c => c.model === 'invoice' && c.op === 'update'), false, 'أُبطلت الفاتورة رغم رفض الحارس');
+  assert.equal(calls.some(c => c.model === 'notification' && c.op === 'create'), false);
+});
+
+test('D10 (المراجعة D10-W): مستندٌ لا يُسحب أصلاً ⇒ رفض الأهلية ولا يُنادى حارس المخزون', async () => {
+  scriptWithdraw({ doc: { ...PROJECTION, firstSubmitAt: new Date(NOW.getTime() - 60_000) }, delivered: 1 });
+  let guarded = 0;
+  const r = await withdrawPhase2Invoice({ tenantId: TENANT, invoiceId: 'inv-1', now: NOW, guardInTx: async () => { guarded++; } });
+  assert.equal(r.ok, false);
+  assert.equal(r.decision.ok === false && r.decision.refusal, 'MAY_HAVE_BEEN_RECEIVED');
+  assert.equal(guarded, 0);
+});
+
 test('محاولة قد تكون وصلت الهيئة ⇒ لا سحب ولا كتابة', async () => {
   scriptWithdraw({ doc: { ...PROJECTION, firstSubmitAt: new Date(NOW.getTime() - 60_000) }, delivered: 1 });
   const r = await withdrawPhase2Invoice({ tenantId: TENANT, invoiceId: 'inv-1', now: NOW });

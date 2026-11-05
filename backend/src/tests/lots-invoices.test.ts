@@ -426,7 +426,8 @@ type Line = { productId: string; qty: number; unitId?: string; lots?: unknown; i
 const sale = (items: Line[], o: Row = {}): Row => ({ customerId: 'c1', salesRepId: 'r1', type: 'CASH', items: items.map((i) => ({ unitPrice: 10, ...i })), ...o });
 const post = (body: Row, headers?: Record<string, string>) => call('POST', '/api/invoices', { body, headers });
 const rowsOf = (r: Reply, idx = 0) => ((r.body.data.items[idx].lots ?? []) as Row[]).map((x) => [x.lotId, x.quantity, x.certainty, x.flags ?? null]);
-const lockCalls = () => calls.filter((c) => c.includes('pg_advisory_xact_lock'));
+// أقفال اللوط وحدها (مفاتيح bigint) — قفل دلاء السيارة (D10 والبند ٩: hashtext('van-…')) ليس منها
+const lockCalls = () => calls.filter((c) => c.includes('pg_advisory_xact_lock') && !c.includes('hashtext'));
 const LOT_TX = { maxWait: 10_000, timeout: 20_000 };
 const VAN = () => load('pM', [{ lotId: 'l1', qty: 6 }, { lotId: 'l2', qty: 12 }, { lotId: null, qty: 2 }]);
 
@@ -549,6 +550,57 @@ test('تجاهل canSellWithoutStock للمتتبَّع وحده: المتتبَ
   assert.equal(r2.body.code, 'LOT_STOCK_INSUFFICIENT');
   const ok = await post(sale([{ productId: 'pM', qty: 4 }]));
   assert.equal(ok.status, 201, JSON.stringify(ok.body));
+});
+
+test('D5 (مراجعة المخزون، البند ٥): إعادة رفع الصندوق بلا «البيع بدون مخزون» فوق متبقّي السيارة ⇒ 409 VAN_STOCK_REPLAY_HELD بلا فاتورة، وإشعارٌ واحد لكل clientRef، والحيّ 403 كما كان', async () => {
+  reset(REP);
+  load('pW', [{ lotId: null, qty: 2 }]);
+  db.reps[0].canSellWithoutStock = false;
+  const body = sale([{ productId: 'pW', qty: 3 }], { clientRef: crypto.randomUUID(), clientCreatedAt: new Date(Date.now() - 3_600_000).toISOString() });
+  for (let i = 0; i < 2; i++) {
+    const r = await post(body, { 'X-FS-Replay': '1' });
+    assert.deepEqual([r.status, r.body.code], [409, 'VAN_STOCK_REPLAY_HELD'], JSON.stringify(r.body));
+    assert.deepEqual(r.body.detail, { productId: 'pW', availableBase: 2, requestedBase: 3 });
+    assert.match(String(r.body.message), /بانتظار الإدارة/);
+  }
+  assert.equal(db.invoices.length, 0, 'لا فاتورة ولا سالب');
+  const held = db.notifications.filter((n) => n.type === 'VAN_STOCK_REPLAY_HELD');
+  assert.equal(held.length, 1, 'مرةً واحدة لكل clientRef');
+  assert.equal(JSON.parse(held[0].data).clientRef, body.clientRef);
+  // الإصدار الحيّ (بلا ترويسة الإعادة) يُرفض 403 كما كان — المندوب أمامه ويعدّل السلّة
+  const live = await post(sale([{ productId: 'pW', qty: 3 }]));
+  assert.equal(live.status, 403, JSON.stringify(live.body));
+  assert.match(String(live.body.message), /تتجاوز مخزون سيارتك/);
+  // والإدارة تسجّل التحميل الناقص ⇒ الإعادة التالية تمرّ
+  load('pW', [{ lotId: null, qty: 1 }]);
+  const after = await post(body, { 'X-FS-Replay': '1' });
+  assert.equal(after.status, 201, JSON.stringify(after.body));
+});
+
+test('البند ٩: «البيع بدون مخزون» يُعاد داخل المعاملة تحت قفل السيارة — بيعٌ متزامن التزم بعد الفحص المسبق ⇒ 403 (والإعادة 409 الحجز) بلا فاتورة', async () => {
+  const concurrentSale = () => {
+    db.invoices.push({ id: 'inv-x', tenantId: 't1', salesRepId: 'r1', customerId: 'c1', type: 'CASH', status: 'CONFIRMED', returnToStock: null, invoiceDate: new Date(), createdAt: new Date() });
+    db.invoiceItems.push({ id: 'ii-x', invoiceId: 'inv-x', productId: 'pW', qty: 2, unitFactor: 1, baseQty: 2 });
+  };
+  for (const replay of [false, true]) {
+    reset(REP);
+    load('pW', [{ lotId: null, qty: 3 }]);
+    db.reps[0].canSellWithoutStock = false;
+    onRouteProductLock = concurrentSale; // يلتزم بين الفحص المسبق (٣ ≥ ٣) والقراءة تحت القفل (١ < ٣)
+    const r = await post(sale([{ productId: 'pW', qty: 3 }], replay ? { clientRef: crypto.randomUUID(), clientCreatedAt: new Date().toISOString() } : {}),
+      replay ? { 'X-FS-Replay': '1' } : undefined);
+    assert.equal(r.status, replay ? 409 : 403, JSON.stringify(r.body));
+    if (replay) assert.equal(r.body.code, 'VAN_STOCK_REPLAY_HELD');
+    else assert.match(String(r.body.message), /تتجاوز مخزون سيارتك/);
+    assert.ok(!db.invoices.some((i) => i.id !== 'inv-x'), 'لا فاتورة جديدة');
+    assert.ok(calls.some((c) => c.includes('pg_advisory_xact_lock') && c.includes('hashtext')), 'قفل المتاح في السيارة');
+  }
+  // ومن يملك الإذن لا قفل ولا فحص
+  reset(REP);
+  load('pW', [{ lotId: null, qty: 1 }]);
+  const free = await post(sale([{ productId: 'pW', qty: 3 }]));
+  assert.equal(free.status, 201, JSON.stringify(free.body));
+  assert.ok(!calls.some((c) => c.includes('hashtext')), 'لا قفل سيارة لمن يملك «البيع بدون مخزون»');
 });
 
 test('الوحدات (D22): «١ كرتون + ٣ حبة» للصنف نفسه — الكرتون كاملاً من تشغيلةٍ واحدة أولاً بأيّ ترتيب، وΣ صفوف كل سطر = أساسه', async () => {
@@ -976,12 +1028,21 @@ test('إلغاء المرتجع: الفارغ وبندٌ بلا صفوف (قبل
   const wr = await post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', items: [{ productId: 'pW', qty: 1, unitPrice: 2 }] });
   assert.equal(wr.status, 201, JSON.stringify(wr.body));
   assert.equal((await post(sale([{ productId: 'pW', qty: 3 }]))).status, 201);
+  // D10 (مراجعة المخزون، البند ٨): بيعت بضاعته فصار المتاح ٠ — إلغاؤه يجعله −١ ⇒ 409 RETURN_CANCEL_STOCK_SHORT بلا قفل لوط ولا تغيير
+  calls = []; txOptions = [];
+  const short = await cancel(wr.body.data.id);
+  assert.deepEqual([short.status, short.body.code], [409, 'RETURN_CANCEL_STOCK_SHORT'], JSON.stringify(short.body));
+  assert.deepEqual(short.body.lines, [{ productId: 'pW', availableBase: 0, requiredBase: 1, bucket: 'sellable' }]);
+  assert.equal(invoiceOf(wr.body.data.id)!.status, 'CONFIRMED');
+  assert.ok(calls.some((c) => c.includes('pg_advisory_xact_lock') && c.includes('hashtext')), 'قفل المتاح في السيارة');
+  load('pW', [{ lotId: null, qty: 1 }]); // تحميلٌ يعيد المتاح ١ فيُلغى إلى صفر
   calls = []; txOptions = [];
   const cw = await cancel(wr.body.data.id);
   assert.equal(cw.status, 200, JSON.stringify(cw.body));
   assert.deepEqual([lockCalls().length, txOptions], [0, [undefined]], 'غير المتتبَّع: لا قفل لوط ولا مهلة جديدة');
   const inTx = calls.slice(calls.indexOf('$transaction'), calls.indexOf('invoice.update'));
-  assert.ok(!inTx.includes('tenant.findUnique') && !inTx.includes('invoice.findFirst'), `لا قراءة شركةٍ ولا بنودٍ وصفوف داخل المعاملة: ${inTx.join(' | ')}`);
+  // وD10 يقرأ المرتجع وبنوده تحت القفل (invoice.findFirst) — لا قراءة شركة
+  assert.ok(!inTx.includes('tenant.findUnique'), `لا قراءة شركةٍ داخل المعاملة: ${inTx.join(' | ')}`);
   assert.deepEqual(inTx.filter((c) => c.includes('FOR KEY SHARE')).map((c) => c.split(' WHERE')[0]), ['$queryRaw SELECT id, "lotTracked" FROM products'],
     'قراءة التتبّع تحت القفل وحدها');
   assert.ok(!inTx.some((c) => c.includes('van_load_item_lots') || c.includes('invoice_item_lots')), 'لا عرض سيارة');
@@ -1036,7 +1097,8 @@ test('restock: الإطفاء والبضاعة مبيعة ⇒ 409 (I1)، وال�
   db.tenant.lotTrackingEnabled = false;
   const offDisabled = await restock(ret2.body.data.id, false);
   assert.equal(offDisabled.status, 200);
-  assert.deepEqual(txOptions, [], 'الميزة مطفأة: لا معاملة ولا قفل');
+  // D10: الإطفاء معاملةٌ بلا مهلة اللوط (قفل الصفّ وقفل المتاح في السيارة) — ولا قفل لوط
+  assert.deepEqual(txOptions, [undefined], 'الميزة مطفأة: لا مهلة لوط');
   // مرتجعٌ لصنفٍ غير متتبَّع والميزة مفعّلة: إعادة قراءة التتبّع FOR KEY SHARE وحدها (D25) — لا حارس ولا قفل لوط ولا مهلة جديدة
   reset();
   load('pW', [{ lotId: null, qty: 2 }]);
@@ -1047,8 +1109,10 @@ test('restock: الإطفاء والبضاعة مبيعة ⇒ 409 (I1)، وال�
   assert.equal(woff.status, 200, JSON.stringify(woff.body));
   assert.equal(invoiceOf(wret.body.data.id)!.returnToStock, false);
   assert.deepEqual([lockCalls().length, txOptions], [0, [undefined]]);
+  // D10: الإطفاء يقفل صفّ المرتجع (FOR UPDATE) ثم يعيد قراءة التتبّع ثم المتاح في السيارة — ولا قراءة شركة
   assert.deepEqual(calls.filter((c) => c.includes('FOR KEY SHARE') || c.includes('FOR UPDATE') || c === 'tenant.findUnique').map((c) => c.split(' WHERE')[0]),
-    ['$queryRaw SELECT id, "lotTracked" FROM products'], 'لا قفل صفّ المرتجع ولا قراءة شركة');
+    ['$queryRaw SELECT id FROM invoices', '$queryRaw SELECT id, "lotTracked" FROM products'], 'قفل صفّ المرتجع ثم التتبّع، بلا قراءة شركة');
+  assert.ok(calls.some((c) => c.includes('pg_advisory_xact_lock') && c.includes('hashtext')), 'قفل المتاح في السيارة');
 });
 
 // ═══ الصلاحية ═══

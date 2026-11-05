@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   parseRequestQty, isInvalidRequestQty, stockRequestLines, stockRequestTotalQty, stockRequestRef,
-  stockRequestToLabel, stockRequestApproverLabel, shortFirst,
+  stockRequestToLabel, stockRequestApproverLabel, shortFirst, requestCandidates,
   repItemQty, repRequestDirty, repRequestTotals, withRequestedProducts, requestedFirst, type RepStockRequest,
   requestUnitOf, defaultRequestUnit, prefillInUnit, stockRequestTotalText, repLineUnitId, repItemUnit, repEditItems, convertRepQty,
 } from './stockRequest';
@@ -44,6 +44,20 @@ test('أسطر الطلب: بترتيب الأصناف المعطى، والصن
 test('الناقص (صفر أو سالب) أولاً ثم البقية، وكلٌّ بترتيبه', () => {
   const r = shortFirst([{ id: 1, onHand: 3 }, { id: 2, onHand: 0 }, { id: 3, onHand: 7 }, { id: 4, onHand: -1 }]);
   assert.deepEqual(r.map(x => x.id), [2, 4, 1, 3]);
+});
+
+test('مراجعة المخزون S1: الموقوف والمحذوف خارج نافذة الطلب — إلا ما طلبه مندوب، وخادمٌ أقدم بلا حالة كما كان', () => {
+  const rows = [
+    { productId: 'm-new', onHand: 0 },
+    { productId: 'm-old', onHand: -25, archived: true },
+    { productId: 'sp6-old', onHand: -1, status: 'INACTIVE' },
+    { productId: 'j', onHand: 0, status: 'ACTIVE', archived: false },
+  ];
+  assert.deepEqual(requestCandidates(rows).map(r => r.productId), ['m-new', 'j']);
+  assert.deepEqual(requestCandidates(rows, new Set(['sp6-old'])).map(r => r.productId), ['m-new', 'sp6-old', 'j'], 'طلب مندوبٍ يبقى برصيده');
+  assert.equal(requestCandidates([{ productId: 'x', onHand: -3 }]).length, 1);
+  const modal = fs.readFileSync(path.resolve(process.cwd(), 'src', 'components', 'StockRequestModal.tsx'), 'utf8');
+  assert.match(modal, /withRequestedProducts\(requestCandidates\(rows, requested\), reqs\)/);
 });
 
 test('مرجع الطلب من لحظة الإصدار SR-سنةشهريوم-ساعةدقيقة', () => {

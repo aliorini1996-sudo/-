@@ -787,9 +787,9 @@ test('أرقام أقسام الأدلّة وأيقوناتها تكفي كل د
 
 /**
  * دليل «ربط حركات المخزون من نظامكم» (٢ نوفمبر ٢٠٢٦): مشتركٌ يسحب المزامنة ولم يرسل حركة مخزون قط. الدليل يقول إن المنصة لا تسحب،
- * ويعطي لكل عملية جسمها، والنقل بين سيارتين تنزيلاً ثم تحميلاً، ولا يَعِد بمنع تكرار لا يملكه الخادم.
+ * ويعطي لكل عملية جسمها، والنقل بين سيارتين تنزيلاً ثم تحميلاً، ومنع التكرار بـclientRef كما يملكه الخادم (D8، ٥ نوفمبر) وبلاه التحقّق قبل الإعادة.
  */
-test('دليل «حركات المخزون من نظامكم»: لا سحب من نظامهم، ولكل عملية جسمها، والنقل بين سيارتين طلبان، ولا clientRef — كما في الخادم', () => {
+test('دليل «حركات المخزون من نظامكم»: لا سحب من نظامهم، ولكل عملية جسمها، والنقل بين سيارتين طلبان، وclientRef كما في الخادم', () => {
   const guide = API_DOC_GUIDES.find((g) => g.key === 'stock-push-guide');
   assert.ok(guide, 'الدليل غائب');
   assert.match(guide!.intro, /لا يسحب شيئاً من نظامكم/);
@@ -814,9 +814,11 @@ test('دليل «حركات المخزون من نظامكم»: لا سحب من
   const loadSchema = vs.slice(vs.indexOf('const loadSchema'), vs.indexOf('function resolveRep'));
   assert.match(entrySchema, /z\.enum\(\['RECEIVE', 'ADJUST'\]\)/);
   assert.match(loadSchema, /z\.enum\(\['LOAD', 'UNLOAD', 'ADJUST', 'EXPIRED_OUT', 'DAMAGED_OUT'\]\)/);
-  for (const s of [entrySchema, loadSchema]) assert.ok(s.length > 500 && !/clientRef|idempot/i.test(s), 'صار للحركة مفتاح منع تكرار: حدّث خطوة إعادة المحاولة');
+  // D8: clientRef اختياري في المخطّطين (والخادم يردّ المكرَّر 200 replay) — والدليل يقوله، ويُبقي التحقّق للحركة التي بلاه
+  for (const s of [entrySchema, loadSchema]) assert.ok(s.length > 500 && /clientRef: CLIENT_REF_SCHEMA\.optional\(\)/.test(s), 'المخطّط بلا clientRef: حدّث خطوة إعادة المحاولة');
+  for (const r of ['warehouse', 'vanStock']) assert.match(routeFile(r), /replay: true/, `${r}: ردّ المكرَّر`);
   const all = guide!.steps.map((s) => s.text).join('\n');
-  for (const k of ['لا يوجد clientRef', 'json=body', '"lotId": None', 'Retry-After', 'serverTime', 'EXPIRED_OUT', 'DAMAGED_OUT', 'EXPIRED_UNSOLD_DESTROY']) {
+  for (const k of ['أرسل clientRef', 'replay: true', 'CLIENT_REF_REUSED', '?clientRef=', 'لا يوجد لها مفتاح لمنع التكرار', 'json=body', '"lotId": None', 'Retry-After', 'serverTime', 'EXPIRED_OUT', 'DAMAGED_OUT', 'EXPIRED_UNSOLD_DESTROY']) {
     assert.ok(all.includes(k), `الدليل لا يذكر ${k}`);
   }
   // baseUnitName يُقارَن بوحدة أساس الصنف حرفياً بعد القصّ: الأمثلة بقالبٍ لا بوحدةٍ ثابتة تُرفض لصنفٍ وحدته غيرها
@@ -849,8 +851,9 @@ test('دليل «حركات المخزون من نظامكم»: لا سحب من
   // «ما الجديد»: أول بند يذكر الدليل باسمه
   const docs = read(path.join(process.cwd(), 'src', 'components', 'ApiDocs.tsx'));
   const list = docs.slice(docs.indexOf('title="ما الجديد'), docs.indexOf('</ul>', docs.indexOf('title="ما الجديد')));
-  const first = /<li>([^]*?)<\/li>/.exec(list)![1];
-  assert.ok(first.startsWith('٢ نوفمبر — ') && first.includes(`«${guide!.title}»`), 'أول بند في «ما الجديد»');
+  // أول بنود ٢ نوفمبر (بنود ٥ نوفمبر الأحدث قبلها)
+  const first = [...list.matchAll(/<li>([^]*?)<\/li>/g)].map((m) => m[1]).find((b) => b.startsWith('٢ نوفمبر — '))!;
+  assert.ok(first && first.includes(`«${guide!.title}»`), 'أول بند في «ما الجديد»');
 });
 
 /* ═══ «استيراد البيانات» (/api/import): مفتوحٌ للمفتاح ومدخل الوحدات والتشغيلات بالجملة ═══ */

@@ -147,6 +147,8 @@ export interface VoidInvoiceInput {
   at: Date;
   /** يُكتب على الفاتورة حين لم تكتبه مرآةُ المستند قبل الخطّاف (السحب). */
   mirror?: string;
+  /** حارسٌ داخل المعاملة بعد قفل صفّ الفاتورة وقبل الكتابة (D10: رصيد السيارة) — رميُه يُجهض الإبطال كلّه. */
+  guardInTx?: (tx: VoidTx) => Promise<void>;
 }
 
 export interface VoidOutcome {
@@ -165,6 +167,7 @@ export async function voidInvoiceInTx(tx: VoidTx, input: VoidInvoiceInput): Prom
   const decision = voidDecision(row, { tenantId: input.tenantId, subtype: input.subtype });
   if (!decision.ok) return { voided: false, refusal: decision.refusal, number: row?.number ?? null, reversal: null };
   const inv = row as LockedInvoiceRow;
+  if (input.guardInTx) await input.guardInTx(tx);
 
   await tx.invoice.update({
     where: { id: inv.id },
@@ -232,7 +235,11 @@ const INVOICE_WITHDRAW_SELECT = {
  * يسحب فاتورة قياسية عالقة «بانتظار الاعتماد» متى ثبت أنّ الهيئة لم تستلمها: يحسم المستند WITHDRAWN ويُبطل الفاتورة
  * في معاملة واحدة. يعيد القرار للمستدعي (المسار يحوّله إلى 409 برسالته العربية).
  */
-export async function withdrawPhase2Invoice(input: { tenantId: string; invoiceId: string; now?: Date }): Promise<WithdrawResult> {
+export async function withdrawPhase2Invoice(input: {
+  tenantId: string; invoiceId: string; now?: Date;
+  /** حارس المسار داخل معاملة السحب (بعد قرار الأهلية وقفل الفاتورة) — D10 */
+  guardInTx?: (tx: VoidTx) => Promise<void>;
+}): Promise<WithdrawResult> {
   const now = input.now ?? new Date();
   const documents = prismaZatcaDocumentStore(prisma);
   const invoice = await prisma.invoice.findFirst({
@@ -268,7 +275,7 @@ export async function withdrawPhase2Invoice(input: { tenantId: string; invoiceId
     if (!moved) return null;
     return voidInvoiceInTx(tx as unknown as VoidTx, {
       tenantId: input.tenantId, invoiceId: input.invoiceId, subtype: '01', reason: 'WITHDRAWN',
-      documentId, at: now, mirror: 'withdrawn',
+      documentId, at: now, mirror: 'withdrawn', guardInTx: input.guardInTx,
     });
   });
 

@@ -309,7 +309,8 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
     name: 'van-loads', model: 'vanLoad', mode: 'updated', permission: 'canManageVanStock', accounting: true, tenantPath: 'direct', lotMaxLimit: LOT_SYNC_MAX_LIMIT, hardDeletes: false,
     // suggestedQty وexpectedQty (اقتراح التحميل وتنبّؤه) بالأساس دائماً — المحرّك يقترح حبّاتٍ لا كراتين
     // zeroRunId: حركة «تصفير المخزون» (معرّف تشغيلته، null لغيرها) — يميّزها المُزامِن بلا اعتمادٍ على نصّ الملاحظة
-    select: { ...pick('id', 'salesRepId', 'deletedSalesRepId', 'locationId', 'type', 'note', 'createdBy', 'createdAt', 'updatedAt', 'zeroRunId'), items: { select: pick('productId', 'qty', ...UNIT_SNAPSHOT_COLS, 'suggestedQty', 'expectedQty', 'lineRef') } },
+    // clientRef: مفتاح منع التكرار كما أرسله العميل (D8، null لما بلاه) — به يتحقّق المُكامِل أن محاولته حُفظت قبل أن يعيدها
+    select: { ...pick('id', 'salesRepId', 'deletedSalesRepId', 'locationId', 'type', 'note', 'createdBy', 'createdAt', 'updatedAt', 'zeroRunId', 'clientRef'), items: { select: pick('productId', 'qty', ...UNIT_SNAPSHOT_COLS, 'suggestedQty', 'expectedQty', 'lineRef') } },
     // «تتبّع اللوط»: معرّف البند للشركة المفعّلة — به تُربط صفوف van-load-item-lots (vanLoadItemId) ببندها — وتوزيعه على التشغيلات
     // مضمّناً فيه ببطاقتها (Σ qty لبندٍ = baseQty البند بإشارته). والمطفأة بلا تغيير (§١٠.١): البند يُعرَّف عندها بحركته وصنفه كما كان
     lotSelect: { items: { select: { ...pick('id'), lots: VAN_ITEM_LOTS } } },
@@ -323,8 +324,8 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
   {
     name: 'warehouse-entries', model: 'warehouseEntry', mode: 'created', permission: 'canManageVanStock', accounting: true, warehouse: true, tenantPath: 'direct', hardDeletes: true,
     // unitCost لوحدة البند (تكلفة الكرتون لبندٍ بالكرتون) — تكلفة الأساس = unitCost ÷ unitFactor
-    // zeroRunId: تسوية «تصفير المخزون» (null لغيرها)
-    select: { ...pick('id', 'type', 'note', 'supplier', 'createdBy', 'createdAt', 'zeroRunId'), items: { select: pick('productId', 'qty', ...UNIT_SNAPSHOT_COLS, 'unitCost', 'lineRef') } },
+    // zeroRunId: تسوية «تصفير المخزون» (null لغيرها)، وclientRef مفتاح منع التكرار (D8، null لما بلاه)
+    select: { ...pick('id', 'type', 'note', 'supplier', 'createdBy', 'createdAt', 'zeroRunId', 'clientRef'), items: { select: pick('productId', 'qty', ...UNIT_SNAPSHOT_COLS, 'unitCost', 'lineRef') } },
     // «تتبّع اللوط»: للشركة المفعّلة معرّف البند وتشغيلته (سطرٌ = لوطٌ واحد؛ null = غير مسمّى أو صنفٌ غير متتبَّع) وبطاقتها مضمّنة
     // (lot: null حين lotId فارغ). وسطر التسوية المنقسم على عدّة تشغيلات بنودٌ بالمرجع نفسه (lineRef). والمطفأة بلا تغيير (§١٠.١)
     lotSelect: { items: { select: { ...pick('id', 'lotId'), lot: LOT_CARD } } },

@@ -356,7 +356,9 @@ test('المرتجع: يُطبع مرتجعاً من ردّ الخادم، و202
   const ret = modal.slice(modal.indexOf("if ((vars as { type?: string } | undefined)?.type === 'RETURN') {"), modal.indexOf('const doc: InvoiceDoc = {'));
   assert.ok(ret.length > 100, 'فرع المرتجع في onSuccess اختفى');
   assert.match(ret, /type: 'CREDIT', isReturn: true/);
-  assert.match(ret, /if \(res\.status !== 201\)[\s\S]*zatcaIssueOutcome\(res,[\s\S]*return;[\s\S]*onSaved\(retDoc\)/);
+  // وإعادة المرتجع بمرجعه (D8: 200 idempotent) هي المرتجع الأول بصفّه — ورقته كما بعد 201، وغيرها من 2xx بلا ورقة كما كان
+  assert.match(ret, /const replayOk = res\.status === 200 && \(res\.data as \{ idempotent\?: unknown \} \| undefined\)\?\.idempotent === true;/);
+  assert.match(ret, /if \(res\.status !== 201 && !replayOk\)[\s\S]*zatcaIssueOutcome\(res,[\s\S]*return;[\s\S]*onSaved\(retDoc\)/);
   assert.match(ret, /subtotal: Number\(inv\.subtotal\)[\s\S]*total: Number\(inv\.total\)/);
   assert.match(ret, /zatca: zatcaDocView\(inv\)/);
   assert.match(modal, /setSelectedCustomer\(\(customers \|\| \[\]\)\.find\(c => c\.id === v\) \|\| null\); unlinkSale\(\);/);

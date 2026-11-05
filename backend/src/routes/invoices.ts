@@ -11,7 +11,14 @@ import {
 } from '../services/baseConversions';
 import { baseUnitRequiredReply, missingBaseForApi } from '../services/baseGuard';
 import { ReturnLinkError, SALE_TYPES, assertReturnLinks, returnableOf, returnedBySaleItem } from '../services/returnLinks';
-import { isExpiredOn, linkedReturnExpiry, returnRuleBlock, saleExpiryFor, stampExpiryAfterIssue, tenantTz } from '../services/invoiceExpiry';
+import { isExpiredOn, linkedReturnExpiry, returnRuleBlock, saleExpiryFor, stampExpiryAfterIssue, stampExpiryIfMissing, tenantTz } from '../services/invoiceExpiry';
+// مراجعة المخزون نوفمبر ٢٠٢٦: حارس «البيع بدون مخزون» داخل المعاملة وحجز إعادة الرفع (البندان ٩ و٥)، ومنع سحب مرتجعٍ خرجت
+// بضاعته (D10)، وتاريخ فاتورة المندوب دون اتصال (D11)
+import {
+  ReturnCancelStockShort, VanStockShort, assertReturnRemovalKeepsVan, lockVanSellable, preLockReturnOutBuckets, recordVanStockHeld,
+  vanRemainingFor, vanShortage, vanStockHeldBody,
+} from '../services/repSaleStock';
+import { DEVICE_NOW_HEADER, headerText, offlineInvoiceDate } from '../services/offlineInvoiceDate';
 import { catalogTeamsFor, resolveDocTeam, supervisorViewerOf, teamCatalogProblem, teamMembershipSelectFor } from '../services/teams';
 // «لوكيشن»: ختم الفاتورة بموقع مندوبها وقت الإصدار، والمرتبط يرث ختم أصله (services/locations.ts)
 import { inheritedLocation, locationDocWhere, locationFilterOf, repStampLocation } from '../services/locations';
@@ -447,7 +454,10 @@ export async function resolveLineUnit(
   if (opts.replay && devFactor != null) {
     // أساس الجهاز صار وحدةً للصنف ⇒ حُوّل بعد الإصدار، ومعاملها F يردّ اللقطة إلى الأساس الجديد. اسمٌ آخر بلا وحدةٍ تحمله
     // إعادةُ تسميةٍ للأساس لا تحويل: المعامل كما هو
-    const rebased = devBase && baseNameKey(devBase) !== baseKey ? byName(devBase) : undefined;
+    // ومراجعة المخزون (البند ٢): آخر صفٍّ في السجلّ من أساس الجهاز إعادةُ تسمية (معامل ١) ⇒ ليس تحويلاً ولو صار اسمه وحدةً أكبر
+    const lastFromDev = devBase ? [...convs].reverse().find((r) => baseNameKey(r.fromUnit) === baseNameKey(devBase)) : undefined;
+    const renamedOnly = !!lastFromDev && Math.round(Number(lastFromDev.factor)) <= 1;
+    const rebased = devBase && baseNameKey(devBase) !== baseKey && !renamedOnly ? byName(devBase) : undefined;
     const rebase = rebased ? factorOf({ unitFactor: rebased.factor }) : 1;
     const factor = devFactor * rebase;
     // لقطة أساس الجهاز بلا اسم: هي الوحدة التي صارها ذلك الأساس
@@ -503,6 +513,54 @@ const isTxExpired = (e: unknown): boolean => {
   const o = e as { code?: unknown; message?: unknown } | null | undefined;
   return o?.code === 'P2028' || /Transaction already closed|expired transaction/i.test(typeof o?.message === 'string' ? o.message : '');
 };
+
+/**
+ * البند ٩: «البيع بدون مخزون» داخل معاملة الإصدار — قفل السيارة ثم متبقّيها لأصناف `want` غير المتتبَّعة؛ عجزٌ ⇒ VanStockShort
+ * (403 للحيّ، 409 VAN_STOCK_REPLAY_HELD لإعادة الرفع في catch المسار). بيعان متزامنان يتسلسلان فلا يتجاوزان المتبقّي معاً.
+ */
+async function assertVanSellableInTx(
+  tx: Prisma.TransactionClient, tid: string, repId: string, want: ReadonlyMap<string, number>, skip: ReadonlySet<string>,
+): Promise<void> {
+  const ids = [...want.keys()].filter((id) => !skip.has(id));
+  if (!ids.length) return;
+  await lockVanSellable(tx, repId);
+  const short = vanShortage(want, await vanRemainingFor(tx, tid, repId, ids), skip);
+  if (short) throw new VanStockShort(short.productId, short.wanted, short.available);
+}
+
+/**
+ * D6: ختم صلاحية بنود الإشعار الدائن المرتبط داخل معاملته — يناديه stampNote لبنود الأصل المفعّلة صلاحيتها وحدها (من الصفّ المحمَّل،
+ * routes/invoicesNotes.ts shelfLifeProducts)، فأصلٌ بلا صلاحية لا يُسأل عنه شيء. تحسينٌ لا شرط: تعذّره يعيد خريطةً فارغة فيبقى
+ * الختم اللاحق (201/202) وحده كما كان
+ */
+const linkedNoteExpiry = (tid: string, returnAt: Date) => async (saleItemIds: readonly string[]) => {
+  const ids = [...new Set(saleItemIds)].filter(Boolean);
+  if (!ids.length) return new Map<string, ItemExpiryStamp>();
+  try {
+    return await linkedReturnExpiry(tid, ids, returnAt);
+  } catch (e) {
+    console.error('credit note in-tx expiry stamps failed:', (e as Error)?.message);
+    return new Map<string, ItemExpiryStamp>();
+  }
+};
+
+/** D6: مستندٌ قائم يُختم ما بقي من بنوده في ردّ التكرار — مرتجعٌ (أو إشعارٌ دائن) غير ملغى فيه بندٌ بصنفٍ بلا ختم */
+const needsExpiryStamp = (inv: { status?: string | null; type?: string | null; items?: ReadonlyArray<{ productId?: string | null; expiresAt?: Date | null }> | null }) =>
+  inv.type === 'RETURN' && inv.status !== 'CANCELLED' && (inv.items ?? []).some((i) => !!i.productId && i.expiresAt == null);
+
+/**
+ * D6: لقطة «آخر بيع» لبنود المرتجع الحرّ (بلا فاتورة بيع) المفعّلة صلاحيتها — قبل المعاملة فتُكتب داخلها، بالقياس نفسه الذي
+ * يختم به stampInvoiceExpiry لاحقاً: آخر بيعٍ للعميل حتى تاريخ المستند، ويوم المرتجع لحظة الجهاز وإلا تاريخ المستند.
+ */
+async function freeReturnExpiry(
+  tid: string, customerId: string, items: ReadonlyArray<{ productId: string }>, products: ReadonlyArray<Parameters<typeof shelfLifeOf>[0] & { id: string }>,
+  invoiceDate: Date, deviceAt: string | undefined,
+): Promise<Map<number, ItemExpiryStamp>> {
+  const lines = items.map((it, idx) => ({ idx, productId: it.productId }))
+    .filter((l) => { const p = products.find((x) => x.id === l.productId); return !!p && !!shelfLifeOf(p); });
+  if (!lines.length) return new Map();
+  return freeReturnStamps(prisma, tid, { customerId, invoiceDate, returnAt: deviceAt ? new Date(deviceAt) : invoiceDate, items: lines });
+}
 
 /** رقم المستند من ردّ فرع المرحلة الثانية (data.number) — للإشعار وحده */
 function issuedNumberOf(body: Record<string, unknown>): string | null {
@@ -898,6 +956,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
   let releaseLots: (() => void) | null = null;
   // مدة انتظار قفل الأصناف في آخر محاولة إصدار (I10، ISSUE_LOCK_WAIT_BUSY_MS)
   let issueLockWaitMs = 0;
+  // البند ٩: ردّ عجز السيارة المكتشف داخل المعاملة (VanStockShort) — 403 للحيّ و409 الحجز لإعادة الرفع؛ يُضبط بعد قراءة الأصناف
+  let onStockShort: ((e: VanStockShort) => Promise<void>) | null = null;
   try {
     const tid = tenantId(req);
     const body = createInvoiceSchema.parse(req.body);
@@ -917,6 +977,9 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           || !(await existingInScope(req, SHAPE_INVOICE_RECEIPT, (w) => prisma.invoice.findFirst({ where: { id: existing.id, ...w }, select: { id: true } })))) {
           res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return;
         }
+        // D6 (مراجعة المخزون، البند ١): ختمٌ تعثّر في الرفع الأوّل (فشلٌ عابر، أو إعادة تشغيلٍ بعد الالتزام، أو 202 قبل الإصلاح) يُكمله
+        // التكرار — ما بقي بلا ختم وحده (stampInvoiceExpiry تتخطّى المختوم وما لا صلاحية لصنفه)، فلا يبقى المنتهي «متاحاً للبيع»
+        if (needsExpiryStamp(existing)) await stampExpiryIfMissing(tid, existing.id);
         // ZATCA المرحلة الثانية (نقد الخطة 6): إعادة الرفع لا تُعيد صفّاً مختوماً لعميل بلا قدرات، وتُرفق إسقاط المستند لمن يفهمه.
         // وZ5.4: قياسيةٌ عالقة «بانتظار الاعتماد» حان موعد محاولتها تُجرَّب مرّة واحدة هنا — فإن جرت، الصفّ الذي بيدنا قديم.
         const p2 = isPhase2Invoice(existing) ? await phase2ReplayBody(existing, capsFromHeaders(req.headers), productionPhase2Deps(), tid) : null;
@@ -1076,7 +1139,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     /* D16: سجلّ التحويلات لإعادة الرفع وحدها، ولأصنافٍ حُوِّلت وحدها (baseConvertedAt ≠ null) — صنفٌ لم يُحوَّل لا يُسأل عنه
      * السجلّ أبداً (I8). ومعه سعر العميل الحالي لتلك الأصناف: مرجع إشارة السعر لجسمٍ بلا لقطة (الحالة B) — وبلاه سعر نوع
      * المستند (listPriceOf أعلاه، مقسومٌ على F مع أسعار العميل): الجملة والتجزئة يفترقان أكثر من ٢٥٪ فلا يلتقط الأساسُ أحدهما */
-    const convertedIds = isReplay ? products.filter((p) => p.baseConvertedAt).map((p) => p.id) : [];
+    // ومراجعة المخزون (البند ٢): وصنفٌ لم يُحوَّل لكن لقطة الجهاز بأساسٍ غير أساسه الآن — أُعيدت تسميته بعد الإصدار (صفّ معامل ١
+    // في السجلّ)، فلا يُعدّ أساس الجهاز «تحويلاً» إن صار اسمه وحدةً أكبر بعدها. وغير هذا كما كان: لا سؤال
+    const renamedOnDevice = (p: { id: string; unit: string }) => body.items.some((it) => it.productId === p.id
+      && typeof it.baseUnitName === 'string' && it.baseUnitName.trim() !== '' && baseNameKey(it.baseUnitName) !== baseNameKey(p.unit));
+    const convertedIds = isReplay ? products.filter((p) => p.baseConvertedAt || renamedOnDevice(p)).map((p) => p.id) : [];
     const convsOf = new Map<string, BaseConversionRow[]>();
     const replayCust = new Map<string, number>();
     if (convertedIds.length) {
@@ -1150,6 +1217,37 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const companyVat = company?.defaultVatPct ?? 15;
     // الخانات من العملة الفعلية (تجاوز الدولار/اليورو يغلب خانات الدولة — كويتية بالدولار: خانتان لا ثلاث)
     const dec = currencyDecimalsOf(company?.currency ?? getCountryTax(company?.countryCode).currency);
+
+    /* «البيع بدون مخزون» (مراجعة المخزون، البندان ٥ و٩): مطلوب أصناف البيع غير المتتبَّعة بالأساس لمندوبٍ لا يملكه — يُعاد فحصه داخل
+     * المعاملة تحت قفل السيارة (null = لا حارس). وإعادة رفع صندوق المندوب (X-FS-Replay بجلسته؛ تُمحى لمفتاح API في middleware/auth.ts)
+     * لا تُرفض بالعجز: 409 VAN_STOCK_REPLAY_HELD فيبقيها الصندوق «بانتظار الإدارة» وتُبلَّغ الإدارة (D5) */
+    let sellGuard: Map<string, number> | null = null;
+    const repReplay = isReplay && req.user!.role === 'SALES_REP' && !req.user?.apiKeyId;
+    // المتاح بوحداته («١ كرتون و٦ حبة») لصنفٍ له وحدات أكبر — رقم الأساس الخام يُقرأ كراتين؛ وغيره كما كان. ولصنفٍ له وحدة رئيسية: بها
+    // («52 كرتون و2 قارورة») — وبلاها النص القائم حرفياً (I1)
+    const stockLeftText = (pid: string, rem: number): string => {
+      const p = products.find(x => x.id === pid);
+      return p && primaryUnitOf(p) ? productQtyText(rem, p)
+        : p && (p.units ?? []).some(u => Number(u.factor) > 1 && u.isActive !== false)
+          ? formatQty(rem, p.units, p.unit) : String(Number(rem.toFixed(2)));
+    };
+    const stockShortMessage = (pid: string, rem: number) =>
+      `الكمية المطلوبة من «${products.find(x => x.id === pid)?.name || 'الصنف'}» تتجاوز مخزون سيارتك المتاح (${stockLeftText(pid, rem)})`;
+    /** حجز إعادة الرفع (D5): إشعار إدارة واحد لكل clientRef، ثم 409 بالرمز — المستند لا يُكتب */
+    const replyStockHeld = async (pid: string, rem: number, want: number): Promise<void> => {
+      const name = products.find(x => x.id === pid)?.name ?? 'الصنف';
+      if (body.clientRef) {
+        await recordVanStockHeld(prisma, {
+          tenantId: tid, clientRef: body.clientRef, salesRepId, customerId: customerId ?? null, productName: name,
+          detail: { productId: pid, availableBase: rem, requestedBase: want },
+        });
+      }
+      res.status(409).json(vanStockHeldBody(name, pid, rem, want));
+    };
+    onStockShort = async (e) => {
+      if (repReplay) { await replyStockHeld(e.productId, e.available, e.wanted); return; }
+      res.status(403).json({ success: false, message: stockShortMessage(e.productId, e.available) });
+    };
 
     if (req.user!.role === 'SALES_REP') {
       if (!rep.canCreateInvoice) { res.status(403).json({ success: false, message: 'لا تملك صلاحية إنشاء فاتورة' }); return; }
@@ -1236,16 +1334,15 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           if (preTracked.has(pid)) { stockCheckSkipped.push(pid); continue; }
           const rem = remById.get(pid) ?? 0;
           if (want > rem + 1e-9) {
-            const p = products.find(x => x.id === pid);
-            // المتاح بوحداته («١ كرتون و٦ حبة») لصنفٍ له وحدات أكبر — رقم الأساس الخام يُقرأ كراتين؛ وغيره كما كان.
-            // ولصنفٍ له وحدة رئيسية: بها («52 كرتون و2 قارورة») — وبلاها النص القائم حرفياً (I1)
-            const left = p && primaryUnitOf(p) ? productQtyText(rem, p)
-              : p && (p.units ?? []).some(u => Number(u.factor) > 1 && u.isActive !== false)
-                ? formatQty(rem, p.units, p.unit) : String(Number(rem.toFixed(2)));
-            fail(`الكمية المطلوبة من «${p?.name || 'الصنف'}» تتجاوز مخزون سيارتك المتاح (${left})`);
+            // D5: مستند الصندوق سُلّمت بضاعته — يُحجز للإدارة لا يُرفض
+            if (repReplay) { await replyStockHeld(pid, rem, want); return; }
+            fail(stockShortMessage(pid, rem));
             return;
           }
         }
+        // البند ٩: والفحص نفسه داخل المعاملة تحت قفل السيارة لغير المتتبَّع (المتتبَّع حارسه التوزيع)
+        sellGuard = new Map([...wantById].filter(([pid]) => !preTracked.has(pid)));
+        if (!sellGuard.size) sellGuard = null;
       }
     }
 
@@ -1281,7 +1378,16 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       const saleTeam = await prisma.invoice.findFirst({ where: { id: body.originalInvoiceId, tenantId: tid }, select: { teamId: true } });
       if (saleTeam) docTeamId = saleTeam.teamId ?? null;
     }
-    const docDate = body.invoiceDate ? new Date(body.invoiceDate) : undefined;
+    /* D11 (مراجعة المخزون، البند ١٥): فاتورة المندوب دون اتصال تُؤرَّخ بلحظة إصدارها على الجهاز لا بلحظة المزامنة — في الفاتورة
+     * ورقمها (بادئة الفترة) وقيدها وحركة السيارة والتقارير وإعادة الطباعة (QR المرحلة الأولى من invoiceDate). محصورةٌ: إعادة رفع
+     * المندوب وحدها، لا مستقبل ولا أقدم من سبعة أيام، وفي شركةٍ فُعّلت مرحلتها الثانية المستندُ الانتقاليّ قبل التفعيل وحده (فرعها
+     * يؤرّخ بلحظة الختم IssueDate ولا يقرأ هذا) — services/offlineInvoiceDate.ts. وإلا السلوك القائم حرفياً، وclientCreatedAt مخزّن */
+    const offlineAt = offlineInvoiceDate({
+      replay: isReplay, role: req.user!.role, viaApiKey: Boolean(req.user?.apiKeyId), bodyInvoiceDate: body.invoiceDate,
+      clientCreatedAt: deviceAt, deviceNow: headerText(req.headers[DEVICE_NOW_HEADER]),
+      phase2StartedAt: company?.zatcaPhase2StartedAt ?? null, now: new Date(),
+    });
+    const docDate = body.invoiceDate ? new Date(body.invoiceDate) : (offlineAt ?? undefined);
     // تاريخ التسليم: اختياري — القيمة غير المفهومة تُهمل بصمت (عرض لا محاسبة)
     const deliveryDate = body.deliveryDate ? new Date(body.deliveryDate) : undefined;
     const deliveryOk = deliveryDate && !Number.isNaN(deliveryDate.getTime()) ? deliveryDate : undefined;
@@ -1423,6 +1529,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         ...(lotPlan && { lots: lotPlan }),
         // والعلم من صفّ المندوب المحمَّل (لا استعلام): حارس D25 للصنف الذي صار متتبَّعاً بين القراءة وقفل الفرع
         ...(lotsOn && { lotsOn }),
+        // البند ٩: «البيع بدون مخزون» داخل معاملة الختم تحت قفل السيارة (VanStockShort يمرّ إلى catch أدناه)
+        ...(sellGuard && { stockGuard: (t: unknown) => assertVanSellableInTx(t as Prisma.TransactionClient, tid, salesRepId, sellGuard!, new Set()) }),
       };
       /* D3 (Z5.5): المرتجع في شركةٍ مربوطة ليس مستنداً سالباً بل **إشعارٌ دائن** يشير إلى فاتورته الأصلية —
        * بنوده وأسعاره وضريبته من بنود الأصل، وكميّاته محروسةٌ بما لم يُرجَع منها بعد. وبلا أصلٍ في الطلب يُردّ 422
@@ -1432,8 +1540,13 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
          * مطفأً ومرتجعٌ بلا أصل ⇒ إشعارٌ دائن «برقم فاتورةٍ أصلية يدويّ» بعد فحوصه في routes/invoicesNotes.ts، بنواة الفاتورة نفسها
          * (سياق الفرع أعلاه بلقطاته وفريق المندوب وموقعه وخطة اللوط الحرّة) — وما عداه كما هو حرفاً بحرف */
         const linkRequired2 = returnLinkRequired(company?.returnRequiresSaleInvoice, true);
+        // D6: الإشعار اليدويّ مرتجعٌ حرّ — لقطة «آخر بيع» لبنود الأصناف المفعّلة صلاحيتها تُحسب الآن فتُكتب داخل معاملته
+        // (invoicesZatca.ts expiryStamps) لا بعد ردٍّ قد يكون 202 فيبقى المنتهي «متاحاً للبيع». يوم المرتجع كما يقيسه الختم اللاحق
+        const manualExpiry = !body.originalInvoiceId && !linkRequired2 && tracksExpiry
+          ? await freeReturnExpiry(tid, customerId, body.items, products, new Date(), deviceAt)
+          : null;
         const manualReturn = !body.originalInvoiceId && !linkRequired2 ? {
-          invoice: phase2Ctx,
+          invoice: manualExpiry?.size ? { ...phase2Ctx, expiryStamps: manualExpiry } : phase2Ctx,
           originalInvoiceRef: body.originalInvoiceRef ?? null,
           originalPaymentType: body.originalPaymentType ?? null,
           // قيد مخزونٍ لا ضريبة: المندوب يُرجع الصنف المفعّلة صلاحيته من فاتورة بيعه وحدها (كالمرحلة الأولى أدناه)
@@ -1479,6 +1592,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           viaApiKey: !!req.user?.apiKeyId,
           returnLinkRequired: linkRequired2,
           manualReturn,
+          // D6: ختم صلاحية بنود الإشعار المرتبط داخل معاملته (يوم المرتجع: لحظة الجهاز، وإلا الآن — كالختم اللاحق)
+          ...(tracksExpiry && { expiryStampsFor: linkedNoteExpiry(tid, deviceAt ? new Date(deviceAt) : new Date()) }),
         }, productionPhase2Deps());
         if (note && tracksExpiry) await stampExpiryAfterIssue(tid, note.status, note.body);
         if (note && note.status < 300) await noticeRebased(issuedNumberOf(note.body));
@@ -1569,6 +1684,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       ? await linkedReturnExpiry(tid, saleLinkLines.map(l => l.saleItemId).filter((x): x is string => !!x),
         deviceAt ? new Date(deviceAt) : (docDate ?? new Date()))
       : null;
+    // D6 (مراجعة المخزون، البند ١): والمرتجع الحرّ كذلك — كان يُختم بعد ردّ 201 وحده، فإن تعثّر الختم (فشلٌ عابر أو إعادة تشغيل)
+    // دخل المنتهي «المتاح للبيع» وإعادة الرفع تعود 200 بلا كتابة. الآن داخل المعاملة، والختم اللاحق يتخطّى المختوم
+    const freeExpiry = isReturn && !saleForReturn && tracksExpiry
+      ? await freeReturnExpiry(tid, customerId, body.items, products, docDate ?? new Date(), deviceAt)
+      : null;
 
     // «تتبّع اللوط» (§٤.١٠–٤.١١): اللقطة القائمة لبند المرتجع المتتبَّع بيوم مرتجعه (D23) — تُكتب داخل المعاملة حين لا تحمل
     // صفوفه المسمّاة انتهاءً: المرتبط من بند بيعه (linkedReturnExpiry)، والحرّ من آخر بيعٍ لهذا العميل (ن١-٣)
@@ -1593,10 +1713,12 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // «تتبّع اللوط»: الطابور قبل طلب اتصالٍ من المجمّع (D29)، ويُحرَّر بعد الالتزام وفي finally
     releaseLots = lots ? await acquireLotQueue(tid, preTracked) : null;
     let lotWarnings: LotWarning[] = [];
+    // D11: المستند المؤرَّخ بلحظة الجهاز يأخذ تسلسل شهره بتوقيت الشركة (utils/helpers prefixFor) — وغيره كما كان
+    const numTz = offlineAt ? await tenantTz(tid).catch(() => undefined) : undefined;
     // الرقم يُولَّد داخل إعادة المحاولة: عند تصادم P2002 (طلبان متزامنان بنفس الرقم) يُعاد التوليد والإنشاء
     const invoice = await withNumberRetry(async () => {
     // البادئة تُشتقّ من تاريخ الفاتورة (docDate) لا وقت الرفع — يحفظ تسلسل الفترة للمستندات الأوف-لاين
-    const number = isReturn ? await generateReturnNumber(tid, docDate) : await generateInvoiceNumber(tid, docDate);
+    const number = isReturn ? await generateReturnNumber(tid, docDate, numTz) : await generateInvoiceNumber(tid, docDate, numTz);
     // «تتبّع اللوط»: معرّف الفاتورة مولَّدٌ مسبقاً تكتبه صفوف التوزيع (invoice_item_lots.invoiceId) — لكل محاولةٍ معرّفها
     const lotInvoiceId = lots ? randomUUID() : null;
     return prisma.$transaction(async tx => {
@@ -1648,6 +1770,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       // ثم السباق على clientRef، ثم التوزيع بلا سالبٍ على أي تشغيلة (I1) ولا تحت min(0, غير المسمّى) (I2)
       const alloc = lots ? await allocateInvoiceLotsInTx(tx, lots, { lockedRows: lockedUnits }) : null;
       lotWarnings = alloc?.warnings ?? [];
+      // البند ٩: «البيع بدون مخزون» تحت قفل السيارة بعد التوزيع (مفاتيح اللوط قبل قفل السيارة في كل المسارات) — لغير المتتبَّع
+      // كما قرأته الصفوف المقفلة أعلاه
+      if (sellGuard) {
+        await assertVanSellableInTx(tx, tid, salesRepId, sellGuard, new Set((lockedUnits ?? []).filter((r) => lotsOn && r.lotTracked).map((r) => r.id)));
+      }
       const inv = await tx.invoice.create({
         data: {
           ...(lotInvoiceId && { id: lotInvoiceId }),
@@ -1706,6 +1833,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
               // مرتجعٌ من فاتورة بيع: بند البيع الذي يُرجَع منه (تحقّق منه assertReturnLinks أعلاه وداخل المعاملة)
               returnOfItemId: saleForReturn ? (saleLinkLines[idx]?.saleItemId ?? null) : null,
               ...(linkedExpiry?.get(saleLinkLines[idx]?.saleItemId ?? '') ?? {}),
+              // D6: والمرتجع الحرّ من «آخر بيع» (لا يجتمع مع المرتبط)
+              ...(freeExpiry?.get(idx) ?? {}),
               // «تتبّع اللوط»: صفوف التوزيع وصلاحية التشغيلة (تغلب linkedExpiry) — {} لبندٍ غير متتبَّع
               ...invoiceItemLotColumns(alloc?.lines ?? null, idx, { tenantId: tid, invoiceId: lotInvoiceId ?? '', productId: i.productId, vanKey: salesRepId }),
               // لقطة الوحدة + الكمية بالأساس — المخزون والتقارير تقرأ baseQty لا qty
@@ -1788,6 +1917,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     }
     // مرتجعٌ من فاتورة بيع تجاوز المتاح بعد القفل (مرتجعٌ متزامن سبقه) — لا مستند
     if (err instanceof ReturnLinkError) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
+    // البند ٩: بيعٌ متزامن سبقه إلى متبقّي السيارة تحت قفلها — لا مستند (والمعاملة أُلغيت): 403 كالفحص المسبق، أو حجز إعادة الرفع (D5)
+    if (err instanceof VanStockShort && onStockShort) { await onStockShort(err); return; }
     // «تتبّع اللوط»: رفض التوزيع برمزه (422/409)، والانشغال 503 LOT_BUSY (صندوق المندوب يُعدم 4xx ويعيد 5xx)؛ والإعادة التي لا
     // يكفيها رصيد السيارة الفعلي تُحجز للمراجعة بإشعارٍ واحد لكل clientRef خارج المعاملة الملغاة (D20). ClientRefRace يمرّ لـP2002
     const lh = lotReply(err, lotPlan != null);
@@ -1817,6 +1948,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           || !(await existingInScope(req, SHAPE_INVOICE_RECEIPT, (w) => prisma.invoice.findFirst({ where: { id: existing.id, ...w }, select: { id: true } }))))) {
           res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return;
         }
+        // D6: والسباق كالتكرار — ما بقي بلا ختم من المستند القائم يُختم
+        if (existing && needsExpiryStamp(existing)) await stampExpiryIfMissing(tid2, existing.id);
         // ZATCA المرحلة الثانية (نقد الخطة 6): السباق لا يفتح باباً مغلقاً هنا أيضاً — لا صفّ مختوم لعميل بلا قدرات
         const p2 = isPhase2Invoice(existing) ? await phase2ReadBody(existing, capsFromHeaders(req.headers), productionPhase2Deps(), tid2) : null;
         if (p2?.error) { res.status(p2.status).json(p2.error.body()); return; }
@@ -1899,9 +2032,14 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
     const updated = await prisma.$transaction(async tx => {
       // الفحوص أعلاه على قراءةٍ سابقة للمعاملة: القفل وإعادتها تحته أولاً، وإلا عكس طلبان متقاربان القيد مرّتين
       await lockInvoiceForCancel(tx, tid, invoice.id);
+      // ترتيب الأقفال (repSaleStock VAN_LOCK_ORDER): دلوا المنتهي والتالف لغير المتتبَّع قبل أقفال اللوط، كإزالتهما في السيارة
+      if (lotCancel.length) await preLockReturnOutBuckets(tx, tid, invoice.id, new Set(lotCancel));
       // «تتبّع اللوط»: لا يُلغى مرتجعٌ بيعت بضاعته — صالح كل تشغيلة بعد الإزالة ≥ 0 (I1)، وغير المسمّى ≥ min(0, قبله) (I2)
       if (lotCancel.length) await assertReturnCancelKeepsLots(tx, tid, invoice.id);
       else if (lotPids.length) await assertReturnStillUntracked(tx, tid, lotPids);
+      // D10 (مراجعة المخزون، البندان ٨ و١٦): وغير المتتبَّع — مرتجعٌ بيعت بضاعته أو أُزيلت لا يُلغى فيصير دلوه في السيارة سالباً
+      // (المتاح أو المنتهي أو التالف) ⇒ 409 RETURN_CANCEL_STOCK_SHORT. تحت قفل الفاتورة ثم أقفال دلاء السيارة، بعد حارس اللوط
+      if (invoice.type === 'RETURN') await assertReturnRemovalKeepsVan(tx, tid, invoice.id, 'CANCEL', new Set(lotCancel));
       const inv = await tx.invoice.update({ where: { id: invoice.id }, data: { status: 'CANCELLED' } });
       // نسخةٌ واحدة من فرع العكس يتشاركها الإلغاء اليدويّ وإبطالُ المرحلة الثانية (Z5.4) — والوضع 'CANCEL' هو
       // السلوك القديم حرفاً بحرف (مرتجع ⇒ عكس المرتجع، نقدية ⇒ عكس شقّيها، وإلا عكس الآجلة)
@@ -1947,6 +2085,8 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
       } catch (e2) { next(e2); return; }
     }
     if (err instanceof CancelRefused) { res.status(400).json({ success: false, message: err.message }); return; }
+    // D10: بضاعة المرتجع خرجت من السيارة — لا إلغاء (409 بالسطور)
+    if (err instanceof ReturnCancelStockShort) { res.status(409).json(err.body()); return; }
     // «تتبّع اللوط»: 409 LOT_STOCK_INSUFFICIENT «بيعت بضاعته»، والانشغال 503 LOT_BUSY
     const lh = lotReply(err, lotCancel.length > 0);
     if (lh) { res.status(lh.status).json(lh.body); return; }
@@ -2062,6 +2202,8 @@ async function replyIfClientRefExists(req: AuthRequest, res: Response, tid: stri
   if (existing.customerId && !(await canAccessCustomer(req, tid, existing.customerId))) {
     res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return true;
   }
+  // D6: ختمٌ تعثّر في الرفع الأوّل يُكمله التكرار — ما بقي بلا ختم وحده
+  if (needsExpiryStamp(existing)) await stampExpiryIfMissing(tid, existing.id);
   const p2 = isPhase2Invoice(existing) ? await phase2ReplayBody(existing, capsFromHeaders(req.headers), productionPhase2Deps(), tid) : null;
   if (p2) {
     const row = p2.reload
@@ -2164,6 +2306,9 @@ router.post('/:id/credit-note', async (req: AuthRequest, res: Response, next: Ne
       clientCreatedAt: body.clientCreatedAt ?? null,
       // مفتاح API عميلٌ حيّ: لحظة جهازه لا تُخزَّن فلا يقيس بها وسمُ الصلاحية يومَ المرتجع (كمرتجع POST /)
       viaApiKey: !!req.user?.apiKeyId,
+      // D6: ختم صلاحية بنوده داخل معاملته — يوم المرتجع كالختم اللاحق: لحظة الجهاز المخزّنة وإلا الآن
+      expiryStampsFor: linkedNoteExpiry(tid, !req.user?.apiKeyId && body.clientCreatedAt && !Number.isNaN(new Date(body.clientCreatedAt).getTime())
+        ? new Date(body.clientCreatedAt) : new Date()),
     }, productionPhase2Deps());
     if (!r) { res.status(409).json({ success: false, message: NOTES_NOT_ENABLED }); return; }
     await stampExpiryAfterIssue(tid, r.status, r.body);
@@ -2240,7 +2385,28 @@ router.post('/:id/einvoice/withdraw', requireAdmin, async (req: AuthRequest, res
     const tid = tenantId(req);
     const id = await scopedInvoiceId(req, tid);
     if (!id) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
-    const r = await withdrawPhase2Invoice({ tenantId: tid, invoiceId: id });
+    /* D10 (مراجعة المخزون، البند ٨): سحب إشعارٍ دائن قياسي يُخرج مرتجعه من السيارة — ما بيعت بضاعته (المتاح فورياً لغير المتتبَّع)
+     * لا يُسحب فيصير الرصيد سالباً ⇒ 409 RETURN_CANCEL_STOCK_SHORT. الفحص **داخل معاملة السحب نفسها** بعد قرار الأهلية وقفل صفّ
+     * الفاتورة (guardInTx في services/invoiceVoid.ts) — فلا بيع يتسلّل بين الفحص والإبطال، ولا 409 مخزونٍ لمستندٍ لا يُسحب أصلاً.
+     * المتتبَّع محجوزٌ حتى الاعتماد (D24) فلا يُفحص هنا. فاتورة البيع لا تمرّ بشيء */
+    const guardInTx = async (vtx: unknown) => {
+      const tx = vtx as Prisma.TransactionClient;
+      const row = await tx.invoice.findFirst({
+        where: { id, tenantId: tid },
+        select: { type: true, tenant: { select: { lotTrackingEnabled: true } }, items: { select: { productId: true, product: { select: { lotTracked: true } } } } },
+      });
+      if (row?.type !== 'RETURN') return;
+      const lotSkip = new Set(row.tenant?.lotTrackingEnabled === true
+        ? row.items.filter((i) => i.product?.lotTracked === true && i.productId).map((i) => i.productId as string) : []);
+      await assertReturnRemovalKeepsVan(tx, tid, id, 'CANCEL', lotSkip);
+    };
+    let r: Awaited<ReturnType<typeof withdrawPhase2Invoice>>;
+    try {
+      r = await withdrawPhase2Invoice({ tenantId: tid, invoiceId: id, guardInTx });
+    } catch (e) {
+      if (e instanceof ReturnCancelStockShort) { res.status(409).json(e.body()); return; }
+      throw e;
+    }
     if (!r.ok) {
       const e = new ZatcaHttpError('ZATCA_WITHDRAW_NOT_ALLOWED', {
         messageAr: r.decision.ok ? undefined : r.decision.messageAr,
@@ -2352,6 +2518,8 @@ router.patch('/:id/restock', requireAdmin, async (req: AuthRequest, res: Respons
       const off = await prisma.$transaction(async tx => {
         await tx.$queryRaw`SELECT id FROM invoices WHERE id = ${invoice.id} AND "tenantId" = ${tid} FOR UPDATE`;
         await assertRestockOffKeepsLots(tx, tid, invoice.id);
+        // D10: وأصنافه غير المتتبَّعة — لا يصير المتاح في السيارة سالباً (بعد حارس اللوط: مفاتيح اللوط قبل قفل السيارة)
+        await assertReturnRemovalKeepsVan(tx, tid, invoice.id, 'RESTOCK_OFF', new Set(lotOff));
         return tx.invoice.update({ where: { id: invoice.id }, data: { returnToStock } });
       }, LOT_TX_OPTIONS);
       releaseLots();
@@ -2362,6 +2530,20 @@ router.patch('/:id/restock', requireAdmin, async (req: AuthRequest, res: Respons
     // أصنافه كلها غير متتبَّعة في القراءة المسبقة: مساره كما كان (§١٠.٢، بلا طابور ولا قفل لوط ولا مهلة جديدة) إلا إعادة قراءة
     // تتبّعها FOR KEY SHARE في معاملة الكتابة كما في الإلغاء (D25) — صنفٌ صار متتبَّعاً بين القراءتين ⇒ 503 TRACKING_CHANGED فيُعاد
     // بالحارس. الكتابة أولاً عمداً: قفل صفّ الفاتورة يسبق قفل الأصناف (ترتيب §٣.١ في lotsDb.ts)، والرمي يلغيها مع المعاملة
+    /* D10 (مراجعة المخزون، البند ٨): إطفاء العودة يُخرج بضاعة المرتجع من المتاح للبيع — لا يُطفأ ما بيعت بضاعته فيصير المتاح سالباً
+     * (409 RETURN_CANCEL_STOCK_SHORT). قفل صفّ الفاتورة FOR UPDATE ثم قفل المتاح في السيارة ثم الرصيد تحتهما، والكتابة بعدها.
+     * والتشغيل إلى true زيادةٌ خالصة: بلا فحص كما كان */
+    if (returnToStock === false) {
+      const off = await prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT id FROM invoices WHERE id = ${invoice.id} AND "tenantId" = ${tid} FOR UPDATE`;
+        // D25 أولاً (قفل الصفّ ثم الأصناف كما كان): صنفٌ صار متتبَّعاً ⇒ 503 فيُعاد بحارس اللوط — ثم المتاح تحت قفل السيارة
+        if (lotPids.length) await assertReturnStillUntracked(tx, tid, lotPids);
+        await assertReturnRemovalKeepsVan(tx, tid, invoice.id, 'RESTOCK_OFF');
+        return tx.invoice.update({ where: { id: invoice.id }, data: { returnToStock } });
+      });
+      res.json({ success: true, data: off });
+      return;
+    }
     if (lotPids.length) {
       const kept = await prisma.$transaction(async tx => {
         const row = await tx.invoice.update({ where: { id: invoice.id }, data: { returnToStock } });
@@ -2374,6 +2556,8 @@ router.patch('/:id/restock', requireAdmin, async (req: AuthRequest, res: Respons
     const updated = await prisma.invoice.update({ where: { id: req.params.id }, data: { returnToStock } });
     res.json({ success: true, data: updated });
   } catch (err) {
+    // D10: بضاعة المرتجع بيعت — لا إطفاء (409 بالسطور)
+    if (err instanceof ReturnCancelStockShort) { res.status(409).json(err.body()); return; }
     // «تتبّع اللوط»: 409 LOT_STOCK_INSUFFICIENT «بيعت بضاعته»، والانشغال 503 LOT_BUSY
     const lh = lotReply(err, lotOff.length > 0);
     if (lh) { res.status(lh.status).json(lh.body); return; }

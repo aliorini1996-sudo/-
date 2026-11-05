@@ -53,6 +53,7 @@ import { Users, Package, Wallet, BookOpen, Tags, Boxes, Upload, X, Check, AlertT
 import toast from 'react-hot-toast';
 import { backdropClose } from '../lib/backdropClose';
 import { LOT_WARNING_LABELS, lotFlagsOf, lotWarningsOf } from '../lib/lots';
+import { matchesText, nameMatchesOf } from '../lib/productGuards';
 
 type Rows = Record<string, unknown>[];
 /** سياق أدنى حين يرفض الخادم الصفوف بلا تاريخ والسياق غير متاح: الدفاتر مفعّلة، بلا تاريخ بدء ولا اقتراح */
@@ -107,6 +108,8 @@ interface ImportResult {
     futureDated?: { count?: number; rows?: number[]; maxDate?: string; message?: string } | null;
     /** البند 31: العدّ نفسه إن وضعه الخادم في التنبيهات بدل جذر الرد */
     netFromInclusive?: number;
+    /** الأصناف (S4/D4): صفٌّ أُنشئ باسمٍ يطابق صنفاً قائماً أو موقوفاً أو محذوفاً، أو صفّاً قبله في الملف — تحذيرٌ لا رفض */
+    duplicateNames?: { code?: string; row: number; name?: string; matches?: unknown }[];
   };
   /** المنتجات والأسعار (البند 31): عدد الأسعار التي خُصمت ضريبتها قبل الحفظ (إن أرسله الخادم) */
   netFromInclusive?: number;
@@ -963,6 +966,7 @@ export default function DataImportPanel() {
         const w = result.res.warnings;
         const merged = w?.merged ?? [];
         const similar = w?.similar ?? [];
+        const dupNames = Array.isArray(w?.duplicateNames) ? w!.duplicateNames! : [];
         const skippedRows = result.res.skippedRows ?? [];
         const attachedRows = result.res.attachedRows ?? [];
         // البندان 43 و44: عدّاد لكل سبب تخطٍّ (قائمة الصفوف تُقتطع)، وأزواج اختلف فيها السعر
@@ -1119,6 +1123,18 @@ export default function DataImportPanel() {
                       </p>
                     ))}
                     {similar.length > 15 && <p className="text-[11px] text-amber-600">+{similar.length - 15} …</p>}
+                  </div>
+                )}
+                {/* D4: أصنافٌ أُنشئت باسمٍ موجود — كودها ومطابقاتها (المحذوف والموقوف موسومان) لتُراجع أو تُدمج بوحدةٍ أصغر */}
+                {dupNames.length > 0 && (
+                  <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3 mt-4 max-h-32 overflow-y-auto text-right">
+                    <p className="text-[11px] font-semibold text-amber-800 mb-1">{tr('أصناف أنشئت باسم موجود')}</p>
+                    {dupNames.slice(0, 15).map((d, i) => (
+                      <p key={`dn${i}`} className="text-[11px] text-amber-700">
+                        {tr('صف')} {row(d.row)}{d.name ? <> «{d.name}»</> : null}: {tr('يطابق')} {matchesText(nameMatchesOf(d.matches), tr)}
+                      </p>
+                    ))}
+                    {dupNames.length > 15 && <p className="text-[11px] text-amber-600">+{dupNames.length - 15} …</p>}
                   </div>
                 )}
                 {(w?.skipped?.length ?? 0) > 0 && (

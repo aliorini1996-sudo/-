@@ -179,11 +179,15 @@ const matches = (row: Record<string, unknown>, where: Record<string, unknown> = 
     : row[k] === v));
 const lotView = (l: LotRow) => ({ lotNumber: l.lotNumber, expiryDate: l.expiryDate });
 
+/** رصيد المستودع للصنف في حارس D2 — null ⇒ وفير (اختبار «D2 في مسار اللوط» وحده يضبطه) */
+let whOverride: Map<string, number> | null = null;
 const db: Record<string, unknown> = {
   $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => { await yieldTurn(); const r = render(strings, values); return answerSql(r.sql, r.values); },
   $executeRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
     await yieldTurn();
     const r = render(strings, values);
+    // قفل المستودع (D2) خارج تسلسل الدلو واللوط الذي تحرسه هذه الاختبارات
+    if (r.sql.includes('hashtext') && String(r.values[0]).startsWith('warehouse-stock:')) return 1;
     if (r.sql.includes('hashtext')) S.log.push(`exec:bucket:${String(r.values[0])}`);
     else if (r.sql.includes('pg_advisory_xact_lock')) S.log.push('exec:lot');
     return 1;
@@ -222,8 +226,17 @@ const db: Record<string, unknown> = {
   },
   lotEvent: { create: async ({ data }: { data: Record<string, unknown> }) => { S.events.push(data); return data; } },
   invoiceItemLot: { findFirst: async ({ where }: { where: { tenantId: string; vanKey: string } }) => (S.invoices.some((i) => i.tenantId === where.tenantId && i.items.some((it) => it.lots.some((l) => l.vanKey === where.vanKey))) ? { id: 'il' } : null) },
+  // D2 (التحميل فوق رصيد المستودع يُمنع): رصيد المستودع لأصناف الحركة — وفيرٌ هنا، فهذا الملف لا يحرس الرصيد (van-load-warehouse-guard.test.ts)
+  warehouseEntryItem: {
+    findMany: async ({ where }: { where: { productId: { in: string[] } } }) => where.productId.in.map((productId) => {
+      const q = whOverride?.get(productId) ?? 1e6;
+      return { productId, qty: q, unitFactor: 1, baseQty: q };
+    }),
+  },
   vanLoadItem: {
-    findMany: async ({ where }: { where: { vanLoad: { tenantId: string; salesRepId: string } } }) => {
+    findMany: async ({ where }: { where: { productId?: unknown; vanLoad: { tenantId: string; salesRepId: string } } }) => {
+      // قراءة رصيد المستودع (D2، مقيّدة بالأصناف) ليست computeStock: بلا حركات سيارة والوارد وفير، ولا تُسجَّل في التسلسل
+      if ('productId' in where) return [];
       S.log.push('computeStock');
       return S.vanItems.map((it) => ({ it, l: loadOf(it.vanLoadId) })).filter(({ l }) => l.tenantId === where.vanLoad.tenantId && l.salesRepId === where.vanLoad.salesRepId)
         .map(({ it, l }) => ({ productId: it.productId, qty: it.qty, unitFactor: it.unitFactor, baseQty: it.baseQty, vanLoad: { type: l.type, createdAt: l.createdAt } }));
@@ -840,7 +853,8 @@ test('§١٠: الميزة المطفأة أو الصنف غير المتتبَ�
   assert.equal(untracked.statusCode, 201);
   assert.ok(!('warnings' in untracked.body!));
   // D25: إعادة قراءة التتبّع تحت FOR KEY SHARE في معاملة الكتابة وحدها (البوابة B-d25-guards) — لا طابور ولا قفل لوط ولا تجميع
-  assert.deepEqual(S.log, ['product.findMany', 'q:FOR KEY SHARE', 'q:FOR KEY SHARE', 'create:vanLoad'], 'قفل الأساس ثم إعادة قراءة التتبّع');
+  // D10: التنزيل يُنقص المتاح ⇒ قفل `van-sellable:` بعد أقفال الأصناف (VAN_LOCK_ORDER) فيتسلسل مع حارس إلغاء المرتجع
+  assert.deepEqual(S.log, ['product.findMany', 'q:FOR KEY SHARE', 'q:FOR KEY SHARE', 'exec:bucket:van-sellable:r1', 'create:vanLoad'], 'قفل الأساس ثم إعادة قراءة التتبّع ثم قفل المتاح');
   assert.deepEqual(S.txOpts, [{ maxWait: 10_000, timeout: 20_000 }], 'BASE_GUARD_TX لا مهلة اللوط');
   assert.equal(S.vanItemLots.length, 0);
 });
@@ -1100,7 +1114,7 @@ test('B2 (§١٠.١): الميزة مطفأة — حقول اللوط في ال�
   S.log = []; S.txOpts = [];
   const res = await post({ salesRepId: 'r1', type: 'UNLOAD', items: [{ productId: 'pU', qty: 2, lots: [{ lotId: 'l1', qty: 2 }], lotNumber: 'X1', expiryDate: FAR1 }] });
   assert.equal(res.statusCode, 201, JSON.stringify(res.body));
-  assert.deepEqual(S.log, ['product.findMany', 'q:FOR KEY SHARE', 'create:vanLoad'], 'قفل الأساس وحده («الوحدة الرئيسية» §2.7)');
+  assert.deepEqual(S.log, ['product.findMany', 'q:FOR KEY SHARE', 'exec:bucket:van-sellable:r1', 'create:vanLoad'], 'قفل الأساس («الوحدة الرئيسية» §2.7) ثم قفل المتاح للتنزيل (D10)');
   assert.deepEqual(S.txOpts, [{ maxWait: 10_000, timeout: 20_000 }]);
   assert.deepEqual(lotRowsOf(lastLoad().id), [[]]);
 });
@@ -1196,4 +1210,26 @@ test('مسار اللوط: أساسٌ تغيّر بين القراءة المس�
     }
   }
   // والأساس نفسه ⇒ مسار اللوط كما كان: بقية اختبارات هذا الملف تمرّ والحارس في مكانه (صفوف القفل تحمل unit مطابقاً)
+});
+
+test('D2 في مسار اللوط: تحميلٌ فوق رصيد المستودع للصنف 422 WAREHOUSE_INSUFFICIENT بعد أقفال اللوط وقبل الخطة — بلا صفوف ولا حركة', async () => {
+  reset();
+  lot('l1', 'pB', FAR1);
+  receive('pB', 10, 'l1');
+  whOverride = new Map([['pB', 4]]);
+  try {
+    const n0 = S.vanLoads.length;
+    S.log = [];
+    const r = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pB', qty: 5 }] });
+    assert.equal(r.statusCode, 422, JSON.stringify(r.body));
+    assert.equal(r.body!.code, 'WAREHOUSE_INSUFFICIENT');
+    assert.deepEqual(r.body!.lines, [{ index: 0, indexes: [0], productId: 'pB', availableBase: 4, requestedBase: 5 }]);
+    assert.equal(S.vanLoads.length, n0, 'لا حركة');
+    assert.ok(S.log.includes('exec:lot'), `أقفال اللوط قبل الحكم: ${S.log.join(' ')}`);
+    assert.ok(!S.log.includes('q:van_load_item_lots') && !S.log.includes('create:vanLoad'), `لا خطة ولا إنشاء: ${S.log.join(' ')}`);
+    whOverride = new Map([['pB', 5]]);
+    assert.equal((await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pB', qty: 5 }] })).statusCode, 201, 'الرصيد تماماً يمرّ');
+  } finally {
+    whOverride = null;
+  }
 });

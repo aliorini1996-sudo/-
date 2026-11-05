@@ -174,8 +174,8 @@ test('POST بلا primaryUnitName: المسار القائم حرفياً — و
     scripted['product.create'] = (a) => ({ id: 'p-new', ...a.data });
     const r = await call('POST', '/api/products', body);
     assert.equal(r.status, 201, JSON.stringify(r.body));
-    assert.deepEqual(ops(), ['product.findFirst', 'product.create'], 'لا معاملة ولا وحدات');
-    seen.push(calls[1].args);
+    assert.deepEqual(ops(), ['product.findFirst', 'product.findMany', 'product.create'] /* D4: قراءة الاسم المكرَّر */, 'لا معاملة ولا وحدات');
+    seen.push(calls[2].args);
   }
   assert.deepEqual(seen[1], seen[0], 'createArgs نفسه بالجسمين');
   assert.ok(!('units' in seen[0].data) && !('primaryUnitId' in seen[0].data) && !('primaryUnitName' in seen[0].data));
@@ -395,8 +395,8 @@ test('PUT /:id بلا مسّ الأساس (اسم أو صورة) ⇒ المسا�
   world();
   const r = await call('PUT', '/api/products/p1', { name: 'مياه', image: '', primaryUnitId: 'u-zz', expectedBaseName: 'كرتون' });
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(ops(), ['product.findFirst', 'product.update']);
-  const data = calls[1].args.data;
+  assert.deepEqual(ops(), ['product.findFirst', 'product.findMany', 'product.update'] /* D4: قراءة الاسم المكرَّر */);
+  const data = calls[2].args.data;
   for (const k of ['primaryUnitId', 'expectedBaseName', 'primaryUnit']) assert.ok(!(k in data), `${k} في بيانات التعديل`);
 });
 

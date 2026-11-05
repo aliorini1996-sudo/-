@@ -346,7 +346,8 @@ test('فخّ «×5» نصّاً (§10): selects العرض في vanStock.ts وwa
   const mv = between(van, "router.get('/movements'", "router.get('/tools'");
   assert.equal((mv.match(/product: \{ select: \{ name: true, unit: true, primaryUnitId: true \} \}/g) ?? []).length, 2, 'التحميلات والفواتير');
   assert.ok(mv.includes('({ primaryUnitId: p?.primaryUnitId || null })'), 'المفتاح حاضرٌ دائماً: المعرّف أو null (D18)');
-  assert.ok(van.includes('select: { id: true, name: true, unit: true, code: true, primaryUnitId: true } }'), 'computeStock (GET /current)');
+  // ومعها الحالة والأرشفة لوسم الصفّ (S1، مراجعة المخزون) — عرضٌ فقط
+  assert.ok(van.includes('select: { id: true, name: true, unit: true, code: true, primaryUnitId: true, status: true, deletedAt: true } }'), 'computeStock (GET /current)');
   assert.ok(between(wh, "router.get('/entries'", 'export default router').includes('product: { select: { name: true, unit: true, primaryUnitId: true } }'));
   assert.ok(read('services/warehouseStock.ts').includes('units: { select: UNIT_SELECT }, primaryUnitId: true },'), 'loadWarehouseInputs');
   // I2: الحساب لا يقرأ الرئيسية

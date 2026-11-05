@@ -36,6 +36,8 @@ import BarcodeScanner from './BarcodeScanner';
 import SaleInvoicePicker, { type ReturnableSale } from './SaleInvoicePicker';
 import LanguageToggle from '../components/LanguageToggle';
 import { useT, useTr } from '../i18n/strings';
+import { useLang } from '../i18n/lang';
+import { arCountText } from '../lib/arCount';
 import { METHOD_CHOICE_UNAVAILABLE, choicePayload, pickChoice, receiptChoicesFor, type ChoicesOptions } from '../lib/paymentMethodsConfig';
 import { methodIconComponent } from '../components/PaymentMethodIcon';
 import RepRouteScreen, { fetchMyRoute, RouteToday } from './RepRouteScreen';
@@ -47,6 +49,9 @@ import PresenceCheckModal from './PresenceCheck';
 import { installPresenceAlarmUnlock } from './presenceAlarm';
 import type { PendingPresence } from './presencePhase';
 import { underCutoverReview } from './outboxReview';
+// مراجعة المخزون (D5 والبند ١٣): حجز فاتورةٍ فوق مخزون السيارة، وشاشة «مخزون سيارتي» دون اتصال
+import { underVanStockHeld } from './vanStockHeld';
+import { VAN_CURRENT_CACHE_PREFIX, vanCurrentCacheOf, vanRowsWithPending, type VanCurrentCache } from './vanStockOffline';
 import { COMPANY_REFRESH_TICK_MS, companyRefreshDue, docOpenRefreshDue, withLiveCompany } from './companyRefresh';
 import { APP_UPDATE_CHECK_GAP_MS, APP_UPDATE_TRIED_KEY, fetchLatestBuildId, isNewerBuild, shouldAutoReload } from './appUpdate';
 import { BUILD_ID } from '../lib/buildId';
@@ -4048,8 +4053,15 @@ const DECIDED_SHOWN_MS = 7 * 24 * 3600 * 1000;
 // ============ مخزون سيارتي ============
 // canLoad: صلاحية التحميل. ومن لا يملكها وشركته تفعّل مخزون الشركة (canRequest) يرى «طلب بضاعة» مكان «تحميل»:
 // يكتب كمية كل صنف ويرفعها، فتظهر للإدارة في «طلب مخزون» بصفحة مخزون الشركة (طلب المالك، ١٥ أكتوبر ٢٠٢٦)
+/** صفّ /van-stock/current كما تعرضه الشاشة — pendingBase ما طُرح من «المتبقّي» لفواتير الصندوق التي لم تُرفع (البند ١٣) */
+type RepVanRow = {
+  productId: string; name: string; code: string; unit: string; loaded: number; sold: number; returned: number; remaining: number;
+  expired?: number; damaged?: number; units?: UnitDef[] | null; primaryUnitId?: string | null; pendingBase?: number;
+};
+
 function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: boolean }) {
   const tr = useTr();
+  const lang = useLang((s) => s.lang);
   const lots = useContext(RepLotsContext);
   /* «تتبّع اللوط» (§٦.٣): لكل صنفٍ متتبَّع تشغيلاته من لقطة السيارة (الرقم والانتهاء وما بقي صالحاً بعد المعلّق) بوسومها، و«متاح»
    * مكان «متبقٍّ». واللقطة تُجلب مع أرصدة الشاشة نفسها (فتحها وبعد التحميل) فلا تخالفها. والميزة مطفأة: الشاشة كما كانت */
@@ -4064,7 +4076,12 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
   // expired: «منتهي الصلاحية» في السيارة — مرتجعٌ عاد بعد انتهاء صلاحيته، لا يُباع ولا يدخل المتبقّي حتى تزيله الإدارة
   // damaged: «المرتجع التالف» — مرتجعٌ سجّله المندوب «بضاعة تالفة»، لا يُباع ولا يدخل المتبقّي حتى تزيله الإدارة
   // الأرصدة بالأساس، و`units` وحدات الصنف من الخادم (/van-stock/current) لعرضها «٢ كرتون و٣ حبة» — ولو خرج الصنف من الكتالوج النشط
-  const [stock, setStock] = useState<{ productId: string; name: string; code: string; unit: string; loaded: number; sold: number; returned: number; remaining: number; expired?: number; damaged?: number; units?: UnitDef[] | null; primaryUnitId?: string | null }[]>([]);
+  // stock: الصفوف المعروضة — «المتبقّي» فيها بعد طرح فواتير الصندوق التي لم تُرفع (البند ١٣)، وstockRaw ردّ الخادم أو كاشه بلحظة بدء جلبه
+  const [stock, setStock] = useState<RepVanRow[]>([]);
+  const [stockRaw, setStockRaw] = useState<{ rows: RepVanRow[]; fetchedAt: number } | null>(null);
+  // دون اتصال: لحظة النسخة المحفوظة المعروضة (cached)، أو لا نسخة (none) — فلا تقول الشاشة «لا بضاعة» لسيارةٍ لا تعرفها
+  const [net, setNet] = useState<{ kind: 'ok' } | { kind: 'cached'; at: number } | { kind: 'none' }>({ kind: 'ok' });
+  const [pendingDocs, setPendingDocs] = useState(0);
   // عهدة أدوات السيارة (عربة، سلة…) — تسجّلها الإدارة، والمندوب يطّلع عليها وحسب
   const [tools, setTools] = useState<{ toolName: string; qty: number }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -4076,16 +4093,53 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // D8: مرجع محاولة الحفظ الجارية (جسمها ومرجعها) — يُعاد مع إعادة المحاولة نفسها
+  const loadAttempt = useRef<{ key: string; ref: string } | null>(null);
+  // D2: أصنافٌ ردّها الخادم 422 WAREHOUSE_INSUFFICIENT ومتاحها في مخزون الشركة بالأساس
+  const [whShort, setWhShort] = useState<Map<string, number>>(new Map());
 
   // afterLoad: بعد تحميلٍ سجّله المندوب للتوّ — جلبٌ جارٍ بدأ قبله (فتح الشاشة) لا يعرفه، فيُلحق به جلبٌ يبدأ بعده (fresh)
   const loadStock = useCallback(async (afterLoad = false) => {
     setLoading(true);
     if (lotsRef.current?.on) void lotsRef.current.refresh(0, afterLoad); // «تتبّع اللوط»: اللقطة مع الأرصدة (خلفياً)
-    try { const r = await repApi.get('/van-stock/current'); setStock(r.data.data); } catch { /* offline */ }
+    /* مراجعة المخزون (البند ١٣): الردّ يُحفظ لهذا المندوب بلحظة بدء الطلب، ودون اتصال تُعرض آخر نسخة بوسمها بدل «لا بضاعة».
+     * وخطأ خادمٍ (لا انقطاع) يُبقي ما على الشاشة كما كان */
+    const me = currentRepId();
+    const startedAt = Date.now();
+    try {
+      const r = await repApi.get('/van-stock/current');
+      const rows = (Array.isArray(r.data?.data) ? r.data.data : []) as RepVanRow[];
+      // الصفوف فوراً (بلا وميض «لا بضاعة»)، ثم يطرح الأثر أدناه معلّق الصندوق
+      setStock(rows); setStockRaw({ rows, fetchedAt: startedAt }); setNet({ kind: 'ok' });
+      if (me) void cacheSet<VanCurrentCache<RepVanRow>>(VAN_CURRENT_CACHE_PREFIX + me, { v: 1, repId: me, fetchedAt: startedAt, rows }).catch(() => { /* IndexedDB محجوب */ });
+    } catch (e) {
+      if (isNetworkError(e)) {
+        const c = me ? vanCurrentCacheOf<RepVanRow>((await cacheGet<unknown>(VAN_CURRENT_CACHE_PREFIX + me).catch(() => null))?.data, me) : null;
+        if (c) { setStock(c.rows); setStockRaw({ rows: c.rows, fetchedAt: c.fetchedAt }); setNet({ kind: 'cached', at: c.fetchedAt }); }
+        else setNet({ kind: 'none' });
+      }
+    }
     try { const t = await repApi.get('/van-stock/tools'); setTools(t.data.data?.balances ?? []); } catch { /* offline */ }
     setLoading(false);
   }, []);
   useEffect(() => { loadStock(); }, [loadStock]);
+  /* البند ١٣: «المتبقّي» بعد طرح فواتير البيع التي في الصندوق ولم يعرفها الردّ (المنتظرة والمرفوضة والمحجوزة، والمرفوعة بعد بدء الجلب)
+   * — ويُعاد مع كل تغيّرٍ في الصندوق. الصنف المتتبَّع يُعرض من لقطة اللوط (تطرح المعلّق بنفسها) فلا يُطرح هنا */
+  const lotTrackedKey = lotStored ? lotStored.snap.tracked.join('|') : '';
+  useEffect(() => {
+    if (!stockRaw) return;
+    let alive = true;
+    const apply = () => {
+      outboxAll().then((docs) => {
+        if (!alive) return;
+        const r = vanRowsWithPending(stockRaw.rows, docs, stockRaw.fetchedAt, currentRepId(), products, new Set(lotTrackedKey ? lotTrackedKey.split('|') : []));
+        setStock(r.rows); setPendingDocs(r.pendingDocs);
+      }).catch(() => { if (alive) { setStock(stockRaw.rows); setPendingDocs(0); } });
+    };
+    apply();
+    const off = onOutboxChange(apply);
+    return () => { alive = false; off(); };
+  }, [stockRaw, products, lotTrackedKey]);
   useEffect(() => { (async () => { const { data } = await fetchThenCache('products', async () => (await repApi.get('/products', { params: { limit: 1000, status: 'ACTIVE' } })).data.data); if (data) setProducts(data as { id: string; name: string; unit: string; code: string; units?: UnitDef[] | null; primaryUnitId?: string | null }[]); })(); }, []);
   /* ردّ 400 UNIT_INVALID (وحدةٌ أُوقفت أو لم تعد للصنف — كاش الجهاز قديم): الكتالوج من الخادم وحده (كاشٌ يعود بدله هو
    * القديم نفسه ⇒ null)، والمستدعي يعيد وحدات صفوفه إليه */
@@ -4232,15 +4286,28 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
     // ووحدة الصفّ بمعرّفها — بدونها يدخل تحميل ١٠ كراتين السيارةَ ١٠ حبّات. و`baseUnitName` أساس الصفّ كما رآه الكتالوج (§6.4)
     const items = rows.map(r => ({ productId: r.productId, qty: Number(r.qty), ...(r.unitId && { unitId: r.unitId }), ...(r.baseUnit && { baseUnitName: r.baseUnit }) })).filter(i => i.qty > 0);
     if (!items.length) { setMsg({ ok: false, text: tr('أضف صنفا وكمية صحيحة') }); return; }
-    setSaving(true); setMsg(null);
+    setSaving(true); setMsg(null); setWhShort(new Map());
+    const body = { type: 'LOAD', note: note.trim() || undefined, items };
+    // مراجعة المخزون (D8): مرجعٌ واحد لكل محاولة حفظ يُعاد مع إعادتها (ضاع الردّ بعد الحفظ فضغط «حفظ» ثانية) فيردّ الخادم التحميل
+    // القائم 200 بلا تسجيله مرتين — وجسمٌ تغيّر محاولةٌ جديدة بمرجعٍ جديد
+    loadAttempt.current = attemptClientRef(loadAttempt.current, body, newClientRef);
     try {
       // «تتبّع اللوط»: بلا حقل تشغيلة — الخادم يخصّص FEFO من المستودع، ورسالة النجاح تذكر ما خصّصه
-      const res = await repApi.post('/van-stock/loads', { type: 'LOAD', note: note.trim() || undefined, items });
+      const res = await repApi.post('/van-stock/loads', { ...body, clientRef: loadAttempt.current.ref });
+      loadAttempt.current = null;
       setRows([]); setNote(''); setView('list'); loadStock(true);
       const lotText = lotOn ? loadLotsText(res.data?.data?.items) : '';
-      setMsg({ ok: true, text: lotText ? `${tr('تم تسجيل التحميل بنجاح')} — ${tr('التشغيلات')}: ${lotText}` : tr('تم تسجيل التحميل بنجاح') });
+      // D8: محاولةٌ سبق حفظها (replay) — لا تحميل ثانٍ
+      const done = res.data?.replay === true ? tr('سبق حفظ هذه الحركة فلم تسجل مرة ثانية') : tr('تم تسجيل التحميل بنجاح');
+      setMsg({ ok: true, text: lotText ? `${done} — ${tr('التشغيلات')}: ${lotText}` : done });
     } catch (e) {
       setMsg({ ok: false, text: (e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الحفظ') });
+      // D2: رصيد مخزون الشركة لا يكفي (422 WAREHOUSE_INSUFFICIENT، لا يُحفظ شيء) — المتاح بجوار كل صنفٍ ناقص
+      const d = (e as { response?: { data?: { code?: string; lines?: unknown } } })?.response?.data;
+      if (d?.code === 'WAREHOUSE_INSUFFICIENT' && Array.isArray(d.lines)) {
+        setWhShort(new Map((d.lines as { productId?: unknown; availableBase?: unknown }[])
+          .filter(l => typeof l?.productId === 'string').map(l => [l.productId as string, Number(l.availableBase) || 0])));
+      }
       // وحدة صفٍّ لم تعد صالحة: الكتالوج من الخادم، وكل صفٍّ بوحدته إن بقيت وإلا بالأساس بمعامله (rebaseRow) — ثم يعيد المندوب الحفظ
       if (isUnitInvalid(e)) {
         const fresh = await reloadProducts();
@@ -4354,10 +4421,16 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
                     ))}
                   </div>
                 ) : <p className="text-[10px] text-gray-400">{r.unit}</p>}
+                {/* D2: ردّ 422 WAREHOUSE_INSUFFICIENT — متاح مخزون الشركة لهذا الصنف (بالأساس، وبوحداته إن كان له) */}
+                {whShort.has(r.productId) && (() => {
+                  const prod = products.find(x => x.id === r.productId);
+                  const n = whShort.get(r.productId) ?? 0;
+                  return <p className="text-[10px] font-semibold text-red-600">{tr('المتاح في المستودع')}: {unitsText(n, prod, fmt) ?? `${fmt(n)} ${prod?.unit ?? ''}`}</p>;
+                })()}
               </div>
               <input type="number" min="0" step="any" inputMode="decimal" value={r.qty}
-                onChange={e => setRows(rs => rs.map((x, j) => j === i ? { ...x, qty: e.target.value } : x))}
-                className="w-20 text-center border border-gray-200 rounded-lg py-1.5" />
+                onChange={e => { setRows(rs => rs.map((x, j) => j === i ? { ...x, qty: e.target.value } : x)); setWhShort(m => { if (!m.has(r.productId)) return m; const n = new Map(m); n.delete(r.productId); return n; }); }}
+                className={`w-20 text-center border rounded-lg py-1.5 ${whShort.has(r.productId) ? 'border-red-300' : 'border-gray-200'}`} />
               <button onClick={() => setRows(rs => rs.filter((_, j) => j !== i))} className="text-red-400 p-1"><Trash2 size={16} /></button>
             </div>
           ))}
@@ -4395,6 +4468,21 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
         )}
       </div>
       {msg && msg.ok && <div className="mx-3 mt-3 bg-green-50 text-green-700 text-xs rounded-lg px-3 py-2 flex items-center gap-1.5"><Check size={14} /> {msg.text}</div>}
+      {/* البند ١٣: دون اتصال — آخر نسخة محفوظة بوقتها، و«المتبقّي» بعد فواتير الصندوق التي لم تُرفع */}
+      {net.kind === 'cached' && (
+        <div className="mx-3 mt-3 bg-gray-100 text-gray-700 text-xs rounded-lg px-3 py-2">
+          {tr('غير متصل — آخر تحديث {time}').replace('{time}', () => new Date(net.at).toLocaleString(activeLocale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}
+        </div>
+      )}
+      {pendingDocs > 0 && (
+        <div className="mx-3 mt-3 bg-amber-50 text-amber-800 text-xs rounded-lg px-3 py-2">
+          {/* المعدود بتمييزه بالعربية («3 فواتير» لا «3 فاتورة»)، والعدد بأرقام العرض. والصندوق يشمل المنتظر والمحجوز والمرفوض
+              والمرفوع بعد آخر تحديث — فلا يُقال «لم ترفع بعد» عنها كلها */}
+          {tr('المتبقي بعد خصم {n} من صندوق الإرسال').replace('{n}', () => (lang === 'ar'
+            ? arCountText(pendingDocs, 'فاتورة', (n) => n.toLocaleString(activeLocale()))
+            : pendingDocs.toLocaleString(activeLocale())))}
+        </div>
+      )}
       {!canLoad && !canRequest && <div className="mx-3 mt-3 bg-amber-50 text-amber-700 text-xs rounded-lg px-3 py-2">{tr('يمكنك عرض مخزون السيارة فقط ولا تملك صلاحية تسجيل تحميل جديد')}</div>}
       {/* حالة طلب البضاعة: المعلّق يُفتح للتعديل، وآخر ما حُسم يبقى أسبوعاً */}
       {!canLoad && canRequest && (myReq?.pending ? (
@@ -4424,6 +4512,13 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
           </div>
         )}
         {loading ? <p className="text-center text-gray-400 text-sm py-8">{tr('جار التحميل')}</p>
+          : stock.length === 0 && net.kind === 'none' ? (
+            // البند ١٣: لا اتصال ولا نسخة محفوظة — لا «سيارة فارغة» ولا دعوة لتحميل
+            <div className="text-center py-10">
+              <Package size={40} className="mx-auto text-gray-300 mb-2" />
+              <p className="text-gray-400 text-sm">{tr('لا اتصال ولا نسخة محفوظة لمخزون سيارتك اتصل مرة لعرضه')}</p>
+            </div>
+          )
           : stock.length === 0 ? (
             <div className="text-center py-10">
               <Package size={40} className="mx-auto text-gray-300 mb-2" />
@@ -4528,8 +4623,9 @@ function OutboxPanel({ onClose, onSync, syncing }: { onClose: () => void; onSync
             {tr('مستندات صدرت دون اتصال قبل تفعيل الفوترة الإلكترونية محجوزة لمراجعة الإدارة ولن تضيع ولا يلزمك شيء')}
           </div>
         )}
-        {/* «تتبّع اللوط» (D20): فاتورةٌ دون اتصال لا يكفيها رصيد السيارة — محجوزةٌ في الصفّ حتى تسجّل الإدارة التحميل الناقص */}
-        {docs.some(underLotReplayHeld) && (
+        {/* «تتبّع اللوط» (D20): فاتورةٌ دون اتصال لا يكفيها رصيد السيارة — محجوزةٌ في الصفّ حتى تسجّل الإدارة التحميل الناقص.
+            ومراجعة المخزون (D5): وكذلك الصنف غير المتتبَّع لمندوبٍ بلا «البيع بدون مخزون» */}
+        {docs.some(d => underLotReplayHeld(d) || underVanStockHeld(d)) && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-800 leading-relaxed">
             {tr('فواتير صدرت دون اتصال لا يكفيها رصيد السيارة محجوزة حتى تسجل الإدارة التحميل الناقص ولن تضيع')}
           </div>
@@ -4568,11 +4664,11 @@ function OutboxPanel({ onClose, onSync, syncing }: { onClose: () => void; onSync
             <p className="text-xs font-bold text-amber-600 mb-2">{tr('بانتظار الرفع')} ({pendingList.length})</p>
             <div className="space-y-2">
               {pendingList.map(d => (
-                <div key={d.clientRef} className={`bg-amber-50 border border-amber-100 rounded-xl p-3 flex items-center justify-between${underLotReplayHeld(d) ? ' flex-wrap' : ''}`}>
+                <div key={d.clientRef} className={`bg-amber-50 border border-amber-100 rounded-xl p-3 flex items-center justify-between${underLotReplayHeld(d) || underVanStockHeld(d) ? ' flex-wrap' : ''}`}>
                   <span className="text-sm text-gray-800">{kindLabel(d.kind)} {d.localNumber ? `· ${d.localNumber}` : ''} {custName(d) && `· ${custName(d)}`}</span>
                   <span className="text-[11px] text-amber-600">{underCutoverReview(d) ? tr('قيد مراجعة الإدارة') : new Date(d.clientCreatedAt).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}</span>
-                  {/* «تتبّع اللوط» (D20): وسم الانتظار ورسالة الخادم بسببه */}
-                  {underLotReplayHeld(d) && (
+                  {/* «تتبّع اللوط» (D20) ومراجعة المخزون (D5): وسم الانتظار ورسالة الخادم بسببه */}
+                  {(underLotReplayHeld(d) || underVanStockHeld(d)) && (
                     <p className="w-full mt-1 text-[11px] font-semibold text-amber-800 leading-relaxed">
                       {tr('بانتظار الإدارة: تحميل ناقص')}{d.error ? ` — ${d.error}` : ''}
                     </p>

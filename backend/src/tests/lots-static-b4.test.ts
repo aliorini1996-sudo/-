@@ -79,7 +79,9 @@ test('R1: مسار التحميل لا يستدعي دوال اللوط إلا �
 test('§١٠.١: العلمان في قراءة المندوب القائمة، والأصناف بقراءةٍ واحدة، والفروع القائمة معاملاتٌ بقفل الأساس وBASE_GUARD_TX', () => {
   assert.ok(post.includes('include: { tenant: { select: { locationsEnabled: true, lotTrackingEnabled: true, warehouseEnabled: true } } } });'), 'لا استعلام للعلم');
   assert.equal((post.match(/prisma\.product\.(count|findMany)\(/g) ?? []).length, 1, 'قراءةٌ واحدة للأصناف كما كان العدّ');
-  assert.ok(post.includes("if (products.length !== productIds.length) { res.status(400).json({ success: false, message: 'منتج غير صالح' }); return; }"));
+  // مراجعة المخزون #23 وD3: صنفٌ غريب 400 PRODUCT_NOT_FOUND بموضع سطره، وتحميل المؤرشف 422 PRODUCT_ARCHIVED — قبل حلّ الوحدات
+  assert.ok(post.includes("const refused = lineProductRefusal(items, products, { rejectArchived: data.type === 'LOAD' ? 'LOAD' : null });"));
+  assert.ok(post.indexOf('lineProductRefusal(items') < post.indexOf('await resolveLineUnits('), 'الحكم على الأصناف قبل حلّ وحداتها');
   const legacy = between(post, '\n    const load = outBucket', 'res.status(201).json({ success: true, data: load });');
   assert.equal((legacy.match(/await prisma\.\$transaction\(async \(tx\) => \{/g) ?? []).length, 3, 'الإزالة وغير المتتبَّع والمطفأ');
   assert.equal((legacy.match(/await lockBases\(tx, tid, expected\);/g) ?? []).length, 3);
