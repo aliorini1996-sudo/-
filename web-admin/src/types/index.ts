@@ -319,6 +319,80 @@ export interface PriceList {
   sortOrder: number;
   /** عملاء نوعهم هذا — الحذف يُردّ 409 PRICE_LIST_IN_USE ما دام فوق الصفر */
   customersCount?: number;
+  /** أصنافٌ لها سعر ثابت في القائمة، وقواعدها (للعرض في لوحة القوائم) */
+  itemsCount?: number;
+  rulesCount?: number;
+}
+
+/** قاعدة في «قائمة أسعار» (طلب المالك ٥ نوفمبر ٢٠٢٦) — كما يردّها الخادم. الحلّ في lib/priceRules.ts */
+export interface PriceListRule {
+  id: string;
+  priceListId: string;
+  scope: 'product' | 'category' | 'all';
+  productId: string | null;
+  categoryId: string | null;
+  kind: 'fixed' | 'percent';
+  /** سعر ثابت لصنف: صافٍ لوحدة **الأساس** بست منازل */
+  basePrice: number | null;
+  /** سعر ثابت لفئة: صافٍ للوحدة **الرئيسية** لكل صنف */
+  primaryPrice: number | null;
+  /** موجبة خصم وسالبة زيادة، من سعر الصنف بلا قائمة */
+  percent: number | null;
+  /** بالوحدة الرئيسية؛ 0 = بلا حدّ */
+  minQty: number;
+  startsOn: string | null;
+  endsOn: string | null;
+  updatedAt?: string;
+  /** للعرض (GET /price-lists/:id/rules) */
+  productName?: string | null;
+  productCode?: string | null;
+  categoryName?: string | null;
+  /** الوحدة الرئيسية للصنف (للعرض والإدخال) */
+  primaryUnit?: { id: string; name: string; factor: number } | null;
+  /** أساس الصنف كما كُتب به السعر (لإعادة الحساب بعد تحويل الأساس — كأسعار القائمة) */
+  unit?: string | null;
+  baseConvertedAt?: string | null;
+}
+
+/** جسم إنشاء/تعديل قاعدة: price بالوحدة **الرئيسية** للصنف أو للفئة؛ وللصنف أساسه ورئيسيّته كما أُدخل بهما */
+export interface PriceRuleInput {
+  scope: 'product' | 'category' | 'all';
+  productId?: string | null;
+  categoryId?: string | null;
+  kind: 'fixed' | 'percent';
+  price?: number | null;
+  percent?: number | null;
+  minQty?: number | null;
+  startsOn?: string | null;
+  endsOn?: string | null;
+  expectedBaseName?: string;
+  expectedPrimary?: { id: string; factor: number } | null;
+}
+
+/** صفّ في جدول أسعار القائمة (GET /price-lists/:id/items) */
+export interface PriceListItemRow {
+  productId: string;
+  code: string;
+  name: string;
+  categoryId: string | null;
+  categoryName: string | null;
+  /** أساس الصنف */
+  unit: string;
+  primaryUnit: { id: string; name: string; factor: number } | null;
+  /** سعر الصنف الافتراضي بالوحدة الرئيسية (الأساس بلاها) صافياً */
+  defaultPrice: number;
+  /** سعره في القائمة بالوحدة الرئيسية صافياً (أربع منازل)، أو null */
+  listPrice: number | null;
+  status?: string;
+}
+
+/** كتابة سعر صنفٍ في القائمة (PUT /price-lists/:id/items) */
+export interface PriceListItemWrite {
+  productId: string;
+  /** بالوحدة الرئيسية صافياً؛ null يحذف */
+  price: number | null;
+  expectedBaseName: string;
+  expectedPrimary?: { id: string; factor: number } | null;
 }
 
 /** ردّ GET /price-lists: اسم الرقاقة الأولى (null ⇒ «السعر الأساسي») والأنواع بترتيبها */

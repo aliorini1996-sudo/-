@@ -1,3 +1,4 @@
+import type { PriceListItemWrite, PriceRuleInput } from '../types';
 import axios from 'axios';
 import { sessionSpace, expiredDestination, useAuthStore } from '../store/authStore';
 import { FS_CAPS_HEADER, FS_CAPS_VALUE } from './caps';
@@ -141,6 +142,19 @@ export const priceListApi = {
   update: (id: string, data: { name?: string; sortOrder?: number }) => api.put(`/price-lists/${id}`, data),
   remove: (id: string) => api.delete(`/price-lists/${id}`),
   setBaseLabel: (label: string | null) => api.put('/price-lists/base-label', { label }),
+  /* «قوائم الأسعار» بقواعدها (طلب المالك ٥ نوفمبر ٢٠٢٦) — جدول أسعار القائمة وقواعدها (لمن يملك صلاحية الأصناف) */
+  /** كل قواعد القوائم (للتسعير في فاتورة الإدارة و/m): PriceListRule[] */
+  rules: () => api.get('/price-lists/rules'),
+  /** أصناف القائمة بأسعارها (صفحة): scope 'priced' المسعّرة فيها وحدها، 'all' كل الأصناف لإضافة سطر */
+  listItems: (id: string, params: { search?: string; categoryId?: string; scope?: 'priced' | 'all'; page?: number; limit?: number }) =>
+    api.get(`/price-lists/${id}/items`, { params }),
+  /** حفظ أسعار أصنافٍ في القائمة: price سعر **الوحدة الرئيسية** صافياً (null يحذف)، ومعه أساس الصنف ورئيسيّته كما أُدخل بهما */
+  saveItems: (id: string, items: PriceListItemWrite[]) => api.put(`/price-lists/${id}/items`, { items }),
+  /** قواعد قائمةٍ واحدة بأسماء أصنافها وفئاتها للعرض */
+  listRules: (id: string) => api.get(`/price-lists/${id}/rules`),
+  createRule: (id: string, data: PriceRuleInput) => api.post(`/price-lists/${id}/rules`, data),
+  updateRule: (ruleId: string, data: PriceRuleInput) => api.put(`/price-lists/rules/${ruleId}`, data),
+  removeRule: (ruleId: string) => api.delete(`/price-lists/rules/${ruleId}`),
 };
 
 // «الفرق» داخل الشركة — /api/company/teams (مطفأة افتراضياً، يفعّلها مدير الشركة من إعدادات الشركة)
