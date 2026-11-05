@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { companyApi, locationsApi } from '../api/client';
 import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { useOwnerBulkPurge } from '../components/OwnerBulkPurge';
 import { LocationPicker, LocationsMap, type MapPin as Pin } from '../components/locations/LocationMap';
 import { useTr } from '../i18n/strings';
 import { useAuthStore } from '../store/authStore';
@@ -335,6 +336,7 @@ function LocationsTab({ locations, canManage }: { locations: SalesLocation[]; ca
   const qc = useQueryClient();
   const [editing, setEditing] = useState<SalesLocation | 'new' | null>(null);
   const [deleting, setDeleting] = useState<SalesLocation | null>(null);
+  const purge = useOwnerBulkPurge('SalesLocation');
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['locations'] });
@@ -360,6 +362,7 @@ function LocationsTab({ locations, canManage }: { locations: SalesLocation[]; ca
 
   return (
     <div className="space-y-4">
+      {purge.bar}
       <div className="card p-0">
         <div className="px-5 py-3 border-b border-[#F1EBDF] flex items-center gap-3 flex-wrap">
           <b className="text-[#1F1A13] text-sm">{tr('مواقع الشركة')}</b>
@@ -382,6 +385,7 @@ function LocationsTab({ locations, canManage }: { locations: SalesLocation[]; ca
             <table className="table">
               <thead>
                 <tr>
+                  {purge.enabled && <th className="w-8 px-2">{purge.headerBox(locations.map(l => l.id))}</th>}
                   <th>{tr('اسم الموقع')}</th>
                   <th>{tr('الموقع على الخريطة')}</th>
                   <th>{tr('المناديب')}</th>
@@ -392,6 +396,7 @@ function LocationsTab({ locations, canManage }: { locations: SalesLocation[]; ca
               <tbody>
                 {locations.map(l => (
                   <tr key={l.id}>
+                    {purge.enabled && <td className="w-8 px-2">{purge.rowBox(l.id)}</td>}
                     <td className={`font-medium ${l.isActive ? 'text-gray-800' : 'text-gray-400'}`}>
                       <span className="inline-flex items-center gap-1.5"><MapPin size={13} className={l.isActive ? 'text-[#E15A30]' : 'text-[#9A8F7E]'} /> {l.name}</span>
                     </td>

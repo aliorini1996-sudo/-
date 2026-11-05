@@ -94,21 +94,24 @@ const keyOf = (pk: string[], row: Record<string, unknown>) => JSON.stringify(pk.
  */
 export class PurgeRefused extends Error {}
 
-export async function buildPurgePlan(db: Tx | typeof prisma, tenantId: string, model: string, id: string): Promise<PurgePlan> {
+export async function buildPurgePlan(db: Tx | typeof prisma, tenantId: string, model: string, idOrIds: string | readonly string[]): Promise<PurgePlan> {
+  // صفٌّ واحد أو عدّة صفوف من النوع نفسه (التحديد الجماعي في القوائم) — كلها من هذه الشركة وإلا رُفض الطلب كله
+  const ids = [...new Set(typeof idOrIds === 'string' ? [idOrIds] : idOrIds)];
+  if (!ids.length || ids.length > 500) throw new PurgeRefused('حدد من ١ إلى ٥٠٠ سجل');
   const root = byName.get(model);
   if (!root || !hasTenantId(root) || NOT_TARGETABLE.has(model)) throw new PurgeRefused('نوع غير معروف');
   const pk = pkFields(root);
   if (pk.length !== 1) throw new PurgeRefused('نوع غير مدعوم');
   const d = (db as unknown as Record<string, { findMany(a: unknown): Promise<Array<Record<string, unknown>>>; count(a: unknown): Promise<number> }>);
-  const first = await d[delegateOf(model)].findMany({ where: { [pk[0]]: id, tenantId }, select: { [pk[0]]: true } });
-  if (!first.length) throw new PurgeRefused('السجل غير موجود في هذه الشركة');
+  const first = await d[delegateOf(model)].findMany({ where: { [pk[0]]: { in: ids }, tenantId }, select: { [pk[0]]: true } });
+  if (first.length !== ids.length) throw new PurgeRefused(ids.length === 1 ? 'السجل غير موجود في هذه الشركة' : 'بعض السجلات المحددة غير موجودة في هذه الشركة');
 
   const plan: PurgePlan = { model, batches: [], nullify: [], counts: {}, nullCounts: {}, invoiceIds: [], receiptIds: [] };
   const seen = new Map<string, Set<string>>();
   const seenOf = (m: string) => { let s = seen.get(m); if (!s) { s = new Set(); seen.set(m, s); } return s; };
 
   // طابور: (نموذج، شرط) — كل دفعةٍ تُقرأ بمفاتيحها الأساسية والحقول المُشار إليها
-  const queue: Array<{ model: string; where: Record<string, unknown> }> = [{ model, where: { [pk[0]]: id, tenantId } }];
+  const queue: Array<{ model: string; where: Record<string, unknown> }> = [{ model, where: { [pk[0]]: { in: ids }, tenantId } }];
   let guard = 0;
   while (queue.length) {
     if (++guard > 5000) throw new PurgeRefused('سلسلة الحذف أطول من المسموح');
@@ -225,7 +228,7 @@ export function deletionOrder(plan: PurgePlan): string[] {
 }
 
 /** ينفّذ الخطة في معاملة واحدة: إعادة مبالغ تخصيص السندات القائمة، ثم التفريغ، ثم الحذف من الأبناء إلى الآباء، ثم تصحيح الأرصدة */
-export async function executePurge(tenantId: string, model: string, id: string): Promise<PurgeResult> {
+export async function executePurge(tenantId: string, model: string, id: string | readonly string[]): Promise<PurgeResult> {
   return prisma.$transaction(async (tx) => {
     const plan = await buildPurgePlan(tx, tenantId, model, id);
     const deltas = await totalsDelta(tx, plan);

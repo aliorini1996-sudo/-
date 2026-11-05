@@ -157,7 +157,8 @@ test('القوائم الثلاث تعرض الشارة، ولوحة الإدا�
   assert.match(page, /const phase2 = zatcaRegimeOf\(company\)\.phase === 2;/, 'عمود اللوحة بلا حارس نظام');
   assert.match(page, /\{phase2 && <th>\{tr\('الفوترة الإلكترونية'\)\}<\/th>\}/, 'ترويسة العمود مفقودة');
   // عدد الأعمدة يتبع الحارس وإلّا انزاح صفّ «لا توجد فواتير» — ومعه عمود «الموقع» المشروط («لوكيشن»)
-  assert.match(page, /const tableCols = \(phase2 \? 13 : 12\) \+ \(locOn \? 1 : 0\);/);
+  // ومعه عمود «حذف المحدد» لمالك المنصة وحده (OwnerBulkPurge) — أول عمود حين يظهر
+  assert.match(page, /const tableCols = \(phase2 \? 13 : 12\) \+ \(locOn \? 1 : 0\)( \+ \(purge\.enabled \? 1 : 0\))?;/);
   assert.equal((page.match(/colSpan=\{tableCols\}/g) || []).length, 2, 'صفّا التحميل والفراغ يتبعان عدد الأعمدة');
   assert.ok(!/colSpan=\{1[23]\}/.test(page), 'colSpan ثابت بقي مع عمودٍ مشروط');
   // الإجراءات لمستخدمي الشركة وحدهم وبشرط حالة الصفّ

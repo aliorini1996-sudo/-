@@ -20,6 +20,7 @@ import { buyerRelaxOn, zatcaCollectOn } from '../lib/zatcaRegime';
 import { BuyerField, BuyerRowLike } from '../lib/zatca/buyerData';
 import { BUYER_FIELD_UI_LABELS_AR as BUYER_FIELD_LABELS_AR, buyerBadge } from '../lib/zatca/buyerForm';
 import { withLiveCompany } from '../rep/companyRefresh';
+import { useOwnerBulkPurge } from '../components/OwnerBulkPurge';
 
 /** جلب إعدادات الشركة — نفسه للاستعلام ولـensureQueryData عند فتح كشف قبل اكتمال تحميلها (كالفواتير والسندات، D-G6) */
 const fetchCompany = async () => { const res = await companyApi.get(); return res.data.data as Company; };
@@ -48,6 +49,7 @@ export default function CustomersPage() {
   const [picked, setPicked] = useState<string[]>([]);
   // بحث قائمة بيانات الفوترة مؤجَّل 300ms (كـ/m): كل طلب منها يمسح عملاء الشركة على دفعات — لا مسح لكل ضغطة
   const [bucketSearch, setBucketSearch] = useState('');
+  const purge = useOwnerBulkPurge('Customer');
 
   const { data: company } = useQuery({ queryKey: ['company'], queryFn: fetchCompany });
   // «نصوص المطبوعات» تصل كشف الحساب المفتوح: تجدّد إعدادات الشركة (حفظ النصوص يحدّث ['company']) يُستبدل في نسخته
@@ -318,12 +320,14 @@ export default function CustomersPage() {
         )}
       </div>
 
+      {purge.bar}
       {/* Table */}
       <div className="card p-0">
         <div className="table-wrapper">
           <table className="table">
             <thead>
               <tr>
+                {purge.enabled && <th className="w-8 px-2">{purge.headerBox((rows ?? []).map(r => r.id))}</th>}
                 {bucketMode && <th />}
                 <th>{tr('الكود')}</th><th>{tr('العميل')}</th><th>{tr('الجوال')}</th><th>{tr('المدينة')}</th><th>{tr('القناة')}</th>
                 {accountingOn && !bucketMode && <th>{tr('الرصيد')}</th>}
@@ -334,9 +338,9 @@ export default function CustomersPage() {
             </thead>
             <tbody>
               {rowsLoading ? (
-                <tr><td colSpan={cols} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
+                <tr><td colSpan={cols + (purge.enabled ? 1 : 0)} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
               ) : rows?.length === 0 ? (
-                <tr><td colSpan={cols} className="text-center py-12 text-gray-400">{tr('لا توجد نتائج')}</td></tr>
+                <tr><td colSpan={cols + (purge.enabled ? 1 : 0)} className="text-center py-12 text-gray-400">{tr('لا توجد نتائج')}</td></tr>
               ) : rows?.map(c => {
                 const bucketBadge = c.bucket === 'incomplete' || c.bucket === 'unclassified' ? c.bucket : null;
                 // صفوف قائمة الفوترة تحمل حقول المشتري كلها: «ناقصة تصدر مبسطة» تُحسب من الصفّ نفسه (فكّ القيد وحده)
@@ -345,6 +349,7 @@ export default function CustomersPage() {
                   : buyerBadge(c as BuyerRowLike, buyerRelax);
                 return (
                 <tr key={c.id}>
+                  {purge.enabled && <td className="w-8 px-2">{purge.rowBox(c.id)}</td>}
                   {bucketMode && (
                     <td>
                       {selectable(c) && (

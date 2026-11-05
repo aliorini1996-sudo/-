@@ -22,6 +22,7 @@ import { deleteBalanceText, duplicateNameSavedText, duplicateNameWarningsOf, has
 import { fetchStockSummary } from '../lib/productGuardsApi';
 import PagePanelModal from '../components/PagePanelModal';
 import PriceListsPanel from '../components/priceLists/PriceListsPanel';
+import { useOwnerBulkPurge } from '../components/OwnerBulkPurge';
 
 /** حمولة حفظ الصنف — والتأكيد بعد 409 LOT_TRACKING_HAS_BALANCE (D9)، وأسعار «أنواع الأسعار» المتغيّرة من النافذة، وإقرار الاسم المكرَّر
  *  قبل الحفظ (D4: لا يُعاد تحذير الخادم بعده) */
@@ -48,6 +49,7 @@ export default function ProductsPage() {
   const [attention, setAttention] = useState<AttentionRow[] | null>(null);
   // «الوحدة الرئيسية»: ٤٠٩ «تغيّرت وحدات الصنف» عند الحفظ ⇒ تُعاد النافذة بالصنف كما في الخادم الآن (مفتاحٌ جديد يعيد تهيئتها)
   const [modalKey, setModalKey] = useState(0);
+  const purge = useOwnerBulkPurge('Product');
 
   // صفحة الأصناف كلّها أسعارٌ وضريبة: تُمنع مع المحاسبة، ولا يُطلَب جدولها أصلاً
   // (مسار /products يردّ ٤٠٣ فتظهر لافتة خطأ — واللافتة نفسها تسريب).
@@ -193,7 +195,7 @@ export default function ProductsPage() {
   const allPicked = pageIds.length > 0 && pageIds.every(id => picked.has(id));
   const togglePick = (id: string) => setPicked(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const togglePage = () => setPicked(s => { const n = new Set(s); for (const id of pageIds) { if (allPicked) n.delete(id); else n.add(id); } return n; });
-  const cols = 8 + (lotOn ? 1 : 0) + (canBulk ? 1 : 0);
+  const cols = 8 + (lotOn ? 1 : 0) + (canBulk ? 1 : 0) + (purge.enabled ? 1 : 0);
   // «الوحدة الرئيسية» (R4/R5): صنفٌ له رئيسية يُعرض وسمه «كرتون (24 قارورة)» وسعره سعر الرئيسية وتحته سعر الفرعية،
   // وأرصدته بالرئيسية (R1). وبلا رئيسية كل ذلك كما كان حرفاً (I1) — ومعه عنوان العمود
   const anyPrimary = rows.some(p => primaryUnitOf(p) !== null);
@@ -262,11 +264,13 @@ export default function ProductsPage() {
         )}
       </div>
 
+      {purge.bar}
       <div className="card p-0">
         <div className="table-wrapper">
           <table className="table">
             <thead>
               <tr>
+                {purge.enabled && <th className="w-8 px-2">{purge.headerBox(rows.map(p => p.id))}</th>}
                 {canBulk && (
                   <th className="w-8"><input type="checkbox" className="w-4 h-4 accent-[#E15A30]" aria-label={tr('تحديد أصناف الصفحة')}
                     checked={allPicked} onChange={togglePage} disabled={!pageIds.length} /></th>
@@ -281,6 +285,7 @@ export default function ProductsPage() {
                 <tr><td colSpan={cols} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
               ) : data?.data.map(p => { const pu = primaryUnitOf(p); return (
                 <tr key={p.id}>
+                  {purge.enabled && <td className="w-8 px-2">{purge.rowBox(p.id)}</td>}
                   {canBulk && (
                     <td><input type="checkbox" className="w-4 h-4 accent-[#E15A30]" aria-label={p.name}
                       checked={picked.has(p.id)} onChange={() => togglePick(p.id)} /></td>

@@ -79,3 +79,19 @@ test('الحارس: جلسة «دخول» أصدرها المالك وحدها �
   assert.equal(isPlatformOwnerSession(r({ role: 'ADMIN' })), false);
   assert.equal(isPlatformOwnerSession(r({ impersonated: true, byKind: 'OWNER', apiKeyId: 'k' })), false);
 });
+
+test('التحديد الجماعي: عدّة فواتير في خطة واحدة، وأي معرّفٍ من شركة أخرى يرفض الطلب كله', async () => {
+  const db = memDb({
+    invoice: [
+      { id: 'i1', tenantId: 't1', customerId: 'c1' }, { id: 'i2', tenantId: 't1', customerId: 'c1' },
+      { id: 'x9', tenantId: 't2', customerId: 'c9' },
+    ],
+    invoiceItem: [{ id: 'a', invoiceId: 'i1' }, { id: 'b', invoiceId: 'i2' }, { id: 'c', invoiceId: 'i2' }],
+  });
+  const plan = await buildPurgePlan(db as never, 't1', 'Invoice', ['i1', 'i2']);
+  assert.equal(plan.counts.Invoice, 2);
+  assert.equal(plan.counts.InvoiceItem, 3);
+  assert.deepEqual([...plan.invoiceIds].sort(), ['i1', 'i2']);
+  await assert.rejects(buildPurgePlan(db as never, 't1', 'Invoice', ['i1', 'x9']), /غير موجودة/);
+  await assert.rejects(buildPurgePlan(db as never, 't1', 'Invoice', []), /حدد/);
+});

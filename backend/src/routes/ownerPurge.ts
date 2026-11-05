@@ -50,13 +50,17 @@ router.get('/search', async (req: AuthRequest, res: Response, next: NextFunction
   } catch (err) { next(err); }
 });
 
-const TARGET = z.object({ model: MODEL, id: z.string().min(1).max(100) });
+const ID = z.string().min(1).max(100);
+/** سجلٌّ واحد (id) أو عدّة سجلات من النوع نفسه (ids — التحديد الجماعي في القوائم، حتى ٥٠٠) */
+const TARGET = z.object({ model: MODEL, id: ID.optional(), ids: z.array(ID).min(1).max(500).optional() })
+  .refine((v) => !!v.id || !!v.ids?.length, { message: 'حدد سجلاً' })
+  .transform((v) => ({ model: v.model, ids: v.ids?.length ? v.ids : [v.id!] }));
 
 /** المعاينة: ما سيُحذف وما يُفرَّغ مفتاحه — بلا كتابة */
 router.post('/preview', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { model, id } = TARGET.parse(req.body);
-    const plan = await buildPurgePlan(prisma, tenantId(req), model, id);
+    const { model, ids } = TARGET.parse(req.body);
+    const plan = await buildPurgePlan(prisma, tenantId(req), model, ids);
     res.json({ success: true, data: { counts: plan.counts, nullCounts: plan.nullCounts } });
   } catch (err) {
     if (err instanceof PurgeRefused) { res.status(404).json({ success: false, message: err.message }); return; }
@@ -67,14 +71,14 @@ router.post('/preview', async (req: AuthRequest, res: Response, next: NextFuncti
 /** الحذف النهائي */
 router.post('/delete', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { model, id } = TARGET.parse(req.body);
+    const { model, ids } = TARGET.parse(req.body);
     const tid = tenantId(req);
-    const result = await executePurge(tid, model, id);
+    const result = await executePurge(tid, model, ids);
     const u = req.user as unknown as { by?: string; id?: string };
     await prisma.platformAuditLog.create({
       data: {
         actorType: 'OWNER', actorId: String(u.by ?? ''), action: 'owner.purge', method: 'POST', path: '/api/owner-purge/delete', status: 200,
-        targetId: id, detail: JSON.stringify({ tenantId: tid, model, counts: result.counts, nullCounts: result.nullCounts }).slice(0, 4000),
+        targetId: ids[0], detail: JSON.stringify({ tenantId: tid, model, ids: ids.slice(0, 50), n: ids.length, counts: result.counts, nullCounts: result.nullCounts }).slice(0, 4000),
         ip: req.ip ?? null,
       },
     }).catch(() => { /* السجل لا يُسقط حذفاً تمّ */ });

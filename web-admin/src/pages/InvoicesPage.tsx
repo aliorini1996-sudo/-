@@ -27,6 +27,7 @@ import { cachedProduct, cachedProductName, returnCancelShortOf, returnCancelShor
 import { baseQtyText } from '../lib/adminUnits';
 import { priceListsOf } from '../lib/priceLists';
 import { withLiveCompany } from '../rep/companyRefresh';
+import { useOwnerBulkPurge } from '../components/OwnerBulkPurge';
 
 /** جلب إعدادات الشركة — نفسه للاستعلام ولـensureQueryData عند فتح مستند قبل اكتمال تحميلها (D-G6) */
 const fetchCompany = async () => { const res = await companyApi.get(); return res.data.data as Company; };
@@ -55,6 +56,8 @@ export default function InvoicesPage() {
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [cancelId, setCancelId] = useState<string | null>(null);
+  // «حذف المحدد» — لمالك المنصة وحده (يُستدعى قبل أي رجوع مبكر: قواعد الخطافات)
+  const purge = useOwnerBulkPurge('Invoice');
 
   const { data: company } = useQuery({ queryKey: ['company'], queryFn: fetchCompany });
   // «نصوص المطبوعات» تصل المستند المفتوح: تجدّد إعدادات الشركة يُستبدل في نسخته (لا نصوص لحظة الفتح)
@@ -266,7 +269,7 @@ export default function InvoicesPage() {
   if (!accountingOn) return <AccountingOffNotice />;
 
   // عدد الأعمدة يتبع العمودين المشروطين (الفوترة الإلكترونية والموقع) — وإلا انزاح صفّ «لا توجد فواتير»
-  const tableCols = (phase2 ? 13 : 12) + (locOn ? 1 : 0);
+  const tableCols = (phase2 ? 13 : 12) + (locOn ? 1 : 0) + (purge.enabled ? 1 : 0);
 
   return (
     <div>
@@ -328,11 +331,13 @@ export default function InvoicesPage() {
       </div>
 
       {/* Table */}
+      {purge.bar}
       <div className="card p-0">
         <div className="table-wrapper">
           <table className="table">
             <thead>
               <tr>
+                {purge.enabled && <th className="w-8 px-2">{purge.headerBox((data?.data ?? []).map(r => r.id))}</th>}
                 <th>{tr('رقم الفاتورة')}</th><th>{tr('العميل')}</th><th>{tr('المندوب')}</th>
                 {locOn && <th>{tr('الموقع')}</th>}
                 <th>{tr('النوع')}</th>
@@ -350,6 +355,7 @@ export default function InvoicesPage() {
                 <tr><td colSpan={tableCols} className="text-center py-12 text-gray-400">{tr('لا توجد فواتير')}</td></tr>
               ) : data?.data.map(inv => (
                 <tr key={inv.id}>
+                  {purge.enabled && <td className="w-8 px-2">{purge.rowBox(inv.id)}</td>}
                   <td className="font-mono text-sm text-[#E15A30]">{inv.number}</td>
                   <td className="font-medium text-gray-800">{inv.customer.name}</td>
                   <td className="text-gray-600 text-sm">{inv.salesRep?.name ?? '—'}</td>

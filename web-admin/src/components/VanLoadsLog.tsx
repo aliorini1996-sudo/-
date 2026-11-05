@@ -10,6 +10,7 @@ import { localDay } from '../lib/paymentMethods';
 import { loadByLabel, loadQty, loadsLogRows, locationFilterOptions, type SalesLocation, type VanLoadRow } from '../lib/locations';
 import { factorOf, sumBase } from '../lib/units';
 import { loadSumLabel } from '../lib/stockRequest';
+import { useOwnerBulkPurge } from './OwnerBulkPurge';
 
 /**
  * بند التحميل كما يردّه /van-stock/loads: الصفّ كاملاً، ومنه لقطة وحدته (unitName/unitFactor/baseQty) — الوحدات المتعددة.
@@ -44,6 +45,8 @@ export default function VanLoadsLog({ reps }: { reps: { salesRepId: string; repN
   const [locationId, setLocationId] = useState('');
   const [page, setPage] = useState(1);
   const [exporting, setExporting] = useState(false);
+  // «حذف المحدد» لمالك المنصة وحده (OwnerBulkPurge) — التحميل/التنزيل/التسوية سجلّات VanLoad
+  const purge = useOwnerBulkPurge('VanLoad');
   const rangeBad = !!from && !!to && from > to;
 
   const locationsQ = useQuery({
@@ -121,6 +124,7 @@ export default function VanLoadsLog({ reps }: { reps: { salesRepId: string; repN
         {rangeBad && <p className="text-xs text-red-600 basis-full">{tr('تاريخ البداية بعد تاريخ النهاية')}</p>}
       </div>
 
+      {purge.bar}
       {rangeBad ? null : logQ.isPending ? (
         <div className="p-8 text-center text-gray-400 text-sm">{tr('جار التحميل')}</div>
       ) : logQ.isError ? (
@@ -135,6 +139,7 @@ export default function VanLoadsLog({ reps }: { reps: { salesRepId: string; repN
           <table className="w-full text-sm">
             <thead>
               <tr className="text-[#6E6557] text-xs bg-[#FAF7F0]">
+                {purge.enabled && <th className="w-8 px-2">{purge.headerBox(rows.map(l => l.id))}</th>}
                 <th className="text-right font-semibold px-5 py-2.5">{tr('التاريخ')}</th>
                 <th className="text-right font-semibold px-3 py-2.5">{tr('المندوب')}</th>
                 <th className="text-right font-semibold px-3 py-2.5">{tr('الموقع')}</th>
@@ -150,6 +155,7 @@ export default function VanLoadsLog({ reps }: { reps: { salesRepId: string; repN
                 const sumLabel = loadSumLabel(items);
                 return (
                 <tr key={l.id} className="border-t border-[#F1EBDF] align-top">
+                  {purge.enabled && <td className="w-8 px-2 py-2.5">{purge.rowBox(l.id)}</td>}
                   <td className="px-5 py-2.5 text-xs text-[#6E6557] whitespace-nowrap">{formatDateTime(l.createdAt)}</td>
                   {/* D9: تحميل مندوبٍ حُذف بعده يبقى بمعرّفه (deletedSalesRepId) — «مندوب محذوف» لا شرطةٌ تُقرأ «بلا مندوب» */}
                   <td className="px-3 py-2.5 font-semibold text-[#1F1A13] whitespace-nowrap">{l.salesRep?.name ?? ((l as { deletedSalesRepId?: string | null }).deletedSalesRepId ? <span className="text-[#9A8F7E]">{tr('مندوب محذوف')}</span> : '—')}</td>

@@ -12,6 +12,7 @@ import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGa
 import DocumentModal from '../components/DocumentModal';
 import StockRequestModal from '../components/StockRequestModal';
 import StockZeroModal from '../components/StockZeroModal';
+import { useOwnerBulkPurge } from '../components/OwnerBulkPurge';
 import { warehouseNoticeDocFromEntry, Company } from '../rep/RepDocuments';
 import { useAuthStore, isStaffImpersonationClient } from '../store/authStore';
 import { biggestUnit, hasBigUnit, productUnitLabel } from '../lib/adminUnits';
@@ -193,6 +194,7 @@ export default function CompanyWarehousePage() {
     queryFn: async () => (await warehouseApi.entries()).data.data as WhEntry[],
     enabled: accountingReady && accountingOn,
   });
+  const purge = useOwnerBulkPurge('WarehouseEntry');
 
   // طلبات بضاعة المناديب المعلّقة — المفتاح نفسه الذي تقرؤه نافذة «طلب مخزون»، وعددها شارةٌ على زرّها
   const repReqQ = useQuery({
@@ -503,8 +505,10 @@ export default function CompanyWarehousePage() {
       </div>
 
       {/* سجلّ الوارد والتسويات */}
+      {purge.bar}
       <div className="card p-0 overflow-hidden">
         <div className="px-5 py-3.5 border-b border-[#F1EBDF] font-bold text-[#1F1A13] text-sm flex items-center gap-2">
+          {purge.enabled && purge.headerBox((entriesQ.data || []).map(e => e.id))}
           <ArrowRightLeft size={16} className="text-[#E15A30]" /> {tr('سجل الوارد والتسويات')}
         </div>
         {entriesQ.isLoading ? (
@@ -520,9 +524,12 @@ export default function CompanyWarehousePage() {
               return (
               <div key={e.id} className="px-5 py-3">
                 <div className="flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-2">
+                  {purge.enabled && purge.rowBox(e.id)}
                   <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 ${isZero ? 'text-red-700 bg-red-50 border border-red-200' : e.type === 'RECEIVE' ? 'text-[#1E7A52] bg-green-50' : 'text-purple-600 bg-purple-50'}`}>
                     {isZero ? <Eraser size={12} /> : e.type === 'RECEIVE' ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
                     {isZero ? tr('تصفير المخزون') : e.type === 'RECEIVE' ? tr('وارد') : tr('تسوية')}
+                  </span>
                   </span>
                   <span className="flex items-center gap-2">
                     <span className="text-[11px] text-[#9A8F7E] flex items-center gap-1"><Calendar size={11} /> {formatDate(e.createdAt)}</span>

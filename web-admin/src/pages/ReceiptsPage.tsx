@@ -16,6 +16,7 @@ import { ReceiptDoc, receiptDocFromDetail, Company } from '../rep/RepDocuments';
 import { shareOrDownloadExcel, num } from '../utils/excel';
 import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
 import { withLiveCompany } from '../rep/companyRefresh';
+import { useOwnerBulkPurge } from '../components/OwnerBulkPurge';
 
 /** جلب إعدادات الشركة — نفسه للاستعلام ولـensureQueryData عند فتح مستند قبل اكتمال تحميلها (D-G6) */
 const fetchCompany = async () => { const res = await companyApi.get(); return res.data.data as Company; };
@@ -110,6 +111,8 @@ export default function ReceiptsPage() {
     onError: () => toast.error(tr('خطأ في الإلغاء')),
   });
 
+  const purge = useOwnerBulkPurge('Receipt');
+
   // لون الشارة بالأساس (المضافة تأخذ لون ما تُعامل مثله) والاسم من الشركة — والمضافة بأيقونتها كي لا تُقرأ مدمجةً بلونها
   const methodBadge = (m: string, key?: string | null) => {
     const who = methodIdentity(company, m, key);
@@ -168,22 +171,25 @@ export default function ReceiptsPage() {
         </div>
       </div>
 
+      {purge.bar}
       <div className="card p-0">
         <div className="table-wrapper">
           <table className="table">
             <thead>
               <tr>
+                {purge.enabled && <th className="w-8 px-2">{purge.headerBox((data?.data ?? []).map(r => r.id))}</th>}
                 <th>{tr('رقم السند')}</th><th>{tr('العميل')}</th><th>{tr('المندوب')}</th>
                 <th>{tr('المبلغ')}</th><th>{tr('طريقة الدفع')}</th><th>{tr('التاريخ')}</th><th>{tr('الوقت')}</th><th>{tr('الحالة')}</th><th>{tr('إجراءات')}</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={9} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
+                <tr><td colSpan={9 + (purge.enabled ? 1 : 0)} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
               ) : data?.data.length === 0 ? (
-                <tr><td colSpan={9} className="text-center py-12 text-gray-400">{tr('لا توجد سندات')}</td></tr>
+                <tr><td colSpan={9 + (purge.enabled ? 1 : 0)} className="text-center py-12 text-gray-400">{tr('لا توجد سندات')}</td></tr>
               ) : data?.data.map(r => (
                 <tr key={r.id}>
+                  {purge.enabled && <td className="w-8 px-2">{purge.rowBox(r.id)}</td>}
                   <td className="font-mono text-sm text-green-600">{r.number}</td>
                   <td className="font-medium text-gray-800">{r.customer.name}</td>
                   <td className="text-gray-600 text-sm">{r.salesRep?.name ?? '—'}</td>

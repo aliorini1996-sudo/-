@@ -28,6 +28,7 @@ import { compressImage } from '../rep/imageCompress';
 import { useAccountingOn } from '../components/AccountingGate';
 import { useLedgerOn } from '../components/LedgerGate';
 import { ledgerConfigApi, ledgerKeys } from '../api/ledgerConfig';
+import { useOwnerBulkPurge } from '../components/OwnerBulkPurge';
 
 interface Creds { name: string; username: string; password: string; }
 
@@ -48,6 +49,7 @@ export default function SalesRepsPage() {
   const [collectRep, setCollectRep] = useState<SalesRep | null>(null);
   const [assignRep, setAssignRep] = useState<SalesRep | null>(null); // نافذة إسناد العملاء
   const [historyRep, setHistoryRep] = useState<SalesRep | null>(null); // سجلّ التقارير اليومية
+  const purge = useOwnerBulkPurge('SalesRep');
 
   const { data, isLoading } = useQuery({
     queryKey: ['sales-reps', search],
@@ -241,11 +243,13 @@ export default function SalesRepsPage() {
         </div>
       </div>
 
+      {purge.bar}
       <div className="card p-0">
         <div className="table-wrapper">
           <table className="table">
             <thead>
               <tr>
+                {purge.enabled && <th className="w-8 px-2">{purge.headerBox((data ?? []).map(r => r.id))}</th>}
                 <th>{tr('المندوب')}</th><th>{tr('الجوال')}</th><th>{tr('اسم المستخدم')}</th>
                 {accountingOn && <th className="text-center">{tr('فاتورة')}</th>}
                 {accountingOn && <th className="text-center">{tr('آجل')}</th>}
@@ -262,9 +266,10 @@ export default function SalesRepsPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={repCols} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
+                <tr><td colSpan={repCols + (purge.enabled ? 1 : 0)} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
               ) : data?.map(r => (
                 <tr key={r.id}>
+                  {purge.enabled && <td className="w-8 px-2">{purge.rowBox(r.id)}</td>}
                   <td>
                     <p className="font-medium text-gray-800">{r.name}</p>
                     <p className="text-xs text-gray-400">{r.email || ''}</p>

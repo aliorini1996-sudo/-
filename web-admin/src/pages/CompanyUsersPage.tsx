@@ -15,6 +15,7 @@ import { formatDate, formatCurrency } from '../utils/format';
 import { compressImage } from '../rep/imageCompress';
 import { useTr } from '../i18n/strings';
 import { backdropClose } from '../lib/backdropClose';
+import { useOwnerBulkPurge } from '../components/OwnerBulkPurge';
 
 type FormValues = {
   name: string;
@@ -103,6 +104,7 @@ export default function CompanyUsersPage() {
   const [scopeUser, setScopeUser] = useState<CompanyUser | null>(null); // نافذة نطاق المستخدم
   const [custodyUser, setCustodyUser] = useState<CompanyUser | null>(null); // نافذة استلام عهدة مستخدم
   const [deleting, setDeleting] = useState<CompanyUser | null>(null);
+  const purge = useOwnerBulkPurge('Admin');
 
   const { data, isLoading } = useQuery({
     queryKey: ['company-users'],
@@ -177,11 +179,13 @@ export default function CompanyUsersPage() {
         <button className="btn-primary" onClick={() => { setSelected(null); setShowModal(true); }}><Plus size={16} />{tr('إضافة مستخدم')}</button>
       </div>
 
+      {purge.bar}
       <div className="card p-0">
         <div className="table-wrapper">
           <table className="table">
             <thead>
               <tr>
+                {purge.enabled && <th className="w-8 px-2">{purge.headerBox((data ?? []).map(u => u.id))}</th>}
                 <th>{tr('المستخدم')}</th>
                 <th>{tr('الدور')}</th>
                 <th>{tr('عهدة التحصيل')}</th>
@@ -192,9 +196,10 @@ export default function CompanyUsersPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={6} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
+                <tr><td colSpan={6 + (purge.enabled ? 1 : 0)} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
               ) : data?.length ? data.map(u => (
                 <tr key={u.id}>
+                  {purge.enabled && <td className="w-8 px-2">{purge.rowBox(u.id)}</td>}
                   <td>
                     <p className="font-medium text-gray-800">{u.name}</p>
                     <p className="text-xs text-gray-400" dir="ltr">{u.email}</p>
@@ -229,7 +234,7 @@ export default function CompanyUsersPage() {
                   </td>
                 </tr>
               )) : (
-                <tr><td colSpan={5} className="text-center py-12 text-gray-400">{tr('لا يوجد مستخدمون بعد')}</td></tr>
+                <tr><td colSpan={5 + (purge.enabled ? 1 : 0)} className="text-center py-12 text-gray-400">{tr('لا يوجد مستخدمون بعد')}</td></tr>
               )}
             </tbody>
           </table>
