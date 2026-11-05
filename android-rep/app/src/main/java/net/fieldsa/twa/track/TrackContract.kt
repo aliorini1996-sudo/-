@@ -57,9 +57,13 @@ object TrackContract {
     /** سقف الطابور المحفوظ على الجوال: الأقدم يُسقط */
     const val MAX_QUEUED = 3_000
 
-    /** التراجع بعد خطأ الشبكة أو 5xx أو 429: ٣٠ ← ٦٠ ← ١٢٠ ← ٣٠٠ ثانية حدّاً */
+    /**
+     * التراجع بعد خطأ الشبكة أو 5xx أو 429 أو 401/403 من وسيط: ٣٠ ← ٦٠ ← ١٢٠ ثانية ثم يبقى ١٢٠ — حدّ الصفحة نفسه
+     * (web-admin/src/rep/trackUpload.ts RETRY_MAX_MS). حدّ ٣٠٠ ثانية أبقى المندوب «موقعه متوقف» على خريطة المدير حتى خمس دقائق
+     * بعد عودة الخادم من انقطاع (مثبت بالمحاكي، ٤ نوفمبر)، ونافذة «موقع مباشر» دقيقتان (liveRepStatus.ts LOCATION_FRESH_MS)
+     */
     const val BACKOFF_FIRST_MS = 30_000L
-    const val BACKOFF_MAX_MS = 300_000L
+    const val BACKOFF_MAX_MS = 120_000L
 
     /** نظير حدّ الصفحة (TRACK_TOKEN_MAX_CHARS) — رمزٌ أطول مدخلٌ غير موثوق يُرفض */
     const val TOKEN_MAX_CHARS = 4_096

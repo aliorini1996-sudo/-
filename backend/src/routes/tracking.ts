@@ -18,7 +18,10 @@ import { readLiveVerdict } from '../middleware/repLiveLocation';
 import { pingLimiter } from '../middleware/rateLimits';
 import { publishLocationsChanged } from '../services/liveEvents';
 import { pendingPresence, presenceOutcome, PRESENCE_TAP_HOLD_MS } from '../services/presenceChecks';
-import { issueTrackToken, nativeTrackActive, repTrackingOff, deviceTrackDecision, LOCATION_SOURCE_DEVICE, type LocationSource } from '../services/deviceTrack';
+import {
+  issueTrackToken, nativeTrackActive, nativeTrackFlags, nativeTrackSeenAt, nativeTrackStopped, repTrackingOff, deviceTrackDecision,
+  LOCATION_SOURCE_DEVICE, NATIVE_RECENT_WINDOW_MS, NATIVE_ROW_LOOKBACK_MS, type LocationSource,
+} from '../services/deviceTrack';
 
 const router = Router();
 router.use(authenticate);
@@ -163,7 +166,25 @@ router.post('/device-token', async (req: AuthRequest, res: Response, next: NextF
     // waitPunch: «بصمة الحضور» مفعّلة للشركة والمندوب لم يبصم حضوره (لا نوبة مفتوحة) ⇒ البدء ينتظر لمسة «تسجيل الحضور» لا زرّاً
     // (قرار المالك ٤ نوفمبر). nativeActive: جهازه يرفع الآن (services/deviceTrack.ts) ⇒ لا تطلب الصفحة بدءاً ثانياً ولا لمسة
     const waitPunch = rep?.tenant?.attendanceEnabled === true && !(await openShift(prisma, tid, repId));
-    res.json({ success: true, data: { enabled: true, token, expiresAt, waitPunch, nativeActive: nativeTrackActive(repId) } });
+    // الذاكرة تُمسح بكل نشرٍ أو إعادة تشغيلٍ على Render، والصفحة صارت تسأل هنا دورياً لتكتشف خدمةً قتلها النظام فتعيد تسليحها —
+    // فبالذاكرة وحدها يبدو كل جهازٍ سليم ميتاً بعد النشر ويظهر زرّ البدء للجميع. فإن لم تعرفه: أحدث صفّ جهازٍ استُقبل خلال
+    // NATIVE_RECENT_WINDOW_MS (createdAt بساعة الخادم، لا capturedAt بساعة الجهاز) — استعلامٌ واحد في مدى الفهرس، إلا بعد رفع
+    // إغلاقٍ لم يتبعه رفع. nativeRecent (نافذةٌ أوسع): لسؤال التحقّق وحده — فجوة رفعٍ عادية لجهازٍ سليم لا تُظهر له زرّ البدء
+    const now = Date.now();
+    let seenAt = nativeTrackSeenAt(repId, now);
+    if (seenAt === null && !nativeTrackStopped(repId, now)) {
+      const row = await prisma.repLocation.findFirst({
+        where: {
+          tenantId: tid, salesRepId: repId, source: LOCATION_SOURCE_DEVICE,
+          capturedAt: { gte: new Date(now - NATIVE_ROW_LOOKBACK_MS) }, createdAt: { gte: new Date(now - NATIVE_RECENT_WINDOW_MS) },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      });
+      seenAt = row ? row.createdAt.getTime() : null;
+    }
+    const { nativeActive, nativeRecent } = nativeTrackFlags(seenAt, now);
+    res.json({ success: true, data: { enabled: true, token, expiresAt, waitPunch, nativeActive, nativeRecent } });
   } catch (err) { next(err); }
 });
 

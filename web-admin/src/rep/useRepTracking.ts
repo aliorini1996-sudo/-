@@ -150,7 +150,8 @@ export function useRepTracking(active: boolean, forced = false): TrackStatus {
       if (document.hidden) { flush(true); return; }
       upload.current = { ...upload.current, urgent: true, retryAt: 0 };
       maybeFlush();
-      // يومٌ جديد (أو تعذّر الرمز عند الفتح): العودة للتطبيق تبدأ التتبّع الخلفي من جديد — واليوم نفسه بلا طلب
+      // يومٌ جديد (أو تعذّر الرمز عند الفتح): العودة للتطبيق تبدأ التتبّع الخلفي من جديد — واليوم نفسه فحصٌ خفيف كل ٣ دقائق على الأكثر
+      // أن الجوال ما زال يرسل (nativeTracking.ts): خدمةٌ قتلها النظام يُعاد تسليحها
       if (nativeOn) void startNativeTracking(postTrackToken);
     };
     const onOnline = () => { upload.current = { ...upload.current, urgent: true, retryAt: 0 }; maybeFlush(); };

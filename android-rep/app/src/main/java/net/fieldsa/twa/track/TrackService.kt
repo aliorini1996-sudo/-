@@ -72,6 +72,12 @@ class TrackService : Service() {
 
     /** الرمز الجاري — يقرؤه خيط io */
     @Volatile private var token: String? = null
+    /**
+     * عنوان الرفع لهذا التشغيل: يُلتقط مرةً في onStartCommand مع الرمز (endpoint)، وكل POST يقرؤه، ورفع الهدم معه. إيقاف
+     * TrackActivity يمسح TrackStore (ومعه عنوان التطوير) قبل stopService، فقراءته من جديد في onDestroy أرسلت الدفعة الأخيرة لبناء
+     * التطوير إلى الإنتاج بدل عنوانه (مثبت بالمحاكي، ٤ نوفمبر). في الإصدار هو PING_URL دائماً
+     */
+    @Volatile private var uploadUrl: String = TrackContract.PING_URL
     /** لا رفعٌ أخير عند الهدم: الخادم رفض الرمز أو أوقف التتبّع */
     @Volatile private var noFinalFlush = false
 
@@ -146,6 +152,8 @@ class TrackService : Service() {
             stopTracking(clearToken = true)
             return START_NOT_STICKY
         }
+        // العنوان قبل الرمز: خيط io لا يرى الرمز الجديد بعنوان التشغيل السابق
+        uploadUrl = endpoint()
         token = t
         noFinalFlush = false
         // أول نقطةٍ بعد البدء تُحفظ وتُرفع فوراً
@@ -175,7 +183,8 @@ class TrackService : Service() {
         removeLocationUpdates()
         running = false
         // رفعٌ أخير لما في الطابور (الخروج من الحساب): نقاطٌ التُقطت قبله. وما لم يُرفع يبقى للبدء التالي بالهوية نفسها.
-        // يحمل ترويسة «الأخير» فينسى الخادم أن التطبيق يرفع: دخولٌ سريع بعد الخروج يطلب بدءاً جديداً ولا يظنّ الخدمة الميتة حيّة
+        // يحمل ترويسة «الأخير» فينسى الخادم أن التطبيق يرفع: دخولٌ سريع بعد الخروج يطلب بدءاً جديداً ولا يظنّ الخدمة الميتة حيّة.
+        // الرمز والعنوان (uploadUrl) كما التُقطا عند البدء: الإيقاف مسح TrackStore قبل هذه اللحظة
         val t = token
         if (t != null && !noFinalFlush) executeAwake { uploadRounds(t, maxRounds = 2, closing = true) }
         io.shutdown()
@@ -482,7 +491,10 @@ class TrackService : Service() {
         }
     }
 
-    /** عنوان الرفع: الثابت في الإصدار؛ وفي بناء التطوير وحده بديلٌ https أو http محلّي إن حُفظ */
+    /**
+     * عنوان الرفع: الثابت في الإصدار؛ وفي بناء التطوير وحده بديلٌ https أو http محلّي إن حُفظ. يُقرأ في onStartCommand وحده
+     * (uploadUrl): TrackStore يُمسح عند الإيقاف قبل رفع الهدم
+     */
     private fun endpoint(): String {
         if (BuildConfig.DEBUG) {
             val u = TrackStore.debugUrl(this)
@@ -494,7 +506,7 @@ class TrackService : Service() {
     /** POST واحد؛ رمز الحالة (-1 لخطأ الشبكة) وجسم الردّ — الرمز لا يُسجَّل */
     private fun post(t: String, json: String, closing: Boolean): Pair<Int, String?> {
         val conn = try {
-            URL(endpoint()).openConnection() as HttpURLConnection
+            URL(uploadUrl).openConnection() as HttpURLConnection
         } catch (e: IOException) {
             return -1 to null
         }

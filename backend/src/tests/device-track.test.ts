@@ -1,7 +1,8 @@
 // تتبّع الخلفية من التطبيق الأصلي (طلب المالك، ٤ نوفمبر ٢٠٢٦) — services/deviceTrack.ts صرفاً بلا قاعدة ولا Express:
 //   • رمز التتبّع يُصدَر ويُتحقَّق منه ذهاباً وإياباً، بمفتاحٍ مشتقٍّ مختلف: توكن الجلسة لا يقبله verifyTrackToken، ورمز التتبّع
 //     لا يقبله jwt.verify بمفتاح الجلسات (فلا يمرّ من authenticate في أي مسار) — والنوع الخاطئ والمنتهي يُرفضان.
-//   • «التتبّع الأصلي يعمل الآن» نافذة ٩٠ث لكل مندوب، وحكم نقطة الجهاز (gone/off/on) كحكم /tracking/ping والدخول.
+//   • «التتبّع الأصلي يعمل الآن» نافذة ٩٠ث لكل مندوب، و«رُئي مؤخّراً» ٥ دقائق لسؤال التحقّق، و«أُغلقت للتوّ» بعد رفع الإغلاق،
+//     وحكم نقطة الجهاز (gone/off/on) كحكم /tracking/ping والدخول.
 //   • حراسٌ ثابتة: index.ts يركّب /api/track-device بلا authenticate (وقبل محدِّد المعدّل العام)، وtracking.ts يعرض /device-token.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -133,6 +134,59 @@ test('رفع الإغلاق: الترويسة المشتركة x-fs-track-final 
   dt.markNativeTrack('rep1', t0 + 5_000);
   assert.equal(dt.nativeTrackActive('rep1', t0 + 6_000), true);
   dt.resetNativeTrack();
+});
+
+test('«رُئي مؤخّراً» (nativeTrackSeenAt/nativeTrackFlags): الذاكرة تحفظ آخر رفعٍ ٥ دقائق — «يرفع الآن» ٩٠ث منها، والأوسع لسؤال التحقّق', () => {
+  // فجوة رفعٍ عادية لجهازٍ سليم (ثلاث محاولاتٍ فاشلة ٢٨٥ث) أوسع من ٩٠ث: سؤال التحقّق بها وحدها أظهر زرّ البدء لخدمةٍ تعمل
+  dt.resetNativeTrack();
+  const t0 = 1_000_000_000_000;
+  assert.equal(dt.NATIVE_RECENT_WINDOW_MS, 5 * 60_000);
+  assert.ok(dt.NATIVE_RECENT_WINDOW_MS > 30_000 + 15_000 + 30_000 + 15_000 + 60_000 + 15_000 + 120_000, 'أسوأ فجوةٍ عادية');
+  assert.ok(dt.NATIVE_RECENT_WINDOW_MS < dt.NATIVE_ROW_LOOKBACK_MS, 'داخل مدى الفهرس');
+  assert.equal(dt.nativeTrackSeenAt('rep1', t0), null);
+  dt.markNativeTrack('rep1', t0);
+  assert.equal(dt.nativeTrackSeenAt('rep1', t0 + 1_000), t0);
+  // بعد ٩٠ث: لا «يرفع الآن» (البدء ونقاط الصفحة كما كانا) — واللحظة باقية لـ«رُئي مؤخّراً»
+  assert.equal(dt.nativeTrackActive('rep1', t0 + 120_000), false);
+  assert.equal(dt.nativeTrackSeenAt('rep1', t0 + 120_000), t0, '«يرفع الآن» لا يمحو اللحظة');
+  assert.deepEqual(dt.nativeTrackFlags(dt.nativeTrackSeenAt('rep1', t0 + 120_000), t0 + 120_000), { nativeActive: false, nativeRecent: true });
+  assert.equal(dt.nativeTrackSeenAt('rep2', t0 + 1_000), null, 'لا يتسرّب إلى غيره');
+  assert.equal(dt.nativeTrackSeenAt('rep1', t0 + dt.NATIVE_RECENT_WINDOW_MS), t0);
+  assert.equal(dt.nativeTrackSeenAt('rep1', t0 + dt.NATIVE_RECENT_WINDOW_MS + 1), null);
+  assert.equal(dt.nativeTrackSeenAt('rep1', t0 + 1_000), null, 'خرجت من الذاكرة');
+  // الحكمان من لحظةٍ معروفة (ذاكرة، أو أحدث صفّ جهازٍ بعد نشر)
+  assert.deepEqual(dt.nativeTrackFlags(null, t0), { nativeActive: false, nativeRecent: false });
+  assert.deepEqual(dt.nativeTrackFlags(NaN, t0), { nativeActive: false, nativeRecent: false });
+  assert.deepEqual(dt.nativeTrackFlags(t0, t0 + dt.NATIVE_TRACK_WINDOW_MS), { nativeActive: true, nativeRecent: true });
+  assert.deepEqual(dt.nativeTrackFlags(t0, t0 + dt.NATIVE_TRACK_WINDOW_MS + 1), { nativeActive: false, nativeRecent: true });
+  assert.deepEqual(dt.nativeTrackFlags(t0, t0 + dt.NATIVE_RECENT_WINDOW_MS + 1), { nativeActive: false, nativeRecent: false });
+  // رفع الإغلاق ينسى اللحظة فوراً
+  dt.markNativeTrack('rep1', t0 + 10_000);
+  dt.clearNativeTrack('rep1', t0 + 11_000);
+  assert.equal(dt.nativeTrackSeenAt('rep1', t0 + 12_000), null);
+  dt.resetNativeTrack();
+});
+
+test('«أُغلقت للتوّ» (nativeTrackStopped): ٥ دقائق بعد رفع الإغلاق لكل مندوب، ورفعٌ عاديّ بعده يمحوها', () => {
+  // صفوف دفعة الإغلاق «حديثة» في القاعدة NATIVE_RECENT_WINDOW_MS بعدها — /device-token لا يقرأ منها «يعمل» ولا «رُئي مؤخّراً»
+  dt.resetNativeTrack();
+  const t0 = 1_000_000_000_000;
+  assert.equal(dt.nativeTrackStopped('rep1', t0), false, 'لم يُغلَق قط');
+  dt.markNativeTrack('rep1', t0);
+  dt.clearNativeTrack('rep1', t0 + 1_000);
+  assert.equal(dt.nativeTrackStopped('rep1', t0 + 1_000), true);
+  assert.equal(dt.nativeTrackStopped('rep1', t0 + 1_000 + dt.NATIVE_RECENT_WINDOW_MS), true);
+  assert.equal(dt.nativeTrackStopped('rep2', t0 + 2_000), false, 'لا يتسرّب إلى غيره');
+  assert.equal(dt.nativeTrackStopped('rep1', t0 + 1_001 + dt.NATIVE_RECENT_WINDOW_MS), false, 'صفوفه خرجت من النافذة');
+  // خدمةٌ جديدة ترفع بعد الإغلاق: لا «أُغلقت»
+  dt.clearNativeTrack('rep1', t0 + 200_000);
+  dt.markNativeTrack('rep1', t0 + 210_000);
+  assert.equal(dt.nativeTrackStopped('rep1', t0 + 211_000), false);
+  assert.equal(dt.nativeTrackActive('rep1', t0 + 211_000), true);
+  dt.clearNativeTrack('rep1', t0 + 220_000);
+  dt.resetNativeTrack();
+  assert.equal(dt.nativeTrackStopped('rep1', t0 + 221_000), false, 'التفريغ يشملها');
+  assert.equal(dt.NATIVE_ROW_LOOKBACK_MS, 15 * 60_000);
 });
 
 test('حكم نقطة الجهاز: المندوب/الشركة ⇒ gone، التتبّع مطفأ لغير المقيَّد ⇒ off، وإلا on', () => {

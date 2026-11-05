@@ -1,7 +1,7 @@
 // التتبّع الخلفي في تطبيق الجوال (طلب المالك، ٤ نوفمبر ٢٠٢٦) ببيئةٍ مزيّفة: روابط intent حرفاً بحرف، والتقاط fstrack
 // وحذفه وحده، وتمييز المنصّة، ويوم البدء لكل مندوب، و«لا تتبّع» ⇒ إيقافٌ هادئ، وبلا تطبيق لا شيء، وزرّ البدء بلمسته وحدها (لا تُستعار
 // لمسة الطباعة أو التحصيل، ولا يُنتظر إخفاء الصفحة)، ولمسة الحضور والرمز في الطريق، و«يرفع الآن» بعد خروجٍ ودخولٍ سريع، والإيقاف
-// أثناء طلب الرمز، ولا رمي أبداً — وحارس العقد مع TrackContract.kt
+// أثناء طلب الرمز، والتحقّق من خدمةٍ قتلها النظام (المهلة والتباعد والزرّ ثانيةً)، ولا رمي أبداً — وحارس العقد مع TrackContract.kt
 // (android-rep، قراءةً فقط) وتوصيل main.tsx وuseRepTracking وRepApp.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,7 +12,7 @@ import {
   IOS_TRACK_HANDLER, TRACK_HOST_START, TRACK_HOST_STOP, TRACK_LAUNCH_PARAM, TRACK_LAUNCH_VALUE, TRACK_PACKAGE, TRACK_PARAM_DEBUG_URL,
   TRACK_PARAM_TOKEN, TRACK_PING_URL, TRACK_SCHEME, TRACK_TOKEN_PATH, browserTrackEnv, captureTrackLaunch, isTrackToken,
   nativeTrackPlatform, showStartChip, startNativeTracking, startNativeTrackingOnPunch, stopNativeTracking, trackIntentUrl,
-  trackTokenReplyOf, PUNCH_RETURN_MAX_MS, PUNCH_TOKEN_WAIT_MS, type NativeTrackEnv,
+  trackTokenReplyOf, PUNCH_RETURN_MAX_MS, PUNCH_TOKEN_WAIT_MS, VERIFY_EVERY_MS, VERIFY_GRACE_MS, type NativeTrackEnv,
   type TrackTokenPost,
 } from './nativeTracking';
 import { deviceDay } from './deviceDay';
@@ -24,15 +24,19 @@ const ON = { success: true, data: { enabled: true, token: TOKEN, expiresAt: '202
 const OFF = { success: true, data: { enabled: false } };
 /** «بصمة الحضور» مفعّلة ولم يبصم: البدء ينتظر لمسة الحضور */
 const PUNCH = { success: true, data: { ...ON.data, waitPunch: true } };
-/** الجهاز يرفع الآن (بدأ من تبويبٍ سابق) */
-const ACTIVE = { success: true, data: { ...ON.data, nativeActive: true } };
+/** الجهاز يرفع الآن (بدأ من تبويبٍ سابق) — والخادم يقول معه «رُئي مؤخّراً» */
+const ACTIVE = { success: true, data: { ...ON.data, nativeActive: true, nativeRecent: true } };
 /** «يرفع الآن» وينتظر لمسة الحضور */
-const ACTIVE_PUNCH = { success: true, data: { ...ON.data, waitPunch: true, nativeActive: true } };
+const ACTIVE_PUNCH = { success: true, data: { ...ON.data, waitPunch: true, nativeActive: true, nativeRecent: true } };
+/** رُئي يرفع خلال ٥ دقائق لا ٩٠ث (فجوة رفعٍ عادية: انقطاع تغطية، أو تراجع الجهاز بعد 503) — سليمٌ لسؤال التحقّق */
+const RECENT = { success: true, data: { ...ON.data, nativeRecent: true } };
 const START_URL = `intent://start?t=${TOKEN}#Intent;scheme=fieldsatrack;package=net.fieldsa.twa;end`;
 const STOP_URL = 'intent://stop#Intent;scheme=fieldsatrack;package=net.fieldsa.twa;end';
 const TODAY = new Date(2026, 10, 4, 9, 30, 0);
 /** علامة يوم البدء: «اليوم|المندوب» */
 const mark = (d: Date, rep = 'rep-A') => `${deviceDay(d)}|${rep}`;
+/** بعد TODAY بـms (اليوم نفسه) */
+const later = (ms: number) => new Date(TODAY.getTime() + ms);
 
 type Store = NonNullable<NativeTrackEnv['session']>;
 function memStorage(init: Record<string, string> = {}) {
@@ -124,6 +128,8 @@ function harness(o: { cap?: boolean; ios?: boolean | 'throws'; handOff?: boolean
     armed: () => taps.length,
     setNow(d: Date) { date = d; },
     day: () => (session as ReturnType<typeof memStorage>).m?.get('fs_track_day') ?? null,
+    /** لحظة التسليم بجوار يوم البدء */
+    at: () => (session as ReturnType<typeof memStorage>).m?.get('fs_track_at') ?? null,
     sent: () => (local as ReturnType<typeof memStorage>).m?.get('fs_track_native') ?? null,
   };
 }
@@ -167,9 +173,13 @@ test('روابط intent حرفاً بحرف: البدء بالرمز مرمَّ�
 test('شكل الرمز وردّ الخادم: JWT بثلاثة أجزاء base64url ≤ 4096 — وغيره لا يُسلَّم للتطبيق', () => {
   assert.ok(isTrackToken(TOKEN));
   for (const bad of ['', 'a.b', 'a.b.c.d', 'a.b.c d', 'a.b.c\n', 'a.b.c?x=1', `a.b.${'c'.repeat(4096)}`, null, 42]) assert.ok(!isTrackToken(bad), String(bad));
-  assert.deepEqual(trackTokenReplyOf(ON), { enabled: true, token: TOKEN, waitPunch: false, nativeActive: false }, 'خادمٌ أقدم بلا الحقلين');
-  assert.deepEqual(trackTokenReplyOf(PUNCH), { enabled: true, token: TOKEN, waitPunch: true, nativeActive: false });
-  assert.deepEqual(trackTokenReplyOf(ACTIVE), { enabled: true, token: TOKEN, waitPunch: false, nativeActive: true });
+  assert.deepEqual(trackTokenReplyOf(ON), { enabled: true, token: TOKEN, waitPunch: false, nativeActive: false, nativeRecent: false }, 'خادمٌ أقدم بلا الحقول');
+  assert.deepEqual(trackTokenReplyOf(PUNCH), { enabled: true, token: TOKEN, waitPunch: true, nativeActive: false, nativeRecent: false });
+  // «يرفع الآن» (٩٠ث) يعني «رُئي مؤخّراً» ولو غاب الحقل (خادمٌ أقدم)
+  assert.deepEqual(trackTokenReplyOf(ACTIVE), { enabled: true, token: TOKEN, waitPunch: false, nativeActive: true, nativeRecent: true });
+  assert.equal((trackTokenReplyOf({ data: { ...ON.data, nativeActive: true } }) as { nativeRecent: boolean }).nativeRecent, true);
+  assert.deepEqual(trackTokenReplyOf(RECENT), { enabled: true, token: TOKEN, waitPunch: false, nativeActive: false, nativeRecent: true });
+  assert.equal((trackTokenReplyOf({ data: { ...ON.data, nativeRecent: 1 } }) as { nativeRecent: boolean }).nativeRecent, false);
   assert.equal((trackTokenReplyOf({ data: { ...ON.data, waitPunch: 'yes' } }) as { waitPunch: boolean }).waitPunch, false);
   assert.deepEqual(trackTokenReplyOf(OFF), { enabled: false });
   for (const bad of [null, {}, { data: null }, { data: { enabled: true } }, { data: { enabled: true, token: 'x' } }, { data: { enabled: 'yes', token: TOKEN } }]) {
@@ -826,6 +836,417 @@ test('زرّ البدء في الصفحة: زرٌّ (type=button) بلغة ال�
   const xx = fakeDoc('xx');
   showStartChip(xx.doc, () => {});
   assert.match(xx.appended[0].innerHTML, /اضغط لتشغيل تسجيل الموقع/);
+});
+
+// ─── التحقّق من بدءٍ معلَّم (المحاكي، ٤ نوفمبر): قتل العملية يُنهي الخدمة وعلامة اليوم باقية ───
+test('خدمةٌ قتلها النظام (أندرويد): العودة بعد المهلة تسأل الخادم، و«لا جهاز يرفع» ⇒ تُمسح العلامة ويعود الزرّ — ولمسته تبدأ من جديد', async () => {
+  const h = harness({ cap: true });
+  await startNativeTracking(poster(ON).post, h.env);
+  h.tap();
+  assert.equal(h.day(), mark(TODAY));
+  assert.equal(h.at(), String(TODAY.getTime()), 'لحظة التسليم بجوار العلامة');
+  // kill -9 قبل أوّل سؤال (لم تُرَ ترفع): لا رفع إغلاق، والخادم لا يرى الجهاز — التسليح الوحيد في اليوم
+  h.setNow(later(5 * 60_000));
+  const p = poster(ON);
+  await startNativeTracking(p.post, h.env);
+  assert.deepEqual(p.calls, [[TRACK_TOKEN_PATH, {}, { background: true }]], 'طلبٌ خلفيّ كالبدء الأوّل');
+  assert.equal(h.day(), null, 'العلامة الكاذبة مُسحت');
+  assert.equal(h.at(), null);
+  assert.equal(h.armed(), 1, 'الزرّ ثانيةً');
+  assert.deepEqual(h.app.hrefs, [START_URL], 'لا رابط بلا لمسة');
+  // العودة والزرّ معروض: قبل ٣ دقائق لا طلب، وبعدها يُسأل عنه ثانيةً — «لا ترفع» ⇒ يبقى، ولا زرّ ثانٍ
+  h.setNow(later(7 * 60_000));
+  await startNativeTracking(p.post, h.env);
+  assert.equal(p.calls.length, 1);
+  h.setNow(later(9 * 60_000));
+  await startNativeTracking(p.post, h.env);
+  assert.equal(p.calls.length, 2);
+  assert.equal(h.armed(), 1);
+  assert.equal(h.day(), null);
+  h.tap();
+  assert.deepEqual(h.app.hrefs, [START_URL, START_URL]);
+  assert.equal(h.day(), mark(TODAY));
+  assert.equal(h.at(), String(later(9 * 60_000).getTime()), 'مهلةٌ جديدة من البدء الجديد');
+  assert.equal(h.sent(), '1');
+});
+
+test('خدمةٌ قتلها النظام بعد أن رُئيت ترفع (المحاكي): يُعاد تسليحها في كل مرة — ولا حدّ يومياً لها', async () => {
+  const h = harness({ cap: true });
+  await startNativeTracking(poster(ON).post, h.env);
+  h.tap();
+  let t = 0;
+  for (let kill = 1; kill <= 3; kill++) {
+    // سؤالٌ يراها ترفع، ثم قتلٌ: السؤال التالي يُعيد الزرّ، ولمسته تبدأ
+    t += 5 * 60_000;
+    h.setNow(later(t));
+    await startNativeTracking(poster(ACTIVE).post, h.env);
+    assert.equal(h.day(), mark(TODAY), `${kill}: سليمة`);
+    t += VERIFY_EVERY_MS;
+    h.setNow(later(t));
+    await startNativeTracking(poster(ON).post, h.env);
+    assert.equal(h.day(), null, `${kill}: قُتلت`);
+    assert.equal(h.armed(), 1, `${kill}: الزرّ`);
+    h.tap();
+    assert.equal(h.app.hrefs.length, kill + 1);
+    assert.equal(h.day(), mark(TODAY));
+  }
+});
+
+test('خدمةٌ قتلها النظام وبصمة الحضور تنتظر (أندرويد): لا زرّ — لمسة «تسجيل الحضور» التالية تبدؤها، ولو وقعت والسؤال في الطريق', async () => {
+  const h = harness({ cap: true, handOff: true });
+  await startNativeTracking(poster(PUNCH).post, h.env);
+  await startNativeTrackingOnPunch(h.env);
+  assert.deepEqual(h.app.hrefs, [START_URL]);
+  // انصرف ثم قُتلت العملية: الخادم ينتظر الحضور ولا جهاز يرفع
+  h.setNow(later(10 * 60_000));
+  await startNativeTracking(poster(PUNCH).post, h.env);
+  assert.equal(h.day(), null);
+  assert.equal(h.armed(), 0, 'ينتظر لمسة الحضور');
+  await startNativeTrackingOnPunch(h.env);
+  assert.deepEqual(h.app.hrefs, [START_URL, START_URL]);
+  assert.equal(h.day(), mark(TODAY));
+  // لمسة الحضور والسؤال في الطريق: الخدمة الميتة تُسلَّح في ردّه فتُسلَّم داخل اللمسة
+  const k = harness({ cap: true, handOff: true });
+  await startNativeTracking(poster(ON).post, k.env);
+  k.tap();
+  k.setNow(later(5 * 60_000));
+  const d = deferredPoster();
+  const run = startNativeTracking(d.post, k.env);
+  await until(() => d.calls.length === 1);
+  const wait = startNativeTrackingOnPunch(k.env);
+  d.reply(PUNCH);
+  await run;
+  await wait;
+  assert.deepEqual(k.app.hrefs, [START_URL, START_URL], 'داخل لمسة الحضور');
+  assert.equal(k.armed(), 0, 'لا زرّ');
+  assert.equal(k.day(), mark(TODAY));
+});
+
+test('الآيفون: السؤال نفسه — سليمة ⇒ لا رسالة، و«لا جهاز يرفع» بعد أن رُئيت ⇒ start فوراً بلا لمسة (أو مع لمسة الحضور إن انتظرها)، و«لا تتبّع» ⇒ stop', async () => {
+  const i = harness({ ios: true });
+  await startNativeTracking(poster(ON).post, i.env);
+  assert.deepEqual(i.iosMsgs, [{ action: 'start', token: TOKEN }]);
+  i.setNow(later(5 * 60_000));
+  const healthy = poster(ACTIVE);
+  await startNativeTracking(healthy.post, i.env);
+  assert.equal(healthy.calls.length, 1);
+  assert.equal(i.iosMsgs.length, 1, 'سليمة: لا رسالة');
+  assert.equal(i.day(), mark(TODAY));
+  i.setNow(later(8 * 60_000));
+  const dead = poster(ON);
+  await startNativeTracking(dead.post, i.env);
+  assert.equal(dead.calls.length, 1);
+  assert.deepEqual(i.iosMsgs, [{ action: 'start', token: TOKEN }, { action: 'start', token: TOKEN }], 'فوراً بلا لمسة');
+  assert.equal(i.day(), mark(TODAY));
+  assert.equal(i.at(), String(later(8 * 60_000).getTime()));
+  assert.equal(i.armed(), 0);
+  // رُئيت ترفع بعد التسليم الجديد، ثم توقّفت والبصمة تنتظر: لا رسالة حتى لمسة الحضور
+  i.setNow(later(11 * 60_000));
+  await startNativeTracking(poster(RECENT).post, i.env);
+  assert.equal(i.iosMsgs.length, 2);
+  i.setNow(later(15 * 60_000));
+  await startNativeTracking(poster(PUNCH).post, i.env);
+  assert.equal(i.iosMsgs.length, 2);
+  assert.equal(i.day(), null);
+  await startNativeTrackingOnPunch(i.env);
+  assert.equal(i.iosMsgs.length, 3);
+  assert.equal(i.day(), mark(TODAY));
+  // «لا تتبّع»
+  i.setNow(later(19 * 60_000));
+  await startNativeTracking(poster(OFF).post, i.env);
+  assert.deepEqual(i.iosMsgs[3], { action: 'stop' });
+  assert.equal(i.day(), null);
+});
+
+test('الآيفون: «ليس الآن» على الإفصاح (خدمةٌ لم تُرَ ترفع) لا يعيد الإفصاح — سؤالٌ واحد ثم لا سؤال حتى تسليمٍ جديد', async () => {
+  // مراجعة ٥ نوفمبر: العودة كل دقيقة ساعةً كاملة كانت تعيد رسالة start (فالإفصاح) كل ٣ دقائق — App Review 5.1.1
+  const i = harness({ ios: true });
+  const p = poster(ON);
+  await startNativeTracking(p.post, i.env);
+  assert.equal(i.iosMsgs.length, 1);
+  for (let m = 1; m <= 60; m++) {
+    i.setNow(later(m * 60_000));
+    await startNativeTracking(p.post, i.env);
+  }
+  assert.equal(i.iosMsgs.length, 1, 'لا إفصاح ثانٍ');
+  assert.equal(p.calls.length, 2, 'الفتح وسؤالٌ واحد');
+  assert.equal(i.day(), mark(TODAY), 'العلامة باقية: لا بدء حتى تسليمٍ جديد');
+  // والبصمة تنتظر: لا شيء كذلك (لمسة الحضور بلا بدءٍ مسلَّح لا ترسل)
+  const w = harness({ ios: true });
+  await startNativeTracking(poster(PUNCH).post, w.env);
+  await startNativeTrackingOnPunch(w.env);
+  assert.equal(w.iosMsgs.length, 1);
+  const pw = poster(PUNCH);
+  for (let m = 3; m <= 60; m += 3) {
+    w.setNow(later(m * 60_000 + 30_000));
+    await startNativeTracking(pw.post, w.env);
+    await startNativeTrackingOnPunch(w.env);
+  }
+  assert.equal(w.iosMsgs.length, 1);
+  assert.equal(pw.calls.length, 1);
+  // خروجٌ ثم دخول: تسليمٌ أوّل بحسابه هو (الإفصاح مرّةً أخرى كفتح التطبيق)
+  stopNativeTracking(i.env);
+  i.login('rep-session-A2');
+  await startNativeTracking(poster(ON).post, i.env);
+  assert.deepEqual(i.iosMsgs.slice(1), [{ action: 'stop' }, { action: 'start', token: TOKEN }]);
+  i.setNow(later(64 * 60_000));
+  const again = poster(ON);
+  await startNativeTracking(again.post, i.env);
+  assert.equal(again.calls.length, 1, 'يُسأل عن التسليم الجديد');
+  assert.equal(i.iosMsgs.length, 3);
+});
+
+test('أندرويد: خدمةٌ لم تبدأ قط (رفض الإفصاح أو الإذن، أو الموقع مطفأ) — زرٌّ إضافيّ واحد في اليوم، ثم لا سؤال ولا زرّ', async () => {
+  const h = harness({ cap: true });
+  await startNativeTracking(poster(ON).post, h.env);
+  h.tap(); // «ليس الآن» في TrackActivity: لا خدمة
+  const p = poster(ON);
+  let chips = 0;
+  for (let m = 1; m <= 60; m++) {
+    h.setNow(later(m * 60_000));
+    const before = h.armed();
+    await startNativeTracking(p.post, h.env);
+    if (h.armed() > before) chips += 1;
+    // يلمس الزرّ متى ظهر، فيرفض ثانيةً
+    if (h.armed()) h.tap();
+  }
+  assert.equal(chips, 1, 'زرٌّ إضافيّ واحد');
+  assert.deepEqual(h.app.hrefs, [START_URL, START_URL], 'تسليمان: الأوّل والإضافيّ');
+  assert.equal(h.day(), mark(TODAY));
+  const asked = p.calls.length;
+  assert.ok(asked <= 3, String(asked));
+  // بقية اليوم: لا سؤال
+  for (let m = 61; m <= 180; m += 2) {
+    h.setNow(later(m * 60_000));
+    await startNativeTracking(p.post, h.env);
+  }
+  assert.equal(p.calls.length, asked);
+  assert.equal(h.armed(), 0);
+  // يومٌ جديد: بدءٌ كالعادة، وتسليحه الإضافيّ من جديد
+  const next = new Date(2026, 10, 5, 8, 0, 0);
+  h.setNow(next);
+  await startNativeTracking(poster(ON).post, h.env);
+  assert.equal(h.armed(), 1);
+  h.tap();
+  h.setNow(new Date(next.getTime() + 5 * 60_000));
+  await startNativeTracking(poster(ON).post, h.env);
+  assert.equal(h.armed(), 1, 'تسليح اليوم الجديد');
+});
+
+test('فجوة رفعٍ عادية (انقطاع تغطية، أو 503 قصير): «رُئي مؤخّراً» سليم — وزرٌّ سلّحه التحقّق يُزال حين يراها سؤالٌ لاحق ترفع، وتعود العلامة ولحظتها', async () => {
+  const h = harness({ cap: true });
+  await startNativeTracking(poster(ON).post, h.env);
+  h.tap();
+  const at0 = h.at();
+  h.setNow(later(5 * 60_000));
+  await startNativeTracking(poster(ACTIVE).post, h.env);
+  // لا رفع منذ دقيقتين (تراجع الجهاز بعد انقطاع): ليست ميتة
+  h.setNow(later(8 * 60_000));
+  await startNativeTracking(poster(RECENT).post, h.env);
+  assert.equal(h.day(), mark(TODAY));
+  assert.equal(h.armed(), 0);
+  // انقطاعٌ أطول من ٥ دقائق: «لا ترفع» ⇒ الزرّ (رُئيت قبله)
+  h.setNow(later(11 * 60_000));
+  await startNativeTracking(poster(ON).post, h.env);
+  assert.equal(h.armed(), 1);
+  assert.equal(h.day(), null);
+  // قبل ٣ دقائق: لا سؤال
+  const r = poster(RECENT);
+  h.setNow(later(13 * 60_000));
+  await startNativeTracking(r.post, h.env);
+  assert.equal(r.calls.length, 0);
+  // شبكةٌ فاشلة: الزرّ باقٍ، ويُعاد السؤال في العودة التالية بلا انتظار
+  h.setNow(later(14 * 60_000 + 1));
+  await startNativeTracking(poster(new Error('Network Error')).post, h.env);
+  assert.equal(h.armed(), 1);
+  // ما زالت لا ترفع: باقٍ، ويُسأل ثانيةً بعد ٣ دقائق
+  h.setNow(later(14 * 60_000 + 2));
+  await startNativeTracking(poster(ON).post, h.env);
+  assert.equal(h.armed(), 1);
+  assert.equal(h.day(), null);
+  h.setNow(later(17 * 60_000 + 2));
+  await startNativeTracking(r.post, h.env);
+  assert.equal(r.calls.length, 1);
+  assert.equal(h.armed(), 0, 'الزرّ الكاذب أُزيل');
+  assert.equal(h.day(), mark(TODAY), 'العلامة عادت');
+  assert.equal(h.at(), at0, 'ولحظة التسليم كما كانت');
+  assert.deepEqual(h.app.hrefs, [START_URL], 'بلا رابط');
+  // رُئيت: موتٌ لاحق يُسلَّح كالعادة
+  h.setNow(later(21 * 60_000));
+  await startNativeTracking(poster(ON).post, h.env);
+  assert.equal(h.armed(), 1);
+  // لمسة الزرّ والسؤال في الطريق: سُلِّم، وردّ «ترفع» لا يُعيد لحظةً قديمة فوق التسليم الجديد
+  h.setNow(later(25 * 60_000));
+  const d = deferredPoster();
+  const run = startNativeTracking(d.post, h.env);
+  await until(() => d.calls.length === 1);
+  h.tap();
+  d.reply(RECENT);
+  await run;
+  assert.equal(h.armed(), 0);
+  assert.deepEqual(h.app.hrefs, [START_URL, START_URL]);
+  assert.equal(h.at(), String(later(25 * 60_000).getTime()));
+});
+
+test('فجوة رفعٍ والبصمة تنتظر: بدءٌ سلّحه التحقّق بلا زرّ يُلغى حين تُرى ترفع — فلا تفتح لمسة الحضور التالية شاشة التطبيق', async () => {
+  const h = harness({ cap: true, handOff: true });
+  await startNativeTracking(poster(ON).post, h.env);
+  h.tap();
+  h.setNow(later(5 * 60_000));
+  await startNativeTracking(poster(ACTIVE_PUNCH).post, h.env);
+  h.setNow(later(11 * 60_000));
+  await startNativeTracking(poster(PUNCH).post, h.env);
+  assert.equal(h.day(), null);
+  assert.equal(h.armed(), 0, 'ينتظر لمسة الحضور');
+  h.setNow(later(15 * 60_000));
+  await startNativeTracking(poster(ACTIVE_PUNCH).post, h.env);
+  assert.equal(h.day(), mark(TODAY));
+  await startNativeTrackingOnPunch(h.env);
+  assert.deepEqual(h.app.hrefs, [START_URL], 'لا بدء مع الحضور لخدمةٍ ترفع');
+});
+
+test('خدمةٌ سليمة: سؤالٌ واحد كل ٣ دقائق على الأكثر لكل صفحة — «يرفع الآن» ⇒ لا زرّ ولا رابط ولا مساس بالعلامة، وعوداتٌ متزامنة بطلبٍ واحد', async () => {
+  assert.equal(VERIFY_EVERY_MS, 180_000);
+  const h = harness({ cap: true });
+  await startNativeTracking(poster(ON).post, h.env);
+  h.tap();
+  const p = poster(ACTIVE);
+  const t1 = 5 * 60_000;
+  h.setNow(later(t1));
+  await startNativeTracking(p.post, h.env);
+  assert.equal(p.calls.length, 1);
+  assert.equal(h.day(), mark(TODAY));
+  assert.equal(h.at(), String(TODAY.getTime()), 'لحظة البدء لا تتغيّر');
+  assert.equal(h.armed(), 0);
+  assert.deepEqual(h.app.hrefs, [START_URL]);
+  // عوداتٌ خلال ٣ دقائق: لا سؤال
+  for (const ms of [1, 60_000, VERIFY_EVERY_MS - 1]) {
+    h.setNow(later(t1 + ms));
+    await startNativeTracking(p.post, h.env);
+  }
+  assert.equal(p.calls.length, 1);
+  h.setNow(later(t1 + VERIFY_EVERY_MS));
+  await startNativeTracking(p.post, h.env);
+  assert.equal(p.calls.length, 2);
+  // عودتان والسؤال في الطريق: طلبٌ واحد؛ و«يرفع الآن» مع انتظار الحضور سليمةٌ كذلك
+  h.setNow(later(t1 + 2 * VERIFY_EVERY_MS));
+  const d = deferredPoster();
+  const run = startNativeTracking(d.post, h.env);
+  await until(() => d.calls.length === 1);
+  await startNativeTracking(d.post, h.env);
+  assert.equal(d.calls.length, 1);
+  d.reply(ACTIVE_PUNCH);
+  await run;
+  assert.equal(h.day(), mark(TODAY));
+  assert.equal(h.armed(), 0);
+  assert.deepEqual(h.app.hrefs, [START_URL]);
+  // لكل صفحة: إعادة التحميل (نافذةٌ جديدة، والتخزين نفسه) تسأل في أوّل فتح
+  const g = harness({ cap: true, session: h.session, local: h.local, now: later(t1 + 2 * VERIFY_EVERY_MS + 1_000) });
+  const pg = poster(ACTIVE);
+  await startNativeTracking(pg.post, g.env);
+  assert.equal(pg.calls.length, 1, 'صفحةٌ جديدة تسأل');
+});
+
+test('مهلة البدء: لا سؤال قبل دقيقتين من التسليم — ولحظةٌ غائبة أو فاسدة أو في المستقبل لا تمنعه، وبلا «أُرسل بدءٌ» من هذا الجهاز لا سؤال', async () => {
+  assert.equal(VERIFY_GRACE_MS, 120_000);
+  const h = harness({ cap: true });
+  await startNativeTracking(poster(ON).post, h.env);
+  h.tap();
+  const p = poster(ON);
+  h.setNow(later(VERIFY_GRACE_MS - 1));
+  await startNativeTracking(p.post, h.env);
+  assert.equal(p.calls.length, 0, 'الإفصاح والإذن وأوّل رفع');
+  h.setNow(later(VERIFY_GRACE_MS));
+  await startNativeTracking(p.post, h.env);
+  assert.equal(p.calls.length, 1);
+  assert.equal(h.armed(), 1);
+  // علامةٌ بلا لحظة (صفحةٌ أقدم) أو بلحظةٍ فاسدة أو في المستقبل (ساعةٌ رجعت)
+  for (const at of [undefined, 'NaN', 'x', String(later(3_600_000).getTime())]) {
+    const s = memStorage({ fs_track_cap: 'android', fs_track_day: mark(TODAY), ...(at === undefined ? {} : { fs_track_at: at }) });
+    const g = harness({ cap: true, session: s, local: memStorage({ fs_track_native: '1' }) });
+    const pg = poster(ACTIVE);
+    await startNativeTracking(pg.post, g.env);
+    assert.equal(pg.calls.length, 1, String(at));
+    assert.equal(g.day(), mark(TODAY), String(at));
+  }
+  // لم يُرسل هذا الجهاز بدءاً (أو أُوقف): لا خدمة يُسأل عنها
+  const n = harness({ cap: true, session: memStorage({ fs_track_cap: 'android', fs_track_day: mark(TODAY), fs_track_at: '0' }) });
+  const pn = poster(ON);
+  await startNativeTracking(pn.post, n.env);
+  assert.equal(pn.calls.length, 0);
+});
+
+test('التحقّق الفاشل (شبكة، ردٌّ مختلّ) لا يغيّر شيئاً ويُعاد في العودة التالية بلا انتظار ٣ دقائق — و«لا تتبّع» ⇒ الإيقاف الهادئ', async () => {
+  const h = harness({ cap: true });
+  await startNativeTracking(poster(ON).post, h.env);
+  h.tap();
+  h.setNow(later(5 * 60_000));
+  for (const bad of [new Error('Network Error'), 'html', { success: false }, { success: true, data: { enabled: true, token: 'x' } }]) {
+    const pb = poster(bad);
+    await assert.doesNotReject(startNativeTracking(pb.post, h.env));
+    assert.equal(pb.calls.length, 1, String(bad));
+    assert.equal(h.day(), mark(TODAY), 'العلامة باقية');
+    assert.equal(h.armed(), 0);
+    assert.deepEqual(h.app.hrefs, [START_URL]);
+  }
+  const syncThrow = (() => { throw new Error('boom'); }) as unknown as TrackTokenPost;
+  await assert.doesNotReject(startNativeTracking(syncThrow, h.env));
+  assert.equal(h.day(), mark(TODAY));
+  // الشركة أطفأت التتبّع: يُرسل الإيقاف (بدأ هذا الجهاز) ويُمسح كل شيء
+  await startNativeTracking(poster(OFF).post, h.env);
+  assert.deepEqual(h.app.hrefs, [START_URL, STOP_URL]);
+  assert.equal(h.day(), null);
+  assert.equal(h.at(), null);
+  assert.equal(h.sent(), null);
+  assert.equal(h.armed(), 0);
+});
+
+test('التحقّق والخروج: الخروج يمسح العلامة ولحظتها وموعد السؤال، والدخول يبدأ كما كان (nativeActive بعد الإيقاف لا يُصدَّق) — وخروجٌ أثناء السؤال يُسقط ردّه', async () => {
+  const h = harness({ cap: true });
+  await startNativeTracking(poster(ON).post, h.env);
+  h.tap();
+  const t1 = 5 * 60_000;
+  h.setNow(later(t1));
+  await startNativeTracking(poster(ACTIVE).post, h.env); // سؤالٌ سليم قبل الخروج
+  stopNativeTracking(h.env);
+  assert.deepEqual(h.app.hrefs, [START_URL, STOP_URL]);
+  assert.equal(h.day(), null);
+  assert.equal(h.at(), null);
+  assert.equal(h.sent(), null);
+  // الجلسة نفسها (الخروج جارٍ): لا شيء
+  const same = poster(ON);
+  await startNativeTracking(same.post, h.env);
+  assert.equal(same.calls.length, 0);
+  // دخولٌ بعد ثوانٍ: «يرفع الآن» آخرُ دفعةٍ من الخدمة الموقوفة ⇒ الزرّ
+  h.login('rep-session-A2');
+  h.setNow(later(t1 + 10_000));
+  const p = poster(ACTIVE);
+  await startNativeTracking(p.post, h.env);
+  assert.equal(p.calls.length, 1);
+  assert.equal(h.day(), null);
+  assert.equal(h.armed(), 1);
+  h.tap();
+  assert.deepEqual(h.app.hrefs, [START_URL, STOP_URL, START_URL]);
+  assert.equal(h.day(), mark(TODAY));
+  // المهلة من البدء الجديد، والموعد لا يرث سؤال ما قبل الخروج (٣ دقائق لم تمضِ عليه)
+  h.setNow(later(t1 + 10_000 + VERIFY_GRACE_MS));
+  const q = poster(ACTIVE);
+  await startNativeTracking(q.post, h.env);
+  assert.equal(q.calls.length, 1);
+  // خروجٌ والسؤال في الطريق: ردّه («لا جهاز») لا يُسلّح زرّاً
+  const g = harness({ cap: true });
+  await startNativeTracking(poster(ON).post, g.env);
+  g.tap();
+  g.setNow(later(t1));
+  const d = deferredPoster();
+  const run = startNativeTracking(d.post, g.env);
+  await until(() => d.calls.length === 1);
+  stopNativeTracking(g.env);
+  d.reply(ON);
+  await run;
+  assert.equal(g.armed(), 0);
+  assert.deepEqual(g.app.hrefs, [START_URL, STOP_URL]);
+  assert.equal(g.day(), null);
 });
 
 // ─── حرّاس ثابتة ───
