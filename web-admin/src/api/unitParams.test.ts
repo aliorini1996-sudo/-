@@ -16,11 +16,14 @@ test('removeUnitParams: clearPrimary وexpectedBaseName في الاستعلام�
   assert.deepEqual(removeUnitParams({ expectedBaseName: 'قارورة' }), { expectedBaseName: 'قارورة' });
   assert.deepEqual(removeUnitParams({ clearPrimary: true, expectedBaseName: 'قارورة' }), { clearPrimary: 1, expectedBaseName: 'قارورة' });
   assert.deepEqual(removeUnitParams({ clearPrimary: false, expectedBaseName: 'حبة' }), { expectedBaseName: 'حبة' });
+  // إقرار 409 PRICE_RULES_UNIT_ACK (قوائم الأسعار بالوحدة الرئيسية، ٥ نوفمبر ٢٠٢٦)
+  assert.deepEqual(removeUnitParams({ clearPrimary: true, acknowledgePriceRules: true }), { clearPrimary: 1, acknowledgePriceRules: 1 });
+  assert.equal(removeUnitParams({ acknowledgePriceRules: false }), undefined);
 });
 
 test('removeUnit يمرّ من removeUnitParams، ونافذة الصنف و/m يرسلان الأساس الذي رآه النموذج', () => {
   const client = read('api', 'client.ts');
-  assert.match(client, /removeUnit: \(id: string, unitId: string, opts\?: \{ clearPrimary\?: boolean; expectedBaseName\?: string \}\) =>\s*api\.delete\(`\/products\/\$\{id\}\/units\/\$\{unitId\}`, \{ params: removeUnitParams\(opts\) \}\)/);
+  assert.match(client, /removeUnit: \(id: string, unitId: string, opts\?: \{ clearPrimary\?: boolean; expectedBaseName\?: string; acknowledgePriceRules\?: boolean \}\) =>\s*api\.delete\(`\/products\/\$\{id\}\/units\/\$\{unitId\}`, \{ params: removeUnitParams\(opts\) \}\)/);
   const modal = read('components', 'forms', 'ProductModal.tsx');
   assert.match(modal, /productApi\.removeUnit\(productId, u\.id, \{ clearPrimary: true, expectedBaseName: baseUnit \}\)/);
   assert.match(modal, /productApi\.removeUnit\(productId, u\.id, \{ expectedBaseName: baseUnit \}\)/);
