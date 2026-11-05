@@ -16,6 +16,22 @@ FS_PROJECT = File.join(FS_ROOT, "FieldSales.xcodeproj")
 FS_WORKSPACE = File.join(FS_ROOT, "FieldSales.xcworkspace")
 FS_INFO_PLIST = File.join(FS_ROOT, "FieldSales", "Info.plist")
 FS_OUTPUT_DIR = File.join(FS_ROOT, "build")
+FS_ENTITLEMENTS = File.join(FS_ROOT, "FieldSales", "FieldSales.entitlements")
+
+# الإشعارات (طلب المالك ٤ نوفمبر): الصلاحيتان حرفياً كما في FieldSales.entitlements. يجب أن يمنحهما ملف التعريف وأن يحملهما
+# البينارِي الموقَّع، وإلّا يتوقف البناء هنا بدل أن يُقتل التطبيق عند الإقلاع (درس البناء 4). صلاحيةٌ جديدة = قرارٌ وتعديلٌ هنا وفي الوورك فلو.
+FS_PUSH_ENTITLEMENTS = {
+  "aps-environment" => "production",
+  "com.apple.developer.usernotifications.time-sensitive" => true
+}.freeze
+# ما يضيفه Xcode من ملف التعريف نفسه عند التوقيع، ويُسمح به في البينارِي إلى جانب صلاحيتَي الإشعارات
+FS_SIGNING_ENTITLEMENT_KEYS = %w[
+  application-identifier
+  com.apple.developer.team-identifier
+  get-task-allow
+  beta-reports-active
+  keychain-access-groups
+].freeze
 
 def fs_env(name)
   value = ENV[name].to_s.strip
@@ -53,6 +69,74 @@ def fs_next_build_number(api_key)
   [floor, latest + 1, 1].max
 end
 
+# مفاتيح FS_PUSH_ENTITLEMENTS الناقصة أو المخالفة في قاموس صلاحيات (من ملف تعريف أو من بينارِي موقَّع)
+def fs_push_entitlement_gaps(entitlements)
+  FS_PUSH_ENTITLEMENTS.reject { |key, value| (entitlements || {})[key] == value }.keys
+end
+
+def fs_profile_entitlements(profile_path)
+  FastlaneCore::ProvisioningProfile.parse(profile_path).fetch("Entitlements", {})
+end
+
+# match بالشهادة القائمة نفسها (لا شهادة جديدة أبداً). force يجدّد ملف تعريف net.fieldsa.rep وحده: يحذفه من البوابة
+# ويُنشئ بديلاً بقدرات App ID الحالية ويحفظه في مستودع التوقيع — لا يمسّ شهادة الفريق ولا ملف تعريف «بدر».
+def fs_match(api_key, team_id, force: false)
+  match(type: "appstore", app_identifier: [FS_BUNDLE_ID], readonly: false, force: force, api_key: api_key, team_id: team_id)
+  ENV.fetch("sigh_#{FS_BUNDLE_ID}_appstore_profile-path")
+end
+
+# تشخيصٌ للقراءة فقط عند الفشل: قدرات App ID كما تراها آبل الآن
+def fs_report_app_id_capabilities
+  bundle_id = Spaceship::ConnectAPI::BundleId.find(FS_BUNDLE_ID)
+  types = bundle_id ? bundle_id.get_capabilities.map(&:capability_type).compact.sort : []
+  UI.important("قدرات App ID #{FS_BUNDLE_ID} الآن: #{types.empty? ? '—' : types.join(', ')} (المطلوب PUSH_NOTIFICATIONS وUSERNOTIFICATIONS_TIMESENSITIVE)")
+rescue StandardError => e
+  UI.important("تعذّرت قراءة قدرات App ID (#{e.message})")
+end
+
+# ملف تعريفٍ يمنح صلاحيتَي الإشعارات. التجديد لا يقع في دفعٍ عادي أبداً: فقط بتشغيلٍ يدويّ بخيار renew_profile (FS_MATCH_FORCE=1)،
+# وفقط إن كان الملف الحالي ناقصاً — فلا يتجدّد مع كل بناء ولا يتجدّد بلا حاجة.
+def fs_push_profile!(api_key, team_id)
+  profile_path = fs_match(api_key, team_id)
+  gaps = fs_push_entitlement_gaps(fs_profile_entitlements(profile_path))
+  return profile_path if gaps.empty?
+
+  fs_report_app_id_capabilities
+  unless ENV["FS_MATCH_FORCE"].to_s == "1"
+    UI.user_error!("ملف تعريف #{FS_BUNDLE_ID} لا يمنح: #{gaps.join('، ')}. فعّل «Push Notifications» و«Time Sensitive Notifications» في App ID " +
+                   "ثم شغّل الوورك فلو يدوياً بخيار renew_profile — لا يُرفع بناءٌ تخالف صلاحياته ملف تعريفه")
+  end
+  UI.important("تجديد ملف تعريف #{FS_BUNDLE_ID} بطلبٍ صريح (renew_profile) لأنه لا يمنح: #{gaps.join('، ')}")
+  profile_path = fs_match(api_key, team_id, force: true)
+  gaps = fs_push_entitlement_gaps(fs_profile_entitlements(profile_path))
+  UI.user_error!("ملف التعريف الجديد ما زال لا يمنح: #{gaps.join('، ')} — القدرة غير مفعّلة في App ID") unless gaps.empty?
+  profile_path
+end
+
+# الـIPA قبل الرفع: البينارِي الموقَّع يحمل صلاحيتَي الإشعارات بقيمتيهما، وملف التعريف المضمَّن يمنحهما، ولا صلاحية غريبة
+def fs_verify_ipa_entitlements!(ipa)
+  require "open3"
+  require "plist"
+  require "tmpdir"
+  Dir.mktmpdir("fs-ipa") do |dir|
+    sh("unzip", "-q", ipa, "-d", dir, log: false)
+    app = Dir[File.join(dir, "Payload", "*.app")].first
+    UI.user_error!("لا تطبيق داخل #{File.basename(ipa)}") unless app
+    out, err, status = Open3.capture3("codesign", "-d", "--entitlements", "-", "--xml", app)
+    UI.user_error!("تعذّرت قراءة صلاحيات البينارِي: #{err.strip}") unless status.success?
+    signed = Plist.parse_xml(out) || {}
+    granted = fs_profile_entitlements(File.join(app, "embedded.mobileprovision"))
+    missing = fs_push_entitlement_gaps(signed)
+    ungranted = fs_push_entitlement_gaps(granted)
+    stray = signed.keys - FS_PUSH_ENTITLEMENTS.keys - FS_SIGNING_ENTITLEMENT_KEYS
+    UI.user_error!("البينارِي بلا: #{missing.join('، ')}") unless missing.empty?
+    UI.user_error!("ملف التعريف المضمَّن لا يمنح: #{ungranted.join('، ')}") unless ungranted.empty?
+    UI.user_error!("صلاحيات غير متوقعة في البينارِي: #{stray.join('، ')}") unless stray.empty?
+    UI.user_error!("get-task-allow مفعّل في بناء المتجر") if signed["get-task-allow"] == true
+    UI.success("صلاحيات الـIPA مطابقة: #{signed.keys.sort.join(', ')}")
+  end
+end
+
 platform :ios do
   before_all do
     # سرٌّ مُلصَق من ملف قد ينتهي بسطر جديد
@@ -66,8 +150,12 @@ platform :ios do
     setup_ci
     api_key = fs_api_key
     team_id = fs_team_id
-    # readonly: false — في أول تشغيل يُنشئ ملف تعريف net.fieldsa.rep بالشهادة الموجودة نفسها (لا شهادة جديدة)، ثم يقرؤه بعدها
-    match(type: "appstore", app_identifier: [FS_BUNDLE_ID], readonly: false, api_key: api_key, team_id: team_id)
+    require "plist"
+    source = Plist.parse_xml(File.read(FS_ENTITLEMENTS))
+    UI.user_error!("FieldSales.entitlements يجب أن يحوي صلاحيتَي الإشعارات وحدهما") unless source == FS_PUSH_ENTITLEMENTS
+    # readonly: false — يُنشئ ملف التعريف أول مرة بالشهادة الموجودة نفسها، ويعيد إنشاءه وحده إن أبطلته آبل (Invalid)؛
+    # ثم لا يُكمَل البناء إلا بملف تعريفٍ يمنح صلاحيتَي الإشعارات (fs_push_profile!)
+    fs_push_profile!(api_key, team_id)
     profile = ENV.fetch("sigh_#{FS_BUNDLE_ID}_appstore_profile-name")
 
     build_number = fs_next_build_number(api_key)
@@ -100,6 +188,7 @@ platform :ios do
         manageAppVersionAndBuildNumber: false
       }
     )
+    fs_verify_ipa_entitlements!(ipa)
     upload_to_testflight(api_key: api_key, ipa: ipa, skip_waiting_for_build_processing: true)
     UI.success("تطبيق المندوب (#{build_number}) رُفع إلى TestFlight — تعالجه آبل خلال دقائق")
   end

@@ -5,6 +5,11 @@ name: ios-testflight
 
 on:
   workflow_dispatch:
+    inputs:
+      renew_profile:
+        description: "تجديد ملف تعريف التوقيع لـnet.fieldsa.rep مرّةً بعد تفعيل قدرة الإشعارات في App ID (يتجدّد فقط إن كان لا يمنحها — يكتب في مستودع التوقيع المشترك)"
+        type: boolean
+        default: false
   push:
     branches:
       - ios-app
@@ -49,7 +54,14 @@ jobs:
           plutil -lint FieldSales/Info.plist
           /usr/libexec/PlistBuddy -c "Print :NSBluetoothAlwaysUsageDescription" FieldSales/Info.plist
           if /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" FieldSales/Info.plist 2>/dev/null | grep -qi bluetooth; then echo "✗ وضع خلفية للبلوتوث"; exit 1; fi
-          if grep -q CODE_SIGN_ENTITLEMENTS FieldSales.xcodeproj/project.pbxproj; then echo "✗ Entitlements"; exit 1; fi
+          # إشعارات الآيفون (٤ نوفمبر ٢٠٢٦): ملف صلاحيات واحد بمفتاحين حرفياً، يشير إليه إعداد Release للهدف وحده ولا يُذكر في أي
+          # مرحلة بناء (درس انهيار 1.0)، والصوت مورد في الحزمة — الحارس نفسه يعمل على ويندوز: python ci/check_push.py
+          python3 -I ci/check_push.py
+          python3 -I ci/check_push.py --selftest
+          plutil -lint FieldSales/FieldSales.entitlements
+          afinfo FieldSales/presence-alarm.wav | tee /tmp/fs-snd.txt
+          grep -qE '^File type ID:[[:space:]]+WAVE' /tmp/fs-snd.txt || { echo "✗ وعاء الصوت"; exit 1; }
+          awk '/^estimated duration:/ { seen = 1; if ($3 + 0 > 0 && $3 + 0 < 30) ok = 1 } END { exit !(seen && ok) }' /tmp/fs-snd.txt || { echo "✗ مدة الصوت"; exit 1; }
           if grep -RniE "nearpay|near pay|نيرباي|نير باي" FieldSales; then echo "✗ اسم المزوّد"; exit 1; fi
           # لا Privacy Manifest في التطبيق: أي واجهة «سبب مطلوب» في كوده يرفضها App Store Connect (ITMS-91053)
           if grep -RnE --include='*.swift' "UserDefaults|systemUptime|mach_absolute_time|creationDate|modificationDate|ModificationDate|volumeAvailableCapacity|systemFreeSize|activeInputModes" FieldSales; then echo "✗ واجهة تتطلب Privacy Manifest"; exit 1; fi
@@ -89,4 +101,6 @@ jobs:
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           FS_RUN_NUMBER: ${{ github.run_number }}
+          # يتجدّد ملف التعريف فقط بتشغيلٍ يدويّ بخيار renew_profile، وفقط إن كان لا يمنح صلاحيتَي الإشعارات (Fastfile)
+          FS_MATCH_FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.renew_profile && '1' || '0' }}
         run: bundle exec fastlane ios beta
