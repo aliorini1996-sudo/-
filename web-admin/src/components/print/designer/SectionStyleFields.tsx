@@ -4,20 +4,44 @@
  *
  * القيمة الافتراضية (ظاهر، محاذاة القالب، 100٪، 0 ملم) تُحذف من المخزَّن لا تُكتب — فالتعديل الذي يعود إلى الافتراضي لا يترك
  * أثراً، وملفٌّ لم يُمسّ يطبع كاليوم حرفياً. كل كتابةٍ تمرّ بـwithSectionStyle (designModel).
+ *
+ * قرار المالك ٤ نوفمبر ٢٠٢٦ («اجعل يمكن حذف كل شي حتى كيو ار»): لا قسم مقفل — الأصناف ورمز QR (COMPLIANCE_HIDE_SECTIONS) يُخفيان
+ * بتأكيدٍ واحد عند الإخفاء وتنبيهٍ أحمر دائم ما داما مخفيين، ومثلهما «حذف رمز QR من المطبوعة» (QrRemoveField) و«أختام الحالة»
+ * (StampsField) على مستوى القالب. الإعادة بلا تأكيد.
  */
 import { useEffect, useState } from 'react';
 import { Eye, EyeOff, RotateCcw } from 'lucide-react';
 import { useTr } from '../../../i18n/strings';
 import {
-  ALIGNS, ALIGN_LABELS, LAYOUT_BOUNDS, LOCKED_VISIBLE, SECTION_LABELS, layoutOf,
+  ALIGNS, ALIGN_LABELS, COMPLIANCE_HIDE_SECTIONS, ITEMS_REMOVE_WARNING, LAYOUT_BOUNDS, QR_REMOVE_ACTION, QR_REMOVE_WARNING, QR_RESTORE_ACTION,
+  SECTION_LABELS, STAMPS_HINT, STAMPS_LABEL, STAMPS_REMOVE_ACTION, STAMPS_REMOVE_WARNING, STAMPS_RESTORE_ACTION, areStampsRemoved, isQrRemoved,
+  layoutOf,
   type Align, type PrintProfile, type SectionId, type SectionStyle,
 } from '../../../lib/print/printSettings';
-import { withSectionStyle } from '../../../lib/print/designModel';
+import { withQrRemoved, withSectionStyle, withStampsRemoved } from '../../../lib/print/designModel';
 
 /** أقسامٌ تحمل بيانات إلزامية للفاتورة الضريبية — إخفاؤها مسموح (قرار المالك في نصوص المطبوعات) بتنبيهٍ وتأكيدٍ واحد */
 export const MANDATORY_CONTENT_SECTIONS: readonly SectionId[] = Object.freeze(['header', 'info', 'parties', 'customer', 'totals'] as SectionId[]);
 export const HIDE_MANDATORY_WARNING = 'هذا القسم يحمل بيانات إلزامية للفاتورة الضريبية، وإخفاؤه قد يخالف متطلبات الفوترة الإلكترونية';
-export const LOCKED_VISIBLE_HINT = 'الأصناف ورمز QR لا تخفى';
+
+/** التنبيه القوي لقسمٍ من COMPLIANCE_HIDE_SECTIONS (الأصناف/رمز QR)، أو null لغيرهما */
+export function complianceWarning(id: SectionId): string | null {
+  if (!COMPLIANCE_HIDE_SECTIONS.includes(id)) return null;
+  return id === 'qr' ? QR_REMOVE_WARNING : ITEMS_REMOVE_WARNING;
+}
+
+/** نصّ التأكيد الواحد عند إخفاء قسم: QR بعبارة «حذف رمز QR من المطبوعة»، والأصناف والأقسام الإلزامية «إخفاء القسم: …» — null بلا تأكيد */
+export function hideConfirmText(id: SectionId, tr: (s: string) => string): string | null {
+  if (id === 'qr') return `${tr(QR_REMOVE_ACTION)}\n${tr(QR_REMOVE_WARNING)}`;
+  const strong = complianceWarning(id);
+  if (strong) return `${tr('إخفاء القسم')}: ${tr(SECTION_LABELS[id])}\n${tr(strong)}`;
+  if (MANDATORY_CONTENT_SECTIONS.includes(id)) return `${tr('إخفاء القسم')}: ${tr(SECTION_LABELS[id])}\n${tr(HIDE_MANDATORY_WARNING)}`;
+  return null;
+}
+
+const NOTE_RED = 'text-[11px] text-[#8E2A1F] bg-[#FBEBE2] rounded px-2 py-1';
+const toggleCls = (restore: boolean): string =>
+  `inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${restore ? 'border-[#E9E1D3] bg-white text-[#44403a] hover:border-[#E15A30]' : 'border-[#E15A30] bg-white text-[#8E2A1F] hover:bg-[#FBEBE2]'}`;
 
 const fin = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const ARABIC_DIGITS = /[٠-٩]/g;
@@ -89,15 +113,15 @@ export function SectionStyleFields({ p, update, id, phase2 }: { p: PrintProfile;
   const tr = useTr();
   const s = sectionStyleOf(p, id);
   const visible = s.visible !== false;
-  const locked = LOCKED_VISIBLE.includes(id);
+  const strong = complianceWarning(id);
   const mandatory = MANDATORY_CONTENT_SECTIONS.includes(id);
   const fontPct = fin(s.fontPct) ? s.fontPct : 100;
   const before = fin(s.spaceBeforeMm) ? s.spaceBeforeMm : 0;
   const after = fin(s.spaceAfterMm) ? s.spaceAfterMm : 0;
   const empty = Object.keys(s).length === 0;
   const toggleVisible = (): void => {
-    if (locked) return;
-    if (visible && mandatory && !window.confirm(`${tr('إخفاء القسم')}: ${tr(SECTION_LABELS[id])}\n${tr(HIDE_MANDATORY_WARNING)}`)) return;
+    const ask = visible ? hideConfirmText(id, tr) : null;
+    if (ask && !window.confirm(ask)) return;
     update(withStyleKey(p, id, 'visible', visible ? false : undefined));
   };
   const row = 'flex flex-wrap items-center gap-2 py-1';
@@ -106,17 +130,14 @@ export function SectionStyleFields({ p, update, id, phase2 }: { p: PrintProfile;
     <div data-section-style={id} className="space-y-0.5">
       <div className={row}>
         <span className={lab}>{tr('الظهور')}</span>
-        <button type="button" onClick={toggleVisible} disabled={locked} aria-pressed={visible}
-          title={locked ? tr(LOCKED_VISIBLE_HINT) : undefined}
+        <button type="button" onClick={toggleVisible} aria-pressed={visible}
           className={`${chipCls(visible)} inline-flex items-center gap-1`}>
           {visible ? <Eye className="w-3.5 h-3.5" aria-hidden="true" /> : <EyeOff className="w-3.5 h-3.5" aria-hidden="true" />}
           {visible ? tr('ظاهر') : tr('مخفي')}
         </button>
-        {locked && <span className="text-[11px] text-[#9A8F7E]">{tr(LOCKED_VISIBLE_HINT)}</span>}
       </div>
-      {!visible && mandatory && (
-        <p className="text-[11px] text-[#8E2A1F] bg-[#FBEBE2] rounded px-2 py-1" role="note">{tr(HIDE_MANDATORY_WARNING)}</p>
-      )}
+      {!visible && strong && <p className={NOTE_RED} role="note" data-compliance-note={id}>{tr(strong)}</p>}
+      {!visible && !strong && mandatory && <p className={NOTE_RED} role="note">{tr(HIDE_MANDATORY_WARNING)}</p>}
       <div className={row}>
         <span className={lab}>{tr('المحاذاة')}</span>
         <AlignChips value={s.align ?? null} allowAuto label={tr('المحاذاة')} onChange={(a) => update(withStyleKey(p, id, 'align', a ?? undefined))} />
@@ -143,6 +164,54 @@ export function SectionStyleFields({ p, update, id, phase2 }: { p: PrintProfile;
           <RotateCcw className="w-3 h-3" aria-hidden="true" />{tr('تنسيق القسم الافتراضي')}
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * «حذف رمز QR من المطبوعة» على مستوى القالب — لكل طابعةٍ قابلة للتحرير (الرول والصفحة والنقطية بتصميميهما). الحذف بتأكيدٍ واحد
+ * (QR_REMOVE_ACTION + QR_REMOVE_WARNING) ويزيل مربع اللوحة إن وُجد، وما دام محذوفاً يبقى التنبيه الأحمر. الإعادة بلا تأكيد.
+ */
+export function QrRemoveField({ p, update }: { p: PrintProfile; update(next: PrintProfile): void }) {
+  const tr = useTr();
+  const removed = isQrRemoved(layoutOf(p));
+  const toggle = (): void => {
+    if (!removed && !window.confirm(`${tr(QR_REMOVE_ACTION)}\n${tr(QR_REMOVE_WARNING)}`)) return;
+    update(withQrRemoved(p, !removed));
+  };
+  return (
+    <div data-qr-remove={removed ? 'removed' : ''} className="space-y-1">
+      <button type="button" onClick={toggle} aria-pressed={removed} className={toggleCls(removed)}>
+        {removed ? <Eye className="w-3.5 h-3.5" aria-hidden="true" /> : <EyeOff className="w-3.5 h-3.5" aria-hidden="true" />}
+        {removed ? tr(QR_RESTORE_ACTION) : tr(QR_REMOVE_ACTION)}
+      </button>
+      {removed && <p className={NOTE_RED} role="note">{tr(QR_REMOVE_WARNING)}</p>}
+    </div>
+  );
+}
+
+/**
+ * «أختام الحالة» (وسم نسخة المحاكاة، وإشعار سند التسليم، وختم الإلغاء): حذفها بتأكيدٍ واحد (STAMPS_REMOVE_WARNING) يكتب
+ * stamps=false، وما دامت محذوفةً يبقى التنبيه الأحمر. الإعادة بلا تأكيد تحذف المفتاح فيعود كل شيء كاليوم.
+ */
+export function StampsField({ p, update }: { p: PrintProfile; update(next: PrintProfile): void }) {
+  const tr = useTr();
+  const removed = areStampsRemoved(layoutOf(p));
+  const toggle = (): void => {
+    if (!removed && !window.confirm(`${tr(STAMPS_REMOVE_ACTION)}\n${tr(STAMPS_REMOVE_WARNING)}`)) return;
+    update(withStampsRemoved(p, !removed));
+  };
+  return (
+    <div data-stamps={removed ? 'removed' : ''} className="space-y-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] text-[#6E6557] min-w-[84px]">{tr(STAMPS_LABEL)}</span>
+        <button type="button" onClick={toggle} aria-pressed={removed} className={toggleCls(removed)}>
+          {removed ? <Eye className="w-3.5 h-3.5" aria-hidden="true" /> : <EyeOff className="w-3.5 h-3.5" aria-hidden="true" />}
+          {removed ? tr(STAMPS_RESTORE_ACTION) : tr(STAMPS_REMOVE_ACTION)}
+        </button>
+      </div>
+      <p className="text-[11px] text-[#9A8F7E]">{tr(STAMPS_HINT)}</p>
+      {removed && <p className={NOTE_RED} role="note">{tr(STAMPS_REMOVE_WARNING)}</p>}
     </div>
   );
 }

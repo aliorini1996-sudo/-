@@ -14,7 +14,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { printThermalInvoice, printThermalReceipt, thermalPreviewHtml, type ThermalPrintOptions } from './thermal';
 import type { Company, InvoiceDoc, ReceiptDoc } from './RepDocuments';
-import { defaultPrintOptions, presetPaper, type PaperPresetId, type PrintOptions, type PrintProfile, type TemplateId } from '../lib/print/printSettings';
+import { PRINT_WARNINGS, defaultPrintOptions, presetPaper, type PaperPresetId, type PrintOptions, type PrintProfile, type TemplateId } from '../lib/print/printSettings';
+import { PrintRefusedError } from '../lib/print/printErrors';
 import { DEFAULT_SECTIONS } from '../lib/print/layout';
 
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
@@ -133,13 +134,40 @@ test('كتلة الشعار المستقلة: أوّل الشريط أو بعد 
   assert.ok(hidden.indexOf('data-sec="logo"') > hidden.indexOf('data-sec="info"') && hidden.indexOf('data-sec="logo"') < hidden.indexOf('data-sec="items"'));
 });
 
-test('إخفاء الأقسام: المخفيّ يسقط كاملاً، والأصناف والرمز لا يُخفيان أبداً (ولو وصل visible:false)', async () => {
+test('إخفاء الأقسام: المخفيّ يسقط كاملاً — والأصناف والرمز بإخفاء الشركة الصريح وحده (قرار المالك ٤ نوفمبر ٢٠٢٦)', async () => {
+  // بلا إخفاءٍ صريح للأصناف والرمز: باقيان مهما أُخفي غيرهما
+  const kept = await roll(p2(), prof('roll_compact', 'roll80', L({ sections: { customer: { visible: false }, footer: { visible: false } } })));
+  assert.ok(!kept.includes('<span>العميل</span>'), 'العميل لم يُخفَ');
+  assert.ok(!kept.includes('شكرا لتعاملكم معنا'), 'التذييل لم يُخفَ');
+  assert.ok(kept.includes('class="iname"'), 'الأصناف أُخفيت بلا إخفاء');
+  assert.match(kept, /<div class="qr"><img src="data:QR" width="168" height="168"\/><\/div>/, 'الرمز أُخفي بلا إخفاء');
+  // إخفاءٌ صريح: الأصناف تسقط (والإجماليات باقية)، والرمز يسقط بسطري ICV/UUID وفاصله — في الطباعة والبلوتوث
   const p = prof('roll_compact', 'roll80', L({ sections: { customer: { visible: false }, footer: { visible: false }, items: { visible: false }, qr: { visible: false } } }));
-  const html = await roll(p2(), p);
-  assert.ok(!html.includes('<span>العميل</span>'), 'العميل لم يُخفَ');
-  assert.ok(!html.includes('شكرا لتعاملكم معنا'), 'التذييل لم يُخفَ');
-  assert.ok(html.includes('class="iname"'), 'الأصناف أُخفيت');
-  assert.match(html, /<div class="qr"><img src="data:QR" width="168" height="168"\/><\/div>/, 'الرمز أُخفي');
+  for (const raster of [false, true]) {
+    const html = await roll(p2(), p, raster);
+    assert.ok(!html.includes('class="iname"') && !html.includes('data-sec="items"'), `${raster}: الأصناف المخفيّة مطبوعة`);
+    assert.ok(html.includes('data-sec="totals"'), `${raster}: الإجماليات سقطت`);
+    assert.ok(!html.includes('class="qr"') && !html.includes('class="qrbox"') && !html.includes('data-qr-value'), `${raster}: الرمز المحذوف مطبوع`);
+    assert.ok(!/ICV (42|٤٢)/.test(html) && !html.includes('data-sec="qr"'), `${raster}: قسم الرمز أو ICV باقٍ`);
+  }
+  // إخفاء الأصناف وحده لا يمسّ الرمز
+  const noItems = await roll(p2(), prof('roll_compact', 'roll80', L({ sections: { items: { visible: false } } })));
+  assert.match(noItems, /<div class="qrbox" style="--qr:[\d.]+mm"><div class="qr"><img src="data:QR"/);
+  assert.ok(!noItems.includes('class="iname"'));
+});
+
+test('58 مم ضيّق بالمرحلة الثانية: الرمز المختوم يُرفض اليوم (qrNoFit) — والرمز المحذوف صراحةً يُطبع بلا رفضٍ ولا رمز', async () => {
+  const narrow = (layout: Record<string, unknown>): PrintProfile => {
+    const p = prof('roll_compact', 'roll58', layout);
+    return { ...p, paper: { ...p.paper, printableDots: 256 } };
+  };
+  for (const raster of [false, true]) {
+    await assert.rejects(roll(p2(), narrow(L({ sections: { header: { align: 'start' } } })), raster),
+      (e: unknown) => e instanceof PrintRefusedError && e.message === PRINT_WARNINGS.qrNoFit, `${raster}: اليوم لا يُرفض`);
+    const html = await roll(p2(), narrow(L({ sections: { qr: { visible: false } } })), raster);
+    assert.ok(html.includes('class="iname"'), `${raster}: لم يُطبع`);
+    assert.ok(!html.includes('class="qr"') && !html.includes('data-qr-value') && !/ICV (42|٤٢)/.test(html), `${raster}: رمزٌ محذوف مطبوع`);
+  }
 });
 
 test('محاذاة القسم وحجم خطه ومسافته: قواعد مضمَّنة وفي <style> ثانٍ — بضرب البكسل لا zoom، والبداية يمين', async () => {
@@ -210,8 +238,11 @@ test('الرأس المخفيّ لا يُسقط سطر «الأصل/نسخة» �
   assert.equal(html.match(/<div class="copy-label">نسخة<\/div>/g)?.length, 1);
 });
 
-test('رمز المرحلة الثانية في أقصى تحرير: شعار 120 مم وخط 160% ومسافة 30 مم وكل قسمٍ منقول ومخفيّ — صورةً وخانةً', async () => {
-  const sections = Object.fromEntries(DEFAULT_SECTIONS.thermal.map((id) => [id, { fontPct: 160, spaceBeforeMm: 30, spaceAfterMm: 30, align: 'end', visible: false }]));
+test('رمز المرحلة الثانية في أقصى تحرير: شعار 120 مم وخط 160% ومسافة 30 مم وكل قسمٍ منقول ومخفيّ (إلا الرمز والأصناف) — صورةً وخانةً', async () => {
+  // قرار المالك ٤ نوفمبر ٢٠٢٦: إخفاء الرمز أو الأصناف حذفٌ صريح لهما — فأقصى تحريرٍ «لا يحذفهما» يُبقيهما ظاهرين بأقصى تنسيق
+  const sections = Object.fromEntries(DEFAULT_SECTIONS.thermal.map((id) => [id, {
+    fontPct: 160, spaceBeforeMm: 30, spaceAfterMm: 30, align: 'end', ...(id === 'qr' || id === 'items' ? {} : { visible: false }),
+  }]));
   const order = ['header', 'qr', 'items', 'totals', 'customer', 'info', 'signatures', 'footer'];
   for (const [tpl, preset] of [['roll_compact', 'roll58'], ['roll_compact', 'roll80'], ['roll_detailed', 'roll80']] as const) {
     const p = prof(tpl, preset, L({ order, logo: 'end', logoMm: 120, logoAfter: 'qr', tableStyle: 'grid', sections }));
@@ -227,6 +258,13 @@ test('رمز المرحلة الثانية في أقصى تحرير: شعار 12
     const lg = logoTag(bt);
     assert.ok(lg && mmOf(lg, 'max-height') <= 120 && mmOf(lg, 'max-width') <= band, `الشعار: ${lg.slice(0, 40)}…`);
     assert.ok(!/zoom/.test(freeCss(bt)));
+    // والأقصى نفسه مع حذف الرمز الصريح: لا رمز ولا خانة ولا ICV، بلا رفض
+    const gone = { ...sections, qr: { ...sections.qr, visible: false } };
+    for (const raster of [false, true]) {
+      const h = await roll(p2(), prof(tpl, preset, L({ order, logo: 'end', logoMm: 120, logoAfter: 'qr', tableStyle: 'grid', sections: gone })), raster);
+      assert.ok(!h.includes('class="qr"') && !h.includes('data-qr-value') && !/ICV (42|٤٢)/.test(h), `${tpl}/${preset}/${raster}: رمزٌ محذوف مطبوع`);
+      assert.ok(h.includes('data-sec="logo"'), `${tpl}/${preset}: كتلة الشعار بعد قسمٍ محذوف سقطت`);
+    }
   }
 });
 

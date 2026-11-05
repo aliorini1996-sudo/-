@@ -10,12 +10,17 @@
 // وكل دالة لها (hasFreeLayout/logoPlan/sectionLook/qrOrphan/resolveCanvas…) تعيد null أو {} لتخطيطٍ بلا أيٍّ منها — فتخطيط
 // المفاتيح الستة يطبع كما في 8696ef7 حرفياً (rep/printLayout6.baseline.test.ts).
 //
+// «احذف كل شيء حتى QR» (قرار المالك ٤ نوفمبر ٢٠٢٦): لا قسم مقفل — الأصناف ورمز QR الرول يُخفيان كغيرهما، ورمز QR الصفحة والثنائي
+// قسمٌ «افتراضي» (sections.qr = { visible:false }) لا يدخل الترتيب، و`stamps:false` يُسقط أختام الحالة. القراءة عبر isQrRemoved/
+// isItemsRemoved/areStampsRemoved وحدها (lib/print/printSettings) — والغياب = اليوم حرفياً (القسم الحامل المخفي ⇒ الرمز اليتيم كما كان).
+//
 // الاستيراد من النواة type-only عمداً: لا يتوقف هذا الملف على ترتيب وصول حزم البناء، وقائمة الأقسام الافتراضية نسخة محلية
 // يحرسها layout.test.ts بمقارنتها مع sectionsFor() في النواة متى وُجدت.
 // ============================================================================
 
 import type { PrintProfile, PrinterType, LayoutDesign, SectionId, Align, SectionStyle, CanvasBox, CanvasBoxId, CanvasBand, PrintCanvas } from './printSettingsCore';
 import { roundHalfUp } from '../money';
+import { isQrRemoved } from './printSettings';
 
 export type CSSProps = Record<string, string | number>;
 
@@ -28,6 +33,8 @@ export interface ResolvedLayout {
   logoAfter?: SectionId | 'top';
   sections?: Partial<Record<SectionId, SectionStyle>>;
   canvas?: PrintCanvas;
+  /** false = أختام الحالة محذوفة بقرار الشركة (areStampsRemoved) — يُحمل متى كان منطقياً، وغيابه = اليوم */
+  stamps?: boolean;
   /** سقف مجموع اللوحتين على ورقٍ قصير (A5، نصف الصفحة المتصلة) — يوجد مع canvas حين يقلّ عن 200 وحده (paperBandsTotal) */
   bandsTotalMm?: number;
 }
@@ -46,7 +53,6 @@ const ALIGN_IDS: readonly Align[] = ['start', 'center', 'end'];
 const BAND_IDS: readonly CanvasBand[] = ['header', 'footer'];
 const BOX_IDS: readonly CanvasBoxId[] = ['logo', 'company', 'title', 'docInfo', 'customer', 'qr', 'totals', 'signatures', 'footer'];
 const FOOTER_ONLY: readonly CanvasBoxId[] = ['totals', 'signatures'];
-const LOCKED: readonly SectionId[] = ['items', 'qr'];
 const CONTENT_MM: Readonly<Record<'page' | 'impact', number>> = Object.freeze({ page: 188, impact: 201 });
 const BOUNDS = Object.freeze({
   logoMm: [6, 120] as const, fontPct: [70, 160] as const, spaceMm: [0, 30] as const,
@@ -56,7 +62,7 @@ const BOUNDS = Object.freeze({
 });
 /** للحارس في layout.test.ts وحده — المستهلكون يستوردون الثوابت من النواة */
 export const ENGINE_CORE_COPIES = Object.freeze({
-  ALIGNS: ALIGN_IDS, CANVAS_BANDS: BAND_IDS, CANVAS_BOX_IDS: BOX_IDS, CANVAS_FOOTER_ONLY: FOOTER_ONLY, LOCKED_VISIBLE: LOCKED,
+  ALIGNS: ALIGN_IDS, CANVAS_BANDS: BAND_IDS, CANVAS_BOX_IDS: BOX_IDS, CANVAS_FOOTER_ONLY: FOOTER_ONLY,
   CANVAS_CONTENT_MM: CONTENT_MM, LAYOUT_BOUNDS: BOUNDS,
 });
 
@@ -136,10 +142,10 @@ const clamp = (v: number, lo: number, hi: number): number => Math.min(Math.max(v
 const r2 = (n: number): number => Math.round(n * 100) / 100;
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
-function cleanStyle(id: SectionId, raw: unknown): SectionStyle | null {
+function cleanStyle(raw: unknown): SectionStyle | null {
   if (!isObj(raw)) return null;
   const out: SectionStyle = {};
-  if (raw.visible === false && !LOCKED.includes(id)) out.visible = false;
+  if (raw.visible === false) out.visible = false;
   if (typeof raw.align === 'string' && (ALIGN_IDS as readonly string[]).includes(raw.align)) out.align = raw.align as Align;
   if (within(raw.fontPct, BOUNDS.fontPct)) out.fontPct = Math.round(raw.fontPct);
   if (within(raw.spaceBeforeMm, BOUNDS.spaceMm)) out.spaceBeforeMm = raw.spaceBeforeMm;
@@ -174,15 +180,18 @@ function resolveFreeKeys(out: ResolvedLayout, raw: Record<string, unknown>): voi
   if (isObj(rs)) {
     const sections: Partial<Record<SectionId, SectionStyle>> = {};
     for (const id of allowed) {
-      const st = cleanStyle(id, rs[id]);
+      const st = cleanStyle(rs[id]);
       if (st) sections[id] = st;
     }
+    // رمز QR الصفحة والثنائي قسمٌ افتراضي (ليس في الترتيب): يُحمل مفتاحه visible:false وحده
+    if (out.printer !== 'thermal' && isObj(rs.qr) && rs.qr.visible === false) sections.qr = Object.freeze({ visible: false });
     if (Object.keys(sections).length) out.sections = Object.freeze(sections);
   }
   if (out.printer !== 'thermal' && out.design === 'standard') {
     const c = cleanCanvas(raw.canvas);
     if (c) out.canvas = c;
   }
+  if (typeof raw.stamps === 'boolean') out.stamps = raw.stamps;
 }
 
 /** أيّ مفتاحٍ من المفاتيح الحرّة الأربعة — false ⇒ كل مستهلكٍ على مساره قبل التحرير الحرّ حرفياً */
@@ -270,7 +279,7 @@ export function sectionLook(l: ResolvedLayout | null, id: SectionId): SectionLoo
   if (!l || !hasFreeLayout(l)) return null;
   const s = l.sections?.[id];
   return {
-    visible: LOCKED.includes(id) ? true : s?.visible !== false,
+    visible: s?.visible !== false,
     align: s?.align ?? null,
     fontPct: s?.fontPct ?? 100,
     spaceBeforeMm: s?.spaceBeforeMm ?? 0,
@@ -305,12 +314,12 @@ export function fontPx(px: number, s: SectionLook | null): number {
   return r2((px * s.fontPct) / 100);
 }
 
-/** orderedSections ناقص المخفيّ — الأصناف ورمز الرول لا يُحذفان أبداً */
+/** orderedSections ناقص المخفيّ — والأصناف ورمز الرول منه متى أخفتهما الشركة صراحةً (قرار المالك ٤ نوفمبر ٢٠٢٦) */
 export function visibleOrder(l: ResolvedLayout | null, printer: PrinterType, design?: LayoutDesign): readonly SectionId[] {
   const order = orderedSections(l, printer, design);
   const sections = l?.sections;
   if (!sections) return order;
-  return order.filter((id) => LOCKED.includes(id) || sections[id]?.visible !== false);
+  return order.filter((id) => sections[id]?.visible !== false);
 }
 
 /** القسم الذي يحمل رمز QR: الرول قسمه، والثنائي «البيانات»، والقياسي «الإجماليات» */
@@ -320,11 +329,12 @@ export function qrHost(printer: PrinterType, design: LayoutDesign): SectionId {
 }
 
 /**
- * هل يُطبع رمز QR كتلةً مستقلة لأن قسمه مخفي (القياسي: بعد الأصناف؛ الثنائي: بعد الترويسة). لا يقع في الرول (قسمه لا يُخفى)،
- * ولا حين يضع المصمّم مربع QR في لوحةٍ قائمة (هناك يُطبع).
+ * هل يُطبع رمز QR كتلةً مستقلة لأن قسمه مخفي (القياسي: بعد الأصناف؛ الثنائي: بعد الترويسة). لا يقع في الرول (قسمه هو الرمز)،
+ * ولا حين يضع المصمّم مربع QR في لوحةٍ قائمة (هناك يُطبع)، ولا حين حذفت الشركة الرمز نفسه صراحةً (isQrRemoved). وإخفاء القسم
+ * الحامل وحده لا يحذف الرمز.
  */
 export function qrOrphan(l: ResolvedLayout | null, printer: PrinterType, design: LayoutDesign): boolean {
-  if (!l?.sections || printer === 'thermal') return false;
+  if (!l?.sections || printer === 'thermal' || isQrRemoved(l)) return false;
   const host = qrHost(printer, design);
   if (l.sections[host]?.visible !== false) return false;
   const c = l.canvas;
@@ -378,7 +388,8 @@ export function clampBox(b: CanvasBox, bandHmm: number, contentWmm: number, minM
 /**
  * اللوحتان جاهزتين للرسم — null بلا canvas أو على الرول/الثنائي أو بلوحتين صفريتين. يقصّ المربعات داخل المحتوى واللوحة، ويكبّر
  * مربع QR إلى qrMinMm (وحدّ القراءة 47 مم) ويكبّر لوحته لتسعه، ويُسقط QR من سند القبض والمربع المعيب أو المكرر، ومربعاً في لوحةٍ
- * صفرية، و«تذييلياً» في الرأس — فيعود كلٌّ منها إلى مكانه في التدفّق (placed لا يحمله).
+ * صفرية، و«تذييلياً» في الرأس — فيعود كلٌّ منها إلى مكانه في التدفّق (placed لا يحمله). والرمز المحذوف صراحةً (isQrRemoved)
+ * يسقط مربعه كلّياً: لا يوضع ولا يكبّر لوحته (والقالب لا يطبعه في التدفّق أيضاً).
  */
 export function resolveCanvas(l: ResolvedLayout | null, ctx: { printer: 'page' | 'impact'; qrMinMm: number; kind: 'invoice' | 'receipt' }): ResolvedCanvas | null {
   const c = l?.canvas;
@@ -398,7 +409,7 @@ export function resolveCanvas(l: ResolvedLayout | null, ctx: { printer: 'page' |
   for (const b of c.boxes.slice(0, BOUNDS.maxBoxes)) {
     if (!b || !BOX_IDS.includes(b.id) || !BAND_IDS.includes(b.band) || seen.has(b.id)) continue;
     if (![b.x, b.y, b.w, b.h].every(isNum)) continue;
-    if (b.id === 'qr' && ctx.kind === 'receipt') continue;
+    if (b.id === 'qr' && (ctx.kind === 'receipt' || isQrRemoved(l))) continue;
     if (b.band === 'header' && FOOTER_ONLY.includes(b.id)) continue;
     if (bandH[b.band] <= 0) continue;
     seen.add(b.id);

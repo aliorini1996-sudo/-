@@ -10,15 +10,15 @@
 import { AlertTriangle, Info, RotateCcw } from 'lucide-react';
 import { useTr } from '../../i18n/strings';
 import {
-  LEGACY_THERMAL_ID, LOCKED_VISIBLE, LOGO_POSITIONS, LOGO_POSITION_LABELS, SECTION_LABELS, TABLE_STYLES, TABLE_STYLE_LABELS, layoutOf, sectionsFor,
-  withLayout, withProfile,
+  LEGACY_THERMAL_ID, LOGO_POSITIONS, LOGO_POSITION_LABELS, QR_ORPHAN_NOTE, SECTION_LABELS, TABLE_STYLES, TABLE_STYLE_LABELS, isQrRemoved, layoutOf,
+  sectionsFor, withLayout, withProfile,
   type PrintProfile, type PrintSettingsV1, type SectionId,
 } from '../../lib/print/printSettings';
 import {
   editableClassicCopy, freeIssues, logoMmOf, logoMmRange, resetCanvas, resetLogo, resetSections, withLogo, type DesignSel,
 } from '../../lib/print/designModel';
 import { qrHost, qrOrphan, resolveLayout } from '../../lib/print/layout';
-import { NumInput, SectionStyleFields, chipCls } from './designer/SectionStyleFields';
+import { NumInput, QrRemoveField, SectionStyleFields, StampsField, chipCls } from './designer/SectionStyleFields';
 import { layoutEditable, logoChoices } from './PrintPreview';
 
 export interface PrintDesignToolsProps {
@@ -61,15 +61,28 @@ export function logoSlider(p: PrintProfile): { min: number; max: number; step: n
   return { min, max, step: 0.5, value: Math.min(max, Math.max(min, logoMmOf(p))), disabled };
 }
 
-export interface ToolRow { id: SectionId; hidden: boolean; styled: boolean; locked: boolean }
+export interface ToolRow { id: SectionId; hidden: boolean; styled: boolean }
 
-/** صفوف الأقسام بترتيب التصميم: المخفي، وما له تنسيق، وما لا يُخفى */
+/**
+ * صفوف الأقسام بترتيب التصميم: المخفي، وما له تنسيق. لا قسم مقفل الظهور منذ قرار المالك ٤ نوفمبر ٢٠٢٦ («اجعل يمكن حذف كل شي حتى
+ * كيو ار»): الأصناف ورمز QR الرول يُخفيان بتنبيهٍ قويّ وتأكيدٍ واحد (SectionStyleFields).
+ */
 export function toolRows(p: PrintProfile): ToolRow[] {
   const l = layoutOf(p);
   return sectionsFor(p.printer, l.design).map((id) => {
     const st = l.sections?.[id];
-    return { id, hidden: st?.visible === false, styled: !!st && Object.keys(st).length > 0, locked: LOCKED_VISIBLE.includes(id) };
+    return { id, hidden: st?.visible === false, styled: !!st && Object.keys(st).length > 0 };
   });
+}
+
+/** كتلة «رمز QR» في الأدوات: الصفحة والنقطية (القياسي وثنائي اللغة) — رمزها بلا قسمٍ في الترتيب، والرول يحذفه من صفّ قسمه */
+export const qrToolBlock = (p: PrintProfile): boolean => layoutEditable(p) && p.printer !== 'thermal';
+
+/** تنبيه «يطبع الرمز وحده»: القسم الحامل للرمز مخفيّ والرمز لم يُحذف صراحةً */
+export function qrOrphanNote(p: PrintProfile): boolean {
+  const l = layoutOf(p);
+  const r = resolveLayout(p);
+  return r !== null && !isQrRemoved(l) && qrOrphan(r, p.printer, l.design);
 }
 
 export default function PrintDesignTools({ p, update, phase2, selected = null, onSelect }: PrintDesignToolsProps) {
@@ -89,10 +102,9 @@ export default function PrintDesignTools({ p, update, phase2, selected = null, o
   const preprinted = p.template === 'impact_preprinted';
   const slider = logoSlider(p);
   const logoOff = !p.options.showLogo || preprinted;
-  const free = l.logoMm !== undefined || l.logoAfter !== undefined || l.sections !== undefined || l.canvas !== undefined;
+  const free = l.logoMm !== undefined || l.logoAfter !== undefined || l.sections !== undefined || l.canvas !== undefined || l.stamps !== undefined;
   const issues = freeIssues(p);
-  const r = resolveLayout(p);
-  const orphan = r !== null && qrOrphan(r, p.printer, l.design);
+  const orphan = qrOrphanNote(p);
   const rows = toolRows(p);
   const sections = sectionsFor(p.printer, l.design);
   const logoInCanvas = !!l.canvas?.boxes.some((b) => b.id === 'logo');
@@ -186,9 +198,22 @@ export default function PrintDesignTools({ p, update, phase2, selected = null, o
         {orphan && (
           <p className="text-[11px] text-[#6E6557] mt-1.5 flex items-start gap-1.5" data-qr-orphan="">
             <Info size={12} className="mt-0.5 shrink-0" />
-            {tr('قسم رمز QR مخفي — يطبع الرمز وحده في مكانه التلقائي')} ({tr(SECTION_LABELS[qrHost(p.printer, l.design)])})
+            {tr(QR_ORPHAN_NOTE)} ({tr(SECTION_LABELS[qrHost(p.printer, l.design)])})
           </p>
         )}
+      </div>
+
+      {/* رمز QR في الصفحة والنقطية: ليس قسماً في الترتيب (يحمله قسم الإجماليات أو البيانات) — فحذفه هنا صراحةً بتنبيهٍ وتأكيد */}
+      {qrToolBlock(p) && (
+        <div className="rounded-xl border border-[#F1EBDF] px-2.5 py-2 space-y-1.5" data-tool-qr="">
+          <span className="block text-xs font-bold text-[#1F1A13]">{tr(SECTION_LABELS.qr)}</span>
+          <QrRemoveField p={p} update={update} />
+        </div>
+      )}
+
+      {/* أختام الحالة (وسم المحاكاة وإشعار سند التسليم وختم الإلغاء) — لكل طابعة قابلة للتحرير */}
+      <div className="rounded-xl border border-[#F1EBDF] px-2.5 py-2" data-tool-stamps="">
+        <StampsField p={p} update={update} />
       </div>
 
       {issues.length > 0 && (

@@ -8,14 +8,14 @@ import path from 'node:path';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
-  ACCENT_PALETTE, defaultPrintOptions, layoutIssues, legacyPageProfile, legacyThermalProfile, presetPaper, sectionsFor,
-  type PrintProfile,
+  ACCENT_PALETTE, PRINT_SAMPLE_WATERMARK, defaultPrintOptions, layoutIssues, legacyPageProfile, legacyThermalProfile, presetPaper, sectionsFor,
+  withLayout, type PrintProfile,
 } from '../../lib/print/printSettings';
 import { PRINT_STATUS_TITLE_KEYS, PRINT_TEXT_CATALOG, PRINT_TEXT_WARNINGS, printTextEntry } from '../../lib/print/printTextsCore';
 import { PHRASES } from '../../i18n/strings';
 // حقول «التخطيط» ودوالّها في PrintPreview.tsx لا في اللوحة: اللوحة تستورد عميل الـAPI (import.meta.env وlocalStorage) فلا تُحمَّل هنا
 import PrintPreview, {
-  LAYOUT_FONT_SCALES, accentInputState, applyDesignCard, designCardSelected, designCards, effectiveFontScale, layoutEditable, logoChoices,
+  LAYOUT_FONT_SCALES, PaperPreview, accentInputState, applyDesignCard, designCardSelected, designCards, effectiveFontScale, layoutEditable, logoChoices,
   orderIsDefault, previewInvoiceDoc, previewReceiptDoc, resetSectionOrder, sectionRows, withLayoutFontScale,
 } from './PrintPreview';
 
@@ -262,4 +262,25 @@ test('حقول «التخطيط» مرسومةً: الثابت لا يُسحب �
   assert.ok(!html(legacyPageProfile()).includes('data-section-order'), 'الافتراضي بلا حقول تخطيط (يُنسخ أولاً)');
   assert.ok(html({ ...van(), template: 'roll_classic' }).includes('الرول الكلاسيكي لا يقبل تخطيطاً مخصصاً'));
   assert.ok(!html(van()).includes('aria-label="شكل الجدول"'), 'الرول بلا شكل جدول');
+});
+
+test('مخطّط «المقاس والهوامش»: رمز QR وجدول الأصناف يُرسمان كاليوم ما لم تحذفهما الشركة صراحةً — والعلامة المائية باقية (شاشة لا ورق)', () => {
+  const paper = (p: PrintProfile) => renderToStaticMarkup(createElement(PaperPreview, { profile: p, companyName: 'شركة', brandColor: '#1e3a8a' }));
+  const qrSlot = /رمز QR · <span dir="ltr">≈/;
+  for (const p of [page(), mip(), van()]) {
+    const today = paper(p);
+    assert.match(today, qrSlot, `${p.id}: الرمز كاليوم`);
+    assert.ok(today.includes('صنف تجريبي'), `${p.id}: الأصناف كاليوم`);
+    assert.ok(today.includes(PRINT_SAMPLE_WATERMARK));
+    // إخفاء القسم الحامل وحده لا يحذف الرمز من المخطّط
+    assert.match(paper(withLayout(p, { sections: { totals: { visible: false } } })), qrSlot, `${p.id}: الحامل المخفي`);
+    const noQr = paper(withLayout(p, { sections: { qr: { visible: false } } }));
+    assert.doesNotMatch(noQr, qrSlot, `${p.id}: الرمز المحذوف`);
+    assert.ok(noQr.includes('صنف تجريبي') && noQr.includes(PRINT_SAMPLE_WATERMARK), `${p.id}: الباقي كما هو`);
+    const noItems = paper(withLayout(p, { sections: { items: { visible: false } } }));
+    assert.ok(!noItems.includes('صنف تجريبي'), `${p.id}: الأصناف المحذوفة`);
+    assert.match(noItems, qrSlot);
+    assert.ok(noItems.includes(PRINT_SAMPLE_WATERMARK), `${p.id}: علامة الشاشة باقية`);
+    assert.ok(paper(withLayout(p, { stamps: false })).includes(PRINT_SAMPLE_WATERMARK), `${p.id}: الأختام لا تمسّ علامة المعاينة`);
+  }
 });

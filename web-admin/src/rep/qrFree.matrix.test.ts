@@ -1,5 +1,6 @@
 /**
- * رمز QR في «التحرير الحرّ» لا يُحذف أبداً (طلب المالك ٣ نوفمبر ٢٠٢٦ — pd_spec B.3/B.4/E.4، الحزمة P9):
+ * رمز QR في «التحرير الحرّ» لا يُحذف إلا بحذف الشركة الصريح (طلب المالك ٣ نوفمبر ٢٠٢٦ — pd_spec B.3/B.4/E.4، الحزمة P9؛ وقرار
+ * المالك ٤ نوفمبر ٢٠٢٦ «احذف كل شيء حتى QR»: sections.qr = { visible:false } — isQrRemoved):
  * لكل قالب (A4 الملوّن والعادي، والنقطية العادية والمطبوعة مسبقاً، والثنائي على الصفحة والنقطية، والرول المختصر 58/80 والمفصّل 80
  * ونسخة الكلاسيكي) × كل مستند (فاتورة المرحلة الثانية المختومة، وإشعارها الدائن، والمبسّطة بالمرحلة الأولى) × كل تركيبة:
  *   القسم الحامل مخفيّ، وكل قسمٍ مخفيّ، ولوحاتٌ بلا مربع QR، ومربع QR في الرأس أو التذييل، وأقصى خطٍّ ومسافة، وكل العبارات محذوفة —
@@ -7,7 +8,8 @@
  *      ولنسخة البلوتوث في الرول، و.qrbox لطباعة النظام في الرول؛
  *   ٢) الرمز لا يصغر عن مقاس اليوم (والمربع على النقطية يكبر إلى حدّ خانة اليوم)؛
  *   ٣) رمز المرحلة الثانية المختوم بقيمته حرفاً في الخانة (النقطية والبلوتوث تعيد رسمه بنقاط صحيحة).
- * والسند بلا رمز في كل تركيبة.
+ * والسند بلا رمز في كل تركيبة. وحذف الشركة الصريح للرمز (qrRemoved*) وحده يُسقطه كلّه: لا صورة ولا خانة ولا ICV/UUID، في كل قالب
+ * ومستند — وإخفاء القسم الحامل وحده لا يُسقطه (hostHidden، canvasNoQrTotalsHidden).
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -20,7 +22,7 @@ import {
   LEGACY_THERMAL_ID, defaultPrintLayout, defaultPrintOptions, legacyPrintSettings, presetPaper, sectionsFor,
   type LayoutDesign, type PaperPresetId, type PrintLayout, type PrintProfile, type PrinterType, type SectionId, type TemplateId,
 } from '../lib/print/printSettings';
-import { LOCKED_VISIBLE, type PrintCanvas } from '../lib/print/printSettingsCore';
+import type { PrintCanvas } from '../lib/print/printSettingsCore';
 import { PRINT_TEXT_CATALOG, type PrintTextsV1 } from '../lib/print/printTexts';
 import { editableClassicCopy } from '../lib/print/designModel';
 import type { ZatcaDocView } from '../lib/zatca/docStatus';
@@ -40,9 +42,10 @@ const COMPANY: Company = {
   name: 'شركة الاختبار للتوزيع', address: 'حي العليا شارع التحلية', taxNumber: '300000000000003', commercialReg: '1010101010',
   phone: '0501234567', email: 'info@example.sa', logo: LOGO, primaryColor: '#1e3a8a', headerStyle: null, countryCode: 'SA',
 };
+const ZV_UUID = '3f2b8c1e-7a4d-4e9b-9c55-0d1e2f3a4b5c';
 const zv = (over: Partial<ZatcaDocView> = {}): ZatcaDocView => ({
   phase: 2, mode: 'live', mirror: 'cleared', documentStatus: 'CLEARED', subtype: '01', documentKind: 'INVOICE', qr: STAMPED, printable: true,
-  overdue: false, reportDeadline: null, issuedAt: '2026-11-02T09:15:00.000Z', uuid: '3f2b8c1e-7a4d-4e9b-9c55-0d1e2f3a4b5c', icv: 41, warnings: 0, ...over,
+  overdue: false, reportDeadline: null, issuedAt: '2026-11-02T09:15:00.000Z', uuid: ZV_UUID, icv: 41, warnings: 0, ...over,
 });
 const ITEMS: InvoiceDoc['items'] = [
   { name: 'مياه معدنية', unit: 'كرتون', qty: 2, unitPrice: 23, discountPct: 0, taxPct: 15, lineTotal: 46 },
@@ -122,16 +125,24 @@ const QR_FOOTER = { id: 'qr', band: 'footer', x: 120, y: 0, w: 50, h: 50 } as co
 const QR_HEADER = { id: 'qr', band: 'header', x: 140, y: 22, w: 47, h: 47 } as const;
 /** أقصى ما يُضبط لكل قسمٍ ظاهر */
 const maxStyles = (t: Target) => Object.fromEntries(sectionsFor(t.printer, designOf(t)).map((id) => [id, { align: 'end', fontPct: 160, spaceBeforeMm: 30, spaceAfterMm: 30 }]));
-/** كل قسمٍ مخفيٌّ إلا المقفل (الأصناف ورمز الرول) */
-const allHidden = (t: Target) => Object.fromEntries(sectionsFor(t.printer, designOf(t)).filter((id) => !LOCKED_VISIBLE.includes(id)).map((id) => [id, { visible: false }]));
+/** كل قسمٍ مخفيٌّ (والأصناف منها منذ ٤ نوفمبر) إلا رمز الرول — فإخفاؤه حذفٌ صريح للرمز له تركيبته (qrRemoved*) */
+const allHidden = (t: Target) => Object.fromEntries(sectionsFor(t.printer, designOf(t)).filter((id) => id !== 'qr').map((id) => [id, { visible: false }]));
+/** حذف الشركة الصريح للرمز: قسم الرمز في الرول، والقسم الافتراضي على الصفحة والثنائي */
+const QR_REMOVED = { qr: { visible: false } } as const;
 const HOST: Record<Target['kind'], SectionId> = { a4: 'totals', grid: 'info', roll: 'totals' };
 
-interface Fixture { name: string; free: (t: Target) => Partial<PrintLayout> | null }
+/** removed: حذف الشركة الصريح للرمز ⇒ يغيب كلّه (لا صورة ولا خانة ولا ICV/UUID). وإلا: الرمز بعدد اليوم ومقاسه */
+interface Fixture { name: string; removed?: boolean; free: (t: Target) => Partial<PrintLayout> | null }
 const FIXTURES: Fixture[] = [
   { name: 'today6', free: () => ({}) },
+  // القسم الحامل مخفيّ بلا حذفٍ للرمز ⇒ الرمز اليتيم كاليوم
   { name: 'hostHidden', free: (t) => ({ sections: { [HOST[t.kind]]: { visible: false } } }) },
-  // الرول: إخفاء الرمز مرفوضٌ عند الخادم وتمحوه القراءة المتسامحة — والطابعة لا تُسقطه ولو وصل
-  { name: 'qrHiddenAttempt', free: (t) => (t.kind === 'roll' ? { sections: { qr: { visible: false } } } as Partial<PrintLayout> : null) },
+  // قرار المالك ٤ نوفمبر ٢٠٢٦: حذف الرمز الصريح (كان «محاولةً» تُمحى) — يغيب في كل قالب، والرول بلا qrNoFit
+  { name: 'qrRemoved', removed: true, free: () => ({ sections: { ...QR_REMOVED } }) as Partial<PrintLayout> },
+  { name: 'qrRemovedHostHidden', removed: true, free: (t) => ({ sections: { [HOST[t.kind]]: { visible: false }, ...QR_REMOVED } }) as Partial<PrintLayout> },
+  { name: 'qrRemovedAllHidden', removed: true, free: (t) => ({ sections: { ...allHidden(t), ...QR_REMOVED } }) as Partial<PrintLayout> },
+  // لوحةٌ ما زال فيها مربع QR والرمز محذوف: المربع يُهمل (الخادم يقبله، والمصمّم يزيله)
+  { name: 'qrRemovedCanvasBox', removed: true, free: (t) => (t.kind === 'a4' ? { canvas: { headerMm: 70, footerMm: 80, boxes: [...HEADER_BOXES, ...FOOTER_BOXES, QR_FOOTER] }, sections: { ...QR_REMOVED } } as Partial<PrintLayout> : null) },
   { name: 'allHidden', free: (t) => ({ sections: allHidden(t) }) },
   { name: 'maxStyle', free: (t) => ({ logoMm: 120, logoAfter: 'top', sections: maxStyles(t) }) },
   { name: 'qrMovedUp', free: (t) => (t.kind === 'roll' ? { order: ['header', 'info', 'customer', 'items', 'qr', 'totals', 'signatures', 'footer'], logoAfter: 'qr' } : null) },
@@ -198,6 +209,12 @@ async function qrErrors(t: Target, mutate: (h: string) => string = (h) => h): Pr
           const at = `${tag}/${f.name}`;
           const out = mutate(await mode.run(withFree(t.base(), free), doc));
           const q = qrInfo(t, out);
+          if (f.removed) {
+            if (q.count !== 0) errors.push(`${at}: الرمز المحذوف صراحةً مطبوع (${q.count})`);
+            if (q.values.length) errors.push(`${at}: خانة data-qr-value لرمزٍ محذوف`);
+            if (/\bICV \d/.test(out) || out.includes(ZV_UUID)) errors.push(`${at}: سطر ICV/UUID لرمزٍ محذوف`);
+            continue;
+          }
           if (q.count !== today.count) { errors.push(`${at}: الرمز ${q.count} مرة واليوم ${today.count}`); continue; }
           if (q.count && q.minSize + 0.01 < today.minSize) errors.push(`${at}: الرمز ${q.minSize} أصغر من اليوم ${today.minSize}`);
           if (d.stamped && today.values.includes(STAMPED) && !q.values.includes(STAMPED)) errors.push(`${at}: خانة الرمز بلا القيمة المختومة`);
@@ -210,7 +227,10 @@ async function qrErrors(t: Target, mutate: (h: string) => string = (h) => h): Pr
 
 test('حارس المصفوفة: عشرة قوالب، وكل تركيبةٍ للوحات على A4 والنقطية القياسية، وكل العبارات محذوفة', () => {
   assert.equal(TARGETS.length, 10);
-  assert.equal(FIXTURES.length, 12);
+  assert.equal(FIXTURES.length, 15);
+  assert.deepEqual(FIXTURES.filter((f) => f.removed).map((f) => f.name), ['qrRemoved', 'qrRemovedHostHidden', 'qrRemovedAllHidden', 'qrRemovedCanvasBox']);
+  // لا تركيبةٌ غير «الحذف الصريح» تُخفي الرمز (الإخفاء لا يقع عرَضاً)
+  for (const f of FIXTURES.filter((x) => !x.removed)) for (const t of TARGETS) assert.notEqual((f.free(t)?.sections as Record<string, { visible?: boolean }> | undefined)?.qr?.visible, false, `${f.name}/${t.name}`);
   assert.equal(Object.keys(ALL_DELETED.edits).length, PRINT_TEXT_CATALOG.length);
   assert.ok(Object.values(ALL_DELETED.edits).every((e) => e.hidden === true));
   // الكاشف يرى الصيغ الثلاث (صورة، خانة الصفحة، خانة الرول ومربعه)
@@ -221,7 +241,7 @@ test('حارس المصفوفة: عشرة قوالب، وكل تركيبةٍ ل�
 });
 
 for (const t of TARGETS) {
-  test(`QR لا يُحذف ولا يتكرّر ولا يصغر (${t.name}): كل تركيبةٍ حرّة × كل مستند × كل العبارات محذوفة`, async () => {
+  test(`QR لا يُحذف إلا بحذف الشركة الصريح، ولا يتكرّر ولا يصغر (${t.name}): كل تركيبةٍ حرّة × كل مستند × كل العبارات محذوفة`, async () => {
     assert.deepEqual(await qrErrors(t), []);
   });
 }
@@ -252,4 +272,9 @@ test('المصفوفة تلتقط القالب المعيب (برهان الفش
   const roll = TARGETS[7];
   const rollDropped = await qrErrors(roll, (h) => h.replace(/<div class="qrbox"/g, '<div class="gone"'));
   assert.ok(rollDropped.some((e) => e.includes('system/invP2/maxStyle: الرمز 0 مرة')), 'الرول: لم تلتقط الرمز الساقط');
+  // قالبٌ يتجاهل حذف الشركة الصريح (يطبع الرمز أو سطر ICV رغمه) يُلتقط
+  const ignored = await qrErrors(page, (h) => `${h}<img width="176" height="176" alt="QR"/>`);
+  assert.ok(ignored.some((e) => e.includes('invP2/qrRemoved: الرمز المحذوف صراحةً مطبوع')), 'لم تلتقط رمزاً محذوفاً مطبوعاً');
+  const icv = await qrErrors(roll, (h) => `${h}<div class="c muted">ICV 41</div>`);
+  assert.ok(icv.some((e) => e.includes('invP2/qrRemoved: سطر ICV/UUID')), 'لم تلتقط سطر ICV لرمزٍ محذوف');
 });

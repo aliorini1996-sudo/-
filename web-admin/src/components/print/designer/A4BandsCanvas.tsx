@@ -13,11 +13,12 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardE
 import { AlertTriangle, LayoutTemplate, Plus } from 'lucide-react';
 import { useTr } from '../../../i18n/strings';
 import {
-  CANVAS_BAND_LABELS, CANVAS_BOX_IDS, CANVAS_BOX_LABELS, CANVAS_FOOTER_ONLY, LAYOUT_BOUNDS, PRINT_SAMPLE_WATERMARK, layoutOf,
+  CANVAS_BAND_LABELS, CANVAS_BOX_IDS, CANVAS_BOX_LABELS, CANVAS_FOOTER_ONLY, LAYOUT_BOUNDS, PRINT_SAMPLE_WATERMARK, QR_FLOW_NOTE, QR_REMOVE_WARNING,
+  isQrRemoved, layoutOf,
   type CanvasBand, type CanvasBox, type CanvasBoxId, type PrintCanvas, type PrintProfile,
 } from '../../../lib/print/printSettings';
 import { resolveCanvas, resolveLayout, type CanvasBandR, type CanvasBoxR, type ResolvedCanvas } from '../../../lib/print/layout';
-import { canvasBoundsFor, removeBox, starterCanvas, upsertBox, withCanvas, type DesignSel } from '../../../lib/print/designModel';
+import { canvasBoundsFor, drawnCanvasOf, removeBox, starterCanvas, upsertBox, withCanvas, type DesignSel } from '../../../lib/print/designModel';
 import { PrintableInvoice, PrintableReceipt, canvasQrMinMm, type Company } from '../../../rep/RepDocuments';
 import { PrintLookContext, SHEET_WIDTH_PX, lookFor } from '../../../rep/printLook';
 import { PrintDesignPreviewContext } from '../../../rep/printDesignContext';
@@ -113,10 +114,20 @@ export function commitBoxRect(p: PrintProfile, box: CanvasBox, bandHmm: number):
   return upsertBox(base, { ...box, band });
 }
 
-/** المربعات التي يمكن إضافتها الآن: غير موضوعةٍ في لوحة، ولا QR على السند ولا شعار على الورق المطبوع مسبقاً */
+/**
+ * المربعات التي يمكن إضافتها الآن: غير موضوعةٍ في لوحة، ولا QR على السند ولا حين حذفته الشركة من المطبوعة (يُعاد أولاً)، ولا
+ * شعار على الورق المطبوع مسبقاً
+ */
 export function addableBoxes(p: PrintProfile, doc: 'invoice' | 'receipt'): CanvasBoxId[] {
-  const placed = new Set((layoutOf(p).canvas?.boxes ?? []).map((b) => b.id));
-  return CANVAS_BOX_IDS.filter((id) => !placed.has(id) && !(id === 'qr' && doc === 'receipt') && !(id === 'logo' && p.template === 'impact_preprinted'));
+  const l = layoutOf(p);
+  const placed = new Set((l.canvas?.boxes ?? []).map((b) => b.id));
+  const noQr = doc === 'receipt' || isQrRemoved(l);
+  return CANVAS_BOX_IDS.filter((id) => !placed.has(id) && !(id === 'qr' && noQr) && !(id === 'logo' && p.template === 'impact_preprinted'));
+}
+
+/** مربعات اللوحة المرسومة في طبقة التحرير — بلا QR متى حذفته الشركة (لا إطار لرمزٍ لا يُطبع) */
+export function drawnBoxes<T extends { id: CanvasBoxId }>(p: PrintProfile, boxes: readonly T[]): T[] {
+  return isQrRemoved(layoutOf(p)) ? boxes.filter((b) => b.id !== 'qr') : [...boxes];
 }
 
 /** إضافة مربع: لوحته (التذييل للإجماليات والتوقيعات)، ويوضع تحت آخر مربعٍ فيها إن اتسعت (upsertBox تطيل اللوحة لارتفاعه) */
@@ -153,6 +164,7 @@ export default function A4BandsCanvas({ p, update, doc, selected, onSelect, zoom
   const l = layoutOf(p);
   const printer: 'page' | 'impact' = p.printer === 'impact' ? 'impact' : 'page';
   const canvasAllowed = p.printer !== 'thermal' && l.design === 'standard';
+  const qrRemoved = isQrRemoved(l);
   const qrMinMm = qrMinMmFor(p);
   const resolved: ResolvedCanvas | null = useMemo(
     () => (canvasAllowed ? resolveCanvas(resolveLayout(p), { printer, qrMinMm, kind: doc }) : null),
@@ -248,7 +260,8 @@ export default function A4BandsCanvas({ p, update, doc, selected, onSelect, zoom
   };
 
   const gripDrag = (e: ReactPointerEvent, band: CanvasBand): void => {
-    const c = l.canvas;
+    // مربع QR والرمز محذوف لا يُرسم ولا يحدّ اللوحة (drawnCanvasOf) — كالمفتّش
+    const c = drawnCanvasOf(p);
     const bandR = band === 'header' ? resolved?.header : resolved?.footer;
     if (!c || !bandR) return;
     const { h0, lim } = gripStart(c, bandR, band, canvasBoundsFor(p));
@@ -302,7 +315,7 @@ export default function A4BandsCanvas({ p, update, doc, selected, onSelect, zoom
           {tr(CANVAS_BAND_LABELS[band])} · <span dir="ltr">{hMm} mm</span>
         </span>
         {/* الأصغر مساحةً يُرسم آخراً فيعلو: مربّعٌ وُضع فوق أكبر منه (كالشعار على بيانات المستند) يبقى قابلاً للنقر والسحب */}
-        {[...bandR.boxes].sort((a, b) => b.w * b.h - a.w * a.h).map((b) => {
+        {drawnBoxes(p, bandR.boxes).sort((a, b) => b.w * b.h - a.w * a.h).map((b) => {
           const isLive = live?.id === b.id;
           const r = isLive ? live.rect : { x: b.x, y: b.y, w: b.w, h: b.h };
           const isSel = selected === `box:${b.id}`;
@@ -357,7 +370,7 @@ export default function A4BandsCanvas({ p, update, doc, selected, onSelect, zoom
             if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
             e.preventDefault();
             const step = e.shiftKey ? 5 : LAYOUT_BOUNDS.stepMm;
-            const c = l.canvas;
+            const c = drawnCanvasOf(p);
             if (!c) return;
             update(withBandHeight(p, band, Math.max(gripStart(c, bandR, band, canvasBoundsFor(p)).lim.min, bandR.hMm + (e.key === 'ArrowDown' ? step : -step))));
           }}
@@ -429,8 +442,11 @@ export default function A4BandsCanvas({ p, update, doc, selected, onSelect, zoom
           )}
         </div>
       </div>
-      {phase2 && doc === 'invoice' && (
-        <p className="mt-2 text-[11px] text-[#9A8F7E]">{tr('رمز QR يطبع دائما: إن لم يوضع في لوحة يبقى مع الإجماليات')}</p>
+      {doc === 'invoice' && qrRemoved && (
+        <p className="mt-2 text-[11px] text-[#8E2A1F] bg-[#FBEBE2] rounded px-2 py-1" role="note" data-qr-removed-note="">{tr(QR_REMOVE_WARNING)}</p>
+      )}
+      {phase2 && doc === 'invoice' && !qrRemoved && (
+        <p className="mt-2 text-[11px] text-[#9A8F7E]">{tr(QR_FLOW_NOTE)}</p>
       )}
     </div>
   );

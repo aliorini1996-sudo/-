@@ -4,11 +4,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CANVAS_BOX_IDS, CANVAS_CONTENT_MM, LAYOUT_BOUNDS, LOCKED_VISIBLE, PRINT_ISSUES, PRINT_LIMITS, SECTION_IDS, canonicalPrintSettings,
-  checkPrintSettings, defaultPrintLayout, defaultPrintOptions, legacyPrintSettings, parsePrintSettings, presetPaper, printSettingsBytes,
+  COMPLIANCE_HIDE_SECTIONS, CANVAS_BOX_IDS, CANVAS_CONTENT_MM, LAYOUT_BOUNDS, PRINT_ISSUES, PRINT_LIMITS, SECTION_IDS, canonicalPrintSettings,
+  areStampsRemoved, checkPrintSettings, defaultPrintLayout, isItemsRemoved, isQrRemoved, defaultPrintOptions, legacyPrintSettings, parsePrintSettings, presetPaper, printSettingsBytes,
   sectionsFor, storedPrintSettings,
   type CanvasBox, type LayoutDesign, type PrintCanvas, type PrintLayout, type PrintProfile, type PrintSettingsV1,
 } from '../services/printSettings';
+import * as printSettingsModule from '../services/printSettings';
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 const profile = (over: Partial<PrintProfile> & Pick<PrintProfile, 'id' | 'printer' | 'template'>, preset: Parameters<typeof presetPaper>[0]): PrintProfile => ({
@@ -52,7 +53,10 @@ const accepts = (p: PrintProfile, label: string): void => {
 
 test('الحرّ: الثوابت كما في العقد — والمفاتيح الأربعة خارج التخطيط الافتراضي', () => {
   assert.deepEqual([...CANVAS_BOX_IDS], ['logo', 'company', 'title', 'docInfo', 'customer', 'qr', 'totals', 'signatures', 'footer']);
-  assert.deepEqual([...LOCKED_VISIBLE], ['items', 'qr']);
+  // قرار المالك ٤ نوفمبر ٢٠٢٦ «كل شيء يُحذف»: لا قسم مقفلاً — الأصناف ورمز QR تُحذف بخيار الشركة الصريح مع تحذيرٍ قويّ
+  assert.equal('LOCKED_VISIBLE' in printSettingsModule, false);
+  assert.deepEqual([...COMPLIANCE_HIDE_SECTIONS], ['items', 'qr']);
+  assert.ok(!('layoutLockedVisible' in PRINT_ISSUES));
   assert.deepEqual({ ...CANVAS_CONTENT_MM }, { page: 188, impact: 201 });
   assert.equal(LAYOUT_BOUNDS.maxBoxes, 9);
   assert.equal(PRINT_LIMITS.maxBytes, 48 * 1024);
@@ -67,7 +71,19 @@ test('الحرّ: الحدود المقبولة تُحفظ — شعار 6 و120�
   accepts(withLayoutOf(rollp(), { logoMm: 40, logo: 'end', logoAfter: 'top', tableStyle: 'striped' }), 'roll');
   for (const id of sectionsFor('page', 'standard')) accepts(withLayoutOf(pagep(), { logoAfter: id }), `after ${id}`);
   accepts(withLayoutOf(pagep(), { sections: { header: { visible: false, align: 'center', fontPct: 70, spaceBeforeMm: 0, spaceAfterMm: 30 }, totals: { fontPct: 160 } } }), 'sections');
-  accepts(withLayoutOf(rollp(), { sections: { qr: { align: 'end', spaceBeforeMm: 4 }, items: { visible: true } } }), 'locked visible:true');
+  accepts(withLayoutOf(rollp(), { sections: { qr: { align: 'end', spaceBeforeMm: 4 }, items: { visible: true } } }), 'qr/items visible:true');
+  // الحذف الصريح (قرار المالك ٤ نوفمبر ٢٠٢٦): رمز QR (حقيقيٌّ في الرول وافتراضيٌّ في الصفحة والنقطية) والأصناف وأختام الحالة
+  const hideAll = { sections: { qr: { visible: false }, items: { visible: false } }, stamps: false };
+  accepts(withLayoutOf(rollp(), hideAll), 'roll hide all');
+  accepts(withLayoutOf(pagep(), hideAll), 'page hide all');
+  accepts(withLayoutOf(impactp(), hideAll), 'impact hide all');
+  accepts(withLayoutOf(pagep(), hideAll, 'grid_bilingual'), 'page grid hide all');
+  accepts(withLayoutOf(impactp(), hideAll, 'grid_bilingual'), 'impact grid hide all');
+  accepts(withLayoutOf(pagep(), { sections: { qr: { visible: true } }, stamps: true }), 'page qr visible:true, stamps:true');
+  // لوحةٌ ما زال فيها مربع الرمز والرمز محذوف: صالحة (المصمّم يزيله والقوالب تتجاهله)
+  accepts(withLayoutOf(pagep(), { ...hideAll, canvas: canvasOf([box('qr', 'footer', 0, 0, 47, 47)]) }), 'removed qr + qr box');
+  // وحدّ القراءة 47 ملم كما هو (القاعدة لم تتغيّر)
+  rejects(withLayoutOf(pagep(), { ...hideAll, canvas: canvasOf([box('qr', 'footer', 0, 0, 30, 30)]) }), PRINT_ISSUES.layoutCanvasQr, 'removed qr + small box');
   const full = canvasOf([
     box('logo', 'header', 0, 0, 40, 30), box('company', 'header', 50, 0, 138, 30), box('title', 'header', 0, 32, 188, 10),
     box('docInfo', 'header', 0, 44, 90, 16), box('customer', 'header', 98, 44, 90, 16),
@@ -86,13 +102,19 @@ test('الحرّ: كل حدٍّ يُرفض 400 برسالته العربية ف�
   rejects(withLayoutOf(pagep(), { logoAfter: 'parties' }), I.layoutLogoAfter, 'logoAfter parties on standard');
   rejects(withLayoutOf(pagep(), { logoAfter: 'magazine' as never }), I.layoutLogoAfter, 'logoAfter unknown');
   rejects(withLayoutOf(pagep(), { sections: { parties: { align: 'center' } } }), I.layoutSectionUnknown, 'section parties on standard');
+  // رمز QR في الصفحة والنقطية قسمٌ افتراضي: visible وحده (الحذف) — وأيّ تنسيقٍ آخر «ليس في القالب»
   rejects(withLayoutOf(pagep(), { sections: { qr: { align: 'center' } } }), I.layoutSectionUnknown, 'section qr on page');
+  rejects(withLayoutOf(pagep(), { sections: { qr: { fontPct: 120 } } }), I.layoutSectionUnknown, 'section qr font on page');
+  rejects(withLayoutOf(pagep(), { sections: { qr: { visible: false, align: 'center' } } }), I.layoutSectionUnknown, 'section qr hide+align on page');
+  rejects(withLayoutOf(impactp(), { sections: { qr: { visible: false, spaceBeforeMm: 2 } } }, 'grid_bilingual'), I.layoutSectionUnknown, 'section qr hide+space on impact grid');
   rejects(withLayoutOf(pagep(), { sections: { zz: { align: 'center' } } as never }), I.layoutSectionUnknown, 'section zz');
   for (const s of [{ fontPct: 69 }, { fontPct: 161 }, { spaceBeforeMm: -0.5 }, { spaceAfterMm: 30.5 }, { fontPct: NaN }]) {
     rejects(withLayoutOf(pagep(), { sections: { info: s } }), I.layoutSectionBounds, JSON.stringify(s));
   }
-  rejects(withLayoutOf(pagep(), { sections: { items: { visible: false } } }), I.layoutLockedVisible, 'items hidden');
-  rejects(withLayoutOf(rollp(), { sections: { qr: { visible: false } } }), I.layoutLockedVisible, 'roll qr hidden');
+  // الأصناف ورمز QR لم يعودا مقفلين (قرار المالك ٤ نوفمبر ٢٠٢٦) — يُقبلان؛ وstamps قيمةٌ منطقية وحدها
+  accepts(withLayoutOf(pagep(), { sections: { items: { visible: false } } }), 'items hidden');
+  accepts(withLayoutOf(rollp(), { sections: { qr: { visible: false } } }), 'roll qr hidden');
+  for (const stamps of ['no', 0, null]) rejects(withLayoutOf(pagep(), { stamps: stamps as never }), I.shape, `stamps ${String(stamps)}`);
   // اللوحتان
   const qr = box('qr', 'footer', 0, 0, 47, 47);
   rejects(withLayoutOf(pagep(), { canvas: canvasOf([qr]) }, 'grid_bilingual'), I.layoutCanvasPrinter, 'grid');
@@ -160,11 +182,18 @@ test('الحرّ: القراءة المتسامحة تُسقط المفتاح ا
     assert.equal(l!.logo, 'end', label);
     for (const k of ['logoMm', 'logoAfter', 'sections', 'canvas'].filter((k) => k !== dropped)) assert.ok(k in l!, `${label}: ${k} يبقى`);
   }
-  // القسم المعيب وحده يسقط، وإخفاء الأصناف يُمحى بصمت ويبقى باقي تنسيقها
+  // القسم المعيب وحده يسقط، وحذف الأصناف الصريح يبقى (قرار المالك ٤ نوفمبر ٢٠٢٦: لا قسم مقفلاً)
   const l2 = readBack((l) => { l.sections = { info: { fontPct: 500 }, items: { visible: false, fontPct: 90 }, totals: { fontPct: 120 } }; });
-  assert.deepEqual(l2!.sections, { items: { fontPct: 90 }, totals: { fontPct: 120 } });
-  const l3 = readBack((l) => { l.sections = { items: { visible: false } }; });
+  assert.deepEqual(l2!.sections, { items: { visible: false, fontPct: 90 }, totals: { fontPct: 120 } });
+  // رمز QR الافتراضي في الصفحة بتنسيقٍ غير visible يسقط وحده، ومحذوفاً بجانب عطبٍ آخر يبقى
+  const l3 = readBack((l) => { l.sections = { qr: { align: 'center' } }; });
   assert.ok(l3 && !('sections' in l3), 'تنسيقٌ لم يبقَ منه شيء يسقط');
+  const l3b = readBack((l) => { l.sections = { qr: { visible: false }, info: { fontPct: 500 } }; l.stamps = false; });
+  assert.deepEqual([l3b!.sections, l3b!.stamps], [{ qr: { visible: false } }, false]);
+  assert.ok(isQrRemoved(l3b) && areStampsRemoved(l3b));
+  // stamps بقيمةٍ لا تفهمها هذه النسخة يسقط وحده (فيطبع اليوم) ويبقى الباقي
+  const l3c = readBack((l) => { l.stamps = 'faded'; });
+  assert.ok(l3c && !('stamps' in l3c) && !areStampsRemoved(l3c) && l3c.logoMm === 30);
   // قسمٌ من نسخةٍ أحدث (مجهول) يسقط وحده
   const l4 = readBack((l) => { l.sections = { totals: { fontPct: 120 }, stamp: { align: 'center' } }; });
   assert.deepEqual(l4!.sections, { totals: { fontPct: 120 } });
@@ -223,7 +252,9 @@ test('الحرّ: الحجم — اثنا عشر تصميماً حرّاً بأ�
   for (let i = 0; full.profiles.length < 12; i++) {
     const p = withLayoutOf(profile({ id: `long-name-${i}`, name: `${i}`.padEnd(40, 'ق'), printer: 'impact', template: 'impact_plain' }, 'ff_a4'), {
       accent: '#1D4ED8', logoMm: 119.5, logoAfter: 'installments',
-      sections: Object.fromEntries(sectionsFor('impact', 'standard').map((id) => [id, LOCKED_VISIBLE.includes(id) ? { ...style, visible: true } : style])),
+      // أسوأ حالةٍ تشمل الحذف الصريح: رمز QR الافتراضي محذوفاً وأختام الحالة (قرار المالك ٤ نوفمبر ٢٠٢٦)
+      sections: { ...Object.fromEntries(sectionsFor('impact', 'standard').map((id) => [id, style])), qr: { visible: false } },
+      stamps: false,
       // تسعة مربعات في التذييل: QR يساراً بحدّه الأدنى، والبقية عموداً يميناً حتى حافة النقطية 201
       canvas: canvasOf(CANVAS_BOX_IDS.map((id, k) => ({
         ...(id === 'qr' ? box(id, 'footer', 0, 0, 47, 47) : box(id, 'footer', 100.5, k * 13, 100.5, 12.5)), align: 'center' as const, fontPct: 155,
@@ -242,8 +273,62 @@ test('الحرّ: الحجم — اثنا عشر تصميماً حرّاً بأ�
 });
 
 test('الحرّ: كل رسائل القواعد الجديدة مبلوغة ومن المصدر الواحد', () => {
-  const free = ['layoutLogoMm', 'layoutLogoAfter', 'layoutSectionUnknown', 'layoutSectionBounds', 'layoutLockedVisible', 'layoutCanvasPrinter', 'layoutCanvasBands', 'layoutCanvasBandsPaper', 'layoutCanvasBox', 'layoutCanvasFooterOnly', 'layoutCanvasQr'] as const;
+  const free = ['layoutLogoMm', 'layoutLogoAfter', 'layoutSectionUnknown', 'layoutSectionBounds', 'layoutCanvasPrinter', 'layoutCanvasBands', 'layoutCanvasBandsPaper', 'layoutCanvasBox', 'layoutCanvasFooterOnly', 'layoutCanvasQr'] as const;
   for (const k of free) assert.equal(typeof PRINT_ISSUES[k], 'string', k);
   assert.equal(PRINT_ISSUES.layoutRoll, 'في الرول: التصميم القياسي وحده');
   assert.ok(SECTION_IDS.length === 11);
+});
+
+test('الحذف الصريح (قرار المالك ٤ نوفمبر ٢٠٢٦): رمز QR والأصناف وأختام الحالة تُحفظ وتُقرأ كما هي — والغياب = اليوم', () => {
+  const hideAll = { sections: { qr: { visible: false }, items: { visible: false } }, stamps: false };
+  const targets: Array<[string, PrintProfile]> = [
+    ['roll', withLayoutOf(rollp(), hideAll)],
+    ['page', withLayoutOf(pagep(), hideAll)],
+    ['impact', withLayoutOf(impactp(), hideAll)],
+    ['page grid', withLayoutOf({ ...pagep(), template: 'page_plain' }, hideAll, 'grid_bilingual')],
+    ['impact grid', withLayoutOf(impactp(), hideAll, 'grid_bilingual')],
+  ];
+  for (const [label, p] of targets) {
+    const r = checkPrintSettings(fleetWith(p), true);
+    assert.ok(r.ok, `${label}: ${JSON.stringify(r)}`);
+    const l = r.value.profiles[3].options.layout!;
+    assert.deepEqual(Object.keys(l).slice(-2), ['sections', 'stamps'], `${label}: stamps آخر المفاتيح`);
+    assert.ok(isQrRemoved(l) && isItemsRemoved(l) && areStampsRemoved(l), label);
+    // القراءة المتسامحة (الجهاز) تُبقي الحذف كما حُفظ
+    const read = storedPrintSettings(clone(r.value));
+    assert.equal(read.stored, true);
+    assert.deepEqual(read.settings.profiles[3].options.layout, l, `${label}: القراءة = الحفظ`);
+    assert.equal(JSON.stringify(canonicalPrintSettings(r.value)), JSON.stringify(r.value), `${label}: متساوي القوى`);
+  }
+  // الغياب و{} وtrue = اليوم: الدوال الثلاث false
+  for (const l of [undefined, null, defaultPrintLayout('page'), defaultPrintLayout('thermal'), { sections: {} }, { sections: { qr: {} }, stamps: true }]) {
+    assert.deepEqual([isQrRemoved(l), isItemsRemoved(l), areStampsRemoved(l)], [false, false, false], JSON.stringify(l));
+  }
+  // الشريط الكلاسيكي غير قابل للتعديل: لا حذف فيه (انسخه أولاً)
+  const classic = withLayoutOf({ ...rollp(), template: 'roll_classic' }, hideAll);
+  assert.ok(firstMsg(classic).all.includes(PRINT_ISSUES.layoutClassic));
+  // والملفان الافتراضيان يعودان كما هما مهما أُرسل فيهما
+  const legacy = legacyPrintSettings();
+  legacy.profiles[0] = withLayoutOf(legacy.profiles[0], hideAll);
+  const lr = checkPrintSettings(legacy, true);
+  assert.ok(lr.ok && !('layout' in lr.value.profiles[0].options));
+});
+
+test('الحذف الصريح مع سقف الورق القصير (bandsTotalFor): حذف الرمز والأصناف لا يرفع السقف ولا حدّ 47، والقصّ المتسامح يُبقي الحذف', () => {
+  const a5 = () => profile({ id: 'a5-office', printer: 'page', template: 'page_branded' }, 'a5');
+  const hideAll = { sections: { qr: { visible: false }, items: { visible: false } }, stamps: false };
+  // الحفظ الصارم: سقف A5 (150) كما هو والرمز والأصناف محذوفة — المصمّم (canvasBoundsFor) يقف عند الورق وحده
+  rejects(withLayoutOf(a5(), { ...hideAll, canvas: canvasOf([], 100, 60) }), PRINT_ISSUES.layoutCanvasBandsPaper, 'a5 hide all 160');
+  accepts(withLayoutOf(a5(), { ...hideAll, canvas: canvasOf([], 100, 50) }), 'a5 hide all 150');
+  rejects(withLayoutOf(a5(), { ...hideAll, canvas: canvasOf([box('qr', 'footer', 0, 0, 30, 30)], 100, 50) }), PRINT_ISSUES.layoutCanvasQr, 'a5 removed qr + small box');
+  // القراءة المتسامحة: لوحتان أطول من A5 تُقصّان (التذييل أولاً)، ومربع الرمز الذي لا تتّسع له لوحته يسقط — والحذف باقٍ كما حُفظ
+  const stored = withLayoutOf(a5(), { ...hideAll, canvas: canvasOf([box('company', 'header', 0, 0, 90, 30), box('qr', 'footer', 0, 0, 47, 47)], 140, 60) });
+  const r = checkPrintSettings(fleetWith(stored), false);
+  assert.ok(r.ok, JSON.stringify(!r.ok && r.issues));
+  if (!r.ok) return;
+  const l = r.value.profiles.find((x) => x.id === 'a5-office')!.options.layout!;
+  assert.deepEqual([l.canvas!.headerMm, l.canvas!.footerMm], [140, 10]);
+  assert.deepEqual(l.canvas!.boxes.map((b) => b.id), ['company']);
+  assert.ok(isQrRemoved(l) && isItemsRemoved(l) && areStampsRemoved(l), 'الحذف لا يسقط مع القصّ');
+  assert.equal(checkPrintSettings(r.value, true).ok, true, 'الناتج يمرّ بالحفظ الصارم');
 });

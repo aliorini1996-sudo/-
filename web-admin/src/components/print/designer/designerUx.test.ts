@@ -7,14 +7,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { LAYOUT_BOUNDS, layoutOf, newProfile, withLayout, type CanvasBox, type PrintProfile } from '../../../lib/print/printSettings';
-import { freeIssues, upsertBox, withCanvas, withLogo } from '../../../lib/print/designModel';
+import {
+  ITEMS_REMOVE_WARNING, LAYOUT_BOUNDS, QR_FLOW_NOTE, QR_REMOVE_ACTION, QR_REMOVE_WARNING, QR_RESTORE_ACTION, STAMPS_REMOVE_ACTION,
+  STAMPS_REMOVE_WARNING, STAMPS_RESTORE_ACTION, layoutOf, newProfile, withDesign, withLayout, type CanvasBox, type PrintProfile,
+} from '../../../lib/print/printSettings';
+import { freeIssues, upsertBox, withCanvas, withLogo, withQrRemoved, withSectionStyle, withStampsRemoved } from '../../../lib/print/designModel';
 import { resolveCanvas, resolveLayout } from '../../../lib/print/layout';
 import { canvasQrMinMm } from '../../../rep/RepDocuments';
 import { lookFor } from '../../../rep/printLook';
-import A4BandsCanvas, { boxKeyRect, commitBoxRect, gripStart, qrMinMmFor } from './A4BandsCanvas';
+import A4BandsCanvas, { addableBoxes, boxKeyRect, commitBoxRect, drawnBoxes, gripStart, qrMinMmFor } from './A4BandsCanvas';
 import { logoPlacements } from './stripModel';
-import { stripTouchAction } from './RollStrip';
+import { hiddenRollSections, stripTouchAction } from './RollStrip';
+import { QrRemoveField, SectionStyleFields, StampsField, complianceWarning, hideConfirmText } from './SectionStyleFields';
 import DesignInspector, { qrBoxMinFor } from './DesignInspector';
 
 /** قالب صفحة/نقطية بلوحة رأسٍ فيها مربع QR بحدّ الخادم (47 مم) */
@@ -186,4 +190,89 @@ test('الشعار المطفأ (افتراض الحراري) يُفعَّل م�
   }));
   assert.doesNotMatch(on, /data-logo-enable/, 'لا زرّ حين يكون ظاهراً');
   assert.equal(got, null);
+});
+
+// ─── قرار المالك ٤ نوفمبر ٢٠٢٦: «اجعل يمكن حذف كل شي حتى كيو ار» ───
+
+const ident = (s: string): string => s;
+
+test('حذف QR في المصمّم: لا مربع يُضاف ولا يُرسم، والتنبيه الأحمر مكان ملاحظة التدفّق — وبلا حذف الهندسة كما هي', () => {
+  const p = withQr('page');
+  // بلا حذف: QR قابل للإضافة على قالبٍ بلا مربعه، والمرسوم كما هو، وملاحظة التدفّق الجديدة
+  const bare = withCanvas(newProfile('page', 'x', []), { headerMm: 30, footerMm: 0, boxes: [] });
+  assert.ok(addableBoxes(bare, 'invoice').includes('qr'));
+  assert.ok(!addableBoxes(bare, 'receipt').includes('qr'), 'السند بلا QR كاليوم');
+  const r = resolveCanvas(resolveLayout(p), { printer: 'page', qrMinMm: qrMinMmFor(p), kind: 'invoice' })!;
+  assert.deepEqual(drawnBoxes(p, r.header!.boxes).map((b) => b.id), r.header!.boxes.map((b) => b.id), 'بلا حذف: كل المربعات تُرسم');
+  const live = renderToStaticMarkup(createElement(A4BandsCanvas, { p, update: () => {}, doc: 'invoice', selected: null, onSelect: () => {}, zoom: 1, phase2: true, company: null }));
+  assert.match(live, /data-designer-box="qr"/);
+  assert.ok(live.includes(QR_FLOW_NOTE), 'ملاحظة التدفّق');
+  assert.doesNotMatch(live, /data-qr-removed-note/);
+  assert.doesNotMatch(live, /رمز QR يطبع دائما/, 'لا «يطبع دائما» بعد قرار المالك');
+  // بالحذف: لا إضافة ولا إطار، والتنبيه الأحمر الدائم — وعلامة نموذج الاختبار على الشاشة باقية
+  const gone = withQrRemoved(bare, true);
+  assert.ok(!addableBoxes(gone, 'invoice').includes('qr'));
+  assert.deepEqual(drawnBoxes(gone, [{ id: 'qr' as const }, { id: 'company' as const }]).map((b) => b.id), ['company']);
+  const removed = renderToStaticMarkup(createElement(A4BandsCanvas, { p: withQrRemoved(p, true), update: () => {}, doc: 'invoice', selected: null, onSelect: () => {}, zoom: 1, phase2: true, company: null }));
+  assert.doesNotMatch(removed, /data-designer-box="qr"/);
+  assert.match(removed, /role="note" data-qr-removed-note=""/);
+  assert.ok(removed.includes(QR_REMOVE_WARNING));
+  assert.ok(!removed.includes(QR_FLOW_NOTE));
+  assert.match(removed, /نموذج اختبار/, 'علامة المعاينة على الشاشة باقية');
+});
+
+test('الأصناف ورمز QR يُخفيان من أدوات القسم بتأكيدٍ واحد قوي وتنبيهٍ أحمر دائم — لا زرّ معطّل ولا «لا تخفى»', () => {
+  assert.equal(complianceWarning('qr'), QR_REMOVE_WARNING);
+  assert.equal(complianceWarning('items'), ITEMS_REMOVE_WARNING);
+  assert.equal(complianceWarning('note'), null);
+  assert.equal(hideConfirmText('qr', ident), `${QR_REMOVE_ACTION}\n${QR_REMOVE_WARNING}`);
+  assert.equal(hideConfirmText('items', ident), `إخفاء القسم: الأصناف\n${ITEMS_REMOVE_WARNING}`);
+  assert.match(hideConfirmText('totals', ident)!, /^إخفاء القسم: /, 'الإلزامية الأخرى كما هي');
+  assert.equal(hideConfirmText('note', ident), null, 'قسمٌ عادي بلا تأكيد');
+  for (const printer of ['page', 'thermal'] as const) {
+    const p = newProfile(printer, 'x', []);
+    const shown = renderToStaticMarkup(createElement(SectionStyleFields, { p, update: () => {}, id: 'items', phase2: true }));
+    assert.doesNotMatch(shown, /disabled=""[^>]*aria-pressed="true"|aria-pressed="true"[^>]*disabled=""/, `${printer}: زرّ الظهور معطّل`);
+    assert.ok(!shown.includes(ITEMS_REMOVE_WARNING), 'لا تنبيه قبل الإخفاء');
+    const hid = renderToStaticMarkup(createElement(SectionStyleFields, { p: withSectionStyle(p, 'items', { visible: false }), update: () => {}, id: 'items', phase2: true }));
+    assert.match(hid, /role="note" data-compliance-note="items"/);
+    assert.ok(hid.includes(ITEMS_REMOVE_WARNING));
+  }
+  const roll = withQrRemoved(newProfile('thermal', 'r', []), true);
+  const q = renderToStaticMarkup(createElement(SectionStyleFields, { p: roll, update: () => {}, id: 'qr', phase2: true }));
+  assert.match(q, /data-compliance-note="qr"/);
+  assert.ok(q.includes(QR_REMOVE_WARNING));
+  // شرائح «مخفي» في الشريط تشمل الأصناف وQR
+  assert.deepEqual(hiddenRollSections(withSectionStyle(roll, 'items', { visible: false })).sort(), ['items', 'qr']);
+  const src = read('SectionStyleFields.tsx');
+  assert.doesNotMatch(src, /LOCKED_VISIBLE/);
+  assert.equal((src.match(/window\.confirm\(/g) ?? []).length, 3, 'تأكيدٌ واحد لكل إجراء حذف (القسم، QR، الأختام)');
+});
+
+test('QrRemoveField وStampsField: زرّ الحذف/الإعادة والتنبيه الأحمر ما دام محذوفاً — وفي المفتّش بلا تحديد ومع مربع QR', () => {
+  for (const p of [newProfile('page', 'x', []), newProfile('thermal', 'r', []), withDesign(newProfile('impact', 'i', []), 'grid_bilingual')]) {
+    const on = renderToStaticMarkup(createElement(QrRemoveField, { p, update: () => {} }));
+    assert.match(on, /data-qr-remove=""/);
+    assert.ok(on.includes(QR_REMOVE_ACTION) && !on.includes(QR_REMOVE_WARNING), p.printer);
+    const off = renderToStaticMarkup(createElement(QrRemoveField, { p: withQrRemoved(p, true), update: () => {} }));
+    assert.match(off, /data-qr-remove="removed"/);
+    assert.ok(off.includes(QR_RESTORE_ACTION) && off.includes(QR_REMOVE_WARNING), p.printer);
+    assert.match(off, /role="note"/);
+    const s0 = renderToStaticMarkup(createElement(StampsField, { p, update: () => {} }));
+    assert.match(s0, /data-stamps=""/);
+    assert.ok(s0.includes(STAMPS_REMOVE_ACTION) && !s0.includes(STAMPS_REMOVE_WARNING));
+    const s1 = renderToStaticMarkup(createElement(StampsField, { p: withStampsRemoved(p, true), update: () => {} }));
+    assert.match(s1, /data-stamps="removed"/);
+    assert.ok(s1.includes(STAMPS_RESTORE_ACTION) && s1.includes(STAMPS_REMOVE_WARNING));
+    // المفتّش بلا تحديد: الحقلان لكل طابعة قابلة للتحرير
+    const insp = renderToStaticMarkup(createElement(DesignInspector, { p, update: () => {}, selected: null, onSelect: () => {}, phase2: true }));
+    assert.match(insp, /data-qr-remove=/);
+    assert.match(insp, /data-stamps=/);
+  }
+  // مربع QR محدَّد: «إعادة إلى مكانه التلقائي» (إخراجٌ من اللوحة) وبجانبه الحذف الصريح، وحدّ القراءة كما هو
+  const p = withQr('page');
+  const box = renderToStaticMarkup(createElement(DesignInspector, { p, update: () => {}, selected: 'box:qr', onSelect: () => {}, phase2: true }));
+  assert.match(box, /إعادة رمز QR إلى مكانه التلقائي/);
+  assert.match(box, /data-qr-remove=""/);
+  assert.match(box, /رمز QR لا يصغر عن حد القراءة/);
 });

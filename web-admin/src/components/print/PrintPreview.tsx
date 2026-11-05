@@ -4,7 +4,7 @@ import { useTr } from '../../i18n/strings';
 import {
   PRINT_SAMPLE_WATERMARK, STAMPED_QR_CELLS, geometry, pageQrModuleMm, qrPlan, type PrintProfile,
   ACCENT_PALETTE, ACCENT_RE, LOGO_POSITIONS, LOGO_POSITION_LABELS, LOGO_SIZES, LOGO_SIZE_LABELS, PRINT_ISSUES, SECTION_LABELS, TABLE_STYLES,
-  TABLE_STYLE_LABELS, accentContrastOk, canMoveSection, designsFor, isLegacyProfileId, layoutOf, moveSection, normalizeSectionOrder, sectionsFor,
+  TABLE_STYLE_LABELS, accentContrastOk, canMoveSection, designsFor, isItemsRemoved, isLegacyProfileId, isQrRemoved, layoutOf, moveSection, normalizeSectionOrder, sectionsFor,
   templatesFor, withDesign, withLayout, type LogoPosition, type SectionId, type TemplateId,
 } from '../../lib/print/printSettings';
 import { sampleInvoiceDoc } from '../../lib/print/calibration';
@@ -192,7 +192,7 @@ function RollPreview({ profile, doc }: { profile: PrintProfile; doc: InvoiceDoc 
 }
 
 /** المخطّط: الورقة بمقاسها وحدود الحزمة والهوامش (المعاينة قبل «التخطيط») */
-function PaperPreview({ profile, companyName, brandColor }: { profile: PrintProfile; companyName: string; brandColor: string }) {
+export function PaperPreview({ profile, companyName, brandColor }: { profile: PrintProfile; companyName: string; brandColor: string }) {
   const tr = useTr();
   const g = geometry(profile);
   const o = profile.options;
@@ -204,6 +204,8 @@ function PaperPreview({ profile, companyName, brandColor }: { profile: PrintProf
   const plan = qrPlan(profile, qrCells);
   // العادية: رمز قالب الصفحة (176 بكسل من 794) مُصغَّراً أو مُكبَّراً بعرض الورق كما يُطبع ويُحفظ PDF — لا مقاس A4 ثابت
   const qrMm = plan ? plan.sizeMm : pageQrModuleMm(g.paperWidthMm, qrCells) * qrCells;
+  // ما حذفته الشركة صراحةً (قرار المالك ٤ نوفمبر ٢٠٢٦) لا يُرسم في المخطّط — والعلامة المائية باقية: معاينةٌ على الشاشة لا ورق
+  const removed = { qr: isQrRemoved(layoutOf(profile)), items: isItemsRemoved(layoutOf(profile)) };
 
   const contentRef = useRef<HTMLDivElement>(null);
   const [contentPx, setContentPx] = useState(0);
@@ -250,8 +252,8 @@ function PaperPreview({ profile, companyName, brandColor }: { profile: PrintProf
 
           <div ref={contentRef} style={contentStyle}>
             {raster
-              ? <RollOrImpactSample profile={profile} companyName={companyName} qrMm={qrMm} qrCells={qrCells} tr={tr} />
-              : <PageSample profile={profile} companyName={companyName} brandColor={mono ? '#000' : brandColor} mono={mono} qrMm={qrMm} qrCells={qrCells} tr={tr} />}
+              ? <RollOrImpactSample profile={profile} companyName={companyName} qrMm={qrMm} qrCells={qrCells} removed={removed} tr={tr} />
+              : <PageSample profile={profile} companyName={companyName} brandColor={mono ? '#000' : brandColor} mono={mono} qrMm={qrMm} qrCells={qrCells} removed={removed} tr={tr} />}
           </div>
 
           {/* العلامة المائية — كل معاينة واختبار «ليس مستندا ضريبيا» */}
@@ -299,7 +301,10 @@ function Row({ a, b, bold }: { a: ReactNode; b: ReactNode; bold?: boolean }) {
 }
 const Sep = () => <div style={{ borderTop: '1px dashed #000', margin: '4px 0' }} />;
 
-function RollOrImpactSample({ profile, companyName, qrMm, qrCells, tr }: { profile: PrintProfile; companyName: string; qrMm: number; qrCells: number; tr: Tr }) {
+/** ما حذفته الشركة صراحةً من المطبوعة: رمز QR وجدول الأصناف */
+type Removed = { qr: boolean; items: boolean };
+
+function RollOrImpactSample({ profile, companyName, qrMm, qrCells, removed, tr }: { profile: PrintProfile; companyName: string; qrMm: number; qrCells: number; removed: Removed; tr: Tr }) {
   const o = profile.options;
   const t = profile.template;
   const detailed = t === 'roll_detailed' || profile.printer === 'impact';
@@ -319,7 +324,7 @@ function RollOrImpactSample({ profile, companyName, qrMm, qrCells, tr }: { profi
       {o.showRepName && <Row a={tr('المندوب')} b={tr('مندوب تجريبي')} />}
       <Row a={tr('العميل')} b={tr('عميل نقدي')} />
       <Sep />
-      {detailed ? (
+      {removed.items ? null : detailed ? (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.95em' }}>
           <thead>
             <tr style={{ borderBottom: profile.printer === 'impact' ? '1.5px solid #000' : '1px dashed #000' }}>
@@ -354,13 +359,13 @@ function RollOrImpactSample({ profile, companyName, qrMm, qrCells, tr }: { profi
           ))}
         </div>
       )}
-      <QrSlot mm={qrMm} cells={qrCells} tr={tr} />
+      {!removed.qr && <QrSlot mm={qrMm} cells={qrCells} tr={tr} />}
       <div style={{ textAlign: 'center', fontSize: '0.9em' }}>{o.footerText ?? tr('شكرا لتعاملكم معنا')}</div>
     </div>
   );
 }
 
-function PageSample({ profile, companyName, brandColor, mono, qrMm, qrCells, tr }: { profile: PrintProfile; companyName: string; brandColor: string; mono: boolean; qrMm: number; qrCells: number; tr: Tr }) {
+function PageSample({ profile, companyName, brandColor, mono, qrMm, qrCells, removed, tr }: { profile: PrintProfile; companyName: string; brandColor: string; mono: boolean; qrMm: number; qrCells: number; removed: Removed; tr: Tr }) {
   const o = profile.options;
   const rule = mono ? '1.5px solid #000' : `2px solid ${brandColor}`;
   return (
@@ -381,7 +386,7 @@ function PageSample({ profile, companyName, brandColor, mono, qrMm, qrCells, tr 
         <Row a={tr('العميل')} b={tr('عميل نقدي')} />
         {o.showRepName && <Row a={tr('المندوب')} b={tr('مندوب تجريبي')} />}
       </div>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      {!removed.items && <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr style={{ background: mono ? undefined : brandColor, color: mono ? '#000' : '#fff', borderBottom: mono ? '1.5px solid #000' : undefined }}>
             <th style={{ textAlign: 'right', padding: '3px 4px' }}>{tr('الصنف')}</th><th>{tr('الكمية')}</th><th>{tr('السعر')}</th><th style={{ textAlign: 'left', padding: '3px 4px' }}>{tr('الإجمالي')}</th>
@@ -397,14 +402,14 @@ function PageSample({ profile, companyName, brandColor, mono, qrMm, qrCells, tr 
             </tr>
           ))}
         </tbody>
-      </table>
+      </table>}
       <div style={{ display: 'flex', gap: 12, marginTop: 8, alignItems: 'flex-start' }}>
         <div style={{ flex: 1 }}>
           <Row a={tr('المجموع قبل الضريبة')} b="100.00" />
           <Row a={`${tr('ضريبة القيمة المضافة')} 15%`} b="15.00" />
           <Row a={tr('الإجمالي')} b="115.00" bold />
         </div>
-        <QrSlot mm={qrMm} cells={qrCells} tr={tr} />
+        {!removed.qr && <QrSlot mm={qrMm} cells={qrCells} tr={tr} />}
       </div>
       {o.showSignatures && (
         <div style={{ display: 'flex', gap: 24, marginTop: 10 }}>
